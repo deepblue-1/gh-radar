@@ -7,8 +7,8 @@ import type { RelayLcSetMsg, RelayLimitChaser, RelayLimitChaserInput } from '@gh
  * Phase 20 Plan 05 Task 2 — 폼 수준 인라인 내비게이션 (D-14 · D-14b · UI-SPEC §6 · A5 · A-P3).
  *
  * 잠그는 규칙:
- *   ① Tab / Shift+Tab = 저장 뒤 **같은 그룹**의 다음/이전 값 행 — 감시대상 · 값 없는 체크 행 · 기준선
- *      행은 건너뛰고, 그룹 끝이면 저장 후 편집 종료(`lcNavigableRows` 순서)
+ *   ① Tab / Shift+Tab = 저장 뒤 **같은 카드**의 다음/이전 값 행 — 값 없는 체크 행 · 기준선 · 발동잔량 ·
+ *      소진 안내는 건너뛰고, 카드 끝이면 저장 후 편집 종료(`lcNavigableRows` 순서 · Phase 24 R4)
  *   ② D-14b 한 번 클릭 전환 — 편집 중 다른 값 행을 **한 번** 누르면 앞 값이 저장되고 그 행이 곧바로
  *      편집 모드다(pointerdown 캡처 기록 → blur 저장 뒤 이어받기)
  *   ③ 앞 행이 반영 중이어도 다음 행 편집은 열린다 — 확정 전송만 직렬화된다(D-14b 가 E4 loading 의
@@ -121,63 +121,61 @@ beforeEach(() => {
 });
 
 describe('① Tab / Shift+Tab — 같은 그룹 안 값 행만 (D-14 · A5)', () => {
-  it('매수주문: 비교가격 → Tab → 잔량(감시대상 건너뜀) → Tab → 체결 값 → Tab → 편집 종료 · 바꾸지 않은 행은 전송 0', async () => {
+  it('선매수: 금액 → Tab → 매도잔량 → Tab → 체결량 값 → Tab → … · 바꾸지 않은 행은 전송 0 (Phase 24 카드 4장)', async () => {
     const user = userEvent.setup();
     render(<LimitChaserForm {...props()} />);
-    await user.click(row('lc-buy-watch-price'));
-    expect(editingId()).toBe('lc-buy-watch-price');
-    key(input('lc-buy-watch-price')!, 'Tab');
+    await user.click(row('lc-buy-order-amount'));
+    expect(editingId()).toBe('lc-buy-order-amount');
+    key(input('lc-buy-order-amount')!, 'Tab');
     expect(editingId()).toBe('lc-buy-watch-qty');
     key(input('lc-buy-watch-qty')!, 'Tab');
     expect(editingId()).toBe('lc-buy-min-trade-qty');
-    key(input('lc-buy-min-trade-qty')!, 'Tab');
-    expect(editingId()).toBeNull();
     expect(sentConfigs()).toHaveLength(0);
   });
 
-  it('Tab 은 바꾼 행만 보낸다 — 비교가격 131000 Tab = 1회(buyWatchPrice) · 잔량 그대로 Tab = 추가 0', async () => {
+  it('Tab 은 바꾼 행만 보낸다 — 주문가격 131000 Tab = 1회(buyOrderPrice) · 비교가격 그대로 Tab = 추가 0', async () => {
     const user = userEvent.setup();
-    render(<LimitChaserForm {...props()} />);
-    await user.click(row('lc-buy-watch-price'));
-    type(input('lc-buy-watch-price')!, '131000');
-    key(input('lc-buy-watch-price')!, 'Tab');
+    render(<LimitChaserForm {...props({ upperLimit: 169_000 })} />);
+    await user.click(row('lc-buy-order-price'));
+    type(input('lc-buy-order-price')!, '131000');
+    key(input('lc-buy-order-price')!, 'Tab');
     expect(sentConfigs()).toHaveLength(1);
-    expect(sentConfigs()[0]!.buyWatchPrice).toBe(131_000);
-    expect(editingId()).toBe('lc-buy-watch-qty');
-    key(input('lc-buy-watch-qty')!, 'Tab');
+    expect(sentConfigs()[0]!.buyOrderPrice).toBe(131_000);
+    expect(editingId()).toBe('lc-buy-watch-price');
+    key(input('lc-buy-watch-price')!, 'Tab');
     expect(sentConfigs()).toHaveLength(1);
   });
 
-  it('Shift+Tab: 잔량 → 비교가격 · 그룹 첫 행에서 Shift+Tab = 편집 종료', async () => {
+  it('Shift+Tab: 매도잔량 → 금액 · 카드 첫 행에서 Shift+Tab = 편집 종료', async () => {
     const user = userEvent.setup();
     render(<LimitChaserForm {...props()} />);
     await user.click(row('lc-buy-watch-qty'));
     key(input('lc-buy-watch-qty')!, 'Tab', { shiftKey: true });
-    expect(editingId()).toBe('lc-buy-watch-price');
-    key(input('lc-buy-watch-price')!, 'Tab', { shiftKey: true });
+    expect(editingId()).toBe('lc-buy-order-amount');
+    key(input('lc-buy-order-amount')!, 'Tab', { shiftKey: true });
     expect(editingId()).toBeNull();
   });
 
-  it('가격 섹션: 매수가격 Tab → 주문금액 → Tab = 종료(다른 그룹으로 넘어가지 않는다)', async () => {
+  it('매수주문 공통 카드: 주문가격 Tab → 비교가격 → Tab = 종료(선매수 카드로 넘어가지 않는다)', async () => {
     const user = userEvent.setup();
     render(<LimitChaserForm {...props()} />);
     await user.click(row('lc-buy-order-price'));
     key(input('lc-buy-order-price')!, 'Tab');
-    expect(editingId()).toBe('lc-buy-order-amount');
-    key(input('lc-buy-order-amount')!, 'Tab');
+    expect(editingId()).toBe('lc-buy-watch-price');
+    key(input('lc-buy-watch-price')!, 'Tab');
     expect(editingId()).toBeNull();
   });
 
-  it('그룹 끝에서 편집이 끝나면 포커스는 그 행으로 돌아온다', async () => {
+  it('카드 끝에서 편집이 끝나면 포커스는 그 행으로 돌아온다', async () => {
     const user = userEvent.setup();
     render(<LimitChaserForm {...props()} />);
-    await user.click(row('lc-buy-order-amount'));
-    key(input('lc-buy-order-amount')!, 'Tab');
+    await user.click(row('lc-buy-watch-price'));
+    key(input('lc-buy-watch-price')!, 'Tab');
     expect(editingId()).toBeNull();
-    expect(document.activeElement).toBe(row('lc-buy-order-amount'));
+    expect(document.activeElement).toBe(row('lc-buy-watch-price'));
   });
 
-  it('매도주문: 비교가격 → 호가잔량 → 잔량추적 → 체결 → 종료 (체크 값 행의 값만 · 기준선 행 건너뜀)', async () => {
+  it('매도주문: 비교가격 → 매수잔량 → 잔량추적 → 체결 → 종료 (체크 값 행의 값만 · 기준선 행 건너뜀)', async () => {
     const user = userEvent.setup();
     render(<LimitChaserForm {...props({ tab: 'sell', server: echo({ sellEntryLatched: true }) })} />);
     await user.click(row('lc-sell-watch-price'));
@@ -248,7 +246,7 @@ describe('② 한 번 클릭 전환 (D-14b)', () => {
     render(<LimitChaserForm {...props()} />);
     await user.click(row('lc-buy-watch-qty'));
     act(() => {
-      fireEvent.pointerDown(screen.getByRole('checkbox', { name: '매수주문 체결' }));
+      fireEvent.pointerDown(screen.getByRole('checkbox', { name: '선매수 체결량' }));
     });
     act(() => {
       fireEvent.blur(input('lc-buy-watch-qty')!);
@@ -280,7 +278,7 @@ describe('② 한 번 클릭 전환 (D-14b)', () => {
     const user = userEvent.setup();
     render(<LimitChaserForm {...props()} />);
     await user.click(row('lc-buy-watch-qty'));
-    await user.click(screen.getByRole('checkbox', { name: '매수주문 체결' }));
+    await user.click(screen.getByRole('checkbox', { name: '선매수 체결량' }));
     expect(editingId()).toBeNull();
     expect(sentConfigs()).toHaveLength(1);
     expect(sentConfigs()[0]!.buyTradeQtyEnabled).toBe(true);
@@ -338,7 +336,7 @@ describe('④ 옮긴 뒤 도착한 실패 (A-P3 · D-06 · T-20-14)', () => {
     await user.click(row('lc-buy-order-price'));
     type(input('lc-buy-order-price')!, '150000');
     key(input('lc-buy-order-price')!, 'Tab');
-    expect(editingId()).toBe('lc-buy-order-amount');
+    expect(editingId()).toBe('lc-buy-watch-price');
     // 거부 — 답 신호만 오르고 서버 값은 그대로다.
     view.rerender(<LimitChaserForm {...props({ server: srv, serverAnswerSeq: 1 })} />);
     return { user, ...view };
@@ -349,9 +347,9 @@ describe('④ 옮긴 뒤 도착한 실패 (A-P3 · D-06 · T-20-14)', () => {
     expect(screen.getByText(INLINE_FAILED).closest('[role="alert"]')).not.toBeNull();
     expect(rowText('lc-buy-order-price')).toBe('130,000원');
     expect(row('lc-buy-order-price').className).toContain('var(--destructive)');
-    expect(document.activeElement).toBe(input('lc-buy-order-amount'));
+    expect(document.activeElement).toBe(input('lc-buy-watch-price'));
     // 새로 연 행은 영향이 없다.
-    expect(input('lc-buy-order-amount')).not.toHaveAttribute('aria-invalid');
+    expect(input('lc-buy-watch-price')).not.toHaveAttribute('aria-invalid');
     expect(sentConfigs()).toHaveLength(1);
   });
 

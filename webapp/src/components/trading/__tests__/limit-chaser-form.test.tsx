@@ -23,7 +23,9 @@ import type { RelayLcSetMsg, RelayLimitChaser, RelayLimitChaserInput } from '@gh
  *   ⑪ 미등록 전략은 값·체크가 로컬만, 등록은 스위치만(A-P1)
  *   ⑫ pane·탭 — 두 pane 이 늘 DOM · CSS 숨김
  *   ⑬ 에코가 목록을 이긴다 · 편집 중 버퍼는 보존(D-11 · E4)
- *   ⑭ 터치 기기 = 시트 · 「감시 중」 안내는 그 그룹이 감시 중일 때만(D-05 · D-12)
+ *   ⑭ 터치 기기 = 시트 · 「감시 중」 안내는 그 행 카드의 게이트 에코가 ON 일 때만(D-05 · D-12)
+ *   ⑮ (Phase 24) 매수 카드 4장 · 제목줄 접기 · 요약 줄 · 자동 펼침 · 후매수 단계 · 흐림 한 겹(⑤ ⑥ ⑩)
+ *   ⑯ (Phase 24) 라벨 개명 · 시트 제목 · 접근성 이름 접두 · 의미어(D-09 · D-10 · D-11 · R14)
  *
  * ★ 스텁 경계 — `@/lib/relay-provider` 의 `useRelayContext` 하나다. `send` 의 반환값은 「소켓에
  *   실었는가」 하나다(16-19). 서버 응답은 `rerender(<LimitChaserForm server=… serverAnswerSeq=… />)`
@@ -138,6 +140,14 @@ const group = (slot: string): HTMLElement => document.querySelector(`[data-slot=
 const pane = (side: 'buy' | 'sell'): HTMLElement => document.querySelector(`[data-pane="${side}"]`) as HTMLElement;
 const submitError = () => document.querySelector('[data-slot="lc-submit-error"]');
 const actionBar = () => document.querySelector('[data-slot="dirty-action-bar"]');
+/** 조상 사슬에서 `opacity-45` 가 몇 번 곱해지는가(⑩ — 한 겹이어야 한다). */
+function opacityLayers(el: HTMLElement | null): number {
+  let n = 0;
+  for (let cur = el; cur; cur = cur.parentElement) if (cur.classList.contains('opacity-45')) n += 1;
+  return n;
+}
+const fold = (slot: string): HTMLElement =>
+  group(slot).querySelector('[data-slot="lc-group-fold"]') as HTMLElement;
 
 function click(el: HTMLElement): void {
   act(() => {
@@ -220,11 +230,12 @@ describe('① 스위치 4개는 확인 없이 즉시 전송된다 (Phase 16 D-05
     expect(cfg).not.toHaveProperty('postBuyPhase');
   });
 
-  it('한방체결 스위치도 같은 규율이다 — 1회 · sweepEnabled true', () => {
+  it('선매수 스위치도 같은 규율이다 — 1회 · preBuyEnabled true(한 필드 확정 · 동반 규칙은 24-06)', () => {
     render(<LimitChaserForm {...props()} />);
-    click(screen.getByRole('switch', { name: '한방체결 켜기' }));
+    click(screen.getByRole('switch', { name: '선매수 켜기' }));
     expect(sentConfigs()).toHaveLength(1);
-    expect(lastConfig().sweepEnabled).toBe(true);
+    expect(lastConfig().preBuyEnabled).toBe(true);
+    expect(screen.queryByRole('switch', { name: '한방체결 켜기' })).toBeNull();
   });
 
   it('매도주문 스위치도 같은 규율이다 — 1회 · sellEnabled true', () => {
@@ -490,7 +501,8 @@ describe('⑥ S→C 전용 필드를 보내지 않는다 · cfg 43키 (Pitfall 6
 
   it('클라 고정 3 은 항상 true/0/0 으로 나간다 — 폼에 노출되지 않는다', () => {
     render(<LimitChaserForm {...props()} />);
-    click(sw('한방체결 켜기'));
+    click(chk('선매수 한방'));
+    expect(lastConfig().sweepEnabled).toBe(true);
     expect(lastConfig().sweepRecalcEnabled).toBe(true);
     expect(lastConfig().sweepMinCount).toBe(0);
     expect(lastConfig().sweepMinRate).toBe(0);
@@ -504,30 +516,32 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
       el.getAttribute('data-slot'),
     );
 
-  it('매수 pane = 가격 → 매수주문 → 한방체결 · 매도 pane = 가격 → 매도주문 → 매수취소(맨 아래)', () => {
+  it('매수 pane = 매수주문 → 선매수 → 추가매수 → 후매수 · 매도 pane = 가격 → 매도주문 → 매수취소(맨 아래)', () => {
     render(<LimitChaserForm {...props()} />);
-    expect(slotsIn('buy')).toEqual(['lc-group-buy-price', 'lc-group-buy', 'lc-group-sweep']);
+    expect(slotsIn('buy')).toEqual(['lc-group-buy', 'lc-group-pre-buy', 'lc-group-extra-buy', 'lc-group-post-buy']);
     expect(slotsIn('sell')).toEqual(['lc-group-sell-price', 'lc-group-sell', 'lc-group-cancel']);
+    expect(document.querySelector('[data-slot="lc-group-buy-price"]')).toBeNull();
+    expect(document.querySelector('[data-slot="lc-group-sweep"]')).toBeNull();
   });
 
-  it('가격 섹션은 제목·스위치가 없고 접근성 이름 「매수 가격 설정」「매도 가격 설정」 이다', () => {
+  it('매도 가격 섹션은 제목·스위치가 없고 접근성 이름 「매도 가격 설정」 이다', () => {
     render(<LimitChaserForm {...props()} />);
-    for (const [slot, name] of [
-      ['buy-price', '매수 가격 설정'],
-      ['sell-price', '매도 가격 설정'],
-    ] as const) {
-      expect(group(slot).getAttribute('aria-label')).toBe(name);
-      expect(group(slot).querySelector('[data-slot="lc-group-header"]')).toBeNull();
-      expect(within(group(slot)).queryAllByRole('switch')).toHaveLength(0);
-    }
+    expect(group('sell-price').getAttribute('aria-label')).toBe('매도 가격 설정');
+    expect(group('sell-price').querySelector('[data-slot="lc-group-header"]')).toBeNull();
+    expect(within(group('sell-price')).queryAllByRole('switch')).toHaveLength(0);
   });
 
-  it('체크 행은 그룹 끝이다 — 매수주문 체결 · 매도주문 잔량추적·체결 · 매수취소 체결·잔량추적', () => {
+  it('선매수 행 = 금액 · 매도잔량 · ○체결량 · ○한방 · 한방가격 · 매도주문 잔량추적·체결 · 매수취소 체결·잔량추적은 그룹 끝', () => {
     render(<LimitChaserForm {...props()} />);
     const rowsOf = (slot: string) =>
       Array.from((group(slot).querySelector('[data-slot="lc-group-rows"]') as HTMLElement).children);
-    const buy = rowsOf('buy');
-    expect(buy[buy.length - 1]!.getAttribute('data-slot')).toBe('lc-check-row');
+    expect(rowsOf('pre-buy').map((el) => el.getAttribute('data-slot') ?? el.getAttribute('data-lc-field'))).toEqual([
+      'lc-buy-order-amount',
+      'lc-buy-watch-qty',
+      'lc-check-row',
+      'lc-check-row',
+      'lc-sweep-watch-price',
+    ]);
     const sell = rowsOf('sell').map((el) => el.getAttribute('data-slot'));
     expect(sell.slice(-2)).toEqual(['lc-check-row', 'lc-check-row']);
     const cancel = rowsOf('cancel');
@@ -536,23 +550,25 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
     expect(cancel[0]!.getAttribute('data-lc-field')).toBe('lc-cancel-watch-qty');
   });
 
-  it('꺼진 매수주문 그룹의 행은 opacity .45 인데 행을 누르면 편집이 열린다 · 매수취소는 꺼져도 흐리지 않는다', () => {
+  it('꺼진 매수주문(마스터 에코 OFF)의 공통 카드 행은 opacity .45 **한 겹**인데 행을 누르면 편집이 열린다 (⑩ · R9)', () => {
     render(<LimitChaserForm {...props({ server: echo({ buyEnabled: false }) })} />);
     const rows = (slot: string) => group(slot).querySelector('[data-slot="lc-group-rows"]') as HTMLElement;
-    expect(rows('buy').className).toContain('opacity-45');
-    expect(rows('cancel').className).not.toContain('opacity-45');
-    expect(rows('buy-price').className).not.toContain('opacity-45');
-    openInline('lc-buy-watch-qty');
-    expect(input('lc-buy-watch-qty')).toHaveFocus();
+    // 컨테이너는 흐리지 않는다 — 행마다 한 번(.45 × .45 방지).
+    expect(rows('buy').className).not.toContain('opacity-45');
+    expect(opacityLayers(row('lc-buy-order-price'))).toBe(1);
+    expect(opacityLayers(row('lc-buy-watch-price'))).toBe(1);
+    openInline('lc-buy-watch-price');
+    expect(input('lc-buy-watch-price')).toHaveFocus();
   });
 
-  it('모든 리스트 행이 44px 이다 — 값 행 · 체크 행 · 기준선 행 · 편집 중 행 (D-20)', () => {
+  it('모든 리스트 행이 44px 이다 — 값 행 · 체크 행 · 기준선 행 · 발동잔량 행 · 편집 중 행 (D-20)', () => {
     render(<LimitChaserForm {...props({ server: echo({ sellEntryLatched: true }) })} />);
     const rows = document.querySelectorAll<HTMLElement>(
-      '[data-lc-field]:not([data-slot="lc-check-row"] [data-lc-field]), [data-slot="lc-check-row"], [data-slot="lc-derived"]',
+      '[data-lc-field]:not([data-slot="lc-check-row"] [data-lc-field]), [data-slot="lc-check-row"], [data-slot="lc-derived"], [data-slot="lc-post-buy-trigger"]',
     );
-    // 값 행 11 + 체크 행 5 + 기준선 1 = 17 (고정 스키마 — E1 zero-one-many). 감시대상 행은 Phase 24 ⑤ 로 없다.
-    expect(rows).toHaveLength(17);
+    // 값 행 17(공통 2 · 선매수 3 · 추가매수 3 · 후매수 4 · 매도 가격 2 · 매도주문 2 · 취소 1) + 체크 행 6 + 기준선 1
+    // + 발동잔량 1 = 25 (고정 스키마 — E1 zero-one-many).
+    expect(rows).toHaveLength(25);
     for (const r of Array.from(rows)) expect(r.className).toContain('min-h-[44px]');
     openInline('lc-sweep-tick');
     const editing = document.querySelector('[data-lc-field="lc-sweep-tick"][data-editing="true"]') as HTMLElement;
@@ -579,7 +595,13 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
   it('세션 미준비(`disabled`)면 모든 행·스위치·체크·토글이 비활성이다 (E1 loading)', () => {
     render(<LimitChaserForm {...props({ disabled: true })} />);
     const form = document.querySelector('[data-slot="limit-chaser-form"]') as HTMLElement;
-    const buttons = Array.from(form.querySelectorAll('button')).filter((b) => b.getAttribute('role') !== 'tab');
+    // 접기 버튼은 로컬 동작이라 세션과 무관하게 눌린다(E1 loading).
+    const folds = Array.from(form.querySelectorAll('[data-slot="lc-group-fold"]'));
+    expect(folds).toHaveLength(3);
+    for (const f of folds) expect(f).toBeEnabled();
+    const buttons = Array.from(form.querySelectorAll('button')).filter(
+      (b) => b.getAttribute('role') !== 'tab' && b.getAttribute('data-slot') !== 'lc-group-fold',
+    );
     expect(buttons.length).toBeGreaterThan(20);
     for (const b of buttons) expect(b).toBeDisabled();
     click(row('lc-buy-order-price'));
@@ -616,26 +638,25 @@ describe('⑧ 감시대상 행이 없다 (Phase 24 ⑤ — 새 서버는 감시�
 describe('⑨ 체크 행 「○ 라벨 ─ 값 ›」 (D-22) (옛 ⑫ 체크박스)', () => {
   it('체크 이름이 「{그룹} {라벨}」 로 다섯 개 다 있다', () => {
     render(<LimitChaserForm {...props()} />);
-    for (const name of ['매수주문 체결', '매도주문 잔량추적', '매도주문 체결', '매수취소 체결', '매수취소 잔량추적']) {
+    for (const name of ['선매수 체결량', '선매수 한방', '매도주문 잔량추적', '매도주문 체결', '매수취소 체결', '매수취소 잔량추적']) {
       expect(chk(name).tagName).toBe('BUTTON');
     }
   });
 
-  it('「매수주문 체결」 체크 → cfg.buyTradeQtyEnabled true 1회 (한 필드 = 전송 1회)', () => {
+  it('「선매수 체결량」 체크 → cfg.buyTradeQtyEnabled true 1회 (한 필드 = 전송 1회)', () => {
     render(<LimitChaserForm {...props()} />);
-    click(chk('매수주문 체결'));
+    click(chk('선매수 체결량'));
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig().buyTradeQtyEnabled).toBe(true);
-    expect(chk('매수주문 체결')).toHaveAttribute('aria-checked', 'true');
+    expect(chk('선매수 체결량')).toHaveAttribute('aria-checked', 'true');
   });
 
   it('체크가 꺼져 있어도 값 버튼은 편집할 수 있다 (quick-260912-u58 ④)', () => {
     render(<LimitChaserForm {...props()} />);
-    expect(chk('매수주문 체결')).toHaveAttribute('aria-checked', 'false');
-    // 매수·매도 「체결 30,000주」 두 개가 있다 — 옛 id 로 매수 쪽을 고른다.
+    expect(chk('선매수 체결량')).toHaveAttribute('aria-checked', 'false');
     const valueBtn = row('lc-buy-min-trade-qty');
     expect(valueBtn.tagName).toBe('BUTTON');
-    expect(valueBtn).toHaveAccessibleName('체결 30,000주');
+    expect(valueBtn).toHaveAccessibleName('선매수 체결량 30,000주');
     click(valueBtn);
     expect(input('lc-buy-min-trade-qty')).not.toBeNull();
   });
@@ -732,15 +753,15 @@ describe('⑪ 미등록 전략 — 값·체크·감시대상은 로컬만, 등�
 
   it('체크도 전송 0 · 표시만 바뀐다', () => {
     render(<LimitChaserForm {...props({ server: null, upperLimit: 30_000 })} />);
-    click(chk('매수주문 체결'));
+    click(chk('선매수 체결량'));
     expect(sentConfigs()).toHaveLength(0);
-    expect(chk('매수주문 체결')).toHaveAttribute('aria-checked', 'true');
+    expect(chk('선매수 체결량')).toHaveAttribute('aria-checked', 'true');
   });
 
   it('그 뒤 스위치 ON → 등록 cfg 에 로컬 값이 실린다', () => {
     render(<LimitChaserForm {...props({ server: null, upperLimit: 30_000 })} />);
     editInline('lc-buy-watch-qty', '8000');
-    click(chk('매수주문 체결'));
+    click(chk('선매수 체결량'));
     click(sw('매수주문 켜기'));
     expect(sentConfigs()).toHaveLength(1);
     const cfg = lastConfig();
@@ -926,35 +947,43 @@ describe('⑭ 터치 기기 — 모든 값 행이 시트다 · 「감시 중」 
   const statusLine = () => document.querySelector('[data-slot="numpad-status"]')?.textContent ?? '';
   const ARMED = '감시 중 — 적용하면 바로 반영돼요';
 
-  it('매수가격 행 탭 → 시트 「매수가격」 · 설명 · 확정 「매수가격 적용」 · 인라인 입력 없음', () => {
+  it('매수 주문가격 행 탭 → 시트 「주문가격」 · 설명 · 확정 「주문가격 적용」 · 인라인 입력 없음 (D-09)', () => {
     render(<LimitChaserForm {...props()} />);
     expect(row('lc-buy-order-price')).toHaveAttribute('aria-haspopup', 'dialog');
     click(row('lc-buy-order-price'));
-    expect(screen.getByRole('dialog', { name: '매수가격' })).toBe(sheet());
-    expect(sheet()!.textContent).toContain('넣을 매수 주문 가격이에요');
-    expect(document.querySelector('[data-slot="numpad-confirm"]')!.textContent).toBe('매수가격 적용');
+    expect(screen.getByRole('dialog', { name: '주문가격' })).toBe(sheet());
+    expect(sheet()!.textContent).toContain('세 매수가 같이 쓰는 매수 주문 가격이에요');
+    expect(document.querySelector('[data-slot="numpad-confirm"]')!.textContent).toBe('주문가격 적용');
     expect(input('lc-buy-order-price')).toBeNull();
   });
 
-  it('매수주문이 「감시 중」이면 매수가격 시트에 「감시 중 — 적용하면 바로 반영돼요」', () => {
-    render(<LimitChaserForm {...props({ buyStatusText: '감시 중' })} />);
+  it('마스터 에코 ON 이면 공통 카드 주문가격 시트에 「감시 중 — 적용하면 바로 반영돼요」 · OFF 면 없음', () => {
+    const { unmount } = render(<LimitChaserForm {...props()} />);
     click(row('lc-buy-order-price'));
     expect(statusLine()).toContain(ARMED);
-  });
-
-  it('한방체결(「켜짐」/「꺼짐」) 필드에는 감시 중 안내가 없다', () => {
-    render(<LimitChaserForm {...props({ buyStatusText: '감시 중', sweepStatusText: '켜짐' })} />);
-    click(row('lc-sweep-tick'));
-    expect(sheet()).not.toBeNull();
+    unmount();
+    render(<LimitChaserForm {...props({ server: echo({ buyEnabled: false }) })} />);
+    click(row('lc-buy-order-price'));
     expect(statusLine()).not.toContain(ARMED);
   });
 
-  it('체크 값 행의 값 버튼도 시트다 — 「체결」 · 매수 설명 · 「체결 적용」', () => {
+  it('그룹 카드 행은 그 그룹 에코로 판정한다 — 마스터가 켜져 있어도 선매수 OFF 면 한방 건수 시트에 안내 없음 · ON 이면 있음', () => {
+    const { unmount } = render(<LimitChaserForm {...props()} />);
+    click(row('lc-sweep-tick'));
+    expect(sheet()).not.toBeNull();
+    expect(statusLine()).not.toContain(ARMED);
+    unmount();
+    render(<LimitChaserForm {...props({ server: echo({ preBuyEnabled: true }) })} />);
+    click(row('lc-sweep-tick'));
+    expect(statusLine()).toContain(ARMED);
+  });
+
+  it('체크 값 행의 값 버튼도 시트다 — 「선매수 체결량」 · 선매수 설명 · 「선매수 체결량 적용」', () => {
     render(<LimitChaserForm {...props()} />);
     click(row('lc-buy-min-trade-qty'));
-    expect(screen.getByRole('dialog', { name: '체결' })).toBe(sheet());
-    expect(sheet()!.textContent).toContain('체결이 이 값 이상이면 매수를 넣어요');
-    expect(document.querySelector('[data-slot="numpad-confirm"]')!.textContent).toBe('체결 적용');
+    expect(screen.getByRole('dialog', { name: '선매수 체결량' })).toBe(sheet());
+    expect(sheet()!.textContent).toContain('체결이 이 값 이상이면 선매수를 넣어요');
+    expect(document.querySelector('[data-slot="numpad-confirm"]')!.textContent).toBe('선매수 체결량 적용');
   });
 
   it('CR-01 — 잔량추적(최대 90) 시트: 「100」 칩 비활성 · 91 은 「적용」 잠금 · 전송 0', () => {
@@ -972,7 +1001,7 @@ describe('⑭ 터치 기기 — 모든 값 행이 시트다 · 「감시 중」 
     expect(sentConfigs()).toHaveLength(0);
   });
 
-  it('CR-01 — 매도비율 시트에서 「0」 은 「적용」 잠금 · 호가변경 256 도 잠금', () => {
+  it('CR-01 — 매도비율 시트에서 「0」 은 「적용」 잠금 · 한방 건수 256 도 잠금', () => {
     render(<LimitChaserForm {...props()} />);
     click(row('lc-sell-order-ratio'));
     click(within(sheet()!).getByRole('button', { name: '0' }));
@@ -1052,10 +1081,10 @@ describe('WR-07 · D-04a — 서버가 주문금액을 모르는 레거시 전�
     echo({ buyOrderAmount: 0, buyOrderQty: 500, buyEnabled: true, ...over });
   const AMOUNT_FIRST = '주문금액을 먼저 입력해 주세요';
 
-  it('주문금액 행은 클라 기본값(10만원)이 아니라 「—」 · 접근성 이름 「주문금액 미입력」', () => {
+  it('선매수 금액 행은 클라 기본값(10만원)이 아니라 「—」 · 접근성 이름 「선매수 금액 미입력」', () => {
     render(<LimitChaserForm {...props({ server: legacy() })} />);
     expect(rowText('lc-buy-order-amount')).toBe('—');
-    expect(row('lc-buy-order-amount')).toHaveAccessibleName('주문금액 미입력');
+    expect(row('lc-buy-order-amount')).toHaveAccessibleName('선매수 금액 미입력');
   });
 
   it('다른 값 확정(인라인 Enter) → 전송 0 · 말풍선 「주문금액을 먼저 입력해 주세요」', () => {
@@ -1129,5 +1158,258 @@ describe('WR-07 · D-04a — 서버가 주문금액을 모르는 레거시 전�
   it('미등록 전략은 해당 없다 — 주문금액 행은 폼 값 그대로', () => {
     render(<LimitChaserForm {...props({ server: null })} />);
     expect(rowText('lc-buy-order-amount')).toBe('10만원');
+  });
+});
+
+describe('⑮ 매수 카드 4장 · 제목줄 접기 · 요약 줄 · 자동 펼침 · 후매수 단계 (Phase 24 ⑤ ⑥ ⑩ · R1)', () => {
+  const FOLD_SLOTS = ['pre-buy', 'extra-buy', 'post-buy'] as const;
+  const rowsOf = (slot: string) => group(slot).querySelector('[data-slot="lc-group-rows"]') as HTMLElement;
+  const EXHAUSTED = '소진 — 「최대」에 횟수를 넣고 다시 켜면 그 값부터 세요';
+
+  it('첫 렌더 — 세 그룹 카드 접힘(aria-expanded=false) · 행 영역 hidden 클래스(DOM 유지) · 요약 줄 3개 · 공통 카드는 접기 없음', () => {
+    render(<LimitChaserForm {...props({ server: echo({ preBuyEnabled: true }) })} />);
+    for (const slot of FOLD_SLOTS) {
+      expect(fold(slot)).toHaveAttribute('aria-expanded', 'false');
+      expect(rowsOf(slot).classList.contains('hidden')).toBe(true);
+      expect(rowsOf(slot).children.length).toBeGreaterThan(0);
+      expect(fold(slot).getAttribute('aria-controls')).toBe(rowsOf(slot).id);
+    }
+    // 켜진 그룹(선매수 ON)도 자동으로 펼치지 않는다.
+    expect(fold('pre-buy')).toHaveAttribute('aria-expanded', 'false');
+    expect(document.querySelectorAll('[data-slot="lc-group-summary"]')).toHaveLength(3);
+    expect(group('buy').querySelector('[data-slot="lc-group-fold"]')).toBeNull();
+    expect(rowsOf('buy').classList.contains('hidden')).toBe(false);
+  });
+
+  it('접기 버튼 → 그 카드만 펼침 · lc.set 0 · 에코 재렌더 · 탭 전환 뒤에도 펼친 채', () => {
+    const { rerender } = render(<LimitChaserForm {...props({ tab: 'buy', hideTabs: true })} />);
+    click(fold('extra-buy'));
+    expect(fold('extra-buy')).toHaveAttribute('aria-expanded', 'true');
+    expect(rowsOf('extra-buy').classList.contains('hidden')).toBe(false);
+    expect(fold('pre-buy')).toHaveAttribute('aria-expanded', 'false');
+    expect(fold('post-buy')).toHaveAttribute('aria-expanded', 'false');
+    expect(sendMock).not.toHaveBeenCalled();
+    rerender(<LimitChaserForm {...props({ tab: 'buy', hideTabs: true, server: echo({ buyWatchQty: 5_000 }) })} />);
+    expect(fold('extra-buy')).toHaveAttribute('aria-expanded', 'true');
+    rerender(<LimitChaserForm {...props({ tab: 'sell', hideTabs: true, server: echo({ buyWatchQty: 5_000 }) })} />);
+    rerender(<LimitChaserForm {...props({ tab: 'buy', hideTabs: true, server: echo({ buyWatchQty: 5_000 }) })} />);
+    expect(fold('extra-buy')).toHaveAttribute('aria-expanded', 'true');
+    click(fold('extra-buy'));
+    expect(fold('extra-buy')).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('그룹 스위치는 접기 버튼 밖 형제 — 눌러도 aria-expanded 불변', () => {
+    render(<LimitChaserForm {...props()} />);
+    const s = sw('후매수 켜기');
+    expect(fold('post-buy').contains(s)).toBe(false);
+    click(s);
+    expect(fold('post-buy')).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('요약 줄 — 선매수 「금액 · 매도잔량 · 체결량 · 한방」 · 추가매수 「금액 · 최소 · 최대」 · 후매수 5항목', () => {
+    render(
+      <LimitChaserForm
+        {...props({
+          server: echo({
+            buyOrderAmount: 4000,
+            extraBuyOrderAmount: 4000,
+            extraBuyMinQty: 50_000,
+            extraBuyMaxQty: 0,
+            postBuyOrderAmount: 4000,
+            postBuyReentry: 3,
+            postBuyReentryLeft: 2,
+            postBuyPhase: 1,
+            postBuyEnabled: true,
+            postBuyReboundPct: 30,
+            postBuyFloorQty: 100_000,
+          }),
+        })}
+      />,
+    );
+    const kvs = (slot: string) =>
+      Array.from(group(slot).querySelectorAll('[data-slot="lc-group-summary"] > span')).map((el) => el.textContent);
+    expect(kvs('pre-buy')).toEqual(['금액4,000만원', '매도잔량10,000주', '체결량꺼짐', '한방꺼짐']);
+    expect(kvs('extra-buy')).toEqual(['금액4,000만원', '최소50,000주', '최대무제한']);
+    expect(kvs('post-buy')).toEqual(['금액4,000만원', '최대3회 · 남은 2회', '최소100,000주', '반등30%', '발동잔량—']);
+  });
+
+  it('T-24-19 — 접힌 카드 안 행 확정이 거부되면 그 카드가 자동으로 펼쳐진다', () => {
+    const srv = echo();
+    const { rerender } = render(<LimitChaserForm {...props({ server: srv })} />);
+    click(fold('pre-buy'));
+    editInline('lc-buy-watch-qty', '9000');
+    expect(sentConfigs()).toHaveLength(1);
+    click(fold('pre-buy'));
+    expect(fold('pre-buy')).toHaveAttribute('aria-expanded', 'false');
+    // 거부 — 답 신호만 오르고 서버 값은 그대로다.
+    rerender(<LimitChaserForm {...props({ server: srv, serverAnswerSeq: 1 })} />);
+    expect(fold('pre-buy')).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText(INLINE_FAILED)).toBeInTheDocument();
+  });
+
+  it('그룹 스위치 실패 · 에코로는 펼치지 않는다', () => {
+    const srv = echo();
+    const { rerender } = render(<LimitChaserForm {...props({ server: srv })} />);
+    click(sw('선매수 켜기'));
+    rerender(<LimitChaserForm {...props({ server: srv, serverAnswerSeq: 1 })} />);
+    expect(fold('pre-buy')).toHaveAttribute('aria-expanded', 'false');
+    rerender(<LimitChaserForm {...props({ server: echo({ preBuyEnabled: true, buyWatchQty: 7_000 }), serverAnswerSeq: 2 })} />);
+    expect(fold('pre-buy')).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('후매수 소진(단계 3) — 스위치 OFF · 상태 「소진」 · 「3회 · 남은 0회」 · 펼친 경우만 소진 안내', () => {
+    const exhausted = echo({ postBuyEnabled: false, postBuyPhase: 3, postBuyReentry: 3, postBuyReentryLeft: 0 });
+    render(<LimitChaserForm {...props({ server: exhausted, groupStatus: { postBuy: '소진' } })} />);
+    expect(sw('후매수 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(within(fold('post-buy')).getByText('소진')).toBeInTheDocument();
+    expect(rowText('lc-post-buy-reentry')).toBe('3회 · 남은 0회');
+    expect(document.querySelector('[data-slot="lc-post-buy-exhausted"]')).toBeNull();
+    click(fold('post-buy'));
+    const note = document.querySelector('[data-slot="lc-post-buy-exhausted"]') as HTMLElement;
+    expect(note.textContent).toBe(EXHAUSTED);
+    // 「최대」 행 바로 아래.
+    expect(row('lc-post-buy-reentry').nextElementSibling).toBe(note);
+  });
+
+  it('단계 0 이면 최대 「3회」 · 발동잔량 행은 단계 0 에서도 늘 그려진다(「—」 + sr-only 「없음」)', () => {
+    render(<LimitChaserForm {...props({ server: echo({ postBuyReentry: 3 }) })} />);
+    expect(rowText('lc-post-buy-reentry')).toBe('3회');
+    const trig = group('post-buy').querySelector('[data-slot="lc-post-buy-trigger"]') as HTMLElement;
+    expect(trig).not.toBeNull();
+    expect(trig.querySelector('button')).toBeNull();
+    expect(within(trig).getByText('—')).toBeInTheDocument();
+    expect(trig.querySelector('.sr-only')!.textContent).toBe('없음');
+  });
+
+  it('보유중(단계 2) — 발동잔량 「330,000주」 `--up` · 최대 「3회 · 남은 2회」', () => {
+    render(
+      <LimitChaserForm
+        {...props({
+          server: echo({ postBuyEnabled: true, postBuyPhase: 2, postBuyReentry: 3, postBuyReentryLeft: 2, postBuyTriggerQty: 330_000, postBuyReboundPct: 30 }),
+        })}
+      />,
+    );
+    const v = within(group('post-buy')).getByText('330,000주');
+    expect(v.className).toContain('text-[var(--up)]');
+    expect(rowText('lc-post-buy-reentry')).toBe('3회 · 남은 2회');
+  });
+
+  it('⑩ 흐림 — 선매수 OFF 면 선매수 행 · 요약 한 겹 · 한방 체크 OFF 면 한방가격 흐림 · 원형 체크는 흐리지 않는다', () => {
+    render(<LimitChaserForm {...props({ server: echo({ preBuyEnabled: true, sweepEnabled: false }) })} />);
+    // 선매수 ON — 금액 행은 선명 · 한방 OFF 라 한방가격만 흐림.
+    expect(opacityLayers(row('lc-buy-order-amount'))).toBe(0);
+    expect(opacityLayers(row('lc-sweep-watch-price'))).toBe(1);
+    const sweepCircle = document.querySelector('#lc-sweep [data-slot="lc-check-circle"]') as HTMLElement;
+    expect(opacityLayers(sweepCircle)).toBe(0);
+  });
+
+  it('⑩ 흐림 — 선매수 OFF 면 요약 줄과 행이 한 겹씩 · 흐려도 aria-disabled 없음', () => {
+    render(<LimitChaserForm {...props({ server: echo({ preBuyEnabled: false }) })} />);
+    expect(opacityLayers(group('pre-buy').querySelector('[data-slot="lc-group-summary"]') as HTMLElement)).toBe(1);
+    expect(opacityLayers(row('lc-buy-order-amount'))).toBe(1);
+    expect(row('lc-buy-order-amount')).not.toHaveAttribute('aria-disabled');
+    expect(opacityLayers(fold('pre-buy'))).toBe(0);
+  });
+
+  it('⑩ 흐림 — 매도 에코 OFF 면 매도 가격 섹션 · 매도주문 행 · 매수취소 스위치 OFF 면 매수잔량 · 체결은 자기 체크만', () => {
+    render(<LimitChaserForm {...props({ server: echo({ sellEnabled: false, cancelQtyEnabled: false, cancelTradeEnabled: true }) })} />);
+    expect(opacityLayers(row('lc-sell-order-price'))).toBe(1);
+    expect(opacityLayers(row('lc-sell-watch-qty'))).toBe(1);
+    expect(opacityLayers(row('lc-cancel-watch-qty'))).toBe(1);
+    const cancelTradeLabel = within(document.getElementById('lc-cancel-trade') as HTMLElement).getByText('체결');
+    expect(opacityLayers(cancelTradeLabel)).toBe(0);
+  });
+
+  it('흐린 행 값 버튼 설명 = 카드 제목 + 상태 문구(R10)', () => {
+    render(<LimitChaserForm {...props({ server: echo({ buyEnabled: false }), groupStatus: { buy: '꺼짐' } })} />);
+    expect(row('lc-buy-order-price')).toHaveAccessibleDescription('매수주문 꺼짐');
+  });
+});
+
+describe('⑯ 라벨 개명 · 시트 제목 · 접근성 이름 접두 · 의미어 (D-09 · D-10 · R14)', () => {
+  it('같은 라벨 두 벌은 접근성 이름 접두로 갈린다 — 매수/매도 주문가격 · 매도/취소 매수잔량', () => {
+    render(<LimitChaserForm {...props()} />);
+    expect(row('lc-buy-order-price')).toHaveAccessibleName('매수 주문가격 130,000원');
+    expect(row('lc-buy-watch-price')).toHaveAccessibleName('매수 비교가격 130,000원');
+    expect(row('lc-sell-order-price')).toHaveAccessibleName('매도 주문가격 130,000원');
+    expect(row('lc-sell-watch-qty')).toHaveAccessibleName('매도 매수잔량 100,000주');
+    expect(row('lc-cancel-watch-qty')).toHaveAccessibleName('취소 매수잔량 10주');
+    expect(row('lc-buy-order-amount')).toHaveAccessibleName('선매수 금액 50만원');
+  });
+
+  it('보이는 라벨 — 매도 「주문가격 · 비교가격 · 매수잔량」 · 취소 「매수잔량」 · 옛 라벨 없음', () => {
+    render(<LimitChaserForm {...props()} />);
+    const labelIn = (id: string) => row(id).querySelector('span')!.textContent;
+    expect(labelIn('lc-sell-order-price')).toBe('주문가격');
+    expect(labelIn('lc-sell-watch-qty')).toBe('매수잔량');
+    expect(labelIn('lc-cancel-watch-qty')).toBe('매수잔량');
+    expect(labelIn('lc-buy-order-price')).toBe('주문가격');
+    for (const old of ['매수가격', '매도가격', '호가잔량', '취소잔량', '호가변경', '주문금액']) {
+      expect(screen.queryByText(old, { exact: true })).toBeNull();
+    }
+  });
+
+  it('D-10 의미어 — 추가매수 최대 0 「무제한」 · 최소 0 「1주」 · 후매수 최소 잔량 0 「없음」(행 · 접근성 이름)', () => {
+    render(<LimitChaserForm {...props({ server: echo({ extraBuyMaxQty: 0, extraBuyMinQty: 0, postBuyFloorQty: 0, extraBuyOrderAmount: 0 }) })} />);
+    expect(rowText('lc-extra-buy-max-qty')).toBe('무제한');
+    expect(row('lc-extra-buy-max-qty')).toHaveAccessibleName('추가매수 최대 잔량 무제한');
+    expect(rowText('lc-extra-buy-min-qty')).toBe('1주');
+    expect(rowText('lc-post-buy-floor-qty')).toBe('없음');
+    expect(rowText('lc-extra-buy-amount')).toBe('—');
+    expect(row('lc-extra-buy-amount')).toHaveAccessibleName('추가매수 금액 미입력');
+  });
+
+  it('의미어 행을 열면 숫자 0 으로 편집한다(D-10)', () => {
+    render(<LimitChaserForm {...props({ server: echo({ extraBuyMaxQty: 0 }) })} />);
+    const el = openInline('lc-extra-buy-max-qty');
+    expect(el.value).toBe('0');
+  });
+
+  describe('터치 기기 — 시트 제목 · 「지금 ○○」', () => {
+    beforeEach(() => mockPointer(true));
+    afterEach(restoreMatchMedia);
+    const sheetEl = () => document.querySelector('[data-slot="numpad-sheet"]') as HTMLElement | null;
+
+    it.each([
+      ['lc-buy-order-amount', '선매수 금액'],
+      ['lc-post-buy-reentry', '후매수 최대 횟수'],
+      ['lc-sweep-tick', '한방 건수'],
+      ['lc-sell-watch-qty', '매수잔량'],
+      ['lc-cancel-watch-qty', '매수잔량'],
+    ])('%s → 시트 「%s」 · 확정 「%s 적용」', (id, title) => {
+      render(<LimitChaserForm {...props()} />);
+      click(row(id));
+      expect(screen.getByRole('dialog', { name: title })).toBe(sheetEl());
+      expect(document.querySelector('[data-slot="numpad-confirm"]')!.textContent).toBe(`${title} 적용`);
+    });
+
+    it('시트 「지금 ○○」 — 의미어 「지금 무제한」 · 후매수 최대는 잔여가 아니라 설정값 「지금 3회」', () => {
+      const { unmount } = render(<LimitChaserForm {...props({ server: echo({ extraBuyMaxQty: 0 }) })} />);
+      click(row('lc-extra-buy-max-qty'));
+      expect(document.querySelector('[data-slot="numpad-server"]')!.textContent).toBe('지금 무제한');
+      unmount();
+      render(
+        <LimitChaserForm
+          {...props({ server: echo({ postBuyEnabled: true, postBuyPhase: 1, postBuyReentry: 3, postBuyReentryLeft: 2, postBuyReboundPct: 30 }) })}
+        />,
+      );
+      click(row('lc-post-buy-reentry'));
+      expect(document.querySelector('[data-slot="numpad-server"]')!.textContent).toBe('지금 3회');
+    });
+
+    it('후매수 최대는 0 을 받는다(0 = 사지 않음) · 반등 시트는 1~100(0 잠금)', () => {
+      const { unmount } = render(<LimitChaserForm {...props()} />);
+      click(row('lc-post-buy-reentry'));
+      const pad = within(within(sheetEl()!).getByRole('group', { name: '숫자 키패드' }));
+      click(pad.getByRole('button', { name: '0' }));
+      expect(document.querySelector('[data-slot="numpad-confirm"]')).toBeEnabled();
+      unmount();
+      render(<LimitChaserForm {...props()} />);
+      click(row('lc-post-buy-rebound'));
+      const pad2 = within(within(sheetEl()!).getByRole('group', { name: '숫자 키패드' }));
+      click(pad2.getByRole('button', { name: '0' }));
+      expect(document.querySelector('[data-slot="numpad-confirm"]')).toBeDisabled();
+      expect(document.querySelector('[data-slot="numpad-status"]')!.textContent).toContain('1% 이상 입력해 주세요');
+    });
   });
 });

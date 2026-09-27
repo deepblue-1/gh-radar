@@ -540,7 +540,7 @@ describe('CR-01 — relay 스키마 범위 밖 cfg 는 보내지 않는다(마�
     ['sellOrderRatio', 101, '매도비율 · 최대 100%까지 입력할 수 있어요'],
     ['sellQtyTrackRatio', 0, '잔량추적 · 1% 이상 입력해 주세요'],
     ['sellQtyTrackRatio', 91, '잔량추적 · 최대 90%까지 입력할 수 있어요'],
-    ['sweepMinTickCount', 256, '호가변경 · 최대 255건까지 입력할 수 있어요'],
+    ['sweepMinTickCount', 256, '한방 · 최대 255건까지 입력할 수 있어요'],
   ] as const)('%s = %d 확정 → `blocked` · 전송 0 · 사유 %s', (field, value, text) => {
     const t = setup();
     let out: string | undefined;

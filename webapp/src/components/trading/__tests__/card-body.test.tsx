@@ -7,7 +7,7 @@ import type { RelayLimitChaser, RelayQuote, RelayQueuedWindowMsg } from '@gh-rad
  *
  * 잠그는 것:
  *   ① 좌 호가(+체결) | 우 옵션 4그룹 — 세로 스택이 없고 섹션 라벨이 없다(D-12)
- *   ② 그룹 제목줄 스위치 4개(Phase 20 — 매수취소 포함) · 제목 옆 보조문 5문구(「감시 중」 등)
+ *   ② 그룹 제목줄 스위치 6개(Phase 24 — 선 · 추가 · 후매수 포함) · 그룹 상태 문구 표(UI-SPEC §11 · D-15 꼬리)
  *   ③ 시세 없음 → 10단 행은 그리되 가격 「—」(E9 empty) · 값 없는 셀 클릭은 no-op(T-18-47)
  *   ④ 밴드는 **카드 폭**(`@min-[Npx]/lc:`) — 뷰포트 브레이크포인트 0건(D-28)
  *   ⑤ 주문유형 콤보는 카드에 있다(D-23 → D-31 · G-21-R3-10 — 카드 한 표면 · 옛 호가 탭 variant 는 21-34 가 지웠다)
@@ -222,9 +222,10 @@ describe('① 좌 호가 | 우 옵션 4그룹 (D-12)', () => {
     expect(within(left).getAllByLabelText(/^호가 10단/).length).toBeGreaterThan(0);
     expect(left.className).toContain('border-r');
     expect(left.className).toContain('border-[var(--border-subtle)]');
-    for (const slot of ['buy', 'sweep', 'sell', 'cancel']) {
+    for (const slot of ['buy', 'pre-buy', 'extra-buy', 'post-buy', 'sell', 'cancel']) {
       expect(right.querySelector(`[data-slot="lc-group-${slot}"]`)).not.toBeNull();
     }
+    expect(right.querySelector('[data-slot="lc-group-sweep"]')).toBeNull();
     // 두 pane 은 형제다 — 세로 스택이 아니라 한 그리드의 두 칸이다.
     expect(left.parentElement).toBe(bodyRoot(container));
     expect(right.parentElement).toBe(bodyRoot(container));
@@ -245,20 +246,22 @@ describe('① 좌 호가 | 우 옵션 4그룹 (D-12)', () => {
     expect(optionsCheLabels).toHaveLength(0);
   });
 
-  it('그룹 제목줄 스위치 4개(`role="switch"`)의 접근성 이름이 계약 원문이다 — 매수취소 포함(Phase 20 D-21)', () => {
+  it('그룹 제목줄 스위치 6개(`role="switch"`)의 접근성 이름이 계약 원문이다 — 「한방체결 켜기」 없음(Phase 24)', () => {
     render(<CardBody {...props()} />);
-    expect(screen.getByRole('switch', { name: '매수주문 켜기' })).toBeInTheDocument();
-    expect(screen.getByRole('switch', { name: '한방체결 켜기' })).toBeInTheDocument();
-    expect(screen.getByRole('switch', { name: '매도주문 켜기' })).toBeInTheDocument();
-    expect(screen.getByRole('switch', { name: '매수취소 켜기' })).toBeInTheDocument();
+    for (const name of ['매수주문 켜기', '선매수 켜기', '추가매수 켜기', '후매수 켜기', '매도주문 켜기', '매수취소 켜기']) {
+      expect(screen.getByRole('switch', { name })).toBeInTheDocument();
+    }
+    expect(screen.queryByRole('switch', { name: '한방체결 켜기' })).toBeNull();
   });
 });
 
-describe('② 그룹 보조문 5문구 (UI-SPEC §카드)', () => {
-  it('등록 전(서버 전략 없음)은 네 그룹 전부 「꺼짐」이다 (E10 empty)', () => {
-    expect(cardGroupStatusOf(null, false)).toEqual({
+describe('② 그룹 상태 문구 표 (UI-SPEC §11 · D-02 · D-12 · D-15 — 판정 입력은 서버 에코 하나)', () => {
+  it('등록 전(서버 전략 없음)은 여섯 카드 전부 「꺼짐」이다 (E10 empty)', () => {
+    expect(cardGroupStatusOf(null)).toEqual({
       buy: '꺼짐',
-      sweep: '꺼짐',
+      preBuy: '꺼짐',
+      extraBuy: '꺼짐',
+      postBuy: '꺼짐',
       sell: '꺼짐',
       cancel: '꺼짐',
     });
@@ -267,39 +270,79 @@ describe('② 그룹 보조문 5문구 (UI-SPEC §카드)', () => {
     expect(within(buy).getByText('꺼짐')).toBeInTheDocument();
   });
 
-  it('무장 래치 전은 「무장 · 대기」, 래치 후는 「감시 중」, 한방은 「켜짐」 — 매수는 래치가 없어 무장이면 「감시 중」(Phase 24 D-12)', () => {
-    const latent = server({ buyEnabled: true, sweepEnabled: true, sellEnabled: true });
-    expect(cardGroupStatusOf(latent, false)).toMatchObject({
-      buy: '감시 중',
-      sweep: '켜짐',
-      sell: '무장 · 대기',
-    });
-    const armed = server({
+  it.each<[string, Partial<RelayLimitChaser>, string]>([
+    ['마스터 OFF', { buyEnabled: false, preBuyEnabled: true }, '꺼짐'],
+    ['마스터 ON · 후매수 보유중(단계 2)', { buyEnabled: true, postBuyEnabled: true, postBuyPhase: 2 }, '보유중'],
+    ['마스터 ON · 세 그룹 OFF(D-02 중립)', { buyEnabled: true }, '켜짐 · 켠 매수 없음'],
+    ['마스터 ON · 선매수 ON', { buyEnabled: true, preBuyEnabled: true }, '감시 중'],
+    ['마스터 ON · 추가매수 ON', { buyEnabled: true, extraBuyEnabled: true }, '감시 중'],
+    ['마스터 ON · 후매수 ON(단계 1)', { buyEnabled: true, postBuyEnabled: true, postBuyPhase: 1 }, '감시 중'],
+  ])('매수주문 — %s → 「%s」', (_name, over, text) => {
+    expect(cardGroupStatusOf(server(over)).buy).toBe(text);
+  });
+
+  it.each<[string, Partial<RelayLimitChaser>, 'preBuy' | 'extraBuy' | 'postBuy', string]>([
+    ['선매수 ON', { buyEnabled: true, preBuyEnabled: true }, 'preBuy', '감시 중'],
+    ['선매수 OFF', { buyEnabled: true }, 'preBuy', '꺼짐'],
+    ['추가매수 포기', { buyEnabled: true, extraBuyAbandoned: true, extraBuyEnabled: false }, 'extraBuy', '포기'],
+    ['추가매수 ON', { buyEnabled: true, extraBuyEnabled: true }, 'extraBuy', '감시 중'],
+    ['추가매수 OFF', { buyEnabled: true }, 'extraBuy', '꺼짐'],
+    ['후매수 소진(단계 3)', { buyEnabled: true, postBuyEnabled: false, postBuyPhase: 3 }, 'postBuy', '소진'],
+    ['후매수 보유중(단계 2)', { buyEnabled: true, postBuyEnabled: true, postBuyPhase: 2 }, 'postBuy', '보유중'],
+    ['후매수 감시(단계 1)', { buyEnabled: true, postBuyEnabled: true, postBuyPhase: 1 }, 'postBuy', '감시 중'],
+    ['후매수 OFF', { buyEnabled: true }, 'postBuy', '꺼짐'],
+  ])('%s → %s 「%s」', (_name, over, key, text) => {
+    expect(cardGroupStatusOf(server(over))[key]).toBe(text);
+  });
+
+  it('매도 · 취소 — 래치 전 「무장 · 대기」 · 래치 후 「감시 중」 (기존 규칙)', () => {
+    expect(cardGroupStatusOf(server({ buyEnabled: true, sellEnabled: true })).sell).toBe('무장 · 대기');
+    const armed = server({ sellEnabled: true, sellEntryLatched: true, cancelQtyEnabled: true, cancelEntryLatched: true });
+    expect(cardGroupStatusOf(armed)).toMatchObject({ sell: '감시 중', cancel: '감시 중' });
+  });
+
+  it('D-15 — 후매수 발동(단계 2) 중이면 꺼지지 않은 매도 · 취소에 꼬리 「 · 후매수 발동」', () => {
+    const fired = server({
       buyEnabled: true,
+      postBuyEnabled: true,
+      postBuyPhase: 2,
       sellEnabled: true,
       sellEntryLatched: true,
       cancelQtyEnabled: true,
-      cancelEntryLatched: true,
     });
-    expect(cardGroupStatusOf(armed, false)).toEqual({
-      buy: '감시 중',
-      sweep: '꺼짐',
-      sell: '감시 중',
-      cancel: '감시 중',
+    expect(cardGroupStatusOf(fired)).toMatchObject({
+      sell: '감시 중 · 후매수 발동',
+      cancel: '무장 · 대기 · 후매수 발동',
     });
   });
 
-  it('발주로 무장이 풀렸으면 매수는 「발주 완료 · 무장 해제」다 (fired)', () => {
-    expect(cardGroupStatusOf(server({ buyEnabled: false }), true).buy).toBe(
-      '발주 완료 · 무장 해제',
-    );
+  it('D-15 — 매도 · 취소가 꺼져 있으면 꼬리가 없다 · 단계 2 가 아니면 꼬리가 없다', () => {
+    expect(cardGroupStatusOf(server({ buyEnabled: true, postBuyEnabled: true, postBuyPhase: 2 }))).toMatchObject({
+      sell: '꺼짐',
+      cancel: '꺼짐',
+    });
+    expect(cardGroupStatusOf(server({ sellEnabled: true, postBuyPhase: 1 })).sell).toBe('무장 · 대기');
+  });
+
+  it('「발주 완료 · 무장 해제」 · 「한방체결」 상태는 없다 — 마스터 OFF 는 「꺼짐」', () => {
+    const st = cardGroupStatusOf(server({ buyEnabled: false }));
+    expect(st.buy).toBe('꺼짐');
+    expect(Object.values(st)).not.toContain('발주 완료 · 무장 해제');
+    expect(st).not.toHaveProperty('sweep');
+  });
+
+  it('카드 본문이 그 문구를 폼 그룹 제목줄에 그린다 — 후매수 「보유중」 · 매수주문 「보유중」', () => {
     const { container } = render(
       <CardBody
-        {...props({ card: cardState({ server: server({ buyEnabled: false }), fired: true }) })}
+        {...props({
+          card: cardState({ server: server({ buyEnabled: true, postBuyEnabled: true, postBuyPhase: 2 }) }),
+        })}
       />,
     );
+    const post = container.querySelector('[data-slot="lc-group-post-buy"]') as HTMLElement;
+    expect(within(post).getByText('보유중')).toBeInTheDocument();
     const buy = container.querySelector('[data-slot="lc-group-buy"]') as HTMLElement;
-    expect(within(buy).getByText('발주 완료 · 무장 해제')).toBeInTheDocument();
+    expect(within(buy).getByText('보유중')).toBeInTheDocument();
   });
 });
 

@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { RelayLimitChaser } from '@gh-radar/shared';
 
 /**
- * Phase 20 트레이서 (20-01 Task 1) — 「호가변경」 한 행의 **실제 경로 한 줄**.
+ * Phase 20 트레이서 (20-01 Task 1) — 「호가변경」(Phase 24 D-09 로 선매수 카드 「한방」) 한 행의 **실제 경로 한 줄**.
  *
  * 행 클릭 → 인라인 입력(전체 선택) → Enter → `useLcFieldCommit` → `send({ t: 'lc.set' })` →
  * (relay → 게이트웨이 → 60 에코 = 여기서는 `limitChasers` 교체) → 행 값 갱신 + 900ms 강조.
@@ -193,14 +193,14 @@ afterEach(() => {
 });
 
 describe('트레이서 — 「호가변경」 한 행 (20-01 · D-04 · D-14 · D-14a · D-14c · D-20)', () => {
-  it('① 토스식 44px 값 행이다 — 버튼 하나 · 이름 「호가변경 3건」 · 값 슬롯 「3건」', () => {
+  it('① 토스식 44px 값 행이다 — 버튼 하나 · 이름 「선매수 한방 3건」(Phase 24 D-09 접두) · 값 슬롯 「3건」', () => {
     setRelay({ limitChasers: [echo()] });
     render(<Card />);
 
     const el = row();
     expect(el).not.toBeNull();
     expect(el.tagName).toBe('BUTTON');
-    expect(screen.getByRole('button', { name: '호가변경 3건' })).toBe(el);
+    expect(screen.getByRole('button', { name: '선매수 한방 3건' })).toBe(el);
     expect(rowValue().textContent).toBe('3건');
     expect(el.className).toContain('min-h-[44px]');
   });
@@ -442,7 +442,7 @@ describe('트레이서 — 터치(시트) 경로 (20-03 · D-12 · D-13)', () =>
     });
   }
 
-  it('⑪ 행에 aria-haspopup=dialog · 누르면 인라인 입력 없이 dialog 「호가변경」 · 확정 「호가변경 적용」 · 칩 1·3·5·지우기', () => {
+  it('⑪ 행에 aria-haspopup=dialog · 누르면 인라인 입력 없이 dialog 「한방 건수」 · 확정 「한방 건수 적용」 · 칩 1·3·5·지우기', () => {
     setRelay({ limitChasers: [echo()] });
     render(<Card />);
 
@@ -450,15 +450,15 @@ describe('트레이서 — 터치(시트) 경로 (20-03 · D-12 · D-13)', () =>
     openSheet();
     expect(editor()).toBeNull();
     expect(sheet()!.getAttribute('role')).toBe('dialog');
-    expect(screen.getByRole('dialog', { name: '호가변경' })).toBe(sheet());
+    expect(screen.getByRole('dialog', { name: '한방 건수' })).toBe(sheet());
     expect(sheet()!.textContent).toContain('호가가 이만큼 바뀌면 한 번에 체결해요');
-    expect(confirmBtn().textContent).toBe('호가변경 적용');
+    expect(confirmBtn().textContent).toBe('한방 건수 적용');
     expect(chips()).toEqual(['1', '3', '5', '지우기']);
     expect(sheetValue()).toBe('3');
     expect(document.querySelector('[data-slot="numpad-server"]')?.textContent).toBe('지금 3건');
   });
 
-  it('⑫ 5 → 「호가변경 적용」 = lc.set 1회(cfg 5) · 「반영 중…」 → 에코 5 → 시트 닫힘 · 행 「5건」 강조 · 포커스는 그 행', () => {
+  it('⑫ 5 → 「한방 건수 적용」 = lc.set 1회(cfg 5) · 「반영 중…」 → 에코 5 → 시트 닫힘 · 행 「5건」 강조 · 포커스는 그 행', () => {
     setRelay({ limitChasers: [echo()] });
     const { rerender } = render(<Card />);
 
