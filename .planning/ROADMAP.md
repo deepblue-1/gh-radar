@@ -36,7 +36,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 19: 계좌별 주문기록 전용 연결** - relay↔게이트웨이 관찰자 기록 연결 1개 장중 상시 · seq 이어받기 · 계좌 기준 주문기록 (브라우저 부재 중 dma_orders 누락 해소)
 - [ ] **Phase 20: 호가주문 토스식 재구성 (실험 브랜치)** - 스케치 002 채택안: 상따 설정 리스트+바텀시트 · 자체 키패드 · 데스크톱 인라인 편집 · 수동주문 토스 티켓 (theme/toss-b → 2026-09-25 master 병합 · UAT 대기)
 - [x] **Phase 21: GH Trade 모바일 앱 (Capacitor)** - Remote-URL 셸(iOS·iPadOS·Android) · 네이티브 하단 플로팅 탭바 5탭 · pull-to-refresh(웹 훅→reload) · 네이티브 Google Sign-In + signInWithIdToken · 브랜드명 GH Trade · `mobile/` 패키지 (결정 4건 확정 2026-09-25) (completed 2026-09-26)
-- [ ] **Phase 22: GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK)** - App Store Connect·TestFlight 업로드 · Android 업로드 키(저장소 밖) 서명 APK → Firebase App Distribution 테스터 배포 · 릴리스 빌드 Google 로그인 유지(SHA-1·키체인) · 버전 규칙·반복 빌드 절차 · 개인정보처리방침 `/privacy` · `native:verify-prod` 게이트 (Play 스토어 배포는 개발자 인증 뒤 별도 phase · 정식 출시·심사 대응·데이터 보안 양식은 범위 밖)
+- [x] **Phase 22: GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK)** - App Store Connect·TestFlight 업로드 · Android 업로드 키(저장소 밖) 서명 APK → Firebase App Distribution 테스터 배포 · 릴리스 빌드 Google 로그인 유지(SHA-1·키체인) · 버전 규칙·반복 빌드 절차 · 개인정보처리방침 `/privacy` · `native:verify-prod` 게이트 (Play 스토어 배포는 개발자 인증 뒤 별도 phase · 정식 출시·심사 대응·데이터 보안 양식은 범위 밖) (completed 2026-09-27)
 - [ ] **Phase 23: GH Trade Play 스토어 내부 테스트 배포 (개발자 인증 후)** - Play Console 개발자 인증 완료 뒤 진행 · Play 앱 서명 키 결정(one-way) · 첫 AAB 수동 업로드·내부 테스트 트랙 · Play SA·fastlane supply · 앱 서명 SHA-1 OAuth 추가 등록 · Firebase APK 테스터 1회 재설치 안내 (옛 22-05~22-07 플랜을 `from-phase-22/` 에 보관)
 - [ ] **Phase 24: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영** - gh-trade Phase 24 의 `SetLimitChaser` 말미 append 17필드(`buy3_schema=1`) 를 relay 빌더·에코/열거 파서·webapp 상따 설정 3그룹(선매수/추가매수/후매수)에 반영. 감시대상(매도/매수잔량) 토글·매수 진입 래치(MsgType 38) 폐기, 매수 LED 2단계. 옵션 UI 는 WinForms 상따 창을 참고해 목업 게이트 먼저. 서버(24-11)·WinForms 배포 뒤에만 relay → webapp 배포. 브랜치 `gsd/phase-24-limitchaser-buy3`
 
@@ -1117,7 +1117,7 @@ Plans:
 **Goal:** Phase 21 에서 만든 GH Trade 앱(Capacitor Remote-URL 셸 · appId `com.ghtrade.app` · 운영 URL https://trade.jx1.io)을 **다른 사람이 자기 iPhone·Android 폰에 설치해 써 볼 수 있게** 테스트 배포한다. iOS 는 App Store Connect 앱 등록 → 배포용 서명 → Archive → **TestFlight** 업로드(내부 테스터). Android 는 Play Console 개발자 인증이 끝나지 않아(2026-09-27) Play 대신 저장소 밖 업로드 키로 서명한 **APK 를 Firebase App Distribution 으로 테스터에게 배포**한다. Play 스토어 내부 테스트는 개발자 인증 뒤 별도 phase(Phase 23)로 한다. 스토어 정식 출시(심사 제출·공개)는 범위 밖.
 **Requirements**: MOBILE-02
 **Depends on:** Phase 21
-**Plans:** 10/10 plans executed
+**Plans:** 10/10 plans complete
 
 **범위 안:**
 

@@ -1,13 +1,14 @@
 ---
 phase: 22-gh-trade-ios-testflight-android-play
 verified: 2026-09-27T08:10:00Z
-status: human_needed
+status: passed
 score: 13/13 checkable must-haves verified (4 항목은 실기기·타 계정 UAT — human_verification)
 covered_files: [".planning/REQUIREMENTS.md",".planning/phases/22-gh-trade-ios-testflight-android-play/22-01-PLAN.md",".planning/phases/22-gh-trade-ios-testflight-android-play/22-01-SUMMARY.md",".planning/phases/22-gh-trade-ios-testflight-android-play/22-02-PLAN.md",".planning/phases/22-gh-trade-ios-testflight-android-play/22-02-SUMMARY.md",".planning/phases/22-gh-trade-ios-testflight-android-play/22-03-PLAN.md",".planning/phases/22-gh-trade-ios-testflight-android-play/22-03-SUMMARY.md",".planning/phases/22-gh-trade-ios-testflight-android-play/22-04-PLAN.md",".planning/phases/22-gh-trade-ios-testflight-android-play/22-04-SUMMARY.md",".planning/phases/22-gh-trade-ios-testflight-android-play/22-05-PLAN.md",".planning/phases/22-gh-trade-ios-testflight-android-play/22-05-SUMMARY.md",".planning/phases/22-gh-trade-ios-testflight-android-play/22-06-PLAN.md",".planning/phases/22-gh-trade-ios-testflight-android-play/22-06-SUMMARY.md",".planning/phases/22-gh-trade-ios-testflight-android-play/22-07-PLAN.md",".planning/phases/22-gh-trade-ios-testflight-android-play/22-07-SUMMARY.md",".planning/phases/22-gh-trade-ios-testflight-android-play/22-08-PLAN.md",".planning/phases/22-gh-trade-ios-testflight-android-play/22-08-SUMMARY.md",".planning/phases/22-gh-trade-ios-testflight-android-play/22-09-PLAN.md",".planning/phases/22-gh-trade-ios-testflight-android-play/22-09-SUMMARY.md",".planning/phases/22-gh-trade-ios-testflight-android-play/22-10-PLAN.md",".planning/phases/22-gh-trade-ios-testflight-android-play/22-10-SUMMARY.md",".planning/phases/22-gh-trade-ios-testflight-android-play/22-PRIVACY-DRAFT.md","mobile/.gitignore","mobile/Gemfile","mobile/Gemfile.lock","mobile/README.md","mobile/android/app/build.gradle","mobile/android/fastlane/Appfile","mobile/android/fastlane/Fastfile","mobile/fastlane/build_numbers.rb","mobile/fastlane/test/build_numbers_test.rb","mobile/ios/App/App/Info.plist","mobile/ios/App/fastlane/Appfile","mobile/ios/App/fastlane/Fastfile","mobile/package.json","mobile/scripts/check-aab.sh","mobile/scripts/check-apk.sh","mobile/scripts/check-ipa.sh","mobile/scripts/check-release-hygiene.sh","mobile/scripts/release-android.sh","mobile/scripts/release-ios.sh","mobile/scripts/setup-release-secrets.sh","webapp/e2e/specs/auth-guards.spec.ts","webapp/src/app/privacy/__tests__/page.test.tsx","webapp/src/app/privacy/page.tsx","webapp/src/lib/native/google-client-ids.ts","webapp/src/lib/supabase/__tests__/public-path.test.ts","webapp/src/lib/supabase/middleware.ts","webapp/src/lib/supabase/public-path.ts"]
 covered_digest: "v1:sha256:b1b6f01b129529d0cf62e9f42baf2df6de6f22331f3ba61a19e052cc76154e46"
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
+
   - test: "본인 iPhone 에서 TestFlight 내부 그룹이 두 번째 빌드(202609271538)를 자동으로 밀어주는지, 업데이트 후 로그인이 유지되는지 확인한다"
     expected: "사용자 조작 없이 새 빌드가 나타나고, 업데이트 후에도 재로그인 없이 홈에 도착한다(D-03)"
     why_human: "실기기 TestFlight 배포·설치 UI 흐름은 콘솔·코드로 관측할 수 없다"
