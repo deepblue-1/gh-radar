@@ -547,6 +547,18 @@ describe('⑥ 공통 규율 — 44px · 컨테이너 쿼리만 · 말줄임 0', 
     }
   });
 
+  it('폭 백스톱 L3 — 값 쉐브런은 폰 밴드(<700)에서 숨고 ≥700 에서만 선다(상따 설정 전체 한 규칙 · Phase 24 E1 overflow)', () => {
+    const { container } = renderAll();
+    const chevs = Array.from(container.querySelectorAll<HTMLElement>('[data-slot="lc-row-chevron"]'));
+    expect(chevs.length).toBeGreaterThan(0);
+    for (const c of chevs) {
+      const tokens = c.className.split(/\s+/);
+      expect(tokens).toContain('hidden');
+      expect(tokens).toContain('@min-[700px]/lc:inline');
+      expect(c.getAttribute('aria-hidden')).toBe('true');
+    }
+  });
+
   it('소스 가드 — 스위치는 radix-ui primitive 를 직접 쓰고 `ui/switch` 를 쓰지 않는다', () => {
     const src = readFileSync(path.resolve(__dirname, '../setting-group.tsx'), 'utf8');
     expect(src).toMatch(/from 'radix-ui'/);

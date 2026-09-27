@@ -50,7 +50,8 @@ export function formatSettingValue(value: number, unit: SettingUnit): string {
  *
  * ★ 폭 백스톱(UI-SPEC overflow · 20-02 폭 스파이크) — **폰 밴드(<700)만 L2**: 행 좌우 패딩 4→0 ·
  *   라벨–값 간격 6→4. 본문 344 에서 「잔량추적 기준선 | 100,000주」가 L0 −9.1px → L2 +0.9px 이다
- *   (쉐브런이 없는 행이라 L3 는 효과가 없어 쓰지 않는다). ≥700 은 D-02a 로 감시대상 행이 풀폭
+ *   (쉐브런이 없는 행이라 L3 는 그 행에 효과가 없다 — L3 는 Phase 24 에서 새 행 때문에 폰 밴드 전체에 켰다 ·
+ *   `ValueWithChevron`). ≥700 은 D-02a 로 감시대상 행이 풀폭
  *   토글이 되어 값 행 최소 여유 +12.9(700) · +7.9(830) · +33.6(992) 로 L0 에서 다 들어간다 — 그래서
  *   원래 값(4 · 6)으로 돌려놓는다. 글자 크기는 줄이지도 키우지도 않는다. 여유가 얇으므로(+0.9)
  *   20-07 P20-3 이 실브라우저로 단언한다.
@@ -129,8 +130,17 @@ function ValueWithChevron({ text, flash, busy }: { text: string; flash: boolean;
       <span data-slot="lc-row-value" className={valueTextClass(flash, busy)}>
         {text}
       </span>
-      {/* 쉐브런은 값 슬롯 **밖**이다 — 값 슬롯 글자는 「3건」 그대로여야 한다. */}
-      <span aria-hidden="true" className="whitespace-pre text-[15px] leading-[1.5] text-[var(--faint)]">
+      {/*
+        쉐브런은 값 슬롯 **밖**이다 — 값 슬롯 글자는 「3건」 그대로여야 한다.
+        ★ 폭 백스톱 L3(Phase 24 · UI-SPEC E1 overflow) — 폰 밴드(<700)에서는 상따 설정 **전체**의 쉐브런을
+          한 번에 숨긴다. 본문 344 에서 「최소 잔량 | 177,000,000주 ›」가 L2 만으로 ≈4px 넘쳤다(P20-3 실측) —
+          말줄임은 오발주라 금지이고 글자도 줄이지 않으므로 장식 글리프를 뺀다. 행마다 다르게 두지 않는다.
+      */}
+      <span
+        aria-hidden="true"
+        data-slot="lc-row-chevron"
+        className="hidden whitespace-pre text-[15px] leading-[1.5] text-[var(--faint)] @min-[700px]/lc:inline"
+      >
         {' ›'}
       </span>
     </span>
