@@ -240,6 +240,12 @@ describe("priceIssueText · padIssue — UI-SPEC 카피 원문 (D-15)", () => {
     expect(padIssue(s(""), "회", ctx)).toBeNull();
   });
 
+  it("회 — 상따 「최대」(maxPieces 없음)는 0 을 받는다 · 조각 수 규칙은 maxPieces 가 있을 때만 (Phase 24 D-30)", () => {
+    expect(padIssue(s("0"), "회", NONE)).toBeNull();
+    expect(padIssue(s("0"), "회", { ...NONE, maxPieces: 10 })).toBe("1회 이상 입력해 주세요");
+    expect(padIssue(s("256"), "회", { ...NONE, min: 0, max: 255 })).toBe("최대 255회까지 입력할 수 있어요");
+  });
+
   it("다른 단위는 검증 문구가 없다", () => {
     expect(padIssue(s("98150"), "주", WON)).toBeNull();
   });
