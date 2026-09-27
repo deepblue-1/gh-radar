@@ -1,5 +1,7 @@
 # Phase 22: GH Trade 테스트 배포 (iOS TestFlight · Android Play 내부 테스트) - Research
 
+> **2026-09-27 재범위:** Android 경로는 Play 내부 테스트 대신 Firebase App Distribution APK 로 바뀌었다(CONTEXT D-13~D-18). 남은 작업(Android Firebase + 옛 22-05~07 의 iOS·공통 항목)은 이 문서 끝 **「재범위 부록: Android Firebase App Distribution APK (2026-09-27)」** 를 먼저 읽는다. 아래 본문의 Play 관련 내용(Pattern 3 `beta` · Pitfall 5·9·10 · MOBILE-02m)은 Phase 23 에서 쓴다.
+
 **Researched:** 2026-09-27
 **Domain:** 모바일 릴리스 엔지니어링. 범위는 fastlane(gym·sigh·pilot·supply), App Store Connect · TestFlight 내부 테스트, Play App Signing · 내부 테스트 트랙, Google OAuth Android 클라이언트, Next.js 공개 라우트 `/privacy` 다.
 **Confidence:** 신뢰도는 세 등급이다.
@@ -868,3 +870,645 @@ bundle exec fastlane run latest_testflight_build_number app_identifier:com.ghtra
 
 **Research date:** 2026-09-27
 **Valid until:** 2026-10-11 (14일 — Play 양자 대비 서명(베타)·fastlane 주 단위 릴리스·Xcode 27 초기라 변동이 빠르다)
+
+---
+
+## 재범위 부록: Android Firebase App Distribution APK (2026-09-27)
+
+**Researched:** 2026-09-27 (부록 · 위 본문은 그대로 두고 덧붙인다)
+**Scope:** CONTEXT 「재범위」 절 D-13~D-18 이 D-02·D-03·D-08·D-10 의 Android 부분을 대체한다. 이 부록은 (1) Android 업로드 키 서명 APK → Firebase App Distribution 경로와 (2) 옛 22-05~22-07(현재 `.planning/phases/23-gh-trade-play/from-phase-22/`)에서 Phase 22 에 남는 iOS·공통 항목을 다룬다.
+**Confidence:** 세 등급이다.
+- **HIGH:** 이번 세션 실측 — 플러그인 gem 1.0.0 소스 Read, scratchpad 에서 `bundle lock`·`bundle install`·`fastlane action firebase_app_distribution` 실행, `gcloud iam roles describe`, `gcloud projects get-iam-policy`, org 정책 effective 조회, debug APK 에 `apksigner`·`keytool`·`jarsigner`·`aapt2` 실행, 저장소 파일 Read.
+- **MEDIUM:** Firebase · Android 공식 문서 인용(2026-09-16~09-24 갱신본).
+- **LOW:** 콘솔 화면 라벨, Play Protect 경고 문구, 2027 전 세계 적용일.
+
+> **부록에서 가장 중요한 발견 10가지** (플래너가 먼저 읽을 것)
+> 1. **fastlane 플러그인 `fastlane-plugin-firebase_app_distribution` 1.0.0 이 현재 잠금(fastlane 2.240.1 · Homebrew Ruby 4.0.2)에 그대로 얹힌다.** scratchpad 복사본에서 `mobile/Gemfile` 에 한 줄을 더하고 `bundle lock` 을 돌렸다. 추가되는 gem 은 3개뿐이고 fastlane 2.240.1 은 그대로다. 이어 `bundle exec fastlane action firebase_app_distribution` 로 플러그인 로드를 확인했다. 플러그인 요구는 Ruby >= 3.2, fastlane >= 2.232.0 이다.
+> 2. **`fastlane add_plugin` 을 쓰지 말고 `mobile/Gemfile` 에 `gem` 줄을 직접 더한다.** fastlane 은 플러그인을 Gemfile 의 의존성 이름 가운데 `fastlane-plugin-` 로 시작하는 것에서 찾는다(`plugin_manager.rb` `available_gems` · `available_plugins`). 그래서 Pluginfile 이 필요 없다. `add_plugin` 은 `android/fastlane/Pluginfile` 을 만들고, Bundler 가 찾은 `mobile/Gemfile` 에 `fastlane/Pluginfile` 상대 경로를 붙인다. 두 경로가 어긋난다.
+> 3. **업로드 인증은 `service_credentials_file` 을 반드시 명시한다.** 이 맥의 `~/.zshrc:28` 이 `GOOGLE_APPLICATION_CREDENTIALS` 를 deployer SA 키로 export 한다. 이 SA 는 gh-radar 의 **`roles/owner`** 다. 플러그인은 파일 인자가 없으면 `FIREBASE_TOKEN` → 캐시된 firebase-tools 토큰 → **ADC** 순서로 떨어진다. 인자를 빠뜨리면 조용히 owner 키로 업로드한다.
+> 4. **전용 SA(`roles/firebaseappdistro.admin` 하나)를 권장한다. deployer SA 는 재사용하지 않는다.** 이 역할(GA)의 권한은 App Distribution 릴리스·테스터·그룹과 프로젝트/클라이언트 조회뿐이다. `setup-release-secrets.sh` 에 `firebase-sa` stage 를 더해 사용자 `!` 한 줄로 만든다. play-sa 와 같은 관례다. org 정책 `iam.disableServiceAccountKeyCreation` 은 비강제, `iam.allowedPolicyMemberDomains` 는 `allValues: ALLOW` 임을 실측했다.
+> 5. **v2 전용으로 서명된 APK 는 `keytool`·`jarsigner` 로 검사할 수 없다. `check-aab.sh` 를 복사하면 안 된다.** AGP 8.13 은 `minSdkVersion = 24` 에서 v1(JAR) 서명을 끈다. 실측한 debug APK 는 v2 만 true 였다. 이 APK 에서 `keytool -printcert -jarfile` 은 **빈 출력**, `jarsigner -verify` 는 **`no manifest.`** 였다. `check-apk.sh` 는 `apksigner verify --print-certs`(build-tools 36.1.0)와 `aapt2 dump badging` 을 쓴다. APK 안 설정 경로도 AAB 의 `base/assets/…` 가 아니라 `assets/capacitor.config.json` 이다.
+> 6. **플러그인의 기본 APK 경로는 쓰지 말고 `android_artifact_path` 로 명시한다.** 기본 경로는 fastlane `gradle` 액션의 `GRADLE_APK_OUTPUT_PATH` 다. 이 값은 `build/outputs/apk/**` 전체(debug 포함)에서 **mtime 이 가장 최근인 APK** 다. `assembleRelease` 가 up-to-date 로 건너뛰어지면 debug APK 가 선택될 수 있다.
+> 7. **gh-radar 에 Firebase 를 붙이면 되돌릴 수 없고, 부수 효과가 문서화돼 있다.**
+>    - API 약 15개가 켜진다(Identity Toolkit · FCM · Hosting · App Engine Admin 등).
+>    - SA 2개(`service-<번호>@gcp-sa-firebase` · `firebase-adminsdk-xxxxx@gh-radar`)와 「Browser」 API 키, `firebase:enabled` 라벨이 생긴다.
+>    - 결제가 켜진 프로젝트라 Blaze 요금제가 된다. App Distribution 은 Spark·Blaze 모두 무료 제품이다.
+>    - 기존 Cloud Run·Secret Manager·IAM 바인딩을 바꾼다는 기술은 없다.
+>    - D-17 기본값(gh-radar)은 유지해도 된다. 다만 체크포인트 본문에 이 목록을 그대로 보여 주고 사용자 확인을 받는다.
+> 8. **앱에 Firebase SDK · `google-services.json` 은 필요 없다(D-17 확인).** 업로드에는 Firebase 앱 ID 와 콘솔 App Distribution 「시작하기」 온보딩만 필요하다. 온보딩을 안 하면 플러그인이 `INVALID_APP_ID` 를 낸다. **함정:** `build.gradle:81-88` 은 `google-services.json` 이 있으면 google-services 플러그인을 적용한다. 그런데 `android/.gitignore:65` 에서 그 ignore 줄이 **주석 처리**돼 있다. 콘솔이 내려 주는 파일을 `android/app/` 에 두면 빌드가 바뀌고 커밋까지 될 수 있다. 위생 검사에 부재 확인을 넣는다.
+> 9. **Firebase 앱 등록 때 SHA-1 칸은 비워 둔다. Android OAuth 클라이언트는 GCP 콘솔에서만 만든다.**
+>    - 「패키지명 + SHA-1」 쌍은 모든 Firebase·GCP 프로젝트를 통틀어 유일해야 한다.
+>    - Firebase 에 SHA-1 을 넣으면 OAuth 클라이언트가 자동 생성될 수 있다.
+>    - 여기에 GCP 콘솔 수동 생성이 겹치면 「An OAuth2 client already exists…」 가 난다.
+>    - 등록할 클라이언트는 업로드 키 SHA-1 `2F:E3:…:7B:7D` 하나다(D-14). 코드 변경은 없다. id_token aud 는 웹 클라이언트다(`native-google-login.ts:99` `webClientId: GOOGLE_WEB_CLIENT_ID`).
+> 10. **사이드로드 개발자 인증은 한국에서 아직 적용되지 않는다(2026-09-27 기준 · 시한부).**
+>     - 2026-09-30 적용 대상은 브라질·인도네시아·싱가포르·태국의 **참여 스토어 설치**다.
+>     - 공식 FAQ(2026-07-15)는 「다른 스토어나 직접 사이드로드에는 아직 적용되지 않는다」 고 적는다.
+>     - 2027 전 세계 확대 뒤에는 미등록 앱의 사이드로드 설치가 막힌다. 예외는 ADB 와 advanced flow(24시간 대기)다.
+>     - Android Developer Console 은 한 패키지에 **서명 키를 여러 개** 등록하게 해 준다. 따라서 Play 개발자 인증이 끝난 뒤 업로드 키 인증서도 `com.ghtrade.app` 에 등록하면, Firebase APK 경로가 2027 뒤에도 살 수 있다 [CITED · 절차 세부는 ASSUMED].
+
+### 부록 — 남은 작업 재정리 (플래너용 인벤토리)
+
+| # | 작업 | 출처(옛 플랜) | 성격 | 비고 |
+|---|------|---------------|------|------|
+| R1 | Firebase 프로젝트 결정(D-17) · Firebase 추가 · Android 앱 `com.ghtrade.app` 등록(SHA-1 칸 비움) · App Distribution 「시작하기」 · 테스터 그룹 생성(별칭) · 테스터 이메일 추가 | 신규(D-13·D-17) | 사용자 콘솔(checkpoint:decision + human-action) | 앱 ID(공개 식별자)를 재개 신호로 받는다 |
+| R2 | `setup-release-secrets.sh firebase-sa` stage — API 사용 설정 · 전용 SA · 역할 바인딩 · 키 600 | 신규(D-17 · 부록 Pattern F4) | Claude 작성 → 사용자 `!` 실행 | 출력은 SA 이메일뿐 |
+| R3 | Gemfile 플러그인 · Fastfile lane `firebase` · `firebase_latest` · `release-android.sh` 모드 · `check-apk.sh` · package.json 재배선 · 위생 검사 보강 | 신규(D-14·D-15·D-16) | auto(TDD 가능한 부분은 TDD) | AAB lane·`native:release:android:aab`·`play-sa` 는 보존(D-16) |
+| R4 | GCP Android OAuth 클라이언트(업로드 키 SHA-1 하나) · OAuth 동의 화면 게시 상태 확인(D-05) | 옛 22-06 Task 1 의 3·4 단계(앱 서명 SHA-1 부분 제외) | 사용자 콘솔 | 기존 debug 클라이언트는 그대로 둔다 |
+| R5 | ASC 테스터 초대(Marketing · 앱 한정) → TestFlight 내부 그룹 추가 | 옛 22-06 Task 1 의 5단계 | 사용자 콘솔 | 본문 Pitfall 6 |
+| R6 | iOS lane `latest` · `release-ios.sh latest` 모드 · TestFlight 처리 완료 확인(22-01 빌드 `202609270252`) | 옛 22-06 Task 2 ①②⑤ | auto | 현재 `release-ios.sh` 에 MODE 분기 없음 · Fastfile 에는 `lane :beta` 하나 [VERIFIED: grep] |
+| R7 | 첫 Firebase APK 업로드 → 로컬 에뮬레이터 사이드로드 로그인 스모크 → 테스터 설치 UAT | 옛 22-06 Task 2 ③④ 대체 | auto + manual | 부록 Pitfall F7 (debug 설치본 먼저 제거) |
+| R8 | `mobile/README.md` 「릴리스」 절(TestFlight · Firebase APK) · 테스터 안내(iOS 3단계 · Android 4단계) · 비밀 파일 · 범위 밖 갱신 · `google-client-ids.ts` 주석 갱신(업로드 키 SHA-1 만 · 상수 무변경) | 옛 22-06 Task 3 | auto | Play 문구는 「Phase 23」 으로 |
+| R9 | 전 자동 게이트 + 두 번째 릴리스(iOS · Android Firebase) — 번호 엄격 증가 · 저장소 무변경 · 테스터 업데이트 UAT | 옛 22-07 Task 1 | auto + manual | Android 는 「새 빌드 메일 → 탭 → 덮어 설치」(D-15) |
+| R10 | push(=웹 프로덕션 배포) 결정 · 시행일 자리표시 4곳 채움 · 운영 `/privacy` 200 확인 | 옛 22-07 Task 2·3 · 22-03 SUMMARY 인계 | checkpoint:decision(blocking-human) + auto | origin/master 보다 로컬이 22커밋 앞섬 [VERIFIED: `git log --oneline origin/master..HEAD \| wc -l` = 22] |
+| R11 | ROADMAP/REQUIREMENTS/STATE 정정(Phase 22 이름·목표의 Play → Firebase APK) | 재범위 | main tree 직접 편집(메모리 규칙) | REQUIREMENTS MOBILE-02 는 이미 재범위 문구가 붙어 있다 [VERIFIED: REQUIREMENTS.md:112] |
+
+### 부록 — Phase Requirements
+
+| ID | Description | Research Support |
+|----|-------------|------------------|
+| MOBILE-02 | GH Trade 테스트 배포 — iOS TestFlight 내부 테스터 · Android **Firebase App Distribution(업로드 키 서명 APK)** 으로 `com.ghtrade.app` 을 5명 미만 지인 기기에 설치 가능하게 한다. 2026-09-27 재범위로 Play 앱 서명과 앱 서명 SHA-1 등록은 Phase 23 으로 넘어갔고, Phase 22 에서는 업로드 키 SHA-1 만 등록한다(REQUIREMENTS.md:112 요지) | Pattern F1~F7 · Pitfall F1~F12 · Validation(부록) V-F1~V-F16. iOS 쪽은 본문 Pattern 1 · Pitfall 6 · MOBILE-02h/l 과 R5·R6 |
+
+### 부록 — Architectural Responsibility Map
+
+| Capability | Primary Tier | Secondary Tier | Rationale |
+|------------|-------------|----------------|-----------|
+| APK 빌드 · 업로드 키 서명 · versionCode 주입 | 로컬 빌드 머신(Gradle · fastlane) | — | 22-04 의 env 서명 gradle 을 그대로 쓴다(D-14). `assembleRelease` 만 추가 |
+| 산출물 검사(서명 SHA-1 · 운영 URL · debuggable · versionCode) | 로컬 셸 스크립트(`check-apk.sh`) | — | 업로드 전 마지막 게이트 |
+| 배포 · 테스터 알림 · 설치 링크 | Firebase App Distribution(외부 SaaS) | 테스터 브라우저 · App Tester | Play 불필요(D-13) |
+| 업로드 인증 | GCP IAM(전용 SA · `roles/firebaseappdistro.admin`) | 저장소 밖 키 파일 600 | owner 키 재사용 금지(Pitfall F2) |
+| 네이티브 Google 로그인 서명 확인 | GCP Google Auth Platform(Android OAuth 클라이언트 = 패키지 + 업로드 SHA-1) | Supabase(웹 클라이언트 aud 검증 · 무변경) | 코드 변경 없음(D-14) |
+| 테스터의 실돈 주문 차단 | relay(`dma_credentials` allow-list) | 웹 `DmaGate` | 무변경(D-04) |
+
+### 부록 — Standard Stack
+
+#### Core
+| Library / Tool | Version | Purpose | Why Standard |
+|----------------|---------|---------|--------------|
+| `fastlane-plugin-firebase_app_distribution` | **1.0.0** (rubygems 2026-03-04 · `required_ruby_version >= 3.2` · runtime `fastlane >= 2.232.0`) | lane 에서 APK 업로드 · 그룹 배포 · 릴리스 노트 · 최신 릴리스 조회(`firebase_app_distribution_get_latest_release`) | Firebase 공식 문서가 안내하는 fastlane 경로다 [CITED: firebase.google.com/docs/app-distribution/android/distribute-fastlane · 2026-09-24 갱신]. 이미 있는 `mobile/Gemfile`·Homebrew Ruby·`bundle exec` 패턴에 그대로 들어간다 [VERIFIED: scratchpad `bundle lock`·`bundle install`·`fastlane action` 실행] |
+| fastlane | 2.240.1 (기존 잠금 유지) | lane 실행 | [VERIFIED: `mobile/Gemfile.lock` `fastlane (2.240.1)` · 플러그인 추가 뒤에도 변동 없음] |
+| Android build-tools `apksigner` · `aapt2` | 36.1.0 (`$ANDROID_HOME/build-tools/36.1.0`) | APK 서명 인증서 · v2 검증 · versionCode · debuggable 검사 | v2 전용 APK 는 JDK `keytool`·`jarsigner` 로 볼 수 없다 [VERIFIED: 실측 · Pitfall F4] |
+| Gradle `assembleRelease` (AGP 8.13.0) | 기존 | 업로드 키 서명 APK | 22-04 env 서명 설정을 그대로 탄다 [VERIFIED: `android/build.gradle:10` `classpath 'com.android.tools.build:gradle:8.13.0'` · `app/build.gradle:6` · `:76`] |
+
+#### Supporting (플러그인이 끌어오는 gem · scratchpad 잠금 diff 로 확인)
+| Gem | Version | Note |
+|-----|---------|------|
+| `google-apis-firebaseappdistribution_v1` | 0.22.0 | `google-apis-core (>= 0.15.0, < 2.a)` — 잠금의 `google-apis-core (1.2.5)` 와 호환 |
+| `google-apis-firebaseappdistribution_v1alpha` | 0.30.0 | 같은 제약 |
+
+#### Alternatives Considered
+| Instead of | Could Use | Tradeoff |
+|------------|-----------|----------|
+| fastlane 플러그인 | Firebase CLI `firebase appdistribution:distribute` | 로컬에 CLI 가 없다(`command -v firebase` 없음). npm 전역 설치(firebase-tools 15.31.0)가 늘고 lane 패턴에서 벗어난다. 인증은 같은 SA 키(`GOOGLE_APPLICATION_CREDENTIALS`)를 쓴다. `login:ci` 토큰(`FIREBASE_TOKEN`)은 firebase-tools 가 deprecated 로 표시한다 [CITED: github.com/firebase/firebase-tools/discussions/6283 · MEDIUM] |
+| fastlane 플러그인 | Gradle 플러그인 `com.google.firebase.appdistribution` | `build.gradle` 에 Firebase 플러그인·설정이 들어간다 → 「Remote-URL 셸 무변경 · 앱에 Firebase 없음」(D-17)과 충돌 |
+| fastlane 플러그인 | 콘솔 수동 업로드(드래그) | 첫 1회 디버깅용으로만 쓴다. 반복 절차(D-15 「명령 한 번」)를 만족하지 못한다 |
+| 전용 SA | deployer SA 재사용(`service_credentials_file` = deployer 키) | 준비가 0단계라는 장점이 있다. 그러나 `roles/owner` 키가 릴리스 도구에 넘어간다 → T-22-10 과 같은 최소 권한 원칙에 어긋난다 |
+| gh-radar 에 Firebase 추가(D-17 기본) | 새 GCP 프로젝트(예: `gh-trade-dist`)에 Firebase — 결제 없음 = Spark | **장점:** 운영 프로젝트에 부수 효과가 없고, 프로젝트째 삭제할 수 있다. **단점:** deployer SA 에 권한이 없어 SA 생성을 사용자 계정 gcloud(`CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE= …`)로 해야 하고, 관리할 프로젝트가 하나 늘어난다. 어느 쪽이든 앱에는 SDK 가 없으므로 OAuth 클라이언트(gh-radar)와는 무관하다 |
+
+**설치(실행 단계):**
+```bash
+# mobile/Gemfile 에 한 줄 추가 후 — `fastlane add_plugin` 금지(Pitfall F1)
+cd mobile && PATH=/opt/homebrew/opt/ruby/bin:$PATH bundle install   # BUNDLE_PATH vendor/bundle (기존 .bundle/config)
+```
+
+### 부록 — Package Legitimacy Audit
+
+| Package | Registry | Age | Downloads | Source Repo | Verdict | Disposition |
+|---------|----------|-----|-----------|-------------|---------|-------------|
+| `fastlane-plugin-firebase_app_distribution` | rubygems | 첫 공개 수년 전 · 1.0.0 = 2026-03-04 | 누적 55,422,974 | github.com/fastlane/fastlane-plugin-firebase_app_distribution (Firebase 공식 문서가 링크) | seam 미지원(rubygems) → 수동 신호 OK | Approved — 공식 문서 + 레지스트리 + 소스 Read |
+| `google-apis-firebaseappdistribution_v1` | rubygems | 0.22.0 = 2026-08-02 | 누적 29,371,975 | googleapis/google-api-ruby-client(생성 클라이언트) | 수동 신호 OK | Approved(전이 의존성) |
+| `google-apis-firebaseappdistribution_v1alpha` | rubygems | 0.30.0 = 2026-07-26 | 누적 25,551,056 | 같음 | 수동 신호 OK | Approved(전이 의존성) |
+| `firebase-tools` (대안 · 권장 안 함) | npm | 15.31.0 = 2026-09-23 | 주 3,341,666 | github.com/firebase/firebase-tools | **SUS**(사유 `too-new` — 최신 버전이 4일 전 공개) · postinstall 없음 | 설치하지 않는다. 대안 경로를 택하면 `checkpoint:human-verify` 필요 |
+
+**Packages removed due to [SLOP] verdict:** 없음.
+**Packages flagged as suspicious [SUS]:** `firebase-tools`(권장 경로 아님).
+- `gsd-tools package-legitimacy check` 는 rubygems 를 받지 않는다. 사용법은 `--ecosystem <npm|pypi|crates>` 이고, 실행하면 에러가 난다.
+- 그래서 rubygems 3종은 rubygems API(`/api/v1/gems/*.json` · `/api/v2/rubygems/*/versions/1.0.0.json`)의 버전·날짜·다운로드·의존성으로 대신 확인했다. Firebase 공식 문서의 안내와 교차 확인도 했다.
+
+### 부록 — Architecture Patterns
+
+#### System Architecture Diagram (Android 재범위)
+```
+[Claude: pnpm --filter @gh-radar/mobile run native:release:android]
+      │
+      ▼
+ cap sync (iOS+Android 운영 설정) ──► verify-prod-config.mjs ──(FAIL)──► 중단
+      │ PROD CONFIG OK
+      ▼
+ release-android.sh firebase
+      │  android.env source(값 비출력) · 키 이름/키스토어/SA JSON 존재 확인 ──(누락)──► exit 3 + `!` 주입 안내
+      │  GOOGLE_APPLICATION_CREDENTIALS 해제(ADC 폴백 차단)
+      ▼
+ fastlane lane firebase (mobile/android)
+      │  versionCode = (연도−2020)·10^8 + MMDDHHmm
+      │  gradle assembleRelease -PghtradeVersionCode=…  (서명 = build.gradle 이 env 로 직접)
+      │  → android/app/build/outputs/apk/release/app-release.apk
+      ▼
+ check-apk.sh ──(FAIL: 서명 SHA-1≠업로드 · debuggable · dev URL · versionCode 불일치)──► 업로드 안 함
+      │ APK CHECK OK
+      ▼
+ firebase_app_distribution(app: <Firebase 앱 ID>, android_artifact_path: 명시, groups: 별칭,
+                           service_credentials_file: 전용 SA 키, release_notes: vc·git SHA)
+      │  (Firebase App Distribution API · 전용 SA roles/firebaseappdistro.admin)
+      ▼
+ Firebase ──► 테스터 이메일(첫 배포 = 초대 · 이후 = 새 빌드 알림)
+                 │
+                 ▼
+        테스터 폰: 초대 수락(Google 계정) → (선택) App Tester → 「이 출처 허용」 → 설치/덮어 설치
+                 │
+                 ▼
+        GH Trade(WebView → https://trade.jx1.io) → 네이티브 Google 로그인
+                 │  Credential Manager: 패키지+서명 SHA-1 ↔ GCP Android 클라이언트(업로드 SHA-1)
+                 ▼  id_token(aud = 웹 클라이언트) → Supabase(무변경)
+```
+
+#### 인용 근거 — 이번 세션에 Read 한 저장소 값 (아래 스켈레톤의 모든 기존 값은 여기서 나온다)
+- `mobile/android/app/build.gradle:6` — `def ghtradeUploadStoreFile = System.getenv("GHTRADE_UPLOAD_STORE_FILE")`
+- `mobile/android/app/build.gradle:76-77`:
+  - `    if (!ghtradeUploadStoreFile && graph.allTasks.any { it.name in ["bundleRelease", "assembleRelease"] }) {`
+  - `        throw new GradleException("GHTRADE_UPLOAD_STORE_FILE 없음 — 릴리스 AAB 는 native:release:android(:aab) 로만 만든다 (D-08)")`
+- `mobile/android/app/build.gradle:81-88`:
+  - `    def servicesJSON = file('google-services.json')`
+  - `        apply plugin: 'com.google.gms.google-services'`
+- `mobile/android/.gitignore:64-65` — `# Google Services (e.g. APIs or Firebase)` / `# google-services.json` (주석 → **ignore 안 됨**)
+- `mobile/android/variables.gradle:2` — `    minSdkVersion = 24`
+- `mobile/android/fastlane/Fastfile:10` — `require File.expand_path("../../fastlane/build_numbers.rb", __dir__)`
+- `mobile/android/fastlane/Fastfile:29` — `  [lane_context[SharedValues::GRADLE_AAB_OUTPUT_PATH], vc]`
+- `mobile/android/fastlane/Fastfile` lanes — `lane :build do` (34) · `lane :beta do` (40) · `lane :validate do` (56) · `lane :track do` (61)
+- `mobile/android/fastlane/Appfile:3-4` — `json_key_file(ENV["GOOGLE_PLAY_JSON_KEY"])` / `package_name("com.ghtrade.app")`
+- `mobile/scripts/release-android.sh`:
+  - `:36` — `MODE="${1:-beta}"`
+  - `:38` — `  beta|build|validate|track|check) ;;`
+  - `:48` — `ENV_FILE="${GHTRADE_RELEASE_ENV:-$HOME/.config/gh-trade/release/android.env}"`
+  - `:50` — `INJECT_PLAY="! bash mobile/scripts/setup-release-secrets.sh play-sa"`
+  - `:119` — `(cd android && bundle exec fastlane "$MODE")`
+- `mobile/scripts/check-aab.sh`:
+  - `:18` — `PROD_URL="https://trade.jx1.io"   # verify-prod-config.mjs PROD_URL 과 같은 값`
+  - `:44` — `keytool -printcert -jarfile` 경로
+  - `:61` — `-verify "$AAB"` / `grep -q "jar verified"`
+  - `:66` — `base/assets/capacitor.config.json`
+- `mobile/scripts/setup-release-secrets.sh`:
+  - `:269` — `  local sa_name="gh-radar-play-publisher" sa_email key="$REL/play-service-account.json" err`
+  - `:317` — `    dir | asc | keystore | backup | play-sa) ;;`
+- `mobile/scripts/check-release-hygiene.sh:58` — 추적 파일 패턴 `…|play-store-key\.json$|service-account[^/]*\.json$'`
+- `mobile/package.json:18-19`:
+  - `"native:release:android": "cap sync && node scripts/verify-prod-config.mjs && bash scripts/release-android.sh",`
+  - `"native:release:android:aab": "cap sync && node scripts/verify-prod-config.mjs && bash scripts/release-android.sh build"`
+- `mobile/Gemfile:5` — `gem "fastlane", "~> 2.240"`
+- `webapp/src/lib/native/native-google-login.ts:99` — `      webClientId: GOOGLE_WEB_CLIENT_ID,`
+- 업로드 인증서 SHA-1(공개 지문): `2F:E3:BA:78:A5:74:16:06:F8:79:A8:D3:3C:28:23:EF:72:98:7B:7D` (22-04-SUMMARY key-decisions · CONTEXT D-14)
+
+새로 제안하는 이름(아직 저장소에 없음 · [ASSUMED] 제안값): 모드 `firebase` · `firebase-latest` · `check-apk`, lane `firebase` · `firebase_latest`, stage `firebase-sa`, SA `gh-trade-appdistro`, 키 파일 `firebase-appdistro-service-account.json`, 그룹 별칭 `ghtrade-testers`, npm 스크립트 `native:release:android:play`.
+
+#### Pattern F1: Gemfile 한 줄 (Pluginfile 없음)
+```ruby
+# mobile/Gemfile — 기존 `gem "fastlane", "~> 2.240"` 아래
+# Phase 22 재범위(D-13) — Android APK 를 Firebase App Distribution 으로. iOS lane 에도 로드되지만 무해하다.
+gem "fastlane-plugin-firebase_app_distribution", "~> 1.0"
+```
+fastlane 은 Gemfile 의존성 이름에서 `fastlane-plugin-` 접두사로 플러그인을 찾는다. 근거는 `vendor/bundle/…/fastlane-2.240.1/fastlane/lib/fastlane/plugins/plugin_manager.rb:55-67` 의 `available_gems` → `dsl.dependencies.map(&:name)`, `available_plugins` → `start_with?(self.class.plugin_prefix)` 다. scratchpad 에서 이 한 줄만으로 「Used plugins」 표에 `fastlane-plugin-firebase_app_distribution 1.0.0` 이 나오는 것을 확인했다 [VERIFIED].
+
+#### Pattern F2: Android lane `firebase` · `firebase_latest` (기존 4 lane 보존 · D-16)
+```ruby
+# mobile/android/fastlane/Fastfile — 기존 require · ghtrade_build_release_aab · lanes build/beta/validate/track 는 그대로 두고 덧붙인다.
+# Firebase 앱 ID 는 공개 식별자다(google-client-ids.ts 선례 — 문자열 리터럴로 커밋). R1 체크포인트 재개 신호로 받는다.
+GHTRADE_FIREBASE_ANDROID_APP_ID = "1:<프로젝트번호>:android:<해시>" # [ASSUMED 형식] — 실제 값으로 교체
+GHTRADE_RELEASE_APK = File.expand_path("../app/build/outputs/apk/release/app-release.apk", __dir__)
+
+def ghtrade_build_release_apk
+  missing = %w[GHTRADE_UPLOAD_STORE_FILE GHTRADE_UPLOAD_STORE_PASSWORD GHTRADE_UPLOAD_KEY_ALIAS GHTRADE_UPLOAD_KEY_PASSWORD]
+            .select { |k| ENV[k].to_s.empty? }
+  UI.user_error!("환경변수 비어 있음: #{missing.join(' ')} — ~/.config/gh-trade/release/android.env") unless missing.empty?
+  vc = GhTradeBuildNumbers.android_version_code
+  UI.message("versionCode #{vc}")
+  File.delete(GHTRADE_RELEASE_APK) if File.exist?(GHTRADE_RELEASE_APK) # 이전 산출물이 남아 검사를 통과하는 것 방지(Pitfall F3)
+  gradle(project_dir: ".", task: "assemble", build_type: "Release",
+         properties: { "ghtradeVersionCode" => vc }) # 서명 속성은 넘기지 않는다(명령줄이 로그에 찍힘 — 22-04 관례)
+  UI.user_error!("릴리스 APK 없음: #{GHTRADE_RELEASE_APK}") unless File.exist?(GHTRADE_RELEASE_APK)
+  File.write(File.join(File.dirname(GHTRADE_RELEASE_APK), "ghtrade-version-code.txt"), vc.to_s) # check-apk 기대값(ignore 되는 build/)
+  [GHTRADE_RELEASE_APK, vc]
+end
+
+def ghtrade_appdistro_sa!
+  sa = ENV["FIREBASE_APPDISTRO_SA_JSON"].to_s
+  UI.user_error!("FIREBASE_APPDISTRO_SA_JSON 없음 — ! bash mobile/scripts/setup-release-secrets.sh firebase-sa") if sa.empty? || !File.exist?(sa)
+  sa
+end
+
+platform :android do
+  desc "업로드 키 서명 APK → Firebase App Distribution (D-13 · D-14 · D-15)"
+  lane :firebase do
+    apk, vc = ghtrade_build_release_apk
+    sh("bash", File.expand_path("../../scripts/check-apk.sh", __dir__), apk) # 업로드 전 게이트 — 실패 시 lane 중단
+    firebase_app_distribution(
+      app: GHTRADE_FIREBASE_ANDROID_APP_ID,
+      android_artifact_type: "APK",
+      android_artifact_path: apk,                  # lane_context 기본값 금지(Pitfall F3)
+      groups: ENV.fetch("FIREBASE_APPDISTRO_GROUPS", "ghtrade-testers"),
+      release_notes: "GH Trade 1.0 (#{vc}) · #{`git rev-parse --short HEAD`.strip}",
+      service_credentials_file: ghtrade_appdistro_sa! # 명시 필수 — 없으면 ADC(=owner 키)로 떨어진다(Pitfall F2)
+    )
+    UI.success("Firebase 배포 versionCode #{vc}")
+  end
+
+  desc "Firebase 최신 릴리스 조회(검증용)"
+  lane :firebase_latest do
+    r = firebase_app_distribution_get_latest_release(app: GHTRADE_FIREBASE_ANDROID_APP_ID,
+                                                    service_credentials_file: ghtrade_appdistro_sa!)
+    UI.message("latest Firebase build #{r && r[:buildVersion]}")
+  end
+end
+```
+- 옵션 이름은 이번 세션에 gem 1.0.0 소스를 Read 해 확인했다 [VERIFIED: `firebase_app_distribution_action.rb:457-610`].
+  - 확인한 옵션: `app` · `android_artifact_type`(`'APK'`/`'AAB'` · 기본 `APK`) · `android_artifact_path` · `groups` · `testers` · `release_notes` · `service_credentials_file` · `service_credentials_json_data` · `firebase_cli_token`.
+  - `apk_path` 는 `android_artifact_path` 로 대체된 옛 이름이다.
+- `get_latest_release` 는 `buildVersion`(= versionCode)을 해시 키 `:buildVersion` 으로 돌려준다 [VERIFIED: `firebase_app_distribution_get_latest_release.rb` `map_release_hash`].
+- `release_notes` 에 테스터 이메일·비밀을 넣지 않는다. `git rev-parse` 출력은 공개 정보다.
+
+#### Pattern F3: `release-android.sh` 모드 추가 · `package.json` 재배선 (D-15 · D-16)
+- `release-android.sh` 의 모드 목록에 `firebase` · `firebase-latest` · `check-apk` 를 더한다. 기존 `beta|build|validate|track|check` 는 유지한다.
+- `firebase` 모드의 동작:
+  - 기존 키 검사(업로드 키 4개 + `GHTRADE_UPLOAD_SHA1`)와 키스토어 파일 존재 확인을 한다.
+  - SA JSON 을 확인한다. `FIREBASE_APPDISTRO_SA_JSON` 이 없으면 기본 경로 `$HOME/.config/gh-trade/release/firebase-appdistro-service-account.json` 을 쓴다. 파일이 없으면 exit 3 과 함께 `! bash mobile/scripts/setup-release-secrets.sh firebase-sa` 를 안내한다.
+  - 그다음 `unset GOOGLE_APPLICATION_CREDENTIALS FIREBASE_TOKEN` 후 `bundle exec fastlane firebase` 를 실행한다.
+- `android.env` 는 바꾸지 않는다. 경로는 비밀이 아니므로 래퍼 기본값으로 충분하다.
+- `package.json` 은 다음처럼 바꾼다.
+  ```jsonc
+  "native:release:android":      "cap sync && node scripts/verify-prod-config.mjs && bash scripts/release-android.sh firebase",   // D-15: Phase 22 기본 경로
+  "native:release:android:aab":  "cap sync && node scripts/verify-prod-config.mjs && bash scripts/release-android.sh build",      // 보존(D-16)
+  "native:release:android:play": "cap sync && node scripts/verify-prod-config.mjs && bash scripts/release-android.sh beta"        // 보존 — Phase 23 이 쓴다(D-16)
+  ```
+- 오늘 `native:release:android` 는 인자 없이 Play `beta` 로 간다(`package.json:18` · `release-android.sh:36`). 이 재배선이 없으면 D-15 의 「`native:release:android` 한 번」 이 Play 업로드를 시도하다 exit 3 으로 끝난다(play-sa 미주입).
+- `build.gradle:77` 가드 메시지의 「릴리스 AAB 는 native:release:android(:aab) 로만」 은 APK 도 가리키도록 문구만 고친다. 로직은 그대로다. 가드 자체는 이미 `assembleRelease` 를 포함한다.
+
+#### Pattern F4: `setup-release-secrets.sh firebase-sa` (사용자 `!` 실행 · 비대화형 · 값 비출력)
+```bash
+# stage 목록 검사(:317)에 firebase-sa 추가 · usage 갱신. play-sa 함수(:268~)와 같은 구조.
+stage_firebase_sa() {
+  local sa_name="gh-trade-appdistro" sa_email key="$REL/firebase-appdistro-service-account.json" err
+  [[ -d "$REL" ]] || { echo "ERROR firebase-sa — 비밀 디렉터리가 없다: $REL (먼저 dir 단계를 실행)" >&2; return 1; }
+  gcloud_prep || return 1                                   # 기본 = deployer 키(owner) — 생성 작업에만 쓰고, 업로드에는 쓰지 않는다
+  sa_email="${sa_name}@${CLOUDSDK_CORE_PROJECT}.iam.gserviceaccount.com"
+  gcloud services enable firebaseappdistribution.googleapis.com >/dev/null 2>&1 || { echo "ERROR firebase-sa — API 사용 설정 실패" >&2; gcloud_hint firebase-sa; return 1; }
+  gcloud iam service-accounts describe "$sa_email" >/dev/null 2>&1 \
+    || gcloud iam service-accounts create "$sa_name" --display-name="GH Trade App Distribution uploader" >/dev/null 2>&1 \
+    || { echo "ERROR firebase-sa — SA 생성 실패" >&2; gcloud_hint firebase-sa; return 1; }
+  gcloud projects add-iam-policy-binding "$CLOUDSDK_CORE_PROJECT" --member="serviceAccount:$sa_email" \
+    --role=roles/firebaseappdistro.admin --condition=None >/dev/null 2>&1 \
+    || { echo "ERROR firebase-sa — 역할 바인딩 실패" >&2; gcloud_hint firebase-sa; return 1; }
+  if [[ -f "$key" ]]; then echo "SKIP firebase-sa 키 — 이미 있음"
+  else gcloud iam service-accounts keys create "$key" --iam-account="$sa_email" >/dev/null 2>&1 \
+         || { rm -f "$key"; echo "ERROR firebase-sa — 키 생성 실패" >&2; gcloud_hint firebase-sa; return 1; }
+       chmod 600 "$key"; fi
+  echo "OK firebase-sa"; echo "SA: $sa_email"
+}
+```
+- **SA 이름:** `gh-trade-appdistro` 는 SA ID 규칙(6~30자 · 소문자 · 숫자 · 하이픈)에 맞는다 [ASSUMED 규칙 기억 · 실행 시 gcloud 가 검증].
+- **키 파일 이름:** 기존 위생 검사의 추적 패턴 `service-account[^/]*\.json$`(`check-release-hygiene.sh:58`)에 걸리도록 `…-service-account.json` 으로 끝낸다.
+- **프로젝트:** 새 Firebase 전용 프로젝트를 고르면(D-17 대안) deployer SA 에는 권한이 없다. 그때는 `! CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE= CLOUDSDK_CORE_PROJECT=<새 프로젝트> bash mobile/scripts/setup-release-secrets.sh firebase-sa` 로 실행한다. 기존 `gcloud_prep` 규약이 이미 이 분기를 지원한다.
+- **백업:** SA 키는 백업하지 않는다(`backup` stage 대상 아님). 잃으면 새 키를 만들고 옛 키를 GCP 에서 삭제하면 된다. 업로드 키와 달리 재발급이 가능하다.
+
+#### Pattern F5: `check-apk.sh` (v2 서명 APK 전용 검사 — `check-aab.sh` 복사 금지)
+```bash
+# 사용: bash scripts/check-apk.sh [APK]   기본 android/app/build/outputs/apk/release/app-release.apk
+# 필요 env: GHTRADE_UPLOAD_SHA1(공개 지문). 기대 versionCode = 같은 폴더 ghtrade-version-code.txt
+BT="$(ls -d "${ANDROID_HOME:-$HOME/Library/Android/sdk}"/build-tools/* | sort -V | tail -1)"   # 36.1.0
+export JAVA_HOME="${JAVA_HOME:-/Applications/Android Studio.app/Contents/jbr/Contents/Home}"     # apksigner 는 java 가 필요
+"$BT/apksigner" verify --min-sdk-version 24 "$APK" >/dev/null 2>&1 || fail "apksigner verify 실패(서명 없음·손상)"
+CERTS="$("$BT/apksigner" verify --print-certs "$APK" 2>/dev/null)"
+[ "$(grep -c '^Signer #' <<<"$CERTS")" = "1" ] || fail "서명자가 1개가 아니다"
+got="$(awk -F': ' '/certificate SHA-1 digest/{print $2; exit}' <<<"$CERTS")"                  # 예: 831a3b99… (소문자·콜론 없음)
+want="$(printf '%s' "$GHTRADE_UPLOAD_SHA1" | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+[ "$got" = "$want" ] || fail "업로드 키로 서명되지 않았다 ($got)"
+BADGING="$("$BT/aapt2" dump badging "$APK")"
+grep -q "^package: name='com.ghtrade.app' versionCode='$(cat "$(dirname "$APK")/ghtrade-version-code.txt")'" <<<"$BADGING" || fail "패키지·versionCode 불일치"
+! grep -q '^application-debuggable' <<<"$BADGING" || fail "debuggable APK"
+unzip -p "$APK" assets/capacitor.config.json | node -e '…server.url===PROD_URL && cleartext!==true && android.webContentsDebuggingEnabled!==true…' || fail "운영 설정 아님"
+echo "APK CHECK OK sha1=$got versionCode=…"
+```
+실측 근거는 다음과 같다(`mobile/android/app/build/outputs/apk/debug/app-debug.apk` · 2026-09-26 23:02 빌드) [VERIFIED].
+- **서명 스킴:** `apksigner verify --verbose` 결과는 `Verified using v1 scheme (JAR signing): false` · `v2 … : true` · `v3 … : false` 다.
+- **keytool:** `keytool -printcert -jarfile` 출력은 빈 줄이다.
+- **jarsigner:** `jarsigner -verify` 출력은 `no manifest.` 다.
+- **인증서 지문:** `apksigner verify --print-certs` 는 `Signer #1 certificate SHA-1 digest: 831a3b991c374500d46b90ac49cc14f0f012c3d3` 를 낸다. debug 키 지문이고, 형식은 소문자·콜론 없음이다.
+- **aapt2:** `aapt2 dump badging` 은 `package: name='com.ghtrade.app' versionCode='1' versionName='1.0' …` 와 `application-debuggable` 을 낸다.
+- **설정 파일 위치:** `unzip -l` 결과 `assets/capacitor.config.json` 이다.
+- **음성 테스트 재료:** 이 debug APK 에 `check-apk.sh` 를 돌리면 SHA-1 불일치 · debuggable 두 줄로 실패해야 한다.
+
+#### Pattern F6: Firebase 프로젝트 · 앱 등록 (사용자 콘솔 · R1 체크포인트)
+1. **(checkpoint:decision · D-17)** 기본값 「gh-radar 에 Firebase 추가」 와 대안 「새 프로젝트(Spark)」 중에서 고른다. 결정 본문에 아래 「부수 효과」 목록을 그대로 붙인다.
+2. Firebase 콘솔 → 프로젝트 만들기 → 페이지 아래 **「Google Cloud 프로젝트에 Firebase 추가」** → `gh-radar` 선택 → 약관 동의 → Google Analytics 는 **끈다**(선택 항목) [CITED: firebase.google.com/docs/projects/use-firebase-with-existing-cloud-project · 2026-09-24].
+3. 프로젝트 설정 → 앱 추가 → Android → 패키지 `com.ghtrade.app`(대소문자 구분 — 문서 명시) · 닉네임 `GH Trade` · **「디버그 서명 인증서 SHA-1」 칸은 비운다**(Pitfall F6) → 등록.
+   - `google-services.json` 다운로드 단계와 SDK 추가 단계는 **건너뛴다**.
+   - 파일을 받았다면 저장소 밖에 두거나 지운다(Pitfall F5).
+4. App Distribution 메뉴 → 앱 선택 → **「시작하기」** 를 누른다. 이 온보딩을 안 하면 플러그인이 `INVALID_APP_ID` 를 낸다 [VERIFIED: 플러그인 `firebase_app_distribution_error_message.rb:14`].
+5. 테스터 및 그룹 → 그룹 만들기(별칭 `ghtrade-testers`) → 테스터 Google 계정 이메일을 추가한다. 이메일은 저장소·SUMMARY 에 적지 않는다.
+6. 프로젝트 설정 → 일반 → 앱 ID(`1:…:android:…`)를 복사해 재개 신호로 보낸다. 공개 식별자다.
+
+**gh-radar 에 추가할 때의 부수 효과**(체크포인트 본문용 · [CITED: 같은 문서]):
+- **켜지는 API:** App Engine Admin · Cloud Pub/Sub · Cloud Resource Manager · Cloud Runtime Configuration · Cloud Testing · FCM · Firebase Dynamic Links · Firebase Hosting · Firebase Installations · Firebase Management · Remote Config(+Realtime) · Firebase Rules · Identity Toolkit · Token Service.
+- **생기는 SA:** `service-1023658565518@gcp-sa-firebase.iam.gserviceaccount.com` · `firebase-adminsdk-xxxxx@gh-radar.iam.gserviceaccount.com`.
+- **그 밖에 생기는 것:** 「Browser」 API 키(Firebase API 로 자동 제한) · 라벨 `firebase:enabled`.
+- **요금제:** 결제가 켜진 프로젝트면 Blaze 다.
+  - App Distribution 은 무료 제품이다 [CITED: firebase.google.com/pricing].
+  - gh-radar 의 결제 상태는 이번에 조회하지 못했다. Cloud Billing API 가 꺼져 있고 deployer 권한 오류가 났다. Cloud Run 운영 중이라 결제가 켜져 있다고 본다 [ASSUMED].
+- **IAM:** 권한은 GCP 와 공유된다. 기존 바인딩을 바꾼다는 기술은 없다.
+- **되돌리기:** 완전히 되돌릴 수 없다. API 비활성화와 리소스 삭제만 수동으로 가능하다.
+- **현재 상태:** gh-radar 에는 Firebase 관련 API 가 아직 켜져 있지 않다 [VERIFIED: `gcloud services list --enabled` 에 `firebase|appdistri|identitytoolkit` 0건].
+
+#### Pattern F7: GCP Android OAuth 클라이언트(업로드 키 SHA-1 하나 · R4)
+- GCP 콘솔(gh-radar) → Google Auth Platform → 클라이언트 → 만들기 → 유형 Android → 입력값:
+  - 이름: `GH Trade Android (upload key)`
+  - 패키지: `com.ghtrade.app`
+  - SHA-1: `2F:E3:BA:78:A5:74:16:06:F8:79:A8:D3:3C:28:23:EF:72:98:7B:7D`
+- 기존 debug 클라이언트(`GOOGLE_ANDROID_CLIENT_ID` · debug SHA-1)는 그대로 둔다.
+- Supabase Client IDs 는 바꾸지 않는다. id_token 의 aud 가 웹 클라이언트이기 때문이다(`native-google-login.ts:99`) [VERIFIED: Read].
+- Android 클라이언트는 인증서·패키지 쌍마다 1개가 필요하다. 그 쌍은 모든 Firebase·GCP 프로젝트에서 유일해야 한다 [CITED: support.google.com/firebase/answer/6401008 · support.google.com/googleapi/answer/6158849].
+- 클라이언트 설정 반영에 몇 분~몇 시간이 걸릴 수 있다 [ASSUMED — 콘솔 안내 문구 기억]. 그러니 첫 로그인 실패를 곧바로 설정 오류로 단정하지 않는다. 10분 간격으로 재시도하고, logcat 으로 대조한다(Pitfall F7).
+
+#### Anti-Patterns to Avoid (부록)
+- `fastlane add_plugin firebase_app_distribution` 실행 — Pluginfile 경로가 어긋난다(F1).
+- `firebase_app_distribution` 에서 `service_credentials_file` 생략 — owner ADC 폴백(F2).
+- `android_artifact_path` 생략(lane_context 의존) — debug APK 업로드 위험(F3).
+- `check-aab.sh` 를 APK 용으로 복사 — v2 APK 에서 항상 실패하거나, 검사를 느슨하게 고치다 무력화한다(F4).
+- `google-services.json` 을 `android/app/` 에 두기 — google-services 플러그인이 자동 적용되고 추적 파일이 된다(F5).
+- Firebase 앱 등록에 SHA-1 입력 + GCP 수동 클라이언트 생성을 둘 다 하기 — 쌍 중복(F6).
+- 카톡·드라이브로 APK 직접 전달 — D-13 이 금지한다.
+- 업로드 키 재생성 — Phase 23 Play 업로드 키가 깨진다(22-04 `keystore` SKIP 규약 유지).
+
+### 부록 — Don't Hand-Roll
+
+| Problem | Don't Build | Use Instead | Why |
+|---------|-------------|-------------|-----|
+| Firebase 업로드 · 배포 · 재시도 | REST 직접 호출(`releases:upload` · operation 폴링 · distribute) | `firebase_app_distribution` 플러그인 | 1.0.0 은 이어받기 업로드 · 폴링 · 재시도 · AAB 통합 검사를 이미 한다 [CITED: 플러그인 릴리스 노트 「Make uploads resumable」] |
+| APK 서명 인증서 파싱 | `unzip` + `openssl pkcs7` 로 META-INF 파싱 | `apksigner verify --print-certs` | v2/v3 서명 블록은 META-INF 에 없다(Pitfall F4) |
+| APK 메타(versionCode · debuggable) | `AndroidManifest.xml` 바이너리 XML 직접 해석 | `aapt2 dump badging` | 바이너리 XML |
+| 테스터 초대 메일 · 설치 페이지 | 자체 다운로드 페이지 · 링크 공유 | Firebase 초대 · App Tester | D-13 |
+| 최신 릴리스 확인 | 콘솔 눈확인 | `firebase_app_distribution_get_latest_release` | 자동 검증(V-F9) |
+
+### 부록 — Common Pitfalls
+
+#### Pitfall F1: `fastlane add_plugin` 이 Pluginfile 을 엉뚱한 곳에 만든다
+**What goes wrong:** Gemfile 은 `mobile/` 에, fastlane 폴더는 `mobile/android/fastlane/` 에 있다. `add_plugin` 은 Pluginfile 을 fastlane 폴더에 만들고 Gemfile 에 `eval_gemfile` 줄을 넣는다. 이때 경로가 Gemfile 기준 상대 경로라 둘이 어긋난다. 게다가 iOS lane(`ios/App/fastlane`)과도 공유되지 않는다.
+**How to avoid:** Pattern F1 처럼 Gemfile 에 `gem` 줄을 직접 넣는다. 이 방법으로 플러그인 로드를 확인했다 [VERIFIED].
+**Warning signs:** `Gemfile` 에 `eval_gemfile` 줄이 생기거나, `android/fastlane/Pluginfile` 이 생긴다.
+
+#### Pitfall F2: 자격 증명을 명시하지 않으면 owner 키로 업로드된다
+**What goes wrong:** 플러그인의 인증 우선순위는 다음과 같다 [VERIFIED: `firebase_app_distribution_auth_client.rb` `get_authorization`].
+- `service_credentials_file` → `service_credentials_json_data` → `firebase_cli_token` → `ENV["FIREBASE_TOKEN"]` → `~/.config/configstore/firebase-tools.json` 의 refresh token → ADC.
+- 이 맥은 `~/.zshrc:28` 에서 `GOOGLE_APPLICATION_CREDENTIALS` 를 deployer 키로 export 한다. 실측한 이번 셸의 값은 `/Users/alex/.config/gcloud/gh-radar-deployer.json` 이다.
+- deployer SA 의 프로젝트 역할은 `roles/owner` · `roles/iap.tunnelResourceAccessor` 다 [VERIFIED: `gcloud projects get-iam-policy`].
+**How to avoid:** lane 에서 `service_credentials_file:` 를 항상 명시한다. 래퍼는 fastlane 실행 전에 `unset GOOGLE_APPLICATION_CREDENTIALS FIREBASE_TOKEN` 을 한다(이중 방어). 플러그인 로그 첫 줄 `🔐 Authenticating with --service_credentials_file path parameter: …` 를 검사 대상으로 삼는다(V-F7). 이 줄에는 경로만 찍히고 값은 찍히지 않는다.
+**Warning signs:** 로그에 `Authenticating with Application Default Credentials` 가 나온다.
+
+#### Pitfall F3: 기본 APK 경로 = 「가장 최근 mtime 의 APK」
+**What goes wrong:** fastlane `gradle` 액션은 `build/outputs/apk/**` 의 모든 APK 가운데 mtime 이 가장 최근인 것을 `GRADLE_APK_OUTPUT_PATH` 로 둔다(debug 포함 · `gradle.rb:69-98`). 플러그인은 `android_artifact_path` 가 없으면 이 값을 쓴다(`firebase_app_distribution_action.rb:164-174`) [VERIFIED].
+**How to avoid:**
+- 절대 경로 `…/apk/release/app-release.apk` 를 명시한다.
+- 빌드 전에 이전 release APK 를 지운다(Pattern F2). 그러면 up-to-date 건너뛰기로 옛 파일이 남을 수 없다.
+- check-apk 가 versionCode 까지 대조한다.
+
+#### Pitfall F4: v2 전용 APK 에 `keytool`·`jarsigner` 를 쓰면 검사가 무의미해진다
+**What goes wrong:** `minSdkVersion = 24` 에서 AGP 는 v1 서명을 끈다. 실측한 debug APK 는 v2 만 서명돼 있었다. 이 경우 `keytool -printcert -jarfile` 은 빈 출력, `jarsigner -verify` 는 `no manifest.` 로 실패한다 [VERIFIED 실측]. `check-aab.sh` 를 복사하면 항상 FAIL 이 난다. 그걸 고치려고 검사를 빼면 서명 확인이 사라진다.
+**Release APK 에도 같은가:** release `signingConfigs`·`buildTypes` 에는 `enableV1Signing` 등의 재정의가 없다(`build.gradle:26-42` Read — `storeFile` · `storePassword` · `keyAlias` · `keyPassword` · `signingConfig` · `minifyEnabled` · `proguardFiles` 만). 그래서 같을 것으로 본다 [ASSUMED — 첫 release APK 에서 `apksigner verify --verbose` 로 확인]. v1 이 있든 없든 `apksigner` 기반 검사는 둘 다 통과한다.
+**How to avoid:** Pattern F5.
+
+#### Pitfall F5: `google-services.json` 이 저장소 안에 들어오면 빌드가 바뀐다
+**What goes wrong:** `build.gradle:81-88` 은 파일이 있으면 `com.google.gms.google-services` 를 적용한다. classpath 는 이미 있다(`android/build.gradle:11` `google-services:4.4.4`). 그런데 `android/.gitignore:65` 에서 ignore 줄이 주석 처리돼 있다. 콘솔 등록 마법사가 내려 준 파일을 무심코 `android/app/` 에 두면 두 가지가 생긴다. 릴리스 빌드에 Firebase 설정 리소스가 섞이고, 파일이 커밋된다. 이 파일의 API 키는 공개 식별자지만 D-17 「앱 안에 Firebase 없음」 을 어긴다.
+**How to avoid:**
+- 콘솔 절차에서 다운로드를 건너뛴다.
+- 위생 검사에 `test ! -e mobile/android/app/google-services.json` 과 ignore 샘플(`android/app/google-services.json`)을 추가한다.
+- `mobile/.gitignore` 에 `google-services.json` 을 더한다.
+
+#### Pitfall F6: Firebase 앱 등록 SHA-1 × GCP 수동 OAuth 클라이언트 = 쌍 중복
+**What goes wrong:** 패키지+SHA-1 쌍은 전 프로젝트에서 유일해야 한다. Firebase 는 앱에 SHA-1 이 들어가면 OAuth 클라이언트를 자동 생성할 수 있다. 여기에 GCP 콘솔에서 같은 쌍을 또 만들면 「An OAuth2 client already exists for this package name and SHA-1」 오류가 난다 [CITED: support.google.com/firebase/answer/6401008].
+**How to avoid:** Firebase 등록에서는 SHA-1 을 비운다. OAuth 클라이언트는 Phase 21 과 같은 GCP 콘솔 경로 하나로만 만든다.
+
+#### Pitfall F7: 기존 debug 설치본 위에 release APK 가 안 깔린다
+**What goes wrong:** Android 는 업데이트할 때 인증서가 같아야 한다. 인증서가 다르면 설치를 거부한다 [CITED: developer.android.com/studio/publish/app-signing — "The system allows the update if the certificates match"]. Phase 21 에서 debug 키로 깐 에뮬레이터·실기기에 Firebase APK 를 받으면 「앱이 설치되지 않았습니다(패키지 충돌)」 가 나고, adb 로는 `INSTALL_FAILED_UPDATE_INCOMPATIBLE` 이 난다. 에뮬레이터 `emulator-5554` 가 지금 붙어 있다 [VERIFIED: `adb devices`].
+**How to avoid:**
+- 테스터 안내와 본인 UAT 절차 첫 줄에 「기존 GH Trade(개발판)가 있으면 먼저 삭제」 를 넣는다.
+- 로컬 스모크는 `adb uninstall com.ghtrade.app && adb install app-release.apk` 순서로 한다.
+- 로그인 실패 시 `adb logcat -d -s GoogleProvider` 의 `signingSha1` 을 업로드 SHA-1 과 대조한다(본문 Pitfall 5 의 진단법을 재사용).
+
+#### Pitfall F8: App Distribution 「시작하기」 온보딩 누락
+**What goes wrong:** 앱 등록만 하고 App Distribution 페이지의 「시작하기」 를 안 누르면 업로드가 `INVALID_APP_ID`(「…Make sure to onboard your app by pressing the "Get started" button…」)로 실패한다 [VERIFIED: 플러그인 에러 메시지 소스].
+**How to avoid:** R1 체크포인트 지시문에 넣는다.
+
+#### Pitfall F9: 로그에 1시간 유효 다운로드 링크가 찍힌다
+**What goes wrong:** 업로드가 끝나면 플러그인이 세 줄을 출력한다 [VERIFIED: 액션 소스].
+- `🔗 Download the release binary (link expires in 1 hour): <binary_download_uri>`
+- `testing_uri`
+- `firebase_console_uri`
+다운로드 링크는 서명된 capability URL 이다.
+**How to avoid:** SUMMARY·커밋·채팅 보고에 이 URL 을 붙이지 않는다. 버전과 versionCode 만 적는다. fastlane `report.xml` 은 이미 ignore 된다(`android/fastlane/report.xml` 이 위생 샘플에 있음).
+
+#### Pitfall F10: 「업데이트」 는 자동이 아니다 (D-15 기대 관리)
+**What goes wrong:** Firebase 는 새 릴리스를 배포하면 기존 테스터에게 「새 빌드」 메일을 보낸다 [CITED: distribute-console · 2026-09-24]. 그러나 설치는 테스터가 탭해야 한다. Play 처럼 백그라운드 자동 업데이트는 없다. versionCode 가 줄면(다운그레이드) 덮어 설치가 안 된다.
+**How to avoid:** 테스터 안내문에 「메일/App Tester 알림 → 탭 → 설치」 를 적는다. 번호는 공식상 단조 증가한다. 같은 분에 두 번 실행하는 것은 금지한다(22-04 FA-1).
+
+#### Pitfall F11: 빌드 150일 만료 · 초대 30일 만료
+**What goes wrong:** 배포한 빌드는 150일 뒤 콘솔과 테스터 목록에서 사라진다. 만료 30일 전에 예고가 뜬다. 초대는 30일 안에 수락해야 하며 한 번만 수락할 수 있다. 수락은 초대받지 않은 다른 Google 계정으로도 된다 [CITED: firebase.google.com/docs/app-distribution/troubleshooting?platform=android · get-set-up-as-a-tester?platform=android · 2026-09-24].
+**How to avoid:** README 에 「iOS 90일 · Android 150일 안에 새 빌드」 를 적는다. 이미 설치된 앱은 만료 뒤에도 기기에 남아 동작할 가능성이 높다 [ASSUMED].
+
+#### Pitfall F12: Play Protect · 「출처를 알 수 없는 앱」 경고
+**What goes wrong:** Android 8+ 에서 처음 설치하면 브라우저나 App Tester 에 「이 출처 허용」 을 켜야 한다 [CITED: troubleshooting]. 처음 보는 사이드로드 앱에는 Play Protect 가 「앱 검사」·「안전하지 않은 앱」 대화상자를 띄울 수 있다 [ASSUMED — 문구·빈도 미확인]. GH Trade 는 `INTERNET` 권한 하나뿐이다(`AndroidManifest.xml:43` Read). 민감 권한 기반 차단(사기 방지 파일럿) 대상일 가능성은 낮다 [ASSUMED].
+**How to avoid:** 테스터 안내에 「경고가 나오면 '그래도 설치'」 한 줄과 캡처 요청을 넣는다. UAT 에서 실제 문구를 기록한다.
+
+### 부록 — 테스터 UX · 한도 (Android · 요약)
+
+| 항목 | 값 | 근거 |
+|------|-----|------|
+| 테스터 절차 | ① 초대 메일 열기 → Google 로그인 → 초대 수락 ② (선택) App Tester 설치 — `appdistribution.firebase.google.com` 에서 ③ 「이 출처 허용」 ④ Download → 설치. iOS 3단계와 같은 수준이다(D-13 의 4단계 문구와 일치) | [CITED: get-set-up-as-a-tester?platform=android] |
+| 새 빌드 알림 | 기존 테스터에게 이메일(+ App Tester 목록) | [CITED: distribute-console] |
+| 테스터 한도 | 프로젝트 500명 · 그룹 200명 | [CITED: troubleshooting] |
+| 빌드 보관 | 150일 · 앱당 1,000릴리스 초과 시 오래된 것부터 삭제 | [CITED: troubleshooting] |
+| 초대 만료 | 30일 · 1회 수락 | [CITED] |
+| 바이너리 한도 | 2048 MiB | [CITED: 검색 결과 요약 · MEDIUM] |
+| 비용 | 무료 제품(Spark·Blaze 공통) | [CITED: firebase.google.com/pricing] |
+| Google 계정 | 테스터에게 필요하다. 앱 로그인 계정과 같지 않아도 된다 | [CITED: troubleshooting · get-set-up] |
+
+### 부록 — Android 개발자 인증(사이드로드) 현황 (D-18 · 2026-09-27 기준 · 시한부)
+
+| 시점 | 내용 | 근거 |
+|------|------|------|
+| 2026-08 | 개발자 API · 제한 배포 계정(기기 20대 · 신분증·등록비 없음) · advanced flow 출시 | [CITED: developer.android.com/developer-verification] |
+| **2026-09-30** | **브라질 · 인도네시아 · 싱가포르 · 태국**의 **참여 스토어**(Google Play · Galaxy Store · OPPO · Honor 등) 설치에 적용. 한국은 명시 대상이 아니다 | [CITED: 같은 페이지 · support.google.com/android-developer-console/answer/16561738] |
+| 현재(FAQ 2026-07-15) | "If you distribute your app through other stores, or if users sideload your app directly, these new verification requirements won't apply to your app yet." → **Firebase App Distribution(브라우저·App Tester 사이드로드) 설치는 아직 영향이 없다** | [CITED: developer.android.com/developer-verification/guides/faq] |
+| 2027~ | 인증 기기 전 세계로 확대. 미등록 앱의 일반 사이드로드는 막히고, ADB 와 advanced flow(24시간 대기)만 예외다. 적용 월·국가 순서는 미발표다 [ASSUMED 미확인] | [CITED: FAQ] |
+| 완화책 | ① Play 개발자 인증이 끝난 뒤 `com.ghtrade.app` 에 업로드 키 인증서도 등록한다(ADC 는 패키지당 서명 키 여러 개를 등록할 수 있다 — FAQ 2026-03-23). Play App Signing 앱은 자동 등록 대상이다 ② 제한 배포 계정(20대) ③ 본인 기기는 ADB | [CITED: FAQ] · 등록 UI 경로 [ASSUMED] |
+
+**계획 영향:** 이번 phase 에는 코드·절차 변경이 없다. README 와 테스터 안내에 D-18 문장(「Play 개발자 인증 전까지의 임시 경로 · 2027 확대 뒤 설치 불가 가능」)과 확인 날짜(2026-09-27)를 적는다. **이 절은 2027 적용 공지가 나오면 다시 확인해야 한다.**
+
+### 부록 — Phase 23 이관 메모 (D-14 결과)
+
+- **재설치 필요:** Firebase APK 는 업로드 키로 서명된다. Play 배포본은 Play 앱 서명 키(Google 생성 · 신규 앱 기본은 양자 대비 하이브리드)로 서명된다. 인증서가 다르면 업데이트할 수 없다. 공식 문서는 이렇게 적는다 [CITED: developer.android.com/studio/publish/app-signing]: "If you sign the new version with a different certificate, you must assign a different package name to the app". 그래서 테스터는 Firebase 설치본을 **삭제한 뒤 Play 에서 설치**해야 한다(D-14).
+- **재설치 비용이 작다:** Remote-URL 셸이라 기기에 남는 것은 WebView 저장소(로그인 세션 · 오프라인 폴백 캐시)뿐이다. 잃는 것은 재로그인 1회다 [ASSUMED — WebView 저장소 외 로컬 데이터 없음은 Phase 21 구조 기억].
+- **대안 — 업로드 키를 앱 서명 키로 제공:** Play 첫 업로드 때 「Provide your own key」(PEPK)로 현재 업로드 키를 앱 서명 키로 넘기면 Firebase 설치본이 Play 업데이트를 그대로 받을 수 있다. 권장하지 않는 이유는 세 가지다.
+  - Google 은 "For maximum security, your upload key and app signing key should be different" 라고 한다 [CITED: support.google.com/googleplay/android-developer/answer/9842756]. 새 업로드 키를 따로 만들어야 한다.
+  - 앱 서명 키를 잃으면 복구할 수 없다.
+  - 테스터 5명 미만의 재설치 비용보다 크다.
+- **Phase 23 체크리스트에 넣을 것:**
+  - (a) 테스터 안내: 「Firebase 판 삭제 → Play 참여 링크」.
+  - (b) GCP Android 클라이언트에 Play 앱 서명 인증서 SHA-1 들을 추가한다(업로드 키 클라이언트는 유지 — Firebase·로컬 사이드로드가 계속 쓴다).
+  - (c) Firebase 경로를 계속 둘지 결정한다(D-18 · 2027).
+  - (d) Play 경로 스크립트: `native:release:android:play` · `play-sa`.
+
+### 부록 — Environment Availability
+
+| Dependency | Required By | Available | Version | Fallback |
+|------------|------------|-----------|---------|----------|
+| Homebrew Ruby · Bundler | 플러그인 | ✓ | ruby 4.0.2 (2026-03-17) [VERIFIED: `ruby -v`] · bundler 4.0.8(본문) | — |
+| `fastlane-plugin-firebase_app_distribution` | lane `firebase` | ✗(미설치) → `bundle install` 로 설치 | 1.0.0 | Firebase CLI(비권장) |
+| Firebase CLI(`firebase`) | (대안만) | ✗ | — | 불필요 |
+| `~/.config/configstore/firebase-tools.json` | (플러그인 폴백 경로) | ✗ — `update-notifier-npm.json` 만 있음 | — | 없는 편이 안전하다(폴백 차단) |
+| Android build-tools `apksigner` · `aapt2` | check-apk | ✓ | 36.1.0 (`$ANDROID_HOME/build-tools/`) · PATH 에는 없음 → 절대 경로 사용 | 36.0.0 · 35.0.0 도 있음 |
+| `ANDROID_HOME` · `JAVA_HOME` | apksigner(java 필요) · gradle | ✓ | `/Users/alex/Library/Android/sdk` · Android Studio JBR(openjdk 21.0.9) | `!` 셸에서는 비어 있을 수 있다 → 스크립트 기본값 |
+| `adb` · 에뮬레이터 | 로컬 사이드로드 스모크 · logcat | ✓ | `emulator-5554` 연결 중 | 실기기 |
+| 업로드 키스토어 · `android.env` | assembleRelease 서명 | ✓ | `~/.config/gh-trade/release/` 700 · 파일 600 [VERIFIED: `ls -la` 권한만] | Secret Manager 백업 |
+| Firebase SA 키 | 업로드 | ✗ | — | `setup-release-secrets.sh firebase-sa`(사용자 `!`) |
+| gh-radar Firebase 추가 · Android 앱 · 온보딩 · 그룹 | 업로드 대상 | ✗ | — | 사용자 콘솔(R1) |
+| `firebaseappdistribution.googleapis.com` | 업로드 | ✗(미사용 설정) · 서비스 존재 확인 [VERIFIED: `gcloud services list --available`] | — | firebase-sa stage 가 enable |
+| gcloud + deployer SA | SA·역할·키 생성 | ✓ | `roles/owner` | 사용자 계정 gcloud |
+| org 정책 | SA 키 생성 · IAM 바인딩 | ✓ 비제한 | `iam.disableServiceAccountKeyCreation` = `booleanPolicy: {}` · `iam.allowedPolicyMemberDomains` = `allValues: ALLOW` [VERIFIED: effective 조회] | — |
+
+**Missing dependencies with no fallback:** 없음. 모두 사용자 콘솔 작업이나 `!` 비밀 주입으로 해소된다.
+
+### 부록 — Security Domain
+
+| ASVS Category | Applies | Standard Control |
+|---------------|---------|-----------------|
+| V2 Authentication | yes(업로드 자격) | 전용 SA 키 · 600 · 저장소 밖 · 명시 경로 · ADC 폴백 차단 |
+| V4 Access Control | yes | `roles/firebaseappdistro.admin` 단일 역할(프로젝트 수준). 테스터 = 그룹 별칭. 트레이딩 = `dma_credentials`(무변경) |
+| V6 Cryptography | yes(서명) | 업로드 키 재생성 금지 · apksigner 로 서명자 1개 · SHA-1 대조 |
+| V8 Data Protection | yes | 로그의 1시간 다운로드 URL · 테스터 이메일을 문서화하지 않는다 |
+| V14 Configuration | yes | `google-services.json` 부재 · 운영 URL · debuggable off · 위생 검사 |
+
+| Threat | STRIDE | Mitigation |
+|--------|--------|-----------|
+| SA 키 유출 → 임의 APK 를 테스터에게 배포 | Tampering / EoP | 전용 SA · 단일 역할 · 600 · 유출 시 GCP 에서 키 삭제. 기존 테스터 기기는 서명이 달라 덮어 설치가 거부된다(업로드 키는 따로 보호). 새 테스터는 위험하다 → 그룹 최소화 |
+| owner 키가 릴리스 경로로 흘러감 | EoP | `service_credentials_file` 명시 + 래퍼 `unset GOOGLE_APPLICATION_CREDENTIALS` · V-F7 로그 검사 |
+| debug/dev 설정 APK 배포 | Tampering | verify-prod 게이트 + check-apk(서명자 · debuggable · server.url · cleartext · webContentsDebugging · versionCode) |
+| 캡처 URL 노출 | Information Disclosure | SUMMARY·채팅에 URL 을 적지 않는다(Pitfall F9) |
+| Firebase 추가에 따른 운영 프로젝트 표면 증가(Browser API 키 · adminsdk SA) | EoP(잠재) | 체크포인트에서 사용자에게 고지한다. adminsdk SA 에 키를 만들지 않는다. Browser 키는 Firebase API 로 자동 제한된다 [CITED] |
+
+### 부록 — Assumptions Log
+
+| # | Claim | Section | Risk if Wrong |
+|---|-------|---------|---------------|
+| FA-A1 | gh-radar 는 결제가 켜져 있어 Firebase 추가 시 Blaze 가 된다(Cloud Run 운영 근거 · Billing API 조회 실패) | Pattern F6 | Spark 면 오히려 영향이 적다. App Distribution 은 어느 쪽이든 무료 |
+| FA-A2 | 릴리스 APK 도 debug 처럼 v2 만 서명된다 | Pitfall F4 | v1 이 추가돼도 apksigner 검사는 통과 — 영향 없음 |
+| FA-A3 | Play Protect 가 첫 사이드로드에 경고할 수 있다 · 민감 권한 파일럿 차단 대상 아님 | Pitfall F12 | 경고 문구가 다르면 안내문을 수정한다. 차단되면 D-13 재논의 |
+| FA-A4 | 만료된 빌드도 이미 설치된 앱은 계속 동작한다 | Pitfall F11 | 150일마다 새 빌드가 필요하다(절차상 이미 권장) |
+| FA-A5 | 새 OAuth 클라이언트 반영에 수 분~수 시간이 걸릴 수 있다 | Pattern F7 | 즉시 반영이면 재시도 절차가 no-op |
+| FA-A6 | Firebase 추가가 기존 OAuth 동의 화면 · Supabase Google 로그인에 영향을 주지 않는다(Firebase Auth 를 켜지 않는 한) | Pattern F6 | 영향이 있으면 웹 로그인 회귀 — R1 뒤 웹 로그인 스모크 1회로 확인 |
+| FA-A7 | 2027 전 세계 적용 월 · 순서 미발표 · ADC 에 업로드 키 인증서를 추가 등록하는 UI 경로 | 개발자 인증 절 | 날짜가 당겨지면 Phase 23 우선순위 상향 |
+| FA-A8 | SA ID `gh-trade-appdistro` 형식 규칙 · 그룹 별칭 `ghtrade-testers` 허용 문자 | Pattern F4 · F6 | 생성 단계에서 오류 → 이름 변경 |
+| FA-A9 | Remote-URL 셸의 재설치 손실 = 재로그인뿐 | Phase 23 메모 | 로컬 데이터가 더 있으면 안내문 보강 |
+| FA-A10 | 새 Firebase 전용 프로젝트를 만들 권한(조직 1016457930201 아래 프로젝트 생성)이 사용자 계정에 있다 | Alternatives | 없으면 D-17 기본값(gh-radar)만 가능 |
+
+### 부록 — Open Questions
+
+1. **D-17 Firebase 프로젝트 선택**
+   - What we know: gh-radar 추가는 되돌릴 수 없고, 부수 효과 목록이 문서화돼 있다. 기능적으로 기존 서비스를 바꾸지는 않는다. 새 프로젝트는 격리되지만 SA 생성을 사용자 계정으로 해야 한다.
+   - Recommendation: **기본값(gh-radar) 유지를 권장한다.**
+     - 근거 ①: 앱에 SDK 가 없어 Firebase 는 배포 도구로만 쓰인다.
+     - 근거 ②: deployer 로 `firebase-sa` stage 가 한 번에 끝난다.
+     - 근거 ③: Phase 23 Play SA 도 gh-radar 에 둔다.
+   - 결정 방식: `checkpoint:decision` 본문에 부수 효과 목록과 대안을 싣고 사용자가 고른다.
+2. **Firebase 앱 ID 보관 위치**
+   - Recommendation: Fastfile 상수(공개 식별자 · `google-client-ids.ts` 선례). env 로 두면 주입 단계가 하나 늘 뿐 보안 이득이 없다.
+3. **`release-android.sh` 인자 없는 기본 모드**
+   - Recommendation: package.json 이 항상 모드를 명시하게 하고, 스크립트 기본값은 `firebase` 로 바꾼다(Phase 22 기본 경로).
+   - 22-04 검증 명령은 모두 명시 모드를 썼으므로 회귀는 없다. 헤더 주석을 갱신한다.
+4. **로컬 사이드로드 스모크를 Firebase 업로드 앞에 둘지**
+   - Recommendation: 둔다. `adb install` 로 업로드 키 SHA-1 OAuth 클라이언트를 먼저 검증하면, 테스터에게 깨진 빌드 알림이 가는 일을 막는다(Pitfall F7).
+5. **Android 테스터가 App Tester 를 깔지**
+   - Recommendation: 「선택」 으로 둔다. 새 빌드 알림을 앱으로 받고 싶을 때만 깐다. 사용자 요구(「설치 절차 복잡한 건 싫다」)에 맞춘다.
+
+### Validation Architecture (부록)
+
+본문 Validation Architecture 의 MOBILE-02a~o 가운데 다음 항목은 Phase 23 으로 넘어간다.
+- **MOBILE-02g**(AAB)는 `native:release:android:aab` 회귀로만 남는다.
+- **MOBILE-02m**(Play 트랙)과 **MOBILE-02n 의 Android Play 설치본 부분**은 Phase 23 으로 이관한다.
+
+Android Firebase 경로의 검사는 아래 V-F* 로 대체한다.
+
+| ID | Behavior | Type | Automated Command | Exists? |
+|----|----------|------|-------------------|---------|
+| V-F1 | 플러그인 잠금: Gemfile.lock 에 `fastlane-plugin-firebase_app_distribution (1.0.` 이 있고 `fastlane (2.240.1)` 는 그대로 · `eval_gemfile`/Pluginfile 없음 | static | `cd mobile && grep -q 'fastlane-plugin-firebase_app_distribution (1\.0\.' Gemfile.lock && grep -q '    fastlane (2.240.1)' Gemfile.lock && ! grep -q eval_gemfile Gemfile && test ! -e android/fastlane/Pluginfile` | ❌ Wave 0 |
+| V-F2 | 플러그인 로드 | smoke | `cd mobile/android && PATH=/opt/homebrew/opt/ruby/bin:$PATH FASTLANE_SKIP_UPDATE_CHECK=1 bundle exec fastlane action firebase_app_distribution \| grep -q 'fastlane-plugin-fireb'` | ❌ Wave 0 |
+| V-F3 | 보존(D-16): 기존 lane 4개 · `native:release:android:aab` · `native:release:android:play` · `play-sa` stage 유지 · `native:release:android` 는 `firebase` 모드 | static | `grep -cE '^  lane :(build\|beta\|validate\|track) do' mobile/android/fastlane/Fastfile` = 4 · `node -e 'const s=require("./mobile/package.json").scripts;process.exit(/release-android\.sh firebase$/.test(s["native:release:android"])&&/ build$/.test(s["native:release:android:aab"])&&/ beta$/.test(s["native:release:android:play"])?0:1)'` · `grep -q 'play-sa' mobile/scripts/setup-release-secrets.sh` | ❌ Wave 0 |
+| V-F4 | 래퍼 빈 엣지: env 파일 없음 → exit 3 · SA JSON 없음 → exit 3 + `setup-release-secrets.sh firebase-sa` 안내 · 모르는 모드 → exit 2 · 둘 다 fastlane 미실행 | unit(셸) | `GHTRADE_RELEASE_ENV=/nonexistent bash mobile/scripts/release-android.sh firebase; test $? -eq 3` · `FIREBASE_APPDISTRO_SA_JSON=/nonexistent bash mobile/scripts/release-android.sh firebase 2>&1 \| grep -q 'firebase-sa'` (exit 3 · 출력에 `Driving the lane` 없음) · `bash mobile/scripts/release-android.sh nope; test $? -eq 2` | ❌ Wave 0 |
+| V-F5 | gradle 가드: env 없는 `assembleRelease` 즉시 실패 | build | `cd mobile/android && env -u GHTRADE_UPLOAD_STORE_FILE ./gradlew assembleRelease 2>&1 \| grep -q 'GHTRADE_UPLOAD_STORE_FILE 없음'` | ✅ 가드 존재 · 명령 신규 |
+| V-F6 | check-apk 음성: Phase 21 debug APK → FAIL(SHA-1 불일치 + debuggable) · 없는 파일 → FAIL · 잘못된 `GHTRADE_UPLOAD_SHA1` → FAIL · 소문자·콜론 없는 SHA-1 입력 → 정규화 OK | unit(셸) | `GHTRADE_UPLOAD_SHA1=2F:E3:BA:78:A5:74:16:06:F8:79:A8:D3:3C:28:23:EF:72:98:7B:7D bash mobile/scripts/check-apk.sh mobile/android/app/build/outputs/apk/debug/app-debug.apk; test $? -eq 1` (+ 출력에 `debuggable` · `업로드 키`) · `bash mobile/scripts/check-apk.sh /nonexistent.apk; test $? -eq 1` | ❌ Wave 0 |
+| V-F7 | 업로드 성공 · 인증 경로 = 전용 SA 파일 · ADC 미사용 · 출력에 `APK CHECK OK` | integration | `pnpm --filter @gh-radar/mobile run native:release:android 2>&1 \| tee "$SCRATCH/fad.log"` → `grep -q 'PROD CONFIG OK' && grep -q 'APK CHECK OK' && grep -q 'Authenticating with --service_credentials_file' && ! grep -q 'Application Default Credentials' && grep -q 'App Distribution upload finished successfully'` (로그는 scratchpad · 커밋 금지 · Pitfall F9) | 절차 신규 |
+| V-F8 | APK 사실 검증: 서명자 1개 · SHA-1 = 업로드 · `versionCode` = lane 출력 · `application-debuggable` 없음 · `assets/capacitor.config.json` 운영값 | artifact | `bash mobile/scripts/check-apk.sh`(릴리스 APK · 인자 없음) → `APK CHECK OK sha1=2fe3ba78a574160…` | ❌ Wave 0 |
+| V-F9 | Firebase 최신 릴리스 buildVersion = 방금 versionCode | integration | `bash mobile/scripts/release-android.sh firebase-latest \| grep -q "latest Firebase build $VC"` | ❌ Wave 0 |
+| V-F10 | 번호 규칙: 두 번째 업로드 versionCode > 첫 번째 · ≤ 2,100,000,000 · 기존 minitest 유지 | unit + integration | `/opt/homebrew/opt/ruby/bin/ruby mobile/fastlane/test/build_numbers_test.rb` (0 failures) · SUMMARY 두 값 비교 | ✅ minitest 존재 |
+| V-F11 | 저장소 무변경: 릴리스 두 번 뒤 `git status --porcelain mobile/` 빈 출력(APK · version-code.txt 는 ignore 된 build/) | smoke | `test -z "$(git status --porcelain mobile/)"` | ✅ 절차 존재 |
+| V-F12 | 위생 보강: ignore 샘플에 `android/app/build/outputs/apk/release/app-release.apk` · `firebase-appdistro-service-account.json` · `android/app/google-services.json` 추가 · `google-services.json` 실파일 부재 · SA 키 600 · Fastfile 에 `service_credentials_file:` 명시 · `android_artifact_path:` 명시 | static | `bash mobile/scripts/check-release-hygiene.sh` → `RELEASE HYGIENE OK`(샘플 수 18→21) · `grep -c 'service_credentials_file:' mobile/android/fastlane/Fastfile` ≥ 2 · `grep -c 'android_artifact_path:' …` ≥ 1 | ❌ Wave 0(스크립트 보강) |
+| V-F13 | 최소 권한: 전용 SA 의 프로젝트 역할이 정확히 `roles/firebaseappdistro.admin` 하나 | integration(읽기 전용) | `gcloud projects get-iam-policy gh-radar --flatten='bindings[].members' --filter='bindings.members:serviceAccount:gh-trade-appdistro@gh-radar.iam.gserviceaccount.com' --format='value(bindings.role)'` 출력 = 그 한 줄 | 절차 신규 |
+| V-F14 | 로컬 사이드로드 스모크(에뮬레이터): debug 판 삭제 → release APK 설치 → 실행 | smoke(+manual 로그인) | `adb uninstall com.ghtrade.app; adb install mobile/android/app/build/outputs/apk/release/app-release.apk` → `Success` · 로그인 뒤 `adb logcat -d -s GoogleProvider \| grep -i signingSha1` 이 업로드 SHA-1 | 절차 신규 |
+| V-F15 | iOS 잔여(R6): `release-ios.sh latest` 가 22-01 빌드 `202609270252`(처리 완료 뒤) · 모르는 모드 exit 2 | integration | `bash mobile/scripts/release-ios.sh latest \| grep -q 'latest TestFlight build'` · `bash mobile/scripts/release-ios.sh nope; test $? -eq 2` | ❌ Wave 0 |
+| V-F16 | 웹 push 게이트(R10): 옛 22-07 Task 2 의 verify 4개 그대로(백엔드 diff 0 · 배포 relay SHA 이후 diff 0 · 방침 `status: approved` · 웹 변경 허용 7개 부분집합) + 시행일 자리표시 0건 | static | 옛 22-07 명령 재사용 + `! grep -q '○월' webapp/src/app/privacy/page.tsx` | ✅ 명령 존재(옛 플랜) |
+
+**Manual-only (부록 · 자동화 불가: 콘솔 · 타인 계정 · 실기기):**
+| 항목 | 누가 | 확인 |
+|------|------|------|
+| Firebase 추가 · 앱 등록(SHA-1 비움) · 「시작하기」 · 그룹 · 테스터 | 사용자 | 재개 신호 `done appId=1:…:android:… 그룹=ghtrade-testers 테스터=N명` |
+| GCP Android OAuth 클라이언트(업로드 SHA-1) · 동의 화면 상태 | 사용자 | 재개 신호 `done Android클라이언트(upload)=1 동의화면=프로덕션\|테스트+N` |
+| 테스터 기기: 초대 수락 → (선택) App Tester → 출처 허용 → 설치 → Google 로그인 → 홈 · 트레이딩 탭 DmaGate 만 | 사용자·테스터 | UAT 기록(경고 문구 · 걸린 단계 수) |
+| 두 번째 빌드: 메일/App Tester 알림 → 탭 → 덮어 설치(삭제 없이) → 로그인 유지 | 사용자 | UAT |
+| iOS: TestFlight 내부 그룹 자동 배포 · 실기기 설치 · 로그인 · 두 번째 빌드 자동 도착 | 사용자 | UAT(옛 22-06/07 그대로) |
+
+**Sampling (부록):**
+- **태스크 커밋마다:** `check-release-hygiene.sh` + V-F1·V-F3·V-F4·V-F6 을 돌린다. 모두 수 초 안에 끝나고 네트워크를 쓰지 않는다.
+- **업로드 태스크:** V-F7·V-F8·V-F9·V-F11.
+- **phase 게이트:** 본문의 build/test/e2e 게이트 + V-F10·V-F13·V-F15·V-F16.
+- **Wave 0:** `check-apk.sh` 신설 · 위생 검사 보강 · 래퍼 모드 확장 · iOS `latest` 모드. 음성 테스트(V-F4·V-F6)가 먼저 RED 가 되게 한다.
+
+### 부록 — Sources
+
+**Primary (HIGH — 이번 세션 실측 · Read)**
+- rubygems API: `fastlane-plugin-firebase_app_distribution` 1.0.0(2026-03-04 · ruby >= 3.2 · fastlane >= 2.232.0 · 누적 55,422,974) · `google-apis-firebaseappdistribution_v1` 0.22.0 · `_v1alpha` 0.30.0
+- gem 1.0.0 소스 Read: `actions/firebase_app_distribution_action.rb`(옵션 · 경로 해석 · 로그 출력) · `helper/firebase_app_distribution_auth_client.rb`(인증 우선순위) · `actions/firebase_app_distribution_get_latest_release.rb` · `helper/firebase_app_distribution_error_message.rb`
+- scratchpad `bundle lock` diff(+3 gem · fastlane 불변) · `bundle install` · `fastlane action firebase_app_distribution`(Ruby 4.0.2)
+- fastlane 2.240.1 설치본 Read: `plugins/plugin_manager.rb:55-67` · `actions/gradle.rb:60-100`
+- `gcloud iam roles describe roles/firebaseappdistro.admin` · `gcloud projects get-iam-policy`(deployer = owner) · org 정책 effective 2건 · `gcloud services list --enabled/--available`
+- debug APK 실측: `apksigner verify --verbose/--print-certs` · `keytool -printcert -jarfile` · `jarsigner -verify` · `aapt2 dump badging` · `unzip -l`
+- 저장소 Read: 위 「인용 근거」 목록 전부 · `22-CONTEXT.md` · `22-04-SUMMARY.md` · 옛 `22-06-PLAN.md` · `22-07-PLAN.md`
+
+**Secondary (MEDIUM — 공식 문서 인용)**
+- https://firebase.google.com/docs/app-distribution/android/distribute-fastlane — 설치 · 인증 방식 · 파라미터 표(2026-09-24)
+- https://firebase.google.com/docs/app-distribution/troubleshooting?platform=android — 500명/200명 · 150일 · 1,000릴리스 · 30일 초대 · 출처 허용(2026-09-24)
+- https://firebase.google.com/docs/app-distribution/get-set-up-as-a-tester?platform=android — 테스터 단계 · 다른 계정 수락 · 1회 수락
+- https://firebase.google.com/docs/app-distribution/android/distribute-console — 「시작하기」 · 새 빌드 알림 메일 · 150일
+- https://firebase.google.com/docs/projects/use-firebase-with-existing-cloud-project — 기존 GCP 프로젝트에 추가 · 켜지는 API · SA · 되돌릴 수 없음(2026-09-24)
+- https://firebase.google.com/docs/projects/learn-more — Firebase 프로젝트 = GCP 프로젝트 · IAM 공유 · 결제 시 Blaze
+- https://firebase.google.com/pricing — App Distribution 무료 제품
+- https://developer.android.com/developer-verification · https://developer.android.com/developer-verification/guides/faq · https://support.google.com/android-developer-console/answer/16561738 — 일정 · 사이드로드 미적용(FAQ 2026-07-15) · ADB · 다중 서명 키
+- https://developer.android.com/studio/publish/app-signing — 같은 인증서여야 업데이트(2026-03-06)
+- https://support.google.com/googleplay/android-developer/answer/9842756 — 앱 서명 키 선택지 · 업로드 키와 분리 권고
+- https://support.google.com/firebase/answer/6401008 · https://support.google.com/googleapi/answer/6158849 — 패키지+SHA-1 쌍 유일 · 인증서당 Android 클라이언트 1개
+- https://github.com/fastlane/fastlane-plugin-firebase_app_distribution/releases — 1.0.0 「Require Ruby >= 3.2」 · 「Make uploads resumable」
+
+**Tertiary (LOW)**
+- https://github.com/firebase/firebase-tools/discussions/6283 — `FIREBASE_TOKEN`/`login:ci` deprecated
+- https://www.helpnetsecurity.com/2026/06/19/android-developer-verification-rollout-markets/ · https://www.androidauthority.com/android-sideloading-changes-timeline-3679204/ — 일정 보도(공식 페이지와 교차 확인)
+
+### 부록 — Metadata
+
+**Confidence breakdown:**
+- **Standard stack: HIGH.** 레지스트리, gem 소스, 실제 잠금과 로드를 실측했다.
+- **Architecture:** 둘로 나뉜다.
+  - HIGH — lane·래퍼·검사 설계. 플러그인과 fastlane 소스, 실측이 근거다.
+  - MEDIUM — 콘솔 절차. 공식 문서 인용이고 화면 라벨은 미확인이다.
+- **Pitfalls:** 셋으로 나뉜다.
+  - HIGH — F1~F5·F8·F9. 소스와 실측이 근거다.
+  - MEDIUM — F6·F7·F10·F11. 공식 문서가 근거다.
+  - LOW — F12(Play Protect).
+- **개발자 인증: MEDIUM · 시한부.** 공식 FAQ 가 근거다. 2027 세부는 미발표다.
+
+**Research date:** 2026-09-27
+**Valid until:** 2026-10-11. 기한을 14일로 둔 이유는 두 가지다. 개발자 인증은 2026-09-30 적용 직후라 공지가 바뀔 수 있다. Firebase 문서도 2026-09-24 에 갱신됐다. 2027 적용 공지가 나오면 즉시 다시 확인한다.
