@@ -2038,3 +2038,90 @@ describe('⑲ 선매수 자동 체크 D-06 · D-07 · D-08 — 사람의 선매�
     expect(lastConfig()).toMatchObject({ extraBuyEnabled: true, sellEnabled: false, cancelQtyEnabled: false });
   });
 });
+
+describe('⑳ 새 전략 기본값(D-04) · 상장주식수 시딩(D-17) — 폼당 1회 · 손댄 칸 제외 · 서버 전략이면 생략 · 제출 없음 (24-07)', () => {
+  const SEEDED = {
+    'lc-buy-watch-qty': '30,000주',
+    'lc-buy-min-trade-qty': '30,000주',
+    'lc-extra-buy-min-qty': '30,000주',
+    'lc-extra-buy-max-qty': '300,000주',
+    'lc-sell-min-trade-qty': '30,000주',
+  } as const;
+  const expectRows = (want: Record<string, string>) => {
+    for (const [id, text] of Object.entries(want)) expect(rowText(id), id).toBe(text);
+  };
+
+  it('E1 새 전략 — 금액 각 4,000만원 · 반등 30% · 최소 100,000주 · 최대 3회 · 스위치 전부 OFF', () => {
+    render(<LimitChaserForm {...props({ server: null, upperLimit: 30_000 })} />);
+    expect(rowText('lc-buy-order-amount')).toBe('4,000만원');
+    expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(sw('선매수 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(sw('추가매수 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(sw('후매수 켜기')).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('listShares 0 → 폴백 그대로 · 뒤에 1,000만주 도착 → 5칸 시딩 · 전송 0 · 로그 0 · 그 뒤 값이 바뀌어도 다시 시딩하지 않는다', () => {
+    const onClientLog = vi.fn();
+    const { rerender } = render(<LimitChaserForm {...props({ server: null, upperLimit: 30_000, listShares: 0, onClientLog })} />);
+    expectRows({
+      'lc-buy-watch-qty': '10,000주',
+      'lc-buy-min-trade-qty': '30,000주',
+      'lc-extra-buy-min-qty': '1주',
+      'lc-extra-buy-max-qty': '무제한',
+      'lc-sell-min-trade-qty': '30,000주',
+    });
+    rerender(<LimitChaserForm {...props({ server: null, upperLimit: 30_000, listShares: 10_000_000, onClientLog })} />);
+    expectRows(SEEDED);
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(onClientLog).not.toHaveBeenCalled();
+    rerender(<LimitChaserForm {...props({ server: null, upperLimit: 30_000, listShares: 20_000_000, onClientLog })} />);
+    expectRows(SEEDED);
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('처음부터 listShares 가 있으면 마운트에서 시딩한다(liveSeed remount 경로)', () => {
+    render(<LimitChaserForm {...props({ server: null, upperLimit: 30_000, listShares: 10_000_000 })} />);
+    expectRows(SEEDED);
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('사용자가 이 폼에서 손댄 칸은 덮지 않는다 — 매도잔량 8,000 로컬 확정 뒤 도착 → 8,000 그대로 · 나머지 4칸만', () => {
+    const { rerender } = render(<LimitChaserForm {...props({ server: null, upperLimit: 30_000, listShares: 0 })} />);
+    editInline('lc-buy-watch-qty', '8000');
+    expect(rowText('lc-buy-watch-qty')).toBe('8,000주');
+    rerender(<LimitChaserForm {...props({ server: null, upperLimit: 30_000, listShares: 10_000_000 })} />);
+    expectRows({ ...SEEDED, 'lc-buy-watch-qty': '8,000주' });
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('서버에 그 키의 전략이 있으면 시딩하지 않는다(에코가 이긴다)', () => {
+    const s = echo();
+    const { rerender } = render(<LimitChaserForm {...props({ server: s, listShares: 0 })} />);
+    rerender(<LimitChaserForm {...props({ server: s, listShares: 10_000_000 })} />);
+    expect(rowText('lc-buy-watch-qty')).toBe('10,000주');
+    expect(rowText('lc-extra-buy-max-qty')).toBe('무제한');
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('새 전략에서 마스터를 켜 등록하면 cfg 에 시딩된 5칸과 D-04 기본값이 실린다', () => {
+    render(<LimitChaserForm {...props({ server: null, upperLimit: 30_000, listShares: 10_000_000 })} />);
+    click(sw('매수주문 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({
+      buyEnabled: true,
+      buyWatchQty: 30_000,
+      buyMinTradeQty: 30_000,
+      extraBuyMinQty: 30_000,
+      extraBuyMaxQty: 300_000,
+      sellMinTradeQty: 30_000,
+      buyOrderAmount: 4000,
+      extraBuyOrderAmount: 4000,
+      postBuyOrderAmount: 4000,
+      sellQtyTrackRatio: 55,
+      postBuyReboundPct: 30,
+      postBuyFloorQty: 100_000,
+      postBuyReentry: 3,
+      buyOrderQty: buyOrderQtyFromAmount(4000, 30_000),
+    });
+  });
+});

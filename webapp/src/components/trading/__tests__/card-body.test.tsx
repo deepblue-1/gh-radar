@@ -667,3 +667,22 @@ describe('24-06 — 폼에 매수1호가(bestBid) · 클라 로그 통로(onClie
     expect(pushClientLog).not.toHaveBeenCalled();
   });
 });
+
+describe('24-07 — 폼에 상장주식수(listShares = quote.ls) 를 넘긴다 (D-17)', () => {
+  const maxRow = () =>
+    document.querySelector('[data-lc-field="lc-extra-buy-max-qty"] [data-slot="lc-row-value"]')?.textContent ?? null;
+
+  it('새 전략 · quote.ls > 0 → 폼이 그 값으로 5칸을 시딩한다(추가매수 최대 = 3%) · 전송 0', () => {
+    render(<CardBody {...props({ card: cardState({ server: null, quote: quote({ ls: 10_000_000 }) }) })} />);
+    expect(maxRow()).toBe('300,000주');
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('quote.ls 0 · 시세 없음 → 0 을 넘긴다(폴백 유지)', () => {
+    const { unmount } = render(<CardBody {...props({ card: cardState({ server: null, quote: quote({ ls: 0 }) }) })} />);
+    expect(maxRow()).toBe('무제한');
+    unmount();
+    render(<CardBody {...props({ card: cardState({ server: null, quote: null }) })} />);
+    expect(maxRow()).toBe('무제한');
+  });
+});

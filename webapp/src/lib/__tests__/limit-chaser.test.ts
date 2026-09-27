@@ -33,6 +33,7 @@ import {
   limitChaserGateDisarmed,
   marketCloseReleaseKeysOf,
   parseStrategyKey,
+  seedListSharesDefaults,
   preBuyAutoCheckLogLine,
   preBuyAutoChecksOf,
   seedFromUpperLimit,
@@ -283,13 +284,13 @@ describe('seedFromUpperLimit — 상한가 5칸 시딩', () => {
 });
 
 describe('defaultLimitChaserForm — WinForms 기본값', () => {
-  it('감시잔량 10000 · 주문금액 10만원 · 최소체결 30000 · 매도호가잔량 10 · 잔량추적 50 · 매도비율 100 · 호가변경 3 · 취소잔량 10', () => {
+  it('감시잔량 10000 · 주문금액 4,000만원(D-04) · 최소체결 30000 · 매도호가잔량 10 · 잔량추적 55(D-04) · 매도비율 100 · 호가변경 3 · 취소잔량 10', () => {
     const d = defaultLimitChaserForm();
     expect(d.buyWatchQty).toBe(10_000);
-    expect(d.buyOrderAmount).toBe(10);
+    expect(d.buyOrderAmount).toBe(4000);
     expect(d.buyMinTradeQty).toBe(30_000);
     expect(d.sellWatchQty).toBe(10);
-    expect(d.sellQtyTrackRatio).toBe(50);
+    expect(d.sellQtyTrackRatio).toBe(55);
     expect(d.sellMinTradeQty).toBe(30_000);
     expect(d.sellOrderRatio).toBe(100);
     expect(d.sweepMinTickCount).toBe(3);
@@ -313,7 +314,7 @@ describe('defaultLimitChaserForm — WinForms 기본값', () => {
   it('호출마다 새 객체를 돌려준다 — 공유 참조를 수정하면 다음 신규 폼이 오염된다', () => {
     const a = defaultLimitChaserForm();
     a.buyOrderAmount = 999;
-    expect(defaultLimitChaserForm().buyOrderAmount).toBe(10);
+    expect(defaultLimitChaserForm().buyOrderAmount).toBe(4000);
   });
 });
 
@@ -720,6 +721,71 @@ describe('preBuyAutoCheckLogLine — 자동 체크 로그 한 줄 문법 (UI-SPE
     expect(preBuyAutoCheckLogLine(r)).toEqual({
       level: 'error',
       text: '선매수 자동 체크 — 켜지 않음: 매도주문(매도비율 0) · 취소(취소 매수잔량 0) · 취소>잔량추적(취소 매수잔량 0) / 매도 주문가격·비교가격 = 상한가 13,000원',
+    });
+  });
+});
+
+describe('D-04 새 전략 기본값 — WinForms 기본값 표 그대로 (24-07)', () => {
+  it('선매수 · 추가매수 · 후매수 금액 각 4,000만원 · 반등 30% · 최소 100,000주 · 최대 3회 · 매도 매수잔량 10 · 잔량추적 55% · 취소 매수잔량 10 · 폴백 5칸 · 스위치 전부 OFF', () => {
+    expect(defaultLimitChaserForm()).toMatchObject({
+      buyOrderAmount: 4000,
+      extraBuyOrderAmount: 4000,
+      postBuyOrderAmount: 4000,
+      postBuyReboundPct: 30,
+      postBuyFloorQty: 100_000,
+      postBuyReentry: 3,
+      sellWatchQty: 10,
+      sellQtyTrackRatio: 55,
+      cancelWatchQty: 10,
+      buyWatchQty: 10_000,
+      buyMinTradeQty: 30_000,
+      sellMinTradeQty: 30_000,
+      extraBuyMinQty: 0,
+      extraBuyMaxQty: 0,
+      preBuyEnabled: false,
+      extraBuyEnabled: false,
+      postBuyEnabled: false,
+      buyEnabled: false,
+    });
+  });
+});
+
+describe('seedListSharesDefaults — 상장주식수 5칸 시딩 (D-17 · WinForms SeedListSharesDefaults 동형)', () => {
+  it('상장주식수를 모르면(0 · 음수) null — 폴백이 남고 가드를 소진하지 않는다', () => {
+    expect(seedListSharesDefaults(0)).toBeNull();
+    expect(seedListSharesDefaults(-1)).toBeNull();
+  });
+
+  it('1,000만주 → 0.3% = 30,000 · 3% = 300,000', () => {
+    expect(seedListSharesDefaults(10_000_000)).toEqual({
+      buyWatchQty: 30_000,
+      buyMinTradeQty: 30_000,
+      extraBuyMinQty: 30_000,
+      extraBuyMaxQty: 300_000,
+      sellMinTradeQty: 30_000,
+    });
+  });
+
+  it('정수 내림 — 5,969,782,550주 → 3% = 179,093,476 · 0.3% = 17,909,347', () => {
+    const r = seedListSharesDefaults(5_969_782_550)!;
+    expect(r.extraBuyMaxQty).toBe(179_093_476);
+    expect(r.buyWatchQty).toBe(17_909_347);
+    for (const v of Object.values(r)) expect(Number.isInteger(v)).toBe(true);
+  });
+
+  it('추가매수 최소 · 최대는 uint32 상한(4,294,967,295)에서 멈춘다', () => {
+    const r = seedListSharesDefaults(200_000_000_000)!;
+    expect(r.extraBuyMaxQty).toBe(4_294_967_295);
+    expect(r.extraBuyMinQty).toBe(600_000_000);
+  });
+
+  it('작은 값도 정수 내림 — 333주 → 0.3% = 0 · 3% = 9', () => {
+    expect(seedListSharesDefaults(333)).toEqual({
+      buyWatchQty: 0,
+      buyMinTradeQty: 0,
+      extraBuyMinQty: 0,
+      extraBuyMaxQty: 9,
+      sellMinTradeQty: 0,
     });
   });
 });
