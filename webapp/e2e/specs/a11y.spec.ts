@@ -431,6 +431,98 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
   });
 
   // ─────────────────────────────────────────────────────────────────────────
+  /*
+    ★ Phase 24 (24-08) — 상따 매수 카드 axe 매트릭스(UI-SPEC 검증 훅): 본문 344 · 992 × 라이트 · 다크 × 세 카드
+      접힘 · 펼침 = 8 스캔. 시드는 흐린 그룹(추가매수 OFF) · 「보유중」(후매수 단계 2) · 「… · 후매수 발동」 꼬리가
+      한 카드에 함께 서게 짠다. 판정은 파일 공통(`blockingViolations` — 알려진 대비 예외 `color-contrast` 는 기존
+      목록 규칙 그대로). 스캔 범위는 펼친 카드 한 장이다(상따 카드 표면 · 사이드바는 위 케이스가 본다).
+      본문 폭은 뷰포트가 아니라 카드 컨테이너 폭으로 맞춘다(§2.2b — 경계 숫자는 globals.css 가 정본).
+  */
+  test('/trading 상따 매수 카드 axe 매트릭스 — 본문 344 · 992 × 라이트 · 다크 × 세 카드 접힘 · 펼침 critical/serious 0 (Phase 24 · UI-SPEC 검증 훅)', async ({
+    page,
+  }) => {
+    relay.seedLimitChasers([
+      {
+        isin: E2E_ISIN,
+        accountNo: E2E_ACCOUNT_NO,
+        exchange: 'KRX',
+        buyEnabled: true,
+        preBuyEnabled: true,
+        sellEnabled: true,
+        cancelQtyEnabled: true,
+        postBuyEnabled: true,
+        postBuyPhase: 2,
+        postBuyOrderAmount: 4000,
+        postBuyReentry: 3,
+        postBuyReentryLeft: 2,
+        postBuyReboundPct: 30,
+        postBuyFloorQty: 100_000,
+        postBuyTriggerQty: 330_000,
+      },
+    ]);
+    const url = `/trading?focus=${encodeURIComponent(`${E2E_ISIN}:${E2E_ACCOUNT_NO}:KRX`)}`;
+    const CARD = '[data-slot="strategy-card"][data-open="true"]';
+    const card = page.locator(CARD);
+    /** 펼친 카드의 컨테이너 폭(clientWidth)을 정확히 `target` 으로 — 재고, 모자란 만큼 뷰포트를 옮긴다. */
+    const sizeOpenCardTo = async (target: number) => {
+      let viewport = target + 34;
+      for (let i = 0; i < 6; i += 1) {
+        await page.setViewportSize({ width: viewport, height: 1000 });
+        await expect(card.locator('[data-slot="card-body"]')).toBeVisible();
+        const width = await card.evaluate((el) => el.clientWidth);
+        if (width === target) return;
+        viewport += target - width;
+      }
+      expect(await card.evaluate((el) => el.clientWidth), `카드 폭 ${target}`).toBe(target);
+    };
+    const setFolds = async (expanded: boolean) => {
+      const folds = card.locator('[data-slot="lc-group-fold"]');
+      await expect(folds).toHaveCount(3);
+      for (const f of await folds.all()) {
+        if ((await f.getAttribute('aria-expanded')) !== String(expanded)) await f.click();
+        await expect(f).toHaveAttribute('aria-expanded', String(expanded));
+      }
+    };
+
+    const failures: string[] = [];
+    let scans = 0;
+    for (const theme of ['light', 'dark'] as const) {
+      await page.goto(url);
+      await page.evaluate((t) => localStorage.setItem('theme', t), theme);
+      await page.reload();
+      await expect(page.locator('html')).toHaveClass(new RegExp(`(^|\\s)${theme}(\\s|$)`));
+      await expect(page.locator('[data-slot="workbench-status-bar"]')).toHaveAttribute('data-status', 'ready', {
+        timeout: 30_000,
+      });
+      await expect(card).toHaveCount(1, { timeout: 15_000 });
+      await expect(
+        card.locator('[data-slot="lc-group-post-buy"] [data-slot="lc-group-status"]'),
+      ).toHaveText('보유중', { timeout: 15_000 });
+      for (const target of [344, 992]) {
+        await sizeOpenCardTo(target);
+        if (target < 700) {
+          await card.getByRole('tablist', { name: '주문 진입' }).getByRole('tab', { name: '매수' }).click();
+        }
+        for (const expanded of [false, true]) {
+          await setFolds(expanded);
+          const results = await new AxeBuilder({ page }).include(CARD).withTags(['wcag2a', 'wcag2aa']).analyze();
+          const blocking = blockingViolations(results);
+          scans += 1;
+          if (blocking.length > 0) {
+            failures.push(
+              `${theme} · 본문 ${target} · ${expanded ? '펼침' : '접힘'} — ${JSON.stringify(
+                blocking.map((v) => ({ id: v.id, impact: v.impact, nodes: v.nodes.map((n) => n.target) })),
+              )}`,
+            );
+          }
+        }
+      }
+    }
+    expect(scans, '매트릭스 8 스캔').toBe(8);
+    expect(failures, 'critical/serious 위반').toEqual([]);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
   test('/trading (모바일 390) — 카드 탭 3종 · 비활성 pane 비가시·탭 제외 · 사다리 스크롤 영역 · 인라인 편집 중 입력 이름·포커스', async ({
     page,
   }) => {

@@ -271,24 +271,36 @@ describe('② SettingGroup — 둥근 면 · 제목줄 · 꺼진 그룹 흐림 (
     const flow = title.parentElement as HTMLElement;
     expect(flow.className).toContain('flex-1');
     expect(flow.className).toContain('min-w-0');
-    expect(within(flow).getByText('발주 완료 · 무장 해제').className).toContain('text-[12px]');
+    const status = flow.querySelector('[data-slot="lc-group-status"]') as HTMLElement;
+    expect(status.textContent).toBe('발주 완료 · 무장 해제');
+    expect(status.className).toContain('text-[12px]');
+    // 24-08 — 상태는 한 덩어리(inline-block)로 둘째 줄에 내려가고, 길면 「 · 」 조각 경계에서만 줄바꿈한다
+    // (구분점은 앞 조각에 붙는다 · 조각 안 nowrap). 폰 밴드 실측은 e2e P24-7.
+    expect(status.className).toContain('inline-block');
+    expect(status.className).toContain('max-w-full');
+    const pieces = Array.from(status.children) as HTMLElement[];
+    expect(pieces.map((p) => p.textContent)).toEqual(['발주 완료 ·', '무장 해제']);
+    for (const p of pieces) expect(p.className).toContain('whitespace-nowrap');
     expect(header.innerHTML).not.toMatch(/truncate|text-ellipsis/);
   });
 
   it('상태 「감시 중」은 `--led-armed` 이고 그 밖은 `--muted-fg` 다', () => {
-    const { rerender } = render(
+    const { container, rerender } = render(
       <SettingGroup spec={groupOf('buy')} statusText="감시 중" on>
         <div />
       </SettingGroup>,
     );
-    expect(screen.getByText('감시 중').className).toContain('text-[var(--led-armed)]');
+    const status = () => container.querySelector('[data-slot="lc-group-status"]') as HTMLElement;
+    expect(status()).toHaveTextContent('감시 중');
+    expect(status().className).toContain('text-[var(--led-armed)]');
     rerender(
       <SettingGroup spec={groupOf('buy')} statusText="무장 · 대기" on>
         <div />
       </SettingGroup>,
     );
-    expect(screen.getByText('무장 · 대기').className).toContain('text-[var(--muted-fg)]');
-    expect(screen.getByText('무장 · 대기').className).not.toContain('--led-armed');
+    expect(status()).toHaveTextContent('무장 · 대기');
+    expect(status().className).toContain('text-[var(--muted-fg)]');
+    expect(status().className).not.toContain('--led-armed');
   });
 
   it('꺼진 매수주문 그룹의 행 컨테이너는 opacity-45 · 켜지면 없음 · 매수취소는 꺼져도 없음', () => {
@@ -816,12 +828,14 @@ describe('⑩ 상태 색 — 첫 단어 기준 · 새 색 토큰 0 (UI-SPEC §11
   });
 
   it('헤더와 접기 버튼이 같은 판정을 쓴다 — 「보유중」 상태 span 이 `--led-latent`', () => {
-    render(
+    const { container } = render(
       <SettingGroup spec={groupOf('buy')} statusText="보유중" on fold={{ expanded: false, onToggle: () => {}, summary: null }}>
         <div />
       </SettingGroup>,
     );
-    expect(screen.getByText('보유중').className).toContain('text-[var(--led-latent)]');
+    const status = container.querySelector('[data-slot="lc-group-status"]') as HTMLElement;
+    expect(status).toHaveTextContent('보유중');
+    expect(status.className).toContain('text-[var(--led-latent)]');
   });
 });
 

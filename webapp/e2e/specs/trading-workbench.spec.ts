@@ -2713,6 +2713,440 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
   });
 
   /*
+    ★ Phase 24 (24-08) P24-7 — UI-SPEC 「검증 훅」 폭 불변식 + UI Considerations backstop(E1 overflow · E1 long-text ·
+      E3 overflow)을 한 케이스에서 잰다. P20-3 과 다른 점: 판정 범위가 **우측 설정 패널**(`card-body-options`)이다 —
+      카드 헤더 `<b>삼성전자</b>` 넘침(deferred-items 기존 실패)은 이 phase 밖이라 이 케이스를 막지 않게 한다.
+      · 펼침: 패널 scrollWidth ≤ clientWidth · 잘림 두 판정(`scrollOverflowing` · `leavesOverflowing`) · 행마다 가장
+        오른쪽 잎이 행 안쪽 끝 이내 · 말줄임(text-overflow ellipsis · truncate) 0 · 행 44px · 접기 버튼 ≥ 32px.
+      · 접힘: 요약 줄이 여러 줄이어도 scrollHeight ≤ clientHeight · kv 가 요약 줄 오른쪽 끝을 넘지 않는다(E3).
+      · 흐림: 꺼진 그룹 행의 글자는 누적 opacity 0.45(한 겹 · 0.2025 아님) · 원형 체크 · 스위치 · 접기 버튼 1.
+      · 폰 밴드 긴 상태 문구(E1 long-text): 「켜짐 · 켠 매수 없음」 · 「무장 · 대기 · 후매수 발동」은 제목 옆 흐름의
+        둘째 줄 · 말줄임 0 · 스위치는 헤더 오른쪽 끝.
+  */
+  test('P24-7 폭 최악값 × 본문 344 · 700 · 830 · 992 — 패널 넘침 0 · 라벨 · 값 · 요약 잘림 0 · 말줄임 0 · 행 44 · 접기 버튼 ≥32 · 흐림 한 겹 0.45 · 폰 밴드 긴 상태 문구 둘째 줄 (UI-SPEC 검증 훅 · E1 overflow · E1 long-text · E3 overflow)', async ({
+    page,
+  }) => {
+    const WORST = {
+      buyEnabled: true,
+      sellEnabled: true,
+      sellEntryLatched: true,
+      cancelQtyEnabled: true,
+      buyOrderPrice: 1_274_000,
+      buyWatchPrice: 1_274_000,
+      sweepWatchPrice: 1_274_000,
+      sellOrderPrice: 1_274_000,
+      sellWatchPrice: 1_274_000,
+      buyOrderAmount: 9_999,
+      buyWatchQty: 100_000,
+      sellWatchQty: 100_000,
+      cancelWatchQty: 100_000,
+      buyMinTradeQty: 100_000,
+      sellMinTradeQty: 100_000,
+      sellQtyTrackBaseline: 100_000,
+      preBuyEnabled: true,
+      buyTradeQtyEnabled: true,
+      sweepEnabled: true,
+      sweepMinTickCount: 255,
+      extraBuyEnabled: true,
+      extraBuyOrderAmount: 9_999,
+      extraBuyMinQty: 17_700_000,
+      extraBuyMaxQty: 177_000_000,
+      postBuyEnabled: true,
+      postBuyOrderAmount: 9_999,
+      postBuyReentry: 3,
+      postBuyReentryLeft: 3,
+      postBuyPhase: 1,
+      postBuyFloorQty: 17_700_000,
+      postBuyReboundPct: 100,
+      postBuyTriggerQty: 330_000,
+    };
+    relay.seedLimitChasers([WORST]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    const card = cardOf(page, E2E_ISIN);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-buy-order-price')).toHaveText('1,274,000원', { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-extra-buy-max-qty')).toHaveText('177,000,000주');
+    await expect(lcValue(page, 'lc-extra-buy-min-qty')).toHaveText('17,700,000주');
+    await expect(lcValue(page, 'lc-post-buy-reentry')).toHaveText('3회 · 남은 3회');
+    await expect(lcValue(page, 'lc-sweep-tick')).toHaveText('255건');
+
+    const OPTIONS_SEL = `${cardSelector(E2E_ISIN)} [data-slot="card-body-options"]`;
+    const options = card.locator('[data-slot="card-body-options"]');
+    const FOLD_SLOTS = ['pre-buy', 'extra-buy', 'post-buy'] as const;
+    const setAllFolds = async (expanded: boolean) => {
+      for (const slot of FOLD_SLOTS) {
+        const fold = card.locator(`[data-slot="lc-group-${slot}"] [data-slot="lc-group-fold"]`);
+        if ((await fold.getAttribute('aria-expanded')) !== String(expanded)) await fold.click();
+        await expect(fold).toHaveAttribute('aria-expanded', String(expanded));
+      }
+    };
+
+    /** 펼친 패널 — 넘침 · 행 · 접기 버튼 · 말줄임. 폭 여유(행 안쪽 폭 − 내용 폭)의 최솟값을 돌려준다. */
+    const measureExpanded = () =>
+      page.evaluate((sel) => {
+        const panel = document.querySelector<HTMLElement>(sel)!;
+        const vis = (el: Element) => el.getClientRects().length > 0;
+        const rows = Array.from(
+          panel.querySelectorAll<HTMLElement>(
+            '[data-lc-field], [data-slot="lc-check-row"], [data-slot="lc-derived"], [data-slot="lc-post-buy-trigger"]',
+          ),
+        )
+          .filter(vis)
+          .map((el) => {
+            const r = el.getBoundingClientRect();
+            const cs = getComputedStyle(el);
+            const inner = r.right - parseFloat(cs.paddingRight);
+            let right = r.left;
+            for (const leaf of Array.from(el.querySelectorAll<HTMLElement>('*'))) {
+              const lr = leaf.getBoundingClientRect();
+              if (leaf.getClientRects().length === 0 || lr.width === 0) continue;
+              right = Math.max(right, lr.right);
+            }
+            const kids = Array.from(el.children).filter((c) => c.getClientRects().length > 0);
+            const contentW = kids.reduce((sum, c) => {
+              const range = document.createRange();
+              range.selectNodeContents(c);
+              return sum + range.getBoundingClientRect().width;
+            }, 0);
+            const gap = parseFloat(cs.columnGap) || 0;
+            const innerW = r.width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+            return {
+              what: el.getAttribute('data-lc-field') ?? el.getAttribute('data-slot') ?? '?',
+              text: (el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 28),
+              h: Math.round(r.height * 100) / 100,
+              slack: Math.round((inner - right) * 10) / 10,
+              free: Math.round((innerW - contentW - gap * Math.max(0, kids.length - 1)) * 10) / 10,
+              pieces: kids.length,
+            };
+          });
+        const folds = Array.from(panel.querySelectorAll<HTMLElement>('[data-slot="lc-group-fold"]'))
+          .filter(vis)
+          .map((el) => Math.round(el.getBoundingClientRect().height * 10) / 10);
+        const ellipsis = Array.from(panel.querySelectorAll<HTMLElement>('*'))
+          .filter(vis)
+          .filter(
+            (el) =>
+              getComputedStyle(el).textOverflow === 'ellipsis' ||
+              el.classList.contains('truncate') ||
+              el.classList.contains('text-ellipsis'),
+          )
+          .map((el) => (el.textContent ?? '').slice(0, 24));
+        return { over: panel.scrollWidth - panel.clientWidth, right: panel.getBoundingClientRect().right, rows, folds, ellipsis };
+      }, OPTIONS_SEL);
+
+    /** 접힌 요약 줄 — 줄 수 · 세로/가로 넘침 · kv 가 요약 줄 오른쪽 끝을 넘는가. */
+    const measureSummaries = () =>
+      page.evaluate((sel) => {
+        const panel = document.querySelector<HTMLElement>(sel)!;
+        return Array.from(panel.querySelectorAll<HTMLElement>('[data-slot="lc-group-summary"]'))
+          .filter((el) => el.getClientRects().length > 0)
+          .map((el) => {
+            const box = el.getBoundingClientRect();
+            const kvs = Array.from(el.children) as HTMLElement[];
+            const tops = new Set(kvs.map((k) => Math.round(k.getBoundingClientRect().top)));
+            const section = el.closest('section')!;
+            return {
+              slot: section.getAttribute('data-slot') ?? '?',
+              lines: tops.size,
+              overY: el.scrollHeight - el.clientHeight,
+              overX: el.scrollWidth - el.clientWidth,
+              kvOut: kvs
+                .filter((k) => k.getBoundingClientRect().right > box.right + 0.5 || k.scrollWidth > k.clientWidth + 1)
+                .map((k) => (k.textContent ?? '').trim()),
+              belowCard: Math.round(box.bottom - section.getBoundingClientRect().bottom),
+            };
+          });
+      }, OPTIONS_SEL);
+
+    const minFree: Record<number, { what: string; free: number }> = {};
+    const summaryLines: Record<number, string> = {};
+    const checkExpanded = async (target: number, label: string) => {
+      await page.mouse.move(1, 1);
+      const m = await measureExpanded();
+      expect(m.over, `${label} — 패널 scrollWidth ≤ clientWidth`).toBeLessThanOrEqual(0);
+      expect(await scrollOverflowing(page, OPTIONS_SEL), `${label} — 내용이 상자를 넘친 요소`).toEqual([]);
+      expect(await leavesOverflowing(options, m.right), `${label} — 패널 밖으로 밀린 잎 요소`).toEqual([]);
+      expect(m.ellipsis, `${label} — 말줄임 0(오발주 불변식)`).toEqual([]);
+      expect(m.rows.filter((r) => Math.abs(r.h - 44) > 0.5), `${label} — 44px 이 아닌 행`).toEqual([]);
+      expect(m.rows.filter((r) => r.slack < -0.5), `${label} — 행 안쪽 끝을 넘은 잎(잘림)`).toEqual([]);
+      const measurable = m.rows.filter((r) => r.pieces >= 2);
+      expect(measurable.filter((r) => r.free < -0.5), `${label} — 라벨 + 값이 행 안쪽 폭을 넘는 행`).toEqual([]);
+      expect(m.folds.filter((h) => h < 32), `${label} — 접기 버튼 높이 ≥ 32`).toEqual([]);
+      if (measurable.length > 0) {
+        const worst = measurable.reduce((a, b) => (b.free < a.free ? b : a));
+        const prev = minFree[target];
+        if (prev === undefined || worst.free < prev.free) {
+          minFree[target] = { what: `${worst.what}「${worst.text}」`, free: worst.free };
+        }
+      }
+      return m.rows.map((r) => r.what);
+    };
+    const checkCollapsed = async (target: number, label: string) => {
+      await setAllFolds(false);
+      const sums = await measureSummaries();
+      expect(sums, `${label} — 접힌 요약 줄 3개`).toHaveLength(3);
+      for (const s of sums) {
+        expect(s.overY, `${label} ${s.slot} — 요약 세로 넘침`).toBeLessThanOrEqual(0);
+        expect(s.overX, `${label} ${s.slot} — 요약 가로 넘침`).toBeLessThanOrEqual(0);
+        expect(s.kvOut, `${label} ${s.slot} — 요약 kv 잘림`).toEqual([]);
+        expect(s.belowCard, `${label} ${s.slot} — 요약이 카드 밖`).toBeLessThanOrEqual(0);
+      }
+      expect(await scrollOverflowing(page, OPTIONS_SEL), `${label} — 접힘 넘침`).toEqual([]);
+      summaryLines[target] = sums.map((s) => `${s.slot.replace('lc-group-', '')} ${s.lines}줄`).join(' · ');
+      await setAllFolds(true);
+    };
+
+    const setsBefore = lcSetCount(relay);
+    for (const target of [344, 700, 830, 992]) {
+      await sizeCardTo(page, E2E_ISIN, target);
+      const { band } = await cardMetrics(page, E2E_ISIN);
+      expect(band, `카드 ${target} — 기대 밴드`).toBe(bandOfWidth(target));
+      await setAllFolds(true);
+      if (target < 700) {
+        const tablist = card.getByRole('tablist', { name: '주문 진입' });
+        await tablist.getByRole('tab', { name: '매수' }).click();
+        await expect(card.locator('[data-pane="buy"]')).toBeVisible();
+        const buyRows = await checkExpanded(target, `${target} 매수 pane`);
+        expect(buyRows).toContain('lc-post-buy-trigger');
+        await checkCollapsed(target, `${target} 매수 pane`);
+        await tablist.getByRole('tab', { name: '매도' }).click();
+        await expect(card.locator('[data-pane="sell"]')).toBeVisible();
+        const sellRows = await checkExpanded(target, `${target} 매도 pane`);
+        expect(sellRows).toContain('lc-derived');
+        await tablist.getByRole('tab', { name: '매수' }).click();
+      } else {
+        await expect(card.locator('[data-pane="sell"]')).toBeVisible();
+        const rows = await checkExpanded(target, `${target} 2열`);
+        expect(rows).toEqual(expect.arrayContaining(['lc-post-buy-trigger', 'lc-derived', 'lc-extra-buy-max-qty']));
+        await checkCollapsed(target, `${target} 2열`);
+      }
+    }
+    expect(lcSetCount(relay), '재는 동안 전송 0').toBe(setsBefore);
+    test.info().annotations.push({
+      type: 'P24-7 행 최소 여유(px)',
+      description: Object.entries(minFree)
+        .map(([k, v]) => `${k}: ${v.free} (${v.what})`)
+        .join(' · '),
+    });
+    test.info().annotations.push({
+      type: 'P24-7 접힌 요약 줄 수',
+      description: Object.entries(summaryLines)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(' / '),
+    });
+
+    // ── 흐림 한 겹(UI-SPEC §9 · R10) — 992 두 열 · 선매수 · 추가매수를 서버 에코로 끈다(후매수는 켜 둔다 → 하강 전이 아님).
+    await relay.pushLimitChaserEcho({ ...WORST, preBuyEnabled: false, extraBuyEnabled: false });
+    await expect(lcSwitch(card, '선매수 켜기')).not.toBeChecked({ timeout: 15_000 });
+    await expect(lcSwitch(card, '추가매수 켜기')).not.toBeChecked();
+    await setAllFolds(true);
+    await page.mouse.move(1, 1);
+    const dimOf = (slot: string) =>
+      page.evaluate(
+        ([sel, s]) => {
+          const section = document.querySelector<HTMLElement>(`${sel} [data-slot="lc-group-${s}"]`)!;
+          const cum = (el: Element) => {
+            let p = 1;
+            for (let e: Element | null = el; e !== null; e = e.parentElement) p *= parseFloat(getComputedStyle(e).opacity);
+            return Math.round(p * 10_000) / 10_000;
+          };
+          const vis = (el: Element) => el.getClientRects().length > 0;
+          const rows = section.querySelector('[data-slot="lc-group-rows"]')!;
+          const texts = Array.from(rows.querySelectorAll('*'))
+            .filter(vis)
+            .filter((el) => el.closest('.sr-only') === null)
+            .filter((el) => Array.from(el.childNodes).some((n) => n.nodeType === 3 && (n.textContent ?? '').trim() !== ''))
+            .map((el) => ({ text: (el.textContent ?? '').trim().slice(0, 20), cum: cum(el) }));
+          const own45 = Array.from(rows.querySelectorAll('*')).filter((el) => getComputedStyle(el).opacity === '0.45').length;
+          return {
+            texts,
+            own45,
+            circles: Array.from(section.querySelectorAll('[data-slot="lc-check-circle"]')).map(cum),
+            switches: Array.from(section.querySelectorAll('[role="switch"]')).map(cum),
+            folds: Array.from(section.querySelectorAll('[data-slot="lc-group-fold"]')).map(cum),
+          };
+        },
+        [OPTIONS_SEL, slot] as const,
+      );
+    for (const slot of ['pre-buy', 'extra-buy']) {
+      const d = await dimOf(slot);
+      expect(d.texts.length, `${slot} — 흐린 행 글자`).toBeGreaterThan(0);
+      expect(
+        d.texts.filter((t) => Math.abs(t.cum - 0.45) > 0.005),
+        `${slot} — 꺼진 그룹 행 글자의 누적 opacity 는 0.45(한 겹 · 0.2025 아님)`,
+      ).toEqual([]);
+      expect(d.own45, `${slot} — computed opacity 0.45 요소가 있다`).toBeGreaterThan(0);
+      expect(d.switches, `${slot} — 그룹 스위치는 흐리지 않는다`).toEqual([1]);
+      expect(d.folds, `${slot} — 접기 버튼은 흐리지 않는다`).toEqual([1]);
+      expect(d.circles.filter((c) => c !== 1), `${slot} — 원형 체크는 흐리지 않는다`).toEqual([]);
+    }
+    const lit = await dimOf('post-buy');
+    expect(lit.texts.filter((t) => t.cum !== 1), '켜진 그룹(후매수) 행 글자는 흐리지 않는다').toEqual([]);
+    const preCircles = (await dimOf('pre-buy')).circles;
+    expect(preCircles.length, '선매수 카드 원형 체크(체결량 · 한방)').toBeGreaterThanOrEqual(2);
+
+    // ── 폰 밴드 긴 상태 문구(E1 long-text) — 제목 옆 흐름의 둘째 줄 · 말줄임 0 · 스위치 헤더 오른쪽 끝.
+    const headerOf = (slot: string) =>
+      page.evaluate(
+        ([sel, s]) => {
+          const hdr = document.querySelector<HTMLElement>(`${sel} [data-slot="lc-group-${s}"] [data-slot="lc-group-header"]`)!;
+          const status = hdr.querySelector<HTMLElement>('[data-slot="lc-group-status"]')!;
+          const flow = status.parentElement!;
+          const title = flow.firstElementChild as HTMLElement;
+          const sw = hdr.querySelector<HTMLElement>('[role="switch"]')!;
+          const hr = hdr.getBoundingClientRect();
+          const cs = getComputedStyle(hdr);
+          const t = title.getBoundingClientRect();
+          const rects = Array.from(status.getClientRects());
+          // 상태 글자의 **줄** — inline-block 상자 하나가 아니라 글자 범위의 줄 상자로 센다.
+          const range = document.createRange();
+          range.selectNodeContents(status);
+          const lineTops = new Set(
+            Array.from(range.getClientRects())
+              .filter((r) => r.width > 0)
+              .map((r) => Math.round(r.top)),
+          );
+          const splitSegments = Array.from(status.querySelectorAll('span'))
+            .filter((sp) => new Set(Array.from(sp.getClientRects()).map((r) => Math.round(r.top))).size > 1)
+            .map((sp) => sp.textContent);
+          return {
+            text: status.textContent,
+            titleTop: t.top,
+            titleBottom: t.bottom,
+            statusFirstTop: rects[0]!.top,
+            statusLines: lineTops.size,
+            splitSegments,
+            flowOverX: flow.scrollWidth - flow.clientWidth,
+            ellipsis: [status, flow].some((el) => getComputedStyle(el).textOverflow === 'ellipsis'),
+            switchRight: Math.round(sw.getBoundingClientRect().right * 10) / 10,
+            switchLeft: sw.getBoundingClientRect().left,
+            flowRight: flow.getBoundingClientRect().right,
+            headerInnerRight: Math.round((hr.right - parseFloat(cs.paddingRight)) * 10) / 10,
+            headerH: Math.round(hr.height * 10) / 10,
+            statusW: Math.round(rects[0]!.width * 10) / 10,
+            flowW: flow.clientWidth,
+          };
+        },
+        [OPTIONS_SEL, slot] as const,
+      );
+    const expectSecondLine = async (slot: string, text: string) => {
+      await expect(lcGroupStatus(card, slot as 'buy')).toHaveText(text, { timeout: 15_000 });
+      const h = await headerOf(slot);
+      expect(h.statusFirstTop, `${text} — 제목 옆 흐름의 둘째 줄 ${JSON.stringify(h)}`).toBeGreaterThanOrEqual(h.titleBottom - 1);
+      // 흐름 폭보다 길면 덩어리 안에서 「 · 」 조각 경계에서만 줄바꿈한다(낱말이 갈리지 않는다).
+      expect(h.statusLines, `${text} — 상태 문구 줄 수`).toBeLessThanOrEqual(2);
+      expect(h.splitSegments, `${text} — 조각 안에서 줄바꿈 0`).toEqual([]);
+      expect(h.flowOverX, `${text} — 흐름 가로 넘침 0`).toBeLessThanOrEqual(0);
+      expect(h.ellipsis, `${text} — 말줄임 0`).toBe(false);
+      expect(Math.abs(h.switchRight - h.headerInnerRight), `${text} — 스위치는 헤더 오른쪽 끝`).toBeLessThanOrEqual(1);
+      expect(h.switchLeft, `${text} — 스위치는 흐름 오른쪽`).toBeGreaterThanOrEqual(h.flowRight - 0.5);
+      test.info().annotations.push({ type: `P24-7 폰 밴드 상태 「${text}」`, description: `헤더 ${h.headerH}px · 상태 ${h.statusLines}줄 · 상태 폭 ${h.statusW} / 흐름 폭 ${h.flowW}px` });
+    };
+    // 「켜짐 · 켠 매수 없음」 — 매도 · 취소 게이트 전부 OFF 인 첫 스냅샷(가드 상태 · 자동 끔이 나가지 않는다).
+    relay.seedLimitChasers([{ buyEnabled: true }]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await sizeCardTo(page, E2E_ISIN, 344);
+    await card.getByRole('tablist', { name: '주문 진입' }).getByRole('tab', { name: '매수' }).click();
+    await expectSecondLine('buy', '켜짐 · 켠 매수 없음');
+    // 「무장 · 대기 · 후매수 발동」 — 매도 진입 래치 전(대기) · 후매수 보유중.
+    relay.seedLimitChasers([
+      {
+        buyEnabled: true,
+        sellEnabled: true,
+        cancelQtyEnabled: true,
+        postBuyEnabled: true,
+        postBuyPhase: 2,
+        postBuyOrderAmount: 4000,
+        postBuyReentry: 3,
+        postBuyReentryLeft: 2,
+        postBuyReboundPct: 30,
+        postBuyFloorQty: 100_000,
+        postBuyTriggerQty: 330_000,
+      },
+    ]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await sizeCardTo(page, E2E_ISIN, 344);
+    await card.getByRole('tablist', { name: '주문 진입' }).getByRole('tab', { name: '매도' }).click();
+    await expectSecondLine('sell', '무장 · 대기 · 후매수 발동');
+    expect(await scrollOverflowing(page, OPTIONS_SEL), '344 매도 pane — 긴 상태 문구 넘침').toEqual([]);
+  });
+
+  test('P24-8 폰 한 화면 — 390×844 · D-04 기본값 · 후매수 감시 중 · 세 카드 접힘 → 매수 탭(탭 줄 위 ~ 후매수 카드 아래) ≤ 660px (UI-SPEC E1 overflow backstop)', async ({
+    page,
+  }) => {
+    // D-04 기본값 + D-17 시딩값(스텁 상장주식수 5,969,782,550 → 0.3% 17,909,347 · 3% 179,093,476) + 가격 = 상한가.
+    relay.seedLimitChasers([
+      {
+        buyEnabled: true,
+        buyOrderPrice: 127_400,
+        buyWatchPrice: 127_400,
+        sweepWatchPrice: 127_400,
+        sellOrderPrice: 127_400,
+        sellWatchPrice: 127_400,
+        buyOrderAmount: 4000,
+        buyWatchQty: 17_909_347,
+        buyMinTradeQty: 17_909_347,
+        sellMinTradeQty: 17_909_347,
+        sellWatchQty: 10,
+        sellQtyTrackRatio: 55,
+        sellOrderRatio: 100,
+        cancelWatchQty: 10,
+        sweepMinTickCount: 3,
+        extraBuyOrderAmount: 4000,
+        extraBuyMinQty: 17_909_347,
+        extraBuyMaxQty: 179_093_476,
+        postBuyEnabled: true,
+        postBuyPhase: 1,
+        postBuyOrderAmount: 4000,
+        postBuyReentry: 3,
+        postBuyReentryLeft: 3,
+        postBuyReboundPct: 30,
+        postBuyFloorQty: 100_000,
+      },
+    ]);
+    await page.setViewportSize(PHONE_VIEWPORT);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    const card = cardOf(page, E2E_ISIN);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('17,909,347주', { timeout: 15_000 });
+    await expect(lcGroupStatus(card, 'post-buy')).toHaveText('감시 중');
+    const tablist = card.getByRole('tablist', { name: '주문 진입' });
+    await tablist.getByRole('tab', { name: '매수' }).click();
+    await expect(card.locator('[data-pane="buy"]')).toBeVisible();
+    for (const slot of ['pre-buy', 'extra-buy', 'post-buy'] as const) {
+      await expect(card.locator(`[data-slot="lc-group-${slot}"] [data-slot="lc-group-fold"]`)).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      );
+    }
+    const m = await card.evaluate((root) => {
+      const tl = root.querySelector('[role="tablist"][aria-label="주문 진입"]')!.getBoundingClientRect();
+      const h = (slot: string) =>
+        Math.round(root.querySelector(`[data-pane="buy"] [data-slot="lc-group-${slot}"]`)!.getBoundingClientRect().height);
+      const post = root.querySelector('[data-pane="buy"] [data-slot="lc-group-post-buy"]')!.getBoundingClientRect();
+      return {
+        total: Math.round(post.bottom - tl.top),
+        buy: h('buy'),
+        pre: h('pre-buy'),
+        extra: h('extra-buy'),
+        post: h('post-buy'),
+        cardWidth: (root as HTMLElement).clientWidth,
+      };
+    });
+    test.info().annotations.push({
+      type: 'P24-8 폰 한 화면(px)',
+      description: `탭 줄 위 ~ 후매수 카드 아래 ${m.total} (≤ 660) · 매수주문 ${m.buy} · 선매수 ${m.pre} · 추가매수 ${m.extra} · 후매수 ${m.post} · 카드 폭 ${m.cardWidth}`,
+    });
+    expect(m.total, `매수 탭 한 화면 — ${JSON.stringify(m)}`).toBeLessThanOrEqual(660);
+  });
+
+  /*
     ★ Phase 20 트레이서 — 「호가변경」(Phase 24 D-09 로 선매수 카드 「한방」) 한 행이 **실제 경로 한 줄**을 끝까지 잇는다(20-01).
       진짜 브라우저 → 진짜 relay → 스텁 게이트웨이 10 수신 → 60 에코 → 행 값.
       `openFocusedCard` 를 쓰지 않는다 — 그 헬퍼는 옛 입력 id(`#lc-buy-watch-qty`)를 기다리고,

@@ -19,6 +19,7 @@
  */
 
 import {
+  Fragment,
   createContext,
   useContext,
   useEffect,
@@ -38,6 +39,16 @@ import { cn } from '@/lib/utils';
 export type SettingUnit = '원' | '주' | '만원' | '%' | '건' | '회';
 
 const NUM = new Intl.NumberFormat('ko-KR');
+
+/**
+ * 제목줄 상태 문구를 줄바꿈 단위 조각으로 가른다(`SettingGroup` 주석 · 24-08) — 「무장 · 대기 · 후매수 발동」 →
+ * 「무장 ·」 「대기 ·」 「후매수 발동」. 조각은 `nowrap` 이고 조각 사이 공백만 줄바꿈 기회라, 구분점은 앞 조각에 붙고
+ * 「후매수 / 발동」처럼 낱말이 갈리지 않는다. 글자 · 접근성 이름은 원문 그대로다(보통 공백).
+ */
+function statusPiecesOf(text: string): string[] {
+  const segs = text.split(' · ');
+  return segs.map((seg, i) => (i < segs.length - 1 ? `${seg} ·` : seg));
+}
 
 /** 「3건」「127,400원」「3회」 — 천 단위 쉼표 + 단위 붙여 씀(UI-SPEC §2). */
 export function formatSettingValue(value: number, unit: SettingUnit): string {
@@ -334,6 +345,11 @@ export interface SettingGroupProps {
  * ★ 제목과 상태는 **한 텍스트 흐름**이다(`min-w-0 flex-1`). 폰 밴드에서 「발주 완료 · 무장 해제」가
  *   길면 상태가 둘째 줄로 내려간다 — 헤더만 커지고 행 높이는 불변이며 말줄임은 없다(E1 long-text).
  *   제목과 상태 사이의 공백 문자는 장식이 아니다 — `keep-all` 에서 둘 사이의 유일한 줄바꿈 기회다.
+ *   상태 문구는 `inline-block max-w-full` 한 덩어리다(24-08 실측) — 그냥 인라인이면 「켜짐 · 켠 매수 없음」이 본문
+ *   344 에서 「켜짐 ·」 / 「켠 매수 없음」 으로 쪼개졌다. 덩어리라 통째로 둘째 줄에 내려간다. 흐름 폭보다 길면(최장
+ *   「무장 · 대기 · 후매수 발동」은 344 에서 흐름 폭을 1px 안쪽으로 넘는다 — P24-7 이 잰다) 넘치지 않고 덩어리 안에서
+ *   「 · 」 조각 경계에서만 줄바꿈한다(조각은 `nowrap` · 구분점은 앞 조각에 붙는다 — 「후매수 / 발동」처럼 낱말이
+ *   갈리지 않는다). 전체를 `nowrap` 으로 두지 않는 이유가 이 폴백이다(글꼴이 조금만 넓어도 스위치를 덮는다).
  * ★ 스위치는 제목줄 **오른쪽 끝**(마지막 자식)이다 — 위치가 오터치 방어의 일부다(Phase 16 D-05).
  * ★ 꺼진 그룹(`dimWhenOff && !on`)의 행은 opacity .45 지만 **여전히 편집할 수 있다** — 값을 미리
  *   맞춰 두는 흐름이다(D-01). 매수취소는 스위치가 꺼져도 체크를 켤 수 있어 흐리지 않는다(D-21).
@@ -375,8 +391,17 @@ export function SettingGroup({
       {statusText ? (
         <>
           {' '}
-          <span id={statusId} data-slot="lc-group-status" className={cn('text-[12px]', groupStatusClassOf(statusText))}>
-            {statusText}
+          <span
+            id={statusId}
+            data-slot="lc-group-status"
+            className={cn('inline-block max-w-full text-[12px]', groupStatusClassOf(statusText))}
+          >
+            {statusPiecesOf(statusText).map((piece, i) => (
+              <Fragment key={i}>
+                {i > 0 ? ' ' : null}
+                <span className="whitespace-nowrap">{piece}</span>
+              </Fragment>
+            ))}
           </span>
         </>
       ) : null}
