@@ -91,7 +91,7 @@ pnpm --filter @gh-radar/mobile run native:verify-prod   # PROD CONFIG OK 여야 
 | 스크립트 | 하는 일 | 성공 표식 |
 |---|---|---|
 | `native:release` | **평소에 쓰는 한 줄.** iOS → Android 를 차례로 올리고(`scripts/release-apps.sh`), TestFlight 처리 완료(VALID)와 Firebase 최신 번호까지 확인한 뒤 결과 표를 낸다. 직전 빌드와 같은 분이면 다음 분까지 기다린다. 한 플랫폼만: `bash mobile/scripts/release-apps.sh ios` · `android`. 로그는 `~/Library/Developer/gh-trade-release/logs/`. | 끝의 「GH Trade 앱 릴리스 결과」 표 |
-| `native:release:ios` | Release archive(App Store 프로파일) → TestFlight 업로드 → IPA 검사 | `IPA CHECK OK` |
+| `native:release:ios` | Release archive(App Store 프로파일) → IPA 검사 → TestFlight 업로드. 검사가 실패하면 올리지 않는다. | `IPA CHECK OK` 다음 TestFlight 업로드 완료 |
 | `native:release:android` | 업로드 키로 서명한 release APK → APK 검사 → Firebase 업로드(그룹 `ghtrade-testers`). Android 기본 경로다(D-15). | `APK CHECK OK` 다음 `App Distribution upload finished successfully` |
 | `native:release:android:aab` | 서명된 AAB 만 만든다. 업로드는 없다(Play 경로 보존 · D-16). | `AAB CHECK OK` |
 | `native:release:android:play` | AAB → Play 내부 테스트 트랙. **Phase 23 용**이다(Play 개발자 인증 뒤). 지금은 Play SA 키(`play-sa`)가 없어 exit 3 으로 멈춘다. | — |
