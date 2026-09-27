@@ -40,26 +40,86 @@ class AuditInputError extends Error {}
 
 /** 끝 4자리만 남기고 앞은 같은 길이의 `*` — 4자리 이하면 전부 `*`. */
 function maskAccount(accountNo) {
-  return String(accountNo); // RED: 아직 마스킹하지 않는다
+  const s = typeof accountNo === "string" ? accountNo : String(accountNo ?? "");
+  if (s.length <= 4) return "*".repeat(s.length);
+  return "*".repeat(s.length - 4) + s.slice(-4);
+}
+
+function isLcSnap(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v) && v.t === "lc.snap";
+}
+
+function lastLcSnap(values) {
+  let found = null;
+  for (const v of values) if (isLcSnap(v)) found = v;
+  return found;
 }
 
 /** 표준입력 원문 → `t === "lc.snap"` 인 마지막 프레임. 못 찾으면 AuditInputError. */
 function parseInput(text) {
-  return JSON.parse(text); // RED: 여러 줄 · 배열 · 거부 경로 없음
+  const trimmed = String(text).trim();
+  let values;
+  try {
+    const whole = JSON.parse(trimmed);
+    values = Array.isArray(whole) ? whole : [whole];
+  } catch {
+    // 한 JSON 이 아니다 — 여러 프레임을 줄바꿈으로 이어 붙인 것으로 보고 줄마다 읽는다.
+    values = [];
+    for (const line of trimmed.split(/\r?\n/)) {
+      const l = line.trim();
+      if (l === "") continue;
+      try {
+        values.push(JSON.parse(l));
+      } catch {
+        /* 프레임이 아닌 줄은 건너뛴다 */
+      }
+    }
+  }
+  const frame = lastLcSnap(values);
+  if (frame === null || !Array.isArray(frame.items)) throw new AuditInputError(NOT_LC_SNAP);
+  return frame;
 }
 
 /** `lc.snap` 프레임 → 매수잔량 기준(`buyWatchSide === "1"`) 목록과 총 건수. */
 function auditLcSnap(frame) {
-  return { total: 0, matches: [], missingSide: 0 }; // RED: 아직 거르지 않는다
+  const items = frame.items;
+  const matches = items
+    .filter((it) => it !== null && typeof it === "object" && it.buyWatchSide === "1")
+    .map((it) => ({
+      label: it.name ? it.name : it.isin,
+      isin: it.isin,
+      exchange: it.exchange,
+      account: maskAccount(it.accountNo),
+      buy: it.buyEnabled ? "매수 ON" : "매수 OFF",
+      sell: it.sellEnabled ? "매도 ON" : "매도 OFF",
+    }));
+  const missingSide = items.filter(
+    (it) => it === null || typeof it !== "object" || !("buyWatchSide" in it),
+  ).length;
+  return { total: items.length, matches, missingSide };
 }
 
 /** 감사 결과 → stdout 본문(한국어). */
 function formatAudit(result) {
-  return "";
+  const lines = [
+    `옛 서버 lc.snap — 총 ${result.total}건 · 매수잔량 기준 ${result.matches.length}건`,
+  ];
+  if (result.matches.length === 0) lines.push("매수잔량 기준 전략이 없습니다");
+  for (const m of result.matches) {
+    lines.push(`${m.label} · ${m.isin} · ${m.exchange} · ${m.account} · ${m.buy} · ${m.sell}`);
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 /** 출력 본문에 원문 계좌(5자 이상)가 섞였으면 AuditInputError. */
-function assertNoRawAccount(text, frame) {}
+function assertNoRawAccount(text, frame) {
+  for (const it of frame.items) {
+    const raw = it !== null && typeof it === "object" && typeof it.accountNo === "string" ? it.accountNo : "";
+    if (raw.length > 4 && text.includes(raw)) {
+      throw new AuditInputError("출력에 원문 계좌가 섞였습니다 — 아무것도 출력하지 않고 중단합니다");
+    }
+  }
+}
 
 function selfTest() {
   const { test } = require("node:test");
