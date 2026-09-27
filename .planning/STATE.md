@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 24
 current_phase_name: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영
 status: executing
-stopped_at: Phase 24 UI-SPEC approved
-last_updated: "2026-09-27T16:04:31.510Z"
-last_activity: 2026-09-27
-last_activity_desc: Phase 22 complete, transitioned to Phase 18
-state_head: a8836fb2d07bd75ce2fbeb664d54baedbb334e76
+stopped_at: Completed 24-01-PLAN.md
+last_updated: "2026-09-27T17:20:42.727Z"
+last_activity: 2026-09-28
+last_activity_desc: Phase 24 execution started
+state_head: ea1088ad958a7d6f27dc267214b03a2e18084749
 progress:
   total_phases: 33
   completed_phases: 4
   total_plans: 309
-  completed_plans: 284
+  completed_plans: 285
 milestone_name: milestone
 ---
 
@@ -24,17 +24,17 @@ milestone_name: milestone
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 22 — GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK)
+**Current focus:** Phase 24 — gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영
 
 ## Current Position
 
-Phase: 24 (gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영) — READY TO EXECUTE
-Plan: Not started
+Phase: 24 (gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영) — EXECUTING
+Plan: 2 of 9
 Plans completed: 219 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-27 - Completed quick task 260927-s4j: Phase 22 보안 경고 W-1·W-2 수정
+Last activity: 2026-09-28 — Phase 24 execution started
 
 Progress: [█████████░] 93%
 
@@ -137,6 +137,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 22 P08 | 2h 16m | 2 tasks | 2 files |
 | Phase 22 P09 | 7min | 2 tasks | 0 files |
 | Phase 22 P10 | 9min | 3 tasks | 3 files |
+| Phase 24 P01 | 21 min | 2 tasks | 39 files |
 
 ## Accumulated Context
 
@@ -330,6 +331,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 22]: 22-09: 전 자동 게이트 6개 green · 릴리스 뒤 mobile/ 무변경 · PROD CONFIG OK · push 안 함(22-10)
 - [Phase 22]: 22-10: push 결정 — 798f911f..d678bc51 을 2026-09-27 15:52:10 KST push, 운영 /privacy 15:53:19 KST 반영(PRIVACY LIVE 2026년 9월 27일)
 - [Phase 22]: 22-10: 시행일 2026-09-27 유지 — /privacy 첫 공개일(15:28 KST 디버그 세션 push 798f911f 가 자리표시 시행일 페이지를 선공개)과 push 날이 같아 재조정 없음
+- [Phase 24]: 24-01: buy3_schema 는 relay 상수 LC_FIXED_BUY3_SCHEMA=1 로 못박고 입력·zod 에 두지 않는다 (T-24-01)
+- [Phase 24]: 24-01: 매수 LED 는 마스터 우선 — buyEnabled=false 면 postBuyPhase=2 여도 OFF · 세 상태 모두 클릭 불가 (D-12)
+- [Phase 24]: 24-01: formFromServer 는 추가매수·후매수 금액 0 을 0 그대로 들인다 — buyOrderAmount prev 보존 특례 불채택 (D-03)
 
 ### Pending Todos
 
@@ -382,10 +386,10 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/24-limitchaser-buy3/24-UI-SPEC.md
+**Resume file:** None
 
-Last session: 2026-09-27T14:41:59.775Z
-Stopped at: Phase 24 UI-SPEC approved
+Last session: 2026-09-27T17:20:42.112Z
+Stopped at: Completed 24-01-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
