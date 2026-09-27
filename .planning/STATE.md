@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 milestone: v1.0
 current_phase: 22
-current_phase_name: GH Trade 테스트 배포 (iOS TestFlight · Android Play 내부 테스트)
+current_phase_name: GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK)
 status: executing
-stopped_at: 22-05 Task 1 에서 중단 — Play 개발자 인증 미완료로 Android 경로 재계획 대기
-last_updated: "2026-09-27T00:44:05.658Z"
+stopped_at: Phase 22 재계획 완료 — 22-05~22-10 (Android Firebase APK) 실행 대기
+last_updated: "2026-09-27T01:42:53.472Z"
 last_activity: 2026-09-27
 last_activity_desc: Phase 22 execution started
-state_head: fe08438b45cfd54b612dcf94e19453ee9332abda
+state_head: 2ad4c05ff3061bd2ce90fd97ce759f09728c5a8d
 progress:
-  total_phases: 31
+  total_phases: 32
   completed_phases: 5
-  total_plans: 297
+  total_plans: 300
   completed_plans: 278
 milestone_name: milestone
 ---
@@ -28,13 +28,13 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 22 (GH Trade 테스트 배포 (iOS TestFlight · Android Play 내부 테스트)) — EXECUTING
+Phase: 22 (GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK)) — READY TO EXECUTE
 Plan: 5 of 7
 Plans completed: 219 / 234
-Status: Paused — Phase 22 Android 경로 재계획 대기
+Status: Ready to execute — Phase 22 재범위 플랜 22-05~22-10
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-27 — 22-01~22-04 완료, 22-05 에서 중단(Play 개발자 인증 미완료)
+Last activity: 2026-09-27 — Phase 22 재범위(Android Firebase APK) 재계획 완료 · 22-05~22-10 체커 통과
 
 Progress: [█████████░] 93%
 
@@ -325,7 +325,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 닫힌 항목(근거 포함): [STATE-ARCHIVE.md](./STATE-ARCHIVE.md#닫힌-todo--blocker)
 
-- **Phase 22 Play 경로 차단 (2026-09-27).** Play Console 개발자 인증이 끝나지 않아 22-05(Play 첫 업로드)를 Task 1 서명 키 결정에서 멈췄다. 사용자 제안: iOS 는 TestFlight 유지, Android 는 Play 대신 APK 배포, Play 배포는 인증 후 재개. 22-05·22-06(Android 부분)·22-07 재계획 필요. 22-04 의 AAB·업로드 키(SHA-1 2F:E3:BA:78:…:7B:7D)·Play lane 은 그대로 보존.
+- **Phase 22 Play 경로 → Phase 23 (2026-09-27).** Play Console 개발자 인증 미완료로 Android 는 Firebase App Distribution APK 로 재범위(22-05~22-10 재계획 · 체커 통과). Play 스토어 배포는 Phase 23 — 착수 조건: Play 개발자 인증 완료. 옛 22-05~22-07 은 phases/23-gh-trade-play/from-phase-22/.
 
 ### Quick Tasks Completed
 
@@ -365,7 +365,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 **Resume file:** None
 
 Last session: 2026-09-27T00:09:43.494Z
-Stopped at: 22-05 Task 1 에서 중단 — Play 개발자 인증 미완료로 Android 경로 재계획 대기
+Stopped at: Phase 22 재계획 완료 — 22-05~22-10 (Android Firebase APK) 실행 대기
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.

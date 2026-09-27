@@ -1116,7 +1116,7 @@ Plans:
 **Goal:** Phase 21 에서 만든 GH Trade 앱(Capacitor Remote-URL 셸 · appId `com.ghtrade.app` · 운영 URL https://trade.jx1.io)을 **다른 사람이 자기 iPhone·Android 폰에 설치해 써 볼 수 있게** 테스트 배포한다. iOS 는 App Store Connect 앱 등록 → 배포용 서명 → Archive → **TestFlight** 업로드(내부 테스터). Android 는 Play Console 개발자 인증이 끝나지 않아(2026-09-27) Play 대신 저장소 밖 업로드 키로 서명한 **APK 를 Firebase App Distribution 으로 테스터에게 배포**한다. Play 스토어 내부 테스트는 개발자 인증 뒤 별도 phase(Phase 23)로 한다. 스토어 정식 출시(심사 제출·공개)는 범위 밖.
 **Requirements**: MOBILE-02
 **Depends on:** Phase 21
-**Plans:** 4/7 plans executed
+**Plans:** 4/10 plans executed
 
 **범위 안:**
 
@@ -1151,6 +1151,27 @@ Plans:
 - [x] 22-04-PLAN.md — Android: 빌드 번호 공식(D-09a) minitest · env 서명 gradle + 릴리스 가드 · 업로드 키 `!` 생성·Secret Manager 백업 · `native:release:android:aab` → AAB CHECK OK
 
 **재범위 (2026-09-27):** 옛 22-05(Play 앱 서명·첫 AAB 업로드) · 22-06(Play SA·supply·테스터) · 22-07(두 번째 릴리스·push) 플랜은 Play 경로 전제라 Phase 23 디렉터리로 이관했다. 22-01~22-04 결과(TestFlight 업로드 · `/privacy` · 업로드 키 · AAB lane)는 유지하고, Android APK·Firebase 경로 플랜을 이어서 새로 작성한다.
+
+**재범위 Wave 1**
+
+- [ ] 22-05-PLAN.md — Firebase 선행: `setup-release-secrets.sh firebase-sa`(전용 SA · 단일 역할) + 위생 보강 → D-17 프로젝트 결정(one-way) → 콘솔(Firebase 추가 · Android 앱 SHA-1 비움 · 「시작하기」 · 그룹 본인) + `! firebase-sa` + GCP Android OAuth(업로드 SHA-1) + 동의 화면 상태
+- [ ] 22-06-PLAN.md — iOS: lane `latest` · `release-ios.sh [beta|latest]` → 22-01 빌드 202609270252 TestFlight 처리 완료(VALID) 확인
+
+**재범위 Wave 2** *(blocked on 22-05)*
+
+- [ ] 22-07-PLAN.md — 트레이서: `native:release:android` → 업로드 키 서명 APK → `APK CHECK OK` → Firebase App Distribution 업로드 · 모드 확장(firebase-latest · check-apk · 기본 firebase) · 엣지·Play 경로 보존 · 에뮬레이터 사이드로드 스모크
+
+**재범위 Wave 3** *(blocked on 22-06 · 22-07)*
+
+- [ ] 22-08-PLAN.md — `mobile/README.md` 「릴리스」 절 · 테스터 안내(iOS 3 · Android 4단계) · client-ids 주석 → 본인 Android 로그인 게이트 → 테스터 초대(Firebase · ASC · 동의 화면)
+
+**재범위 Wave 4** *(blocked on 22-08)*
+
+- [ ] 22-09-PLAN.md — 전 자동 게이트 + 두 번째 릴리스(iOS → Android · 번호 엄격 증가 · TestFlight VALID · Firebase 최신) · 저장소 무변경 · 테스터 UAT(end-of-phase)
+
+**재범위 Wave 5** *(blocked on 22-09)*
+
+- [ ] 22-10-PLAN.md — `/privacy` 시행일 확정(4곳 · push 날) · STATE 이름 정정 → push(= 웹 배포) 결정(blocking-human · 백엔드 결합 게이트) → push 직전 재확인 → 운영 `/privacy` 200
 
 ### Phase 23: GH Trade Play 스토어 내부 테스트 배포 (개발자 인증 후)
 
