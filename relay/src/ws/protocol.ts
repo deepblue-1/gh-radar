@@ -27,7 +27,7 @@
  */
 import { z } from "zod";
 import { MAX_VI_ORDER_AMOUNT_KRW } from "@gh-radar/shared";
-import type { RelayExchange, RelayOutbound } from "@gh-radar/shared";
+import type { RelayExchange, RelayLimitChaserInput, RelayOutbound } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
 
@@ -138,6 +138,11 @@ export function isRelayExchange(value: string): value is RelayExchange {
  *    `z.enum(["K","Q"])` 는 **형식만** 볼 뿐 `SymbolMap` 과 대조하지 않으므로, 브라우저의
  *    `market === 'KOSDAQ' ? 'Q' : 'K'` 추측이 그대로 반복 발주 설정이 됐다. 위 4필드와 같은
  *    논리로 **필드를 지운다** — `z.object` 가 미지 키를 떨어뜨리므로 실려 와도 통과하지 못한다.
+ *
+ * ★ **Phase 24 신필드 12개는 선택이다 = 구 탭 관용(F-4).** 새로고침 전 옛 탭은 신필드 없이 보낸다 —
+ *   필수로 두면 zod 위반 = 연결 종료라 옛 탭의 시세 · 에코 · 수동주문까지 멈춘다. 부재 판정은
+ *   fanout 의 `buy3CfgOf` **한 곳**이다. 여기서 기본값을 채우지 않는다 — 채우면 옛 탭 프레임이
+ *   조용히 새 클라 등록이 된다. 값이 **있으면** 범위 규칙은 그대로 적용된다.
  */
 export const RelayLcSetSchema = z.object({
   t: z.literal("lc.set"),
@@ -178,32 +183,37 @@ export const RelayLcSetSchema = z.object({
     cancelWatchQty: UIntSchema,
     cancelTradeEnabled: z.boolean(),
     cancelQtyTrackEnabled: z.boolean(),
-    // === Phase 24 매수 3종 C→S 12 (gh-trade D-17) — 이 플랜에서는 **필수**다.
-    //     구 탭(신필드 없는 lc.set) 관용은 24-03 이 붙인다.
-    preBuyEnabled: z.boolean(),
-    extraBuyEnabled: z.boolean(),
+    // === Phase 24 매수 3종 C→S 12 (gh-trade D-17) — **선택**(구 탭 관용 · 24-03). 부재는
+    //     fanout `buy3CfgOf` 가 판정한다 — 기본값을 여기서 채우지 않는다.
+    preBuyEnabled: z.boolean().optional(),
+    extraBuyEnabled: z.boolean().optional(),
     /** 추가매수 최소 매수잔량(주). 0 = 1주. 최소>최대는 여기서 막지 않는다 — 서버가 그 그룹만 눕힌다. */
-    extraBuyMinQty: UIntSchema,
+    extraBuyMinQty: UIntSchema.optional(),
     /** 추가매수 최대 매수잔량(주). 0 = 무제한. */
-    extraBuyMaxQty: UIntSchema,
+    extraBuyMaxQty: UIntSchema.optional(),
     /** 단위 만원. */
-    extraBuyOrderAmount: UIntSchema,
-    extraBuyOrderQty: UIntSchema,
-    postBuyEnabled: z.boolean(),
+    extraBuyOrderAmount: UIntSchema.optional(),
+    extraBuyOrderQty: UIntSchema.optional(),
+    postBuyEnabled: z.boolean().optional(),
     /**
      * 후매수 반등률 % — **0~100**. 레거시 에코 0 을 소켓 종료로 만들지 않는다 — RESEARCH Pitfall 4.
      * 「후매수 ON 이면 1~100」 은 아래 `superRefine` 한 규칙이 본다(서버 §9-2 ⑤ 동형).
      */
-    postBuyReboundPct: z.number().int().min(0).max(100),
-    postBuyFloorQty: UIntSchema,
+    postBuyReboundPct: z.number().int().min(0).max(100).optional(),
+    postBuyFloorQty: UIntSchema.optional(),
     /** 후매수 최대 횟수(최초 포함). 0 = 사지 않음(gh-trade D-30)도 유효하다. */
-    postBuyReentry: UByteSchema,
+    postBuyReentry: UByteSchema.optional(),
     /** 단위 만원. */
-    postBuyOrderAmount: UIntSchema,
-    postBuyOrderQty: UIntSchema,
+    postBuyOrderAmount: UIntSchema.optional(),
+    postBuyOrderQty: UIntSchema.optional(),
   }).superRefine((cfg, ctx) => {
     // 서버 §9-2 ⑤ 반등률 1~100 과 동형 — 켜는 쪽만 본다(끄는 쪽 0 은 통과).
-    if (cfg.postBuyEnabled && cfg.postBuyReboundPct < 1) {
+    // 값이 **있을 때만** 본다 — 부재(구 탭)는 fanout 이 거부 프레임으로 답한다.
+    if (
+      cfg.postBuyEnabled === true &&
+      cfg.postBuyReboundPct !== undefined &&
+      cfg.postBuyReboundPct < 1
+    ) {
       ctx.addIssue({
         code: "custom",
         path: ["postBuyReboundPct"],
@@ -414,6 +424,68 @@ export const RelayInboundSchema = z.discriminatedUnion("t", [
   RelayOrderModifySchema,
   RelayOrderCancelSchema,
 ]);
+
+/**
+ * 구 탭 `lc.set`(신필드 12개 없음 · 게이트가 하나라도 켜짐)에 relay 가 돌려주는 거부 문구
+ * (24-UI-SPEC Copywriting 원문). 소켓을 끊지 않고(F-4) 이 문구 한 건으로 답한다.
+ */
+export const LC_LEGACY_SET_REJECT_TEXT = "매수 설정 방식이 바뀌었어요 — 화면을 새로고침해 주세요";
+
+/**
+ * Phase 24 매수 3종 C→S 12 의 **중립값** — 옛 모양 **철거** 프레임에만 쓴다(`withNeutralBuy3`).
+ *
+ * ★ 이 객체의 키가 곧 신필드 목록의 **유일한 정본**이다(`LC_BUY3_INPUT_KEYS` 가 여기서 파생된다) —
+ *   목록을 두 벌 두면 한쪽만 늘어난다. `withNeutralBuy3` 의 반환 타입이 `RelayLimitChaserInput` 이라
+ *   키가 빠지면 컴파일이 짚는다.
+ */
+const LC_BUY3_NEUTRAL = {
+  preBuyEnabled: false,
+  extraBuyEnabled: false,
+  extraBuyMinQty: 0,
+  extraBuyMaxQty: 0,
+  extraBuyOrderAmount: 0,
+  extraBuyOrderQty: 0,
+  postBuyEnabled: false,
+  postBuyReboundPct: 0,
+  postBuyFloorQty: 0,
+  postBuyReentry: 0,
+  postBuyOrderAmount: 0,
+  postBuyOrderQty: 0,
+} as const satisfies Partial<RelayLimitChaserInput>;
+
+type LcBuy3InputKey = keyof typeof LC_BUY3_NEUTRAL;
+
+/** 신필드 12개 키 — `LC_BUY3_NEUTRAL` 에서 파생한다(목록 한 벌). */
+const LC_BUY3_INPUT_KEYS = Object.keys(LC_BUY3_NEUTRAL) as readonly LcBuy3InputKey[];
+
+/** relay 가 받은 `lc.set` cfg — 신필드 12개가 선택이다(구 탭 관용). */
+export type RelayInboundWireLcSetCfg = z.infer<typeof RelayLcSetSchema>["cfg"];
+
+type LcSetCfgWithBuy3 = RelayInboundWireLcSetCfg &
+  Required<Pick<RelayInboundWireLcSetCfg, LcBuy3InputKey>>;
+
+function hasAllBuy3(cfg: RelayInboundWireLcSetCfg): cfg is LcSetCfgWithBuy3 {
+  return LC_BUY3_INPUT_KEYS.every((k) => cfg[k] !== undefined);
+}
+
+/**
+ * 새 클라 cfg 인가 — 신필드 12개가 **전부** 있으면 `RelayLimitChaserInput` 으로 좁혀 돌려주고,
+ * 하나라도 없으면 `null`(구 탭). 부재 판정의 **유일한** 자리다 — fanout `lc.set` 분기가 부른다.
+ */
+export function buy3CfgOf(cfg: RelayInboundWireLcSetCfg): RelayLimitChaserInput | null {
+  return hasAllBuy3(cfg) ? cfg : null;
+}
+
+/**
+ * 옛 모양 **철거** 프레임에만 — 신필드 12개를 false/0 으로 채운다(있어도 덮는다).
+ *
+ * ⚠️ 게이트 4종이 **전부 OFF** 일 때만 부른다(T-24-42). 켜는 프레임을 채우면 옛 탭이 조용히 새 클라
+ *    등록이 된다. 철거는 설정값과 무관하므로 중립값으로 충분하다 — 철거를 막으면 사용자가 무장을
+ *    풀 수 없게 된다(T-16-44 「끄기는 언제나 허용」).
+ */
+export function withNeutralBuy3(cfg: RelayInboundWireLcSetCfg): RelayLimitChaserInput {
+  return { ...cfg, ...LC_BUY3_NEUTRAL };
+}
 
 /**
  * relay 가 실제로 받는 인바운드 타입(zod 출력). **relay 내부 전용** — shared 에 두지 않는다.

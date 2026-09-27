@@ -108,9 +108,12 @@ import {
   isRelayExchange,
   isValidAccountNo,
   isValidIsin,
+  buy3CfgOf,
   LC_LEGACY_ARM_REJECT_TEXT,
+  LC_LEGACY_SET_REJECT_TEXT,
   parseInbound,
   type RelayInboundWire,
+  withNeutralBuy3,
 } from "./protocol.js";
 import { createOrderHandler, type OrderHandler } from "./order-handler.js";
 import type { SymbolLookup } from "../store/symbols.js";
@@ -762,10 +765,33 @@ export class WsFanout {
     // ★ 이어서 **②-2 무장 조건 검사** — 발주가·수량 0 인 게이트는 켤 수 없다 (WR-06).
     // ------------------------------------------------------------------
     if (msg.t === "lc.set") {
-      const { cfg } = msg;
       const session = this.#strategySession(conn, userId, msg.t);
       if (session === null) return;
-      if (!this.#accountAllowed(conn, session, userId, msg.t, cfg.accountNo)) return;
+      if (!this.#accountAllowed(conn, session, userId, msg.t, msg.cfg.accountNo)) return;
+      // ②-0 구 탭 관용 (F-4 · Pitfall 3 · 24-03). 세션 · 계좌 가드 **뒤**다 — 허용 목록 밖 계좌는
+      //      종전 거부 문구 그대로 끝난다(판정 순서 불변 · T-24-14).
+      //
+      //   · 신필드 12개가 전부 있다 → 새 클라. 그대로 간다.
+      //   · 없고 게이트 4종이 전부 OFF(철거) → 12키를 중립값으로 채워 `buy3_schema=1` 로 중계한다.
+      //     삭제는 설정값과 무관하고, 막으면 옛 탭이 무장을 풀 수 없다(T-16-44 · T-24-42).
+      //   · 없고 게이트가 하나라도 켜짐 → 게이트웨이 0바이트 · 거부 프레임 1건 · **소켓 유지**
+      //     (`#reject` 금지 — 끊으면 재접속 → 재확정 → 재종료 루프가 된다 · T-24-11).
+      //
+      //   ★ 구 탭 프레임을 `buy3_schema=0` 레거시로 중계하는 분기는 두지 않는다 — 그 경로가 서버에서
+      //     「선매수만 켠 등록」이 된다(RESEARCH A1 · T-24-15).
+      let cfg = buy3CfgOf(msg.cfg);
+      if (cfg === null) {
+        if (!this.#isTeardown(msg.cfg)) {
+          // 계좌번호는 싣지 않는다 (T-16-45).
+          logger.warn(
+            { userId, t: msg.t, isin: msg.cfg.isin },
+            "[WS] 구 탭 lc.set(신필드 없음) — 거부 프레임으로 답하고 소켓 유지",
+          );
+          this.#send(conn, rejectFrame(LC_LEGACY_SET_REJECT_TEXT, "", msg.cfg.isin));
+          return;
+        }
+        cfg = withNeutralBuy3(msg.cfg);
+      }
       // ②-1 시장 해석은 **게이트 상태로 갈린다** (R2-CR-01 / GC-WR-04 / T-16-55).
       //
       // 갈림의 근거는 클라이언트가 자칭하는 `crud` 가 **아니라** 게이트 4종의 실제 상태다
@@ -1116,7 +1142,12 @@ export class WsFanout {
    *   분기) 한 곳에서만 남긴다 — 이 함수는 한 프레임당 최대 두 번(`lc.set` · `#strategyArmable`)
    *   호출되므로 여기에 로그를 두면 사고 1건이 두 줄로 새어 운영 신호가 부풀려진다.
    */
-  #isTeardown(cfg: RelayLimitChaserInput): boolean {
+  #isTeardown(
+    cfg: Pick<
+      RelayLimitChaserInput,
+      "buyEnabled" | "sellEnabled" | "cancelQtyEnabled" | "cancelTradeEnabled"
+    >,
+  ): boolean {
     return (
       !cfg.buyEnabled && !cfg.sellEnabled && !cfg.cancelQtyEnabled && !cfg.cancelTradeEnabled
     );
