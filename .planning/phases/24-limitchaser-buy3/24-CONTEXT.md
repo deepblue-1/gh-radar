@@ -27,7 +27,7 @@ gh-trade Phase 24(브랜치 `worktree-phase-24-limitchaser-buy3`, 아직 master 
 - **D-01:** 마스터(`buyEnabled`) OFF 인 상태에서 그룹 스위치(`preBuyEnabled`·`extraBuyEnabled`·`postBuyEnabled`)를 켜면 **같은 `lc.set` 에 `buyEnabled=true` 도 싣는다**(WinForms 24-06 동형) + 전략 로그 「{선매수|추가매수|후매수} 체크 — 매수주문도 켬」. 끄는 쪽은 D-02 외에는 마스터를 건드리지 않는다. 매수 무장이므로 「감시 중 — 바로 반영」 안내 규약(Phase 20 D-05) 그대로, 추가 확인창 없음.
 - **D-02:** **사람이 마지막 켜진 그룹을 끄면 같은 제출에 마스터도 끈다**(세 그룹 OFF ∧ 마스터 ON 을 사람 손으로는 만들지 않는다). 단, **에코 경로는 어떤 제출도 만들지 않는다** — 서버가 발주·포기로 그룹을 자동 해제해 「세 그룹 OFF · 마스터 ON」이 에코되면 그대로 그리고 자동 제출하지 않는다(gh-trade D-11/D-13 정적 게이트 규율). 이 상태의 매수주문 카드 상태 문구는 플래너 재량(「감시 중」과 구분되는 중립 문구 권장).
 - **D-03:** 새 그룹(추가매수·후매수)의 주문금액 에코가 0 이면 **그 그룹 스위치만 막고**(사유 「주문금액을 먼저 입력해 주세요」) 최소·최대·반등 등 다른 행은 자유롭게 확정할 수 있다. Phase 20 **D-04a(「—」 + 다른 필드 확정 막음)는 선매수(`buyOrderAmount`)에만** 그대로 적용한다. 금액 0 표시는 「—」 로 통일.
-- **D-04:** 새 전략 폼 기본값은 **WinForms 그대로** — 후매수 반등 10% · 최대 3회 · 추가매수 최소/최대 0 · 후매수 하한 0 · 그룹 주문금액은 선매수와 같은 10만원.
+- **D-04:** 새 전략 폼 기본값은 **WinForms 그대로 — 후속분 ② 기본값 표(gh-trade D-33, `limit-chaser.md` §10 표, 2026-09-27 사용자 결정 「표 전부 적용」)**. 고정값: 선매수·추가매수·후매수 주문금액 각 4,000만원 · 후매수 반등 30% · 후매수 최소(하한잔량) 100,000주 · 후매수 최대 3회 · 매도 매수잔량 10주 · 매도 잔량추적 55% · 취소 매수잔량 10주 · 매수/매도 비교가격·주문가격 = 상한가(기존 `seedFromUpperLimit`). 상장주식수 5칸(선매수 매도잔량·체결량 = ×0.3%, 추가매수 최소 = ×0.3% · 최대 = ×3%, 매도 체결 = ×0.3%, 정수 내림)은 D-17 시딩 규칙을 따른다. 시딩 전·모를 때 폴백 = 옛 상수 10,000 / 30,000 / 0 / 0 / 30,000. (옛 D-04 값 10만원 · 10% · 0 은 폐기.)
 - **D-05:** 새 전략에서 마스터를 처음 켤 때 **세 그룹은 전부 OFF** — 살 갈래는 사람이 고른다(선매수 기본 ON 아님). 따라서 마스터 ON 만으로는 D-06 자동 체크가 나가지 않는다. 실무 동선은 D-01 로 그룹을 켜는 것이 곧 마스터 켜기다.
 
 ### ② 선매수 자동 체크(gh-trade D-06) 알림·빈 값
@@ -43,8 +43,16 @@ gh-trade Phase 24(브랜치 `worktree-phase-24-limitchaser-buy3`, 아직 master 
 ### ④ 상태 표시·로그·이행
 - **D-12:** 매수 LED = **마스터 2단계 + 보유중** — `!buyEnabled` 회색 「OFF」 / `buyEnabled ∧ postBuyPhase !== 2` 초록 「감시」 / `buyEnabled ∧ postBuyPhase === 2` **주황 「보유중」**(기존 `--led-latent` 토큰 재사용, 새 토큰 없음). **클릭 불가**(`lc.arm` buy 경로·MsgType 38 제거). 매도·취소 LED 는 Phase 17 D-19~D-21 그대로. `buyWatchSide`·`buyEntryLatched` 의존 제거.
 - **D-13:** 전략 로그는 **서버 사유 줄 우선**(`source="LimitChaser"` 원문 그대로, 배지 `[상따]`; `source="SetLimitChaser"` 거부 문구 원문 그대로, §9-2 ②~⑤ 문구를 다듬지 않는다). 클라 합성 전이는 **그룹 스위치 ON/OFF 전이만**(선·추가·후매수 각각, 기존 매수 무장 전이와 같은 결) + D-01/D-02 마스터 동반 전이. 발동·포기·소진·재진입 사유는 서버 줄을 믿고 중복 합성하지 않는다. `postBuyPhase`·`postBuyTriggerQty`·`postBuyReentryLeft`·`extraBuyAbandoned` 변화는 **런타임 에코**로 분류(`RUNTIME_ONLY_SKIP`·`VALUE_COMPARE_SKIP` 확장, 로그 안 남김). 매수 래치 전이 4종(`buyLatched/buyUnlatched`)은 삭제.
-- **D-14:** 기존 운영 전략 중 「감시대상 = 매수잔량」 선택분은 **relay 배포 직전 열거(64)로 `buyWatchSide === "1"` 목록을 추출해 사용자에게 보고만** 한다. 웹 안내 배너·일회성 이행 UI 없음 — 배포 뒤 웹은 서버 에코만 그린다(서버가 선매수로 읽는 것은 gh-trade D-24 로 사용자 수용).
+- **D-14:** 기존 운영 전략 중 「감시대상 = 매수잔량」 선택분은 **gh-trade 24-12 서버 재기동 전에**(리서치 F-2 정정 — 신 서버는 에코·열거에 `buy_watch_side` 를 싣지 않으므로 「relay 배포 직전」은 불가능) 현 서버의 열거(64)로 `buyWatchSide === "1"` 목록을 추출해 사용자에게 보고만 한다. gh-trade-38 확인(2026-09-27): 지금 가동본은 옛 서버라 아무 때나 추출 가능, 24-11/24-12 예고 때 「추출 끝났는지」를 확인 항목으로 넣는다 → 플랜에서는 **첫 웨이브의 독립 태스크**로 둔다. 웹 안내 배너·일회성 이행 UI 없음 — 배포 뒤 웹은 서버 에코만 그린다(서버가 선매수로 읽는 것은 gh-trade D-24 로 사용자 수용).
 - **D-15:** 후매수 발동(`postBuyPhase === 2`) 중에는 **매도주문·매수취소 카드 상태 문구에 「· 후매수 발동」을 덧붙인다**. 행 값은 에코 그대로(발동잔량으로 덮인 값), 편집도 그대로 허용(재제출이 cfg 를 바꾸는 서버 규약대로). 잔량 행에 별도 「발동」 표시는 하지 않는다.
+
+### ⑤ 후속분 ② 반영(gh-trade 팁 `b46e1e5f`, 2026-09-27 — 와이어 무변경, `.fbs` 주석 3줄만)
+- **D-16:** **☐추가매수 상한가 차단(WinForms §3-1 동형, 사용자 결정 「적용」).** 사람이 추가매수 스위치를 켜는 순간 호가 프레임의 매수1호가(`RelayQuote.bp[0]`)와 폼 비교가격 칸(제출될 `buyWatchPrice`, 에코가 있으면 에코값)이 **둘 다 > 0 이고 같으면** 제출 없이 스위치를 되돌리고 전략 로그 한 줄 `추가매수는 상한가 도달 전에만 켤 수 있습니다 — 매수1호가 == 비교가격`(원문 그대로)만 남긴다. 다이얼로그·토스트 없음. 둘 중 하나라도 0(호가 미수신·비교가 미입력)이면 허용(상한가로 치환하지 않음, 서버 「모름」 단계가 백스톱). D-10·D-27 과 같은 사전 검증 결(행 아래 빨간 한 줄 대신 로그 — WinForms 와 같게 로그만).
+- **D-17:** **상장주식수 기반 기본값 시딩 규칙(WinForms `SeedListSharesDefaults` 동형).** 원천은 실시간 호가 프레임 `RelayQuote.ls`(서버 `QuoteState.list_shares`, `quote-grid-10.tsx` 가 이미 시총·1% 표시에 사용) 하나. ① 서버에 그 키의 전략이 있으면(에코 적용됨) 시딩하지 않는다 — 에코 값이 이긴다. ② `ls === 0`(미수신·KB/교보 경로)이면 시딩하지 않고 가드를 남겨 뒤에 오는 프레임이 채운다(폴백 상수 유지). ③ `ls > 0` 이면 **종목(폼)당 1회** 5칸을 정수 내림으로 채우되 사용자가 이 폼에서 손댄 칸은 덮지 않는다. 시딩은 제출을 만들지 않는다(값만 바뀜, 첫 등록 cfg 에 실린다). 추가매수 최소·최대 칸 상한은 uint32 최대.
+- **D-18:** 추가매수 포기 사유 줄은 **2종 모두 서버 원문 그대로**(D-13 규율): `추가매수 포기 — 매수1잔량 N > 최대 M`(최대 초과) · `추가매수 포기 — 상한가 이탈(매수1잔량 N < 최소 M)`(D-33 이탈). 에코는 둘 다 `extraBuyEnabled=false ∧ extraBuyAbandoned=true` 한 모양이라 웹 칩 「포기」는 사유를 구분하지 않는다. 클라 합성 문구 없음.
+- **D-19:** **두 클라 다름 기록(결정 아님).** WinForms(`b066e135`)는 서버 접힘으로 세 그룹이 모두 꺼진 에코를 받으면 한 박자 뒤 마스터 OFF 를 자동 재제출한다(매도·취소까지 전부 OFF 면 삭제가 되므로 미전송). 웹은 D-02 후반대로 **자동 제출하지 않는다** — 사용자가 discuss 에서 그 선택지를 거절했고 gh-trade-38 도 「서버 규약과 무관」으로 동의(2026-09-27). 사람이 마지막 그룹을 끌 때 마스터도 끄는 것(D-02 전반)은 두 클라 같다.
+- **D-20:** **0 은 위임이 아니라 거부다.** 서버에 「가격 0 → 상한가」 규약은 없다(gh-trade-38 확인) — `buy_enabled ∧ (buy_order_price==0 ∨ buy_watch_price==0)` 이면 §9-2 ③ ERROR 로 마스터가 눕고 매도도 같다. 「0 → 상한가」 채움은 (a) 선매수 ON 시 매도가·매도 비교가를 **클라가** 채우는 D-06/D-07 과 (b) 서버 후매수 발동 override(D-13) 두 곳뿐. 따라서 웹은 매수·매도를 켜는 제출에 **명시 상한가 값**을 싣는다(기존 `seedFromUpperLimit` 유지, D-07 의 「0 → 상한가」는 클라 채움으로 읽는다). 후매수 범위 검증(반등 1~100 · 매도비율)은 **후매수 ON 일 때만** — 레거시 전략 에코 `postBuyReboundPct=0` 은 OFF 재제출에서 서버가 통과시킨다(리서치 F-4 와 일치).
+- **D-21:** 후매수 체크 에코 = `cfg ∧ 마스터 무장 ∧ 단계 ≠ 소진`(gh-trade D-32) — relay `readLimitChaser` 해석에 이 한 항만 반영. ROADMAP 「열린 것」 첫 항은 닫힘.
 
 ### Claude's Discretion
 - 접힘/펼침 상태의 보관 위치·수명(컴포넌트 state 로 충분, 에코 재렌더에 접힘이 풀리지 않을 것), 펼친 뒤 다시 접는 동선.
@@ -63,8 +71,8 @@ gh-trade Phase 24(브랜치 `worktree-phase-24-limitchaser-buy3`, 아직 master 
 **Downstream agents MUST read these before planning or implementing.**
 
 ### gh-trade 정본(서버·와이어·규약 — 이 phase 는 여기서 정한 것을 받기만 한다)
-- `/Users/alex/repos/gh-trade/.claude/worktrees/phase-24-limitchaser-buy3/.planning/phases/24-limitchaser-buy3/24-CONTEXT.md` — D-01~D-32(세 매수의 의미·검증·에코·화면 규약). **위 D-xx 는 이 문서의 D-xx 와 번호가 다르다** — 본 CONTEXT 의 D-xx 는 웹 결정, gh-trade 의 D-xx 는 서버 결정.
-- `/Users/alex/repos/gh-trade/.claude/worktrees/phase-24-limitchaser-buy3/docs/strategy/limit-chaser.md` §5(매수 조건 5-1~5-3) · **§9-2(매수 3종 검증·에코 ①~⑧ — 거부 문구 원문·에코 접힘 규칙)** · §10(클라 폼 규약, 24-06 마스터 동반 켬).
+- `/Users/alex/repos/gh-trade/.claude/worktrees/phase-24-limitchaser-buy3/.planning/phases/24-limitchaser-buy3/24-CONTEXT.md` — D-01~D-33(세 매수의 의미·검증·에코·화면 규약; **D-33** = 추가매수 아래 틱 선행·상한가 이탈 포기·기본값 표). gh-trade 팁 `b46e1e5f`(2026-09-27, `9fb07d86` 에서 전진 — `59bf77aa` D-32 · `b066e135` 마스터 자동 끔 · `3860388f`/`1d95f64f` D-33). **위 D-xx 는 이 문서의 D-xx 와 번호가 다르다** — 본 CONTEXT 의 D-xx 는 웹 결정, gh-trade 의 D-xx 는 서버 결정.
+- `/Users/alex/repos/gh-trade/.claude/worktrees/phase-24-limitchaser-buy3/docs/strategy/limit-chaser.md` §5(매수 조건 5-1~5-3; **§5-2 추가매수 단계 기계·포기 2종 사유 줄 원문**) · **§9-2(매수 3종 검증·에코 ①~⑧ — 거부 문구 원문·에코 접힘 규칙)** · §10(클라 폼 규약, 24-06 마스터 동반 켬, **D-33 기본값 표**).
 - `/Users/alex/repos/gh-trade/.claude/worktrees/phase-24-limitchaser-buy3/server/src/protocol/StockDMA.fbs` `table SetLimitChaser` 말미 — `buy3_schema`(98) ~ `post_buy_phase`(130) 17필드의 의미·방향(C→S / S→C 전용)·이름(`extra_buy_*`).
 - `/Users/alex/repos/gh-trade/.claude/worktrees/phase-24-limitchaser-buy3/server/scripts/sync-relay-schema.sh` — relay 생성물 재생성 스크립트(`RELAY=/Users/alex/repos/gh-radar/relay`, flatc 25.12.19 고정). Phase 17 D-01 규약(손편집 금지, `--check` 차이 0).
 - `/Users/alex/repos/gh-trade/.claude/worktrees/phase-24-limitchaser-buy3/server/docs/cloud-uat.md` ⑥ · `server/scripts/uat/e2e_limitchaser_buy3.sh` · `inject_b6.py` · `inject_m4.py` — 서버측 UAT 주입 도구(웹 실기 검증 시 재사용).

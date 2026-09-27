@@ -1187,7 +1187,7 @@ Plans:
 
 ### Phase 24: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영
 
-**Goal:** gh-trade Phase 24(브랜치 `worktree-phase-24-limitchaser-buy3`, 팁 `9fb07d86`, 아직 master 미병합)가 상따 매수를 **선매수·추가매수·후매수** 세 갈래로 나눴다. 와이어는 `SetLimitChaser`(MsgType 10 요청 · 60 에코 · 64 열거) 말미 append 17필드(vtable 98~130)이고, 종전 감시대상 라디오 `buy_watch_side` 와 매수 진입 래치 `buy_entry_latched`·MsgType 38 `ArmBuyLatchReq` 는 폐기됐다. gh-radar 가 `buy3_schema=1` 을 실어야 신 클라로 인정되고, 그 전까지 서버는 「선매수만 켠 등록」으로 읽으며 웹에서 「매수잔량」을 고른 전략은 §4 ② 거부 문구를 받는다.
+**Goal:** gh-trade Phase 24(브랜치 `worktree-phase-24-limitchaser-buy3`, 팁 `b46e1e5f`(후속분 ② 반영, 종전 `9fb07d86`), 아직 master 미병합)가 상따 매수를 **선매수·추가매수·후매수** 세 갈래로 나눴다. 와이어는 `SetLimitChaser`(MsgType 10 요청 · 60 에코 · 64 열거) 말미 append 17필드(vtable 98~130)이고, 종전 감시대상 라디오 `buy_watch_side` 와 매수 진입 래치 `buy_entry_latched`·MsgType 38 `ArmBuyLatchReq` 는 폐기됐다. gh-radar 가 `buy3_schema=1` 을 실어야 신 클라로 인정되고, 그 전까지 서버는 「선매수만 켠 등록」으로 읽으며 웹에서 「매수잔량」을 고른 전략은 §4 ② 거부 문구를 받는다.
 
 **UI 게이트(선행):** WinForms 상따 창(`reference/winforms-limitchaser-options-2026-09-27.png` — 매수주문 카드: 주문가격·비교가격 → ☑선매수(만·매도잔량·☐체결량·☐한방 N건 @가격) → ☐추가매수(만·최소~최대) → ☑후매수(만·최대 N회·최소·반등 %·발동) / 매도주문 카드 / 취소 카드)을 참고해 웹 옵션 디자인 목업(변형 + 다크/라이트, globals.css 토큰 인라인)을 먼저 열어 사용자 확인 후 채택안을 박제한다. 목업 검토 답 전에는 확정·커밋 금지.
 
@@ -1201,7 +1201,7 @@ Plans:
 
 **정본:** gh-trade `server/src/protocol/StockDMA.fbs` · `docs/strategy/limit-chaser.md` §5·§9-2·§10 · `.planning/phases/24-limitchaser-buy3/24-CONTEXT.md` D-01~D-31 · `server/docs/cloud-uat.md` ⑥ · UAT 주입 도구 `server/scripts/uat/e2e_limitchaser_buy3.sh` · `inject_b6.py` · `inject_m4.py`.
 
-**열린 것:** 마스터 OFF 시 `post_buy_enabled` 에코 규약(gh-trade 결정 대기 — 에코 ⑧ 한 항만 바뀜) · 소진 푸시(300ms) 전 옛 ON 재제출 창이 웹에서 실제 생기는지 · 운영 전략 중 「감시대상=매수잔량」 선택분 목록 사전 추출.
+**열린 것:** 소진 푸시(300ms) 전 옛 ON 재제출 창이 웹에서 실제 생기는지(실기 검증) · 운영 전략 중 「감시대상=매수잔량」 선택분 목록 추출은 **gh-trade 24-12 재기동 전**(CONTEXT D-14 정정). 마스터 OFF 시 `post_buy_enabled` 에코는 gh-trade D-32 로 닫힘(CONTEXT D-21). 후속분 ②(추가매수 아래 틱·이탈 포기 · 기본값 표 · 상한가 차단)는 CONTEXT D-16~D-21.
 **Requirements**: TBD
 **Depends on:** Phase 17 (프로토콜 재동기화·래치 LED) · gh-trade Phase 24 서버 배포(24-11)
 **Plans:** 0 plans

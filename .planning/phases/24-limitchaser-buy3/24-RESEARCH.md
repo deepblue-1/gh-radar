@@ -811,3 +811,20 @@ return { tone: "armed", clickable: false, label: "감시", tooltip: null };
 
 **Research date:** 2026-09-27
 **Valid until:** gh-trade 팁이 `b066e135` 에서 더 움직이면 재생성 대상·F-2 재확인(`--check` 재실행). 그 외 30일.
+
+## Addendum — 후속분 ② (gh-trade 팁 `b46e1e5f`, 2026-09-27 · gh-trade-38 답변 반영)
+
+**팁 전진:** `b066e135` → `3860388f`(D-33 서버 단계 기계) → `1d95f64f`(WinForms 상한가 차단·기본값 표) → `7a1b5165`(문서) → `b46e1e5f`(quick 정리). `.fbs` 는 주석 3줄만(`extra_buy_min_qty`/`max_qty` 기본값 주석, `extra_buy_abandoned` 포기 2종 주석) — **와이어·vtable 무변경**. `--check` 재실측(2026-09-27): 신규/변경 1개(`set-limit-chaser.ts`) + `.fbs` 사본 갱신 예정 — 본문 결론 그대로.
+
+**gh-trade-38 확인(코드 기준):**
+1. 상장주식수 원천 = 서버 `QuoteState.list_shares` 하나(KB·교보 TR 경로 0). 웹 대응 필드 `RelayQuote.ls`(`packages/shared/src/relay.ts`), 사용처 `webapp/src/components/trading/card/quote-grid-10.tsx:167,172`(`formatMarketCap`/`formatOnePercentShares`). WinForms `SeedListSharesDefaults` 규칙 = CONTEXT D-17.
+2. 추가매수 차단 비교 = 캐시 매수1호가(웹 `RelayQuote.bp[0]`) vs 폼 비교가격 칸(제출될 `buyWatchPrice`). `bid1 > 0 ∧ watch > 0 ∧ bid1 == watch` 일 때만 차단, 0 이면 허용(치환 없음). → CONTEXT D-16.
+3. **서버에 「가격 0 → 상한가」 규약 없음** — `buy_enabled ∧ (order_price==0 ∨ watch_price==0)` 은 §9-2 ③ ERROR(마스터 눕힘), 매도도 같다. 「0 → 상한가」는 클라 D-06 채움과 서버 후매수 발동 override 두 곳뿐. 웹 `seedFromUpperLimit`(`webapp/src/lib/limit-chaser.ts:234`)가 이미 명시값을 채우므로 구조 변경 없음 — 단 `upperLimit` 미수신(0) 상태에서 매수·매도를 켜는 제출은 거부된다는 점을 사전 검증·안내에 반영(본문 webapp 2 절 보강). → CONTEXT D-20.
+4. 후매수 검증 5항은 전부 `postBuyEnabled &&` 조건 — OFF 재제출의 `post_buy_rebound_pct=0` 통과. 본문 F-4/A5 확정(assumption → verified).
+5. `limit-chaser.md` §10 낡은 문장(「그룹 끄는 쪽은 마스터 무접촉」)은 gh-trade 가 정정(미커밋, 다음 push). 현 규칙 = CONTEXT D-19.
+
+**D-14 추출 창:** 120 가동본은 Phase 24 전 서버라 열거(64)에 `buy_watch_side` 가 살아 있다 → 지금 아무 때나 추출 가능, 24-11/24-12 예고 때 gh-trade 가 「추출 끝났는지」를 확인 항목으로 넣는다. 플랜: 첫 웨이브 독립 태스크(relay 열거 파서 + 로그인 세션으로 64 요청 → `buyWatchSide === "1"` 키 목록 보고).
+
+**새 웹 작업(본문 대비 추가):** ① 기본값 표 교체 + `ls` 시딩 훅(폼당 1회 · 손댄 칸 제외 · 서버 전략 있으면 생략) ② 추가매수 스위치 사전 검증에 상한가 차단 추가(호가 프레임을 폼에 넘기는 배선 — `card-body.tsx` 가 `quote` 를 이미 들고 있다) ③ 전략 로그 원문 사유 줄 2종은 D-13 경로 그대로(추가 코드 없음).
+
+**Valid until:** gh-trade 팁이 `b46e1e5f` 에서 더 움직이면 `--check` 재실행. 그 외 30일.
