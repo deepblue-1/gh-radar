@@ -10,7 +10,7 @@ import { mergeThemes, type MergedTheme } from "../src/merge/mergeThemes";
 import { runThemeSyncCycle } from "../src/index";
 import type { ThemeScrape } from "../src/scrape/types";
 import type { ThemeSyncConfig } from "../src/config";
-import type { AxiosInstance } from "axios";
+import axios, { type AxiosInstance } from "axios";
 import { createMockSupabase } from "./helpers/supabase-mock";
 
 function cycleConfig(over: Partial<ThemeSyncConfig> = {}): ThemeSyncConfig {
@@ -21,7 +21,7 @@ function cycleConfig(over: Partial<ThemeSyncConfig> = {}): ThemeSyncConfig {
     brightdataZone: "gh_radar_naver",
     brightdataUrl: "https://api.brightdata.com/request",
     alphaApiBase: "https://api.alphasquare.co.kr",
-    naverThemeBase: "https://finance.naver.com",
+    naverStockApiBase: "https://m.stock.naver.com",
     themeSyncMaxPages: 10,
     alphaCategories: ["정치"],
     appVersion: "test",
@@ -539,5 +539,40 @@ describe("runThemeSyncCycle (cycle 결선 smoke — 5원칙 가드)", () => {
     expect(summary.backedOffSources).toContain("naver");
     // 알파는 정상 → 적재됨
     expect(summary.scrapedThemes).toBe(1);
+  });
+
+  it("네이버 소스는 UTF-8 JSON 으로 받는다 — EUC-KR 로 디코딩하면 한글 테마명이 깨진다 (2026-09 JSON API 이전)", async () => {
+    const sb = cycleSupabase();
+    const apiBody = JSON.stringify({
+      groups: [{ no: 536, name: "HBM(고대역폭메모리)" }],
+      totalCount: 1,
+    });
+    // 실제 axios 처럼 responseType 에 따라 응답 형태가 달라지는 직접 fetch 흉내.
+    const getSpy = vi
+      .spyOn(axios, "get")
+      .mockImplementation(async (_url: string, config?: { responseType?: string }) =>
+        config?.responseType === "arraybuffer"
+          ? { data: Buffer.from(apiBody, "utf8"), status: 200 }
+          : { data: apiBody, status: 200 },
+      );
+    let received = "";
+    const naver = vi.fn(async ({ fetchFn }: { fetchFn: (u: string) => Promise<string> }) => {
+      received = await fetchFn(
+        "https://m.stock.naver.com/api/stocks/theme?page=1&pageSize=100",
+      );
+      return [naverScrape];
+    });
+    try {
+      await runThemeSyncCycle({
+        config: cycleConfig(),
+        supabase: sb as never,
+        proxy: { post: vi.fn() } as unknown as AxiosInstance,
+        fetchers: { naver, alpha: vi.fn().mockResolvedValue([alphaScrape]) },
+      });
+    } finally {
+      getSpy.mockRestore();
+    }
+    expect(received).toBe(apiBody);
+    expect(JSON.parse(received).groups[0].name).toBe("HBM(고대역폭메모리)");
   });
 });

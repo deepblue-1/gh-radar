@@ -105,8 +105,9 @@ export async function runThemeSyncCycle(
     run: (fetchFn: (u: string) => Promise<string>) => Promise<ThemeScrape[]>;
   }> = [
     {
+      // 네이버 증권 JSON API (UTF-8) — 레거시 EUC-KR HTML 테마 페이지는 2026-09 폐지.
       key: "naver",
-      encoding: "euc-kr",
+      encoding: "utf-8",
       run: (fetchFn) => naverFetcher({ cfg, fetchFn }),
     },
     {

@@ -1,0 +1,508 @@
+{
+ "stockListSortType": "THEME",
+ "groups": [
+  {
+   "no": 615,
+   "name": "2026 하반기 신규상장",
+   "totalCount": 16
+  },
+  {
+   "no": 59,
+   "name": "광고",
+   "totalCount": 26
+  },
+  {
+   "no": 426,
+   "name": "양자암호/양자컴퓨팅",
+   "totalCount": 26
+  },
+  {
+   "no": 547,
+   "name": "CXL(컴퓨트익스프레스링크)",
+   "totalCount": 13
+  },
+  {
+   "no": 110,
+   "name": "화장품",
+   "totalCount": 94
+  },
+  {
+   "no": 14,
+   "name": "반도체 재료/부품",
+   "totalCount": 71
+  },
+  {
+   "no": 12,
+   "name": "반도체 장비",
+   "totalCount": 96
+  },
+  {
+   "no": 536,
+   "name": "HBM(고대역폭메모리)",
+   "totalCount": 34
+  },
+  {
+   "no": 608,
+   "name": "반도체 기판(FC-BGA/PCB/MLB 등)",
+   "totalCount": 14
+  },
+  {
+   "no": 584,
+   "name": "스페이스X(SpaceX)",
+   "totalCount": 14
+  },
+  {
+   "no": 586,
+   "name": "광통신(광케이블/광섬유 등)",
+   "totalCount": 15
+  },
+  {
+   "no": 470,
+   "name": "마이크로바이옴",
+   "totalCount": 18
+  },
+  {
+   "no": 595,
+   "name": "우주태양광(페로브스카이트 등)",
+   "totalCount": 10
+  },
+  {
+   "no": 614,
+   "name": "S7(삼성전자/SK하이닉스 등)",
+   "totalCount": 7
+  },
+  {
+   "no": 579,
+   "name": "2차전지(나트륨이온)",
+   "totalCount": 9
+  },
+  {
+   "no": 556,
+   "name": "뉴로모픽 반도체",
+   "totalCount": 7
+  },
+  {
+   "no": 376,
+   "name": "유전자 치료제/분석",
+   "totalCount": 41
+  },
+  {
+   "no": 185,
+   "name": "정유",
+   "totalCount": 3
+  },
+  {
+   "no": 373,
+   "name": "5G(5세대 이동통신)",
+   "totalCount": 54
+  },
+  {
+   "no": 422,
+   "name": "日 수출 규제(국산화 등)",
+   "totalCount": 19
+  },
+  {
+   "no": 272,
+   "name": "전자결제(전자화폐)",
+   "totalCount": 13
+  },
+  {
+   "no": 533,
+   "name": "전력반도체",
+   "totalCount": 19
+  },
+  {
+   "no": 452,
+   "name": "코로나19(음압병실/음압구급차)",
+   "totalCount": 7
+  },
+  {
+   "no": 599,
+   "name": "소캠(SOCAMM)",
+   "totalCount": 11
+  },
+  {
+   "no": 155,
+   "name": "반도체 대표주(생산)",
+   "totalCount": 3
+  },
+  {
+   "no": 92,
+   "name": "통신장비",
+   "totalCount": 47
+  },
+  {
+   "no": 200,
+   "name": "우주항공산업(누리호/인공위성 등)",
+   "totalCount": 38
+  },
+  {
+   "no": 106,
+   "name": "바이오인식(생체인식)",
+   "totalCount": 19
+  },
+  {
+   "no": 28,
+   "name": "CCTV＆DVR",
+   "totalCount": 7
+  },
+  {
+   "no": 543,
+   "name": "의료AI",
+   "totalCount": 29
+  },
+  {
+   "no": 545,
+   "name": "온디바이스 AI",
+   "totalCount": 24
+  },
+  {
+   "no": 18,
+   "name": "전자파",
+   "totalCount": 12
+  },
+  {
+   "no": 576,
+   "name": "퓨리오사AI",
+   "totalCount": 11
+  },
+  {
+   "no": 559,
+   "name": "고체산화물 연료전지(SOFC)",
+   "totalCount": 14
+  },
+  {
+   "no": 9,
+   "name": "OLED(유기 발광 다이오드)",
+   "totalCount": 80
+  },
+  {
+   "no": 288,
+   "name": "모바일솔루션(스마트폰)",
+   "totalCount": 23
+  },
+  {
+   "no": 269,
+   "name": "LED장비",
+   "totalCount": 11
+  },
+  {
+   "no": 287,
+   "name": "PCB(FPCB 등)",
+   "totalCount": 31
+  },
+  {
+   "no": 402,
+   "name": "아스콘(아스팔트 콘크리트)",
+   "totalCount": 9
+  },
+  {
+   "no": 449,
+   "name": "2차전지(생산)",
+   "totalCount": 3
+  },
+  {
+   "no": 307,
+   "name": "시스템반도체",
+   "totalCount": 58
+  },
+  {
+   "no": 582,
+   "name": "스테이블코인",
+   "totalCount": 25
+  },
+  {
+   "no": 178,
+   "name": "전선",
+   "totalCount": 8
+  },
+  {
+   "no": 389,
+   "name": "면역항암제",
+   "totalCount": 36
+  },
+  {
+   "no": 232,
+   "name": "미디어(방송/신문)",
+   "totalCount": 12
+  },
+  {
+   "no": 446,
+   "name": "2차전지(소재/부품)",
+   "totalCount": 73
+  },
+  {
+   "no": 488,
+   "name": "웹툰",
+   "totalCount": 15
+  },
+  {
+   "no": 210,
+   "name": "자전거",
+   "totalCount": 3
+  },
+  {
+   "no": 44,
+   "name": "시멘트/레미콘",
+   "totalCount": 15
+  },
+  {
+   "no": 404,
+   "name": "폴더블폰",
+   "totalCount": 24
+  },
+  {
+   "no": 128,
+   "name": "엔터테인먼트",
+   "totalCount": 31
+  },
+  {
+   "no": 560,
+   "name": "냉각시스템(액침냉각 등)",
+   "totalCount": 13
+  },
+  {
+   "no": 64,
+   "name": "2차전지",
+   "totalCount": 143
+  },
+  {
+   "no": 385,
+   "name": "키오스크(KIOSK)",
+   "totalCount": 10
+  },
+  {
+   "no": 329,
+   "name": "전력저장장치(ESS)",
+   "totalCount": 42
+  },
+  {
+   "no": 382,
+   "name": "플렉서블 디스플레이",
+   "totalCount": 25
+  },
+  {
+   "no": 500,
+   "name": "폐배터리",
+   "totalCount": 20
+  },
+  {
+   "no": 324,
+   "name": "일자리(취업)",
+   "totalCount": 9
+  },
+  {
+   "no": 352,
+   "name": "가상현실(VR)",
+   "totalCount": 26
+  },
+  {
+   "no": 174,
+   "name": "치아 치료(임플란트 등)",
+   "totalCount": 15
+  },
+  {
+   "no": 575,
+   "name": "지역화폐",
+   "totalCount": 5
+  },
+  {
+   "no": 564,
+   "name": "전기차 화재 방지(배터리 열폭주 등)",
+   "totalCount": 28
+  },
+  {
+   "no": 447,
+   "name": "코로나19(진단키트)",
+   "totalCount": 39
+  },
+  {
+   "no": 227,
+   "name": "전기차",
+   "totalCount": 98
+  },
+  {
+   "no": 45,
+   "name": "캐릭터상품",
+   "totalCount": 9
+  },
+  {
+   "no": 56,
+   "name": "NI(네트워크통합)",
+   "totalCount": 7
+  },
+  {
+   "no": 319,
+   "name": "화학섬유",
+   "totalCount": 6
+  },
+  {
+   "no": 55,
+   "name": "보안주(정보)",
+   "totalCount": 52
+  },
+  {
+   "no": 52,
+   "name": "교육/온라인 교육",
+   "totalCount": 27
+  },
+  {
+   "no": 348,
+   "name": "삼성페이",
+   "totalCount": 26
+  },
+  {
+   "no": 175,
+   "name": "의료기기",
+   "totalCount": 94
+  },
+  {
+   "no": 32,
+   "name": "패션/의류",
+   "totalCount": 61
+  },
+  {
+   "no": 557,
+   "name": "유리 기판",
+   "totalCount": 21
+  },
+  {
+   "no": 590,
+   "name": "2026 상반기 신규상장",
+   "totalCount": 31
+  },
+  {
+   "no": 321,
+   "name": "무선충전기술",
+   "totalCount": 12
+  },
+  {
+   "no": 493,
+   "name": "mRNA(메신저 리보핵산)",
+   "totalCount": 14
+  },
+  {
+   "no": 191,
+   "name": "태양광에너지",
+   "totalCount": 44
+  },
+  {
+   "no": 390,
+   "name": "마이크로 LED",
+   "totalCount": 10
+  },
+  {
+   "no": 234,
+   "name": "보안주(물리)",
+   "totalCount": 19
+  },
+  {
+   "no": 127,
+   "name": "영상콘텐츠",
+   "totalCount": 34
+  },
+  {
+   "no": 147,
+   "name": "여행",
+   "totalCount": 9
+  },
+  {
+   "no": 48,
+   "name": "영화",
+   "totalCount": 12
+  },
+  {
+   "no": 298,
+   "name": "희귀금속(희토류 등)",
+   "totalCount": 17
+  },
+  {
+   "no": 507,
+   "name": "마이데이터",
+   "totalCount": 12
+  },
+  {
+   "no": 36,
+   "name": "해운",
+   "totalCount": 6
+  },
+  {
+   "no": 342,
+   "name": "핀테크(FinTech)",
+   "totalCount": 33
+  },
+  {
+   "no": 119,
+   "name": "창투사",
+   "totalCount": 20
+  },
+  {
+   "no": 464,
+   "name": "콜드체인(저온 유통)",
+   "totalCount": 13
+  },
+  {
+   "no": 33,
+   "name": "LED",
+   "totalCount": 37
+  },
+  {
+   "no": 492,
+   "name": "NFT(대체불가토큰)",
+   "totalCount": 20
+  },
+  {
+   "no": 483,
+   "name": "야놀자(Yanolja)",
+   "totalCount": 5
+  },
+  {
+   "no": 113,
+   "name": "음식료업종",
+   "totalCount": 65
+  },
+  {
+   "no": 521,
+   "name": "애플페이",
+   "totalCount": 8
+  },
+  {
+   "no": 279,
+   "name": "스마트폰",
+   "totalCount": 62
+  },
+  {
+   "no": 311,
+   "name": "고령화 사회(노인복지)",
+   "totalCount": 35
+  },
+  {
+   "no": 388,
+   "name": "아이폰",
+   "totalCount": 20
+  },
+  {
+   "no": 310,
+   "name": "리츠(REITs)",
+   "totalCount": 22
+  },
+  {
+   "no": 445,
+   "name": "2차전지(장비)",
+   "totalCount": 47
+  },
+  {
+   "no": 86,
+   "name": "주류업(주정, 에탄올 등)",
+   "totalCount": 13
+  },
+  {
+   "no": 228,
+   "name": "국내 상장 중국기업",
+   "totalCount": 11
+  }
+ ],
+ "totalCount": 264,
+ "page": 1,
+ "pageSize": 100
+}
