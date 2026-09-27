@@ -2,42 +2,54 @@
 set -euo pipefail
 
 # ═══════════════════════════════════════════════════════════════
-# release-android.sh — GH Trade Android 릴리스 래퍼 (Phase 22 · D-07 · D-08 · D-10 · RESEARCH Pattern 4)
+# release-android.sh — GH Trade Android 릴리스 래퍼 (Phase 22 · D-07 · D-08 · D-13~D-17 · RESEARCH Pattern 4 · 재범위 부록 F3)
 #
-# 이 래퍼는 `native:release:android(:aab)` 의 마지막 단계다 — 단독 실행 전에 `native:sync` +
-# `native:verify-prod` 가 선행돼야 한다(Pitfall 8). 평소에는
-#   pnpm --filter @gh-radar/mobile run native:release:android       (AAB → Play internal)
-#   pnpm --filter @gh-radar/mobile run native:release:android:aab   (AAB 만 — 첫 업로드는 콘솔 수동, D-10)
+# 이 래퍼는 `native:release:android(:aab·:play)` 의 마지막 단계다 — 업로드·빌드 모드를 단독 실행하기
+# 전에 `native:sync` + `native:verify-prod` 가 선행돼야 한다(Pitfall 8). 평소에는
+#   pnpm --filter @gh-radar/mobile run native:release:android        (APK → Firebase App Distribution · Phase 22 기본)
+#   pnpm --filter @gh-radar/mobile run native:release:android:aab    (AAB 만 — Play 경로 보존)
+#   pnpm --filter @gh-radar/mobile run native:release:android:play   (AAB → Play internal — Phase 23)
 # 로만 실행한다(cap sync 양 플랫폼 → PROD CONFIG OK → 이 래퍼).
 #
 # 두 릴리스 명령(iOS · Android)을 동시에 돌리지 않는다 — 둘 다 cap sync 로 같은 생성 파일을
 # 다시 쓴다(엣지 FA-5).
-# 같은 분에 다시 돌리면 versionCode 가 같아 Play 가 거절한다 — 1분 뒤 재실행(엣지 FA-1).
+# 같은 분에 다시 돌리지 않는다 — versionCode 가 같아 Play 가 거절하고, Firebase 에서도 두 릴리스가
+# 같은 번호라 구분되지 않는다(엣지 FA-1 · 재범위 부록 Pitfall F10). 1분 뒤 재실행.
 #
 # 비밀은 이 래퍼가 화면에 내보내지 않는다 (scripts/dma-credentials.sh 와 동일 규약):
 #   env 파일은 `set -a; source` 로만 읽고 내용을 echo 하지 않으며, 검증 실패 시에도
 #   **비어 있는 키 이름만** 출력한다. 값은 어떤 경로로도 찍지 않는다. 셸 추적 모드 금지.
+#   Firebase SA 키는 경로만 넘기고 내용은 열지 않는다.
 #
-# 사용: bash scripts/release-android.sh [beta|build|validate|track|check]   (기본 beta)
-#   beta     AAB 빌드 → Play internal 업로드 → check-aab
-#   build    AAB 빌드 → check-aab
-#   validate Play SA JSON 확인
-#   track    internal 트랙 versionCode 출력
-#   check    AAB 검사만(fastlane 없음)
+# 사용: bash scripts/release-android.sh [firebase|firebase-latest|check-apk|build|check|beta|validate|track]   (기본 firebase)
+#   Phase 22 기본 — APK → Firebase App Distribution (D-13 · D-15):
+#     firebase         APK 빌드 → check-apk(lane 안 · 업로드 전 게이트) → Firebase 업로드(그룹 ghtrade-testers)
+#     firebase-latest  Firebase 최신 릴리스 buildVersion 출력(lane firebase_latest · 업로드 키 불필요)
+#     check-apk        APK 검사만(fastlane 없음)
+#   AAB — 보존(D-16):
+#     build            AAB 빌드 → check-aab
+#     check            AAB 검사만(fastlane 없음)
+#   Play — Phase 23 이 쓴다(play-sa 필요 · D-16):
+#     beta             AAB 빌드 → Play internal 업로드 → check-aab
+#     validate         Play SA JSON 확인
+#     track            internal 트랙 versionCode 출력
 #
 # 종료 코드: 2 = 모르는 모드(env 로드 전)
-#            3 = env 파일 없음 · 키 비어 있음 · 키 파일 없음(fastlane 시작 전)
-#            그 외 = fastlane lane 또는 check-aab.sh 의 종료 코드
+#            3 = env 파일 없음 · 키 비어 있음 · 키스토어/SA 키 파일 없음(fastlane 시작 전 · `!` 주입 명령 안내)
+#            그 외 = fastlane lane 또는 check-apk.sh · check-aab.sh 의 종료 코드
 #
-# 선택 env: GHTRADE_RELEASE_ENV  env 파일 경로. 기본 ~/.config/gh-trade/release/android.env
-#           PLAY_RELEASE_STATUS  beta 업로드 상태(기본 completed · draft 앱이면 draft — Pitfall 9)
+# 선택 env: GHTRADE_RELEASE_ENV         env 파일 경로. 기본 ~/.config/gh-trade/release/android.env
+#           GHTRADE_RELEASE_DIR         비밀 디렉터리. 기본 ~/.config/gh-trade/release
+#           FIREBASE_APPDISTRO_SA_JSON  Firebase 업로드 전용 SA 키 경로. 기본 $GHTRADE_RELEASE_DIR/firebase-appdistro-service-account.json
+#           FIREBASE_APPDISTRO_GROUPS   배포 그룹 별칭(쉼표 구분). 기본 ghtrade-testers
+#           PLAY_RELEASE_STATUS         beta 업로드 상태(기본 completed · draft 앱이면 draft — Pitfall 9)
 # ═══════════════════════════════════════════════════════════════
 
-MODE="${1:-beta}"
+MODE="${1:-firebase}"
 case "$MODE" in
-  firebase|beta|build|validate|track|check) ;;
+  firebase|firebase-latest|check-apk|build|check|beta|validate|track) ;;
   *)
-    echo "사용: bash scripts/release-android.sh [firebase|beta|build|validate|track|check]" >&2
+    echo "사용: bash scripts/release-android.sh [firebase|firebase-latest|check-apk|build|check|beta|validate|track]   (기본 firebase)" >&2
     exit 2
     ;;
 esac
@@ -72,6 +84,9 @@ case "$MODE" in
     need GHTRADE_UPLOAD_STORE_PASSWORD
     need GHTRADE_UPLOAD_KEY_ALIAS
     need GHTRADE_UPLOAD_KEY_PASSWORD
+    need GHTRADE_UPLOAD_SHA1
+    ;;
+  check-apk)
     need GHTRADE_UPLOAD_SHA1
     ;;
 esac
@@ -109,7 +124,7 @@ esac
 
 # Firebase 업로드 전용 SA 키(D-17) — 경로는 비밀이 아니라 android.env 없이 기본값을 쓴다. 내용은 열지 않는다.
 case "$MODE" in
-  firebase)
+  firebase|firebase-latest)
     export FIREBASE_APPDISTRO_SA_JSON="${FIREBASE_APPDISTRO_SA_JSON:-${GHTRADE_RELEASE_DIR:-$HOME/.config/gh-trade/release}/firebase-appdistro-service-account.json}"
     if [[ ! -f "$FIREBASE_APPDISTRO_SA_JSON" ]]; then
       echo "ERROR: Firebase 업로드 SA 키가 없습니다: $FIREBASE_APPDISTRO_SA_JSON" >&2
@@ -123,15 +138,20 @@ if [[ "$MODE" == "check" ]]; then
   bash scripts/check-aab.sh
   exit 0
 fi
+if [[ "$MODE" == "check-apk" ]]; then
+  bash scripts/check-apk.sh
+  exit 0
+fi
 
 # fastlane 은 Homebrew Ruby 4 로 실행한다(시스템 Ruby 2.6 은 최소 3.1 미달).
 export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
 export FASTLANE_SKIP_UPDATE_CHECK=1
 export FASTLANE_HIDE_CHANGELOG=1
 
-LANE="$MODE"
+# 모드 이름의 하이픈 → lane 이름의 밑줄(firebase-latest → lane firebase_latest).
+LANE="${MODE//-/_}"
 case "$MODE" in
-  firebase)
+  firebase|firebase-latest)
     # ADC 폴백 차단(이중 방어 · Pitfall F2) — ~/.zshrc 가 owner deployer 키를 export 한다.
     # lane 은 service_credentials_file: 로 전용 SA 키만 쓴다.
     unset GOOGLE_APPLICATION_CREDENTIALS FIREBASE_TOKEN

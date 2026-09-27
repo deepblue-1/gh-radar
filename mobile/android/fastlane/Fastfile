@@ -120,4 +120,13 @@ platform :android do
     )
     UI.success("Firebase 배포 versionCode #{vc}")
   end
+
+  desc "Firebase 최신 릴리스 buildVersion(= versionCode) 조회 — 검증용 · URL 은 출력하지 않는다(Pitfall F9)"
+  lane :firebase_latest do
+    latest = firebase_app_distribution_get_latest_release(
+      app: GHTRADE_FIREBASE_ANDROID_APP_ID,
+      service_credentials_file: ghtrade_appdistro_sa! # 명시 필수 — ADC 폴백 차단(Pitfall F2)
+    )
+    UI.message("latest Firebase build #{(latest && latest[:buildVersion]) || 'none'}")
+  end
 end

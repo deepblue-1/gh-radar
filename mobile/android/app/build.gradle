@@ -74,7 +74,7 @@ apply from: 'capacitor.build.gradle'
 // D-08 — 서명 없는 릴리스 AAB/APK 가 만들어지는 경로를 막는다. native:build:android(assembleDebug)는 영향 없음
 gradle.taskGraph.whenReady { graph ->
     if (!ghtradeUploadStoreFile && graph.allTasks.any { it.name in ["bundleRelease", "assembleRelease"] }) {
-        throw new GradleException("GHTRADE_UPLOAD_STORE_FILE 없음 — 릴리스 AAB 는 native:release:android(:aab) 로만 만든다 (D-08)")
+        throw new GradleException("GHTRADE_UPLOAD_STORE_FILE 없음 — 릴리스 APK·AAB 는 native:release:android(:aab·:play) 로만 만든다 (D-08 · D-14)")
     }
 }
 
