@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 24
 current_phase_name: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영
 status: executing
-stopped_at: Completed 24-04-PLAN.md
-last_updated: "2026-09-27T18:25:38.662Z"
+stopped_at: Completed 24-05-PLAN.md
+last_updated: "2026-09-27T18:38:15.716Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 24 execution started
-state_head: 5736668edfa66a3bc7fce436b422acff06d88385
+state_head: db1ee4773aa93d9efc7e2513ae17a1b24afe97e9
 progress:
   total_phases: 33
   completed_phases: 4
   total_plans: 309
-  completed_plans: 287
+  completed_plans: 288
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 24 (gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영) — EXECUTING
-Plan: 4 of 9
+Plan: 5 of 9
 Plans completed: 219 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
@@ -140,6 +140,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 24 P01 | 21 min | 2 tasks | 39 files |
 | Phase 24 P03 | 16min | 3 tasks | 24 files |
 | Phase 24 P04 | 36min | 3 tasks | 17 files |
+| Phase 24 P05 | 9min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -342,6 +343,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 24]: 24-04: 폰 밴드(<700) 값 쉐브런을 상따 설정 전체에서 숨김(L3) — 본문 344 새 행 4px 넘침 해소
 - [Phase 24]: 24-04: 표시 판정 한 곳(lc-fields lcValueTextOf/lcSummaryOf/lcRowA11yNameOf/lcRowDimOf) — 시트 「지금」은 server=null 로 설정값
 - [Phase 24]: 24-04: 세 그룹 카드 접힘 = 폼 useState(저장 안 함) · 자동 펼침은 행 실패만(값 실패 · 체크 거부/무응답)
+- [Phase 24]: 24-05: 카드 fired 상태 자체 제거 — 마스터 OFF 는 발주가 아니다(Pitfall 11) · strategyStatusOf(server, false)
+- [Phase 24]: 24-05: D-01/D-02 동반 문장은 보낸 cfg 로만 판정 · D-02 후반은 보낸 사유 serverFold 로만(pendingCauseRef = pendingRef 수명)
+- [Phase 24]: 24-05: 후매수 단계 2 진입/이탈 전이에서만 매도·취소 override 4필드를 값 비교에서 제외(Pitfall 8 · 판정 한 곳)
 
 ### Pending Todos
 
@@ -396,8 +400,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-09-27T18:25:38.080Z
-Stopped at: Completed 24-04-PLAN.md
+Last session: 2026-09-27T18:38:15.122Z
+Stopped at: Completed 24-05-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
