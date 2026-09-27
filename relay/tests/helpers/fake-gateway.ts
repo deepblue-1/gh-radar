@@ -382,6 +382,18 @@ export interface SetLimitChaserRequest {
   postBuyOrderAmount: number;
   postBuyOrderQty: number;
   /**
+   * 매도 · 취소 게이트 · 체크(Phase 24 24-08 — D-06 자동 체크 · D-02 후반 서버 접힘 자동 끔의 실브라우저 단언).
+   * 선매수를 켜는 한 번의 10 에 동반으로 실리는지, 자동 끔 제출이 매도 게이트를 그대로 싣는지를 본다.
+   */
+  sellEnabled: boolean;
+  sellTradeQtyEnabled: boolean;
+  sellQtyTrackEnabled: boolean;
+  sellOrderPrice: number;
+  sellWatchPrice: number;
+  cancelQtyEnabled: boolean;
+  cancelTradeEnabled: boolean;
+  cancelQtyTrackEnabled: boolean;
+  /**
    * S→C 전용 4필드(`extra_buy_abandoned` 112 · `post_buy_trigger_qty` 126 ·
    * `post_buy_reentry_left` 128 · `post_buy_phase` 130) 중 vtable 슬롯이 **있는** 오프셋.
    * 요청은 빈 배열이어야 한다.
@@ -432,6 +444,14 @@ export function readSetLimitChaserRequest(
     postBuyReentry: req.postBuyReentry(),
     postBuyOrderAmount: req.postBuyOrderAmount(),
     postBuyOrderQty: req.postBuyOrderQty(),
+    sellEnabled: req.sellEnabled(),
+    sellTradeQtyEnabled: req.sellTradeQtyEnabled(),
+    sellQtyTrackEnabled: req.sellQtyTrackEnabled(),
+    sellOrderPrice: req.sellOrderPrice(),
+    sellWatchPrice: req.sellWatchPrice(),
+    cancelQtyEnabled: req.cancelQtyEnabled(),
+    cancelTradeEnabled: req.cancelTradeEnabled(),
+    cancelQtyTrackEnabled: req.cancelQtyTrackEnabled(),
     serverOnlySlots: LC_SERVER_ONLY_VTABLE_SLOTS.filter((vt) => bb.__offset(req.bb_pos, vt) !== 0),
   };
 }

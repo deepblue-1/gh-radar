@@ -216,6 +216,44 @@ function viSetRequests(relay: LocalRelay) {
     .filter((r): r is NonNullable<typeof r> => r !== null);
 }
 
+/** 게이트웨이가 받은 `SetLimitChaserReq(10)` 개수 — 「몇 건 나갔나」가 계약인 자리(D-01 · D-02 · D-16 · D-19). */
+function lcSetCount(relay: LocalRelay): number {
+  return relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
+}
+
+/** 게이트웨이가 받은 10 을 디코드한 목록(테스트 시작점 이후 · 송신 순서) — 「무엇을 보냈나」. */
+function lcSetRequests(relay: LocalRelay) {
+  return relay
+    .strategyRequests()
+    .map((r) => readSetLimitChaserRequest(r.msgType, r.payload))
+    .filter((r): r is NonNullable<typeof r> => r !== null);
+}
+
+/**
+ * 받은 10 의 게이트 · 체크를 그대로 되돌리는 60 에코 조각 — 「서버가 받아들였다」를 흉내 낸다. 나머지 값은
+ * 호출부가 시드로 채운다(`{ ...seed, ...lcEchoFlagsOf(req) }`).
+ */
+function lcEchoFlagsOf(req: NonNullable<ReturnType<typeof readSetLimitChaserRequest>>) {
+  return {
+    buyEnabled: req.buyEnabled,
+    preBuyEnabled: req.preBuyEnabled,
+    extraBuyEnabled: req.extraBuyEnabled,
+    postBuyEnabled: req.postBuyEnabled,
+    sellEnabled: req.sellEnabled,
+    sellTradeQtyEnabled: req.sellTradeQtyEnabled,
+    sellQtyTrackEnabled: req.sellQtyTrackEnabled,
+    sellOrderPrice: req.sellOrderPrice,
+    sellWatchPrice: req.sellWatchPrice,
+    cancelQtyEnabled: req.cancelQtyEnabled,
+    cancelTradeEnabled: req.cancelTradeEnabled,
+    cancelQtyTrackEnabled: req.cancelQtyTrackEnabled,
+  };
+}
+
+/** 그룹 카드 제목 옆 상태 문구(`lc-group-status`). */
+const lcGroupStatus = (card: Locator, slot: 'buy' | 'pre-buy' | 'extra-buy' | 'post-buy' | 'sell' | 'cancel') =>
+  card.locator(`[data-slot="lc-group-${slot}"] [data-slot="lc-group-status"]`);
+
 function viConfirmRequests(relay: LocalRelay) {
   return relay
     .strategyRequests()
@@ -2364,6 +2402,314 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
         expect(spread([...chipYs, infoY, closeY]), `${viewport.width} 카드 ${cardWidth} — 다섯이 한 줄`).toBeLessThanOrEqual(4);
       }
     }
+  });
+
+  /*
+    ★ Phase 24 (24-08) — 24-04 ~ 24-07 이 단위 테스트로 세운 동작을 **진짜 relay + 스텁 게이트웨이** 위의 실브라우저로
+      한 번씩 끝까지 잇는다. 「몇 건 나갔나」는 게이트웨이 10 개수(`lcSetCount`)로, 「무엇을 보냈나」는 디코드
+      (`lcSetRequests`)로 본다 — 화면 낙관 표시만으로는 제출 여부를 말할 수 없다.
+  */
+  test('P24-2 접기 · 요약 줄 — 첫 렌더 세 카드 접힘(행은 DOM 에 있고 숨음) · 요약 줄 3개 · 접기 버튼 = 펼침(전송 0) · 스위치는 접힘 불변 · 에코 뒤에도 펼친 채 (스케치 009 D · R1 · UI-SPEC §2 · §3)', async ({
+    page,
+  }) => {
+    const seed = { buyEnabled: true, sellEnabled: true };
+    relay.seedLimitChasers([seed]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    const card = cardOf(page, E2E_ISIN);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('10,000주', { timeout: 15_000 });
+
+    // ① 첫 렌더 — 세 카드 접힘. 행은 언마운트가 아니라 숨김이다(나가 있던 확정 · 편집 보존).
+    const fold = (slot: 'pre-buy' | 'extra-buy' | 'post-buy') =>
+      card.locator(`[data-slot="lc-group-${slot}"] [data-slot="lc-group-fold"]`);
+    for (const slot of ['pre-buy', 'extra-buy', 'post-buy'] as const) {
+      await expect(fold(slot)).toHaveAttribute('aria-expanded', 'false');
+    }
+    await expect(lcRow(page, 'lc-buy-watch-qty')).toHaveCount(1);
+    await expect(lcRow(page, 'lc-buy-watch-qty')).toBeHidden();
+    const summaries = card.locator('[data-slot="lc-group-summary"]');
+    await expect(summaries).toHaveCount(3);
+    for (const s of await summaries.all()) await expect(s).toBeVisible();
+    const preSummary = card.locator('[data-slot="lc-group-pre-buy"] [data-slot="lc-group-summary"]');
+    await expect(preSummary).toContainText('매도잔량');
+    await expect(preSummary).toContainText('10,000주');
+
+    // ② 접기 버튼 = 펼침 · 로컬 동작(전송 0).
+    const before = lcSetCount(relay);
+    await fold('pre-buy').click();
+    await expect(fold('pre-buy')).toHaveAttribute('aria-expanded', 'true');
+    await expect(lcRow(page, 'lc-buy-watch-qty')).toBeVisible();
+    await expect(preSummary).toBeHidden();
+    expect(lcSetCount(relay), '접기는 lc.set 을 보내지 않는다').toBe(before);
+
+    // ③ 스위치는 접기 버튼 밖 형제 — 누르면 제출은 나가도 접힘은 그대로다.
+    await lcSwitch(card, '선매수 켜기').click();
+    await expect(fold('pre-buy')).toHaveAttribute('aria-expanded', 'true');
+    await waitForSetAtGateway(relay, before + 1);
+    const sent = lcSetRequests(relay).at(-1)!;
+    expect(sent.preBuyEnabled).toBe(true);
+
+    // ④ 에코가 와도 펼친 카드는 펼친 채 · 나머지 두 카드는 접힌 채(접힘은 폼 상태 · 에코가 덮지 않는다).
+    await relay.pushLimitChaserEcho({ ...seed, ...lcEchoFlagsOf(sent) });
+    await expect(lcSwitch(card, '선매수 켜기')).toBeChecked({ timeout: 15_000 });
+    await expect(fold('pre-buy')).toHaveAttribute('aria-expanded', 'true');
+    await expect(lcRow(page, 'lc-buy-watch-qty')).toBeVisible();
+    await expect(fold('extra-buy')).toHaveAttribute('aria-expanded', 'false');
+    await expect(fold('post-buy')).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  test('P24-3 D-01 + D-06 — 마스터 OFF 에서 「선매수 켜기」 한 번 = 10 한 건(마스터 · 자동 체크 동반) → 에코 뒤 로그 두 줄(자동 체크 줄이 위) (D-07 · D-08)', async ({
+    page,
+  }) => {
+    // 매도 · 취소 게이트는 꺼져 있고, 매수 가격 · 매도 매수잔량(10) · 취소 매수잔량(25) · 매도비율(60)은 0 이 아니다
+    // (스텁 기본값) — 자동 체크 6종이 전부 켜질 수 있는 전략이다.
+    const seed = { buyEnabled: false };
+    relay.seedLimitChasers([seed]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    const card = cardOf(page, E2E_ISIN);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('10,000주', { timeout: 15_000 });
+    await expect(lcSwitch(card, '매수주문 켜기')).not.toBeChecked();
+    // 상한가(시세)가 들어와야 자동 체크가 가격을 판정한다(D-20) — 호가 사다리의 상한가 시딩을 기다린다.
+    await expect(lcValue(page, 'lc-buy-order-price')).not.toHaveText('', { timeout: 15_000 });
+
+    const before = lcSetCount(relay);
+    await lcSwitch(card, '선매수 켜기').click();
+    // 확인창 · 토스트 · 매도 탭 이동 없음(D-06).
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await waitForSetAtGateway(relay, before + 1);
+    await page.waitForTimeout(500);
+    expect(lcSetCount(relay), '사람 한 번 = 10 한 건').toBe(before + 1);
+
+    const sent = lcSetRequests(relay).at(-1)!;
+    expect(sent.buy3Schema).toBe(1);
+    expect(sent.crud).toBe('C');
+    expect(sent.preBuyEnabled).toBe(true);
+    expect(sent.buyEnabled, 'D-01 — 마스터 동반').toBe(true);
+    expect(sent.sellEnabled, 'D-06 — 매도주문 자동 체크').toBe(true);
+    expect(sent.cancelQtyEnabled, 'D-06 — 매수취소 자동 체크').toBe(true);
+    expect(sent.sellTradeQtyEnabled, 'D-06 — 매도>체결 자동 체크').toBe(true);
+    expect(sent.sellQtyTrackEnabled, 'D-06 — 매도>잔량추적 자동 체크').toBe(true);
+    expect(sent.cancelTradeEnabled, 'D-06 — 취소>체결 자동 체크').toBe(true);
+    expect(sent.cancelQtyTrackEnabled, 'D-06 — 취소>잔량추적 자동 체크').toBe(true);
+
+    await relay.pushLimitChaserEcho({ ...seed, ...lcEchoFlagsOf(sent) });
+    await expect(lcSwitch(card, '매수주문 켜기')).toBeChecked({ timeout: 15_000 });
+    await expect(lcSwitch(card, '매도주문 켜기')).toBeChecked();
+    await expect(lcSwitch(card, '매수취소 켜기')).toBeChecked();
+    const rows = await logRows(page);
+    await expect(rows.first()).toContainText('선매수 자동 체크 — 켬: ', { timeout: 15_000 });
+    await expect(rows.nth(1)).toContainText('선매수 체크 — 매수주문도 켬');
+  });
+
+  test('P24-4 D-02 전반 · D-02 후반 · D-19 — 마지막 그룹 끔은 마스터 동반 · 서버 접힘 하강 전이는 마스터 OFF 1회 · 재수신 0회 · 삭제 가드 0회 (2026-09-28 정정 · WinForms b066e135 동형)', async ({
+    page,
+  }) => {
+    const POST = {
+      postBuyOrderAmount: 4000,
+      postBuyReentry: 3,
+      postBuyReentryLeft: 3,
+      postBuyReboundPct: 30,
+      postBuyFloorQty: 100_000,
+    };
+    // (a) D-02 전반 — 마스터 ON · 후매수만 ON · 매도 ON. 사람이 마지막 그룹(후매수)을 끄면 같은 10 에 마스터도 끈다.
+    const seedA = { buyEnabled: true, sellEnabled: true, postBuyEnabled: true, postBuyPhase: 1, ...POST };
+    relay.seedLimitChasers([seedA]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    const card = cardOf(page, E2E_ISIN);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(lcSwitch(card, '후매수 켜기')).toBeChecked({ timeout: 15_000 });
+    const beforeA = lcSetCount(relay);
+    await lcSwitch(card, '후매수 켜기').click();
+    await waitForSetAtGateway(relay, beforeA + 1);
+    const offA = lcSetRequests(relay).at(-1)!;
+    expect(offA.postBuyEnabled).toBe(false);
+    expect(offA.buyEnabled, 'D-02 전반 — 마지막 그룹 끔 = 마스터 동반 끔').toBe(false);
+    expect(offA.sellEnabled).toBe(true);
+    expect(offA.crud).toBe('C');
+
+    // (b) D-02 후반 · D-19 — 마스터 ON · 선매수 ON · 매도 ON 이 렌더된 뒤 서버가 세 그룹을 접은 에코를 보낸다.
+    const seedB = { buyEnabled: true, sellEnabled: true, preBuyEnabled: true, ...POST };
+    relay.seedLimitChasers([seedB]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(lcSwitch(card, '선매수 켜기')).toBeChecked({ timeout: 15_000 });
+    await expect(lcGroupStatus(card, 'buy')).toHaveText('감시 중');
+    const FOLD = { ...seedB, preBuyEnabled: false };
+    const beforeB = lcSetCount(relay);
+    await relay.pushLimitChaserEcho(FOLD);
+    // 관찰 창 1.5초 — 하강 전이 1건.
+    await page.waitForTimeout(1500);
+    expect(lcSetCount(relay), 'D-02 후반 — 서버 접힘 하강 전이 = 마스터 OFF 정확히 1건').toBe(beforeB + 1);
+    const drop = lcSetRequests(relay).at(-1)!;
+    expect(drop.buyEnabled).toBe(false);
+    expect(drop.crud).toBe('C');
+    expect(drop.sellEnabled, '매도 게이트는 에코 그대로').toBe(true);
+    expect([drop.preBuyEnabled, drop.extraBuyEnabled, drop.postBuyEnabled]).toEqual([false, false, false]);
+
+    // 같은 세 그룹 OFF 에코 재수신 — 하강 전이가 아니다(핑퐁 0).
+    await relay.pushLimitChaserEcho(FOLD);
+    await page.waitForTimeout(1500);
+    expect(lcSetCount(relay), '같은 상태 재수신 = 추가 10 0건').toBe(beforeB + 1);
+
+    // 그 제출의 마스터 OFF 에코 → 로그 최상단 서버 접힘 문장 · 「다른 단말」 배너 없음.
+    await relay.pushLimitChaserEcho({ ...FOLD, ...lcEchoFlagsOf(drop) });
+    await expect(lcSwitch(card, '매수주문 켜기')).not.toBeChecked({ timeout: 15_000 });
+    const rows = await logRows(page);
+    await expect(rows.first()).toContainText('서버가 매수 그룹 해제 — 매수 그룹이 모두 꺼져 매수주문도 끔', {
+      timeout: 15_000,
+    });
+    await expect(card.locator('[data-slot="card-echo-banner"]')).toHaveCount(0);
+    await page.waitForTimeout(500);
+    expect(lcSetCount(relay), '자기 마스터 OFF 에코는 트리거가 아니다').toBe(beforeB + 1);
+
+    // (c) 삭제 가드 — 매도 · 취소 게이트가 전부 OFF 면 자동 끔은 곧 삭제(crud D)라 보내지 않는다.
+    const seedC = { buyEnabled: true, preBuyEnabled: true, ...POST };
+    relay.seedLimitChasers([seedC]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(lcSwitch(card, '선매수 켜기')).toBeChecked({ timeout: 15_000 });
+    const beforeC = lcSetCount(relay);
+    await relay.pushLimitChaserEcho({ ...seedC, preBuyEnabled: false });
+    await expect(lcSwitch(card, '선매수 켜기')).not.toBeChecked({ timeout: 15_000 });
+    await page.waitForTimeout(1500);
+    expect(lcSetCount(relay), '삭제 가드 — 추가 10 0건').toBe(beforeC);
+    await expect(lcGroupStatus(card, 'buy')).toHaveText('켜짐 · 켠 매수 없음');
+    await expect(lcSwitch(card, '매수주문 켜기')).toBeChecked();
+  });
+
+  test('P24-5 사전 검증 · D-16 — 레거시 에코에서 추가매수 켜기 = 전송 0 + 「주문금액을 먼저 입력해 주세요」 · 매수1호가 == 비교가격이면 전송 0 + 로그 원문 · 다르면 10 한 건', async ({
+    page,
+  }) => {
+    // (a) 레거시(구 서버) 에코 — 신필드 전부 0 · buy3Schema 0. 추가매수 금액 0 이라 켜는 방향이 막힌다(D-03).
+    const legacy = { buyEnabled: true, buy3Schema: 0 };
+    relay.seedLimitChasers([legacy]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    const card = cardOf(page, E2E_ISIN);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('10,000주', { timeout: 15_000 });
+    const extraSwitch = lcSwitch(card, '추가매수 켜기');
+    const precheck = card.locator('[data-slot="lc-group-extra-buy"] [data-slot="lc-group-precheck"]');
+    const before = lcSetCount(relay);
+    await extraSwitch.click();
+    await expect(precheck).toHaveText('주문금액을 먼저 입력해 주세요');
+    await expect(precheck).toHaveAttribute('role', 'alert');
+    await expect(extraSwitch).toHaveAttribute('aria-checked', 'false');
+    expect(lcSetCount(relay), '사전 검증 실패 = 전송 0').toBe(before);
+
+    // 추가매수 금액 확정 → 10 한 건 → 에코 → 사전 검증 줄이 사라진다(원인 값이 고쳐졌다).
+    await editLc(page, 'lc-extra-buy-amount', '500');
+    await waitForSetAtGateway(relay, before + 1);
+    expect(lcSetRequests(relay).at(-1)!.extraBuyOrderAmount).toBe(500);
+    await relay.pushLimitChaserEcho({ ...legacy, buy3Schema: 1, extraBuyOrderAmount: 500 });
+    await expect(lcValue(page, 'lc-extra-buy-amount')).toHaveText('500만원', { timeout: 15_000 });
+    await expect(precheck).toHaveCount(0);
+
+    // (b) D-16 — 비교가격 = 스텁 호가 매수1호가(97,900). 추가매수 켜기 = 전송 0 · 사전 검증 줄 없음 · 로그 원문 한 줄.
+    const atUpper = { buyEnabled: true, buyWatchPrice: 97_900, extraBuyOrderAmount: 500 };
+    relay.seedLimitChasers([atUpper]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-buy-watch-price')).toHaveText('97,900원', { timeout: 15_000 });
+    // 호가(매수1호가)가 들어와야 D-16 판정 입력이 선다 — 사다리에 97,900 이 보일 때까지.
+    await expect(card.locator('[data-slot="orderbook-ladder"]').first()).toContainText('97,900', { timeout: 15_000 });
+    const beforeD16 = lcSetCount(relay);
+    await extraSwitch.click();
+    const rows = await logRows(page);
+    await expect(rows.first()).toContainText('추가매수는 상한가 도달 전에만 켤 수 있습니다 — 매수1호가 == 비교가격', {
+      timeout: 15_000,
+    });
+    await expect(precheck).toHaveCount(0);
+    await expect(extraSwitch).toHaveAttribute('aria-checked', 'false');
+    await page.waitForTimeout(500);
+    expect(lcSetCount(relay), 'D-16 — 전송 0').toBe(beforeD16);
+
+    // (c) 허용 경로 — 비교가격이 매수1호가와 다르면 같은 클릭이 10 한 건.
+    await relay.pushLimitChaserEcho({ ...atUpper, buyWatchPrice: 98_000 });
+    await expect(lcValue(page, 'lc-buy-watch-price')).toHaveText('98,000원', { timeout: 15_000 });
+    await extraSwitch.click();
+    await waitForSetAtGateway(relay, beforeD16 + 1);
+    const allowed = lcSetRequests(relay).at(-1)!;
+    expect(allowed.extraBuyEnabled).toBe(true);
+    expect(allowed.buyWatchPrice).toBe(98_000);
+  });
+
+  test('P24-6 후매수 단계 · 발동 override 무배너 — 단계 1 감시 중 → 2 보유중(매수 LED 주황 · 매도 · 취소 「… · 후매수 발동」 · 배너 · 「서버 반영 완료」 없음) → 3 소진(요약 「3회 · 남은 0회」 · 펼치면 안내 원문) (D-11 · D-12 · D-15 · Pitfall 8)', async ({
+    page,
+  }) => {
+    // 선매수를 켜 둔다 — 단계 3(후매수 OFF)이 서버 접힘 하강 전이(D-02 후반)를 만들지 않게 이 케이스를 가른다.
+    const seed = {
+      buyEnabled: true,
+      preBuyEnabled: true,
+      sellEnabled: true,
+      sellEntryLatched: true,
+      cancelQtyEnabled: true,
+      postBuyEnabled: true,
+      postBuyOrderAmount: 4000,
+      postBuyReentry: 3,
+      postBuyReentryLeft: 3,
+      postBuyReboundPct: 30,
+      postBuyFloorQty: 100_000,
+      postBuyPhase: 1,
+    };
+    relay.seedLimitChasers([seed]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    const card = cardOf(page, E2E_ISIN);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(lcGroupStatus(card, 'post-buy')).toHaveText('감시 중', { timeout: 15_000 });
+    const buyLed = card.locator('[data-slot="card-header"] [data-slot="latch-led"][data-kind="buy"]');
+    await expect(buyLed).toHaveAttribute('data-tone', 'armed');
+
+    // 단계 2 — 서버가 매도 · 취소 값을 override 한다(게이트 ON · 매수잔량 330,000). 서버 귀속이라 배너 · 반영 줄 없음.
+    const before = lcSetCount(relay);
+    await relay.pushLimitChaserEcho({
+      ...seed,
+      postBuyPhase: 2,
+      postBuyTriggerQty: 330_000,
+      postBuyReentryLeft: 2,
+      sellWatchQty: 330_000,
+      cancelWatchQty: 330_000,
+    });
+    await expect(lcGroupStatus(card, 'post-buy')).toHaveText('보유중', { timeout: 15_000 });
+    await expect(buyLed).toHaveAttribute('data-tone', 'latent');
+    await expect(buyLed).toContainText('보유중');
+    await expect(lcGroupStatus(card, 'buy')).toHaveText('보유중');
+    await expect(lcGroupStatus(card, 'sell')).toHaveText(/ · 후매수 발동$/);
+    await expect(lcGroupStatus(card, 'cancel')).toHaveText(/ · 후매수 발동$/);
+    await expect(lcValue(page, 'lc-sell-watch-qty')).toHaveText('330,000주');
+    await page.waitForTimeout(500);
+    await expect(card.locator('[data-slot="card-echo-banner"]')).toHaveCount(0);
+    const rows = await logRows(page);
+    await expect(rows.filter({ hasText: '서버 반영 완료' })).toHaveCount(0);
+    await expect(rows.filter({ hasText: '다른 단말에서 변경' })).toHaveCount(0);
+    expect(lcSetCount(relay), '서버 단계 에코는 제출을 만들지 않는다').toBe(before);
+
+    // 단계 3 — 소진(후매수 OFF · 잔여 0). 접힌 카드는 상태 「소진」 + 요약 「3회 · 남은 0회」, 펼치면 안내 원문.
+    await relay.pushLimitChaserEcho({
+      ...seed,
+      postBuyEnabled: false,
+      postBuyPhase: 3,
+      postBuyReentryLeft: 0,
+      postBuyTriggerQty: 0,
+    });
+    await expect(lcGroupStatus(card, 'post-buy')).toHaveText('소진', { timeout: 15_000 });
+    const postSummary = card.locator('[data-slot="lc-group-post-buy"] [data-slot="lc-group-summary"]');
+    await expect(postSummary).toContainText('3회 · 남은 0회');
+    await expect(card.locator('[data-slot="lc-post-buy-exhausted"]')).toHaveCount(0);
+    await expandLcGroup(card, 'post-buy');
+    await expect(card.locator('[data-slot="lc-post-buy-exhausted"]')).toHaveText(
+      '소진 — 「최대」에 횟수를 넣고 다시 켜면 그 값부터 세요',
+    );
+    await expect(lcValue(page, 'lc-post-buy-reentry')).toHaveText('3회 · 남은 0회');
+    await expect(buyLed).not.toHaveAttribute('data-tone', 'latent');
   });
 
   /*
