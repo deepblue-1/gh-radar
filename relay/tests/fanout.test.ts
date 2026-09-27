@@ -129,7 +129,7 @@ function fakeSupabase(): SupabaseClient {
 }
 
 /**
- * `lc.set` 이 싣는 44필드(32 + Phase 24 C→S 12) — 스키마를 통과하는 최소 정상값.
+ * `lc.set` 이 싣는 43필드(31 + Phase 24 C→S 12 — 감시대상은 Phase 24 ⑤ 로 빠졌다) — 스키마를 통과하는 최소 정상값.
  *
  * S→C 전용 4필드와 파생 `key` 는 타입이 이미 뺐다(`RelayLimitChaserInput`) — 실어 보내면
  * "값이 왕복한다"는 착각이 생겨 에코-폼 비교가 오염된다 (Pitfall 6).
@@ -145,7 +145,6 @@ function lcInput(overrides: Partial<RelayLimitChaserInput> = {}): RelayLimitChas
     buyWatchPrice: 69_900,
     buyWatchQty: 100,
     buyMinTradeQty: 1,
-    buyWatchSide: "1",
     buyTradeQtyEnabled: true,
     buyEnabled: true,
     sellOrderPrice: 71_000,
@@ -1044,8 +1043,9 @@ describe("WsFanout", () => {
   it("⑰-buy3 lc.set 은 buy3_schema=1 · C→S 12 · buy_watch_side 없음 · S→C 슬롯 없음으로 나가고 60 에코(보유중)가 lc 로 온다 (Phase 24 트레이서)", async () => {
     const a = await authed("token-a");
 
-    // lcInput 의 buyWatchSide 는 "1" 이다 — 그래도 게이트웨이에는 슬롯이 없어야 한다(T-24-01).
-    const cfg = lcInput({
+    // 옛 탭이 감시대상 "1" 을 실어 보내도 zod 가 떨어뜨려 게이트웨이에는 슬롯이 없다(T-24-01 · T-24-13).
+    const cfg = {
+      ...lcInput({
       preBuyEnabled: true,
       extraBuyEnabled: true,
       extraBuyMinQty: 50_000,
@@ -1058,7 +1058,9 @@ describe("WsFanout", () => {
       postBuyReentry: 3,
       postBuyOrderAmount: 4000,
       postBuyOrderQty: 571,
-    });
+      }),
+      buyWatchSide: "1",
+    };
     a.ws.sendRaw({ t: "lc.set", cfg });
     await waitFor(
       () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),

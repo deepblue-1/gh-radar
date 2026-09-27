@@ -2413,12 +2413,12 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(lcSwitch(card, '매수주문 켜기')).toBeChecked();
     await expect(lcSwitch(card, '매도주문 켜기')).toBeChecked();
 
-    /** 보이는 리스트 행 전부 — 값 행 · 체크 행 · 감시대상 행 · 기준선 행. 높이와 행 안쪽 여유. */
+    /** 보이는 리스트 행 전부 — 값 행 · 체크 행 · 기준선 행. 높이와 행 안쪽 여유. (감시대상 행은 Phase 24 ⑤ 로 없다) */
     const measureRows = () =>
       card.evaluate((root) =>
         Array.from(
           root.querySelectorAll<HTMLElement>(
-            '[data-lc-field], [data-slot="lc-check-row"], [data-slot="lc-watch-row"], [data-slot="lc-derived"]',
+            '[data-lc-field], [data-slot="lc-check-row"], [data-slot="lc-derived"]',
           ),
         )
           .filter((el) => el.getClientRects().length > 0)
@@ -2468,7 +2468,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
         rows.filter((r) => r.slack < -0.5),
         `${label} — 행 안쪽 끝을 넘은 잎 요소(잘림)`,
       ).toEqual([]);
-      // 여유는 「라벨 ─ 값」 두 조각 이상인 행만 잰다 — 감시대상(풀폭 토글 · D-02a) · 체크 전용 행 ·
+      // 여유는 「라벨 ─ 값」 두 조각 이상인 행만 잰다 — 체크 전용 행 ·
       // 체크 행 안의 값 버튼(한 조각)은 늘 0 이라 뺀다. 그 잘림은 위 두 판정이 본다.
       const measurable = rows.filter((r) => r.pieces >= 2);
       expect(
@@ -2501,7 +2501,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       await expect(page.locator('#lc-buy-watch-qty')).toHaveCount(0);
     };
 
-    const BUY_ROWS = ['lc-buy-order-price', 'lc-buy-order-amount', 'lc-buy-watch-qty', 'lc-watch-row', 'lc-sweep-watch-price'];
+    // 감시대상 행(lc-watch-row)은 Phase 24 ⑤ 로 없다 — 새 행 폭 측정은 24-04 몫.
+    const BUY_ROWS = ['lc-buy-order-price', 'lc-buy-order-amount', 'lc-buy-watch-qty', 'lc-sweep-watch-price'];
     const SELL_ROWS = ['lc-sell-order-price', 'lc-sell-watch-qty', 'lc-derived', 'lc-cancel-watch-qty'];
     const setsBefore = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
 

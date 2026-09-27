@@ -1169,7 +1169,6 @@ function lcInput(over: Partial<LcBuildInput> = {}): LcBuildInput {
     buyWatchPrice: 71_100,
     buyWatchQty: 10_000,
     buyMinTradeQty: 30_000,
-    buyWatchSide: "0",
     buyTradeQtyEnabled: true,
     buyEnabled: true,
     sellOrderPrice: 71_200,
@@ -1294,9 +1293,10 @@ describe("전략 요청 조립 (16-04 / T-16-05·T-16-06)", () => {
   });
 
   it("③-buy3 buy3_schema=1 고정 · C→S 12 는 값 그대로 · buy_watch_side 와 S→C 4 는 슬롯이 없다 (Phase 24 D-24 · T-24-01/02)", () => {
-    const t = readLc(
-      lcInput({
-        buyWatchSide: "1",
+    // 옛 탭이 감시대상 "1" 을 실어 보낸 모양 — 입력 계약에는 그 키가 없다(24-03). 변수로 넘겨
+    // 초과 속성 검사를 피한다(런타임에는 키가 실려 있다).
+    const withLegacyKey = {
+      ...lcInput({
         preBuyEnabled: true,
         extraBuyEnabled: true,
         extraBuyMinQty: 50_000,
@@ -1310,7 +1310,9 @@ describe("전략 요청 조립 (16-04 / T-16-05·T-16-06)", () => {
         postBuyOrderAmount: 4000,
         postBuyOrderQty: 3,
       }),
-    );
+      buyWatchSide: "1",
+    };
+    const t = readLc(withLegacyKey);
 
     expect(LC_FIXED_BUY3_SCHEMA).toBe(1);
     expect(t.buy3Schema()).toBe(1);
@@ -1356,12 +1358,9 @@ describe("전략 요청 조립 (16-04 / T-16-05·T-16-06)", () => {
     expect(() =>
       buildSetLimitChaserReq(lcInput({ crud: "X" as unknown as RelayLimitChaserInput["crud"] })),
     ).toThrow(/등록구분/);
-    // Phase 24 — buy_watch_side 는 싣지 않으므로 조립기가 검증하지도 않는다(zod 가 입력을 본다).
-    expect(() =>
-      buildSetLimitChaserReq(
-        lcInput({ buyWatchSide: "2" as unknown as RelayLimitChaserInput["buyWatchSide"] }),
-      ),
-    ).not.toThrow();
+    // Phase 24 — 감시대상은 입력 계약에 없다(24-03). 옛 키가 실려 와도 조립기는 읽지 않는다.
+    const staleWatchSide = { ...lcInput(), buyWatchSide: "2" };
+    expect(() => buildSetLimitChaserReq(staleWatchSide)).not.toThrow();
     // uint 를 넘기면 감싸서 전혀 다른 가격이 된다 — 표현 범위에서 막는다.
     expect(() => buildSetLimitChaserReq(lcInput({ buyOrderPrice: -1 }))).toThrow(/uint/);
     expect(() => buildSetLimitChaserReq(lcInput({ buyOrderPrice: 1.5 }))).toThrow(/uint/);

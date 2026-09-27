@@ -15,12 +15,12 @@ import type { RelayLcSetMsg, RelayLimitChaser, RelayLimitChaserInput } from '@gh
  *   ③ 반영 판정은 에코의 그 필드 값뿐(거부도 답 신호를 올린다)
  *   ④ 동시에 나가 있는 전송은 1건(직렬화)
  *   ⑤ 전부 OFF = `crud "D"` · 취소 게이트가 살아 있으면 `"C"`(D-08 · Pitfall 7)
- *   ⑥ S→C 전용 필드 미송신 · cfg 44키 · 클라 고정 3(Pitfall 6)
+ *   ⑥ S→C 전용 필드 미송신 · cfg 43키 · 클라 고정 3(Pitfall 6)
  *   ⑦ 리스트 구성(D-19 · D-20 · D-21 · D-22) · 44px · 꺼진 그룹 흐림(편집 가능)
- *   ⑧ 감시대상 행 안 토글(D-02 · D-02a)
+ *   ⑧ 감시대상 행이 없다(Phase 24 ⑤ — 새 서버는 감시대상을 읽지 않는다)
  *   ⑨ 체크 행(D-22)
  *   ⑩ 무장 불가(WR-06 · GC-WR-12 · R2-WR-02 · T-16-44)
- *   ⑪ 미등록 전략은 값·체크·감시대상이 로컬만, 등록은 스위치만(A-P1)
+ *   ⑪ 미등록 전략은 값·체크가 로컬만, 등록은 스위치만(A-P1)
  *   ⑫ pane·탭 — 두 pane 이 늘 DOM · CSS 숨김
  *   ⑬ 에코가 목록을 이긴다 · 편집 중 버퍼는 보존(D-11 · E4)
  *   ⑭ 터치 기기 = 시트 · 「감시 중」 안내는 그 그룹이 감시 중일 때만(D-05 · D-12)
@@ -403,7 +403,7 @@ describe('⑤ 삭제 판정은 취소 게이트를 포함한다 (D-08 · Pitfall
   });
 });
 
-describe('⑥ S→C 전용 필드를 보내지 않는다 · cfg 44키 (Pitfall 6) (옛 ⑨)', () => {
+describe('⑥ S→C 전용 필드를 보내지 않는다 · cfg 43키 (Pitfall 6) (옛 ⑨)', () => {
   const FORBIDDEN = [
     'sellOrderQty',
     'sellQtyTrackBaseline',
@@ -418,7 +418,7 @@ describe('⑥ S→C 전용 필드를 보내지 않는다 · cfg 44키 (Pitfall 6
     'postBuyPhase',
   ] as const;
   /**
-   * 클라 입력 29 + 클라 고정 3 + Phase 24 C→S 12 = 44. `key` · `market` 은 싣지 않는다
+   * 클라 입력 28 + 클라 고정 3 + Phase 24 C→S 12 = 43(감시대상은 Phase 24 ⑤ 로 빠졌다). `key` · `market` 은 싣지 않는다
    * (relay 파생 · WR-03 / D-28).
    */
   const EXPECTED_KEYS = [
@@ -431,7 +431,6 @@ describe('⑥ S→C 전용 필드를 보내지 않는다 · cfg 44키 (Pitfall 6
     'buyOrderAmount',
     'buyWatchPrice',
     'buyWatchQty',
-    'buyWatchSide',
     'buyMinTradeQty',
     'buyTradeQtyEnabled',
     'buyEnabled',
@@ -469,20 +468,20 @@ describe('⑥ S→C 전용 필드를 보내지 않는다 · cfg 44키 (Pitfall 6
   ];
   function expectCleanCfg(cfg: RelayLimitChaserInput): void {
     const keys = Object.keys(cfg);
-    expect(keys).toHaveLength(44);
+    expect(keys).toHaveLength(43);
     expect(keys.sort()).toEqual([...EXPECTED_KEYS].sort());
     for (const f of FORBIDDEN) expect(keys).not.toContain(f);
     expect(keys).not.toContain('key');
     expect(keys).not.toContain('market');
   }
 
-  it('스위치 경로 cfg 키가 정확히 44개다 — 래치 상태여도 S→C 필드를 되보내지 않는다', () => {
+  it('스위치 경로 cfg 키가 정확히 43개다 — 래치 상태여도 S→C 필드를 되보내지 않는다', () => {
     render(<LimitChaserForm {...props({ server: echo({ sellEntryLatched: true }) })} />);
     click(sw('매도주문 켜기'));
     expectCleanCfg(lastConfig());
   });
 
-  it('값 경로 cfg 키도 정확히 44개다', () => {
+  it('값 경로 cfg 키도 정확히 43개다', () => {
     render(<LimitChaserForm {...props({ server: echo({ sellEntryLatched: true }) })} />);
     editInline('lc-sell-order-ratio', '50');
     expectCleanCfg(lastConfig());
@@ -547,13 +546,13 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
     expect(input('lc-buy-watch-qty')).toHaveFocus();
   });
 
-  it('모든 리스트 행이 44px 이다 — 값 행 · 체크 행 · 감시대상 행 · 기준선 행 · 편집 중 행 (D-20)', () => {
+  it('모든 리스트 행이 44px 이다 — 값 행 · 체크 행 · 기준선 행 · 편집 중 행 (D-20)', () => {
     render(<LimitChaserForm {...props({ server: echo({ sellEntryLatched: true }) })} />);
     const rows = document.querySelectorAll<HTMLElement>(
-      '[data-lc-field]:not([data-slot="lc-check-row"] [data-lc-field]), [data-slot="lc-check-row"], [data-slot="lc-watch-row"], [data-slot="lc-derived"]',
+      '[data-lc-field]:not([data-slot="lc-check-row"] [data-lc-field]), [data-slot="lc-check-row"], [data-slot="lc-derived"]',
     );
-    // 값 행 11 + 체크 행 5 + 감시대상 1 + 기준선 1 = 18 (고정 스키마 — E1 zero-one-many).
-    expect(rows).toHaveLength(18);
+    // 값 행 11 + 체크 행 5 + 기준선 1 = 17 (고정 스키마 — E1 zero-one-many). 감시대상 행은 Phase 24 ⑤ 로 없다.
+    expect(rows).toHaveLength(17);
     for (const r of Array.from(rows)) expect(r.className).toContain('min-h-[44px]');
     openInline('lc-sweep-tick');
     const editing = document.querySelector('[data-lc-field="lc-sweep-tick"][data-editing="true"]') as HTMLElement;
@@ -595,50 +594,22 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
   });
 });
 
-describe('⑧ 감시대상 — 시트를 열지 않는 행 안 토글 (D-02 · D-02a) (옛 ⑰ 세그먼트)', () => {
-  it('「매수잔량」 → cfg.buyWatchSide "1" 1회 · 시트/인라인이 열리지 않는다', () => {
+describe('⑧ 감시대상 행이 없다 (Phase 24 ⑤ — 새 서버는 감시대상을 읽지 않는다)', () => {
+  it('매수 쪽에 감시대상 행 · 「매도잔량」/「매수잔량」 토글이 없다', () => {
     render(<LimitChaserForm {...props()} />);
-    const g = screen.getByRole('group', { name: '감시대상' });
-    click(within(g).getByRole('button', { name: '매수잔량' }));
+    expect(document.querySelectorAll('[data-slot="lc-watch-row"]')).toHaveLength(0);
+    expect(screen.queryByRole('group', { name: '감시대상' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '매도잔량' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '매수잔량' })).toBeNull();
+  });
+
+  it('값 확정(매수 비교가격)으로 나간 cfg 에 감시대상 키가 없다 — 서버 에코가 "1" 이어도', () => {
+    render(<LimitChaserForm {...props({ server: echo({ buyWatchSide: '1' }) })} />);
+    editInline('lc-buy-watch-price', '129000');
     expect(sentConfigs()).toHaveLength(1);
-    expect(lastConfig().buyWatchSide).toBe('1');
-    expect(screen.queryByRole('dialog')).toBeNull();
-    expect(document.querySelector('[data-editing="true"]')).toBeNull();
-  });
-
-  it('전송 중에는 두 버튼이 비활성(선택 면은 낙관 표시) · 에코가 오면 다시 활성', () => {
-    const { rerender } = render(<LimitChaserForm {...props()} />);
-    const g = () => screen.getByRole('group', { name: '감시대상' });
-    click(within(g()).getByRole('button', { name: '매수잔량' }));
-    expect(within(g()).getByRole('button', { name: '매수잔량' })).toHaveAttribute('aria-pressed', 'true');
-    for (const name of ['매도잔량', '매수잔량']) expect(within(g()).getByRole('button', { name })).toBeDisabled();
-    rerender(<LimitChaserForm {...props({ server: echo({ buyWatchSide: '1' }), serverAnswerSeq: 1 })} />);
-    for (const name of ['매도잔량', '매수잔량']) expect(within(g()).getByRole('button', { name })).toBeEnabled();
-    expect(within(g()).getByRole('button', { name: '매수잔량' })).toHaveAttribute('aria-pressed', 'true');
-  });
-
-  it('★ D-02a — 시각 「감시대상」 라벨이 어느 밴드에도 없고 트랙이 행 전체 폭이다(접근성 이름은 유지)', () => {
-    render(<LimitChaserForm {...props()} />);
-    const watchRow = document.querySelector('[data-slot="lc-watch-row"]') as HTMLElement;
-    expect(watchRow.textContent).toBe('매도잔량매수잔량');
-    const g = screen.getByRole('group', { name: '감시대상' });
-    expect(g.className.split(/\s+/)).toEqual(expect.arrayContaining(['flex', 'w-full']));
-    expect(g.className).not.toMatch(/inline-flex|w-auto/);
-    for (const b of within(g).getAllByRole('button')) {
-      expect(b.className.split(/\s+/)).toEqual(
-        expect.arrayContaining(['flex-1', 'h-8', 'whitespace-nowrap', '@min-[700px]/lc:h-[26px]']),
-      );
-    }
-  });
-
-  it('거부되면 서버 값으로 되돌고 그 자리 말풍선 「반영하지 못했어요」 · 자동 재시도 없음 (E2 error)', () => {
-    const srv = echo();
-    const { rerender } = render(<LimitChaserForm {...props({ server: srv })} />);
-    click(screen.getByRole('button', { name: '매수잔량' }));
-    rerender(<LimitChaserForm {...props({ server: srv, serverAnswerSeq: 1 })} />);
-    expect(screen.getByRole('button', { name: '매도잔량' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByText('반영하지 못했어요').closest('[role="alert"]')).not.toBeNull();
-    expect(sentConfigs()).toHaveLength(1);
+    const cfg = lastConfig();
+    expect(cfg.buyWatchPrice).toBe(129_000);
+    expect('buyWatchSide' in cfg).toBe(false);
   });
 });
 
@@ -759,27 +730,24 @@ describe('⑪ 미등록 전략 — 값·체크·감시대상은 로컬만, 등�
     expect(rowText('lc-buy-watch-qty')).toBe('8,000주');
   });
 
-  it('체크 · 감시대상도 전송 0 · 표시만 바뀐다', () => {
+  it('체크도 전송 0 · 표시만 바뀐다', () => {
     render(<LimitChaserForm {...props({ server: null, upperLimit: 30_000 })} />);
     click(chk('매수주문 체결'));
-    click(screen.getByRole('button', { name: '매수잔량' }));
     expect(sentConfigs()).toHaveLength(0);
     expect(chk('매수주문 체결')).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByRole('button', { name: '매수잔량' })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('그 뒤 스위치 ON → 등록 cfg 에 로컬 값이 실린다', () => {
     render(<LimitChaserForm {...props({ server: null, upperLimit: 30_000 })} />);
     editInline('lc-buy-watch-qty', '8000');
     click(chk('매수주문 체결'));
-    click(screen.getByRole('button', { name: '매수잔량' }));
     click(sw('매수주문 켜기'));
     expect(sentConfigs()).toHaveLength(1);
     const cfg = lastConfig();
     expect(cfg.buyEnabled).toBe(true);
     expect(cfg.buyWatchQty).toBe(8_000);
     expect(cfg.buyTradeQtyEnabled).toBe(true);
-    expect(cfg.buyWatchSide).toBe('1');
+    expect('buyWatchSide' in cfg).toBe(false);
     expect(cfg.buyOrderPrice).toBe(30_000);
   });
 
@@ -1053,12 +1021,6 @@ describe('⑭ 터치 기기 — 모든 값 행이 시트다 · 「감시 중」 
     expect(sheet()).toBeNull();
   });
 
-  it('감시대상은 터치 기기에서도 시트를 열지 않고 즉시 전송한다', () => {
-    render(<LimitChaserForm {...props()} />);
-    click(screen.getByRole('button', { name: '매수잔량' }));
-    expect(sheet()).toBeNull();
-    expect(sentConfigs()).toHaveLength(1);
-  });
 });
 
 describe('D-15a — 상따 인라인도 ETP·분류 불명은 호가 단위 위반을 경고만 한다 (20-REVIEW WR-05)', () => {

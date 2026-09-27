@@ -12,9 +12,10 @@ import { describe, expect, it, vi } from 'vitest';
  *   ② `SettingGroup` — 둥근 면 · 제목줄(제목 + 상태 + 오른쪽 끝 스위치) · 꺼진 그룹 흐림(D-01).
  *   ③ `GroupSwitch` — Radix Switch primitive 직접 · `role="switch"` · 시각 40×24 + 히트 44×44.
  *   ④ `CheckValueRow` — 「○ 라벨 ─ 값 ›」(D-22) · 체크와 값 버튼이 따로 포커스된다.
- *   ⑤ `WatchTargetRow` — 행 안 토글 · **D-02a**: 모든 밴드에서 시각 라벨 없이 행 전체 폭.
- *   ⑥ `DerivedRow` — 읽기 전용(버튼 아님 · 쉐브런 없음).
- *   ⑦ 모든 행 44px · 뷰포트 브레이크포인트 0 · 말줄임 0.
+ *   ⑤ `DerivedRow` — 읽기 전용(버튼 아님 · 쉐브런 없음).
+ *   ⑥ 모든 행 44px · 뷰포트 브레이크포인트 0 · 말줄임 0.
+ *
+ * (감시대상 행 조각은 Phase 24 ⑤ 로 지웠다 — 새 서버는 감시대상을 읽지 않는다.)
  *
  * ★ jsdom 은 컨테이너 쿼리를 평가하지 않는다 — 밴드별 모양은 **클래스 존재**로만 단언하고, 실제
  *   폭 실측은 20-07 P20-3(Playwright)이 맡는다. 없는 검증을 했다고 적지 않는다.
@@ -35,7 +36,6 @@ import {
   GroupSwitch,
   SettingGroup,
   SettingRow,
-  WatchTargetRow,
 } from '../setting-group';
 
 const VIEWPORT_BP = /(^|\s)(sm|md|lg|xl|2xl):/;
@@ -50,10 +50,10 @@ describe('① 필드 스펙 — 그룹·행 순서 · 옛 id · 문구 · 게이
     expect(LC_SELL_GROUPS.map((g) => g.slot)).toEqual(['sell-price', 'sell', 'cancel']);
   });
 
-  it('매수주문 행 = 비교가격 · 감시대상 · 잔량 · 체결(체크 값) — 체크 행은 그룹 끝', () => {
+  it('매수주문 행 = 비교가격 · 잔량 · 체결(체크 값) — 감시대상 행 없음(Phase 24 ⑤) · 체크 행은 그룹 끝', () => {
     const rows = groupOf('buy').rows;
-    expect(rows.map((r) => r.kind)).toEqual(['value', 'watch', 'value', 'checkValue']);
-    expect(rows.map(idOf)).toEqual(['lc-buy-watch-price', null, 'lc-buy-watch-qty', 'lc-buy-min-trade-qty']);
+    expect(rows.map((r) => r.kind)).toEqual(['value', 'value', 'checkValue']);
+    expect(rows.map(idOf)).toEqual(['lc-buy-watch-price', 'lc-buy-watch-qty', 'lc-buy-min-trade-qty']);
   });
 
   it('매도주문 행 = 비교가격 · 호가잔량 · 잔량추적 % · 체결 · (조건부) 기준선 · 매수취소 = 취소잔량 · 체결 · 잔량추적', () => {
@@ -144,7 +144,7 @@ describe('① 필드 스펙 — 그룹·행 순서 · 옛 id · 문구 · 게이
     }
   });
 
-  it('lcNavigableRows 는 값 편집 행만 — 감시대상 · 체크 전용 · 기준선은 건너뛴다', () => {
+  it('lcNavigableRows 는 값 편집 행만 — 체크 전용 · 기준선은 건너뛴다', () => {
     expect(lcNavigableRows('buy').map((r) => r.field)).toEqual(['buyWatchPrice', 'buyWatchQty', 'buyMinTradeQty']);
     expect(lcNavigableRows('cancel')).toEqual([{ field: 'cancelWatchQty', id: 'lc-cancel-watch-qty' }]);
     expect(lcNavigableRows('sell').map((r) => r.id)).toEqual([
@@ -413,69 +413,7 @@ describe('④ CheckValueRow — 「○ 라벨 ─ 값 ›」 (D-22)', () => {
   });
 });
 
-describe('⑤ WatchTargetRow — 행 안 토글 · D-02a 모든 밴드 라벨 없이 전체 폭 (D-02 · D-02a)', () => {
-  it('role=group 「감시대상」 · aria-pressed 두 버튼 · 선택은 `--seg-on-bg` · 누르면 onSelect', () => {
-    const onSelect = vi.fn();
-    render(<WatchTargetRow value="0" onSelect={onSelect} />);
-    const group = screen.getByRole('group', { name: '감시대상' });
-    const sell = within(group).getByRole('button', { name: '매도잔량' });
-    const buy = within(group).getByRole('button', { name: '매수잔량' });
-    expect(sell).toHaveAttribute('aria-pressed', 'true');
-    expect(buy).toHaveAttribute('aria-pressed', 'false');
-    expect(sell.className).toContain('bg-[var(--seg-on-bg)]');
-    expect(buy.className).not.toContain('bg-[var(--seg-on-bg)]');
-    fireEvent.click(buy);
-    expect(onSelect).toHaveBeenCalledWith('1');
-  });
-
-  it('전송 중(busy)이면 두 버튼 모두 비활성이고 눌러도 부르지 않는다', () => {
-    const onSelect = vi.fn();
-    render(<WatchTargetRow value="1" busy onSelect={onSelect} />);
-    for (const name of ['매도잔량', '매수잔량']) {
-      const b = screen.getByRole('button', { name });
-      expect(b).toBeDisabled();
-      fireEvent.click(b);
-    }
-    expect(onSelect).not.toHaveBeenCalled();
-    expect(screen.getByRole('group', { name: '감시대상' })).toHaveAttribute('aria-busy', 'true');
-  });
-
-  it('★ D-02a — 어느 밴드에서도 시각 「감시대상」 라벨이 없고 트랙이 행 전체 폭이다(이름은 group 이 유지)', () => {
-    const { container } = render(<WatchTargetRow value="0" onSelect={() => {}} />);
-    // 보이는 글자로서의 「감시대상」은 없다 — 접근성 이름만 남는다.
-    expect(screen.queryByText('감시대상')).toBeNull();
-    expect(container.textContent).not.toContain('감시대상');
-    const track = screen.getByRole('group', { name: '감시대상' });
-    const cls = track.className.split(/\s+/);
-    for (const c of ['flex', 'w-full', 'rounded-[8px]', 'bg-[var(--raised-2)]', 'p-0.5']) expect(cls).toContain(c);
-    expect(track.className).not.toContain('inline-flex');
-    expect(track.className).not.toContain('w-auto');
-  });
-
-  it('버튼 모양 — 폰 32px · 14/600 · px 8 → ≥700 26px · 13/600 (flex-1 은 모든 밴드) · 4글자 nowrap', () => {
-    render(<WatchTargetRow value="0" onSelect={() => {}} />);
-    const b = screen.getByRole('button', { name: '매도잔량' });
-    const cls = b.className.split(/\s+/);
-    for (const c of [
-      'h-8',
-      'flex-1',
-      'min-w-0',
-      'whitespace-nowrap',
-      'rounded-[6px]',
-      'px-2',
-      'text-[14px]',
-      'font-semibold',
-      '@min-[700px]/lc:h-[26px]',
-      '@min-[700px]/lc:text-[13px]',
-    ]) {
-      expect(cls).toContain(c);
-    }
-    expect(b.className).not.toContain('@min-[700px]/lc:flex-none');
-    expect(b.className).not.toContain('@min-[700px]/lc:px-2.5');
-  });
-});
-
-describe('⑥ DerivedRow — 읽기 전용 기준선 행', () => {
+describe('⑤ DerivedRow — 읽기 전용 기준선 행', () => {
   it('버튼이 아니고 쉐브런이 없다 · 「잔량추적 기준선 41,200주」', () => {
     const { container } = render(<DerivedRow label="잔량추적 기준선" value={41_200} unit="주" />);
     const row = container.querySelector('[data-slot="lc-derived"]') as HTMLElement;
@@ -486,7 +424,7 @@ describe('⑥ DerivedRow — 읽기 전용 기준선 행', () => {
   });
 });
 
-describe('⑦ 공통 규율 — 44px · 컨테이너 쿼리만 · 말줄임 0', () => {
+describe('⑥ 공통 규율 — 44px · 컨테이너 쿼리만 · 말줄임 0', () => {
   function renderAll() {
     return render(
       <div>
@@ -494,7 +432,6 @@ describe('⑦ 공통 규율 — 44px · 컨테이너 쿼리만 · 말줄임 0', 
           <GroupSwitch label="매수주문 켜기" checked onCheckedChange={() => {}} />
         }>
           <SettingRow id="lc-buy-watch-price" label="비교가격" unit="원" value={130_000} editing={false} onActivate={() => {}} />
-          <WatchTargetRow value="0" onSelect={() => {}} />
           <CheckValueRow
             checkId="lc-buy-trade"
             groupTitle="매수주문"
@@ -513,15 +450,14 @@ describe('⑦ 공통 규율 — 44px · 컨테이너 쿼리만 · 말줄임 0', 
     );
   }
 
-  it('값 행 · 감시대상 행 · 체크 행 · 기준선 행이 전부 min-h-[44px] 다', () => {
+  it('값 행 · 체크 행 · 기준선 행이 전부 min-h-[44px] 다', () => {
     const { container } = renderAll();
     const rows = [
       container.querySelector('[data-lc-field="lc-buy-watch-price"]'),
-      container.querySelector('[data-slot="lc-watch-row"]'),
       ...Array.from(container.querySelectorAll('[data-slot="lc-check-row"]')),
       container.querySelector('[data-slot="lc-derived"]'),
     ] as HTMLElement[];
-    expect(rows).toHaveLength(5);
+    expect(rows).toHaveLength(4);
     for (const r of rows) expect(r.className).toContain('min-h-[44px]');
   });
 
@@ -542,11 +478,11 @@ describe('⑦ 공통 규율 — 44px · 컨테이너 쿼리만 · 말줄임 0', 
 });
 
 /*
-  ⑧ 20-07 a11y — ≥700 두 열에서 매수·매도 쪽 값 버튼이 같은 이름을 가질 수 있다(「비교가격 127,400원」 ·
+  ⑦ 20-07 a11y — ≥700 두 열에서 매수·매도 쪽 값 버튼이 같은 이름을 가질 수 있다(「비교가격 127,400원」 ·
   「체결 30,000주」). 이름은 UI-SPEC 계약 「{라벨} {값}{단위}」 그대로 두고, **설명**으로 그룹 제목을 붙여
   스크린리더가 「비교가격 127,400원, 매수주문」처럼 가르게 한다(보이는 변화 0).
 */
-describe('⑧ 값 버튼의 그룹 설명 — 이름은 「{라벨} {값}{단위}」 그대로 · 설명 = 그룹 제목 (20-07 a11y)', () => {
+describe('⑦ 값 버튼의 그룹 설명 — 이름은 「{라벨} {값}{단위}」 그대로 · 설명 = 그룹 제목 (20-07 a11y)', () => {
   function renderTwoColumns() {
     return render(
       <div>

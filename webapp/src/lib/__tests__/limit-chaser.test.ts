@@ -192,6 +192,11 @@ describe('dirtyFieldsOf — 더티 판정 (유일 지점, D-06)', () => {
     expect(dirtyFieldsOf(noisy, defaultLimitChaserForm())).toEqual([]);
   });
 
+  it('감시대상은 더티 대상이 아니다 — 서버 에코가 "1" 이어도 더티 0 (Phase 24 ⑤)', () => {
+    expect(DIRTY_COMPARED_FIELDS as readonly string[]).not.toContain('buyWatchSide');
+    expect(dirtyFieldsOf(serverEcho({ buyWatchSide: '1' }), defaultLimitChaserForm())).toEqual([]);
+  });
+
   it('스위치 3종(매수·매도·한방)은 더티 대상이 아니다 — 즉시 전송이라 왕복 중 더티가 뜨면 안 된다', () => {
     for (const f of ['buyEnabled', 'sellEnabled', 'sweepEnabled'] as const) {
       expect(DIRTY_COMPARED_FIELDS).not.toContain(f);
@@ -287,7 +292,7 @@ describe('defaultLimitChaserForm — WinForms 기본값', () => {
     expect(d.cancelWatchQty).toBe(10);
   });
 
-  it('게이트는 전부 false 이고 감시 대상은 매도호가("0")', () => {
+  it('게이트는 전부 false 이고 감시대상 키가 없다 (Phase 24 ⑤)', () => {
     const d = defaultLimitChaserForm();
     expect(d.buyEnabled).toBe(false);
     expect(d.sellEnabled).toBe(false);
@@ -298,7 +303,7 @@ describe('defaultLimitChaserForm — WinForms 기본값', () => {
     expect(d.buyTradeQtyEnabled).toBe(false);
     expect(d.sellTradeQtyEnabled).toBe(false);
     expect(d.sellQtyTrackEnabled).toBe(false);
-    expect(d.buyWatchSide).toBe('0');
+    expect('buyWatchSide' in d).toBe(false);
   });
 
   it('호출마다 새 객체를 돌려준다 — 공유 참조를 수정하면 다음 신규 폼이 오염된다', () => {
@@ -322,6 +327,11 @@ describe('formFromServer — 에코 → 폼 (D-11 서버값 우선)', () => {
     const next = formFromServer(serverEcho({ buyOrderPrice: 130_000, sellOrderRatio: 40 }), prev);
     expect(next.buyOrderPrice).toBe(130_000);
     expect(next.sellOrderRatio).toBe(40);
+  });
+
+  it('옛 서버 에코의 감시대상은 폼으로 들이지 않는다 (Phase 24 ⑤)', () => {
+    const next = formFromServer(serverEcho({ buyWatchSide: '1' }), defaultLimitChaserForm());
+    expect('buyWatchSide' in next).toBe(false);
   });
 
   it('`buyOrderAmount === 0` 이면 금액 칸을 덮지 않는다 (Pitfall 11)', () => {
