@@ -1,18 +1,18 @@
 ---
 gsd_state_version: "1.0"
 milestone: v1.0
-current_phase: 18
-current_phase_name: gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
-status: planning
+current_phase: 24
+current_phase_name: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영
+status: executing
 stopped_at: Phase 24 UI-SPEC approved
-last_updated: "2026-09-27T14:42:00.801Z"
+last_updated: "2026-09-27T16:04:31.510Z"
 last_activity: 2026-09-27
 last_activity_desc: Phase 22 complete, transitioned to Phase 18
-state_head: 616ecd069dd9982b7e72bb7cf24a93a629014285
+state_head: a8836fb2d07bd75ce2fbeb664d54baedbb334e76
 progress:
   total_phases: 33
   completed_phases: 4
-  total_plans: 300
+  total_plans: 309
   completed_plans: 284
 milestone_name: milestone
 ---
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 18 — gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
+Phase: 24 (gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영) — READY TO EXECUTE
 Plan: Not started
 Plans completed: 219 / 234
-Status: Ready to plan
+Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-09-27 - Completed quick task 260927-s4j: Phase 22 보안 경고 W-1·W-2 수정

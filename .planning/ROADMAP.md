@@ -1204,8 +1204,38 @@ Plans:
 **열린 것:** 소진 푸시(300ms) 전 옛 ON 재제출 창이 웹에서 실제 생기는지(실기 검증) · 운영 전략 중 「감시대상=매수잔량」 선택분 목록 추출은 **gh-trade 24-12 재기동 전**(CONTEXT D-14 정정). 마스터 OFF 시 `post_buy_enabled` 에코는 gh-trade D-32 로 닫힘(CONTEXT D-21). 후속분 ②(추가매수 아래 틱·이탈 포기 · 기본값 표 · 상한가 차단)는 CONTEXT D-16~D-21.
 **Requirements**: TBD
 **Depends on:** Phase 17 (프로토콜 재동기화·래치 LED) · gh-trade Phase 24 서버 배포(24-11)
-**Plans:** 0 plans
+**Plans:** 9 plans
 
 Plans:
+**Wave 1**
 
-- [ ] TBD (run /gsd-plan-phase 24 to break down)
+- [ ] 24-01-PLAN.md — 트레이서: 스키마 재생성 + relay 빌더(buy3_schema=1 · C→S 12)/파서(신필드 17) + shared 계약 + 웹 픽스처 + 매수 LED 보유중(D-12) + P24-1
+- [ ] 24-02-PLAN.md — D-14 운영 전략 「매수잔량 기준」 목록 추출(읽기 전용 도구 · 사용자 실행 · 24-12 재기동 전)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 24-03-PLAN.md — 구 탭 관용(lc.set 옛 모양 · lc.arm buy → 거부 프레임, 소켓 유지) + MsgType 38 제거 + 감시대상 토글 제거
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 24-04-PLAN.md — 매수 카드 4장 구조: 접기 · 요약 줄 · 라벨 개명(D-09) · 의미어(D-10) · 후매수 표시(D-11) · 상태 문구(D-02 · D-15) · 흐림(⑩)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 24-05-PLAN.md — 전략 로그 · 에코 귀속: 그룹 전이 · D-01/D-02 동반 문구 · buyFired 제거 · 발동 override 무배너
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 24-06-PLAN.md — 그룹 스위치 동작: 확정 훅 companions · D-01/D-02 · 그룹별 무장 가드(웹 ↔ relay) · 사전 검증 · D-16
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 24-07-PLAN.md — 선매수 자동 체크(D-06~D-08) · 새 전략 기본값(D-04) · 상장주식수 시딩(D-17)
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [ ] 24-08-PLAN.md — e2e 증거 P24-2~8 · 폭 · 폰 한 화면 · axe · 시각 확인(R6)
+
+**Wave 8** *(blocked on Wave 7 completion)*
+
+- [ ] 24-09-PLAN.md — 배포(gh-trade 24-12 · WinForms 발행 뒤 relay → smoke → push · gh-trade 회신) — 메인 세션 체크포인트

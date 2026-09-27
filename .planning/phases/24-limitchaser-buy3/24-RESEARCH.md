@@ -113,7 +113,7 @@ b066e135 feat(client): 상따 매수 그룹이 모두 꺼지면 ☐매수주문�
 
 ### F-2. WinForms 는 에코 경로에서 마스터를 끈다 — 웹 D-02 와 다르다
 `[VERIFIED: git show b066e135, client/Forms/Trading/LimitChaserForm.cs]` `ApplyServerConfig` 끝에서 `if (hadBuyGroup && chkBuyEnabled.Checked && !AnyBuyGroupChecked()) BeginInvoke(new Action(DropMasterAfterServerFold));` — 서버가 그룹을 접어 세 그룹이 모두 꺼지면 **마스터 OFF 를 제출**한다(단 매도·취소도 전부 OFF 면 삭제가 되므로 보내지 않음). 로그 `「서버가 매수 그룹 해제 — 매수 그룹이 모두 꺼져 매수주문도 끔」`.
-- 웹 CONTEXT D-02 후반은 사용자가 discuss 에서 「에코 받으면 웹이 마스터 OFF 제출(다른 단말·재접속마다 제출이 튐, 핑퐁 위험)」을 **보고 거절**했다(`24-DISCUSSION-LOG.md:51-57`). 결정 번복 대상이 아니다. 다만 **WinForms 창이 같은 세션에 열려 있으면** WinForms 가 마스터 OFF 를 보내고 그 에코가 웹에 온다 — 웹은 이 에코를 「사용자가 보내지 않은 마스터 OFF」로 받는다(아래 Pitfall 11 `hadOrder` 오귀속).
+- 웹 CONTEXT D-02 후반은 사용자가 discuss 에서 「에코 받으면 웹이 마스터 OFF 제출(다른 단말·재접속마다 제출이 튐, 핑퐁 위험)」을 **보고 거절**했다(`24-DISCUSSION-LOG.md:51-57`). **→ 2026-09-28 정정: 사용자가 이 결정을 뒤집어 웹도 WinForms 동형으로 하강 전이 1회 자동 제출한다(CONTEXT D-02 후반·D-19 갱신 · 가드 4개). 아래 문장의 「다르다」는 옛 기록이다.** 다만 **WinForms 창이 같은 세션에 열려 있으면** WinForms 가 마스터 OFF 를 보내고 그 에코가 웹에 온다 — 웹은 이 에코를 「사용자가 보내지 않은 마스터 OFF」로 받는다(아래 Pitfall 11 `hadOrder` 오귀속).
 - 참고: gh-trade `docs/strategy/limit-chaser.md` §10 은 아직 「그룹을 끄는 쪽은 마스터를 건드리지 않는다」라고 적혀 있어 `b066e135` 와 문서가 어긋나 있다(gh-trade 몫).
 
 ### F-3. D-14 추출은 gh-trade 서버 재기동 **전**에만 가능하다
@@ -663,6 +663,7 @@ return { tone: "armed", clickable: false, label: "감시", tooltip: null };
 
 3. **WinForms 의 에코 경로 마스터 자동 끔(`b066e135`)을 사용자에게 알릴지** (F-2)
    - Recommendation: 결정 번복 아님 — 「두 클라 동작 차이」로 SUMMARY/UAT 에 기록. 웹 로그가 그 에코를 「발주」로 오표시하지 않게 Pitfall 11 처리.
+   - **2026-09-28 닫힘:** 사용자가 WinForms 동형 적용을 지시 → CONTEXT D-02 후반. 웹이 보낸 마스터 OFF 는 `sent` 로 귀속되므로 Pitfall 11 의 「사용자가 보내지 않은 마스터 OFF」 경우는 WinForms 가 먼저 보낸 에코일 때만 남는다.
 
 4. **구 탭 거부 프레임 문구·방식** (Pitfall 3) — UI-SPEC 에서 문구 확정, relay 는 방식(A1)만.
 
