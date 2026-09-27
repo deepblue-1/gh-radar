@@ -230,7 +230,7 @@ describe('① 스위치 4개는 확인 없이 즉시 전송된다 (Phase 16 D-05
     expect(cfg).not.toHaveProperty('postBuyPhase');
   });
 
-  it('선매수 스위치도 같은 규율이다 — 1회 · preBuyEnabled true(한 필드 확정 · 동반 규칙은 24-06)', () => {
+  it('선매수 스위치도 같은 규율이다 — 1회 · preBuyEnabled true(마스터 ON 이면 동반 변화 없음)', () => {
     render(<LimitChaserForm {...props()} />);
     click(screen.getByRole('switch', { name: '선매수 켜기' }));
     expect(sentConfigs()).toHaveLength(1);
@@ -688,35 +688,71 @@ describe('⑩ 발주할 수 없는 전략은 무장되지 않는다 (WR-06 · GC
   const reasons = (side: 'buy' | 'sell') =>
     Array.from(pane(side).querySelectorAll('[data-slot="lc-arm-blocked"]')).map((li) => li.textContent);
 
-  it('시세를 못 받은 종목(가격 전부 0)은 매수 스위치가 비활성이고 사유가 매수 열 **맨 아래**에 선다', () => {
+  it('시세를 못 받은 종목(가격 전부 0)은 마스터 · 세 그룹 스위치가 비활성이고 사유 한 줄(게이트 이름 병합)이 매수 열 **맨 아래**에 선다', () => {
     render(<LimitChaserForm {...props({ server: null })} />);
-    expect(sw('매수주문 켜기')).toBeDisabled();
+    for (const name of ['매수주문 켜기', '선매수 켜기', '추가매수 켜기', '후매수 켜기']) expect(sw(name)).toBeDisabled();
     const panel = panelIn('buy') as HTMLElement;
     expect(panel).not.toBeNull();
     expect(pane('buy').lastElementChild).toBe(panel);
-    expect(reasons('buy')[0]).toContain('매수주문 · 시세를 받지 못해 매수가격이 0 이에요.');
+    expect(reasons('buy')).toEqual([
+      '매수주문 · 선매수 · 추가매수 · 후매수 · 시세를 받지 못해 주문가격이 0 이에요. 주문가격을 입력하면 켤 수 있어요.',
+    ]);
   });
 
-  it('주문금액이 모자라 0주면 **금액** 문구 · 매수와 한방이 같은 사유면 한 줄로 합쳐진다 (GC-WR-12)', () => {
-    render(<LimitChaserForm {...props({ server: null, upperLimit: 1_274_000 })} />);
+  it('비교가격 0 이면 비교가격 문구 — 서버가 마스터를 눕히는 값이다(relay `buy` 갈래 동형)', () => {
+    render(<LimitChaserForm {...props({ server: echo({ buyEnabled: false, buyWatchPrice: 0, sellEnabled: true }) })} />);
+    expect(sw('매수주문 켜기')).toBeDisabled();
     expect(reasons('buy')).toEqual([
-      '매수주문 · 한방체결 · 주문금액이 매수가격보다 작아 주문수량이 0 주예요. 금액을 올리면 켤 수 있어요.',
+      '매수주문 · 선매수 · 추가매수 · 후매수 · 시세를 받지 못해 비교가격이 0 이에요. 비교가격을 입력하면 켤 수 있어요.',
     ]);
+  });
+
+  it('주문금액이 모자라 0주여도 패널 · 스위치 `disabled` 는 없다 — 수량 0 은 누르는 순간의 사전 검증이다(R7)', () => {
+    render(<LimitChaserForm {...props({ server: null, upperLimit: 1_274_000 })} />);
+    expect(panelIn('buy')).toBeNull();
+    expect(sw('매수주문 켜기')).toBeEnabled();
+    expect(sw('선매수 켜기')).toBeEnabled();
   });
 
   it('매도 사유는 매도 열에만 선다 — 매수 사유가 새지 않는다', () => {
     render(<LimitChaserForm {...props({ server: echo({ sellWatchQty: 0 }) })} />);
     expect(panelIn('buy')).toBeNull();
-    expect(reasons('sell')).toEqual(['매도주문 · 매도 호가잔량이 0 이에요. 감시할 잔량을 입력하면 켤 수 있어요.']);
+    expect(reasons('sell')).toEqual(['매도주문 · 매도 매수잔량이 0 이에요. 감시할 매수잔량을 입력하면 켤 수 있어요.']);
     expect(sw('매도주문 켜기')).toBeDisabled();
   });
 
-  it('켜진 게이트의 매수가격을 0 으로 확정 → 전송 0 + 그 자리 「매수주문 · 시세를 받지 못해 …」', () => {
+  it('켜진 게이트의 주문가격을 0 으로 확정 → 전송 0 + 그 자리 「매수주문 · 시세를 받지 못해 …」', () => {
     render(<LimitChaserForm {...props()} />);
     editInline('lc-buy-order-price', '0');
     expect(sentConfigs()).toHaveLength(0);
-    expect(screen.getByText(/^매수주문 · 시세를 받지 못해 매수가격이 0 이에요/)).toBeInTheDocument();
+    expect(screen.getByText(/^매수주문 · 시세를 받지 못해 주문가격이 0 이에요/)).toBeInTheDocument();
     expect(input('lc-buy-order-price')).not.toBeNull();
+  });
+
+  it('켜진 선매수의 금액을 수량 0 이 되게 확정 → 전송 0 + 「선매수 · 금액이 주문가격보다 작아 …」(값 경로는 armBlockOf)', () => {
+    render(<LimitChaserForm {...props({ server: echo({ preBuyEnabled: true }) })} />);
+    click(fold('pre-buy'));
+    editInline('lc-buy-order-amount', '1');
+    expect(sentConfigs()).toHaveLength(0);
+    expect(
+      screen.getByText('선매수 · 금액이 주문가격보다 작아 주문수량이 0주예요 — 금액을 올려 주세요'),
+    ).toBeInTheDocument();
+  });
+
+  it('선매수 ∧ 한방가격 0 이면 한방 체크 켜기가 폼 맨 위 「선매수 한방 · …」로 막힌다 · 선매수 OFF 면 막지 않는다', () => {
+    const { unmount } = render(
+      <LimitChaserForm {...props({ server: echo({ preBuyEnabled: true, sweepWatchPrice: 0 }) })} />,
+    );
+    click(chk('선매수 한방'));
+    expect(sentConfigs()).toHaveLength(0);
+    expect(submitError()?.textContent).toBe(
+      '선매수 한방 · 시세를 받지 못해 한방가격이 0 이에요. 한방가격을 입력하면 켤 수 있어요.',
+    );
+    unmount();
+    render(<LimitChaserForm {...props({ server: echo({ preBuyEnabled: false, sweepWatchPrice: 0 }) })} />);
+    click(chk('선매수 한방'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().sweepEnabled).toBe(true);
   });
 
   it('철거 의도(게이트 4종 OFF + 한방 ON)는 매수가격 0 이어도 막지 않는다 (R2-WR-02)', () => {
@@ -895,7 +931,7 @@ describe('WR-03 — 대기열에서 꺼낼 때 막히거나 끊긴 토글도 폼
     expect(sentConfigs()).toHaveLength(1);
     expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'false');
     expect(submitError()?.textContent).toBe(
-      '매도주문 · 매도 호가잔량이 0 이에요. 감시할 잔량을 입력하면 켤 수 있어요.',
+      '매도주문 · 매도 매수잔량이 0 이에요. 감시할 매수잔량을 입력하면 켤 수 있어요.',
     );
   });
 });
@@ -1412,5 +1448,234 @@ describe('⑯ 라벨 개명 · 시트 제목 · 접근성 이름 접두 · 의�
       expect(document.querySelector('[data-slot="numpad-confirm"]')).toBeDisabled();
       expect(document.querySelector('[data-slot="numpad-status"]')!.textContent).toContain('1% 이상 입력해 주세요');
     });
+  });
+});
+
+describe('⑰ 그룹 스위치 D-01 · D-02 전반 — 마스터가 같은 제출에 함께 움직인다 (24-06 · UI-SPEC 상호작용 계약)', () => {
+  it('D-01 — 마스터 OFF 에서 선매수 켬 → lc.set 1회 · cfg 선매수 + 마스터 true · 두 스위치 낙관 ON · 확인창 없음', () => {
+    const off = echo({ buyEnabled: false, sellEnabled: true });
+    const { rerender } = render(<LimitChaserForm {...props({ server: off })} />);
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ preBuyEnabled: true, buyEnabled: true, crud: 'C' });
+    expect(sw('선매수 켜기')).toHaveAttribute('aria-checked', 'true');
+    expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'true');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    // 거부(답만 증가) — 둘 다 서버 값으로 돌아온다.
+    rerender(<LimitChaserForm {...props({ server: off, serverAnswerSeq: 1 })} />);
+    expect(sw('선매수 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(sentConfigs()).toHaveLength(1);
+  });
+
+  it('D-01 — 추가매수 · 후매수도 같다(마스터 OFF → 동반 ON)', () => {
+    render(
+      <LimitChaserForm
+        {...props({
+          server: echo({ buyEnabled: false, sellEnabled: true, extraBuyOrderAmount: 50, postBuyOrderAmount: 50, postBuyReboundPct: 30 }),
+        })}
+      />,
+    );
+    click(sw('추가매수 켜기'));
+    expect(lastConfig()).toMatchObject({ extraBuyEnabled: true, buyEnabled: true });
+  });
+
+  it('D-02 전반 — 마스터 ON · 후매수만 ON · 매도 ON 에서 후매수 끔 → cfg 후매수 false + 마스터 false · crud "C"', () => {
+    render(
+      <LimitChaserForm
+        {...props({ server: echo({ postBuyEnabled: true, sellEnabled: true, postBuyOrderAmount: 50, postBuyReboundPct: 30 }) })}
+      />,
+    );
+    click(sw('후매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ postBuyEnabled: false, buyEnabled: false, crud: 'C' });
+    expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('D-02 전반 — 매도 · 취소 게이트까지 전부 OFF 면 그 제출이 곧 삭제(crud "D") · 확인창 없음', () => {
+    render(
+      <LimitChaserForm {...props({ server: echo({ postBuyEnabled: true, postBuyOrderAmount: 50, postBuyReboundPct: 30 }) })} />,
+    );
+    click(sw('후매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ postBuyEnabled: false, buyEnabled: false, crud: 'D' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('다른 그룹이 켜져 있으면 그 그룹만 끈다 — 선매수 · 후매수 ON 에서 선매수 끔 → 마스터 true 그대로', () => {
+    render(
+      <LimitChaserForm
+        {...props({ server: echo({ preBuyEnabled: true, postBuyEnabled: true, postBuyOrderAmount: 50, postBuyReboundPct: 30 }) })}
+      />,
+    );
+    click(sw('선매수 켜기'));
+    expect(lastConfig()).toMatchObject({ preBuyEnabled: false, buyEnabled: true, postBuyEnabled: true });
+  });
+
+  it('D-05 — 새 전략에서 마스터만 켜면 세 그룹은 OFF 그대로(선매수 자동 ON 없음)', () => {
+    render(<LimitChaserForm {...props({ server: null, upperLimit: 30_000 })} />);
+    click(sw('매수주문 켜기'));
+    expect(lastConfig()).toMatchObject({ buyEnabled: true, preBuyEnabled: false, extraBuyEnabled: false, postBuyEnabled: false });
+  });
+
+  it('미등록 전략에서 그룹 스위치를 켜면 마스터와 함께 등록이 나간다(LC_GATE_FIELDS)', () => {
+    render(<LimitChaserForm {...props({ server: null, upperLimit: 30_000 })} />);
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ preBuyEnabled: true, buyEnabled: true, crud: 'C' });
+  });
+});
+
+describe('⑰-b D-02 후반 · D-19 — WinForms 동형 서버 접힘 뒤 마스터 자동 끔 (가드 4개 · 2026-09-28 정정)', () => {
+  /** 직전 에코 — 선매수 ON · 마스터 ON · 매도 ON. */
+  const A = () => echo({ preBuyEnabled: true, sellEnabled: true });
+  /** 서버가 선매수를 접은 에코 — 세 그룹 OFF · 마스터 ON · 매도 ON. */
+  const B = (over: Partial<RelayLimitChaser> = {}) => echo({ sellEnabled: true, ...over });
+  /** 에코 적용 뒤 「다음 틱」. */
+  const tick = () =>
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('D-02 후반 — 하강 전이(그룹 ON → 세 그룹 OFF · 마스터 ON) 뒤 다음 틱에 buyEnabled:false 정확히 1회 · crud C · 나머지 = 에코 · 사유 serverFold', () => {
+    const onSent = vi.fn();
+    const { rerender } = render(<LimitChaserForm {...props({ server: A(), onSent })} />);
+    const b = B({ sweepMinTickCount: 7 });
+    rerender(<LimitChaserForm {...props({ server: b, onSent })} />);
+    // 에코 적용과 같은 틱에는 보내지 않는다.
+    expect(sentConfigs()).toHaveLength(0);
+    tick();
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({
+      buyEnabled: false,
+      crud: 'C',
+      sellEnabled: true,
+      preBuyEnabled: false,
+      sweepMinTickCount: 7,
+    });
+    expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(onSent).toHaveBeenCalledTimes(1);
+    expect(onSent.mock.calls[0]![1]).toEqual({ cause: 'serverFold' });
+    tick();
+    expect(sentConfigs()).toHaveLength(1);
+  });
+
+  it('D-02 후반 — 같은 에코 B 재수신(새 객체 · 같은 값)은 추가 전송 0', () => {
+    const { rerender } = render(<LimitChaserForm {...props({ server: A() })} />);
+    rerender(<LimitChaserForm {...props({ server: B() })} />);
+    tick();
+    expect(sentConfigs()).toHaveLength(1);
+    rerender(<LimitChaserForm {...props({ server: B() })} />);
+    tick();
+    rerender(<LimitChaserForm {...props({ server: B() })} />);
+    tick();
+    expect(sentConfigs()).toHaveLength(1);
+  });
+
+  it('D-02 후반 — 첫 렌더가 곧 에코 B(이전 에코 없음 · 첫 스냅샷)면 전송 0', () => {
+    render(<LimitChaserForm {...props({ server: B() })} />);
+    tick();
+    tick();
+    expect(sentConfigs()).toHaveLength(0);
+  });
+
+  it('D-02 후반 — 재접속(disabled true → false) 뒤 첫 에코가 B 여도 전송 0 (기준선 초기화)', () => {
+    const { rerender } = render(<LimitChaserForm {...props({ server: A() })} />);
+    const stale = A();
+    rerender(<LimitChaserForm {...props({ server: stale, disabled: true })} />);
+    tick();
+    // 재접속 직후 — 옛 에코 객체가 아직 남아 있다가 lc.snap 이 새 에코로 덮는다.
+    rerender(<LimitChaserForm {...props({ server: stale, disabled: false })} />);
+    tick();
+    rerender(<LimitChaserForm {...props({ server: B() })} />);
+    tick();
+    expect(sentConfigs()).toHaveLength(0);
+    // 재접속 뒤 첫 에코가 곧장 B 인 경우도 같다.
+    const second = render(<LimitChaserForm {...props({ server: A() })} />);
+    second.rerender(<LimitChaserForm {...props({ server: A(), disabled: true })} />);
+    second.rerender(<LimitChaserForm {...props({ server: B(), disabled: false })} />);
+    tick();
+    expect(sentConfigs()).toHaveLength(0);
+  });
+
+  it('D-02 후반 가드 ① — 매도 · 취소>잔량 · 취소>체결 전부 OFF 면 (삭제가 되므로) 전송 0 · 매수주문 상태 「켜짐 · 켠 매수 없음」', () => {
+    const status = { buy: '켜짐 · 켠 매수 없음' };
+    const { rerender } = render(
+      <LimitChaserForm {...props({ server: echo({ preBuyEnabled: true }), groupStatus: status })} />,
+    );
+    rerender(<LimitChaserForm {...props({ server: echo(), groupStatus: status })} />);
+    tick();
+    tick();
+    expect(sentConfigs()).toHaveLength(0);
+    expect(group('buy')).toHaveTextContent('켜짐 · 켠 매수 없음');
+    expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('D-02 후반 가드 ③ — 다른 확정이 in-flight 면 그 자리에서 0 · 그 성공 에코 뒤(여전히 접힘) 1회', () => {
+    const onSent = vi.fn();
+    const { rerender } = render(<LimitChaserForm {...props({ server: A(), onSent })} />);
+    editInline('lc-buy-watch-price', '129000');
+    expect(sentConfigs()).toHaveLength(1);
+    rerender(<LimitChaserForm {...props({ server: B(), onSent })} />);
+    tick();
+    expect(sentConfigs()).toHaveLength(1);
+    // in-flight 의 성공 에코 — 세 그룹 OFF · 마스터 ON 그대로.
+    rerender(<LimitChaserForm {...props({ server: B({ buyWatchPrice: 129_000 }), onSent })} />);
+    rerender(<LimitChaserForm {...props({ server: B({ buyWatchPrice: 129_000 }), serverAnswerSeq: 1, onSent })} />);
+    tick();
+    rerender(<LimitChaserForm {...props({ server: B({ buyWatchPrice: 129_000 }), serverAnswerSeq: 2, onSent })} />);
+    tick();
+    expect(sentConfigs()).toHaveLength(2);
+    expect(lastConfig()).toMatchObject({ buyEnabled: false, buyWatchPrice: 129_000 });
+    expect(onSent.mock.calls[1]![1]).toEqual({ cause: 'serverFold' });
+  });
+
+  it('D-02 후반 가드 ② — 기다리는 사이 그룹이 다시 켜진 에코가 오면 전송 0', () => {
+    const { rerender } = render(<LimitChaserForm {...props({ server: A() })} />);
+    editInline('lc-buy-watch-price', '129000');
+    rerender(<LimitChaserForm {...props({ server: B() })} />);
+    tick();
+    rerender(<LimitChaserForm {...props({ server: A() })} />);
+    rerender(<LimitChaserForm {...props({ server: echo({ preBuyEnabled: true, sellEnabled: true, buyWatchPrice: 129_000 }), serverAnswerSeq: 1 })} />);
+    tick();
+    rerender(<LimitChaserForm {...props({ server: echo({ preBuyEnabled: true, sellEnabled: true, buyWatchPrice: 129_000 }), serverAnswerSeq: 2 })} />);
+    tick();
+    expect(sentConfigs()).toHaveLength(1);
+  });
+
+  it('D-02 후반 — 자동 끔 제출이 거부되면 마스터가 ON 으로 되돌아오고 재시도 0', () => {
+    const { rerender } = render(<LimitChaserForm {...props({ server: A() })} />);
+    const b = B();
+    rerender(<LimitChaserForm {...props({ server: b })} />);
+    tick();
+    expect(sentConfigs()).toHaveLength(1);
+    rerender(<LimitChaserForm {...props({ server: b, serverAnswerSeq: 1 })} />);
+    tick();
+    expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'true');
+    rerender(<LimitChaserForm {...props({ server: B(), serverAnswerSeq: 2 })} />);
+    tick();
+    tick();
+    expect(sentConfigs()).toHaveLength(1);
+  });
+
+  it('D-02 후반 — 사람이 마지막 그룹을 꺼 마스터가 함께 꺼진 에코(D-02 전반 결과)는 트리거가 아니다', () => {
+    const { rerender } = render(<LimitChaserForm {...props({ server: A() })} />);
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ preBuyEnabled: false, buyEnabled: false });
+    rerender(<LimitChaserForm {...props({ server: B({ buyEnabled: false }) })} />);
+    tick();
+    rerender(<LimitChaserForm {...props({ server: B({ buyEnabled: false }), serverAnswerSeq: 1 })} />);
+    tick();
+    expect(sentConfigs()).toHaveLength(1);
   });
 });

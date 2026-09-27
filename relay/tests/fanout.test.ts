@@ -1508,7 +1508,8 @@ describe("WsFanout", () => {
     // 잡는다. 두 케이스의 실패 원인이 갈려야 두 가드가 각각 살아 있음이 증명된다.
     a.ws.sendRaw({
       t: "lc.set",
-      cfg: lcInput({ isin: SAMPLE_ISIN, crud: "D", buyEnabled: true, buyOrderQty: 0 }),
+      // Phase 24 — 마스터 갈래는 주문가격 · 비교가격 0 이다(선매수 수량 0 은 선매수 갈래 — Pitfall 5).
+      cfg: lcInput({ isin: SAMPLE_ISIN, crud: "D", buyEnabled: true, buyOrderPrice: 0 }),
     });
     await waitFor(() => framesOf(a.inbox, "msg").length === 1, "거부 통지");
     await flushIo(30);
@@ -1609,13 +1610,13 @@ describe("WsFanout", () => {
     expect(JSON.stringify(logged?.[0] ?? {})).not.toContain(SAMPLE_ACCOUNT_NO);
   });
 
-  it("⑰-h sweepEnabled + sweepWatchPrice 0 은 거부된다 — UI canArmSweep 과 동형 (GC-WR-05)", async () => {
+  it("⑰-h 선매수 ON + 한방 ON + 한방가격 0 은 거부된다 — UI armBlockOf 「선매수 한방」과 동형 (GC-WR-05 · Phase 24)", async () => {
     const errSpy = vi.spyOn(logger, "error");
     const a = await authed("token-a");
 
     a.ws.sendRaw({
       t: "lc.set",
-      cfg: lcInput({ sweepEnabled: true, sweepWatchPrice: 0 }),
+      cfg: lcInput({ preBuyEnabled: true, sweepEnabled: true, sweepWatchPrice: 0 }),
     });
     await waitFor(() => framesOf(a.inbox, "msg").length === 1, "거부 통지");
     await flushIo(30);
@@ -1629,27 +1630,96 @@ describe("WsFanout", () => {
     expect(logged?.[0]).toMatchObject({ gate: "sweep" });
   });
 
-  it("⑰-h2 한방은 **매수 무장 조건**을 함께 요구한다 — buyEnabled 가 꺼져 있어도 마찬가지다", async () => {
+  it("⑰-h2 선매수 OFF 면 한방 ON + 한방가격 0 이어도 통과한다 — 한방은 선매수 안 체크라 판정되지 않는 값이다 (Phase 24)", async () => {
     const a = await authed("token-a");
 
-    // 매도만 켜 둬 「전 게이트 OFF = 삭제」로 새지 않게 한다. 한방 감시가는 정상이고
-    // 막히는 이유는 **매수 발주수량 0** 이다 — `canArmSweep = sweepWatchPrice > 0 && canArmBuy`.
     a.ws.sendRaw({
       t: "lc.set",
-      cfg: lcInput({
-        buyEnabled: false,
-        buyOrderQty: 0,
-        sellEnabled: true,
-        sweepEnabled: true,
-        sweepWatchPrice: 71_400,
-      }),
+      cfg: lcInput({ preBuyEnabled: false, sweepEnabled: true, sweepWatchPrice: 0 }),
     });
+    await waitFor(
+      () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+      "10 수신",
+    );
+    await flushIo(20);
+    expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+  });
+
+  /*
+    Phase 24 Pitfall 5 — 무장 가드는 **그룹별**이다(서버 §9-2 ③~⑤ · 웹 `canArmOf` 와 같은 커밋).
+    옛 식은 마스터 ON ∧ `buyOrderQty === 0` 을 전 프레임 거부로 읽어, 선매수 금액이 비어 있는(레거시 · 사용자가
+    비움) 정상 후매수 전략까지 게이트웨이에 닿지 못했다. 갈래 = buy(가격) · preBuy · extraBuy · postBuy(각 그룹 수량)
+    · sweep(선매수 하위) · sell.
+  */
+  async function expectArmReject(cfg: RelayLimitChaserInput, gate: string): Promise<void> {
+    const errSpy = vi.spyOn(logger, "error");
+    const a = await authed("token-a");
+    a.ws.sendRaw({ t: "lc.set", cfg });
     await waitFor(() => framesOf(a.inbox, "msg").length === 1, "거부 통지");
     await flushIo(30);
-
     expect(gateway.strategyRequests().map((r) => r.msgType)).not.toContain(
       STRATEGY_MSG.SetLimitChaserReq,
     );
+    expect(framesOf(a.inbox, "msg")[0]?.m).toContain("전략을 켤 수 없습니다");
+    const logged = errSpy.mock.calls.find((call) =>
+      String(call[1] ?? "").includes("발주가·수량 0 인 게이트 무장"),
+    );
+    expect(logged?.[0]).toMatchObject({ gate });
+    expect(JSON.stringify(logged?.[0] ?? {})).not.toContain(SAMPLE_ACCOUNT_NO);
+  }
+
+  async function expectArmPass(cfg: RelayLimitChaserInput): Promise<void> {
+    const a = await authed("token-a");
+    a.ws.sendRaw({ t: "lc.set", cfg });
+    await waitFor(
+      () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+      "10 수신",
+    );
+    await flushIo(20);
+    expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+  }
+
+  it("⑰-i1 Pitfall 5 — 마스터 ON + 후매수만 ON(수량 3) + 선매수 금액 0(buyOrderQty 0) 은 게이트웨이에 도달한다", async () => {
+    await expectArmPass(
+      lcInput({
+        buyEnabled: true,
+        buyOrderAmount: 0,
+        buyOrderQty: 0,
+        postBuyEnabled: true,
+        postBuyOrderAmount: 30,
+        postBuyOrderQty: 3,
+        postBuyReboundPct: 10,
+      }),
+    );
+  });
+
+  it("⑰-i2 마스터 ON + 추가매수 ON + extraBuyOrderQty 0 → 거부 · gate extraBuy", async () => {
+    await expectArmReject(lcInput({ extraBuyEnabled: true, extraBuyOrderQty: 0 }), "extraBuy");
+  });
+
+  it("⑰-i3 마스터 ON + 비교가격 0 → 거부 · gate buy (서버가 마스터를 눕히는 값)", async () => {
+    await expectArmReject(lcInput({ buyWatchPrice: 0 }), "buy");
+  });
+
+  it("⑰-i4 마스터 ON + 선매수 ON + buyOrderQty 0 → 거부 · gate preBuy", async () => {
+    await expectArmReject(lcInput({ preBuyEnabled: true, buyOrderQty: 0 }), "preBuy");
+  });
+
+  it("⑰-i5 마스터 ON + 후매수 ON + postBuyOrderQty 0 → 거부 · gate postBuy", async () => {
+    await expectArmReject(
+      lcInput({ postBuyEnabled: true, postBuyOrderQty: 0, postBuyReboundPct: 10 }),
+      "postBuy",
+    );
+  });
+
+  it("⑰-i6 마스터 OFF + 추가매수 ON + 수량 0 → 통과 (서버가 D-32 로 그룹을 접는다 · 매도 ON 이라 철거 아님)", async () => {
+    await expectArmPass(
+      lcInput({ buyEnabled: false, sellEnabled: true, extraBuyEnabled: true, extraBuyOrderQty: 0 }),
+    );
+  });
+
+  it("⑰-i7 마스터 ON + 선매수 금액 0 이어도 선매수가 꺼져 있으면 통과한다(마스터만으로는 수량을 보지 않는다)", async () => {
+    await expectArmPass(lcInput({ buyEnabled: true, buyOrderQty: 0 }));
   });
 
   it("⑱ vi.confirm 은 계좌 대조를 건너뛰고 msg_type 33 으로 나간다", async () => {
