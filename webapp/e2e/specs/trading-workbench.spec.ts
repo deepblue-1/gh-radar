@@ -1087,7 +1087,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(
       card.locator('[data-slot="card-header"] [data-slot="latch-led"][data-kind="buy"]'),
     ).toHaveAttribute('data-tone', 'armed', { timeout: 15_000 });
-    await expect((await logRows(page)).first()).toContainText('매수 무장');
+    await expect((await logRows(page)).first()).toContainText('매수주문 무장');
     // 사이드바 3단에 항목이 서고 LED 3점 중 매수가 켜진다.
     await expect(strategyItems(page)).toHaveCount(1);
     await expect(strategyItems(page).first().locator('[data-led="buy"]')).toHaveAttribute(

@@ -90,7 +90,7 @@ export interface CardHeaderProps {
   price: number | null;
   /** 등락률(%). 시세 미수신이면 `null` → 「—」. */
   changeRate: number | null;
-  /** LED 3칩의 **유일한** 판정 입력 — 마지막 서버 에코(+`hadOrder`). `null` = 전략 없음. */
+  /** LED 3칩의 **유일한** 판정 입력 — 마지막 서버 에코. `null` = 전략 없음. */
   ledServer: LatchLedServer;
   onArm: (kind: ArmableLatchKind) => void;
   open: boolean;

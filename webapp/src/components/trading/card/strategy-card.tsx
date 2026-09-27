@@ -88,6 +88,7 @@ import {
   strategiesDisabledLogLine,
   strategyLogLine,
   type StrategyLogEntry,
+  type StrategySubmitCause,
 } from "@/components/trading/strategy-log";
 import {
   isLimitChaserArmRejection,
@@ -213,15 +214,17 @@ export interface StrategyCardState {
   resetSeq: number;
   /** 시딩에 쓴 실시간 상한가(0 = 아직). 폼 remount 키에 넣는다. */
   liveSeed: number;
-  /** 「직전에 매수 발주가 나갔는가」 — 와이어 필드가 아니라 이 카드가 아는 사실. */
-  fired: boolean;
   badges: StrategyStatus;
-  /** LED 3칩의 유일한 판정 입력 — 서버 에코 + `hadOrder`. */
+  /** LED 3칩의 유일한 판정 입력 — 서버 에코 하나(발주 이력은 받지 않는다). */
   ledServer: LatchLedServer;
   dirtyCount: number;
   setDirtyCount: (n: number) => void;
   handleArm: (kind: ArmableLatchKind) => void;
-  handleSent: (cfg: RelayLimitChaserInput) => void;
+  /**
+   * 보낸 직후 통지 — `cfg` 는 그 에코의 로그 귀속(D-01/D-02 동반)에, `meta.cause` 는 사람 손이 아닌
+   * 제출의 사유(D-02 후반 `'serverFold'` — 24-06 폼이 넘긴다)에 쓴다. 둘은 같은 수명이다.
+   */
+  handleSent: (cfg: RelayLimitChaserInput, meta?: { cause?: StrategySubmitCause }) => void;
   handleServerEcho: (info: { overwrittenDirty: number }) => void;
 }
 
@@ -284,6 +287,12 @@ export function useStrategyCardState({
 
   /** 마지막으로 보낸 요청. 에코가 오면 비운다. **재전송에 쓰지 않는다.** */
   const pendingRef = useRef<RelayLimitChaserInput | null>(null);
+  /**
+   * 마지막으로 보낸 요청의 **사유**(D-02 후반 `'serverFold'` · 없으면 `null` = 사람 손).
+   * ★ `pendingRef` 와 **같은 수명**이다 — 보낼 때 함께 세우고, 에코 소비 · 삭제 · 키 변경 때 함께 비우며,
+   *   런타임 에코는 둘 다 소비하지 않는다. 따로 살면 앞 제출의 사유가 뒤 에코에 붙는다.
+   */
+  const pendingCauseRef = useRef<StrategySubmitCause | null>(null);
   const [unacked, setUnacked] = useState(false);
   const ackTimer = useRef<number | null>(null);
   /**
@@ -304,12 +313,11 @@ export function useStrategyCardState({
   const [dirtyCount, setDirtyCount] = useState(0);
   /** 삭제 에코를 받으면 올린다 — 폼을 remount 해 빈 상태로 되돌리는 유일한 장치(⑤). */
   const [resetSeq, setResetSeq] = useState(0);
-  /**
-   * 「직전에 매수 발주가 나갔는가」 — 와이어 필드가 아니라 **이 카드가 아는 사실**이다.
-   * 무장이 풀렸는데 우리가 끈 게 아니면 게이트가 발주로 소진된 것이다(Pitfall 10).
-   * 이 값이 없으면 `strategyBadgesOf` 가 「발주됨」을 만들지 않는다 — 그게 맞다.
-   */
-  const [fired, setFired] = useState(false);
+  /*
+    ★ 옛 `fired`(「직전에 매수 발주가 나갔는가」) 상태는 걷었다 — Phase 24 마스터는 발주로 접히지 않는다.
+      발주 사실은 서버 사유 줄(`[상따] … 매수 N주 @…`)이 말한다(Pitfall 11 · 플래너 결정). 마스터 OFF 에코의
+      원인은 사람(다른 단말 · WinForms 자동 끔) · 15:40 · 전부 정지뿐이라 「발주」 추론이 늘 틀렸다.
+  */
   /**
    * 시딩에 쓴 **실시간** 상한가. 0 이면 아직 실시간 값으로 시딩한 적이 없다.
    *
@@ -326,8 +334,8 @@ export function useStrategyCardState({
   /**
    * `lc.arm` 이 소켓에 실렸고 아직 답(그 키의 60 에코 또는 인식된 거부 통지)이 없다
    * (quick-260926-nr2). 게이트웨이가 arm 거부에 전략 키를 싣지 않으므로 거부 통지와의 상관은 이
-   * in-flight 창으로 한다. **`pendingRef` 와 따로 둔다** — arm 은 lc.set 이 아니고, hadOrder 가 그것을
-   * 매수 끄기로 읽으면 안 된다.
+   * in-flight 창으로 한다. **`pendingRef` 와 따로 둔다** — arm 은 lc.set 이 아니고, 로그 귀속(`sent`)이
+   * 그것을 내 제출로 읽으면 안 된다.
    */
   const armInFlightRef = useRef(false);
 
@@ -343,8 +351,9 @@ export function useStrategyCardState({
   }, []);
 
   const handleSent = useCallback(
-    (cfg: RelayLimitChaserInput) => {
+    (cfg: RelayLimitChaserInput, meta?: { cause?: StrategySubmitCause }) => {
       pendingRef.current = cfg;
+      pendingCauseRef.current = meta?.cause ?? null;
       startAckWait();
     },
     [startAckWait],
@@ -374,11 +383,11 @@ export function useStrategyCardState({
   useEffect(() => {
     prevServerRef.current = null;
     pendingRef.current = null;
+    pendingCauseRef.current = null;
     armInFlightRef.current = false;
     setUnacked(false);
     setBanner(null);
     setAppliedAt(null);
-    setFired(false);
     setLiveSeed(0);
   }, [key]);
 
@@ -420,6 +429,7 @@ export function useStrategyCardState({
       if (prev !== null) {
         prevServerRef.current = null;
         pendingRef.current = null;
+        pendingCauseRef.current = null;
         acceptAnswer();
         setResetSeq((n) => n + 1);
         pushLog(
@@ -434,13 +444,14 @@ export function useStrategyCardState({
     /*
       ★ 내용상 새로 말할 것이 없는 에코 — 무동작 (quick-260926-nr2). 판정은 `isRuntimeOnlyEcho`
         한 곳이다(같은 내용의 새 객체 · 체결/래칫 카운터만 · relay 파생 name/code 만 다름).
-        (i) 내용이 같으면 누구에게 귀속할 전이가 없다 — 로그·배너·fired·appliedAt 을 건드리지 않는다.
-        (ii) **`pendingRef` 를 소비하지 않는다.** gh-trade 는 lc.set/lc.arm 에 즉답 에코를 주고
-             `MarkEchoDirty` 가 300ms 플러시 동일 사본을 또 민다 — 여기서 소비하면 사본이 내 진짜
-             에코보다 먼저 온 순간 내 변경이 「다른 단말」로, 내 매수 끄기가 「발주」로 읽힌다.
+        (i) 내용이 같으면 누구에게 귀속할 전이가 없다 — 로그·배너·appliedAt 을 건드리지 않는다.
+        (ii) **`pendingRef`(와 `pendingCauseRef`)를 소비하지 않는다.** gh-trade 는 lc.set/lc.arm 에 즉답
+             에코를 주고 `MarkEchoDirty` 가 300ms 플러시 동일 사본을 또 민다 — 여기서 소비하면 사본이 내
+             진짜 에코보다 먼저 온 순간 내 변경이 「다른 단말」로 읽히고 동반 · 서버 접힘 문장이 사라진다.
+             Phase 24 런타임 에코(후매수 단계 · 잔여 · 발동잔량 · 추가매수 포기)도 같다(D-13).
         (iii) 남는 비용: 서버가 내 lc.set 을 prev 와 같은 값으로 정규화해 답하면 pendingRef 가 다음
-             비런타임 에코까지 남아 그 한 번의 다른 단말 배너를 삼키고 hadOrder 를 내 마지막 요청에서
-             읽는다 — (ii) 의 오귀속보다 싸다.
+             비런타임 에코까지 남아 그 한 번의 다른 단말 배너를 삼키고 로그 귀속(`sent`)을 내 마지막
+             요청에서 읽는다 — (ii) 의 오귀속보다 싸다.
         (iv) 게이트/래치 런타임 푸시가 내 에코보다 먼저 오면 여전히 pendingRef 를 소비한다
              (기존 경합 — 이제 더 좁다).
         `acceptAnswer` 도 부르지 않는다 — 응답 채널은 위 키 일치 `lastLimitChaserEcho` 이펙트다
@@ -455,34 +466,29 @@ export function useStrategyCardState({
     prevServerRef.current = server;
 
     const sent = pendingRef.current;
+    const sentCause = pendingCauseRef.current;
     pendingRef.current = null;
+    pendingCauseRef.current = null;
     acceptAnswer();
     setAppliedAt(clockNow());
 
     /*
-      무장 해제의 **이유**는 에코만으로 알 수 없다(Pitfall 10). 발주가 아닌 해제로 **알 수 있는**
-      것은 셋뿐이다 (quick-260926-nr2):
-        · 내 lc.set — 그 요청에 `buyEnabled:false` 가 실려 있다 → 「사용자가 껐다」
-        · 이 브라우저의 전부 정지 — relay 귀속 맵(65 경계 창) `cause "killSwitch"`
-        · 서버 15:40 KRX 해제 — relay 귀속 맵(통지 경계) `cause "marketClose"`
-      귀속은 **에코 객체 동일성**으로만 받는다 — 맵 항목이 지금 이 에코가 아니면(나중 lc.snap ·
-      다음 에코) 원인이 아니다. 나머지(내가 켰는데 꺼져서 왔다 / 아예 안 보냈다)는 **발주로 게이트가
-      소진된 것**이다.
-      ⚠️ 알려진 한계: **다른 단말의 전부 정지**는 에코만으로 발주와 구별되지 않는다 — 65 가 에코
-         뒤에 오므로 그 탭은 원인을 늦게 안다. 그 에코는 여전히 「발주」로 읽힌다.
+      로그 귀속 — 이 에코가 답한 **내 제출(`sent`)과 그 사유(`sentCause`)**를 넘긴다(Phase 24 ⑨).
+        · D-01 / D-02 전반: 마스터와 그룹을 함께 실어 보낸 제출의 에코 → 동반 문장 한 줄
+        · D-02 후반: 폼이 서버 접힘 뒤 스스로 보낸 마스터 OFF(`cause 'serverFold'`) → 서버 접힘 문장 한 줄
+        · 보내지 않은 에코(`sent === null` — 다른 단말 · WinForms 가 먼저 보낸 자동 끔) → 종전 전이 문장
+      ★ Phase 24 — 마스터는 발주로 접히지 않는다. 마스터 OFF 에코를 「발주」로 읽지 않고 헤더 「발주 완료」도
+        세우지 않는다 — 발주 사실은 서버 사유 줄이 말한다(Pitfall 11 · 플래너 결정).
+      15:40 · 전부 정지 원인은 relay 귀속 맵(`limitChaserDisableEchoes`)을 **에코 객체 동일성**으로만
+      받는다 — 맵 항목이 지금 이 에코가 아니면(나중 lc.snap · 다음 에코) 원인이 아니다.
+      ★ 이 경로는 아무것도 보내지 않는다(T-24-23) — 에코 경로의 유일한 제출(D-02 후반)은 24-06 폼 몫이다.
     */
     const disable = key === "" ? undefined : limitChaserDisableEchoes.get(key);
     const cause = disable !== undefined && disable.echo === server ? disable.cause : null;
-    const hadOrder =
-      cause !== null ? false : sent === null ? true : sent.buyEnabled === true;
-    const line = strategyLogLine(prev, server, { hadOrder });
+    const line = strategyLogLine(prev, server, { sent, sentCause });
     if (line !== null) pushLog(line);
     // 15:40 해제는 원인 1줄을 더 남긴다 — 사용자가 끄지 않은 해제의 이유를 로그가 말한다.
     if (cause === "marketClose") pushLog(marketCloseDisabledLogLine());
-
-    // 발주 래치 — 무장이 서면 되돌리고, 우리가 끈 게 아닌 해제만 「발주됨」으로 남긴다.
-    if (server.buyEnabled) setFired(false);
-    else if (prev?.buyEnabled === true && hadOrder) setFired(true);
 
     /*
       다른 단말 변경 — **누가 보냈나가 아니라 무엇이 바뀌었나**로 판정한다 (quick-260926-nr2).
@@ -490,7 +496,8 @@ export function useStrategyCardState({
       OnQuote 자동 래치, SubmitBuy/Sell/Cancel 게이트 소진, Restore*Gate 복원, OnExecution 체결,
       lc.arm 답, 전부 정지). 그래서 「내가 보낸 적 없음」만으로는 다른 단말의 증거가 아니다 —
       **사용자 설정 값**(`limitChaserValuesChanged`)이 내 요청 없이 바뀐 경우만 다른 단말이다.
-      전이 로그 줄(매수 무장·래치 ON 등)은 위에서 종전대로 남는다.
+      후매수 발동 · 재진입 에코의 override 값(Pitfall 8)은 그 함수가 빼므로 여기 별도 조건이 없다(판정 한 곳).
+      전이 로그 줄(매수주문 무장·래치 ON 등)은 위에서 종전대로 남는다.
       첫 스냅샷(prev === null)을 「다른 단말」이라고 하면 페이지를 열 때마다 배너가 뜬다.
     */
     const overwritten = overwrittenRef.current;
@@ -599,7 +606,8 @@ export function useStrategyCardState({
     const live = quote?.ul ?? 0;
     if (live > 0) setLiveSeed(live);
   }, [server, quote, liveSeed]);
-  const badges = strategyStatusOf(server, fired);
+  // 발주 이력 입력은 늘 false — 마스터 전이로 「발주 완료」를 세우지 않는다(Pitfall 11). 함수 모양은 My page 와 공유.
+  const badges = strategyStatusOf(server, false);
 
   /*
     ── 래치 LED 3종 (17-11 / D-19~D-22) ──────────────────────────────────────
@@ -656,7 +664,6 @@ export function useStrategyCardState({
     lastError,
     resetSeq,
     liveSeed,
-    fired,
     badges,
     ledServer,
     dirtyCount,
