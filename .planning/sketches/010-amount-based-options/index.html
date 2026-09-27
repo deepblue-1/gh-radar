@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sketch 010 — 상따 옵션·호가 잔량 금액 환산</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#nav button.warn.on { background: #ffb13d; border-color: #ffb13d; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+#toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(20px); background: #2c2c35; color: #fff; font-size: 13px; padding: 10px 16px; border-radius: 12px; opacity: 0; transition: all .2s; z-index: 99; max-width: 560px; line-height: 1.5; pointer-events: none; }
+#toast.show { opacity: 1; transform: translateX(-50%); }
+
+/* ── TDS 토큰 (002·009 와 동일) ── */
+.f {
+  --bg: #17171c; --band: #101013; --layer: #202027; --float: #2c2c35; --g200: #3c3c47; --g300: #4d4d59;
+  --t900: #ffffff; --t800: #e4e4e5; --t600: #9e9ea4; --t500: #7e7e87; --t400: #62626d;
+  --hair: #3c3c47; --red: #f04251; --blue: #3485fa; --green: #2fca73; --amber: #ffb13d;
+  --red-box: rgba(240,66,81,.22); --blue-box: rgba(52,133,250,.22); --dim: rgba(0,0,0,.56);
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+}
+.f.light {
+  --bg: #ffffff; --band: #f2f4f6; --layer: #ffffff; --float: #f2f4f6; --g200: #e5e8eb; --g300: #d1d6db;
+  --t900: #191f28; --t800: #333d4b; --t600: #6b7684; --t500: #8b95a1; --t400: #b0b8c1;
+  --hair: #e5e8eb; --red: #f04452; --blue: #3182f6; --green: #03b26c; --amber: #ff9f1a;
+  --red-box: #ffeeee; --blue-box: #e8f3ff; --dim: rgba(0,0,0,.2);
+}
+.f { position: relative; flex: none; overflow: hidden; background: var(--bg); color: var(--t800); font-family: var(--font); -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); display: flex; }
+.f.phone { width: 390px; height: 844px; border-radius: 30px; }
+.f.tablet { width: 768px; height: 1000px; border-radius: 24px; }
+.f.desktop { width: 1280px; height: 860px; border-radius: 12px; }
+.side { display: none; }
+.f.desktop .side { display: flex; flex-direction: column; gap: 2px; width: 240px; flex: none; padding: 18px 12px; background: var(--band); }
+.side .brand { font-weight: 700; font-size: 17px; padding: 4px 10px 16px; color: var(--t900); }
+.side a { padding: 9px 10px; border-radius: 10px; color: var(--t600); font-size: 15px; font-weight: 500; }
+.side a.on { background: var(--float); color: var(--t900); font-weight: 600; }
+.col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.hdr { display: flex; align-items: center; gap: 10px; padding: 12px 16px 0; }
+.f.desktop .hdr { padding: 20px 24px 0; }
+.hdr .back { font-size: 24px; color: var(--t800); }
+.hdr .nm { font-size: 17px; font-weight: 600; color: var(--t900); }
+.hdr .cd { font-size: 12px; color: var(--t600); background: var(--float); padding: 2px 7px; border-radius: 6px; }
+.hdr .px { font-size: 17px; font-weight: 600; margin-left: 4px; }
+.hdr .sp { flex: 1; }
+.tabs { display: flex; gap: 18px; padding: 8px 16px 0; border-bottom: 1px solid var(--hair); }
+.f.desktop .tabs { padding: 8px 24px 0; }
+.tabs span { font-size: 17px; font-weight: 600; color: var(--t500); padding: 8px 0 10px; border-bottom: 2px solid transparent; }
+.tabs span.on { color: var(--t900); border-bottom-color: var(--t900); }
+.strip { display: flex; align-items: center; gap: 6px; padding: 8px 16px; font-size: 12px; color: var(--t600); white-space: nowrap; overflow: hidden; }
+.strip .led, .strip .x { flex: none; }
+.f.desktop .strip { padding: 10px 24px; }
+.strip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex: none; }
+.strip .dma { flex: none; }
+.f.phone .strip .dma { display: none; }
+.strip .led { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 999px; background: var(--float); font-size: 11.5px; }
+.strip .led i { width: 7px; height: 7px; border-radius: 50%; }
+.strip .led b { color: var(--t800); font-weight: 600; }
+.strip .sp { flex: 1; }
+.strip .x { font-size: 11px; font-weight: 600; background: var(--float); border-radius: 999px; padding: 2px 8px; color: var(--t800); }
+.wrap { flex: 1; min-height: 0; container: ob / inline-size; }
+.f.desktop .wrap { padding: 0 24px; }
+.body { height: 100%; display: grid; grid-template-columns: 42% 1fr; }
+@container ob (min-width: 700px) { .body { grid-template-columns: 260px 1fr; } }
+@container ob (min-width: 992px) { .body { grid-template-columns: 440px 1fr; } }
+
+/* ── 호가 — 2단(폰·태블릿) ── */
+.lad { overflow-y: auto; border-right: 1px solid var(--hair); scrollbar-width: none; display: flex; flex-direction: column; }
+.lad2 { display: block; }
+.lad3 { display: none; }
+@container ob (min-width: 992px) { .lad2 { display: none; } .lad3 { display: block; } }
+.lh { display: flex; justify-content: space-between; padding: 6px 8px 4px 14px; font-size: 11px; color: var(--t500); border-bottom: 1px solid var(--hair); }
+.lh b { color: var(--t600); font-weight: 600; }
+.lr { display: grid; grid-template-columns: 1fr auto; align-items: center; min-height: 48px; padding: 3px 8px 3px 14px; gap: 6px; }
+.lr .p b { display: block; font-size: 15px; font-weight: 500; line-height: 1.2; white-space: nowrap; }
+.lr .p small { font-size: 11.5px; }
+.q { min-width: 44px; max-width: 118px; text-align: right; font-size: 13px; font-weight: 500; padding: 5px 8px; border-radius: 8px; line-height: 1.25; }
+.q small { display: block; font-size: 10.5px; font-weight: 400; opacity: .75; }
+.ask .q { background: var(--blue-box); color: var(--blue); }
+.bid .q { background: var(--red-box); color: var(--red); }
+.lr.cur { background: var(--float); }
+.lr.cur .p b { font-weight: 700; }
+.midline { height: 1px; background: var(--hair); margin: 2px 0; }
+.lsum { display: flex; justify-content: space-between; gap: 6px; padding: 8px 8px 8px 14px; font-size: 12px; color: var(--t600); border-top: 1px solid var(--hair); margin-top: auto; }
+.lsum b { font-weight: 600; }
+.lsum .ta { color: var(--blue); } .lsum .tb { color: var(--red); }
+.up { color: var(--red); } .dn { color: var(--blue); }
+
+/* ── 호가 — 3단(데스크톱 440) ── */
+.l3h { display: grid; grid-template-columns: 1fr 104px 1fr; padding: 6px 10px 5px; font-size: 11px; color: var(--t500); border-bottom: 1px solid var(--hair); text-align: center; }
+.l3h span:first-child { text-align: left; } .l3h span:last-child { text-align: right; }
+.l3h b { color: var(--t600); font-weight: 600; }
+.l3r { display: grid; grid-template-columns: 1fr 104px 1fr; align-items: stretch; min-height: 40px; }
+.l3r .a, .l3r .b { position: relative; display: flex; flex-direction: column; justify-content: center; padding: 0 10px; font-size: 13.5px; font-weight: 500; line-height: 1.2; min-width: 0; }
+.l3r .a { align-items: flex-start; color: var(--blue); }
+.l3r .b { align-items: flex-end; text-align: right; color: var(--red); }
+.l3r .a i, .l3r .b i { position: absolute; top: 4px; bottom: 4px; border-radius: 6px; }
+.l3r .a i { right: 0; background: var(--blue-box); }
+.l3r .b i { left: 0; background: var(--red-box); }
+.l3r .a span, .l3r .b span { position: relative; white-space: nowrap; }
+.l3r .a small, .l3r .b small { position: relative; font-size: 10.5px; font-weight: 400; color: var(--t500); white-space: nowrap; }
+.l3r .p { text-align: center; padding: 4px 4px; border-radius: 8px; align-self: center; }
+.l3r .p b { display: block; font-size: 14px; font-weight: 600; line-height: 1.2; }
+.l3r .p small { font-size: 11px; }
+.l3r.cur .p { background: var(--float); }
+.l3r.cur .p b { font-weight: 700; }
+.l3r.upper .p b::after { content: ' 上'; font-size: 10px; color: var(--t500); font-weight: 500; }
+.l3f { display: grid; grid-template-columns: 1fr 104px 1fr; padding: 8px 10px; font-size: 12.5px; color: var(--t600); border-top: 1px solid var(--hair); margin-top: auto; align-items: center; }
+.l3f .a { color: var(--blue); font-weight: 600; } .l3f .b { color: var(--red); font-weight: 600; text-align: right; }
+.l3f .m { text-align: center; font-size: 11px; }
+.l3f small { display: block; font-size: 10.5px; font-weight: 400; color: var(--t500); }
+
+/* ── 패널 ── */
+.pan { padding: 10px 12px 0 10px; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+@container ob (min-width: 700px) { .pan { padding: 12px 0 0 16px; } }
+.pan-scroll { flex: 1; overflow-y: auto; scrollbar-width: none; padding-bottom: 14px; }
+.seg { display: flex; background: var(--float); border-radius: 12px; padding: 3px; gap: 2px; }
+.seg button { flex: 1; font: inherit; border: 0; background: transparent; color: var(--t600); font-size: 15px; font-weight: 600; height: 34px; border-radius: 10px; cursor: pointer; white-space: nowrap; }
+.seg button.on { background: var(--g300); color: var(--t900); }
+.f.light .seg button.on { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+@container ob (min-width: 700px) { .only-narrow { display: none !important; } }
+.cols { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.cols > .c { min-width: 0; }
+.cols > .c.hide-narrow { display: none; }
+.side-h { display: none; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; margin: 10px 2px 0; color: var(--t900); }
+.side-h i { width: 8px; height: 8px; border-radius: 50%; }
+@container ob (min-width: 700px) { .cols { grid-template-columns: 1fr 1fr; } .side-h { display: flex; } .cols > .c.hide-narrow { display: block; } }
+
+.grp { margin-top: 10px; border-radius: 16px; padding: 10px 10px 4px; background: var(--layer); }
+.f.light .grp { background: #f9fafb; }
+.grp-h { display: flex; align-items: center; gap: 8px; padding: 0 2px 2px; min-height: 30px; }
+.grp-h .t { font-size: 15px; font-weight: 600; color: var(--t900); }
+.grp-h .s { font-size: 12px; color: var(--t500); }
+.grp-h .s.live { color: var(--green); }
+.grp-h .s.hold { color: var(--amber); }
+.grp-h .sw { margin-left: auto; }
+.sw { width: 40px; height: 24px; border-radius: 999px; background: var(--g300); position: relative; cursor: pointer; flex: none; transition: background .15s; }
+.sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.sw.on { background: var(--blue); } .sw.on::after { transform: translateX(16px); }
+.lrow { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 4px; min-height: 44px; cursor: pointer; border-radius: 10px; min-width: 0; }
+.lrow:hover { background: color-mix(in srgb, var(--t900) 5%, transparent); }
+.lrow .k { font-size: 14px; color: var(--t600); white-space: nowrap; }
+.lrow .v { font-size: 15px; font-weight: 500; color: var(--t800); white-space: nowrap; margin-left: auto; text-align: right; }
+.lrow .v::after { content: ' ›'; color: var(--t400); }
+.lrow .v small { font-size: 12px; color: var(--t500); font-weight: 500; margin-right: 3px; }
+.lrow .v small.sh { margin: 0 0 0 5px; font-weight: 400; }
+.lrow.ro { cursor: default; }
+.lrow.ro:hover { background: transparent; }
+.lrow.ro .v::after { content: none; }
+.lrow.ro .v { color: var(--t600); }
+.lrow.ro .v.hot { color: var(--red); font-weight: 600; }
+.lrow.flash .v { color: var(--blue); }
+.dimmed { opacity: .45; }
+.ck { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--g300); flex: none; display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 700; margin-right: 4px; }
+.ck.on { background: var(--blue); border-color: var(--blue); }
+.ck.on::after { content: '✓'; }
+.lrow.ckrow .k { color: var(--t800); font-weight: 500; }
+/* D: 접기 · 요약 줄 */
+.grp-h.fold { cursor: pointer; border-radius: 10px; margin: 0 -2px; padding: 0 4px 2px; }
+.grp-h.fold:hover { background: color-mix(in srgb, var(--t900) 5%, transparent); }
+.grp-h .chev { color: var(--t400); font-size: 14px; transition: transform .15s; margin-left: -2px; }
+.grp-h.open .chev { transform: rotate(90deg); }
+.sumline { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 2px 4px 8px; font-size: 13px; color: var(--t800); line-height: 1.4; }
+.sumline .kv { white-space: nowrap; font-weight: 500; }
+.sumline .kv small { font-size: 12px; color: var(--t500); font-weight: 400; margin-right: 3px; }
+.sumline .kv.off { color: var(--t500); }
+/* 데스크톱 인라인 편집 */
+.lrow.ied { box-shadow: inset 0 0 0 1.5px var(--blue); background: var(--float); cursor: text; }
+.lrow.ied .v::after { content: none; }
+.lrow.ied input { width: 10ch; background: none; border: 0; outline: 0; color: var(--t900); font: inherit; font-size: 15px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.lrow.ied .u { font-size: 15px; font-weight: 500; color: var(--t800); margin-left: 2px; }
+.lrow.ied .cv { font-size: 12px; color: var(--t500); margin-left: 6px; }
+/* 전략 로그 */
+.log { margin-top: 12px; padding: 8px 10px; border-radius: 12px; background: var(--band); font-size: 12px; line-height: 1.6; color: var(--t600); }
+.f.light .log { background: #f2f4f6; }
+.log .h { font-weight: 600; color: var(--t500); font-size: 11px; margin-bottom: 2px; }
+.log .e { color: var(--red); }
+.log .i b { color: var(--t800); font-weight: 500; }
+/* 시트 */
+.dim { position: absolute; inset: 0; background: var(--dim); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 20; }
+.sheet { position: absolute; left: 10px; right: 10px; bottom: 10px; background: var(--layer); border-radius: 28px; padding: 22px 20px 16px; transform: translateY(120%); transition: transform .25s ease; z-index: 21; }
+.f.light .sheet { background: #fff; }
+.f.tablet .sheet { left: 50%; right: auto; width: 440px; margin-left: -220px; }
+.f.open .dim { opacity: 1; pointer-events: auto; }
+.f.open .sheet { transform: none; }
+.sheet h3 { margin: 0 0 4px; font-size: 20px; font-weight: 700; color: var(--t900); }
+.sheet p { margin: 0 0 14px; font-size: 14px; color: var(--t600); }
+.sheet .disp { display: flex; align-items: baseline; gap: 4px; padding: 14px 16px; border-radius: 16px; background: var(--float); margin-bottom: 8px; flex-wrap: wrap; }
+.sheet .disp .n { font-size: 26px; font-weight: 700; color: var(--t900); min-height: 32px; }
+.sheet .disp .u { font-size: 18px; font-weight: 600; color: var(--t800); }
+.sheet .disp .was { margin-left: auto; font-size: 12.5px; color: var(--t500); }
+.sheet .conv { flex-basis: 100%; font-size: 13px; color: var(--t600); min-height: 18px; }
+.sheet .conv b { color: var(--t800); font-weight: 600; }
+.chips { display: flex; gap: 6px; margin-bottom: 8px; }
+.chips button { flex: 1; font: inherit; height: 34px; border: 0; border-radius: 10px; background: var(--float); color: var(--t800); font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.chips button:active { background: var(--g300); }
+.pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; margin-bottom: 12px; }
+.pad button { font: inherit; border: 0; background: transparent; color: var(--t900); font-size: 24px; font-weight: 500; height: 52px; border-radius: 12px; cursor: pointer; }
+.pad button:active { background: var(--float); }
+.btns { display: flex; gap: 8px; }
+.btns button { flex: 1; font: inherit; height: 52px; border: 0; border-radius: 16px; font-size: 17px; font-weight: 600; cursor: pointer; }
+.btns .b1 { background: var(--float); color: var(--t800); }
+.btns .b2 { background: var(--blue); color: #fff; }
+.sheet .note { font-size: 12.5px; color: var(--green); min-height: 16px; margin: -2px 0 8px 2px; }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">금액 표기</span><button data-v="c" class="on">C 축약 ★ 채택</button><button data-v="a">A 만 고정</button><button data-v="b">B 억·만 혼합</button></div>
+  <div class="g"><span class="l">보조</span><button data-shares>주수 병기</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390</button><button data-w="tablet">태블릿 768</button><button data-w="desktop">데스크톱 1280</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
+    <div class="g"><span class="l">종목</span><span style="color:#bbb">가온테크(가상 · 시총 약 1,000억) · 상한가 9,360 근접</span></div>
+  <div class="g"><span class="l">서버 에코(시뮬)</span><button data-post="1" class="on">후매수 감시</button><button data-post="2">보유중(발동)</button><button data-reset>초기화</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+<div id="toast"></div>
+
+<script>
+/* ── 시세 ── */
+/* 가온테크(가상) 123450 — 시총 약 1,000억(발행 1,400만주 × 기준가 7,200원). 상한가 9,360 · 현재가 9,350(+29.86%) */
+const SC = {
+  upper: { base: 7200, upper: 9360, cur: 9350,
+    asks: [[9360, 85000], [9350, 12300]],
+    bids: [[9340, 41000], [9330, 62000], [9320, 95000], [9310, 130000], [9300, 210000], [9290, 88000], [9280, 54000], [9270, 37000]] },
+};
+const fmt = n => Number(n).toLocaleString('ko-KR');
+const pct = (p, base) => { const x = (p - base) / base * 100; return (x > 0 ? '+' : '') + x.toFixed(2) + '%'; };
+const cls = (p, base) => p > base ? 'up' : p < base ? 'dn' : '';
+const qtyToMan = (q, p) => Math.round(q * p / 1e4);
+const manToQty = (man, p) => Math.floor(man * 1e4 / p);
+const trim = s => String(s).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+/* 금액(만원 정수) → 표기. mode a/b/c */
+function manFmt(man, mode) {
+  man = Math.round(man); mode = mode || S.v;
+  if (!man) return '0';
+  if (mode === 'a') return fmt(man) + '만';
+  if (mode === 'b') {
+    const jo = Math.floor(man / 1e8), eok = Math.floor(man % 1e8 / 1e4), m = man % 1e4, parts = [];
+    if (jo) parts.push(fmt(jo) + '조'); if (eok) parts.push(fmt(eok) + '억'); if (m) parts.push(fmt(m) + '만');
+    return parts.join(' ');
+  }
+  if (man >= 1e8) { const v = man / 1e8; return trim(v < 10 ? v.toFixed(2) : v < 100 ? v.toFixed(1) : fmt(Math.round(v))) + '조'; }
+  if (man >= 1e4) { const v = man / 1e4; return trim(v < 10 ? v.toFixed(1) : fmt(Math.round(v))) + '억'; }
+  return fmt(man) + '만';
+}
+
+const DESC = {
+  a: '<b>A 만 고정</b> — 모든 금액을 <b>만원 단위 정수</b>로 쓴다(「100,000만」 = 10억). 입력 단위와 표시 단위가 같고 자릿수로 크기 비교가 빠르다. 대신 대형주(삼성전자 급)에서는 <b>조 단위가 「132,600,000만」</b>으로 길어진다 — 폰 호가 칩·데스크톱 3단 열에서 어떻게 보이는지 볼 것.',
+  b: '<b>B 억·만 혼합</b> — 한국 관례대로 「7억 9,560만」·「19억 5,300만」. 읽기는 가장 자연스럽지만 <b>글자 수가 가변</b>이라 폰 호가 칩이 두 줄이 되고 열 정렬이 흔들린다. 입력은 여전히 만원 단위(시트에서 「1,000 만원」).',
+  c: '<b>C 축약 ★ 채택(2026-09-27)</b> — 유효 3자리로 「7.96억」·「19.5억」·「3,000만」. 가장 짧아 폰 42% 열·태블릿 260 열에 맞고 3단 열도 여유. 정밀값은 시트의 「= 원 · ≈ 주」 미리보기에서. 옵션 값도 같은 규칙(「5,000만」·「1억」·「5억」). <b>주수 병기 꺼짐 · 환산 기준 안내 문구 없음</b>(사용자 결정).',
+};
+
+/* ── 필드 정의 — u: won 원 · man 만원(금액) · pct % · cnt 회/건 / px: 금액→주 환산 기준가 ── */
+const F = {
+  buyOrderPrice: { l: '주문가격', u: 'won', d: '세 매수가 같이 쓰는 매수 주문 가격이에요' },
+  buyWatchPrice: { l: '비교가격', u: 'won', d: '세 매수가 같이 지켜보는 가격(상한가)이에요. 잔량·체결 금액은 이 가격으로 주수를 세요' },
+  preAmt: { l: '선매수 금액', u: 'man', px: () => S.buyOrderPrice, d: '선매수 한 번에 넣을 금액이에요 (주문가격으로 주수 환산)' },
+  preWatchAmt: { l: '매도잔량', u: 'man', px: () => S.buyWatchPrice, d: '비교가격의 매도잔량이 이 금액 이하로 줄면 선매수를 넣어요 (0 = 전부 소진 시)' },
+  preTradeAmt: { l: '체결량', u: 'man', px: () => S.buyWatchPrice, d: '한 건 체결 금액이 이 값 이상이면 선매수를 넣어요' },
+  sweepN: { l: '한방 건수', u: 'cnt', s: '건', d: '호가가 이만큼 바뀌면 한 번에 체결해요' },
+  sweepPx: { l: '한방 가격', u: 'won', d: '한방 체결 가격이에요' },
+  extraAmt: { l: '추가매수 금액', u: 'man', px: () => S.buyOrderPrice, d: '추가매수 한 번에 넣을 금액이에요' },
+  extraMinAmt: { l: '최소 잔량', u: 'man', px: () => S.buyWatchPrice, d: '상한가 매수잔량 금액이 이 값 이상이면 (0 = 1주)' },
+  extraMaxAmt: { l: '최대 잔량', u: 'man', px: () => S.buyWatchPrice, d: '상한가 매수잔량 금액이 이 값을 넘으면 포기해요 (0 = 무제한)' },
+  postAmt: { l: '후매수 금액', u: 'man', px: () => S.buyOrderPrice, d: '후매수 한 번에 넣을 금액이에요' },
+  postMax: { l: '최대', u: 'cnt', s: '회', d: '최초 포함 총 진입 횟수예요 (0 = 사지 않아요)' },
+  postFloorAmt: { l: '최소 잔량', u: 'man', px: () => S.buyWatchPrice, d: '발동잔량의 하한(바닥) 금액이에요' },
+  postRebound: { l: '반등', u: 'pct', d: '매수잔량 최저점에서 이만큼 다시 쌓이면 사요' },
+  sellPrice: { l: '매도가격', u: 'won', d: '넣을 매도 주문 가격이에요' },
+  sellRatio: { l: '매도비율', u: 'pct', d: '보유 수량 중 매도할 비율이에요' },
+  sellWatchPrice: { l: '비교가격', u: 'won', d: '이 가격의 잔량을 지켜봐요. 호가잔량·체결·취소잔량 금액은 이 가격으로 주수를 세요' },
+  sellWatchAmt: { l: '호가잔량', u: 'man', px: () => S.sellWatchPrice, d: '매수잔량 금액이 이 값보다 줄면 매도를 넣어요' },
+  sellTrackRatio: { l: '잔량추적', u: 'pct', d: '처음 잔량 대비 비율로 추적해요' },
+  sellTradeAmt: { l: '체결', u: 'man', px: () => S.sellWatchPrice, d: '한 건 체결 금액이 이 값 이상이면 매도를 넣어요' },
+  cancelAmt: { l: '취소잔량', u: 'man', px: () => S.sellWatchPrice, d: '매수잔량 금액이 이 값보다 적으면 취소해요' },
+};
+const UNIT = { won: '원', man: '만원', pct: '%', cnt: '' };
+
+const INIT = () => ({
+  v: 'c', w: 'phone', t: 'dark', sc: 'upper', shares: false, side: 'buy', exp: { pre: false, extra: false, post: false },
+  master: true, pre: true, extra: false, post: true, preTrade: false, sweep: false,
+  buyOrderPrice: 9360, buyWatchPrice: 9360,
+  preAmt: 100, preWatchAmt: 5000, preTradeAmt: 3000, sweepN: 3, sweepPx: 9350,
+  extraAmt: 100, extraMinAmt: 10000, extraMaxAmt: 50000,
+  postAmt: 100, postMax: 3, postFloorAmt: 0, postRebound: 10, postTriggerQty: 0, postLeft: 3, postPhase: 1,
+  sellOn: true, sellPrice: 9360, sellRatio: 100, sellWatchPrice: 9360, sellWatchAmt: 10000, sellTrack: true, sellTrackRatio: 50, sellTrade: true, sellTradeAmt: 3000,
+  cancelOn: true, cancelAmt: 10000, cancelTrade: true, cancelTrack: true,
+  logs: [],
+});
+let S = INIT();
+
+function toast(msg) { const t = document.getElementById('toast'); t.innerHTML = msg; t.classList.add('show'); clearTimeout(toast._h); toast._h = setTimeout(() => t.classList.remove('show'), 2600); }
+function log(kind, text) { S.logs.unshift({ kind, text, at: new Date().toTimeString().slice(0, 8) }); S.logs = S.logs.slice(0, 4); }
+
+/* ── 상태 파생 ── */
+const groupOn = g => S.master && S[g];
+const postPhaseText = () => S.postPhase === 1 ? '감시 중' : S.postPhase === 2 ? '보유중' : '꺼짐';
+const postPhaseCls = () => S.postPhase === 1 ? 'live' : S.postPhase === 2 ? 'hold' : '';
+const statusOf = g => g === 'pre' ? (groupOn('pre') ? ['감시 중', 'live'] : ['꺼짐', ''])
+  : g === 'extra' ? (groupOn('extra') ? ['감시 중', 'live'] : ['꺼짐', ''])
+  : [postPhaseText(), postPhaseCls()];
+const buyLed = () => !S.master ? ['OFF', 'var(--g300)'] : S.postPhase === 2 ? ['보유중', 'var(--amber)'] : ['감시', 'var(--green)'];
+
+/* ── 값 표기 ── */
+const shares = (man, px) => S.shares && man ? `<small class="sh">≈${fmt(manToQty(man, px))}주</small>` : '';
+const val = (id) => {
+  const f = F[id], v = S[id];
+  if (id === 'extraMaxAmt' && v === 0) return '무제한';
+  if (id === 'postMax' && S.postPhase !== 0) return `<small>남은</small>${S.postLeft}회`;
+  if (f.u === 'man') return manFmt(v) + shares(v, f.px());
+  if (f.u === 'won') return fmt(v) + '원';
+  if (f.u === 'pct') return v + '%';
+  return v + (f.s || '');
+};
+const row = (id, opt = {}) => `<div class="lrow ${opt.dim ? 'dimmed' : ''}" data-id="${id}"><span class="k">${opt.label ?? F[id].l}</span><span class="v">${val(id)}</span></div>`;
+const ckrow = (ck, id, label, opt = {}) => {
+  const v = opt.v ?? (id ? val(id) : '');
+  return `<div class="lrow ckrow ${opt.dim ? 'dimmed' : ''}" data-id="${id ?? ''}"><span class="ck ${S[ck] ? 'on' : ''}" data-ck="${ck}"></span><span class="k">${label}</span><span class="v">${v}</span></div>`;
+};
+const trigVal = () => { if (!S.postTriggerQty) return '—'; const man = qtyToMan(S.postTriggerQty, S.buyWatchPrice); return manFmt(man) + (S.shares ? `<small class="sh">${fmt(S.postTriggerQty)}주</small>` : ''); };
+const trigRow = () => `<div class="lrow ro"><span class="k">발동잔량</span><span class="v ${S.postTriggerQty ? 'hot' : ''}">${trigVal()}</span></div>`;
+const sw = (g) => `<span class="sw ${groupOn(g) ? 'on' : ''}" data-sw="${g}"></span>`;
+const stat = (g) => { const [t, c] = statusOf(g); return `<span class="s ${c}">${t}</span>`; };
+const sweepVal = () => `${S.sweepN}건 @${fmt(S.sweepPx)}원`;
+
+const preRows = () => row('preWatchAmt') + ckrow('preTrade', 'preTradeAmt', '체결량') + ckrow('sweep', 'sweepN', '한방', { v: sweepVal() });
+const extraRows = () => row('extraMinAmt') + row('extraMaxAmt');
+const postRows = () => row('postMax') + row('postFloorAmt') + row('postRebound') + trigRow();
+
+/* ── 매수 열 — 009-D(채택) 구조 그대로, 값만 금액 ── */
+function buyD() {
+  const kv = (k, v, off) => `<span class="kv ${off ? 'off' : ''}"><small>${k}</small>${v}</span>`;
+  const m = (id) => manFmt(S[id]);
+  const sums = {
+    pre: () => kv('금액', m('preAmt')) + kv('매도잔량', m('preWatchAmt')) + kv('체결량', S.preTrade ? m('preTradeAmt') : '꺼짐', !S.preTrade) + kv('한방', S.sweep ? sweepVal() : '꺼짐', !S.sweep),
+    extra: () => kv('금액', m('extraAmt')) + kv('최소', m('extraMinAmt')) + kv('최대', S.extraMaxAmt ? m('extraMaxAmt') : '무제한'),
+    post: () => kv('금액', m('postAmt')) + kv('최대', S.postPhase !== 0 ? `${S.postMax}회 (남은 ${S.postLeft}회)` : `${S.postMax}회`) + kv('최소', m('postFloorAmt')) + kv('반등', `${S.postRebound}%`) + kv('발동잔량', S.postTriggerQty ? manFmt(qtyToMan(S.postTriggerQty, S.buyWatchPrice)) : '—', !S.postTriggerQty),
+  };
+  const card = (g, title, rows) => {
+    const open = S.exp[g]; const on = groupOn(g);
+    return `<div class="grp"><div class="grp-h fold ${open ? 'open' : ''}" data-exp="${g}"><span class="t">${title}</span><span class="chev">›</span>${stat(g)}${sw(g)}</div>${open
+      ? `<div class="${on ? '' : 'dimmed'}">${row(g + 'Amt', { label: '금액' })}${rows}</div>`
+      : `<div class="sumline ${on ? '' : 'dimmed'}">${sums[g]()}</div>`}</div>`;
+  };
+  return `<div class="grp"><div class="grp-h"><span class="t">매수주문</span><span class="s ${S.master ? 'live' : ''}">${S.master ? '감시 중' : '꺼짐'}</span><span class="sw ${S.master ? 'on' : ''}" data-master></span></div>${row('buyOrderPrice')}${row('buyWatchPrice')}</div>`
+    + card('pre', '선매수', preRows())
+    + card('extra', '추가매수', extraRows())
+    + card('post', '후매수', postRows());
+}
+
+/* ── 매도 열 (002 그대로 · 값만 금액) ── */
+function sellList() {
+  const ov = S.postPhase === 2;
+  const sellStat = S.sellOn ? (ov ? '감시 중 · 후매수 발동' : '감시 중') : '꺼짐';
+  return `<div class="grp">${row('sellPrice')}${row('sellRatio')}</div>
+  <div class="grp"><div class="grp-h"><span class="t">매도주문</span><span class="s ${S.sellOn ? 'live' : ''}">${sellStat}</span><span class="sw ${S.sellOn ? 'on' : ''}" data-b="sellOn"></span></div><div class="${S.sellOn ? '' : 'dimmed'}">${row('sellWatchPrice')}${row('sellWatchAmt')}${ckrow('sellTrack', 'sellTrackRatio', '잔량추적')}${ckrow('sellTrade', 'sellTradeAmt', '체결')}</div></div>
+  <div class="grp"><div class="grp-h"><span class="t">매수취소</span><span class="s ${S.cancelOn ? 'live' : ''}">${S.cancelOn ? (ov ? '대기 · 후매수 발동' : '대기') : '꺼짐'}</span><span class="sw ${S.cancelOn ? 'on' : ''}" data-b="cancelOn"></span></div>${row('cancelAmt')}${ckrow('cancelTrade', null, '체결')}${ckrow('cancelTrack', null, '잔량추적')}</div>`;
+}
+
+function logHtml() {
+  if (!S.logs.length) return '';
+  return `<div class="log"><div class="h">전략 로그</div>${S.logs.map(l => `<div class="${l.kind}">${l.at} · ${l.text}</div>`).join('')}</div>`;
+}
+
+/* ── 호가 ── */
+const amtHtml = (q, p) => `<span>${manFmt(qtyToMan(q, p))}</span>${S.shares ? `<small>${fmt(q)}주</small>` : ''}`;
+function ladder2() {
+  const D = SC[S.sc];
+  const pc = p => `<b class="${cls(p, D.base)}">${fmt(p)}</b><small class="${cls(p, D.base)}">${pct(p, D.base)}</small>`;
+  let h = `<div class="lh"><b>호가</b><span>잔량 · 금액</span></div>`;
+  D.asks.forEach(([p, q]) => h += `<div class="lr ask ${p === D.cur ? 'cur' : ''}"><div class="p">${pc(p)}</div>${q ? `<div class="q">${amtHtml(q, p)}</div>` : ''}</div>`);
+  h += '<div class="midline"></div>';
+  D.bids.forEach(([p, q]) => h += `<div class="lr bid ${p === D.cur ? 'cur' : ''}"><div class="p">${pc(p)}</div>${q ? `<div class="q">${amtHtml(q, p)}</div>` : ''}</div>`);
+  const ta = D.asks.reduce((s, [p, q]) => s + qtyToMan(q, p), 0), tb = D.bids.reduce((s, [p, q]) => s + qtyToMan(q, p), 0);
+  h += `<div class="lsum"><span class="ta"><b>매도</b> ${manFmt(ta)}</span><span class="tb"><b>매수</b> ${manFmt(tb)}</span></div>`;
+  return h;
+}
+function ladder3() {
+  const D = SC[S.sc];
+  const all = [...D.asks, ...D.bids].map(([p, q]) => qtyToMan(q, p)); const mx = Math.max(...all);
+  const pc = p => `<div class="p"><b class="${cls(p, D.base)}">${fmt(p)}</b><small class="${cls(p, D.base)}">${pct(p, D.base)}</small></div>`;
+  let h = `<div class="l3h"><span><b>매도잔량</b> 금액</span><span>호가</span><span><b>매수잔량</b> 금액</span></div>`;
+  D.asks.forEach(([p, q]) => { const man = qtyToMan(q, p); h += `<div class="l3r ${p === D.cur ? 'cur' : ''} ${p === D.upper ? 'upper' : ''}"><div class="a"><i style="width:${man / mx * 100}%"></i>${q ? amtHtml(q, p) : ''}</div>${pc(p)}<div class="b"></div></div>`; });
+  D.bids.forEach(([p, q]) => { const man = qtyToMan(q, p); h += `<div class="l3r ${p === D.cur ? 'cur' : ''}"><div class="a"></div>${pc(p)}<div class="b"><i style="width:${man / mx * 100}%"></i>${q ? amtHtml(q, p) : ''}</div></div>`; });
+  const ta = D.asks.reduce((s, [p, q]) => s + qtyToMan(q, p), 0), tb = D.bids.reduce((s, [p, q]) => s + qtyToMan(q, p), 0);
+  const qa = D.asks.reduce((s, [, q]) => s + q, 0), qb = D.bids.reduce((s, [, q]) => s + q, 0);
+  h += `<div class="l3f"><div class="a">${manFmt(ta)}${S.shares ? `<small>${fmt(qa)}주</small>` : ''}</div><div class="m">합계</div><div class="b">${manFmt(tb)}${S.shares ? `<small>${fmt(qb)}주</small>` : ''}</div></div>`;
+  return h;
+}
+
+function panel() {
+  return `
+    <div class="seg only-narrow"><button data-side="buy" class="${S.side === 'buy' ? 'on' : ''}">매수</button><button data-side="sell" class="${S.side === 'sell' ? 'on' : ''}">매도</button><button data-side="manual">수동</button></div>
+    <div class="pan-scroll">
+      <div class="cols">
+        <div class="c ${S.side === 'buy' ? '' : 'hide-narrow'}"><div class="side-h"><i style="background:var(--red)"></i>매수</div>${buyD()}</div>
+        <div class="c ${S.side === 'sell' ? '' : 'hide-narrow'}"><div class="side-h"><i style="background:var(--blue)"></i>매도</div>${sellList()}</div>
+      </div>
+      ${logHtml()}
+    </div>`;
+}
+
+function frame() {
+  const [bl, bc] = buyLed(); const D = SC[S.sc];
+  return `<div class="f ${S.w} ${S.t === 'light' ? 'light' : ''}" id="F">
+    <aside class="side"><div class="brand">gh-radar</div><a>홈</a><a>스캐너</a><a>테마</a><a>관심종목</a><a class="on">종목상세</a><a>트레이딩</a><a>AI 챗봇</a><a>마이</a></aside>
+    <div class="col">
+      <div class="hdr"><span class="back">‹</span><span class="nm">가온테크</span><span class="cd">123450</span><span class="px ${cls(D.cur, D.base)}">${fmt(D.cur)}원 ${pct(D.cur, D.base)}</span><span class="sp"></span></div>
+      <div class="tabs"><span>차트</span><span class="on">호가주문</span><span>종목정보</span><span>뉴스토론</span></div>
+      <div class="strip"><span class="dot"></span><span class="dma">DMA 실시간</span><span class="led"><i style="background:${bc}"></i>매수 <b>${bl}</b></span><span class="led"><i style="background:${S.sellOn ? 'var(--green)' : 'var(--g300)'}"></i>매도 <b>${S.sellOn ? '감시' : 'OFF'}</b></span><span class="led"><i style="background:${S.cancelOn ? 'var(--amber)' : 'var(--g300)'}"></i>취소 <b>${S.cancelOn ? '대기' : 'OFF'}</b></span><span class="sp"></span><span class="x">KRX</span></div>
+      <div class="wrap"><div class="body"><div class="lad"><div class="lad2">${ladder2()}</div><div class="lad3">${ladder3()}</div></div><div class="pan" id="PAN">${panel()}</div></div></div>
+    </div>
+    <div class="dim" id="DIM"></div>
+    <div class="sheet" id="SHEET"></div>
+  </div>`;
+}
+
+function render() {
+  document.getElementById('stage').innerHTML = frame();
+  document.getElementById('desc').innerHTML = DESC[S.v];
+  document.querySelectorAll('#nav [data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === S.v));
+  document.querySelectorAll('#nav [data-w]').forEach(b => b.classList.toggle('on', b.dataset.w === S.w));
+  document.querySelectorAll('#nav [data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === S.t));
+  document.querySelectorAll('#nav [data-post]').forEach(b => b.classList.toggle('on', +b.dataset.post === S.postPhase));
+  document.querySelector('#nav [data-shares]').classList.toggle('on', S.shares);
+}
+
+/* ── 동작 규약(009 축약판) ── */
+const GNAME = { pre: '선매수', extra: '추가매수', post: '후매수' };
+function setMaster(on) {
+  S.master = on;
+  if (!on) { S.pre = S.extra = S.post = false; S.postPhase = 0; log('i', '서버: 매수 OFF — 선매수·추가매수·후매수 모두 꺼짐(D-32)'); }
+  else log('i', '서버: 매수 ON');
+  render();
+}
+function setGroup(g, on) {
+  if (on) {
+    if (!S.master) { S.master = true; log('i', `${GNAME[g]} 체크 — 매수주문도 켬`); }
+    if (g === 'post') { S.postPhase = 1; S.postLeft = S.postMax; S.postTriggerQty = 0; log('i', `후매수 감시 시작 — 최대 ${S.postMax}회`); }
+  } else if (g === 'post') { S.postPhase = 0; S.postTriggerQty = 0; }
+  S[g] = on; render();
+}
+function simPost(phase) {
+  if (phase === 1) { S.master = true; S.post = true; S.postPhase = 1; S.postTriggerQty = 145000; S.postLeft = S.postMax; log('i', `후매수 감시 — 매수1잔량 ${manFmt(qtyToMan(130000, S.buyWatchPrice))} · 발동잔량 <b>${manFmt(qtyToMan(145000, S.buyWatchPrice))}</b>(145,000주)`); }
+  if (phase === 2) { S.master = true; S.post = true; S.postPhase = 2; S.postTriggerQty = 145000; S.postLeft = Math.max(0, S.postMax - 1); S.sellOn = true; S.cancelOn = true; S.sellWatchAmt = qtyToMan(145000, S.sellWatchPrice); S.cancelAmt = S.sellWatchAmt; log('i', `후매수 — 매수1잔량 <b>${manFmt(qtyToMan(152000, S.buyWatchPrice))}</b> > 발동잔량 ${manFmt(qtyToMan(145000, S.buyWatchPrice))} → 매수 ${manFmt(S.postAmt)} 발주 · 매도·취소 자동 무장(잔량 ${manFmt(S.sellWatchAmt)})`); }
+  render();
+}
+
+/* ── 편집(시트 / 인라인) ── */
+let ED = null;
+const convText = (id, man) => { const f = F[id]; if (f.u !== 'man') return ''; const px = f.px(); return `= <b>${fmt(man * 1e4)}원</b> · ≈ <b>${fmt(manToQty(man, px))}주</b> @${fmt(px)}원`; };
+function openSheet(id) {
+  const f = F[id];
+  ED = { id, buf: '', sel: true };
+  const sh = document.getElementById('SHEET');
+  const armed = (id.startsWith('pre') && groupOn('pre')) || (id.startsWith('extra') && groupOn('extra')) || (id.startsWith('post') && groupOn('post')) || (id.startsWith('buy') && S.master) || (id.startsWith('sell') && S.sellOn) || (id.startsWith('cancel') && S.cancelOn);
+  const isMan = f.u === 'man';
+  sh.innerHTML = `<h3>${f.l}</h3><p>${f.d}</p>
+    <div class="disp"><span class="n" id="SN">${fmt(S[id])}</span><span class="u">${UNIT[f.u] || f.s || ''}</span><span class="was">지금 ${isMan ? manFmt(S[id]) : fmt(S[id]) + (UNIT[f.u] || f.s || '')}</span>${isMan ? `<span class="conv" id="SC">${convText(id, S[id])}</span>` : ''}</div>
+    ${isMan ? `<div class="chips"><button data-add="100">+100만</button><button data-add="1000">+1,000만</button><button data-add="10000">+1억</button><button data-add="100000">+10억</button></div>` : ''}
+    <div class="note">${armed ? '감시 중 — 적용하면 바로 반영돼요' : ''}</div>
+    <div class="pad">${['1','2','3','4','5','6','7','8','9','00','0','⌫'].map(k => `<button data-key="${k}">${k}</button>`).join('')}</div>
+    <div class="btns"><button class="b1" data-close>취소</button><button class="b2" data-apply>${f.l} 적용</button></div>`;
+  document.getElementById('F').classList.add('open');
+}
+function sheetShow() { const n = document.getElementById('SN'), c = document.getElementById('SC'); const v = ED.buf ? parseInt(ED.buf, 10) || 0 : 0; n.textContent = fmt(v); if (c) c.innerHTML = convText(ED.id, v); }
+function closeSheet() { document.getElementById('F').classList.remove('open'); ED = null; }
+function applyEdit(id, raw) {
+  const n = Math.max(0, parseInt(String(raw).replace(/[^0-9]/g, ''), 10) || 0);
+  S[id] = n;
+  if (id === 'postMax' && S.postPhase !== 0) { S.postLeft = n; log('i', `후매수 「최대」 ${n}회 재제출 — 잔여 ${n}회로 다시 실림`); }
+  render();
+  const r = document.querySelector(`.lrow[data-id="${id}"]`); if (r) { r.classList.add('flash'); setTimeout(() => r.classList.remove('flash'), 600); }
+}
+function inlineEdit(rowEl, id) {
+  const f = F[id]; const isMan = f.u === 'man';
+  rowEl.classList.add('ied');
+  rowEl.querySelector('.v').innerHTML = `<input value="${fmt(S[id])}" inputmode="numeric"><span class="u">${isMan ? '만' : (UNIT[f.u] || f.s || '')}</span>${isMan ? `<span class="cv" id="CV">≈${fmt(manToQty(S[id], f.px()))}주</span>` : ''}`;
+  const inp = rowEl.querySelector('input'); inp.focus(); inp.select();
+  const finish = ok => { if (ok) applyEdit(id, inp.value); else render(); };
+  inp.addEventListener('input', () => { if (!isMan) return; const v = parseInt(inp.value.replace(/[^0-9]/g, ''), 10) || 0; document.getElementById('CV').textContent = `≈${fmt(manToQty(v, f.px()))}주`; });
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); finish(true); } if (e.key === 'Escape') finish(false); });
+  inp.addEventListener('blur', () => finish(true));
+}
+
+/* ── 이벤트 ── */
+document.getElementById('nav').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.v) S.v = b.dataset.v;
+  if (b.dataset.w) S.w = b.dataset.w;
+  if (b.dataset.t) S.t = b.dataset.t;
+  if (b.hasAttribute('data-shares')) S.shares = !S.shares;
+  if (b.dataset.post !== undefined) return simPost(+b.dataset.post);
+  if (b.hasAttribute('data-reset')) { const { v, w, t, sc, shares } = S; S = INIT(); Object.assign(S, { v, w, t, sc, shares }); }
+  render();
+});
+document.getElementById('stage').addEventListener('click', e => {
+  const t = e.target;
+  if (t.closest('[data-master]')) return setMaster(!S.master);
+  const swEl = t.closest('[data-sw]'); if (swEl) return setGroup(swEl.dataset.sw, !S[swEl.dataset.sw]);
+  const bEl = t.closest('[data-b]'); if (bEl) { S[bEl.dataset.b] = !S[bEl.dataset.b]; return render(); }
+  const ck = t.closest('[data-ck]'); if (ck) { S[ck.dataset.ck] = !S[ck.dataset.ck]; return render(); }
+  const ex = t.closest('[data-exp]'); if (ex) { S.exp[ex.dataset.exp] = !S.exp[ex.dataset.exp]; return render(); }
+  const seg = t.closest('[data-side]'); if (seg) { if (seg.dataset.side === 'manual') return toast('수동주문 탭 — 이 스케치 범위 밖(002 그대로)'); S.side = seg.dataset.side; return render(); }
+  if (t.closest('#DIM') || t.closest('[data-close]')) return closeSheet();
+  const add = t.closest('[data-add]'); if (add && ED) { const cur = ED.sel ? 0 : (parseInt(ED.buf, 10) || 0); ED.buf = String(cur + +add.dataset.add); ED.sel = false; return sheetShow(); }
+  const key = t.closest('[data-key]');
+  if (key && ED) { if (key.dataset.key === '⌫') ED.buf = ED.buf.slice(0, -1); else if (ED.sel) { ED.buf = key.dataset.key; ED.sel = false; } else ED.buf += key.dataset.key; return sheetShow(); }
+  if (t.closest('[data-apply]') && ED) { const id = ED.id, v = ED.buf; closeSheet(); return applyEdit(id, v === '' ? S[id] : v); }
+  const rowEl = t.closest('.lrow'); if (rowEl && rowEl.dataset.id && !rowEl.classList.contains('ro') && !rowEl.classList.contains('ied')) {
+    const id = rowEl.dataset.id;
+    if (S.w === 'desktop') return inlineEdit(rowEl, id);
+    return openSheet(id);
+  }
+});
+render();
+</script>
+</body>
+</html>
