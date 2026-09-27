@@ -1068,11 +1068,21 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const buySwitch = lcSwitch(card, '매수주문 켜기');
     await expect(buySwitch).toBeEnabled();
     await expect(card.locator('[data-slot="lc-arm-blocked"]')).toHaveCount(0);
+    // 선매수를 켜려 하면 그 카드 사전 검증 줄이 수량 0 을 말한다 — 전송 0 · 스위치 그대로 · 줄바꿈 허용 · 잘림 0.
+    const setBeforePrecheck = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
+    await lcSwitch(card, '선매수 켜기').click();
+    const precheck = card.locator('[data-slot="lc-group-pre-buy"] [data-slot="lc-group-precheck"]');
+    await expect(precheck).toHaveText('금액이 주문가격보다 작아 주문수량이 0주예요 — 금액을 올려 주세요');
+    expect(await precheck.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await expect(lcSwitch(card, '선매수 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length).toBe(setBeforePrecheck);
     // ★ A-P1 — 미등록 카드의 값 확정은 **로컬 반영**이다(서버 전략이 없어 보낼 곳이 없다). 전송 0.
     const setBeforeAmount = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
     await editLc(page, 'lc-buy-order-amount', '50'); // 50만원 → 3주
     await expect(lcValue(page, 'lc-buy-order-amount')).toHaveText('50만원');
     await expect(buySwitch).toBeEnabled();
+    // 원인 값(금액)이 고쳐지면 사전 검증 줄이 사라진다(미등록 카드 = 로컬 반영 뒤).
+    await expect(precheck).toHaveCount(0);
     expect(
       relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length,
       '미등록 카드의 값 확정은 게이트웨이로 나가지 않는다(A-P1)',

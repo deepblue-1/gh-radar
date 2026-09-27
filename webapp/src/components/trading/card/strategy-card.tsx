@@ -226,6 +226,12 @@ export interface StrategyCardState {
    */
   handleSent: (cfg: RelayLimitChaserInput, meta?: { cause?: StrategySubmitCause }) => void;
   handleServerEcho: (info: { overwrittenDirty: number }) => void;
+  /**
+   * 클라 합성 로그 한 줄 — 제출이 없어 에코가 말해 줄 수 없는 사건(D-16 상한가 차단 · 24-07 D-06)만 쓴다.
+   * ★ `queueMicrotask` 로 한 박자 늦게 쌓는다 — 자식(폼) 이펙트가 부모(이 훅) 이펙트보다 먼저 돌아서, 같은 렌더의
+   *   에코 전이 줄보다 먼저 쌓이면 사건 순서가 뒤집혀 보인다(최신이 위). 한 박자 늦추면 늘 그 전이 줄 **뒤**다.
+   */
+  pushClientLog: (text: string, level?: "info" | "error") => void;
 }
 
 /**
@@ -281,6 +287,13 @@ export function useStrategyCardState({
       setLog((prev) => [entry, ...prev].slice(0, MAX_LOG));
     },
     [],
+  );
+
+  const pushClientLog = useCallback(
+    (text: string, level: "info" | "error" = "info") => {
+      queueMicrotask(() => pushLog(text, level));
+    },
+    [pushLog],
   );
 
   /* ── 전송 ↔ 에코 상관 (③) ─────────────────────────────────────────────── */
@@ -671,6 +684,7 @@ export function useStrategyCardState({
     handleArm,
     handleSent,
     handleServerEcho,
+    pushClientLog,
   };
 }
 

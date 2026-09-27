@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { RelayLimitChaser, RelayLimitChaserInput } from '@gh-radar/shared';
@@ -1200,17 +1201,53 @@ describe('24-06 — 클라 로그 통로 pushClientLog (D-16 · 순서)', () => 
     expect(lcSets()).toHaveLength(0);
   });
 
+  /**
+   * 자식 이펙트가 에코 렌더에서 클라 로그를 쌓는 모양(24-07 D-06 자동 체크 요약이 이 경로다) — 자식 이펙트는
+   * 부모(카드 훅)의 에코 전이 이펙트보다 **먼저** 돈다. 한 박자 늦추지 않으면 클라 줄이 전이 줄 아래로 깔린다.
+   */
+  function Probe({ s }: { s: StrategyCardState }) {
+    const prev = useRef(s.server);
+    useEffect(() => {
+      if (prev.current === s.server) return;
+      prev.current = s.server;
+      if (s.server?.buyEnabled) s.pushClientLog('클라 로그', 'info');
+    }, [s]);
+    return null;
+  }
+  function CardWithProbe() {
+    return (
+      <StrategyCard
+        cardId="wb-card-1"
+        isin={ISIN}
+        accountNo={ACCOUNT}
+        exchange="KRX"
+        name="에코프로"
+        code="086520"
+        open
+        onToggle={noop}
+        onClose={noop}
+        onExchangeChange={noop}
+        body={(s) => (
+          <>
+            <Probe s={s} />
+            <StrategyLog entries={s.log} />
+          </>
+        )}
+      />
+    );
+  }
+
   it('순서 — 같은 렌더의 에코 전이 줄 **뒤**에 쌓인다(microtask · 최신이 위)', async () => {
     const before = echo({ buyEnabled: false, sellEnabled: true });
     setRelay({ limitChasers: [before] });
-    const { rerender } = render(<Card />);
+    const { rerender } = render(<CardWithProbe />);
     const after = echo({ buyEnabled: true, sellEnabled: true });
-    await act(async () => {
-      lastCard!.pushClientLog('클라 로그', 'info');
+    act(() => {
       setRelay({ limitChasers: [after], lastLimitChaserEcho: after });
-      rerender(<Card />);
+      rerender(<CardWithProbe />);
     });
-    await waitFor(() => expect(texts()[0]).toBe('클라 로그'));
+    await waitFor(() => expect(texts()).toContain('클라 로그'));
+    expect(texts()[0]).toBe('클라 로그');
     expect(texts()[1]).toBe(TRANSITION_TEXT.buyArmed);
   });
 });

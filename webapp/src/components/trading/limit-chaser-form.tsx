@@ -63,7 +63,8 @@
  *
  * ⑥ 토스트를 쓰지 않는다 (UI-SPEC D3)
  *   결과는 행(값 강조 900ms · 실패 링/말풍선) · 시트 상태 줄 · 폼 맨 위 한 줄(스위치·체크
- *   전송 끊김) · 상태줄 · 전략 로그로만 알린다.
+ *   전송 끊김) · 그룹 카드 사전 검증 줄(그룹 켜기 거절 · Phase 24 §7) · 상태줄 · 전략 로그(D-16 은
+ *   `onClientLog` 한 줄)로만 알린다.
  *
  * ⑦ ★ 색 규칙 (UI-SPEC Color)
  *   `--primary` 는 「Accent 전용 자리」 목록(켜진 스위치 트랙 · 켜진 체크 채움 · 인라인 편집 링 ·
@@ -141,6 +142,7 @@ import {
 import {
   LC_COMMIT_TEXT,
   lcAmountBlockOf,
+  lcGroupAmountBlockOf,
   useLcFieldCommit,
   type LcCommitFailure,
   type LcCommitMeta,
@@ -361,6 +363,51 @@ export function isServerFoldEdge(prev: RelayLimitChaser | null, next: RelayLimit
   );
 }
 
+/** 그룹 스위치 → 그 그룹 카드 slot(사전 검증 줄 자리). */
+const GROUP_SLOT = {
+  preBuyEnabled: 'pre-buy',
+  extraBuyEnabled: 'extra-buy',
+  postBuyEnabled: 'post-buy',
+} as const satisfies Record<BuyGroupGate, string>;
+type PrecheckSlot = (typeof GROUP_SLOT)[BuyGroupGate];
+
+/**
+ * 그룹 켜기 사전 검증 — 실패한 검증 문구 **전부**(UI-SPEC §7 「그룹 켜기 검증 순서」 순). 화면에는 첫 실패 하나만
+ * 뜨고(`groupPrecheckOf`), 전부를 돌려주는 까닭은 「사라지는 때 ①」 — 띄운 문구의 검증이 통과했는지를 따로 본다.
+ *
+ * 순서: (세션 · 무장 불가(가격 0)는 스위치 `disabled` 가 먼저 막는다) → 금액 → 수량 → 그룹 고유.
+ *   - 금액: 선매수 = D-04a(서버가 금액을 모른다 · `amountRequired`) · 추가 · 후매수 = D-03(그룹 금액 0 · `lcGroupAmountBlockOf`).
+ *     금액이 실패하면 수량은 보지 않는다(같은 원인을 두 번 말하지 않는다).
+ *   - 수량: `buyOrderQtyFromAmount(그룹 금액, 공통 주문가격) === 0` — 웹 `canArmOf` · relay `…OrderQty === 0` 과 같은 식.
+ *   - 추가매수: D-10 최대 ≠ 0 ∧ 최소 > 최대.
+ *   - 후매수: 반등 1~100 밖(D-20 · 레거시 0) → 매도비율 0(D-27 · 레거시).
+ * `values` = 이 확정이 실을 기준값(서버 동기값 — 훅과 같은 `lcBaseValues`).
+ */
+function groupPrechecksOf(gate: BuyGroupGate, values: LimitChaserFormValues, amountRequired: boolean): string[] {
+  const out: string[] = [];
+  const amount =
+    gate === 'preBuyEnabled'
+      ? amountRequired
+        ? LC_COMMIT_TEXT.amountRequired
+        : null
+      : lcGroupAmountBlockOf(values, gate, true);
+  if (amount !== null) out.push(amount);
+  else if (values.buyOrderPrice > 0 && groupQtyOf(gate, values) === 0) out.push(LC_COMMIT_TEXT.qtyZero);
+  if (gate === 'extraBuyEnabled' && values.extraBuyMaxQty !== 0 && values.extraBuyMinQty > values.extraBuyMaxQty) {
+    out.push(LC_COMMIT_TEXT.minOverMax);
+  }
+  if (gate === 'postBuyEnabled') {
+    if (values.postBuyReboundPct < 1 || values.postBuyReboundPct > 100) out.push(LC_COMMIT_TEXT.reboundRange);
+    if (values.sellOrderRatio === 0) out.push(LC_COMMIT_TEXT.sellRatioRequired);
+  }
+  return out;
+}
+
+/** 그룹 켜기 사전 검증 — 첫 실패 문구 하나, 통과면 null(누르는 순간 판정 · R7). 끄는 방향에는 부르지 않는다(T-16-44). */
+function groupPrecheckOf(gate: BuyGroupGate, values: LimitChaserFormValues, amountRequired: boolean): string | null {
+  return groupPrechecksOf(gate, values, amountRequired)[0] ?? null;
+}
+
 /**
  * 전송 실패 문구 — `strategy-status-card.tsx:358` 의 「연결이 끊겨 … 보내지 못했어요」 계열과
  * 같은 어조다. 두 화면이 같은 사건을 다른 말로 하면 사용자는 다른 사건으로 읽는다.
@@ -465,6 +512,16 @@ export interface LimitChaserFormProps {
    * (호가 단위 위반 잠금). `etp`·`unknown` 이면 원 단위 시트·인라인이 호가 단위 위반을 **경고만** 한다.
    */
   tickRule?: TickRule;
+  /**
+   * 호가 매수1호가(`RelayQuote.bp[0]`) — D-16 판정 입력. 호가 미수신이면 0(기본) — 0 이면 D-16 은 허용이다
+   * (상한가로 치환하지 않는다 · D-20).
+   */
+  bestBid?: number;
+  /**
+   * 클라 합성 전략 로그 한 줄 통로(D-16 — 카드 `pushClientLog`). 제출이 없어 에코가 말해 줄 수 없는 사건만 쓴다.
+   * 토스트 · 다이얼로그를 쓰지 않는 이유는 파일 상단 ⑥.
+   */
+  onClientLog?: (text: string, level: 'info' | 'error') => void;
   className?: string;
 }
 
@@ -484,6 +541,8 @@ export function LimitChaserForm({
   unacked = false,
   currentPrice = 0,
   tickRule,
+  bestBid = 0,
+  onClientLog,
   className,
 }: LimitChaserFormProps) {
   const { send } = useRelayContext();
@@ -757,6 +816,32 @@ export function LimitChaserForm({
   const gateDisabled = (gate: LcGate): boolean =>
     gate === 'cancelQtyEnabled' ? disabled : gateBlocked(gate, !form[gate]);
 
+  /*
+    그룹 켜기 사전 검증 줄(UI-SPEC §7) — 카드마다 한 자리지만 폼 전체에 **늘 한 줄**이다(누른 카드의 것).
+    ★ 사라지는 때: ① 원인 값이 고쳐져 띄운 문구의 검증이 통과할 때(값 확정 에코 뒤 — 미등록이면 로컬 반영 뒤)
+      ② 그 그룹이 켜진 에코가 올 때(이 단말 · 다른 단말 무관) ③ 다른 사유로 다시 누르면 그 문구로 교체.
+    ★ 이 정리 이펙트는 **제출을 만들지 않는다** — 상태 한 칸만 비운다.
+    ★ 사전 검증 실패는 자동 펼침 트리거가 아니다(T-24-19 — 줄은 제목줄 바로 아래라 접혀 있어도 보인다).
+  */
+  const [precheck, setPrecheck] = useState<{ slot: PrecheckSlot; gate: BuyGroupGate; text: string } | null>(null);
+  /** 최신 서버 에코 — 이벤트 핸들러 · 다음 틱 콜백이 읽는다(사전 검증 기준값 · D-02 후반 재확인). */
+  const serverRef = useRef(server);
+  serverRef.current = server;
+  const amountRequiredRef = useRef(lc.amountRequired);
+  amountRequiredRef.current = lc.amountRequired;
+  const bestBidRef = useRef(bestBid);
+  bestBidRef.current = bestBid;
+  const clientLogRef = useRef(onClientLog);
+  clientLogRef.current = onClientLog;
+  useEffect(() => {
+    setPrecheck((cur) => {
+      if (cur === null) return cur;
+      if (server?.[cur.gate] === true) return null;
+      const still = groupPrechecksOf(cur.gate, lcBaseValues(server, form), lc.amountRequired).includes(cur.text);
+      return still ? cur : null;
+    });
+  }, [server, form, lc.amountRequired]);
+
   /**
    * 그룹 스위치(선 · 추가 · 후매수) — **사람의 스위치 핸들러에서만** 부른다(D-01 · D-02 전반 · UI-SPEC 상호작용 계약).
    *
@@ -772,6 +857,23 @@ export function LimitChaserForm({
     (gate: BuyGroupGate, on: boolean) => {
       const f = formRef.current;
       if (on) {
+        // 사전 검증(R7 · UI-SPEC §7) — 낙관 표시 전에 판정한다(스위치는 움직이지 않는다). 전송 0 · 그 카드 한 줄.
+        const base = lcBaseValues(serverRef.current, f);
+        const slot = GROUP_SLOT[gate];
+        const failed = groupPrecheckOf(gate, base, amountRequiredRef.current);
+        if (failed !== null) {
+          setPrecheck({ slot, gate, text: failed });
+          return;
+        }
+        // 통과했다 = 그 카드에 떠 있던 사유는 이제 사실이 아니다.
+        setPrecheck((cur) => (cur !== null && cur.slot === slot ? null : cur));
+        // D-16 — 추가매수만 · 매수1호가 == 비교가격(둘 다 > 0)이면 상한가 도달로 본다. 제출 없이 로그 원문 한 줄만
+        //   (사전 검증 줄 · 다이얼로그 · 토스트 없음). 둘 중 하나라도 0 이면 허용 — 0 을 상한가로 치환하지 않는다(D-20).
+        const bid = bestBidRef.current;
+        if (gate === 'extraBuyEnabled' && bid > 0 && base.buyWatchPrice > 0 && bid === base.buyWatchPrice) {
+          clientLogRef.current?.(LC_COMMIT_TEXT.extraBuyAtUpperLimit, 'error');
+          return;
+        }
         if (!f.buyEnabled) commitField(gate, true, 'toggle', { buyEnabled: true });
         else commitField(gate, true, 'toggle');
         return;
@@ -800,8 +902,6 @@ export function LimitChaserForm({
       로그 문장(「서버가 매수 그룹 해제 — …」)은 폼이 쓰지 않는다 — 사유(`cause: 'serverFold'`)를 실어 보내면
       카드가 성공 에코에서 쓴다(24-05).
   */
-  const serverRef = useRef(server);
-  serverRef.current = server;
   const lcBusyRef = useRef(false);
   lcBusyRef.current = lc.inflightField !== null || lc.queuedFields.length > 0;
   /** 직전 **렌더된** 에코 — 하강 전이 판정의 prev. 재접속이면 비운다(④). */
@@ -1078,6 +1178,8 @@ export function LimitChaserForm({
         on={gate ? form[gate] : undefined}
         // 흐림은 행마다 한 번(`lcRowDimOf`) — 컨테이너까지 흐리면 .45 × .45 가 된다(⑩ · UI-SPEC §9).
         dimRows={false}
+        // 그룹 켜기 사전 검증 줄 — 누른 카드 한 자리(UI-SPEC §7 · R8).
+        precheckText={precheck !== null && precheck.slot === slot ? precheck.text : null}
         fold={
           spec.collapsible && isFoldSlot(slot)
             ? {

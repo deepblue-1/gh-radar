@@ -205,6 +205,7 @@ export function CardBody({
     unacked,
     handleSent,
     handleServerEcho,
+    pushClientLog,
   } = card;
 
   /** 폰 밴드 3탭 중 옵션 쪽 선택 — 옵션 폼의 pane 을 **제어형**으로 가른다(D-19). */
@@ -256,6 +257,10 @@ export function CardBody({
       tickRule={tickRule}
       onSent={handleSent}
       onServerEcho={handleServerEcho}
+      // D-16 판정 입력 — 호가 매수1호가. 호가 미수신 · 0 이면 0(허용 — 상한가로 치환하지 않는다).
+      bestBid={quote !== null && quote.bp[0] > 0 ? quote.bp[0] : 0}
+      // 클라 합성 로그 통로(D-16) — 카드 전략 로그로 흐른다.
+      onClientLog={pushClientLog}
       tab={optionsTab}
       hideTabs
     />
