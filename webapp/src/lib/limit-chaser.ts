@@ -255,7 +255,11 @@ export function seedFromUpperLimit(upperLimit: number): LimitChaserSeedPrices {
 }
 
 /**
- * 신규 폼 기본값 `[VERIFIED: LimitChaserForm.cs:129~178]`.
+ * 신규 폼 기본값 `[VERIFIED: LimitChaserForm.cs:129~178]` · Phase 24 D-04(WinForms 「기본값 (D-33)」 표).
+ *
+ * 매수 금액 3벌 각 4,000만원 · 반등 30% · 최소 100,000주 · 최대 3회 · 매도 매수잔량 10주 · 잔량추적 55% · 취소 매수잔량 10주.
+ * 상장주식수 비율 5칸(선매수 매도잔량 · 체결량 · 추가매수 최소/최대 · 매도 체결)은 여기 값이 **폴백**이고, 상장주식수를
+ * 알면 `seedListSharesDefaults` 가 폼당 1회 덮는다(D-17). 가격 5칸은 `seedFromUpperLimit` 이 채운다.
  *
  * ★ 매 호출 **새 객체**를 돌려준다. 모듈 상수를 공유하면 한 폼의 편집이 다음 신규 폼으로 샌다.
  */
@@ -269,7 +273,7 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
     buyEnabled: false,
     // 매수가격
     buyOrderPrice: 0,
-    buyOrderAmount: 10, // DEFAULT_BUY_ORDER_AMOUNT (만원) — Designer 기본 20,000 과 다르다
+    buyOrderAmount: 4000, // DEFAULT_BUY_ORDER_AMOUNT = 4000만원, D-04 — 옛 10만원 폐기
     // 한방체결
     sweepWatchPrice: 0,
     sweepMinTickCount: 3, // DEFAULT_SWEEP_MIN_TICK_COUNT
@@ -280,7 +284,7 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
     sellMinTradeQty: 30_000, // DEFAULT_SELL_MIN_TRADE_QTY
     sellTradeQtyEnabled: false,
     sellQtyTrackEnabled: false,
-    sellQtyTrackRatio: 50, // DEFAULT_SELL_QTY_TRACK_RATIO
+    sellQtyTrackRatio: 55, // DEFAULT_SELL_QTY_TRACK_RATIO = 55%, D-04 — 옛 50 폐기
     sellEnabled: false,
     // 매도가격
     sellOrderPrice: 0,
@@ -294,7 +298,7 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
     // 그룹 스위치는 전부 OFF 로 시작한다(D-05).
     preBuyEnabled: false,
     extraBuyEnabled: false,
-    // 추가매수 최소·최대 매수잔량(주) — 상장주식수 시딩(D-17)은 24-07. 폴백 0 = 1주 · 무제한.
+    // 추가매수 최소·최대 매수잔량(주) — 폴백 0 = 1주 · 무제한. 상장주식수를 알면 `seedListSharesDefaults`(D-17)가 채운다.
     extraBuyMinQty: 0,
     extraBuyMaxQty: 0,
     extraBuyOrderAmount: 4000, // DEFAULT_EXTRA_BUY_ORDER_AMOUNT (만원) — D-04
@@ -303,6 +307,46 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
     postBuyFloorQty: 100_000, // DEFAULT_POST_BUY_FLOOR_QTY (주)
     postBuyReentry: 3, // DEFAULT_POST_BUY_REENTRY (회, 최초 포함)
     postBuyOrderAmount: 4000, // DEFAULT_POST_BUY_ORDER_AMOUNT (만원) — D-04
+  };
+}
+
+/* ── 상장주식수 시딩 (Phase 24 · 24-07 · D-17) ─────────────────────────────────────────────── */
+
+/** 상장주식수 × 0.3% — 천분율 3(정수 연산 · 부동소수 금지). */
+export const LIST_SHARES_SEED_PERMILLE = 3;
+/** 상장주식수 × 3% — 백분율 3. */
+export const LIST_SHARES_SEED_PERCENT = 3;
+/** relay 스키마 · 서버 cfg 의 추가매수 최소 · 최대 잔량 상한(uint32). */
+export const UINT32_MAX = 4_294_967_295;
+
+/** 상장주식수 시딩이 채우는 5칸. */
+export type ListSharesSeed = Pick<
+  LimitChaserFormValues,
+  'buyWatchQty' | 'buyMinTradeQty' | 'extraBuyMinQty' | 'extraBuyMaxQty' | 'sellMinTradeQty'
+>;
+
+/**
+ * 상장주식수 5칸 시딩 — WinForms `SeedListSharesDefaults`(LimitChaserForm.cs) 동형 · 순수 함수.
+ *
+ * 선매수 매도잔량 · 체결량 · 추가매수 최소 · 매도 체결 = 상장주식수 × 0.3% · 추가매수 최대 = × 3%. 전부 정수 내림이고
+ * 추가매수 최소 · 최대는 uint32 상한에서 멈춘다. 상장주식수를 모르면(≤ 0) null — 호출자는 가드를 소진하지 않는다.
+ * 적용 규칙(D-17 ①~④)은 호출자(폼) 몫이다:
+ *   ① 서버에 그 키의 전략이 있으면 시딩하지 않는다(에코가 이긴다).
+ *   ② 0(모름)이면 가드를 남겨 뒤에 오는 호가 프레임이 채운다 — 그동안 `defaultLimitChaserForm` 폴백이 남는다.
+ *   ③ 사용자가 이 폼에서 손댄 칸은 덮지 않는다.
+ *   ④ 폼당 1회 · 제출 · 로그 · 강조를 만들지 않는다(값만 바뀌고 첫 등록 cfg 에 실린다).
+ * ★ `Math.floor(listShares * 3 / 1000)` — 상장주식수(최대 수백억)에 3 을 곱해도 2^53 안이라 정확한 정수다.
+ */
+export function seedListSharesDefaults(listShares: number): ListSharesSeed | null {
+  if (!(listShares > 0)) return null;
+  const permille = Math.floor((listShares * LIST_SHARES_SEED_PERMILLE) / 1000);
+  const percent = Math.floor((listShares * LIST_SHARES_SEED_PERCENT) / 100);
+  return {
+    buyWatchQty: permille,
+    buyMinTradeQty: permille,
+    extraBuyMinQty: Math.min(permille, UINT32_MAX),
+    extraBuyMaxQty: Math.min(percent, UINT32_MAX),
+    sellMinTradeQty: permille,
   };
 }
 

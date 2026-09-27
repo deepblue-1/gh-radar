@@ -488,12 +488,13 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     ).toBeChecked();
 
     // 스위치 6개 전부 OFF(Phase 20 — 매수취소도 스위치 · Phase 24 — 선 · 추가 · 후매수 스위치, 「한방체결 켜기」
-    // 없음) · WinForms 기본값(선매수 금액 10만원 · 매도잔량 10,000) · 더티 바 없음(D-04 — 더티 모델 자체가 없다).
+    // 없음) · WinForms 기본값(선매수 금액 4,000만원 — Phase 24 D-04 · 매도잔량 10,000 — 이 테스트는 시세 응답을 껐으므로
+    // 상장주식수(D-17)를 받지 못해 폴백 그대로) · 더티 바 없음(D-04 — 더티 모델 자체가 없다).
     await expect(card.getByRole('switch')).toHaveCount(6);
     for (const name of ['매수주문 켜기', '선매수 켜기', '추가매수 켜기', '후매수 켜기', '매도주문 켜기', '매수취소 켜기']) {
       await expect(lcSwitch(card, name)).not.toBeChecked();
     }
-    await expect(lcValue(page, 'lc-buy-order-amount')).toHaveText('10만원');
+    await expect(lcValue(page, 'lc-buy-order-amount')).toHaveText('4,000만원');
     await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('10,000주');
     await expect(page.locator(DIRTY_BAR_SEL)).toHaveCount(0);
 
@@ -1063,11 +1064,13 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
 
     // ★ Phase 24 R7 · Pitfall 5 — 무장 가드는 그룹별이다. 마스터는 주문가격 · 비교가격(시세)만 보므로 시세가
     //   있으면 켤 수 있고, 수량 0(10만원 / 12.74만 = 0주)은 누르기 전 패널이 아니라 그 그룹을 켜는 순간의
-    //   사전 검증 줄이 말한다.
+    //   사전 검증 줄이 말한다. 새 전략 기본 금액은 4,000만원(D-04)이라 금액을 10만원으로 내려 수량 0 을 만든다.
     const card = cardOf(page, E2E_ISIN);
     const buySwitch = lcSwitch(card, '매수주문 켜기');
     await expect(buySwitch).toBeEnabled();
     await expect(card.locator('[data-slot="lc-arm-blocked"]')).toHaveCount(0);
+    await editLc(page, 'lc-buy-order-amount', '10'); // 10만원 → 0주(로컬 반영 · 전송 0)
+    await expect(lcValue(page, 'lc-buy-order-amount')).toHaveText('10만원');
     // 선매수를 켜려 하면 그 카드 사전 검증 줄이 수량 0 을 말한다 — 전송 0 · 스위치 그대로 · 줄바꿈 허용 · 잘림 0.
     const setBeforePrecheck = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
     await lcSwitch(card, '선매수 켜기').click();
@@ -1619,7 +1622,9 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await relay.pushLimitChaserEcho({ crud: 'D', buyEnabled: false, buyWatchQty: 8_000 });
 
     await expect(strategyItems(page)).toHaveCount(0, { timeout: 15_000 });
-    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('10,000주');
+    // 삭제 뒤 폼은 새 전략 상태다 — 서버 값(8,000)이 아니라 기본값 + 상장주식수 시딩(D-17 · 스텁 상장주식수
+    // 5,969,782,550 × 0.3% = 17,909,347 — 서버 전략이 없는 새 폼 인스턴스라 폼당 1회 규칙대로 채운다).
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('17,909,347주');
     await expect((await logRows(page)).filter({ hasText: '전략이 삭제됐어요' })).toHaveCount(1);
   });
 

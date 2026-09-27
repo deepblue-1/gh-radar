@@ -247,6 +247,8 @@ export function CardBody({
       exchange={exchange}
       server={server}
       upperLimit={upperLimit}
+      // D-17 상장주식수 시딩 원천 — 호가 프레임 `ls` 하나. 모르면(없음 · 0) 0 → 폼은 폴백을 유지하고 뒤 프레임을 기다린다.
+      listShares={quote !== null && quote.ls > 0 ? quote.ls : 0}
       disabled={isin === '' || accountNo === '' || status !== 'ready'}
       groupStatus={groups}
       serverAnswerSeq={answerSeq}

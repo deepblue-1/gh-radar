@@ -1193,7 +1193,8 @@ describe('WR-07 · D-04a — 서버가 주문금액을 모르는 레거시 전�
 
   it('미등록 전략은 해당 없다 — 주문금액 행은 폼 값 그대로', () => {
     render(<LimitChaserForm {...props({ server: null })} />);
-    expect(rowText('lc-buy-order-amount')).toBe('10만원');
+    // D-04 새 전략 기본값 — 선매수 금액 4,000만원(옛 10만원 폐기 · 24-07).
+    expect(rowText('lc-buy-order-amount')).toBe('4,000만원');
   });
 });
 

@@ -106,6 +106,7 @@ import {
   preBuyAutoCheckLogLine,
   preBuyAutoChecksOf,
   seedFromUpperLimit,
+  seedListSharesDefaults,
   type LimitChaserFormValues,
 } from '@/lib/limit-chaser';
 import { cn } from '@/lib/utils';
@@ -449,6 +450,11 @@ export interface LimitChaserFormProps {
   server?: RelayLimitChaser | null;
   /** 상한가 — 신규 폼에서 가격 5칸을 **1회만** 시딩한다. */
   upperLimit?: number;
+  /**
+   * 호가 프레임 상장주식수(`RelayQuote.ls`) — D-17 시딩 원천, 0 = 모름. 새 전략(서버 전략 없음)이면 폼당 1회
+   * 수량 5칸을 채운다(`seedListSharesDefaults` · 사용자가 이 폼에서 손댄 칸 제외 · 제출 없음).
+   */
+  listShares?: number;
   /** 세션 미준비 등 — 폼 전체 비활성. */
   disabled?: boolean;
   /**
@@ -533,6 +539,7 @@ export function LimitChaserForm({
   exchange,
   server = null,
   upperLimit,
+  listShares = 0,
   disabled = false,
   groupStatus,
   tab: controlledTab,
@@ -659,6 +666,32 @@ export function LimitChaserForm({
   const sheetReturnRef = useRef<HTMLElement | null>(null);
   // 내 확정이 에코로 성공하면 그 행의 편집·시트를 닫는다(성공 판정은 훅 — 값 비교뿐이다).
   const { successSeq, lastSuccessField, commit: commitField, clearFailure } = lc;
+
+  /*
+    ★ D-17 상장주식수 시딩 — 새 전략(서버 전략 없음)에서 **폼당 1회** 수량 5칸을 채운다(WinForms `SeedListSharesDefaults`).
+      ① 서버에 그 키의 전략이 있으면 시딩하지 않는다(에코가 이긴다 · 가드 소진).
+      ② `listShares === 0`(모름)이면 아무것도 하지 않아 가드가 남는다 — 뒤에 오는 프레임이 채운다(그동안 폴백 유지).
+      ③ 사용자가 이 폼에서 확정한 값 칸(`touchedRef` — 인라인 · 시트 확정 경로)은 덮지 않는다.
+      ④ **제출 · 로그(`onClientLog`) · 강조를 만들지 않는다** — `setForm` 한 번뿐이고, 값은 첫 등록 cfg 에 실린다.
+  */
+  const touchedRef = useRef(new Set<LcNumField>());
+  const seededRef = useRef(false);
+  /** 사람이 이 폼에서 값을 확정했다 — 보내지 못한 확정(막힘 · 끊김)은 값이 바뀌지 않았으므로 세지 않는다. */
+  const markTouched = useCallback((field: LcNumField, outcome: string) => {
+    if (outcome !== 'blocked' && outcome !== 'disconnected') touchedRef.current.add(field);
+  }, []);
+  useEffect(() => {
+    if (seededRef.current) return;
+    const seed = seedListSharesDefaults(listShares);
+    if (seed === null) return; // ② 모른다 — 가드를 남긴다.
+    seededRef.current = true;
+    if (server != null) return; // ① 서버 값이 이긴다.
+    const patch: Partial<LimitChaserFormValues> = {};
+    for (const [field, value] of Object.entries(seed) as [keyof typeof seed, number][]) {
+      if (!touchedRef.current.has(field)) patch[field] = value; // ③
+    }
+    if (Object.keys(patch).length > 0) setForm((prev) => ({ ...prev, ...patch }));
+  }, [listShares, server]);
   useEffect(() => {
     if (successSeq === 0 || lastSuccessField === null) return;
     setEditingField((cur) => (cur === lastSuccessField ? null : cur));
@@ -675,10 +708,11 @@ export function LimitChaserForm({
   const handleInlineSave = useCallback(
     (field: LcNumField, value: number, via: InlineSaveVia) => {
       const outcome = commitField(field, value, 'value');
+      markTouched(field, outcome);
       if (via === 'blur') endEdit();
       else if (via === 'enter' && (outcome === 'noop' || outcome === 'local')) endEdit();
     },
-    [commitField, endEdit],
+    [commitField, endEdit, markTouched],
   );
   const handleInlineCancel = useCallback(
     (field: LcNumField) => {
@@ -723,9 +757,10 @@ export function LimitChaserForm({
   const handleSheetConfirm = useCallback(
     (field: LcNumField, value: number) => {
       const outcome = commitField(field, value, 'value');
+      markTouched(field, outcome);
       if (outcome === 'noop' || outcome === 'local') setSheetField(null);
     },
-    [commitField],
+    [commitField, markTouched],
   );
   const handleSheetClose = useCallback(() => {
     if (sheetField !== null) clearFailure(sheetField);
