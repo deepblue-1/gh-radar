@@ -16,11 +16,28 @@ set -euo pipefail
 #   env 파일은 `set -a; source` 로만 읽고 내용을 echo 하지 않으며, 검증 실패 시에도
 #   **비어 있는 키 이름만** 출력한다. 값은 어떤 경로로도 찍지 않는다. 셸 추적 모드 금지.
 #
-# 종료 코드: 3 = env 파일 없음 · 키 비어 있음 · 키 파일 없음(fastlane 시작 전)
+# 사용: bash scripts/release-ios.sh [beta|latest]   (기본 beta)
+#   beta    Release archive → TestFlight 업로드 → check-ipa (인자 없음과 같다)
+#   latest  조회 전용 — 최신 TestFlight 빌드 번호 + 처리 상태 한 줄
+#           「latest TestFlight build {번호} state {상태}」 (업로드·아카이브·check-ipa 없음)
+#   env 검사는 두 모드에 똑같이 적용한다(ios.env 는 한 파일이다).
+#
+# 종료 코드: 2 = 모르는 모드(env 로드 전)
+#            3 = env 파일 없음 · 키 비어 있음 · 키 파일 없음(fastlane 시작 전)
 #            그 외 = fastlane lane 또는 check-ipa.sh 의 종료 코드
 #
 # 선택 env: GHTRADE_RELEASE_ENV  env 파일 경로. 기본 ~/.config/gh-trade/release/ios.env
 # ═══════════════════════════════════════════════════════════════
+
+# 모드 검사는 env 로드 전에 한다 — 오타가 기본 업로드(beta)로 떨어지지 않게(T-22-28).
+MODE="${1:-beta}"
+case "$MODE" in
+  beta|latest) ;;
+  *)
+    echo "사용: bash scripts/release-ios.sh [beta|latest]   (기본 beta)" >&2
+    exit 2
+    ;;
+esac
 
 # mobile/ 로 이동 — 어느 cwd 에서 실행해도 같은 상대 경로를 쓴다.
 cd "$(dirname "$0")/.."
@@ -62,6 +79,11 @@ fi
 export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
 export FASTLANE_SKIP_UPDATE_CHECK=1
 export FASTLANE_HIDE_CHANGELOG=1
+
+if [[ "$MODE" == "latest" ]]; then
+  (cd ios/App && bundle exec fastlane latest)
+  exit 0
+fi
 
 (cd ios/App && bundle exec fastlane beta)
 bash scripts/check-ipa.sh

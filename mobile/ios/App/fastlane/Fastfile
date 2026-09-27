@@ -7,6 +7,12 @@
 #       → App Store 프로파일로 수동 export → TestFlight 업로드(내부 그룹 자동 배포).
 # 빌드 번호는 xcargs 로 빌드 설정만 덮어쓴다 — 프로젝트 파일은 건드리지 않는다.
 # 산출물(.ipa · .dSYM.zip · .mobileprovision · build_number.txt)은 GHTRADE_RELEASE_OUT(저장소 밖)에만 떨어진다.
+#
+# lane 목록:
+#   beta    Release archive → App Store 프로파일 export → TestFlight 업로드 (래퍼 기본 모드)
+#   latest  조회 전용 — 최신 TestFlight 빌드 번호 + 처리 상태 한 줄
+#           「latest TestFlight build {번호} state {PROCESSING|FAILED|INVALID|VALID|UNKNOWN}」
+#           빌드·서명·업로드 없음 · GHTRADE_RELEASE_OUT 에 쓰지 않음 (22-06 · 22-09 가 이 줄을 grep 한다)
 require File.expand_path("../../../fastlane/build_numbers.rb", __dir__)
 require "fileutils"
 
@@ -62,5 +68,36 @@ platform :ios do
       api_key: api_key,
       skip_waiting_for_build_processing: true
     )
+  end
+
+  desc "조회 전용: 최신 TestFlight 빌드 번호 + 처리 상태 (업로드 없음)"
+  lane :latest do
+    # 값은 출력하지 않는다 — 비어 있는 키 이름만. 산출 경로는 쓰지 않으므로 검사하지 않는다.
+    missing = %w[ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_PATH].select { |k| ENV[k].to_s.empty? }
+    UI.user_error!("환경변수 비어 있음: #{missing.join(' ')} — ~/.config/gh-trade/release/ios.env") unless missing.empty?
+
+    api_key = app_store_connect_api_key(
+      key_id: ENV["ASC_KEY_ID"],
+      issuer_id: ENV["ASC_ISSUER_ID"],
+      key_filepath: ENV["ASC_KEY_PATH"],
+      in_house: false
+    )
+
+    number = latest_testflight_build_number(
+      api_key: api_key,
+      app_identifier: "com.ghtrade.app"
+    )
+
+    # Spaceship 인자는 설치된 2.240.1 에서 실행으로 확인했다:
+    #   Build.all(client:, app_id:, version:, build_number:, platform:, processing_states:, includes:, sort:, limit:)
+    #   Build::ProcessingState = INVALID · PROCESSING · FAILED · VALID
+    Spaceship::ConnectAPI.token ||= Spaceship::ConnectAPI::Token.from(hash: api_key)
+    app = Spaceship::ConnectAPI::App.find("com.ghtrade.app")
+    build = app && Spaceship::ConnectAPI::Build.all(app_id: app.id, build_number: number.to_s).find do |b|
+      b.version.to_s == number.to_s
+    end
+    state = build ? build.processing_state : "UNKNOWN"
+
+    UI.message("latest TestFlight build #{number} state #{state}")
   end
 end
