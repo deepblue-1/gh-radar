@@ -14,6 +14,7 @@
     "native:check-external-links:ios": "bash scripts/check-external-links-ios.sh",
     "native:test:android": "cd android && ./gradlew testDebugUnitTest --tests com.ghtrade.app.TabRoutesTest --tests com.ghtrade.app.ExternalLinksTest",
     "native:verify-prod": "node scripts/verify-prod-config.mjs",
+    "native:release": "bash scripts/release-apps.sh",
     "native:release:ios": "cap sync && node scripts/verify-prod-config.mjs && bash scripts/release-ios.sh",
     "native:release:android": "cap sync && node scripts/verify-prod-config.mjs && bash scripts/release-android.sh firebase",
     "native:release:android:aab": "cap sync && node scripts/verify-prod-config.mjs && bash scripts/release-android.sh build",

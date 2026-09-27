@@ -86,10 +86,11 @@ pnpm --filter @gh-radar/mobile run native:verify-prod   # PROD CONFIG OK 여야 
 
 ### 릴리스 명령
 
-저장소 루트에서 `pnpm --filter @gh-radar/mobile run <스크립트>` 로 실행한다. 네 명령 모두 `cap sync`(양 플랫폼) → `native:verify-prod`(`PROD CONFIG OK`)를 먼저 돈다.
+저장소 루트에서 `pnpm --filter @gh-radar/mobile run <스크립트>` 로 실행한다. 플랫폼 명령은 모두 `cap sync`(양 플랫폼) → `native:verify-prod`(`PROD CONFIG OK`)를 먼저 돈다. 웹 화면·기능 변경은 앱 릴리스가 필요 없다 — `git push`(Vercel 배포)만으로 두 앱에 반영된다(앱이 운영 웹을 불러온다). 앱 릴리스는 네이티브 셸(탭바 · 아이콘 · 권한 · 플러그인 · Capacitor 설정)이 바뀌었을 때만 한다.
 
 | 스크립트 | 하는 일 | 성공 표식 |
 |---|---|---|
+| `native:release` | **평소에 쓰는 한 줄.** iOS → Android 를 차례로 올리고(`scripts/release-apps.sh`), TestFlight 처리 완료(VALID)와 Firebase 최신 번호까지 확인한 뒤 결과 표를 낸다. 직전 빌드와 같은 분이면 다음 분까지 기다린다. 한 플랫폼만: `bash mobile/scripts/release-apps.sh ios` · `android`. 로그는 `~/Library/Developer/gh-trade-release/logs/`. | 끝의 「GH Trade 앱 릴리스 결과」 표 |
 | `native:release:ios` | Release archive(App Store 프로파일) → TestFlight 업로드 → IPA 검사 | `IPA CHECK OK` |
 | `native:release:android` | 업로드 키로 서명한 release APK → APK 검사 → Firebase 업로드(그룹 `ghtrade-testers`). Android 기본 경로다(D-15). | `APK CHECK OK` 다음 `App Distribution upload finished successfully` |
 | `native:release:android:aab` | 서명된 AAB 만 만든다. 업로드는 없다(Play 경로 보존 · D-16). | `AAB CHECK OK` |
