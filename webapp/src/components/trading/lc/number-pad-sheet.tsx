@@ -78,6 +78,11 @@ export interface NumberPadSheetProps {
   initialValue: number | null;
   /** 「지금 ○○」 서버 값. null/undefined 면 표시하지 않는다. */
   serverValue?: number | null;
+  /**
+   * 「지금 ○○」 표시 문자열(Phase 24 D-10) — 주면 숫자 대신 이 글자를 쓴다(「지금 무제한」). 판정은 호출부가
+   * 행과 같은 함수(`lcValueTextOf`)에서 받는다. 「다른 단말에서 바뀌었어요」 비교는 여전히 `serverValue` 다.
+   */
+  serverValueText?: string;
   ctx: PadCtx;
   status?: 'editing' | 'busy' | 'failed';
   /** 실패 문구(`LC_COMMIT_TEXT.failed` · `.disconnected`) — 상태 줄 alert. */
@@ -125,6 +130,7 @@ export function NumberPadSheet({
   purpose,
   initialValue,
   serverValue,
+  serverValueText,
   ctx,
   status = 'editing',
   failureText,
@@ -303,8 +309,7 @@ export function NumberPadSheet({
                 data-slot="numpad-server"
                 className="ml-auto shrink-0 text-[12.5px] whitespace-nowrap text-[var(--muted-fg)] tabular-nums"
               >
-                지금 {fmt(serverValue)}
-                {unit}
+                {serverValueText !== undefined ? `지금 ${serverValueText}` : `지금 ${fmt(serverValue)}${unit}`}
               </span>
             )}
           </div>

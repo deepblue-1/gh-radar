@@ -103,41 +103,48 @@ const EMPTY_LADDER_QUOTE: RelayQuote = {
   et: '',
 };
 
-/** 그룹 제목 옆 보조문 4개 — UI-SPEC §카드 「그룹 보조문」 5문구 중 하나씩. */
+/** 카드 제목 옆 상태 문구 6개 — UI-SPEC §11 상태 문구 표(Phase 24). 키는 `lc-fields.ts` `LcStatusKey`. */
 export interface CardGroupStatus {
   buy: string;
-  sweep: string;
+  preBuy: string;
+  extraBuy: string;
+  postBuy: string;
   sell: string;
   cancel: string;
 }
 
+/** D-15 — 후매수 발동(단계 2) 중인 매도 · 취소 카드 상태 꼬리. 행 값에는 따로 표시하지 않는다. */
+const POST_BUY_FIRED_TAIL = ' · 후매수 발동';
+
 /**
- * 서버 에코 → 그룹 보조문 (**순수 함수**, 목업 `18-workbench-mockup.html` `:934-937` 동형).
+ * 서버 에코 → 카드 상태 문구 (**순수 함수** · UI-SPEC §11 표 — 위에서부터 첫 일치).
  *
- * ★ 판정 입력은 **서버 에코 하나**다(D-27) — 폼 더티값·스위치 표시값을 읽지 않는다. 래치
- *   단계(대기 ↔ 감시)는 `latchLedStateOf`(17-07) 가 소유하고 여기서는 문구로 옮기기만 한다 —
- *   LED 칩과 보조문이 같은 무장을 서로 다르게 말하는 순간을 만들지 않는다.
- * ★ `fired` 는 와이어 필드가 아니라 카드가 아는 사실이다(Pitfall 10). 발주로 무장이 풀린 매수만
- *   「발주 완료 · 무장 해제」이고, 사용자가 끈 것은 「꺼짐」이다.
+ * ★ 판정 입력은 **서버 에코 하나**다(D-27 · T-24-16) — 폼 더티값 · 스위치 표시값을 읽지 않는다.
+ * ★ 매수주문 = 꺼짐 / 보유중(`postBuyPhase === 2`) / 켜짐 · 켠 매수 없음(세 그룹 에코 OFF ∧ 마스터 ON —
+ *   D-02 후반 가드로 자동 마스터 끔을 보내지 않았거나 그 제출이 나가 있는 잠깐) / 감시 중.
+ *   「보유중」을 「무장 · 대기」로 읽던 옛 매핑(Pitfall 13)과 발주 완료 문구는 은퇴했다 — 마스터는 발주로
+ *   접히지 않고, 선 · 추가매수가 발주로 꺼진 사실은 서버 사유 줄이 말한다.
+ * ★ 매도 · 취소 래치 단계(대기 ↔ 감시)는 `latchLedStateOf`(17-07)가 소유한다 — LED 칩과 상태 문구가 같은
+ *   무장을 서로 다르게 말하지 않는다. 후매수 발동 중이면 꺼지지 않은 두 카드에 꼬리(D-15).
  */
-export function cardGroupStatusOf(
-  server: RelayLimitChaser | null,
-  fired: boolean,
-): CardGroupStatus {
-  const led = server === null ? null : { ...server, hadOrder: fired };
-  const stage = (kind: 'buy' | 'sell' | 'cancel') =>
-    latchLedStateOf(kind, led).tone === 'armed' ? '감시 중' : '무장 · 대기';
-  const cancelOff = latchLedStateOf('cancel', led).tone === 'off';
+export function cardGroupStatusOf(server: RelayLimitChaser | null): CardGroupStatus {
+  const s = server;
+  const stage = (kind: 'sell' | 'cancel') =>
+    latchLedStateOf(kind, s).tone === 'armed' ? '감시 중' : '무장 · 대기';
+  const holding = s?.postBuyPhase === 2;
+  const tail = (text: string) => (holding && text !== '꺼짐' ? `${text}${POST_BUY_FIRED_TAIL}` : text);
+
+  const noBuyGroup = !s?.preBuyEnabled && !s?.extraBuyEnabled && !s?.postBuyEnabled;
+  const buy = !s?.buyEnabled ? '꺼짐' : holding ? '보유중' : noBuyGroup ? '켜짐 · 켠 매수 없음' : '감시 중';
+  const postBuy =
+    s?.postBuyPhase === 3 ? '소진' : holding ? '보유중' : s?.postBuyEnabled === true ? '감시 중' : '꺼짐';
   return {
-    buy:
-      server?.buyEnabled === true
-        ? stage('buy')
-        : fired
-          ? '발주 완료 · 무장 해제'
-          : '꺼짐',
-    sweep: server?.sweepEnabled === true ? '켜짐' : '꺼짐',
-    sell: server?.sellEnabled === true ? stage('sell') : '꺼짐',
-    cancel: cancelOff ? '꺼짐' : stage('cancel'),
+    buy,
+    preBuy: s?.preBuyEnabled === true ? '감시 중' : '꺼짐',
+    extraBuy: s?.extraBuyAbandoned === true ? '포기' : s?.extraBuyEnabled === true ? '감시 중' : '꺼짐',
+    postBuy,
+    sell: tail(s?.sellEnabled === true ? stage('sell') : '꺼짐'),
+    cancel: tail(latchLedStateOf('cancel', s).tone === 'off' ? '꺼짐' : stage('cancel')),
   };
 }
 
@@ -192,7 +199,6 @@ export function CardBody({
     quote,
     tape,
     isStale,
-    fired,
     resetSeq,
     liveSeed,
     answerSeq,
@@ -227,7 +233,7 @@ export function CardBody({
   const displayName = name === '' ? isin : name;
   // 시간외종가 「참고 종가」(스케치 008 ③ — 가격 잠김 · 참고 종가). `kc > 0` 하나가 「종가 확정」 신호다(벽시계 아님).
   const closeRef = referenceClose ?? (quote !== null && quote.kc > 0 ? quote.kc : null);
-  const groups = cardGroupStatusOf(server, fired);
+  const groups = cardGroupStatusOf(server);
   // D-15a — 종목 분류 → 호가 단위 잠금 강도. 조회 중(`undefined`)은 주식 잠금 그대로다.
   const tickRule = useTickRule(isin);
 
@@ -241,10 +247,7 @@ export function CardBody({
       server={server}
       upperLimit={upperLimit}
       disabled={isin === '' || accountNo === '' || status !== 'ready'}
-      buyStatusText={groups.buy}
-      sellStatusText={groups.sell}
-      sweepStatusText={groups.sweep}
-      cancelStatusText={groups.cancel}
+      groupStatus={groups}
       serverAnswerSeq={answerSeq}
       // Phase 20 — 필드 확정 실패 판정(3초 무응답)은 상태줄 「미반영」과 **같은 신호**다(UI-SPEC A10).
       unacked={unacked}

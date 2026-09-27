@@ -452,7 +452,7 @@ describe('⑥ 즉시 반영 — 더티 바 없음 (D-04)', () => {
   /** 「잔량 10,000주」 행을 눌러 인라인 편집기를 열고 값을 친 뒤 Enter — 확정 1회. */
   function commitWatchQty(value: string): HTMLInputElement {
     act(() => {
-      fireEvent.click(screen.getByRole('button', { name: '잔량 10,000주' }));
+      fireEvent.click(screen.getByRole('button', { name: '선매수 매도잔량 10,000주' }));
     });
     const input = document.querySelector('#lc-buy-watch-qty') as HTMLInputElement;
     expect(input, '잔량 인라인 입력').not.toBeNull();
@@ -509,19 +509,19 @@ describe('⑥ 즉시 반영 — 더티 바 없음 (D-04)', () => {
     beforeEach(() => mockPointer(true));
     afterEach(restoreMatchMedia);
 
-    it('매수가격 행 탭 → 시트 「매수가격」 · 시세가 있으면 칩 「현재가」 활성', () => {
+    it('매수 주문가격 행 탭 → 시트 「주문가격」 · 시세가 있으면 칩 「현재가」 활성', () => {
       render(<CardBody {...props({ card: cardState({ server: server(), quote: quote() }) })} />);
       act(() => {
-        fireEvent.click(screen.getByRole('button', { name: '매수가격 130,000원' }));
+        fireEvent.click(screen.getByRole('button', { name: '매수 주문가격 130,000원' }));
       });
-      expect(screen.getByRole('dialog', { name: '매수가격' })).toBeInTheDocument();
+      expect(screen.getByRole('dialog', { name: '주문가격' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: '현재가' })).toBeEnabled();
     });
 
     it('시세가 없으면 칩 「현재가」 는 비활성이다', () => {
       render(<CardBody {...props({ card: cardState({ server: server() }) })} />);
       act(() => {
-        fireEvent.click(screen.getByRole('button', { name: '매수가격 130,000원' }));
+        fireEvent.click(screen.getByRole('button', { name: '매수 주문가격 130,000원' }));
       });
       expect(screen.getByRole('button', { name: '현재가' })).toBeDisabled();
     });
@@ -580,7 +580,7 @@ describe('⑦ D-15a — 종목 분류가 두 폼의 호가 단위 잠금을 가�
     await settle();
     // 상따 매수가격 시트 — 130,050 은 주식 표(100원 구간) 위반.
     act(() => {
-      fireEvent.click(screen.getByRole('button', { name: '매수가격 130,000원' }));
+      fireEvent.click(screen.getByRole('button', { name: '매수 주문가격 130,000원' }));
     });
     typeKeys('130050');
     expect(within(statusLine()).queryByRole('alert')).toBeNull();
@@ -602,7 +602,7 @@ describe('⑦ D-15a — 종목 분류가 두 폼의 호가 단위 잠금을 가�
     render(<CardBody {...props({ card: cardState({ server: server(), quote: quote() }) })} />);
     await settle();
     act(() => {
-      fireEvent.click(screen.getByRole('button', { name: '매수가격 130,000원' }));
+      fireEvent.click(screen.getByRole('button', { name: '매수 주문가격 130,000원' }));
     });
     typeKeys('130050');
     expect(within(statusLine()).getByRole('alert')).toHaveTextContent('100원 단위로 입력해 주세요');

@@ -5,9 +5,13 @@
  *
  * ① 무엇을 어디에
  *   무엇을 어떤 순서로 그리는지는 **`lc/lc-fields.ts` 한 곳**이 정한다(D-19) — 매수 쪽 =
- *   [매수가격 · 주문금액] → 매수주문 → 한방체결 · 매도 쪽 = [매도가격 · 매도비율] → 매도주문 →
- *   매수취소(맨 아래). 행 모양은 `lc/setting-group.tsx` 의 조각이다(값 행 · 체크 값 행 ·
- *   기준선 행 · 그룹 카드 · 그룹 스위치). 이 파일은 그 둘을 **값·전송 배선**으로 잇는다.
+ *   매수주문 공통 카드(주문가격 · 비교가격) → 선매수 → 추가매수 → 후매수(접이식 카드 3장 · Phase 24 ⑤) ·
+ *   매도 쪽 = [주문가격 · 매도비율] → 매도주문 → 매수취소(맨 아래). 행 모양은 `lc/setting-group.tsx` 의
+ *   조각이다(값 행 · 체크 값 행 · 읽기 전용 행 · 그룹 카드 · 그룹 스위치). 이 파일은 그 둘을 **값·전송
+ *   배선**으로 잇는다. 표시 판정(의미어 · 요약 줄 · 접근성 이름 · 흐림)도 `lc-fields.ts` 순수 함수다.
+ *   ★ 세 그룹 카드의 접힘은 폼 인스턴스 `useState` 하나다(R1) — 저장하지 않고, 에코 · 탭 전환 · 밴드 변화에
+ *     풀리지 않으며, remount 때만 전부 접힘으로 돌아간다. 접힌 행은 CSS `hidden` 이라 **언마운트하지 않는다**
+ *     (아래 탭 숨김과 같은 이유). 자동 펼침은 그 카드 안 행 확정 실패 한 경우뿐이다(T-24-19).
  *   본문 폭 **700px 이상**이면 매수 | 매도 두 열이 나란히 서고 각 열 머리가 「● 매수」/「● 매도」다.
  *   그 아래(폰 밴드)는 탭 하나당 한 열이다.
  *   ★ 판정 기준은 뷰포트가 아니라 **본문 폭**이다 (260912-k2x). 밴드 표와 경계 셋의 실측
@@ -108,8 +112,13 @@ import {
   LC_SELL_GROUPS,
   LC_SWITCH_LABEL,
   lcNavigableRows,
+  lcRowA11yNameOf,
   lcRowByField,
   lcRowById,
+  lcRowDimOf,
+  lcRowOfField,
+  lcSummaryOf,
+  lcValueTextOf,
   type LcGate,
   type LcGroupSpec,
   type LcNumField,
@@ -122,6 +131,9 @@ import { NumberPadSheet } from '@/components/trading/lc/number-pad-sheet';
 import {
   CheckValueRow,
   DerivedRow,
+  formatSettingValue,
+  GroupNote,
+  GroupSummary,
   GroupSwitch,
   SettingGroup,
   SettingRow,
@@ -322,6 +334,15 @@ const SEND_FAILED_TEXT = {
   gate: '연결이 끊겨 켜기/끄기를 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.',
 } as const;
 
+/** 접이식 그룹 카드 slot(Phase 24 ⑤). */
+type FoldSlot = 'pre-buy' | 'extra-buy' | 'post-buy';
+const FOLD_SLOTS: ReadonlySet<string> = new Set<FoldSlot>(['pre-buy', 'extra-buy', 'post-buy']);
+const isFoldSlot = (slot: string): slot is FoldSlot => FOLD_SLOTS.has(slot);
+/** 매수 쪽 카드 — 시트 「감시 중」 안내를 게이트 에코로 판정한다(D-05 · UI-SPEC §11 끝). */
+const BUY_SIDE_SLOTS: ReadonlySet<string> = new Set(['buy', 'pre-buy', 'extra-buy', 'post-buy']);
+/** 후매수 소진 안내(UI-SPEC §5 · 스케치 원문). */
+const POST_BUY_EXHAUSTED_TEXT = '소진 — 「최대」에 횟수를 넣고 다시 켜면 그 값부터 세요';
+
 export interface LimitChaserFormProps {
   /** 12자 ISIN — 상단 종목 카드(A1)가 고른 값. */
   isin: string;
@@ -344,15 +365,11 @@ export interface LimitChaserFormProps {
   upperLimit?: number;
   /** 세션 미준비 등 — 폼 전체 비활성. */
   disabled?: boolean;
-  /** 그룹 헤더 상태 문구(`무장` / `발주 완료 · 무장 해제` 등). 매핑은 상위 소관이다. */
-  buyStatusText?: string;
-  sellStatusText?: string;
   /**
-   * 한방체결 · 매수취소 그룹 제목 옆 보조문(18-10 카드 본문 — 「켜짐」/「꺼짐」 · 「감시 중」 등).
-   * 없으면 그 자리에 아무것도 그리지 않는다 — 옛 상따 화면은 넘기지 않으므로 DOM 이 그대로다.
+   * 카드 제목 옆 상태 문구(UI-SPEC §11 — 「감시 중」「보유중」「소진」「포기」「꺼짐」 …). 매핑은 상위
+   * (`card-body.tsx` `cardGroupStatusOf`) 소관이다. 없는 키는 그 자리에 아무것도 그리지 않는다.
    */
-  sweepStatusText?: string;
-  cancelStatusText?: string;
+  groupStatus?: Partial<Record<LcStatusKey, string>>;
   /**
    * 폰 밴드 pane 탭 — **제어형** (18-10). 넘기면 이 값이 보이는 pane 을 정하고, 넘기지 않으면
    * 폼이 자체 상태로 든다(옛 화면 경로).
@@ -419,10 +436,7 @@ export function LimitChaserForm({
   server = null,
   upperLimit,
   disabled = false,
-  buyStatusText = '',
-  sellStatusText = '',
-  sweepStatusText,
-  cancelStatusText,
+  groupStatus,
   tab: controlledTab,
   hideTabs = false,
   serverAnswerSeq = 0,
@@ -699,15 +713,53 @@ export function LimitChaserForm({
     return f !== undefined && (f.reason === 'rejected' || f.reason === 'timeout') ? LC_COMMIT_TEXT.failed : null;
   };
   /** 그룹 상태 문구 — 매핑은 상위(`card-body.tsx` `cardGroupStatusOf`) 소관이다. */
-  const statusOf: Record<LcStatusKey, string | undefined> = {
-    buy: buyStatusText,
-    sweep: sweepStatusText,
-    sell: sellStatusText,
-    cancel: cancelStatusText,
-  };
-  /** 스위치를 지금 누를 수 없는가 — 매수취소(`cancelQtyEnabled`)는 무장 판정 게이트가 아니다. */
+  const statusOf = (key: LcStatusKey | undefined): string | undefined =>
+    key === undefined ? undefined : groupStatus?.[key];
+  /**
+   * 스위치를 지금 누를 수 없는가 — 무장 판정(WR-06)을 지나는 것은 매수주문 · 매도주문 게이트다.
+   * 선 · 추가 · 후매수 · 매수취소는 이 플랜에서 세션 미준비만 본다(그룹별 무장 가드 · 사전 검증은 24-06).
+   */
   const gateDisabled = (gate: LcGate): boolean =>
-    gate === 'cancelQtyEnabled' ? disabled : gateBlocked(gate, !form[gate]);
+    gate === 'buyEnabled' || gate === 'sellEnabled' ? gateBlocked(gate, !form[gate]) : disabled;
+
+  /*
+    ★ 세 그룹 카드 접힘(Phase 24 ⑤ · R1) — false = 접힘(네 밴드 기본 · 켜진 그룹도 자동으로 펼치지 않는다).
+      폼 인스턴스 상태 하나라 에코 재렌더 · 매수/매도 탭 전환 · 밴드 변화에 풀리지 않고, 저장하지 않는다.
+  */
+  const [expanded, setExpanded] = useState<Record<FoldSlot, boolean>>({
+    'pre-buy': false,
+    'extra-buy': false,
+    'post-buy': false,
+  });
+  const toggleFold = useCallback((slot: FoldSlot) => {
+    setExpanded((prev) => ({ ...prev, [slot]: !prev[slot] }));
+  }, []);
+  /*
+    ★ 자동 펼침은 **단 한 경우**다(UI-SPEC §2 · T-24-19) — 접힌 카드 안 행의 확정이 실패해 그 행에 실패
+      말풍선을 띄워야 할 때. 앵커 행이 숨어 있으면 실패가 보이지 않는다(조용한 실패 금지). **새로** 들어온
+      실패만 본다(이전 실패 객체와 정체성 비교). 그룹 스위치 실패는 행이 아니라(제목줄의 스위치가 말한다)
+      펼치지 않고, 에코 · 사전 검증으로도 펼치지 않는다. 체크는 말풍선이 뜨는 거부 · 무응답만.
+  */
+  const prevFailuresRef = useRef(lc.failures);
+  useEffect(() => {
+    const prev = prevFailuresRef.current;
+    prevFailuresRef.current = lc.failures;
+    const open: FoldSlot[] = [];
+    for (const [field, f] of Object.entries(lc.failures) as [LcFieldKey, LcCommitFailure | undefined][]) {
+      if (f === undefined || prev[field] === f) continue;
+      const hit = lcRowOfField(field);
+      if (hit === null || !isFoldSlot(hit.group.slot)) continue;
+      if (hit.isCheck && f.reason !== 'rejected' && f.reason !== 'timeout') continue;
+      open.push(hit.group.slot);
+    }
+    if (open.length === 0) return;
+    setExpanded((cur) => {
+      if (open.every((slot) => cur[slot])) return cur;
+      const next = { ...cur };
+      for (const slot of open) next[slot] = true;
+      return next;
+    });
+  }, [lc.failures]);
 
   /**
    * 인라인 편집기 — 실패로 남은 입력값이 있으면 그 값으로 다시 연다(입력 보존 · A-P3).
@@ -788,7 +840,19 @@ export function LimitChaserForm({
     };
   }
 
+  /**
+   * 값 행의 표시 문자열 · 접근성 이름 — 판정은 `lc-fields.ts` 순수 함수 한 곳이다(UI-SPEC §4 · D-09 · D-10).
+   * 선매수 금액을 서버가 모르면(D-04a) `shownValueOf` 가 `null` → 「—」 이다.
+   */
+  function displayOf(group: LcGroupSpec, row: Extract<LcRowSpec, { kind: 'value' | 'checkValue' }>) {
+    const shown = shownValueOf(row.field);
+    const valueText = shown === null ? undefined : (lcValueTextOf(row.field, form, server) ?? undefined);
+    const text = valueText ?? (shown === null ? '—' : formatSettingValue(shown, row.unit));
+    return { valueText, ariaName: lcRowA11yNameOf(group, row, text) };
+  }
+
   function renderRow(group: LcGroupSpec, row: LcRowSpec): ReactNode {
+    const dim = lcRowDimOf(group, row, form);
     switch (row.kind) {
       case 'value':
         return (
@@ -798,10 +862,14 @@ export function LimitChaserForm({
             label={row.label}
             unit={row.unit}
             value={shownValueOf(row.field)}
+            {...displayOf(group, row)}
+            dim={dim}
             {...valueProps(row.field)}
             onActivate={(el) => activateRow(row.field, el)}
             editor={
-              editingField === row.field ? inlineEditorOf(row.field, row.id, row.label, row.unit, row.range) : undefined
+              editingField === row.field
+                ? inlineEditorOf(row.field, row.id, row.label, row.unit, row.inputRange ?? row.range)
+                : undefined
             }
           />
         );
@@ -820,16 +888,18 @@ export function LimitChaserForm({
             checkBusy={isBusy(check)}
             checkFlash={lc.flashField === check}
             checkFailureText={toggleFailureTextOf(check)}
+            dim={dim}
             {...(row.kind === 'checkValue' && v !== null
               ? {
                   ...v,
+                  ...displayOf(group, row),
                   value: form[row.field],
                   unit: row.unit,
                   valueId: row.id,
                   onActivateValue: (el: HTMLElement) => activateRow(row.field, el),
                   editor:
                     editingField === row.field
-                      ? inlineEditorOf(row.field, row.id, row.label, row.unit, row.range)
+                      ? inlineEditorOf(row.field, row.id, row.label, row.unit, row.inputRange ?? row.range)
                       : undefined,
                 }
               : {})}
@@ -838,21 +908,58 @@ export function LimitChaserForm({
         );
       }
       case 'derived':
+        if (row.source === 'postBuyTriggerQty') {
+          // 후매수 발동잔량 — 펼침이면 단계 0 에서도 늘 그린다(「—」 · sr-only 「없음」 · UI-SPEC §6 · E5).
+          return (
+            <DerivedRow
+              key="post-buy-trigger"
+              slot="lc-post-buy-trigger"
+              label={row.label}
+              value={server?.postBuyTriggerQty ?? 0}
+              unit="주"
+              emphasis
+              valueText="—"
+              srText="없음"
+              dim={dim}
+            />
+          );
+        }
         // S→C 전용 — 서버가 매도 진입을 래치한 뒤에만 존재한다(UI Considerations E1 partial).
         return server?.sellEntryLatched ? (
-          <DerivedRow key="derived" label={row.label} value={server.sellQtyTrackBaseline} unit="주" />
+          <DerivedRow key="derived" label={row.label} value={server.sellQtyTrackBaseline} unit="주" dim={dim} />
+        ) : null;
+      case 'note':
+        // 후매수 소진(단계 3) 안내 — 「최대」 행 바로 아래 · 역할 없음 · 흐리지 않는다(UI-SPEC §5).
+        // 접힌 카드에서는 그리지 않는다(상태 「소진」 + 요약 「3회 · 남은 0회」가 같은 사실을 말하고, 안내가
+        // 가리키는 「최대」 편집은 펼쳐야 가능하다).
+        return server?.postBuyPhase === 3 && expanded['post-buy'] ? (
+          <GroupNote key="post-buy-exhausted" slot="lc-post-buy-exhausted">
+            {POST_BUY_EXHAUSTED_TEXT}
+          </GroupNote>
         ) : null;
     }
   }
 
   function renderGroup(spec: LcGroupSpec): ReactNode {
     const gate = spec.gate;
+    const slot = spec.slot;
     return (
       <SettingGroup
-        key={spec.slot}
+        key={slot}
         spec={spec}
-        statusText={spec.title && spec.statusKey ? statusOf[spec.statusKey] : undefined}
+        statusText={spec.title ? statusOf(spec.statusKey) : undefined}
         on={gate ? form[gate] : undefined}
+        // 흐림은 행마다 한 번(`lcRowDimOf`) — 컨테이너까지 흐리면 .45 × .45 가 된다(⑩ · UI-SPEC §9).
+        dimRows={false}
+        fold={
+          spec.collapsible && isFoldSlot(slot)
+            ? {
+                expanded: expanded[slot],
+                onToggle: () => toggleFold(slot),
+                summary: <GroupSummary items={lcSummaryOf(slot, form, server, lc.amountRequired)} />,
+              }
+            : undefined
+        }
         switchNode={
           gate ? (
             <GroupSwitch
@@ -909,7 +1016,21 @@ export function LimitChaserForm({
   const sheetKey: LcNumField = sheetField ?? 'sweepMinTickCount';
   const sheetFailure = lc.failures[sheetKey];
   const sheetBusy = isBusy(sheetKey);
-  const sheetStatusKey = sheetRow?.group.statusKey;
+  /*
+    D-05 「감시 중 — 적용하면 바로 반영돼요」 — 매수 쪽은 그 행 카드의 게이트 **에코**가 ON 이면(공통 카드 =
+    마스터, 그룹 카드 = 그 그룹 — 「보유중」「켜짐 · 켠 매수 없음」 포함). 매도 쪽은 기존 판정(상태 문구 「감시 중」).
+  */
+  const sheetGroup = sheetRow?.group;
+  const sheetArmed =
+    sheetGroup === undefined
+      ? false
+      : BUY_SIDE_SLOTS.has(sheetGroup.slot)
+        ? sheetGroup.dimGate !== undefined && server?.[sheetGroup.dimGate] === true
+        : (statusOf(sheetGroup.statusKey) ?? '').startsWith('감시 중');
+  // 시트 「지금 ○○」 — 의미어를 행과 같은 함수에서 받는다. 에코 런타임(잔여)은 싣지 않는다 = 설정값(D-11).
+  const sheetServerText =
+    sheetRow === null || shownValueOf(sheetKey) === null ? undefined : (lcValueTextOf(sheetKey, form, null) ?? undefined);
+  const sheetRange = sheetRow === null ? undefined : (sheetRow.row.inputRange ?? sheetRow.row.range);
 
   return (
     <div data-slot="limit-chaser-form" className={cn('min-w-0', className)} onPointerDownCapture={handlePointerDownCapture}>
@@ -967,27 +1088,27 @@ export function LimitChaserForm({
       */}
       <NumberPadSheet
         open={sheetRow !== null}
-        title={sheetRow?.row.label ?? ''}
+        title={sheetRow === null ? '' : (sheetRow.row.sheetTitle ?? sheetRow.row.label)}
         description={sheetRow?.row.desc ?? ''}
         unit={sheetRow?.row.unit ?? '건'}
         purpose="apply"
         initialValue={typeof sheetFailure?.value === 'number' ? sheetFailure.value : shownValueOf(sheetKey)}
         // 값 필드는 낙관 반영이 없어 폼 값 = 서버 동기값이다(D-06). 서버가 모르는 금액은 「지금 ○○」 없음(D-04a).
         serverValue={shownValueOf(sheetKey)}
+        serverValueText={sheetServerText}
         // 필드 범위(relay 스키마 · CR-01) — 범위 밖이면 확인 잠금 · 범위 밖 `set` 칩(잔량추적의 100 등) 비활성.
         // D-15a — 호가 단위 잠금 강도(종목 분류). 원 단위 행만 쓴다.
         ctx={{
           current: currentPrice,
           upper: upperLimit ?? 0,
-          min: sheetRow?.row.range?.min,
-          max: sheetRow?.row.range?.max,
+          min: sheetRange?.min,
+          max: sheetRange?.max,
           tickRule,
         }}
         status={sheetBusy ? 'busy' : sheetFailure !== undefined ? 'failed' : 'editing'}
         failureText={sheetFailure?.text ?? null}
-        // 그 필드가 속한 그룹이 「감시 중」이면 한 줄 안내(추가 확인 없음 · D-05). 가격 섹션은 매수주문·
-        // 매도주문 그룹의 상태를 따른다(`lc-fields.ts` `statusKey`).
-        armedNotice={sheetStatusKey !== undefined && statusOf[sheetStatusKey] === '감시 중'}
+        // 그 행 카드가 감시 중이면 한 줄 안내(추가 확인 없음 · D-05) — 판정은 위 `sheetArmed`.
+        armedNotice={sheetArmed}
         validate={(v) => validateCommit(sheetKey, v)}
         returnFocusRef={sheetReturnRef}
         onConfirm={(v) => handleSheetConfirm(sheetKey, v)}

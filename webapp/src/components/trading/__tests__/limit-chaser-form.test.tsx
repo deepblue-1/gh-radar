@@ -535,7 +535,7 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
     render(<LimitChaserForm {...props()} />);
     const rowsOf = (slot: string) =>
       Array.from((group(slot).querySelector('[data-slot="lc-group-rows"]') as HTMLElement).children);
-    expect(rowsOf('pre-buy').map((el) => el.getAttribute('data-slot') ?? el.getAttribute('data-lc-field'))).toEqual([
+    expect(rowsOf('pre-buy').map((el) => el.getAttribute('data-lc-field') ?? el.getAttribute('data-slot'))).toEqual([
       'lc-buy-order-amount',
       'lc-buy-watch-qty',
       'lc-check-row',
@@ -570,8 +570,8 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
     // + 발동잔량 1 = 25 (고정 스키마 — E1 zero-one-many).
     expect(rows).toHaveLength(25);
     for (const r of Array.from(rows)) expect(r.className).toContain('min-h-[44px]');
-    openInline('lc-sweep-tick');
-    const editing = document.querySelector('[data-lc-field="lc-sweep-tick"][data-editing="true"]') as HTMLElement;
+    openInline('lc-sweep-watch-price');
+    const editing = document.querySelector('[data-lc-field="lc-sweep-watch-price"][data-editing="true"]') as HTMLElement;
     expect(editing.className).toContain('min-h-[44px]');
   });
 
@@ -1289,7 +1289,8 @@ describe('⑮ 매수 카드 4장 · 제목줄 접기 · 요약 줄 · 자동 펼
         })}
       />,
     );
-    const v = within(group('post-buy')).getByText('330,000주');
+    const trig = group('post-buy').querySelector('[data-slot="lc-post-buy-trigger"]') as HTMLElement;
+    const v = within(trig).getByText('330,000주');
     expect(v.className).toContain('text-[var(--up)]');
     expect(rowText('lc-post-buy-reentry')).toBe('3회 · 남은 2회');
   });

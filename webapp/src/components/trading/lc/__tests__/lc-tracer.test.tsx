@@ -217,7 +217,8 @@ describe('트레이서 — 「호가변경」 한 행 (20-01 · D-04 · D-14 · 
     const wrap = input.closest('[data-lc-field]') as HTMLElement;
     expect(wrap.getAttribute('data-lc-field')).toBe('lc-sweep-tick');
     expect(wrap.getAttribute('data-editing')).toBe('true');
-    expect(wrap.className).toContain('min-h-[44px]');
+    // Phase 24 — 한방은 선매수 카드의 체크 값 행(R6)이라 44px 상자는 체크 행이다(편집 중에도 그대로).
+    expect((wrap.closest('[data-slot="lc-check-row"]') as HTMLElement).className).toContain('min-h-[44px]');
 
     const form = document.querySelector('[data-slot="limit-chaser-form"]') as HTMLElement;
     expect(form.textContent).not.toContain('Enter');
@@ -546,13 +547,15 @@ describe('트레이서 — 터치(시트) 경로 (20-03 · D-12 · D-13)', () =>
     tap(padKey('9'));
     tap(confirmBtn());
     expect(sheetStatus().querySelector('[role="alert"]')?.textContent).toBe('연결이 끊겨 보내지 못했어요');
-    expect(row().className).toContain('var(--destructive)');
+    // 체크 값 행의 실패 링은 행 상자(`lc-check-row`)에 선다(Phase 24 — 한방이 체크 값 행이 됐다).
+    const checkRow = () => row().closest('[data-slot="lc-check-row"]') as HTMLElement;
+    expect(checkRow().className).toContain('var(--destructive)');
 
     sendMock.mockClear();
     tap(closeBtn());
     expect(sheet()).toBeNull();
     expect(lcSets()).toHaveLength(0);
-    expect(row().className).not.toContain('var(--destructive)');
+    expect(checkRow().className).not.toContain('var(--destructive)');
     expect(rowValue().textContent).toBe('3건');
   });
 

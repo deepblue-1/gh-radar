@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { RelayLimitChaser } from '@gh-radar/shared';
 
 /**
@@ -839,13 +839,17 @@ describe('에코 분류 — 무엇이 바뀌었나 (quick-260926-nr2)', () => {
     expect(banner()).toBeNull();
   });
 
-  it('NR2-3 보내지 않은 매수 무장 true→false → 「매수 발주 — 무장 해제」 + 「발주 완료 · 무장 해제」 + 배너 없음', async () => {
+  it('NR2-3 보내지 않은 매수 무장 true→false → 「매수 발주 — 무장 해제」 + 매수주문 「꺼짐」 + 배너 없음', async () => {
     setRelay({ limitChasers: [echo({ buyEnabled: true })] });
     const { rerender } = render(<Card />);
     setRelay({ limitChasers: [echo({ buyEnabled: false })] });
     rerender(<Card />);
     await waitFor(() => expect(hasText(TRANSITION_TEXT.buyFired)).toBe(true));
-    expect(screen.getByText('발주 완료 · 무장 해제')).toBeInTheDocument();
+    // Phase 24 UI-SPEC §11 — 카드 상태 「발주 완료 · 무장 해제」는 은퇴했다(마스터 OFF 는 「꺼짐」).
+    expect(screen.queryByText('발주 완료 · 무장 해제')).toBeNull();
+    expect(
+      within(document.querySelector('[data-slot="lc-group-buy"]') as HTMLElement).getByText('꺼짐'),
+    ).toBeInTheDocument();
     expect(banner()).toBeNull();
     noOtherDevice();
   });
@@ -942,7 +946,11 @@ describe('발주 판정 원인 · lc.arm 답 (quick-260926-nr2)', () => {
     rerender(<Card />);
 
     await waitFor(() => expect(hasText(TRANSITION_TEXT.buyFired)).toBe(true));
-    expect(screen.getByText('발주 완료 · 무장 해제')).toBeInTheDocument();
+    // Phase 24 UI-SPEC §11 — 카드 상태 「발주 완료 · 무장 해제」는 은퇴했다(마스터 OFF 는 「꺼짐」).
+    expect(screen.queryByText('발주 완료 · 무장 해제')).toBeNull();
+    expect(
+      within(document.querySelector('[data-slot="lc-group-buy"]') as HTMLElement).getByText('꺼짐'),
+    ).toBeInTheDocument();
   });
 
   it('LED 클릭(send true) → 3초 무응답 → 「미반영」 · 30초 뒤에도 send 1회', () => {
