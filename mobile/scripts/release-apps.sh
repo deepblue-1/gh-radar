@@ -86,7 +86,7 @@ ios_num_file() {
 }
 
 release_ios() {
-  local log="$LOG_DIR/ios-$STAMP.log" num state line num_file
+  local log="$LOG_DIR/ios-$STAMP.log" num state line seen num_file
   num_file="$(ios_num_file)"
   if [[ -n "$num_file" ]]; then wait_new_minute "iOS" "$num_file" ios_num_now; fi
   say "iOS — TestFlight 업로드 (로그: $log)"
@@ -102,18 +102,33 @@ release_ios() {
     return 1
   fi
   say "iOS — 빌드 $num 처리 상태 확인(최대 15분, 30초 간격)"
+  # 판정은 모두 이번 번호($num)에 묶는다(22-REVIEW WR-02). 이전 빌드가 아직 최신으로 보이는 동안
+  # 그 빌드의 INVALID 를 이번 빌드 실패로 오판하지 않는다. seen = 이번 번호로 마지막에 본 상태.
   state="UNKNOWN"
+  seen=""
   for _ in $(seq 1 30); do
     line="$(bash scripts/release-ios.sh latest 2>&1 | grep -oE 'latest TestFlight build [0-9]+ state [A-Z_]+' | tail -1 || true)"
     [[ -n "$line" ]] && echo "    $line"
-    if [[ "$line" == "latest TestFlight build $num state VALID" ]]; then state="VALID"; break; fi
-    if [[ "$line" == *"state INVALID"* || "$line" == *"state FAILED"* ]]; then state="${line##* }"; break; fi
+    case "$line" in
+      "latest TestFlight build $num state VALID") state="VALID"; break ;;
+      "latest TestFlight build $num state INVALID"|"latest TestFlight build $num state FAILED") state="${line##* }"; break ;;
+      "latest TestFlight build $num state "*) seen="${line##* }" ;;
+    esac
     sleep 30
   done
   case "$state" in
     VALID) IOS_RESULT="완료 — 빌드 $num · TestFlight VALID(내부 그룹 자동 배포)" ;;
     INVALID|FAILED) IOS_RESULT="업로드됨 — 빌드 $num · 처리 $state (App Store Connect 메일 확인)"; return 1 ;;
-    *) IOS_RESULT="업로드됨 — 빌드 $num · 15분 안에 VALID 확인 못 함(나중에 release-ios.sh latest)" ;;
+    *)
+      if [[ "$seen" == "PROCESSING" ]]; then
+        # 처리 중인 건 확인했다 — 느린 것뿐이다. 다음 플랫폼으로 넘어간다.
+        IOS_RESULT="업로드됨 — 빌드 $num · 15분 안에 VALID 확인 못 함 · 아직 PROCESSING(나중에 release-ios.sh latest)"
+      else
+        # 15분 동안 이번 번호의 처리 기록(Build)이 안 보였다 — 처리 단계 실패일 수 있어 멈춘다.
+        IOS_RESULT="업로드됨 — 빌드 $num · 15분 동안 처리 기록 없음(${seen:-최신이 이전 빌드} · App Store Connect 메일 확인)"
+        return 1
+      fi
+      ;;
   esac
 }
 
