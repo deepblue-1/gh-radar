@@ -34,7 +34,7 @@ Plans completed: 219 / 234
 Status: Executing Phase 22
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-27 — Phase 22 execution started
+Last activity: 2026-09-27 - Completed quick task 260927-u9t: 크롤링 워커 소스 실패 알림 (theme-sync · discussion-sync)
 
 Progress: [█████████░] 93%
 
@@ -351,6 +351,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 260927-u9t | **크롤링 워커 소스 실패 알림** — theme-sync·discussion-sync 가 소스 실패에도 exit 0 이라 무음(09-11~27 네이버 테마 0개, 09-27 Bright Data 401 10시간). 로그 매치 알림 정책 2개(gh-radar-theme-sync-source-failure · gh-radar-discussion-sync-source-failure, jsonPayload.level>=50 + backoff/fatal, 시간당 1통) + pino Cloud Logging severity 매핑 + 배포 스크립트 update-or-create. 30일 로그 재생 오탐 0. 두 잡 :90060c93 배포. 선행 fix 8d88d1e0 = 네이버 테마 소스를 m.stock.naver.com JSON API 로 전환 | 2026-09-27 | 90060c93 | [260927-u9t-theme-sync-discussion-sync](./quick/260927-u9t-theme-sync-discussion-sync/) |
 | 260925-gy6 | **라이트 선택·활성 = 스케치 003-A(브랜치 theme/toss-b · 미병합)** — 라이트 `--pill-on-*` 검정 → blue50 #e8f3ff/blue600 #1b64da(알약 9곳 자동) · `--side-bg` 흰색 · 새 토큰 5개(`--nav-on-bg/fg/line` · `--spec-dot-bg/ring`, 다크 값 = 종전 렌더 색) → 사이드바 활성 · 종목상세 탭 선택(글자 blue600 · 밑줄 blue500) · 내 테마 칩 · 스펙트럼 현재가 점. 세그먼트 선택색은 Phase 20 D-02 로 제외. 다크 무변경(가드 테스트). typecheck 0 · webapp 1748/1 skip · 라이트 갤러리 3화면×6폭 넘침 0 | 2026-09-25 | — | [260925-gy6-sketch-003-a-blue50-blue600](./quick/260925-gy6-sketch-003-a-blue50-blue600/) |
 | 260925-0pf | **토스 B → 공식 TDS 값 정렬(브랜치 theme/toss-b · 미병합)** — @toss/tds-colors 팔레트(다크 띠 #101013 · 선택 면 grey300 · 비활성 grey400 · red #f04251 / 라이트 보조 grey600) · 행 구분선 hairline(#3c3c47/#e5e8eb, `--border-subtle` 재사용 · 45줄+3곳) · 탭 t5 17/600 · 라벨 t6 15 · CTA 56/r16 · 주문 버튼 48/r14(`lc` 글자 불변). typecheck 0 · webapp 1731/1 skip · build 0 · 갤러리 132장 넘침 0 · 프리뷰 재배포 | 2026-09-25 | — | [260925-0pf-tds-theme-toss-b](./quick/260925-0pf-tds-theme-toss-b/) |
 | 260924-vj1 | **토스 B 테마 실험(브랜치 theme/toss-b · 미병합)** — 스케치 001 B안 전역 리스킨: TDS 다크/라이트 토큰 · 무테 면 · radius 상향 · Pretendard tabular 숫자 · 알약 세그먼트 · 종목상세 풀폭 띠+폰 주문하기 CTA · 사다리/폼/카드 표면. §2.2b 경계·`--lw` 불변. 스케치 002(호가주문 토스식: 리스트+바텀시트·자체 키패드·데스크톱 인라인) 채택안 기록. typecheck 0 · webapp 1681/1 skip · build 0 · 갤러리 132장 가로 넘침 0 · Vercel 프리뷰 확인 | 2026-09-24 | — | [260924-vj1-b-theme-toss-b](./quick/260924-vj1-b-theme-toss-b/) |
