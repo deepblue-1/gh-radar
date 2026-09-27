@@ -27,16 +27,17 @@ set -euo pipefail
 #     firebase-latest  Firebase 최신 릴리스 buildVersion 출력(lane firebase_latest · 업로드 키 불필요)
 #     check-apk        APK 검사만(fastlane 없음)
 #   AAB — 보존(D-16):
-#     build            AAB 빌드 → check-aab
+#     build            AAB 빌드 → check-aab(lane 안)
 #     check            AAB 검사만(fastlane 없음)
 #   Play — Phase 23 이 쓴다(play-sa 필요 · D-16):
-#     beta             AAB 빌드 → Play internal 업로드 → check-aab
+#     beta             AAB 빌드 → check-aab(lane 안 · 업로드 전 게이트) → Play internal 업로드
 #     validate         Play SA JSON 확인
 #     track            internal 트랙 versionCode 출력
 #
 # 종료 코드: 2 = 모르는 모드(env 로드 전)
 #            3 = env 파일 없음 · 키 비어 있음 · 키스토어/SA 키 파일 없음(fastlane 시작 전 · `!` 주입 명령 안내)
-#            그 외 = fastlane lane 또는 check-apk.sh · check-aab.sh 의 종료 코드
+#            그 외 = fastlane lane 의 종료 코드 — lane 안 check-apk · check-aab 실패도 업로드 전에 멈춘다.
+#                    check · check-apk 모드는 각 검사 스크립트(check-aab.sh · check-apk.sh)의 종료 코드
 #
 # 선택 env: GHTRADE_RELEASE_ENV         env 파일 경로. 기본 ~/.config/gh-trade/release/android.env
 #           GHTRADE_RELEASE_DIR         비밀 디렉터리. 기본 ~/.config/gh-trade/release
@@ -159,6 +160,3 @@ case "$MODE" in
 esac
 
 (cd android && bundle exec fastlane "$LANE")
-case "$MODE" in
-  build|beta) bash scripts/check-aab.sh ;;
-esac

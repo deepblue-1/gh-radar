@@ -5,7 +5,8 @@
 #
 # 실행은 `pnpm --filter @gh-radar/mobile run native:release:android(:aab·:play)` 로만 한다 —
 # cap sync(양 플랫폼) → verify-prod(PROD CONFIG OK) → scripts/release-android.sh(env 로드) → 이 lane
-# (→ firebase 는 lane 안에서 업로드 전에 check-apk · build/beta 는 lane 뒤에 check-aab).
+# (→ 업로드·산출 lane 은 모두 lane 안에서 먼저 검사한다: firebase=check-apk · build/beta=check-aab).
+#    검사가 실패하면 sh 가 예외를 던져 lane 이 멈춘다 — 업로드 전이다(W-2 · T-22-04).
 #
 # 서명: build.gradle 이 env GHTRADE_UPLOAD_* 를 직접 읽는다. 여기서는 서명 관련 gradle 속성을 **넘기지 않는다** —
 #       gradle 액션은 기본값(print_command)으로 명령줄을 로그에 찍기 때문이다(T-22-02).
@@ -72,18 +73,26 @@ def ghtrade_appdistro_sa!
 end
 
 platform :android do
-  desc "업로드 키로 서명한 Release AAB 만 빌드 — Play 첫 업로드는 콘솔 수동(D-10 · Pitfall 10)"
+  desc "업로드 키로 서명한 Release AAB 빌드 → check-aab — Play 첫 업로드는 콘솔 수동(D-10 · Pitfall 10)"
   lane :build do
     aab, vc = ghtrade_build_release_aab
+    aab = aab.to_s.empty? ? "" : File.expand_path(aab)
+    UI.user_error!("릴리스 AAB 없음: #{aab}") if aab.empty? || !File.exist?(aab)
+    # 산출 게이트 — 실패하면 sh 가 예외를 던져 lane 이 멈춘다(W-2 · T-22-04).
+    sh("bash", File.expand_path("../../scripts/check-aab.sh", __dir__), aab)
     UI.success("AAB #{aab} versionCode #{vc}")
   end
 
-  desc "AAB 빌드 → Play 내부 테스트 트랙"
+  desc "AAB 빌드 → check-aab → Play 내부 테스트 트랙"
   lane :beta do
     aab, vc = ghtrade_build_release_aab
+    aab = aab.to_s.empty? ? "" : File.expand_path(aab)
+    UI.user_error!("릴리스 AAB 없음: #{aab}") if aab.empty? || !File.exist?(aab)
+    # 업로드 전 게이트 — 실패하면 sh 가 예외를 던져 lane 이 멈춘다(업로드 안 함 · W-2 · T-22-04).
+    sh("bash", File.expand_path("../../scripts/check-aab.sh", __dir__), aab)
     upload_to_play_store(
       track: "internal",
-      aab: aab,
+      aab: aab, # 검사한 그 AAB 를 올린다
       # 「Only releases with status draft may be created on draft app」 이면 PLAY_RELEASE_STATUS=draft 로 재실행하고 콘솔에서 출시(Pitfall 9)
       release_status: ENV.fetch("PLAY_RELEASE_STATUS", "completed"),
       skip_upload_metadata: true,

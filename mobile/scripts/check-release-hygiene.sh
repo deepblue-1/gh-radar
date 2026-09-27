@@ -18,6 +18,9 @@
 #       앱 안 Firebase 금지(D-17)를 깬다(재범위 부록 Pitfall F5)
 #   (9) android Fastfile 의 Firebase 호출마다 자격(service_credentials_file:)과 업로드 APK 경로
 #       (android_artifact_path:)를 명시한다 — 빠지면 ADC(=owner 키)·「최근 mtime APK」 로 떨어진다(Pitfall F2 · F3)
+#  (10) 업로드 전 검사 순서(REVIEW CR-01 · W-2 회귀 잠금) — lane 단위로, 업로드 액션 앞에 짝 검사가 있어야 한다:
+#       upload_to_testflight ↔ check-ipa.sh · upload_to_play_store ↔ check-aab.sh · firebase_app_distribution ↔ check-apk.sh.
+#       iOS 는 upload_to_testflight 에 ipa: 를 명시해야 한다(검사한 IPA 와 올리는 IPA 가 같아야 한다)
 #
 # 사용: bash scripts/check-release-hygiene.sh
 # 통과: 「RELEASE HYGIENE OK …」 한 줄 · exit 0. 위반: 「RELEASE HYGIENE FAIL — …」 줄들 · exit 1.
@@ -141,6 +144,46 @@ if [[ -f "$FF_ANDROID" ]]; then
   fi
 fi
 
+# ── (10) 업로드 전 검사 순서(CR-01 · W-2) ────────────────────────
+# lane 을 만날 때마다 「검사 봤음」 표시를 지운다 — 다른 lane 의 검사로 통과하지 않게(lane 단위 판정).
+# 정규식은 [.] · [(] 브래킷으로 쓴다 — BSD awk 는 -v 값의 역슬래시를 해석한다.
+# 여는 괄호까지 맞춰 firebase_app_distribution_get_latest_release( 를 업로드로 세지 않는다.
+upload_gate() { # $1 Fastfile · $2 업로드 정규식 · $3 검사 정규식 · $4 업로드 이름 · $5 검사 이름
+  [[ -f "$1" ]] || return 0
+  awk -v ff="$1" -v up="$2" -v chk="$3" -v upn="$4" -v chkn="$5" '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*lane[[:space:]]+:/ {
+      lane = $0; sub(/^[[:space:]]*lane[[:space:]]+:/, "", lane); sub(/[^A-Za-z0-9_].*$/, "", lane)
+      seen = 0
+    }
+    $0 ~ chk { seen = 1 }
+    $0 ~ up && !seen { printf "%s lane %s: %d줄 %s 앞에 %s 가 없다 — 업로드 전 검사 없음(CR-01)\n", ff, lane, NR, upn, chkn }
+  ' "$1"
+}
+gate_out="$(
+  upload_gate ios/App/fastlane/Fastfile 'upload_to_testflight[(]' 'check-ipa[.]sh' upload_to_testflight check-ipa.sh
+  upload_gate android/fastlane/Fastfile 'upload_to_play_store[(]' 'check-aab[.]sh' upload_to_play_store check-aab.sh
+  upload_gate android/fastlane/Fastfile 'firebase_app_distribution[(]' 'check-apk[.]sh' firebase_app_distribution check-apk.sh
+)"
+if [[ -n "$gate_out" ]]; then
+  while IFS= read -r line; do
+    if [[ -n "$line" ]]; then fail "$line"; fi
+  done <<EOF
+$gate_out
+EOF
+fi
+FF_IOS="ios/App/fastlane/Fastfile"
+if [[ -f "$FF_IOS" ]]; then
+  ios_code="$(grep -vE '^[[:space:]]*#' "$FF_IOS" || true)"
+  # 0건이면 grep 이 1 을 내고 pipefail 로 검사 전체가 멈춘다 — 0 은 정상 값이다.
+  ios_count_of() { printf '%s\n' "$ios_code" | { grep -oE "$1" || true; } | wc -l | tr -d ' '; }
+  tf_u="$(ios_count_of 'upload_to_testflight\(')"
+  tf_i="$(ios_count_of '(^|[^A-Za-z0-9_])ipa:')"
+  if (( tf_i < tf_u )); then
+    fail "$FF_IOS upload_to_testflight ${tf_u}개에 ipa: 가 ${tf_i}개뿐 — 검사한 IPA 와 올리는 IPA 가 다를 수 있다(CR-01)"
+  fi
+fi
+
 if [[ -n "$NOTES" ]]; then printf '%s' "$NOTES"; fi
 
 if [[ -n "$FAILS" ]]; then
@@ -150,4 +193,4 @@ if [[ -n "$FAILS" ]]; then
   exit 1
 fi
 
-echo "RELEASE HYGIENE OK — gradle env 서명 · ignore 21경로 · 추적 비밀 0 · 권한 700/600 · 추적 모드 0 · 번호 주입만 · README 깨끗 · google-services.json 없음 · Firebase 자격 명시"
+echo "RELEASE HYGIENE OK — gradle env 서명 · ignore 21경로 · 추적 비밀 0 · 권한 700/600 · 추적 모드 0 · 번호 주입만 · README 깨끗 · google-services.json 없음 · Firebase 자격 명시 · 업로드 전 검사 순서"
