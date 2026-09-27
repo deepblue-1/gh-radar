@@ -28,19 +28,25 @@ umask 077
 #             1본 백업한다(D-08). 이미 있는 비밀은 SKIP.
 #   play-sa   androidpublisher API 사용 설정 → Play 게시용 SA gh-radar-play-publisher → 키 JSON(600).
 #             GCP 프로젝트 IAM 역할은 주지 않는다 — Play 권한은 Play Console 에서 앱 단위로 준다(최소 권한 · T-22-10).
+#   firebase-sa  firebaseappdistribution API 사용 설정 → Firebase 업로드 전용 SA gh-trade-appdistro →
+#             프로젝트 역할은 App Distribution 관리자 하나만(최소 권한 · T-22-20) → 키 JSON(600) (D-17).
+#             이 SA 키는 Secret Manager 에 백업하지 않는다 — 잃으면 새 키를 만들고 옛 키를 GCP 에서 지운다(사본을 늘리지 않음).
+#             deployer 키(owner)는 SA 생성에만 쓰고 업로드에는 쓰지 않는다(재범위 부록 Pitfall F2).
 #
 # 선택 env
 #   GHTRADE_RELEASE_DIR        비밀 디렉터리. 기본 ~/.config/gh-trade/release
 #   WEEKLY_WINE_FASTLANE_DIR   ASC 키 원본 위치. 기본 ~/repos/weekly-wine-app/ios/App/fastlane
-#   CLOUDSDK_CORE_PROJECT      backup · play-sa 의 GCP 프로젝트. 기본 gh-radar
+#   CLOUDSDK_CORE_PROJECT      backup · play-sa · firebase-sa 의 GCP 프로젝트. 기본 gh-radar
 #   CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE  비어 있고 ~/.config/gcloud/gh-radar-deployer.json 이 있으면 그 키를 쓴다
+#   Firebase 를 새 GCP 프로젝트에 붙였다면 deployer SA 에 권한이 없다 — gcloud 사용자 계정으로 실행한다:
+#     ! CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE= CLOUDSDK_CORE_PROJECT=<프로젝트 ID> bash mobile/scripts/setup-release-secrets.sh firebase-sa
 # ═══════════════════════════════════════════════════════════════
 
 REL="${GHTRADE_RELEASE_DIR:-$HOME/.config/gh-trade/release}"
 
 usage() {
   echo "사용: bash mobile/scripts/setup-release-secrets.sh <stage>..." >&2
-  echo "  stages: dir · asc · keystore · backup · play-sa" >&2
+  echo "  stages: dir · asc · keystore · backup · play-sa · firebase-sa" >&2
 }
 
 # JDK 도구 위치 — `!` 셸의 PATH 에는 macOS 스텁(/usr/bin/keytool)만 있을 수 있다.
@@ -306,6 +312,56 @@ stage_play_sa() {
   echo "SA: $sa_email"
 }
 
+# Firebase App Distribution 업로드 전용 SA(D-17 · 재범위 부록 Pattern F4). 키 내용·토큰은 출력하지 않는다.
+stage_firebase_sa() {
+  local sa_name="gh-trade-appdistro" sa_email key="$REL/firebase-appdistro-service-account.json" err
+
+  # gcloud 를 준비하기 전에 확인한다 — 디렉터리가 없으면 GCP 에 아무것도 쓰지 않는다.
+  if [[ ! -d "$REL" ]]; then
+    echo "ERROR firebase-sa — 비밀 디렉터리가 없다: $REL (먼저 dir 단계를 실행)" >&2
+    return 1
+  fi
+  gcloud_prep || return 1
+  sa_email="${sa_name}@${CLOUDSDK_CORE_PROJECT}.iam.gserviceaccount.com"
+
+  if ! err="$(gcloud services enable firebaseappdistribution.googleapis.com 2>&1 >/dev/null)"; then
+    echo "ERROR firebase-sa — firebaseappdistribution API 사용 설정 실패:" >&2
+    echo "$err" >&2
+    gcloud_hint firebase-sa
+    return 1
+  fi
+  if ! gcloud iam service-accounts describe "$sa_email" >/dev/null 2>&1; then
+    if ! err="$(gcloud iam service-accounts create "$sa_name" --display-name="GH Trade App Distribution uploader" 2>&1 >/dev/null)"; then
+      echo "ERROR firebase-sa — SA 생성 실패:" >&2
+      echo "$err" >&2
+      gcloud_hint firebase-sa
+      return 1
+    fi
+  fi
+  # 부여하는 프로젝트 역할은 이것 하나뿐이다(최소 권한 · T-22-20). 표준 출력(정책 전문)은 버린다.
+  if ! err="$(gcloud projects add-iam-policy-binding "$CLOUDSDK_CORE_PROJECT" --member="serviceAccount:$sa_email" \
+      --role=roles/firebaseappdistro.admin --condition=None 2>&1 >/dev/null)"; then
+    echo "ERROR firebase-sa — 역할 바인딩 실패:" >&2
+    echo "$err" >&2
+    gcloud_hint firebase-sa
+    return 1
+  fi
+  if [[ -f "$key" ]]; then
+    echo "SKIP firebase-sa 키 — 이미 있음"
+  else
+    if ! err="$(gcloud iam service-accounts keys create "$key" --iam-account="$sa_email" 2>&1 >/dev/null)"; then
+      rm -f "$key"
+      echo "ERROR firebase-sa — SA 키 생성 실패:" >&2
+      echo "$err" >&2
+      gcloud_hint firebase-sa
+      return 1
+    fi
+    chmod 600 "$key"
+  fi
+  echo "OK firebase-sa"
+  echo "SA: $sa_email"
+}
+
 if [[ $# -eq 0 ]]; then
   usage
   exit 2
@@ -314,7 +370,7 @@ fi
 # 모든 stage 이름을 먼저 확인한다 — 오타가 섞이면 아무것도 실행하지 않는다.
 for stage in "$@"; do
   case "$stage" in
-    dir | asc | keystore | backup | play-sa) ;;
+    dir | asc | keystore | backup | play-sa | firebase-sa) ;;
     *)
       echo "모르는 stage: $stage" >&2
       usage
@@ -330,5 +386,6 @@ for stage in "$@"; do
     keystore) stage_keystore ;;
     backup) stage_backup ;;
     play-sa) stage_play_sa ;;
+    firebase-sa) stage_firebase_sa ;;
   esac
 done

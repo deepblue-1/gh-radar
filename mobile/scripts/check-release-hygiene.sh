@@ -8,12 +8,16 @@
 #
 # 검사 항목
 #   (1) build.gradle 의 storePassword · keyPassword 에 따옴표 리터럴·기본값 연산자가 없고 env 로만 읽는다
-#   (2) 릴리스 비밀·산출물 샘플 경로가 모두 git ignore 된다
-#   (3) 추적 파일 가운데 비밀·산출물 확장자가 없다
-#   (4) 비밀 디렉터리 700 · 그 안의 비밀 파일 600 — **권한만 본다. 내용은 열지 않는다**
+#   (2) 릴리스 비밀·산출물 샘플 경로(21개 — Firebase SA 키 · google-services.json · 릴리스 APK 포함)가 모두 git ignore 된다
+#   (3) 추적 파일 가운데 비밀·산출물 확장자 · google-services.json 이 없다
+#   (4) 비밀 디렉터리 700 · 그 안의 비밀 파일(Firebase SA 키 포함) 600 — **권한만 본다. 내용은 열지 않는다**
 #   (5) mobile/scripts/*.sh 에 셸 추적 모드를 켜는 줄이 없다(값이 터미널에 찍힌다)
 #   (6) Fastfile 이 빌드 번호를 프로젝트 파일에 쓰는 액션을 쓰지 않는다
 #   (7) mobile/README.md 에 비밀 패턴이 없다
+#   (8) android/app/google-services.json 이 없다 — 있으면 build.gradle 이 google-services 플러그인을 켜고
+#       앱 안 Firebase 금지(D-17)를 깬다(재범위 부록 Pitfall F5)
+#   (9) android Fastfile 의 Firebase 호출마다 자격(service_credentials_file:)과 업로드 APK 경로
+#       (android_artifact_path:)를 명시한다 — 빠지면 ADC(=owner 키)·「최근 mtime APK」 로 떨어진다(Pitfall F2 · F3)
 #
 # 사용: bash scripts/check-release-hygiene.sh
 # 통과: 「RELEASE HYGIENE OK …」 한 줄 · exit 0. 위반: 「RELEASE HYGIENE FAIL — …」 줄들 · exit 1.
@@ -48,14 +52,16 @@ fi
 for p in App.ipa x.aab x.apk AuthKey_X.p8 a.p12 a.cer a.mobileprovision key.properties \
   play-store-key.json play-service-account.json ios/App/fastlane/report.xml ios/App/fastlane/README.md \
   android/fastlane/report.xml vendor/bundle/x .bundle/config App.app.dSYM.zip \
-  ghtrade-upload.jks android/app/build/outputs/bundle/release/app-release.aab; do
+  ghtrade-upload.jks android/app/build/outputs/bundle/release/app-release.aab \
+  firebase-appdistro-service-account.json android/app/google-services.json \
+  android/app/build/outputs/apk/release/app-release.apk; do
   if ! git check-ignore -q "$p"; then
     fail "git ignore 되지 않는 릴리스 경로: mobile/$p (mobile/.gitignore 보강)"
   fi
 done
 
 # ── (3) 추적 파일에 비밀·산출물 없음(저장소 전체) ─────────────────
-tracked="$(git ls-files --full-name -- ':(top)' | grep -E '\.(p8|p12|jks|keystore|mobileprovision|ipa|aab|apk|cer)$|\.dSYM\.zip$|(^|/)key\.properties$|play-store-key\.json$|service-account[^/]*\.json$' || true)"
+tracked="$(git ls-files --full-name -- ':(top)' | grep -E '\.(p8|p12|jks|keystore|mobileprovision|ipa|aab|apk|cer)$|\.dSYM\.zip$|(^|/)key\.properties$|play-store-key\.json$|service-account[^/]*\.json$|(^|/)google-services\.json$' || true)"
 if [[ -n "$tracked" ]]; then
   fail "추적 중인 비밀·산출물 파일: $(printf '%s' "$tracked" | tr '\n' ' ')"
 fi
@@ -66,7 +72,7 @@ if [[ -d "$REL" ]]; then
   if [[ "$mode" != "700" ]]; then
     fail "비밀 디렉터리 권한 $mode (기대 700): $REL"
   fi
-  for f in ios.env android.env ghtrade-upload.jks play-service-account.json; do
+  for f in ios.env android.env ghtrade-upload.jks play-service-account.json firebase-appdistro-service-account.json; do
     if [[ -f "$REL/$f" ]]; then
       mode="$(stat -f '%Lp' "$REL/$f")"
       if [[ "$mode" != "600" ]]; then fail "비밀 파일 권한 $mode (기대 600): $REL/$f"; fi
@@ -112,6 +118,29 @@ if [[ -f README.md ]]; then
   fi
 fi
 
+# ── (8) google-services.json 부재(D-17 — 앱 안에 Firebase SDK·설정 없음) ──
+if [[ -e android/app/google-services.json ]]; then
+  fail "mobile/android/app/google-services.json 이 있다 — build.gradle 이 google-services 플러그인을 켠다(D-17 · Pitfall F5). 저장소 밖으로 옮기거나 지운다"
+fi
+
+# ── (9) Firebase 호출 자격·APK 경로 명시(Pitfall F2 · F3) ──────────
+FF_ANDROID="android/fastlane/Fastfile"
+if [[ -f "$FF_ANDROID" ]]; then
+  ff_code="$(grep -vE '^[[:space:]]*#' "$FF_ANDROID" || true)"
+  # 0건이면 grep 이 1 을 내고 pipefail 로 검사 전체가 멈춘다 — 0 은 정상 값이다.
+  count_of() { printf '%s\n' "$ff_code" | { grep -oE "$1" || true; } | wc -l | tr -d ' '; }
+  fad_u="$(count_of 'firebase_app_distribution\(')"
+  fad_l="$(count_of 'firebase_app_distribution_get_latest_release\(')"
+  fad_c="$(count_of 'service_credentials_file:')"
+  fad_a="$(count_of 'android_artifact_path:')"
+  if (( fad_c < fad_u + fad_l )); then
+    fail "$FF_ANDROID Firebase 호출 $((fad_u + fad_l))개에 service_credentials_file: 이 ${fad_c}개뿐 — 빠지면 ADC(owner 키)로 인증한다(Pitfall F2)"
+  fi
+  if (( fad_a < fad_u )); then
+    fail "$FF_ANDROID Firebase 업로드 ${fad_u}개에 android_artifact_path: 가 ${fad_a}개뿐 — 빠지면 최근 mtime APK 가 올라간다(Pitfall F3)"
+  fi
+fi
+
 if [[ -n "$NOTES" ]]; then printf '%s' "$NOTES"; fi
 
 if [[ -n "$FAILS" ]]; then
@@ -121,4 +150,4 @@ if [[ -n "$FAILS" ]]; then
   exit 1
 fi
 
-echo "RELEASE HYGIENE OK — gradle env 서명 · ignore 18경로 · 추적 비밀 0 · 권한 700/600 · 추적 모드 0 · 번호 주입만 · README 깨끗"
+echo "RELEASE HYGIENE OK — gradle env 서명 · ignore 21경로 · 추적 비밀 0 · 권한 700/600 · 추적 모드 0 · 번호 주입만 · README 깨끗 · google-services.json 없음 · Firebase 자격 명시"

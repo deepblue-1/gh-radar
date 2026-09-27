@@ -38,6 +38,8 @@ play-store-key.json
 *.aab
 *.apk
 *.dSYM.zip
+# Firebase 콘솔이 내려 주는 설정 — 앱에 Firebase SDK 없음(D-17). 있으면 build.gradle 이 google-services 플러그인을 켠다
+google-services.json
 **/fastlane/report.xml
 **/fastlane/README.md
 **/fastlane/Preview.html
