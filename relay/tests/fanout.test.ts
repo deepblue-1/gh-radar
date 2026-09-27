@@ -49,6 +49,7 @@ import { MSG } from "../src/dma/msg-type.js";
 import { logger } from "../src/logger.js";
 import { Envelope } from "../src/generated/stock-dma/envelope.js";
 import {
+  readSetLimitChaserRequest,
   readViSetRequest,
   startFakeGateway,
   type FakeGateway,
@@ -127,7 +128,7 @@ function fakeSupabase(): SupabaseClient {
 }
 
 /**
- * `lc.set` 이 싣는 32필드 — 스키마를 통과하는 최소 정상값.
+ * `lc.set` 이 싣는 44필드(32 + Phase 24 C→S 12) — 스키마를 통과하는 최소 정상값.
  *
  * S→C 전용 4필드와 파생 `key` 는 타입이 이미 뺐다(`RelayLimitChaserInput`) — 실어 보내면
  * "값이 왕복한다"는 착각이 생겨 에코-폼 비교가 오염된다 (Pitfall 6).
@@ -168,6 +169,19 @@ function lcInput(overrides: Partial<RelayLimitChaserInput> = {}): RelayLimitChas
     cancelWatchQty: 0,
     cancelTradeEnabled: false,
     cancelQtyTrackEnabled: false,
+    // Phase 24 C→S 12 — 기본 전부 끔 · 0.
+    preBuyEnabled: false,
+    extraBuyEnabled: false,
+    extraBuyMinQty: 0,
+    extraBuyMaxQty: 0,
+    extraBuyOrderAmount: 0,
+    extraBuyOrderQty: 0,
+    postBuyEnabled: false,
+    postBuyReboundPct: 0,
+    postBuyFloorQty: 0,
+    postBuyReentry: 0,
+    postBuyOrderAmount: 0,
+    postBuyOrderQty: 0,
     ...overrides,
   };
 }
@@ -999,6 +1013,77 @@ describe("WsFanout", () => {
     // 서버가 12자 버퍼에 담으므로 relay 가 같은 폭으로 먼저 자른다 — 자른 값이 전략 키의 정본이다.
     expect((lc?.accountNo() ?? "").length).toBeLessThanOrEqual(12);
     expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+  });
+
+  it("⑰-buy3 lc.set 은 buy3_schema=1 · C→S 12 · buy_watch_side 없음 · S→C 슬롯 없음으로 나가고 60 에코(보유중)가 lc 로 온다 (Phase 24 트레이서)", async () => {
+    const a = await authed("token-a");
+
+    // lcInput 의 buyWatchSide 는 "1" 이다 — 그래도 게이트웨이에는 슬롯이 없어야 한다(T-24-01).
+    const cfg = lcInput({
+      preBuyEnabled: true,
+      extraBuyEnabled: true,
+      extraBuyMinQty: 50_000,
+      extraBuyMaxQty: 150_000,
+      extraBuyOrderAmount: 4000,
+      extraBuyOrderQty: 571,
+      postBuyEnabled: true,
+      postBuyReboundPct: 30,
+      postBuyFloorQty: 100_000,
+      postBuyReentry: 3,
+      postBuyOrderAmount: 4000,
+      postBuyOrderQty: 571,
+    });
+    a.ws.sendRaw({ t: "lc.set", cfg });
+    await waitFor(
+      () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+      "10 수신",
+    );
+
+    const sets = gateway
+      .strategyRequests()
+      .filter((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq);
+    expect(sets).toHaveLength(1);
+    const req = readSetLimitChaserRequest(sets[0]!.msgType, sets[0]!.payload);
+    expect(req).toMatchObject({
+      buy3Schema: 1,
+      preBuyEnabled: true,
+      extraBuyEnabled: true,
+      extraBuyMinQty: 50_000,
+      extraBuyMaxQty: 150_000,
+      extraBuyOrderAmount: 4000,
+      extraBuyOrderQty: 571,
+      postBuyEnabled: true,
+      postBuyReboundPct: 30,
+      postBuyFloorQty: 100_000,
+      postBuyReentry: 3,
+      postBuyOrderAmount: 4000,
+      postBuyOrderQty: 571,
+      buyWatchSide: null,
+      serverOnlySlots: [],
+    });
+
+    // 게이트웨이가 60 에코(후매수 보유중)를 민다 → 그 ws 에 lc 프레임.
+    const sock = gateway.sockets[0];
+    if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+    gateway.pushLimitChaserEcho(sock, {
+      isin: SAMPLE_ISIN,
+      accountNo: SAMPLE_ACCOUNT_NO,
+      buyEnabled: true,
+      postBuyEnabled: true,
+      postBuyPhase: 2,
+      postBuyTriggerQty: 330_000,
+      postBuyReentryLeft: 2,
+    });
+    await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
+
+    const item = framesOf(a.inbox, "lc").at(-1)!.item;
+    expect(item.postBuyPhase).toBe(2);
+    expect(item.buy3Schema).toBe(1);
+    expect(item.postBuyTriggerQty).toBe(330_000);
+    expect(item.postBuyReentryLeft).toBe(2);
+    expect(item.buyWatchSide).toBe("0");
+    // 활성 55 + key — 봉인된 매수 진입 래치는 없다.
+    expect(Object.keys(item)).toHaveLength(56);
   });
 
   /*

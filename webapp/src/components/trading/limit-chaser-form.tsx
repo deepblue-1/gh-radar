@@ -489,6 +489,9 @@ export function LimitChaserForm({
       crud: crudOf(values),
       // 발주 정본. **역산 금지** — 산출식은 `lib/limit-chaser.ts` 한 곳뿐이다.
       buyOrderQty: buyOrderQtyFromAmount(values.buyOrderAmount, values.buyOrderPrice),
+      // Phase 24 — 추가매수 · 후매수도 같은 함수 · 같은 공통 매수가격(금액→수량 3벌 = 호출 3곳).
+      extraBuyOrderQty: buyOrderQtyFromAmount(values.extraBuyOrderAmount, values.buyOrderPrice),
+      postBuyOrderQty: buyOrderQtyFromAmount(values.postBuyOrderAmount, values.buyOrderPrice),
       // 클라 고정 3 — 폼에 노출하지 않는다(파일 상단 ⑤).
       sweepRecalcEnabled: true,
       sweepMinCount: 0,

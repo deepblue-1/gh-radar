@@ -25,7 +25,7 @@ const ISIN = "KR7005930003";
 const ACCOUNT_NO = "1234567890";
 
 /**
- * 유효한 `lc.set` cfg 32필드. 값은 WinForms 기본값(`LimitChaserForm`)을 따른다 —
+ * 유효한 `lc.set` cfg 44필드(32 + Phase 24 C→S 12). 값은 WinForms 기본값(`LimitChaserForm`)을 따른다 —
  * 고정 3(`sweepRecalcEnabled:true` · `sweepMinCount:0` · `sweepMinRate:0`) 포함.
  *
  * ★ `market` 이 없다 (WR-03 / D-28). 시장 구분은 relay 가 `SymbolMap` 으로 푼다.
@@ -64,6 +64,19 @@ function lcCfg(overrides: Record<string, unknown> = {}): Record<string, unknown>
     cancelWatchQty: 10,
     cancelTradeEnabled: false,
     cancelQtyTrackEnabled: false,
+    // Phase 24 C→S 12 — 이 플랜에서는 필수(구 탭 관용은 24-03).
+    preBuyEnabled: false,
+    extraBuyEnabled: false,
+    extraBuyMinQty: 0,
+    extraBuyMaxQty: 0,
+    extraBuyOrderAmount: 4000,
+    extraBuyOrderQty: 0,
+    postBuyEnabled: false,
+    postBuyReboundPct: 30,
+    postBuyFloorQty: 100_000,
+    postBuyReentry: 3,
+    postBuyOrderAmount: 4000,
+    postBuyOrderQty: 0,
     ...overrides,
   };
 }
@@ -120,8 +133,8 @@ describe("parseInbound — 전략·주문 인바운드 6종", () => {
     vi.restoreAllMocks();
   });
 
-  it("① `lc.set` 32필드가 파싱되고 S→C 전용 6필드는 떨어져 나간다", () => {
-    // S→C 전용 6개를 일부러 실어 보낸다. 서버가 계산하는 값이라 여기서 걸러지지 않으면
+  it("① `lc.set` 44필드가 파싱되고 S→C 전용 필드는 떨어져 나간다", () => {
+    // S→C 전용 필드를 일부러 실어 보낸다. 서버가 계산하는 값이라 여기서 걸러지지 않으면
     // "값이 왕복한다"는 착각이 생기고 에코-폼 비교가 오염된다 (Pitfall 6).
     const msg = parseInbound(
       JSON.stringify({
@@ -133,7 +146,12 @@ describe("parseInbound — 전략·주문 인바운드 6종", () => {
           sellEntryLatched: true,
           cancelQtyTrackBaseline: 777,
           cancelEntryLatched: true,
-          buyEntryLatched: true,
+          // Phase 24 S→C 5 — 전부 떨어져야 한다.
+          buy3Schema: 0,
+          extraBuyAbandoned: true,
+          postBuyTriggerQty: 330_000,
+          postBuyReentryLeft: 2,
+          postBuyPhase: 2,
         },
       }),
     );
@@ -142,14 +160,58 @@ describe("parseInbound — 전략·주문 인바운드 6종", () => {
     expect(msg.cfg.isin).toBe(ISIN);
     expect(msg.cfg.accountNo).toBe(ACCOUNT_NO);
     expect(msg.cfg.sweepRecalcEnabled).toBe(true);
-    // 32필드 정확히 — 미지 키가 통과하면 개수가 늘어난다.
-    expect(Object.keys(msg.cfg)).toHaveLength(32);
+    // 44필드 정확히 — 미지 키가 통과하면 개수가 늘어난다.
+    expect(Object.keys(msg.cfg)).toHaveLength(44);
     expect(msg.cfg).not.toHaveProperty("sellOrderQty");
     expect(msg.cfg).not.toHaveProperty("sellQtyTrackBaseline");
     expect(msg.cfg).not.toHaveProperty("sellEntryLatched");
     expect(msg.cfg).not.toHaveProperty("cancelQtyTrackBaseline");
     expect(msg.cfg).not.toHaveProperty("cancelEntryLatched");
-    expect(msg.cfg).not.toHaveProperty("buyEntryLatched");
+    // buy3Schema 는 relay 가 못박는다 — 브라우저가 0 을 실어도 스키마가 떨어뜨린다(T-24-01).
+    for (const k of [
+      "buy3Schema",
+      "extraBuyAbandoned",
+      "postBuyTriggerQty",
+      "postBuyReentryLeft",
+      "postBuyPhase",
+    ]) {
+      expect(msg.cfg).not.toHaveProperty(k);
+    }
+  });
+
+  it("①-buy3 후매수 반등률 · 최대 횟수 범위와 신필드 필수 (Phase 24 · T-24-03)", () => {
+    // 끄는 쪽 0 은 통과 — 레거시 에코 0 이 소켓 종료가 되지 않게(RESEARCH Pitfall 4).
+    expect(parseInbound(lcSet({ postBuyReboundPct: 0, postBuyEnabled: false }))).not.toBeNull();
+    // 켜는 쪽은 1~100(서버 §9-2 ⑤ 동형).
+    expect(parseInbound(lcSet({ postBuyReboundPct: 0, postBuyEnabled: true }))).toBeNull();
+    expect(parseInbound(lcSet({ postBuyReboundPct: 1, postBuyEnabled: true }))).not.toBeNull();
+    expect(parseInbound(lcSet({ postBuyReboundPct: 100, postBuyEnabled: true }))).not.toBeNull();
+    expect(parseInbound(lcSet({ postBuyReboundPct: 101 }))).toBeNull();
+    // 최대 횟수 — 0(사지 않음, gh-trade D-30) · 255 통과, 256 거부.
+    expect(parseInbound(lcSet({ postBuyReentry: 0 }))).not.toBeNull();
+    expect(parseInbound(lcSet({ postBuyReentry: 255 }))).not.toBeNull();
+    expect(parseInbound(lcSet({ postBuyReentry: 256 }))).toBeNull();
+    // 최소 > 최대는 zod 로 막지 않는다 — 서버가 그 그룹만 눕힌다(zod 위반은 소켓을 끊는다).
+    expect(parseInbound(lcSet({ extraBuyMinQty: 200_000, extraBuyMaxQty: 100_000 }))).not.toBeNull();
+    // 신필드 중 하나라도 빠지면 위반 — 이 플랜 한정(24-03 이 구 탭 관용으로 바꾼다).
+    for (const k of [
+      "preBuyEnabled",
+      "extraBuyEnabled",
+      "extraBuyMinQty",
+      "extraBuyMaxQty",
+      "extraBuyOrderAmount",
+      "extraBuyOrderQty",
+      "postBuyEnabled",
+      "postBuyReboundPct",
+      "postBuyFloorQty",
+      "postBuyReentry",
+      "postBuyOrderAmount",
+      "postBuyOrderQty",
+    ]) {
+      const cfg = lcCfg();
+      delete cfg[k];
+      expect(parseInbound(JSON.stringify({ t: "lc.set", cfg })), k).toBeNull();
+    }
   });
 
   /*
@@ -163,7 +225,7 @@ describe("parseInbound — 전략·주문 인바운드 6종", () => {
 
     if (msg?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
     expect(msg.cfg).not.toHaveProperty("market");
-    expect(Object.keys(msg.cfg)).toHaveLength(32);
+    expect(Object.keys(msg.cfg)).toHaveLength(44); // 32 + Phase 24 C→S 12
   });
 
   it("① `market` 없이 보낸 정상 `lc.set` 은 그대로 통과한다", () => {

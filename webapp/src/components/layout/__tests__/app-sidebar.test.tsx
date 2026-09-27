@@ -55,6 +55,7 @@ import { EMPTY_RELAY_VALUE } from "@/lib/relay-provider";
 import { TRADING_FOCUS_EVENT } from "@/lib/trading-focus";
 
 import { AppSidebar, strategyLedLabel } from "../app-sidebar";
+import { LC_BUY3_ECHO_DEFAULTS } from "@/test-fixtures/limit-chaser";
 
 // ---------------------------------------------------------------------------
 // 픽스처
@@ -107,7 +108,7 @@ function makeChaser(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     cancelQtyTrackEnabled: false,
     cancelQtyTrackBaseline: 0,
     cancelEntryLatched: false,
-    buyEntryLatched: false,
+    ...LC_BUY3_ECHO_DEFAULTS,
     key: `${isin}:${accountNo}:${exchange}`,
     ...over,
   };
@@ -597,12 +598,12 @@ describe("AppSidebar — 3단 목록 (D-03 · E16)", () => {
     expect(b.querySelector('[data-slot="strategy-badge"]')).toBeNull();
   });
 
-  it("LED 3점은 잠복(대기)·래치(감시)를 구분한다", () => {
+  it("LED 3점은 잠복(대기)·래치(감시)·매수 보유중을 구분한다 (Phase 24 D-12)", () => {
     const latent = makeChaser({
       isin: "KR7000660001",
       buyEnabled: true,
-      buyWatchSide: "1",
-      buyEntryLatched: false,
+      // 매수는 래치가 없다 — 후매수 보유중(단계 2)이 주황이다.
+      postBuyPhase: 2,
       sellEnabled: true,
       sellEntryLatched: true,
       cancelQtyEnabled: true,

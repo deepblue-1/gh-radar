@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import type { RelayLimitChaser } from '@gh-radar/shared';
 
 import { CardHeader, EXCHANGE_SEGMENT_TITLE, type CardHeaderProps } from '../card/card-header';
+import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
 
 /**
  * Phase 18 Plan 06 Task 2 — 카드 헤더 (D-09 · D-10 · E7 · TRADE-09).
@@ -59,7 +60,7 @@ function echo(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     cancelQtyTrackEnabled: false,
     cancelQtyTrackBaseline: 0,
     cancelEntryLatched: false,
-    buyEntryLatched: false,
+    ...LC_BUY3_ECHO_DEFAULTS,
     ...over,
   };
 }
@@ -145,14 +146,24 @@ describe('CardHeader', () => {
     }
   });
 
-  it('LED 는 latchLedStateOf 규칙표 그대로다 — 무장+래치 잠복 매수는 「대기」이고 누르면 onArm', () => {
-    const { props } = renderHeader({ ledServer: echo({ buyEnabled: true, buyEntryLatched: false }) });
-    const buy = header().querySelector('[data-slot="latch-led"][data-kind="buy"]') as HTMLElement;
-    expect(buy.textContent).toContain('대기');
-    fireEvent.click(buy);
-    expect(props.onArm).toHaveBeenCalledWith('buy');
+  it('LED 는 latchLedStateOf 규칙표 그대로다 — 무장+래치 잠복 매도는 「대기」이고 누르면 onArm', () => {
+    const { props } = renderHeader({ ledServer: echo({ sellEnabled: true, sellEntryLatched: false }) });
+    const sell = header().querySelector('[data-slot="latch-led"][data-kind="sell"]') as HTMLElement;
+    expect(sell.textContent).toContain('대기');
+    fireEvent.click(sell);
+    expect(props.onArm).toHaveBeenCalledWith('sell');
     // LED 클릭은 펼침 토글이 아니다.
     expect(props.onToggle).not.toHaveBeenCalled();
+  });
+
+  it('매수 LED 는 D-12 — 후매수 보유중이면 「보유중」 span 이고 눌러도 onArm 이 없다 (Phase 24)', () => {
+    const { props } = renderHeader({ ledServer: echo({ buyEnabled: true, postBuyPhase: 2 }) });
+    const buy = header().querySelector('[data-slot="latch-led"][data-kind="buy"]') as HTMLElement;
+    expect(buy.tagName).toBe('SPAN');
+    expect(buy.getAttribute('data-tone')).toBe('latent');
+    expect(buy.textContent).toContain('보유중');
+    fireEvent.click(buy);
+    expect(props.onArm).not.toHaveBeenCalled();
   });
 
   it('헤더 토글 버튼이 aria-expanded·aria-controls 를 갖고, 누르면 onToggle 1회 + 포커스가 그 버튼으로 돌아온다', async () => {

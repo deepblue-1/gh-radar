@@ -8,11 +8,13 @@ import userEvent from "@testing-library/user-event";
 import type { RelayLimitChaser } from "@gh-radar/shared";
 
 import {
+  BUY_HOLDING_TOOLTIP,
   LatchLed,
   latchLedStateOf,
   type LatchLedKind,
   type LatchLedState,
 } from "../latch-led";
+import { LC_BUY3_ECHO_DEFAULTS } from "@/test-fixtures/limit-chaser";
 
 /**
  * Phase 17 Plan 07 Task 3 — 상따 래치 LED 3종의 **C# 정본 규칙 표**를 잠근다.
@@ -23,9 +25,8 @@ import {
  * 갈리면 사용자가 무장 상태를 오독하고 **실계좌 주문이 나간다**.
  *
  * 특히 두 상습 오독을 케이스로 못박는다:
- * - **Pitfall 4** — 매도잔량 기준(`buyWatchSide "0"`)에 3단계를 그리면 거짓이다. 서버가
- *   그 갈래 래치를 켜지 않아 `buyEntryLatched` 는 언제나 false 이고, 화면은 종전 2단계
- *   (무장이면 초록)를 유지하며 **클릭도 받지 않는다**.
+ * - **Phase 24 D-12** — 매수 LED 는 래치가 아니다(서버에서 봉인). 마스터 무장과 후매수 단계만
+ *   읽어 OFF / 초록 감시 / 주황 보유중이고, **세 경우 모두 클릭을 받지 않는다**.
  * - **Pitfall 5** — 취소 무장에 `cancelQtyTrackEnabled` 를 넣으면 안 된다. 잔량추적은
  *   무장 축이 아니라 계산 옵션이라, 넣는 순간 「취소 감시 중」이라는 거짓 초록이 뜬다.
  */
@@ -72,19 +73,14 @@ function chaser(over: ChaserOverrides = {}): RelayLimitChaser {
     cancelQtyTrackEnabled: false,
     cancelQtyTrackBaseline: 0,
     cancelEntryLatched: false,
-    buyEntryLatched: false,
+    ...LC_BUY3_ECHO_DEFAULTS,
     key: "KR7005930003:37728502101:KRX",
     ...over,
   };
 }
 
-/** 툴팁 원문 (17-RESEARCH §2 · C# `LimitChaserForm.cs` 리터럴). */
-const TIP_BUY_ON =
-  "클릭하면 매수 진입 확인 래치를 지금 켠다 (다음 호가부터 잔량 항 판정 — 벽이 이미 감시수량 이상이면 바로 매수 주문이 나갈 수 있다)";
-const TIP_BUY_OFF =
-  "클릭하면 매수 진입 확인 래치를 끈다 (다시 잠복 — 감시가 매수잔량이 감시수량 아래로 내려간 것을 다시 관측해야 잔량 항 판정이 시작된다)";
-const TIP_BUY_ASK_SIDE =
-  "매수 진입 확인 래치는 매수잔량 기준(매수1호가)일 때만 있다 — 매도잔량 기준 갈래는 원전 그대로라 등록 즉시 판정한다";
+/** 매수 「보유중」 툴팁 원문 (Phase 24 D-12 · C# 리터럴 — 한 글자도 고치지 않는다). */
+const TIP_BUY_HOLDING = "후매수 보유중 — 산 물량이 전부 정리되면 다시 감시(남은 횟수 0 이면 소진)";
 
 const SOURCE_PATH = path.resolve(__dirname, "../latch-led.tsx");
 const SOURCE = readFileSync(SOURCE_PATH, "utf8");
@@ -190,8 +186,8 @@ describe("latchLedStateOf — 취소 LED (UpdateCancelLatchLed :4342 · AnyCance
   });
 });
 
-describe("latchLedStateOf — 매수 LED (ShowBuyServerQty :1027)", () => {
-  it("④-1 buyEnabled=false → 회색 OFF — 발주 이력과 무관하게 보조 문구 없음 (2026-09-23)", () => {
+describe("latchLedStateOf — 매수 LED (Phase 24 D-12 — 마스터 + 후매수 단계, 클릭 불가)", () => {
+  it("④-1 buyEnabled=false → 회색 OFF", () => {
     expect(latchLedStateOf("buy", chaser({ buyEnabled: false }))).toEqual({
       tone: "off",
       clickable: false,
@@ -200,67 +196,49 @@ describe("latchLedStateOf — 매수 LED (ShowBuyServerQty :1027)", () => {
     });
   });
 
-  it("④-2 ★Pitfall 4 — buyWatchSide \"0\" ∧ buyEntryLatched=true → 초록이되 클릭 불가", () => {
-    expect(
-      latchLedStateOf(
-        "buy",
-        chaser({ buyEnabled: true, buyWatchSide: "0", buyEntryLatched: true }),
-      ),
-    ).toEqual({
+  it("④-2 buyEnabled ∧ postBuyPhase 1(감시) → 초록 「감시」 · 클릭 불가 · 툴팁 없음", () => {
+    expect(latchLedStateOf("buy", chaser({ buyEnabled: true, postBuyPhase: 1 }))).toEqual({
       tone: "armed",
       clickable: false,
       label: "감시",
-      tooltip: TIP_BUY_ASK_SIDE,
+      tooltip: null,
     });
   });
 
-  it("④-3 buyWatchSide \"0\" 은 래치값과 무관하게 같은 결과다 (2단계 유지)", () => {
-    const latched = latchLedStateOf(
-      "buy",
-      chaser({ buyEnabled: true, buyWatchSide: "0", buyEntryLatched: true }),
-    );
-    const unlatched = latchLedStateOf(
-      "buy",
-      chaser({ buyEnabled: true, buyWatchSide: "0", buyEntryLatched: false }),
-    );
-    expect(unlatched).toEqual(latched);
-    expect(unlatched.clickable).toBe(false);
-  });
-
-  it("④-4 buyWatchSide \"1\" ∧ !buyEntryLatched → 주황 대기 · 클릭 가능 · 켜는 툴팁", () => {
-    expect(
-      latchLedStateOf(
-        "buy",
-        chaser({ buyEnabled: true, buyWatchSide: "1", buyEntryLatched: false }),
-      ),
-    ).toEqual({
+  it("④-3 buyEnabled ∧ postBuyPhase 2 → 주황 「보유중」 · 클릭 불가 · C# 원문 툴팁", () => {
+    expect(latchLedStateOf("buy", chaser({ buyEnabled: true, postBuyPhase: 2 }))).toEqual({
       tone: "latent",
-      clickable: true,
-      label: "대기",
-      tooltip: TIP_BUY_ON,
+      clickable: false,
+      label: "보유중",
+      tooltip: BUY_HOLDING_TOOLTIP,
     });
   });
 
-  it("④-5 buyWatchSide \"1\" ∧ buyEntryLatched → 초록 감시 · 클릭 가능 · 끄는 툴팁", () => {
-    expect(
-      latchLedStateOf(
-        "buy",
-        chaser({ buyEnabled: true, buyWatchSide: "1", buyEntryLatched: true }),
-      ),
-    ).toEqual({
-      tone: "armed",
-      clickable: true,
-      label: "감시",
-      tooltip: TIP_BUY_OFF,
+  it("④-4 ★마스터 우선 — buyEnabled=false ∧ postBuyPhase 2 → OFF (WinForms 와 다른 점: 웹은 마스터가 이긴다)", () => {
+    expect(latchLedStateOf("buy", chaser({ buyEnabled: false, postBuyPhase: 2 }))).toEqual({
+      tone: "off",
+      clickable: false,
+      label: "OFF",
+      tooltip: null,
     });
+  });
+
+  it("④-5 단계 0 · 3 도 무장이면 초록 「감시」 — 감시대상(buyWatchSide)과 무관하다", () => {
+    for (const postBuyPhase of [0, 3]) {
+      for (const buyWatchSide of ["0", "1"] as const) {
+        expect(
+          latchLedStateOf("buy", chaser({ buyEnabled: true, postBuyPhase, buyWatchSide })),
+        ).toEqual({ tone: "armed", clickable: false, label: "감시", tooltip: null });
+      }
+    }
   });
 });
 
-describe("툴팁 원문 — 17-RESEARCH §2 의 C# 리터럴 3종", () => {
-  it("⑤ 켜는 쪽 · 끄는 쪽 · 매도잔량 기준 문구가 파일 안에 리터럴로 있다", () => {
-    expect(SOURCE).toContain(TIP_BUY_ON);
-    expect(SOURCE).toContain(TIP_BUY_OFF);
-    expect(SOURCE).toContain(TIP_BUY_ASK_SIDE);
+describe("툴팁 원문 — C# 리터럴", () => {
+  it("⑤ 매수 「보유중」 툴팁이 원문 그대로다 · 매수 래치 3문구는 사라졌다", () => {
+    expect(BUY_HOLDING_TOOLTIP).toBe(TIP_BUY_HOLDING);
+    expect(SOURCE).toContain(TIP_BUY_HOLDING);
+    expect(SOURCE).not.toContain("매수 진입 확인 래치를");
   });
 });
 
@@ -279,12 +257,7 @@ describe("LatchLed — 접근성 (D-21 · WCAG 1.4.1)", () => {
   });
 
   it("⑥-2 클릭 불가 LED 는 aria-pressed 를 가지지 않고 탭 순서에도 없다", () => {
-    render(
-      <LatchLed
-        kind="buy"
-        server={chaser({ buyEnabled: true, buyWatchSide: "0", buyEntryLatched: true })}
-      />,
-    );
+    render(<LatchLed kind="buy" server={chaser({ buyEnabled: true, postBuyPhase: 2 })} />);
     const el = ledEl("buy");
     expect(el).not.toHaveAttribute("aria-pressed");
     expect(el.tagName).not.toBe("BUTTON");
@@ -308,8 +281,9 @@ describe("LatchLed — 접근성 (D-21 · WCAG 1.4.1)", () => {
       </>,
     );
     expect(ledEl("buy").textContent).toContain("감시");
-    // 「(매도잔량 기준)」 보조 문구는 헤더 한 줄을 지키려 뺐다 — 사유는 툴팁이 말한다.
-    expect(ledEl("buy").textContent).not.toContain("매도잔량");
+    // 매수는 래치가 없어 sr-only 조사가 「상태」다(UI-SPEC R12) — 매도·취소는 「래치」.
+    expect(ledEl("buy").textContent).toContain("매수상태감시");
+    expect(ledEl("sell").textContent).toContain("매도래치감시");
     expect(ledEl("sell").textContent).toContain("감시");
     expect(ledEl("cancel").textContent).toContain("OFF");
     // 색 단계는 data-tone 으로도 읽히지만, 텍스트가 없으면 색만 남는다.
@@ -333,16 +307,16 @@ describe("LatchLed — 클릭 (D-20 · 확인 다이얼로그 없음)", () => {
     expect(onArm).toHaveBeenCalledWith("cancel");
   });
 
-  it("⑦-2 클릭 불가 LED(매도잔량 기준 매수)는 눌러도 onArm 을 부르지 않는다", async () => {
+  it("⑦-2 매수 LED(감시 · 보유중)는 눌러도 onArm 을 부르지 않는다 (D-12)", async () => {
     const onArm = vi.fn();
-    render(
-      <LatchLed
-        kind="buy"
-        server={chaser({ buyEnabled: true, buyWatchSide: "0" })}
-        onArm={onArm}
-      />,
-    );
-    await userEvent.click(ledEl("buy"));
+    for (const postBuyPhase of [1, 2]) {
+      const { unmount } = render(
+        <LatchLed kind="buy" server={chaser({ buyEnabled: true, postBuyPhase })} onArm={onArm} />,
+      );
+      expect(ledEl("buy").tagName).toBe("SPAN");
+      await userEvent.click(ledEl("buy"));
+      unmount();
+    }
     expect(onArm).not.toHaveBeenCalled();
   });
 });
@@ -374,7 +348,7 @@ describe("LatchLed — 점 변형 (quick-260923-onn)", () => {
     expect(onArm).toHaveBeenCalledWith("sell");
   });
 
-  it("⑧-2 클릭 불가 점(전략 없음 · 매도잔량 기준 매수)은 span 이고 눌러도 onArm 을 부르지 않는다", async () => {
+  it("⑧-2 클릭 불가 점(전략 없음 · 매수)은 span 이고 눌러도 onArm 을 부르지 않는다", async () => {
     const onArm = vi.fn();
     const { unmount } = render(<LatchLed kind="cancel" variant="dot" server={null} onArm={onArm} />);
     expect(ledEl("cancel").tagName).toBe("SPAN");
@@ -386,7 +360,7 @@ describe("LatchLed — 점 변형 (quick-260923-onn)", () => {
       <LatchLed
         kind="buy"
         variant="dot"
-        server={chaser({ buyEnabled: true, buyWatchSide: "0" })}
+        server={chaser({ buyEnabled: true, postBuyPhase: 1 })}
         onArm={onArm}
       />,
     );
@@ -398,18 +372,20 @@ describe("LatchLed — 점 변형 (quick-260923-onn)", () => {
     expect(onArm).not.toHaveBeenCalled();
   });
 
-  it("⑧-3 점 툴팁은 「{이름} · {라벨}」 줄과 C# 원문을 함께 말한다", async () => {
+  it("⑧-3 점 툴팁은 「{이름} · {라벨}」 줄과 C# 원문을 함께 말한다 — 매수 보유중 (UI-SPEC §10)", async () => {
     render(
       <LatchLed
         kind="buy"
         variant="dot"
-        server={chaser({ buyEnabled: true, buyWatchSide: "0" })}
+        server={chaser({ buyEnabled: true, postBuyPhase: 2 })}
       />,
     );
+    // sr-only 이름은 「매수 상태 보유중」(R12).
+    expect(ledEl("buy").textContent).toContain("매수 상태 보유중");
     await userEvent.hover(ledEl("buy"));
     const tip = await screen.findByRole("tooltip", {}, { timeout: 2000 });
-    expect(tip.textContent).toContain("매수 · 감시");
-    expect(tip.textContent).toContain(TIP_BUY_ASK_SIDE);
+    expect(tip.textContent).toContain("매수 · 보유중");
+    expect(tip.textContent).toContain(TIP_BUY_HOLDING);
   });
 
   it("⑧-4 variant 를 넘기지 않은 칩은 종전 DOM 그대로다(data-variant 없음 · 라벨 텍스트)", () => {

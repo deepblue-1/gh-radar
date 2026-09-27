@@ -47,7 +47,8 @@ import type { RelayExchange, RelayLcCrud, RelayLimitChaser, RelayLimitChaserInpu
  * `RelayLimitChaserInput`(32) 에서 뺀 것:
  *   - 정체성 3 (`isin`·`accountNo`·`exchange`) — 상단 종목·거래소·계좌 카드(A1) 소관.
  *     `market` 은 애초에 `RelayLimitChaserInput` 에 없다 — relay 가 ISIN 으로 푼다(WR-03/D-28)
- *   - 파생 2 (`crud` = `crudOf`, `buyOrderQty` = `buyOrderQtyFromAmount`)
+ *   - 파생 4 (`crud` = `crudOf`, `buyOrderQty` · `extraBuyOrderQty` · `postBuyOrderQty` =
+ *     `buyOrderQtyFromAmount` — Phase 24: 금액→수량 3벌을 `buildCfg` 가 한 함수로 산출한다. 역산 금지)
  *   - 클라 고정 3 (`sweepRecalcEnabled: true` · `sweepMinCount: 0` · `sweepMinRate: 0`)
  *
  * ★ 고정 3 을 폼에 노출하지 않는 이유: relay 빌더가 `true`/`0`/`0` 으로 **덮어쓴다**(16-04).
@@ -60,6 +61,8 @@ export type LimitChaserFormValues = Omit<
   | 'exchange'
   | 'crud'
   | 'buyOrderQty'
+  | 'extraBuyOrderQty'
+  | 'postBuyOrderQty'
   | 'sweepRecalcEnabled'
   | 'sweepMinCount'
   | 'sweepMinRate'
@@ -144,7 +147,7 @@ export function parseStrategyKey(
 }
 
 /**
- * 더티 비교 대상 21종 — **공개 상수**다. 테스트가 「무엇이 비교되지 않는지」를 직접 단언한다.
+ * 더티 비교 대상 31종(21 + Phase 24 10) — **공개 상수**다. 테스트가 「무엇이 비교되지 않는지」를 직접 단언한다.
  *
  * 폼 24종에서 뺀 것 = 스위치 3종(`buyEnabled`·`sellEnabled`·`sweepEnabled`). 즉시 전송이라
  * 더티가 아니다(파일 상단 ②). S→C 전용 4필드는 애초에 `LimitChaserFormValues` 에 없다 —
@@ -172,6 +175,17 @@ export const DIRTY_COMPARED_FIELDS = [
   'cancelWatchQty',
   'cancelTradeEnabled',
   'cancelQtyTrackEnabled',
+  // Phase 24 매수 3종 — C→S 사용자 필드 10(수량 2는 파생이라 폼 값에 없다 · S→C 5는 넣지 않는다).
+  'preBuyEnabled',
+  'extraBuyEnabled',
+  'extraBuyMinQty',
+  'extraBuyMaxQty',
+  'extraBuyOrderAmount',
+  'postBuyEnabled',
+  'postBuyReboundPct',
+  'postBuyFloorQty',
+  'postBuyReentry',
+  'postBuyOrderAmount',
 ] as const satisfies readonly (keyof LimitChaserFormValues)[];
 
 /** 더티 필드 이름 — 액션 바 개수 문구와 필드 강조가 같은 집합을 본다. */
@@ -278,6 +292,19 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
     cancelWatchQty: 10, // DEFAULT_CANCEL_QTY
     cancelTradeEnabled: false,
     cancelQtyTrackEnabled: false,
+    // === Phase 24 매수 3종 (D-04 · D-05 · D-17 폴백) ===
+    // 그룹 스위치는 전부 OFF 로 시작한다(D-05).
+    preBuyEnabled: false,
+    extraBuyEnabled: false,
+    // 추가매수 최소·최대 매수잔량(주) — 상장주식수 시딩(D-17)은 24-07. 폴백 0 = 1주 · 무제한.
+    extraBuyMinQty: 0,
+    extraBuyMaxQty: 0,
+    extraBuyOrderAmount: 4000, // DEFAULT_EXTRA_BUY_ORDER_AMOUNT (만원) — D-04
+    postBuyEnabled: false,
+    postBuyReboundPct: 30, // DEFAULT_POST_BUY_REBOUND_PCT (%)
+    postBuyFloorQty: 100_000, // DEFAULT_POST_BUY_FLOOR_QTY (주)
+    postBuyReentry: 3, // DEFAULT_POST_BUY_REENTRY (회, 최초 포함)
+    postBuyOrderAmount: 4000, // DEFAULT_POST_BUY_ORDER_AMOUNT (만원) — D-04
   };
 }
 
@@ -327,6 +354,19 @@ export function formFromServer(
     cancelWatchQty: server.cancelWatchQty,
     cancelTradeEnabled: server.cancelTradeEnabled,
     cancelQtyTrackEnabled: server.cancelQtyTrackEnabled,
+    // === Phase 24 매수 3종 — 에코 값 그대로 (D-03) ===
+    preBuyEnabled: server.preBuyEnabled,
+    extraBuyEnabled: server.extraBuyEnabled,
+    extraBuyMinQty: server.extraBuyMinQty,
+    extraBuyMaxQty: server.extraBuyMaxQty,
+    // ★ 금액 0 도 그대로 들인다 — `buyOrderAmount` 의 「0 이면 prev 보존」 특례를 따르지 않는다.
+    //   새 서버는 이 두 금액을 늘 싣기 때문에 0 은 「모른다」가 아니라 사용자가 둔 값이다(D-03).
+    extraBuyOrderAmount: server.extraBuyOrderAmount,
+    postBuyEnabled: server.postBuyEnabled,
+    postBuyReboundPct: server.postBuyReboundPct,
+    postBuyFloorQty: server.postBuyFloorQty,
+    postBuyReentry: server.postBuyReentry,
+    postBuyOrderAmount: server.postBuyOrderAmount,
   };
 }
 

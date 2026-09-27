@@ -44,6 +44,7 @@ import {
   strategyStatusOf,
 } from '../card/strategy-card';
 import { StrategyLog, TRANSITION_TEXT, marketCloseDisabledLogLine } from '../strategy-log';
+import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
 
 const ISIN = 'KR7086520004';
 const ACCOUNT = '37728502101';
@@ -90,7 +91,7 @@ function echo(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     cancelQtyTrackEnabled: false,
     cancelQtyTrackBaseline: 0,
     cancelEntryLatched: false,
-    buyEntryLatched: false,
+    ...LC_BUY3_ECHO_DEFAULTS,
     ...over,
   };
 }
@@ -518,16 +519,19 @@ describe('헤더 래치 LED → `lc.arm` 전송 규율 (옛 ⑲)', () => {
     expect(screen.queryByRole('alertdialog')).toBeNull();
   });
 
-  it('⑲-5 취소 LED → `latch:"cancel"` · 매수 LED(매수잔량 기준) → `latch:"buy"`', () => {
+  it('⑲-5 취소 LED → `latch:"cancel"` · 매수 LED 는 클릭 불가 span — send 호출 0 (Phase 24 D-12)', () => {
     setRelay({
       limitChasers: [echo({ cancelQtyEnabled: true, buyEnabled: true, buyWatchSide: '1' })],
     });
     render(<Card />);
     fireEvent.click(led('cancel'));
     expect(sendMock).toHaveBeenLastCalledWith({ t: 'lc.arm', key: KEY, latch: 'cancel' });
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    // 매수 LED — 감시 · 보유중 어느 쪽이든 span 이고 lc.arm 을 보내지 않는다.
+    expect(led('buy').tagName).toBe('SPAN');
     fireEvent.click(led('buy'));
-    expect(sendMock).toHaveBeenLastCalledWith({ t: 'lc.arm', key: KEY, latch: 'buy' });
-    expect(sendMock).toHaveBeenCalledTimes(2);
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    expect(sendMock).not.toHaveBeenCalledWith(expect.objectContaining({ t: 'lc.arm', latch: 'buy' }));
   });
 
   it('⑲-6 ★ 회색 LED 클릭 → `send` 미호출 (T-17-37)', () => {

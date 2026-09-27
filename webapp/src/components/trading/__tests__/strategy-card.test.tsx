@@ -10,6 +10,7 @@ import {
   type StrategyCardProps,
   type StrategyCardState,
 } from '../card/strategy-card';
+import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
 
 /**
  * Phase 18 Plan 06 Task 3 — 전략 카드 1장 (D-27 · D-28 · TRADE-09).
@@ -76,7 +77,7 @@ function echo(isin: string, over: Partial<RelayLimitChaser> = {}): RelayLimitCha
     cancelQtyTrackEnabled: false,
     cancelQtyTrackBaseline: 0,
     cancelEntryLatched: false,
-    buyEntryLatched: false,
+    ...LC_BUY3_ECHO_DEFAULTS,
     ...over,
   };
 }

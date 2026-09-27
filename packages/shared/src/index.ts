@@ -98,6 +98,7 @@ export {
   LIMIT_CHASER_SERVER_COUNTER_FIELDS,
   LIMIT_CHASER_SERVER_LATCH_FIELDS,
   LIMIT_CHASER_SERVER_ONLY_FIELDS,
+  LIMIT_CHASER_SERVER_RUNTIME_FIELDS,
 } from "./relay";
 // --- Phase 19 계좌 기준 주문 저널 행 계약. REST(server)와 wss 푸시(relay)가 같은 매퍼를 쓴다 ---
 export type {

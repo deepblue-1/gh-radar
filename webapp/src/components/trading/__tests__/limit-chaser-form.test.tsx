@@ -15,7 +15,7 @@ import type { RelayLcSetMsg, RelayLimitChaser, RelayLimitChaserInput } from '@gh
  *   ③ 반영 판정은 에코의 그 필드 값뿐(거부도 답 신호를 올린다)
  *   ④ 동시에 나가 있는 전송은 1건(직렬화)
  *   ⑤ 전부 OFF = `crud "D"` · 취소 게이트가 살아 있으면 `"C"`(D-08 · Pitfall 7)
- *   ⑥ S→C 전용 필드 미송신 · cfg 32키 · 클라 고정 3(Pitfall 6)
+ *   ⑥ S→C 전용 필드 미송신 · cfg 44키 · 클라 고정 3(Pitfall 6)
  *   ⑦ 리스트 구성(D-19 · D-20 · D-21 · D-22) · 44px · 꺼진 그룹 흐림(편집 가능)
  *   ⑧ 감시대상 행 안 토글(D-02 · D-02a)
  *   ⑨ 체크 행(D-22)
@@ -43,6 +43,8 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
 
 import { mockPointer, restoreMatchMedia } from '@/lib/__tests__/match-media';
 import { LimitChaserForm, type LimitChaserFormProps } from '../limit-chaser-form';
+import { buyOrderQtyFromAmount } from '@/lib/limit-chaser';
+import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
 
 const ISIN = 'KR7086520004';
 const ACCOUNT = '37728502101';
@@ -107,7 +109,7 @@ function echo(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     sellEntryLatched: false,
     cancelQtyTrackBaseline: 0,
     cancelEntryLatched: false,
-    buyEntryLatched: false,
+    ...LC_BUY3_ECHO_DEFAULTS,
     ...over,
   };
 }
@@ -191,6 +193,31 @@ describe('① 스위치 4개는 확인 없이 즉시 전송된다 (Phase 16 D-05
     expect(lastConfig().crud).toBe('C');
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('Phase 24 — 새 전략 첫 등록 cfg 에 신필드 기본값(D-04 · D-05 · D-17 폴백)과 금액→수량 산출이 실린다', () => {
+    render(<LimitChaserForm {...props({ server: null, upperLimit: 30_000 })} />);
+    click(screen.getByRole('switch', { name: '매수주문 켜기' }));
+    const cfg = lastConfig();
+    expect(cfg).toMatchObject({
+      preBuyEnabled: false,
+      extraBuyEnabled: false,
+      postBuyEnabled: false,
+      extraBuyMinQty: 0,
+      extraBuyMaxQty: 0,
+      extraBuyOrderAmount: 4000,
+      postBuyOrderAmount: 4000,
+      postBuyReboundPct: 30,
+      postBuyFloorQty: 100_000,
+      postBuyReentry: 3,
+    });
+    // 한 함수 · 같은 공통 매수가격으로 산출 — 역산 금지.
+    expect(cfg.extraBuyOrderQty).toBe(buyOrderQtyFromAmount(4000, cfg.buyOrderPrice));
+    expect(cfg.postBuyOrderQty).toBe(buyOrderQtyFromAmount(4000, cfg.buyOrderPrice));
+    expect(cfg.extraBuyOrderQty).toBe(1333);
+    // relay 가 못박는 값 · S→C 런타임은 싣지 않는다.
+    expect(cfg).not.toHaveProperty('buy3Schema');
+    expect(cfg).not.toHaveProperty('postBuyPhase');
   });
 
   it('한방체결 스위치도 같은 규율이다 — 1회 · sweepEnabled true', () => {
@@ -344,7 +371,7 @@ describe('④ 동시에 나가 있는 전송은 1건이다 (UI-SPEC §6 직렬�
     rerender(<LimitChaserForm {...props({ server: next, serverAnswerSeq: 0 })} />);
     rerender(<LimitChaserForm {...props({ server: next, serverAnswerSeq: 1 })} />);
     expect(lastConfig().buyOrderPrice).toBe(150_000);
-    expect(Object.keys(lastConfig())).toHaveLength(32);
+    expect(Object.keys(lastConfig())).toHaveLength(44);
   });
 });
 
@@ -376,16 +403,24 @@ describe('⑤ 삭제 판정은 취소 게이트를 포함한다 (D-08 · Pitfall
   });
 });
 
-describe('⑥ S→C 전용 필드를 보내지 않는다 · cfg 32키 (Pitfall 6) (옛 ⑨)', () => {
+describe('⑥ S→C 전용 필드를 보내지 않는다 · cfg 44키 (Pitfall 6) (옛 ⑨)', () => {
   const FORBIDDEN = [
     'sellOrderQty',
     'sellQtyTrackBaseline',
     'sellEntryLatched',
     'cancelQtyTrackBaseline',
     'cancelEntryLatched',
-    'buyEntryLatched',
+    // Phase 24 S→C 런타임 5 — buy3Schema 는 relay 가 못박는다.
+    'buy3Schema',
+    'extraBuyAbandoned',
+    'postBuyTriggerQty',
+    'postBuyReentryLeft',
+    'postBuyPhase',
   ] as const;
-  /** 클라 입력 29 + 클라 고정 3 = 32. `key` · `market` 은 싣지 않는다(relay 파생 · WR-03 / D-28). */
+  /**
+   * 클라 입력 29 + 클라 고정 3 + Phase 24 C→S 12 = 44. `key` · `market` 은 싣지 않는다
+   * (relay 파생 · WR-03 / D-28).
+   */
   const EXPECTED_KEYS = [
     'isin',
     'accountNo',
@@ -419,23 +454,35 @@ describe('⑥ S→C 전용 필드를 보내지 않는다 · cfg 32키 (Pitfall 6
     'cancelWatchQty',
     'cancelTradeEnabled',
     'cancelQtyTrackEnabled',
+    'preBuyEnabled',
+    'extraBuyEnabled',
+    'extraBuyMinQty',
+    'extraBuyMaxQty',
+    'extraBuyOrderAmount',
+    'extraBuyOrderQty',
+    'postBuyEnabled',
+    'postBuyReboundPct',
+    'postBuyFloorQty',
+    'postBuyReentry',
+    'postBuyOrderAmount',
+    'postBuyOrderQty',
   ];
   function expectCleanCfg(cfg: RelayLimitChaserInput): void {
     const keys = Object.keys(cfg);
-    expect(keys).toHaveLength(32);
+    expect(keys).toHaveLength(44);
     expect(keys.sort()).toEqual([...EXPECTED_KEYS].sort());
     for (const f of FORBIDDEN) expect(keys).not.toContain(f);
     expect(keys).not.toContain('key');
     expect(keys).not.toContain('market');
   }
 
-  it('스위치 경로 cfg 키가 정확히 32개다 — 래치 상태여도 S→C 필드를 되보내지 않는다', () => {
+  it('스위치 경로 cfg 키가 정확히 44개다 — 래치 상태여도 S→C 필드를 되보내지 않는다', () => {
     render(<LimitChaserForm {...props({ server: echo({ sellEntryLatched: true }) })} />);
     click(sw('매도주문 켜기'));
     expectCleanCfg(lastConfig());
   });
 
-  it('값 경로 cfg 키도 정확히 32개다', () => {
+  it('값 경로 cfg 키도 정확히 44개다', () => {
     render(<LimitChaserForm {...props({ server: echo({ sellEntryLatched: true }) })} />);
     editInline('lc-sell-order-ratio', '50');
     expectCleanCfg(lastConfig());

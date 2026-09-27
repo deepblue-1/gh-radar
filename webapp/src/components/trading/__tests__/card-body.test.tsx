@@ -57,6 +57,7 @@ import { mockPointer, restoreMatchMedia } from '@/lib/__tests__/match-media';
 import { clearTickRuleCache } from '@/lib/tick-rule';
 import type { StrategyCardState } from '../card/strategy-card';
 import { CardBody, cardGroupStatusOf, type CardBodyProps } from '../card/card-body';
+import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
 
 const ISIN = 'KR7042700005';
 const ACCOUNT = '12345678-01';
@@ -150,7 +151,7 @@ function server(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     sellEntryLatched: false,
     cancelQtyTrackBaseline: 0,
     cancelEntryLatched: false,
-    buyEntryLatched: false,
+    ...LC_BUY3_ECHO_DEFAULTS,
     ...over,
   };
 }
@@ -266,16 +267,15 @@ describe('② 그룹 보조문 5문구 (UI-SPEC §카드)', () => {
     expect(within(buy).getByText('꺼짐')).toBeInTheDocument();
   });
 
-  it('무장 래치 전은 「무장 · 대기」, 래치 후는 「감시 중」, 한방은 「켜짐」', () => {
+  it('무장 래치 전은 「무장 · 대기」, 래치 후는 「감시 중」, 한방은 「켜짐」 — 매수는 래치가 없어 무장이면 「감시 중」(Phase 24 D-12)', () => {
     const latent = server({ buyEnabled: true, sweepEnabled: true, sellEnabled: true });
     expect(cardGroupStatusOf(latent, false)).toMatchObject({
-      buy: '무장 · 대기',
+      buy: '감시 중',
       sweep: '켜짐',
       sell: '무장 · 대기',
     });
     const armed = server({
       buyEnabled: true,
-      buyEntryLatched: true,
       sellEnabled: true,
       sellEntryLatched: true,
       cancelQtyEnabled: true,

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { LIMIT_CHASER_SERVER_ONLY_FIELDS } from '@gh-radar/shared';
 import type { RelayLimitChaser } from '@gh-radar/shared';
 
 /**
@@ -36,6 +37,7 @@ import {
   strategyKey,
   type LimitChaserFormValues,
 } from '../limit-chaser';
+import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
 
 const ISIN = 'KR7005930003';
 const ACCOUNT = '1234567890';
@@ -57,7 +59,7 @@ function serverEcho(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     sellEntryLatched: false,
     cancelQtyTrackBaseline: 0,
     cancelEntryLatched: false,
-    buyEntryLatched: false,
+    ...LC_BUY3_ECHO_DEFAULTS,
     // 클라 고정 3
     sweepRecalcEnabled: true,
     sweepMinCount: 0,
@@ -170,25 +172,22 @@ describe('dirtyFieldsOf — 더티 판정 (유일 지점, D-06)', () => {
     );
   });
 
-  it('S→C 전용 6필드는 비교 대상이 아니다 (Pitfall 6)', () => {
-    for (const f of [
-      'sellOrderQty',
-      'sellQtyTrackBaseline',
-      'sellEntryLatched',
-      'cancelQtyTrackBaseline',
-      'cancelEntryLatched',
-      'buyEntryLatched',
-    ] as const) {
-      expect(DIRTY_COMPARED_FIELDS).not.toContain(f);
+  it('S→C 전용 10필드는 비교 대상이 아니다 (Pitfall 6 · Phase 24 런타임 5 포함)', () => {
+    for (const f of LIMIT_CHASER_SERVER_ONLY_FIELDS) {
+      expect(DIRTY_COMPARED_FIELDS as readonly string[]).not.toContain(f);
     }
-    // 서버가 그 6필드를 아무리 흔들어도 더티가 생기지 않는다.
+    // 서버가 그 필드를 아무리 흔들어도 더티가 생기지 않는다.
     const noisy = serverEcho({
       sellOrderQty: 999,
       sellQtyTrackBaseline: 777,
       sellEntryLatched: true,
       cancelQtyTrackBaseline: 555,
       cancelEntryLatched: true,
-      buyEntryLatched: true,
+      buy3Schema: 0,
+      extraBuyAbandoned: true,
+      postBuyTriggerQty: 330_000,
+      postBuyReentryLeft: 2,
+      postBuyPhase: 2,
     });
     expect(dirtyFieldsOf(noisy, defaultLimitChaserForm())).toEqual([]);
   });
@@ -329,6 +328,40 @@ describe('formFromServer — 에코 → 폼 (D-11 서버값 우선)', () => {
     const prev: LimitChaserFormValues = { ...defaultLimitChaserForm(), buyOrderAmount: 150 };
     expect(formFromServer(serverEcho({ buyOrderAmount: 0 }), prev).buyOrderAmount).toBe(150);
     expect(formFromServer(serverEcho({ buyOrderAmount: 20 }), prev).buyOrderAmount).toBe(20);
+  });
+
+  it('Phase 24 D-03 — 추가매수 · 후매수 금액 0 은 0 그대로 들어온다(이전 폼 값으로 메우지 않는다)', () => {
+    const prev: LimitChaserFormValues = {
+      ...defaultLimitChaserForm(),
+      extraBuyOrderAmount: 4000,
+      postBuyOrderAmount: 4000,
+    };
+    const next = formFromServer(
+      serverEcho({ extraBuyOrderAmount: 0, postBuyOrderAmount: 0, postBuyReentry: 5 }),
+      prev,
+    );
+    expect(next.extraBuyOrderAmount).toBe(0);
+    expect(next.postBuyOrderAmount).toBe(0);
+    expect(next.postBuyReentry).toBe(5);
+    // 폼 값에는 파생 수량 · S→C 런타임이 없다.
+    expect(next).not.toHaveProperty('extraBuyOrderQty');
+    expect(next).not.toHaveProperty('postBuyOrderQty');
+    expect(next).not.toHaveProperty('postBuyPhase');
+  });
+
+  it('Phase 24 — 신규 폼 기본값: 그룹 스위치 OFF · 금액 4,000만원 · 반등 30% · 하한 100,000주 · 3회', () => {
+    expect(defaultLimitChaserForm()).toMatchObject({
+      preBuyEnabled: false,
+      extraBuyEnabled: false,
+      postBuyEnabled: false,
+      extraBuyMinQty: 0,
+      extraBuyMaxQty: 0,
+      extraBuyOrderAmount: 4000,
+      postBuyOrderAmount: 4000,
+      postBuyReboundPct: 30,
+      postBuyFloorQty: 100_000,
+      postBuyReentry: 3,
+    });
   });
 });
 
@@ -484,6 +517,6 @@ describe('15:40 KRX 해제 판정 — 통지 · 대기 키 · 게이트 해제 (
       ),
     ).toBe(false);
     expect(limitChaserGateDisarmed(off, { ...off, buyEnabled: true })).toBe(false);
-    expect(limitChaserGateDisarmed(off, { ...off, buyEntryLatched: true })).toBe(false);
+    expect(limitChaserGateDisarmed(off, { ...off, sellEntryLatched: true })).toBe(false);
   });
 });

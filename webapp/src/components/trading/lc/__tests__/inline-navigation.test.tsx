@@ -31,6 +31,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
 });
 
 import { LimitChaserForm, type LimitChaserFormProps } from '../../limit-chaser-form';
+import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
 
 const ISIN = 'KR7086520004';
 const ACCOUNT = '37728502101';
@@ -85,7 +86,7 @@ function echo(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     sellEntryLatched: false,
     cancelQtyTrackBaseline: 0,
     cancelEntryLatched: false,
-    buyEntryLatched: false,
+    ...LC_BUY3_ECHO_DEFAULTS,
     ...over,
   };
 }

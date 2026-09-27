@@ -42,6 +42,7 @@ vi.mock("@/lib/relay-provider", async (importOriginal) => {
 import { EMPTY_RELAY_VALUE } from "@/lib/relay-provider";
 
 import { StrategyStatusCard, viSummaryText } from "../strategy-status-card";
+import { LC_BUY3_ECHO_DEFAULTS } from "@/test-fixtures/limit-chaser";
 
 // ---------------------------------------------------------------------------
 // 픽스처
@@ -94,7 +95,7 @@ function makeChaser(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     cancelQtyTrackEnabled: false,
     cancelQtyTrackBaseline: 0,
     cancelEntryLatched: false,
-    buyEntryLatched: false,
+    ...LC_BUY3_ECHO_DEFAULTS,
     key: `${isin}:${accountNo}:${exchange}`,
     ...over,
   };

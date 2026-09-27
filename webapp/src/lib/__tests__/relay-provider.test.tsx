@@ -56,6 +56,7 @@ import {
 } from '../relay-provider';
 import { strategyKey } from '../limit-chaser';
 import { RELAY_MARKET_BATCH_MS } from '../use-relay-socket';
+import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
 
 const ISIN_A = 'KR7005930003';
 const ISIN_B = 'KR7000660001';
@@ -208,7 +209,7 @@ function lcItem(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     cancelQtyTrackEnabled: false,
     cancelQtyTrackBaseline: 0,
     cancelEntryLatched: false,
-    buyEntryLatched: false,
+    ...LC_BUY3_ECHO_DEFAULTS,
     key: `${isin}:${accountNo}:${exchange}`,
     ...over,
   };

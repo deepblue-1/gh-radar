@@ -78,6 +78,7 @@ import {
   LC_FIXED_SWEEP_RECALC_ENABLED,
   LC_FIXED_SWEEP_MIN_COUNT,
   LC_FIXED_SWEEP_MIN_RATE,
+  LC_FIXED_BUY3_SCHEMA,
   MAX_STRATEGY_KEY_BYTES,
   parseLimitChaserEcho,
   parseLimitChaserList,
@@ -1192,8 +1193,31 @@ function lcInput(over: Partial<LcBuildInput> = {}): LcBuildInput {
     cancelWatchQty: 25,
     cancelTradeEnabled: false,
     cancelQtyTrackEnabled: true,
+    // Phase 24 C→S 12 — 기본은 전부 끔 · 0 (게이트 하나만 켜서 효과를 단정하는 기본형).
+    preBuyEnabled: false,
+    extraBuyEnabled: false,
+    extraBuyMinQty: 0,
+    extraBuyMaxQty: 0,
+    extraBuyOrderAmount: 0,
+    extraBuyOrderQty: 0,
+    postBuyEnabled: false,
+    postBuyReboundPct: 0,
+    postBuyFloorQty: 0,
+    postBuyReentry: 0,
+    postBuyOrderAmount: 0,
+    postBuyOrderQty: 0,
     ...over,
   };
+}
+
+/** S→C 전용 4필드 vtable 오프셋 — `extra_buy_abandoned` 112 · `post_buy_trigger_qty` 126 ·
+ *  `post_buy_reentry_left` 128 · `post_buy_phase` 130. */
+const LC_SERVER_ONLY_VTABLES = [112, 126, 128, 130] as const;
+
+/** vtable 슬롯이 **있는** 오프셋만. 기본값 필드는 버퍼에 없어 접근자로는 부재를 증명할 수 없다
+ *  (RESEARCH Pitfall 2) — 슬롯을 직접 본다. */
+function presentSlots(t: SetLimitChaser, vts: readonly number[]): number[] {
+  return vts.filter((vt) => t.bb!.__offset(t.bb_pos, vt) !== 0);
 }
 
 describe("전략 요청 조립 (16-04 / T-16-05·T-16-06)", () => {
@@ -1217,7 +1241,8 @@ describe("전략 요청 조립 (16-04 / T-16-05·T-16-06)", () => {
     expect(t.buyWatchPrice()).toBe(71_100);
     expect(t.buyWatchQty()).toBe(10_000);
     expect(t.buyMinTradeQty()).toBe(30_000);
-    expect(t.buyWatchSide()).toBe("0");
+    // Phase 24 — buy_watch_side 는 싣지 않는다(buy3 서버는 읽지 않는다). 슬롯 부재 = null.
+    expect(t.buyWatchSide()).toBeNull();
     expect(t.buyTradeQtyEnabled()).toBe(true);
     expect(t.buyEnabled()).toBe(true);
     expect(t.sellOrderPrice()).toBe(71_200);
@@ -1268,6 +1293,53 @@ describe("전략 요청 조립 (16-04 / T-16-05·T-16-06)", () => {
     expect(t.cancelQtyTrackBaseline()).toBe(0);
   });
 
+  it("③-buy3 buy3_schema=1 고정 · C→S 12 는 값 그대로 · buy_watch_side 와 S→C 4 는 슬롯이 없다 (Phase 24 D-24 · T-24-01/02)", () => {
+    const t = readLc(
+      lcInput({
+        buyWatchSide: "1",
+        preBuyEnabled: true,
+        extraBuyEnabled: true,
+        extraBuyMinQty: 50_000,
+        extraBuyMaxQty: 150_000,
+        extraBuyOrderAmount: 4000,
+        extraBuyOrderQty: 3,
+        postBuyEnabled: true,
+        postBuyReboundPct: 30,
+        postBuyFloorQty: 100_000,
+        postBuyReentry: 3,
+        postBuyOrderAmount: 4000,
+        postBuyOrderQty: 3,
+      }),
+    );
+
+    expect(LC_FIXED_BUY3_SCHEMA).toBe(1);
+    expect(t.buy3Schema()).toBe(1);
+    expect(t.preBuyEnabled()).toBe(true);
+    expect(t.extraBuyEnabled()).toBe(true);
+    expect(t.extraBuyMinQty()).toBe(50_000);
+    expect(t.extraBuyMaxQty()).toBe(150_000);
+    expect(t.extraBuyOrderAmount()).toBe(4000);
+    expect(t.extraBuyOrderQty()).toBe(3);
+    expect(t.postBuyEnabled()).toBe(true);
+    expect(t.postBuyReboundPct()).toBe(30);
+    expect(t.postBuyFloorQty()).toBe(100_000);
+    expect(t.postBuyReentry()).toBe(3);
+    expect(t.postBuyOrderAmount()).toBe(4000);
+    expect(t.postBuyOrderQty()).toBe(3);
+    // 입력이 "1" 이어도 싣지 않는다 — 구 클라 경로(buy3_schema=0 ∧ side "1")를 열 수 없다.
+    expect(t.buyWatchSide()).toBeNull();
+    // S→C 전용 4필드는 vtable 슬롯 자체가 없다.
+    expect(presentSlots(t, LC_SERVER_ONLY_VTABLES)).toEqual([]);
+    // 대조군 — 실은 필드는 슬롯이 있다(판정기가 늘 빈 배열을 내는 거짓 green 방지).
+    expect(presentSlots(t, [98, 100, 114, 120])).toEqual([98, 100, 114, 120]);
+  });
+
+  it("③-buy3-b 끄고 0 을 보내도 buy3_schema 는 1 로 실린다 (슬롯 존재)", () => {
+    const t = readLc(lcInput());
+    expect(t.buy3Schema()).toBe(1);
+    expect(presentSlots(t, [98])).toEqual([98]);
+  });
+
   it("④ isin·accountNo 는 서버 strncpy 와 같은 12자로 절단된다", () => {
     const t = readLc(lcInput({ isin: `${SAMPLE_ISIN}XX`, accountNo: "123456789012345" }));
 
@@ -1284,15 +1356,18 @@ describe("전략 요청 조립 (16-04 / T-16-05·T-16-06)", () => {
     expect(() =>
       buildSetLimitChaserReq(lcInput({ crud: "X" as unknown as RelayLimitChaserInput["crud"] })),
     ).toThrow(/등록구분/);
+    // Phase 24 — buy_watch_side 는 싣지 않으므로 조립기가 검증하지도 않는다(zod 가 입력을 본다).
     expect(() =>
       buildSetLimitChaserReq(
         lcInput({ buyWatchSide: "2" as unknown as RelayLimitChaserInput["buyWatchSide"] }),
       ),
-    ).toThrow(/감시 기준호가/);
+    ).not.toThrow();
     // uint 를 넘기면 감싸서 전혀 다른 가격이 된다 — 표현 범위에서 막는다.
     expect(() => buildSetLimitChaserReq(lcInput({ buyOrderPrice: -1 }))).toThrow(/uint/);
     expect(() => buildSetLimitChaserReq(lcInput({ buyOrderPrice: 1.5 }))).toThrow(/uint/);
     expect(() => buildSetLimitChaserReq(lcInput({ sweepMinTickCount: 256 }))).toThrow(/ubyte/);
+    expect(() => buildSetLimitChaserReq(lcInput({ postBuyReentry: 256 }))).toThrow(/ubyte/);
+    expect(() => buildSetLimitChaserReq(lcInput({ extraBuyMinQty: -1 }))).toThrow(/uint/);
   });
 
   it("⑥ SetVITrigger 왕복 — 금액은 bigint 승격, priceType 은 relay 가 U 로 채운다", () => {
@@ -1473,7 +1548,7 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     return parsed!;
   }
 
-  it("① 39필드 왕복 — 요청 33필드가 그대로 돌아오고 S→C 전용 6은 0/false 다", () => {
+  it("① 55필드 왕복 — 요청 필드가 그대로 돌아오고 S→C 전용은 0/false 다", () => {
     const cfg = lcInput();
     // 요청 빌더의 산출물을 에코 파서로 되읽는다. 빌더와 파서가 **같은 슬롯**을 보는지가
     // 이 왕복의 전부다 — 한쪽만 밀려도 값이 어긋나 실패 메시지에 그대로 드러난다.
@@ -1482,17 +1557,23 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     expect(item).not.toBeNull();
     expect(item).toMatchObject(cfg);
 
-    // S→C 전용 6 — 빌더가 보내지 않았으므로 **서버가 안 채운 상태**로 0/false 다.
+    // S→C 전용 — 빌더가 보내지 않았으므로 **서버가 안 채운 상태**로 0/false 다.
     // 「보내지 않는 것」과 「읽지 않는 것」은 다른 문제라 값이 존재해야 한다 (Pitfall 6).
     expect(item!.sellOrderQty).toBe(0);
     expect(item!.sellQtyTrackBaseline).toBe(0);
     expect(item!.sellEntryLatched).toBe(false);
     expect(item!.cancelQtyTrackBaseline).toBe(0);
     expect(item!.cancelEntryLatched).toBe(false);
-    expect(item!.buyEntryLatched).toBe(false);
+    expect(item!.extraBuyAbandoned).toBe(false);
+    expect(item!.postBuyTriggerQty).toBe(0);
+    expect(item!.postBuyReentryLeft).toBe(0);
+    expect(item!.postBuyPhase).toBe(0);
+    // buy3_schema 는 relay 가 1 로 싣는다 — 되읽으면 1.
+    expect(item!.buy3Schema).toBe(1);
 
-    // 활성 39 + 파생 key. 필드를 하나라도 빠뜨리면 여기서 잡힌다.
-    expect(Object.keys(item!)).toHaveLength(40);
+    // 활성 55 + 파생 key = 56. (39 − 1(매수 진입 래치 봉인) + 17(Phase 24) = 55 + key)
+    // 필드를 하나라도 빠뜨리면 여기서 잡힌다.
+    expect(Object.keys(item!)).toHaveLength(56);
     expect(item!.key).toBe(strategyKey(SAMPLE_ISIN, SAMPLE_ACCOUNT_NO, "KRX"));
   });
 
@@ -1551,7 +1632,7 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     expect(item!.cancelQtyEnabled).toBe(true);
   });
 
-  it("⑤-2 취소·매수 진입 확인 래치는 무장과 접지 않은 **원값**으로 올라온다 (D-05)", () => {
+  it("⑤-2 취소 진입 확인 래치는 무장과 접지 않은 **원값**으로 올라온다 (D-05)", () => {
     // 이 단언이 17-01 재동기화가 와이어 끝에서 끝까지 통했다는 증거다.
     // `cancelEntryLatched=true` 인데 취소 무장(`cancelQtyEnabled`·`cancelTradeEnabled`)이
     // **둘 다 꺼진** 조합 — 파서가 `&& enabled` 로 접으면 여기서 false 가 되어 깨진다.
@@ -1562,14 +1643,12 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
           cancelEntryLatched: true,
           cancelQtyEnabled: false,
           cancelTradeEnabled: false,
-          buyEntryLatched: true,
           buyEnabled: false,
         }),
       ).env,
     );
 
     expect(latent!.cancelEntryLatched).toBe(true);
-    expect(latent!.buyEntryLatched).toBe(true);
     // 접지 않았음을 대조군으로 못박는다 — 무장 쪽은 서버가 보낸 false 그대로다.
     expect(latent!.cancelQtyEnabled).toBe(false);
     expect(latent!.cancelTradeEnabled).toBe(false);
@@ -1578,7 +1657,53 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     // 부재 필드는 false(잠복)로 읽힌다 — 구 서버/미점등 상태의 안전한 방향이다.
     const absent = parseLimitChaserEcho(inbound(buildSetLimitChaserRespFrame({})).env);
     expect(absent!.cancelEntryLatched).toBe(false);
-    expect(absent!.buyEntryLatched).toBe(false);
+    // 매수 진입 래치는 Phase 24 D-25 로 봉인됐다 — 계약에서 사라졌다(키 수 56 이 증명한다).
+  });
+
+  it("⑤-buy3 60 · 64 의 Phase 24 신필드 17 이 같은 값으로 파싱되고 buy_watch_side 부재는 \"0\" 이다", () => {
+    const echo = {
+      buyEnabled: true,
+      buy3Schema: 1,
+      preBuyEnabled: true,
+      extraBuyEnabled: true,
+      extraBuyMinQty: 50_000,
+      extraBuyMaxQty: 150_000,
+      extraBuyOrderAmount: 4000,
+      extraBuyOrderQty: 3,
+      extraBuyAbandoned: true,
+      // D-21 — 서버가 이미 접어 보낸 값을 relay 는 다시 접지 않는다.
+      postBuyEnabled: true,
+      postBuyReboundPct: 30,
+      postBuyFloorQty: 100_000,
+      postBuyReentry: 3,
+      postBuyOrderAmount: 4000,
+      postBuyOrderQty: 3,
+      postBuyTriggerQty: 330_000,
+      postBuyReentryLeft: 2,
+      postBuyPhase: 2,
+    };
+    const single = parseLimitChaserEcho(inbound(buildSetLimitChaserRespFrame(echo)).env);
+    const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
+
+    expect(single).toMatchObject(echo);
+    expect(list).toHaveLength(1);
+    expect(list![0]).toMatchObject(echo);
+    // 새 서버 에코에는 감시대상 슬롯이 없다 → "0".
+    expect(single!.buyWatchSide).toBe("0");
+    expect(list![0]!.buyWatchSide).toBe("0");
+    expect(Object.keys(single!)).toHaveLength(56);
+    expect(Object.keys(list![0]!)).toHaveLength(56);
+
+    // postBuyEnabled 는 서버 값 그대로 — false 로 접혀 온 에코는 false(phase 와 무관하게).
+    const folded = parseLimitChaserEcho(
+      inbound(buildSetLimitChaserRespFrame({ postBuyEnabled: false, postBuyPhase: 1 })).env,
+    );
+    expect(folded!.postBuyEnabled).toBe(false);
+    expect(folded!.postBuyPhase).toBe(1);
+
+    // 구 서버 흉내(buy3_schema 0) 도 파싱은 된다 — 판정은 UI 몫.
+    const legacy = parseLimitChaserEcho(inbound(buildSetLimitChaserRespFrame({ buy3Schema: 0 })).env);
+    expect(legacy!.buy3Schema).toBe(0);
   });
 
   it("⑤-3 S→C 전용 래치 2필드는 요청 조립기가 **싣지 않는다** (Pitfall 6 / T-17-03)", () => {
@@ -1586,7 +1711,11 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     // 착각이 생겨 에코-폼 비교가 오염된다.
     const sent = parseLimitChaserEcho(readBack(buildSetLimitChaserReq(lcInput())));
     expect(sent!.cancelEntryLatched).toBe(false);
-    expect(sent!.buyEntryLatched).toBe(false);
+    // Phase 24 S→C 4 — 역시 싣지 않는다.
+    expect(sent!.extraBuyAbandoned).toBe(false);
+    expect(sent!.postBuyTriggerQty).toBe(0);
+    expect(sent!.postBuyReentryLeft).toBe(0);
+    expect(sent!.postBuyPhase).toBe(0);
   });
 
   it("⑥ 빈 61 은 「미등록」이고 「파싱 실패」와 다른 값이다", () => {

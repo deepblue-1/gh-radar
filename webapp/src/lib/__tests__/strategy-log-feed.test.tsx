@@ -11,6 +11,7 @@ import {
   StrategyLogFeedProvider,
   useStrategyLogFeed,
 } from '@/lib/strategy-log-feed';
+import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
 
 /**
  * Phase 21 Plan 32 Task 2 — 전 종목 전략 로그 공급자 (D-25a · G-21-R3-2).
@@ -68,7 +69,7 @@ function chaser(isin: string, over: Partial<RelayLimitChaser> = {}): RelayLimitC
     cancelQtyTrackEnabled: false,
     cancelQtyTrackBaseline: 0,
     cancelEntryLatched: false,
-    buyEntryLatched: false,
+    ...LC_BUY3_ECHO_DEFAULTS,
     ...over,
   };
 }

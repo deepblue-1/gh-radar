@@ -19,6 +19,7 @@ import {
   type UseLcFieldCommitOptions,
 } from '../use-lc-field-commit';
 import { lcRowByField } from '../lc-fields';
+import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
 
 /**
  * `useLcFieldCommit` 단위 — 필드 확정 상태 기계 (20-01 Task 2 · D-04 ~ D-07).
@@ -74,7 +75,7 @@ function echo(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     cancelQtyTrackEnabled: false,
     cancelQtyTrackBaseline: 0,
     cancelEntryLatched: false,
-    buyEntryLatched: false,
+    ...LC_BUY3_ECHO_DEFAULTS,
     ...over,
   };
 }
@@ -88,6 +89,8 @@ function buildCfg(values: LimitChaserFormValues): RelayLimitChaserInput {
     exchange: 'KRX',
     crud: crudOf(values),
     buyOrderQty: 1,
+    extraBuyOrderQty: 0,
+    postBuyOrderQty: 0,
     sweepRecalcEnabled: true,
     sweepMinCount: 0,
     sweepMinRate: 0,

@@ -541,7 +541,7 @@ export const STRATEGY_MSG = {
 } as const;
 
 /**
- * 상따 전략 1건. **활성 39 필드 전부** override 가능하다.
+ * 상따 전략 1건. **활성 55 필드 전부** override 가능하다(Phase 24: 39 − 1 + 17).
  * (37 → 39: 17-01 재동기화로 `cancel_entry_latched` · `buy_entry_latched` 가 합류했다.)
  *
  * deprecated 8종(`client_key` · `sell_min_cum_volume` · `sell_cum_volume_enabled` ·
@@ -549,8 +549,9 @@ export const STRATEGY_MSG = {
  * `sell_price_break_enabled`)은 flatc 가 접근자를 만들지 않아 여기에도 없다 —
  * 보내지도 읽지도 않는다.
  *
- * **S→C 전용 6필드**(`sellOrderQty` · `sellQtyTrackBaseline` · `sellEntryLatched` ·
- * `cancelQtyTrackBaseline` · `cancelEntryLatched` · `buyEntryLatched`)도 주입할 수 있다. 서버가 계산해 에코로만 내려주는 값이라,
+ * **S→C 전용 10필드**(`sellOrderQty` · `sellQtyTrackBaseline` · `sellEntryLatched` ·
+ * `cancelQtyTrackBaseline` · `cancelEntryLatched` · Phase 24 의 `buy3Schema` · `extraBuyAbandoned` ·
+ * `postBuyTriggerQty` · `postBuyReentryLeft` · `postBuyPhase`)도 주입할 수 있다. 서버가 계산해 에코로만 내려주는 값이라,
  * "에코가 화면에 그대로 뜨는가"를 검증하려면 테스트가 직접 심을 수 있어야 한다.
  */
 export type FakeLimitChaserInput = {
@@ -565,7 +566,10 @@ export type FakeLimitChaserInput = {
   buyWatchPrice?: number;
   buyWatchQty?: number;
   buyMinTradeQty?: number;
-  /** 첫 글자만 파싱된다. `"1"`=매수호가, 그 외=매도호가. */
+  /**
+   * 첫 글자만 파싱된다. `"1"`=매수호가, 그 외=매도호가.
+   * **주지 않으면 슬롯을 싣지 않는다** — 새 서버(buy3) 에코는 이 슬롯이 없다(Phase 24).
+   */
   buyWatchSide?: string;
   buyTradeQtyEnabled?: boolean;
   buyEnabled?: boolean;
@@ -604,11 +608,31 @@ export type FakeLimitChaserInput = {
   cancelQtyTrackBaseline?: number;
   /** **S→C 전용** — 취소 진입 확인 래치 원값(무장과 접지 않는다). 17-01 재동기화 산물. */
   cancelEntryLatched?: boolean;
-  /**
-   * **S→C 전용** — 매수 진입 확인 래치 원값(무장과 접지 않는다). 17-01 재동기화 산물.
-   * 서버는 `buyWatchSide === "1"` 갈래에서만 켠다 — side `"0"` 은 언제나 false(BL-01).
-   */
-  buyEntryLatched?: boolean;
+  // === Phase 24 매수 3종 (gh-trade D-17 · D-24) ===
+  /** **S→C 전용** — 서버 에코는 늘 1(기본 1). 구 서버 흉내는 0 을 넘긴다. */
+  buy3Schema?: number;
+  preBuyEnabled?: boolean;
+  extraBuyEnabled?: boolean;
+  extraBuyMinQty?: number;
+  extraBuyMaxQty?: number;
+  /** 단위 만원. */
+  extraBuyOrderAmount?: number;
+  extraBuyOrderQty?: number;
+  /** **S→C 전용** — 추가매수 포기. */
+  extraBuyAbandoned?: boolean;
+  postBuyEnabled?: boolean;
+  postBuyReboundPct?: number;
+  postBuyFloorQty?: number;
+  postBuyReentry?: number;
+  /** 단위 만원. */
+  postBuyOrderAmount?: number;
+  postBuyOrderQty?: number;
+  /** **S→C 전용** — 발동잔량(주). */
+  postBuyTriggerQty?: number;
+  /** **S→C 전용** — 재진입 잔여(회). */
+  postBuyReentryLeft?: number;
+  /** **S→C 전용** — 0 꺼짐 / 1 감시 / 2 보유중 / 3 소진. */
+  postBuyPhase?: number;
 };
 
 /**
@@ -630,7 +654,6 @@ const LIMIT_CHASER_DEFAULTS = {
   market: "K",
   crud: "C",
   exchange: "KRX",
-  buyWatchSide: "0",
   buyOrderPrice: 71_000,
   buyOrderQty: 14,
   buyWatchPrice: 71_100,
@@ -672,7 +695,9 @@ function emitSetLimitChaser(
   const accountNo = b.createString(input.accountNo ?? SAMPLE_ACCOUNT_NO);
   const market = b.createString(input.market ?? d.market);
   const crud = b.createString(input.crud ?? d.crud);
-  const buyWatchSide = b.createString(input.buyWatchSide ?? d.buyWatchSide);
+  // 새 서버(buy3) 에코에는 감시대상 슬롯이 없다 — 명시로 줄 때만 싣는다(구 서버 흉내).
+  const buyWatchSide =
+    input.buyWatchSide === undefined ? undefined : b.createString(input.buyWatchSide);
   const exchange = b.createString(input.exchange ?? d.exchange);
 
   SetLimitChaser.startSetLimitChaser(b);
@@ -685,7 +710,7 @@ function emitSetLimitChaser(
   SetLimitChaser.addBuyWatchPrice(b, input.buyWatchPrice ?? d.buyWatchPrice);
   SetLimitChaser.addBuyWatchQty(b, input.buyWatchQty ?? d.buyWatchQty);
   SetLimitChaser.addBuyMinTradeQty(b, input.buyMinTradeQty ?? d.buyMinTradeQty);
-  SetLimitChaser.addBuyWatchSide(b, buyWatchSide);
+  if (buyWatchSide !== undefined) SetLimitChaser.addBuyWatchSide(b, buyWatchSide);
   SetLimitChaser.addBuyTradeQtyEnabled(b, input.buyTradeQtyEnabled ?? false);
   SetLimitChaser.addBuyEnabled(b, input.buyEnabled ?? false);
   SetLimitChaser.addSellOrderPrice(b, input.sellOrderPrice ?? d.sellOrderPrice);
@@ -717,7 +742,25 @@ function emitSetLimitChaser(
     input.cancelQtyTrackBaseline ?? d.cancelQtyTrackBaseline,
   );
   SetLimitChaser.addCancelEntryLatched(b, input.cancelEntryLatched ?? false);
-  SetLimitChaser.addBuyEntryLatched(b, input.buyEntryLatched ?? false);
+  // buy_entry_latched — Phase 24 D-25 로 봉인(deprecated). 빌더가 없다.
+  // === Phase 24 매수 3종 — 서버 흉내이므로 S→C 전용까지 싣는다 ===
+  SetLimitChaser.addBuy3Schema(b, input.buy3Schema ?? 1);
+  SetLimitChaser.addPreBuyEnabled(b, input.preBuyEnabled ?? false);
+  SetLimitChaser.addExtraBuyEnabled(b, input.extraBuyEnabled ?? false);
+  SetLimitChaser.addExtraBuyMinQty(b, input.extraBuyMinQty ?? 0);
+  SetLimitChaser.addExtraBuyMaxQty(b, input.extraBuyMaxQty ?? 0);
+  SetLimitChaser.addExtraBuyOrderAmount(b, input.extraBuyOrderAmount ?? 0);
+  SetLimitChaser.addExtraBuyOrderQty(b, input.extraBuyOrderQty ?? 0);
+  SetLimitChaser.addExtraBuyAbandoned(b, input.extraBuyAbandoned ?? false);
+  SetLimitChaser.addPostBuyEnabled(b, input.postBuyEnabled ?? false);
+  SetLimitChaser.addPostBuyReboundPct(b, input.postBuyReboundPct ?? 0);
+  SetLimitChaser.addPostBuyFloorQty(b, input.postBuyFloorQty ?? 0);
+  SetLimitChaser.addPostBuyReentry(b, input.postBuyReentry ?? 0);
+  SetLimitChaser.addPostBuyOrderAmount(b, input.postBuyOrderAmount ?? 0);
+  SetLimitChaser.addPostBuyOrderQty(b, input.postBuyOrderQty ?? 0);
+  SetLimitChaser.addPostBuyTriggerQty(b, input.postBuyTriggerQty ?? 0);
+  SetLimitChaser.addPostBuyReentryLeft(b, input.postBuyReentryLeft ?? 0);
+  SetLimitChaser.addPostBuyPhase(b, input.postBuyPhase ?? 0);
   return SetLimitChaser.endSetLimitChaser(b);
 }
 
@@ -726,7 +769,7 @@ function emitSetLimitChaser(
  *
  * 서버는 「거부」를 응답 코드로 주지 않는다. 등록 성공은 **이 에코의 수신**이고,
  * 부분 거부는 **눕혀진 값**(예: `buyEnabled:false`)으로 온다. 그 두 경우를 테스트가
- * 직접 만들 수 있어야 하므로 39 필드가 전부 열려 있다.
+ * 직접 만들 수 있어야 하므로 55 필드가 전부 열려 있다.
  */
 export function buildSetLimitChaserRespFrame(input: FakeLimitChaserInput = {}): Uint8Array {
   const b = new flatbuffers.Builder(1024);

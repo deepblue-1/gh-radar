@@ -4,6 +4,7 @@ import {
   LIMIT_CHASER_SERVER_COUNTER_FIELDS,
   LIMIT_CHASER_SERVER_LATCH_FIELDS,
   LIMIT_CHASER_SERVER_ONLY_FIELDS,
+  LIMIT_CHASER_SERVER_RUNTIME_FIELDS,
 } from '@gh-radar/shared';
 import type { RelayLimitChaser, RelayServerMsg } from '@gh-radar/shared';
 
@@ -21,6 +22,7 @@ import {
 } from '../strategy-log';
 import { isLimitChaserServerMessage } from '@/lib/limit-chaser';
 import { isViServerMessage } from '@/lib/vi-alert';
+import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
 
 /**
  * Phase 16 Plan 13 Task 1 — 전략 로그 (A13 · T-16-07).
@@ -72,7 +74,7 @@ const BASE: RelayLimitChaser = {
   cancelQtyTrackEnabled: false,
   cancelQtyTrackBaseline: 0,
   cancelEntryLatched: false,
-  buyEntryLatched: false,
+  ...LC_BUY3_ECHO_DEFAULTS,
   key: 'KR7005930003:1234567801:KRX',
 };
 
@@ -181,13 +183,47 @@ describe('serverMessageLogLine / strategiesDisabledLogLine', () => {
 });
 
 describe('S→C 전용 필드 · 값 변경 판정 · 런타임 전용 에코 (quick-260926-nr2)', () => {
-  it('LIMIT_CHASER_SERVER_ONLY_FIELDS 는 정확히 6개이고 COUNTER(3) ∪ LATCH(3) 와 같다', () => {
-    expect(LIMIT_CHASER_SERVER_ONLY_FIELDS).toHaveLength(6);
+  it('LIMIT_CHASER_SERVER_ONLY_FIELDS 는 정확히 10개이고 COUNTER(3) ∪ LATCH(2) ∪ RUNTIME(5) 와 같다 (Phase 24)', () => {
+    expect(LIMIT_CHASER_SERVER_ONLY_FIELDS).toHaveLength(10);
     expect(LIMIT_CHASER_SERVER_COUNTER_FIELDS).toHaveLength(3);
-    expect(LIMIT_CHASER_SERVER_LATCH_FIELDS).toHaveLength(3);
+    expect(LIMIT_CHASER_SERVER_LATCH_FIELDS).toHaveLength(2);
+    expect(LIMIT_CHASER_SERVER_RUNTIME_FIELDS).toHaveLength(5);
     expect(new Set(LIMIT_CHASER_SERVER_ONLY_FIELDS)).toEqual(
-      new Set([...LIMIT_CHASER_SERVER_COUNTER_FIELDS, ...LIMIT_CHASER_SERVER_LATCH_FIELDS]),
+      new Set([
+        ...LIMIT_CHASER_SERVER_COUNTER_FIELDS,
+        ...LIMIT_CHASER_SERVER_LATCH_FIELDS,
+        ...LIMIT_CHASER_SERVER_RUNTIME_FIELDS,
+      ]),
     );
+  });
+
+  it('Phase 24 D-13 — 런타임 5필드만 바뀐 에코는 런타임 전용이고 로그도 배너 판정도 없다', () => {
+    const a = at({ buyEnabled: true, postBuyEnabled: true, postBuyPhase: 1 });
+    const b = {
+      ...a,
+      postBuyPhase: 2,
+      postBuyTriggerQty: 330_000,
+      postBuyReentryLeft: 2,
+      extraBuyAbandoned: true,
+      buy3Schema: 1,
+    };
+    expect(isRuntimeOnlyEcho(a, b)).toBe(true);
+    expect(limitChaserValuesChanged(a, b)).toBe(false);
+    expect(strategyLogLine(a, b)).toBeNull();
+  });
+
+  it('Phase 24 — 그룹 게이트 3종만 바뀐 에코는 「서버 반영 완료」 · 「다른 단말」이 아니다', () => {
+    const a = at({ buyEnabled: true });
+    for (const over of [
+      { preBuyEnabled: true },
+      { extraBuyEnabled: true },
+      { postBuyEnabled: true },
+    ]) {
+      expect(limitChaserValuesChanged(a, { ...a, ...over })).toBe(false);
+      expect(strategyLogLine(a, { ...a, ...over }) ?? '').not.toContain('서버 반영 완료');
+    }
+    // 사용자 설정 값(후매수 반등률)은 여전히 값 변경이다.
+    expect(limitChaserValuesChanged(a, { ...a, postBuyReboundPct: 40 })).toBe(true);
   });
 
   it.each([
@@ -213,7 +249,6 @@ describe('S→C 전용 필드 · 값 변경 판정 · 런타임 전용 에코 (q
           cancelTradeEnabled: true,
           sellEntryLatched: true,
           cancelEntryLatched: true,
-          buyEntryLatched: true,
         }),
       ),
     ).toBe(false);
@@ -233,7 +268,6 @@ describe('S→C 전용 필드 · 값 변경 판정 · 런타임 전용 에코 (q
 
   it('isRuntimeOnlyEcho — 래치·게이트·사용자 값이 다르면 false', () => {
     expect(isRuntimeOnlyEcho(BASE, at({ sellEntryLatched: true }))).toBe(false);
-    expect(isRuntimeOnlyEcho(BASE, at({ buyEntryLatched: true }))).toBe(false);
     expect(isRuntimeOnlyEcho(BASE, at({ cancelEntryLatched: true }))).toBe(false);
     expect(isRuntimeOnlyEcho(BASE, at({ buyEnabled: true }))).toBe(false);
     expect(isRuntimeOnlyEcho(BASE, at({ cancelTradeEnabled: true }))).toBe(false);
@@ -270,15 +304,16 @@ describe('isLimitChaserServerMessage — 상따/VI 몫 판정 (Pitfall 9)', () =
   Phase 17 Plan 11 Task 2 — 래치 전이 4종 · 값 변경 skip · 출처 배지 (D-17 · D-23).
 
   여기서 잠그는 것:
-    ① 취소·매수 래치 ON/해제가 **각자의 문장**을 갖는가 (매도와 대구)
+    ① 취소 래치 ON/해제가 **각자의 문장**을 갖는가 (매도와 대구). 매수 래치 전이는
+       Phase 24 D-12 로 사라졌다(서버 봉인).
     ② ★ 래치만 바뀐 에코가 「서버 반영 완료」로 보고되지 않는가 — 보고되면 사용자는
        **자기가 하지도 않은 수정이 반영됐다**고 읽는다 (T-17-39)
-    ③ 첫 스냅샷 규율이 매도·취소·매수 **세 축에서 같은가** — 한쪽만 다르면 같은 상태가
-       축마다 다르게 보고된다
+    ③ 첫 스냅샷 규율이 매도·취소 **두 축에서 같은가** — 한쪽만 다르면 같은 상태가
+       축마다 다르게 보고된다(매수는 래치가 없어 무장 문장만)
     ④ 두 표(`TRANSITION_TEXT`/`TRANSITION_ORDER`)가 **닫힌 집합으로 동형인가** — 문구만
        있고 아무도 만들지 않는 전이 / 전이는 나는데 문구가 없는 사건을 둘 다 막는다
 */
-describe('⑰ 취소·매수 래치 전이 4종 + skip 집합 (17-11 Task 2)', () => {
+describe('⑰ 취소 래치 전이 2종 + skip 집합 (17-11 Task 2 · Phase 24 매수 래치 제거)', () => {
   it('⑰-1 취소 진입 래치 ON / 해제', () => {
     const armed = at({ cancelQtyEnabled: true });
     expect(strategyLogLine(armed, at({ cancelQtyEnabled: true, cancelEntryLatched: true }))).toBe(
@@ -289,25 +324,23 @@ describe('⑰ 취소·매수 래치 전이 4종 + skip 집합 (17-11 Task 2)', (
     );
   });
 
-  it('⑰-2 매수 진입 래치 ON / 해제', () => {
-    const armed = at({ buyEnabled: true, buyWatchSide: '1' });
-    expect(strategyLogLine(armed, { ...armed, buyEntryLatched: true })).toBe(
-      '매수 진입 래치 ON — 잔량 항 판정 시작',
-    );
-    expect(strategyLogLine({ ...armed, buyEntryLatched: true }, armed)).toBe(
-      '매수 진입 래치 해제',
-    );
+  it('⑰-2 매수 진입 래치 전이 문구 2종은 사라졌다 (Phase 24 D-12 · gh-trade D-25)', () => {
+    const texts = Object.values(TRANSITION_TEXT);
+    expect(texts).not.toContain('매수 진입 래치 ON — 잔량 항 판정 시작');
+    expect(texts).not.toContain('매수 진입 래치 해제');
+    expect(TRANSITION_ORDER as readonly string[]).not.toContain('buyLatched');
+    expect(TRANSITION_ORDER as readonly string[]).not.toContain('buyUnlatched');
   });
 
   it('⑰-3 ★ 래치 두 필드**만** 바뀐 에코는 「서버 반영 완료」를 내지 않는다 (T-17-39)', () => {
     const line = strategyLogLine(
       BASE,
-      at({ cancelEntryLatched: true, buyEntryLatched: true }),
+      at({ cancelEntryLatched: true, sellEntryLatched: true }),
     );
     expect(line).not.toBeNull();
     expect(line).not.toContain('서버 반영 완료');
     // 두 래치 문장만 남는다.
-    expect(line).toBe('매수 진입 래치 ON — 잔량 항 판정 시작 · 취소 진입 래치 ON — 취소 판정 시작');
+    expect(line).toBe('매도 진입 래치 ON — 감시 시작 · 취소 진입 래치 ON — 취소 판정 시작');
   });
 
   it('⑰-4 값이 함께 바뀌면 그때는 「서버 반영 완료」가 붙는다 — skip 이 값 축까지 먹지 않는다', () => {
@@ -316,7 +349,7 @@ describe('⑰ 취소·매수 래치 전이 4종 + skip 집합 (17-11 Task 2)', (
     );
   });
 
-  it('⑰-5 ★ 첫 스냅샷 규율이 매도·취소·매수 세 축에서 **같다** (실측 기준: 매도)', () => {
+  it('⑰-5 ★ 첫 스냅샷 규율이 매도·취소 두 축에서 **같다** (실측 기준: 매도) — 매수는 무장 문장만', () => {
     // 매도는 래치가 켜져 있으면 등록 줄에 래치 문장을 쓴다 — 그것이 기존 규율이다.
     expect(strategyLogLine(null, at({ sellEnabled: true, sellEntryLatched: true }))).toBe(
       '전략이 등록됐어요 · 매도 진입 래치 ON — 감시 시작',
@@ -324,20 +357,20 @@ describe('⑰ 취소·매수 래치 전이 4종 + skip 집합 (17-11 Task 2)', (
     expect(
       strategyLogLine(null, at({ cancelQtyEnabled: true, cancelEntryLatched: true })),
     ).toBe('전략이 등록됐어요 · 취소 진입 래치 ON — 취소 판정 시작');
-    expect(
-      strategyLogLine(null, at({ buyEnabled: true, buyWatchSide: '1', buyEntryLatched: true })),
-    ).toBe('전략이 등록됐어요 · 매수 진입 래치 ON — 잔량 항 판정 시작');
-    // 래치가 꺼져 있으면 무장 문장으로 떨어진다 — 세 축 모두.
+    expect(strategyLogLine(null, at({ buyEnabled: true, buyWatchSide: '1' }))).toBe(
+      '전략이 등록됐어요 · 매수 무장',
+    );
+    // 래치가 꺼져 있으면 무장 문장으로 떨어진다.
     expect(strategyLogLine(null, at({ cancelQtyEnabled: true }))).toBe(
       '전략이 등록됐어요 · 매수 미체결 자동취소 무장',
     );
   });
 
-  it('⑰-6 ★ 두 표가 16종 닫힌 집합으로 동형이다 — 문구/전이가 한쪽만 늘지 않는다', () => {
-    expect(TRANSITION_ORDER).toHaveLength(16);
-    expect(Object.keys(TRANSITION_TEXT)).toHaveLength(16);
+  it('⑰-6 ★ 두 표가 14종 닫힌 집합으로 동형이다 — 문구/전이가 한쪽만 늘지 않는다', () => {
+    expect(TRANSITION_ORDER).toHaveLength(14);
+    expect(Object.keys(TRANSITION_TEXT)).toHaveLength(14);
     // 중복 없음 + 두 표의 원소 집합이 정확히 같다.
-    expect(new Set(TRANSITION_ORDER).size).toBe(16);
+    expect(new Set(TRANSITION_ORDER).size).toBe(14);
     expect([...TRANSITION_ORDER].sort()).toEqual(Object.keys(TRANSITION_TEXT).sort());
   });
 
@@ -345,9 +378,8 @@ describe('⑰ 취소·매수 래치 전이 4종 + skip 집합 (17-11 Task 2)', (
     const line = strategyLogLine(
       at({ buyEnabled: true, buyWatchSide: '1', sellEnabled: true, cancelQtyEnabled: true }),
       at({
-        buyEnabled: true,
+        buyEnabled: false,
         buyWatchSide: '1',
-        buyEntryLatched: true,
         sellEnabled: true,
         sellEntryLatched: true,
         cancelQtyEnabled: true,
@@ -355,7 +387,7 @@ describe('⑰ 취소·매수 래치 전이 4종 + skip 집합 (17-11 Task 2)', (
       }),
     );
     expect(line).toBe(
-      '매수 진입 래치 ON — 잔량 항 판정 시작 · 매도 진입 래치 ON — 감시 시작 · 취소 진입 래치 ON — 취소 판정 시작',
+      '매수 무장 해제 · 매도 진입 래치 ON — 감시 시작 · 취소 진입 래치 ON — 취소 판정 시작',
     );
   });
 });

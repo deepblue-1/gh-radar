@@ -37,6 +37,7 @@
 import {
   LIMIT_CHASER_SERVER_COUNTER_FIELDS,
   LIMIT_CHASER_SERVER_ONLY_FIELDS,
+  LIMIT_CHASER_SERVER_RUNTIME_FIELDS,
   serverMsgBadge,
 } from '@gh-radar/shared';
 import type { RelayLimitChaser, RelayServerMsg } from '@gh-radar/shared';
@@ -70,8 +71,6 @@ export type StrategyTransition =
   | 'buyArmed'
   | 'buyFired'
   | 'buyDisarmed'
-  | 'buyLatched'
-  | 'buyUnlatched'
   | 'sellArmed'
   | 'sellDisarmed'
   | 'sellLatched'
@@ -96,10 +95,7 @@ export const TRANSITION_TEXT: Record<StrategyTransition, string> = {
   //   직전 발주 이력을 아는 호출부가 `hadOrder` 로 알려줄 때만 「발주」라고 쓴다.
   buyFired: '매수 발주 — 무장 해제',
   buyDisarmed: '매수 무장 해제',
-  // 매수 래치는 **매수잔량 기준(`buyWatchSide "1"`) 갈래에만 존재한다**(BL-01). 매도잔량
-  // 기준에서는 서버가 켜지도 보지도 않아 값이 언제나 false 라 전이가 나지 않는다.
-  buyLatched: '매수 진입 래치 ON — 잔량 항 판정 시작',
-  buyUnlatched: '매수 진입 래치 해제',
+  // 매수 진입 래치 전이는 없다 — 서버에서 봉인됐다(Phase 24 D-12 · gh-trade D-25).
   sellArmed: '매도 무장 — 대기 (지지벽 미관측)',
   sellDisarmed: '매도 무장 해제',
   sellLatched: '매도 진입 래치 ON — 감시 시작',
@@ -114,8 +110,8 @@ export const TRANSITION_TEXT: Record<StrategyTransition, string> = {
 /**
  * 한 줄 안에서의 조각 순서 — 매수 → 매도 → 취소 → 값. 배지 순서와 같은 축이다.
  *
- * 래치 2종은 각 축의 **무장·해제 뒤**에 놓는다(매도가 이미 그 배치다) — 세 축이 같은
- * 내부 순서를 쓰면 사용자가 줄을 읽는 방식이 축마다 달라지지 않는다.
+ * 래치 2종은 매도 · 취소 축의 **무장·해제 뒤**에 놓는다 — 두 축이 같은 내부 순서를 쓰면
+ * 사용자가 줄을 읽는 방식이 축마다 달라지지 않는다. 매수 축은 래치가 없다(Phase 24 D-12).
  */
 export const TRANSITION_ORDER: readonly StrategyTransition[] = [
   'registered',
@@ -123,8 +119,6 @@ export const TRANSITION_ORDER: readonly StrategyTransition[] = [
   'buyArmed',
   'buyFired',
   'buyDisarmed',
-  'buyLatched',
-  'buyUnlatched',
   'sellArmed',
   'sellDisarmed',
   'sellLatched',
@@ -145,10 +139,15 @@ function cancelArmedOf(item: RelayLimitChaser): boolean {
  * 값 비교에서 빼는 필드 — 모듈 스코프 **하나**다(quick-260926-nr2).
  *
  * - 게이트 4종: 에코의 게이트는 설정값이 아니라 무장 상태다. 전이는 각 축의 문장이 말한다.
- * - S→C 전용 6필드(shared `LIMIT_CHASER_SERVER_ONLY_FIELDS` — 이름을 여기 다시 나열하지 않는다):
- *   ★ 래치 3종도 게이트 축이다 (17-11 / D-23 · T-17-39). 빠지면 **사용자가 켜지도 않은**
+ * - 매수 그룹 게이트 3종(Phase 24 — `preBuyEnabled` · `extraBuyEnabled` · `postBuyEnabled`): 에코의
+ *   그룹 게이트도 무장 상태로 접혀 온다(마스터 OFF · 추가매수 포기 · 후매수 소진). 전이 문장은
+ *   24-05 가 더한다.
+ * - S→C 전용 10필드(shared `LIMIT_CHASER_SERVER_ONLY_FIELDS` — 이름을 여기 다시 나열하지 않는다):
+ *   ★ 래치 2종도 게이트 축이다 (17-11 / D-23 · T-17-39). 빠지면 **사용자가 켜지도 않은**
  *     래치 변화가 「서버 반영 완료」로 보고돼, 자기가 하지 않은 수정이 반영된 줄 안다.
  *     래치 자체는 전이 문장(래치 ON/해제)이 각자 말한다.
+ *   ★ 런타임 5종(Phase 24 D-13 — `buy3Schema` · 추가매수 포기 · 후매수 발동잔량 · 잔여 · 단계)은
+ *     서버가 스스로 움직이는 값이다. 로그를 남기지 않는다.
  *   ★ 카운터 3종은 서버 런타임 값이다 — 체결(`OnExecution`)이 `sellOrderQty` 를, 호가 래칫이
  *     기준선을 바꾼다. 사용자 설정의 반영이 아니다.
  * - `crud` · `key`: 삭제 판정·파생 키.
@@ -157,6 +156,9 @@ function cancelArmedOf(item: RelayLimitChaser): boolean {
  */
 const VALUE_COMPARE_SKIP: ReadonlySet<keyof RelayLimitChaser> = new Set<keyof RelayLimitChaser>([
   'buyEnabled',
+  'preBuyEnabled',
+  'extraBuyEnabled',
+  'postBuyEnabled',
   'sellEnabled',
   'cancelQtyEnabled',
   'cancelTradeEnabled',
@@ -167,9 +169,13 @@ const VALUE_COMPARE_SKIP: ReadonlySet<keyof RelayLimitChaser> = new Set<keyof Re
   'code',
 ]);
 
-/** 런타임 전용 비교에서 빼는 필드 — S→C 카운터 3종 + relay 파생 표시값. 래치는 **넣지 않는다**. */
+/**
+ * 런타임 전용 비교에서 빼는 필드 — S→C 카운터 3종 + Phase 24 런타임 5종(D-13) + relay 파생 표시값.
+ * 래치는 **넣지 않는다**.
+ */
 const RUNTIME_ONLY_SKIP: ReadonlySet<keyof RelayLimitChaser> = new Set<keyof RelayLimitChaser>([
   ...LIMIT_CHASER_SERVER_COUNTER_FIELDS,
+  ...LIMIT_CHASER_SERVER_RUNTIME_FIELDS,
   'name',
   'code',
 ]);
@@ -229,13 +235,11 @@ export function strategyLogLine(
   } else if (prev === null) {
     hit.add('registered');
     /*
-      ★ 첫 스냅샷의 규율은 **세 축이 같다** (17-11 / 계획 ④ 「실측해서 같은 규율을 쓴다」).
-        기존 매도가 하던 그대로 — 래치가 켜져 있으면 래치 문장을, 아니면 무장 문장을 쓴다.
-        한 축만 다르게 두면 같은 상태가 축마다 다르게 보고되고, 그 차이를 사용자는
-        「취소는 아직 안 켜졌나 보다」로 읽는다.
+      ★ 첫 스냅샷의 규율은 **매도 · 취소 두 축이 같다** (17-11 / 계획 ④ 「실측해서 같은 규율을 쓴다」).
+        래치가 켜져 있으면 래치 문장을, 아니면 무장 문장을 쓴다. 매수 축은 래치가 없어
+        무장 문장만 쓴다(Phase 24 D-12).
     */
-    if (next.buyEntryLatched) hit.add('buyLatched');
-    else if (next.buyEnabled) hit.add('buyArmed');
+    if (next.buyEnabled) hit.add('buyArmed');
     if (next.sellEntryLatched) hit.add('sellLatched');
     else if (next.sellEnabled) hit.add('sellArmed');
     if (next.cancelEntryLatched) hit.add('cancelLatched');
@@ -245,8 +249,6 @@ export function strategyLogLine(
     if (prev.buyEnabled && !next.buyEnabled) {
       hit.add(opts.hadOrder === true ? 'buyFired' : 'buyDisarmed');
     }
-    if (!prev.buyEntryLatched && next.buyEntryLatched) hit.add('buyLatched');
-    if (prev.buyEntryLatched && !next.buyEntryLatched) hit.add('buyUnlatched');
     if (!prev.sellEnabled && next.sellEnabled) hit.add('sellArmed');
     if (prev.sellEnabled && !next.sellEnabled) hit.add('sellDisarmed');
     if (!prev.sellEntryLatched && next.sellEntryLatched) hit.add('sellLatched');

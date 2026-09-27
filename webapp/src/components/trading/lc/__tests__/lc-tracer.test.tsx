@@ -36,6 +36,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
 import { CardBody } from '../../card/card-body';
 import { ACK_TIMEOUT_MS, StrategyCard } from '../../card/strategy-card';
 import { mockPointer, restoreMatchMedia } from '@/lib/__tests__/match-media';
+import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
 
 const ISIN = 'KR7086520004';
 const ACCOUNT = '37728502101';
@@ -84,7 +85,7 @@ function echo(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     cancelQtyTrackEnabled: false,
     cancelQtyTrackBaseline: 0,
     cancelEntryLatched: false,
-    buyEntryLatched: false,
+    ...LC_BUY3_ECHO_DEFAULTS,
     ...over,
   };
 }
@@ -241,7 +242,7 @@ describe('트레이서 — 「호가변경」 한 행 (20-01 · D-04 · D-14 · 
     const cfg = lcSets()[0]!.cfg!;
     expect(cfg.sweepMinTickCount).toBe(5);
     expect(cfg.sellOrderRatio).toBe(100);
-    expect(Object.keys(cfg)).toHaveLength(32);
+    expect(Object.keys(cfg)).toHaveLength(44); // 32 + Phase 24 C→S 12
 
     // 반영 중 — 입력칸 잠김(에코 전).
     expect(editor()!.readOnly).toBe(true);

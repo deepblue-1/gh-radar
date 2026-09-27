@@ -350,6 +350,92 @@ export function readViSetRequest(msgType: number, payload: Buffer): ViSetRequest
   };
 }
 
+/**
+ * `SetLimitChaserReq(10)` 요청 내용 — 상따 설정 전송분(Phase 24 트레이서 · e2e · 통합 공용).
+ *
+ * `buyWatchSide` 는 **와이어 원문**이다 — 슬롯이 없으면 `null`(relay 가 싣지 않았다는 증거).
+ * `readViSetRequest.exchange` 와 같은 이유로 정규화하지 않는다.
+ */
+export interface SetLimitChaserRequest {
+  isin: string;
+  accountNo: string;
+  exchange: string;
+  crud: string;
+  buyEnabled: boolean;
+  buyOrderPrice: number;
+  buyOrderQty: number;
+  buyWatchPrice: number;
+  /** relay 고정값(`LC_FIXED_BUY3_SCHEMA`) — 늘 1 이어야 한다. */
+  buy3Schema: number;
+  /** 슬롯 부재 = `null`. buy3 요청은 이 슬롯이 없어야 한다. */
+  buyWatchSide: string | null;
+  preBuyEnabled: boolean;
+  extraBuyEnabled: boolean;
+  extraBuyMinQty: number;
+  extraBuyMaxQty: number;
+  extraBuyOrderAmount: number;
+  extraBuyOrderQty: number;
+  postBuyEnabled: boolean;
+  postBuyReboundPct: number;
+  postBuyFloorQty: number;
+  postBuyReentry: number;
+  postBuyOrderAmount: number;
+  postBuyOrderQty: number;
+  /**
+   * S→C 전용 4필드(`extra_buy_abandoned` 112 · `post_buy_trigger_qty` 126 ·
+   * `post_buy_reentry_left` 128 · `post_buy_phase` 130) 중 vtable 슬롯이 **있는** 오프셋.
+   * 요청은 빈 배열이어야 한다.
+   */
+  serverOnlySlots: number[];
+}
+
+/** S→C 전용 4필드의 vtable 오프셋(생성 코드 `__offset(bb_pos, N)` 의 N). */
+const LC_SERVER_ONLY_VTABLE_SLOTS = [112, 126, 128, 130] as const;
+
+/**
+ * 상따 설정 요청(10) 내용을 꺼낸다. `readViSetRequest` 와 같은 이유로 여기 있다.
+ *
+ * ★ 슬롯 **부재**는 접근자 값으로 증명할 수 없다 — 기본값(0/false)을 실어도 FlatBuffers 는
+ *   버퍼에 쓰지 않고, 접근자는 부재든 0 이든 같은 값을 돌려준다(RESEARCH Pitfall 2).
+ *   그래서 vtable 을 직접 본다: `bb.__offset(bb_pos, vt) !== 0` 이면 슬롯이 있다.
+ *
+ * @returns 10 요청이면 내용, 그 외 msg_type 이면 `null`
+ */
+export function readSetLimitChaserRequest(
+  msgType: number,
+  payload: Buffer,
+): SetLimitChaserRequest | null {
+  if (msgType !== STRATEGY_MSG.SetLimitChaserReq) return null;
+  const req = rootEnvelope(payload)?.setLimitChaser();
+  if (req === null || req === undefined || req.bb === null) return null;
+  const bb = req.bb;
+  return {
+    isin: req.isin() ?? "",
+    accountNo: req.accountNo() ?? "",
+    exchange: req.exchange() ?? "",
+    crud: req.crud() ?? "",
+    buyEnabled: req.buyEnabled(),
+    buyOrderPrice: req.buyOrderPrice(),
+    buyOrderQty: req.buyOrderQty(),
+    buyWatchPrice: req.buyWatchPrice(),
+    buy3Schema: req.buy3Schema(),
+    buyWatchSide: req.buyWatchSide(),
+    preBuyEnabled: req.preBuyEnabled(),
+    extraBuyEnabled: req.extraBuyEnabled(),
+    extraBuyMinQty: req.extraBuyMinQty(),
+    extraBuyMaxQty: req.extraBuyMaxQty(),
+    extraBuyOrderAmount: req.extraBuyOrderAmount(),
+    extraBuyOrderQty: req.extraBuyOrderQty(),
+    postBuyEnabled: req.postBuyEnabled(),
+    postBuyReboundPct: req.postBuyReboundPct(),
+    postBuyFloorQty: req.postBuyFloorQty(),
+    postBuyReentry: req.postBuyReentry(),
+    postBuyOrderAmount: req.postBuyOrderAmount(),
+    postBuyOrderQty: req.postBuyOrderQty(),
+    serverOnlySlots: LC_SERVER_ONLY_VTABLE_SLOTS.filter((vt) => bb.__offset(req.bb_pos, vt) !== 0),
+  };
+}
+
 /** `ConfirmVIOrderReq(33)` 요청 내용 — VI 주문 확인 체크 전송분. */
 export type ViConfirmRequest = { orderNo: string; confirmed: boolean };
 

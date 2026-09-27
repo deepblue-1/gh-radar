@@ -10,6 +10,7 @@ import {
   strategyBadgesOf,
   viBadgeOf,
 } from "../strategy-badge";
+import { LC_BUY3_ECHO_DEFAULTS } from "@/test-fixtures/limit-chaser";
 
 /**
  * Phase 16 Plan 11 Task 2 — 배지 6종 + 거래소 태그 2종의 **에코 필드 매핑**을 잠근다.
@@ -61,7 +62,7 @@ function chaser(over: ChaserOverrides = {}): RelayLimitChaser & { hadOrder?: boo
     cancelQtyTrackEnabled: false,
     cancelQtyTrackBaseline: 0,
     cancelEntryLatched: false,
-    buyEntryLatched: false,
+    ...LC_BUY3_ECHO_DEFAULTS,
     key: "KR7005930003:37728502101:KRX",
     ...over,
   };

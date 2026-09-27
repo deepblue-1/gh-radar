@@ -124,8 +124,11 @@ export function isRelayExchange(value: string): value is RelayExchange {
  * 대신 **게이트를 눕혀서 저장**하고 `ServerMessage ERROR` 만 따로 보내기 때문이다(조용한 거부).
  * 여기서 먼저 자르지 않으면 "보냈는데 왜 안 켜지지"가 사용자 몫으로 남는다 (T-16-05).
  *
- * ⚠️ **S→C 전용 4필드(`sellOrderQty`·`sellQtyTrackBaseline`·`sellEntryLatched`·
- *    `cancelQtyTrackBaseline`)를 두지 않는다** — 서버가 계산해 에코로만 주는 값이라, 받으면
+ * ⚠️ **S→C 전용 필드(`sellOrderQty`·`sellQtyTrackBaseline`·`sellEntryLatched`·
+ *    `cancelQtyTrackBaseline`·`cancelEntryLatched` · Phase 24 의 `buy3Schema`·`extraBuyAbandoned`·
+ *    `postBuyTriggerQty`·`postBuyReentryLeft`·`postBuyPhase`)를 두지 않는다** — `buy3Schema` 는
+ *    relay 가 `LC_FIXED_BUY3_SCHEMA` 로 못박는다(브라우저가 0 을 보내 구 클라 경로를 열 수 없다).
+ *    나머지는 서버가 계산해 에코로만 주는 값이라, 받으면
  *    "값이 왕복한다"는 착각이 생기고 에코-폼 비교가 오염된다 (Pitfall 6). `z.object` 가 미지
  *    키를 떨어뜨리므로 실려 와도 통과하지 못한다.
  *
@@ -175,6 +178,38 @@ export const RelayLcSetSchema = z.object({
     cancelWatchQty: UIntSchema,
     cancelTradeEnabled: z.boolean(),
     cancelQtyTrackEnabled: z.boolean(),
+    // === Phase 24 매수 3종 C→S 12 (gh-trade D-17) — 이 플랜에서는 **필수**다.
+    //     구 탭(신필드 없는 lc.set) 관용은 24-03 이 붙인다.
+    preBuyEnabled: z.boolean(),
+    extraBuyEnabled: z.boolean(),
+    /** 추가매수 최소 매수잔량(주). 0 = 1주. 최소>최대는 여기서 막지 않는다 — 서버가 그 그룹만 눕힌다. */
+    extraBuyMinQty: UIntSchema,
+    /** 추가매수 최대 매수잔량(주). 0 = 무제한. */
+    extraBuyMaxQty: UIntSchema,
+    /** 단위 만원. */
+    extraBuyOrderAmount: UIntSchema,
+    extraBuyOrderQty: UIntSchema,
+    postBuyEnabled: z.boolean(),
+    /**
+     * 후매수 반등률 % — **0~100**. 레거시 에코 0 을 소켓 종료로 만들지 않는다 — RESEARCH Pitfall 4.
+     * 「후매수 ON 이면 1~100」 은 아래 `superRefine` 한 규칙이 본다(서버 §9-2 ⑤ 동형).
+     */
+    postBuyReboundPct: z.number().int().min(0).max(100),
+    postBuyFloorQty: UIntSchema,
+    /** 후매수 최대 횟수(최초 포함). 0 = 사지 않음(gh-trade D-30)도 유효하다. */
+    postBuyReentry: UByteSchema,
+    /** 단위 만원. */
+    postBuyOrderAmount: UIntSchema,
+    postBuyOrderQty: UIntSchema,
+  }).superRefine((cfg, ctx) => {
+    // 서버 §9-2 ⑤ 반등률 1~100 과 동형 — 켜는 쪽만 본다(끄는 쪽 0 은 통과).
+    if (cfg.postBuyEnabled && cfg.postBuyReboundPct < 1) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["postBuyReboundPct"],
+        message: "후매수 ON 이면 반등률은 1~100",
+      });
+    }
   }),
 });
 

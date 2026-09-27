@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: d0c52ecd
-// synced-date:        2026-09-25
+// server-repo-commit: 1d95f64f
+// synced-date:        2026-09-28
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -16,7 +16,7 @@ enum MsgType : byte {
     //   20~29: KRX 전략·계좌 상태 조회 요청
     //   27~29: 시세·마스터 요청 (Phase 15)
     //   30~38: 30/31 봉인(Phase 16 NXT-06 통합 — 재사용 금지) · 32 체결 테이프 · 33/34 VI 확인·목록 ·
-    //          35 거래원 · 36~38 상따 래치 수동 점등 요청
+    //          35 거래원 · 36/37 상따 매도·취소 래치 수동 점등 · 38 봉인(Phase 24 D-25)
     LoginReq = 1,
     DirectOrderReq = 2,
     UpdateAccountNoReq = 3,
@@ -68,9 +68,8 @@ enum MsgType : byte {
                                    // 응답은 SetLimitChaserResp(60) 에코다 — 응답 전용 번호를 만들지 않는다 (D-03)
 
     // === 이하 quick-260910-ttc 추가 (상따 매수 진입 확인 래치 수동 점등) ===
-    ArmBuyLatchReq = 38,           // 매수 진입 확인 래치 수동 점등 (C→S, quick-260910-ttc D-04)
-                                   // 요청 테이블은 get_strategy_req 슬롯 재사용(35·36·37 선례),
-                                   // 응답은 SetLimitChaserResp(60) 에코다 — 응답 전용 번호를 만들지 않는다 (D-04)
+    ArmBuyLatchReq = 38,          // (예약 봉인) 매수 진입 래치 폐기 — 재사용 금지 (Phase 24 D-25, 서버는 ERROR 로 거부)
+                                   // 구 클라가 보낼 수 있어 값은 남긴다(append-only). 요청 테이블은 get_strategy_req 슬롯이었다.
 
     // Server -> Client
     //   50~59: 기본 응답 (로그인, 주문, 체결, 메시지, 계좌)
@@ -393,15 +392,15 @@ table SetLimitChaser {
     //     - ask1Price == buyWatchPrice && ask1Qty <= buyWatchQty → 주문
     //     - bid1Price == buyWatchPrice → 주문 (매수호가가 감시가에 도달)
     //     - ask1Price > buyWatchPrice → 주문 (가격 상승)
-    //   buyWatchSide='1' (매수호가 비교):
-    //     - bid1Price == buyWatchPrice && bid1Qty >= buyWatchQty → 주문
-    //     - bid1Price > buyWatchPrice → 주문 (가격 상승)
+    //   Phase 24: 매수 3종(선매수 = 종전 side '0' 갈래 / 추가매수 / 후매수) — docs/strategy/limit-chaser.md §5
     buy_order_price: uint;       // 매수 주문가격 (원, 보통 상한가)
     buy_order_qty: uint;         // 매수 주문수량 (주)
     buy_watch_price: uint;       // 매수 감시가격 (원, 보통 상한가)
     buy_watch_qty: uint;         // 매수 감시수량 (주, 최우선 호가 잔량과 비교)
     buy_min_trade_qty: uint;     // 최소 체결수량 (주, 이 값 이상 체결 시 주문)
-    buy_watch_side: string;      // 호가비교 위치 ("0"=매도호가, "1"=매수호가)
+    buy_watch_side: string;      // 호가비교 위치 ("0"=매도호가, "1"=매수호가) // Phase 24 부터 cfg 에 싣지 않는다 — 서버는
+                                 // 구 클라(buy3_schema 부재)의 "1" 거부 판정(D-28)에만 읽는다. 봉인은 gh-radar 가 buy3_schema=1
+                                 // 전송을 배포한 뒤 후속 작업이다 (D-28 ③ — 이 페이즈에서 봉인하지 않는다)
     buy_trade_qty_enabled: bool; // 체결수량 조건 활성화
     buy_enabled: bool;           // 매수 감시 활성화
 
@@ -561,24 +560,41 @@ table SetLimitChaser {
     // FlatBuffers 는 선언 순서로 field id 를 매긴다. 가운데 삽입/삭제는 wire 를 깨서
     // 미업그레이드 클라이언트가 엉뚱한 필드를 읽는다. 신규 필드는 반드시 여기 아래에만 붙인다.
 
-    // 매수 진입 확인 래치 — **S→C 전용** 표시값이다 (요청값은 서버가 읽지 않는다, D-04②).
-    // - false = 잠복: **`감시가에 걸린 매수잔량 < 감시수량`** 을 아직 한 번도 관측하지 못했다.
-    //           관측하는 사실은 하나이고 구하는 방법이 **두 갈래**다 (quick-260911-i3n) —
-    //           매수1호가가 감시가면 그 값이 곧 `bid1Qty` 라 잔량이 감시수량 **미만**인 틱이고,
-    //           매수1호가가 감시가 **아래**면 감시가 잔량이 `0` 이라 가격만으로
-    //           성립한다(벽이 통째로 사라진 것).
-    //           B6Buy1 잔량 항(`buyWatchQty <= bid1Qty`)을 아예 평가하지 않는다.
-    // - true  = 관측 완료: 그 시점부터 잔량 항 판정이 돈다.
-    // ★ **매수잔량 기준(buy_watch_side "1") 전용 상태**다. 매도잔량 기준(side "0") 갈래는
-    //   원전 그대로라 래치를 켜지도 보지도 않으므로 **언제나 false 로 온다** (BL-01) —
-    //   화면은 그 갈래를 3단계로 그리면 안 된다 (D-01).
-    // 판정식·리셋 규칙(UpdateConfig 재제출·Deactivate 가 푼다)은 docs/strategy/limit-chaser.md §5-4.
+    // (봉인) 매수 진입 확인 래치 — Phase 24 D-25 로 서버 기계(관측·수동 점등 38·영속)가 삭제됐다.
+    //        값·배선 없음. 필드 id 는 선언 순서라 지우지 않고 (deprecated) 로 슬롯 96 을 보존한다.
+    //        구 클라는 부재를 false(잠복)로 읽는다 — 안전한 방향이다.
+    buy_entry_latched: bool (deprecated);   // (봉인) 구 매수 진입 확인 래치 — Phase 24 D-25 로 기계 삭제, 슬롯 96 유지
+
+    // === 이하 Phase 24 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환, D-17) ===
+    // FlatBuffers 는 선언 순서로 field id 를 매긴다. 가운데 삽입/삭제는 wire 를 깨서
+    // 미업그레이드 클라이언트가 엉뚱한 필드를 읽는다. 신규 필드는 반드시 여기 아래에만 붙인다.
     //
-    // ★ 값은 무장(buy_enabled)과 접지 않은 **원값**이다 (LimitChaser::IsBuyEntryLatched()).
-    //   sell_entry_latched · cancel_entry_latched 의 규약과 글자 그대로 같다 — 접으면
-    //   "매수 무장 OFF 인데 래치는 살아 있음" 이라는 서버 진실이 화면에서 소멸한다.
-    //   구 클라는 이 필드가 없어 false(잠복)로 읽고, 그것이 안전한 방향이다.
-    buy_entry_latched: bool;
+    // 매수 3종 분리 — 선매수·추가매수·후매수 (docs/strategy/limit-chaser.md §5).
+    // - buy_enabled 는 세 매수의 **마스터**다(D-01). buy_watch_price·buy_order_price 는 세 매수 공통(D-20).
+    // - 기존 buy_order_qty·buy_order_amount·buy_watch_qty·buy_trade_qty_enabled·buy_min_trade_qty·
+    //   sweep_* 는 **선매수의 값**으로 재해석한다(D-17).
+    // - 구/신 클라 판별은 buy3_schema 의 부재(0) 하나다(D-24) — 구 클라의 Set 은 "선매수만 켠 등록" 이다.
+    buy3_schema: ubyte;              // 0 = 구 클라(필드 부재) → buy_enabled 를 "선매수만 켠 등록" 으로 읽는다.
+                                     // 신 클라는 항상 1, 서버 에코도 1 (D-24 판정 정본). vtable 98
+    pre_buy_enabled: bool;           // 선매수 체크 (양방향) — 에코는 무장과 접힌다(D-03). vtable 100
+    // ★ 아래 6필드의 와이어 이름은 extra_buy_* 다 (Phase 24 D-29 — C# 생성물의 buy_* 빌더 메서드와 이름 충돌
+    //   회피로 add_→extra_). 선언 위치·형·순서·vtable 슬롯(102~112)은 그대로라 와이어 바이트가 같다.
+    //   서버 내부 식별자(addBuy*)·상태 파일 키(add_buy_*)·OrderReason::AddBuy* 는 그대로다.
+    extra_buy_enabled: bool;           // 추가매수 체크 (양방향) — 에코는 cfg && 무장 && !포기 (D-03/D-08). vtable 102
+    extra_buy_min_qty: uint;           // 추가매수 최소 매수잔량(주, C→S). 0 = 1주 (D-08) · 클라 기본값 = 상장주식수 × 0.3% 내림 (D-33). vtable 104
+    extra_buy_max_qty: uint;           // 추가매수 최대 매수잔량(주, C→S). 0 = 무제한 (D-08) · 클라 기본값 = 상장주식수 × 3% 내림 (D-33). vtable 106
+    extra_buy_order_amount: uint;      // 추가매수 주문금액(만원) — buy_order_amount 규약(보관·에코만). vtable 108
+    extra_buy_order_qty: uint;         // 추가매수 주문수량(주, C→S) — 발주 정본. vtable 110
+    extra_buy_abandoned: bool;         // **S→C 전용** 추가매수 포기 — 최대 초과(D-08)·상한가 이탈 최소 미달(D-33) 둘 다 이 한 bool, 어느 쪽인지는 INFO 사유 줄. 요청값은 서버가 읽지 않는다. vtable 112
+    post_buy_enabled: bool;          // 후매수 체크(양방향) — 에코는 cfg ∧ 마스터 무장 ∧ 단계 ≠ 소진: 마스터 OFF 면 OFF(D-32, 선·추가매수와 같은 모양), 「소진」이면 OFF 로 접는다(D-31). 자기 게이트와는 접지 않는다 — 무장 여부는 post_buy_phase. vtable 114
+    post_buy_rebound_pct: ubyte;     // 후매수 반등률 % (C→S, 1~100). vtable 116
+    post_buy_floor_qty: uint;        // 후매수 하한잔량(주, C→S). vtable 118
+    post_buy_reentry: ubyte;         // 후매수 최대 횟수(최초 포함, D-30) — C→S 「최대」 칸. OFF→ON 재무장은 잔여를 이 값으로 다시 싣는다(D-31). vtable 120
+    post_buy_order_amount: uint;     // 후매수 주문금액(만원) — buy_order_amount 규약(보관·에코만). vtable 122
+    post_buy_order_qty: uint;        // 후매수 주문수량(주, C→S) — 발주 정본. vtable 124
+    post_buy_trigger_qty: uint;      // **S→C 전용** 발동잔량(주). 요청값은 서버가 읽지 않는다. vtable 126
+    post_buy_reentry_left: ubyte;    // **S→C 전용** 재진입 잔여(회). 요청값은 서버가 읽지 않는다. vtable 128
+    post_buy_phase: ubyte;           // **S→C 전용** 0 꺼짐 / 1 감시 / 2 보유중 / 3 소진. 요청값은 서버가 읽지 않는다. vtable 130
 }
 
 // VITrigger (VI 발동) 전략 설정

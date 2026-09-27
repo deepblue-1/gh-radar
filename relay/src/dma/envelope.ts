@@ -915,19 +915,6 @@ export function toWireCrud(crud: RelayLcCrud): "C" | "D" {
   return crud;
 }
 
-/**
- * 매수 감시 기준호가 → 와이어 1자 ("1"=매수호가, 그 외=매도호가). `toWireSide` 주석 참조.
- *
- * 서버가 `'1'` 만 매수호가로 보고 나머지를 전부 매도호가로 접으므로, 빈 문자열이 흘러가면
- * **감시 기준이 반대쪽 호가로 뒤바뀐 채** 발주 게이트가 열린다.
- */
-export function toWireWatchSide(side: RelayLcWatchSide): "0" | "1" {
-  if (side !== "0" && side !== "1") {
-    throw new OrderBuildError("BAD_WATCH_SIDE", `알 수 없는 감시 기준호가: ${String(side)}`);
-  }
-  return side;
-}
-
 /** `buildDirectOrderReq` 입력. 전부 이미 계약 타입으로 좁혀진 값이다. */
 export type DirectOrderInput = {
   /** 12자 ISIN. 단축코드를 산술 유도하지 않는다 (D-28) — server 가 `stocks.isin` 에서 채운다. */
@@ -1145,6 +1132,12 @@ export const LC_FIXED_SWEEP_RECALC_ENABLED = true;
 export const LC_FIXED_SWEEP_MIN_COUNT = 0;
 /** `sweep_min_rate` 클라 고정값(BasisPoints). `0` 이라 단위 함정 자체를 만나지 않는다. */
 export const LC_FIXED_SWEEP_MIN_RATE = 0;
+/**
+ * `buy3_schema` 클라 고정값. 신 클라 판정 정본(gh-trade D-24) — 입력으로 받지 않는다.
+ * 브라우저가 0 을 보내 구 클라 경로(「선매수만 켠 등록」 + `buy_watch_side`)를 여는 것을
+ * 구조적으로 막는다 (T-24-01).
+ */
+export const LC_FIXED_BUY3_SCHEMA = 1;
 
 /**
  * 상따 설정 (MsgType 10). 응답은 60 에코다.
@@ -1154,14 +1147,19 @@ export const LC_FIXED_SWEEP_MIN_RATE = 0;
  *   `lc.set` 분기가 `symbols.lookup(cfg.isin)` 으로 푼 값을 여기로 넘긴다. 조립기가 기본값을
  *   두지 않는 것이 핵심이다: 기본값 `"K"` 를 두는 순간 코스닥 전략이 코스피로 등록된다.
  *
- * **클라 입력 29 + relay 해석 1(`market`) + 클라 고정 3 = 33 필드만** 채운다. 나머지는
- * 건드리지 않는다:
- *   - **S→C 전용 6필드** (`sell_order_qty` · `sell_qty_track_baseline` · `sell_entry_latched` ·
- *     `cancel_qty_track_baseline` · `cancel_entry_latched` · `buy_entry_latched`) — 서버가
+ * **클라 입력 28 + Phase 24 C→S 12 + relay 해석 1(`market`) + 클라 고정 4(sweep 3 ·
+ * `buy3_schema`) = 45 필드만** 채운다. 나머지는 건드리지 않는다:
+ *   - **`buy_watch_side`** — 입력(`cfg.buyWatchSide`)으로는 아직 받지만 **싣지 않는다**. 새 서버
+ *     (buy3)는 감시대상을 읽지 않고, 슬롯이 있으면 구 클라 흉내가 된다. 입력에서의 제거는 24-03.
+ *   - **S→C 전용 9필드** (`sell_order_qty` · `sell_qty_track_baseline` · `sell_entry_latched` ·
+ *     `cancel_qty_track_baseline` · `cancel_entry_latched` · `extra_buy_abandoned` ·
+ *     `post_buy_trigger_qty` · `post_buy_reentry_left` · `post_buy_phase`) — 서버가
  *     계산해 에코로만 내려주는 값이다. 실어 보내면
  *     서버는 무시하지만, 보내는 쪽 코드에 남아 있는 것만으로 "왕복하는 값"이라는 착각을
  *     만들고 에코-폼 비교가 오염된다 (Pitfall 6).
  *   - **deprecated 8슬롯** — flatc 가 접근자를 만들지 않는다. 존재 자체를 모른 채로 둔다.
+ *
+ * `buy3_schema` 는 입력 타입에 아예 없고 `LC_FIXED_BUY3_SCHEMA`(= 1)로 못박는다(gh-trade D-24).
  *
  * 고정 3(`sweepRecalcEnabled`/`sweepMinCount`/`sweepMinRate`)은 입력값과 무관하게 **relay 가
  * 못박는다**. WinForms 가 한 번도 다른 값을 보낸 적이 없어 서버의 Case3 경로가 실사용으로
@@ -1191,7 +1189,6 @@ export function buildSetLimitChaserReq(
 
   const market = toWireMarket(cfg.market);
   const crud = toWireCrud(cfg.crud);
-  const buyWatchSide = toWireWatchSide(cfg.buyWatchSide);
 
   if (
     cfg.sweepRecalcEnabled !== LC_FIXED_SWEEP_RECALC_ENABLED ||
@@ -1212,12 +1209,11 @@ export function buildSetLimitChaserReq(
   }
 
   const b = new flatbuffers.Builder(512);
-  // 문자열 6종을 테이블 열기 전에 만든다.
+  // 문자열 5종을 테이블 열기 전에 만든다.
   const isinOff = b.createString(isin);
   const accountNoOff = b.createString(accountNo);
   const marketOff = b.createString(market);
   const crudOff = b.createString(crud);
-  const buyWatchSideOff = b.createString(buyWatchSide);
   const exchangeOff = b.createString(cfg.exchange);
 
   SetLimitChaser.startSetLimitChaser(b);
@@ -1230,7 +1226,7 @@ export function buildSetLimitChaserReq(
   SetLimitChaser.addBuyWatchPrice(b, toWireUint(cfg.buyWatchPrice, "buyWatchPrice"));
   SetLimitChaser.addBuyWatchQty(b, toWireUint(cfg.buyWatchQty, "buyWatchQty"));
   SetLimitChaser.addBuyMinTradeQty(b, toWireUint(cfg.buyMinTradeQty, "buyMinTradeQty"));
-  SetLimitChaser.addBuyWatchSide(b, buyWatchSideOff);
+  // buy_watch_side — 싣지 않는다(Phase 24 · buy3 서버는 읽지 않는다). 입력에서의 제거는 24-03.
   SetLimitChaser.addBuyTradeQtyEnabled(b, cfg.buyTradeQtyEnabled);
   SetLimitChaser.addBuyEnabled(b, cfg.buyEnabled);
   SetLimitChaser.addSellOrderPrice(b, toWireUint(cfg.sellOrderPrice, "sellOrderPrice"));
@@ -1258,6 +1254,26 @@ export function buildSetLimitChaserReq(
   SetLimitChaser.addCancelTradeEnabled(b, cfg.cancelTradeEnabled);
   SetLimitChaser.addCancelQtyTrackEnabled(b, cfg.cancelQtyTrackEnabled);
   // cancel_qty_track_baseline — S→C 전용.
+  // cancel_entry_latched — S→C 전용.
+  // buy_entry_latched — (deprecated) Phase 24 D-25 로 봉인. 접근자·빌더 없음.
+  // === Phase 24 매수 3종 (gh-trade D-17 · D-24) ===
+  SetLimitChaser.addBuy3Schema(b, LC_FIXED_BUY3_SCHEMA);
+  SetLimitChaser.addPreBuyEnabled(b, cfg.preBuyEnabled);
+  SetLimitChaser.addExtraBuyEnabled(b, cfg.extraBuyEnabled);
+  SetLimitChaser.addExtraBuyMinQty(b, toWireUint(cfg.extraBuyMinQty, "extraBuyMinQty"));
+  SetLimitChaser.addExtraBuyMaxQty(b, toWireUint(cfg.extraBuyMaxQty, "extraBuyMaxQty"));
+  SetLimitChaser.addExtraBuyOrderAmount(b, toWireUint(cfg.extraBuyOrderAmount, "extraBuyOrderAmount"));
+  SetLimitChaser.addExtraBuyOrderQty(b, toWireUint(cfg.extraBuyOrderQty, "extraBuyOrderQty"));
+  // extra_buy_abandoned — S→C 전용. 싣지 않는다.
+  SetLimitChaser.addPostBuyEnabled(b, cfg.postBuyEnabled);
+  SetLimitChaser.addPostBuyReboundPct(b, toWireUByte(cfg.postBuyReboundPct, "postBuyReboundPct"));
+  SetLimitChaser.addPostBuyFloorQty(b, toWireUint(cfg.postBuyFloorQty, "postBuyFloorQty"));
+  SetLimitChaser.addPostBuyReentry(b, toWireUByte(cfg.postBuyReentry, "postBuyReentry"));
+  SetLimitChaser.addPostBuyOrderAmount(b, toWireUint(cfg.postBuyOrderAmount, "postBuyOrderAmount"));
+  SetLimitChaser.addPostBuyOrderQty(b, toWireUint(cfg.postBuyOrderQty, "postBuyOrderQty"));
+  // post_buy_trigger_qty — S→C 전용. 싣지 않는다.
+  // post_buy_reentry_left — S→C 전용. 싣지 않는다.
+  // post_buy_phase — S→C 전용. 싣지 않는다.
   const table = SetLimitChaser.endSetLimitChaser(b);
 
   Envelope.startEnvelope(b);
@@ -1984,9 +2000,10 @@ type ReadResult<T> = { ok: true; value: T } | { ok: false; reason: string; detai
  * 60 단건 에코와 64 목록 원소는 **같은 바이트**라 파서도 하나여야 한다 — 두 벌이면 한쪽만
  * 고쳐져 목록과 에코가 갈린다.
  *
- * **활성 39필드를 전부 읽는다.** S→C 전용 6(`sellOrderQty` · `sellQtyTrackBaseline` ·
- * `sellEntryLatched` · `cancelQtyTrackBaseline` · `cancelEntryLatched` · `buyEntryLatched`)는
- * 보내지 않지만 읽어서 표시한다 —
+ * **활성 55필드를 전부 읽는다.** S→C 전용 10(`sellOrderQty` · `sellQtyTrackBaseline` ·
+ * `sellEntryLatched` · `cancelQtyTrackBaseline` · `cancelEntryLatched` · `buy3Schema` ·
+ * `extraBuyAbandoned` · `postBuyTriggerQty` · `postBuyReentryLeft` · `postBuyPhase`)는
+ * 보내지 않지만 읽어서 표시한다 — (`buy3Schema` 는 relay 가 늘 1 로 보내지만 에코 값은 서버 것을 읽는다)
  * 「보내지 않는 것」과 「읽지 않는 것」은 다른 문제다 (Pitfall 6).
  *
  * 실패 사유만 돌려주고 로그는 남기지 않는다. 단건은 프레임 드롭, 목록은 항목 스킵으로
@@ -2019,6 +2036,7 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       buyWatchPrice: t.buyWatchPrice(),
       buyWatchQty: t.buyWatchQty(),
       buyMinTradeQty: t.buyMinTradeQty(),
+      // 새 서버(buy3) 에코에는 슬롯이 없어 `"0"` 으로 읽힌다(Phase 24).
       buyWatchSide: fromWireWatchSide(t.buyWatchSide() ?? ""),
       buyTradeQtyEnabled: t.buyTradeQtyEnabled(),
       // 에코의 게이트는 설정값이 아니라 **무장 상태**다(`cfg.buyEnabled && buyArmed`).
@@ -2056,15 +2074,40 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       // 무장(armed)과 **접지 않는다**. `&& enabled` 로 접으면 "취소 무장 OFF 인데 래치는
       // 살아 있음" 이라는 서버 진실이 화면에서 소멸한다 (D-05).
       cancelEntryLatched: t.cancelEntryLatched(),
-      // S→C 전용 — 매수 진입 확인 래치 원값. 역시 접지 않는다. 서버는 **매수잔량 기준
-      // (`buyWatchSide === "1"`) 갈래에서만** 이 래치를 켠다 — side "0" 은 언제나 false(BL-01).
-      buyEntryLatched: t.buyEntryLatched(),
       cancelQtyEnabled: t.cancelQtyEnabled(),
       cancelWatchQty: t.cancelWatchQty(),
       cancelTradeEnabled: t.cancelTradeEnabled(),
       cancelQtyTrackEnabled: t.cancelQtyTrackEnabled(),
       // S→C 전용 — 16-01 재동기화로 접근자가 생긴 필드다.
       cancelQtyTrackBaseline: t.cancelQtyTrackBaseline(),
+      // === Phase 24 매수 3종 (gh-trade D-17 · D-24) ===
+      // 서버 에코는 늘 1. 구 서버(필드 부재)는 0 — 판정은 UI 몫이다.
+      buy3Schema: t.buy3Schema(),
+      // 양방향 — 에코는 무장과 접힌 값(gh-trade D-03).
+      preBuyEnabled: t.preBuyEnabled(),
+      // 양방향 — 에코는 cfg ∧ 무장 ∧ !포기(gh-trade D-03 · D-08).
+      extraBuyEnabled: t.extraBuyEnabled(),
+      extraBuyMinQty: t.extraBuyMinQty(),
+      extraBuyMaxQty: t.extraBuyMaxQty(),
+      extraBuyOrderAmount: t.extraBuyOrderAmount(),
+      extraBuyOrderQty: t.extraBuyOrderQty(),
+      // S→C 전용 — 추가매수 포기(최대 초과 · 상한가 이탈 최소 미달).
+      extraBuyAbandoned: t.extraBuyAbandoned(),
+      // D-21 · gh-trade D-32 — 서버가 cfg ∧ 마스터 무장 ∧ 단계 ≠ 소진으로 이미 접어 보낸다.
+      // relay 는 다시 접지 않는다.
+      postBuyEnabled: t.postBuyEnabled(),
+      postBuyReboundPct: t.postBuyReboundPct(),
+      postBuyFloorQty: t.postBuyFloorQty(),
+      // cfg 설정값 원값 — 잔여가 아니다(잔여는 postBuyReentryLeft).
+      postBuyReentry: t.postBuyReentry(),
+      postBuyOrderAmount: t.postBuyOrderAmount(),
+      postBuyOrderQty: t.postBuyOrderQty(),
+      // S→C 전용 — 발동잔량(주).
+      postBuyTriggerQty: t.postBuyTriggerQty(),
+      // S→C 전용 — 재진입 잔여(회).
+      postBuyReentryLeft: t.postBuyReentryLeft(),
+      // S→C 전용 — 0 꺼짐 / 1 감시 / 2 보유중 / 3 소진.
+      postBuyPhase: t.postBuyPhase(),
       key: strategyKey(isin, accountNo, exchange),
     },
   };

@@ -2745,12 +2745,12 @@ describe('상따 비활성화 원인 귀속 (quick-260926-nr2)', () => {
       ws.push({ t: 'lc.snap', items: [lcItem()] });
       ws.push(PURGE_NOTICE);
       // 첫 에코 — 게이트 그대로(래치만 변화).
-      ws.push({ t: 'lc', item: lcItem({ buyEntryLatched: true }) });
+      ws.push({ t: 'lc', item: lcItem({ sellEntryLatched: true }) });
     });
     expect(echoes(hook).has(KEY)).toBe(false);
     // 대기 키가 소비됐다 — 다음 게이트 off 는 15:40 으로 읽지 않는다.
     await act(async () => {
-      ws.push({ t: 'lc', item: lcItem({ buyEnabled: false, buyEntryLatched: true }) });
+      ws.push({ t: 'lc', item: lcItem({ buyEnabled: false, sellEntryLatched: true }) });
     });
     expect(echoes(hook).has(KEY)).toBe(false);
   });
