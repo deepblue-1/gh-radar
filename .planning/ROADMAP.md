@@ -36,7 +36,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 19: 계좌별 주문기록 전용 연결** - relay↔게이트웨이 관찰자 기록 연결 1개 장중 상시 · seq 이어받기 · 계좌 기준 주문기록 (브라우저 부재 중 dma_orders 누락 해소)
 - [ ] **Phase 20: 호가주문 토스식 재구성 (실험 브랜치)** - 스케치 002 채택안: 상따 설정 리스트+바텀시트 · 자체 키패드 · 데스크톱 인라인 편집 · 수동주문 토스 티켓 (theme/toss-b → 2026-09-25 master 병합 · UAT 대기)
 - [x] **Phase 21: GH Trade 모바일 앱 (Capacitor)** - Remote-URL 셸(iOS·iPadOS·Android) · 네이티브 하단 플로팅 탭바 5탭 · pull-to-refresh(웹 훅→reload) · 네이티브 Google Sign-In + signInWithIdToken · 브랜드명 GH Trade · `mobile/` 패키지 (결정 4건 확정 2026-09-25) (completed 2026-09-26)
-- [ ] **Phase 22: GH Trade 테스트 배포 (iOS TestFlight · Android Play 내부 테스트)** - App Store Connect·TestFlight 업로드 · Android 릴리스 키스토어(저장소 밖)·서명 AAB·Play 내부 테스트 트랙 · 릴리스 빌드 Google 로그인 유지(SHA-1·키체인) · 버전 규칙·반복 빌드 절차 · 개인정보처리방침 `/privacy` · `native:verify-prod` 게이트 (정식 출시·심사 대응·데이터 보안 양식은 범위 밖)
+- [ ] **Phase 22: GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK)** - App Store Connect·TestFlight 업로드 · Android 업로드 키(저장소 밖) 서명 APK → Firebase App Distribution 테스터 배포 · 릴리스 빌드 Google 로그인 유지(SHA-1·키체인) · 버전 규칙·반복 빌드 절차 · 개인정보처리방침 `/privacy` · `native:verify-prod` 게이트 (Play 스토어 배포는 개발자 인증 뒤 별도 phase · 정식 출시·심사 대응·데이터 보안 양식은 범위 밖)
+- [ ] **Phase 23: GH Trade Play 스토어 내부 테스트 배포 (개발자 인증 후)** - Play Console 개발자 인증 완료 뒤 진행 · Play 앱 서명 키 결정(one-way) · 첫 AAB 수동 업로드·내부 테스트 트랙 · Play SA·fastlane supply · 앱 서명 SHA-1 OAuth 추가 등록 · Firebase APK 테스터 1회 재설치 안내 (옛 22-05~22-07 플랜을 `from-phase-22/` 에 보관)
 
 ## Phase Details
 
@@ -1110,21 +1111,22 @@ Plans:
 
 - [x] 21-36-PLAN.md — UAT 3차 재검증 + push(웹 배포) 결정 체크포인트 · 운영 sync 복원 · (선택 시) push → 운영 반영 확인 → 운영 빌드 재설치
 
-### Phase 22: GH Trade 테스트 배포 (iOS TestFlight · Android Play 내부 테스트)
+### Phase 22: GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK)
 
-**Goal:** Phase 21 에서 만든 GH Trade 앱(Capacitor Remote-URL 셸 · appId `com.ghtrade.app` · 운영 URL https://trade.jx1.io)을 **다른 사람이 자기 iPhone·Android 폰에 설치해 써 볼 수 있게** 테스트 배포한다. iOS 는 App Store Connect 앱 등록 → 배포용 서명 → Archive → **TestFlight** 업로드(내부 테스터), Android 는 릴리스 키스토어 생성·보관(저장소 밖 + 비밀 관리) → 서명된 AAB → Play Console 앱 등록 → **내부 테스트 트랙** 배포. 스토어 정식 출시(심사 제출·공개)는 범위 밖.
+**Goal:** Phase 21 에서 만든 GH Trade 앱(Capacitor Remote-URL 셸 · appId `com.ghtrade.app` · 운영 URL https://trade.jx1.io)을 **다른 사람이 자기 iPhone·Android 폰에 설치해 써 볼 수 있게** 테스트 배포한다. iOS 는 App Store Connect 앱 등록 → 배포용 서명 → Archive → **TestFlight** 업로드(내부 테스터). Android 는 Play Console 개발자 인증이 끝나지 않아(2026-09-27) Play 대신 저장소 밖 업로드 키로 서명한 **APK 를 Firebase App Distribution 으로 테스터에게 배포**한다. Play 스토어 내부 테스트는 개발자 인증 뒤 별도 phase(Phase 23)로 한다. 스토어 정식 출시(심사 제출·공개)는 범위 밖.
 **Requirements**: MOBILE-02
 **Depends on:** Phase 21
 **Plans:** 4/7 plans executed
 
 **범위 안:**
 
-- 네이티브 Google 로그인을 릴리스 빌드에서 유지 — Android 는 Play 앱 서명 키·업로드 키의 SHA-1 을 Google Cloud OAuth(Android 클라이언트)에 등록, iOS 는 배포 서명에서도 키체인 권한 유지. 테스터 기기에서 로그인 → 홈 착지 확인.
+- 네이티브 Google 로그인을 릴리스 빌드에서 유지 — Android APK 는 업로드 키로 직접 서명하므로 업로드 키 SHA-1 하나를 Google Cloud OAuth(Android 클라이언트)에 등록, iOS 는 배포 서명에서도 키체인 권한 유지. 테스터 기기에서 로그인 → 홈 착지 확인.
+- Android 테스터 배포 = Firebase App Distribution(무료 · 이메일 초대 · 새 빌드 알림 후 탭 설치) — fastlane lane 으로 업로드. Play 이관 시 서명 키가 달라 테스터는 1회 재설치가 필요하다(Phase 23).
 - 버전 규칙(versionName/versionCode · CFBundleShortVersionString/CFBundleVersion)과 반복 가능한 빌드·업로드 절차(스크립트 vs fastlane 은 discuss 에서 결정).
 - 스토어 최소 자료: 개인정보처리방침 URL · 앱 아이콘·이름(GH Trade 기존 자산 재사용).
 - 운영 설정 검사(`native:verify-prod`)를 릴리스 빌드 게이트에 포함 — dev URL·cleartext 가 섞이지 않게.
 
-**범위 밖:** 스토어 정식 출시·심사 대응 · TestFlight 외부 테스터 · Play 비공개/공개 테스트 · Play 데이터 보안 양식 · App Store 앱 개인정보 양식(D-12 — 정식 출시 phase) · 푸시 알림 · 딥링크/유니버설 링크 · 결제 · 웹 화면 변경(`/privacy` 공개 라우트 1개만 예외).
+**범위 밖:** **Play 스토어 배포(내부 테스트 트랙 · Play 앱 서명 · Play SA) — 개발자 인증 뒤 Phase 23** · 스토어 정식 출시·심사 대응 · TestFlight 외부 테스터 · Play 비공개/공개 테스트 · Play 데이터 보안 양식 · App Store 앱 개인정보 양식(D-12 — 정식 출시 phase) · 푸시 알림 · 딥링크/유니버설 링크 · 결제 · 웹 화면 변경(`/privacy` 공개 라우트 1개만 예외).
 
 **discuss 에서 먼저 정할 결정(한 번에 하나씩):**
 
@@ -1148,14 +1150,15 @@ Plans:
 - [x] 22-03-PLAN.md — `/privacy` 공개 라우트: `isPublicPath` 순수 모듈 추출 + 승인 문안 RSC 페이지 + 단위·e2e(`/privacy` 공개 · `/privacy-x` 차단)
 - [x] 22-04-PLAN.md — Android: 빌드 번호 공식(D-09a) minitest · env 서명 gradle + 릴리스 가드 · 업로드 키 `!` 생성·Secret Manager 백업 · `native:release:android:aab` → AAB CHECK OK
 
-**Wave 3** *(blocked on Wave 2 completion)*
+**재범위 (2026-09-27):** 옛 22-05(Play 앱 서명·첫 AAB 업로드) · 22-06(Play SA·supply·테스터) · 22-07(두 번째 릴리스·push) 플랜은 Play 경로 전제라 Phase 23 디렉터리로 이관했다. 22-01~22-04 결과(TestFlight 업로드 · `/privacy` · 업로드 키 · AAB lane)는 유지하고, Android APK·Firebase 경로 플랜을 이어서 새로 작성한다.
 
-- [ ] 22-05-PLAN.md — D-08 one-way 게이트: Play 앱 서명 키 종류 결정 → Play 앱 생성 · 첫 AAB 수동 업로드 · 내부 테스트 출시 · 인증서 SHA-1 보고
+### Phase 23: GH Trade Play 스토어 내부 테스트 배포 (개발자 인증 후)
 
-**Wave 4** *(blocked on Wave 3 completion)*
+**Goal:** Play Console 개발자 인증이 끝나면 GH Trade Android 앱을 Play 내부 테스트 트랙으로 옮긴다. Play 앱 서명 키 종류를 정하고(one-way) 22-04 의 AAB lane 으로 첫 AAB 를 올린 뒤, Play SA·fastlane supply 로 반복 업로드를 자동화한다. Play 앱 서명 키 SHA-1 을 GCP Android OAuth 클라이언트에 추가 등록하고, Phase 22 Firebase APK 테스터에게 1회 재설치를 안내한다. 옛 22-05~22-07 플랜(`.planning/phases/23-gh-trade-play/from-phase-22/`)을 출발점으로 쓴다. **착수 조건:** Play 개발자 인증 완료.
+**Requirements**: TBD
+**Depends on:** Phase 22
+**Plans:** 0 plans
 
-- [ ] 22-06-PLAN.md — Play SA · GCP Android OAuth 클라이언트(업로드·앱 서명 SHA-1) · 동의 화면 · 테스터 초대 → supply 업로드 · TestFlight 처리 확인 · README 릴리스 절·테스터 안내
+Plans:
 
-**Wave 5** *(blocked on Wave 4 completion)*
-
-- [ ] 22-07-PLAN.md — 전 자동 게이트 · 두 번째 릴리스(D-03 반복 · 번호 엄격 증가) · push(=웹 배포) 결정 → 운영 `/privacy` 확인
+- [ ] TBD (run /gsd-plan-phase 23 to break down)

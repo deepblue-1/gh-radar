@@ -4,11 +4,11 @@ milestone: v1.0
 current_phase: 22
 current_phase_name: GH Trade 테스트 배포 (iOS TestFlight · Android Play 내부 테스트)
 status: executing
-stopped_at: Completed 22-04-PLAN.md
-last_updated: "2026-09-27T00:10:00.495Z"
+stopped_at: 22-05 Task 1 에서 중단 — Play 개발자 인증 미완료로 Android 경로 재계획 대기
+last_updated: "2026-09-27T00:44:05.658Z"
 last_activity: 2026-09-27
 last_activity_desc: Phase 22 execution started
-state_head: 8f2c3b0c37a1e6c0e55a21f6c4bfe9ed14085ee3
+state_head: fe08438b45cfd54b612dcf94e19453ee9332abda
 progress:
   total_phases: 31
   completed_phases: 5
@@ -31,10 +31,10 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 Phase: 22 (GH Trade 테스트 배포 (iOS TestFlight · Android Play 내부 테스트)) — EXECUTING
 Plan: 5 of 7
 Plans completed: 219 / 234
-Status: Executing Phase 22
+Status: Paused — Phase 22 Android 경로 재계획 대기
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-27 — Phase 22 execution started
+Last activity: 2026-09-27 — 22-01~22-04 완료, 22-05 에서 중단(Play 개발자 인증 미완료)
 
 Progress: [█████████░] 93%
 
@@ -166,6 +166,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - Phase 13 complete 2026-07-02: 홈 급등 테마 6/6 프로덕션 라이브. 배포=theme-sync 패턴 복제(VPC 없음, OAuth invoker, Secret 재사용 신규 0). Cloud Run Job `gh-radar-home-sync` @ image f6b1905(512Mi/task-timeout=120s/max-retries=1, SA `gh-radar-home-sync-sa` 최소권한 — supabase-service-role + anthropic accessor 2건만, brightdata 미바인딩) + Scheduler `gh-radar-home-sync-cron` ENABLED(`30 9-15 * * 1-5` Asia/Seoul, 7슬롯, 15:30 마감 포함). **Claude POC 게이트 PASS**(themeCount=4/stockCount=48, claudeCalled=true, isCarried=false — 호남반도체 17멤버/전력기기 5/위메이드 3/이차전지 2, reason 일관, 뉴스 verbatim + 실제 매체 URL junggi/etoday 환각 0, Haiku 1회/사이클 ~\$3.1/월 상한 이내). server 재배포(스모크 9/9, `/api/home` 200 snapshot 4테마 index 1슬롯) + webapp Vercel prebuilt(`/` 홈 200, `/scanner` 307→/login 은 비로그인 auth 정상). smoke-home-sync 6/6 + Playwright home.spec 5/5 green. **후속(비차단):** 테마 내 뉴스 URL dedup 미적용(호남반도체 news_total=44 vs unique=4 — 멤버 종목들이 동일 상한가 기사 참조, 저장 중복). UI 는 근거뉴스 top 1-2 distinct 만 노출해 표시 무영향이나 CLAUDE.md 5원칙 #5(최소 저장) 관점 quick task follow-up 권장.
 - Phase 16 added 2026-09-07: 트레이딩 메뉴(상따·VI) — gh-trade WinForms 상따전략창(필드 29개, 등록버튼 없이 스위치 ON=등록·값변경 300ms 자동재제출·전략키 ISIN:계좌:거래소)과 VI 종합주문창(세션당 1건: 계좌·금액(만)·상승률·run, 주문가=상한가 고정, VI 주문내역 확인체크=119초 취소 면제)을 웹으로 이식. 사이드 메뉴 재편: 종목검색(상승률 상위=구 스캐너·테마·관심종목) / 트레이딩(상따 — 하위에 등록된 전략 목록, VI) / My page(전략 현황·잔고·미체결 = gh-trade 메인폼) / 홈·AI 애널리스트 유지. **실시간 공유는 구조적으로 해결됨**: 게이트웨이가 세션(user_id+broker) 단위로 모든 연결에 Set*Resp 에코를 팬아웃하고 Phase 15 D-17 철회로 웹도 `ezmesya` 세션에 합류 → relay 가 전략 메시지(10/11/20/21/24/33/34 ↔ 56/60/61/64/65/72/73)를 wss 로 흘리면 됨, DB 동기화 불필요. 사용자 지시: GSD 정식 절차(discuss → ui-phase 목업 → plan → execute). 사전 목업 초안(scratchpad `16-limit-chaser-mockup.html`, `16-vi-trigger-mockup.html`)은 ui-phase 에서 phase 디렉토리로 이관·재검토.
 - Phase 15 added 2026-09-05: DMA 중계 서버(relay) — GCE VM(radar-gw) 에서 KB VPN 너머 gh-trade-server(10.41.1.120:9100, FlatBuffers) 에 붙어 호가 10단 시세를 브라우저로 wss 팬아웃 + 주문 릴레이. 인계 문서 `tasks/relay-handoff.md`(gh-trade 세션 2026-09-05). 사용자 지시: 정식 phase 절차(discuss→plan→execute), 핸드오프 결정 사항은 discuss-phase 에서 전면 재검토.
+- Phase 22 edited: edited fields: title, goal, 범위 안·밖, plans — Android 를 Play 내부 테스트에서 Firebase App Distribution APK 로 재범위(Play 개발자 인증 미완료), Play 배포는 Phase 23 으로 분리
+- Phase 23 added: GH Trade Play 스토어 내부 테스트 배포 (개발자 인증 후) — 옛 22-05~22-07 플랜을 from-phase-22/ 로 이관
 
 ### Decisions
 
@@ -323,7 +325,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 닫힌 항목(근거 포함): [STATE-ARCHIVE.md](./STATE-ARCHIVE.md#닫힌-todo--blocker)
 
-None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
+- **Phase 22 Play 경로 차단 (2026-09-27).** Play Console 개발자 인증이 끝나지 않아 22-05(Play 첫 업로드)를 Task 1 서명 키 결정에서 멈췄다. 사용자 제안: iOS 는 TestFlight 유지, Android 는 Play 대신 APK 배포, Play 배포는 인증 후 재개. 22-05·22-06(Android 부분)·22-07 재계획 필요. 22-04 의 AAB·업로드 키(SHA-1 2F:E3:BA:78:…:7B:7D)·Play lane 은 그대로 보존.
 
 ### Quick Tasks Completed
 
@@ -363,7 +365,7 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 **Resume file:** None
 
 Last session: 2026-09-27T00:09:43.494Z
-Stopped at: Completed 22-04-PLAN.md
+Stopped at: 22-05 Task 1 에서 중단 — Play 개발자 인증 미완료로 Android 경로 재계획 대기
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.

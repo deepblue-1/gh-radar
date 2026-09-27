@@ -1,7 +1,7 @@
-# Phase 22: GH Trade 테스트 배포 (iOS TestFlight · Android Play 내부 테스트) - Context
+# Phase 22: GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK) - Context
 
 **Gathered:** 2026-09-27
-**Status:** Ready for planning
+**Status:** Ready for planning (2026-09-27 재범위 — Android Play → Firebase APK · 아래 「재범위」 절이 D-02·D-03·D-08·D-10 의 Android 부분을 대체)
 
 <domain>
 ## Phase Boundary
@@ -9,7 +9,7 @@
 Phase 21 의 GH Trade 앱(Capacitor Remote-URL 셸 · appId `com.ghtrade.app` · 운영 URL `https://trade.jx1.io`)을 **5명 미만의 지인이 자기 iPhone·Android 폰에 설치해 써 볼 수 있게** 테스트 배포한다.
 
 - **iOS:** App Store Connect 앱 레코드 생성 → 배포 서명 → Release archive → **TestFlight 내부 테스터** 배포(심사 없음).
-- **Android:** 업로드 키 생성·보관(저장소 밖) → 서명된 AAB → Play Console 앱 생성 → **내부 테스트 트랙** 배포(심사 없음).
+- **Android (2026-09-27 재범위):** 업로드 키 생성·보관(저장소 밖 · 22-04 완료) → 업로드 키로 직접 서명한 **릴리스 APK** → **Firebase App Distribution** 으로 테스터 배포(심사 없음 · Play 계정 불필요). ~~서명된 AAB → Play Console 앱 생성 → 내부 테스트 트랙~~ 은 Play 개발자 인증 미완료로 **Phase 23** 으로 이연.
 - **공통:** 릴리스 빌드에서 네이티브 Google 로그인 유지(Android 릴리스·Play 앱 서명 SHA-1 등록) · 반복 가능한 빌드·업로드 절차(fastlane) · 버전 규칙 · `native:verify-prod` 게이트 · 개인정보처리방침 `/privacy` 페이지.
 
 **범위 밖:** 스토어 정식 출시·심사 대응 · TestFlight 외부 테스터(베타 심사) · Play 비공개/공개 테스트 · **Play 데이터 보안 양식 · App Store 앱 개인정보 양식(사용자 결정으로 정식 출시 phase 로 이연 — ROADMAP.md 의 「범위 안」 문구 정정 필요)** · 푸시 알림 · 딥링크/유니버설 링크 · 결제 · 웹 화면 변경(`/privacy` 공개 라우트 1개 추가만 예외).
@@ -20,6 +20,16 @@ Phase 21 의 GH Trade 앱(Capacitor Remote-URL 셸 · appId `com.ghtrade.app` ·
 
 <decisions>
 ## Implementation Decisions
+
+### 재범위 (2026-09-27) — Android 는 Play 대신 Firebase App Distribution APK
+배경: 22-01~22-04 실행 뒤 22-05(Play 첫 업로드) Task 1 에서 **Play Console 개발자 인증이 끝나지 않아** Play 경로가 막혔다. 사용자 결정(2026-09-27): iOS 는 TestFlight 그대로, Android 는 APK 배포, Play 배포는 인증 뒤 다시 진행. 옛 22-05~22-07 플랜은 `.planning/phases/23-gh-trade-play/from-phase-22/` 로 이관했고, 그 안의 **iOS·공통 항목(TestFlight 처리 확인 · ASC 테스터 초대 · 동의 화면 확인 · README 릴리스 절 · 두 번째 릴리스 · push 결정 · `/privacy` 시행일 확정)은 Phase 22 에 남는 일**이라 새 플랜이 다시 담아야 한다.
+
+- **D-13 (D-02·D-10 의 Android 부분 대체):** Android 테스터 배포 경로 = **Firebase App Distribution**(무료 Spark · 이메일 초대 · 새 빌드 알림 → 탭 설치). APK 파일 직접 전달(카톡·드라이브)은 쓰지 않는다. 테스터 절차는 「Firebase 초대 메일 수락 → (선택) App Tester 앱 → 출처를 알 수 없는 앱 설치 허용 → 설치」. Play 계정·Play 개발자 인증 불필요. — **Reversibility:** reversible — Phase 23 에서 Play 로 옮기면 끝난다.
+- **D-14 (D-08 의 Android 서명 부분 대체):** 릴리스 APK 는 22-04 의 **업로드 키로 직접 서명**한다(같은 env 서명 gradle · 같은 versionCode 공식 D-09a · `assembleRelease`). GCP Android OAuth 클라이언트에는 **업로드 키 SHA-1 `2F:E3:BA:78:A5:74:16:06:F8:79:A8:D3:3C:28:23:EF:72:98:7B:7D` 하나만** 등록한다(코드 변경 없음). Play 앱 서명 키 결정(옛 22-05 Task 1)은 Phase 23 으로 이연. — **Reversibility:** reversible — 단, Phase 23 에서 Play 앱 서명(Google 생성 키)으로 옮기면 서명이 달라 **Firebase 로 깐 테스터는 1회 삭제 후 Play 에서 재설치**해야 한다(업데이트 불가). 테스터 안내문에 적는다.
+- **D-15 (D-03 의 Android 부분 대체):** Android 업데이트 = 빌드 번호 증가 → `native:release:android`(APK 빌드 → 검사 → Firebase 업로드) 명령 한 번 → 테스터에게 새 빌드 알림 → 테스터가 탭해 설치. TestFlight 처럼 자동 설치는 아니다. iOS 는 D-03 그대로(내부 그룹 자동 배포).
+- **D-16:** 22-04 의 AAB lane(`native:release:android:aab` · Fastfile `beta`/`validate`/`track`)과 `setup-release-secrets.sh play-sa` 단계는 **지우지 않고 보존**한다 — Phase 23 이 그대로 쓴다. Firebase 경로는 새 lane·스크립트로 **추가**한다.
+- **D-17 (Claude's Discretion · 플랜 체크포인트에서 사용자 확인):** Firebase 프로젝트 = 기본값 **기존 GCP 프로젝트 `gh-radar` 에 Firebase 추가**(Secret Manager · deployer SA 가 이미 여기 있다 · 기존 Cloud Run 등에 영향 없음 · 프로젝트에서 Firebase 를 떼어 내기는 어렵다). 업로드 인증 = fastlane `firebase_app_distribution` 플러그인(또는 Firebase CLI) + 서비스 계정 자격 — deployer SA 재사용 vs 전용 SA 는 리서치로 정한다. 앱 안에 Firebase SDK·`google-services.json` 은 넣지 않는다(업로드에는 Firebase 앱 ID 만 필요 · Remote-URL 셸 무변경 원칙).
+- **D-18:** 2027년 Google 사이드로드 개발자 인증 전 세계 확대(2026-09-30 브라질·인도네시아·싱가포르·태국 선행) 뒤에는 미인증 개발자 APK 가 일반 경로로 설치되지 않는다 → Firebase APK 는 **Play 개발자 인증 완료 전까지의 임시 경로**다. 절차 문서에 적는다.
 
 ### 계정 · 테스터 범위
 - **D-01:** Apple Developer Program 유료 멤버십(팀 `954QPCS3F5`)과 Google Play Console 개발자 계정은 **둘 다 보유**(2026-09-27 사용자 확인). 계정 개설 태스크 불필요. App Store Connect 앱 레코드와 Play 앱은 아직 없으므로 생성은 이 phase 에서 한다.

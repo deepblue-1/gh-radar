@@ -152,3 +152,11 @@
 - Play 데이터 보안 양식 · App Store 앱 개인정보 양식 — 정식 출시 phase
 - TestFlight 외부 테스터 · Play 비공개/공개 테스트 — 심사 동반, 정식 출시 phase
 - PrivacyInfo.xcprivacy · 푸시 알림 · 딥링크 — Phase 21 Deferred 유지
+
+---
+
+## 재범위 (2026-09-27 · execute-phase 중 사용자 결정)
+
+- 22-05(Play 첫 업로드) Task 1 에서 사용자: 「안드로이드는 지금 개발자 인증이 안되는 상태네. 여기서 멈추고, 아이폰만 테스트 플라이트로 배포하고 안드로이드는 그냥 apk를 배포하는 형태로 진행할까? 플레이스토어 배포는 나중에 개발자 인증되면 다시 진행할 수 있게 해주고」
+- Claude 제안: APK 는 Firebase App Distribution 으로 배포(알림·초대·fastlane 연동 · 무료) · 업로드 키로 직접 서명(SHA-1 1개 등록) · Play 이관 시 1회 재설치 · 2027 사이드로드 인증 확대 전 임시 경로.
+- 사용자: 「니가 phase 22 목표 수정하고 firebase 기반으로 작업하는거 진행해」 → ROADMAP Phase 22 재범위 · Phase 23(Play) 신설 · 옛 22-05~22-07 이관 · CONTEXT D-13~D-18 기록.
