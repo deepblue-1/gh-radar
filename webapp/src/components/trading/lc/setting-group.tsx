@@ -35,11 +35,11 @@ import type { LcGroupSpec } from '@/components/trading/lc/lc-fields';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 
-export type SettingUnit = '원' | '주' | '만원' | '%' | '건';
+export type SettingUnit = '원' | '주' | '만원' | '%' | '건' | '회';
 
 const NUM = new Intl.NumberFormat('ko-KR');
 
-/** 「3건」「127,400원」 — 천 단위 쉼표 + 단위 붙여 씀(UI-SPEC §2). */
+/** 「3건」「127,400원」「3회」 — 천 단위 쉼표 + 단위 붙여 씀(UI-SPEC §2). */
 export function formatSettingValue(value: number, unit: SettingUnit): string {
   return `${NUM.format(value)}${unit}`;
 }
@@ -77,6 +77,26 @@ function editRingClass(failed: boolean): string {
 const EDIT_BG = 'cursor-text bg-[color-mix(in_srgb,var(--fg)_5%,transparent)]';
 
 /**
+ * 행 단위 흐림(Phase 24 ⑩ · UI-SPEC §9 · R10) — opacity .45 를 **한 요소에 한 번** 건다. 조작하는 순간
+ * (포커스 · fine pointer hover)에는 제 대비로 돌아온다. 편집 중인 행에는 걸지 않는다.
+ * 흐린 행도 편집할 수 있다 — `aria-disabled` 를 쓰지 않는다(조작 가능한 것을 불가라 말하게 된다).
+ */
+const DIM_SELF = 'opacity-45 focus-within:opacity-100 pointer-fine:hover:opacity-100';
+/** 체크 값 행용 — 라벨 · 값 조각이 행(`group/lcrow`) 포커스 · hover 로 함께 돌아온다(원형 체크는 흐리지 않는다). */
+const DIM_IN_ROW = 'opacity-45 group-focus-within/lcrow:opacity-100 pointer-fine:group-hover/lcrow:opacity-100';
+
+/**
+ * 그룹 상태 문구 색(UI-SPEC §11 · R3) — **첫 단어 기준**. 새 색 토큰 0 · 색은 보조 신호이고 의미는 단어가
+ * 싣는다(WCAG 1.4.1). 「감시 중 · 후매수 발동」은 초록, 「무장 · 대기 · 후매수 발동」은 중립이다.
+ */
+export function groupStatusClassOf(text: string): string {
+  if (text.startsWith('감시 중')) return 'text-[var(--led-armed)]';
+  if (text.startsWith('보유중')) return 'text-[var(--led-latent)]';
+  if (text.startsWith('포기')) return 'text-[var(--destructive)]';
+  return 'text-[var(--muted-fg)]';
+}
+
+/**
  * 편집이 끝나 입력칸이 사라지면 포커스가 `body` 로 떨어진다 — 그때만 행(값 버튼)으로 되돌린다.
  * 사용자가 다른 곳을 눌러 끝낸 경우(포커스가 이미 거기 있다)는 뺏지 않는다.
  */
@@ -92,12 +112,13 @@ function useRefocusAfterEdit(editing: boolean, target: RefObject<HTMLElement | n
 }
 
 /**
- * 제목 있는 그룹의 제목 요소 id — 값 버튼의 `aria-describedby` 가 된다(20-07 a11y).
+ * 제목 있는 그룹의 제목 요소 id + 상태 문구 id(공백으로 이은 id 목록) — 값 버튼의 `aria-describedby`
+ * 가 된다(20-07 a11y · Phase 24 R10).
  *
  * ★ ≥700 두 열에서는 매수·매도 쪽 값 버튼이 **같은 이름**을 가질 수 있다(「비교가격 127,400원」 ·
- *   「체결 30,000주」). 이름은 UI-SPEC 계약 「{라벨} {값}{단위}」 그대로 두고 **설명**으로 그룹 제목을
- *   붙여 가른다 — 스크린리더가 「비교가격 127,400원, 매수주문」으로 읽는다. 보이는 변화는 없다.
- *   제목 없는 가격 섹션(행 라벨이 이미 매수가격/매도가격으로 다르다)과 그룹 밖 렌더는 `undefined` 다.
+ *   「체결 30,000주」). 이름과 별개로 **설명**에 그룹 제목을 붙여 가른다. Phase 24 부터는 상태 문구도
+ *   함께 가리킨다 — 흐린 행의 비시각 경로다(「주문가격 13,000원, 매수주문 꺼짐」). 보이는 변화는 없다.
+ *   제목 없는 가격 섹션과 그룹 밖 렌더는 `undefined` 다.
  */
 const GroupTitleIdContext = createContext<string | undefined>(undefined);
 
@@ -138,6 +159,15 @@ export interface SettingRowProps {
   onActivate: (el: HTMLElement) => void;
   /** 시트 모드 — `aria-haspopup="dialog"`. */
   hasPopup?: boolean;
+  /**
+   * 표시 문자열(Phase 24 D-10 · D-11) — 주면 값 슬롯과 기본 접근성 이름이 이 글자를 쓴다(「무제한」 ·
+   * 「3회 · 남은 2회」). 판정은 `lcValueTextOf` 한 곳이다. 편집은 여전히 숫자 `value` 로 한다.
+   */
+  valueText?: string;
+  /** 값 버튼 `aria-label` 전체(「선매수 금액 4,000만원」 — UI-SPEC 접근성 이름 접두 표). */
+  ariaName?: string;
+  /** 행 단위 흐림(⑩) — 편집 중이면 걸지 않는다. */
+  dim?: boolean;
   className?: string;
 }
 
@@ -156,13 +186,17 @@ export function SettingRow({
   editor,
   onActivate,
   hasPopup = false,
+  valueText,
+  ariaName,
+  dim = false,
   className,
 }: SettingRowProps) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   useRefocusAfterEdit(editing, buttonRef);
   const groupTitleId = useContext(GroupTitleIdContext);
 
-  const text = value === null ? '—' : formatSettingValue(value, unit);
+  const text = valueText ?? (value === null ? '—' : formatSettingValue(value, unit));
+  const defaultName = value === null && valueText === undefined ? `${label} 미입력` : `${label} ${text}`;
 
   if (editing) {
     return (
@@ -184,7 +218,7 @@ export function SettingRow({
       ref={buttonRef}
       type="button"
       data-lc-field={id}
-      aria-label={value === null ? `${label} 미입력` : `${label} ${text}`}
+      aria-label={ariaName ?? defaultName}
       aria-describedby={groupTitleId}
       aria-busy={busy ? 'true' : undefined}
       aria-haspopup={hasPopup ? 'dialog' : undefined}
@@ -194,6 +228,7 @@ export function SettingRow({
         ROW_BOX,
         'pointer-fine:hover:bg-[color-mix(in_srgb,var(--fg)_5%,transparent)] disabled:opacity-50',
         failed && 'shadow-[inset_0_0_0_1.5px_var(--destructive)]',
+        dim && DIM_SELF,
         className,
       )}
     >
@@ -248,14 +283,34 @@ export function FailureBubble({
 
 /* ───────────────────────── 20-04 — 그룹 · 스위치 · 체크 · 기준선 ───────────────────────── */
 
+export interface SettingGroupFold {
+  /** false = 접힘(기본). 보관은 호출부(폼 인스턴스 `useState`) — 에코 재렌더에 풀리지 않는다(R1). */
+  expanded: boolean;
+  onToggle: () => void;
+  /** 접힘일 때만 보이는 요약 줄(`GroupSummary`). */
+  summary: ReactNode;
+}
+
 export interface SettingGroupProps {
   spec: LcGroupSpec;
-  /** 제목 옆 상태 문구(「감시 중」「무장 · 대기」「발주 완료 · 무장 해제」「켜짐」「꺼짐」). */
+  /** 제목 옆 상태 문구(「감시 중」「보유중」「소진」「포기」「꺼짐」「켜짐 · 켠 매수 없음」 …). */
   statusText?: string;
-  /** 그룹 스위치 상태 — `spec.dimWhenOff` 이고 false 면 행을 흐린다. */
+  /** 그룹 스위치 상태 — `spec.dimWhenOff` 이고 false 면 행(과 요약 줄)을 흐린다. */
   on?: boolean;
   /** 제목줄 오른쪽 끝에 설 스위치(`GroupSwitch`). */
   switchNode?: ReactNode;
+  /**
+   * 접이식 제목줄(Phase 24 ⑤ · UI-SPEC §2) — 주면 제목줄이 `<button aria-expanded>` 가 되고 접힌 행 영역은
+   * `hidden` 클래스로 숨는다(**언마운트하지 않는다** — 나가 있던 확정 · 열린 편집기 보존).
+   */
+  fold?: SettingGroupFold;
+  /** 사전 검증 줄(UI-SPEC §7) — 제목줄 바로 아래 `role="alert"` 빨간 한 줄. 접힘/펼침 무관하게 보인다. */
+  precheckText?: string | null;
+  /**
+   * true(기본) = 꺼진 그룹이면 행 컨테이너를 흐린다(기존 경로). false = 컨테이너는 흐리지 않고 행마다
+   * `dim` 에 맡긴다 — 컨테이너와 행에 겹쳐 걸면 .45 × .45 = .2 가 된다(UI-SPEC §9).
+   */
+  dimRows?: boolean;
   children: ReactNode;
 }
 
@@ -273,9 +328,51 @@ export interface SettingGroupProps {
  * ★ 꺼진 그룹(`dimWhenOff && !on`)의 행은 opacity .45 지만 **여전히 편집할 수 있다** — 값을 미리
  *   맞춰 두는 흐름이다(D-01). 매수취소는 스위치가 꺼져도 체크를 켤 수 있어 흐리지 않는다(D-21).
  */
-export function SettingGroup({ spec, statusText, on, switchNode, children }: SettingGroupProps) {
+export function SettingGroup({
+  spec,
+  statusText,
+  on,
+  switchNode,
+  fold,
+  precheckText = null,
+  dimRows = true,
+  children,
+}: SettingGroupProps) {
   const dim = spec.dimWhenOff && on === false;
   const titleId = useId();
+  const statusId = useId();
+  const rowsId = useId();
+  const collapsed = fold !== undefined && !fold.expanded;
+  const describedBy = spec.title ? (statusText ? `${titleId} ${statusId}` : titleId) : undefined;
+
+  // 제목 · (쉐브런) · 상태는 **한 텍스트 흐름**이다 — 길면 상태가 둘째 줄로 내려가고 말줄임하지 않는다.
+  const titleFlow = (
+    <span className="min-w-0 flex-1 leading-normal">
+      <span id={titleId} className={cn('text-[15px] font-semibold text-[var(--fg)]', fold ? 'mr-2' : 'mr-1')}>
+        {spec.title}
+      </span>
+      {fold ? (
+        <span
+          aria-hidden="true"
+          className={cn(
+            '-ml-0.5 mr-1 inline-block text-[14px] text-[var(--faint)] transition-transform duration-150 motion-reduce:transition-none',
+            fold.expanded && 'rotate-90',
+          )}
+        >
+          ›
+        </span>
+      ) : null}
+      {statusText ? (
+        <>
+          {' '}
+          <span id={statusId} data-slot="lc-group-status" className={cn('text-[12px]', groupStatusClassOf(statusText))}>
+            {statusText}
+          </span>
+        </>
+      ) : null}
+    </span>
+  );
+
   return (
     <section
       data-slot={`lc-group-${spec.slot}`}
@@ -284,33 +381,78 @@ export function SettingGroup({ spec, statusText, on, switchNode, children }: Set
       className={cn('min-w-0 rounded-[16px] bg-[var(--group-bg)] px-2.5 pb-1', spec.title ? 'pt-2.5' : 'pt-1')}
     >
       {spec.title ? (
-        <div data-slot="lc-group-header" className="flex min-h-6 min-w-0 items-center gap-2 px-0.5 pb-0.5">
-          <span className="min-w-0 flex-1 leading-normal">
-            <span id={titleId} className="mr-1 text-[15px] font-semibold text-[var(--fg)]">
-              {spec.title}
-            </span>
-            {statusText ? (
-              <>
-                {' '}
-                <span
-                  data-slot="lc-group-status"
-                  className={cn(
-                    'text-[12px]',
-                    statusText === '감시 중' ? 'text-[var(--led-armed)]' : 'text-[var(--muted-fg)]',
-                  )}
-                >
-                  {statusText}
-                </span>
-              </>
-            ) : null}
-          </span>
+        <div
+          data-slot="lc-group-header"
+          className={cn('flex min-h-6 min-w-0 items-center gap-2 px-0.5', !fold && 'pb-0.5')}
+        >
+          {fold ? (
+            // 스위치는 이 버튼 **밖 형제**다 — 버튼 안 스위치는 HTML 상 불가하고, 형제라 전파 차단 없이
+            // 스위치가 접기와 독립으로 동작한다(UI-SPEC §2).
+            <button
+              type="button"
+              data-slot="lc-group-fold"
+              aria-expanded={fold.expanded}
+              aria-controls={rowsId}
+              onClick={fold.onToggle}
+              className="-mx-0.5 flex min-h-8 min-w-0 flex-1 items-center rounded-[10px] px-1 pb-0.5 text-left pointer-fine:hover:bg-[color-mix(in_srgb,var(--fg)_5%,transparent)]"
+            >
+              {titleFlow}
+            </button>
+          ) : (
+            titleFlow
+          )}
           {switchNode}
         </div>
       ) : null}
-      <div data-slot="lc-group-rows" className={cn('min-w-0', dim && 'opacity-45')}>
-        <GroupTitleIdContext.Provider value={spec.title ? titleId : undefined}>{children}</GroupTitleIdContext.Provider>
+      {precheckText ? (
+        <p
+          data-slot="lc-group-precheck"
+          role="alert"
+          className="px-1.5 pt-0.5 pb-1.5 text-[12.5px] leading-[1.45] text-[var(--destructive)]"
+        >
+          {precheckText}
+        </p>
+      ) : null}
+      {fold ? <div className={cn('min-w-0', fold.expanded && 'hidden', dim && 'opacity-45')}>{fold.summary}</div> : null}
+      <div
+        id={rowsId}
+        data-slot="lc-group-rows"
+        className={cn('min-w-0', dimRows && dim && 'opacity-45', collapsed && 'hidden')}
+      >
+        <GroupTitleIdContext.Provider value={describedBy}>{children}</GroupTitleIdContext.Provider>
       </div>
     </section>
+  );
+}
+
+/**
+ * 접힌 카드의 요약 줄(UI-SPEC §3 · 스케치 `.sumline`) — 순수 텍스트(버튼 아님 · 접기 트리거 아님).
+ * kv 는 `nowrap` 이고 **kv 사이에서만** 줄바꿈한다. 꺼진 kv 는 값 글자만 `--muted-fg` 다.
+ */
+export function GroupSummary({ items }: { items: readonly { key: string; value: string; off: boolean }[] }) {
+  return (
+    <div
+      data-slot="lc-group-summary"
+      className="flex flex-wrap gap-x-2.5 gap-y-1 px-1 pt-0.5 pb-2 text-[13px] leading-[1.4]"
+    >
+      {items.map((kv) => (
+        <span key={kv.key} className="whitespace-nowrap">
+          <span className="mr-[3px] text-[12px] text-[var(--muted-fg)]">{kv.key}</span>
+          <span className={cn('font-medium tabular-nums', kv.off ? 'text-[var(--muted-fg)]' : 'text-[var(--fg-2)]')}>
+            {kv.value}
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** 카드 안 정적 안내 줄(후매수 소진 안내 — UI-SPEC §5) · 역할 없음 · 흐리지 않는다. */
+export function GroupNote({ slot, children }: { slot: string; children: ReactNode }) {
+  return (
+    <p data-slot={slot} className="px-1.5 pt-0.5 pb-1.5 text-[12.5px] leading-[1.45] text-[var(--muted-fg)]">
+      {children}
+    </p>
   );
 }
 
@@ -399,6 +541,12 @@ export interface CheckValueRowProps {
   onActivateValue?: (el: HTMLElement) => void;
   /** 시트 모드 — 값 버튼 `aria-haspopup="dialog"`. */
   hasPopup?: boolean;
+  /** 값 표시 문자열(`SettingRow.valueText` 와 같음). */
+  valueText?: string;
+  /** 값 버튼 `aria-label` 전체. */
+  ariaName?: string;
+  /** 라벨 · 값만 흐림(⑩) — 원형 체크는 흐리지 않는다(켜는 컨트롤은 늘 제 대비). */
+  dim?: boolean;
 }
 
 /**
@@ -430,12 +578,16 @@ export function CheckValueRow({
   editor,
   onActivateValue,
   hasPopup = false,
+  valueText,
+  ariaName,
+  dim = false,
 }: CheckValueRowProps) {
   const valueRef = useRef<HTMLButtonElement>(null);
   useRefocusAfterEdit(editing, valueRef);
   const groupTitleId = useContext(GroupTitleIdContext);
   const hasValue = value !== undefined;
-  const text = hasValue ? formatSettingValue(value, unit) : '';
+  const text = valueText ?? (hasValue ? formatSettingValue(value, unit) : '');
+  const dimPart = dim && !editing ? DIM_IN_ROW : undefined;
 
   const check = (
     <button
@@ -462,7 +614,7 @@ export function CheckValueRow({
       >
         {checked ? <Check className="size-3.5 text-white" strokeWidth={3} /> : null}
       </span>
-      <span className={cn(LABEL_TEXT, checkFlash && 'text-[var(--primary)]')}>{label}</span>
+      <span className={cn(LABEL_TEXT, checkFlash && 'text-[var(--primary)]', dimPart)}>{label}</span>
     </button>
   );
 
@@ -480,13 +632,13 @@ export function CheckValueRow({
           ref={valueRef}
           type="button"
           data-lc-field={valueId}
-          aria-label={`${label} ${text}`}
+          aria-label={ariaName ?? `${label} ${text}`}
           aria-describedby={groupTitleId}
           aria-busy={busy ? 'true' : undefined}
           aria-haspopup={hasPopup ? 'dialog' : undefined}
           disabled={disabled}
           onClick={(e) => onActivateValue?.(e.currentTarget)}
-          className="flex min-h-[44px] min-w-0 items-center justify-end rounded-[10px] disabled:opacity-50"
+          className={cn('flex min-h-[44px] min-w-0 items-center justify-end rounded-[10px] disabled:opacity-50', dimPart)}
         >
           <ValueWithChevron text={text} flash={flash} busy={busy} />
         </button>
@@ -498,6 +650,7 @@ export function CheckValueRow({
     <div
       data-slot="lc-check-row"
       className={cn(
+        'group/lcrow',
         ROW_BOX,
         editing && EDIT_BG,
         editing ? editRingClass(failed) : failed && 'shadow-[inset_0_0_0_1.5px_var(--destructive)]',
@@ -511,16 +664,57 @@ export function CheckValueRow({
   );
 }
 
+export interface DerivedRowProps {
+  label: string;
+  value: number;
+  unit: SettingUnit;
+  /** 값이 있을 때 `--up` 15/600(발동잔량 — UI-SPEC §6 · TY-2). 매수 방향 축이지 오류 색이 아니다. */
+  emphasis?: boolean;
+  /** 값 0 일 때 보이는 글자(「—」) — 주면 `--muted-fg` 로 그린다. */
+  valueText?: string;
+  /** 값 0 일 때 스크린리더 글자(「없음」) — 「—」 를 「대시」로 읽지 않게 한다. */
+  srText?: string;
+  /** `data-slot` — 기본 `lc-derived`(기준선 행). 발동잔량은 `lc-post-buy-trigger`. */
+  slot?: string;
+  /** 흐림(⑩) — 그룹 에코 OFF. */
+  dim?: boolean;
+}
+
 /**
- * 읽기 전용 파생 행 — 「잔량추적 기준선」(S→C 전용 · 서버 계산값이 정본). 버튼이 아니고 쉐브런이 없다.
+ * 읽기 전용 파생 행 — 「잔량추적 기준선」 · 「발동잔량」(S→C 전용 · 서버 계산값이 정본). 버튼이 아니고
+ * 쉐브런이 없고 탭 순서 밖이다.
  */
-export function DerivedRow({ label, value, unit }: { label: string; value: number; unit: SettingUnit }) {
+export function DerivedRow({
+  label,
+  value,
+  unit,
+  emphasis = false,
+  valueText,
+  srText,
+  slot = 'lc-derived',
+  dim = false,
+}: DerivedRowProps) {
+  const empty = value === 0 && valueText !== undefined;
   return (
-    <div data-slot="lc-derived" className={ROW_BOX}>
+    <div data-slot={slot} className={cn(ROW_BOX, dim && 'opacity-45 pointer-fine:hover:opacity-100')}>
       <span className={LABEL_TEXT}>{label}</span>
-      <span className="whitespace-nowrap text-[15px] font-medium leading-[1.5] tabular-nums text-[var(--fg-2)]">
-        {formatSettingValue(value, unit)}
-      </span>
+      {empty ? (
+        <span className="whitespace-nowrap text-[15px] font-medium leading-[1.5]">
+          <span aria-hidden={srText ? 'true' : undefined} className="text-[var(--muted-fg)]">
+            {valueText}
+          </span>
+          {srText ? <span className="sr-only">{srText}</span> : null}
+        </span>
+      ) : (
+        <span
+          className={cn(
+            'whitespace-nowrap text-[15px] leading-[1.5] tabular-nums',
+            emphasis ? 'font-semibold text-[var(--up)]' : 'font-medium text-[var(--fg-2)]',
+          )}
+        >
+          {formatSettingValue(value, unit)}
+        </span>
+      )}
     </div>
   );
 }

@@ -209,7 +209,7 @@ export function rangeIssueText(v: number, unit: PadUnit, min?: number, max?: num
 }
 
 /**
- * 단위별 검증 문구. 빈 값·문제 없음 → null. 원 = 호가 단위·상한가 · 회 = 1~maxPieces ·
+ * 단위별 검증 문구. 빈 값·문제 없음 → null. 원 = 호가 단위·상한가 · 회 = 1~maxPieces(조각 수만) ·
  * 모든 단위 = 필드 범위(`ctx.min`/`ctx.max`, CR-01).
  */
 export function padIssue(s: PadState, unit: PadUnit, ctx: PadCtx): string | null {
@@ -220,11 +220,11 @@ export function padIssue(s: PadState, unit: PadUnit, ctx: PadCtx): string | null
     const rule = ctx.tickRule ?? 'stock';
     if (issue && priceIssueLocks(issue, rule)) return priceIssueText(issue, rule);
   }
-  if (unit === '회') {
+  // 수동주문 조각 수 전용 — 상따 「최대」는 0 = 사지 않음이 유효하다(Phase 24 D-30). 조각 수는
+  // `maxPieces` 가 있을 때만 이 규칙을 받고, 상따 「회」 필드는 필드 범위(`ctx.min`/`ctx.max`)만 받는다.
+  if (unit === '회' && ctx.maxPieces !== undefined) {
     if (v < 1) return '1회 이상 입력해 주세요';
-    if (ctx.maxPieces !== undefined && v > ctx.maxPieces) {
-      return `최대 ${fmt(ctx.maxPieces)}회까지 나눌 수 있어요`;
-    }
+    if (v > ctx.maxPieces) return `최대 ${fmt(ctx.maxPieces)}회까지 나눌 수 있어요`;
   }
   return rangeIssueText(v, unit, ctx.min, ctx.max);
 }
