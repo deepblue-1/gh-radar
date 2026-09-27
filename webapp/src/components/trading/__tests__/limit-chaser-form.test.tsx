@@ -1679,3 +1679,208 @@ describe('⑰-b D-02 후반 · D-19 — WinForms 동형 서버 접힘 뒤 마스
     expect(sentConfigs()).toHaveLength(1);
   });
 });
+
+describe('⑱ 그룹 켜기 사전 검증 줄 · D-16 · D-11 재제출 (24-06 · UI-SPEC §7 · R7 · R8)', () => {
+  const precheckIn = (slot: string) => group(slot).querySelector('[data-slot="lc-group-precheck"]');
+  const AMOUNT_FIRST = '주문금액을 먼저 입력해 주세요';
+  const QTY_ZERO = '금액이 주문가격보다 작아 주문수량이 0주예요 — 금액을 올려 주세요';
+  const MIN_OVER_MAX = '최소 잔량이 최대 잔량보다 커요 — 최대를 0(무제한)으로 하거나 최소를 낮춰 주세요';
+  const REBOUND = '반등을 1~100%로 입력해 주세요';
+  const SELL_RATIO = '후매수는 매도비율이 있어야 켤 수 있어요 — 매도비율을 1~100%로 입력해 주세요';
+  const D16 = '추가매수는 상한가 도달 전에만 켤 수 있습니다 — 매수1호가 == 비교가격';
+
+  it('D-03 — 추가매수 금액 0 에서 켜기 → 전송 0 · 스위치 OFF 그대로 · 그 카드 사전 검증 줄 · 스위치는 disabled 가 아니다', () => {
+    render(<LimitChaserForm {...props()} />);
+    expect(sw('추가매수 켜기')).toBeEnabled();
+    click(sw('추가매수 켜기'));
+    expect(sentConfigs()).toHaveLength(0);
+    expect(sw('추가매수 켜기')).toHaveAttribute('aria-checked', 'false');
+    const line = precheckIn('extra-buy') as HTMLElement;
+    expect(line).not.toBeNull();
+    expect(line).toHaveAttribute('role', 'alert');
+    expect(line.textContent).toBe(AMOUNT_FIRST);
+    expect(submitError()).toBeNull();
+    // 사전 검증 실패로 카드가 자동으로 펼쳐지지 않는다.
+    expect(fold('extra-buy')).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('D-03 — 그 상태에서도 다른 행(추가매수 최소 잔량) 확정은 전송된다', () => {
+    render(<LimitChaserForm {...props()} />);
+    click(sw('추가매수 켜기'));
+    click(fold('extra-buy'));
+    editInline('lc-extra-buy-min-qty', '5000');
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().extraBuyMinQty).toBe(5_000);
+  });
+
+  it('수량 0 — 추가매수 금액 1(만원) · 주문가격 130,000 → 「금액이 주문가격보다 작아 …」', () => {
+    render(<LimitChaserForm {...props({ server: echo({ extraBuyOrderAmount: 1 }) })} />);
+    click(sw('추가매수 켜기'));
+    expect(sentConfigs()).toHaveLength(0);
+    expect(precheckIn('extra-buy')?.textContent).toBe(QTY_ZERO);
+  });
+
+  it('D-10 — 추가매수 최소 > 최대(≠0) → 최소/최대 문구 · 최대 0(무제한)이면 통과해 전송', () => {
+    const { unmount } = render(
+      <LimitChaserForm {...props({ server: echo({ extraBuyOrderAmount: 50, extraBuyMinQty: 50_000, extraBuyMaxQty: 10_000 }) })} />,
+    );
+    click(sw('추가매수 켜기'));
+    expect(sentConfigs()).toHaveLength(0);
+    expect(precheckIn('extra-buy')?.textContent).toBe(MIN_OVER_MAX);
+    unmount();
+    render(<LimitChaserForm {...props({ server: echo({ extraBuyOrderAmount: 50, extraBuyMinQty: 50_000, extraBuyMaxQty: 0 }) })} />);
+    click(sw('추가매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().extraBuyEnabled).toBe(true);
+  });
+
+  it('후매수 — 반등 0(레거시) → 반등 문구 · 매도비율 0(레거시) → 매도비율 문구 · 금액이 먼저 실패하면 그 문구 하나만', () => {
+    const a = render(<LimitChaserForm {...props({ server: echo({ postBuyOrderAmount: 50, postBuyReboundPct: 0 }) })} />);
+    click(sw('후매수 켜기'));
+    expect(precheckIn('post-buy')?.textContent).toBe(REBOUND);
+    a.unmount();
+    const b = render(
+      <LimitChaserForm {...props({ server: echo({ postBuyOrderAmount: 50, postBuyReboundPct: 30, sellOrderRatio: 0 }) })} />,
+    );
+    click(sw('후매수 켜기'));
+    expect(precheckIn('post-buy')?.textContent).toBe(SELL_RATIO);
+    b.unmount();
+    render(<LimitChaserForm {...props({ server: echo({ postBuyOrderAmount: 0, postBuyReboundPct: 0, sellOrderRatio: 0 }) })} />);
+    click(sw('후매수 켜기'));
+    expect(document.querySelectorAll('[data-slot="lc-group-precheck"]')).toHaveLength(1);
+    expect(precheckIn('post-buy')?.textContent).toBe(AMOUNT_FIRST);
+    expect(sentConfigs()).toHaveLength(0);
+  });
+
+  it('R8 — 서버가 금액을 모르는(레거시) 선매수 켜기 → 선매수 카드 사전 검증 줄 · 폼 맨 위 줄에는 뜨지 않는다', () => {
+    render(<LimitChaserForm {...props({ server: echo({ buyOrderAmount: 0, buyOrderQty: 500 }) })} />);
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(0);
+    expect(precheckIn('pre-buy')?.textContent).toBe(AMOUNT_FIRST);
+    expect(submitError()).toBeNull();
+  });
+
+  it('사라지는 때 ① — 원인 값(추가매수 금액)이 고쳐진 에코 뒤 같은 검증이 통과하면 사라진다', () => {
+    const { rerender } = render(<LimitChaserForm {...props()} />);
+    click(sw('추가매수 켜기'));
+    expect(precheckIn('extra-buy')).not.toBeNull();
+    click(fold('extra-buy'));
+    editInline('lc-extra-buy-amount', '50');
+    expect(sentConfigs()).toHaveLength(1);
+    // 에코 전에는 그대로다.
+    expect(precheckIn('extra-buy')).not.toBeNull();
+    rerender(<LimitChaserForm {...props({ server: echo({ extraBuyOrderAmount: 50 }) })} />);
+    expect(precheckIn('extra-buy')).toBeNull();
+    // 사전 검증 정리는 제출을 만들지 않는다.
+    expect(sentConfigs()).toHaveLength(1);
+  });
+
+  it('사라지는 때 ② — 그 그룹이 켜진 에코(다른 단말)가 오면 사라진다', () => {
+    const { rerender } = render(<LimitChaserForm {...props()} />);
+    click(sw('추가매수 켜기'));
+    expect(precheckIn('extra-buy')).not.toBeNull();
+    rerender(<LimitChaserForm {...props({ server: echo({ extraBuyEnabled: true }) })} />);
+    expect(precheckIn('extra-buy')).toBeNull();
+    expect(sentConfigs()).toHaveLength(0);
+  });
+
+  it('사라지는 때 ③ — 다른 사유로 다시 누르면 그 문구로 교체되고 줄은 늘 하나다', () => {
+    const { rerender } = render(<LimitChaserForm {...props()} />);
+    click(sw('추가매수 켜기'));
+    expect(precheckIn('extra-buy')?.textContent).toBe(AMOUNT_FIRST);
+    rerender(
+      <LimitChaserForm {...props({ server: echo({ extraBuyOrderAmount: 50, extraBuyMinQty: 50_000, extraBuyMaxQty: 10_000 }) })} />,
+    );
+    click(sw('추가매수 켜기'));
+    expect(precheckIn('extra-buy')?.textContent).toBe(MIN_OVER_MAX);
+    expect(document.querySelectorAll('[data-slot="lc-group-precheck"]')).toHaveLength(1);
+  });
+
+  it('끄는 방향은 어떤 검증도 없다(T-16-44) — 금액 0 인 켜진 추가매수도 끈다', () => {
+    render(<LimitChaserForm {...props({ server: echo({ extraBuyEnabled: true, sellEnabled: true }) })} />);
+    click(sw('추가매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().extraBuyEnabled).toBe(false);
+    expect(precheckIn('extra-buy')).toBeNull();
+  });
+
+  it('E4 long-text — 최장 문구는 줄바꿈 허용 · 말줄임 없음', () => {
+    render(
+      <LimitChaserForm {...props({ server: echo({ postBuyOrderAmount: 50, postBuyReboundPct: 30, sellOrderRatio: 0 }) })} />,
+    );
+    click(sw('후매수 켜기'));
+    const line = precheckIn('post-buy') as HTMLElement;
+    expect(line.textContent).toBe(SELL_RATIO);
+    const cls = line.getAttribute('class') ?? '';
+    expect(cls).not.toMatch(/truncate|line-clamp|whitespace-nowrap|text-ellipsis/);
+    expect(cls).toContain('text-[12.5px]');
+  });
+
+  it('D-16 — 매수1호가 == 비교가격(둘 다 > 0)이면 제출 없이 스위치 그대로 · 사전 검증 줄 없음 · 로그 원문 한 줄(error)', () => {
+    const onClientLog = vi.fn();
+    render(
+      <LimitChaserForm {...props({ server: echo({ extraBuyOrderAmount: 50 }), bestBid: 130_000, onClientLog })} />,
+    );
+    click(sw('추가매수 켜기'));
+    expect(sentConfigs()).toHaveLength(0);
+    expect(sw('추가매수 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(precheckIn('extra-buy')).toBeNull();
+    expect(submitError()).toBeNull();
+    expect(onClientLog).toHaveBeenCalledTimes(1);
+    expect(onClientLog).toHaveBeenCalledWith(D16, 'error');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('D-16 — 매수1호가 0(호가 미수신)이면 허용 · 상한가로 치환하지 않는다 · 호가가 다르면 허용', () => {
+    const onClientLog = vi.fn();
+    const a = render(
+      <LimitChaserForm {...props({ server: echo({ extraBuyOrderAmount: 50 }), bestBid: 0, upperLimit: 130_000, onClientLog })} />,
+    );
+    click(sw('추가매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    a.unmount();
+    render(
+      <LimitChaserForm {...props({ server: echo({ extraBuyOrderAmount: 50 }), bestBid: 129_500, onClientLog })} />,
+    );
+    click(sw('추가매수 켜기'));
+    expect(sentConfigs()).toHaveLength(2);
+    expect(onClientLog).not.toHaveBeenCalled();
+  });
+
+  it('D-16 은 추가매수만 — 선매수 · 후매수는 매수1호가 == 비교가격이어도 켠다', () => {
+    const onClientLog = vi.fn();
+    render(
+      <LimitChaserForm
+        {...props({ server: echo({ postBuyOrderAmount: 50, postBuyReboundPct: 30 }), bestBid: 130_000, onClientLog })}
+      />,
+    );
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(onClientLog).not.toHaveBeenCalled();
+  });
+
+  it('D-11 — 후매수 ON 에서 다른 행(반등) 확정 → cfg postBuyReentry = 에코 설정값 3(잔여 1 아님) · postBuyReentryLeft 키 없음', () => {
+    render(
+      <LimitChaserForm
+        {...props({
+          server: echo({
+            postBuyEnabled: true,
+            postBuyOrderAmount: 50,
+            postBuyReboundPct: 30,
+            postBuyReentry: 3,
+            postBuyReentryLeft: 1,
+            postBuyPhase: 2,
+          }),
+        })}
+      />,
+    );
+    click(fold('post-buy'));
+    editInline('lc-post-buy-rebound', '40');
+    expect(sentConfigs()).toHaveLength(1);
+    const cfg = lastConfig();
+    expect(cfg.postBuyReboundPct).toBe(40);
+    expect(cfg.postBuyReentry).toBe(3);
+    expect(cfg).not.toHaveProperty('postBuyReentryLeft');
+    expect(cfg).not.toHaveProperty('postBuyPhase');
+  });
+});

@@ -178,6 +178,7 @@ function cardState(over: Partial<StrategyCardState> = {}): StrategyCardState {
     handleArm: vi.fn(),
     handleSent: vi.fn(),
     handleServerEcho: vi.fn(),
+    pushClientLog: vi.fn(),
     ...over,
   };
 }
@@ -626,5 +627,43 @@ describe('⑦ D-15a — 종목 분류가 두 폼의 호가 단위 잠금을 가�
     typeKeys('156100');
     expect(within(statusLine()).getByRole('alert')).toHaveTextContent('상한가 156,000원을 넘을 수 없어요');
     expect(confirmBtn()).toBeDisabled();
+  });
+});
+
+describe('24-06 — 폼에 매수1호가(bestBid) · 클라 로그 통로(onClientLog) 를 넘긴다 (D-16)', () => {
+  const D16 = '추가매수는 상한가 도달 전에만 켤 수 있습니다 — 매수1호가 == 비교가격';
+
+  it('호가 매수1호가 == 비교가격 → 추가매수 켜기가 카드 pushClientLog 로 D-16 원문(error) 1줄 · 전송 0', () => {
+    const pushClientLog = vi.fn();
+    render(
+      <CardBody
+        {...props({
+          card: cardState({
+            server: server({ buyEnabled: true, extraBuyOrderAmount: 50 }),
+            quote: quote({ bp: Array.from({ length: 10 }, (_, i) => 130_000 - i * 100) }),
+            pushClientLog,
+          }),
+        })}
+      />,
+    );
+    act(() => {
+      fireEvent.click(screen.getByRole('switch', { name: '추가매수 켜기' }));
+    });
+    expect(pushClientLog).toHaveBeenCalledWith(D16, 'error');
+  });
+
+  it('호가 미수신(quote null)이면 bestBid 0 — D-16 은 허용(로그 없음)', () => {
+    const pushClientLog = vi.fn();
+    render(
+      <CardBody
+        {...props({
+          card: cardState({ server: server({ buyEnabled: true, extraBuyOrderAmount: 50 }), quote: null, pushClientLog }),
+        })}
+      />,
+    );
+    act(() => {
+      fireEvent.click(screen.getByRole('switch', { name: '추가매수 켜기' }));
+    });
+    expect(pushClientLog).not.toHaveBeenCalled();
   });
 });

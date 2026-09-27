@@ -1178,3 +1178,39 @@ describe('24-05 카드 귀속 — 보낸 cfg · 보낸 사유 · override (Phase
     expect(texts().some((x) => x.includes('다른 단말'))).toBe(true);
   });
 });
+
+describe('24-06 — 클라 로그 통로 pushClientLog (D-16 · 순서)', () => {
+  const texts = () =>
+    Array.from(logRows()).map((r) => r.querySelectorAll('span')[1]?.textContent ?? '');
+  const D16 = '추가매수는 상한가 도달 전에만 켤 수 있습니다 — 매수1호가 == 비교가격';
+
+  beforeEach(() => {
+    lastCard = null;
+  });
+
+  it('D-16 — 매수1호가 == 비교가격에서 추가매수 켜기 → 카드 전략 로그 최상단에 원문 그대로(error) · 전송 0', async () => {
+    const e = echo({ extraBuyOrderAmount: 50 });
+    setRelay({ limitChasers: [e], quote: quote() });
+    render(<Card />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('switch', { name: '추가매수 켜기' }));
+    });
+    await waitFor(() => expect(texts()[0]).toBe(D16));
+    expect(logRows()[0]!.getAttribute('data-level')).toBe('error');
+    expect(lcSets()).toHaveLength(0);
+  });
+
+  it('순서 — 같은 렌더의 에코 전이 줄 **뒤**에 쌓인다(microtask · 최신이 위)', async () => {
+    const before = echo({ buyEnabled: false, sellEnabled: true });
+    setRelay({ limitChasers: [before] });
+    const { rerender } = render(<Card />);
+    const after = echo({ buyEnabled: true, sellEnabled: true });
+    await act(async () => {
+      lastCard!.pushClientLog('클라 로그', 'info');
+      setRelay({ limitChasers: [after], lastLimitChaserEcho: after });
+      rerender(<Card />);
+    });
+    await waitFor(() => expect(texts()[0]).toBe('클라 로그'));
+    expect(texts()[1]).toBe(TRANSITION_TEXT.buyArmed);
+  });
+});
