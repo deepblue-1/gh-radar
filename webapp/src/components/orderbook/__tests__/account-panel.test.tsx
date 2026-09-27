@@ -682,6 +682,45 @@ describe('AccountPanel — 계좌 전용 모드 (D-21 / My page)', () => {
     expect(document.querySelectorAll('a[data-slot="account-stock-link"]')).toHaveLength(0);
   });
 
+  /*
+    22-REVIEW WR-04 — `stockHref` 와 `onSelectUnfilled` 를 같이 넘기면 **선택이 우선**이다. 미체결 행에 링크를
+    만들면 카드에서는 선택 `<button>` 안에 `<a>` 가 들어가고(interactive-in-interactive), 링크 ::after 가 행을
+    덮어 행을 누를 때마다 선택 대신 페이지 이동이 일어난다. 잔고 행은 선택 대상이 아니므로 링크가 그대로다.
+  */
+  it('⑯-x stockHref + onSelectUnfilled 면 미체결 행에는 링크가 없고(선택 우선) 잔고 행 링크는 남는다', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    renderAccountOnly({
+      stockHref: (isin: string) => `/trading?code=${isin.slice(3, 9)}`,
+      onSelectUnfilled: onSelect,
+    });
+
+    for (const row of [...unfilledRows(), ...unfilledCards()]) {
+      expect(row.querySelectorAll('a[data-slot="account-stock-link"]')).toHaveLength(0);
+      for (const btn of Array.from(row.querySelectorAll('button'))) {
+        expect(btn.querySelector('a')).toBeNull();
+      }
+    }
+    // 링크가 없으니 카드 행을 덮는 stretched link 의 기준(relative)도 없다.
+    for (const card of unfilledCards()) {
+      expect(card.className).not.toContain('relative');
+    }
+    // 잔고 행(표·카드)은 선택과 무관하므로 링크가 그대로다.
+    const holdingTableRows = Array.from(
+      tableOf('account-holdings').querySelectorAll('tbody tr'),
+    ) as HTMLElement[];
+    for (const row of [...holdingTableRows, ...holdingCards()]) {
+      expect(row.querySelectorAll('a[data-slot="account-stock-link"]')).toHaveLength(1);
+    }
+    // 카드 종목명을 누르면 선택이 한 번 올라간다(이동 없음).
+    const enabled = unfilledCards()
+      .map((card) => card.querySelector<HTMLButtonElement>('[data-slot="account-unfilled-select"]'))
+      .find((btn): btn is HTMLButtonElement => btn !== null && !btn.disabled);
+    expect(enabled).toBeDefined();
+    await user.click(enabled!);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
   it('⑯-c 현재가를 모르면 셋째 줄 자체가 없다 — 카드에 대시가 0개다 (⑤)', () => {
     renderAccountOnly();
 
