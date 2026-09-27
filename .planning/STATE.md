@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 22
 current_phase_name: GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK)
 status: executing
-stopped_at: Completed 22-06-PLAN.md
-last_updated: "2026-09-27T02:51:17.454Z"
+stopped_at: Completed 22-05-PLAN.md
+last_updated: "2026-09-27T04:09:42.476Z"
 last_activity: 2026-09-27
 last_activity_desc: Phase 22 execution started
-state_head: 389fa32c460e398af9b1da37e4597c7025d15782
+state_head: b9263f4ab284f35fe5e51b237fce378195316cc9
 progress:
   total_phases: 32
   completed_phases: 5
   total_plans: 300
-  completed_plans: 279
+  completed_plans: 280
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 22 (GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK)) — EXECUTING
-Plan: 2 of 10
+Plan: 3 of 10
 Plans completed: 219 / 234
 Status: Executing Phase 22
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
@@ -132,6 +132,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 22 P03 | 8min | 2 tasks | 6 files |
 | Phase 22 P04 | 6h (실행 12min) | 3 tasks | 10 files |
 | Phase 22 P06 | 2 min | 2 tasks | 2 files |
+| Phase 22 P05 | 2h 21m (실행 약 15min) | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -313,6 +314,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 22]: 22-04: 업로드 인증서 SHA-1 2F:E3:BA:78:A5:74:16:06:F8:79:A8:D3:3C:28:23:EF:72:98:7B:7D (공개 — 22-06 Android OAuth 클라이언트용) · 백업 Secret Manager gh-radar-ghtrade-upload-keystore(-password) · asc-api-key (deployer SA 인증)
 - [Phase 22]: 22-04: 첫 AAB versionCode 609270905 · mobile/android/app/build/outputs/bundle/release/app-release.aab · AAB CHECK OK · lintVital 수정 없음 — 22-05 콘솔 첫 업로드 대상
 - [Phase 22]: 22-06: 22-01 TestFlight 빌드 202609270252 = VALID (2026-09-27 11:50 KST · release-ios.sh latest 한 줄 계약)
+- [Phase 22]: 22-05: D-17 Firebase 를 기존 gh-radar 에 추가(사용자 결정) — FCM 푸시 가능성으로 장기 자산 · 앱 ID 1:1023658565518:android:3b06f0472060afa97e4edf · 그룹 ghtrade-testers(본인 1명)
+- [Phase 22]: 22-05: 업로드 SA gh-trade-appdistro 역할 roles/firebaseappdistro.admin 정확히 하나 · 키 600 · Secret Manager 백업 없음(분실 시 재발급)
+- [Phase 22]: 22-05: OAuth 동의 화면 「테스트」 모드 — 테스터 Google 계정마다 테스트 사용자 추가 필요(22-08 인계) · Supabase 가입 제한 없음(D-05)
 
 ### Pending Todos
 
@@ -366,8 +370,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-09-27T02:51:16.938Z
-Stopped at: Completed 22-06-PLAN.md
+Last session: 2026-09-27T04:09:32.455Z
+Stopped at: Completed 22-05-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.

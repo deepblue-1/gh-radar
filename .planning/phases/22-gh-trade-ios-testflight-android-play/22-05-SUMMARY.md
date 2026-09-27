@@ -237,3 +237,8 @@ status: complete
 ---
 *Phase: 22-gh-trade-ios-testflight-android-play*
 *Completed: 2026-09-27*
+
+## Self-Check: PASSED
+
+- 파일 4개 존재(스크립트 2 · .gitignore · SUMMARY) · 커밋 68b8008e · b9263f4a 존재
+- Task 3 읽기 전용 확인 3건 + 앱 ID 정규식 통과
