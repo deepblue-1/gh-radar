@@ -6,9 +6,10 @@ import {
   LIMIT_CHASER_SERVER_ONLY_FIELDS,
   LIMIT_CHASER_SERVER_RUNTIME_FIELDS,
 } from '@gh-radar/shared';
-import type { RelayLimitChaser, RelayServerMsg } from '@gh-radar/shared';
+import type { RelayLimitChaser, RelayLimitChaserInput, RelayServerMsg } from '@gh-radar/shared';
 
 import {
+  POST_BUY_OVERRIDE_FIELDS,
   StrategyLog,
   TRANSITION_ORDER,
   TRANSITION_TEXT,
@@ -86,20 +87,20 @@ function msg(over: Partial<RelayServerMsg> = {}): RelayServerMsg {
 
 describe('strategyLogLine — 전이 문장(순수 함수)', () => {
   it('① 처음 본 전략 = 등록. 무장 상태도 함께 적는다', () => {
-    expect(strategyLogLine(null, at({ buyEnabled: true }))).toBe('전략이 등록됐어요 · 매수 무장');
+    expect(strategyLogLine(null, at({ buyEnabled: true }))).toBe('전략이 등록됐어요 · 매수주문 무장');
   });
 
-  it('② 매수 무장 / 무장 해제', () => {
-    expect(strategyLogLine(BASE, at({ buyEnabled: true }))).toBe('매수 무장');
-    expect(strategyLogLine(at({ buyEnabled: true }), BASE)).toBe('매수 무장 해제');
+  it('② 매수주문(마스터) 무장 / 무장 해제 — 문구는 카드 이름을 따른다 (Phase 24 ⑨)', () => {
+    expect(strategyLogLine(BASE, at({ buyEnabled: true }))).toBe('매수주문 무장');
+    expect(strategyLogLine(at({ buyEnabled: true }), BASE)).toBe('매수주문 무장 해제');
   });
 
-  it('③ ★ 발주로 인한 무장 해제는 `hadOrder` 로만 「발주」라고 쓴다 (Pitfall 10)', () => {
-    // 직전 발주 이력을 모르면 「발주」라고 단정하지 않는다 — 거짓말이 된다.
-    expect(strategyLogLine(at({ buyEnabled: true }), BASE)).toBe('매수 무장 해제');
-    expect(strategyLogLine(at({ buyEnabled: true }), BASE, { hadOrder: true })).toBe(
-      '매수 발주 — 무장 해제',
-    );
+  it('③ ★ 마스터 해제는 「발주」로 읽지 않는다 — `buyFired` 는 은퇴했다 (Pitfall 11)', () => {
+    // 마스터는 발주로 접히지 않는다. 발주 사실은 서버 사유 줄(`[상따] … 매수 N주 @…`)이 말한다.
+    expect(strategyLogLine(at({ buyEnabled: true }), BASE)).toBe('매수주문 무장 해제');
+    expect(strategyLogLine(at({ buyEnabled: true }), BASE, { sent: null })).toBe('매수주문 무장 해제');
+    expect(Object.values(TRANSITION_TEXT)).not.toContain('매수 발주 — 무장 해제');
+    expect(TRANSITION_ORDER as readonly string[]).not.toContain('buyFired');
   });
 
   it('④ 매도 무장 → 래치 전이가 각각 다른 문장이다', () => {
@@ -127,7 +128,7 @@ describe('strategyLogLine — 전이 문장(순수 함수)', () => {
   it('⑥ 값만 바뀌면 「서버 반영 완료」 — 반영의 유일한 증거가 에코다', () => {
     expect(strategyLogLine(BASE, at({ buyWatchQty: 8_000 }))).toBe('서버 반영 완료');
     // 게이트·래치·S→C 파생만 바뀐 것은 값 변경이 아니다(둘을 뭉개면 문장이 항상 붙는다).
-    expect(strategyLogLine(BASE, at({ buyEnabled: true }))).toBe('매수 무장');
+    expect(strategyLogLine(BASE, at({ buyEnabled: true }))).toBe('매수주문 무장');
   });
 
   it('⑦ `crud:"D"` 는 삭제다 — 스위치가 아니라 에코가 판정한다 (Pitfall 7)', () => {
@@ -146,7 +147,7 @@ describe('strategyLogLine — 전이 문장(순수 함수)', () => {
       at({ buyEnabled: true, sellEnabled: true, cancelQtyEnabled: true, buyWatchQty: 8_000 }),
     );
     expect(line).toBe(
-      '매수 무장 · 매도 무장 — 대기 (지지벽 미관측) · 매수 미체결 자동취소 무장 · 서버 반영 완료',
+      '매수주문 무장 · 매도 무장 — 대기 (지지벽 미관측) · 매수 미체결 자동취소 무장 · 서버 반영 완료',
     );
   });
 });
@@ -358,7 +359,7 @@ describe('⑰ 취소 래치 전이 2종 + skip 집합 (17-11 Task 2 · Phase 24 
       strategyLogLine(null, at({ cancelQtyEnabled: true, cancelEntryLatched: true })),
     ).toBe('전략이 등록됐어요 · 취소 진입 래치 ON — 취소 판정 시작');
     expect(strategyLogLine(null, at({ buyEnabled: true, buyWatchSide: '1' }))).toBe(
-      '전략이 등록됐어요 · 매수 무장',
+      '전략이 등록됐어요 · 매수주문 무장',
     );
     // 래치가 꺼져 있으면 무장 문장으로 떨어진다.
     expect(strategyLogLine(null, at({ cancelQtyEnabled: true }))).toBe(
@@ -366,11 +367,11 @@ describe('⑰ 취소 래치 전이 2종 + skip 집합 (17-11 Task 2 · Phase 24 
     );
   });
 
-  it('⑰-6 ★ 두 표가 14종 닫힌 집합으로 동형이다 — 문구/전이가 한쪽만 늘지 않는다', () => {
-    expect(TRANSITION_ORDER).toHaveLength(14);
-    expect(Object.keys(TRANSITION_TEXT)).toHaveLength(14);
+  it('⑰-6 ★ 두 표가 26종 닫힌 집합으로 동형이다 — 문구/전이가 한쪽만 늘지 않는다 (Phase 24: −buyFired +그룹 6 +동반 6 +서버 접힘 1)', () => {
+    expect(TRANSITION_ORDER).toHaveLength(26);
+    expect(Object.keys(TRANSITION_TEXT)).toHaveLength(26);
     // 중복 없음 + 두 표의 원소 집합이 정확히 같다.
-    expect(new Set(TRANSITION_ORDER).size).toBe(14);
+    expect(new Set(TRANSITION_ORDER).size).toBe(26);
     expect([...TRANSITION_ORDER].sort()).toEqual(Object.keys(TRANSITION_TEXT).sort());
   });
 
@@ -387,7 +388,7 @@ describe('⑰ 취소 래치 전이 2종 + skip 집합 (17-11 Task 2 · Phase 24 
       }),
     );
     expect(line).toBe(
-      '매수 무장 해제 · 매도 진입 래치 ON — 감시 시작 · 취소 진입 래치 ON — 취소 판정 시작',
+      '매수주문 무장 해제 · 매도 진입 래치 ON — 감시 시작 · 취소 진입 래치 ON — 취소 판정 시작',
     );
   });
 });
@@ -416,9 +417,227 @@ describe('⑱ 서버 통지 출처 배지 (D-17)', () => {
   });
 });
 
+/*
+  Phase 24 Plan 05 Task 1 — 그룹 전이 · D-01/D-02 동반 문구 · D-02 후반 · override 귀속 (⑨ · D-13).
+
+  여기서 잠그는 것:
+    ① 그룹 게이트 3종이 각자 「무장」/「무장 해제」 문장을 갖는다(클라 합성은 게이트 전이만)
+    ② D-01/D-02 동반 문장은 **내가 보낸 cfg(`sent`)** 가 둘 다 실었을 때만 — 그 에코의 마스터 ·
+       그룹 전이 문장을 **대신**한다(같은 사건을 두 줄로 쓰지 않는다). `sent === null`(다른 단말)은
+       종전 전이 문장 둘
+    ③ D-02 후반 자동 끔은 **보낸 사유(`sentCause: 'serverFold'`)** 로만 — 사유 없는 같은 전이 ·
+       WinForms 가 먼저 보낸 에코(`sent === null`)는 「매수주문 무장 해제」(발주 아님)
+    ④ 런타임 4필드만 바뀐 에코는 0줄 · 발동/재진입 전이의 override 4필드는 「서버 반영 완료」가 아니다
+    ⑤ 서버 사유 · 거부 원문은 파싱 없이 통과한다(D-13 · D-18)
+*/
+describe('Phase 24 ⑨ — 그룹 전이 · 동반 문구 · override 귀속 (24-05)', () => {
+  const ON = at({ buyEnabled: true });
+  const OFF = BASE;
+  /** 보낸 cfg — 입력 계약은 S→C 전용 필드를 뺀 모양이지만 판정은 게이트만 읽는다. */
+  const sentOf = (over: Partial<RelayLimitChaser>) =>
+    ({ ...BASE, ...over }) as unknown as RelayLimitChaserInput;
+
+  it('G-1 그룹 게이트 3종 × 무장 / 무장 해제 = 6문장', () => {
+    expect(strategyLogLine(ON, { ...ON, preBuyEnabled: true })).toBe('선매수 무장');
+    expect(strategyLogLine({ ...ON, preBuyEnabled: true }, ON)).toBe('선매수 무장 해제');
+    expect(strategyLogLine(ON, { ...ON, extraBuyEnabled: true })).toBe('추가매수 무장');
+    expect(strategyLogLine({ ...ON, extraBuyEnabled: true }, ON)).toBe('추가매수 무장 해제');
+    expect(strategyLogLine(ON, { ...ON, postBuyEnabled: true })).toBe('후매수 무장');
+    expect(strategyLogLine({ ...ON, postBuyEnabled: true }, ON)).toBe('후매수 무장 해제');
+  });
+
+  it('G-2 첫 스냅샷에서 켜진 그룹은 등록 줄에 무장 문장으로 붙는다', () => {
+    expect(strategyLogLine(null, at({ buyEnabled: true, preBuyEnabled: true, postBuyEnabled: true }))).toBe(
+      '전략이 등록됐어요 · 매수주문 무장 · 선매수 무장 · 후매수 무장',
+    );
+  });
+
+  it('G-3 순서: 매수주문 → 선매수 → 추가매수 → 후매수 → 매도 → 취소 → 서버 반영 완료', () => {
+    expect(
+      strategyLogLine(OFF, at({ buyEnabled: true, preBuyEnabled: true, sellEnabled: true })),
+    ).toBe('매수주문 무장 · 선매수 무장 · 매도 무장 — 대기 (지지벽 미관측)');
+    expect(
+      strategyLogLine(
+        OFF,
+        at({
+          buyEnabled: true,
+          postBuyEnabled: true,
+          extraBuyEnabled: true,
+          cancelQtyEnabled: true,
+          buyWatchQty: 8_000,
+        }),
+      ),
+    ).toBe('매수주문 무장 · 추가매수 무장 · 후매수 무장 · 매수 미체결 자동취소 무장 · 서버 반영 완료');
+  });
+
+  it('D-01 내가 마스터 + 그룹을 함께 켜 보냈고 에코가 둘 다 ON → 「선매수 체크 — 매수주문도 켬」 한 줄', () => {
+    const next = at({ buyEnabled: true, preBuyEnabled: true });
+    const sent = sentOf({ buyEnabled: true, preBuyEnabled: true });
+    expect(strategyLogLine(OFF, next, { sent })).toBe('선매수 체크 — 매수주문도 켬');
+    // 추가 · 후매수도 같은 문법이다.
+    expect(
+      strategyLogLine(OFF, at({ buyEnabled: true, extraBuyEnabled: true }), {
+        sent: sentOf({ buyEnabled: true, extraBuyEnabled: true }),
+      }),
+    ).toBe('추가매수 체크 — 매수주문도 켬');
+    expect(
+      strategyLogLine(OFF, at({ buyEnabled: true, postBuyEnabled: true }), {
+        sent: sentOf({ buyEnabled: true, postBuyEnabled: true }),
+      }),
+    ).toBe('후매수 체크 — 매수주문도 켬');
+  });
+
+  it('D-01 ★ 보내지 않은 같은 에코(다른 단말) → 종전 전이 문장 둘 — 동반 문장을 지어내지 않는다', () => {
+    const next = at({ buyEnabled: true, preBuyEnabled: true });
+    expect(strategyLogLine(OFF, next, { sent: null })).toBe('매수주문 무장 · 선매수 무장');
+    expect(strategyLogLine(OFF, next)).toBe('매수주문 무장 · 선매수 무장');
+  });
+
+  it('D-01 동반 문장은 다른 전이와 순서대로 이어진다 · 그룹을 싣지 않은 제출은 동반이 아니다', () => {
+    const next = at({ buyEnabled: true, preBuyEnabled: true, sellEnabled: true });
+    expect(
+      strategyLogLine(OFF, next, { sent: sentOf({ buyEnabled: true, preBuyEnabled: true, sellEnabled: true }) }),
+    ).toBe('선매수 체크 — 매수주문도 켬 · 매도 무장 — 대기 (지지벽 미관측)');
+    // 마스터만 켜 보냈는데 다른 단말이 선매수를 함께 켠 에코 — 선매수는 내 제출이 아니다.
+    expect(
+      strategyLogLine(OFF, at({ buyEnabled: true, preBuyEnabled: true }), {
+        sent: sentOf({ buyEnabled: true, preBuyEnabled: false }),
+      }),
+    ).toBe('매수주문 무장 · 선매수 무장');
+  });
+
+  it('D-02 전반: 마지막 그룹 OFF + 마스터 OFF 를 함께 보냈고 에코가 둘 다 OFF → 「후매수 해제 — 매수주문도 끔」', () => {
+    const prev = at({ buyEnabled: true, postBuyEnabled: true, sellEnabled: true });
+    const next = at({ buyEnabled: false, postBuyEnabled: false, sellEnabled: true });
+    const sent = sentOf({ buyEnabled: false, postBuyEnabled: false, sellEnabled: true });
+    expect(strategyLogLine(prev, next, { sent })).toBe('후매수 해제 — 매수주문도 끔');
+    expect(
+      strategyLogLine(at({ buyEnabled: true, preBuyEnabled: true }), OFF, {
+        sent: sentOf({ buyEnabled: false, preBuyEnabled: false }),
+      }),
+    ).toBe('선매수 해제 — 매수주문도 끔');
+    expect(
+      strategyLogLine(at({ buyEnabled: true, extraBuyEnabled: true }), OFF, {
+        sent: sentOf({ buyEnabled: false, extraBuyEnabled: false }),
+      }),
+    ).toBe('추가매수 해제 — 매수주문도 끔');
+    // 보내지 않은 같은 에코는 종전 전이 문장 둘이다.
+    expect(strategyLogLine(prev, next, { sent: null })).toBe('매수주문 무장 해제 · 후매수 무장 해제');
+  });
+
+  it('D-02 전반 — 그 제출이 삭제(crud "D")면 기존 삭제 문장 하나', () => {
+    const prev = at({ buyEnabled: true, postBuyEnabled: true });
+    expect(
+      strategyLogLine(prev, at({ crud: 'D' }), { sent: sentOf({ buyEnabled: false, postBuyEnabled: false, crud: 'D' }) }),
+    ).toBe('전략이 삭제됐어요 (매수·매도·자동취소가 모두 꺼졌어요)');
+  });
+
+  it('D-02 후반: 서버 접힘 뒤 보낸 마스터 OFF(`serverFold`)의 에코 → 서버 접힘 문장이 「매수주문 무장 해제」를 대신한다', () => {
+    // 세 그룹 OFF · 마스터 ON(서버 접힘 뒤) → 마스터 OFF 에코.
+    const prev = at({ buyEnabled: true, sellEnabled: true });
+    const next = at({ buyEnabled: false, sellEnabled: true });
+    const sent = sentOf({ buyEnabled: false, sellEnabled: true });
+    expect(strategyLogLine(prev, next, { sent, sentCause: 'serverFold' })).toBe(
+      '서버가 매수 그룹 해제 — 매수 그룹이 모두 꺼져 매수주문도 끔',
+    );
+    // 사유 없는 같은 전이 = 사용자가 마스터를 끈 것 → 종전 문장.
+    expect(strategyLogLine(prev, next, { sent })).toBe('매수주문 무장 해제');
+    expect(strategyLogLine(prev, next, { sent, sentCause: null })).toBe('매수주문 무장 해제');
+    // WinForms 가 먼저 보낸 자동 끔(웹은 보내지 않음) — 발주 문장 없이 종전 문장.
+    expect(strategyLogLine(prev, next, { sent: null, sentCause: null })).toBe('매수주문 무장 해제');
+    // 사유가 있어도 에코가 마스터를 끄지 않았으면 서버 접힘 문장을 쓰지 않는다(거부 · 정규화).
+    expect(strategyLogLine(prev, { ...prev, sellWatchQty: 11 }, { sent, sentCause: 'serverFold' })).toBe(
+      '서버 반영 완료',
+    );
+  });
+
+  it('D-13 런타임 4필드만 바뀐 에코 = 0줄(sent 가 있어도)', () => {
+    const a = at({ buyEnabled: true, postBuyEnabled: true, postBuyPhase: 1 });
+    const b = {
+      ...a,
+      postBuyPhase: 2,
+      postBuyTriggerQty: 330_000,
+      postBuyReentryLeft: 2,
+      extraBuyAbandoned: true,
+    };
+    expect(isRuntimeOnlyEcho(a, b)).toBe(true);
+    expect(strategyLogLine(a, b)).toBeNull();
+    expect(strategyLogLine(a, b, { sent: sentOf(a) })).toBeNull();
+  });
+
+  it('Pitfall 8 — POST_BUY_OVERRIDE_FIELDS 는 매도 · 취소 override 4필드다', () => {
+    expect([...POST_BUY_OVERRIDE_FIELDS].sort()).toEqual(
+      ['cancelWatchQty', 'sellOrderPrice', 'sellWatchPrice', 'sellWatchQty'].sort(),
+    );
+  });
+
+  it('Pitfall 8 — 후매수 발동(단계 → 2) · 재진입(2 → 1) 에코의 override 값 변화는 서버 귀속 — 「서버 반영 완료」 없음', () => {
+    const armed = at({
+      buyEnabled: true,
+      postBuyEnabled: true,
+      postBuyPhase: 1,
+      sellWatchQty: 10,
+      cancelWatchQty: 10,
+      sellWatchPrice: 0,
+      sellOrderPrice: 0,
+    });
+    const fired = {
+      ...armed,
+      postBuyPhase: 2,
+      postBuyTriggerQty: 330_000,
+      sellEnabled: true,
+      cancelQtyEnabled: true,
+      sellWatchQty: 330_000,
+      cancelWatchQty: 330_000,
+      sellWatchPrice: 13_000,
+      sellOrderPrice: 13_000,
+    };
+    expect(limitChaserValuesChanged(armed, fired)).toBe(false);
+    // 게이트 전이 문장은 종전대로 남는다.
+    expect(strategyLogLine(armed, fired)).toBe(
+      '매도 무장 — 대기 (지지벽 미관측) · 매수 미체결 자동취소 무장',
+    );
+    // 재진입(2 → 1) — cfg 로 되돌아가는 값도 서버 귀속이다.
+    const reentered = { ...armed, postBuyPhase: 1, sellEnabled: true, cancelQtyEnabled: true };
+    expect(limitChaserValuesChanged(fired, reentered)).toBe(false);
+    expect(strategyLogLine(fired, reentered) ?? '').not.toContain('서버 반영 완료');
+  });
+
+  it('Pitfall 8 — 단계 전이 없는 같은 필드 변화(1 → 1 · 2 → 2)는 종전대로 값 변경이다', () => {
+    const a = at({ buyEnabled: true, postBuyEnabled: true, postBuyPhase: 1 });
+    expect(limitChaserValuesChanged(a, { ...a, sellWatchQty: 330_000 })).toBe(true);
+    expect(strategyLogLine(a, { ...a, sellWatchQty: 330_000 })).toBe('서버 반영 완료');
+    const b = at({ postBuyPhase: 2, sellEnabled: true });
+    expect(limitChaserValuesChanged(b, { ...b, cancelWatchQty: 9 })).toBe(true);
+    // 발동 전이라도 override 밖의 사용자 값은 여전히 값 변경이다.
+    expect(limitChaserValuesChanged(a, { ...a, postBuyPhase: 2, buyWatchQty: 8_000 })).toBe(true);
+  });
+
+  it('D-13 · D-18 서버 사유 줄은 원문 그대로 배지 `[상따]` — 클라가 다시 쓰지 않는다', () => {
+    for (const m of [
+      '매수 10주 @13,000 — 후매수 — 매수1잔량 340,000 > 발동잔량 330,000',
+      '추가매수 포기 — 매수1잔량 520000 > 최대 500000',
+      '추가매수 포기 — 상한가 이탈(매수1잔량 120 < 최소 50000)',
+      '후매수 재진입 — 잔여 2회, 발동잔량 재계산',
+      '후매수 소진 — 잔여 0회',
+    ]) {
+      const out = serverMessageLogLine(msg({ src: 'LimitChaser', m, i: 'KR7005930003' }));
+      expect(out.text).toBe(`[상따] 서버 통지 — ${m}`);
+      expect(out.level).toBe('info');
+    }
+  });
+
+  it('D-18 SetLimitChaser 거부는 `[서버] 서버가 거부했어요 (SetLimitChaser) — ` + 원문', () => {
+    const m = '추가매수 설정이 불완전합니다(최소 > 최대) — 추가매수를 켜지 않았습니다';
+    const out = serverMessageLogLine(msg({ lv: 'ERROR', src: 'SetLimitChaser', m }));
+    expect(out.text).toBe(`[서버] 서버가 거부했어요 (SetLimitChaser) — ${m}`);
+    expect(out.level).toBe('error');
+  });
+});
+
 describe('StrategyLog — 렌더', () => {
   const entries: StrategyLogEntry[] = [
-    { id: '2', at: '13:44:02', text: '매수 발주 — 무장 해제', level: 'info' },
+    { id: '2', at: '13:44:02', text: '매수주문 무장 해제', level: 'info' },
     { id: '1', at: '13:42:11', text: '서버가 거부했어요 — 계좌 권한 없음', level: 'error' },
   ];
 

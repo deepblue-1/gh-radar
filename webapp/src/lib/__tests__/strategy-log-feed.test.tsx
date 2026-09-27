@@ -95,7 +95,7 @@ describe('diffLimitChasers — 작업대와 같은 문장 (순수)', () => {
     const lines = diffLimitChasers(new Map(), [a]);
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({ key: a.key, isin: ISIN_A, exchange: 'KRX' });
-    expect(lines[0].text).toBe('전략이 등록됐어요 · 매수 무장');
+    expect(lines[0].text).toBe('전략이 등록됐어요 · 매수주문 무장');
   });
 
   it('내용이 같은 새 객체 = 0줄 · 런타임 카운터만 다른 에코도 0줄', () => {
@@ -116,7 +116,14 @@ describe('diffLimitChasers — 작업대와 같은 문장 (순수)', () => {
   it('무장 해제는 「발주」라고 쓰지 않는다 — 이 화면은 발주 맥락을 모른다(T-21-88)', () => {
     const a = chaser(ISIN_A);
     const lines = diffLimitChasers(mapOf(a), [{ ...a, buyEnabled: false }]);
-    expect(lines.map((l) => l.text)).toEqual(['매수 무장 해제']);
+    expect(lines.map((l) => l.text)).toEqual(['매수주문 무장 해제']);
+  });
+
+  it('동반 문장은 만들지 않는다 — 이 화면은 보낸 cfg(`sent`)를 모른다 (Phase 24 D-01)', () => {
+    const a = chaser(ISIN_A);
+    const off = { ...a, buyEnabled: false, preBuyEnabled: false };
+    const lines = diffLimitChasers(mapOf(off), [{ ...off, buyEnabled: true, preBuyEnabled: true }]);
+    expect(lines.map((l) => l.text)).toEqual(['매수주문 무장 · 선매수 무장']);
   });
 });
 
@@ -158,11 +165,11 @@ describe('StrategyLogFeedProvider — relay 컨텍스트에서 파생만', () =>
   it('전략 전이는 종목명(NXT 꼬리 포함)과 함께 최신이 맨 위로 쌓인다', () => {
     const a = chaser(ISIN_A, { name: '에코프로', exchange: 'NXT' });
     const { rerender } = render(view(relay({ limitChasers: [a] })));
-    expect(rows()).toEqual(['에코프로 · NXT|전략이 등록됐어요 · 매수 무장']);
+    expect(rows()).toEqual(['에코프로 · NXT|전략이 등록됐어요 · 매수주문 무장']);
     rerender(view(relay({ limitChasers: [{ ...a, sellEnabled: true }] })));
     expect(rows()).toEqual([
       '에코프로 · NXT|매도 무장 — 대기 (지지벽 미관측)',
-      '에코프로 · NXT|전략이 등록됐어요 · 매수 무장',
+      '에코프로 · NXT|전략이 등록됐어요 · 매수주문 무장',
     ]);
   });
 
