@@ -11,6 +11,7 @@ import {
   E2E_ISIN,
   E2E_LONG_NAME_ISIN,
   RELAY_WS_URL,
+  readSetLimitChaserRequest,
   readViConfirmRequest,
   readViSetRequest,
   withLocalRelay,
@@ -2210,6 +2211,110 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(page.getByTestId('breakout-strip-label')).toHaveText('돌파');
     for (const word of ['VI 발동', '거래 종목', '임계']) {
       await expect(statusBar(page)).not.toContainText(word);
+    }
+  });
+
+  /*
+    ★ Phase 24 트레이서 — buy3 와이어 한 경로(24-01 · D-12).
+      진짜 브라우저 → 진짜 relay → 스텁 게이트웨이 10(바이트 디코드: buy3_schema=1 · 신필드 ·
+      buy_watch_side 슬롯 없음 · S→C 슬롯 없음) → 60 에코(후매수 보유중) → 카드 헤더 매수 LED 「보유중」.
+      「비교가격」 행은 id(`lc-buy-watch-price`)로만 찾는다 — 24-04 이후에도 접히지 않는 공통 카드에
+      남는 행이라 라벨 문구에 기대지 않는다.
+      헤더 한 줄(2026-09-23 헤더 밀림 회귀 방지 · UI-SPEC E6 overflow): 「보유중」은 「감시」보다
+      한 글자 넓다 — 390 · 1280 에서 LED 칩 3개가 한 줄, ⓘ · ✕ 가 한 줄에 남는다. 카드 폭 760 이상
+      (헤더 한 줄 결합 경계 · card-header.tsx)이면 다섯이 모두 같은 줄이다.
+  */
+  test('P24-1 buy3 와이어 한 경로 — 공통 「비교가격」 확정 → 게이트웨이 10 에 buy3_schema=1 · 신필드 · buy_watch_side 없음 → 후매수 보유중 에코 → 매수 LED 「보유중」 · 헤더 한 줄 (Phase 24 트레이서 · D-12)', async ({
+    page,
+  }) => {
+    const seed = {
+      buyEnabled: true,
+      sellEnabled: true,
+      sellEntryLatched: true,
+      cancelQtyEnabled: true,
+      postBuyEnabled: true,
+      postBuyOrderAmount: 4000,
+      postBuyReentry: 3,
+      postBuyReboundPct: 30,
+      postBuyFloorQty: 100_000,
+      postBuyPhase: 1,
+    };
+    relay.seedLimitChasers([seed]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    const card = cardOf(page, E2E_ISIN);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+
+    const buyLed = card.locator('[data-slot="card-header"] [data-slot="latch-led"][data-kind="buy"]');
+    await expect(buyLed).toHaveAttribute('data-tone', 'armed', { timeout: 15_000 });
+    await expect(buyLed).toContainText('감시');
+
+    // ① 공통 「비교가격」 한 호가 위로 확정 → 10 한 건.
+    const watch = lcValue(page, 'lc-buy-watch-price');
+    await expect(watch).not.toHaveText('', { timeout: 15_000 });
+    const current = Number((await watch.innerText()).replace(/[^0-9]/g, ''));
+    expect(current).toBeGreaterThan(0);
+    const next = current + 100;
+    const before = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
+    await editLc(page, 'lc-buy-watch-price', String(next));
+    await waitForSetAtGateway(relay, before + 1);
+
+    // ② 게이트웨이가 받은 바이트 — buy3.
+    const sets = relay
+      .strategyRequests()
+      .map((r) => readSetLimitChaserRequest(r.msgType, r.payload))
+      .filter((r): r is NonNullable<typeof r> => r !== null);
+    const last = sets.at(-1)!;
+    expect(last.buyWatchPrice).toBe(next);
+    expect(last.buy3Schema).toBe(1);
+    expect(last.postBuyEnabled).toBe(true);
+    expect(last.postBuyReentry).toBe(3);
+    expect(last.postBuyReboundPct).toBe(30);
+    expect(last.buyWatchSide).toBeNull();
+    expect(last.serverOnlySlots).toEqual([]);
+
+    // ③ 후매수 보유중 에코 → 매수 LED 주황 「보유중」 · 클릭 불가(span) · 툴팁 원문.
+    await relay.pushLimitChaserEcho({
+      ...seed,
+      buyWatchPrice: next,
+      postBuyPhase: 2,
+      postBuyTriggerQty: 330_000,
+      postBuyReentryLeft: 2,
+    });
+    await expect(buyLed).toHaveAttribute('data-tone', 'latent', { timeout: 15_000 });
+    await expect(buyLed).toContainText('보유중');
+    expect(await buyLed.evaluate((el) => el.tagName)).toBe('SPAN');
+    await buyLed.hover();
+    await expect(page.getByRole('tooltip')).toContainText(
+      '후매수 보유중 — 산 물량이 전부 정리되면 다시 감시(남은 횟수 0 이면 소진)',
+      { timeout: 5_000 },
+    );
+    await page.mouse.move(0, 0);
+
+    // ④ 헤더 한 줄 — 「매수 보유중 · 매도 감시 · 취소 대기」 칩과 ⓘ · ✕.
+    const leds = card.locator('[data-slot="card-header"] [data-slot="latch-led"]');
+    await expect(leds.nth(1)).toContainText('감시');
+    await expect(leds.nth(2)).toContainText('대기');
+    for (const viewport of [PHONE_VIEWPORT, { width: 1280, height: 900 }]) {
+      await page.setViewportSize(viewport);
+      await expect(buyLed).toContainText('보유중');
+      const centerY = async (loc: Locator): Promise<number> => {
+        const b = await loc.boundingBox();
+        expect(b, `${viewport.width} 박스`).not.toBeNull();
+        return b!.y + b!.height / 2;
+      };
+      const chipYs = [await centerY(leds.nth(0)), await centerY(leds.nth(1)), await centerY(leds.nth(2))];
+      const info = card.locator('[data-slot="card-header"]').getByRole('button', { name: '종목정보' });
+      const close = card.locator('[data-slot="card-close"]');
+      const infoY = await centerY(info);
+      const closeY = await centerY(close);
+      const spread = (ys: number[]) => Math.max(...ys) - Math.min(...ys);
+      expect(spread(chipYs), `${viewport.width} LED 칩 3개 한 줄`).toBeLessThanOrEqual(4);
+      expect(Math.abs(infoY - closeY), `${viewport.width} ⓘ · ✕ 한 줄`).toBeLessThanOrEqual(4);
+      const cardWidth = await card.evaluate((el) => el.clientWidth);
+      if (cardWidth >= 760) {
+        expect(spread([...chipYs, infoY, closeY]), `${viewport.width} 카드 ${cardWidth} — 다섯이 한 줄`).toBeLessThanOrEqual(4);
+      }
     }
   });
 

@@ -63,10 +63,12 @@ import { randomBytes, randomUUID } from 'node:crypto';
 
 import {
   readQuoteRequestKey,
+  readSetLimitChaserRequest,
   readViConfirmRequest,
   readViSetRequest,
   startFakeGateway,
   type FakeGateway,
+  type SetLimitChaserRequest,
   type StrategyRequest,
   type ViConfirmRequest,
   type ViSetRequest,
@@ -99,8 +101,8 @@ export { MSG as DMA_MSG };
  * msg_type 만 세면 **「보냈다」까지밖에 못 본다** — 「무엇을 보냈는가」(`run` 유지 · 확인
  * on/off)는 페이로드가 유일한 증거다.
  */
-export { readViConfirmRequest, readViSetRequest };
-export type { StrategyRequest, ViConfirmRequest, ViSetRequest };
+export { readSetLimitChaserRequest, readViConfirmRequest, readViSetRequest };
+export type { SetLimitChaserRequest, StrategyRequest, ViConfirmRequest, ViSetRequest };
 
 // ---------------------------------------------------------------------------
 // 상수 — 값의 정본은 여기 한 곳이다
