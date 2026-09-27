@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 22
 current_phase_name: GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK)
 status: executing
-stopped_at: Completed 22-08-PLAN.md
-last_updated: "2026-09-27T06:35:04.627Z"
+stopped_at: Completed 22-09-PLAN.md
+last_updated: "2026-09-27T06:44:36.371Z"
 last_activity: 2026-09-27
 last_activity_desc: Phase 22 execution started
-state_head: e31760cbd125ac24270975b7a044f2527b9c3cfd
+state_head: 1524e97bdc23aa878a4ab377c33c9cc294ca1ff9
 progress:
   total_phases: 32
   completed_phases: 5
   total_plans: 300
-  completed_plans: 282
+  completed_plans: 283
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 22 (GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK)) — EXECUTING
-Plan: 5 of 10
+Plan: 10 of 10
 Plans completed: 219 / 234
 Status: Executing Phase 22
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
@@ -135,6 +135,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 22 P05 | 2h 21m (실행 약 15min) | 3 tasks | 3 files |
 | Phase 22 P07 | 1h 21m | 3 tasks | 7 files |
 | Phase 22 P08 | 2h 16m | 2 tasks | 2 files |
+| Phase 22 P09 | 7min | 2 tasks | 0 files |
 
 ## Accumulated Context
 
@@ -323,6 +324,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 22]: 22-07: native:release:android 기본 경로 = Firebase APK(release-android.sh 기본 firebase) · Play 경로는 native:release:android:play(beta)로 Phase 23 보존 · 22-09 두 번째 릴리스는 versionCode > 609271311
 - [Phase 22]: 22-08: 본인 Android 실기(Firebase 609271311) 로그인 통과 뒤 테스터 편입 — Firebase 3 · ASC 신규 초대 1(Marketing · GH Trade 한정) · OAuth 테스트 사용자 3 · dma_credentials 0
 - [Phase 22]: 22-08: 디버그 세션(798f911f 스크롤·상태바 띠 웹 수정)이 master 를 push 해 22-10 push 게이트 선점 — /privacy 시행일 자리표시 운영 노출 중, 22-10 이 시행일(기본 2026-09-27 KST) 채워 재배포
+- [Phase 22]: 22-09: 두 번째 릴리스 iOS 202609270252→202609271538 (TestFlight VALID 약 2분) · Android 609271311→609271542 (Firebase 그룹 배포 · 전용 SA 인증 · ADC 0)
+- [Phase 22]: 22-09: 전 자동 게이트 6개 green · 릴리스 뒤 mobile/ 무변경 · PROD CONFIG OK · push 안 함(22-10)
 
 ### Pending Todos
 
@@ -376,8 +379,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-09-27T06:34:40.369Z
-Stopped at: Completed 22-08-PLAN.md
+Last session: 2026-09-27T06:44:35.791Z
+Stopped at: Completed 22-09-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
