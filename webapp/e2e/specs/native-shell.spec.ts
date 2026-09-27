@@ -223,6 +223,19 @@ test.describe('Phase 21 — safe-area · 탭바 여백 (D-25 · D-27b)', () => {
     expect(await computed(page, 'main', 'paddingBottom')).toBe('98px');
   });
 
+  // debug android-release-apk-no-scroll — Android ≤ 14(비-엣지투엣지) + WebView ≥ 140 에서 SystemBars 가 상태바 높이를
+  // `--safe-area-inset-top` 으로 주입해도 헤더가 그만큼 또 비면 안 된다(상태바 아래 빈 띠). 상단은 env() 만 읽는다.
+  test('앱 android 390 홈 — 주입 --safe-area-inset-top 41px 를 무시하고 헤더 56(env 0)', async ({ page }) => {
+    await installNativeApp(page, { platform: 'android' });
+    await mockHomeApi(page, { response: HOME_POPULATED });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    await page.locator('main').first().waitFor();
+    await page.evaluate(() => document.documentElement.style.setProperty('--safe-area-inset-top', '41px'));
+
+    expect((await viewportMetaAndHeader(page)).headerH).toBe(56);
+  });
+
   test('앱 390 종목상세 — CTA 바 bottom 82(14 + 60 + 8) · 하단 10 · 예약 76', async ({ page }) => {
     await installNativeApp(page);
     await mockStockApi(page, { detailByCode: { [STOCK.code]: STOCK } });
@@ -271,5 +284,72 @@ test.describe('Phase 21 — safe-area · 탭바 여백 (D-25 · D-27b)', () => {
     await page.locator('main').first().waitFor();
 
     expect(await computed(page, 'main', 'paddingBottom')).toBe('98px');
+  });
+});
+
+/**
+ * debug android-release-apk-no-scroll (2026-09-27) — Android 앱 본문 스크롤 회귀 가드.
+ *
+ * 무엇을 증명하는가 / 깨지면 사용자가 겪는 일
+ *   - Android 앱(`data-native-platform="android"`)에서 본문(`main`) 안에서 시작한 세로 터치 스와이프가 문서를
+ *     스크롤한다. 깨지면 **앱 홈에서 위로 쓸어도 아무 반응이 없다**(Galaxy S10e · WebView 153 실기기 보고).
+ *   - 원인: Chromium 144+ 는 `overscroll-behavior` 를 넘치지 않는 스크롤 컨테이너에도 적용한다. 옛 전역 규칙
+ *     `html.native-app body * { overscroll-behavior-y: contain }` 이 높이 제한 없는 `main`(overflow-auto) ·
+ *     overflow-hidden 카드 · truncate 에 걸려 문서로의 체이닝을 끊었다. 규칙은 iOS 전용이다(globals.css).
+ *   - 이 e2e 의 Chromium(Playwright 번들 · 144 이상)이 실기기 WebView 와 같은 동작이라 규칙이 Android 로
+ *     새면 여기서 빨간불이 난다. (Chromium < 144 로 돌리면 옛 규칙에서도 통과하므로 검증력이 없다.)
+ */
+test.describe('Phase 21 — Android 앱 본문 스크롤 (Chromium 144+ overscroll-behavior)', () => {
+  test('앱 android 390×640 홈 — main 안 터치 스와이프가 문서를 스크롤 · main 체이닝 차단 없음', async ({
+    page,
+  }) => {
+    await installNativeApp(page, { platform: 'android' });
+    await mockHomeApi(page, { response: HOME_POPULATED });
+    // 높이 640 — 픽스처 홈(테마 1개)이 화면보다 넉넉히 길어 스와이프 거리만큼 스크롤할 여지가 있다.
+    await page.setViewportSize({ width: 390, height: 640 });
+    await page.goto('/');
+    await expect(page.locator('html')).toHaveAttribute('data-native-platform', 'android');
+    // 스켈레톤이 아니라 실제 카드가 그려져 문서가 화면보다 길어진 뒤에 잰다.
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight))
+      .toBeGreaterThan(200);
+
+    const probe = await page.evaluate(() => {
+      const main = document.querySelector('main')!;
+      const r = main.getBoundingClientRect();
+      return {
+        mainOverscroll: getComputedStyle(main).overscrollBehaviorY,
+        x: Math.round(r.left + r.width / 2),
+        y: Math.round(Math.min(r.bottom, window.innerHeight) - 250),
+      };
+    });
+
+    const cdp = await page.context().newCDPSession(page);
+    // 손가락이 main 안에서 300px 위로 — 실기기 스와이프와 같은 터치 제스처.
+    await cdp.send('Input.synthesizeScrollGesture', {
+      x: probe.x,
+      y: probe.y,
+      yDistance: -300,
+      gestureSourceType: 'touch',
+      speed: 800,
+    });
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(100);
+    // 원인 층 — Android 에서는 main 에 체이닝 차단이 걸리지 않는다.
+    expect(probe.mainOverscroll).toBe('auto');
+  });
+
+  test('앱 ios 390 홈 — 내부 스크롤 체이닝 차단 규칙은 iOS 에 그대로(WebKit 은 넘침 없는 컨테이너 무시)', async ({
+    page,
+  }) => {
+    await installNativeApp(page, { platform: 'ios' });
+    await mockHomeApi(page, { response: HOME_POPULATED });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    await expect(page.locator('html')).toHaveAttribute('data-native-platform', 'ios');
+    await page.locator('main').first().waitFor();
+
+    expect(
+      await page.evaluate(() => getComputedStyle(document.querySelector('main')!).overscrollBehaviorY),
+    ).toBe('contain');
   });
 });
