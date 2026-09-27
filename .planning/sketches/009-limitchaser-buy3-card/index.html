@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sketch 009 — 상따 매수 카드 3그룹(선매수·추가매수·후매수)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#nav button.warn.on { background: #ffb13d; border-color: #ffb13d; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+#toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(20px); background: #2c2c35; color: #fff; font-size: 13px; padding: 10px 16px; border-radius: 12px; opacity: 0; transition: all .2s; z-index: 99; max-width: 560px; line-height: 1.5; pointer-events: none; }
+#toast.show { opacity: 1; transform: translateX(-50%); }
+
+/* ── TDS 토큰 (002 와 동일) ── */
+.f {
+  --bg: #17171c; --band: #101013; --layer: #202027; --float: #2c2c35; --g200: #3c3c47; --g300: #4d4d59;
+  --t900: #ffffff; --t800: #e4e4e5; --t600: #9e9ea4; --t500: #7e7e87; --t400: #62626d;
+  --hair: #3c3c47; --red: #f04251; --blue: #3485fa; --green: #2fca73; --amber: #ffb13d;
+  --red-box: rgba(240,66,81,.22); --blue-box: rgba(52,133,250,.22); --dim: rgba(0,0,0,.56);
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+}
+.f.light {
+  --bg: #ffffff; --band: #f2f4f6; --layer: #ffffff; --float: #f2f4f6; --g200: #e5e8eb; --g300: #d1d6db;
+  --t900: #191f28; --t800: #333d4b; --t600: #6b7684; --t500: #8b95a1; --t400: #b0b8c1;
+  --hair: #e5e8eb; --red: #f04452; --blue: #3182f6; --green: #03b26c; --amber: #ff9f1a;
+  --red-box: #ffeeee; --blue-box: #e8f3ff; --dim: rgba(0,0,0,.2);
+}
+.f { position: relative; flex: none; overflow: hidden; background: var(--bg); color: var(--t800); font-family: var(--font); -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); display: flex; }
+.f.phone { width: 390px; height: 844px; border-radius: 30px; }
+.f.tablet { width: 768px; height: 1000px; border-radius: 24px; }
+.f.desktop { width: 1280px; height: 860px; border-radius: 12px; }
+.side { display: none; }
+.f.desktop .side { display: flex; flex-direction: column; gap: 2px; width: 240px; flex: none; padding: 18px 12px; background: var(--band); }
+.side .brand { font-weight: 700; font-size: 17px; padding: 4px 10px 16px; color: var(--t900); }
+.side a { padding: 9px 10px; border-radius: 10px; color: var(--t600); font-size: 15px; font-weight: 500; }
+.side a.on { background: var(--float); color: var(--t900); font-weight: 600; }
+.col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.hdr { display: flex; align-items: center; gap: 10px; padding: 12px 16px 0; }
+.f.desktop .hdr { padding: 20px 24px 0; }
+.hdr .back { font-size: 24px; color: var(--t800); }
+.hdr .nm { font-size: 17px; font-weight: 600; color: var(--t900); }
+.hdr .cd { font-size: 12px; color: var(--t600); background: var(--float); padding: 2px 7px; border-radius: 6px; }
+.hdr .px { font-size: 17px; font-weight: 600; color: var(--red); margin-left: 4px; }
+.hdr .sp { flex: 1; }
+.tabs { display: flex; gap: 18px; padding: 8px 16px 0; border-bottom: 1px solid var(--hair); }
+.f.desktop .tabs { padding: 8px 24px 0; }
+.tabs span { font-size: 17px; font-weight: 600; color: var(--t500); padding: 8px 0 10px; border-bottom: 2px solid transparent; }
+.tabs span.on { color: var(--t900); border-bottom-color: var(--t900); }
+.strip { display: flex; align-items: center; gap: 6px; padding: 8px 16px; font-size: 12px; color: var(--t600); white-space: nowrap; overflow: hidden; }
+.strip .led, .strip .x { flex: none; }
+.f.desktop .strip { padding: 10px 24px; }
+.strip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex: none; }
+.strip .dma { flex: none; }
+.f.phone .strip .dma { display: none; }
+.strip .led { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 999px; background: var(--float); font-size: 11.5px; }
+.strip .led i { width: 7px; height: 7px; border-radius: 50%; }
+.strip .led b { color: var(--t800); font-weight: 600; }
+.strip .sp { flex: 1; }
+.strip .x { font-size: 11px; font-weight: 600; background: var(--float); border-radius: 999px; padding: 2px 8px; color: var(--t800); }
+.wrap { flex: 1; min-height: 0; container: ob / inline-size; }
+.f.desktop .wrap { padding: 0 24px; }
+.body { height: 100%; display: grid; grid-template-columns: 42% 1fr; }
+@container ob (min-width: 700px) { .body { grid-template-columns: 260px 1fr; } }
+@container ob (min-width: 992px) { .body { grid-template-columns: 440px 1fr; } }
+
+/* 호가(배경 역할만) */
+.lad { overflow-y: auto; border-right: 1px solid var(--hair); scrollbar-width: none; }
+.lr { display: grid; grid-template-columns: 1fr auto; align-items: center; height: 48px; padding: 0 8px 0 14px; }
+.lr .p b { display: block; font-size: 15px; font-weight: 500; line-height: 1.2; }
+.lr .p small { font-size: 11.5px; }
+.q { min-width: 44px; text-align: right; font-size: 13px; padding: 5px 8px; border-radius: 8px; }
+.ask .q { background: var(--blue-box); color: var(--blue); }
+.bid .q { background: var(--red-box); color: var(--red); }
+.lr.cur { background: var(--float); }
+.lr.cur .p b { font-weight: 700; }
+.midline { height: 1px; background: var(--hair); margin: 2px 0; }
+.up { color: var(--red); } .dn { color: var(--blue); }
+
+/* 패널 */
+.pan { padding: 10px 12px 0 10px; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+@container ob (min-width: 700px) { .pan { padding: 12px 0 0 16px; } }
+.pan-scroll { flex: 1; overflow-y: auto; scrollbar-width: none; padding-bottom: 14px; }
+.seg { display: flex; background: var(--float); border-radius: 12px; padding: 3px; gap: 2px; }
+.seg button { flex: 1; font: inherit; border: 0; background: transparent; color: var(--t600); font-size: 15px; font-weight: 600; height: 34px; border-radius: 10px; cursor: pointer; white-space: nowrap; }
+.seg button.on { background: var(--g300); color: var(--t900); }
+.f.light .seg button.on { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+@container ob (min-width: 700px) { .only-narrow { display: none !important; } }
+.cols { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.cols > .c { min-width: 0; }
+.cols > .c.hide-narrow { display: none; }
+.side-h { display: none; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; margin: 10px 2px 0; color: var(--t900); }
+.side-h i { width: 8px; height: 8px; border-radius: 50%; }
+@container ob (min-width: 700px) { .cols { grid-template-columns: 1fr 1fr; } .side-h { display: flex; } .cols > .c.hide-narrow { display: block; } }
+
+.grp { margin-top: 10px; border-radius: 16px; padding: 10px 10px 4px; background: var(--layer); }
+.f.light .grp { background: #f9fafb; }
+.grp-h { display: flex; align-items: center; gap: 8px; padding: 0 2px 2px; min-height: 30px; }
+.grp-h .t { font-size: 15px; font-weight: 600; color: var(--t900); }
+.grp-h .s { font-size: 12px; color: var(--t500); }
+.grp-h .s.live { color: var(--green); }
+.grp-h .s.hold { color: var(--amber); }
+.grp-h .s.bad { color: var(--red); }
+.grp-h .sw { margin-left: auto; }
+.sw { width: 40px; height: 24px; border-radius: 999px; background: var(--g300); position: relative; cursor: pointer; flex: none; transition: background .15s; }
+.sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.sw.on { background: var(--blue); } .sw.on::after { transform: translateX(16px); }
+.lrow { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 4px; min-height: 44px; cursor: pointer; border-radius: 10px; min-width: 0; }
+.lrow:hover { background: color-mix(in srgb, var(--t900) 5%, transparent); }
+.lrow .k { font-size: 14px; color: var(--t600); white-space: nowrap; }
+.lrow .v { font-size: 15px; font-weight: 500; color: var(--t800); white-space: nowrap; margin-left: auto; }
+.lrow .v::after { content: ' ›'; color: var(--t400); }
+.lrow .v small { font-size: 12px; color: var(--t500); font-weight: 500; margin-right: 3px; }
+.lrow.ro { cursor: default; }
+.lrow.ro:hover { background: transparent; }
+.lrow.ro .v::after { content: none; }
+.lrow.ro .v { color: var(--t600); }
+.lrow.ro .v.hot { color: var(--red); font-weight: 600; }
+.lrow.flash .v { color: var(--blue); }
+.dimmed { opacity: .45; }
+/* 체크 행 — 「○ 라벨 ─ 값 ›」 (D-22 · 기존 checkValue) */
+.ck { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--g300); flex: none; display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 700; margin-right: 4px; }
+.ck.on { background: var(--blue); border-color: var(--blue); }
+.ck.on::after { content: '✓'; }
+.ck.on.grp-ck { background: var(--blue); }
+.lrow.ckrow .k { color: var(--t800); font-weight: 500; }
+.lrow.ckrow.grow .k { font-size: 15px; font-weight: 600; color: var(--t900); }
+.dots { height: 0; border-top: 1px dashed var(--g300); margin: 6px 4px; }
+.chip { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; background: var(--float); color: var(--t600); white-space: nowrap; }
+.chip.live { color: var(--green); background: color-mix(in srgb, var(--green) 16%, transparent); }
+.chip.hold { color: var(--amber); background: color-mix(in srgb, var(--amber) 18%, transparent); }
+.chip.bad { color: var(--red); background: var(--red-box); }
+.err { font-size: 12.5px; color: var(--red); padding: 2px 6px 6px; line-height: 1.45; }
+/* D: A + 접기 — 제목줄 클릭으로 접힘, 접힌 카드는 요약 줄(줄바꿈 허용) */
+.grp-h.fold { cursor: pointer; border-radius: 10px; margin: 0 -2px; padding: 0 4px 2px; }
+.grp-h.fold:hover { background: color-mix(in srgb, var(--t900) 5%, transparent); }
+.grp-h .chev { color: var(--t400); font-size: 14px; transition: transform .15s; margin-left: -2px; }
+.grp-h.open .chev { transform: rotate(90deg); }
+.sumline { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 2px 4px 8px; font-size: 13px; color: var(--t800); line-height: 1.4; }
+.sumline .kv { white-space: nowrap; font-weight: 500; }
+.sumline .kv small { font-size: 12px; color: var(--t500); font-weight: 400; margin-right: 3px; }
+.sumline .kv.off { color: var(--t500); }
+/* C: 접힘 요약 행 */
+.lrow.ghead { cursor: pointer; min-height: 56px; }
+.lrow.ghead .tl { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.lrow.ghead .tt { display: flex; align-items: center; gap: 6px; }
+.lrow.ghead .t { font-size: 15px; font-weight: 600; color: var(--t900); white-space: nowrap; }
+.lrow.ghead .sum { font-size: 12.5px; color: var(--t500); line-height: 1.3; white-space: normal; word-break: keep-all; }
+.lrow.ghead { padding-top: 6px; padding-bottom: 6px; }
+.lrow.ghead .chev { color: var(--t400); font-size: 14px; transition: transform .15s; }
+.lrow.ghead.open .chev { transform: rotate(90deg); }
+.sub { padding-left: 6px; }
+/* 데스크톱 인라인 편집 */
+.lrow.ied { box-shadow: inset 0 0 0 1.5px var(--blue); background: var(--float); cursor: text; }
+.lrow.ied .v::after { content: none; }
+.lrow.ied input { width: 9ch; background: none; border: 0; outline: 0; color: var(--t900); font: inherit; font-size: 15px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.lrow.ied .u { font-size: 15px; font-weight: 500; color: var(--t800); margin-left: 2px; }
+/* 전략 로그 */
+.log { margin-top: 12px; padding: 8px 10px; border-radius: 12px; background: var(--band); font-size: 12px; line-height: 1.6; color: var(--t600); }
+.f.light .log { background: #f2f4f6; }
+.log .h { font-weight: 600; color: var(--t500); font-size: 11px; margin-bottom: 2px; }
+.log .e { color: var(--red); }
+.log .i b { color: var(--t800); font-weight: 500; }
+/* 시트 */
+.dim { position: absolute; inset: 0; background: var(--dim); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 20; }
+.sheet { position: absolute; left: 10px; right: 10px; bottom: 10px; background: var(--layer); border-radius: 28px; padding: 22px 20px 16px; transform: translateY(120%); transition: transform .25s ease; z-index: 21; }
+.f.light .sheet { background: #fff; }
+.f.tablet .sheet { left: 50%; right: auto; width: 440px; margin-left: -220px; }
+.f.open .dim { opacity: 1; pointer-events: auto; }
+.f.open .sheet { transform: none; }
+.sheet h3 { margin: 0 0 4px; font-size: 20px; font-weight: 700; color: var(--t900); }
+.sheet p { margin: 0 0 14px; font-size: 14px; color: var(--t600); }
+.sheet .disp { display: flex; align-items: baseline; gap: 4px; padding: 14px 16px; border-radius: 16px; background: var(--float); margin-bottom: 10px; }
+.sheet .disp .n { font-size: 26px; font-weight: 700; color: var(--t900); min-height: 32px; }
+.sheet .disp .u { font-size: 18px; font-weight: 600; color: var(--t800); }
+.sheet .disp .was { margin-left: auto; font-size: 12.5px; color: var(--t500); }
+.pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; margin-bottom: 12px; }
+.pad button { font: inherit; border: 0; background: transparent; color: var(--t900); font-size: 24px; font-weight: 500; height: 52px; border-radius: 12px; cursor: pointer; }
+.pad button:active { background: var(--float); }
+.btns { display: flex; gap: 8px; }
+.btns button { flex: 1; font: inherit; height: 52px; border: 0; border-radius: 16px; font-size: 17px; font-weight: 600; cursor: pointer; }
+.btns .b1 { background: var(--float); color: var(--t800); }
+.btns .b2 { background: var(--blue); color: #fff; }
+.sheet .note { font-size: 12.5px; color: var(--green); min-height: 16px; margin: -4px 0 8px 2px; }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">변형</span><button data-v="d" class="on">D 종합: A + 접기 ★ 채택</button><button data-v="a">A 카드 3장</button><button data-v="b">B 한 카드 · 체크 행</button><button data-v="c">C 접힘 요약</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390</button><button data-w="tablet">태블릿 768</button><button data-w="desktop">데스크톱 1280</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
+  <div class="g"><span class="l">서버 에코(시뮬)</span><button data-post="0" class="on">후매수 꺼짐</button><button data-post="1">감시</button><button data-post="2">보유중</button><button data-post="3">소진</button><button data-aband class="warn">추가매수 포기</button><button data-ratio0 class="warn">매도비율 0</button><button data-reset>초기화</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+<div id="toast"></div>
+
+<script>
+const UPPER = 13000, CUR = 12990, BASE = 10000;
+const fmt = n => Number(n).toLocaleString('ko-KR');
+const pct = p => { const x = (p - BASE) / BASE * 100; return (x > 0 ? '+' : '') + x.toFixed(2) + '%'; };
+const cls = p => p > BASE ? 'up' : p < BASE ? 'dn' : '';
+
+const DESC = {
+  d: '<b>D 종합 — A 구조 + 접기</b>(사용자 요청 2026-09-27). 카드 3장은 A 그대로. <b>제목줄을 누르면 접힌다</b>(스위치는 그대로 동작). 접힌 카드는 제목줄 아래 <b>요약 줄</b>에 값이 전부 보인다 — 여러 줄이 돼도 잘리지 않고 줄바꿈. 펼치면 요약이 사라지고 A 모양의 행이 나온다. 기본은 전부 접힘.',
+  a: '<b>A 카드 3장</b> — 「매수주문」 카드(주문가격·비교가격·마스터 스위치) 아래 <b>선매수·추가매수·후매수 카드가 각각</b> 선다. 그룹 스위치는 카드 제목줄 오른쪽(기존 매수주문·한방체결·매도주문·매수취소 카드와 같은 문법). 카드 4장이라 폰에서 가장 길다.',
+  b: '<b>B 한 카드 · 체크 행</b> — WinForms 창과 같은 구조. 「매수주문」 카드 하나에 주문가격·비교가격 → 점선 → <b>「○ 선매수 ─ 10만원 ›」 체크 행</b>(체크 = 그룹 켜기, 값 = 그 그룹 금액) 아래 하위 행 → 점선 → 추가매수 → 후매수. 꺼진 그룹의 하위 행은 흐리지만 편집된다(WinForms 규약). 후매수 상태 칩은 체크 행 안.',
+  c: '<b>C 접힘 요약</b> — 「매수주문」 카드 안에 그룹마다 <b>44px 요약 행</b>(이름 · 값 요약 · 스위치). 행을 누르면 하위 행이 펼쳐지고, 꺼진 그룹은 접힌 요약 한 줄로만 남아 폰에서 가장 짧다. 스위치는 요약 행 오른쪽.',
+};
+
+const F = {
+  buyOrderPrice: ['주문가격', '원', '세 매수가 같이 쓰는 매수 주문 가격이에요'],
+  buyWatchPrice: ['비교가격', '원', '세 매수가 같이 지켜보는 가격(상한가)이에요'],
+  preAmt: ['선매수 금액', '만원', '선매수 한 번에 넣을 금액이에요'],
+  preWatchQty: ['매도잔량', '주', '비교가격의 매도잔량이 이 값 이하로 줄면 선매수를 넣어요 (0 = 전부 소진 시)'],
+  preTradeQty: ['체결량', '주', '체결이 이 값 이상이면 선매수를 넣어요'],
+  sweepN: ['한방 건수', '건', '호가가 이만큼 바뀌면 한 번에 체결해요'],
+  sweepPx: ['한방 가격', '원', '한방 체결 가격이에요'],
+  extraAmt: ['추가매수 금액', '만원', '추가매수 한 번에 넣을 금액이에요'],
+  extraMin: ['최소 잔량', '주', '상한가 매수잔량이 이 값 이상이면 (0 = 1주)'],
+  extraMax: ['최대 잔량', '주', '상한가 매수잔량이 이 값을 넘으면 포기해요 (0 = 무제한)'],
+  postAmt: ['후매수 금액', '만원', '후매수 한 번에 넣을 금액이에요'],
+  postMax: ['최대', '회', '최초 포함 총 진입 횟수예요 (0 = 사지 않아요)'],
+  postFloor: ['최소 잔량', '주', '발동잔량의 하한(바닥)이에요'],
+  postRebound: ['반등', '%', '매수잔량 최저점에서 이만큼 다시 쌓이면 사요'],
+  sellPrice: ['매도가격', '원', '넣을 매도 주문 가격이에요'],
+  sellRatio: ['매도비율', '%', '보유 수량 중 매도할 비율이에요'],
+  sellWatchPrice: ['비교가격', '원', '이 가격의 잔량을 지켜봐요'],
+  sellWatchQty: ['호가잔량', '주', '잔량이 이 값보다 줄면 매도를 넣어요'],
+  sellTrackRatio: ['잔량추적', '%', '처음 잔량 대비 비율로 추적해요'],
+  sellTradeQty: ['체결', '주', '체결이 이 값 이상이면 매도를 넣어요'],
+  cancelQty: ['취소잔량', '주', '잔량이 이 값보다 적으면 취소해요'],
+};
+
+const INIT = () => ({
+  v: 'd', w: 'phone', t: 'dark', side: 'buy', exp: { pre: false, extra: false, post: false },
+  master: true, pre: true, extra: false, post: true, preTrade: false, sweep: false,
+  buyOrderPrice: 13000, buyWatchPrice: 13000,
+  preAmt: 10, preWatchQty: 10000, preTradeQty: 30000, sweepN: 3, sweepPx: 12990,
+  extraAmt: 10, extraMin: 50000, extraMax: 150000, extraAbandoned: false,
+  postAmt: 10, postMax: 3, postFloor: 0, postRebound: 10, postTrigger: 0, postLeft: 3, postPhase: 1,
+  sellOn: true, sellPrice: 13000, sellRatio: 100, sellWatchPrice: 13000, sellWatchQty: 10, sellTrack: true, sellTrackRatio: 50, sellTrade: true, sellTradeQty: 30000,
+  cancelOn: true, cancelQty: 10, cancelTrade: true, cancelTrack: true,
+  errs: {}, logs: [],
+});
+let S = INIT();
+
+function toast(msg) { const t = document.getElementById('toast'); t.innerHTML = msg; t.classList.add('show'); clearTimeout(toast._h); toast._h = setTimeout(() => t.classList.remove('show'), 2600); }
+function log(kind, text) { S.logs.unshift({ kind, text, at: new Date().toTimeString().slice(0, 8) }); S.logs = S.logs.slice(0, 4); }
+
+/* ── 상태 파생 ── */
+const groupOn = g => S.master && S[g];
+const postPhaseText = () => S.postPhase === 1 ? '감시 중' : S.postPhase === 2 ? '보유중' : S.postPhase === 3 ? '소진' : '꺼짐';
+const postPhaseCls = () => S.postPhase === 1 ? 'live' : S.postPhase === 2 ? 'hold' : '';
+const statusOf = g => g === 'pre' ? (groupOn('pre') ? ['감시 중', 'live'] : ['꺼짐', ''])
+  : g === 'extra' ? (S.extraAbandoned ? ['포기', 'bad'] : groupOn('extra') ? ['감시 중', 'live'] : ['꺼짐', ''])
+  : [postPhaseText(), postPhaseCls()];
+const buyLed = () => !S.master ? ['OFF', 'var(--g300)'] : S.postPhase === 2 ? ['보유중', 'var(--amber)'] : ['감시', 'var(--green)'];
+
+/* ── 행 빌더 ── */
+const val = (id) => {
+  const [, u] = F[id]; const v = S[id];
+  if (id === 'extraMax' && v === 0) return '무제한';
+  if (id === 'postMax' && S.postPhase !== 0) return `<small>남은</small>${S.postLeft}회`;
+  return fmt(v) + u;
+};
+const row = (id, opt = {}) => {
+  const [label] = F[id];
+  return `<div class="lrow ${opt.dim ? 'dimmed' : ''}" data-id="${id}"><span class="k">${opt.label ?? label}</span><span class="v">${val(id)}</span></div>`;
+};
+const ckrow = (ck, id, label, opt = {}) => {
+  const v = opt.v ?? (id ? val(id) : '');
+  return `<div class="lrow ckrow ${opt.grow ? 'grow' : ''} ${opt.dim ? 'dimmed' : ''}" data-id="${id ?? ''}" data-ckrow="${ck}"><span class="ck ${S[ck] ? 'on' : ''}" data-ck="${ck}"></span><span class="k">${label}</span>${opt.chip ?? ''}<span class="v">${v}</span></div>`;
+};
+const trigRow = (dim) => `<div class="lrow ro ${dim ? 'dimmed' : ''}"><span class="k">발동잔량</span><span class="v ${S.postTrigger ? 'hot' : ''}">${S.postTrigger ? fmt(S.postTrigger) + '주' : '—'}</span></div>`;
+const err = g => S.errs[g] ? `<div class="err">${S.errs[g]}</div>` : '';
+const sw = (g) => `<span class="sw ${groupOn(g) ? 'on' : ''}" data-sw="${g}"></span>`;
+const stat = (g) => { const [t, c] = statusOf(g); return `<span class="s ${c}">${t}</span>`; };
+const chipOf = (g) => { const [t, c] = statusOf(g); return `<span class="chip ${c}">${t}</span>`; };
+const sweepVal = () => `${S.sweepN}건 @${fmt(S.sweepPx)}원`;
+
+/* 하위 행(그룹별) — 세 변형이 공유 */
+const preRows = (dim) => row('preWatchQty', { dim }) + ckrow('preTrade', 'preTradeQty', '체결량', { dim }) + ckrow('sweep', 'sweepN', '한방', { dim, v: sweepVal() });
+const extraRows = (dim) => row('extraMin', { dim }) + row('extraMax', { dim });
+const postRows = (dim) => row('postMax', { dim }) + (S.postPhase === 3 ? '<div class="err" style="color:var(--t500)">소진 — 「최대」에 횟수를 넣고 다시 켜면 그 값부터 세요</div>' : '') + row('postFloor', { dim }) + row('postRebound', { dim }) + trigRow(dim);
+
+/* ── 변형 A: 카드 3장 ── */
+function buyA() {
+  const off = !S.master;
+  const card = (g, title, rows) => `<div class="grp"><div class="grp-h"><span class="t">${title}</span>${stat(g)}${sw(g)}</div>${err(g)}<div class="${groupOn(g) ? '' : 'dimmed'}">${row(g + 'Amt', { label: '금액' })}${rows}</div></div>`;
+  return `<div class="grp"><div class="grp-h"><span class="t">매수주문</span><span class="s ${S.master ? 'live' : ''}">${S.master ? '감시 중' : '꺼짐'}</span><span class="sw ${S.master ? 'on' : ''}" data-master></span></div>${row('buyOrderPrice')}${row('buyWatchPrice')}</div>`
+    + card('pre', '선매수', preRows(false))
+    + card('extra', '추가매수', extraRows(false))
+    + card('post', '후매수', postRows(false));
+}
+/* ── 변형 D: A + 접기 ── */
+function buyD() {
+  const kv = (k, v, off) => `<span class="kv ${off ? 'off' : ''}"><small>${k}</small>${v}</span>`;
+  const sums = {
+    pre: () => kv('금액', `${S.preAmt}만원`) + kv('매도잔량', `${fmt(S.preWatchQty)}주`) + kv('체결량', S.preTrade ? `${fmt(S.preTradeQty)}주` : '꺼짐', !S.preTrade) + kv('한방', S.sweep ? sweepVal() : '꺼짐', !S.sweep),
+    extra: () => kv('금액', `${S.extraAmt}만원`) + kv('최소', `${fmt(S.extraMin)}주`) + kv('최대', S.extraMax ? `${fmt(S.extraMax)}주` : '무제한'),
+    post: () => kv('금액', `${S.postAmt}만원`) + kv('최대', S.postPhase !== 0 ? `${S.postMax}회 (남은 ${S.postLeft}회)` : `${S.postMax}회`) + kv('최소', `${fmt(S.postFloor)}주`) + kv('반등', `${S.postRebound}%`) + kv('발동잔량', S.postTrigger ? `${fmt(S.postTrigger)}주` : '—', !S.postTrigger),
+  };
+  const card = (g, title, rows) => {
+    const open = S.exp[g]; const on = groupOn(g);
+    return `<div class="grp"><div class="grp-h fold ${open ? 'open' : ''}" data-exp="${g}"><span class="t">${title}</span><span class="chev">›</span>${stat(g)}${sw(g)}</div>${err(g)}${open
+      ? `<div class="${on ? '' : 'dimmed'}">${row(g + 'Amt', { label: '금액' })}${rows}</div>`
+      : `<div class="sumline ${on ? '' : 'dimmed'}">${sums[g]()}</div>`}</div>`;
+  };
+  return `<div class="grp"><div class="grp-h"><span class="t">매수주문</span><span class="s ${S.master ? 'live' : ''}">${S.master ? '감시 중' : '꺼짐'}</span><span class="sw ${S.master ? 'on' : ''}" data-master></span></div>${row('buyOrderPrice')}${row('buyWatchPrice')}</div>`
+    + card('pre', '선매수', preRows(false))
+    + card('extra', '추가매수', extraRows(false))
+    + card('post', '후매수', postRows(false));
+}
+/* ── 변형 B: 한 카드 · 체크 행 (WinForms 충실) ── */
+function buyB() {
+  const grp = (g, label, rows) => `${ckrow(g, g + 'Amt', label, { grow: true, chip: g === 'post' || S.extraAbandoned && g === 'extra' ? chipOf(g) : '' })}${err(g)}<div class="sub">${rows}</div>`;
+  const dimPre = !groupOn('pre'), dimEx = !groupOn('extra'), dimPo = !groupOn('post');
+  return `<div class="grp"><div class="grp-h"><span class="t">매수주문</span><span class="s ${S.master ? 'live' : ''}">${S.master ? '감시 중' : '꺼짐'}</span><span class="sw ${S.master ? 'on' : ''}" data-master></span></div>
+    ${row('buyOrderPrice')}${row('buyWatchPrice')}
+    <div class="dots"></div>${grp('pre', '선매수', preRows(dimPre))}
+    <div class="dots"></div>${grp('extra', '추가매수', extraRows(dimEx))}
+    <div class="dots"></div>${grp('post', '후매수', postRows(dimPo))}
+  </div>`;
+}
+/* ── 변형 C: 접힘 요약 ── */
+function buyC() {
+  const sum = {
+    pre: () => `${S.preAmt}만원 · 매도잔량 ${fmt(S.preWatchQty)}주${S.preTrade ? ' · 체결량' : ''}${S.sweep ? ' · 한방' : ''}`,
+    extra: () => `${S.extraAmt}만원 · ${fmt(S.extraMin)}~${S.extraMax ? fmt(S.extraMax) : '무제한'}주`,
+    post: () => `${S.postAmt}만원 · 최대 ${S.postMax}회 · 반등 ${S.postRebound}%`,
+  };
+  const grp = (g, label, rows) => {
+    const open = S.exp[g]; const on = groupOn(g);
+    const chip = (g === 'post' && S.postPhase !== 0) || (g === 'extra' && S.extraAbandoned) ? chipOf(g) : '';
+    return `<div class="lrow ghead ${open ? 'open' : ''}" data-exp="${g}"><span class="tl"><span class="tt"><span class="t">${label}</span>${chip}<span class="chev">›</span></span><span class="sum ${on ? '' : 'dimmed'}">${sum[g]()}</span></span>${sw(g)}</div>${err(g)}${open ? `<div class="sub ${on ? '' : 'dimmed'}">${row(g + 'Amt', { label: '금액' })}${rows}</div>` : ''}`;
+  };
+  return `<div class="grp"><div class="grp-h"><span class="t">매수주문</span><span class="s ${S.master ? 'live' : ''}">${S.master ? '감시 중' : '꺼짐'}</span><span class="sw ${S.master ? 'on' : ''}" data-master></span></div>
+    ${row('buyOrderPrice')}${row('buyWatchPrice')}
+    <div class="dots"></div>${grp('pre', '선매수', preRows(false))}
+    <div class="dots"></div>${grp('extra', '추가매수', extraRows(false))}
+    <div class="dots"></div>${grp('post', '후매수', postRows(false))}
+  </div>`;
+}
+
+/* ── 매도 열 (변형 공통 · 002 그대로, 후매수 발동 override 만 반영) ── */
+function sellList() {
+  const ov = S.postPhase === 2;
+  const sellStat = S.sellOn ? (ov ? '감시 중 · 후매수 발동' : '감시 중') : '꺼짐';
+  return `<div class="grp">${row('sellPrice')}${row('sellRatio')}</div>
+  <div class="grp"><div class="grp-h"><span class="t">매도주문</span><span class="s ${S.sellOn ? 'live' : ''}">${sellStat}</span><span class="sw ${S.sellOn ? 'on' : ''}" data-b="sellOn"></span></div><div class="${S.sellOn ? '' : 'dimmed'}">${row('sellWatchPrice')}${row('sellWatchQty')}${ckrow('sellTrack', 'sellTrackRatio', '잔량추적')}${ckrow('sellTrade', 'sellTradeQty', '체결')}</div></div>
+  <div class="grp"><div class="grp-h"><span class="t">매수취소</span><span class="s ${S.cancelOn ? 'live' : ''}">${S.cancelOn ? (ov ? '대기 · 후매수 발동' : '대기') : '꺼짐'}</span><span class="sw ${S.cancelOn ? 'on' : ''}" data-b="cancelOn"></span></div>${row('cancelQty')}${ckrow('cancelTrade', null, '체결')}${ckrow('cancelTrack', null, '잔량추적')}</div>`;
+}
+
+function logHtml() {
+  if (!S.logs.length) return '';
+  return `<div class="log"><div class="h">전략 로그</div>${S.logs.map(l => `<div class="${l.kind}">${l.at} · ${l.text}</div>`).join('')}</div>`;
+}
+
+function ladder() {
+  const asks = [[13000, 0], [12995, 0], [12990, 8213], [12985, 40213], [12980, 30213]];
+  const bids = [[12990, 0], [12985, 10087], [12980, 20087], [12975, 30087], [12970, 40087], [12965, 50087]];
+  const pc = p => `<b class="${cls(p)}">${fmt(p)}</b><small class="${cls(p)}">${pct(p)}</small>`;
+  let h = '';
+  asks.forEach(([p, q]) => h += `<div class="lr ask"><div class="p">${pc(p)}</div>${q ? `<div class="q">${fmt(q)}</div>` : ''}</div>`);
+  h += '<div class="midline"></div>';
+  bids.forEach(([p, q], i) => h += `<div class="lr bid ${i ? '' : 'cur'}"><div class="p">${pc(p)}</div>${q ? `<div class="q">${fmt(q)}</div>` : ''}</div>`);
+  return h;
+}
+
+function panel() {
+  const buy = S.v === 'd' ? buyD() : S.v === 'a' ? buyA() : S.v === 'b' ? buyB() : buyC();
+  return `
+    <div class="seg only-narrow"><button data-side="buy" class="${S.side === 'buy' ? 'on' : ''}">매수</button><button data-side="sell" class="${S.side === 'sell' ? 'on' : ''}">매도</button><button data-side="manual">수동</button></div>
+    <div class="pan-scroll">
+      <div class="cols">
+        <div class="c ${S.side === 'buy' ? '' : 'hide-narrow'}"><div class="side-h"><i style="background:var(--red)"></i>매수</div>${buy}</div>
+        <div class="c ${S.side === 'sell' ? '' : 'hide-narrow'}"><div class="side-h"><i style="background:var(--blue)"></i>매도</div>${sellList()}</div>
+      </div>
+      ${logHtml()}
+    </div>`;
+}
+
+function frame() {
+  const [bl, bc] = buyLed();
+  return `<div class="f ${S.w} ${S.t === 'light' ? 'light' : ''}" id="F">
+    <aside class="side"><div class="brand">gh-radar</div><a>홈</a><a>스캐너</a><a>테마</a><a>관심종목</a><a class="on">종목상세</a><a>트레이딩</a><a>AI 챗봇</a><a>마이</a></aside>
+    <div class="col">
+      <div class="hdr"><span class="back">‹</span><span class="nm">원익홀딩스</span><span class="cd">030530</span><span class="px">${fmt(CUR)}원 +29.9%</span><span class="sp"></span></div>
+      <div class="tabs"><span>차트</span><span class="on">호가주문</span><span>종목정보</span><span>뉴스토론</span></div>
+      <div class="strip"><span class="dot"></span><span class="dma">DMA 실시간</span><span class="led"><i style="background:${bc}"></i>매수 <b>${bl}</b></span><span class="led"><i style="background:${S.sellOn ? 'var(--green)' : 'var(--g300)'}"></i>매도 <b>${S.sellOn ? '감시' : 'OFF'}</b></span><span class="led"><i style="background:${S.cancelOn ? 'var(--amber)' : 'var(--g300)'}"></i>취소 <b>${S.cancelOn ? '대기' : 'OFF'}</b></span><span class="sp"></span><span class="x">KRX</span></div>
+      <div class="wrap"><div class="body"><div class="lad">${ladder()}</div><div class="pan" id="PAN">${panel()}</div></div></div>
+    </div>
+    <div class="dim" id="DIM"></div>
+    <div class="sheet" id="SHEET"></div>
+  </div>`;
+}
+
+function render() {
+  document.getElementById('stage').innerHTML = frame();
+  document.getElementById('desc').innerHTML = DESC[S.v];
+  document.querySelectorAll('#nav [data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === S.v));
+  document.querySelectorAll('#nav [data-w]').forEach(b => b.classList.toggle('on', b.dataset.w === S.w));
+  document.querySelectorAll('#nav [data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === S.t));
+  document.querySelectorAll('#nav [data-post]').forEach(b => b.classList.toggle('on', +b.dataset.post === S.postPhase));
+  document.querySelector('#nav [data-aband]').classList.toggle('on', S.extraAbandoned);
+  document.querySelector('#nav [data-ratio0]').classList.toggle('on', S.sellRatio === 0);
+}
+
+/* ── 동작 규약 ── */
+const GNAME = { pre: '선매수', extra: '추가매수', post: '후매수' };
+function setMaster(on) {
+  S.master = on; S.errs = {};
+  if (!on) { S.pre = S.extra = S.post = false; S.postPhase = 0; log('i', '서버: 매수 OFF — 선매수·추가매수·후매수 모두 꺼짐(D-32)'); }
+  else log('i', '서버: 매수 ON');
+  render();
+}
+function autoCheckExit() {
+  const on = [], skip = [];
+  if (S.sellRatio === 0) skip.push('매도주문(매도비율 0)'); else { S.sellOn = true; on.push('매도주문'); }
+  S.sellTrack = true; on.push('매도>잔량추적');
+  if (S.sellTradeQty === 0) skip.push('매도>체결(매도 체결수량 0)'); else { S.sellTrade = true; on.push('매도>체결'); }
+  if (S.cancelQty === 0) skip.push('취소(취소잔량 0)'); else { S.cancelOn = true; on.push('취소'); }
+  S.cancelTrade = true; on.push('취소>체결'); S.cancelTrack = true; on.push('취소>잔량추적');
+  if (S.sellWatchPrice === 0) S.sellWatchPrice = UPPER; if (S.sellPrice === 0) S.sellPrice = UPPER;
+  log('i', `선매수 자동 체크 — 켬: ${on.join(' · ')}`);
+  if (skip.length) log('e', `선매수 자동 체크 — 켜지 않음: ${skip.join(' · ')}`);
+  toast(`선매수 자동 체크 — 켬: ${on.join(' · ')}${skip.length ? '<br>켜지 않음: ' + skip.join(' · ') : ''}`);
+}
+function setGroup(g, on) {
+  delete S.errs[g];
+  if (on) {
+    if (g === 'extra' && S.extraMax !== 0 && S.extraMin > S.extraMax) { S.errs[g] = '추가매수의 최소 잔량이 최대 잔량보다 큽니다 — 최대를 0(무제한)으로 하거나 최소를 낮추세요.'; render(); return; }
+    if (g === 'post' && S.sellRatio === 0) { S.errs[g] = '후매수는 매도비율이 필요합니다 — 매도비율을 1~100% 로 입력하세요.'; render(); return; }
+    if (!S.master) { S.master = true; log('i', `${GNAME[g]} 체크 — 매수주문도 켬`); }
+    if (g === 'pre') autoCheckExit();
+    if (g === 'extra') S.extraAbandoned = false;
+    if (g === 'post') { S.postPhase = 1; S.postLeft = S.postMax; S.postTrigger = 0; log('i', `후매수 감시 시작 — 최대 ${S.postMax}회, 발동잔량은 첫 상한가 틱에서 계산`); }
+    if (S.v === 'c') S.exp[g] = true;
+  } else if (g === 'post') { S.postPhase = 0; S.postTrigger = 0; }
+  S[g] = on; render();
+}
+function simPost(phase) {
+  S.errs = {};
+  if (phase === 0) { S.postPhase = 0; S.postTrigger = 0; S.post = false; }
+  if (phase === 1) { S.master = true; S.post = true; S.postPhase = 1; S.postTrigger = 330000; S.postLeft = S.postMax; log('i', '후매수 감시 — 매수1잔량 300,000 · 발동잔량 <b>330,000</b>'); }
+  if (phase === 2) { S.master = true; S.post = true; S.postPhase = 2; S.postTrigger = 330000; S.postLeft = Math.max(0, S.postMax - 1); S.sellOn = true; S.cancelOn = true; S.sellWatchQty = 330000; S.cancelQty = 330000; log('i', '후매수 — 매수1잔량 <b>340,000</b> > 발동잔량 330,000 → 매수 10만원 발주 · 매도·취소 자동 무장(잔량 330,000)'); }
+  if (phase === 3) { S.master = true; S.post = false; S.postPhase = 3; S.postTrigger = 330000; S.postLeft = 0; S.sellOn = true; S.cancelOn = true; S.sellWatchQty = 330000; S.cancelQty = 330000; log('e', '후매수 소진 — 잔여 0회 · ☐후매수 해제(「최대」에 횟수를 넣고 다시 켜면 그 값부터)'); }
+  render();
+}
+
+/* ── 편집(시트 / 인라인) ── */
+let ED = null;
+function openSheet(id) {
+  const [label, unit, desc] = F[id];
+  ED = { id, buf: '', sel: true };
+  const sh = document.getElementById('SHEET');
+  const armed = (id.startsWith('pre') && groupOn('pre')) || (id.startsWith('extra') && groupOn('extra')) || (id.startsWith('post') && groupOn('post')) || (id.startsWith('buy') && S.master) || (id.startsWith('sell') && S.sellOn) || (id.startsWith('cancel') && S.cancelOn);
+  sh.innerHTML = `<h3>${label}</h3><p>${desc}</p>
+    <div class="disp"><span class="n" id="SN">${fmt(S[id])}</span><span class="u">${unit}</span><span class="was">지금 ${fmt(S[id])}${unit}</span></div>
+    <div class="note">${armed ? '감시 중 — 적용하면 바로 반영돼요' : ''}</div>
+    <div class="pad">${['1','2','3','4','5','6','7','8','9','00','0','⌫'].map(k => `<button data-key="${k}">${k}</button>`).join('')}</div>
+    <div class="btns"><button class="b1" data-close>취소</button><button class="b2" data-apply>${label} 적용</button></div>`;
+  document.getElementById('F').classList.add('open');
+}
+function closeSheet() { document.getElementById('F').classList.remove('open'); ED = null; }
+function applyEdit(id, raw) {
+  const n = Math.max(0, parseInt(String(raw).replace(/[^0-9]/g, ''), 10) || 0);
+  S[id] = n;
+  if (id === 'postMax' && S.postPhase !== 0) { S.postLeft = n; log('i', `후매수 「최대」 ${n}회 재제출 — 잔여 ${n}회로 다시 실림(칸 값 = 제출값)`); }
+  if ((id === 'extraMin' || id === 'extraMax') && S.errs.extra && !(S.extraMax !== 0 && S.extraMin > S.extraMax)) delete S.errs.extra;
+  if (id === 'sellRatio' && S.errs.post && n > 0) delete S.errs.post;
+  render();
+  const r = document.querySelector(`.lrow[data-id="${id}"]`); if (r) { r.classList.add('flash'); setTimeout(() => r.classList.remove('flash'), 600); }
+}
+function inlineEdit(rowEl, id) {
+  const [, unit] = F[id];
+  rowEl.classList.add('ied');
+  rowEl.querySelector('.v').innerHTML = `<input value="${fmt(S[id])}" inputmode="numeric"><span class="u">${unit}</span>`;
+  const inp = rowEl.querySelector('input'); inp.focus(); inp.select();
+  const finish = ok => { if (ok) applyEdit(id, inp.value); else render(); };
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); finish(true); } if (e.key === 'Escape') finish(false); });
+  inp.addEventListener('blur', () => finish(true));
+}
+
+/* ── 이벤트 ── */
+document.getElementById('nav').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.v) S.v = b.dataset.v;
+  if (b.dataset.w) S.w = b.dataset.w;
+  if (b.dataset.t) S.t = b.dataset.t;
+  if (b.dataset.post !== undefined) return simPost(+b.dataset.post);
+  if (b.hasAttribute('data-aband')) { S.extraAbandoned = !S.extraAbandoned; if (S.extraAbandoned) { S.master = true; S.extra = false; S.extraMin = 50000; S.extraMax = 150000; log('e', '추가매수 포기 — 매수1잔량 180,000 > 최대 150,000 (재제출 전까지 안 삼)'); } }
+  if (b.hasAttribute('data-ratio0')) { S.sellRatio = S.sellRatio === 0 ? 100 : 0; }
+  if (b.hasAttribute('data-reset')) { const { v, w, t } = S; S = INIT(); Object.assign(S, { v, w, t }); }
+  render();
+});
+document.getElementById('stage').addEventListener('click', e => {
+  const t = e.target;
+  if (t.closest('[data-master]')) return setMaster(!S.master);
+  const swEl = t.closest('[data-sw]'); if (swEl) return setGroup(swEl.dataset.sw, !S[swEl.dataset.sw]);
+  const bEl = t.closest('[data-b]'); if (bEl) { S[bEl.dataset.b] = !S[bEl.dataset.b]; return render(); }
+  const ck = t.closest('[data-ck]');
+  if (ck) { const k = ck.dataset.ck; if (k === 'pre' || k === 'extra' || k === 'post') return setGroup(k, !S[k]); S[k] = !S[k]; return render(); }
+  const ex = t.closest('[data-exp]'); if (ex) { S.exp[ex.dataset.exp] = !S.exp[ex.dataset.exp]; return render(); }
+  const seg = t.closest('[data-side]'); if (seg) { if (seg.dataset.side === 'manual') return toast('수동주문 탭 — 이 스케치 범위 밖(002 그대로)'); S.side = seg.dataset.side; return render(); }
+  if (t.closest('#DIM') || t.closest('[data-close]')) return closeSheet();
+  const key = t.closest('[data-key]');
+  if (key && ED) { const n = document.getElementById('SN'); if (key.dataset.key === '⌫') ED.buf = ED.buf.slice(0, -1); else if (ED.sel) { ED.buf = key.dataset.key; ED.sel = false; } else ED.buf += key.dataset.key; n.textContent = ED.buf ? fmt(parseInt(ED.buf, 10) || 0) : '0'; return; }
+  if (t.closest('[data-apply]') && ED) { const id = ED.id, v = ED.buf; closeSheet(); return applyEdit(id, v === '' ? S[id] : v); }
+  const rowEl = t.closest('.lrow'); if (rowEl && rowEl.dataset.id && !rowEl.classList.contains('ro') && !rowEl.classList.contains('ied')) {
+    const id = rowEl.dataset.id;
+    if (S.w === 'desktop') return inlineEdit(rowEl, id);
+    return openSheet(id);
+  }
+});
+render();
+</script>
+</body>
+</html>

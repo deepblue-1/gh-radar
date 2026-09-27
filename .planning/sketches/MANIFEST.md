@@ -19,3 +19,4 @@
 | 006 | login-screen | `/login` — 설명 문구 없이 비움 / 레이더 배경 / 시세 패널 중 어느 구성? | A 비움(아이콘+워드마크+버튼 하나, 카드·문구 없음 · 2026-09-26) | login, auth, mobile, web |
 | 007 | tab-bar-no-label | 라벨 없는 탭바 — 현행 유지 / weekly-wine 충실 / 캡슐 / 미니멀 점 중 어느 모양? (UAT G-21-1) | C 캡슐 인디케이터 · 높이 60 · 라벨 없음 (2026-09-26) | mobile, tab-bar, native, gap-closure |
 | 008 | uat3-surfaces | UAT 3차 세 표면 — ① /me 전 종목 전략 로그 · ② 종목상세 넓은 폭 「트레이딩」 버튼 · ③ 트레이딩 카드 수동주문 주문유형, 각각 A/B/C? (G-21-R3-2 · R3-9 · R3-10) | ①B 전략 현황 카드 안 「현황 \| 로그」(기본 현황) · ②A 히어로 첫 줄 끝 32 알약(--up) · ③A 주문금액 위 44px 행 「주문유형 지정가 ›」 (2026-09-26) | mobile, me, stock-detail, trading, gap-closure |
+| 009 | limitchaser-buy3-card | 상따 매수 3종(선매수·추가매수·후매수)을 002-B 리스트 문법 안에 카드 3장 / 한 카드·체크 행 / 접힘 요약 / **종합 D = A 카드 + 접기(요약 전량 표시)** 중 어느 구조로? (Phase 24) | D (A 카드 3장 + 제목줄 접기 · 접힘 요약 전량 · 기본 전부 접힘 · 2026-09-27) | trading, limit-chaser, buy3, phase-24, phone |
