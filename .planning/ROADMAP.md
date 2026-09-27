@@ -38,6 +38,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 21: GH Trade 모바일 앱 (Capacitor)** - Remote-URL 셸(iOS·iPadOS·Android) · 네이티브 하단 플로팅 탭바 5탭 · pull-to-refresh(웹 훅→reload) · 네이티브 Google Sign-In + signInWithIdToken · 브랜드명 GH Trade · `mobile/` 패키지 (결정 4건 확정 2026-09-25) (completed 2026-09-26)
 - [ ] **Phase 22: GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK)** - App Store Connect·TestFlight 업로드 · Android 업로드 키(저장소 밖) 서명 APK → Firebase App Distribution 테스터 배포 · 릴리스 빌드 Google 로그인 유지(SHA-1·키체인) · 버전 규칙·반복 빌드 절차 · 개인정보처리방침 `/privacy` · `native:verify-prod` 게이트 (Play 스토어 배포는 개발자 인증 뒤 별도 phase · 정식 출시·심사 대응·데이터 보안 양식은 범위 밖)
 - [ ] **Phase 23: GH Trade Play 스토어 내부 테스트 배포 (개발자 인증 후)** - Play Console 개발자 인증 완료 뒤 진행 · Play 앱 서명 키 결정(one-way) · 첫 AAB 수동 업로드·내부 테스트 트랙 · Play SA·fastlane supply · 앱 서명 SHA-1 OAuth 추가 등록 · Firebase APK 테스터 1회 재설치 안내 (옛 22-05~22-07 플랜을 `from-phase-22/` 에 보관)
+- [ ] **Phase 24: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영** - gh-trade Phase 24 의 `SetLimitChaser` 말미 append 17필드(`buy3_schema=1`) 를 relay 빌더·에코/열거 파서·webapp 상따 설정 3그룹(선매수/추가매수/후매수)에 반영. 감시대상(매도/매수잔량) 토글·매수 진입 래치(MsgType 38) 폐기, 매수 LED 2단계. 옵션 UI 는 WinForms 상따 창을 참고해 목업 게이트 먼저. 서버(24-11)·WinForms 배포 뒤에만 relay → webapp 배포. 브랜치 `gsd/phase-24-limitchaser-buy3`
 
 ## Phase Details
 
@@ -1183,3 +1184,28 @@ Plans:
 Plans:
 
 - [ ] TBD (run /gsd-plan-phase 23 to break down)
+
+### Phase 24: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영
+
+**Goal:** gh-trade Phase 24(브랜치 `worktree-phase-24-limitchaser-buy3`, 팁 `9fb07d86`, 아직 master 미병합)가 상따 매수를 **선매수·추가매수·후매수** 세 갈래로 나눴다. 와이어는 `SetLimitChaser`(MsgType 10 요청 · 60 에코 · 64 열거) 말미 append 17필드(vtable 98~130)이고, 종전 감시대상 라디오 `buy_watch_side` 와 매수 진입 래치 `buy_entry_latched`·MsgType 38 `ArmBuyLatchReq` 는 폐기됐다. gh-radar 가 `buy3_schema=1` 을 실어야 신 클라로 인정되고, 그 전까지 서버는 「선매수만 켠 등록」으로 읽으며 웹에서 「매수잔량」을 고른 전략은 §4 ② 거부 문구를 받는다.
+
+**UI 게이트(선행):** WinForms 상따 창(`reference/winforms-limitchaser-options-2026-09-27.png` — 매수주문 카드: 주문가격·비교가격 → ☑선매수(만·매도잔량·☐체결량·☐한방 N건 @가격) → ☐추가매수(만·최소~최대) → ☑후매수(만·최대 N회·최소·반등 %·발동) / 매도주문 카드 / 취소 카드)을 참고해 웹 옵션 디자인 목업(변형 + 다크/라이트, globals.css 토큰 인라인)을 먼저 열어 사용자 확인 후 채택안을 박제한다. 목업 검토 답 전에는 확정·커밋 금지.
+
+**relay:** ① gh-trade 트리에서 `RELAY=/Users/alex/repos/gh-radar/relay ./scripts/sync-relay-schema.sh` 재생성(--check 실측 2026-09-27: 변경 1개 `stock-dma/set-limit-chaser.ts` + `.fbs` 사본, flatc 25.12.19) 후 gh-radar 커밋. ② `buildSetLimitChaserReq`: `buy3_schema=1` 고정 + C→S 신필드 13개(`pre_buy_enabled` · `extra_buy_enabled/min_qty/max_qty/order_amount/order_qty` · `post_buy_enabled/rebound_pct/floor_qty/reentry/order_amount/order_qty`) 싣기 · `buy_watch_side` 미전송 · S→C 전용 4필드(`extra_buy_abandoned` · `post_buy_trigger_qty` · `post_buy_reentry_left` · `post_buy_phase`) 미전송 · MsgType 38 전송 경로 제거. ③ 에코(60)·열거(64) 파싱에 신필드 추가, `buy_watch_side` 에코 의존 제거(빈 값 → "0"). ④ 전체 재전송 규칙은 유지(서버 ON→ON 무접촉 규칙이 지킴 — S→C 값 되보내지 않는 것이 전제).
+
+**webapp:** ⑤ 상따 설정 매수 카드 = [주문가격 · 비교가격 공통] → **선매수**(금액 · 매도잔량 · ☐체결량 · ☐한방 N건 @가격) → **추가매수**(금액 · 최소~최대 잔량) → **후매수**(금액 · 최대 N회 · 하한잔량 · 반등 % · 발동잔량 표시). 감시대상 토글 제거. 그룹 스위치 = 각 `*_enabled`, 마스터 = `buy_enabled`(발주로 접히지 않음, D-01). ⑥ 후매수 상태 표시: `post_buy_phase`(0 꺼짐/1 감시/2 보유중/3 소진) · 발동잔량 · 잔여. 「최대」 칸은 **제출값 = 칸 값**(OFF→ON 이 칸 값부터, D-30·31). ⑦ 선매수 ON 시 매도주문·매도>잔량추적·매도>체결·취소·취소>체결·취소>잔량추적 6개 자동 체크(D-06, 확인 없음, 매도가/비교가 0 → 상한가, 취소잔량 0·체결수량 0 이면 그 체크 생략) · 사전 검증(추가매수 최대≠0 ∧ 최소>최대 → 체크 불가, 후매수 매도비율 0 → 막음 D-27). ⑧ `latch-led.tsx` 매수 쪽 3단계 → 마스터 2단계(무장 초록/꺼짐 회색), 매도·취소 래치 유지. ⑨ 서버 거부 문구(§4 ②~⑤, `source="SetLimitChaser"`)·발주 사유 줄(`source="LimitChaser"`: 후매수/재진입/소진/추가매수 포기) 전략 로그 매핑. ⑩ 꺼진 옵션 행 글자 흐림(기존 「꺼짐」 라벨 결, WinForms 와 같은 결).
+
+**테스트:** relay 빌더 왕복(신 클라 바이트에 `buy3_schema=1` · 신필드 · `buy_watch_side` 부재) · 에코 파싱(발동 뒤 매도·취소 override · 소진 접힘) · webapp 3그룹 렌더 · 자동 체크 · 사전 검증.
+
+**배포 순서(고정):** gh-trade 서버(24-11, 날짜 미정) → WinForms 클라 발행 → **그 뒤** gh-radar relay → webapp push. 배포 시각은 gh-trade 세션 `gh-trade-38` 이 SendMessage 로 알린다. 완료 후 gh-trade 에 `buy3_schema=1` 배포 완료를 회신(→ `buy_watch_side` 봉인 후속).
+
+**정본:** gh-trade `server/src/protocol/StockDMA.fbs` · `docs/strategy/limit-chaser.md` §5·§9-2·§10 · `.planning/phases/24-limitchaser-buy3/24-CONTEXT.md` D-01~D-31 · `server/docs/cloud-uat.md` ⑥ · UAT 주입 도구 `server/scripts/uat/e2e_limitchaser_buy3.sh` · `inject_b6.py` · `inject_m4.py`.
+
+**열린 것:** 마스터 OFF 시 `post_buy_enabled` 에코 규약(gh-trade 결정 대기 — 에코 ⑧ 한 항만 바뀜) · 소진 푸시(300ms) 전 옛 ON 재제출 창이 웹에서 실제 생기는지 · 운영 전략 중 「감시대상=매수잔량」 선택분 목록 사전 추출.
+**Requirements**: TBD
+**Depends on:** Phase 17 (프로토콜 재동기화·래치 LED) · gh-trade Phase 24 서버 배포(24-11)
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 24 to break down)
