@@ -1251,3 +1251,61 @@ describe('24-06 — 클라 로그 통로 pushClientLog (D-16 · 순서)', () => 
     expect(texts()[1]).toBe(TRANSITION_TEXT.buyArmed);
   });
 });
+
+describe('24-07 — 선매수 자동 체크 로그 (D-06 · D-01 줄 다음 · 거부면 없음)', () => {
+  const texts = () =>
+    Array.from(logRows()).map((r) => r.querySelectorAll('span')[1]?.textContent ?? '');
+  const AUTO = '선매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적';
+  const SIX = {
+    sellEnabled: true,
+    sellQtyTrackEnabled: true,
+    sellTradeQtyEnabled: true,
+    cancelQtyEnabled: true,
+    cancelTradeEnabled: true,
+    cancelQtyTrackEnabled: true,
+  } as const;
+
+  beforeEach(() => {
+    lastCard = null;
+  });
+
+  it('마스터 OFF 에서 선매수 켬 → 성공 에코 뒤 위에서부터 [자동 체크 한 줄, 「선매수 체크 — 매수주문도 켬」…] (최신이 위)', async () => {
+    setRelay({ limitChasers: [echo({ buyEnabled: false })], quote: quote() });
+    const { rerender } = render(<Card />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('switch', { name: '선매수 켜기' }));
+    });
+    expect(lcSets()).toHaveLength(1);
+    expect(lcSets()[0]!.cfg).toMatchObject({ preBuyEnabled: true, buyEnabled: true, ...SIX });
+    const next = echo({ buyEnabled: true, preBuyEnabled: true, ...SIX });
+    setRelay({ limitChasers: [next], lastLimitChaserEcho: next, quote: quote() });
+    rerender(<Card />);
+
+    await waitFor(() => expect(texts()).toContain(AUTO));
+    expect(texts()[0]).toBe(AUTO);
+    expect(logRows()[0]!.getAttribute('data-level')).toBe('info');
+    expect(texts()[1]!.startsWith('선매수 체크 — 매수주문도 켬')).toBe(true);
+    expect(texts().filter((x) => x.startsWith('선매수 자동 체크'))).toHaveLength(1);
+  });
+
+  it('거부되면 자동 체크 줄은 쌓이지 않는다', async () => {
+    const before = echo({ buyEnabled: false });
+    setRelay({ limitChasers: [before], quote: quote() });
+    const { rerender } = render(<Card />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('switch', { name: '선매수 켜기' }));
+    });
+    expect(lcSets()).toHaveLength(1);
+    setRelay({
+      limitChasers: [before],
+      quote: quote(),
+      messages: [msg({ lv: 'ERROR', src: 'SetLimitChaser', i: ISIN, a: ACCOUNT, m: '거부 사유' })],
+    });
+    rerender(<Card />);
+    await waitFor(() => expect(texts().some((x) => x.includes('거부 사유'))).toBe(true));
+    await act(async () => {
+      vi.advanceTimersByTime(50);
+    });
+    expect(texts().some((x) => x.startsWith('선매수 자동 체크'))).toBe(false);
+  });
+});

@@ -1884,3 +1884,157 @@ describe('⑱ 그룹 켜기 사전 검증 줄 · D-16 · D-11 재제출 (24-06 �
     expect(cfg).not.toHaveProperty('postBuyPhase');
   });
 });
+
+describe('⑲ 선매수 자동 체크 D-06 · D-07 · D-08 — 사람의 선매수 ON 에만 매도 · 취소 6체크가 같은 제출에 실린다 (24-07)', () => {
+  /** 마스터 OFF · 매도/취소 전부 OFF · 매도 가격 0(상한가로 채울 자리) · 매도 매수잔량 10 · 체결 30,000 · 취소 매수잔량 10. */
+  const idle = (over: Partial<RelayLimitChaser> = {}) =>
+    echo({ buyEnabled: false, sellOrderPrice: 0, sellWatchPrice: 0, sellWatchQty: 10, ...over });
+  const SIX = {
+    sellEnabled: true,
+    sellQtyTrackEnabled: true,
+    sellTradeQtyEnabled: true,
+    cancelQtyEnabled: true,
+    cancelTradeEnabled: true,
+    cancelQtyTrackEnabled: true,
+  } as const;
+  const FULL_LINE =
+    '선매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 150,800원';
+
+  it('마스터 OFF 에서 선매수 클릭 → lc.set 1회 · cfg 에 선매수 · 마스터 · 6체크 · 상한가로 채운 매도 가격 · 매도 스위치 낙관 ON · 확인창 없음', () => {
+    const onClientLog = vi.fn();
+    render(<LimitChaserForm {...props({ server: idle(), upperLimit: 150_800, onClientLog })} />);
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({
+      preBuyEnabled: true,
+      buyEnabled: true,
+      ...SIX,
+      sellOrderPrice: 150_800,
+      sellWatchPrice: 150_800,
+      crud: 'C',
+    });
+    expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'true');
+    expect(sw('매수취소 켜기')).toHaveAttribute('aria-checked', 'true');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    // 로그는 성공 에코 뒤에만 — 보낸 순간에는 없다.
+    expect(onClientLog).not.toHaveBeenCalled();
+  });
+
+  it('성공 에코(선매수 ON) 뒤 onClientLog 한 줄(info) — 6체크를 한 줄로 합친다', () => {
+    const onClientLog = vi.fn();
+    const { rerender } = render(<LimitChaserForm {...props({ server: idle(), upperLimit: 150_800, onClientLog })} />);
+    click(sw('선매수 켜기'));
+    const ok = idle({ buyEnabled: true, preBuyEnabled: true, ...SIX, sellOrderPrice: 150_800, sellWatchPrice: 150_800 });
+    rerender(<LimitChaserForm {...props({ server: ok, upperLimit: 150_800, onClientLog, serverAnswerSeq: 1 })} />);
+    expect(onClientLog).toHaveBeenCalledTimes(1);
+    expect(onClientLog).toHaveBeenCalledWith(FULL_LINE, 'info');
+    // 같은 에코 재수신 · 답 신호 증가에도 다시 쓰지 않는다.
+    rerender(<LimitChaserForm {...props({ server: { ...ok }, upperLimit: 150_800, onClientLog, serverAnswerSeq: 2 })} />);
+    expect(onClientLog).toHaveBeenCalledTimes(1);
+  });
+
+  it('거부(답만 증가) → 자동 체크 줄 없음 · 매도 · 취소 체크도 서버 값으로 되돌아간다', () => {
+    const onClientLog = vi.fn();
+    const s = idle();
+    const { rerender } = render(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog })} />);
+    click(sw('선매수 켜기'));
+    rerender(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog, serverAnswerSeq: 1 })} />);
+    expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(sw('매수취소 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(onClientLog).not.toHaveBeenCalled();
+  });
+
+  it('생략이 있으면 error 줄 — 취소 매수잔량 0 → 취소 · 취소>잔량추적 켜지 않음(cfg 도 false 그대로)', () => {
+    const onClientLog = vi.fn();
+    const s = idle({ cancelWatchQty: 0 });
+    const { rerender } = render(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog })} />);
+    click(sw('선매수 켜기'));
+    expect(lastConfig()).toMatchObject({ cancelQtyEnabled: false, cancelQtyTrackEnabled: false, cancelTradeEnabled: true });
+    const ok = { ...s, buyEnabled: true, preBuyEnabled: true };
+    rerender(<LimitChaserForm {...props({ server: ok, upperLimit: 150_800, onClientLog, serverAnswerSeq: 1 })} />);
+    expect(onClientLog).toHaveBeenCalledTimes(1);
+    const [text, level] = onClientLog.mock.calls[0]!;
+    expect(level).toBe('error');
+    expect(text).toContain(' / 켜지 않음: 취소(취소 매수잔량 0) · 취소>잔량추적(취소 매수잔량 0)');
+  });
+
+  it('상한가 미수신(0) → 매도 가격을 채우지 않고 매도주문을 켜지 않는다(D-20 — 서버 위임 없음)', () => {
+    render(<LimitChaserForm {...props({ server: idle(), upperLimit: 0 })} />);
+    click(sw('선매수 켜기'));
+    expect(lastConfig()).toMatchObject({ sellEnabled: false, sellOrderPrice: 0, sellWatchPrice: 0, sellQtyTrackEnabled: true });
+  });
+
+  it('마스터 ON 이면 buyEnabled 동반 없이도 자동 체크는 실린다', () => {
+    render(<LimitChaserForm {...props({ server: idle({ buyEnabled: true }), upperLimit: 150_800 })} />);
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ preBuyEnabled: true, buyEnabled: true, ...SIX });
+  });
+
+  it('사전 검증 실패(수량 0)면 자동 체크도 없다 — 전송 0 · 매도 스위치 그대로', () => {
+    render(<LimitChaserForm {...props({ server: idle({ buyOrderAmount: 1 }), upperLimit: 150_800 })} />);
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(0);
+    expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('D-08 — 에코 · 재접속 · 다른 단말로 선매수가 ON 이 되면 자동 체크는 나가지 않는다(전송 0 · 로그 0)', () => {
+    vi.useFakeTimers();
+    try {
+      const onClientLog = vi.fn();
+      const { rerender } = render(<LimitChaserForm {...props({ server: idle(), upperLimit: 150_800, onClientLog })} />);
+      rerender(
+        <LimitChaserForm {...props({ server: idle({ buyEnabled: true, preBuyEnabled: true }), upperLimit: 150_800, onClientLog })} />,
+      );
+      // 재접속(disabled → 다시 ready) 뒤 같은 상태 lc.snap.
+      rerender(<LimitChaserForm {...props({ server: idle({ buyEnabled: true, preBuyEnabled: true }), upperLimit: 150_800, onClientLog, disabled: true })} />);
+      rerender(<LimitChaserForm {...props({ server: idle({ buyEnabled: true, preBuyEnabled: true }), upperLimit: 150_800, onClientLog })} />);
+      act(() => {
+        vi.advanceTimersByTime(10);
+      });
+      expect(sendMock).not.toHaveBeenCalled();
+      expect(onClientLog).not.toHaveBeenCalled();
+      expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'false');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('선매수를 끄는 제출에는 6체크 변화가 없다 · 자동으로 켜진 체크는 유지된다(끄는 방향 cfg 의 매도 · 취소 = 서버 값)', () => {
+    const on = idle({
+      buyEnabled: true,
+      preBuyEnabled: true,
+      postBuyEnabled: true,
+      postBuyOrderAmount: 50,
+      postBuyReboundPct: 30,
+      ...SIX,
+      sellOrderPrice: 150_800,
+      sellWatchPrice: 150_800,
+    });
+    render(<LimitChaserForm {...props({ server: on, upperLimit: 150_800 })} />);
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ preBuyEnabled: false, ...SIX, sellOrderPrice: 150_800 });
+  });
+
+  it('6체크가 이미 전부 켜져 있으면 동반 없음 · 성공 뒤 로그 줄 없음', () => {
+    const onClientLog = vi.fn();
+    const s = idle({ ...SIX, sellOrderPrice: 150_800, sellWatchPrice: 150_800 });
+    const { rerender } = render(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog })} />);
+    click(sw('선매수 켜기'));
+    expect(lastConfig()).toMatchObject({ preBuyEnabled: true, buyEnabled: true });
+    rerender(
+      <LimitChaserForm {...props({ server: { ...s, buyEnabled: true, preBuyEnabled: true }, upperLimit: 150_800, onClientLog, serverAnswerSeq: 1 })} />,
+    );
+    expect(onClientLog).not.toHaveBeenCalled();
+  });
+
+  it('추가매수 · 후매수 켜기에는 자동 체크가 없다(선매수만 · D-06)', () => {
+    render(
+      <LimitChaserForm {...props({ server: idle({ extraBuyOrderAmount: 50, postBuyOrderAmount: 50, postBuyReboundPct: 30 }), upperLimit: 150_800 })} />,
+    );
+    click(sw('추가매수 켜기'));
+    expect(lastConfig()).toMatchObject({ extraBuyEnabled: true, sellEnabled: false, cancelQtyEnabled: false });
+  });
+});
