@@ -21,7 +21,9 @@ set -euo pipefail
 #     직전 릴리스와 같은 분이면 스토어가 거절하므로, 같으면 다음 분까지 기다린 뒤 시작한다.
 #   - 비밀은 각 플랫폼 래퍼(release-ios.sh · release-android.sh)가 다룬다. 이 스크립트는 값을 읽지 않는다.
 #     비밀 파일이 없으면 래퍼가 exit 3 과 주입 명령(`! bash mobile/scripts/setup-release-secrets.sh …`)을 낸다.
-#   - 로그는 저장소 밖 $OUT_ROOT/logs/ 에 남는다(다운로드 링크가 찍힐 수 있어 저장소에 두지 않는다).
+#   - 전체 출력은 저장소 밖 $OUT_ROOT/logs/(폴더 700)에 파일마다 600 으로만 남는다. 화면에는 표식 줄
+#     (PROD CONFIG OK · … CHECK OK · 업로드 성공 · 오류 줄)만 나오고 URL 은 가린다 — Claude 가 실행해도
+#     Firebase 1시간 다운로드 링크가 대화에 남지 않는다(T-22-23). 실패하면 오류 요약과 로그 경로가 나온다.
 #   - 한 플랫폼이 실패하면 거기서 멈춘다(exit 1). 이미 올라간 플랫폼은 되돌리지 않는다.
 # ═══════════════════════════════════════════════════════════════
 
@@ -29,7 +31,7 @@ TARGET="${1:-all}"
 case "$TARGET" in
   all|ios|android) ;;
   -h|--help)
-    sed -n '4,24p' "$0"
+    sed -n '4,27p' "$0"
     exit 0
     ;;
   *)
@@ -46,12 +48,66 @@ IOS_NUM_FILE="$OUT_ROOT/ios/build_number.txt"
 ANDROID_VC_FILE="$MOBILE_DIR/android/app/build/outputs/apk/release/ghtrade-version-code.txt"
 LOG_DIR="$OUT_ROOT/logs"
 mkdir -p "$LOG_DIR"
+chmod 700 "$LOG_DIR" # 이미 있던 폴더도 고친다 — 로그에 서명 다운로드 링크가 있다(T-22-23)
 STAMP="$(date +%Y%m%d-%H%M%S)"
 
 IOS_RESULT="건너뜀"
 ANDROID_RESULT="건너뜀"
 
 say() { printf '\n▶ %s\n' "$*"; }
+
+# ── 화면 요약 · 로그(W-1 · T-22-23) ─────────────────────────────
+# 화면 허용 표식 — 여기 맞는 줄만 화면에 낸다. 「🔗 …」 URL 세 줄(Firebase 콘솔 · 공유 · 1시간 다운로드)은 넣지 않는다.
+#   PROD CONFIG OK · 줄머리 FAIL     verify-prod-config.mjs
+#   (IPA|APK|AAB) CHECK (OK|FAIL)   check-ipa.sh · check-apk.sh · check-aab.sh
+#   CFBundleVersion · versionCode    iOS · Android lane 의 번호 줄
+#   Successfully uploaded …          pilot(TestFlight) 성공 줄
+#   Authenticating with · Distributing release · App Distribution upload finished successfully
+#                                    firebase_app_distribution 1.0.0 (Authenticating 은 README 의 ADC 판별 줄)
+#   fastlane.tools finished successfully · fastlane finished with errors · [!]   fastlane 끝 줄 · user_error 요약
+#   줄머리 ERROR: · 주입: · 복구:     래퍼 exit 3 안내(release-ios.sh · release-android.sh)
+#   ELIFECYCLE · ** … FAILED ** · BUILD FAILED   pnpm · xcodebuild · gradle 실패
+SCREEN_MARKS='PROD CONFIG OK|^FAIL|(IPA|APK|AAB) CHECK (OK|FAIL)|CFBundleVersion [0-9]+|versionCode [0-9]+|Successfully uploaded the new binary to App Store Connect|Authenticating with|Distributing release|App Distribution upload finished successfully|fastlane[.]tools finished successfully|fastlane finished with errors|\[!\]|^ERROR:|주입:|복구:|ELIFECYCLE|\*\* .*FAILED \*\*|BUILD FAILED'
+# 실패 요약에 뽑을 오류 줄.
+ERROR_MARKS='FAIL|ERROR|\[!\]|error:|Error:|ELIFECYCLE|FAILED|Exception|exit code|exit status'
+ESC="$(printf '\033')"
+
+# 로그 파일을 600 으로 만든다. umask 는 서브셸 안에서만 건다 — 전역 umask 는 cap sync · 빌드 산출물 권한까지 바꾼다.
+new_log() { ( umask 077; : > "$1" ); chmod 600 "$1"; }
+
+# 화면에 낼 줄 다듬기: ANSI 색 제거 → 스킴이 붙은 URL 가림(두 번째 방어선) → 4칸 들여쓰기.
+# LC_ALL=C — 바이트 단위로 처리해 이모지·잘린 UTF-8 에서도 sed 가 멈추지 않게 한다.
+mask_lines() {
+  LC_ALL=C sed -e "s/${ESC}\[[0-9;]*[A-Za-z]//g" \
+    -e 's#[A-Za-z][A-Za-z0-9+.-]*://[^[:space:]]*#(URL 생략 — 로그)#g' \
+    -e 's/^/    /'
+}
+
+# stdin 전체를 로그($1)에 쓰고, 화면에는 표식 줄만 낸다. 입력을 끝까지 비우고 항상 0 을 돌려준다 —
+# 중간에 끝나면 앞의 pnpm/fastlane 이 SIGPIPE 로 죽어 업로드가 도중에 끊긴다. 종료 코드는 pipefail 로 pnpm 것이 남는다.
+screen_filter() {
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    printf '%s\n' "$line" >&3 || true
+    if [[ $line =~ $SCREEN_MARKS ]]; then
+      printf '%s\n' "$line" | mask_lines || true
+    fi
+  done 3>>"$1"
+  return 0
+}
+
+# 실패 시 로그($1)의 오류 줄 마지막 20줄 + 로그 경로.
+fail_summary() {
+  local log="$1" hits
+  hits="$( { LC_ALL=C grep -aE "$ERROR_MARKS" "$log" || true; } | tail -20 )"
+  printf '    ── 오류 요약 (로그의 오류 줄 마지막 20줄) ──\n'
+  if [[ -n "$hits" ]]; then
+    printf '%s\n' "$hits" | mask_lines
+  else
+    printf '    (오류 줄을 찾지 못했다 — 전체 로그를 본다)\n'
+  fi
+  printf '    전체 로그: %s (600 · 저장소 밖)\n' "$log"
+}
 
 # 이번 분의 빌드 번호(build_numbers.rb 와 같은 공식 · 로컬 시각).
 ios_num_now() { date +%Y%m%d%H%M; }
@@ -79,8 +135,10 @@ fi
 release_ios() {
   local log="$LOG_DIR/ios-$STAMP.log" num state line
   wait_new_minute "iOS" "$IOS_NUM_FILE" ios_num_now
+  new_log "$log"
   say "iOS — TestFlight 업로드 (로그: $log)"
-  if ! pnpm run native:release:ios 2>&1 | tee "$log"; then
+  if ! pnpm run native:release:ios 2>&1 | screen_filter "$log"; then
+    fail_summary "$log"
     IOS_RESULT="실패 — 로그 확인"
     return 1
   fi
@@ -104,8 +162,10 @@ release_ios() {
 release_android() {
   local log="$LOG_DIR/android-$STAMP.log" vc latest
   wait_new_minute "Android" "$ANDROID_VC_FILE" android_vc_now
+  new_log "$log"
   say "Android — APK → Firebase App Distribution (로그: $log)"
-  if ! pnpm run native:release:android 2>&1 | tee "$log"; then
+  if ! pnpm run native:release:android 2>&1 | screen_filter "$log"; then
+    fail_summary "$log"
     ANDROID_RESULT="실패 — 로그 확인"
     return 1
   fi

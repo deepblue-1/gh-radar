@@ -90,11 +90,11 @@ pnpm --filter @gh-radar/mobile run native:verify-prod   # PROD CONFIG OK 여야 
 
 | 스크립트 | 하는 일 | 성공 표식 |
 |---|---|---|
-| `native:release` | **평소에 쓰는 한 줄.** iOS → Android 를 차례로 올리고(`scripts/release-apps.sh`), TestFlight 처리 완료(VALID)와 Firebase 최신 번호까지 확인한 뒤 결과 표를 낸다. 직전 빌드와 같은 분이면 다음 분까지 기다린다. 한 플랫폼만: `bash mobile/scripts/release-apps.sh ios` · `android`. 로그는 `~/Library/Developer/gh-trade-release/logs/`. | 끝의 「GH Trade 앱 릴리스 결과」 표 |
-| `native:release:ios` | Release archive(App Store 프로파일) → TestFlight 업로드 → IPA 검사 | `IPA CHECK OK` |
+| `native:release` | **평소에 쓰는 한 줄.** iOS → Android 를 차례로 올리고(`scripts/release-apps.sh`), TestFlight 처리 완료(VALID)와 Firebase 최신 번호까지 확인한 뒤 결과 표를 낸다. 직전 빌드와 같은 분이면 다음 분까지 기다린다. 한 플랫폼만: `bash mobile/scripts/release-apps.sh ios` · `android`. 화면에는 표식 줄(`PROD CONFIG OK` · `… CHECK OK` · 업로드 성공 · 오류 줄)만 나오고 URL 은 가린다. 전체 출력은 `~/Library/Developer/gh-trade-release/logs/`(폴더 700 · 파일 600)에만 남는다. 실패하면 오류 요약과 로그 경로가 나온다. | 끝의 「GH Trade 앱 릴리스 결과」 표 |
+| `native:release:ios` | Release archive(App Store 프로파일) → IPA 검사(업로드 전 — 실패하면 올리지 않는다) → TestFlight 업로드 | `IPA CHECK OK` 다음 `Successfully uploaded the new binary to App Store Connect` |
 | `native:release:android` | 업로드 키로 서명한 release APK → APK 검사 → Firebase 업로드(그룹 `ghtrade-testers`). Android 기본 경로다(D-15). | `APK CHECK OK` 다음 `App Distribution upload finished successfully` |
 | `native:release:android:aab` | 서명된 AAB 만 만든다. 업로드는 없다(Play 경로 보존 · D-16). | `AAB CHECK OK` |
-| `native:release:android:play` | AAB → Play 내부 테스트 트랙. **Phase 23 용**이다(Play 개발자 인증 뒤). 지금은 Play SA 키(`play-sa`)가 없어 exit 3 으로 멈춘다. | — |
+| `native:release:android:play` | AAB → AAB 검사(업로드 전) → Play 내부 테스트 트랙. **Phase 23 용**이다(Play 개발자 인증 뒤). 지금은 Play SA 키(`play-sa`)가 없어 exit 3 으로 멈춘다. | — |
 
 보조 모드는 업로드 없이 확인만 한다(저장소 루트에서 실행).
 
@@ -104,6 +104,7 @@ pnpm --filter @gh-radar/mobile run native:verify-prod   # PROD CONFIG OK 여야 
 | `bash mobile/scripts/release-android.sh firebase-latest` | 최신 Firebase 릴리스 — `latest Firebase build N` |
 | `bash mobile/scripts/release-android.sh check-apk` | 마지막 release APK 검사만(서명자 SHA-1 · versionCode · debuggable 아님 · 운영 설정) |
 | `bash mobile/scripts/release-android.sh build` · `check` | AAB 빌드 · AAB 검사만. `build` 는 sync 를 하지 않으니 평소에는 `native:release:android:aab` 를 쓴다. |
+| `bash mobile/scripts/test-release-apps-output.sh` | `release-apps.sh` 화면 요약 회귀 검사(가짜 pnpm · 업로드·네트워크 없음) — 화면 URL 0 · 로그 700/600 · 결과 표. 성공하면 `RELEASE APPS OUTPUT TEST OK` 가 나온다. |
 
 래퍼 종료 코드: 2 = 모르는 모드 · 3 = env 파일·키·키스토어·SA 키가 없다(fastlane 시작 전에 멈추고 주입 명령을 안내한다).
 
@@ -170,7 +171,7 @@ pnpm --filter @gh-radar/mobile run native:verify-prod   # PROD CONFIG OK 여야 
 | 업로드 로그에 `Application Default Credentials` 인증 줄 | 멈춘다. 전용 SA 자격 명시가 깨진 것이다. 정상은 `Authenticating with --service_credentials_file` 이다. |
 | sigh 권한 오류(App Store 프로파일 생성 실패) | Apple Developer 포털에서 `com.ghtrade.app` App Store 프로파일을 손으로 만든 뒤 다시 한다. |
 | ITMS-91053 경고 메일 | 기록만 한다. Privacy manifest 는 Deferred 다. |
-| 업로드 로그의 「link expires in 1 hour」 다운로드 링크 | 공유하지 않는다. 테스터는 초대 메일·App Tester 로만 받는다. |
+| 업로드 로그의 「link expires in 1 hour」 다운로드 링크 | 공유하지 않는다. 테스터는 초대 메일·App Tester 로만 받는다. `native:release` 는 이 링크를 화면에 내지 않고 로그 파일(600)에만 남긴다. |
 
 ### 테스터 초대 (운영자)
 
@@ -229,7 +230,7 @@ Capacitor CLI 는 플러그인 경로를 pnpm 실경로(`node_modules/.pnpm/@cap
 
 릴리스 비밀(ASC API 키 · 업로드 키스토어 · Firebase SA 키)은 `~/.config/gh-trade/release/` 에만 있다. 저장소에는 경로와 변수 이름만 있다(위 「릴리스 비밀 파일」).
 
-`bash mobile/scripts/check-release-hygiene.sh` 로 비밀 파일 권한(700/600) · git ignore · `google-services.json` 부재를 확인한다. `RELEASE HYGIENE OK` 가 나와야 한다.
+`bash mobile/scripts/check-release-hygiene.sh` 로 비밀 파일 권한(700/600) · git ignore · `google-services.json` 부재 · 업로드 전 검사 순서(lane 안에서 IPA/AAB/APK 검사 → 업로드)를 확인한다. `RELEASE HYGIENE OK` 가 나와야 한다.
 
 ## 범위 밖 (Phase 21 · 22 Deferred)
 

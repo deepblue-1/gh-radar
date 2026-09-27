@@ -80,8 +80,10 @@ created: "2026-09-27"
 
 ## Warnings (비차단)
 
-- **W-1:** `mobile/scripts/release-apps.sh`(phase 뒤 `8bcfed07`)가 fastlane 전체 출력을 stdout 으로 tee — Claude 실행 시 Firebase 1시간 링크가 채팅에 노출될 수 있음 · 로그 umask 077 없음.
-- **W-2:** REVIEW CR-01 미해결 — iOS check-ipa 가 TestFlight 업로드 뒤에 돈다(명시 벡터는 업로드 전 구조적으로 차단). Play `beta` 도 같은 순서 → Phase 23 전 lane 내 선행 게이트로.
+- **W-1 (해소 2026-09-27 · quick 260927-s4j):** `mobile/scripts/release-apps.sh`(phase 뒤 `8bcfed07`)가 fastlane 전체 출력을 stdout 으로 tee — Claude 실행 시 Firebase 1시간 링크가 채팅에 노출될 수 있음 · 로그 umask 077 없음.
+  → 바뀐 점: 화면에는 허용 표식 줄만 내고 URL 은 모두 가림 · 전체 출력은 로그 폴더 700 · 파일 600(서브셸 umask 077)에만 · 실패 시 오류 요약 + 로그 경로 · 오프라인 스텁 회귀 테스트 `mobile/scripts/test-release-apps-output.sh`(bash 5 · /bin/bash 3.2).
+- **W-2 (해소 2026-09-27 · quick 260927-s4j):** REVIEW CR-01 미해결 — iOS check-ipa 가 TestFlight 업로드 뒤에 돈다(명시 벡터는 업로드 전 구조적으로 차단). Play `beta` 도 같은 순서 → Phase 23 전 lane 내 선행 게이트로.
+  → 바뀐 점: iOS beta lane 은 check-ipa(절대 IPA · 빌드 번호) → `upload_to_testflight(ipa:)`, Android build · beta lane 은 check-aab → `upload_to_play_store(aab:)` 로 lane 안 업로드 전 게이트 · 래퍼의 lane 뒤 검사 제거 · 위생 검사 (10) 이 lane 단위 업로드 전 검사 순서와 `ipa:` 명시를 잠근다.
 - **W-3:** 2026-09-27 15:28 KST 다른 세션 push `798f911f` 가 22-10 게이트 전 `/privacy`(자리표시 시행일)를 약 24분 운영 노출 · 백엔드 diff 0 · `d678bc51` 로 해소.
 - **W-4 (해소 2026-09-27):** gcloud 읽기 확인 — Firebase 4개 역할(`firebase.appDistributionSdkServiceAgent` · `managementServiceAgent` · `sdkAdminServiceAgent` · `firebaseappdistro.admin`)에 `secretmanager.*` 권한 0 · 백업 비밀 3개에 비밀 단위 IAM 바인딩 0. `firebase-adminsdk-fbsvc` 는 사용자 관리 키 0 · actAs 부여 0(단 Google 기본 부여로 프로젝트 수준 `iam.serviceAccountTokenCreator` 보유 — Firebase 플랫폼·owner 만 도달 가능, 참고). `gh-trade-appdistro` 키 1개(`d9a9c4a3…` · 2026-09-27 04:00 UTC · 로컬 600)만.
 
