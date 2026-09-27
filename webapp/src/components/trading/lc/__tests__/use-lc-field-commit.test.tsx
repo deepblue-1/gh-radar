@@ -14,7 +14,9 @@ import {
 import {
   LC_COMMIT_TEXT,
   LC_FLASH_MS,
+  LC_GATE_FIELDS,
   LC_ORPHAN_WAIT_MS,
+  lcGroupAmountBlockOf,
   useLcFieldCommit,
   type UseLcFieldCommitOptions,
 } from '../use-lc-field-commit';
@@ -907,5 +909,270 @@ describe('WR-07 · D-04a — 서버가 주문금액을 모르는 전략(에코 �
       out = t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
     });
     expect(out).toBe('local');
+  });
+});
+
+describe('companions — 한 확정 = 한 lc.set 에 동반 필드 (Phase 24 D-01 · D-02)', () => {
+  /** 마스터 OFF · 세 그룹 OFF 인 살아 있는 전략(매도 ON — 삭제 아님). */
+  const masterOff = () => echo({ buyEnabled: false, sellEnabled: true });
+
+  it('D-01 — 그룹 켜기 + 동반 마스터 = 전송 1회 · cfg 에 둘 다 · 나머지는 서버 값 · 두 필드 모두 낙관 표시', () => {
+    const t = setup({ server: masterOff() });
+    t.formRef.current = { ...t.formRef.current, sweepMinTickCount: 9 };
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('preBuyEnabled', true, 'toggle', { buyEnabled: true });
+    });
+    expect(out).toBe('sent');
+    expect(t.send).toHaveBeenCalledTimes(1);
+    const cfg = t.cfgs()[0]!;
+    expect(cfg.preBuyEnabled).toBe(true);
+    expect(cfg.buyEnabled).toBe(true);
+    expect(cfg.sellEnabled).toBe(true);
+    // 로컬의 오래된 값은 싣지 않는다(T-20-03) — 동반 필드가 생겨도 기준값은 서버 동기값이다.
+    expect(cfg.sweepMinTickCount).toBe(3);
+    expect(t.formRef.current.preBuyEnabled).toBe(true);
+    expect(t.formRef.current.buyEnabled).toBe(true);
+  });
+
+  it('성공 판정은 주 필드만 — 에코의 그 그룹이 ON 이면 성공(마스터 값과 무관)', () => {
+    const t = setup({ server: masterOff() });
+    act(() => {
+      t.hook.result.current.commit('preBuyEnabled', true, 'toggle', { buyEnabled: true });
+    });
+    // 서버가 동반 필드를 부분 거부해도(마스터 OFF 그대로) 주 필드가 섰으면 주 필드 실패가 아니다.
+    t.update({ server: echo({ buyEnabled: false, sellEnabled: true, preBuyEnabled: true }) });
+    const r = t.hook.result.current;
+    expect(r.inflightField).toBeNull();
+    expect(r.lastSuccessField).toBe('preBuyEnabled');
+    expect(r.failures.preBuyEnabled).toBeUndefined();
+  });
+
+  it('거부(답만 증가 · 에코 OFF)면 주 필드와 동반 필드를 함께 확정 전 값으로 되돌린다', () => {
+    const t = setup({ server: masterOff() });
+    act(() => {
+      t.hook.result.current.commit('preBuyEnabled', true, 'toggle', { buyEnabled: true });
+    });
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.hook.result.current.failures.preBuyEnabled?.reason).toBe('rejected');
+    expect(t.formRef.current.preBuyEnabled).toBe(false);
+    expect(t.formRef.current.buyEnabled).toBe(false);
+    expect(t.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('타임아웃(unacked)도 동반 필드까지 되돌린다', () => {
+    const t = setup({ server: masterOff() });
+    act(() => {
+      t.hook.result.current.commit('postBuyEnabled', true, 'toggle', { buyEnabled: true });
+    });
+    t.update({ unacked: true });
+    expect(t.formRef.current.postBuyEnabled).toBe(false);
+    expect(t.formRef.current.buyEnabled).toBe(false);
+  });
+
+  it('send 가 false 면 setForm 호출 0 · 끊김 실패', () => {
+    const t = setup({ server: masterOff() });
+    t.send.mockReturnValue(false);
+    act(() => {
+      t.hook.result.current.commit('preBuyEnabled', true, 'toggle', { buyEnabled: true });
+    });
+    expect(t.setForm).not.toHaveBeenCalled();
+    expect(t.hook.result.current.failures.preBuyEnabled?.reason).toBe('disconnected');
+  });
+
+  it('대기 중 앞 건 실패로 폐기되면 대기 토글의 동반 필드도 되돌린다', () => {
+    const t = setup({ server: masterOff() });
+    act(() => {
+      t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
+      t.hook.result.current.commit('extraBuyEnabled', true, 'toggle', { buyEnabled: true });
+    });
+    expect(t.formRef.current.extraBuyEnabled).toBe(true);
+    expect(t.formRef.current.buyEnabled).toBe(true);
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.formRef.current.extraBuyEnabled).toBe(false);
+    expect(t.formRef.current.buyEnabled).toBe(false);
+  });
+
+  it('무장 가드(armBlockOf)는 동반 필드를 합친 값으로 판정한다', () => {
+    const armBlockOf = (v: LimitChaserFormValues) => (v.buyEnabled ? '매수주문 · 막힘' : null);
+    const alone = setup({ server: masterOff(), armBlockOf });
+    let a: string | undefined;
+    act(() => {
+      a = alone.hook.result.current.commit('preBuyEnabled', true, 'toggle');
+    });
+    expect(a).toBe('sent');
+
+    const withMaster = setup({ server: masterOff(), armBlockOf });
+    let b: string | undefined;
+    act(() => {
+      b = withMaster.hook.result.current.commit('preBuyEnabled', true, 'toggle', { buyEnabled: true });
+    });
+    expect(b).toBe('blocked');
+    expect(withMaster.send).not.toHaveBeenCalled();
+    expect(withMaster.hook.result.current.failures.preBuyEnabled?.text).toBe('매수주문 · 막힘');
+  });
+
+  it('같은 필드를 대기 중 다시 확정하면 값과 companions 가 마지막 것으로 바뀌고 자리는 그대로다', () => {
+    const t = setup({ server: masterOff() });
+    act(() => {
+      t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
+      t.hook.result.current.commit('buyWatchQty', 8_000, 'value');
+      t.hook.result.current.commit('preBuyEnabled', true, 'toggle', { buyEnabled: true });
+      t.hook.result.current.commit('preBuyEnabled', true, 'toggle', { buyEnabled: true, cancelTradeEnabled: true });
+    });
+    expect(t.hook.result.current.queuedFields).toEqual(['buyWatchQty', 'preBuyEnabled']);
+    // A 성공 → 답 신호 → buyWatchQty 전송 → 성공 → 답 신호 → preBuyEnabled 전송.
+    t.update({ server: echo({ buyEnabled: false, sellEnabled: true, sweepMinTickCount: 5 }) });
+    t.update({ serverAnswerSeq: 1 });
+    t.update({ server: echo({ buyEnabled: false, sellEnabled: true, sweepMinTickCount: 5, buyWatchQty: 8_000 }) });
+    t.update({ serverAnswerSeq: 2 });
+    expect(t.send).toHaveBeenCalledTimes(3);
+    const cfg = t.cfgs()[2]!;
+    expect(cfg.preBuyEnabled).toBe(true);
+    expect(cfg.buyEnabled).toBe(true);
+    expect(cfg.cancelTradeEnabled).toBe(true);
+  });
+
+  it('no-op — 주 필드와 모든 companions 가 서버 값과 같을 때만 · 하나라도 다르면 전송', () => {
+    const on = () => echo({ buyEnabled: true, preBuyEnabled: true });
+    const same = setup({ server: on() });
+    let a: string | undefined;
+    act(() => {
+      a = same.hook.result.current.commit('preBuyEnabled', true, 'toggle', { buyEnabled: true });
+    });
+    expect(a).toBe('noop');
+    expect(same.send).not.toHaveBeenCalled();
+
+    const diff = setup({ server: on() });
+    let b: string | undefined;
+    act(() => {
+      b = diff.hook.result.current.commit('preBuyEnabled', true, 'toggle', { sellEnabled: true });
+    });
+    expect(b).toBe('sent');
+    expect(diff.cfgs()[0]!.sellEnabled).toBe(true);
+  });
+
+  it('미등록(server 없음) — 그룹 스위치(동반 마스터)는 등록 전송 · 한방 체크는 로컬이다', () => {
+    const t = setup({ server: null });
+    let sweep: string | undefined;
+    let group: string | undefined;
+    act(() => {
+      sweep = t.hook.result.current.commit('sweepEnabled', true, 'toggle');
+    });
+    act(() => {
+      group = t.hook.result.current.commit('preBuyEnabled', true, 'toggle', { buyEnabled: true });
+    });
+    expect(sweep).toBe('local');
+    expect(group).toBe('sent');
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.cfgs()[0]!.preBuyEnabled).toBe(true);
+    expect(t.cfgs()[0]!.buyEnabled).toBe(true);
+    expect(t.cfgs()[0]!.sweepEnabled).toBe(true);
+  });
+
+  it('meta — `onSent(cfg, meta)` 로 사유를 넘긴다 · 없으면 둘째 인자 undefined', () => {
+    const t = setup({ server: echo({ buyEnabled: true, sellEnabled: true }) });
+    act(() => {
+      t.hook.result.current.commit('buyEnabled', false, 'toggle', undefined, { cause: 'serverFold' });
+    });
+    expect(t.onSent).toHaveBeenCalledTimes(1);
+    expect(t.onSent.mock.calls[0]![0]).toEqual(t.cfgs()[0]);
+    expect(t.onSent.mock.calls[0]![1]).toEqual({ cause: 'serverFold' });
+
+    const plain = setup();
+    act(() => {
+      plain.hook.result.current.commit('sweepMinTickCount', 5, 'value');
+    });
+    expect(plain.onSent.mock.calls[0]![1]).toBeUndefined();
+  });
+
+  it('meta — 대기열에서 꺼내 보낼 때도 그 확정의 meta 가 그대로 간다 · 실패해도 재시도 없음', () => {
+    const t = setup({ server: echo({ buyEnabled: true, sellEnabled: true }) });
+    act(() => {
+      t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
+      t.hook.result.current.commit('buyEnabled', false, 'toggle', undefined, { cause: 'serverFold' });
+    });
+    t.update({ server: echo({ buyEnabled: true, sellEnabled: true, sweepMinTickCount: 5 }) });
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(t.cfgs()[1]!.buyEnabled).toBe(false);
+    expect(t.onSent.mock.calls[1]![1]).toEqual({ cause: 'serverFold' });
+    // 거부 — 마스터는 서버 값(ON)으로 돌아오고 다시 보내지 않는다.
+    t.update({ serverAnswerSeq: 2 });
+    expect(t.formRef.current.buyEnabled).toBe(true);
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    t.update({ serverAnswerSeq: 3 });
+    expect(t.send).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('게이트 필드 (Phase 24 — 세 그룹 스위치가 등록할 수 있다 · 한방은 체크가 됐다)', () => {
+  it('LC_GATE_FIELDS = 마스터 · 선 · 추가 · 후매수 · 매도 · 취소잔량 — 한방 없음', () => {
+    expect([...LC_GATE_FIELDS]).toEqual([
+      'buyEnabled',
+      'preBuyEnabled',
+      'extraBuyEnabled',
+      'postBuyEnabled',
+      'sellEnabled',
+      'cancelQtyEnabled',
+    ]);
+  });
+
+  it('끄는 방향 한방 체크는 무장 가드를 지나지 않는다(무장 해제 — T-16-44)', () => {
+    const armBlockOf = () => '매수주문 · 막힘';
+    const t = setup({ server: echo({ preBuyEnabled: true, sweepEnabled: true }), armBlockOf });
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('sweepEnabled', false, 'toggle');
+    });
+    expect(out).toBe('sent');
+  });
+
+  it('사전 검증 · D-16 문구 원천 — UI-SPEC 원문 그대로', () => {
+    expect(LC_COMMIT_TEXT.qtyZero).toBe('금액이 주문가격보다 작아 주문수량이 0주예요 — 금액을 올려 주세요');
+    expect(LC_COMMIT_TEXT.minOverMax).toBe(
+      '최소 잔량이 최대 잔량보다 커요 — 최대를 0(무제한)으로 하거나 최소를 낮춰 주세요',
+    );
+    expect(LC_COMMIT_TEXT.reboundRange).toBe('반등을 1~100%로 입력해 주세요');
+    expect(LC_COMMIT_TEXT.sellRatioRequired).toBe(
+      '후매수는 매도비율이 있어야 켤 수 있어요 — 매도비율을 1~100%로 입력해 주세요',
+    );
+    expect(LC_COMMIT_TEXT.extraBuyAtUpperLimit).toBe(
+      '추가매수는 상한가 도달 전에만 켤 수 있습니다 — 매수1호가 == 비교가격',
+    );
+  });
+});
+
+describe('D-03 — 추가매수 · 후매수 금액 0 이면 그 그룹 스위치만 막힌다(lcGroupAmountBlockOf)', () => {
+  const values = (over: Partial<LimitChaserFormValues> = {}): LimitChaserFormValues => ({
+    ...formFromServer(echo(), defaultLimitChaserForm()),
+    extraBuyOrderAmount: 10,
+    postBuyOrderAmount: 10,
+    ...over,
+  });
+
+  it('추가매수 금액 0 에서 켜는 방향 → 「주문금액을 먼저 입력해 주세요」', () => {
+    expect(lcGroupAmountBlockOf(values({ extraBuyOrderAmount: 0 }), 'extraBuyEnabled', true)).toBe(
+      LC_COMMIT_TEXT.amountRequired,
+    );
+  });
+  it('끄는 방향 · 금액 > 0 은 막지 않는다', () => {
+    expect(lcGroupAmountBlockOf(values({ extraBuyOrderAmount: 0 }), 'extraBuyEnabled', false)).toBeNull();
+    expect(lcGroupAmountBlockOf(values(), 'extraBuyEnabled', true)).toBeNull();
+  });
+  it('후매수도 같다', () => {
+    expect(lcGroupAmountBlockOf(values({ postBuyOrderAmount: 0 }), 'postBuyEnabled', true)).toBe(
+      LC_COMMIT_TEXT.amountRequired,
+    );
+    expect(lcGroupAmountBlockOf(values({ postBuyOrderAmount: 0 }), 'postBuyEnabled', false)).toBeNull();
+  });
+  it('그 밖 필드(다른 행 확정 · 선매수)는 null — 다른 행은 자유롭다', () => {
+    const v = values({ extraBuyOrderAmount: 0, postBuyOrderAmount: 0 });
+    expect(lcGroupAmountBlockOf(v, 'extraBuyMinQty', 5)).toBeNull();
+    expect(lcGroupAmountBlockOf(v, 'preBuyEnabled', true)).toBeNull();
+    expect(lcGroupAmountBlockOf(v, 'buyWatchPrice', 1)).toBeNull();
   });
 });
