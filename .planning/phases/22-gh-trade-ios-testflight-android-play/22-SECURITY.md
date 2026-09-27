@@ -73,7 +73,7 @@ created: "2026-09-27"
 
 | Risk ID | Threat Ref | Rationale | Accepted By | Date |
 |---------|------------|-----------|-------------|------|
-| AR-22-01 | T-22-13 | IAM 은 기존 운영자·deployer SA 만 · 백업 암호화 저장. 단 22-05 로 appdistro SA·Firebase 서비스 에이전트가 생김(선언 역할상 Secret Manager 접근 없음, gcloud 미확인 — W-4) | 22-04 PLAN | 2026-09-27 |
+| AR-22-01 | T-22-13 | IAM 은 기존 운영자·deployer SA 만 · 백업 암호화 저장. 22-05 로 생긴 appdistro SA·Firebase 서비스 에이전트도 Secret Manager 접근 없음(W-4 gcloud 확인 2026-09-27) | 22-04 PLAN | 2026-09-27 |
 | AR-22-02 | T-22-15 | D-05 웹과 같은 공개 가입 정책 · 동의 화면 「테스트」 3명 · 실돈 경로는 T-22-06 이 차단 | 22-05 · 22-08 PLAN | 2026-09-27 |
 
 **Transferred → Phase 23:** T-22-10(Play 앱 단위 권한) · T-22-05 Play 앱 서명 SHA-1 · T-22-11 Play 앱 서명 키 보관 · T-22-04 Play `beta` 업로드 경로.
@@ -83,7 +83,7 @@ created: "2026-09-27"
 - **W-1:** `mobile/scripts/release-apps.sh`(phase 뒤 `8bcfed07`)가 fastlane 전체 출력을 stdout 으로 tee — Claude 실행 시 Firebase 1시간 링크가 채팅에 노출될 수 있음 · 로그 umask 077 없음.
 - **W-2:** REVIEW CR-01 미해결 — iOS check-ipa 가 TestFlight 업로드 뒤에 돈다(명시 벡터는 업로드 전 구조적으로 차단). Play `beta` 도 같은 순서 → Phase 23 전 lane 내 선행 게이트로.
 - **W-3:** 2026-09-27 15:28 KST 다른 세션 push `798f911f` 가 22-10 게이트 전 `/privacy`(자리표시 시행일)를 약 24분 운영 노출 · 백엔드 diff 0 · `d678bc51` 로 해소.
-- **W-4:** AR-22-01 전제 보강 필요(위).
+- **W-4 (해소 2026-09-27):** gcloud 읽기 확인 — Firebase 4개 역할(`firebase.appDistributionSdkServiceAgent` · `managementServiceAgent` · `sdkAdminServiceAgent` · `firebaseappdistro.admin`)에 `secretmanager.*` 권한 0 · 백업 비밀 3개에 비밀 단위 IAM 바인딩 0. `firebase-adminsdk-fbsvc` 는 사용자 관리 키 0 · actAs 부여 0(단 Google 기본 부여로 프로젝트 수준 `iam.serviceAccountTokenCreator` 보유 — Firebase 플랫폼·owner 만 도달 가능, 참고). `gh-trade-appdistro` 키 1개(`d9a9c4a3…` · 2026-09-27 04:00 UTC · 로컬 600)만.
 
 ---
 
@@ -96,3 +96,13 @@ created: "2026-09-27"
 | Open | 0 |
 
 gsd-security-auditor (ASVS L1 · block_on high) — `## SECURED`. 정적 grep · `bash -n` · hygiene · verify-prod · 래퍼 exit 코드 · check-apk 음성 검사 · vitest 24/24 · 읽기 전용 git diff.
+
+## Security Audit 2026-09-27 (보강)
+
+| Metric | Count |
+|--------|-------|
+| Threats found | 29 |
+| Closed | 29 |
+| Open | 0 |
+
+감사가 gcloud 로 확인하지 않은 W-4(AR-22-01 전제)를 읽기 전용 gcloud(`projects get-iam-policy` · `secrets get-iam-policy` · `iam roles describe` · `service-accounts keys list`)로 닫았다. W-1 · W-2 는 코드 수정 대상으로 남긴다(비차단).
