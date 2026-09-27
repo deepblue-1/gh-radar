@@ -114,6 +114,11 @@ pnpm --filter @gh-radar/mobile run native:verify-prod   # PROD CONFIG OK 여야 
    - developer.apple.com → Identifiers 에 **Explicit** 번들 ID `com.ghtrade.app` 를 등록한다(Capabilities 없음).
    - App Store Connect 앱 레코드 `GH Trade` 를 만든다(한국어 · SKU `com.ghtrade.app`).
    - TestFlight 내부 그룹 `GH Trade 테스터` 를 만들고 **자동 배포**를 켠다.
+   - **Xcode › Settings › Accounts 에 팀 `954QPCS3F5` 의 Apple ID 로 로그인한다.** `beta` lane 의 archive 는
+     자동 서명(`CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates`)이고, 개발 인증서·프로파일을 만들거나 받을 때
+     ASC API 키가 아니라 이 로그인을 쓴다. 새 Mac 이나 캐시된 개발 프로파일이 만료된 뒤 archive 가
+     서명 오류(`No Accounts` · `No signing certificate "iOS Development"` · `No profiles for 'com.ghtrade.app'`)로
+     멈추면 이 로그인부터 확인한다. export(App Store 프로파일)와 업로드는 ASC API 키로 돈다.
 2. `! bash mobile/scripts/setup-release-secrets.sh dir asc` — 비밀 디렉터리와 ASC API 키(22-01)
 3. `! bash mobile/scripts/setup-release-secrets.sh keystore backup` — 업로드 키스토어 생성과 Secret Manager 백업(22-04). 키스토어가 이미 있으면 SKIP 한다.
 4. **Firebase** (22-05)

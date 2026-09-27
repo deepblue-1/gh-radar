@@ -60,6 +60,9 @@ platform :ios do
         teamID: "954QPCS3F5",
         provisioningProfiles: { "com.ghtrade.app" => lane_context[SharedValues::SIGH_NAME] }
       },
+      # 자동 서명은 Xcode › Settings › Accounts 에 로그인된 팀 954QPCS3F5 Apple ID 로 개발 인증서·프로파일을
+      # 받는다(README 「처음 1회」 · 22-REVIEW WR-05). -authenticationKey* 로 ASC 키를 넘기지 않는 이유:
+      # gym 이 xcodebuild 명령줄을 그대로 로그에 찍어 키 ID·발급자 ID 가 터미널·로그에 남는다(값 비출력 규약).
       xcargs: "CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION=#{build_number} -allowProvisioningUpdates",
       output_directory: out,
       output_name: "App",
