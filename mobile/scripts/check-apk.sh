@@ -16,9 +16,12 @@
 #   기대 versionCode: APK 와 같은 폴더의 ghtrade-version-code.txt (lane firebase 가 쓴다)
 # 통과: 「APK CHECK OK sha1=… versionCode=…」 한 줄 · exit 0. 위반: 「APK CHECK FAIL — …」 줄들 · exit 1.
 set -euo pipefail
+# 인자 경로는 호출한 위치 기준이다 — mobile/ 로 옮기기 전에 절대 경로로 바꾼다.
+APK_ARG="${1:-}"
+if [[ -n "$APK_ARG" && "$APK_ARG" != /* ]]; then APK_ARG="$PWD/$APK_ARG"; fi
 cd "$(dirname "$0")/.."
 
-APK="${1:-android/app/build/outputs/apk/release/app-release.apk}"
+APK="${APK_ARG:-android/app/build/outputs/apk/release/app-release.apk}"
 EXPECTED_SHA1="${GHTRADE_UPLOAD_SHA1:-}"
 PKG="com.ghtrade.app"
 MIN_SDK=24                          # android/variables.gradle minSdkVersion
