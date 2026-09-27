@@ -1061,11 +1061,13 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     // 등록 전 — 사이드바 3단에 전략 항목이 없다.
     await expect(strategyItems(page)).toHaveCount(0);
 
-    // ★ WR-06 — 발주할 수 없는 전략은 무장되지 않는다(10만원 / 12.74만 = 0주).
+    // ★ Phase 24 R7 · Pitfall 5 — 무장 가드는 그룹별이다. 마스터는 주문가격 · 비교가격(시세)만 보므로 시세가
+    //   있으면 켤 수 있고, 수량 0(10만원 / 12.74만 = 0주)은 누르기 전 패널이 아니라 그 그룹을 켜는 순간의
+    //   사전 검증 줄이 말한다.
     const card = cardOf(page, E2E_ISIN);
     const buySwitch = lcSwitch(card, '매수주문 켜기');
-    await expect(buySwitch).toBeDisabled();
-    await expect(card.locator('[data-slot="lc-arm-blocked"]').first()).toBeVisible();
+    await expect(buySwitch).toBeEnabled();
+    await expect(card.locator('[data-slot="lc-arm-blocked"]')).toHaveCount(0);
     // ★ A-P1 — 미등록 카드의 값 확정은 **로컬 반영**이다(서버 전략이 없어 보낼 곳이 없다). 전송 0.
     const setBeforeAmount = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
     await editLc(page, 'lc-buy-order-amount', '50'); // 50만원 → 3주

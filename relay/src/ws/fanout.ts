@@ -1240,9 +1240,9 @@ export class WsFanout {
    *   마지막 관문**이어야 한다. `UIntSchema` 는 `min(0)` 이라 0 을 통과시키므로 스키마는
    *   이것을 잡지 못한다 — UI 를 우회한 경로(직접 wss, 옛 탭)가 있어도 무장 상태가 만들어지면
    *   안 된다 (T-16-43).
-   * ★ 그래서 이 함수는 UI 의 `canArm*` **세 식과 동형**이어야 한다 (GC-WR-05). 마지막 관문이
-   *   첫 관문보다 느슨하면 위 문장이 성립하지 않는다 — 아래 세 갈래가 각각
-   *   `canArmBuy` · `canArmSell` · `canArmSweep`(`limit-chaser-form.tsx:343-365`)의 부정이다.
+   * ★ 그래서 이 함수는 UI 의 `canArmOf`/`armBlockOf` **식과 동형**이어야 한다 (GC-WR-05). 마지막 관문이
+   *   첫 관문보다 느슨하면 위 문장이 성립하지 않는다 — 아래 여섯 갈래(buy · preBuy · extraBuy · postBuy ·
+   *   sweep · sell)가 각각 `limit-chaser-form.tsx` 의 짝 식의 부정이다(갈래마다 주석으로 짝을 적었다).
    * ★ 매도 수량(`sellOrderQty`)은 **S→C 전용**이라 요청에 없다. 매도가 대신 보는 것은
    *   `sellWatchQty` 이고, 계약이 「**0 이면 서버가 매도 활성화를 거부**(눕힘)한다」고 못박은
    *   값이다(`packages/shared/src/relay.ts`). 그것을 통과시키면 조용한 부분 거부가 재현된다.
@@ -1259,35 +1259,46 @@ export class WsFanout {
     cfg: RelayLimitChaserInput,
   ): boolean {
     // ★ 이 줄을 지우면 안 된다 — 무용지물이 아니다. 게이트 4종이 **전부 꺼져 있어도**
-    //   `sweepEnabled: true` ∧ (`sweepWatchPrice === 0` ∨ `buyOrderPrice === 0` ∨
-    //   `buyOrderQty === 0`) 이면 아래에서 `reason === "sweep"` 이 되어 **철거가 거부된다.**
-    //   `sweepEnabled` 는 삭제 판정 4종(`#isTeardown`)에 들어 있지 않기 때문이다. 이 면제가
-    //   없으면 「한방만 켜 둔 전략을 영원히 못 지우는」 상태가 만들어진다 (T-16-55 / T-16-44).
+    //   선매수 · 한방 체크나 그룹 수량 0 이 남아 있으면 아래 갈래가 **철거를 거부**한다.
+    //   세 그룹 · 한방은 삭제 판정 4종(`#isTeardown`)에 들어 있지 않기 때문이다. 이 면제가
+    //   없으면 「체크만 남은 전략을 영원히 못 지우는」 상태가 만들어진다 (T-16-55 / T-16-44).
     if (this.#isTeardown(cfg)) return true;
-    // UI 는 `buyQty` 를 `buyOrderQtyFromAmount(금액, 가격)` 로 **산출**하지만 relay 가 받는 것은
-    // 이미 산출된 `buyOrderQty` 다 — 그래서 여기서는 `buyOrderQty === 0` 을 본다. 「식이 다르다」가
-    // 아니라 같은 식의 양 끝이다.
+    // Phase 24 — **그룹별**이다(Pitfall 5 · 서버 §9-2 ③~⑤). 웹 `limit-chaser-form.tsx` 의
+    // `canArmOf`/`armBlockOf` 와 **같은 커밋**에서 바뀐다 — 첫 관문이 마지막 관문과 같거나 더 엄격해야
+    // 한다(GC-WR-05). 옛 식(마스터 ON ∧ `buyOrderQty === 0` → 전 프레임 거부)은 선매수 금액이 빈
+    // 정상 후매수 전략까지 게이트웨이에 닿지 못하게 했다.
+    // UI 는 그룹 수량을 `buyOrderQtyFromAmount(그룹 금액, 공통 주문가격)` 로 **산출**하지만 relay 가
+    // 받는 것은 이미 산출된 값이다 — 그래서 여기서는 `…OrderQty === 0` 을 본다(같은 식의 양 끝).
     const reason =
-      // UI `canArmBuy = buyOrderPrice > 0 && buyQty > 0`
-      cfg.buyEnabled && (cfg.buyOrderPrice === 0 || cfg.buyOrderQty === 0)
+      // 웹 `canArmOf.buyEnabled = buyOrderPrice > 0 && buyWatchPrice > 0` — 서버는 주문가격 · 비교가격
+      // 0 이면 마스터를 눕힌다. 마스터는 수량을 보지 않는다(수량은 그룹 몫).
+      cfg.buyEnabled && (cfg.buyOrderPrice === 0 || cfg.buyWatchPrice === 0)
         ? "buy"
-        : // UI `canArmSell = sellOrderPrice > 0 && sellWatchQty > 0`
-          cfg.sellEnabled && (cfg.sellOrderPrice === 0 || cfg.sellWatchQty === 0)
-          ? "sell"
-          : // UI `canArmSweep = sweepWatchPrice > 0 && canArmBuy` — 한방은 매수 발주를
-            // **재계산**하는 보조 트리거라 매수 무장 조건을 함께 요구한다. 매수를 못 켜는
-            // 상태에서 한방만 켜면 정의상 아무 발주도 만들지 못한다.
-            cfg.sweepEnabled &&
-              (cfg.sweepWatchPrice === 0 || cfg.buyOrderPrice === 0 || cfg.buyOrderQty === 0)
-            ? "sweep"
-            : null;
+        : // 웹 `canArmOf.preBuyEnabled = buy && buyOrderQtyFromAmount(buyOrderAmount, 주문가격) > 0`
+          cfg.buyEnabled && cfg.preBuyEnabled && cfg.buyOrderQty === 0
+          ? "preBuy"
+          : // 웹 `canArmOf.extraBuyEnabled = buy && buyOrderQtyFromAmount(extraBuyOrderAmount, 주문가격) > 0`
+            cfg.buyEnabled && cfg.extraBuyEnabled && cfg.extraBuyOrderQty === 0
+            ? "extraBuy"
+            : // 웹 `canArmOf.postBuyEnabled = buy && buyOrderQtyFromAmount(postBuyOrderAmount, 주문가격) > 0`
+              cfg.buyEnabled && cfg.postBuyEnabled && cfg.postBuyOrderQty === 0
+              ? "postBuy"
+              : // 웹 `armBlockOf` 「선매수 한방」 = `preBuyEnabled && sweepEnabled && sweepWatchPrice === 0`
+                // (웹은 마스터를 보지 않아 더 엄격하다). 한방은 선매수 안 체크라 선매수가 꺼져 있으면
+                // 판정되지 않는 값이다 — 막을 이유가 없다.
+                cfg.buyEnabled && cfg.preBuyEnabled && cfg.sweepEnabled && cfg.sweepWatchPrice === 0
+                ? "sweep"
+                : // 웹 `canArmOf.sellEnabled = sellOrderPrice > 0 && sellWatchQty > 0`
+                  cfg.sellEnabled && (cfg.sellOrderPrice === 0 || cfg.sellWatchQty === 0)
+                  ? "sell"
+                  : null;
     if (reason === null) return true;
     // 계좌번호는 싣지 않는다 (`maskAccountNo` 규율 / T-16-45) — `isin` 과 사유만 남긴다.
     logger.error(
       { userId, t, isin: cfg.isin, gate: reason },
       "[WS] 발주가·수량 0 인 게이트 무장 — 전략 요청 거부 (게이트웨이로 나가지 않았다)",
     );
-    // 문구는 **갈래별로 가르지 않는다.** UI 의 `ARM_BLOCKED_TEXT` 3종이 이미 필드 단위로
+    // 문구는 **갈래별로 가르지 않는다.** UI 의 `ARM_BLOCKED_TEXT` · 그룹 사전 검증 줄이 이미 필드 단위로
     // 정확하게 안내하고(첫 관문), 이 프레임은 그 UI 를 우회한 경로에만 도달한다 — 여기서
     // 필드명을 따로 적으면 두 벌의 문구가 갈려 언젠가 서로 모순된다. 갈래는 로그의
     // `gate` 로 구분한다.

@@ -143,50 +143,77 @@ import {
   lcAmountBlockOf,
   useLcFieldCommit,
   type LcCommitFailure,
+  type LcCommitMeta,
   type LcFailReason,
   type LcFieldKey,
 } from '@/components/trading/lc/use-lc-field-commit';
 import { useEditMode } from '@/lib/use-edit-mode';
 
 /**
- * 무장 판정을 지나는 게이트 3종. **순서가 곧 사유 표시 우선순위**다 — 화면의 위→아래
- * (매수 → 한방 → 매도)와 같게 두어야 사유 패널이 짚어 준 곳과 사용자가 보는 곳이 일치한다.
+ * 무장 판정을 지나는 게이트 5종. **순서가 곧 사유 표시 우선순위**다 — 화면의 위→아래
+ * (매수주문 → 선매수 → 추가매수 → 후매수 → 매도)와 같게 두어야 사유 패널이 짚어 준 곳과 사용자가 보는 곳이 일치한다.
+ * 한방은 선매수 안 **체크**가 됐다(Phase 24) — 게이트가 아니고, 그 무장 판정은 `armBlockOf` 끝 한 줄이다.
  */
-const GATE_KEYS = ['buyEnabled', 'sweepEnabled', 'sellEnabled'] as const;
+const GATE_KEYS = ['buyEnabled', 'preBuyEnabled', 'extraBuyEnabled', 'postBuyEnabled', 'sellEnabled'] as const;
 type GateKey = (typeof GATE_KEYS)[number];
 
+/** 매수 세 그룹 스위치(D-01 · D-02 동반 대상). */
+type BuyGroupGate = 'preBuyEnabled' | 'extraBuyEnabled' | 'postBuyEnabled';
+const BUY_GROUP_GATES: readonly BuyGroupGate[] = ['preBuyEnabled', 'extraBuyEnabled', 'postBuyEnabled'];
+const isBuyGroupGate = (gate: string): gate is BuyGroupGate => (BUY_GROUP_GATES as readonly string[]).includes(gate);
+
 /**
- * 무장 불가 사유 (WR-06). 배지만 회색으로 두면 사용자는 **왜** 안 켜지는지 모른다.
+ * 그룹 → 그 그룹 금액 필드. 수량은 **공통 주문가격**으로 `buyOrderQtyFromAmount` 가 산출한다(역산 금지 ·
+ * `buildCfg` 의 금액→수량 3벌과 같은 호출).
+ */
+const GROUP_AMOUNT_FIELD = {
+  preBuyEnabled: 'buyOrderAmount',
+  extraBuyEnabled: 'extraBuyOrderAmount',
+  postBuyEnabled: 'postBuyOrderAmount',
+} as const satisfies Record<BuyGroupGate, keyof LimitChaserFormValues>;
+
+/** 그룹 주문수량 — 웹 `canArmOf` 와 사전 검증이 같은 식을 읽는다(relay 는 산출된 `…OrderQty` 를 본다). */
+function groupQtyOf(gate: BuyGroupGate, values: LimitChaserFormValues): number {
+  return buyOrderQtyFromAmount(values[GROUP_AMOUNT_FIELD[gate]], values.buyOrderPrice);
+}
+
+/**
+ * 무장 불가 사유 (WR-06 · UI-SPEC 「무장 불가 패널 문구」). 배지만 회색으로 두면 사용자는 **왜** 안 켜지는지 모른다.
  *
- * ★ **원인이 둘이고, 사용자가 만져야 할 곳이 서로 다르다** (GC-WR-12).
- *   1. **시세 미수신** — `stock_quotes` 행이 없으면 상한가·현재가가 0 이고, 상한가 시딩이
- *      가격 칸을 전부 0 으로 채운다. 이때 만져야 할 것은 **가격**이다.
- *   2. **주문금액 부족** — 가격은 정상인데 `floor(주문금액 / 매수가격) = 0주` 인 경우다.
- *      이쪽이 **훨씬 흔하다**: 기본 주문금액 10만원으로 127,400원 종목을 고르면 그 자리에서
- *      0주가 된다(`e2e/specs/trading-limit-chaser.spec.ts:181-192` 가 고정한 재현 조건).
- *      이때 만져야 할 것은 **금액**이고, 「시세를 못 받았다」고 말하면 사용자는 엉뚱한 곳
- *      (재접속·새로고침)을 만지며 그 사이 시장은 움직인다.
- *   옛 문구는 둘을 「시세를 받지 못해 …」 한 줄로 뭉개 ②를 ①로 오인시켰다.
+ * ★ 열 아래 「켤 수 없는 이유」 패널은 **누르기 전에 알 수 있는 시세 미수신(가격 0)** 만 다룬다(R7).
+ *   옛 「주문금액 부족 → 0주」 패널 문구는 그룹 카드 사전 검증 줄(`LC_COMMIT_TEXT.qtyZero`)로 옮겼다 —
+ *   수량 0 은 누르는 순간 그 카드 안에서 말한다(Phase 24 · UI-SPEC §7).
  */
 const ARM_BLOCKED_TEXT = {
-  buyPrice: '시세를 받지 못해 매수가격이 0 이에요. 매수가격을 입력하면 켤 수 있어요.',
-  buyAmount: '주문금액이 매수가격보다 작아 주문수량이 0 주예요. 금액을 올리면 켤 수 있어요.',
-  sellPrice: '시세를 받지 못해 매도가격이 0 이에요. 매도가격을 입력하면 켤 수 있어요.',
-  sellWatchQty: '매도 호가잔량이 0 이에요. 감시할 잔량을 입력하면 켤 수 있어요.',
+  buyPrice: '시세를 받지 못해 주문가격이 0 이에요. 주문가격을 입력하면 켤 수 있어요.',
+  buyWatchPrice: '시세를 받지 못해 비교가격이 0 이에요. 비교가격을 입력하면 켤 수 있어요.',
+  sellPrice: '시세를 받지 못해 매도 주문가격이 0 이에요. 주문가격을 입력하면 켤 수 있어요.',
+  sellWatchQty: '매도 매수잔량이 0 이에요. 감시할 매수잔량을 입력하면 켤 수 있어요.',
   sweepPrice: '시세를 받지 못해 한방가격이 0 이에요. 한방가격을 입력하면 켤 수 있어요.',
 } as const;
 
 /**
- * 게이트의 **표시 이름** — 값은 각 `Group` 의 `title` 과 **같은 문자열**이어야 한다.
+ * 게이트의 **표시 이름** — 값은 각 그룹 카드의 `title` 과 **같은 문자열**이어야 한다.
  *
  * 사용자가 목록 위에서 본 이름과 사유가 부르는 이름이 갈리면 그것이 곧 오독이다.
  * 사유 줄과 전송 직전 차단 문구(`armBlockOf`)가 **이 표 하나**를 읽는다.
  */
 const GATE_LABEL: Record<GateKey, string> = {
   buyEnabled: '매수주문',
-  sweepEnabled: '한방체결',
+  preBuyEnabled: '선매수',
+  extraBuyEnabled: '추가매수',
+  postBuyEnabled: '후매수',
   sellEnabled: '매도주문',
 };
+/** 한방 체크의 무장 불가 접두 — 「{그룹} {라벨}」 규칙(체크 접근성 이름과 같다). */
+const SWEEP_LABEL = '선매수 한방';
+
+/** 매수 공통 가격(주문가격 · 비교가격) 사유 — 서버가 마스터를 눕히는 값(relay `buy` 갈래). 멀쩡하면 null. */
+function buyPriceReasonOf(values: LimitChaserFormValues): string | null {
+  if (values.buyOrderPrice === 0) return ARM_BLOCKED_TEXT.buyPrice;
+  if (values.buyWatchPrice === 0) return ARM_BLOCKED_TEXT.buyWatchPrice;
+  return null;
+}
 
 /**
  * 게이트 하나가 왜 안 켜지는가 — **문구 산출 지점 하나**.
@@ -195,26 +222,16 @@ const GATE_LABEL: Record<GateKey, string> = {
  * 적으면 언젠가 서로 다른 말을 하고, 그때 사용자는 「화면이 서로 다른 이유를 대는」 상태를
  * 본다 — 안전 게이트에서 그것은 문구 결함이 아니라 신뢰 결함이다(GC-WR-09 + GC-WR-12).
  *
- * ★ 판정은 `canArm*` 3식과 **같은 값**을 본다(`limit-chaser.ts` 의 산출식을 복제하지 않는다).
+ * ★ 판정은 `canArmOf` 와 **같은 값**을 본다(`limit-chaser.ts` 의 산출식을 복제하지 않는다).
  */
 function armBlockedTextOf(key: GateKey, values: LimitChaserFormValues): string {
-  // 매도는 두 값이 독립이다 — 가격이 0 이면 시세, 아니면 감시 호가잔량이다(`canArmSell` 동형).
+  // 매도는 두 값이 독립이다 — 가격이 0 이면 시세, 아니면 감시 매수잔량이다(`canArmOf.sellEnabled` 동형).
   if (key === 'sellEnabled') {
     return values.sellOrderPrice === 0 ? ARM_BLOCKED_TEXT.sellPrice : ARM_BLOCKED_TEXT.sellWatchQty;
   }
-  // 매수는 「가격이 없다」와 「금액이 모자라 0주가 됐다」가 다른 행동을 요구한다.
-  const buyReason =
-    values.buyOrderPrice === 0 ? ARM_BLOCKED_TEXT.buyPrice : ARM_BLOCKED_TEXT.buyAmount;
-  if (key === 'buyEnabled') return buyReason;
-  /*
-    한방은 `canArmSweep = sweepWatchPrice > 0 && canArmBuy` 라 원인이 **두 축**이다.
-    자기 감시가가 0 인 경우를 먼저 짚고, 아니면 매수 쪽 사유를 **접두 없이 그대로** 쓴다.
-    ★ 옛 접두어(「한방은 매수 무장 조건을 함께 요구해요 — 」)는 260911-w5h 에서 사라졌다.
-      그것이 하던 「한방이라는 맥락 고지」는 이제 **게이트 이름 나열**(`GATE_LABEL`)이 한다 —
-      같은 문장을 공유하는 두 게이트가 한 줄로 합쳐지므로(`armBlockedGroupsOf`) 접두를 남기면
-      같은 사유가 두 줄로 갈려 중복 병합이 영영 일어나지 않는다.
-  */
-  return values.sweepWatchPrice === 0 ? ARM_BLOCKED_TEXT.sweepPrice : buyReason;
+  // 매수 넷은 공통 가격이 먼저다(시세 미수신 — 만질 곳은 가격). 가격이 멀쩡한데 막혔으면 그 그룹 수량 0 이다
+  //   (만질 곳은 그 카드 금액 — 사전 검증 줄과 같은 문장).
+  return buyPriceReasonOf(values) ?? LC_COMMIT_TEXT.qtyZero;
 }
 
 /** 사유 한 줄 — 같은 문장을 공유하는 게이트들이 한 줄로 합쳐진 결과다. */
@@ -228,9 +245,10 @@ export interface ArmBlockedGroup {
 /**
  * 「켤 수 없는 이유」 목록 산출 — **순수 함수 하나**.
  *
- * `GATE_KEYS` 순서(매수 → 한방 → 매도 = 화면 위→아래)로 막힌 게이트를 고른 뒤
- * `armBlockedTextOf` 결과가 **같은 문자열인 것끼리 묶는다**. 첫 등장 순서를 유지한다 —
- * 그래야 카드 위에서 본 순서와 사유 순서가 같다.
+ * `GATE_KEYS` 순서(매수주문 → 선 · 추가 · 후매수 → 매도 = 화면 위→아래)로 막힌 게이트를 고른 뒤
+ * `armBlockedTextOf` 결과가 **같은 문자열인 것끼리 묶는다**(「매수주문 · 선매수 · 추가매수 · 후매수 · {사유}」).
+ * 첫 등장 순서를 유지한다 — 그래야 카드 위에서 본 순서와 사유 순서가 같다.
+ * `canArm` 은 **정적 판정**(`canArmStaticOf` — 가격 0 · 매도 매수잔량 0)이다. 그룹 수량 0 은 여기 없다(R7).
  *
  * ★ 문장은 여기서 짓지 않는다. 산출 지점은 계속 `armBlockedTextOf` 하나다(파일 상단 ② 5).
  */
@@ -257,72 +275,91 @@ function armBlockedGroupsOf(
 const ARM_BLOCKED_SEP = ' · ';
 
 /**
- * ★ **무장 가능 판정** (WR-06) — 발주할 수 없는 전략은 켜지지 않는다. **산출 지점 하나**다.
+ * ★ **무장 가능 판정** (WR-06 · Phase 24 그룹별) — 발주할 수 없는 그룹은 켜지지 않는다. **산출 지점 하나**다.
  *
- * 렌더의 스위치 `disabled`·사유 패널(`canArm`), 필드 확정 훅의
- * 전송 직전 가드(`armBlockOf`, 20-01)가 전부 이 함수를 읽는다 — 식을 복제하면 한쪽만 고쳐진다.
+ * 필드 확정 훅의 전송 직전 가드(`armBlockOf`) · 사전 검증 수량 판정이 이 식을 읽고, relay `fanout.ts`
+ * `#strategyArmable` 의 여섯 갈래(buy · preBuy · extraBuy · postBuy · sweep · sell)와 **같은 커밋에서 같은 식**이다
+ * (Pitfall 5 · GC-WR-05 — 첫 관문이 마지막 관문과 같거나 더 엄격해야 한다).
+ *
+ *   - `buyEnabled`(마스터) = 주문가격 > 0 ∧ 비교가격 > 0 — 서버가 마스터를 눕히는 값. 마스터는 수량을 보지 않는다.
+ *   - 선 · 추가 · 후매수 = 마스터 무장 가능 ∧ 그 그룹 수량(`buyOrderQtyFromAmount(그룹 금액, 주문가격)`) > 0.
+ *     옛 식(마스터 = 선매수 수량 > 0)은 선매수 금액이 빈 정상 후매수 전략을 막았다.
  *
  * `mergeMasterAndQuote` 는 `stock_quotes` 행이 없으면 `upperLimit: 0`·`price: 0` 을 돌려주고,
- * 그런 종목을 고르면 상한가 시딩이 가격 칸을 전부 0 으로 채운다. 그 상태로 매수를 켜면
- * `{buyEnabled:true, buyOrderPrice:0, buyOrderQty:0}` 이 나가고(`UIntSchema` 는 0 을
- * 통과시킨다) 화면에는 「무장」 배지가 뜬다 — 사용자는 무장했다고 믿지만 그 전략은 영원히
- * 발주하지 않는다. 조용한 실패다.
- *
- * ★ 수량 산출식을 **복제하지 않는다**. `buyOrderQtyFromAmount` 를 그대로 읽는다 —
- *   `lib/limit-chaser.ts` 가 유일 지점이다.
+ * 그런 종목을 고르면 상한가 시딩이 가격 칸을 전부 0 으로 채운다 — 그 상태의 「무장」 배지는 영원히
+ * 발주하지 않는 조용한 실패다.
  */
 function canArmOf(values: LimitChaserFormValues): Record<GateKey, boolean> {
-  const buyQty = buyOrderQtyFromAmount(values.buyOrderAmount, values.buyOrderPrice);
-  const buy = values.buyOrderPrice > 0 && buyQty > 0;
+  const buy = buyPriceReasonOf(values) === null;
   /*
     ★ 매도는 **예상 매도수량(`estimatedSellQty(매도가능, 비율)`)을 조건으로 쓰지 않는다.**
-
-    `lib/limit-chaser.ts` 가 그 값을 **표시 전용**이라고 못박았고, 정본은 서버가 Set 시점에
-    스냅샷하는 `sellOrderQty` 다. 화면에서 그 예상값 행 자체를 걷어낸 지금도(quick 260911-tuk)
-    이 문장은 그대로다 — 표시를 지운 것이지 판정 기준을 바꾼 것이 아니다.
-    게다가 상따의 정상 흐름은 「아직 한 주도 없는 상태에서 매수·매도를 함께 무장」이다.
-    보유 0 을 무장 차단 조건으로 삼으면 이 화면의 주 동선이 통째로 막힌다.
-
-    그래서 **서버 검증과 동형**으로 잡는다: 서버가 매도를 눕히는 조건은 `sellWatchQty === 0`
-    (「0 이면 서버가 매도 활성화를 거부한다」)과 비율 범위이지 보유수량이 아니다. WR-06 이
-    말한 「시세를 못 받은 종목」은 `sellOrderPrice === 0` 으로 여기서 그대로 걸린다.
+    정본은 서버가 Set 시점에 스냅샷하는 `sellOrderQty` 이고, 상따의 정상 흐름은 「아직 한 주도 없는 상태에서
+    매수·매도를 함께 무장」이다. 서버 검증과 동형으로 `sellWatchQty === 0`(「0 이면 서버가 매도 활성화를
+    거부한다」)과 시세 미수신(`sellOrderPrice === 0`)만 본다.
   */
   const sell = values.sellOrderPrice > 0 && values.sellWatchQty > 0;
-  /*
-    한방(스윕)은 **매수 발주를 재계산**하는 보조 트리거다. `crudOf` 의 게이트 4종
-    (`buyEnabled`·`sellEnabled`·`cancelQtyEnabled`·`cancelTradeEnabled`)에 `sweepEnabled` 가
-    없다는 사실이 그것을 말한다 — 한방만 켠 전략은 서버가 삭제(`crud "D"`)로 정규화한다.
-    그래서 한방은 **자기 감시가(`sweepWatchPrice`) + 매수 무장 조건**을 함께 요구한다.
-    매수를 못 켜는 상태에서 한방만 켜는 것은 정의상 아무 발주도 만들지 못한다.
-  */
-  const sweep = values.sweepWatchPrice > 0 && buy;
-  return { buyEnabled: buy, sellEnabled: sell, sweepEnabled: sweep };
+  return {
+    buyEnabled: buy,
+    preBuyEnabled: buy && groupQtyOf('preBuyEnabled', values) > 0,
+    extraBuyEnabled: buy && groupQtyOf('extraBuyEnabled', values) > 0,
+    postBuyEnabled: buy && groupQtyOf('postBuyEnabled', values) > 0,
+    sellEnabled: sell,
+  };
+}
+
+/**
+ * **정적** 무장 판정 — 누르기 전에 알 수 있는 사유만(시세 미수신 · 매도 매수잔량 0). 스위치 `disabled` 와
+ * 열 아래 패널이 이것을 읽는다. 그룹 수량 0 은 누르는 순간의 사전 검증이다(R7 · UI-SPEC §7) — 여기 넣으면
+ * 금액만 모자란 그룹 스위치가 눌리지도 않아 「왜」를 말할 자리가 사라진다.
+ */
+function canArmStaticOf(values: LimitChaserFormValues): Record<GateKey, boolean> {
+  const buy = buyPriceReasonOf(values) === null;
+  const sell = values.sellOrderPrice > 0 && values.sellWatchQty > 0;
+  return { buyEnabled: buy, preBuyEnabled: buy, extraBuyEnabled: buy, postBuyEnabled: buy, sellEnabled: sell };
 }
 
 /**
  * 이 값으로 보내면 relay 가 통째로 거부할 무장인가 — 사유 1줄, 아니면 `null`.
  *
  * ★ 조립 규칙은 `{게이트이름} · {사유}` 이고, 시트 검증(`validate`)과 필드 확정 훅이
- *   **이 함수 하나**를 읽는다(GC-WR-09 · T-16-60).
+ *   **이 함수 하나**를 읽는다(GC-WR-09 · T-16-60). 동반 필드(D-01)는 훅이 합친 값으로 부른다.
  * ★ **켜져 있는 게이트만** 본다(`values[key]`) — 끄는 방향은 막지 않는다(T-16-44).
+ * ★ 한방(선매수 안 체크)은 게이트 뒤 한 줄이다 — 선매수가 켜져 있을 때만 한방가격 0 을 본다(relay `sweep` 갈래 ·
+ *   선매수가 꺼져 있으면 판정되지 않는 값이라 막을 이유가 없다).
  * ★★ **철거 면제**(R2-WR-02) — 게이트 4종이 전부 꺼진 요청은 전략을 내리는 요청이라 막지 않는다.
  *   relay `fanout.ts` `#strategyArmable` 도 `#isTeardown(cfg)` 를 먼저 면제한다. 첫 관문이
- *   마지막 관문보다 엄격하면 사용자는 전략을 내리려는데 화면이 막는다. `sweepEnabled` 는 삭제
- *   판정 4종에 들어 있지 않아 「게이트 4종 OFF + 한방 ON + 시세 끊김」이 정확히 그 함정이다.
+ *   마지막 관문보다 엄격하면 사용자는 전략을 내리려는데 화면이 막는다.
  */
 function armBlockOf(values: LimitChaserFormValues): string | null {
   if (isDeleteIntent(values)) return null;
   const canArm = canArmOf(values);
   const blocked = GATE_KEYS.find((key) => values[key] && !canArm[key]);
-  return blocked === undefined
-    ? null
-    : `${GATE_LABEL[blocked]}${ARM_BLOCKED_SEP}${armBlockedTextOf(blocked, values)}`;
+  if (blocked !== undefined) return `${GATE_LABEL[blocked]}${ARM_BLOCKED_SEP}${armBlockedTextOf(blocked, values)}`;
+  if (values.preBuyEnabled && values.sweepEnabled && values.sweepWatchPrice === 0) {
+    return `${SWEEP_LABEL}${ARM_BLOCKED_SEP}${ARM_BLOCKED_TEXT.sweepPrice}`;
+  }
+  return null;
 }
 
-/** 매수 열이 품는 게이트 — 한방은 매수 열 안에 있으므로 그 사유도 이 열에 선다. */
-const BUY_COLUMN_GATES: readonly GateKey[] = ['buyEnabled', 'sweepEnabled'];
+/** 매수 열이 품는 게이트 — 마스터 + 세 그룹. 사유가 같으면 한 줄로 합쳐진다. */
+const BUY_COLUMN_GATES: readonly GateKey[] = ['buyEnabled', 'preBuyEnabled', 'extraBuyEnabled', 'postBuyEnabled'];
 /** 매도 열은 자기 사유만 갖는다 — 매수 사유가 매도 열에 새지 않는다. */
 const SELL_COLUMN_GATES: readonly GateKey[] = ['sellEnabled'];
+
+/**
+ * D-02 후반 · D-19 — **서버 접힘 하강 전이**인가(WinForms `b066e135` `DropMasterAfterServerFold` 의 `hadBuyGroup` 동형).
+ *
+ * 직전 **렌더된** 에코에서는 선 · 추가 · 후매수 중 하나라도 ON 이었는데(hadBuyGroup) 이 에코에서 세 그룹 OFF ∧
+ * 마스터 ON 이 된 경우만 true 다. 이미 세 그룹 OFF 로 시작하는 에코(같은 상태 재수신 · 재접속 뒤 첫 `lc.snap` ·
+ * 첫 스냅샷 · 사람이 마지막 그룹을 꺼 마스터까지 꺼진 자기 에코)는 트리거가 아니다(핑퐁 0).
+ */
+export function isServerFoldEdge(prev: RelayLimitChaser | null, next: RelayLimitChaser | null): boolean {
+  if (prev === null || next === null) return false;
+  const hadBuyGroup = prev.preBuyEnabled || prev.extraBuyEnabled || prev.postBuyEnabled;
+  return (
+    hadBuyGroup && !next.preBuyEnabled && !next.extraBuyEnabled && !next.postBuyEnabled && next.buyEnabled
+  );
+}
 
 /**
  * 전송 실패 문구 — `strategy-status-card.tsx:358` 의 「연결이 끊겨 … 보내지 못했어요」 계열과
@@ -400,8 +437,10 @@ export interface LimitChaserFormProps {
    *      재전송은 하지 않는다**(T-16-10): 재전송은 사용자가 누르지 않은 두 번째 등록이다.
    *   ② **에코의 출처** — 내가 보낸 요청의 에코와 다른 단말의 변경을 구분하지 못하면
    *      내 확정이 반영될 때마다 「다른 단말에서 변경됐어요」가 뜬다.
+   * `meta.cause` = 보낸 사유(D-02 후반 서버 접힘 자동 끔 = `'serverFold'`) — 카드가 에코 로그 귀속에 쓴다(24-05).
+   * 사유 없는 전송은 인자 하나로 부른다.
    */
-  onSent?: (cfg: RelayLimitChaserInput) => void;
+  onSent?: (cfg: RelayLimitChaserInput, meta?: LcCommitMeta) => void;
   /**
    * 에코가 도착해 폼을 서버값으로 덮었을 때 통지 (16-13, D-11).
    *
@@ -526,7 +565,8 @@ export function LimitChaserForm({
     setForm,
     buildCfg,
     send,
-    onSent: (cfg) => sentNotifyRef.current?.(cfg),
+    // 사유(meta)는 받은 그대로 넘긴다 — 없으면 인자 하나다(훅 ⑫).
+    onSent: (...args) => sentNotifyRef.current?.(...args),
     serverAnswerSeq,
     disabled,
     unacked,
@@ -632,27 +672,22 @@ export function LimitChaserForm({
   }, [clearFailure, sheetField]);
 
   /*
-    ★ **무장 가능 판정** (WR-06) — 발주할 수 없는 전략은 켜지지 않는다. 산출식은 모듈 수준
-      `canArmOf` **하나**다(20-01) — 필드 확정 훅의 전송 직전 가드(`armBlockOf`)가 같은 식을
-      읽어야 하므로 컴포넌트 밖으로 옮겼다. 근거 주석도 그 함수에 있다.
+    ★ **정적 무장 판정** (WR-06 · R7) — 스위치 `disabled` 와 열 아래 패널은 누르기 전에 알 수 있는 사유
+      (시세 미수신 · 매도 매수잔량 0)만 본다. 산출식은 모듈 수준 `canArmStaticOf` **하나**다. 그룹 수량 0 은
+      누르는 순간의 사전 검증 · 전송 직전 `armBlockOf`(= `canArmOf`) 몫이다.
+    ★ **`useMemo` 다** (GC-IN-01) — 객체 리터럴이면 매 렌더 새 참조라 아래 `gateBlocked` 의 `useCallback` 이
+      아무것도 메모하지 않는다. 의존성은 이미 계산이 끝난 두 boolean 이면 충분하다.
   */
-  const {
-    buyEnabled: canArmBuy,
-    sellEnabled: canArmSell,
-    sweepEnabled: canArmSweep,
-  } = canArmOf(form);
-
-  /*
-    ★ **`useMemo` 다** (GC-IN-01). 객체 리터럴로 두면 매 렌더 새 참조가 되고, 그것을 의존성으로
-      받는 아래 `gateBlocked` 의 `useCallback` 이 **아무것도 메모하지 않는다** — 21개 컨트롤이
-      붙은 고밀도 폼에서 한 글자 입력마다 스위치 3개의 콜백이 통째로 새로 만들어진다.
-    의존성이 세 boolean 이면 충분한 근거: `canArmBuy/Sell/Sweep` 는 이미 폼 값에서 계산이
-      끝난 **결과**이고, 이 객체는 그 셋을 키에 얹기만 한다. 폼 값을 다시 의존성에 넣으면
-      결과가 그대로인 입력(예: 비교가격 변경)에도 참조가 깨져 메모가 다시 무의미해진다.
-  */
+  const { buyEnabled: canArmBuyPrice, sellEnabled: canArmSell } = canArmStaticOf(form);
   const canArm: Record<GateKey, boolean> = useMemo(
-    () => ({ buyEnabled: canArmBuy, sellEnabled: canArmSell, sweepEnabled: canArmSweep }),
-    [canArmBuy, canArmSell, canArmSweep],
+    () => ({
+      buyEnabled: canArmBuyPrice,
+      preBuyEnabled: canArmBuyPrice,
+      extraBuyEnabled: canArmBuyPrice,
+      postBuyEnabled: canArmBuyPrice,
+      sellEnabled: canArmSell,
+    }),
+    [canArmBuyPrice, canArmSell],
   );
 
   /**
@@ -716,11 +751,103 @@ export function LimitChaserForm({
   const statusOf = (key: LcStatusKey | undefined): string | undefined =>
     key === undefined ? undefined : groupStatus?.[key];
   /**
-   * 스위치를 지금 누를 수 없는가 — 무장 판정(WR-06)을 지나는 것은 매수주문 · 매도주문 게이트다.
-   * 선 · 추가 · 후매수 · 매수취소는 이 플랜에서 세션 미준비만 본다(그룹별 무장 가드 · 사전 검증은 24-06).
+   * 스위치를 지금 누를 수 없는가 — 정적 무장 판정(WR-06 · 시세 미수신)을 지나는 것은 마스터 · 세 그룹 · 매도다.
+   * 매수취소는 세션 미준비만 본다. 그룹 수량 0 · 그룹 고유 검증은 `disabled` 가 아니라 누르는 순간의 사전 검증이다(R7).
    */
   const gateDisabled = (gate: LcGate): boolean =>
-    gate === 'buyEnabled' || gate === 'sellEnabled' ? gateBlocked(gate, !form[gate]) : disabled;
+    gate === 'cancelQtyEnabled' ? disabled : gateBlocked(gate, !form[gate]);
+
+  /**
+   * 그룹 스위치(선 · 추가 · 후매수) — **사람의 스위치 핸들러에서만** 부른다(D-01 · D-02 전반 · UI-SPEC 상호작용 계약).
+   *
+   * - 켜는 방향: 마스터가 꺼져 있으면 같은 `lc.set` 에 마스터도 켠다(D-01 — 추가 확인창 없음). 실패하면 훅이
+   *   두 스위치를 함께 서버 값으로 되돌린다.
+   * - 끄는 방향: 마스터가 켜져 있고 나머지 두 그룹이 (폼 표시값으로) 꺼져 있으면 같은 `lc.set` 에 마스터도 끈다
+   *   (D-02 전반). 매도 · 취소 게이트까지 전부 꺼져 있으면 그 제출이 곧 삭제다(`crudOf` = `D` · 기존 규약 ·
+   *   확인창 없음). 다른 그룹이 켜져 있으면 그 그룹만 끈다.
+   * ★ 에코 경로(서버 에코 · 재접속 · 다른 단말)는 이 함수를 부르지 않는다 — 에코로 생기는 제출은 D-02 후반
+   *   `dropMasterAfterServerFold` 한 곳뿐이다.
+   */
+  const commitGroupSwitch = useCallback(
+    (gate: BuyGroupGate, on: boolean) => {
+      const f = formRef.current;
+      if (on) {
+        if (!f.buyEnabled) commitField(gate, true, 'toggle', { buyEnabled: true });
+        else commitField(gate, true, 'toggle');
+        return;
+      }
+      const lastGroup = BUY_GROUP_GATES.every((g) => g === gate || !f[g]);
+      if (f.buyEnabled && lastGroup) commitField(gate, false, 'toggle', { buyEnabled: false });
+      else commitField(gate, false, 'toggle');
+    },
+    [commitField],
+  );
+
+  /*
+    ★ D-02 후반 · D-19 (2026-09-28 정정 · WinForms `b066e135` `DropMasterAfterServerFold` 동형) —
+      **사람 입력 핸들러가 아닌 곳에서 제출을 만드는 유일한 경로**다(T-24-25).
+      서버가 발주 · 포기 · 소진으로 그룹을 접어 「그룹 하나라도 ON」→「세 그룹 OFF · 마스터 ON」 하강 전이가
+      에코되면, 에코 적용 뒤 다음 틱에 `buyEnabled: false` 를 **정확히 1건** 보낸다(나머지 = 에코 cfg · crud C ·
+      마스터 낙관 OFF · 실패하면 훅이 서버 값(ON)으로 되돌리고 재시도하지 않는다).
+      가드 4개:
+        ① 매도주문 · 취소>잔량 · 취소>체결이 전부 OFF 면 그 제출은 삭제(`crud D`)가 되므로 보내지 않는다 —
+           이때만 매수주문 상태 「켜짐 · 켠 매수 없음」이 남는다.
+        ② 보내기 직전 최신 에코로 재확인 — 그새 마스터가 꺼졌거나 그룹이 켜졌으면 중단.
+        ③ in-flight · 대기 확정이 있으면 기다렸다가(이 이펙트가 풀린 렌더에서 다시 예약) 그 에코 뒤에 다시 판정 —
+           중복 제출 0.
+        ④ 하강 전이만 — 같은 상태 재수신 · 재접속 뒤 첫 `lc.snap` · 첫 스냅샷 · 자기 마스터 OFF 에코는 트리거가
+           아니다(`isServerFoldEdge` · 재접속이면 기준선을 비우고 옛 에코 객체는 기준선으로 삼지 않는다).
+      로그 문장(「서버가 매수 그룹 해제 — …」)은 폼이 쓰지 않는다 — 사유(`cause: 'serverFold'`)를 실어 보내면
+      카드가 성공 에코에서 쓴다(24-05).
+  */
+  const serverRef = useRef(server);
+  serverRef.current = server;
+  const lcBusyRef = useRef(false);
+  lcBusyRef.current = lc.inflightField !== null || lc.queuedFields.length > 0;
+  /** 직전 **렌더된** 에코 — 하강 전이 판정의 prev. 재접속이면 비운다(④). */
+  const lastEchoRef = useRef<RelayLimitChaser | null>(null);
+  /** 재접속 직전 에코 객체 — 재접속 뒤 이 객체가 그대로면 기준선으로 삼지 않는다(첫 `lc.snap` 이 기준선 · ④). */
+  const staleEchoRef = useRef<RelayLimitChaser | null | undefined>(undefined);
+  /** 하강 전이를 봤고 아직 보내지(또는 가드로 접지) 않았다. */
+  const foldPendingRef = useRef(false);
+  const dropMasterAfterServerFold = useCallback(() => {
+    const s = serverRef.current;
+    // ② 최신 에코로 재확인 — 마스터 OFF 이거나 그룹이 다시 켜졌으면 할 일이 없다.
+    if (s == null || !s.buyEnabled || s.preBuyEnabled || s.extraBuyEnabled || s.postBuyEnabled) {
+      foldPendingRef.current = false;
+      return;
+    }
+    // ③ 앞 확정이 끝나지 않았다 — 기다린다(그 에코 뒤 이펙트가 다시 예약한다).
+    if (lcBusyRef.current) return;
+    // ① 매도 · 취소 게이트가 전부 꺼져 있으면 이 제출은 삭제다 — 보내지 않는다.
+    if (!s.sellEnabled && !s.cancelQtyEnabled && !s.cancelTradeEnabled) {
+      foldPendingRef.current = false;
+      return;
+    }
+    // 한 번 보내면 먼저 내린다 — 실패 · 막힘이어도 다시 예약하지 않는다(재시도 없음 · 훅 ⑤).
+    foldPendingRef.current = false;
+    commitField('buyEnabled', false, 'toggle', undefined, { cause: 'serverFold' });
+  }, [commitField]);
+  useEffect(() => {
+    if (disabled) {
+      lastEchoRef.current = null;
+      foldPendingRef.current = false;
+      staleEchoRef.current = server;
+      return;
+    }
+    if (staleEchoRef.current !== undefined) {
+      if (server === staleEchoRef.current) return;
+      staleEchoRef.current = undefined;
+    }
+    if (server !== lastEchoRef.current) {
+      if (isServerFoldEdge(lastEchoRef.current, server)) foldPendingRef.current = true;
+      lastEchoRef.current = server;
+    }
+    if (!foldPendingRef.current) return;
+    // 에코 적용(폼 덮기 · 훅 판정)이 끝난 **다음 틱**에 판정한다.
+    const id = window.setTimeout(dropMasterAfterServerFold, 0);
+    return () => window.clearTimeout(id);
+  }, [server, disabled, lc.inflightField, lc.queuedFields, dropMasterAfterServerFold]);
 
   /*
     ★ 세 그룹 카드 접힘(Phase 24 ⑤ · R1) — false = 접힘(네 밴드 기본 · 켜진 그룹도 자동으로 펼치지 않는다).
@@ -968,7 +1095,7 @@ export function LimitChaserForm({
               checked={form[gate]}
               // ★ 켜는 방향만 막는다 — `!form[gate]` 를 넘기므로 **켜져 있으면 언제나 끌 수 있다**.
               disabled={gateDisabled(gate)}
-              onCheckedChange={(v) => commitToggle(gate, v)}
+              onCheckedChange={(v) => (isBuyGroupGate(gate) ? commitGroupSwitch(gate, v) : commitToggle(gate, v))}
               failureText={toggleFailureTextOf(gate)}
             />
           ) : undefined
