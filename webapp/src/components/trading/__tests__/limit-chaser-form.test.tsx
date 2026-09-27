@@ -1679,6 +1679,16 @@ describe('⑰-b D-02 후반 · D-19 — WinForms 동형 서버 접힘 뒤 마스
     tick();
     expect(sentConfigs()).toHaveLength(1);
   });
+
+  it('D-34 — 서버가 세 그룹 접힘과 함께 마스터도 내린 에코(한 에코에 그룹 · 마스터 OFF)는 트리거가 아니다 · 전송 0', () => {
+    // gh-trade D-34(9f07d025): 세 그룹이 모두 접히는 순간 서버가 마스터 게이트도 내린다 — 자동 끔은 구 서버용 백스톱.
+    const { rerender } = render(<LimitChaserForm {...props({ server: A() })} />);
+    rerender(<LimitChaserForm {...props({ server: B({ buyEnabled: false }) })} />);
+    tick();
+    tick();
+    expect(sentConfigs()).toHaveLength(0);
+    expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'false');
+  });
 });
 
 describe('⑱ 그룹 켜기 사전 검증 줄 · D-16 · D-11 재제출 (24-06 · UI-SPEC §7 · R7 · R8)', () => {

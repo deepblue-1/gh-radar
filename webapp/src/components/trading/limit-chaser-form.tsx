@@ -357,6 +357,9 @@ const SELL_COLUMN_GATES: readonly GateKey[] = ['sellEnabled'];
  * 직전 **렌더된** 에코에서는 선 · 추가 · 후매수 중 하나라도 ON 이었는데(hadBuyGroup) 이 에코에서 세 그룹 OFF ∧
  * 마스터 ON 이 된 경우만 true 다. 이미 세 그룹 OFF 로 시작하는 에코(같은 상태 재수신 · 재접속 뒤 첫 `lc.snap` ·
  * 첫 스냅샷 · 사람이 마지막 그룹을 꺼 마스터까지 꺼진 자기 에코)는 트리거가 아니다(핑퐁 0).
+ *
+ * gh-trade D-34(`9f07d025`) 서버는 세 그룹이 모두 접히는 순간 마스터도 내려 같은 에코에 `buyEnabled=false` 를
+ * 싣는다 — 그 에코는 여기서 false 다. 이 자동 끔은 구 서버용 백스톱이다(WinForms 도 같다).
  */
 export function isServerFoldEdge(prev: RelayLimitChaser | null, next: RelayLimitChaser | null): boolean {
   if (prev === null || next === null) return false;

@@ -551,6 +551,13 @@ describe('Phase 24 ⑨ — 그룹 전이 · 동반 문구 · override 귀속 (24
     );
   });
 
+  it('D-34: 서버가 세 그룹 접힘과 함께 마스터도 내린 에코(보내지 않음) → 게이트 전이 문장만 · 서버 접힘 문장 없음', () => {
+    // 사유(「매수주문 해제 — 선·추가·후매수가 모두 접힘」)는 서버 사유 줄이 원문으로 말한다(D-13) — 클라는 게이트 전이만.
+    const prev = at({ buyEnabled: true, preBuyEnabled: true, sellEnabled: true });
+    const next = at({ sellEnabled: true });
+    expect(strategyLogLine(prev, next, { sent: null, sentCause: null })).toBe('매수주문 무장 해제 · 선매수 무장 해제');
+  });
+
   it('D-13 런타임 4필드만 바뀐 에코 = 0줄(sent 가 있어도)', () => {
     const a = at({ buyEnabled: true, postBuyEnabled: true, postBuyPhase: 1 });
     const b = {
