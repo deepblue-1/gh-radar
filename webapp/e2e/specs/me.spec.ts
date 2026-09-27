@@ -943,4 +943,36 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
       expect(await leavesOverflowing(row, right)).toEqual([]);
     }
   });
+
+  test('11. 폰 390 — 잔고·미체결 행을 누르면 /trading 에서 그 종목 카드가 펼쳐진다 · 취소 버튼은 이동하지 않는다 (2026-09-27)', async ({
+    page,
+  }) => {
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await page.goto('/me');
+    await waitForStrategies(page, 3);
+    await waitForAccounts(page, 2);
+    await relay.pushAccountState(ACCOUNT_A_STATE);
+
+    const card = accountCard(page, E2E_ACCOUNT_NO);
+    const unfilledRow = card.locator('[data-slot="account-unfilled-row"]').first();
+    await expect(unfilledRow).toBeVisible({ timeout: 15_000 });
+
+    // 취소 버튼은 행 링크 위에 있다 — 누르면 확인 다이얼로그만 열리고 이동하지 않는다.
+    await unfilledRow.getByRole('button', { name: /취소/ }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe('/me');
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+
+    // 잔고 행은 종목명이 아니라 **행 오른쪽 빈 곳**을 눌러도 이동한다(행 전체가 링크).
+    const holdingRow = card.locator('[data-slot="account-holding-row"]').first();
+    await holdingRow.scrollIntoViewIfNeeded();
+    const box = await boxOf(holdingRow);
+    await page.mouse.click(box.right - 12, box.y + 10);
+
+    await expect(page).toHaveURL((url) => url.pathname === '/trading', { timeout: 15_000 });
+    await expect(
+      page.locator(`[data-slot="strategy-card"][data-key^="${E2E_ISIN}:"][data-open="true"]`).first(),
+    ).toBeVisible({ timeout: 15_000 });
+  });
 });

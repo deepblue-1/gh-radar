@@ -124,6 +124,7 @@
  *     행 `onClick` 한 경로로 버블한다(키보드 Enter/Space 도 네이티브 click 이 행으로 버블).
  */
 
+import Link from 'next/link';
 import { Fragment, useCallback, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type {
@@ -255,6 +256,12 @@ export interface AccountPanelProps {
    */
   onPickHolding?: (row: RelayHolding) => void;
   /**
+   * 종목 링크(My page · 2026-09-27) — 기본 배치(계좌 전용 모드)의 미체결·잔고 행에서 종목명을 그 종목의
+   * 작업대 카드로 잇는다. 모바일 카드 행은 **행 전체**가 눌리고(링크 ::after 가 행을 덮는다) 취소 버튼만
+   * 그 위로 올라온다. `null` 을 돌려주면 그 행은 링크가 없다. **넘기지 않으면 DOM 불변**(다른 3표면).
+   */
+  stockHref?: (isin: string) => string | null;
+  /**
    * 탭 임베드 모드(⑪) — 그 한 섹션만 그린다. **계좌 전용 모드(`code` 없음)와 함께만** 쓴다.
    * 넘기지 않으면 기존 배치 그대로다.
    */
@@ -328,6 +335,7 @@ export function AccountPanel({
   onSelectUnfilled,
   selectedOrderNo = null,
   onPickHolding,
+  stockHref,
   section,
   embedScope = 'account',
   embedEmptyTitle,
@@ -544,6 +552,30 @@ export function AccountPanel({
       content
     );
 
+  /** 이 행의 종목 링크 경로(My page) — 없으면 null. */
+  const stockHrefOf = (isin: string): string | null => stockHref?.(isin) ?? null;
+  /**
+   * 종목명을 종목 링크로 감싼다. `stretch` 면 링크 ::after 가 가장 가까운 `relative` 조상(카드 행)을 덮어
+   * 행 전체가 눌린다. 링크가 없으면 콘텐츠를 **그대로** 돌려준다.
+   */
+  const stockLink = (isin: string, content: ReactNode, stretch: boolean, className?: string) => {
+    const href = stockHrefOf(isin);
+    if (href === null) return content;
+    return (
+      <Link
+        href={href}
+        data-slot="account-stock-link"
+        className={cn(
+          'min-w-0 text-inherit underline-offset-2 hover:underline',
+          stretch && "after:absolute after:inset-0 after:content-['']",
+          className,
+        )}
+      >
+        {content}
+      </Link>
+    );
+  };
+
   if (section !== undefined) {
     return (
       <EmbeddedSection
@@ -752,7 +784,11 @@ export function AccountPanel({
                           </span>
                         </TableCell>
                         <TableCell className="text-[length:var(--t-caption)]">
-                          {view.label ?? <span className="mono">{view.row.isin}</span>}
+                          {stockLink(
+                            view.row.isin,
+                            view.label ?? <span className="mono">{view.row.isin}</span>,
+                            false,
+                          )}
                           <StatusNotes texts={[view.row.queuedStatus, view.row.pendingStatus]} />
                         </TableCell>
                         <TableCell className="num mono text-[length:var(--t-caption)]">
@@ -796,6 +832,7 @@ export function AccountPanel({
                     {...rowSelectProps(view)}
                     className={cn(
                       'min-w-0 px-[var(--s-3)] py-[var(--s-2)]',
+                      stockHrefOf(view.row.isin) !== null && 'relative',
                       view.row.pendingCancelSent && 'text-[var(--muted-fg)]',
                       rowSelectClass(view),
                     )}
@@ -814,14 +851,19 @@ export function AccountPanel({
                     >
                       {selectHandle(
                         view,
-                        <span
-                          className={cn(
-                            'min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold',
-                            fg,
-                          )}
-                        >
-                          {view.label ?? <span className="mono">{view.row.isin}</span>}
-                        </span>,
+                        stockLink(
+                          view.row.isin,
+                          <span
+                            className={cn(
+                              'min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold',
+                              fg,
+                            )}
+                          >
+                            {view.label ?? <span className="mono">{view.row.isin}</span>}
+                          </span>,
+                          true,
+                          'flex min-w-0 flex-1',
+                        ),
                         'flex min-w-0 flex-1',
                       )}
                       <span className="flex flex-none items-center gap-1">
@@ -857,7 +899,7 @@ export function AccountPanel({
                         </b>
                         주
                       </span>
-                      <span className="ml-auto flex-none">{cancelButton(view)}</span>
+                      <span className="relative z-[1] ml-auto flex-none">{cancelButton(view)}</span>
                     </div>
                     {/* r3 — 서버 상태 문구(있는 행에만). 표에서는 종목 셀 아래 자리다. */}
                     <StatusNotes texts={[view.row.queuedStatus, view.row.pendingStatus]} />
@@ -913,7 +955,11 @@ export function AccountPanel({
                     {holdings.map((view) => (
                       <TableRow key={view.row.isin}>
                         <TableCell className="text-[length:var(--t-caption)]">
-                          {view.label ?? <span className="mono">{view.row.isin}</span>}
+                          {stockLink(
+                            view.row.isin,
+                            view.label ?? <span className="mono">{view.row.isin}</span>,
+                            false,
+                          )}
                         </TableCell>
                         <TableCell className="num mono text-[length:var(--t-caption)]">
                           {KRW.format(view.row.qty)}
@@ -965,7 +1011,10 @@ export function AccountPanel({
                   <div
                     key={view.row.isin}
                     data-slot="account-holding-row"
-                    className="min-w-0 px-[var(--s-3)] py-[var(--s-2)]"
+                    className={cn(
+                      'min-w-0 px-[var(--s-3)] py-[var(--s-2)]',
+                      stockHrefOf(view.row.isin) !== null && 'relative',
+                    )}
                   >
                     {/*
                       r1 — 종목명(유일한 신축) … (우) **매입금액**.
@@ -981,9 +1030,14 @@ export function AccountPanel({
                       data-slot="account-holding-r1"
                       className="flex min-w-0 items-center gap-[var(--s-2)]"
                     >
-                      <span className="min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
-                        {view.label ?? <span className="mono">{view.row.isin}</span>}
-                      </span>
+                      {stockLink(
+                        view.row.isin,
+                        <span className="min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
+                          {view.label ?? <span className="mono">{view.row.isin}</span>}
+                        </span>,
+                        true,
+                        'flex min-w-0 flex-1',
+                      )}
                       <span className="mono ml-auto flex-none text-[length:var(--t-sm)] font-semibold whitespace-nowrap text-[var(--fg)]">
                         {KRW.format(Math.round(view.cost))}
                       </span>

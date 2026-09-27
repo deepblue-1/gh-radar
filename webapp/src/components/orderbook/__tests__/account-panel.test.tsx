@@ -648,6 +648,40 @@ describe('AccountPanel — 계좌 전용 모드 (D-21 / My page)', () => {
       대시가 **0개**다. 표(데스크톱)의 대시는 그대로 남는다 — 거기는 열 구조가 고정이라
       칸을 비울 수 없고, 헤더가 그 칸이 무엇인지 이미 말한다.
   */
+  /*
+    My page 행 → 작업대 (2026-09-27) — `stockHref` 를 넘긴 표면에서만 종목명이 링크가 되고, 모바일 카드 행은
+    행 전체가 눌린다(링크 ::after 가 행을 덮고 취소 버튼만 그 위로 올라온다). 넘기지 않으면 DOM 불변.
+  */
+  it('⑯-z stockHref 가 있으면 미체결·잔고의 표·카드 종목명이 그 종목 링크다 · 취소 버튼은 링크 밖이다', () => {
+    const hrefOf = (isin: string) => `/trading?code=${isin.slice(3, 9)}`;
+    renderAccountOnly({ stockHref: hrefOf });
+
+    const rows = [...unfilledRows(), ...unfilledCards(), ...holdingCards()];
+    const holdingTableRows = Array.from(
+      tableOf('account-holdings').querySelectorAll('tbody tr'),
+    ) as HTMLElement[];
+    for (const row of [...rows, ...holdingTableRows]) {
+      const links = row.querySelectorAll('a[data-slot="account-stock-link"]');
+      expect(links).toHaveLength(1);
+      expect(links[0].getAttribute('href')).toMatch(/^\/trading\?code=[0-9A-Z]{6}$/);
+      // 취소 버튼이 링크 안에 들어가면 누를 때 이동까지 한다.
+      expect(links[0].querySelector('button')).toBeNull();
+    }
+    // 모바일 카드 행은 행 전체가 눌리는 자리다(stretched link).
+    for (const card of [...unfilledCards(), ...holdingCards()]) {
+      expect(card.className).toContain('relative');
+    }
+  });
+
+  it('⑯-y stockHref 가 없으면(다른 표면) 행에 종목 링크가 없다 · null 을 돌려주면 그 행만 링크가 없다', () => {
+    const { unmount } = renderAccountOnly();
+    expect(document.querySelectorAll('a[data-slot="account-stock-link"]')).toHaveLength(0);
+    unmount();
+
+    renderAccountOnly({ stockHref: () => null });
+    expect(document.querySelectorAll('a[data-slot="account-stock-link"]')).toHaveLength(0);
+  });
+
   it('⑯-c 현재가를 모르면 셋째 줄 자체가 없다 — 카드에 대시가 0개다 (⑤)', () => {
     renderAccountOnly();
 

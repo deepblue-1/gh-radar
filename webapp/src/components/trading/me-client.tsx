@@ -62,6 +62,7 @@ import { AccountPanel } from "@/components/orderbook/account-panel";
 import { DmaGate, useDmaGateReason } from "@/components/trading/dma-gate";
 import { StrategyStatusCard } from "@/components/trading/strategy-status-card";
 import { TodayOrdersCard } from "@/components/trading/today-orders-card";
+import { stockCodeOf } from "@/components/trading/vi-order-list";
 import { useNativeRefresh } from "@/lib/native/use-native-refresh";
 import { useRelayContext } from "@/lib/relay-provider";
 import { viAnyRunning, type RelayStatus } from "@/lib/use-relay-socket";
@@ -206,6 +207,15 @@ function MeStatusBar() {
   );
 }
 
+/**
+ * 미체결·잔고 행 → 그 종목의 작업대 카드(2026-09-27). 작업대 `?code=` 는 카드를 보장하고 펼친 채 머리 위로
+ * 올린다(D-30 착지와 같은 경로). ISIN 이 KR 형식이 아니면 링크를 만들지 않는다 — 지어내지 않는다.
+ */
+function tradingCardHref(isin: string): string | null {
+  const code = stockCodeOf(isin);
+  return code === null ? null : `/trading?code=${code}`;
+}
+
 export function MeClient() {
   const gateReason = useDmaGateReason();
   const { accounts, accountStates, status, probeNow } = useRelayContext();
@@ -272,6 +282,7 @@ export function MeClient() {
               account={accountStates.get(acct.accountNo) ?? null}
               status={status}
               stack
+              stockHref={tradingCardHref}
             />
           </section>
         ))
