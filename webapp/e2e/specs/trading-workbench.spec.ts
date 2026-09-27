@@ -139,11 +139,38 @@ const field = (page: Page, id: string): Locator => page.locator(`#${id}`);
 const lcRow = (page: Page, id: string): Locator => page.locator(`[data-lc-field="${id}"]`);
 const lcValue = (page: Page, id: string): Locator =>
   lcRow(page, id).locator('[data-slot="lc-row-value"]');
-/** 그룹 스위치 4개 — `role="switch"` · 이름 「○○ 켜기」(A-P2). */
+/** 그룹 스위치 6개 — `role="switch"` · 이름 「○○ 켜기」(A-P2 · Phase 24 선 · 추가 · 후매수 포함). */
 const lcSwitch = (scope: Page | Locator, name: string): Locator =>
   scope.getByRole('switch', { name, exact: true });
-/** 인라인 편집(마우스 기기) — 행 클릭 → 옛 id 입력이 선다 → 값 → Enter(= 확정 1회 = 전송 1회). */
+/**
+ * Phase 24 ⑤ — 선매수 · 추가매수 · 후매수 카드는 **기본 접힘**이다(행 영역 `display:none`). 그 카드의 제목줄
+ * 접기 버튼이 접혀 있으면 눌러 펼친다(멱등 — 이미 펼쳐져 있으면 누르지 않는다). 접기는 로컬 동작이라
+ * `lc.set` 을 보내지 않는다.
+ */
+async function expandLcGroup(card: Page | Locator, slot: 'pre-buy' | 'extra-buy' | 'post-buy'): Promise<void> {
+  const fold = card.locator(`[data-slot="lc-group-${slot}"] [data-slot="lc-group-fold"]`);
+  if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click();
+  await expect(fold).toHaveAttribute('aria-expanded', 'true');
+}
+/**
+ * 행(값 id · 체크 id)을 품은 그룹 카드가 접이식이면 펼친다 — 행을 **누르는** 헬퍼가 먼저 부른다(숨은 행은
+ * 누를 수 없다). 값 글자만 읽는 `lcValue` 는 펼치지 않아도 된다(`toHaveText` 는 숨은 요소도 읽는다).
+ * 보이지 않는 카드(접힌 작업대 카드)의 같은 행은 건드리지 않는다.
+ */
+async function showLc(page: Page, id: string): Promise<void> {
+  const folds = page
+    .locator('section[data-slot^="lc-group-"]')
+    .filter({ has: page.locator(`[data-lc-field="${id}"], [id="${id}"]`) })
+    .locator('[data-slot="lc-group-fold"]');
+  for (const fold of await folds.all()) {
+    if (!(await fold.isVisible())) continue;
+    if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click();
+    await expect(fold).toHaveAttribute('aria-expanded', 'true');
+  }
+}
+/** 인라인 편집(마우스 기기) — (접힌 카드면 펼치고) 행 클릭 → 옛 id 입력이 선다 → 값 → Enter(= 확정 1회 = 전송 1회). */
 async function editLc(page: Page, id: string, value: string): Promise<void> {
+  await showLc(page, id);
   await lcRow(page, id).click();
   const input = page.locator(`#${id}`);
   await expect(input).toBeVisible();
@@ -460,9 +487,10 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       card.locator('[data-slot="card-exchange-segment"]').getByRole('radio', { name: 'KRX' }),
     ).toBeChecked();
 
-    // 스위치 4개 전부 OFF(Phase 20 — 매수취소도 스위치) · WinForms 기본값(주문금액 10만원 ·
-    // 감시잔량 10,000) · 더티 바 없음(D-04 — 더티 모델 자체가 없다).
-    for (const name of ['매수주문 켜기', '매도주문 켜기', '한방체결 켜기', '매수취소 켜기']) {
+    // 스위치 6개 전부 OFF(Phase 20 — 매수취소도 스위치 · Phase 24 — 선 · 추가 · 후매수 스위치, 「한방체결 켜기」
+    // 없음) · WinForms 기본값(선매수 금액 10만원 · 매도잔량 10,000) · 더티 바 없음(D-04 — 더티 모델 자체가 없다).
+    await expect(card.getByRole('switch')).toHaveCount(6);
+    for (const name of ['매수주문 켜기', '선매수 켜기', '추가매수 켜기', '후매수 켜기', '매도주문 켜기', '매수취소 켜기']) {
       await expect(lcSwitch(card, name)).not.toBeChecked();
     }
     await expect(lcValue(page, 'lc-buy-order-amount')).toHaveText('10만원');
@@ -754,6 +782,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
 
     // 먼저 패널이 **정말 화면 하단에 붙어 있는지** 본다(겹침 0 만 보면 화면 밖 패널도 초록이 된다).
     const viewportH = PHONE_VIEWPORT.height;
+    await showLc(page, 'lc-buy-watch-qty');
     const row = lcRow(page, 'lc-buy-watch-qty');
     await row.scrollIntoViewIfNeeded();
     const pinned = await sharedPanels(page).boundingBox();
@@ -871,6 +900,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
         (await nativeMessages(page)).filter((m) => m.type === 'overlay').map((m) => m.payload);
       const before = (await overlayPayloads()).length;
 
+      await showLc(page, 'lc-buy-watch-qty');
       const row = lcRow(page, 'lc-buy-watch-qty');
       await expect(row).toHaveAttribute('aria-haspopup', 'dialog');
       await row.tap();
@@ -1532,6 +1562,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await openFocusedCard(page);
     const before = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
 
+    await showLc(page, 'lc-buy-watch-qty');
     await lcRow(page, 'lc-buy-watch-qty').click();
     const input = page.locator('#lc-buy-watch-qty');
     await expect(input).toBeFocused();
@@ -2319,12 +2350,12 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
   });
 
   /*
-    ★ Phase 20 트레이서 — 「호가변경」 한 행이 **실제 경로 한 줄**을 끝까지 잇는다(20-01).
+    ★ Phase 20 트레이서 — 「호가변경」(Phase 24 D-09 로 선매수 카드 「한방」) 한 행이 **실제 경로 한 줄**을 끝까지 잇는다(20-01).
       진짜 브라우저 → 진짜 relay → 스텁 게이트웨이 10 수신 → 60 에코 → 행 값.
       `openFocusedCard` 를 쓰지 않는다 — 그 헬퍼는 옛 입력 id(`#lc-buy-watch-qty`)를 기다리고,
       20-04 가 옛 입력을 걷어도 이 케이스는 살아남아야 한다. 대신 값 행 자체의 텍스트를 기다린다.
   */
-  test('P20-1 인라인 편집 한 행 — 「호가변경」 클릭 → 전체 선택 → 5 → Enter → 게이트웨이 10 수신 → 60 에코 → 행 「5건」 (Phase 20 D-04 · D-14 · D-14a)', async ({
+  test('P20-1 인라인 편집 한 행 — 선매수 카드 펼침 → 「한방」 클릭 → 전체 선택 → 5 → Enter → 게이트웨이 10 수신 → 60 에코 → 행 「5건」 (Phase 20 D-04 · D-14 · D-14a · Phase 24 D-09)', async ({
     page,
   }) => {
     relay.seedLimitChasers([{ buyEnabled: true }]);
@@ -2335,7 +2366,10 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const row = page.locator('[data-lc-field="lc-sweep-tick"]');
     const value = row.locator('[data-slot="lc-row-value"]');
     await expect(value).toHaveText('3건', { timeout: 15_000 });
+    // Phase 24 ⑤ — 한방은 선매수 카드(기본 접힘) 안 체크 값 행이다(R6). 펼쳐도 전송은 없다.
     const before = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
+    await expandLcGroup(cardOf(page, E2E_ISIN), 'pre-buy');
+    expect(relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length, '접기는 lc.set 을 보내지 않는다').toBe(before);
 
     // 행 높이 44 — 편집 전후가 같아야 한다(D-14a · 레이아웃 이동 0).
     const box = await row.boundingBox();
@@ -2349,7 +2383,10 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(
       await input.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd, el.value.length]),
     ).toEqual([0, 1, 1]);
-    const editBox = await page.locator('[data-lc-field="lc-sweep-tick"][data-editing="true"]').boundingBox();
+    // 체크 값 행의 44px 상자는 행(`lc-check-row`)이다 — 편집 중에도 그대로다.
+    const editBox = await page
+      .locator('[data-slot="lc-check-row"]:has([data-lc-field="lc-sweep-tick"][data-editing="true"])')
+      .boundingBox();
     expect(editBox).not.toBeNull();
     expect(Math.abs(editBox!.height - 44)).toBeLessThanOrEqual(0.5);
     // 안내 문구·「저장」 버튼 없음(D-14a).
@@ -2379,9 +2416,12 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       · 폰 밴드는 「매수」「매도」 탭을 각각 눌러 두 pane 을 모두 잰다(비활성 pane 은 display:none).
       · 본문 344 수동주문 — 「예약매수」「예약매도」 48px · 「정정」「취소」 38px 라벨이 잘리지 않는다
         (20-06 이 human_judgment 로 남긴 항목). 예약창(77 open)을 밀어 최악 라벨로 잰다.
-      · ≥700 2열 — 기준선 행이 없으면 매수주문 · 매도주문 그룹 높이가 같다(행 44 · 상태 한 줄).
+      · ≥700 2열 — 매수주문 · 매도주문 두 그룹 헤더 높이가 같다(상태 한 줄). Phase 24 로 매수주문 공통 카드는
+        2행(주문가격 · 비교가격)이 되어 「두 그룹 높이 같음」의 근거(같은 행 수)가 사라졌다 — 헤더만 잰다.
+      · Phase 24 — 선매수 · 추가매수 · 후매수 카드(기본 접힘)를 펼치고 새 행(선매수 5 · 추가매수 3 · 후매수 4 +
+        발동잔량)을 최악값(「177,000,000주」 · 「17,700,000주」 · 「255회 · 남은 255회」 · 「255건」)으로 잰다.
   */
-  test('P20-3 최악값 × 본문 344 · 700 · 830 · 992 — 우측 패널 잘림 0 · 행 44px(편집 전후) · ≥700 매수주문/매도주문 그룹 높이 동일 (D-20 · UI-SPEC 검증 훅)', async ({
+  test('P20-3 최악값 × 본문 344 · 700 · 830 · 992 — 우측 패널 잘림 0 · 행 44px(편집 전후) · ≥700 매수주문/매도주문 헤더 높이 동일 (D-20 · UI-SPEC 검증 훅)', async ({
     page,
   }) => {
     const WORST = {
@@ -2400,6 +2440,23 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       sellMinTradeQty: 100_000,
       sellEntryLatched: true,
       sellQtyTrackBaseline: 100_000,
+      // Phase 24 — 세 그룹을 켜 흐림 없이(가장 짙은 글자) 최악값을 잰다.
+      preBuyEnabled: true,
+      buyTradeQtyEnabled: true,
+      sweepEnabled: true,
+      sweepMinTickCount: 255,
+      extraBuyEnabled: true,
+      extraBuyOrderAmount: 9_999,
+      extraBuyMinQty: 177_000_000,
+      extraBuyMaxQty: 177_000_000,
+      postBuyEnabled: true,
+      postBuyOrderAmount: 9_999,
+      postBuyReentry: 255,
+      postBuyReentryLeft: 255,
+      postBuyPhase: 1,
+      postBuyFloorQty: 17_700_000,
+      postBuyReboundPct: 100,
+      postBuyTriggerQty: 17_700_000,
     };
     relay.seedLimitChasers([WORST]);
     await page.goto(FOCUS_URL);
@@ -2412,13 +2469,16 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     // 최악값 시드는 매수·매도 두 게이트가 켜진 상태다 — 흐림(opacity .45) 없이 가장 짙은 글자로 잰다.
     await expect(lcSwitch(card, '매수주문 켜기')).toBeChecked();
     await expect(lcSwitch(card, '매도주문 켜기')).toBeChecked();
+    await expect(lcValue(page, 'lc-post-buy-reentry')).toHaveText('255회 · 남은 255회');
+    // 세 그룹 카드를 펼친다 — 접힘은 폼 상태라 밴드 · 탭 전환에 풀리지 않는다(R1).
+    for (const slot of ['pre-buy', 'extra-buy', 'post-buy'] as const) await expandLcGroup(card, slot);
 
-    /** 보이는 리스트 행 전부 — 값 행 · 체크 행 · 기준선 행. 높이와 행 안쪽 여유. (감시대상 행은 Phase 24 ⑤ 로 없다) */
+    /** 보이는 리스트 행 전부 — 값 행 · 체크 행 · 기준선 행 · 발동잔량 행. 높이와 행 안쪽 여유. */
     const measureRows = () =>
       card.evaluate((root) =>
         Array.from(
           root.querySelectorAll<HTMLElement>(
-            '[data-lc-field], [data-slot="lc-check-row"], [data-slot="lc-derived"]',
+            '[data-lc-field], [data-slot="lc-check-row"], [data-slot="lc-derived"], [data-slot="lc-post-buy-trigger"]',
           ),
         )
           .filter((el) => el.getClientRects().length > 0)
@@ -2490,6 +2550,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     };
     /** 잔량 행을 인라인 편집으로 연 상태도 44px — 편집 전후 레이아웃 이동 0(D-14a). */
     const expectEditingRow44 = async (label: string) => {
+      await showLc(page, 'lc-buy-watch-qty');
       await lcRow(page, 'lc-buy-watch-qty').click();
       const editing = page.locator('[data-lc-field="lc-buy-watch-qty"][data-editing="true"]');
       await expect(page.locator('#lc-buy-watch-qty')).toBeFocused();
@@ -2501,8 +2562,24 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       await expect(page.locator('#lc-buy-watch-qty')).toHaveCount(0);
     };
 
-    // 감시대상 행(lc-watch-row)은 Phase 24 ⑤ 로 없다 — 새 행 폭 측정은 24-04 몫.
-    const BUY_ROWS = ['lc-buy-order-price', 'lc-buy-order-amount', 'lc-buy-watch-qty', 'lc-sweep-watch-price'];
+    // Phase 24 — 공통 2 · 선매수 5 · 추가매수 3 · 후매수 4 + 발동잔량(감시대상 행은 ⑤ 로 없다).
+    const BUY_ROWS = [
+      'lc-buy-order-price',
+      'lc-buy-watch-price',
+      'lc-buy-order-amount',
+      'lc-buy-watch-qty',
+      'lc-buy-min-trade-qty',
+      'lc-sweep-tick',
+      'lc-sweep-watch-price',
+      'lc-extra-buy-amount',
+      'lc-extra-buy-min-qty',
+      'lc-extra-buy-max-qty',
+      'lc-post-buy-amount',
+      'lc-post-buy-reentry',
+      'lc-post-buy-floor-qty',
+      'lc-post-buy-rebound',
+      'lc-post-buy-trigger',
+    ];
     const SELL_ROWS = ['lc-sell-order-price', 'lc-sell-watch-qty', 'lc-derived', 'lc-cancel-watch-qty'];
     const setsBefore = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
 
@@ -2577,7 +2654,10 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
         .join(' · '),
     });
 
-    // ≥700 — 기준선 행이 없으면(매도 진입 미래치) 매수주문 · 매도주문 그룹 높이가 같다.
+    /*
+      ≥700 — 매수주문 · 매도주문 두 그룹 **헤더** 높이가 같다(상태 문구 한 줄). Phase 24 로 매수주문 공통 카드는
+      2행이라 「그룹 높이 같음」은 근거(같은 행 수)가 사라져 헤더만 잰다.
+    */
     relay.seedLimitChasers([{ ...WORST, sellEntryLatched: false }]);
     await page.goto(FOCUS_URL);
     await waitForReady(page);
@@ -2586,9 +2666,6 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(card.locator('[data-slot="lc-derived"]')).toHaveCount(0);
     for (const target of [700, 830, 992]) {
       await sizeCardTo(page, E2E_ISIN, target);
-      const buyH = await card.locator('[data-slot="lc-group-buy"]').evaluate((el) => el.getBoundingClientRect().height);
-      const sellH = await card.locator('[data-slot="lc-group-sell"]').evaluate((el) => el.getBoundingClientRect().height);
-      expect(Math.abs(buyH - sellH), `카드 ${target} — 매수주문 ${buyH} vs 매도주문 ${sellH}`).toBeLessThanOrEqual(0.5);
       // 상태 문구는 한 줄 — 헤더 높이가 두 그룹 같다(둘째 줄로 내려가면 여기서 갈린다).
       const heads = await card
         .locator('[data-slot="lc-group-buy"] [data-slot="lc-group-header"], [data-slot="lc-group-sell"] [data-slot="lc-group-header"]')
@@ -2834,7 +2911,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       return sheet;
     }
 
-    test('P20-2 터치 기기 — 「호가변경」 탭 → 시트(뷰포트 390 폭 370 · 768 폭 440 가운데 · radius 28 · 하단 ≥10 · body 직속) → 5 → 「호가변경 적용」 → 게이트웨이 10 수신 → 60 에코 → 시트 닫힘 · 행 「5건」 · 가로 폰 내부 스크롤', async ({
+    test('P20-2 터치 기기 — 선매수 카드 펼침 → 「한방」 탭 → 시트(뷰포트 390 폭 370 · 768 폭 440 가운데 · radius 28 · 하단 ≥10 · body 직속) → 5 → 「한방 건수 적용」 → 게이트웨이 10 수신 → 60 에코 → 시트 닫힘 · 행 「5건」 · 가로 폰 내부 스크롤', async ({
       page,
     }) => {
       // 바깥 beforeEach 가 WIDE_VIEWPORT 로 덮으므로 여기서 폰 폭으로 되돌린다.
@@ -2850,6 +2927,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       await expect(row).toHaveAttribute('aria-haspopup', 'dialog');
       const before = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
 
+      await expandLcGroup(cardOf(page, E2E_ISIN), 'pre-buy');
       await row.tap();
       // 인라인 입력칸은 생기지 않는다 — 터치 기기는 시트다.
       await expect(page.locator('#lc-sweep-tick')).toHaveCount(0);
@@ -2871,7 +2949,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       const pad = sheet.getByRole('group', { name: '숫자 키패드' });
       await pad.getByRole('button', { name: '5', exact: true }).tap();
       await expect(sheet.locator('[data-slot="numpad-value"]')).toHaveText('5');
-      await sheet.getByRole('button', { name: '호가변경 적용' }).tap();
+      await expect(sheet).toHaveAccessibleName('한방 건수');
+      await sheet.getByRole('button', { name: '한방 건수 적용' }).tap();
 
       await waitForSetAtGateway(relay, before + 1);
       // 한 번 눌렀으면 정확히 한 번 — 재전송 없음(T-16-10).
@@ -2894,7 +2973,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       await expect(page.locator('[data-slot="numpad-sheet"]')).toHaveCount(0, { timeout: 10_000 });
 
       // 가로 모드 폰(높이 390) — 시트는 max-height calc(100dvh − 20px) 안에서 내부 스크롤되고
-      // 「호가변경 적용」 까지 닿는다(UI Considerations 추가 행 · 시트 높이 backstop).
+      // 「한방 건수 적용」 까지 닿는다(UI Considerations 추가 행 · 시트 높이 backstop).
       await page.setViewportSize({ width: 844, height: 390 });
       await row.tap();
       const land = await settledSheet(page);
@@ -2902,7 +2981,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       expect(landBox).not.toBeNull();
       expect(landBox!.height).toBeLessThanOrEqual(390 - 20 + 0.5);
       expect(await land.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
-      const apply = land.getByRole('button', { name: '호가변경 적용' });
+      const apply = land.getByRole('button', { name: '한방 건수 적용' });
       await apply.scrollIntoViewIfNeeded();
       await expect(apply).toBeInViewport();
       await land.getByRole('button', { name: '닫기' }).tap();
@@ -2911,13 +2990,13 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     });
 
     /*
-      P20-4 — 원 단위 시트의 칩과 D-15 잠금을 실브라우저로 잇는다. 시드는 매수주문 켜짐 + 기본 매도잔량
-      기준이라 매수주문 상태가 「감시 중」이다 → 가격 섹션(매수가격)은 그 상태를 따르므로(`statusKey`)
-      시트에 「감시 중 — 적용하면 바로 반영돼요」가 선다(D-05 · 추가 확인 없음).
+      P20-4 — 원 단위 시트의 칩과 D-15 잠금을 실브라우저로 잇는다. 시드는 매수주문(마스터) 켜짐이다 → 공통
+      카드(주문가격)는 마스터 에코를 따르므로(Phase 24 — 그 행 카드의 게이트 에코) 시트에 「감시 중 — 적용하면
+      바로 반영돼요」가 선다(D-05 · 추가 확인 없음). 라벨은 D-09 로 「주문가격」이다.
       ★ 칩은 버퍼의 fresh 를 끈다(`applyPadChip`) — 「첫 키가 값을 덮는다」는 시트를 연 직후에만 성립하므로
         키 입력 검증(98150 · 127450)을 칩보다 먼저 한다.
     */
-    test('P20-4 매수가격 시트 — 칩 현재가·상한가·±1호가 · D-15 잠금(호가 단위 · 상한가) · 감시 중 안내 · 적용 → 10 → 에코 → 닫힘 (D-12 · D-15 · D-17 · D-05)', async ({
+    test('P20-4 매수 주문가격 시트 — 칩 현재가·상한가·±1호가 · D-15 잠금(호가 단위 · 상한가) · 감시 중 안내 · 적용 → 10 → 에코 → 닫힘 (D-12 · D-15 · D-17 · D-05)', async ({
       page,
     }) => {
       await page.setViewportSize({ width: 390, height: 844 });
@@ -2935,11 +3014,11 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       await row.tap();
       await expect(page.locator('#lc-buy-order-price')).toHaveCount(0);
       const sheet = await settledSheet(page);
-      await expect(sheet).toHaveAccessibleName('매수가격');
+      await expect(sheet).toHaveAccessibleName('주문가격');
       const status = sheet.locator('[data-slot="numpad-status"]');
       const alert = status.getByRole('alert');
       const display = sheet.locator('[data-slot="numpad-value"]');
-      const apply = sheet.getByRole('button', { name: '매수가격 적용' });
+      const apply = sheet.getByRole('button', { name: '주문가격 적용' });
       const pad = sheet.getByRole('group', { name: '숫자 키패드' });
       const typeKeys = async (digits: string) => {
         for (const d of digits) await pad.getByRole('button', { name: d, exact: true }).tap();
@@ -2959,7 +3038,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       // ⌫ 로 지우고 127450 → 상한가 초과 → 잠금.
       for (let i = 0; i < 5; i += 1) await pad.getByRole('button', { name: '한 글자 지우기' }).tap();
       await expect(display).toHaveText('');
-      await expectUnitBesideCaret(sheet, '매수가격 · 다 지운 뒤');
+      await expectUnitBesideCaret(sheet, '주문가격 · 다 지운 뒤');
       await typeKeys('127450');
       await expect(display).toHaveText('127,450');
       await expect(alert).toHaveText('상한가 127,400원을 넘을 수 없어요');

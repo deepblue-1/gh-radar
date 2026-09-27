@@ -195,6 +195,50 @@ describe('① Tab / Shift+Tab — 같은 그룹 안 값 행만 (D-14 · A5)', ()
     ]);
   });
 
+  it('R4 선매수 카드: 금액 → 매도잔량 → 체결량 값 → 한방 건수 → 한방가격 → Tab = 편집 종료(추가매수 카드로 넘어가지 않는다)', async () => {
+    const user = userEvent.setup();
+    render(<LimitChaserForm {...props()} />);
+    await user.click(document.querySelector('[data-slot="lc-group-pre-buy"] [data-slot="lc-group-fold"]') as HTMLElement);
+    await user.click(row('lc-buy-order-amount'));
+    const order: (string | null)[] = [editingId()];
+    for (let i = 0; i < 6; i += 1) {
+      const id = editingId();
+      if (id === null) break;
+      key(input(id)!, 'Tab');
+      order.push(editingId());
+    }
+    expect(order).toEqual([
+      'lc-buy-order-amount',
+      'lc-buy-watch-qty',
+      'lc-buy-min-trade-qty',
+      'lc-sweep-tick',
+      'lc-sweep-watch-price',
+      null,
+    ]);
+    expect(input('lc-extra-buy-amount')).toBeNull();
+    expect(sentConfigs()).toHaveLength(0);
+  });
+
+  it('R4 후매수 카드: 최대 → Tab → 최소 잔량(소진 안내 · 발동잔량 건너뜀) → 반등 → Tab = 종료', async () => {
+    const user = userEvent.setup();
+    render(
+      <LimitChaserForm
+        {...props({ server: echo({ postBuyPhase: 3, postBuyReentry: 3, postBuyReentryLeft: 0, postBuyReboundPct: 30 }) })}
+      />,
+    );
+    await user.click(document.querySelector('[data-slot="lc-group-post-buy"] [data-slot="lc-group-fold"]') as HTMLElement);
+    // 소진 안내 줄이 「최대」 바로 아래 서 있어도 Tab 은 그 줄을 건너뛴다.
+    expect(document.querySelector('[data-slot="lc-post-buy-exhausted"]')).not.toBeNull();
+    await user.click(row('lc-post-buy-reentry'));
+    key(input('lc-post-buy-reentry')!, 'Tab');
+    expect(editingId()).toBe('lc-post-buy-floor-qty');
+    key(input('lc-post-buy-floor-qty')!, 'Tab');
+    expect(editingId()).toBe('lc-post-buy-rebound');
+    key(input('lc-post-buy-rebound')!, 'Tab');
+    expect(editingId()).toBeNull();
+    expect(sentConfigs()).toHaveLength(0);
+  });
+
   it('위반 값(호가 단위)이면 Tab 도 저장·이동 없이 이유만 보인다 (D-15)', async () => {
     const user = userEvent.setup();
     render(<LimitChaserForm {...props({ upperLimit: 169_000 })} />);

@@ -326,7 +326,7 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
       status · VI 확인 체크 탭 제외 · 데드라인 progressbar · 거부 경보. 판정(axe 위반 0)은 그대로다.
   */
   // ─────────────────────────────────────────────────────────────────────────
-  test('/trading — 위반 0 + 사이드바 제목 활성 · LED 묶음 라벨 1개 · 스위치 4종(role=switch) · 같은 이름 값 버튼의 그룹 설명 · 호가 비포커스 · 검색 결선', async ({
+  test('/trading — 위반 0(세 그룹 카드 접힘 · 펼침 각각) + 사이드바 제목 활성 · LED 묶음 라벨 1개 · 스위치 6종(role=switch) · 값 버튼 설명 · 호가 비포커스 · 검색 결선', async ({
     page,
   }) => {
     await page.goto(`/trading?focus=${encodeURIComponent(`${E2E_ISIN}:${E2E_ACCOUNT_NO}:KRX`)}`);
@@ -340,10 +340,22 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
     const openCard = page.locator('[data-slot="strategy-card"][data-open="true"]');
     await expect(openCard).toHaveCount(1, { timeout: 15_000 });
 
+    // Phase 24 ⑤ — 선매수 · 추가매수 · 후매수 카드는 기본 접힘이다. 접힌 상태를 먼저 스캔한다.
+    const folds = openCard.locator('[data-slot="lc-group-fold"]');
+    await expect(folds).toHaveCount(3);
+    for (const f of await folds.all()) await expect(f).toHaveAttribute('aria-expanded', 'false');
     const blocking = await scanSurface(page);
     expect(
       blocking,
-      `critical/serious 위반 ${blocking.length}건\n${JSON.stringify(blocking, null, 2)}`,
+      `접힌 상태 critical/serious 위반 ${blocking.length}건\n${JSON.stringify(blocking, null, 2)}`,
+    ).toEqual([]);
+    // 세 카드를 펼친 상태도 스캔한다 — 행 · 체크 · 발동잔량 · (흐린 행) 전부가 접근성 트리에 들어온다.
+    for (const f of await folds.all()) await f.click();
+    for (const f of await folds.all()) await expect(f).toHaveAttribute('aria-expanded', 'true');
+    const expandedScan = await scanSurface(page);
+    expect(
+      expandedScan,
+      `펼친 상태 critical/serious 위반 ${expandedScan.length}건\n${JSON.stringify(expandedScan, null, 2)}`,
     ).toEqual([]);
 
     // ① 사이드바 = `<nav aria-label="주 메뉴">` 하나 + 활성은 「트레이딩」 제목 하나(18-12).
@@ -370,15 +382,19 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
       .getAttribute('aria-label');
     expect(second).not.toBe(label);
 
-    // ③ 그룹 스위치 4종 — Phase 20 부터 `role="switch"`(Radix Switch) · 매수취소도 스위치다(D-21).
-    //    시각 라벨이 없으므로 `aria-label` 이 유일한 이름이다(펼친 카드 1장).
-    for (const name of ['매수주문 켜기', '매도주문 켜기', '한방체결 켜기', '매수취소 켜기']) {
+    // ③ 그룹 스위치 6종 — Phase 20 부터 `role="switch"`(Radix Switch) · 매수취소도 스위치다(D-21) · Phase 24 로
+    //    선 · 추가 · 후매수 스위치가 서고 한방은 선매수 카드 안 체크가 됐다. 시각 라벨이 없으므로 `aria-label` 이
+    //    유일한 이름이다(펼친 카드 1장).
+    await expect(openCard.getByRole('switch')).toHaveCount(6);
+    for (const name of ['매수주문 켜기', '선매수 켜기', '추가매수 켜기', '후매수 켜기', '매도주문 켜기', '매수취소 켜기']) {
       await expect(openCard.getByRole('switch', { name, exact: true })).toHaveCount(1);
     }
-    // ③-b ≥700 두 열 — 매수·매도 쪽 「비교가격」 값 버튼은 이름 계약(「{라벨} {값}{단위}」)상 같은 꼴이라
-    //      설명(그룹 제목)으로 갈린다(20-07 a11y).
-    await expect(openCard.locator('[data-lc-field="lc-buy-watch-price"]')).toHaveAccessibleDescription('매수주문');
-    await expect(openCard.locator('[data-lc-field="lc-sell-watch-price"]')).toHaveAccessibleDescription('매도주문');
+    // ③-b 같은 라벨 두 벌(D-09) — 「비교가격」 값 버튼은 이름 접두(매수 · 매도)로 갈리고, 설명은 카드 제목 +
+    //      상태 문구다(R10 — 흐린 행의 비시각 경로).
+    await expect(openCard.locator('[data-lc-field="lc-buy-watch-price"]')).toHaveAccessibleName(/^매수 비교가격 /);
+    await expect(openCard.locator('[data-lc-field="lc-sell-watch-price"]')).toHaveAccessibleName(/^매도 비교가격 /);
+    await expect(openCard.locator('[data-lc-field="lc-buy-watch-price"]')).toHaveAccessibleDescription(/^매수주문 /);
+    await expect(openCard.locator('[data-lc-field="lc-sell-watch-price"]')).toHaveAccessibleDescription(/^매도주문 /);
 
     // ④ 상태줄 DMA 필은 `aria-live="polite"` — 포커스를 뺏지 않고 갱신을 알린다.
     await expect(page.locator('[data-slot="workbench-dma"]')).toHaveAttribute('aria-live', 'polite');
@@ -466,14 +482,16 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
 
     /*
       ⑦ 인라인 편집 중(옛 「더티 바 role=status」 재정의 · Phase 20 D-04) — 더티 바는 사라졌고 편집 표면은
-        행 자체다. 마우스 기기에서 행을 누르면 그 자리에 입력이 서고, 입력은 라벨 「잔량」을 이름으로 가지며
+        행 자체다. 마우스 기기에서 행을 누르면 그 자리에 입력이 서고, 입력은 라벨 「매도잔량」(Phase 24 D-09 · 선매수
+        카드 — 기본 접힘이라 먼저 펼친다)을 이름으로 가지며
         포커스를 유지한다(값을 쳐도 뺏기지 않는다). 편집 중인 상태도 위반 0 이다.
     */
     await tablist.getByRole('tab', { name: '매수' }).click();
+    await card.locator('[data-slot="lc-group-pre-buy"] [data-slot="lc-group-fold"]').click();
     await page.locator('[data-lc-field="lc-buy-watch-qty"]').click();
     const input = page.locator('#lc-buy-watch-qty');
     await expect(input).toBeFocused();
-    await expect(input).toHaveAccessibleName('잔량');
+    await expect(input).toHaveAccessibleName('매도잔량');
     await input.fill('8000');
     await expect(input).toBeFocused();
     await expect(page.locator('[data-slot="dirty-action-bar"]')).toHaveCount(0);
@@ -509,14 +527,18 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
       await expect(row.locator('[data-slot="lc-row-value"]')).toHaveText('10,000주', { timeout: 15_000 });
       await expect(row).toHaveAttribute('aria-haspopup', 'dialog');
 
+      // Phase 24 ⑤ — 선매수 카드는 기본 접힘이다(접기는 로컬 동작 · 전송 0).
+      await page
+        .locator('[data-slot="strategy-card"][data-open="true"] [data-slot="lc-group-pre-buy"] [data-slot="lc-group-fold"]')
+        .tap();
       await row.tap();
       const sheet = page.locator('[data-slot="numpad-sheet"]');
       await expect(sheet).toBeVisible({ timeout: 10_000 });
       await sheet.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
       await expect(sheet).toHaveAttribute('role', 'dialog');
       await expect(sheet).toHaveAttribute('aria-modal', 'true');
-      await expect(sheet).toHaveAccessibleName('잔량');
-      await expect(sheet).toHaveAccessibleDescription('잔량이 이 값보다 줄면 매수를 넣어요');
+      await expect(sheet).toHaveAccessibleName('선매수 매도잔량');
+      await expect(sheet).toHaveAccessibleDescription('비교가격의 매도잔량이 이 값 이하로 줄면 선매수를 넣어요');
       // 열린 동안 포커스는 시트 안이다(초기 포커스 = 콘텐츠 컨테이너).
       expect(
         await page.evaluate(() => document.activeElement?.closest('[data-slot="numpad-sheet"]') != null),
