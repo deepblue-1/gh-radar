@@ -1,6 +1,6 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 1d95f64f
+// server-repo-commit: cfbbd3e2
 // synced-date:        2026-09-28
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
@@ -402,7 +402,7 @@ table SetLimitChaser {
                                  // 구 클라(buy3_schema 부재)의 "1" 거부 판정(D-28)에만 읽는다. 봉인은 gh-radar 가 buy3_schema=1
                                  // 전송을 배포한 뒤 후속 작업이다 (D-28 ③ — 이 페이즈에서 봉인하지 않는다)
     buy_trade_qty_enabled: bool; // 체결수량 조건 활성화
-    buy_enabled: bool;           // 매수 감시 활성화
+    buy_enabled: bool;           // 매수 감시 활성화 — Phase 24 부터 세 매수의 마스터(D-01). 에코는 cfg ∧ 마스터 무장: 그룹 하나의 발주로는 접히지 않고, 선·추가·후매수가 모두 접히면(발주·포기·소진) 서버가 내려 OFF 로 온다(D-34)
 
     // === 매도 조건 ===
     // 호가(B6) 기반 매도 조건:
@@ -920,6 +920,11 @@ table QuoteState {
                               // NXT 프레임에도 같은 ISIN 의 KRX 종가를 싣는다. 0 = 그날 종가 없음
                               // (구 서버는 필드 부재라 역시 0). 기존 필드 번호 불변을 위한 맨 끝
                               // append (quick-260916-sjb)
+    off_hours_close_ask_qty: long;  // KRX 시간외종가(G2 08:30~08:40 · G3 15:40~16:00) 매도호가 총잔량 —
+                                    // B8(IFMSRPD0063) 최신값. KRX 키만 싣고 NXT 키는 늘 0, 06:00 거래일
+                                    // 경계에 0. 0 = 잔량 없음·미수신(구 서버는 필드 부재라 역시 0).
+                                    // 기존 필드 번호 불변을 위한 맨 끝 append (quick-260928-ccl)
+    off_hours_close_bid_qty: long;  // 같은 원천의 매수호가 총잔량 — 규칙은 off_hours_close_ask_qty 와 같다
 }
 
 // 체결 테이프 1건 (D-02)
