@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 24
 current_phase_name: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영
 status: executing
-stopped_at: Completed 24-16-PLAN.md
-last_updated: "2026-09-28T08:28:48.815Z"
+stopped_at: Completed 24-18-PLAN.md
+last_updated: "2026-09-28T08:49:39.330Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 24 execution started
-state_head: 0f9d8389561023dd5cf3821ce2c745a36fa1b174
+state_head: ece4e85468776acfe5c03b73c573379bce4456ea
 progress:
   total_phases: 33
   completed_phases: 4
   total_plans: 324
-  completed_plans: 301
+  completed_plans: 302
 milestone_name: milestone
 ---
 
@@ -28,13 +28,13 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 24 (gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영) — READY TO EXECUTE
-Plan: 17 of 24
+Phase: 24 (gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영) — EXECUTING
+Plan: 19 of 24
 Plans completed: 220 / 234
-Status: Phase 24 갭 클로징 2라운드 플랜 24-18~24-24 준비 완료(체커 통과) — WR-05 재오픈 · R2-G1~G3 · gh-trade 후속 D-36~D-38 · 다음 /gsd-execute-phase 24 --gaps-only
+Status: Phase 24 갭 클로징 2라운드 실행 중 — 24-18 완료 · 다음 24-19
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-28 — quick 260928-no0 완료: /me 전략 현황 카드·상태줄이 켜진 전략(isActiveStrategy)만 센다 (16b4a01f · c8e0c38e) · 서버·relay 무변경
+Last activity: 2026-09-28 — 24-18 완료: GC-WR-01 거부 통지는 귀속을 지우지 않음 · 귀속 판정 echoAnswersSent 한 곳 (027844e4 · 701c25c1) · 다음 24-19
 
 Progress: [█████████░] 93%
 
@@ -153,6 +153,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 24 P14 | 11min | 2 tasks | 4 files |
 | Phase 24 P15 | 8min | 2 tasks | 6 files |
 | Phase 24 P17 | 8 min | 2 tasks | 6 files |
+| Phase 24 P18 | 8min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -382,6 +383,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 24]: 24-15: 보이지 않는 인스턴스(visibilityState hidden)는 자동 끔을 LC_FOLD_HIDDEN_DEFER_MS(1.5초) 미룬 뒤 가드 ② 재확인(가드 ⑥) — 보이는 인스턴스는 다음 틱 그대로
 - [Phase 24]: 24-15: WR-06 은 webapp 만으로 닫음(relay 재배포 불필요) — 동시에 보이는 두 인스턴스 · 한 왕복 안쪽 사람 편집 되돌림은 relay/서버 compare-and-set 이월, 24-16 체크포인트에서 사용자 확인
 - [Phase 24]: 24-17: D-35 — 사람이 추가매수를 켤 때도 선매수와 같은 규칙으로 매도 · 취소 6체크를 한 lc.set 에 싣는다. 판정은 lib groupAutoChecksOf(gate, …) 한 벌(gate 는 로그 첫머리 그룹 이름만) · 후매수는 AutoCheckGate 에서 제외 · 순서 사전 검증 → D-16 → 자동 체크 · 로그 「{선매수|추가매수} 자동 체크 — …」(선매수 문장 불변) · webapp 만(relay 변경 없음)
+- [Phase 24]: 24-18 GC-WR-01: 거부 통지는 보낸 제출 귀속을 비우지 않는다 — 귀속 판정은 strategy-log echoAnswersSent(요청 변화가 하나라도 섰는가) 한 곳, 싣지 않은 에코는 귀속을 받지도 소비하지도 않고 끝은 결과 모름 창 만료 — 부분 거부(ERROR 뒤 같은 제출의 에코)와 다른 탭 거부 팬아웃 때문에 거부 시점 비움이 내 에코를 다른 단말로 읽게 했다(24-REVIEW-R2 GC-WR-01)
 
 ### Pending Todos
 
@@ -440,8 +442,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-09-28T07:22:05.042Z
-Stopped at: Completed 24-16-PLAN.md
+Last session: 2026-09-28T08:49:28.313Z
+Stopped at: Completed 24-18-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
