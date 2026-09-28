@@ -1268,7 +1268,7 @@ describe('companions — 한 확정 = 한 lc.set 에 동반 필드 (Phase 24 D-0
     expect(t.hook.result.current.failures.preBuyEnabled).toBeUndefined();
   });
 
-  it('WR-04 — 앞 건 실패로 대기 건을 접을 때 주 필드만 같다고 성공으로 접지 않는다 · 동반 마스터가 다르면 실패 + 서버 값(ON)으로 되돌림', () => {
+  it('WR-04 — 앞 건 실패로 대기 건을 접을 때 주 필드만 같다고 성공으로 접지 않는다 · 동반 마스터가 다르면 서버 값(ON)으로 되돌림 → GC-WR-02: 주 필드는 성공', () => {
     const t = setup({ server: echo({ preBuyEnabled: true, buyEnabled: true }) });
     let out: string | undefined;
     act(() => {
@@ -1282,7 +1282,9 @@ describe('companions — 한 확정 = 한 lc.set 에 동반 필드 (Phase 24 D-0
     t.update({ server: echo({ preBuyEnabled: false, buyEnabled: true }) });
     t.update({ serverAnswerSeq: 1 });
     expect(t.hook.result.current.failures.buyWatchQty?.reason).toBe('rejected');
-    expect(t.hook.result.current.failures.preBuyEnabled?.reason).toBe('rejected');
+    // GC-WR-02 — 주 필드가 서버에 섰으면 성공, 동반만 서버 값. 대기 건 전체를 성공으로 접은 것은 아니다(마스터는 ON 으로 돌아온다).
+    expect(t.hook.result.current.failures.preBuyEnabled).toBeUndefined();
+    expect(t.formRef.current.preBuyEnabled).toBe(false);
     expect(t.formRef.current.buyEnabled).toBe(true);
     expect(t.hook.result.current.queuedFields).toEqual([]);
     expect(t.send).toHaveBeenCalledTimes(1);
@@ -1324,6 +1326,66 @@ describe('companions — 한 확정 = 한 lc.set 에 동반 필드 (Phase 24 D-0
     expect(t.formRef.current.sellEnabled).toBe(false);
     expect(t.formRef.current.buyEnabled).toBe(false);
     expect(t.formRef.current.sellOrderPrice).toBe(777);
+  });
+
+  it('GC-WR-02 — 주 필드가 이미 서버에 섰다: 앞 건 거부로 대기 「선매수 끔 + 마스터 동반 끔」을 접어도 주 필드는 성공 · 동반만 서버 값', () => {
+    const t = setup({ server: echo({ preBuyEnabled: true, buyEnabled: true }) });
+    act(() => {
+      t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+      t.hook.result.current.commit('preBuyEnabled', false, 'toggle', { buyEnabled: false });
+    });
+    const seqBefore = t.hook.result.current.successSeq;
+    // 서버가 선매수를 접었다 · 마스터 ON · buyWatchQty 미반영 → 답 신호(다음 렌더) → in-flight 거부 → 대기 건 접기.
+    t.update({ server: echo({ preBuyEnabled: false, buyEnabled: true }) });
+    t.update({ serverAnswerSeq: 1 });
+    const r = t.hook.result.current;
+    expect(r.failures.buyWatchQty?.reason).toBe('rejected');
+    expect(r.failures.preBuyEnabled).toBeUndefined();
+    expect(r.successSeq).toBeGreaterThan(seqBefore);
+    expect(r.lastSuccessField).toBe('preBuyEnabled');
+    // 폼 토글 = 서버 값 — 선매수 OFF(누른 순간 값 ON 으로 되살리지 않는다) · 마스터 ON.
+    expect(t.formRef.current.preBuyEnabled).toBe(false);
+    expect(t.formRef.current.buyEnabled).toBe(true);
+    // 재전송 없음(T-16-10).
+    expect(t.send).toHaveBeenCalledTimes(1);
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    t.update({ serverAnswerSeq: 2 });
+    expect(t.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('GC-WR-02 — 주 필드가 서버에 서지 않았다: 대기 건은 실패(`rejected`) · 폼 토글은 서버 값(선매수 ON · 마스터 ON)', () => {
+    const t = setup({ server: echo({ preBuyEnabled: true, buyEnabled: true }) });
+    act(() => {
+      t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+      t.hook.result.current.commit('preBuyEnabled', false, 'toggle', { buyEnabled: false });
+    });
+    expect(t.formRef.current.preBuyEnabled).toBe(false);
+    expect(t.formRef.current.buyEnabled).toBe(false);
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.hook.result.current.failures.preBuyEnabled?.reason).toBe('rejected');
+    expect(t.formRef.current.preBuyEnabled).toBe(true);
+    expect(t.formRef.current.buyEnabled).toBe(true);
+    expect(t.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('GC-WR-02 — in-flight 실패 되돌림도 서버 동기값이다: 그사이 다른 단말이 켠 매도는 누른 순간 값(OFF)이 아니라 서버 값(ON)', () => {
+    const t = setup({ server: echo({ sellEnabled: false }) });
+    act(() => {
+      t.hook.result.current.commit('preBuyEnabled', true, 'toggle', { sellEnabled: true, buyEnabled: true });
+    });
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.formRef.current.preBuyEnabled).toBe(true);
+    expect(t.formRef.current.sellEnabled).toBe(true);
+    // 다른 단말이 매도를 켰다(선매수 OFF 그대로) → 답 신호(거부).
+    t.update({ server: echo({ sellEnabled: true }) });
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.hook.result.current.failures.preBuyEnabled?.reason).toBe('rejected');
+    expect(t.formRef.current.preBuyEnabled).toBe(false);
+    expect(t.formRef.current.sellEnabled).toBe(true);
+    expect(t.formRef.current.buyEnabled).toBe(true);
+    expect(t.send).toHaveBeenCalledTimes(1);
   });
 });
 

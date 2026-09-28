@@ -75,7 +75,9 @@
  *   싣는다(D-04a 잔여 규칙) — `buildCfg` 가 폼 금액(클라 기본값)으로 수량을 다시 계산해 서버가 쥔 수량을 덮지 않게.
  *
  * ⑩ 토글 종류(스위치·체크·감시대상)는 전송 뒤(또는 대기 진입 시) 낙관 표시하고, 실패·폐기되면
- *   확정 직전 값으로 되돌린다(UI-SPEC E2). `send` 가 false 면 폼을 건드리지 않는다(GC-WR-06).
+ *   **지금 서버 값**(`baseNow()` — 서버 동기값)으로 되돌린다(미등록이면 확정 직전 값 · UI-SPEC E2 · GC-WR-02).
+ *   누른 순간 값으로 되돌리면 그사이 서버가 바꾼 스위치(서버가 접은 선매수 · 다른 단말이 켠 매도)를 거짓으로 그린다 —
+ *   「보인 값 = 서버에 선 값」(④)이 실패 · 폐기 뒤에도 선다. `send` 가 false 면 폼을 건드리지 않는다(GC-WR-06).
  *
  * ⑪ ★ 동반 필드(companions · Phase 24 D-01 · D-02) — **한 확정 = 한 `lc.set`** 을 지키며 여러 필드를 싣는다
  *   그룹 스위치를 켜면 마스터도 같은 제출에 켜지고(D-01), 마지막 그룹을 끄면 마스터도 같은 제출에 꺼진다(D-02).
@@ -84,8 +86,11 @@
  *     검증 실패 → `sell_enabled=false` + ERROR 원문 로그) 그것은 주 필드의 실패가 아니다.
  *   ★ 무장 가드(`armBlockOf`) · 범위 가드는 동반 필드를 **합친 값**으로 판정한다(실제로 나갈 cfg).
  *   ★ 낙관 표시 · 되돌림(거부 · 무응답 · 끊김 · 대기 폐기)은 주 필드와 동반 **불리언**을 **함께** 한다(값 필드는 ④).
+ *     되돌림 값은 지금 서버 동기값이다(미등록이면 확정 직전 값 · ⑩ · GC-WR-02) — `revertToggle` 한 자리.
  *   ★ no-op 은 주 필드와 모든 동반 필드가 서버 값과 같을 때만이다 — 즉시 경로 · 꺼낼 때 · 앞 건 실패로 대기 건을
  *     접을 때(`failQueue`)가 같은 `sameAsServer` 규칙이다(주 필드만 같다고 성공으로 접지 않는다 — WR-04).
+ *     단 `failQueue` 에서 주 필드만 서버 값이면 **주 필드는 성공**이고 동반은 서버 값으로 보인다(GC-WR-02 — 끄려던
+ *     값이 이미 서 있는데 실패로 그리지 않는다 · 동반이 서지 않았다는 사실은 화면 값이 말한다).
  *   새 훅 · 새 전송 경로를 만들지 않는다(RESEARCH Don't Hand-Roll) — 직렬화 · 고아 장벽 · 늦은 에코가 그대로 돈다.
  *   ★ **동반은 값 또는 꺼낼 때 계산하는 함수다(`LcCompanions` · 24-REVIEW WR-03)** — 대기 건은 꺼내는 순간의 서버
  *     동기값으로 다시 계산한다. 누른 순간의 값으로 굳히면, 앞 확정이 in-flight 인 동안 사람이 방금 확정한 값(예: 매도
@@ -267,7 +272,7 @@ interface Pending {
   field: LcFieldKey;
   value: unknown;
   kind: LcCommitKind;
-  /** 확정 직전 폼 값 — 토글 되돌림 기준(⑩). */
+  /** 확정 직전 폼 값 — 미등록(서버 없음)일 때의 토글 되돌림 기준(⑩). 서버가 있으면 서버 동기값으로 되돌린다(GC-WR-02). */
   prevValue: unknown;
   /**
    * 같은 `lc.set` 에 함께 실을 필드(D-01 · D-02 마스터 · ⑪) — 값 또는 판정 시점에 계산하는 함수(WR-03).
@@ -276,7 +281,7 @@ interface Pending {
   companions?: LcCompanions;
   /** 지금 낙관 표시 · 되돌림 기준이 된 동반 계산 결과 — 다시 계산해 키가 바뀌면 `reshow` 가 맞춘다. */
   shownCompanions?: Partial<LimitChaserFormValues>;
-  /** 되돌림용 — `shownCompanions` 키들의 확정 직전 폼 값. */
+  /** 되돌림용 — `shownCompanions` 키들의 확정 직전 폼 값(미등록일 때의 기준 · 서버가 있으면 서버 동기값 · GC-WR-02). */
   prevCompanions?: Partial<LimitChaserFormValues>;
   /** 보낸 사유(⑫) — `onSent` 로만 흐른다. */
   meta?: LcCommitMeta;
@@ -459,26 +464,47 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
   );
   /** 이 확정의 낙관 표시(주 필드 + 동반 계산 결과). */
   const applyToggle = useCallback((p: Pending) => showToggle(p.field, p.value, p.shownCompanions), [showToggle]);
-  /** 이 확정을 확정 직전 값으로 되돌린다(주 필드 + 동반). */
-  const revertToggle = useCallback((p: Pending) => showToggle(p.field, p.prevValue, p.prevCompanions), [showToggle]);
+  /**
+   * 이 확정의 토글 표시를 되돌린다(주 필드 + 동반 · 불리언만 — `showToggle` 이 거른다 · IN-05).
+   * ★ 서버가 있으면 **지금 서버 값**이다(GC-WR-02) — 누른 순간 값으로 되돌리면 그사이 서버가 바꾼 스위치(서버가 접은
+   *   선매수 · 다른 단말이 켠 매도)를 거짓으로 그린다. 미등록이면 확정 직전 폼 값이다(서버 값이 없다).
+   *   실패 · 폐기의 모든 경로(in-flight 실패 · 대기 접기 · 꺼낼 때 막힘 · 끊김)가 이 한 자리를 지난다.
+   *   기준값은 전송 조립과 같은 식(`baseNow()` = `formFromServer(server, formRef.current)`)이다.
+   */
+  const revertToggle = useCallback(
+    (p: Pending) => {
+      if (optsRef.current.server == null) {
+        showToggle(p.field, p.prevValue, p.prevCompanions);
+        return;
+      }
+      const base = baseNow();
+      showToggle(p.field, base[p.field], pickValues(base, p.shownCompanions));
+    },
+    [baseNow, showToggle],
+  );
   /**
    * 동반 계산 결과를 `next` 로 바꾼다(⑪ · WR-03) — 같은 필드 재확정과 꺼낼 때의 재계산이 같은 규칙이다.
-   * 빠지는 키는 확정 직전 값으로 되돌리고(토글 — 이미 낙관 표시했다 · 불리언만 · IN-05), 새 키의 되돌림 기준은
-   * 지금 폼 값이다(이미 이 확정이 낙관 표시한 키는 처음 잡은 기준을 유지한다).
+   * 빠지는 키는 되돌리고(토글 — 이미 낙관 표시했다 · 불리언만 · IN-05 · 기준은 `revertToggle` 과 같다 — 서버가 있으면
+   * 지금 서버 값, 없으면 확정 직전 값 · GC-WR-02), 새 키의 미등록 되돌림 기준은 지금 폼 값이다(이미 이 확정이 낙관
+   * 표시한 키는 처음 잡은 기준을 유지한다).
    */
-  const reshow = useCallback((p: Pending, next: Partial<LimitChaserFormValues> | undefined) => {
-    if (p.kind === 'toggle') {
-      const dropped: Record<string, unknown> = {};
-      for (const k of Object.keys(p.shownCompanions ?? {}) as LcFieldKey[]) {
-        if (next === undefined || !(k in next)) dropped[k] = p.prevCompanions?.[k];
+  const reshow = useCallback(
+    (p: Pending, next: Partial<LimitChaserFormValues> | undefined) => {
+      if (p.kind === 'toggle') {
+        const base = optsRef.current.server != null ? baseNow() : null;
+        const dropped: Record<string, unknown> = {};
+        for (const k of Object.keys(p.shownCompanions ?? {}) as LcFieldKey[]) {
+          if (next === undefined || !(k in next)) dropped[k] = base !== null ? base[k] : p.prevCompanions?.[k];
+        }
+        const revert = booleanCompanions(dropped as Partial<LimitChaserFormValues>);
+        if (Object.keys(revert).length > 0) optsRef.current.setForm((prev) => ({ ...prev, ...revert }));
       }
-      const revert = booleanCompanions(dropped as Partial<LimitChaserFormValues>);
-      if (Object.keys(revert).length > 0) optsRef.current.setForm((prev) => ({ ...prev, ...revert }));
-    }
-    const oldPrev: Partial<LimitChaserFormValues> = p.prevCompanions ?? {};
-    p.prevCompanions = pickValues({ ...optsRef.current.formRef.current, ...oldPrev }, next);
-    p.shownCompanions = next;
-  }, []);
+      const oldPrev: Partial<LimitChaserFormValues> = p.prevCompanions ?? {};
+      p.prevCompanions = pickValues({ ...optsRef.current.formRef.current, ...oldPrev }, next);
+      p.shownCompanions = next;
+    },
+    [baseNow],
+  );
 
   /**
    * 지금 보낸다 — 즉시 확정과 대기 꺼내기가 **같은 경로**다. 무장 판정(⑨)은 여기서만 한다.
@@ -582,7 +608,12 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
           markSuccess(q.field);
           continue;
         }
-        setFailure(q.field, reason, LC_COMMIT_TEXT.failed, q.value);
+        // 주 필드가 이미 서버 값이면 주 필드는 성공 · 동반만 서버 값으로 — 누른 순간 값으로 되돌리지 않는다(GC-WR-02).
+        //   대기 건 전체를 성공으로 접는 것(WR-04 가 막은 것)과 다르다 — 서지 않은 동반(예: D-02 전반 마스터 OFF)은
+        //   아래 `revertToggle` 이 서버 값(ON)으로 되돌려 보이고, 사람이 누른 주 필드에는 실패 말풍선이 붙지 않는다.
+        if (server != null && sameAsServer(server, q.field, q.value)) markSuccess(q.field);
+        else setFailure(q.field, reason, LC_COMMIT_TEXT.failed, q.value);
+        // 두 갈래 모두 토글 표시는 지금 서버 값이다(⑩ · GC-WR-02).
         if (q.kind === 'toggle') revertToggle(q);
       }
       queueRef.current = [];

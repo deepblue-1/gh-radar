@@ -2440,6 +2440,36 @@ describe('WR-03 — 대기열 선매수 켜기의 동반 필드는 꺼내는 순
   });
 });
 
+describe('GC-WR-02 — 대기 건을 실패로 접어도 폼 토글은 서버 값이다 (24-VERIFICATION-R2 갭 2)', () => {
+  /** 선매수 ON · 마스터 ON · 매도 ON(추가 · 후매수 OFF) — 선매수가 마지막 켜진 그룹이다. */
+  const armed = (over: Partial<RelayLimitChaser> = {}) =>
+    echo({ buyEnabled: true, preBuyEnabled: true, sellEnabled: true, ...over });
+
+  it('값 확정(in-flight) → 선매수 끄기(대기 · 마스터 동반 끔) → 서버가 선매수를 접은 에코 → 앞 건 거부 → 선매수 OFF · 말풍선 0 · 마스터 ON · 전송 1', () => {
+    const { rerender } = render(<LimitChaserForm {...props({ server: armed() })} />);
+    editInline('lc-sweep-tick', '5');
+    expect(sentConfigs()).toHaveLength(1);
+    // 마지막 켜진 그룹을 끈다 — D-02 전반으로 마스터가 동반 끔 · 앞 건이 나가 있어 대기 · 두 스위치 낙관 OFF.
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(sw('선매수 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'false');
+
+    // 서버가 선매수를 접었다(마스터 ON · 값 미반영) → 답 신호 → in-flight 거부 → 대기 건 접기.
+    const folded = armed({ preBuyEnabled: false });
+    rerender(<LimitChaserForm {...props({ server: folded })} />);
+    rerender(<LimitChaserForm {...props({ server: folded, serverAnswerSeq: 1 })} />);
+
+    // 끄려던 선매수는 이미 서버에 섰다 — ON 으로 되살아나지 않고 「반영하지 못했어요」도 붙지 않는다.
+    expect(sw('선매수 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(screen.queryByText('반영하지 못했어요')).toBeNull();
+    // 동반(마스터 끔)은 서지 않았다 — 화면은 서버 값(ON)이다.
+    expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'true');
+    // 재전송 없음(T-16-10).
+    expect(sentConfigs()).toHaveLength(1);
+  });
+});
+
 describe('D-35 — 추가매수 켬도 선매수처럼 매도 · 취소 6체크를 같은 제출에 (2026-09-28 사용자 지시)', () => {
   /**
    * ⑲ 과 같은 출발점 + 추가매수 금액 50(만원) — 마스터 OFF · 매도/취소 전부 OFF · 매도 가격 0 · 매도 매수잔량 10 ·
