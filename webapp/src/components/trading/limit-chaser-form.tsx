@@ -925,16 +925,18 @@ export function LimitChaserForm({
   successSeqRef.current = successSeq;
   /**
    * 자동 체크(D-06 · D-35) **마지막 계산 결과** — 켜는 확정이 넘긴 동반 함수가 판정 시점마다 다시 적는다(WR-03).
-   * 대기열에서 꺼내는 순간의 계산이 마지막이므로 로그 한 줄은 실제로 나간 cfg 와 같은 판정을 말한다. 선매수 · 추가매수
-   * 켬이 같이 쓴다(결과의 `groupLabel` 이 그룹을 말한다).
+   * 대기열에서 꺼내는 순간의 계산이 마지막이므로 로그 한 줄은 실제로 나간 cfg 와 같은 판정을 말한다.
+   * ★ 그룹별 슬롯 — 한 그룹의 핸들러는 자기 슬롯만 만진다(GC-WR-04). 선매수 켬이 in-flight 인 동안 추가매수 ·
+   *   후매수를 켜도 선매수 슬롯은 그대로다.
    */
-  const autoCheckRef = useRef<GroupAutoCheckResult | null>(null);
+  const autoCheckRef = useRef<Partial<Record<AutoCheckGate, GroupAutoCheckResult>>>({});
   /**
    * 자동 체크 로그 한 줄 — 그 제출의 **성공 에코를 기다린다**(D-06 · UI-SPEC 「전송 성공 에코 뒤」). 줄은 성공 뒤
-   * `autoCheckRef` 로 만든다(보낸 순간이 아니라 실제 전송 판정). `gate` = 켠 그룹 · `seqAtSend` = 누른 순간의 성공
-   * 카운터 — 이전 성공(같은 그룹 필드 포함)을 이 제출의 성공으로 읽지 않는다.
+   * 그 그룹의 `autoCheckRef` 슬롯으로 만든다(보낸 순간이 아니라 실제 전송 판정). 키 = 켠 그룹 · 값 = 누른 순간의
+   * 성공 카운터(seqAtSend) — 이전 성공(같은 그룹 필드 포함)을 이 제출의 성공으로 읽지 않는다.
+   * ★ 그룹별 슬롯 — 한 그룹의 핸들러는 자기 슬롯만 만진다(GC-WR-04).
    */
-  const pendingAutoCheckRef = useRef<{ gate: AutoCheckGate; seqAtSend: number } | null>(null);
+  const pendingAutoCheckRef = useRef<Partial<Record<AutoCheckGate, number>>>({});
   useEffect(() => {
     setPrecheck((cur) => {
       if (cur === null) return cur;
@@ -992,19 +994,24 @@ export function LimitChaserForm({
             사전 검증 · D-16 은 위에서 누르는 순간 판정한다(R7).
         */
         const autoGate: AutoCheckGate | null = gate === 'preBuyEnabled' || gate === 'extraBuyEnabled' ? gate : null;
-        autoCheckRef.current = null;
+        // 자기 그룹 슬롯만 비운다 — 후매수(autoGate null)는 어떤 슬롯도 건드리지 않는다(GC-WR-04).
+        if (autoGate !== null) delete autoCheckRef.current[autoGate];
         const outcome = commitField(gate, true, 'toggle', (base) => {
           const companions: Partial<LimitChaserFormValues> = base.buyEnabled ? {} : { buyEnabled: true };
           if (autoGate === null) return companions;
           const auto = groupAutoChecksOf(autoGate, base, upperLimitRef.current);
-          autoCheckRef.current = auto;
+          autoCheckRef.current[autoGate] = auto;
           return { ...auto.companions, ...companions };
         });
+        if (autoGate === null) return;
         // 로그는 성공 에코 뒤 한 줄 — 나가지 못했으면(막힘 · 끊김) 쓰지 않는다(「보냈다」를 로그로 남기지 않는다).
-        pendingAutoCheckRef.current =
-          autoGate !== null && (outcome === 'sent' || outcome === 'queued')
-            ? { gate: autoGate, seqAtSend: successSeqRef.current }
-            : null;
+        //   막힘 · 끊김도 자기 슬롯만 지운다 — 다른 그룹의 대기 줄은 그대로다(GC-WR-04).
+        if (outcome === 'sent' || outcome === 'queued') {
+          pendingAutoCheckRef.current[autoGate] = successSeqRef.current;
+        } else {
+          delete pendingAutoCheckRef.current[autoGate];
+          delete autoCheckRef.current[autoGate];
+        }
         return;
       }
       /*
@@ -1029,24 +1036,31 @@ export function LimitChaserForm({
 
   /*
     그룹 켬 자동 체크 로그(D-06 · D-35) — 그 제출이 **성공한 뒤** 한 줄(「{선매수|추가매수} 자동 체크 — …」). 성공 필드 ·
-    서버 ON 재확인은 **기록된 gate** 로 본다. 카드 `pushClientLog` 가 한 박자 늦게 쌓으므로 같은 에코의 D-01 줄(「{그룹}
-    체크 — 매수주문도 켬」) 다음에 온다. 실패(거부 · 무응답 · 끊김 · 대기 폐기)면 버린다.
+    서버 ON 재확인은 **슬롯 키(켠 그룹)** 로 본다. 카드 `pushClientLog` 가 한 박자 늦게 쌓으므로 같은 에코의 D-01 줄
+    (「{그룹} 체크 — 매수주문도 켬」) 다음에 온다. 실패(거부 · 무응답 · 끊김 · 대기 폐기)면 그 그룹 슬롯만 버린다.
+    ★ 슬롯은 그룹별 — 선매수 in-flight 중 다른 그룹을 켜도 선매수 줄이 사라지지 않는다(GC-WR-04). 이 성공은 성공한
+      필드의 슬롯만 소비하고 다른 슬롯은 그대로 둔다.
     ★ 이 이펙트는 제출을 만들지 않는다 — 로그 한 줄만 내보낸다.
   */
   useEffect(() => {
     const pending = pendingAutoCheckRef.current;
-    if (pending === null) return;
-    if (lc.failures[pending.gate] !== undefined) {
-      pendingAutoCheckRef.current = null;
-      return;
+    for (const g of Object.keys(pending) as AutoCheckGate[]) {
+      if (lc.failures[g] === undefined) continue;
+      delete pending[g];
+      delete autoCheckRef.current[g];
     }
-    if (successSeq === pending.seqAtSend || lastSuccessField !== pending.gate) return;
-    pendingAutoCheckRef.current = null;
+    if (lastSuccessField !== 'preBuyEnabled' && lastSuccessField !== 'extraBuyEnabled') return;
+    const gate: AutoCheckGate = lastSuccessField;
+    const seqAtSend = pending[gate];
+    if (seqAtSend === undefined || successSeq === seqAtSend) return;
+    delete pending[gate];
+    const auto = autoCheckRef.current[gate];
+    delete autoCheckRef.current[gate];
     // 그새 그 그룹을 다시 꺼 그 확정이 성공한 경우 — 켠 사건이 아니다.
-    if (serverRef.current?.[pending.gate] !== true) return;
+    if (serverRef.current?.[gate] !== true) return;
     // 마지막 계산 = 실제로 나간 cfg 의 판정(WR-03). 켤 것도 생략도 없으면 줄 없음.
-    if (autoCheckRef.current === null) return;
-    const line = groupAutoCheckLogLine(autoCheckRef.current);
+    if (auto === undefined) return;
+    const line = groupAutoCheckLogLine(auto);
     if (line === null) return;
     clientLogRef.current?.(line.text, line.level);
   }, [successSeq, lastSuccessField, lc.failures]);
