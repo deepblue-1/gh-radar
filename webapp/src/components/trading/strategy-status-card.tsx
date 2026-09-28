@@ -8,7 +8,7 @@
  *   카드 하단의 **전체 비활성화**로 이루어진다. 시각 정본은 사용자 승인 목업
  *   `16-mypage-sidebar-mockup.html` 이다(D-24).
  *
- * ② ★ 사이드바와 달리 **상태를 전부 보여준다** — 단, 거래소는 배지가 아니다 (C2 · 260911-w5h)
+ * ② ★ 사이드바와 달리 **켜진 전략의 상태를 전부 보여준다** — 단, 거래소는 배지가 아니다 (C2 · 260911-w5h)
  *   사이드바 3단은 240px 폭이라 종목명 + 태그 + 배지 2개가 종목명을 3~4글자로 잘라먹어
  *   원 아이콘 2개로 단순화했다(N3a). 이 화면은 **상태 요약의 정본**이므로 반대로 전부 편다.
  *   두 표면이 같은 배지 정의(`strategy-badge.tsx`)를 쓰기 때문에 「어느 화면에서는 다른
@@ -61,6 +61,21 @@
  *   주문 통보(`RelayOrderMsg`)에는 ISIN 이 없어 어느 전략의 주문인지 귀속시킬 수 없고,
  *   미체결 목록의 매수 주문은 수동 주문일 수도 있다. 근거 없이 「발주됨」을 쓰면
  *   한 번도 발주된 적 없는 전략에 그 배지가 붙는다.
+ *
+ * ⑨ ★ **켜진 전략만** 나열한다 — 사이드바·작업대와 같은 `isActiveStrategy` 한 함수 (quick-260928-no0)
+ *   기준은 매수주문 스위치 ∨ 매도주문 스위치 ∨ 취소잔량이다(`lib/limit-chaser.ts`). 사이드바 3단
+ *   (`sidebarChasers`)과 작업대(`pruneInactiveCards`)가 같은 함수를 쓴다. 기준이 둘이 되면 「사이드바엔
+ *   없는데 여기엔 있다」가 생긴다. 서버(gh-trade)의 IsActive() 도 매수무장 ∨ 매도무장 ∨ 취소무장으로 같은 뜻이다.
+ *   거르는 이유: 사용자가 세 스위치를 모두 OFF 로 제출하면 서버가 삭제(crud "D")로 정규화한다. 그러나 서버가
+ *   스스로 접는 경우는 등록을 유지하고 게이트만 내린다 — 발주로 게이트 소진, 후매수 재무장 대기, 킬 스위치
+ *   (DisableStrategiesReq), 15:40 정규장 마감 정리, 장 마감 정리가 그렇고, 이때 60 에코는 crud "C" + 스위치 OFF
+ *   로 온다. relay 64 스냅샷/60 에코는 gh-trade C# 클라도 같은 바이트를 받는 「등록 전수」 계약이라 서버가
+ *   빼 주지 않는다. 거르지 않으면 꺼진 전략이 카드에 쌓인다.
+ *   등록 여부의 정본은 여전히 `limitChasers` 전수다. 가져오는 곳(리듀서·컨텍스트)은 바꾸지 않고 이 카드
+ *   렌더링에서만 거른다.
+ *   행 목록, 「상따 N」 요약, 빈 상태, `nothingToDisable`, 확인 다이얼로그 건수가 모두 거른 목록을 따른다.
+ *   켜진 것이 없으면 킬 스위치를 누를 이유가 없고, VI 가동 조건은 그대로다. 빈 상태 문구가 「켜진」인
+ *   이유는 등록 ≠ 켜짐이기 때문이다. 스냅샷 전 로딩 판정도 거른 수로 같은 뜻이다(스냅샷 전에는 어차피 0).
  */
 
 import Link from "next/link";
@@ -85,6 +100,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useIsinLabels, type IsinLabel } from "@/lib/isin-labels";
+import { isActiveStrategy } from "@/lib/limit-chaser";
 import { useRelayContext } from "@/lib/relay-provider";
 import { useStrategyLogFeed } from "@/lib/strategy-log-feed";
 import {
@@ -328,7 +344,7 @@ function DisableAllDialog({
  *
  * relay 는 인증 직후 `lc.snap` 을 **비어 있어도 1프레임** 보낸다(16-07). 그래서
  * `ready` 를 본 적이 있다면 「목록이 비었다」는 확정 정보다. 그 전에는 아직 묻지도
- * 않은 상태라 「등록된 상따 전략이 없어요」가 거짓말이 된다.
+ * 않은 상태라 「켜진 상따 전략이 없어요」가 거짓말이 된다.
  *
  * 재접속(`reconnecting`) 중에도 래치를 내리지 않는다 — 연결 훅이 목록을 지우지 않고
  * `isStale` 만 세우는 규율과 짝이다(사이드바 `everReady` 와 같은 판단).
@@ -384,8 +400,11 @@ export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
 
   // 합집합 판정은 `viAnyRunning` 한 함수다 (17-06 / D-18) — 사이드바·My page 와 같은 답.
   const viRunning = viAnyRunning(viTriggers);
-  const chaserCount = limitChasers.length;
-  /** 전략 0 + VI 중지 → 끌 것이 없다. 반드시 아무 일도 못 하는 버튼은 열어 두지 않는다. */
+  // 켜진 전략만(파일 상단 ⑨) — 사이드바 `sidebarChasers` · 작업대 `pruneInactiveCards` 와 같은 한 함수.
+  // 등록 정본(`limitChasers` 전수)은 건드리지 않는다.
+  const activeChasers = limitChasers.filter(isActiveStrategy);
+  const chaserCount = activeChasers.length;
+  /** 켜진 전략 0 + VI 중지 → 끌 것이 없다(⑨ — 이미 꺼진 전략은 이 버튼으로 바뀌는 것이 없다). VI 가동 조건은 그대로다. */
   const nothingToDisable = chaserCount === 0 && !viRunning;
 
   // 65 수신 → 버튼을 다시 연다. **목록 상태는 건드리지 않는다**(파일 상단 ④).
@@ -490,10 +509,10 @@ export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
       ) : chaserCount === 0 ? (
         <div className="flex flex-col items-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-5)] text-center">
           <p className="text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
-            등록된 상따 전략이 없어요
+            켜진 상따 전략이 없어요
           </p>
           <p className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">
-            트레이딩 › 상따에서 종목을 고르면 여기에 표시돼요.
+            트레이딩 › 상따에서 매수·매도·취소 스위치를 켜면 여기에 표시돼요.
           </p>
         </div>
       ) : (
@@ -501,7 +520,7 @@ export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
           data-slot="strategy-row-list"
           className="flex flex-col divide-y divide-[var(--border-subtle)]"
         >
-          {limitChasers.map((item) => (
+          {activeChasers.map((item) => (
             <StrategyRow key={item.key} item={item} label={labels.get(item.isin)} />
           ))}
         </div>

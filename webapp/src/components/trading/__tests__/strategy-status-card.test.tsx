@@ -20,6 +20,9 @@ import type { RelayAccountState, RelayLimitChaser } from "@gh-radar/shared";
  *  ⑨  단절 중에는 목록이 남아 있어도 버튼이 비활성이다 (회귀 잠금)
  *  ⑩  `send` 가 `false` 면 `awaitingAck` 가 서지 않고 실패 문구가 뜬다
  *  ⑪  8초 안에 65 가 오지 않으면 「반영을 확인하지 못했어요」가 뜬다 (실패로 단정하지 않는다)
+ *
+ * quick-260928-no0 — 세 스위치가 모두 꺼진 전략은 행·요약·다이얼로그 건수에서 빠진다(isActiveStrategy ·
+ * 사이드바·작업대와 같은 기준). 취소잔량만 켜진 전략은 남는다. 스냅샷 전에는 거른 수가 0 이어도 로딩이다.
  */
 
 // ---------------------------------------------------------------------------
@@ -122,6 +125,24 @@ const CHASER_C = makeChaser({
   buyEnabled: true,
   sellEnabled: true,
   sellEntryLatched: true,
+});
+/** 서버가 게이트만 내린 등록 전략(crud "C" + 세 스위치 OFF). */
+const CHASER_OFF = makeChaser({
+  isin: "KR7005930003",
+  accountNo: "37728502101",
+  exchange: "KRX",
+  buyEnabled: false,
+  sellEnabled: false,
+  cancelQtyEnabled: false,
+});
+/** isActiveStrategy 세 번째 항 — 매수∨매도 판정이면 빠진다. */
+const CHASER_CANCEL_ONLY = makeChaser({
+  isin: "KR7035720002",
+  accountNo: "37728502102",
+  exchange: "KRX",
+  buyEnabled: false,
+  sellEnabled: false,
+  cancelQtyEnabled: true,
 });
 
 /**
@@ -408,9 +429,9 @@ describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
     mockRelay = relayState({ status: "ready", limitChasers: [], viTriggers: { KRX: null } });
     render(<StrategyStatusCard />);
 
-    expect(screen.getByText("등록된 상따 전략이 없어요")).toBeInTheDocument();
+    expect(screen.getByText("켜진 상따 전략이 없어요")).toBeInTheDocument();
     expect(
-      screen.getByText("트레이딩 › 상따에서 종목을 고르면 여기에 표시돼요."),
+      screen.getByText("트레이딩 › 상따에서 매수·매도·취소 스위치를 켜면 여기에 표시돼요."),
     ).toBeInTheDocument();
     expect(rows()).toHaveLength(0);
     // VI 행은 전략이 0건이어도 남는다 — 별개의 전략이다.
@@ -427,12 +448,12 @@ describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
     expect(document.querySelector('[data-slot="strategy-list-loading"]')).toBeInTheDocument();
     expect(screen.getByText("전략 정보를 불러오는 중이에요…")).toBeInTheDocument();
     // ★ 묻지도 않은 상태에서 「없어요」라고 단정하지 않는다.
-    expect(screen.queryByText("등록된 상따 전략이 없어요")).not.toBeInTheDocument();
+    expect(screen.queryByText("켜진 상따 전략이 없어요")).not.toBeInTheDocument();
 
     // `ready` 를 본 뒤의 빈 목록은 **확정된 0건**이다(relay 는 빈 스냅샷도 보낸다).
     mockRelay = relayState({ status: "ready", limitChasers: [], viTriggers: { KRX: null } });
     rerender(<StrategyStatusCard />);
-    expect(screen.getByText("등록된 상따 전략이 없어요")).toBeInTheDocument();
+    expect(screen.getByText("켜진 상따 전략이 없어요")).toBeInTheDocument();
     expect(document.querySelector('[data-slot="strategy-list-loading"]')).toBeNull();
   });
 
@@ -443,6 +464,106 @@ describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
     expect(viRow.getAttribute("href")).toBe("/trading");
     expect(within(viRow).getByText("가동")).toBeInTheDocument();
     expect(within(viRow).getByText("KRX 1,000만원 · 22.0% 이상")).toBeInTheDocument();
+  });
+});
+
+describe("StrategyStatusCard — 켜진 전략만 나열 (quick-260928-no0 · isActiveStrategy)", () => {
+  const rowKeys = () =>
+    Array.from(rows()).map((row) => (row as HTMLElement).getAttribute("data-strategy-key"));
+  const summaryText = () =>
+    document.querySelector('[data-slot="strategy-status-summary"]')?.textContent ?? "";
+  /** CHASER_B 의 매도 스위치만 내린 사본 — 같은 키가 서버 게이트로 접힌 모양이다. */
+  const CHASER_B_OFF = { ...CHASER_B, sellEnabled: false };
+
+  it("T-a 서버가 게이트를 내린 전략(crud \"C\" + 세 스위치 OFF)은 에코 뒤 행·요약에서 빠진다", () => {
+    const { rerender } = render(<StrategyStatusCard />);
+    expect(rows()).toHaveLength(3);
+
+    // 60 에코 — 삭제("D")가 아니라 등록 유지("C") + 스위치 OFF 로 온다.
+    const folded = {
+      ...CHASER_A,
+      crud: "C" as const,
+      buyEnabled: false,
+      sellEnabled: false,
+      cancelQtyEnabled: false,
+    };
+    mockRelay = populated({ limitChasers: [folded, CHASER_B, CHASER_C] });
+    rerender(<StrategyStatusCard />);
+
+    expect(rows()).toHaveLength(2);
+    expect(rowKeys()).toEqual([CHASER_B.key, CHASER_C.key]);
+    expect(summaryText()).toBe("상따 2 · VI 가동");
+  });
+
+  it("T-b 섞인 목록 — 행·요약·확인 다이얼로그 건수가 모두 켜진 수를 따른다", async () => {
+    mockRelay = populated({ limitChasers: [CHASER_A, CHASER_OFF, CHASER_B] });
+    const user = userEvent.setup();
+    render(<StrategyStatusCard />);
+
+    expect(rows()).toHaveLength(2);
+    expect(rowKeys()).toEqual([CHASER_A.key, CHASER_B.key]);
+    expect(summaryText()).toBe("상따 2 · VI 가동");
+
+    await user.click(disableButton());
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText("상따 2건과 VI 자동매수가 한 번에 꺼져요."),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText("2건 → 전부 OFF")).toBeInTheDocument();
+  });
+
+  it("T-c 취소잔량만 켜진 전략은 켜진 전략이다 (매수∨매도 판정이면 이 케이스가 깨진다)", () => {
+    mockRelay = populated({ limitChasers: [CHASER_CANCEL_ONLY] });
+    render(<StrategyStatusCard />);
+
+    expect(rows()).toHaveLength(1);
+    expect(rowKeys()).toEqual([CHASER_CANCEL_ONLY.key]);
+    expect(summaryText()).toBe("상따 1 · VI 가동");
+  });
+
+  it("T-d 등록 전략이 전부 꺼지고 VI 중지 → 새 빈 상태 + 「전체 비활성화」 disabled", () => {
+    mockRelay = relayState({
+      status: "ready",
+      limitChasers: [CHASER_OFF, CHASER_B_OFF],
+      viTriggers: { KRX: null },
+    });
+    render(<StrategyStatusCard />);
+
+    expect(rows()).toHaveLength(0);
+    expect(document.querySelector('[data-slot="strategy-row-list"]')).toBeNull();
+    expect(document.querySelector('[data-slot="strategy-list-loading"]')).toBeNull();
+    expect(screen.getByText("켜진 상따 전략이 없어요")).toBeInTheDocument();
+    expect(
+      screen.getByText("트레이딩 › 상따에서 매수·매도·취소 스위치를 켜면 여기에 표시돼요."),
+    ).toBeInTheDocument();
+    expect(summaryText()).toBe("상따 0 · VI 중지");
+    expect(disableButton()).toBeDisabled();
+  });
+
+  it("T-e 등록 전략이 전부 꺼져도 VI 가 가동이면 열려 있고, 다이얼로그는 VI 만 말한다", async () => {
+    mockRelay = relayState({
+      status: "ready",
+      limitChasers: [CHASER_OFF, CHASER_B_OFF],
+      viTriggers: { KRX: VI_RUNNING },
+    });
+    const user = userEvent.setup();
+    render(<StrategyStatusCard />);
+
+    expect(disableButton()).toBeEnabled();
+    await user.click(disableButton());
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("VI 자동매수가 꺼져요.")).toBeInTheDocument();
+    expect(within(dialog).getByText("없음")).toBeInTheDocument();
+  });
+
+  it("T-f 스냅샷 수신 전에는 꺼진 전략만 있어도 「없어요」가 아니라 로딩이다", () => {
+    mockRelay = relayState({ status: "connecting", limitChasers: [CHASER_OFF], viTriggers: {} });
+    render(<StrategyStatusCard />);
+
+    expect(document.querySelector('[data-slot="strategy-list-loading"]')).toBeInTheDocument();
+    expect(screen.getByText("전략 정보를 불러오는 중이에요…")).toBeInTheDocument();
+    expect(screen.queryByText("켜진 상따 전략이 없어요")).not.toBeInTheDocument();
+    expect(rows()).toHaveLength(0);
   });
 });
 

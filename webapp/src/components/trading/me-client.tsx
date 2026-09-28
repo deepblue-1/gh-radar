@@ -63,6 +63,7 @@ import { DmaGate, useDmaGateReason } from "@/components/trading/dma-gate";
 import { StrategyStatusCard } from "@/components/trading/strategy-status-card";
 import { TodayOrdersCard } from "@/components/trading/today-orders-card";
 import { stockCodeOf } from "@/components/trading/vi-order-list";
+import { isActiveStrategy } from "@/lib/limit-chaser";
 import { useNativeRefresh } from "@/lib/native/use-native-refresh";
 import { useRelayContext } from "@/lib/relay-provider";
 import { viAnyRunning, type RelayStatus } from "@/lib/use-relay-socket";
@@ -189,7 +190,8 @@ function MeStatusBar() {
         DMA <b className="font-semibold text-[var(--fg)]">{label}</b>
       </span>
       <span>
-        상따 <b className="font-semibold text-[var(--fg)]">{limitChasers.length}건</b>
+        {/* 켜진 전략 수 — 카드·사이드바와 같은 isActiveStrategy 기준(quick-260928-no0). 등록 정본은 여전히 limitChasers 전수 */}
+        상따 <b className="font-semibold text-[var(--fg)]">{limitChasers.filter(isActiveStrategy).length}건</b>
       </span>
       <span>
         VI{" "}

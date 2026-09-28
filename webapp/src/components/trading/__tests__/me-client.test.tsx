@@ -5,6 +5,7 @@ import type { RelayAccountState } from '@gh-radar/shared';
 
 import type { StrategyLogEntry } from '@/components/trading/strategy-log';
 import { EMPTY_RELAY_VALUE, type RelayContextValue } from '@/lib/relay-provider';
+import { makeLimitChaser } from '@/test-fixtures/limit-chaser';
 
 import { formatServerTime, latestAccountTime, MeClient } from '../me-client';
 
@@ -156,5 +157,29 @@ describe('MeClient — 전 종목 전략 로그 (D-25a · G-21-R3-2 · 스케치
     expect(document.querySelector('[data-slot="dma-gate"]')).not.toBeNull();
     expect(logPane()).toBeNull();
     expect(screen.queryByRole('tab', { name: '로그' })).toBeNull();
+  });
+});
+
+describe('MeStatusBar — 「상따 N건」은 켜진 전략 수 (quick-260928-no0 · isActiveStrategy)', () => {
+  beforeEach(() => {
+    mockGate = null;
+    mockFeed = [];
+  });
+
+  it('꺼진 전략 1건 + 켜진 전략 1건이면 상태줄은 「상따 1건」이다 (카드 「상따 1」과 같은 기준)', () => {
+    const on = makeLimitChaser();
+    const off = makeLimitChaser({
+      isin: 'KR7005930003',
+      key: 'KR7005930003:37728502101:KRX',
+      buyEnabled: false,
+      sellEnabled: false,
+      cancelQtyEnabled: false,
+    });
+    mockRelay = { ...EMPTY_RELAY_VALUE, status: 'ready', limitChasers: [on, off] } as RelayContextValue;
+    render(<MeClient />);
+
+    const bar = document.querySelector('[data-slot="me-status-bar"]') as HTMLElement;
+    expect(bar).toHaveTextContent('상따 1건');
+    expect(bar).not.toHaveTextContent('상따 2건');
   });
 });
