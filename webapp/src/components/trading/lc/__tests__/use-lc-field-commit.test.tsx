@@ -783,38 +783,42 @@ describe('WR-06 — 꺼낼 때 no-op 이 된 대기 확정은 성공 신호를 �
   });
 });
 
-describe('lastSuccessSent — 보낸 프레임의 답일 때만 참 (GC-IN-03)', () => {
-  it('즉시 전송 → 그 값 에코 → 성공 · lastSuccessSent true', () => {
+describe('sentSuccessSeq — 보낸 프레임의 답일 때만 오른다 (GC-IN-03 · R3-WR-02)', () => {
+  it('즉시 전송 → 그 값 에코 → 성공 · sentSuccessSeq 1 · lastSentSuccessField = 그 필드', () => {
     const t = setup();
-    expect(t.hook.result.current.lastSuccessSent).toBe(false);
+    expect(t.hook.result.current.sentSuccessSeq).toBe(0);
+    expect(t.hook.result.current.lastSentSuccessField).toBeNull();
     act(() => {
       t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
     });
     t.update({ server: echo({ sweepMinTickCount: 5 }) });
     expect(t.hook.result.current.lastSuccessField).toBe('sweepMinTickCount');
     expect(t.hook.result.current.successSeq).toBe(1);
-    expect(t.hook.result.current.lastSuccessSent).toBe(true);
+    expect(t.hook.result.current.sentSuccessSeq).toBe(1);
+    expect(t.hook.result.current.lastSentSuccessField).toBe('sweepMinTickCount');
   });
 
-  it('대기 건이 꺼낼 때 no-op(서버가 이미 그 값) → 성공 신호 · lastSuccessSent false', () => {
+  it('대기 건이 꺼낼 때 no-op(서버가 이미 그 값) → 일반 성공 신호만 · sentSuccessSeq 불변', () => {
     const t = setup();
     act(() => {
       t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
       t.hook.result.current.commit('extraBuyEnabled', true, 'toggle');
     });
-    // 앞 건 에코 + 다른 단말이 켠 추가매수 — 앞 건 성공(보낸 프레임의 답)은 true.
+    // 앞 건 에코 + 다른 단말이 켠 추가매수 — 앞 건 성공(보낸 프레임의 답)은 보낸 성공 신호를 올린다.
     t.update({ server: echo({ sweepMinTickCount: 5, extraBuyEnabled: true }) });
     expect(t.hook.result.current.lastSuccessField).toBe('sweepMinTickCount');
-    expect(t.hook.result.current.lastSuccessSent).toBe(true);
+    expect(t.hook.result.current.sentSuccessSeq).toBe(1);
+    expect(t.hook.result.current.lastSentSuccessField).toBe('sweepMinTickCount');
     // 답 신호 증가 — 꺼낼 때 no-op 이라 전송 0 · 성공이지만 보낸 프레임의 답이 아니다.
     t.update({ serverAnswerSeq: 1 });
     expect(t.send).toHaveBeenCalledTimes(1);
     expect(t.hook.result.current.lastSuccessField).toBe('extraBuyEnabled');
     expect(t.hook.result.current.successSeq).toBe(2);
-    expect(t.hook.result.current.lastSuccessSent).toBe(false);
+    expect(t.hook.result.current.sentSuccessSeq).toBe(1);
+    expect(t.hook.result.current.lastSentSuccessField).toBe('sweepMinTickCount');
   });
 
-  it('앞 건 실패로 대기 건을 접으며 주 필드가 섰음(동반 불일치 · GC-WR-02 섬) → 성공 · lastSuccessSent false', () => {
+  it('앞 건 실패로 대기 건을 접으며 주 필드가 섰음(동반 불일치 · GC-WR-02 섬) → 성공 · sentSuccessSeq 불변', () => {
     const t = setup({ server: echo({ preBuyEnabled: true, buyEnabled: true }) });
     act(() => {
       t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
@@ -824,10 +828,11 @@ describe('lastSuccessSent — 보낸 프레임의 답일 때만 참 (GC-IN-03)',
     t.update({ serverAnswerSeq: 1 });
     expect(t.hook.result.current.failures.buyWatchQty?.reason).toBe('rejected');
     expect(t.hook.result.current.lastSuccessField).toBe('preBuyEnabled');
-    expect(t.hook.result.current.lastSuccessSent).toBe(false);
+    expect(t.hook.result.current.sentSuccessSeq).toBe(0);
+    expect(t.hook.result.current.lastSentSuccessField).toBeNull();
   });
 
-  it('앞 건 실패로 대기 건을 접을 때 서버가 주 필드 · 동반 모두 그 값 → 성공 · lastSuccessSent false', () => {
+  it('앞 건 실패로 대기 건을 접을 때 서버가 주 필드 · 동반 모두 그 값 → 성공 · sentSuccessSeq 불변', () => {
     const t = setup();
     act(() => {
       t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
@@ -837,10 +842,10 @@ describe('lastSuccessSent — 보낸 프레임의 답일 때만 참 (GC-IN-03)',
     t.update({ serverAnswerSeq: 1 });
     expect(t.hook.result.current.failures.sweepMinTickCount?.reason).toBe('rejected');
     expect(t.hook.result.current.lastSuccessField).toBe('buyWatchQty');
-    expect(t.hook.result.current.lastSuccessSent).toBe(false);
+    expect(t.hook.result.current.sentSuccessSeq).toBe(0);
   });
 
-  it('미등록 전략의 로컬 반영 성공 → lastSuccessSent false', () => {
+  it('미등록 전략의 로컬 반영 성공 → sentSuccessSeq 불변', () => {
     const t = setup({ server: null });
     let out: string | undefined;
     act(() => {
@@ -848,10 +853,10 @@ describe('lastSuccessSent — 보낸 프레임의 답일 때만 참 (GC-IN-03)',
     });
     expect(out).toBe('local');
     expect(t.hook.result.current.lastSuccessField).toBe('buyOrderPrice');
-    expect(t.hook.result.current.lastSuccessSent).toBe(false);
+    expect(t.hook.result.current.sentSuccessSeq).toBe(0);
   });
 
-  it('타임아웃 실패 뒤 늦은 에코로 실패를 거둔 성공 → lastSuccessSent false', () => {
+  it('타임아웃 실패 뒤 늦은 에코로 실패를 거둔 성공 → sentSuccessSeq 불변', () => {
     const t = setup();
     act(() => {
       t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
@@ -861,7 +866,39 @@ describe('lastSuccessSent — 보낸 프레임의 답일 때만 참 (GC-IN-03)',
     t.update({ server: echo({ sweepMinTickCount: 5 }), unacked: false });
     expect(t.hook.result.current.failures.sweepMinTickCount).toBeUndefined();
     expect(t.hook.result.current.lastSuccessField).toBe('sweepMinTickCount');
-    expect(t.hook.result.current.lastSuccessSent).toBe(false);
+    expect(t.hook.result.current.sentSuccessSeq).toBe(0);
+  });
+});
+
+describe('R3-WR-02 — 보낸 프레임의 답 신호는 같은 판정 실행의 늦은 에코 성공에 덮이지 않는다 (24-REVIEW-R3)', () => {
+  it('거부된 매도주문 실패 → 선매수 켬(매도 동반) 성공 에코 → 보낸 성공 = preBuyEnabled · 매도 실패는 늦은 에코로 거둠 · 일반 신호는 마지막 성공(sellEnabled)', () => {
+    const t = setup();
+    act(() => {
+      t.hook.result.current.commit('sellEnabled', true, 'toggle');
+    });
+    // 거부 — 답만 오르고 매도는 서지 않았다(매도 설정 불완전).
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.hook.result.current.failures.sellEnabled).toEqual({
+      reason: 'rejected',
+      text: LC_COMMIT_TEXT.failed,
+      value: true,
+    });
+
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('preBuyEnabled', true, 'toggle', { sellEnabled: true });
+    });
+    expect(out).toBe('sent');
+
+    // 성공 에코 — 한 판정 실행에서 ① 선매수 성공(보낸 것) 직후 ③ 늦은 에코가 매도 실패를 성공으로 거둔다.
+    t.update({ server: echo({ preBuyEnabled: true, sellEnabled: true }) });
+    const r = t.hook.result.current;
+    expect(r.lastSentSuccessField).toBe('preBuyEnabled');
+    expect(r.sentSuccessSeq).toBe(1);
+    expect(r.failures.sellEnabled).toBeUndefined();
+    // 일반 성공 신호는 모든 성공을 내므로 마지막 성공이 덮는다 — 그래서 보낸 성공 신호를 따로 둔다.
+    expect(r.lastSuccessField).toBe('sellEnabled');
+    expect(t.send).toHaveBeenCalledTimes(2);
   });
 });
 

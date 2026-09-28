@@ -725,7 +725,7 @@ export function LimitChaserForm({
   const [sheetField, setSheetField] = useState<LcNumField | null>(null);
   const sheetReturnRef = useRef<HTMLElement | null>(null);
   // 내 확정이 에코로 성공하면 그 행의 편집·시트를 닫는다(성공 판정은 훅 — 값 비교뿐이다).
-  const { successSeq, lastSuccessField, lastSuccessSent, commit: commitField, clearFailure } = lc;
+  const { successSeq, lastSuccessField, sentSuccessSeq, lastSentSuccessField, commit: commitField, clearFailure } = lc;
 
   /*
     ★ D-17 상장주식수 시딩 — 새 전략(서버 전략 없음)에서 **폼당 1회** 수량 5칸을 채운다(WinForms `SeedListSharesDefaults`).
@@ -757,6 +757,15 @@ export function LimitChaserForm({
     setEditingField((cur) => (cur === lastSuccessField ? null : cur));
     setSheetField((cur) => (cur === lastSuccessField ? null : cur));
   }, [successSeq, lastSuccessField]);
+  /*
+    보낸 성공으로도 닫는다(24-REVIEW-R3 R3-WR-02) — 일반 성공 신호는 한 칸이라 같은 판정 실행의 늦은 에코 성공이 in-flight
+    값 확정의 성공을 덮을 수 있다. 보낸 성공 신호는 덮이지 않는다. 닫기는 멱등이다(위 이펙트와 겹쳐도 같은 결과).
+  */
+  useEffect(() => {
+    if (sentSuccessSeq === 0 || lastSentSuccessField === null) return;
+    setEditingField((cur) => (cur === lastSentSuccessField ? null : cur));
+    setSheetField((cur) => (cur === lastSentSuccessField ? null : cur));
+  }, [sentSuccessSeq, lastSentSuccessField]);
 
   /**
    * 인라인 저장 — Enter 는 결과를 편집기 안에서 말하고(반영 중 잠금 · 실패 말풍선),
@@ -1058,32 +1067,50 @@ export function LimitChaserForm({
     (「{그룹} 체크 — 매수주문도 켬」) 다음에 온다. 실패(거부 · 무응답 · 끊김 · 대기 폐기)면 그 그룹 슬롯만 버린다.
     ★ 슬롯은 그룹별 — 선매수 in-flight 중 다른 그룹을 켜도 선매수 줄이 사라지지 않는다(GC-WR-04). 이 성공은 성공한
       필드의 슬롯만 소비하고 다른 슬롯은 그대로 둔다.
+    ★ 성공 신호는 둘이다(24-REVIEW-R3 R3-WR-02). 훅의 해소 이펙트는 한 실행 안에서 성공을 둘 낼 수 있고(in-flight 성공
+      직후 같은 실행의 늦은 에코 성공) 일반 신호는 한 칸이라 뒤엣것이 덮는다. 그래서 소비 규칙은 셋이다:
+      (a) 실패한 그룹 슬롯은 버린다.
+      (b) **보낸 성공**(`sentSuccessSeq` 가 바뀐 실행 · 한 번만)의 필드가 선매수 · 추가매수면 그 슬롯을 소비하고 줄을 쓴다
+          — 보낸 성공은 한 실행에 최대 1건이라 덮이지 않는다.
+      (c) 일반 성공의 필드가 선매수 · 추가매수이고 그 슬롯이 아직 남아 있으면 **줄 없이 슬롯만 비운다** — 보내지 않은
+          no-op · 대기 접기 성공이다(D-08 · GC-IN-03). (b) 가 소비한 슬롯은 이미 없으므로 겹치지 않는다.
     ★ 이 이펙트는 제출을 만들지 않는다 — 로그 한 줄만 내보낸다.
   */
+  const sentSuccessSeenRef = useRef(sentSuccessSeq);
   useEffect(() => {
     const pending = pendingAutoCheckRef.current;
+    // (a)
     for (const g of Object.keys(pending) as AutoCheckGate[]) {
       if (lc.failures[g] === undefined) continue;
       delete pending[g];
       delete autoCheckRef.current[g];
     }
-    if (lastSuccessField !== 'preBuyEnabled' && lastSuccessField !== 'extraBuyEnabled') return;
-    const gate: AutoCheckGate = lastSuccessField;
-    const seqAtSend = pending[gate];
-    if (seqAtSend === undefined || successSeq === seqAtSend) return;
-    delete pending[gate];
-    const auto = autoCheckRef.current[gate];
-    delete autoCheckRef.current[gate];
-    // 보내지 않은 켜기(다른 단말이 켠 no-op · 대기 접기 성공)에는 자동 체크 줄이 없다 — D-08 · GC-IN-03.
-    if (!lastSuccessSent) return;
-    // 그새 그 그룹을 다시 꺼 그 확정이 성공한 경우 — 켠 사건이 아니다.
-    if (serverRef.current?.[gate] !== true) return;
-    // 마지막 계산 = 실제로 나간 cfg 의 판정(WR-03). 켤 것도 생략도 없으면 줄 없음.
-    if (auto === undefined) return;
-    const line = groupAutoCheckLogLine(auto);
-    if (line === null) return;
-    clientLogRef.current?.(line.text, line.level);
-  }, [successSeq, lastSuccessField, lastSuccessSent, lc.failures]);
+    // (b) 보낸 성공 — 값이 바뀐 실행에서만 한 번 소비한다.
+    if (sentSuccessSeenRef.current !== sentSuccessSeq) {
+      sentSuccessSeenRef.current = sentSuccessSeq;
+      const gate = lastSentSuccessField;
+      if (gate === 'preBuyEnabled' || gate === 'extraBuyEnabled') {
+        const seqAtSend = pending[gate];
+        if (seqAtSend !== undefined && successSeq !== seqAtSend) {
+          delete pending[gate];
+          const auto = autoCheckRef.current[gate];
+          delete autoCheckRef.current[gate];
+          // 그새 그 그룹을 다시 꺼 그 확정이 성공한 경우는 켠 사건이 아니다. 마지막 계산 = 실제로 나간 cfg 의 판정(WR-03)
+          //   — 켤 것도 생략도 없으면 줄 없음.
+          const line = serverRef.current?.[gate] === true && auto !== undefined ? groupAutoCheckLogLine(auto) : null;
+          if (line !== null) clientLogRef.current?.(line.text, line.level);
+        }
+      }
+    }
+    // (c) 보내지 않은 켜기(다른 단말이 켠 no-op · 대기 접기 성공)에는 자동 체크 줄이 없다 — 슬롯만 비운다(D-08 · GC-IN-03).
+    if (lastSuccessField === 'preBuyEnabled' || lastSuccessField === 'extraBuyEnabled') {
+      const seqAtSend = pending[lastSuccessField];
+      if (seqAtSend !== undefined && successSeq !== seqAtSend) {
+        delete pending[lastSuccessField];
+        delete autoCheckRef.current[lastSuccessField];
+      }
+    }
+  }, [successSeq, lastSuccessField, sentSuccessSeq, lastSentSuccessField, lc.failures]);
 
   /*
     ★ D-02 후반 · D-19 (2026-09-28 정정 · WinForms `b066e135` `DropMasterAfterServerFold` 동형) —
