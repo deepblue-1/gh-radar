@@ -1482,14 +1482,15 @@ function inlineFailureTextOf(f: LcCommitFailure | undefined): string | null {
 }
 
 /**
- * 폼 맨 위 한 줄이 말하는 토글 실패 — **보내지 못한 것**(끊김 · 무장 불가 · 범위 밖 · 금액 먼저 D-04a).
- * 거부·무응답은 말풍선.
+ * 폼 맨 위 한 줄이 말하는 토글 실패 — **보내지 못한 것**(끊김 · 무장 불가 · 범위 밖 · 금액 먼저 D-04a ·
+ * 구서버 에코 읽기 전용(WR-02) — 막힌 토글이 조용히 되돌아가지 않게). 거부·무응답은 말풍선.
  */
 const SUBMIT_ERROR_REASONS: ReadonlySet<LcFailReason> = new Set([
   'disconnected',
   'armBlocked',
   'invalid',
   'amountRequired',
+  'legacySchema',
 ]);
 
 /**

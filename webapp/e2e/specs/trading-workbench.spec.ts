@@ -2584,12 +2584,14 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(lcSwitch(card, '매수주문 켜기')).toBeChecked();
   });
 
-  test('P24-5 사전 검증 · D-16 — 레거시 에코에서 추가매수 켜기 = 전송 0 + 「주문금액을 먼저 입력해 주세요」 · 매수1호가 == 비교가격이면 전송 0 + 로그 원문 · 다르면 10 한 건', async ({
+  test('P24-5 사전 검증 · D-16 — 신필드 0(buy3) 에코에서 추가매수 켜기 = 전송 0 + 「주문금액을 먼저 입력해 주세요」 · 매수1호가 == 비교가격이면 전송 0 + 로그 원문 · 다르면 10 한 건', async ({
     page,
   }) => {
-    // (a) 레거시(구 서버) 에코 — 신필드 전부 0 · buy3Schema 0. 추가매수 금액 0 이라 켜는 방향이 막힌다(D-03).
-    const legacy = { buyEnabled: true, buy3Schema: 0 };
-    relay.seedLimitChasers([legacy]);
+    // (a) 신필드 0(buy3) 에코 — buy3 서버의 신필드 전부 0 전략(UI-SPEC E1 partial 「레거시 에코」 · `buy3Schema` 는 픽스처 기본 1).
+    //     추가매수 금액 0 이라 켜는 방향이 막힌다(D-03). 구서버 에코(`buy3Schema 0`)는 읽기 전용이라 P24-10 이 따로 본다.
+    // ★ 전송 0 은 고정 대기로 재지 않는다 — 이어지는 허용 확정의 10 이 게이트웨이에 보인 순간 누적 = 앞 기준 + 1(IN-07).
+    const zeroNew = { buyEnabled: true };
+    relay.seedLimitChasers([zeroNew]);
     await page.goto(FOCUS_URL);
     await waitForReady(page);
     const card = cardOf(page, E2E_ISIN);
@@ -2602,13 +2604,16 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(precheck).toHaveText('주문금액을 먼저 입력해 주세요');
     await expect(precheck).toHaveAttribute('role', 'alert');
     await expect(extraSwitch).toHaveAttribute('aria-checked', 'false');
-    expect(lcSetCount(relay), '사전 검증 실패 = 전송 0').toBe(before);
 
     // 추가매수 금액 확정 → 10 한 건 → 에코 → 사전 검증 줄이 사라진다(원인 값이 고쳐졌다).
+    //   그 10 이 보인 순간 누적 = 앞 기준 + 1 — 앞선 켜기 클릭(사전 검증 실패)은 아무것도 보내지 않았다.
     await editLc(page, 'lc-extra-buy-amount', '500');
-    await waitForSetAtGateway(relay, before + 1);
+    await expect
+      .poll(() => lcSetRequests(relay).filter((r) => r.extraBuyOrderAmount === 500).length, { timeout: 15_000 })
+      .toBe(1);
+    expect(lcSetCount(relay), '사전 검증 실패 = 전송 0 · 금액 확정 = 10 한 건').toBe(before + 1);
     expect(lcSetRequests(relay).at(-1)!.extraBuyOrderAmount).toBe(500);
-    await relay.pushLimitChaserEcho({ ...legacy, buy3Schema: 1, extraBuyOrderAmount: 500 });
+    await relay.pushLimitChaserEcho({ ...zeroNew, extraBuyOrderAmount: 500 });
     await expect(lcValue(page, 'lc-extra-buy-amount')).toHaveText('500만원', { timeout: 15_000 });
     await expect(precheck).toHaveCount(0);
 
@@ -2629,14 +2634,16 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     });
     await expect(precheck).toHaveCount(0);
     await expect(extraSwitch).toHaveAttribute('aria-checked', 'false');
-    await page.waitForTimeout(500);
-    expect(lcSetCount(relay), 'D-16 — 전송 0').toBe(beforeD16);
 
-    // (c) 허용 경로 — 비교가격이 매수1호가와 다르면 같은 클릭이 10 한 건.
+    // (c) 허용 경로 — 비교가격이 매수1호가와 다르면 같은 클릭이 10 한 건. 그 10 이 보인 순간 누적 = D-16 기준 + 1
+    //     (D-16 클릭은 아무것도 보내지 않았다 — 같은 소켓 · 송신 순서라 보냈다면 먼저 도착해 있다).
     await relay.pushLimitChaserEcho({ ...atUpper, buyWatchPrice: 98_000 });
     await expect(lcValue(page, 'lc-buy-watch-price')).toHaveText('98,000원', { timeout: 15_000 });
     await extraSwitch.click();
-    await waitForSetAtGateway(relay, beforeD16 + 1);
+    await expect
+      .poll(() => lcSetRequests(relay).filter((r) => r.extraBuyEnabled === true).length, { timeout: 15_000 })
+      .toBe(1);
+    expect(lcSetCount(relay), 'D-16 — 전송 0 · 허용 클릭 = 10 한 건').toBe(beforeD16 + 1);
     const allowed = lcSetRequests(relay).at(-1)!;
     expect(allowed.extraBuyEnabled).toBe(true);
     expect(allowed.buyWatchPrice).toBe(98_000);

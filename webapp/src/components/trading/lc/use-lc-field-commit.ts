@@ -105,7 +105,12 @@ import type { RelayLcSetMsg, RelayLimitChaser, RelayLimitChaserInput } from '@gh
 
 import { lcRangeIssue } from '@/components/trading/lc/lc-fields';
 import type { StrategySubmitCause } from '@/components/trading/strategy-log';
-import { formFromServer, isLegacyAmountUnknown, type LimitChaserFormValues } from '@/lib/limit-chaser';
+import {
+  formFromServer,
+  isLegacyAmountUnknown,
+  isLegacyBuySchema,
+  type LimitChaserFormValues,
+} from '@/lib/limit-chaser';
 
 export type LcFieldKey = keyof LimitChaserFormValues;
 /** `value` = 숫자 값(낙관 반영 없음) · `toggle` = 스위치·체크·감시대상(전송 뒤 낙관 표시). */
@@ -114,8 +119,16 @@ export type LcCommitKind = 'value' | 'toggle';
  * `invalid` = relay 스키마 범위 밖이라 보내지 않았다(⑨-2 · CR-01).
  * `amountRequired` = 서버가 주문금액을 모르는 전략이라 금액 외 확정을 보내지 않았다(⑨-3 · WR-07) — 구서버 에코
  * (`buy3Schema 0`)에서만이다. buy3 에코의 선매수 금액 0 은 미입력(D-03)이라 이 사유가 아니다.
+ * `legacySchema` = 구서버 에코라 끄는 방향 ∧ 결과 매수주문 OFF 가 아닌 확정을 보내지 않았다(WR-02 · `lcLegacyBlockOf`).
  */
-export type LcFailReason = 'rejected' | 'timeout' | 'disconnected' | 'armBlocked' | 'invalid' | 'amountRequired';
+export type LcFailReason =
+  | 'rejected'
+  | 'timeout'
+  | 'disconnected'
+  | 'armBlocked'
+  | 'invalid'
+  | 'amountRequired'
+  | 'legacySchema';
 export interface LcCommitFailure {
   reason: LcFailReason;
   /** 화면 문구 — 문구 원천은 `LC_COMMIT_TEXT`(무장 불가는 호출부의 `armBlockOf` 문장). */
@@ -172,7 +185,35 @@ export const LC_COMMIT_TEXT = {
   sellRatioRequired: '후매수는 매도비율이 있어야 켤 수 있어요 — 매도비율을 1~100%로 입력해 주세요',
   /** D-16 — 전략 로그 한 줄 원문(WinForms 합니다체 그대로 · 사전 검증 줄에는 쓰지 않는다). */
   extraBuyAtUpperLimit: '추가매수는 상한가 도달 전에만 켤 수 있습니다 — 매수1호가 == 비교가격',
+  /** WR-02 — 구서버 에코 읽기 전용: 값 확정 · 켜는 방향을 막는 문구. 24-13 이 UI-SPEC 에 박제. */
+  legacyReadOnly: '구서버 전략이라 끄기만 할 수 있어요 — 서버를 확인해 주세요',
+  /** WR-02 — 구서버 에코 읽기 전용: 매수주문이 켜진 채 다른 것을 끄는 확정을 막는 문구. 24-13 이 UI-SPEC 에 박제. */
+  legacyMasterFirst: '구서버 전략이라 매수주문부터 꺼 주세요',
 } as const;
+
+/**
+ * WR-02 구서버 에코 편집 제한 — **판정 지점 하나**. 훅의 전송 직전 가드(대기열에서 꺼낼 때 포함)와 폼의 시트 ·
+ * 인라인 확정 전 검증이 같이 읽는다. 막으면 문구, 아니면 null.
+ *
+ * 구서버(`buy3Schema 0` · 판별은 lib `isLegacyBuySchema`)에 닿는 cfg 에는 `buy_watch_side` 슬롯이 없다(relay 가
+ * 싣지 않는다 · 24-03). 구서버는 그 부재를 `"0"` 으로 읽으므로, 매수가 켜진 채 cfg 를 다시 쓰면 「매수잔량 기준」
+ * 전략의 감시 기준이 조용히 반대 호가로 뒤집힌다. 그래서 **끄는 방향(값 `false`) ∧ 결과 cfg 의 매수주문(마스터)
+ * OFF** 만 보낸다 — 매수주문 끄기는 늘 여기에 들고, 그 뒤 매도 · 취소 · 체크 끄기와 철거(게이트 4종 OFF)가 든다.
+ * 완전 해제 경로가 늘 열려 있어 무장 해제를 인질로 잡지 않는다(T-16-44). 판정 입력 `next` 는 실제로 나갈 값
+ * (서버 동기값 + 동반 필드 + 바꾼 필드)이다. `field` 는 판정에 쓰지 않는다 — 끄는 방향이면 어느 필드든(체크 끄기 포함 ·
+ * 철거의 `isDeleteIntent` 는 `cancelTradeEnabled` 도 본다) 결과 마스터만 본다. 호출부 두 곳이 같은 모양으로 부르게 받는다.
+ */
+export function lcLegacyBlockOf(
+  legacy: boolean,
+  field: LcFieldKey,
+  value: unknown,
+  next: LimitChaserFormValues,
+): string | null {
+  if (!legacy) return null;
+  if (value !== false) return LC_COMMIT_TEXT.legacyReadOnly;
+  if (next.buyEnabled) return LC_COMMIT_TEXT.legacyMasterFirst;
+  return null;
+}
 
 /**
  * ⑨-3 금액 먼저 규칙(D-04a · WR-07) — **판정 지점 하나**. 시트·인라인 `validate`(폼)와 전송 직전 가드(훅)가
@@ -427,6 +468,13 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       const outOfRange = lcRangeIssue(next);
       if (outOfRange !== null) {
         setFailure(p.field, 'invalid', outOfRange, p.value);
+        if (optimistic) revertToggle(p);
+        return 'blocked';
+      }
+      // WR-02 구서버 에코는 끄기만 · 매수주문부터 — 대기열에서 꺼낼 때도 이 경로라 같은 가드다.
+      const legacyBlocked = lcLegacyBlockOf(isLegacyBuySchema(server), p.field, p.value, next);
+      if (legacyBlocked !== null) {
+        setFailure(p.field, 'legacySchema', legacyBlocked, p.value);
         if (optimistic) revertToggle(p);
         return 'blocked';
       }
