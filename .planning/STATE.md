@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 24
 current_phase_name: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영
 status: executing
-stopped_at: Completed 24-23-PLAN.md
-last_updated: "2026-09-28T10:40:23.268Z"
+stopped_at: Completed 24-24-PLAN.md
+last_updated: "2026-09-28T13:34:51.894Z"
 last_activity: 2026-09-28
-last_activity_desc: Phase 24 execution started
-state_head: 3da455e1ccb716851f4f35abf2135d17a07c4582
+last_activity_desc: 24-24 완료 · webapp 배포 d6194dcd · Vercel Ready
+state_head: 419de5c98d580231c020713bc3509ae66199d0df
 progress:
   total_phases: 33
   completed_phases: 4
   total_plans: 324
-  completed_plans: 307
+  completed_plans: 308
 milestone_name: milestone
 ---
 
@@ -31,10 +31,10 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 Phase: 24 (gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영) — EXECUTING
 Plan: 24 of 24
 Plans completed: 220 / 234
-Status: Phase 24 갭 클로징 2라운드 실행 중 — 24-23 완료 · 다음 24-24(체크포인트)
+Status: Phase 24 갭 클로징 2라운드 24-24 완료(24/24 플랜) — webapp 프로덕션 배포(d6194dcd · Vercel Ready · relay 재배포 없음) · 다음 /gsd-verify-work 24 (UAT: 300ms 창 · 운영 눈 확인 · R6 두 줄 · 24-08 시각 2~9)
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-28 — 24-24 Task 2 사용자 승인(1~7 모두 수용) · origin/master(quick 260928-nf6 discussion-sync) 병합 · 직전: quick 260928-q5e 완료(상따 카드 lc 첫 밴드 경계 700 → 685 · 3da455e1) · quick 260928-nf6 완료(discussion-sync 사전 예산 판정 과대 추정 수정 · 80df4f59)
+Last activity: 2026-09-28 — 24-24 완료: 사용자 승인(1~7 모두 수용) · origin/master(quick 260928-nf6) 병합 d6194dcd · 병합 트리 게이트 green · master fast-forward push 22:29 KST(3906cfe9..d6194dcd) · Vercel 자동 빌드 Ready(trade.jx1.io) · relay:94ebc91c 유지 · gh-trade-d4 회신 · 직전: quick 260928-q5e(3da455e1) · quick 260928-nf6(80df4f59)
 
 Progress: [█████████░] 93%
 
@@ -159,6 +159,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 24 P21 | 12min | 2 tasks | 4 files |
 | Phase 24 P22 | 11 min | 3 tasks | 9 files |
 | Phase 24 P23 | 9min | 2 tasks | 6 files |
+| Phase 24 P24 | 2h52m | 3 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -399,6 +400,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 24]: 24-23 D-38: 웹은 후매수 발동 override 값(발동잔량 × 80% 또는 유지된 사람 값)을 계산하지 않고 에코 그대로 보인다 — 「= 발동잔량」 서술 · 픽스처 제거, Pitfall 8 판정 불변
 - [Phase 24]: 24-23 D-37: 추가매수 포기 = 최대 초과 1종 — shared 주석 · UI-SPEC · 테스트 예시 정정, 새 클라 문구 없음 · relay .fbs/envelope 옛 표현은 gh-trade 스키마 동기화 몫으로 이월(relay 무변경)
 - [Phase 24]: 24-23 GC-IN-04: e2e 부재 관찰 창 FOLD_QUIET_MS = 3초(LC_FOLD_HIDDEN_DEFER_MS × 2) · 「1건」은 waitForSetAtGateway 사건 · P24-3/4/6 숫자 고정 대기 0
+- [Phase 24]: 24-24 사용자 승인: D-36 새 문구 · 판단 6건(GC-WR-01 창 안 같은 변화 에코=내 답 · GC-WR-02 · GC-WR-03 두 단계 판정 · GC-IN-02 숨음 N건+지터 이월 · D-37 relay 옛 주석은 gh-trade sync 몫 · 거부 실패 켜기엔 자동 체크 줄 없음) 모두 수용 — 이월: relay 소켓 상관 · 유예 지터
+- [Phase 24]: 24-24 배포: origin/master 앞섬은 phase 브랜치에서 git merge --no-ff origin/master(rebase 안 함) → 병합 트리 게이트 재실행 → master fast-forward push(d6194dcd) · Vercel 자동 빌드 Ready · relay 재배포 없음(relay:94ebc91c 유지)
 
 ### Pending Todos
 
@@ -459,8 +462,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-09-28T09:48:41.107Z
-Stopped at: Completed 24-23-PLAN.md
+Last session: 2026-09-28T13:34:51.112Z
+Stopped at: Completed 24-24-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
