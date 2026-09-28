@@ -34,7 +34,7 @@ Plans completed: 220 / 234
 Status: Phase 24 갭 클로징 2라운드 24-24 완료(24/24 플랜) — webapp 프로덕션 배포(d6194dcd · Vercel Ready · relay 재배포 없음) · 다음 /gsd-verify-work 24 (UAT: 300ms 창 · 운영 눈 확인 · R6 두 줄 · 24-08 시각 2~9)
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-28 — 24-24 완료: 사용자 승인(1~7 모두 수용) · origin/master(quick 260928-nf6) 병합 d6194dcd · 병합 트리 게이트 green · master fast-forward push 22:29 KST(3906cfe9..d6194dcd) · Vercel 자동 빌드 Ready(trade.jx1.io) · relay:94ebc91c 유지 · gh-trade-d4 회신 · 직전: quick 260928-q5e(3da455e1) · quick 260928-nf6(80df4f59)
+Last activity: 2026-09-29 — quick 260929-akj 완료: 24-REVIEW-R3(b2e6d5c3) R3-WR-01 · R3-WR-02 수정(7fd7da49 · 214ae025 · 808a29a2) · vitest trading 1405 · tsc green · 미배포 · 직전: 24-24 완료(master push d6194dcd)
 
 Progress: [█████████░] 93%
 
@@ -457,6 +457,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 260926-vk9 | **키패드 시트 열림 탭바 즉시 숨김 (260926-v5n 후속 · D-12a'')** — 사용자 재보고 「수량 입력칸 눌렀을 때 여전히 느림」: 터치 기기 수량·가격 칸은 시스템 키보드가 아니라 웹 NumberPadSheet(overlay 경로 · D-12 150ms+0.2s)를 연다. NumberPadSheet 만 `<NativeOverlayMarker immediate />` → 0→1 에서 `overlay {open:true, immediate:true}` → iOS·Android 가 v5n 즉시 경로로 숨김. Sheet·Dialog·Popover 는 D-12 불변 · 필드 없음/모름 = 종전(옛·새 조합 모두 안전). vitest 2408 · Playwright vk9 · native-shell 11 · a11y 2 · iOS/Android 스모크 · verify-prod OK · 실기기 mesya · iPhone 17 · emulator 운영 빌드 설치. **웹 변경 포함 → 체감은 push 뒤**. 미배포 | 2026-09-26 | b02156a · 97e12d6 | [260926-vk9-numpad-sheet-tabbar-instant-hide](./quick/260926-vk9-numpad-sheet-tabbar-instant-hide/) |
 | 260928-no0 | 마이페이지 전략 현황 카드·상태줄이 켜진 전략(isActiveStrategy)만 센다 — 꺼진(매수·매도·취소잔량 OFF) 전략 미표시 · gh-trade 합의(서버 64/60 등록 전수 계약 유지) | 2026-09-28 | c8e0c38e | [260928-no0-off-isactivestrategy](./quick/260928-no0-off-isactivestrategy/) |
 | 260928-q5e | 폴드 세로 1단(lc≈689)에서 상따 카드 매수·매도 옵션 2열 — lc 첫 밴드 경계 700 → 685 | 2026-09-28 | 3da455e1 | [260928-q5e-1-lc-689-2-lc-700](./quick/260928-q5e-1-lc-689-2-lc-700/) |
+| 260929-akj | **24-REVIEW-R3 Warning 2건 수정** — R3-WR-01: 부분 거부 ERROR 가 에코보다 먼저 와도 카드 거부 신호(rejectSeq→serverRejectSeq) 뒤 1초 유예 안의 같은 제출 에코로 판정(전면 거부는 유예 끝에 실패 · 타이머는 전송 없음). R3-WR-02: 보낸 성공 신호(sentSuccessSeq · lastSentSuccessField) 분리 — 늦은 에코 성공이 자동 체크 줄을 덮지 않음 · lastSuccessSent 제거. vitest trading 1405 · tsc green. 남은 한계: 1초보다 늦은 에코는 종전 동작. 미배포 | 2026-09-29 | 7fd7da49 · 214ae025 · 808a29a2 | [260929-akj-24-review-r3-r3-wr-01-error-r3-wr-02](./quick/260929-akj-24-review-r3-r3-wr-01-error-r3-wr-02/) |
 
 ## Session Continuity
 
