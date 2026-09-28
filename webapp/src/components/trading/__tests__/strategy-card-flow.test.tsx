@@ -1181,23 +1181,25 @@ describe('24-05 카드 귀속 — 보낸 cfg · 보낸 사유 · override (Phase
   });
 });
 
-describe('24-06 — 클라 로그 통로 pushClientLog (D-16 · 순서)', () => {
+describe('24-06 — 클라 로그 통로 pushClientLog (D-36 · 순서)', () => {
   const texts = () =>
     Array.from(logRows()).map((r) => r.querySelectorAll('span')[1]?.textContent ?? '');
-  const D16 = '추가매수는 상한가 도달 전에만 켤 수 있습니다 — 매수1호가 == 비교가격';
+  // 카드 흐름 quote() 의 매수1잔량 = 100 · 시드 추가매수 최소 0 → 하한 1.
+  const D36 =
+    '추가매수는 상한가 도달 전 또는 매수1잔량이 최소 미만일 때만 켤 수 있습니다 — 매수1호가 == 비교가격, 매수1잔량 100 ≥ 최소 1';
 
   beforeEach(() => {
     lastCard = null;
   });
 
-  it('D-16 — 매수1호가 == 비교가격에서 추가매수 켜기 → 카드 전략 로그 최상단에 원문 그대로(error) · 전송 0', async () => {
+  it('D-36 — 매수1호가 == 비교가격 ∧ 매수1잔량 100 ≥ 최소 1 에서 추가매수 켜기 → 카드 전략 로그 최상단에 원문 그대로(error) · 전송 0', async () => {
     const e = echo({ extraBuyOrderAmount: 50 });
     setRelay({ limitChasers: [e], quote: quote() });
     render(<Card />);
     await act(async () => {
       fireEvent.click(screen.getByRole('switch', { name: '추가매수 켜기' }));
     });
-    await waitFor(() => expect(texts()[0]).toBe(D16));
+    await waitFor(() => expect(texts()[0]).toBe(D36));
     expect(logRows()[0]!.getAttribute('data-level')).toBe('error');
     expect(lcSets()).toHaveLength(0);
   });
