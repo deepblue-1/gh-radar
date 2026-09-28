@@ -3058,3 +3058,78 @@ describe('⑳ 새 전략 기본값(D-04) · 상장주식수 시딩(D-17) — 폼
     });
   });
 });
+
+/**
+ * 24-REVIEW-R3 R3-WR-02 — 훅의 해소 이펙트는 한 실행 안에서 성공을 둘 낼 수 있다(① in-flight 성공 + ③ 늦은 에코 성공).
+ * 일반 성공 신호는 한 칸이라 뒤엣것이 덮는다 — 자동 체크 줄 · 편집기 닫기는 **보낸 프레임의 답 신호**
+ * (`sentSuccessSeq` · `lastSentSuccessField`)로 소비한다. 거부 단계는 거부 신호 없는 답(즉시 실패)으로 모델한다.
+ */
+describe('R3-WR-02 — 성공 신호가 한 실행에 겹쳐도 자동 체크 줄 · 편집기 닫기가 선다 (24-REVIEW-R3)', () => {
+  /** GC-WR-04 idle 모양 + 매도 가격을 채웠다(매도주문 켜기가 무장 가드에 막히지 않게). */
+  const idle = (over: Partial<RelayLimitChaser> = {}) =>
+    echo({
+      buyEnabled: false,
+      sellOrderPrice: 150_800,
+      sellWatchPrice: 150_800,
+      sellWatchQty: 10,
+      extraBuyOrderAmount: 50,
+      ...over,
+    });
+  const SIX = {
+    sellEnabled: true,
+    sellQtyTrackEnabled: true,
+    sellTradeQtyEnabled: true,
+    cancelQtyEnabled: true,
+    cancelTradeEnabled: true,
+    cancelQtyTrackEnabled: true,
+  } as const;
+  const autoLines = (log: ReturnType<typeof vi.fn>): [string, string][] =>
+    (log.mock.calls as [string, string][]).filter(([text]) => text.includes('자동 체크'));
+
+  it('매도주문 켜기 거부 실패가 남은 채 선매수 켬(매도 동반) → 성공 에코(매도도 섬) → 「선매수 자동 체크 — 켬: 매도주문 …」 한 줄', () => {
+    const onClientLog = vi.fn();
+    const s = idle();
+    const { rerender } = render(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog })} />);
+    click(sw('매도주문 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().sellEnabled).toBe(true);
+
+    // 거부 — 서버 값 그대로 · 답 신호만 오른다.
+    rerender(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog, serverAnswerSeq: 1 })} />);
+    expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'false');
+
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(2);
+    expect(lastConfig()).toMatchObject({ preBuyEnabled: true, buyEnabled: true, sellEnabled: true });
+
+    const pre = idle({ buyEnabled: true, preBuyEnabled: true, ...SIX });
+    rerender(<LimitChaserForm {...props({ server: pre, upperLimit: 150_800, onClientLog, serverAnswerSeq: 2 })} />);
+    const lines = autoLines(onClientLog);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]![0].startsWith('선매수 자동 체크 — 켬: ')).toBe(true);
+    expect(lines[0]![0]).toContain('매도주문');
+    expect(sentConfigs()).toHaveLength(2);
+  });
+
+  it('매도주문 거부 실패가 남은 채 값 행 인라인 확정 → 그 값과 매도 ON 을 함께 실은 에코 → 그 편집기가 닫힌다', () => {
+    const s = idle({ buyEnabled: true });
+    const { rerender } = render(<LimitChaserForm {...props({ server: s, upperLimit: 150_800 })} />);
+    click(sw('매도주문 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    rerender(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, serverAnswerSeq: 1 })} />);
+    expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'false');
+
+    editInline('lc-buy-watch-qty', '9000');
+    expect(sentConfigs()).toHaveLength(2);
+    expect(lastConfig().buyWatchQty).toBe(9_000);
+    // 반영 중 — 편집기는 성공 에코까지 열려 있다.
+    expect(input('lc-buy-watch-qty')).not.toBeNull();
+
+    // 같은 실행에 ① 값 확정 성공(보낸 것) + ③ 매도 실패의 늦은 에코 성공.
+    const answered = { ...s, buyWatchQty: 9_000, sellEnabled: true };
+    rerender(<LimitChaserForm {...props({ server: answered, upperLimit: 150_800, serverAnswerSeq: 2 })} />);
+    expect(input('lc-buy-watch-qty')).toBeNull();
+    expect(rowText('lc-buy-watch-qty')).toBe('9,000주');
+    expect(sentConfigs()).toHaveLength(2);
+  });
+});
