@@ -60,6 +60,7 @@ import {
   ManualOrderForm,
 } from '@/components/trading/card/manual-order-form';
 import type { StrategyCardState } from '@/components/trading/card/strategy-card';
+import { isLegacyBuySchema } from '@/lib/limit-chaser';
 import type { RelayStatus } from '@/lib/use-relay-socket';
 import { useTickRule } from '@/lib/tick-rule';
 import { cn } from '@/lib/utils';
@@ -117,10 +118,18 @@ export interface CardGroupStatus {
 const POST_BUY_FIRED_TAIL = ' · 후매수 발동';
 
 /**
+ * WR-02 — 구서버 에코(`isLegacyBuySchema`)의 매수주문 카드 상태. 구서버는 buy3 그룹(선 · 추가 · 후매수)을
+ * 모른다 — 마스터 하나로 실제 매수 감시 중일 수 있어 「켜짐 · 켠 매수 없음」은 거짓이다. 이 전략에 할 수 있는
+ * 일은 끄기뿐이라(24-12 `lcLegacyBlockOf`) **읽기 전용 사실이 먼저**다 — 마스터 ON/OFF 와 무관하게 이 한 줄.
+ */
+export const LC_LEGACY_BUY_STATUS = '구서버 전략 · 끄기만 가능';
+
+/**
  * 서버 에코 → 카드 상태 문구 (**순수 함수** · UI-SPEC §11 표 — 위에서부터 첫 일치).
  *
  * ★ 판정 입력은 **서버 에코 하나**다(D-27 · T-24-16) — 폼 더티값 · 스위치 표시값을 읽지 않는다.
- * ★ 매수주문 = 꺼짐 / 보유중(`postBuyPhase === 2`) / 켜짐 · 켠 매수 없음(세 그룹 에코 OFF ∧ 마스터 ON —
+ * ★ 매수주문 = 구서버 전략 · 끄기만 가능(구서버 에코 — `isLegacyBuySchema` · WR-02 · 마스터 무관 · 맨 앞) /
+ *   꺼짐 / 보유중(`postBuyPhase === 2`) / 켜짐 · 켠 매수 없음(세 그룹 에코 OFF ∧ 마스터 ON —
  *   D-02 후반 가드로 자동 마스터 끔을 보내지 않았거나 그 제출이 나가 있는 잠깐) / 감시 중.
  *   「보유중」을 「무장 · 대기」로 읽던 옛 매핑(Pitfall 13)과 발주 완료 문구는 은퇴했다 — 마스터는 발주로
  *   접히지 않고, 선 · 추가매수가 발주로 꺼진 사실은 서버 사유 줄이 말한다.
@@ -135,7 +144,15 @@ export function cardGroupStatusOf(server: RelayLimitChaser | null): CardGroupSta
   const tail = (text: string) => (holding && text !== '꺼짐' ? `${text}${POST_BUY_FIRED_TAIL}` : text);
 
   const noBuyGroup = !s?.preBuyEnabled && !s?.extraBuyEnabled && !s?.postBuyEnabled;
-  const buy = !s?.buyEnabled ? '꺼짐' : holding ? '보유중' : noBuyGroup ? '켜짐 · 켠 매수 없음' : '감시 중';
+  const buy = isLegacyBuySchema(s)
+    ? LC_LEGACY_BUY_STATUS
+    : !s?.buyEnabled
+      ? '꺼짐'
+      : holding
+        ? '보유중'
+        : noBuyGroup
+          ? '켜짐 · 켠 매수 없음'
+          : '감시 중';
   const postBuy =
     s?.postBuyPhase === 3 ? '소진' : holding ? '보유중' : s?.postBuyEnabled === true ? '감시 중' : '꺼짐';
   return {

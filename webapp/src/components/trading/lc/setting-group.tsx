@@ -100,11 +100,13 @@ const DIM_IN_ROW = 'opacity-45 group-focus-within/lcrow:opacity-100 pointer-fine
 /**
  * 그룹 상태 문구 색(UI-SPEC §11 · R3) — **첫 단어 기준**. 새 색 토큰 0 · 색은 보조 신호이고 의미는 단어가
  * 싣는다(WCAG 1.4.1). 「감시 중 · 후매수 발동」은 초록, 「무장 · 대기 · 후매수 발동」은 중립이다.
+ * 「구서버 전략 · 끄기만 가능」(WR-02 · `LC_LEGACY_BUY_STATUS`)은 「포기」 와 같은 `--destructive` 다.
  */
 export function groupStatusClassOf(text: string): string {
   if (text.startsWith('감시 중')) return 'text-[var(--led-armed)]';
   if (text.startsWith('보유중')) return 'text-[var(--led-latent)]';
   if (text.startsWith('포기')) return 'text-[var(--destructive)]';
+  if (text.startsWith('구서버')) return 'text-[var(--destructive)]'; // WR-02 구서버 에코 — 「포기」 와 같은 경고 결
   return 'text-[var(--muted-fg)]';
 }
 
