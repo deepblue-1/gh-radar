@@ -779,12 +779,15 @@ describe('WR-01 — 미등록 전략에서 등록 전송이 나가 있으면 값
   });
 });
 
-describe('WR-07 · D-04a — 서버가 주문금액을 모르는 전략(에코 금액 0)은 금액부터 받는다', () => {
-  /** 레거시 전략 — 구서버 에코(`buy3Schema 0`) · 서버는 금액을 모르고(0) 수량 500주를 쥐고 매수가 무장돼 있다. */
+describe('WR-02 · D-04a 잔여 — 구서버 에코(buy3Schema 0) 금액 0 — 금액 행 「—」 표기 · 끄기 cfg 는 서버 금액 · 수량', () => {
+  /**
+   * 레거시 전략 — 구서버 에코(`buy3Schema 0`) · 서버는 금액을 모르고(0) 수량 500주를 쥐고 매수가 무장돼 있다.
+   * 금액부터 받는 경로(D-04a 금액 확정 특례)는 WR-02 로 도달 불가가 되어 제거됐다 — 금액 확정도 `legacySchema` 로 막힌다.
+   */
   const legacy = (over: Partial<RelayLimitChaser> = {}) =>
     echo({ buy3Schema: 0, buyOrderAmount: 0, buyOrderQty: 500, buyEnabled: true, ...over });
 
-  it('amountRequired — 레거시면 true · 금액을 알면 false · 미등록이면 false', () => {
+  it('amountRequired(「—」 표기용) — 구서버 ∧ 금액 0 이면 true · 금액을 알면 false · 미등록이면 false', () => {
     expect(setup({ server: legacy() }).hook.result.current.amountRequired).toBe(true);
     expect(setup().hook.result.current.amountRequired).toBe(false);
     expect(setup({ server: null }).hook.result.current.amountRequired).toBe(false);

@@ -50,9 +50,9 @@
  *   들고 있어 에코가 입력을 덮지 않는다(UI-SPEC E4 partial). 편집이 끝나면 행은 에코 값이다.
  *   구서버 에코(`buy3Schema 0`)의 선매수 금액 0(=「서버가 모른다」)은 덮지 않으며 그 판단은 lib
  *   `isLegacyAmountUnknown` 한 곳에 있다(buy3 에코의 0 은 「선매수 금액 미입력」 — D-03 · 24-REVIEW WR-01).
- *   ★ 그 상태(레거시 전략)에서는 주문금액 행이 폼이 든 클라 기본값이 아니라 **「—」** 이고, 금액 외 확정은
- *     「주문금액을 먼저 입력해 주세요」로 막힌다(D-04a · 20-REVIEW WR-07 · 판정은 훅 `amountRequired` 하나).
- *     끄기는 막지 않는다(T-16-44).
+ *   ★ 그 상태(레거시 전략)에서는 주문금액 행이 폼이 든 클라 기본값이 아니라 **「—」** 다(D-04a 잔여 · 훅 `amountRequired`).
+ *     구서버 에코는 끄기만 · 매수주문부터다(WR-02 · 판정은 훅 `lcLegacyBlockOf` 하나 — 시트 · 인라인 검증과 전송 직전
+ *     가드가 같이 읽는다). 매수주문 끄기는 늘 나간다(T-16-44).
  *
  * ⑤ ★ 전송 필드는 **클라 입력 29 + 클라 고정 3 = 32** 이다
  *   S→C 전용 4필드(`sellOrderQty`·`sellQtyTrackBaseline`·`sellEntryLatched`·
@@ -104,6 +104,7 @@ import {
   defaultLimitChaserForm,
   formFromServer,
   isDeleteIntent,
+  isLegacyBuySchema,
   preBuyAutoCheckLogLine,
   preBuyAutoChecksOf,
   seedFromUpperLimit,
@@ -145,8 +146,8 @@ import {
 } from '@/components/trading/lc/setting-group';
 import {
   LC_COMMIT_TEXT,
-  lcAmountBlockOf,
   lcGroupAmountBlockOf,
+  lcLegacyBlockOf,
   useLcFieldCommit,
   type LcCommitFailure,
   type LcCommitMeta,
@@ -383,8 +384,9 @@ type PrecheckSlot = (typeof GROUP_SLOT)[BuyGroupGate];
  * 뜨고(`groupPrecheckOf`), 전부를 돌려주는 까닭은 「사라지는 때 ①」 — 띄운 문구의 검증이 통과했는지를 따로 본다.
  *
  * 순서: (세션 · 무장 불가(가격 0)는 스위치 `disabled` 가 먼저 막는다) → 금액 → 수량 → 그룹 고유.
- *   - 금액: 선매수이고 `amountRequired`(구서버 에코 ∧ 금액 0 · D-04a)면 그 문구, 아니면 세 그룹 모두 D-03(그룹 금액 0 ·
- *     `lcGroupAmountBlockOf` — buy3 에코의 선매수 금액 0 도 여기 · IN-04). 수량 0 문구로 떨어지지 않는다.
+ *   - 금액: 세 그룹 모두 D-03(그룹 금액 0 · `lcGroupAmountBlockOf` — buy3 에코의 선매수 금액 0 도 여기 · IN-04). 수량 0
+ *     문구로 떨어지지 않는다. 구서버 에코는 켜는 방향 전체를 훅 가드(`lcLegacyBlockOf` · WR-02)와 24-13 의 스위치 비활성이
+ *     먼저 막는다.
  *     금액이 실패하면 수량은 보지 않는다(같은 원인을 두 번 말하지 않는다).
  *   - 수량: `buyOrderQtyFromAmount(그룹 금액, 공통 주문가격) === 0` — 웹 `canArmOf` · relay `…OrderQty === 0` 과 같은 식.
  *   - 선매수: 한방 체크 ON ∧ 한방가격 0 → `ARM_BLOCKED_TEXT.sweepPrice`(IN-03 — 폼 맨 위가 아니라 선매수 카드 한 줄).
@@ -392,12 +394,9 @@ type PrecheckSlot = (typeof GROUP_SLOT)[BuyGroupGate];
  *   - 후매수: 반등 1~100 밖(D-20 · 레거시 0) → 매도비율 0(D-27 · 레거시).
  * `values` = 이 확정이 실을 기준값(서버 동기값 — 훅과 같은 `lcBaseValues`).
  */
-function groupPrechecksOf(gate: BuyGroupGate, values: LimitChaserFormValues, amountRequired: boolean): string[] {
+function groupPrechecksOf(gate: BuyGroupGate, values: LimitChaserFormValues): string[] {
   const out: string[] = [];
-  const amount =
-    gate === 'preBuyEnabled' && amountRequired
-      ? LC_COMMIT_TEXT.amountRequired
-      : lcGroupAmountBlockOf(values, gate, true);
+  const amount = lcGroupAmountBlockOf(values, gate, true);
   if (amount !== null) out.push(amount);
   else if (values.buyOrderPrice > 0 && groupQtyOf(gate, values) === 0) out.push(LC_COMMIT_TEXT.qtyZero);
   if (gate === 'preBuyEnabled' && values.sweepEnabled && values.sweepWatchPrice === 0) {
@@ -414,8 +413,8 @@ function groupPrechecksOf(gate: BuyGroupGate, values: LimitChaserFormValues, amo
 }
 
 /** 그룹 켜기 사전 검증 — 첫 실패 문구 하나, 통과면 null(누르는 순간 판정 · R7). 끄는 방향에는 부르지 않는다(T-16-44). */
-function groupPrecheckOf(gate: BuyGroupGate, values: LimitChaserFormValues, amountRequired: boolean): string | null {
-  return groupPrechecksOf(gate, values, amountRequired)[0] ?? null;
+function groupPrecheckOf(gate: BuyGroupGate, values: LimitChaserFormValues): string | null {
+  return groupPrechecksOf(gate, values)[0] ?? null;
 }
 
 /**
@@ -871,8 +870,6 @@ export function LimitChaserForm({
   /** 최신 서버 에코 — 이벤트 핸들러 · 다음 틱 콜백이 읽는다(사전 검증 기준값 · D-02 후반 재확인). */
   const serverRef = useRef(server);
   serverRef.current = server;
-  const amountRequiredRef = useRef(lc.amountRequired);
-  amountRequiredRef.current = lc.amountRequired;
   const bestBidRef = useRef(bestBid);
   bestBidRef.current = bestBid;
   const clientLogRef = useRef(onClientLog);
@@ -890,10 +887,10 @@ export function LimitChaserForm({
     setPrecheck((cur) => {
       if (cur === null) return cur;
       if (server?.[cur.gate] === true) return null;
-      const still = groupPrechecksOf(cur.gate, lcBaseValues(server, form), lc.amountRequired).includes(cur.text);
+      const still = groupPrechecksOf(cur.gate, lcBaseValues(server, form)).includes(cur.text);
       return still ? cur : null;
     });
-  }, [server, form, lc.amountRequired]);
+  }, [server, form]);
 
   /**
    * 그룹 스위치(선 · 추가 · 후매수) — **사람의 스위치 핸들러에서만** 부른다(D-01 · D-02 전반 · UI-SPEC 상호작용 계약).
@@ -913,7 +910,7 @@ export function LimitChaserForm({
         // 사전 검증(R7 · UI-SPEC §7) — 낙관 표시 전에 판정한다(스위치는 움직이지 않는다). 전송 0 · 그 카드 한 줄.
         const base = lcBaseValues(serverRef.current, f);
         const slot = GROUP_SLOT[gate];
-        const failed = groupPrecheckOf(gate, base, amountRequiredRef.current);
+        const failed = groupPrecheckOf(gate, base);
         if (failed !== null) {
           setPrecheck({ slot, gate, text: failed });
           return;
@@ -1130,14 +1127,12 @@ export function LimitChaserForm({
   }
 
   /**
-   * 시트·인라인 확정 전 검증 — 금액 먼저(D-04a · `lcAmountBlockOf`) → 무장 불가(`armBlockOf`). 훅의 전송 직전
-   * 가드와 **같은 두 함수 · 같은 순서**다(기준값 = 서버 동기값 + 바꾼 필드 · T-20-03).
+   * 시트·인라인 확정 전 검증 — 구서버 에코 편집 제한(WR-02 · `lcLegacyBlockOf`) → 무장 불가(`armBlockOf`). 훅의 전송
+   * 직전 가드와 **같은 두 함수 · 같은 순서**다(기준값 = 서버 동기값 + 바꾼 필드 · T-20-03).
    */
   function validateCommit(field: LcNumField, v: number): string | null {
-    return (
-      lcAmountBlockOf(lc.amountRequired, field, v) ??
-      armBlockOf({ ...lcBaseValues(server, formRef.current), [field]: v })
-    );
+    const next: LimitChaserFormValues = { ...lcBaseValues(server, formRef.current), [field]: v };
+    return lcLegacyBlockOf(isLegacyBuySchema(server), field, v, next) ?? armBlockOf(next);
   }
 
   /** 값 행이 공유하는 편집 배선(값 행 · 체크 값 행의 값 버튼). */
@@ -1482,14 +1477,13 @@ function inlineFailureTextOf(f: LcCommitFailure | undefined): string | null {
 }
 
 /**
- * 폼 맨 위 한 줄이 말하는 토글 실패 — **보내지 못한 것**(끊김 · 무장 불가 · 범위 밖 · 금액 먼저 D-04a ·
+ * 폼 맨 위 한 줄이 말하는 토글 실패 — **보내지 못한 것**(끊김 · 무장 불가 · 범위 밖 ·
  * 구서버 에코 읽기 전용(WR-02) — 막힌 토글이 조용히 되돌아가지 않게). 거부·무응답은 말풍선.
  */
 const SUBMIT_ERROR_REASONS: ReadonlySet<LcFailReason> = new Set([
   'disconnected',
   'armBlocked',
   'invalid',
-  'amountRequired',
   'legacySchema',
 ]);
 

@@ -5,7 +5,7 @@
  *
  * ① 무엇을 대체하는가
  *   옛 모델은 「값을 고친다 → 더티가 쌓인다 → 하단 「수정」」이었다. 이 훅은 그 사이를 걷는다 —
- *   시트 「적용」·인라인 Enter/blur·체크·토글 **한 번**이 곧 전략 전체(32필드) 전송 한 번이다.
+ *   시트 「적용」·인라인 Enter/blur·체크·토글 **한 번**이 곧 전략 전체(cfg 조립 정본 = 폼 `buildCfg`) 전송 한 번이다.
  *   시트·인라인·체크·토글이 폼 인스턴스당 **이 훅 하나**를 공유한다(판정이 둘이면 한쪽만 고쳐진다).
  *
  * ② ★ cfg 기준값은 폼의 로컬 값이 아니라 **서버 동기값**이다 (T-20-03)
@@ -28,8 +28,8 @@
  *
  * ⑥ ★ 미등록 전략(server 없음)은 로컬 반영만 한다 (planner assumption A-P1 · RESEARCH Open Q1)
  *   값·체크·감시대상 확정을 보내면 `crudOf` 가 `'D'` 인 철거 프레임이 나가거나(존재하지 않는 키)
- *   게이트성 체크가 의도치 않은 등록을 만든다(Pitfall 2). 등록은 그룹 스위치 4개
- *   (`LC_GATE_FIELDS`)만 한다 — Phase 16 D-05 「첫 스위치 = 등록」 그대로.
+ *   게이트성 체크가 의도치 않은 등록을 만든다(Pitfall 2). 등록은 `LC_GATE_FIELDS` 만 한다 —
+ *   Phase 16 D-05 「첫 스위치 = 등록」 그대로.
  *
  * ⑦ ★ 동시에 나가 있는 전송은 1건이다 (UI-SPEC §6 「직렬화」 · T-20-08)
  *   앞 건이 답을 받기 전의 확정은 **대기열**(필드당 1건, 순서 유지)에 선다. 같은 필드를 다시
@@ -52,12 +52,7 @@
  * ⑧ ★ 실패 판정 입력은 셋이다
  *   거부 = 답 신호(`serverAnswerSeq`)만 오르고 값 불일치 · 타임아웃 = 카드 `unacked`(3초 무응답,
  *   상태줄 「미반영」과 **같은 신호** — UI-SPEC A10) · 끊김 = `send` false.
- *   특례: **구서버 에코(`buy3Schema 0`)의** `buyOrderAmount` 가 0 이면 「서버가 모른다」(`isLegacyAmountUnknown` ·
- *   `lib/limit-chaser.ts`) — 에코 값으로는 판정할 수 없다. buy3 에코의 0 은 「선매수 금액 미입력」(D-03)이라 이
- *   특례가 아니다 — 보낸 금액이 에코에 그대로 서므로 일반 규칙(값 일치)으로 판정한다. 그래서 **에코가 실제로 왔고(서버 값 변화) 그 `buyOrderQty` 가 이 전송이 실은 수량과 같을 때만**
- *   성공이다(20-REVIEW CR-03). 답 신호만으로 성공이라 읽으면 거부(54, 에코 없음)가 성공이 된다(③ 위반).
- *   이 특례로 성공하면 폼에 새 금액을 넣는다 — `formFromServer` 는 구서버 에코의 금액 0 이면 옛 금액을 남기므로,
- *   넣지 않으면 다음 전송이 옛 금액으로 수량을 다시 계산해 주문 수량을 되돌린다.
+ *   성공 = 에코의 그 필드 값 === 보낸 값, 예외 없음.
  *
  * ⑨ ★ 무장 불가 값은 보내지 않는다 (WR-06 · T-20-01)
  *   전송 직전 `armBlockOf(서버 동기값 + 바꾼 필드)` 가 문장을 돌려주면 막고 그 문장을 실패로 둔다.
@@ -66,22 +61,16 @@
  * ⑨-2 ★ relay 스키마 범위 밖 cfg 는 보내지 않는다 (20-REVIEW CR-01)
  *   relay 는 `lc.set` 스키마 위반 프레임을 받으면 **WebSocket 연결을 통째로 끊는다** — 모든 카드의 시세·
  *   에코가 멈추고 같은 소켓의 수동주문이 결과 모름에 걸린다. 시트·인라인이 편집 필드를 먼저 잠그지만
- *   cfg 는 32필드 전부라, 전송 직전 `lcRangeIssue(cfg 기준값)` 로 **한 번 더** 막는다(마지막 방어선).
+ *   cfg 는 전략 전체라, 전송 직전 `lcRangeIssue(cfg 기준값)` 로 **한 번 더** 막는다(마지막 방어선).
  *   ★ 이 가드는 끄는 방향도 막는다 — 범위 밖 프레임은 끄기조차 반영하지 못하고 연결만 끊는다.
  *
- * ⑨-3 ★ 서버가 주문금액을 모르는 전략(**구서버 에코(`buy3Schema 0`)의** `buyOrderAmount === 0`, 레거시)은 **금액부터**
- *   받는다 (D-04a · 20-REVIEW WR-07). 판정은 lib `isLegacyAmountUnknown` 하나다 — buy3 에코의 선매수 금액 0 은
- *   「미입력」(D-03 · 24-REVIEW WR-01)이라 여기에 걸리지 않고 선매수 켜기만 사전 검증이 막는다.
- *   cfg 의 `buyOrderQty` 는 매 전송 `buildCfg` 가 폼 금액으로 다시 계산한다. 서버가 금액을 모르면 폼 금액은
- *   클라 기본값(10만원)이라, 비교가격 하나만 바꿔도 서버가 쥔 실제 수량(예: 500주)이 조용히 7주로 덮인다.
- *   그래서 이 상태(`amountRequired`)에서는 **주문금액 외** 확정을 보내지 않고 「주문금액을 먼저 입력해 주세요」로
- *   막는다(`lcAmountBlockOf` — 시트·인라인 `validate` 와 이 훅의 전송 직전 가드가 같은 함수를 읽는다).
- *   주문금액 확정은 정상 경로다 — 새 금액으로 수량을 계산해 보내고, 에코가 0 이 아닌 금액을 돌려주면 끝난다
- *   (에코가 여전히 0 이면 ⑧ 특례로 판정하고, 성공하면 이 폼 인스턴스에서는 금액을 아는 것으로 본다).
- *   ★ **끄기(게이트 OFF · 무장 해제)는 막지 않는다**(T-16-44) — 다만 그 cfg 는 금액·수량을 **서버 값 그대로**
- *     (금액 0 · 서버 `buyOrderQty`) 싣는다. 끄는 확정이 수량을 기본 금액으로 바꾸면 그게 바로 이 결함이고,
- *     기본 금액이 0주를 만들면 relay 무장 판정에 막혀 끄기조차 못 한다.
- *   미등록 전략(server 없음)은 해당 없다 — 등록 cfg 는 폼 금액을 싣고 에코가 그 금액을 돌려준다.
+ * ⑨-3 ★ 구서버 에코(WR-02)는 끄기만 — `lcLegacyBlockOf`.
+ *   구서버(`buy3Schema 0` · 판별은 lib `isLegacyBuySchema`)에 닿는 cfg 에는 `buy_watch_side` 슬롯이 없다(relay 가
+ *   싣지 않는다 · 24-03). 끄는 방향 ∧ 결과 매수주문 OFF 가 아닌 확정은 보내지 않는다 — 시트·인라인 확정 전 검증(폼
+ *   `validateCommit`)과 이 훅의 전송 직전 가드(대기열에서 꺼낼 때 포함)가 같은 함수를 읽는다. 매수주문 끄기는 늘 나가므로
+ *   완전 해제 경로가 열려 있다(T-16-44).
+ *   끄기 cfg 는 서버가 금액을 모르면(`isLegacyAmountUnknown` — 구서버 ∧ 선매수 금액 0) 금액 · 수량을 서버 값 그대로
+ *   싣는다(D-04a 잔여 규칙) — `buildCfg` 가 폼 금액(클라 기본값)으로 수량을 다시 계산해 서버가 쥔 수량을 덮지 않게.
  *
  * ⑩ 토글 종류(스위치·체크·감시대상)는 전송 뒤(또는 대기 진입 시) 낙관 표시하고, 실패·폐기되면
  *   확정 직전 값으로 되돌린다(UI-SPEC E2). `send` 가 false 면 폼을 건드리지 않는다(GC-WR-06).
@@ -117,18 +106,9 @@ export type LcFieldKey = keyof LimitChaserFormValues;
 export type LcCommitKind = 'value' | 'toggle';
 /**
  * `invalid` = relay 스키마 범위 밖이라 보내지 않았다(⑨-2 · CR-01).
- * `amountRequired` = 서버가 주문금액을 모르는 전략이라 금액 외 확정을 보내지 않았다(⑨-3 · WR-07) — 구서버 에코
- * (`buy3Schema 0`)에서만이다. buy3 에코의 선매수 금액 0 은 미입력(D-03)이라 이 사유가 아니다.
- * `legacySchema` = 구서버 에코라 끄는 방향 ∧ 결과 매수주문 OFF 가 아닌 확정을 보내지 않았다(WR-02 · `lcLegacyBlockOf`).
+ * `legacySchema` = 구서버 에코라 끄는 방향 ∧ 결과 매수주문 OFF 가 아닌 확정을 보내지 않았다(⑨-3 · WR-02 · `lcLegacyBlockOf`).
  */
-export type LcFailReason =
-  | 'rejected'
-  | 'timeout'
-  | 'disconnected'
-  | 'armBlocked'
-  | 'invalid'
-  | 'amountRequired'
-  | 'legacySchema';
+export type LcFailReason = 'rejected' | 'timeout' | 'disconnected' | 'armBlocked' | 'invalid' | 'legacySchema';
 export interface LcCommitFailure {
   reason: LcFailReason;
   /** 화면 문구 — 문구 원천은 `LC_COMMIT_TEXT`(무장 불가는 호출부의 `armBlockOf` 문장). */
@@ -173,7 +153,7 @@ export const LC_COMMIT_TEXT = {
   retry: '다시 시도',
   otherDevice: '다른 단말에서 바뀌었어요',
   armed: '감시 중 — 적용하면 바로 반영돼요',
-  /** D-04a — 서버가 주문금액을 모르는 전략(레거시)에서 금액 외 확정을 막는 문구. D-03 그룹 금액 0 도 같은 문구다. */
+  /** D-03 — 그룹 금액 0 에서 그 그룹 켜기를 막는 사전 검증 문구(`lcGroupAmountBlockOf`). */
   amountRequired: '주문금액을 먼저 입력해 주세요',
   /** 그룹 켜기 사전 검증 — 금액 < 주문가격이라 수량 0 (옛 무장 불가 「주문금액이 … 작아」의 자리). */
   qtyZero: '금액이 주문가격보다 작아 주문수량이 0주예요 — 금액을 올려 주세요',
@@ -216,18 +196,8 @@ export function lcLegacyBlockOf(
 }
 
 /**
- * ⑨-3 금액 먼저 규칙(D-04a · WR-07) — **판정 지점 하나**. 시트·인라인 `validate`(폼)와 전송 직전 가드(훅)가
- * 같이 읽는다. 막으면 문구, 아니면 null. 주문금액 자신과 끄는 방향 게이트(무장 해제)는 막지 않는다.
- */
-export function lcAmountBlockOf(amountRequired: boolean, field: LcFieldKey, value: unknown): string | null {
-  if (!amountRequired || field === 'buyOrderAmount') return null;
-  if (isDisarm(field, value)) return null;
-  return LC_COMMIT_TEXT.amountRequired;
-}
-
-/**
  * D-03 그룹 금액 — 그룹 스위치 → 그 그룹 금액 필드. 선매수도 같은 규칙이다 — buy3 에코의 선매수 금액 0 은
- * 미입력(D-03 · 24-REVIEW IN-04). 구서버 에코의 금액 모름(D-04a)은 폼이 `amountRequired` 로 먼저 판정한다.
+ * 미입력(D-03 · 24-REVIEW IN-04). 구서버 에코는 켜는 방향 전체가 `lcLegacyBlockOf` 로 막힌다(WR-02).
  */
 const GROUP_AMOUNT_FIELD = {
   preBuyEnabled: 'buyOrderAmount',
@@ -238,8 +208,8 @@ const GROUP_AMOUNT_FIELD = {
 /**
  * D-03 — 선매수 · 추가매수 · 후매수 금액이 0 이면 **그 그룹 스위치를 켜는 방향만** 막는다(문구 = `amountRequired`).
  * 다른 행 확정은 자유롭다(금액 0 · 수량 0 은 서버 값 그대로 실린다 — 조용한 변경 없음). 끄는 방향 · 그 밖 필드는 null.
- * 선매수도 같은 규칙이다 — buy3 에코의 선매수 금액 0 은 미입력(D-03 · IN-04). 구서버 에코의 금액 모름(D-04a)은 폼이
- * `amountRequired` 로 먼저 판정한다. `lcAmountBlockOf`(구서버 D-04a)와 같은 모양 · 같은 문구 원천이다.
+ * 선매수도 같은 규칙이다 — buy3 에코의 선매수 금액 0 은 미입력(D-03 · IN-04). 구서버 에코는 켜는 방향 전체가
+ * `lcLegacyBlockOf` 로 막힌다(WR-02) — 훅 가드가 먼저다.
  */
 export function lcGroupAmountBlockOf(values: LimitChaserFormValues, field: LcFieldKey, value: unknown): string | null {
   if (value !== true || !(field in GROUP_AMOUNT_FIELD)) return null;
@@ -293,8 +263,6 @@ interface Pending {
 interface Inflight extends Pending {
   /** 보낼 때의 `serverAnswerSeq` — 이 값에서 바뀌면 답이 온 것이다. */
   answerSeqAtSend: number;
-  /** 이 전송 cfg 의 `buyOrderQty` — 금액 특례의 반영 증거(⑧ · CR-03). */
-  sentBuyOrderQty: number;
 }
 
 type FailureMap = Partial<Record<LcFieldKey, LcCommitFailure>>;
@@ -304,7 +272,7 @@ function isGateField(field: LcFieldKey): boolean {
 }
 
 /**
- * 무장 해제 방향인가 — 게이트를 끄거나 한방 체크를 끈다(T-16-44: 끄는 쪽은 무장 가드 · 금액 먼저 가드를 지나지 않는다).
+ * 무장 해제 방향인가 — 게이트를 끄거나 한방 체크를 끈다(T-16-44: 끄는 쪽은 무장 가드를 지나지 않는다).
  * 한방은 등록 필드(`LC_GATE_FIELDS`)에서 빠졌지만 끄는 것은 여전히 무장 해제다 — 종전 면제를 그대로 둔다.
  */
 function isDisarm(field: LcFieldKey, value: unknown): boolean {
@@ -352,8 +320,8 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
   lastSuccessField: LcFieldKey | null;
   clearFailure: (field: LcFieldKey) => void;
   /**
-   * ⑨-3 — 서버가 주문금액을 모른다(구서버 에코(`buy3Schema 0`) ∧ 금액 0 · `isLegacyAmountUnknown`). 금액 행은 「—」,
-   * 금액 외 확정은 막힌다. buy3 에코의 금액 0 은 미입력(D-03)이라 false.
+   * ⑨-3 — 서버가 주문금액을 모른다(구서버 에코 ∧ 금액 0 · `isLegacyAmountUnknown`). 금액 행 「—」 표기용이다 —
+   * 확정 제한은 `lcLegacyBlockOf`(WR-02)가 한다. buy3 에코의 금액 0 은 미입력(D-03)이라 false.
    */
   amountRequired: boolean;
 } {
@@ -380,22 +348,8 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
   const orphanRef = useRef<{ field: LcFieldKey; answerSeqAtSend: number } | null>(null);
   const orphanTimer = useRef<number | null>(null);
 
-  /**
-   * ⑨-3 — 구서버 에코의 서버 금액 0 인데 ⑧ 특례(수량 일치 에코)로 금액 확정이 성공했다. 폼이 그 금액을 들고 있으므로
-   * 이 폼 인스턴스에서는 금액을 아는 것으로 본다(폼이 다시 마운트되면 폼 금액도 기본값으로 돌아가므로 함께 사라진다).
-   * 서버가 0 이 아닌 금액을 돌려주면 내려놓는다 — 그 뒤의 0 은 새로운 「모른다」다.
-   */
-  const amountConfirmedRef = useRef(false);
-  const [amountConfirmed, setAmountConfirmed] = useState(false);
-  const confirmAmount = useCallback((known: boolean) => {
-    if (amountConfirmedRef.current === known) return;
-    amountConfirmedRef.current = known;
-    setAmountConfirmed(known);
-  }, []);
-  /** 지금(최신 옵션 기준) 금액을 모르는가 — 전송 직전 가드용. 렌더 값은 아래 `amountRequired`. */
-  const amountUnknownNow = useCallback((): boolean => {
-    return isLegacyAmountUnknown(optsRef.current.server) && !amountConfirmedRef.current;
-  }, []);
+  /** 지금(최신 옵션 기준) 서버가 금액을 모르는가 — 끄기 cfg 의 금액 · 수량을 서버 값으로 싣는 줄이 읽는다(⑨-3). */
+  const amountUnknownNow = useCallback((): boolean => isLegacyAmountUnknown(optsRef.current.server), []);
 
   const failuresRef = useRef<FailureMap>({});
   const [failures, setFailuresState] = useState<FailureMap>({});
@@ -478,14 +432,6 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
         if (optimistic) revertToggle(p);
         return 'blocked';
       }
-      // ⑨-3 서버가 금액을 모르면 금액부터(D-04a · WR-07) — 끄는 방향 게이트는 예외다(T-16-44).
-      const amountUnknown = amountUnknownNow();
-      const amountBlocked = lcAmountBlockOf(amountUnknown, p.field, p.value);
-      if (amountBlocked !== null) {
-        setFailure(p.field, 'amountRequired', amountBlocked, p.value);
-        if (optimistic) revertToggle(p);
-        return 'blocked';
-      }
       const turningOff = isDisarm(p.field, p.value);
       const blocked = turningOff ? null : (armBlockOf?.(next) ?? null);
       if (blocked !== null) {
@@ -494,9 +440,9 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
         return 'blocked';
       }
       let cfg = buildCfg(next);
-      // ⑨-3 금액을 모르는 채 나가는 것은 끄기뿐이다 — 금액·수량은 서버 값 그대로 싣는다(수량을 기본 금액으로
-      //   다시 계산해 덮지 않는다). 금액 확정 자신은 새 금액으로 계산한 `buildCfg` 결과 그대로다.
-      if (amountUnknown && server != null && p.field !== 'buyOrderAmount') {
+      // ⑨-3 금액을 모르는 채 나가는 것은 끄기뿐이다(WR-02 가드를 지났다) — 금액·수량은 서버 값 그대로 싣는다
+      //   (수량을 기본 금액으로 다시 계산해 덮지 않는다 · D-04a 잔여 규칙).
+      if (server != null && amountUnknownNow()) {
         cfg = { ...cfg, buyOrderAmount: server.buyOrderAmount, buyOrderQty: server.buyOrderQty };
       }
       if (!send({ t: 'lc.set', cfg })) {
@@ -508,7 +454,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       if (p.meta === undefined) onSent?.(cfg);
       else onSent?.(cfg, p.meta);
       writeFailures((prev) => withoutField(prev, p.field));
-      setInflight({ ...p, answerSeqAtSend: serverAnswerSeq, sentBuyOrderQty: cfg.buyOrderQty });
+      setInflight({ ...p, answerSeqAtSend: serverAnswerSeq });
       // ⑩ 토글은 전송 뒤 낙관 표시 — 대기 중 에코가 폼을 덮었을 수 있어 꺼낼 때도 다시 건다.
       if (p.kind === 'toggle') applyToggle(p);
       return 'sent';
@@ -705,33 +651,16 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
     const seq = o.serverAnswerSeq;
     const serverChanged = prevServerRef.current !== server;
     prevServerRef.current = server;
-    // ⑨-3 — 서버가 금액을 알게 됐다(구서버 ∧ 금액 0 이 아니다). 특례로 세운 「안다」는 내려놓는다(다음 0 은 새로운 「모른다」).
-    if (server != null && !isLegacyAmountUnknown(server)) confirmAmount(false);
 
     // ① in-flight 판정.
     const inf = inflightRef.current;
     let drainNow = false;
     if (inf !== null) {
       const answered = seq !== inf.answerSeqAtSend;
-      // ⑧ 특례 — 서버가 금액을 모른다(구서버 에코 ∧ 0). 에코가 **왔고**(거부에는 에코가 없다) 그 수량이 보낸
-      //   수량과 같을 때만 반영된 것으로 본다(CR-03). 답 신호만으로는 거부와 구분할 수 없다.
-      const amountEchoed =
-        inf.field === 'buyOrderAmount' &&
-        serverChanged &&
-        server != null &&
-        isLegacyAmountUnknown(server) &&
-        server.buyOrderQty === inf.sentBuyOrderQty;
-      const matches = server != null && (server[inf.field] === inf.value || amountEchoed);
+      // ⑧ 성공 = 에코의 그 필드 값 === 보낸 값, 예외 없음.
+      const matches = server != null && server[inf.field] === inf.value;
       if (matches) {
         setInflight(null);
-        // 서버가 금액을 돌려주지 않으므로 폼이 새 금액을 든다 — 안 그러면 다음 전송이 옛 금액으로
-        // 수량을 다시 계산해 되돌린다(CR-03). 폼의 에코 반영 이펙트 뒤에 돌므로 덮이지 않는다.
-        if (amountEchoed) {
-          const amount = inf.value as number;
-          optsRef.current.setForm((prev) => ({ ...prev, buyOrderAmount: amount }));
-          // ⑨-3 — 폼이 이제 서버 수량과 맞는 금액을 든다. 금액 먼저 잠금을 푼다.
-          confirmAmount(true);
-        }
         markSuccess(inf.field);
         // 서버 값이 이 렌더에 바뀌었다 = 카드의 답 신호 증가가 한 렌더 뒤에 온다 → 그때 꺼낸다.
         //   ★ 대기열이 비어 있어도 장벽을 세운다(20-REVIEW WR-02) — 성공 렌더와 증가 렌더 사이에 들어온 새
@@ -772,7 +701,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
         if (server[f] === fail.value) markSuccess(f);
       }
     }
-  }, [o.server, o.serverAnswerSeq, unacked, confirmAmount, drain, failInflight, markSuccess, releaseOrphan, setInflight]);
+  }, [o.server, o.serverAnswerSeq, unacked, drain, failInflight, markSuccess, releaseOrphan, setInflight]);
 
   useEffect(
     () => () => {
@@ -791,6 +720,6 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
     successSeq: success.seq,
     lastSuccessField: success.field,
     clearFailure,
-    amountRequired: isLegacyAmountUnknown(o.server) && !amountConfirmed,
+    amountRequired: isLegacyAmountUnknown(o.server),
   };
 }
