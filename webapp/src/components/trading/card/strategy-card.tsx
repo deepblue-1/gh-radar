@@ -300,13 +300,17 @@ export function useStrategyCardState({
 
   /* ── 전송 ↔ 에코 상관 (③) ─────────────────────────────────────────────── */
 
-  /** 마지막으로 보낸 요청. 에코가 오면 비운다. **재전송에 쓰지 않는다.** */
+  /**
+   * 마지막으로 보낸 요청. **재전송에 쓰지 않는다.**
+   * 수명의 끝: 내 요청 변화를 싣은 에코 소비(`echoAnswersSent`) · 결과 모름 창 만료 · 삭제 · 키 변경.
+   * 거부 통지는 끝이 아니다 — 부분 거부는 ERROR 뒤 같은 제출의 에코가 오고, 다른 탭의 거부도 팬아웃된다(GC-WR-01).
+   */
   const pendingRef = useRef<RelayLimitChaserInput | null>(null);
   /**
    * 마지막으로 보낸 요청의 **사유**(D-02 후반 `'serverFold'` · 없으면 `null` = 사람 손).
-   * ★ `pendingRef` 와 **같은 수명**이다 — 보낼 때 함께 세우고, 에코 소비 · 거부 · 결과 모름 창 만료 ·
-   *   삭제 · 키 변경 때 함께 비우며, 런타임 에코는 둘 다 소비하지 않는다. 따로 살면 앞 제출의 사유가
-   *   뒤 에코에 붙는다(WR-05).
+   * ★ `pendingRef` 와 **같은 수명**이다 — 보낼 때 함께 세우고, 내 요청 변화를 싣은 에코 소비 · 결과 모름 창
+   *   만료 · 삭제 · 키 변경 때 함께 비우며, 런타임 에코 · 내 요청 변화를 싣지 않은 에코는 둘 다 소비하지 않는다.
+   *   따로 살면 앞 제출의 사유가 뒤 에코에 붙는다(WR-05). 거부 통지로는 비우지 않는다(GC-WR-01).
    */
   const pendingCauseRef = useRef<StrategySubmitCause | null>(null);
   const [unacked, setUnacked] = useState(false);
@@ -486,11 +490,11 @@ export function useStrategyCardState({
              에코를 주고 `MarkEchoDirty` 가 300ms 플러시 동일 사본을 또 민다 — 여기서 소비하면 사본이 내
              진짜 에코보다 먼저 온 순간 내 변경이 「다른 단말」로 읽히고 동반 · 서버 접힘 문장이 사라진다.
              Phase 24 런타임 에코(후매수 단계 · 잔여 · 발동잔량 · 추가매수 포기)도 같다(D-13).
-        (iii) 남는 비용: 서버가 내 lc.set 을 prev 와 같은 값으로 정규화해 답하면 pendingRef 가 다음
-             비런타임 에코까지 남아 그 한 번의 다른 단말 배너를 삼키고 로그 귀속(`sent`)을 내 마지막
-             요청에서 읽는다 — (ii) 의 오귀속보다 싸다.
-        (iv) 게이트/래치 런타임 푸시가 내 에코보다 먼저 오면 여전히 pendingRef 를 소비한다
-             (기존 경합 — 이제 더 좁다).
+        (iii) 남는 비용: 정규화로 prev 와 같은 답이면 귀속은 결과 모름 창 만료까지 남는다 — 그 사이 무관
+             에코는 `echoAnswersSent` 가 거르므로 배너를 삼키지 않는다(GC-WR-01). (ii) 의 오귀속보다 싸다.
+        (iv) 게이트/래치 런타임 푸시가 내 에코보다 먼저 와도 내 요청 변화를 싣지 않으면 pendingRef 를
+             소비하지 않는다(`echoAnswersSent` — GC-WR-01). 내가 요청한 게이트 값과 우연히 같은 푸시만 남는
+             경합이다.
         `acceptAnswer` 도 부르지 않는다 — 응답 채널은 위 키 일치 `lastLimitChaserEcho` 이펙트다
         (같은 내용의 lc.snap 을 답으로 세면 재접속만으로 미반영이 거둬진다 — use-relay-socket
         `lastLimitChaserEcho` 문서와 같은 규율).

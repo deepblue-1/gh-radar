@@ -1658,4 +1658,122 @@ describe('GC-WR-01 — 부분 거부 · 다른 탭 거부 뒤 내 제출의 에�
     noOtherDevice();
     expect(sendMock).not.toHaveBeenCalled();
   });
+
+  it('다른 탭 거부 팬아웃 — 같은 전략을 연 다른 탭의 거부 통지가 이 탭의 귀속을 지우지 않는다 → 이 탭 제출의 에코에 「서버 반영 완료」 · 「다른 단말」 0 · 전송 0', async () => {
+    const before = echo({ sellOrderPrice: 100_000 });
+    setRelay({ limitChasers: [before] });
+    const { rerender } = render(<Card />);
+    const cfg = echo({ sellOrderPrice: 120_000 });
+    act(() => {
+      lastCard!.handleSent(sentOf(cfg));
+    });
+
+    // 다른 탭의 제출이 거부됐다 — ServerMessage 는 사용자의 모든 소켓으로 팬아웃돼 이 탭에도 온다.
+    const rej = rejection('알 수 없는 거래소입니다 — 상따 전략을 등록하지 않았습니다');
+    setRelay({ limitChasers: [before], messages: [rej] });
+    rerender(<Card />);
+    await waitFor(() => expect(serverError()).not.toBeNull());
+
+    // 이 탭 제출의 에코.
+    const answered = echo({ sellOrderPrice: 120_000 });
+    setRelay({ limitChasers: [answered], lastLimitChaserEcho: answered, messages: [rej] });
+    rerender(<Card />);
+
+    await waitFor(() => expect(top()).toBe(TRANSITION_TEXT.valuesApplied));
+    expect(banner()).toBeNull();
+    noOtherDevice();
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('창 안 무관 에코(비소비) — 거부 뒤 내 요청 변화를 싣지 않은 다른 단말 에코 → 서버 접힘 0 · 「다른 단말」 배너 · 이어 같은 창 안 내 마스터 OFF 에코 → 서버 접힘 한 줄(귀속이 남아 있었다) · 전송 0', async () => {
+    const on = echo({ buyEnabled: true, sellEnabled: true, sellOrderPrice: 100_000 });
+    setRelay({ limitChasers: [on] });
+    const { rerender } = render(<Card />);
+    const off = echo({ buyEnabled: false, sellEnabled: true, sellOrderPrice: 100_000 });
+    act(() => {
+      lastCard!.handleSent(sentOf(off), { cause: 'serverFold' });
+    });
+
+    const rej = rejection();
+    setRelay({ limitChasers: [on], messages: [rej] });
+    rerender(<Card />);
+    await waitFor(() => expect(serverError()).not.toBeNull());
+
+    // 다른 단말의 매도 주문가격 변경 — 마스터는 ON 그대로(내 요청 변화 없음).
+    const other = echo({ buyEnabled: true, sellEnabled: true, sellOrderPrice: 110_000 });
+    setRelay({ limitChasers: [other], lastLimitChaserEcho: other, messages: [rej] });
+    rerender(<Card />);
+    await waitFor(() => expect(banner()?.textContent ?? '').toContain(OTHER));
+    expect(texts().some((x) => x.includes(FOLD))).toBe(false);
+    expect(texts().filter((x) => x.includes(OTHER))).toHaveLength(1);
+
+    // 같은 창 안에 내 제출의 마스터 OFF 에코 — 귀속은 소비되지 않고 남아 있었다.
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+    });
+    const mine = echo({ buyEnabled: false, sellEnabled: true, sellOrderPrice: 110_000 });
+    setRelay({ limitChasers: [mine], lastLimitChaserEcho: mine, messages: [rej] });
+    rerender(<Card />);
+
+    await waitFor(() => expect(top()).toBe(FOLD));
+    expect(texts().filter((x) => x.includes(OTHER))).toHaveLength(1);
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('거부 없는 경합(비소비) — 내 제출 뒤 내 요청 변화가 없는 다른 단말 에코(매도 매수잔량) → 배너 1 → 내 에코 → 「서버 반영 완료」 · 새 배너 없음 · 전송 0', async () => {
+    const before = echo({ sellOrderPrice: 100_000 });
+    setRelay({ limitChasers: [before] });
+    const { rerender } = render(<Card />);
+    const cfg = echo({ sellOrderPrice: 120_000 });
+    act(() => {
+      lastCard!.handleSent(sentOf(cfg));
+    });
+
+    // 내 에코보다 먼저 온 다른 단말의 매도 매수잔량 변경 — 내 요청(매도 주문가격) 변화는 없다.
+    const other = echo({ sellOrderPrice: 100_000, sellWatchQty: 330_000 });
+    setRelay({ limitChasers: [other], lastLimitChaserEcho: other });
+    rerender(<Card />);
+    await waitFor(() => expect(banner()?.textContent ?? '').toContain(OTHER));
+    expect(texts().filter((x) => x.includes(OTHER))).toHaveLength(1);
+
+    const answered = echo({ sellOrderPrice: 120_000, sellWatchQty: 330_000 });
+    setRelay({ limitChasers: [answered], lastLimitChaserEcho: answered });
+    rerender(<Card />);
+
+    await waitFor(() => expect(top()).toBe(TRANSITION_TEXT.valuesApplied));
+    expect(texts().filter((x) => x.includes(OTHER))).toHaveLength(1);
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('정책 명시(24-24 사용자 확인) — 거부 뒤 창 안에 온, 내 제출과 같은 변화(마스터 OFF)를 싣은 에코는 내 답으로 읽는다 → 서버 접힘 한 줄 · 배너 0 · 전송 0', async () => {
+    /*
+      다른 단말이 우연히 같은 마스터 OFF 를 만든 에코일 수도 있다. 그러나 다른 탭 거부 팬아웃 뒤 온 내 에코와 구조적으로
+      같은 모양이라 구별할 수 없고(relay 소켓 상관은 이월), 에코 상태는 내가 요청한 것과 같다 — 표시 · 로그가 사실과
+      어긋나지 않는다. 창이 닫힌 뒤의 같은 모양 에코는 WR-05 describe 의 거부 두 케이스가 다룬다(종전 전이 문장).
+    */
+    const on = echo({ buyEnabled: true, sellEnabled: true });
+    setRelay({ limitChasers: [on] });
+    const { rerender } = render(<Card />);
+    const off = echo({ buyEnabled: false, sellEnabled: true });
+    act(() => {
+      lastCard!.handleSent(sentOf(off), { cause: 'serverFold' });
+    });
+
+    const rej = rejection('매수 설정이 불완전합니다(매수가/비교가 0) — 매수를 켜지 않았습니다');
+    setRelay({ limitChasers: [on], messages: [rej] });
+    rerender(<Card />);
+    await waitFor(() => expect(serverError()).not.toBeNull());
+
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+    });
+    const same = echo({ buyEnabled: false, sellEnabled: true });
+    setRelay({ limitChasers: [same], lastLimitChaserEcho: same, messages: [rej] });
+    rerender(<Card />);
+
+    await waitFor(() => expect(top()).toBe(FOLD));
+    expect(banner()).toBeNull();
+    noOtherDevice();
+    expect(sendMock).not.toHaveBeenCalled();
+  });
 });

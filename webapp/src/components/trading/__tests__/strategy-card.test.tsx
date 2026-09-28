@@ -120,7 +120,14 @@ function probeBody(s: StrategyCardState): ReactNode {
       <span data-part="answer">{s.answerSeq}</span>
       <button
         type="button"
-        onClick={() => s.handleSent({ buyEnabled: true } as unknown as RelayLimitChaserInput)}
+        /*
+          보낸 cfg 는 두 카드 격리 테스트의 A 에코(`buyOrderQty: 2`)가 싣는 요청 변화를 담는다 — 귀속은 「이 에코가
+          내 요청 변화를 싣는가」(`echoAnswersSent`)로 판정한다(24-18 GC-WR-01). 서버 값과 같은 요청만 담으면
+          어떤 에코도 내 답이 아니다.
+        */
+        onClick={() =>
+          s.handleSent({ buyEnabled: true, buyOrderQty: 2 } as unknown as RelayLimitChaserInput)
+        }
       >
         보내기
       </button>
