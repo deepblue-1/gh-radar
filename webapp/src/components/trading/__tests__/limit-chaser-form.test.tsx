@@ -2222,6 +2222,104 @@ describe('⑲ 선매수 자동 체크 D-06 · D-07 · D-08 — 사람의 선매�
   });
 });
 
+describe('WR-03 — 대기열 선매수 켜기의 동반 필드는 꺼내는 순간 다시 계산된다 (24-VERIFICATION 갭 3)', () => {
+  /** ⑲ 과 같은 출발점 — 마스터 OFF · 매도/취소 전부 OFF · 매도 가격 0 · 매도 매수잔량 10. */
+  const idle = (over: Partial<RelayLimitChaser> = {}) =>
+    echo({ buyEnabled: false, sellOrderPrice: 0, sellWatchPrice: 0, sellWatchQty: 10, ...over });
+
+  it('매도 주문가격 120,000 확정(in-flight) → 선매수 켜기(대기) → 에코 뒤 나간 cfg 는 120,000 을 지키고 비교가격만 상한가 · 로그도 그 판정', () => {
+    const onClientLog = vi.fn();
+    const { rerender } = render(<LimitChaserForm {...props({ server: idle(), upperLimit: 150_800, onClientLog })} />);
+    editInline('lc-sell-order-price', '120000');
+    expect(sentConfigs()).toHaveLength(1);
+    click(sw('선매수 켜기'));
+    // 앞 건이 나가 있다 — 선매수 켜기는 대기열에 선다.
+    expect(sentConfigs()).toHaveLength(1);
+
+    const priced = idle({ sellOrderPrice: 120_000 });
+    rerender(<LimitChaserForm {...props({ server: priced, upperLimit: 150_800, onClientLog, serverAnswerSeq: 1 })} />);
+    expect(sentConfigs()).toHaveLength(1);
+    rerender(<LimitChaserForm {...props({ server: priced, upperLimit: 150_800, onClientLog, serverAnswerSeq: 2 })} />);
+    expect(sentConfigs()).toHaveLength(2);
+    expect(lastConfig()).toMatchObject({
+      preBuyEnabled: true,
+      buyEnabled: true,
+      sellOrderPrice: 120_000,
+      sellWatchPrice: 150_800,
+      sellEnabled: true,
+      sellQtyTrackEnabled: true,
+      sellTradeQtyEnabled: true,
+      cancelQtyEnabled: true,
+      cancelTradeEnabled: true,
+      cancelQtyTrackEnabled: true,
+    });
+    expect(onClientLog).not.toHaveBeenCalled();
+
+    // 그 성공 에코 뒤 한 줄 — 실제로 나간 cfg 와 같은 판정(비교가격만 채움)이다.
+    const ok = {
+      ...priced,
+      buyEnabled: true,
+      preBuyEnabled: true,
+      sellWatchPrice: 150_800,
+      sellEnabled: true,
+      sellQtyTrackEnabled: true,
+      sellTradeQtyEnabled: true,
+      cancelQtyEnabled: true,
+      cancelTradeEnabled: true,
+      cancelQtyTrackEnabled: true,
+    };
+    rerender(<LimitChaserForm {...props({ server: ok, upperLimit: 150_800, onClientLog, serverAnswerSeq: 3 })} />);
+    expect(onClientLog).toHaveBeenCalledTimes(1);
+    const [text, level] = onClientLog.mock.calls[0]!;
+    expect(level).toBe('info');
+    expect(text).toContain('매도 비교가격 = 상한가 150,800원');
+    expect(text).not.toContain('매도 주문가격·비교가격');
+  });
+
+  it('D-07 낡은 플래그 — 매도 매수잔량 0 확정(in-flight) → 선매수 켜기(대기) → 둘째 cfg 에 매도 3체크가 실리지 않는다 · 로그 error', () => {
+    const onClientLog = vi.fn();
+    const priced = { sellOrderPrice: 150_800, sellWatchPrice: 150_800 };
+    const { rerender } = render(
+      <LimitChaserForm {...props({ server: idle(priced), upperLimit: 150_800, onClientLog })} />,
+    );
+    editInline('lc-sell-watch-qty', '0');
+    expect(sentConfigs()).toHaveLength(1);
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+
+    const zero = idle({ ...priced, sellWatchQty: 0 });
+    rerender(<LimitChaserForm {...props({ server: zero, upperLimit: 150_800, onClientLog, serverAnswerSeq: 1 })} />);
+    rerender(<LimitChaserForm {...props({ server: zero, upperLimit: 150_800, onClientLog, serverAnswerSeq: 2 })} />);
+    // relay 가 프레임 전체를 거부할 `sellEnabled: true ∧ 매수잔량 0` 이 실리지 않는다 — 선매수 켜기는 나간다.
+    expect(sentConfigs()).toHaveLength(2);
+    expect(lastConfig()).toMatchObject({
+      preBuyEnabled: true,
+      buyEnabled: true,
+      sellWatchQty: 0,
+      sellEnabled: false,
+      sellQtyTrackEnabled: false,
+      sellTradeQtyEnabled: false,
+      cancelQtyEnabled: true,
+      cancelTradeEnabled: true,
+      cancelQtyTrackEnabled: true,
+    });
+
+    const ok = {
+      ...zero,
+      buyEnabled: true,
+      preBuyEnabled: true,
+      cancelQtyEnabled: true,
+      cancelTradeEnabled: true,
+      cancelQtyTrackEnabled: true,
+    };
+    rerender(<LimitChaserForm {...props({ server: ok, upperLimit: 150_800, onClientLog, serverAnswerSeq: 3 })} />);
+    expect(onClientLog).toHaveBeenCalledTimes(1);
+    const [text, level] = onClientLog.mock.calls[0]!;
+    expect(level).toBe('error');
+    expect(text).toContain('매도주문(매도 매수잔량 0)');
+  });
+});
+
 describe('⑳ 새 전략 기본값(D-04) · 상장주식수 시딩(D-17) — 폼당 1회 · 손댄 칸 제외 · 서버 전략이면 생략 · 제출 없음 (24-07)', () => {
   const SEEDED = {
     'lc-buy-watch-qty': '30,000주',
