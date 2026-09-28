@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 24
 current_phase_name: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영
 status: executing
-stopped_at: Completed 24-14-PLAN.md
-last_updated: "2026-09-28T05:05:48.834Z"
+stopped_at: Completed 24-15-PLAN.md
+last_updated: "2026-09-28T05:15:35.957Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 24 execution started
-state_head: 96f9a7049c7484696025dfa4ec5d71271e54896d
+state_head: 4317809227d9454c1af5377494f2deebf9cfe222
 progress:
   total_phases: 33
   completed_phases: 4
   total_plans: 317
-  completed_plans: 298
+  completed_plans: 299
 milestone_name: milestone
 ---
 
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 24 (gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영) — EXECUTING
-Plan: 14 of 17
+Plan: 15 of 17
 Plans completed: 220 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-28 — 24-12 완료: WR-02 구서버 에코 편집 제한(끄는 방향 ∧ 결과 매수주문 OFF 만 전송 · lcLegacyBlockOf 단일 판정 · D-04a 금액 확정 특례 제거) — 다음 24-13
+Last activity: 2026-09-28 — 24-15 완료: WR-06 서버 접힘 자동 마스터 OFF 가드 ⑤(순수 델타 · isMasterOnlyDelta) · ⑥(숨은 인스턴스 1.5초 유예 뒤 재확인) · webapp 만 — 다음 24-16
 
 Progress: [█████████░] 93%
 
@@ -151,6 +151,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 24 P12 | 13 min | 2 tasks | 5 files |
 | Phase 24 P13 | 12min | 3 tasks | 15 files |
 | Phase 24 P14 | 11min | 2 tasks | 4 files |
+| Phase 24 P15 | 8min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -376,6 +377,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 24]: 24-14: failQueue 는 drain · 즉시 경로와 같은 sameAsServer(주 필드 + 지금 계산한 동반) — 주 필드만 같다고 성공으로 접지 않는다(WR-04)
 - [Phase 24]: 24-14: 동반은 불리언만 낙관 표시 · 되돌림 — 매도 가격 채움은 cfg 에만 · 에코 뒤 표시(IN-05)
 - [Phase 24]: 24-14: 자동 체크 로그는 성공 뒤 autoCheckRef(마지막 계산 = 실제 전송 판정) · pendingAutoCheckRef = { gate, seqAtSend } (24-17 이 넓힘)
+- [Phase 24]: 24-15: D-02 후반 자동 마스터 OFF 는 보낼 cfg 가 최신 에코와 buyEnabled 한 필드만 다를 때만 나간다(가드 ⑤ · lib isMasterOnlyDelta) — 수량 3벌 · 클라 고정 3필드 포함 비교, 다르면 접고 재예약 없음
+- [Phase 24]: 24-15: 보이지 않는 인스턴스(visibilityState hidden)는 자동 끔을 LC_FOLD_HIDDEN_DEFER_MS(1.5초) 미룬 뒤 가드 ② 재확인(가드 ⑥) — 보이는 인스턴스는 다음 틱 그대로
+- [Phase 24]: 24-15: WR-06 은 webapp 만으로 닫음(relay 재배포 불필요) — 동시에 보이는 두 인스턴스 · 한 왕복 안쪽 사람 편집 되돌림은 relay/서버 compare-and-set 이월, 24-16 체크포인트에서 사용자 확인
 
 ### Pending Todos
 
@@ -433,8 +437,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-09-28T05:05:48.109Z
-Stopped at: Completed 24-14-PLAN.md
+Last session: 2026-09-28T05:15:25.967Z
+Stopped at: Completed 24-15-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
