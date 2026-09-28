@@ -34,7 +34,7 @@ Plans completed: 220 / 234
 Status: Phase 24 갭 클로징 1라운드(24-10~24-17) 실행·배포 완료(7e8830a2) — 재검증 R2 gaps_found(WR-05 재오픈 · R2-G1~G3 신규) · 다음 /gsd-plan-phase 24 --gaps
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-28 — 24-16 완료: 전체 게이트 green(relay 651 · webapp 2757 · e2e 72) · 사용자 승인(결정 3건 수용) · push 7e8830a2 → master · Vercel Ready · relay 재배포 없음
+Last activity: 2026-09-28 - Completed quick task 260928-nf6: discussion-sync 사전 예산 판정 과대 추정 수정 (이전: 24-16 완료: 전체 게이트 green(relay 651 · webapp 2757 · e2e 72) · 사용자 승인(결정 3건 수용) · push 7e8830a2 → master · Vercel Ready · relay 재배포 없음)
 
 Progress: [█████████░] 93%
 
@@ -404,6 +404,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 260928-nf6 | **discussion-sync 사전 예산 판정 과대 추정 수정** — 필요량을 104종목×백필 30페이지=3,120 으로 잡아 하루 사용량 ~1,880 이후 KST 자정까지 매 정각 skip(최근 30일 265회, 평일 오후 수집 공백). 남은 예산 < 종목 수×1 일 때만 skip, 상한은 기존 요청 단위 원자적 하드캡. 판정 근거 필드 로그. 회귀 4케이스(재현 1986 실행 · 부족 skip · 경계 · 하드캡) · 86 passed | 2026-09-28 | 80df4f59 | [260928-nf6-discussion-sync](./quick/260928-nf6-discussion-sync/) |
 | 260927-u9t | **크롤링 워커 소스 실패 알림** — theme-sync·discussion-sync 가 소스 실패에도 exit 0 이라 무음(09-11~27 네이버 테마 0개, 09-27 Bright Data 401 10시간). 로그 매치 알림 정책 2개(gh-radar-theme-sync-source-failure · gh-radar-discussion-sync-source-failure, jsonPayload.level>=50 + backoff/fatal, 시간당 1통) + pino Cloud Logging severity 매핑 + 배포 스크립트 update-or-create. 30일 로그 재생 오탐 0. 두 잡 :90060c93 배포. 선행 fix 8d88d1e0 = 네이버 테마 소스를 m.stock.naver.com JSON API 로 전환 | 2026-09-27 | 90060c93 | [260927-u9t-theme-sync-discussion-sync](./quick/260927-u9t-theme-sync-discussion-sync/) |
 | 260925-gy6 | **라이트 선택·활성 = 스케치 003-A(브랜치 theme/toss-b · 미병합)** — 라이트 `--pill-on-*` 검정 → blue50 #e8f3ff/blue600 #1b64da(알약 9곳 자동) · `--side-bg` 흰색 · 새 토큰 5개(`--nav-on-bg/fg/line` · `--spec-dot-bg/ring`, 다크 값 = 종전 렌더 색) → 사이드바 활성 · 종목상세 탭 선택(글자 blue600 · 밑줄 blue500) · 내 테마 칩 · 스펙트럼 현재가 점. 세그먼트 선택색은 Phase 20 D-02 로 제외. 다크 무변경(가드 테스트). typecheck 0 · webapp 1748/1 skip · 라이트 갤러리 3화면×6폭 넘침 0 | 2026-09-25 | — | [260925-gy6-sketch-003-a-blue50-blue600](./quick/260925-gy6-sketch-003-a-blue50-blue600/) |
 | 260925-0pf | **토스 B → 공식 TDS 값 정렬(브랜치 theme/toss-b · 미병합)** — @toss/tds-colors 팔레트(다크 띠 #101013 · 선택 면 grey300 · 비활성 grey400 · red #f04251 / 라이트 보조 grey600) · 행 구분선 hairline(#3c3c47/#e5e8eb, `--border-subtle` 재사용 · 45줄+3곳) · 탭 t5 17/600 · 라벨 t6 15 · CTA 56/r16 · 주문 버튼 48/r14(`lc` 글자 불변). typecheck 0 · webapp 1731/1 skip · build 0 · 갤러리 132장 넘침 0 · 프리뷰 재배포 | 2026-09-25 | — | [260925-0pf-tds-theme-toss-b](./quick/260925-0pf-tds-theme-toss-b/) |
