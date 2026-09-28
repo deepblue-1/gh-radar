@@ -942,9 +942,11 @@ export function LimitChaserForm({
    *
    * - 켜는 방향: 마스터가 꺼져 있으면 같은 `lc.set` 에 마스터도 켠다(D-01 — 추가 확인창 없음). 실패하면 훅이
    *   두 스위치를 함께 서버 값으로 되돌린다.
-   * - 끄는 방향: 마스터가 켜져 있고 나머지 두 그룹이 (폼 표시값으로) 꺼져 있으면 같은 `lc.set` 에 마스터도 끈다
-   *   (D-02 전반). 매도 · 취소 게이트까지 전부 꺼져 있으면 그 제출이 곧 삭제다(`crudOf` = `D` · 기존 규약 ·
-   *   확인창 없음). 다른 그룹이 켜져 있으면 그 그룹만 끈다.
+   * - 끄는 방향: 마스터가 켜져 있고 나머지 두 그룹이 꺼져 있으면 같은 `lc.set` 에 마스터도 끈다(D-02 전반).
+   *   「마지막」은 두 단계다(GC-WR-03) — 사람이 **본** 마지막(누른 순간 화면 · 낙관 표시 포함) ∧ 판정 시점(즉시 ·
+   *   대기열에서 꺼내는 순간) 서버 값에서도 여전히 마지막. 대기 중 다른 단말이 켠 그룹을 조용히 해제하지 않는다
+   *   (WR-03 과 같은 꺼낼 때 계산). 매도 · 취소 게이트까지 전부 꺼져 있으면 그 제출이 곧 삭제다(`crudOf` = `D` ·
+   *   기존 규약 · 확인창 없음). 다른 그룹이 켜져 있으면 그 그룹만 끈다.
    * ★ 에코 경로(서버 에코 · 재접속 · 다른 단말)는 이 함수를 부르지 않는다 — 에코로 생기는 제출은 D-02 후반
    *   `dropMasterAfterServerFold` 한 곳뿐이다.
    */
@@ -998,9 +1000,22 @@ export function LimitChaserForm({
             : null;
         return;
       }
-      const lastGroup = BUY_GROUP_GATES.every((g) => g === gate || !f[g]);
-      if (f.buyEnabled && lastGroup) commitField(gate, false, 'toggle', { buyEnabled: false });
-      else commitField(gate, false, 'toggle');
+      /*
+        D-02 전반 — 두 단계 판정(GC-WR-03). ① 누른 순간 사람이 **본** 화면(`formRef` · 낙관 표시 포함)에서 마스터 ON ∧
+        이 그룹이 마지막 켜진 그룹일 때만 동반 함수를 넘긴다(D-02 = 사람이 본 「마지막」 — 화면에 다른 그룹이 켜져
+        있었으면 꺼내는 순간 마지막이 돼도 마스터를 끄지 않는다). ② 함수는 판정 시점(즉시 · 대기열에서 꺼내는 순간)의
+        서버 동기값(`base`)으로 「여전히 마스터 ON ∧ 다른 두 그룹 OFF」를 다시 확인한다 — 앞 확정이 in-flight 인 동안
+        다른 단말 · WinForms 가 켠 그룹을 사람 손 없이 해제하지 않는다(WR-03 과 같은 꺼낼 때 계산). 즉시 경로에는
+        in-flight 가 없어 낙관 표시 = 서버 값이라 ② 가 ① 과 같은 답이다(종전 결과 불변).
+      */
+      const pressedLast = f.buyEnabled && BUY_GROUP_GATES.every((g) => g === gate || !f[g]);
+      if (pressedLast) {
+        commitField(gate, false, 'toggle', (base) =>
+          base.buyEnabled && BUY_GROUP_GATES.every((g) => g === gate || !base[g]) ? { buyEnabled: false } : {},
+        );
+      } else {
+        commitField(gate, false, 'toggle');
+      }
     },
     [commitField],
   );

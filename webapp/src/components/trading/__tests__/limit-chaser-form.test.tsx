@@ -2470,6 +2470,89 @@ describe('GC-WR-02 — 대기 건을 실패로 접어도 폼 토글은 서버 �
   });
 });
 
+describe('GC-WR-03 — 마지막 그룹 끄기의 마스터 동반은 꺼내는 순간 다시 판정한다 (24-VERIFICATION-R2 갭 3)', () => {
+  /*
+    D-02 전반 = 사람이 **본** 마지막(누른 순간 화면) ∧ 판정 시점(즉시 · 대기열에서 꺼내는 순간) 서버 값에서도 여전히
+    마지막일 때만 마스터 OFF 를 싣는다. 대기 중 다른 단말 · WinForms 가 켠 그룹을 사람 손 없이 해제하지 않는다.
+    즉시 경로(대기 없음)의 결과는 ⑰ 케이스들이 잠근다.
+  */
+  /** 후매수를 켤 수 있는 값(금액 · 반등률)을 둔 buy3 에코 — 마스터 ON · 매도 ON · 기본은 선매수만 ON. */
+  const armed = (over: Partial<RelayLimitChaser> = {}) =>
+    echo({
+      buyEnabled: true,
+      preBuyEnabled: true,
+      sellEnabled: true,
+      postBuyOrderAmount: 50,
+      postBuyReboundPct: 30,
+      ...over,
+    });
+
+  it('값 확정(in-flight) → 선매수 끄기(대기 · 화면상 마지막) → 다른 단말이 후매수를 켠 에코 → 둘째 cfg 에 마스터 OFF 없음 · 후매수 ON 유지', () => {
+    const { rerender } = render(<LimitChaserForm {...props({ server: armed() })} />);
+    editInline('lc-sweep-tick', '5');
+    expect(sentConfigs()).toHaveLength(1);
+    click(sw('선매수 켜기'));
+    // 앞 건이 나가 있다 — 대기열에 선다.
+    expect(sentConfigs()).toHaveLength(1);
+
+    // 앞 건의 성공 에코 — 그사이 다른 단말이 후매수를 켰다.
+    const other = armed({ sweepMinTickCount: 5, postBuyEnabled: true, postBuyPhase: 1 });
+    rerender(<LimitChaserForm {...props({ server: other, serverAnswerSeq: 1 })} />);
+    expect(sentConfigs()).toHaveLength(1);
+    rerender(<LimitChaserForm {...props({ server: other, serverAnswerSeq: 2 })} />);
+    expect(sentConfigs()).toHaveLength(2);
+    expect(lastConfig()).toMatchObject({ preBuyEnabled: false, buyEnabled: true, postBuyEnabled: true, crud: 'C' });
+    expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'true');
+    expect(sw('선매수 켜기')).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('값 확정(in-flight) → 선매수 끄기(대기) → 꺼내는 순간에도 마지막이면 둘째 cfg 는 마스터 OFF 를 싣는다', () => {
+    const { rerender } = render(<LimitChaserForm {...props({ server: armed() })} />);
+    editInline('lc-sweep-tick', '5');
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+
+    const same = armed({ sweepMinTickCount: 5 });
+    rerender(<LimitChaserForm {...props({ server: same, serverAnswerSeq: 1 })} />);
+    rerender(<LimitChaserForm {...props({ server: same, serverAnswerSeq: 2 })} />);
+    expect(sentConfigs()).toHaveLength(2);
+    expect(lastConfig()).toMatchObject({ preBuyEnabled: false, buyEnabled: false, crud: 'C' });
+    expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('누른 순간 마지막이 아니었으면(후매수 ON 이 보였다) 꺼내는 순간 마지막이 돼도 마스터 OFF 를 싣지 않는다', () => {
+    const both = armed({ postBuyEnabled: true, postBuyPhase: 1 });
+    const { rerender } = render(<LimitChaserForm {...props({ server: both })} />);
+    editInline('lc-sweep-tick', '5');
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    // 화면상 후매수가 켜져 있었다 — 마스터 동반 없음(낙관 표시도 ON 그대로).
+    expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'true');
+
+    // 앞 건의 성공 에코 — 그사이 다른 단말이 후매수를 껐다.
+    const postOff = armed({ sweepMinTickCount: 5 });
+    rerender(<LimitChaserForm {...props({ server: postOff, serverAnswerSeq: 1 })} />);
+    rerender(<LimitChaserForm {...props({ server: postOff, serverAnswerSeq: 2 })} />);
+    expect(sentConfigs()).toHaveLength(2);
+    expect(lastConfig()).toMatchObject({ preBuyEnabled: false, buyEnabled: true });
+  });
+
+  it('대기 중 낙관 표시 — 누른 순간 마지막이라 마스터 낙관 OFF → 꺼내는 순간 동반이 빠지면 마스터는 서버 값(ON)으로 돌아온다', () => {
+    const { rerender } = render(<LimitChaserForm {...props({ server: armed() })} />);
+    editInline('lc-sweep-tick', '5');
+    click(sw('선매수 켜기'));
+    expect(sw('선매수 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'false');
+
+    const other = armed({ sweepMinTickCount: 5, postBuyEnabled: true, postBuyPhase: 1 });
+    rerender(<LimitChaserForm {...props({ server: other, serverAnswerSeq: 1 })} />);
+    rerender(<LimitChaserForm {...props({ server: other, serverAnswerSeq: 2 })} />);
+    expect(sentConfigs()).toHaveLength(2);
+    expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'true');
+    expect(sw('후매수 켜기')).toHaveAttribute('aria-checked', 'true');
+  });
+});
+
 describe('D-35 — 추가매수 켬도 선매수처럼 매도 · 취소 6체크를 같은 제출에 (2026-09-28 사용자 지시)', () => {
   /**
    * ⑲ 과 같은 출발점 + 추가매수 금액 50(만원) — 마스터 OFF · 매도/취소 전부 OFF · 매도 가격 0 · 매도 매수잔량 10 ·
