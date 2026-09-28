@@ -1204,7 +1204,7 @@ Plans:
 **열린 것:** 소진 푸시(300ms) 전 옛 ON 재제출 창이 웹에서 실제 생기는지(실기 검증) · 운영 전략 중 「감시대상=매수잔량」 선택분 목록 추출은 **gh-trade 24-12 재기동 전**(CONTEXT D-14 정정). 마스터 OFF 시 `post_buy_enabled` 에코는 gh-trade D-32 로 닫힘(CONTEXT D-21). 후속분 ②(추가매수 아래 틱·이탈 포기 · 기본값 표 · 상한가 차단)는 CONTEXT D-16~D-21.
 **Requirements**: TBD
 **Depends on:** Phase 17 (프로토콜 재동기화·래치 LED) · gh-trade Phase 24 서버 배포(24-11)
-**Plans:** 12/17 plans executed
+**Plans:** 13/17 plans executed
 
 Plans:
 **Wave 1**
@@ -1251,7 +1251,7 @@ Plans:
 
 **Wave 11** *(blocked on Wave 10 completion)*
 
-- [ ] 24-13-PLAN.md — [WR-02 ②] 구서버 에코 화면(상태 한 줄 · 켜는 스위치 비활성 · 사유 패널) · a11y · 스크린샷 · UI-SPEC 부록
+- [x] 24-13-PLAN.md — [WR-02 ②] 구서버 에코 화면(상태 한 줄 · 켜는 스위치 비활성 · 사유 패널) · a11y · 스크린샷 · UI-SPEC 부록
 
 **Wave 12** *(blocked on Wave 11 completion)*
 
