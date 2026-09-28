@@ -8,10 +8,19 @@
  *   polite 라이브 영역이다. 컨테이너는 알림이 없어도 늘 선다 — live 영역은 내용이 들어오기 전에
  *   있어야 낭독된다.
  *
- * ② 위치 — 토스트는 **뷰포트 오버레이**라 여기만 뷰포트 미디어 쿼리(`max-[699px]`,
- *   `TOAST_PHONE_BELOW`)를 쓴다: 데스크톱 우하단 · 폰 상단 전폭. D-28 카드 컨테이너 쿼리 규칙
- *   (`globals.css` §2.2b)과 별개다. 앱 셸이 아니라 `/trading` 작업대 루트 안에만 마운트된다.
- *   z-50 은 폰 더티 바(z-40) · 공용 패널(z-20) 위다.
+ * ② 위치 — 토스트는 **뷰포트 오버레이**라 여기만 뷰포트 미디어 쿼리(`max-[699px]` 폭,
+ *   `TOAST_PHONE_BELOW` TTL)를 쓴다. D-28 카드 컨테이너 쿼리 규칙(`globals.css` §2.2b)과 별개다.
+ *   배치는 모든 뷰포트 상단 · 앱 헤더 바로 아래다 — 상단 식 `3.5rem + --app-safe-top + 8px` 의
+ *   3.5rem 은 app-header `h-14`(56px)이고 `--app-safe-top` 은 헤더 `pt` 와 같은 변수라, 헤더(z-30)와
+ *   검색·메뉴를 덮지 않는다(헤더 높이 토큰이 없어 app-shell aside `top` 식처럼 인라인한다).
+ *   ≥700(iPad 세로·가로 · 데스크톱)은 우측 12px · 폭 340px, 폰(<700)은 좌우 12px 전폭이다.
+ *   앱 셸이 아니라 `/trading` 작업대 루트 안에만 마운트된다. z-50 은 시트와 같은 층이고 폰 더티 바
+ *   (z-40) · 공용 패널(z-20) 위다 — 헤더(z-30)는 z 순서가 아니라 자리로 비켜 선다.
+ *   스택 순서 — 최신이 맨 위(앵커에 가장 가까운 자리 · DOM 첫째)다. `mergeAlert` 는 최신을 배열
+ *   끝에 붙이므로 렌더에서만 역순으로 돌린다(키는 `id` 그대로라 재정렬이 재마운트·TTL 재시작이
+ *   아니다). `flex-col-reverse` 는 쓰지 않는다 — 화면 순서와 DOM·탭 순서가 어긋난다.
+ *   결정 출처: quick-260928-cs1 — iPad 사용자 요청 「오른쪽 상단이 좋아」(이전엔 데스크톱 오른쪽
+ *   아래 · 폰은 헤더 위를 덮는 상단이었다).
  *
  * ③ 수명 — TTL 6초(폰 4초) · 호버 중 정지 · 떠나면 2.5초 · 묶음 병합으로 `at` 이 바뀌면 다시 잰다.
  *   최대 4개 정리는 훅(`mergeAlert`)이 이미 했다 — 여기서는 받은 대로 그린다.
@@ -55,9 +64,9 @@ export function AlertToasts({ alerts, onOpen, onDismiss }: AlertToastsProps) {
       data-slot="alert-toasts"
       role="status"
       aria-live="polite"
-      className="pointer-events-none fixed right-3 bottom-[calc(12px+var(--app-safe-bottom))] z-50 flex w-[min(340px,calc(100%-24px))] flex-col gap-2 max-[699px]:top-[calc(12px+var(--app-safe-top))] max-[699px]:right-3 max-[699px]:bottom-auto max-[699px]:left-3 max-[699px]:w-auto"
+      className="pointer-events-none fixed top-[calc(3.5rem+8px+var(--app-safe-top))] right-3 z-50 flex w-[min(340px,calc(100%-24px))] flex-col gap-2 max-[699px]:left-3 max-[699px]:w-auto"
     >
-      {alerts.map((a) => (
+      {[...alerts].reverse().map((a) => (
         <ToastItem key={a.id} alert={a} onOpen={onOpen} onDismiss={onDismiss} />
       ))}
     </div>

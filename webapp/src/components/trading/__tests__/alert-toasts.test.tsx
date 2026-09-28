@@ -14,6 +14,7 @@ import {
  *
  * 잠그는 것: `role="status"` · `aria-live="polite"` 컨테이너(항상 존재) · 종류 표식 · 묶음 배지 ·
  * ✕ 는 닫기만 · 본문 클릭은 열기 · TTL 6초(폰 4초) · 호버 정지 · 이탈 2.5초 · 병합 시 TTL 재시작.
+ * quick-260928-cs1 — 상단 앵커(헤더 아래) · 최신 우선(DOM 첫째) · 재정렬로 TTL 비재시작.
  */
 
 function alert(over: Partial<TradingAlert> = {}): TradingAlert {
@@ -84,7 +85,7 @@ describe('AlertToasts — 마크업', () => {
         onDismiss={vi.fn()}
       />,
     );
-    const [fill, reject] = toasts();
+    const [reject, fill] = toasts();
     expect(fill).toHaveAttribute('data-kind', 'fill');
     expect(fill.textContent).toContain('한미반도체');
     expect(fill.textContent).toContain('체결');
@@ -94,6 +95,59 @@ describe('AlertToasts — 마크업', () => {
     expect(reject.textContent).toContain('에코프로 주문 거부');
     expect(reject.textContent).toContain('주문가능금액 초과');
     expect(reject.textContent).not.toContain('건');
+  });
+});
+
+describe('AlertToasts — 배치', () => {
+  it('가장 최근 알림(배열 끝)이 DOM 첫째 — 앵커에 가장 가까운 맨 위', () => {
+    render(
+      <AlertToasts
+        alerts={[
+          alert({ id: 'wb-alert-1', at: 1_000 }),
+          alert({ id: 'wb-alert-2', at: 2_000, kind: 'reject', msg: '주문가능금액 초과', name: '에코프로' }),
+        ]}
+        onOpen={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
+    );
+    const [first, second] = toasts();
+    expect(first).toHaveAttribute('data-kind', 'reject');
+    expect(first.textContent).toContain('에코프로');
+    expect(second).toHaveAttribute('data-kind', 'fill');
+    expect(second.textContent).toContain('한미반도체');
+  });
+
+  it('컨테이너는 헤더 아래 상단 앵커 한 식만 — bottom 앵커 0 · 폰 top 변형 0', () => {
+    render(<AlertToasts alerts={[]} onOpen={vi.fn()} onDismiss={vi.fn()} />);
+    const tokens = container().className.split(/\s+/).filter(Boolean);
+    expect(tokens.filter((t) => /(^|:)bottom-/.test(t))).toEqual([]);
+    expect(tokens.filter((t) => t.startsWith('max-[699px]:top-'))).toEqual([]);
+    for (const t of [
+      'top-[calc(3.5rem+8px+var(--app-safe-top))]',
+      'right-3',
+      'w-[min(340px,calc(100%-24px))]',
+      'max-[699px]:left-3',
+      'max-[699px]:w-auto',
+    ]) {
+      expect(tokens).toContain(t);
+    }
+  });
+
+  it('새 알림이 맨 위로 와도 기존 토스트는 재마운트되지 않는다 — TTL 이 다시 시작하지 않음', () => {
+    const onDismiss = vi.fn();
+    const a1 = alert({ id: 'wb-alert-1', at: 1_000 });
+    const a2 = alert({ id: 'wb-alert-2', at: 2_000, name: '에코프로' });
+    const view = render(<AlertToasts alerts={[a1]} onOpen={vi.fn()} onDismiss={onDismiss} />);
+    act(() => {
+      vi.advanceTimersByTime(3_000);
+    });
+    view.rerender(<AlertToasts alerts={[a1, a2]} onOpen={vi.fn()} onDismiss={onDismiss} />);
+    expect(toasts()[0].textContent).toContain('에코프로');
+    act(() => {
+      vi.advanceTimersByTime(TOAST_TTL_MS - 3_000);
+    });
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onDismiss).toHaveBeenCalledWith('wb-alert-1');
   });
 });
 
