@@ -216,7 +216,7 @@ function viSetRequests(relay: LocalRelay) {
     .filter((r): r is NonNullable<typeof r> => r !== null);
 }
 
-/** 게이트웨이가 받은 `SetLimitChaserReq(10)` 개수 — 「몇 건 나갔나」가 계약인 자리(D-01 · D-02 · D-16 · D-19). */
+/** 게이트웨이가 받은 `SetLimitChaserReq(10)` 개수 — 「몇 건 나갔나」가 계약인 자리(D-01 · D-02 · D-19 · D-36). */
 function lcSetCount(relay: LocalRelay): number {
   return relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
 }
@@ -2588,7 +2588,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(lcSwitch(card, '매수주문 켜기')).toBeChecked();
   });
 
-  test('P24-5 사전 검증 · D-16 — 신필드 0(buy3) 에코에서 추가매수 켜기 = 전송 0 + 「주문금액을 먼저 입력해 주세요」 · 매수1호가 == 비교가격이면 전송 0 + 로그 원문 · 다르면 10 한 건', async ({
+  test('P24-5 사전 검증 · D-36(매수1잔량 ≥ 최소) — 신필드 0(buy3) 에코에서 추가매수 켜기 = 전송 0 + 「주문금액을 먼저 입력해 주세요」 · 매수1호가 == 비교가격 ∧ 매수1잔량 ≥ 최소면 전송 0 + 로그 원문 · 다르면 10 한 건', async ({
     page,
   }) => {
     // (a) 신필드 0(buy3) 에코 — buy3 서버의 신필드 전부 0 전략(UI-SPEC E1 partial 「레거시 에코」 · `buy3Schema` 는 픽스처 기본 1).
@@ -2621,33 +2621,35 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(lcValue(page, 'lc-extra-buy-amount')).toHaveText('500만원', { timeout: 15_000 });
     await expect(precheck).toHaveCount(0);
 
-    // (b) D-16 — 비교가격 = 스텁 호가 매수1호가(97,900). 추가매수 켜기 = 전송 0 · 사전 검증 줄 없음 · 로그 원문 한 줄.
+    // (b) D-36 — 비교가격 = 스텁 호가 매수1호가(97,900) · 스텁 매수1잔량 10 ≥ 시드 최소 0(→ 하한 1) = 두꺼운 벽.
+    //     추가매수 켜기 = 전송 0 · 사전 검증 줄 없음 · 로그 원문 한 줄(N · M 포함).
     const atUpper = { buyEnabled: true, buyWatchPrice: 97_900, extraBuyOrderAmount: 500 };
     relay.seedLimitChasers([atUpper]);
     await page.goto(FOCUS_URL);
     await waitForReady(page);
     await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
     await expect(lcValue(page, 'lc-buy-watch-price')).toHaveText('97,900원', { timeout: 15_000 });
-    // 호가(매수1호가)가 들어와야 D-16 판정 입력이 선다 — 사다리에 97,900 이 보일 때까지.
+    // 호가(매수1호가 · 매수1잔량)가 들어와야 D-36 판정 입력이 선다 — 사다리에 97,900 이 보일 때까지.
     await expect(card.locator('[data-slot="orderbook-ladder"]').first()).toContainText('97,900', { timeout: 15_000 });
-    const beforeD16 = lcSetCount(relay);
+    const beforeD36 = lcSetCount(relay);
     await extraSwitch.click();
     const rows = await logRows(page);
-    await expect(rows.first()).toContainText('추가매수는 상한가 도달 전에만 켤 수 있습니다 — 매수1호가 == 비교가격', {
-      timeout: 15_000,
-    });
+    await expect(rows.first()).toContainText(
+      '추가매수는 상한가 도달 전 또는 매수1잔량이 최소 미만일 때만 켤 수 있습니다 — 매수1호가 == 비교가격, 매수1잔량 10 ≥ 최소 1',
+      { timeout: 15_000 },
+    );
     await expect(precheck).toHaveCount(0);
     await expect(extraSwitch).toHaveAttribute('aria-checked', 'false');
 
-    // (c) 허용 경로 — 비교가격이 매수1호가와 다르면 같은 클릭이 10 한 건. 그 10 이 보인 순간 누적 = D-16 기준 + 1
-    //     (D-16 클릭은 아무것도 보내지 않았다 — 같은 소켓 · 송신 순서라 보냈다면 먼저 도착해 있다).
+    // (c) 허용 경로 — 비교가격이 매수1호가와 다르면 같은 클릭이 10 한 건. 그 10 이 보인 순간 누적 = D-36 기준 + 1
+    //     (D-36 클릭은 아무것도 보내지 않았다 — 같은 소켓 · 송신 순서라 보냈다면 먼저 도착해 있다).
     await relay.pushLimitChaserEcho({ ...atUpper, buyWatchPrice: 98_000 });
     await expect(lcValue(page, 'lc-buy-watch-price')).toHaveText('98,000원', { timeout: 15_000 });
     await extraSwitch.click();
     await expect
       .poll(() => lcSetRequests(relay).filter((r) => r.extraBuyEnabled === true).length, { timeout: 15_000 })
       .toBe(1);
-    expect(lcSetCount(relay), 'D-16 — 전송 0 · 허용 클릭 = 10 한 건').toBe(beforeD16 + 1);
+    expect(lcSetCount(relay), 'D-36 — 전송 0 · 허용 클릭 = 10 한 건').toBe(beforeD36 + 1);
     const allowed = lcSetRequests(relay).at(-1)!;
     expect(allowed.extraBuyEnabled).toBe(true);
     expect(allowed.buyWatchPrice).toBe(98_000);
@@ -3347,7 +3349,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     page,
   }) => {
     // P24-3 과 같은 출발점 + 추가매수 금액 500(만원) — 스텁 주문가격 71,000 기준 수량 > 0 이라 사전 검증을 지난다.
-    // 픽스처 비교가격(71,100) ≠ 스텁 매수1호가(97,900) 라 D-16 도 허용이다. 매도 · 취소 게이트는 꺼져 있고 매도 매수잔량 ·
+    // 픽스처 비교가격(71,100) ≠ 스텁 매수1호가(97,900) 라 D-36 도 허용이다. 매도 · 취소 게이트는 꺼져 있고 매도 매수잔량 ·
     // 취소 매수잔량 · 매도비율은 0 이 아니다(스텁 기본값) — 자동 체크 6종이 전부 켜질 수 있는 전략이다.
     const seed = { buyEnabled: false, extraBuyOrderAmount: 500 };
     relay.seedLimitChasers([seed]);
@@ -3395,6 +3397,38 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(rows.nth(1)).toContainText('추가매수 체크 — 매수주문도 켬');
     // 에코 · 로그 뒤에도 누적은 그대로 — 에코는 자동 체크 제출을 만들지 않는다(D-08).
     expect(lcSetCount(relay), '에코 뒤 추가 전송 0').toBe(before + 1);
+  });
+
+  test('P24-13 D-36 — 매수1호가 == 비교가격이라도 매수1잔량(10) < 최소(11)면 「추가매수 켜기」 = 10 한 건 · D-36 로그 없음 (2026-09-28 · gh-trade k3u 동형)', async ({
+    page,
+  }) => {
+    // 비교가격 = 스텁 매수1호가(97,900) — 상한가에 붙은 모양. 스텁 매수1잔량 10 < 추가매수 최소 11 = 얇은 벽이라 켜기가 나간다
+    // (서버도 「모름」 단계에서 잔량 < 하한이면 「대기」로 전이 — limit-chaser.md §5-2 · k3u). 추가매수 금액 500(만원)이라
+    // 사전 검증(금액 · 수량 · D-10 — 최대 0 = 무제한)을 지난다.
+    const seed = { buyEnabled: true, buyWatchPrice: 97_900, extraBuyOrderAmount: 500, extraBuyMinQty: 11 };
+    relay.seedLimitChasers([seed]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    const card = cardOf(page, E2E_ISIN);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-buy-watch-price')).toHaveText('97,900원', { timeout: 15_000 });
+    // 호가(매수1호가 · 매수1잔량)가 들어와야 D-36 판정 입력이 선다 — 사다리에 97,900 이 보일 때까지.
+    await expect(card.locator('[data-slot="orderbook-ladder"]').first()).toContainText('97,900', { timeout: 15_000 });
+
+    const before = lcSetCount(relay);
+    await lcSwitch(card, '추가매수 켜기').click();
+    // ★ 고정 대기 없음 — 추가매수 켬 10 이 게이트웨이에 도착한 사건 뒤에 개수를 센다.
+    await waitForSetAtGateway(relay, before + 1);
+    await expect
+      .poll(() => lcSetRequests(relay).filter((r) => r.extraBuyEnabled === true).length, { timeout: 15_000 })
+      .toBe(1);
+    expect(lcSetCount(relay), '얇은 벽 — 사람 한 번 = 10 한 건').toBe(before + 1);
+    const sent = lcSetRequests(relay).at(-1)!;
+    expect(sent.extraBuyEnabled).toBe(true);
+    expect(sent.buyWatchPrice).toBe(97_900);
+    expect(sent.extraBuyMinQty).toBe(11);
+    const rows = await logRows(page);
+    await expect(rows.filter({ hasText: '매수1잔량이 최소 미만일 때만' })).toHaveCount(0);
   });
 
   /*
