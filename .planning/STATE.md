@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 24
 current_phase_name: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영
 status: executing
-stopped_at: Completed 24-22-PLAN.md
-last_updated: "2026-09-28T09:36:29.263Z"
+stopped_at: Completed 24-23-PLAN.md
+last_updated: "2026-09-28T09:48:56.826Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 24 execution started
-state_head: d986c6b62a7cb2d40a5dbf7bd4435b0051af04d3
+state_head: 5abd64c1c887fa7833e8a9346c84f4db7e08d23d
 progress:
   total_phases: 33
   completed_phases: 4
   total_plans: 324
-  completed_plans: 306
+  completed_plans: 307
 milestone_name: milestone
 ---
 
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 24 (gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영) — EXECUTING
-Plan: 23 of 24
+Plan: 24 of 24
 Plans completed: 220 / 234
-Status: Phase 24 갭 클로징 2라운드 실행 중 — 24-22 완료 · 다음 24-23
+Status: Phase 24 갭 클로징 2라운드 실행 중 — 24-23 완료 · 다음 24-24(체크포인트)
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-28 — 24-22 완료: D-36 추가매수 켜기 상한가 차단에 매수1잔량(bq[0]) ≥ 최소(0 이면 1) 항 · 얇은 벽 · 잔량 모름 허용 · WinForms 원문 문구(N · M) · bestBidQty 배관 · e2e P24-5 (b) · P24-13 (3596f09d · ee5ce864 · d9dca6b4) · 다음 24-23
+Last activity: 2026-09-28 — 24-23 완료: D-38 후매수 발동 override = 발동잔량 × 80% · 사람 값 유지를 e2e P24-6 · 단위 픽스처 · strategy-log JSDoc · UI-SPEC 에 반영(웹은 에코 그대로) · D-37 추가매수 포기 최대 초과 1종(shared 주석만 · relay 무변경) · GC-IN-04 P24-3/4/6 사건 기반 대기 · FOLD_QUIET_MS 3초 (59a704b2 · ad23dc97) · 다음 24-24
 
 Progress: [█████████░] 93%
 
@@ -158,6 +158,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 24 P20 | 6min | 2 tasks | 3 files |
 | Phase 24 P21 | 12min | 2 tasks | 4 files |
 | Phase 24 P22 | 11 min | 3 tasks | 9 files |
+| Phase 24 P23 | 9min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -395,6 +396,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 24]: 24-21 GC-WR-04: 자동 체크 로그 대기 · 계산 결과는 그룹별 슬롯 — 선매수 in-flight 중 다른 그룹을 켜도 선매수 6체크 무장 줄이 남는다
 - [Phase 24]: 24-21 GC-IN-03: 자동 체크 줄은 훅 lastSuccessSent(in-flight 에코 답)에만 — 다른 단말이 켠 no-op · 대기 접기 성공에는 쓰지 않는다(D-08)
 - [Phase 24]: 24-22 D-36: 추가매수 켜기 클라 차단 = 매수1호가 == 비교가격(둘 다 > 0) ∧ 매수1잔량 ≥ 최소(0 이면 1) — 얇은 벽 · 잔량 모름은 허용(서버 「모름」 규칙 백스톱 · gh-trade k3u 동형) · 문구 원천 lcExtraBuyAtUpperLimitText(WinForms 원문 · ko-KR 쉼표)
+- [Phase 24]: 24-23 D-38: 웹은 후매수 발동 override 값(발동잔량 × 80% 또는 유지된 사람 값)을 계산하지 않고 에코 그대로 보인다 — 「= 발동잔량」 서술 · 픽스처 제거, Pitfall 8 판정 불변
+- [Phase 24]: 24-23 D-37: 추가매수 포기 = 최대 초과 1종 — shared 주석 · UI-SPEC · 테스트 예시 정정, 새 클라 문구 없음 · relay .fbs/envelope 옛 표현은 gh-trade 스키마 동기화 몫으로 이월(relay 무변경)
+- [Phase 24]: 24-23 GC-IN-04: e2e 부재 관찰 창 FOLD_QUIET_MS = 3초(LC_FOLD_HIDDEN_DEFER_MS × 2) · 「1건」은 waitForSetAtGateway 사건 · P24-3/4/6 숫자 고정 대기 0
 
 ### Pending Todos
 
@@ -453,8 +457,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-09-28T09:36:27.890Z
-Stopped at: Completed 24-22-PLAN.md
+Last session: 2026-09-28T09:48:41.107Z
+Stopped at: Completed 24-23-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
