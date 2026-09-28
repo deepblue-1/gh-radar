@@ -12,8 +12,8 @@ import { logger } from "../logger";
  * 자동 지수 재시도로 두드리지 않는다(프록시 client 내부의 보수적 1회 재시도가 상한).
  *
  * @param targetUrl  고정 도메인(네이버/알파스퀘어)만 — 사용자 입력 url 없음 (T-10-03-04 SSRF).
- * @param encoding   'euc-kr' 면 arraybuffer + iconv.decode (네이버, Pitfall 2),
- *                   'utf-8' 면 text 그대로 (알파스퀘어 JSON).
+ * @param encoding   'euc-kr' 면 arraybuffer + iconv.decode (EUC-KR HTML, Pitfall 2),
+ *                   'utf-8' 면 text 그대로 (네이버 증권·알파스퀘어 JSON).
  * @param proxy      Bright Data axios 클라이언트 (createProxyClient).
  */
 export interface FetchWithFallbackDeps {
@@ -21,6 +21,31 @@ export interface FetchWithFallbackDeps {
   proxy: AxiosInstance;
   /** 직접 fetch 용 axios (기본 axios). 테스트 주입 가능. */
   direct?: AxiosInstance;
+}
+
+/**
+ * 직접 fetch 가 리다이렉트를 따라가 다른 경로에 착지했으면 warn.
+ *
+ * axios 는 3xx 를 조용히 따라가므로 원본 페이지가 폐지·이전되면(2026-09 네이버 테마 페이지
+ * → stock.naver.com SPA 302) 200 HTML 을 받아 파서가 "0개" 로만 실패한다. 착지 URL 을
+ * 남겨 "차단/마크업 변경" 오진 없이 원인을 바로 보이게 한다. 동작은 바꾸지 않는다.
+ */
+function warnIfRedirected(res: unknown, targetUrl: string): void {
+  const finalUrl = (res as { request?: { res?: { responseUrl?: unknown } } })
+    ?.request?.res?.responseUrl;
+  if (typeof finalUrl !== "string" || finalUrl.length === 0) return;
+  try {
+    const from = new URL(targetUrl);
+    const to = new URL(finalUrl);
+    if (from.origin + from.pathname !== to.origin + to.pathname) {
+      logger.warn(
+        { url: targetUrl, finalUrl },
+        "direct fetch redirected — source page moved/retired?",
+      );
+    }
+  } catch {
+    // URL 파싱 실패는 진단 보조일 뿐 — 무시.
+  }
 }
 
 function isBlockedStatus(status: number | undefined): boolean {
@@ -47,6 +72,7 @@ export async function fetchWithFallback(
           "Accept-Language": "ko-KR,ko;q=0.9",
         },
       });
+      warnIfRedirected(res, targetUrl);
       return iconv.decode(Buffer.from(res.data as ArrayBuffer), "EUC-KR");
     }
     const res = await direct.get<string>(targetUrl, {
@@ -57,6 +83,7 @@ export async function fetchWithFallback(
         Accept: "application/json,text/plain,*/*",
       },
     });
+    warnIfRedirected(res, targetUrl);
     return typeof res.data === "string" ? res.data : String(res.data);
   } catch (err: unknown) {
     const status = (err as { response?: { status?: number } })?.response

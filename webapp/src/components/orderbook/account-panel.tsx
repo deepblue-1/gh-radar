@@ -259,6 +259,8 @@ export interface AccountPanelProps {
    * 종목 링크(My page · 2026-09-27) — 기본 배치(계좌 전용 모드)의 미체결·잔고 행에서 종목명을 그 종목의
    * 작업대 카드로 잇는다. 모바일 카드 행은 **행 전체**가 눌리고(링크 ::after 가 행을 덮는다) 취소 버튼만
    * 그 위로 올라온다. `null` 을 돌려주면 그 행은 링크가 없다. **넘기지 않으면 DOM 불변**(다른 3표면).
+   * `onSelectUnfilled` 와 함께 넘기면 **선택이 우선**이다 — 미체결 행에는 링크를 만들지 않고 잔고 행만
+   * 잇는다(선택 `<button>` 안의 `<a>` · 행 선택을 먹는 stretched link 방지 · 22-REVIEW WR-04).
    */
   stockHref?: (isin: string) => string | null;
   /**
@@ -555,11 +557,22 @@ export function AccountPanel({
   /** 이 행의 종목 링크 경로(My page) — 없으면 null. */
   const stockHrefOf = (isin: string): string | null => stockHref?.(isin) ?? null;
   /**
-   * 종목명을 종목 링크로 감싼다. `stretch` 면 링크 ::after 가 가장 가까운 `relative` 조상(카드 행)을 덮어
-   * 행 전체가 눌린다. 링크가 없으면 콘텐츠를 **그대로** 돌려준다.
+   * 미체결 행의 종목 링크 경로. 선택 모드(⑩)에서는 만들지 않는다 — 카드에서는 선택 `<button>` 안에
+   * `<a>` 가 들어가고(interactive-in-interactive), 링크 ::after 가 행을 덮어 행을 누를 때마다 선택 대신
+   * 이동한다. 표에서도 링크 클릭이 행 선택까지 함께 발화한다(22-REVIEW WR-04). 잔고 행은 선택 대상이
+   * 아니므로 `stockHrefOf` 를 그대로 쓴다.
    */
-  const stockLink = (isin: string, content: ReactNode, stretch: boolean, className?: string) => {
-    const href = stockHrefOf(isin);
+  const unfilledHrefOf = (isin: string): string | null => (selectable ? null : stockHrefOf(isin));
+  /**
+   * 종목명을 종목 링크로 감싼다. `stretch` 면 링크 ::after 가 가장 가까운 `relative` 조상(카드 행)을 덮어
+   * 행 전체가 눌린다. 링크가 없으면(`href === null`) 콘텐츠를 **그대로** 돌려준다.
+   */
+  const stockLink = (
+    href: string | null,
+    content: ReactNode,
+    stretch: boolean,
+    className?: string,
+  ) => {
     if (href === null) return content;
     return (
       <Link
@@ -785,7 +798,7 @@ export function AccountPanel({
                         </TableCell>
                         <TableCell className="text-[length:var(--t-caption)]">
                           {stockLink(
-                            view.row.isin,
+                            unfilledHrefOf(view.row.isin),
                             view.label ?? <span className="mono">{view.row.isin}</span>,
                             false,
                           )}
@@ -832,7 +845,7 @@ export function AccountPanel({
                     {...rowSelectProps(view)}
                     className={cn(
                       'min-w-0 px-[var(--s-3)] py-[var(--s-2)]',
-                      stockHrefOf(view.row.isin) !== null && 'relative',
+                      unfilledHrefOf(view.row.isin) !== null && 'relative',
                       view.row.pendingCancelSent && 'text-[var(--muted-fg)]',
                       rowSelectClass(view),
                     )}
@@ -852,7 +865,7 @@ export function AccountPanel({
                       {selectHandle(
                         view,
                         stockLink(
-                          view.row.isin,
+                          unfilledHrefOf(view.row.isin),
                           <span
                             className={cn(
                               'min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold',
@@ -956,7 +969,7 @@ export function AccountPanel({
                       <TableRow key={view.row.isin}>
                         <TableCell className="text-[length:var(--t-caption)]">
                           {stockLink(
-                            view.row.isin,
+                            stockHrefOf(view.row.isin),
                             view.label ?? <span className="mono">{view.row.isin}</span>,
                             false,
                           )}
@@ -1031,7 +1044,7 @@ export function AccountPanel({
                       className="flex min-w-0 items-center gap-[var(--s-2)]"
                     >
                       {stockLink(
-                        view.row.isin,
+                        stockHrefOf(view.row.isin),
                         <span className="min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
                           {view.label ?? <span className="mono">{view.row.isin}</span>}
                         </span>,

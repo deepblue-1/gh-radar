@@ -17,7 +17,8 @@ set -euo pipefail
 #   웹 화면·기능 변경은 git push(= Vercel 배포)만으로 두 앱에 반영된다 — 앱이 운영 웹을 불러온다.
 #
 # 규약
-#   - 빌드 번호는 분 단위 타임스탬프다(iOS YYYYMMDDHHMM · Android (연도−2020)·10^8+MMDDHHmm).
+#   - 빌드 번호는 KST 분 단위 타임스탬프다(iOS YYYYMMDDHHMM · Android (연도−2020)·10^8+MMDDHHmm).
+#     직전 번호보다 작아지면(시계·시간대 역행) 시작하지 않는다.
 #     직전 릴리스와 같은 분이면 스토어가 거절하므로, 같으면 다음 분까지 기다린 뒤 시작한다.
 #   - 비밀은 각 플랫폼 래퍼(release-ios.sh · release-android.sh)가 다룬다. 이 스크립트는 값을 읽지 않는다.
 #     비밀 파일이 없으면 래퍼가 exit 3 과 주입 명령(`! bash mobile/scripts/setup-release-secrets.sh …`)을 낸다.
@@ -31,7 +32,7 @@ TARGET="${1:-all}"
 case "$TARGET" in
   all|ios|android) ;;
   -h|--help)
-    sed -n '4,27p' "$0"
+    sed -n '4,/^# ═══/p' "$0"   # 헤더 끝 표식까지(줄 수가 바뀌어도 잘리지 않는다)
     exit 0
     ;;
   *)
@@ -44,7 +45,6 @@ MOBILE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$MOBILE_DIR"
 
 OUT_ROOT="$HOME/Library/Developer/gh-trade-release"
-IOS_NUM_FILE="$OUT_ROOT/ios/build_number.txt"
 ANDROID_VC_FILE="$MOBILE_DIR/android/app/build/outputs/apk/release/ghtrade-version-code.txt"
 LOG_DIR="$OUT_ROOT/logs"
 mkdir -p "$LOG_DIR"
@@ -109,16 +109,28 @@ fail_summary() {
   printf '    전체 로그: %s (600 · 저장소 밖)\n' "$log"
 }
 
-# 이번 분의 빌드 번호(build_numbers.rb 와 같은 공식 · 로컬 시각).
-ios_num_now() { date +%Y%m%d%H%M; }
-android_vc_now() { echo $(( ($(date +%Y) - 2020) * 100000000 + 10#$(date +%m%d%H%M) )); }
+# 이번 분의 빌드 번호(build_numbers.rb 와 같은 공식 · KST 고정 — 22-REVIEW WR-03).
+# 머신 시간대를 따르면 Mac 시간대가 서쪽으로 바뀔 때 번호가 역행한다. date 는 한 번만 불러 분 경계 경합을 피한다.
+kst_minute() { TZ=Asia/Seoul date +%Y%m%d%H%M; }
+ios_num_now() { kst_minute; }
+android_vc_now() {
+  local m
+  m="$(kst_minute)"
+  echo $(( (10#${m:0:4} - 2020) * 100000000 + 10#${m:4:8} ))
+}
 
 # 직전 번호와 이번 분 번호가 같으면 다음 분 0초 + 2초까지 기다린다.
+# 이번 번호가 직전보다 작으면(시계·시간대 역행) 스토어가 거절할 빌드이므로 시작하지 않는다(return 1).
 wait_new_minute() {
   local label="$1" last_file="$2" now_fn="$3" last now secs
   [[ -f "$last_file" ]] || return 0
   last="$(tr -d '[:space:]' < "$last_file")"
+  [[ "$last" =~ ^[0-9]+$ ]] || return 0
   now="$($now_fn)"
+  if (( 10#$now < 10#$last )); then
+    say "$label 이번 번호($now)가 직전 빌드($last)보다 작다 — 시계·시간대 역행. 스토어가 거절하므로 시작하지 않는다"
+    return 1
+  fi
   if [[ "$last" == "$now" ]]; then
     secs=$(( 62 - 10#$(date +%S) ))
     say "$label 직전 빌드($last)와 같은 분이다 — ${secs}초 기다린다"
@@ -132,9 +144,23 @@ if [[ -n "$(git -C "$MOBILE_DIR" status --porcelain -- . 2>/dev/null)" ]]; then
   git -C "$MOBILE_DIR" status --short -- . | sed 's/^/    /'
 fi
 
+# lane 이 build_number.txt 를 쓰는 곳(ios.env 의 GHTRADE_RELEASE_OUT)을 래퍼에게 묻는다 — 경로를
+# 여기서 하드코딩하면 env 를 바꿨을 때 옛 파일·없는 파일을 본다(22-REVIEW WR-01). env 가 없으면
+# 빈 값 — 같은 분 대기는 건너뛰고, 곧 이어질 native:release:ios 가 exit 3 과 주입 명령을 낸다.
+ios_num_file() {
+  local dir
+  dir="$(bash scripts/release-ios.sh out-dir 2>/dev/null || true)"
+  [[ -n "$dir" ]] && printf '%s/build_number.txt' "$dir"
+  return 0
+}
+
 release_ios() {
-  local log="$LOG_DIR/ios-$STAMP.log" num state line
-  wait_new_minute "iOS" "$IOS_NUM_FILE" ios_num_now
+  local log="$LOG_DIR/ios-$STAMP.log" num state line seen num_file
+  num_file="$(ios_num_file)"
+  if [[ -n "$num_file" ]] && ! wait_new_minute "iOS" "$num_file" ios_num_now; then
+    IOS_RESULT="시작 안 함 — 빌드 번호 역행(시계·시간대 확인)"
+    return 1
+  fi
   new_log "$log"
   say "iOS — TestFlight 업로드 (로그: $log)"
   if ! pnpm run native:release:ios 2>&1 | screen_filter "$log"; then
@@ -142,26 +168,50 @@ release_ios() {
     IOS_RESULT="실패 — 로그 확인"
     return 1
   fi
-  num="$(tr -d '[:space:]' < "$IOS_NUM_FILE")"
+  # 이번 빌드 번호는 이번 로그에서만 읽는다 — lane 이 찍는 「CFBundleVersion N」 줄(WR-01).
+  # 파일에서 읽으면 경로가 어긋날 때 직전 릴리스 번호로 폴링해 거짓 「완료」 가 날 수 있다.
+  num="$(grep -oE 'CFBundleVersion [0-9]{12}' "$log" | tail -1 | awk '{print $2}' || true)"
+  if [[ -z "$num" ]]; then
+    IOS_RESULT="업로드됨 — 빌드 번호를 로그에서 못 찾음(release-ios.sh latest 로 확인 · 로그 $log)"
+    return 1
+  fi
   say "iOS — 빌드 $num 처리 상태 확인(최대 15분, 30초 간격)"
+  # 판정은 모두 이번 번호($num)에 묶는다(22-REVIEW WR-02). 이전 빌드가 아직 최신으로 보이는 동안
+  # 그 빌드의 INVALID 를 이번 빌드 실패로 오판하지 않는다. seen = 이번 번호로 마지막에 본 상태.
   state="UNKNOWN"
+  seen=""
   for _ in $(seq 1 30); do
     line="$(bash scripts/release-ios.sh latest 2>&1 | grep -oE 'latest TestFlight build [0-9]+ state [A-Z_]+' | tail -1 || true)"
     [[ -n "$line" ]] && echo "    $line"
-    if [[ "$line" == "latest TestFlight build $num state VALID" ]]; then state="VALID"; break; fi
-    if [[ "$line" == *"state INVALID"* || "$line" == *"state FAILED"* ]]; then state="${line##* }"; break; fi
+    case "$line" in
+      "latest TestFlight build $num state VALID") state="VALID"; break ;;
+      "latest TestFlight build $num state INVALID"|"latest TestFlight build $num state FAILED") state="${line##* }"; break ;;
+      "latest TestFlight build $num state "*) seen="${line##* }" ;;
+    esac
     sleep 30
   done
   case "$state" in
     VALID) IOS_RESULT="완료 — 빌드 $num · TestFlight VALID(내부 그룹 자동 배포)" ;;
     INVALID|FAILED) IOS_RESULT="업로드됨 — 빌드 $num · 처리 $state (App Store Connect 메일 확인)"; return 1 ;;
-    *) IOS_RESULT="업로드됨 — 빌드 $num · 15분 안에 VALID 확인 못 함(나중에 release-ios.sh latest)" ;;
+    *)
+      if [[ "$seen" == "PROCESSING" ]]; then
+        # 처리 중인 건 확인했다 — 느린 것뿐이다. 다음 플랫폼으로 넘어간다.
+        IOS_RESULT="업로드됨 — 빌드 $num · 15분 안에 VALID 확인 못 함 · 아직 PROCESSING(나중에 release-ios.sh latest)"
+      else
+        # 15분 동안 이번 번호의 처리 기록(Build)이 안 보였다 — 처리 단계 실패일 수 있어 멈춘다.
+        IOS_RESULT="업로드됨 — 빌드 $num · 15분 동안 처리 기록 없음(${seen:-최신이 이전 빌드} · App Store Connect 메일 확인)"
+        return 1
+      fi
+      ;;
   esac
 }
 
 release_android() {
   local log="$LOG_DIR/android-$STAMP.log" vc latest
-  wait_new_minute "Android" "$ANDROID_VC_FILE" android_vc_now
+  if ! wait_new_minute "Android" "$ANDROID_VC_FILE" android_vc_now; then
+    ANDROID_RESULT="시작 안 함 — versionCode 역행(시계·시간대 확인)"
+    return 1
+  fi
   new_log "$log"
   say "Android — APK → Firebase App Distribution (로그: $log)"
   if ! pnpm run native:release:android 2>&1 | screen_filter "$log"; then

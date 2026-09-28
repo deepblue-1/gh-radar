@@ -11,12 +11,13 @@ set -euo pipefail
 #   - Cloud Run Job: gh-radar-theme-sync (asia-northeast3, 512Mi, 600s, retries=1)
 #   - Image: asia-northeast3-docker.pkg.dev/<proj>/gh-radar/theme-sync:<sha>
 #   - Scheduler: gh-radar-theme-sync-daily "0 16 * * *" (KST, 매일 16:00 — 5원칙 #1 배치 캡)
+#   - Alert policy: gh-radar-theme-sync-source-failure (ops/alert-theme-sync-source-failure.yaml, 로그 매치 — quick-260927-u9t)
 #
 # Scheduler → Cloud Run Job 인증: --oauth-service-account-email 전용
 #   (OIDC 금지, RESEARCH §Pitfall 4 — Cloud Run Job 호출은 OAuth bearer token 만 허용)
 #
 # ENV (RESEARCH §Code Examples 골격):
-#   SUPABASE_URL, ALPHA_API_BASE, NAVER_THEME_BASE, BRIGHTDATA_ZONE, BRIGHTDATA_URL,
+#   SUPABASE_URL, ALPHA_API_BASE, NAVER_STOCK_API_BASE, BRIGHTDATA_ZONE, BRIGHTDATA_URL,
 #   THEME_SYNC_MAX_PAGES, THEME_SYNC_ALPHA_CATEGORIES,
 #   LOG_LEVEL, APP_VERSION
 # Secrets (전부 기존 재사용 — MEMORY: 기존 creds 재요청 금지):
@@ -82,7 +83,8 @@ IMAGE_LATEST="${REGISTRY}/theme-sync:latest"
 
 # 동작 파라미터 — config.ts default 와 정합. env override 허용.
 ALPHA_API_BASE_VAL="${ALPHA_API_BASE:-https://api.alphasquare.co.kr}"
-NAVER_THEME_BASE_VAL="${NAVER_THEME_BASE:-https://finance.naver.com}"
+# 네이버 증권 JSON API — 레거시 finance.naver.com 테마 페이지는 2026-09 폐지(302 → stock.naver.com).
+NAVER_STOCK_API_BASE_VAL="${NAVER_STOCK_API_BASE:-https://m.stock.naver.com}"
 BRIGHTDATA_ZONE_VAL="${BRIGHTDATA_ZONE:-gh_radar_naver}"
 BRIGHTDATA_URL_VAL="${BRIGHTDATA_URL:-https://api.brightdata.com/request}"
 THEME_SYNC_MAX_PAGES_VAL="${THEME_SYNC_MAX_PAGES:-10}"
@@ -137,7 +139,7 @@ gcloud run jobs deploy "$JOB" \
   --max-retries=1 \
   --parallelism=1 \
   --tasks=1 \
-  --set-env-vars="^@^SUPABASE_URL=${SUPABASE_URL}@ALPHA_API_BASE=${ALPHA_API_BASE_VAL}@NAVER_THEME_BASE=${NAVER_THEME_BASE_VAL}@BRIGHTDATA_ZONE=${BRIGHTDATA_ZONE_VAL}@BRIGHTDATA_URL=${BRIGHTDATA_URL_VAL}@THEME_SYNC_MAX_PAGES=${THEME_SYNC_MAX_PAGES_VAL}@THEME_SYNC_ALPHA_CATEGORIES=${THEME_SYNC_ALPHA_CATEGORIES_VAL}@LOG_LEVEL=info@APP_VERSION=${SHA}" \
+  --set-env-vars="^@^SUPABASE_URL=${SUPABASE_URL}@ALPHA_API_BASE=${ALPHA_API_BASE_VAL}@NAVER_STOCK_API_BASE=${NAVER_STOCK_API_BASE_VAL}@BRIGHTDATA_ZONE=${BRIGHTDATA_ZONE_VAL}@BRIGHTDATA_URL=${BRIGHTDATA_URL_VAL}@THEME_SYNC_MAX_PAGES=${THEME_SYNC_MAX_PAGES_VAL}@THEME_SYNC_ALPHA_CATEGORIES=${THEME_SYNC_ALPHA_CATEGORIES_VAL}@LOG_LEVEL=info@APP_VERSION=${SHA}" \
   --set-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,BRIGHTDATA_API_KEY=gh-radar-brightdata-api-key:latest" \
   --project="$EXPECTED_PROJECT"
 
@@ -186,11 +188,45 @@ else
 fi
 
 # ═══════════════════════════════════════════════════════════════
-# Section 8: 결과 출력
+# Section 8: Alert policy (idempotent — update-or-create)
+#   quick-260927-u9t — 소스 실패가 exit 0 으로 끝나 실행 실패 알림으로는 안 잡힘 →
+#   로그 매치(jsonPayload.level>=50 등) 정책. NOTIFICATION_CHANNEL_ID 필수.
+# ═══════════════════════════════════════════════════════════════
+ALERT_FILE="ops/alert-theme-sync-source-failure.yaml"
+POLICY_NAME="gh-radar-theme-sync-source-failure"
+if [[ -f "$ALERT_FILE" ]]; then
+  : "${NOTIFICATION_CHANNEL_ID:?NOTIFICATION_CHANNEL_ID must be set for alert policy}"
+  # gcloud monitoring 은 notificationChannels 에 full resource name 을 요구 — ID 만 주어지면 정규화.
+  CHANNEL_RESOURCE="$NOTIFICATION_CHANNEL_ID"
+  case "$CHANNEL_RESOURCE" in
+    projects/*) ;;
+    *) CHANNEL_RESOURCE="projects/${EXPECTED_PROJECT}/notificationChannels/${NOTIFICATION_CHANNEL_ID}" ;;
+  esac
+  RESOLVED_YAML=$(mktemp)
+  sed "s|\${NOTIFICATION_CHANNEL_ID}|${CHANNEL_RESOURCE}|g" "$ALERT_FILE" > "$RESOLVED_YAML"
+
+  EXISTING_POLICY=$(gcloud alpha monitoring policies list --project="$EXPECTED_PROJECT" \
+    --filter="displayName=$POLICY_NAME" \
+    --format='value(name)' 2>/dev/null | head -1)
+
+  if [[ -n "$EXISTING_POLICY" ]]; then
+    echo "▶ updating alert policy: $POLICY_NAME..."
+    gcloud alpha monitoring policies update "$EXISTING_POLICY" --project="$EXPECTED_PROJECT" --policy-from-file="$RESOLVED_YAML" >/dev/null
+  else
+    echo "▶ creating alert policy: $POLICY_NAME..."
+    gcloud alpha monitoring policies create --project="$EXPECTED_PROJECT" --policy-from-file="$RESOLVED_YAML" >/dev/null
+  fi
+  rm -f "$RESOLVED_YAML"
+  echo "✓ Alert policy ready: $POLICY_NAME"
+fi
+
+# ═══════════════════════════════════════════════════════════════
+# Section 9: 결과 출력
 # ═══════════════════════════════════════════════════════════════
 echo ""
 echo "✓ Deployed: Cloud Run Job $JOB @ $IMAGE"
 echo "  Scheduler: $SCHEDULER_NAME (KST 매일 16:00, OAuth invoker)"
+echo "  Alert:     gh-radar-theme-sync-source-failure"
 echo ""
 echo "Next:"
 echo "  bash scripts/smoke-theme-sync.sh    # 배포 검증 (Job 1회 실행 → themes count > 0)"

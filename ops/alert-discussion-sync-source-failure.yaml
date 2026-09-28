@@ -1,0 +1,41 @@
+displayName: gh-radar-discussion-sync-source-failure
+documentation:
+  content: |
+    ## discussion-sync 소스 실패 (quick-260927-u9t)
+
+    **무엇을 잡나** — 매시 정각(KST) Cloud Run Job `gh-radar-discussion-sync` 가 소스 실패를 로그로만 남기고 exit 0 으로 끝나는 경우. 실행 실패 카운트 알림(completed_execution_count result=failed)으로는 안 잡힌다.
+
+    트리거 두 가지:
+    - pino error 이상 로그(jsonPayload.level >= 50). 현재 유일 지점은 'proxy abort signal — stopAll' = Bright Data 401/402 로 전 종목 수집 중단.
+    - stderr '[discussion-sync] fatal' = main() 미처리 예외(exit 1).
+
+    **원인 후보**
+    1. Bright Data 401 (err 'bright data auth failed (401)') = API 토큰 만료·폐기. 예산과 무관. 2026-09-27 11~20시 KST 매 정각 사례. 복구: Secret Manager `gh-radar-brightdata-api-key` 에 새 버전 추가 → 워커 잡은 다음 실행에서 :latest 를 읽는다. server 도 같은 키를 쓰므로 `bash scripts/deploy-server.sh` 재배포.
+    2. Bright Data 402 (err 'bright data quota exhausted (402)') = 예산 소진. Bright Data 대시보드에서 결제·한도 확인. 토큰 교체로는 안 풀린다.
+    3. fatal = 설정 누락·Supabase 장애 등. stderr 스택을 확인.
+
+    **확인 절차**
+    - 로그: `gcloud logging read 'resource.type="cloud_run_job" AND resource.labels.job_name="gh-radar-discussion-sync" AND (jsonPayload.level>=50 OR textPayload:"fatal")' --project=gh-radar --freshness=1d --limit=20 --format='value(timestamp,jsonPayload.msg,jsonPayload.err,textPayload)'`
+    - 실행 목록: `gcloud run jobs executions list --job=gh-radar-discussion-sync --region=asia-northeast3 --project=gh-radar --limit=5`
+    - 복구 판정: 다음 정각 실행의 'discussion-sync cycle complete' 로그에서 stopAll=false · totalUpserted>0.
+
+    **주의**
+    - concurrency 3 이라 한 번의 중단에 같은 로그가 최대 3건 찍힌다(알림은 시간당 1통).
+    - 차단 신호에 잡을 수동으로 반복 실행해 두드리지 말 것(스크래핑 5원칙 #4).
+    - 2026-09-28 이후 로그는 최상위 severity(ERROR 등)로도 조회된다.
+  mimeType: text/markdown
+conditions:
+  - displayName: discussion-sync error-level log (proxy abort / fatal)
+    conditionMatchedLog:
+      filter: |
+        resource.type = "cloud_run_job"
+        AND resource.labels.job_name = "gh-radar-discussion-sync"
+        AND (jsonPayload.level >= 50 OR textPayload:"[discussion-sync] fatal")
+combiner: OR
+enabled: true
+notificationChannels:
+  - "${NOTIFICATION_CHANNEL_ID}"
+alertStrategy:
+  notificationRateLimit:
+    period: 3600s
+  autoClose: 1800s

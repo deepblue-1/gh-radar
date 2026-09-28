@@ -5,6 +5,8 @@
 #
 # 흐름: ASC API 키 → App Store 프로파일(sigh, 없으면 생성) → Release archive(자동 서명)
 #       → App Store 프로파일로 수동 export → check-ipa(업로드 전 게이트) → TestFlight 업로드(내부 그룹 자동 배포).
+# check-ipa 는 반드시 export 와 업로드 사이에 돈다 — 내부 그룹은 자동 배포라 업로드 뒤 검사는
+# 테스터 기기로 나가는 걸 막지 못한다(22-REVIEW CR-01 · Android firebase lane 의 check-apk 와 같은 구조).
 # 빌드 번호는 xcargs 로 빌드 설정만 덮어쓴다 — 프로젝트 파일은 건드리지 않는다.
 # 산출물(.ipa · .dSYM.zip · .mobileprovision · build_number.txt)은 GHTRADE_RELEASE_OUT(저장소 밖)에만 떨어진다.
 #
@@ -58,6 +60,9 @@ platform :ios do
         teamID: "954QPCS3F5",
         provisioningProfiles: { "com.ghtrade.app" => lane_context[SharedValues::SIGH_NAME] }
       },
+      # 자동 서명은 Xcode › Settings › Accounts 에 로그인된 팀 954QPCS3F5 Apple ID 로 개발 인증서·프로파일을
+      # 받는다(README 「처음 1회」 · 22-REVIEW WR-05). -authenticationKey* 로 ASC 키를 넘기지 않는 이유:
+      # gym 이 xcodebuild 명령줄을 그대로 로그에 찍어 키 ID·발급자 ID 가 터미널·로그에 남는다(값 비출력 규약).
       xcargs: "CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION=#{build_number} -allowProvisioningUpdates",
       output_directory: out,
       output_name: "App",
@@ -68,6 +73,10 @@ platform :ios do
 
     # 업로드 전 게이트 — 실패하면 sh 가 예외를 던져 lane 이 멈춘다(업로드 안 함 · CR-01 · T-22-04).
     sh("bash", File.expand_path("../../../scripts/check-ipa.sh", __dir__), ipa, build_number.to_s)
+
+    # 업로드 전 게이트 — 실패하면 sh 가 예외를 던져 lane 이 멈춘다(업로드 안 함).
+    # 서명 팀 · application-identifier(-34018) · get-task-allow · CAPACITOR_DEBUG · 빌드 번호 · 운영 URL.
+    sh("bash", File.expand_path("../../../scripts/check-ipa.sh", __dir__), File.expand_path(ipa), build_number)
 
     upload_to_testflight(
       api_key: api_key,

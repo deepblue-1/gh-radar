@@ -1,36 +1,60 @@
-import * as cheerio from "cheerio";
+import { z } from "zod";
+import { ThemeScrapeValidationError } from "../../proxy/errors";
 
-/** 네이버 금융 테마 목록의 한 행 — 테마 ID(no) + 테마명. */
+/** 네이버 테마 목록의 한 행 — 테마 ID(no) + 테마명. */
 export interface NaverThemeListItem {
-  /** sise_group_detail.naver?type=theme&no={ID} 의 ID. */
+  /** /api/stocks/theme/{no} 의 ID (레거시 sise_group_detail no 와 동일). */
   no: string;
   name: string;
 }
 
+/** 목록 한 페이지 — 항목 + 전체 테마 수(페이지네이션 종료 판정용). */
+export interface NaverThemeListPage {
+  items: NaverThemeListItem[];
+  totalCount: number;
+}
+
+// 필요 필드만 검증 — 나머지(changeRate 등)는 무시(부분 캐싱, 5원칙 #5).
+const ThemeListSchema = z.object({
+  groups: z.array(
+    z.object({
+      no: z.union([z.number(), z.string()]),
+      name: z.string(),
+    }),
+  ),
+  totalCount: z.number(),
+});
+
 /**
- * 네이버 금융 테마 목록 HTML 파싱 (RESEARCH §Pattern 2 — 실측 검증).
+ * 네이버 증권 테마 목록 JSON 파싱.
  *
- * 목록 GET /sise/theme.naver?page={N} (EUC-KR, iconv 디코딩 후 호출).
- * 테마 행 = table.type_1.theme 내부
- *   <a href="/sise/sise_group_detail.naver?type=theme&no={ID}">{테마명}</a>.
+ * GET {naverStockApiBase}/api/stocks/theme?page={N}&pageSize={S} (UTF-8 JSON)
+ *   → { groups: [{ no, name, totalCount, ... }], totalCount, page, pageSize }
  *
- * dedupe by no — 동일 페이지에 같은 테마 anchor 가 중복 출현해도 1개로.
+ * 레거시 finance.naver.com/sise/theme.naver 는 2026-09-10~11 폐지되어 stock.naver.com
+ * SPA 로 302 된다(HTML 테이블 없음). JSON 이 아니거나 스키마가 다르면(SPA HTML, 차단
+ * 페이지, API 변경) ThemeScrapeValidationError — "0개" 로 뭉개지 않고 원인을 드러낸다.
+ *
+ * dedupe by no. no 는 숫자만 통과 (T-10-03-01 — 비정상 입력 차단).
  */
-export function parseThemeList(html: string): NaverThemeListItem[] {
-  const $ = cheerio.load(html);
+export function parseThemeList(body: string): NaverThemeListPage {
+  let parsed: z.infer<typeof ThemeListSchema>;
+  try {
+    parsed = ThemeListSchema.parse(JSON.parse(body));
+  } catch (err) {
+    throw new ThemeScrapeValidationError(
+      `네이버 테마 목록 응답 검증 실패 (JSON API 변경/차단 의심): ${(err as Error).message}`,
+    );
+  }
+
   const seen = new Set<string>();
-  const out: NaverThemeListItem[] = [];
-  $(
-    'table.type_1.theme a[href*="sise_group_detail.naver?type=theme"]',
-  ).each((_, el) => {
-    const href = $(el).attr("href") ?? "";
-    const m = href.match(/no=(\d+)/);
-    const name = $(el).text().trim();
-    if (!m || !name) return;
-    const no = m[1];
-    if (seen.has(no)) return;
+  const items: NaverThemeListItem[] = [];
+  for (const g of parsed.groups) {
+    const no = String(g.no).trim();
+    const name = g.name.trim();
+    if (!/^\d+$/.test(no) || !name || seen.has(no)) continue;
     seen.add(no);
-    out.push({ no, name });
-  });
-  return out;
+    items.push({ no, name });
+  }
+  return { items, totalCount: parsed.totalCount };
 }

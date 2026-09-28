@@ -3,7 +3,7 @@ import "dotenv/config";
 /**
  * Phase 10 — theme-sync worker 설정.
  *
- * 2-tier 스크랩(네이버 금융 테마 EUC-KR HTML + 알파스퀘어 공개 JSON API) →
+ * 2-tier 스크랩(네이버 증권 테마 JSON API + 알파스퀘어 공개 JSON API) →
  * 직접 fetch → 403/429 차단 시 Bright Data Web Unlocker 폴백(discussion-sync 선례) →
  * 보수적 이름 정규화 병합 → themes/theme_stocks service_role UPSERT.
  *
@@ -19,8 +19,11 @@ export interface ThemeSyncConfig {
   brightdataUrl: string;
   /** 알파스퀘어 공개 JSON API base (RESEARCH §Pattern 3). */
   alphaApiBase: string;
-  /** 네이버 금융 테마 base (RESEARCH §Pattern 2, EUC-KR). */
-  naverThemeBase: string;
+  /**
+   * 네이버 증권 JSON API base (UTF-8). 테마 목록/상세 = /api/stocks/theme[/{no}].
+   * 레거시 finance.naver.com 테마 페이지는 2026-09-10~11 폐지(302 → stock.naver.com SPA).
+   */
+  naverStockApiBase: string;
   /** 네이버 목록 페이지네이션 hard cap (Pitfall 6 무한루프 방지). */
   themeSyncMaxPages: number;
   /** 알파스퀘어 수집 카테고리 화이트리스트 (부분 캐싱, 5원칙 #5 — 전체 451 덤프 금지). */
@@ -55,8 +58,8 @@ export function loadConfig(): ThemeSyncConfig {
       process.env.BRIGHTDATA_URL ?? "https://api.brightdata.com/request",
     alphaApiBase:
       process.env.ALPHA_API_BASE ?? "https://api.alphasquare.co.kr",
-    naverThemeBase:
-      process.env.NAVER_THEME_BASE ?? "https://finance.naver.com",
+    naverStockApiBase:
+      process.env.NAVER_STOCK_API_BASE ?? "https://m.stock.naver.com",
     themeSyncMaxPages: Number(process.env.THEME_SYNC_MAX_PAGES ?? "10"),
     alphaCategories: csv(process.env.THEME_SYNC_ALPHA_CATEGORIES, [
       "정치",
