@@ -704,7 +704,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       //     타임아웃 뒤 「다시 시도」(같은 스위치 다시 누르기)가 곧바로 나가는 이유다.
       const orphanBlocks = orphan !== null && orphan.field !== field;
       const busy = inflight !== null || popAfterSeqRef.current !== null || orphanBlocks;
-      // ⑥ 미등록 전략 — 게이트 4종 밖은 로컬 반영만 한다. ★ 단 등록 전송이 나가 있으면(busy) 대기열에 선다
+      // ⑥ 미등록 전략 — LC_GATE_FIELDS 밖은 로컬 반영만 한다. ★ 단 등록 전송이 나가 있으면(busy) 대기열에 선다
       //   (20-REVIEW WR-01) — 지금 로컬 반영하고 성공 강조를 띄우면 곧 올 등록 에코(등록 cfg 시점 값)가 폼을
       //   덮어 사용자가 본 편집이 조용히 사라진다. 꺼낼 때 서버가 생겼으면 정상 전송, 여전히 없으면 로컬 반영.
       if (server == null && !isGateField(field) && !busy) {

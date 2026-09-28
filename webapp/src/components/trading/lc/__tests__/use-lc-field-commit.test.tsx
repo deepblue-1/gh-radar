@@ -476,6 +476,48 @@ describe('Task 2 — 타임아웃 · 직렬화 · 무장 가드 · 토글', () =
     expect(t.hook.result.current.failures.buyWatchQty).toBeUndefined();
   });
 
+  it('GC-WR-02 — 꺼낼 때 무장 가드로 막힌 대기 토글의 되돌림은 그 순간 서버 값이다(누른 순간 값이 아니다)', () => {
+    // 테스트 전용 가드 — 선매수가 켜진 cfg 는 늘 막는다(꺼낼 때 막힘 조건을 만든다).
+    const armBlockOf = (v: LimitChaserFormValues) => (v.preBuyEnabled ? '선매수 · 막힘' : null);
+    const t = setup({ server: echo({ buyEnabled: false, sellEnabled: true }), armBlockOf });
+    let out: string | undefined;
+    act(() => {
+      t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+      out = t.hook.result.current.commit('preBuyEnabled', true, 'toggle', { buyEnabled: true });
+    });
+    expect(out).toBe('queued');
+    // 누른 순간 — 마스터 OFF 였다(되돌림 기준이 누른 순간 값이면 OFF 로 돌아간다).
+    expect(t.formRef.current.preBuyEnabled).toBe(true);
+    expect(t.formRef.current.buyEnabled).toBe(true);
+    // 앞 건 성공 에코 — 그사이 다른 단말이 마스터를 켰다 → 답 신호 렌더에서 꺼낼 때 무장 가드로 막힘.
+    t.update({ server: echo({ buyEnabled: true, sellEnabled: true, buyWatchQty: 9_000 }) });
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.hook.result.current.failures.preBuyEnabled).toEqual({
+      reason: 'armBlocked',
+      text: '선매수 · 막힘',
+      value: true,
+    });
+    // 되돌림 = 그 순간 서버 값 — 선매수 OFF · 마스터 ON(누른 순간 값 OFF 가 아니다).
+    expect(t.formRef.current.preBuyEnabled).toBe(false);
+    expect(t.formRef.current.buyEnabled).toBe(true);
+    expect(t.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('GC-WR-02 — 미등록(서버 없음) 등록 토글이 거부되면 되돌림은 종전대로 확정 직전 폼 값이다', () => {
+    const t = setup({ server: null });
+    expect(t.formRef.current.buyEnabled).toBe(false);
+    act(() => {
+      t.hook.result.current.commit('buyEnabled', true, 'toggle');
+    });
+    expect(t.send).toHaveBeenCalledTimes(1);
+    // 낙관 표시 — 폼 값이 이미 ON 이다(서버가 없으니 「지금 폼 값」을 기준으로 삼으면 ON 에 머문다).
+    expect(t.formRef.current.buyEnabled).toBe(true);
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.hook.result.current.failures.buyEnabled?.reason).toBe('rejected');
+    expect(t.formRef.current.buyEnabled).toBe(false);
+    expect(t.send).toHaveBeenCalledTimes(1);
+  });
+
   it('미등록 전략에서 게이트(`buyEnabled`)는 전송되고(첫 스위치 = 등록) · `cancelTradeEnabled` 는 로컬이다', () => {
     const t = setup({ server: null });
     let gate: string | undefined;
