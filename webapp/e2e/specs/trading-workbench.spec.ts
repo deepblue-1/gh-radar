@@ -3343,6 +3343,60 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(lcSetCount(relay), '값 확정 시도 = 전송 0 · 매수주문 끄기 = 10 한 건').toBe(before + 1);
   });
 
+  test('P24-12 D-35 — 마스터 OFF 에서 「추가매수 켜기」 한 번 = 10 한 건(마스터 · 자동 체크 동반) → 에코 뒤 로그 두 줄(「추가매수 자동 체크 — 켬: 」 이 위) (2026-09-28 사용자 지시 · P24-3 대응)', async ({
+    page,
+  }) => {
+    // P24-3 과 같은 출발점 + 추가매수 금액 500(만원) — 스텁 주문가격 71,000 기준 수량 > 0 이라 사전 검증을 지난다.
+    // 픽스처 비교가격(71,100) ≠ 스텁 매수1호가(97,900) 라 D-16 도 허용이다. 매도 · 취소 게이트는 꺼져 있고 매도 매수잔량 ·
+    // 취소 매수잔량 · 매도비율은 0 이 아니다(스텁 기본값) — 자동 체크 6종이 전부 켜질 수 있는 전략이다.
+    const seed = { buyEnabled: false, extraBuyOrderAmount: 500 };
+    relay.seedLimitChasers([seed]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    const card = cardOf(page, E2E_ISIN);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('10,000주', { timeout: 15_000 });
+    await expect(lcSwitch(card, '매수주문 켜기')).not.toBeChecked();
+    await expect(lcSwitch(card, '매도주문 켜기')).not.toBeChecked();
+    await expect(lcSwitch(card, '매수취소 켜기')).not.toBeChecked();
+    // 상한가(시세)가 들어와야 자동 체크가 가격을 판정한다(D-20) — 호가 사다리의 상한가 시딩을 기다린다.
+    await expect(lcValue(page, 'lc-buy-order-price')).not.toHaveText('', { timeout: 15_000 });
+
+    const before = lcSetCount(relay);
+    await lcSwitch(card, '추가매수 켜기').click();
+    // 확인창 · 토스트 · 매도 탭 이동 없음(D-06 · D-35).
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    // ★ 고정 대기 없음 — 추가매수 켬 10 이 게이트웨이에 보인 순간 누적 = 기준 + 1(사람 한 번 = 한 건).
+    await expect
+      .poll(() => lcSetRequests(relay).filter((r) => r.extraBuyEnabled === true).length, { timeout: 15_000 })
+      .toBe(1);
+    expect(lcSetCount(relay), '사람 한 번 = 10 한 건').toBe(before + 1);
+
+    const sent = lcSetRequests(relay).at(-1)!;
+    expect(sent.buy3Schema).toBe(1);
+    expect(sent.crud).toBe('C');
+    expect(sent.extraBuyEnabled).toBe(true);
+    expect(sent.preBuyEnabled, '추가매수만 켰다 — 선매수는 그대로').toBe(false);
+    expect(sent.buyEnabled, 'D-01 — 마스터 동반').toBe(true);
+    expect(sent.sellEnabled, 'D-35 — 매도주문 자동 체크').toBe(true);
+    expect(sent.sellQtyTrackEnabled, 'D-35 — 매도>잔량추적 자동 체크').toBe(true);
+    expect(sent.sellTradeQtyEnabled, 'D-35 — 매도>체결 자동 체크').toBe(true);
+    expect(sent.cancelQtyEnabled, 'D-35 — 매수취소 자동 체크').toBe(true);
+    expect(sent.cancelTradeEnabled, 'D-35 — 취소>체결 자동 체크').toBe(true);
+    expect(sent.cancelQtyTrackEnabled, 'D-35 — 취소>잔량추적 자동 체크').toBe(true);
+
+    await relay.pushLimitChaserEcho({ ...seed, ...lcEchoFlagsOf(sent) });
+    await expect(lcSwitch(card, '매수주문 켜기')).toBeChecked({ timeout: 15_000 });
+    await expect(lcSwitch(card, '추가매수 켜기')).toBeChecked();
+    await expect(lcSwitch(card, '매도주문 켜기')).toBeChecked();
+    await expect(lcSwitch(card, '매수취소 켜기')).toBeChecked();
+    const rows = await logRows(page);
+    await expect(rows.first()).toContainText('추가매수 자동 체크 — 켬: ', { timeout: 15_000 });
+    await expect(rows.nth(1)).toContainText('추가매수 체크 — 매수주문도 켬');
+    // 에코 · 로그 뒤에도 누적은 그대로 — 에코는 자동 체크 제출을 만들지 않는다(D-08).
+    expect(lcSetCount(relay), '에코 뒤 추가 전송 0').toBe(before + 1);
+  });
+
   /*
     ★ Phase 20 트레이서 — 「호가변경」(Phase 24 D-09 로 선매수 카드 「한방」) 한 행이 **실제 경로 한 줄**을 끝까지 잇는다(20-01).
       진짜 브라우저 → 진짜 relay → 스텁 게이트웨이 10 수신 → 60 에코 → 행 값.
