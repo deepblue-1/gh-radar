@@ -19,12 +19,24 @@ import { checkBudget, incrementUsage, kstDateString } from "./apiUsage.js";
 import { runRetention } from "./retention.js";
 
 /**
+ * 사전 예산 판정의 종목당 최소 요청 수 (quick-260928-nf6).
+ *
+ * collectDiscussions 는 모드(backfill/incremental)와 상관없이 page 0 에서 onRequest 를
+ * 최소 1번 부르므로(maxPages ≥ 1) 이 값은 정확한 하한이다. 상한은 모드와 cutoff 에 따른
+ * early-stop 에 달려 있어 종목별 DB 왕복 없이는 사전에 알 수 없다. 그래서 사전 판정은
+ * 하한만 보고, 실제 상한은 onRequest 의 원자적 하드캡(incrementUsage → used > cap → stopAll)이
+ * 지킨다. 과거에는 종목 수 × 백필 최대 페이지(104 × 30 = 3,120)로 잡아서 하루 사용량
+ * ~1,880 이후 KST 자정까지 모든 실행이 skip 됐다.
+ */
+const MIN_REQUESTS_PER_STOCK = 1;
+
+/**
  * Phase 08 — discussion-sync cycle entry point.
  *
  * Flow:
  *  1. loadConfig + service_role Supabase + Bright Data proxy client 초기화
  *  2. loadTargets (top_movers ∪ watchlists, stocks 마스터로 FK 검증)
- *  3. checkBudget — 예상 요청량 초과 시 cycle skip (옵션 5 채택 후 per-stock 1 req)
+ *  3. checkBudget — 남은 예산 < 종목 수 × 1(최소 1페이지) 일 때만 cycle skip, 그 위는 요청 단위 하드캡이 막음
  *  4. p-limit(concurrency) 로 per-stock collectDiscussions → upsertDiscussions
  *     → classifyBatch (Phase 08.1 inline Claude Haiku 분류) → persistRelevance
  *     - onRequest 콜백에서 incrementUsage + 초과 시 stopAll
@@ -50,21 +62,22 @@ export async function runDiscussionSyncCycle(): Promise<void> {
   const dateKst = kstDateString();
   const budgetBefore = await checkBudget(supabase, dateKst);
 
-  // 옵션 5 (JSON API) — incremental 종목 1 req, backfill 종목 최대 backfillMaxPages req.
-  // 보수적 상한: 모든 종목이 backfill 모드라고 가정하고 cap 검사. 실제 사용량은 훨씬 낮음.
-  const expectedPerStock = cfg.discussionSyncBackfillMaxPages;
-  const expectedTotal = targets.length * expectedPerStock;
-  if (budgetBefore + expectedTotal > cfg.discussionSyncDailyBudget) {
-    log.warn(
-      {
-        budgetBefore,
-        expectedTotal,
-        cap: cfg.discussionSyncDailyBudget,
-      },
-      "budget would exceed — skipping cycle",
-    );
+  // 사전 판정은 하한(종목당 최소 1요청)만 본다 — 근거는 MIN_REQUESTS_PER_STOCK 주석.
+  const cap = cfg.discussionSyncDailyBudget;
+  const minRequired = targets.length * MIN_REQUESTS_PER_STOCK;
+  const remaining = cap - budgetBefore;
+  const precheck = {
+    budgetBefore,
+    targets: targets.length,
+    minRequired,
+    remaining,
+    cap,
+  };
+  if (remaining < minRequired) {
+    log.warn(precheck, "budget would exceed — skipping cycle");
     return;
   }
+  log.info(precheck, "budget precheck passed");
 
   let totalRequests = 0;
   let totalUpserted = 0;
@@ -87,7 +100,10 @@ export async function runDiscussionSyncCycle(): Promise<void> {
             const used = await incrementUsage(supabase, dateKst, 1);
             totalRequests++;
             if (used > cfg.discussionSyncDailyBudget) {
-              log.warn({ used }, "daily budget exceeded mid-cycle — stopAll");
+              log.warn(
+                { used, cap: cfg.discussionSyncDailyBudget },
+                "daily budget exceeded mid-cycle — stopAll",
+              );
               stopAll = true;
               return false;
             }
