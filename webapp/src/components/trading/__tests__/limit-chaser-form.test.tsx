@@ -2104,6 +2104,18 @@ describe('⑲ 선매수 자동 체크 D-06 · D-07 · D-08 — 사람의 선매�
     expect(onClientLog).not.toHaveBeenCalled();
   });
 
+  it('IN-05 — 클릭 직후 매도 스위치는 낙관 ON 이지만 매도 주문가격 행 글자는 클릭 전 그대로 · 성공 에코 뒤 「150,800원」', () => {
+    const { rerender } = render(<LimitChaserForm {...props({ server: idle(), upperLimit: 150_800 })} />);
+    const before = rowText('lc-sell-order-price');
+    click(sw('선매수 켜기'));
+    expect(lastConfig().sellOrderPrice).toBe(150_800);
+    expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'true');
+    expect(rowText('lc-sell-order-price')).toBe(before);
+    const ok = idle({ buyEnabled: true, preBuyEnabled: true, ...SIX, sellOrderPrice: 150_800, sellWatchPrice: 150_800 });
+    rerender(<LimitChaserForm {...props({ server: ok, upperLimit: 150_800, serverAnswerSeq: 1 })} />);
+    expect(rowText('lc-sell-order-price')).toBe('150,800원');
+  });
+
   it('성공 에코(선매수 ON) 뒤 onClientLog 한 줄(info) — 6체크를 한 줄로 합친다', () => {
     const onClientLog = vi.fn();
     const { rerender } = render(<LimitChaserForm {...props({ server: idle(), upperLimit: 150_800, onClientLog })} />);

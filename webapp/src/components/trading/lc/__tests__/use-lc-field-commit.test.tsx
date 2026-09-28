@@ -1267,6 +1267,62 @@ describe('companions — 한 확정 = 한 lc.set 에 동반 필드 (Phase 24 D-0
     expect(t.hook.result.current.lastSuccessField).toBe('preBuyEnabled');
     expect(t.hook.result.current.failures.preBuyEnabled).toBeUndefined();
   });
+
+  it('WR-04 — 앞 건 실패로 대기 건을 접을 때 주 필드만 같다고 성공으로 접지 않는다 · 동반 마스터가 다르면 실패 + 서버 값(ON)으로 되돌림', () => {
+    const t = setup({ server: echo({ preBuyEnabled: true, buyEnabled: true }) });
+    let out: string | undefined;
+    act(() => {
+      t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+      out = t.hook.result.current.commit('preBuyEnabled', false, 'toggle', { buyEnabled: false });
+    });
+    expect(out).toBe('queued');
+    expect(t.formRef.current.preBuyEnabled).toBe(false);
+    expect(t.formRef.current.buyEnabled).toBe(false);
+    // 서버가 선매수를 접었다(발주) · 마스터 ON · buyWatchQty 미반영 + 답 신호 → in-flight 거부.
+    t.update({ server: echo({ preBuyEnabled: false, buyEnabled: true }), serverAnswerSeq: 1 });
+    expect(t.hook.result.current.failures.buyWatchQty?.reason).toBe('rejected');
+    expect(t.hook.result.current.failures.preBuyEnabled?.reason).toBe('rejected');
+    expect(t.formRef.current.buyEnabled).toBe(true);
+    expect(t.hook.result.current.queuedFields).toEqual([]);
+    expect(t.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('WR-04 대조 — 서버가 주 필드와 동반 마스터 모두 그 값이면 대기 건은 성공으로 접힌다(전송 없음 · 실패 표시 없음)', () => {
+    const t = setup({ server: echo({ preBuyEnabled: true, buyEnabled: true, sellEnabled: true }) });
+    act(() => {
+      t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+      t.hook.result.current.commit('preBuyEnabled', false, 'toggle', { buyEnabled: false });
+    });
+    t.update({ server: echo({ preBuyEnabled: false, buyEnabled: false, sellEnabled: true }), serverAnswerSeq: 1 });
+    expect(t.hook.result.current.failures.buyWatchQty?.reason).toBe('rejected');
+    expect(t.hook.result.current.failures.preBuyEnabled).toBeUndefined();
+    expect(t.hook.result.current.lastSuccessField).toBe('preBuyEnabled');
+    expect(t.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('IN-05 — 동반 값 필드(매도 주문가격)는 에코 전에 폼에 넣지 않는다 · cfg 에는 실린다 · 거부 뒤 불리언만 되돌린다', () => {
+    const t = setup({ server: echo({ buyEnabled: false }) });
+    act(() => {
+      t.hook.result.current.commit('preBuyEnabled', true, 'toggle', {
+        sellOrderPrice: 150_800,
+        sellEnabled: true,
+        buyEnabled: true,
+      });
+    });
+    expect(t.formRef.current.preBuyEnabled).toBe(true);
+    expect(t.formRef.current.sellEnabled).toBe(true);
+    expect(t.formRef.current.buyEnabled).toBe(true);
+    expect(t.formRef.current.sellOrderPrice).toBe(130_000);
+    expect(t.cfgs()[0]!.sellOrderPrice).toBe(150_800);
+    // 그사이 폼의 값 칸이 다른 값이 됐다(에코 등) — 되돌림은 값 칸을 덮지 않는다.
+    t.formRef.current = { ...t.formRef.current, sellOrderPrice: 777 };
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.hook.result.current.failures.preBuyEnabled?.reason).toBe('rejected');
+    expect(t.formRef.current.preBuyEnabled).toBe(false);
+    expect(t.formRef.current.sellEnabled).toBe(false);
+    expect(t.formRef.current.buyEnabled).toBe(false);
+    expect(t.formRef.current.sellOrderPrice).toBe(777);
+  });
 });
 
 describe('게이트 필드 (Phase 24 — 세 그룹 스위치가 등록할 수 있다 · 한방은 체크가 됐다)', () => {
