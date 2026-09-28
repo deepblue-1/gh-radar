@@ -13,8 +13,14 @@
  *   고치다 만 오래된 값이 이 확정에 얹혀 **사용자가 누르지 않은 필드**까지 서버에 덮인다.
  *
  * ③ ★ 거부를 성공으로 읽지 않는다 (D-06 · RESEARCH Pitfall 1)
- *   거부 통지도 카드의 `acceptAnswer()` 를 불러 `serverAnswerSeq` 를 올린다 — 거부에는 60 에코가
- *   없다. 그래서 **성공 = 에코의 그 필드 값 === 보낸 값**뿐이다. 답은 왔는데 값이 다르면 실패다.
+ *   거부 통지도 카드의 `acceptAnswer()` 를 불러 `serverAnswerSeq` 를 올린다. 그래서 **성공 = 에코의 그 필드 값 ===
+ *   보낸 값**뿐이다. 답은 왔는데 값이 다르면 실패다.
+ *   ★ **거부 통지 답은 같은 렌더에 에코가 없으면 유예한다** (24-REVIEW-R3 R3-WR-01). 부분 거부는 그 항만 눕히고
+ *     ERROR 를 먼저 보낸 뒤 같은 제출의 에코가 온다(gh-trade `ProcessSetLimitChaser`) — 두 프레임은 다른 렌더에
+ *     온다. 카드는 거부 통지에 `serverRejectSeq` 도 함께 올리고, 훅은 「보낸 뒤 거부 신호가 올랐고 ∧ 답 신호가
+ *     올랐고 ∧ 이 렌더에 서버 값 변화가 없다」면 판정을 `LC_REJECT_ECHO_GRACE_MS` 미룬다. 유예 중 에코가 오면 에코가
+ *     정본이다(주 필드 일치 = 성공 · 불일치 = 그 렌더에서 즉시 거부). 에코가 없으면(전면 거부 — 에코가 없다) 유예
+ *     끝에 종전대로 거부다. 거부 신호 없이 답 신호만 오른 경우(미등록 키 철거 에코 등)는 즉시 판정한다.
  *   `serverAnswerSeq` 가 먼저 오르고 서버 값이 뒤따르는 순서(Pitfall 4)는 「늦은 에코」 전이가
  *   받는다 — 기록된 실패의 값이 서버에 서면 그 실패를 성공으로 바꾼다.
  *
@@ -54,6 +60,8 @@
  * ⑧ ★ 실패 판정 입력은 셋이다
  *   거부 = 답 신호(`serverAnswerSeq`)만 오르고 값 불일치 · 타임아웃 = 카드 `unacked`(3초 무응답,
  *   상태줄 「미반영」과 **같은 신호** — UI-SPEC A10) · 끊김 = `send` false.
+ *   ★ 거부 통지(`serverRejectSeq` 증가)로 오른 답은 같은 렌더에 에코가 없으면 `LC_REJECT_ECHO_GRACE_MS` 유예한다(③ ·
+ *     R3-WR-01) — 유예 중 에코가 판정하고, 에코가 없으면 유예 끝에 거부다. 유예는 실패만 만든다(성공 · 전송 없음).
  *   성공 = 에코의 그 필드 값 === 보낸 값, 예외 없음.
  *
  * ⑨ ★ 무장 불가 값은 보내지 않는다 (WR-06 · T-20-01)
@@ -148,6 +156,15 @@ export const LC_FLASH_MS = 900;
  * (보내지 않는다). 짧게 잡으면 늦게 닿은 앞 건을 뒤 건이 되돌리는 창이 다시 열린다.
  */
 export const LC_ORPHAN_WAIT_MS = 7_000;
+
+/**
+ * 거부 통지 답의 에코 유예 (③ · ⑧ · 24-REVIEW-R3 R3-WR-01).
+ * gh-trade `ProcessSetLimitChaser` 는 부분 거부 때 ERROR → 저장 → 같은 제출의 에코를 **같은 연결로 동기 송신**한다 —
+ * 두 프레임의 도착 간격은 전송 + 렌더 1회 수준이라 1초면 넉넉하다. 전면 거부(에코 없음)의 폼 실패 표시도 1초 안에
+ * 선다(ERROR 원문 줄 · 상태줄은 카드가 즉시 세운다). 에코가 유예보다 늦게 오는 비정상 지연이면 종전처럼 실패 →
+ * 늦은 에코 성공(보낸 성공 아님)이 된다.
+ */
+export const LC_REJECT_ECHO_GRACE_MS = 1_000;
 
 /**
  * 전략을 **만들 수 있는** 필드 — 미등록 전략에서도 전송한다(첫 스위치 = 등록, Phase 16 D-05).
@@ -273,6 +290,11 @@ export interface UseLcFieldCommitOptions {
   onSent?: (cfg: RelayLimitChaserInput, meta?: LcCommitMeta) => void;
   /** 카드가 이 전략의 답을 접수한 횟수(`answerSeq`). 값이 아니라 **바뀌었다는 사실**만 쓴다. */
   serverAnswerSeq: number;
+  /**
+   * 카드가 이 전략의 `lc.set` 거부 통지를 접수한 횟수(`rejectSeq`) — **바뀌었다는 사실**만 쓴다. 거부 통지는
+   * `serverAnswerSeq` 도 함께 올린다. 이 신호가 오른 답은 같은 제출의 에코를 유예한다(③ · R3-WR-01). 기본 0.
+   */
+  serverRejectSeq?: number;
   /** 세션 미준비 등 — 확정 전체를 막는다. */
   disabled: boolean;
   /** 카드 3초 무응답(`unacked`) — in-flight 중 true 가 되면 타임아웃 실패(⑧). 기본 false. */
@@ -318,6 +340,8 @@ interface Pending {
 interface Inflight extends Pending {
   /** 보낼 때의 `serverAnswerSeq` — 이 값에서 바뀌면 답이 온 것이다. */
   answerSeqAtSend: number;
+  /** 보낼 때의 `serverRejectSeq` — 이 값에서 바뀌면 거부 통지가 온 것이다(에코 유예 · R3-WR-01). */
+  rejectSeqAtSend: number;
 }
 
 type FailureMap = Partial<Record<LcFieldKey, LcCommitFailure>>;
@@ -431,6 +455,12 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
    */
   const orphanRef = useRef<{ field: LcFieldKey; answerSeqAtSend: number } | null>(null);
   const orphanTimer = useRef<number | null>(null);
+  /** 거부 통지 답의 에코 유예 타이머(③ · R3-WR-01) — 걸려 있으면 마감을 늘리지 않는다. */
+  const rejectGraceTimer = useRef<number | null>(null);
+  const clearRejectGrace = useCallback(() => {
+    if (rejectGraceTimer.current != null) window.clearTimeout(rejectGraceTimer.current);
+    rejectGraceTimer.current = null;
+  }, []);
 
   /** 지금(최신 옵션 기준) 서버가 금액을 모르는가 — 끄기 cfg 의 금액 · 수량을 서버 값으로 싣는 줄이 읽는다(⑨-3). */
   const amountUnknownNow = useCallback((): boolean => isLegacyAmountUnknown(optsRef.current.server), []);
@@ -592,7 +622,12 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       else onSent?.(cfg, p.meta);
       writeFailures((prev) => withoutField(prev, p.field));
       // in-flight 기록에는 실제로 실은 계산 결과가 남는다(함수가 아니라 값 · ⑪).
-      setInflight({ ...p, companions, answerSeqAtSend: serverAnswerSeq });
+      setInflight({
+        ...p,
+        companions,
+        answerSeqAtSend: serverAnswerSeq,
+        rejectSeqAtSend: optsRef.current.serverRejectSeq ?? 0,
+      });
       // ⑩ 토글은 전송 뒤 낙관 표시 — 대기 중 에코가 폼을 덮었을 수 있어 꺼낼 때도 다시 건다.
       if (p.kind === 'toggle') applyToggle(p);
       return 'sent';
@@ -661,6 +696,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
   /** in-flight 실패 — 되돌리고, 대기 건은 보내지 않고 전부 실패로 표시한다(⑦). */
   const failInflight = useCallback(
     (inf: Inflight, reason: 'rejected' | 'timeout') => {
+      clearRejectGrace();
       setInflight(null);
       popAfterSeqRef.current = null;
       setFailure(inf.field, reason, LC_COMMIT_TEXT.failed, inf.value);
@@ -679,7 +715,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
         }, LC_ORPHAN_WAIT_MS);
       }
     },
-    [failQueue, revertToggle, setFailure, setInflight],
+    [clearRejectGrace, failQueue, revertToggle, setFailure, setInflight],
   );
 
   /** 고아 장벽을 푼다 — 답 신호가 왔다(결과가 서버 값에 드러났다). */
@@ -774,7 +810,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
 
   /*
     해소 — 서버 값 · 답 신호 · 무응답이 바뀐 렌더에서만 판정한다.
-    ① in-flight 판정(성공은 값 비교로만) → ② 대기 꺼내기(성공 뒤 답 신호가 바뀐 렌더) →
+    ① in-flight 판정(성공은 값 비교로만 · 거부 통지 답은 에코 유예 — R3-WR-01) → ② 대기 꺼내기(성공 뒤 답 신호가 바뀐 렌더) →
     ③ 늦은 에코(실패를 성공으로). 순서가 곧 규칙이다 — 이번 실행에서 막 보낸 건을 같은
     실행에서 판정하지 않는다.
   */
@@ -783,6 +819,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
   useEffect(() => {
     const server = o.server;
     const seq = o.serverAnswerSeq;
+    const rejectSeq = o.serverRejectSeq ?? 0;
     const serverChanged = prevServerRef.current !== server;
     prevServerRef.current = server;
 
@@ -794,6 +831,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       // ⑧ 성공 = 에코의 그 필드 값 === 보낸 값, 예외 없음.
       const matches = server != null && server[inf.field] === inf.value;
       if (matches) {
+        clearRejectGrace();
         setInflight(null);
         // 이 훅이 실은 프레임의 답 — 성공 신호 중 이것만 `sent` 다(GC-IN-03).
         markSuccess(inf.field, true);
@@ -805,6 +843,16 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
         else if (queueRef.current.length > 0) drainNow = true;
       } else if (unacked) {
         failInflight(inf, 'timeout');
+      } else if (answered && rejectSeq !== inf.rejectSeqAtSend && !serverChanged) {
+        // ③ 거부 통지 답인데 이 렌더에 에코가 없다 — 부분 거부면 같은 제출의 에코가 곧 온다(R3-WR-01).
+        //   유예 중 에코가 오면 위 `matches` 또는 아래 즉시 거부가 판정한다. 이미 걸려 있으면 마감을 늘리지 않는다.
+        //   ★ 타이머는 실패 표시만 한다 — 아무것도 보내지 않는다(T-16-10).
+        if (rejectGraceTimer.current == null) {
+          rejectGraceTimer.current = window.setTimeout(() => {
+            rejectGraceTimer.current = null;
+            if (inflightRef.current === inf) failInflight(inf, 'rejected');
+          }, LC_REJECT_ECHO_GRACE_MS);
+        }
       } else if (answered) {
         failInflight(inf, 'rejected');
       }
@@ -836,14 +884,26 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
         if (server[f] === fail.value) markSuccess(f);
       }
     }
-  }, [o.server, o.serverAnswerSeq, unacked, drain, failInflight, markSuccess, releaseOrphan, setInflight]);
+  }, [
+    o.server,
+    o.serverAnswerSeq,
+    o.serverRejectSeq,
+    unacked,
+    clearRejectGrace,
+    drain,
+    failInflight,
+    markSuccess,
+    releaseOrphan,
+    setInflight,
+  ]);
 
   useEffect(
     () => () => {
       if (flashTimer.current != null) window.clearTimeout(flashTimer.current);
       if (orphanTimer.current != null) window.clearTimeout(orphanTimer.current);
+      clearRejectGrace();
     },
-    [],
+    [clearRejectGrace],
   );
 
   return {

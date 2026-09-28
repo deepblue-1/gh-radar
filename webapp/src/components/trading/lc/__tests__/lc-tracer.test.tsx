@@ -37,6 +37,7 @@ import { CardBody } from '../../card/card-body';
 import { ACK_TIMEOUT_MS, StrategyCard } from '../../card/strategy-card';
 import { mockPointer, restoreMatchMedia } from '@/lib/__tests__/match-media';
 import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
+import { LC_REJECT_ECHO_GRACE_MS } from '../use-lc-field-commit';
 
 const ISIN = 'KR7086520004';
 const ACCOUNT = '37728502101';
@@ -292,6 +293,14 @@ describe('트레이서 — 「호가변경」 한 행 (20-01 · D-04 · D-14 · 
     setRelay({ limitChasers: [echo()], messages });
     rerender(<Card />);
 
+    // R3-WR-01 — 거부 통지 답은 같은 제출의 에코를 유예한다(부분 거부면 곧 온다). 유예 중에는 실패가 서지 않는다.
+    expect(screen.queryByText(INLINE_FAILED)).toBeNull();
+    expect(editor()!.readOnly).toBe(true);
+    // 에코 없이 유예가 끝나면(전면 거부) 종전대로 실패다.
+    act(() => {
+      vi.advanceTimersByTime(LC_REJECT_ECHO_GRACE_MS);
+    });
+
     expect(editor()).not.toBeNull();
     expect(editor()!.value).toBe('5');
     expect(editor()!.readOnly).toBe(false);
@@ -500,6 +509,12 @@ describe('트레이서 — 터치(시트) 경로 (20-03 · D-12 · D-13)', () =>
     const messages = [rejection()];
     setRelay({ limitChasers: [echo()], messages });
     rerender(<Card />);
+
+    // R3-WR-01 — 유예 중에는 실패가 서지 않는다 → 에코 없이 유예가 끝나면(전면 거부) 종전대로 실패다.
+    expect(sheetStatus().querySelector('[role="alert"]')).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(LC_REJECT_ECHO_GRACE_MS);
+    });
 
     expect(sheet()).not.toBeNull();
     expect(sheetStatus().querySelector('[role="alert"]')?.textContent).toBe('반영하지 못했어요');

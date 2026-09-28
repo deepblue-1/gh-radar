@@ -207,6 +207,12 @@ export interface StrategyCardState {
   unacked: boolean;
   /** 서버가 이 전략에 답한 횟수 — 폼의 전송 잠금을 푸는 신호(값 자체에는 뜻이 없다). */
   answerSeq: number;
+  /**
+   * 이 전략의 `lc.set` 거부 통지(`isLimitChaserSetRejection`)를 접수한 횟수 — 값 자체에는 뜻이 없다. 거부 통지는
+   * `answerSeq` 도 함께 올린다. 부분 거부는 ERROR 뒤 같은 제출의 에코가 오므로 폼 훅이 이 신호로 in-flight 판정을
+   * 에코까지 유예한다(24-REVIEW-R3 R3-WR-01 · `LC_REJECT_ECHO_GRACE_MS`).
+   */
+  rejectSeq: number;
   /** 6초 에코 배너 문구(「다른 단말에서 변경됨」). */
   banner: string | null;
   appliedAt: string | null;
@@ -331,6 +337,8 @@ export function useStrategyCardState({
    * 같은 신호로 함께 푼다 (debug `lc-unacked-stuck-new-route`).
    */
   const [answerSeq, setAnswerSeq] = useState(0);
+  /** lc.set 거부 통지 접수 횟수 — `StrategyCardState.rejectSeq`(R3-WR-01). */
+  const [rejectSeq, setRejectSeq] = useState(0);
   /** 폼이 알려 준 「이번 에코가 덮은 더티 필드 수」. 소비 즉시 0 으로 되돌린다. */
   const overwrittenRef = useRef(0);
   const [banner, setBanner] = useState<string | null>(null);
@@ -649,8 +657,13 @@ export function useStrategyCardState({
           단말」로 읽히고 동반 · 서버 접힘 문장이 사라진다. 귀속의 끝은 에코 소비 · 결과 모름 창 만료 두
           수평선이고, 거부된 제출의 사유가 무관한 에코에 붙는 것(WR-05)은 에코 이펙트의 `echoAnswersSent`
           판정이 막는다. 여기서는 「모른다」만 거두고 다시 보내지 않는다(T-16-10).
+        ★ 거부 신호(`rejectSeq`)도 함께 올린다(24-REVIEW-R3 R3-WR-01) — 폼 훅이 이 답을 「결과 확정」이 아니라 「곧 같은
+          제출의 에코가 올 수 있음」으로 읽고 판정을 에코까지 유예한다(전면 거부면 유예 끝에 실패).
       */
-      if (isLimitChaserSetRejection(msg, isin, accountNo)) acceptAnswer();
+      if (isLimitChaserSetRejection(msg, isin, accountNo)) {
+        acceptAnswer();
+        setRejectSeq((n) => n + 1);
+      }
     }
   }, [messages, pushLog, isin, accountNo, acceptAnswer]);
 
@@ -728,6 +741,7 @@ export function useStrategyCardState({
     log,
     unacked,
     answerSeq,
+    rejectSeq,
     banner,
     appliedAt,
     lastError,
