@@ -44,7 +44,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
 });
 
 import { mockPointer, restoreMatchMedia } from '@/lib/__tests__/match-media';
-import { LimitChaserForm, type LimitChaserFormProps } from '../limit-chaser-form';
+import { LC_FOLD_HIDDEN_DEFER_MS, LimitChaserForm, type LimitChaserFormProps } from '../limit-chaser-form';
 import { buyOrderQtyFromAmount } from '@/lib/limit-chaser';
 import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
 
@@ -1866,6 +1866,76 @@ describe('⑰-b D-02 후반 · D-19 — WinForms 동형 서버 접힘 뒤 마스
     });
     expect(sentConfigs()).toHaveLength(0);
     expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'true');
+  });
+
+  /*
+    WR-06 가드 ⑥ — 화면에 보이지 않는 인스턴스(백그라운드 탭 · 앱)는 자동 끔을 `LC_FOLD_HIDDEN_DEFER_MS` 유예한 뒤
+    최신 에코로 재확인한다(가드 ②). 그사이 보이는 인스턴스가 보낸 마스터 OFF 에코가 왔으면 보내지 않는다 — 같은
+    사용자의 탭 · 앱 N개에서 통상 1건. 보이는 인스턴스(jsdom 기본 'visible')는 종전대로 다음 틱이다(위 첫 케이스).
+  */
+  describe('숨은 인스턴스 — 비가시 유예 뒤 재확인 (WR-06 가드 ⑥)', () => {
+    const advance = (ms: number) =>
+      act(() => {
+        vi.advanceTimersByTime(ms);
+      });
+
+    beforeEach(() => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    });
+    afterEach(() => {
+      // 인스턴스에 덮은 게터만 지운다 — jsdom 의 원래 값(Document.prototype · 'visible')이 돌아온다.
+      delete (document as { visibilityState?: DocumentVisibilityState }).visibilityState;
+    });
+
+    it('숨은 인스턴스 — 다음 틱 전송 0 → LC_FOLD_HIDDEN_DEFER_MS 뒤 마스터 OFF 1건 · 사유 serverFold', () => {
+      expect(document.visibilityState).toBe('hidden');
+      const onSent = vi.fn();
+      const { rerender } = render(<LimitChaserForm {...props({ server: A(), onSent })} />);
+      rerender(<LimitChaserForm {...props({ server: B(), onSent })} />);
+      tick();
+      expect(sentConfigs()).toHaveLength(0);
+      advance(LC_FOLD_HIDDEN_DEFER_MS);
+      expect(sentConfigs()).toHaveLength(1);
+      expect(lastConfig()).toMatchObject({ buyEnabled: false, crud: 'C', sellEnabled: true, preBuyEnabled: false });
+      expect(onSent.mock.calls[0]![1]).toEqual({ cause: 'serverFold' });
+      advance(LC_FOLD_HIDDEN_DEFER_MS * 2);
+      expect(sentConfigs()).toHaveLength(1);
+    });
+
+    it('숨은 인스턴스 — 유예 중 다른 인스턴스가 보낸 마스터 OFF 에코가 오면 유예가 끝나도 전송 0 (가드 ② 재확인)', () => {
+      const { rerender } = render(<LimitChaserForm {...props({ server: A() })} />);
+      rerender(<LimitChaserForm {...props({ server: B() })} />);
+      advance(1_000);
+      expect(sentConfigs()).toHaveLength(0);
+      rerender(<LimitChaserForm {...props({ server: B({ buyEnabled: false }) })} />);
+      advance(LC_FOLD_HIDDEN_DEFER_MS * 2);
+      expect(sentConfigs()).toHaveLength(0);
+      expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'false');
+    });
+
+    it('숨은 인스턴스 — 유예 중 in-flight 가 생기면(가드 ③) 풀린 뒤 다시 유예 예약 · 중복 전송 0', () => {
+      const onSent = vi.fn();
+      const { rerender } = render(<LimitChaserForm {...props({ server: A(), onSent })} />);
+      rerender(<LimitChaserForm {...props({ server: B(), onSent })} />);
+      advance(500);
+      editInline('lc-buy-watch-price', '129000');
+      expect(sentConfigs()).toHaveLength(1);
+      // 유예가 끝나도 in-flight 라 기다린다.
+      advance(LC_FOLD_HIDDEN_DEFER_MS);
+      expect(sentConfigs()).toHaveLength(1);
+      // in-flight 의 성공 에코 — 세 그룹 OFF · 마스터 ON 그대로.
+      rerender(<LimitChaserForm {...props({ server: B({ buyWatchPrice: 129_000 }), onSent })} />);
+      rerender(<LimitChaserForm {...props({ server: B({ buyWatchPrice: 129_000 }), serverAnswerSeq: 1, onSent })} />);
+      tick();
+      // 풀린 렌더에서 다시 유예 예약 — 다음 틱에는 아직 0.
+      expect(sentConfigs()).toHaveLength(1);
+      advance(LC_FOLD_HIDDEN_DEFER_MS);
+      expect(sentConfigs()).toHaveLength(2);
+      expect(lastConfig()).toMatchObject({ buyEnabled: false, buyWatchPrice: 129_000 });
+      expect(onSent.mock.calls[1]![1]).toEqual({ cause: 'serverFold' });
+      advance(LC_FOLD_HIDDEN_DEFER_MS * 2);
+      expect(sentConfigs()).toHaveLength(2);
+    });
   });
 });
 
