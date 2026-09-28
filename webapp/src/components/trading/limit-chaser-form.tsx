@@ -40,7 +40,7 @@
  *
  * ③ ★ 값은 **확정 1회 = 즉시 반영**이다 (Phase 20 D-04)
  *   시트 「{필드명} 적용」 · 인라인 Enter/포커스 이탈 · 체크 · 스위치 **한 번**이 곧 전략 전체
- *   (32필드) 전송 한 번이다(`useLcFieldCommit`). 더티 누적도 「수정/되돌리기」 액션 바도 **없다** —
+ *   (`RelayLimitChaserInput` 전 필드) 전송 한 번이다(`useLcFieldCommit`). 더티 누적도 「수정/되돌리기」 액션 바도 **없다** —
  *   옛 더티 모델은 이 plan(20-04)에서 폐기됐다. 성공 판정은 **에코의 그 필드 값 === 보낸 값**뿐이다
  *   (거부도 답 신호를 올리므로 답만으로 성공이라 읽지 않는다 · D-06). 값 필드는 낙관 반영하지 않는다 —
  *   행은 에코가 올 때까지 서버 값이다. 토글 종류는 전송 뒤 낙관 표시하고 실패하면 서버 값으로 되돌린다.
@@ -56,10 +56,10 @@
  *     구서버 에코는 끄기만 · 매수주문부터다(WR-02 · 판정은 훅 `lcLegacyBlockOf` 하나 — 시트 · 인라인 검증과 전송 직전
  *     가드가 같이 읽는다). 매수주문 끄기는 늘 나간다(T-16-44).
  *
- * ⑤ ★ 전송 필드는 **클라 입력 29 + 클라 고정 3 = 32** 이다
- *   S→C 전용 4필드(`sellOrderQty`·`sellQtyTrackBaseline`·`sellEntryLatched`·
- *   `cancelQtyTrackBaseline`)를 **싣지 않는다**(Pitfall 6). 되보내면 「값이 왕복한다」는
- *   착각으로 에코 비교가 오염된다.
+ * ⑤ ★ 전송 필드는 **클라 입력 + 클라 고정 3** 이다 — 목록의 정본은 shared `RelayLimitChaserInput`(Omit)이다
+ *   (여기에 필드 수를 적지 않는다 — 필드가 합류할 때 갈라진다).
+ *   S→C 전용 필드(정본 shared `LIMIT_CHASER_SERVER_ONLY_FIELDS`)를 **싣지 않는다**(Pitfall 6). 되보내면
+ *   「값이 왕복한다」는 착각으로 에코 비교가 오염된다.
  *   고정 3(`sweepRecalcEnabled: true`·`sweepMinCount: 0`·`sweepMinRate: 0`)은 **폼에 노출하지
  *   않는다** — relay 빌더가 어차피 그 값으로 덮으므로(16-04), 입력을 열면 「설정했는데 반영
  *   안 됨」이 된다.
@@ -391,6 +391,20 @@ export function isServerFoldEdge(prev: RelayLimitChaser | null, next: RelayLimit
   );
 }
 
+/**
+ * D-02 후반 가드 ⑥ — **보이지 않는 인스턴스**(백그라운드 탭 · 앱)가 서버 접힘 자동 끔을 미루는 시간(ms · 24-REVIEW WR-06).
+ *
+ * 보이지 않는 인스턴스는 보이는 인스턴스가 먼저 보내도록 양보한다. 유예 뒤 가드 ② 가 최신 에코로 재확인해 이미
+ * 마스터 OFF 면 접는다 — 같은 사용자의 탭 · 앱 N개에서 자동 끔이 통상 1건이다. 에코 왕복(수백 ms)보다 넉넉하고
+ * 사람이 체감할 자동 끔 지연은 아닌 값이다.
+ */
+export const LC_FOLD_HIDDEN_DEFER_MS = 1_500;
+
+/** 자동 끔 예약 지연 — 화면에 보이면 0(다음 틱) · 숨어 있으면 `LC_FOLD_HIDDEN_DEFER_MS`(가드 ⑥). SSR 에서는 0. */
+function serverFoldDelayMs(): number {
+  return typeof document !== 'undefined' && document.visibilityState === 'hidden' ? LC_FOLD_HIDDEN_DEFER_MS : 0;
+}
+
 /** 그룹 스위치 → 그 그룹 카드 slot(사전 검증 줄 자리). */
 const GROUP_SLOT = {
   preBuyEnabled: 'pre-buy',
@@ -616,7 +630,7 @@ export function LimitChaserForm({
   }, [server]);
 
   /**
-   * 폼 값 → 와이어 `cfg` (33필드). **조립 지점은 여기 하나다.**
+   * 폼 값 → 와이어 `cfg`(필드 목록의 정본 = shared `RelayLimitChaserInput`). **조립 지점은 여기 하나다.**
    *
    * `crud` 는 `crudOf(values)` 다 — 값·체크 확정 경로에서도 클라가 `"C"` 를 박지 않는다.
    * 매수취소 「체결」 체크는 스위치가 아니라 **체크**인데, 그때 매수·매도·취소잔량이
@@ -1017,7 +1031,7 @@ export function LimitChaserForm({
       서버가 발주 · 포기 · 소진으로 그룹을 접어 「그룹 하나라도 ON」→「세 그룹 OFF · 마스터 ON」 하강 전이가
       에코되면, 에코 적용 뒤 다음 틱에 `buyEnabled: false` 를 **정확히 1건** 보낸다(나머지 = 에코 cfg · crud C ·
       마스터 낙관 OFF · 실패하면 훅이 서버 값(ON)으로 되돌리고 재시도하지 않는다).
-      가드 5개:
+      가드 6개:
         ① 매도주문 · 취소>잔량 · 취소>체결이 전부 OFF 면 그 제출은 삭제(`crud D`)가 되므로 보내지 않는다 —
            이때만 매수주문 상태 「켜짐 · 켠 매수 없음」이 남는다.
         ② 보내기 직전 최신 에코로 재확인 — 그새 마스터가 꺼졌거나 그룹이 켜졌으면 중단.
@@ -1029,6 +1043,12 @@ export function LimitChaserForm({
            웹이 다시 계산하는 수량 3벌 · 클라 고정 3필드가 에코와 다르면 다른 클라 · 다른 단말이 둔 값이라 덮지
            않는다 — ① 과 같은 결로 접고(재예약 없음) 매수주문 상태 「켜짐 · 켠 매수 없음」이 남는다.
            구서버 에코는 그룹이 늘 OFF 라 하강 전이가 생기지 않는다 — 이 가드와 무관하다.
+        ⑥ 비가시 유예(WR-06) — 화면에 보이지 않는 인스턴스(`document.visibilityState === 'hidden'`)는 예약을
+           `LC_FOLD_HIDDEN_DEFER_MS` 미룬 뒤 ② 로 재확인한다. 그사이 보이는 인스턴스가 보낸 마스터 OFF 에코가 왔으면
+           보내지 않는다 — 탭 · 앱 N개에서 통상 1건. 보이는 인스턴스는 종전대로 다음 틱이다.
+      남는 한계(24-16 체크포인트에서 사용자 확인): 동시에 화면에 보이는 두 인스턴스(예: 데스크톱 + 전면 앱)는 각 1건씩
+      보낼 수 있고(같은 순수 델타 cfg — 둘째는 OFF→OFF 무접촉), 자동 제출보다 한 왕복 안쪽에 서버에 닿은 사람 편집은
+      전체 cfg 규약(마지막 쓰기 승리) 때문에 되돌려질 수 있다. 완전 차단은 relay/서버 비교 후 쓰기가 필요해 이월한다.
       로그 문장(「서버가 매수 그룹 해제 — …」)은 폼이 쓰지 않는다 — 사유(`cause: 'serverFold'`)를 실어 보내면
       카드가 성공 에코에서 쓴다(24-05).
   */
@@ -1080,8 +1100,8 @@ export function LimitChaserForm({
       lastEchoRef.current = server;
     }
     if (!foldPendingRef.current) return;
-    // 에코 적용(폼 덮기 · 훅 판정)이 끝난 **다음 틱**에 판정한다.
-    const id = window.setTimeout(dropMasterAfterServerFold, 0);
+    // 에코 적용(폼 덮기 · 훅 판정)이 끝난 **다음 틱**에 판정한다 — 숨은 인스턴스는 유예 뒤다(⑥).
+    const id = window.setTimeout(dropMasterAfterServerFold, serverFoldDelayMs());
     return () => window.clearTimeout(id);
   }, [server, disabled, lc.inflightField, lc.queuedFields, dropMasterAfterServerFold]);
 
