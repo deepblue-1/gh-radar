@@ -1,8 +1,10 @@
 # Kyobo SecuwaySSL VPN — persistent DMA tunnel on radar-gw.
-# Split-route only (server pushes host routes 10.16.207.112/.119 via 10.212.0.1
-# on tun1); no redirect-gateway, so the default route (ens4), KB tun0 and wg0
-# are untouched. Credentials come from Secret Manager via ExecStartPre; the
-# value never lands in the unit, args, or logs.
+# Split-route only: the login response installs host routes
+# 10.16.207.112/.119/.127 via 10.212.0.1 on tun1 — refreshed only on reconnect
+# (systemctl restart securwayssl); .127 quick-260928-ei9. No redirect-gateway,
+# so the default route (ens4), KB tun0 and wg0 are untouched. Credentials come
+# from Secret Manager via ExecStartPre; the value never lands in the unit,
+# args, or logs.
 #
 # PROCESS MODEL: SecuwaySSLU_client is a launcher that spawns the sbin/sslvpn
 # tunnel daemon and returns. secuway-connect (ExecStart) backgrounds it and

@@ -528,7 +528,7 @@ gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a --proj
 systemctl is-active wg-quick@wg0        # active 여야 한다
 sudo wg show                            # 핸드셰이크 시각 · 피어 수 · 전송량
 sudo nft list table inet wgfwd          # forward 4규칙 + postrouting masquerade
-sudo iptables -S DOCKER-USER            # ACCEPT 일곱 줄이 있어야 한다 (120 · alex-mac 전용 121 · tun0 응답 · 교보 112·119 · 교보 응답 2)
+sudo iptables -S DOCKER-USER            # ACCEPT 아홉 줄이 있어야 한다 (120 · alex-mac 전용 121 · tun0 응답 · 교보 112·119·127 · 교보 응답 3)
 ip route show default                   # 반드시 `dev ens4` — tun0 면 즉시 중단
 
 systemctl is-active wg-probe            # active 여야 한다 (터널 정지 측정기)
@@ -1199,7 +1199,7 @@ KB AnyConnect(`openconnect@kb`)와 **별개의 독립 터널**이며 서로 간�
 | 게이트웨이 | `211.47.36.250:443`(로그인) · 데이터채널 `:20001` (LEA-128-CBC) |
 | 클라이언트 | `/opt/SecurwaySSL/SecuwaySSLU_client` (secuway.tar.gz, 2026-09-21 설치) |
 | 인터페이스 | `tun1` (`10.212.8.x/16`) |
-| 도달 대상 | 서버 푸시 호스트 라우트 `10.16.207.112` · `10.16.207.119` via `10.212.0.1` (둘 다 `:22` 확인) |
+| 도달 대상 | 로그인 응답이 설치하는 호스트 라우트 `10.16.207.112` · `10.16.207.119` · `10.16.207.127` via `10.212.0.1` (.112·.119 `:22` 확인 2026-09-21 · .127 2026-09-28 추가 quick-260928-ei9 — §DMA 서버 추가 절차) |
 | 라우팅 격리 | **redirect-gateway 없음.** 기본 경로(`ens4`) · KB `tun0` · `wg0` 무영향 |
 | 시크릿 | Secret Manager `kyobo-vpn-cred` (2줄: User ID, Password). VM SA `gh-radar-relay-sa` 가 `secretAccessor` |
 
@@ -1228,7 +1228,7 @@ journalctl -u securwayssl.service -n 30
 
 # 도달성 (읽기)
 gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a \
-  --command='for h in 10.16.207.112 10.16.207.119; do timeout 3 bash -c "</dev/tcp/$h/22" && echo "$h:22 open"; done'
+  --command='for h in 10.16.207.112 10.16.207.119 10.16.207.127; do timeout 3 bash -c "</dev/tcp/$h/22" && echo "$h:22 open"; done'
 
 # 수동 중지 / 재기동 (데스크톱 접속 전엔 반드시 중지)
 sudo systemctl stop securwayssl.service
@@ -1244,6 +1244,29 @@ tar czf - -C infra/relay/secuway . | gcloud compute ssh radar-gw --tunnel-throug
 ```
 
 > **MAC 바인딩.** 교보 계정은 단말 MAC 에 묶인다. VM MAC(`42:01:0a:0a:00:05`)이 교보에 등록돼 있어야 접속된다 — 미등록이면 `Error: 등록된 MAC값이 일치하지 않습니다` 로 거부된다. VM 재생성으로 MAC 이 바뀌면 재등록이 필요하다.
+
+### DMA 서버 추가 절차 (quick-260928-ei9)
+
+교보가 DMA 서버를 새로 열어 줄 때 다섯 곳을 함께 바꾼다(첫 사례 2026-09-28 `10.16.207.127`).
+radar-gw 의 nft · `DOCKER-USER` 두 층과 Mac `AllowedIPs` 는 모두 IP 를 하드코딩하므로, 한 곳이라도 빠지면 패킷이 막힌다.
+
+1. **저장소 `startup.sh` §8.** nft `wgfwd` 교보 세트 5곳(MSS 2 · accept · established · masquerade)에 새 IP 를 더하고,
+   `wg0.conf` 의 `DOCKER-USER` 규칙을 기존 IP 줄의 거울로 추가한다(PostUp 선삭제·삽입 쌍 2개 + PostDown 2줄).
+   선삭제 `iptables -D` 에는 `2>/dev/null || true` 꼬리가 필수다 — §사건 기록.
+2. **radar-gw 라이브 반영 (무중단).** 편집한 `startup.sh` 에서 뽑은 `wgfwd.nft` 를 통째로 `nft -f` 로 다시 읽는다.
+   파일 머리의 `table`/`delete table` 관용구가 원자 교체를 보장한다. 개별 `nft add rule` 은 체인 끝 ④ drop 뒤에 붙어
+   **무효**다. `DOCKER-USER` 는 새 IP 의 PostUp 쌍만 손으로 실행한다. `wg-quick@wg0` 재시작은 개발기 연결을 끊으므로 하지 않는다.
+3. **startup-script 메타데이터 갱신.** 재부팅 뒤에도 규칙이 남게 한다 —
+   `gcloud compute instances add-metadata radar-gw --zone=asia-northeast3-a --metadata-from-file=startup-script=infra/relay/startup.sh`
+   (`scripts/setup-relay-iam.sh` 갱신 명령에서 키 하나만 쓴 형태).
+4. **교보 재접속.** 호스트 라우트는 **로그인 응답**(클라이언트가 만드는 conf)에서 오며 OpenVPN PUSH_REPLY 가 아니다.
+   그래서 `sudo systemctl restart securwayssl.service` 로 재로그인해야 새 라우트가 깔린다. 재접속 뒤에도
+   `ip route show | grep 10.16.207` 에 새 IP 가 없으면 **교보 측 계정 ACL 미갱신**이다 — 재시작을 반복하지 말고 교보에 요청한다.
+   데스크톱 SecuwaySSL 과 동시에 접속하지 않는다(위 ⚠ 절).
+5. **alex-mac.** `$(brew --prefix)/etc/wireguard/KB-DMA.conf` 의 `AllowedIPs` 에 새 `/32` 를 더한 뒤 `wg-quick down` → `up` 으로
+   재연결한다. 메뉴바 헬퍼 `sudo -n /usr/local/sbin/kbdma-disconnect` · `kbdma-connect` 가 같은 일을 한다.
+   `wg syncconf` 는 피어 설정만 바꾸고 OS 라우트를 깔지 않으므로 대신 쓰지 않는다.
+   `install-vpn-menubar.sh` 를 다시 돌려도 `10.16.207.x/32` 항목은 보존된다.
 
 ### 사건 기록 — 2026-09-26 재부팅 시 wg0 기동 실패
 
