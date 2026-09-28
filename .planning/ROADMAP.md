@@ -1204,7 +1204,7 @@ Plans:
 **열린 것:** 소진 푸시(300ms) 전 옛 ON 재제출 창이 웹에서 실제 생기는지(실기 검증) · 운영 전략 중 「감시대상=매수잔량」 선택분 목록 추출은 **gh-trade 24-12 재기동 전**(CONTEXT D-14 정정). 마스터 OFF 시 `post_buy_enabled` 에코는 gh-trade D-32 로 닫힘(CONTEXT D-21). 후속분 ②(추가매수 아래 틱·이탈 포기 · 기본값 표 · 상한가 차단)는 CONTEXT D-16~D-21.
 **Requirements**: TBD
 **Depends on:** Phase 17 (프로토콜 재동기화·래치 LED) · gh-trade Phase 24 서버 배포(24-11)
-**Plans:** 10/17 plans executed
+**Plans:** 11/17 plans executed
 
 Plans:
 **Wave 1**
@@ -1243,7 +1243,7 @@ Plans:
 **Wave 9** *(갭 클로징 — 24-VERIFICATION 갭 6건(WR-01~06) · 24-REVIEW IN-01~05 흡수 · IN-06 이월 · IN-07 부분 · 추가 범위 D-35 는 24-17)*
 
 - [x] 24-10-PLAN.md — [WR-01 + IN-04 · IN-03 · IN-02] buy3 선매수 금액 0 전략 새로고침 뒤 편집 · 구서버 판별 lib 단일화(`buy3Schema === 0`) · e2e P24-9
-- [ ] 24-11-PLAN.md — [WR-05] 거부 · 무응답 제출 사유 귀속 수명(거부 즉시 · 결과 모름 창 만료) · 15:40 원인 에코 귀속 차단
+- [x] 24-11-PLAN.md — [WR-05] 거부 · 무응답 제출 사유 귀속 수명(거부 즉시 · 결과 모름 창 만료) · 15:40 원인 에코 귀속 차단
 
 **Wave 10** *(blocked on Wave 9 completion)*
 
