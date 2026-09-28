@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 24
 current_phase_name: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영
 status: executing
-stopped_at: Completed 24-17-PLAN.md
-last_updated: "2026-09-28T05:26:16.602Z"
+stopped_at: Completed 24-16-PLAN.md
+last_updated: "2026-09-28T07:22:05.968Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 24 execution started
-state_head: da374e3384eb2c714d787682cc86fafac5e33aef
+state_head: 7e8830a2c191659a5316a989abb3443d769f9687
 progress:
   total_phases: 33
   completed_phases: 4
   total_plans: 317
-  completed_plans: 300
+  completed_plans: 301
 milestone_name: milestone
 ---
 
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 24 (gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영) — EXECUTING
-Plan: 16 of 17
+Plan: 17 of 17
 Plans completed: 220 / 234
-Status: Ready to execute
+Status: Phase 24 갭 클로징 17/17 완료 — webapp 프로덕션 배포(7e8830a2 · relay 무변경) · 코드 리뷰 · 검증 대기
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-28 — 24-17 완료: D-35 추가매수 켬도 매도 · 취소 6체크 자동 동반(lib groupAutoChecksOf 한 벌 · 로그 그룹 이름 일반화 · e2e P24-12) · webapp 만 — 다음 24-16
+Last activity: 2026-09-28 — 24-16 완료: 전체 게이트 green(relay 651 · webapp 2757 · e2e 72) · 사용자 승인(결정 3건 수용) · push 7e8830a2 → master · Vercel Ready · relay 재배포 없음
 
 Progress: [█████████░] 93%
 
@@ -439,8 +439,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-09-28T05:26:07.266Z
-Stopped at: Completed 24-17-PLAN.md
+Last session: 2026-09-28T07:22:05.042Z
+Stopped at: Completed 24-16-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.

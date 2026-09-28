@@ -3,10 +3,10 @@ phase: 24-limitchaser-buy3
 plan: 16
 subsystem: deploy (webapp Vercel — relay 변경 없음)
 tags: [gap-closure, regression-gate, deploy, checkpoint, webapp]
-status: partial
+status: complete
 task1_status: complete (전체 회귀 게이트 green · relay 무변경 · 배포 절차 초안 — 배포하지 않음)
-task2_status: awaiting (checkpoint:human-verify gate=blocking-human — 스크린샷 6장 + 결정 3건 승인 대기)
-task3_status: pending (메인 세션 배포 — Task 2 승인 뒤에만)
+task2_status: complete (2026-09-28 사용자 「승인」 — 스크린샷 6장 · 결정 1 · 2 · 3 모두 수용)
+task3_status: complete (메인 세션 push 7e8830a2 → master · Vercel 프로덕션 Ready · relay 재배포 없음)
 requires: ["24-10", "24-11", "24-12", "24-13", "24-14", "24-15", "24-17"]
 provides:
   - "한 팁(08fdca6b)에서 갭 6건(WR-01 ~ WR-06) + D-35 회귀 증거 green — shared build · relay/webapp typecheck · relay 651 · webapp 2757(+1 skip) · Playwright 72 passed"
@@ -25,8 +25,8 @@ decisions:
   - "relay 재배포 없음 — 운영 relay:94ebc91c 유지(relay/ diff 0 · shared 는 buyOrderAmount 0 의미 주석만 바뀜 → 빌드 산출 동작 동일)"
   - "e2e 는 24-03 ~ 24-09 관행대로 기존 알려진 실패 3건(deferred-items)을 --grep-invert 로 뺐다 — 그 밖 실패 0 · 재실행 없음"
 metrics:
-  duration: "Task 1 ~6m (2026-09-28 14:27 ~ 14:33 KST) — Task 2 · 3 대기"
-  completed: "(미완 — Task 2 승인 · Task 3 배포 대기)"
+  duration: "Task 1 ~6m (2026-09-28 14:27 ~ 14:33 KST) · Task 2 승인 · Task 3 배포 16:19 ~ 16:21 KST"
+  completed: "2026-09-28"
 actuals:
   tokens: 4500
   tasks: 1
@@ -54,15 +54,15 @@ coverage:
         status: pass
   - deliverable: "사용자 승인 — 구서버 에코 스크린샷 6장 · 결정 3건"
     human_judgment: true
-    rationale: "Task 2 checkpoint:human-verify gate=blocking-human — 사람 눈 확인과 결정 수용 여부"
+    rationale: "Task 2 checkpoint:human-verify gate=blocking-human — 2026-09-28 사용자 「승인」(세 결정 모두 수용)"
   - deliverable: "webapp 프로덕션 배포(push · Vercel 확인 · 새로고침 안내)"
     human_judgment: true
-    rationale: "Task 3 는 메인 세션이 사용자 승인 뒤 수행 — 아직 미수행"
+    rationale: "Task 3 메인 세션 수행 — push 7e8830a2 · Vercel eldb28u2l Ready · 프로덕션 alias 확인"
 ---
 
-# Phase 24 Plan 16: 갭 클로징 마감 — 회귀 게이트 · 사용자 확인 · 배포 체크포인트 Summary (초안 — Task 2 대기)
+# Phase 24 Plan 16: 갭 클로징 마감 — 회귀 게이트 · 사용자 확인 · 배포 체크포인트 Summary
 
-**갭 6건(WR-01 ~ WR-06)과 D-35 가 한 팁 `08fdca6b` 에서 함께 green(relay 651 · webapp 2757 · e2e 72 passed)이고, relay 는 운영 이미지 `relay:94ebc91c` 이후 변경 0 · shared 는 주석뿐이라 재배포가 필요 없다. master 는 0/44 fast-forward · 밖 커밋 0. 아무것도 배포하지 않았다 — Task 2 사용자 승인 대기.**
+**갭 6건(WR-01 ~ WR-06)과 D-35 가 한 팁 `08fdca6b` 에서 함께 green(relay 651 · webapp 2757 · e2e 72 passed)이고, relay 는 운영 이미지 `relay:94ebc91c` 이후 변경 0 · shared 는 주석뿐이라 재배포가 필요 없다. master 는 0/44 fast-forward · 밖 커밋 0. 사용자 「승인」 뒤 메인 세션이 `7e8830a2` 를 master 로 fast-forward push 했고 Vercel 프로덕션 빌드가 그 커밋으로 Ready 가 됐다(relay 재배포 없음).**
 
 > Task 1 은 서브에이전트가 수행했다(배포 명령 미실행 — `git push` · `vercel` · `deploy-relay.sh` 0회). Task 2 는 사람 확인, Task 3 은 메인 세션 배포다.
 
@@ -140,11 +140,21 @@ coverage:
 
 ## 사용자 승인 (Task 2)
 
-_대기 중 — 스크린샷 6장(`reference/24-13-legacy/`) 확인 결과와 결정 1 · 2 · 3 답을 여기에 적는다._
+2026-09-28 사용자 답: **「승인」** — 세 결정 모두 수용.
+
+- 스크린샷 6장(`reference/24-13-legacy/` 라이트/다크 × 344 매수 · 344 매도 · 992): 채택. 344 에서 상태 문구 두 줄 접힘(UI-SPEC P24-7 허용 범위) · 사유 패널이 이미 켜진 카드 이름까지 나열하는 모양 포함해 수정 요청 없음.
+- 결정 1 (D-03 / Phase 20 D-04a 재해석 — buy3 에코 선매수 금액 0 = 미입력 · 구서버 에코의 「금액부터 받는」 경로 제거): 수용.
+- 결정 2 (구서버 에코 「매수주문부터 끄기」 규칙 — 끄는 방향 ∧ 결과 매수주문 OFF 만 전송): 수용.
+- 결정 3 (WR-06 남는 한계 — 동시에 보이는 두 인스턴스 각 1건 · 한 왕복 안쪽 편집 되돌림 · relay/서버 비교 후 쓰기 이월 · 현 운영 D-34 미도달): 수용.
 
 ## 배포 기록 (Task 3)
 
-_대기 중 — push 커밋 · `origin/master...HEAD` · Vercel 배포 URL/상태 · 새로고침 안내 시각 · relay 재배포 없음 근거._
+- push 직전: `git status -sb` 추적 변경 0(미추적 3건은 타 세션 것) · `git fetch` 뒤 `origin/master...HEAD` = **0 45** · 밖 커밋 0.
+- push (2026-09-28 16:19:45 KST): `git push origin HEAD:master` → `6adbc680..7e8830a2` (fast-forward) · `git push origin HEAD` → 브랜치 `f2afd64c..7e8830a2`.
+- Vercel: 프로덕션 배포 `https://gh-radar-webapp-eldb28u2l-alexs-projects-eabbefc0.vercel.app` — 16:19:46 생성 · **Ready**(자동 빌드 — docs 팁이었지만 ignoreCommand 가 건너뛰지 않음, 수동 배포 불필요) · `meta.githubCommitSha = 7e8830a2c191659a5316a989abb3443d769f9687` · alias `gh-radar-webapp.vercel.app` · `trade.jx1.io` 가 이 배포를 가리킴. `/trading` 응답 307(로그인 리다이렉트 — 정상).
+- relay 재배포 없음 — `94ebc91c..HEAD -- relay/` 변경 0 · shared 주석뿐(Task 1 ②). 운영 `relay:94ebc91c` 유지.
+- 새로고침 안내: 16:21 KST — 열린 탭 · 앱 WebView 를 새로고침해야 새 JS(구서버 판별 · 동반 재계산 · D-35 자동 체크)가 실린다. 웹 변경이라 앱 릴리스 불필요.
+- 운영 눈 확인 · 300ms 창 관찰 등 human_verification 4건은 `/gsd-verify-work 24` UAT 몫.
 
 ## Deviations from Plan
 
@@ -158,3 +168,8 @@ None — 문서 전용 플랜.
 
 - 스크린샷 `light-344-buy.png` / `dark-344-buy.png` 에서 매수주문 카드 상태 「구서버 전략 · 끄기만 가능」이 본문 344 의 좁은 설정 열에서 두 줄(「구서버 전략 ·」 / 「끄기만 가능」)로 접힌다. 잘림은 없다. 992 에서는 한 줄. 사용자 판단 대상으로 Task 2 에 올린다(게이트 플랜이라 여기서 고치지 않음).
 - 344 카드 헤더 종목명 「삼…」 말줄임은 기존 deferred 1 · 2(카드 헤더 이름 칸 폭)와 같은 뿌리.
+
+## Self-Check: PASSED
+
+- `24-16-SUMMARY.md` 존재 · Task 1 커밋 `7e8830a2` 존재 · origin/master = `7e8830a2`.
+- Vercel 프로덕션 배포 Ready · commit SHA 일치 · 프로덕션 alias 확인.
