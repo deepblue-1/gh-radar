@@ -66,7 +66,7 @@
  *
  * ⑥ 토스트를 쓰지 않는다 (UI-SPEC D3)
  *   결과는 행(값 강조 900ms · 실패 링/말풍선) · 시트 상태 줄 · 폼 맨 위 한 줄(스위치·체크
- *   전송 끊김) · 그룹 카드 사전 검증 줄(그룹 켜기 거절 · Phase 24 §7) · 상태줄 · 전략 로그(D-16 은
+ *   전송 끊김) · 그룹 카드 사전 검증 줄(그룹 켜기 거절 · Phase 24 §7) · 상태줄 · 전략 로그(D-36 은
  *   `onClientLog` 한 줄)로만 알린다.
  *
  * ⑦ ★ 색 규칙 (UI-SPEC Color)
@@ -151,6 +151,7 @@ import {
 } from '@/components/trading/lc/setting-group';
 import {
   LC_COMMIT_TEXT,
+  lcExtraBuyUpperLimitBlockOf,
   lcGroupAmountBlockOf,
   lcLegacyBlockOf,
   useLcFieldCommit,
@@ -569,12 +570,14 @@ export interface LimitChaserFormProps {
    */
   tickRule?: TickRule;
   /**
-   * 호가 매수1호가(`RelayQuote.bp[0]`) — D-16 판정 입력. 호가 미수신이면 0(기본) — 0 이면 D-16 은 허용이다
+   * 호가 매수1호가(`RelayQuote.bp[0]`) — D-36 판정 입력. 호가 미수신이면 0(기본) — 0 이면 D-36 은 허용이다
    * (상한가로 치환하지 않는다 · D-20).
    */
   bestBid?: number;
+  /** 호가 매수1잔량(`RelayQuote.bq[0]`) — D-36 판정 입력. 미수신이면 0 = 허용(하한 미만 · 서버 「모름」 규칙이 백스톱). */
+  bestBidQty?: number;
   /**
-   * 클라 합성 전략 로그 한 줄 통로(D-16 — 카드 `pushClientLog`). 제출이 없어 에코가 말해 줄 수 없는 사건만 쓴다.
+   * 클라 합성 전략 로그 한 줄 통로(D-36 — 카드 `pushClientLog`). 제출이 없어 에코가 말해 줄 수 없는 사건만 쓴다.
    * 토스트 · 다이얼로그를 쓰지 않는 이유는 파일 상단 ⑥.
    */
   onClientLog?: (text: string, level: 'info' | 'error') => void;
@@ -599,6 +602,7 @@ export function LimitChaserForm({
   currentPrice = 0,
   tickRule,
   bestBid = 0,
+  bestBidQty = 0,
   onClientLog,
   className,
 }: LimitChaserFormProps) {
@@ -917,6 +921,8 @@ export function LimitChaserForm({
   serverRef.current = server;
   const bestBidRef = useRef(bestBid);
   bestBidRef.current = bestBid;
+  const bestBidQtyRef = useRef(bestBidQty);
+  bestBidQtyRef.current = bestBidQty;
   const clientLogRef = useRef(onClientLog);
   clientLogRef.current = onClientLog;
   const upperLimitRef = useRef(upperLimit ?? 0);
@@ -973,11 +979,15 @@ export function LimitChaserForm({
         }
         // 통과했다 = 그 카드에 떠 있던 사유는 이제 사실이 아니다.
         setPrecheck((cur) => (cur !== null && cur.slot === slot ? null : cur));
-        // D-16 — 추가매수만 · 매수1호가 == 비교가격(둘 다 > 0)이면 상한가 도달로 본다. 제출 없이 로그 원문 한 줄만
-        //   (사전 검증 줄 · 다이얼로그 · 토스트 없음). 둘 중 하나라도 0 이면 허용 — 0 을 상한가로 치환하지 않는다(D-20).
-        const bid = bestBidRef.current;
-        if (gate === 'extraBuyEnabled' && bid > 0 && pressed.buyWatchPrice > 0 && bid === pressed.buyWatchPrice) {
-          clientLogRef.current?.(LC_COMMIT_TEXT.extraBuyAtUpperLimit, 'error');
+        // D-36(D-16 개정) — 추가매수만 · 매수1호가 == 비교가격(둘 다 > 0) ∧ 매수1잔량 ≥ 최소(0 이면 1)이면 두꺼운 벽에
+        //   붙은 상한가로 본다. 제출 없이 로그 원문 한 줄만(사전 검증 줄 · 다이얼로그 · 토스트 · 자동 체크 없음 — 어떤
+        //   자동 체크 슬롯도 건드리지 않는다). 얇은 벽 · 잔량 모름(0) · 호가 모름은 허용 — 0 을 상한가로 치환하지 않는다(D-20).
+        const upperBlock =
+          gate === 'extraBuyEnabled'
+            ? lcExtraBuyUpperLimitBlockOf(bestBidRef.current, bestBidQtyRef.current, pressed)
+            : null;
+        if (upperBlock !== null) {
+          clientLogRef.current?.(upperBlock, 'error');
           return;
         }
         /*
@@ -985,13 +995,13 @@ export function LimitChaserForm({
           에 동반으로 싣는다(확인창 · 토스트 · 매도 탭 이동 · 링크 없음 · 후매수는 대상 아님 — 마스터 동반만). 에코 · 재접속 ·
           다른 단말 변경으로 그 그룹이 ON 이 되는 경로(서버 값 이펙트 · D-02 후반 `dropMasterAfterServerFold`)에서는
           `groupAutoChecksOf` 를 부르지 않는다 — 계산은 이 핸들러가 넘긴 함수 안에서만 돈다. 추가매수 고유 사전 거부(사전
-          검증 줄 · D-16)는 위에서 먼저 끝났다 — 거부면 여기까지 오지 않는다. 0 인 매도 가격은 상한가를 알 때만 명시 값으로
+          검증 줄 · D-36)는 위에서 먼저 끝났다 — 거부면 여기까지 오지 않는다. 0 인 매도 가격은 상한가를 알 때만 명시 값으로
           채운다(D-20).
           ★ WR-03 — 동반은 값이 아니라 **판정 시점에 계산하는 함수**다. 훅이 그 확정의 판정 시점(누른 순간 · 대기열에서
             꺼내는 순간)의 서버 동기값(`base`)으로 부른다 — 앞 확정이 in-flight 인 동안 사람이 확정한 매도 가격을 낡은 상한가
             채움이 덮지 않고, 그사이 0 이 된 매도 매수잔량에 `sellEnabled` 를 싣지 않는다(relay 프레임 전체 거부 방지).
             D-01 마스터 동반도 같은 기준이다(전송 시점 서버 값이 이미 켜져 있으면 싣지 않는다).
-            사전 검증 · D-16 은 위에서 누르는 순간 판정한다(R7).
+            사전 검증 · D-36 은 위에서 누르는 순간 판정한다(R7).
         */
         const autoGate: AutoCheckGate | null = gate === 'preBuyEnabled' || gate === 'extraBuyEnabled' ? gate : null;
         // 자기 그룹 슬롯만 비운다 — 후매수(autoGate null)는 어떤 슬롯도 건드리지 않는다(GC-WR-04).

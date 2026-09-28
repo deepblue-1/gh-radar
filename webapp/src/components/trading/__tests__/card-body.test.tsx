@@ -668,17 +668,22 @@ describe('⑦ D-15a — 종목 분류가 두 폼의 호가 단위 잠금을 가�
   });
 });
 
-describe('24-06 — 폼에 매수1호가(bestBid) · 클라 로그 통로(onClientLog) 를 넘긴다 (D-16)', () => {
-  const D16 = '추가매수는 상한가 도달 전에만 켤 수 있습니다 — 매수1호가 == 비교가격';
+describe('24-22 — 폼에 매수1호가 · 매수1잔량(bestBid · bestBidQty) · 클라 로그 통로를 넘긴다 (D-36)', () => {
+  const D36_200 =
+    '추가매수는 상한가 도달 전 또는 매수1잔량이 최소 미만일 때만 켤 수 있습니다 — 매수1호가 == 비교가격, 매수1잔량 200 ≥ 최소 1';
+  const BP = Array.from({ length: 10 }, (_, i) => 130_000 - i * 100);
+  const lcSets = () =>
+    sendMock.mock.calls
+      .map(([m]) => m as { t?: string; cfg?: Record<string, unknown> })
+      .filter((m) => m?.t === 'lc.set');
 
-  it('호가 매수1호가 == 비교가격 → 추가매수 켜기가 카드 pushClientLog 로 D-16 원문(error) 1줄 · 전송 0', () => {
-    const pushClientLog = vi.fn();
+  function pressExtraBuy(serverOver: Partial<RelayLimitChaser>, q: RelayQuote | null, pushClientLog = vi.fn()) {
     render(
       <CardBody
         {...props({
           card: cardState({
-            server: server({ buyEnabled: true, extraBuyOrderAmount: 50 }),
-            quote: quote({ bp: Array.from({ length: 10 }, (_, i) => 130_000 - i * 100) }),
+            server: server({ buyEnabled: true, extraBuyOrderAmount: 50, ...serverOver }),
+            quote: q,
             pushClientLog,
           }),
         })}
@@ -687,21 +692,35 @@ describe('24-06 — 폼에 매수1호가(bestBid) · 클라 로그 통로(onClie
     act(() => {
       fireEvent.click(screen.getByRole('switch', { name: '추가매수 켜기' }));
     });
-    expect(pushClientLog).toHaveBeenCalledWith(D16, 'error');
+    return pushClientLog;
+  }
+
+  it('두꺼운 벽 — 매수1호가 == 비교가격 ∧ 매수1잔량 200 ≥ 최소(0 → 1) → 카드 pushClientLog 로 D-36 원문(error) 1줄 · 전송 0', () => {
+    const bq = BP.map((_, i) => (i === 0 ? 200 : 300));
+    const pushClientLog = pressExtraBuy({}, quote({ bp: BP, bq }));
+    expect(pushClientLog).toHaveBeenCalledTimes(1);
+    expect(pushClientLog).toHaveBeenCalledWith(D36_200, 'error');
+    expect(lcSets()).toHaveLength(0);
   });
 
-  it('호가 미수신(quote null)이면 bestBid 0 — D-16 은 허용(로그 없음)', () => {
-    const pushClientLog = vi.fn();
-    render(
-      <CardBody
-        {...props({
-          card: cardState({ server: server({ buyEnabled: true, extraBuyOrderAmount: 50 }), quote: null, pushClientLog }),
-        })}
-      />,
-    );
-    act(() => {
-      fireEvent.click(screen.getByRole('switch', { name: '추가매수 켜기' }));
-    });
+  it('얇은 벽 — 상한가라도 매수1잔량 200 < 최소 500 → 로그 0 · 전송 1(extraBuyEnabled true)', () => {
+    const bq = BP.map((_, i) => (i === 0 ? 200 : 300));
+    const pushClientLog = pressExtraBuy({ extraBuyMinQty: 500 }, quote({ bp: BP, bq }));
+    expect(pushClientLog).not.toHaveBeenCalled();
+    expect(lcSets()).toHaveLength(1);
+    expect(lcSets()[0]!.cfg!.extraBuyEnabled).toBe(true);
+  });
+
+  it('잔량 모름 — 매수1잔량 0 → 하한 미만이라 허용 · 로그 0 · 전송 1', () => {
+    const bq = BP.map((_, i) => (i === 0 ? 0 : 300));
+    const pushClientLog = pressExtraBuy({}, quote({ bp: BP, bq }));
+    expect(pushClientLog).not.toHaveBeenCalled();
+    expect(lcSets()).toHaveLength(1);
+    expect(lcSets()[0]!.cfg!.extraBuyEnabled).toBe(true);
+  });
+
+  it('호가 미수신(quote null)이면 bestBid 0 — D-36 은 허용(로그 없음)', () => {
+    const pushClientLog = pressExtraBuy({}, null);
     expect(pushClientLog).not.toHaveBeenCalled();
   });
 });
