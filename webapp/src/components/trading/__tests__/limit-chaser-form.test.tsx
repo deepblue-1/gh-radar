@@ -1198,6 +1198,62 @@ describe('WR-07 · D-04a — 서버가 주문금액을 모르는 레거시 전�
   });
 });
 
+describe('WR-01 — buy3 선매수 금액 0 전략은 새 마운트 · 재마운트 뒤에도 편집된다 (24-VERIFICATION 갭 1)', () => {
+  /**
+   * 후매수 전용 buy3 전략 — 선매수 금액 0(미입력) · 선매수 수량 0 · 후매수 켜짐 · 매도 켜짐. 새로고침 뒤 첫 마운트와 같다.
+   * buy3 서버는 선매수 금액을 늘 싣는다 — 0 은 「서버가 모른다」(구서버 D-04a)가 아니라 「선매수 금액 미입력」(D-03)이다.
+   */
+  const postOnly = (over: Partial<RelayLimitChaser> = {}) =>
+    echo({
+      buy3Schema: 1,
+      buyOrderAmount: 0,
+      buyOrderQty: 0,
+      buyEnabled: true,
+      postBuyEnabled: true,
+      postBuyOrderAmount: 4000,
+      postBuyReboundPct: 30,
+      postBuyFloorQty: 100_000,
+      postBuyReentry: 3,
+      sellEnabled: true,
+      ...over,
+    });
+  const AMOUNT_FIRST = '주문금액을 먼저 입력해 주세요';
+
+  it('첫 마운트 — 선매수 금액 행 「—」 · 후매수 반등 확정이 1건 나간다(선매수 금액 · 수량 0 그대로) · 「주문금액을 먼저 입력해 주세요」 없음', () => {
+    render(<LimitChaserForm {...props({ server: postOnly() })} />);
+    expect(rowText('lc-buy-order-amount')).toBe('—');
+    expect(row('lc-buy-order-amount')).toHaveAccessibleName('선매수 금액 미입력');
+    click(fold('post-buy'));
+    editInline('lc-post-buy-rebound', '40');
+    expect(sentConfigs()).toHaveLength(1);
+    const cfg = lastConfig();
+    expect(cfg.postBuyReboundPct).toBe(40);
+    expect(cfg.buyOrderAmount).toBe(0);
+    expect(cfg.buyOrderQty).toBe(0);
+    expect(screen.queryByText(AMOUNT_FIRST)).toBeNull();
+  });
+
+  it('재마운트 — unmount 뒤 새 render 에서도 비교가격 확정이 1건 나간다', () => {
+    const first = render(<LimitChaserForm {...props({ server: postOnly() })} />);
+    first.unmount();
+    render(<LimitChaserForm {...props({ server: postOnly() })} />);
+    editInline('lc-buy-watch-price', '129000');
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().buyWatchPrice).toBe(129_000);
+    expect(lastConfig().buyOrderAmount).toBe(0);
+    expect(screen.queryByText(AMOUNT_FIRST)).toBeNull();
+  });
+
+  it('선매수 금액 행을 300 으로 확정 → 1건 · cfg buyOrderAmount 300(정상 값 확정 경로)', () => {
+    render(<LimitChaserForm {...props({ server: postOnly() })} />);
+    editInline('lc-buy-order-amount', '300');
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().buyOrderAmount).toBe(300);
+    // floor(300만원 / 130,000) = 23주
+    expect(lastConfig().buyOrderQty).toBe(23);
+  });
+});
+
 describe('⑮ 매수 카드 4장 · 제목줄 접기 · 요약 줄 · 자동 펼침 · 후매수 단계 (Phase 24 ⑤ ⑥ ⑩ · R1)', () => {
   const FOLD_SLOTS = ['pre-buy', 'extra-buy', 'post-buy'] as const;
   const rowsOf = (slot: string) => group(slot).querySelector('[data-slot="lc-group-rows"]') as HTMLElement;
