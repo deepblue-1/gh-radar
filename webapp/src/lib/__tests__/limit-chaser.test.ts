@@ -27,6 +27,8 @@ import {
   exchangeLabeledName,
   formFromServer,
   isDeleteIntent,
+  isLegacyAmountUnknown,
+  isLegacyBuySchema,
   isLimitChaserArmRejection,
   isLimitChaserSetRejection,
   isMarketCloseReleaseNotice,
@@ -326,6 +328,22 @@ describe('estimatedSellQty — 예상 매도수량(표시 전용)', () => {
   });
 });
 
+describe('isLegacyBuySchema · isLegacyAmountUnknown — 구서버 판별 단일 지점 (24-REVIEW WR-01)', () => {
+  it('isLegacyBuySchema — 에코 없음 false · buy3Schema 0 true · 1 false', () => {
+    expect(isLegacyBuySchema(null)).toBe(false);
+    expect(isLegacyBuySchema(undefined)).toBe(false);
+    expect(isLegacyBuySchema(serverEcho({ buy3Schema: 0 }))).toBe(true);
+    expect(isLegacyBuySchema(serverEcho({ buy3Schema: 1 }))).toBe(false);
+  });
+
+  it('isLegacyAmountUnknown — 구서버 ∧ 금액 0 만 true', () => {
+    expect(isLegacyAmountUnknown(serverEcho({ buy3Schema: 0, buyOrderAmount: 0 }))).toBe(true);
+    expect(isLegacyAmountUnknown(serverEcho({ buy3Schema: 1, buyOrderAmount: 0 }))).toBe(false);
+    expect(isLegacyAmountUnknown(serverEcho({ buy3Schema: 0, buyOrderAmount: 20 }))).toBe(false);
+    expect(isLegacyAmountUnknown(null)).toBe(false);
+  });
+});
+
 describe('formFromServer — 에코 → 폼 (D-11 서버값 우선)', () => {
   it('서버값을 그대로 폼으로 옮긴다', () => {
     const prev = defaultLimitChaserForm();
@@ -339,10 +357,16 @@ describe('formFromServer — 에코 → 폼 (D-11 서버값 우선)', () => {
     expect('buyWatchSide' in next).toBe(false);
   });
 
-  it('`buyOrderAmount === 0` 이면 금액 칸을 덮지 않는다 (Pitfall 11)', () => {
+  it('구서버 에코(`buy3Schema 0`)의 `buyOrderAmount === 0` 이면 금액 칸을 덮지 않는다 (Pitfall 11 · D-04a)', () => {
     const prev: LimitChaserFormValues = { ...defaultLimitChaserForm(), buyOrderAmount: 150 };
-    expect(formFromServer(serverEcho({ buyOrderAmount: 0 }), prev).buyOrderAmount).toBe(150);
-    expect(formFromServer(serverEcho({ buyOrderAmount: 20 }), prev).buyOrderAmount).toBe(20);
+    expect(formFromServer(serverEcho({ buy3Schema: 0, buyOrderAmount: 0 }), prev).buyOrderAmount).toBe(150);
+    expect(formFromServer(serverEcho({ buy3Schema: 0, buyOrderAmount: 20 }), prev).buyOrderAmount).toBe(20);
+  });
+
+  it('WR-01 — buy3 에코(`buy3Schema 1`)의 선매수 금액 0 은 0 그대로 들어온다(이전 폼 값으로 메우지 않는다 · T-24-45)', () => {
+    const prev: LimitChaserFormValues = { ...defaultLimitChaserForm(), buyOrderAmount: 150 };
+    expect(formFromServer(serverEcho({ buy3Schema: 1, buyOrderAmount: 0 }), prev).buyOrderAmount).toBe(0);
+    expect(formFromServer(serverEcho({ buy3Schema: 1, buyOrderAmount: 20 }), prev).buyOrderAmount).toBe(20);
   });
 
   it('Phase 24 D-03 — 추가매수 · 후매수 금액 0 은 0 그대로 들어온다(이전 폼 값으로 메우지 않는다)', () => {

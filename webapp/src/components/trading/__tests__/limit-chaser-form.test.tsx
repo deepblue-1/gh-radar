@@ -873,10 +873,10 @@ describe('⑬ 에코가 목록을 이긴다 · 편집 중 버퍼는 보존 (D-11
     expect(onServerEcho).toHaveBeenLastCalledWith({ changed: 1, overwrittenDirty: 0 });
   });
 
-  it('`buyOrderAmount: 0` 에코(서버가 모른다 · Pitfall 11) → 주문금액 행은 폼에 남은 값이 아니라 「—」 (D-04a · WR-07)', () => {
+  it('구서버 `buyOrderAmount: 0` 에코(서버가 모른다 · Pitfall 11) → 주문금액 행은 폼에 남은 값이 아니라 「—」 (D-04a · WR-07)', () => {
     const { rerender } = render(<LimitChaserForm {...props()} />);
     expect(rowText('lc-buy-order-amount')).toBe('50만원');
-    rerender(<LimitChaserForm {...props({ server: echo({ buyOrderAmount: 0, buyWatchQty: 7_000 }) })} />);
+    rerender(<LimitChaserForm {...props({ server: echo({ buy3Schema: 0, buyOrderAmount: 0, buyWatchQty: 7_000 }) })} />);
     // 폼은 옛 금액을 버리지 않지만(formFromServer) 서버 사실이 아니므로 보이지 않는다.
     expect(rowText('lc-buy-order-amount')).toBe('—');
     expect(rowText('lc-buy-watch-qty')).toBe('7,000주');
@@ -1112,9 +1112,9 @@ describe('D-15a — 상따 인라인도 ETP·분류 불명은 호가 단위 위�
 });
 
 describe('WR-07 · D-04a — 서버가 주문금액을 모르는 레거시 전략(에코 금액 0)', () => {
-  /** 레거시 — 서버 금액 0 · 수량 500주 · 매수 무장. */
+  /** 레거시 — 구서버 에코(`buy3Schema 0`) · 서버 금액 0 · 수량 500주 · 매수 무장. */
   const legacy = (over: Partial<RelayLimitChaser> = {}) =>
-    echo({ buyOrderAmount: 0, buyOrderQty: 500, buyEnabled: true, ...over });
+    echo({ buy3Schema: 0, buyOrderAmount: 0, buyOrderQty: 500, buyEnabled: true, ...over });
   const AMOUNT_FIRST = '주문금액을 먼저 입력해 주세요';
 
   it('선매수 금액 행은 클라 기본값(10만원)이 아니라 「—」 · 접근성 이름 「선매수 금액 미입력」', () => {
@@ -1820,7 +1820,7 @@ describe('⑱ 그룹 켜기 사전 검증 줄 · D-16 · D-11 재제출 (24-06 �
   });
 
   it('R8 — 서버가 금액을 모르는(레거시) 선매수 켜기 → 선매수 카드 사전 검증 줄 · 폼 맨 위 줄에는 뜨지 않는다', () => {
-    render(<LimitChaserForm {...props({ server: echo({ buyOrderAmount: 0, buyOrderQty: 500 }) })} />);
+    render(<LimitChaserForm {...props({ server: echo({ buy3Schema: 0, buyOrderAmount: 0, buyOrderQty: 500 }) })} />);
     click(sw('선매수 켜기'));
     expect(sentConfigs()).toHaveLength(0);
     expect(precheckIn('pre-buy')?.textContent).toBe(AMOUNT_FIRST);

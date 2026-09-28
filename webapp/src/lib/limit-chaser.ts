@@ -15,9 +15,11 @@
  *   - ★ **역산 금지.** `수량 × 가격 ÷ 10000` 으로 금액을 되돌리지 않는다. 나머지가 잘리면서
  *     왕복이 깨진다 — gh-trade 에 **무장 수량 2주가 598주로 튄 실측 사고**가 있다(약 300배).
  *     금액 → 수량 한 방향만 존재하고, 그 방향이 이 파일에 딱 한 번 나온다.
- *   - ★ **`buyOrderAmount === 0` 은 「서버가 모른다」**는 뜻이다(Pitfall 11 — 구 클라가 보냈거나
- *     한 번도 실린 적이 없다). 금액 칸을 덮지 않고, 더티 비교에서도 뺀다. 덮으면 사용자가
- *     방금 입력한 금액이 사라지고, 비교에 넣으면 액션 바가 영원히 떠 있는다.
+ *   - ★ **선매수 금액 0 이 「서버가 모른다」인 것은 구서버 에코(`buy3Schema 0`)에서만이다**(Pitfall 11 ·
+ *     Phase 20 D-04a — 구 클라가 보냈거나 한 번도 실린 적이 없다). 그때만 금액 칸을 덮지 않는다 — 덮으면
+ *     사용자가 방금 입력한 금액이 사라진다. buy3 서버는 선매수 금액을 늘 싣으므로 buy3 에코의 0 은
+ *     「선매수 금액 미입력」이다(D-03 추가 · 후매수 금액 0 과 같은 뜻 · 24-REVIEW WR-01). 판별은
+ *     `isLegacyAmountUnknown` 한 곳이다.
  *   - ★ **삭제 판정에 취소 게이트를 포함**한다(Pitfall 7). 매수·매도만 보면 「자동취소만 켠
  *     전략」을 삭제로 오판한다 — 서버는 취소 게이트가 하나라도 켜져 있으면 전략을 남긴다.
  *   - ★ **S→C 전용 4필드**(`sellOrderQty`·`sellQtyTrackBaseline`·`sellEntryLatched`·
@@ -505,13 +507,39 @@ export function estimatedSellQty(sellableQty: number, ratio: number): number {
 }
 
 /**
+ * 구서버 에코인가 — relay 가 「판정은 UI 몫」이라며 넘긴 `buy3Schema` 판별자를 읽는 **유일 지점**이다
+ * (relay `envelope.ts` · 24-REVIEW WR-01 · WR-02).
+ *
+ * buy3 서버의 에코는 늘 `buy3Schema 1` 을 싣고, 구서버(필드 부재)는 relay 가 0 으로 채운다. 훅 · 폼 · 카드는
+ * `buy3Schema` 를 직접 비교하지 않고 이 함수(또는 아래 `isLegacyAmountUnknown`)만 읽는다 — 판정이 둘이면
+ * 한쪽만 고쳐진다. 에코가 없으면(미등록 전략) 구서버가 아니다.
+ */
+export function isLegacyBuySchema(server: RelayLimitChaser | null | undefined): boolean {
+  return server != null && server.buy3Schema === 0;
+}
+
+/**
+ * 서버가 선매수 금액을 **모르는가** — 구서버 에코이면서 선매수 금액이 0 이다(Phase 20 D-04a · Pitfall 11).
+ *
+ * D-04a 의 정의 「서버가 금액을 모르는 레거시 전략」은 구서버 에코에서만 성립한다. buy3 서버는 선매수 금액을
+ * 늘 싣으므로 buy3 에코의 0 은 「선매수 금액 미입력」 — D-03 추가 · 후매수 금액 0 과 같은 뜻이다(행 「—」 ·
+ * 선매수 켜기만 막힘 · 다른 행 자유 · 24-REVIEW WR-01 · IN-04). `formFromServer` 의 금액 보존과 훅의
+ * `amountRequired` · 전송 직전 금액 가드 · 금액 확정 특례 · 금액 앎 해제가 모두 이 함수를 읽는다.
+ */
+export function isLegacyAmountUnknown(server: RelayLimitChaser | null | undefined): boolean {
+  return isLegacyBuySchema(server) && server?.buyOrderAmount === 0;
+}
+
+/**
  * 에코 → 폼 (D-11 서버값 우선).
  *
  * 더티 필드도 **덮어쓴다** — 편집 중 보호·보류가 없다. 값이 바뀌는 순간을 사용자가 놓치지
  * 않도록 배너를 띄우는 것은 상위 화면 책임이고, 여기서는 「서버가 이긴다」만 실행한다.
  *
- * 유일한 예외가 `buyOrderAmount === 0` 이다 — 「서버가 모른다」이므로 이전 값을 남긴다
- * (Pitfall 11). 수량 × 가격 역산으로 채우지도 않는다.
+ * 유일한 예외가 **구서버 에코의** 선매수 금액 0 이다(`isLegacyAmountUnknown`) — 「서버가 모른다」이므로
+ * 이전 값을 남긴다(Pitfall 11 · D-04a). 수량 × 가격 역산으로 채우지도 않는다. buy3 에코의 선매수 금액 0 은
+ * 「미입력」이라 0 그대로 들인다 — 이전 폼 값(기본 4,000만원)으로 메우면 다음 확정이 사용자가 두지 않은
+ * 금액 · 수량을 조용히 싣는다(T-24-45).
  */
 export function formFromServer(
   server: RelayLimitChaser,
@@ -524,7 +552,7 @@ export function formFromServer(
     buyTradeQtyEnabled: server.buyTradeQtyEnabled,
     buyEnabled: server.buyEnabled,
     buyOrderPrice: server.buyOrderPrice,
-    buyOrderAmount: server.buyOrderAmount === 0 ? prev.buyOrderAmount : server.buyOrderAmount,
+    buyOrderAmount: isLegacyAmountUnknown(server) ? prev.buyOrderAmount : server.buyOrderAmount,
     sweepWatchPrice: server.sweepWatchPrice,
     sweepMinTickCount: server.sweepMinTickCount,
     sweepEnabled: server.sweepEnabled,
@@ -546,8 +574,8 @@ export function formFromServer(
     extraBuyEnabled: server.extraBuyEnabled,
     extraBuyMinQty: server.extraBuyMinQty,
     extraBuyMaxQty: server.extraBuyMaxQty,
-    // ★ 금액 0 도 그대로 들인다 — `buyOrderAmount` 의 「0 이면 prev 보존」 특례를 따르지 않는다.
-    //   새 서버는 이 두 금액을 늘 싣기 때문에 0 은 「모른다」가 아니라 사용자가 둔 값이다(D-03).
+    // ★ 금액 0 도 그대로 들인다 — 선매수와 같은 규칙이다(구서버 에코의 선매수 금액만 예외 · `isLegacyAmountUnknown`).
+    //   buy3 서버는 세 금액을 늘 싣기 때문에 0 은 「모른다」가 아니라 사용자가 둔 값이다(D-03).
     extraBuyOrderAmount: server.extraBuyOrderAmount,
     postBuyEnabled: server.postBuyEnabled,
     postBuyReboundPct: server.postBuyReboundPct,

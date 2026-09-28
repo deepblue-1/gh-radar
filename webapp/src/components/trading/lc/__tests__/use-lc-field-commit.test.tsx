@@ -494,8 +494,8 @@ describe('Task 2 — 타임아웃 · 직렬화 · 무장 가드 · 토글', () =
     expect(t.cfgs()[0]!.cancelTradeEnabled).toBe(true);
   });
 
-  it('CR-03 — `buyOrderAmount` 에코가 0(서버가 모른다)이어도 **답 신호만 오고 서버가 그대로면 거부**다(거부에는 에코가 없다)', () => {
-    const t = setup({ server: echo({ buyOrderAmount: 0 }) });
+  it('CR-03 — 구서버 `buyOrderAmount` 에코가 0(서버가 모른다)이어도 **답 신호만 오고 서버가 그대로면 거부**다(거부에는 에코가 없다)', () => {
+    const t = setup({ server: echo({ buy3Schema: 0, buyOrderAmount: 0 }) });
     act(() => {
       t.hook.result.current.commit('buyOrderAmount', 20, 'value');
     });
@@ -511,26 +511,26 @@ describe('Task 2 — 타임아웃 · 직렬화 · 무장 가드 · 토글', () =
     expect(t.formRef.current.buyOrderAmount).not.toBe(20);
   });
 
-  it('CR-03 — 금액 0 에코가 **왔고** 그 수량이 보낸 수량과 같으면 성공 · 폼이 새 금액을 든다(다음 전송이 수량을 되돌리지 않게)', () => {
-    const t = setup({ server: echo({ buyOrderAmount: 0, buyOrderQty: 7 }) });
+  it('CR-03 — 구서버 금액 0 에코가 **왔고** 그 수량이 보낸 수량과 같으면 성공 · 폼이 새 금액을 든다(다음 전송이 수량을 되돌리지 않게)', () => {
+    const t = setup({ server: echo({ buy3Schema: 0, buyOrderAmount: 0, buyOrderQty: 7 }) });
     act(() => {
       t.hook.result.current.commit('buyOrderAmount', 20, 'value');
     });
     // 테스트 조립기는 buyOrderQty: 1 을 싣는다 — 반영됐다면 에코 수량이 1 이다.
     expect(t.cfgs()[0]!.buyOrderQty).toBe(1);
-    t.update({ server: echo({ buyOrderAmount: 0, buyOrderQty: 1 }) });
+    t.update({ server: echo({ buy3Schema: 0, buyOrderAmount: 0, buyOrderQty: 1 }) });
     expect(t.hook.result.current.failures.buyOrderAmount).toBeUndefined();
     expect(t.hook.result.current.flashField).toBe('buyOrderAmount');
     expect(t.hook.result.current.inflightField).toBeNull();
     expect(t.formRef.current.buyOrderAmount).toBe(20);
   });
 
-  it('CR-03 — 금액 0 에코가 왔어도 수량이 보낸 수량과 다르면(무관한 에코) 성공이 아니다', () => {
-    const t = setup({ server: echo({ buyOrderAmount: 0, buyOrderQty: 7 }) });
+  it('CR-03 — 구서버 금액 0 에코가 왔어도 수량이 보낸 수량과 다르면(무관한 에코) 성공이 아니다', () => {
+    const t = setup({ server: echo({ buy3Schema: 0, buyOrderAmount: 0, buyOrderQty: 7 }) });
     act(() => {
       t.hook.result.current.commit('buyOrderAmount', 20, 'value');
     });
-    t.update({ server: echo({ buyOrderAmount: 0, buyOrderQty: 7, buyWatchQty: 9_000 }) });
+    t.update({ server: echo({ buy3Schema: 0, buyOrderAmount: 0, buyOrderQty: 7, buyWatchQty: 9_000 }) });
     t.update({ serverAnswerSeq: 1 });
     expect(t.hook.result.current.failures.buyOrderAmount?.reason).toBe('rejected');
   });
@@ -804,9 +804,9 @@ describe('WR-01 — 미등록 전략에서 등록 전송이 나가 있으면 값
 });
 
 describe('WR-07 · D-04a — 서버가 주문금액을 모르는 전략(에코 금액 0)은 금액부터 받는다', () => {
-  /** 레거시 전략 — 서버는 금액을 모르고(0) 수량 500주를 쥐고 매수가 무장돼 있다. */
+  /** 레거시 전략 — 구서버 에코(`buy3Schema 0`) · 서버는 금액을 모르고(0) 수량 500주를 쥐고 매수가 무장돼 있다. */
   const legacy = (over: Partial<RelayLimitChaser> = {}) =>
-    echo({ buyOrderAmount: 0, buyOrderQty: 500, buyEnabled: true, ...over });
+    echo({ buy3Schema: 0, buyOrderAmount: 0, buyOrderQty: 500, buyEnabled: true, ...over });
 
   it('amountRequired — 레거시면 true · 금액을 알면 false · 미등록이면 false', () => {
     expect(setup({ server: legacy() }).hook.result.current.amountRequired).toBe(true);
@@ -900,6 +900,25 @@ describe('WR-07 · D-04a — 서버가 주문금액을 모르는 전략(에코 �
     t.update({ serverAnswerSeq: 1 });
     expect(t.send).toHaveBeenCalledTimes(2);
     expect(t.cfgs()[1]!.sellEnabled).toBe(true);
+  });
+
+  it('WR-01 — buy3 에코(`buy3Schema 1`)의 선매수 금액 0 은 미입력이다 · amountRequired false · 다른 값 확정이 나간다', () => {
+    const t = setup({ server: legacy({ buy3Schema: 1, buyOrderQty: 0 }) });
+    expect(t.hook.result.current.amountRequired).toBe(false);
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+    });
+    expect(out).toBe('sent');
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.cfgs()[0]!.buyWatchQty).toBe(9_000);
+    // 폼 기본 금액(4,000만원)으로 메우지 않는다 — 에코의 0 그대로 실린다(T-24-45).
+    expect(t.cfgs()[0]!.buyOrderAmount).toBe(0);
+  });
+
+  it('WR-01 — 구서버 에코(`buy3Schema 0`) 금액 0 은 종전 D-04a 그대로 amountRequired true', () => {
+    expect(setup({ server: legacy() }).hook.result.current.amountRequired).toBe(true);
+    expect(setup({ server: legacy({ buy3Schema: 1 }) }).hook.result.current.amountRequired).toBe(false);
   });
 
   it('미등록 전략은 해당 없다 — 값 확정은 로컬 반영', () => {
