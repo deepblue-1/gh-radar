@@ -3217,6 +3217,62 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
   });
 
   /*
+    ★ 24-12 WR-02(24-VERIFICATION 갭 2) — 구서버 에코(`buy3Schema 0`)는 끄기만 · 매수주문부터다. relay 는 `buy_watch_side`
+      슬롯을 싣지 않고(24-03) 구서버는 그 부재를 "0" 으로 읽는다 — 매수가 켜진 채 cfg 를 다시 쓰면 「매수잔량 기준」 전략의
+      감시 기준이 조용히 반대 호가로 뒤집힌다. 그래서 구서버에 닿는 웹 cfg 는 늘 매수가 꺼진 cfg 다(시드 `buyWatchSide: '1'`).
+      ★ 전송 0 은 고정 대기로 재지 않는다 — 뒤이은 허용 확정의 10 이 게이트웨이에 보인 순간 누적이 정확히 +1 인 것으로
+        증명한다(같은 소켓 · 송신 순서라 앞선 시도가 무언가 보냈다면 먼저 도착해 있다).
+      진짜 브라우저 → 진짜 relay → 스텁 게이트웨이. 스텁 계좌 · ISIN 픽스처 상수만 쓴다.
+  */
+  test('P24-10 WR-02 — 구서버 에코(buy3Schema 0): 매수가 켜진 채 매도 끄기 = 전송 0 + 「구서버 전략이라 매수주문부터 꺼 주세요」 · 매수주문 끄기 = 10 한 건(buy_watch_side 슬롯 없음) · 이어서 매도 끄기 = 철거(crud D)', async ({
+    page,
+  }) => {
+    const MASTER_FIRST = '구서버 전략이라 매수주문부터 꺼 주세요';
+    const seed = { buy3Schema: 0, buyEnabled: true, sellEnabled: true, buyWatchSide: '1' };
+    relay.seedLimitChasers([seed]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    const card = cardOf(page, E2E_ISIN);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    const master = lcSwitch(card, '매수주문 켜기');
+    const sell = lcSwitch(card, '매도주문 켜기');
+    await expect(master).toBeChecked({ timeout: 15_000 });
+    await expect(sell).toBeChecked();
+    const submitError = card.locator('[data-slot="lc-submit-error"]');
+
+    // (a) 매수가 켜진 채 매도 끄기 — 막힌다(문장 · 스위치 그대로). 전송 0 은 (b) 의 10 도착 시점 누적으로 증명한다.
+    const before = lcSetCount(relay);
+    await sell.click();
+    await expect(submitError).toHaveText(MASTER_FIRST);
+    await expect(sell).toBeChecked();
+
+    // (b) 매수주문 끄기 — 구서버 에코에서도 늘 나간다(T-16-44). 그 10 이 보인 순간 누적 = 앞 기준 + 1.
+    await master.click();
+    await expect
+      .poll(() => lcSetRequests(relay).filter((r) => r.buyEnabled === false).length, { timeout: 15_000 })
+      .toBe(1);
+    expect(lcSetCount(relay), '매도 끄기 시도 = 전송 0 · 매수주문 끄기 = 10 한 건').toBe(before + 1);
+    const off = lcSetRequests(relay).at(-1)!;
+    expect(off.buyEnabled).toBe(false);
+    expect(off.sellEnabled, '매수주문 끄기는 매도를 건드리지 않는다').toBe(true);
+    expect(off.buyWatchSide, 'relay 는 buy_watch_side 슬롯을 싣지 않는다(24-03) — 그래서 매수가 꺼진 cfg 만 보낸다').toBeNull();
+    expect(off.crud).toBe('C');
+
+    // (c) 마스터 OFF 에코 → 이제 매도 끄기가 나간다 — 게이트 4종 OFF = 철거(crud D). 완전 해제 경로가 열려 있다.
+    await relay.pushLimitChaserEcho({ ...seed, ...lcEchoFlagsOf(off) });
+    await expect(master).not.toBeChecked({ timeout: 15_000 });
+    await sell.click();
+    await expect
+      .poll(() => lcSetRequests(relay).filter((r) => r.crud === 'D').length, { timeout: 15_000 })
+      .toBe(1);
+    expect(lcSetCount(relay), '매도 끄기(마스터 OFF 뒤) = 10 한 건 더').toBe(before + 2);
+    const teardown = lcSetRequests(relay).at(-1)!;
+    expect(teardown.buyEnabled).toBe(false);
+    expect(teardown.sellEnabled).toBe(false);
+    expect(teardown.buyWatchSide).toBeNull();
+  });
+
+  /*
     ★ Phase 20 트레이서 — 「호가변경」(Phase 24 D-09 로 선매수 카드 「한방」) 한 행이 **실제 경로 한 줄**을 끝까지 잇는다(20-01).
       진짜 브라우저 → 진짜 relay → 스텁 게이트웨이 10 수신 → 60 에코 → 행 값.
       `openFocusedCard` 를 쓰지 않는다 — 그 헬퍼는 옛 입력 id(`#lc-buy-watch-qty`)를 기다리고,

@@ -1116,6 +1116,8 @@ describe('WR-07 · D-04a — 서버가 주문금액을 모르는 레거시 전�
   const legacy = (over: Partial<RelayLimitChaser> = {}) =>
     echo({ buy3Schema: 0, buyOrderAmount: 0, buyOrderQty: 500, buyEnabled: true, ...over });
   const AMOUNT_FIRST = '주문금액을 먼저 입력해 주세요';
+  const LEGACY_READ_ONLY = '구서버 전략이라 끄기만 할 수 있어요 — 서버를 확인해 주세요';
+  const LEGACY_MASTER_FIRST = '구서버 전략이라 매수주문부터 꺼 주세요';
 
   it('선매수 금액 행은 클라 기본값(10만원)이 아니라 「—」 · 접근성 이름 「선매수 금액 미입력」', () => {
     render(<LimitChaserForm {...props({ server: legacy() })} />);
@@ -1130,11 +1132,24 @@ describe('WR-07 · D-04a — 서버가 주문금액을 모르는 레거시 전�
     expect(screen.getByRole('alert')).toHaveTextContent(AMOUNT_FIRST);
   });
 
-  it('켜는 스위치 → 전송 0 · 폼 맨 위 한 줄 「주문금액을 먼저 입력해 주세요」', () => {
+  it('켜는 스위치 → 전송 0 · 폼 맨 위 한 줄 「구서버 전략이라 끄기만 할 수 있어요 — …」(WR-02 — 구서버 에코는 읽기 전용)', () => {
     render(<LimitChaserForm {...props({ server: legacy() })} />);
     click(sw('매도주문 켜기'));
     expect(sentConfigs()).toHaveLength(0);
-    expect(submitError()).toHaveTextContent(AMOUNT_FIRST);
+    expect(submitError()).toHaveTextContent(LEGACY_READ_ONLY);
+    expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('WR-02 — 매수가 켜진 채 매도 끄기 → 전송 0 · 폼 맨 위 「구서버 전략이라 매수주문부터 꺼 주세요」 · 매도 그대로 → 매수주문 끄기 → 전송 1 · cfg 마스터 false', () => {
+    render(<LimitChaserForm {...props({ server: legacy({ buyOrderAmount: 50, buyOrderQty: 3, sellEnabled: true }) })} />);
+    click(sw('매도주문 켜기')); // 켜진 스위치를 누른다 = 끄기
+    expect(sentConfigs()).toHaveLength(0);
+    expect(submitError()).toHaveTextContent(LEGACY_MASTER_FIRST);
+    expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'true');
+    click(sw('매수주문 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().buyEnabled).toBe(false);
+    expect(lastConfig().sellEnabled).toBe(true);
   });
 
   it('끄기(매수주문 끄기)는 늘 허용 — 금액·수량은 서버 값 그대로(0 · 500주) 나간다', () => {
@@ -1147,23 +1162,14 @@ describe('WR-07 · D-04a — 서버가 주문금액을 모르는 레거시 전�
     expect(submitError()).toBeNull();
   });
 
-  it('주문금액 인라인은 빈 칸으로 열리고, 확정하면 새 금액으로 수량을 계산해 보낸다 → 에코 뒤 정상', () => {
-    const { rerender } = render(<LimitChaserForm {...props({ server: legacy() })} />);
+  it('주문금액 인라인은 빈 칸으로 열리지만 확정은 보내지 않는다 — 구서버 에코는 읽기 전용이라 금액부터 받는 경로가 없다(WR-02)', () => {
+    render(<LimitChaserForm {...props({ server: legacy() })} />);
     const el = openInline('lc-buy-order-amount');
     expect(el.value).toBe('');
-    typeValue(el, '260');
+    typeValue(el, '300');
     pressKey(el, 'Enter');
-    expect(sentConfigs()).toHaveLength(1);
-    // floor(260만원 / 130,000) = 20주
-    expect(lastConfig().buyOrderAmount).toBe(260);
-    expect(lastConfig().buyOrderQty).toBe(20);
-    const known = legacy({ buyOrderAmount: 260, buyOrderQty: 20 });
-    rerender(<LimitChaserForm {...props({ server: known })} />);
-    rerender(<LimitChaserForm {...props({ server: known, serverAnswerSeq: 1 })} />);
-    expect(rowText('lc-buy-order-amount')).toBe('260만원');
-    editInline('lc-buy-watch-qty', '9000');
-    expect(sentConfigs()).toHaveLength(2);
-    expect(lastConfig().buyOrderQty).toBe(20);
+    expect(sentConfigs()).toHaveLength(0);
+    expect(screen.getByRole('alert')).toHaveTextContent(LEGACY_READ_ONLY);
   });
 
   describe('터치 기기 — 시트', () => {

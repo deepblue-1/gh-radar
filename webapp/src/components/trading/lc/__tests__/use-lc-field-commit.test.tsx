@@ -17,6 +17,7 @@ import {
   LC_GATE_FIELDS,
   LC_ORPHAN_WAIT_MS,
   lcGroupAmountBlockOf,
+  lcLegacyBlockOf,
   useLcFieldCommit,
   type UseLcFieldCommitOptions,
 } from '../use-lc-field-commit';
@@ -494,45 +495,20 @@ describe('Task 2 — 타임아웃 · 직렬화 · 무장 가드 · 토글', () =
     expect(t.cfgs()[0]!.cancelTradeEnabled).toBe(true);
   });
 
-  it('CR-03 — 구서버 `buyOrderAmount` 에코가 0(서버가 모른다)이어도 **답 신호만 오고 서버가 그대로면 거부**다(거부에는 에코가 없다)', () => {
-    const t = setup({ server: echo({ buy3Schema: 0, buyOrderAmount: 0 }) });
+  it('CR-03 → WR-02 — 구서버 에코(`buy3Schema 0`) 금액 0 에서 주문금액 확정은 보내지 않는다 — `legacySchema`(금액 확정 경로 없음 · 거부를 성공으로 읽을 여지도 없다)', () => {
+    const t = setup({ server: echo({ buy3Schema: 0, buyOrderAmount: 0, buyOrderQty: 7 }) });
+    let out: string | undefined;
     act(() => {
-      t.hook.result.current.commit('buyOrderAmount', 20, 'value');
+      out = t.hook.result.current.commit('buyOrderAmount', 20, 'value');
     });
-    expect(t.send).toHaveBeenCalledTimes(1);
-    t.update({ serverAnswerSeq: 1 });
+    expect(out).toBe('blocked');
+    expect(t.send).not.toHaveBeenCalled();
     expect(t.hook.result.current.failures.buyOrderAmount).toEqual({
-      reason: 'rejected',
-      text: LC_COMMIT_TEXT.failed,
+      reason: 'legacySchema',
+      text: LC_COMMIT_TEXT.legacyReadOnly,
       value: 20,
     });
-    expect(t.hook.result.current.flashField).toBeNull();
     expect(t.hook.result.current.inflightField).toBeNull();
-    expect(t.formRef.current.buyOrderAmount).not.toBe(20);
-  });
-
-  it('CR-03 — 구서버 금액 0 에코가 **왔고** 그 수량이 보낸 수량과 같으면 성공 · 폼이 새 금액을 든다(다음 전송이 수량을 되돌리지 않게)', () => {
-    const t = setup({ server: echo({ buy3Schema: 0, buyOrderAmount: 0, buyOrderQty: 7 }) });
-    act(() => {
-      t.hook.result.current.commit('buyOrderAmount', 20, 'value');
-    });
-    // 테스트 조립기는 buyOrderQty: 1 을 싣는다 — 반영됐다면 에코 수량이 1 이다.
-    expect(t.cfgs()[0]!.buyOrderQty).toBe(1);
-    t.update({ server: echo({ buy3Schema: 0, buyOrderAmount: 0, buyOrderQty: 1 }) });
-    expect(t.hook.result.current.failures.buyOrderAmount).toBeUndefined();
-    expect(t.hook.result.current.flashField).toBe('buyOrderAmount');
-    expect(t.hook.result.current.inflightField).toBeNull();
-    expect(t.formRef.current.buyOrderAmount).toBe(20);
-  });
-
-  it('CR-03 — 구서버 금액 0 에코가 왔어도 수량이 보낸 수량과 다르면(무관한 에코) 성공이 아니다', () => {
-    const t = setup({ server: echo({ buy3Schema: 0, buyOrderAmount: 0, buyOrderQty: 7 }) });
-    act(() => {
-      t.hook.result.current.commit('buyOrderAmount', 20, 'value');
-    });
-    t.update({ server: echo({ buy3Schema: 0, buyOrderAmount: 0, buyOrderQty: 7, buyWatchQty: 9_000 }) });
-    t.update({ serverAnswerSeq: 1 });
-    expect(t.hook.result.current.failures.buyOrderAmount?.reason).toBe('rejected');
   });
 });
 
@@ -814,7 +790,7 @@ describe('WR-07 · D-04a — 서버가 주문금액을 모르는 전략(에코 �
     expect(setup({ server: null }).hook.result.current.amountRequired).toBe(false);
   });
 
-  it('금액 외 값 확정은 보내지 않는다 — `blocked` · 「주문금액을 먼저 입력해 주세요」(수량을 기본 금액으로 덮지 않는다)', () => {
+  it('금액 외 값 확정은 보내지 않는다 — `blocked` · 구서버 읽기 전용 문장(WR-02 가 금액 먼저보다 앞선다 · 수량을 기본 금액으로 덮지 않는다)', () => {
     const t = setup({ server: legacy() });
     let out: string | undefined;
     act(() => {
@@ -823,8 +799,8 @@ describe('WR-07 · D-04a — 서버가 주문금액을 모르는 전략(에코 �
     expect(out).toBe('blocked');
     expect(t.send).not.toHaveBeenCalled();
     expect(t.hook.result.current.failures.buyWatchQty).toEqual({
-      reason: 'amountRequired',
-      text: LC_COMMIT_TEXT.amountRequired,
+      reason: 'legacySchema',
+      text: LC_COMMIT_TEXT.legacyReadOnly,
       value: 9_000,
     });
   });
@@ -838,7 +814,7 @@ describe('WR-07 · D-04a — 서버가 주문금액을 모르는 전략(에코 �
     expect(out).toBe('blocked');
     expect(t.send).not.toHaveBeenCalled();
     expect(t.formRef.current.sellEnabled).toBe(false);
-    expect(t.hook.result.current.failures.sellEnabled?.reason).toBe('amountRequired');
+    expect(t.hook.result.current.failures.sellEnabled?.reason).toBe('legacySchema');
   });
 
   it('끄기(무장 해제)는 늘 허용 — cfg 의 금액·수량은 서버 값 그대로(0 · 500주)다', () => {
@@ -854,52 +830,34 @@ describe('WR-07 · D-04a — 서버가 주문금액을 모르는 전략(에코 �
     expect(t.cfgs()[0]!.buyOrderQty).toBe(500);
   });
 
-  it('주문금액 확정은 정상 전송 → 0 이 아닌 금액 에코 뒤에는 다른 필드도 정상 전송', () => {
+  it('주문금액 확정도 보내지 않는다 — 구서버 에코는 읽기 전용이라 금액부터 받는 경로가 없다(WR-02 · D-04a 금액 확정 제거)', () => {
     const t = setup({ server: legacy() });
+    let out: string | undefined;
     act(() => {
-      t.hook.result.current.commit('buyOrderAmount', 30, 'value');
+      out = t.hook.result.current.commit('buyOrderAmount', 30, 'value');
     });
-    expect(t.send).toHaveBeenCalledTimes(1);
-    expect(t.cfgs()[0]!.buyOrderAmount).toBe(30);
-    t.update({ server: legacy({ buyOrderAmount: 30, buyOrderQty: 1 }) });
-    t.update({ serverAnswerSeq: 1 });
-    expect(t.hook.result.current.amountRequired).toBe(false);
-    act(() => {
-      t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
-    });
-    expect(t.send).toHaveBeenCalledTimes(2);
-    expect(t.cfgs()[1]!.buyWatchQty).toBe(9_000);
+    expect(out).toBe('blocked');
+    expect(t.send).not.toHaveBeenCalled();
+    expect(t.hook.result.current.failures.buyOrderAmount?.reason).toBe('legacySchema');
+    expect(t.hook.result.current.amountRequired).toBe(true);
   });
 
-  it('금액 에코가 여전히 0 이어도 ⑧ 특례(수량 일치)로 성공하면 잠금이 풀린다 — 막힌 상태로 굳지 않는다', () => {
-    const t = setup({ server: legacy() });
-    act(() => {
-      t.hook.result.current.commit('buyOrderAmount', 30, 'value');
-    });
-    // 테스트 조립기는 buyOrderQty: 1 을 싣는다 — 반영됐다면 에코 수량이 1 이다.
-    t.update({ server: legacy({ buyOrderQty: 1 }) });
-    t.update({ serverAnswerSeq: 1 });
-    expect(t.hook.result.current.amountRequired).toBe(false);
-    act(() => {
-      t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
-    });
-    expect(t.send).toHaveBeenCalledTimes(2);
-  });
-
-  it('금액 확정이 나가 있는 동안 선 토글은 대기했다가 금액이 반영된 뒤 나간다', () => {
+  it('매수주문 끄기가 나가 있는 동안 켜는 토글은 대기했다가 꺼낼 때 같은 가드로 막힌다 — 전송 0 · 낙관 표시 되돌림', () => {
     const t = setup({ server: legacy({ sellEnabled: false }) });
     act(() => {
-      t.hook.result.current.commit('buyOrderAmount', 30, 'value');
+      t.hook.result.current.commit('buyEnabled', false, 'toggle');
     });
     let out: string | undefined;
     act(() => {
       out = t.hook.result.current.commit('sellEnabled', true, 'toggle');
     });
     expect(out).toBe('queued');
-    t.update({ server: legacy({ sellEnabled: false, buyOrderAmount: 30, buyOrderQty: 1 }) });
+    expect(t.formRef.current.sellEnabled).toBe(true);
+    t.update({ server: legacy({ sellEnabled: false, buyEnabled: false }) });
     t.update({ serverAnswerSeq: 1 });
-    expect(t.send).toHaveBeenCalledTimes(2);
-    expect(t.cfgs()[1]!.sellEnabled).toBe(true);
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.hook.result.current.failures.sellEnabled?.reason).toBe('legacySchema');
+    expect(t.formRef.current.sellEnabled).toBe(false);
   });
 
   it('WR-01 — buy3 에코(`buy3Schema 1`)의 선매수 금액 0 은 미입력이다 · amountRequired false · 다른 값 확정이 나간다', () => {
@@ -928,6 +886,139 @@ describe('WR-07 · D-04a — 서버가 주문금액을 모르는 전략(에코 �
       out = t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
     });
     expect(out).toBe('local');
+  });
+});
+
+describe('WR-02 — 구서버 에코(buy3Schema 0)는 끄기만 · 매수주문부터 (24-VERIFICATION 갭 2)', () => {
+  /**
+   * 구서버 전략 — 매수주문(마스터) ON · 매도 ON · 금액은 서버가 안다(100만원). relay 는 `buy_watch_side` 를 싣지 않고
+   * 구서버는 그 부재를 "0" 으로 읽는다 — 매수가 켜진 채 나가는 cfg 는 감시 기준을 조용히 뒤집는다.
+   */
+  const legacy = (over: Partial<RelayLimitChaser> = {}) =>
+    echo({ buy3Schema: 0, buyEnabled: true, sellEnabled: true, buyOrderAmount: 100, ...over });
+  /** 판정 입력 `next` — 실제로 나갈 값(서버 동기값 + 바꾼 필드). */
+  const nextOf = (over: Partial<LimitChaserFormValues>): LimitChaserFormValues => ({
+    ...formFromServer(legacy(), defaultLimitChaserForm()),
+    ...over,
+  });
+
+  it('lcLegacyBlockOf 표 — 구서버가 아니면 늘 null · 끄는 방향 ∧ 결과 마스터 OFF 만 null', () => {
+    const on = nextOf({});
+    const off = nextOf({ buyEnabled: false });
+    // 구서버가 아니면 어떤 입력도 막지 않는다.
+    expect(lcLegacyBlockOf(false, 'buyWatchQty', 9_000, on)).toBeNull();
+    expect(lcLegacyBlockOf(false, 'sellEnabled', true, on)).toBeNull();
+    expect(lcLegacyBlockOf(false, 'sellEnabled', false, on)).toBeNull();
+    // 값 · 켜는 방향 = 읽기 전용 문장.
+    expect(lcLegacyBlockOf(true, 'buyWatchQty', 9_000, on)).toBe(LC_COMMIT_TEXT.legacyReadOnly);
+    expect(lcLegacyBlockOf(true, 'sellEnabled', true, on)).toBe(LC_COMMIT_TEXT.legacyReadOnly);
+    expect(lcLegacyBlockOf(true, 'buyOrderAmount', 300, on)).toBe(LC_COMMIT_TEXT.legacyReadOnly);
+    // 매수가 켜진 채 다른 끄기 = 매수주문부터.
+    expect(lcLegacyBlockOf(true, 'sellEnabled', false, on)).toBe(LC_COMMIT_TEXT.legacyMasterFirst);
+    expect(lcLegacyBlockOf(true, 'cancelTradeEnabled', false, on)).toBe(LC_COMMIT_TEXT.legacyMasterFirst);
+    // 매수주문 끄기 · 마스터 OFF 뒤 끄기(체크 포함)는 허용.
+    expect(lcLegacyBlockOf(true, 'buyEnabled', false, off)).toBeNull();
+    expect(lcLegacyBlockOf(true, 'sellEnabled', false, off)).toBeNull();
+    expect(lcLegacyBlockOf(true, 'cancelTradeEnabled', false, off)).toBeNull();
+  });
+
+  it('문구 원천 — 원문 그대로', () => {
+    expect(LC_COMMIT_TEXT.legacyReadOnly).toBe('구서버 전략이라 끄기만 할 수 있어요 — 서버를 확인해 주세요');
+    expect(LC_COMMIT_TEXT.legacyMasterFirst).toBe('구서버 전략이라 매수주문부터 꺼 주세요');
+  });
+
+  it('매수가 켜진 채 매도 끄기 = `blocked` · 전송 0 · 매도 그대로 → 매수주문 끄기 = 전송 1(매도 그대로) → 마스터 OFF 에코 뒤 매도 끄기 = 철거', () => {
+    const t = setup({ server: legacy() });
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('sellEnabled', false, 'toggle');
+    });
+    expect(out).toBe('blocked');
+    expect(t.send).not.toHaveBeenCalled();
+    expect(t.formRef.current.sellEnabled).toBe(true);
+    expect(t.hook.result.current.failures.sellEnabled).toEqual({
+      reason: 'legacySchema',
+      text: LC_COMMIT_TEXT.legacyMasterFirst,
+      value: false,
+    });
+
+    act(() => {
+      out = t.hook.result.current.commit('buyEnabled', false, 'toggle');
+    });
+    expect(out).toBe('sent');
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.cfgs()[0]!.buyEnabled).toBe(false);
+    expect(t.cfgs()[0]!.sellEnabled).toBe(true);
+
+    t.update({ server: legacy({ buyEnabled: false }) });
+    t.update({ serverAnswerSeq: 1 });
+    act(() => {
+      out = t.hook.result.current.commit('sellEnabled', false, 'toggle');
+    });
+    expect(out).toBe('sent');
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(t.cfgs()[1]!.buyEnabled).toBe(false);
+    expect(t.cfgs()[1]!.sellEnabled).toBe(false);
+    expect(t.cfgs()[1]!.crud).toBe('D');
+  });
+
+  it('값 확정 · 금액 확정 · 켜는 토글 = 모두 `blocked` · `legacySchema` · 읽기 전용 문장 · 낙관 표시 없음', () => {
+    const t = setup({ server: legacy({ sellEnabled: false }) });
+    const outs: string[] = [];
+    act(() => {
+      outs.push(t.hook.result.current.commit('buyWatchQty', 9_000, 'value'));
+      outs.push(t.hook.result.current.commit('buyOrderAmount', 300, 'value'));
+      outs.push(t.hook.result.current.commit('sellEnabled', true, 'toggle'));
+    });
+    expect(outs).toEqual(['blocked', 'blocked', 'blocked']);
+    expect(t.send).not.toHaveBeenCalled();
+    for (const f of ['buyWatchQty', 'buyOrderAmount', 'sellEnabled'] as const) {
+      expect(t.hook.result.current.failures[f]?.reason).toBe('legacySchema');
+      expect(t.hook.result.current.failures[f]?.text).toBe(LC_COMMIT_TEXT.legacyReadOnly);
+    }
+    expect(t.setForm).not.toHaveBeenCalled();
+  });
+
+  it('대기열 — 매수주문 끄기가 나가 있는 동안 값 확정은 `queued` → 성공 에코 · 답 신호 뒤 꺼낼 때 같은 가드로 전송 0', () => {
+    const t = setup({ server: legacy() });
+    act(() => {
+      t.hook.result.current.commit('buyEnabled', false, 'toggle');
+    });
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+    });
+    expect(out).toBe('queued');
+    t.update({ server: legacy({ buyEnabled: false }) });
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.hook.result.current.queuedFields).toEqual([]);
+    expect(t.hook.result.current.failures.buyWatchQty).toEqual({
+      reason: 'legacySchema',
+      text: LC_COMMIT_TEXT.legacyReadOnly,
+      value: 9_000,
+    });
+  });
+
+  it('구서버 ∧ 금액 0 에서 매수주문 끄기 cfg 는 금액 · 수량을 서버 값 그대로 싣는다(D-04a 잔여 규칙)', () => {
+    const t = setup({ server: legacy({ buyOrderAmount: 0, buyOrderQty: 500 }) });
+    act(() => {
+      t.hook.result.current.commit('buyEnabled', false, 'toggle');
+    });
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.cfgs()[0]!.buyOrderAmount).toBe(0);
+    expect(t.cfgs()[0]!.buyOrderQty).toBe(500);
+  });
+
+  it('buy3 에코(`buy3Schema 1`)에서는 제한이 없다 — 매수가 켜진 채 매도 끄기 · 값 확정 · 켜는 토글이 그대로 나간다', () => {
+    const t = setup({ server: legacy({ buy3Schema: 1 }) });
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('sellEnabled', false, 'toggle');
+    });
+    expect(out).toBe('sent');
+    expect(t.cfgs()[0]!.buyEnabled).toBe(true);
+    expect(t.hook.result.current.failures.sellEnabled).toBeUndefined();
   });
 });
 
