@@ -552,18 +552,18 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await page.goto('/me');
     await waitForAccounts(page, 2);
 
-    await expect(strategyCard(page)).toContainText('등록된 상따 전략이 없어요', {
+    await expect(strategyCard(page)).toContainText('켜진 상따 전략이 없어요', {
       timeout: 30_000,
     });
     await expect(strategyCard(page)).toContainText(
-      '트레이딩 › 상따에서 종목을 고르면 여기에 표시돼요.',
+      '트레이딩 › 상따에서 매수·매도·취소 스위치를 켜면 여기에 표시돼요.',
     );
     await expect(strategyRows(page)).toHaveCount(0);
     // 끌 것이 없으면 누를 수 없다 — 반드시 실패하는 버튼을 열어 두지 않는다.
     await expect(disableAllButton(page)).toBeDisabled();
   });
 
-  test('4. 전체 비활성화 — 확인 → msg_type 14 → 60/61 에코로 배지가 꺼진다 (D-09)', async ({
+  test('4. 전체 비활성화 — 확인 → msg_type 14 → 60/61 에코로 꺼진 전략이 카드·사이드바에서 빠진다 (D-09)', async ({
     page,
   }) => {
     await page.goto('/me');
@@ -609,18 +609,25 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     const sock = await relay.gateway.waitForConnection(10_000);
     relay.gateway.sendFrame(sock, buildSetVITriggerRespFrame({ ...VI_CFG, run: false }));
 
-    // 카드 요약·VI 행이 꺼진 상태로 바뀐다.
-    await expect(strategyCard(page)).toContainText('상따 3 · VI 중지', { timeout: 15_000 });
-    await expect(strategyRows(page).nth(0)).not.toContainText('매수ON');
-    await expect(strategyRows(page).nth(1)).not.toContainText('매도대기');
+    /*
+      ★ quick-260928-no0 — 카드는 켜진 전략만 싣는다(isActiveStrategy · 사이드바와 같은 기준). 세 전략이
+        모두 꺼졌으니 카드는 빈 상태가 된다. 등록은 서버·relay 에 남아 있지만(crud "C" 에코 · 삭제 아님)
+        화면은 카드·상태줄 모두 켜진 수만 센다.
+    */
+    // 세 전략 모두 세 스위치 OFF(cancelQtyEnabled 는 프레임 빌더 기본 false) — 켜진 수 0.
+    await expect(strategyCard(page)).toContainText('상따 0 · VI 중지', { timeout: 15_000 });
+    await expect(strategyRows(page)).toHaveCount(0);
+    await expect(strategyCard(page)).toContainText('켜진 상따 전략이 없어요');
     await expect(page.locator('[data-slot="vi-status-summary"]')).toHaveText('—');
 
     // 사이드바 3단에서는 빠진다 — 매수·매도가 둘 다 OFF 인 전략은 사이드바에 싣지 않는다
-    // (사용자 결정 2026-09-23). 목록(아래)·서버에는 남아 있다.
+    // (사용자 결정 2026-09-23). 서버에는 남아 있다.
     await expect(buyDots).toHaveCount(0);
 
-    // 목록 자체는 남는다 — 전체 비활성화는 **삭제가 아니다**.
-    await expect(strategyRows(page)).toHaveCount(3);
+    // 켜진 전략 0 + VI 중지 — 끌 것이 없다.
+    await expect(disableAllButton(page)).toBeDisabled();
+    // 상태줄도 켜진 수다 — 카드와 같은 기준.
+    await expect(page.locator('[data-slot="me-status-bar"]')).toContainText('상따 0건');
   });
 
   test('5. 매핑 없음 — DMA 게이트가 본문을 대체한다 (C6 · T-16-04)', async ({ page }) => {
