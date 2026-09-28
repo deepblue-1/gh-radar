@@ -302,7 +302,7 @@ export function useStrategyCardState({
   const pendingRef = useRef<RelayLimitChaserInput | null>(null);
   /**
    * 마지막으로 보낸 요청의 **사유**(D-02 후반 `'serverFold'` · 없으면 `null` = 사람 손).
-   * ★ `pendingRef` 와 **같은 수명**이다 — 보낼 때 함께 세우고, 에코 소비 · 삭제 · 키 변경 때 함께 비우며,
+   * ★ `pendingRef` 와 **같은 수명**이다 — 보낼 때 함께 세우고, 에코 소비 · 거부 · 삭제 · 키 변경 때 함께 비우며,
    *   런타임 에코는 둘 다 소비하지 않는다. 따로 살면 앞 제출의 사유가 뒤 에코에 붙는다.
    */
   const pendingCauseRef = useRef<StrategySubmitCause | null>(null);
@@ -498,7 +498,16 @@ export function useStrategyCardState({
     */
     const disable = key === "" ? undefined : limitChaserDisableEchoes.get(key);
     const cause = disable !== undefined && disable.echo === server ? disable.cause : null;
-    const line = strategyLogLine(prev, server, { sent, sentCause });
+    /*
+      ★ 15:40 · 전부 정지가 원인인 에코는 내 제출의 답이 아니다 — 옛 hadOrder 규율 복원(WR-05). 원인 문장만
+        남기고 보낸 cfg · 사유는 넘기지 않는다(「클라가 지어낸 사유를 쓰지 않는다」). 아래 다른 단말 배너
+        판정은 종전 `sent` 를 그대로 쓴다 — 원인 에코에서 배너가 새로 서지 않게.
+    */
+    const attributed = cause !== null ? null : sent;
+    const line = strategyLogLine(prev, server, {
+      sent: attributed,
+      sentCause: attributed === null ? null : sentCause,
+    });
     if (line !== null) pushLog(line);
     // 15:40 해제는 원인 1줄을 더 남긴다 — 사용자가 끄지 않은 해제의 이유를 로그가 말한다.
     if (cause === "marketClose") pushLog(marketCloseDisabledLogLine());
@@ -593,8 +602,16 @@ export function useStrategyCardState({
           (`isLimitChaserServerMessage`)보다 좁다 — 근거는 그 함수 주석에 있다. 여기서
           `src` 를 직접 비교하지 않는 이유는 이 파일의 다른 판정들과 같다.
         ★ 사유 문구를 **다시 쓰지 않는다.** 화면에 서는 것은 `msg.m` 원문 그대로다.
+        ★ 거부된 제출의 cfg · 사유가 다음 무관한 에코에 붙지 않게 — WR-05. 거부는 그 제출이 서버에
+          서지 않았다는 **확정** 답이다. 비우지 않으면 거부된 serverFold 자동 끔 · D-02 전반 동반 끔의
+          사유가 나중에 온 다른 단말 · 15:40 에코에 「서버가 매수 그룹 해제」 · 「{그룹} 해제 — 매수주문도
+          끔」으로 붙는다. 비우기만 하고 다시 보내지 않는다(T-16-10).
       */
-      if (isLimitChaserSetRejection(msg, isin, accountNo)) acceptAnswer();
+      if (isLimitChaserSetRejection(msg, isin, accountNo)) {
+        acceptAnswer();
+        pendingRef.current = null;
+        pendingCauseRef.current = null;
+      }
     }
   }, [messages, pushLog, isin, accountNo, acceptAnswer]);
 
