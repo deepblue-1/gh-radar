@@ -1204,7 +1204,7 @@ Plans:
 **열린 것:** 소진 푸시(300ms) 전 옛 ON 재제출 창이 웹에서 실제 생기는지(실기 검증) · 운영 전략 중 「감시대상=매수잔량」 선택분 목록 추출은 **gh-trade 24-12 재기동 전**(CONTEXT D-14 정정). 마스터 OFF 시 `post_buy_enabled` 에코는 gh-trade D-32 로 닫힘(CONTEXT D-21). 후속분 ②(추가매수 아래 틱·이탈 포기 · 기본값 표 · 상한가 차단)는 CONTEXT D-16~D-21.
 **Requirements**: TBD
 **Depends on:** Phase 17 (프로토콜 재동기화·래치 LED) · gh-trade Phase 24 서버 배포(24-11)
-**Plans:** 18/24 plans executed
+**Plans:** 19/24 plans executed
 
 Plans:
 **Wave 1**
@@ -1272,7 +1272,7 @@ Plans:
 **Wave 16** *(갭 클로징 2라운드 — 24-VERIFICATION-R2 갭 4건(WR-05 재개 · R2-G1~G3) · 24-REVIEW-R2 GC-IN-01~05 흡수(GC-IN-02 지터만 이월) · 추가 범위 gh-trade 후속 D-36 · D-37 · D-38 은 24-22 · 24-23)*
 
 - [x] 24-18-PLAN.md — [GC-WR-01 · WR-05 재개] 거부 통지는 귀속을 지우지 않음 · 귀속 판정 `echoAnswersSent` 한 곳(부분 거부 · 다른 탭 거부 뒤 내 에코는 내 것 · 무관 에코는 받지도 소비하지도 않음)
-- [ ] 24-19-PLAN.md — [GC-WR-02 · R2-G1 + GC-IN-05] 토글 되돌림 기준 = 서버 동기값 · failQueue 주 필드가 섰으면 성공(동반은 서버 값)
+- [x] 24-19-PLAN.md — [GC-WR-02 · R2-G1 + GC-IN-05] 토글 되돌림 기준 = 서버 동기값 · failQueue 주 필드가 섰으면 성공(동반은 서버 값)
 
 **Wave 17** *(blocked on Wave 16 completion — 24-19 와 폼 테스트 공유)*
 
