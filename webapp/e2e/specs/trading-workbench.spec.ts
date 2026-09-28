@@ -1436,7 +1436,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(directOrders()).toBe(1);
   });
 
-  test('GC8 주문 체결 통보 → 우하단 토스트 → 클릭 → 카드 펼침 + 「미체결」 탭 + 헤더 표시 해제 (quick-260923-pgu · 목업 ③A)', async ({
+  test('GC8 주문 체결 통보 → 우상단 토스트(헤더 아래) → 클릭 → 카드 펼침 + 「미체결」 탭 + 헤더 표시 해제 (quick-260923-pgu · 목업 ③A · quick-260928-cs1)', async ({
     page,
   }) => {
     const orderNo = '0000000777';
@@ -1487,12 +1487,13 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(toast).toContainText('체결');
     await expect(toast).toContainText('100/500주');
     await expect(card).toHaveAttribute('data-alert', 'true');
-    // 뷰포트 오버레이 — 데스크톱은 우하단.
+    // 뷰포트 오버레이 — 모든 뷰포트 상단 · 앱 헤더(56) 아래 · ≥700 은 우측 (quick-260928-cs1)
     const box = await toast.boundingBox();
     const vp = page.viewportSize()!;
     expect(box).not.toBeNull();
     expect(box!.x + box!.width).toBeGreaterThan(vp.width - 40);
-    expect(box!.y + box!.height).toBeGreaterThan(vp.height - 40);
+    expect(box!.y).toBeGreaterThanOrEqual(56);
+    expect(box!.y).toBeLessThan(120);
 
     await toast.locator('[data-part="text"]').click();
     await expect(card).toHaveAttribute('data-open', 'true');
