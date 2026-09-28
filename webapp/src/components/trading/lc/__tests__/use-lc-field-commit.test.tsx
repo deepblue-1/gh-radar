@@ -16,6 +16,7 @@ import {
   LC_FLASH_MS,
   LC_GATE_FIELDS,
   LC_ORPHAN_WAIT_MS,
+  LC_REJECT_ECHO_GRACE_MS,
   lcExtraBuyAtUpperLimitText,
   lcExtraBuyUpperLimitBlockOf,
   lcGroupAmountBlockOf,
@@ -899,6 +900,122 @@ describe('R3-WR-02 — 보낸 프레임의 답 신호는 같은 판정 실행의
     // 일반 성공 신호는 모든 성공을 내므로 마지막 성공이 덮는다 — 그래서 보낸 성공 신호를 따로 둔다.
     expect(r.lastSuccessField).toBe('sellEnabled');
     expect(t.send).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * 24-REVIEW-R3 R3-WR-01 — 카드는 lc.set 거부 통지에 답 신호와 거부 신호(`serverRejectSeq`)를 함께 올린다. 부분 거부는
+ * ERROR 뒤 같은 제출의 에코가 오므로, 거부 신호가 오른 답이 같은 렌더에 에코 없이 오면 훅은 판정을 유예한다.
+ * ★ 거부 신호 없이 답만 오른 경로(위 「답만 증가」 케이스들)는 즉시 판정 그대로다 — 그 케이스들은 고치지 않는다.
+ * ★ 모든 케이스가 전송 수를 센다 — 유예 타이머는 실패 표시만 한다(T-16-10).
+ */
+describe('R3-WR-01 — 거부 통지 답은 같은 제출의 에코를 LC_REJECT_ECHO_GRACE_MS 기다린다 (24-REVIEW-R3)', () => {
+  /** 선매수 켬(마스터 · 매도 동반) 전송 → 추가매수 켬 대기 — 리뷰어 스크래치 재현과 같은 출발점. */
+  function prepPreBuyWithQueuedExtra() {
+    const t = setup({ server: echo({ buyEnabled: false }) });
+    let first: string | undefined;
+    let second: string | undefined;
+    act(() => {
+      first = t.hook.result.current.commit('preBuyEnabled', true, 'toggle', { buyEnabled: true, sellEnabled: true });
+    });
+    act(() => {
+      second = t.hook.result.current.commit('extraBuyEnabled', true, 'toggle');
+    });
+    expect(first).toBe('sent');
+    expect(second).toBe('queued');
+    expect(t.send).toHaveBeenCalledTimes(1);
+    return t;
+  }
+
+  it('H1 리뷰어 재현 — 거부 신호 먼저 → 실패 0 · 낙관 유지 → 같은 제출 에코(선매수 ON · 매도 OFF) → 보낸 성공 = 선매수 → 다음 답 신호에 대기 추가매수 1건', () => {
+    const t = prepPreBuyWithQueuedExtra();
+
+    t.update({ serverAnswerSeq: 1, serverRejectSeq: 1 });
+    let r = t.hook.result.current;
+    expect(r.failures).toEqual({});
+    expect(r.inflightField).toBe('preBuyEnabled');
+    expect(r.queuedFields).toEqual(['extraBuyEnabled']);
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.formRef.current.preBuyEnabled).toBe(true);
+    expect(t.formRef.current.extraBuyEnabled).toBe(true);
+
+    t.update({ server: echo({ buyEnabled: true, preBuyEnabled: true, sellEnabled: false }) });
+    r = t.hook.result.current;
+    expect(r.sentSuccessSeq).toBe(1);
+    expect(r.lastSentSuccessField).toBe('preBuyEnabled');
+    expect(r.failures).toEqual({});
+    // ⑦ — 에코 렌더에서는 꺼내지 않는다(뒤따르는 답 신호 증가를 기다린다).
+    expect(t.send).toHaveBeenCalledTimes(1);
+
+    t.update({ serverAnswerSeq: 3 });
+    r = t.hook.result.current;
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(t.cfgs()[1]!.extraBuyEnabled).toBe(true);
+    expect(r.failures.extraBuyEnabled).toBeUndefined();
+  });
+
+  it('H2 전면 거부 경계 — 에코가 없으면 유예 1ms 전까지 실패 0 · 유예 끝에 선매수 · 대기 추가매수 모두 rejected · 서버 값으로 되돌림 · 재전송 0', () => {
+    // 경계 1ms 를 재므로 실시간이 가짜 시계를 밀지 않게 다시 설치한다.
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    const t = prepPreBuyWithQueuedExtra();
+
+    t.update({ serverAnswerSeq: 1, serverRejectSeq: 1 });
+    act(() => {
+      vi.advanceTimersByTime(LC_REJECT_ECHO_GRACE_MS - 1);
+    });
+    expect(t.hook.result.current.failures).toEqual({});
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    const r = t.hook.result.current;
+    expect(r.failures.preBuyEnabled).toEqual({ reason: 'rejected', text: LC_COMMIT_TEXT.failed, value: true });
+    expect(r.failures.extraBuyEnabled?.reason).toBe('rejected');
+    expect(r.inflightField).toBeNull();
+    expect(r.queuedFields).toEqual([]);
+    expect(t.formRef.current.preBuyEnabled).toBe(false);
+    expect(t.formRef.current.extraBuyEnabled).toBe(false);
+    expect(t.send).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(t.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('H3 같은 제출의 에코가 주 필드를 눕힌 채 오면 유예를 기다리지 않고 그 렌더에서 즉시 rejected — 에코가 정본', () => {
+    const t = setup();
+    act(() => {
+      t.hook.result.current.commit('sellEnabled', true, 'toggle');
+    });
+    t.update({ serverAnswerSeq: 1, serverRejectSeq: 1 });
+    expect(t.hook.result.current.failures).toEqual({});
+
+    // 매도 OFF 인 새 에코 객체 — 타이머 진행 없이 이 렌더에서 판정한다.
+    t.update({ server: echo({ sellEnabled: false }) });
+    expect(t.hook.result.current.failures.sellEnabled?.reason).toBe('rejected');
+    expect(t.hook.result.current.inflightField).toBeNull();
+
+    act(() => {
+      vi.advanceTimersByTime(LC_REJECT_ECHO_GRACE_MS);
+    });
+    expect(Object.keys(t.hook.result.current.failures)).toEqual(['sellEnabled']);
+    expect(t.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('H4 유예 중 언마운트 → 유예가 지나도 예외 · 경고 없음 · 전송 1', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const t = prepPreBuyWithQueuedExtra();
+    t.update({ serverAnswerSeq: 1, serverRejectSeq: 1 });
+    t.hook.unmount();
+    expect(() => {
+      act(() => {
+        vi.advanceTimersByTime(LC_REJECT_ECHO_GRACE_MS * 2);
+      });
+    }).not.toThrow();
+    expect(errors).not.toHaveBeenCalled();
+    expect(t.send).toHaveBeenCalledTimes(1);
+    errors.mockRestore();
   });
 });
 

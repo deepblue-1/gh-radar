@@ -46,6 +46,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
 import { mockPointer, restoreMatchMedia } from '@/lib/__tests__/match-media';
 import { isServerFoldEdge, LC_FOLD_HIDDEN_DEFER_MS, LimitChaserForm, type LimitChaserFormProps } from '../limit-chaser-form';
 import { buyOrderQtyFromAmount } from '@/lib/limit-chaser';
+import { LC_REJECT_ECHO_GRACE_MS } from '../lc/use-lc-field-commit';
 import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
 
 const ISIN = 'KR7086520004';
@@ -3131,5 +3132,97 @@ describe('R3-WR-02 — 성공 신호가 한 실행에 겹쳐도 자동 체크 �
     expect(input('lc-buy-watch-qty')).toBeNull();
     expect(rowText('lc-buy-watch-qty')).toBe('9,000주');
     expect(sentConfigs()).toHaveLength(2);
+  });
+});
+
+/**
+ * 24-REVIEW-R3 R3-WR-01 — 부분 거부는 ERROR(답 신호 + 거부 신호)가 같은 제출의 에코보다 먼저 온다. 폼은 거부 신호가 오른
+ * 답을 에코까지 유예하는 훅 판정을 그대로 쓴다 — 선매수 자동 체크 줄과 대기 추가매수(D-35)가 사라지지 않는다.
+ * 전면 거부(에코 없음)는 유예 뒤 종전대로 되돌린다. waitFor 를 쓰지 않으므로 가짜 시계는 실시간과 분리한다.
+ */
+describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 선매수 자동 체크 줄 · 대기 추가매수가 선다 (24-REVIEW-R3)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** GC-WR-04 와 같은 출발점 — 마스터 OFF · 매도/취소 전부 OFF · 매도 가격 0 · 매도 매수잔량 10 · 추가매수 금액 50. */
+  const idle = (over: Partial<RelayLimitChaser> = {}) =>
+    echo({ buyEnabled: false, sellOrderPrice: 0, sellWatchPrice: 0, sellWatchQty: 10, extraBuyOrderAmount: 50, ...over });
+  const FIVE_WITHOUT_SELL = {
+    sellQtyTrackEnabled: true,
+    sellTradeQtyEnabled: true,
+    cancelQtyEnabled: true,
+    cancelTradeEnabled: true,
+    cancelQtyTrackEnabled: true,
+  } as const;
+  const PRE_FULL_LINE =
+    '선매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 150,800원';
+  const autoLines = (log: ReturnType<typeof vi.fn>): [string, string][] =>
+    (log.mock.calls as [string, string][]).filter(([text]) => text.includes('자동 체크'));
+  const failedShown = () => (document.body.textContent ?? '').includes('반영하지 못했어요');
+
+  /** 선매수 켬(in-flight) → 추가매수 켬(대기) → 거부 신호(답 1 · 거부 1). */
+  function startAndReject(onClientLog: ReturnType<typeof vi.fn>) {
+    const s = idle();
+    const view = render(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog })} />);
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    click(sw('추가매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    view.rerender(
+      <LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog, serverAnswerSeq: 1, serverRejectSeq: 1 })} />,
+    );
+    expect(sw('선매수 켜기')).toHaveAttribute('aria-checked', 'true');
+    expect(sw('추가매수 켜기')).toHaveAttribute('aria-checked', 'true');
+    expect(failedShown()).toBe(false);
+    expect(autoLines(onClientLog)).toEqual([]);
+    expect(sentConfigs()).toHaveLength(1);
+    return view;
+  }
+
+  it('F1 부분 거부 — 거부 신호 먼저 → 같은 제출 에코(매도만 눕힘) → 「선매수 자동 체크」 한 줄 → 다음 답 신호에 대기 추가매수 1건', () => {
+    const onClientLog = vi.fn();
+    const { rerender } = startAndReject(onClientLog);
+
+    const pre = idle({
+      buyEnabled: true,
+      preBuyEnabled: true,
+      sellEnabled: false,
+      ...FIVE_WITHOUT_SELL,
+      sellOrderPrice: 150_800,
+      sellWatchPrice: 150_800,
+    });
+    rerender(
+      <LimitChaserForm {...props({ server: pre, upperLimit: 150_800, onClientLog, serverAnswerSeq: 1, serverRejectSeq: 1 })} />,
+    );
+    expect(autoLines(onClientLog)).toEqual([[PRE_FULL_LINE, 'info']]);
+    expect(failedShown()).toBe(false);
+    expect(sentConfigs()).toHaveLength(1);
+
+    rerender(
+      <LimitChaserForm {...props({ server: pre, upperLimit: 150_800, onClientLog, serverAnswerSeq: 2, serverRejectSeq: 1 })} />,
+    );
+    expect(sentConfigs()).toHaveLength(2);
+    expect(lastConfig().extraBuyEnabled).toBe(true);
+    expect(sw('추가매수 켜기')).toHaveAttribute('aria-checked', 'true');
+    expect(failedShown()).toBe(false);
+  });
+
+  it('F2 전면 거부 — 에코 없이 유예가 끝나면 선매수 · 추가매수 · 매도(동반) 스위치가 서버 값으로 되돌아가고 자동 체크 줄 0 · 재전송 0', () => {
+    const onClientLog = vi.fn();
+    startAndReject(onClientLog);
+
+    act(() => {
+      vi.advanceTimersByTime(LC_REJECT_ECHO_GRACE_MS);
+    });
+    expect(sw('선매수 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(sw('추가매수 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(failedShown()).toBe(true);
+    expect(autoLines(onClientLog)).toEqual([]);
+    expect(sentConfigs()).toHaveLength(1);
   });
 });
