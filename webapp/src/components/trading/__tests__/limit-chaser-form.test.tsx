@@ -1144,12 +1144,13 @@ describe('WR-02 · D-04a 잔여 — 구서버 에코(buy3Schema 0)', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(LEGACY_READ_ONLY);
   });
 
-  it('켜는 스위치 → 전송 0 · 폼 맨 위 한 줄 「구서버 전략이라 끄기만 할 수 있어요 — …」(WR-02 — 구서버 에코는 읽기 전용)', () => {
+  it('켜는 스위치는 `disabled` — 눌러도 전송 0 · 사유는 누르기 전에 매도 열 「켤 수 없는 이유」 패널 한 줄(WR-02 — 구서버 에코는 읽기 전용 · 24-13)', () => {
     render(<LimitChaserForm {...props({ server: legacy() })} />);
+    expect(sw('매도주문 켜기')).toBeDisabled();
     click(sw('매도주문 켜기'));
     expect(sentConfigs()).toHaveLength(0);
-    expect(submitError()).toHaveTextContent(LEGACY_READ_ONLY);
     expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(pane('sell').querySelector('[data-slot="lc-arm-blocked-text"]')).toHaveTextContent(LEGACY_READ_ONLY);
   });
 
   it('WR-02 — 매수가 켜진 채 매도 끄기 → 전송 0 · 폼 맨 위 「구서버 전략이라 매수주문부터 꺼 주세요」 · 매도 그대로 → 매수주문 끄기 → 전송 1 · cfg 마스터 false', () => {
@@ -1213,6 +1214,71 @@ describe('WR-02 · D-04a 잔여 — 구서버 에코(buy3Schema 0)', () => {
     render(<LimitChaserForm {...props({ server: null })} />);
     // D-04 새 전략 기본값 — 선매수 금액 4,000만원(옛 10만원 폐기 · 24-07).
     expect(rowText('lc-buy-order-amount')).toBe('4,000만원');
+  });
+});
+
+describe('WR-02 — 구서버 에코 화면: 켜는 방향 disabled · 열 패널 한 줄 (24-13)', () => {
+  /** 구서버 에코 — 마스터 ON · 매도 ON · 선 · 추가 · 후매수 · 매수취소 OFF(24-13 e2e 시드와 같은 모양). */
+  const legacy = (over: Partial<RelayLimitChaser> = {}) =>
+    echo({ buy3Schema: 0, buyEnabled: true, sellEnabled: true, ...over });
+  const LEGACY_READ_ONLY = '구서버 전략이라 끄기만 할 수 있어요 — 서버를 확인해 주세요';
+  const lines = (side: 'buy' | 'sell') =>
+    Array.from(pane(side).querySelectorAll('[data-slot="lc-arm-blocked"]')).map((li) => ({
+      gates: li.querySelector('[data-slot="lc-arm-blocked-gates"]')?.textContent,
+      text: li.querySelector('[data-slot="lc-arm-blocked-text"]')?.textContent,
+    }));
+
+  it('꺼진 스위치(선매수 · 추가매수 · 후매수 · 매수취소)는 `disabled` · 켜진 스위치(매수주문 · 매도주문)는 끌 수 있다(T-16-44)', () => {
+    render(<LimitChaserForm {...props({ server: legacy() })} />);
+    for (const name of ['선매수 켜기', '추가매수 켜기', '후매수 켜기', '매수취소 켜기']) expect(sw(name)).toBeDisabled();
+    for (const name of ['매수주문 켜기', '매도주문 켜기']) expect(sw(name)).toBeEnabled();
+  });
+
+  it('매수 열 패널 한 줄 = 「매수주문 · 선매수 · 추가매수 · 후매수」 + legacyReadOnly · 매도 열 한 줄 = 「매도주문 · 매수취소」 + legacyReadOnly', () => {
+    render(<LimitChaserForm {...props({ server: legacy() })} />);
+    expect(lines('buy')).toEqual([{ gates: '매수주문 · 선매수 · 추가매수 · 후매수', text: LEGACY_READ_ONLY }]);
+    expect(lines('sell')).toEqual([{ gates: '매도주문 · 매수취소', text: LEGACY_READ_ONLY }]);
+    expect(pane('buy').lastElementChild).toBe(pane('buy').querySelector('[data-slot="lc-arm-blocked-panel"]'));
+  });
+
+  it('가격 0 · 매도 매수잔량 0 사유가 함께 있어도 구서버 한 줄이 그 열의 유일한 줄이다', () => {
+    render(
+      <LimitChaserForm
+        {...props({ server: legacy({ buyEnabled: false, buyOrderPrice: 0, sellEnabled: false, sellWatchQty: 0 }) })}
+      />,
+    );
+    expect(lines('buy')).toEqual([{ gates: '매수주문 · 선매수 · 추가매수 · 후매수', text: LEGACY_READ_ONLY }]);
+    expect(lines('sell')).toEqual([{ gates: '매도주문 · 매수취소', text: LEGACY_READ_ONLY }]);
+  });
+
+  it('켜진 매수주문을 끄면 전송 1(24-12 규칙) · 꺼진 스위치는 눌러도 전송 0(disabled)', () => {
+    render(<LimitChaserForm {...props({ server: legacy() })} />);
+    for (const name of ['선매수 켜기', '추가매수 켜기', '후매수 켜기', '매수취소 켜기']) click(sw(name));
+    expect(sentConfigs()).toHaveLength(0);
+    click(sw('매수주문 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().buyEnabled).toBe(false);
+    expect(lastConfig().sellEnabled).toBe(true);
+  });
+
+  it('매수취소가 켜져 있으면 끌 수 있다 — 매수취소도 켜는 방향만 막는다', () => {
+    render(<LimitChaserForm {...props({ server: legacy({ cancelQtyEnabled: true }) })} />);
+    expect(sw('매수취소 켜기')).toBeEnabled();
+  });
+
+  it('buy3 에코(buy3Schema 1)는 종전과 같다 — 패널 없음 · 여섯 스위치 모두 누를 수 있다', () => {
+    render(<LimitChaserForm {...props({ server: legacy({ buy3Schema: 1 }) })} />);
+    expect(pane('buy').querySelector('[data-slot="lc-arm-blocked-panel"]')).toBeNull();
+    expect(pane('sell').querySelector('[data-slot="lc-arm-blocked-panel"]')).toBeNull();
+    for (const name of ['매수주문 켜기', '선매수 켜기', '추가매수 켜기', '후매수 켜기', '매도주문 켜기', '매수취소 켜기']) {
+      expect(sw(name)).toBeEnabled();
+    }
+  });
+
+  it('세션 미준비(disabled)면 구서버여도 패널이 없다 — 종전 규칙(끊김은 폼 맨 위 몫)', () => {
+    render(<LimitChaserForm {...props({ server: legacy(), disabled: true })} />);
+    expect(pane('buy').querySelector('[data-slot="lc-arm-blocked-panel"]')).toBeNull();
+    expect(pane('sell').querySelector('[data-slot="lc-arm-blocked-panel"]')).toBeNull();
   });
 });
 
@@ -1837,13 +1903,17 @@ describe('⑱ 그룹 켜기 사전 검증 줄 · D-16 · D-11 재제출 (24-06 �
     expect(sentConfigs()).toHaveLength(0);
   });
 
-  it('WR-02 — 구서버 에코(buy3Schema 0 · 금액 0) 선매수 켜기 → 전송 0 · 사전 검증 줄이 아니라 폼 맨 위 구서버 읽기 전용 문장(훅 가드가 막는다)', () => {
+  it('WR-02 — 구서버 에코(buy3Schema 0 · 금액 0) 선매수 켜기는 `disabled` → 전송 0 · 사전 검증 줄 없음 · 사유는 매수 열 패널의 구서버 읽기 전용 문장(24-13 — 누르기 전에 안다)', () => {
     render(<LimitChaserForm {...props({ server: echo({ buy3Schema: 0, buyOrderAmount: 0, buyOrderQty: 500 }) })} />);
+    expect(sw('선매수 켜기')).toBeDisabled();
     click(sw('선매수 켜기'));
     expect(sentConfigs()).toHaveLength(0);
     expect(sw('선매수 켜기')).toHaveAttribute('aria-checked', 'false');
     expect(precheckIn('pre-buy')).toBeNull();
-    expect(submitError()).toHaveTextContent('구서버 전략이라 끄기만 할 수 있어요 — 서버를 확인해 주세요');
+    expect(submitError()).toBeNull();
+    expect(pane('buy').querySelector('[data-slot="lc-arm-blocked-text"]')).toHaveTextContent(
+      '구서버 전략이라 끄기만 할 수 있어요 — 서버를 확인해 주세요',
+    );
   });
 
   it('IN-04 — buy3 선매수 금액 0 → 선매수 카드 사전 검증 줄 주문금액 · 전송 0 · 스위치 OFF · 폼 맨 위 한 줄 없음(수량 0 문구 아님)', () => {
