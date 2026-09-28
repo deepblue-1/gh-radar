@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 24
 current_phase_name: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영
 status: executing
-stopped_at: Completed 24-19-PLAN.md
-last_updated: "2026-09-28T08:59:49.495Z"
+stopped_at: Completed 24-20-PLAN.md
+last_updated: "2026-09-28T09:09:22.390Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 24 execution started
-state_head: ee4bd98cf7468a5a2113e57f64d29d7b6e3d9306
+state_head: 7451d5d980fffec7b8916b44f9350e4a7d9c7fd9
 progress:
   total_phases: 33
   completed_phases: 4
   total_plans: 324
-  completed_plans: 303
+  completed_plans: 304
 milestone_name: milestone
 ---
 
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 24 (gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영) — EXECUTING
-Plan: 20 of 24
+Plan: 21 of 24
 Plans completed: 220 / 234
-Status: Phase 24 갭 클로징 2라운드 실행 중 — 24-19 완료 · 다음 24-20
+Status: Phase 24 갭 클로징 2라운드 실행 중 — 24-20 완료 · 다음 24-21
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-28 — 24-19 완료: GC-WR-02 토글 되돌림 = 지금 서버 동기값 · failQueue 주 필드 선 경우 성공 · GC-IN-05 주석 (7c282617 · 8b1521dd) · 다음 24-20
+Last activity: 2026-09-28 — 24-20 완료: GC-WR-03 D-02 전반 마스터 동반 두 단계 판정(누른 순간 화면 ∧ 꺼내는 순간 서버) · GC-IN-01 구서버 전환 에코 하강 전이 배제 · GC-IN-02 남는 한계 문구 (ddafbe04 · 7c343fe2) · 다음 24-21
 
 Progress: [█████████░] 93%
 
@@ -155,6 +155,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 24 P17 | 8 min | 2 tasks | 6 files |
 | Phase 24 P18 | 8min | 2 tasks | 5 files |
 | Phase 24 P19 | 7min | 2 tasks | 3 files |
+| Phase 24 P20 | 6min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -387,6 +388,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 24]: 24-18 GC-WR-01: 거부 통지는 보낸 제출 귀속을 비우지 않는다 — 귀속 판정은 strategy-log echoAnswersSent(요청 변화가 하나라도 섰는가) 한 곳, 싣지 않은 에코는 귀속을 받지도 소비하지도 않고 끝은 결과 모름 창 만료 — 부분 거부(ERROR 뒤 같은 제출의 에코)와 다른 탭 거부 팬아웃 때문에 거부 시점 비움이 내 에코를 다른 단말로 읽게 했다(24-REVIEW-R2 GC-WR-01)
 - [Phase 24]: GC-WR-02: 토글 되돌림 기준은 서버가 있으면 지금 서버 동기값(baseNow()), 미등록이면 확정 직전 폼 값 — revertToggle 한 자리 · reshow 빠지는 키도 같은 기준
 - [Phase 24]: GC-WR-02: failQueue 에서 주 필드만 서버 값이면 주 필드는 성공 · 동반은 서버 값으로 조용히 표시(동반 말풍선 없음 · 24-24 사용자 확인 결정) — 대기 건 전체 성공 접기(WR-04 금지)와 다름
+- [Phase 24]: 24-20 GC-WR-03: D-02 전반 마스터 동반은 누른 순간 화면에서 마지막 ∧ 판정 시점(즉시 · 꺼내는 순간) 서버 값에서도 마지막일 때만 — 대기 중 다른 단말이 켠 그룹을 해제하지 않는다
+- [Phase 24]: 24-20 GC-IN-01: isServerFoldEdge 는 직전 · 이번 에코 중 구서버(buy3Schema 0)가 있으면 false — 구서버에 자동 마스터 OFF 금지 · GC-IN-02 유예 지터는 넣지 않고 남는 한계 문구(모든 인스턴스 숨음 N건)만 넓힘
 
 ### Pending Todos
 
@@ -445,8 +448,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-09-28T08:59:38.561Z
-Stopped at: Completed 24-19-PLAN.md
+Last session: 2026-09-28T09:09:21.021Z
+Stopped at: Completed 24-20-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
