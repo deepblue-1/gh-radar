@@ -341,7 +341,7 @@ async function openLcCardInTheme(page: Page, theme: 'light' | 'dark'): Promise<v
   await expect(page.locator(LC_OPEN_CARD)).toHaveCount(1, { timeout: 15_000 });
 }
 
-/** 폰 밴드(본문 < 700)의 바깥 탭 「매수」/「매도」. */
+/** 폰 밴드(본문 < 685 · 정본 globals.css §2.2b)의 바깥 탭 「매수」/「매도」. */
 async function pickLcTab(page: Page, name: '매수' | '매도'): Promise<void> {
   await page.locator(LC_OPEN_CARD).getByRole('tablist', { name: '주문 진입' }).getByRole('tab', { name }).click();
 }
@@ -520,7 +520,7 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
       ).toHaveText('보유중', { timeout: 15_000 });
       for (const target of [344, 992]) {
         await sizeOpenCardTo(page, target);
-        if (target < 700) await pickLcTab(page, '매수');
+        if (target < 685) await pickLcTab(page, '매수');
         for (const expanded of [false, true]) {
           await setLcFolds(page, expanded);
           const results = await new AxeBuilder({ page }).include(CARD).withTags(['wcag2a', 'wcag2aa']).analyze();
@@ -564,7 +564,7 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
       );
       for (const target of [344, 992]) {
         await sizeOpenCardTo(page, target);
-        if (target < 700) await pickLcTab(page, '매수');
+        if (target < 685) await pickLcTab(page, '매수');
         await setLcFolds(page, false);
         await expect(card.locator('[data-pane="buy"] [data-slot="lc-arm-blocked"]')).toBeVisible();
         const results = await new AxeBuilder({ page }).include(LC_OPEN_CARD).withTags(['wcag2a', 'wcag2aa']).analyze();

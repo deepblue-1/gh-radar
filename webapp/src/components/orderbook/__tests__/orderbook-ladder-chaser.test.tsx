@@ -575,12 +575,12 @@ describe('OrderbookLadder — 상따 변형', () => {
   });
 
   /*
-    ⑰ ★ 260912-k2x — **2단 호가**(본문 700~829)를 신설하면서 사다리 트리가 셋이 됐다.
+    ⑰ ★ 260912-k2x — **2단 호가**(본문 685~829)를 신설하면서 사다리 트리가 셋이 됐다.
 
       여기서 잠그는 것은 「보기 좋은가」가 아니라 **같은 사다리가 두 번 읽히지 않는가**다.
       세 트리의 노출 조건이 배타적이지 않으면 겹친 구간에서 스크린리더가 같은 호가를 두 번
       읽고, 시각 사용자에게는 두 사다리가 세로로 쌓인다(T-k2x-04).
-      jsdom 에는 레이아웃이 없어 「700 에서 실제로 2단이 뜬다」는 증명할 수 없다 — 증명할 수
+      jsdom 에는 레이아웃이 없어 「685 에서 실제로 2단이 뜬다」는 증명할 수 없다 — 증명할 수
       있는 것은 **세 조건이 서로 겹치지 않는다**는 규칙뿐이고, 그것이 이 케이스의 본체다.
   */
   it('⑰ 사다리 트리가 셋이고 노출 조건이 **배타적**이다 (T-k2x-04)', () => {
@@ -593,12 +593,12 @@ describe('OrderbookLadder — 상따 변형', () => {
     // 3단 — 830 이상에서만. 기본이 `hidden` 이므로 그 아래에서는 접근성 트리에서도 빠진다.
     expect(byName.three).toContain('hidden');
     expect(byName.three).toContain('@min-[830px]/lc:block');
-    // 2단 — 700 이상 830 **미만**. 하한·상한 두 조건을 함께 건다.
+    // 2단 — 685 이상 830 **미만**. 하한·상한 두 조건을 함께 건다.
     expect(byName.two).toContain('hidden');
-    expect(byName.two).toContain('@min-[700px]/lc:block');
+    expect(byName.two).toContain('@min-[685px]/lc:block');
     expect(byName.two).toContain('@min-[830px]/lc:hidden');
-    // 1단 — 700 미만에서만. 기본이 보임이고 700 에서 꺼진다.
-    expect(byName.one).toContain('@min-[700px]/lc:hidden');
+    // 1단 — 685 미만에서만. 기본이 보임이고 685 에서 꺼진다.
+    expect(byName.one).toContain('@min-[685px]/lc:hidden');
     expect(byName.one).not.toContain('@min-[830px]');
     // 옛 뷰포트 키가 한 톨도 남지 않았다.
     for (const cls of Object.values(byName)) expect(cls).not.toContain('min-[1280px]:');

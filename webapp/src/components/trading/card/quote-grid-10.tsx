@@ -67,8 +67,8 @@ export function QuoteGrid10({
 
   /*
     종목정보 **10칸** — 본문 폭 3밴드 배치다 (260912-k2x · 목업 `260912-chaser-breakpoints.html`).
-      폰(~699)        : 2열 5행
-      컴팩트·와이드(700~991) : **5열 2행** — 윗줄은 일중 가격, 아랫줄은 경계와 규모
+      폰(~684)        : 2열 5행
+      컴팩트·와이드(685~991) : **5열 2행** — 윗줄은 일중 가격, 아랫줄은 경계와 규모
       데스크톱(992~)  : 한 줄 가로 나열(`flex-wrap` — 넘치면 잘리지 않고 다음 줄로 흐른다)
     ★ 18-06 부터 「본문 폭」은 **카드 폭**이다 — `@container/lc` 가 카드 래퍼로 이동했다.
     ★ 배치 분기는 **CSS 로만** 한다 — 같은 10칸이 클래스만 갈아입고, 배열도 JSX 도 한
@@ -76,7 +76,7 @@ export function QuoteGrid10({
       숫자를 본다(T-k2x-02). 뷰포트 폭을 JS 로 재는 훅도 두지 않는다 — SSR 과 첫
       페인트에서 배치가 튄다.
     ★ 5열 배치의 **순서 차이도 CSS `order` 하나로만** 낸다. 배열을 두 벌로 내면 같은
-      함정이 순서 쪽에서 다시 열린다. 그래서 10칸 **전부**가 700 밴드의 `order` 를 갖고
+      함정이 순서 쪽에서 다시 열린다. 그래서 10칸 **전부**가 컴팩트 밴드(685~)의 `order` 를 갖고
       992 에서 전부 0 으로 돌아온다 — 일부만 붙이면 값이 없는 칸(`order:0`)이 지정한
       칸보다 **앞**으로 몰린다.
     ★ 데스크톱 `gap-x-[20px]` · `px-3.5`(14px) · `py-2`(8px) 는 목업 정본과 동형이다
@@ -90,7 +90,7 @@ export function QuoteGrid10({
   return (
     <div
       data-slot="lc-quote-grid"
-      className="grid grid-cols-2 py-1 @min-[700px]/lc:grid-cols-5 @min-[992px]/lc:flex @min-[992px]/lc:flex-wrap @min-[992px]/lc:items-baseline @min-[992px]/lc:gap-x-[20px] @min-[992px]/lc:gap-y-0 @min-[992px]/lc:px-3.5 @min-[992px]/lc:py-2"
+      className="grid grid-cols-2 py-1 @min-[685px]/lc:grid-cols-5 @min-[992px]/lc:flex @min-[992px]/lc:flex-wrap @min-[992px]/lc:items-baseline @min-[992px]/lc:gap-x-[20px] @min-[992px]/lc:gap-y-0 @min-[992px]/lc:px-3.5 @min-[992px]/lc:py-2"
     >
       {/*
         ★ `기준` 의 방향색은 **자기 자신과의 비교**라 언제나 보합이다. 새 분기를 만들지
@@ -101,31 +101,31 @@ export function QuoteGrid10({
         label="기준"
         value={priceText(basePrice)}
         tone={priceTone(basePrice, basePrice)}
-        order="@min-[700px]/lc:order-[1] @min-[992px]/lc:order-[0]"
+        order="@min-[685px]/lc:order-[1] @min-[992px]/lc:order-[0]"
       />
       <QuoteCell
         label="시가"
         value={priceText(quote?.o ?? 0)}
         tone={priceTone(quote?.o ?? 0, basePrice)}
-        order="@min-[700px]/lc:order-[2] @min-[992px]/lc:order-[0]"
+        order="@min-[685px]/lc:order-[2] @min-[992px]/lc:order-[0]"
       />
       <QuoteCell
         label="고가"
         value={priceText(quote?.h ?? 0)}
         tone={priceTone(quote?.h ?? 0, basePrice)}
-        order="@min-[700px]/lc:order-[3] @min-[992px]/lc:order-[0]"
+        order="@min-[685px]/lc:order-[3] @min-[992px]/lc:order-[0]"
       />
       <QuoteCell
         label="저가"
         value={priceText(quote?.l ?? 0)}
         tone={priceTone(quote?.l ?? 0, basePrice)}
-        order="@min-[700px]/lc:order-[4] @min-[992px]/lc:order-[0]"
+        order="@min-[685px]/lc:order-[4] @min-[992px]/lc:order-[0]"
       />
       <QuoteCell
         label="상한"
         value={priceText(upperLimit)}
         tone="text-[var(--up)]"
-        order="@min-[700px]/lc:order-[6] @min-[992px]/lc:order-[0]"
+        order="@min-[685px]/lc:order-[6] @min-[992px]/lc:order-[0]"
       />
       {/*
         ★ `하한` 칸은 KRX 정규장 종가에 자리를 내준다 (17-11 / D-11 개정 · 사용자 결정
@@ -147,30 +147,30 @@ export function QuoteGrid10({
             ? priceTone(closePrice, basePrice)
             : "text-[var(--down)]"
         }
-        order="@min-[700px]/lc:order-[7] @min-[992px]/lc:order-[0]"
+        order="@min-[685px]/lc:order-[7] @min-[992px]/lc:order-[0]"
       />
       {/* 상승VI 는 발동가라 언제나 위쪽 사건이다 — 기준가 대비가 아니라 항상 `--up`. */}
       <QuoteCell
         label="상승VI"
         value={priceText(quote?.viu ?? 0)}
         tone="text-[var(--up)]"
-        order="@min-[700px]/lc:order-[5] @min-[992px]/lc:order-[0]"
+        order="@min-[685px]/lc:order-[5] @min-[992px]/lc:order-[0]"
       />
       {/* 누적거래대금 — 스캐너의 `formatTradeAmount`(`133.4조`)와 **다른 함수**다. */}
       <QuoteCell
         label="거래"
         value={formatTradeValue(quote?.va ?? 0)}
-        order="@min-[700px]/lc:order-[8] @min-[992px]/lc:order-[0]"
+        order="@min-[685px]/lc:order-[8] @min-[992px]/lc:order-[0]"
       />
       <QuoteCell
         label="시총"
         value={formatMarketCap(currentPrice, quote?.ls ?? 0)}
-        order="@min-[700px]/lc:order-[9] @min-[992px]/lc:order-[0]"
+        order="@min-[685px]/lc:order-[9] @min-[992px]/lc:order-[0]"
       />
       <QuoteCell
         label="발행1%"
         value={formatOnePercentShares(quote?.ls ?? 0)}
-        order="@min-[700px]/lc:order-[10] @min-[992px]/lc:order-[0]"
+        order="@min-[685px]/lc:order-[10] @min-[992px]/lc:order-[0]"
       />
     </div>
   );
@@ -178,9 +178,9 @@ export function QuoteGrid10({
 
 /**
  * 종목정보 한 칸. **세 배치를 산다** (260912-k2x · 카드 폭 기준):
- *   - 폰(~699) 2열 5행 — 라벨 왼쪽 · 값이 `ml-auto` 로 칸의 오른쪽 끝. 라벨
+ *   - 폰(~684) 2열 5행 — 라벨 왼쪽 · 값이 `ml-auto` 로 칸의 오른쪽 끝. 라벨
  *     `min-w-[34px]` 가 2열에서 값의 좌측 끝을 맞춘다.
- *   - 컴팩트·와이드(700~991) 5열 2행 — 같은 칸 모양이고 **순서만** `order` 로 바뀐다.
+ *   - 컴팩트·와이드(685~991) 5열 2행 — 같은 칸 모양이고 **순서만** `order` 로 바뀐다.
  *   - 데스크톱(992~) 한 줄 가로 나열 — 「라벨 값」 인라인 쌍. 그래서 라벨 최소폭을 풀고
  *     (`min-w-0`) 값을 라벨 바로 옆에 붙인다(`ml-0`). 칸 패딩도 0 으로 돌린다: 칸 사이
  *     간격은 컨테이너의 `gap-x-[20px]` 가 담당하고, 둘 다 주면 20 + 20px 이 되어 한 줄에

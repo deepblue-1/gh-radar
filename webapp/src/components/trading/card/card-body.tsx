@@ -317,7 +317,7 @@ export function CardBody({
       data-slot="card-body"
       className={cn(
         'grid min-w-0 grid-cols-[42%_minmax(0,1fr)] [&>*]:min-w-0',
-        '@min-[700px]/lc:grid-cols-[260px_minmax(0,1fr)]',
+        '@min-[685px]/lc:grid-cols-[260px_minmax(0,1fr)]',
         '@min-[830px]/lc:grid-cols-[400px_minmax(0,1fr)]',
         '@min-[992px]/lc:grid-cols-[460px_minmax(0,1fr)]',
         'border-t border-[var(--border-subtle)]',
@@ -326,7 +326,7 @@ export function CardBody({
     >
       <div
         data-slot="card-body-orderbook"
-        className="min-w-0 border-r border-[var(--border-subtle)] p-2 @min-[700px]/lc:p-2.5"
+        className="min-w-0 border-r border-[var(--border-subtle)] p-2 @min-[685px]/lc:p-2.5"
       >
         <OrderbookLadder
           variant="chaser"
@@ -339,7 +339,7 @@ export function CardBody({
           onPriceSelect={handlePriceSelect}
         />
       </div>
-      <div data-slot="card-body-options" className="min-w-0 p-2 @min-[700px]/lc:p-2.5">
+      <div data-slot="card-body-options" className="min-w-0 p-2 @min-[685px]/lc:p-2.5">
         <ManualOrderEntry
           options={options}
           form={form}

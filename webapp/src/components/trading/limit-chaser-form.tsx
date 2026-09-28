@@ -12,7 +12,7 @@
  *   ★ 세 그룹 카드의 접힘은 폼 인스턴스 `useState` 하나다(R1) — 저장하지 않고, 에코 · 탭 전환 · 밴드 변화에
  *     풀리지 않으며, remount 때만 전부 접힘으로 돌아간다. 접힌 행은 CSS `hidden` 이라 **언마운트하지 않는다**
  *     (아래 탭 숨김과 같은 이유). 자동 펼침은 그 카드 안 행 확정 실패 한 경우뿐이다(T-24-19).
- *   본문 폭 **700px 이상**이면 매수 | 매도 두 열이 나란히 서고 각 열 머리가 「● 매수」/「● 매도」다.
+ *   본문 폭 **685px 이상**이면 매수 | 매도 두 열이 나란히 서고 각 열 머리가 「● 매수」/「● 매도」다.
  *   그 아래(폰 밴드)는 탭 하나당 한 열이다.
  *   ★ 판정 기준은 뷰포트가 아니라 **본문 폭**이다 (260912-k2x). 밴드 표와 경계 셋의 실측
  *     근거는 `webapp/src/styles/globals.css` §2.2b 가 정본이다 — 여기에 복사하지 마라.
@@ -25,7 +25,7 @@
  *      거치게 하면 그 1~2초가 체결을 놓치는 비용이다. 오터치 방어는 **기하학**이다 — 시각 40×24 +
  *      히트 44×44 + 그룹 제목줄 **오른쪽 끝** 고정(`GroupSwitch` · `SettingGroup`). 크기·위치를 줄이는
  *      변경은 곧 안전장치를 줄이는 변경이다.
- *   2. **매수/매도는 3중으로 말한다** — ≥700 열 머리 점 색(`--up`/`--down`) + 글자(「매수」/「매도」) +
+ *   2. **매수/매도는 3중으로 말한다** — ≥685 열 머리 점 색(`--up`/`--down`) + 글자(「매수」/「매도」) +
  *      위치(왼쪽/오른쪽). 폰은 바깥 3탭 글자가 말한다. 선택 면(탭)은 중립 `--seg-on-*` 다.
  *   3. ★ **발주할 수 없는 전략은 무장되지 않는다**(WR-06). 켜는 방향만 `gateBlocked()` 로 막고 그
  *      사유는 **열 맨 아래 한 곳**(`lc-arm-blocked-panel`)에 모인다 — 그룹 안에 끼우면 사유가 뜰 때마다
@@ -1432,17 +1432,17 @@ export function LimitChaserForm({
   );
 
   /**
-   * 한 열(pane) — ≥700 열 머리 「● 매수」/「● 매도」 → 그룹들(사이 10) → 사유 패널.
+   * 한 열(pane) — ≥685 열 머리 「● 매수」/「● 매도」 → 그룹들(사이 10) → 사유 패널.
    * ★ 비활성 pane 숨김은 **CSS 클래스**다 (260912-k2x) — 본문 폭은 미디어 질의 API 로 관측할 수
    *   없어 폭 판정을 CSS 에 통째로 넘기고 JS 는 「어느 탭이 선택됐나」만 안다. **조건부 렌더로
    *   바꾸지 마라** — 언마운트하면 나가 있던 확정·열린 편집이 사라진다.
    */
   function pane(side: 'buy' | 'sell', groups: readonly LcGroupSpec[], reasons: ArmBlockedGroup[]): ReactNode {
     return (
-      <div data-pane={side} className={cn('min-w-0', tab !== side && 'hidden @min-[700px]/lc:block')}>
+      <div data-pane={side} className={cn('min-w-0', tab !== side && 'hidden @min-[685px]/lc:block')}>
         <div
           data-slot="lc-column-head"
-          className="mt-2.5 hidden items-center gap-1.5 px-0.5 text-[15px] leading-[1.5] font-bold text-[var(--fg)] @min-[700px]/lc:flex"
+          className="mt-2.5 hidden items-center gap-1.5 px-0.5 text-[15px] leading-[1.5] font-bold text-[var(--fg)] @min-[685px]/lc:flex"
         >
           <span
             aria-hidden="true"
@@ -1450,7 +1450,7 @@ export function LimitChaserForm({
           />
           {side === 'buy' ? '매수' : '매도'}
         </div>
-        <div className="flex min-w-0 flex-col gap-2.5 @min-[700px]/lc:mt-2.5">{groups.map(renderGroup)}</div>
+        <div className="flex min-w-0 flex-col gap-2.5 @min-[685px]/lc:mt-2.5">{groups.map(renderGroup)}</div>
         <ArmBlockedPanel groups={reasons} />
       </div>
     );
@@ -1497,7 +1497,7 @@ export function LimitChaserForm({
         <div
           role="tablist"
           aria-label="주문 설정"
-          className="mb-[var(--s-2)] grid grid-cols-2 gap-[var(--s-1)] @min-[700px]/lc:hidden"
+          className="mb-[var(--s-2)] grid grid-cols-2 gap-[var(--s-1)] @min-[685px]/lc:hidden"
         >
           {(['buy', 'sell'] as const).map((t) => (
             <button
@@ -1520,8 +1520,8 @@ export function LimitChaserForm({
         </div>
       )}
 
-      {/* 매수·매도 두 열(본문 700~). **그리드 자식 전부 `min-w-0`**(lessons.md). 간격 8 · ≥992 16 은 기존 값. */}
-      <div className="grid min-w-0 grid-cols-1 gap-[var(--s-2)] @min-[700px]/lc:grid-cols-2 @min-[992px]/lc:gap-[var(--s-4)] [&>*]:min-w-0">
+      {/* 매수·매도 두 열(본문 685~). **그리드 자식 전부 `min-w-0`**(lessons.md). 간격 8 · ≥992 16 은 기존 값. */}
+      <div className="grid min-w-0 grid-cols-1 gap-[var(--s-2)] @min-[685px]/lc:grid-cols-2 @min-[992px]/lc:gap-[var(--s-4)] [&>*]:min-w-0">
         {pane('buy', LC_BUY_GROUPS, buyReasons)}
         {pane('sell', LC_SELL_GROUPS, sellReasons)}
       </div>

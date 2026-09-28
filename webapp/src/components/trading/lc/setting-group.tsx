@@ -11,7 +11,7 @@
  *
  * ★ 행 높이는 **언제나 44px** 다 (D-20 · D-14a). 편집 중인 행만 요소 종류가 `<button>` → `<div>`
  *   로 바뀐다(`<button>` 안에 `<input>` 을 넣을 수 없다) — 높이·패딩이 같아서 레이아웃 이동이 0 이다.
- * ★ 폭 판정은 컨테이너 쿼리(`@min-[700px]/lc:` 등)만 쓴다. 뷰포트 브레이크포인트 유틸을 새로
+ * ★ 폭 판정은 컨테이너 쿼리(`@min-[685px]/lc:` 등)만 쓴다. 뷰포트 브레이크포인트 유틸을 새로
  *   만들지 않는다 — 밴드 표·경계의 정본은 `webapp/src/styles/globals.css` §2.2b 다.
  * ★ 라벨·값은 `whitespace-nowrap` 이고 **말줄임 유틸을 쓰지 않는다** — 잘린 라벨은 오발주다.
  *   안 맞으면 보이게 넘치고 20-07 P20-3 이 잡는다.
@@ -59,16 +59,16 @@ export function formatSettingValue(value: number, unit: SettingUnit): string {
  * 행 상자 — 버튼(평소)과 div(편집 중)가 **같은 기하**를 쓴다(D-14a). 값 행 · 체크 행 ·
  * 기준선 행이 전부 이 상자라 라벨의 x 가 한 줄로 맞는다.
  *
- * ★ 폭 백스톱(UI-SPEC overflow · 20-02 폭 스파이크) — **폰 밴드(<700)만 L2**: 행 좌우 패딩 4→0 ·
+ * ★ 폭 백스톱(UI-SPEC overflow · 20-02 폭 스파이크) — **폰 밴드(<685)만 L2**: 행 좌우 패딩 4→0 ·
  *   라벨–값 간격 6→4. 본문 344 에서 「잔량추적 기준선 | 100,000주」가 L0 −9.1px → L2 +0.9px 이다
  *   (쉐브런이 없는 행이라 L3 는 그 행에 효과가 없다 — L3 는 Phase 24 에서 새 행 때문에 폰 밴드 전체에 켰다 ·
- *   `ValueWithChevron`). ≥700 은 D-02a 로 감시대상 행이 풀폭
- *   토글이 되어 값 행 최소 여유 +12.9(700) · +7.9(830) · +33.6(992) 로 L0 에서 다 들어간다 — 그래서
+ *   `ValueWithChevron`). ≥685 은 D-02a 로 감시대상 행이 풀폭
+ *   토글이 되어 L0 에서 다 들어간다(첫 경계 685 최악값 행 최소 여유 +1.2px — e2e P20-3 · P24-7 · quick-260928-q5e) — 그래서
  *   원래 값(4 · 6)으로 돌려놓는다. 글자 크기는 줄이지도 키우지도 않는다. 여유가 얇으므로(+0.9)
  *   20-07 P20-3 이 실브라우저로 단언한다.
  */
 const ROW_BOX =
-  'flex min-h-[44px] w-full min-w-0 items-center justify-between gap-1 rounded-[10px] px-0 text-left @min-[700px]/lc:gap-1.5 @min-[700px]/lc:px-1';
+  'flex min-h-[44px] w-full min-w-0 items-center justify-between gap-1 rounded-[10px] px-0 text-left @min-[685px]/lc:gap-1.5 @min-[685px]/lc:px-1';
 
 /** 행 라벨 14/400 `--muted-fg`(UI-SPEC §2). */
 const LABEL_TEXT = 'whitespace-nowrap text-[14px] leading-[1.5] text-[var(--muted-fg)]';
@@ -129,7 +129,7 @@ function useRefocusAfterEdit(editing: boolean, target: RefObject<HTMLElement | n
  * 제목 있는 그룹의 제목 요소 id + 상태 문구 id(공백으로 이은 id 목록) — 값 버튼의 `aria-describedby`
  * 가 된다(20-07 a11y · Phase 24 R10).
  *
- * ★ ≥700 두 열에서는 매수·매도 쪽 값 버튼이 **같은 이름**을 가질 수 있다(「비교가격 127,400원」 ·
+ * ★ ≥685 두 열에서는 매수·매도 쪽 값 버튼이 **같은 이름**을 가질 수 있다(「비교가격 127,400원」 ·
  *   「체결 30,000주」). 이름과 별개로 **설명**에 그룹 제목을 붙여 가른다. Phase 24 부터는 상태 문구도
  *   함께 가리킨다 — 흐린 행의 비시각 경로다(「주문가격 13,000원, 매수주문 꺼짐」). 보이는 변화는 없다.
  *   제목 없는 가격 섹션과 그룹 밖 렌더는 `undefined` 다.
@@ -145,14 +145,14 @@ function ValueWithChevron({ text, flash, busy }: { text: string; flash: boolean;
       </span>
       {/*
         쉐브런은 값 슬롯 **밖**이다 — 값 슬롯 글자는 「3건」 그대로여야 한다.
-        ★ 폭 백스톱 L3(Phase 24 · UI-SPEC E1 overflow) — 폰 밴드(<700)에서는 상따 설정 **전체**의 쉐브런을
+        ★ 폭 백스톱 L3(Phase 24 · UI-SPEC E1 overflow) — 폰 밴드(<685)에서는 상따 설정 **전체**의 쉐브런을
           한 번에 숨긴다. 본문 344 에서 「최소 잔량 | 177,000,000주 ›」가 L2 만으로 ≈4px 넘쳤다(P20-3 실측) —
           말줄임은 오발주라 금지이고 글자도 줄이지 않으므로 장식 글리프를 뺀다. 행마다 다르게 두지 않는다.
       */}
       <span
         aria-hidden="true"
         data-slot="lc-row-chevron"
-        className="hidden whitespace-pre text-[15px] leading-[1.5] text-[var(--faint)] @min-[700px]/lc:inline"
+        className="hidden whitespace-pre text-[15px] leading-[1.5] text-[var(--faint)] @min-[685px]/lc:inline"
       >
         {' ›'}
       </span>

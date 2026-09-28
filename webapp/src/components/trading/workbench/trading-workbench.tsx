@@ -203,7 +203,10 @@ import { relayQuoteKey, type RelayStatus } from "@/lib/use-relay-socket";
 import { useViServerError } from "@/lib/use-vi-server-error";
 import type { RelayQueuedWindowMsg } from "@gh-radar/shared";
 
-/** 페이지(`wb`) 폰 밴드 상한(미만) — `globals.css` §2.2b 의 첫 경계(본문 700)와 같은 값이다. */
+/**
+ * 페이지(`wb`) 폰 밴드 상한(미만) — 공용 패널 sticky 전환용. 카드(`lc`) 첫 경계 685 와 다른 값이다
+ * (quick-260928-q5e 는 lc 만 내렸다 · §2.2b 「이 표를 재는 컨테이너는 둘이다」).
+ */
 const WB_PHONE_BAND_BELOW = 700;
 /**
  * 격자 1열 고정 상한(미만) — 이 폭 아래에서만 단 수 세그먼트가 빠진다. 카드 밴드 경계가 아니라

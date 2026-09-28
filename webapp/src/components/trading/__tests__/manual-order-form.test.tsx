@@ -15,7 +15,7 @@ import type { RelayOrderResultMsg, RelayQueuedWindowMsg, RelayUnfilled } from '@
  *   ③ 응답 전 재클릭 무효 · `timeout` ≠ 실패 · 재시도 권유 없음 (T-18-31)
  *   ④ 라벨·조각 입력은 `affordanceOf` 반환 그대로 · 조각 수는 스테퍼가 보일 때만 싣는다 (T-18-34)
  *   ⑤ 시간외종가(카드 주문유형 · D-31 — 옛 호가 탭 전용) — price 0 + krxSession · 정정 비활성
- *   ⑥ 적응형 진입(<700 3탭 / ≥700 덮기) — 옵션 값 보존
+ *   ⑥ 적응형 진입(<685 3탭 / ≥685 덮기) — 옵션 값 보존
  *
  * ★ 스텁 경계는 `useRelayContext().sendOrder` 하나다(`order-panel.test.tsx` 와 같은 판단).
  *   그 Promise 는 어떤 경로에서도 reject 하지 않으므로 rejection 시나리오가 없다.
@@ -665,12 +665,12 @@ describe('ManualOrderEntry — 적응형 진입 (D-19)', () => {
     return { onOptionsTab };
   }
 
-  it('<700: 「매수 | 매도 | 수동」 3탭이고 탭 줄은 700 이상에서 숨는다(컨테이너 쿼리)', async () => {
+  it('<685: 「매수 | 매도 | 수동」 3탭이고 탭 줄은 685 이상에서 숨는다(컨테이너 쿼리)', async () => {
     const user = userEvent.setup();
     const { onOptionsTab } = renderEntry();
     const tabs = screen.getByRole('tablist', { name: '주문 진입' });
     expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['매수', '매도', '수동']);
-    expect(tabs.className).toContain('@min-[700px]/lc:hidden');
+    expect(tabs.className).toContain('@min-[685px]/lc:hidden');
 
     const optionsPane = screen.getByTestId('manual-entry-options');
     const formPane = screen.getByTestId('manual-entry-form');
@@ -686,7 +686,7 @@ describe('ManualOrderEntry — 적응형 진입 (D-19)', () => {
     expect(optionsPane.className).not.toMatch(/(^|\s)hidden(\s|$)/);
   });
 
-  it('≥700: 「수동주문」 버튼이 옵션을 덮고 헤더에 키 줄 · ✕/Escape 로 닫히며 옵션 값이 보존된다', async () => {
+  it('≥685: 「수동주문」 버튼이 옵션을 덮고 헤더에 키 줄 · ✕/Escape 로 닫히며 옵션 값이 보존된다', async () => {
     const user = userEvent.setup();
     renderEntry();
     await user.type(screen.getByLabelText('옵션 값'), '120');
@@ -694,18 +694,18 @@ describe('ManualOrderEntry — 적응형 진입 (D-19)', () => {
     await user.click(btn('수동주문'));
     const optionsPane = screen.getByTestId('manual-entry-options');
     const formPane = screen.getByTestId('manual-entry-form');
-    expect(optionsPane.className).toContain('@min-[700px]/lc:hidden');
-    expect(formPane.className).toContain('@min-[700px]/lc:block');
+    expect(optionsPane.className).toContain('@min-[685px]/lc:hidden');
+    expect(formPane.className).toContain('@min-[685px]/lc:block');
     expect(screen.getByText(`키 ${ISIN}:12345678-01:KRX`)).toBeInTheDocument();
 
     await user.click(btn('수동주문 닫기'));
-    expect(optionsPane.className).toContain('@min-[700px]/lc:block');
+    expect(optionsPane.className).toContain('@min-[685px]/lc:block');
     await waitFor(() => expect(btn('수동주문')).toHaveFocus());
     expect((screen.getByLabelText('옵션 값') as HTMLInputElement).value).toBe('120');
 
     await user.click(btn('수동주문'));
     fireEvent.keyDown(priceInput(), { key: 'Escape' });
-    expect(screen.getByTestId('manual-entry-options').className).toContain('@min-[700px]/lc:block');
+    expect(screen.getByTestId('manual-entry-options').className).toContain('@min-[685px]/lc:block');
     await waitFor(() => expect(btn('수동주문')).toHaveFocus());
     expect((screen.getByLabelText('옵션 값') as HTMLInputElement).value).toBe('120');
   });

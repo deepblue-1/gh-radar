@@ -415,10 +415,10 @@ describe('③ 시세 없음 · 가격 셀 클릭 (E9 · T-18-47)', () => {
 });
 
 describe('④ 밴드는 카드 폭이다 (D-28)', () => {
-  it('본문 그리드가 700 · 830 · 992 세 경계를 `/lc` 로 쓰고 뷰포트 브레이크포인트가 없다', () => {
+  it('본문 그리드가 685 · 830 · 992 세 경계를 `/lc` 로 쓰고 뷰포트 브레이크포인트가 없다', () => {
     const { container } = render(<CardBody {...props()} />);
     const cls = bodyRoot(container).className;
-    expect(cls).toContain('@min-[700px]/lc:');
+    expect(cls).toContain('@min-[685px]/lc:');
     expect(cls).toContain('@min-[830px]/lc:');
     expect(cls).toContain('@min-[992px]/lc:');
     expect(cls).not.toMatch(/(^|\s)(sm|md|lg|xl):/);

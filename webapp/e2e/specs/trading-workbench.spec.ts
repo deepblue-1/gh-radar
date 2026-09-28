@@ -29,7 +29,7 @@ import { buildSetVITriggerRespFrame } from '../../../relay/tests/helpers/frames.
  *   옮겼다」 — 은 실브라우저의 실제 폭으로만 증명된다(jsdom 은 컨테이너 쿼리를 평가하지 않는다).
  *   그래서 여기서 카드 컨테이너 폭을 경계 양옆으로 **정확히** 맞추고, CSS 가 실제로 고른 밴드
  *   (카드 본문 호가 칸의 계산 폭)와 폭에서 기대한 밴드가 같은지, 그 폭에서 잘림이 0 인지 본다.
- *   밴드 표와 경계 셋(700 · 830 · 992)의 정본은 `webapp/src/styles/globals.css` §2.2b 다.
+ *   밴드 표와 경계 셋(685 · 830 · 992)의 정본은 `webapp/src/styles/globals.css` §2.2b 다.
  *
  * ② UI-SPEC backstop 5행이 이 파일의 책임이다 (케이스 제목의 근거 ID 로 표시)
  *   E1 overflow(상태줄 wrap·잘림 0) · E6 overflow(카드 4밴드 × 단 수 잘림 0) ·
@@ -70,6 +70,11 @@ const FOCUS_URL = `${WORKBENCH_URL}?focus=${encodeURIComponent(STRATEGY_KEY)}`;
 
 const PHONE_VIEWPORT = { width: 390, height: 844 } as const;
 const WIDE_VIEWPORT = { width: 1440, height: 1000 } as const;
+/**
+ * 갤럭시 폴드 안쪽 화면 세로 — Playwright 프리셋 없음 · 물리 1856×2160 · DPR ≈2.625 환산 · 앱 셸 p-2 램프로
+ * wb ≈691 · 1단 카드 lc ≈689 (quick-260923-hfk · quick-260928-q5e).
+ */
+const FOLD_VIEWPORT = { width: 707, height: 823 } as const;
 
 /** 스텁 호가의 상한가 — 카드 폼 가격 5칸이 이 값으로 시딩된다(실시간 값이 정본). */
 const LIVE_UPPER_LIMIT = '127,400';
@@ -98,8 +103,10 @@ const VI_ORDERS = [
 
 /** §2.2b 경계 — 정본은 globals.css §2.2b. 여기서는 「폭 → 기대 밴드」 판정에만 쓴다. */
 type Band = 'phone' | 'compact' | 'wide' | 'desktop';
+/** 카드(`lc`) 첫 경계(폰|컴팩트) — 정본 globals.css §2.2b `LC_COMPACT_MIN_PX`. */
+const LC_COMPACT_MIN = 685;
 function bandOfWidth(width: number): Band {
-  if (width < 700) return 'phone';
+  if (width < LC_COMPACT_MIN) return 'phone';
   if (width < 830) return 'compact';
   if (width < 992) return 'wide';
   return 'desktop';
@@ -670,20 +677,21 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(chips.first()).toContainText('55,500');
   });
 
-  test('4. 카드 컨테이너 699/700 · 829/830 · 991/992 — 밴드가 경계에서 바뀌고 각 폭에서 잘림 0 (E6 overflow · §2.2b 이관)', async ({
+  test(`4. 카드 컨테이너 ${LC_COMPACT_MIN - 1}/${LC_COMPACT_MIN} · 829/830 · 991/992 — 밴드가 경계에서 바뀌고 각 폭에서 잘림 0 (E6 overflow · §2.2b 이관)`, async ({
     page,
   }) => {
     relay.seedLimitChasers([{ buyEnabled: true }]);
     await openFocusedCard(page);
 
-    for (const [target, expected] of [
-      [699, 'phone'],
-      [700, 'compact'],
+    const cases: ReadonlyArray<readonly [number, Band]> = [
+      [LC_COMPACT_MIN - 1, 'phone'],
+      [LC_COMPACT_MIN, 'compact'],
       [829, 'compact'],
       [830, 'wide'],
       [991, 'wide'],
       [992, 'desktop'],
-    ] as const) {
+    ];
+    for (const [target, expected] of cases) {
       await sizeCardTo(page, E2E_ISIN, target);
       const { width, band } = await cardMetrics(page, E2E_ISIN);
       expect(width).toBe(target);
@@ -691,6 +699,57 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       expect(bandOfWidth(width)).toBe(expected);
       expect(band, `카드 ${width}px — CSS 가 고른 밴드`).toBe(expected);
       await expectCardNotClipped(page, E2E_ISIN, `카드 ${width}px(${expected})`);
+    }
+  });
+
+  test('4c. 갤럭시 폴드 안쪽 화면 세로(707×823) 1단 — 카드 컴팩트 · 매수/매도 pane 동시 · 3탭 없음 · 세 그룹 펼침/수동주문 덮기 잘림 0 · 2단은 폰 밴드 · lc 첫 경계 잠금 (quick-260928-q5e)', async ({
+    page,
+  }) => {
+    const card = cardOf(page, E2E_ISIN);
+    /** 컴팩트 밴드 카드 — 3탭 없음 · 두 pane 동시 · 세 그룹 펼침 잘림 0 · 수동주문 덮기 잘림 0. */
+    const expectCompactBothPanes = async (label: string): Promise<void> => {
+      await expect(card.getByRole('tablist', { name: '주문 진입' }), `${label} — 「주문 진입」 3탭`).toBeHidden();
+      await expect(card.locator('[data-pane="buy"]'), `${label} — 매수 pane`).toBeVisible();
+      await expect(card.locator('[data-pane="sell"]'), `${label} — 매도 pane`).toBeVisible();
+      for (const slot of ['pre-buy', 'extra-buy', 'post-buy'] as const) await expandLcGroup(card, slot);
+      await expectCardNotClipped(page, E2E_ISIN, `${label} · 세 그룹 펼침`);
+      await card.getByRole('button', { name: '수동주문', exact: true }).click();
+      await expect(card.getByTestId('manual-entry-form')).toBeVisible();
+      await expect(card.getByTestId('manual-entry-options')).toBeHidden();
+      await expectCardNotClipped(page, E2E_ISIN, `${label} · 수동주문 덮기`);
+      await card.getByRole('button', { name: '수동주문 닫기' }).click();
+      await expect(card.getByTestId('manual-entry-options')).toBeVisible();
+    };
+
+    relay.seedLimitChasers([{ buyEnabled: true }]);
+    await page.setViewportSize(FOLD_VIEWPORT);
+    await openFocusedCard(page);
+    if ((await colsSegment(page).count()) === 1) await pickCols(page, 1);
+    expect(await gridColumnCount(page)).toBe(1);
+
+    // 폴드 1단 — 카드는 컴팩트 밴드(좌 호가 260 · 우 매수/매도 2열)다.
+    const m = await cardMetrics(page, E2E_ISIN);
+    console.log(`[q5e] 폴드 1단 카드 lc = ${m.width}px · band = ${m.band}`);
+    test.info().annotations.push({ type: 'q5e 폴드 1단 카드 lc(px)', description: String(m.width) });
+    expect(m.width, '폴드 1단 카드 폭 — 컴팩트 경계 위 여유 ≥1px').toBeGreaterThanOrEqual(LC_COMPACT_MIN + 1);
+    expect(m.band, `폴드 1단 카드 ${m.width}px — CSS 가 고른 밴드`).toBe('compact');
+    await expectCompactBothPanes(`폴드 1단 카드 ${m.width}px`);
+
+    // 폴드 2단 — 카드(≈337)는 폰 밴드(D-12 · hfk 의도). 잘림 검사는 hfk 「남은 것」이라 범위 밖.
+    await pickCols(page, 2);
+    expect(await gridColumnCount(page)).toBe(2);
+    const m2 = await cardMetrics(page, E2E_ISIN);
+    expect(m2.band, `폴드 2단 카드 ${m2.width}px — 폰 밴드(D-12 · hfk 의도)`).toBe('phone');
+    await expect(card.getByRole('tablist', { name: '주문 진입' })).toBeVisible();
+    await pickCols(page, 1);
+
+    // lc 첫 경계 잠금 — 경계 폭에서 컴팩트 · 두 pane · 잘림 0.
+    for (const w of [LC_COMPACT_MIN]) {
+      await sizeCardTo(page, E2E_ISIN, w);
+      const mw = await cardMetrics(page, E2E_ISIN);
+      expect(mw.width).toBe(w);
+      expect(mw.band, `카드 ${w}px — CSS 가 고른 밴드`).toBe('compact');
+      await expectCompactBothPanes(`카드 ${w}px(compact)`);
     }
   });
 
@@ -2772,7 +2831,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       · 폰 밴드 긴 상태 문구(E1 long-text): 「켜짐 · 켠 매수 없음」 · 「무장 · 대기 · 후매수 발동」은 제목 옆 흐름의
         둘째 줄 · 말줄임 0 · 스위치는 헤더 오른쪽 끝.
   */
-  test('P24-7 폭 최악값 × 본문 344 · 700 · 830 · 992 — 패널 넘침 0 · 라벨 · 값 · 요약 잘림 0 · 말줄임 0 · 행 44 · 접기 버튼 ≥32 · 흐림 한 겹 0.45 · 폰 밴드 긴 상태 문구 둘째 줄 (UI-SPEC 검증 훅 · E1 overflow · E1 long-text · E3 overflow)', async ({
+  test(`P24-7 폭 최악값 × 본문 344 · ${LC_COMPACT_MIN} · 830 · 992 — 패널 넘침 0 · 라벨 · 값 · 요약 잘림 0 · 말줄임 0 · 행 44 · 접기 버튼 ≥32 · 흐림 한 겹 0.45 · 폰 밴드 긴 상태 문구 둘째 줄 (UI-SPEC 검증 훅 · E1 overflow · E1 long-text · E3 overflow)`, async ({
     page,
   }) => {
     const WORST = {
@@ -2947,12 +3006,12 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     };
 
     const setsBefore = lcSetCount(relay);
-    for (const target of [344, 700, 830, 992]) {
+    for (const target of [344, LC_COMPACT_MIN, 830, 992]) {
       await sizeCardTo(page, E2E_ISIN, target);
       const { band } = await cardMetrics(page, E2E_ISIN);
       expect(band, `카드 ${target} — 기대 밴드`).toBe(bandOfWidth(target));
       await setAllFolds(true);
-      if (target < 700) {
+      if (bandOfWidth(target) === 'phone') {
         const tablist = card.getByRole('tablist', { name: '주문 진입' });
         await tablist.getByRole('tab', { name: '매수' }).click();
         await expect(card.locator('[data-pane="buy"]')).toBeVisible();
@@ -3524,7 +3583,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
   /*
     ★ Phase 20 P20-3 — 폭 불변식 백스톱(UI-SPEC 검증 훅 · UI Considerations E1 overflow · D-20 · D-14a).
       최악값(가격 7자리 1,274,000원 · 수량 100,000주 · 주문금액 9,999만원 · 잔량추적 기준선 100,000주)을
-      에코로 심고, 카드 컨테이너를 본문 344 · 700 · 830 · 992 에 **정확히** 맞춰(`sizeCardTo`) 잰다.
+      에코로 심고, 카드 컨테이너를 본문 344 · 685 · 830 · 992 에 **정확히** 맞춰(`sizeCardTo`) 잰다.
       · 잘림 0 — 카드 전체 두 판정(`expectCardNotClipped`) + 우측 패널 scrollWidth ≤ clientWidth +
         **행마다** 가장 오른쪽 잎 요소가 행 안쪽 끝을 넘지 않는다(여유 px 를 주석으로 남긴다).
         폰 밴드 「잔량추적 기준선 | 100,000주」 는 20-04 가 L2 백스톱으로 +0.9px 를 만든 행이다 — 여기가
@@ -3533,12 +3592,12 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       · 폰 밴드는 「매수」「매도」 탭을 각각 눌러 두 pane 을 모두 잰다(비활성 pane 은 display:none).
       · 본문 344 수동주문 — 「예약매수」「예약매도」 48px · 「정정」「취소」 38px 라벨이 잘리지 않는다
         (20-06 이 human_judgment 로 남긴 항목). 예약창(77 open)을 밀어 최악 라벨로 잰다.
-      · ≥700 2열 — 매수주문 · 매도주문 두 그룹 헤더 높이가 같다(상태 한 줄). Phase 24 로 매수주문 공통 카드는
+      · ≥685 2열 — 매수주문 · 매도주문 두 그룹 헤더 높이가 같다(상태 한 줄). Phase 24 로 매수주문 공통 카드는
         2행(주문가격 · 비교가격)이 되어 「두 그룹 높이 같음」의 근거(같은 행 수)가 사라졌다 — 헤더만 잰다.
       · Phase 24 — 선매수 · 추가매수 · 후매수 카드(기본 접힘)를 펼치고 새 행(선매수 5 · 추가매수 3 · 후매수 4 +
         발동잔량)을 최악값(「177,000,000주」 · 「17,700,000주」 · 「255회 · 남은 255회」 · 「255건」)으로 잰다.
   */
-  test('P20-3 최악값 × 본문 344 · 700 · 830 · 992 — 우측 패널 잘림 0 · 행 44px(편집 전후) · ≥700 매수주문/매도주문 헤더 높이 동일 (D-20 · UI-SPEC 검증 훅)', async ({
+  test(`P20-3 최악값 × 본문 344 · ${LC_COMPACT_MIN} · 830 · 992 — 우측 패널 잘림 0 · 행 44px(편집 전후) · ≥${LC_COMPACT_MIN} 매수주문/매도주문 헤더 높이 동일 (D-20 · UI-SPEC 검증 훅)`, async ({
     page,
   }) => {
     const WORST = {
@@ -3700,13 +3759,13 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const SELL_ROWS = ['lc-sell-order-price', 'lc-sell-watch-qty', 'lc-derived', 'lc-cancel-watch-qty'];
     const setsBefore = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
 
-    for (const target of [344, 700, 830, 992]) {
+    for (const target of [344, LC_COMPACT_MIN, 830, 992]) {
       await sizeCardTo(page, E2E_ISIN, target);
       const { band } = await cardMetrics(page, E2E_ISIN);
       expect(band, `카드 ${target} — 기대 밴드`).toBe(bandOfWidth(target));
       const label = `${target} 카드`;
 
-      if (target < 700) {
+      if (bandOfWidth(target) === 'phone') {
         // 폰 밴드 — 탭당 한 pane. 두 pane 을 각각 편다.
         const tablist = card.getByRole('tablist', { name: '주문 진입' });
         await tablist.getByRole('tab', { name: '매수' }).click();
@@ -3772,7 +3831,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     });
 
     /*
-      ≥700 — 매수주문 · 매도주문 두 그룹 **헤더** 높이가 같다(상태 문구 한 줄). Phase 24 로 매수주문 공통 카드는
+      ≥685 — 매수주문 · 매도주문 두 그룹 **헤더** 높이가 같다(상태 문구 한 줄). Phase 24 로 매수주문 공통 카드는
       2행이라 「그룹 높이 같음」은 근거(같은 행 수)가 사라져 헤더만 잰다.
     */
     relay.seedLimitChasers([{ ...WORST, sellEntryLatched: false }]);
@@ -3781,7 +3840,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
     await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('100,000주', { timeout: 15_000 });
     await expect(card.locator('[data-slot="lc-derived"]')).toHaveCount(0);
-    for (const target of [700, 830, 992]) {
+    for (const target of [LC_COMPACT_MIN, 830, 992]) {
       await sizeCardTo(page, E2E_ISIN, target);
       // 상태 문구는 한 줄 — 헤더 높이가 두 그룹 같다(둘째 줄로 내려가면 여기서 갈린다).
       const heads = await card

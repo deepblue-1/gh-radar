@@ -138,7 +138,7 @@ describe('QuoteGrid10', () => {
 
   it('배치는 카드 폭(`/lc`) 컨테이너 유틸리티이고 뷰포트 브레이크포인트가 없다', () => {
     render(<QuoteGrid10 quote={null} />);
-    expect(grid().className).toContain('@min-[700px]/lc:grid-cols-5');
+    expect(grid().className).toContain('@min-[685px]/lc:grid-cols-5');
     expect(grid().className).toContain('@min-[992px]/lc:flex');
     expect(grid().className).not.toMatch(/(^|\s)(sm|md|lg|xl):/);
   });

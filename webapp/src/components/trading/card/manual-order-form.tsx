@@ -1114,7 +1114,7 @@ export function ManualOrderForm({
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
-   적응형 진입 (D-19) — <700 3탭 / ≥700 덮기
+   적응형 진입 (D-19) — <685 3탭 / ≥685 덮기
    ────────────────────────────────────────────────────────────────────────── */
 
 export interface ManualOrderEntryProps {
@@ -1133,8 +1133,8 @@ export interface ManualOrderEntryProps {
 }
 
 /**
- * 한 규칙 두 표현 — 폭 판정은 **CSS 컨테이너 쿼리**(`@min-[700px]/lc:`)에 맡기고 JS 는 폭을 재지
- * 않는다. 상태는 둘을 함께 든다: 폰 밴드의 선택 탭(`tab`)과 700 이상의 덮기(`cover`). 밴드마다
+ * 한 규칙 두 표현 — 폭 판정은 **CSS 컨테이너 쿼리**(`@min-[685px]/lc:`)에 맡기고 JS 는 폭을 재지
+ * 않는다. 상태는 둘을 함께 든다: 폰 밴드의 선택 탭(`tab`)과 685 이상의 덮기(`cover`). 밴드마다
  * 자기 상태 하나만 쓴다(목업 `data-tabman`·`data-cover` 와 같은 구조).
  *
  * ★ 두 pane 을 조건부 렌더로 바꾸지 마라. 언마운트하면 옵션 값(더티 입력)과 폼 입력이 사라진다.
@@ -1175,11 +1175,11 @@ export function ManualOrderEntry({
 
   return (
     <div data-slot="manual-entry" className={cn('flex min-w-0 flex-col', className)}>
-      {/* 폰 밴드(<700) — 「매수 | 매도 | 수동」 3탭 */}
+      {/* 폰 밴드(<685) — 「매수 | 매도 | 수동」 3탭 */}
       <div
         role="tablist"
         aria-label="주문 진입"
-        className="mb-2 grid grid-cols-3 gap-0.5 rounded-[12px] bg-[var(--muted)] p-[3px] @min-[700px]/lc:hidden"
+        className="mb-2 grid grid-cols-3 gap-0.5 rounded-[12px] bg-[var(--muted)] p-[3px] @min-[685px]/lc:hidden"
       >
         {(['buy', 'sell', 'manual'] as const).map((t) => {
           const active = tab === t;
@@ -1206,8 +1206,8 @@ export function ManualOrderEntry({
         })}
       </div>
 
-      {/* 700 이상 — 옵션 우상단 「수동주문」 버튼 / 덮은 뒤 헤더 */}
-      <div className="mb-1 hidden min-h-8 min-w-0 items-center gap-2 @min-[700px]/lc:flex">
+      {/* 685 이상 — 옵션 우상단 「수동주문」 버튼 / 덮은 뒤 헤더 */}
+      <div className="mb-1 hidden min-h-8 min-w-0 items-center gap-2 @min-[685px]/lc:flex">
         {cover ? (
           <>
             {/* 키는 한 줄 말줄임 + title 로 전체 키(UI-SPEC 레이아웃 계약 · E6 long-text). */}
@@ -1243,7 +1243,7 @@ export function ManualOrderEntry({
         className={cn(
           'min-w-0',
           manualTab ? 'hidden' : 'block',
-          cover ? '@min-[700px]/lc:hidden' : '@min-[700px]/lc:block',
+          cover ? '@min-[685px]/lc:hidden' : '@min-[685px]/lc:block',
         )}
       >
         {options}
@@ -1254,7 +1254,7 @@ export function ManualOrderEntry({
         className={cn(
           'min-w-0',
           manualTab ? 'block' : 'hidden',
-          cover ? '@min-[700px]/lc:block' : '@min-[700px]/lc:hidden',
+          cover ? '@min-[685px]/lc:block' : '@min-[685px]/lc:hidden',
         )}
       >
         {form}
@@ -1414,8 +1414,8 @@ function TicketBox({
 /**
  * 주문 버튼(UI-SPEC §8 #6 · #7 · D-11).
  *  - 매수 · 매도 — 48px · radius 14 · 600 · 흰 글자(`--destructive-fg`, LOCKED ② 5) · 매수 `--up` /
- *    매도 `--down`. 폰 밴드(<700)는 기존 13px · `line-height:1.15` · 줄바꿈 허용(「예약」이 윗줄로) —
- *    **좁은 폭에서 글자를 키우지 않는다**. 700 이상은 17px 한 줄(20-02 폭 스파이크: 206px 버튼에
+ *    매도 `--down`. 폰 밴드(<685)는 기존 13px · `line-height:1.15` · 줄바꿈 허용(「예약」이 윗줄로) —
+ *    **좁은 폭에서 글자를 키우지 않는다**. 685 이상은 17px 한 줄(20-02 폭 스파이크 — 버튼 ≈200px 에
  *    「예약매수」 17px = 58.1px).
  *  - 정정 · 취소 — 38px · radius 10 · 15/600 · `--muted` 면 · `--muted-fg` 글자(방향색 없음).
  *  - 비활성 `opacity .5`.
@@ -1444,7 +1444,7 @@ function OrderButton({
         'min-w-0 overflow-hidden px-px leading-[1.15] font-semibold',
         'disabled:cursor-default disabled:opacity-50',
         tone !== 'plain' &&
-          'h-[48px] rounded-[14px] text-[13px] whitespace-normal text-[var(--destructive-fg)] @min-[700px]/lc:px-0.5 @min-[700px]/lc:text-[17px] @min-[700px]/lc:whitespace-nowrap',
+          'h-[48px] rounded-[14px] text-[13px] whitespace-normal text-[var(--destructive-fg)] @min-[685px]/lc:px-0.5 @min-[685px]/lc:text-[17px] @min-[685px]/lc:whitespace-nowrap',
         tone === 'buy' && 'bg-[var(--up)]',
         tone === 'sell' && 'bg-[var(--down)]',
         tone === 'plain' &&
@@ -1461,7 +1461,7 @@ function SideLabel({ label }: { label: string }) {
   if (!label.startsWith('예약')) return <>{label}</>;
   return (
     <>
-      <span className="block @min-[700px]/lc:inline">예약</span>
+      <span className="block @min-[685px]/lc:inline">예약</span>
       {label.slice(2)}
     </>
   );

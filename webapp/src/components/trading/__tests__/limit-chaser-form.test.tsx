@@ -819,12 +819,12 @@ describe('⑪ 미등록 전략 — 값·체크·감시대상은 로컬만, 등�
 });
 
 describe('⑫ pane · 탭 — 두 pane 은 늘 DOM, 숨김은 CSS (260912-k2x · 18-10) (옛 ⑫)', () => {
-  it('★ 두 pane 이 언제나 DOM 에 있고 비활성 pane 만 `hidden @min-[700px]/lc:block` 이다', () => {
+  it('★ 두 pane 이 언제나 DOM 에 있고 비활성 pane 만 `hidden @min-[685px]/lc:block` 이다', () => {
     render(<LimitChaserForm {...props()} />);
     expect(pane('buy').className).not.toContain('hidden');
-    expect(pane('sell').className.split(/\s+/)).toEqual(expect.arrayContaining(['hidden', '@min-[700px]/lc:block']));
+    expect(pane('sell').className.split(/\s+/)).toEqual(expect.arrayContaining(['hidden', '@min-[685px]/lc:block']));
     click(screen.getByRole('tab', { name: '매도' }));
-    expect(pane('buy').className.split(/\s+/)).toEqual(expect.arrayContaining(['hidden', '@min-[700px]/lc:block']));
+    expect(pane('buy').className.split(/\s+/)).toEqual(expect.arrayContaining(['hidden', '@min-[685px]/lc:block']));
     expect(pane('sell').className).not.toContain('hidden');
     expect(row('lc-buy-order-price')).not.toBeNull();
   });
@@ -842,7 +842,7 @@ describe('⑫ pane · 탭 — 두 pane 은 늘 DOM, 숨김은 CSS (260912-k2x ·
     expect(screen.queryByRole('tablist', { name: '주문 설정' })).toBeNull();
   });
 
-  it('≥700 열 머리 「● 매수」「● 매도」 — 폰은 숨김 · 점 `--up`/`--down` · 15/700 (D-03)', () => {
+  it('≥685 열 머리 「● 매수」「● 매도」 — 폰은 숨김 · 점 `--up`/`--down` · 15/700 (D-03)', () => {
     render(<LimitChaserForm {...props()} />);
     for (const [side, text, dot] of [
       ['buy', '매수', 'bg-[var(--up)]'],
@@ -851,7 +851,7 @@ describe('⑫ pane · 탭 — 두 pane 은 늘 DOM, 숨김은 CSS (260912-k2x ·
       const head = pane(side).querySelector('[data-slot="lc-column-head"]') as HTMLElement;
       expect(head.textContent).toBe(text);
       expect(head.className.split(/\s+/)).toEqual(
-        expect.arrayContaining(['hidden', '@min-[700px]/lc:flex', 'text-[15px]', 'font-bold']),
+        expect.arrayContaining(['hidden', '@min-[685px]/lc:flex', 'text-[15px]', 'font-bold']),
       );
       expect((head.firstElementChild as HTMLElement).className).toContain(dot);
     }

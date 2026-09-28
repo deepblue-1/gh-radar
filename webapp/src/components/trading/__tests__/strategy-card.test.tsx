@@ -423,7 +423,7 @@ describe('StrategyCard', () => {
     expect(card.className.split(/\s+/)).toContain('@container/lc');
     // 컨테이너 기준 — 10칸·헤더의 밴드 전환은 카드 폭(`/lc`)을 잰다.
     const grid = card.querySelector('[data-slot="lc-quote-grid"]') as HTMLElement;
-    expect(grid.className).toMatch(/@min-\[700px\]\/lc:/);
+    expect(grid.className).toMatch(/@min-\[685px\]\/lc:/);
     expect(
       (card.querySelector('[data-slot="card-header-l2"]') as HTMLElement).className,
     ).toMatch(/@min-\[760px\]\/lc:/);

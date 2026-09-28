@@ -559,14 +559,14 @@ describe('⑥ 공통 규율 — 44px · 컨테이너 쿼리만 · 말줄임 0', 
     }
   });
 
-  it('폭 백스톱 L3 — 값 쉐브런은 폰 밴드(<700)에서 숨고 ≥700 에서만 선다(상따 설정 전체 한 규칙 · Phase 24 E1 overflow)', () => {
+  it('폭 백스톱 L3 — 값 쉐브런은 폰 밴드(<685)에서 숨고 ≥685 에서만 선다(상따 설정 전체 한 규칙 · Phase 24 E1 overflow)', () => {
     const { container } = renderAll();
     const chevs = Array.from(container.querySelectorAll<HTMLElement>('[data-slot="lc-row-chevron"]'));
     expect(chevs.length).toBeGreaterThan(0);
     for (const c of chevs) {
       const tokens = c.className.split(/\s+/);
       expect(tokens).toContain('hidden');
-      expect(tokens).toContain('@min-[700px]/lc:inline');
+      expect(tokens).toContain('@min-[685px]/lc:inline');
       expect(c.getAttribute('aria-hidden')).toBe('true');
     }
   });
@@ -579,7 +579,7 @@ describe('⑥ 공통 규율 — 44px · 컨테이너 쿼리만 · 말줄임 0', 
 });
 
 /*
-  ⑦ 20-07 a11y — ≥700 두 열에서 매수·매도 쪽 값 버튼이 같은 이름을 가질 수 있다(「비교가격 127,400원」 ·
+  ⑦ 20-07 a11y — ≥685 두 열에서 매수·매도 쪽 값 버튼이 같은 이름을 가질 수 있다(「비교가격 127,400원」 ·
   「체결 30,000주」). 이름은 UI-SPEC 계약 「{라벨} {값}{단위}」 그대로 두고, **설명**으로 그룹 제목을 붙여
   스크린리더가 「비교가격 127,400원, 매수주문」처럼 가르게 한다(보이는 변화 0).
 */
