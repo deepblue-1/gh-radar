@@ -282,36 +282,49 @@ export function seedListSharesDefaults(listShares: number): ListSharesSeed | nul
   };
 }
 
-/* ── 선매수 자동 체크 (Phase 24 · 24-07 · D-06 · D-07 · D-08 · D-20) ─────────────────────────────── */
+/* ── 그룹 켬 자동 체크 (Phase 24 · 24-07 · 24-17 · D-06 · D-07 · D-08 · D-20 · D-35) ─────────────────── */
 
+/**
+ * 자동 체크를 부르는 그룹 — 사람이 켜는 선매수 · 추가매수 스위치(D-06 · D-35). 후매수는 대상이 아니라 타입에서 빠진다.
+ */
+export type AutoCheckGate = 'preBuyEnabled' | 'extraBuyEnabled';
 /** 자동 체크 항목(개명 D-09 반영) — 순서가 곧 로그 순서다. */
-export type PreBuyAutoCheckItem = '매도주문' | '매도>잔량추적' | '매도>체결' | '취소' | '취소>체결' | '취소>잔량추적';
+export type AutoCheckItem = '매도주문' | '매도>잔량추적' | '매도>체결' | '취소' | '취소>체결' | '취소>잔량추적';
 /** 켜지 않은 사유 — UI-SPEC 닫힌 목록. 새 사유를 여기 더하지 않는다(문구 원천이 UI-SPEC 이다). */
-export type PreBuyAutoCheckReason = '매도 매수잔량 0' | '취소 매수잔량 0' | '매도 체결 0' | '매도비율 0' | '상한가 미수신';
+export type AutoCheckReason = '매도 매수잔량 0' | '취소 매수잔량 0' | '매도 체결 0' | '매도비율 0' | '상한가 미수신';
 
-export interface PreBuyAutoCheckResult {
-  /** 선매수 켬 제출에 동반으로 실을 필드 — 새로 켤 체크 + 상한가로 채운 매도 가격. 이미 켜진 것은 없다. */
+export interface GroupAutoCheckResult {
+  /** 로그 첫머리 그룹 이름 — `lc-fields.ts` 카드 제목과 같은 문자열(D-35). */
+  groupLabel: '선매수' | '추가매수';
+  /** 그룹 켬 제출에 동반으로 실을 필드 — 새로 켤 체크 + 상한가로 채운 매도 가격. 이미 켜진 것은 없다. */
   companions: Partial<LimitChaserFormValues>;
-  turnedOn: readonly PreBuyAutoCheckItem[];
-  skipped: readonly { item: PreBuyAutoCheckItem; reason: PreBuyAutoCheckReason }[];
+  turnedOn: readonly AutoCheckItem[];
+  skipped: readonly { item: AutoCheckItem; reason: AutoCheckReason }[];
   /** 0 이던 매도 가격을 채운 상한가 — 채우지 않았으면 null. */
   priceFilled: number | null;
 }
 
+/** 그룹 ↔ 표시 이름(`lc-fields.ts` 카드 제목). */
+const AUTO_CHECK_GROUP_LABEL = {
+  preBuyEnabled: '선매수',
+  extraBuyEnabled: '추가매수',
+} as const satisfies Record<AutoCheckGate, GroupAutoCheckResult['groupLabel']>;
+
 /** 항목 ↔ 폼 필드. */
-const PRE_BUY_AUTO_CHECK_FIELD = {
+const AUTO_CHECK_FIELD = {
   매도주문: 'sellEnabled',
   '매도>잔량추적': 'sellQtyTrackEnabled',
   '매도>체결': 'sellTradeQtyEnabled',
   취소: 'cancelQtyEnabled',
   '취소>체결': 'cancelTradeEnabled',
   '취소>잔량추적': 'cancelQtyTrackEnabled',
-} as const satisfies Record<PreBuyAutoCheckItem, keyof LimitChaserFormValues>;
+} as const satisfies Record<AutoCheckItem, keyof LimitChaserFormValues>;
 
 /**
- * 선매수 켬 → 매도 · 취소 6체크 자동 켬 — **판정 지점 하나**(순수 함수).
+ * 선매수 · 추가매수 켬 → 매도 · 취소 6체크 자동 켬 — **판정 지점 하나**(순수 함수 · 그룹 인자 한 벌 · D-35).
  *
- * WinForms `AutoCheckExitForPreBuy`(LimitChaserForm.cs) 동형이다. 켜면 서버(또는 relay 무장 가드)가 **조용히 눕힐**
+ * WinForms `AutoCheckExitForPreBuy`(LimitChaserForm.cs) 동형이다. 판정 규칙은 그룹과 무관하다 — `gate` 는 결과의
+ * `groupLabel`(로그 첫머리)만 정한다. 선매수 · 추가매수가 판정을 복제하지 않는다. 켜면 서버(또는 relay 무장 가드)가 **조용히 눕힐**
  * 조합은 미리 켜지 않고 사유를 돌려준다(D-07 — 조용한 실패를 미리 피함). 이미 켜진 체크는 건드리지 않는다.
  *
  *   ① 빈 가격 채움(D-20): 매도 주문가격 · 비교가격이 각각 0 이고 상한가를 알면(> 0) 상한가를 **명시 값**으로 싣는다.
@@ -330,9 +343,14 @@ const PRE_BUY_AUTO_CHECK_FIELD = {
  *   조용히 꺼진다(24-07 planner 해석).
  * ★ 웹 D-07 추가: 매도 매수잔량 0 → 매도 3체크 생략. relay `#strategyArmable` sell 갈래가 `sellEnabled ∧ sellWatchQty 0`
  *   프레임 **전체**를 거부하므로(선매수 켬까지 함께 막힌다), 매도>잔량추적 · 매도>체결도 같은 사유로 켜지 않는다.
- * ★ 호출 자리는 **사람의 선매수 스위치 핸들러 하나**다(D-08) — 에코 · 재접속 · 다른 단말 변경에서 부르지 않는다.
+ * ★ 호출 자리는 **사람의 선매수 · 추가매수 스위치 핸들러 하나**다(D-08 · D-35) — 에코 · 재접속 · 다른 단말 변경 ·
+ *   후매수 켜기에서 부르지 않는다. 추가매수 고유 사전 거부(사전 검증 줄 · D-16)는 이 함수보다 앞에서 돈다.
  */
-export function preBuyAutoChecksOf(values: LimitChaserFormValues, upperLimit: number): PreBuyAutoCheckResult {
+export function groupAutoChecksOf(
+  gate: AutoCheckGate,
+  values: LimitChaserFormValues,
+  upperLimit: number,
+): GroupAutoCheckResult {
   const companions: Partial<LimitChaserFormValues> = {};
   let sellOrderPrice = values.sellOrderPrice;
   let sellWatchPrice = values.sellWatchPrice;
@@ -358,14 +376,14 @@ export function preBuyAutoChecksOf(values: LimitChaserFormValues, upperLimit: nu
   const ratioZero = values.sellOrderRatio === 0;
   const cancelQtyZero = values.cancelWatchQty === 0;
   const tradeZero = values.sellMinTradeQty === 0;
-  type Check = readonly [failed: boolean, reason: PreBuyAutoCheckReason];
-  const firstFail = (checks: readonly Check[]): PreBuyAutoCheckReason | null =>
+  type Check = readonly [failed: boolean, reason: AutoCheckReason];
+  const firstFail = (checks: readonly Check[]): AutoCheckReason | null =>
     checks.find(([failed]) => failed)?.[1] ?? null;
 
-  const turnedOn: PreBuyAutoCheckItem[] = [];
-  const skipped: { item: PreBuyAutoCheckItem; reason: PreBuyAutoCheckReason }[] = [];
-  const decide = (item: PreBuyAutoCheckItem, checks: readonly Check[]): boolean => {
-    const field = PRE_BUY_AUTO_CHECK_FIELD[item];
+  const turnedOn: AutoCheckItem[] = [];
+  const skipped: { item: AutoCheckItem; reason: AutoCheckReason }[] = [];
+  const decide = (item: AutoCheckItem, checks: readonly Check[]): boolean => {
+    const field = AUTO_CHECK_FIELD[item];
     if (values[field]) return true; // 이미 켜짐 — 건드리지 않는다(목록에도 넣지 않는다).
     const reason = firstFail(checks);
     if (reason !== null) {
@@ -401,17 +419,18 @@ export function preBuyAutoChecksOf(values: LimitChaserFormValues, upperLimit: nu
     [!cancelOn, '취소 매수잔량 0'],
   ]);
 
-  return { companions, turnedOn, skipped, priceFilled };
+  return { groupLabel: AUTO_CHECK_GROUP_LABEL[gate], companions, turnedOn, skipped, priceFilled };
 }
 
 /**
- * 자동 체크 로그 한 줄(UI-SPEC 「선매수 자동 체크 로그 문법」) — 6체크를 **한 줄**로 합친다(D-06 · 6줄 폭증 금지).
+ * 자동 체크 로그 한 줄(UI-SPEC 「선매수 자동 체크 로그 문법」 · 부록 「D-35 추가매수 켬 자동 체크」) — 6체크를 **한 줄**로
+ * 합친다(D-06 · 6줄 폭증 금지). 첫머리만 그룹 이름이다(D-35) — 나머지 문법 · 사유 어휘는 그룹과 무관하다.
  *
- * `선매수 자동 체크 — 켬: {항목 · …}[ / 켜지 않음: {항목(사유) · …}][ / 매도 주문가격·비교가격 = 상한가 {상한가}원]`
+ * `{선매수|추가매수} 자동 체크 — 켬: {항목 · …}[ / 켜지 않음: {항목(사유) · …}][ / 매도 주문가격·비교가격 = 상한가 {상한가}원]`
  * 켤 것이 없으면 「켬」 조각을 빼고, 가격은 실제로 채운 칸만 이름을 댄다. 켤 것도 생략도 없으면(전부 이미 켜짐) null.
  * 생략이 하나라도 있으면 `error`(빨강 — 조용한 실패 예고), 없으면 `info`.
  */
-export function preBuyAutoCheckLogLine(r: PreBuyAutoCheckResult): { text: string; level: 'info' | 'error' } | null {
+export function groupAutoCheckLogLine(r: GroupAutoCheckResult): { text: string; level: 'info' | 'error' } | null {
   if (r.turnedOn.length === 0 && r.skipped.length === 0) return null;
   const parts: string[] = [];
   if (r.turnedOn.length > 0) parts.push(`켬: ${r.turnedOn.join(' · ')}`);
@@ -423,7 +442,7 @@ export function preBuyAutoCheckLogLine(r: PreBuyAutoCheckResult): { text: string
     parts.push(`${label} = 상한가 ${r.priceFilled.toLocaleString('ko-KR')}원`);
   }
   return {
-    text: `선매수 자동 체크 — ${parts.join(' / ')}`,
+    text: `${r.groupLabel} 자동 체크 — ${parts.join(' / ')}`,
     level: r.skipped.length > 0 ? 'error' : 'info',
   };
 }

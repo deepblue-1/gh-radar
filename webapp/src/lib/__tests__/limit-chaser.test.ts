@@ -36,8 +36,8 @@ import {
   marketCloseReleaseKeysOf,
   parseStrategyKey,
   seedListSharesDefaults,
-  preBuyAutoCheckLogLine,
-  preBuyAutoChecksOf,
+  groupAutoCheckLogLine,
+  groupAutoChecksOf,
   seedFromUpperLimit,
   strategyKey,
   type LimitChaserFormValues,
@@ -522,7 +522,7 @@ describe('15:40 KRX 해제 판정 — 통지 · 대기 키 · 게이트 해제 (
  * 잠그는 규칙: 서버(§9 ②′) · relay 무장 가드가 **조용히 눕힐 조합은 켜지 않는다** — 켜지 않은 항목은 사유와 함께
  * 로그 한 줄(error)로 알린다. 이미 켜진 체크는 건드리지 않는다. 0 → 상한가 채움은 상한가를 알 때만(명시 값).
  */
-describe('preBuyAutoChecksOf — 선매수 자동 체크 (24-07 D-06 · D-07 · D-20)', () => {
+describe('groupAutoChecksOf(preBuyEnabled) — 선매수 자동 체크 (24-07 D-06 · D-07 · D-20)', () => {
   /** 매도 · 취소 전부 OFF · 매도 가격 0(상한가로 채울 자리) · 나머지는 켤 수 있는 값. */
   const base = (over: Partial<LimitChaserFormValues> = {}): LimitChaserFormValues => ({
     ...defaultLimitChaserForm(),
@@ -543,7 +543,7 @@ describe('preBuyAutoChecksOf — 선매수 자동 체크 (24-07 D-06 · D-07 · 
   const ALL = ['매도주문', '매도>잔량추적', '매도>체결', '취소', '취소>체결', '취소>잔량추적'];
 
   it('전부 켤 수 있음 · 상한가 13,000 → 6체크 true + 매도 주문가격 · 비교가격 = 상한가 · 순서 고정 · 생략 0', () => {
-    const r = preBuyAutoChecksOf(base(), 13_000);
+    const r = groupAutoChecksOf('preBuyEnabled', base(), 13_000);
     expect(r.companions).toEqual({
       sellEnabled: true,
       sellQtyTrackEnabled: true,
@@ -560,7 +560,7 @@ describe('preBuyAutoChecksOf — 선매수 자동 체크 (24-07 D-06 · D-07 · 
   });
 
   it('상한가 0(미수신) → 매도주문 · 취소 3종은 「상한가 미수신」으로 켜지 않는다 · 매도>잔량추적 · 매도>체결은 켠다 · 가격 채움 없음', () => {
-    const r = preBuyAutoChecksOf(base(), 0);
+    const r = groupAutoChecksOf('preBuyEnabled', base(), 0);
     expect(r.turnedOn).toEqual(['매도>잔량추적', '매도>체결']);
     expect(r.skipped).toEqual([
       { item: '매도주문', reason: '상한가 미수신' },
@@ -575,14 +575,14 @@ describe('preBuyAutoChecksOf — 선매수 자동 체크 (24-07 D-06 · D-07 · 
   });
 
   it('매도 가격이 이미 있으면 채우지 않는다(명시 값만 · priceFilled null)', () => {
-    const r = preBuyAutoChecksOf(base({ sellOrderPrice: 12_000, sellWatchPrice: 12_500 }), 13_000);
+    const r = groupAutoChecksOf('preBuyEnabled', base({ sellOrderPrice: 12_000, sellWatchPrice: 12_500 }), 13_000);
     expect(r.priceFilled).toBeNull();
     expect(r.companions).not.toHaveProperty('sellOrderPrice');
     expect(r.turnedOn).toEqual(ALL);
   });
 
   it('매도 매수잔량 0 → 매도 3체크를 「매도 매수잔량 0」으로 켜지 않는다(웹 D-07 — relay sell 갈래가 프레임 전체를 거부) · 취소 계열은 켠다', () => {
-    const r = preBuyAutoChecksOf(base({ sellWatchQty: 0 }), 13_000);
+    const r = groupAutoChecksOf('preBuyEnabled', base({ sellWatchQty: 0 }), 13_000);
     expect(r.skipped).toEqual([
       { item: '매도주문', reason: '매도 매수잔량 0' },
       { item: '매도>잔량추적', reason: '매도 매수잔량 0' },
@@ -593,7 +593,7 @@ describe('preBuyAutoChecksOf — 선매수 자동 체크 (24-07 D-06 · D-07 · 
   });
 
   it('취소 매수잔량 0 → 취소 · 취소>잔량추적을 「취소 매수잔량 0」으로 켜지 않는다(서버 §9 ②′) · 취소>체결은 켠다', () => {
-    const r = preBuyAutoChecksOf(base({ cancelWatchQty: 0 }), 13_000);
+    const r = groupAutoChecksOf('preBuyEnabled', base({ cancelWatchQty: 0 }), 13_000);
     expect(r.skipped).toEqual([
       { item: '취소', reason: '취소 매수잔량 0' },
       { item: '취소>잔량추적', reason: '취소 매수잔량 0' },
@@ -602,14 +602,14 @@ describe('preBuyAutoChecksOf — 선매수 자동 체크 (24-07 D-06 · D-07 · 
   });
 
   it('취소가 이미 켜져 있으면 취소 매수잔량과 무관하게 취소>잔량추적은 따라 켠다(취소 자신은 건드리지 않는다)', () => {
-    const r = preBuyAutoChecksOf(base({ cancelQtyEnabled: true, sellOrderPrice: 13_000, sellWatchPrice: 13_000 }), 13_000);
+    const r = groupAutoChecksOf('preBuyEnabled', base({ cancelQtyEnabled: true, sellOrderPrice: 13_000, sellWatchPrice: 13_000 }), 13_000);
     expect(r.turnedOn).toContain('취소>잔량추적');
     expect(r.turnedOn).not.toContain('취소');
     expect(r.companions).not.toHaveProperty('cancelQtyEnabled');
   });
 
   it('매도 체결 0 → 매도>체결 · 취소>체결을 「매도 체결 0」으로 켜지 않는다', () => {
-    const r = preBuyAutoChecksOf(base({ sellMinTradeQty: 0 }), 13_000);
+    const r = groupAutoChecksOf('preBuyEnabled', base({ sellMinTradeQty: 0 }), 13_000);
     expect(r.skipped).toEqual([
       { item: '매도>체결', reason: '매도 체결 0' },
       { item: '취소>체결', reason: '매도 체결 0' },
@@ -618,7 +618,7 @@ describe('preBuyAutoChecksOf — 선매수 자동 체크 (24-07 D-06 · D-07 · 
   });
 
   it('매도비율 0(레거시) → 매도주문만 「매도비율 0」으로 켜지 않는다', () => {
-    const r = preBuyAutoChecksOf(base({ sellOrderRatio: 0 }), 13_000);
+    const r = groupAutoChecksOf('preBuyEnabled', base({ sellOrderRatio: 0 }), 13_000);
     expect(r.skipped).toEqual([{ item: '매도주문', reason: '매도비율 0' }]);
     expect(r.turnedOn).toEqual(['매도>잔량추적', '매도>체결', '취소', '취소>체결', '취소>잔량추적']);
   });
@@ -634,13 +634,13 @@ describe('preBuyAutoChecksOf — 선매수 자동 체크 (24-07 D-06 · D-07 · 
       sellOrderPrice: 13_000,
       sellWatchPrice: 13_000,
     });
-    const r = preBuyAutoChecksOf(on, 13_000);
+    const r = groupAutoChecksOf('preBuyEnabled', on, 13_000);
     expect(r.turnedOn).toEqual([]);
     expect(r.skipped).toEqual([]);
     expect(r.companions).toEqual({});
-    expect(preBuyAutoCheckLogLine(r)).toBeNull();
+    expect(groupAutoCheckLogLine(r)).toBeNull();
 
-    const some = preBuyAutoChecksOf(base({ sellEnabled: true, sellOrderPrice: 13_000, sellWatchPrice: 13_000 }), 13_000);
+    const some = groupAutoChecksOf('preBuyEnabled', base({ sellEnabled: true, sellOrderPrice: 13_000, sellWatchPrice: 13_000 }), 13_000);
     expect(some.turnedOn).not.toContain('매도주문');
     expect(some.companions).not.toHaveProperty('sellEnabled');
   });
@@ -648,12 +648,12 @@ describe('preBuyAutoChecksOf — 선매수 자동 체크 (24-07 D-06 · D-07 · 
   it('입력 객체를 바꾸지 않는다(순수 함수)', () => {
     const v = base();
     const copy = { ...v };
-    preBuyAutoChecksOf(v, 13_000);
+    groupAutoChecksOf('preBuyEnabled', v, 13_000);
     expect(v).toEqual(copy);
   });
 });
 
-describe('preBuyAutoCheckLogLine — 자동 체크 로그 한 줄 문법 (UI-SPEC · D-06 — 6줄 폭증 금지)', () => {
+describe('groupAutoCheckLogLine — 자동 체크 로그 한 줄 문법 (UI-SPEC · D-06 — 6줄 폭증 금지)', () => {
   const base = (over: Partial<LimitChaserFormValues> = {}): LimitChaserFormValues => ({
     ...defaultLimitChaserForm(),
     sellOrderPrice: 0,
@@ -666,14 +666,14 @@ describe('preBuyAutoCheckLogLine — 자동 체크 로그 한 줄 문법 (UI-SPE
   });
 
   it('생략 없음 → info · 「켬: …」 + 「매도 주문가격·비교가격 = 상한가 13,000원」', () => {
-    expect(preBuyAutoCheckLogLine(preBuyAutoChecksOf(base(), 13_000))).toEqual({
+    expect(groupAutoCheckLogLine(groupAutoChecksOf('preBuyEnabled', base(), 13_000))).toEqual({
       level: 'info',
       text: '선매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 13,000원',
     });
   });
 
   it('생략이 하나라도 있으면 error · 「켜지 않음: 항목(사유) · …」 조각', () => {
-    expect(preBuyAutoCheckLogLine(preBuyAutoChecksOf(base({ cancelWatchQty: 0 }), 13_000))).toEqual({
+    expect(groupAutoCheckLogLine(groupAutoChecksOf('preBuyEnabled', base({ cancelWatchQty: 0 }), 13_000))).toEqual({
       level: 'error',
       text:
         '선매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소>체결 / 켜지 않음: 취소(취소 매수잔량 0) · 취소>잔량추적(취소 매수잔량 0) / 매도 주문가격·비교가격 = 상한가 13,000원',
@@ -681,14 +681,14 @@ describe('preBuyAutoCheckLogLine — 자동 체크 로그 한 줄 문법 (UI-SPE
   });
 
   it('가격을 채우지 않았으면 가격 조각이 없다 · 한쪽만 채웠으면 그 칸 이름만', () => {
-    const noFill = preBuyAutoCheckLogLine(preBuyAutoChecksOf(base({ sellOrderPrice: 12_000, sellWatchPrice: 12_000 }), 13_000));
+    const noFill = groupAutoCheckLogLine(groupAutoChecksOf('preBuyEnabled', base({ sellOrderPrice: 12_000, sellWatchPrice: 12_000 }), 13_000));
     expect(noFill?.text).toBe('선매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적');
-    const orderOnly = preBuyAutoCheckLogLine(preBuyAutoChecksOf(base({ sellWatchPrice: 12_000 }), 13_000));
+    const orderOnly = groupAutoCheckLogLine(groupAutoChecksOf('preBuyEnabled', base({ sellWatchPrice: 12_000 }), 13_000));
     expect(orderOnly?.text.endsWith(' / 매도 주문가격 = 상한가 13,000원')).toBe(true);
   });
 
   it('켤 것이 없고 생략만 있으면 「켬」 조각 없이 「켜지 않음」만(error)', () => {
-    const r = preBuyAutoChecksOf(
+    const r = groupAutoChecksOf('preBuyEnabled', 
       base({
         sellQtyTrackEnabled: true,
         sellTradeQtyEnabled: true,
@@ -698,10 +698,96 @@ describe('preBuyAutoCheckLogLine — 자동 체크 로그 한 줄 문법 (UI-SPE
       }),
       13_000,
     );
-    expect(preBuyAutoCheckLogLine(r)).toEqual({
+    expect(groupAutoCheckLogLine(r)).toEqual({
       level: 'error',
       text: '선매수 자동 체크 — 켜지 않음: 매도주문(매도비율 0) · 취소(취소 매수잔량 0) · 취소>잔량추적(취소 매수잔량 0) / 매도 주문가격·비교가격 = 상한가 13,000원',
     });
+  });
+});
+
+/**
+ * 24-17 — D-35(2026-09-28 사용자 지시): 추가매수 켬도 선매수와 같은 판정 · 로그는 그룹 이름으로 일반화.
+ * 판정은 그룹 인자 한 벌이다 — 같은 입력이면 선매수 · 추가매수가 `groupLabel` 말고는 같다.
+ */
+describe('D-35 — groupAutoChecksOf · groupAutoCheckLogLine 은 그룹 인자 한 벌 (추가매수 켬 자동 체크)', () => {
+  const base = (over: Partial<LimitChaserFormValues> = {}): LimitChaserFormValues => ({
+    ...defaultLimitChaserForm(),
+    sellEnabled: false,
+    sellQtyTrackEnabled: false,
+    sellTradeQtyEnabled: false,
+    cancelQtyEnabled: false,
+    cancelTradeEnabled: false,
+    cancelQtyTrackEnabled: false,
+    sellOrderPrice: 0,
+    sellWatchPrice: 0,
+    sellWatchQty: 10,
+    sellMinTradeQty: 30_000,
+    sellOrderRatio: 100,
+    cancelWatchQty: 10,
+    ...over,
+  });
+  const CASES: readonly [string, Partial<LimitChaserFormValues>, number][] = [
+    ['전부 켤 수 있음', {}, 150_800],
+    ['상한가 미수신', {}, 0],
+    ['매도 가격 이미 있음', { sellOrderPrice: 12_000, sellWatchPrice: 12_500 }, 150_800],
+    ['매도 매수잔량 0', { sellWatchQty: 0 }, 150_800],
+    ['취소 매수잔량 0', { cancelWatchQty: 0 }, 150_800],
+    ['매도 체결 0', { sellMinTradeQty: 0 }, 150_800],
+    ['매도비율 0', { sellOrderRatio: 0 }, 150_800],
+    ['매도주문 · 취소 이미 켜짐', { sellEnabled: true, cancelQtyEnabled: true }, 150_800],
+  ];
+
+  it.each(CASES)('%s — 추가매수 판정 = 선매수 판정(companions · turnedOn · skipped · priceFilled) · groupLabel 만 다르다', (_, over, upper) => {
+    const pre = groupAutoChecksOf('preBuyEnabled', base(over), upper);
+    const extra = groupAutoChecksOf('extraBuyEnabled', base(over), upper);
+    expect(pre.groupLabel).toBe('선매수');
+    expect(extra.groupLabel).toBe('추가매수');
+    expect(extra.companions).toEqual(pre.companions);
+    expect(extra.turnedOn).toEqual(pre.turnedOn);
+    expect(extra.skipped).toEqual(pre.skipped);
+    expect(extra.priceFilled).toBe(pre.priceFilled);
+  });
+
+  it('추가매수 로그 — 생략 없음 → info · 「추가매수 자동 체크 — 켬: … / 매도 주문가격·비교가격 = 상한가 150,800원」', () => {
+    expect(groupAutoCheckLogLine(groupAutoChecksOf('extraBuyEnabled', base(), 150_800))).toEqual({
+      level: 'info',
+      text: '추가매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 150,800원',
+    });
+  });
+
+  it('추가매수 로그 — 생략이 있으면 error · 사유 어휘는 선매수와 같다(D-07 매도 매수잔량 0)', () => {
+    expect(groupAutoCheckLogLine(groupAutoChecksOf('extraBuyEnabled', base({ sellWatchQty: 0 }), 150_800))).toEqual({
+      level: 'error',
+      text: '추가매수 자동 체크 — 켬: 취소 · 취소>체결 · 취소>잔량추적 / 켜지 않음: 매도주문(매도 매수잔량 0) · 매도>잔량추적(매도 매수잔량 0) · 매도>체결(매도 매수잔량 0) / 매도 주문가격·비교가격 = 상한가 150,800원',
+    });
+  });
+
+  it('추가매수 로그 — 켤 것도 생략도 없으면 null', () => {
+    const on = base({
+      sellEnabled: true,
+      sellQtyTrackEnabled: true,
+      sellTradeQtyEnabled: true,
+      cancelQtyEnabled: true,
+      cancelTradeEnabled: true,
+      cancelQtyTrackEnabled: true,
+      sellOrderPrice: 150_800,
+      sellWatchPrice: 150_800,
+    });
+    expect(groupAutoCheckLogLine(groupAutoChecksOf('extraBuyEnabled', on, 150_800))).toBeNull();
+  });
+
+  it('선매수 로그 문장은 종전과 한 글자도 다르지 않다 — 첫머리만 그룹 이름, 나머지 문법 불변', () => {
+    for (const [, over, upper] of CASES) {
+      const pre = groupAutoCheckLogLine(groupAutoChecksOf('preBuyEnabled', base(over), upper));
+      const extra = groupAutoCheckLogLine(groupAutoChecksOf('extraBuyEnabled', base(over), upper));
+      if (pre === null) {
+        expect(extra).toBeNull();
+        continue;
+      }
+      expect(pre.text.startsWith('선매수 자동 체크 — ')).toBe(true);
+      expect(extra?.level).toBe(pre.level);
+      expect(extra?.text).toBe(pre.text.replace(/^선매수 /, '추가매수 '));
+    }
   });
 });
 

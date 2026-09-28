@@ -2549,6 +2549,8 @@ describe('D-35 — 추가매수 켬도 선매수처럼 매도 · 취소 6체크�
     const ok = idle({ buyEnabled: true, extraBuyEnabled: true, ...SIX, sellOrderPrice: 150_800, sellWatchPrice: 150_800 });
     rerender(<LimitChaserForm {...props({ server: ok, upperLimit: 150_800, serverAnswerSeq: 1 })} />);
     click(sw('추가매수 켜기'));
+    // 성공 뒤 답 신호 대기(직렬화 장벽) — 다음 답 신호에 대기 건이 나간다(WR-03 describe 와 같은 흉내).
+    rerender(<LimitChaserForm {...props({ server: ok, upperLimit: 150_800, serverAnswerSeq: 2 })} />);
     expect(sentConfigs()).toHaveLength(2);
     expect(lastConfig()).toMatchObject({ extraBuyEnabled: false, ...SIX, sellOrderPrice: 150_800, sellWatchPrice: 150_800 });
   });
