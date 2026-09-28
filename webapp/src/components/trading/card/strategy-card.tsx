@@ -72,6 +72,7 @@ import type {
 import { cardAccountSliceOf } from "@/components/trading/card/card-account-slice";
 import { CardHeader } from "@/components/trading/card/card-header";
 import { DirtyBarHostContext } from "@/components/trading/dirty-action-bar";
+import { LC_ORPHAN_WAIT_MS } from "@/components/trading/lc/use-lc-field-commit";
 import { CardTabs, type CardTabRequest } from "@/components/trading/card/card-tabs";
 import type { AccountRowOrigin } from "@/components/orderbook/account-panel";
 import {
@@ -302,12 +303,19 @@ export function useStrategyCardState({
   const pendingRef = useRef<RelayLimitChaserInput | null>(null);
   /**
    * 마지막으로 보낸 요청의 **사유**(D-02 후반 `'serverFold'` · 없으면 `null` = 사람 손).
-   * ★ `pendingRef` 와 **같은 수명**이다 — 보낼 때 함께 세우고, 에코 소비 · 거부 · 삭제 · 키 변경 때 함께 비우며,
-   *   런타임 에코는 둘 다 소비하지 않는다. 따로 살면 앞 제출의 사유가 뒤 에코에 붙는다.
+   * ★ `pendingRef` 와 **같은 수명**이다 — 보낼 때 함께 세우고, 에코 소비 · 거부 · 결과 모름 창 만료 ·
+   *   삭제 · 키 변경 때 함께 비우며, 런타임 에코는 둘 다 소비하지 않는다. 따로 살면 앞 제출의 사유가
+   *   뒤 에코에 붙는다(WR-05).
    */
   const pendingCauseRef = useRef<StrategySubmitCause | null>(null);
   const [unacked, setUnacked] = useState(false);
   const ackTimer = useRef<number | null>(null);
+  /**
+   * 보낸 제출의 귀속(`pendingRef` · `pendingCauseRef`)을 **결과 모름 창이 닫힐 때** 비우는 타이머(WR-05).
+   * 창 = 카드 `ACK_TIMEOUT_MS` + 훅 `LC_ORPHAN_WAIT_MS` — 훅 고아 장벽과 같은 수평선이다(훅은 이 뒤 대기
+   * 건을 실패로 접는다). `lc.arm` 경로는 `pendingRef` 를 세우지 않으므로 이 타이머도 걸지 않는다.
+   */
+  const pendingExpiryTimer = useRef<number | null>(null);
   /**
    * 서버가 이 전략에 답한 **횟수**. 숫자 자체에는 뜻이 없고 「바뀌었다」만 쓴다.
    *
@@ -368,6 +376,19 @@ export function useStrategyCardState({
       pendingRef.current = cfg;
       pendingCauseRef.current = meta?.cause ?? null;
       startAckWait();
+      /*
+        ★ 무응답의 끝 = 훅 고아 장벽과 같은 결과 모름 수평선(WR-05). 3초에 비우면 늦게 닿은 내 에코가
+          다른 단말로 읽힌다 — 비우기만 하고 보내지 않는다(T-16-10).
+        ★ 동일성 가드 — 그 사이 새 제출이 있었으면(`pendingRef` 가 다른 cfg) 건드리지 않는다.
+      */
+      if (pendingExpiryTimer.current != null) window.clearTimeout(pendingExpiryTimer.current);
+      pendingExpiryTimer.current = window.setTimeout(() => {
+        pendingExpiryTimer.current = null;
+        if (pendingRef.current === cfg) {
+          pendingRef.current = null;
+          pendingCauseRef.current = null;
+        }
+      }, ACK_TIMEOUT_MS + LC_ORPHAN_WAIT_MS);
     },
     [startAckWait],
   );
@@ -397,6 +418,8 @@ export function useStrategyCardState({
     prevServerRef.current = null;
     pendingRef.current = null;
     pendingCauseRef.current = null;
+    if (pendingExpiryTimer.current != null) window.clearTimeout(pendingExpiryTimer.current);
+    pendingExpiryTimer.current = null;
     armInFlightRef.current = false;
     setUnacked(false);
     setBanner(null);
@@ -544,6 +567,7 @@ export function useStrategyCardState({
     () => () => {
       if (ackTimer.current != null) window.clearTimeout(ackTimer.current);
       if (bannerTimer.current != null) window.clearTimeout(bannerTimer.current);
+      if (pendingExpiryTimer.current != null) window.clearTimeout(pendingExpiryTimer.current);
     },
     [],
   );
