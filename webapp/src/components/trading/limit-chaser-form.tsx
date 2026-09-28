@@ -112,6 +112,7 @@ import {
   seedFromUpperLimit,
   seedListSharesDefaults,
   type LimitChaserFormValues,
+  type PreBuyAutoCheckResult,
 } from '@/lib/limit-chaser';
 import { cn } from '@/lib/utils';
 import { InlineValueEditor, type InlineSaveVia } from '@/components/trading/lc/inline-value-editor';
@@ -900,10 +901,17 @@ export function LimitChaserForm({
   const successSeqRef = useRef(successSeq);
   successSeqRef.current = successSeq;
   /**
-   * 선매수 자동 체크 로그 한 줄 — 그 제출의 **성공 에코를 기다린다**(D-06 · UI-SPEC 「전송 성공 에코 뒤」).
-   * `seqAtSend` = 보낸 순간의 성공 카운터 — 이전 성공(같은 선매수 필드 포함)을 이 제출의 성공으로 읽지 않는다.
+   * 자동 체크(D-06) **마지막 계산 결과** — 켜는 확정이 넘긴 동반 함수가 판정 시점마다 다시 적는다(WR-03). 대기열에서
+   * 꺼내는 순간의 계산이 마지막이므로 로그 한 줄은 실제로 나간 cfg 와 같은 판정을 말한다. 일반형 이름 — 24-17(D-35)이
+   * 추가매수 켬 자동 체크로 넓힌다.
    */
-  const pendingAutoCheckRef = useRef<{ line: { text: string; level: 'info' | 'error' }; seqAtSend: number } | null>(null);
+  const autoCheckRef = useRef<PreBuyAutoCheckResult | null>(null);
+  /**
+   * 자동 체크 로그 한 줄 — 그 제출의 **성공 에코를 기다린다**(D-06 · UI-SPEC 「전송 성공 에코 뒤」). 줄은 성공 뒤
+   * `autoCheckRef` 로 만든다(보낸 순간이 아니라 실제 전송 판정). `gate` = 켠 그룹 · `seqAtSend` = 누른 순간의 성공
+   * 카운터 — 이전 성공(같은 그룹 필드 포함)을 이 제출의 성공으로 읽지 않는다.
+   */
+  const pendingAutoCheckRef = useRef<{ gate: BuyGroupGate; seqAtSend: number } | null>(null);
   useEffect(() => {
     setPrecheck((cur) => {
       if (cur === null) return cur;
@@ -929,9 +937,9 @@ export function LimitChaserForm({
       const f = formRef.current;
       if (on) {
         // 사전 검증(R7 · UI-SPEC §7) — 낙관 표시 전에 판정한다(스위치는 움직이지 않는다). 전송 0 · 그 카드 한 줄.
-        const base = lcBaseValues(serverRef.current, f);
+        const pressed = lcBaseValues(serverRef.current, f);
         const slot = GROUP_SLOT[gate];
-        const failed = groupPrecheckOf(gate, base);
+        const failed = groupPrecheckOf(gate, pressed);
         if (failed !== null) {
           setPrecheck({ slot, gate, text: failed });
           return;
@@ -941,27 +949,34 @@ export function LimitChaserForm({
         // D-16 — 추가매수만 · 매수1호가 == 비교가격(둘 다 > 0)이면 상한가 도달로 본다. 제출 없이 로그 원문 한 줄만
         //   (사전 검증 줄 · 다이얼로그 · 토스트 없음). 둘 중 하나라도 0 이면 허용 — 0 을 상한가로 치환하지 않는다(D-20).
         const bid = bestBidRef.current;
-        if (gate === 'extraBuyEnabled' && bid > 0 && base.buyWatchPrice > 0 && bid === base.buyWatchPrice) {
+        if (gate === 'extraBuyEnabled' && bid > 0 && pressed.buyWatchPrice > 0 && bid === pressed.buyWatchPrice) {
           clientLogRef.current?.(LC_COMMIT_TEXT.extraBuyAtUpperLimit, 'error');
           return;
         }
         /*
           D-06 · D-07 · D-08 — **사람이** 선매수를 켜는 이 자리에서만 매도 · 취소 6체크를 같은 `lc.set` 에 동반으로 싣는다
           (확인창 · 토스트 · 매도 탭 이동 · 링크 없음). 에코 · 재접속 · 다른 단말 변경으로 선매수가 ON 이 되는 경로(서버 값
-          이펙트 · D-02 후반 `dropMasterAfterServerFold`)에서는 `preBuyAutoChecksOf` 를 부르지 않는다. 판정 기준값은 이
-          제출이 실을 서버 동기값(`base`)이고, 0 인 매도 가격은 상한가를 알 때만 명시 값으로 채운다(D-20).
+          이펙트 · D-02 후반 `dropMasterAfterServerFold`)에서는 `preBuyAutoChecksOf` 를 부르지 않는다 — 계산은 이 핸들러가
+          넘긴 함수 안에서만 돈다. 0 인 매도 가격은 상한가를 알 때만 명시 값으로 채운다(D-20).
+          ★ WR-03 — 동반은 값이 아니라 **판정 시점에 계산하는 함수**다. 훅이 그 확정의 판정 시점(누른 순간 · 대기열에서
+            꺼내는 순간)의 서버 동기값(`base`)으로 부른다 — 앞 확정이 in-flight 인 동안 사람이 확정한 매도 가격을 낡은 상한가
+            채움이 덮지 않고, 그사이 0 이 된 매도 매수잔량에 `sellEnabled` 를 싣지 않는다(relay 프레임 전체 거부 방지).
+            D-01 마스터 동반도 같은 기준이다(전송 시점 서버 값이 이미 켜져 있으면 싣지 않는다).
+            사전 검증 · D-16 은 위에서 누르는 순간 판정한다(R7).
         */
-        const auto = gate === 'preBuyEnabled' ? preBuyAutoChecksOf(base, upperLimitRef.current) : null;
-        const companions: Partial<LimitChaserFormValues> = {
-          ...(auto?.companions ?? {}),
-          ...(f.buyEnabled ? {} : { buyEnabled: true }),
-        };
-        const outcome = commitField(gate, true, 'toggle', Object.keys(companions).length > 0 ? companions : undefined);
+        const autoChecks = gate === 'preBuyEnabled';
+        autoCheckRef.current = null;
+        const outcome = commitField(gate, true, 'toggle', (base) => {
+          const companions: Partial<LimitChaserFormValues> = base.buyEnabled ? {} : { buyEnabled: true };
+          if (!autoChecks) return companions;
+          const auto = preBuyAutoChecksOf(base, upperLimitRef.current);
+          autoCheckRef.current = auto;
+          return { ...auto.companions, ...companions };
+        });
         // 로그는 성공 에코 뒤 한 줄 — 나가지 못했으면(막힘 · 끊김) 쓰지 않는다(「보냈다」를 로그로 남기지 않는다).
-        const line = auto === null ? null : preBuyAutoCheckLogLine(auto);
         pendingAutoCheckRef.current =
-          line !== null && (outcome === 'sent' || outcome === 'queued')
-            ? { line, seqAtSend: successSeqRef.current }
+          autoChecks && (outcome === 'sent' || outcome === 'queued')
+            ? { gate, seqAtSend: successSeqRef.current }
             : null;
         return;
       }
@@ -980,15 +995,19 @@ export function LimitChaserForm({
   useEffect(() => {
     const pending = pendingAutoCheckRef.current;
     if (pending === null) return;
-    if (lc.failures.preBuyEnabled !== undefined) {
+    if (lc.failures[pending.gate] !== undefined) {
       pendingAutoCheckRef.current = null;
       return;
     }
-    if (successSeq === pending.seqAtSend || lastSuccessField !== 'preBuyEnabled') return;
+    if (successSeq === pending.seqAtSend || lastSuccessField !== pending.gate) return;
     pendingAutoCheckRef.current = null;
-    // 그새 선매수를 다시 꺼 그 확정이 성공한 경우 — 켠 사건이 아니다.
-    if (serverRef.current?.preBuyEnabled !== true) return;
-    clientLogRef.current?.(pending.line.text, pending.line.level);
+    // 그새 그 그룹을 다시 꺼 그 확정이 성공한 경우 — 켠 사건이 아니다.
+    if (serverRef.current?.[pending.gate] !== true) return;
+    // 마지막 계산 = 실제로 나간 cfg 의 판정(WR-03). 켤 것도 생략도 없으면 줄 없음.
+    const auto = autoCheckRef.current;
+    const line = auto === null ? null : preBuyAutoCheckLogLine(auto);
+    if (line === null) return;
+    clientLogRef.current?.(line.text, line.level);
   }, [successSeq, lastSuccessField, lc.failures]);
 
   /*

@@ -84,6 +84,12 @@
  *   ★ 낙관 표시 · 되돌림(거부 · 무응답 · 끊김 · 대기 폐기)은 주 필드와 동반 필드를 **함께** 한다.
  *   ★ no-op 은 주 필드와 모든 동반 필드가 서버 값과 같을 때만이다.
  *   새 훅 · 새 전송 경로를 만들지 않는다(RESEARCH Don't Hand-Roll) — 직렬화 · 고아 장벽 · 늦은 에코가 그대로 돈다.
+ *   ★ **동반은 값 또는 꺼낼 때 계산하는 함수다(`LcCompanions` · 24-REVIEW WR-03)** — 대기 건은 꺼내는 순간의 서버
+ *     동기값으로 다시 계산한다. 누른 순간의 값으로 굳히면, 앞 확정이 in-flight 인 동안 사람이 방금 확정한 값(예: 매도
+ *     주문가격)을 낡은 자동 채움이 덮고, 그사이 0 이 된 잔량에도 무장 플래그를 실어 relay 가 프레임 전체를 거부한다.
+ *     판정 시점(확정의 no-op · 대기 진입의 낙관 표시와 되돌림 기준 · 같은 필드 재확정 · 꺼낼 때의 no-op · 전송 조립)
+ *     마다 `companionsAt` 로 다시 계산하고, 계산 결과의 키가 바뀌면 빠진 키는 되돌리고 새 키의 되돌림 기준을 세운다
+ *     (`reshow` 하나 — 두 경로가 같은 규칙). in-flight 기록에는 실제로 실은 계산 결과가 남는다.
  *
  * ⑫ 보낸 사유(`meta.cause`)는 `onSent(cfg, meta)` 로만 흐른다 — 카드가 에코 로그 귀속(24-05 「서버가 매수 그룹
  *   해제 — …」)에 쓴다. 성공 판정 · 되돌림 · 재시도 규칙(⑤)은 사유와 무관하게 같다.
@@ -239,6 +245,14 @@ export interface UseLcFieldCommitOptions {
   armBlockOf?: (values: LimitChaserFormValues) => string | null;
 }
 
+/**
+ * 동반 필드(⑪) — 값 또는 **판정 시점의 기준값**(서버 동기값 `formFromServer(server, formRef.current)`, 미등록이면
+ * 폼 값)으로 계산하는 함수. 함수는 대기열에서 꺼내는 순간에도 다시 불린다(WR-03) — 누른 순간의 값으로 굳히지 않는다.
+ */
+export type LcCompanions =
+  | Partial<LimitChaserFormValues>
+  | ((base: LimitChaserFormValues) => Partial<LimitChaserFormValues>);
+
 /** 확정의 부가 정보 — 전송 · 로그 귀속에만 쓴다(⑫). */
 export interface LcCommitMeta {
   /** 보낸 사유 — 24-05 `StrategySubmitCause`(`'serverFold'` = D-02 후반 서버 접힘 뒤 마스터 자동 끔). */
@@ -252,9 +266,14 @@ interface Pending {
   kind: LcCommitKind;
   /** 확정 직전 폼 값 — 토글 되돌림 기준(⑩). */
   prevValue: unknown;
-  /** 같은 `lc.set` 에 함께 실을 필드(D-01 · D-02 마스터 · ⑪). 성공 판정은 주 필드만. */
-  companions?: Partial<LimitChaserFormValues>;
-  /** 되돌림용 — companions 키들의 확정 직전 폼 값. */
+  /**
+   * 같은 `lc.set` 에 함께 실을 필드(D-01 · D-02 마스터 · ⑪) — 값 또는 판정 시점에 계산하는 함수(WR-03).
+   * 성공 판정은 주 필드만. in-flight 기록에는 실제로 실은 계산 결과(값)가 남는다.
+   */
+  companions?: LcCompanions;
+  /** 지금 낙관 표시 · 되돌림 기준이 된 동반 계산 결과 — 다시 계산해 키가 바뀌면 `reshow` 가 맞춘다. */
+  shownCompanions?: Partial<LimitChaserFormValues>;
+  /** 되돌림용 — `shownCompanions` 키들의 확정 직전 폼 값. */
   prevCompanions?: Partial<LimitChaserFormValues>;
   /** 보낸 사유(⑫) — `onSent` 로만 흐른다. */
   meta?: LcCommitMeta;
@@ -290,6 +309,19 @@ function pickValues(
   return out as Partial<LimitChaserFormValues>;
 }
 
+/**
+ * 동반 필드를 이 판정 시점의 기준값으로 계산한다(⑪ · WR-03) — 함수면 부르고, 값이면 그대로, 없으면 undefined.
+ * 판정할 때마다 부른다(대기 건은 꺼내는 순간의 서버 동기값으로 다시 계산된다).
+ */
+function companionsAt(
+  p: { companions?: LcCompanions },
+  base: LimitChaserFormValues,
+): Partial<LimitChaserFormValues> | undefined {
+  const c = p.companions;
+  if (c === undefined) return undefined;
+  return typeof c === 'function' ? c(base) : c;
+}
+
 /** 서버가 이미 이 확정 그대로인가 — 주 필드와 모든 동반 필드가 같을 때만(⑪). */
 function sameAsServer(server: RelayLimitChaser, field: LcFieldKey, value: unknown, companions?: Partial<LimitChaserFormValues>): boolean {
   if (server[field] !== value) return false;
@@ -309,7 +341,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
     field: K,
     value: LimitChaserFormValues[K],
     kind: LcCommitKind,
-    companions?: Partial<LimitChaserFormValues>,
+    companions?: LcCompanions,
     meta?: LcCommitMeta,
   ) => LcCommitOutcome;
   inflightField: LcFieldKey | null;
@@ -350,6 +382,11 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
 
   /** 지금(최신 옵션 기준) 서버가 금액을 모르는가 — 끄기 cfg 의 금액 · 수량을 서버 값으로 싣는 줄이 읽는다(⑨-3). */
   const amountUnknownNow = useCallback((): boolean => isLegacyAmountUnknown(optsRef.current.server), []);
+  /** 판정 기준값(② · T-20-03) — 서버 동기값, 미등록이면 폼 값. 전송 조립 · 동반 계산(⑪)이 같은 식을 읽는다. */
+  const baseNow = useCallback((): LimitChaserFormValues => {
+    const { server, formRef } = optsRef.current;
+    return server != null ? formFromServer(server, formRef.current) : formRef.current;
+  }, []);
 
   const failuresRef = useRef<FailureMap>({});
   const [failures, setFailuresState] = useState<FailureMap>({});
@@ -403,10 +440,27 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
     },
     [],
   );
-  /** 이 확정의 낙관 표시(주 필드 + 동반). */
-  const applyToggle = useCallback((p: Pending) => showToggle(p.field, p.value, p.companions), [showToggle]);
+  /** 이 확정의 낙관 표시(주 필드 + 동반 계산 결과). */
+  const applyToggle = useCallback((p: Pending) => showToggle(p.field, p.value, p.shownCompanions), [showToggle]);
   /** 이 확정을 확정 직전 값으로 되돌린다(주 필드 + 동반). */
   const revertToggle = useCallback((p: Pending) => showToggle(p.field, p.prevValue, p.prevCompanions), [showToggle]);
+  /**
+   * 동반 계산 결과를 `next` 로 바꾼다(⑪ · WR-03) — 같은 필드 재확정과 꺼낼 때의 재계산이 같은 규칙이다.
+   * 빠지는 키는 확정 직전 값으로 되돌리고(토글 — 이미 낙관 표시했다), 새 키의 되돌림 기준은 지금 폼 값이다
+   * (이미 이 확정이 낙관 표시한 키는 처음 잡은 기준을 유지한다).
+   */
+  const reshow = useCallback((p: Pending, next: Partial<LimitChaserFormValues> | undefined) => {
+    if (p.kind === 'toggle') {
+      const dropped: Record<string, unknown> = {};
+      for (const k of Object.keys(p.shownCompanions ?? {}) as LcFieldKey[]) {
+        if (next === undefined || !(k in next)) dropped[k] = p.prevCompanions?.[k];
+      }
+      if (Object.keys(dropped).length > 0) optsRef.current.setForm((prev) => ({ ...prev, ...dropped }));
+    }
+    const oldPrev: Partial<LimitChaserFormValues> = p.prevCompanions ?? {};
+    p.prevCompanions = pickValues({ ...optsRef.current.formRef.current, ...oldPrev }, next);
+    p.shownCompanions = next;
+  }, []);
 
   /**
    * 지금 보낸다 — 즉시 확정과 대기 꺼내기가 **같은 경로**다. 무장 판정(⑨)은 여기서만 한다.
@@ -414,10 +468,13 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
    */
   const sendNow = useCallback(
     (p: Pending, optimistic: boolean): LcCommitOutcome => {
-      const { server, formRef, buildCfg, send, onSent, serverAnswerSeq, armBlockOf } = optsRef.current;
-      // ② 기준값 = 서버 동기값 + 동반 필드(⑪) + 바꾼 필드.
-      const base = server != null ? formFromServer(server, formRef.current) : formRef.current;
-      const next: LimitChaserFormValues = { ...base, ...(p.companions ?? {}), [p.field]: p.value };
+      const { server, buildCfg, send, onSent, serverAnswerSeq, armBlockOf } = optsRef.current;
+      // ② 기준값 = 서버 동기값 + 동반 필드(⑪) + 바꾼 필드. 동반은 **지금** 기준값으로 다시 계산한다(WR-03 —
+      //   대기 건이면 꺼내는 순간의 서버 값). 계산 결과가 낙관 표시한 것과 다르면 표시 · 되돌림 기준을 맞춘다.
+      const base = baseNow();
+      const companions = companionsAt(p, base);
+      reshow(p, companions);
+      const next: LimitChaserFormValues = { ...base, ...(companions ?? {}), [p.field]: p.value };
       // ⑨-2 범위 밖 cfg 는 연결을 끊는다 — 끄는 방향도 예외 없이 막는다(CR-01).
       const outOfRange = lcRangeIssue(next);
       if (outOfRange !== null) {
@@ -454,12 +511,13 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       if (p.meta === undefined) onSent?.(cfg);
       else onSent?.(cfg, p.meta);
       writeFailures((prev) => withoutField(prev, p.field));
-      setInflight({ ...p, answerSeqAtSend: serverAnswerSeq });
+      // in-flight 기록에는 실제로 실은 계산 결과가 남는다(함수가 아니라 값 · ⑪).
+      setInflight({ ...p, companions, answerSeqAtSend: serverAnswerSeq });
       // ⑩ 토글은 전송 뒤 낙관 표시 — 대기 중 에코가 폼을 덮었을 수 있어 꺼낼 때도 다시 건다.
       if (p.kind === 'toggle') applyToggle(p);
       return 'sent';
     },
-    [amountUnknownNow, applyToggle, revertToggle, setFailure, setInflight, writeFailures],
+    [amountUnknownNow, applyToggle, baseNow, reshow, revertToggle, setFailure, setInflight, writeFailures],
   );
 
   /** 대기열에서 한 건을 보낼 때까지 꺼낸다 — no-op 은 건너뛰고, 끊기면 남은 건도 끊김이다. */
@@ -467,7 +525,8 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
     const { server } = optsRef.current;
     while (queueRef.current.length > 0) {
       const p = queueRef.current.shift()!;
-      if (server != null && sameAsServer(server, p.field, p.value, p.companions)) {
+      // no-op 판정도 꺼내는 순간의 서버 값으로 동반을 다시 계산한다(⑪ · WR-03).
+      if (server != null && sameAsServer(server, p.field, p.value, companionsAt(p, baseNow()))) {
         // 서버가 이미 사용자가 확정한 값이다 — 보낼 것은 없지만 **성공**이다(20-REVIEW WR-06). 성공 신호가
         // 없으면 `queued` 로 열려 기다리던 시트·인라인 편집기가 닫히지 않는다.
         markSuccess(p.field);
@@ -491,7 +550,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       }
     }
     syncQueue();
-  }, [markSuccess, revertToggle, sendNow, setFailure, syncQueue]);
+  }, [baseNow, markSuccess, revertToggle, sendNow, setFailure, syncQueue]);
 
   /** 대기 건 전부를 보내지 않고 실패로 표시한다 — 서버가 이미 그 값이면 실패라 말하지 않는다(⑦). */
   const failQueue = useCallback(
@@ -548,7 +607,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       field: K,
       value: LimitChaserFormValues[K],
       kind: LcCommitKind,
-      companions?: Partial<LimitChaserFormValues>,
+      companions?: LcCompanions,
       meta?: LcCommitMeta,
     ): LcCommitOutcome => {
       const { server, formRef, setForm, disabled } = optsRef.current;
@@ -560,24 +619,18 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
         return 'disconnected';
       }
 
+      // 동반 필드는 이 판정 시점의 기준값으로 계산한다(⑪ · WR-03 — 대기에 서면 꺼낼 때 다시 계산한다).
+      const shown = companionsAt({ companions }, baseNow());
+
       // 같은 필드가 대기 중 — 값 · 동반 필드 · 사유만 바꾸고 자리는 그대로다(⑦ · ⑪).
       const queued = queueRef.current.find((q) => q.field === field);
       if (queued !== undefined) {
-        if (queued.kind === 'toggle') {
-          // 빠지는 동반 필드는 확정 직전 값으로 되돌리고, 새 동반 필드의 되돌림 기준은 지금 폼 값이다
-          //   (이미 이 대기 건이 낙관 표시한 키는 처음 잡은 기준을 유지한다).
-          const dropped: Record<string, unknown> = {};
-          for (const k of Object.keys(queued.companions ?? {}) as LcFieldKey[]) {
-            if (companions === undefined || !(k in companions)) dropped[k] = queued.prevCompanions?.[k];
-          }
-          if (Object.keys(dropped).length > 0) optsRef.current.setForm((prev) => ({ ...prev, ...dropped }));
-        }
-        const oldPrev: Partial<LimitChaserFormValues> = queued.prevCompanions ?? {};
-        queued.prevCompanions = pickValues({ ...formRef.current, ...oldPrev }, companions);
+        // 빠지는 동반 필드는 확정 직전 값으로 되돌리고, 새 동반 필드의 되돌림 기준은 지금 폼 값이다(`reshow`).
+        reshow(queued, shown);
         queued.value = value;
         queued.companions = companions;
         queued.meta = meta;
-        if (kind === 'toggle') showToggle(field, value, companions);
+        if (kind === 'toggle') showToggle(field, value, shown);
         writeFailures((prev) => withoutField(prev, field));
         return 'queued';
       }
@@ -587,7 +640,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       // 서버 값과 같다 — 보낼 것이 없다(전송 0). 단 그 필드가 나가 있거나(in-flight · 결과 모름) 그 답 뒤에 판정한다.
       if (
         server != null &&
-        sameAsServer(server, field, value, companions) &&
+        sameAsServer(server, field, value, shown) &&
         inflight?.field !== field &&
         orphan?.field !== field
       ) {
@@ -609,15 +662,9 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
         return 'local';
       }
 
-      const pending: Pending = {
-        field,
-        value,
-        kind,
-        prevValue: formRef.current[field],
-        companions,
-        prevCompanions: pickValues(formRef.current, companions),
-        meta,
-      };
+      const pending: Pending = { field, value, kind, prevValue: formRef.current[field], companions, meta };
+      // 낙관 표시 · 되돌림 기준 = 지금 계산한 동반(⑪). 대기 건은 꺼낼 때 `sendNow` 가 다시 계산해 맞춘다.
+      reshow(pending, shown);
       if (busy) {
         queueRef.current.push(pending);
         if (kind === 'toggle') applyToggle(pending);
@@ -630,7 +677,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       if (out === 'sent' && orphan !== null) releaseOrphan();
       return out;
     },
-    [applyToggle, markSuccess, releaseOrphan, sendNow, setFailure, showToggle, syncQueue, writeFailures],
+    [applyToggle, baseNow, markSuccess, releaseOrphan, reshow, sendNow, setFailure, showToggle, syncQueue, writeFailures],
   );
 
   const clearFailure = useCallback(

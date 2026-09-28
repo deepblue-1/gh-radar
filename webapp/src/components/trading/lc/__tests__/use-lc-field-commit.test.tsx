@@ -1220,6 +1220,53 @@ describe('companions — 한 확정 = 한 lc.set 에 동반 필드 (Phase 24 D-0
     t.update({ serverAnswerSeq: 3 });
     expect(t.send).toHaveBeenCalledTimes(2);
   });
+
+  it('WR-03 — 함수 companions 는 꺼내는 순간의 서버 동기값으로 계산된다 · 앞 건이 확정한 값을 낡은 채움이 덮지 않는다', () => {
+    const t = setup({ server: echo({ sellOrderPrice: 0 }) });
+    const fill = (b: LimitChaserFormValues): Partial<LimitChaserFormValues> =>
+      b.sellOrderPrice === 0 ? { sellOrderPrice: 99_999 } : {};
+    let out: string | undefined;
+    act(() => {
+      t.hook.result.current.commit('sellOrderPrice', 12_000, 'value');
+      out = t.hook.result.current.commit('preBuyEnabled', true, 'toggle', fill);
+    });
+    expect(out).toBe('queued');
+    expect(t.send).toHaveBeenCalledTimes(1);
+    t.update({ server: echo({ sellOrderPrice: 12_000 }) });
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.send).toHaveBeenCalledTimes(2);
+    const cfg = t.cfgs()[1]!;
+    expect(cfg.preBuyEnabled).toBe(true);
+    expect(cfg.sellOrderPrice).toBe(12_000);
+  });
+
+  it('WR-03 — 함수 companions 의 no-op 판정도 판정 시점 계산이다(확정 순간 · 꺼내는 순간)', () => {
+    const fill = (b: LimitChaserFormValues): Partial<LimitChaserFormValues> =>
+      b.sellOrderPrice === 0 ? { sellOrderPrice: 99_999 } : {};
+    // 확정 순간 — 계산 결과({})와 주 필드가 모두 서버 값과 같다.
+    const same = setup({ server: echo({ preBuyEnabled: true }) });
+    let a: string | undefined;
+    act(() => {
+      a = same.hook.result.current.commit('preBuyEnabled', true, 'toggle', fill);
+    });
+    expect(a).toBe('noop');
+    expect(same.send).not.toHaveBeenCalled();
+
+    // 꺼내는 순간 — 누른 순간에는 채울 값이 있었지만(전송 대상), 꺼낼 때 서버가 이미 그 상태다 → 전송 0 · 성공.
+    const t = setup({ server: echo({ sellOrderPrice: 0 }) });
+    let b: string | undefined;
+    act(() => {
+      t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
+      b = t.hook.result.current.commit('preBuyEnabled', true, 'toggle', fill);
+    });
+    expect(b).toBe('queued');
+    const there = echo({ sellOrderPrice: 12_000, preBuyEnabled: true, sweepMinTickCount: 5 });
+    t.update({ server: there });
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.hook.result.current.lastSuccessField).toBe('preBuyEnabled');
+    expect(t.hook.result.current.failures.preBuyEnabled).toBeUndefined();
+  });
 });
 
 describe('게이트 필드 (Phase 24 — 세 그룹 스위치가 등록할 수 있다 · 한방은 체크가 됐다)', () => {
