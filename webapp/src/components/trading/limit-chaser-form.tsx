@@ -383,9 +383,16 @@ const SELL_COLUMN_LEGACY_NAMES: readonly string[] = [
  *
  * gh-trade D-34(`9f07d025`) 서버는 세 그룹이 모두 접히는 순간 마스터도 내려 같은 에코에 `buyEnabled=false` 를
  * 싣는다 — 그 에코는 여기서 false 다. 이 자동 끔은 구 서버용 백스톱이다(WinForms 도 같다).
+ *
+ * 구서버 에코(`isLegacyBuySchema` · 전환 에코 포함)는 하강 전이로 읽지 않는다 — 직전 · 이번 에코가 모두 buy3 일 때만
+ * true 일 수 있다. buy3 → 구서버 전환 에코는 신필드 부재로 세 그룹이 0 이 되지만 서버가 접은 것이 아니고, 구서버에
+ * 마스터 OFF 는 실제 매수 감시 해제다(GC-IN-01). relay 세션 `ready` 소실에 기대지 않고 여기서 거른다.
  */
 export function isServerFoldEdge(prev: RelayLimitChaser | null, next: RelayLimitChaser | null): boolean {
   if (prev === null || next === null) return false;
+  // GC-IN-01 — 직전 · 이번 에코 중 하나라도 구서버면 하강 전이가 아니다(전환 에코 포함).
+  if (isLegacyBuySchema(prev)) return false;
+  if (isLegacyBuySchema(next)) return false;
   const hadBuyGroup = prev.preBuyEnabled || prev.extraBuyEnabled || prev.postBuyEnabled;
   return (
     hadBuyGroup && !next.preBuyEnabled && !next.extraBuyEnabled && !next.postBuyEnabled && next.buyEnabled
@@ -1061,13 +1068,17 @@ export function LimitChaserForm({
         ⑤ 순수 델타(WR-06) — 보낼 cfg 가 최신 에코와 `buyEnabled` 한 필드만 다를 때만 보낸다(lib `isMasterOnlyDelta`).
            웹이 다시 계산하는 수량 3벌 · 클라 고정 3필드가 에코와 다르면 다른 클라 · 다른 단말이 둔 값이라 덮지
            않는다 — ① 과 같은 결로 접고(재예약 없음) 매수주문 상태 「켜짐 · 켠 매수 없음」이 남는다.
-           구서버 에코는 그룹이 늘 OFF 라 하강 전이가 생기지 않는다 — 이 가드와 무관하다.
+           구서버 에코는 전환 에코(buy3 → 구서버)를 포함해 `isServerFoldEdge` 가 먼저 거른다(GC-IN-01) — 이 가드까지
+           오지 않는다.
         ⑥ 비가시 유예(WR-06) — 화면에 보이지 않는 인스턴스(`document.visibilityState === 'hidden'`)는 예약을
            `LC_FOLD_HIDDEN_DEFER_MS` 미룬 뒤 ② 로 재확인한다. 그사이 보이는 인스턴스가 보낸 마스터 OFF 에코가 왔으면
            보내지 않는다 — 탭 · 앱 N개에서 통상 1건. 보이는 인스턴스는 종전대로 다음 틱이다.
       남는 한계(24-16 체크포인트에서 사용자 확인): 동시에 화면에 보이는 두 인스턴스(예: 데스크톱 + 전면 앱)는 각 1건씩
       보낼 수 있고(같은 순수 델타 cfg — 둘째는 OFF→OFF 무접촉), 자동 제출보다 한 왕복 안쪽에 서버에 닿은 사람 편집은
-      전체 cfg 규약(마지막 쓰기 승리) 때문에 되돌려질 수 있다. 완전 차단은 relay/서버 비교 후 쓰기가 필요해 이월한다.
+      전체 cfg 규약(마지막 쓰기 승리) 때문에 되돌려질 수 있다. 화면에 보이는 인스턴스가 하나도 없으면(모든 탭 · 앱이
+      숨음) 모두 같은 유예(`LC_FOLD_HIDDEN_DEFER_MS`) 뒤 ② 를 재확인하므로 N건이 거의 동시에 나갈 수 있다 — 유예
+      지터는 넣지 않았다(운영 서버 D-34 에서는 이 백스톱에 닿지 않음 · 24-24 사용자 확인 · GC-IN-02).
+      완전 차단은 relay/서버 비교 후 쓰기가 필요해 이월한다.
       로그 문장(「서버가 매수 그룹 해제 — …」)은 폼이 쓰지 않는다 — 사유(`cause: 'serverFold'`)를 실어 보내면
       카드가 성공 에코에서 쓴다(24-05).
   */

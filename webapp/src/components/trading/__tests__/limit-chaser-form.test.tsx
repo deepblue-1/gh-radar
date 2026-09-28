@@ -44,7 +44,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
 });
 
 import { mockPointer, restoreMatchMedia } from '@/lib/__tests__/match-media';
-import { LC_FOLD_HIDDEN_DEFER_MS, LimitChaserForm, type LimitChaserFormProps } from '../limit-chaser-form';
+import { isServerFoldEdge, LC_FOLD_HIDDEN_DEFER_MS, LimitChaserForm, type LimitChaserFormProps } from '../limit-chaser-form';
 import { buyOrderQtyFromAmount } from '@/lib/limit-chaser';
 import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
 
@@ -1866,6 +1866,35 @@ describe('⑰-b D-02 후반 · D-19 — WinForms 동형 서버 접힘 뒤 마스
     });
     expect(sentConfigs()).toHaveLength(0);
     expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'true');
+  });
+
+  /*
+    GC-IN-01 — 직전 · 이번 에코 중 하나라도 구서버(`buy3Schema 0`)면 하강 전이가 아니다. 구서버에 마스터 OFF 는 실제
+    매수 감시 해제이고, 「서버가 매수 그룹 해제」 로그도 거짓이다. 보장은 relay 세션 `ready` 소실(파일 밖)이 아니라 이
+    판정이 한다.
+  */
+  describe('GC-IN-01 — buy3 → 구서버 전환 에코는 하강 전이가 아니다', () => {
+    /** 구서버 전환 에코 — 신필드 부재(그룹 0) · 마스터 ON · 매도 ON · 수량 웹 산출과 같음. */
+    const legacyB = (over: Partial<RelayLimitChaser> = {}) => B({ buy3Schema: 0, ...over });
+
+    it('isServerFoldEdge — buy3(선매수 ON) → 구서버(세 그룹 OFF · 마스터 ON) false · 구서버 → buy3(세 그룹 OFF) false · buy3 하강 전이 true', () => {
+      expect(isServerFoldEdge(A(), legacyB())).toBe(false);
+      expect(isServerFoldEdge(echo({ buy3Schema: 0, preBuyEnabled: true, sellEnabled: true }), B())).toBe(false);
+      expect(isServerFoldEdge(A(), B())).toBe(true);
+    });
+
+    it('폼 — buy3 에코(선매수 ON · 마스터 ON · 매도 ON) → 구서버 전환 에코 → 다음 틱 · 유예 뒤에도 전송 0 · 매수주문 ON 그대로', () => {
+      const onSent = vi.fn();
+      const { rerender } = render(<LimitChaserForm {...props({ server: A(), onSent })} />);
+      rerender(<LimitChaserForm {...props({ server: legacyB(), onSent })} />);
+      tick();
+      act(() => {
+        vi.advanceTimersByTime(LC_FOLD_HIDDEN_DEFER_MS * 2);
+      });
+      expect(sentConfigs()).toHaveLength(0);
+      expect(onSent).not.toHaveBeenCalled();
+      expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'true');
+    });
   });
 
   /*
