@@ -47,6 +47,7 @@ import {
 } from '../card/strategy-card';
 import { StrategyLog, TRANSITION_TEXT, marketCloseDisabledLogLine } from '../strategy-log';
 import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
+import { LC_ORPHAN_WAIT_MS } from '@/components/trading/lc/use-lc-field-commit';
 
 const ISIN = 'KR7086520004';
 const ACCOUNT = '37728502101';
@@ -1404,6 +1405,152 @@ describe('WR-05 — 거부 · 무응답 제출의 사유는 그 사건에만 귀
     expect(texts().some((x) => x.includes(FOLD))).toBe(false);
     expect(texts().some((x) => x.includes(TRANSITION_TEXT.buyDisarmed))).toBe(true);
     expect(banner()).toBeNull();
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  /* ── 무응답 — 결과 모름 창(카드 3초 + 훅 고아 장벽 LC_ORPHAN_WAIT_MS)이 닫힐 때 귀속을 비운다 ── */
+
+  const WINDOW_MS = ACK_TIMEOUT_MS + LC_ORPHAN_WAIT_MS;
+
+  it('창 만료 — serverFold 제출이 결과 모름 창 내내 무응답 → 창이 닫힌 뒤 온 보내지 않은 마스터 OFF 에코 → 「매수주문 무장 해제」 · 서버 접힘 문장 0', async () => {
+    const on = echo({ buyEnabled: true, sellEnabled: true });
+    setRelay({ limitChasers: [on] });
+    const { rerender } = render(<Card />);
+    const off = echo({ buyEnabled: false, sellEnabled: true });
+    act(() => {
+      lastCard!.handleSent(sentOf(off), { cause: 'serverFold' });
+    });
+    act(() => {
+      vi.advanceTimersByTime(WINDOW_MS);
+    });
+    expect(unacked()?.textContent).toContain('미반영');
+
+    const other = echo({ buyEnabled: false, sellEnabled: true });
+    setRelay({ limitChasers: [other], lastLimitChaserEcho: other });
+    rerender(<Card />);
+
+    await waitFor(() => expect(top()).toBe(TRANSITION_TEXT.buyDisarmed));
+    expect(texts().some((x) => x === FOLD)).toBe(false);
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('창 안 늦은 에코 — 「미반영」 뒤(3초 + 2초) 닿은 내 에코는 여전히 내 제출 → 서버 접힘 한 줄 · 「다른 단말」 배너 0 · 「미반영」 거둬짐', async () => {
+    const on = echo({ buyEnabled: true, sellEnabled: true });
+    setRelay({ limitChasers: [on] });
+    const { rerender } = render(<Card />);
+    const off = echo({ buyEnabled: false, sellEnabled: true });
+    act(() => {
+      lastCard!.handleSent(sentOf(off), { cause: 'serverFold' });
+    });
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS + 2_000);
+    });
+    expect(unacked()?.textContent).toContain('미반영');
+
+    setRelay({ limitChasers: [off], lastLimitChaserEcho: off });
+    rerender(<Card />);
+
+    await waitFor(() => expect(top()).toBe(FOLD));
+    expect(banner()).toBeNull();
+    expect(texts().some((x) => x.includes('다른 단말'))).toBe(false);
+    expect(unacked()).toBeNull();
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('동일성 가드 — 앞 제출(A)의 만료 시각이 지나도 그 사이 새 제출(B)의 귀속은 남는다 → B 의 에코에 B 의 문장', async () => {
+    const on = echo({ buyEnabled: true, sellEnabled: true });
+    setRelay({ limitChasers: [on] });
+    const { rerender } = render(<Card />);
+    const a = echo({ buyEnabled: true, sellEnabled: false });
+    act(() => {
+      lastCard!.handleSent(sentOf(a));
+    });
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS + 5_000);
+    });
+    const b = echo({ buyEnabled: false, sellEnabled: true });
+    act(() => {
+      lastCard!.handleSent(sentOf(b), { cause: 'serverFold' });
+    });
+    // A 의 만료 시각(전송 + WINDOW_MS)을 넘기되 B 의 창 안이다.
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+
+    setRelay({ limitChasers: [b], lastLimitChaserEcho: b });
+    rerender(<Card />);
+
+    await waitFor(() => expect(top()).toBe(FOLD));
+    expect(banner()).toBeNull();
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('만료 타이머는 아무것도 보내지 않는다 — 30초 진행 뒤에도 send 호출 수 불변 (T-16-10)', () => {
+    setRelay({ limitChasers: [echo({ buyEnabled: true, sellEnabled: true })] });
+    render(<Card />);
+    act(() => {
+      lastCard!.handleSent(sentOf(echo({ buyEnabled: false, sellEnabled: true })), {
+        cause: 'serverFold',
+      });
+    });
+    const before = sendMock.mock.calls.length;
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(sendMock.mock.calls.length).toBe(before);
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  /** 거래소 prop 만 바꿀 수 있는 카드 — 키 변경(ISIN:계좌:거래소) 경로를 탄다. */
+  function CardAt({ exchange }: { exchange: 'KRX' | 'NXT' }) {
+    return (
+      <StrategyCard
+        cardId="wb-card-1"
+        isin={ISIN}
+        accountNo={ACCOUNT}
+        exchange={exchange}
+        name="에코프로"
+        code="086520"
+        open
+        onToggle={noop}
+        onClose={noop}
+        onExchangeChange={noop}
+        body={(s) => ((lastCard = s), null)}
+      />
+    );
+  }
+
+  /** `handleSent` 가 건 결과 모름 창 만료 타이머의 id 들(지연 = WINDOW_MS 로 식별). */
+  function spyExpiryTimers() {
+    const ids: unknown[] = [];
+    const realSet = window.setTimeout;
+    vi.spyOn(window, 'setTimeout').mockImplementation(((fn: TimerHandler, ms?: number, ...rest: unknown[]) => {
+      const id = realSet(fn, ms, ...rest);
+      if (ms === WINDOW_MS) ids.push(id);
+      return id;
+    }) as typeof window.setTimeout);
+    const clear = vi.spyOn(window, 'clearTimeout');
+    return { ids, clear };
+  }
+
+  it('키 변경 · 언마운트에서 만료 타이머가 정리된다(누수 · 다른 키 pending 비움 없음)', () => {
+    setRelay({ limitChasers: [] });
+    const { ids, clear } = spyExpiryTimers();
+    const { rerender, unmount } = render(<CardAt exchange="KRX" />);
+
+    act(() => {
+      lastCard!.handleSent(sentOf(echo({ buyEnabled: false })), { cause: 'serverFold' });
+    });
+    expect(ids).toHaveLength(1);
+    rerender(<CardAt exchange="NXT" />);
+    expect(clear).toHaveBeenCalledWith(ids[0]);
+
+    act(() => {
+      lastCard!.handleSent(sentOf(echo({ exchange: 'NXT', buyEnabled: false })), { cause: 'serverFold' });
+    });
+    expect(ids).toHaveLength(2);
+    unmount();
+    expect(clear).toHaveBeenCalledWith(ids[1]);
     expect(sendMock).not.toHaveBeenCalled();
   });
 });
