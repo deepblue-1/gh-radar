@@ -5,10 +5,10 @@ current_phase: 24
 current_phase_name: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영
 status: executing
 stopped_at: Completed 24-16-PLAN.md
-last_updated: "2026-09-28T07:22:05.968Z"
+last_updated: "2026-09-28T08:15:39.625Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 24 execution started
-state_head: 7e8830a2c191659a5316a989abb3443d769f9687
+state_head: c8e0c38e1bc04ca8d15fe0023d4f7224202313f5
 progress:
   total_phases: 33
   completed_phases: 4
@@ -34,7 +34,7 @@ Plans completed: 220 / 234
 Status: Phase 24 갭 클로징 1라운드(24-10~24-17) 실행·배포 완료(7e8830a2) — 재검증 R2 gaps_found(WR-05 재오픈 · R2-G1~G3 신규) · 다음 /gsd-plan-phase 24 --gaps
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-28 — 24-16 완료: 전체 게이트 green(relay 651 · webapp 2757 · e2e 72) · 사용자 승인(결정 3건 수용) · push 7e8830a2 → master · Vercel Ready · relay 재배포 없음
+Last activity: 2026-09-28 — quick 260928-no0 완료: /me 전략 현황 카드·상태줄이 켜진 전략(isActiveStrategy)만 센다 (16b4a01f · c8e0c38e) · 서버·relay 무변경
 
 Progress: [█████████░] 93%
 
@@ -434,6 +434,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 260926-s5v | **돌파 후속 2건 gh-trade 동작 동기화 (260926-rcc 후속)** — ① 돌파 행 → 카드를 발화 거래소로 연다(기존 카드는 발화 거래소로 전환 · NXT 미거래 종목의 NXT 요청은 무시 · 추가바·보유행은 KRX 유지, gh-trade `FormManager.OpenLimitChaserForm`). ② 이탈로 지운 행은 구독 해제, 새 구간(crossTime·거래소가 다른) 76 이면 새 행(등재시각·강조·3초 유예·첫 돌파시각 재시작) · 같은 구간 재전송(재접속 78)은 지운 채. 돌파 토스트는 스트립 새 행 신호로 — 재돌파에도 토스트, 알림음은 종목당 하루 1회 유지. webapp 2434 통과, Playwright 미실행(3100 점유). relay 무변경 · 배포는 rcc 순서(relay → healthz → push). 미배포 | 2026-09-26 | 0c88254 · a551023 · d28ac2d | [260926-s5v-breakout-row-open-card-fire-exchange-re-](./quick/260926-s5v-breakout-row-open-card-fire-exchange-re-/) |
 | 260926-v5n | **키보드 사유 탭바 숨김 즉시화 (UAT 3차 실서버 B1 후속 · D-12a')** — 사용자 실기기(iPhone 16) 보고 「키보드가 나올 때 탭바가 늦게 사라짐」. iOS `keyboardWillShow` 분기 = removeAllAnimations → performWithoutAnimation(alpha 0 · isHidden) · Android IME onPrepare 분기 = animate().cancel() → alpha 0 · GONE. 키보드 길이·곡선 상태 제거. 재표시 90ms · 비키보드 사유 150ms+0.2s · 하드웨어 키보드 유지 불변. iOS/Android 스모크 · JUnit · verify-prod PROD CONFIG OK · 실기기 mesya · iPhone 17 · emulator 운영 빌드 설치. 네이티브 전용(webapp 무변경) → push 불필요 | 2026-09-26 | b9cf376 · 41311b4 | [260926-v5n-ios-keyboard-tabbar-instant-hide-on-devi](./quick/260926-v5n-ios-keyboard-tabbar-instant-hide-on-devi/) |
 | 260926-vk9 | **키패드 시트 열림 탭바 즉시 숨김 (260926-v5n 후속 · D-12a'')** — 사용자 재보고 「수량 입력칸 눌렀을 때 여전히 느림」: 터치 기기 수량·가격 칸은 시스템 키보드가 아니라 웹 NumberPadSheet(overlay 경로 · D-12 150ms+0.2s)를 연다. NumberPadSheet 만 `<NativeOverlayMarker immediate />` → 0→1 에서 `overlay {open:true, immediate:true}` → iOS·Android 가 v5n 즉시 경로로 숨김. Sheet·Dialog·Popover 는 D-12 불변 · 필드 없음/모름 = 종전(옛·새 조합 모두 안전). vitest 2408 · Playwright vk9 · native-shell 11 · a11y 2 · iOS/Android 스모크 · verify-prod OK · 실기기 mesya · iPhone 17 · emulator 운영 빌드 설치. **웹 변경 포함 → 체감은 push 뒤**. 미배포 | 2026-09-26 | b02156a · 97e12d6 | [260926-vk9-numpad-sheet-tabbar-instant-hide](./quick/260926-vk9-numpad-sheet-tabbar-instant-hide/) |
+| 260928-no0 | 마이페이지 전략 현황 카드·상태줄이 켜진 전략(isActiveStrategy)만 센다 — 꺼진(매수·매도·취소잔량 OFF) 전략 미표시 · gh-trade 합의(서버 64/60 등록 전수 계약 유지) | 2026-09-28 | c8e0c38e | [260928-no0-off-isactivestrategy](./quick/260928-no0-off-isactivestrategy/) |
 
 ## Session Continuity
 
