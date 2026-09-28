@@ -31,6 +31,8 @@
  *      사유는 **열 맨 아래 한 곳**(`lc-arm-blocked-panel`)에 모인다 — 그룹 안에 끼우면 사유가 뜰 때마다
  *      아래 행이 밀린다. 값 확정도 전송 직전 같은 판정(`armBlockOf`)을 지난다(필드 확정 훅).
  *      ★ **끄는 것은 언제나 허용**한다 — 무장 해제를 막으면 그게 더 위험하다(T-16-44).
+ *      구서버 에코(lib `isLegacyBuySchema` · WR-02)는 켜는 방향 전부가 `disabled`(매수취소 포함)이고 열 패널이
+ *      「{카드 이름들} · 구서버 전략이라 끄기만 …」 한 줄을 말한다 — 누르기 전에 알 수 있는 사유다(24-13).
  *   4. **삭제 버튼을 만들지 않는다**(D-08). 매수·매도·취소 게이트가 전부 꺼지면 그것이 삭제
  *      (`crud "D"`)다. 판정은 `crudOf()` 한 곳이고, 화면의 「삭제됨」은 서버 에코의 `crud` 를 본다.
  *   5. 매수취소 그룹 스위치 = `cancelQtyEnabled`(D-21). 꺼져 있어도 체결·잔량추적 체크는 켤 수 있고
@@ -257,6 +259,11 @@ export interface ArmBlockedGroup {
  * 첫 등장 순서를 유지한다 — 그래야 카드 위에서 본 순서와 사유 순서가 같다.
  * `canArm` 은 **정적 판정**(`canArmStaticOf` — 가격 0 · 매도 매수잔량 0)이다. 그룹 수량 0 은 여기 없다(R7).
  *
+ * ★ 구서버 에코(`legacyNames` 가 null 아님 · WR-02)는 **그 열의 한 줄만** 돌려준다 — 「{그 열 카드 이름들} ·
+ *   `LC_COMMIT_TEXT.legacyReadOnly`」. 구서버 에코는 누르기 전에 알 수 있는 사유라 이 패널 몫이다(R7 결 —
+ *   시세 미수신과 같은 자리). 켜는 방향이 전부 막혀 있으므로 가격 0 같은 다른 사유는 그 열에서 말하지 않는다
+ *   (한 줄이 사실 전부다). 문장 원천은 훅 `LC_COMMIT_TEXT` 하나다(전송 직전 가드 · 확정 전 검증과 같은 문장).
+ *
  * ★ 문장은 여기서 짓지 않는다. 산출 지점은 계속 `armBlockedTextOf` 하나다(파일 상단 ② 5).
  */
 function armBlockedGroupsOf(
@@ -264,8 +271,10 @@ function armBlockedGroupsOf(
   values: LimitChaserFormValues,
   canArm: Record<GateKey, boolean>,
   disabled: boolean,
+  legacyNames: readonly string[] | null,
 ): ArmBlockedGroup[] {
   if (disabled) return [];
+  if (legacyNames !== null) return [{ gates: [...legacyNames], text: LC_COMMIT_TEXT.legacyReadOnly }];
   const out: ArmBlockedGroup[] = [];
   for (const key of GATE_KEYS) {
     if (!keys.includes(key)) continue;
@@ -352,6 +361,15 @@ function armBlockOf(values: LimitChaserFormValues): string | null {
 const BUY_COLUMN_GATES: readonly GateKey[] = ['buyEnabled', 'preBuyEnabled', 'extraBuyEnabled', 'postBuyEnabled'];
 /** 매도 열은 자기 사유만 갖는다 — 매수 사유가 매도 열에 새지 않는다. */
 const SELL_COLUMN_GATES: readonly GateKey[] = ['sellEnabled'];
+/**
+ * 구서버 에코(WR-02) 열 패널이 부르는 카드 이름들 — 스위치가 있는 카드 전부(화면 위→아래). 매수 열은 무장 게이트
+ * 표시 이름 그대로, 매도 열은 매도주문 + 매수취소 카드 제목(`lc-fields.ts` 에서 읽는다 — 문자열 복제 금지).
+ */
+const BUY_COLUMN_LEGACY_NAMES: readonly string[] = BUY_COLUMN_GATES.map((key) => GATE_LABEL[key]);
+const SELL_COLUMN_LEGACY_NAMES: readonly string[] = [
+  ...SELL_COLUMN_GATES.map((key) => GATE_LABEL[key]),
+  ...LC_SELL_GROUPS.flatMap((g) => (g.gate === 'cancelQtyEnabled' && g.title !== undefined ? [g.title] : [])),
+];
 
 /**
  * D-02 후반 · D-19 — **서버 접힘 하강 전이**인가(WinForms `b066e135` `DropMasterAfterServerFold` 의 `hadBuyGroup` 동형).
@@ -781,6 +799,8 @@ export function LimitChaserForm({
       아무것도 메모하지 않는다. 의존성은 이미 계산이 끝난 두 boolean 이면 충분하다.
   */
   const { buyEnabled: canArmBuyPrice, sellEnabled: canArmSell } = canArmStaticOf(form);
+  /** WR-02 — 구서버 에코면 켜는 방향 전부가 누르기 전에 막힌다(스위치 `disabled` · 열 패널 한 줄). 판별은 lib 하나. */
+  const legacy = isLegacyBuySchema(server);
   const canArm: Record<GateKey, boolean> = useMemo(
     () => ({
       buyEnabled: canArmBuyPrice,
@@ -804,10 +824,10 @@ export function LimitChaserForm({
   const gateBlocked = useCallback(
     (key: GateKey, next: boolean): boolean => {
       if (disabled) return true;
-      if (!next) return false;
-      return !canArm[key];
+      if (!next) return false; // 끄는 방향은 구서버여도 막지 않는다(T-16-44 · 24-12 `lcLegacyBlockOf` 가 순서만 본다)
+      return legacy || !canArm[key];
     },
-    [disabled, canArm],
+    [disabled, canArm, legacy],
   );
 
   /**
@@ -854,10 +874,11 @@ export function LimitChaserForm({
     key === undefined ? undefined : groupStatus?.[key];
   /**
    * 스위치를 지금 누를 수 없는가 — 정적 무장 판정(WR-06 · 시세 미수신)을 지나는 것은 마스터 · 세 그룹 · 매도다.
-   * 매수취소는 세션 미준비만 본다. 그룹 수량 0 · 그룹 고유 검증은 `disabled` 가 아니라 누르는 순간의 사전 검증이다(R7).
+   * 매수취소는 세션 미준비와 구서버 에코의 켜는 방향(WR-02)만 본다. 그룹 수량 0 · 그룹 고유 검증은 `disabled` 가
+   * 아니라 누르는 순간의 사전 검증이다(R7).
    */
   const gateDisabled = (gate: LcGate): boolean =>
-    gate === 'cancelQtyEnabled' ? disabled : gateBlocked(gate, !form[gate]);
+    gate === 'cancelQtyEnabled' ? disabled || (legacy && !form.cancelQtyEnabled) : gateBlocked(gate, !form[gate]);
 
   /*
     그룹 켜기 사전 검증 줄(UI-SPEC §7) — 카드마다 한 자리지만 폼 전체에 **늘 한 줄**이다(누른 카드의 것).
@@ -1295,8 +1316,14 @@ export function LimitChaserForm({
     「켤 수 없는 이유」는 **열 맨 아래 한 곳**에만 모인다 (260911-w5h).
     그룹 헤더 바로 아래에 끼우면 사유가 뜨거나 사라질 때마다 그 아래 행 전체가 세로로 밀린다.
   */
-  const buyReasons = armBlockedGroupsOf(BUY_COLUMN_GATES, form, canArm, disabled);
-  const sellReasons = armBlockedGroupsOf(SELL_COLUMN_GATES, form, canArm, disabled);
+  const buyReasons = armBlockedGroupsOf(BUY_COLUMN_GATES, form, canArm, disabled, legacy ? BUY_COLUMN_LEGACY_NAMES : null);
+  const sellReasons = armBlockedGroupsOf(
+    SELL_COLUMN_GATES,
+    form,
+    canArm,
+    disabled,
+    legacy ? SELL_COLUMN_LEGACY_NAMES : null,
+  );
 
   /**
    * 한 열(pane) — ≥700 열 머리 「● 매수」/「● 매도」 → 그룹들(사이 10) → 사유 패널.
