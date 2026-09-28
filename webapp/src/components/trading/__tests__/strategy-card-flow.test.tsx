@@ -1309,3 +1309,101 @@ describe('24-07 — 선매수 자동 체크 로그 (D-06 · D-01 줄 다음 · �
     expect(texts().some((x) => x.startsWith('선매수 자동 체크'))).toBe(false);
   });
 });
+
+/**
+ * 24-11 갭 클로징 WR-05 — 거부 · 무응답으로 **끝난** 제출의 cfg · 사유(`pendingRef` · `pendingCauseRef`)가
+ * 다음 무관한 에코(다른 단말 · 15:40 · 전부 정지)에 귀속되지 않는다 (24-VERIFICATION 갭 5 · 24-REVIEW WR-05).
+ *
+ * ★ 귀속을 비우는 경로(거부 분기 · 결과 모름 창 만료)는 무엇도 다시 보내지 않는다(T-16-10) — 표시 · 로그 귀속만.
+ */
+describe('WR-05 — 거부 · 무응답 제출의 사유는 그 사건에만 귀속된다 (24-VERIFICATION 갭 5)', () => {
+  const texts = () =>
+    Array.from(logRows()).map((r) => r.querySelectorAll('span')[1]?.textContent ?? '');
+  const top = () => texts()[0] ?? '';
+  const sentOf = (e: RelayLimitChaser) => e as unknown as RelayLimitChaserInput;
+  const FOLD = TRANSITION_TEXT.masterOffAfterServerFold;
+  const rejection = () =>
+    msg({
+      lv: 'ERROR',
+      src: 'SetLimitChaser',
+      m: '매수 설정이 불완전합니다 — 매수를 끄지 않았습니다',
+      i: ISIN,
+      a: ACCOUNT,
+    });
+
+  beforeEach(() => {
+    lastCard = null;
+  });
+
+  it('거부 — serverFold 자동 끔이 거부된 뒤 보내지 않은 마스터 OFF 에코(다른 단말) → 「매수주문 무장 해제」 · 서버 접힘 문장 0 · 전송 0', async () => {
+    const on = echo({ buyEnabled: true, sellEnabled: true });
+    setRelay({ limitChasers: [on] });
+    const { rerender } = render(<Card />);
+    const off = echo({ buyEnabled: false, sellEnabled: true });
+    act(() => {
+      lastCard!.handleSent(sentOf(off), { cause: 'serverFold' });
+    });
+
+    // 서버가 그 제출을 거부했다 — 60 에코는 없다.
+    const rej = rejection();
+    setRelay({ limitChasers: [on], messages: [rej] });
+    rerender(<Card />);
+    await waitFor(() => expect(serverError()).not.toBeNull());
+
+    // 한참 뒤 다른 단말의 마스터 OFF — 내 거부된 제출과 무관한 사건이다.
+    const other = echo({ buyEnabled: false, sellEnabled: true });
+    setRelay({ limitChasers: [other], lastLimitChaserEcho: other, messages: [rej] });
+    rerender(<Card />);
+
+    await waitFor(() => expect(top()).toBe(TRANSITION_TEXT.buyDisarmed));
+    expect(texts().some((x) => x === FOLD)).toBe(false);
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('거부(D-02 전반 동반) — 후매수 + 마스터 동반 끔이 거부된 뒤 다른 단말의 같은 모양 에코 → 동반 문장 0 · 개별 전이 문장', async () => {
+    const on = echo({ buyEnabled: true, postBuyEnabled: true, sellEnabled: true });
+    setRelay({ limitChasers: [on] });
+    const { rerender } = render(<Card />);
+    const both = echo({ buyEnabled: false, postBuyEnabled: false, sellEnabled: true });
+    act(() => {
+      lastCard!.handleSent(sentOf(both));
+    });
+
+    const rej = rejection();
+    setRelay({ limitChasers: [on], messages: [rej] });
+    rerender(<Card />);
+    await waitFor(() => expect(serverError()).not.toBeNull());
+
+    const other = echo({ buyEnabled: false, postBuyEnabled: false, sellEnabled: true });
+    setRelay({ limitChasers: [other], lastLimitChaserEcho: other, messages: [rej] });
+    rerender(<Card />);
+
+    await waitFor(() => expect(top()).toContain(TRANSITION_TEXT.postBuyDisarmed));
+    expect(top()).toContain(TRANSITION_TEXT.buyDisarmed);
+    expect(texts().some((x) => x.includes(TRANSITION_TEXT.postBuyWithMasterOff))).toBe(false);
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('원인 귀속 — serverFold 제출 뒤 15:40 귀속 에코 → 서버 접힘 문장 0 · 15:40 원인 줄은 그대로 · 배너 0', async () => {
+    setRelay({ limitChasers: [echo({ buyEnabled: true, sellEnabled: true })] });
+    const { rerender } = render(<Card />);
+    const off = echo({ buyEnabled: false, sellEnabled: true });
+    act(() => {
+      lastCard!.handleSent(sentOf(off), { cause: 'serverFold' });
+    });
+
+    const e1 = echo({ buyEnabled: false, sellEnabled: false });
+    setRelay({
+      limitChasers: [e1],
+      lastLimitChaserEcho: e1,
+      limitChaserDisableEchoes: new Map([[KEY, { echo: e1, cause: 'marketClose' }]]),
+    });
+    rerender(<Card />);
+
+    await waitFor(() => expect(texts()).toContain(marketCloseDisabledLogLine()));
+    expect(texts().some((x) => x.includes(FOLD))).toBe(false);
+    expect(texts().some((x) => x.includes(TRANSITION_TEXT.buyDisarmed))).toBe(true);
+    expect(banner()).toBeNull();
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+});
