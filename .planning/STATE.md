@@ -5,10 +5,10 @@ current_phase: 24
 current_phase_name: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영
 status: executing
 stopped_at: Completed 24-23-PLAN.md
-last_updated: "2026-09-28T09:48:56.826Z"
+last_updated: "2026-09-28T10:40:23.268Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 24 execution started
-state_head: 5abd64c1c887fa7833e8a9346c84f4db7e08d23d
+state_head: 3da455e1ccb716851f4f35abf2135d17a07c4582
 progress:
   total_phases: 33
   completed_phases: 4
@@ -34,7 +34,7 @@ Plans completed: 220 / 234
 Status: Phase 24 갭 클로징 2라운드 실행 중 — 24-23 완료 · 다음 24-24(체크포인트)
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-28 — 24-23 완료: D-38 후매수 발동 override = 발동잔량 × 80% · 사람 값 유지를 e2e P24-6 · 단위 픽스처 · strategy-log JSDoc · UI-SPEC 에 반영(웹은 에코 그대로) · D-37 추가매수 포기 최대 초과 1종(shared 주석만 · relay 무변경) · GC-IN-04 P24-3/4/6 사건 기반 대기 · FOLD_QUIET_MS 3초 (59a704b2 · ad23dc97) · 다음 24-24
+Last activity: 2026-09-28 — quick 260928-q5e 완료: 상따 카드 lc 첫 밴드 경계 700 → 685 (폴드 1단 매수·매도 2열 · 3da455e1)
 
 Progress: [█████████░] 93%
 
@@ -452,6 +452,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 260926-v5n | **키보드 사유 탭바 숨김 즉시화 (UAT 3차 실서버 B1 후속 · D-12a')** — 사용자 실기기(iPhone 16) 보고 「키보드가 나올 때 탭바가 늦게 사라짐」. iOS `keyboardWillShow` 분기 = removeAllAnimations → performWithoutAnimation(alpha 0 · isHidden) · Android IME onPrepare 분기 = animate().cancel() → alpha 0 · GONE. 키보드 길이·곡선 상태 제거. 재표시 90ms · 비키보드 사유 150ms+0.2s · 하드웨어 키보드 유지 불변. iOS/Android 스모크 · JUnit · verify-prod PROD CONFIG OK · 실기기 mesya · iPhone 17 · emulator 운영 빌드 설치. 네이티브 전용(webapp 무변경) → push 불필요 | 2026-09-26 | b9cf376 · 41311b4 | [260926-v5n-ios-keyboard-tabbar-instant-hide-on-devi](./quick/260926-v5n-ios-keyboard-tabbar-instant-hide-on-devi/) |
 | 260926-vk9 | **키패드 시트 열림 탭바 즉시 숨김 (260926-v5n 후속 · D-12a'')** — 사용자 재보고 「수량 입력칸 눌렀을 때 여전히 느림」: 터치 기기 수량·가격 칸은 시스템 키보드가 아니라 웹 NumberPadSheet(overlay 경로 · D-12 150ms+0.2s)를 연다. NumberPadSheet 만 `<NativeOverlayMarker immediate />` → 0→1 에서 `overlay {open:true, immediate:true}` → iOS·Android 가 v5n 즉시 경로로 숨김. Sheet·Dialog·Popover 는 D-12 불변 · 필드 없음/모름 = 종전(옛·새 조합 모두 안전). vitest 2408 · Playwright vk9 · native-shell 11 · a11y 2 · iOS/Android 스모크 · verify-prod OK · 실기기 mesya · iPhone 17 · emulator 운영 빌드 설치. **웹 변경 포함 → 체감은 push 뒤**. 미배포 | 2026-09-26 | b02156a · 97e12d6 | [260926-vk9-numpad-sheet-tabbar-instant-hide](./quick/260926-vk9-numpad-sheet-tabbar-instant-hide/) |
 | 260928-no0 | 마이페이지 전략 현황 카드·상태줄이 켜진 전략(isActiveStrategy)만 센다 — 꺼진(매수·매도·취소잔량 OFF) 전략 미표시 · gh-trade 합의(서버 64/60 등록 전수 계약 유지) | 2026-09-28 | c8e0c38e | [260928-no0-off-isactivestrategy](./quick/260928-no0-off-isactivestrategy/) |
+| 260928-q5e | 폴드 세로 1단(lc≈689)에서 상따 카드 매수·매도 옵션 2열 — lc 첫 밴드 경계 700 → 685 | 2026-09-28 | 3da455e1 | [260928-q5e-1-lc-689-2-lc-700](./quick/260928-q5e-1-lc-689-2-lc-700/) |
 
 ## Session Continuity
 
