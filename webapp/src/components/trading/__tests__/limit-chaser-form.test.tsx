@@ -1670,10 +1670,14 @@ describe('⑰ 그룹 스위치 D-01 · D-02 전반 — 마스터가 같은 제�
 });
 
 describe('⑰-b D-02 후반 · D-19 — WinForms 동형 서버 접힘 뒤 마스터 자동 끔 (가드 4개 · 2026-09-28 정정)', () => {
+  /*
+    ★ 웹이 보낸 전략의 에코 = 수량이 웹 산출과 같다 — `floor(50만원 / 130,000) = 3주`(`echo()` 기본 `buyOrderQty: 1` 은
+      다른 클라가 둔 값처럼 읽힌다). WR-06 가드 ⑤ 는 에코와 `buyEnabled` 한 필드만 다를 때만 자동 끔을 보낸다.
+  */
   /** 직전 에코 — 선매수 ON · 마스터 ON · 매도 ON. */
-  const A = () => echo({ preBuyEnabled: true, sellEnabled: true });
+  const A = () => echo({ preBuyEnabled: true, sellEnabled: true, buyOrderQty: 3 });
   /** 서버가 선매수를 접은 에코 — 세 그룹 OFF · 마스터 ON · 매도 ON. */
-  const B = (over: Partial<RelayLimitChaser> = {}) => echo({ sellEnabled: true, ...over });
+  const B = (over: Partial<RelayLimitChaser> = {}) => echo({ sellEnabled: true, buyOrderQty: 3, ...over });
   /** 에코 적용 뒤 「다음 틱」. */
   const tick = () =>
     act(() => {
@@ -1828,6 +1832,40 @@ describe('⑰-b D-02 후반 · D-19 — WinForms 동형 서버 접힘 뒤 마스
     tick();
     expect(sentConfigs()).toHaveLength(0);
     expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'false');
+  });
+
+  /*
+    WR-06 가드 ⑤ — 에코에 다른 클라가 둔 수량 · 고정 필드가 있으면 자동 끔 0 (buyEnabled 외 전 필드 동일일 때만).
+    사람 손이 아닌 자동 제출이 다른 곳(WinForms · 다른 단말)에서 둔 값을 조용히 덮지 않는다 — 가드 ① 과 같은 결로
+    매수주문 스위치는 켜진 채 남고, 다시 예약하지 않는다.
+  */
+  it('WR-06 가드 ⑤ — 에코의 수량이 웹 산출과 다르면(다른 클라가 둔 7주 ≠ 3주) 자동 끔 0 · 매수주문 ON 그대로 · 재수신에도 0', () => {
+    const { rerender } = render(<LimitChaserForm {...props({ server: A() })} />);
+    rerender(<LimitChaserForm {...props({ server: B({ buyOrderQty: 7 }) })} />);
+    tick();
+    act(() => {
+      vi.advanceTimersByTime(1_500);
+    });
+    expect(sentConfigs()).toHaveLength(0);
+    expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'true');
+    // 같은 B 재수신 — 하강 전이가 아니고 접은 판정을 다시 예약하지도 않는다.
+    rerender(<LimitChaserForm {...props({ server: B({ buyOrderQty: 7 }) })} />);
+    tick();
+    act(() => {
+      vi.advanceTimersByTime(1_500);
+    });
+    expect(sentConfigs()).toHaveLength(0);
+  });
+
+  it('WR-06 가드 ⑤ — 에코의 클라 고정 필드가 다르면(sweepMinCount 5 ≠ 고정 0) 자동 끔 0', () => {
+    const { rerender } = render(<LimitChaserForm {...props({ server: A() })} />);
+    rerender(<LimitChaserForm {...props({ server: B({ sweepMinCount: 5 }) })} />);
+    tick();
+    act(() => {
+      vi.advanceTimersByTime(1_500);
+    });
+    expect(sentConfigs()).toHaveLength(0);
+    expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'true');
   });
 });
 
