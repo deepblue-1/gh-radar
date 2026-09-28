@@ -3295,6 +3295,48 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(buyStatus).toHaveClass(/text-\[var\(--destructive\)\]/);
     const buyLed = card.locator('[data-slot="card-header"] [data-slot="latch-led"][data-kind="buy"]');
     await expect(buyLed).toContainText('감시');
+
+    // ② 켜는 방향은 누르기 전에 막힌다 — 꺼진 스위치 넷 `disabled` · 켜진 매수주문 · 매도주문은 끌 수 있다(T-16-44).
+    const LEGACY_READ_ONLY = '구서버 전략이라 끄기만 할 수 있어요 — 서버를 확인해 주세요';
+    for (const name of ['선매수 켜기', '추가매수 켜기', '후매수 켜기', '매수취소 켜기']) {
+      await expect(lcSwitch(card, name), name).toBeDisabled();
+    }
+    const master = lcSwitch(card, '매수주문 켜기');
+    await expect(master).toBeEnabled();
+    await expect(master).toBeChecked();
+    await expect(lcSwitch(card, '매도주문 켜기')).toBeEnabled();
+
+    // ③ 「켤 수 없는 이유」 — 열마다 구서버 한 줄. 폰 밴드면 「매도」 탭으로 옮겨 매도 열을 본다.
+    const blockedIn = (side: 'buy' | 'sell') => card.locator(`[data-pane="${side}"] [data-slot="lc-arm-blocked"]`);
+    await expect(blockedIn('buy')).toHaveCount(1);
+    await expect(blockedIn('buy').locator('[data-slot="lc-arm-blocked-gates"]')).toHaveText(
+      '매수주문 · 선매수 · 추가매수 · 후매수',
+    );
+    await expect(blockedIn('buy').locator('[data-slot="lc-arm-blocked-text"]')).toHaveText(LEGACY_READ_ONLY);
+    const tabs = card.getByRole('tablist', { name: '주문 진입' });
+    const phone = await tabs.isVisible();
+    if (phone) await tabs.getByRole('tab', { name: '매도' }).click();
+    await expect(blockedIn('sell')).toBeVisible();
+    await expect(blockedIn('sell')).toHaveCount(1);
+    await expect(blockedIn('sell').locator('[data-slot="lc-arm-blocked-gates"]')).toHaveText('매도주문 · 매수취소');
+    await expect(blockedIn('sell').locator('[data-slot="lc-arm-blocked-text"]')).toHaveText(LEGACY_READ_ONLY);
+    if (phone) await tabs.getByRole('tab', { name: '매수' }).click();
+
+    // ④ 값 행은 비활성이 아니다 — 편집기는 열리고 확정이 문장으로 막힌다(조용히 무반응인 행 없음).
+    const before = lcSetCount(relay);
+    await editLc(page, 'lc-buy-watch-qty', '9000');
+    // 말풍선은 Radix Popover(body 포털)라 카드 밖에 선다 — 페이지에서 찾는다.
+    const bubble = page.locator('[data-slot="lc-failure-bubble"][role="alert"]');
+    await expect(bubble).toHaveText(LEGACY_READ_ONLY);
+    await page.locator('#lc-buy-watch-qty').press('Escape');
+    await expect(page.locator('#lc-buy-watch-qty')).toHaveCount(0);
+
+    // ⑤ 매수주문 끄기는 나간다 — 그 10 이 보인 순간 누적 = 기준 + 1(값 확정 시도 = 전송 0 · 고정 대기 없음).
+    await master.click();
+    await expect
+      .poll(() => lcSetRequests(relay).filter((r) => r.buyEnabled === false).length, { timeout: 15_000 })
+      .toBe(1);
+    expect(lcSetCount(relay), '값 확정 시도 = 전송 0 · 매수주문 끄기 = 10 한 건').toBe(before + 1);
   });
 
   /*

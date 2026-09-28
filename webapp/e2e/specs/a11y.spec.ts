@@ -298,6 +298,54 @@ async function tabbablesIn(page: Page, selector: string): Promise<string[]> {
   }, selector);
 }
 
+/** 펼친 상따 카드 한 장(포커스 URL 로 연 카드) — Phase 24 axe 스캔 범위. */
+const LC_OPEN_CARD = '[data-slot="strategy-card"][data-open="true"]';
+const LC_FOCUS_URL = `/trading?focus=${encodeURIComponent(`${E2E_ISIN}:${E2E_ACCOUNT_NO}:KRX`)}`;
+
+/**
+ * 펼친 카드의 컨테이너 폭(clientWidth)을 정확히 `target` 으로 — 재고, 모자란 만큼 뷰포트를 옮긴다.
+ * 본문 폭은 뷰포트가 아니라 카드 컨테이너 폭이다(§2.2b — 경계 숫자는 globals.css 가 정본).
+ */
+async function sizeOpenCardTo(page: Page, target: number): Promise<void> {
+  const card = page.locator(LC_OPEN_CARD);
+  let viewport = target + 34;
+  for (let i = 0; i < 6; i += 1) {
+    await page.setViewportSize({ width: viewport, height: 1000 });
+    await expect(card.locator('[data-slot="card-body"]')).toBeVisible();
+    const width = await card.evaluate((el) => el.clientWidth);
+    if (width === target) return;
+    viewport += target - width;
+  }
+  expect(await card.evaluate((el) => el.clientWidth), `카드 폭 ${target}`).toBe(target);
+}
+
+/** 선매수 · 추가매수 · 후매수 세 카드를 모두 접거나 모두 펼친다(접기는 로컬 동작 — 전송 0). */
+async function setLcFolds(page: Page, expanded: boolean): Promise<void> {
+  const folds = page.locator(LC_OPEN_CARD).locator('[data-slot="lc-group-fold"]');
+  await expect(folds).toHaveCount(3);
+  for (const f of await folds.all()) {
+    if ((await f.getAttribute('aria-expanded')) !== String(expanded)) await f.click();
+    await expect(f).toHaveAttribute('aria-expanded', String(expanded));
+  }
+}
+
+/** 테마를 `localStorage.theme` 로 고정해 포커스 URL 을 다시 열고, 작업대 준비 · 카드 한 장까지 기다린다. */
+async function openLcCardInTheme(page: Page, theme: 'light' | 'dark'): Promise<void> {
+  await page.goto(LC_FOCUS_URL);
+  await page.evaluate((t) => localStorage.setItem('theme', t), theme);
+  await page.reload();
+  await expect(page.locator('html')).toHaveClass(new RegExp(`(^|\\s)${theme}(\\s|$)`));
+  await expect(page.locator('[data-slot="workbench-status-bar"]')).toHaveAttribute('data-status', 'ready', {
+    timeout: 30_000,
+  });
+  await expect(page.locator(LC_OPEN_CARD)).toHaveCount(1, { timeout: 15_000 });
+}
+
+/** 폰 밴드(본문 < 700)의 바깥 탭 「매수」/「매도」. */
+async function pickLcTab(page: Page, name: '매수' | '매도'): Promise<void> {
+  await page.locator(LC_OPEN_CARD).getByRole('tablist', { name: '주문 진입' }).getByRole('tab', { name }).click();
+}
+
 test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My page 접근성', () => {
   let relay: LocalRelay;
 
@@ -460,51 +508,21 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
         postBuyTriggerQty: 330_000,
       },
     ]);
-    const url = `/trading?focus=${encodeURIComponent(`${E2E_ISIN}:${E2E_ACCOUNT_NO}:KRX`)}`;
-    const CARD = '[data-slot="strategy-card"][data-open="true"]';
+    const CARD = LC_OPEN_CARD;
     const card = page.locator(CARD);
-    /** 펼친 카드의 컨테이너 폭(clientWidth)을 정확히 `target` 으로 — 재고, 모자란 만큼 뷰포트를 옮긴다. */
-    const sizeOpenCardTo = async (target: number) => {
-      let viewport = target + 34;
-      for (let i = 0; i < 6; i += 1) {
-        await page.setViewportSize({ width: viewport, height: 1000 });
-        await expect(card.locator('[data-slot="card-body"]')).toBeVisible();
-        const width = await card.evaluate((el) => el.clientWidth);
-        if (width === target) return;
-        viewport += target - width;
-      }
-      expect(await card.evaluate((el) => el.clientWidth), `카드 폭 ${target}`).toBe(target);
-    };
-    const setFolds = async (expanded: boolean) => {
-      const folds = card.locator('[data-slot="lc-group-fold"]');
-      await expect(folds).toHaveCount(3);
-      for (const f of await folds.all()) {
-        if ((await f.getAttribute('aria-expanded')) !== String(expanded)) await f.click();
-        await expect(f).toHaveAttribute('aria-expanded', String(expanded));
-      }
-    };
 
     const failures: string[] = [];
     let scans = 0;
     for (const theme of ['light', 'dark'] as const) {
-      await page.goto(url);
-      await page.evaluate((t) => localStorage.setItem('theme', t), theme);
-      await page.reload();
-      await expect(page.locator('html')).toHaveClass(new RegExp(`(^|\\s)${theme}(\\s|$)`));
-      await expect(page.locator('[data-slot="workbench-status-bar"]')).toHaveAttribute('data-status', 'ready', {
-        timeout: 30_000,
-      });
-      await expect(card).toHaveCount(1, { timeout: 15_000 });
+      await openLcCardInTheme(page, theme);
       await expect(
         card.locator('[data-slot="lc-group-post-buy"] [data-slot="lc-group-status"]'),
       ).toHaveText('보유중', { timeout: 15_000 });
       for (const target of [344, 992]) {
-        await sizeOpenCardTo(target);
-        if (target < 700) {
-          await card.getByRole('tablist', { name: '주문 진입' }).getByRole('tab', { name: '매수' }).click();
-        }
+        await sizeOpenCardTo(page, target);
+        if (target < 700) await pickLcTab(page, '매수');
         for (const expanded of [false, true]) {
-          await setFolds(expanded);
+          await setLcFolds(page, expanded);
           const results = await new AxeBuilder({ page }).include(CARD).withTags(['wcag2a', 'wcag2aa']).analyze();
           const blocking = blockingViolations(results);
           scans += 1;
@@ -519,6 +537,49 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
       }
     }
     expect(scans, '매트릭스 8 스캔').toBe(8);
+    expect(failures, 'critical/serious 위반').toEqual([]);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  /*
+    ★ Phase 24 WR-02 (24-13) — 구서버 에코(`buy3Schema 0`) 상따 카드: 매수주문 상태 「구서버 전략 · 끄기만 가능」
+      (`--destructive`) · 꺼진 스위치 넷 `disabled` · 열마다 「켤 수 없는 이유」 구서버 한 줄이 한 카드에 선다.
+      본문 344 · 992 × 라이트 · 다크 = 4 스캔(세 카드 접힘 — 기본). 판정 · 폭 · 테마 헬퍼는 위 매트릭스와 같다.
+  */
+  test('/trading 상따 구서버 에코 카드 axe — 본문 344 · 992 × 라이트 · 다크 critical/serious 0 (Phase 24 WR-02)', async ({
+    page,
+  }) => {
+    relay.seedLimitChasers([
+      { isin: E2E_ISIN, accountNo: E2E_ACCOUNT_NO, exchange: 'KRX', buy3Schema: 0, buyEnabled: true, sellEnabled: true },
+    ]);
+    const card = page.locator(LC_OPEN_CARD);
+
+    const failures: string[] = [];
+    let scans = 0;
+    for (const theme of ['light', 'dark'] as const) {
+      await openLcCardInTheme(page, theme);
+      await expect(card.locator('[data-slot="lc-group-buy"] [data-slot="lc-group-status"]')).toHaveText(
+        '구서버 전략 · 끄기만 가능',
+        { timeout: 15_000 },
+      );
+      for (const target of [344, 992]) {
+        await sizeOpenCardTo(page, target);
+        if (target < 700) await pickLcTab(page, '매수');
+        await setLcFolds(page, false);
+        await expect(card.locator('[data-pane="buy"] [data-slot="lc-arm-blocked"]')).toBeVisible();
+        const results = await new AxeBuilder({ page }).include(LC_OPEN_CARD).withTags(['wcag2a', 'wcag2aa']).analyze();
+        const blocking = blockingViolations(results);
+        scans += 1;
+        if (blocking.length > 0) {
+          failures.push(
+            `${theme} · 본문 ${target} — ${JSON.stringify(
+              blocking.map((v) => ({ id: v.id, impact: v.impact, nodes: v.nodes.map((n) => n.target) })),
+            )}`,
+          );
+        }
+      }
+    }
+    expect(scans, '구서버 에코 4 스캔').toBe(4);
     expect(failures, 'critical/serious 위반').toEqual([]);
   });
 
