@@ -3,15 +3,17 @@ phase: 24-limitchaser-buy3
 plan: 09
 subsystem: deploy (relay VM 컨테이너 · webapp Vercel)
 tags: [deploy, relay, webapp, buy3_schema, gh-trade-sync, checkpoint]
-status: in-progress
+status: complete
 task1_status: complete (gh-trade-38 예고 2026-09-28 10:53 KST)
 task2_status: complete (준비 게이트 통과 — 배포하지 않음)
-task3_status: pending (checkpoint:human-action · blocking-human — 메인 세션 배포)
+task3_status: complete (메인 세션 배포 2026-09-28 11:05~11:27 KST — relay 94ebc91c · smoke FAIL 0 · master push · Vercel Ready · gh-trade 회신. 운영 웹 눈 확인 · 300ms 창 관찰은 UAT 이월)
 requires: ["24-01", "24-02", "24-03", "24-04", "24-05", "24-06", "24-07", "24-08"]
 provides:
   - "gh-trade 배포 커밋 cfbbd3e2 기준 relay 생성물 드리프트 0 확인"
   - "배포 준비 게이트 결과(build · typecheck · unit · e2e)"
   - "메인 세션용 배포 절차 · 롤백 태그 확인 방법 · master 병합 판단"
+  - "프로덕션 반영: relay 이미지 relay:94ebc91c(직전 2fe94209) · webapp master 94ebc91c(Vercel Ready) — buy3_schema=1 라이브"
+  - "gh-trade 회신(2026-09-28 11:27 KST, 후계 세션 gh-trade-f2) — buy_watch_side 봉인 후속 진행 가능"
 affects: [relay 컨테이너 radar-gw, webapp 프로덕션(Vercel), gh-trade buy_watch_side 봉인 후속]
 tech-stack:
   added: []
@@ -23,22 +25,24 @@ key-files:
 decisions:
   - "재기동·배포를 장중 11:00~12:00 KST 로 당김(사용자 결정) — 플랜의 「20:00 KST 이후」 조건을 대체"
   - "gh-trade 트리 HEAD 27adbcfc 는 배포 커밋 cfbbd3e2 뒤 docs 전용 1커밋(.planning 3파일) — 스키마·서버 코드 동일로 판정해 진행"
+  - "중간 창(옛 relay + 새 서버) 10:47:22 ~ 11:13:46 KST 약 26분 · 장중 — 사용자 결정(Deviation 1)"
+  - "운영 웹 눈 확인(Task 3 ⑥)과 후매수 소진 300ms 창 실기 관찰(⑨)은 미수행 — verify-work UAT 로 이월"
 metrics:
-  duration: "~10m (Task 2 · 10:55~11:05 KST)"
-  completed: "draft 2026-09-28"
+  duration: "~45m (Task 2 10:55~11:05 · Task 3 메인 세션 11:05~11:27 KST · 재기동 10:47 포함 시 중간 창 26분)"
+  completed: "2026-09-28"
 actuals:
-  tokens: 6000
-  tasks: 2
-  commits: 0
+  tokens: 9000
+  tasks: 3
+  commits: 1
 plan_head_before: 9457a53d468cecf573e30eab3185a6b316628d9e
-commits: 0
+commits: 1
 ---
 
-# Phase 24 Plan 09: 배포 — 준비 게이트 통과 (초안 · Task 3 메인 세션 배포 대기)
+# Phase 24 Plan 09: 배포 — buy3_schema=1 프로덕션 반영 Summary
 
-**gh-trade 배포 커밋 cfbbd3e2 트리 기준 `sync-relay-schema.sh --check` 드리프트 0 · relay 651 · webapp 2681 · e2e 67 green — 아무것도 배포하지 않았고, 메인 세션이 relay → smoke → push 순서로 배포할 절차를 아래에 정리했다.**
+**relay `relay:94ebc91c`(직전 `2fe94209`) → smoke PASS 12 · FAIL 0 · SKIP 1 → master `94ebc91c` fast-forward push → Vercel 프로덕션 Ready, gh-trade 에 11:27 KST 회신 — 롤백 없음. 운영 웹 눈 확인 · 300ms 창 실기 관찰만 UAT 로 이월.**
 
-> 이 문서는 **초안**이다. Task 3(메인 세션 배포) 결과를 받으면 「배포 기록」 절을 채우고 status 를 complete 로 올린다.
+> Task 1 · 2 는 서브에이전트, Task 3 배포는 메인 세션이 사용자 확인 뒤 수행했다(서브에이전트는 배포 명령을 하나도 실행하지 않음). 아래 「배포 절차」 는 초안 당시 정리본이고 실제 결과는 「배포 기록」 절에 있다.
 
 ## Task 1 — gh-trade-38 예고 (2026-09-28 10:53 KST)
 
@@ -126,27 +130,46 @@ HEAD `9457a53d` (사용자 quick-260928-ei9 두 커밋 포함) 기준으로 다�
 - `GCP_PROJECT_ID=gh-radar SUPABASE_URL=<위 값> bash scripts/deploy-relay.sh --rollback` (**태그 없이**) → Section 1 가드 · DMA_HOST 해석 뒤 「ERROR: --rollback 은 이미지 태그가 필요합니다. 사용 가능한 태그:」 와 함께 `gcloud artifacts docker tags list <REGISTRY>/relay` 최근 10개를 출력하고 exit 1 (빌드 · VM 배포 없음). 주의: 이 경로도 DMA_HOST 현재 값 조회를 위해 VM 조회를 먼저 지난다.
 - 현재 가동 태그를 직접 보려면(읽기 전용): `gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a --command="sudo docker inspect gh-radar-relay --format '{{.Config.Image}}'"` — 배포 전 이 값이 곧 「직전 태그」.
 
-## 배포 기록 (Task 3 — 메인 세션 결과 대기)
+## 배포 기록 (Task 3 — 메인 세션 · 2026-09-28)
+
+배포 순서 준수: gh-trade 서버 재기동 **10:47:22** → WinForms 발행 **10:29**(재기동 전 선행) → relay 배포 → smoke → master push.
 
 | 항목 | 값 |
 |---|---|
-| relay 직전 이미지 태그 | _(대기)_ |
-| relay 새 이미지 태그 | _(대기)_ |
-| DMA_HOST 출처 · 값 보존 | _(대기)_ |
-| smoke PASS / FAIL / SKIP | _(대기)_ |
-| /healthz status · dma · stalledCount | _(대기)_ |
-| push 한 webapp 커밋 | _(대기)_ |
-| Vercel 프로덕션 배포 확인 | _(대기)_ |
-| 새로고침 안내 | _(대기)_ |
-| gh-trade-38 회신 시각 | _(대기)_ |
+| relay 직전 이미지 태그(롤백 대상) | `asia-northeast3-docker.pkg.dev/gh-radar/gh-radar/relay:2fe94209` (2026-09-26 기동) |
+| relay 새 이미지 태그 | `asia-northeast3-docker.pkg.dev/gh-radar/gh-radar/relay:94ebc91c` |
+| relay 배포 명령 · 시각 | `bash scripts/deploy-relay.sh` (GCP_PROJECT_ID=gh-radar · SUPABASE_URL 은 라이브 Cloud Run gh-radar-server env 에서 · NOTIFICATION_CHANNEL_ID 주입) — 시작 ~11:05, 완료 **11:13:46 KST**, exit 0 |
+| DMA_HOST 출처 · 값 보존 | 실행 중 컨테이너 값 보존 — `10.41.1.120`, 이번 배포로 바뀌지 않음(경고 없음) |
+| VM /healthz (배포 직후) | 200 · status ok · vpn true · dma true · version 94ebc91c · sessionCount 2 · stalledCount 0 · journal live (lastSeq 266) |
+| 모니터링 | uptime check `gh-radar-relay-healthz` 갱신 · alert policy `gh-radar-relay-down` 갱신 |
+| smoke PASS / FAIL / SKIP | `bash scripts/smoke-relay.sh` 11:14 KST — **PASS 12 · FAIL 0 · SKIP 1** (INV-9 `SMOKE_AUTH_TOKEN` 미설정 — 정상). INV-1~8 · 10a/10b PASS, INV-4 PASS |
+| 공개 /healthz status · dma · stalledCount | 11:15:10 KST `{"status":"ok","dma":true,"vpn":true,"version":"94ebc91c","sessionCount":3,"stalledCount":0,"journal":"live"}` |
+| push 한 webapp 커밋 | **`94ebc91c`** — 11:15:27 KST `3bb17a72..94ebc91c HEAD -> master` (fast-forward, 직전 `origin/master...HEAD` 0/73). 브랜치 `gsd/phase-24-limitchaser-buy3` 도 같은 커밋으로 push |
+| Vercel 프로덕션 배포 확인 | 자동 프로덕션 빌드가 돌았음(ignoreCommand 가 건너뛰지 않음) — deployment `https://gh-radar-webapp-3npxs5eqz-alexs-projects-eabbefc0.vercel.app`, created 11:15:29 KST, **Ready**, 프로덕션 alias `gh-radar-webapp.vercel.app` 가 이 deployment 를 가리킴(11:25 확인). 수동 `vercel deploy --prebuilt` 불필요 |
+| 롤백 | 하지 않음 — 모든 게이트 통과 |
+| 새로고침 안내 | 메인 세션이 사용자에게 11:27 KST 안내(열린 탭 · 앱 WebView) |
+| gh-trade 회신 시각 | **2026-09-28 11:27 KST** SendMessage 「gh-radar buy3_schema=1 배포 완료 — relay 이미지 94ebc91c · webapp 94ebc91c. buy_watch_side 봉인 후속 진행 가능」. 주의: **gh-trade-38 세션 소켓이 사라져 후계 세션 gh-trade-f2 로 보냄** |
+| 중간 창(옛 relay + 새 서버) | 10:47:22 ~ 11:13:46 KST (약 26분, 장중) — 장중 배포는 사용자 결정(Deviation 1) |
+
+### 미수행 — UAT 이월 (verify-work)
+
+| Task 3 단계 | 항목 | 상태 |
+|---|---|---|
+| ⑥ 운영 웹 눈 확인 | 상따 카드 매수 LED · 접힌 카드 3장 · DevTools WS `lc.snap` 에 `buy3Schema: 1` · 실전략 1건 값 확정 → 에코 (cs1 토스트 우상단 위치 포함) | **미수행 — UAT 이월** |
+| ⑨ 실기 관찰(선택) | 후매수 소진 푸시(300ms) 전 옛 ON 재제출 창이 웹에서 실제로 생기는지 | **미수행 — UAT 이월** |
+
+플랜 acceptance_criteria(relay 새/직전 태그 · smoke 요약 · webapp 커밋 · Vercel 확인 · 회신 시각)는 모두 충족. 위 두 항목은 acceptance 밖의 눈 확인 · 선택 관찰이라 이 플랜을 막지 않는다.
 
 ## Deviations from Plan
 
-1. **[사용자 결정] 장중 재기동 · 배포** — 플랜은 24-12 재기동 · relay 교체를 「20:00 KST 이후」로 못박았으나, 사용자가 **장중 11:00~12:00 KST** 로 결정. 재기동은 10:47:22 에 이미 끝났다. Task 1 의 「재기동 시각 20:00 이후」 검증은 이 결정으로 대체. 영향: 중간 창(옛 relay · 새 서버)이 장중에 열림 → 빠른 배포 · 웹 상따 매수 조작 자제 안내 필요.
+1. **[사용자 결정] 장중 재기동 · 배포** — 플랜은 24-12 재기동 · relay 교체를 「20:00 KST 이후」로 못박았으나, 사용자가 **장중 11:00~12:00 KST** 로 결정. 재기동은 10:47:22 에 이미 끝났다. Task 1 의 「재기동 시각 20:00 이후」 검증은 이 결정으로 대체. 실제 중간 창(옛 relay · 새 서버)은 10:47:22 ~ 11:13:46 KST 약 26분(장중).
 2. **[Rule 3] gh-trade 트리 HEAD 불일치(27adbcfc ≠ cfbbd3e2)** — 차이는 docs 1커밋(.planning 3파일)뿐이고 cfbbd3e2 가 조상 · 스키마 원본 변화 없음. 멈추지 않고 `--check` 를 그 트리에서 실행(결과 0 개 · 최신).
 3. **사전 병합 `db1c249b`** — Task 3 단계 1 의 「필요하면 master 병합」을 메인 세션이 배포 전에 미리 수행(origin/master 3bb17a72 → Phase 24 브랜치). 그래서 이번 게이트에서 left = 0.
 4. **사전 재생성 `136d4d87`** — Task 2 ① 의 조건부 재생성을 메인 세션이 이미 cfbbd3e2 기준으로 커밋(QuoteState 58/59 append · 주석, relay 미사용). 이번 `--check` 로 최신임을 재확인만.
 5. **e2e `--grep-invert`** — 플랜 명령(trading-workbench + a11y 전체)은 Phase 21 기존 실패 3건(「5. 격자」 · 「P20-3 최악값」 · 「iPhone 가로 폭 844 … 16px」, `deferred-items.md`) 때문에 green 이 될 수 없어 이 셋을 빼고 실행(24-03 ~ 24-08 과 같은 관행). Phase 24 변경과 무관.
+6. **gh-trade 회신 수신 세션 변경** — 플랜은 gh-trade-38 에 회신하도록 했으나 해당 세션 소켓이 사라져 메인 세션이 후계 세션 **gh-trade-f2** 로 보냈다(내용 동일, 11:27 KST).
+7. **운영 웹 눈 확인(⑥) · 300ms 창 관찰(⑨) 미수행** — verify-work UAT 로 이월(위 「미수행 — UAT 이월」 표).
+8. **Vercel 자동 빌드** — 초안은 팁이 docs 커밋이라 ignoreCommand 가 건너뛸 수 있다고 봤으나 실제로는 자동 프로덕션 빌드가 돌아 수동 배포가 필요 없었다.
 
 ## Known Stubs
 
@@ -155,3 +178,8 @@ HEAD `9457a53d` (사용자 quick-260928-ei9 두 커밋 포함) 기준으로 다�
 ## Threat Flags
 
 없음 — 새 네트워크 표면 없음. T-24-37 ~ T-24-41 완화는 위 절차(순서 고정 · 서브에이전트 미배포 · DMA_HOST 미주입 · 롤백 태그 기록 · 드리프트 0 게이트)로 유지.
+
+## Self-Check: PASSED
+
+- FOUND: .planning/phases/24-limitchaser-buy3/24-09-SUMMARY.md
+- FOUND: 94ebc91c (SUMMARY 초안 커밋 · push 된 webapp 커밋, origin/master 포함)
