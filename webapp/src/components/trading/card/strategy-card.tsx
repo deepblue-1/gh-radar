@@ -82,6 +82,7 @@ import {
 } from "@/components/trading/latch-led";
 import { strategyBadgesOf } from "@/components/trading/strategy-badge";
 import {
+  echoAnswersSent,
   isRuntimeOnlyEcho,
   limitChaserValuesChanged,
   marketCloseDisabledLogLine,
@@ -503,8 +504,18 @@ export function useStrategyCardState({
 
     const sent = pendingRef.current;
     const sentCause = pendingCauseRef.current;
-    pendingRef.current = null;
-    pendingCauseRef.current = null;
+    /*
+      ★ 귀속 = 이 에코가 내 요청 변화를 싣는가(`echoAnswersSent`) 하나 — 거부 여부 · 문구를 보지 않는다(GC-WR-01).
+        부분 거부는 ERROR 뒤 같은 제출의 에코가 요청 일부를 눕힌 채 오고, 다른 탭의 거부 통지는 이 탭에도 팬아웃된다 —
+        거부 통지로 귀속을 끊으면 내 진짜 에코가 「다른 단말」로 읽힌다.
+      ★ 귀속 두 칸은 **`mine` 일 때만** 비운다. 내 요청 변화를 싣지 않은 에코(다른 단말 · 서버)는 귀속을 받지도
+        소비하지도 않는다 — 내 진짜 에코가 뒤에 올 수 있다. 그 귀속의 끝은 결과 모름 창 만료(`handleSent` 타이머)다.
+    */
+    const mine = sent !== null && echoAnswersSent(prev, sent, server);
+    if (mine) {
+      pendingRef.current = null;
+      pendingCauseRef.current = null;
+    }
     acceptAnswer();
     setAppliedAt(clockNow());
 
@@ -512,7 +523,7 @@ export function useStrategyCardState({
       로그 귀속 — 이 에코가 답한 **내 제출(`sent`)과 그 사유(`sentCause`)**를 넘긴다(Phase 24 ⑨).
         · D-01 / D-02 전반: 마스터와 그룹을 함께 실어 보낸 제출의 에코 → 동반 문장 한 줄
         · D-02 후반: 폼이 서버 접힘 뒤 스스로 보낸 마스터 OFF(`cause 'serverFold'`) → 서버 접힘 문장 한 줄
-        · 보내지 않은 에코(`sent === null` — 다른 단말 · WinForms 가 먼저 보낸 자동 끔) → 종전 전이 문장
+        · 보내지 않은 에코(`!mine` — 다른 단말 · WinForms 가 먼저 보낸 자동 끔 · 내 요청 변화를 싣지 않은 에코) → 종전 전이 문장
       ★ Phase 24 — 마스터는 발주로 접히지 않는다. 마스터 OFF 에코를 「발주」로 읽지 않고 헤더 「발주 완료」도
         세우지 않는다 — 발주 사실은 서버 사유 줄이 말한다(Pitfall 11 · 플래너 결정).
       15:40 · 전부 정지 원인은 relay 귀속 맵(`limitChaserDisableEchoes`)을 **에코 객체 동일성**으로만
@@ -524,9 +535,9 @@ export function useStrategyCardState({
     /*
       ★ 15:40 · 전부 정지가 원인인 에코는 내 제출의 답이 아니다 — 옛 hadOrder 규율 복원(WR-05). 원인 문장만
         남기고 보낸 cfg · 사유는 넘기지 않는다(「클라가 지어낸 사유를 쓰지 않는다」). 아래 다른 단말 배너
-        판정은 종전 `sent` 를 그대로 쓴다 — 원인 에코에서 배너가 새로 서지 않게.
+        판정은 `mine` 을 그대로 쓴다 — 원인 에코에서 배너가 새로 서지 않게.
     */
-    const attributed = cause !== null ? null : sent;
+    const attributed = cause !== null || !mine ? null : sent;
     const line = strategyLogLine(prev, server, {
       sent: attributed,
       sentCause: attributed === null ? null : sentCause,
@@ -542,12 +553,13 @@ export function useStrategyCardState({
       lc.arm 답, 전부 정지). 그래서 「내가 보낸 적 없음」만으로는 다른 단말의 증거가 아니다 —
       **사용자 설정 값**(`limitChaserValuesChanged`)이 내 요청 없이 바뀐 경우만 다른 단말이다.
       후매수 발동 · 재진입 에코의 override 값(Pitfall 8)은 그 함수가 빼므로 여기 별도 조건이 없다(판정 한 곳).
+      「내 요청」 판정도 한 곳 — 위 `mine`(`echoAnswersSent`)이다(GC-WR-01).
       전이 로그 줄(매수주문 무장·래치 ON 등)은 위에서 종전대로 남는다.
       첫 스냅샷(prev === null)을 「다른 단말」이라고 하면 페이지를 열 때마다 배너가 뜬다.
     */
     const overwritten = overwrittenRef.current;
     overwrittenRef.current = 0;
-    if (sent === null && prev !== null && limitChaserValuesChanged(prev, server)) {
+    if (!mine && prev !== null && limitChaserValuesChanged(prev, server)) {
       const text =
         overwritten > 0
           ? `다른 단말에서 변경돼 수정하던 값 ${overwritten}개가 서버 값으로 바뀌었어요`
@@ -620,22 +632,21 @@ export function useStrategyCardState({
         ★ **거부도 답이다.** 서버가 사유를 말한 순간 「모른다」는 거짓이 되므로 「미반영」을
           함께 거둔다 — 안 거두면 상태줄 한 줄이 「응답을 기다리고 있어요」와 「이래서
           거부됐습니다」를 **동시에** 말한다(debug `lc-unacked-stuck-new-route`).
-          거부에는 60 에코가 없다(`Gateway.cpp` 의 거부 갈래는 에코 앞에서 return 한다) —
-          이 통지가 그 요청에 대한 **유일한** 답이다.
+          전면 거부(거래소 화이트리스트 밖 · NXT 미거래 — `Gateway.cpp` 가 에코 앞에서 return 한다)에는
+          60 에코가 없어 이 통지가 그 요청에 대한 **유일한** 답이다. 부분 거부는 뒤에 같은 제출의 에코가
+          온다(아래 GC-WR-01).
         ★ 판정은 `isLimitChaserSetRejection` **한 곳**이다. 위 표시 몫 판정
           (`isLimitChaserServerMessage`)보다 좁다 — 근거는 그 함수 주석에 있다. 여기서
           `src` 를 직접 비교하지 않는 이유는 이 파일의 다른 판정들과 같다.
         ★ 사유 문구를 **다시 쓰지 않는다.** 화면에 서는 것은 `msg.m` 원문 그대로다.
-        ★ 거부된 제출의 cfg · 사유가 다음 무관한 에코에 붙지 않게 — WR-05. 거부는 그 제출이 서버에
-          서지 않았다는 **확정** 답이다. 비우지 않으면 거부된 serverFold 자동 끔 · D-02 전반 동반 끔의
-          사유가 나중에 온 다른 단말 · 15:40 에코에 「서버가 매수 그룹 해제」 · 「{그룹} 해제 — 매수주문도
-          끔」으로 붙는다. 비우기만 하고 다시 보내지 않는다(T-16-10).
+        ★ 거부 통지는 귀속(`pendingRef` · `pendingCauseRef`)의 끝이 **아니다**(GC-WR-01 · WR-05 재개).
+          부분 거부(매도 · 취소 · 추가 · 후매수 검증 실패)는 그 항만 눕히고 ERROR 를 먼저 보낸 뒤 같은 제출의
+          에코가 오고, ServerMessage 는 사용자의 모든 탭으로 팬아웃된다 — 여기서 비우면 내 진짜 에코가 「다른
+          단말」로 읽히고 동반 · 서버 접힘 문장이 사라진다. 귀속의 끝은 에코 소비 · 결과 모름 창 만료 두
+          수평선이고, 거부된 제출의 사유가 무관한 에코에 붙는 것(WR-05)은 에코 이펙트의 `echoAnswersSent`
+          판정이 막는다. 여기서는 「모른다」만 거두고 다시 보내지 않는다(T-16-10).
       */
-      if (isLimitChaserSetRejection(msg, isin, accountNo)) {
-        acceptAnswer();
-        pendingRef.current = null;
-        pendingCauseRef.current = null;
-      }
+      if (isLimitChaserSetRejection(msg, isin, accountNo)) acceptAnswer();
     }
   }, [messages, pushLog, isin, accountNo, acceptAnswer]);
 

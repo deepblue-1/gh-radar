@@ -13,6 +13,7 @@ import {
   StrategyLog,
   TRANSITION_ORDER,
   TRANSITION_TEXT,
+  echoAnswersSent,
   isRuntimeOnlyEcho,
   limitChaserValuesChanged,
   marketCloseDisabledLogLine,
@@ -274,6 +275,103 @@ describe('S→C 전용 필드 · 값 변경 판정 · 런타임 전용 에코 (q
     expect(isRuntimeOnlyEcho(BASE, at({ cancelTradeEnabled: true }))).toBe(false);
     expect(isRuntimeOnlyEcho(BASE, at({ buyWatchQty: 8_000 }))).toBe(false);
     expect(isRuntimeOnlyEcho(BASE, at({ crud: 'D' }))).toBe(false);
+  });
+});
+
+describe('echoAnswersSent — 이 에코가 보낸 제출의 답인가 (GC-WR-01)', () => {
+  /** 에코 → 실제 `lc.set` 입력 모양(S→C 전용 · 파생 필드 제외) — 카드 `pendingRef` 에 서는 값과 같다. */
+  const inputOf = (e: RelayLimitChaser): RelayLimitChaserInput => {
+    const drop = new Set<string>([
+      ...LIMIT_CHASER_SERVER_ONLY_FIELDS,
+      'key',
+      'market',
+      'name',
+      'code',
+      'buyWatchSide',
+    ]);
+    return Object.fromEntries(
+      Object.entries(e).filter(([k]) => !drop.has(k)),
+    ) as unknown as RelayLimitChaserInput;
+  };
+  const OFF = at({ buyEnabled: false, preBuyEnabled: false, sellEnabled: false });
+  const REQ = inputOf(
+    at({ buyEnabled: true, preBuyEnabled: true, sellEnabled: true, sellOrderPrice: 150_800 }),
+  );
+
+  it.each([
+    [
+      '부분 거부 — 매도만 눕혀지고 선매수 · 마스터 · 상한가 채움은 섰다 → 답',
+      OFF,
+      REQ,
+      at({ buyEnabled: true, preBuyEnabled: true, sellEnabled: false, sellOrderPrice: 150_800 }),
+      true,
+    ],
+    [
+      '요청 변화 전부가 섰다 → 답',
+      OFF,
+      REQ,
+      at({ buyEnabled: true, preBuyEnabled: true, sellEnabled: true, sellOrderPrice: 150_800 }),
+      true,
+    ],
+    [
+      '요청 변화 중 하나만(값 필드) 섰다 → 답',
+      OFF,
+      REQ,
+      at({ sellOrderPrice: 150_800 }),
+      true,
+    ],
+    [
+      '요청 변화가 하나도 서지 않은 에코(다른 단말의 매도 매수잔량 변경) → 답 아님',
+      OFF,
+      REQ,
+      { ...OFF, sellWatchQty: 330_000 },
+      false,
+    ],
+    [
+      '요청 변화가 없는 제출(서버 값 그대로) → 에코가 무엇을 싣든 답 아님',
+      OFF,
+      inputOf(OFF),
+      at({ buyEnabled: true, preBuyEnabled: true }),
+      false,
+    ],
+    [
+      '식별 3종 · crud 차이는 요청 변화가 아니다 → 답 아님',
+      OFF,
+      inputOf({ ...OFF, crud: 'D' }),
+      { ...OFF, crud: 'D' },
+      false,
+    ],
+  ] as const)('%s', (_label, prev, sent, next, expected) => {
+    expect(echoAnswersSent(prev, sent, next)).toBe(expected);
+  });
+
+  it('직전 에코가 없으면(첫 스냅샷 · 등록) 답이다', () => {
+    expect(echoAnswersSent(null, REQ, at({ buyEnabled: true }))).toBe(true);
+  });
+
+  it('Pitfall 8 — 후매수 단계 전이 에코(1 → 2)의 override 값이 우연히 내 요청과 같아도 답이 아니다 · 전이 없으면 답이다', () => {
+    const armed = at({ buyEnabled: true, postBuyEnabled: true, postBuyPhase: 1 });
+    const sent = inputOf({ ...armed, sellWatchQty: 330_000, sellOrderPrice: 150_800 });
+    const fired = {
+      ...armed,
+      postBuyPhase: 2,
+      postBuyTriggerQty: 330_000,
+      sellWatchQty: 330_000,
+      sellOrderPrice: 150_800,
+    };
+    expect(echoAnswersSent(armed, sent, fired)).toBe(false);
+    // 이탈(2 → 1)도 전이다.
+    expect(echoAnswersSent({ ...fired }, inputOf({ ...fired, sellWatchQty: 10 }), { ...armed, sellWatchQty: 10 })).toBe(false);
+    // 단계 전이가 없으면 같은 필드 변화는 내 요청의 답이다.
+    expect(echoAnswersSent(armed, sent, { ...armed, sellWatchQty: 330_000 })).toBe(true);
+  });
+
+  it('override 밖 요청 변화는 단계 전이 에코에서도 판정한다', () => {
+    const armed = at({ buyEnabled: true, postBuyEnabled: true, postBuyPhase: 1 });
+    const sent = inputOf({ ...armed, postBuyReboundPct: 40 });
+    expect(
+      echoAnswersSent(armed, sent, { ...armed, postBuyPhase: 2, postBuyReboundPct: 40 }),
+    ).toBe(true);
   });
 });
 

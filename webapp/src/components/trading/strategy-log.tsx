@@ -326,6 +326,51 @@ export function limitChaserValuesChanged(prev: RelayLimitChaser, next: RelayLimi
 }
 
 /**
+ * 「보낸 제출이 요청한 변화」 판정에서 빼는 키 — 모듈 스코프 **하나**다(GC-WR-01).
+ *
+ * - 식별 3종(`isin` · `accountNo` · `exchange`): 전략 키 자체라 요청한 「변화」가 아니다.
+ * - `crud`: 등록 · 삭제 구분이지 설정값이 아니다(삭제는 카드의 별도 갈래가 받는다).
+ */
+const ECHO_ANSWER_SKIP: ReadonlySet<string> = new Set<keyof RelayLimitChaserInput>([
+  'isin',
+  'accountNo',
+  'exchange',
+  'crud',
+]);
+
+/**
+ * 이 에코가 **내 제출의 답인가** — 요청한 변화가 하나라도 섰으면 답이다(GC-WR-01 · 24-18).
+ *
+ * 요청한 변화 = `sent` 가 직전 에코 `prev` 와 **다르게** 실은 필드(`ECHO_ANSWER_SKIP` 제외). 그중 하나라도
+ * `next` 에 그 값으로 서 있으면 true 다.
+ *   - 부분 거부는 요청 일부가 눕혀진 채 온다(gh-trade 는 그 항만 눕히고 ERROR 를 먼저 보낸 뒤 저장 · 에코한다 —
+ *     limit-chaser.md §9 ①② · §9-2 ③~⑤). 그래서 「전부 섰는가」가 아니라 「하나라도 섰는가」다.
+ *   - 요청한 변화가 **없으면**(서버 값과 같은 제출) false — 에코가 무엇을 싣든 내 요청의 흔적이 아니다.
+ *   - `prev === null`(첫 스냅샷 · 등록)이면 true — 비교할 기준선이 없고, 보낸 제출 뒤 처음 본 전략은 그 답이다.
+ *   - 후매수 단계 전이 에코(단계 2 진입 · 이탈)면 `POST_BUY_OVERRIDE_FIELDS` 는 판정에서 뺀다 — 그 값 변화는 서버
+ *     발동에 귀속된다(Pitfall 8). override 값이 우연히 내 요청과 같아도 내 답으로 치지 않는다.
+ *
+ * ★ 다른 단말이 같은 변화를 만든 에코와는 **구별하지 않는다** — 에코 상태가 내 요청과 같아서 표시 · 로그가 사실과
+ *   어긋나지 않는다(다른 탭 거부 팬아웃 뒤 내 에코와 구조적으로 같은 모양 · 24-24 사용자 확인).
+ * ★ 서버 문구(`msg.m`)를 보지 않는다 — 부분 · 전면 거부를 문구 파싱으로 가리지 않는다(Phase 17 D-08/D-09).
+ */
+export function echoAnswersSent(
+  prev: RelayLimitChaser | null,
+  sent: RelayLimitChaserInput,
+  next: RelayLimitChaser,
+): boolean {
+  if (prev === null) return true;
+  const phaseFlip = isPostBuyPhaseFlip(prev, next);
+  for (const k of Object.keys(sent) as (keyof RelayLimitChaserInput)[]) {
+    if (ECHO_ANSWER_SKIP.has(k)) continue;
+    if (phaseFlip && POST_BUY_OVERRIDE_SET.has(k)) continue;
+    if (Object.is(prev[k], sent[k])) continue; // 요청한 변화가 아니다
+    if (Object.is(next[k], sent[k])) return true;
+  }
+  return false;
+}
+
+/**
  * 이 에코가 **내용상 새로 말할 것이 없는가** — 카운터 3종과 name/code 를 뺀 나머지가 모두
  * `Object.is` 로 같으면 true 다(완전 동일한 새 객체도 true). quick-260926-nr2.
  *

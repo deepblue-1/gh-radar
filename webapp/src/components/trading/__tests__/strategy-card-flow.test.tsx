@@ -1315,7 +1315,8 @@ describe('24-07 — 선매수 자동 체크 로그 (D-06 · D-01 줄 다음 · �
  * 24-11 갭 클로징 WR-05 — 거부 · 무응답으로 **끝난** 제출의 cfg · 사유(`pendingRef` · `pendingCauseRef`)가
  * 다음 무관한 에코(다른 단말 · 15:40 · 전부 정지)에 귀속되지 않는다 (24-VERIFICATION 갭 5 · 24-REVIEW WR-05).
  *
- * ★ 귀속을 비우는 경로(거부 분기 · 결과 모름 창 만료)는 무엇도 다시 보내지 않는다(T-16-10) — 표시 · 로그 귀속만.
+ * ★ 귀속을 비우는 경로(에코 소비 · 결과 모름 창 만료 — 거부 통지는 비우지 않는다 · 24-18 GC-WR-01)는 무엇도 다시
+ *   보내지 않는다(T-16-10) — 표시 · 로그 귀속만.
  */
 describe('WR-05 — 거부 · 무응답 제출의 사유는 그 사건에만 귀속된다 (24-VERIFICATION 갭 5)', () => {
   const texts = () =>
@@ -1323,6 +1324,8 @@ describe('WR-05 — 거부 · 무응답 제출의 사유는 그 사건에만 귀
   const top = () => texts()[0] ?? '';
   const sentOf = (e: RelayLimitChaser) => e as unknown as RelayLimitChaserInput;
   const FOLD = TRANSITION_TEXT.masterOffAfterServerFold;
+  /** 결과 모름 창 = 카드 3초 + 훅 고아 장벽 — 보낸 제출 귀속의 수명 끝(거부 통지는 끝이 아니다 · GC-WR-01). */
+  const WINDOW_MS = ACK_TIMEOUT_MS + LC_ORPHAN_WAIT_MS;
   const rejection = () =>
     msg({
       lv: 'ERROR',
@@ -1337,6 +1340,10 @@ describe('WR-05 — 거부 · 무응답 제출의 사유는 그 사건에만 귀
   });
 
   it('거부 — serverFold 자동 끔이 거부된 뒤 보내지 않은 마스터 OFF 에코(다른 단말) → 「매수주문 무장 해제」 · 서버 접힘 문장 0 · 전송 0', async () => {
+    /*
+      GC-WR-01 — 창 안의 같은 모양 에코는 내 답으로 읽는다(부분 거부 · 다른 탭 거부와 구별 불가). round-1 의도(끝난
+      제출의 사유가 뒤 무관 에코에 붙지 않음)는 창이 닫힌 뒤로 표현한다.
+    */
     const on = echo({ buyEnabled: true, sellEnabled: true });
     setRelay({ limitChasers: [on] });
     const { rerender } = render(<Card />);
@@ -1351,7 +1358,10 @@ describe('WR-05 — 거부 · 무응답 제출의 사유는 그 사건에만 귀
     rerender(<Card />);
     await waitFor(() => expect(serverError()).not.toBeNull());
 
-    // 한참 뒤 다른 단말의 마스터 OFF — 내 거부된 제출과 무관한 사건이다.
+    // 한참 뒤(결과 모름 창이 닫힌 뒤) 다른 단말의 마스터 OFF — 내 거부된 제출과 무관한 사건이다.
+    act(() => {
+      vi.advanceTimersByTime(WINDOW_MS);
+    });
     const other = echo({ buyEnabled: false, sellEnabled: true });
     setRelay({ limitChasers: [other], lastLimitChaserEcho: other, messages: [rej] });
     rerender(<Card />);
@@ -1362,6 +1372,10 @@ describe('WR-05 — 거부 · 무응답 제출의 사유는 그 사건에만 귀
   });
 
   it('거부(D-02 전반 동반) — 후매수 + 마스터 동반 끔이 거부된 뒤 다른 단말의 같은 모양 에코 → 동반 문장 0 · 개별 전이 문장', async () => {
+    /*
+      GC-WR-01 — 창 안의 같은 모양 에코는 내 답으로 읽는다(부분 거부 · 다른 탭 거부와 구별 불가). round-1 의도(끝난
+      제출의 사유가 뒤 무관 에코에 붙지 않음)는 창이 닫힌 뒤로 표현한다.
+    */
     const on = echo({ buyEnabled: true, postBuyEnabled: true, sellEnabled: true });
     setRelay({ limitChasers: [on] });
     const { rerender } = render(<Card />);
@@ -1375,6 +1389,10 @@ describe('WR-05 — 거부 · 무응답 제출의 사유는 그 사건에만 귀
     rerender(<Card />);
     await waitFor(() => expect(serverError()).not.toBeNull());
 
+    // 한참 뒤(결과 모름 창이 닫힌 뒤) 다른 단말의 같은 모양 에코.
+    act(() => {
+      vi.advanceTimersByTime(WINDOW_MS);
+    });
     const other = echo({ buyEnabled: false, postBuyEnabled: false, sellEnabled: true });
     setRelay({ limitChasers: [other], lastLimitChaserEcho: other, messages: [rej] });
     rerender(<Card />);
@@ -1409,8 +1427,6 @@ describe('WR-05 — 거부 · 무응답 제출의 사유는 그 사건에만 귀
   });
 
   /* ── 무응답 — 결과 모름 창(카드 3초 + 훅 고아 장벽 LC_ORPHAN_WAIT_MS)이 닫힐 때 귀속을 비운다 ── */
-
-  const WINDOW_MS = ACK_TIMEOUT_MS + LC_ORPHAN_WAIT_MS;
 
   it('창 만료 — serverFold 제출이 결과 모름 창 내내 무응답 → 창이 닫힌 뒤 온 보내지 않은 마스터 OFF 에코 → 「매수주문 무장 해제」 · 서버 접힘 문장 0', async () => {
     const on = echo({ buyEnabled: true, sellEnabled: true });
@@ -1551,6 +1567,95 @@ describe('WR-05 — 거부 · 무응답 제출의 사유는 그 사건에만 귀
     expect(ids).toHaveLength(2);
     unmount();
     expect(clear).toHaveBeenCalledWith(ids[1]);
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * 24-18 갭 클로징 GC-WR-01 — WR-05 재개 (24-VERIFICATION-R2 갭 1 · 24-REVIEW-R2 GC-WR-01).
+ *
+ * gh-trade `ProcessSetLimitChaser` 의 **부분 거부**(매도 · 취소 · 추가 · 후매수 검증 실패)는 그 항만 눕히고 ERROR 를
+ * **먼저** 보낸 뒤 cfg 를 저장하고 같은 제출의 에코를 보낸다(limit-chaser.md §9 ①② · §9-2 ③~⑤). 게다가 ServerMessage 는
+ * 사용자의 모든 소켓으로 팬아웃된다. 그래서 거부 통지는 귀속의 끝이 아니다 — 귀속은 「이 에코가 내 요청 변화를 싣는가」
+ * (`echoAnswersSent`) 하나로 판정하고, 끝은 에코 소비 · 결과 모름 창 만료 두 수평선이다.
+ *
+ * ★ 판정 · 정리 경로는 무엇도 다시 보내지 않는다(T-16-10) — 모든 케이스가 `send` 0 을 단언한다.
+ */
+describe('GC-WR-01 — 부분 거부 · 다른 탭 거부 뒤 내 제출의 에코는 내 것이다 (24-VERIFICATION-R2 갭 1)', () => {
+  const texts = () =>
+    Array.from(logRows()).map((r) => r.querySelectorAll('span')[1]?.textContent ?? '');
+  const top = () => texts()[0] ?? '';
+  const sentOf = (e: RelayLimitChaser) => e as unknown as RelayLimitChaserInput;
+  const FOLD = TRANSITION_TEXT.masterOffAfterServerFold;
+  const OTHER = '다른 단말';
+  const noOtherDevice = () => expect(texts().some((x) => x.includes(OTHER))).toBe(false);
+  const rejection = (m = '매도 설정이 불완전합니다(주문가/감시가 0, 매도비율 1~100 밖, 잔량추적 비율 1~90 밖) — 매도를 켜지 않았습니다') =>
+    msg({ lv: 'ERROR', src: 'SetLimitChaser', m, i: ISIN, a: ACCOUNT });
+
+  beforeEach(() => {
+    lastCard = null;
+  });
+
+  it('부분 거부 — 선매수 켜기(마스터 · 매도 · 상한가 채움 동반)의 매도가 눕혀진 ERROR 뒤 같은 제출의 에코 → 「선매수 체크 — 매수주문도 켬」 · 「다른 단말」 0 · 거부 원문 줄 유지 · 전송 0', async () => {
+    const before = echo({ buyEnabled: false, preBuyEnabled: false, sellEnabled: false });
+    setRelay({ limitChasers: [before] });
+    const { rerender } = render(<Card />);
+    const cfg = echo({
+      buyEnabled: true,
+      preBuyEnabled: true,
+      sellEnabled: true,
+      sellOrderPrice: 150_800,
+    });
+    act(() => {
+      lastCard!.handleSent(sentOf(cfg));
+    });
+
+    // gh-trade 가 매도만 눕히고 ERROR 를 먼저 보낸다.
+    const rej = rejection();
+    setRelay({ limitChasers: [before], messages: [rej] });
+    rerender(<Card />);
+    await waitFor(() => expect(serverError()).not.toBeNull());
+
+    // 저장 뒤 같은 제출의 에코 — 매도는 눕혀진 채(OFF) 선매수 · 마스터 · 상한가 채움은 섰다.
+    const answered = echo({
+      buyEnabled: true,
+      preBuyEnabled: true,
+      sellEnabled: false,
+      sellOrderPrice: 150_800,
+    });
+    setRelay({ limitChasers: [answered], lastLimitChaserEcho: answered, messages: [rej] });
+    rerender(<Card />);
+
+    await waitFor(() =>
+      expect(texts().some((x) => x.includes(TRANSITION_TEXT.preBuyWithMasterOn))).toBe(true),
+    );
+    expect(banner()).toBeNull();
+    noOtherDevice();
+    expect(texts().some((x) => x.includes('매도 설정이 불완전합니다'))).toBe(true);
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('부분 거부 · serverFold — `handleSent(cfg{buyEnabled:false}, serverFold)` → ERROR → 같은 제출의 마스터 OFF 에코 → 로그 최상단 서버 접힘 한 줄 · 배너 0 · 전송 0', async () => {
+    const on = echo({ buyEnabled: true, sellEnabled: true });
+    setRelay({ limitChasers: [on] });
+    const { rerender } = render(<Card />);
+    const off = echo({ buyEnabled: false, sellEnabled: true });
+    act(() => {
+      lastCard!.handleSent(sentOf(off), { cause: 'serverFold' });
+    });
+
+    const rej = rejection('취소 설정이 불완전합니다(매도 비교가격 0 / 취소잔량 0 / 매도 체결수량 0 / 잔량추적 비율 1~90 밖) — 취소를 켜지 않았습니다');
+    setRelay({ limitChasers: [on], messages: [rej] });
+    rerender(<Card />);
+    await waitFor(() => expect(serverError()).not.toBeNull());
+
+    setRelay({ limitChasers: [off], lastLimitChaserEcho: off, messages: [rej] });
+    rerender(<Card />);
+
+    await waitFor(() => expect(top()).toBe(FOLD));
+    expect(texts().some((x) => x === TRANSITION_TEXT.buyDisarmed)).toBe(false);
+    expect(banner()).toBeNull();
+    noOtherDevice();
     expect(sendMock).not.toHaveBeenCalled();
   });
 });
