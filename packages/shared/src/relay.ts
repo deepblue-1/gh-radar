@@ -260,8 +260,8 @@ export type RelayLimitChaser = {
   /** 추가매수 주문수량(주, C→S) — **발주 정본**. */
   extraBuyOrderQty: number;
   /**
-   * 추가매수 포기 — **S→C 전용**(런타임). 최대 초과(D-08) · 상한가 이탈 최소 미달(D-33) 둘 다
-   * 이 한 bool 이다. 어느 쪽인지는 INFO 사유 줄이 말한다.
+   * 추가매수 포기 — **S→C 전용**(런타임). **최대 초과(gh-trade D-08) 1종**이다 — 최소 미달인 채
+   * 벗어나면 포기하던 규칙은 gh-trade lrx(2026-09-28)로 폐기됐다(D-37). 수치는 INFO 사유 줄이 말한다.
    */
   extraBuyAbandoned: boolean;
   /**

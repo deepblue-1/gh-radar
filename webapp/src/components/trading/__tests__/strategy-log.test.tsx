@@ -351,19 +351,20 @@ describe('echoAnswersSent — 이 에코가 보낸 제출의 답인가 (GC-WR-01
 
   it('Pitfall 8 — 후매수 단계 전이 에코(1 → 2)의 override 값이 우연히 내 요청과 같아도 답이 아니다 · 전이 없으면 답이다', () => {
     const armed = at({ buyEnabled: true, postBuyEnabled: true, postBuyPhase: 1 });
-    const sent = inputOf({ ...armed, sellWatchQty: 330_000, sellOrderPrice: 150_800 });
+    const sent = inputOf({ ...armed, sellWatchQty: 264_000, sellOrderPrice: 150_800 });
     const fired = {
       ...armed,
       postBuyPhase: 2,
       postBuyTriggerQty: 330_000,
-      sellWatchQty: 330_000,
+      // D-38 — 서버 override = 발동잔량 × 80%(330,000 → 264,000). 내 요청과 우연히 같은 값이다.
+      sellWatchQty: 264_000,
       sellOrderPrice: 150_800,
     };
     expect(echoAnswersSent(armed, sent, fired)).toBe(false);
     // 이탈(2 → 1)도 전이다.
     expect(echoAnswersSent({ ...fired }, inputOf({ ...fired, sellWatchQty: 10 }), { ...armed, sellWatchQty: 10 })).toBe(false);
     // 단계 전이가 없으면 같은 필드 변화는 내 요청의 답이다.
-    expect(echoAnswersSent(armed, sent, { ...armed, sellWatchQty: 330_000 })).toBe(true);
+    expect(echoAnswersSent(armed, sent, { ...armed, sellWatchQty: 264_000 })).toBe(true);
   });
 
   it('override 밖 요청 변화는 단계 전이 에코에서도 판정한다', () => {
@@ -692,8 +693,9 @@ describe('Phase 24 ⑨ — 그룹 전이 · 동반 문구 · override 귀속 (24
       postBuyTriggerQty: 330_000,
       sellEnabled: true,
       cancelQtyEnabled: true,
-      sellWatchQty: 330_000,
-      cancelWatchQty: 330_000,
+      // D-38 — 서버 override = 발동잔량 × 80%(330,000 → 264,000).
+      sellWatchQty: 264_000,
+      cancelWatchQty: 264_000,
       sellWatchPrice: 13_000,
       sellOrderPrice: 13_000,
     };
@@ -718,11 +720,10 @@ describe('Phase 24 ⑨ — 그룹 전이 · 동반 문구 · override 귀속 (24
     expect(limitChaserValuesChanged(a, { ...a, postBuyPhase: 2, buyWatchQty: 8_000 })).toBe(true);
   });
 
-  it('D-13 · D-18 서버 사유 줄은 원문 그대로 배지 `[상따]` — 클라가 다시 쓰지 않는다', () => {
+  it('D-13 · D-18 · D-37 서버 사유 줄은 원문 그대로 배지 `[상따]` — 클라가 다시 쓰지 않는다', () => {
     for (const m of [
       '매수 10주 @13,000 — 후매수 — 매수1잔량 340,000 > 발동잔량 330,000',
       '추가매수 포기 — 매수1잔량 520000 > 최대 500000',
-      '추가매수 포기 — 상한가 이탈(매수1잔량 120 < 최소 50000)',
       '후매수 재진입 — 잔여 2회, 발동잔량 재계산',
       '후매수 소진 — 잔여 0회',
     ]) {

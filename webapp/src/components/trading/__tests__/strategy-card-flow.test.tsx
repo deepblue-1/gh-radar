@@ -1152,8 +1152,9 @@ describe('24-05 카드 귀속 — 보낸 cfg · 보낸 사유 · override (Phase
       postBuyTriggerQty: 330_000,
       sellEnabled: true,
       cancelQtyEnabled: true,
-      sellWatchQty: 330_000,
-      cancelWatchQty: 330_000,
+      // D-38 — 서버 override = 발동잔량 × 80%(330,000 → 264,000).
+      sellWatchQty: 264_000,
+      cancelWatchQty: 264_000,
       sellWatchPrice: 150_800,
       sellOrderPrice: 150_800,
     };
