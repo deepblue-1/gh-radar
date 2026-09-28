@@ -516,6 +516,27 @@ export function formFromServer(
 }
 
 /**
+ * 보낼 `cfg` 가 에코와 **`buyEnabled` 한 필드만** 다른가 — D-02 후반 자동 끔 전용이다(24-REVIEW WR-06 · 가드 ⑤).
+ *
+ * 자동 제출(사람이 누르지 않은 서버 접힘 뒤 마스터 OFF)은 `buyEnabled` 만 바꿔야 한다. 그 cfg 는 에코 + `buyEnabled:
+ * false` 라 대부분 에코와 같지만, 웹이 **다시 계산하는** 금액→수량 3벌과 **클라 고정** 3필드(`sweepRecalcEnabled` ·
+ * `sweepMinCount` · `sweepMinRate`)는 다른 클라(WinForms · 다른 단말)가 둔 값과 다를 수 있다. 다르면 그것은 다른
+ * 곳에서 둔 값이고, 자동 제출이 덮으면 사람 손이 아닌 경로의 무언 변경이다.
+ * ★ 고정 필드를 비교에서 빼지 않는다 — relay 도 같은 값으로 못박아 싣기 때문에, 빼면 relay 고정을 거쳐 결국
+ *   에코 값(다른 클라가 둔 값)이 바뀐다.
+ *
+ * 비교는 `cfg` 의 키 전부(`buyEnabled` 제외)를 에코의 같은 키와 `===` 로 본다 — 키 목록의 정본은 입력 타입
+ * `RelayLimitChaserInput` 이고, 여기에 필드를 나열하지 않는다(필드가 합류할 때 갈라진다).
+ */
+export function isMasterOnlyDelta(cfg: RelayLimitChaserInput, echo: RelayLimitChaser): boolean {
+  for (const key of Object.keys(cfg) as (keyof RelayLimitChaserInput)[]) {
+    if (key === 'buyEnabled') continue;
+    if (cfg[key] !== echo[key]) return false;
+  }
+  return true;
+}
+
+/**
  * `ServerMessage(54)` 가 **상따 화면의 몫인가** — 판정의 **유일 지점**이다 (Pitfall 9).
  *
  * 서버는 거부를 응답 코드로 주지 않는다. 이 통지가 유일한 거부 신호라 반드시 사용자에게

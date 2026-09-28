@@ -2508,15 +2508,19 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
   test('P24-4 D-02 전반 · D-02 후반 · D-19 — 마지막 그룹 끔은 마스터 동반 · 서버 접힘 하강 전이는 마스터 OFF 1회 · 재수신 0회 · 삭제 가드 0회 (2026-09-28 정정 · WinForms b066e135 동형)', async ({
     page,
   }) => {
+    // 웹 · relay 가 보낸 전략의 실제 에코 모양(WR-06 가드 ⑤ 가 다른 클라 값과 구분한다) — 후매수 수량 = 웹 산출
+    // (`floor(4,000만원 / 스텁 주문가격 71,000) = 563`) · 한방 고정 3필드 = 클라 고정값(true · 0 · 0).
     const POST = {
       postBuyOrderAmount: 4000,
+      postBuyOrderQty: 563,
       postBuyReentry: 3,
       postBuyReentryLeft: 3,
       postBuyReboundPct: 30,
       postBuyFloorQty: 100_000,
     };
+    const SWEEP_FIXED = { sweepRecalcEnabled: true, sweepMinCount: 0, sweepMinRate: 0 };
     // (a) D-02 전반 — 마스터 ON · 후매수만 ON · 매도 ON. 사람이 마지막 그룹(후매수)을 끄면 같은 10 에 마스터도 끈다.
-    const seedA = { buyEnabled: true, sellEnabled: true, postBuyEnabled: true, postBuyPhase: 1, ...POST };
+    const seedA = { buyEnabled: true, sellEnabled: true, postBuyEnabled: true, postBuyPhase: 1, ...POST, ...SWEEP_FIXED };
     relay.seedLimitChasers([seedA]);
     await page.goto(FOCUS_URL);
     await waitForReady(page);
@@ -2533,7 +2537,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(offA.crud).toBe('C');
 
     // (b) D-02 후반 · D-19 — 마스터 ON · 선매수 ON · 매도 ON 이 렌더된 뒤 서버가 세 그룹을 접은 에코를 보낸다.
-    const seedB = { buyEnabled: true, sellEnabled: true, preBuyEnabled: true, ...POST };
+    const seedB = { buyEnabled: true, sellEnabled: true, preBuyEnabled: true, ...POST, ...SWEEP_FIXED };
     relay.seedLimitChasers([seedB]);
     await page.goto(FOCUS_URL);
     await waitForReady(page);
@@ -2569,7 +2573,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(lcSetCount(relay), '자기 마스터 OFF 에코는 트리거가 아니다').toBe(beforeB + 1);
 
     // (c) 삭제 가드 — 매도 · 취소 게이트가 전부 OFF 면 자동 끔은 곧 삭제(crud D)라 보내지 않는다.
-    const seedC = { buyEnabled: true, preBuyEnabled: true, ...POST };
+    const seedC = { buyEnabled: true, preBuyEnabled: true, ...POST, ...SWEEP_FIXED };
     relay.seedLimitChasers([seedC]);
     await page.goto(FOCUS_URL);
     await waitForReady(page);

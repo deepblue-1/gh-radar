@@ -107,6 +107,7 @@ import {
   formFromServer,
   isDeleteIntent,
   isLegacyBuySchema,
+  isMasterOnlyDelta,
   preBuyAutoCheckLogLine,
   preBuyAutoChecksOf,
   seedFromUpperLimit,
@@ -1016,7 +1017,7 @@ export function LimitChaserForm({
       서버가 발주 · 포기 · 소진으로 그룹을 접어 「그룹 하나라도 ON」→「세 그룹 OFF · 마스터 ON」 하강 전이가
       에코되면, 에코 적용 뒤 다음 틱에 `buyEnabled: false` 를 **정확히 1건** 보낸다(나머지 = 에코 cfg · crud C ·
       마스터 낙관 OFF · 실패하면 훅이 서버 값(ON)으로 되돌리고 재시도하지 않는다).
-      가드 4개:
+      가드 5개:
         ① 매도주문 · 취소>잔량 · 취소>체결이 전부 OFF 면 그 제출은 삭제(`crud D`)가 되므로 보내지 않는다 —
            이때만 매수주문 상태 「켜짐 · 켠 매수 없음」이 남는다.
         ② 보내기 직전 최신 에코로 재확인 — 그새 마스터가 꺼졌거나 그룹이 켜졌으면 중단.
@@ -1024,6 +1025,10 @@ export function LimitChaserForm({
            중복 제출 0.
         ④ 하강 전이만 — 같은 상태 재수신 · 재접속 뒤 첫 `lc.snap` · 첫 스냅샷 · 자기 마스터 OFF 에코는 트리거가
            아니다(`isServerFoldEdge` · 재접속이면 기준선을 비우고 옛 에코 객체는 기준선으로 삼지 않는다).
+        ⑤ 순수 델타(WR-06) — 보낼 cfg 가 최신 에코와 `buyEnabled` 한 필드만 다를 때만 보낸다(lib `isMasterOnlyDelta`).
+           웹이 다시 계산하는 수량 3벌 · 클라 고정 3필드가 에코와 다르면 다른 클라 · 다른 단말이 둔 값이라 덮지
+           않는다 — ① 과 같은 결로 접고(재예약 없음) 매수주문 상태 「켜짐 · 켠 매수 없음」이 남는다.
+           구서버 에코는 그룹이 늘 OFF 라 하강 전이가 생기지 않는다 — 이 가드와 무관하다.
       로그 문장(「서버가 매수 그룹 해제 — …」)은 폼이 쓰지 않는다 — 사유(`cause: 'serverFold'`)를 실어 보내면
       카드가 성공 에코에서 쓴다(24-05).
   */
@@ -1049,10 +1054,16 @@ export function LimitChaserForm({
       foldPendingRef.current = false;
       return;
     }
+    // ⑤ 보낼 cfg 가 최신 에코와 `buyEnabled` 한 필드만 달라야 한다 — 웹이 다시 계산하는 수량 3벌 · 클라 고정 3필드가
+    //    에코와 다르면 다른 클라가 둔 값이다. 자동 제출이 덮지 않는다(WR-06 · ① 과 같은 결 — 다시 예약하지 않는다).
+    if (!isMasterOnlyDelta(buildCfg({ ...lcBaseValues(s, formRef.current), buyEnabled: false }), s)) {
+      foldPendingRef.current = false;
+      return;
+    }
     // 한 번 보내면 먼저 내린다 — 실패 · 막힘이어도 다시 예약하지 않는다(재시도 없음 · 훅 ⑤).
     foldPendingRef.current = false;
     commitField('buyEnabled', false, 'toggle', undefined, { cause: 'serverFold' });
-  }, [commitField]);
+  }, [buildCfg, commitField]);
   useEffect(() => {
     if (disabled) {
       lastEchoRef.current = null;

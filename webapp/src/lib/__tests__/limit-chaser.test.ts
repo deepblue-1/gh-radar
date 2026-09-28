@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LIMIT_CHASER_SERVER_ONLY_FIELDS } from '@gh-radar/shared';
-import type { RelayLimitChaser } from '@gh-radar/shared';
+import type { RelayLimitChaser, RelayLimitChaserInput } from '@gh-radar/shared';
 
 /**
  * Phase 16 Plan 12 — 상따 순수 함수 계약 검증 (TRADE-01).
@@ -31,6 +31,7 @@ import {
   isLimitChaserArmRejection,
   isLimitChaserSetRejection,
   isMarketCloseReleaseNotice,
+  isMasterOnlyDelta,
   limitChaserGateDisarmed,
   marketCloseReleaseKeysOf,
   parseStrategyKey,
@@ -766,5 +767,65 @@ describe('seedListSharesDefaults — 상장주식수 5칸 시딩 (D-17 · WinFor
       extraBuyMaxQty: 9,
       sellMinTradeQty: 0,
     });
+  });
+});
+
+describe('isMasterOnlyDelta — D-02 후반 자동 끔은 buyEnabled 한 필드만 바꿀 때만 (24-REVIEW WR-06 · 가드 ⑤)', () => {
+  /** 서버가 선매수를 접은 에코 — 세 그룹 OFF · 마스터 ON · 매도 ON. 수량 = 웹 산출(`floor(50만원 / 130,000) = 3`). */
+  const folded = (over: Partial<RelayLimitChaser> = {}): RelayLimitChaser =>
+    serverEcho({
+      buyEnabled: true,
+      sellEnabled: true,
+      buyOrderPrice: 130_000,
+      buyOrderAmount: 50,
+      buyOrderQty: 3,
+      postBuyOrderAmount: 0,
+      postBuyOrderQty: 0,
+      extraBuyOrderAmount: 0,
+      extraBuyOrderQty: 0,
+      ...over,
+    });
+
+  /** 폼 `buildCfg` 와 같은 조립 — 에코 → 폼 값 + `buyEnabled:false` · 수량 3벌 웹 산출 · 클라 고정 3. */
+  function webCfgOf(echo: RelayLimitChaser): RelayLimitChaserInput {
+    const values: LimitChaserFormValues = { ...formFromServer(echo, defaultLimitChaserForm()), buyEnabled: false };
+    return {
+      ...values,
+      isin: echo.isin,
+      accountNo: echo.accountNo,
+      exchange: echo.exchange,
+      crud: crudOf(values),
+      buyOrderQty: buyOrderQtyFromAmount(values.buyOrderAmount, values.buyOrderPrice),
+      extraBuyOrderQty: buyOrderQtyFromAmount(values.extraBuyOrderAmount, values.buyOrderPrice),
+      postBuyOrderQty: buyOrderQtyFromAmount(values.postBuyOrderAmount, values.buyOrderPrice),
+      sweepRecalcEnabled: true,
+      sweepMinCount: 0,
+      sweepMinRate: 0,
+    };
+  }
+
+  it.each<[string, Partial<RelayLimitChaser>, boolean]>([
+    ['웹이 보낸 전략의 에코 — buyEnabled 만 다르다', {}, true],
+    ['선매수 수량이 웹 산출과 다르다(다른 클라가 둔 7주)', { buyOrderQty: 7 }, false],
+    ['후매수 수량이 웹 산출과 다르다', { postBuyOrderAmount: 4000, postBuyOrderQty: 300 }, false],
+    ['추가매수 수량이 웹 산출과 다르다', { extraBuyOrderAmount: 100, extraBuyOrderQty: 1 }, false],
+    ['클라 고정 sweepMinCount 5 ≠ 0', { sweepMinCount: 5 }, false],
+    ['클라 고정 sweepRecalcEnabled false ≠ true', { sweepRecalcEnabled: false }, false],
+    ['클라 고정 sweepMinRate 2950 ≠ 0', { sweepMinRate: 2_950 }, false],
+    ['S→C 전용 필드(매도수량 · 후매수 단계)는 cfg 에 없어 비교하지 않는다', { sellOrderQty: 99, postBuyPhase: 3 }, true],
+  ])('%s → %s', (_name, over, expected) => {
+    const echo = folded(over);
+    expect(isMasterOnlyDelta(webCfgOf(echo), echo)).toBe(expected);
+  });
+
+  it('후매수 수량이 웹 산출과 같으면(4,000만원 / 130,000 = 307주) true', () => {
+    const echo = folded({ postBuyOrderAmount: 4000, postBuyOrderQty: 307 });
+    expect(isMasterOnlyDelta(webCfgOf(echo), echo)).toBe(true);
+  });
+
+  it('buyEnabled 외 한 필드라도 다르면 false — cfg 의 값을 직접 바꾼 경우', () => {
+    const echo = folded();
+    expect(isMasterOnlyDelta({ ...webCfgOf(echo), sellOrderRatio: echo.sellOrderRatio + 1 }, echo)).toBe(false);
+    expect(isMasterOnlyDelta({ ...webCfgOf(echo), buyEnabled: true }, echo)).toBe(true);
   });
 });
