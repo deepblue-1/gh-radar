@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 24
 current_phase_name: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영
 status: executing
-stopped_at: Completed 24-21-PLAN.md
-last_updated: "2026-09-28T09:24:14.846Z"
+stopped_at: Completed 24-22-PLAN.md
+last_updated: "2026-09-28T09:36:29.263Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 24 execution started
-state_head: ebe90451288e15f159529bcb693e6bcf2621af6f
+state_head: d986c6b62a7cb2d40a5dbf7bd4435b0051af04d3
 progress:
   total_phases: 33
   completed_phases: 4
   total_plans: 324
-  completed_plans: 305
+  completed_plans: 306
 milestone_name: milestone
 ---
 
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 24 (gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영) — EXECUTING
-Plan: 22 of 24
+Plan: 23 of 24
 Plans completed: 220 / 234
-Status: Phase 24 갭 클로징 2라운드 실행 중 — 24-21 완료 · 다음 24-22
+Status: Phase 24 갭 클로징 2라운드 실행 중 — 24-22 완료 · 다음 24-23
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-28 — 24-21 완료: GC-WR-04 자동 체크 로그 대기 · 계산 결과 그룹별 슬롯(선매수 in-flight 중 다른 그룹 켬에도 선매수 줄 유지) · GC-IN-03 훅 lastSuccessSent — 보낸 켜기에만 자동 체크 줄 (af54d5c5 · b56d7fb8) · 다음 24-22
+Last activity: 2026-09-28 — 24-22 완료: D-36 추가매수 켜기 상한가 차단에 매수1잔량(bq[0]) ≥ 최소(0 이면 1) 항 · 얇은 벽 · 잔량 모름 허용 · WinForms 원문 문구(N · M) · bestBidQty 배관 · e2e P24-5 (b) · P24-13 (3596f09d · ee5ce864 · d9dca6b4) · 다음 24-23
 
 Progress: [█████████░] 93%
 
@@ -157,6 +157,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 24 P19 | 7min | 2 tasks | 3 files |
 | Phase 24 P20 | 6min | 2 tasks | 3 files |
 | Phase 24 P21 | 12min | 2 tasks | 4 files |
+| Phase 24 P22 | 11 min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -393,6 +394,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 24]: 24-20 GC-IN-01: isServerFoldEdge 는 직전 · 이번 에코 중 구서버(buy3Schema 0)가 있으면 false — 구서버에 자동 마스터 OFF 금지 · GC-IN-02 유예 지터는 넣지 않고 남는 한계 문구(모든 인스턴스 숨음 N건)만 넓힘
 - [Phase 24]: 24-21 GC-WR-04: 자동 체크 로그 대기 · 계산 결과는 그룹별 슬롯 — 선매수 in-flight 중 다른 그룹을 켜도 선매수 6체크 무장 줄이 남는다
 - [Phase 24]: 24-21 GC-IN-03: 자동 체크 줄은 훅 lastSuccessSent(in-flight 에코 답)에만 — 다른 단말이 켠 no-op · 대기 접기 성공에는 쓰지 않는다(D-08)
+- [Phase 24]: 24-22 D-36: 추가매수 켜기 클라 차단 = 매수1호가 == 비교가격(둘 다 > 0) ∧ 매수1잔량 ≥ 최소(0 이면 1) — 얇은 벽 · 잔량 모름은 허용(서버 「모름」 규칙 백스톱 · gh-trade k3u 동형) · 문구 원천 lcExtraBuyAtUpperLimitText(WinForms 원문 · ko-KR 쉼표)
 
 ### Pending Todos
 
@@ -451,8 +453,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-09-28T09:24:05.666Z
-Stopped at: Completed 24-21-PLAN.md
+Last session: 2026-09-28T09:36:27.890Z
+Stopped at: Completed 24-22-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
