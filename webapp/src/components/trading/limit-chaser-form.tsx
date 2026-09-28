@@ -713,7 +713,7 @@ export function LimitChaserForm({
   const [sheetField, setSheetField] = useState<LcNumField | null>(null);
   const sheetReturnRef = useRef<HTMLElement | null>(null);
   // 내 확정이 에코로 성공하면 그 행의 편집·시트를 닫는다(성공 판정은 훅 — 값 비교뿐이다).
-  const { successSeq, lastSuccessField, commit: commitField, clearFailure } = lc;
+  const { successSeq, lastSuccessField, lastSuccessSent, commit: commitField, clearFailure } = lc;
 
   /*
     ★ D-17 상장주식수 시딩 — 새 전략(서버 전략 없음)에서 **폼당 1회** 수량 5칸을 채운다(WinForms `SeedListSharesDefaults`).
@@ -1056,6 +1056,8 @@ export function LimitChaserForm({
     delete pending[gate];
     const auto = autoCheckRef.current[gate];
     delete autoCheckRef.current[gate];
+    // 보내지 않은 켜기(다른 단말이 켠 no-op · 대기 접기 성공)에는 자동 체크 줄이 없다 — D-08 · GC-IN-03.
+    if (!lastSuccessSent) return;
     // 그새 그 그룹을 다시 꺼 그 확정이 성공한 경우 — 켠 사건이 아니다.
     if (serverRef.current?.[gate] !== true) return;
     // 마지막 계산 = 실제로 나간 cfg 의 판정(WR-03). 켤 것도 생략도 없으면 줄 없음.
@@ -1063,7 +1065,7 @@ export function LimitChaserForm({
     const line = groupAutoCheckLogLine(auto);
     if (line === null) return;
     clientLogRef.current?.(line.text, line.level);
-  }, [successSeq, lastSuccessField, lc.failures]);
+  }, [successSeq, lastSuccessField, lastSuccessSent, lc.failures]);
 
   /*
     ★ D-02 후반 · D-19 (2026-09-28 정정 · WinForms `b066e135` `DropMasterAfterServerFold` 동형) —

@@ -101,6 +101,8 @@
  *
  * ⑫ 보낸 사유(`meta.cause`)는 `onSent(cfg, meta)` 로만 흐른다 — 카드가 에코 로그 귀속(24-05 「서버가 매수 그룹
  *   해제 — …」)에 쓴다. 성공 판정 · 되돌림 · 재시도 규칙(⑤)은 사유와 무관하게 같다.
+ *   성공 신호는 `lastSuccessSent`(이 성공이 이 훅이 소켓에 실은 in-flight 프레임의 에코 답인가)를 함께 낸다 — 폼의
+ *   자동 체크 로그가 보내지 않은 켜기(no-op · 대기 접기)에 줄을 쓰지 않게 한다(GC-IN-03). 판정 · 전송 규칙은 같다.
  */
 
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
@@ -369,6 +371,11 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
   flashField: LcFieldKey | null;
   successSeq: number;
   lastSuccessField: LcFieldKey | null;
+  /**
+   * 이 성공이 이 훅이 소켓에 실은 프레임(in-flight)의 에코 답인가(GC-IN-03) — no-op · 대기 접기 · 로컬 반영 · 늦은
+   * 에코는 false(늦은 에코로 거둔 실패는 이미 실패로 보고됐다). 판정 · 전송 규칙과 무관한 표시 신호다.
+   */
+  lastSuccessSent: boolean;
   clearFailure: (field: LcFieldKey) => void;
   /**
    * ⑨-3 — 서버가 주문금액을 모른다(구서버 에코 ∧ 금액 0 · `isLegacyAmountUnknown`). 금액 행 「—」 표기용이다 —
@@ -422,18 +429,21 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
   );
 
   const [flashField, setFlashField] = useState<LcFieldKey | null>(null);
-  const [success, setSuccess] = useState<{ seq: number; field: LcFieldKey | null }>({
+  const [success, setSuccess] = useState<{ seq: number; field: LcFieldKey | null; sent: boolean }>({
     seq: 0,
     field: null,
+    sent: false,
   });
   const flashTimer = useRef<number | null>(null);
 
-  /** 성공 — 그 필드 실패를 거두고 값 글자를 900ms 강조한다. */
+  /**
+   * 성공 — 그 필드 실패를 거두고 값 글자를 900ms 강조한다. `sent` = in-flight 에코 답인가(GC-IN-03 · 해소 ① 만 true).
+   */
   const markSuccess = useCallback(
-    (field: LcFieldKey) => {
+    (field: LcFieldKey, sent = false) => {
       writeFailures((prev) => withoutField(prev, field));
       setFlashField(field);
-      setSuccess((s) => ({ seq: s.seq + 1, field }));
+      setSuccess((s) => ({ seq: s.seq + 1, field, sent }));
       if (flashTimer.current != null) window.clearTimeout(flashTimer.current);
       flashTimer.current = window.setTimeout(() => {
         flashTimer.current = null;
@@ -759,7 +769,8 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       const matches = server != null && server[inf.field] === inf.value;
       if (matches) {
         setInflight(null);
-        markSuccess(inf.field);
+        // 이 훅이 실은 프레임의 답 — 성공 신호 중 이것만 `sent` 다(GC-IN-03).
+        markSuccess(inf.field, true);
         // 서버 값이 이 렌더에 바뀌었다 = 카드의 답 신호 증가가 한 렌더 뒤에 온다 → 그때 꺼낸다.
         //   ★ 대기열이 비어 있어도 장벽을 세운다(20-REVIEW WR-02) — 성공 렌더와 증가 렌더 사이에 들어온 새
         //     확정이 증가 전 seq 로 나가면 뒤따르는 증가를 그 건의 「거부」로 오판한다. 그 확정은 증가까지 대기다.
@@ -817,6 +828,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
     flashField,
     successSeq: success.seq,
     lastSuccessField: success.field,
+    lastSuccessSent: success.sent,
     clearFailure,
     amountRequired: isLegacyAmountUnknown(o.server),
   };

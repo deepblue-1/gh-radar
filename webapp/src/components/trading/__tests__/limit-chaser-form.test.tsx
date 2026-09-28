@@ -2874,6 +2874,28 @@ describe('GC-WR-04 — 자동 체크 로그는 그룹별이다 (24-VERIFICATION-
     expect(autoLines(onClientLog)).toEqual([[PRE_FULL_LINE, 'info']]);
     expect(sentConfigs()).toHaveLength(1);
   });
+
+  it('GC-IN-03 — 대기 추가매수 켬을 꺼낼 때 서버가 이미 추가매수 ON(다른 단말)이면 전송 0 no-op 성공 · 「추가매수 자동 체크」 줄 0 (D-08)', () => {
+    const onClientLog = vi.fn();
+    // 마스터 ON · 추가매수 OFF · 매도 매수잔량 0(매도 세 체크 생략 사유) · 취소 세 체크 이미 ON · 매도 가격 이미 채움
+    //   → 꺼낼 때 계산한 동반이 빈 객체라, 서버가 추가매수 ON 이면 no-op 이다.
+    const s = idle({ buyEnabled: true, sellWatchQty: 0, sellOrderPrice: 150_800, sellWatchPrice: 150_800, ...CANCEL_THREE });
+    const { rerender } = render(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog })} />);
+    editInline('lc-sell-order-price', '140000');
+    expect(sentConfigs()).toHaveLength(1);
+    click(sw('추가매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+
+    // 값 확정 에코 + 다른 단말이 켠 추가매수.
+    const other = { ...s, sellOrderPrice: 140_000, extraBuyEnabled: true };
+    rerender(<LimitChaserForm {...props({ server: other, upperLimit: 150_800, onClientLog, serverAnswerSeq: 1 })} />);
+    rerender(<LimitChaserForm {...props({ server: other, upperLimit: 150_800, onClientLog, serverAnswerSeq: 2 })} />);
+    // 꺼낼 때 no-op — 보낼 것이 없다(성공 처리 · 전송 누적 1).
+    expect(sentConfigs()).toHaveLength(1);
+    expect(sw('추가매수 켜기')).toHaveAttribute('aria-checked', 'true');
+    // 이 폼은 아무것도 보내지 않았다 — 켠 주체는 다른 단말이라 자동 체크 줄이 없다.
+    expect(autoLines(onClientLog)).toEqual([]);
+  });
 });
 
 describe('⑳ 새 전략 기본값(D-04) · 상장주식수 시딩(D-17) — 폼당 1회 · 손댄 칸 제외 · 서버 전략이면 생략 · 제출 없음 (24-07)', () => {

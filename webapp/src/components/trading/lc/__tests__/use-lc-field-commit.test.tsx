@@ -781,6 +781,88 @@ describe('WR-06 — 꺼낼 때 no-op 이 된 대기 확정은 성공 신호를 �
   });
 });
 
+describe('lastSuccessSent — 보낸 프레임의 답일 때만 참 (GC-IN-03)', () => {
+  it('즉시 전송 → 그 값 에코 → 성공 · lastSuccessSent true', () => {
+    const t = setup();
+    expect(t.hook.result.current.lastSuccessSent).toBe(false);
+    act(() => {
+      t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
+    });
+    t.update({ server: echo({ sweepMinTickCount: 5 }) });
+    expect(t.hook.result.current.lastSuccessField).toBe('sweepMinTickCount');
+    expect(t.hook.result.current.successSeq).toBe(1);
+    expect(t.hook.result.current.lastSuccessSent).toBe(true);
+  });
+
+  it('대기 건이 꺼낼 때 no-op(서버가 이미 그 값) → 성공 신호 · lastSuccessSent false', () => {
+    const t = setup();
+    act(() => {
+      t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
+      t.hook.result.current.commit('extraBuyEnabled', true, 'toggle');
+    });
+    // 앞 건 에코 + 다른 단말이 켠 추가매수 — 앞 건 성공(보낸 프레임의 답)은 true.
+    t.update({ server: echo({ sweepMinTickCount: 5, extraBuyEnabled: true }) });
+    expect(t.hook.result.current.lastSuccessField).toBe('sweepMinTickCount');
+    expect(t.hook.result.current.lastSuccessSent).toBe(true);
+    // 답 신호 증가 — 꺼낼 때 no-op 이라 전송 0 · 성공이지만 보낸 프레임의 답이 아니다.
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.hook.result.current.lastSuccessField).toBe('extraBuyEnabled');
+    expect(t.hook.result.current.successSeq).toBe(2);
+    expect(t.hook.result.current.lastSuccessSent).toBe(false);
+  });
+
+  it('앞 건 실패로 대기 건을 접으며 주 필드가 섰음(동반 불일치 · GC-WR-02 섬) → 성공 · lastSuccessSent false', () => {
+    const t = setup({ server: echo({ preBuyEnabled: true, buyEnabled: true }) });
+    act(() => {
+      t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+      t.hook.result.current.commit('preBuyEnabled', false, 'toggle', { buyEnabled: false });
+    });
+    t.update({ server: echo({ preBuyEnabled: false, buyEnabled: true }) });
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.hook.result.current.failures.buyWatchQty?.reason).toBe('rejected');
+    expect(t.hook.result.current.lastSuccessField).toBe('preBuyEnabled');
+    expect(t.hook.result.current.lastSuccessSent).toBe(false);
+  });
+
+  it('앞 건 실패로 대기 건을 접을 때 서버가 주 필드 · 동반 모두 그 값 → 성공 · lastSuccessSent false', () => {
+    const t = setup();
+    act(() => {
+      t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
+      t.hook.result.current.commit('buyWatchQty', 8_000, 'value');
+    });
+    t.update({ server: echo({ buyWatchQty: 8_000 }) });
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.hook.result.current.failures.sweepMinTickCount?.reason).toBe('rejected');
+    expect(t.hook.result.current.lastSuccessField).toBe('buyWatchQty');
+    expect(t.hook.result.current.lastSuccessSent).toBe(false);
+  });
+
+  it('미등록 전략의 로컬 반영 성공 → lastSuccessSent false', () => {
+    const t = setup({ server: null });
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('buyOrderPrice', 120_000, 'value');
+    });
+    expect(out).toBe('local');
+    expect(t.hook.result.current.lastSuccessField).toBe('buyOrderPrice');
+    expect(t.hook.result.current.lastSuccessSent).toBe(false);
+  });
+
+  it('타임아웃 실패 뒤 늦은 에코로 실패를 거둔 성공 → lastSuccessSent false', () => {
+    const t = setup();
+    act(() => {
+      t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
+    });
+    t.update({ unacked: true });
+    expect(t.hook.result.current.failures.sweepMinTickCount?.reason).toBe('timeout');
+    t.update({ server: echo({ sweepMinTickCount: 5 }), unacked: false });
+    expect(t.hook.result.current.failures.sweepMinTickCount).toBeUndefined();
+    expect(t.hook.result.current.lastSuccessField).toBe('sweepMinTickCount');
+    expect(t.hook.result.current.lastSuccessSent).toBe(false);
+  });
+});
+
 describe('WR-01 — 미등록 전략에서 등록 전송이 나가 있으면 값 편집은 로컬 성공이 아니라 대기다', () => {
   it('등록(매수주문 켜기) 중 매수가격 편집 → `queued` · 성공 강조 없음 · 등록 에코 뒤 답 신호에서 정상 전송', () => {
     const t = setup({ server: null });
