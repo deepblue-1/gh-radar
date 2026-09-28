@@ -5,7 +5,7 @@ subsystem: infra/relay (radar-gw wg0 · 교보 SecuwaySSL)
 tags: [wireguard, nftables, iptables, docker-user, kyobo, dma, radar-gw]
 status: complete
 task1_status: complete
-task2_status: stopped-at-c (교보 ACL 미갱신 — VM 규칙·메타데이터 반영 완료, 재접속·Mac 단계 대기)
+task2_status: complete (2026-09-28 14:06 교보 ACL 반영 후 (c)(d) 재개 · 2026-09-29 08:47 KST 끝단 검증)
 requires: [quick-260921-or9, quick-260926-bwu]
 provides:
   - "startup.sh §8 nft wgfwd 교보 세트 3원소 (.112 · .119 · .127)"
@@ -93,6 +93,14 @@ None.
 - 재접속으로 교보 DMA(.112/.119) 세션은 10:50:51~10:51:58 약 67초 끊겼다.
 - 저장소 변경은 Task 1 커밋 `d15bc821` 뿐이다. push 와 브랜치 병합은 이 quick 범위 밖이다.
 - 부수 관찰: Mac 게이트웨이 터널(utun4)이 떠 있는데 10.20.0.1 · 10.41.1.120 · 10.16.207.112 모두 불통 — 핸드셰이크 정지로 보임. 이 quick 과 무관하며 (d) 때 재연결로 함께 해소될 가능성이 있다.
+
+### 재개 결과 (2026-09-28 14:06 ~ 2026-09-29 08:47 KST)
+
+- 교보 측이 계정 정책에 `.127` 을 추가한 뒤(14:00 KST 무렵 통보), 재접속 전 임시 라우트 시험에서 이미 `.127:22` 접속됨 · ping 2.7ms — 게이트웨이 정책 변경이 확정 원인이었다(진단 근거: 11:53 KST 임시 라우트 + tun1 캡처에서 SYN 15 / 응답 0, 같은 터널 .112 는 2.5ms).
+- (c) 14:06:43 `systemctl restart securwayssl.service` 1회 → 5초 내 복귀, 로그인 응답 라우트 3개(.112 · .119 · .127 via 10.212.0.1). VM→.112/.119/.127:22 모두 open. `.127:9100` 은 당시 서버 미배포로 응답 없음 → 09-28 22:25 gh-trade 가 kyobo127 배포 후 09-29 08:40 KST VM·relay 컨테이너에서 :9100 접속 확인.
+- (d) 14:09 KST 사용자가 `mac-add-127.sh` 실행: KB-DMA.conf AllowedIPs 에 `10.16.207.127/32` 추가, `kbdma-disconnect/connect` 재연결(kbdma.log 에 .127 route add 확인).
+- 끝단 검증 09-29 08:47 KST(Mac, 샌드박스 밖): `.127:22` open · 대조군 `.112:22` open · `10.41.1.120:9100` open. ping 은 nft 가 tcp 22/9100 만 허용해 무응답이 정상. 주의: Claude 세션 샌드박스 안에서는 사설망뿐 아니라 공인 TCP(1.1.1.1:443)도 막혀 도달성 시험이 전부 실패로 보인다 — 도달성은 반드시 샌드박스 밖에서 재라.
+- 계획 `<verify>` 한 줄 기준: VM 쪽 nft .127 5 · ACCEPT 9 · 라우트 3줄 · 127:22 open, Mac 쪽 utun4 라우트 + nc 3건 성공 — **전부 충족.**
 
 ### 재개 절차 (교보 ACL 반영 뒤)
 
