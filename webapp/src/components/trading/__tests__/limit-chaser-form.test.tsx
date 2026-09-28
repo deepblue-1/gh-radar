@@ -1111,8 +1111,11 @@ describe('D-15a — 상따 인라인도 ETP·분류 불명은 호가 단위 위�
   });
 });
 
-describe('WR-07 · D-04a — 서버가 주문금액을 모르는 레거시 전략(에코 금액 0)', () => {
-  /** 레거시 — 구서버 에코(`buy3Schema 0`) · 서버 금액 0 · 수량 500주 · 매수 무장. */
+describe('WR-02 · D-04a 잔여 — 구서버 에코(buy3Schema 0)', () => {
+  /**
+   * 구서버 에코(`buy3Schema 0`) · 서버 금액 0 · 수량 500주 · 매수 무장. 구서버 에코는 끄기만 · 매수주문부터(WR-02)라
+   * D-04a 에서 남는 것은 금액 행 「—」 표기와 끄기 cfg 의 서버 금액 · 수량뿐이다.
+   */
   const legacy = (over: Partial<RelayLimitChaser> = {}) =>
     echo({ buy3Schema: 0, buyOrderAmount: 0, buyOrderQty: 500, buyEnabled: true, ...over });
   const AMOUNT_FIRST = '주문금액을 먼저 입력해 주세요';
@@ -1125,11 +1128,20 @@ describe('WR-07 · D-04a — 서버가 주문금액을 모르는 레거시 전�
     expect(row('lc-buy-order-amount')).toHaveAccessibleName('선매수 금액 미입력');
   });
 
-  it('다른 값 확정(인라인 Enter) → 전송 0 · 말풍선 「주문금액을 먼저 입력해 주세요」', () => {
+  it('다른 값 확정(인라인 Enter) → 전송 0 · 말풍선 구서버 읽기 전용 문장(확정 전 검증이 훅과 같은 lcLegacyBlockOf)', () => {
     render(<LimitChaserForm {...props({ server: legacy() })} />);
     editInline('lc-buy-watch-qty', '9000');
     expect(sentConfigs()).toHaveLength(0);
-    expect(screen.getByRole('alert')).toHaveTextContent(AMOUNT_FIRST);
+    expect(screen.getByRole('alert')).toHaveTextContent(LEGACY_READ_ONLY);
+    expect(screen.queryByText(AMOUNT_FIRST)).toBeNull();
+  });
+
+  it('금액을 아는 구서버 에코(마스터 ON)의 비교가격 인라인 확정 → 전송 0 · 편집기 말풍선 구서버 읽기 전용 문장', () => {
+    render(<LimitChaserForm {...props({ server: legacy({ buyOrderAmount: 50, buyOrderQty: 3 }) })} />);
+    const el = editInline('lc-buy-watch-price', '129000');
+    expect(sentConfigs()).toHaveLength(0);
+    expect(el).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(LEGACY_READ_ONLY);
   });
 
   it('켜는 스위치 → 전송 0 · 폼 맨 위 한 줄 「구서버 전략이라 끄기만 할 수 있어요 — …」(WR-02 — 구서버 에코는 읽기 전용)', () => {
@@ -1185,13 +1197,13 @@ describe('WR-07 · D-04a — 서버가 주문금액을 모르는 레거시 전�
       expect(document.querySelector('[data-slot="numpad-server"]')).toBeNull();
     });
 
-    it('다른 값 시트는 적용이 잠기고 상태 줄이 「주문금액을 먼저 입력해 주세요」', () => {
+    it('다른 값 시트는 적용이 잠기고 상태 줄이 구서버 읽기 전용 문장', () => {
       render(<LimitChaserForm {...props({ server: legacy() })} />);
       click(row('lc-buy-watch-qty'));
       const pad = within(within(sheetEl() as HTMLElement).getByRole('group', { name: '숫자 키패드' }));
       for (const k of ['9', '0', '0', '0']) click(pad.getByRole('button', { name: k }));
       const status = document.querySelector('[data-slot="numpad-status"]') as HTMLElement;
-      expect(within(status).getByRole('alert')).toHaveTextContent(AMOUNT_FIRST);
+      expect(within(status).getByRole('alert')).toHaveTextContent(LEGACY_READ_ONLY);
       expect(document.querySelector('[data-slot="numpad-confirm"]')).toBeDisabled();
       expect(sentConfigs()).toHaveLength(0);
     });
@@ -1825,12 +1837,13 @@ describe('⑱ 그룹 켜기 사전 검증 줄 · D-16 · D-11 재제출 (24-06 �
     expect(sentConfigs()).toHaveLength(0);
   });
 
-  it('R8 — 서버가 금액을 모르는(레거시) 선매수 켜기 → 선매수 카드 사전 검증 줄 · 폼 맨 위 줄에는 뜨지 않는다', () => {
+  it('WR-02 — 구서버 에코(buy3Schema 0 · 금액 0) 선매수 켜기 → 전송 0 · 사전 검증 줄이 아니라 폼 맨 위 구서버 읽기 전용 문장(훅 가드가 막는다)', () => {
     render(<LimitChaserForm {...props({ server: echo({ buy3Schema: 0, buyOrderAmount: 0, buyOrderQty: 500 }) })} />);
     click(sw('선매수 켜기'));
     expect(sentConfigs()).toHaveLength(0);
-    expect(precheckIn('pre-buy')?.textContent).toBe(AMOUNT_FIRST);
-    expect(submitError()).toBeNull();
+    expect(sw('선매수 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(precheckIn('pre-buy')).toBeNull();
+    expect(submitError()).toHaveTextContent('구서버 전략이라 끄기만 할 수 있어요 — 서버를 확인해 주세요');
   });
 
   it('IN-04 — buy3 선매수 금액 0 → 선매수 카드 사전 검증 줄 주문금액 · 전송 0 · 스위치 OFF · 폼 맨 위 한 줄 없음(수량 0 문구 아님)', () => {
@@ -1840,14 +1853,6 @@ describe('⑱ 그룹 켜기 사전 검증 줄 · D-16 · D-11 재제출 (24-06 �
     expect(sw('선매수 켜기')).toHaveAttribute('aria-checked', 'false');
     expect(precheckIn('pre-buy')?.textContent).toBe(AMOUNT_FIRST);
     expect(precheckIn('pre-buy')?.textContent).not.toBe(QTY_ZERO);
-    expect(submitError()).toBeNull();
-  });
-
-  it('IN-04 — 구서버 에코(buy3Schema 0) 금액 0 도 같은 문구(종전 D-04a 경로)', () => {
-    render(<LimitChaserForm {...props({ server: echo({ buy3Schema: 0, buyOrderAmount: 0, buyOrderQty: 500 }) })} />);
-    click(sw('선매수 켜기'));
-    expect(sentConfigs()).toHaveLength(0);
-    expect(precheckIn('pre-buy')?.textContent).toBe(AMOUNT_FIRST);
     expect(submitError()).toBeNull();
   });
 
