@@ -1204,7 +1204,7 @@ Plans:
 **열린 것:** 소진 푸시(300ms) 전 옛 ON 재제출 창이 웹에서 실제 생기는지(실기 검증) · 운영 전략 중 「감시대상=매수잔량」 선택분 목록 추출은 **gh-trade 24-12 재기동 전**(CONTEXT D-14 정정). 마스터 OFF 시 `post_buy_enabled` 에코는 gh-trade D-32 로 닫힘(CONTEXT D-21). 후속분 ②(추가매수 아래 틱·이탈 포기 · 기본값 표 · 상한가 차단)는 CONTEXT D-16~D-21.
 **Requirements**: TBD
 **Depends on:** Phase 17 (프로토콜 재동기화·래치 LED) · gh-trade Phase 24 서버 배포(24-11)
-**Plans:** 9/9 plans executed
+**Plans:** 9/17 plans executed
 
 Plans:
 **Wave 1**
@@ -1239,3 +1239,32 @@ Plans:
 **Wave 8** *(blocked on Wave 7 completion)*
 
 - [x] 24-09-PLAN.md — 배포(gh-trade 24-12 · WinForms 발행 뒤 relay → smoke → push · gh-trade 회신) — 메인 세션 체크포인트
+
+**Wave 9** *(갭 클로징 — 24-VERIFICATION 갭 6건(WR-01~06) · 24-REVIEW IN-01~05 흡수 · IN-06 이월 · IN-07 부분 · 추가 범위 D-35 는 24-17)*
+
+- [ ] 24-10-PLAN.md — [WR-01 + IN-04 · IN-03 · IN-02] buy3 선매수 금액 0 전략 새로고침 뒤 편집 · 구서버 판별 lib 단일화(`buy3Schema === 0`) · e2e P24-9
+- [ ] 24-11-PLAN.md — [WR-05] 거부 · 무응답 제출 사유 귀속 수명(거부 즉시 · 결과 모름 창 만료) · 15:40 원인 에코 귀속 차단
+
+**Wave 10** *(blocked on Wave 9 completion)*
+
+- [ ] 24-12-PLAN.md — [WR-02 ①] 구서버 에코 편집 제한(끄는 방향 ∧ 결과 매수주문 OFF 만) · D-04a 금액 확정 특례 제거 · e2e P24-10 · P24-5 재작성
+
+**Wave 11** *(blocked on Wave 10 completion)*
+
+- [ ] 24-13-PLAN.md — [WR-02 ②] 구서버 에코 화면(상태 한 줄 · 켜는 스위치 비활성 · 사유 패널) · a11y · 스크린샷 · UI-SPEC 부록
+
+**Wave 12** *(blocked on Wave 11 completion)*
+
+- [ ] 24-14-PLAN.md — [WR-03 + WR-04 + IN-05] 대기열 동반 필드 꺼낼 때 재계산(일반형 `autoCheckRef` · `{ gate, seqAtSend }`) · failQueue 동반 비교 · 동반 값 필드 비낙관
+
+**Wave 13** *(blocked on Wave 12 completion)*
+
+- [ ] 24-15-PLAN.md — [WR-06] 자동 마스터 OFF 순수 델타 가드 · 비가시 인스턴스 유예 · P24-4 시드 현실화
+
+**Wave 14** *(blocked on Wave 13 completion — 24-15 와 lib · 폼 · e2e 공유)*
+
+- [ ] 24-17-PLAN.md — [D-35] 추가매수 켬에도 매도 · 취소 6체크 자동 동반(2026-09-28 사용자 지시 · gh-trade-d4 경유) · lib 자동 체크 그룹 인자 일반화 · 로그 「{그룹} 자동 체크」 · e2e P24-12
+
+**Wave 15** *(blocked on Wave 14 completion)*
+
+- [ ] 24-16-PLAN.md — 전체 게이트 · 사용자 확인(스크린샷 · 결정 3건) · webapp push(relay 없음) — 메인 세션 체크포인트
