@@ -132,8 +132,10 @@ export type RelayLcWatchSide = "0" | "1";
  *    **접지 않은 원값**이다. Phase 24 의 `preBuyEnabled` · `extraBuyEnabled` · `postBuyEnabled` 는
  *    접힌 값이다(각 필드 JSDoc 참조).
  *
- * ⚠️ **`buyOrderAmount === 0` 은 "서버가 모른다"**는 뜻이다(한 번도 실린 적 없거나 구 클라).
- *    0 이면 금액 칸을 건드리지 않는다 — 덮어쓰면 사용자 입력이 사라진다. 수량 x 가격 역산도
+ * ⚠️ **`buyOrderAmount === 0` 이 "서버가 모른다"인 것은 구서버 에코(`buy3Schema 0`)에서만이다**
+ *    (한 번도 실린 적 없거나 구 클라). 그때만 금액 칸을 건드리지 않는다 — 덮어쓰면 사용자 입력이
+ *    사라진다. buy3 에코(`buy3Schema 1`)의 0 은 **선매수 금액 미입력**이다(추가 · 후매수 금액 0 과 같은
+ *    뜻). 판별은 webapp lib `isLegacyAmountUnknown` 한 곳이다. 수량 x 가격 역산은 어느 쪽이든
  *    금지다(나머지 손실로 왕복이 깨진다, Pitfall 11).
  *
  * 와이어는 전부 `number` 다 (D-34) — 64비트 정수를 계약에 넣지 않는다.
@@ -212,7 +214,11 @@ export type RelayLimitChaser = {
   sellQtyTrackRatio: number;
   /** 잔량추적 기준선(주) — **S→C 전용**. */
   sellQtyTrackBaseline: number;
-  /** 매수 주문금액 — **단위 만원**. 서버는 보관·에코만 한다. `0` 의 의미는 위 주의 참조. */
+  /**
+   * 선매수 주문금액 — **단위 만원**. 서버는 보관·에코만 한다. `0` 은 구서버 에코(`buy3Schema 0`)에서만
+   * "서버가 모른다"는 뜻이고, buy3 에코의 0 은 선매수 금액 미입력이다(판별은 webapp lib
+   * `isLegacyAmountUnknown` · 위 주의 참조).
+   */
   buyOrderAmount: number;
   /** 매도 진입 확인 래치 — **S→C 전용**. 무장과 접지 않은 원값이다. */
   sellEntryLatched: boolean;

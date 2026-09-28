@@ -10,19 +10,18 @@ import type { RelayLimitChaser } from '@gh-radar/shared';
  *     나머지 손실로 왕복이 깨진다(gh-trade 실측 사고: 무장 수량 2주 → 598주).
  *   - 큰 금액에서 **uint 래핑이 없다** — 10억 이상도 정확한 정수를 돌려준다.
  *   - 전략 키는 서버 `strncpy(..., 12)` 와 동형으로 **isin·accountNo 를 12자로 절단**한다.
- *   - 더티 비교 대상에 **S→C 전용 4필드가 없다**(Pitfall 6) — 있으면 서버가 계산한 값이
- *     사용자 미반영 변경으로 둔갑해 액션 바가 영원히 떠 있는다.
- *   - `buyOrderAmount === 0` 은 「서버가 모른다」다(Pitfall 11) — 비교에서 빠지고 폼도 덮지 않는다.
+ *   - 폼 값에 **S→C 전용 필드가 없다**(Pitfall 6 · 정본 shared `LIMIT_CHASER_SERVER_ONLY_FIELDS`) — 있으면
+ *     서버가 계산한 값이 사용자가 둔 값으로 둔갑해 되보내진다.
+ *   - 구서버 에코(`buy3Schema 0`)의 `buyOrderAmount === 0` 은 「서버가 모른다」다(Pitfall 11 · D-04a) — 폼을 덮지
+ *     않는다. buy3 에코의 0 은 「선매수 금액 미입력」이라 0 그대로 들인다(24-REVIEW WR-01).
  *   - 삭제 판정에 **취소 게이트가 포함**된다(Pitfall 7) — 매수·매도만 보면 살아 있는 전략을
  *     지운다고 오표시한다.
  */
 
 import {
-  DIRTY_COMPARED_FIELDS,
   buyOrderQtyFromAmount,
   crudOf,
   defaultLimitChaserForm,
-  dirtyFieldsOf,
   estimatedSellQty,
   exchangeLabeledName,
   formFromServer,
@@ -47,7 +46,7 @@ import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
 const ISIN = 'KR7005930003';
 const ACCOUNT = '1234567890';
 
-/** 서버 에코 1건 — 폼 기본값과 **완전히 같은** 상태로 시작한다(더티 0 기준선). */
+/** 서버 에코 1건 — 폼 기본값과 **완전히 같은** 상태로 시작한다. */
 function serverEcho(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
   const form = defaultLimitChaserForm();
   return {
@@ -160,68 +159,6 @@ describe('parseStrategyKey — 전략 키 분해 (strategyKey 의 짝)', () => {
       expect(parsed).not.toBeNull();
       expect(strategyKey(parsed!.isin, parsed!.accountNo, parsed!.exchange)).toBe(key);
     }
-  });
-});
-
-describe('dirtyFieldsOf — 더티 판정 (유일 지점, D-06)', () => {
-  it('서버값과 같으면 더티 0', () => {
-    expect(dirtyFieldsOf(serverEcho(), defaultLimitChaserForm())).toEqual([]);
-  });
-
-  it('값이 다른 필드 이름만 돌려준다', () => {
-    const form: LimitChaserFormValues = {
-      ...defaultLimitChaserForm(),
-      buyOrderPrice: 130_000,
-      sellOrderRatio: 50,
-    };
-    expect(dirtyFieldsOf(serverEcho(), form).sort()).toEqual(
-      ['buyOrderPrice', 'sellOrderRatio'].sort(),
-    );
-  });
-
-  it('S→C 전용 10필드는 비교 대상이 아니다 (Pitfall 6 · Phase 24 런타임 5 포함)', () => {
-    for (const f of LIMIT_CHASER_SERVER_ONLY_FIELDS) {
-      expect(DIRTY_COMPARED_FIELDS as readonly string[]).not.toContain(f);
-    }
-    // 서버가 그 필드를 아무리 흔들어도 더티가 생기지 않는다.
-    const noisy = serverEcho({
-      sellOrderQty: 999,
-      sellQtyTrackBaseline: 777,
-      sellEntryLatched: true,
-      cancelQtyTrackBaseline: 555,
-      cancelEntryLatched: true,
-      buy3Schema: 0,
-      extraBuyAbandoned: true,
-      postBuyTriggerQty: 330_000,
-      postBuyReentryLeft: 2,
-      postBuyPhase: 2,
-    });
-    expect(dirtyFieldsOf(noisy, defaultLimitChaserForm())).toEqual([]);
-  });
-
-  it('감시대상은 더티 대상이 아니다 — 서버 에코가 "1" 이어도 더티 0 (Phase 24 ⑤)', () => {
-    expect(DIRTY_COMPARED_FIELDS as readonly string[]).not.toContain('buyWatchSide');
-    expect(dirtyFieldsOf(serverEcho({ buyWatchSide: '1' }), defaultLimitChaserForm())).toEqual([]);
-  });
-
-  it('스위치 3종(매수·매도·한방)은 더티 대상이 아니다 — 즉시 전송이라 왕복 중 더티가 뜨면 안 된다', () => {
-    for (const f of ['buyEnabled', 'sellEnabled', 'sweepEnabled'] as const) {
-      expect(DIRTY_COMPARED_FIELDS).not.toContain(f);
-    }
-    const form: LimitChaserFormValues = { ...defaultLimitChaserForm(), buyEnabled: true };
-    expect(dirtyFieldsOf(serverEcho(), form)).toEqual([]);
-  });
-
-  it('`buyOrderAmount === 0` 인 서버값은 비교에서 제외된다 — 「서버가 모른다」', () => {
-    const form: LimitChaserFormValues = { ...defaultLimitChaserForm(), buyOrderAmount: 150 };
-    expect(dirtyFieldsOf(serverEcho({ buyOrderAmount: 0 }), form)).toEqual([]);
-    // 서버가 값을 아는 경우엔 정상적으로 더티가 잡힌다.
-    expect(dirtyFieldsOf(serverEcho({ buyOrderAmount: 10 }), form)).toEqual(['buyOrderAmount']);
-  });
-
-  it('서버 에코가 아직 없으면(신규 폼) 더티 0 — 비교 기준선이 없다', () => {
-    const form: LimitChaserFormValues = { ...defaultLimitChaserForm(), buyOrderPrice: 130_000 };
-    expect(dirtyFieldsOf(null, form)).toEqual([]);
   });
 });
 
@@ -350,6 +287,24 @@ describe('formFromServer — 에코 → 폼 (D-11 서버값 우선)', () => {
     const next = formFromServer(serverEcho({ buyOrderPrice: 130_000, sellOrderRatio: 40 }), prev);
     expect(next.buyOrderPrice).toBe(130_000);
     expect(next.sellOrderRatio).toBe(40);
+  });
+
+  it('S→C 전용 필드는 폼 값에 들어오지 않는다 — 서버가 아무리 흔들어도 (Pitfall 6 · 정본 LIMIT_CHASER_SERVER_ONLY_FIELDS)', () => {
+    const noisy = serverEcho({
+      sellOrderQty: 999,
+      sellQtyTrackBaseline: 777,
+      sellEntryLatched: true,
+      cancelQtyTrackBaseline: 555,
+      cancelEntryLatched: true,
+      buy3Schema: 0,
+      extraBuyAbandoned: true,
+      postBuyTriggerQty: 330_000,
+      postBuyReentryLeft: 2,
+      postBuyPhase: 2,
+    });
+    const next = formFromServer(noisy, defaultLimitChaserForm());
+    for (const f of LIMIT_CHASER_SERVER_ONLY_FIELDS) expect(next).not.toHaveProperty(f);
+    for (const f of LIMIT_CHASER_SERVER_ONLY_FIELDS) expect(defaultLimitChaserForm()).not.toHaveProperty(f);
   });
 
   it('옛 서버 에코의 감시대상은 폼으로 들이지 않는다 (Phase 24 ⑤)', () => {

@@ -2,9 +2,6 @@
  * Phase 16 Plan 12 — 상따(LimitChaser) 폼 순수 함수 (TRADE-01).
  *
  * ① 결정 근거
- *   - **더티 판정의 유일 지점**이다(D-06). 「값 변경은 즉시 전송하지 않고 「수정」 버튼으로만
- *     반영된다」는 이 phase 의 핵심 규율이고, 그 판정이 두 곳에 있으면 한쪽만 고쳐진 채로
- *     액션 바가 뜨거나 안 뜬다. `dirtyFieldsOf` 가 유일한 비교기다.
  *   - **삭제 판정의 유일 지점**이다(D-08). 매수·매도·취소 게이트가 전부 꺼지면 `crud "D"` 다.
  *     별도 「삭제」 버튼이 없으므로 이 판정이 곧 삭제 경로다.
  *   - 수량 산출식은 gh-trade 정본과 **동형**이다
@@ -22,20 +19,19 @@
  *     `isLegacyAmountUnknown` 한 곳이다.
  *   - ★ **삭제 판정에 취소 게이트를 포함**한다(Pitfall 7). 매수·매도만 보면 「자동취소만 켠
  *     전략」을 삭제로 오판한다 — 서버는 취소 게이트가 하나라도 켜져 있으면 전략을 남긴다.
- *   - ★ **S→C 전용 4필드**(`sellOrderQty`·`sellQtyTrackBaseline`·`sellEntryLatched`·
- *     `cancelQtyTrackBaseline`)는 서버가 계산해 에코로만 내려준다(Pitfall 6). 더티 비교에
- *     넣으면 서버 계산값이 「사용자 미반영 변경」으로 둔갑한다. 입력 타입에도 없다.
- *   - ★ **스위치 3종은 더티가 아니다.** 즉시 전송(D-05)이라 송신~에코 사이 한 프레임 동안
- *     서버값과 달라지는데, 그걸 더티로 세면 스위치를 켤 때마다 액션 바가 깜빡인다.
+ *   - ★ **S→C 전용 필드**(목록의 정본은 shared `LIMIT_CHASER_SERVER_ONLY_FIELDS`)는 서버가 계산해
+ *     에코로만 내려준다(Pitfall 6). 폼 값 · 입력 타입에 없다 — 되보내면 서버 계산값이 「사용자가 둔 값」으로
+ *     둔갑한다.
  *   - ★ 에코의 `buyEnabled`/`sellEnabled` 는 설정값이 아니라 **무장 상태**다(Pitfall 10).
  *     「내가 켰는데 서버가 껐다」가 아니라 「발주가 나갔다」는 뜻이다 — 배지 문구가 이 둘을
- *     구분하는 것은 `strategy-badge.tsx`(16-11) 소관이고, 여기서는 비교 대상에서 뺄 뿐이다.
+ *     구분하는 것은 `strategy-badge.tsx`(16-11) 소관이고, 여기서는 판정하지 않는다.
  *
  * ③ 하지 않는 것
  *   - **서버로 보낼 페이로드를 여기서 조립하지 않는다.** 전송은 폼이 컨텍스트 `send` 로 한다
  *     (`limit-chaser-form.tsx`). 조립기가 lib 에 있으면 「보냈다」는 착각이 순수 함수 층까지
  *     내려와 테스트가 전송 경로를 검증한다고 오해하게 된다.
- *   - **S→C 전용 4필드를 입력 타입에 넣지 않는다.** 넣는 순간 어딘가에서 되보내진다.
+ *   - **S→C 전용 필드(shared `LIMIT_CHASER_SERVER_ONLY_FIELDS`)를 입력 타입에 넣지 않는다.** 넣는 순간
+ *     어딘가에서 되보내진다.
  *   - **`crud` 를 「삭제됨」 표시의 근거로 쓰지 않는다.** `crudOf(form)` 는 **전송용 힌트**일
  *     뿐이다. 화면의 「삭제됨」 판정은 반드시 **서버 에코의 `crud`** 를 봐야 한다 —
  *     서버가 정규화한 결과가 정본이고, 클라 판정과 갈릴 수 있다(Pitfall 7).
@@ -44,9 +40,10 @@
 import type { RelayExchange, RelayLcCrud, RelayLimitChaser, RelayLimitChaserInput } from '@gh-radar/shared';
 
 /**
- * 폼이 실제로 편집하는 값 24종.
+ * 폼이 실제로 편집하는 값 — 필드 목록의 정본은 아래 `Omit` 목록이다(숫자를 여기 적지 않는다 — 필드가 합류할 때
+ * 갈라진다).
  *
- * `RelayLimitChaserInput`(32) 에서 뺀 것:
+ * `RelayLimitChaserInput` 에서 뺀 것:
  *   - 정체성 3 (`isin`·`accountNo`·`exchange`) — 상단 종목·거래소·계좌 카드(A1) 소관.
  *     `market` 은 애초에 `RelayLimitChaserInput` 에 없다 — relay 가 ISIN 으로 푼다(WR-03/D-28)
  *   - 파생 4 (`crud` = `crudOf`, `buyOrderQty` · `extraBuyOrderQty` · `postBuyOrderQty` =
@@ -146,73 +143,6 @@ export function parseStrategyKey(
   if (isin === "" || accountNo === "") return null;
   if (exchange !== "KRX" && exchange !== "NXT") return null;
   return { isin, accountNo, exchange };
-}
-
-/**
- * 더티 비교 대상 30종(20 + Phase 24 10 — 감시대상은 Phase 24 ⑤ 로 빠졌다) — **공개 상수**다. 테스트가 「무엇이 비교되지 않는지」를 직접 단언한다.
- *
- * 폼 24종에서 뺀 것 = 스위치 3종(`buyEnabled`·`sellEnabled`·`sweepEnabled`). 즉시 전송이라
- * 더티가 아니다(파일 상단 ②). S→C 전용 4필드는 애초에 `LimitChaserFormValues` 에 없다 —
- * 타입이 먼저 막고, 이 배열이 한 번 더 막는다.
- */
-export const DIRTY_COMPARED_FIELDS = [
-  'buyOrderPrice',
-  'buyWatchPrice',
-  'buyWatchQty',
-  'buyMinTradeQty',
-  'buyTradeQtyEnabled',
-  'buyOrderAmount',
-  'sellOrderPrice',
-  'sellWatchPrice',
-  'sellWatchQty',
-  'sellMinTradeQty',
-  'sellTradeQtyEnabled',
-  'sellOrderRatio',
-  'sellQtyTrackEnabled',
-  'sellQtyTrackRatio',
-  'sweepWatchPrice',
-  'sweepMinTickCount',
-  'cancelQtyEnabled',
-  'cancelWatchQty',
-  'cancelTradeEnabled',
-  'cancelQtyTrackEnabled',
-  // Phase 24 매수 3종 — C→S 사용자 필드 10(수량 2는 파생이라 폼 값에 없다 · S→C 5는 넣지 않는다).
-  'preBuyEnabled',
-  'extraBuyEnabled',
-  'extraBuyMinQty',
-  'extraBuyMaxQty',
-  'extraBuyOrderAmount',
-  'postBuyEnabled',
-  'postBuyReboundPct',
-  'postBuyFloorQty',
-  'postBuyReentry',
-  'postBuyOrderAmount',
-] as const satisfies readonly (keyof LimitChaserFormValues)[];
-
-/** 더티 필드 이름 — 액션 바 개수 문구와 필드 강조가 같은 집합을 본다. */
-export type LimitChaserDirtyField = (typeof DIRTY_COMPARED_FIELDS)[number];
-
-/**
- * 더티 판정 — **유일 지점**(D-06).
- *
- * `server` 가 없으면(신규 폼) 비교 기준선이 없으므로 더티도 없다. 「아직 등록 안 된 전략」에
- * 「미반영 변경 24개」를 띄우면 액션 바가 신규 폼에서 항상 떠 있게 된다.
- *
- * `buyOrderAmount` 는 서버값이 `0`(=「모른다」) 일 때만 비교에서 빠진다 — 서버가 값을 알면
- * 정상적으로 비교한다.
- */
-export function dirtyFieldsOf(
-  server: RelayLimitChaser | null | undefined,
-  form: LimitChaserFormValues,
-): LimitChaserDirtyField[] {
-  if (server == null) return [];
-  const dirty: LimitChaserDirtyField[] = [];
-  for (const field of DIRTY_COMPARED_FIELDS) {
-    // 「서버가 모른다」 — 사용자 입력을 덮지도, 미반영으로 세지도 않는다 (Pitfall 11).
-    if (field === 'buyOrderAmount' && server.buyOrderAmount === 0) continue;
-    if (server[field] !== form[field]) dirty.push(field);
-  }
-  return dirty;
 }
 
 /**
@@ -533,7 +463,7 @@ export function isLegacyAmountUnknown(server: RelayLimitChaser | null | undefine
 /**
  * 에코 → 폼 (D-11 서버값 우선).
  *
- * 더티 필드도 **덮어쓴다** — 편집 중 보호·보류가 없다. 값이 바뀌는 순간을 사용자가 놓치지
+ * 사용자가 고치던 필드도 **덮어쓴다** — 편집 중 보호·보류가 없다. 값이 바뀌는 순간을 사용자가 놓치지
  * 않도록 배너를 띄우는 것은 상위 화면 책임이고, 여기서는 「서버가 이긴다」만 실행한다.
  *
  * 유일한 예외가 **구서버 에코의** 선매수 금액 0 이다(`isLegacyAmountUnknown`) — 「서버가 모른다」이므로

@@ -111,8 +111,8 @@ export type StrategyTransition =
 /**
  * 전이 → 문장 조각. 순서는 아래 `TRANSITION_ORDER` 가 정한다.
  *
- * ★ **공개 상수다** — 테스트가 두 표의 원소 집합이 정확히 같은지 직접 단언한다
- *   (`DIRTY_COMPARED_FIELDS` 와 같은 규율). 한쪽만 늘어나는 것이 이 파일의 대표 결함이다.
+ * ★ **공개 상수다** — 테스트가 두 표의 원소 집합이 정확히 같은지 직접 단언한다.
+ *   한쪽만 늘어나는 것이 이 파일의 대표 결함이다.
  */
 export const TRANSITION_TEXT: Record<StrategyTransition, string> = {
   registered: '전략이 등록됐어요',
