@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 24
 current_phase_name: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영
 status: executing
-stopped_at: Completed 24-11-PLAN.md
-last_updated: "2026-09-28T04:24:54.856Z"
+stopped_at: Completed 24-12-PLAN.md
+last_updated: "2026-09-28T04:40:09.764Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 24 execution started
-state_head: 777f2e68bb20514429112e829de708d898470ab8
+state_head: e4cecbadd6e14548355100d6fa228a6704ea54c2
 progress:
   total_phases: 33
   completed_phases: 4
   total_plans: 317
-  completed_plans: 295
+  completed_plans: 296
 milestone_name: milestone
 ---
 
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 24 (gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영) — EXECUTING
-Plan: 11 of 17
+Plan: 12 of 17
 Plans completed: 220 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-28 — 24-11 완료: WR-05 거부 · 무응답 제출 사유 귀속 갭 클로징(거부 즉시 비움 · 결과 모름 창 만료 · 15:40 원인 에코 귀속 차단) — 다음 24-12
+Last activity: 2026-09-28 — 24-12 완료: WR-02 구서버 에코 편집 제한(끄는 방향 ∧ 결과 매수주문 OFF 만 전송 · lcLegacyBlockOf 단일 판정 · D-04a 금액 확정 특례 제거) — 다음 24-13
 
 Progress: [█████████░] 93%
 
@@ -148,6 +148,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 24 P09 | 45min | 3 tasks | 1 files |
 | Phase 24 P10 | 11min | 3 tasks | 9 files |
 | Phase 24 P11 | 6min | 2 tasks | 2 files |
+| Phase 24 P12 | 13 min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -365,6 +366,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 24]: Phase 24-09: 장중(11:00~12:00 KST) 재기동·배포로 당김(사용자 결정) — 중간 창 10:47:22~11:13:46 약 26분. relay:94ebc91c(롤백 대상 2fe94209) · webapp master 94ebc91c 라이브, 운영 웹 눈 확인·300ms 창 관찰은 UAT 이월
 - [Phase 24]: 24-10 WR-01: 선매수 금액 0 = 서버가 모른다(D-04a) 특례는 구서버 에코(buy3Schema 0)에서만 — 판별 단일 지점 lib isLegacyBuySchema · isLegacyAmountUnknown. buy3 에코의 0 은 미입력(D-03)이라 선매수 켜기만 카드 한 줄로 막힘
 - [Phase 24]: 24-11: 무응답 제출의 로그 귀속은 결과 모름 창(ACK_TIMEOUT_MS + LC_ORPHAN_WAIT_MS) 만료 때 동일성 가드로 비운다 · 거부는 즉시 비운다 · 15:40·전부 정지 원인 에코에는 sent 를 넘기지 않는다 (WR-05) — 3초에 비우면 늦게 닿은 내 에코가 거짓 「다른 단말」 배너를 세운다 — 훅 고아 장벽과 같은 수평선
+- [Phase 24]: 24-12 WR-02: 구서버 에코(buy3Schema 0)는 「끄는 방향 ∧ 결과 매수주문 OFF」만 전송 — lcLegacyBlockOf 가 훅 전송 직전(대기열 포함)과 시트 · 인라인 검증의 단일 판정. 매수주문 끄기는 늘 허용(T-16-44)
+- [Phase 24]: 24-12: D-04a 금액 확정 특례 제거(도달 불가) — 금액 행 「—」 · 끄기 cfg 서버 금액 · 수량만 남음. CONTEXT D-03 재해석 확인은 24-16 체크포인트 몫
 
 ### Pending Todos
 
@@ -422,8 +425,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-09-28T04:24:46.244Z
-Stopped at: Completed 24-11-PLAN.md
+Last session: 2026-09-28T04:40:09.119Z
+Stopped at: Completed 24-12-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
