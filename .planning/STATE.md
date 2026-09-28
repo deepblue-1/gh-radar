@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 24 (gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영) — READY TO EXECUTE
-Plan: 17 of 17
+Plan: 17 of 24
 Plans completed: 220 / 234
-Status: Phase 24 갭 클로징 1라운드(24-10~24-17) 실행·배포 완료(7e8830a2) — 재검증 R2 gaps_found(WR-05 재오픈 · R2-G1~G3 신규) · 다음 /gsd-plan-phase 24 --gaps
+Status: Phase 24 갭 클로징 2라운드 플랜 24-18~24-24 준비 완료(체커 통과) — WR-05 재오픈 · R2-G1~G3 · gh-trade 후속 D-36~D-38 · 다음 /gsd-execute-phase 24 --gaps-only
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-09-28 — quick 260928-no0 완료: /me 전략 현황 카드·상태줄이 켜진 전략(isActiveStrategy)만 센다 (16b4a01f · c8e0c38e) · 서버·relay 무변경
