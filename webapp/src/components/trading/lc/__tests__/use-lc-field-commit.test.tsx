@@ -1278,8 +1278,9 @@ describe('companions — 한 확정 = 한 lc.set 에 동반 필드 (Phase 24 D-0
     expect(out).toBe('queued');
     expect(t.formRef.current.preBuyEnabled).toBe(false);
     expect(t.formRef.current.buyEnabled).toBe(false);
-    // 서버가 선매수를 접었다(발주) · 마스터 ON · buyWatchQty 미반영 + 답 신호 → in-flight 거부.
-    t.update({ server: echo({ preBuyEnabled: false, buyEnabled: true }), serverAnswerSeq: 1 });
+    // 서버가 선매수를 접었다(발주) · 마스터 ON · buyWatchQty 미반영 → 답 신호(한 렌더 뒤 · 훅 ⑦) → in-flight 거부.
+    t.update({ server: echo({ preBuyEnabled: false, buyEnabled: true }) });
+    t.update({ serverAnswerSeq: 1 });
     expect(t.hook.result.current.failures.buyWatchQty?.reason).toBe('rejected');
     expect(t.hook.result.current.failures.preBuyEnabled?.reason).toBe('rejected');
     expect(t.formRef.current.buyEnabled).toBe(true);
@@ -1293,7 +1294,8 @@ describe('companions — 한 확정 = 한 lc.set 에 동반 필드 (Phase 24 D-0
       t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
       t.hook.result.current.commit('preBuyEnabled', false, 'toggle', { buyEnabled: false });
     });
-    t.update({ server: echo({ preBuyEnabled: false, buyEnabled: false, sellEnabled: true }), serverAnswerSeq: 1 });
+    t.update({ server: echo({ preBuyEnabled: false, buyEnabled: false, sellEnabled: true }) });
+    t.update({ serverAnswerSeq: 1 });
     expect(t.hook.result.current.failures.buyWatchQty?.reason).toBe('rejected');
     expect(t.hook.result.current.failures.preBuyEnabled).toBeUndefined();
     expect(t.hook.result.current.lastSuccessField).toBe('preBuyEnabled');
