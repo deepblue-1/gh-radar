@@ -3279,6 +3279,24 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(teardown.buyWatchSide).toBeNull();
   });
 
+  test('P24-11 WR-02 — 구서버 에코 화면: 매수주문 상태 「구서버 전략 · 끄기만 가능」 · 켜는 스위치 disabled · 「켤 수 없는 이유」 열 한 줄 · 값 확정 = 전송 0 + 문장', async ({
+    page,
+  }) => {
+    const seed = { buy3Schema: 0, buyEnabled: true, sellEnabled: true };
+    relay.seedLimitChasers([seed]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    const card = cardOf(page, E2E_ISIN);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+
+    // ① 매수주문 카드 상태 — 「켜짐 · 켠 매수 없음」 이 아니라 구서버 한 줄(경고 톤). 매수 LED 는 마스터 기준 「감시」 그대로.
+    const buyStatus = lcGroupStatus(card, 'buy');
+    await expect(buyStatus).toHaveText('구서버 전략 · 끄기만 가능', { timeout: 15_000 });
+    await expect(buyStatus).toHaveClass(/text-\[var\(--destructive\)\]/);
+    const buyLed = card.locator('[data-slot="card-header"] [data-slot="latch-led"][data-kind="buy"]');
+    await expect(buyLed).toContainText('감시');
+  });
+
   /*
     ★ Phase 20 트레이서 — 「호가변경」(Phase 24 D-09 로 선매수 카드 「한방」) 한 행이 **실제 경로 한 줄**을 끝까지 잇는다(20-01).
       진짜 브라우저 → 진짜 relay → 스텁 게이트웨이 10 수신 → 60 에코 → 행 값.

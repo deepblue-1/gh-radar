@@ -56,7 +56,7 @@ vi.mock('@/lib/supabase/client', () => ({
 import { mockPointer, restoreMatchMedia } from '@/lib/__tests__/match-media';
 import { clearTickRuleCache } from '@/lib/tick-rule';
 import type { StrategyCardState } from '../card/strategy-card';
-import { CardBody, cardGroupStatusOf, type CardBodyProps } from '../card/card-body';
+import { CardBody, cardGroupStatusOf, LC_LEGACY_BUY_STATUS, type CardBodyProps } from '../card/card-body';
 import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
 
 const ISIN = 'KR7042700005';
@@ -293,6 +293,44 @@ describe('② 그룹 상태 문구 표 (UI-SPEC §11 · D-02 · D-12 · D-15 —
     ['후매수 OFF', { buyEnabled: true }, 'postBuy', '꺼짐'],
   ])('%s → %s 「%s」', (_name, over, key, text) => {
     expect(cardGroupStatusOf(server(over))[key]).toBe(text);
+  });
+
+  describe('WR-02 — 구서버 에코(buy3Schema 0)는 매수주문 상태가 「구서버 전략 · 끄기만 가능」 (읽기 전용이 먼저)', () => {
+    it.each<[string, Partial<RelayLimitChaser>]>([
+      ['마스터 ON · 세 그룹 OFF(「켠 매수 없음」 이 아니다)', { buyEnabled: true }],
+      ['마스터 OFF', { buyEnabled: false }],
+      ['마스터 ON · 선매수 ON', { buyEnabled: true, preBuyEnabled: true }],
+      ['마스터 ON · 후매수 보유중(단계 2)', { buyEnabled: true, postBuyEnabled: true, postBuyPhase: 2 }],
+    ])('%s → LC_LEGACY_BUY_STATUS', (_name, over) => {
+      expect(cardGroupStatusOf(server({ buy3Schema: 0, ...over })).buy).toBe(LC_LEGACY_BUY_STATUS);
+    });
+
+    it('상수 원문 · 다른 다섯 카드 상태는 종전 규칙 결과 그대로', () => {
+      expect(LC_LEGACY_BUY_STATUS).toBe('구서버 전략 · 끄기만 가능');
+      const over: Partial<RelayLimitChaser> = {
+        buyEnabled: true,
+        preBuyEnabled: true,
+        extraBuyAbandoned: true,
+        postBuyEnabled: true,
+        postBuyPhase: 1,
+        sellEnabled: true,
+        sellEntryLatched: true,
+        cancelQtyEnabled: true,
+      };
+      const legacy = cardGroupStatusOf(server({ buy3Schema: 0, ...over }));
+      const buy3 = cardGroupStatusOf(server({ buy3Schema: 1, ...over }));
+      expect(legacy).toEqual({ ...buy3, buy: LC_LEGACY_BUY_STATUS });
+      expect(buy3.buy).toBe('감시 중');
+    });
+
+    it('buy3 에코(buy3Schema 1) 표는 종전 문구 — 꺼짐 · 보유중 · 켜짐 · 켠 매수 없음 · 감시 중', () => {
+      expect(cardGroupStatusOf(server({ buy3Schema: 1, buyEnabled: false })).buy).toBe('꺼짐');
+      expect(
+        cardGroupStatusOf(server({ buy3Schema: 1, buyEnabled: true, postBuyEnabled: true, postBuyPhase: 2 })).buy,
+      ).toBe('보유중');
+      expect(cardGroupStatusOf(server({ buy3Schema: 1, buyEnabled: true })).buy).toBe('켜짐 · 켠 매수 없음');
+      expect(cardGroupStatusOf(server({ buy3Schema: 1, buyEnabled: true, extraBuyEnabled: true })).buy).toBe('감시 중');
+    });
   });
 
   it('매도 · 취소 — 래치 전 「무장 · 대기」 · 래치 후 「감시 중」 (기존 규칙)', () => {

@@ -819,6 +819,7 @@ describe('⑩ 상태 색 — 첫 단어 기준 · 새 색 토큰 0 (UI-SPEC §11
     ['감시 중 · 후매수 발동', 'text-[var(--led-armed)]'],
     ['보유중', 'text-[var(--led-latent)]'],
     ['포기', 'text-[var(--destructive)]'],
+    ['구서버 전략 · 끄기만 가능', 'text-[var(--destructive)]'],
     ['꺼짐', 'text-[var(--muted-fg)]'],
     ['소진', 'text-[var(--muted-fg)]'],
     ['켜짐 · 켠 매수 없음', 'text-[var(--muted-fg)]'],
