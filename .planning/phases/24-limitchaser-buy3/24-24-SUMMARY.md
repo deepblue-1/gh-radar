@@ -3,10 +3,10 @@ phase: 24-limitchaser-buy3
 plan: 24
 subsystem: deploy (webapp Vercel — relay 변경 없음)
 tags: [gap-closure, regression-gate, deploy, checkpoint, webapp, round-2]
-status: in-progress
+status: complete
 task1_status: complete (전체 회귀 게이트 green · relay 무변경 · shared 주석뿐 · 갭 · 결정 ↔ 증거 표 · 배포 절차 초안 — 배포하지 않음)
-task2_status: pending (checkpoint:human-verify gate=blocking-human — D-36 새 문구 + 판단 6건 사용자 확인 대기)
-task3_status: pending (메인 세션 배포 — Task 2 승인 뒤 · origin/master 가 2커밋 앞서 병합 먼저 필요)
+task2_status: complete (사용자 「승인」 2026-09-28 — 항목 1 ~ 7 모두 수용 · 병합 방식 `git merge origin/master`)
+task3_status: complete (메인 세션 — merge d6194dcd · 병합 트리 게이트 재실행 green · push 22:29:50 KST fast-forward · Vercel 자동 빌드 Ready · relay 재배포 없음 · 새로고침 안내 · gh-trade 회신)
 requires: ["24-18", "24-19", "24-20", "24-21", "24-22", "24-23"]
 provides:
   - "한 팁(ee7ce8b7)에서 round-2 갭 4건 · Info 5건 · D-36 · D-37 · D-38 회귀 증거 green — shared build · relay/webapp typecheck · relay 651 · webapp 2813(+1 skip) · Playwright 74 passed(failed 0)"
@@ -14,6 +14,8 @@ provides:
   - "master 병합 판단 — origin/master...HEAD = 2 / 33 · origin/master 에 HEAD 에 없는 2커밋(quick-260928-nf6 discussion-sync) · fast-forward 불가 · 병합 시 .planning/STATE.md 충돌 1건"
   - "이 라운드 밖 커밋 6건 표(quick-260928-no0 3 · quick-260928-q5e 2 · lessons 1) — push 하면 함께 나간다"
   - "메인 세션용 배포 절차(병합 → 게이트 재실행 → webapp push · relay 없음)"
+  - "사용자 승인 — D-36 새 문구 · 판단 6건 모두 수용 · 병합 방식 git merge origin/master"
+  - "webapp 프로덕션 배포 — master = d6194dcd(fast-forward) · Vercel gh-radar-webapp-e1uvrzbum Ready · trade.jx1.io · gh-radar-webapp.vercel.app alias · 운영 relay:94ebc91c 유지"
 affects: [webapp 프로덕션(Vercel)]
 tech-stack:
   added: []
@@ -27,15 +29,19 @@ decisions:
   - "e2e 는 24-01 이후 관행대로 기존 알려진 실패 3건(deferred-items)을 --grep-invert 로 뺐다 — 그 밖 실패 0 · 재실행 없음"
   - "gh-radar-02 가 보고한 추가 실패 2건(GC6 · a11y axe 30초 타임아웃)은 이 게이트에서 재현되지 않았다 — deferred-items 에 올리지 않고 관찰로 기록(아래 「보고된 추가 실패 2건」)"
   - "origin/master 가 2커밋 앞섰다 — executor 는 병합하지 않고 Task 3 전 사용자 · 메인 세션 결정으로 넘긴다(플랜 Task 3 ① 규칙)"
+  - "사용자 승인(2026-09-28): D-36 새 문구 · GC-WR-01 창 안 같은 변화 에코 = 내 답(relay 소켓 상관 이월) · GC-WR-02 주 필드 성공 + 동반 서버 값 조용히 · GC-WR-03 누른 순간 ∧ 보내는 순간 마지막일 때만 마스터 동반 · GC-IN-02 「모든 탭 · 앱 숨음 N건」 추가 + 지터 이월 · D-37 relay 옛 주석은 gh-trade 스키마 동기화 몫 · 거부로 실패한 켜기엔 자동 체크 줄 없음 — 모두 수용"
+  - "병합 방식 = phase 브랜치에서 git merge --no-ff origin/master(rebase 안 함 — 원격 브랜치 커밋 재작성 회피) · STATE.md Last activity 충돌만 수동 해소"
+  - "배포 = webapp push 하나(relay 재배포 없음 — 병합 트리에서도 94ebc91c..HEAD relay/ diff 0)"
 metrics:
-  duration: "Task 1 ~15m (2026-09-28 19:41 ~ 19:56 KST)"
-  completed: "(Task 3 뒤 기입)"
+  duration: "Task 1 ~15m (19:41 ~ 19:56 KST) · 사용자 승인 대기 · Task 3 병합 ~ push 22:23 ~ 22:30 KST · 마감 22:33 ~ — 벽시계 약 2h52m (2026-09-28 19:41 ~ 22:33 KST)"
+  completed: "2026-09-28"
 actuals:
-  tokens: 4700
-  tasks: 1
-  commits: 1
+  tokens: 5500
+  tasks: 3
+  commits: 4
 plan_head_before: ee7ce8b75c40696702f506f1e169d4e294d0cabe
-commits: 1
+commits: 4
+commits_note: "git rev-list --count ee7ce8b7..HEAD = 4 (SUMMARY 마감 커밋 전 측정) — first-parent 2(134bcd10 · merge d6194dcd) + 병합으로 들어온 origin/master 2(80df4f59 · 3906cfe9 · quick-260928-nf6, 이 플랜 작업 아님). 이 마감 docs 커밋 · STATE/ROADMAP 커밋은 측정 뒤에 쌓인다."
 requirements-completed: []
 coverage:
   - id: D1
@@ -60,21 +66,27 @@ coverage:
     human_judgment: false
   - id: D3
     description: "사용자 승인 — D-36 새 로그 문구 · 판단 6건"
-    verification: []
+    verification:
+      - kind: other
+        ref: "Task 2 checkpoint:human-verify — 사용자 답 「승인」(2026-09-28 · 항목 1 ~ 7 모두 수용 · git merge origin/master)"
+        status: pass
     human_judgment: true
-    rationale: "Task 2 checkpoint:human-verify gate=blocking-human — 사용자 답 대기"
+    rationale: "Task 2 checkpoint:human-verify gate=blocking-human — 사용자 「승인」으로 닫힘"
   - id: D4
     description: "webapp 프로덕션 배포(병합 · push · Vercel 확인 · 새로고침 안내 · gh-trade 회신)"
-    verification: []
+    verification:
+      - kind: other
+        ref: "병합 트리 d6194dcd 게이트 재실행 green(typecheck 0 error · relay 651 · webapp 2813/1 skip · discussion-sync 86/3 todo · e2e 74 passed) · git push origin HEAD:master 3906cfe9..d6194dcd fast-forward · Vercel gh-radar-webapp-e1uvrzbum Ready(자동 빌드) · origin/master...HEAD = 0 0"
+        status: pass
     human_judgment: true
-    rationale: "Task 3 메인 세션 몫 — 아직 수행 안 함"
+    rationale: "Task 3 메인 세션이 수행 — 운영 눈 확인 · 300ms 창 · R6 두 줄 · 24-08 시각 2 ~ 9 는 /gsd-verify-work UAT 몫"
 ---
 
 # Phase 24 Plan 24: 갭 클로징 2라운드 마감 — 회귀 게이트 · 사용자 확인 · 배포 체크포인트 Summary
 
-**round-2 갭 4건(GC-WR-01 ~ 04) · Info 5건(GC-IN-01 ~ 05) · gh-trade 후속 D-36 · D-37 · D-38 이 한 팁 `ee7ce8b7` 에서 함께 green 이다(relay 651 · webapp 2813 · e2e 74 passed · failed 0). relay 는 운영 이미지 `relay:94ebc91c` 이후 변경 0, shared 는 주석뿐이라 재배포가 필요 없다. 단 origin/master 가 HEAD 에 없는 2커밋(quick-260928-nf6 discussion-sync)으로 앞서 있어 24-16 처럼 fast-forward push 가 안 된다 — Task 3 전에 병합 방식을 정해야 한다.**
+**round-2 갭 4건(GC-WR-01 ~ 04) · Info 5건(GC-IN-01 ~ 05) · gh-trade 후속 D-36 · D-37 · D-38 이 한 팁 `ee7ce8b7` 에서 함께 green 이다(relay 651 · webapp 2813 · e2e 74 passed · failed 0). relay 는 운영 이미지 `relay:94ebc91c` 이후 변경 0, shared 는 주석뿐이라 재배포가 필요 없다. origin/master 가 HEAD 에 없는 2커밋(quick-260928-nf6 discussion-sync)으로 앞서 있어 사용자 「승인」 뒤 `git merge origin/master`(d6194dcd)로 합치고, 병합 트리에서 게이트를 다시 green 으로 확인한 뒤 master 에 fast-forward push(22:29:50 KST)했다 — Vercel 자동 빌드 Ready · 운영 relay 는 그대로.**
 
-> Task 1 은 서브에이전트가 수행했다(`git push` · `vercel` · `deploy-relay.sh` 0회 · `git fetch origin` 만). Task 2 는 사람 확인 대기, Task 3 은 메인 세션 배포다.
+> Task 1 은 서브에이전트가 수행했다(`git push` · `vercel` · `deploy-relay.sh` 0회 · `git fetch origin` 만). Task 2 는 사용자 「승인」(2026-09-28), Task 3 은 메인 세션이 병합 · push 했다. 이 SUMMARY 마감은 continuation executor 가 적었다(push · deploy 0회).
 
 ## 회귀 게이트 결과 (Task 1 ①)
 
@@ -181,15 +193,51 @@ gh-radar-02 세션이 q5e 작업 중 e2e 에서 알려진 3건 외에 두 건을
 
 ## 사용자 승인 (Task 2)
 
-(대기 중 — 항목 1 ~ 7 답을 여기에 적는다)
+사용자 답: **「승인」**(2026-09-28). 요청은 「「승인」(1 ~ 7 모두 수용 · `git merge origin/master` 방식 병합)」 이었으므로 아래 전부 수용이다.
+
+| # | 항목 | 답 |
+|---|---|---|
+| 1 | D-36 새 문구 — `추가매수는 상한가 도달 전 또는 매수1잔량이 최소 미만일 때만 켤 수 있습니다 — 매수1호가 == 비교가격, 매수1잔량 10 ≥ 최소 1`(WinForms 원문 · 숫자 쉼표) | **수용** |
+| 2 | 판단 1(GC-WR-01) — 거부 뒤 창 안의 「내 요청과 같은 변화」 에코는 내 답으로 읽음 · 다른 단말의 같은 변화와 구별 안 함 · relay 소켓 상관은 이월 | **수용** |
+| 3 | 판단 2(GC-WR-02) — 주 필드는 섰고 동반만 안 선 대기 건: 주 필드 성공 · 동반은 서버 값으로 조용히(말풍선 없음) | **수용** |
+| 4 | 판단 3(GC-WR-03) — 마지막 그룹 끄기의 마스터 동반은 누른 순간 ∧ 보내는 순간 둘 다 마지막일 때만(그사이 다른 단말이 그룹을 켰으면 마스터 켜진 채) | **수용** |
+| 5 | 판단 4(GC-IN-02) — D-02 후반 남는 한계에 「모든 탭 · 앱이 숨으면 N건」 추가 · 유예 지터는 이월 | **수용** |
+| 6 | 판단 5(D-37) — relay 옛 이탈 포기 주석은 gh-trade 스키마 동기화(`sync-relay-schema.sh`) 몫 · relay 무변경 · 재배포 없음 | **수용** |
+| 7 | 판단 6 — 거부(부분 거부 포함)로 실패한 켜기엔 자동 체크 줄 없음(서버 거부 원문 · 전이 줄은 남음) | **수용** |
+| — | 병합 방식 | **`git merge origin/master` 수용**(rebase 안 함) |
+
+- 이월로 남는 것(사용자 수용 범위): relay 소켓 상관(판단 1) · 유예 지터(판단 4) · relay 옛 주석 정정(판단 5, gh-trade 쪽).
 
 ## 배포 기록 (Task 3)
 
-(대기 중)
+메인 세션이 사용자 승인 뒤 아래 순서로 수행했다(서브에이전트 배포 명령 0회).
+
+- **병합 전 상태:** Task 1 fetch 시 `origin/master...HEAD` = **`2 33`**, SUMMARY 초안 커밋(134bcd10) 뒤 **`2 34`** — origin/master 에만 `80df4f59` fix(discussion-sync) · `3906cfe9` docs(quick-260928-nf6) 2커밋.
+- **병합:** phase 브랜치에서 `git merge --no-ff origin/master` → 병합 커밋 **`d6194dcd`** 「merge: origin/master(quick 260928-nf6 discussion-sync) 를 phase 24 브랜치에 병합 — STATE Last activity 충돌 수동 해소」. 충돌은 예상대로 `.planning/STATE.md` 「Last activity」 한 줄뿐 — 두 쪽을 합친 한 줄로 손으로 해소. 코드 충돌 0.
+- **병합 뒤:** `origin/master...HEAD` = **`0 35`** → fast-forward 가능.
+- **병합 트리(d6194dcd) 게이트 재실행 — 전부 green:**
+
+| 게이트 | 결과 |
+|---|---|
+| shared build && relay typecheck && relay typecheck:tests && webapp typecheck | exit 0 · `error TS` 0 |
+| relay 단위 | 28 files · **651 passed** |
+| webapp 단위 | 125 files · **2813 passed · 1 skipped** |
+| workers/discussion-sync 단위(병합으로 들어온 변경) | 16 files · **86 passed · 3 todo** |
+| Playwright trading-workbench + a11y(`--grep-invert` 알려진 3건) | exit 0 · **74 passed (4.6m) · failed 0** |
+| `git diff 94ebc91c..HEAD -- relay/` | **빈 출력** → relay 재배포 없음 |
+| push 전 추적 작업 트리 | 깨끗 |
+
+- **push (2026-09-28 22:29:50 KST):** `git push origin HEAD:master` → **`3906cfe9..d6194dcd  HEAD -> master` (fast-forward)** · `git push origin HEAD` → 브랜치 `gsd/phase-24-limitchaser-buy3` `0f9d8389..d6194dcd`. 이 마감 시점 `git fetch` 뒤 `origin/master...HEAD` = `0 0`(master = d6194dcd).
+- **Vercel:** push 가 트리거한 **자동 빌드**(수동 `vercel deploy` 없음). 프로덕션 배포 **`https://gh-radar-webapp-e1uvrzbum-alexs-projects-eabbefc0.vercel.app`** — 22:29:52 KST 생성 · target production · **● Ready** · alias **`https://trade.jx1.io`** · **`https://gh-radar-webapp.vercel.app`** 가 이 배포를 가리킴.
+- **relay 재배포 없음 — 근거:** 병합 트리에서도 `94ebc91c..HEAD -- relay/` 변경 0, `packages/shared/src` 는 주석뿐(Task 1 ②), 병합이 들여온 코드는 `workers/discussion-sync` 뿐. 운영 **`relay:94ebc91c` 유지** · `deploy-relay.sh` · smoke 미실행.
+- **새로고침 안내:** ~22:35 KST 메인 세션 최종 보고에서 사용자에게 전달 — 열린 탭 · 앱 WebView 를 새로고침해야 새 JS(귀속 판정 · 실패 되돌림 = 서버 값 · 동반 재판정 · 자동 체크 로그 그룹별 · D-36 차단 + no0 · q5e)가 실린다. 웹 변경뿐이라 네이티브 앱 릴리스 불필요.
+- **gh-trade 회신:** ~22:34 KST gh-trade 세션 `gh-trade-d4` [f25ae6] 에 전송 — D-36(`3596f09d` · `ee5ce864` · `d9dca6b4`) · D-37 / D-38(`ad23dc97` · `59a704b2`) 웹 반영 · push `d6194dcd` · Vercel Ready · relay 무변경(재배포 없음) · gh-radar `relay/` 의 `.fbs` 사본 · envelope 옛 「이탈 포기」 주석을 다음 `sync-relay-schema.sh` 때 정정해 달라는 요청.
+- **이 push 로 함께 나간 라운드 밖 커밋:** quick-260928-no0(`16b4a01f` · `c8e0c38e` · `0f9d8389`) · quick-260928-q5e(`3da455e1` · `55177642`) · lessons `ee7ce8b7` · 병합으로 quick-260928-nf6(`80df4f59` · `3906cfe9`). Task 1 표 밖의 새 커밋 끼임 없음.
+- **운영 눈 확인(선택):** 이 세션에서 하지 않음. 남은 사람 확인 — 300ms 창 관찰 · 운영 눈 확인 · R6 두 줄 · 24-08 시각 2 ~ 9 — 은 `/gsd-verify-work 24` UAT 몫.
 
 ## Deviations from Plan
 
-None - Task 1 은 계획대로 실행됐다(e2e `--grep-invert` 3건 제외는 플랜 명령 그대로). origin/master 앞섬(2커밋)은 플랜 Task 3 ① 이 예정한 분기라 편차가 아니다 — executor 는 병합하지 않고 기록만 했다.
+None - Task 1 은 계획대로 실행됐다(e2e `--grep-invert` 3건 제외는 플랜 명령 그대로). origin/master 앞섬(2커밋)은 플랜 Task 3 ① 이 예정한 분기라 편차가 아니다 — executor 는 병합하지 않고 기록만 했고, 사용자가 병합 방식(`git merge origin/master`)을 승인한 뒤 메인 세션이 병합 · 병합 트리 게이트 재실행 · push 를 플랜 절차대로 했다. Vercel 은 자동 빌드가 돌아 수동 배포 분기(절차 7)는 쓰지 않았다.
 
 ## Known Stubs
 
@@ -200,4 +248,5 @@ None — 문서 전용 플랜.
 - FOUND: `.planning/phases/24-limitchaser-buy3/24-24-SUMMARY.md`
 - 게이트 로그: gate1 `GATE1_EXIT=0` · gate2 `GATE2_EXIT=0`(651 · 2813/1 skip) · gate3 `GATE3_EXIT=0`(74 passed)
 - acceptance: relay 무변경 exit 0 · shared 주석뿐 exit 0 · 작업 트리 깨끗 exit 0 · 증거 표 12행 · relay 근거 · left/right(2/33) · 밖 커밋 표 · 배포 절차 존재
-- 배포 명령 실행 0(`git push` · `vercel` · `deploy-relay.sh` 없음)
+- 배포 명령 실행 0(`git push` · `vercel` · `deploy-relay.sh` 없음) — Task 1 · 마감 executor 모두. push 는 메인 세션만.
+- 마감(continuation): FOUND `134bcd10`(Task 1) · FOUND `d6194dcd`(병합 · push 커밋) · `git fetch` 뒤 `origin/master...HEAD` = `0 0` · 「사용자 승인」 항목 1 ~ 7 + 병합 방식 기록 · 「배포 기록」 에 push 커밋(fast-forward) · origin/master...HEAD 전후(2 33 / 2 34 → 0 35) · Vercel URL · 상태 · 자동 빌드 · 새로고침 안내 시각 · relay 재배포 없음 근거 · gh-trade 회신 · 라운드 밖 커밋 · 병합 트리 게이트 결과 존재.
