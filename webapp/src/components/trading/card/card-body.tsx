@@ -219,6 +219,7 @@ export function CardBody({
     resetSeq,
     liveSeed,
     answerSeq,
+    rejectSeq,
     unacked,
     handleSent,
     handleServerEcho,
@@ -269,6 +270,8 @@ export function CardBody({
       disabled={isin === '' || accountNo === '' || status !== 'ready'}
       groupStatus={groups}
       serverAnswerSeq={answerSeq}
+      // R3-WR-01 — lc.set 거부 통지 신호. 폼 훅이 부분 거부의 같은 제출 에코를 기다려 판정한다.
+      serverRejectSeq={rejectSeq}
       // Phase 20 — 필드 확정 실패 판정(3초 무응답)은 상태줄 「미반영」과 **같은 신호**다(UI-SPEC A10).
       unacked={unacked}
       // 20-03 시트 칩 「현재가」 원천 — 시세가 없거나 0 이면 0(칩 비활성).

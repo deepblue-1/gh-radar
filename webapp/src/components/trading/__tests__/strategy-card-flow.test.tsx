@@ -47,7 +47,7 @@ import {
 } from '../card/strategy-card';
 import { StrategyLog, TRANSITION_TEXT, marketCloseDisabledLogLine } from '../strategy-log';
 import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
-import { LC_ORPHAN_WAIT_MS } from '@/components/trading/lc/use-lc-field-commit';
+import { LC_ORPHAN_WAIT_MS, LC_REJECT_ECHO_GRACE_MS } from '@/components/trading/lc/use-lc-field-commit';
 
 const ISIN = 'KR7086520004';
 const ACCOUNT = '37728502101';
@@ -739,6 +739,11 @@ describe('철거 에코 · 거부 = 서버의 답 (옛 ㉑)', () => {
       messages: [msg({ lv: 'ERROR', src: 'SetLimitChaser', m: '매수 설정이 불완전합니다', i: ISIN, a: ACCOUNT })],
     });
     rerender(<Card />);
+    // R3-WR-01 — 거부 통지 답은 같은 제출의 에코를 유예한다. 에코가 없으면(전면 거부) 유예 끝에 종전대로 실패다.
+    //   유예를 먼저 진행한다 — 유예 1초와 waitFor 기본 1초가 경주하지 않게.
+    act(() => {
+      vi.advanceTimersByTime(LC_REJECT_ECHO_GRACE_MS);
+    });
 
     await waitFor(() => expect(input()!.readOnly).toBe(false));
     // 사용자가 고치던 값은 그대로 남는다 — 잠금을 푸는 것과 값을 덮는 것은 다른 일이다.
@@ -1778,5 +1783,93 @@ describe('GC-WR-01 — 부분 거부 · 다른 탭 거부 뒤 내 제출의 에�
     expect(banner()).toBeNull();
     noOtherDevice();
     expect(sendMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * 24-REVIEW-R3 R3-WR-01 — gh-trade `ProcessSetLimitChaser` 는 부분 거부 때 그 항만 눕히고 ERROR 를 **먼저** 보낸 뒤
+ * 저장하고 같은 제출의 에코를 보낸다. 두 프레임은 다른 렌더에 온다. 카드가 ERROR 에 답 신호와 **거부 신호**를 함께
+ * 올리면 폼 훅은 in-flight 판정을 에코까지 유예한다 — 카드 + 폼 + 훅의 실제 배관으로 잠근다.
+ */
+describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 in-flight 는 같은 제출의 에코로 판정한다 (24-REVIEW-R3)', () => {
+  const texts = () =>
+    Array.from(logRows()).map((r) => r.querySelectorAll('span')[1]?.textContent ?? '');
+  const FAILED = '반영하지 못했어요';
+  const failedShown = () => (document.body.textContent ?? '').includes(FAILED);
+  const autoPre = () => texts().filter((x) => x.startsWith('선매수 자동 체크 — '));
+
+  beforeEach(() => {
+    lastCard = null;
+  });
+
+  it('선매수 켬(in-flight) · 추가매수 켬(대기) → 매도만 눕힌 ERROR 먼저 → 실패 0 · 스위치 유지 → 같은 제출 에코(선매수 ON · 매도 OFF) → 추가매수 1건 전송 · 「선매수 자동 체크 — 」 한 줄', async () => {
+    // 매수1호가 ≠ 비교가격 — D-36 추가매수 상한가 차단이 걸리지 않는다.
+    const q = quote({ bp: Array.from({ length: 10 }, (_, i) => 129_500 - i * 500) });
+    // GC-WR-04 폼 테스트의 idle 모양 — 마스터 OFF · 세 그룹 OFF · 매도 가격 0(자동 체크가 상한가로 채움) · 두 그룹 금액 > 0.
+    const before = echo({
+      buyEnabled: false,
+      buyOrderAmount: 50,
+      sellOrderPrice: 0,
+      sellWatchPrice: 0,
+      sellWatchQty: 10,
+      extraBuyOrderAmount: 50,
+    });
+    setRelay({ limitChasers: [before], quote: q });
+    const { rerender } = render(<Card />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('switch', { name: '선매수 켜기' }));
+    });
+    expect(lcSets()).toHaveLength(1);
+    expect(lcSets()[0]!.cfg).toMatchObject({ preBuyEnabled: true, buyEnabled: true, sellEnabled: true, sellOrderPrice: 150_800 });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('switch', { name: '추가매수 켜기' }));
+    });
+    // 선매수가 나가 있다 — 추가매수 켜기는 대기열에 선다(D-35).
+    expect(lcSets()).toHaveLength(1);
+
+    // gh-trade 가 매도만 눕히고 ERROR 를 먼저 보낸다 — 이 렌더에 서버 값은 아직 그대로다.
+    const rej = msg({
+      lv: 'ERROR',
+      src: 'SetLimitChaser',
+      i: ISIN,
+      a: ACCOUNT,
+      m: '매도 설정이 불완전합니다(주문가/감시가 0, 매도비율 1~100 밖, 잔량추적 비율 1~90 밖) — 매도를 켜지 않았습니다',
+    });
+    setRelay({ limitChasers: [before], quote: q, messages: [rej] });
+    rerender(<Card />);
+    await waitFor(() => expect(serverError()).not.toBeNull());
+    await act(async () => {
+      vi.advanceTimersByTime(50);
+    });
+    expect(failedShown()).toBe(false);
+    expect(screen.getByRole('switch', { name: '선매수 켜기' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('switch', { name: '추가매수 켜기' })).toHaveAttribute('aria-checked', 'true');
+    expect(lcSets()).toHaveLength(1);
+
+    // 저장 뒤 같은 제출의 에코 — 매도는 눕혀진 채(OFF) 마스터 · 선매수 · 나머지 체크 · 상한가 채움은 섰다.
+    const answered = echo({
+      ...before,
+      buyEnabled: true,
+      preBuyEnabled: true,
+      sellEnabled: false,
+      sellQtyTrackEnabled: true,
+      sellTradeQtyEnabled: true,
+      cancelQtyEnabled: true,
+      cancelTradeEnabled: true,
+      cancelQtyTrackEnabled: true,
+      sellOrderPrice: 150_800,
+      sellWatchPrice: 150_800,
+    });
+    // 같은 메시지 객체를 다시 넘긴다 — 카드가 ERROR 를 두 번 처리하지 않는다.
+    setRelay({ limitChasers: [answered], lastLimitChaserEcho: answered, quote: q, messages: [rej] });
+    rerender(<Card />);
+
+    await waitFor(() => expect(lcSets()).toHaveLength(2));
+    expect(lcSets()[1]!.cfg).toMatchObject({ extraBuyEnabled: true, preBuyEnabled: true });
+    await waitFor(() => expect(autoPre()).toHaveLength(1));
+    expect(failedShown()).toBe(false);
+    expect(screen.getByRole('switch', { name: '선매수 켜기' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('switch', { name: '추가매수 켜기' })).toHaveAttribute('aria-checked', 'true');
   });
 });

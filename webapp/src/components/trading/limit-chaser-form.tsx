@@ -534,6 +534,12 @@ export interface LimitChaserFormProps {
    */
   serverAnswerSeq?: number;
   /**
+   * 이 전략의 `lc.set` **거부 통지를 접수한 횟수**(카드 `rejectSeq`) — 바뀌었다는 사실만 쓴다. 거부 통지는
+   * `serverAnswerSeq` 도 함께 올린다. 필드 확정 훅이 이 신호로 부분 거부의 같은 제출 에코를 기다려 판정한다
+   * (24-REVIEW-R3 R3-WR-01 · `LC_REJECT_ECHO_GRACE_MS`). 기본 0.
+   */
+  serverRejectSeq?: number;
+  /**
    * `lc.set` 을 **보낸 직후** 통지 (16-13).
    *
    * ★ 상위가 이걸 알아야 하는 이유는 두 가지이고 둘 다 오해를 막는 장치다:
@@ -596,6 +602,7 @@ export function LimitChaserForm({
   tab: controlledTab,
   hideTabs = false,
   serverAnswerSeq = 0,
+  serverRejectSeq = 0,
   onSent,
   onServerEcho,
   unacked = false,
@@ -688,6 +695,7 @@ export function LimitChaserForm({
     // 사유(meta)는 받은 그대로 넘긴다 — 없으면 인자 하나다(훅 ⑫).
     onSent: (...args) => sentNotifyRef.current?.(...args),
     serverAnswerSeq,
+    serverRejectSeq,
     disabled,
     unacked,
     armBlockOf,

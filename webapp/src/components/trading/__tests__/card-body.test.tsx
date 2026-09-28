@@ -166,6 +166,7 @@ function cardState(over: Partial<StrategyCardState> = {}): StrategyCardState {
     log: [],
     unacked: false,
     answerSeq: 0,
+    rejectSeq: 0,
     banner: null,
     appliedAt: null,
     lastError: null,
