@@ -1165,7 +1165,7 @@ describe('게이트 필드 (Phase 24 — 세 그룹 스위치가 등록할 수 �
   });
 });
 
-describe('D-03 — 추가매수 · 후매수 금액 0 이면 그 그룹 스위치만 막힌다(lcGroupAmountBlockOf)', () => {
+describe('D-03 — 선매수 · 추가매수 · 후매수 금액 0 이면 그 그룹 스위치만 막힌다(lcGroupAmountBlockOf · IN-04)', () => {
   const values = (over: Partial<LimitChaserFormValues> = {}): LimitChaserFormValues => ({
     ...formFromServer(echo(), defaultLimitChaserForm()),
     extraBuyOrderAmount: 10,
@@ -1188,7 +1188,12 @@ describe('D-03 — 추가매수 · 후매수 금액 0 이면 그 그룹 스위�
     );
     expect(lcGroupAmountBlockOf(values({ postBuyOrderAmount: 0 }), 'postBuyEnabled', false)).toBeNull();
   });
-  it('그 밖 필드(다른 행 확정 · 선매수)는 null — 다른 행은 자유롭다', () => {
+  it('IN-04 — 선매수도 같다: 선매수 금액 0 에서 켜는 방향 → 「주문금액을 먼저 입력해 주세요」 · 끄는 방향 · 금액 > 0 은 null', () => {
+    expect(lcGroupAmountBlockOf(values({ buyOrderAmount: 0 }), 'preBuyEnabled', true)).toBe(LC_COMMIT_TEXT.amountRequired);
+    expect(lcGroupAmountBlockOf(values({ buyOrderAmount: 0 }), 'preBuyEnabled', false)).toBeNull();
+    expect(lcGroupAmountBlockOf(values({ buyOrderAmount: 10 }), 'preBuyEnabled', true)).toBeNull();
+  });
+  it('그 밖 필드(다른 행 확정)는 null — 다른 행은 자유롭다 · 선매수는 금액 > 0 이면 null', () => {
     const v = values({ extraBuyOrderAmount: 0, postBuyOrderAmount: 0 });
     expect(lcGroupAmountBlockOf(v, 'extraBuyMinQty', 5)).toBeNull();
     expect(lcGroupAmountBlockOf(v, 'preBuyEnabled', true)).toBeNull();

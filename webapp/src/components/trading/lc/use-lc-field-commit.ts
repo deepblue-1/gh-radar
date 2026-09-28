@@ -184,16 +184,21 @@ export function lcAmountBlockOf(amountRequired: boolean, field: LcFieldKey, valu
   return LC_COMMIT_TEXT.amountRequired;
 }
 
-/** D-03 그룹 금액 — 그룹 스위치 → 그 그룹 금액 필드. 선매수는 D-04a(`lcAmountBlockOf`) 소관이라 없다. */
+/**
+ * D-03 그룹 금액 — 그룹 스위치 → 그 그룹 금액 필드. 선매수도 같은 규칙이다 — buy3 에코의 선매수 금액 0 은
+ * 미입력(D-03 · 24-REVIEW IN-04). 구서버 에코의 금액 모름(D-04a)은 폼이 `amountRequired` 로 먼저 판정한다.
+ */
 const GROUP_AMOUNT_FIELD = {
+  preBuyEnabled: 'buyOrderAmount',
   extraBuyEnabled: 'extraBuyOrderAmount',
   postBuyEnabled: 'postBuyOrderAmount',
 } as const satisfies Partial<Record<LcFieldKey, LcFieldKey>>;
 
 /**
- * D-03 — 추가매수 · 후매수 금액이 0 이면 **그 그룹 스위치를 켜는 방향만** 막는다(문구 = `amountRequired`).
+ * D-03 — 선매수 · 추가매수 · 후매수 금액이 0 이면 **그 그룹 스위치를 켜는 방향만** 막는다(문구 = `amountRequired`).
  * 다른 행 확정은 자유롭다(금액 0 · 수량 0 은 서버 값 그대로 실린다 — 조용한 변경 없음). 끄는 방향 · 그 밖 필드는 null.
- * `lcAmountBlockOf`(선매수 D-04a)와 같은 모양 · 같은 문구 원천이다.
+ * 선매수도 같은 규칙이다 — buy3 에코의 선매수 금액 0 은 미입력(D-03 · IN-04). 구서버 에코의 금액 모름(D-04a)은 폼이
+ * `amountRequired` 로 먼저 판정한다. `lcAmountBlockOf`(구서버 D-04a)와 같은 모양 · 같은 문구 원천이다.
  */
 export function lcGroupAmountBlockOf(values: LimitChaserFormValues, field: LcFieldKey, value: unknown): string | null {
   if (value !== true || !(field in GROUP_AMOUNT_FIELD)) return null;

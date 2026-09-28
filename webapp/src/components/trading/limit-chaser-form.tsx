@@ -48,7 +48,8 @@
  * ④ ★ 에코가 도착하면 서버가 이긴다 (D-11 · D-27)
  *   목록은 에코 값으로 덮인다. 유일한 예외가 **편집 중인 버퍼**다 — 인라인 편집기·시트는 자기 버퍼를
  *   들고 있어 에코가 입력을 덮지 않는다(UI-SPEC E4 partial). 편집이 끝나면 행은 에코 값이다.
- *   `buyOrderAmount === 0`(=「서버가 모른다」)은 덮지 않으며 그 판단은 `formFromServer` 한 곳에 있다.
+ *   구서버 에코(`buy3Schema 0`)의 선매수 금액 0(=「서버가 모른다」)은 덮지 않으며 그 판단은 lib
+ *   `isLegacyAmountUnknown` 한 곳에 있다(buy3 에코의 0 은 「선매수 금액 미입력」 — D-03 · 24-REVIEW WR-01).
  *   ★ 그 상태(레거시 전략)에서는 주문금액 행이 폼이 든 클라 기본값이 아니라 **「—」** 이고, 금액 외 확정은
  *     「주문금액을 먼저 입력해 주세요」로 막힌다(D-04a · 20-REVIEW WR-07 · 판정은 훅 `amountRequired` 하나).
  *     끄기는 막지 않는다(T-16-44).
@@ -382,9 +383,11 @@ type PrecheckSlot = (typeof GROUP_SLOT)[BuyGroupGate];
  * 뜨고(`groupPrecheckOf`), 전부를 돌려주는 까닭은 「사라지는 때 ①」 — 띄운 문구의 검증이 통과했는지를 따로 본다.
  *
  * 순서: (세션 · 무장 불가(가격 0)는 스위치 `disabled` 가 먼저 막는다) → 금액 → 수량 → 그룹 고유.
- *   - 금액: 선매수 = D-04a(서버가 금액을 모른다 · `amountRequired`) · 추가 · 후매수 = D-03(그룹 금액 0 · `lcGroupAmountBlockOf`).
+ *   - 금액: 선매수이고 `amountRequired`(구서버 에코 ∧ 금액 0 · D-04a)면 그 문구, 아니면 세 그룹 모두 D-03(그룹 금액 0 ·
+ *     `lcGroupAmountBlockOf` — buy3 에코의 선매수 금액 0 도 여기 · IN-04). 수량 0 문구로 떨어지지 않는다.
  *     금액이 실패하면 수량은 보지 않는다(같은 원인을 두 번 말하지 않는다).
  *   - 수량: `buyOrderQtyFromAmount(그룹 금액, 공통 주문가격) === 0` — 웹 `canArmOf` · relay `…OrderQty === 0` 과 같은 식.
+ *   - 선매수: 한방 체크 ON ∧ 한방가격 0 → `ARM_BLOCKED_TEXT.sweepPrice`(IN-03 — 폼 맨 위가 아니라 선매수 카드 한 줄).
  *   - 추가매수: D-10 최대 ≠ 0 ∧ 최소 > 최대.
  *   - 후매수: 반등 1~100 밖(D-20 · 레거시 0) → 매도비율 0(D-27 · 레거시).
  * `values` = 이 확정이 실을 기준값(서버 동기값 — 훅과 같은 `lcBaseValues`).
@@ -392,13 +395,14 @@ type PrecheckSlot = (typeof GROUP_SLOT)[BuyGroupGate];
 function groupPrechecksOf(gate: BuyGroupGate, values: LimitChaserFormValues, amountRequired: boolean): string[] {
   const out: string[] = [];
   const amount =
-    gate === 'preBuyEnabled'
-      ? amountRequired
-        ? LC_COMMIT_TEXT.amountRequired
-        : null
+    gate === 'preBuyEnabled' && amountRequired
+      ? LC_COMMIT_TEXT.amountRequired
       : lcGroupAmountBlockOf(values, gate, true);
   if (amount !== null) out.push(amount);
   else if (values.buyOrderPrice > 0 && groupQtyOf(gate, values) === 0) out.push(LC_COMMIT_TEXT.qtyZero);
+  if (gate === 'preBuyEnabled' && values.sweepEnabled && values.sweepWatchPrice === 0) {
+    out.push(ARM_BLOCKED_TEXT.sweepPrice);
+  }
   if (gate === 'extraBuyEnabled' && values.extraBuyMaxQty !== 0 && values.extraBuyMinQty > values.extraBuyMaxQty) {
     out.push(LC_COMMIT_TEXT.minOverMax);
   }

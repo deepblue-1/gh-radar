@@ -1827,6 +1827,41 @@ describe('⑱ 그룹 켜기 사전 검증 줄 · D-16 · D-11 재제출 (24-06 �
     expect(submitError()).toBeNull();
   });
 
+  it('IN-04 — buy3 선매수 금액 0 → 선매수 카드 사전 검증 줄 주문금액 · 전송 0 · 스위치 OFF · 폼 맨 위 한 줄 없음(수량 0 문구 아님)', () => {
+    render(<LimitChaserForm {...props({ server: echo({ buy3Schema: 1, buyOrderAmount: 0, buyOrderQty: 0 }) })} />);
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(0);
+    expect(sw('선매수 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(precheckIn('pre-buy')?.textContent).toBe(AMOUNT_FIRST);
+    expect(precheckIn('pre-buy')?.textContent).not.toBe(QTY_ZERO);
+    expect(submitError()).toBeNull();
+  });
+
+  it('IN-04 — 구서버 에코(buy3Schema 0) 금액 0 도 같은 문구(종전 D-04a 경로)', () => {
+    render(<LimitChaserForm {...props({ server: echo({ buy3Schema: 0, buyOrderAmount: 0, buyOrderQty: 500 }) })} />);
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(0);
+    expect(precheckIn('pre-buy')?.textContent).toBe(AMOUNT_FIRST);
+    expect(submitError()).toBeNull();
+  });
+
+  it('IN-03 — 한방가격 0 → 선매수 카드 줄(ARM_BLOCKED_TEXT.sweepPrice 원문) · 전송 0 · 폼 맨 위 한 줄 없음 · 한방가격 에코 뒤 줄이 사라진다', () => {
+    const SWEEP_PRICE = '시세를 받지 못해 한방가격이 0 이에요. 한방가격을 입력하면 켤 수 있어요.';
+    const { rerender } = render(
+      <LimitChaserForm {...props({ server: echo({ buyOrderAmount: 50, sweepEnabled: true, sweepWatchPrice: 0 }) })} />,
+    );
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(0);
+    expect(sw('선매수 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(precheckIn('pre-buy')?.textContent).toBe(SWEEP_PRICE);
+    expect(submitError()).toBeNull();
+    rerender(
+      <LimitChaserForm {...props({ server: echo({ buyOrderAmount: 50, sweepEnabled: true, sweepWatchPrice: 130_000 }) })} />,
+    );
+    expect(precheckIn('pre-buy')).toBeNull();
+    expect(sentConfigs()).toHaveLength(0);
+  });
+
   it('사라지는 때 ① — 원인 값(추가매수 금액)이 고쳐진 에코 뒤 같은 검증이 통과하면 사라진다', () => {
     const { rerender } = render(<LimitChaserForm {...props()} />);
     click(sw('추가매수 켜기'));

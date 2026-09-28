@@ -3148,6 +3148,75 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
   });
 
   /*
+    ★ 24-10 WR-01(24-VERIFICATION 갭 1) — 선매수를 쓰지 않는 buy3 후매수 전용 전략(에코 선매수 금액 0 · `buy3Schema` 1)이
+      첫 마운트에서도, 새로고침 뒤에도 값 확정을 보낸다. 레거시 금액 특례(「서버가 모른다」)는 구서버 에코에서만 걸린다.
+      진짜 브라우저 → 진짜 relay → 스텁 게이트웨이 10 수신이 증거다. 스텁 계좌 · ISIN 픽스처 상수만 쓴다.
+  */
+  test('P24-9 WR-01 — 선매수 금액 0(buy3) 후매수 전용 전략: 첫 마운트 · 새로고침 뒤 값 확정이 게이트웨이 10 에 닿는다 · 「주문금액을 먼저 입력해 주세요」 없음', async ({
+    page,
+  }) => {
+    const AMOUNT_FIRST = '주문금액을 먼저 입력해 주세요';
+    // `buy3Schema` 는 픽스처 기본 1(buy3 서버 에코). 후매수 수량 563 = floor(4000 × 10000 / 71,000) — 스텁 주문가격 기준 웹 산출값.
+    const seed = {
+      buyEnabled: true,
+      postBuyEnabled: true,
+      sellEnabled: true,
+      buyOrderAmount: 0,
+      buyOrderQty: 0,
+      postBuyOrderAmount: 4000,
+      postBuyOrderQty: 563,
+      postBuyReentry: 3,
+      postBuyReentryLeft: 3,
+      postBuyReboundPct: 30,
+      postBuyFloorQty: 100_000,
+      postBuyPhase: 1,
+    };
+    relay.seedLimitChasers([seed]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    const card = cardOf(page, E2E_ISIN);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(lcSwitch(card, '후매수 켜기')).toBeChecked({ timeout: 15_000 });
+    // 선매수 금액 0 = 미입력(D-03) — 폼 기본 금액(4,000만원)으로 메우지 않는다.
+    await expect(lcValue(page, 'lc-buy-order-amount')).toHaveText('—');
+
+    // (a) 첫 마운트 — 후매수 반등 확정 = 10 정확히 1건.
+    const before = lcSetCount(relay);
+    await editLc(page, 'lc-post-buy-rebound', '40');
+    await waitForSetAtGateway(relay, before + 1);
+    const first = lcSetRequests(relay).at(-1)!;
+    expect(first.postBuyReboundPct).toBe(40);
+    expect(first.buyOrderQty, '선매수 수량은 에코의 0 그대로').toBe(0);
+    expect(first.postBuyOrderQty, '후매수 수량 = 웹 산출값(스텁 주문가격 기준)').toBe(563);
+    expect(first.postBuyEnabled).toBe(true);
+    expect(first.buyEnabled).toBe(true);
+    await expect(page.getByText(AMOUNT_FIRST)).toHaveCount(0);
+
+    // 그 확정의 에코 → 행이 40% 로 선다(값 필드는 에코 전까지 서버 값).
+    const echoed = { ...seed, postBuyReboundPct: 40 };
+    await relay.pushLimitChaserEcho(echoed);
+    await expect(lcValue(page, 'lc-post-buy-rebound')).toHaveText('40%', { timeout: 15_000 });
+    expect(lcSetCount(relay), '첫 확정 = 10 정확히 1건').toBe(before + 1);
+
+    // (b) 새로고침 — 새로 마운트한 폼에서도 후매수 최소 잔량 확정이 10 한 건 더 나간다.
+    relay.seedLimitChasers([echoed]);
+    await page.reload();
+    await waitForReady(page);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-post-buy-rebound')).toHaveText('40%', { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-buy-order-amount')).toHaveText('—');
+    const beforeReload = lcSetCount(relay);
+    await editLc(page, 'lc-post-buy-floor-qty', '200000');
+    await waitForSetAtGateway(relay, beforeReload + 1);
+    const second = lcSetRequests(relay).at(-1)!;
+    expect(second.postBuyFloorQty).toBe(200_000);
+    expect(second.postBuyReboundPct, '새로고침 뒤 cfg 기준값 = 서버 에코').toBe(40);
+    expect(second.buyOrderQty).toBe(0);
+    expect(second.postBuyEnabled).toBe(true);
+    await expect(page.getByText(AMOUNT_FIRST)).toHaveCount(0);
+  });
+
+  /*
     ★ Phase 20 트레이서 — 「호가변경」(Phase 24 D-09 로 선매수 카드 「한방」) 한 행이 **실제 경로 한 줄**을 끝까지 잇는다(20-01).
       진짜 브라우저 → 진짜 relay → 스텁 게이트웨이 10 수신 → 60 에코 → 행 값.
       `openFocusedCard` 를 쓰지 않는다 — 그 헬퍼는 옛 입력 id(`#lc-buy-watch-qty`)를 기다리고,
