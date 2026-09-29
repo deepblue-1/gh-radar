@@ -5,10 +5,10 @@ current_phase: 24
 current_phase_name: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영
 status: executing
 stopped_at: Completed 24-24-PLAN.md
-last_updated: "2026-09-29T00:36:31.935Z"
+last_updated: "2026-09-29T00:38:11.702Z"
 last_activity: 2026-09-29
 last_activity_desc: 24-24 완료 · webapp 배포 d6194dcd · Vercel Ready
-state_head: 92fbebbebb7b6fd1da367cb0c489461864504a2b
+state_head: 829d27291dc8c8167e11e3e253df11dd860125dd
 progress:
   total_phases: 33
   completed_phases: 4
@@ -460,6 +460,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 260929-akj | **24-REVIEW-R3 Warning 2건 수정** — R3-WR-01: 부분 거부 ERROR 가 에코보다 먼저 와도 카드 거부 신호(rejectSeq→serverRejectSeq) 뒤 1초 유예 안의 같은 제출 에코로 판정(전면 거부는 유예 끝에 실패 · 타이머는 전송 없음). R3-WR-02: 보낸 성공 신호(sentSuccessSeq · lastSentSuccessField) 분리 — 늦은 에코 성공이 자동 체크 줄을 덮지 않음 · lastSuccessSent 제거. vitest trading 1405 · tsc green. 남은 한계: 1초보다 늦은 에코는 종전 동작. 미배포 | 2026-09-29 | 7fd7da49 · 214ae025 · 808a29a2 | [260929-akj-24-review-r3-r3-wr-01-error-r3-wr-02](./quick/260929-akj-24-review-r3-r3-wr-01-error-r3-wr-02/) |
 | 35 | 상따 카드 「다른 단말에서 변경」 배너·로그 줄 제거 — (a) 수정하던 값 N개 · (b) 서버 값으로 맞췄어요 둘 다 · onServerEcho·ECHO_BANNER_MS 정리 · vitest trading 1404 · e2e 13·P24-6 green · 미배포 (1a2c9944) | 2026-09-29 | 1a2c9944 | — |
 | 36 | VI 설정 줄 「다른 단말에서 변경됨」 고지 제거 — 상따 카드 배너 제거와 짝 · vitest trading 1404 green (92fbebbe) | 2026-09-29 | 92fbebbe | — |
+| 37 | 오늘 주문 종목명 누락 — relay 스냅샷에 없는 종목은 stocks 마스터 이름 폴백(ISIN 당 세션 1회) | 2026-09-29 | 829d2729 | — |
 
 ## Session Continuity
 
