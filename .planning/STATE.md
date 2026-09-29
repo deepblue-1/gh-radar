@@ -4,11 +4,11 @@ milestone: v1.0
 current_phase: 25
 current_phase_name: 주문로그·잔량진행률 — gh-trade StrategyEvent 저널 수신·오늘 주문 펼침·작업대 주문로그 탭·미체결 진행률
 status: planning
-stopped_at: Phase 24 complete (R4 passed 22/22) — Phase 25 research done, ready to plan
-last_updated: "2026-09-29T05:12:14.205Z"
+stopped_at: Phase 25 UI-SPEC approved
+last_updated: "2026-09-29T05:51:00.491Z"
 last_activity: 2026-09-29
 last_activity_desc: Phase 24 complete — 갭 클로징 R4 재검증 passed 22/22 · R5 리뷰 Warning 2 후속
-state_head: 5ecc1c322b6fe64ce650f9fa0c0801223664ea5a
+state_head: 97710ea7dc183f6631adcc4e45872efba72d8543
 progress:
   total_phases: 34
   completed_phases: 5
@@ -34,7 +34,7 @@ Plans completed: 220 / 234
 Status: Ready to plan
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-29 — Phase 24 complete (24-VERIFICATION-R4 passed 22/22 · 24-REVIEW-R5 Warning 2건 R5-WR-01·02 후속 권고)
+Last activity: 2026-09-29 - Completed quick task 260929-k7u: 24 R5 후속 — 자동 체크 사유 「무장 안 됨」 · ⑬ 흐름 안 확정 보존 테스트
 
 Progress: [█████████░] 93%
 
@@ -461,16 +461,17 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 260928-q5e | 폴드 세로 1단(lc≈689)에서 상따 카드 매수·매도 옵션 2열 — lc 첫 밴드 경계 700 → 685 | 2026-09-28 | 3da455e1 | [260928-q5e-1-lc-689-2-lc-700](./quick/260928-q5e-1-lc-689-2-lc-700/) |
 | 260929-akj | **24-REVIEW-R3 Warning 2건 수정** — R3-WR-01: 부분 거부 ERROR 가 에코보다 먼저 와도 카드 거부 신호(rejectSeq→serverRejectSeq) 뒤 1초 유예 안의 같은 제출 에코로 판정(전면 거부는 유예 끝에 실패 · 타이머는 전송 없음). R3-WR-02: 보낸 성공 신호(sentSuccessSeq · lastSentSuccessField) 분리 — 늦은 에코 성공이 자동 체크 줄을 덮지 않음 · lastSuccessSent 제거. vitest trading 1405 · tsc green. 남은 한계: 1초보다 늦은 에코는 종전 동작. 미배포 | 2026-09-29 | 7fd7da49 · 214ae025 · 808a29a2 | [260929-akj-24-review-r3-r3-wr-01-error-r3-wr-02](./quick/260929-akj-24-review-r3-r3-wr-01-error-r3-wr-02/) |
 | 260929-htw | **24-VERIFICATION-R3 R3-G1(=24-REVIEW-R4 R4-WR-01) 수정** — 부분 거부 뒤 되살아나는 선매수·추가매수 자동 체크 줄을 성공 에코로 확정(lib confirmAutoChecks): 에코에 선 항목만 「켬」, 서버가 눕힌 항목은 「켜지 않음: …(서버 거부)」 · error 레벨. 훅 ⑬ 눕힌 동반(laid) — 대기 추가매수가 서버가 눕힌 매도주문을 다시 싣지 않음(수정 전 재현 확인). F1 폼·카드 흐름 잘못 잠긴 기대값 교정 · 24-UI-SPEC 사유 목록 「서버 거부」 추가. webapp vitest 2835 · tsc green. 미배포 | 2026-09-29 | 0061d51f · 307cc4dd | [260929-htw-24-r3-g1](./quick/260929-htw-24-r3-g1/) |
+| 260929-k7u | **24-REVIEW-R5 후속(R5-WR-01 · R5-WR-02 · R5-IN-05)** — 자동 체크 여섯째 사유를 「서버 거부」 에서 원인 중립 「무장 안 됨」 으로 개정(에코 게이트 값=무장 상태라 거부와 발주 소진을 단정하지 않음 · lib 인자 refused→laid · UI-SPEC 닫힌 목록 동기). 훅 ⑬ 흐름 안 확정(답 대기 · 결과 모름 · in-flight) 3케이스로 눕힌 동반 보존 잠금 — 변이 M3~M6 잡힘, M7(queueRef 항)은 도달 불가 상태라 동등 변이로 생존. 코드 동작 변경 0 · webapp 2,838 pass · typecheck green · push/배포 없음 | 2026-09-29 | d07ad591 · c8daa53f | [260929-k7u-24-r5-laidref-r5-wr-01-r5-wr-02](./quick/260929-k7u-24-r5-laidref-r5-wr-01-r5-wr-02/) |
 | 35 | 상따 카드 「다른 단말에서 변경」 배너·로그 줄 제거 — (a) 수정하던 값 N개 · (b) 서버 값으로 맞췄어요 둘 다 · onServerEcho·ECHO_BANNER_MS 정리 · vitest trading 1404 · e2e 13·P24-6 green · 미배포 (1a2c9944) | 2026-09-29 | 1a2c9944 | — |
 | 36 | VI 설정 줄 「다른 단말에서 변경됨」 고지 제거 — 상따 카드 배너 제거와 짝 · vitest trading 1404 green (92fbebbe) | 2026-09-29 | 92fbebbe | — |
 | 37 | 오늘 주문 종목명 누락 — relay 스냅샷에 없는 종목은 stocks 마스터 이름 폴백(ISIN 당 세션 1회) | 2026-09-29 | 829d2729 | — |
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/25-order-log-progress/25-CONTEXT.md
+**Resume file:** .planning/phases/25-order-log-progress/25-UI-SPEC.md
 
-Last session: 2026-09-29T04:11:01.874Z
-Stopped at: Phase 24 complete — Phase 25 research done, ready to plan
+Last session: 2026-09-29T05:50:58.529Z
+Stopped at: Phase 25 UI-SPEC approved
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
