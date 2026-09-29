@@ -258,7 +258,8 @@ SELECT is(
 -- ── 8. 계약 위반 — 필수 키 없음은 배치 전체 예외 ──────────────────
 SELECT throws_ok(
   $$SELECT public.dma_strategy_apply('KB', 'ep-26', jsonb_build_array(pg_temp.sev(3, 3, 1, '1234567801', '12461', '10:01:00.000') - 'trade_date'))$$,
-  '(KB ep-26 seq 3, …7801, trade_date 없음) 배치 전체 예외'
+  '23502', NULL,
+  '(KB ep-26 seq 3, …7801, trade_date 없음) 배치 전체 예외 — not_null_violation'
 );
 SELECT is(
   (SELECT count(*)::int FROM public.dma_strategy_events WHERE gateway = 'KB' AND journal_epoch = 'ep-26' AND seq = 3),
@@ -266,6 +267,7 @@ SELECT is(
 );
 SELECT throws_ok(
   $$SELECT public.dma_strategy_apply('', 'ep-26', '[]'::jsonb)$$,
+  'P0001', 'dma_strategy_apply: gateway/journal_epoch 가 비어 있다',
   '(빈 gateway) 입력 검사 예외'
 );
 
