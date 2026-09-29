@@ -215,3 +215,12 @@ export function orderLogQueryString(q: OrderLogQuery, today: string): string {
   if (q.filters.kind !== 'all') params.set('kind', q.filters.kind);
   return params.toString();
 }
+
+/* ── 창 분리 (R4) ──────────────────────────────────────────────────── */
+
+/** 창 분리 라우트. */
+export const ORDER_LOG_WINDOW_PATH = '/trading/order-log';
+/** 창 이름 — 다시 누르면 같은 창을 재사용한다(창이 쌓이지 않는다 · R4). */
+export const ORDER_LOG_WINDOW_NAME = 'gh-radar-order-log';
+/** F-A 한 줄이 대부분 잘리지 않는 폭 · opener 를 넘기지 않는다(R4). */
+export const ORDER_LOG_WINDOW_FEATURES = 'width=960,height=720,noopener';
