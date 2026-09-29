@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 milestone: v1.0
 current_phase: 25
-current_phase_name: 주문로그·잔량진행률 — gh-trade StrategyEvent 저널 수신·오늘 주문 펼침·작업대 주문로그 탭·미체결 진행률
-status: planning
+current_phase_name: order-log-progress
+status: executing
 stopped_at: Phase 25 UI-SPEC approved
-last_updated: "2026-09-29T05:51:00.491Z"
+last_updated: "2026-09-29T07:16:19.438Z"
 last_activity: 2026-09-29
 last_activity_desc: Phase 24 complete — 갭 클로징 R4 재검증 passed 22/22 · R5 리뷰 Warning 2 후속
-state_head: 97710ea7dc183f6631adcc4e45872efba72d8543
+state_head: ef5c696738e88ab0bddd3ffc330d82db83159e23
 progress:
   total_phases: 34
   completed_phases: 5
-  total_plans: 324
+  total_plans: 336
   completed_plans: 308
 milestone_name: milestone
 ---
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 25 — 주문로그·잔량진행률 — gh-trade StrategyEvent 저널 수신·오늘 주문 펼침·작업대 주문로그 탭·미체결 진행률
+Phase: 25 (order-log-progress) — READY TO EXECUTE
 Plan: Not started
 Plans completed: 220 / 234
-Status: Ready to plan
+Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-09-29 - Completed quick task 260929-k7u: 24 R5 후속 — 자동 체크 사유 「무장 안 됨」 · ⑬ 흐름 안 확정 보존 테스트

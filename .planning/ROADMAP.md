@@ -1314,8 +1314,35 @@ Plans:
 **정본:** `reference/` 9개 파일(기획서 전문 · gh-radar 함의 · 필드 v0.1 · 대조 기록 · 목업 2종) · gh-trade `docs/features/order-journal.md` · 이 저장소 `19-GH-TRADE-HANDOFF.md`(저널 규약 동형).
 **Requirements**: TBD
 **Depends on:** Phase 19 (계좌 저널 관찰자) · Phase 24 (상따 3그룹 용어) · gh-trade StrategyEvent/QueueProgress 서버 phase
-**Plans:** 0 plans
+**Plans:** 12 plans
 
 Plans:
+**Wave 1**
 
-- [ ] TBD (run /gsd-plan-phase 25 to break down)
+- [ ] 25-01-PLAN.md — 트레이서: BuyOrder 한 건 — 생성물 커밋(G1 blob f08677d9) · 80 두 스트림 · 전략 기록기 · journal.events · 웹 스토어 · 주문로그 한 줄 + dma_strategy_events/apply 마이그레이션 · pgTAP (W1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 25-02-PLAN.md — relay 두 스트림 경계(갭 · resync · 구 게이트웨이 · since epoch 짝) · /healthz journal.strategy · 부팅 결선 (W2)
+- [ ] 25-03-PLAN.md — 조회 RPC 2(하루치 · 주문 이벤트 UNION) · pgTAP · shared 타임라인 · GET /api/orders/:id/events · GET /api/strategy-events (W2)
+- [ ] 25-04-PLAN.md — 문장 조립기 전 종류 · 표시명 표 · 기획서 하루 흐름 골든 픽스처 (W2)
+- [ ] 25-05-PLAN.md — 오늘 주문 별건 3(방향 미상 「주문」 · 접수 불명 · R(New) 참고 방향) (W2)
+- [ ] 25-06-PLAN.md — 진행률 데이터 경로: 83 파서 · hub 계좌 필터 · unf.progress · 웹 스토어 · progressView (W2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 25-07-PLAN.md — 작업대 공용 패널 「주문로그」 탭(피드 · 필터 · 핀 · 배지 · 폰 펼침) + 관찰자 켠 브라우저 e2e (W3)
+- [ ] 25-08-PLAN.md — 오늘 주문 행 펼침(통보 + 상따 타임라인 · 묶음 · 라이브 · 디바운스) (W3)
+- [ ] 25-09-PLAN.md — 미체결 진행률 B안 3표면 + 모바일 r3 (W3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 25-10-PLAN.md — 카드 탭 「주문로그」 · 창 분리 /trading/order-log · axe 매트릭스 (W4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 25-11-PLAN.md — [BLOCKING] 스키마 결정 + 사용자 supabase db push · 원격 REVOKE 확인 (W5)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 25-12-PLAN.md — 배포: gh-trade 서버 예고 → 준비 게이트 → relay → server → webapp push → 첫 거래일 UAT (W6)
