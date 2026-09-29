@@ -1,17 +1,17 @@
 ---
 gsd_state_version: "1.0"
 milestone: v1.0
-current_phase: 24
-current_phase_name: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영
-status: executing
-stopped_at: Phase 25 context gathered
-last_updated: "2026-09-29T04:11:02.947Z"
+current_phase: 25
+current_phase_name: 주문로그·잔량진행률 — gh-trade StrategyEvent 저널 수신·오늘 주문 펼침·작업대 주문로그 탭·미체결 진행률
+status: planning
+stopped_at: Phase 24 complete (R4 passed 22/22) — Phase 25 research done, ready to plan
+last_updated: "2026-09-29T05:12:14.205Z"
 last_activity: 2026-09-29
-last_activity_desc: 24-24 완료 · webapp 배포 d6194dcd · Vercel Ready
-state_head: b6a9f486cf56a980795473c94112bae9da9f7f75
+last_activity_desc: Phase 24 complete — 갭 클로징 R4 재검증 passed 22/22 · R5 리뷰 Warning 2 후속
+state_head: 5ecc1c322b6fe64ce650f9fa0c0801223664ea5a
 progress:
   total_phases: 34
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 324
   completed_plans: 308
 milestone_name: milestone
@@ -28,13 +28,13 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 24 (gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영) — EXECUTING
-Plan: 24 of 24
+Phase: 25 — 주문로그·잔량진행률 — gh-trade StrategyEvent 저널 수신·오늘 주문 펼침·작업대 주문로그 탭·미체결 진행률
+Plan: Not started
 Plans completed: 220 / 234
-Status: Phase 24 갭 클로징 2라운드 24-24 완료(24/24 플랜) — webapp 프로덕션 배포(d6194dcd · Vercel Ready · relay 재배포 없음) · 다음 /gsd-verify-work 24 (UAT: 300ms 창 · 운영 눈 확인 · R6 두 줄 · 24-08 시각 2~9)
+Status: Ready to plan
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-29 - Completed quick task 260929-htw: 24 R3-G1 자동 체크 로그 서버 에코 대조 · 눕힌 동반 재적재 차단
+Last activity: 2026-09-29 — Phase 24 complete (24-VERIFICATION-R4 passed 22/22 · 24-REVIEW-R5 Warning 2건 R5-WR-01·02 후속 권고)
 
 Progress: [█████████░] 93%
 
@@ -470,7 +470,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 **Resume file:** .planning/phases/25-order-log-progress/25-CONTEXT.md
 
 Last session: 2026-09-29T04:11:01.874Z
-Stopped at: Phase 25 context gathered
+Stopped at: Phase 24 complete — Phase 25 research done, ready to plan
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.

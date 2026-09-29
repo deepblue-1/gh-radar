@@ -38,7 +38,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 21: GH Trade 모바일 앱 (Capacitor)** - Remote-URL 셸(iOS·iPadOS·Android) · 네이티브 하단 플로팅 탭바 5탭 · pull-to-refresh(웹 훅→reload) · 네이티브 Google Sign-In + signInWithIdToken · 브랜드명 GH Trade · `mobile/` 패키지 (결정 4건 확정 2026-09-25) (completed 2026-09-26)
 - [x] **Phase 22: GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK)** - App Store Connect·TestFlight 업로드 · Android 업로드 키(저장소 밖) 서명 APK → Firebase App Distribution 테스터 배포 · 릴리스 빌드 Google 로그인 유지(SHA-1·키체인) · 버전 규칙·반복 빌드 절차 · 개인정보처리방침 `/privacy` · `native:verify-prod` 게이트 (Play 스토어 배포는 개발자 인증 뒤 별도 phase · 정식 출시·심사 대응·데이터 보안 양식은 범위 밖) (completed 2026-09-27)
 - [ ] **Phase 23: GH Trade Play 스토어 내부 테스트 배포 (개발자 인증 후)** - Play Console 개발자 인증 완료 뒤 진행 · Play 앱 서명 키 결정(one-way) · 첫 AAB 수동 업로드·내부 테스트 트랙 · Play SA·fastlane supply · 앱 서명 SHA-1 OAuth 추가 등록 · Firebase APK 테스터 1회 재설치 안내 (옛 22-05~22-07 플랜을 `from-phase-22/` 에 보관)
-- [ ] **Phase 24: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영** - gh-trade Phase 24 의 `SetLimitChaser` 말미 append 17필드(`buy3_schema=1`) 를 relay 빌더·에코/열거 파서·webapp 상따 설정 3그룹(선매수/추가매수/후매수)에 반영. 감시대상(매도/매수잔량) 토글·매수 진입 래치(MsgType 38) 폐기, 매수 LED 2단계. 옵션 UI 는 WinForms 상따 창을 참고해 목업 게이트 먼저. 서버(24-11)·WinForms 배포 뒤에만 relay → webapp 배포. 브랜치 `gsd/phase-24-limitchaser-buy3`
+- [x] **Phase 24: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영** - gh-trade Phase 24 의 `SetLimitChaser` 말미 append 17필드(`buy3_schema=1`) 를 relay 빌더·에코/열거 파서·webapp 상따 설정 3그룹(선매수/추가매수/후매수)에 반영. 감시대상(매도/매수잔량) 토글·매수 진입 래치(MsgType 38) 폐기, 매수 LED 2단계. 옵션 UI 는 WinForms 상따 창을 참고해 목업 게이트 먼저. 서버(24-11)·WinForms 배포 뒤에만 relay → webapp 배포. 브랜치 `gsd/phase-24-limitchaser-buy3` (completed 2026-09-29)
 - [ ] **Phase 25: 주문로그·잔량진행률 — gh-trade StrategyEvent 저널 수신·오늘 주문 펼침·작업대 주문로그 탭·미체결 진행률** - 기획서(MJ 9/27) 반영. 로그 7종은 gh-trade 서버 StrategyEvent(저널 80 append·별도 seq) → relay 적재·푸시 → 오늘 주문 행 펼침 + 작업대 「주문로그」 탭(전략 로그와 분리). 진행률 B안(대기 행 아래 2줄째) · 값은 `QueueProgress` 브로드캐스트. 풀안·용어 기존(후매수) 유지. 필드 v0.1 동결, 착수는 gh-trade fbs 해시 뒤.
 
 ## Phase Details
@@ -1205,7 +1205,7 @@ Plans:
 **열린 것:** 소진 푸시(300ms) 전 옛 ON 재제출 창이 웹에서 실제 생기는지(실기 검증) · 운영 전략 중 「감시대상=매수잔량」 선택분 목록 추출은 **gh-trade 24-12 재기동 전**(CONTEXT D-14 정정). 마스터 OFF 시 `post_buy_enabled` 에코는 gh-trade D-32 로 닫힘(CONTEXT D-21). 후속분 ②(추가매수 아래 틱·이탈 포기 · 기본값 표 · 상한가 차단)는 CONTEXT D-16~D-21.
 **Requirements**: TBD
 **Depends on:** Phase 17 (프로토콜 재동기화·래치 LED) · gh-trade Phase 24 서버 배포(24-11)
-**Plans:** 24/24 plans executed
+**Plans:** 24/24 plans complete
 
 Plans:
 **Wave 1**
