@@ -167,6 +167,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 ### Roadmap Evolution
 
+- Phase 25 added (2026-09-29): 주문로그·잔량진행률 — 기획서(MJ 9/27) 반영. 로그 7종 = gh-trade 서버 StrategyEvent(관찰자 저널 80 말미 append·별도 seq·같은 epoch, 필드 v0.1 동결) → relay 두 스트림 커서·`dma_strategy_events`·`journal.events` 푸시 → 오늘 주문 행 펼침 + 작업대 「주문로그」 탭 신설(전략 로그 분리 유지). 진행률 B안(대기 행 아래 2줄째·모바일 r3, 웹·WinForms 공통) · `QueueProgress` 브로드캐스트. 사용자 확정: 풀안 · 용어 기존(선매수/추가매수/후매수). 착수 순서 gh-trade fbs 커밋 → sync-relay-schema.sh → gh-radar 생성물 커밋, 배포 서버→relay→webapp. 설계 근거 9개 파일은 `.planning/phases/25-order-log-progress/reference/`. 연락처 gh-trade 세션 `gh-trade-6d`.
 - Phase 24 added (2026-09-27, 브랜치 `gsd/phase-24-limitchaser-buy3`): gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영 — `SetLimitChaser` 말미 17필드(`buy3_schema=1`) · `buy_watch_side`·MsgType 38 폐기 · 매수 LED 2단계 · 상따 설정 3그룹(WinForms 상따 창 참고, 목업 게이트 선행). gh-trade 서버(24-11)·WinForms 배포 뒤에만 배포. 인계 원문은 gh-trade 세션 `gh-trade-38`.
 - Phase 22 added (2026-09-26): GH Trade 테스트 배포 — iOS TestFlight · Android Play 내부 테스트. Phase 21 앱을 타인 기기에 설치 가능하게(App Store Connect·TestFlight / 릴리스 키스토어·AAB·Play 내부 트랙 / 릴리스 빌드 Google 로그인 유지 / 버전 규칙·반복 절차 / 스토어 최소 자료 / verify-prod 게이트). 정식 출시·심사 대응 범위 밖. discuss 선결 5건(계정 현황 · 테스터 범위 · 트레이딩 접근 제한 · OAuth 테스터 허용 · 빌드 실행 주체).
 - Phase 21 added (2026-09-25): GH Trade 모바일 앱 (Capacitor) — Remote-URL 셸 · 네이티브 탭바 · pull-to-refresh · 네이티브 Google 로그인 · 브랜드명 GH Trade. 결정 4건 사용자 확정(네이티브 탭바 / signInWithIdToken / refresh 훅→reload / mobile/ 패키지).

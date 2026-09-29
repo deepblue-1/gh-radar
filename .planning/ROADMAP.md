@@ -39,6 +39,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 22: GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK)** - App Store Connect·TestFlight 업로드 · Android 업로드 키(저장소 밖) 서명 APK → Firebase App Distribution 테스터 배포 · 릴리스 빌드 Google 로그인 유지(SHA-1·키체인) · 버전 규칙·반복 빌드 절차 · 개인정보처리방침 `/privacy` · `native:verify-prod` 게이트 (Play 스토어 배포는 개발자 인증 뒤 별도 phase · 정식 출시·심사 대응·데이터 보안 양식은 범위 밖) (completed 2026-09-27)
 - [ ] **Phase 23: GH Trade Play 스토어 내부 테스트 배포 (개발자 인증 후)** - Play Console 개발자 인증 완료 뒤 진행 · Play 앱 서명 키 결정(one-way) · 첫 AAB 수동 업로드·내부 테스트 트랙 · Play SA·fastlane supply · 앱 서명 SHA-1 OAuth 추가 등록 · Firebase APK 테스터 1회 재설치 안내 (옛 22-05~22-07 플랜을 `from-phase-22/` 에 보관)
 - [ ] **Phase 24: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영** - gh-trade Phase 24 의 `SetLimitChaser` 말미 append 17필드(`buy3_schema=1`) 를 relay 빌더·에코/열거 파서·webapp 상따 설정 3그룹(선매수/추가매수/후매수)에 반영. 감시대상(매도/매수잔량) 토글·매수 진입 래치(MsgType 38) 폐기, 매수 LED 2단계. 옵션 UI 는 WinForms 상따 창을 참고해 목업 게이트 먼저. 서버(24-11)·WinForms 배포 뒤에만 relay → webapp 배포. 브랜치 `gsd/phase-24-limitchaser-buy3`
+- [ ] **Phase 25: 주문로그·잔량진행률 — gh-trade StrategyEvent 저널 수신·오늘 주문 펼침·작업대 주문로그 탭·미체결 진행률** - 기획서(MJ 9/27) 반영. 로그 7종은 gh-trade 서버 StrategyEvent(저널 80 append·별도 seq) → relay 적재·푸시 → 오늘 주문 행 펼침 + 작업대 「주문로그」 탭(전략 로그와 분리). 진행률 B안(대기 행 아래 2줄째) · 값은 `QueueProgress` 브로드캐스트. 풀안·용어 기존(후매수) 유지. 필드 v0.1 동결, 착수는 gh-trade fbs 해시 뒤.
 
 ## Phase Details
 
@@ -1293,3 +1294,28 @@ Plans:
 **Wave 21** *(blocked on Wave 20 completion)*
 
 - [x] 24-24-PLAN.md — 전체 게이트 · 사용자 확인(D-36 문구 · 판단 6건) · webapp push(relay 없음) · gh-trade 회신 — 메인 세션 체크포인트
+
+### Phase 25: 주문로그·잔량진행률 — gh-trade StrategyEvent 저널 수신·오늘 주문 펼침·작업대 주문로그 탭·미체결 진행률
+
+**Goal:** 기획서 「상따수정 — 주문로그·잔량진행률」(MJ, 2026-09-27, `reference/spec-order-log-progress-20260929.md`)을 gh-radar 에 반영한다. 1부 로그 7종(상한가노출·상한가진입·매수 주문·대기·첫 체결·매도 주문·취소/거부)은 KB 통보가 아니라 **gh-trade 서버 StrategyEvent** 다 — 서버가 만들어 관찰자 저널 `JournalBatch`(80) 말미에 `strategy_events`(별도 seq 공간·같은 epoch)로 보내고, relay 가 Supabase 에 멱등 적재·계좌 권한 사용자에게 푸시하며, 웹은 두 표면에 보인다: **오늘 주문 카드 행 펼침**(order_no 조인, 이벤트 시간순) + **작업대 「주문로그」 탭 신설**(seq 순 평면, 종목·거래소 필터). 기존 「전략 로그」 탭은 설정 이력으로 분리 유지. 2부 잔량진행률은 **B안**(대기 행 아래 2줄째 「후매수 · 체결예상까지 N주 남음 [막대] P%」, 모바일 카드 r3 줄)으로 미체결 3표면(마이페이지·작업대 공용 패널·카드 탭)에 그린다. 값은 새 Broadcast `QueueProgress`((isin, exchange) 대기 주문 전체 스냅샷·1초 스로틀·account_no 필수)에서 온다 — 웹이 계산하지 않는다. 범위는 **풀안**(사용자 확정 2026-09-29): 상한가 노출·진입 포함, 창 분리 라우트·새 로그 배지·스크롤 고정·ms 시각 포함. 용어는 기존 웹 라벨(선매수/추가매수/후매수) 유지 — 기획서 「줄서기매수」 = 「후매수」.
+
+**와이어 (gh-trade 와 합의, 필드 v0.1 동결 — `reference/gh-trade-strategy-event-fields-v0.1.md`):** `StrategyEvent` 테이블(seq · trade_date · gw_time_ms · kind enum 1~8 · group enum 0~6 · exchange · isin · cum_volume · account_no · order_no("" 허용) · 조건/근거 틱/상한가 잔량/접수 지연/즉시체결/대기 3값/오차/남은 거래량/취소 사유/거부 문구/진입 스냅 벡터 …). `ObserverLoginReq.strategy_since_seq` · `ObserverLoginResp.strategy_head_seq/oldest_seq` · `JournalBatch.strategy_events/strategy_head_seq/strategy_caught_up`. 시세 이벤트(kind 1·2)는 account_no 빈 값 — 가시성은 그 게이트웨이 자격증명 사용자 전원. Rejected(8)는 order_no 없어 평면 목록에만(reject_seq 조인은 후속). 이름·enum 번호는 fbs 로 옮길 때 그대로, 바뀌면 append 만.
+
+**relay:** 스트림 2개(주문 저널·전략 이벤트) 각각 커서·gap·resync — `dma_journal_cursor.strategy_last_seq` · 로그인 요청에 두 since · live 전이는 두 caught_up 모두 true. 새 RPC `dma_strategy_apply`(별도 트랜잭션 — 한쪽 포이즌이 다른 쪽 커서를 막지 않게) · 새 테이블 `dma_strategy_events`(PK gateway·epoch·seq, 원문 보존, 투영 없음) · 푸시 `journal.events`(저널 행과 같은 계좌 필터 + 시세 이벤트 공개 규칙) · `QueueProgress` 파싱 → `unf.progress`(가칭) 푸시(키 (isin, exchange) 전량 교체). 생성물은 gh-trade 가 `sync-relay-schema.sh RELAY=gh-radar` 로 만들고 gh-radar 가 수기 사본 3곳(msg-type · envelope · hub)과 함께 커밋.
+
+**server/Supabase:** 조회 RPC 2(하루치 평면 목록 — 계좌 조인 + 시세 공개 / 주문 1건 이벤트 목록) service_role 전용·명시 REVOKE. 라우트 `GET /api/orders/:id/events` · `GET /api/strategy-events`(가칭).
+
+**webapp:** ① 오늘 주문 카드 행 펼침(이벤트 시간순 · 체결 누적은 seq 순 running sum · 전량 판정 filled+modified≥qty) ② 작업대 「주문로그」 탭(시간순 평면 · 종목/거래소/구분 필터 · 새 로그 배지 · 스크롤 고정(맨 아래일 때만 따라감) · 창 분리 라우트 · ms 시각) ③ 미체결 B안 진행률(3표면 + 모바일 r3 · 첫 체결/취소 시 보조행만 삭제 · 90% 이상 up 색 · 미체결 행 사라지면 진행률도 삭제) ④ 오늘 주문 카드 별건 3(방향 미상 「주문」 · result_code -2 「접수 불명」 상태 · R(New) 방향 참고 표기) ⑤ 로그 문장은 서버 필드 → 웹 매핑(문구 파싱 금지 · 취소/정정 방향 없음 · G2/G3 D-15 규칙 · 출처는 배지).
+
+**UI 게이트(선행):** 진행률 B안은 채택 완료(`reference/mockup-unfilled-progress.html`, WinForms 대응 `reference/gh-trade-winforms-progress-mockup.html`). 작업대 「주문로그」 탭·오늘 주문 행 펼침은 목업(변형 + 다크/라이트, globals.css 토큰 인라인)을 먼저 열어 사용자 확인 후 채택안 박제. 검토 답 전 확정·커밋 금지.
+
+**착수·배포 순서(고정):** gh-trade fbs 커밋(해시 통보) → gh-trade 가 sync-relay-schema.sh 실행 → gh-radar 생성물 커밋. 배포 gh-trade 서버 → relay → webapp push. 서버 무관 부분(목업 · 테이블/RPC 설계 · B안 UI 골격)은 fbs 전에 진행 가능. 연락은 gh-trade 세션 `gh-trade-6d`.
+
+**정본:** `reference/` 9개 파일(기획서 전문 · gh-radar 함의 · 필드 v0.1 · 대조 기록 · 목업 2종) · gh-trade `docs/features/order-journal.md` · 이 저장소 `19-GH-TRADE-HANDOFF.md`(저널 규약 동형).
+**Requirements**: TBD
+**Depends on:** Phase 19 (계좌 저널 관찰자) · Phase 24 (상따 3그룹 용어) · gh-trade StrategyEvent/QueueProgress 서버 phase
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 25 to break down)

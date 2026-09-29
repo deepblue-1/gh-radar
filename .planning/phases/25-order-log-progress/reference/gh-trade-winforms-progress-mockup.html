@@ -1,0 +1,206 @@
+<title>잔량진행률 목업</title>
+<style>
+  :root{
+    --bg:#eef0f3; --paper:#ffffff; --ink:#1c2128; --muted:#5f6b7a; --line:#c9cfd8; --line-soft:#e3e7ec;
+    --head:#dfe4ea; --head-ink:#2b3440; --sel:#dbe8ff;
+    --up:#d0342c; --down:#1f5fd6; --bar-track:#e2e6ec; --bar:#2c6fd6; --bar-hot:#d0342c; --ok:#1f8a4c;
+    --tag:#f1f3f6; --note:#fff8dc; --note-ink:#5a4a00; --code:#f4f6f8;
+    --grid-font:"Malgun Gothic","맑은 고딕","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme:dark;
+      --bg:#14171c; --paper:#1d2127; --ink:#e6e9ee; --muted:#9aa5b4; --line:#3a4250; --line-soft:#2a313b;
+      --head:#2a3038; --head-ink:#d5dbe4; --sel:#25344d;
+      --up:#ff6b61; --down:#6c9cff; --bar-track:#2c333d; --bar:#6c9cff; --bar-hot:#ff6b61; --ok:#4fc27a;
+      --tag:#262c35; --note:#3a3413; --note-ink:#f0e2a0; --code:#161a1f;
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --bg:#14171c; --paper:#1d2127; --ink:#e6e9ee; --muted:#9aa5b4; --line:#3a4250; --line-soft:#2a313b;
+    --head:#2a3038; --head-ink:#d5dbe4; --sel:#25344d;
+    --up:#ff6b61; --down:#6c9cff; --bar-track:#2c333d; --bar:#6c9cff; --bar-hot:#ff6b61; --ok:#4fc27a;
+    --tag:#262c35; --note:#3a3413; --note-ink:#f0e2a0; --code:#161a1f;
+  }
+  body{background:var(--bg);color:var(--ink);font-family:var(--grid-font);font-size:14px;line-height:1.5;margin:0}
+  .wrap{max-width:980px;margin:0 auto;padding-block:28px 56px;padding-inline:16px}
+  h1{font-size:22px;margin:0 0 4px;text-wrap:balance}
+  .lead{color:var(--muted);margin:0 0 24px;max-width:70ch}
+  h2{font-size:16px;margin:36px 0 8px;display:flex;align-items:baseline;gap:10px}
+  h2 .k{display:inline-block;min-width:26px;padding:0 6px;border-radius:4px;background:var(--ink);color:var(--paper);font-size:12px;text-align:center;letter-spacing:.04em}
+  .desc{color:var(--muted);margin:0 0 12px;max-width:72ch}
+  .win{background:var(--paper);border:1px solid var(--line);border-radius:4px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+  .titlebar{display:flex;align-items:center;gap:8px;padding:5px 10px;background:var(--head);color:var(--head-ink);font-size:12px;border-bottom:1px solid var(--line)}
+  .titlebar .dots{margin-left:auto;letter-spacing:6px;color:var(--muted)}
+  .tabs{display:flex;gap:2px;padding:6px 8px 0;border-bottom:1px solid var(--line);background:var(--paper)}
+  .tab{padding:3px 10px;font-size:12px;border:1px solid var(--line);border-bottom:none;border-radius:3px 3px 0 0;background:var(--tag);color:var(--muted)}
+  .tab.on{background:var(--paper);color:var(--ink);border-color:var(--line);position:relative;top:1px}
+  .tab .badge{display:inline-block;min-width:16px;padding:0 4px;margin-left:5px;border-radius:8px;background:var(--up);color:#fff;font-size:10px;text-align:center;line-height:15px}
+  .section-label{font-size:12px;color:var(--muted);padding:8px 10px 2px}
+  .gridwrap{overflow-x:auto}
+  table.grid{border-collapse:collapse;width:100%;min-width:560px;font-size:12px;font-variant-numeric:tabular-nums}
+  table.grid th{background:var(--head);color:var(--head-ink);font-weight:600;padding:3px 6px;border:1px solid var(--line);text-align:center;white-space:nowrap}
+  table.grid td{padding:3px 6px;border:1px solid var(--line-soft);white-space:nowrap;vertical-align:middle}
+  table.grid td.num{text-align:right}
+  table.grid td.ctr{text-align:center}
+  table.grid td.btn{width:22px;text-align:center;padding:0}
+  table.grid td.btn span{display:inline-block;width:18px;line-height:16px;border:1px solid var(--line);border-radius:2px;background:var(--tag);font-size:11px}
+  .side-b{color:var(--up);font-weight:600}
+  .side-s{color:var(--down);font-weight:600}
+  tr.pending-cancel td{color:var(--muted)}
+  .kind{display:inline-block;padding:0 5px;border-radius:3px;background:var(--tag);color:var(--muted);font-size:11px;margin-right:4px;vertical-align:1px}
+  .kind.strat{color:var(--ink);border:1px solid var(--line)}
+  /* progress bar */
+  .bar{display:inline-block;vertical-align:middle;width:72px;height:9px;border-radius:2px;background:var(--bar-track);overflow:hidden;position:relative}
+  .bar i{display:block;height:100%;background:var(--bar)}
+  .bar.hot i{background:var(--bar-hot)}
+  .bar.wide{width:100%;height:10px}
+  .pct{display:inline-block;min-width:34px;text-align:right;margin-left:5px}
+  /* option A */
+  td.prog{min-width:130px}
+  /* option B second line */
+  tr.sub td{padding:1px 6px 4px;border-top:none;color:var(--muted);font-size:11.5px}
+  tr.sub td .bar{width:110px}
+  tr.sub td b{color:var(--ink);font-weight:600}
+  tr.main td{border-bottom:none}
+  /* option C strip */
+  .strip{border-top:1px solid var(--line);padding:5px 8px;display:flex;flex-direction:column;gap:3px;font-size:12px}
+  .strip .row{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px}
+  .strip .row .txt{white-space:nowrap}
+  .strip .row .txt b{font-weight:600}
+  .strip .row .bar{width:100%;height:10px}
+  /* legend / notes */
+  .notes{margin:12px 0 0;padding:0 0 0 18px;color:var(--muted);font-size:13px;max-width:72ch}
+  .notes li{margin:2px 0}
+  .pros{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+  .pros div{background:var(--paper);border:1px solid var(--line-soft);border-radius:4px;padding:8px 12px;font-size:13px}
+  .pros div h4{margin:0 0 4px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .pros ul{margin:0;padding-left:16px}
+  @media (max-width:560px){.pros{grid-template-columns:1fr}}
+  .callout{background:var(--note);color:var(--note-ink);border-radius:4px;padding:8px 12px;font-size:13px;margin:24px 0 0}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;background:var(--code);padding:0 4px;border-radius:3px}
+  .cmp{margin-top:36px;border-top:1px solid var(--line);padding-top:16px}
+  table.cmp{border-collapse:collapse;width:100%;font-size:13px}
+  table.cmp th,table.cmp td{border:1px solid var(--line-soft);padding:6px 8px;text-align:left;vertical-align:top}
+  table.cmp th{background:var(--head);color:var(--head-ink);font-weight:600}
+</style>
+
+<div class="wrap">
+  <h1>잔량진행률 목업 — 상따창 미체결 그리드</h1>
+  <p class="lead">대기 중인 매수 주문이 체결까지 얼마나 남았는지를 미체결 목록 안에 넣는 세 가지 안입니다. 숫자는 기획서 예시(체결예상 1,100,000 · 현재 누적 1,088,000 → 12,000주 남음, 88%)와 형식 설명용 값입니다. 진행률은 서버가 계산해 미체결 상태와 함께 내려주고 클라이언트는 그리기만 합니다.</p>
+
+  <!-- ===================== A ===================== -->
+  <h2><span class="k">A</span> 컬럼 추가 — 「진행률」 「남음」 두 열</h2>
+  <p class="desc">기존 열은 그대로 두고 오른쪽에 막대+% 한 열과 남은 거래량 한 열을 붙입니다. 행 높이는 그대로라 목록 밀도가 유지됩니다. 상따 대기 주문이 아닌 행(수동·VI·매도)은 빈칸입니다.</p>
+  <div class="win">
+    <div class="titlebar">상따전략 — ○○전자 (037030) <span class="dots">– □ ×</span></div>
+    <div class="tabs"><span class="tab on">수동주문</span><span class="tab">정정/취소</span><span class="tab">거래원</span><span class="tab">로그<span class="badge">3</span></span></div>
+    <div class="section-label">미체결</div>
+    <div class="gridwrap">
+    <table class="grid">
+      <thead><tr><th></th><th>시간</th><th>매매</th><th>단가</th><th>미체결</th><th>주문량</th><th>진행률</th><th>남음</th></tr></thead>
+      <tbody>
+        <tr><td class="btn"><span>C</span></td><td class="ctr">09:52:40</td><td class="ctr"><span class="kind strat">줄서기</span><span class="side-b">매수</span></td><td class="num">12,350</td><td class="num">300</td><td class="num">300</td>
+            <td class="prog"><span class="bar hot"><i style="width:88%"></i></span><span class="pct">88%</span></td><td class="num">12,000</td></tr>
+        <tr><td class="btn"><span>C</span></td><td class="ctr">09:47:15</td><td class="ctr"><span class="kind strat">추가</span><span class="side-b">매수</span></td><td class="num">12,350</td><td class="num">300</td><td class="num">300</td>
+            <td class="prog"><span class="bar"><i style="width:31%"></i></span><span class="pct">31%</span></td><td class="num">104,800</td></tr>
+        <tr><td class="btn"><span>C</span></td><td class="ctr">09:45:02</td><td class="ctr"><span class="kind strat">선매수</span><span class="side-b">매수</span></td><td class="num">12,350</td><td class="num">120</td><td class="num">300</td>
+            <td class="prog"><span class="bar"><i style="width:63%"></i></span><span class="pct">63%</span></td><td class="num">11,100</td></tr>
+        <tr><td class="btn"><span>C</span></td><td class="ctr">09:31:10</td><td class="ctr"><span class="kind">수동</span><span class="side-s">매도</span></td><td class="num">12,350</td><td class="num">600</td><td class="num">600</td><td class="prog"></td><td class="num"></td></tr>
+        <tr class="pending-cancel"><td class="btn"><span>C</span></td><td class="ctr">09:30:05</td><td class="ctr"><span class="kind">VI</span><span class="side-b">매수</span></td><td class="num">12,350</td><td class="num">200</td><td class="num">200</td><td class="prog"></td><td class="num"></td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+  <ul class="notes">
+    <li>막대 색: 90% 이상이면 강조색(체결 임박). 「남음」은 주 단위 거래량이라 미체결 열의 주식 수와 헷갈리지 않도록 헤더를 「남음(거래량)」 으로 둘 수도 있습니다.</li>
+    <li>구현: DataGridView 셀 하나를 <code>CellPainting</code> 으로 그립니다(막대 + %). 「남음」 은 일반 숫자 셀.</li>
+    <li>폭 부담: 열 둘이 늘어 그리드 최소 폭이 약 110px 넓어집니다. 상따창 오른쪽 패널 폭 안에 들어가는지 확인 필요.</li>
+  </ul>
+
+  <!-- ===================== B ===================== -->
+  <h2><span class="k">B</span> 2줄 행 — 주문 밑에 진행 문장 한 줄</h2>
+  <p class="desc">대기 주문 행만 2줄로 키우고, 둘째 줄에 기획서 문장 「줄서기매수 · 체결예상까지 12,000주 남음 [막대] 88%」 를 그대로 넣습니다. 진행 정보가 없는 행은 1줄 그대로입니다. 열 폭은 변하지 않습니다.</p>
+  <div class="win">
+    <div class="titlebar">상따전략 — ○○전자 (037030) <span class="dots">– □ ×</span></div>
+    <div class="tabs"><span class="tab on">수동주문</span><span class="tab">정정/취소</span><span class="tab">거래원</span><span class="tab">로그<span class="badge">3</span></span></div>
+    <div class="section-label">미체결</div>
+    <div class="gridwrap">
+    <table class="grid">
+      <thead><tr><th></th><th>시간</th><th>매매</th><th>단가</th><th>미체결</th><th>주문량</th></tr></thead>
+      <tbody>
+        <tr class="main"><td class="btn" rowspan="2"><span>C</span></td><td class="ctr">09:52:40</td><td class="ctr"><span class="side-b">매수</span></td><td class="num">12,350</td><td class="num">300</td><td class="num">300</td></tr>
+        <tr class="sub"><td colspan="5"><b>줄서기매수</b> · 체결예상까지 <b>12,000주</b> 남음 &nbsp;<span class="bar hot"><i style="width:88%"></i></span><span class="pct">88%</span></td></tr>
+
+        <tr class="main"><td class="btn" rowspan="2"><span>C</span></td><td class="ctr">09:47:15</td><td class="ctr"><span class="side-b">매수</span></td><td class="num">12,350</td><td class="num">300</td><td class="num">300</td></tr>
+        <tr class="sub"><td colspan="5"><b>추가매수</b> · 체결예상까지 <b>104,800주</b> 남음 &nbsp;<span class="bar"><i style="width:31%"></i></span><span class="pct">31%</span></td></tr>
+
+        <tr class="main"><td class="btn" rowspan="2"><span>C</span></td><td class="ctr">09:45:02</td><td class="ctr"><span class="side-b">매수</span></td><td class="num">12,350</td><td class="num">120</td><td class="num">300</td></tr>
+        <tr class="sub"><td colspan="5"><b>선매수</b> · 체결예상까지 <b>11,100주</b> 남음 &nbsp;<span class="bar"><i style="width:63%"></i></span><span class="pct">63%</span> <span class="kind">180주 즉시체결</span></td></tr>
+
+        <tr><td class="btn"><span>C</span></td><td class="ctr">09:31:10</td><td class="ctr"><span class="side-s">매도</span></td><td class="num">12,350</td><td class="num">600</td><td class="num">600</td></tr>
+        <tr class="pending-cancel"><td class="btn"><span>C</span></td><td class="ctr">09:30:05</td><td class="ctr"><span class="side-b">매수</span></td><td class="num">12,350</td><td class="num">200</td><td class="num">200</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+  <ul class="notes">
+    <li>둘째 줄이 구분(선매수·추가매수·줄서기매수)도 함께 알려 주므로 「매매」 열에 구분 태그를 따로 넣지 않아도 됩니다.</li>
+    <li>구현: 행마다 <code>Row.Height</code> 를 2배로 두고 <code>RowPostPaint</code> 로 둘째 줄을 그립니다. 행 선택·취소 버튼은 한 행이라 기존 동작이 그대로입니다.</li>
+    <li>대기 주문이 많으면 목록이 길어집니다. 다만 상따 대기 주문은 종목당 3건(선·추가·줄서기)이 상한이라 실제로는 최대 3행만 2줄입니다.</li>
+  </ul>
+
+  <!-- ===================== C ===================== -->
+  <h2><span class="k">C</span> 기획서 원안 — 그리드 밑 별도 줄</h2>
+  <p class="desc">그리드는 손대지 않고, 바로 밑에 대기 주문마다 한 줄씩 진행 문장을 놓습니다. 그리드 행과 진행 줄의 대응은 눈으로 맞춰야 합니다(같은 순서로 정렬).</p>
+  <div class="win">
+    <div class="titlebar">상따전략 — ○○전자 (037030) <span class="dots">– □ ×</span></div>
+    <div class="tabs"><span class="tab on">수동주문</span><span class="tab">정정/취소</span><span class="tab">거래원</span><span class="tab">로그<span class="badge">3</span></span></div>
+    <div class="section-label">미체결</div>
+    <div class="gridwrap">
+    <table class="grid">
+      <thead><tr><th></th><th>시간</th><th>매매</th><th>단가</th><th>미체결</th><th>주문량</th></tr></thead>
+      <tbody>
+        <tr><td class="btn"><span>C</span></td><td class="ctr">09:52:40</td><td class="ctr"><span class="side-b">매수</span></td><td class="num">12,350</td><td class="num">300</td><td class="num">300</td></tr>
+        <tr><td class="btn"><span>C</span></td><td class="ctr">09:47:15</td><td class="ctr"><span class="side-b">매수</span></td><td class="num">12,350</td><td class="num">300</td><td class="num">300</td></tr>
+        <tr><td class="btn"><span>C</span></td><td class="ctr">09:45:02</td><td class="ctr"><span class="side-b">매수</span></td><td class="num">12,350</td><td class="num">120</td><td class="num">300</td></tr>
+        <tr><td class="btn"><span>C</span></td><td class="ctr">09:31:10</td><td class="ctr"><span class="side-s">매도</span></td><td class="num">12,350</td><td class="num">600</td><td class="num">600</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="strip">
+      <div class="row"><span class="txt"><b>줄서기매수</b> · 체결예상까지 12,000주 남음</span><span class="bar hot"><i style="width:88%"></i></span><span class="pct">88%</span></div>
+      <div class="row"><span class="txt"><b>추가매수</b> · 체결예상까지 104,800주 남음</span><span class="bar"><i style="width:31%"></i></span><span class="pct">31%</span></div>
+      <div class="row"><span class="txt"><b>선매수</b> · 체결예상까지 11,100주 남음</span><span class="bar"><i style="width:63%"></i></span><span class="pct">63%</span></div>
+    </div>
+  </div>
+  <ul class="notes">
+    <li>막대를 창 폭 전체로 쓸 수 있어 가장 잘 보입니다. 대신 미체결 그리드 아래 공간을 최대 3줄 상시 차지합니다.</li>
+    <li>구현: 그리드 밑에 Panel 하나를 두고 대기 주문 목록으로 다시 그립니다. 그리드와는 별개라 가장 단순합니다.</li>
+  </ul>
+
+  <!-- ===================== compare ===================== -->
+  <div class="cmp">
+    <h2>한눈에 비교</h2>
+    <div class="gridwrap">
+    <table class="cmp">
+      <thead><tr><th></th><th>A 컬럼 추가</th><th>B 2줄 행</th><th>C 별도 줄</th></tr></thead>
+      <tbody>
+        <tr><th>행 ↔ 진행 대응</th><td>같은 행이라 명확</td><td>같은 행이라 명확</td><td>순서로 맞춰야 함</td></tr>
+        <tr><th>구분(선·추가·줄서기) 표시</th><td>「매매」 열 태그 추가 필요</td><td>둘째 줄에 포함</td><td>줄에 포함</td></tr>
+        <tr><th>가로 폭</th><td>+약 110px</td><td>변화 없음</td><td>변화 없음</td></tr>
+        <tr><th>세로 높이</th><td>변화 없음</td><td>대기 행마다 +1줄(최대 3)</td><td>최대 +3줄 상시</td></tr>
+        <tr><th>WinForms 구현</th><td>CellPainting 1열</td><td>Row.Height + RowPostPaint</td><td>Panel 별도 그리기</td></tr>
+        <tr><th>gh-radar 웹 대응</th><td>열 추가(넓은 화면), 카드 2줄(좁은 화면)</td><td>카드 행과 같은 구조라 자연스러움</td><td>패널 밑 목록</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="pros">
+      <div><h4>추천</h4><ul><li><b>B 2줄 행</b>. 행 대응이 명확하고 폭을 안 늘리며, 기획서 문장을 그대로 씁니다. gh-radar 좁은 화면의 2줄 카드와 같은 모양이라 두 화면이 같은 말을 합니다.</li></ul></div>
+      <div><h4>대안 조합</h4><ul><li>A 의 「진행률」 열만 넣고(막대+%), 남은 거래량은 툴팁이나 로그 탭에서 보는 절충안.</li><li>C 는 구현이 가장 가벼워 첫 배포용으로 두고 B 로 옮기는 경로도 가능.</li></ul></div>
+    </div>
+  </div>
+
+  <div class="callout">공통 전제: 진행률·남은 거래량·체결예상 누적은 서버가 계산합니다(누적거래량과 상한가 잔량은 서버 시세에만 있음). 미체결 상태 푸시에 필드를 덧붙이면 WinForms 와 gh-radar 가 같은 값을 그립니다. 첫 체결이 나거나 취소되면 진행 표시는 사라집니다.</div>
+</div>

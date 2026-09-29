@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>미체결 잔량진행률 목업</title>
+<style>
+  /* globals.css 토큰 인라인 (light) */
+  .theme { --bg:#ffffff; --fg:#191f28; --muted:#f2f4f6; --muted-fg:#6b7684; --faint:#b0b8c1;
+    --border:#f2f4f6; --border-subtle:#e5e8eb; --card:#ffffff; --primary:#3182f6; --accent:#e8f3ff;
+    --accent-fg:#1b64da; --destructive:#f04452; --up:#f04452; --down:#3182f6;
+    --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --r-sm:6px; --r-md:16px; --r-lg:20px;
+    --t-caption:12px; --t-sm:14px; --row-h:36px; --cell-pad-x:10px; --cell-pad-y:8px; }
+  .theme.dark { --bg:#17171c; --fg:#ffffff; --muted:#2c2c35; --muted-fg:#9e9ea4; --faint:#62626d;
+    --border:rgba(255,255,255,.06); --border-subtle:#3c3c47; --card:#202027; --primary:#3485fa;
+    --accent:rgba(52,133,250,.16); --accent-fg:#8ab8ff; --destructive:#f04251; --up:#f04251; --down:#3485fa; }
+
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:'Pretendard Variable',Pretendard,-apple-system,system-ui,sans-serif; background:#0b0b0e; color:#ddd; }
+  .page { padding:24px; max-width:1400px; margin:0 auto; }
+  h1 { font-size:18px; margin:0 0 6px; color:#fff; }
+  .lead { font-size:13px; color:#9e9ea4; margin:0 0 20px; line-height:1.5; }
+  h2 { font-size:14px; color:#fff; margin:28px 0 8px; }
+  .note { font-size:12px; color:#9e9ea4; margin:0 0 10px; line-height:1.5; }
+  .pair { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width: 900px) { .pair { grid-template-columns:1fr; } }
+  .theme { background:var(--bg); color:var(--fg); padding:16px; border-radius:12px; }
+  .theme .label { font-size:11px; color:var(--muted-fg); margin-bottom:8px; }
+  .mono { font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1; letter-spacing:-.01em; }
+
+  /* 카드 */
+  .card { background:var(--card); border-radius:var(--r-lg); padding:var(--s-3); border:1px solid transparent; }
+  .card h4 { margin:0 0 var(--s-1); font-size:var(--t-caption); font-weight:600; }
+
+  /* 표 (tbl-wrap 동형) */
+  table { width:100%; border-collapse:collapse; }
+  thead th { text-align:left; color:var(--muted-fg); font-size:var(--t-caption); font-weight:600; padding:var(--cell-pad-y) var(--cell-pad-x); }
+  thead th.num { text-align:right; }
+  tbody td { height:var(--row-h); padding:0 var(--cell-pad-x); vertical-align:middle; font-size:var(--t-caption); }
+  tbody td.num { text-align:right; }
+  tbody tr:hover td { background:color-mix(in srgb, var(--fg) 3%, transparent); }
+  .side-b { color:var(--up); font-weight:600; white-space:nowrap; }
+  .origin { display:inline-block; margin-left:4px; border-radius:4px; background:var(--muted); color:var(--muted-fg); font-size:10px; padding:0 4px; }
+  .btn { display:inline-block; font-size:11px; padding:2px 8px; border:1px solid var(--border-subtle); border-radius:var(--r-sm); color:var(--fg); background:transparent; }
+
+  /* 진행률 조각 */
+  .bar { position:relative; height:6px; border-radius:999px; background:var(--muted); overflow:hidden; }
+  .bar > i { position:absolute; inset:0 auto 0 0; background:var(--primary); border-radius:999px; }
+  .bar.near > i { background:var(--up); }
+  .pct { font-weight:600; min-width:34px; text-align:right; }
+  .progress-cell { display:flex; align-items:center; gap:8px; min-width:150px; }
+  .progress-cell .bar { flex:1 1 auto; }
+
+  /* B안 2줄 — 표 아래 보조행 */
+  tr.sub td { height:auto; padding-top:0; padding-bottom:8px; font-size:11px; color:var(--muted-fg); }
+  tr.sub .line { display:flex; align-items:center; gap:8px; padding-left:2px; }
+  tr.sub .line .kind { color:var(--fg); font-weight:600; }
+  tr.sub .line .bar { width:140px; }
+  tr.sub .line b { color:var(--fg); }
+
+  /* 모바일 카드 행 */
+  .list { border:1px solid var(--border); border-radius:var(--r-md); overflow:hidden; max-width:390px; }
+  .row { padding:var(--s-2) var(--s-3); border-top:1px solid var(--border-subtle); }
+  .row:first-child { border-top:0; }
+  .r1 { display:flex; align-items:center; gap:var(--s-2); min-width:0; }
+  .r1 .name { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:var(--t-sm); font-weight:600; }
+  .r1 .price { margin-left:auto; flex:none; font-size:var(--t-sm); font-weight:600; }
+  .r2 { display:flex; align-items:center; gap:var(--s-2); margin-top:4px; font-size:11px; color:var(--muted-fg); }
+  .r2 b { color:var(--fg); font-weight:600; }
+  .r2 .btn { margin-left:auto; }
+  .r3 { display:flex; align-items:center; gap:8px; margin-top:6px; font-size:11px; color:var(--muted-fg); }
+  .r3 .bar { flex:1 1 auto; }
+  .r3 .kind { color:var(--fg); font-weight:600; flex:none; }
+  .r3 b { color:var(--fg); }
+
+  /* C안 — 목록 밑 블록 */
+  .under { margin-top:var(--s-2); border:1px dashed var(--border-subtle); border-radius:var(--r-md); padding:var(--s-2) var(--s-3); display:flex; flex-direction:column; gap:6px; }
+  .under .line { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--muted-fg); }
+  .under .line .bar { flex:1 1 auto; }
+  .under .line .kind { color:var(--fg); font-weight:600; flex:none; }
+  .under .line b { color:var(--fg); }
+  .under .line .no { color:var(--faint); flex:none; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>미체결 잔량진행률 — gh-radar account-panel 목업</h1>
+  <p class="lead">기획서 2부: 대기 중인 매수 주문마다 「체결예상까지 N주 남음 [막대] P%」. 첫 체결·취소되면 줄 삭제. 값(기준 누적·내 앞 물량·현재 누적)은 서버가 계산해 미체결 상태(66/67)에 싣는다고 가정. 아래 세 안은 같은 데이터, 자리만 다르다. 막대 색: 90% 미만 <span style="color:#3485fa">primary</span>, 90% 이상 <span style="color:#f04251">up(빨강)</span> = 「곧 내 차례」. 진행률 없는 행(수동 · 매도 · 대기 전)은 빈칸.</p>
+
+  <!-- ===================== A안 ===================== -->
+  <h2>A안 — 데스크톱 표에 「진행률」 열 추가 (≥1280)</h2>
+  <p class="note">주문번호 · 구분 · 종목 · 주문가 · 주문 · 미체결 · <b>진행률(남음 · 막대 · %)</b> · 취소. 행 높이 유지. 표가 넓어지므로 좁은 본문에서는 가로 스크롤(tbl-wrap 규약).</p>
+  <div class="pair">
+    <div class="theme"><div class="label">Light</div>
+      <div class="card"><h4>미체결</h4>
+      <table><thead><tr><th>주문번호</th><th>구분</th><th>종목</th><th class="num">주문가</th><th class="num">주문</th><th class="num">미체결</th><th>진행률</th><th></th></tr></thead>
+      <tbody>
+        <tr><td class="mono">0012453</td><td><span class="side-b">▲ 매수</span><span class="origin">상따</span></td><td>○○전자</td><td class="num mono">12,350</td><td class="num mono">300</td><td class="num mono">300</td>
+          <td><div class="progress-cell"><span class="mono">12,000주</span><div class="bar near"><i style="width:88%"></i></div><span class="mono pct">88%</span></div></td><td class="num"><span class="btn">취소</span></td></tr>
+        <tr><td class="mono">0012452</td><td><span class="side-b">▲ 매수</span><span class="origin">상따</span></td><td>○○전자</td><td class="num mono">12,350</td><td class="num mono">300</td><td class="num mono">300</td>
+          <td><div class="progress-cell"><span class="mono">41,000주</span><div class="bar"><i style="width:73%"></i></div><span class="mono pct">73%</span></div></td><td class="num"><span class="btn">취소</span></td></tr>
+        <tr><td class="mono">0012460</td><td><span class="side-b">▲ 매수</span></td><td>△△바이오</td><td class="num mono">8,910</td><td class="num mono">1,000</td><td class="num mono">1,000</td>
+          <td><span style="color:var(--faint)">—</span></td><td class="num"><span class="btn">취소</span></td></tr>
+      </tbody></table></div>
+    </div>
+    <div class="theme dark"><div class="label">Dark</div>
+      <div class="card"><h4>미체결</h4>
+      <table><thead><tr><th>주문번호</th><th>구분</th><th>종목</th><th class="num">주문가</th><th class="num">주문</th><th class="num">미체결</th><th>진행률</th><th></th></tr></thead>
+      <tbody>
+        <tr><td class="mono">0012453</td><td><span class="side-b">▲ 매수</span><span class="origin">상따</span></td><td>○○전자</td><td class="num mono">12,350</td><td class="num mono">300</td><td class="num mono">300</td>
+          <td><div class="progress-cell"><span class="mono">12,000주</span><div class="bar near"><i style="width:88%"></i></div><span class="mono pct">88%</span></div></td><td class="num"><span class="btn">취소</span></td></tr>
+        <tr><td class="mono">0012452</td><td><span class="side-b">▲ 매수</span><span class="origin">상따</span></td><td>○○전자</td><td class="num mono">12,350</td><td class="num mono">300</td><td class="num mono">300</td>
+          <td><div class="progress-cell"><span class="mono">41,000주</span><div class="bar"><i style="width:73%"></i></div><span class="mono pct">73%</span></div></td><td class="num"><span class="btn">취소</span></td></tr>
+        <tr><td class="mono">0012460</td><td><span class="side-b">▲ 매수</span></td><td>△△바이오</td><td class="num mono">8,910</td><td class="num mono">1,000</td><td class="num mono">1,000</td>
+          <td><span style="color:var(--faint)">—</span></td><td class="num"><span class="btn">취소</span></td></tr>
+      </tbody></table></div>
+    </div>
+  </div>
+
+  <!-- ===================== B안 ===================== -->
+  <h2>B안 — 대기 행 아래 2줄째 (기획서 문장 형식 그대로)</h2>
+  <p class="note">열 구성 불변. 대기 중인 상따 매수 행에만 보조행 「줄서기매수 · 체결예상까지 12,000주 남음 [막대] 88%」 가 붙는다. 첫 체결·취소 시 보조행만 사라진다. 표 폭이 늘지 않아 임베드(작업대 공용 패널·카드 탭)에도 그대로 쓸 수 있다.</p>
+  <div class="pair">
+    <div class="theme"><div class="label">Light</div>
+      <div class="card"><h4>미체결</h4>
+      <table><thead><tr><th>주문번호</th><th>구분</th><th>종목</th><th class="num">주문가</th><th class="num">주문</th><th class="num">미체결</th><th></th></tr></thead>
+      <tbody>
+        <tr><td class="mono">0012453</td><td><span class="side-b">▲ 매수</span><span class="origin">상따</span></td><td>○○전자</td><td class="num mono">12,350</td><td class="num mono">300</td><td class="num mono">300</td><td class="num"><span class="btn">취소</span></td></tr>
+        <tr class="sub"><td colspan="7"><div class="line"><span class="kind">줄서기매수</span><span>·</span><span>체결예상까지 <b class="mono">12,000</b>주 남음</span><div class="bar near"><i style="width:88%"></i></div><b class="mono">88%</b></div></td></tr>
+        <tr><td class="mono">0012452</td><td><span class="side-b">▲ 매수</span><span class="origin">상따</span></td><td>○○전자</td><td class="num mono">12,350</td><td class="num mono">300</td><td class="num mono">300</td><td class="num"><span class="btn">취소</span></td></tr>
+        <tr class="sub"><td colspan="7"><div class="line"><span class="kind">추가매수</span><span>·</span><span>체결예상까지 <b class="mono">41,000</b>주 남음</span><div class="bar"><i style="width:73%"></i></div><b class="mono">73%</b></div></td></tr>
+        <tr><td class="mono">0012460</td><td><span class="side-b">▲ 매수</span></td><td>△△바이오</td><td class="num mono">8,910</td><td class="num mono">1,000</td><td class="num mono">1,000</td><td class="num"><span class="btn">취소</span></td></tr>
+      </tbody></table></div>
+    </div>
+    <div class="theme dark"><div class="label">Dark</div>
+      <div class="card"><h4>미체결</h4>
+      <table><thead><tr><th>주문번호</th><th>구분</th><th>종목</th><th class="num">주문가</th><th class="num">주문</th><th class="num">미체결</th><th></th></tr></thead>
+      <tbody>
+        <tr><td class="mono">0012453</td><td><span class="side-b">▲ 매수</span><span class="origin">상따</span></td><td>○○전자</td><td class="num mono">12,350</td><td class="num mono">300</td><td class="num mono">300</td><td class="num"><span class="btn">취소</span></td></tr>
+        <tr class="sub"><td colspan="7"><div class="line"><span class="kind">줄서기매수</span><span>·</span><span>체결예상까지 <b class="mono">12,000</b>주 남음</span><div class="bar near"><i style="width:88%"></i></div><b class="mono">88%</b></div></td></tr>
+        <tr><td class="mono">0012452</td><td><span class="side-b">▲ 매수</span><span class="origin">상따</span></td><td>○○전자</td><td class="num mono">12,350</td><td class="num mono">300</td><td class="num mono">300</td><td class="num"><span class="btn">취소</span></td></tr>
+        <tr class="sub"><td colspan="7"><div class="line"><span class="kind">추가매수</span><span>·</span><span>체결예상까지 <b class="mono">41,000</b>주 남음</span><div class="bar"><i style="width:73%"></i></div><b class="mono">73%</b></div></td></tr>
+        <tr><td class="mono">0012460</td><td><span class="side-b">▲ 매수</span></td><td>△△바이오</td><td class="num mono">8,910</td><td class="num mono">1,000</td><td class="num mono">1,000</td><td class="num"><span class="btn">취소</span></td></tr>
+      </tbody></table></div>
+    </div>
+  </div>
+
+  <!-- ===================== C안 ===================== -->
+  <h2>C안 — 미체결 목록 밑 별도 블록 (기획서 원안 위치)</h2>
+  <p class="note">목록은 손대지 않고 그 아래에 대기 주문 줄만 모아 둔다. WinForms 창과 같은 자리. 어느 행의 줄인지는 주문번호 꼬리로 잇는다. 미체결이 없는 탭에서도 「항상 보임」 을 만족하려면 이 안이 가장 쉽다.</p>
+  <div class="pair">
+    <div class="theme"><div class="label">Light</div>
+      <div class="card"><h4>미체결</h4>
+      <table><thead><tr><th>주문번호</th><th>구분</th><th>종목</th><th class="num">주문가</th><th class="num">주문</th><th class="num">미체결</th><th></th></tr></thead>
+      <tbody>
+        <tr><td class="mono">0012453</td><td><span class="side-b">▲ 매수</span><span class="origin">상따</span></td><td>○○전자</td><td class="num mono">12,350</td><td class="num mono">300</td><td class="num mono">300</td><td class="num"><span class="btn">취소</span></td></tr>
+        <tr><td class="mono">0012452</td><td><span class="side-b">▲ 매수</span><span class="origin">상따</span></td><td>○○전자</td><td class="num mono">12,350</td><td class="num mono">300</td><td class="num mono">300</td><td class="num"><span class="btn">취소</span></td></tr>
+      </tbody></table>
+      <div class="under">
+        <div class="line"><span class="kind">줄서기매수</span><span>·</span><span>체결예상까지 <b class="mono">12,000</b>주 남음</span><div class="bar near"><i style="width:88%"></i></div><b class="mono">88%</b><span class="no mono">#0012453</span></div>
+        <div class="line"><span class="kind">추가매수</span><span>·</span><span>체결예상까지 <b class="mono">41,000</b>주 남음</span><div class="bar"><i style="width:73%"></i></div><b class="mono">73%</b><span class="no mono">#0012452</span></div>
+      </div></div>
+    </div>
+    <div class="theme dark"><div class="label">Dark</div>
+      <div class="card"><h4>미체결</h4>
+      <table><thead><tr><th>주문번호</th><th>구분</th><th>종목</th><th class="num">주문가</th><th class="num">주문</th><th class="num">미체결</th><th></th></tr></thead>
+      <tbody>
+        <tr><td class="mono">0012453</td><td><span class="side-b">▲ 매수</span><span class="origin">상따</span></td><td>○○전자</td><td class="num mono">12,350</td><td class="num mono">300</td><td class="num mono">300</td><td class="num"><span class="btn">취소</span></td></tr>
+        <tr><td class="mono">0012452</td><td><span class="side-b">▲ 매수</span><span class="origin">상따</span></td><td>○○전자</td><td class="num mono">12,350</td><td class="num mono">300</td><td class="num mono">300</td><td class="num"><span class="btn">취소</span></td></tr>
+      </tbody></table>
+      <div class="under">
+        <div class="line"><span class="kind">줄서기매수</span><span>·</span><span>체결예상까지 <b class="mono">12,000</b>주 남음</span><div class="bar near"><i style="width:88%"></i></div><b class="mono">88%</b><span class="no mono">#0012453</span></div>
+        <div class="line"><span class="kind">추가매수</span><span>·</span><span>체결예상까지 <b class="mono">41,000</b>주 남음</span><div class="bar"><i style="width:73%"></i></div><b class="mono">73%</b><span class="no mono">#0012452</span></div>
+      </div></div>
+    </div>
+  </div>
+
+  <!-- ===================== 모바일 ===================== -->
+  <h2>모바일 카드 행 (&lt;1280) — B안의 r3 줄 (A·B·C 공통으로 쓸 수 있다)</h2>
+  <p class="note">r1 종목명(신축)+구분 … 주문가 / r2 「미체결 300 / 300주」 … 취소 / <b>r3 진행률</b>. r3 는 대기 중인 상따 매수 행에만 있고 막대가 유일한 신축 항목이다(잘림 없음, account-panel ⑤ 규율).</p>
+  <div class="pair">
+    <div class="theme"><div class="label">Light · 390px</div>
+      <div class="list">
+        <div class="row">
+          <div class="r1"><span class="name">○○전자</span><span class="side-b">▲ 매수</span><span class="price mono">12,350</span></div>
+          <div class="r2"><span>미체결 <b class="mono">300</b> / <b class="mono">300</b>주</span><span class="btn">취소</span></div>
+          <div class="r3"><span class="kind">줄서기매수</span><span><b class="mono">12,000</b>주 남음</span><div class="bar near"><i style="width:88%"></i></div><b class="mono">88%</b></div>
+        </div>
+        <div class="row">
+          <div class="r1"><span class="name">○○전자</span><span class="side-b">▲ 매수</span><span class="price mono">12,350</span></div>
+          <div class="r2"><span>미체결 <b class="mono">300</b> / <b class="mono">300</b>주</span><span class="btn">취소</span></div>
+          <div class="r3"><span class="kind">추가매수</span><span><b class="mono">41,000</b>주 남음</span><div class="bar"><i style="width:73%"></i></div><b class="mono">73%</b></div>
+        </div>
+        <div class="row">
+          <div class="r1"><span class="name">△△바이오 아주아주 긴 종목명</span><span class="side-b">▲ 매수</span><span class="price mono">8,910</span></div>
+          <div class="r2"><span>미체결 <b class="mono">1,000</b> / <b class="mono">1,000</b>주</span><span class="btn">취소</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="theme dark"><div class="label">Dark · 390px</div>
+      <div class="list">
+        <div class="row">
+          <div class="r1"><span class="name">○○전자</span><span class="side-b">▲ 매수</span><span class="price mono">12,350</span></div>
+          <div class="r2"><span>미체결 <b class="mono">300</b> / <b class="mono">300</b>주</span><span class="btn">취소</span></div>
+          <div class="r3"><span class="kind">줄서기매수</span><span><b class="mono">12,000</b>주 남음</span><div class="bar near"><i style="width:88%"></i></div><b class="mono">88%</b></div>
+        </div>
+        <div class="row">
+          <div class="r1"><span class="name">○○전자</span><span class="side-b">▲ 매수</span><span class="price mono">12,350</span></div>
+          <div class="r2"><span>미체결 <b class="mono">300</b> / <b class="mono">300</b>주</span><span class="btn">취소</span></div>
+          <div class="r3"><span class="kind">추가매수</span><span><b class="mono">41,000</b>주 남음</span><div class="bar"><i style="width:73%"></i></div><b class="mono">73%</b></div>
+        </div>
+        <div class="row">
+          <div class="r1"><span class="name">△△바이오 아주아주 긴 종목명</span><span class="side-b">▲ 매수</span><span class="price mono">8,910</span></div>
+          <div class="r2"><span>미체결 <b class="mono">1,000</b> / <b class="mono">1,000</b>주</span><span class="btn">취소</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>비교</h2>
+  <p class="note">
+    A(열 추가): 한눈에 비교 가능, 표가 넓어져 임베드·좁은 본문에서 가로 스크롤. 진행률 없는 행에 빈 열이 생긴다.<br/>
+    B(2줄째): 열 불변, 기획서 문장 그대로, 임베드·모바일까지 한 규칙. 대기 행이 많으면 목록이 두 배로 길어진다.<br/>
+    C(목록 밑 블록): WinForms 와 같은 자리, 목록 무변경. 어느 행인지 주문번호로 눈이 왕복한다.<br/>
+    제안: <b>B</b>(데스크톱 표·임베드) + 모바일 r3. 근거: 표면 3곳이 한 규칙이고, 첫 체결·취소 시 보조행만 빠져 행 자체는 그대로다.
+  </p>
+</div>
+</body>
+</html>
