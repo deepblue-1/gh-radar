@@ -108,6 +108,7 @@ import {
   mergeOrderNotices,
   orderActionWord,
   orderNoticeLabel,
+  SIDE_REF_TITLE,
   type MergedOrderNotice,
   type OrderNoticeFacts,
   type OrderNoticeLabel,
@@ -180,6 +181,8 @@ function noticeFactsOf(row: JournalOrderRow): OrderNoticeFacts {
     side: row.side,
     requester: row.requester ?? "",
     board: row.board ?? "",
+    // 참고 표기(sideRef) 판정용 — −2(접수 불명)는 상태 칸이 말하므로 방향 참고를 붙이지 않는다.
+    resultCode: row.resultCode,
   };
 }
 
@@ -625,18 +628,25 @@ function RowValue({ children }: { children: ReactNode }) {
  *
  * ★ D-08 — 출처 칩이 수동을 말한다. 그래서 이 칸은 「· 수동」 꼬리를 그리지 않는다
  *   (`orderNoticeLabel` 의 메타 필드와 함수는 trading-alerts 가 쓰므로 그대로 둔다).
+ *
+ * ★ 방향 참고(Phase 25 별건 3) — KB 거부 R(New) 의 side 는 틀릴 수 있다(side_trusted 합의).
+ *   `label.sideRef` 이면 화살표 · 단어는 두고 **색만** `--muted-fg` 로 죽여 신규 주문처럼 읽히지
+ *   않게 하고, 참고 문구를 title · sr-only 로 붙인다. 판정도 문구도 `order-notices.ts` 에서 온다.
  */
 function SideTag({ label, srAction }: { label: OrderNoticeLabel; srAction: string }) {
   const arrow = label.side === "B" ? "▲ " : label.side === "S" ? "▼ " : "";
+  const tinted = !label.sideRef;
   return (
     <span
       data-slot="today-order-side"
       data-side={label.side ?? "none"}
+      data-side-ref={label.sideRef ? "true" : undefined}
+      title={label.sideRef ? SIDE_REF_TITLE : undefined}
       className={cn(
         "whitespace-nowrap text-[length:var(--t-caption)] font-semibold",
-        label.side === "B" && "text-[var(--up)]",
-        label.side === "S" && "text-[var(--down)]",
-        label.side === null && "text-[var(--muted-fg)]",
+        tinted && label.side === "B" && "text-[var(--up)]",
+        tinted && label.side === "S" && "text-[var(--down)]",
+        (!tinted || label.side === null) && "text-[var(--muted-fg)]",
       )}
     >
       {arrow}
@@ -644,16 +654,21 @@ function SideTag({ label, srAction }: { label: OrderNoticeLabel; srAction: strin
       {srAction !== "" && srAction !== label.text && (
         <span className="sr-only"> {srAction}</span>
       )}
+      {label.sideRef && <span className="sr-only"> {SIDE_REF_TITLE}</span>}
     </span>
   );
 }
 
-/** 상태 배지 — 색은 톤 3종만 쓴다(account-panel 이 쓰는 토큰과 같은 집합). */
+/**
+ * 상태 배지 — 색은 톤 3종만 쓴다(account-panel 이 쓰는 토큰과 같은 집합).
+ * `shown.title`(「접수 불명」 의 확인 경로 등)이 있으면 title 툴팁으로만 싣는다 — 칩 문구는 고정.
+ */
 function StatusTag({ shown }: { shown: OrderDisplayStatus }) {
   return (
     <span
       data-slot="today-order-status"
       data-tone={shown.tone}
+      title={shown.title}
       className={cn(
         "whitespace-nowrap rounded-[var(--r-sm)] bg-[var(--muted)] px-1.5 py-0.5 text-[11px] font-semibold",
         shown.tone === "danger" && "text-[var(--destructive)]",
