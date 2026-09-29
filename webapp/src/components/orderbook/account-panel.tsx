@@ -122,10 +122,30 @@
  *     (「이 행을 눌렀다」 알림뿐 — 작업대가 그 종목 카드를 보장·포커스한다) · 넘기지 않으면 DOM
  *     불변. 첫 셀(종목명)을 ⑩ 선택 핸들과 같은 문법의 `<button>`(onClick 없음)으로 감싸고 클릭은
  *     행 `onClick` 한 경로로 버블한다(키보드 Enter/Space 도 네이티브 click 이 행으로 버블).
+ *
+ * ⑫ 진행률 B안 (Phase 25 D-11~D-13 · UI-SPEC ④ · 결정 7-A)
+ *   대기 중인 매수 미체결 행 **바로 아래** 한 줄(`UnfilledProgress`)이 「{그룹} · 체결예상까지 {N}주 남음
+ *   [막대] {P}%」 를 그린다. 값은 `useRelayContext().queueProgress`(relay `unf.progress` 푸시 스냅)에서만
+ *   온다 — `findQueueProgress(map, account.a, row)` 로 (계좌, 주문번호) **문자열 동등** 조인 →
+ *   `progressView`(클램프만). **웹은 진행률을 계산하지도, 대기 중인지 추정하지도 않는다.**
+ *   - D-11 항목이 없으면 보조행 · r3 가 **없다**(즉시체결 주문에는 값이 영영 오지 않는다).
+ *   - D-13 스냅에서 항목이 빠지면(첫 체결 · 취소) 보조행만 사라지고, 미체결 행이 사라지면 조인 대상이
+ *     없어 함께 사라진다(빠진 스냅샷 드롭 대비 이중 안전). 오래된 값 표식은 없다.
+ *   - 자리: 기본 표(colSpan 7) · 임베드 표(`stockScope ? 5 : 7` — 취소 결과 행과 같은 식)는 미체결 행 뒤
+ *     `<UnfilledProgressRow>` 한 컴포넌트다(두 벌이 아니다). 임베드는 **취소 결과 행보다 위**. 모바일 카드는
+ *     r2 와 `StatusNotes` 사이 r3(`variant="compact"`) — StatusNotes 는 r4 로 한 줄 내려갈 뿐 무변경.
+ *   - 보조행 셀은 `.tbl-wrap tbody td`(높이 · 패딩) · `tr:hover td`(배경) **층 없는** 규칙을 `!` 수식어로
+ *     이긴다(높이 auto · 위 0 · 아래 8px · 배경 투명). 좌우 패딩은 그 표의 다른 셀과 같은 규칙을 그대로
+ *     받는다(= 「그 표의 셀 좌우」). B 표는 행 구분선이 없어(globals.css 260924-vj1) 넘길 선이 없다 —
+ *     짝은 위 패딩 0 으로 붙어 읽힌다.
+ *   - 선택된 행이면 보조행도 같은 선택 배경(`data-selected`) · 취소 보관 행이면 숫자 muted + 채움 `--faint`.
+ *     보조행은 클릭 대상이 아니다(`onClick` · `title` 없음).
+ *   - 조인 실패(문자열 불일치)는 개발 모드에서 `reportUnmatchedProgressOnce` 가 1회 경고한다(Pitfall 15).
+ *   - 열 구성 · 취소(③④⑥⑨) · 선택(⑩) · `StatusNotes` 문구는 이 항목이 바꾸지 않는다.
  */
 
 import Link from 'next/link';
-import { Fragment, useCallback, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type {
   RelayAccount,
@@ -156,6 +176,13 @@ import {
 } from '@/components/trading/card/manual-order-form';
 import { OriginTag, type OriginTagLabel } from '@/components/trading/origin-tag';
 import { ExchangeTag } from '@/components/trading/vi-order-list';
+import { UnfilledProgress } from '@/components/orderbook/unfilled-progress';
+import {
+  findQueueProgress,
+  progressView,
+  reportUnmatchedProgressOnce,
+  type ProgressView,
+} from '@/lib/queue-progress';
 import { useRelayContext } from '@/lib/relay-provider';
 import type { RelayStatus } from '@/lib/use-relay-socket';
 import { cn } from '@/lib/utils';
@@ -305,6 +332,8 @@ interface UnfilledView {
   cancelBlock: string | null;
   /** 행 선택 불가 사유(`unfilledSelectBlockReason`). `null` = 선택 가능. */
   selectBlock: string | null;
+  /** 진행률 보기 값(⑫) — `unf.progress` 에 그 (계좌, 주문번호) 항목이 없으면 null(D-11 · 보조행 없음). */
+  progress: ProgressView | null;
 }
 
 /** 잔고 한 행의 표시 파생값. 현재가를 모르면 `value`/`pnl`/`rate` 가 전부 null 이다(⑤). */
@@ -354,7 +383,12 @@ export function AccountPanel({
   const [cancelResultOrderNo, setCancelResultOrderNo] = useState<string | null>(null);
   /** 결과를 모르는 취소가 나간 주문번호 — 다시 누를 수 없게 잠근다. */
   const [lockedOrderNos, setLockedOrderNos] = useState<ReadonlySet<string>>(new Set());
-  const { sendOrder } = useRelayContext();
+  const { sendOrder, queueProgress, accountStates } = useRelayContext();
+
+  // ⑫ 조인 실패(계좌 · 주문번호 문자열 불일치)는 조용히 「보조행이 안 뜬다」로만 보인다 — 개발 모드 1회 경고.
+  useEffect(() => {
+    reportUnmatchedProgressOnce(queueProgress, accountStates);
+  }, [queueProgress, accountStates]);
 
   /**
    * 종목 축이 있는가. `code` 유무 **하나로** 판정한다 — 판정 근거가 둘이면
@@ -367,6 +401,9 @@ export function AccountPanel({
     () =>
       (account?.unf ?? []).map((row) => {
         const sameStock = isin != null && row.isin === isin;
+        // ⑫ (계좌, 주문번호) 문자열 동등 조인 — 계좌는 이 상태의 계좌번호(`a`) 원문이다(Pitfall 15).
+        const progressItem =
+          account === null ? null : findQueueProgress(queueProgress, account.a, row);
         return {
           row,
           label: row.name ?? (sameStock ? (name ?? null) : null),
@@ -377,9 +414,10 @@ export function AccountPanel({
             row.unfilledQty > 0 && !row.pendingCancelSent && !lockedOrderNos.has(row.orderNo),
           cancelBlock: row.orderNo === '' ? CANCEL_BLOCK_NO_ORDER_NO : null,
           selectBlock: unfilledSelectBlockReason(row),
+          progress: progressItem === null ? null : progressView(progressItem),
         };
       }),
-    [account, isin, name, lockedOrderNos],
+    [account, isin, name, lockedOrderNos, queueProgress],
   );
 
   const holdings = useMemo<HoldingView[]>(
@@ -773,48 +811,51 @@ export function AccountPanel({
                   </TableHeader>
                   <TableBody>
                     {unfilled.map((view) => (
-                      <TableRow
-                        key={view.row.orderNo}
-                        data-pending-cancel={view.row.pendingCancelSent ? 'true' : undefined}
-                        {...rowSelectProps(view)}
-                        className={cn(
-                          view.row.pendingCancelSent && 'text-[var(--muted-fg)]',
-                          rowSelectClass(view),
-                        )}
-                      >
-                        <TableCell className="mono text-[length:var(--t-caption)]">
-                          {selectHandle(view, view.row.orderNo)}
-                        </TableCell>
-                        <TableCell>
-                          <span className="inline-flex items-center gap-1">
-                            <SideTag
-                              side={view.row.side}
-                              text={view.sideText}
-                              muted={view.row.pendingCancelSent}
-                              selected={isSelected(view)}
-                            />
-                            <OriginTag tag={originTag} />
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-[length:var(--t-caption)]">
-                          {stockLink(
-                            unfilledHrefOf(view.row.isin),
-                            view.label ?? <span className="mono">{view.row.isin}</span>,
-                            false,
+                      <Fragment key={view.row.orderNo}>
+                        <TableRow
+                          data-pending-cancel={view.row.pendingCancelSent ? 'true' : undefined}
+                          {...rowSelectProps(view)}
+                          className={cn(
+                            view.row.pendingCancelSent && 'text-[var(--muted-fg)]',
+                            rowSelectClass(view),
                           )}
-                          <StatusNotes texts={[view.row.queuedStatus, view.row.pendingStatus]} />
-                        </TableCell>
-                        <TableCell className="num mono text-[length:var(--t-caption)]">
-                          {KRW.format(view.row.price)}
-                        </TableCell>
-                        <TableCell className="num mono text-[length:var(--t-caption)]">
-                          {KRW.format(view.row.orderQty)}
-                        </TableCell>
-                        <TableCell className="num mono text-[length:var(--t-caption)]">
-                          {KRW.format(view.row.unfilledQty)}
-                        </TableCell>
-                        <TableCell className="num">{cancelButton(view)}</TableCell>
-                      </TableRow>
+                        >
+                          <TableCell className="mono text-[length:var(--t-caption)]">
+                            {selectHandle(view, view.row.orderNo)}
+                          </TableCell>
+                          <TableCell>
+                            <span className="inline-flex items-center gap-1">
+                              <SideTag
+                                side={view.row.side}
+                                text={view.sideText}
+                                muted={view.row.pendingCancelSent}
+                                selected={isSelected(view)}
+                              />
+                              <OriginTag tag={originTag} />
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-[length:var(--t-caption)]">
+                            {stockLink(
+                              unfilledHrefOf(view.row.isin),
+                              view.label ?? <span className="mono">{view.row.isin}</span>,
+                              false,
+                            )}
+                            <StatusNotes texts={[view.row.queuedStatus, view.row.pendingStatus]} />
+                          </TableCell>
+                          <TableCell className="num mono text-[length:var(--t-caption)]">
+                            {KRW.format(view.row.price)}
+                          </TableCell>
+                          <TableCell className="num mono text-[length:var(--t-caption)]">
+                            {KRW.format(view.row.orderQty)}
+                          </TableCell>
+                          <TableCell className="num mono text-[length:var(--t-caption)]">
+                            {KRW.format(view.row.unfilledQty)}
+                          </TableCell>
+                          <TableCell className="num">{cancelButton(view)}</TableCell>
+                        </TableRow>
+                        {/* ⑫ 진행률 보조행 — 항목이 있는 행만(D-11). */}
+                        <UnfilledProgressRow view={view} colSpan={7} selected={isSelected(view)} />
+                      </Fragment>
                     ))}
                   </TableBody>
                 </Table>
@@ -914,7 +955,20 @@ export function AccountPanel({
                       </span>
                       <span className="relative z-[1] ml-auto flex-none">{cancelButton(view)}</span>
                     </div>
-                    {/* r3 — 서버 상태 문구(있는 행에만). 표에서는 종목 셀 아래 자리다. */}
+                    {/*
+                      r3 — 진행률(⑫ · 결정 7-A · 항목이 있는 행만). 막대가 유일한 신축 항목이다(⑧ 규율의 r3 판).
+                    */}
+                    {view.progress !== null && (
+                      <UnfilledProgress
+                        view={view.progress}
+                        variant="compact"
+                        muted={view.row.pendingCancelSent}
+                        selected={isSelected(view)}
+                      />
+                    )}
+                    {/*
+                      r4(진행률이 없으면 r3) — 서버 상태 문구(있는 행에만). 표에서는 종목 셀 아래 자리다.
+                    */}
                     <StatusNotes texts={[view.row.queuedStatus, view.row.pendingStatus]} />
                   </div>
                   );
@@ -1416,6 +1470,12 @@ function EmbeddedSection({
                       </TableCell>
                       <TableCell className={cn(EMB_TD, 'text-right')}>{cancelButton(view)}</TableCell>
                     </TableRow>
+                    {/* ⑫ 진행률 보조행 — 취소 결과 행보다 위(짝이 먼저 한 덩어리로 읽힌다). */}
+                    <UnfilledProgressRow
+                      view={view}
+                      colSpan={stockScope ? 5 : 7}
+                      selected={isSelected(view)}
+                    />
                     {cancelResult && cancelResultOrderNo === view.row.orderNo && (
                       <TableRow data-slot="account-embed-cancel-result">
                         <TableCell colSpan={stockScope ? 5 : 7} className="px-2.5 py-1.5 whitespace-normal">
@@ -1438,6 +1498,40 @@ function EmbeddedSection({
       )}
       {dialog}
     </div>
+  );
+}
+
+/**
+ * 진행률 보조행(⑫) — 기본 표 · 임베드 표가 **같은 한 컴포넌트**를 쓴다. 항목이 없으면 아무것도 그리지
+ * 않는다(D-11). 셀은 `.tbl-wrap tbody td` · `tr:hover td` 층 없는 규칙을 `!` 로 이긴다(높이 auto · 위 0 ·
+ * 아래 8px · 배경 투명 — 선택 배경은 `<tr>` 가 칠하고 셀이 비친다). 좌우 패딩은 그 표 규칙 그대로다.
+ * 클릭 대상이 아니다 — `onClick` · `title` 을 두지 않는다(R16).
+ */
+function UnfilledProgressRow({
+  view,
+  colSpan,
+  selected,
+}: {
+  view: UnfilledView;
+  colSpan: number;
+  selected: boolean;
+}) {
+  if (view.progress === null) return null;
+  return (
+    <TableRow
+      data-slot="unfilled-progress-row"
+      data-selected={selected ? 'true' : undefined}
+      className={cn(selected && 'bg-[var(--accent)]')}
+    >
+      <TableCell colSpan={colSpan} className="!h-auto !bg-transparent !pt-0 !pb-2">
+        <UnfilledProgress
+          view={view.progress}
+          variant="row"
+          muted={view.row.pendingCancelSent}
+          selected={selected}
+        />
+      </TableCell>
+    </TableRow>
   );
 }
 

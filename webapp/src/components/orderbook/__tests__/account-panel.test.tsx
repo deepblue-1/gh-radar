@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import type {
   RelayAccount,
   RelayAccountState,
+  RelayExchange,
   RelayOrderResultMsg,
   RelayQueueProgressItem,
   RelayUnfilled,
@@ -1341,7 +1342,7 @@ describe('AccountPanel — 진행률 B안 (Phase 25 · D-11~D-13)', () => {
   function pushProgress(items: RelayQueueProgressItem[]) {
     const map = new Map<string, RelayQueueProgressItem[]>();
     for (const it of items) {
-      const key = relayQuoteKey(it.isin, it.exchange);
+      const key = relayQuoteKey(it.isin, it.exchange as RelayExchange);
       map.set(key, [...(map.get(key) ?? []), it]);
     }
     mockRelayExtra = { queueProgress: map };
