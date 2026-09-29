@@ -18,7 +18,7 @@ import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
  * 잠그는 것:
  *   - 카드는 자기 `isin`/`exchange` 로만 구독·해제한다(T-18-26).
  *   - 카드는 서버 전략을 **자기 key 로만** 고른다 — 작업대가 분배하지 않는다(T-18-25).
- *   - 카드 A 의 에코가 카드 B 의 pending·미반영·배너를 건드리지 않는다(두 카드 동시 렌더).
+ *   - 카드 A 의 에코가 카드 B 의 pending·미반영을 건드리지 않는다(두 카드 동시 렌더).
  *   - `@container/lc` 는 카드 래퍼가 선언한다 — 안쪽 밴드 유틸리티가 카드 폭을 잰다(D-28).
  *   - 라벨 Map 이 새 인스턴스가 돼도 이름 문자열이 같으면 카드가 다시 그려지지 않는다(T-18-29).
  *
@@ -257,29 +257,6 @@ describe('StrategyCard', () => {
     // A 의 에코로 B 의 답 카운터가 움직이지 않는다.
     expect(probeB().querySelector('[data-part="answer"]')?.textContent).toBe(answerB0);
     expect(Number(probeA().querySelector('[data-part="answer"]')?.textContent)).toBeGreaterThan(0);
-    // 내가 보낸 에코라 A 에 「다른 단말」 배너가 없다.
-    expect(cardOf(ISIN_A).querySelector('[data-slot="card-echo-banner"]')).toBeNull();
-  });
-
-  it('보내지 않은 카드 B 의 서버 변경은 B 에만 「다른 단말에서 변경됐어요」를 세운다', () => {
-    function Harness({ value }: { value: RelayContextValue }) {
-      return (
-        <RelayContext.Provider value={value}>
-          <StrategyCard {...baseProps} isin={ISIN_A} body={probeBody} />
-          <StrategyCard {...baseProps} cardId="wb-card-2" isin={ISIN_B} name="다른종목" body={probeBody} />
-        </RelayContext.Provider>
-      );
-    }
-    const a0 = echo(ISIN_A);
-    const b0 = echo(ISIN_B);
-    const { rerender } = render(<Harness value={relay({ limitChasers: [a0, b0] })} />);
-    const b1 = echo(ISIN_B, { buyOrderQty: 5 });
-    rerender(<Harness value={relay({ limitChasers: [a0, b1], lastLimitChaserEcho: b1 })} />);
-
-    expect(cardOf(ISIN_B).querySelector('[data-slot="card-echo-banner"]')?.textContent).toContain(
-      '다른 단말에서 변경됐어요',
-    );
-    expect(cardOf(ISIN_A).querySelector('[data-slot="card-echo-banner"]')).toBeNull();
   });
 
   it('한 번도 펼친 적 없이 open=false 면 헤더만 남고 10칸·본문이 렌더되지 않는다', () => {

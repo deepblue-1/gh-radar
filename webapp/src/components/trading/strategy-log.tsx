@@ -283,7 +283,7 @@ const RUNTIME_ONLY_SKIP: ReadonlySet<keyof RelayLimitChaser> = new Set<keyof Rel
  * 있으면 매도 호가잔량은 사람 값 유지, 발주 직전 매수 미체결이 있으면 취소잔량은 사람 값 유지 — gh-trade k3u ·
  * D-38)로, 가격이 0 이면 상한가로 채워 보내고, 재진입(2 → 1)은 cfg 값으로 되돌려 보낸다. 웹은 에코 값을
  * 그대로 보인다(스스로 계산하지 않는다). 그 값 변화는 **서버 발동에 귀속**된다 —
- * 「서버 반영 완료」도 「다른 단말에서 변경됐어요」도 아니다(서버 사유 줄이 이미 말한다 · D-13).
+ * 「서버 반영 완료」가 아니다(서버 사유 줄이 이미 말한다 · D-13).
  * 단계 전이가 **없는** 같은 필드 변화는 종전대로 사용자 값 변경이다.
  */
 export const POST_BUY_OVERRIDE_FIELDS = [
@@ -311,11 +311,10 @@ function keysOf(prev: RelayLimitChaser, next: RelayLimitChaser): (keyof RelayLim
  * **사용자 설정 값**(게이트·래치·런타임 카운터·파생 표시값이 아닌 필드)이 바뀌었는가.
  *
  * 이 판정이 없으면 「수정」이 반영돼도 로그가 비어 있어 사용자가 **반영 여부를 알 수 없다** —
- * 반영의 유일한 증거가 에코이기 때문이다. 카드는 같은 판정으로 「다른 단말에서 변경됐어요」
- * 배너를 세운다(quick-260926-nr2) — 서버가 스스로 뒤집는 필드는 다른 단말의 증거가 아니다.
+ * 반영의 유일한 증거가 에코이기 때문이다. 서버가 스스로 뒤집는 필드는 사용자 값 변경이 아니다(quick-260926-nr2).
  *
  * ★ Pitfall 8 — 후매수 발동/재진입 전이 에코에서는 `POST_BUY_OVERRIDE_FIELDS` 를 비교에서 뺀다
- *   (판정 한 곳 — 카드의 다른 단말 배너도 이 함수만 본다).
+ *   (판정 한 곳).
  */
 export function limitChaserValuesChanged(prev: RelayLimitChaser, next: RelayLimitChaser): boolean {
   const phaseFlip = isPostBuyPhaseFlip(prev, next);

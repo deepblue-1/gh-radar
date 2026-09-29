@@ -9,7 +9,7 @@ import type { RelayLimitChaser, RelayLimitChaserInput } from '@gh-radar/shared';
  * ★ 이 파일은 옛 상따 화면 단위 테스트(18-13 에서 옛 화면과 함께 삭제)가 덮던 단언 중
  *   **카드 상태 훅(`useStrategyCardState`)의 규율**을 그대로 옮긴 것이다. 옛 화면과 카드는 18-06
  *   부터 같은 훅을 썼으므로 규율 자체는 바뀌지 않았고, 바뀐 것은 **그 결과가 서는 자리**다:
- *     · 상태줄의 에코 배너·「미반영」 → 카드 인라인 고지(`card-echo-banner` · `card-unacked`)
+ *     · 상태줄의 「미반영」 → 카드 인라인 고지(`card-unacked`) — 「다른 단말」 에코 배너는 2026-09-29 제거
  *     · 상태줄의 래치 LED → 카드 헤더 LED(같은 `LatchLed`)
  *     · 상태줄의 서버 거부 → 카드 인라인 `role="alert"`(`card-server-error`) — 18-13 에서 **되살렸다**
  *       (훅은 `lastError` 를 계산하고 있었지만 카드가 그리지 않아 거부가 로그 탭에만 조용히 쌓였다)
@@ -40,7 +40,6 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
 import { CardBody } from '../card/card-body';
 import {
   ACK_TIMEOUT_MS,
-  ECHO_BANNER_MS,
   StrategyCard,
   strategyStatusOf,
   type StrategyCardState,
@@ -227,7 +226,6 @@ function editInline(id: string, value: string): HTMLInputElement {
   return input;
 }
 const INLINE_FAILED = '반영하지 못했어요 · Enter 로 다시 시도해 주세요';
-const banner = () => document.querySelector('[data-slot="card-echo-banner"]');
 const unacked = () => document.querySelector('[data-slot="card-unacked"]');
 const serverError = () => document.querySelector<HTMLElement>('[data-slot="card-server-error"]');
 const header = () => document.querySelector('[data-slot="card-header"]') as HTMLElement;
@@ -277,7 +275,7 @@ describe('strategyStatusOf (옛 ②·③)', () => {
 });
 
 describe('전송 ↔ 에코 상관 (옛 ⑥ ~ ⑧ · ⑪ · ⑬)', () => {
-  it('⑥ ★ 내가 보낸 요청의 에코에는 「다른 단말」 배너를 띄우지 않는다', async () => {
+  it('⑥ ★ 내가 보낸 요청의 에코에는 「발주」로 읽지 않는다', async () => {
     setRelay({ limitChasers: [echo()] });
     const { rerender } = render(<Card />);
 
@@ -290,37 +288,24 @@ describe('전송 ↔ 에코 상관 (옛 ⑥ ~ ⑧ · ⑪ · ⑬)', () => {
     rerender(<Card />);
 
     await waitFor(() => expect(logRows().length).toBeGreaterThan(0));
-    expect(banner()).toBeNull();
     // 내가 껐으므로 「발주」가 아니다 — 마스터 해제는 어디서도 발주가 아니다(Pitfall 11).
     expect(screen.getByText(/매수주문 무장 해제/)).toBeInTheDocument();
     expect(screen.queryByText(/매수 발주/)).toBeNull();
   });
 
-  it('⑦ ★ 보낸 적 없는 에코 = 다른 단말 변경 → 6초 배너(role=status) + 로그 1줄, 배너만 사라진다 (D-11)', async () => {
+  it('⑦ ★ 보낸 적 없는 에코 = 다른 단말 변경 → 배너 없이 로그 최상단 「서버 반영 완료」 (D-11 · 2026-09-29 배너 제거)', async () => {
     setRelay({ limitChasers: [echo()] });
     const { rerender } = render(<Card />);
 
     setRelay({ limitChasers: [echo({ buyWatchQty: 8_000 })] });
     rerender(<Card />);
 
-    const el = await waitFor(() => {
-      expect(banner()).not.toBeNull();
-      return banner() as HTMLElement;
-    });
-    expect(el).toHaveAttribute('role', 'status');
-    expect(el.textContent).toBe('다른 단말에서 변경됐어요 · 서버 값으로 맞췄어요');
-    const has = () =>
-      Array.from(logRows()).some((r) => r.textContent?.includes('다른 단말에서 변경됐어요'));
-    expect(has()).toBe(true);
-
-    act(() => {
-      vi.advanceTimersByTime(ECHO_BANNER_MS);
-    });
-    expect(banner()).toBeNull();
-    expect(has()).toBe(true);
+    await waitFor(() => expect(logRows()[0]?.textContent ?? '').toContain(TRANSITION_TEXT.valuesApplied));
+    expect(screen.queryByText(/다른 단말/)).toBeNull();
+    expect(screen.queryByRole('status')).toBeNull();
   });
 
-  it('⑦b ★ 인라인 편집 중 다른 단말 에코 → 입력 8,000 유지 · 배너는 「서버 값으로 맞췄어요」 · Esc 뒤 행 = 에코 5,000주 (D-04 · UI-SPEC E4 partial)', async () => {
+  it('⑦b ★ 인라인 편집 중 다른 단말 에코 → 입력 8,000 유지 · Esc 뒤 행 = 에코 5,000주 (D-04 · UI-SPEC E4 partial)', async () => {
     setRelay({ limitChasers: [echo()] });
     const { rerender } = render(<Card />);
 
@@ -334,11 +319,7 @@ describe('전송 ↔ 에코 상관 (옛 ⑥ ~ ⑧ · ⑪ · ⑬)', () => {
     setRelay({ limitChasers: [echo({ buyWatchQty: 5_000 })] });
     rerender(<Card />);
 
-    const el = await waitFor(() => {
-      expect(banner()).not.toBeNull();
-      return banner() as HTMLElement;
-    });
-    expect(el.textContent).toBe('다른 단말에서 변경됐어요 · 서버 값으로 맞췄어요');
+    await waitFor(() => expect(logRows()[0]?.textContent ?? '').toContain(TRANSITION_TEXT.valuesApplied));
     // 편집 중인 입력은 에코가 덮지 않는다(E4 partial).
     expect(document.querySelector<HTMLInputElement>('#lc-buy-watch-qty')).toHaveValue('8,000');
 
@@ -760,16 +741,13 @@ describe('철거 에코 · 거부 = 서버의 답 (옛 ㉑)', () => {
 /**
  * quick-260926-nr2 — 에코를 **누가 보냈나**가 아니라 **무엇이 바뀌었나**로 분류한다.
  * 60 에코의 상당수는 다른 단말이 아니라 내 lc.arm · 서버 이중 에코 · 서버 런타임 푸시 · 재접속
- * lc.snap 이다. 사용자 설정 값이 내 요청 없이 바뀐 경우만 「다른 단말」 배너다(기존 ⑦·⑦b 가 회귀 가드).
+ * lc.snap 이다. 사용자 설정 값이 내 요청 없이 바뀐 경우만 「서버 반영 완료」 줄이다(기존 ⑦·⑦b 가 회귀 가드).
  */
 describe('에코 분류 — 무엇이 바뀌었나 (quick-260926-nr2)', () => {
   const texts = () =>
     Array.from(logRows()).map((r) => r.querySelectorAll('span')[1]?.textContent ?? '');
   const hasText = (t: string) => texts().some((x) => x === t);
-  const noOtherDevice = () =>
-    expect(texts().some((x) => x.includes('다른 단말'))).toBe(false);
-
-  it('NR2-1 내 lc.arm 에코(래치 ON) → 배너 없음 + 래치 로그 1줄', async () => {
+  it('NR2-1 내 lc.arm 에코(래치 ON) → 래치 로그 1줄', async () => {
     const e0 = echo({ sellEnabled: true });
     setRelay({ limitChasers: [e0] });
     const { rerender } = render(<Card />);
@@ -784,11 +762,9 @@ describe('에코 분류 — 무엇이 바뀌었나 (quick-260926-nr2)', () => {
 
     await waitFor(() => expect(logRows().length).toBe(before + 1));
     expect(hasText(TRANSITION_TEXT.sellLatched)).toBe(true);
-    expect(banner()).toBeNull();
-    noOtherDevice();
   });
 
-  it('NR2-2 내 스위치 전송 → 에코 → 같은 내용 새 객체 한 번 더(이중 에코) → 배너 없음 · 로그 줄 수 불변', async () => {
+  it('NR2-2 내 스위치 전송 → 에코 → 같은 내용 새 객체 한 번 더(이중 에코) → 로그 줄 수 불변', async () => {
     setRelay({ limitChasers: [echo()] });
     const { rerender } = render(<Card />);
 
@@ -811,33 +787,27 @@ describe('에코 분류 — 무엇이 바뀌었나 (quick-260926-nr2)', () => {
       vi.advanceTimersByTime(50);
     });
     expect(logRows().length).toBe(count);
-    expect(banner()).toBeNull();
     // 내가 끈 매수가 사본 때문에 「발주」로 읽히지 않는다.
     expect(texts().some((x) => x.includes('발주'))).toBe(false);
-    noOtherDevice();
   });
 
-  it('NR2-3 보내지 않은 래치 자동 ON → 배너 없음 + 래치 로그', async () => {
+  it('NR2-3 보내지 않은 래치 자동 ON → 래치 로그', async () => {
     setRelay({ limitChasers: [echo({ sellEnabled: true })] });
     const { rerender } = render(<Card />);
     setRelay({ limitChasers: [echo({ sellEnabled: true, sellEntryLatched: true })] });
     rerender(<Card />);
     await waitFor(() => expect(hasText(TRANSITION_TEXT.sellLatched)).toBe(true));
-    expect(banner()).toBeNull();
-    noOtherDevice();
   });
 
-  it('NR2-3 보내지 않은 게이트 false→true(복원) → 배너 없음 + 무장 로그', async () => {
+  it('NR2-3 보내지 않은 게이트 false→true(복원) → 무장 로그', async () => {
     setRelay({ limitChasers: [echo({ buyEnabled: false })] });
     const { rerender } = render(<Card />);
     setRelay({ limitChasers: [echo({ buyEnabled: true })] });
     rerender(<Card />);
     await waitFor(() => expect(hasText(TRANSITION_TEXT.buyArmed)).toBe(true));
-    expect(banner()).toBeNull();
-    noOtherDevice();
   });
 
-  it('NR2-3 체결·기준선 갱신(카운터 3종) → 배너·로그 없음', () => {
+  it('NR2-3 체결·기준선 갱신(카운터 3종) → 로그 없음', () => {
     setRelay({ limitChasers: [echo()] });
     const { rerender } = render(<Card />);
     const count = logRows().length;
@@ -851,10 +821,9 @@ describe('에코 분류 — 무엇이 바뀌었나 (quick-260926-nr2)', () => {
       vi.advanceTimersByTime(50);
     });
     expect(logRows().length).toBe(count);
-    expect(banner()).toBeNull();
   });
 
-  it('NR2-3 보내지 않은 마스터 true→false(다른 단말 · WinForms 자동 끔) → 「매수주문 무장 해제」 · 발주 아님 · 「꺼짐」 · 배너 없음 (Pitfall 11)', async () => {
+  it('NR2-3 보내지 않은 마스터 true→false(다른 단말 · WinForms 자동 끔) → 「매수주문 무장 해제」 · 발주 아님 · 「꺼짐」 (Pitfall 11)', async () => {
     setRelay({ limitChasers: [echo({ buyEnabled: true })] });
     const { rerender } = render(<Card />);
     setRelay({ limitChasers: [echo({ buyEnabled: false })] });
@@ -867,11 +836,9 @@ describe('에코 분류 — 무엇이 바뀌었나 (quick-260926-nr2)', () => {
     expect(
       within(document.querySelector('[data-slot="lc-group-buy"]') as HTMLElement).getByText('꺼짐'),
     ).toBeInTheDocument();
-    expect(banner()).toBeNull();
-    noOtherDevice();
   });
 
-  it('NR2-5 같은 내용 lc.snap(새 객체) → 배너·로그 없음', () => {
+  it('NR2-5 같은 내용 lc.snap(새 객체) → 로그 없음', () => {
     setRelay({ limitChasers: [echo()] });
     const { rerender } = render(<Card />);
     const count = logRows().length;
@@ -881,10 +848,9 @@ describe('에코 분류 — 무엇이 바뀌었나 (quick-260926-nr2)', () => {
       vi.advanceTimersByTime(50);
     });
     expect(logRows().length).toBe(count);
-    expect(banner()).toBeNull();
   });
 
-  it('NR2-6 name/code 만 채워진 에코 → 「서버 반영 완료」 없음 · 배너 없음', () => {
+  it('NR2-6 name/code 만 채워진 에코 → 「서버 반영 완료」 없음', () => {
     setRelay({ limitChasers: [echo()] });
     const { rerender } = render(<Card />);
     const count = logRows().length;
@@ -895,7 +861,6 @@ describe('에코 분류 — 무엇이 바뀌었나 (quick-260926-nr2)', () => {
     });
     expect(logRows().length).toBe(count);
     expect(hasText(TRANSITION_TEXT.valuesApplied)).toBe(false);
-    expect(banner()).toBeNull();
   });
 });
 
@@ -910,7 +875,7 @@ describe('발주 판정 원인 · lc.arm 답 (quick-260926-nr2)', () => {
   /** 시스템 WARN — 게이트웨이 36/37 거부 모양(기본 ServerMessageContext). */
   const ARM_REJECT = msg({ lv: 'WARN', src: 'System', m: '매도 무장이 꺼져 있어 래치를 켤 수 없습니다' });
 
-  it('전부 정지 귀속 에코(buy·sell true→false) → 「매수주문 무장 해제」 · 「발주」 없음 · 「발주 완료」 없음 · 배너 없음', async () => {
+  it('전부 정지 귀속 에코(buy·sell true→false) → 「매수주문 무장 해제」 · 「발주」 없음 · 「발주 완료」 없음', async () => {
     setRelay({ limitChasers: [echo({ buyEnabled: true, sellEnabled: true })] });
     const { rerender } = render(<Card />);
 
@@ -925,7 +890,6 @@ describe('발주 판정 원인 · lc.arm 답 (quick-260926-nr2)', () => {
     await waitFor(() => expect(hasText(TRANSITION_TEXT.buyDisarmed)).toBe(true));
     expect(texts().some((x) => x.includes('발주'))).toBe(false);
     expect(screen.queryByText('발주 완료 · 무장 해제')).toBeNull();
-    expect(banner()).toBeNull();
     expect(hasText(marketCloseDisabledLogLine())).toBe(false);
   });
 
@@ -946,7 +910,6 @@ describe('발주 판정 원인 · lc.arm 답 (quick-260926-nr2)', () => {
     expect(hasText(TRANSITION_TEXT.buyDisarmed)).toBe(true);
     expect(texts().filter((t) => t.includes('발주') && !t.includes('장 마감'))).toHaveLength(0);
     expect(screen.queryByText('발주 완료 · 무장 해제')).toBeNull();
-    expect(banner()).toBeNull();
   });
 
   it('귀속 맵의 echo 가 지금 server 와 다른 객체면 귀속 무시 → 그래도 「매수주문 무장 해제」(발주 아님 · Pitfall 11)', async () => {
@@ -1058,7 +1021,7 @@ describe('발주 판정 원인 · lc.arm 답 (quick-260926-nr2)', () => {
 
 /**
  * Phase 24 Plan 05 Task 2 — 카드 귀속: 보낸 cfg · 보낸 사유 → 로그 · 마스터 발주 추론 제거 ·
- * 후매수 발동 override 배너 억제 (ROADMAP ⑨ · D-01/D-02 · Pitfall 8 · 11 · T-24-21~23).
+ * 후매수 발동 override 「서버 반영 완료」 억제 (ROADMAP ⑨ · D-01/D-02 · Pitfall 8 · 11 · T-24-21~23).
  *
  * 동반 제출(D-01/D-02 전반)과 D-02 후반 자동 끔의 **실제 발신**은 24-06 폼 몫이다 — 여기서는
  * 카드 `handleSent(cfg, { cause })` 를 직접 불러 「보낸 기록」만 흉내 낸다.
@@ -1069,8 +1032,6 @@ describe('24-05 카드 귀속 — 보낸 cfg · 보낸 사유 · override (Phase
   const top = () => texts()[0] ?? '';
   const sentOf = (e: RelayLimitChaser) => e as unknown as RelayLimitChaserInput;
   const FOLD = '서버가 매수 그룹 해제 — 매수 그룹이 모두 꺼져 매수주문도 끔';
-  const noOtherDevice = () => expect(texts().some((x) => x.includes('다른 단말'))).toBe(false);
-
   beforeEach(() => {
     lastCard = null;
   });
@@ -1087,11 +1048,10 @@ describe('24-05 카드 귀속 — 보낸 cfg · 보낸 사유 · override (Phase
 
     await waitFor(() => expect(top()).toBe('선매수 체크 — 매수주문도 켬'));
     expect(texts().some((x) => x.includes(TRANSITION_TEXT.buyArmed))).toBe(false);
-    expect(banner()).toBeNull();
     expect(sendMock).not.toHaveBeenCalled();
   });
 
-  it('D-02 후반 — `handleSent(cfg{buyEnabled:false}, { cause: serverFold })` 뒤 마스터 OFF 에코 → 서버 접힘 한 줄 · 배너 0 · fired 없음', async () => {
+  it('D-02 후반 — `handleSent(cfg{buyEnabled:false}, { cause: serverFold })` 뒤 마스터 OFF 에코 → 서버 접힘 한 줄 · fired 없음', async () => {
     const folded = echo({ buyEnabled: true, sellEnabled: true });
     setRelay({ limitChasers: [folded] });
     const { rerender } = render(<Card />);
@@ -1105,8 +1065,6 @@ describe('24-05 카드 귀속 — 보낸 cfg · 보낸 사유 · override (Phase
     await waitFor(() => expect(top()).toBe(FOLD));
     expect(texts().some((x) => x === TRANSITION_TEXT.buyDisarmed)).toBe(false);
     expect(texts().some((x) => x.includes('발주'))).toBe(false);
-    expect(banner()).toBeNull();
-    noOtherDevice();
     expect(lastCard!.badges.buyText).toBe('');
     expect(sendMock).not.toHaveBeenCalled();
 
@@ -1144,10 +1102,9 @@ describe('24-05 카드 귀속 — 보낸 cfg · 보낸 사유 · override (Phase
     setRelay({ limitChasers: [offEcho], lastLimitChaserEcho: offEcho });
     rerender(<Card />);
     await waitFor(() => expect(top()).toBe(FOLD));
-    expect(banner()).toBeNull();
   });
 
-  it('Pitfall 8 — 보내지 않은 후매수 발동 에코(단계 1 → 2 · 매도 · 취소 override) → 배너 0 · 「서버 반영 완료」 없음 · 게이트 전이 문장은 남는다', async () => {
+  it('Pitfall 8 — 보내지 않은 후매수 발동 에코(단계 1 → 2 · 매도 · 취소 override) → 「서버 반영 완료」 없음 · 게이트 전이 문장은 남는다', async () => {
     const armed = echo({ buyEnabled: true, postBuyEnabled: true, postBuyPhase: 1 });
     setRelay({ limitChasers: [armed] });
     const { rerender } = render(<Card />);
@@ -1170,20 +1127,17 @@ describe('24-05 카드 귀속 — 보낸 cfg · 보낸 사유 · override (Phase
       expect(top()).toBe(`${TRANSITION_TEXT.sellArmed} · ${TRANSITION_TEXT.cancelArmed}`),
     );
     expect(texts().some((x) => x.includes(TRANSITION_TEXT.valuesApplied))).toBe(false);
-    expect(banner()).toBeNull();
-    noOtherDevice();
     expect(sendMock).not.toHaveBeenCalled();
   });
 
-  it('Pitfall 8 — 단계 전이 없는 같은 필드 변화(다른 단말의 매도 매수잔량 수정)는 종전대로 배너가 선다', async () => {
+  it('Pitfall 8 — 단계 전이 없는 같은 필드 변화(다른 단말의 매도 매수잔량 수정)는 종전대로 「서버 반영 완료」 줄이 선다', async () => {
     const armed = echo({ buyEnabled: true, postBuyEnabled: true, postBuyPhase: 1, sellEnabled: true });
     setRelay({ limitChasers: [armed] });
     const { rerender } = render(<Card />);
     const edited = { ...armed, sellWatchQty: 330_000 };
     setRelay({ limitChasers: [edited], lastLimitChaserEcho: edited });
     rerender(<Card />);
-    await waitFor(() => expect(banner()).not.toBeNull());
-    expect(texts().some((x) => x.includes('다른 단말'))).toBe(true);
+    await waitFor(() => expect(texts().some((x) => x.includes(TRANSITION_TEXT.valuesApplied))).toBe(true));
   });
 });
 
@@ -1411,7 +1365,7 @@ describe('WR-05 — 거부 · 무응답 제출의 사유는 그 사건에만 귀
     expect(sendMock).not.toHaveBeenCalled();
   });
 
-  it('원인 귀속 — serverFold 제출 뒤 15:40 귀속 에코 → 서버 접힘 문장 0 · 15:40 원인 줄은 그대로 · 배너 0', async () => {
+  it('원인 귀속 — serverFold 제출 뒤 15:40 귀속 에코 → 서버 접힘 문장 0 · 15:40 원인 줄은 그대로', async () => {
     setRelay({ limitChasers: [echo({ buyEnabled: true, sellEnabled: true })] });
     const { rerender } = render(<Card />);
     const off = echo({ buyEnabled: false, sellEnabled: true });
@@ -1430,7 +1384,6 @@ describe('WR-05 — 거부 · 무응답 제출의 사유는 그 사건에만 귀
     await waitFor(() => expect(texts()).toContain(marketCloseDisabledLogLine()));
     expect(texts().some((x) => x.includes(FOLD))).toBe(false);
     expect(texts().some((x) => x.includes(TRANSITION_TEXT.buyDisarmed))).toBe(true);
-    expect(banner()).toBeNull();
     expect(sendMock).not.toHaveBeenCalled();
   });
 
@@ -1458,7 +1411,7 @@ describe('WR-05 — 거부 · 무응답 제출의 사유는 그 사건에만 귀
     expect(sendMock).not.toHaveBeenCalled();
   });
 
-  it('창 안 늦은 에코 — 「미반영」 뒤(3초 + 2초) 닿은 내 에코는 여전히 내 제출 → 서버 접힘 한 줄 · 「다른 단말」 배너 0 · 「미반영」 거둬짐', async () => {
+  it('창 안 늦은 에코 — 「미반영」 뒤(3초 + 2초) 닿은 내 에코는 여전히 내 제출 → 서버 접힘 한 줄 · 「미반영」 거둬짐', async () => {
     const on = echo({ buyEnabled: true, sellEnabled: true });
     setRelay({ limitChasers: [on] });
     const { rerender } = render(<Card />);
@@ -1475,8 +1428,6 @@ describe('WR-05 — 거부 · 무응답 제출의 사유는 그 사건에만 귀
     rerender(<Card />);
 
     await waitFor(() => expect(top()).toBe(FOLD));
-    expect(banner()).toBeNull();
-    expect(texts().some((x) => x.includes('다른 단말'))).toBe(false);
     expect(unacked()).toBeNull();
     expect(sendMock).not.toHaveBeenCalled();
   });
@@ -1505,7 +1456,6 @@ describe('WR-05 — 거부 · 무응답 제출의 사유는 그 사건에만 귀
     rerender(<Card />);
 
     await waitFor(() => expect(top()).toBe(FOLD));
-    expect(banner()).toBeNull();
     expect(sendMock).not.toHaveBeenCalled();
   });
 
@@ -1595,8 +1545,6 @@ describe('GC-WR-01 — 부분 거부 · 다른 탭 거부 뒤 내 제출의 에�
   const top = () => texts()[0] ?? '';
   const sentOf = (e: RelayLimitChaser) => e as unknown as RelayLimitChaserInput;
   const FOLD = TRANSITION_TEXT.masterOffAfterServerFold;
-  const OTHER = '다른 단말';
-  const noOtherDevice = () => expect(texts().some((x) => x.includes(OTHER))).toBe(false);
   const rejection = (m = '매도 설정이 불완전합니다(주문가/감시가 0, 매도비율 1~100 밖, 잔량추적 비율 1~90 밖) — 매도를 켜지 않았습니다') =>
     msg({ lv: 'ERROR', src: 'SetLimitChaser', m, i: ISIN, a: ACCOUNT });
 
@@ -1637,13 +1585,11 @@ describe('GC-WR-01 — 부분 거부 · 다른 탭 거부 뒤 내 제출의 에�
     await waitFor(() =>
       expect(texts().some((x) => x.includes(TRANSITION_TEXT.preBuyWithMasterOn))).toBe(true),
     );
-    expect(banner()).toBeNull();
-    noOtherDevice();
     expect(texts().some((x) => x.includes('매도 설정이 불완전합니다'))).toBe(true);
     expect(sendMock).not.toHaveBeenCalled();
   });
 
-  it('부분 거부 · serverFold — `handleSent(cfg{buyEnabled:false}, serverFold)` → ERROR → 같은 제출의 마스터 OFF 에코 → 로그 최상단 서버 접힘 한 줄 · 배너 0 · 전송 0', async () => {
+  it('부분 거부 · serverFold — `handleSent(cfg{buyEnabled:false}, serverFold)` → ERROR → 같은 제출의 마스터 OFF 에코 → 로그 최상단 서버 접힘 한 줄 · 전송 0', async () => {
     const on = echo({ buyEnabled: true, sellEnabled: true });
     setRelay({ limitChasers: [on] });
     const { rerender } = render(<Card />);
@@ -1662,8 +1608,6 @@ describe('GC-WR-01 — 부분 거부 · 다른 탭 거부 뒤 내 제출의 에�
 
     await waitFor(() => expect(top()).toBe(FOLD));
     expect(texts().some((x) => x === TRANSITION_TEXT.buyDisarmed)).toBe(false);
-    expect(banner()).toBeNull();
-    noOtherDevice();
     expect(sendMock).not.toHaveBeenCalled();
   });
 
@@ -1688,12 +1632,10 @@ describe('GC-WR-01 — 부분 거부 · 다른 탭 거부 뒤 내 제출의 에�
     rerender(<Card />);
 
     await waitFor(() => expect(top()).toBe(TRANSITION_TEXT.valuesApplied));
-    expect(banner()).toBeNull();
-    noOtherDevice();
     expect(sendMock).not.toHaveBeenCalled();
   });
 
-  it('창 안 무관 에코(비소비) — 거부 뒤 내 요청 변화를 싣지 않은 다른 단말 에코 → 서버 접힘 0 · 「다른 단말」 배너 · 이어 같은 창 안 내 마스터 OFF 에코 → 서버 접힘 한 줄(귀속이 남아 있었다) · 전송 0', async () => {
+  it('창 안 무관 에코(비소비) — 거부 뒤 내 요청 변화를 싣지 않은 다른 단말 에코 → 서버 접힘 0 · 「서버 반영 완료」 · 이어 같은 창 안 내 마스터 OFF 에코 → 서버 접힘 한 줄(귀속이 남아 있었다) · 전송 0', async () => {
     const on = echo({ buyEnabled: true, sellEnabled: true, sellOrderPrice: 100_000 });
     setRelay({ limitChasers: [on] });
     const { rerender } = render(<Card />);
@@ -1711,9 +1653,8 @@ describe('GC-WR-01 — 부분 거부 · 다른 탭 거부 뒤 내 제출의 에�
     const other = echo({ buyEnabled: true, sellEnabled: true, sellOrderPrice: 110_000 });
     setRelay({ limitChasers: [other], lastLimitChaserEcho: other, messages: [rej] });
     rerender(<Card />);
-    await waitFor(() => expect(banner()?.textContent ?? '').toContain(OTHER));
+    await waitFor(() => expect(top()).toBe(TRANSITION_TEXT.valuesApplied));
     expect(texts().some((x) => x.includes(FOLD))).toBe(false);
-    expect(texts().filter((x) => x.includes(OTHER))).toHaveLength(1);
 
     // 같은 창 안에 내 제출의 마스터 OFF 에코 — 귀속은 소비되지 않고 남아 있었다.
     act(() => {
@@ -1724,11 +1665,10 @@ describe('GC-WR-01 — 부분 거부 · 다른 탭 거부 뒤 내 제출의 에�
     rerender(<Card />);
 
     await waitFor(() => expect(top()).toBe(FOLD));
-    expect(texts().filter((x) => x.includes(OTHER))).toHaveLength(1);
     expect(sendMock).not.toHaveBeenCalled();
   });
 
-  it('거부 없는 경합(비소비) — 내 제출 뒤 내 요청 변화가 없는 다른 단말 에코(매도 매수잔량) → 배너 1 → 내 에코 → 「서버 반영 완료」 · 새 배너 없음 · 전송 0', async () => {
+  it('거부 없는 경합(비소비) — 내 제출 뒤 내 요청 변화가 없는 다른 단말 에코(매도 매수잔량) → 「서버 반영 완료」 → 내 에코 → 「서버 반영 완료」 한 줄 더 · 전송 0', async () => {
     const before = echo({ sellOrderPrice: 100_000 });
     setRelay({ limitChasers: [before] });
     const { rerender } = render(<Card />);
@@ -1741,19 +1681,19 @@ describe('GC-WR-01 — 부분 거부 · 다른 탭 거부 뒤 내 제출의 에�
     const other = echo({ sellOrderPrice: 100_000, sellWatchQty: 330_000 });
     setRelay({ limitChasers: [other], lastLimitChaserEcho: other });
     rerender(<Card />);
-    await waitFor(() => expect(banner()?.textContent ?? '').toContain(OTHER));
-    expect(texts().filter((x) => x.includes(OTHER))).toHaveLength(1);
+    await waitFor(() => expect(top()).toBe(TRANSITION_TEXT.valuesApplied));
+    const beforeAnswer = texts().length;
 
     const answered = echo({ sellOrderPrice: 120_000, sellWatchQty: 330_000 });
     setRelay({ limitChasers: [answered], lastLimitChaserEcho: answered });
     rerender(<Card />);
 
-    await waitFor(() => expect(top()).toBe(TRANSITION_TEXT.valuesApplied));
-    expect(texts().filter((x) => x.includes(OTHER))).toHaveLength(1);
+    await waitFor(() => expect(texts()).toHaveLength(beforeAnswer + 1));
+    expect(top()).toBe(TRANSITION_TEXT.valuesApplied);
     expect(sendMock).not.toHaveBeenCalled();
   });
 
-  it('정책 명시(24-24 사용자 확인) — 거부 뒤 창 안에 온, 내 제출과 같은 변화(마스터 OFF)를 싣은 에코는 내 답으로 읽는다 → 서버 접힘 한 줄 · 배너 0 · 전송 0', async () => {
+  it('정책 명시(24-24 사용자 확인) — 거부 뒤 창 안에 온, 내 제출과 같은 변화(마스터 OFF)를 싣은 에코는 내 답으로 읽는다 → 서버 접힘 한 줄 · 전송 0', async () => {
     /*
       다른 단말이 우연히 같은 마스터 OFF 를 만든 에코일 수도 있다. 그러나 다른 탭 거부 팬아웃 뒤 온 내 에코와 구조적으로
       같은 모양이라 구별할 수 없고(relay 소켓 상관은 이월), 에코 상태는 내가 요청한 것과 같다 — 표시 · 로그가 사실과
@@ -1780,8 +1720,6 @@ describe('GC-WR-01 — 부분 거부 · 다른 탭 거부 뒤 내 제출의 에�
     rerender(<Card />);
 
     await waitFor(() => expect(top()).toBe(FOLD));
-    expect(banner()).toBeNull();
-    noOtherDevice();
     expect(sendMock).not.toHaveBeenCalled();
   });
 });
