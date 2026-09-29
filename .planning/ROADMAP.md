@@ -1314,7 +1314,7 @@ Plans:
 **정본:** `reference/` 9개 파일(기획서 전문 · gh-radar 함의 · 필드 v0.1 · 대조 기록 · 목업 2종) · gh-trade `docs/features/order-journal.md` · 이 저장소 `19-GH-TRADE-HANDOFF.md`(저널 규약 동형).
 **Requirements**: TBD
 **Depends on:** Phase 19 (계좌 저널 관찰자) · Phase 24 (상따 3그룹 용어) · gh-trade StrategyEvent/QueueProgress 서버 phase
-**Plans:** 1/12 plans executed
+**Plans:** 2/12 plans executed
 
 Plans:
 **Wave 1**
@@ -1323,7 +1323,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 25-02-PLAN.md — relay 두 스트림 경계(갭 · resync · 구 게이트웨이 · since epoch 짝) · /healthz journal.strategy · 부팅 결선 (W2)
+- [x] 25-02-PLAN.md — relay 두 스트림 경계(갭 · resync · 구 게이트웨이 · since epoch 짝) · /healthz journal.strategy · 부팅 결선 (W2)
 - [ ] 25-03-PLAN.md — 조회 RPC 2(하루치 · 주문 이벤트 UNION) · pgTAP · shared 타임라인 · GET /api/orders/:id/events · GET /api/strategy-events (W2)
 - [ ] 25-04-PLAN.md — 문장 조립기 전 종류 · 표시명 표 · 기획서 하루 흐름 골든 픽스처 (W2)
 - [ ] 25-05-PLAN.md — 오늘 주문 별건 3(방향 미상 「주문」 · 접수 불명 · R(New) 참고 방향) (W2)
