@@ -466,11 +466,11 @@ describe('⑰ 취소 래치 전이 2종 + skip 집합 (17-11 Task 2 · Phase 24 
     );
   });
 
-  it('⑰-6 ★ 두 표가 26종 닫힌 집합으로 동형이다 — 문구/전이가 한쪽만 늘지 않는다 (Phase 24: −buyFired +그룹 6 +동반 6 +서버 접힘 1)', () => {
-    expect(TRANSITION_ORDER).toHaveLength(26);
-    expect(Object.keys(TRANSITION_TEXT)).toHaveLength(26);
+  it('⑰-6 ★ 두 표가 28종 닫힌 집합으로 동형이다 — 문구/전이가 한쪽만 늘지 않는다 (Phase 24: −buyFired +그룹 6 +동반 6 +서버 접힘 1 · quick-260929-vzy +자동 2)', () => {
+    expect(TRANSITION_ORDER).toHaveLength(28);
+    expect(Object.keys(TRANSITION_TEXT)).toHaveLength(28);
     // 중복 없음 + 두 표의 원소 집합이 정확히 같다.
-    expect(new Set(TRANSITION_ORDER).size).toBe(26);
+    expect(new Set(TRANSITION_ORDER).size).toBe(28);
     expect([...TRANSITION_ORDER].sort()).toEqual(Object.keys(TRANSITION_TEXT).sort());
   });
 
@@ -738,6 +738,42 @@ describe('Phase 24 ⑨ — 그룹 전이 · 동반 문구 · override 귀속 (24
     const out = serverMessageLogLine(msg({ lv: 'ERROR', src: 'SetLimitChaser', m }));
     expect(out.text).toBe(`[서버] 서버가 거부했어요 (SetLimitChaser) — ${m}`);
     expect(out.level).toBe('error');
+  });
+});
+
+/*
+  quick-260929-vzy D-07 — 후매수 ☐자동. 에코 전이는 「후매수 자동 체크 / 해제」 로만 말하고 「서버 반영 완료」 로
+  오귀속되지 않는다. 서버 발화 사유는 54 원문 줄(`[상따] 서버 통지 — 후매수 자동 켬 — …`)이 말한다(표면 경로 = 기존 라우팅).
+*/
+describe('후매수 자동 — 로그 전이 · 54 사유 줄 (quick-260929-vzy D-07)', () => {
+  it('① false → true = 「후매수 자동 체크」 한 조각 · true → false = 「후매수 자동 해제」 (서버 반영 완료 없음)', () => {
+    expect(TRANSITION_TEXT.postBuyAutoOn).toBe('후매수 자동 체크');
+    expect(TRANSITION_TEXT.postBuyAutoOff).toBe('후매수 자동 해제');
+    const off = at({ buyEnabled: true });
+    const on = at({ buyEnabled: true, postBuyAuto: true });
+    expect(strategyLogLine(off, on)).toBe('후매수 자동 체크');
+    expect(strategyLogLine(on, off)).toBe('후매수 자동 해제');
+  });
+
+  it('① 서버 발화 에코 — 「매수주문 무장 · 후매수 무장 · 후매수 자동 해제」 순서 · 서버 반영 완료 없음', () => {
+    const before = at({ sellEnabled: true, postBuyAuto: true });
+    const fired = at({ sellEnabled: true, postBuyAuto: false, postBuyEnabled: true, buyEnabled: true });
+    expect(strategyLogLine(before, fired)).toBe('매수주문 무장 · 후매수 무장 · 후매수 자동 해제');
+  });
+
+  it('① 첫 스냅샷에 자동이 켜져 있으면 등록 줄에 「후매수 자동 체크」 가 붙는다', () => {
+    expect(strategyLogLine(null, at({ buyEnabled: true, postBuyAuto: true }))).toBe(
+      '전략이 등록됐어요 · 매수주문 무장 · 후매수 자동 체크',
+    );
+  });
+
+  it('② 54 INFO 사유 줄(src LimitChaser) — 상따 몫 · 「[상따] 서버 통지 — 후매수 자동 켬 — …」 · info', () => {
+    const m = '후매수 자동 켬 — 선매수 체결 0 전량 취소 · 매수주문도 켬';
+    const reason = msg({ lv: 'INFO', src: 'LimitChaser', i: 'KR7005930003', a: '1234567801', kind: '', m });
+    expect(isLimitChaserServerMessage(reason)).toBe(true);
+    const out = serverMessageLogLine(reason);
+    expect(out.text).toBe(`[상따] 서버 통지 — ${m}`);
+    expect(out.level).toBe('info');
   });
 });
 

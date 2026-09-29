@@ -39,6 +39,7 @@ import {
   CheckValueRow,
   DerivedRow,
   formatSettingValue,
+  GroupHeaderCheck,
   GroupNote,
   GroupSummary,
   groupStatusClassOf,
@@ -206,6 +207,53 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
     expect(lcRowById('lc-buy-min-trade-qty')!.row.kind).toBe('checkValue');
     expect(lcRowById('lc-cancel-qty-track')!.group.slot).toBe('cancel');
     expect(lcRowById('lc-nope')).toBeNull();
+  });
+});
+
+describe('②-auto GroupHeaderCheck · 제목줄 체크 슬롯 (quick-260929-vzy D-05)', () => {
+  it('후매수 스펙이 제목줄 체크 「자동」 을 싣는다 — 다른 그룹은 없다', () => {
+    expect(groupOf('post-buy').headerCheck).toMatchObject({
+      field: 'postBuyAuto',
+      checkId: 'lc-post-buy-auto',
+      label: '자동',
+      ariaLabel: '후매수 자동',
+    });
+    for (const g of [...LC_BUY_GROUPS, ...LC_SELL_GROUPS]) if (g.slot !== 'post-buy') expect(g.headerCheck).toBeUndefined();
+  });
+
+  it('role checkbox · aria-checked · 이름 「후매수 자동」 · 누르면 onToggle · disabled 면 부르지 않는다', () => {
+    const onToggle = vi.fn();
+    const { rerender } = render(
+      <GroupHeaderCheck id="lc-post-buy-auto" label="자동" ariaLabel="후매수 자동" hint="h" checked={false} onToggle={onToggle} />,
+    );
+    const box = screen.getByRole('checkbox', { name: '후매수 자동' });
+    expect(box).toHaveAttribute('aria-checked', 'false');
+    expect(box).toHaveTextContent('자동');
+    fireEvent.click(box);
+    expect(onToggle).toHaveBeenCalledTimes(1);
+    rerender(
+      <GroupHeaderCheck id="lc-post-buy-auto" label="자동" ariaLabel="후매수 자동" hint="h" checked disabled onToggle={onToggle} />,
+    );
+    expect(box).toHaveAttribute('aria-checked', 'true');
+    expect(box).toBeDisabled();
+    fireEvent.click(box);
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it('SettingGroup 제목줄 — headerCheck 는 switchNode 바로 앞 · 스위치가 마지막 자식', () => {
+    const { container } = render(
+      <SettingGroup
+        spec={groupOf('post-buy')}
+        on={false}
+        headerCheck={<span data-testid="hc" />}
+        switchNode={<span data-testid="sw" />}
+      >
+        <div>행</div>
+      </SettingGroup>,
+    );
+    const header = container.querySelector('[data-slot="lc-group-header"]') as HTMLElement;
+    expect(header.lastElementChild).toBe(screen.getByTestId('sw'));
+    expect(screen.getByTestId('hc').nextElementSibling).toBe(screen.getByTestId('sw'));
   });
 });
 

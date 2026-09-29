@@ -46,7 +46,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
 import { mockPointer, restoreMatchMedia } from '@/lib/__tests__/match-media';
 import { isServerFoldEdge, LC_FOLD_HIDDEN_DEFER_MS, LimitChaserForm, type LimitChaserFormProps } from '../limit-chaser-form';
 import { buyOrderQtyFromAmount } from '@/lib/limit-chaser';
-import { LC_REJECT_ECHO_GRACE_MS } from '../lc/use-lc-field-commit';
+import { LC_COMMIT_TEXT, LC_REJECT_ECHO_GRACE_MS } from '../lc/use-lc-field-commit';
 import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
 
 const ISIN = 'KR7086520004';
@@ -3251,5 +3251,129 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 선매
     expect(failedShown()).toBe(true);
     expect(autoLines(onClientLog)).toEqual([]);
     expect(sentConfigs()).toHaveLength(1);
+  });
+});
+
+/*
+  quick-260929-vzy — 후매수 ☐자동(D-05 · D-06 · P-2). 판정은 서버다 — 폼은 체크 입력을 보내고 에코 값을 보인다.
+  WinForms `HandleArmToggle`: ☐매수주문을 **사람이** 끌 때만 ☐자동을 같은 제출에서 끈다. 마지막 그룹 끄기의 마스터 동반
+  끔 · 서버 접힘 뒤 자동 끔은 자동을 건드리지 않는다. 자동 켜기는 후매수 켜기와 같은 사전 검증을 지난다.
+*/
+describe('후매수 자동 — 마스터 OFF 동반 끔 · 켜기 사전 검증 · 비활성 · 발화 에코 (quick-260929-vzy)', () => {
+  const auto = (): HTMLElement => chk('후매수 자동');
+  const precheckIn = (slot: string) => group(slot).querySelector('[data-slot="lc-group-precheck"]');
+
+  it('① D-06 — 매수주문 끄기 = lc.set 1건 · buyEnabled false + postBuyAuto false · 거부면 두 컨트롤이 함께 서버 값으로', () => {
+    const on = echo({ buyEnabled: true, sellEnabled: true, postBuyAuto: true });
+    const { rerender } = render(<LimitChaserForm {...props({ server: on })} />);
+    expect(auto()).toHaveAttribute('aria-checked', 'true');
+    click(sw('매수주문 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ buyEnabled: false, postBuyAuto: false });
+    expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(auto()).toHaveAttribute('aria-checked', 'false');
+    // 거부(답만 증가) — 둘 다 서버 값(켜짐)으로 돌아온다.
+    rerender(<LimitChaserForm {...props({ server: on, serverAnswerSeq: 1 })} />);
+    expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'true');
+    expect(auto()).toHaveAttribute('aria-checked', 'true');
+    expect(sentConfigs()).toHaveLength(1);
+  });
+
+  it('② 마지막 그룹(후매수) 끄기의 D-02 전반 제출은 자동을 에코 값 그대로 싣는다', () => {
+    render(
+      <LimitChaserForm
+        {...props({
+          server: echo({ postBuyEnabled: true, sellEnabled: true, postBuyOrderAmount: 50, postBuyReboundPct: 30, postBuyAuto: true }),
+        })}
+      />,
+    );
+    click(sw('후매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ postBuyEnabled: false, buyEnabled: false, postBuyAuto: true });
+  });
+
+  it('⑤ 서버 발화 에코(자동 true→false · 후매수 · 마스터 켜짐)는 아무것도 보내지 않고 체크만 푼다', () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    try {
+      const base = { sellEnabled: true, buyOrderQty: 3, postBuyOrderAmount: 50, postBuyReboundPct: 30 };
+      const { rerender } = render(
+        <LimitChaserForm {...props({ server: echo({ ...base, buyEnabled: false, postBuyAuto: true }) })} />,
+      );
+      expect(auto()).toHaveAttribute('aria-checked', 'true');
+      rerender(
+        <LimitChaserForm
+          {...props({ server: echo({ ...base, buyEnabled: true, postBuyEnabled: true, postBuyAuto: false }) })}
+        />,
+      );
+      act(() => {
+        vi.advanceTimersByTime(LC_FOLD_HIDDEN_DEFER_MS * 2);
+      });
+      expect(sentConfigs()).toHaveLength(0);
+      expect(auto()).toHaveAttribute('aria-checked', 'false');
+      expect(sw('후매수 켜기')).toHaveAttribute('aria-checked', 'true');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('② 서버 접힘 뒤 자동 끔(serverFold) 제출도 자동을 에코 값 그대로 싣는다', () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    try {
+      const { rerender } = render(
+        <LimitChaserForm
+          {...props({ server: echo({ preBuyEnabled: true, sellEnabled: true, buyOrderQty: 3, postBuyAuto: true }) })}
+        />,
+      );
+      rerender(<LimitChaserForm {...props({ server: echo({ sellEnabled: true, buyOrderQty: 3, postBuyAuto: true }) })} />);
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(sentConfigs()).toHaveLength(1);
+      expect(lastConfig()).toMatchObject({ buyEnabled: false, postBuyAuto: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('③ P-2 — 금액 0 · 반등 0 · 매도비율 0 이면 전송 0 · 후매수 카드 사전 검증 줄 · 체크는 움직이지 않는다', () => {
+    const cases: [Partial<RelayLimitChaser>, string][] = [
+      [{ postBuyOrderAmount: 0, postBuyReboundPct: 30 }, LC_COMMIT_TEXT.amountRequired],
+      [{ postBuyOrderAmount: 50, postBuyReboundPct: 0 }, LC_COMMIT_TEXT.reboundRange],
+      [{ postBuyOrderAmount: 50, postBuyReboundPct: 30, sellOrderRatio: 0 }, LC_COMMIT_TEXT.sellRatioRequired],
+    ];
+    for (const [over, text] of cases) {
+      const { unmount } = render(<LimitChaserForm {...props({ server: echo(over) })} />);
+      click(auto());
+      expect(sentConfigs(), text).toHaveLength(0);
+      expect(auto()).toHaveAttribute('aria-checked', 'false');
+      expect(precheckIn('post-buy')?.textContent).toBe(text);
+      unmount();
+    }
+  });
+
+  it('③ P-2 — 검증을 지나면 lc.set 1건에 postBuyAuto true · 마스터 · 후매수는 그대로(자동은 마스터를 켜지 않는다)', () => {
+    render(
+      <LimitChaserForm
+        {...props({ server: echo({ buyEnabled: false, sellEnabled: true, postBuyOrderAmount: 50, postBuyReboundPct: 30 }) })}
+      />,
+    );
+    click(auto());
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ postBuyAuto: true, buyEnabled: false, postBuyEnabled: false, crud: 'C' });
+    expect(precheckIn('post-buy')).toBeNull();
+  });
+
+  it('④ 구서버 에코 · 시세 미수신(주문가격 0)이면 꺼진 자동은 disabled · 켜진 자동은 세션이 준비된 한 끌 수 있다', () => {
+    const a = render(<LimitChaserForm {...props({ server: echo({ buy3Schema: 0 }) })} />);
+    expect(auto()).toBeDisabled();
+    a.unmount();
+    const b = render(<LimitChaserForm {...props({ server: echo({ buyOrderPrice: 0 }) })} />);
+    expect(auto()).toBeDisabled();
+    b.unmount();
+    const c = render(<LimitChaserForm {...props({ server: echo({ buy3Schema: 0, postBuyAuto: true }) })} />);
+    expect(auto()).toBeEnabled();
+    c.unmount();
+    render(<LimitChaserForm {...props({ server: echo({ postBuyAuto: true }), disabled: true })} />);
+    expect(auto()).toBeDisabled();
   });
 });
