@@ -10,6 +10,8 @@
 --     자격증명과 같은 게이트웨이의 연결은 무시(T-sas-05) · 자격증명 없는 연결은 무시(T-sas-04) ·
 --     연결 id 가 자격증명 id 와 달라도 된다
 --   - ⑨ dma_journal_orders_for_user 가 같은 규칙으로 · 중복 없이
+--   - Phase 25 전략 조회 RPC 2종도 같은 규칙: 시세 이벤트(kind 1·2)는 그 게이트웨이 가시 계좌가 있는 사용자만 ·
+--     주문 이벤트는 그 계좌 가시 사용자만 · 주문 1건 이벤트는 행이 보이는 사용자만 · 권한 재명시
 --   - 수명: 자격증명 삭제 → 연결 행이 남아도 가시 집합 0 · 사용자 삭제 → 연결 cascade
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_gateway_identities.test.sql`
@@ -66,6 +68,42 @@ VALUES
   ('KYOBO', '2026-09-29', '2600000012', '0000100012', NULL, NULL, 'KR7005930003', 'KRX', 'B', 'N', 10, 1000, 'accepted', 'manual', 2, 2, '2026-09-29 09:00:12+09', '2026-09-29 09:00:12+09'),
   ('KYOBO', '2026-09-29', '2600000099', '0000100099', NULL, NULL, 'KR7005930003', 'KRX', 'B', 'N', 10, 1000, 'accepted', 'manual', 3, 3, '2026-09-29 09:00:19+09', '2026-09-29 09:00:19+09');
 
+-- 전략 이벤트 1건 — relay STRATEGY_APPLY_KEYS 43키(없는 값은 0 / "" / false / [] — 와이어 규약) 위에 p_over 를 덮는다
+-- (dma_strategy_read.test.sql 과 같은 헬퍼).
+CREATE FUNCTION pg_temp.sev(
+  p_seq bigint, p_kind int, p_group int, p_account text, p_order_no text, p_hms text,
+  p_over jsonb DEFAULT '{}'::jsonb, p_date text DEFAULT '2026-09-29'
+) RETURNS jsonb LANGUAGE sql AS $$
+  SELECT jsonb_build_object(
+    'seq', p_seq, 'trade_date', p_date,
+    'gw_time_ms', (extract(epoch FROM (p_date || ' ' || p_hms || '+09')::timestamptz) * 1000)::bigint,
+    'kind', p_kind, 'group', p_group, 'exchange', 'KRX', 'isin', 'KR7005930003', 'cum_volume', 0,
+    'dma_user_id', CASE WHEN p_account = '' THEN '' ELSE 'dma-audit' END,
+    'account_no', p_account, 'order_no', p_order_no, 'price', 0, 'qty', 0, 'order_condition', '',
+    'reason_code', '', 'cond_threshold', 0, 'cond_actual', 0, 'cond_metric', 0, 'ev_kind', 0, 'ev_price', 0,
+    'ev_qty_before', 0, 'ev_qty_after', 0, 'ev_trade_qty', 0, 'limit_bid_qty', 0, 'bid1_price', 0,
+    'bid1_qty', 0, 'accept_latency_us', 0, 'immediate_fill_qty', 0, 'queue_case', 0, 'base_cum', 0,
+    'ahead_qty', 0, 'expected_cum', 0, 'error_volume', 0, 'remaining_volume', 0, 'has_remaining', false,
+    'cancel_reason', 0, 'result_code', 0, 'message', '', 'entry_round', 0,
+    'snap_qty', '[]'::jsonb, 'snap_cum', '[]'::jsonb, 'ask_qty_at_limit', 0, 'open_at_limit', false
+  ) || p_over
+$$;
+
+-- 주문 통보 1건 — relay 주문 기록기 23키(접수 A 기본값) 위에 p_over 를 덮는다(dma_strategy_read.test.sql 과 같은 헬퍼).
+CREATE FUNCTION pg_temp.jev(
+  p_seq bigint, p_account text, p_order_no text, p_hms text, p_over jsonb DEFAULT '{}'::jsonb
+) RETURNS jsonb LANGUAGE sql AS $$
+  SELECT jsonb_build_object(
+    'seq', p_seq, 'trade_date', '2026-09-29',
+    'gw_time_ms', (extract(epoch FROM ('2026-09-29 ' || p_hms || '+09')::timestamptz) * 1000)::bigint,
+    'dma_user_id', 'dma-audit', 'account_no', p_account, 'isin', 'KR7005930003',
+    'side', 'B', 'side_trusted', true, 'order_no', p_order_no, 'org_order_no', '',
+    'notice_type', 'A', 'request_kind', 'New', 'requester', '', 'origin', 'LimitChaser',
+    'exchange', 'KRX', 'board', '', 'order_price', 12350, 'order_qty', 300,
+    'exec_price', 0, 'exec_qty', 0, 'result_code', 0, 'message', '접수', 'local_reject', false
+  ) || p_over
+$$;
+
 -- 신원 연결 4행 (서비스롤 · 운영자 SQL 과 같은 직접 INSERT).
 INSERT INTO public.dma_gateway_identities (user_id, gateway, dma_user_id) VALUES
   ('00000000-0000-4000-8000-000000002601', 'KYOBO', 'dma-shared'),
@@ -73,7 +111,7 @@ INSERT INTO public.dma_gateway_identities (user_id, gateway, dma_user_id) VALUES
   ('00000000-0000-4000-8000-000000002604', 'KYOBO', 'dma-ky4'),
   ('00000000-0000-4000-8000-000000002605', 'KYOBO', 'dma-shared');
 
-SELECT plan(33);
+SELECT plan(42);
 
 -- ── 1. 스키마: dma_credentials.gateway ────────────────────────────
 SELECT has_column('public', 'dma_credentials', 'gateway', '(스키마, dma_credentials, gateway, 존재)');
@@ -222,7 +260,80 @@ SELECT is(
   0, '(U1, KB+KYOBO, …0001 · …0011, ⑨ 행 수 = distinct id 수 — 중복 없음)'
 );
 
--- ── 6. 수명: 자격증명 삭제 · 사용자 삭제 ───────────────────────────
+-- ── 6. Phase 25 전략 조회 RPC 2종 — 같은 규칙 (수명 단언보다 앞) ───────
+-- 픽스처는 ⑨ 단언 뒤에 넣는다 — KYOBO 통보가 …0011 에 주문 행 하나를 더 만들기 때문이다.
+INSERT INTO t_setup SELECT 'strategy_kb', public.dma_strategy_apply('KB', 'ep-sas', jsonb_build_array(
+  pg_temp.sev(1, 1, 0, '', '', '09:10:00.000'),                              -- KB 시세 LimitExposed
+  pg_temp.sev(2, 3, 1, '2600000001', '0000100001', '09:10:01.000')           -- KB …0001 BuyOrder
+));
+INSERT INTO t_setup SELECT 'strategy_kyobo', public.dma_strategy_apply('KYOBO', 'ep-sas-k', jsonb_build_array(
+  pg_temp.sev(1, 1, 0, '', '', '09:20:00.000'),                              -- KYOBO 시세 LimitExposed
+  pg_temp.sev(2, 3, 1, '2600000011', '0000200011', '09:20:01.000')           -- KYOBO …0011 BuyOrder
+));
+-- KYOBO …0011 접수 통보 1건 — 주문 1건 이벤트 RPC 용 주문 행(0000200011)을 만든다.
+INSERT INTO t_setup SELECT 'journal_kyobo', public.dma_journal_apply('KYOBO', 'ep-sas-k', jsonb_build_array(
+  pg_temp.jev(1, '2600000011', '0000200011', '09:20:01.000')
+));
+
+CREATE FUNCTION pg_temp.kyobo_oid() RETURNS uuid LANGUAGE sql AS $$
+  SELECT id FROM public.dma_account_orders
+   WHERE gateway = 'KYOBO' AND trade_date = '2026-09-29' AND account_no = '2600000011' AND order_no = '0000200011'
+$$;
+
+SELECT set_eq(
+  $$SELECT r->>'gateway' AS gateway, (r->>'kind')::int AS kind, r->>'account_no' AS account_no
+      FROM public.dma_strategy_events_for_user('00000000-0000-4000-8000-000000002601', '2026-09-29') r$$,
+  $$VALUES ('KB', 1, ''), ('KB', 3, '2600000001'), ('KYOBO', 1, ''), ('KYOBO', 3, '2600000011')$$,
+  '(U1, KB+KYOBO, …0001 · …0011, 전략 목록) KB 시세 · 주문 + KYOBO 시세 · 주문'
+);
+SELECT set_eq(
+  $$SELECT r->>'gateway' AS gateway, (r->>'kind')::int AS kind, r->>'account_no' AS account_no
+      FROM public.dma_strategy_events_for_user('00000000-0000-4000-8000-000000002602', '2026-09-29') r$$,
+  $$VALUES ('KB', 1, ''), ('KB', 3, '2600000001')$$,
+  '(U2, KB, …0001, 전략 목록) KB 만 — 같은 문자열 dma-shared 지만 KYOBO 시세 · 주문 이벤트 없음'
+);
+SELECT set_eq(
+  $$SELECT r->>'gateway' AS gateway, (r->>'kind')::int AS kind, r->>'account_no' AS account_no
+      FROM public.dma_strategy_events_for_user('00000000-0000-4000-8000-000000002603', '2026-09-29') r$$,
+  $$VALUES ('KB', 1, '')$$,
+  '(U3, KB, …0002, 전략 목록) KB 시세만 — 같은 게이트웨이 연결로 …0001 주문 이벤트가 보이지 않는다'
+);
+SELECT set_eq(
+  $$SELECT r->>'gateway' AS gateway, (r->>'kind')::int AS kind, r->>'account_no' AS account_no
+      FROM public.dma_strategy_events_for_user('00000000-0000-4000-8000-000000002604', '2026-09-29') r$$,
+  $$VALUES ('KYOBO', 1, '')$$,
+  '(U4, KYOBO, …0012, 전략 목록) KYOBO 시세만 — …0011 주문 이벤트 · KB 시세 없음'
+);
+SELECT is_empty(
+  $$SELECT 1 FROM public.dma_strategy_events_for_user('00000000-0000-4000-8000-000000002605', '2026-09-29')$$,
+  '(U5, KYOBO, —, 전략 목록) 0행 — 자격증명 없는 연결'
+);
+SELECT is_empty(
+  $$SELECT 1 FROM public.dma_order_events_for_user('00000000-0000-4000-8000-000000002602', pg_temp.kyobo_oid(), NULL)$$,
+  '(U2, KYOBO, …0011 행 id, NULL) 0행 — 같은 문자열이지만 연결 없음'
+);
+SELECT ok(
+  (SELECT count(*) FROM public.dma_order_events_for_user('00000000-0000-4000-8000-000000002601', pg_temp.kyobo_oid(), NULL)) >= 1,
+  '(U1, KYOBO, …0011 행 id, NULL) 통보 행 ≥ 1 — 명시 연결'
+);
+SELECT is(
+  row(
+    has_function_privilege('anon', 'public.dma_strategy_events_for_user(uuid,date)', 'EXECUTE'),
+    has_function_privilege('authenticated', 'public.dma_strategy_events_for_user(uuid,date)', 'EXECUTE'),
+    has_function_privilege('service_role', 'public.dma_strategy_events_for_user(uuid,date)', 'EXECUTE')
+  )::text,
+  '(f,f,t)', '(anon · authenticated · service_role, dma_strategy_events_for_user(uuid,date), —, EXECUTE = (f, f, t))'
+);
+SELECT is(
+  row(
+    has_function_privilege('anon', 'public.dma_order_events_for_user(uuid,uuid,text[])', 'EXECUTE'),
+    has_function_privilege('authenticated', 'public.dma_order_events_for_user(uuid,uuid,text[])', 'EXECUTE'),
+    has_function_privilege('service_role', 'public.dma_order_events_for_user(uuid,uuid,text[])', 'EXECUTE')
+  )::text,
+  '(f,f,t)', '(anon · authenticated · service_role, dma_order_events_for_user(uuid,uuid,text[]), —, EXECUTE = (f, f, t))'
+);
+
+-- ── 7. 수명: 자격증명 삭제 · 사용자 삭제 ───────────────────────────
 DELETE FROM public.dma_credentials WHERE user_id = '00000000-0000-4000-8000-000000002601';
 SELECT is_empty(
   $$SELECT 1 FROM public.dma_visible_accounts('00000000-0000-4000-8000-000000002601')$$,

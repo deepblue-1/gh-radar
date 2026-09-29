@@ -21,7 +21,7 @@
 -- 전체가 한 트랜잭션이고 끝에서 ROLLBACK 한다.
 --
 -- 단언 설명에는 (사용자, 게이트웨이, 계좌 말미, 기대) 튜플을 적는다 — `not ok` 줄만 보고도 어느 경우인지 알 수 있어야 한다.
--- 사용자: U1 dma-shared → KB …7801 · U2 dma-other → KB …7802 · U3 매핑 없음 · U4 dma-kyobo → KYOBO …7803.
+-- 사용자: U1 dma-shared → KB …7801 · U2 dma-other → KB …7802 · U3 매핑 없음 · U4 dma-kyobo(KYOBO 연결) → KYOBO …7803.
 -- ============================================================
 
 BEGIN;
@@ -41,6 +41,8 @@ INSERT INTO public.dma_credentials (user_id, dma_user_id, dma_password_enc) VALU
   ('00000000-0000-4000-8000-000000002502', 'dma-other',  'test-enc-u2'),
   ('00000000-0000-4000-8000-000000002503', 'dma-none',   'test-enc-u3'),
   ('00000000-0000-4000-8000-000000002504', 'dma-kyobo',  'test-enc-u4');
+-- quick-260929-sas — 추가 게이트웨이 가시성은 명시 연결로만.
+INSERT INTO public.dma_gateway_identities (user_id, gateway, dma_user_id) VALUES ('00000000-0000-4000-8000-000000002504', 'KYOBO', 'dma-kyobo');
 
 INSERT INTO public.stocks (code, name, market, isin)
 VALUES ('005930', '삼성전자', 'KOSPI', 'KR7005930003');

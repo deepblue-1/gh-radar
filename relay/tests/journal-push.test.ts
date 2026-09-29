@@ -692,4 +692,42 @@ describe("저널 푸시 — 레코드 → 기록기 → 적용 RPC → 계좌 �
       kyoboAccess.close();
     }
   });
+  it("⑨ 추가 게이트웨이 journal.events 도 명시 신원 연결로만 (quick-260929-sas) — A1 시세 + 주문 · B 시세만 · A2 · U 0", async () => {
+    await start();
+    const { a1, a2, b, u } = await authAll();
+    const { STRATEGY_DAY_BY_NAME } = await loadStrategyDayFixture();
+    const exposed = STRATEGY_DAY_BY_NAME.exposed;
+    const buy = STRATEGY_DAY_BY_NAME.buy12451;
+    if (exposed === undefined || buy === undefined) throw new Error("픽스처 exposed · buy12451 없음");
+    /** 가짜 교보 계좌 — 실계좌가 아니다(명백한 가짜값). */
+    const K1 = "5555555511";
+    const K2 = "5555555512";
+    const kyoboAccess = new JournalAccess({ supabase: rpcSupabase(rpcCalls), gateway: "KYOBO", retryBaseMs: 10, retryMaxMs: 50 });
+    try {
+      kyoboAccess.replace([
+        { dmaUserId: "dma-shared", accountNo: K1, name: "교보 가짜 계좌 1", priority: 0 },
+        { dmaUserId: "kyobo-b", accountNo: K2, name: "교보 가짜 계좌 2", priority: 0 },
+      ]);
+      const route = {
+        access: kyoboAccess,
+        identities: identityView({ [USER_A1]: "dma-shared", [USER_B]: "kyobo-b" }),
+      };
+      const market: StrategyEventRow = { ...exposed, gateway: "KYOBO" };
+      const order: StrategyEventRow = { ...buy, gateway: "KYOBO", accountNo: K1 };
+
+      fanout.deliverStrategyEvents([market, order], route);
+      await waitFor(() => eventFrames(a1).length === 1 && eventFrames(b).length === 1, "A1·B KYOBO journal.events");
+      await flushIo(8);
+
+      // A1 = 연결 신원 dma-shared → K1 주문 이벤트 + 시세.
+      expect(eventFrames(a1)).toEqual([[market, order]]);
+      // B = 연결 신원 kyobo-b(K2) → 시세만(K1 주문 이벤트는 남의 계좌).
+      expect(eventFrames(b)).toEqual([[market]]);
+      // A2 = 자격증명 문자열은 dma-shared 지만 KYOBO 연결 없음 → 0. U = 자격증명 없음 → 0.
+      expect(eventFrames(a2)).toEqual([]);
+      expect(eventFrames(u)).toEqual([]);
+    } finally {
+      kyoboAccess.close();
+    }
+  });
 });
