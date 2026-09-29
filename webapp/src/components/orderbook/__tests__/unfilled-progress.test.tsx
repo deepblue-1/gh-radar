@@ -35,6 +35,9 @@ describe('UnfilledProgress — row(데스크톱 보조행 한 줄)', () => {
     expect(bar).toHaveAttribute('aria-valuemax', '100');
     expect(bar).toHaveAttribute('aria-valuetext', '후매수 체결예상까지 12,000주 남음, 88%');
     expect(bar.className).toContain('w-[140px]');
+    // 칸이 모자라면 막대만 줄어든다(40px 까지) — 문장 · % 는 flex-none.
+    expect(bar.className).toContain('shrink');
+    expect(bar.className).toContain('min-w-10');
     expect(fill().style.width).toBe('88%');
     expect(fill().className).toContain('bg-[var(--primary)]');
     expect(root()).not.toHaveAttribute('data-near');

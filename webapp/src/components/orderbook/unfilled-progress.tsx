@@ -14,7 +14,9 @@
  *   - 두 모양:
  *       `row`     데스크톱 보조행(마이페이지 기본 표 · 공용 패널 임베드 · 카드 탭 임베드 — 세 표면 같은
  *                 문구 · R17) — 「{그룹} · 체결예상까지 {N}주 남음 [막대 140px] {P}%」, 한 줄 nowrap.
- *                 넘침은 표 가로 스크롤이 받는다.
+ *                 막대는 140px 이 기본이고 칸이 모자라면 **막대만** 40px 까지 줄어든다 — 보조행이 표 폭을
+ *                 결정하지 않게 하는 짝(`UnfilledProgressRow` 의 `w-0 min-w-full`)이다. 그래도 넘치면
+ *                 표 가로 스크롤이 받는다(잘림 0).
  *       `compact` 모바일 카드 r3 — 「체결예상까지」·「·」 를 뺀 「{그룹} {N}주 남음 [막대] {P}%」.
  *                 **막대가 유일한 신축 항목**(`flex-1 min-w-0`)이고 나머지는 `flex-none` 이다 —
  *                 account-panel ⑧ 「신축 1개 + 나머지 flex-none」 규율의 r3 판(잘림 0).
@@ -82,7 +84,8 @@ export function UnfilledProgress({
       data-slot="unfilled-progress-bar"
       className={cn(
         'relative h-1.5 overflow-hidden rounded-full bg-[var(--muted)]',
-        compact ? 'min-w-0 flex-1' : 'w-[140px] flex-none',
+        // row — 기본 140px, 칸이 모자라면(카드 탭 폰 폭) 막대만 40px 까지 줄어든다(문장 · % 는 flex-none).
+        compact ? 'min-w-0 flex-1' : 'w-[140px] min-w-10 shrink',
       )}
     >
       <div

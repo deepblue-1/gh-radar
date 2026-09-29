@@ -1472,6 +1472,10 @@ describe('AccountPanel — 진행률 B안 (Phase 25 · D-11~D-13)', () => {
       render(<AccountPanel {...embedBase({ embedScope: 'stock' })} />);
       const [row] = progressRows();
       expect(row!.querySelector('td')).toHaveAttribute('colspan', '5');
+      // 보조행은 표 폭을 정하지 않는다(w-0 min-w-full) — 폰 폭에서 「취소」 를 밀어내지 않게.
+      const line = row!.querySelector('[data-slot="unfilled-progress"]')!;
+      expect(line.className).toContain('w-0');
+      expect(line.className).toContain('min-w-full');
     });
 
     it('취소 결과 행이 있으면 순서가 [미체결 행 · 보조행 · 취소 결과 행]', async () => {

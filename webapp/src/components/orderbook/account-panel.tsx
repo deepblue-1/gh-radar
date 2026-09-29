@@ -138,6 +138,8 @@
  *     이긴다(높이 auto · 위 0 · 아래 8px · 배경 투명). 좌우 패딩은 그 표의 다른 셀과 같은 규칙을 그대로
  *     받는다(= 「그 표의 셀 좌우」). B 표는 행 구분선이 없어(globals.css 260924-vj1) 넘길 선이 없다 —
  *     짝은 위 패딩 0 으로 붙어 읽힌다.
+ *   - 보조행은 **표 폭을 정하지 않는다**(`w-0 min-w-full` + 막대 신축 140→40px). 정하면 카드 탭 폰 폭에서
+ *     표 전체가 가로 스크롤돼 「취소」 가 화면 밖으로 밀린다(25-09 실측 — 뷰포트 344 에서 324 → 380).
  *   - 선택된 행이면 보조행도 같은 선택 배경(`data-selected`) · 취소 보관 행이면 숫자 muted + 채움 `--faint`.
  *     보조행은 클릭 대상이 아니다(`onClick` · `title` 없음).
  *   - 조인 실패(문자열 불일치)는 개발 모드에서 `reportUnmatchedProgressOnce` 가 1회 경고한다(Pitfall 15).
@@ -1505,6 +1507,8 @@ function EmbeddedSection({
  * 진행률 보조행(⑫) — 기본 표 · 임베드 표가 **같은 한 컴포넌트**를 쓴다. 항목이 없으면 아무것도 그리지
  * 않는다(D-11). 셀은 `.tbl-wrap tbody td` · `tr:hover td` 층 없는 규칙을 `!` 로 이긴다(높이 auto · 위 0 ·
  * 아래 8px · 배경 투명 — 선택 배경은 `<tr>` 가 칠하고 셀이 비친다). 좌우 패딩은 그 표 규칙 그대로다.
+ * 한 줄은 `w-0 min-w-full` 이라 **표 폭을 정하지 않는다** — 칸이 모자라면 막대가 줄고, 그래도 넘치면 표 가로
+ * 스크롤이 받는다(UnfilledProgress 머리 주석).
  * 클릭 대상이 아니다 — `onClick` · `title` 을 두지 않는다(R16).
  */
 function UnfilledProgressRow({
@@ -1529,6 +1533,9 @@ function UnfilledProgressRow({
           variant="row"
           muted={view.row.pendingCancelSent}
           selected={selected}
+          // 보조행이 표 폭을 넓히지 않는다 — 폭 0 · 최소 100% 라 표 자동 폭 계산에 기여하지 않고 칸을 채운다.
+          // 넓히면 카드 탭(폰 폭)에서 미체결 표 전체가 가로 스크롤돼 「취소」 버튼이 화면 밖으로 밀린다(25-09 실측).
+          className="w-0 min-w-full"
         />
       </TableCell>
     </TableRow>
