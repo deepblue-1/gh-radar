@@ -23,7 +23,12 @@
  *   규약). envelope 을 언랩하지 않는다.
  */
 
-import type { JournalOrderRow, JournalOrderStatus, RelayAccount } from "@gh-radar/shared";
+import type {
+  JournalOrderRow,
+  JournalOrderStatus,
+  OrderTimelineRow,
+  RelayAccount,
+} from "@gh-radar/shared";
 
 import { authFetch } from "./auth-fetch";
 import { RECEIPT_UNKNOWN_RESULT_CODE } from "./order-notices";
@@ -34,6 +39,24 @@ import { RECEIPT_UNKNOWN_RESULT_CODE } from "./order-notices";
  */
 export function fetchTodayOrders(): Promise<JournalOrderRow[]> {
   return authFetch<JournalOrderRow[]>("/api/orders");
+}
+
+/**
+ * 오늘 주문 행 펼침 — 주문(묶음) 1건의 통보 + 전략 이벤트 한 타임라인 (Phase 25 D-01 · D-02).
+ *
+ * `GET /api/orders/{anchorId}/events?orderNos=a,b,c` 한 번 = RPC 한 번. 앵커는 묶음 **첫 통보 행 id**
+ * (`members[0].id`)이고, 계좌 · 거래일 · 게이트웨이는 서버가 그 행으로 정한다 — 클라가 싣지 않는다(T-25-13).
+ * 주문번호가 없으면 쿼리 없이 부른다(서버가 행 자신의 번호로 대체). 응답은 bare array 이며 정렬은 RPC 가
+ * `compareTimelineAsc` 와 같은 규칙으로 이미 했다.
+ */
+export function fetchOrderEvents(
+  anchorId: string,
+  orderNos: readonly string[],
+): Promise<OrderTimelineRow[]> {
+  const path = `/api/orders/${encodeURIComponent(anchorId)}/events`;
+  const query =
+    orderNos.length > 0 ? `?orderNos=${orderNos.map((no) => encodeURIComponent(no)).join(",")}` : "";
+  return authFetch<OrderTimelineRow[]>(`${path}${query}`);
 }
 
 /** 시각 파싱 실패는 가장 오래된 것으로 친다 — 모르는 시각을 목록 맨 위에 세우지 않는다. */

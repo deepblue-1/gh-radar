@@ -186,6 +186,14 @@ export interface MergedOrderNotice {
   at: string;
   /** 주문번호 표기 — `#첫번호~끝번호`(묶임) · 원번호(단건) · `null`(번호 없음). */
   orderNoText: string | null;
+  /**
+   * 묶음 구성원 전부 — **접기 순서 = 시간 오름차순**(첫 통보가 `[0]`). 단건은 `[head]`.
+   *
+   * 오늘 주문 행 펼침(Phase 25 D-02 · D-04)의 입력이다: 조회 앵커 = `members[0].id`, 조회 주문번호 = 구성원
+   * 주문번호. ★ 펼침 키는 `head` 가 아니라 `members[0].id` 다 — `head` 는 입력상 가장 앞(최신) 행이라 새 조각이
+   * 들어오면 바뀌지만, 첫 통보는 바뀌지 않으므로 열린 행이 닫히지 않는다.
+   */
+  members: JournalOrderRow[];
 }
 
 /** 기본 묶기 창 — 정본 C# `LogPanelRenderer.MERGE_WINDOW_MS` 와 같다. */
@@ -297,6 +305,7 @@ export function mergeOrderNotices(
         // 오름차순으로 접으므로 묶음의 **첫 통보**가 곧 이 행이다.
         at: item.row.createdAt,
         orderNoText: item.row.orderNo,
+        members: [item.row],
       },
       anchor: item.stamp,
       headIndex: item.index,
@@ -319,6 +328,8 @@ function knownPrice(price: number | null): number | null {
 function absorb(group: Group, item: Item): void {
   const { row } = item;
   group.out.count += 1;
+  // 오름차순으로 접으므로 push 순서가 곧 시간 순서다.
+  group.out.members.push(row);
   if (row.qty !== null) group.out.qty = (group.out.qty ?? 0) + row.qty;
   const price = knownPrice(row.price);
   if (price !== null) {
