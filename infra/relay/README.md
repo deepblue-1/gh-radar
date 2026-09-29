@@ -1101,7 +1101,7 @@ lastAppliedAgeSec · seqRegressions · lastSeqRegressionAgeSec`) + `alerting` �
 2. `deploy-relay.sh` 의 VM 기동 확인이 `curl -sf` 다 — 장중 KYOBO 때문에 503 이면 KB 배포가 실패한다.
 3. 롤아웃 중 거부(게이트웨이 쪽 비밀 미배치)는 KB 가용성과 무관하다.
 
-**한계:** 장중 KYOBO 끊김을 알리는 경로가 없다(relay 로그는 Cloud Logging 에 없다). 확인은 두 명령으로 한다.
+장중 KYOBO 끊김은 아래 §KYOBO 끊김 알림 의 uptime check · 정책이 메일로 알린다. 확인은 두 명령으로 한다.
 
 ```bash
 curl -s https://dma.jx1.io/healthz | jq '.journalGateways.KYOBO'
@@ -1136,6 +1136,66 @@ gh-radar 사용자 → `dma_credentials.dma_user_id` 문자열 → **모든 게�
 `sudo docker restart gh-radar-relay` 한 번이다(env 는 보존된다). 사용자 세션도 끊기므로 20:00 이후를 권장한다.
 어느 경우든 KB 는 영향이 없다.
 
+#### KYOBO 끊김 알림 (quick-260929-sar)
+
+`alerting` 을 **별도 uptime check 의 JSONPath 콘텐츠 매처**로 보고 **별도 알림 정책**으로 메일을 보낸다. relay 소스 ·
+503 판정식 · KB relay-down 의 의미는 그대로다.
+
+| 자원 | 설정 |
+|------|------|
+| uptime check `gh-radar-kyobo-observer-healthz` | https 443 `/healthz` · 1분 주기 · timeout 10초 · validate-ssl · 상태 **2xx,5xx** 수용 · JSONPath `$.journalGateways.KYOBO.alerting` exact-match `false` (6지점 — KB 체크와 같다) |
+| 알림 정책 `gh-radar-kyobo-observer-down` | `ops/alert-kyobo-observer-down.yaml` · 두 조건 AND(6지점 평균 <0.9 · `apac-singapore` <0.9) · 120초 창 ALIGN_FRACTION_TRUE · 300초 지속 · KB 와 같은 ops 메일 채널 · autoClose 30분 · 두 조건 모두 KYOBO 체크의 `check_id` 로 한정 |
+
+**타임라인.** 장중 끊김 → relay 180초 유예(`rejected` 는 즉시) → `alerting` true → 체크 실패가 5분 이어짐 → 메일.
+합계 **약 8분 이상**이다.
+
+- 4시간 주기 교보 재로그인(수십 초)은 180초 유예 안이라 `alerting` 이 켜지지 않는다 — 울리지 않는다.
+- 데스크톱 SecuwaySSL 로 VM 터널이 8분 넘게 끊기면 울린다. 그동안 교보 기록이 실제로 비어 있으므로 맞는 알림이다.
+- 장 밖(평일 08:00~20:00 KST 밖 · 주말 · 휴장일)에는 `alerting` 이 항상 false 라 울리지 않는다.
+- 한계: `KRX_HOLIDAYS` seed 는 2026-12-31 까지다. 그 뒤로는 휴장일을 평일로 봐서 과민해진다(놓치지는 않는다).
+
+**상태 2xx,5xx 를 받는 이유.** KB 기록이 끊기면 장중 `/healthz` 는 503 이지만 본문은 JSON 이고 `journalGateways` 가
+실린다. 2xx 만 받으면 KB 문제가 KYOBO 알림으로 번진다. 반대로 relay · Caddy 가 죽으면(무응답 · 502 빈 본문) 이 체크도
+실패하므로 **relay-down 과 함께 울릴 수 있다 — 그때는 relay-down 이 먼저다.**
+
+**KB 정책 `check_id` 한정.** `uptime_check/check_passed` 의 resource(`uptime_url`) 라벨은 `host · project_id` 뿐이다.
+KB 정책(`ops/alert-relay-down.yaml`)이 `resource.label.host` 로만 거르면 같은 host 에 생긴 KYOBO 체크의 실패가 KB 6지점
+평균 · 싱가포르 조건에 그대로 섞인다. 그래서 KB 두 조건에 `metric.label.check_id = "${UPTIME_CHECK_ID}"` 를 더했다 — 의미를
+바꾸는 게 아니라 원래 의미(자기 체크만)를 지키는 것이다. `${UPTIME_CHECK_ID}` 는 배포 때 `deploy-relay.sh` 가 KB 체크 ID 로
+치환한다(채널 ID 와 같은 방식). 체크 ID 를 못 구하거나 치환 토큰이 남으면 그 정책은 적용하지 않는다(필터가 아무것도 못 잡는
+조용히 죽은 알림 방지). **한 실행 안에서 KB 한정 적용이 먼저, KYOBO 체크 생성이 나중이다** — KB 정책 적용이 확인되지 않은
+실행은 KYOBO 체크를 만들지 않는다(「생성 보류」).
+
+**생성 · 삭제 규칙.** 전체 배포(Section 6) · `--alert-only` · `--rollback` 이 같은 함수(`sync_kyobo_monitoring`)로 동기화한다.
+정본은 **공개 healthz 본문의 `journalGateways.KYOBO` 키 유무**다(env 추정 아님 — VM 쪽 비밀 fetch 가 실패하면 호스트가 있어도
+KYOBO 없이 뜬다).
+
+| healthz | 동작 |
+|---------|------|
+| 키 있음 | 체크 · 정책을 만들거나 갱신한다(생성은 KB 한정 적용 뒤에만 — `--rollback` 은 KB 정책을 적용하지 않으므로 갱신만) |
+| 키 없음 | 정책 → 체크 순서로 `--quiet` 삭제. 키가 없으면 절대 만들지 않는다(영구 실패 체크 방지) |
+| 판정 불가(무응답 · 502 · 비JSON) | 손대지 않고 ⚠ 한 줄만 남긴다 |
+
+전체 배포에서는 비치명이다(실패해도 최종 요약까지 가고 「KYOBO 감시: <결과>」 한 줄이 찍힌다). `--alert-only` 에서는 KB 정책을
+적용하지 못하거나 KYOBO 동기화가 실패하면 비0 으로 끝난다. **체크 · 정책을 콘솔이나 gcloud 로 수동으로 만들거나 지우지 않는다.**
+
+컨테이너 무변경 반영(빌드 · VM 배포 · KB uptime check 를 건드리지 않는다):
+
+```bash
+GCP_PROJECT_ID=gh-radar NOTIFICATION_CHANNEL_ID=<채널 ID> bash scripts/deploy-relay.sh --alert-only
+```
+
+**비용.** 체크 2개 × 6지점 × 분당 1회 ≈ 월 52만 회로 프로젝트당 무료 100만 회 안이다. 알림 정책 과금(조건당 월 $0.35)은
+2027-09-01 이후다.
+
+**확인.**
+
+```bash
+gcloud monitoring uptime list-configs --filter="displayName=gh-radar-kyobo-observer-healthz"
+gcloud alpha monitoring policies list --filter="displayName=gh-radar-kyobo-observer-down"
+bash scripts/smoke-relay.sh   # 끝의 「참고 — KYOBO 관찰자 감시」 줄 — 판정: 일치
+```
+
 #### 교보 터널 주의
 
 - 교보 터널은 약 **4시간**마다 재로그인하며 수십 초 끊긴다. 그동안 DmaClient 가 백오프 1→30초로 재접속하고, 커서(`since_seq`)로
@@ -1149,6 +1209,7 @@ gh-radar 사용자 → `dma_credentials.dma_user_id` 문자열 → **모든 게�
 - 매핑 행은 로그인 스냅샷으로만 교체되므로 끈 뒤에도 `dma_account_access` 의 `gateway=KYOBO` 행이 남아 REST 복원에 계속 뜬다.
   가시성까지 거두려면 서비스롤로 그 행들을 삭제한다(값은 출력하지 않는다).
 - 비밀이 없거나 relay SA 접근권이 없으면 `deploy-relay.sh` 는 「⚠ KYOBO 관찰자 생략」 한 줄만 남기고 KB 단독으로 배포를 끝낸다.
+- `DMA_KYOBO_HOST=off` 배포 · 옛 이미지 `--rollback` 은 같은 실행에서 KYOBO 감시(정책 → 체크)도 지운다(§KYOBO 끊김 알림).
 
 #### 비밀 순환
 

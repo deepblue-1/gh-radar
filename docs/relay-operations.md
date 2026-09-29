@@ -50,7 +50,7 @@ DB 에 쓰지 않는다(D-01). 결선은 `relay/src/index.ts`, 모듈은 `relay/
   그래서 8번은 4줄 요약 + 이 절 링크만 두고 상세는 아래 「상태별 대응」에 쓴다. 문서를 늘릴 땐 9,500 바이트 이하를 지킨다
   (측정: `ruby -ryaml -e 'print YAML.load_file("ops/alert-relay-down.yaml")["documentation"]["content"].bytesize'`).
   문서만 고쳤으면 relay 재배포 없이 `GCP_PROJECT_ID=gh-radar NOTIFICATION_CHANNEL_ID=<채널 ID> bash scripts/deploy-relay.sh --alert-only`
-  로 정책만 갱신한다(빌드·VM 배포·uptime check 를 건너뛴다).
+  로 정책만 갱신한다(빌드·VM 배포·KB uptime check 를 건너뛴다 — KYOBO 감시는 healthz 실측에 맞춰 동기화).
 - **상태별 대응 (알림 8번 상세).** healthz 본문 `journal.state` 기준. `vpn:false` 가 같이 보이면 알림 문서 2번(VPN)이 먼저다.
   - `rejected` — 게이트웨이가 관찰자 로그인을 거부했다. relay 재시작 전에는 다시 시도하지 않는다(위 「로그인 거부」). 두 비밀
     (Secret Manager `gh-radar-dma-observer-secret` · 게이트웨이 `config/observer.toml`)이 같은지 **해시로** 대조하고(값을 화면에
