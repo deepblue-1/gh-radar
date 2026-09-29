@@ -20,8 +20,15 @@ set -euo pipefail
 #   bash scripts/deploy-relay.sh --rollback <이미지 태그>   # 빌드 없이 이전 태그로 복귀
 #
 #   GCP_PROJECT_ID=gh-radar NOTIFICATION_CHANNEL_ID=<채널> bash scripts/deploy-relay.sh --alert-only
-#     # 알림 정책만 갱신 (빌드·VM 배포·uptime check 건너뜀, SUPABASE_URL 불필요).
-#     # 알림 문서(ops/alert-relay-down.yaml)만 고쳤을 때 relay 재배포 없이 쓴다.
+#     # KB 알림 정책 + KYOBO 감시 동기화 — 빌드 · VM 배포 · KB uptime check · 컨테이너는 건드리지 않음
+#     # (SUPABASE_URL 불필요). 알림 문서(ops/alert-*.yaml)만 고쳤을 때 relay 재배포 없이 쓴다.
+#
+# KYOBO 감시 (quick-260929-sar): uptime check `gh-radar-kyobo-observer-healthz`(JSONPath
+#   `$.journalGateways.KYOBO.alerting` == false) + 정책 `gh-radar-kyobo-observer-down`(ops/alert-kyobo-observer-down.yaml).
+#   정본은 **라이브 공개 healthz 본문의 KYOBO 키 유무**다(env 추정 아님). 키가 있으면 만들거나 갱신하고, 없으면
+#   정책 → 체크 순서로 지우며, healthz 판정 불가면 손대지 않는다. 전체 배포(Section 6) · --alert-only · --rollback 이
+#   같은 함수(sync_kyobo_monitoring)로 동기화한다. KYOBO 체크 생성은 같은 실행에서 KB 정책 check_id 한정이
+#   적용된 뒤에만 한다 — check_passed 의 resource 라벨이 host 뿐이라 한정 전이면 새 체크가 KB 알림을 오염시킨다.
 #
 # 선택 env:
 #   DMA_HOST   우선순위: **명시 주입 > 실행 중인 컨테이너 값 보존 > 127.0.0.1 (로컬 mock)**.
@@ -103,12 +110,70 @@ HEALTH_HOST=dma.jx1.io
 UPTIME_CHECK=gh-radar-relay-healthz
 ALERT_POLICY=gh-radar-relay-down
 ALERT_FILE="ops/alert-relay-down.yaml"
+# KYOBO 관찰자 감시 (quick-260929-sar). 이름 둘은 KB 이름(gh-radar-relay-healthz · gh-radar-relay-down)을
+# 부분 문자열로 품지 않게 정했다 — gcloud displayName 필터 · smoke INV-8 의 「정확히 1건」 보호.
+KYOBO_UPTIME_CHECK=gh-radar-kyobo-observer-healthz
+KYOBO_ALERT_POLICY=gh-radar-kyobo-observer-down
+KYOBO_ALERT_FILE="ops/alert-kyobo-observer-down.yaml"
+KYOBO_JSON_PATH='$.journalGateways.KYOBO.alerting'
+# 실행 상태: KB 정책(check_id 한정)이 이번 실행에서 적용됐는지 · KYOBO 감시 동기화 결과(요약 줄용).
+KB_POLICY_APPLIED=0
+KYOBO_MONITOR_RESULT="미실행"
 RELAY_SA="gh-radar-relay-sa@${EXPECTED_PROJECT}.iam.gserviceaccount.com"
 
-# 알림 정책 update-or-create. **Section 6(전체 배포)과 `--alert-only` 가 같은 이 함수를 쓴다** —
+# uptime check displayName → full resource name(첫 줄). 없거나 조회 실패면 빈 문자열 — **절대 실패하지 않는다**.
+# 체크 ID 는 호출부가 `${name##*/}` 로 얻는다.
+uptime_check_name() {
+  gcloud monitoring uptime list-configs \
+    --filter="displayName=$1" --format='value(name)' 2>/dev/null | head -1 || true
+}
+
+# 정책 파일 적용(update-or-create). 인자: <displayName> <yaml> <checkId>
+#   반환 0 = 적용됨 · 1 = 전제 불충족/치환 잔여로 **적용 거부**(gcloud 미호출) · 2 = gcloud 실패.
+# yaml 의 `${NOTIFICATION_CHANNEL_ID}` · `${UPTIME_CHECK_ID}` 를 치환한다. 하나라도 남으면 적용하지 않는다 —
+# 필터가 아무것도 못 잡는 조용히 죽은 알림을 만들지 않기 위해서다(T-sar-06).
+# ⚠ 호출부는 `if` · `||` 문맥에서 부른다 — bash 는 그 문맥의 함수 안에서 `set -e` 를 멈추므로
+#   모든 gcloud 호출의 반환값을 여기서 명시적으로 검사한다.
+apply_policy_file() {
+  local display="$1" file="$2" check_id="$3"
+  local channel resolved existing
+  [[ -f "$file" && -n "${NOTIFICATION_CHANNEL_ID:-}" && -n "$check_id" ]] || return 1
+  # gcloud monitoring 은 notificationChannels 에 full resource name 을 요구 — ID 만 주어지면 정규화.
+  channel="$NOTIFICATION_CHANNEL_ID"
+  case "$channel" in
+    projects/*) ;;
+    *) channel="projects/${EXPECTED_PROJECT}/notificationChannels/${NOTIFICATION_CHANNEL_ID}" ;;
+  esac
+  resolved=$(mktemp) || return 2
+  if ! sed -e "s|\${NOTIFICATION_CHANNEL_ID}|${channel}|g" \
+           -e "s|\${UPTIME_CHECK_ID}|${check_id}|g" "$file" > "$resolved"; then
+    rm -f "$resolved"; return 2
+  fi
+  if grep -qF '${' "$resolved"; then
+    echo "⚠ $file: 치환 뒤에도 \${…} 토큰이 남았다 — 정책 $display 적용 거부" >&2
+    rm -f "$resolved"; return 1
+  fi
+  existing=$(gcloud alpha monitoring policies list \
+    --filter="displayName=${display}" --format='value(name)' 2>/dev/null | head -1) || existing=""
+  if [[ -n "$existing" ]]; then
+    echo "▶ updating alert policy: ${display} ..."
+    gcloud alpha monitoring policies update "$existing" --policy-from-file="$resolved" >/dev/null \
+      || { rm -f "$resolved"; return 2; }
+  else
+    echo "▶ creating alert policy: ${display} ..."
+    gcloud alpha monitoring policies create --policy-from-file="$resolved" >/dev/null \
+      || { rm -f "$resolved"; return 2; }
+  fi
+  rm -f "$resolved"
+  return 0
+}
+
+# KB 알림 정책 update-or-create. **Section 6(전체 배포)과 `--alert-only` 가 같은 이 함수를 쓴다** —
 # 두 벌로 적으면 언젠가 한쪽만 고쳐진다 (quick-260925-o1s).
+# 필터의 `${UPTIME_CHECK_ID}` 는 KB 체크 ID 로 치환한다(quick-260929-sar — 같은 host 의 KYOBO 체크와 격리).
+# 적용에 성공해야만 KB_POLICY_APPLIED=1 — KYOBO 체크 생성은 이 값을 게이트로 쓴다.
 apply_alert_policy() {
-  local CHANNEL_RESOURCE RESOLVED_YAML EXISTING_POLICY
+  local kb_check_name rc
   # NOTIFICATION_CHANNEL_ID 는 **선택**이다. 없다고 배포를 실패시키면 안 된다 —
   # `set -e` 로 여기서 죽으면 아래 최종 요약(무엇이 어디에 붙었는지)이 아예 출력되지 않아,
   # 잘못된 DMA_HOST 로 뜬 것을 배포자가 못 본다 (2026-09-06 실장애).
@@ -116,33 +181,148 @@ apply_alert_policy() {
     echo "⚠ NOTIFICATION_CHANNEL_ID 미설정 — 알림 정책 단계 건너뜀 (배포 자체는 완료됨)" >&2
     echo "  기존 정책이 있으면 그대로 유효합니다. 새로 걸려면 채널 ID 를 넣고 재실행하세요." >&2
   elif [[ -f "$ALERT_FILE" ]]; then
-    # gcloud monitoring 은 notificationChannels 에 full resource name 을 요구 — ID 만 주어지면 정규화.
-    CHANNEL_RESOURCE="$NOTIFICATION_CHANNEL_ID"
-    case "$CHANNEL_RESOURCE" in
-      projects/*) ;;
-      *) CHANNEL_RESOURCE="projects/${EXPECTED_PROJECT}/notificationChannels/${NOTIFICATION_CHANNEL_ID}" ;;
-    esac
-    RESOLVED_YAML=$(mktemp)
-    sed "s|\${NOTIFICATION_CHANNEL_ID}|${CHANNEL_RESOURCE}|g" "$ALERT_FILE" > "$RESOLVED_YAML"
-
-    EXISTING_POLICY=$(gcloud alpha monitoring policies list \
-      --filter="displayName=${ALERT_POLICY}" \
-      --format='value(name)' 2>/dev/null | head -1)
-
-    if [[ -n "$EXISTING_POLICY" ]]; then
-      echo "▶ updating alert policy: ${ALERT_POLICY} ..."
-      gcloud alpha monitoring policies update "$EXISTING_POLICY" --policy-from-file="$RESOLVED_YAML" >/dev/null
-    else
-      echo "▶ creating alert policy: ${ALERT_POLICY} ..."
-      gcloud alpha monitoring policies create --policy-from-file="$RESOLVED_YAML" >/dev/null
+    kb_check_name="$(uptime_check_name "$UPTIME_CHECK")"
+    if [[ -z "$kb_check_name" ]]; then
+      echo "⚠ KB uptime check ID 해석 실패 — 알림 정책 단계 건너뜀(기존 정책 유지)" >&2
+      return 0
     fi
-    rm -f "$RESOLVED_YAML"
-    echo "✓ Alert policy ready: $ALERT_POLICY"
+    rc=0
+    apply_policy_file "$ALERT_POLICY" "$ALERT_FILE" "${kb_check_name##*/}" || rc=$?
+    case "$rc" in
+      0)
+        KB_POLICY_APPLIED=1
+        echo "✓ Alert policy ready: $ALERT_POLICY"
+        ;;
+      1)
+        echo "⚠ KB 알림 정책 치환 거부 — $ALERT_POLICY 적용 건너뜀(기존 정책 유지)" >&2
+        ;;
+      *)
+        # 종전에는 set -e 로 여기서 죽었다 — 동작을 같게 둔다(문서 크기 초과 등 · docs/relay-operations.md).
+        echo "ERROR: 알림 정책 $ALERT_POLICY 적용 실패 (gcloud)" >&2
+        exit 1
+        ;;
+    esac
   fi
+  return 0
 }
 
-# --alert-only: 알림 정책만 갱신하고 끝낸다. SUPABASE_URL 가드와 IAP SSH(DMA_HOST 조회)보다
-# **앞**이라 둘 다 요구·실행하지 않는다. 빌드·VM 배포·uptime check 도 건너뛴다.
+# KYOBO 관찰자 감시 동기화 (quick-260929-sar). **비치명** — 본문에 exit 가 없고 항상 return 0,
+# 결과는 KYOBO_MONITOR_RESULT 로 남긴다. 평문 호출이라 set -e 가 살아 있으므로 실패할 수 있는 명령마다
+# `|| true` 또는 `|| { KYOBO_MONITOR_RESULT="실패: …"; return 0; }` 를 붙인다.
+# 정본은 공개 healthz 본문의 journalGateways.KYOBO 키 유무다:
+#   present → 체크 create/update + 정책 적용 · absent → 정책 → 체크 삭제 · unknown → 손대지 않음.
+sync_kyobo_monitoring() {
+  local body verdict KYOBO_UPTIME_NAME KYOBO_POLICY_NAME rc deleted=""
+  # (a) 본문만 읽는다. -f 금지 — 장중 KB 503 본문에도 journalGateways 가 실린다.
+  body="$(curl -s --max-time 10 "https://${HEALTH_HOST}/healthz" 2>/dev/null || true)"
+  # (b) present / absent / unknown:<사유>
+  verdict="$(printf '%s' "$body" | python3 -c '
+import json, sys
+raw = sys.stdin.read()
+if not raw.strip():
+    print("unknown:빈 본문 또는 무응답"); sys.exit(0)
+try:
+    d = json.loads(raw)
+except Exception:
+    print("unknown:JSON 아님"); sys.exit(0)
+if not isinstance(d, dict):
+    print("unknown:JSON 객체 아님"); sys.exit(0)
+g = d.get("journalGateways")
+print("present" if isinstance(g, dict) and isinstance(g.get("KYOBO"), dict) else "absent")
+' 2>/dev/null || true)"
+  [[ -n "$verdict" ]] || verdict="unknown:판정 실패"
+
+  if [[ "$verdict" == unknown:* ]]; then
+    echo "⚠ KYOBO 감시: healthz 판정 불가 (${verdict#unknown:}) — 기존 상태 유지" >&2
+    KYOBO_MONITOR_RESULT="판정 불가 — 기존 상태 유지"
+    return 0
+  fi
+
+  # (c) 기존 자원(목록 조회 — describe 는 쓰지 않는다)
+  KYOBO_UPTIME_NAME="$(uptime_check_name "$KYOBO_UPTIME_CHECK")"
+  KYOBO_POLICY_NAME="$(gcloud alpha monitoring policies list \
+    --filter="displayName=${KYOBO_ALERT_POLICY}" --format='value(name)' 2>/dev/null | head -1 || true)"
+
+  # (e) absent — KYOBO 가 꺼졌거나 옛 이미지다. 남은 JSONPath 체크는 영구 실패하므로 지운다(정책 먼저).
+  if [[ "$verdict" == absent ]]; then
+    if [[ -n "$KYOBO_POLICY_NAME" ]]; then
+      echo "▶ KYOBO 감시 정책 삭제: ${KYOBO_ALERT_POLICY} ..."
+      gcloud alpha monitoring policies delete "$KYOBO_POLICY_NAME" --quiet >/dev/null \
+        || { KYOBO_MONITOR_RESULT="실패: KYOBO 정책 삭제"; return 0; }
+      deleted=1
+    fi
+    if [[ -n "$KYOBO_UPTIME_NAME" ]]; then
+      echo "▶ KYOBO 감시 체크 삭제: ${KYOBO_UPTIME_CHECK} ..."
+      gcloud monitoring uptime delete "$KYOBO_UPTIME_NAME" --quiet >/dev/null \
+        || { KYOBO_MONITOR_RESULT="실패: KYOBO 체크 삭제"; return 0; }
+      deleted=1
+    fi
+    if [[ -n "$deleted" ]]; then
+      KYOBO_MONITOR_RESULT="없음 — KYOBO 꺼짐(감시 삭제)"
+    else
+      KYOBO_MONITOR_RESULT="없음"
+    fi
+    return 0
+  fi
+
+  # present
+  if [[ -z "$KYOBO_UPTIME_NAME" ]]; then
+    # (f) 생성은 KB 정책 check_id 한정이 이번 실행에서 적용된 뒤에만 (T-sar-01).
+    if [[ "$KB_POLICY_APPLIED" != 1 ]]; then
+      echo "⚠ KB 정책 check_id 한정이 이번 실행에서 확인되지 않아 KYOBO 체크 생성을 보류" >&2
+      KYOBO_MONITOR_RESULT="생성 보류"
+      return 0
+    fi
+    echo "▶ KYOBO 감시 체크 create: ${KYOBO_UPTIME_CHECK} ..."
+    gcloud monitoring uptime create "$KYOBO_UPTIME_CHECK" \
+      --resource-type=uptime-url \
+      --resource-labels="host=${HEALTH_HOST},project_id=${EXPECTED_PROJECT}" \
+      --protocol=https \
+      --port=443 \
+      --path=/healthz \
+      --period=1 \
+      --timeout=10 \
+      --validate-ssl=true \
+      --status-classes=2xx,5xx \
+      --matcher-type=matches-json-path \
+      --json-path="$KYOBO_JSON_PATH" \
+      --json-path-matcher-type=exact-match \
+      --matcher-content=false >/dev/null \
+      || { KYOBO_MONITOR_RESULT="실패: KYOBO 체크 생성"; return 0; }
+    KYOBO_UPTIME_NAME="$(uptime_check_name "$KYOBO_UPTIME_CHECK")"
+    if [[ -z "$KYOBO_UPTIME_NAME" ]]; then
+      KYOBO_MONITOR_RESULT="실패: KYOBO 체크 생성 후 ID 조회"
+      return 0
+    fi
+  else
+    # (g) 이미 있음 — update 는 반복 필드가 --set-status-classes(전량 치환)다.
+    echo "▶ KYOBO 감시 체크 update: ${KYOBO_UPTIME_CHECK} ..."
+    gcloud monitoring uptime update "$KYOBO_UPTIME_NAME" \
+      --period=1 --timeout=10 --validate-ssl=true --set-status-classes=2xx,5xx \
+      --matcher-type=matches-json-path \
+      --json-path="$KYOBO_JSON_PATH" \
+      --json-path-matcher-type=exact-match \
+      --matcher-content=false >/dev/null \
+      || { KYOBO_MONITOR_RESULT="실패: KYOBO 체크 갱신"; return 0; }
+  fi
+
+  # (h) 정책
+  if [[ -z "${NOTIFICATION_CHANNEL_ID:-}" ]]; then
+    KYOBO_MONITOR_RESULT="체크만 — 정책 건너뜀(NOTIFICATION_CHANNEL_ID 미설정)"
+    return 0
+  fi
+  rc=0
+  apply_policy_file "$KYOBO_ALERT_POLICY" "$KYOBO_ALERT_FILE" "${KYOBO_UPTIME_NAME##*/}" || rc=$?
+  if [[ "$rc" == 0 ]]; then
+    KYOBO_MONITOR_RESULT="켜짐 (체크 ${KYOBO_UPTIME_NAME##*/} · 정책 ${KYOBO_ALERT_POLICY})"
+  else
+    KYOBO_MONITOR_RESULT="실패: 정책 적용"
+  fi
+  return 0
+}
+
+# --alert-only: KB 알림 정책 + KYOBO 감시 동기화만 하고 끝낸다. SUPABASE_URL 가드와 IAP SSH(DMA_HOST 조회)보다
+# **앞**이라 둘 다 요구·실행하지 않는다. 빌드·VM 배포·KB uptime check · 컨테이너는 건드리지 않는다.
 if [[ "$MODE" == alert-only ]]; then
   if [[ ! -f "$ALERT_FILE" ]]; then
     echo "ERROR: $ALERT_FILE 이 없습니다 — 저장소 루트에서 실행하세요" >&2
@@ -154,7 +334,18 @@ if [[ "$MODE" == alert-only ]]; then
     exit 1
   fi
   apply_alert_policy
-  echo "  (--alert-only: relay 컨테이너 · uptime check 는 건드리지 않았습니다)"
+  # KB 한정이 적용되지 않았으면 KYOBO 체크를 만들 수 없다(오염 방지) — 여기서는 목적 실패다.
+  if [[ "$KB_POLICY_APPLIED" != 1 ]]; then
+    echo "ERROR: KB 알림 정책 미적용 — KYOBO 감시 동기화 중단" >&2
+    exit 1
+  fi
+  sync_kyobo_monitoring
+  if [[ "$KYOBO_MONITOR_RESULT" == 실패* ]]; then
+    echo "✗ KYOBO 감시 실패: ${KYOBO_MONITOR_RESULT#실패: }" >&2
+    exit 1
+  fi
+  echo "✓ KYOBO 감시: $KYOBO_MONITOR_RESULT"
+  echo "  (--alert-only: relay 컨테이너 · KB uptime check 는 건드리지 않았습니다 — KYOBO 감시는 healthz 실측에 맞춰 동기화)"
   exit 0
 fi
 
@@ -567,6 +758,11 @@ echo "✓ VM 배포 완료"
 if [[ "$MODE" == rollback ]]; then
   echo ""
   echo "✅ Rolled back @ $TARGET_IMAGE"
+  # 옛 이미지면 healthz 에서 KYOBO 키가 사라진다 — 남은 체크가 영구 실패로 메일을 보내지 않게 같은 실행에서
+  # 동기화한다(T-sar-04). rollback 은 KB 정책을 적용하지 않으므로 생성은 보류되고 갱신·삭제만 한다.
+  # ⚠ 방금 뜬 컨테이너의 healthz 가 아직 안 올라왔으면 판정 불가로 손대지 않는다 — 그때는 --alert-only 로 맞춘다.
+  sync_kyobo_monitoring
+  echo "   KYOBO 감시: $KYOBO_MONITOR_RESULT"
   echo "Next: bash scripts/smoke-relay.sh"
   exit 0
 fi
@@ -576,6 +772,8 @@ fi
 #   Cloud Run Job 처럼 "실행 실패" 메트릭이 없다. 상시 프로세스의 가용성은
 #   외부에서 실제로 두드려 보는 uptime check 가 유일한 근거다.
 #   `--validate-ssl=true` 라 인증서 만료도 같은 알림으로 잡힌다 (T-15-13).
+#   KYOBO 감시(quick-260929-sar): KB 정책(check_id 한정) 적용 뒤 sync_kyobo_monitoring 이 공개 healthz 의
+#   KYOBO 키 유무에 맞춰 JSONPath 체크 · 정책을 만들거나 지운다(비치명 — 결과는 최종 요약 한 줄).
 # ───────────────────────────────────────────────────────────────
 EXISTING_UPTIME=$(gcloud monitoring uptime list-configs \
   --filter="displayName=${UPTIME_CHECK}" --format='value(name)' 2>/dev/null | head -1)
@@ -604,6 +802,7 @@ fi
 echo "✓ uptime check ready: $UPTIME_CHECK → https://${HEALTH_HOST}/healthz"
 
 apply_alert_policy
+sync_kyobo_monitoring
 
 echo ""
 echo "═══════════════════════════════════════════════════════════════"
@@ -632,6 +831,7 @@ if [[ -n "$LIVE_KYOBO_HOST" ]]; then
 else
   echo "   KYOBO:     관찰자 없음"
 fi
+echo "   KYOBO 감시: $KYOBO_MONITOR_RESULT"
 echo "   Public:    https://${HEALTH_HOST}/healthz"
 echo ""
 echo "Next: bash scripts/smoke-relay.sh"

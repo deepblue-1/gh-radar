@@ -1,0 +1,103 @@
+displayName: gh-radar-kyobo-observer-down
+documentation:
+  content: |
+    교보(KYOBO) 관찰자가 장중에 끊겼다. `https://dma.jx1.io/healthz` 본문의
+    `journalGateways.KYOBO.alerting` 이 `true` 다 (quick-260929-sar).
+    uptime check `gh-radar-kyobo-observer-healthz` 가 JSONPath `$.journalGateways.KYOBO.alerting` 이
+    `false` 인지 보는데, 그 성공률이 6지점 평균 **0.9 미만**이고 **싱가포르 지점도 0.9 미만**인 상태가 5분 이어졌다.
+
+    `alerting` 은 장중(평일 08:00~20:00 KST · 휴장일 제외)에만 켜진다. `rejected` 는 즉시,
+    그 밖의 비-live 상태(connecting · logging_in · replaying · db_error …)는 180초 뒤다.
+    끊긴 뒤 이 메일까지 약 8분 이상 걸린다. 4시간 주기 교보 재로그인(수십 초)은 울리지 않는다.
+
+    **영향:** 교보 계좌 주문 기록만 DB 에 들어오지 않는다. KB 호가 · 주문 · 기록은 영향이 없다.
+    다시 붙으면 커서(`since_seq`)로 이어받아 유실 없이 따라잡는다.
+
+    ## 먼저 볼 것
+
+    ```
+    curl -s https://dma.jx1.io/healthz | jq '.journalGateways.KYOBO'
+    ```
+
+    **`gh-radar-relay-down` 이 함께 울렸으면 그쪽이 먼저다.** relay · Caddy 가 죽으면(무응답 · 502 빈 본문)
+    이 체크도 실패한다. relay 를 살리면 이 알림도 닫힌다.
+
+    ## 상태별 대응 (`.state`)
+
+    | 상태 | 뜻 | 대응 |
+    |---|---|---|
+    | `rejected` | kyobo127 게이트웨이가 관찰자 로그인을 거부했다. relay 재시작 전에는 다시 시도하지 않는다 | 관찰자 비밀 불일치가 거의 전부다. Secret `gh-radar-dma-observer-secret-kyobo` 와 kyobo127 `config/observer.toml` 을 **해시 앞 12자로** 대조한다(값은 출력하지 않는다). 맞춘 뒤 relay 재시작(`sudo docker restart gh-radar-relay`) |
+    | `connecting` · `logging_in` | 게이트웨이에 닿지 못하거나 로그인이 끝나지 않는다 | VM 교보 터널 `securwayssl.service` 상태 · **데스크톱 SecuwaySSL 동시접속**(VM 터널을 끊는다 — 데스크톱을 끄면 저절로 다시 붙는다) · kyobo127 게이트웨이 프로세스 |
+    | `db_error` | 기록 적용 RPC 가 실패한다 | Supabase 상태 · 적용 RPC 오류 로그 |
+    | 키 없음(`null`) | KYOBO 관찰자가 꺼졌는데 체크가 남았다 | `deploy-relay.sh --alert-only` 가 지운다(아래) |
+
+    ## 로그
+
+    relay 로그는 Cloud Logging 에 없다. VM 에서 본다.
+
+    ```
+    gcloud compute ssh radar-gw --zone=asia-northeast3-a --tunnel-through-iap \
+      --command "sudo docker logs --since 30m gh-radar-relay 2>&1 | grep '\"gateway\":\"KYOBO\"' | tail -20"
+    ```
+
+    ## 왜 상태 2xx · 5xx 를 둘 다 받나
+
+    KB 기록이 끊기면 장중 `/healthz` 가 503 이다. 그래도 본문은 JSON 이고 `journalGateways` 가 실린다.
+    2xx 만 받으면 KB 문제가 이 KYOBO 알림으로 번진다. 5xx 도 받아 본문(JSONPath)만으로 판정한다.
+
+    ## 관리
+
+    이 체크 · 정책은 `scripts/deploy-relay.sh` 가 관리한다(전체 배포 · `--alert-only` · `--rollback`).
+    공개 healthz 에 KYOBO 키가 있으면 만들거나 갱신하고, 없으면 정책 → 체크 순서로 지운다.
+    **수동으로 만들거나 지우지 않는다.** 컨테이너 무변경 동기화:
+    `GCP_PROJECT_ID=gh-radar NOTIFICATION_CHANNEL_ID=<채널 ID> bash scripts/deploy-relay.sh --alert-only`
+
+    상세는 `infra/relay/README.md` §KYOBO 끊김 알림 · §교보 터널 주의 를 본다.
+  mimeType: text/markdown
+# 창 · 지속 근거 (quick-260929-sar):
+# - relay 는 이미 180초 유예 뒤에만 alerting=true 로 둔다(rejected 는 즉시). 알림 층이 그 위에 120초 창 ·
+#   300초 지속을 더해, 재연결이 몇 분 걸리는 드문 4시간 재로그인이나 짧은 데스크톱 SecuwaySSL 사용에는 울리지 않게 한다.
+#   관찰자 전용 게이트웨이라 KB relay-down(300초 창)보다 한 단계 느슨해도 되지만, 창은 짧게 둬 판정이 늦지 않게 한다.
+# - 싱가포르 AND 는 KB 정책과 같은 대책이다 — 2026-09-17 해외 지점만 실패하는 경로 오탐(ops/alert-relay-down.yaml 문서).
+# - check_id 한정: check_passed 의 resource 라벨은 host 뿐이라 같은 host 의 KB 체크와 섞이지 않게 체크 ID 로 거른다.
+#   치환 토큰은 deploy-relay.sh 가 KYOBO 체크 ID 로 바꾼다(못 구하면 정책을 적용하지 않는다).
+conditions:
+  - displayName: kyobo observer check failing
+    conditionThreshold:
+      filter: |
+        metric.type = "monitoring.googleapis.com/uptime_check/check_passed"
+        AND resource.type = "uptime_url"
+        AND resource.label.host = "dma.jx1.io"
+        AND metric.label.check_id = "${UPTIME_CHECK_ID}"
+      comparison: COMPARISON_LT
+      thresholdValue: 0.9
+      duration: 300s
+      aggregations:
+        - alignmentPeriod: 120s
+          perSeriesAligner: ALIGN_FRACTION_TRUE
+          crossSeriesReducer: REDUCE_MEAN
+          groupByFields:
+            - resource.label.host
+  - displayName: kyobo observer check failing from apac-singapore
+    conditionThreshold:
+      filter: |
+        metric.type = "monitoring.googleapis.com/uptime_check/check_passed"
+        AND resource.type = "uptime_url"
+        AND resource.label.host = "dma.jx1.io"
+        AND metric.label.check_id = "${UPTIME_CHECK_ID}"
+        AND metric.label.checker_location = "apac-singapore"
+      comparison: COMPARISON_LT
+      thresholdValue: 0.9
+      duration: 300s
+      aggregations:
+        - alignmentPeriod: 120s
+          perSeriesAligner: ALIGN_FRACTION_TRUE
+          crossSeriesReducer: REDUCE_MEAN
+          groupByFields:
+            - resource.label.host
+combiner: AND
+enabled: true
+notificationChannels:
+  - "${NOTIFICATION_CHANNEL_ID}"
+alertStrategy:
+  autoClose: 1800s

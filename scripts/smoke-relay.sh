@@ -33,6 +33,9 @@ HOST=dma.jx1.io
 CONTAINER=gh-radar-relay
 UPTIME_CHECK=gh-radar-relay-healthz
 ALERT_POLICY=gh-radar-relay-down
+# KYOBO 관찰자 감시(quick-260929-sar) — 판정 항목이 아니라 맨 끝 참고 줄에서만 쓴다.
+KYOBO_UPTIME_CHECK=gh-radar-kyobo-observer-healthz
+KYOBO_ALERT_POLICY=gh-radar-kyobo-observer-down
 ORDER_API_PORT=8091
 DMA_PORT=9100
 VPN_UNIT=openconnect@kb
@@ -718,5 +721,37 @@ echo "참고 — 컨테이너 상태 (검증 항목 아님):"
 gcloud compute ssh "$VM" --tunnel-through-iap --zone="$ZONE" \
   --command="docker ps --filter name=${CONTAINER} --format '  {{.Names}} {{.Status}}'; free -m | awk '/^Mem:/{printf \"  mem total=%s used=%s available=%s\n\", \$2, \$3, \$7}'" 2>/dev/null \
   || echo "  (조회 실패 — IAP SSH 권한 확인)"
+
+# KYOBO 관찰자 감시 동기화 상태(quick-260929-sar). 판정 항목이 아니다 — check/skip 을 부르지 않고
+# PASS/FAIL/SKIP 계수를 건드리지 않는다. 정본(생성·삭제)은 deploy-relay.sh 의 sync_kyobo_monitoring 이다.
+echo ""
+echo "참고 — KYOBO 관찰자 감시 (검증 항목 아님):"
+KY_KEY="$(curl -s --max-time 10 "https://${HOST}/healthz" 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.loads(sys.stdin.read())
+except Exception:
+    print("판정 불가"); sys.exit(0)
+g = d.get("journalGateways") if isinstance(d, dict) else None
+print("있음" if isinstance(g, dict) and isinstance(g.get("KYOBO"), dict) else ("없음" if isinstance(d, dict) else "판정 불가"))
+' 2>/dev/null || true)"
+KY_KEY="${KY_KEY:-판정 불가}"
+KY_UPTIME="$(gcloud monitoring uptime list-configs --filter="displayName=${KYOBO_UPTIME_CHECK}" \
+  --format='value(name)' 2>/dev/null | head -1 || true)"
+KY_POLICY="$(gcloud alpha monitoring policies list --filter="displayName=${KYOBO_ALERT_POLICY}" \
+  --format='value(name)' 2>/dev/null | head -1 || true)"
+KB_SCOPED_N="$(gcloud alpha monitoring policies list --filter="displayName=${ALERT_POLICY}" --format=json 2>/dev/null \
+  | grep -o 'metric.label.check_id' | wc -l | tr -d ' ' || true)"
+if [[ "${KB_SCOPED_N:-0}" -ge 2 ]] 2>/dev/null; then KB_SCOPED="예"; else KB_SCOPED="아니오"; fi
+echo "  healthz KYOBO 키:          $KY_KEY"
+echo "  KYOBO uptime check:        $([[ -n "$KY_UPTIME" ]] && echo 있음 || echo 없음)  (${KYOBO_UPTIME_CHECK})"
+echo "  KYOBO 알림 정책:           $([[ -n "$KY_POLICY" ]] && echo 있음 || echo 없음)  (${KYOBO_ALERT_POLICY})"
+echo "  KB 정책 check_id 한정:     $KB_SCOPED"
+if { [[ "$KY_KEY" == 있음 && -n "$KY_UPTIME" && -n "$KY_POLICY" ]]; } \
+   || { [[ "$KY_KEY" == 없음 && -z "$KY_UPTIME" && -z "$KY_POLICY" ]]; }; then
+  echo "  판정:                      일치"
+else
+  echo "  판정:                      ⚠ 불일치 — deploy-relay.sh --alert-only 로 동기화"
+fi
 
 summary

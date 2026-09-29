@@ -124,6 +124,10 @@ documentation:
     1→2→4→8→16→30초 뒤 30초 간격으로 계속 시도하므로, VPN 이 몇 시간 뒤에 돌아와도
     relay 는 스스로 복구된다. 10회를 넘기면 로그가 `error` 로 승격된다.
   mimeType: text/markdown
+# 2026-09-29 quick-260929-sar — 같은 host 에 KYOBO 관찰자 체크(gh-radar-kyobo-observer-healthz)가 생겼다.
+# check_passed 의 resource 라벨은 host 뿐이라 host 로만 거르면 KYOBO 실패가 KB 평균·싱가포르 조건에 섞인다.
+# 두 조건의 metric.label.check_id 로 이 정책의 원래 의미(KB 체크만)를 지킨다.
+# 값 ${UPTIME_CHECK_ID} 는 deploy-relay.sh 가 KB 체크 ID 로 치환한다(못 구하면 정책을 적용하지 않는다).
 conditions:
   - displayName: relay uptime check failing
     conditionThreshold:
@@ -131,6 +135,7 @@ conditions:
         metric.type = "monitoring.googleapis.com/uptime_check/check_passed"
         AND resource.type = "uptime_url"
         AND resource.label.host = "dma.jx1.io"
+        AND metric.label.check_id = "${UPTIME_CHECK_ID}"
       comparison: COMPARISON_LT
       # 1.0 → 0.9 (2026-09-06). 1.0 은 "검사 1건이라도 실패하면" 이라 지점 한 곳의 순간
       # 실패까지 전부 울렸다. 실측 분포가 뚜렷하다: 오탐 0.983~0.994 / 실장애 0.045.
@@ -151,6 +156,7 @@ conditions:
         metric.type = "monitoring.googleapis.com/uptime_check/check_passed"
         AND resource.type = "uptime_url"
         AND resource.label.host = "dma.jx1.io"
+        AND metric.label.check_id = "${UPTIME_CHECK_ID}"
         AND metric.label.checker_location = "apac-singapore"
       comparison: COMPARISON_LT
       thresholdValue: 0.9
