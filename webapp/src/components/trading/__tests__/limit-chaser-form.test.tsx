@@ -3167,9 +3167,9 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 선매
     cancelTradeEnabled: true,
     cancelQtyTrackEnabled: true,
   } as const;
-  /** 부분 거부 — 에코가 매도주문만 눕혔다. 「켬」 은 에코에 선 항목만 · 눕힌 항목은 서버 거부 · error (R3-G1 · R4-WR-01). */
+  /** 부분 거부 — 에코가 매도주문만 눕혔다. 「켬」 은 에코에 선 항목만 · 에코에 무장으로 서지 않은 항목은 무장 안 됨 · error (R3-G1 · R4-WR-01 · R5-WR-02). */
   const PRE_PARTIAL_LINE =
-    '선매수 자동 체크 — 켬: 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 켜지 않음: 매도주문(서버 거부) / 매도 주문가격·비교가격 = 상한가 150,800원';
+    '선매수 자동 체크 — 켬: 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 켜지 않음: 매도주문(무장 안 됨) / 매도 주문가격·비교가격 = 상한가 150,800원';
   const autoLines = (log: ReturnType<typeof vi.fn>): [string, string][] =>
     (log.mock.calls as [string, string][]).filter(([text]) => text.includes('자동 체크'));
   const failedShown = () => (document.body.textContent ?? '').includes('반영하지 못했어요');
@@ -3193,7 +3193,7 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 선매
     return view;
   }
 
-  it('F1 부분 거부 — 거부 신호 먼저 → 같은 제출 에코(매도만 눕힘) → 「선매수 자동 체크 … 켜지 않음: 매도주문(서버 거부)」 error 한 줄 → 다음 답 신호에 대기 추가매수 1건', () => {
+  it('F1 부분 거부 — 거부 신호 먼저 → 같은 제출 에코(매도만 눕힘) → 「선매수 자동 체크 … 켜지 않음: 매도주문(무장 안 됨)」 error 한 줄 → 다음 답 신호에 대기 추가매수 1건', () => {
     const onClientLog = vi.fn();
     const { rerender } = startAndReject(onClientLog);
 
@@ -3223,7 +3223,7 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 선매
     expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'false');
     expect(failedShown()).toBe(false);
 
-    // 추가매수 성공 에코 → 그 줄은 매도주문을 「켜지 않음(서버 거부)」 로 사실대로 적는다(error).
+    // 추가매수 성공 에코 → 그 줄은 매도주문을 「켜지 않음(무장 안 됨)」 으로 사실대로 적는다(error · 원인은 단정하지 않는다).
     rerender(
       <LimitChaserForm
         {...props({ server: { ...pre, extraBuyEnabled: true }, upperLimit: 150_800, onClientLog, serverAnswerSeq: 3, serverRejectSeq: 1 })}
@@ -3231,7 +3231,7 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 선매
     );
     expect(autoLines(onClientLog)).toEqual([
       [PRE_PARTIAL_LINE, 'error'],
-      ['추가매수 자동 체크 — 켜지 않음: 매도주문(서버 거부)', 'error'],
+      ['추가매수 자동 체크 — 켜지 않음: 매도주문(무장 안 됨)', 'error'],
     ]);
     expect(sentConfigs()).toHaveLength(2);
     expect(failedShown()).toBe(false);
