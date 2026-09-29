@@ -76,8 +76,23 @@ accountsLength():number {
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
+strategyHeadSeq():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 20);
+  return offset ? this.bb!.readUint64(this.bb_pos + offset) : BigInt('0');
+}
+
+strategyOldestSeq():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 22);
+  return offset ? this.bb!.readUint64(this.bb_pos + offset) : BigInt('0');
+}
+
+strategyResync():boolean {
+  const offset = this.bb!.__offset(this.bb_pos, 24);
+  return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
+}
+
 static startObserverLoginResp(builder:flatbuffers.Builder) {
-  builder.startObject(8);
+  builder.startObject(11);
 }
 
 static addSuccess(builder:flatbuffers.Builder, success:boolean) {
@@ -124,12 +139,24 @@ static startAccountsVector(builder:flatbuffers.Builder, numElems:number) {
   builder.startVector(4, numElems, 4);
 }
 
+static addStrategyHeadSeq(builder:flatbuffers.Builder, strategyHeadSeq:bigint) {
+  builder.addFieldInt64(8, strategyHeadSeq, BigInt('0'));
+}
+
+static addStrategyOldestSeq(builder:flatbuffers.Builder, strategyOldestSeq:bigint) {
+  builder.addFieldInt64(9, strategyOldestSeq, BigInt('0'));
+}
+
+static addStrategyResync(builder:flatbuffers.Builder, strategyResync:boolean) {
+  builder.addFieldInt8(10, +strategyResync, +false);
+}
+
 static endObserverLoginResp(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createObserverLoginResp(builder:flatbuffers.Builder, success:boolean, messageOffset:flatbuffers.Offset, brokerOffset:flatbuffers.Offset, journalEpochOffset:flatbuffers.Offset, headSeq:bigint, oldestSeq:bigint, resync:boolean, accountsOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createObserverLoginResp(builder:flatbuffers.Builder, success:boolean, messageOffset:flatbuffers.Offset, brokerOffset:flatbuffers.Offset, journalEpochOffset:flatbuffers.Offset, headSeq:bigint, oldestSeq:bigint, resync:boolean, accountsOffset:flatbuffers.Offset, strategyHeadSeq:bigint, strategyOldestSeq:bigint, strategyResync:boolean):flatbuffers.Offset {
   ObserverLoginResp.startObserverLoginResp(builder);
   ObserverLoginResp.addSuccess(builder, success);
   ObserverLoginResp.addMessage(builder, messageOffset);
@@ -139,6 +166,9 @@ static createObserverLoginResp(builder:flatbuffers.Builder, success:boolean, mes
   ObserverLoginResp.addOldestSeq(builder, oldestSeq);
   ObserverLoginResp.addResync(builder, resync);
   ObserverLoginResp.addAccounts(builder, accountsOffset);
+  ObserverLoginResp.addStrategyHeadSeq(builder, strategyHeadSeq);
+  ObserverLoginResp.addStrategyOldestSeq(builder, strategyOldestSeq);
+  ObserverLoginResp.addStrategyResync(builder, strategyResync);
   return ObserverLoginResp.endObserverLoginResp(builder);
 }
 }

@@ -5,6 +5,7 @@
 import * as flatbuffers from 'flatbuffers';
 
 import { JournalRecord } from '../stock-dma/journal-record.js';
+import { StrategyEvent } from '../stock-dma/strategy-event.js';
 
 
 export class JournalBatch {
@@ -45,8 +46,28 @@ caughtUp():boolean {
   return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
 }
 
+strategyEvents(index: number, obj?:StrategyEvent):StrategyEvent|null {
+  const offset = this.bb!.__offset(this.bb_pos, 10);
+  return offset ? (obj || new StrategyEvent()).__init(this.bb!.__indirect(this.bb!.__vector(this.bb_pos + offset) + index * 4), this.bb!) : null;
+}
+
+strategyEventsLength():number {
+  const offset = this.bb!.__offset(this.bb_pos, 10);
+  return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
+}
+
+strategyHeadSeq():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 12);
+  return offset ? this.bb!.readUint64(this.bb_pos + offset) : BigInt('0');
+}
+
+strategyCaughtUp():boolean {
+  const offset = this.bb!.__offset(this.bb_pos, 14);
+  return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
+}
+
 static startJournalBatch(builder:flatbuffers.Builder) {
-  builder.startObject(3);
+  builder.startObject(6);
 }
 
 static addRecords(builder:flatbuffers.Builder, recordsOffset:flatbuffers.Offset) {
@@ -73,16 +94,43 @@ static addCaughtUp(builder:flatbuffers.Builder, caughtUp:boolean) {
   builder.addFieldInt8(2, +caughtUp, +false);
 }
 
+static addStrategyEvents(builder:flatbuffers.Builder, strategyEventsOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(3, strategyEventsOffset, 0);
+}
+
+static createStrategyEventsVector(builder:flatbuffers.Builder, data:flatbuffers.Offset[]):flatbuffers.Offset {
+  builder.startVector(4, data.length, 4);
+  for (let i = data.length - 1; i >= 0; i--) {
+    builder.addOffset(data[i]!);
+  }
+  return builder.endVector();
+}
+
+static startStrategyEventsVector(builder:flatbuffers.Builder, numElems:number) {
+  builder.startVector(4, numElems, 4);
+}
+
+static addStrategyHeadSeq(builder:flatbuffers.Builder, strategyHeadSeq:bigint) {
+  builder.addFieldInt64(4, strategyHeadSeq, BigInt('0'));
+}
+
+static addStrategyCaughtUp(builder:flatbuffers.Builder, strategyCaughtUp:boolean) {
+  builder.addFieldInt8(5, +strategyCaughtUp, +false);
+}
+
 static endJournalBatch(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createJournalBatch(builder:flatbuffers.Builder, recordsOffset:flatbuffers.Offset, headSeq:bigint, caughtUp:boolean):flatbuffers.Offset {
+static createJournalBatch(builder:flatbuffers.Builder, recordsOffset:flatbuffers.Offset, headSeq:bigint, caughtUp:boolean, strategyEventsOffset:flatbuffers.Offset, strategyHeadSeq:bigint, strategyCaughtUp:boolean):flatbuffers.Offset {
   JournalBatch.startJournalBatch(builder);
   JournalBatch.addRecords(builder, recordsOffset);
   JournalBatch.addHeadSeq(builder, headSeq);
   JournalBatch.addCaughtUp(builder, caughtUp);
+  JournalBatch.addStrategyEvents(builder, strategyEventsOffset);
+  JournalBatch.addStrategyHeadSeq(builder, strategyHeadSeq);
+  JournalBatch.addStrategyCaughtUp(builder, strategyCaughtUp);
   return JournalBatch.endJournalBatch(builder);
 }
 }

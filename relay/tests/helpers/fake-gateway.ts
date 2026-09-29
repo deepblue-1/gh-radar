@@ -108,7 +108,14 @@ export type FakeGatewayOptions = {
 };
 
 /** `ObserverLoginReq(5)` 1건의 내용 (게이트웨이 흉내 — 요청 대역 직접 파싱). */
-export type ObserverLoginRequest = { secret: string; sinceSeq: number; epoch: string; client: string };
+export type ObserverLoginRequest = {
+  secret: string;
+  sinceSeq: number;
+  epoch: string;
+  client: string;
+  /** 전략 스트림 since (Phase 25 · 슬롯 12). 구 relay 는 0 으로 읽힌다. */
+  strategySinceSeq: number;
+};
 
 /** `UpdateAccountNoReq(3)` 1건의 관찰 기록. */
 export type DeclaredAccount = { mode: string; accountNo: string };
@@ -273,6 +280,7 @@ export function readObserverLoginRequest(msgType: number, payload: Buffer): Obse
     sinceSeq: Number(req.sinceSeq()),
     epoch: req.journalEpoch() ?? "",
     client: req.client() ?? "",
+    strategySinceSeq: Number(req.strategySinceSeq()),
   };
 }
 

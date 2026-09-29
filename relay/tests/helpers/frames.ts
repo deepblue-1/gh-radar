@@ -41,8 +41,9 @@ import { JournalBatch } from "../../src/generated/stock-dma/journal-batch.js";
 import { JournalRecord as WireJournalRecord } from "../../src/generated/stock-dma/journal-record.js";
 import { ObserverAccount } from "../../src/generated/stock-dma/observer-account.js";
 import { ObserverLoginResp } from "../../src/generated/stock-dma/observer-login-resp.js";
+import { StrategyEvent as WireStrategyEvent } from "../../src/generated/stock-dma/strategy-event.js";
 import { MSG } from "../../src/dma/msg-type.js";
-import type { JournalRecord } from "../../src/journal/types.js";
+import type { JournalRecord, StrategyEventRecord } from "../../src/journal/types.js";
 
 /** 테스트 전반이 쓰는 정상 ISIN (삼성전자). */
 export const SAMPLE_ISIN = "KR7005930003";
@@ -1297,6 +1298,10 @@ export type FakeObserverLoginRespInput = {
   resync?: boolean;
   /** 생략하면 성공은 `SAMPLE_ACCOUNT_NO` 1행, 실패는 빈 벡터(게이트웨이 규약). */
   accounts?: FakeObserverAccountInput[];
+  /** 전략 스트림 head · oldest · resync (Phase 25). 기본 0 / 0 / false = 전략 저널 없음(G1 ⓑ). */
+  strategyHeadSeq?: number | bigint;
+  strategyOldestSeq?: number | bigint;
+  strategyResync?: boolean;
 };
 
 /**
@@ -1331,6 +1336,9 @@ export function buildObserverLoginRespFrame(input: FakeObserverLoginRespInput = 
     BigInt(input.oldestSeq ?? 0),
     input.resync ?? false,
     accounts,
+    BigInt(input.strategyHeadSeq ?? 0),
+    BigInt(input.strategyOldestSeq ?? 0),
+    input.strategyResync ?? false,
   );
   Envelope.startEnvelope(b);
   Envelope.addMsgType(b, MSG.ObserverLoginResp);
@@ -1371,12 +1379,78 @@ export function fakeJournalRecord(input: FakeJournalRecordInput): JournalRecord 
   };
 }
 
+/** 전략 이벤트 입력 — `seq` 만 필수이고 나머지는 기획서 12451 선매수 BuyOrder 값으로 채운다 (Phase 25). */
+export type FakeStrategyEventInput = Partial<StrategyEventRecord> & { seq: number };
+
+/** 12451 선매수 BuyOrder 전송 시각 — 2026-09-29 09:45:02.861 KST. */
+const SAMPLE_BUY_ORDER_MS = Date.parse("2026-09-29T09:45:02.861+09:00");
+
+/**
+ * `FakeStrategyEventInput` → 43필드 완성본. 기본값은 기획서 하루 흐름의 12451 선매수 BuyOrder(3) 다 —
+ * 오늘 게이트웨이가 실제로 내는 유일한 종류(G1 (e)). 계좌는 `SAMPLE_ACCOUNT_NO`(가짜 값 · D-27).
+ */
+export function fakeStrategyEventRecord(input: FakeStrategyEventInput): StrategyEventRecord {
+  return {
+    tradeDate: "2026-09-29",
+    gwTimeMs: SAMPLE_BUY_ORDER_MS,
+    kind: 3,
+    group: 1,
+    exchange: "KRX",
+    isin: SAMPLE_ISIN,
+    cumVolume: 861_800,
+    dmaUserId: "dma-user-1",
+    accountNo: SAMPLE_ACCOUNT_NO,
+    orderNo: "12451",
+    price: 12_350,
+    qty: 300,
+    orderCondition: "",
+    reasonCode: "PreBuy B6Buy3 매물소진(매도1호가==감시가 && 잔량<=감시수량)",
+    condThreshold: 50_000,
+    condActual: 38_200,
+    condMetric: 1,
+    evKind: 1,
+    evPrice: 12_350,
+    evQtyBefore: 52_100,
+    evQtyAfter: 38_200,
+    evTradeQty: 0,
+    limitBidQty: 0,
+    bid1Price: 0,
+    bid1Qty: 0,
+    acceptLatencyUs: 18_000,
+    immediateFillQty: 0,
+    queueCase: 0,
+    baseCum: 0,
+    aheadQty: 0,
+    expectedCum: 0,
+    errorVolume: 0,
+    remainingVolume: 0,
+    hasRemaining: false,
+    cancelReason: 0,
+    resultCode: 0,
+    message: "",
+    entryRound: 0,
+    snapQty: [],
+    snapCum: [],
+    askQtyAtLimit: 0,
+    openAtLimit: false,
+    ...input,
+  };
+}
+
 export type FakeJournalBatchInput = {
   records?: FakeJournalRecordInput[];
   /** 생략하면 마지막 레코드 seq(없으면 0). */
   headSeq?: number | bigint;
   /** 생략하면 `true`. */
   caughtUp?: boolean;
+  /** 전략 이벤트(Phase 25). 생략하면 빈 벡터(한쪽 0건 = 빈 벡터 · G1 ⓐ). */
+  strategyEvents?: FakeStrategyEventInput[];
+  /** 생략하면 마지막 전략 seq(없으면 0). */
+  strategyHeadSeq?: number | bigint;
+  /** 생략하면 `true`. */
+  strategyCaughtUp?: boolean;
+  /** true 면 전략 세 필드를 아예 쓰지 않는다 = 구 게이트웨이 프레임(필드 부재). */
+  omitStrategy?: boolean;
 };
 
 /** 저널 배치 프레임 (80 · `journal_batch` 슬롯). 레코드 순서는 입력 그대로다(게이트웨이는 seq 오름차순). */
@@ -1428,10 +1502,98 @@ export function buildJournalBatchFrame(input: FakeJournalBatchInput = {}): Uint8
   });
   const records = JournalBatch.createRecordsVector(b, offsets);
   const head = input.headSeq ?? recs[recs.length - 1]?.seq ?? 0;
-  const batch = JournalBatch.createJournalBatch(b, records, BigInt(head), input.caughtUp ?? true);
+  if (input.omitStrategy === true) {
+    // 구 게이트웨이 — 전략 슬롯(10/12/14)을 쓰지 않는다.
+    JournalBatch.startJournalBatch(b);
+    JournalBatch.addRecords(b, records);
+    JournalBatch.addHeadSeq(b, BigInt(head));
+    JournalBatch.addCaughtUp(b, input.caughtUp ?? true);
+    const legacy = JournalBatch.endJournalBatch(b);
+    Envelope.startEnvelope(b);
+    Envelope.addMsgType(b, MSG.JournalBatch);
+    Envelope.addJournalBatch(b, legacy);
+    b.finish(Envelope.endEnvelope(b));
+    return b.asUint8Array();
+  }
+  const evs = (input.strategyEvents ?? []).map(fakeStrategyEventRecord);
+  const strategyEvents = JournalBatch.createStrategyEventsVector(
+    b,
+    evs.map((e) => buildStrategyEvent(b, e)),
+  );
+  const strategyHead = input.strategyHeadSeq ?? evs[evs.length - 1]?.seq ?? 0;
+  const batch = JournalBatch.createJournalBatch(
+    b,
+    records,
+    BigInt(head),
+    input.caughtUp ?? true,
+    strategyEvents,
+    BigInt(strategyHead),
+    input.strategyCaughtUp ?? true,
+  );
   Envelope.startEnvelope(b);
   Envelope.addMsgType(b, MSG.JournalBatch);
   Envelope.addJournalBatch(b, batch);
   b.finish(Envelope.endEnvelope(b));
   return b.asUint8Array();
+}
+
+/** 전략 이벤트 1건을 빌더에 조립한다 (문자열 · 벡터를 테이블 조립 **전에** 만든다 — FlatBuffers 중첩 제약). */
+function buildStrategyEvent(b: flatbuffers.Builder, e: StrategyEventRecord): flatbuffers.Offset {
+  const tradeDate = b.createString(e.tradeDate);
+  const exchange = b.createString(e.exchange);
+  const isin = b.createString(e.isin);
+  const dmaUserId = b.createString(e.dmaUserId);
+  const accountNo = b.createString(e.accountNo);
+  const orderNo = b.createString(e.orderNo);
+  const orderCondition = b.createString(e.orderCondition);
+  const reasonCode = b.createString(e.reasonCode);
+  const message = b.createString(e.message);
+  const snapQty = WireStrategyEvent.createSnapQtyVector(b, e.snapQty.map((v) => BigInt(v)));
+  const snapCum = WireStrategyEvent.createSnapCumVector(b, e.snapCum.map((v) => BigInt(v)));
+  return WireStrategyEvent.createStrategyEvent(
+    b,
+    BigInt(e.seq),
+    tradeDate,
+    BigInt(e.gwTimeMs),
+    e.kind,
+    e.group,
+    exchange,
+    isin,
+    BigInt(e.cumVolume),
+    dmaUserId,
+    accountNo,
+    orderNo,
+    e.price,
+    e.qty,
+    orderCondition,
+    reasonCode,
+    BigInt(e.condThreshold),
+    BigInt(e.condActual),
+    e.condMetric,
+    e.evKind,
+    e.evPrice,
+    BigInt(e.evQtyBefore),
+    BigInt(e.evQtyAfter),
+    BigInt(e.evTradeQty),
+    BigInt(e.limitBidQty),
+    e.bid1Price,
+    BigInt(e.bid1Qty),
+    e.acceptLatencyUs,
+    BigInt(e.immediateFillQty),
+    e.queueCase,
+    BigInt(e.baseCum),
+    BigInt(e.aheadQty),
+    BigInt(e.expectedCum),
+    BigInt(e.errorVolume),
+    BigInt(e.remainingVolume),
+    e.hasRemaining,
+    e.cancelReason,
+    e.resultCode,
+    message,
+    e.entryRound,
+    snapQty,
+    snapCum,
+    BigInt(e.askQtyAtLimit),
+    e.openAtLimit,
+  );
 }

@@ -10,6 +10,10 @@
  *   A1 · A2 — 같은 DMA 계정 `dma-shared`(→ ACC1). 둘 다 같은 행을 받아야 한다.
  *   B       — `dma-other`(→ ACC2). ACC1 행은 0 프레임.
  *   U       — `dma_credentials` 미등록(unauthorized). 어떤 행도 0 프레임.
+ *
+ * ⑦ Phase 25 트레이서 — 실 TCP 관찰자(`DmaClient`) · 실 코덱 · 실 두 기록기로 80 전략 이벤트가 `journal.events` 가
+ * 되는 경로. 기대값은 shared 픽스처(`packages/shared/src/__fixtures__/strategy-day.ts`) 원본 한 벌이다 — relay 는
+ * NodeNext · rootDir 경계라 그 파일을 정적 import 할 수 없어 런타임 동적 import 로 읽는다(두 벌 금지).
  */
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -17,7 +21,14 @@ import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { toJournalOrderRow } from "@gh-radar/shared";
-import type { JournalOrderDbRow, JournalOrderRow, RelayJournalStateMsg, RelayOutbound } from "@gh-radar/shared";
+import type {
+  JournalOrderDbRow,
+  JournalOrderRow,
+  RelayJournalStateMsg,
+  RelayOutbound,
+  StrategyEventDbRow,
+  StrategyEventRow,
+} from "@gh-radar/shared";
 
 import { WsFanout } from "../src/ws/fanout.js";
 import { SubscriptionHub } from "../src/hub/subscription-hub.js";
@@ -26,7 +37,10 @@ import { encryptDmaPassword } from "../src/store/credentials.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { JournalAccess } from "../src/journal/access.js";
 import { JournalWriter, toApplyEvent, type JournalApplyEvent } from "../src/journal/writer.js";
-import type { JournalRecord } from "../src/journal/types.js";
+import type { JournalRecord, StrategyEventRecord } from "../src/journal/types.js";
+import { JournalObserver } from "../src/journal/observer.js";
+import { createJournalCodec } from "../src/journal/codec.js";
+import { STRATEGY_APPLY_KEYS, createStrategyWriter, type StrategyApplyEvent } from "../src/journal/strategy-stream.js";
 import { startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
 import { connectWs, type TestWs } from "./helpers/ws-client.js";
 
@@ -85,6 +99,13 @@ function authSupabase(): SupabaseClient {
 
 type RpcCall = { fn: string; args: Record<string, unknown> };
 
+/** 적용 RPC 가 전략 이벤트 1건을 공개 45키 행으로 되돌리는 가짜 — `dma_user_id` 를 빼고 게이트웨이 · epoch · 종목코드를 붙인다. */
+function strategyDbRowOf(ev: StrategyApplyEvent, gateway: string, epoch: string): StrategyEventDbRow {
+  const { dma_user_id: _dmaUserId, ...rest } = ev;
+  void _dmaUserId;
+  return { ...rest, gateway, journal_epoch: epoch, stock_code: ev.isin === "KR7005930003" ? "005930" : null };
+}
+
 /** 적용 RPC 가 이벤트 1건마다 공개 행 1건을 만들어 돌려주는 가짜. */
 function dbRowOf(ev: JournalApplyEvent): JournalOrderDbRow {
   return {
@@ -118,6 +139,17 @@ function dbRowOf(ev: JournalApplyEvent): JournalOrderDbRow {
 
 function rpcSupabase(calls: RpcCall[], opts: { failSync?: boolean } = {}): SupabaseClient {
   return {
+    // 관찰자 기록기의 커서 조회(`dma_journal_cursor`) — 커서 없음. select 문자열을 기록한다(두 스트림 칸 구분).
+    from: (table: string) => ({
+      select: (columns: string) => ({
+        eq: () => ({
+          maybeSingle: () => {
+            calls.push({ fn: `from:${table}`, args: { select: columns } });
+            return Promise.resolve({ data: null, error: null });
+          },
+        }),
+      }),
+    }),
     rpc: (fn: string, args: Record<string, unknown>) => {
       calls.push({ fn, args });
       if (fn === "dma_journal_sync_access") {
@@ -135,6 +167,19 @@ function rpcSupabase(calls: RpcCall[], opts: { failSync?: boolean } = {}): Supab
             errors: [],
             last_seq: Math.max(...events.map((e) => e.seq)),
             rows: events.map(dbRowOf),
+          },
+          error: null,
+        });
+      }
+      if (fn === "dma_strategy_apply") {
+        const events = args.p_events as StrategyApplyEvent[];
+        return Promise.resolve({
+          data: {
+            applied: events.length,
+            skipped: 0,
+            errors: [],
+            last_seq: Math.max(...events.map((e) => e.seq)),
+            rows: events.map((e) => strategyDbRowOf(e, args.p_gateway as string, args.p_epoch as string)),
           },
           error: null,
         });
@@ -198,6 +243,29 @@ const APPLY_KEYS = [
   "message",
   "local_reject",
 ].sort();
+
+function eventFrames(inbox: RelayOutbound[]): StrategyEventRow[][] {
+  return inbox
+    .filter((m): m is Extract<RelayOutbound, { t: "journal.events" }> => m.t === "journal.events")
+    .map((m) => m.rows);
+}
+
+type StrategyDayFixture = { STRATEGY_DAY_BY_NAME: Readonly<Record<string, StrategyEventRow>> };
+
+/** shared 픽스처 원본을 런타임에 읽는다 (NodeNext · rootDir 경계 — 파일 머리 주석). */
+async function loadStrategyDayFixture(): Promise<StrategyDayFixture> {
+  const url = new URL("../../packages/shared/src/__fixtures__/strategy-day.ts", import.meta.url).href;
+  return (await import(/* @vite-ignore */ url)) as StrategyDayFixture;
+}
+
+/** 공개 행 → 게이트웨이가 싣는 와이어 레코드 (공개 행에 없는 주문자만 더한다). */
+function recordOf(row: StrategyEventRow, dmaUserId: string): StrategyEventRecord {
+  const { gateway: _gateway, journalEpoch: _epoch, stockCode: _stockCode, ...wire } = row;
+  void _gateway;
+  void _epoch;
+  void _stockCode;
+  return { ...wire, dmaUserId };
+}
 
 function journalFrames(inbox: RelayOutbound[]): JournalOrderRow[][] {
   return inbox.filter((m): m is Extract<RelayOutbound, { t: "journal.rows" }> => m.t === "journal.rows").map((m) => m.rows);
@@ -471,6 +539,103 @@ describe("저널 푸시 — 레코드 → 기록기 → 적용 RPC → 계좌 �
       expect(kyoboSyncs).toHaveLength(1);
     } finally {
       kyoboAccess.close();
+    }
+  });
+  it("⑦ Phase 25 트레이서 — 관찰자 80(전략 BuyOrder · LimitExposed) → 전략 기록기 → dma_strategy_apply → journal.events: A1·A2 둘 다 · B 시세만 · U 0", async () => {
+    await start();
+    const { STRATEGY_DAY_BY_NAME } = await loadStrategyDayFixture();
+    const exposed = STRATEGY_DAY_BY_NAME.exposed;
+    const buy = STRATEGY_DAY_BY_NAME.buy12451;
+    if (exposed === undefined || buy === undefined) throw new Error("픽스처 exposed · buy12451 없음");
+
+    // 사용자 접속만 — 계좌 매핑은 관찰자 로그인 응답이 채운다(실 경로).
+    const a1 = await open("token-a1", "ready");
+    const a2 = await open("token-a2", "ready");
+    const b = await open("token-b", "ready");
+    const u = await open("token-u", "unauthorized");
+
+    // 구 게이트웨이와 같은 0/0/false 가 아니라 「전략 저널 있음 · 아직 0건」 이다 — 어느 쪽이든 since 0 · pending 없음.
+    gateway.respondObserverLogin({
+      broker: GATEWAY,
+      epoch: buy.journalEpoch,
+      headSeq: 0,
+      oldestSeq: 0,
+      resync: false,
+      accounts: [
+        { dmaUserId: "dma-shared", accountNo: buy.accountNo, name: "공유 계좌", priority: 0 },
+        { dmaUserId: "dma-other", accountNo: ACC2, name: "다른 계좌", priority: 0 },
+      ],
+      strategyHeadSeq: 0,
+      strategyOldestSeq: 0,
+      strategyResync: false,
+    });
+
+    const db = rpcSupabase(rpcCalls);
+    const orderWriter = new JournalWriter({ supabase: db, gateway: GATEWAY });
+    const strategyWriter = createStrategyWriter({ supabase: db, gateway: GATEWAY });
+    // 부팅 결선과 같은 모양 — 전략 기록기 적용 행 → fanout 전략 이벤트 푸시.
+    strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows));
+    const observer = new JournalObserver({
+      secret: "observer-secret-DO-NOT-LOG-25-01",
+      gateway: GATEWAY,
+      host: "127.0.0.1",
+      port: gateway.port,
+      codec: createJournalCodec(),
+      writer: orderWriter,
+      strategyWriter,
+      access,
+    });
+    observer.start();
+    try {
+      const sock = await gateway.waitForObserverConnection(3_000);
+      await waitFor(() => observer.state === "live", "관찰자 live");
+
+      // 두 커서를 각자 칸으로 읽은 뒤에 로그인했다 · 로그인 요청 strategy since 0.
+      const cursorSelects = rpcCalls
+        .filter((c) => c.fn === "from:dma_journal_cursor")
+        .map((c) => String(c.args.select).replace(/\s/g, ""))
+        .sort();
+      expect(cursorSelects).toEqual(["journal_epoch,last_seq", "strategy_journal_epoch,strategy_last_seq"]);
+      expect(gateway.observerLoginRequests()).toHaveLength(1);
+      expect(gateway.observerLoginRequests()[0]?.strategySinceSeq).toBe(0);
+
+      gateway.pushJournalBatch(sock, {
+        records: [],
+        strategyEvents: [recordOf(exposed, ""), recordOf(buy, "dma-shared")],
+        strategyHeadSeq: 2,
+        strategyCaughtUp: true,
+      });
+      await waitFor(
+        () => eventFrames(a1).length === 1 && eventFrames(a2).length === 1 && eventFrames(b).length === 1,
+        "A1·A2·B journal.events",
+      );
+      await flushIo(8);
+
+      // 적용 RPC 1회 · 입력 키 43종 = 와이어 필드명 · 주문자는 입력에만 있다.
+      const applies = rpcCalls.filter((c) => c.fn === "dma_strategy_apply");
+      expect(applies).toHaveLength(1);
+      expect(applies[0]?.args.p_gateway).toBe(GATEWAY);
+      expect(applies[0]?.args.p_epoch).toBe(buy.journalEpoch);
+      const events = applies[0]?.args.p_events as StrategyApplyEvent[];
+      expect(STRATEGY_APPLY_KEYS).toHaveLength(43);
+      expect(Object.keys(events[0] ?? {}).sort()).toEqual([...STRATEGY_APPLY_KEYS].sort());
+      expect(events.map((e) => e.seq)).toEqual([1, 2]);
+      expect(events[1]?.dma_user_id).toBe("dma-shared");
+      // 주문 0건 프레임은 주문 적용 RPC 를 부르지 않는다.
+      expect(rpcCalls.filter((c) => c.fn === "dma_journal_apply")).toEqual([]);
+
+      // 같은 계정의 두 사용자는 시세 + 자기 계좌 주문 이벤트를 받는다 — 행은 픽스처 원본과 같다.
+      expect(eventFrames(a1)).toEqual([[exposed, buy]]);
+      expect(eventFrames(a2)).toEqual(eventFrames(a1));
+      // 다른 계좌 사용자는 시세 이벤트만 · 자격증명 없는 사용자는 0 프레임.
+      expect(eventFrames(b)).toEqual([[exposed]]);
+      expect(eventFrames(u)).toEqual([]);
+      // 주문자 식별자는 프레임에 없다(T-19-08).
+      expect(JSON.stringify(eventFrames(a1))).not.toContain("dma-shared");
+    } finally {
+      observer.stop();
+      orderWriter.close();
+      strategyWriter.close();
     }
   });
 });

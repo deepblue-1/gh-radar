@@ -199,13 +199,20 @@ function loginOk(over: Partial<ObserverLoginResult> = {}): ObserverFrame {
       oldestSeq: 1,
       resync: true,
       accounts: ACCOUNTS,
+      // 전략 저널 없음(구 게이트웨이 동형 · G1 ⓑ) — 전략 pending 은 처음부터 거짓(Phase 25).
+      strategyHeadSeq: 0,
+      strategyOldestSeq: 0,
+      strategyResync: false,
       ...over,
     },
   };
 }
 
 function batch(seqs: number[], headSeq: number, caughtUp: boolean): ObserverFrame {
-  return { k: "batch", batch: { records: seqs.map(record), headSeq, caughtUp } };
+  return {
+    k: "batch",
+    batch: { records: seqs.map(record), headSeq, caughtUp, strategyEvents: [], strategyHeadSeq: 0, strategyCaughtUp: false },
+  };
 }
 
 async function flush(turns = 6): Promise<void> {
@@ -294,7 +301,9 @@ describe("관찰자 tracer — 기동 → 로그인 → 배치 1건 → 기록�
     expect(r.observer.state).toBe("connecting");
 
     r.transport.up();
-    expect(r.codec.logins).toEqual([{ secret: SECRET, sinceSeq: 0, epoch: "", client: OBSERVER_CLIENT_NAME }]);
+    expect(r.codec.logins).toEqual([
+      { secret: SECRET, sinceSeq: 0, epoch: "", client: OBSERVER_CLIENT_NAME, strategySinceSeq: 0 },
+    ]);
     expect(OBSERVER_CLIENT_NAME).toBe("gh-radar-relay");
     expect(r.transport.sent).toHaveLength(1);
     expect(r.codec.built.has(r.transport.sent[0] as Uint8Array)).toBe(true);
@@ -484,7 +493,13 @@ describe("관찰자 실패 경로 — 거부 정지 · 타임아웃 · 갭/상�
 
     r.transport.down();
     r.transport.up();
-    expect(r.codec.logins[1]).toEqual({ secret: SECRET, sinceSeq: 2, epoch: "ep-1", client: OBSERVER_CLIENT_NAME });
+    expect(r.codec.logins[1]).toEqual({
+      secret: SECRET,
+      sinceSeq: 2,
+      epoch: "ep-1",
+      client: OBSERVER_CLIENT_NAME,
+      strategySinceSeq: 0,
+    });
     expectOnlyLogins(r);
     expectNoSecret(logs);
   });

@@ -56,6 +56,63 @@ export type JournalRecord = {
   localReject: boolean;
 };
 
+/**
+ * 게이트웨이 전략 이벤트 1건 (Phase 25 · camelCase 도메인 표현 — `.fbs` `table StrategyEvent` 43필드와 1:1).
+ *
+ * 관찰자 80 `JournalBatch.strategy_events` 가 원천이다 — 주문 저널과 **같은 epoch · 별도 seq 공간**(G1 (e)).
+ * `toStrategyApplyEvent`(`strategy-stream.ts`)가 이것을 `dma_strategy_apply` 입력 키 43종(snake_case)으로
+ * 1:1 바꾼다. 값은 게이트웨이 원문이다 — 없는 값은 0 / "" (와이어 규약). 64비트 칸은 파서 경계에서 number 로
+ * 내렸다(`toNum` · D-34 — `gw_time_ms` 는 `long`, 누적류는 `ulong`/`long` 이지만 경계 뒤에서는 같다 · G1 ⓒ).
+ */
+export type StrategyEventRecord = {
+  /** 전략 스트림 seq — epoch 안에서 조밀하다(주문 저널과 별도 공간). 기록기의 연속성 판정 근거. */
+  seq: number;
+  tradeDate: string;
+  gwTimeMs: number;
+  kind: number;
+  group: number;
+  exchange: string;
+  isin: string;
+  cumVolume: number;
+  /** 주문을 낸 DMA 사용자 id(시세 이벤트는 ""). **로그 · 프레임에 싣지 않는다**(T-19-08 · T-19-14). */
+  dmaUserId: string;
+  /** 주문 이벤트만(시세 이벤트는 ""). 게이트웨이 정규화값 그대로 — 로그는 `maskAccountNo`. */
+  accountNo: string;
+  orderNo: string;
+  price: number;
+  qty: number;
+  orderCondition: string;
+  reasonCode: string;
+  condThreshold: number;
+  condActual: number;
+  condMetric: number;
+  evKind: number;
+  evPrice: number;
+  evQtyBefore: number;
+  evQtyAfter: number;
+  evTradeQty: number;
+  limitBidQty: number;
+  bid1Price: number;
+  bid1Qty: number;
+  acceptLatencyUs: number;
+  immediateFillQty: number;
+  queueCase: number;
+  baseCum: number;
+  aheadQty: number;
+  expectedCum: number;
+  errorVolume: number;
+  remainingVolume: number;
+  hasRemaining: boolean;
+  cancelReason: number;
+  resultCode: number;
+  message: string;
+  entryRound: number;
+  snapQty: number[];
+  snapCum: number[];
+  askQtyAtLimit: number;
+  openAtLimit: boolean;
+};
+
 /** 관찰자 로그인 응답의 DMA 사용자 → 계좌 매핑 1행 (users.toml 평탄화 · D-06). */
 export type ObserverAccountRow = {
   dmaUserId: string;
@@ -78,6 +135,13 @@ export type ObserverLoginResult = {
   /** `since_seq` 로 이어받을 수 없다(epoch 변경 · 보관 범위 밖) — 처음부터 다시 받는다. */
   resync: boolean;
   accounts: ObserverAccountRow[];
+  /**
+   * 전략 이벤트 스트림의 head · oldest · resync (Phase 25 — 같은 epoch · 별도 seq 공간). 주문 3필드와 같은 뜻을
+   * 전략 스트림에 한 번 더 판정한 값이다(G1 ⓑ). 전략 저널이 없거나 구 게이트웨이면 0 / 0 / false.
+   */
+  strategyHeadSeq: number;
+  strategyOldestSeq: number;
+  strategyResync: boolean;
 };
 
 /** 저널 배치 프레임 1건. */
@@ -86,6 +150,14 @@ export type JournalBatchFrame = {
   headSeq: number;
   /** 이 배치로 게이트웨이 head 까지 따라잡았는가(재생 → live 전이 신호). */
   caughtUp: boolean;
+  /**
+   * 같은 프레임의 두 번째 스트림 (Phase 25 · G1 ⓐ). 한쪽 0건이면 빈 벡터가 온다 — 구 게이트웨이(필드 없음)는
+   * 파서가 `[]` · 0 · false 로 내린다. `strategyCaughtUp` 은 전략 스트림 커서 상태이고 live 전이는 두 caught_up
+   * 이 모두 참일 때다.
+   */
+  strategyEvents: StrategyEventRecord[];
+  strategyHeadSeq: number;
+  strategyCaughtUp: boolean;
 };
 
 /** 코덱이 수신 프레임 1건을 해석한 결과. */
@@ -101,7 +173,14 @@ export type ObserverFrame =
 
 /** 와이어 코덱 — 19-09 가 FlatBuffers 로 구현한다. **스왑 지점은 여기 하나다.** */
 export type JournalCodec = {
-  buildLoginReq(input: { secret: string; sinceSeq: number; epoch: string; client: string }): Uint8Array;
+  buildLoginReq(input: {
+    secret: string;
+    sinceSeq: number;
+    epoch: string;
+    client: string;
+    /** 전략 스트림 since (Phase 25). 0 = 보관분 처음부터. */
+    strategySinceSeq: number;
+  }): Uint8Array;
   decode(e: TransportFrameEvent): ObserverFrame;
 };
 

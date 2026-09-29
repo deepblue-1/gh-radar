@@ -210,12 +210,19 @@ describe("relay 부팅 결선 — 실 프로세스 · 관찰자 경로 (Phase 19
 
       // ② 커서 조회 1회(gateway=eq.KB) → 관찰자 로그인(secret 일치 · since 0 · epoch "").
       const sock = await withTimeout(gateway.waitForObserverConnection(BOOT_WAIT_MS), BOOT_WAIT_MS + 1_000, "관찰자 연결", relay);
+      // 두 기록기(주문 · 전략 — Phase 25)가 같은 커서 행을 각자 칸으로 읽는다.
       const cursorReads = supabase.requestsTo("/rest/v1/dma_journal_cursor");
-      expect(cursorReads).toHaveLength(1);
-      expect(cursorReads[0]?.method).toBe("GET");
-      expect(cursorReads[0]?.query.gateway).toBe(`eq.${GATEWAY}`);
+      expect(cursorReads).toHaveLength(2);
+      for (const r of cursorReads) {
+        expect(r.method).toBe("GET");
+        expect(r.query.gateway).toBe(`eq.${GATEWAY}`);
+      }
+      expect(cursorReads.map((r) => r.query.select).sort()).toEqual([
+        "journal_epoch,last_seq",
+        "strategy_journal_epoch,strategy_last_seq",
+      ]);
       expect(gateway.observerLoginRequests()).toEqual([
-        { secret: BOOT_SECRET, sinceSeq: 0, epoch: "", client: "gh-radar-relay" },
+        { secret: BOOT_SECRET, sinceSeq: 0, epoch: "", client: "gh-radar-relay", strategySinceSeq: 0 },
       ]);
 
       // ③ 로그인 응답(계좌 2행) → 매핑 동기화 RPC(p_gateway KB · p_rows 2).
@@ -429,8 +436,13 @@ describe("다중 업스트림 (quick-260929-c8e)", () => {
         ["dma", "everReadyCount", "journal", "sessionCount", "stalledCount", "status", "version", "vpn"],
       );
       expect(gateway.observerLoginRequests()).toHaveLength(1);
+      // 주문 · 전략 기록기 각 1회(Phase 25) — 둘 다 같은 게이트웨이 키다.
       const cursorReads = supabase.requestsTo("/rest/v1/dma_journal_cursor");
-      expect(cursorReads.map((r) => r.query.gateway)).toEqual([`eq.${GATEWAY}`]);
+      expect(cursorReads.map((r) => r.query.gateway)).toEqual([`eq.${GATEWAY}`, `eq.${GATEWAY}`]);
+      expect(cursorReads.map((r) => r.query.select).sort()).toEqual([
+        "journal_epoch,last_seq",
+        "strategy_journal_epoch,strategy_last_seq",
+      ]);
 
       relay.child.kill("SIGTERM");
       const exit = await withTimeout(relay.exited, 5_000, "SIGTERM 종료", relay);
@@ -473,14 +485,17 @@ describe("다중 업스트림 (quick-260929-c8e)", () => {
       );
 
       // 각 게이트웨이는 자기 비밀 하나만 받는다.
-      expect(kb.observerLoginRequests()).toEqual([{ secret: BOOT_SECRET, sinceSeq: 0, epoch: "", client: "gh-radar-relay" }]);
+      expect(kb.observerLoginRequests()).toEqual([
+        { secret: BOOT_SECRET, sinceSeq: 0, epoch: "", client: "gh-radar-relay", strategySinceSeq: 0 },
+      ]);
       expect(kyobo.observerLoginRequests()).toEqual([
-        { secret: KYOBO_SECRET, sinceSeq: 0, epoch: "", client: "gh-radar-relay" },
+        { secret: KYOBO_SECRET, sinceSeq: 0, epoch: "", client: "gh-radar-relay", strategySinceSeq: 0 },
       ]);
 
       // 커서 조회는 게이트웨이별 1회씩.
+      // 게이트웨이마다 두 기록기(주문 · 전략)가 각 1회.
       const cursorReads = supabase.requestsTo("/rest/v1/dma_journal_cursor");
-      expect(cursorReads.map((r) => r.query.gateway).sort()).toEqual(["eq.KB", "eq.KYOBO"]);
+      expect(cursorReads.map((r) => r.query.gateway).sort()).toEqual(["eq.KB", "eq.KB", "eq.KYOBO", "eq.KYOBO"]);
 
       // 매핑 동기화는 p_gateway 별로.
       const syncs = await waitFor(

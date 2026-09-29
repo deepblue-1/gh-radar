@@ -90,6 +90,7 @@ import {
 import type {
   JournalOrderRow,
   OrderSide,
+  StrategyEventRow,
   RelayAccountState,
   RelayExchange,
   RelayOrderCancelMsg,
@@ -321,6 +322,9 @@ const EMPTY_TAPE: RelayTapeEntry[] = [];
 const EMPTY_ORDER_LOCKS: ReadonlyMap<string, OrderLockKind> = new Map();
 /** 빈 저널 행의 고정 참조 (Phase 19 D-03) — 카드 병합 memo 가 매 렌더 무효화되지 않게. */
 const EMPTY_JOURNAL_ROWS: JournalOrderRow[] = [];
+/** 빈 전략 이벤트의 고정 참조 (Phase 25) — 주문로그 목록 memo 가 매 렌더 무효화되지 않게. */
+const EMPTY_STRATEGY_EVENTS: StrategyEventRow[] = [];
+const EMPTY_STRATEGY_EVENTS_BATCH: { seq: number; rows: StrategyEventRow[] } = { seq: 0, rows: EMPTY_STRATEGY_EVENTS };
 /** 빈 비활성화 귀속 맵의 고정 참조 (quick-260926-nr2). */
 const EMPTY_LC_DISABLE_ECHOES: ReadonlyMap<string, LimitChaserDisableEcho> = new Map();
 
@@ -343,6 +347,9 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   // Provider 밖에는 소켓이 없다 — 푸시 행도 기록 연결 상태도 없다(Phase 19 D-03 · D-04).
   journalRows: EMPTY_JOURNAL_ROWS,
   journalState: null,
+  // Provider 밖에는 소켓이 없다 — 전략 이벤트 푸시도 없다(Phase 25).
+  strategyEvents: EMPTY_STRATEGY_EVENTS,
+  strategyEventsBatch: EMPTY_STRATEGY_EVENTS_BATCH,
   messages: [],
   isStale: false,
   limitChasers: [],

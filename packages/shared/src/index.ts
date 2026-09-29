@@ -88,6 +88,10 @@ export type {
   RelayJournalRowsMsg,
   RelayJournalState,
   RelayJournalStateMsg,
+  // --- Phase 25 전략 이벤트 푸시 · 잔량진행률 프레임 ---
+  RelayJournalEventsMsg,
+  RelayUnfProgressEntry,
+  RelayUnfProgressMsg,
 } from "./relay";
 export {
   RELAY_STATE_LABELS,
@@ -108,6 +112,11 @@ export type {
   JournalOrderOrigin,
 } from "./journal";
 export { toJournalOrderRow, JOURNAL_ORDER_PUBLIC_COLUMNS } from "./journal";
+// --- Phase 25 전략 이벤트 계약 · 표시명 표 · 조립기. 이름 목록이 길고 뒤 플랜이 계속 더하므로 모듈 단위로
+//     재수출한다 — 뒤 플랜이 index 를 고치지 않게. 픽스처(`__fixtures__/`)는 테스트 전용이라 재수출하지 않는다 ---
+export * from "./strategy-event";
+export * from "./strategy-event-labels";
+export * from "./strategy-event-text";
 export type { Summary, SummaryType, Sentiment } from "./summary";
 export type { KiwoomKa10027Row, KiwoomKa10001Row, IntradayCloseUpdate, IntradayOhlcUpdate } from "./kiwoom";
 export { getKstDate, isKoreanMarketOpen } from "./marketHours";

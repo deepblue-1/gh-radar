@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: cfbbd3e2
-// synced-date:        2026-09-28
+// server-repo-commit: 5f49cfa5
+// synced-date:        2026-09-29
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -17,6 +17,7 @@ enum MsgType : byte {
     //   27~29: 시세·마스터 요청 (Phase 15)
     //   30~38: 30/31 봉인(Phase 16 NXT-06 통합 — 재사용 금지) · 32 체결 테이프 · 33/34 VI 확인·목록 ·
     //          35 거래원 · 36/37 상따 매도·취소 래치 수동 점등 · 38 봉인(Phase 24 D-25)
+    //   39:    전략 이벤트 백필 조회 (Phase 25)
     LoginReq = 1,
     DirectOrderReq = 2,
     UpdateAccountNoReq = 3,
@@ -71,12 +72,17 @@ enum MsgType : byte {
     ArmBuyLatchReq = 38,          // (예약 봉인) 매수 진입 래치 폐기 — 재사용 금지 (Phase 24 D-25, 서버는 ERROR 로 거부)
                                    // 구 클라가 보낼 수 있어 값은 남긴다(append-only). 요청 테이블은 get_strategy_req 슬롯이었다.
 
+    // === 이하 Phase 25 추가 (상따 주문로그·잔량진행률 — 25-HANDOFF-gh-radar-fields-v0.1, D-01/D-03) ===
+    GetStrategyEventsReq = 39,     // 전략 이벤트 오늘분 백필 조회 (C→S, Phase 25 D-07) — 요청 테이블은 get_quote_req 슬롯
+                                   // 재사용(35 선례, isin + exchange). exchange "" = 전 거래소. 응답은 81 StrategyEventsResp
+
     // Server -> Client
     //   50~59: 기본 응답 (로그인, 주문, 체결, 메시지, 계좌)
     //   60~69: KRX 전략·계좌 상태 응답
-    //   70~80: 70 봉인(Phase 16 NXT-06 통합 — 재사용 금지) · 71 테이프 증분 · 72/73 VI 목록 ·
+    //   70~83: 70 봉인(Phase 16 NXT-06 통합 — 재사용 금지) · 71 테이프 증분 · 72/73 VI 목록 ·
     //          74/75 거래원 · 76 등락률 돌파 · 77 예약 구간 상태 · 78 돌파 스냅샷 ·
-    //          79/80 관찰자 로그인 응답·주문 저널 (Phase 23)
+    //          79/80 관찰자 로그인 응답·주문 저널 (Phase 23) ·
+    //          81/82 전략 이벤트 백필·푸시 · 83 잔량진행률 (Phase 25)
     LoginResp = 50,
     OrderResp = 51,
     OrderConfirm = 52,
@@ -129,7 +135,13 @@ enum MsgType : byte {
 
     // Phase 23 — 관찰자(기록 전용) 연결 · 주문 저널 (gh-radar 19 인계서 §2, D-07)
     ObserverLoginResp = 79,        // 관찰자 로그인 응답 (S→C, 요청 연결에만 Notice, Envelope.observer_login_resp)
-    JournalBatch = 80              // 주문 저널 배치 (S→C, 관찰자 연결에만 Notice + 펌프 스로틀, Envelope.journal_batch)
+    JournalBatch = 80,             // 주문 저널 배치 (S→C, 관찰자 연결에만 Notice + 펌프 스로틀, Envelope.journal_batch)
+
+    // Phase 25 — 상따 주문로그·잔량진행률 (25-HANDOFF-gh-radar-fields-v0.1, D-01/D-07/D-19)
+    // 81/82 는 Envelope 의 strategy_event_batch 슬롯 **하나를** 공유한다 (66/67 선례, vtable 슬롯 82)
+    StrategyEventsResp = 81,       // 전략 이벤트 오늘분 백필 응답 (S→C, is_snapshot=true, 요청 연결에만 Notice — D-07)
+    StrategyEventPush = 82,        // 전략 이벤트 푸시 (S→C, is_snapshot=false, events 1건, 접속 연결 Notice — D-07)
+    QueueProgress = 83             // 잔량진행률 (S→C, Envelope.queue_progress 슬롯 84, 종목·거래소별 1초 스로틀 Broadcast — D-19)
 }
 
 // ============================================================================
@@ -1128,6 +1140,9 @@ table ObserverLoginReq {
     since_seq: ulong;        // 이 seq **초과**부터 보낸다 (since_seq 자체는 이미 받은 것). 0 = 보관분 처음부터
     journal_epoch: string;   // relay 가 마지막으로 본 epoch ("" = 모름 — epoch 불일치 조건에서 빠진다)
     client: string;          // "gh-radar-relay" (로그 표시용 — 서버가 64바이트·인쇄 가능 문자로 잘라 찍는다)
+
+    // === 이하 Phase 25 추가 (테이블 말미 append — 가운데 삽입 금지, D-24) ===
+    strategy_since_seq: ulong;   // 전략 이벤트 스트림의 since_seq (같은 epoch, 별도 seq 공간 — D-06). 0 = 보관분 처음부터 (vtable 슬롯 12)
 }
 
 table ObserverAccount {      // users.toml 평탄화 1행 (D-18) — 비밀번호는 절대 싣지 않는다
@@ -1153,6 +1168,14 @@ table ObserverLoginResp {
                              // head_seq = 올리기 전 실제 head · oldest_seq = 0 · false 로 답한다 — relay 는 역행으로 기록하고
                              // since_seq + 1 부터 잇는다. 요청 epoch "" 의 미래 seq 만 true (D-16 · EX-01b 개정)
     accounts: [ObserverAccount];   // 실패 응답은 빈 벡터
+
+    // === 이하 Phase 25 추가 (테이블 말미 append — 가운데 삽입 금지, D-24) ===
+    // 전략 이벤트 스트림의 커서 3종 — 주문 스트림(head_seq/oldest_seq/resync)과 같은 의미, seq 공간만 다르다 (D-06).
+    // epoch 는 주문 저널과 공유한다(journal_epoch 하나). strategy_resync 는 v0.1 밖 말미 추가 — relay 가 스트림별 resync 를
+    // 파생하지 않게 서버가 스트림마다 판정해 준다. 전략 저널이 없으면 0/0/false.
+    strategy_head_seq: ulong;      // (vtable 슬롯 20)
+    strategy_oldest_seq: ulong;    // (vtable 슬롯 22)
+    strategy_resync: bool;         // (vtable 슬롯 24)
 }
 
 table JournalRecord {        // 23 필드 — gh-radar 이벤트 JSON 키와 1:1 (인계서 §2 대응표, 이름 그대로)
@@ -1186,6 +1209,156 @@ table JournalBatch {
     records: [JournalRecord];   // seq 오름차순·조밀. 레코드 0건 배치는 보내지 않는다
     head_seq: ulong;            // 이 프레임 조립 시점의 head
     caught_up: bool;            // records 마지막 seq == head_seq
+
+    // === 이하 Phase 25 추가 (테이블 말미 append — 가운데 삽입 금지, D-24) ===
+    // 한 프레임에 두 스트림(주문 저널·전략 이벤트)을 함께 싣는다 — 둘 다 0건이면 프레임을 만들지 않고, 한쪽만 0건이면
+    // 그 벡터를 비운 채 보낸다. caught_up/strategy_caught_up 은 각 스트림의 그 시점 커서 상태다 (D-05/D-06).
+    strategy_events: [StrategyEvent];   // 전략 이벤트 seq 오름차순·조밀 (vtable 슬롯 10)
+    strategy_head_seq: ulong;           // 이 프레임 조립 시점의 전략 스트림 head (vtable 슬롯 12)
+    strategy_caught_up: bool;           // 전략 스트림 next−1 == strategy_head_seq (0건이면 next > head) (vtable 슬롯 14)
+}
+
+// ============================================================================
+// Phase 25 — 상따 주문로그·잔량진행률 (25-HANDOFF-gh-radar-fields-v0.1, D-03/D-19)
+//
+// 상따 전략의 판단·주문 이벤트 7종(상한가노출·진입·매수주문·대기·첫체결·매도주문·취소·거부)을 전략 저널
+// (`log/journal/strategy/`, 주문 저널과 같은 epoch·별도 seq 공간)에 쓰고 관찰자(gh-radar relay)에는 80 JournalBatch
+// 말미 `strategy_events` 로, 클라에는 81(백필)/82(푸시)로 보낸다. 잔량진행률(83)은 종목·거래소별 대기 주문 전체
+// 스냅샷 Broadcast 다. 필드 이름·enum 번호는 HANDOFF v0.1 로 gh-radar 와 합의된 **one-way 계약**이다 (D-03) —
+// 바꾸지 않고, 추가는 말미 append 만 한다. 표시 이름(선매수·추가매수·호가매도 …)은 클라 매핑이다 (D-02).
+//
+//   39 GetStrategyEventsReq (C→S) 오늘분 백필 — get_quote_req 슬롯 재사용
+//   81 StrategyEventsResp   (S→C) 백필 응답 (is_snapshot=true, 요청 연결에만 Notice)
+//   82 StrategyEventPush    (S→C) 이벤트 1건 푸시 (is_snapshot=false, Notice)
+//   83 QueueProgress        (S→C) 잔량진행률 (Broadcast)
+//
+// seq·gw_time_ms: seq 는 ulong(주문 저널 동형). gw_time_ms 는 HANDOFF 의 int64 를 따라 long 이다 —
+// JournalRecord.gw_time_ms(ulong) 와 다르지만 relay TS 는 둘 다 bigint 다. enum 은 전부 ubyte, 0 = None/미지.
+// ============================================================================
+
+enum StrategyEventKind : ubyte {
+    None = 0,
+    LimitExposed = 1,    // 상한가노출 — 상한가에 매도잔량이 노출됨 (시세 이벤트, 계좌 없음)
+    LimitEntered = 2,    // 상한가진입 — 매수1 == 상한가 && 매도잔량 0 (시세 이벤트, 계좌 없음)
+    BuyOrder = 3,        // 매수주문 — A 접수 시점에 1건 (전송 시각은 gw_time_ms, 접수 지연은 accept_latency_us)
+    Queued = 4,          // 대기 — 상한가 매수 줄서기 (base_cum/ahead_qty/expected_cum)
+    FirstFill = 5,       // 첫체결 — error_volume = expected_cum − 첫 체결 시점 누적
+    SellOrder = 6,       // 매도주문
+    Cancelled = 7,       // 취소 — cancel_reason · remaining_volume
+    Rejected = 8         // 거부 — result_code · message
+}
+
+enum OrderGroup : ubyte {
+    None = 0,
+    PreBuy = 1,          // 선매수
+    AddBuy = 2,          // 추가매수 (코드 주석 "줄서기": 매수잔량 ≥ 구간 진입)
+    PostBuy = 3,         // 후매수 (코드 주석 "반등": 발동잔량 ≤ 하향 래칫)
+    SellQuote = 4,       // 호가매도 (ShouldSellOnQuote, B6)
+    SellTrade = 5,       // 체결매도 (ShouldSellOnTrade, A3)
+    SellFillHook = 6     // 체결훅 즉시매도
+}
+
+enum CondMetric : ubyte {
+    None = 0,
+    Ask1Qty = 1,         // 매도1 잔량
+    Bid1Qty = 2,         // 매수1 잔량
+    TradeQty = 3,        // 체결량
+    Price = 4,           // 가격
+    Burst = 5,           // 연속 체결 누적
+    // 6~7 은 v0.1 밖 말미 추가 — OrderReason 과 1:1 열거 (연산자는 reason_code 로 결정)
+    SweepCount = 6,      // 스윕 틱 수
+    RiseRateBp = 7       // 상승률 bp
+}
+
+enum EvidenceKind : ubyte {
+    None = 0,
+    Quote = 1,           // 호가 (ev_price · ev_qty_before → ev_qty_after)
+    Trade = 2,           // 체결 (ev_price · ev_trade_qty)
+    FillNotice = 3       // 체결통보
+}
+
+enum CancelReason : ubyte {
+    None = 0,
+    Manual = 1,          // 수동 취소
+    ExitSell = 2,        // 이탈 매도 전 매수 미체결 취소
+    Bid1Drop = 3,        // 매수1 이탈
+    VIWatch = 4,         // VIOrderWatch 자동취소
+    Exchange = 5,        // 거래소 자동취소
+    Close = 6,           // 마감정리 (15:40/20:00)
+    // 7~9 는 v0.1 밖 말미 추가 — 서버 취소 경로 1:1
+    SellTradeQty = 7,    // 체결량·버스트·재평가 얇은 벽 취소 (CancelTradeQty/CancelBurstSellQty/CancelRecalcBidThin)
+    RejectResell = 8,    // 취소 거부(804) 재취소 (CancelRejectResell)
+    Other = 9            // 그 밖
+}
+
+table StrategyEvent {            // 43 필드 — HANDOFF v0.1 표 순서·이름 그대로 (없는 값은 0/"")
+    seq: ulong;                  // 전략 이벤트 seq (조밀·단조, 주문 저널과 별도 공간)
+    trade_date: string;          // YYYY-MM-DD KST
+    gw_time_ms: long;            // 발생 epoch ms (주문 이벤트 = 전송 직전 시각). 저널과 같은 이름
+    kind: StrategyEventKind;     // 1 LimitExposed ~ 8 Rejected
+    group: OrderGroup;           // 0 None · 1 PreBuy · 2 AddBuy · 3 PostBuy · 4 SellQuote · 5 SellTrade · 6 SellFillHook
+    exchange: string;            // KRX / NXT (판단에 쓴 시세의 거래소 = 발주 거래소)
+    isin: string;
+    cum_volume: ulong;           // 이벤트 시점 그 거래소 누적거래량 (A3 최신값)
+    dma_user_id: string;         // 주문 이벤트만 (시세 이벤트는 "")
+    account_no: string;          // 주문 이벤트만 (시세 이벤트는 "")
+    order_no: string;            // 없으면 "" (거부·시세 이벤트)
+    price: int;                  // 주문가 (주문 이벤트)
+    qty: int;                    // 주문수량 (주문 이벤트)
+    order_condition: string;     // "0" 지정가 등 (매도주문 「방식」)
+    reason_code: string;         // 서버 OrderReasonName 원문 (B6Buy3, A3Buy4, B6Sell1 …) — 판정 키
+    cond_threshold: long;        // 조건 설정값 (「조건: 매도잔량≤50,000」의 50,000)
+    cond_actual: long;           // 실측값 (38,200)
+    cond_metric: CondMetric;     // 1 Ask1Qty · 2 Bid1Qty · 3 TradeQty · 4 Price · 5 Burst · 6 SweepCount · 7 RiseRateBp
+    ev_kind: EvidenceKind;       // 1 Quote · 2 Trade · 3 FillNotice
+    ev_price: int;               // 근거 틱 가격
+    ev_qty_before: long;         // 호가면 잔량 변화 전 (52,100)
+    ev_qty_after: long;          // 호가면 잔량 변화 후 (38,200)
+    ev_trade_qty: long;          // 체결이면 체결량
+    limit_bid_qty: long;         // 그 시점 상한가 매수잔량 (bid1==상한가일 때 bid1 잔량, 아니면 0)
+    bid1_price: int;             // 매도주문: 매수1 가격
+    bid1_qty: long;              // 매도주문: 매수1 잔량
+    accept_latency_us: int;      // 전송→접수 통보 (0 = 미측정). BuyOrder 는 접수 시점에 쓴다 (전송 시각은 gw_time_ms)
+    immediate_fill_qty: long;    // 즉시체결 분 (0 이면 없음)
+    queue_case: byte;            // 1 잔량 보고 낸 주문 · 2 잔량 쌓이기 전 주문
+    base_cum: ulong;             // 대기: 기준 누적
+    ahead_qty: ulong;            // 대기: 내 앞 물량
+    expected_cum: ulong;         // 대기: 체결예상 누적
+    error_volume: long;          // 첫체결: expected_cum − 첫 체결 시점 누적 (부호 있음)
+    remaining_volume: long;      // 취소: expected_cum − 취소 시점 누적 (대기 아니었으면 0 — has_remaining 으로 구분)
+    has_remaining: bool;         // remaining_volume 유효 여부
+    cancel_reason: CancelReason; // 1 Manual · 2 ExitSell · 3 Bid1Drop · 4 VIWatch · 5 Exchange · 6 Close · 7~9 서버 취소 경로
+    result_code: int;            // 거부: 거래소·증권사 코드
+    message: string;             // 거부: 거래소·증권사 문구 그대로
+    entry_round: int;            // 상한가진입 회차
+    snap_qty: [long];            // 상한가진입: 즉시·1초·3초 매수잔량 (길이 0~3 — 3초 전 이탈하면 길이<3)
+    snap_cum: [long];            // 상한가진입: 즉시·1초·3초 누적 (snap_qty 와 같은 길이)
+    ask_qty_at_limit: long;      // 상한가노출: 상한가 매도잔량
+    open_at_limit: bool;         // 시초 상한가
+}
+
+table StrategyEventBatch {       // 81/82 공용 본문 (66/67 동형)
+    events: [StrategyEvent];     // 81 = 오늘분 seq 오름차순 · 82 = 1건
+    is_snapshot: bool;           // true = 81 백필, false = 82 푸시
+}
+
+table QueueProgressItem {        // 그 (isin, exchange) 의 대기 주문 1건
+    account_no: string;          // 필수 — relay 계좌 권한 게이트
+    dma_user_id: string;
+    order_no: string;
+    exchange: string;            // KRX / NXT
+    isin: string;
+    group: OrderGroup;
+    expected_cum: ulong;         // 체결예상 누적
+    current_cum: ulong;          // 현재 누적거래량 (서버가 진실 원본)
+    remaining_volume: long;      // expected_cum − current_cum
+    progress_bp: int;            // 진행률 bp (0~10000)
+}
+
+table QueueProgress {            // 83 본문 — 종목·거래소별 대기 주문 **전체 스냅샷** (1초 스로틀 Broadcast, D-19)
+    isin: string;
+    exchange: string;
+    items: [QueueProgressItem];  // 빈 벡터 허용 = 전부 사라짐 (첫 체결·취소 뒤 한 번 더 나간다)
 }
 
 // ============================================================================
@@ -1266,6 +1439,11 @@ table Envelope {
     observer_login_req: ObserverLoginReq;        // 5 본문 — 관찰자 로그인 요청 (vtable 슬롯 76)
     observer_login_resp: ObserverLoginResp;      // 79 본문 — 관찰자 로그인 응답 (vtable 슬롯 78)
     journal_batch: JournalBatch;                 // 80 본문 — 주문 저널 배치 (vtable 슬롯 80)
+
+    // === 이하 Phase 25 추가 (테이블 말미 append — 가운데 삽입 금지, D-24) ===
+    // GetStrategyEventsReq(39) 는 get_quote_req 슬롯을 재사용하므로 요청 슬롯을 두지 않는다 (35 선례).
+    strategy_event_batch: StrategyEventBatch;    // 81/82 공용 본문 — 백필·푸시가 같은 슬롯을 쓴다 (vtable 슬롯 82)
+    queue_progress: QueueProgress;               // 83 본문 — 잔량진행률 (vtable 슬롯 84)
 }
 
 root_type Envelope;

@@ -126,7 +126,7 @@ describe("관찰자 실 TCP 통합 — 가짜 게이트웨이 · 실 DmaClient �
     const sock = await gateway.waitForObserverConnection(3000);
     await waitFor(() => o.state === "replaying", "로그인 뒤 replaying");
     expect(gateway.observerLoginRequests()).toEqual([
-      { secret: SECRET, sinceSeq: 0, epoch: "", client: OBSERVER_CLIENT_NAME },
+      { secret: SECRET, sinceSeq: 0, epoch: "", client: OBSERVER_CLIENT_NAME, strategySinceSeq: 0 },
     ]);
     expect(access.replace).toHaveBeenCalledWith([
       { dmaUserId: "dma-user-1", accountNo: SAMPLE_ACCOUNT_NO, name: "위탁종합", priority: 0 },
@@ -157,6 +157,7 @@ describe("관찰자 실 TCP 통합 — 가짜 게이트웨이 · 실 DmaClient �
       sinceSeq: 2,
       epoch: "ep-1",
       client: OBSERVER_CLIENT_NAME,
+      strategySinceSeq: 0,
     });
 
     const second = await gateway.waitForObserverConnection(3000);

@@ -88,11 +88,13 @@ import { UpdateAccountNoReq } from "../generated/stock-dma/update-account-no-req
 import { JournalRecord as WireJournalRecord } from "../generated/stock-dma/journal-record.js";
 import { ObserverAccount } from "../generated/stock-dma/observer-account.js";
 import { ObserverLoginReq } from "../generated/stock-dma/observer-login-req.js";
+import { StrategyEvent as WireStrategyEvent } from "../generated/stock-dma/strategy-event.js";
 import type {
   JournalBatchFrame,
   JournalRecord,
   ObserverAccountRow,
   ObserverLoginResult,
+  StrategyEventRecord,
 } from "../journal/types.js";
 import { MIN_ENVELOPE_SIZE, logDroppedFrame } from "./codec.js";
 import { MSG, INBOUND_MSG_TYPES, OUT_OF_SCOPE_INBOUND_MSG_TYPES } from "./msg-type.js";
@@ -136,6 +138,15 @@ export const MAX_RATE_CROSS_ITEM_COUNT = 200;
  * 그 5배 여유다 — 깨진 벡터 길이로 순회가 폭주하는 것만 막는다.
  */
 export const MAX_JOURNAL_BATCH_RECORDS = 500;
+/**
+ * 관찰자 저널 배치(80) 1프레임 **전략 이벤트** 상한 (Phase 25 · T-25-04).
+ *
+ * 게이트웨이는 두 스트림 합계를 100건 / ≈32KB 로 자른다(G1 ⓐ). 상한은 저널 레코드와 같은 5배 여유다 —
+ * 초과분은 버리지 않고 앞 N건만 쓴 뒤 `strategyCaughtUp` 을 거짓으로 내려 다음 배치 갭 판정이 since 로 다시 받는다.
+ */
+export const MAX_STRATEGY_BATCH_EVENTS = 500;
+/** 전략 이벤트 `snap_qty` · `snap_cum` 원소 상한. 계약은 즉시 · 1초 · 3초 = 최대 3 — 여유를 둔 폭주 방어선. */
+const MAX_STRATEGY_SNAP_COUNT = 16;
 /** 관찰자 로그인 응답(79) 계좌 매핑 상한 (T-19-33). users.toml 평탄화 행 수 — 실사용은 수십 행이다. */
 export const MAX_OBSERVER_ACCOUNT_COUNT = 1024;
 
@@ -2581,6 +2592,11 @@ export type ObserverLoginReqInput = {
   /** relay 가 마지막으로 본 epoch. `""` = 모름. */
   epoch: string;
   client: string;
+  /**
+   * 전략 스트림의 마지막 수신 seq (Phase 25 · 같은 epoch · 별도 seq 공간). 0 = 보관분 처음부터.
+   * 관찰자가 전략 기록기 epoch 와 주문 기록기 epoch 가 같을 때만 실제 값을 싣는다(RESEARCH Pitfall 3).
+   */
+  strategySinceSeq: number;
 };
 
 /**
@@ -2591,16 +2607,26 @@ export type ObserverLoginReqInput = {
  * 비밀은 이 함수 밖으로 나가지 않는다 — **어떤 로그에도 싣지 않는다**(T-19-03 · throw 문구에도 없다).
  */
 export function buildObserverLoginReq(input: ObserverLoginReqInput): Uint8Array {
-  const { sinceSeq } = input;
+  const { sinceSeq, strategySinceSeq } = input;
   if (!Number.isSafeInteger(sinceSeq) || sinceSeq < 0) {
     throw new RangeError(`관찰자 로그인 since_seq 가 0 이상의 안전 정수가 아니다: ${String(sinceSeq)}`);
+  }
+  if (!Number.isSafeInteger(strategySinceSeq) || strategySinceSeq < 0) {
+    throw new RangeError(`관찰자 로그인 strategy_since_seq 가 0 이상의 안전 정수가 아니다: ${String(strategySinceSeq)}`);
   }
   const b = new flatbuffers.Builder(256);
   // 문자열은 테이블 조립 **전에** 만든다 (FlatBuffers 중첩 제약).
   const secret = b.createString(input.secret);
   const epoch = b.createString(input.epoch);
   const client = b.createString(input.client);
-  const req = ObserverLoginReq.createObserverLoginReq(b, secret, BigInt(sinceSeq), epoch, client);
+  const req = ObserverLoginReq.createObserverLoginReq(
+    b,
+    secret,
+    BigInt(sinceSeq),
+    epoch,
+    client,
+    BigInt(strategySinceSeq),
+  );
   Envelope.startEnvelope(b);
   Envelope.addMsgType(b, MSG.ObserverLoginReq);
   Envelope.addObserverLoginReq(b, req);
@@ -2652,6 +2678,10 @@ export function parseObserverLoginResp(env: Envelope): ObserverLoginResult | nul
       oldestSeq: toNum(r.oldestSeq(), "observer_login_resp.oldest_seq"),
       resync: r.resync(),
       accounts,
+      // 구 게이트웨이(필드 없음)는 기본값 0 / 0 / false 로 읽힌다 = 「전략 저널 없음」(G1 ⓑ).
+      strategyHeadSeq: toNum(r.strategyHeadSeq(), "observer_login_resp.strategy_head_seq"),
+      strategyOldestSeq: toNum(r.strategyOldestSeq(), "observer_login_resp.strategy_oldest_seq"),
+      strategyResync: r.strategyResync(),
     };
   } catch (err) {
     return dropField("parse-throw", msgType, { error: err instanceof Error ? err.name : "unknown" });
@@ -2670,6 +2700,11 @@ export function parseObserverLoginResp(env: Envelope): ObserverLoginResult | nul
  * 프레임 전체를 `null`(→ `malformed` → 재접속)로 돌리는 경우는 구조가 깨졌을 때뿐이다 — 슬롯 없음 · 레코드
  * 테이블 null · 읽기 예외. 상한 초과는 앞의 N건만 쓰고 `caughtUp` 을 거짓으로 내린다 — 잘린 뒤 구간은 다음
  * 배치의 갭 판정이 since 로 다시 받는다.
+ *
+ * Phase 25 — 같은 프레임의 두 번째 스트림 `strategy_events` 도 같은 규율이다: 원소 null 은 구조 파손(프레임
+ * 전체 드롭), 형식 이상 계좌/ISIN 은 경고만(레코드를 버리지 않는다 — T-19-34 무한 갭 루프 방지 · RESEARCH
+ * Pitfall 8), 상한(`MAX_STRATEGY_BATCH_EVENTS`) 초과는 앞 N건 + `strategyCaughtUp` 거짓. 구 게이트웨이 프레임은
+ * 벡터가 없어 길이 0 이라 `strategyEvents: []` · `strategyHeadSeq: 0` · `strategyCaughtUp: false` 로 자연히 떨어진다.
  */
 export function parseJournalBatch(env: Envelope): JournalBatchFrame | null {
   const msgType = MSG.JournalBatch;
@@ -2739,13 +2774,112 @@ export function parseJournalBatch(env: Envelope): JournalBatchFrame | null {
       );
     }
 
+    const rawStrategyCount = r.strategyEventsLength();
+    const nStrategy = takeCount(rawStrategyCount, MAX_STRATEGY_BATCH_EVENTS, "전략 이벤트");
+    const strategyEvents: StrategyEventRecord[] = [];
+    const strategyScratch = new WireStrategyEvent();
+    let badStrategyAccount = 0;
+    let badStrategyIsin = 0;
+    let sampleStrategyAccount: string | null = null;
+    let sampleStrategySeq: number | null = null;
+    for (let i = 0; i < nStrategy; i += 1) {
+      const w = r.strategyEvents(i, strategyScratch);
+      if (w === null) return dropField("strategy-event-null", msgType, { index: i, count: nStrategy });
+      const ev = readStrategyEvent(w);
+      // 시세 이벤트(kind 1·2)는 계좌가 원래 "" 다 — 형식 이상으로 세지 않는다(G1 ⓔ).
+      if (ev.accountNo !== "" && !isValidAccountNo(ev.accountNo)) {
+        badStrategyAccount += 1;
+        if (sampleStrategyAccount === null) {
+          sampleStrategyAccount = ev.accountNo;
+          sampleStrategySeq = ev.seq;
+        }
+      }
+      if (!isValidIsin(ev.isin)) badStrategyIsin += 1;
+      strategyEvents.push(ev);
+    }
+
+    if (badStrategyAccount > 0 || badStrategyIsin > 0) {
+      logger.warn(
+        {
+          msgType,
+          strategyEvents: strategyEvents.length,
+          badAccount: badStrategyAccount,
+          badIsin: badStrategyIsin,
+          sampleSeq: sampleStrategySeq,
+          sampleAccountLen: sampleStrategyAccount?.length ?? null,
+          sampleAccount: sampleStrategyAccount === null ? null : maskAccountNo(sampleStrategyAccount),
+        },
+        "[DMA] 전략 이벤트 형식 이상 — 버리지 않고 그대로 올린다 (seq 갭 루프 방지)",
+      );
+    }
+
     return {
       records,
       headSeq: toNum(r.headSeq(), "journal_batch.head_seq"),
       // 잘렸으면 따라잡은 것이 아니다 — live 전이를 다음 배치로 미룬다.
       caughtUp: r.caughtUp() && n === rawCount,
+      strategyEvents,
+      strategyHeadSeq: toNum(r.strategyHeadSeq(), "journal_batch.strategy_head_seq"),
+      strategyCaughtUp: r.strategyCaughtUp() && nStrategy === rawStrategyCount,
     };
   } catch (err) {
     return dropField("parse-throw", msgType, { error: err instanceof Error ? err.name : "unknown" });
   }
+}
+
+/**
+ * 와이어 `StrategyEvent` 1건 → 도메인 레코드 (43필드 · 이름 변환 + 64비트 → number 만). 값 보정 0.
+ *
+ * 64비트 칸은 전부 `toNum`(D-34 유일 경계)을 지난다 — `gw_time_ms` 는 `long` 이고 저널은 `ulong` 이지만 경계
+ * 뒤에서는 같은 number 다(G1 ⓒ). 문자열은 `?? ""`, 벡터는 `readNumVector`(상한 있는 순회 — 계약 길이는 0~3,
+ * 상한은 깨진 벡터 길이로 순회가 폭주하는 것만 막는다).
+ */
+function readStrategyEvent(w: WireStrategyEvent): StrategyEventRecord {
+  const snapQty = readNumVector(w.snapQtyLength(), (j) => w.snapQty(j), MAX_STRATEGY_SNAP_COUNT, "strategy_event.snap_qty");
+  const snapCum = readNumVector(w.snapCumLength(), (j) => w.snapCum(j), MAX_STRATEGY_SNAP_COUNT, "strategy_event.snap_cum");
+  return {
+    seq: toNum(w.seq(), "strategy_event.seq"),
+    tradeDate: w.tradeDate() ?? "",
+    gwTimeMs: toNum(w.gwTimeMs(), "strategy_event.gw_time_ms"),
+    kind: w.kind(),
+    group: w.group(),
+    exchange: w.exchange() ?? "",
+    isin: w.isin() ?? "",
+    cumVolume: toNum(w.cumVolume(), "strategy_event.cum_volume"),
+    dmaUserId: w.dmaUserId() ?? "",
+    accountNo: w.accountNo() ?? "",
+    orderNo: w.orderNo() ?? "",
+    price: w.price(),
+    qty: w.qty(),
+    orderCondition: w.orderCondition() ?? "",
+    reasonCode: w.reasonCode() ?? "",
+    condThreshold: toNum(w.condThreshold(), "strategy_event.cond_threshold"),
+    condActual: toNum(w.condActual(), "strategy_event.cond_actual"),
+    condMetric: w.condMetric(),
+    evKind: w.evKind(),
+    evPrice: w.evPrice(),
+    evQtyBefore: toNum(w.evQtyBefore(), "strategy_event.ev_qty_before"),
+    evQtyAfter: toNum(w.evQtyAfter(), "strategy_event.ev_qty_after"),
+    evTradeQty: toNum(w.evTradeQty(), "strategy_event.ev_trade_qty"),
+    limitBidQty: toNum(w.limitBidQty(), "strategy_event.limit_bid_qty"),
+    bid1Price: w.bid1Price(),
+    bid1Qty: toNum(w.bid1Qty(), "strategy_event.bid1_qty"),
+    acceptLatencyUs: w.acceptLatencyUs(),
+    immediateFillQty: toNum(w.immediateFillQty(), "strategy_event.immediate_fill_qty"),
+    queueCase: w.queueCase(),
+    baseCum: toNum(w.baseCum(), "strategy_event.base_cum"),
+    aheadQty: toNum(w.aheadQty(), "strategy_event.ahead_qty"),
+    expectedCum: toNum(w.expectedCum(), "strategy_event.expected_cum"),
+    errorVolume: toNum(w.errorVolume(), "strategy_event.error_volume"),
+    remainingVolume: toNum(w.remainingVolume(), "strategy_event.remaining_volume"),
+    hasRemaining: w.hasRemaining(),
+    cancelReason: w.cancelReason(),
+    resultCode: w.resultCode(),
+    message: w.message() ?? "",
+    entryRound: w.entryRound(),
+    snapQty,
+    snapCum,
+    askQtyAtLimit: toNum(w.askQtyAtLimit(), "strategy_event.ask_qty_at_limit"),
+    openAtLimit: w.openAtLimit(),
+  };
 }

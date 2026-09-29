@@ -4,11 +4,14 @@
 
 export { AccountEntry } from './stock-dma/account-entry.js';
 export { AccountState } from './stock-dma/account-state.js';
+export { CancelReason } from './stock-dma/cancel-reason.js';
+export { CondMetric } from './stock-dma/cond-metric.js';
 export { ConfirmVIOrderReq } from './stock-dma/confirm-viorder-req.js';
 export { DirectOrderReq } from './stock-dma/direct-order-req.js';
 export { DisableStrategiesReq } from './stock-dma/disable-strategies-req.js';
 export { DisableStrategiesResp } from './stock-dma/disable-strategies-resp.js';
 export { Envelope } from './stock-dma/envelope.js';
+export { EvidenceKind } from './stock-dma/evidence-kind.js';
 export { GetAccountStateReq } from './stock-dma/get-account-state-req.js';
 export { GetQuoteReq } from './stock-dma/get-quote-req.js';
 export { GetStrategyReq } from './stock-dma/get-strategy-req.js';
@@ -27,7 +30,10 @@ export { ObserverAccount } from './stock-dma/observer-account.js';
 export { ObserverLoginReq } from './stock-dma/observer-login-req.js';
 export { ObserverLoginResp } from './stock-dma/observer-login-resp.js';
 export { OrderConfirm } from './stock-dma/order-confirm.js';
+export { OrderGroup } from './stock-dma/order-group.js';
 export { OrderResp } from './stock-dma/order-resp.js';
+export { QueueProgress } from './stock-dma/queue-progress.js';
+export { QueueProgressItem } from './stock-dma/queue-progress-item.js';
 export { QueuedWindowState } from './stock-dma/queued-window-state.js';
 export { QuoteState } from './stock-dma/quote-state.js';
 export { RateCrossAlert } from './stock-dma/rate-cross-alert.js';
@@ -37,6 +43,9 @@ export { ReconcileAccountStateResp } from './stock-dma/reconcile-account-state-r
 export { ServerMessage } from './stock-dma/server-message.js';
 export { SetLimitChaser } from './stock-dma/set-limit-chaser.js';
 export { SetVITrigger } from './stock-dma/set-vitrigger.js';
+export { StrategyEvent } from './stock-dma/strategy-event.js';
+export { StrategyEventBatch } from './stock-dma/strategy-event-batch.js';
+export { StrategyEventKind } from './stock-dma/strategy-event-kind.js';
 export { SubscribeQuoteReq } from './stock-dma/subscribe-quote-req.js';
 export { SymbolMaster } from './stock-dma/symbol-master.js';
 export { SymbolMasterItem } from './stock-dma/symbol-master-item.js';

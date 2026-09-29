@@ -29,6 +29,10 @@
  *   D-10  비밀은 로그인 페이로드를 만드는 코덱에만 넘긴다. **어떤 로그 인자에도 싣지 않는다**(T-19-03) —
  *         logger redact 는 실수 방어일 뿐이다.
  *   S-5   끊기·버림·재시도는 전부 사유와 함께 로그를 남긴다. 조용한 return 금지(무관한 76 방송만 예외).
+ *   P25   **두 스트림 — pending 플래그 2 · since 2 · 주문 먼저.** 80 한 프레임에 주문 저널과 전략 이벤트가 같이
+ *         온다(같은 epoch · 별도 seq 공간 · G1 ⓐ). 로그인은 since 를 두 개 싣고(전략 since 는 두 기록기 epoch 가
+ *         같을 때만 — Pitfall 3), live 는 두 스트림 pending 이 모두 내려간 뒤다. 배치는 주문 push 를 먼저 하고
+ *         그것이 ok 일 때만 전략 push 를 한다 — 주문이 갭/상한으로 끊기면 그 프레임 전략분도 재로그인 since 로 다시 받는다.
  */
 import { EventEmitter } from "node:events";
 
@@ -46,16 +50,17 @@ import type {
   ObserverLoginResult,
   ObserverTransport,
   JournalBatchFrame,
+  StrategyEventRecord,
 } from "./types.js";
 
 /** 관찰자 로그인 요청의 `client` 값 — 게이트웨이 로그에서 relay 관찰자를 구분한다. */
 export const OBSERVER_CLIENT_NAME = "gh-radar-relay";
 
-/** 관찰자가 쓰는 기록기 표면 — `JournalWriter` 가 구조적으로 만족한다. */
-export type ObserverWriter = {
+/** 관찰자가 쓰는 기록기 표면 — `JournalWriter`(주문 · 전략 스트림 둘 다)가 구조적으로 만족한다. */
+export type ObserverWriter<R = JournalRecord> = {
   readCursor(): Promise<JournalCursor>;
   beginEpoch(epoch: string, opts: { resync: boolean; headSeq: number }): void;
-  push(records: readonly JournalRecord[]): JournalPushResult;
+  push(records: readonly R[]): JournalPushResult;
   readonly epoch: string;
   readonly lastReceivedSeq: number | null;
 };
@@ -72,6 +77,11 @@ export type JournalObserverDeps = {
   gateway: string;
   codec: JournalCodec;
   writer: ObserverWriter;
+  /**
+   * 전략 이벤트 기록기 (Phase 25 — `createStrategyWriter`). 생략하면 전략 스트림을 받지 않는다 — since 0 ·
+   * pending 없음(구 동작). 부팅 결선은 늘 넣는다.
+   */
+  strategyWriter?: ObserverWriter<StrategyEventRecord>;
   access: ObserverAccess;
   /** 주입하지 않으면 `new DmaClient({host, port})` 를 **하나** 만든다(사용자 세션과 독립 — D-13). */
   transport?: ObserverTransport;
@@ -98,6 +108,12 @@ export class JournalObserver extends EventEmitter {
   /** 시작 전 · 커서 읽기 · TCP 연결 대기는 모두 connecting 이다(아직 붙지 않았다). */
   #state: JournalObserverState = "connecting";
   #headSeq: number | null = null;
+  /** 게이트웨이가 알려 준 전략 스트림 head(로그인 응답 · 배치). 아직 모르면 null. */
+  #strategyHeadSeq: number | null = null;
+  /** 주문 스트림이 아직 head 까지 못 따라잡았다(로그인 판정 · caught_up 이 내린다). */
+  #pendingJournal = false;
+  /** 전략 스트림이 아직 head 까지 못 따라잡았다. 구 게이트웨이(0/0/false) · 기록기 없음이면 처음부터 거짓. */
+  #pendingStrategy = false;
   #started = false;
   #stopped = false;
 
@@ -124,6 +140,11 @@ export class JournalObserver extends EventEmitter {
   /** 게이트웨이가 알려 준 마지막 seq(로그인 응답 · 배치). 아직 모르면 null. */
   get headSeq(): number | null {
     return this.#headSeq;
+  }
+
+  /** 게이트웨이가 알려 준 전략 스트림 마지막 seq. 아직 모르면 null(`/healthz` 전략 칸은 25-02). */
+  get strategyHeadSeq(): number | null {
+    return this.#strategyHeadSeq;
   }
 
   // ----------------------------------------------------------
@@ -178,12 +199,13 @@ export class JournalObserver extends EventEmitter {
   }
 
   /**
-   * 커서를 읽은 **뒤에만** 연결한다 — since 를 모르고 붙으면 게이트웨이가 전체를 재생한다.
+   * 커서를 읽은 **뒤에만** 연결한다 — since 를 모르고 붙으면 게이트웨이가 전체를 재생한다. 주문 · 전략 커서를
+   * **둘 다** 읽어야 연결한다(어느 하나 실패 = 같은 백오프 재시도 — 한쪽 since 만 알고 붙으면 다른 쪽이 전량 재생된다).
    * 읽기 실패는 `backoffDelayMs` 로 무한 재시도한다(상태는 connecting 그대로 — D-13).
    */
   async #loadCursorThenConnect(attempt: number): Promise<void> {
     try {
-      await this.#deps.writer.readCursor();
+      await Promise.all([this.#deps.writer.readCursor(), this.#deps.strategyWriter?.readCursor()]);
     } catch (err) {
       if (this.#stopped) return;
       const retryInMs = backoffDelayMs(attempt);
@@ -220,19 +242,24 @@ export class JournalObserver extends EventEmitter {
     if (secret === undefined || secret === "") return;
 
     const writer = this.#deps.writer;
+    const strategyWriter = this.#deps.strategyWriter;
     // `readCursor` 가 기록기에 커서(epoch · lastSeq)를 이미 심었다. null 은 「이어받을 기준 없음」
     // (커서 없음 · 새 epoch 첫 레코드 전)이라 0 이다 — 옛 epoch 의 seq 를 새 epoch 와 짝지으면
     // 게이트웨이가 새 epoch 의 앞 구간을 건너뛴다(Pitfall 3 변형).
     const sinceSeq = writer.lastReceivedSeq ?? 0;
     const epoch = writer.epoch;
-    const payload = this.#deps.codec.buildLoginReq({ secret, sinceSeq, epoch, client: this.#client });
+    // 로그인 요청의 epoch 는 하나(주문 기록기 epoch)다. 전략 기록기가 다른 epoch(옛 저장소 · 커서 없음)에 있으면
+    // 그 seq 를 이 epoch 와 짝지으면 안 된다 — 0 으로 처음부터 받는다(RESEARCH Pitfall 3).
+    const strategySinceSeq =
+      strategyWriter !== undefined && strategyWriter.epoch === writer.epoch ? (strategyWriter.lastReceivedSeq ?? 0) : 0;
+    const payload = this.#deps.codec.buildLoginReq({ secret, sinceSeq, epoch, client: this.#client, strategySinceSeq });
     this.#setState("logging_in");
     if (!transport.send(payload)) {
       // 사유(연결 없음·송신 예외)는 DmaClient 가 남겼다. 이어지는 down → 재접속이 다시 up 을 낸다.
       this.#dropTransport("관찰자 로그인 송신 실패");
       return;
     }
-    logger.info({ gateway: this.#deps.gateway, sinceSeq, epoch }, "[JOURNAL] 관찰자 로그인 요청");
+    logger.info({ gateway: this.#deps.gateway, sinceSeq, strategySinceSeq, epoch }, "[JOURNAL] 관찰자 로그인 요청");
     this.#armLoginTimer(e.generation);
   }
 
@@ -291,9 +318,13 @@ export class JournalObserver extends EventEmitter {
     // headSeq 를 함께 넘긴다 — 같은 epoch 인데 head 가 마지막 수신 seq 보다 작으면(seq 역행) 기록기가
     // lastReceivedSeq 를 **유지**하고 드러낸다. 그 뒤 head ≤ 수신 이므로 아래 규칙으로 곧바로 live 다.
     writer.beginEpoch(result.epoch, { resync: result.resync, headSeq: result.headSeq });
+    // 전략 스트림도 같은 epoch 로 — resync · head 는 전략 스트림 값으로 판정한다(G1 ⓑ).
+    const strategyWriter = this.#deps.strategyWriter;
+    strategyWriter?.beginEpoch(result.epoch, { resync: result.strategyResync, headSeq: result.strategyHeadSeq });
     // 「성공」 의 기준은 TCP 접속이 아니라 관찰자 로그인이다 — 여기서 백오프를 1초로 되돌린다.
     this.#transport?.resetReconnectAttempts();
     this.#headSeq = result.headSeq;
+    this.#strategyHeadSeq = result.strategyHeadSeq;
     const received = writer.lastReceivedSeq ?? 0;
     logger.info(
       {
@@ -302,6 +333,9 @@ export class JournalObserver extends EventEmitter {
         headSeq: result.headSeq,
         oldestSeq: result.oldestSeq,
         resync: result.resync,
+        strategyHeadSeq: result.strategyHeadSeq,
+        strategyOldestSeq: result.strategyOldestSeq,
+        strategyResync: result.strategyResync,
         accounts: result.accounts.length,
       },
       "[JOURNAL] 관찰자 로그인 성공",
@@ -311,19 +345,34 @@ export class JournalObserver extends EventEmitter {
     // 기다리면 첫 주문 전까지 「기록 지연」, 장중 180초 뒤 `/healthz` 503 거짓 알림이 난다 — 곧바로 live 다.
     // 새 epoch 첫 레코드는 기록기가 seq 확인 없이 받는다(갭 규칙 무변경 · 19-09 ⑥).
     const nothingToReplay = result.resync && result.oldestSeq === 0;
-    this.#setState(!nothingToReplay && result.headSeq > received ? "replaying" : "live");
+    this.#pendingJournal = !nothingToReplay && result.headSeq > received;
+    // 전략 스트림도 같은 규칙을 한 번 더. 구 게이트웨이 · 전략 저널 없음(0/0/false)이면 head 0 이라 처음부터 거짓 —
+    // 주문 caught_up 만으로 live 가 된다(RESEARCH Pitfall 2).
+    const strategyReceived = strategyWriter?.lastReceivedSeq ?? 0;
+    const nothingToReplayStrategy = result.strategyResync && result.strategyOldestSeq === 0;
+    this.#pendingStrategy =
+      strategyWriter !== undefined && !nothingToReplayStrategy && result.strategyHeadSeq > strategyReceived;
+    this.#setState(this.#pendingJournal || this.#pendingStrategy ? "replaying" : "live");
   }
 
   #onBatch(batch: JournalBatchFrame): void {
     if (this.#state !== "replaying" && this.#state !== "live") {
       logger.warn(
-        { gateway: this.#deps.gateway, state: this.#state, records: batch.records.length },
+        {
+          gateway: this.#deps.gateway,
+          state: this.#state,
+          records: batch.records.length,
+          strategyEvents: batch.strategyEvents.length,
+        },
         "[JOURNAL] 로그인 전 저널 배치 — 버린다",
       );
       return;
     }
     // head 는 게이트웨이가 알려 준 사실이라 적재 결과와 무관하게 갱신한다(lagSeq 원천).
     this.#headSeq = batch.headSeq;
+    this.#strategyHeadSeq = batch.strategyHeadSeq;
+    // 주문 먼저 — 여기서 끊기면 이 프레임의 전략분은 버리고 재로그인 since 로 다시 받는다(전략 기록기는 아직
+    // 이 프레임을 보지 않았으므로 전략 since 가 그대로다 · DB PK 가 겹친 재생을 흡수한다).
     const result = this.#deps.writer.push(batch.records);
     if (result === "gap") {
       // 기록기가 갭 앞까지 적재했다. 재접속 로그인이 since = 마지막 수신 seq 로 이어받는다(D-12).
@@ -335,7 +384,21 @@ export class JournalObserver extends EventEmitter {
       this.#dropTransport("저널 큐 상한");
       return;
     }
-    if (batch.caughtUp) this.#setState("live");
+    const strategyWriter = this.#deps.strategyWriter;
+    if (strategyWriter !== undefined) {
+      const strategyResult = strategyWriter.push(batch.strategyEvents);
+      if (strategyResult === "gap") {
+        this.#dropTransport("전략 seq 갭");
+        return;
+      }
+      if (strategyResult === "overflow") {
+        this.#dropTransport("전략 큐 상한");
+        return;
+      }
+      if (batch.strategyCaughtUp) this.#pendingStrategy = false;
+    }
+    if (batch.caughtUp) this.#pendingJournal = false;
+    if (!this.#pendingJournal && !this.#pendingStrategy) this.#setState("live");
   }
 
   // ----------------------------------------------------------

@@ -54,6 +54,10 @@
  *     `stocks` 다. 그래서 이 목록에서 빠졌다(위 「유입 집합」 참조).
  *   - 20 (`GetLimitChaserReq` 단건 조회) 은 24 목록 조회로 갈음한다 — 왕복이 하나면 충분하다.
  *   - 26/68 (Reconcile) · 30/31/70 (NXT 전용 상따) 도 v1 범위 밖이다.
+ *   - 39/81/82 사용자 세션 전략 이벤트 경로(백필 · 푸시)는 쓰지 않는다 — 전략 이벤트 정본은 관찰자 80
+ *     경로다(Phase 25 CONTEXT 재량 · Deferred). 81/82 는 호가를 구독한 세션에 Notice 로 쏟아지므로
+ *     debug 드롭이다(RESEARCH Pitfall 5). 83 `QueueProgress` 는 25-06 이 `INBOUND_MSG_TYPES` · hub 명시
+ *     case 를 한 커밋으로 넣는다 — 그 전까지는 정체불명과 같은 warn 드롭이다.
  *
  *   ★ **이 목록이 바뀌면 아래 `OUT_OF_SCOPE_INBOUND_MSG_TYPES` 도 같이 바꾼다.** 주석과 상수가
  *     어긋나면 로그 레벨이 조용히 틀어지고, 그 틀어짐은 「경고가 안 뜬다」로만 드러나
@@ -235,16 +239,18 @@ export const INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
  * 25~55초마다 밀어 넣으므로, 이것을 정체불명과 같은 WARNING 으로 쌓으면 진짜 이상 신호가
  * 그 사이에 묻힌다. 드롭 자체는 설계대로 옳다 — 틀린 것은 로그 레벨 하나였다.
  *
- * 원소는 **응답 대역 4종뿐**이다(생성 코드 `stock-dma/msg-type.ts` 의 enum 이름을 인용한다.
+ * 원소는 **응답 대역 6종뿐**이다(생성 코드 `stock-dma/msg-type.ts` 의 enum 이름을 인용한다.
  * 리터럴을 지어내지 않는다). 57 `SymbolMasterResp` 는 quick-260923-cqj 에서 `INBOUND_MSG_TYPES`
  * 로 옮겨 갔다:
  *   - `ReconcileAccountStateResp` = 68
  *   - `SetLimitChaserNXTResp` = 70
  *   - `MemberStatsResp` = 74
  *   - `MemberStatsPush` = 75
+ *   - `StrategyEventsResp` = 81 (Phase 25 — 전략 이벤트 정본은 관찰자 80 경로)
+ *   - `StrategyEventPush` = 82 (Phase 25 — 같은 이유 · 호가 구독 세션에 Notice 로 쏟아진다)
  *
  * 요청 대역(20 · 26 · 30 · 31)은 **의도적으로 뺐다** — 위 주석의 ★ 참조.
  */
 export const OUT_OF_SCOPE_INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
-  68, 70, 74, 75,
+  68, 70, 74, 75, 81, 82,
 ]);

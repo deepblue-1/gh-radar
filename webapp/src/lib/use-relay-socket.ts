@@ -65,7 +65,10 @@ import {
 import {
   RELAY_STATE_LABELS,
   RELAY_WS_CLOSE,
+  compareStrategyEventAsc,
+  strategyEventKey,
   type JournalOrderRow,
+  type StrategyEventRow,
   type RelayAccount,
   type RelayAccountState,
   type RelayExchange,
@@ -131,6 +134,14 @@ const MAX_ORDERS = 50;
  * 넘으면 `createdAt` 이 가장 오래된 쪽부터 버린다(화면은 REST 복원이 오늘 전량을 다시 준다).
  */
 export const MAX_JOURNAL_ROWS = 2000;
+/**
+ * 전략 이벤트 보관 상한 (Phase 25 · RESEARCH Pitfall 14).
+ *
+ * 시세 이벤트(상한가노출 · 상한가진입)는 계좌와 무관하게 **전 종목**이라 하루 수백 건이 된다. 상한은 세션이
+ * 여러 날 이어지거나 relay 가 비정상으로 쏟아낼 때의 메모리 방어다 — 넘으면 `gwTimeMs` 가 가장 오래된 쪽부터
+ * 버린다(화면은 REST 조회가 오늘분을 다시 준다 · 25-03).
+ */
+export const MAX_STRATEGY_EVENTS = 5000;
 /** VI 발동 통지 누적 상한. 표시·이력용이라 오래된 건은 버린다. */
 const MAX_VI_NOTICES = 50;
 /**
@@ -394,6 +405,19 @@ export interface RelayConnectionState {
    * 카드는 `delayed → live` 전이에서 한 번 다시 조회해 끊긴 사이 채워진 행을 가져온다.
    */
   journalState: RelayJournalStateMsg | null;
+  /**
+   * 전략 기록기가 민 전략 이벤트 (`{t:"journal.events"}` · Phase 25).
+   *
+   * relay 가 이 사용자에게 보이는 것만 보낸다 — 주문 이벤트는 접근 계좌, 시세 이벤트는 매핑 보유자 전원
+   * (T-25-01). 행은 불변 원문이라 키 `gateway|journalEpoch|seq` 가 이미 있으면 버린다(멱등). 정렬은
+   * `gwTimeMs → gateway → seq` 오름차순(새 로그는 아래), 상한 `MAX_STRATEGY_EVENTS`. 비우는 것은 `reset` 뿐이다.
+   */
+  strategyEvents: StrategyEventRow[];
+  /**
+   * 마지막으로 **삽입이 있었던** `journal.events` 프레임의 삽입분 + 단조 번호. 목록의 「새 줄」 강조 ·
+   * 새 로그 배지(25-07)가 이것으로 푸시 줄을 가려낸다. 삽입 0 인 프레임은 번호를 올리지 않는다.
+   */
+  strategyEventsBatch: { seq: number; rows: StrategyEventRow[] };
   /** ServerMessage 누적(최신 우선, 상한 20). 각 항목에 수신 시각이 붙어 있다. */
   messages: RelayServerMessageEntry[];
   /** 재접속 중이라 표시값이 마지막 수신값임을 뜻한다(UI 는 `opacity:.55` 감쇠). */
@@ -624,6 +648,8 @@ interface RelayData {
   orders: RelayOrderMsg[];
   journalRows: JournalOrderRow[];
   journalState: RelayJournalStateMsg | null;
+  strategyEvents: StrategyEventRow[];
+  strategyEventsBatch: { seq: number; rows: StrategyEventRow[] };
   messages: RelayServerMessageEntry[];
   isStale: boolean;
   limitChasers: RelayLimitChaser[];
@@ -661,6 +687,9 @@ const INITIAL_DATA: RelayData = {
   // 로그아웃(reset) 이 이 두 값으로 되돌린다 — 다음 사용자가 이전 사용자의 주문 행을 보지 않는다(T-19-16).
   journalRows: [],
   journalState: null,
+  // 로그아웃(reset) 이 비운다 — 다음 사용자가 이전 사용자의 주문 이벤트를 보지 않는다(Phase 25).
+  strategyEvents: [],
+  strategyEventsBatch: { seq: 0, rows: [] },
   messages: [],
   isStale: false,
   limitChasers: [],
@@ -810,6 +839,17 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
     case "journal.state":
       // 최신 1건 보관. 전이 판정(delayed → live 재조회)은 소비자(카드)가 한다 — D-04 (a).
       return { ...state, journalState: frame };
+
+    case "journal.events": {
+      // 삽입이 없으면(전부 이미 있는 키) 같은 state — 목록 memo 가 헛돌지 않게.
+      const { next, inserted } = upsertStrategyEvents(state.strategyEvents, frame.rows);
+      if (inserted.length === 0) return state;
+      return {
+        ...state,
+        strategyEvents: next,
+        strategyEventsBatch: { seq: state.strategyEventsBatch.seq + 1, rows: inserted },
+      };
+    }
 
     case "msg":
       return {
@@ -987,6 +1027,34 @@ export function upsertJournalRows(
   }
   if (byId === null) return prev as JournalOrderRow[];
   return [...byId.values()].sort(compareJournalNewestFirst).slice(0, MAX_JOURNAL_ROWS);
+}
+
+/**
+ * `journal.events` 1프레임을 보관 목록에 합친다 (Phase 25).
+ *
+ * ★ 키 `strategyEventKey`(`gateway|journalEpoch|seq`) 기준 **삽입 전용** — 이벤트는 불변 원문이라 이미 있는 키는
+ *   건너뛴다(재접속 · REST 복원과 겹친 재수신). 한 프레임 안의 같은 키도 첫 건만 남는다.
+ * ★ 삽입이 0 이면 `next` 는 **입력 배열 참조 그대로**다.
+ * ★ 정렬은 `compareStrategyEventAsc`(오름차순 — 새 로그는 아래), 상한을 넘으면 앞(가장 오래된 것)부터 버린다.
+ */
+export function upsertStrategyEvents(
+  prev: readonly StrategyEventRow[],
+  incoming: readonly StrategyEventRow[],
+): { next: StrategyEventRow[]; inserted: StrategyEventRow[] } {
+  let keys: Set<string> | null = null;
+  const inserted: StrategyEventRow[] = [];
+  for (const row of incoming) {
+    const seen: Set<string> = keys ?? new Set(prev.map(strategyEventKey));
+    keys = seen;
+    const key = strategyEventKey(row);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    inserted.push(row);
+  }
+  if (inserted.length === 0) return { next: prev as StrategyEventRow[], inserted };
+  const merged = [...prev, ...inserted].sort(compareStrategyEventAsc);
+  const next = merged.length > MAX_STRATEGY_EVENTS ? merged.slice(merged.length - MAX_STRATEGY_EVENTS) : merged;
+  return { next, inserted };
 }
 
 /**
@@ -1923,6 +1991,8 @@ export function useRelayConnection({
       orders: data.orders,
       journalRows: data.journalRows,
       journalState: data.journalState,
+      strategyEvents: data.strategyEvents,
+      strategyEventsBatch: data.strategyEventsBatch,
       messages: data.messages,
       isStale: data.isStale,
       limitChasers: data.limitChasers,

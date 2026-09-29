@@ -37,6 +37,7 @@
  */
 
 import type { JournalOrderRow } from "./journal";
+import type { RelayQueueProgressItem, StrategyEventRow } from "./strategy-event";
 
 // ============================================================
 // 거래소 · 세션 상태
@@ -1267,6 +1268,39 @@ export type RelayJournalStateMsg = {
   since?: string;
 };
 
+/**
+ * 상따 전략 이벤트 푸시 (Phase 25). 원천은 relay **전략 기록기**가 `dma_strategy_apply` 에서 돌려받은
+ * 삽입 행이다(관찰자 80 두 번째 스트림 — 주문 저널 `journal.rows` 와 별도 기록기 · 별도 커서).
+ *
+ * - **주문 이벤트(kind 3~8)** 는 그 계좌에 접근할 수 있는 사용자의 연결에만 보낸다(T-19-02 · T-25-01) —
+ *   `journal.rows` 와 같은 계좌 필터 · REST 조회 RPC 와 같은 신원 규칙.
+ * - **시세 이벤트(kind 1 상한가노출 · 2 상한가진입)** 는 계좌가 없다 — 그 게이트웨이 매핑을 가진 사용자
+ *   전원에게 간다(D-07 시세 공개 규칙). 판정은 kind 로만 한다(빈 계좌번호로 하지 않는다).
+ * - 행은 불변 원문이다 — 브라우저는 `strategyEventKey`(`gateway|journalEpoch|seq`)로 멱등 병합한다
+ *   (같은 키 재수신 = 무시). 주문자(`dmaUserId`)는 없다(T-19-08).
+ */
+export type RelayJournalEventsMsg = { t: "journal.events"; rows: StrategyEventRow[] };
+
+/** 미체결 잔량진행률 한 종목 · 거래소분 (83 `QueueProgress` · 25-06 이 소비). */
+export type RelayUnfProgressEntry = {
+  /** ISIN. */
+  i: string;
+  x: RelayExchange;
+  /** 그 (isin, exchange) 의 대기 주문 **전량** — 빈 배열 = 대기 주문이 모두 사라졌다(G1 ⓕ). */
+  items: RelayQueueProgressItem[];
+};
+
+/**
+ * 미체결 잔량진행률 (Phase 25 · 25-06 이 결선). 게이트웨이 83 은 Broadcast 라 relay 가
+ * `items[].accountNo` 로 **계좌 권한 사용자에게만** 부분집합을 내린다(T-19-02).
+ *
+ * - `snap: false` — 한 (isin, exchange) 의 전량 교체 1건.
+ * - `snap: true` — 인증 직후 스냅샷. `entries` 가 그 사용자에게 보이는 전 (isin, exchange) 전량이다.
+ */
+export type RelayUnfProgressMsg =
+  | ({ t: "unf.progress"; snap: false } & RelayUnfProgressEntry)
+  | { t: "unf.progress"; snap: true; entries: RelayUnfProgressEntry[] };
+
 /** relay 가 브라우저로 보내는 모든 메시지. `t` 로 분기한다. */
 export type RelayOutbound =
   | RelayStateMsg
@@ -1287,7 +1321,9 @@ export type RelayOutbound =
   | RelayQueuedWindowMsg
   | RelayNxtSnapMsg
   | RelayJournalRowsMsg
-  | RelayJournalStateMsg;
+  | RelayJournalStateMsg
+  | RelayJournalEventsMsg
+  | RelayUnfProgressMsg;
 
 // ============================================================
 // 주문 DTO (webapp → server → relay)

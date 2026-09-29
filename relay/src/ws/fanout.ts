@@ -52,6 +52,9 @@
  *            순회는 하되 **사용자마다** `accountsOf(entry.dmaUserId)` 로 거른 부분집합을 `#deliver(userId)`
  *            로만 보낸다 — 걸러지지 않은 원본 배열을 보내는 경로는 없다. 같은 DMA 계정을 공유하는
  *            사용자는 모두 받고, 매핑 밖·자격증명 미등록 사용자는 0 프레임이다.
+ *   P25      전략 이벤트(`journal.events`)도 같은 결로 사용자별 부분집합만 보낸다(`deliverStrategyEvents`) —
+ *            주문 이벤트는 계좌 필터, 시세 이벤트(kind 1·2)는 그 게이트웨이 매핑을 가진 사용자 전원. 시세 판정은
+ *            **kind 로만** 한다(빈 계좌번호로 하지 않는다 · T-25-01).
  *
  * 하지 않는 것:
  *   - 전략 요청의 결과를 기다리지 않는다. 반영은 60/61/64/65 에코로 오고 Hub 가
@@ -68,7 +71,7 @@ import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 import type { RawData } from "ws";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { RELAY_WS_CLOSE } from "@gh-radar/shared";
+import { RELAY_WS_CLOSE, isMarketStrategyEvent } from "@gh-radar/shared";
 import type {
   JournalOrderRow,
   OrderMarket,
@@ -82,6 +85,7 @@ import type {
   RelayServerMsg,
   RelayStateMsg,
   RelaySubLevel,
+  StrategyEventRow,
 } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
@@ -1519,6 +1523,38 @@ export class WsFanout {
       const subset = rows.filter((row) => accounts.has(row.accountNo));
       if (subset.length === 0) continue;
       this.#deliver(userId, { t: "journal.rows", rows: subset });
+    }
+  }
+
+  /**
+   * 전략 기록기가 적용한 이벤트 행을 사용자별 부분집합으로 보낸다 (Phase 25 · T-19-02 · T-25-01).
+   *
+   * 사용자마다 `accountsOf(entry.dmaUserId)` 가 없거나 비면 건너뛴다(그 게이트웨이 매핑이 없는 사용자 ·
+   * 자격증명 미등록 연결은 대상이 아니다). 부분집합 = **시세 이벤트(kind 1·2)** 전부 + 그 사용자가 접근할 수
+   * 있는 계좌의 **주문 이벤트**. 시세 공개 판정은 `isMarketStrategyEvent(kind)` 로만 한다 — 빈 계좌번호로 판정하면
+   * 계좌번호가 빠진 형식 이상 주문 이벤트가 전 사용자에게 샌다(RESEARCH Security).
+   *
+   * 매핑 선택은 `deliverJournalRows` 와 같다 — `access` 를 주면 그것만(추가 게이트웨이), 생략하면 주입된 주
+   * 게이트웨이 매핑(+ 미주입 warn 1회). 조인은 REST 조회 RPC 와 **같은 신원 규칙**(`dma_user_id` 문자열)이라
+   * 복원 행과 푸시 행이 어긋나지 않는다.
+   */
+  deliverStrategyEvents(rows: readonly StrategyEventRow[], access?: JournalAccessView): void {
+    if (rows.length === 0) return;
+    const view = access ?? this.#journalAccess;
+    if (view === null) {
+      if (!this.#journalAccessWarned) {
+        this.#journalAccessWarned = true;
+        logger.warn({ rows: rows.length }, "[WS] 저널 매핑 미주입 — journal.events 를 보내지 않는다");
+      }
+      return;
+    }
+    for (const [userId, entry] of this.#users) {
+      const accounts = view.accountsOf(entry.dmaUserId);
+      if (accounts === undefined || accounts.size === 0) continue;
+      // 시세 공개는 kind 로만 — 계좌번호가 비었다는 사실로 공개하지 않는다(T-25-01).
+      const subset = rows.filter((row) => isMarketStrategyEvent(row.kind) || accounts.has(row.accountNo));
+      if (subset.length === 0) continue;
+      this.#deliver(userId, { t: "journal.events", rows: subset });
     }
   }
 

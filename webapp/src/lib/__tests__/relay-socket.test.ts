@@ -50,6 +50,7 @@ import type {
 } from '@gh-radar/shared';
 import {
   MAX_JOURNAL_ROWS,
+  MAX_STRATEGY_EVENTS,
   RELAY_MARKET_BATCH_MS,
   RELAY_MARKET_BUFFER_MAX,
   RELAY_MAX_RECONNECT_ATTEMPTS,
@@ -62,6 +63,7 @@ import {
   type RelayConnectionState,
 } from '../use-relay-socket';
 import { useRelayContext } from '../relay-provider';
+import { STRATEGY_DAY_BY_NAME, kstMs } from '@/test-fixtures/strategy-day';
 
 const ISIN_A = 'KR7005930003';
 /** 로그에 **새면 안 되는** 값. 계좌번호가 콘솔에 찍히는지 단언에 쓴다(T-16-18). */
@@ -2785,5 +2787,85 @@ describe('상따 비활성화 원인 귀속 (quick-260926-nr2)', () => {
       ws.push({ t: 'lc', item: lcItem({ sellEnabled: true }) });
     });
     expect(echoes(hook)).toBe(before);
+  });
+});
+
+describe('journal.events (Phase 25)', () => {
+  const buy = STRATEGY_DAY_BY_NAME.buy12451!;
+  const exposed = STRATEGY_DAY_BY_NAME.exposed!;
+
+  it('첫 프레임 → strategyEvents 1건 · strategyEventsBatch {seq:1, rows:[row]} · 초기값은 빈 목록 · seq 0', async () => {
+    const hook = render({ enabled: true });
+    expect(hook.result.current.strategyEvents).toEqual([]);
+    expect(hook.result.current.strategyEventsBatch).toEqual({ seq: 0, rows: [] });
+    const ws = await connected(hook);
+
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: [buy] });
+    });
+    expect(hook.result.current.strategyEvents).toEqual([buy]);
+    expect(hook.result.current.strategyEventsBatch).toEqual({ seq: 1, rows: [buy] });
+  });
+
+  it('같은 키(gateway|journalEpoch|seq) 재수신은 멱등 — state 참조 불변 · batch seq 그대로', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: [buy] });
+    });
+    const events = hook.result.current.strategyEvents;
+    const batch = hook.result.current.strategyEventsBatch;
+
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: [{ ...buy, message: '다른 값이어도 키가 같으면 버린다' }] });
+    });
+    expect(hook.result.current.strategyEvents).toBe(events);
+    expect(hook.result.current.strategyEventsBatch).toBe(batch);
+  });
+
+  it('정렬은 gwTimeMs 오름차순(새 로그는 아래) · 새 삽입분만 batch.rows 에 · seq 는 1씩', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: [buy] });
+    });
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: [buy, exposed] });
+    });
+    expect(hook.result.current.strategyEvents.map((r) => r.seq)).toEqual([exposed.seq, buy.seq]);
+    expect(hook.result.current.strategyEventsBatch).toEqual({ seq: 2, rows: [exposed] });
+  });
+
+  it(`키가 다른 ${MAX_STRATEGY_EVENTS + 1}번째 행이 오면 gwTimeMs 가장 오래된 행부터 버려 길이 ${MAX_STRATEGY_EVENTS}`, async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    const base = kstMs('2026-09-29', '08:00:00.000');
+    const many = Array.from({ length: MAX_STRATEGY_EVENTS }, (_, i) => ({ ...exposed, seq: i + 10, gwTimeMs: base + i }));
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: many });
+    });
+    expect(hook.result.current.strategyEvents).toHaveLength(MAX_STRATEGY_EVENTS);
+
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: [{ ...exposed, seq: 1_000_000, gwTimeMs: base + MAX_STRATEGY_EVENTS }] });
+    });
+    const rows = hook.result.current.strategyEvents;
+    expect(rows).toHaveLength(MAX_STRATEGY_EVENTS);
+    expect(rows[0]?.seq).toBe(11);
+    expect(rows[rows.length - 1]?.seq).toBe(1_000_000);
+  });
+
+  it('로그아웃(enabled false → reset) 뒤 strategyEvents · batch 가 비워진다', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: [buy] });
+    });
+    expect(hook.result.current.strategyEvents).toHaveLength(1);
+    await act(async () => {
+      hook.rerender({ enabled: false });
+    });
+    expect(hook.result.current.strategyEvents).toEqual([]);
+    expect(hook.result.current.strategyEventsBatch).toEqual({ seq: 0, rows: [] });
   });
 });

@@ -37,7 +37,7 @@
  *   2. `fanout.closeAll(1001)`  — 살아 있는 wss 에 정상 close 프레임(going away)
  *   3. `sessionManager.closeAll()` — 구독 해제 + DMA TCP 종료
  *   4. 전 게이트웨이 `observer.stop()` — 관찰자 연결 종료(새 배치를 받지 않는다 — Phase 19 D-13)
- *   5. 전 게이트웨이 `writer.drain(2초)` **병렬** → 전 `writer` · `access` · `status` `close()`
+ *   5. 전 게이트웨이 `writer` · `strategyWriter` `drain(2초)` **병렬** → 전 기록기 · `access` · `status` `close()`
  *      — 큐에 남은 레코드를 적용 RPC 로 보낸다. 2초 안에 못 끝내도 **유실은 없다** — 커서는 적용 RPC
  *      트랜잭션 안에서만 전진하므로 다음 부팅이 남은 구간을 재생한다(D-12).
  *   6. `hub.closeAll()` · `symbols` · 종목마스터 — 배치·재적재 타이머 정리(남기면 프로세스가 안 내려간다)
@@ -63,6 +63,7 @@ import { SubscriptionHub } from "./hub/subscription-hub.js";
 import { WsFanout } from "./ws/fanout.js";
 import { createOrderApi } from "./order/order-api.js";
 import { JournalWriter } from "./journal/writer.js";
+import { createStrategyWriter } from "./journal/strategy-stream.js";
 import { JournalAccess } from "./journal/access.js";
 import { JournalObserver } from "./journal/observer.js";
 import { JournalStatus } from "./journal/status.js";
@@ -95,6 +96,7 @@ const supabase = createRelaySupabase(config.supabaseUrl, config.supabaseServiceR
  * 로그인 응답의 broker 를 기다릴 수 없다(커서 테이블 PK · 적용 RPC `p_gateway` · 매핑 RPC 공통).
  *
  *   기록기(`JournalWriter`)  저널 레코드 → `dma_journal_apply` 의 유일한 경로. 적용 행은 `applied` 로 나온다.
+ *   전략 기록기(Phase 25)     같은 80 프레임의 전략 이벤트 → `dma_strategy_apply`. 별도 커서 · 별도 트랜잭션.
  *   매핑(`JournalAccess`)    관찰자 로그인 스냅샷 → 메모리 라우팅 + `dma_journal_sync_access`.
  *   관찰자(`JournalObserver`) 게이트웨이 관찰자 소켓 **1개**(사용자 세션과 독립 — `SessionManager` 밖).
  *   상태(`JournalStatus`)    관찰자 상태 + 기록기 관측값 → `journal.state` 프레임 · `/healthz` 한 원천.
@@ -107,6 +109,7 @@ const supabase = createRelaySupabase(config.supabaseUrl, config.supabaseServiceR
 type JournalPipeline = {
   upstream: JournalUpstream;
   writer: JournalWriter;
+  strategyWriter: ReturnType<typeof createStrategyWriter>;
   access: JournalAccess;
   observer: JournalObserver;
   status: JournalStatus;
@@ -114,6 +117,7 @@ type JournalPipeline = {
 
 function createJournalPipeline(upstream: JournalUpstream): JournalPipeline {
   const writer = new JournalWriter({ supabase, gateway: upstream.gateway });
+  const strategyWriter = createStrategyWriter({ supabase, gateway: upstream.gateway });
   const access = new JournalAccess({ supabase, gateway: upstream.gateway });
   const observer = new JournalObserver({
     secret: upstream.secret,
@@ -122,10 +126,11 @@ function createJournalPipeline(upstream: JournalUpstream): JournalPipeline {
     port: upstream.port,
     codec: createJournalCodec(),
     writer,
+    strategyWriter,
     access,
   });
   const status = new JournalStatus({ observer, writer });
-  return { upstream, writer, access, observer, status };
+  return { upstream, writer, strategyWriter, access, observer, status };
 }
 
 // 0번 = 주 게이트웨이(사용자 세션과 같은 게이트웨이). 나머지 = 추가 게이트웨이(관찰자 전용).
@@ -198,12 +203,15 @@ const fanout = new WsFanout({
 
 // 기록기가 적용한 행 → 계좌 권한 사용자별 부분집합 푸시(D-03). 상태 전이 프레임 → 인증된 전 연결(D-04 (a)).
 journalWriter.on("applied", (rows) => fanout.deliverJournalRows(rows));
+// 전략 기록기가 적용한 이벤트 → 주문 이벤트는 계좌 권한 사용자 · 시세 이벤트는 매핑 보유자 전원(Phase 25 · T-25-01).
+primaryJournal.strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows));
 journalStatus.on("frame", (frame) => fanout.deliverJournalState(frame));
 // 추가 게이트웨이 — 적용 행은 **그 게이트웨이의 매핑으로만** 거른다(주 게이트웨이 매핑을 보지 않는다).
 // 상태 frame 은 어디에도 결선하지 않는다 — 브라우저 `journal.state` 는 주 게이트웨이 한 원천이다
 // (추가 게이트웨이 끊김을 webapp 이 주 게이트웨이 「기록 지연」으로 오인하지 않게).
 for (const extra of extraJournals) {
   extra.writer.on("applied", (rows) => fanout.deliverJournalRows(rows, extra.access));
+  extra.strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows, extra.access));
 }
 
 wsServer.on("upgrade", (req, socket, head) => fanout.handleUpgrade(req, socket, head));
@@ -305,9 +313,19 @@ async function shutdown(signal: string): Promise<void> {
     for (const p of journalPipelines) p.observer.stop();
     // 5) 전 기록기 drain(각 상한 2초 · 병렬 — 5초 데드맨 안) → 정리. 못 끝내도 커서가 RPC 안에서만
     //    전진하므로 다음 부팅이 재생한다.
-    const drained = await Promise.all(journalPipelines.map((p) => p.writer.drain(JOURNAL_DRAIN_TIMEOUT_MS)));
+    // 파이프라인마다 두 기록기(주문 · 전략)를 함께 drain 한다 — 둘 다 끝나야 그 게이트웨이가 drain 된 것이다.
+    const drained = await Promise.all(
+      journalPipelines.map(async (p) => {
+        const [journal, strategy] = await Promise.all([
+          p.writer.drain(JOURNAL_DRAIN_TIMEOUT_MS),
+          p.strategyWriter.drain(JOURNAL_DRAIN_TIMEOUT_MS),
+        ]);
+        return journal && strategy;
+      }),
+    );
     for (const p of journalPipelines) {
       p.writer.close();
+      p.strategyWriter.close();
       p.access.close();
       p.status.close();
     }

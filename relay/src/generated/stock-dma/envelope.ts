@@ -24,6 +24,7 @@ import { ObserverLoginReq } from '../stock-dma/observer-login-req.js';
 import { ObserverLoginResp } from '../stock-dma/observer-login-resp.js';
 import { OrderConfirm } from '../stock-dma/order-confirm.js';
 import { OrderResp } from '../stock-dma/order-resp.js';
+import { QueueProgress } from '../stock-dma/queue-progress.js';
 import { QueuedWindowState } from '../stock-dma/queued-window-state.js';
 import { QuoteState } from '../stock-dma/quote-state.js';
 import { RateCrossAlert } from '../stock-dma/rate-cross-alert.js';
@@ -33,6 +34,7 @@ import { ReconcileAccountStateResp } from '../stock-dma/reconcile-account-state-
 import { ServerMessage } from '../stock-dma/server-message.js';
 import { SetLimitChaser } from '../stock-dma/set-limit-chaser.js';
 import { SetVITrigger } from '../stock-dma/set-vitrigger.js';
+import { StrategyEventBatch } from '../stock-dma/strategy-event-batch.js';
 import { SubscribeQuoteReq } from '../stock-dma/subscribe-quote-req.js';
 import { SymbolMaster } from '../stock-dma/symbol-master.js';
 import { TradeExecution } from '../stock-dma/trade-execution.js';
@@ -246,8 +248,18 @@ journalBatch(obj?:JournalBatch):JournalBatch|null {
   return offset ? (obj || new JournalBatch()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+strategyEventBatch(obj?:StrategyEventBatch):StrategyEventBatch|null {
+  const offset = this.bb!.__offset(this.bb_pos, 82);
+  return offset ? (obj || new StrategyEventBatch()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
+queueProgress(obj?:QueueProgress):QueueProgress|null {
+  const offset = this.bb!.__offset(this.bb_pos, 84);
+  return offset ? (obj || new QueueProgress()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
 static startEnvelope(builder:flatbuffers.Builder) {
-  builder.startObject(39);
+  builder.startObject(41);
 }
 
 static addMsgType(builder:flatbuffers.Builder, msgType:MsgType) {
@@ -396,6 +408,14 @@ static addObserverLoginResp(builder:flatbuffers.Builder, observerLoginRespOffset
 
 static addJournalBatch(builder:flatbuffers.Builder, journalBatchOffset:flatbuffers.Offset) {
   builder.addFieldOffset(38, journalBatchOffset, 0);
+}
+
+static addStrategyEventBatch(builder:flatbuffers.Builder, strategyEventBatchOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(39, strategyEventBatchOffset, 0);
+}
+
+static addQueueProgress(builder:flatbuffers.Builder, queueProgressOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(40, queueProgressOffset, 0);
 }
 
 static endEnvelope(builder:flatbuffers.Builder):flatbuffers.Offset {

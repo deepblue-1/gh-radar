@@ -98,6 +98,10 @@ describe("실 코덱 tracer — 프레임 바이트 → 화이트리스트 → d
           { dmaUserId: "dma-a", accountNo: SAMPLE_ACCOUNT_NO, name: "위탁종합", priority: 0 },
           { dmaUserId: "dma-b", accountNo: "1234567802", name: "위탁2", priority: 1 },
         ],
+        // 전략 저널 없음(0/0/false — G1 ⓑ). 이 프레임은 전략 세 필드를 쓰지 않았다.
+        strategyHeadSeq: 0,
+        strategyOldestSeq: 0,
+        strategyResync: false,
       },
     });
     if (f.k !== "login") throw new Error("unreachable");
@@ -126,7 +130,15 @@ describe("실 코덱 tracer — 프레임 바이트 → 화이트리스트 → d
     const f = decode(buildJournalBatchFrame({ records: [a, localReject], headSeq: 12, caughtUp: true }));
     expect(f).toEqual({
       k: "batch",
-      batch: { records: [fakeJournalRecord(a), fakeJournalRecord(localReject)], headSeq: 12, caughtUp: true },
+      batch: {
+        records: [fakeJournalRecord(a), fakeJournalRecord(localReject)],
+        headSeq: 12,
+        caughtUp: true,
+        // 한쪽 0건 = 빈 벡터(G1 ⓐ) — 전략 caught_up 은 그 스트림 커서 상태다.
+        strategyEvents: [],
+        strategyHeadSeq: 0,
+        strategyCaughtUp: true,
+      },
     });
     if (f.k !== "batch") throw new Error("unreachable");
     expect(f.batch.records[1]).toMatchObject({ orderNo: "", localReject: true });
@@ -177,6 +189,7 @@ describe("실 코덱 tracer — 프레임 바이트 → 화이트리스트 → d
       sinceSeq: 7,
       epoch: "ep-1",
       client: "gh-radar-relay",
+      strategySinceSeq: 0,
     });
     const env = Envelope.getRootAsEnvelope(new flatbuffers.ByteBuffer(bytes));
     expect(env.msgType()).toBe(MSG.ObserverLoginReq);
@@ -193,7 +206,7 @@ describe("실 코덱 tracer — 프레임 바이트 → 화이트리스트 → d
     for (const sinceSeq of [-1, 1.5, 2 ** 53, Number.NaN]) {
       let caught: unknown = null;
       try {
-        codec.buildLoginReq({ secret: SECRET, sinceSeq, epoch: "ep-1", client: "gh-radar-relay" });
+        codec.buildLoginReq({ secret: SECRET, sinceSeq, epoch: "ep-1", client: "gh-radar-relay", strategySinceSeq: 0 });
       } catch (err) {
         caught = err;
       }
@@ -202,7 +215,7 @@ describe("실 코덱 tracer — 프레임 바이트 → 화이트리스트 → d
     }
     // 경계: 안전 정수 최대값은 허용된다.
     expect(() =>
-      codec.buildLoginReq({ secret: "s", sinceSeq: Number.MAX_SAFE_INTEGER, epoch: "", client: "c" }),
+      codec.buildLoginReq({ secret: "s", sinceSeq: Number.MAX_SAFE_INTEGER, epoch: "", client: "c", strategySinceSeq: 0 }),
     ).not.toThrow();
   });
 });

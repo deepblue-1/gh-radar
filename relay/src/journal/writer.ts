@@ -29,6 +29,13 @@
  *     호출자는 연결을 끊고 `since_seq = lastReceivedSeq` 로 다시 받는다.
  *   - `lastReceivedSeq === null`(새 epoch · 커서 없음)이면 첫 레코드는 판정 없이 받는다.
  *
+ * 스트림 서술자(Phase 25 — `JournalStreamSpec`):
+ *   관찰자 80 한 프레임에 두 스트림(주문 저널 · 전략 이벤트)이 온다. 두 스트림은 같은 epoch · **별도 seq 공간**
+ *   이라 커서 · 적용 RPC · 반환 행 모양만 다르고 push · beginEpoch · 재시도 · drain 규율은 같다. 그래서 클래스를
+ *   복제하지 않고 스트림 고유 4지점(커서 select 칸 · 커서 행 읽기 · 적용 RPC 이름 · 반환 행 매퍼)만 서술자로
+ *   주입한다. 생략하면 `JOURNAL_STREAM`(현 주문 저널 — 기존 호출 · 테스트 무변경). 로그에는 `stream` 문맥을
+ *   싣는다 — 두 기록기 로그가 섞이면 운영 판독이 안 된다(T-25-06).
+ *
  * 하지 않는 것:
  *   - 체결 수량·상태를 계산하지 않는다 — 투영은 DB RPC(`dma_journal_project`) 정본이다.
  *   - 계좌 권한을 판정하지 않는다 — `applied` 로 넘긴 행을 누구에게 보낼지는 fanout 이 정한다.
@@ -84,16 +91,38 @@ export type JournalApplyEvent = {
   local_reject: boolean;
 };
 
-/** `dma_journal_apply` 반환 jsonb. */
+/** 적용 RPC 반환 jsonb (`dma_journal_apply` · `dma_strategy_apply` 공통 모양). 행 모양은 스트림이 정한다. */
 type ApplyResult = {
   applied: number;
   skipped: number;
   errors: Array<{ seq: number; error: string }>;
   last_seq: number | string;
-  rows: JournalOrderDbRow[];
+  rows: unknown[];
 };
 
-export type JournalWriterDeps = {
+/**
+ * 기록기 스트림 서술자 — 스트림마다 다른 4지점만 담는다(위 머리 주석).
+ *
+ * `toApply` 결과의 키가 곧 적용 RPC 가 `ev->>'…'` 로 읽는 키다 — 스트림 파일이 키 목록을 테스트로 잠근다.
+ */
+export type JournalStreamSpec<R extends { seq: number }, Out> = {
+  /** 로그 문맥 이름. */
+  name: "journal" | "strategy";
+  /** 적용 RPC 이름. */
+  rpc: string;
+  /** `dma_journal_cursor` 의 이 스트림 epoch 칸. */
+  cursorEpochColumn: string;
+  /** `dma_journal_cursor` 의 이 스트림 seq 칸. */
+  cursorSeqColumn: string;
+  /** 도메인 레코드 → 적용 RPC 입력 이벤트 1건. 순수 매핑. */
+  toApply(r: R): Record<string, unknown>;
+  /** 적용 RPC 반환 행 1건 → 공개 행. */
+  toOut(row: unknown): Out;
+};
+
+export type JournalWriterDeps<R extends { seq: number } = JournalRecord, Out = JournalOrderRow> = {
+  /** 스트림 서술자. 생략하면 `JOURNAL_STREAM`(주문 저널). */
+  stream?: JournalStreamSpec<R, Out>;
   /** 서비스롤 클라이언트 — 적용 RPC 의 EXECUTE 는 service_role 전용이다. */
   supabase: SupabaseClient;
   /** 게이트웨이 식별자(커서 테이블 PK · 적용 RPC `p_gateway`). 예: `"KB"`. */
@@ -113,14 +142,15 @@ export type JournalWriterDeps = {
 /** `dbErrorAfter` 기본값. */
 const DEFAULT_DB_ERROR_AFTER = 3;
 
-type QueueItem = { epoch: string; record: JournalRecord };
+type QueueItem<R> = { epoch: string; record: R };
 
-type CursorRow = { journal_epoch: string; last_seq: number | string };
+/** 커서 행 — 칸 이름은 스트림 서술자가 정한다. epoch 칸은 전략 칸처럼 NULL 일 수 있다. */
+type CursorRow = Record<string, string | number | null | undefined>;
 
-export interface JournalWriter {
-  on(event: "applied", listener: (rows: JournalOrderRow[]) => void): this;
+export interface JournalWriter<R extends { seq: number } = JournalRecord, Out = JournalOrderRow> {
+  on(event: "applied", listener: (rows: Out[]) => void): this;
   on(event: "health", listener: (health: JournalWriterHealth) => void): this;
-  emit(event: "applied", rows: JournalOrderRow[]): boolean;
+  emit(event: "applied", rows: Out[]): boolean;
   emit(event: "health", health: JournalWriterHealth): boolean;
 }
 
@@ -168,8 +198,19 @@ export function toApplyEvent(r: JournalRecord): JournalApplyEvent {
   };
 }
 
-/** 관찰자 기록기. 인스턴스는 게이트웨이당 1개다. */
-export class JournalWriter extends EventEmitter {
+/** 주문 저널 스트림 — 기록기 서술자 기본값(Phase 19 동작 그대로). */
+export const JOURNAL_STREAM: JournalStreamSpec<JournalRecord, JournalOrderRow> = {
+  name: "journal",
+  rpc: "dma_journal_apply",
+  cursorEpochColumn: "journal_epoch",
+  cursorSeqColumn: "last_seq",
+  toApply: toApplyEvent,
+  toOut: (row) => toJournalOrderRow(row as JournalOrderDbRow),
+};
+
+/** 관찰자 기록기. 인스턴스는 게이트웨이 · 스트림당 1개다. */
+export class JournalWriter<R extends { seq: number } = JournalRecord, Out = JournalOrderRow> extends EventEmitter {
+  readonly #stream: JournalStreamSpec<R, Out>;
   readonly #supabase: SupabaseClient;
   readonly #gateway: string;
   readonly #batchSize: number;
@@ -179,7 +220,7 @@ export class JournalWriter extends EventEmitter {
   readonly #dbErrorAfter: number;
 
   /** FIFO. 진행 중 배치도 성공할 때까지 머리에 남는다(실패하면 같은 배치를 다시 보낸다). */
-  #queue: QueueItem[] = [];
+  #queue: QueueItem<R>[] = [];
   #inFlight = false;
   #retryTimer: NodeJS.Timeout | null = null;
   #closed = false;
@@ -199,8 +240,11 @@ export class JournalWriter extends EventEmitter {
   /** `drain` 대기자. 큐가 비고 진행 중 호출이 끝나면 전부 깨운다. */
   #idleWaiters: Array<() => void> = [];
 
-  constructor(deps: JournalWriterDeps) {
+  constructor(deps: JournalWriterDeps<R, Out>) {
     super();
+    // 생략 = 주문 저널. 기본 제네릭(JournalRecord · JournalOrderRow)일 때만 타입이 맞는다 — 전략 스트림은
+    // `createStrategyWriter` 가 서술자를 반드시 넘긴다.
+    this.#stream = deps.stream ?? (JOURNAL_STREAM as unknown as JournalStreamSpec<R, Out>);
     this.#supabase = deps.supabase;
     this.#gateway = deps.gateway;
     this.#batchSize = deps.batchSize ?? JOURNAL_BATCH_SIZE;
@@ -252,28 +296,32 @@ export class JournalWriter extends EventEmitter {
    * 판정 없이 받는다. 조회 오류는 로그 후 throw — 호출자가 재시도한다(커서를 모른 채 받으면 갭 판정이 무너진다).
    */
   async readCursor(): Promise<JournalCursor> {
+    const { cursorEpochColumn: epochCol, cursorSeqColumn: seqCol } = this.#stream;
     const { data, error } = await this.#supabase
       .from("dma_journal_cursor")
-      .select("journal_epoch, last_seq")
+      .select(`${epochCol}, ${seqCol}`)
       .eq("gateway", this.#gateway)
       .maybeSingle<CursorRow>();
+    const stream = this.#stream.name;
     if (error) {
       const pgError = safePgError(error);
-      logger.error({ gateway: this.#gateway, pgError }, "[journal] 커서 조회 실패 — 호출자가 재시도한다");
+      logger.error({ gateway: this.#gateway, stream, pgError }, "[journal] 커서 조회 실패 — 호출자가 재시도한다");
       throw new Error(`[journal] dma_journal_cursor 조회 실패${pgError.code ? ` (${pgError.code})` : ""}`);
     }
-    if (data === null || data === undefined) {
+    // 행이 없거나, 행은 있어도 이 스트림 epoch 칸이 비었으면(주문 스트림만 적용된 게이트웨이의 전략 칸) 「커서 없음」.
+    const rowEpoch = data?.[epochCol];
+    if (data === null || data === undefined || typeof rowEpoch !== "string" || rowEpoch === "") {
       this.#epoch = "";
       this.#lastReceivedSeq = null;
-      logger.info({ gateway: this.#gateway }, "[journal] 커서 없음 — 처음부터 받는다");
+      logger.info({ gateway: this.#gateway, stream }, "[journal] 커서 없음 — 처음부터 받는다");
       return { epoch: "", lastSeq: 0 };
     }
-    const lastSeq = Number(data.last_seq);
-    this.#epoch = data.journal_epoch;
+    const lastSeq = Number(data[seqCol] ?? 0);
+    this.#epoch = rowEpoch;
     this.#lastReceivedSeq = lastSeq;
     this.#lastAppliedSeq = lastSeq;
-    logger.info({ gateway: this.#gateway, epoch: data.journal_epoch, lastSeq }, "[journal] 커서 적재");
-    return { epoch: data.journal_epoch, lastSeq };
+    logger.info({ gateway: this.#gateway, stream, epoch: rowEpoch, lastSeq }, "[journal] 커서 적재");
+    return { epoch: rowEpoch, lastSeq };
   }
 
   /**
@@ -295,7 +343,7 @@ export class JournalWriter extends EventEmitter {
       this.#seqRegressions += 1;
       this.#lastSeqRegressionAtMs = Date.now();
       logger.error(
-        { gateway: this.#gateway, epoch, headSeq: opts.headSeq, lastReceivedSeq: received, resync: opts.resync },
+        { gateway: this.#gateway, stream: this.#stream.name, epoch, headSeq: opts.headSeq, lastReceivedSeq: received, resync: opts.resync },
         "[JOURNAL] 저널 seq 역행 — 같은 epoch 인데 게이트웨이 head 가 받은 seq 보다 작다",
       );
       return;
@@ -305,9 +353,12 @@ export class JournalWriter extends EventEmitter {
     this.#lastReceivedSeq = null;
     if (opts.resync || from !== "") {
       // 조용한 전면 누락을 드러낸다(Pitfall 3) — 커서가 가리키던 저장소가 사라졌다는 뜻이다.
-      logger.error({ gateway: this.#gateway, from, to: epoch, resync: opts.resync }, "[journal] 저널 재동기화 — epoch 변경 또는 보관 범위 밖");
+      logger.error(
+        { gateway: this.#gateway, stream: this.#stream.name, from, to: epoch, resync: opts.resync },
+        "[journal] 저널 재동기화 — epoch 변경 또는 보관 범위 밖",
+      );
     } else {
-      logger.info({ gateway: this.#gateway, to: epoch }, "[journal] epoch 시작");
+      logger.info({ gateway: this.#gateway, stream: this.#stream.name, to: epoch }, "[journal] epoch 시작");
     }
   }
 
@@ -319,19 +370,20 @@ export class JournalWriter extends EventEmitter {
    * 레코드를 큐에 넣는다. **동기다** — 수신 콜백 경로에서 부르며 여기서 아무것도 기다리지 않는다(D-32).
    * 결과 의미는 `JournalPushResult` 참조.
    */
-  push(records: readonly JournalRecord[]): JournalPushResult {
+  push(records: readonly R[]): JournalPushResult {
+    const stream = this.#stream.name;
     if (this.#closed) {
-      logger.warn({ gateway: this.#gateway, incoming: records.length }, "[journal] 종료된 기록기에 push — 적재하지 않는다");
+      logger.warn({ gateway: this.#gateway, stream, incoming: records.length }, "[journal] 종료된 기록기에 push — 적재하지 않는다");
       return "overflow";
     }
     if (this.#epoch === "") {
       // 적용 RPC 는 빈 epoch 를 거부한다 — 받아 두면 영원히 재시도에 갇힌다. 결선 순서 오류다.
-      logger.error({ gateway: this.#gateway, incoming: records.length }, "[journal] epoch 미설정 상태의 push — 적재하지 않는다");
+      logger.error({ gateway: this.#gateway, stream, incoming: records.length }, "[journal] epoch 미설정 상태의 push — 적재하지 않는다");
       return "overflow";
     }
 
     let last = this.#lastReceivedSeq;
-    const accepted: JournalRecord[] = [];
+    const accepted: R[] = [];
     let duplicates = 0;
     let gap: { expected: number; got: number } | null = null;
     for (const record of records) {
@@ -347,12 +399,12 @@ export class JournalWriter extends EventEmitter {
       last = record.seq;
     }
     if (duplicates > 0) {
-      logger.debug({ gateway: this.#gateway, duplicates, lastReceivedSeq: this.#lastReceivedSeq }, "[journal] 중복 seq 건너뜀");
+      logger.debug({ gateway: this.#gateway, stream, duplicates, lastReceivedSeq: this.#lastReceivedSeq }, "[journal] 중복 seq 건너뜀");
     }
 
     if (this.#queue.length + accepted.length > this.#maxQueue) {
       logger.warn(
-        { gateway: this.#gateway, queueDepth: this.#queue.length, incoming: accepted.length, maxQueue: this.#maxQueue },
+        { gateway: this.#gateway, stream, queueDepth: this.#queue.length, incoming: accepted.length, maxQueue: this.#maxQueue },
         "[journal] 큐 상한 초과 — 적재하지 않는다(연결을 끊어 펌프 속도를 맞춘다)",
       );
       return "overflow";
@@ -363,7 +415,7 @@ export class JournalWriter extends EventEmitter {
     if (accepted.length > 0) this.#kick();
 
     if (gap !== null) {
-      logger.error({ gateway: this.#gateway, ...gap }, "[journal] seq 갭 — 연결을 끊고 since_seq 로 다시 받는다");
+      logger.error({ gateway: this.#gateway, stream, ...gap }, "[journal] seq 갭 — 연결을 끊고 since_seq 로 다시 받는다");
       return "gap";
     }
     return "ok";
@@ -387,7 +439,7 @@ export class JournalWriter extends EventEmitter {
       const timer = setTimeout(() => {
         this.#idleWaiters = this.#idleWaiters.filter((w) => w !== onIdle);
         logger.warn(
-          { gateway: this.#gateway, remaining: this.#queue.length, timeoutMs },
+          { gateway: this.#gateway, stream: this.#stream.name, remaining: this.#queue.length, timeoutMs },
           "[journal] drain 시간 초과 — 커서가 전진하지 않았으므로 다음 부팅이 재생한다",
         );
         resolve(false);
@@ -445,13 +497,13 @@ export class JournalWriter extends EventEmitter {
     let result: ApplyResult | null = null;
     let failure: unknown = null;
     try {
-      const { data, error } = await this.#supabase.rpc("dma_journal_apply", {
+      const { data, error } = await this.#supabase.rpc(this.#stream.rpc, {
         p_gateway: this.#gateway,
         p_epoch: epoch,
-        p_events: batch.map(toApplyEvent),
+        p_events: batch.map((r) => this.#stream.toApply(r)),
       });
       if (error) failure = error;
-      else if (!isApplyResult(data)) failure = new Error("dma_journal_apply 반환 형식 위반");
+      else if (!isApplyResult(data)) failure = new Error(`${this.#stream.rpc} 반환 형식 위반`);
       else result = data;
     } catch (err) {
       failure = err;
@@ -469,18 +521,21 @@ export class JournalWriter extends EventEmitter {
     this.#kick();
   }
 
-  #onFailure(err: unknown, batch: readonly JournalRecord[]): void {
+  #onFailure(err: unknown, batch: readonly R[]): void {
     this.#consecutiveFailures += 1;
     logger.error(
       {
         gateway: this.#gateway,
+        stream: this.#stream.name,
+        rpc: this.#stream.rpc,
         pgError: safePgError(err),
         batch: batch.length,
         firstSeq: batch[0]?.seq,
         lastSeq: batch[batch.length - 1]?.seq,
         attempt: this.#consecutiveFailures,
       },
-      "[journal] dma_journal_apply 실패 — 같은 배치 재시도",
+      // 메시지에 RPC 이름을 그대로 싣는다 — 기존 운영 로그 검색어(`dma_journal_apply 실패`)가 이어진다.
+      `[journal] ${this.#stream.rpc} 실패 — 같은 배치 재시도`,
     );
     if (!this.#dbError && this.#consecutiveFailures >= this.#dbErrorAfter) {
       this.#dbError = true;
@@ -502,20 +557,23 @@ export class JournalWriter extends EventEmitter {
     this.#consecutiveFailures = 0;
     this.#dbError = false;
     if (recovered) {
-      logger.info({ gateway: this.#gateway, lastAppliedSeq: this.#lastAppliedSeq }, "[journal] 적용 복구");
+      logger.info({ gateway: this.#gateway, stream: this.#stream.name, lastAppliedSeq: this.#lastAppliedSeq }, "[journal] 적용 복구");
       this.emit("health", this.health());
     }
 
     for (const e of result.errors) {
-      logger.warn({ gateway: this.#gateway, seq: e.seq, error: e.error }, "[journal] 투영 실패 이벤트 — apply_error 기록됨");
+      logger.warn({ gateway: this.#gateway, stream: this.#stream.name, seq: e.seq, error: e.error }, "[journal] 투영 실패 이벤트 — apply_error 기록됨");
     }
-    const rows = result.rows.map(toJournalOrderRow);
+    const rows = result.rows.map((row) => this.#stream.toOut(row));
     if (rows.length === 0) return;
     // 리스너(푸시) 예외가 워커를 멈추거나 성공한 배치를 재전송하게 두지 않는다.
     try {
       this.emit("applied", rows);
     } catch (err) {
-      logger.error({ gateway: this.#gateway, err: String(err), rows: rows.length }, "[journal] applied 리스너 예외 — 적용은 이미 확정됐다");
+      logger.error(
+        { gateway: this.#gateway, stream: this.#stream.name, err: String(err), rows: rows.length },
+        "[journal] applied 리스너 예외 — 적용은 이미 확정됐다",
+      );
     }
   }
 }

@@ -29,6 +29,7 @@ export enum MsgType {
   ArmSellLatchReq = 36,
   ArmCancelLatchReq = 37,
   ArmBuyLatchReq = 38,
+  GetStrategyEventsReq = 39,
   LoginResp = 50,
   OrderResp = 51,
   OrderConfirm = 52,
@@ -57,5 +58,8 @@ export enum MsgType {
   QueuedWindowState = 77,
   RateCrossSnapshot = 78,
   ObserverLoginResp = 79,
-  JournalBatch = 80
+  JournalBatch = 80,
+  StrategyEventsResp = 81,
+  StrategyEventPush = 82,
+  QueueProgress = 83
 }

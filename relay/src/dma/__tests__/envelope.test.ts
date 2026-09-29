@@ -93,6 +93,10 @@ import {
   strategyKey,
   skippedStrategyItemCount,
   MAX_LIMIT_CHASER_COUNT,
+  MAX_STRATEGY_BATCH_EVENTS,
+  buildObserverLoginReq,
+  parseObserverLoginResp,
+  parseJournalBatch,
   type ViTriggerInput,
 } from "../envelope.js";
 import { encode } from "../../ws/protocol.js";
@@ -112,8 +116,12 @@ import {
   buildViOrderListFrame,
   buildViOrderNoticeFrame,
   buildDisableStrategiesRespFrame,
+  buildJournalBatchFrame,
+  buildObserverLoginRespFrame,
+  fakeStrategyEventRecord,
   SAMPLE_ACCOUNT_NO,
 } from "../../../tests/helpers/frames.js";
+import { readObserverLoginRequest } from "../../../tests/helpers/fake-gateway.js";
 
 let warn: ReturnType<typeof vi.spyOn>;
 /** 범위 밖 유입(74/75 등)은 **debug** 로만 남는다 — warn 스파이와 같은 방식으로 잡는다. */
@@ -250,9 +258,10 @@ describe("tryParseEnvelope — total 파서", () => {
     expect(fields.reason).toBe("unknown-msg-type");
   });
 
-  it("⑤-a4 강등 집합은 **응답 대역 4종뿐**이고 요청 번호는 하나도 없다", () => {
+  it("⑤-a4 강등 집합은 **응답 대역 6종뿐**이고 요청 번호는 하나도 없다", () => {
     // 57 은 quick-260923-cqj 에서 INBOUND 로 옮겨 갔다(보조 이름 원천).
-    expect([...OUT_OF_SCOPE_INBOUND_MSG_TYPES].sort((a, b) => a - b)).toEqual([68, 70, 74, 75]);
+    // 81 · 82 는 Phase 25 — 전략 이벤트 정본은 관찰자 80 경로다(83 은 25-06 이 INBOUND 로 넣는다).
+    expect([...OUT_OF_SCOPE_INBOUND_MSG_TYPES].sort((a, b) => a - b)).toEqual([68, 70, 74, 75, 81, 82]);
     for (const n of OUT_OF_SCOPE_INBOUND_MSG_TYPES) expect(n).toBeGreaterThanOrEqual(50);
   });
 
@@ -1939,5 +1948,108 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
 
     expect(fromWireWatchSide("1")).toBe("1");
     expect(fromWireWatchSide("")).toBe("0");
+  });
+});
+
+describe("관찰자 두 스트림 — 80 전략 이벤트 · 79/5 전략 커서 (Phase 25-01)", () => {
+  /** 프레임 바이트 → Envelope (화이트리스트 통과 확인 포함). */
+  function envOf(bytes: Uint8Array): Envelope {
+    const parsed = tryParseEnvelope(Buffer.from(bytes));
+    if (parsed === null) throw new Error("화이트리스트 드롭");
+    return parsed.env;
+  }
+
+  it("80 주문 0건 · 전략 BuyOrder 1건 → records [] · strategyEvents[0] 가 입력 43필드와 같다 · 64비트는 number", () => {
+    const batch = parseJournalBatch(
+      envOf(buildJournalBatchFrame({ records: [], strategyEvents: [{ seq: 1 }], strategyHeadSeq: 1, strategyCaughtUp: true })),
+    );
+    expect(batch).not.toBeNull();
+    expect(batch?.records).toEqual([]);
+    expect(batch?.strategyEvents).toEqual([fakeStrategyEventRecord({ seq: 1 })]);
+    expect(Object.keys(batch?.strategyEvents[0] ?? {})).toHaveLength(43);
+    expect(typeof batch?.strategyEvents[0]?.gwTimeMs).toBe("number");
+    expect(typeof batch?.strategyEvents[0]?.cumVolume).toBe("number");
+    expect(batch?.strategyEvents[0]?.snapQty).toEqual([]);
+    expect(batch?.strategyHeadSeq).toBe(1);
+    expect(batch?.strategyCaughtUp).toBe(true);
+  });
+
+  it("상한가진입 스냅 벡터(즉시 · 1초 · 3초)와 v0.1 밖 enum 값(cancel 9 · metric 7 · kind 99)을 원문 그대로 옮긴다", () => {
+    const input = {
+      seq: 5,
+      kind: 99,
+      group: 0,
+      condMetric: 7,
+      cancelReason: 9,
+      accountNo: "",
+      orderNo: "",
+      dmaUserId: "",
+      snapQty: [30_000, 55_000, 72_000],
+      snapCum: [900_000, 903_000, 908_000],
+      errorVolume: -12_000,
+    };
+    const batch = parseJournalBatch(envOf(buildJournalBatchFrame({ strategyEvents: [input] })));
+    expect(batch?.strategyEvents).toEqual([fakeStrategyEventRecord(input)]);
+  });
+
+  it("구 게이트웨이(전략 필드 부재) → strategyEvents [] · head 0 · caughtUp false", () => {
+    const batch = parseJournalBatch(envOf(buildJournalBatchFrame({ records: [{ seq: 3 }], omitStrategy: true })));
+    expect(batch?.records).toHaveLength(1);
+    expect(batch?.strategyEvents).toEqual([]);
+    expect(batch?.strategyHeadSeq).toBe(0);
+    expect(batch?.strategyCaughtUp).toBe(false);
+  });
+
+  it(`전략 이벤트 상한(${MAX_STRATEGY_BATCH_EVENTS}) 초과 → 앞 N건만 · strategyCaughtUp 거짓 (T-25-04)`, () => {
+    const events = Array.from({ length: MAX_STRATEGY_BATCH_EVENTS + 1 }, (_, i) => ({ seq: i + 1 }));
+    const batch = parseJournalBatch(envOf(buildJournalBatchFrame({ strategyEvents: events, strategyCaughtUp: true })));
+    expect(batch?.strategyEvents).toHaveLength(MAX_STRATEGY_BATCH_EVENTS);
+    expect(batch?.strategyCaughtUp).toBe(false);
+  });
+
+  it("형식 이상 계좌 · ISIN 은 경고 1줄만 · 레코드를 버리지 않는다 (T-19-34 동형) · 시세 이벤트의 빈 계좌는 이상이 아니다", () => {
+    const longAccount = "9".repeat(MAX_ACCOUNT_NO_LEN + 1);
+    const batch = parseJournalBatch(
+      envOf(
+        buildJournalBatchFrame({
+          strategyEvents: [
+            { seq: 1, kind: 1, group: 0, accountNo: "", orderNo: "", dmaUserId: "" },
+            { seq: 2, accountNo: longAccount, isin: "BAD" },
+          ],
+        }),
+      ),
+    );
+    expect(batch?.strategyEvents.map((e) => e.seq)).toEqual([1, 2]);
+    const calls = warn.mock.calls.filter((c: unknown[]) => String(c[1]).includes("전략 이벤트 형식 이상"));
+    expect(calls).toHaveLength(1);
+    const [fields] = calls[0] as [Record<string, unknown>];
+    expect(fields).toMatchObject({ badAccount: 1, badIsin: 1, sampleSeq: 2 });
+    expect(JSON.stringify(fields)).not.toContain(longAccount);
+  });
+
+  it("79 로그인 응답의 전략 head · oldest · resync 를 읽는다 · 없으면 0 / 0 / false", () => {
+    const withStrategy = parseObserverLoginResp(
+      envOf(buildObserverLoginRespFrame({ epoch: "ep-25", strategyHeadSeq: 9, strategyOldestSeq: 2, strategyResync: true })),
+    );
+    expect(withStrategy).toMatchObject({ epoch: "ep-25", strategyHeadSeq: 9, strategyOldestSeq: 2, strategyResync: true });
+    const legacy = parseObserverLoginResp(envOf(buildObserverLoginRespFrame({ epoch: "ep-25" })));
+    expect(legacy).toMatchObject({ strategyHeadSeq: 0, strategyOldestSeq: 0, strategyResync: false });
+  });
+
+  it("5 로그인 요청은 strategySinceSeq 를 싣는다 · 음수 · 비정수 · 2^53 이상은 RangeError(비밀 미포함)", () => {
+    const bytes = buildObserverLoginReq({ secret: "s", sinceSeq: 3, epoch: "ep-25", client: "c", strategySinceSeq: 7 });
+    const req = readObserverLoginRequest(MSG.ObserverLoginReq, Buffer.from(bytes));
+    expect(req).toEqual({ secret: "s", sinceSeq: 3, epoch: "ep-25", client: "c", strategySinceSeq: 7 });
+    const SECRET = "observer-secret-DO-NOT-LOG-25-01";
+    for (const strategySinceSeq of [-1, 1.5, 2 ** 53, Number.NaN]) {
+      let caught: unknown = null;
+      try {
+        buildObserverLoginReq({ secret: SECRET, sinceSeq: 0, epoch: "", client: "c", strategySinceSeq });
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught, `strategySinceSeq ${strategySinceSeq}`).toBeInstanceOf(RangeError);
+      expect(String((caught as Error).message)).not.toContain(SECRET);
+    }
   });
 });
