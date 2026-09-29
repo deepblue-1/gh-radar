@@ -8,6 +8,8 @@ import {
   orderActionSide,
   orderActionWord,
   orderNoticeLabel,
+  RECEIPT_UNKNOWN_RESULT_CODE,
+  SIDE_REF_TITLE,
 } from "../order-notices";
 
 /**
@@ -50,8 +52,10 @@ describe("orderActionWord — 행위 단어는 서버 필드로만 (D-15)", () =
     expect(orderActionWord({ noticeType: "E", requestKind: "", side: "S" })).toBe("매도");
   });
 
-  it("①-7 side 를 모르고 위 분기에도 안 걸리면 빈 문자열이다 — 지어내지 않는다", () => {
-    expect(orderActionWord({ noticeType: "", requestKind: "", side: null })).toBe("");
+  it("①-7 방향 미상은 「주문」 이다 — 행위를 지어내지 않되 빈칸으로 두지 않는다 (gh-trade 대조 합의 · Phase 25 별건 3)", () => {
+    expect(orderActionWord({ noticeType: "", requestKind: "", side: null })).toBe("주문");
+    // 방향색은 여전히 없다 — 「주문」 은 방향을 말하지 않는다.
+    expect(orderActionSide({ noticeType: "", requestKind: "", side: null })).toBeNull();
   });
 });
 
@@ -98,6 +102,42 @@ describe("orderNoticeLabel — 「수동」 메타와 「시간외종가」 접�
   it("③-6 방향색 원천은 라벨에도 그대로 실린다", () => {
     expect(orderNoticeLabel({ ...base, board: "G2" }).side).toBe("B");
     expect(orderNoticeLabel({ ...base, noticeType: "C" }).side).toBeNull();
+  });
+});
+
+describe("orderNoticeLabel.sideRef — KB 거부 R(New) 의 방향은 참고값 (Phase 25 별건 3 · side_trusted 합의)", () => {
+  const reject = { noticeType: "R", requestKind: "New", side: "B" as const, requester: "", board: "" };
+
+  it("⑤-1 R(New) · 방향 있음 · resultCode ≠ -2 → 단어 · 방향은 그대로, sideRef true", () => {
+    expect(orderNoticeLabel({ ...reject, resultCode: 1 })).toEqual({
+      text: "매수",
+      side: "B",
+      meta: "",
+      sideRef: true,
+    });
+  });
+
+  it("⑤-2 resultCode -2(접수 불명)는 참고 표기를 하지 않는다 — 상태 칸이 말한다", () => {
+    expect(RECEIPT_UNKNOWN_RESULT_CODE).toBe(-2);
+    expect(orderNoticeLabel({ ...reject, resultCode: -2 }).sideRef).toBe(false);
+  });
+
+  it("⑤-3 거부가 아닌 통보(A)는 sideRef false", () => {
+    expect(orderNoticeLabel({ ...reject, noticeType: "A", resultCode: 1 }).sideRef).toBe(false);
+  });
+
+  it("⑤-4 취소 R(requestKind Cancel)은 방향이 없어 sideRef false", () => {
+    const label = orderNoticeLabel({ ...reject, requestKind: "Cancel", resultCode: 1 });
+    expect(label.side).toBeNull();
+    expect(label.sideRef).toBe(false);
+  });
+
+  it("⑤-5 resultCode 를 모르면(생략) R(New) 는 참고 표기 — -2 로 확인된 것만 뺀다", () => {
+    expect(orderNoticeLabel(reject).sideRef).toBe(true);
+  });
+
+  it("⑤-6 참고 문구 정본은 이 파일 한 곳이다", () => {
+    expect(SIDE_REF_TITLE).toBe("거부 통보의 방향은 참고값이에요");
   });
 });
 

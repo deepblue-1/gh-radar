@@ -205,6 +205,13 @@ describe("alertFromOrder — 색인 조인", () => {
     expect(alertFromOrder(order({ nt: "C", bd: "G3" }), entry(), 0, "x").label).toBe("시간외종가");
   });
 
+  it("방향 미상(색인 미스 · 취소·정정 아님) 통보의 행위 단어는 「주문」 · 방향색 없음 (Phase 25 별건 3)", () => {
+    const a = alertFromOrder(order({ nt: "A", rk: "" }), null, 0, "x");
+    expect(a.label).toBe("주문");
+    expect(a.side).toBeNull();
+    expect(alertFromOrder(order({ nt: "E", rk: "" }), null, 0, "x").label).toBe("주문");
+  });
+
   it("색인 미스 → 이름 자리에 「주문 {no}」 · isin 없음", () => {
     const a = alertFromOrder(order({ no: "777" }), null, 0, "x");
     expect(a.name).toBe("주문 777");

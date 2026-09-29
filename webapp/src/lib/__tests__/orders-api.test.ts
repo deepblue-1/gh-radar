@@ -37,6 +37,7 @@ import {
   fetchTodayOrders,
   mergeJournalRows,
   orderDisplayStatus,
+  RECEIPT_UNKNOWN_TITLE,
 } from '../orders-api';
 
 beforeEach(() => {
@@ -220,6 +221,33 @@ describe('orderDisplayStatus', () => {
   it('모르는 status 는 지어내지 않고 원문을 muted 로 보인다', () => {
     const unknown = row({ status: 'mystery' as unknown as JournalOrderRow['status'] });
     expect(orderDisplayStatus(unknown)).toEqual({ label: 'mystery', tone: 'muted' });
+  });
+
+  it('rejected ∧ result_code -2 는 「접수 불명」 muted + 확인 경로 title — 투영 status 는 rejected 그대로 (Phase 25 별건 3 · WR-01)', () => {
+    const r = row({ status: 'rejected', resultCode: -2 });
+    expect(orderDisplayStatus(r)).toEqual({
+      label: '접수 불명',
+      tone: 'muted',
+      title: '주문이 접수됐는지 확인되지 않았어요. 미체결·잔고에서 확인한 뒤 다시 주문하세요',
+    });
+    expect(RECEIPT_UNKNOWN_TITLE).toBe(
+      '주문이 접수됐는지 확인되지 않았어요. 미체결·잔고에서 확인한 뒤 다시 주문하세요',
+    );
+    expect(r.status).toBe('rejected');
+  });
+
+  it('rejected ∧ result_code 1 은 기존 「거부」 danger — title 없음', () => {
+    expect(orderDisplayStatus(row({ status: 'rejected', resultCode: 1 }))).toEqual({
+      label: '거부',
+      tone: 'danger',
+    });
+  });
+
+  it('result_code -2 여도 rejected 가 아니면 status 표 그대로다', () => {
+    expect(orderDisplayStatus(row({ status: 'accepted', resultCode: -2 }))).toEqual({
+      label: '접수',
+      tone: 'normal',
+    });
   });
 
   it('통보 원문(noticeType)은 표시 상태를 바꾸지 않는다 — status 하나가 정본', () => {
