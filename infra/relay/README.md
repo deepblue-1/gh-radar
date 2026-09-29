@@ -195,6 +195,7 @@ bash scripts/smoke-relay.sh --check-tls               # 인증서만 (익일 재
 | `gh-radar-relay-order-secret` | 1 | 15-07 이 `openssl rand -base64 32` 로 로컬 생성해 주입 |
 | `gh-radar-kb-vpn-password` | 1 | **사용자가 직접 주입** (15-07 완료) — D-03 선검증의 전제 |
 | `gh-radar-dma-observer-secret` | 0 → 19-11 전환 창에서 1 | Phase 19 D-10 관찰자 기록 연결 비밀. 게이트웨이 `config/observer.toml` 과 **같은 값** — 아래 §Secret 4종 값 주입 |
+| `gh-radar-dma-observer-secret-kyobo` | 0 → c8e 반영 창에서 1 | **선택** — KYOBO 관찰자(quick-260929-c8e). kyobo127 `config/observer.toml` 과 같은 값 · 없으면 deploy-relay.sh 가 KYOBO 만 생략 — 아래 §다중 게이트웨이 관찰자 |
 
 relay 컨테이너가 읽는 비밀은 위 4종 중 `dma-cred-key` · `relay-order-secret` · `dma-observer-secret` 3종에 더해
 **`gh-radar-supabase-service-role`** 까지 4종이다(`deploy-relay.sh` 가 넷 다 사전 검사한다 — 존재 · ENABLED 버전 ·
@@ -1064,6 +1065,96 @@ env 로 받는다. 그리고 relay 관찰자는 **로그인 거부를 받으면 
 재배포해야 한다). 게이트웨이 재시작이 전략 무인 복원을 동반하므로 **두 곳 모두 20:00 이후 같은 창**에서 바꾼다.
 순환 중 잠깐의 거부·끊김은 커서 덕에 유실이 없다 — relay 가 다시 붙으면 커서부터 재생한다.
 
+### 다중 게이트웨이 관찰자 — KB + 교보(KYOBO) (quick-260929-c8e)
+
+relay 관찰자는 **게이트웨이당 1개**다(Phase 19 D-13 확장). KB 120 과 교보 kyobo127 에 동시에 붙고, 게이트웨이마다
+기록기 · 매핑 · 관찰자 · 상태가 한 벌씩 따로 돈다. 추가 게이트웨이는 `relay/src/config.ts` 의 env 표에서만 온다(행 1개).
+KYOBO env 가 없으면 relay 는 이전과 **똑같다**(관찰자 1개 · `/healthz` 필드 그대로).
+
+#### 구조
+
+| 항목 | KB (주 게이트웨이) | KYOBO (추가 게이트웨이) |
+|------|-------------------|------------------------|
+| 게이트웨이 키 | `KB` (`DMA_BROKER`) | `KYOBO` (env 표 고정) |
+| 주소 env | `DMA_HOST` | `DMA_KYOBO_HOST` (주소는 §교보 SecuwaySSL 도달 대상 행 — 배포 때 주입) |
+| 포트 env | `DMA_PORT` (9100) | `DMA_KYOBO_PORT` (기본 9100) |
+| 비밀 env ↔ Secret | `DMA_OBSERVER_SECRET` ↔ `gh-radar-dma-observer-secret` | `DMA_OBSERVER_SECRET_KYOBO` ↔ `gh-radar-dma-observer-secret-kyobo` |
+| 쓰임 | 사용자 세션 + 관찰자 | **관찰자 전용** (사용자 세션은 KB 단일) |
+| 브라우저 `journal.state` | 이 게이트웨이 상태 하나만 | 보내지 않는다 |
+| `/healthz` | `journal` (503 판정 포함) | `journalGateways.KYOBO` (503 판정 밖) |
+
+#### 격리
+
+- 커서(`dma_journal_cursor` PK) · epoch · 매핑(`dma_account_access` 교체 범위) · advisory lock(`p_gateway`)이 **키별로 따로**다.
+  키 `KB` 를 재사용하면 안 된다 — 두 관찰자가 한 커서를 나눠 써서 서로의 매핑을 지운다. config 가 키 충돌 시 기동을 거부한다.
+- KYOBO 의 거부(`rejected`) · 끊김은 KB 관찰자 · 사용자 세션 · `/healthz` 503 판정에 번지지 않는다.
+- 두 기록기 로그는 같은 컨테이너 로그에 섞인다 — 모든 기록기 · 매핑 로그에 `"gateway"` 필드가 붙는다.
+
+#### /healthz 필드
+
+`journalGateways.KYOBO` 는 `journal` 과 같은 JournalHealth 8키(`state · lastSeq · headSeq · lagSeq · disconnectedSec ·
+lastAppliedAgeSec · seqRegressions · lastSeqRegressionAgeSec`) + `alerting` 이다. `alerting` 은 「KB 였다면 503 이었을 조건」
+(장중 rejected 또는 live 아님 180초 이상)이다. **503 에서 제외한 이유 셋:**
+
+1. 교보 터널은 약 4시간마다 재로그인하고 데스크톱 SecuwaySSL 과 상호배제된다 — 그 끊김이 KB relay-down 알림
+   (`gh-radar-relay-healthz`)을 울리면 알림의 의미가 흐려진다.
+2. `deploy-relay.sh` 의 VM 기동 확인이 `curl -sf` 다 — 장중 KYOBO 때문에 503 이면 KB 배포가 실패한다.
+3. 롤아웃 중 거부(게이트웨이 쪽 비밀 미배치)는 KB 가용성과 무관하다.
+
+**한계:** 장중 KYOBO 끊김을 알리는 경로가 없다(relay 로그는 Cloud Logging 에 없다). 확인은 두 명령으로 한다.
+
+```bash
+curl -s https://dma.jx1.io/healthz | jq '.journalGateways.KYOBO'
+gcloud compute ssh radar-gw --zone=asia-northeast3-a --tunnel-through-iap \
+  --command "sudo docker logs --since 30m gh-radar-relay 2>&1 | grep '\"gateway\":\"KYOBO\"' | tail -20"
+```
+
+#### 신원 규칙
+
+gh-radar 사용자 → `dma_credentials.dma_user_id` 문자열 → **모든 게이트웨이의** `dma_account_access` 행. REST
+`dma_journal_orders_for_user` 와 `journal.rows` 푸시가 둘 다 이 규칙이다(게이트웨이 조건 없음). 그래서:
+
+- kyobo127 `users.toml` 의 user_id 는 **같은 사람이면 KB 와 같은 문자열**이어야 한다.
+- **다른 사람이면 어떤 KB dma_user_id 와도 겹치지 않아야** 한다 — 겹치면 그 KB 사용자가 교보 계좌 주문을 본다.
+- KYOBO 계좌 주문은 오늘 주문 카드에 계좌번호만 있는 묶음으로 뜬다.
+
+#### 롤아웃 순서 (5단계)
+
+1. 사용자가 비밀을 만든다(비출력 · 해시 12자만 출력):
+   `! bash .planning/quick/260929-c8e-relay-kyobo-observer/260929-c8e-kyobo-secret.sh`
+2. gh-trade 가 kyobo127 `config/observer.toml`(600)을 배치하고 게이트웨이를 재시작한다. 값은
+   `gcloud secrets versions access latest --secret=gh-radar-dma-observer-secret-kyobo` 를 ssh **stdin** 으로 파이프해 넘기고,
+   해시 앞 12자로 대조한다(위 §관찰자 비밀과 같은 방식).
+3. relay 배포: `DMA_KYOBO_HOST=<교보 DMA 주소 — §교보 SecuwaySSL 도달 대상 행> bash scripts/deploy-relay.sh`
+   (다른 필수 env 는 평소대로). 다음 배포부터는 실행 중 값이 보존된다 — 다시 주입하지 않아도 된다.
+4. 확인: `/healthz` 의 `journalGateways.KYOBO.state` live · docker logs 의 `"gateway":"KYOBO"` 로그인 성공 줄 ·
+   `dma_account_access` 의 `gateway=KYOBO` 행 수 · 신원 교차 확인(KYOBO dma_user_id 와 `dma_credentials` 교집합을 사람이 승인).
+5. `bash scripts/smoke-relay.sh` — KB 회귀 없음.
+
+**역순이면:** relay 가 먼저 뜨면 kyobo127 이 옛 비밀(또는 비밀 없음)로 거부해 KYOBO 가 `rejected` 로 굳는다(D-13 — relay
+재시작 전 복구 없음). 또는 게이트웨이가 응답하지 않아 로그인 타임아웃 · 재접속 루프가 돈다. 복구는 배치와 재시작이 끝난 뒤
+`sudo docker restart gh-radar-relay` 한 번이다(env 는 보존된다). 사용자 세션도 끊기므로 20:00 이후를 권장한다.
+어느 경우든 KB 는 영향이 없다.
+
+#### 교보 터널 주의
+
+- 교보 터널은 약 **4시간**마다 재로그인하며 수십 초 끊긴다. 그동안 DmaClient 가 백오프 1→30초로 재접속하고, 커서(`since_seq`)로
+  이어받아 유실이 없다. 180초 안에 돌아오면 `alerting` 도 켜지지 않는다.
+- **데스크톱** SecuwaySSL 에 접속하면 VM 터널이 끊긴다(§교보 SecuwaySSL ⚠ 상호배제). 그동안 KYOBO 는 `connecting` 에
+  머물고 KB 는 영향이 없다. 데스크톱을 끄고 VM 터널이 돌아오면 저절로 다시 붙는다.
+
+#### 끄기 · 롤백
+
+- `DMA_KYOBO_HOST=off bash scripts/deploy-relay.sh` — 보존 규칙을 끊는 유일한 방법이다(KYOBO 3줄이 env-file 에서 빠진다).
+- 매핑 행은 로그인 스냅샷으로만 교체되므로 끈 뒤에도 `dma_account_access` 의 `gateway=KYOBO` 행이 남아 REST 복원에 계속 뜬다.
+  가시성까지 거두려면 서비스롤로 그 행들을 삭제한다(값은 출력하지 않는다).
+- 비밀이 없거나 relay SA 접근권이 없으면 `deploy-relay.sh` 는 「⚠ KYOBO 관찰자 생략」 한 줄만 남기고 KB 단독으로 배포를 끝낸다.
+
+#### 비밀 순환
+
+`260929-c8e-kyobo-secret.sh --rotate` → gh-trade 가 kyobo127 파일 교체 · 게이트웨이 재시작 → relay 재배포(**마지막**).
+위 §관찰자 비밀의 순환과 같은 순서다 — relay 를 먼저 올리면 `rejected` 로 굳는다.
+
 ### `/etc/kbvpn.env` (VM, 0600)
 
 비밀 값이 아닌 접속 파라미터. 없으면 VPN 스크립트가 시작 전에 중단한다.
@@ -1193,6 +1284,8 @@ sudo systemctl restart openconnect@kb    # KB 계정 인증 시도 예산을 1�
 
 교보증권 SSL VPN(SecuwaySSL U V2.1) 리눅스 클라이언트를 radar-gw 에 상시화한 경로다.
 KB AnyConnect(`openconnect@kb`)와 **별개의 독립 터널**이며 서로 간섭하지 않는다.
+
+이 터널 위의 relay KYOBO 관찰자(kyobo127 :9100)는 §다중 게이트웨이 관찰자 참고.
 
 | 항목 | 값 |
 |------|-----|
