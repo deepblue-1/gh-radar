@@ -11,7 +11,7 @@ import type { RelayAccount, RelayViSetMsg, RelayViTrigger } from '@gh-radar/shar
  *   ③ 스냅샷이 없거나 한 거래소만 있어도 두 줄은 항상 그려진다 (E2 empty/partial)
  *   ④ 「수정」은 `run` 을 현재값 그대로 싣고, 시작/중지만 확인 다이얼로그를 거친다 (Phase 16 D-07)
  *   ⑤ 3초 ack 타임아웃은 잠금을 풀고 문구를 띄울 뿐 **아무것도 다시 보내지 않는다**
- *   ⑥ 더티 중 에코는 값을 덮고 「다른 단말에서 변경됨」 을 인라인으로 띄운다 (D-27)
+ *   ⑥ 더티 중 에코는 값을 덮는다 — 고지 없음 (D-27 · 2026-09-29 「다른 단말에서 변경됨」 제거)
  *   ⑦ 금액 상한 가드(WR-07)가 줄에서도 그대로다
  */
 
@@ -35,7 +35,6 @@ import {
   VI_AMOUNT_LIMIT_MESSAGE,
   VI_DEFAULT_AMOUNT_MANWON,
   VI_DEFAULT_CHECK_RATE,
-  VI_ECHO_OVERWRITTEN_TEXT,
   VI_MOVE_STALE_TEXT,
   VI_SET_SEND_FAILED_TEXT,
   viMoveTargetOf,
@@ -293,8 +292,6 @@ describe('E2 loading · error — 반영 중 · 타임아웃 · 전송 실패', 
       <ViSettingsRows viTriggers={{ KRX: trigger({ checkRate: 30 }), NXT: BOTH.NXT }} accountNo={ACCOUNT} />,
     );
     expect(fixButton('KRX')).toBeNull();
-    // 내 에코는 「다른 단말」이 아니다
-    expect(screen.queryByText(VI_ECHO_OVERWRITTEN_TEXT)).toBeNull();
   });
 
   it('★ 3초 타임아웃 — 잠금을 풀고 문구를 띄우며 더티 값을 보존하고, 아무것도 다시 보내지 않는다', () => {
@@ -339,7 +336,7 @@ describe('E2 loading · error — 반영 중 · 타임아웃 · 전송 실패', 
 });
 
 describe('D-27 — 다른 단말의 에코', () => {
-  it('더티 중 에코가 오면 값을 덮고 「다른 단말에서 변경됨」 role=status 를 띄운다', () => {
+  it('더티 중 에코가 오면 값을 덮고 고지는 띄우지 않는다 (2026-09-29 「다른 단말에서 변경됨」 제거)', () => {
     const { rerender } = renderRows();
     fireEvent.change(rateInput('KRX'), { target: { value: '30' } });
     rerender(
@@ -348,10 +345,8 @@ describe('D-27 — 다른 단말의 에코', () => {
     expect(rateInput('KRX').value).toBe('26');
     expect(fixButton('KRX')).toBeNull();
     const block = document.querySelector('[data-slot="vi-settings-block"][data-exchange="KRX"]') as HTMLElement;
-    expect(within(block).getByRole('status')).toHaveTextContent(VI_ECHO_OVERWRITTEN_TEXT);
-    // 다른 줄에는 고지가 없다
-    const nxt = document.querySelector('[data-slot="vi-settings-block"][data-exchange="NXT"]') as HTMLElement;
-    expect(within(nxt).queryByRole('status')).toBeNull();
+    expect(within(block).queryByRole('status')).toBeNull();
+    expect(screen.queryByText(/다른 단말/)).toBeNull();
   });
 });
 

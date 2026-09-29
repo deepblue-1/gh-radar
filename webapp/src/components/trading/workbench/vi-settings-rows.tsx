@@ -37,9 +37,9 @@
  *   ★ `send` 가 `false`(보내지 **못함**)면 잠그지 않는다 (GC-WR-06).
  *
  * ⑥ ★ 에코 규율 (D-27 · CR-01)
- *   에코가 오면 기준선을 덮고 더티를 지운다. 내가 보낸 적 없는 에코가 **더티 중에** 오면
- *   값을 덮고 「다른 단말에서 변경됨」을 줄 아래 `role="status"` 로 띄운다 — 토스트 라이브러리를
- *   쓰지 않는다. 빈 61(`null`, 미등록)은 사용자의 입력을 지우지 않는다.
+ *   에코가 오면 기준선을 덮고 더티를 지운다 — 다른 단말의 에코가 더티를 덮어도 따로 알리지 않는다
+ *   (2026-09-29 「다른 단말에서 변경됨」 고지 제거 · 값이 화면에 보인다). 빈 61(`null`, 미등록)은
+ *   사용자의 입력을 지우지 않는다.
  *
  * ⑦ ★ 단위 (「한 번 더 곱하면 1만 배 주문」)
  *   폼은 만원, 와이어는 원이다. 변환은 `manwonToKrw`/`krwToManwon`(`lib/vi-alert.ts`) 뿐이다.
@@ -118,9 +118,6 @@ export const VI_SET_SEND_FAILED_TEXT =
 /** 3초 안에 에코가 없을 때 — 기존 VI 화면 상태줄 문구 그대로(신규 문구 없음, E2 error). */
 export const VI_ACK_TIMEOUT_TEXT = '미반영 · 서버 응답을 기다리고 있어요';
 
-/** 더티 중 다른 단말의 에코가 값을 덮었을 때 (D-27). */
-export const VI_ECHO_OVERWRITTEN_TEXT = '다른 단말에서 변경됨';
-
 /** 「수정」 보조 설명 — VI 줄 더티 바 기존 문구 유지(UI-SPEC §Copywriting). */
 export const VI_DIRTY_HINT = '「수정」을 눌러야 반영돼요 · 가동 상태(run)는 그대로 유지돼요';
 
@@ -169,9 +166,6 @@ export function viMoveTargetOf(
 
 /** 옮기기 창을 연 뒤 상태(가동·등록 계좌·상태줄 계좌)가 바뀌어 보내지 않았을 때 (T-18-118). */
 export const VI_MOVE_STALE_TEXT = '계좌 상태가 바뀌었어요 — 다시 확인해 주세요';
-
-/** 「다른 단말에서 변경됨」 고지를 두는 시간(ms). 기존 VI 화면 에코 배너와 같은 6초다. */
-const VI_ECHO_NOTICE_MS = 6_000;
 
 /* ───────────────────────────── 순수 조각 ───────────────────────────── */
 
@@ -364,7 +358,6 @@ function ViSettingsRow({
   const [form, setForm] = useState<ViRowForm>(DEFAULT_FORM);
   /** 더티 기준선. 미등록이면 마지막 확정 표시값이다 — 비워 두면 첫 렌더부터 더티가 뜬다. */
   const [baseline, setBaseline] = useState<ViRowForm>(DEFAULT_FORM);
-  const [notice, setNotice] = useState<string | null>(null);
   const [rowError, setRowError] = useState('');
   const [amountClamped, setAmountClamped] = useState(false);
 
@@ -377,7 +370,6 @@ function ViSettingsRow({
   /** 마지막으로 보낸 요청. 에코가 오면 비운다. **재전송에 쓰지 않는다.** */
   const pendingRef = useRef<RelayViSetMsg | null>(null);
   const ackTimer = useRef<number | null>(null);
-  const noticeTimer = useRef<number | null>(null);
 
   const unlock = useCallback(() => {
     submittingRef.current = false;
@@ -389,46 +381,29 @@ function ViSettingsRow({
   useEffect(
     () => () => {
       if (ackTimer.current !== null) window.clearTimeout(ackTimer.current);
-      if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
     },
     [],
   );
 
   /* ── 에코 (⑥) ── */
   const prevServerRef = useRef<RelayViTrigger | null | undefined>(undefined);
-  const seenSnapshotRef = useRef(false);
-  const formRef = useRef(form);
-  formRef.current = form;
-  const baselineRef = useRef(baseline);
-  baselineRef.current = baseline;
 
   useEffect(() => {
     if (server === prevServerRef.current) return;
     prevServerRef.current = server;
     if (server === undefined) return; // 미조회는 사건이 아니다
 
-    const mine = pendingRef.current !== null;
     pendingRef.current = null;
     unlock();
     setRowError('');
-    const hadSnapshot = seenSnapshotRef.current;
-    seenSnapshotRef.current = true;
 
     // 빈 61(미등록)은 입력값을 그대로 둔다(CR-01). 가동은 `run` 파생으로 저절로 내려간다.
     if (server === null) return;
 
     const next = formFromServer(server);
-    const overwritten = dirtyFieldsOf(formRef.current, baselineRef.current).size;
     setForm(next);
     setBaseline(next);
     setAmountClamped(false);
-
-    // 내가 보낸 적 없는 에코가 **더티를 덮었을 때만** 말한다(D-27). 첫 스냅샷은 사건이 아니다.
-    if (!mine && hadSnapshot && overwritten > 0) {
-      setNotice(VI_ECHO_OVERWRITTEN_TEXT);
-      if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
-      noticeTimer.current = window.setTimeout(() => setNotice(null), VI_ECHO_NOTICE_MS);
-    }
   }, [server, unlock]);
 
   const dirty = useMemo(() => dirtyFieldsOf(form, baseline), [form, baseline]);
@@ -445,13 +420,11 @@ function ViSettingsRow({
 
   /* ── 입력 ── */
   const handleRate = useCallback((raw: string) => {
-    setNotice(null);
     setForm((prev) => ({ ...prev, checkRate: parseDigits(raw) }));
   }, []);
 
   /** 상한을 넘으면 **상한으로 고정**하고 이유를 말한다 — 조용히 삼키지 않는다(WR-07). */
   const handleAmount = useCallback((raw: string) => {
-    setNotice(null);
     const next = parseDigits(raw);
     const clamped = next !== null && next > MAX_VI_ORDER_AMOUNT_MANWON;
     setAmountClamped(clamped);
@@ -490,7 +463,6 @@ function ViSettingsRow({
         return 'failed';
       }
       setRowError('');
-      setNotice(null);
       pendingRef.current = msg;
       submittingRef.current = true;
       setSubmitting(true);
@@ -622,11 +594,6 @@ function ViSettingsRow({
             </button>
           )}
         </div>
-      )}
-      {notice !== null && (
-        <p role="status" data-slot="vi-row-echo" className="m-0 text-[11px] text-[var(--fg)]">
-          {notice}
-        </p>
       )}
 
       <ViConfirmDialog
