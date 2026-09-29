@@ -59,7 +59,7 @@ created: "2026-09-29"
 | 진행률 relay (fbs 뒤) | 83: 허용 계좌 필터 · dma_user_id 제거 · isReady 전 캐시만 · 인증 직후 snap · 세션 교체 후 캐시 없음 · 남 계좌 0 · 빈 전이만 전송 | unit | `pnpm --filter @gh-radar/relay exec vitest run tests/hub.test.ts tests/fanout.test.ts` | ✅ 확장 |
 | 통합 (fbs 뒤) | fake-gateway 관찰자 → 80(두 스트림) → Supabase stub → journal.events 도달 · 83 → unf.progress | integration | `pnpm --filter @gh-radar/relay exec vitest run tests/journal-gateway.test.ts tests/fake-gateway.test.ts` | ✅ 확장 |
 | 확정-server | 라우트 2: 401 · 400(날짜·orderNos 형식/개수) · RPC 인자 = req.userId 만 · bare array | unit(supertest) | `pnpm --filter @gh-radar/server exec vitest run tests/routes/orders.test.ts tests/routes/strategy-events.test.ts` | ✅/❌ W0 |
-| D-09/D-10 | 기획서 예시 12줄 문장 기대값 · 모르는 enum 원문 · 스냅 길이<3 · has_remaining false 면 남은 거래량 없음 · 오차 부호 · 시초 상한가 | unit | `pnpm --filter @gh-radar/shared exec vitest run src/__tests__/strategy-event-text.test.ts` | ❌ W0 |
+| D-09/D-10 | 기획서 예시 12줄 문장 기대값 · kind 4 Queued 세 갈래(`immediate_fill_qty` 0 / 일부 / 전량) · 모르는 enum 원문 · 스냅 길이<3 · has_remaining false 면 남은 거래량 없음 · 오차 부호 · 시초 상한가 | unit | `pnpm --filter @gh-radar/shared exec vitest run src/__tests__/strategy-event-text.test.ts` | ❌ W0 |
 | D-09 | `HH:MM:SS.mmm` KST · 자정 00 | unit | 같은 파일 | ❌ W0 |
 | D-01~D-04 | 행 클릭 펼침/닫힘 · 다중 펼침 · 묶음 members 전달 · 타임라인 ms 정렬(통보→전략) · running sum/전량 · 푸시 이어붙임 · lastSeq 상승 디바운스 재조회 · 실패/빈 문구 | component | `pnpm --filter @gh-radar/webapp exec vitest run src/components/trading/__tests__/today-orders-card.test.tsx src/lib/__tests__/order-notices.test.ts` | ✅ 확장 |
 | 별건 3 | 방향 미상 「주문」 · result_code -2 「접수 불명」 · R 방향 참고 | unit | `pnpm --filter @gh-radar/webapp exec vitest run src/lib/__tests__/order-notices.test.ts src/lib/__tests__/orders-api.test.ts` | ✅ 확장 |

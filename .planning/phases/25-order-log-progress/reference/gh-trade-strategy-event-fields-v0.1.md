@@ -35,7 +35,7 @@
 | limit_bid_qty | int64 | 그 시점 상한가 매수잔량(bid1==상한가일 때 bid1잔량, 아니면 0) |
 | bid1_price, bid1_qty | int32/int64 | 매도주문: 매수1 가격·잔량 |
 | accept_latency_us | int32 | 전송→접수 통보 (0 = 미측정). 접수 통보가 늦게 오므로 **Queued/별도 갱신**이 아니라 BuyOrder 이벤트를 접수 시점에 쓴다(전송 시각은 time_ms) |
-| immediate_fill_qty | int64 | 즉시체결 분 (0 이면 없음) |
+| immediate_fill_qty | int64 | 즉시체결 분 (0 이면 없음). **Queued(4) 에 실린다** — BuyOrder(3) 는 A 통보 시점에 확정돼 그 뒤 체결을 모른다 (gh-trade 정정 2026-09-29, 이름·번호 무변경) |
 | queue_case | int8 | 1 잔량 보고 낸 주문 · 2 잔량 쌓이기 전 주문 |
 | base_cum, ahead_qty, expected_cum | uint64 | 대기: 기준 누적 · 내 앞 물량 · 체결예상 누적 |
 | error_volume | int64 | 첫체결: expected_cum − 첫 체결 시점 누적 (부호 있음) |
@@ -65,3 +65,4 @@
 - 시세 이벤트(노출·진입, 계좌 없음) 가시성: 그 게이트웨이 자격증명 있는 사용자 전원 — 수용.
 - 스트림 2개(주문 저널·전략 이벤트) 각각 커서·gap·resync, live 전이는 두 caught_up 모두 true — 수용. 서버 펌프는 커서 2개를 같은 Tick 에서 돌린다.
 - Rejected 는 (a) 평면 목록만으로 시작. (b) journal_seq 로 reject_seq 조인은 후속.
+- `immediate_fill_qty` 는 BuyOrder(3) 가 아니라 **Queued(4)** 에 실린다(gh-trade 정정 2026-09-29, 이름·번호 무변경). 전량 즉시체결 = Queued 1건 `qty=0` · `immediate_fill_qty=전량`(대기 없음 · FirstFill 없음). 일부 즉시체결 = Queued 1건 `qty=남은 수량` · `immediate_fill_qty=체결분`.
