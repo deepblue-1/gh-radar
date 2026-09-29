@@ -1,8 +1,8 @@
 ---
 phase: quick-260929-c8e
 verified: 2026-09-29T09:35:00Z
-status: human_needed
-score: 6/7 must-haves verified (code-level truths verified; live-rollout truth pending main-session execution)
+status: passed
+score: 7/7 must-haves verified (code-level 6 by gsd-verifier 09:35Z; live-rollout truth closed by main session 2026-09-29 01:07Z — see addendum)
 covered_files:
   - .planning/quick/260929-c8e-relay-kyobo-observer/260929-c8e-PLAN.md
   - .planning/quick/260929-c8e-relay-kyobo-observer/260929-c8e-SUMMARY.md
@@ -133,3 +133,19 @@ No code-level gaps found. Tasks 1 and 2 are fully implemented, wired, tested, an
 
 _Verified: 2026-09-29T09:35Z_
 _Verifier: Claude (gsd-verifier)_
+
+
+## Addendum — Task 3 라이브 체크포인트 종결 (메인 세션 · 2026-09-29 10:07 KST)
+
+위 본문은 gsd-verifier 가 Task 3 실행 전(09:35Z)에 쓴 것이다. 이후 메인 세션이 Task 3 을 끝내 truth 7 / C8E-LIVE 를 닫았다. 증거는 SUMMARY 「라이브 반영 결과」 절.
+
+| 항목 | 결과 |
+|------|------|
+| 비밀 | `gh-radar-dma-observer-secret-kyobo` v1, sha12 b672eca72f2e — gh-trade 측 kyobo127 observer.toml 해시 일치 |
+| 순서 | 비밀 생성 → kyobo127 배치·재시작(10:01:39) → relay 배포(10:04~10:07) |
+| 계획 `<verify>` jq | status ok · journal.state live · journalGateways.KYOBO.state live → true |
+| KYOBO 로그인 | epoch 20260928-eedf314c… headSeq 0 accounts 3 → live |
+| 신원 교차 확인(T-c8e-02) | KYOBO 매핑 3행 = KB 와 동일 ID 집합, 사용자 승인 「같은 사람」 |
+| KB 회귀 | smoke-relay.sh PASS 10 / FAIL 0 |
+
+status 를 human_needed → passed 로 갱신했다(사람 확인 항목이 승인으로 닫혔으므로).
