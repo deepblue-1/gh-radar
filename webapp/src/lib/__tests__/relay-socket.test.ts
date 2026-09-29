@@ -41,6 +41,7 @@ import type {
   JournalOrderRow,
   RelayAccountState,
   RelayOrderNewMsg,
+  RelayQueueProgressItem,
   RelayQuote,
   RelayRateCrossItem,
   RelayTape,
@@ -2867,5 +2868,86 @@ describe('journal.events (Phase 25)', () => {
     });
     expect(hook.result.current.strategyEvents).toEqual([]);
     expect(hook.result.current.strategyEventsBatch).toEqual({ seq: 0, rows: [] });
+  });
+});
+
+describe('unf.progress (Phase 25)', () => {
+  const A: RelayQueueProgressItem = {
+    accountNo: '1234567801',
+    orderNo: '12453',
+    exchange: 'KRX',
+    isin: ISIN_A,
+    group: 3,
+    expectedCum: 1_100_000,
+    currentCum: 1_088_000,
+    remainingVolume: 12_000,
+    progressBp: 8800,
+  };
+  const B: RelayQueueProgressItem = { ...A, orderNo: '77701', exchange: 'NXT', isin: ISIN_B, group: 1 };
+
+  it('초기값은 빈 Map · snap:true 는 items 가 있는 엔트리로 전량 교체 · 키는 relayQuoteKey', async () => {
+    const hook = render({ enabled: true });
+    expect(hook.result.current.queueProgress.size).toBe(0);
+    const ws = await connected(hook);
+
+    await act(async () => {
+      ws.push({
+        t: 'unf.progress',
+        snap: true,
+        entries: [
+          { i: ISIN_A, x: 'KRX', items: [A] },
+          { i: ISIN_B, x: 'NXT', items: [] },
+        ],
+      });
+    });
+    expect(hook.result.current.queueProgress.get(relayQuoteKey(ISIN_A, 'KRX'))).toEqual([A]);
+    expect(hook.result.current.queueProgress.get('KR7005930003|KRX')).toEqual([A]);
+    expect(hook.result.current.queueProgress.has(relayQuoteKey(ISIN_B, 'NXT'))).toBe(false);
+  });
+
+  it('snap:false 는 키 교체 — 빈 items 는 키 삭제 · 새 키는 추가 · 다른 키는 그대로', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'unf.progress', snap: true, entries: [{ i: ISIN_A, x: 'KRX', items: [A] }] });
+    });
+    await act(async () => {
+      ws.push({ t: 'unf.progress', snap: false, i: ISIN_B, x: 'NXT', items: [B] });
+    });
+    expect(hook.result.current.queueProgress.get(relayQuoteKey(ISIN_B, 'NXT'))).toEqual([B]);
+    expect(hook.result.current.queueProgress.get(relayQuoteKey(ISIN_A, 'KRX'))).toEqual([A]);
+
+    await act(async () => {
+      ws.push({ t: 'unf.progress', snap: false, i: ISIN_A, x: 'KRX', items: [] });
+    });
+    expect(hook.result.current.queueProgress.has(relayQuoteKey(ISIN_A, 'KRX'))).toBe(false);
+    expect(hook.result.current.queueProgress.size).toBe(1);
+  });
+
+  it('snap:true entries [] 는 Map 을 비운다 — 오래된 값 표식 없이 마지막 값 유지(D-13)는 snap 전까지다', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'unf.progress', snap: false, i: ISIN_A, x: 'KRX', items: [A] });
+    });
+    expect(hook.result.current.queueProgress.size).toBe(1);
+
+    await act(async () => {
+      ws.push({ t: 'unf.progress', snap: true, entries: [] });
+    });
+    expect(hook.result.current.queueProgress.size).toBe(0);
+  });
+
+  it('로그아웃(enabled false → reset) 뒤 queueProgress 가 비워진다', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'unf.progress', snap: false, i: ISIN_A, x: 'KRX', items: [A] });
+    });
+    expect(hook.result.current.queueProgress.size).toBe(1);
+    await act(async () => {
+      hook.rerender({ enabled: false });
+    });
+    expect(hook.result.current.queueProgress.size).toBe(0);
   });
 });
