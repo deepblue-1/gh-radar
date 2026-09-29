@@ -97,6 +97,7 @@ import type {
   RelayOrderModifyMsg,
   RelayOrderNewMsg,
   RelayOrderResultMsg,
+  RelayQueueProgressItem,
   RelayQuote,
   RelayTapeEntry,
 } from "@gh-radar/shared";
@@ -325,6 +326,8 @@ const EMPTY_JOURNAL_ROWS: JournalOrderRow[] = [];
 /** 빈 전략 이벤트의 고정 참조 (Phase 25) — 주문로그 목록 memo 가 매 렌더 무효화되지 않게. */
 const EMPTY_STRATEGY_EVENTS: StrategyEventRow[] = [];
 const EMPTY_STRATEGY_EVENTS_BATCH: { seq: number; rows: StrategyEventRow[] } = { seq: 0, rows: EMPTY_STRATEGY_EVENTS };
+/** 빈 잔량진행률의 고정 참조 (25-06) — 미체결 표 memo 가 매 렌더 무효화되지 않게. */
+const EMPTY_QUEUE_PROGRESS: ReadonlyMap<string, readonly RelayQueueProgressItem[]> = new Map();
 /** 빈 비활성화 귀속 맵의 고정 참조 (quick-260926-nr2). */
 const EMPTY_LC_DISABLE_ECHOES: ReadonlyMap<string, LimitChaserDisableEcho> = new Map();
 
@@ -350,6 +353,8 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   // Provider 밖에는 소켓이 없다 — 전략 이벤트 푸시도 없다(Phase 25).
   strategyEvents: EMPTY_STRATEGY_EVENTS,
   strategyEventsBatch: EMPTY_STRATEGY_EVENTS_BATCH,
+  // Provider 밖에는 소켓이 없다 — 진행률 푸시도 없다(25-06 · D-11 없으면 보조행 없음).
+  queueProgress: EMPTY_QUEUE_PROGRESS,
   messages: [],
   isStale: false,
   limitChasers: [],

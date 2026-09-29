@@ -88,6 +88,7 @@ import {
   type RelaySubLevel,
   type RelayTape,
   type RelayStrategiesDisabledMsg,
+  type RelayQueueProgressItem,
   type RelayQueuedWindowMsg,
   type RelayRateCrossItem,
   type RelayTapeEntry,
@@ -418,6 +419,16 @@ export interface RelayConnectionState {
    * 새 로그 배지(25-07)가 이것으로 푸시 줄을 가려낸다. 삽입 0 인 프레임은 번호를 올리지 않는다.
    */
   strategyEventsBatch: { seq: number; rows: StrategyEventRow[] };
+  /**
+   * 미체결 잔량진행률 (`{t:"unf.progress"}` · Phase 25-06) — 키 `relayQuoteKey(isin, exchange)` → 그
+   * (종목, 거래소)의 대기 주문 진행률 전량.
+   *
+   * 값은 서버 `QueueProgress`(83)에서만 온다 — **웹은 계산하지 않는다**(D-12, 보기 값은 `progressView` 가
+   * 클램프만). relay 가 이 사용자의 허용 계좌 항목만 · 주문자 없이 내린다(T-25-24 · T-25-25).
+   * `snap:true` 면 Map 전량 교체, `snap:false` 면 키 교체(빈 items = 키 삭제). 오래된 값 표식 없이
+   * 마지막 값을 유지한다(D-13). 비우는 것은 snap 과 `reset` 뿐이다.
+   */
+  queueProgress: ReadonlyMap<string, readonly RelayQueueProgressItem[]>;
   /** ServerMessage 누적(최신 우선, 상한 20). 각 항목에 수신 시각이 붙어 있다. */
   messages: RelayServerMessageEntry[];
   /** 재접속 중이라 표시값이 마지막 수신값임을 뜻한다(UI 는 `opacity:.55` 감쇠). */
@@ -650,6 +661,7 @@ interface RelayData {
   journalState: RelayJournalStateMsg | null;
   strategyEvents: StrategyEventRow[];
   strategyEventsBatch: { seq: number; rows: StrategyEventRow[] };
+  queueProgress: ReadonlyMap<string, readonly RelayQueueProgressItem[]>;
   messages: RelayServerMessageEntry[];
   isStale: boolean;
   limitChasers: RelayLimitChaser[];
@@ -690,6 +702,8 @@ const INITIAL_DATA: RelayData = {
   // 로그아웃(reset) 이 비운다 — 다음 사용자가 이전 사용자의 주문 이벤트를 보지 않는다(Phase 25).
   strategyEvents: [],
   strategyEventsBatch: { seq: 0, rows: [] },
+  // 로그아웃(reset) 이 비운다 — 다음 사용자가 이전 사용자의 대기 주문 진행률을 보지 않는다(25-06).
+  queueProgress: new Map(),
   messages: [],
   isStale: false,
   limitChasers: [],
@@ -849,6 +863,24 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
         strategyEvents: next,
         strategyEventsBatch: { seq: state.strategyEventsBatch.seq + 1, rows: inserted },
       };
+    }
+
+    case "unf.progress": {
+      // 서버 전량을 그대로 보관한다 — 계산하지 않는다(D-12). snap 은 전량 교체라 새 탭 · 재접속 뒤 옛
+      // 진행률이 남지 않는다. Map 은 매번 새로 만든다(참조 교체) — 변화 없는 프레임의 헛돎은 소비자
+      // memo 가 키 값 비교로 흡수한다(83 은 종목당 1초 스로틀이라 빈도가 낮다).
+      if (frame.snap) {
+        const next = new Map<string, readonly RelayQueueProgressItem[]>();
+        for (const entry of frame.entries) {
+          if (entry.items.length > 0) next.set(relayQuoteKey(entry.i, entry.x), entry.items);
+        }
+        return { ...state, queueProgress: next };
+      }
+      const next = new Map(state.queueProgress);
+      const key = relayQuoteKey(frame.i, frame.x);
+      if (frame.items.length === 0) next.delete(key);
+      else next.set(key, frame.items);
+      return { ...state, queueProgress: next };
     }
 
     case "msg":
@@ -1993,6 +2025,7 @@ export function useRelayConnection({
       journalState: data.journalState,
       strategyEvents: data.strategyEvents,
       strategyEventsBatch: data.strategyEventsBatch,
+      queueProgress: data.queueProgress,
       messages: data.messages,
       isStale: data.isStale,
       limitChasers: data.limitChasers,
