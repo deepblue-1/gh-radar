@@ -30,7 +30,7 @@ import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as flatbuffers from "flatbuffers";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { RelayOutbound } from "@gh-radar/shared";
+import type { RelayAccount, RelayOutbound } from "@gh-radar/shared";
 import type { SymbolInfo, SymbolLookup } from "../src/store/symbols.js";
 
 import {
@@ -144,7 +144,8 @@ function fakeSupabase(): SupabaseClient {
  */
 class ReplacementSession extends EventEmitter implements HubSession {
   isReady = true;
-  readonly allowedAccounts = SAMPLE_ACCOUNTS;
+  /** 게이트웨이 로그인 응답 기본 계좌(`SAMPLE_ACCOUNTS`)와 같은 목록 — 실 세션과 같은 허용 계좌다. */
+  readonly allowedAccounts: readonly RelayAccount[] = SAMPLE_ACCOUNTS.map((a) => ({ accountNo: a.accountNo, name: a.name ?? "" }));
 
   constructor(readonly userId: string) {
     super();
