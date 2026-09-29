@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>작업대 주문로그 탭 목업</title>
+<style>
+  /* globals.css 토큰 인라인 (light) */
+  .theme { --bg:#ffffff; --fg:#191f28; --muted:#f2f4f6; --muted-fg:#6b7684; --faint:#b0b8c1;
+    --border:#f2f4f6; --border-subtle:#e5e8eb; --card:#ffffff; --primary:#3182f6; --accent:#e8f3ff;
+    --accent-fg:#1b64da; --destructive:#f04452; --up:#f04452; --down:#3182f6;
+    --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --r:8px; --r-sm:6px; --r-md:16px; --r-lg:20px;
+    --t-caption:12px; --t-sm:14px; --row-h:36px; --cell-pad-x:10px; --cell-pad-y:8px; }
+  .theme.dark { --bg:#17171c; --fg:#ffffff; --muted:#2c2c35; --muted-fg:#9e9ea4; --faint:#62626d;
+    --border:rgba(255,255,255,.06); --border-subtle:#3c3c47; --card:#202027; --primary:#3485fa;
+    --accent:rgba(52,133,250,.16); --accent-fg:#8ab8ff; --destructive:#f04251; --up:#f04251; --down:#3485fa; }
+
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:'Pretendard Variable',Pretendard,-apple-system,system-ui,sans-serif; background:#0b0b0e; color:#ddd; }
+  .page { padding:24px; max-width:1500px; margin:0 auto; }
+  h1 { font-size:18px; margin:0 0 6px; color:#fff; }
+  .lead { font-size:13px; color:#9e9ea4; margin:0 0 20px; line-height:1.5; }
+  h2 { font-size:15px; color:#fff; margin:36px 0 6px; padding-top:16px; border-top:1px solid #2a2a33; }
+  h3 { font-size:13px; color:#fff; margin:20px 0 6px; }
+  .note { font-size:12px; color:#9e9ea4; margin:0 0 10px; line-height:1.55; }
+  .note b { color:#ddd; }
+  .pair { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width: 1000px) { .pair { grid-template-columns:1fr; } }
+  .theme { background:var(--bg); color:var(--fg); padding:16px; border-radius:12px; }
+  .theme .label { font-size:11px; color:var(--muted-fg); margin-bottom:8px; }
+  .mono { font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1; letter-spacing:-.01em; }
+
+  /* 공용 패널 (shared-panels 동형) */
+  .panel { background:var(--card); border:1px solid var(--border-subtle); border-radius:var(--r-md); overflow:hidden; }
+  .tabbar { display:flex; align-items:center; gap:4px; padding:6px 8px; border-bottom:1px solid var(--border-subtle); }
+  .tab { position:relative; font-size:var(--t-caption); font-weight:600; color:var(--muted-fg); padding:4px 10px; border-radius:var(--r); white-space:nowrap; }
+  .tab.on { color:var(--fg); background:var(--muted); }
+  .badge { display:inline-flex; align-items:center; justify-content:center; min-width:16px; height:16px; padding:0 4px; margin-left:4px; border-radius:999px; background:var(--primary); color:#fff; font-size:10px; font-weight:700; line-height:1; vertical-align:1px; }
+  .tab .badge { position:relative; }
+
+  /* 필터줄 */
+  .filters { display:flex; align-items:center; gap:6px; padding:6px 10px; border-bottom:1px solid var(--border-subtle); font-size:11px; color:var(--muted-fg); }
+  .sel { display:inline-flex; align-items:center; gap:4px; border:1px solid var(--border-subtle); border-radius:var(--r-sm); padding:2px 8px; color:var(--fg); background:transparent; white-space:nowrap; }
+  .sel .c { color:var(--faint); font-size:9px; }
+  .sel.on { border-color:var(--primary); color:var(--accent-fg); background:var(--accent); }
+  .filters .sp { flex:1 1 auto; }
+  .pop { display:inline-flex; align-items:center; gap:4px; color:var(--muted-fg); white-space:nowrap; }
+  .pop:hover { color:var(--fg); }
+  .cnt { color:var(--faint); }
+
+  /* 본문 스크롤 영역 */
+  .body { max-height:172px; overflow-y:auto; position:relative; }
+  .body.tall { max-height:none; }
+  .pin { position:sticky; bottom:0; display:flex; justify-content:center; padding:4px; pointer-events:none; }
+  .pin span { pointer-events:auto; font-size:10px; background:var(--primary); color:#fff; border-radius:999px; padding:2px 10px; box-shadow:0 2px 8px rgba(0,0,0,.25); }
+
+  /* F-A 한 줄 문장 (기획서 형식) */
+  ul.lines { margin:0; padding:6px 10px; list-style:none; display:flex; flex-direction:column; gap:1px; font-size:11px; line-height:1.7; }
+  ul.lines li { display:flex; gap:6px; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--fg); }
+  ul.lines li > span { flex:none; }
+  ul.lines li .txt { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  ul.lines .t { color:var(--muted-fg); }
+  ul.lines .no { color:var(--muted-fg); }
+  ul.lines .k { font-weight:600; }
+  ul.lines .k.buy { color:var(--up); }
+  ul.lines .k.sell { color:var(--down); }
+  ul.lines .k.q { color:var(--accent-fg); }
+  ul.lines li.new { background:color-mix(in srgb, var(--primary) 8%, transparent); border-radius:4px; }
+  ul.lines .m { color:var(--muted-fg); }
+
+  /* F-B 열 분리 표 */
+  table { width:100%; border-collapse:collapse; }
+  thead th { text-align:left; color:var(--muted-fg); font-size:11px; font-weight:600; padding:6px var(--cell-pad-x); white-space:nowrap; position:sticky; top:0; background:var(--card); }
+  tbody td { height:30px; padding:0 var(--cell-pad-x); vertical-align:middle; font-size:11px; white-space:nowrap; }
+  tbody tr:hover td { background:color-mix(in srgb, var(--fg) 3%, transparent); }
+  tbody tr.new td { background:color-mix(in srgb, var(--primary) 8%, transparent); }
+  .tag { display:inline-block; border-radius:4px; background:var(--muted); color:var(--muted-fg); font-size:10px; padding:0 4px; line-height:16px; }
+  .tag.nxt { background:color-mix(in srgb, var(--primary) 14%, transparent); color:var(--accent-fg); }
+  .kd { font-weight:600; }
+  .kd.buy { color:var(--up); } .kd.sell { color:var(--down); } .kd.q { color:var(--accent-fg); }
+  td.txt { white-space:normal; color:var(--muted-fg); line-height:1.45; padding-top:4px; padding-bottom:4px; }
+  td.txt b { color:var(--fg); font-weight:600; }
+  .num { text-align:right; }
+
+  /* F-C 절충: 시간·배지 열 + 문장 */
+  ul.hyb { margin:0; padding:4px 0; list-style:none; font-size:11px; }
+  ul.hyb li { display:grid; grid-template-columns:82px 44px 72px 1fr; gap:8px; align-items:baseline; padding:3px 10px; line-height:1.5; }
+  ul.hyb li:hover { background:color-mix(in srgb, var(--fg) 3%, transparent); }
+  ul.hyb li.new { background:color-mix(in srgb, var(--primary) 8%, transparent); }
+  ul.hyb .t { color:var(--muted-fg); }
+  ul.hyb .txt { color:var(--muted-fg); min-width:0; }
+  ul.hyb .txt b { color:var(--fg); font-weight:600; }
+  ul.hyb .kd { white-space:nowrap; }
+
+  /* 창 분리 페이지 */
+  .win { border:1px solid var(--border-subtle); border-radius:10px; overflow:hidden; }
+  .win .bar { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--border-subtle); font-size:12px; font-weight:600; }
+  .win .bar .url { margin-left:auto; font-weight:400; color:var(--faint); font-size:10px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>작업대 「주문로그」 탭 — shared-panels 목업</h1>
+  <p class="lead">Phase 25 ② 작업대 하단 공용 패널에 「주문로그」 탭 신설(「전략 로그」 는 설정 이력으로 분리 유지). 탭줄에 새 로그 배지 <span class="badge" style="position:relative">3</span>, 필터줄(종목 · 거래소 · 구분 · 창 분리 ↗), 본문은 seq 순 평면 목록으로 5~6줄 높이 스크롤. 데이터는 기획서 예시 하루 흐름 + 시세 이벤트(상한가노출·진입). 배지·창 분리·스크롤 고정은 세 안 공통이고, <b>차이는 한 줄의 형태</b>뿐이다.</p>
+
+  <!-- ===================== F-A ===================== -->
+  <h2>F-A안 · 한 줄 문장 (기획서 형식 그대로 — <span class="mono">[시간][주문번호][구분] 내용</span>)</h2>
+  <p class="note">WinForms 로그 탭과 같은 읽기 경험. 한 줄이 길어 폭이 좁으면 끝이 잘림(…). 종목·거래소·누적은 문장 안에. 마우스 올리면 전체 문장 툴팁.</p>
+  <div class="pair" data-render="FA"></div>
+
+  <!-- ===================== F-B ===================== -->
+  <h2>F-B안 · 열 분리 표 (시간 · 종목 · 거래소 · 구분 · 주문번호 · 내용 · 누적)</h2>
+  <p class="note">필터 축(종목·거래소·구분)이 열로 드러나 훑기 쉽다. 내용 열은 줄바꿈 허용이라 행 높이가 변한다. 표 폭 최소 ~700px, 폰 밴드에서는 가로 스크롤(tbl-wrap).</p>
+  <div class="pair" data-render="FB"></div>
+
+  <!-- ===================== F-C ===================== -->
+  <h2>F-C안 · 절충 — 시간 · 거래소 · 구분 칩은 열, 나머지는 문장</h2>
+  <p class="note">앞 세 칸만 고정 열(정렬·필터 축), 종목명부터는 한 문장. F-A 보다 훑기 쉽고 F-B 보다 좁다. 주문번호는 문장 앞 <span class="mono">#12451</span>.</p>
+  <div class="pair" data-render="FC"></div>
+
+  <!-- ===================== 창 분리 ===================== -->
+  <h2>창 분리 ↗ — 별도 라우트(예: <span class="mono">/trading/order-log</span>) 새 창</h2>
+  <p class="note">필터 상태를 쿼리로 넘김. 탭 5줄 제한 없이 세로 전체. 형태는 위에서 고른 안을 그대로 쓴다(아래는 F-C 기준 예시). 새 로그 배지는 창에서는 필요 없고 스크롤 고정만.</p>
+  <div class="pair" data-render="WIN"></div>
+
+  <!-- ===================== 카드 탭 ===================== -->
+  <h2>참고 — 카드 「주문로그」 탭(종목 스코프)을 둘 경우</h2>
+  <p class="note">카드 탭은 그 종목만이라 종목 필터가 빠지고 거래소·구분만 남는다. 카드 폭이 좁으므로 F-A/F-C 가 맞고 F-B 는 넘친다. (둘지 말지는 별도 질문)</p>
+  <div class="pair" data-render="CARD"></div>
+</div>
+
+<script>
+// ---------- 데이터: 기획서 하루 흐름 + 시세 이벤트 ----------
+const L = [
+  {t:'09:42:13.215', no:'', kd:'상한가노출', kc:'q', ex:'KRX', nm:'○○전자', txt:'매도잔량 <b>185,400</b>', cum:'620,000'},
+  {t:'09:45:02.861', no:'12451', kd:'선매수', kc:'buy', ex:'KRX', nm:'○○전자', txt:'<b>주문</b> · 조건 매도잔량≤50,000 / 실측 38,200 · 근거 호가(매도1잔량 52,100→38,200) · 상한가 매수잔량 0 · 12,350×300주 · 접수 +18ms', cum:'861,800'},
+  {t:'09:45:02.880', no:'', kd:'상한가진입 1차', kc:'q', ex:'KRX', nm:'○○전자', txt:'잔량/누적 즉시 30,000/900,000 · 1초 55,000/903,000 · 3초 72,000/908,000', cum:'900,000'},
+  {t:'09:45:02.880', no:'12451', kd:'선매수', kc:'buy', ex:'KRX', nm:'○○전자', txt:'<b>대기</b> · 300주 · 체결예상 930,000 (900,000 + 30,000)', cum:'900,000'},
+  {t:'09:45:07.415', no:'12451', kd:'선매수', kc:'buy', ex:'KRX', nm:'○○전자', txt:'<b>체결</b> · 오차 +16,000', cum:'914,000'},
+  {t:'09:47:15.330', no:'12452', kd:'추가매수', kc:'buy', ex:'KRX', nm:'○○전자', txt:'<b>주문</b> · 조건 매수잔량≥150,000 / 실측 152,000 · 근거 호가(매수1잔량 148,500→152,000) · 상한가 매수잔량 152,000 · 12,350×300주 · 접수 +17ms', cum:'950,000'},
+  {t:'09:47:15.347', no:'12452', kd:'추가매수', kc:'buy', ex:'KRX', nm:'○○전자', txt:'<b>대기</b> · 300주 · 체결예상 1,102,000 (950,000 + 152,000)', cum:'950,000'},
+  {t:'09:52:40.105', no:'12453', kd:'후매수', kc:'buy', ex:'KRX', nm:'○○전자', txt:'<b>주문</b> · 조건 매수잔량≤100,000 / 실측 100,000 · 근거 호가(매수1잔량 104,000→100,000) · 상한가 매수잔량 100,000 · 12,350×300주 · 접수 +17ms', cum:'1,000,000'},
+  {t:'09:52:40.122', no:'12453', kd:'후매수', kc:'buy', ex:'KRX', nm:'○○전자', txt:'<b>대기</b> · 300주 · 체결예상 1,100,000 (1,000,000 + 100,000)', cum:'1,000,000'},
+  {t:'09:55:31.208', no:'12452', kd:'추가매수', kc:'buy', ex:'KRX', nm:'○○전자', txt:'<b>체결</b> · 오차 +41,000', cum:'1,061,000'},
+  {t:'09:56:03.411', no:'12453', kd:'후매수', kc:'buy', ex:'KRX', nm:'○○전자', txt:'<b>취소</b> · 매수1 이탈 · 남은 거래량 12,000 (1,100,000 − 1,088,000)', cum:'1,088,000'},
+  {t:'10:03:55.902', no:'', kd:'상한가노출', kc:'q', ex:'NXT', nm:'△△바이오', txt:'시초 상한가 · 매도잔량 <b>42,100</b>', cum:'310,500'},
+  {t:'10:11:40.210', no:'12454', kd:'호가매도', kc:'sell', ex:'KRX', nm:'○○전자', txt:'<b>주문</b> · 조건 매수잔량≤50,000 / 실측 47,800 · 근거 호가(매수1잔량 51,200→47,800) · 매수1 12,350·47,800주 · 12,350×600주 지정가 · 접수 +16ms', cum:'1,640,000', neu:true},
+  {t:'10:11:58.310', no:'12455', kd:'체결매도', kc:'sell', ex:'KRX', nm:'○○전자', txt:'<b>주문</b> · 조건 단건 매도체결≥10,000 / 실측 18,000 · 근거 체결(12,350 매도체결 18,000주) · 매수1 12,350·42,000주 · 12,350×300주 지정가 · 접수 +16ms', cum:'1,650,000', neu:true},
+  {t:'10:12:01.004', no:'—', kd:'후매수', kc:'buy', ex:'KRX', nm:'○○전자', txt:'<b>거부</b> · 주문거부 가격범위초과', cum:'1,651,200', neu:true},
+];
+const strip = s => s.replace(/<[^>]+>/g,'');
+
+function tabbar(active='log2', badge=3) {
+  return `<div class="tabbar">
+    <span class="tab">미체결 (2)</span><span class="tab">잔고 (1)</span>
+    <span class="tab${active==='log2'?' on':''}">주문로그${badge?`<span class="badge">${badge}</span>`:''}</span>
+    <span class="tab">전략 로그</span></div>`;
+}
+function filters({stock=true, kind=true, count=L.length}={}) {
+  return `<div class="filters">
+    ${stock?`<span class="sel">종목 전체 <span class="c">▾</span></span>`:''}
+    <span class="sel">거래소 전체 <span class="c">▾</span></span>
+    ${kind?`<span class="sel">구분 전체 <span class="c">▾</span></span>`:''}
+    <span class="cnt mono">${count}건</span>
+    <span class="sp"></span>
+    <span class="pop">창 분리 ↗</span></div>`;
+}
+const pinBtn = '<div class="pin"><span>새 로그 3 · 맨 아래로 ↓</span></div>';
+
+function FA({stock=true, tall=false, pin=true, badge=3}={}) {
+  const li = L.map(e => `<li${e.neu?' class="new"':''}>
+    <span class="t mono">[${e.t}]</span>${e.no?`<span class="no mono">[${e.no}]</span>`:''}<span class="k ${e.kc}">[${e.kd}]</span>
+    <span class="txt" title="${strip(e.txt)}">${e.ex} | ${e.nm} | ${e.txt} <span class="m">| 누적 ${e.cum}</span></span></li>`).join('');
+  return `<div class="panel">${tabbar('log2',badge)}${filters({stock})}<div class="body${tall?' tall':''}"><ul class="lines">${li}</ul>${pin?pinBtn:''}</div></div>`;
+}
+function FB({tall=false, pin=true}={}) {
+  const tr = L.map(e => `<tr${e.neu?' class="new"':''}>
+    <td class="mono">${e.t}</td><td>${e.nm}</td><td><span class="tag${e.ex==='NXT'?' nxt':''}">${e.ex}</span></td>
+    <td><span class="kd ${e.kc}">${e.kd}</span></td><td class="mono">${e.no||'—'}</td>
+    <td class="txt">${e.txt}</td><td class="num mono">${e.cum}</td></tr>`).join('');
+  return `<div class="panel">${tabbar()}${filters()}<div class="body${tall?' tall':''}">
+    <table><thead><tr><th>시간</th><th>종목</th><th>거래소</th><th>구분</th><th>주문번호</th><th>내용</th><th class="num">누적</th></tr></thead><tbody>${tr}</tbody></table>${pin?pinBtn:''}</div></div>`;
+}
+function FC({stock=true, tall=false, pin=true, badge=3, showName=true}={}) {
+  const li = L.map(e => `<li${e.neu?' class="new"':''}>
+    <span class="t mono">${e.t}</span><span><span class="tag${e.ex==='NXT'?' nxt':''}">${e.ex}</span></span><span class="kd ${e.kc}">${e.kd}</span>
+    <span class="txt">${e.no?`<span class="mono">#${e.no}</span> `:''}${showName?`<b>${e.nm}</b> · `:''}${e.txt} · <span class="mono">누적 ${e.cum}</span></span></li>`).join('');
+  return `<div class="panel">${tabbar('log2',badge)}${filters({stock})}<div class="body${tall?' tall':''}"><ul class="hyb">${li}</ul>${pin?pinBtn:''}</div></div>`;
+}
+function WIN() {
+  return `<div class="win"><div class="bar">주문로그 · 2026-09-29 <span class="url mono">/trading/order-log?ex=KRX&stock=005930</span></div>
+    ${filters().replace('창 분리 ↗','')}<div class="body tall"><ul class="hyb">${L.map(e=>`<li><span class="t mono">${e.t}</span><span><span class="tag${e.ex==='NXT'?' nxt':''}">${e.ex}</span></span><span class="kd ${e.kc}">${e.kd}</span><span class="txt">${e.no?`<span class="mono">#${e.no}</span> `:''}<b>${e.nm}</b> · ${e.txt} · <span class="mono">누적 ${e.cum}</span></span></li>`).join('')}</ul></div></div>`;
+}
+function CARD() {
+  const own = L.filter(e=>e.nm==='○○전자').slice(0,7);
+  const li = own.map(e => `<li${e.neu?' class="new"':''}>
+    <span class="t mono">${e.t}</span><span><span class="tag">${e.ex}</span></span><span class="kd ${e.kc}">${e.kd}</span>
+    <span class="txt">${e.no?`<span class="mono">#${e.no}</span> `:''}${e.txt}</span></li>`).join('');
+  return `<div class="panel" style="max-width:520px"><div class="tabbar"><span class="tab">정보</span><span class="tab">미체결 (1)</span><span class="tab">잔고</span><span class="tab on">주문로그<span class="badge">2</span></span><span class="tab">전략 로그</span></div>
+    ${filters({stock:false, count:own.length})}<div class="body"><ul class="hyb" style="--c:0">${li}</ul>${pinBtn}</div></div>`;
+}
+
+const R = {FA:()=>FA(), FB:()=>FB(), FC:()=>FC(), WIN:()=>WIN(), CARD:()=>CARD()};
+for (const host of document.querySelectorAll('[data-render]')) {
+  const inner = R[host.dataset.render]();
+  host.innerHTML = `<div class="theme"><div class="label">Light</div>${inner}</div><div class="theme dark"><div class="label">Dark</div>${inner}</div>`;
+}
+</script>
+</body>
+</html>

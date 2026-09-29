@@ -4,13 +4,13 @@ milestone: v1.0
 current_phase: 24
 current_phase_name: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영
 status: executing
-stopped_at: Completed 24-24-PLAN.md
-last_updated: "2026-09-29T00:38:11.702Z"
+stopped_at: Phase 25 context gathered
+last_updated: "2026-09-29T04:11:02.947Z"
 last_activity: 2026-09-29
 last_activity_desc: 24-24 완료 · webapp 배포 d6194dcd · Vercel Ready
-state_head: 829d27291dc8c8167e11e3e253df11dd860125dd
+state_head: b6a9f486cf56a980795473c94112bae9da9f7f75
 progress:
-  total_phases: 33
+  total_phases: 34
   completed_phases: 4
   total_plans: 324
   completed_plans: 308
@@ -466,10 +466,10 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 ## Session Continuity
 
-**Resume file:** None
+**Resume file:** .planning/phases/25-order-log-progress/25-CONTEXT.md
 
-Last session: 2026-09-28T13:34:51.112Z
-Stopped at: Completed 24-24-PLAN.md
+Last session: 2026-09-29T04:11:01.874Z
+Stopped at: Phase 25 context gathered
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
