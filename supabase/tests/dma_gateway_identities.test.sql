@@ -1,0 +1,243 @@
+-- ============================================================
+-- quick-260929-sas — 게이트웨이 인지 가시성 pgTAP (T-c8e-02 대체).
+--
+-- 잠그는 것:
+--   - 스키마: dma_credentials.gateway (NOT NULL · 기본 'KB') · 신원 연결 테이블 dma_gateway_identities
+--     (PK (user_id, gateway) · auth.users FK cascade · RLS 활성 · 정책 0개) · 규칙 뷰 dma_visibility_identities
+--     (security_invoker) · 헬퍼 dma_visible_accounts(uuid)
+--   - 권한: 연결 테이블 · 뷰 · dma_visible_accounts · ⑨ 모두 anon/authenticated 불가 · service_role 가능 (T-sas-02)
+--   - 가시성 매트릭스: 같은 자격증명 문자열이라도 추가 게이트웨이(KYOBO)는 명시 연결로만 보인다(T-sas-01) ·
+--     자격증명과 같은 게이트웨이의 연결은 무시(T-sas-05) · 자격증명 없는 연결은 무시(T-sas-04) ·
+--     연결 id 가 자격증명 id 와 달라도 된다
+--   - ⑨ dma_journal_orders_for_user 가 같은 규칙으로 · 중복 없이
+--   - 수명: 자격증명 삭제 → 연결 행이 남아도 가시 집합 0 · 사용자 삭제 → 연결 cascade
+--
+-- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_gateway_identities.test.sql`
+-- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(공유 · 원격 DB 접촉 0).
+-- 전체가 한 트랜잭션이고 끝에서 ROLLBACK 한다.
+--
+-- 단언 설명에는 (사용자, 게이트웨이, 계좌 말미, 기대) 튜플을 적는다 — `not ok` 줄만 보고도 어느 경우인지 알 수 있어야 한다.
+-- 사용자(자격증명 dma_user_id · 연결):
+--   U1 dma-shared · 연결 (KYOBO, dma-shared)
+--   U2 dma-shared · 연결 없음                 ← 핵심: 같은 문자열이지만 KYOBO 는 안 보인다
+--   U3 dma-solo   · 연결 (KB, dma-shared)     ← 자기 게이트웨이 연결 — 무시
+--   U4 dma-kb4    · 연결 (KYOBO, dma-ky4)     ← 연결 id 가 자격증명 id 와 다르다
+--   U5 자격증명 없음 · 연결 (KYOBO, dma-shared) ← 자격증명 없는 연결 — 무시(D-12 allowlist)
+-- 매핑: KB dma-shared → …0001 · dma-solo → …0002 / KYOBO dma-shared → …0011 · dma-ky4 → …0012.
+-- 계좌 …0099 는 어느 매핑에도 없다.
+-- ============================================================
+
+BEGIN;
+
+CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
+SET LOCAL search_path = public, extensions;
+
+-- ── 픽스처: 사용자 · 자격증명(gateway 생략 — 기본값 검증) · 매핑 · 주문 · 연결 ─────
+INSERT INTO auth.users (id, email) VALUES
+  ('00000000-0000-4000-8000-000000002601', 'sas-u1@example.invalid'),
+  ('00000000-0000-4000-8000-000000002602', 'sas-u2@example.invalid'),
+  ('00000000-0000-4000-8000-000000002603', 'sas-u3@example.invalid'),
+  ('00000000-0000-4000-8000-000000002604', 'sas-u4@example.invalid'),
+  ('00000000-0000-4000-8000-000000002605', 'sas-u5@example.invalid');
+
+INSERT INTO public.dma_credentials (user_id, dma_user_id, dma_password_enc) VALUES
+  ('00000000-0000-4000-8000-000000002601', 'dma-shared', 'test-enc-u1'),
+  ('00000000-0000-4000-8000-000000002602', 'dma-shared', 'test-enc-u2'),
+  ('00000000-0000-4000-8000-000000002603', 'dma-solo',   'test-enc-u3'),
+  ('00000000-0000-4000-8000-000000002604', 'dma-kb4',    'test-enc-u4');
+
+CREATE TEMP TABLE t_setup (label text PRIMARY KEY, r jsonb);
+
+INSERT INTO t_setup SELECT 'access_kb', to_jsonb(public.dma_journal_sync_access('KB', '[
+  {"dma_user_id":"dma-shared","account_no":"2600000001","name":"위탁","priority":1},
+  {"dma_user_id":"dma-solo","account_no":"2600000002","name":"위탁","priority":1}
+]'::jsonb));
+INSERT INTO t_setup SELECT 'access_kyobo', to_jsonb(public.dma_journal_sync_access('KYOBO', '[
+  {"dma_user_id":"dma-shared","account_no":"2600000011","name":"위탁","priority":1},
+  {"dma_user_id":"dma-ky4","account_no":"2600000012","name":"위탁","priority":1}
+]'::jsonb));
+
+-- 주문: 계좌당 1행(2026-09-29) + 매핑 밖 계좌 1행.
+INSERT INTO public.dma_account_orders (gateway, trade_date, account_no, order_no, journal_epoch, reject_seq, isin, exchange, side, order_type, qty, price, status, origin, first_seq, last_seq, created_at, updated_at)
+VALUES
+  ('KB',    '2026-09-29', '2600000001', '0000100001', NULL, NULL, 'KR7005930003', 'KRX', 'B', 'N', 10, 1000, 'accepted', 'manual', 1, 1, '2026-09-29 09:00:01+09', '2026-09-29 09:00:01+09'),
+  ('KB',    '2026-09-29', '2600000002', '0000100002', NULL, NULL, 'KR7005930003', 'KRX', 'B', 'N', 10, 1000, 'accepted', 'manual', 2, 2, '2026-09-29 09:00:02+09', '2026-09-29 09:00:02+09'),
+  ('KYOBO', '2026-09-29', '2600000011', '0000100011', NULL, NULL, 'KR7005930003', 'KRX', 'B', 'N', 10, 1000, 'accepted', 'manual', 1, 1, '2026-09-29 09:00:11+09', '2026-09-29 09:00:11+09'),
+  ('KYOBO', '2026-09-29', '2600000012', '0000100012', NULL, NULL, 'KR7005930003', 'KRX', 'B', 'N', 10, 1000, 'accepted', 'manual', 2, 2, '2026-09-29 09:00:12+09', '2026-09-29 09:00:12+09'),
+  ('KYOBO', '2026-09-29', '2600000099', '0000100099', NULL, NULL, 'KR7005930003', 'KRX', 'B', 'N', 10, 1000, 'accepted', 'manual', 3, 3, '2026-09-29 09:00:19+09', '2026-09-29 09:00:19+09');
+
+-- 신원 연결 4행 (서비스롤 · 운영자 SQL 과 같은 직접 INSERT).
+INSERT INTO public.dma_gateway_identities (user_id, gateway, dma_user_id) VALUES
+  ('00000000-0000-4000-8000-000000002601', 'KYOBO', 'dma-shared'),
+  ('00000000-0000-4000-8000-000000002603', 'KB',    'dma-shared'),
+  ('00000000-0000-4000-8000-000000002604', 'KYOBO', 'dma-ky4'),
+  ('00000000-0000-4000-8000-000000002605', 'KYOBO', 'dma-shared');
+
+SELECT plan(33);
+
+-- ── 1. 스키마: dma_credentials.gateway ────────────────────────────
+SELECT has_column('public', 'dma_credentials', 'gateway', '(스키마, dma_credentials, gateway, 존재)');
+SELECT col_not_null('public', 'dma_credentials', 'gateway', '(스키마, dma_credentials, gateway, NOT NULL)');
+SELECT col_default_is('public', 'dma_credentials', 'gateway', 'KB'::text, '(스키마, dma_credentials, gateway, 기본값 KB)');
+SELECT is(
+  (SELECT gateway FROM public.dma_credentials WHERE user_id = '00000000-0000-4000-8000-000000002601'),
+  'KB', '(U1, gateway 생략 INSERT, —, 값 KB)'
+);
+
+-- ── 2. 스키마 · 권한: 연결 테이블 ────────────────────────────────
+SELECT has_table('public', 'dma_gateway_identities', '(스키마, dma_gateway_identities, —, 존재)');
+SELECT col_is_pk('public', 'dma_gateway_identities', ARRAY['user_id', 'gateway'], '(스키마, dma_gateway_identities, —, PK (user_id, gateway))');
+SELECT fk_ok('public', 'dma_gateway_identities', 'user_id', 'auth', 'users', 'id', '(스키마, dma_gateway_identities.user_id, —, → auth.users.id)');
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.dma_gateway_identities'::regclass),
+  true, '(스키마, dma_gateway_identities, —, RLS 활성)'
+);
+SELECT is(
+  (SELECT count(*)::int FROM pg_policies WHERE schemaname = 'public' AND tablename = 'dma_gateway_identities'),
+  0, '(스키마, dma_gateway_identities, —, 정책 0개 — default deny)'
+);
+SELECT is(
+  row(
+    has_table_privilege('anon', 'public.dma_gateway_identities', 'SELECT'),
+    has_table_privilege('anon', 'public.dma_gateway_identities', 'INSERT'),
+    has_table_privilege('anon', 'public.dma_gateway_identities', 'UPDATE'),
+    has_table_privilege('anon', 'public.dma_gateway_identities', 'DELETE')
+  )::text,
+  '(f,f,f,f)', '(anon, dma_gateway_identities, —, SELECT/INSERT/UPDATE/DELETE 불가)'
+);
+SELECT is(
+  row(
+    has_table_privilege('authenticated', 'public.dma_gateway_identities', 'SELECT'),
+    has_table_privilege('authenticated', 'public.dma_gateway_identities', 'INSERT'),
+    has_table_privilege('authenticated', 'public.dma_gateway_identities', 'UPDATE'),
+    has_table_privilege('authenticated', 'public.dma_gateway_identities', 'DELETE')
+  )::text,
+  '(f,f,f,f)', '(authenticated, dma_gateway_identities, —, SELECT/INSERT/UPDATE/DELETE 불가)'
+);
+SELECT is(
+  row(
+    has_table_privilege('service_role', 'public.dma_gateway_identities', 'SELECT'),
+    has_table_privilege('service_role', 'public.dma_gateway_identities', 'INSERT'),
+    has_table_privilege('service_role', 'public.dma_gateway_identities', 'UPDATE'),
+    has_table_privilege('service_role', 'public.dma_gateway_identities', 'DELETE')
+  )::text,
+  '(t,t,t,t)', '(service_role, dma_gateway_identities, —, SELECT/INSERT/UPDATE/DELETE 가능)'
+);
+
+-- ── 3. 스키마 · 권한: 규칙 뷰 · 헬퍼 · ⑨ ──────────────────────────
+SELECT has_view('public', 'dma_visibility_identities', '(스키마, dma_visibility_identities, —, 존재)');
+SELECT ok(
+  (SELECT coalesce('security_invoker=true' = ANY (reloptions), false)
+     FROM pg_class WHERE oid = 'public.dma_visibility_identities'::regclass),
+  '(스키마, dma_visibility_identities, —, security_invoker=true)'
+);
+SELECT is(
+  row(
+    has_table_privilege('anon', 'public.dma_visibility_identities', 'SELECT'),
+    has_table_privilege('authenticated', 'public.dma_visibility_identities', 'SELECT'),
+    has_table_privilege('service_role', 'public.dma_visibility_identities', 'SELECT')
+  )::text,
+  '(f,f,t)', '(anon · authenticated · service_role, dma_visibility_identities, —, SELECT = (f, f, t))'
+);
+SELECT is(
+  row(
+    has_function_privilege('anon', 'public.dma_visible_accounts(uuid)', 'EXECUTE'),
+    has_function_privilege('authenticated', 'public.dma_visible_accounts(uuid)', 'EXECUTE'),
+    has_function_privilege('service_role', 'public.dma_visible_accounts(uuid)', 'EXECUTE')
+  )::text,
+  '(f,f,t)', '(anon · authenticated · service_role, dma_visible_accounts(uuid), —, EXECUTE = (f, f, t))'
+);
+SELECT is(
+  row(
+    has_function_privilege('anon', 'public.dma_journal_orders_for_user(uuid,date)', 'EXECUTE'),
+    has_function_privilege('authenticated', 'public.dma_journal_orders_for_user(uuid,date)', 'EXECUTE'),
+    has_function_privilege('service_role', 'public.dma_journal_orders_for_user(uuid,date)', 'EXECUTE')
+  )::text,
+  '(f,f,t)', '(anon · authenticated · service_role, dma_journal_orders_for_user(uuid,date), —, EXECUTE = (f, f, t))'
+);
+
+-- ── 4. 가시성 매트릭스: dma_visible_accounts · 뷰 ─────────────────
+SELECT set_eq(
+  $$SELECT gateway, account_no FROM public.dma_visible_accounts('00000000-0000-4000-8000-000000002601')$$,
+  $$VALUES ('KB', '2600000001'), ('KYOBO', '2600000011')$$,
+  '(U1, KB+KYOBO, …0001 · …0011, 자격증명 KB + 명시 연결 KYOBO)'
+);
+SELECT set_eq(
+  $$SELECT gateway, account_no FROM public.dma_visible_accounts('00000000-0000-4000-8000-000000002602')$$,
+  $$VALUES ('KB', '2600000001')$$,
+  '(U2, KB, …0001, KB 만 — 같은 문자열 dma-shared 지만 KYOBO 연결 없음 → …0011 안 보임)'
+);
+SELECT set_eq(
+  $$SELECT gateway, account_no FROM public.dma_visible_accounts('00000000-0000-4000-8000-000000002603')$$,
+  $$VALUES ('KB', '2600000002')$$,
+  '(U3, KB, …0002, 자기 자격증명만 — 자격증명과 같은 게이트웨이(KB) 연결 dma-shared 는 무시)'
+);
+SELECT set_eq(
+  $$SELECT gateway, account_no FROM public.dma_visible_accounts('00000000-0000-4000-8000-000000002604')$$,
+  $$VALUES ('KYOBO', '2600000012')$$,
+  '(U4, KYOBO, …0012, 연결 id dma-ky4 ≠ 자격증명 id dma-kb4 — 연결 계좌만)'
+);
+SELECT is_empty(
+  $$SELECT 1 FROM public.dma_visible_accounts('00000000-0000-4000-8000-000000002605')$$,
+  '(U5, KYOBO, —, 자격증명 없는 연결 — 0행)'
+);
+SELECT set_eq(
+  $$SELECT gateway, dma_user_id FROM public.dma_visibility_identities WHERE user_id = '00000000-0000-4000-8000-000000002603'$$,
+  $$VALUES ('KB', 'dma-solo')$$,
+  '(U3, 뷰, —, KB 자격증명 1행만 — 같은 게이트웨이 연결 행은 뷰에 없다)'
+);
+SELECT is_empty(
+  $$SELECT 1 FROM public.dma_visibility_identities WHERE user_id = '00000000-0000-4000-8000-000000002605'$$,
+  '(U5, 뷰, —, 0행 — 자격증명 없는 연결은 뷰에 없다)'
+);
+
+-- ── 5. ⑨ dma_journal_orders_for_user — 같은 규칙 · 중복 없음 ────────
+SELECT set_eq(
+  $$SELECT account_no FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000002601', '2026-09-29')$$,
+  $$VALUES ('2600000001'), ('2600000011')$$,
+  '(U1, KB+KYOBO, …0001 · …0011, ⑨ 두 계좌 행)'
+);
+SELECT set_eq(
+  $$SELECT account_no FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000002602', '2026-09-29')$$,
+  $$VALUES ('2600000001')$$,
+  '(U2, KB, …0001, ⑨ KB 행만 — KYOBO …0011 행 없음)'
+);
+SELECT set_eq(
+  $$SELECT account_no FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000002603', '2026-09-29')$$,
+  $$VALUES ('2600000002')$$,
+  '(U3, KB, …0002, ⑨ 자기 계좌 행만)'
+);
+SELECT set_eq(
+  $$SELECT account_no FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000002604', '2026-09-29')$$,
+  $$VALUES ('2600000012')$$,
+  '(U4, KYOBO, …0012, ⑨ 연결 계좌 행만)'
+);
+SELECT is_empty(
+  $$SELECT 1 FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000002605', '2026-09-29')$$,
+  '(U5, KYOBO, —, ⑨ 0행)'
+);
+SELECT is(
+  (SELECT count(*)::int - count(DISTINCT id)::int
+     FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000002601', '2026-09-29')),
+  0, '(U1, KB+KYOBO, …0001 · …0011, ⑨ 행 수 = distinct id 수 — 중복 없음)'
+);
+
+-- ── 6. 수명: 자격증명 삭제 · 사용자 삭제 ───────────────────────────
+DELETE FROM public.dma_credentials WHERE user_id = '00000000-0000-4000-8000-000000002601';
+SELECT is_empty(
+  $$SELECT 1 FROM public.dma_visible_accounts('00000000-0000-4000-8000-000000002601')$$,
+  '(U1, 자격증명 삭제 뒤, —, 가시 집합 0 — 연결 행이 남아도 allowlist 밖)'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.dma_gateway_identities WHERE user_id = '00000000-0000-4000-8000-000000002601'),
+  1, '(U1, 자격증명 삭제 뒤, KYOBO, 연결 행 1 남음 — 삭제는 운영자 몫)'
+);
+DELETE FROM auth.users WHERE id = '00000000-0000-4000-8000-000000002604';
+SELECT is(
+  (SELECT count(*)::int FROM public.dma_gateway_identities WHERE user_id = '00000000-0000-4000-8000-000000002604'),
+  0, '(U4, auth.users 삭제 뒤, KYOBO, 연결 행 0 — ON DELETE CASCADE)'
+);
+
+SELECT * FROM finish(true);
+
+ROLLBACK;

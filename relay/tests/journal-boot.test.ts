@@ -516,6 +516,8 @@ describe("다중 업스트림 (quick-260929-c8e)", () => {
       expect(exit, relay.output()).toEqual({ code: 0, signal: null });
       expect(relay.output()).not.toContain('"journalGateways"');
       expect(relay.output()).toContain('"journalObserver":"enabled"');
+      // quick-260929-sas — 추가 게이트웨이가 없으면 신원 조회 자체가 없다(오늘과 같다).
+      expect(supabase.requestsTo("/rest/v1/dma_visibility_identities")).toEqual([]);
     },
     TEST_TIMEOUT_MS,
   );
@@ -585,6 +587,17 @@ describe("다중 업스트림 (quick-260929-c8e)", () => {
       expect(applyBody.p_gateway).toBe("KYOBO");
       expect(applyBody.p_epoch).toBe("ep-kyobo");
       expect(applyBody.p_events.map((e) => e.seq)).toEqual([1]);
+
+      // quick-260929-sas — 추가 게이트웨이 신원은 규칙 뷰에서 그 게이트웨이 키로만 읽는다(부팅 즉시).
+      const identityReads = await waitFor(
+        () => supabase.requestsTo("/rest/v1/dma_visibility_identities"),
+        (rs) => rs.some((r) => r.query.gateway === "in.(KYOBO)"),
+        "dma_visibility_identities gateway=in.(KYOBO) 조회",
+        relay,
+      );
+      const identityRead = identityReads.find((r) => r.query.gateway === "in.(KYOBO)");
+      const identitySelect = (identityRead?.query.select ?? "").split(",").map((c) => c.trim());
+      expect(identitySelect).toEqual(expect.arrayContaining(["user_id", "dma_user_id"]));
 
       const h = await waitFor(
         () => getHealthz(relay.orderApiPort),

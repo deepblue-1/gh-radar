@@ -37,7 +37,7 @@ import { encryptDmaPassword } from "../src/store/credentials.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { JournalAccess } from "../src/journal/access.js";
 import { JournalWriter, toApplyEvent, type JournalApplyEvent } from "../src/journal/writer.js";
-import type { JournalRecord, StrategyEventRecord } from "../src/journal/types.js";
+import type { GatewayIdentityView, JournalRecord, StrategyEventRecord } from "../src/journal/types.js";
 import { JournalObserver } from "../src/journal/observer.js";
 import { createJournalCodec } from "../src/journal/codec.js";
 import { STRATEGY_APPLY_KEYS, createStrategyWriter, type StrategyApplyEvent } from "../src/journal/strategy-stream.js";
@@ -271,6 +271,11 @@ function journalFrames(inbox: RelayOutbound[]): JournalOrderRow[][] {
   return inbox.filter((m): m is Extract<RelayOutbound, { t: "journal.rows" }> => m.t === "journal.rows").map((m) => m.rows);
 }
 
+/** 추가 게이트웨이 신원 연결의 가짜 뷰 (quick-260929-sas) — gh-radar user_id → 그 게이트웨이의 dma_user_id. */
+function identityView(links: Readonly<Record<string, string>>): GatewayIdentityView {
+  return { dmaUserIdOf: (userId) => links[userId] };
+}
+
 async function flushIo(turns = 4): Promise<void> {
   for (let i = 0; i < turns; i += 1) {
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -497,7 +502,7 @@ describe("저널 푸시 — 레코드 → 기록기 → 적용 RPC → 계좌 �
     expect(stateFrames(u)).toEqual([]);
   });
 
-  it("⑥ 추가 게이트웨이(KYOBO) 매핑 푸시 (quick-260929-c8e) — 그 매핑으로만 거른다 · 인자 없으면 기존 매핑", async () => {
+  it("⑥ 추가 게이트웨이(KYOBO) 매핑 푸시 (quick-260929-c8e · 260929-sas 신원 연결) — 그 매핑으로만 거른다 · 인자 없으면 기존 매핑", async () => {
     await start();
     const { a1, a2, b, u } = await authAll();
     /** 가짜 교보 계좌 — 실계좌가 아니다(명백한 가짜값). */
@@ -505,10 +510,12 @@ describe("저널 푸시 — 레코드 → 기록기 → 적용 RPC → 계좌 �
     const kyoboAccess = new JournalAccess({ supabase: rpcSupabase(rpcCalls), gateway: "KYOBO", retryBaseMs: 10, retryMaxMs: 50 });
     try {
       kyoboAccess.replace([{ dmaUserId: "dma-other", accountNo: KYOBO_ACC, name: "교보 가짜 계좌", priority: 0 }]);
+      // quick-260929-sas — 추가 게이트웨이는 명시 신원 연결로만 잇는다(B → dma-other).
+      const kyoboRoute = { access: kyoboAccess, identities: identityView({ [USER_B]: "dma-other" }) };
 
       // KYOBO 매핑의 계좌 행 → 그 dma_user_id(dma-other) 를 가진 B 만 받는다.
       const kyoboRow = dbRowOf(toApplyEvent(record(20, KYOBO_ACC, "dma-other")));
-      fanout.deliverJournalRows([toJournalOrderRow(kyoboRow)], kyoboAccess);
+      fanout.deliverJournalRows([toJournalOrderRow(kyoboRow)], kyoboRoute);
       await waitFor(() => journalFrames(b).length === 1, "B KYOBO journal.rows");
       await flushIo(8);
       expect(journalFrames(b)).toEqual([[expect.objectContaining({ accountNo: KYOBO_ACC })]]);
@@ -518,7 +525,7 @@ describe("저널 푸시 — 레코드 → 기록기 → 적용 RPC → 계좌 �
 
       // 같은 KYOBO 매핑으로 ACC1 행을 보내면 아무도 받지 않는다 — KB 매핑을 보지 않는다.
       const acc1Row = toJournalOrderRow(dbRowOf(toApplyEvent(record(21, ACC1))));
-      fanout.deliverJournalRows([acc1Row], kyoboAccess);
+      fanout.deliverJournalRows([acc1Row], kyoboRoute);
       await flushIo(8);
       expect(journalFrames(a1)).toEqual([]);
       expect(journalFrames(a2)).toEqual([]);
@@ -636,6 +643,53 @@ describe("저널 푸시 — 레코드 → 기록기 → 적용 RPC → 계좌 �
       observer.stop();
       orderWriter.close();
       strategyWriter.close();
+    }
+  });
+  it("⑧ 추가 게이트웨이 journal.rows 는 명시 신원 연결로만 (quick-260929-sas) — 같은 자격증명 문자열이라도 연결 없으면 0", async () => {
+    await start();
+    const { a1, a2, b, u } = await authAll();
+    /** 가짜 교보 계좌 — 실계좌가 아니다(명백한 가짜값). */
+    const K1 = "5555555511";
+    const K2 = "5555555512";
+    const K9 = "5555555599";
+    const kyoboAccess = new JournalAccess({ supabase: rpcSupabase(rpcCalls), gateway: "KYOBO", retryBaseMs: 10, retryMaxMs: 50 });
+    try {
+      kyoboAccess.replace([
+        { dmaUserId: "dma-shared", accountNo: K1, name: "교보 가짜 계좌 1", priority: 0 },
+        { dmaUserId: "kyobo-b", accountNo: K2, name: "교보 가짜 계좌 2", priority: 0 },
+      ]);
+      // A1 만 dma-shared 로 연결 — A2 는 자격증명 문자열이 같은 dma-shared 지만 연결이 없다. B 는 자격증명(dma-other)과 다른 id.
+      const route = {
+        access: kyoboAccess,
+        identities: identityView({ [USER_A1]: "dma-shared", [USER_B]: "kyobo-b" }),
+      };
+
+      // K1 행 → A1 만. A2 는 0(핵심 회귀 — 자격증명 문자열로 잇지 않는다).
+      fanout.deliverJournalRows([toJournalOrderRow(dbRowOf(toApplyEvent(record(30, K1))))], route);
+      await waitFor(() => journalFrames(a1).length === 1, "A1 K1 journal.rows");
+      await flushIo(8);
+      expect(journalFrames(a1)).toEqual([[expect.objectContaining({ accountNo: K1 })]]);
+      expect(journalFrames(a2)).toEqual([]);
+      expect(journalFrames(b)).toEqual([]);
+      expect(journalFrames(u)).toEqual([]);
+
+      // K2 행 → B 만(연결 id kyobo-b 의 매핑).
+      fanout.deliverJournalRows([toJournalOrderRow(dbRowOf(toApplyEvent(record(31, K2, "kyobo-b"))))], route);
+      await waitFor(() => journalFrames(b).length === 1, "B K2 journal.rows");
+      await flushIo(8);
+      expect(journalFrames(b)).toEqual([[expect.objectContaining({ accountNo: K2 })]]);
+      expect(journalFrames(a1)).toHaveLength(1);
+      expect(journalFrames(a2)).toEqual([]);
+
+      // 누구에게도 매핑되지 않은 계좌 행 → 0.
+      fanout.deliverJournalRows([toJournalOrderRow(dbRowOf(toApplyEvent(record(32, K9, "kyobo-x"))))], route);
+      await flushIo(8);
+      expect(journalFrames(a1)).toHaveLength(1);
+      expect(journalFrames(a2)).toEqual([]);
+      expect(journalFrames(b)).toHaveLength(1);
+      expect(journalFrames(u)).toEqual([]);
+    } finally {
+      kyoboAccess.close();
     }
   });
 });
