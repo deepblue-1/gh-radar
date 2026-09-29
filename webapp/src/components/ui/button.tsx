@@ -21,7 +21,7 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-[var(--primary)] text-[var(--primary-fg)] hover:bg-[color-mix(in_oklch,var(--primary)_88%,black)]",
+          "bg-[var(--primary)] text-[var(--primary-fg)] hover:bg-[color-mix(in_oklab,var(--primary)_88%,black)]",
         // B `.btn` ghost = raised 채움 · 무테 (260924-vj1)
         secondary:
           "bg-[var(--muted)] text-[var(--secondary-fg)] border-transparent hover:bg-[var(--raised-2)]",
@@ -30,7 +30,7 @@ const buttonVariants = cva(
         ghost:
           "bg-transparent text-[var(--fg)] hover:bg-[var(--muted)]",
         destructive:
-          "bg-[var(--destructive)] text-[var(--destructive-fg)] hover:bg-[color-mix(in_oklch,var(--destructive)_88%,black)]",
+          "bg-[var(--destructive)] text-[var(--destructive-fg)] hover:bg-[color-mix(in_oklab,var(--destructive)_88%,black)]",
       },
       size: {
         // UI-SPEC §3.1 height 32/36/40, padding-x 10/14/18, font 12/14/16

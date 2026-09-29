@@ -883,7 +883,7 @@ export function ViConfirmDialog({
               type="button"
               variant="outline"
               onClick={onConfirm}
-              className="border-transparent bg-[var(--up)] text-[var(--destructive-fg)] hover:bg-[color-mix(in_oklch,var(--up)_88%,black)]"
+              className="border-transparent bg-[var(--up)] text-[var(--destructive-fg)] hover:bg-[color-mix(in_oklab,var(--up)_88%,black)]"
             >
               시작
             </Button>
@@ -893,7 +893,7 @@ export function ViConfirmDialog({
               type="button"
               variant="outline"
               onClick={onConfirm}
-              className="border-[var(--destructive)] bg-transparent text-[var(--destructive)] hover:bg-[color-mix(in_oklch,var(--destructive)_10%,transparent)]"
+              className="border-[var(--destructive)] bg-transparent text-[var(--destructive)] hover:bg-[color-mix(in_oklab,var(--destructive)_10%,transparent)]"
             >
               중지
             </Button>

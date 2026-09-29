@@ -477,7 +477,7 @@ export function ThemeEditDialog({
 
             {/* 삭제 확인 */}
             {confirmDelete ? (
-              <div className="flex flex-col gap-2 rounded-[var(--r)] border border-[color-mix(in_oklch,var(--destructive)_40%,var(--border))] bg-[color-mix(in_oklch,var(--destructive)_10%,transparent)] p-3">
+              <div className="flex flex-col gap-2 rounded-[var(--r)] border border-[color-mix(in_oklab,var(--destructive)_40%,var(--border))] bg-[color-mix(in_oklab,var(--destructive)_10%,transparent)] p-3">
                 <p className="text-[length:var(--t-sm)] text-[var(--destructive)]">
                   {isSystemEdit
                     ? `'${name}' 시스템 테마를 목록에서 숨길까요? worker 재동기화로 되살아나지 않습니다.`

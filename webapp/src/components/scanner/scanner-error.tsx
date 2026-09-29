@@ -26,7 +26,7 @@ export function ScannerError({ error, onRetry, retrying }: ScannerErrorProps) {
         borderWidth: 1,
         borderStyle: 'solid',
         borderColor:
-          'color-mix(in oklch, var(--destructive) 40%, var(--border))',
+          'color-mix(in oklab, var(--destructive) 40%, var(--border))',
       }}
     >
       <div className="flex items-start gap-3">

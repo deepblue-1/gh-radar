@@ -175,8 +175,8 @@ function sideFill(side: OrderSide): string {
   return cn(
     'border-transparent text-[var(--destructive-fg)]',
     side === 'B'
-      ? 'bg-[var(--up)] hover:bg-[color-mix(in_oklch,var(--up)_88%,black)]'
-      : 'bg-[var(--down)] hover:bg-[color-mix(in_oklch,var(--down)_88%,black)]',
+      ? 'bg-[var(--up)] hover:bg-[color-mix(in_oklab,var(--up)_88%,black)]'
+      : 'bg-[var(--down)] hover:bg-[color-mix(in_oklab,var(--down)_88%,black)]',
   );
 }
 
@@ -206,7 +206,7 @@ function orgLine(
 }
 
 const WARN_BOX =
-  'rounded-[var(--r-md)] border border-[var(--destructive)] bg-[color-mix(in_oklch,var(--destructive)_8%,transparent)] px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--t-caption)] text-[var(--fg)] break-words';
+  'rounded-[var(--r-md)] border border-[var(--destructive)] bg-[color-mix(in_oklab,var(--destructive)_8%,transparent)] px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--t-caption)] text-[var(--fg)] break-words';
 
 export function OrderConfirmDialog({
   detail,
@@ -295,7 +295,7 @@ function ConfirmButton({
   if (detail.mode === 'cancel') {
     /* 채움 금지 — `--destructive` 는 `--up`(매수)과 같은 색이다. 테두리 + ✕ 로 구분한다. */
     const cls =
-      'border-[var(--destructive)] text-[var(--destructive)] hover:bg-[color-mix(in_oklch,var(--destructive)_10%,transparent)]';
+      'border-[var(--destructive)] text-[var(--destructive)] hover:bg-[color-mix(in_oklab,var(--destructive)_10%,transparent)]';
     return (
       <Button type="button" variant="outline" onClick={onClick} disabled={busy} className={cls}>
         {detail.accountNo !== undefined ? (

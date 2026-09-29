@@ -153,7 +153,7 @@ function isSearchHubPath(pathname: string): boolean {
 const LINK_BASE =
   "flex items-center gap-2 rounded-[var(--r)] px-3 py-2 text-[length:var(--t-sm)]";
 const LINK_IDLE =
-  "text-[var(--muted-fg)] hover:bg-[color-mix(in_oklch,var(--muted)_60%,transparent)] hover:text-[var(--fg)]";
+  "text-[var(--muted-fg)] hover:bg-[color-mix(in_oklab,var(--muted)_60%,transparent)] hover:text-[var(--fg)]";
 // B 사이드바 `a.on` — sketch 003-A(260925-gy6): 라이트 blue50 면 + blue600 글자 ·
 // 다크 = 종전 raised 면 + fg(선택 토큰의 다크 값이 `--muted`·`--fg` 와 같다).
 const LINK_ACTIVE = "bg-[var(--nav-on-bg)] text-[var(--nav-on-fg)] font-semibold";

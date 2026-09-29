@@ -157,8 +157,8 @@ function srNounOf(kind: LatchLedKind): string {
 /** 도트 색 — CSS 토큰을 클래스로만 쓴다. 토큰 값을 JS 로 읽어 주입하지 않는다. */
 const DOT_CLASS: Record<LatchLedTone, string> = {
   off: "border-[1.5px] border-[var(--muted-fg)] bg-transparent",
-  latent: "bg-[var(--led-latent)] shadow-[0_0_0_2px_color-mix(in_oklch,var(--led-latent)_28%,transparent)]",
-  armed: "bg-[var(--led-armed)] shadow-[0_0_0_2px_color-mix(in_oklch,var(--led-armed)_28%,transparent)]",
+  latent: "bg-[var(--led-latent)] shadow-[0_0_0_2px_color-mix(in_oklab,var(--led-latent)_28%,transparent)]",
+  armed: "bg-[var(--led-armed)] shadow-[0_0_0_2px_color-mix(in_oklab,var(--led-armed)_28%,transparent)]",
 };
 
 export interface LatchLedProps {

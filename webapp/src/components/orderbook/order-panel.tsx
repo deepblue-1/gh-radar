@@ -477,7 +477,7 @@ export function OrderPanel({
             className={cn(
               'mono flex-1 text-right',
               flash &&
-                'border-[var(--ring)] motion-safe:shadow-[0_0_0_3px_color-mix(in_oklch,var(--ring)_28%,transparent)]',
+                'border-[var(--ring)] motion-safe:shadow-[0_0_0_3px_color-mix(in_oklab,var(--ring)_28%,transparent)]',
             )}
           />
           <Button
@@ -549,8 +549,8 @@ export function OrderPanel({
           className={cn(
             'w-full border-transparent text-[var(--destructive-fg)]',
             isBuy
-              ? 'bg-[var(--up)] hover:bg-[color-mix(in_oklch,var(--up)_88%,black)]'
-              : 'bg-[var(--down)] hover:bg-[color-mix(in_oklch,var(--down)_88%,black)]',
+              ? 'bg-[var(--up)] hover:bg-[color-mix(in_oklab,var(--up)_88%,black)]'
+              : 'bg-[var(--down)] hover:bg-[color-mix(in_oklab,var(--down)_88%,black)]',
           )}
         >
           {submitLabel}

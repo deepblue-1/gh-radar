@@ -134,7 +134,7 @@ function CandidateRow({ c }: { c: CoMovementCandidate }) {
     <div
       className={cn(
         'overflow-hidden rounded-[var(--r)] border border-transparent bg-[var(--card)]',
-        'transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))]',
+        'transition-colors hover:border-[color-mix(in_oklab,var(--primary)_30%,var(--border))]',
       )}
     >
       <Link
@@ -173,7 +173,7 @@ function CandidateRow({ c }: { c: CoMovementCandidate }) {
               </span>
             )}
             {c.isTrailing && (
-              <span className="inline-flex items-center gap-1 rounded-full border border-[color-mix(in_oklch,var(--down)_35%,var(--border))] bg-[var(--down-bg)] px-2 text-[11px] font-bold text-[var(--down)]">
+              <span className="inline-flex items-center gap-1 rounded-full border border-[color-mix(in_oklab,var(--down)_35%,var(--border))] bg-[var(--down-bg)] px-2 text-[11px] font-bold text-[var(--down)]">
                 <History aria-hidden="true" className="size-[10px]" />
                 후행형
               </span>
@@ -354,7 +354,7 @@ export function StockComovementSection({ stockCode }: StockComovementSectionProp
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}
-              className="mt-[var(--s-2)] w-full rounded-[var(--r)] border border-transparent bg-[var(--card)] px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--t-sm)] font-semibold text-[var(--muted-fg)] transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))] hover:text-[var(--fg)]"
+              className="mt-[var(--s-2)] w-full rounded-[var(--r)] border border-transparent bg-[var(--card)] px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--t-sm)] font-semibold text-[var(--muted-fg)] transition-colors hover:border-[color-mix(in_oklab,var(--primary)_30%,var(--border))] hover:text-[var(--fg)]"
             >
               {expanded
                 ? '접기'

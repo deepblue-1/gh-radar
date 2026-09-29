@@ -504,6 +504,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 35 | 상따 카드 「다른 단말에서 변경」 배너·로그 줄 제거 — (a) 수정하던 값 N개 · (b) 서버 값으로 맞췄어요 둘 다 · onServerEcho·ECHO_BANNER_MS 정리 · vitest trading 1404 · e2e 13·P24-6 green · 미배포 (1a2c9944) | 2026-09-29 | 1a2c9944 | — |
 | 36 | VI 설정 줄 「다른 단말에서 변경됨」 고지 제거 — 상따 카드 배너 제거와 짝 · vitest trading 1404 green (92fbebbe) | 2026-09-29 | 92fbebbe | — |
 | 37 | 오늘 주문 종목명 누락 — relay 스냅샷에 없는 종목은 stocks 마스터 이름 폴백(ISIN 당 세션 1회) | 2026-09-29 | 829d2729 | — |
+| 38 | 크롬 무채색 분홍 끼 — color-mix `in oklch` → `in oklab` 64곳/37파일(Chromium 이 저채도 hue 를 none=0° 로 떨굼 · 헤더 등). WebKit 과 픽셀 일치 · vitest 2823 green | 2026-09-29 | 5aa2dbbe | — |
 
 ## Session Continuity
 

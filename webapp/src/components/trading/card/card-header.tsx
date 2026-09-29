@@ -326,7 +326,7 @@ export function CardHeader({
             {unfilledCount > 0 && (
               <span
                 data-slot="card-summary-unfilled"
-                className="inline-flex h-[22px] flex-none items-center gap-1 rounded-full border border-[color-mix(in_oklch,var(--primary)_40%,transparent)] bg-[var(--accent)] px-2 text-[11px] font-semibold whitespace-nowrap text-[var(--accent-fg)]"
+                className="inline-flex h-[22px] flex-none items-center gap-1 rounded-full border border-[color-mix(in_oklab,var(--primary)_40%,transparent)] bg-[var(--accent)] px-2 text-[11px] font-semibold whitespace-nowrap text-[var(--accent-fg)]"
               >
                 미체결 <span className="mono">{KRW.format(unfilledCount)}</span>
               </span>

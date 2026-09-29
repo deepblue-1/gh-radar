@@ -52,7 +52,7 @@ export function AppHeader({ nav, onMenuClick, themeToggle = false }: AppHeaderPr
           올라와 옛 `z-10` 헤더를 덮었다(21-06 실측 — 앱 본문 108 여백으로 짧은 화면에서도 드러났다).
           하단 고정층(공용 패널 z-20 · CTA z-30 · FAB/더티 바 z-40)과는 겹치지 않고, 시트·토스트(z-50)는 여전히 위다.
       */
-      className="sticky top-0 z-30 box-content flex h-14 items-center pt-[var(--app-safe-top)] gap-3 bg-[color-mix(in_oklch,var(--bg)_88%,transparent)] px-2 backdrop-blur-md md:px-4 lg:px-6"
+      className="sticky top-0 z-30 box-content flex h-14 items-center pt-[var(--app-safe-top)] gap-3 bg-[color-mix(in_oklab,var(--bg)_88%,transparent)] px-2 backdrop-blur-md md:px-4 lg:px-6"
     >
       <div className="flex items-center gap-2">
         {onMenuClick && (

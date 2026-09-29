@@ -182,7 +182,7 @@ function StrategyRow({
       aria-label={`${name} ${item.exchange} 전략${badgeText === "" ? "" : ` — ${badgeText}`}`}
       className={cn(
         "flex min-h-11 min-w-0 flex-col justify-center gap-0.5 rounded-[var(--r)] px-2 py-2",
-        "hover:bg-[color-mix(in_oklch,var(--muted)_60%,transparent)]",
+        "hover:bg-[color-mix(in_oklab,var(--muted)_60%,transparent)]",
       )}
     >
       {/*
@@ -325,7 +325,7 @@ function DisableAllDialog({
             type="button"
             variant="outline"
             onClick={onConfirm}
-            className="border-[var(--destructive)] bg-transparent text-[var(--destructive)] hover:bg-[color-mix(in_oklch,var(--destructive)_10%,transparent)]"
+            className="border-[var(--destructive)] bg-transparent text-[var(--destructive)] hover:bg-[color-mix(in_oklab,var(--destructive)_10%,transparent)]"
           >
             전체 비활성화
           </Button>
@@ -532,7 +532,7 @@ export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
         data-slot="vi-status-row"
         className={cn(
           "mt-1 flex min-h-11 flex-wrap items-center gap-2 rounded-[var(--r)] border-t border-[var(--border-subtle)] px-2 py-2.5",
-          "hover:bg-[color-mix(in_oklch,var(--muted)_60%,transparent)]",
+          "hover:bg-[color-mix(in_oklab,var(--muted)_60%,transparent)]",
         )}
       >
         <span className="text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
@@ -565,7 +565,7 @@ export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
           variant="outline"
           disabled={nothingToDisable || awaitingAck || status !== "ready"}
           onClick={() => setDialogOpen(true)}
-          className="border-[var(--destructive)] bg-transparent text-[var(--destructive)] hover:bg-[color-mix(in_oklch,var(--destructive)_10%,transparent)] disabled:opacity-[.45]"
+          className="border-[var(--destructive)] bg-transparent text-[var(--destructive)] hover:bg-[color-mix(in_oklab,var(--destructive)_10%,transparent)] disabled:opacity-[.45]"
         >
           전체 비활성화
         </Button>

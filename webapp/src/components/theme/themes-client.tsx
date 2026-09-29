@@ -178,7 +178,7 @@ export function ThemesClient() {
         ) : error && systemThemes.length === 0 ? (
           <div
             role="alert"
-            className="rounded-[var(--r)] border border-[color-mix(in_oklch,var(--destructive)_40%,var(--border))] bg-[color-mix(in_oklch,var(--destructive)_10%,transparent)] p-4 text-[length:var(--t-sm)] text-[var(--destructive)]"
+            className="rounded-[var(--r)] border border-[color-mix(in_oklab,var(--destructive)_40%,var(--border))] bg-[color-mix(in_oklab,var(--destructive)_10%,transparent)] p-4 text-[length:var(--t-sm)] text-[var(--destructive)]"
           >
             {ERROR_MSG}
             <Button

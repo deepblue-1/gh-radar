@@ -18,7 +18,7 @@ export function ThemesEmpty({ onCreate }: ThemesEmptyProps) {
   return (
     <div
       role="status"
-      className="flex flex-col items-start gap-3 rounded-[var(--r)] border border-dashed border-[color-mix(in_oklch,var(--primary)_30%,var(--border))] bg-[var(--card)] p-5"
+      className="flex flex-col items-start gap-3 rounded-[var(--r)] border border-dashed border-[color-mix(in_oklab,var(--primary)_30%,var(--border))] bg-[var(--card)] p-5"
     >
       <div className="flex items-center gap-2">
         <Sparkles

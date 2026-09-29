@@ -533,7 +533,7 @@ export function AccountPanel({
           openCancel(view.row, view.label ?? view.row.isin);
         }}
         className={cn(
-          'h-[26px] border-[var(--destructive)] px-2 text-[11px] text-[var(--destructive)] hover:bg-[color-mix(in_oklch,var(--destructive)_10%,transparent)] max-[899px]:h-8',
+          'h-[26px] border-[var(--destructive)] px-2 text-[11px] text-[var(--destructive)] hover:bg-[color-mix(in_oklab,var(--destructive)_10%,transparent)] max-[899px]:h-8',
           className,
         )}
       >
