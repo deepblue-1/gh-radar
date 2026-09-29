@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 25
 current_phase_name: order-log-progress
 status: executing
-stopped_at: Phase 25 UI-SPEC approved
-last_updated: "2026-09-29T07:16:19.438Z"
+stopped_at: Completed 25-01-PLAN.md
+last_updated: "2026-09-29T09:52:48.758Z"
 last_activity: 2026-09-29
-last_activity_desc: Phase 24 complete — 갭 클로징 R4 재검증 passed 22/22 · R5 리뷰 Warning 2 후속
-state_head: ef5c696738e88ab0bddd3ffc330d82db83159e23
+last_activity_desc: Phase 25 execution started
+state_head: fd95713fc09c3462f374008ec0fc89ca256ae411
 progress:
   total_phases: 34
-  completed_phases: 5
+  completed_phases: 4
   total_plans: 336
-  completed_plans: 308
+  completed_plans: 309
 milestone_name: milestone
 ---
 
@@ -24,17 +24,17 @@ milestone_name: milestone
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 24 — gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영
+**Current focus:** Phase 25 — order-log-progress
 
 ## Current Position
 
-Phase: 25 (order-log-progress) — READY TO EXECUTE
-Plan: Not started
+Phase: 25 (order-log-progress) — EXECUTING
+Plan: 2 of 12
 Plans completed: 220 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-29 - Completed quick task 260929-k7u: 24 R5 후속 — 자동 체크 사유 「무장 안 됨」 · ⑬ 흐름 안 확정 보존 테스트
+Last activity: 2026-09-29 — Phase 25 execution started
 
 Progress: [█████████░] 93%
 
@@ -160,6 +160,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 24 P22 | 11 min | 3 tasks | 9 files |
 | Phase 24 P23 | 9min | 2 tasks | 6 files |
 | Phase 24 P24 | 2h52m | 3 tasks | 1 files |
+| Phase 25 P01 | 26min | 2 tasks | 48 files |
 
 ## Accumulated Context
 
@@ -403,6 +404,10 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 24]: 24-23 GC-IN-04: e2e 부재 관찰 창 FOLD_QUIET_MS = 3초(LC_FOLD_HIDDEN_DEFER_MS × 2) · 「1건」은 waitForSetAtGateway 사건 · P24-3/4/6 숫자 고정 대기 0
 - [Phase 24]: 24-24 사용자 승인: D-36 새 문구 · 판단 6건(GC-WR-01 창 안 같은 변화 에코=내 답 · GC-WR-02 · GC-WR-03 두 단계 판정 · GC-IN-02 숨음 N건+지터 이월 · D-37 relay 옛 주석은 gh-trade sync 몫 · 거부 실패 켜기엔 자동 체크 줄 없음) 모두 수용 — 이월: relay 소켓 상관 · 유예 지터
 - [Phase 24]: 24-24 배포: origin/master 앞섬은 phase 브랜치에서 git merge --no-ff origin/master(rebase 안 함) → 병합 트리 게이트 재실행 → master fast-forward push(d6194dcd) · Vercel 자동 빌드 Ready · relay 재배포 없음(relay:94ebc91c 유지)
+- [Phase 25]: 25-01: 관찰자 두 스트림 — JournalWriter 스트림 서술자 주입(JournalStreamSpec) · 커서 2 · since 2(epoch 짝 가드) · pending 2 · 주문 push 먼저
+- [Phase 25]: 25-01: journal.events 시세 공개 판정은 kind 로만(isMarketStrategyEvent) — 빈 계좌번호 판정 금지(T-25-01)
+- [Phase 25]: 25-01: relay 테스트는 shared 소스 픽스처를 런타임 동적 import 로 읽는다(NodeNext · rootDir 경계 — 값 두 벌 금지)
+- [Phase 25]: 25-01: dma_strategy_events enum 칸 CHECK 없음 · 전략 커서는 dma_journal_cursor 전략 칸 2(주문 칸 불변) · 원격 미적용(25-11) — relay 배포는 마이그레이션 적용 뒤
 
 ### Pending Todos
 
@@ -468,10 +473,10 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/25-order-log-progress/25-UI-SPEC.md
+**Resume file:** None
 
-Last session: 2026-09-29T05:50:58.529Z
-Stopped at: Phase 25 UI-SPEC approved
+Last session: 2026-09-29T09:51:59.309Z
+Stopped at: Completed 25-01-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.

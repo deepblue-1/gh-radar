@@ -1314,12 +1314,12 @@ Plans:
 **정본:** `reference/` 9개 파일(기획서 전문 · gh-radar 함의 · 필드 v0.1 · 대조 기록 · 목업 2종) · gh-trade `docs/features/order-journal.md` · 이 저장소 `19-GH-TRADE-HANDOFF.md`(저널 규약 동형).
 **Requirements**: TBD
 **Depends on:** Phase 19 (계좌 저널 관찰자) · Phase 24 (상따 3그룹 용어) · gh-trade StrategyEvent/QueueProgress 서버 phase
-**Plans:** 12 plans
+**Plans:** 1/12 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 25-01-PLAN.md — 트레이서: BuyOrder 한 건 — 생성물 커밋(G1 blob f08677d9) · 80 두 스트림 · 전략 기록기 · journal.events · 웹 스토어 · 주문로그 한 줄 + dma_strategy_events/apply 마이그레이션 · pgTAP (W1)
+- [x] 25-01-PLAN.md — 트레이서: BuyOrder 한 건 — 생성물 커밋(G1 blob f08677d9) · 80 두 스트림 · 전략 기록기 · journal.events · 웹 스토어 · 주문로그 한 줄 + dma_strategy_events/apply 마이그레이션 · pgTAP (W1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
