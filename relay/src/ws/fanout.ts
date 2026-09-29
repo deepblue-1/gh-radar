@@ -696,6 +696,11 @@ export class WsFanout {
     this.#send(conn, { t: "rate.cross.snap", items: this.#hub.getRateCrossItems(userId) });
     const queuedWindow = this.#hub.getQueuedWindow(userId);
     if (queuedWindow !== undefined) this.#send(conn, queuedWindow);
+    // ⚠️ `unf.progress` snap:true 는 `rate.cross.snap` 과 같다 — **비어 있어도 1프레임 보낸다** (25-06).
+    //    빈 배열은 「지금 보이는 진행 중 대기 없음」의 확정 정보이고, 웹은 snap 이면 Map 을 전량 교체한다
+    //    (새 탭 · 재접속 뒤 옛 진행률이 남지 않는다). 83 은 Broadcast 라 캐시에는 hub 가 세션 허용 계좌로
+    //    거르고 주문자를 뺀 항목만 있다(T-25-24 · T-25-25). 라이브 83 은 hub `fanout` 이벤트 경로 그대로다.
+    this.#send(conn, { t: "unf.progress", snap: true, entries: this.#hub.getQueueProgressEntries(userId) });
 
     // ⚠️ `nxt.snap` 은 `lc.snap` 과 같다 — 집합이 **적재돼 있을 때만** 보낸다 (quick-260923-pq2).
     //    적재 전(콜드 부팅 · 57 미수신)의 「모름」을 빈 배열로 내리면 브라우저가 모든 종목에서

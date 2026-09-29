@@ -75,12 +75,14 @@ import {
 } from '../../../relay/tests/helpers/fake-gateway.js';
 import {
   buildAccountStateFrame,
+  buildQueueProgressFrame,
   buildServerMessageFrame,
 } from '../../../relay/tests/helpers/frames.js';
 import type {
   FakeAccountStateInput,
   FakeLimitChaserInput,
   FakeOrderRespInput,
+  FakeQueueProgressInput,
   FakeServerMessageInput,
   FakeViOrderItemInput,
   FakeViTriggerInput,
@@ -103,6 +105,9 @@ export { MSG as DMA_MSG };
  */
 export { readSetLimitChaserRequest, readViConfirmRequest, readViSetRequest };
 export type { SetLimitChaserRequest, StrategyRequest, ViConfirmRequest, ViSetRequest };
+
+/** 잔량진행률(83) 주입 입력 재export — spec 이 relay 테스트 헬퍼 경로를 다시 import 하지 않게 한다 (25-06). */
+export type { FakeQueueProgressInput };
 
 // ---------------------------------------------------------------------------
 // 상수 — 값의 정본은 여기 한 곳이다
@@ -239,6 +244,15 @@ export interface LocalRelay {
    * 채우지 않는다. spec 이 의도한 값을 그대로 실어 보낸다.
    */
   pushServerMessage(input?: FakeServerMessageInput): Promise<void>;
+  /**
+   * 잔량진행률(83 `QueueProgress`)을 지금 밀어 넣는다 — **진행률 B안 보조행 e2e 의 유일한 주입구**다 (25-06).
+   *
+   * 사용자 세션 소켓(`pushAccountState` 와 같은 경로)으로 보내므로 relay hub 의 세션 허용 계좌 필터 ·
+   * 주문자 제거 · 전량 교체를 실제 코드로 지난다. 종목 기본값은 `E2E_ISIN`, 항목 계좌 기본값은
+   * `E2E_ACCOUNT_NO` 다(로그인 응답의 계좌와 같아야 필터를 통과한다). `items: []` 는 「그 종목 · 거래소
+   * 대기 주문 전부 사라짐」이다.
+   */
+  pushQueueProgress(input: FakeQueueProgressInput): Promise<void>;
   /**
    * `dma_orders` 스텁에 들어온 insert 바디 누적 (D-03).
    * 「주문이 나갔는데 기록이 없다」를 spec 이 확인할 수 있게 남긴다 — 스텁이 감사 기록을
@@ -682,6 +696,16 @@ export async function withLocalRelay(): Promise<LocalRelay> {
     },
     async pushServerMessage(input) {
       gateway.sendFrame(await gatewaySocket(), buildServerMessageFrame(input));
+    },
+    async pushQueueProgress(input) {
+      gateway.sendFrame(
+        await gatewaySocket(),
+        buildQueueProgressFrame({
+          isin: E2E_ISIN,
+          ...input,
+          items: (input.items ?? []).map((it) => ({ accountNo: E2E_ACCOUNT_NO, ...it })),
+        }),
+      );
     },
     orderInserts() {
       return [...supabase.orderInserts];
