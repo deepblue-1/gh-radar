@@ -606,7 +606,9 @@ export function GroupHeaderCheck({
         disabled={disabled}
         onClick={onToggle}
         className={cn(
-          'relative flex min-h-8 flex-none items-center gap-1.5 whitespace-nowrap rounded-[10px] px-1',
+          // -ml-2 = 제목줄 gap-2 를 체크 앞에서만 되돌린다 — 본문 344 에서 「후매수 ›」 가 한 줄에 서게(P24-7 실측).
+          //   체크 → 스위치 간격 8 은 그대로 둔다(두 컨트롤 오터치 방어).
+          'relative -ml-2 flex min-h-8 flex-none items-center gap-1 whitespace-nowrap rounded-[10px]',
           'disabled:cursor-not-allowed disabled:opacity-50',
           "after:absolute after:inset-x-0 after:-inset-y-[6px] after:content-['']",
         )}

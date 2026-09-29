@@ -2927,6 +2927,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       postBuyFloorQty: 17_700_000,
       postBuyReboundPct: 100,
       postBuyTriggerQty: 330_000,
+      // quick-260929-vzy — 후매수 제목줄 「자동」 체크(켜짐 = 라벨 가장 진한 상태).
+      postBuyAuto: true,
     };
     relay.seedLimitChasers([WORST]);
     await page.goto(FOCUS_URL);
@@ -3065,6 +3067,42 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       await setAllFolds(true);
     };
 
+    /**
+     * 후매수 제목줄(quick-260929-vzy D-05) — 넘침 0 · 「자동」 라벨 잘림 0 · 체크 높이 ≥ 32 · 스위치가 마지막 자식이고 오른쪽 끝.
+     * 넘치면 `GroupHeaderCheck` 쪽(간격 · 패딩 · 라벨)만 고친다 — 스위치 크기 · 위치는 오터치 방어다(Phase 16 D-05).
+     */
+    const headerChecks: Record<number, string> = {};
+    const checkPostBuyHeader = async (target: number, label: string) => {
+      const h = await page.evaluate((sel) => {
+        const header = document.querySelector<HTMLElement>(`${sel} [data-slot="lc-group-post-buy"] [data-slot="lc-group-header"]`)!;
+        const check = header.querySelector<HTMLElement>('[data-slot="lc-group-header-check"]')!;
+        const last = header.lastElementChild as HTMLElement;
+        const cr = check.getBoundingClientRect();
+        const sr = last.getBoundingClientRect();
+        const title = Array.from(header.querySelectorAll<HTMLElement>('span')).find((e) => e.textContent === '후매수');
+        return {
+          titleRects: title?.getClientRects().length ?? -1,
+          headerOver: header.scrollWidth - header.clientWidth,
+          checkOver: check.scrollWidth - check.clientWidth,
+          checkH: Math.round(cr.height * 10) / 10,
+          checkW: Math.round(cr.width * 10) / 10,
+          lastRole: last.getAttribute('role'),
+          switchRight: sr.right,
+          checkRight: cr.right,
+          headerRight: header.getBoundingClientRect().right,
+        };
+      }, OPTIONS_SEL);
+      expect(h.headerOver, `${label} — 후매수 제목줄 넘침 0`).toBeLessThanOrEqual(0);
+      // 제목 낱말이 갈리지 않는다(「후매 / 수」 — 체크가 흐름 폭을 먹으면 break-word 가 낱말 안에서 끊는다).
+      expect(h.titleRects, `${label} — 「후매수」 한 덩어리`).toBe(1);
+      expect(h.checkOver, `${label} — 「자동」 라벨 잘림 0`).toBeLessThanOrEqual(0);
+      expect(h.checkH, `${label} — 「자동」 체크 높이 ≥ 32`).toBeGreaterThanOrEqual(32);
+      expect(h.lastRole, `${label} — 스위치가 제목줄 마지막 자식`).toBe('switch');
+      expect(h.switchRight, `${label} — 스위치가 체크보다 오른쪽`).toBeGreaterThanOrEqual(h.checkRight);
+      expect(h.switchRight, `${label} — 스위치가 제목줄 오른쪽 끝 안`).toBeLessThanOrEqual(h.headerRight + 0.5);
+      headerChecks[target] = `체크 ${h.checkW}×${h.checkH}`;
+    };
+
     const setsBefore = lcSetCount(relay);
     for (const target of [344, LC_COMPACT_MIN, 830, 992]) {
       await sizeCardTo(page, E2E_ISIN, target);
@@ -3077,6 +3115,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
         await expect(card.locator('[data-pane="buy"]')).toBeVisible();
         const buyRows = await checkExpanded(target, `${target} 매수 pane`);
         expect(buyRows).toContain('lc-post-buy-trigger');
+        await checkPostBuyHeader(target, `${target} 매수 pane`);
         await checkCollapsed(target, `${target} 매수 pane`);
         await tablist.getByRole('tab', { name: '매도' }).click();
         await expect(card.locator('[data-pane="sell"]')).toBeVisible();
@@ -3087,6 +3126,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
         await expect(card.locator('[data-pane="sell"]')).toBeVisible();
         const rows = await checkExpanded(target, `${target} 2열`);
         expect(rows).toEqual(expect.arrayContaining(['lc-post-buy-trigger', 'lc-derived', 'lc-extra-buy-max-qty']));
+        await checkPostBuyHeader(target, `${target} 2열`);
         await checkCollapsed(target, `${target} 2열`);
       }
     }
@@ -3095,6 +3135,12 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       type: 'P24-7 행 최소 여유(px)',
       description: Object.entries(minFree)
         .map(([k, v]) => `${k}: ${v.free} (${v.what})`)
+        .join(' · '),
+    });
+    test.info().annotations.push({
+      type: 'P24-7 후매수 제목줄 「자동」',
+      description: Object.entries(headerChecks)
+        .map(([k, v]) => `${k}: ${v}`)
         .join(' · '),
     });
     test.info().annotations.push({

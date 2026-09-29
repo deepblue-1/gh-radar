@@ -1048,6 +1048,47 @@ export function LimitChaserForm({
     [commitField],
   );
 
+  /**
+   * 매수주문(마스터) 스위치 — **사람의 스위치 핸들러에서만** 부른다(quick-260929-vzy D-06).
+   *
+   * - 끄는 방향: 같은 `lc.set` 에 후매수 ☐자동도 끈다(`postBuyAuto: false`). WinForms `HandleArmToggle` 의
+   *   `chk == chkBuyEnabled` 동형이다 — 사람이 매수주문을 껐는데 서버 자동이 나중에 마스터를 다시 올려 사게 두지 않는다.
+   *   값 동반이라 대기열에서 꺼낼 때도 같은 값이고, 실패하면 훅 ⑪ 이 두 컨트롤을 함께 서버 값으로 되돌린다.
+   * - 켜는 방향: 종전 그대로(자동을 건드리지 않는다).
+   * ★ 사람 스위치에서만 동작한다. D-02 전반(`commitGroupSwitch` 마지막 그룹 끄기의 마스터 동반) · D-02 후반
+   *   (`dropMasterAfterServerFold`)은 자동을 건드리지 않는다(WinForms 동형 — 그 경로의 마스터 끔은 사람의 매수주문 끄기가 아니다).
+   */
+  const commitMasterSwitch = useCallback(
+    (on: boolean) => {
+      if (on) commitField('buyEnabled', true, 'toggle');
+      else commitField('buyEnabled', false, 'toggle', { postBuyAuto: false });
+    },
+    [commitField],
+  );
+
+  /**
+   * 후매수 ☐자동 체크(quick-260929-vzy · P-2) — 판정은 서버다. 폼은 입력을 보내고 에코 값을 보인다.
+   *
+   * - 켜는 방향: 후매수 켜기와 **같은 사전 검증**(금액 · 수량 · 반등 1~100 · 매도비율)을 지난다 — 서버가 불완전한
+   *   자동(수량 0 · 반등 0 · 매도비율 0)을 ERROR 로 눕히기 때문이다. 실패면 전송 0 · 후매수 카드 한 줄(체크는 움직이지
+   *   않는다). 통과면 자동만 보낸다 — 마스터는 켜지 않는다(발화 때 서버 몫 · WinForms 동형).
+   * - 끄는 방향: 무장 해제라 언제나 보낸다(T-16-44).
+   */
+  const commitPostBuyAuto = useCallback(
+    (on: boolean) => {
+      if (on) {
+        const failed = groupPrecheckOf('postBuyEnabled', lcBaseValues(serverRef.current, formRef.current));
+        if (failed !== null) {
+          setPrecheck({ slot: 'post-buy', gate: 'postBuyEnabled', text: failed });
+          return;
+        }
+        setPrecheck((cur) => (cur !== null && cur.slot === 'post-buy' ? null : cur));
+      }
+      commitField('postBuyAuto', on, 'toggle');
+    },
+    [commitField],
+  );
+
   /*
     그룹 켬 자동 체크 로그(D-06 · D-35) — 그 제출이 **성공한 뒤** 한 줄(「{선매수|추가매수} 자동 체크 — …」). 성공 필드 ·
     서버 ON 재확인은 **슬롯 키(켠 그룹)** 로 본다. 카드 `pushClientLog` 가 한 박자 늦게 쌓으므로 같은 에코의 D-01 줄
@@ -1436,7 +1477,13 @@ export function LimitChaserForm({
               checked={form[gate]}
               // ★ 켜는 방향만 막는다 — `!form[gate]` 를 넘기므로 **켜져 있으면 언제나 끌 수 있다**.
               disabled={gateDisabled(gate)}
-              onCheckedChange={(v) => (isBuyGroupGate(gate) ? commitGroupSwitch(gate, v) : commitToggle(gate, v))}
+              onCheckedChange={(v) =>
+                isBuyGroupGate(gate)
+                  ? commitGroupSwitch(gate, v)
+                  : gate === 'buyEnabled'
+                    ? commitMasterSwitch(v)
+                    : commitToggle(gate, v)
+              }
               failureText={toggleFailureTextOf(gate)}
             />
           ) : undefined
@@ -1453,8 +1500,9 @@ export function LimitChaserForm({
               busy={isBusy('postBuyAuto')}
               flash={lc.flashField === 'postBuyAuto'}
               failureText={toggleFailureTextOf('postBuyAuto')}
-              disabled={disabled}
-              onToggle={() => commitToggle('postBuyAuto', !form.postBuyAuto)}
+              // 끄기는 세션만 본다(T-16-44). 켜기는 후매수 스위치와 같은 정적 판정(세션 · 구서버 WR-02 · 시세 미수신).
+              disabled={form.postBuyAuto ? disabled : gateBlocked('postBuyEnabled', true)}
+              onToggle={() => commitPostBuyAuto(!form.postBuyAuto)}
             />
           ) : undefined
         }

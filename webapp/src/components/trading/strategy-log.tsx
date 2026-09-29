@@ -45,6 +45,8 @@
  *     판정해 「서버가 매수 그룹 해제 — …」 한 줄이 「매수주문 무장 해제」를 대신한다.
  *   - **Pitfall 8 — 후매수 발동(단계 → 2) · 재진입(2 → 1) 에코의 override 값**
  *     (`POST_BUY_OVERRIDE_FIELDS`)은 서버 귀속이다 — 「서버 반영 완료」도 「다른 단말」 배너도 아니다.
+ *   - **후매수 ☐자동(quick-260929-vzy D-07).** 서버 발화 사유는 54 원문 줄(`[상따] 서버 통지 — 후매수 자동 켬 — …`)이
+ *     말하고, 에코는 자동 체크 · 해제(「후매수 자동 체크」 · 「후매수 자동 해제」)로만 말한다 — 「서버 반영 완료」 가 아니다.
  *   - **Pitfall 11 — 마스터는 발주로 접히지 않는다.** 마스터 OFF 에코를 「발주」로 읽지 않는다
  *     (옛 `buyFired`/`hadOrder` 은퇴). 발주 사실은 서버 사유 줄 `[상따] … 매수 N주 @…` 가 말한다.
  */
@@ -98,6 +100,8 @@ export type StrategyTransition =
   | 'extraBuyDisarmed'
   | 'postBuyArmed'
   | 'postBuyDisarmed'
+  | 'postBuyAutoOn'
+  | 'postBuyAutoOff'
   | 'sellArmed'
   | 'sellDisarmed'
   | 'sellLatched'
@@ -137,6 +141,9 @@ export const TRANSITION_TEXT: Record<StrategyTransition, string> = {
   extraBuyDisarmed: '추가매수 무장 해제',
   postBuyArmed: '후매수 무장',
   postBuyDisarmed: '후매수 무장 해제',
+  // 후매수 ☐자동(quick-260929-vzy D-07) — 서버 사유 줄 「후매수 자동 켬 — …」 과 겹치지 않게 체크 · 해제 어휘를 쓴다.
+  postBuyAutoOn: '후매수 자동 체크',
+  postBuyAutoOff: '후매수 자동 해제',
   // 매수 진입 래치 전이는 없다 — 서버에서 봉인됐다(Phase 24 D-12 · gh-trade D-25).
   sellArmed: '매도 무장 — 대기 (지지벽 미관측)',
   sellDisarmed: '매도 무장 해제',
@@ -175,6 +182,8 @@ export const TRANSITION_ORDER: readonly StrategyTransition[] = [
   'extraBuyDisarmed',
   'postBuyArmed',
   'postBuyDisarmed',
+  'postBuyAutoOn',
+  'postBuyAutoOff',
   'sellArmed',
   'sellDisarmed',
   'sellLatched',
@@ -258,6 +267,8 @@ const VALUE_COMPARE_SKIP: ReadonlySet<keyof RelayLimitChaser> = new Set<keyof Re
   'sellEnabled',
   'cancelQtyEnabled',
   'cancelTradeEnabled',
+  // 후매수 ☐자동 — 전이 축(「후매수 자동 체크 / 해제」)이 말한다. 서버 발화의 false 에코를 「서버 반영 완료」 로 오귀속하지 않는다.
+  'postBuyAuto',
   ...LIMIT_CHASER_SERVER_ONLY_FIELDS,
   'crud',
   'key',
@@ -415,6 +426,7 @@ export function strategyLogLine(
     */
     if (next.buyEnabled) hit.add('buyArmed');
     for (const g of BUY_GROUPS) if (next[g.gate]) hit.add(g.armed);
+    if (next.postBuyAuto) hit.add('postBuyAutoOn');
     if (next.sellEntryLatched) hit.add('sellLatched');
     else if (next.sellEnabled) hit.add('sellArmed');
     if (next.cancelEntryLatched) hit.add('cancelLatched');
@@ -452,6 +464,8 @@ export function strategyLogLine(
         hit.add(serverFold ? 'masterOffAfterServerFold' : 'buyDisarmed');
       }
     }
+    if (!prev.postBuyAuto && next.postBuyAuto) hit.add('postBuyAutoOn');
+    if (prev.postBuyAuto && !next.postBuyAuto) hit.add('postBuyAutoOff');
     if (!prev.sellEnabled && next.sellEnabled) hit.add('sellArmed');
     if (prev.sellEnabled && !next.sellEnabled) hit.add('sellDisarmed');
     if (!prev.sellEntryLatched && next.sellEntryLatched) hit.add('sellLatched');
