@@ -38,6 +38,8 @@
    4면 외곽선 소비처(카드·박스·상태줄·팝오버)가 기대는 값이라 hairline 으로 올리면 모든 면에
    테두리가 생긴다. 면 테두리는 지우지 않고 색만 투명에 가깝게 둔다(1px 기하 보존 — §2.2b 밴드
    전환 지점이 한 픽셀도 움직이지 않게). 값은 hex/rgba 만 쓴다(차트가 oklch 를 거부).
+   `color-mix()` 는 `in oklab` 만 쓴다 — `in oklch` 는 Chromium 이 저채도 색(`--bg`·`--muted`·`--fg`
+   등)의 hue 를 none(=0°)으로 떨궈 무채색이 분홍으로 뜬다(폴드 웹뷰·맥 크롬 헤더, 260929).
    ───────────────────────────────────────────────────────────── */
 :root {
   --bg: #ffffff;
@@ -468,7 +470,7 @@ html[lang="ko"] {
   outline-offset: var(--focus-outline-offset, 3px);
   box-shadow: var(
     --focus-shadow,
-    0 0 0 4px color-mix(in oklch, var(--ring) 30%, transparent)
+    0 0 0 4px color-mix(in oklab, var(--ring) 30%, transparent)
   );
 }
 
@@ -537,7 +539,7 @@ html[lang="ko"] {
   border-top: 0;
 }
 .tbl-wrap tbody tr:hover td {
-  background: color-mix(in oklch, var(--fg) 3%, transparent);
+  background: color-mix(in oklab, var(--fg) 3%, transparent);
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -601,10 +603,10 @@ html[lang="ko"] {
 }
 @keyframes wb-hdr-pulse {
   0%, 100% { background: transparent; }
-  50%      { background: color-mix(in oklch, var(--primary) 16%, transparent); }
+  50%      { background: color-mix(in oklab, var(--primary) 16%, transparent); }
 }
 [data-slot="strategy-card"][data-alert="true"] {
-  outline: 1px solid color-mix(in oklch, var(--primary) 45%, transparent);
+  outline: 1px solid color-mix(in oklab, var(--primary) 45%, transparent);
   outline-offset: -1px;
 }
 [data-slot="strategy-card"][data-alert="true"] > [data-slot="card-header"] {

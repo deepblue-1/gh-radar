@@ -263,7 +263,7 @@ export function StockDiscussionSection({
         <div
           role="alert"
           data-testid="stock-discussion-section-inline-error"
-          className="mb-3 rounded-[var(--r-sm)] bg-[color-mix(in_oklch,var(--destructive)_10%,transparent)] px-3 py-2 text-[length:var(--t-sm)] text-[var(--destructive)]"
+          className="mb-3 rounded-[var(--r-sm)] bg-[color-mix(in_oklab,var(--destructive)_10%,transparent)] px-3 py-2 text-[length:var(--t-sm)] text-[var(--destructive)]"
         >
           {inlineError}
         </div>

@@ -13,7 +13,7 @@ export function HomeEmpty() {
   return (
     <div
       role="status"
-      className="flex flex-col items-center gap-[10px] rounded-[var(--r-lg)] border border-dashed border-[color-mix(in_oklch,var(--primary)_30%,var(--border))] bg-[var(--card)] px-6 py-10 text-center"
+      className="flex flex-col items-center gap-[10px] rounded-[var(--r-lg)] border border-dashed border-[color-mix(in_oklab,var(--primary)_30%,var(--border))] bg-[var(--card)] px-6 py-10 text-center"
     >
       <span className="flex size-10 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--accent-fg)]">
         <Sparkles aria-hidden="true" className="size-5" strokeWidth={1.5} />
@@ -26,7 +26,7 @@ export function HomeEmpty() {
       </p>
       <Link
         href="/scanner"
-        className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-3 py-[5px] text-[length:var(--t-sm)] font-extrabold text-[var(--fg)] no-underline hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))]"
+        className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-3 py-[5px] text-[length:var(--t-sm)] font-extrabold text-[var(--fg)] no-underline hover:border-[color-mix(in_oklab,var(--primary)_30%,var(--border))]"
       >
         상승률 상위로 이동
       </Link>

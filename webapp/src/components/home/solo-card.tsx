@@ -34,7 +34,7 @@ export interface SoloCardProps {
 
 export function SoloCard({ single }: SoloCardProps) {
   return (
-    <article className="group card-shadow relative isolate flex flex-col gap-2 rounded-[var(--r-lg)] border border-transparent bg-[var(--card)] px-[var(--s-4)] py-[var(--s-3)] transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))]">
+    <article className="group card-shadow relative isolate flex flex-col gap-2 rounded-[var(--r-lg)] border border-transparent bg-[var(--card)] px-[var(--s-4)] py-[var(--s-3)] transition-colors hover:border-[color-mix(in_oklab,var(--primary)_30%,var(--border))]">
       {/* stretched-link: 카드 표면 전체를 덮는 투명 종목상세 링크. 뉴스 블록만 z-상향해 위로. */}
       <Link
         href={`/stocks/${single.code}`}

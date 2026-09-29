@@ -63,7 +63,7 @@ function BackButton() {
       type="button"
       aria-label="뒤로가기"
       onClick={handleBack}
-      className="-ml-2 flex h-10 w-9 shrink-0 items-center justify-center rounded-[10px] text-[var(--fg)] transition-colors hover:bg-[color-mix(in_oklch,var(--muted)_60%,transparent)]"
+      className="-ml-2 flex h-10 w-9 shrink-0 items-center justify-center rounded-[10px] text-[var(--fg)] transition-colors hover:bg-[color-mix(in_oklab,var(--muted)_60%,transparent)]"
     >
       <ChevronLeft className="size-6" aria-hidden="true" />
     </button>

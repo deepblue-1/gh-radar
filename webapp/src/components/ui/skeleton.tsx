@@ -13,7 +13,7 @@ function Skeleton({ className, ...props }: React.ComponentProps<"div">) {
       data-slot="skeleton"
       className={cn(
         "rounded-[var(--r-sm)] motion-reduce:animate-none motion-reduce:opacity-70",
-        "bg-[linear-gradient(90deg,var(--muted),color-mix(in_oklch,var(--muted)_60%,var(--bg)),var(--muted))]",
+        "bg-[linear-gradient(90deg,var(--muted),color-mix(in_oklab,var(--muted)_60%,var(--bg)),var(--muted))]",
         "bg-[size:200%_100%] [animation:skeleton-shimmer_1.6s_linear_infinite]",
         className
       )}

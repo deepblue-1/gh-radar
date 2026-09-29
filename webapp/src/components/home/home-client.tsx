@@ -189,7 +189,7 @@ function HomeErrorCard({
       style={{
         borderWidth: 1,
         borderStyle: 'solid',
-        borderColor: 'color-mix(in oklch, var(--destructive) 40%, var(--border))',
+        borderColor: 'color-mix(in oklab, var(--destructive) 40%, var(--border))',
       }}
     >
       <div className="flex flex-col gap-1 text-[length:var(--t-sm)]">

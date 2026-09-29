@@ -57,7 +57,7 @@ function ThemeRankRowBase({ theme, rank, maxAvg }: ThemeRankRowProps) {
       className={cn(
         'grid grid-cols-[34px_1fr_auto] items-center gap-[var(--s-4)] sm:grid-cols-[34px_1.1fr_1fr_auto]',
         'px-[var(--s-4)] py-[var(--s-3)]',
-        'transition-colors hover:bg-[color-mix(in_oklch,var(--muted)_60%,transparent)] [--focus-outline-offset:-2px]',
+        'transition-colors hover:bg-[color-mix(in_oklab,var(--muted)_60%,transparent)] [--focus-outline-offset:-2px]',
       )}
     >
       {/* 순위 */}

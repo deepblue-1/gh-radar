@@ -936,7 +936,7 @@ function StrategyCardImpl({
         // Phase 21 D-25 — 풀블리드 앱에서는 헤더가 56 + 상태바라 상단 안전영역만큼 더 띄운다(크롬 0).
         "scroll-mt-[calc(4rem+var(--app-safe-top))]",
         // 미반영 값이 있으면 카드 테두리가 파랗다 — 바가 어느 카드 것인지 모양으로 말한다(목업 B).
-        card.dirtyCount > 0 && "border-[color-mix(in_oklch,var(--primary)_55%,var(--border))]",
+        card.dirtyCount > 0 && "border-[color-mix(in_oklab,var(--primary)_55%,var(--border))]",
       )}
     >
       <CardHeader

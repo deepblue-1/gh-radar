@@ -596,7 +596,7 @@ describe('StockThemeChips — 역조회 + overflow', () => {
     expect(mine!.className).toContain('bg-[var(--nav-on-bg)]');
     expect(mine!.className).toContain('text-[var(--nav-on-fg)]');
     expect(mine!.className).toContain(
-      'dark:border-[color-mix(in_oklch,var(--primary)_45%,var(--border))]',
+      'dark:border-[color-mix(in_oklab,var(--primary)_45%,var(--border))]',
     );
     // tailwind-merge 가 outline 기본 면을 덮어쓴다 — 라이트 채움이 실제로 적용된다.
     expect(mine!.className).not.toContain('bg-[var(--muted)]');

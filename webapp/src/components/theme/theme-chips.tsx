@@ -72,7 +72,7 @@ function Chip({ theme }: { theme: ThemeChip }) {
           // 다크 링만 `dark:` 유틸 — 링 색이 oklch color-mix 라 테마 토큰 계약(oklch 금지)에 담을 수
           // 없고 라이트(003-A 링 제거)에는 대응 값이 없다. 라이트는 Badge 기본 border-transparent.
           !theme.isSystem &&
-            'bg-[var(--nav-on-bg)] text-[var(--nav-on-fg)] dark:border-[color-mix(in_oklch,var(--primary)_45%,var(--border))]',
+            'bg-[var(--nav-on-bg)] text-[var(--nav-on-fg)] dark:border-[color-mix(in_oklab,var(--primary)_45%,var(--border))]',
         )}
       >
         <span

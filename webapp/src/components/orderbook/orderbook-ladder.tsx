@@ -93,7 +93,7 @@ const FLASH_MS = 140;
 /** 잔량 바 최소 폭(%) — 0 이 아닌 잔량이 시각적으로 사라지지 않게 한다. */
 const BAR_MIN_PCT = 3;
 /** 플래시 배경 유틸 — 방향색이 아닌 중립 `--fg` 틴트다(색 의미 오염 방지). */
-const FLASH_BG = 'motion-safe:bg-[color-mix(in_oklch,var(--fg)_14%,transparent)]';
+const FLASH_BG = 'motion-safe:bg-[color-mix(in_oklab,var(--fg)_14%,transparent)]';
 /**
  * 2단(본문 685~829)·3단(본문 830~) 사다리 **행 높이** — sketch B = 44 · 데스크톱 밀도 절충 32.
  * 토스 B(260924-vj1)는 폰 1단 사다리만 44px 로 올리고, 넓은 밴드는 한 화면에 20행이 들어오도록
@@ -372,10 +372,10 @@ function StandardLadder({
           'cursor-pointer',
           '[&>*]:h-[var(--row-h)] [&>*]:overflow-hidden [&>*]:whitespace-nowrap [&>*]:align-middle [&>*]:text-[length:var(--t-caption)]',
           isAsk
-            ? '[&>*]:bg-[color-mix(in_oklch,var(--down-bg)_65%,transparent)]'
-            : '[&>*]:bg-[color-mix(in_oklch,var(--up-bg)_65%,transparent)]',
+            ? '[&>*]:bg-[color-mix(in_oklab,var(--down-bg)_65%,transparent)]'
+            : '[&>*]:bg-[color-mix(in_oklab,var(--up-bg)_65%,transparent)]',
           // 행 전체 hover — `&:hover > *` 가 `& > *` 보다 우선하므로 방향 틴트를 덮는다.
-          'hover:[&>*]:bg-[color-mix(in_oklch,var(--muted)_70%,transparent)]',
+          'hover:[&>*]:bg-[color-mix(in_oklab,var(--muted)_70%,transparent)]',
           collapsed && row.far && 'max-[899px]:hidden',
           index === activeIndex &&
             'outline outline-2 -outline-offset-2 outline-[var(--ring)]',
@@ -845,7 +845,7 @@ function ChaserLadder({
         onClick={selectOf(row.price)}
         className={cn(
           selectOf(row.price) !== undefined && 'cursor-pointer',
-          isUpper && 'bg-[color-mix(in_oklch,var(--up)_8%,transparent)]',
+          isUpper && 'bg-[color-mix(in_oklab,var(--up)_8%,transparent)]',
           // 매도1/매수1 경계선. `<tr>` 에 테두리를 걸면 `border-collapse` 아래에서 살지
           // 않으므로 **셀**에 건다(3단 표의 「체결」 헤더 행과 같은 방식이다).
           isBidTop && '[&>*]:border-t [&>*]:border-[var(--border-subtle)]',
@@ -1163,7 +1163,7 @@ function ChaserLadder({
                     'relative flex h-[44px] min-w-0 items-center gap-1 rounded-[10px] px-1',
                     selectOf(row.price) !== undefined && 'cursor-pointer',
                     // 상한가는 **행 배경**이 말한다(마커 배지를 대신한다).
-                    isUpper && 'bg-[color-mix(in_oklch,var(--up)_8%,transparent)]',
+                    isUpper && 'bg-[color-mix(in_oklab,var(--up)_8%,transparent)]',
                     // 최근 체결가 행 = raised 면(B `.v-b .lr.cur`). 굵기 채널은 그대로 함께 말한다.
                     isLast && 'bg-[var(--muted)]',
                     /*

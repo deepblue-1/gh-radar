@@ -207,7 +207,7 @@ function EventRow({ ev, faded }: { ev: LimitUpEvent; faded: boolean }) {
   return (
     <tr
       className={cn(
-        'h-[38px] border-t border-[var(--border-subtle)] first:border-t-0 hover:bg-[color-mix(in_oklch,var(--muted)_60%,transparent)]',
+        'h-[38px] border-t border-[var(--border-subtle)] first:border-t-0 hover:bg-[color-mix(in_oklab,var(--muted)_60%,transparent)]',
         faded && 'opacity-50',
       )}
     >
@@ -439,7 +439,7 @@ export function StockLimitUpSection({ stockCode }: StockLimitUpSectionProps) {
         <button
           type="button"
           onClick={() => setEventsExpanded((v) => !v)}
-          className="w-full rounded-[var(--r)] border border-transparent bg-[var(--card)] px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--t-sm)] font-semibold text-[var(--muted-fg)] transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))] hover:text-[var(--fg)]"
+          className="w-full rounded-[var(--r)] border border-transparent bg-[var(--card)] px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--t-sm)] font-semibold text-[var(--muted-fg)] transition-colors hover:border-[color-mix(in_oklab,var(--primary)_30%,var(--border))] hover:text-[var(--fg)]"
         >
           {eventsExpanded
             ? '접기'
@@ -477,7 +477,7 @@ export function StockLimitUpSection({ stockCode }: StockLimitUpSectionProps) {
             <button
               type="button"
               onClick={() => setThemesExpanded((v) => !v)}
-              className="mt-[var(--s-3)] w-full rounded-[var(--r)] border border-transparent bg-[var(--raised-2)] px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--t-sm)] font-semibold text-[var(--muted-fg)] transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))] hover:text-[var(--fg)]"
+              className="mt-[var(--s-3)] w-full rounded-[var(--r)] border border-transparent bg-[var(--raised-2)] px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--t-sm)] font-semibold text-[var(--muted-fg)] transition-colors hover:border-[color-mix(in_oklab,var(--primary)_30%,var(--border))] hover:text-[var(--fg)]"
             >
               {themesExpanded
                 ? '접기'

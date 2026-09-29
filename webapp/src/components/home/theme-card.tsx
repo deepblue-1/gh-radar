@@ -97,7 +97,7 @@ export function ThemeCard({ theme }: ThemeCardProps) {
 
   return (
     <>
-      <article className="card-shadow flex flex-col gap-[var(--s-3)] rounded-[var(--r-lg)] border border-transparent bg-[var(--card)] p-[var(--s-4)] transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))]">
+      <article className="card-shadow flex flex-col gap-[var(--s-3)] rounded-[var(--r-lg)] border border-transparent bg-[var(--card)] p-[var(--s-4)] transition-colors hover:border-[color-mix(in_oklab,var(--primary)_30%,var(--border))]">
         {/* 헤더 */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-[3px]">
