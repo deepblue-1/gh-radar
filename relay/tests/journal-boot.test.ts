@@ -60,6 +60,8 @@ async function spawnRelay(opts: {
   supabaseUrl: string;
   nodeEnv: "test" | "production";
   secret: string | undefined;
+  /** 추가 env (quick-260929-c8e — 추가 게이트웨이 관찰자). 상속 env 의 추가 관찰자 키는 먼저 지운다. */
+  extraEnv?: Record<string, string>;
 }): Promise<RelayProc> {
   const orderApiPort = await freePort();
   const wsPort = await freePort();
@@ -82,6 +84,11 @@ async function spawnRelay(opts: {
   };
   delete env.DMA_OBSERVER_SECRET;
   if (opts.secret !== undefined) env.DMA_OBSERVER_SECRET = opts.secret;
+  // 추가 관찰자 env 는 바깥 셸에서 상속되지 않게 지운 뒤, 케이스가 준 값만 덮는다.
+  delete env.DMA_KYOBO_HOST;
+  delete env.DMA_KYOBO_PORT;
+  delete env.DMA_OBSERVER_SECRET_KYOBO;
+  Object.assign(env, opts.extraEnv ?? {});
 
   const child = spawn(TSX_BIN, ["src/index.ts"], { cwd: RELAY_DIR, env, stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
@@ -361,6 +368,207 @@ describe("relay 부팅 결선 — 실 프로세스 · 관찰자 경로 (Phase 19
       const exit = await withTimeout(relay.exited, 5_000, "SIGTERM 종료", relay);
       expect(exit, relay.output()).toEqual({ code: 0, signal: null });
       expect(relay.output()).toContain('"journalObserver":"disabled"');
+    },
+    TEST_TIMEOUT_MS,
+  );
+});
+
+// ============================================================
+// quick-260929-c8e — 관찰자 다중 업스트림 (주 게이트웨이 KB + 추가 게이트웨이 KYOBO)
+// ============================================================
+
+const KYOBO_SECRET = "boot-test-secret-kyobo";
+/** 가짜 교보 계좌 — 실계좌가 아니다(명백한 가짜값). */
+const KYOBO_FAKE_ACCOUNT = "5555555501";
+
+const gatewaysOf = (h: Healthz): Record<string, Record<string, unknown>> | undefined =>
+  (h.body?.journalGateways as Record<string, Record<string, unknown>> | undefined) ?? undefined;
+
+/** 주 게이트웨이(KB) 관찰자 로그인 즉시 live(head 0 · 재생 없음). */
+function respondKbLive(gateway: FakeGateway): void {
+  gateway.respondObserverLogin({
+    epoch: "ep-kb",
+    headSeq: 0,
+    oldestSeq: 0,
+    resync: true,
+    accounts: [{ dmaUserId: "dma-user-1", accountNo: SAMPLE_ACCOUNT_NO, name: "위탁종합", priority: 0 }],
+  });
+}
+
+async function startKyoboGateway(): Promise<FakeGateway> {
+  const gateway = await startFakeGateway();
+  cleanups.push(() => gateway.close());
+  return gateway;
+}
+
+function kyoboEnv(kyobo: FakeGateway): Record<string, string> {
+  // ★ D-27 — 추가 게이트웨이도 방금 띄운 로컬 스텁이다. 실서버 주소는 여기에 없다.
+  return { DMA_KYOBO_HOST: "127.0.0.1", DMA_KYOBO_PORT: String(kyobo.port), DMA_OBSERVER_SECRET_KYOBO: KYOBO_SECRET };
+}
+
+describe("다중 업스트림 (quick-260929-c8e)", () => {
+  it(
+    "M1 KYOBO env 없음 → 관찰자 로그인 1(KB) · 커서 조회 gateway=eq.KB 1회 · healthz 키 8종 · journalGateways 없음",
+    async () => {
+      const { gateway, supabase } = await rig();
+      respondKbLive(gateway);
+      const relay = await spawnRelay({
+        gatewayPort: gateway.port,
+        supabaseUrl: supabase.url,
+        nodeEnv: "test",
+        secret: BOOT_SECRET,
+      });
+      await withTimeout(gateway.waitForObserverConnection(BOOT_WAIT_MS), BOOT_WAIT_MS + 1_000, "관찰자 연결", relay);
+      const h = await waitFor(
+        () => getHealthz(relay.orderApiPort),
+        (x) => x.status === 200 && journalOf(x)?.state === "live",
+        "healthz 200 · journal live",
+        relay,
+      );
+      expect(Object.keys(h.body ?? {}).sort()).toEqual(
+        ["dma", "everReadyCount", "journal", "sessionCount", "stalledCount", "status", "version", "vpn"],
+      );
+      expect(gateway.observerLoginRequests()).toHaveLength(1);
+      const cursorReads = supabase.requestsTo("/rest/v1/dma_journal_cursor");
+      expect(cursorReads.map((r) => r.query.gateway)).toEqual([`eq.${GATEWAY}`]);
+
+      relay.child.kill("SIGTERM");
+      const exit = await withTimeout(relay.exited, 5_000, "SIGTERM 종료", relay);
+      expect(exit, relay.output()).toEqual({ code: 0, signal: null });
+      expect(relay.output()).not.toContain('"journalGateways"');
+      expect(relay.output()).toContain('"journalObserver":"enabled"');
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "M2 KB · KYOBO 둘 다 성공 → 비밀 · 커서 · 매핑 · 적용이 게이트웨이별로 분리 · healthz journalGateways.KYOBO live · SIGTERM 0",
+    async () => {
+      const { gateway: kb, supabase } = await rig();
+      const kyobo = await startKyoboGateway();
+      respondKbLive(kb);
+      kyobo.respondObserverLogin({
+        broker: "KYOBO",
+        epoch: "ep-kyobo",
+        headSeq: 1,
+        oldestSeq: 1,
+        resync: true,
+        accounts: [{ dmaUserId: "dma-user-1", accountNo: KYOBO_FAKE_ACCOUNT, name: "교보 가짜 계좌", priority: 0 }],
+      });
+
+      const relay = await spawnRelay({
+        gatewayPort: kb.port,
+        supabaseUrl: supabase.url,
+        nodeEnv: "test",
+        secret: BOOT_SECRET,
+        extraEnv: kyoboEnv(kyobo),
+      });
+
+      await withTimeout(kb.waitForObserverConnection(BOOT_WAIT_MS), BOOT_WAIT_MS + 1_000, "KB 관찰자 연결", relay);
+      const kyoboSock = await withTimeout(
+        kyobo.waitForObserverConnection(BOOT_WAIT_MS),
+        BOOT_WAIT_MS + 1_000,
+        "KYOBO 관찰자 연결",
+        relay,
+      );
+
+      // 각 게이트웨이는 자기 비밀 하나만 받는다.
+      expect(kb.observerLoginRequests()).toEqual([{ secret: BOOT_SECRET, sinceSeq: 0, epoch: "", client: "gh-radar-relay" }]);
+      expect(kyobo.observerLoginRequests()).toEqual([
+        { secret: KYOBO_SECRET, sinceSeq: 0, epoch: "", client: "gh-radar-relay" },
+      ]);
+
+      // 커서 조회는 게이트웨이별 1회씩.
+      const cursorReads = supabase.requestsTo("/rest/v1/dma_journal_cursor");
+      expect(cursorReads.map((r) => r.query.gateway).sort()).toEqual(["eq.KB", "eq.KYOBO"]);
+
+      // 매핑 동기화는 p_gateway 별로.
+      const syncs = await waitFor(
+        () => supabase.requestsTo("/rest/v1/rpc/dma_journal_sync_access"),
+        (rs) => rs.length >= 2,
+        "dma_journal_sync_access 2건",
+        relay,
+      );
+      expect(new Set(syncs.map((r) => (r.body as { p_gateway: string }).p_gateway))).toEqual(new Set(["KB", "KYOBO"]));
+
+      // KYOBO 소켓의 배치 → 적용 RPC p_gateway KYOBO · p_epoch ep-kyobo.
+      kyobo.pushJournalBatch(kyoboSock, { records: [{ seq: 1, accountNo: KYOBO_FAKE_ACCOUNT }], headSeq: 1, caughtUp: true });
+      const applies = await waitFor(
+        () => supabase.requestsTo("/rest/v1/rpc/dma_journal_apply"),
+        (rs) => rs.length >= 1,
+        "dma_journal_apply 수신",
+        relay,
+      );
+      const applyBody = applies[0]?.body as { p_gateway: string; p_epoch: string; p_events: Array<{ seq: number }> };
+      expect(applyBody.p_gateway).toBe("KYOBO");
+      expect(applyBody.p_epoch).toBe("ep-kyobo");
+      expect(applyBody.p_events.map((e) => e.seq)).toEqual([1]);
+
+      const h = await waitFor(
+        () => getHealthz(relay.orderApiPort),
+        (x) => gatewaysOf(x)?.KYOBO?.state === "live" && gatewaysOf(x)?.KYOBO?.lastSeq === 1 && journalOf(x)?.state === "live",
+        "healthz journal live · journalGateways.KYOBO live · lastSeq 1",
+        relay,
+      );
+      expect(h.status).toBe(200);
+      expect(Object.keys(gatewaysOf(h) ?? {})).toEqual(["KYOBO"]);
+      expect(gatewaysOf(h)?.KYOBO?.alerting).toBe(false);
+      expect(supabase.unknownRequests()).toEqual([]);
+
+      relay.child.kill("SIGTERM");
+      const exit = await withTimeout(relay.exited, 5_000, "SIGTERM 종료", relay);
+      expect(exit, relay.output()).toEqual({ code: 0, signal: null });
+      const out = relay.output();
+      expect(out).not.toContain("기록기 drain 미완");
+      expect(out).toContain('"journalGateways"');
+      // T-c8e-01 — 두 비밀 문자열은 어느 출력에도 없다.
+      expect(out).not.toContain(BOOT_SECRET);
+      expect(out).not.toContain(KYOBO_SECRET);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "M3 KYOBO 로그인 거부 → KYOBO rejected · KB live · 200 · 재시도 없음 · 거부 로그에 gateway KYOBO",
+    async () => {
+      const { gateway: kb, supabase } = await rig();
+      const kyobo = await startKyoboGateway();
+      respondKbLive(kb);
+      kyobo.respondObserverLogin({ success: false, message: "observer secret mismatch" });
+
+      const relay = await spawnRelay({
+        gatewayPort: kb.port,
+        supabaseUrl: supabase.url,
+        nodeEnv: "test",
+        secret: BOOT_SECRET,
+        extraEnv: kyoboEnv(kyobo),
+      });
+
+      const h = await waitFor(
+        () => getHealthz(relay.orderApiPort),
+        (x) => gatewaysOf(x)?.KYOBO?.state === "rejected" && journalOf(x)?.state === "live",
+        "healthz KYOBO rejected · KB live",
+        relay,
+      );
+      // KB 가 live 인 한 KYOBO 거부는 503 을 만들지 않는다(장중 결정적 잠금은 order-api 단위 테스트 b).
+      expect(h.status).toBe(200);
+
+      // 거부 = 정지(D-13) — 1.5초 더 기다려도 재로그인이 없다. KB 도 1건 그대로다.
+      await new Promise<void>((resolve) => setTimeout(resolve, 1_500));
+      expect(kyobo.observerLoginRequests()).toHaveLength(1);
+      expect(kb.observerLoginRequests()).toHaveLength(1);
+      const again = await getHealthz(relay.orderApiPort);
+      expect(again.status).toBe(200);
+      expect(journalOf(again)?.state).toBe("live");
+
+      const out = relay.output();
+      expect(out).toContain("관찰자 로그인 거부");
+      expect(out).toContain('"gateway":"KYOBO"');
+
+      relay.child.kill("SIGTERM");
+      const exit = await withTimeout(relay.exited, 5_000, "SIGTERM 종료", relay);
+      expect(exit, relay.output()).toEqual({ code: 0, signal: null });
+      expect(relay.output()).not.toContain(KYOBO_SECRET);
     },
     TEST_TIMEOUT_MS,
   );
