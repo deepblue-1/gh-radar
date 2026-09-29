@@ -1003,8 +1003,8 @@ export function LimitChaserForm({
             채움이 덮지 않고, 그사이 0 이 된 매도 매수잔량에 `sellEnabled` 를 싣지 않는다(relay 프레임 전체 거부 방지).
             D-01 마스터 동반도 같은 기준이다(전송 시점 서버 값이 이미 켜져 있으면 싣지 않는다).
             사전 검증 · D-36 은 위에서 누르는 순간 판정한다(R7).
-          ★ R4-WR-01 (ii) — 꺼내는 순간 계산은 이 흐름에서 서버가 눕힌 항목(훅 ⑬ `laid`)을 다시 켜지 않고 「서버 거부」 로
-            적는다. 사람의 새 클릭(흐름이 빈 뒤)은 평소대로 요청한다.
+          ★ R4-WR-01 (ii) · R5-WR-02 — 꺼내는 순간 계산은 이 흐름에서 무장되지 않은 항목(훅 ⑬ `laid`)을 다시 켜지 않고
+            「무장 안 됨」 으로 적는다. 흐름이 빈 뒤의 새 클릭은 평소대로 요청한다.
         */
         const autoGate: AutoCheckGate | null = gate === 'preBuyEnabled' || gate === 'extraBuyEnabled' ? gate : null;
         // 자기 그룹 슬롯만 비운다 — 후매수(autoGate null)는 어떤 슬롯도 건드리지 않는다(GC-WR-04).
@@ -1060,9 +1060,10 @@ export function LimitChaserForm({
           — 보낸 성공은 한 실행에 최대 1건이라 덮이지 않는다.
       (c) 일반 성공의 필드가 선매수 · 추가매수이고 그 슬롯이 아직 남아 있으면 **줄 없이 슬롯만 비운다** — 보내지 않은
           no-op · 대기 접기 성공이다(D-08 · GC-IN-03). (b) 가 소비한 슬롯은 이미 없으므로 겹치지 않는다.
-    ★ (b) 의 줄 **내용은 성공 에코로 확정**한다(R3-G1 · 24-REVIEW-R4 R4-WR-01). 슬롯의 계산은 예측이고, 부분 거부면 서버가
-      요청 항목 일부만 눕힌다 — `confirmAutoChecks(예측, 에코)` 가 에코에 선 항목만 「켬」 으로 두고, 서지 않은 항목은
-      「켜지 않음(서버 거부)」 · error 로 옮긴다. 전부 섰으면 줄은 종전과 같다.
+    ★ (b) 의 줄 **내용은 성공 에코로 확정**한다(R3-G1 · 24-REVIEW-R4 R4-WR-01 · R5-WR-02). 슬롯의 계산은 예측이고, 요청 항목
+      일부가 에코에 무장으로 서지 않을 수 있다(부분 거부 · 무장 직후 발주 소진) — `confirmAutoChecks(예측, 에코)` 가 에코에
+      선 항목만 「켬」 으로 두고, 서지 않은 항목은 「켜지 않음(무장 안 됨)」 · error 로 옮긴다(원인은 단정하지 않는다).
+      전부 섰으면 줄은 종전과 같다.
     ★ 이 이펙트는 제출을 만들지 않는다 — 로그 한 줄만 내보낸다.
   */
   const sentSuccessSeenRef = useRef(sentSuccessSeq);
@@ -1085,8 +1086,8 @@ export function LimitChaserForm({
           const auto = autoCheckRef.current[gate];
           delete autoCheckRef.current[gate];
           // 그새 그 그룹을 다시 꺼 그 확정이 성공한 경우는 켠 사건이 아니다. 마지막 계산 = 실제로 나간 cfg 의 판정(WR-03)
-          //   — 켤 것도 생략도 없으면 줄 없음. 내용은 성공 에코로 확정한다 — 요청했으나 서지 않은 항목은
-          //   「켜지 않음(서버 거부)」(R3-G1).
+          //   — 켤 것도 생략도 없으면 줄 없음. 내용은 성공 에코로 확정한다 — 요청했으나 무장으로 서지 않은 항목은
+          //   「켜지 않음(무장 안 됨)」(R3-G1 · R5-WR-02 · 원인은 단정하지 않는다).
           const echoNow = serverRef.current;
           const line =
             echoNow?.[gate] === true && auto !== undefined ? groupAutoCheckLogLine(confirmAutoChecks(auto, echoNow)) : null;

@@ -115,14 +115,22 @@
  *   한 판정 실행에 in-flight 는 최대 1건이라 같은 실행의 늦은 에코 · 대기 접기 성공이 보낸 성공을 덮지 못한다 — 폼의
  *   자동 체크 로그는 보낸 성공으로만 줄을 쓴다(보내지 않은 켜기엔 줄 없음 · GC-IN-03). 판정 · 전송 규칙은 같다.
  *
- * ⑬ ★ 눕힌 동반(`laidRef` · R3-G1 · 24-REVIEW-R4 R4-WR-01 선택지 (ii)) — 서버는 동반 필드를 부분 거부로 눕힐 수 있다(⑪).
+ * ⑬ ★ 눕힌 동반(`laidRef` · R3-G1 · 24-REVIEW-R4 R4-WR-01 선택지 (ii) · R5-WR-02) — 요청한 동반 필드가 성공 에코에
+ *   무장으로 서지 않을 수 있다(⑪).
  *   - 무엇을 모으나: 해소 ① 성공(matches) 때 in-flight 가 **켜 달라 실은** 동반 불리언(`inf.companions` 의 true) 중 그
- *     에코에 서지 않은 필드(`server[k] !== true`).
+ *     에코에 무장으로 서지 않은 필드(`server[k] !== true`). 뜻은 「이 흐름에서 요청했는데 무장되지 않은 항목」 이고
+ *     **원인을 가리지 않는다** — 서버 §9 부분 거부일 수도, 접힌 게이트(매도주문 · 취소 · 취소>체결 — 에코 = cfg ∧
+ *     armed)가 무장 직후 발주로 소진된 경우일 수도 있다(relay Pitfall 10).
  *   - 누가 읽나: 동반 함수의 둘째 인자(`companionsAt(p, base, laid)`). 폼의 그룹 켬 자동 체크가 그 항목을 다시 켜지 않고
- *     「서버 거부」 로 적는다 — 서버가 방금 거부한 무장을 같은 흐름에서 사람 모르게 다시 요청하지 않는다.
+ *     「무장 안 됨」 으로 적는다 — 같은 흐름에서 무장되지 않은 항목을 사람 모르게 다시 요청하지 않는다.
  *     꺼내는 순간 계산 네 자리(sendNow · drain no-op · failQueue · commit shown)가 모두 같은 기억을 본다(WR-03 · WR-04).
- *   - 언제 비우나: **흐름이 빈 상태**(in-flight · 대기 · 답 대기 장벽 · 결과 모름 장벽 모두 없음)의 사람의 새 확정.
- *     새 클릭은 새 의도라 평소대로 요청한다(서버가 또 눕히면 로그가 사실대로 적는다).
+ *   - 언제 비우나: **흐름이 빈 상태**(in-flight · 대기 · 답 대기 장벽 · 결과 모름 장벽 모두 없음)의 새 확정(사람 ·
+ *     serverFold 모두 — 폼 `dropMasterAfterServerFold` 도 같은 commit 을 지난다). 새 클릭은 새 의도라 평소대로 요청한다
+ *     (또 서지 않으면 로그가 사실대로 적는다). 흐름 안의 확정(답 대기 장벽 · 결과 모름 장벽 · in-flight 중)은 비우지
+ *     않는다 — 훅 테스트 R5-WR-01 세 케이스가 잠근다(대기열 항은 commit 시점에 홀로 참일 수 없는 동등 항이다).
+ *   - 한계: 발주 소진도 기억에 들어가므로 같은 흐름의 대기 그룹 켬은 그 게이트를 재무장하지 않는다. 다만 무장을 요청한
+ *     Set 의 성공 에코 시점에는 발주가 나갈 수 없어 현재 호출 경로에서는 도달하지 않는다(24-VERIFICATION-R4 독립 판정).
+ *     사람의 새 클릭은 평소대로 요청한다.
  *   - 왜 훅인가: 폼의 줄 소비와 훅의 대기 꺼내기는 흐름마다 실행 순서가 다르다(폼 단독은 줄 소비가 먼저, 카드 흐름은 답
  *     신호 증가와 보낸 성공이 한 렌더로 합쳐져 꺼내기가 먼저) — 폼 슬롯으로 기억을 만들면 순서에 따라 비어 버린다.
  *     in-flight 가 실제로 실은 값과 그 답 에코를 같은 실행에서 보는 곳은 이 훅뿐이다.
@@ -322,7 +330,8 @@ export interface UseLcFieldCommitOptions {
 /**
  * 동반 필드(⑪) — 값 또는 **판정 시점의 기준값**(서버 동기값 `formFromServer(server, formRef.current)`, 미등록이면
  * 폼 값)으로 계산하는 함수. 함수는 대기열에서 꺼내는 순간에도 다시 불린다(WR-03) — 누른 순간의 값으로 굳히지 않는다.
- * 둘째 인자 `laid` = 이 흐름에서 서버가 눕힌 동반 필드(⑬ · R3-G1) — 인자 하나짜리 함수도 그대로 들어간다.
+ * 둘째 인자 `laid` = 이 흐름에서 요청했는데 무장되지 않은 동반 필드(⑬ · R3-G1 · 원인은 가리지 않는다) — 인자 하나짜리
+ * 함수도 그대로 들어간다.
  */
 export type LcCompanions =
   | Partial<LimitChaserFormValues>
@@ -477,8 +486,8 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
   const orphanRef = useRef<{ field: LcFieldKey; answerSeqAtSend: number } | null>(null);
   const orphanTimer = useRef<number | null>(null);
   /**
-   * ⑬ 눕힌 동반(R3-G1 · R4-WR-01) — 이 흐름에서 in-flight 가 켜 달라 실었는데 성공 에코에 서지 않은 동반 필드.
-   * 동반 함수 둘째 인자로 넘기고, 흐름이 빈 상태의 사람의 새 확정에서 비운다.
+   * ⑬ 눕힌 동반(R3-G1 · R4-WR-01 · R5-WR-02) — 이 흐름에서 in-flight 가 켜 달라 실었는데 성공 에코에 무장으로 서지 않은
+   * 동반 필드(원인은 가리지 않는다). 동반 함수 둘째 인자로 넘기고, 흐름이 빈 상태의 새 확정(사람 · serverFold 모두)에서 비운다.
    */
   const laidRef = useRef<Set<LcFieldKey>>(new Set());
   /** 거부 통지 답의 에코 유예 타이머(③ · R3-WR-01) — 걸려 있으면 마감을 늘리지 않는다. */
@@ -766,8 +775,9 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
         return 'disconnected';
       }
 
-      // ⑬ 흐름이 비었다(in-flight · 대기 · 답 대기 장벽 · 결과 모름 장벽 없음) — 사람의 새 확정은 새 흐름의 시작이다.
-      //   눕힌 동반 기억을 비운다(새 클릭은 새 의도 · 평소대로 요청한다).
+      // ⑬ 흐름이 비었다(in-flight · 대기 · 답 대기 장벽 · 결과 모름 장벽 없음) — 새 확정(사람 · serverFold 모두)은 새 흐름의
+      //   시작이다. 눕힌 동반 기억을 비운다(새 클릭은 새 의도 · 평소대로 요청한다).
+      //   흐름 안의 확정은 비우지 않는다 — 훅 테스트 R5-WR-01 세 케이스가 잠근다.
       if (
         inflightRef.current === null &&
         queueRef.current.length === 0 &&

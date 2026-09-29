@@ -1022,13 +1022,14 @@ describe('R3-WR-01 — 거부 통지 답은 같은 제출의 에코를 LC_REJECT
 
 /**
  * R3-G1 · 24-REVIEW-R4 R4-WR-01 — 훅 ⑬ 눕힌 동반. 해소 ① 성공 때 in-flight 가 켜 달라 실은 동반 중 에코에 서지 않은 필드를
- * 모아, 같은 흐름에서 꺼내는 대기 건의 동반 함수 둘째 인자(laid)로 넘긴다. 흐름이 빈 뒤 사람의 새 확정은 빈 기억으로 시작한다.
+ * 모아, 같은 흐름에서 꺼내는 대기 건의 동반 함수 둘째 인자(laid)로 넘긴다. 흐름이 빈 상태의 새 확정은 빈 기억으로 시작하고,
+ * 흐름 안의 확정(답 대기 장벽 · 결과 모름 장벽 · in-flight 중)은 기억을 비우지 않는다(R5-WR-01 — 술어 네 항 중 셋을 잠근다).
  * ★ 함수는 호출마다 laid 를 배열로 스냅숏한다(살아 있는 집합을 나중에 읽지 않는다). ★ 모든 케이스가 전송 수를 센다(T-16-10).
  */
 describe('R3-G1 — 서버가 눕힌 동반은 같은 흐름의 대기 동반 함수에 laid 로 전달된다 (24-REVIEW-R4 R4-WR-01)', () => {
   type CompanionFn = (base: LimitChaserFormValues, laid: ReadonlySet<LcFieldKey>) => Partial<LimitChaserFormValues>;
 
-  /** laid 스냅숏을 남기는 동반 함수 — laid 에 매도주문이 있으면 싣지 않는다(폼의 refused 판정과 같은 몫). */
+  /** laid 스냅숏을 남기는 동반 함수 — laid 에 매도주문이 있으면 싣지 않는다(lib `groupAutoChecksOf` laid 판정과 같은 몫). */
   function recordingCompanion() {
     const seen: LcFieldKey[][] = [];
     const fn = vi.fn<CompanionFn>((_base, laid) => {
@@ -1113,6 +1114,88 @@ describe('R3-G1 — 서버가 눕힌 동반은 같은 흐름의 대기 동반 �
     for (const laid of fresh.seen) expect(laid).toEqual([]);
     expect(t.cfgs()[2]!.sellEnabled).toBe(true);
     expect(t.send).toHaveBeenCalledTimes(3);
+  });
+
+  /** 부분 거부 에코 — 마스터 · 선매수는 섰고 매도주문은 무장으로 서지 않았다. */
+  const partial = () => echo({ buyEnabled: true, preBuyEnabled: true, sellEnabled: false });
+
+  /** prep → 부분 거부 에코 → 답 신호 → 대기 추가매수가 in-flight(전송 2 · laid = [sellEnabled]). */
+  function toExtraInflight() {
+    const { t, c } = prep();
+    t.update({ server: partial() });
+    t.update({ serverAnswerSeq: 3 });
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(t.hook.result.current.inflightField).toBe('extraBuyEnabled');
+    expect(t.cfgs()[1]!.sellEnabled).toBe(false);
+    return { t, c };
+  }
+
+  it('R5-WR-01 답 대기 장벽 안의 새 확정은 laid 를 비우지 않는다 — 꺼낸 cfg sellEnabled false', () => {
+    const t = setup({ server: echo({ buyEnabled: false }) });
+    act(() => {
+      expect(t.hook.result.current.commit('preBuyEnabled', true, 'toggle', { buyEnabled: true, sellEnabled: true })).toBe('sent');
+    });
+    // 성공 에코(매도주문만 서지 않음) — 서버 값이 이 렌더에 바뀌었으니 답 대기 장벽(popAfterSeq)이 선다 · 대기열은 비어 있다.
+    t.update({ server: partial() });
+    expect(t.hook.result.current.inflightField).toBeNull();
+    expect(t.hook.result.current.queuedFields).toEqual([]);
+    expect(t.send).toHaveBeenCalledTimes(1);
+
+    const c = recordingCompanion();
+    act(() => {
+      expect(t.hook.result.current.commit('extraBuyEnabled', true, 'toggle', c.fn)).toBe('queued');
+    });
+    expect(t.send).toHaveBeenCalledTimes(1);
+
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.send).toHaveBeenCalledTimes(2);
+    // 대기 진입 계산(commit shown)과 꺼내는 계산(sendNow) 모두 같은 기억을 본다.
+    expect(c.seen.length).toBeGreaterThanOrEqual(2);
+    for (const laid of c.seen) expect(laid).toEqual(['sellEnabled']);
+    expect(t.cfgs()[1]!.extraBuyEnabled).toBe(true);
+    expect(t.cfgs()[1]!.sellEnabled).toBe(false);
+  });
+
+  it('R5-WR-01 결과 모름 장벽 안의 새 확정은 laid 를 비우지 않는다 — 꺼낸 cfg sweepEnabled true · sellEnabled false', () => {
+    const { t } = toExtraInflight();
+    // 추가매수 무응답 타임아웃 → 결과 모름 장벽(orphan)만 남는다(in-flight · 대기 · 답 대기 장벽 없음).
+    t.update({ unacked: true });
+    expect(t.hook.result.current.inflightField).toBeNull();
+    expect(t.hook.result.current.queuedFields).toEqual([]);
+    expect(t.send).toHaveBeenCalledTimes(2);
+
+    const fresh = recordingCompanion();
+    act(() => {
+      expect(t.hook.result.current.commit('sweepEnabled', true, 'toggle', fresh.fn)).toBe('queued');
+    });
+    expect(t.send).toHaveBeenCalledTimes(2);
+
+    // 답 신호가 오며 고아 장벽이 풀린다 — 서버 값 변화가 없으니 곧바로 꺼낸다.
+    t.update({ unacked: false, serverAnswerSeq: 4 });
+    expect(t.send).toHaveBeenCalledTimes(3);
+    expect(fresh.seen.length).toBeGreaterThanOrEqual(2);
+    for (const laid of fresh.seen) expect(laid).toEqual(['sellEnabled']);
+    expect(t.cfgs()[2]!.sweepEnabled).toBe(true);
+    expect(t.cfgs()[2]!.sellEnabled).toBe(false);
+  });
+
+  it('R5-WR-01 다른 필드 in-flight 중의 새 확정은 laid 를 비우지 않는다 — 꺼낸 cfg sellEnabled false', () => {
+    const { t } = toExtraInflight();
+    const fresh = recordingCompanion();
+    act(() => {
+      expect(t.hook.result.current.commit('sweepEnabled', true, 'toggle', fresh.fn)).toBe('queued');
+    });
+    expect(t.send).toHaveBeenCalledTimes(2);
+
+    // 추가매수 성공 에코(매도주문은 여전히 서지 않음) → 답 신호 증가에 꺼낸다.
+    t.update({ server: echo({ buyEnabled: true, preBuyEnabled: true, extraBuyEnabled: true, sellEnabled: false }) });
+    expect(t.send).toHaveBeenCalledTimes(2);
+    t.update({ serverAnswerSeq: 4 });
+    expect(t.send).toHaveBeenCalledTimes(3);
+    expect(fresh.seen.length).toBeGreaterThanOrEqual(2);
+    for (const laid of fresh.seen) expect(laid).toEqual(['sellEnabled']);
+    expect(t.cfgs()[2]!.sweepEnabled).toBe(true);
+    expect(t.cfgs()[2]!.sellEnabled).toBe(false);
   });
 });
 
