@@ -7,7 +7,12 @@
 --   다른 사람과 같은 user_id 문자열이 들어오면 그 사람에게 교보 계좌 주문이 샌다. 이 파일은 가시성을
 --   게이트웨이 인지로 바꾼다 — KB(주 게이트웨이)는 자격증명 신원으로, 추가 게이트웨이(KYOBO)는 **명시적
 --   신원 연결**로만 보인다. 규칙은 뷰 dma_visibility_identities **한 곳**이고, 조회 RPC 3종이 전부
---   dma_visible_accounts(p_user_id) 하나를 거친다.
+--   dma_visible_accounts(p_user_id) 하나를 거친다:
+--     ⑥ dma_journal_orders_for_user(uuid, date)            — 오늘 주문(⑨) · 가시성 JOIN 1곳
+--     ⑦ dma_strategy_events_for_user(uuid, date)           — 전략 하루치 목록 · 주문 갈래 · 시세 갈래 EXISTS 2곳
+--     ⑦ dma_order_events_for_user(uuid, uuid, text[])      — 주문 1건 이벤트 · CTE o EXISTS 1곳
+--   세 RPC 의 시그니처 · 반환 모양 · 권한은 그대로다(server 무수정). 20260929180200 파일의 전략 조회 두 함수
+--   본문은 이력이며, 원격에서는 이 파일이 덮는다.
 --
 -- 결정 근거:
 --   D-01  dma_credentials.gateway text NOT NULL DEFAULT 'KB' — 자격증명 자신의 게이트웨이. PK(user_id) 는
@@ -177,5 +182,104 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.dma_journal_orders_for_user(uuid, date) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.dma_journal_orders_for_user(uuid, date) FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.dma_journal_orders_for_user(uuid, date) TO service_role;
+
+-- ── ⑦-① 전략 조회: 하루치 평면 목록 재정의 (20260929180200 본문 · 가시성 EXISTS 만 교체) ──
+CREATE OR REPLACE FUNCTION public.dma_strategy_events_for_user(p_user_id uuid, p_trade_date date)
+RETURNS SETOF jsonb
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+  SELECT to_jsonb(e) - 'dma_user_id' - 'applied_at'
+           || jsonb_build_object('stock_code', s.code)
+    FROM public.dma_strategy_events e
+    LEFT JOIN public.stocks s
+      ON s.isin = e.isin
+   WHERE e.trade_date = p_trade_date
+     AND (
+       -- 주문 이벤트: 가시 계좌(dma_visible_accounts — 게이트웨이 인지). 계좌가 빈 주문 이벤트는 어느 가시 계좌와도
+       -- 맞지 않아 비공개다.
+       (e.kind NOT IN (1, 2) AND EXISTS (
+          SELECT 1
+            FROM public.dma_visible_accounts(p_user_id) v
+           WHERE v.gateway = e.gateway
+             AND v.account_no = e.account_no))
+       OR
+       -- 시세 이벤트(kind 1·2): 그 게이트웨이에 가시 계좌가 있는 사용자 전원.
+       (e.kind IN (1, 2) AND EXISTS (
+          SELECT 1
+            FROM public.dma_visible_accounts(p_user_id) v
+           WHERE v.gateway = e.gateway))
+     )
+   ORDER BY e.gw_time_ms, e.gateway, e.seq;
+$$;
+
+-- ── ⑦-② 전략 조회: 주문 1건(묶음) 이벤트 재정의 — 통보 + 전략 (같은 방식) ──
+CREATE OR REPLACE FUNCTION public.dma_order_events_for_user(p_user_id uuid, p_order_id uuid, p_order_nos text[])
+RETURNS TABLE (
+  source     text,
+  gw_time_ms bigint,
+  seq        bigint,
+  ev         jsonb
+)
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+  WITH o AS (
+    -- 요청 사용자에게 보이는 행만 — 게이트웨이 · 거래일 · 계좌의 유일한 출처(T-25-13).
+    SELECT r.gateway, r.trade_date, r.account_no, r.order_no
+      FROM public.dma_account_orders r
+     WHERE r.id = p_order_id
+       AND EXISTS (
+         SELECT 1
+           FROM public.dma_visible_accounts(p_user_id) v
+          WHERE v.gateway = r.gateway
+            AND v.account_no = r.account_no)
+     LIMIT 1
+  ),
+  k AS (
+    SELECT o.gateway, o.trade_date, o.account_no,
+           CASE WHEN p_order_nos IS NULL OR cardinality(p_order_nos) = 0
+                THEN ARRAY[o.order_no]
+                ELSE p_order_nos
+           END AS nos
+      FROM o
+  ),
+  u AS (
+    SELECT 'journal'::text AS source,
+           round(extract(epoch FROM j.gw_time) * 1000)::bigint AS gw_time_ms,
+           j.seq,
+           to_jsonb(j) - 'dma_user_id' - 'apply_error' - 'applied_at' AS ev
+      FROM public.dma_journal_events j
+      JOIN k ON j.gateway = k.gateway AND j.trade_date = k.trade_date AND j.account_no = k.account_no
+     WHERE j.apply_error IS NULL
+       AND (j.order_no = ANY (k.nos) OR (j.org_order_no <> '' AND j.org_order_no = ANY (k.nos)))
+    UNION ALL
+    SELECT 'strategy'::text,
+           e.gw_time_ms,
+           e.seq,
+           to_jsonb(e) - 'dma_user_id' - 'applied_at'
+             || jsonb_build_object('stock_code', s.code)
+      FROM public.dma_strategy_events e
+      JOIN k ON e.gateway = k.gateway AND e.trade_date = k.trade_date AND e.account_no = k.account_no
+      LEFT JOIN public.stocks s ON s.isin = e.isin
+     WHERE e.order_no <> '' AND e.order_no = ANY (k.nos)
+  )
+  SELECT u.source, u.gw_time_ms, u.seq, u.ev
+    FROM u
+   ORDER BY u.gw_time_ms, CASE u.source WHEN 'journal' THEN 0 ELSE 1 END, u.seq;
+$$;
+
+-- ── ⑦ 권한 재명시: service_role 전용 (시그니처 정확히 — Pitfall 13) ──
+REVOKE EXECUTE ON FUNCTION public.dma_strategy_events_for_user(uuid, date) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.dma_strategy_events_for_user(uuid, date) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.dma_strategy_events_for_user(uuid, date) TO service_role;
+
+REVOKE EXECUTE ON FUNCTION public.dma_order_events_for_user(uuid, uuid, text[]) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.dma_order_events_for_user(uuid, uuid, text[]) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.dma_order_events_for_user(uuid, uuid, text[]) TO service_role;
 
 COMMIT;

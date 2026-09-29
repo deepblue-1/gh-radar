@@ -228,7 +228,7 @@ if (gatewayIdentities !== null) {
   for (const extra of extraJournals) {
     const route = { access: extra.access, identities: gatewayIdentities.viewOf(extra.upstream.gateway) };
     extra.writer.on("applied", (rows) => fanout.deliverJournalRows(rows, route));
-    extra.strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows, extra.access));
+    extra.strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows, route));
   }
 }
 
