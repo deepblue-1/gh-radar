@@ -3,7 +3,12 @@ import { act, render, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { OrderLogList } from '../order-log-list';
-import { FIXTURE_STOCK_NAME, STRATEGY_DAY_BY_NAME, STRATEGY_DAY_GOLDEN } from '@/test-fixtures/strategy-day';
+import {
+  FIXTURE_STOCK_NAME,
+  STRATEGY_BRANCH_ROWS,
+  STRATEGY_DAY_BY_NAME,
+  STRATEGY_DAY_GOLDEN,
+} from '@/test-fixtures/strategy-day';
 
 /**
  * Phase 25-01 — 주문로그 목록 F-A 한 줄 (UI-SPEC ②-0 · D-05 · D-09).
@@ -213,5 +218,83 @@ describe('OrderLogList — 폰 밴드 줄 펼침 (25-07 · 결정 2-A)', () => {
     const { container } = render(<OrderLogList rows={rows} variant="panel" nameOf={nameOf} phoneBand={null} />);
     expect(container.querySelector('li[data-slot="order-log-line"] button')).toBeNull();
     expect(container.querySelector('li[data-slot="order-log-line"]')?.hasAttribute('title')).toBe(true);
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Phase 25-10 Task 1 — card 변형 dense 줄 (UI-SPEC ②-0 「카드 dense 줄」 · 결정 3-A)
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+describe('OrderLogList — card dense (25-10)', () => {
+  const nameOf = () => FIXTURE_STOCK_NAME;
+  const buy = STRATEGY_DAY_BY_NAME.buy12451!;
+  const exposed = STRATEGY_DAY_BY_NAME.exposed!;
+  const reject = STRATEGY_DAY_BY_NAME.reject!;
+  const unknownKind = STRATEGY_BRANCH_ROWS.unknownKind!;
+
+  it('주문 줄 = 시각 · #주문번호 · 구분 · 본문 | 누적 — 괄호 · 거래소 · 종목 없음 · title 은 F-A 전체 평문', () => {
+    const { container } = render(<OrderLogList rows={[buy]} variant="card" nameOf={nameOf} />);
+    const line = container.querySelector<HTMLElement>('li[data-slot="order-log-line"]')!;
+    const golden = STRATEGY_DAY_GOLDEN.buy12451!.logLine;
+    expect(normalize(line.textContent)).toBe(
+      golden.replace('[09:45:02.861][12451][선매수] KRX | ○○전자 | ', '09:45:02.861 #12451 선매수 '),
+    );
+    expect(line.getAttribute('title')).toBe(golden);
+    expect(container.querySelector('[data-slot="order-log-kind"]')?.className).toContain('text-[var(--up)]');
+  });
+
+  it('시세 줄은 주문번호 없이 시각 · 구분 · 본문 | 누적', () => {
+    const { container } = render(<OrderLogList rows={[exposed]} variant="card" nameOf={nameOf} />);
+    expect(normalize(container.querySelector('li[data-slot="order-log-line"]')!.textContent)).toBe(
+      '09:42:13.215 상한가노출 매도잔량 185,400 | 누적 620,000',
+    );
+  });
+
+  it('주문번호 없는 주문 이벤트는 #— · 모르는 kind 는 원문 코드(조립기 조각 그대로)', () => {
+    const { container } = render(<OrderLogList rows={[reject, unknownKind]} variant="card" nameOf={nameOf} />);
+    const lines = container.querySelectorAll<HTMLElement>('li[data-slot="order-log-line"]');
+    expect(normalize(lines[0]!.textContent)).toMatch(/^\d{2}:\d{2}:\d{2}\.\d{3} #— /);
+    // 모르는 kind 는 괄호 · 거래소 · 종목 없이 F-A 와 같은 조각(골든에서 머리만 걷어낸 것)
+    const fa = STRATEGY_DAY_GOLDEN.unknownKind!.logLine;
+    expect(lines[1]!.getAttribute('title')).toBe(fa);
+    expect(normalize(lines[1]!.textContent)).not.toContain('[');
+  });
+
+  it('목록 패딩 3px 8px · 간격 0 · 11px/1.6 · 스크롤러 h-full · 핀 없음', () => {
+    const { container } = render(<OrderLogList rows={[exposed, buy]} variant="card" nameOf={nameOf} />);
+    const ol = container.querySelector<HTMLElement>('ol[data-slot="order-log-list"]')!;
+    const cls = ol.className.split(/\s+/);
+    expect(cls).toEqual(expect.arrayContaining(['px-2', 'py-[3px]', 'gap-0', 'text-[11px]', 'leading-[1.6]']));
+    expect(cls).not.toContain('gap-px');
+    const body = container.querySelector<HTMLElement>('[data-slot="order-log-body"]')!;
+    expect(body.className.split(/\s+/)).toContain('h-full');
+    expect(body.style.maxHeight).toBe('');
+  });
+
+  it('빈 박스 dense — m-2 py-2 · 제목만(본문 null)', () => {
+    const { container } = render(
+      <OrderLogList rows={[]} variant="card" nameOf={nameOf} emptyTitle="이 종목의 주문로그가 없어요" emptyBody={null} />,
+    );
+    const empty = container.querySelector<HTMLElement>('[data-slot="order-log-empty"]')!;
+    expect(normalize(empty.textContent)).toBe('이 종목의 주문로그가 없어요');
+    const cls = empty.className.split(/\s+/);
+    expect(cls).toEqual(expect.arrayContaining(['m-2', 'py-2']));
+    expect(empty.querySelector('p')).toBeNull();
+  });
+
+  it('맨 아래에 있으면 새 줄에 자동으로 따라간다(핀 없음)', () => {
+    const many = (n: number) => Array.from({ length: n }, (_, i) => ({ ...exposed, seq: 2000 + i }));
+    const geo = { lines: 12 };
+    const { container, rerender } = render(<OrderLogList rows={many(12)} variant="card" nameOf={nameOf} />);
+    const body = container.querySelector<HTMLElement>('[data-slot="order-log-body"]')!;
+    installGeometry(body, geo);
+    act(() => {
+      body.scrollTop = 12 * 20 - 172;
+      body.dispatchEvent(new Event('scroll'));
+    });
+    geo.lines = 13;
+    rerender(<OrderLogList rows={many(13)} variant="card" nameOf={nameOf} />);
+    expect(body.scrollTop).toBe(13 * 20);
+    expect(container.querySelector('[data-slot="order-log-pin"]')).toBeNull();
   });
 });
