@@ -1,12 +1,21 @@
 'use client';
 
 /**
- * SharedPanels — 작업대 하단 공용 패널: 미체결 · 잔고 · 전략 로그 (18-09 / D-13 · E13 · TRADE-09).
+ * SharedPanels — 작업대 하단 공용 패널: 미체결 · 잔고 · 주문로그 · 전략 로그 (18-09 / D-13 · E13 · TRADE-09 ·
+ * Phase 25-07 D-06).
  *
  * ① 무엇을 어디에
  *   카드 격자 아래 한 자리에서 **전 종목**의 미체결·잔고·로그를 본다(종목 열이 있다). 탭은
- *   「미체결 (N)」·「잔고 (N)」·「전략 로그」 셋이고 라벨의 (N) 은 숫자형이다 — 0 이면 빈 문구,
+ *   「미체결 (N)」·「잔고 (N)」·「주문로그 (N)」·「전략 로그」 넷이고 라벨의 (N) 은 숫자형이다 — 0 이면 빈 문구,
  *   1 이상이면 같은 행 문법이라 단/복수 어휘 분기가 없다.
+ *   ★ 탭 값의 정본은 `trading-layout.ts` `SHARED_PANEL_TABS` 하나다 — `SharedTab` · 저장 가드가 거기서 파생된다
+ *     (RESEARCH Pitfall 12 — 따로 나열하면 새 탭이 새로고침 복원에서 조용히 버려진다).
+ *
+ * ①-b 「주문로그」 탭 (Phase 25-07 · UI-SPEC ②-1)
+ *   작업대 공용 피드(`OrderLogFeedProvider` — 마운트 1회 조회 + 푸시)를 상태줄 계좌 범위로 거른 F-A 목록이다.
+ *   「주문로그 (N)」 의 N 은 **탭이 가려진 동안**(다른 탭 활성 또는 폰 밴드 접힘) 도착한 범위 안 푸시 줄 수이고
+ *   (필터 선택 미적용 · R2), 탭이 보이면 0 · 0 이면 괄호를 생략한다. 형제 「(N)」 과 모양은 같지만 뜻이 달라
+ *   트리거 접근성 이름을 「주문로그, 새 로그 N건」 으로 말한다. 기존 「전략 로그」 탭 · `StrategyLog` 는 그대로다.
  *
  * ② ★ 계좌 축은 **상태줄에서 고른 단일 계좌**다 (D-13 · Q-2)
  *   미체결·잔고는 `AccountPanel` 의 계좌 전용 모드를 **탭 임베드(`section`)** 로 그대로 쓴다.
@@ -80,7 +89,10 @@ import type {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AccountPanel, type AccountRowOrigin } from '@/components/orderbook/account-panel';
 import { StrategyLog, type StrategyLogEntry } from '@/components/trading/strategy-log';
-import { readPanelsPref, writePanelsPref } from '@/lib/trading-layout';
+import { OrderLogPanel } from '@/components/trading/order-log/order-log-panel';
+import { useOrderLogFeedContext } from '@/components/trading/order-log/order-log-feed-context';
+import { isSharedPanelTab, readPanelsPref, writePanelsPref, type SharedPanelTab } from '@/lib/trading-layout';
+import { EMPTY_ORDER_LOG_FEED, useUnseenOrderLogCount } from '@/lib/use-order-log-feed';
 import type { RelayStatus } from '@/lib/use-relay-socket';
 import { cn } from '@/lib/utils';
 
@@ -91,7 +103,8 @@ import { cn } from '@/lib/utils';
  */
 export const DIRTY_BAR_FALLBACK_PX = 128;
 
-type SharedTab = 'unfilled' | 'holdings' | 'log';
+/** 탭 값 — 정본은 `SHARED_PANEL_TABS`(①). */
+type SharedTab = SharedPanelTab;
 
 /**
  * 미체결 행 클릭 → 다음 선택 (③ · D-21). 재선택 = 해제 토글의 **유일 지점**이다 — 공용 패널과
@@ -172,8 +185,12 @@ function useDirtyBarReserve(count: number): number | null {
   return measured ?? DIRTY_BAR_FALLBACK_PX;
 }
 
+/*
+  폰 밴드는 좌우 패딩 8px — 탭이 넷(주문로그 추가 · 25-07)이라 344 폭에서 「주문로그 (N)」 배지가 붙으면 12px 모자랐다(실측) — 트리거 8px · 접기 토글 6px 로 두 자리 배지까지 344 에 들어간다.
+  더 모자라면(세 자리 배지) 탭 목록이 가로 스크롤한다(카드 탭과 같은 규율) — 겹치거나 접기 토글을 밀지 않는다.
+*/
 const TAB_TRIGGER =
-  'h-7 flex-none rounded-full border border-transparent px-2.5 text-[length:var(--t-caption)] font-semibold whitespace-nowrap text-[var(--muted-fg)] shadow-none ' +
+  'h-7 flex-none rounded-full border border-transparent px-2 @min-[700px]/wb:px-2.5 text-[length:var(--t-caption)] font-semibold whitespace-nowrap text-[var(--muted-fg)] shadow-none ' +
   'data-[state=active]:bg-[var(--pill-on-bg)] data-[state=active]:text-[var(--pill-on-fg)] data-[state=active]:shadow-none ' +
   'dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-[var(--pill-on-bg)] dark:data-[state=active]:text-[var(--pill-on-fg)]';
 
@@ -206,6 +223,11 @@ export function SharedPanels({
 
   const unfilledCount = account?.unf.length ?? 0;
   const holdingCount = account?.hold.length ?? 0;
+
+  /* 주문로그 — 작업대 공용 피드(①-b). Provider 밖(단위 렌더)이면 빈 피드. */
+  const orderLogFeed = useOrderLogFeedContext() ?? EMPTY_ORDER_LOG_FEED;
+  const orderLogVisible = tab === 'orderlog' && (phoneBand !== true || !folded);
+  const orderLogUnseen = useUnseenOrderLogCount(orderLogFeed, { accountNo: accountNo === '' ? null : accountNo }, orderLogVisible);
 
   /** 토글은 여기 한 곳 — 선택된 행을 다시 누르면 해제(`null`)를 올린다(③). */
   const handleSelect = useCallback(
@@ -252,7 +274,7 @@ export function SharedPanels({
       data-testid="shared-panels"
       data-slot="shared-panels"
       data-pinned={pinned ? 'true' : undefined}
-      aria-label="미체결 · 잔고 · 전략 로그"
+      aria-label="미체결 · 잔고 · 주문로그 · 전략 로그"
       data-dirty-reserve={reserve === null ? undefined : 'true'}
       style={reserveStyle}
       className={cn(
@@ -272,21 +294,41 @@ export function SharedPanels({
       <Tabs
         value={tab}
         onValueChange={(v) => {
-          setTab(v as SharedTab);
-          writePanelsPref({ sharedTab: v as SharedTab });
+          if (!isSharedPanelTab(v)) return;
+          setTab(v);
+          writePanelsPref({ sharedTab: v });
         }}
         className="gap-0"
       >
         <div className="flex min-w-0 items-center gap-0.5 border-b border-[var(--border-subtle)] p-1.5 @min-[700px]/wb:gap-1 @min-[700px]/wb:px-2">
           <TabsList
             aria-label="공용 패널"
-            className="h-auto min-w-0 gap-0.5 bg-transparent p-0 @min-[700px]/wb:gap-1"
+            className="h-auto min-w-0 justify-start gap-0.5 overflow-x-auto bg-transparent p-0 @min-[700px]/wb:gap-1"
           >
             <TabsTrigger value="unfilled" className={TAB_TRIGGER}>
               미체결 ({unfilledCount})
             </TabsTrigger>
             <TabsTrigger value="holdings" className={TAB_TRIGGER}>
               잔고 ({holdingCount})
+            </TabsTrigger>
+            <TabsTrigger
+              value="orderlog"
+              aria-label={orderLogUnseen > 0 ? `주문로그, 새 로그 ${orderLogUnseen}건` : undefined}
+              className={TAB_TRIGGER}
+            >
+              {/*
+                라벨 · 배지를 한 인라인 덩어리로 — 트리거는 inline-flex 라 배지 span 이 따로 flex 항목이 되면 기본 gap(6px)이
+                끼고 앞 공백은 줄 첫머리로 사라진다. 한 덩어리면 형제 「미체결 (N)」 과 같은 「라벨 (N)」 간격이다.
+              */}
+              <span>
+                주문로그
+                {orderLogUnseen > 0 && (
+                  <span data-slot="order-log-unseen" className="mono">
+                    {' '}
+                    ({orderLogUnseen})
+                  </span>
+                )}
+              </span>
             </TabsTrigger>
             <TabsTrigger value="log" className={TAB_TRIGGER}>
               전략 로그
@@ -302,7 +344,7 @@ export function SharedPanels({
               setFolded(next);
               writePanelsPref({ sharedFolded: next });
             }}
-            className="ml-auto h-7 flex-none rounded-[var(--r)] px-2 text-[length:var(--t-caption)] font-semibold whitespace-nowrap text-[var(--muted-fg)] hover:bg-[var(--muted)] @min-[700px]/wb:hidden"
+            className="ml-auto h-7 flex-none rounded-[var(--r)] px-1.5 text-[length:var(--t-caption)] font-semibold whitespace-nowrap text-[var(--muted-fg)] hover:bg-[var(--muted)] @min-[700px]/wb:hidden"
           >
             {folded ? '펼치기 ▴' : '접기 ▾'}
           </button>
@@ -329,6 +371,9 @@ export function SharedPanels({
           </TabsContent>
           <TabsContent value="holdings" className="min-w-0">
             <AccountPanel {...embedProps} section="holdings" onPickHolding={onPickHolding} />
+          </TabsContent>
+          <TabsContent value="orderlog" className="min-w-0">
+            <OrderLogPanel accountNo={accountNo} phoneBand={phoneBand} feed={orderLogFeed} />
           </TabsContent>
           <TabsContent value="log" className="min-w-0">
             <StrategyLog entries={logEntries} variant="embed" />

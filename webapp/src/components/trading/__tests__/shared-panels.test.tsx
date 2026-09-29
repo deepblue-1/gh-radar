@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import * as React from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type {
   RelayAccountState,
@@ -27,15 +27,32 @@ import type {
  */
 
 const sendOrderMock = vi.fn();
+/** 주문로그 탭(25-07) 케이스가 스토어 푸시를 주입하는 자리 — 나머지 케이스는 빈 값. */
+let relayOverride: Record<string, unknown> = {};
 vi.mock('@/lib/relay-provider', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/relay-provider')>();
   return {
     ...actual,
-    useRelayContext: () => ({ ...actual.EMPTY_RELAY_VALUE, sendOrder: sendOrderMock }),
+    useRelayContext: () => ({ ...actual.EMPTY_RELAY_VALUE, sendOrder: sendOrderMock, ...relayOverride }),
   };
 });
 
+// 주문로그 종목명 마스터 폴백(lib/stock-names) — 조회 0건(코드로 표시).
+vi.mock('@/lib/supabase/client', () => ({
+  createClient: () => ({
+    from: () => ({ select: () => ({ in: () => Promise.resolve({ data: [], error: null }) }) }),
+  }),
+}));
+
+const fetchStrategyEventsMock = vi.fn();
+vi.mock('@/lib/strategy-events-api', () => ({
+  fetchStrategyEvents: (date?: string) => fetchStrategyEventsMock(date),
+}));
+
 import { HOLDING_ROW_PICK_TITLE } from '@/components/orderbook/account-panel';
+import { OrderLogFeedProvider } from '@/components/trading/order-log/order-log-feed-context';
+import { kstDateIso, type StrategyEventRow } from '@gh-radar/shared';
+import { STRATEGY_DAY_BY_NAME } from '@/test-fixtures/strategy-day';
 import {
   SharedPanels,
   DIRTY_BAR_FALLBACK_PX,
@@ -125,13 +142,16 @@ function result(over: Partial<RelayOrderResultMsg> = {}): RelayOrderResultMsg {
 beforeEach(() => {
   sendOrderMock.mockReset();
   sendOrderMock.mockResolvedValue(result());
+  relayOverride = {};
+  fetchStrategyEventsMock.mockReset();
+  fetchStrategyEventsMock.mockResolvedValue([]);
 });
 
 describe('SharedPanels — 탭 · 빈 상태', () => {
-  it('① 탭 3개 라벨이 「미체결 (N)」·「잔고 (N)」·「전략 로그」 이고 기본은 미체결이다', () => {
+  it('① 탭 4개 라벨이 「미체결 (N)」·「잔고 (N)」·「주문로그」·「전략 로그」 이고 기본은 미체결이다', () => {
     render(<SharedPanels {...props()} />);
     const tabs = within(panel()).getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(['미체결 (2)', '잔고 (1)', '전략 로그']);
+    expect(tabs.map((t) => t.textContent)).toEqual(['미체결 (2)', '잔고 (1)', '주문로그', '전략 로그']);
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
   });
 
@@ -139,12 +159,14 @@ describe('SharedPanels — 탭 · 빈 상태', () => {
     const user = userEvent.setup();
     render(<SharedPanels {...props({ account: null })} />);
     const tabs = within(panel()).getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(['미체결 (0)', '잔고 (0)', '전략 로그']);
+    expect(tabs.map((t) => t.textContent)).toEqual(['미체결 (0)', '잔고 (0)', '주문로그', '전략 로그']);
 
     expect(within(panel()).getByText('미체결 주문이 없어요')).toBeInTheDocument();
     await user.click(tabs[1]!);
     expect(within(panel()).getByText('보유 종목이 없어요')).toBeInTheDocument();
     await user.click(tabs[2]!);
+    expect(within(panel()).getByText('오늘 주문로그가 없어요')).toBeInTheDocument();
+    await user.click(tabs[3]!);
     expect(within(panel()).getByText('아직 기록이 없어요')).toBeInTheDocument();
 
     expect(panel().querySelector('[role="progressbar"], .animate-spin')).toBeNull();
@@ -455,5 +477,121 @@ describe('SharedPanels — 폰 sticky · 더티 바 레이어', () => {
       first.remove();
       second?.remove();
     }
+  });
+});
+
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Phase 25-07 Task 3 — 「주문로그」 탭 (UI-SPEC ②-1 · D-06 · R2 · 결정 1-A · Pitfall 12)
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+describe('SharedPanels — 주문로그 탭 (25-07)', () => {
+  const ACCOUNT = '12345678-01';
+  const OTHER = '99999999-01';
+  /** 픽스처 행을 오늘 · 이 패널 계좌로 — 피드는 오늘(KST) 푸시만 받는다. */
+  const today = (r: StrategyEventRow, over: Partial<StrategyEventRow> = {}): StrategyEventRow => ({
+    ...r,
+    tradeDate: kstDateIso(),
+    accountNo: r.accountNo === '' ? '' : ACCOUNT,
+    ...over,
+  });
+  const exposed = today(STRATEGY_DAY_BY_NAME.exposed!);
+  const buy = today(STRATEGY_DAY_BY_NAME.buy12451!);
+  const queued = today(STRATEGY_DAY_BY_NAME.queued12451!);
+  const entered = today(STRATEGY_DAY_BY_NAME.entered1!);
+
+  let batchSeq = 0;
+  let stored: StrategyEventRow[] = [];
+  function push(rows: StrategyEventRow[]) {
+    stored = [...stored, ...rows];
+    batchSeq += 1;
+    relayOverride = { strategyEvents: stored, strategyEventsBatch: { seq: batchSeq, rows } };
+  }
+
+  const tree = (over: Partial<SharedPanelsProps> = {}) => (
+    <OrderLogFeedProvider>
+      <SharedPanels {...props({ accountNo: ACCOUNT, ...over })} />
+    </OrderLogFeedProvider>
+  );
+
+  const flush = () =>
+    act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+  beforeEach(() => {
+    batchSeq = 0;
+    stored = [];
+  });
+
+  it('탭 DOM 순서 unfilled → holdings → orderlog → log · 섹션 이름에 주문로그', () => {
+    render(tree());
+    const values = within(panel())
+      .getAllByRole('tab')
+      .map((t) => t.id.replace(/^.*-trigger-/, ''));
+    expect(values).toEqual(['unfilled', 'holdings', 'orderlog', 'log']);
+    expect(panel()).toHaveAttribute('aria-label', '미체결 · 잔고 · 주문로그 · 전략 로그');
+  });
+
+  it('sharedTab "orderlog" 저장 → 재마운트 복원 (한 정본 가드)', async () => {
+    const user = userEvent.setup();
+    const first = render(tree());
+    await user.click(within(panel()).getByRole('tab', { name: '주문로그' }));
+    expect(JSON.parse(window.localStorage.getItem('gh-radar:trading-panels') ?? '{}').sharedTab).toBe('orderlog');
+    first.unmount();
+
+    render(tree());
+    await flush();
+    expect(within(panel()).getByRole('tab', { name: '주문로그' })).toHaveAttribute('aria-selected', 'true');
+    expect(panel().querySelector('[data-slot="order-log-panel"]')).not.toBeNull();
+  });
+
+  it('다른 탭 활성 중 범위 안 푸시 3건 → 「주문로그 (3)」 · 이름 「주문로그, 새 로그 3건」 · 탭 열면 괄호 없음', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(tree());
+    await flush();
+    push([exposed, buy, queued, today(STRATEGY_DAY_BY_NAME.fill12451!, { accountNo: OTHER })]);
+    rerender(tree());
+    const trigger = within(panel()).getByRole('tab', { name: '주문로그, 새 로그 3건' });
+    expect(trigger.textContent).toBe('주문로그 (3)');
+    expect(trigger.querySelector('[data-slot="order-log-unseen"]')?.className).toContain('mono');
+
+    await user.click(trigger);
+    const opened = within(panel()).getByRole('tab', { name: '주문로그' });
+    expect(opened.textContent).toBe('주문로그');
+    expect(opened.querySelector('[data-slot="order-log-unseen"]')).toBeNull();
+    // 탭이 보이는 동안 온 푸시는 세지 않는다
+    push([entered]);
+    rerender(tree());
+    expect(within(panel()).getByRole('tab', { name: '주문로그' }).textContent).toBe('주문로그');
+  });
+
+  it('폰 밴드에서 패널이 접혀 있으면 주문로그 탭이 활성이어도 「가려짐」 — 배지를 센다', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(tree({ phoneBand: true }));
+    await flush();
+    // 폰 밴드 기본 접힘 · 탭만 주문로그로
+    await user.click(screen.getByRole('tab', { name: '주문로그' }));
+    push([buy]);
+    rerender(tree({ phoneBand: true }));
+    expect(screen.getByRole('tab', { name: '주문로그, 새 로그 1건' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '펼치기 ▴' }));
+    expect(screen.getByRole('tab', { name: '주문로그' }).textContent).toBe('주문로그');
+  });
+
+  it('계좌 전환 → 다른 계좌 주문 줄 0 · 시세 줄 유지 (재조회 없음)', async () => {
+    const user = userEvent.setup();
+    fetchStrategyEventsMock.mockResolvedValue([exposed, buy, queued, entered]);
+    const { rerender } = render(tree());
+    await flush();
+    await user.click(within(panel()).getByRole('tab', { name: '주문로그' }));
+    const lines = () => panel().querySelectorAll('li[data-slot="order-log-line"]');
+    expect(lines()).toHaveLength(4);
+
+    rerender(tree({ accountNo: OTHER }));
+    expect(lines()).toHaveLength(2);
+    for (const li of lines()) expect(['1', '2']).toContain(li.getAttribute('data-kind'));
+    expect(fetchStrategyEventsMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -109,14 +109,25 @@ export function writeTradingLayout(userId: string, layout: SavedLayout): void {
 
 export const TRADING_PANELS_KEY = "gh-radar:trading-panels";
 
-export type SharedPanelTab = "unfilled" | "holdings" | "log";
+/**
+ * 하단 공용 패널 탭 값 — **한 정본**(Phase 25-07 · RESEARCH Pitfall 12). `SharedPanelTab` 타입 · `readPanelsPref` 가드 ·
+ * `shared-panels.tsx` 의 `SharedTab` 이 전부 여기서 파생된다 — 세 곳을 따로 나열하면 새 탭(주문로그)이 저장은 되고
+ * 새로고침 복원에서 조용히 버려진다. 순서는 탭 트리거 순서와 같다(미체결 · 잔고 · 주문로그 · 전략 로그).
+ */
+export const SHARED_PANEL_TABS = ["unfilled", "holdings", "orderlog", "log"] as const;
+
+export type SharedPanelTab = (typeof SHARED_PANEL_TABS)[number];
+
+export function isSharedPanelTab(v: unknown): v is SharedPanelTab {
+  return typeof v === "string" && (SHARED_PANEL_TABS as readonly string[]).includes(v);
+}
 
 export interface TradingPanelsPref {
   /** VI 스트립 펼침. */
   vi?: boolean;
   /** 돌파 스트립 펼침. */
   breakout?: boolean;
-  /** 하단 공용 패널 탭. */
+  /** 하단 공용 패널 탭(미체결 · 잔고 · 주문로그 · 전략 로그). */
   sharedTab?: SharedPanelTab;
   /** 하단 공용 패널 접힘(폰 밴드). */
   sharedFolded?: boolean;
@@ -137,9 +148,7 @@ export function readPanelsPref(): TradingPanelsPref {
     const out: TradingPanelsPref = {};
     if (typeof p.vi === "boolean") out.vi = p.vi;
     if (typeof p.breakout === "boolean") out.breakout = p.breakout;
-    if (p.sharedTab === "unfilled" || p.sharedTab === "holdings" || p.sharedTab === "log") {
-      out.sharedTab = p.sharedTab;
-    }
+    if (isSharedPanelTab(p.sharedTab)) out.sharedTab = p.sharedTab;
     if (typeof p.sharedFolded === "boolean") out.sharedFolded = p.sharedFolded;
     if (typeof p.cardTabsFolded === "boolean") out.cardTabsFolded = p.cardTabsFolded;
     return out;

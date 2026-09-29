@@ -54,6 +54,20 @@
  *   ★ 실서버 IP·실계좌 리터럴을 spec·픽스처·주석 어디에도 적지 않는다 (D-27).
  *   게이트웨이는 늘 `127.0.0.1` 의 스텁이고, 계좌는 `relay/tests/helpers/frames.ts` 의
  *   `SAMPLE_ACCOUNT_NO` 를 쓴다.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * ⑦ 관찰자 옵션 `withLocalRelay({ observer: true })` — Phase 25-07 (기본 off · 기존 spec 무영향)
+ *
+ *   relay 의 관찰자 기록 경로(Phase 19 · 25)를 **진짜 코드로** 돌린다: relay env 에 테스트 전용
+ *   `DMA_OBSERVER_SECRET` 를 넣으면 부팅 직후 관찰자 소켓이 스텁 게이트웨이에 `ObserverLoginReq(5)` 를 보내고,
+ *   스텁은 `ObserverLoginResp(79)`(epoch `e2e-ep` · 매핑 `e2e-dma-user` → `E2E_ACCOUNT_NO`)로 답한다. 이후
+ *   `pushStrategyEvents()` 가 관찰자 소켓에 저널 배치(80)를 밀면 전략 기록기 → 스텁 `dma_strategy_apply` →
+ *   `journal.events` → 브라우저까지 실제 경로로 흐른다.
+ *   ★ 관찰자가 켜지면 스텁 게이트웨이 첫 연결이 **관찰자 소켓**이다 — 사용자 세션 주입(`pushAccountState` 등)은
+ *     `LoginReq(1)` 를 보낸 연결로만 보낸다(관찰자 소켓에 사용자 프레임을 밀면 relay 가 버린다).
+ *   ★ 전략 seq 는 픽스처가 스펙 수명 동안 **조밀하게 다시 매긴다** — relay 는 스펙 파일 동안 한 프로세스이고
+ *     기록기는 seq 연속성으로 중복 · 갭을 판정한다. 호출자가 준 seq 는 쓰지 않는다.
+ *   비밀 · 계좌 · epoch 는 전부 테스트 전용 가짜 값이다(T-25-32).
  */
 import { spawn } from 'node:child_process';
 import http from 'node:http';
@@ -80,6 +94,7 @@ import {
 } from '../../../relay/tests/helpers/frames.js';
 import type {
   FakeAccountStateInput,
+  FakeStrategyEventInput,
   FakeLimitChaserInput,
   FakeOrderRespInput,
   FakeQueueProgressInput,
@@ -108,6 +123,8 @@ export type { SetLimitChaserRequest, StrategyRequest, ViConfirmRequest, ViSetReq
 
 /** 잔량진행률(83) 주입 입력 재export — spec 이 relay 테스트 헬퍼 경로를 다시 import 하지 않게 한다 (25-06). */
 export type { FakeQueueProgressInput };
+/** 전략 이벤트(80) 주입 입력 재export (25-07). */
+export type { FakeStrategyEventInput };
 
 // ---------------------------------------------------------------------------
 // 상수 — 값의 정본은 여기 한 곳이다
@@ -121,6 +138,13 @@ export const RELAY_WS_URL = `ws://localhost:${RELAY_WS_PORT}/ws`;
 
 /** 스텁 Supabase 가 모든 토큰에 대해 돌려주는 사용자 id. 자격증명 시드 키이기도 하다. */
 export const E2E_DMA_USER_ID = '00000000-0000-4000-8000-0000000000e2';
+
+/** 관찰자 옵션(⑦)의 테스트 전용 값 — 실비밀 아님(T-25-32). */
+const E2E_OBSERVER_SECRET = 'e2e-observer-secret-test-only';
+/** 관찰자 로그인 응답 epoch — 스텁 `dma_strategy_apply` 가 행 `journal_epoch` 로 되돌린다. */
+export const E2E_JOURNAL_EPOCH = 'e2e-ep';
+/** `dma_credentials` 시드 행의 게이트웨이 사용자 id — 관찰자 매핑의 키와 같아야 계좌 필터를 통과한다. */
+const E2E_GATEWAY_USER = 'e2e-dma-user';
 
 /** 삼성전자 12자 표준코드 — 구독 키(D-28). e2e 종목 픽스처의 `isin` 과 같아야 한다. */
 export const E2E_ISIN = 'KR7005930003';
@@ -254,6 +278,12 @@ export interface LocalRelay {
    */
   pushQueueProgress(input: FakeQueueProgressInput): Promise<void>;
   /**
+   * 전략 이벤트를 관찰자 저널 배치(80)로 지금 밀어 넣는다 — **주문로그 탭 e2e 의 유일한 주입구**다 (25-07).
+   * `withLocalRelay({ observer: true })` 에서만 쓸 수 있다(관찰자 소켓을 기다린다). seq 는 픽스처가 조밀하게
+   * 다시 매긴다(파일 상단 ⑦). 전략 기록기 → 스텁 `dma_strategy_apply` → `journal.events` 를 실제 코드로 지난다.
+   */
+  pushStrategyEvents(events: FakeStrategyEventInput[]): Promise<void>;
+  /**
    * `dma_orders` 스텁에 들어온 insert 바디 누적 (D-03).
    * 「주문이 나갔는데 기록이 없다」를 spec 이 확인할 수 있게 남긴다 — 스텁이 감사 기록을
    * 블랙홀로 삼키면 그 결손이 E2E 에서 보이지 않는다.
@@ -354,6 +384,13 @@ interface SupabaseStub {
  *   PATCH /rest/v1/dma_orders?…       → 수명주기 갱신 (0행이어도 정상)
  *   GET   /rest/v1/dma_orders?…       → `order_no` 조회 (없으면 빈 배열)
  *
+ *   관찰자 옵션(⑦ · `observer: true`)일 때만:
+ *   GET   /rest/v1/dma_journal_cursor?…         → 빈 배열(커서 없음 — 처음부터 받는다)
+ *   POST  /rest/v1/rpc/dma_journal_sync_access  → 매핑 행 수
+ *   POST  /rest/v1/rpc/dma_journal_apply        → `{applied, skipped:0, errors:[], last_seq, rows:[]}`
+ *   POST  /rest/v1/rpc/dma_strategy_apply       → 입력 이벤트를 공개 45키 행으로(`dma_user_id` 제거 ·
+ *                                                 `gateway` · `journal_epoch` 입력값 · `stock_code` null)
+ *
  * ★ `stocks` / `dma_orders` 가 없으면 **모든 주문이 거부된다** — relay 는 ISIN 을 못 풀면
  *   「이 종목은 지금 주문할 수 없습니다」, insert 가 실패하면 「주문 기록에 실패했습니다」로
  *   막는다(둘 다 게이트웨이로 나가기 **전에** 끝난다). 그 두 방어선이 살아 있는 채로
@@ -369,7 +406,10 @@ interface SupabaseStub {
  * 아니라 **브라우저 ↔ relay ↔ 게이트웨이 왕복**이다. 인증 실패 경로는 relay 단위
  * 테스트(`relay/tests/fanout.test.ts`)가 이미 4케이스로 잠근다.
  */
-async function startSupabaseStub(): Promise<SupabaseStub> {
+/** relay 관찰자 기록기가 적재 RPC 에 싣는 전략 이벤트 1건(와이어 43키 · snake_case). */
+type StrategyApplyEventBody = Record<string, unknown> & { seq: number; dma_user_id?: string };
+
+async function startSupabaseStub(opts: { observer?: boolean } = {}): Promise<SupabaseStub> {
   const rows = new Map<string, CredRow>();
   const orderInserts: Record<string, unknown>[] = [];
 
@@ -448,6 +488,46 @@ async function startSupabaseStub(): Promise<SupabaseStub> {
       // PATCH(수명주기 갱신) · GET(order_no 조회) — 둘 다 0행이 정상이다.
       json(200, []);
       return;
+    }
+
+    if (opts.observer === true) {
+      if (url.pathname === '/rest/v1/dma_journal_cursor') {
+        json(200, []);
+        return;
+      }
+      if (req.method === 'POST' && url.pathname.startsWith('/rest/v1/rpc/dma_')) {
+        void readBody().then((raw) => {
+          let body: Record<string, unknown> = {};
+          try {
+            const parsed: unknown = JSON.parse(raw);
+            if (parsed !== null && typeof parsed === 'object') body = parsed as Record<string, unknown>;
+          } catch {
+            // 빈 바디는 아래 기본값으로 — 모양이 어긋나면 relay 가 「반환 형식 위반」으로 말한다.
+          }
+          if (url.pathname === '/rest/v1/rpc/dma_journal_sync_access') {
+            json(200, Array.isArray(body.p_rows) ? body.p_rows.length : 0);
+            return;
+          }
+          const events = (Array.isArray(body.p_events) ? body.p_events : []) as StrategyApplyEventBody[];
+          const lastSeq = events.reduce((m, e) => Math.max(m, Number(e.seq)), 0);
+          if (url.pathname === '/rest/v1/rpc/dma_journal_apply') {
+            json(200, { applied: events.length, skipped: 0, errors: [], last_seq: lastSeq, rows: [] });
+            return;
+          }
+          if (url.pathname === '/rest/v1/rpc/dma_strategy_apply') {
+            const rows = events.map(({ dma_user_id: _dmaUserId, ...rest }) => ({
+              ...rest,
+              gateway: typeof body.p_gateway === 'string' ? body.p_gateway : 'KB',
+              journal_epoch: typeof body.p_epoch === 'string' ? body.p_epoch : E2E_JOURNAL_EPOCH,
+              stock_code: null,
+            }));
+            json(200, { applied: events.length, skipped: 0, errors: [], last_seq: lastSeq, rows });
+            return;
+          }
+          json(404, { message: `stub: no rpc ${url.pathname}` });
+        });
+        return;
+      }
     }
 
     // 그 외 경로는 조용히 404 — relay 가 부르면 그 자체가 계약 변경 신호다.
@@ -541,11 +621,19 @@ export function pushTapeFixture(
 // 본체
 // ---------------------------------------------------------------------------
 
-export async function withLocalRelay(): Promise<LocalRelay> {
+export async function withLocalRelay(opts: { observer?: boolean } = {}): Promise<LocalRelay> {
   await assertPortFree(RELAY_WS_PORT);
+  const observer = opts.observer === true;
 
   const gateway = await startFakeGateway();
-  const supabase = await startSupabaseStub();
+  const supabase = await startSupabaseStub({ observer });
+  if (observer) {
+    // relay 부팅 직후 관찰자가 로그인한다 — 응답 내용은 그 **전에** 심어 둔다(⑦).
+    gateway.respondObserverLogin({
+      epoch: E2E_JOURNAL_EPOCH,
+      accounts: [{ dmaUserId: E2E_GATEWAY_USER, accountNo: E2E_ACCOUNT_NO }],
+    });
+  }
   const orderApiPort = await freePort();
   const credKey = randomBytes(32).toString('base64');
 
@@ -566,8 +654,14 @@ export async function withLocalRelay(): Promise<LocalRelay> {
     이렇게 하면 "구독 → 응답" 순서가 실제 코드 경로로 이어져, 화면에 숫자가 뜬다는 것이
     곧 구독 왕복이 성립했다는 증거가 된다.
   */
+  /** `LoginReq(1)` 를 보낸 연결 = 사용자 세션 소켓(관찰자 소켓과 가른다 · ⑦). */
+  const userSessionSockets = new WeakSet<object>();
+  /** 전략 seq — 스펙 수명 동안 조밀하게(⑦). */
+  let strategySeq = 0;
+
   gateway.onFrame((msgType, payload, sock) => {
     requests.push(msgType);
+    if (msgType === MSG.LoginReq) userSessionSockets.add(sock);
     const key = readQuoteRequestKey(msgType, payload);
     if (key === null || !responding.has(key.exchange)) return;
     if (msgType === MSG.GetQuoteReq) pushQuoteFixture(gateway, sock, key);
@@ -598,6 +692,8 @@ export async function withLocalRelay(): Promise<LocalRelay> {
         DMA_PORT: String(gateway.port),
         // 마지막 소켓이 끊기면 DMA 세션도 즉시 반납 — 테스트 간 세션이 새지 않게.
         SESSION_GRACE_MS: '0',
+        // ⑦ 관찰자 옵션 — 테스트 전용 비밀. 끄면 키 자체를 넣지 않는다(부모 env 에 있어도 비운다).
+        DMA_OBSERVER_SECRET: observer ? E2E_OBSERVER_SECRET : '',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
@@ -627,7 +723,7 @@ export async function withLocalRelay(): Promise<LocalRelay> {
 
   const seedDmaCredential = (userId: string = E2E_DMA_USER_ID): void => {
     supabase.rows.set(userId, {
-      dma_user_id: 'e2e-dma-user',
+      dma_user_id: E2E_GATEWAY_USER,
       dma_password_enc: encryptDmaPassword('e2e-dma-password', userId, credKey),
     });
   };
@@ -644,7 +740,15 @@ export async function withLocalRelay(): Promise<LocalRelay> {
    */
   const gatewaySocket = async (): Promise<Parameters<FakeGateway['pushQuote']>[0]> => {
     try {
-      return await gateway.waitForConnection(RELAY_GATEWAY_WAIT_MS);
+      if (!observer) return await gateway.waitForConnection(RELAY_GATEWAY_WAIT_MS);
+      // ⑦ 관찰자 소켓이 먼저 붙어 있다 — LoginReq 를 보낸 사용자 세션 연결만 고른다.
+      const until = Date.now() + RELAY_GATEWAY_WAIT_MS;
+      for (;;) {
+        const sock = gateway.sockets.find((s) => !s.destroyed && userSessionSockets.has(s));
+        if (sock !== undefined) return sock;
+        if (Date.now() > until) throw new Error('사용자 세션 연결 대기 시간 초과');
+        await new Promise<void>((resolve) => setTimeout(resolve, 50));
+      }
     } catch {
       throw new Error(
         `DMA 게이트웨이 연결이 ${RELAY_GATEWAY_WAIT_MS}ms 안에 서지 않았습니다. ` +
@@ -706,6 +810,24 @@ export async function withLocalRelay(): Promise<LocalRelay> {
           items: (input.items ?? []).map((it) => ({ accountNo: E2E_ACCOUNT_NO, ...it })),
         }),
       );
+    },
+    async pushStrategyEvents(events) {
+      if (!observer) {
+        throw new Error('pushStrategyEvents 는 withLocalRelay({ observer: true }) 에서만 쓸 수 있습니다');
+      }
+      let sock: Parameters<FakeGateway['pushJournalBatch']>[0];
+      try {
+        sock = await gateway.waitForObserverConnection(RELAY_GATEWAY_WAIT_MS);
+      } catch {
+        throw new Error(`관찰자 연결이 ${RELAY_GATEWAY_WAIT_MS}ms 안에 서지 않았습니다.\n--- relay 로그 ---\n${output}`);
+      }
+      const renumbered = events.map((ev) => ({ ...ev, seq: ++strategySeq }));
+      gateway.pushJournalBatch(sock, {
+        records: [],
+        strategyEvents: renumbered,
+        strategyHeadSeq: strategySeq,
+        strategyCaughtUp: true,
+      });
     },
     orderInserts() {
       return [...supabase.orderInserts];
