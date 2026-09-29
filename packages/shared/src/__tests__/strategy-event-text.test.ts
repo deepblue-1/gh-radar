@@ -10,6 +10,7 @@ import { condMetricLabel, orderGroupSide, reasonOperator, strategyKindLabel } fr
 import { formatKstMs, formatSigned, orderLogLineText, strategyEventParts } from "../strategy-event-text";
 import {
   FIXTURE_STOCK_NAME,
+  STRATEGY_BRANCH_ROWS,
   STRATEGY_DAY_BY_NAME,
   STRATEGY_DAY_DB_ROWS,
   STRATEGY_DAY_GOLDEN,
@@ -117,5 +118,80 @@ describe("조립기 (D-09 · kind 3 갈래)", () => {
     expect(orderLogLineText({ ...buy, orderNo: "" }, FIXTURE_STOCK_NAME)).toMatch(/^\[09:45:02\.861\]\[—\]\[선매수\] /);
     const exposed = STRATEGY_DAY_BY_NAME.exposed!;
     expect(orderLogLineText(exposed, FIXTURE_STOCK_NAME)).toMatch(/^\[09:42:13\.215\]\[[^\]]+\] KRX \| ○○전자/);
+  });
+});
+
+describe("조립기 — 시세 이벤트 · 모르는 값 (Phase 25-04 Task 1)", () => {
+  const golden = (name: string): string => {
+    const g = STRATEGY_DAY_GOLDEN[name];
+    if (g === undefined) throw new Error(`골든 없음: ${name}`);
+    return g.logLine;
+  };
+
+  it("상한가노출 exposed → F-A 골든 · 구분 칸 상한가노출 · tone market · 행위 없음", () => {
+    const exposed = STRATEGY_DAY_BY_NAME.exposed!;
+    expect(orderLogLineText(exposed, FIXTURE_STOCK_NAME)).toBe(
+      "[09:42:13.215][상한가노출] KRX | ○○전자 | 매도잔량 185,400 | 누적 620,000",
+    );
+    expect(golden("exposed")).toBe(orderLogLineText(exposed, FIXTURE_STOCK_NAME));
+    expect(strategyEventParts(exposed, "log")).toEqual({
+      badge: "상한가노출",
+      tone: "market",
+      action: null,
+      body: "매도잔량 185,400",
+      cum: "누적 620,000",
+    });
+  });
+
+  it("시초 상한가 exposedOpen → 본문 앞 「시초 상한가 · 」", () => {
+    const row = STRATEGY_BRANCH_ROWS.exposedOpen!;
+    expect(strategyEventParts(row, "log").body).toBe("시초 상한가 · 매도잔량 42,100");
+    expect(orderLogLineText(row, FIXTURE_STOCK_NAME)).toBe(golden("exposedOpen"));
+  });
+
+  it("상한가진입 entered1(스냅 3) → 구분 「상한가진입 1차」 · 잔량/누적 즉시 · 1초 · 3초", () => {
+    const row = STRATEGY_DAY_BY_NAME.entered1!;
+    expect(orderLogLineText(row, FIXTURE_STOCK_NAME)).toBe(
+      "[09:45:02.880][상한가진입 1차] KRX | ○○전자 | 잔량/누적 즉시 30,000/900,000 · 1초 55,000/903,000 · 3초 72,000/908,000 | 누적 900,000",
+    );
+    expect(golden("entered1")).toBe(orderLogLineText(row, FIXTURE_STOCK_NAME));
+    const parts = strategyEventParts(row, "log");
+    expect(parts.badge).toBe("상한가진입 1차");
+    expect(parts.tone).toBe("market");
+    expect(parts.action).toBeNull();
+  });
+
+  it("상한가진입 스냅 3개 미만 → 있는 것만 + 꼬리 「3초 전 이탈」 · 0개면 본문이 꼬리뿐 · 회차 0 은 「상한가진입」", () => {
+    const short = STRATEGY_BRANCH_ROWS.enteredShort!;
+    expect(strategyEventParts(short, "log").body).toBe(
+      "잔량/누적 즉시 41,000/1,200,000 · 1초 38,000/1,204,000 · 3초 전 이탈",
+    );
+    expect(orderLogLineText(short, FIXTURE_STOCK_NAME)).toBe(golden("enteredShort"));
+    const one = strategyEventParts({ ...short, snapQty: [41_000], snapCum: [1_200_000] }, "log");
+    expect(one.body).toBe("잔량/누적 즉시 41,000/1,200,000 · 3초 전 이탈");
+    const none = strategyEventParts({ ...short, snapQty: [], snapCum: [] }, "log");
+    expect(none.body).toBe("3초 전 이탈");
+    expect(strategyEventParts({ ...short, entryRound: 0 }, "log").badge).toBe("상한가진입");
+  });
+
+  it("모르는 kind(99 · group 1) → 구분 그룹 표시명 · 행위 원문 숫자 · 본문 없음 · tone unknown", () => {
+    const row = STRATEGY_BRANCH_ROWS.unknownKind!;
+    const parts = strategyEventParts(row, "log");
+    expect(parts.badge).toBe("선매수");
+    expect(parts.tone).toBe("unknown");
+    expect(parts.action).toBe("99");
+    expect(parts.body).toBe("");
+    expect(orderLogLineText(row, FIXTURE_STOCK_NAME)).toBe(golden("unknownKind"));
+    // 그룹도 없으면 구분 칸은 kind 원문 숫자
+    expect(strategyEventParts({ ...row, group: 0 }, "log").badge).toBe("99");
+  });
+
+  it("group 0 주문 이벤트 → 구분 칸 원문 「0」 · tone unknown(방향을 지어내지 않는다)", () => {
+    const row = STRATEGY_BRANCH_ROWS.groupZeroOrder!;
+    const parts = strategyEventParts(row, "log");
+    expect(parts.badge).toBe("0");
+    expect(parts.tone).toBe("unknown");
+    expect(parts.action).toBe("주문");
+    expect(orderLogLineText(row, FIXTURE_STOCK_NAME)).toBe(golden("groupZeroOrder"));
   });
 });
