@@ -1769,9 +1769,28 @@ export class SubscriptionHub extends EventEmitter {
     this.#queuedWindows.delete(userId);
     // 잔량진행률도 버린다 — 77 · 78 이 여기 있는 것과 같은 이유다(RESEARCH Pitfall 6 · T-25-26). 남기면
     // 세션 교체 뒤 인증 직후 스냅이 이미 사라진 대기 주문의 진행률을 그린다. 새 세션의 83 이 다시 채운다.
+    //
+    // **이미 연결된 브라우저 사본도 여기서 같이 비운다 (25-13 · WR-02).**
+    // 1. 빈→빈 억제(`#onQueueProgress`)는 「hub 캐시 = 연결된 브라우저 사본」 가정 위에 서 있다. 캐시를
+    //    브라우저 모르게 비우는 곳은 여기뿐이다. 사본을 남기면 새 세션의 빈 83 이 `prev === undefined`
+    //    억제에 걸려, 삭제가 끝내 브라우저에 가지 않는다.
+    // 2. 키마다 snap:false 를 보내지 않고 snap:true 1프레임을 보낸다. 지운 것이 그 사용자 키 **전부**이고,
+    //    인증 직후 스냅(`fanout.ts`)과 같은 모양이라 기존 탭과 지금 새로 붙는 탭이 같은 상태로 수렴한다.
+    //    `entries` 는 캐시 getter 가 아니라 빈 리터럴이다 — 순서가 바뀌어도 옛 값을 다시 내보내지 않는다.
+    // 3. 하나도 안 지웠으면 보내지 않는다. 사본은 캐시를 거친 값뿐이라, 캐시가 빈 사용자는 사본도 비어
+    //    있다(교체 소음 0 · T-25-55).
+    // 4. ⚠️ 정직하게 적는다 — 오늘 `SessionManager.acquire` 는 탭 0개(refCount 0) · 부트 실패 세션일 때만
+    //    세션을 새로 세우므로, 이 프레임을 받을 연결은 보통 없다. `fanout.ts` `#register` 세션 교체 갈래와
+    //    같은 이유로 계약을 지킨다 — 재생성 조건이 완화되면 잔존이 조용히 되살아난다.
+    // 5. D-13 「마지막 값 유지」 는 한 세션 안의 규칙이다. `#onQueueProgress` · `#onReady` 는 건드리지
+    //    않는다. 대상은 `#fanout` 규율대로 이 userId 하나다(T-15-02).
+    let clearedProgress = 0;
     for (const key of [...this.#queueProgress.keys()]) {
-      if (key.startsWith(prefix)) this.#queueProgress.delete(key);
+      if (!key.startsWith(prefix)) continue;
+      this.#queueProgress.delete(key);
+      clearedProgress += 1;
     }
+    if (clearedProgress > 0) this.#fanout(userId, { t: "unf.progress", snap: true, entries: [] });
     const timer = this.#flushTimers.get(userId);
     if (timer !== undefined) {
       clearTimeout(timer);
