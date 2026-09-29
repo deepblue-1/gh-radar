@@ -637,7 +637,7 @@ describe("SubscriptionHub — 잔량진행률 83 QueueProgress (Phase 25-06)", (
     );
   });
 
-  it("세션 교체(#clearCaches) 뒤 옛 진행률이 남지 않는다 (T-25-26 · Pitfall 6)", () => {
+  it("세션 교체(#clearCaches) 뒤 옛 진행률이 남지 않는다 (T-25-26 · Pitfall 6) — 이미 연결된 브라우저 사본도 비운다 (WR-02)", () => {
     session.pushFrame(buildQueueProgressFrame({ items: [{ orderNo: "12453" }] }));
     expect(hub.getQueueProgressEntries("user-1")).toHaveLength(1);
 
@@ -645,5 +645,11 @@ describe("SubscriptionHub — 잔량진행률 83 QueueProgress (Phase 25-06)", (
     next.allowedAccounts = session.allowedAccounts;
     hub.attach(next);
     expect(hub.getQueueProgressEntries("user-1")).toEqual([]);
+    // 캐시를 브라우저 모르게 비우면 빈→빈 억제가 삭제 신호를 삼킨다 — 교체 순간 사본도 같이 비운다.
+    expect(progressFrames().at(-1)).toEqual({ t: "unf.progress", snap: true, entries: [] });
+    const snapTargets = fanout
+      .filter((e) => e.msg.t === "unf.progress" && e.msg.snap === true)
+      .map((e) => e.userId);
+    expect(snapTargets).toEqual(["user-1"]);
   });
 });

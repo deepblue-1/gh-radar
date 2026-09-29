@@ -40,11 +40,12 @@ import {
   WsFanout,
   type WsFanoutDeps,
 } from "../src/ws/fanout.js";
-import { SubscriptionHub, TAPE_BATCH_MS } from "../src/hub/subscription-hub.js";
+import { SubscriptionHub, TAPE_BATCH_MS, type HubSession } from "../src/hub/subscription-hub.js";
 import { SessionManager } from "../src/dma/session-manager.js";
 import type { DmaSession } from "../src/dma/session.js";
 import { encryptDmaPassword } from "../src/store/credentials.js";
-import { resetDroppedEnvelopeCount, type LcSetCfg } from "../src/dma/envelope.js";
+import { resetDroppedEnvelopeCount, tryParseEnvelope, type LcSetCfg } from "../src/dma/envelope.js";
+import type { TransportFrameEvent } from "../src/dma/dma-client.js";
 import { MSG } from "../src/dma/msg-type.js";
 import { LC_LEGACY_SET_REJECT_TEXT } from "../src/ws/protocol.js";
 import { logger } from "../src/logger.js";
@@ -57,6 +58,7 @@ import {
 } from "./helpers/fake-gateway.js";
 import { connectWs, type TestWs } from "./helpers/ws-client.js";
 import {
+  SAMPLE_ACCOUNTS,
   SAMPLE_ACCOUNT_NO,
   SAMPLE_ISIN,
   STRATEGY_MSG,
@@ -127,6 +129,38 @@ function fakeSupabase(): SupabaseClient {
       }),
     }),
   } as unknown as SupabaseClient;
+}
+
+/**
+ * 세션 교체 대역 (25-13 · WR-02) — `hub.attach` 로 같은 사용자의 **다른 세션 객체**를 붙여 교체를 만든다.
+ *
+ * 교체를 `SessionManager` 가 아니라 `h.hub.attach` 로 만드는 이유: 오늘 `SessionManager.acquire` 는
+ * refCount 0(그 사용자의 탭 0개)이고 부트 실패 세션일 때만 세션을 새로 세운다. 그래서 탭이 연결된 채
+ * 교체되는 상황을 실 경로로는 만들 수 없다. `fanout.ts` `#register` 세션 교체 갈래와 같은
+ * 「오늘 미도달 · 계약은 지킨다」 경계를 hub → `WsFanout` → 실 ws 로 증명한다 — 재생성 조건이 완화되면
+ * 이 경로가 조용히 살아나기 때문이다.
+ *
+ * `pushFrame` 은 hub.test.ts `FakeSession.pushFrame` 과 같은 방식이다 — 수신 화이트리스트 파서를 거친다.
+ */
+class ReplacementSession extends EventEmitter implements HubSession {
+  isReady = true;
+  readonly allowedAccounts = SAMPLE_ACCOUNTS;
+
+  constructor(readonly userId: string) {
+    super();
+  }
+
+  send(): boolean {
+    return true;
+  }
+
+  /** 게이트웨이가 새 세션으로 프레임을 밀어 넣는 상황을 재현한다. */
+  pushFrame(payload: Uint8Array): void {
+    const parsed = tryParseEnvelope(Buffer.from(payload));
+    if (parsed === null) throw new Error("테스트 프레임이 수신 화이트리스트를 통과하지 못했습니다");
+    const event: TransportFrameEvent = { ...parsed, generation: 1 };
+    this.emit("frame", event);
+  }
 }
 
 /**
@@ -929,6 +963,47 @@ describe("WsFanout", () => {
         entries: [{ i: SAMPLE_ISIN, x: "NXT", items: [expect.objectContaining({ orderNo: "777", accountNo: SAMPLE_ACCOUNT_NO })] }],
       });
       expect(JSON.stringify(snaps[0])).not.toContain("dmaUserId");
+    });
+
+    it("P4 세션 교체 — 이미 연결된 탭이 진행률 초기화 snap:true 를 받고, 새 세션의 빈 83 억제 뒤에도 옛 키가 남지 않는다 (WR-02 · Pitfall 6)", async () => {
+      const conn = await authed("token-a");
+      await waitFor(() => gateway.sockets.length >= 1, "게이트웨이 연결");
+      const sock = gateway.sockets[0];
+      if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+
+      gateway.sendFrame(sock, buildQueueProgressFrame({ exchange: "KRX", items: [{ orderNo: "12453", group: 3 }] }));
+      await waitFor(
+        () => framesOf(conn.inbox, "unf.progress").some((m) => m.snap === false),
+        "옛 세션 진행률 라이브 프레임",
+      );
+
+      // 탭이 연결된 채 세션이 교체된다 — hub 캐시와 함께 브라우저 사본도 비워야 한다.
+      const replacement = new ReplacementSession(USER_A);
+      h.hub.attach(replacement);
+      await waitFor(
+        () => framesOf(conn.inbox, "unf.progress").filter((m) => m.snap === true).length === 2,
+        "교체 초기화 스냅",
+      );
+      expect(h.hub.getQueueProgressEntries(USER_A)).toEqual([]);
+
+      // 새 세션의 같은 키 빈 83 — 빈→빈 억제로 프레임이 없다(T-25-27 불변). 사본은 이미 비었다.
+      replacement.pushFrame(buildQueueProgressFrame({ exchange: "KRX", items: [] }));
+      replacement.pushFrame(buildQueueProgressFrame({ exchange: "NXT", items: [{ orderNo: "777" }] }));
+      // ws 는 순서를 지킨다 — 빈 83 프레임이 있었다면 NXT 보다 먼저 와 있다.
+      await waitFor(
+        () => framesOf(conn.inbox, "unf.progress").some((m) => m.snap === false && m.x === "NXT"),
+        "새 세션 NXT 라이브 프레임",
+      );
+
+      const frames = framesOf(conn.inbox, "unf.progress");
+      expect(frames).toHaveLength(4);
+      expect(frames[0]).toEqual({ t: "unf.progress", snap: true, entries: [] });
+      expect(frames[1]).toMatchObject({ snap: false, i: SAMPLE_ISIN, x: "KRX" });
+      expect(frames[1]?.snap === false ? frames[1].items.map((it) => it.orderNo) : null).toEqual(["12453"]);
+      expect(frames[2]).toEqual({ t: "unf.progress", snap: true, entries: [] });
+      expect(frames[3]).toMatchObject({ snap: false, i: SAMPLE_ISIN, x: "NXT" });
+      expect(frames[3]?.snap === false ? frames[3].items.map((it) => it.orderNo) : null).toEqual(["777"]);
+      expect(JSON.stringify(conn.inbox)).not.toContain("dmaUserId");
     });
   });
 
