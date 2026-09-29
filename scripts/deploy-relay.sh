@@ -33,6 +33,12 @@ set -euo pipefail
 #              「배포 때 주입하지 말라」로 읽어 배포마다 mock 으로 되돌린 것이
 #              16-26(`2cb5620`)·16-35(`c8aa7ae`) 의 프로덕션 강등이었다.
 #   LOG_LEVEL  미설정 시 info
+#   DMA_KYOBO_HOST  추가 관찰자(교보 게이트웨이 kyobo127 · 키 KYOBO — quick-260929-c8e) 주소.
+#              우선순위: **명시 주입 > 실행 중인 컨테이너 값 보존 > 없음(KYOBO 관찰자 없음)**.
+#              `off` 는 명시 해제다(보존 규칙을 끊는 유일한 방법). 보존 이유는 DMA_HOST 와 같다(갭 5,
+#              2026-09-09 — 주입 없는 배포가 프로덕션 상태를 조용히 되돌리지 않는다). 저장소에는 실주소
+#              기본값이 없다(D-27) — 첫 반영 때 배포자가 주입한다. 관찰자 전용이다(사용자 세션은 KB 단일).
+#   DMA_KYOBO_PORT  미설정 시 9100
 #
 # 비밀은 이 스크립트가 만지지 않는다 (T-15-29 · T-19-03):
 #   컨테이너 비밀 4종은 **VM 안에서** 메타데이터 토큰 → Secret Manager REST 로 읽어
@@ -45,6 +51,10 @@ set -euo pipefail
 #                                      gh-trade 게이트웨이 `config/observer.toml` 과 **같은 값**이어야 한다.
 #                                      relay 는 production 에서 이 값이 없으면 기동을 거부한다.
 #                                      값 생성·순환 절차는 infra/relay/README.md §Secret 4종 값 주입)
+#     gh-radar-dma-observer-secret-kyobo → DMA_OBSERVER_SECRET_KYOBO  (**선택** — quick-260929-c8e KYOBO 관찰자.
+#                                      없거나 ENABLED 버전 · relay SA 접근권이 없으면 KYOBO 관찰자만 생략하고
+#                                      KB 배포는 계속된다. 값은 gh-trade kyobo127 `config/observer.toml` 과 같아야 한다.
+#                                      위 「비밀 4종」 은 치명 4종을 뜻한다 — 이 비밀은 그 밖이다)
 # ═══════════════════════════════════════════════════════════════
 
 MODE=deploy
@@ -160,16 +170,44 @@ LOG_LEVEL="${LOG_LEVEL:-info}"
 WS_PORT=8090
 ORDER_API_PORT=8091
 DMA_PORT=9100
+DMA_KYOBO_PORT="${DMA_KYOBO_PORT:-9100}"
 DMA_BROKER=KB
 
-# 돌고 있는 컨테이너의 DMA_HOST 를 되읽는다. **배포 전(기본값 결정)과 배포 후(최종 요약)가**
-# **같은 이 함수를 쓴다** — 두 벌로 적으면 언젠가 한쪽만 고쳐진다 (T-16-14).
+# 돌고 있는 컨테이너의 env 값 하나(인자 KEY)를 되읽는다. **배포 전(기본값 결정)과 배포 후(최종 요약)가**
+# **같은 이 함수를 쓴다** — 두 벌로 적으면 언젠가 한쪽만 고쳐진다 (T-16-14). DMA_HOST · DMA_KYOBO_HOST 공용.
 # 실패(VM 접근 불가 · 컨테이너 부재 · 최초 배포)는 **정상 경로**다. 빈 문자열을 돌려주고
 # 호출부가 다음 순위로 넘어간다. `set -e` 아래이므로 호출부는 `|| true` 를 붙인다.
-read_live_dma_host() {
+# ⚠️ docker inspect 의 Env 에는 비밀도 들어 있다 — **비밀 키 이름(…_SECRET* · …_KEY)으로는 부르지 않는다**
+#    (T-c8e-01). 값이 로컬 터미널에 찍힌다. 주소 · 포트 같은 공개 설정만 되읽는다.
+read_live_env() {
+  local KEY="$1"
+  # 식별자만 받는다 — sed 식에 그대로 들어가므로.
+  [[ "$KEY" =~ ^[A-Z_][A-Z0-9_]*$ ]] || return 1
   gcloud compute ssh "$VM" --zone="$ZONE" --tunnel-through-iap --command \
-    "sudo docker inspect $CONTAINER --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^DMA_HOST=//p'" \
+    "sudo docker inspect $CONTAINER --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^${KEY}=//p'" \
     2>/dev/null | tr -d '\r' | tail -1
+}
+
+# 종전 호출부 두 곳(배포 전 해석 · 최종 요약)이 그대로 쓰는 한 줄 래퍼.
+read_live_dma_host() { read_live_env DMA_HOST; }
+
+# KYOBO 관찰자 호스트 해석 (quick-260929-c8e). **명령을 실행하지 않고 다른 전역을 보지 않는다** —
+# 입력 전역 DMA_KYOBO_HOST_INJECTED · CURRENT_KYOBO_HOST → 출력 KYOBO_HOST · KYOBO_HOST_SOURCE(항상 비어 있지 않음).
+# 우선순위: off(명시 해제) > 명시 주입 > 실행 중 컨테이너 보존 > 미설정.
+resolve_kyobo_host() {
+  if [[ "$DMA_KYOBO_HOST_INJECTED" == "off" ]]; then
+    KYOBO_HOST=""
+    KYOBO_HOST_SOURCE="명시 해제(off)"
+  elif [[ -n "$DMA_KYOBO_HOST_INJECTED" ]]; then
+    KYOBO_HOST="$DMA_KYOBO_HOST_INJECTED"
+    KYOBO_HOST_SOURCE="명시 주입"
+  elif [[ -n "$CURRENT_KYOBO_HOST" ]]; then
+    KYOBO_HOST="$CURRENT_KYOBO_HOST"
+    KYOBO_HOST_SOURCE="실행 중 컨테이너 보존"
+  else
+    KYOBO_HOST=""
+    KYOBO_HOST_SOURCE="미설정"
+  fi
 }
 
 # D-27 / T-15-30 — 이 스크립트에는 실서버 주소가 **기본값으로 적히지 않는다.** 값은
@@ -209,6 +247,17 @@ else
   fi
 fi
 
+# KYOBO 관찰자 호스트 (quick-260929-c8e) — 같은 보존 규칙(명시 > 실행 중 보존 > 없음 · off = 명시 해제).
+DMA_KYOBO_HOST_INJECTED="${DMA_KYOBO_HOST:-}"
+echo "▶ 현재 컨테이너 DMA_KYOBO_HOST 조회 ..."
+CURRENT_KYOBO_HOST="$(read_live_env DMA_KYOBO_HOST || true)"
+resolve_kyobo_host
+if [[ "$CURRENT_KYOBO_HOST" == "$KYOBO_HOST" ]]; then
+  echo "  현재 컨테이너 DMA_KYOBO_HOST=${CURRENT_KYOBO_HOST:-<없음>} — 이번 배포로 바뀌지 않는다 (출처: $KYOBO_HOST_SOURCE)"
+else
+  echo "⚠ DMA_KYOBO_HOST 가 이번 배포로 바뀝니다:  ${CURRENT_KYOBO_HOST:-<없음>}  →  ${KYOBO_HOST:-<없음>}  (출처: $KYOBO_HOST_SOURCE)" >&2
+fi
+
 if [[ "$DMA_HOST" == "10.41.1.120" ]]; then
   echo "⚠ 실서버 접속 모드 — 사용자 지시가 있었는지 확인하세요 (D-27)" >&2
   echo "  이 phase 의 기본 검증 대상은 로컬 mock 이며, 실서버 접속 검증은 15-20 소관입니다." >&2
@@ -226,7 +275,7 @@ else
   TARGET_IMAGE="$IMAGE"
   APP_VERSION="$SHA"
 fi
-echo "✓ variables: mode=$MODE SHA=$SHA TARGET=$TARGET_IMAGE DMA_HOST=$DMA_HOST"
+echo "✓ variables: mode=$MODE SHA=$SHA TARGET=$TARGET_IMAGE DMA_HOST=$DMA_HOST DMA_KYOBO_HOST=${KYOBO_HOST:-<없음>}"
 # 「무슨 값이냐」만으로는 부족하다 — **어디서 왔느냐**가 강등을 알아채는 유일한 단서다.
 # rollback 경로도 위의 같은 해석을 이미 지나왔으므로 여기서 함께 찍힌다.
 echo "  DMA_HOST 출처: $DMA_HOST_SOURCE (배포 전 컨테이너 값=${CURRENT_DMA_HOST:-<확인 실패>})"
@@ -267,6 +316,34 @@ for SECRET_NAME in gh-radar-supabase-service-role gh-radar-dma-cred-key gh-radar
   fi
 done
 echo "✓ Secret 4종 존재 + ENABLED 버전 + relay SA 접근권"
+
+# KYOBO 관찰자 비밀 사전 점검 (quick-260929-c8e) — **비치명**이다. 위 치명 4종 루프 밖이고 절대 exit 하지 않는다.
+# 하나라도 실패하면 KYOBO 관찰자만 생략하고(KYOBO_HOST 비움 → env-file 에 KYOBO 3줄 없음) KB 단독으로 배포한다.
+# (`set -eo pipefail` 아래라 파이프 대입에는 `|| true` 를 붙인다 — 여기서 죽으면 KB 배포까지 막힌다.)
+KYOBO_SECRET_NAME=gh-radar-dma-observer-secret-kyobo
+if [[ -z "$KYOBO_HOST" ]]; then
+  echo "  KYOBO 관찰자 없음 (${KYOBO_HOST_SOURCE}) — KB 단독"
+else
+  KYOBO_SKIP_REASON=""
+  if ! gcloud secrets describe "$KYOBO_SECRET_NAME" >/dev/null 2>&1; then
+    KYOBO_SKIP_REASON="Secret '$KYOBO_SECRET_NAME' 없음"
+  else
+    KYOBO_VERSION_COUNT=$(gcloud secrets versions list "$KYOBO_SECRET_NAME" --filter='state=ENABLED' \
+      --format='value(name)' 2>/dev/null | wc -l | tr -d ' ' || true)
+    if [[ "${KYOBO_VERSION_COUNT:-0}" -lt 1 ]]; then
+      KYOBO_SKIP_REASON="Secret '$KYOBO_SECRET_NAME' 에 ENABLED 버전 없음"
+    elif ! gcloud secrets get-iam-policy "$KYOBO_SECRET_NAME" --format='value(bindings.members)' 2>/dev/null \
+        | grep -q "$RELAY_SA"; then
+      KYOBO_SKIP_REASON="'$RELAY_SA' 에 Secret '$KYOBO_SECRET_NAME' 접근권 없음"
+    fi
+  fi
+  if [[ -n "$KYOBO_SKIP_REASON" ]]; then
+    echo "⚠ KYOBO 관찰자 생략: ${KYOBO_SKIP_REASON} — KB 단독으로 배포한다 (infra/relay/README.md §다중 게이트웨이 관찰자)" >&2
+    KYOBO_HOST=""
+  else
+    echo "✓ KYOBO 관찰자 비밀 확인 ($KYOBO_SECRET_NAME · ENABLED · relay SA 접근권) — KYOBO=$KYOBO_HOST:$DMA_KYOBO_PORT"
+  fi
+fi
 
 # relay VM 에 닿는 방화벽은 **정확히 4규칙**이어야 한다. 포트 80 규칙이 늘어나면 D-09
 # 위반이므로 이름까지 본다.
@@ -335,9 +412,10 @@ fi
 #   head(공개 설정) + body(리터럴) 로 나눈 이유: body 를 인용 heredoc 으로 두면
 #   원격에서 쓰는 `$VAR` 가 로컬에서 전개되지 않는다. 비밀은 head 에도 body 에도 없다.
 # ───────────────────────────────────────────────────────────────
-REMOTE_HEAD=$(printf 'PROJECT=%q\nTARGET_IMAGE=%q\nCONTAINER=%q\nAPP_VERSION=%q\nLOG_LEVEL=%q\nSUPABASE_URL=%q\nWS_PORT=%q\nORDER_API_PORT=%q\nDMA_HOST=%q\nDMA_PORT=%q\nDMA_BROKER=%q\n' \
+REMOTE_HEAD=$(printf 'PROJECT=%q\nTARGET_IMAGE=%q\nCONTAINER=%q\nAPP_VERSION=%q\nLOG_LEVEL=%q\nSUPABASE_URL=%q\nWS_PORT=%q\nORDER_API_PORT=%q\nDMA_HOST=%q\nDMA_PORT=%q\nDMA_BROKER=%q\nDMA_KYOBO_HOST=%q\nDMA_KYOBO_PORT=%q\n' \
   "$EXPECTED_PROJECT" "$TARGET_IMAGE" "$CONTAINER" "$APP_VERSION" "$LOG_LEVEL" \
-  "$SUPABASE_URL" "$WS_PORT" "$ORDER_API_PORT" "$DMA_HOST" "$DMA_PORT" "$DMA_BROKER")
+  "$SUPABASE_URL" "$WS_PORT" "$ORDER_API_PORT" "$DMA_HOST" "$DMA_PORT" "$DMA_BROKER" \
+  "$KYOBO_HOST" "$DMA_KYOBO_PORT")
 
 REMOTE_BODY=$(cat <<'REMOTE_BODY_EOF'
 set -euo pipefail
@@ -380,12 +458,22 @@ SB_KEY="$(fetch_secret gh-radar-supabase-service-role)"
 CRED_KEY="$(fetch_secret gh-radar-dma-cred-key)"
 ORDER_SECRET="$(fetch_secret gh-radar-relay-order-secret)"
 OBS_SECRET="$(fetch_secret gh-radar-dma-observer-secret)"
+# KYOBO 관찰자 비밀(quick-260929-c8e) — **비치명**. 호스트가 넘어온 때만 읽고, 실패하면 KYOBO 없이 기동한다.
+KYOBO_SECRET=""
+if [ -n "$DMA_KYOBO_HOST" ]; then
+  KYOBO_SECRET="$(fetch_secret gh-radar-dma-observer-secret-kyobo || true)"
+  if [ -z "$KYOBO_SECRET" ]; then
+    log "KYOBO 비밀 획득 실패 — KYOBO 관찰자 없이 기동 (KB 무영향)"
+    DMA_KYOBO_HOST=""
+  fi
+fi
 # 빈 값 검사 — 값이 아니라 **어느 키가 비었는지**만 남긴다.
 [ -n "$SB_KEY" ]       || { echo "빈 비밀: supabase service role" >&2; exit 1; }
 [ -n "$CRED_KEY" ]     || { echo "빈 비밀: dma cred key" >&2; exit 1; }
 [ -n "$ORDER_SECRET" ] || { echo "빈 비밀: relay order secret" >&2; exit 1; }
 [ -n "$OBS_SECRET" ]   || { echo "빈 비밀: dma observer secret" >&2; exit 1; }
-log "비밀 4종 획득 (값은 기록하지 않음)"
+if [ -n "$DMA_KYOBO_HOST" ]; then KYOBO_NOTE="KYOBO 포함"; else KYOBO_NOTE="KYOBO 없음"; fi
+log "비밀 4종 획득 (값은 기록하지 않음) · ${KYOBO_NOTE}"
 
 {
   printf 'NODE_ENV=production\n'
@@ -401,6 +489,12 @@ log "비밀 4종 획득 (값은 기록하지 않음)"
   printf 'DMA_CRED_KEY=%s\n' "$CRED_KEY"
   printf 'RELAY_ORDER_SECRET=%s\n' "$ORDER_SECRET"
   printf 'DMA_OBSERVER_SECRET=%s\n' "$OBS_SECRET"
+  # KYOBO 관찰자 — 호스트와 비밀이 모두 있을 때만 3줄. 없으면 relay 는 KB 단독(오늘과 같다).
+  if [ -n "$DMA_KYOBO_HOST" ]; then
+    printf 'DMA_KYOBO_HOST=%s\n' "$DMA_KYOBO_HOST"
+    printf 'DMA_KYOBO_PORT=%s\n' "$DMA_KYOBO_PORT"
+    printf 'DMA_OBSERVER_SECRET_KYOBO=%s\n' "$KYOBO_SECRET"
+  fi
 } > "$ENV_FILE"
 
 # ── 컨테이너 교체 ──────────────────────────────────────────────
@@ -530,6 +624,13 @@ if [[ "$LIVE_DMA_HOST" == "127.0.0.1" ]]; then
   echo "              실서버로 붙이려면: DMA_HOST=10.41.1.120 bash scripts/deploy-relay.sh"
 else
   echo "   DMA_HOST:  $LIVE_DMA_HOST : $DMA_PORT   ← 실제 컨테이너 값"
+fi
+# KYOBO 관찰자도 돌고 있는 컨테이너에서 되읽는다(같은 read_live_env).
+LIVE_KYOBO_HOST="$(read_live_env DMA_KYOBO_HOST || true)"
+if [[ -n "$LIVE_KYOBO_HOST" ]]; then
+  echo "   KYOBO:     $LIVE_KYOBO_HOST : $DMA_KYOBO_PORT   ← 관찰자 전용(사용자 세션 아님)"
+else
+  echo "   KYOBO:     관찰자 없음"
 fi
 echo "   Public:    https://${HEALTH_HOST}/healthz"
 echo ""
