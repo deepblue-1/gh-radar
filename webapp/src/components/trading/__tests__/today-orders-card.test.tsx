@@ -955,3 +955,107 @@ describe("TodayOrdersCard — 기록 지연 표식 · ②줄 줄바꿈 (Phase 19
     expect(line1?.className).not.toContain("flex-wrap");
   });
 });
+
+// ===========================================================================
+// 25-05 — 오늘 주문 별건 3 (UI-SPEC ⑤ · 결정 6-A)
+// ===========================================================================
+
+/**
+ * 세 판정은 `order-notices.ts` · `orders-api.ts` 순수 함수가 내고, 이 카드는 **그리기만** 한다.
+ *  ① 방향 미상 → 구분 칸 「주문」 muted · 화살표 없음 · `data-side="none"` (빈칸은 버그로 읽힌다)
+ *  ② rejected ∧ result_code −2 → 상태 칸 「접수 불명」 muted + 확인 경로 title (재주문 유도 방지 · WR-01)
+ *  ③ KB 거부 R(New) → 「▲ 매수」 단어·화살표는 두고 색만 회색 · `data-side-ref` · 참고 title/sr-only
+ * 데스크톱 표 행과 모바일 카드 행이 **같은 data 속성**을 내야 한다 — 두 DOM 을 모두 단언한다.
+ */
+describe("TodayOrdersCard — 별건 3 (Phase 25)", () => {
+  const RECEIPT_UNKNOWN =
+    "주문이 접수됐는지 확인되지 않았어요. 미체결·잔고에서 확인한 뒤 다시 주문하세요";
+  const SIDE_REF = "거부 통보의 방향은 참고값이에요";
+
+  /** 표 행 1 · 카드 행 1 — 두 DOM 의 같은 칸을 함께 돌려준다. */
+  function cellsOf(slot: "today-order-side" | "today-order-status"): Element[] {
+    const table = document.querySelector(`[data-slot="today-order-table-row"] [data-slot="${slot}"]`);
+    const card = document.querySelector(`[data-slot="today-order-row"] [data-slot="${slot}"]`);
+    expect(table).not.toBeNull();
+    expect(card).not.toBeNull();
+    return [table!, card!];
+  }
+
+  it("⑬-1 방향 미상 행은 구분 칸이 빈칸이 아니라 「주문」 muted · 화살표 없음 · data-side none", async () => {
+    fetchTodayOrdersMock.mockResolvedValue([
+      row({ id: "u", side: null, noticeType: "", requestKind: "", orderType: "N" }),
+    ]);
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+    for (const cell of cellsOf("today-order-side")) {
+      expect(cell.textContent).toBe("주문");
+      expect(cell.getAttribute("data-side")).toBe("none");
+      expect(cell.hasAttribute("data-side-ref")).toBe(false);
+      expect(cell.textContent).not.toMatch(/[▲▼]/);
+      expect(cell.className).toContain("text-[var(--muted-fg)]");
+    }
+  });
+
+  it("⑬-2 rejected ∧ result_code −2 는 「접수 불명」 muted + title · 방향 칩은 원래 방향색", async () => {
+    fetchTodayOrdersMock.mockResolvedValue([
+      row({ id: "x", side: "B", status: "rejected", noticeType: "R", resultCode: -2 }),
+    ]);
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+    for (const cell of cellsOf("today-order-status")) {
+      expect(cell.textContent).toBe("접수 불명");
+      expect(cell.getAttribute("data-tone")).toBe("muted");
+      expect(cell.getAttribute("title")).toBe(RECEIPT_UNKNOWN);
+      expect(cell.className).not.toContain("--destructive");
+    }
+    for (const cell of cellsOf("today-order-side")) {
+      expect(cell.textContent).toBe("▲ 매수");
+      expect(cell.getAttribute("data-side")).toBe("B");
+      expect(cell.hasAttribute("data-side-ref")).toBe(false);
+      expect(cell.className).toContain("text-[var(--up)]");
+    }
+  });
+
+  it("⑬-3 KB 거부 R(New) 는 「▲ 매수」 를 두고 색만 회색 · data-side-ref · 참고 title + sr-only · 상태는 「거부」 danger", async () => {
+    fetchTodayOrdersMock.mockResolvedValue([
+      row({ id: "r", side: "B", status: "rejected", noticeType: "R", requestKind: "New", resultCode: 1 }),
+    ]);
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+    for (const cell of cellsOf("today-order-side")) {
+      expect(cell.getAttribute("data-side")).toBe("B");
+      expect(cell.getAttribute("data-side-ref")).toBe("true");
+      expect(cell.getAttribute("title")).toBe(SIDE_REF);
+      expect(cell.className).toContain("text-[var(--muted-fg)]");
+      expect(cell.className).not.toContain("text-[var(--up)]");
+      const sr = cell.querySelector(".sr-only");
+      expect(sr?.textContent?.trim()).toBe(SIDE_REF);
+      // 보이는 문자열은 「▲ 매수」 그대로다 — sr-only 를 뺀 텍스트.
+      expect(cell.textContent?.replace(sr?.textContent ?? "", "")).toBe("▲ 매수");
+    }
+    for (const cell of cellsOf("today-order-status")) {
+      expect(cell.textContent).toBe("거부");
+      expect(cell.getAttribute("data-tone")).toBe("danger");
+      expect(cell.hasAttribute("title")).toBe(false);
+    }
+  });
+
+  it("⑬-4 거부 아닌 신규 접수는 참고 표기가 없다 — 종전 방향색 그대로", async () => {
+    fetchTodayOrdersMock.mockResolvedValue([row({ id: "a", side: "S", noticeType: "A" })]);
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+    for (const cell of cellsOf("today-order-side")) {
+      expect(cell.hasAttribute("data-side-ref")).toBe(false);
+      expect(cell.hasAttribute("title")).toBe(false);
+      expect(cell.className).toContain("text-[var(--down)]");
+    }
+  });
+});
