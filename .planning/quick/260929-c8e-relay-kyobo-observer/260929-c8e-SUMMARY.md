@@ -117,8 +117,6 @@ KYOBO env 3종(DMA_KYOBO_HOST · DMA_KYOBO_PORT · DMA_OBSERVER_SECRET_KYOBO)이
 
 Task 3(`checkpoint:human-action` · `executor="main-session"`)은 gsd-executor 가 실행하지 않았다. 메인 세션이 (0) → (a) → (b) → (c) → (d) → (e) 순서로 진행하고, 이 절에 「라이브 반영 결과」를 채운다.
 
-### 라이브 반영 결과
-
 ### 라이브 반영 결과 (메인 세션 · 2026-09-29 KST)
 
 | 단계 | KST | 결과 |
@@ -135,10 +133,8 @@ Task 3(`checkpoint:human-action` · `executor="main-session"`)은 gsd-executor �
 - 계획 `<verify>` jq: status ok · journal.state live · journalGateways.KYOBO.state live → **충족**.
 - 교보 주문 포트 링크가 아직 DOWN 이라 KYOBO 저널은 0건(headSeq 0). 링크 개통 후 첫 레코드 apply 는 gh-trade 가 통보하면 확인한다.
 - 잔여: 컨테이너 `/tmp/c8e-idcheck.js`(비밀 없음, env 만 읽는 조회 스크립트) 삭제가 권한 문제로 실패 — 다음 배포 때 컨테이너 교체로 사라짐.
-- 저장소 변경은 Task 1 · 2 커밋뿐이다. push 는 이 quick 범위 밖이다.
+- 저장소 변경은 Task 1 · 2 커밋뿐이다. push 는 이 quick 범위 밖이었으나, 2026-09-29 10:22 다른 세션(gh-radar-65)이 c8e 5커밋을 master 에 cherry-pick 해 origin/master d9f4f101 · origin/gsd/phase-24-limitchaser-buy3 952dfe86 으로 push 완료.
 
-
-(미실행 — 메인 세션 대기)
 
 ## Self-Check: PASSED
 
