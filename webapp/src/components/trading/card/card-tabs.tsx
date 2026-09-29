@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * CardTabs — 펼친 전략 카드 본문 상단 「정보 | 미체결 N | 잔고 | 로그 N」 교체 탭
- * (quick-260923-onn · 2026-09-23 목업 ②A).
+ * CardTabs — 펼친 전략 카드 본문 상단 「정보 | 미체결 N | 잔고 N | 주문로그 N | 전략로그 N」 교체 탭
+ * (quick-260923-onn · 2026-09-23 목업 ②A · Phase 25-10 주문로그 탭 · 「로그」 → 「전략로그」 개명).
  *
  * ① 무엇을 그리는가
  *   종전 `QuoteGrid10` 자리에 탭 줄(24px · 선택 알약 `--pill-on-*` — 공용 패널 탭 문법의 얇은 판)이 서고,
@@ -10,8 +10,12 @@
  *   · 넘치면 세로 스크롤(quick-260925-ptw → 260925 후속 사용자 결정 「카드 탭 높이는 다 같아야 한다 ·
  *   정보탭 기준 3줄」). 탭을 바꾸거나 목록이 비어도 카드 높이가 변하지 않는다. 표 탭은 이 높이에서
  *   머리 1 + 데이터 1행쯤, 로그는 3줄쯤 보이고 나머지는 스크롤이다. 빈 상태는 `dense` 로 이 높이 안에 든다.
+ *   본문 공통 고정 높이 안의 탭별 모양:
+ *     정보 = 10칸 3줄 · 미체결/잔고 = 표(머리 + 1행쯤) · **주문로그 = dense 줄 ≈3줄(자체 `h-full` 스크롤러 ·
+ *     핀 없음 · 자동 따라감)** · 전략로그 = StrategyLog embed dense.
  *   탭 줄 오른쪽 끝 접기 버튼이 본문을 접는다 — 접혀도 탭 알약(건수 포함)은 보인다. 「미체결」·「잔고」는 **이 카드 종목·거래소·계좌로
- *   자른** 계좌 상태, 「로그」는 카드 훅의 전략 로그다. 배지는 미체결·로그만, 0 이면 생략.
+ *   자른** 계좌 상태, 「전략로그」(값 `log` — 라벨만 개명 · 요청 통로 무영향)는 카드 훅의 전략 로그다.
+ *   건수 괄호는 미체결 · 잔고 · 전략로그(총 건수)와 주문로그(가려진 동안 새로 온 수 — ⑧), 0 이면 생략.
  *
  * ② ★ 데이터는 슬라이스 하나 — 접힌 헤더 요약 칩과 같은 값
  *   `account` 는 `cardAccountSliceOf().account`(strategy-card 가 1회 파생)다. 헤더 칩 숫자 ·
@@ -41,27 +45,53 @@
  *   간다. 요청은 `{ tab, seq }` 이고 **`seq` 가 바뀔 때만** 이긴다 — 사용자 클릭은 그대로 로컬 state
  *   다(⑤). 이 컴포넌트는 카드를 처음 펼칠 때 마운트되므로 새로 펼쳐지는 카드는 마운트 효과로 요청을
  *   소비한다.
+ *
+ * ⑧ 「주문로그」 탭 (Phase 25-10 · D-06 · 결정 3-A · 4-B · UI-SPEC ②-2)
+ *   - 데이터는 작업대 공용 피드 하나(`OrderLogFeedProvider` — strategy-card 가 `orderLog` 로 넘긴다) — 카드마다
+ *     조회하지 않는다. `orderLog` 가 없으면(작업대 밖 렌더) 탭 자체가 없다.
+ *   - 범위 = **카드 계좌**의 주문 이벤트 + 시세 이벤트, 둘 다 **그 종목 · 그 거래소**만(`inScope`). 필터줄 · 핀이 없다.
+ *   - 본문 = `OrderLogList variant="card"`(dense 줄 · 괄호 · 거래소 · 종목 생략) — 문장은 shared 조립기 출력 그대로다.
+ *   - 괄호 숫자 = **가려진 동안** 도착한 범위 안 푸시 수. 가려짐 = 다른 탭 활성 · 카드 탭 접힘 · 카드 접힘
+ *     (`cardOpen` false — 카드 본문은 `hidden` 으로 남아 이 컴포넌트가 살아 있다). 보이게 되면 0.
+ *     N>0 이면 트리거 이름 「주문로그, 새 로그 N건」(공용 패널과 같은 말).
+ *   - 폰 밴드 줄 탭 펼침은 작업대 판정(`orderLog.phoneBand`)을 그대로 쓴다 — 새 컨테이너 선언 · 경계 숫자 없음(⑥).
  */
 
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { ChevronDown } from "lucide-react";
 import type {
   RelayAccountState,
+  RelayExchange,
   RelayOrderResultMsg,
   RelayQuote,
   RelayUnfilled,
+  StrategyEventRow,
 } from "@gh-radar/shared";
 
 import { AccountPanel, type AccountRowOrigin } from "@/components/orderbook/account-panel";
 import { QuoteGrid10 } from "@/components/trading/card/quote-grid-10";
+import { OrderLogList } from "@/components/trading/order-log/order-log-list";
 import { StrategyLog, type StrategyLogEntry } from "@/components/trading/strategy-log";
 import { nextUnfilledSelection } from "@/components/trading/workbench/shared-panels";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { inScope } from "@/lib/order-log-feed";
 import { readPanelsPref, writePanelsPref } from "@/lib/trading-layout";
+import { useUnseenOrderLogCount, type OrderLogFeed } from "@/lib/use-order-log-feed";
 import { cn } from "@/lib/utils";
 import type { RelayStatus } from "@/lib/use-relay-socket";
 
-export type CardTab = "info" | "unfilled" | "holdings" | "log";
+export type CardTab = "info" | "unfilled" | "holdings" | "orderlog" | "log";
+
+/** 카드 주문로그 탭 입력(⑧) — 작업대 공용 피드 + 이 카드의 종목 · 거래소. */
+export interface CardOrderLogInput {
+  feed: OrderLogFeed;
+  isin: string;
+  exchange: RelayExchange;
+  /** 카드 종목 표시명 — 줄 `title`(F-A 전체 평문)의 종목 칸. 카드는 `useIsinLabels` 를 구독하지 않는다(T-18-29). */
+  stockName: string;
+  /** 작업대 `wb` 폰 밴드 — 판정 전 `null`. */
+  phoneBand?: boolean | null;
+}
 
 /** 탭 전환 요청(⑦) — `seq` 가 바뀔 때만 적용된다. */
 export interface CardTabRequest {
@@ -86,6 +116,10 @@ export interface CardTabsProps {
   onCancelSubmitted?: (res: RelayOrderResultMsg) => void;
   /** 작업대 알림 클릭의 탭 요청(⑦). */
   requestedTab?: CardTabRequest;
+  /** 주문로그 탭(⑧) — 없으면 탭 없음. */
+  orderLog?: CardOrderLogInput;
+  /** 카드가 펼쳐져 있나 — 접힌 카드는 주문로그가 가려진 것으로 센다(⑧). 기본 true. */
+  cardOpen?: boolean;
 }
 
 /** 공용 패널 `TAB_TRIGGER` 와 같은 문법 — 카드 안이라 더 얇게 24px(h-6). */
@@ -122,6 +156,8 @@ export function CardTabs({
   originOf,
   onCancelSubmitted,
   requestedTab,
+  orderLog,
+  cardOpen = true,
 }: CardTabsProps) {
   const [tab, setTab] = useState<CardTab>(requestedTab?.tab ?? "info");
   /**
@@ -178,6 +214,27 @@ export function CardTabs({
   const holdingCount = account?.hold.length ?? 0;
   const logCount = log.length;
 
+  // ⑧ — 주문로그: 카드 계좌 · 이 종목 · 이 거래소 범위. 훅은 탭 유무와 무관하게 늘 부른다.
+  const olAccount = accountNo === "" ? null : accountNo;
+  const olIsin = orderLog?.isin;
+  const olExchange = orderLog?.exchange;
+  const orderLogVisible = tab === "orderlog" && !folded && cardOpen;
+  const orderLogUnseen = useUnseenOrderLogCount(
+    orderLog?.feed ?? null,
+    { accountNo: olAccount, isin: olIsin, exchange: olExchange },
+    orderLogVisible,
+  );
+  const orderLogRows = orderLog?.feed.rows;
+  const orderLogScoped = useMemo(
+    () =>
+      (orderLogRows ?? []).filter((r) =>
+        inScope(r, { accountNo: olAccount, isin: olIsin, exchange: olExchange }),
+      ),
+    [orderLogRows, olAccount, olIsin, olExchange],
+  );
+  const olStockName = orderLog?.stockName ?? "";
+  const orderLogNameOf = useCallback((_row: StrategyEventRow) => olStockName, [olStockName]);
+
   /** ③ — 토글 판정은 공용 패널과 같은 헬퍼 하나. */
   const handleSelect = useCallback(
     (row: RelayUnfilled) => onSelectUnfilled?.(nextUnfilledSelection(selectedOrderNo, row)),
@@ -211,8 +268,19 @@ export function CardTabs({
             잔고
             <CountBadge count={holdingCount} />
           </TabsTrigger>
+          {orderLog !== undefined && (
+            <TabsTrigger
+              value="orderlog"
+              className={CARD_TAB_TRIGGER}
+              aria-label={orderLogUnseen > 0 ? `주문로그, 새 로그 ${orderLogUnseen}건` : undefined}
+              {...triggerHandlers("orderlog")}
+            >
+              주문로그
+              <CountBadge count={orderLogUnseen} />
+            </TabsTrigger>
+          )}
           <TabsTrigger value="log" className={CARD_TAB_TRIGGER} {...triggerHandlers("log")}>
-            로그
+            전략로그
             <CountBadge count={logCount} />
           </TabsTrigger>
         </TabsList>
@@ -237,7 +305,7 @@ export function CardTabs({
       </div>
 
       {/*
-        본문 — 네 탭 공통 고정 높이(정보 탭 3줄 · ①). 넘치면 세로 스크롤, 가로 넘침은 안쪽 표 래퍼
+        본문 — 모든 탭 공통 고정 높이(정보 탭 3줄 · ①). 넘치면 세로 스크롤, 가로 넘침은 안쪽 표 래퍼
         (`account-embed-scroll` · `.tbl-wrap`)가 맡는다.
       */}
       <div
@@ -276,6 +344,21 @@ export function CardTabs({
             onCancelSubmitted={onCancelSubmitted}
           />
         </TabsContent>
+        {orderLog !== undefined && (
+          <TabsContent value="orderlog" className="h-full min-w-0">
+            <OrderLogList
+              rows={orderLogScoped}
+              variant="card"
+              nameOf={orderLogNameOf}
+              newKeys={orderLog.feed.newKeys}
+              phoneBand={orderLog.phoneBand}
+              status={orderLog.feed.status}
+              onRetry={orderLog.feed.retry}
+              emptyTitle="이 종목의 주문로그가 없어요"
+              emptyBody={null}
+            />
+          </TabsContent>
+        )}
         <TabsContent value="log" className="min-w-0">
           <StrategyLog entries={log} variant="embed" emptyTitle="로그 없음" dense />
         </TabsContent>

@@ -571,15 +571,7 @@ export function TradingWorkbench() {
   if (gateReason !== null) {
     return <DmaGate reason={gateReason} surface="트레이딩" />;
   }
-  /*
-    주문로그 피드(Phase 25-07 · D-07)는 작업대 마운트 1회 — 공용 패널 「주문로그」 탭 · 카드 탭이 같은 피드를 읽는다.
-    게이트 뒤에 두어 권한 없는 사용자는 조회하지 않는다.
-  */
-  return (
-    <OrderLogFeedProvider>
-      <WorkbenchSurface />
-    </OrderLogFeedProvider>
-  );
+  return <WorkbenchSurface />;
 }
 
 function WorkbenchSurface() {
@@ -1337,7 +1329,13 @@ function WorkbenchSurface() {
   }
   const exchangeCopy = exchangeCopyRef.current;
 
+  /*
+    주문로그 피드(Phase 25-07 · D-07)는 작업대 마운트 1회 — 공용 패널 「주문로그」 탭 · 카드 탭이 같은 피드를 읽는다.
+    게이트 뒤(이 표면은 게이트를 통과해야 렌더된다)라 권한 없는 사용자는 조회하지 않는다. 25-10 — Provider 가 이
+    표면의 폰 밴드(⑤)를 함께 실어 카드 탭 주문로그가 같은 판정을 쓴다(새 경계 · 컨테이너 선언 없음).
+  */
   return (
+    <OrderLogFeedProvider phoneBand={phoneBand}>
     <div
       ref={rootRef}
       data-slot="trading-workbench"
@@ -1554,6 +1552,7 @@ function WorkbenchSurface() {
         </DialogContent>
       </Dialog>
     </div>
+    </OrderLogFeedProvider>
   );
 }
 

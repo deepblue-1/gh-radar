@@ -27,6 +27,16 @@
  *  ⑤ 폰 밴드 줄 펼침(결정 2-A) — `phoneBand === true` 에서만 줄 내용이 `aria-expanded` 버튼이다. 탭 = 그 줄만
  *     `white-space:normal` + 문장 조각 다음 줄(`basis-full`) · primary 6%(강조 8% 보다 우선). 펼침은 메모리이고
  *     `resetKey`(필터) 가 바뀌면 전부 접힌다. 판정 전(null)은 비폰 규칙(title).
+ *
+ * 25-10 card 변형 — 카드 탭 dense 줄(결정 3-A · UI-SPEC ②-0 「카드 dense 줄」):
+ *
+ *   시각 #주문번호 구분 {행위 600} · 본문 | 누적 N
+ *
+ *  ⑥ 괄호가 없고 주문번호는 `#12451`(빈 번호 `#—` · 시세는 칸 없음), 거래소 · 종목 칸이 없다 — 카드가 이미 그 종목 ·
+ *     그 거래소다. 목록 패딩 3px 8px · 줄 간격 0 · 11px/1.6. 조각은 F-A 와 **같은 조립기 출력**(`strategyEventParts`)을
+ *     배치만 바꾼 것이고, 문장을 여기서 만들거나 쪼개지 않는다(D-09 — 문장 형식이 바뀌면 shared 한 곳만 고친다).
+ *     잘림 · 색 · `title`(= `orderLogLineText` 줄 전체 평문) · 폰 밴드 펼침은 F-A 와 같다.
+ *  ⑦ 빈 상태는 dense 박스(`m-2 py-2` · StrategyLog dense 와 같은 문법) — 호출자가 `emptyBody={null}` 로 제목만 준다.
  */
 import { useState } from 'react';
 import {
@@ -134,6 +144,8 @@ export function OrderLogList({
 
   const empty = rows.length === 0;
   const pending = showPin ? stick.pending : 0;
+  /** ⑥ 카드 dense 줄 — 괄호 · 거래소 · 종목 없음. */
+  const dense = variant === 'card';
 
   return (
     <div data-slot="order-log" data-surface={variant} className={cn('flex min-w-0 flex-col', variant !== 'panel' && 'h-full min-h-0')}>
@@ -172,7 +184,10 @@ export function OrderLogList({
         {status === 'ready' && empty && (
           <div
             data-slot="order-log-empty"
-            className="m-[var(--s-3)] rounded-[var(--r-md)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-5)] text-center"
+            className={cn(
+              'rounded-[var(--r-md)] border border-dashed border-[var(--faint)] px-[var(--s-4)] text-center',
+              dense ? 'm-2 py-2' : 'm-[var(--s-3)] py-[var(--s-5)]',
+            )}
           >
             <b className="block text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
               {filteredEmpty ? FILTERED_EMPTY_TITLE : emptyTitle}
@@ -186,7 +201,10 @@ export function OrderLogList({
           <ol
             data-slot="order-log-list"
             data-surface={variant}
-            className="m-0 flex list-none flex-col gap-px px-2.5 py-1.5 text-[11px] leading-[1.7]"
+            className={cn(
+              'm-0 flex list-none flex-col text-[11px]',
+              dense ? 'gap-0 px-2 py-[3px] leading-[1.6]' : 'gap-px px-2.5 py-1.5 leading-[1.7]',
+            )}
           >
             {rows.map((row) => {
               const key = strategyEventKey(row);
@@ -197,7 +215,37 @@ export function OrderLogList({
               const hasSentence = parts.action !== null || parts.body !== '';
               const open = tappable && openKeys.has(key);
               const fresh = newKeys.has(key);
-              const content = (
+              const content = dense ? (
+                <>
+                  <span className="mono flex-none text-[var(--muted-fg)]">{formatKstMs(row.gwTimeMs)}</span>{' '}
+                  {!market && (
+                    <>
+                      <span className="mono flex-none text-[var(--muted-fg)]">
+                        #{row.orderNo === '' ? '—' : row.orderNo}
+                      </span>{' '}
+                    </>
+                  )}
+                  <span data-slot="order-log-kind" className={cn('flex-none font-semibold', TONE_CLASS[parts.tone])}>
+                    {parts.badge}
+                  </span>{' '}
+                  <span
+                    data-slot="order-log-text"
+                    className={cn(
+                      'min-w-0 flex-auto',
+                      open ? 'basis-full overflow-visible whitespace-normal' : 'overflow-hidden text-ellipsis',
+                    )}
+                  >
+                    {parts.action !== null && <span className="font-semibold">{parts.action}</span>}
+                    {parts.action !== null && parts.body !== '' && ' · '}
+                    {parts.body}
+                    <span className="text-[var(--muted-fg)]">
+                      {hasSentence && ' '}
+                      {'| '}
+                      {parts.cum}
+                    </span>
+                  </span>
+                </>
+              ) : (
                 <>
                   <span className="mono flex-none text-[var(--muted-fg)]">[{formatKstMs(row.gwTimeMs)}]</span>
                   {!market && (
