@@ -35,6 +35,9 @@
  *   이름을 얻으려고 별도 조회 경로(REST·Supabase·`orders-api` 확장)를 만들지 않는다 —
  *   그 훅은 이미 받은 relay wss 스냅샷만 읽고 네트워크를 타지 않는다(T-16-02). 표시 표면이
  *   늘어도 호출량이 늘지 않는 이유가 그것이다.
+ *   ★ 예외 하나 — relay 가 이름을 모르는 종목(전량 매도·취소·거부로 지금은 잔고·미체결·전략
+ *     어디에도 없는 종목)만 `useStockNames` 가 종목 마스터에서 ISIN 당 세션 1회 읽는다
+ *     (`lib/stock-names.ts`). 그전에는 이런 행이 코드로만 떴다.
  *   ★ 이름을 모르면 **코드 → ISIN 으로 무너진다**(3단 폴백) — 훅에 「로딩」 신호가 따로 없고
  *     아직 프레임이 안 왔으면 Map 이 그냥 비어 있으므로, 소비자가 폴백으로 처리하는 것이
  *     그 훅의 규약이다. 그래서 어느 경우에도 종목 칸이 비지 않는다.
@@ -100,6 +103,7 @@ import {
 import { ExchangeTag } from "@/components/trading/exchange-tag";
 import { OriginTag, originTagOf } from "@/components/trading/origin-tag";
 import { useIsinLabels, type IsinLabel } from "@/lib/isin-labels";
+import { useStockNames } from "@/lib/stock-names";
 import {
   mergeOrderNotices,
   orderActionWord,
@@ -277,6 +281,19 @@ export function TodayOrdersCard() {
     [rows, accounts],
   );
 
+  /* relay 가 이름을 모르는 종목만 마스터 폴백(위 ⑥ 예외). relay 이름이 있으면 그쪽이 우선이다. */
+  const unnamed = useMemo(
+    () => rows.map((r) => r.isin).filter((isin) => !labels.get(isin)?.name),
+    [rows, labels],
+  );
+  const masterNames = useStockNames(unnamed);
+  const labelOf = (isin: string): IsinLabel | undefined => {
+    const label = labels.get(isin);
+    if (label?.name) return label;
+    const name = masterNames.get(isin);
+    return name === undefined ? label : { ...label, name };
+  };
+
   return (
     <section
       data-slot="today-orders-card"
@@ -406,7 +423,7 @@ export function TodayOrdersCard() {
                       <OrderTableRow
                         key={notice.head.id}
                         notice={notice}
-                        label={labels.get(notice.head.isin)}
+                        label={labelOf(notice.head.isin)}
                       />
                     ))}
                   </TableBody>
@@ -422,7 +439,7 @@ export function TodayOrdersCard() {
                   <OrderCardRow
                     key={notice.head.id}
                     notice={notice}
-                    label={labels.get(notice.head.isin)}
+                    label={labelOf(notice.head.isin)}
                   />
                 ))}
               </div>
