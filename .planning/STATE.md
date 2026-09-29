@@ -34,7 +34,7 @@ Plans completed: 220 / 234
 Status: Phase 24 갭 클로징 2라운드 24-24 완료(24/24 플랜) — webapp 프로덕션 배포(d6194dcd · Vercel Ready · relay 재배포 없음) · 다음 /gsd-verify-work 24 (UAT: 300ms 창 · 운영 눈 확인 · R6 두 줄 · 24-08 시각 2~9)
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-29 - Completed quick task 260929-c8e: relay 관찰자 다중 업스트림 — 교보 kyobo127 관찰자 live(relay 4c143596)
+Last activity: 2026-09-29 - Completed quick task 260929-htw: 24 R3-G1 자동 체크 로그 서버 에코 대조 · 눕힌 동반 재적재 차단
 
 Progress: [█████████░] 93%
 
@@ -460,6 +460,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 260928-no0 | 마이페이지 전략 현황 카드·상태줄이 켜진 전략(isActiveStrategy)만 센다 — 꺼진(매수·매도·취소잔량 OFF) 전략 미표시 · gh-trade 합의(서버 64/60 등록 전수 계약 유지) | 2026-09-28 | c8e0c38e | [260928-no0-off-isactivestrategy](./quick/260928-no0-off-isactivestrategy/) |
 | 260928-q5e | 폴드 세로 1단(lc≈689)에서 상따 카드 매수·매도 옵션 2열 — lc 첫 밴드 경계 700 → 685 | 2026-09-28 | 3da455e1 | [260928-q5e-1-lc-689-2-lc-700](./quick/260928-q5e-1-lc-689-2-lc-700/) |
 | 260929-akj | **24-REVIEW-R3 Warning 2건 수정** — R3-WR-01: 부분 거부 ERROR 가 에코보다 먼저 와도 카드 거부 신호(rejectSeq→serverRejectSeq) 뒤 1초 유예 안의 같은 제출 에코로 판정(전면 거부는 유예 끝에 실패 · 타이머는 전송 없음). R3-WR-02: 보낸 성공 신호(sentSuccessSeq · lastSentSuccessField) 분리 — 늦은 에코 성공이 자동 체크 줄을 덮지 않음 · lastSuccessSent 제거. vitest trading 1405 · tsc green. 남은 한계: 1초보다 늦은 에코는 종전 동작. 미배포 | 2026-09-29 | 7fd7da49 · 214ae025 · 808a29a2 | [260929-akj-24-review-r3-r3-wr-01-error-r3-wr-02](./quick/260929-akj-24-review-r3-r3-wr-01-error-r3-wr-02/) |
+| 260929-htw | **24-VERIFICATION-R3 R3-G1(=24-REVIEW-R4 R4-WR-01) 수정** — 부분 거부 뒤 되살아나는 선매수·추가매수 자동 체크 줄을 성공 에코로 확정(lib confirmAutoChecks): 에코에 선 항목만 「켬」, 서버가 눕힌 항목은 「켜지 않음: …(서버 거부)」 · error 레벨. 훅 ⑬ 눕힌 동반(laid) — 대기 추가매수가 서버가 눕힌 매도주문을 다시 싣지 않음(수정 전 재현 확인). F1 폼·카드 흐름 잘못 잠긴 기대값 교정 · 24-UI-SPEC 사유 목록 「서버 거부」 추가. webapp vitest 2835 · tsc green. 미배포 | 2026-09-29 | 0061d51f · 307cc4dd | [260929-htw-24-r3-g1](./quick/260929-htw-24-r3-g1/) |
 | 35 | 상따 카드 「다른 단말에서 변경」 배너·로그 줄 제거 — (a) 수정하던 값 N개 · (b) 서버 값으로 맞췄어요 둘 다 · onServerEcho·ECHO_BANNER_MS 정리 · vitest trading 1404 · e2e 13·P24-6 green · 미배포 (1a2c9944) | 2026-09-29 | 1a2c9944 | — |
 | 36 | VI 설정 줄 「다른 단말에서 변경됨」 고지 제거 — 상따 카드 배너 제거와 짝 · vitest trading 1404 green (92fbebbe) | 2026-09-29 | 92fbebbe | — |
 | 37 | 오늘 주문 종목명 누락 — relay 스냅샷에 없는 종목은 stocks 마스터 이름 폴백(ISIN 당 세션 1회) | 2026-09-29 | 829d2729 | — |
