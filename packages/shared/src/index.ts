@@ -117,6 +117,8 @@ export { toJournalOrderRow, JOURNAL_ORDER_PUBLIC_COLUMNS } from "./journal";
 export * from "./strategy-event";
 export * from "./strategy-event-labels";
 export * from "./strategy-event-text";
+// --- Phase 25 주문 1건 타임라인(오늘 주문 펼침) — REST 와 웹이 같은 매퍼 · 같은 비교 함수 ---
+export * from "./order-timeline";
 export type { Summary, SummaryType, Sentiment } from "./summary";
 export type { KiwoomKa10027Row, KiwoomKa10001Row, IntradayCloseUpdate, IntradayOhlcUpdate } from "./kiwoom";
 export { getKstDate, isKoreanMarketOpen } from "./marketHours";

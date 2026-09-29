@@ -1,11 +1,11 @@
 import { Router, type Router as RouterT } from "express";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { JournalOrderRow } from "@gh-radar/shared";
+import type { JournalOrderRow, OrderTimelineRow } from "@gh-radar/shared";
 
 import { requireAuth } from "../middleware/require-auth.js";
-import { OrderListQuery } from "../schemas/orders.js";
+import { OrderEventsParams, OrderEventsQuery, OrderListQuery } from "../schemas/orders.js";
 import { ValidationFailed } from "../errors.js";
-import { listTodayOrders } from "../services/dma-orders.js";
+import { listOrderEvents, listTodayOrders } from "../services/dma-orders.js";
 
 /**
  * Phase 16 Plan 16 — DMA 주문 **조회 전용** 라우트 (D-02 / D-24).
@@ -13,6 +13,10 @@ import { listTodayOrders } from "../services/dma-orders.js";
  * bare array 규약은 그대로다.
  *
  * - GET / : 하루치 주문 목록 (새로고침 복원, bare array — `JournalOrderRow[]`)
+ * - GET /:id/events : 주문 1건(묶음) 이벤트 — 통보 + 전략 타임라인 (Phase 25 D-01 · D-02, bare array —
+ *   `OrderTimelineRow[]`). `:id` = 묶음 첫 통보 행 id, `?orderNos=a,b,c` = 묶음 구성원 주문번호.
+ *   ⚠️ 정적 경로(`/events` 등)나 다른 `/:id…` 라우트가 생기면 이 라우트보다 **먼저** 등록할 것 — Express 는
+ *   등록 순서로 매칭해 `events` 같은 값이 `:id` 로 잡힌다(RESEARCH Pattern 5).
  *
  * ★ **주문 접수는 여기에 없다.** 신규·취소는 relay 의 wss(`order.new`/`order.cancel`)
  * 하나로만 나간다 (D-02 — 16-08 이 핸들러를, 16-10 이 브라우저 호출부를 옮겼다).
@@ -34,6 +38,10 @@ import { listTodayOrders } from "../services/dma-orders.js";
  *            PostgREST 로 직접 부를 수 없다. 가시성 필터는 RPC 안의 조인이 정본(D-06)
  *   T-19-17  `p_user_id` = `req.userId`(requireAuth 확정값) 하나. 쿼리의 `user_id` 같은 값은
  *            읽지 않는다
+ *   T-25-12  주문 이벤트 RPC(`dma_order_events_for_user`)도 service_role 전용(anon · authenticated 명시 REVOKE)
+ *   T-25-13  `/:id/events` 는 계좌를 받지 않는다 — 게이트웨이 · 거래일 · 계좌는 RPC 가 `:id` 행에서 읽고, 그 행이
+ *            요청 사용자에게 보이지 않으면 0행. `:id` 는 uuid 형식만 통과
+ *   T-25-15  `orderNos` 1~100개 · 각 1~20자 영숫자(zod) — 형식 위반은 DB 를 두드리기 전에 400
  *   T-15-07  에러는 전부 `next(e)` — `errorHandler` 가 프로덕션에서 원문을 감춘다
  */
 
@@ -56,6 +64,34 @@ ordersRouter.get("/", requireAuth(), async (req, res, next) => {
     );
     // 코드베이스 규약: list 엔드포인트는 bare array (scanner/themes/news/chat 동일).
     res.json(data);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- GET /:id/events — 주문 1건(묶음) 이벤트 타임라인 (Phase 25 D-01 · D-02) ---
+// 클릭 1회 = 요청 1회 = RPC 1회. 다른 `/:id…` 라우트나 정적 경로가 생기면 그보다 먼저 등록할 것(머리 주석).
+ordersRouter.get("/:id/events", requireAuth(), async (req, res, next) => {
+  try {
+    const params = OrderEventsParams.safeParse(req.params);
+    if (!params.success) {
+      const issue = params.error.issues[0];
+      throw ValidationFailed(`${issue.path.join(".")}: ${issue.message}`);
+    }
+    const query = OrderEventsQuery.safeParse(req.query);
+    if (!query.success) {
+      const issue = query.error.issues[0];
+      throw ValidationFailed(`${issue.path.join(".")}: ${issue.message}`);
+    }
+    const supabase = req.app.locals.supabase as SupabaseClient;
+    // 사용자 id 는 인증이 확정한 값 하나(T-19-17). 계좌는 받지 않는다 — RPC 가 `:id` 행에서 읽는다(T-25-13).
+    const rows: OrderTimelineRow[] = await listOrderEvents(
+      supabase,
+      req.userId!,
+      params.data.id,
+      query.data.orderNos,
+    );
+    res.json(rows);
   } catch (e) {
     next(e);
   }

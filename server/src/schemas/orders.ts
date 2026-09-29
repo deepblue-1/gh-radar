@@ -74,3 +74,42 @@ export const OrderListQuery = z.object({
     .optional(),
 });
 export type OrderListQueryT = z.infer<typeof OrderListQuery>;
+
+/**
+ * Phase 25 D-02 — `GET /api/orders/:id/events` 경로 파라미터. `:id` 는 묶음 첫 통보 행(`dma_account_orders.id`)이다.
+ * 게이트웨이 · 거래일 · 계좌는 RPC 가 이 행에서 읽는다 — 클라가 계좌를 싣지 않는다(T-25-13).
+ */
+export const OrderEventsParams = z.object({
+  id: z.string().uuid(),
+});
+export type OrderEventsParamsT = z.infer<typeof OrderEventsParams>;
+
+/** 묶음 구성원 주문번호 상한 — 클릭 1회 = RPC 1회 입력 크기 상한(T-25-15). */
+export const MAX_ORDER_EVENTS_ORDER_NOS = 100;
+/** 주문번호 1개 — 1~20자 영숫자(예약 주문 Q-ID 10자 포함). 게이트웨이 정규화값 그대로라 앞 0 을 건드리지 않는다. */
+const ORDER_NO_RE = /^[A-Za-z0-9]{1,20}$/;
+
+/**
+ * Phase 25 D-02 — `GET /api/orders/:id/events` 쿼리. `orderNos=a,b,c`(쉼표 분리 · 1~100개 · 각 1~20자 영숫자) →
+ * `string[]`. 생략하면 `[]` — RPC 가 행 자신의 주문번호 하나로 대체한다(단건 펼침). 사용자 id · 계좌는 받지 않는다
+ * (정의되지 않은 키는 zod 가 버린다 — T-19-17).
+ */
+export const OrderEventsQuery = z.object({
+  orderNos: z
+    .string()
+    .optional()
+    .transform((v, ctx): string[] => {
+      if (v === undefined) return [];
+      const nos = v.split(",");
+      if (nos.length > MAX_ORDER_EVENTS_ORDER_NOS) {
+        ctx.addIssue({ code: "custom", message: `주문번호는 최대 ${MAX_ORDER_EVENTS_ORDER_NOS}개입니다.` });
+        return z.NEVER;
+      }
+      if (nos.some((n) => !ORDER_NO_RE.test(n))) {
+        ctx.addIssue({ code: "custom", message: "주문번호는 1~20자 영숫자여야 합니다." });
+        return z.NEVER;
+      }
+      return nos;
+    }),
+});
+export type OrderEventsQueryT = z.infer<typeof OrderEventsQuery>;

@@ -1,6 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { JournalOrderDbRow, JournalOrderRow } from "@gh-radar/shared";
-import { kstDateIso, toJournalOrderRow } from "@gh-radar/shared";
+import type {
+  JournalOrderDbRow,
+  JournalOrderRow,
+  OrderTimelineDbRow,
+  OrderTimelineRow,
+} from "@gh-radar/shared";
+import { kstDateIso, toJournalOrderRow, toOrderTimelineRow } from "@gh-radar/shared";
 
 import { ApiError } from "../errors.js";
 
@@ -20,6 +25,9 @@ import { ApiError } from "../errors.js";
  *            PostgREST 로 남의 `p_user_id` 를 넣어 직접 부를 수 없다.
  *   T-19-08  응답에 주문자(`dma_user_id`)가 없다 — RPC 가 공개 컬럼 25종만 내고, 공유 매퍼
  *            `toJournalOrderRow` 가 그 컬럼만 옮긴다.
+ *   T-25-13  (Phase 25) `listOrderEvents` — 주문 1건 이벤트 RPC `dma_order_events_for_user` 도 `userId` 하나 +
+ *            행 id + 주문번호 배열만 넘긴다. 가시성은 RPC 조인이고 게이트웨이 · 거래일 · 계좌는 **행에서** 읽는다
+ *            (클라 입력 계좌 없음).
  *
  * (구 T-15-01 「`WHERE user_id` 명시 필터가 서버 경로의 실제 방어선」 은 `dma_orders` 시절의 사실이다.
  *  새 테이블에는 `user_id` 가 없다 — 행은 사용자가 아니라 계좌 기준이다.)
@@ -48,6 +56,25 @@ export async function listTodayOrders(
   });
   if (error) throw DbError("주문 목록 조회에 실패했습니다.");
   return ((data ?? []) as JournalOrderDbRow[]).map(toJournalOrderRow);
+}
+
+/**
+ * Phase 25 D-01 · D-02 — 주문 1건(묶음) 이벤트: 통보 + 전략 UNION(RPC 1회). `orderNos` 가 비면 RPC 가 행 자신의
+ * 주문번호로 대체한다. 정렬(gw_time_ms → 같은 ms 통보 먼저 → seq)은 RPC 가 하고 여기서는 순서를 유지한다.
+ */
+export async function listOrderEvents(
+  supabase: SupabaseClient,
+  userId: string,
+  orderId: string,
+  orderNos: string[],
+): Promise<OrderTimelineRow[]> {
+  const { data, error } = await supabase.rpc("dma_order_events_for_user", {
+    p_user_id: userId,
+    p_order_id: orderId,
+    p_order_nos: orderNos,
+  });
+  if (error) throw DbError("주문 이벤트 조회에 실패했습니다.");
+  return ((data ?? []) as OrderTimelineDbRow[]).map(toOrderTimelineRow);
 }
 
 /**
