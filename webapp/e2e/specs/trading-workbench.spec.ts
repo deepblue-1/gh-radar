@@ -2373,7 +2373,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       한 글자 넓다 — 390 · 1280 에서 LED 칩 3개가 한 줄, ⓘ · ✕ 가 한 줄에 남는다. 카드 폭 760 이상
       (헤더 한 줄 결합 경계 · card-header.tsx)이면 다섯이 모두 같은 줄이다.
   */
-  test('P24-1 buy3 와이어 한 경로 — 공통 「비교가격」 확정 → 게이트웨이 10 에 buy3_schema=1 · 신필드 · buy_watch_side 없음 → 후매수 보유중 에코 → 매수 LED 「보유중」 · 헤더 한 줄 (Phase 24 트레이서 · D-12)', async ({
+  test('P24-1 buy3 와이어 한 경로 — 공통 「비교가격」 확정 → 게이트웨이 10 에 buy3_schema=2(자동 필드 동반) · 신필드 · buy_watch_side 없음 → 후매수 보유중 에코 → 매수 LED 「보유중」 · 헤더 한 줄 (Phase 24 트레이서 · D-12)', async ({
     page,
   }) => {
     const seed = {
@@ -2415,7 +2415,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       .filter((r): r is NonNullable<typeof r> => r !== null);
     const last = sets.at(-1)!;
     expect(last.buyWatchPrice).toBe(next);
-    expect(last.buy3Schema).toBe(1);
+    // 새 웹은 lc.set 에 postBuyAuto 를 항상 싣는다 → relay 가 buy3_schema 2 로 파생(quick-260929-vzy · 존재로만 1/2). 1 은 자동 필드 없는 옛 탭 몫.
+    expect(last.buy3Schema).toBe(2);
     expect(last.postBuyEnabled).toBe(true);
     expect(last.postBuyReentry).toBe(3);
     expect(last.postBuyReboundPct).toBe(30);
@@ -2611,7 +2612,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await waitForSetAtGateway(relay, before + 1);
 
     const sent = lcSetRequests(relay).at(-1)!;
-    expect(sent.buy3Schema).toBe(1);
+    // 자동 필드 동반 → buy3_schema 2 (P24-1 주석).
+    expect(sent.buy3Schema).toBe(2);
     expect(sent.crud).toBe('C');
     expect(sent.preBuyEnabled).toBe(true);
     expect(sent.buyEnabled, 'D-01 — 마스터 동반').toBe(true);
@@ -3575,7 +3577,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(lcSetCount(relay), '사람 한 번 = 10 한 건').toBe(before + 1);
 
     const sent = lcSetRequests(relay).at(-1)!;
-    expect(sent.buy3Schema).toBe(1);
+    // 자동 필드 동반 → buy3_schema 2 (P24-1 주석).
+    expect(sent.buy3Schema).toBe(2);
     expect(sent.crud).toBe('C');
     expect(sent.extraBuyEnabled).toBe(true);
     expect(sent.preBuyEnabled, '추가매수만 켰다 — 선매수는 그대로').toBe(false);
