@@ -16,11 +16,42 @@
  *         유지하는 유예(새로고침 왕복 흡수).
  *   19 D-10  `DMA_OBSERVER_SECRET` = 관찰자 기록 연결의 비밀(Secret Manager 새 시크릿 한 곳에서만
  *            온다). production 에서는 필수 — 없으면 기동이 실패한다(T-19-03).
+ *   quick-260929-c8e  관찰자 다중 업스트림 — 관찰자는 **게이트웨이당 1개**다(19-CONTEXT D-13 확장).
+ *            `journalUpstreams[0]` 은 주 게이트웨이(DMA_HOST · DMA_PORT · DMA_BROKER · DMA_OBSERVER_SECRET)다.
+ *            추가 게이트웨이는 아래 `EXTRA_OBSERVER_ENV` 표에서만 온다 — 지금은 행 1개:
+ *              `DMA_KYOBO_HOST`            호스트. 없거나 빈 값이면 추가 관찰자 없음(**오늘과 같다**).
+ *              `DMA_KYOBO_PORT`            포트. 없거나 빈 값이면 9100.
+ *              `DMA_OBSERVER_SECRET_KYOBO` 비밀. 없으면 그 관찰자는 disabled(production 에서도 기동은 막지 않는다).
+ *            **사용자 세션(SessionManager)은 주 게이트웨이 단일**이다 — 추가 게이트웨이는 관찰자 전용이다.
  *
  * 하지 않는 것:
  *   - 여기서 값을 검증(길이·형식)하지 않는다. 존재 여부만 본다 — 검증은 사용처가 한다.
  *   - 시크릿을 로깅하지 않는다. logger.ts 의 redact 경로가 2차 방어다.
  */
+
+/**
+ * 관찰자 업스트림 1개 (quick-260929-c8e). `gateway` 는 relay 쪽 키다 — `dma_journal_cursor` PK ·
+ * `dma_journal_apply`/`dma_journal_sync_access` 의 `p_gateway`(advisory lock) · `dma_account_access` 교체 범위.
+ * 게이트웨이 LoginReq 의 broker 와는 무관하다.
+ */
+export type JournalUpstream = {
+  gateway: string;
+  host: string;
+  port: number;
+  /** 관찰자 로그인 비밀. 없으면 그 관찰자는 disabled 다. 로그 인자로 넘기지 않는다. */
+  secret: string | undefined;
+};
+
+/**
+ * 추가 관찰자 env 표 (quick-260929-c8e). 게이트웨이를 더할 때 **행 하나만** 추가한다 — index.ts 는
+ * `journalUpstreams` 를 순회만 하고 키 리터럴을 모른다. 비밀 env 이름은 logger redact 에도 더한다.
+ */
+const EXTRA_OBSERVER_ENV: ReadonlyArray<{ gateway: string; hostEnv: string; portEnv: string; secretEnv: string }> = [
+  { gateway: "KYOBO", hostEnv: "DMA_KYOBO_HOST", portEnv: "DMA_KYOBO_PORT", secretEnv: "DMA_OBSERVER_SECRET_KYOBO" },
+];
+
+/** 추가 관찰자 포트 기본값 — 게이트웨이 관찰자 포트 규약(주 게이트웨이와 같다). */
+const DEFAULT_OBSERVER_PORT = 9100;
 
 export type RelayConfig = {
   nodeEnv: "development" | "test" | "production";
@@ -64,6 +95,12 @@ export type RelayConfig = {
    * 로그 인자로 넘기지 않는다(logger redact 는 실수 방어).
    */
   dmaObserverSecret: string | undefined;
+  /**
+   * 관찰자 업스트림 목록 (quick-260929-c8e). **0번은 주 게이트웨이**다 — 위 4필드(dmaBroker · dmaHost ·
+   * dmaPort · dmaObserverSecret)와 같은 값이다. 1번부터는 `EXTRA_OBSERVER_ENV` 표에서 호스트가 설정된
+   * 행만 온다. 추가 env 가 없으면 길이 1 — 오늘과 같다. 게이트웨이 키는 서로 겹치지 않는다(겹치면 기동 거부).
+   */
+  journalUpstreams: readonly [JournalUpstream, ...JournalUpstream[]];
 };
 
 export function loadConfig(): RelayConfig {
@@ -80,6 +117,36 @@ export function loadConfig(): RelayConfig {
     throw new Error("DMA_OBSERVER_SECRET must be set in production (Phase 19 D-13)");
   }
 
+  // 기본값은 로컬 mock 이다. 실서버 주소는 배포 env 가 반드시 명시해야 한다 (D-27).
+  const dmaHost = optional("DMA_HOST") ?? "127.0.0.1";
+  const dmaPort = Number(optional("DMA_PORT") ?? "9100");
+  const dmaBroker = optional("DMA_BROKER") ?? "KB";
+
+  const primary: JournalUpstream = { gateway: dmaBroker, host: dmaHost, port: dmaPort, secret: dmaObserverSecret };
+  const extras: JournalUpstream[] = [];
+  const seen = new Set<string>([primary.gateway]);
+  for (const row of EXTRA_OBSERVER_ENV) {
+    const host = optional(row.hostEnv);
+    // 호스트가 없으면 그 행은 없다 — 비밀만 있어도 무시한다(배포 스크립트는 비밀이 있을 때만 호스트를 넘긴다).
+    if (!host) continue;
+    if (seen.has(row.gateway)) {
+      // 키가 겹치면 두 관찰자가 한 커서 · epoch · 매핑을 나눠 쓴다(교체가 서로를 지운다). 조용히 섞이게 두지 않는다.
+      throw new Error(
+        `${row.hostEnv}: 관찰자 게이트웨이 키 "${row.gateway}" 가 이미 쓰인다(DMA_BROKER 또는 다른 추가 관찰자) — 커서 · epoch · 매핑이 섞인다`,
+      );
+    }
+    seen.add(row.gateway);
+    extras.push({
+      gateway: row.gateway,
+      host,
+      // 빈 문자열도 기본값으로 (`||`).
+      port: Number(optional(row.portEnv) || String(DEFAULT_OBSERVER_PORT)),
+      // 추가 게이트웨이 비밀 부재는 production 에서도 기동을 막지 않는다 — KB 단독 재배포를 막지 않고,
+      // 비밀 없는 관찰자는 disabled 로 `/healthz` 본문(journalGateways)에 드러난다.
+      secret: optional(row.secretEnv) || undefined,
+    });
+  }
+
   return {
     nodeEnv,
     logLevel: optional("LOG_LEVEL") ?? "info",
@@ -92,11 +159,11 @@ export function loadConfig(): RelayConfig {
 
     wsPort: Number(optional("WS_PORT") ?? "8090"),
     orderApiPort: Number(optional("ORDER_API_PORT") ?? "8091"),
-    // 기본값은 로컬 mock 이다. 실서버 주소는 배포 env 가 반드시 명시해야 한다 (D-27).
-    dmaHost: optional("DMA_HOST") ?? "127.0.0.1",
-    dmaPort: Number(optional("DMA_PORT") ?? "9100"),
-    dmaBroker: optional("DMA_BROKER") ?? "KB",
+    dmaHost,
+    dmaPort,
+    dmaBroker,
     sessionGraceMs: Number(optional("SESSION_GRACE_MS") ?? "300000"),
     dmaObserverSecret,
+    journalUpstreams: [primary, ...extras],
   };
 }

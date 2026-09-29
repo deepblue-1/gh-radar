@@ -96,12 +96,12 @@ export class JournalAccess implements JournalAccessView {
       });
     }
     if (dropped > 0) {
-      logger.warn({ dropped }, "[journal] 매핑 스냅샷에 빈 식별자 행 — 버린다");
+      logger.warn({ gateway: this.#gateway, dropped }, "[journal] 매핑 스냅샷에 빈 식별자 행 — 버린다");
     }
     this.#map = next;
     this.#rows = syncRows.length;
     this.#pending = syncRows;
-    logger.info({ rows: syncRows.length, users: next.size }, "[journal] 계좌 매핑 교체");
+    logger.info({ gateway: this.#gateway, rows: syncRows.length, users: next.size }, "[journal] 계좌 매핑 교체");
     this.#kick();
   }
 
@@ -135,7 +135,7 @@ export class JournalAccess implements JournalAccessView {
     } catch (err) {
       this.#failures += 1;
       logger.error(
-        { pgError: safePgError(err), rows: rows.length, attempt: this.#failures },
+        { gateway: this.#gateway, pgError: safePgError(err), rows: rows.length, attempt: this.#failures },
         "[journal] dma_journal_sync_access 실패 — 메모리 라우팅은 유효, 재시도",
       );
       // 그 사이 새 스냅샷이 오지 않았으면 같은 스냅샷을 다시 보낸다.
@@ -145,7 +145,7 @@ export class JournalAccess implements JournalAccessView {
     }
 
     if (ok) {
-      if (this.#failures > 0) logger.info({ rows: rows.length }, "[journal] 매핑 동기화 복구");
+      if (this.#failures > 0) logger.info({ gateway: this.#gateway, rows: rows.length }, "[journal] 매핑 동기화 복구");
       this.#failures = 0;
       this.#kick();
       return;

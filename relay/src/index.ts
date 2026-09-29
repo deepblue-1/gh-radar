@@ -19,11 +19,16 @@
  *         남은 것은 `/healthz` 뿐이다. 주문 결선은 `WsFanout` 에 넘기는 종목맵 하나다.
  *   Phase 19 D-01  사용자 세션 경로는 DB 에 쓰지 않는다 — 주문 기록 경로는 제거됐고, 기록은
  *         관찰자 기록기 단독이다. 관찰자 → 기록기 → 적용 RPC → `fanout.deliverJournalRows` 결선은 이 파일이다.
- *   Phase 19 D-13  관찰자 연결 1개는 **부팅 즉시** 연다(장 시간과 무관 · 24시간 상시). 커서 읽기 → 로그인
- *         → 매핑 동기화 순서는 `JournalObserver` 가 쥔다. 비밀이 없으면(개발·테스트) disabled 로 남는다 —
- *         production 은 config 가 기동을 막는다(D-10).
- *   Phase 19 D-03/D-04  기록 연결 상태는 `JournalStatus` **한 원천**이다 — 브라우저 `journal.state` 프레임
- *         (`fanout.deliverJournalState` · 인증 직후 스냅샷)과 `/healthz` 의 `journal` 필드가 같은 값을 본다.
+ *   Phase 19 D-13  관찰자 연결은 **게이트웨이당 1개**(`config.journalUpstreams` — quick-260929-c8e)이고
+ *         **부팅 즉시** 연다(장 시간과 무관 · 24시간 상시). 커서 읽기 → 로그인 → 매핑 동기화 순서는 각
+ *         `JournalObserver` 가 쥔다. 비밀이 없으면(개발·테스트 · 추가 게이트웨이 비밀 미배치) disabled 로 남는다 —
+ *         주 게이트웨이는 production 에서 config 가 기동을 막는다(D-10).
+ *   Phase 19 D-03/D-04  기록 연결 상태는 게이트웨이마다 `JournalStatus` **한 원천**이다 — 주 게이트웨이의 것이
+ *         브라우저 `journal.state` 프레임(`fanout.deliverJournalState` · 인증 직후 스냅샷)과 `/healthz` 의
+ *         `journal` 필드가 보는 값이다.
+ *   quick-260929-c8e  **브라우저 `journal.state` 는 주 게이트웨이만** 보낸다(결선 1곳). 추가 게이트웨이 상태는
+ *         `/healthz` 본문 `journalGateways` 에만 싣고 503 판정에 넣지 않는다. 추가 게이트웨이 적용 행은 **그
+ *         게이트웨이의 매핑으로** `journal.rows` 푸시한다. 사용자 세션(`SessionManager`)은 주 게이트웨이 단일이다.
  *   D-22  `RELAY_ORDER_SECRET` 은 그대로 required 다. `/healthz` 외의 모든 경로가
  *         비밀 없이는 404 조차 받지 못해야 한다 — 경로 존재 여부도 정보다.
  *
@@ -31,8 +36,8 @@
  *   1. HTTP 서버 2개 `close()`  — 새 연결을 받지 않는다
  *   2. `fanout.closeAll(1001)`  — 살아 있는 wss 에 정상 close 프레임(going away)
  *   3. `sessionManager.closeAll()` — 구독 해제 + DMA TCP 종료
- *   4. `journalObserver.stop()` — 관찰자 연결 종료(새 배치를 받지 않는다 — Phase 19 D-13)
- *   5. `journalWriter.drain(2초)` → `journalWriter.close()` · `journalAccess.close()` · `journalStatus.close()`
+ *   4. 전 게이트웨이 `observer.stop()` — 관찰자 연결 종료(새 배치를 받지 않는다 — Phase 19 D-13)
+ *   5. 전 게이트웨이 `writer.drain(2초)` **병렬** → 전 `writer` · `access` · `status` `close()`
  *      — 큐에 남은 레코드를 적용 RPC 로 보낸다. 2초 안에 못 끝내도 **유실은 없다** — 커서는 적용 RPC
  *      트랜잭션 안에서만 전진하므로 다음 부팅이 남은 구간을 재생한다(D-12).
  *   6. `hub.closeAll()` · `symbols` · 종목마스터 — 배치·재적재 타이머 정리(남기면 프로세스가 안 내려간다)
@@ -40,15 +45,15 @@
  *
  * 하지 않는 것:
  *   - 부팅 시 **사용자** DMA 세션을 미리 열지 않는다. 사용자 세션은 **사용자의 wss 인증에서만**
- *     생긴다 (D-13). 예외는 관찰자 연결 1개뿐이다(Phase 19 D-13 — 부팅 즉시 · 사용자와 무관).
- *     아무도 안 붙으면 게이트웨이로 나가는 TCP 는 관찰자 1개다(비밀 미설정이면 0개).
+ *     생긴다 (D-13). 예외는 게이트웨이당 관찰자 연결 1개뿐이다(Phase 19 D-13 — 부팅 즉시 · 사용자와 무관).
+ *     아무도 안 붙으면 게이트웨이로 나가는 TCP 는 비밀이 있는 관찰자 수만큼이다(추가 env 없으면 1개).
  *   - 비밀을 로그에 싣지 않는다. 부팅 로그는 포트·호스트·버전까지다.
  *   - 조용히 죽지 않는다. `unhandledRejection`/`uncaughtException` 을 잡아 사유를 남기고
  *     exit(1) 한다 — Docker 가 재시작할 때 로그에 원인이 남아야 한다.
  */
 import http from "node:http";
 
-import { loadConfig } from "./config.js";
+import { loadConfig, type JournalUpstream } from "./config.js";
 import { logger } from "./logger.js";
 import { createRelaySupabase } from "./store/supabase.js";
 import { SymbolMap } from "./store/symbols.js";
@@ -85,28 +90,51 @@ const config = loadConfig();
 const supabase = createRelaySupabase(config.supabaseUrl, config.supabaseServiceRoleKey);
 
 /**
- * 관찰자 기록 경로 (Phase 19). 게이트웨이 키는 relay 설정의 broker(기본 "KB")다 — 커서는 로그인 **전에**
- * 읽으므로 로그인 응답의 broker 를 기다릴 수 없다(커서 테이블 PK · 적용 RPC `p_gateway` · 매핑 RPC 공통).
+ * 관찰자 기록 경로 (Phase 19) — **게이트웨이당 한 벌**(quick-260929-c8e). 게이트웨이 키는 relay 설정이 정한다
+ * (주 게이트웨이 = broker, 기본 "KB" · 추가 게이트웨이 = config 의 env 표) — 커서는 로그인 **전에** 읽으므로
+ * 로그인 응답의 broker 를 기다릴 수 없다(커서 테이블 PK · 적용 RPC `p_gateway` · 매핑 RPC 공통).
  *
  *   기록기(`JournalWriter`)  저널 레코드 → `dma_journal_apply` 의 유일한 경로. 적용 행은 `applied` 로 나온다.
  *   매핑(`JournalAccess`)    관찰자 로그인 스냅샷 → 메모리 라우팅 + `dma_journal_sync_access`.
  *   관찰자(`JournalObserver`) 게이트웨이 관찰자 소켓 **1개**(사용자 세션과 독립 — `SessionManager` 밖).
- *   상태(`JournalStatus`)    관찰자 상태 + 기록기 관측값 → `journal.state` 프레임 · `/healthz` journal 한 원천.
+ *   상태(`JournalStatus`)    관찰자 상태 + 기록기 관측값 → `journal.state` 프레임 · `/healthz` 한 원천.
+ *
+ * 벌끼리는 아무것도 공유하지 않는다 — 커서 · epoch · 매핑 · 상태가 게이트웨이 키별로 따로다. 추가 게이트웨이의
+ * 거부 · 끊김은 주 게이트웨이 관찰자 · 사용자 세션 · 503 판정에 번지지 않는다.
  *
  * 비밀은 관찰자 deps 로만 넘긴다(코덱이 로그인 페이로드에 싣는다). 로그 인자로 넘기지 않는다(T-19-03).
  */
-const journalWriter = new JournalWriter({ supabase, gateway: config.dmaBroker });
-const journalAccess = new JournalAccess({ supabase, gateway: config.dmaBroker });
-const journalObserver = new JournalObserver({
-  secret: config.dmaObserverSecret,
-  gateway: config.dmaBroker,
-  host: config.dmaHost,
-  port: config.dmaPort,
-  codec: createJournalCodec(),
-  writer: journalWriter,
-  access: journalAccess,
-});
-const journalStatus = new JournalStatus({ observer: journalObserver, writer: journalWriter });
+type JournalPipeline = {
+  upstream: JournalUpstream;
+  writer: JournalWriter;
+  access: JournalAccess;
+  observer: JournalObserver;
+  status: JournalStatus;
+};
+
+function createJournalPipeline(upstream: JournalUpstream): JournalPipeline {
+  const writer = new JournalWriter({ supabase, gateway: upstream.gateway });
+  const access = new JournalAccess({ supabase, gateway: upstream.gateway });
+  const observer = new JournalObserver({
+    secret: upstream.secret,
+    gateway: upstream.gateway,
+    host: upstream.host,
+    port: upstream.port,
+    codec: createJournalCodec(),
+    writer,
+    access,
+  });
+  const status = new JournalStatus({ observer, writer });
+  return { upstream, writer, access, observer, status };
+}
+
+// 0번 = 주 게이트웨이(사용자 세션과 같은 게이트웨이). 나머지 = 추가 게이트웨이(관찰자 전용).
+const [primaryUpstream, ...extraUpstreams] = config.journalUpstreams;
+const primaryJournal = createJournalPipeline(primaryUpstream);
+const extraJournals: readonly JournalPipeline[] = extraUpstreams.map(createJournalPipeline);
+const journalPipelines: readonly JournalPipeline[] = [primaryJournal, ...extraJournals];
+// 주 게이트웨이는 종전 이름 그대로 — 아래 fanout · orderApi · 결선 줄이 바뀌지 않는다.
+const { writer: journalWriter, access: journalAccess, status: journalStatus } = primaryJournal;
 
 const sessionManager = new SessionManager({
   host: config.dmaHost,
@@ -171,6 +199,12 @@ const fanout = new WsFanout({
 // 기록기가 적용한 행 → 계좌 권한 사용자별 부분집합 푸시(D-03). 상태 전이 프레임 → 인증된 전 연결(D-04 (a)).
 journalWriter.on("applied", (rows) => fanout.deliverJournalRows(rows));
 journalStatus.on("frame", (frame) => fanout.deliverJournalState(frame));
+// 추가 게이트웨이 — 적용 행은 **그 게이트웨이의 매핑으로만** 거른다(주 게이트웨이 매핑을 보지 않는다).
+// 상태 frame 은 어디에도 결선하지 않는다 — 브라우저 `journal.state` 는 주 게이트웨이 한 원천이다
+// (추가 게이트웨이 끊김을 webapp 이 주 게이트웨이 「기록 지연」으로 오인하지 않게).
+for (const extra of extraJournals) {
+  extra.writer.on("applied", (rows) => fanout.deliverJournalRows(rows, extra.access));
+}
 
 wsServer.on("upgrade", (req, socket, head) => fanout.handleUpgrade(req, socket, head));
 
@@ -190,12 +224,17 @@ const orderApi = createOrderApi({
   sessions: sessionManager,
   // `/healthz` 의 `journal` 필드 + 장중 알림 판정(Phase 19 D-04 (b)) — 브라우저 표식과 같은 원천.
   journal: journalStatus,
+  // 추가 게이트웨이 관찰자 — 본문 `journalGateways` 에만 싣는다(503 판정 밖 · quick-260929-c8e). 없으면 키도 없다.
+  journalGateways: extraJournals.map((p) => ({
+    gateway: p.upstream.gateway,
+    health: (nowMs: number) => p.status.health(nowMs),
+  })),
 });
 const orderApiServer = http.createServer(orderApi);
 
-// 관찰자 연결 1개를 부팅 즉시 연다(Phase 19 D-13 — 장 시간과 무관 · 사용자 접속과 무관).
+// 관찰자 연결을 게이트웨이마다 부팅 즉시 연다(Phase 19 D-13 — 장 시간과 무관 · 사용자 접속과 무관).
 // 결선(applied → fanout · frame → fanout)이 전부 붙은 **뒤에** 시작해야 첫 배치가 버려지지 않는다.
-journalObserver.start();
+for (const p of journalPipelines) p.observer.start();
 
 // ============================================================
 // listen
@@ -214,6 +253,17 @@ wsServer.listen(config.wsPort, () => {
         version: config.appVersion,
         // 관찰자 기록 연결 여부만 싣는다 — 비밀·계좌는 없다(T-19-03).
         journalObserver: config.dmaObserverSecret !== undefined ? "enabled" : "disabled",
+        // 추가 게이트웨이가 있을 때만 — 키 · 주소 · 활성 여부뿐이다(비밀 없음).
+        ...(extraJournals.length > 0
+          ? {
+              journalGateways: extraJournals.map((p) => ({
+                gateway: p.upstream.gateway,
+                host: p.upstream.host,
+                port: p.upstream.port,
+                observer: p.upstream.secret !== undefined ? "enabled" : "disabled",
+              })),
+            }
+          : {}),
       },
       "gh-radar-relay listening",
     );
@@ -251,14 +301,23 @@ async function shutdown(signal: string): Promise<void> {
     await fanout.closeAll(WS_CLOSE_GOING_AWAY);
     // 3) 구독 해제 + DMA 소켓 종료
     await sessionManager.closeAll();
-    // 4) 관찰자 연결 종료 — 이후 새 배치가 들어오지 않는다
-    journalObserver.stop();
-    // 5) 기록기 drain(상한 2초) → 정리. 못 끝내도 커서가 RPC 안에서만 전진하므로 다음 부팅이 재생한다.
-    const drained = await journalWriter.drain(JOURNAL_DRAIN_TIMEOUT_MS);
-    journalWriter.close();
-    journalAccess.close();
-    journalStatus.close();
-    if (!drained) logger.warn({ timeoutMs: JOURNAL_DRAIN_TIMEOUT_MS }, "[relay] 기록기 drain 미완 — 다음 부팅이 커서부터 재생");
+    // 4) 전 게이트웨이 관찰자 연결 종료 — 이후 새 배치가 들어오지 않는다
+    for (const p of journalPipelines) p.observer.stop();
+    // 5) 전 기록기 drain(각 상한 2초 · 병렬 — 5초 데드맨 안) → 정리. 못 끝내도 커서가 RPC 안에서만
+    //    전진하므로 다음 부팅이 재생한다.
+    const drained = await Promise.all(journalPipelines.map((p) => p.writer.drain(JOURNAL_DRAIN_TIMEOUT_MS)));
+    for (const p of journalPipelines) {
+      p.writer.close();
+      p.access.close();
+      p.status.close();
+    }
+    const undrained = journalPipelines.filter((_, i) => !drained[i]).map((p) => p.upstream.gateway);
+    if (undrained.length > 0) {
+      logger.warn(
+        { timeoutMs: JOURNAL_DRAIN_TIMEOUT_MS, gateways: undrained },
+        "[relay] 기록기 drain 미완 — 다음 부팅이 커서부터 재생",
+      );
+    }
     // 6) 배치 타이머 정리
     hub.closeAll();
     symbols.close();
