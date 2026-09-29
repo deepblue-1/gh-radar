@@ -564,6 +564,12 @@ strategyEventBody(ev) // → { kindLabel:"대기", groupLabel:"선매수",
 6. **거부 행(주문번호 없음) 펼침** — Rejected 는 평면 목록만(Deferred 조인). 오늘 주문의 로컬 거부 행(orderNo null)은 RPC 입력이 없다.
    - 권장: orderNo null 행은 ▸ 없이 펼침 비활성(또는 「이 거부는 상세 이벤트가 없어요」 빈 문구). UI-SPEC 에서 확정.
 
+**gh-trade 선답(2026-09-29 · 플랜 기준 · fbs 해시 때 최종 확정 — ui-phase 중 gh-trade 세션 회신):**
+- Q4-① `ObserverLoginResp.strategy_resync`(슬롯 24) 커밋 예정(v0.1 밖 말미 추가 · 권고 포함) → relay 는 파생하지 않고 파싱한다.
+- Q4-② Cancelled(7)의 `order_no` = 취소된 **원주문 번호**(대기 추적표·슬롯 키). StrategyEvent 에 `org_order_no` 는 없다 → 펼침 조인은 `order_no` 로만.
+- Q4-③ `reason_code` → 연산자·지표 대응표는 gh-trade 정본 `docs/features/order-log-progress.md` 표로 오며 해시 통보 때 함께 온다(예: B6Buy3 = 매도1잔량 ≤ 설정값 · AddBuy = 매수1잔량 ≥ 하한 · PostBuy = 매수1잔량 > 발동잔량 · B6Sell1 = 매수1잔량 ≤ 설정값 · A3Sell = 매도체결 ≥ 설정값).
+- Q5 `QueueProgressItem.order_no/account_no` 는 UnfilledState(66/67)와 같은 원천(주문 원장 · NormalizeAccountNo)이라 **문자열 동등** — gh-trade 플랜 acceptance 에 명기 예정. Pitfall 15(정규화 금지)는 그대로.
+
 ## Environment Availability
 
 | Dependency | Required By | Available | Version | Fallback |

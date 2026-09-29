@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Phase 25 남은 UI 결정 8건 — 목업</title>
+<style>
+  /* globals.css 토큰 인라인 (light) */
+  .theme { --bg:#ffffff; --fg:#191f28; --muted:#f2f4f6; --muted-fg:#6b7684; --faint:#b0b8c1;
+    --border:#f2f4f6; --border-subtle:#e5e8eb; --card:#ffffff; --primary:#3182f6; --accent:#e8f3ff;
+    --accent-fg:#1b64da; --destructive:#f04452; --up:#f04452; --down:#3182f6;
+    --pill-on-bg:#e8f3ff; --pill-on-fg:#1b64da;
+    --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --r:12px; --r-sm:6px; --r-md:16px; --r-lg:20px;
+    --t-caption:12px; --t-sm:14px; --row-h:36px; --cell-pad-x:12px; --cell-pad-y:8px; }
+  .theme.dark { --bg:#17171c; --fg:#ffffff; --muted:#2c2c35; --muted-fg:#9e9ea4; --faint:#62626d;
+    --border:rgba(255,255,255,.06); --border-subtle:#3c3c47; --card:#202027; --primary:#3485fa;
+    --accent:rgba(52,133,250,.16); --accent-fg:#8ab8ff; --destructive:#f04251; --up:#f04251; --down:#3485fa;
+    --pill-on-bg:#4d4d59; --pill-on-fg:#ffffff; }
+
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:'Pretendard Variable',Pretendard,-apple-system,system-ui,sans-serif; background:#0b0b0e; color:#ddd; }
+  .page { padding:24px; max-width:1500px; margin:0 auto; }
+  h1 { font-size:18px; margin:0 0 6px; color:#fff; }
+  .lead { font-size:13px; color:#9e9ea4; margin:0 0 20px; line-height:1.5; }
+  h2 { font-size:15px; color:#fff; margin:40px 0 6px; padding-top:16px; border-top:1px solid #2a2a33; }
+  h3 { font-size:13px; color:#fff; margin:20px 0 6px; }
+  .note { font-size:12px; color:#9e9ea4; margin:0 0 10px; line-height:1.55; }
+  .note b { color:#ddd; }
+  .rec { color:#8ab8ff; }
+  .pair { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .pair.narrow { grid-template-columns:repeat(auto-fit, 420px); }
+  @media (max-width: 1000px) { .pair { grid-template-columns:1fr; } }
+  .theme { background:var(--bg); color:var(--fg); padding:16px; border-radius:12px; }
+  .theme .label { font-size:11px; color:var(--muted-fg); margin-bottom:8px; }
+  .mono { font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1; letter-spacing:-.01em; }
+  .phone { width:390px; }
+
+  /* 공용 패널 (shared-panels 동형) */
+  .panel { background:var(--card); border:1px solid var(--border-subtle); border-radius:var(--r-md); overflow:hidden; }
+  .tabbar { display:flex; align-items:center; gap:4px; padding:6px 8px; border-bottom:1px solid var(--border-subtle); }
+  .tab { position:relative; font-size:var(--t-caption); font-weight:600; color:var(--muted-fg); padding:0 10px; height:28px; line-height:28px; border-radius:999px; white-space:nowrap; }
+  .tab.on { color:var(--pill-on-fg); background:var(--pill-on-bg); }
+  .tab .cnt { font-weight:600; }
+  .badge { display:inline-flex; align-items:center; justify-content:center; min-width:16px; height:16px; padding:0 4px; margin-left:4px; border-radius:999px; background:var(--primary); color:#fff; font-size:10px; font-weight:700; line-height:1; vertical-align:1px; }
+  .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--primary); margin-left:5px; vertical-align:2px; }
+  .fold { margin-left:auto; font-size:var(--t-caption); font-weight:600; color:var(--muted-fg); padding:0 8px; }
+
+  /* 카드 탭 (card-tabs 동형 · 24px 알약 · 본문 ≈72px 고정) */
+  .ctabbar { display:flex; align-items:center; gap:2px; padding:2px 6px; border-bottom:1px solid var(--border-subtle); }
+  .ctab { font-size:11px; font-weight:600; color:var(--muted-fg); padding:0 8px; height:24px; line-height:24px; border-radius:999px; white-space:nowrap; }
+  .ctab.on { color:var(--pill-on-fg); background:var(--pill-on-bg); }
+  .ctab .cnt { font-weight:600; }
+  .cbody { height:72px; overflow-y:auto; position:relative; }
+  .chev { margin-left:auto; width:24px; height:24px; display:inline-flex; align-items:center; justify-content:center; color:var(--muted-fg); font-size:11px; }
+
+  /* 필터줄 */
+  .filters { display:flex; align-items:center; gap:6px; padding:6px 10px; border-bottom:1px solid var(--border-subtle); font-size:11px; color:var(--muted-fg); flex-wrap:wrap; }
+  .filters.dense { padding:3px 8px; }
+  .sel { display:inline-flex; align-items:center; gap:4px; border:1px solid var(--border-subtle); border-radius:var(--r-sm); padding:2px 8px; color:var(--fg); background:transparent; white-space:nowrap; }
+  .sel .c { color:var(--faint); font-size:9px; }
+  .sel.on { border-color:var(--primary); color:var(--accent-fg); background:var(--accent); }
+  .filters .sp { flex:1 1 auto; }
+  .pop { display:inline-flex; align-items:center; gap:4px; color:var(--muted-fg); white-space:nowrap; }
+  .cnt { color:var(--faint); }
+
+  /* 본문 스크롤 영역 */
+  .body { max-height:172px; overflow-y:auto; position:relative; }
+  .body.tall { max-height:none; }
+  .body.vh { height:420px; }
+  .pin { position:sticky; bottom:0; display:flex; justify-content:center; padding:4px; pointer-events:none; }
+  .pin span { pointer-events:auto; font-size:10px; background:var(--primary); color:#fff; border-radius:999px; padding:2px 10px; box-shadow:0 2px 8px rgba(0,0,0,.25); }
+
+  /* F-A 한 줄 문장 (채택안) */
+  ul.lines { margin:0; padding:6px 10px; list-style:none; display:flex; flex-direction:column; gap:1px; font-size:11px; line-height:1.7; }
+  ul.lines.dense { padding:3px 8px; gap:0; line-height:1.6; }
+  ul.lines li { display:flex; gap:6px; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--fg); }
+  ul.lines li > span { flex:none; }
+  ul.lines li .txt { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  ul.lines .t { color:var(--muted-fg); }
+  ul.lines .no { color:var(--muted-fg); }
+  ul.lines .ac { color:var(--faint); }
+  ul.lines .k { font-weight:600; }
+  ul.lines .k.buy { color:var(--up); }
+  ul.lines .k.sell { color:var(--down); }
+  ul.lines .k.q { color:var(--accent-fg); }
+  ul.lines li.new { background:color-mix(in srgb, var(--primary) 8%, transparent); border-radius:4px; }
+  ul.lines .m { color:var(--muted-fg); }
+  /* 폰 밴드 변형 */
+  ul.lines li.wrap { cursor:pointer; }
+  ul.lines li.wrap.open { white-space:normal; flex-wrap:wrap; row-gap:0; }
+  ul.lines li.wrap.open .txt { white-space:normal; overflow:visible; text-overflow:clip; flex-basis:100%; padding-left:0; color:var(--fg); }
+  ul.lines li.wrap.open { background:color-mix(in srgb, var(--primary) 6%, transparent); border-radius:4px; }
+  ul.lines li.two { flex-direction:column; gap:0; white-space:normal; overflow:visible; }
+  ul.lines li.two .h { display:flex; gap:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  ul.lines li.two .b { padding-left:0; color:var(--fg); white-space:normal; line-height:1.55; }
+  ul.lines li.all { white-space:normal; flex-wrap:wrap; }
+  ul.lines li.all .txt { white-space:normal; overflow:visible; text-overflow:clip; flex-basis:100%; }
+
+  /* 창 분리 페이지 */
+  .win { border:1px solid var(--border-subtle); border-radius:10px; overflow:hidden; background:var(--bg); }
+  .win .bar { display:flex; align-items:center; gap:10px; padding:8px 12px; border-bottom:1px solid var(--border-subtle); font-size:13px; font-weight:600; }
+  .win .bar .url { margin-left:auto; font-weight:400; color:var(--faint); font-size:10px; }
+  .datenav { display:inline-flex; align-items:center; gap:2px; font-size:12px; font-weight:600; }
+  .datenav .arr { width:24px; height:24px; display:inline-flex; align-items:center; justify-content:center; border-radius:var(--r-sm); color:var(--muted-fg); border:1px solid var(--border-subtle); }
+  .datenav .arr.off { color:var(--faint); border-color:transparent; }
+  .datenav .d { padding:0 6px; }
+  .datenav .today { font-size:11px; font-weight:600; color:var(--accent-fg); background:var(--accent); border-radius:999px; padding:2px 8px; margin-left:4px; }
+  .dateinput { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border-subtle); border-radius:var(--r-sm); padding:2px 8px; font-size:11px; color:var(--fg); }
+  .dateinput .ic { color:var(--muted-fg); }
+
+  /* 오늘 주문 표 (today-orders-card 동형) */
+  .card { background:var(--card); border-radius:var(--r-lg); padding:var(--s-3); border:1px solid transparent; }
+  .card h4 { margin:0 0 var(--s-1); font-size:var(--t-caption); font-weight:600; display:flex; gap:8px; align-items:baseline; }
+  .card h4 .sub { font-weight:400; color:var(--muted-fg); }
+  table { width:100%; border-collapse:collapse; }
+  thead th { text-align:left; color:var(--muted-fg); font-size:var(--t-caption); font-weight:600; padding:var(--cell-pad-y) var(--cell-pad-x); white-space:nowrap; }
+  thead th.num { text-align:right; }
+  tbody td { height:var(--row-h); padding:0 var(--cell-pad-x); vertical-align:middle; font-size:var(--t-caption); white-space:nowrap; }
+  tbody td.num { text-align:right; }
+  tbody tr.o { cursor:pointer; }
+  tbody tr.o:hover td { background:color-mix(in srgb, var(--fg) 3%, transparent); }
+  tbody tr.o.open td { background:color-mix(in srgb, var(--primary) 6%, transparent); }
+  tbody tr.o.noexp { cursor:default; }
+  tbody tr.o.noexp:hover td { background:transparent; }
+  .name { font-weight:600; color:var(--fg); }
+  .code { margin-left:4px; font-size:11px; color:var(--muted-fg); }
+  .side-b { color:var(--up); font-weight:600; }
+  .side-s { color:var(--down); font-weight:600; }
+  .side-n { color:var(--muted-fg); font-weight:600; }
+  .side-ref { color:var(--muted-fg); font-weight:600; }
+  .side-ref .q { font-weight:400; }
+  .tail { margin-left:4px; font-size:10px; color:var(--faint); font-weight:400; }
+  .tag { display:inline-block; border-radius:var(--r-sm); background:var(--muted); color:var(--muted-fg); font-size:11px; font-weight:600; padding:1px 6px; line-height:16px; }
+  .xtag { display:inline-flex; align-items:center; height:18px; border-radius:var(--r-sm); padding:0 6px; font-size:10px; font-weight:700; letter-spacing:.02em; background:var(--muted); color:var(--muted-fg); }
+  .xtag.nxt { background:var(--pill-on-bg); color:var(--pill-on-fg); }
+  .st { display:inline-block; border-radius:var(--r-sm); font-size:11px; font-weight:600; padding:1px 6px; line-height:16px; background:var(--muted); color:var(--fg); }
+  .st.muted { color:var(--muted-fg); }
+  .st.danger { color:var(--destructive); }
+  .caret { display:inline-block; width:10px; color:var(--faint); font-size:10px; margin-right:4px; transition:transform .15s; }
+  tr.open .caret { transform:rotate(90deg); color:var(--primary); }
+  .caret.none { visibility:hidden; }
+  tr.d { display:none; }
+  tr.o.open + tr.d { display:table-row; }
+  tr.d td { height:auto; padding:2px var(--cell-pad-x) 10px; white-space:normal; }
+  .tl { margin:0; padding:0 0 0 12px; list-style:none; border-left:2px solid var(--border-subtle); display:flex; flex-direction:column; gap:3px; }
+  .tl li { position:relative; display:flex; align-items:baseline; gap:8px; font-size:11px; color:var(--muted-fg); line-height:1.5; }
+  .tl li::before { content:''; position:absolute; left:-16px; top:7px; width:6px; height:6px; border-radius:50%; background:var(--faint); }
+  .tl li.st::before { background:var(--primary); }
+  .tl .t { flex:none; width:82px; color:var(--muted-fg); }
+  .tl .b { flex:none; width:32px; text-align:center; border-radius:4px; font-size:10px; line-height:15px; }
+  .tl .b.no { background:var(--muted); color:var(--muted-fg); }
+  .tl .b.st { background:var(--accent); color:var(--accent-fg); }
+  .tl .x { color:var(--fg); }
+  .tl .x .k { font-weight:600; }
+  .tl .x .m { color:var(--muted-fg); }
+  .empty { font-size:11px; color:var(--faint); padding:4px 0 2px 2px; }
+  .loading { font-size:11px; color:var(--faint); padding:4px 0 2px 2px; }
+  .sk { display:flex; flex-direction:column; gap:6px; padding:4px 0 2px 0; }
+  .sk i { display:block; height:10px; border-radius:4px; background:var(--muted); }
+  .fail { font-size:11px; color:var(--muted-fg); padding:4px 0 2px 2px; }
+  .fail a { color:var(--accent-fg); font-weight:600; margin-left:6px; }
+
+  /* 미체결 임베드 표 (account-panel EMB_* 동형) */
+  table.emb thead th { background:var(--muted); font-size:11px; padding:6px 10px; }
+  table.emb tbody td { height:32px; padding:0 10px; font-size:var(--t-caption); }
+  table.emb tbody tr.sub td { height:auto; padding:0 10px 8px; font-size:11px; color:var(--muted-fg); }
+  .bar { position:relative; height:6px; border-radius:999px; background:var(--muted); overflow:hidden; }
+  .bar > i { position:absolute; inset:0 auto 0 0; background:var(--primary); border-radius:999px; }
+  .bar.near > i { background:var(--up); }
+  .line { display:flex; align-items:center; gap:8px; padding-left:2px; }
+  .line .kind { color:var(--fg); font-weight:600; }
+  .line .bar { width:140px; }
+  .line b { color:var(--fg); }
+  .btn { display:inline-block; font-size:11px; padding:2px 8px; border:1px solid var(--border-subtle); border-radius:var(--r-sm); color:var(--fg); background:transparent; }
+  .snote { margin:2px 0 0; font-size:11px; color:var(--muted-fg); }
+
+  /* 미체결 모바일 카드 행 */
+  .list { border:1px solid var(--border); border-radius:var(--r-md); overflow:hidden; }
+  .row { padding:var(--s-2) var(--s-3); border-top:1px solid var(--border-subtle); }
+  .row:first-child { border-top:0; }
+  .r1 { display:flex; align-items:center; gap:var(--s-2); min-width:0; }
+  .r1 .nm { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:var(--t-sm); font-weight:600; }
+  .r1 .price { margin-left:auto; flex:none; font-size:var(--t-sm); font-weight:600; }
+  .r2 { display:flex; align-items:center; gap:var(--s-2); margin-top:4px; font-size:11px; color:var(--muted-fg); }
+  .r2 b { color:var(--fg); font-weight:600; }
+  .r2 .btn { margin-left:auto; }
+  .r3 { display:flex; align-items:center; gap:8px; margin-top:6px; font-size:11px; color:var(--muted-fg); }
+  .r3 .bar { flex:1 1 auto; }
+  .r3 .kind { color:var(--fg); font-weight:600; flex:none; }
+  .r3 b { color:var(--fg); }
+  .rn { margin-top:2px; font-size:11px; color:var(--muted-fg); }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Phase 25 — 남은 UI 결정 8건 (채택안 위에 얹는 세부)</h1>
+  <p class="lead" style="border:1px solid #2a2a33;border-radius:8px;padding:10px 12px;color:#ddd"><b style="color:#8ab8ff">채택 결과 (사용자 검토 2026-09-29)</b> — 1-A 상태줄 계좌만 · 2-A 잘림+탭 펼침 · 3-A 카드 탭 필터 없음(「로그」→「전략로그」) · <b>4-B 괄호 숫자</b> · 5-A ◀ 날짜 ▶ + 오늘 · 6-A 회색 「▲ 매수」 · 7-A 진행률 r3 · 8-A 거부 행 ▸ 없음. 로딩 「불러오는 중…」 · 실패 「다시 시도」 인라인은 재량 확정.</p>
+<p class="lead">펼침 1-A·2-A·3-A, 주문로그 탭 F-A, 진행률 B안은 채택 완료. 아래는 그 위에 남은 결정을 하나씩 변형으로 그린 것이다. 데이터는 기획서 예시 하루 흐름(○○전자 12451~12455 + 시세 이벤트). 각 결정은 <b>순서대로 하나씩</b> 묻는다. 라벨은 웹 기존 용어(선매수·추가매수·후매수).</p>
+
+  <!-- ===================== 결정 1 ===================== -->
+  <h2>결정 1 — 공용 패널 「주문로그」 탭의 계좌 범위</h2>
+  <p class="note">형제 탭(미체결·잔고)은 상태줄에서 고른 <b>계좌 하나</b>만 본다. 하루치 조회는 볼 수 있는 모든 계좌를 준다. 시세 이벤트(상한가노출·진입)는 계좌가 없어 어느 안이든 보인다.</p>
+  <h3>1-A · 상태줄 계좌만 (형제 탭과 같은 축 · 필터줄 변화 없음) <span class="rec">← 권장</span></h3>
+  <div class="pair" data-render="A1A"></div>
+  <h3>1-B · 볼 수 있는 전 계좌 + 「계좌」 필터 칩 (전체일 때 줄 끝에 계좌 끝 4자리)</h3>
+  <div class="pair" data-render="A1B"></div>
+
+  <!-- ===================== 결정 2 ===================== -->
+  <h2>결정 2 — 폰 밴드(본문 폭 &lt;685)에서 한 줄 문장 처리</h2>
+  <p class="note">F-A 는 「좁으면 잘림(…) + 툴팁」 인데 터치 화면에는 툴팁이 없다. 390px 로 그렸다. 세 변형 모두 ≥685 에서는 F-A 그대로다.</p>
+  <h3>2-A · 잘림 유지 · 줄을 탭하면 그 줄만 펼쳐 줄바꿈 (다시 탭하면 접힘) <span class="rec">← 권장</span></h3>
+  <div class="pair narrow" data-render="A2A"></div>
+  <h3>2-B · 폰 밴드는 항상 2줄 — 1줄 머리(시간·번호·구분·거래소·종목) + 2줄 본문</h3>
+  <div class="pair narrow" data-render="A2B"></div>
+  <h3>2-C · 폰 밴드는 전부 줄바꿈 (잘림 없음 · 전략 로그 탭과 같은 방식)</h3>
+  <div class="pair narrow" data-render="A2C"></div>
+
+  <!-- ===================== 결정 3 ===================== -->
+  <h2>결정 3 — 카드 「주문로그」 탭 (본문 고정 높이 ≈72px · 그 종목·그 거래소만)</h2>
+  <p class="note">카드는 (종목, 거래소) 키라 종목·거래소 필터가 둘 다 무의미하다. 남는 건 <b>구분</b> 필터뿐인데, 72px 안에 필터줄을 두면 로그가 2줄만 보인다. 카드 탭에는 sticky 핀을 두지 않고 자동 따라감만(핀이 한 줄을 가린다). 기존 카드 탭 「로그」 는 「주문로그」 와 헷갈리므로 <b>「전략로그」</b> 로 이름을 맞춘다(두 안 공통 · 공용 패널의 「전략 로그」 와 같은 뜻).</p>
+  <h3>3-A · 필터 없음 — 본문 전부 로그(3줄 보임 + 스크롤) <span class="rec">← 권장</span></h3>
+  <div class="pair" data-render="A3A"></div>
+  <h3>3-B · 구분 필터 한 줄 유지 — 로그 2줄 보임</h3>
+  <div class="pair" data-render="A3B"></div>
+
+  <!-- ===================== 결정 4 ===================== -->
+  <h2>결정 4 — 새 로그 배지 표기 (탭이 가려진 동안 도착한 수 · 탭 열면 0)</h2>
+  <p class="note">형제 탭의 「미체결 (2)」 괄호 숫자는 <b>총 건수</b>다. 새 로그 배지는 「안 본 것」 이라 뜻이 다르다. 공용 패널·카드 탭 둘 다 같은 표기를 쓴다.</p>
+  <h3>4-A · primary 알약 숫자 (뜻이 다르니 모양도 다르게) <span class="rec">← 권장</span></h3>
+  <div class="pair" data-render="A4A"></div>
+  <h3>4-B · 괄호 숫자 「주문로그 (3)」 (형제 탭과 같은 모양 · 뜻만 다름)</h3>
+  <div class="pair" data-render="A4B"></div>
+  <h3>4-C · 점 하나 (숫자 없음 · 「새 것 있음」 만)</h3>
+  <div class="pair" data-render="A4C"></div>
+
+  <!-- ===================== 결정 5 ===================== -->
+  <h2>결정 5 — 창 분리 페이지 머리줄 · 날짜 이동</h2>
+  <p class="note">별도 라우트 새 창(앱 셸·사이드바 없음). 필터 상태는 쿼리로 넘어온다. 배지 없음 · 스크롤 고정만. 과거일은 <b>이 페이지에서만</b> 고른다(탭은 오늘 고정). 형태는 채택된 F-A 그대로.</p>
+  <h3>5-A · ◀ 날짜 ▶ 화살표 + 「오늘」 (하루씩 이동 · 이벤트 없는 날은 빈 상태) <span class="rec">← 권장</span></h3>
+  <div class="pair" data-render="A5A"></div>
+  <h3>5-B · 날짜 입력칸(달력 피커) 하나</h3>
+  <div class="pair" data-render="A5B"></div>
+
+  <!-- ===================== 결정 6 ===================== -->
+  <h2>결정 6 — 오늘 주문 별건 3: 거부 R(New) 행의 「방향 참고 표기」 모양</h2>
+  <p class="note">합의된 것: 방향 미상 → 구분 「주문」(회색) · result_code −2 → 상태 「접수 불명」(회색 톤 · 거부 빨강이 아님 · 재주문 유도 방지). 남은 것은 <b>KB 거부 R(New) 의 side 는 틀릴 수 있어 참고만</b> 이라는 표기 모양이다. 아래 표의 3번째 행(거부 12470)이 변형 대상. 1·2번째 행은 확정된 모양 그대로.</p>
+  <h3>6-A · 화살표+단어는 그대로, 방향색 대신 회색 「▲ 매수」 (툴팁: 거부 통보의 방향은 참고값) <span class="rec">← 권장</span></h3>
+  <div class="pair" data-render="A6A"></div>
+  <h3>6-B · 회색 「매수?」 (물음표로 불확실 표시)</h3>
+  <div class="pair" data-render="A6B"></div>
+  <h3>6-C · 「주문」 + 작은 꼬리 「매수 추정」</h3>
+  <div class="pair" data-render="A6C"></div>
+
+  <!-- ===================== 결정 7 ===================== -->
+  <h2>결정 7 — 진행률 보조행: 모바일에서 서버 상태 문구(r3)와의 순서</h2>
+  <p class="note">데스크톱 3표면은 정해진 대로 보조행이 행 바로 아래다(임베드 · 카드 탭 · 마이페이지 표 — 아래 첫 묶음, 결정 아님 · 확인용). 모바일 카드 행에는 이미 r3 에 서버 문구(「대기중」 등)가 있어 <b>진행률 줄과 순서</b>를 정해야 한다. 「0주 남음 · 100%」(D-12) 도 같이 보인다.</p>
+  <h3>확인용 · 데스크톱 임베드(공용 패널) · 카드 탭(stockScope) · 마이페이지 기본 표</h3>
+  <div class="pair" data-render="A7D"></div>
+  <h3>7-A · 진행률이 r3 (r2 바로 아래) · 서버 문구는 그 아래 r4 <span class="rec">← 권장 (CONTEXT 「r3 줄」 그대로)</span></h3>
+  <div class="pair narrow" data-render="A7A"></div>
+  <h3>7-B · 서버 문구 r3 유지 · 진행률은 r4 (맨 아래)</h3>
+  <div class="pair narrow" data-render="A7B"></div>
+
+  <!-- ===================== 결정 8 ===================== -->
+  <h2>결정 8 — 펼침의 로딩 · 실패 · 「거부 행(주문번호 없음)」</h2>
+  <p class="note">로딩은 옅은 「불러오는 중…」 한 줄(스켈레톤 아님 — 왕복 1회라 짧다), 실패는 「이벤트를 불러오지 못했어요 · 다시 시도」 인라인 — 이 둘은 재량으로 두고 아래 표에서 보이기만 한다. <b>결정은 거부 행</b>: 로컬 거부·접수 불명 행은 주문번호가 없어 조회할 이벤트가 없다(Rejected 전략 이벤트 조인은 후속).</p>
+  <h3>8-A · 거부 행은 ▸ 없음 · 클릭 무동작 (펼칠 게 없는 행은 펼침 자체가 없음) <span class="rec">← 권장</span></h3>
+  <div class="pair" data-render="A8A"></div>
+  <h3>8-B · 거부 행도 펼쳐지고 「이 거부는 상세 이벤트가 없어요」 한 줄</h3>
+  <div class="pair" data-render="A8B"></div>
+</div>
+
+<script>
+// ---------- 데이터: 기획서 하루 흐름 + 시세 이벤트 ----------
+const L = [
+  {t:'09:42:13.215', no:'', kd:'상한가노출', kc:'q', ex:'KRX', nm:'○○전자', txt:'매도잔량 <b>185,400</b>', cum:'620,000', ac:'0001'},
+  {t:'09:45:02.861', no:'12451', kd:'선매수', kc:'buy', ex:'KRX', nm:'○○전자', txt:'<b>주문</b> · 조건 매도잔량≤50,000 / 실측 38,200 · 근거 호가(매도1잔량 52,100→38,200) · 상한가 매수잔량 0 · 12,350×300주 · 접수 +18ms', cum:'861,800', ac:'0001'},
+  {t:'09:45:02.880', no:'', kd:'상한가진입 1차', kc:'q', ex:'KRX', nm:'○○전자', txt:'잔량/누적 즉시 30,000/900,000 · 1초 55,000/903,000 · 3초 72,000/908,000', cum:'900,000', ac:'0001'},
+  {t:'09:45:02.880', no:'12451', kd:'선매수', kc:'buy', ex:'KRX', nm:'○○전자', txt:'<b>대기</b> · 300주 · 체결예상 930,000 (900,000 + 30,000)', cum:'900,000', ac:'0001'},
+  {t:'09:45:07.415', no:'12451', kd:'선매수', kc:'buy', ex:'KRX', nm:'○○전자', txt:'<b>체결</b> · 오차 +16,000', cum:'914,000', ac:'0001'},
+  {t:'09:47:15.330', no:'12452', kd:'추가매수', kc:'buy', ex:'KRX', nm:'○○전자', txt:'<b>주문</b> · 조건 매수잔량≥150,000 / 실측 152,000 · 근거 호가(매수1잔량 148,500→152,000) · 상한가 매수잔량 152,000 · 12,350×300주 · 접수 +17ms', cum:'950,000', ac:'0002'},
+  {t:'09:47:15.347', no:'12452', kd:'추가매수', kc:'buy', ex:'KRX', nm:'○○전자', txt:'<b>대기</b> · 300주 · 체결예상 1,102,000 (950,000 + 152,000)', cum:'950,000', ac:'0002'},
+  {t:'09:52:40.105', no:'12453', kd:'후매수', kc:'buy', ex:'KRX', nm:'○○전자', txt:'<b>주문</b> · 조건 매수잔량≤100,000 / 실측 100,000 · 근거 호가(매수1잔량 104,000→100,000) · 상한가 매수잔량 100,000 · 12,350×300주 · 접수 +17ms', cum:'1,000,000', ac:'0001'},
+  {t:'09:52:40.122', no:'12453', kd:'후매수', kc:'buy', ex:'KRX', nm:'○○전자', txt:'<b>대기</b> · 300주 · 체결예상 1,100,000 (1,000,000 + 100,000)', cum:'1,000,000', ac:'0001'},
+  {t:'09:55:31.208', no:'12452', kd:'추가매수', kc:'buy', ex:'KRX', nm:'○○전자', txt:'<b>체결</b> · 오차 +41,000', cum:'1,061,000', ac:'0002'},
+  {t:'09:56:03.411', no:'12453', kd:'후매수', kc:'buy', ex:'KRX', nm:'○○전자', txt:'<b>취소</b> · 매수1 이탈 · 남은 거래량 12,000 (1,100,000 − 1,088,000)', cum:'1,088,000', ac:'0001'},
+  {t:'10:03:55.902', no:'', kd:'상한가노출', kc:'q', ex:'NXT', nm:'△△바이오', txt:'시초 상한가 · 매도잔량 <b>42,100</b>', cum:'310,500', ac:'0001'},
+  {t:'10:11:40.210', no:'12454', kd:'호가매도', kc:'sell', ex:'KRX', nm:'○○전자', txt:'<b>주문</b> · 조건 매수잔량≤50,000 / 실측 47,800 · 근거 호가(매수1잔량 51,200→47,800) · 매수1 12,350·47,800주 · 12,350×600주 지정가 · 접수 +16ms', cum:'1,640,000', neu:true, ac:'0001'},
+  {t:'10:11:58.310', no:'12455', kd:'체결매도', kc:'sell', ex:'KRX', nm:'○○전자', txt:'<b>주문</b> · 조건 단건 매도체결≥10,000 / 실측 18,000 · 근거 체결(12,350 매도체결 18,000주) · 매수1 12,350·42,000주 · 12,350×300주 지정가 · 접수 +16ms', cum:'1,650,000', neu:true, ac:'0001'},
+  {t:'10:12:01.004', no:'—', kd:'후매수', kc:'buy', ex:'KRX', nm:'○○전자', txt:'<b>거부</b> · 주문거부 가격범위초과', cum:'1,651,200', neu:true, ac:'0001'},
+];
+const strip = s => s.replace(/<[^>]+>/g,'');
+const pinBtn = '<div class="pin"><span>새 로그 3 · 맨 아래로 ↓</span></div>';
+
+function badgeHtml(kind, n) {
+  if (kind==='pill') return `<span class="badge">${n}</span>`;
+  if (kind==='paren') return ` <span class="cnt mono">(${n})</span>`;
+  if (kind==='dot') return `<span class="dot"></span>`;
+  return '';
+}
+function tabbar({badge='pill', n=3}={}) {
+  return `<div class="tabbar">
+    <span class="tab">미체결 <span class="cnt mono">(2)</span></span><span class="tab">잔고 <span class="cnt mono">(1)</span></span>
+    <span class="tab on">주문로그${badgeHtml(badge,n)}</span>
+    <span class="tab">전략 로그</span><span class="fold">접기 ▾</span></div>`;
+}
+function filters({stock=true, kind=true, account=false, accountVal='전체', count=L.length, pop=true, dense=false}={}) {
+  return `<div class="filters${dense?' dense':''}">
+    ${account?`<span class="sel${accountVal==='전체'?'':' on'}">계좌 ${accountVal} <span class="c">▾</span></span>`:''}
+    ${stock?`<span class="sel">종목 전체 <span class="c">▾</span></span>`:''}
+    <span class="sel">거래소 전체 <span class="c">▾</span></span>
+    ${kind?`<span class="sel">구분 전체 <span class="c">▾</span></span>`:''}
+    <span class="cnt mono">${count}건</span>
+    <span class="sp"></span>
+    ${pop?`<span class="pop">창 분리 ↗</span>`:''}</div>`;
+}
+function lineLi(e, {acTail=false, mode='fa', open=false}={}) {
+  const head = `<span class="t mono">[${e.t}]</span>${e.no?`<span class="no mono">[${e.no}]</span>`:''}<span class="k ${e.kc}">[${e.kd}]</span>`;
+  const bodyTxt = `${e.ex} | ${e.nm} | ${e.txt} <span class="m">| 누적 ${e.cum}</span>${acTail?` <span class="ac mono">…${e.ac}</span>`:''}`;
+  const cls = [e.neu?'new':''];
+  if (mode==='fa') return `<li class="${cls.join(' ')}">${head}<span class="txt" title="${strip(e.txt)}">${bodyTxt}</span></li>`;
+  if (mode==='tap') return `<li class="wrap ${open?'open':''} ${cls.join(' ')}" onclick="this.classList.toggle('open')">${head}<span class="txt">${bodyTxt}</span></li>`;
+  if (mode==='two') return `<li class="two ${cls.join(' ')}"><span class="h">${head}<span class="m">${e.ex} | ${e.nm}</span></span><span class="b">${e.txt} <span class="m">| 누적 ${e.cum}</span></span></li>`;
+  if (mode==='all') return `<li class="all ${cls.join(' ')}">${head}<span class="txt">${bodyTxt}</span></li>`;
+}
+function FA({stock=true, tall=false, pin=true, badge='pill', account=false, accountVal='전체', acTail=false, data=L, mode='fa', openIdx=-1, dense=false, cls=''}={}) {
+  const li = data.map((e,i)=>lineLi(e,{acTail, mode, open:i===openIdx})).join('');
+  return `<div class="panel ${cls}">${tabbar({badge})}${filters({stock, account, accountVal, count:data.length})}<div class="body${tall?' tall':''}"><ul class="lines${dense?' dense':''}">${li}</ul>${pin?pinBtn:''}</div></div>`;
+}
+
+// ---------- 결정 1 ----------
+const A1A = () => FA({});
+const A1B = () => FA({account:true, acTail:true});
+
+// ---------- 결정 2 (390px) ----------
+const A2A = () => FA({mode:'tap', openIdx:1, pin:false, cls:'phone'});
+const A2B = () => FA({mode:'two', pin:false, cls:'phone'});
+const A2C = () => FA({mode:'all', pin:false, cls:'phone'});
+
+// ---------- 결정 3 (카드 탭 72px) ----------
+function cardTabs({filter=false, badge='pill'}={}) {
+  const own = L.filter(e=>e.nm==='○○전자');
+  const li = own.map(e=>`<li${e.neu?' class="new"':''}><span class="t mono">${e.t}</span>${e.no?`<span class="no mono">#${e.no}</span>`:''}<span class="k ${e.kc}">${e.kd}</span><span class="txt" title="${strip(e.txt)}">${e.txt} <span class="m">| 누적 ${e.cum}</span></span></li>`).join('');
+  return `<div class="panel" style="max-width:560px">
+    <div class="ctabbar"><span class="ctab">정보</span><span class="ctab">미체결 <span class="cnt mono">(1)</span></span><span class="ctab">잔고</span><span class="ctab on">주문로그${badgeHtml(badge,2)}</span><span class="ctab">전략로그 <span class="cnt mono">(4)</span></span><span class="chev">⌃</span></div>
+    ${filter?`<div class="filters dense"><span class="sel">구분 전체 <span class="c">▾</span></span><span class="cnt mono">${own.length}건</span></div>`:''}
+    <div class="cbody"><ul class="lines dense">${li}</ul></div></div>`;
+}
+const A3A = () => cardTabs({filter:false});
+const A3B = () => cardTabs({filter:true});
+
+// ---------- 결정 4 (배지) ----------
+const A4A = () => `<div style="display:flex;flex-direction:column;gap:10px">${FA({badge:'pill', tall:false, pin:false, data:L.slice(0,4)})}${cardTabs({badge:'pill'})}</div>`;
+const A4B = () => `<div style="display:flex;flex-direction:column;gap:10px">${FA({badge:'paren', tall:false, pin:false, data:L.slice(0,4)})}${cardTabs({badge:'paren'})}</div>`;
+const A4C = () => `<div style="display:flex;flex-direction:column;gap:10px">${FA({badge:'dot', tall:false, pin:false, data:L.slice(0,4)})}${cardTabs({badge:'dot'})}</div>`;
+
+// ---------- 결정 5 (창 분리) ----------
+function WIN({nav='arrows'}={}) {
+  const li = L.map(e=>lineLi(e,{mode:'fa'})).join('');
+  const bar = nav==='arrows'
+    ? `<span>주문로그</span><span class="datenav"><span class="arr">‹</span><span class="d mono">2026-09-29 (월)</span><span class="arr off">›</span><span class="today">오늘</span></span>`
+    : `<span>주문로그</span><span class="dateinput"><span class="ic">📅</span><span class="mono">2026-09-29</span><span class="c" style="color:var(--faint);font-size:9px">▾</span></span>`;
+  return `<div class="win"><div class="bar">${bar}<span class="url mono">/trading/order-log?date=2026-09-29&ex=all&stock=all&kind=all</span></div>
+    ${filters({pop:false})}<div class="body vh"><ul class="lines">${li}</ul></div></div>`;
+}
+const A5A = () => WIN({nav:'arrows'});
+const A5B = () => WIN({nav:'input'});
+
+// ---------- 결정 6 (별건 3) ----------
+function refCell(v) {
+  if (v==='A') return `<span class="side-ref" title="거부 통보의 방향은 참고값이에요">▲ 매수</span>`;
+  if (v==='B') return `<span class="side-ref">매수<span class="q">?</span></span>`;
+  return `<span class="side-n">주문</span><span class="tail">매수 추정</span>`;
+}
+function todayTable(v) {
+  return `<div class="card"><h4>오늘 주문 <span class="sub">KB · 12345678-01 · 3건</span></h4>
+    <table><thead><tr><th>시각</th><th>종목</th><th>구분</th><th>출처</th><th class="num">수량</th><th class="num">가격</th><th>상태</th><th>주문번호</th></tr></thead><tbody>
+      <tr class="o"><td class="mono"><span class="caret">▶</span>09:45:02</td><td><span class="name">○○전자</span><span class="code mono">005930</span></td><td><span class="side-n">주문</span></td><td><span class="tag">상따</span></td><td class="num mono">300</td><td class="num mono">12,350</td><td><span class="st">접수</span></td><td class="mono">12451</td></tr>
+      <tr class="o noexp"><td class="mono"><span class="caret none">▶</span>10:12:01</td><td><span class="name">○○전자</span><span class="code mono">005930</span></td><td><span class="side-b">▲ 매수</span></td><td><span class="tag">상따</span></td><td class="num mono">300</td><td class="num mono">12,350</td><td><span class="st muted">접수 불명</span></td><td class="mono">—</td></tr>
+      <tr class="o noexp"><td class="mono"><span class="caret none">▶</span>10:12:03</td><td><span class="name">○○전자</span><span class="code mono">005930</span></td><td>${refCell(v)}</td><td><span class="tag">수동</span></td><td class="num mono">50</td><td class="num mono">12,400</td><td><span class="st danger">거부</span></td><td class="mono">—</td></tr>
+    </tbody></table>
+    <p class="snote" style="margin-top:6px">1행 방향 미상 → 「주문」 · 2행 result_code −2 → 「접수 불명」(회색) · 3행 R(New) 거부 → 방향 참고 표기(변형).</p></div>`;
+}
+const A6A = () => todayTable('A');
+const A6B = () => todayTable('B');
+const A6C = () => todayTable('C');
+
+// ---------- 결정 7 (진행률) ----------
+const barLine = (kind, remain, pct, {w=140}={}) => `<div class="line"><span class="kind">${kind}</span><span>·</span><span>체결예상까지 <b class="mono">${remain}</b>주 남음</span><div class="bar${pct>=90?' near':''}" style="width:${w}px"><i style="width:${pct}%"></i></div><b class="mono">${pct}%</b></div>`;
+function embTable({stockScope=false}={}) {
+  const cs = stockScope ? 5 : 7;
+  const lead = r => stockScope ? '' : `<td><span class="name">${r.nm}</span>${r.note?`<p class="snote">${r.note}</p>`:''}</td><td><span class="xtag${r.ex==='NXT'?' nxt':''}">${r.ex}</span></td>`;
+  const rows = [
+    {nm:'○○전자', ex:'KRX', side:'▲ 매수', price:'12,350', q:'300 / 300', no:'0012453', kind:'후매수', remain:'12,000', pct:88, note:'대기중'},
+    {nm:'○○전자', ex:'KRX', side:'▲ 매수', price:'12,350', q:'300 / 300', no:'0012452', kind:'추가매수', remain:'0', pct:100, note:''},
+    {nm:'△△바이오', ex:'NXT', side:'▲ 매수', price:'8,910', q:'1,000 / 1,000', no:'0012460', kind:null},
+  ];
+  const body = rows.map(r=>`<tr>${lead(r)}<td><span class="side-b">${r.side}</span><span class="tag" style="margin-left:4px;font-size:10px">상따</span>${(stockScope&&r.note)?`<p class="snote">${r.note}</p>`:''}</td><td class="num mono">${r.price}</td><td class="num mono">${r.q}</td><td class="mono">${r.no}</td><td class="num"><span class="btn">취소</span></td></tr>${r.kind?`<tr class="sub"><td colspan="${cs}">${barLine(r.kind,r.remain,r.pct)}</td></tr>`:''}`).join('');
+  return `<div class="panel" style="${stockScope?'max-width:520px':''}"><table class="emb"><thead><tr>${stockScope?'':'<th>종목</th><th>거래소</th>'}<th>구분</th><th class="num">주문가</th><th class="num">주문/미체결</th><th>주문No</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`;
+}
+function baseTable() {
+  const rows = [
+    {no:'0012453', nm:'○○전자', price:'12,350', q:'300', u:'300', kind:'후매수', remain:'12,000', pct:88},
+    {no:'0012452', nm:'○○전자', price:'12,350', q:'300', u:'300', kind:'추가매수', remain:'0', pct:100},
+    {no:'0012460', nm:'△△바이오', price:'8,910', q:'1,000', u:'1,000', kind:null},
+  ];
+  const body = rows.map(r=>`<tr><td class="mono">${r.no}</td><td><span class="side-b">▲ 매수</span>${r.kind?'<span class="tag" style="margin-left:4px;font-size:10px">상따</span>':''}</td><td>${r.nm}</td><td class="num mono">${r.price}</td><td class="num mono">${r.q}</td><td class="num mono">${r.u}</td><td class="num"><span class="btn">취소</span></td></tr>${r.kind?`<tr class="sub"><td colspan="7">${barLine(r.kind,r.remain,r.pct)}</td></tr>`:''}`).join('');
+  return `<div class="card"><h4>미체결 <span class="sub">마이페이지 · 데스크톱 ≥1280</span></h4><table class="emb"><thead><tr><th>주문번호</th><th>구분</th><th>종목</th><th class="num">주문가</th><th class="num">주문</th><th class="num">미체결</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`;
+}
+const A7D = () => `<div style="display:flex;flex-direction:column;gap:12px"><div class="label">공용 패널 임베드 (종목·거래소 열 있음)</div>${embTable({})}<div class="label">카드 탭 (stockScope · 5열)</div>${embTable({stockScope:true})}<div class="label">마이페이지 기본 표</div>${baseTable()}</div>`;
+function mobileList({progressFirst=true}={}) {
+  const rows = [
+    {nm:'○○전자', price:'12,350', u:'300', q:'300', kind:'후매수', remain:'12,000', pct:88, note:'대기중'},
+    {nm:'○○전자', price:'12,350', u:'300', q:'300', kind:'추가매수', remain:'0', pct:100, note:'대기중 · 취소전송'},
+    {nm:'△△바이오 아주아주 긴 종목명', price:'8,910', u:'1,000', q:'1,000', kind:null, note:''},
+  ];
+  return `<div class="list phone">` + rows.map(r=>{
+    const prog = r.kind ? `<div class="r3"><span class="kind">${r.kind}</span><span><b class="mono">${r.remain}</b>주 남음</span><div class="bar${r.pct>=90?' near':''}"><i style="width:${r.pct}%"></i></div><b class="mono">${r.pct}%</b></div>` : '';
+    const note = r.note ? `<p class="rn">${r.note}</p>` : '';
+    return `<div class="row"><div class="r1"><span class="nm">${r.nm}</span><span class="side-b" style="font-size:12px">▲ 매수</span><span class="price mono">${r.price}</span></div>
+      <div class="r2"><span>미체결 <b class="mono">${r.u}</b> / <b class="mono">${r.q}</b>주</span><span class="btn">취소</span></div>
+      ${progressFirst ? prog+note : note+prog}</div>`;
+  }).join('') + `</div>`;
+}
+const A7A = () => mobileList({progressFirst:true});
+const A7B = () => mobileList({progressFirst:false});
+
+// ---------- 결정 8 (펼침 상태) ----------
+const EV = [
+  {t:'09:45:02.861', src:'st', k:'주문', m:'선매수 · 조건 매도잔량≤50,000 / 실측 38,200 · 12,350×300주 · 접수 +18ms · 누적 861,800'},
+  {t:'09:45:02.879', src:'no', k:'접수', m:'매수 300주 @12,350'},
+  {t:'09:45:02.880', src:'st', k:'대기', m:'300주 · 체결예상 930,000 (900,000 + 30,000) · 누적 900,000'},
+];
+const BADGE = {no:'통보', st:'상따'};
+const tl = evs => `<ul class="tl">${evs.map(e=>`<li class="${e.src}"><span class="t mono">${e.t}</span><span class="b ${e.src}">${BADGE[e.src]}</span><span class="x"><span class="k">${e.k}</span> <span class="m">${e.m}</span></span></li>`).join('')}</ul>`;
+function expandTable(v) {
+  const rejRow = v==='A'
+    ? `<tr class="o noexp"><td class="mono"><span class="caret none">▶</span>10:12:03</td><td><span class="name">○○전자</span><span class="code mono">005930</span></td><td><span class="side-n">주문</span></td><td><span class="tag">상따</span></td><td class="num mono">300</td><td class="num mono">12,350</td><td><span class="st danger">거부</span></td><td class="mono">—</td></tr>`
+    : `<tr class="o open" onclick="this.classList.toggle('open')"><td class="mono"><span class="caret">▶</span>10:12:03</td><td><span class="name">○○전자</span><span class="code mono">005930</span></td><td><span class="side-n">주문</span></td><td><span class="tag">상따</span></td><td class="num mono">300</td><td class="num mono">12,350</td><td><span class="st danger">거부</span></td><td class="mono">—</td></tr>
+       <tr class="d"><td colspan="8"><div class="empty">이 거부는 상세 이벤트가 없어요</div></td></tr>`;
+  return `<div class="card"><h4>오늘 주문 <span class="sub">KB · 12345678-01 · 4건</span></h4>
+    <table><thead><tr><th>시각</th><th>종목</th><th>구분</th><th>출처</th><th class="num">수량</th><th class="num">가격</th><th>상태</th><th>주문번호</th></tr></thead><tbody>
+      <tr class="o open" onclick="this.classList.toggle('open')"><td class="mono"><span class="caret">▶</span>09:45:02</td><td><span class="name">○○전자</span><span class="code mono">005930</span></td><td><span class="side-b">▲ 매수</span></td><td><span class="tag">상따</span></td><td class="num mono">300</td><td class="num mono">12,350</td><td><span class="st">체결</span></td><td class="mono">12451</td></tr>
+      <tr class="d"><td colspan="8">${tl(EV)}</td></tr>
+      <tr class="o open" onclick="this.classList.toggle('open')"><td class="mono"><span class="caret">▶</span>09:52:40</td><td><span class="name">○○전자</span><span class="code mono">005930</span></td><td><span class="side-b">▲ 매수</span></td><td><span class="tag">상따</span></td><td class="num mono">300</td><td class="num mono">12,350</td><td><span class="st muted">취소</span></td><td class="mono">12453</td></tr>
+      <tr class="d"><td colspan="8"><div class="loading">불러오는 중…</div></td></tr>
+      <tr class="o open" onclick="this.classList.toggle('open')"><td class="mono"><span class="caret">▶</span>10:11:40</td><td><span class="name">○○전자</span><span class="code mono">005930</span></td><td><span class="side-s">▼ 매도</span></td><td><span class="tag">상따</span></td><td class="num mono">2,100</td><td class="num mono">12,350</td><td><span class="st">체결</span></td><td class="mono">#12461~12467 <span class="code">(7건)</span></td></tr>
+      <tr class="d"><td colspan="8"><div class="fail">이벤트를 불러오지 못했어요<a>다시 시도</a></div></td></tr>
+      ${rejRow}
+    </tbody></table>
+    <p class="snote" style="margin-top:6px">1행 정상 펼침 · 2행 로딩 · 3행 실패 · 4행 거부(주문번호 없음) = 변형 대상.</p></div>`;
+}
+const A8A = () => expandTable('A');
+const A8B = () => expandTable('B');
+
+// ---------- 렌더 (Light · Dark 쌍) ----------
+const R = {A1A,A1B,A2A,A2B,A2C,A3A,A3B,A4A,A4B,A4C,A5A,A5B,A6A,A6B,A6C,A7D,A7A,A7B,A8A,A8B};
+for (const host of document.querySelectorAll('[data-render]')) {
+  const inner = R[host.dataset.render]();
+  host.innerHTML = `<div class="theme"><div class="label">Light</div>${inner}</div><div class="theme dark"><div class="label">Dark</div>${inner}</div>`;
+}
+</script>
+</body>
+</html>
