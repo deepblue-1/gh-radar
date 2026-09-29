@@ -259,20 +259,20 @@ export class JournalWriter extends EventEmitter {
       .maybeSingle<CursorRow>();
     if (error) {
       const pgError = safePgError(error);
-      logger.error({ pgError }, "[journal] 커서 조회 실패 — 호출자가 재시도한다");
+      logger.error({ gateway: this.#gateway, pgError }, "[journal] 커서 조회 실패 — 호출자가 재시도한다");
       throw new Error(`[journal] dma_journal_cursor 조회 실패${pgError.code ? ` (${pgError.code})` : ""}`);
     }
     if (data === null || data === undefined) {
       this.#epoch = "";
       this.#lastReceivedSeq = null;
-      logger.info({}, "[journal] 커서 없음 — 처음부터 받는다");
+      logger.info({ gateway: this.#gateway }, "[journal] 커서 없음 — 처음부터 받는다");
       return { epoch: "", lastSeq: 0 };
     }
     const lastSeq = Number(data.last_seq);
     this.#epoch = data.journal_epoch;
     this.#lastReceivedSeq = lastSeq;
     this.#lastAppliedSeq = lastSeq;
-    logger.info({ epoch: data.journal_epoch, lastSeq }, "[journal] 커서 적재");
+    logger.info({ gateway: this.#gateway, epoch: data.journal_epoch, lastSeq }, "[journal] 커서 적재");
     return { epoch: data.journal_epoch, lastSeq };
   }
 
@@ -305,9 +305,9 @@ export class JournalWriter extends EventEmitter {
     this.#lastReceivedSeq = null;
     if (opts.resync || from !== "") {
       // 조용한 전면 누락을 드러낸다(Pitfall 3) — 커서가 가리키던 저장소가 사라졌다는 뜻이다.
-      logger.error({ from, to: epoch, resync: opts.resync }, "[journal] 저널 재동기화 — epoch 변경 또는 보관 범위 밖");
+      logger.error({ gateway: this.#gateway, from, to: epoch, resync: opts.resync }, "[journal] 저널 재동기화 — epoch 변경 또는 보관 범위 밖");
     } else {
-      logger.info({ to: epoch }, "[journal] epoch 시작");
+      logger.info({ gateway: this.#gateway, to: epoch }, "[journal] epoch 시작");
     }
   }
 
@@ -321,12 +321,12 @@ export class JournalWriter extends EventEmitter {
    */
   push(records: readonly JournalRecord[]): JournalPushResult {
     if (this.#closed) {
-      logger.warn({ incoming: records.length }, "[journal] 종료된 기록기에 push — 적재하지 않는다");
+      logger.warn({ gateway: this.#gateway, incoming: records.length }, "[journal] 종료된 기록기에 push — 적재하지 않는다");
       return "overflow";
     }
     if (this.#epoch === "") {
       // 적용 RPC 는 빈 epoch 를 거부한다 — 받아 두면 영원히 재시도에 갇힌다. 결선 순서 오류다.
-      logger.error({ incoming: records.length }, "[journal] epoch 미설정 상태의 push — 적재하지 않는다");
+      logger.error({ gateway: this.#gateway, incoming: records.length }, "[journal] epoch 미설정 상태의 push — 적재하지 않는다");
       return "overflow";
     }
 
@@ -347,12 +347,12 @@ export class JournalWriter extends EventEmitter {
       last = record.seq;
     }
     if (duplicates > 0) {
-      logger.debug({ duplicates, lastReceivedSeq: this.#lastReceivedSeq }, "[journal] 중복 seq 건너뜀");
+      logger.debug({ gateway: this.#gateway, duplicates, lastReceivedSeq: this.#lastReceivedSeq }, "[journal] 중복 seq 건너뜀");
     }
 
     if (this.#queue.length + accepted.length > this.#maxQueue) {
       logger.warn(
-        { queueDepth: this.#queue.length, incoming: accepted.length, maxQueue: this.#maxQueue },
+        { gateway: this.#gateway, queueDepth: this.#queue.length, incoming: accepted.length, maxQueue: this.#maxQueue },
         "[journal] 큐 상한 초과 — 적재하지 않는다(연결을 끊어 펌프 속도를 맞춘다)",
       );
       return "overflow";
@@ -363,7 +363,7 @@ export class JournalWriter extends EventEmitter {
     if (accepted.length > 0) this.#kick();
 
     if (gap !== null) {
-      logger.error(gap, "[journal] seq 갭 — 연결을 끊고 since_seq 로 다시 받는다");
+      logger.error({ gateway: this.#gateway, ...gap }, "[journal] seq 갭 — 연결을 끊고 since_seq 로 다시 받는다");
       return "gap";
     }
     return "ok";
@@ -387,7 +387,7 @@ export class JournalWriter extends EventEmitter {
       const timer = setTimeout(() => {
         this.#idleWaiters = this.#idleWaiters.filter((w) => w !== onIdle);
         logger.warn(
-          { remaining: this.#queue.length, timeoutMs },
+          { gateway: this.#gateway, remaining: this.#queue.length, timeoutMs },
           "[journal] drain 시간 초과 — 커서가 전진하지 않았으므로 다음 부팅이 재생한다",
         );
         resolve(false);
@@ -473,6 +473,7 @@ export class JournalWriter extends EventEmitter {
     this.#consecutiveFailures += 1;
     logger.error(
       {
+        gateway: this.#gateway,
         pgError: safePgError(err),
         batch: batch.length,
         firstSeq: batch[0]?.seq,
@@ -501,12 +502,12 @@ export class JournalWriter extends EventEmitter {
     this.#consecutiveFailures = 0;
     this.#dbError = false;
     if (recovered) {
-      logger.info({ lastAppliedSeq: this.#lastAppliedSeq }, "[journal] 적용 복구");
+      logger.info({ gateway: this.#gateway, lastAppliedSeq: this.#lastAppliedSeq }, "[journal] 적용 복구");
       this.emit("health", this.health());
     }
 
     for (const e of result.errors) {
-      logger.warn({ seq: e.seq, error: e.error }, "[journal] 투영 실패 이벤트 — apply_error 기록됨");
+      logger.warn({ gateway: this.#gateway, seq: e.seq, error: e.error }, "[journal] 투영 실패 이벤트 — apply_error 기록됨");
     }
     const rows = result.rows.map(toJournalOrderRow);
     if (rows.length === 0) return;
@@ -514,7 +515,7 @@ export class JournalWriter extends EventEmitter {
     try {
       this.emit("applied", rows);
     } catch (err) {
-      logger.error({ err: String(err), rows: rows.length }, "[journal] applied 리스너 예외 — 적용은 이미 확정됐다");
+      logger.error({ gateway: this.#gateway, err: String(err), rows: rows.length }, "[journal] applied 리스너 예외 — 적용은 이미 확정됐다");
     }
   }
 }

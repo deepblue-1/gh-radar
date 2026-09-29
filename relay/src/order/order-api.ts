@@ -64,6 +64,12 @@ export interface OrderApiSessions {
   stats(): SessionStats;
 }
 
+/**
+ * 추가 게이트웨이 관찰자 요약 (quick-260929-c8e). `JournalHealth` 8키 + `alerting`(주 게이트웨이였다면
+ * 503 이었을 조건 — `journalAlerting`) 뿐이다. 식별자는 없다.
+ */
+export type JournalGatewayHealth = JournalHealth & { alerting: boolean };
+
 export type OrderApiDeps = {
   /** `RELAY_ORDER_SECRET` — 내부 HTTP 표면의 공유 비밀 (D-22). */
   relayOrderSecret: string;
@@ -80,6 +86,12 @@ export type OrderApiDeps = {
    * **항상** 싣는다. 주지 않으면 필드가 없다(기존 페이로드 그대로).
    */
   journal?: { health(nowMs: number): JournalHealth };
+  /**
+   * 추가 게이트웨이 관찰자 요약 (quick-260929-c8e — 주 게이트웨이 외). 주면 `/healthz` 본문에
+   * `journalGateways.<키>` 로 싣는다. **503 판정에는 넣지 않는다**(아래 판정 근거 ★ 2026-09-29).
+   * 주지 않거나 빈 배열이면 키 자체가 없다(KB 단독 페이로드가 바이트 단위로 같다).
+   */
+  journalGateways?: ReadonlyArray<{ gateway: string; health(nowMs: number): JournalHealth }>;
   /** 시각 주입구 — 테스트가 장중/장 밖을 흉내낸다. 기본 `new Date()`. */
   now?: () => Date;
 };
@@ -121,6 +133,12 @@ export type HealthPayload = {
    * (T-15-22 · T-19-07 · smoke `health_probe` 가 식별자 키를 grep 해 FAIL 처리한다).
    */
   journal?: JournalHealth;
+  /**
+   * 추가 게이트웨이 관찰자 상태 (quick-260929-c8e). 키는 게이트웨이 키(예: 교보), 값은 `journal` 과 같은
+   * 8키 + `alerting` 뿐이다 — **계좌·사용자 식별자 · 호스트 · 비밀이 없다**(T-c8e-05). 503 판정 밖이다.
+   * 추가 게이트웨이가 없으면 필드 자체가 없다.
+   */
+  journalGateways?: Record<string, JournalGatewayHealth>;
 };
 
 // ============================================================
@@ -272,6 +290,14 @@ export function createOrderApi(deps: OrderApiDeps): Express {
    * 의 `journalAlerting` 한 벌이다. 알림 경로는 기존 uptime `gh-radar-relay-healthz` + 정책
    * `gh-radar-relay-down`(끊김 후 알림까지 ≈ 3분 + 5분 창) — relay 로그는 Cloud Logging 에 없으므로
    * 로그 기반 알림을 새로 두지 않는다(RESEARCH Pattern G).
+   *
+   * ★ 2026-09-29 보강 (quick-260929-c8e) — 추가 게이트웨이 관찰자(`journalGateways`)는 **503 판정에 넣지
+   * 않는다.** 판정식(`healthy`)은 한 글자도 바뀌지 않았다. 이유 셋:
+   *   1. 교보 터널은 약 4시간마다 재로그인하고 데스크톱 SecuwaySSL 과 상호배제된다 — 그 끊김이 KB
+   *      relay-down 알림(`gh-radar-relay-healthz`)을 울리면 알림의 의미가 흐려진다.
+   *   2. `deploy-relay.sh` 기동 확인이 `curl -sf` 다 — 장중 추가 게이트웨이 때문에 503 이면 KB 배포가 실패한다.
+   *   3. 롤아웃 중 거부(게이트웨이 쪽 비밀 미배치)는 KB 가용성과 무관하다.
+   * 상태는 본문 `journalGateways.<키>.alerting` 으로 드러낸다(같은 `journalAlerting` · 같은 `now`).
    */
   const readInterfaces = deps.networkInterfaces ?? (() => os.networkInterfaces());
 
@@ -293,6 +319,16 @@ export function createOrderApi(deps: OrderApiDeps): Express {
     const journal = deps.journal?.health(now.getTime());
     const journalOk = journal === undefined || !journalAlerting(journal, now);
     const healthy = linkUp && sessionsOk && journalOk;
+    // 추가 게이트웨이 — 본문에만 싣는다(판정 밖). 없으면 키도 없다.
+    const extra = deps.journalGateways ?? [];
+    let journalGateways: Record<string, JournalGatewayHealth> | undefined;
+    if (extra.length > 0) {
+      journalGateways = {};
+      for (const g of extra) {
+        const health = g.health(now.getTime());
+        journalGateways[g.gateway] = { ...health, alerting: journalAlerting(health, now) };
+      }
+    }
 
     const payload: HealthPayload = {
       status: healthy ? "ok" : "degraded",
@@ -303,6 +339,7 @@ export function createOrderApi(deps: OrderApiDeps): Express {
       everReadyCount: stats.everReadyCount,
       stalledCount: stats.stalledCount,
       ...(journal !== undefined ? { journal } : {}),
+      ...(journalGateways !== undefined ? { journalGateways } : {}),
     };
 
     res.status(healthy ? 200 : 503).json(payload);

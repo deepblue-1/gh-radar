@@ -1484,17 +1484,35 @@ export class WsFanout {
    * 사용자마다 `accountsOf(entry.dmaUserId)` 로 행을 걸러 부분집합이 비어 있지 않을 때만
    * `#deliver(userId, …)` 한다. 같은 DMA 계정을 공유하는 사용자는 각자 같은 부분집합을 받는다.
    * `#users` 에 없는 연결(미인증·자격증명 미등록)은 애초에 대상이 아니다.
+   *
+   * `access` (quick-260929-c8e) — 추가 게이트웨이 행은 **그 게이트웨이의 매핑으로만** 거른다. 주면 그것만
+   * 쓰고 주입된 주 게이트웨이 매핑은 보지 않는다. 생략하면 종전대로 주입된 매핑(+ 미주입 warn)이다.
+   * 조인은 `entry.dmaUserId`(`dma_credentials.dma_user_id`) ↔ 매핑 `dma_user_id` 문자열이다 — REST
+   * `dma_journal_orders_for_user` 의 가시성 조인과 **같은 신원 규칙**(게이트웨이 무관)이라 복원 행과 푸시
+   * 행이 어긋나지 않는다.
    */
-  deliverJournalRows(rows: readonly JournalOrderRow[]): void {
+  deliverJournalRows(
+    rows: readonly JournalOrderRow[],
+    access?: JournalAccessView,
+  ): void {
     if (rows.length === 0) return;
-    const access = this.#journalAccess;
-    if (access === null) {
+    if (access !== undefined) {
+      this.#pushJournalRows(rows, access);
+      return;
+    }
+    const primary = this.#journalAccess;
+    if (primary === null) {
       if (!this.#journalAccessWarned) {
         this.#journalAccessWarned = true;
         logger.warn({ rows: rows.length }, "[WS] 저널 매핑 미주입 — journal.rows 를 보내지 않는다");
       }
       return;
     }
+    this.#pushJournalRows(rows, primary);
+  }
+
+  /** 사용자마다 `access` 로 계좌 부분집합을 걸러 비어 있지 않을 때만 그 사용자에게 보낸다 (T-19-02). */
+  #pushJournalRows(rows: readonly JournalOrderRow[], access: JournalAccessView): void {
     for (const [userId, entry] of this.#users) {
       const accounts = access.accountsOf(entry.dmaUserId);
       if (accounts === undefined || accounts.size === 0) continue;

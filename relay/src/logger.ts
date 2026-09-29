@@ -54,6 +54,8 @@ export const logger = pino(
           "*.secret",
           "*.dmaObserverSecret",
           "*.DMA_OBSERVER_SECRET",
+          // quick-260929-c8e — 추가 게이트웨이 관찰자 비밀(교보). 같은 이유의 실수 방어다.
+          "*.DMA_OBSERVER_SECRET_KYOBO",
         ],
         censor: "[REDACTED]",
       },
