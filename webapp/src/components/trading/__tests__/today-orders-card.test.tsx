@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import {
   kstDateIso,
@@ -35,9 +35,14 @@ vi.mock("@/lib/relay-provider", async (importOriginal) => {
 
 // --- 조회 mock — 순수 함수(mergeJournalRows 등)는 **실물**을 쓴다 ---------------
 const fetchTodayOrdersMock = vi.fn();
+const fetchOrderEventsMock = vi.fn();
 vi.mock("@/lib/orders-api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/orders-api")>();
-  return { ...actual, fetchTodayOrders: () => fetchTodayOrdersMock() };
+  return {
+    ...actual,
+    fetchTodayOrders: () => fetchTodayOrdersMock(),
+    fetchOrderEvents: (...args: unknown[]) => fetchOrderEventsMock(...args),
+  };
 });
 
 // --- 종목 마스터 mock — relay 가 이름을 모르는 종목의 폴백(lib/stock-names) ----------
@@ -157,6 +162,8 @@ beforeEach(() => {
   mockRelay = { ...EMPTY_RELAY_VALUE };
   fetchTodayOrdersMock.mockReset();
   fetchTodayOrdersMock.mockResolvedValue([]);
+  fetchOrderEventsMock.mockReset();
+  fetchOrderEventsMock.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -1057,5 +1064,187 @@ describe("TodayOrdersCard — 별건 3 (Phase 25)", () => {
       expect(cell.hasAttribute("title")).toBe(false);
       expect(cell.className).toContain("text-[var(--down)]");
     }
+  });
+});
+
+// ===========================================================================
+// ⑭ 행 펼침 (Phase 25 25-08 · D-01 ~ D-04 · 결정 8-A)
+// ===========================================================================
+
+describe("TodayOrdersCard — 행 펼침 (Phase 25 D-04)", () => {
+  /** 표(≥1280) 배치로 판정되게 matchMedia 를 바꾼다 — 펼침 본문(조회)은 보이는 배치 한 곳에만 선다. */
+  const originalMatchMedia = window.matchMedia;
+  const setWide = (wide: boolean) => {
+    window.matchMedia = ((query: string) => ({
+      matches: wide && query.includes("min-width: 1280px"),
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    })) as typeof window.matchMedia;
+  };
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia;
+  });
+
+  const tableRows = () => [
+    ...document.querySelectorAll<HTMLTableRowElement>('[data-slot="today-order-table-row"]'),
+  ];
+  const tableRowOf = (orderNo: string) => tableRows().find((tr) => tr.textContent?.includes(orderNo))!;
+  const cardRowOf = (orderNo: string) =>
+    [...document.querySelectorAll<HTMLElement>('[data-slot="today-order-row"]')].find((el) =>
+      el.textContent?.includes(orderNo),
+    )!;
+  const expandIn = (scope: Element) =>
+    scope.querySelector<HTMLButtonElement>('button[data-slot="today-order-expand"]');
+
+  const TWO = [
+    row({ id: "a", orderNo: "0000135742", createdAt: "2026-09-10T00:10:00.000Z" }),
+    row({ id: "b", orderNo: "0000135743", createdAt: "2026-09-10T00:20:00.000Z" }),
+  ];
+
+  it("⑭-1 데스크톱 — 행 클릭 → aria-expanded · 바로 뒤 상세 행 colSpan 8 · aria-controls = 상세 셀 id · 조회 1회", async () => {
+    setWide(true);
+    fetchTodayOrdersMock.mockResolvedValue(TWO);
+    render(<TodayOrdersCard />);
+    await waitFor(() => expect(tableRows()).toHaveLength(2));
+
+    const tr = tableRowOf("0000135742");
+    const button = expandIn(tr)!;
+    expect(button).not.toBeNull();
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    // 버튼은 첫 칸(시각 칸) 안에 있다 · 행은 표 의미 유지(role=button 없음).
+    expect(tr.cells[0]?.contains(button)).toBe(true);
+    expect(tr.hasAttribute("role")).toBe(false);
+
+    fireEvent.click(tr.cells[3]!);
+
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+    const detail = tr.nextElementSibling as HTMLTableRowElement;
+    expect(detail.getAttribute("data-slot")).toBe("today-order-detail");
+    const cell = detail.querySelector("td")!;
+    expect(cell.getAttribute("colspan")).toBe("8");
+    expect(button.getAttribute("aria-controls")).toBe(cell.id);
+    await waitFor(() => expect(fetchOrderEventsMock).toHaveBeenCalledTimes(1));
+    expect(fetchOrderEventsMock).toHaveBeenCalledWith("a", ["0000135742"]);
+  });
+
+  it("⑭-2 버튼 클릭은 한 번만 토글 · 두 행 동시 펼침 · 다시 클릭 → 닫힘", async () => {
+    setWide(true);
+    fetchTodayOrdersMock.mockResolvedValue(TWO);
+    render(<TodayOrdersCard />);
+    await waitFor(() => expect(tableRows()).toHaveLength(2));
+
+    const a = expandIn(tableRowOf("0000135742"))!;
+    const b = expandIn(tableRowOf("0000135743"))!;
+    fireEvent.click(a);
+    expect(a.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(b);
+    expect(a.getAttribute("aria-expanded")).toBe("true");
+    expect(b.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelectorAll('tr[data-slot="today-order-detail"]')).toHaveLength(2);
+
+    fireEvent.click(tableRowOf("0000135742").cells[1]!);
+    expect(a.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelectorAll('tr[data-slot="today-order-detail"]')).toHaveLength(1);
+    // 열린 행 셀 배경 — primary 6%.
+    expect(tableRowOf("0000135743").className).toContain("var(--primary)_6%");
+    expect(tableRowOf("0000135742").className).not.toContain("var(--primary)_6%");
+  });
+
+  it("⑭-3 주문번호 없는 행 — 버튼 · aria-expanded 없음 · 클릭 무동작 · ▶ 자리는 visibility hidden", async () => {
+    setWide(true);
+    fetchTodayOrdersMock.mockResolvedValue([
+      row({ id: "x", orderNo: null, status: "rejected", noticeType: "R", resultCode: -2 }),
+    ]);
+    render(<TodayOrdersCard />);
+    await waitFor(() => expect(tableRows()).toHaveLength(1));
+
+    const tr = tableRows()[0]!;
+    expect(expandIn(tr)).toBeNull();
+    expect(tr.querySelector("[aria-expanded]")).toBeNull();
+    const caret = tr.cells[0]!.querySelector<HTMLElement>('[aria-hidden="true"]')!;
+    expect(caret.textContent).toBe("▶");
+    expect(caret.style.visibility).toBe("hidden");
+
+    const before = document.body.innerHTML;
+    fireEvent.click(tr.cells[2]!);
+    expect(document.body.innerHTML).toBe(before);
+    expect(document.querySelector('[data-slot="today-order-detail"]')).toBeNull();
+    expect(fetchOrderEventsMock).not.toHaveBeenCalled();
+  });
+
+  it("⑭-4 모바일 카드 행 — 같은 토글 · 상세 div 가 ②줄 아래 · 본문 클릭은 닫지 않는다 · 조회는 보이는 배치 한 곳", async () => {
+    setWide(false);
+    fetchTodayOrdersMock.mockResolvedValue(TWO);
+    render(<TodayOrdersCard />);
+    await waitFor(() => expect(listRows()).toHaveLength(2));
+
+    const card = cardRowOf("0000135742");
+    const button = expandIn(card)!;
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(card);
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+
+    const detail = card.querySelector<HTMLElement>('div[data-slot="today-order-detail"]')!;
+    expect(detail).not.toBeNull();
+    expect(detail.previousElementSibling?.contains(button)).toBe(true);
+    expect(button.getAttribute("aria-controls")).toBe(detail.id);
+
+    await waitFor(() =>
+      expect(detail.querySelector('[data-slot="order-timeline-empty"]')).not.toBeNull(),
+    );
+    // 표 배치(가려진 쪽)는 조회하지 않는다 — 클릭 1회 = 조회 1회.
+    expect(fetchOrderEventsMock).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(detail);
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(button);
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    expect(card.querySelector('[data-slot="today-order-detail"]')).toBeNull();
+  });
+
+  it("⑭-5 닫으면 스토어 lastSeq 상승에도 조회 0 · 조각이 더 들어와도(head 교체) 열린 채", async () => {
+    setWide(false);
+    const fill = (id: string, orderNo: string, at: string, lastSeq: number) =>
+      row({
+        id,
+        orderNo,
+        side: "S",
+        noticeType: "E",
+        status: "filled",
+        origin: "limit_chaser",
+        tradeDate: TODAY,
+        lastSeq,
+        createdAt: at,
+      });
+    fetchTodayOrdersMock.mockResolvedValue([fill("f1", "0000200001", "2026-09-10T00:40:00.000Z", 1)]);
+    const view = render(<TodayOrdersCard />);
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+
+    fireEvent.click(listRows()[0]!);
+    await waitFor(() => expect(fetchOrderEventsMock).toHaveBeenCalledTimes(1));
+
+    // 새 조각(더 최신 · 3초 창 안)이 푸시로 들어와 묶음 head 가 바뀐다 → 여전히 열림.
+    mockRelay = {
+      ...mockRelay,
+      journalRows: [fill("f2", "0000200002", "2026-09-10T00:40:01.000Z", 2)],
+    };
+    view.rerender(<TodayOrdersCard />);
+    await waitFor(() => expect(listRows()[0]?.textContent).toContain("(2건)"));
+    expect(expandIn(listRows()[0]!)?.getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.click(expandIn(listRows()[0]!)!);
+    const calls = fetchOrderEventsMock.mock.calls.length;
+    mockRelay = {
+      ...mockRelay,
+      journalRows: [fill("f2", "0000200002", "2026-09-10T00:40:01.000Z", 9)],
+    };
+    view.rerender(<TodayOrdersCard />);
+    await new Promise((r) => setTimeout(r, 450));
+    expect(fetchOrderEventsMock.mock.calls.length).toBe(calls);
   });
 });
