@@ -1,6 +1,6 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 5f49cfa5
+// server-repo-commit: 5f49cfa5 + dcaa78b1 (SetLimitChaser)
 // synced-date:        2026-09-29
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
@@ -587,7 +587,8 @@ table SetLimitChaser {
     //   sweep_* 는 **선매수의 값**으로 재해석한다(D-17).
     // - 구/신 클라 판별은 buy3_schema 의 부재(0) 하나다(D-24) — 구 클라의 Set 은 "선매수만 켠 등록" 이다.
     buy3_schema: ubyte;              // 0 = 구 클라(필드 부재) → buy_enabled 를 "선매수만 켠 등록" 으로 읽는다.
-                                     // 신 클라는 항상 1, 서버 에코도 1 (D-24 판정 정본). vtable 98
+                                     // 1 = 3종 클라 · 2 = post_buy_auto 를 싣는 클라(quick-260929-ucy — 서버는 2 이상일 때만
+                                     // post_buy_auto 를 읽는다). 서버 에코는 1 그대로 (D-24 판정 정본). vtable 98
     pre_buy_enabled: bool;           // 선매수 체크 (양방향) — 에코는 무장과 접힌다(D-03). vtable 100
     // ★ 아래 6필드의 와이어 이름은 extra_buy_* 다 (Phase 24 D-29 — C# 생성물의 buy_* 빌더 메서드와 이름 충돌
     //   회피로 add_→extra_). 선언 위치·형·순서·vtable 슬롯(102~112)은 그대로라 와이어 바이트가 같다.
@@ -607,6 +608,11 @@ table SetLimitChaser {
     post_buy_trigger_qty: uint;      // **S→C 전용** 발동잔량(주). 요청값은 서버가 읽지 않는다. vtable 126
     post_buy_reentry_left: ubyte;    // **S→C 전용** 재진입 잔여(회). 요청값은 서버가 읽지 않는다. vtable 128
     post_buy_phase: ubyte;           // **S→C 전용** 0 꺼짐 / 1 감시 / 2 보유중 / 3 소진. 요청값은 서버가 읽지 않는다. vtable 130
+    // === 이하 quick-260929-ucy 추가 (말미 append) ===
+    post_buy_auto: bool;             // ☐자동(양방향) — ON 이면 선매수 무체결 전량취소 또는 보유 0 전이 때 서버가 후매수를 1회 켜고
+                                     // 이 값을 false 로 에코한다(꺼져 있던 마스터도 올린다 — docs/strategy/limit-chaser.md §5-3-1).
+                                     // 서버는 buy3_schema >= 2 일 때만 읽는다(1 이하는 서버 값 유지 — 구 클라·gh-radar relay).
+                                     // 에코는 서버 런타임 값. vtable 132
 }
 
 // VITrigger (VI 발동) 전략 설정
