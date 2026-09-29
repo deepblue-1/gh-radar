@@ -65,7 +65,6 @@ import type {
   RelayOrderResultMsg,
   RelayQuote,
   RelayUnfilled,
-  StrategyEventRow,
 } from "@gh-radar/shared";
 
 import { AccountPanel, type AccountRowOrigin } from "@/components/orderbook/account-panel";
@@ -233,7 +232,7 @@ export function CardTabs({
     [orderLogRows, olAccount, olIsin, olExchange],
   );
   const olStockName = orderLog?.stockName ?? "";
-  const orderLogNameOf = useCallback((_row: StrategyEventRow) => olStockName, [olStockName]);
+  const orderLogNameOf = useCallback(() => olStockName, [olStockName]);
 
   /** ③ — 토글 판정은 공용 패널과 같은 헬퍼 하나. */
   const handleSelect = useCallback(
