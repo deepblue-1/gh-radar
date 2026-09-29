@@ -40,7 +40,21 @@ vi.mock("@/lib/orders-api", async (importOriginal) => {
   return { ...actual, fetchTodayOrders: () => fetchTodayOrdersMock() };
 });
 
+// --- 종목 마스터 mock — relay 가 이름을 모르는 종목의 폴백(lib/stock-names) ----------
+let masterRows: { isin: string; name: string }[] = [];
+vi.mock("@/lib/supabase/client", () => ({
+  createClient: () => ({
+    from: () => ({
+      select: () => ({
+        in: (_col: string, isins: string[]) =>
+          Promise.resolve({ data: masterRows.filter((r) => isins.includes(r.isin)), error: null }),
+      }),
+    }),
+  }),
+}));
+
 import { ApiClientError } from "@/lib/api";
+import { clearStockNameCache } from "@/lib/stock-names";
 import { QUERY_CACHE_MAX_AGE_MS, clearQueryCache } from "@/lib/query-cache";
 import { EMPTY_RELAY_VALUE } from "@/lib/relay-provider";
 
@@ -138,6 +152,8 @@ const listRows = () => document.querySelectorAll('[data-slot="today-order-row"]'
 beforeEach(() => {
   // D-32 재방문 시드는 모듈 수준 캐시다 — 테스트 사이에 새지 않게 비운다.
   clearQueryCache();
+  clearStockNameCache();
+  masterRows = [];
   mockRelay = { ...EMPTY_RELAY_VALUE };
   fetchTodayOrdersMock.mockReset();
   fetchTodayOrdersMock.mockResolvedValue([]);
@@ -211,6 +227,16 @@ describe("TodayOrdersCard", () => {
     const text = listRows()[0]?.textContent ?? "";
     expect(text).toContain("005930");
     expect(text.trim()).not.toBe("");
+  });
+
+  it("relay 가 모르는 종목(전량 매도·취소로 잔고·미체결에 없음)은 종목 마스터 이름으로 채운다", async () => {
+    masterRows = [{ isin: "KR7005930003", name: "삼성전자" }];
+    fetchTodayOrdersMock.mockResolvedValue([row({ id: "a", orderNo: "0000135742" })]);
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(listRows()[0]?.textContent ?? "").toContain("삼성전자"));
+    expect(listRows()[0]?.textContent).toContain("005930");
   });
 
   it("단축코드가 없고(상장폐지) 라벨도 없으면 ISIN 원문이 종목 칸에 남는다", async () => {
