@@ -1314,7 +1314,7 @@ Plans:
 **정본:** `reference/` 9개 파일(기획서 전문 · gh-radar 함의 · 필드 v0.1 · 대조 기록 · 목업 2종) · gh-trade `docs/features/order-journal.md` · 이 저장소 `19-GH-TRADE-HANDOFF.md`(저널 규약 동형).
 **Requirements**: TBD
 **Depends on:** Phase 19 (계좌 저널 관찰자) · Phase 24 (상따 3그룹 용어) · gh-trade StrategyEvent/QueueProgress 서버 phase
-**Plans:** 9/12 plans executed
+**Plans:** 10/12 plans executed
 
 Plans:
 **Wave 1**
@@ -1337,7 +1337,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 25-10-PLAN.md — 카드 탭 「주문로그」 · 창 분리 /trading/order-log · axe 매트릭스 (W4)
+- [x] 25-10-PLAN.md — 카드 탭 「주문로그」 · 창 분리 /trading/order-log · axe 매트릭스 (W4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 

@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 25
 current_phase_name: order-log-progress
 status: executing
-stopped_at: Completed 25-09-PLAN.md
-last_updated: "2026-09-29T12:36:23.809Z"
+stopped_at: Completed 25-10-PLAN.md
+last_updated: "2026-09-29T13:08:29.709Z"
 last_activity: 2026-09-29
 last_activity_desc: Phase 25 execution started
-state_head: 107642206d8932adf2a687e035ed9888271f8029
+state_head: aa097b86bf148e0873db046fbed6f3dd4f6140a1
 progress:
   total_phases: 34
   completed_phases: 4
   total_plans: 336
-  completed_plans: 317
+  completed_plans: 318
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 25 (order-log-progress) — EXECUTING
-Plan: 10 of 12
+Plan: 11 of 12
 Plans completed: 220 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
@@ -169,6 +169,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 25 P07 | 44 min | 3 tasks | 21 files |
 | Phase 25 P08 | 19min | 3 tasks | 12 files |
 | Phase 25 P09 | 17min | 3 tasks | 5 files |
+| Phase 25 P10 | 26 min | 3 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -433,6 +434,10 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 25]: 25-08: 통보 문장은 판정 필드만 보고 message 는 거부 꼬리로만 · 상따 문장은 timelineStrategyText 출력 그대로(D-09 두 줄 형식 변경은 shared 한 곳)
 - [Phase 25]: 25-09: 진행률 보조행은 표 폭을 넓히지 않는다(w-0 min-w-full + 막대 140→40px 신축) — 넓히면 카드 탭 폰 폭(344)에서 미체결 표가 324→380 가로 스크롤돼 「취소」 가 밀린다
 - [Phase 25]: 25-09: 진행률 보조행은 기본 표 · 임베드가 UnfilledProgressRow 한 컴포넌트를 공유 · 문구 조각은 unfilled-progress.tsx 상수 + progressView 값 텍스트 두 곳
+- [Phase 25]: 25-10: 카드 탭 주문로그 종목 칸은 카드 표시명(stockName) — 카드는 useIsinLabels 비구독(T-18-29)
+- [Phase 25]: 25-10: OrderLogFeedProvider 는 WorkbenchSurface 루트(phoneBand 동반) · 게이트 뒤 마운트 1회 조회 불변
+- [Phase 25]: 25-10: 창 분리 문서 제목 정본 = page.tsx generateMetadata — router.replace 가 루트 제목으로 덮는다
+- [Phase 25]: 25-10: WB_PHONE_BAND_BELOW 정의는 lib/trading-layout.ts · 작업대는 재수출(창 번들 경량)
 
 ### Pending Todos
 
@@ -502,8 +507,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-09-29T12:36:14.079Z
-Stopped at: Completed 25-09-PLAN.md
+Last session: 2026-09-29T13:08:28.910Z
+Stopped at: Completed 25-10-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
