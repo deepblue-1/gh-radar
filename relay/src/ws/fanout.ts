@@ -52,6 +52,8 @@
  *            순회는 하되 **사용자마다** `accountsOf(entry.dmaUserId)` 로 거른 부분집합을 `#deliver(userId)`
  *            로만 보낸다 — 걸러지지 않은 원본 배열을 보내는 경로는 없다. 같은 DMA 계정을 공유하는
  *            사용자는 모두 받고, 매핑 밖·자격증명 미등록 사용자는 0 프레임이다.
+ *   sas      추가 게이트웨이(KYOBO) 행은 **명시 신원 연결**(`ExtraGatewayRoute.identities` — DB 뷰
+ *            `dma_visibility_identities` 사본)로만 라우팅한다. 주 게이트웨이는 자격증명 신원 그대로다(quick-260929-sas).
  *   P25      전략 이벤트(`journal.events`)도 같은 결로 사용자별 부분집합만 보낸다(`deliverStrategyEvents`) —
  *            주문 이벤트는 계좌 필터, 시세 이벤트(kind 1·2)는 그 게이트웨이 매핑을 가진 사용자 전원. 시세 판정은
  *            **kind 로만** 한다(빈 계좌번호로 하지 않는다 · T-25-01).
@@ -121,7 +123,7 @@ import {
 } from "./protocol.js";
 import { createOrderHandler, type OrderHandler } from "./order-handler.js";
 import type { SymbolLookup } from "../store/symbols.js";
-import type { JournalAccessView } from "../journal/types.js";
+import type { ExtraGatewayRoute, JournalAccessView } from "../journal/types.js";
 
 // ============================================================
 // 상수 정본
@@ -1494,19 +1496,21 @@ export class WsFanout {
    * `#deliver(userId, …)` 한다. 같은 DMA 계정을 공유하는 사용자는 각자 같은 부분집합을 받는다.
    * `#users` 에 없는 연결(미인증·자격증명 미등록)은 애초에 대상이 아니다.
    *
-   * `access` (quick-260929-c8e) — 추가 게이트웨이 행은 **그 게이트웨이의 매핑으로만** 거른다. 주면 그것만
-   * 쓰고 주입된 주 게이트웨이 매핑은 보지 않는다. 생략하면 종전대로 주입된 매핑(+ 미주입 warn)이다.
-   * 조인은 `entry.dmaUserId`(`dma_credentials.dma_user_id`) ↔ 매핑 `dma_user_id` 문자열이다 — REST
-   * `dma_journal_orders_for_user` 의 가시성 조인과 **같은 신원 규칙**(게이트웨이 무관)이라 복원 행과 푸시
-   * 행이 어긋나지 않는다.
+   * `extra` (quick-260929-c8e · 260929-sas) — 추가 게이트웨이 행은 **그 게이트웨이의 매핑과 명시 신원 연결로만**
+   * 거른다. 주면 그것만 쓰고 주입된 주 게이트웨이 매핑은 보지 않는다. 생략하면 종전대로 주입된 매핑(+ 미주입 warn)이다.
+   * 신원 규칙(REST `dma_visible_accounts` 와 같다 — 정본은 DB 뷰 `dma_visibility_identities`):
+   *   - 주 게이트웨이 = 자격증명 신원 — `entry.dmaUserId`(`dma_credentials.dma_user_id`) ↔ 매핑 `dma_user_id`.
+   *   - 추가 게이트웨이 = 명시 연결 신원 — `extra.identities.dmaUserIdOf(userId)` ↔ 그 게이트웨이 매핑 `dma_user_id`.
+   *     자격증명 문자열은 보지 않는다 — 같은 문자열이 KB 와 교보에 있어도 연결 없이는 0 프레임이다.
+   * 그래서 복원 행(REST)과 푸시 행이 어긋나지 않는다.
    */
   deliverJournalRows(
     rows: readonly JournalOrderRow[],
-    access?: JournalAccessView,
+    extra?: ExtraGatewayRoute,
   ): void {
     if (rows.length === 0) return;
-    if (access !== undefined) {
-      this.#pushJournalRows(rows, access);
+    if (extra !== undefined) {
+      this.#pushExtraGatewayJournalRows(rows, extra);
       return;
     }
     const primary = this.#journalAccess;
@@ -1524,6 +1528,22 @@ export class WsFanout {
   #pushJournalRows(rows: readonly JournalOrderRow[], access: JournalAccessView): void {
     for (const [userId, entry] of this.#users) {
       const accounts = access.accountsOf(entry.dmaUserId);
+      if (accounts === undefined || accounts.size === 0) continue;
+      const subset = rows.filter((row) => accounts.has(row.accountNo));
+      if (subset.length === 0) continue;
+      this.#deliver(userId, { t: "journal.rows", rows: subset });
+    }
+  }
+
+  /**
+   * 추가 게이트웨이 행 (quick-260929-sas) — 사용자마다 **명시 연결 신원**으로 계좌 부분집합을 걸러 보낸다.
+   * 신원이 없는 사용자(연결 없음 · 신원 첫 적재 전 fail closed)는 건너뛴다. `entry.dmaUserId` 는 보지 않는다.
+   */
+  #pushExtraGatewayJournalRows(rows: readonly JournalOrderRow[], extra: ExtraGatewayRoute): void {
+    for (const userId of this.#users.keys()) {
+      const dmaUserId = extra.identities.dmaUserIdOf(userId);
+      if (dmaUserId === undefined) continue;
+      const accounts = extra.access.accountsOf(dmaUserId);
       if (accounts === undefined || accounts.size === 0) continue;
       const subset = rows.filter((row) => accounts.has(row.accountNo));
       if (subset.length === 0) continue;

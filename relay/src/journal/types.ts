@@ -224,6 +224,28 @@ export type JournalAccessView = {
 };
 
 /**
+ * 추가 게이트웨이 신원 읽기 표면 (quick-260929-sas) — `GatewayIdentities.viewOf(gateway)` 가 돌려준다.
+ *
+ * 키는 **gh-radar user_id** 이고 값은 그 게이트웨이의 `dma_user_id`(users.toml user_id)다. 원천은 DB 뷰
+ * `dma_visibility_identities` 의 명시 연결 갈래다 — 자격증명 문자열(`dma_credentials.dma_user_id`)이 아니다.
+ * 게이트웨이당 사용자 신원은 1개다(연결 테이블 PK (user_id, gateway) · 뷰 구성이 보장). 모르면 undefined —
+ * 그 사용자는 그 게이트웨이 푸시 대상이 아니다(fail closed).
+ */
+export type GatewayIdentityView = {
+  dmaUserIdOf(userId: string): string | undefined;
+};
+
+/**
+ * 추가 게이트웨이 푸시 경로 (quick-260929-sas) — `WsFanout.deliverJournalRows` · `deliverStrategyEvents` 의 둘째 인자.
+ * 사용자 → `identities` 로 그 게이트웨이 신원 → `access` 로 그 신원의 계좌 집합. REST 조회 RPC 의
+ * `dma_visible_accounts` 와 같은 규칙이다.
+ */
+export type ExtraGatewayRoute = {
+  access: JournalAccessView;
+  identities: GatewayIdentityView;
+};
+
+/**
  * `JournalWriter.push` 결과.
  *   - `ok`       — 전부 적재(중복은 건너뜀)
  *   - `gap`      — seq 건너뜀 발견. 앞부분만 적재됐다 — 호출자는 연결을 끊고 `since_seq` 로 다시 받는다

@@ -29,6 +29,9 @@
  *   quick-260929-c8e  **브라우저 `journal.state` 는 주 게이트웨이만** 보낸다(결선 1곳). 추가 게이트웨이 상태는
  *         `/healthz` 본문 `journalGateways` 에만 싣고 503 판정에 넣지 않는다. 추가 게이트웨이 적용 행은 **그
  *         게이트웨이의 매핑으로** `journal.rows` 푸시한다. 사용자 세션(`SessionManager`)은 주 게이트웨이 단일이다.
+ *   quick-260929-sas  추가 게이트웨이 푸시는 **명시 신원 연결**(`GatewayIdentities` — DB 뷰 `dma_visibility_identities`
+ *         사본, 부팅 즉시 + 60초 재적재 · fail closed)로만 사용자에게 잇는다. 자격증명 문자열로 잇지 않는다.
+ *         주 게이트웨이 결선 줄은 그대로다. 추가 게이트웨이가 없으면 신원 조회 자체가 없다.
  *   D-22  `RELAY_ORDER_SECRET` 은 그대로 required 다. `/healthz` 외의 모든 경로가
  *         비밀 없이는 404 조차 받지 못해야 한다 — 경로 존재 여부도 정보다.
  *
@@ -37,7 +40,7 @@
  *   2. `fanout.closeAll(1001)`  — 살아 있는 wss 에 정상 close 프레임(going away)
  *   3. `sessionManager.closeAll()` — 구독 해제 + DMA TCP 종료
  *   4. 전 게이트웨이 `observer.stop()` — 관찰자 연결 종료(새 배치를 받지 않는다 — Phase 19 D-13)
- *   5. 전 게이트웨이 `writer` · `strategyWriter` `drain(2초)` **병렬** → 전 기록기 · `access` · `status` `close()`
+ *   5. 전 게이트웨이 `writer` · `strategyWriter` `drain(2초)` **병렬** → 전 기록기 · `access` · `status` · 신원 적재기 `close()`
  *      — 큐에 남은 레코드를 적용 RPC 로 보낸다. 2초 안에 못 끝내도 **유실은 없다** — 커서는 적용 RPC
  *      트랜잭션 안에서만 전진하므로 다음 부팅이 남은 구간을 재생한다(D-12).
  *   6. `hub.closeAll()` · `symbols` · 종목마스터 — 배치·재적재 타이머 정리(남기면 프로세스가 안 내려간다)
@@ -65,6 +68,7 @@ import { createOrderApi } from "./order/order-api.js";
 import { JournalWriter } from "./journal/writer.js";
 import { createStrategyWriter } from "./journal/strategy-stream.js";
 import { JournalAccess } from "./journal/access.js";
+import { GatewayIdentities } from "./journal/identities.js";
 import { JournalObserver } from "./journal/observer.js";
 import { JournalStatus } from "./journal/status.js";
 import { createJournalCodec } from "./journal/codec.js";
@@ -141,6 +145,15 @@ const journalPipelines: readonly JournalPipeline[] = [primaryJournal, ...extraJo
 // 주 게이트웨이는 종전 이름 그대로 — 아래 fanout · orderApi · 결선 줄이 바뀌지 않는다.
 const { writer: journalWriter, access: journalAccess, status: journalStatus } = primaryJournal;
 
+/**
+ * 추가 게이트웨이 신원 연결 (quick-260929-sas) — 추가 게이트웨이가 있을 때만 만든다. 없으면 null 이고 신원 조회는
+ * 0건이다(오늘과 같다). 주 게이트웨이는 이 적재기를 쓰지 않는다 — 자격증명 신원 그대로다.
+ */
+const gatewayIdentities: GatewayIdentities | null =
+  extraJournals.length > 0
+    ? new GatewayIdentities({ supabase, gateways: extraJournals.map((p) => p.upstream.gateway) })
+    : null;
+
 const sessionManager = new SessionManager({
   host: config.dmaHost,
   port: config.dmaPort,
@@ -206,12 +219,17 @@ journalWriter.on("applied", (rows) => fanout.deliverJournalRows(rows));
 // 전략 기록기가 적용한 이벤트 → 주문 이벤트는 계좌 권한 사용자 · 시세 이벤트는 매핑 보유자 전원(Phase 25 · T-25-01).
 primaryJournal.strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows));
 journalStatus.on("frame", (frame) => fanout.deliverJournalState(frame));
-// 추가 게이트웨이 — 적용 행은 **그 게이트웨이의 매핑으로만** 거른다(주 게이트웨이 매핑을 보지 않는다).
+// 추가 게이트웨이 — 적용 행은 **그 게이트웨이의 매핑 + 명시 신원 연결로만** 거른다(주 게이트웨이 매핑 · 자격증명
+// 문자열을 보지 않는다 — quick-260929-sas).
 // 상태 frame 은 어디에도 결선하지 않는다 — 브라우저 `journal.state` 는 주 게이트웨이 한 원천이다
 // (추가 게이트웨이 끊김을 webapp 이 주 게이트웨이 「기록 지연」으로 오인하지 않게).
-for (const extra of extraJournals) {
-  extra.writer.on("applied", (rows) => fanout.deliverJournalRows(rows, extra.access));
-  extra.strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows, extra.access));
+// 추가 게이트웨이가 있으면 신원 적재기도 있다(위 생성 조건이 같다) — 타입 좁힘만 겸한다.
+if (gatewayIdentities !== null) {
+  for (const extra of extraJournals) {
+    const route = { access: extra.access, identities: gatewayIdentities.viewOf(extra.upstream.gateway) };
+    extra.writer.on("applied", (rows) => fanout.deliverJournalRows(rows, route));
+    extra.strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows, extra.access));
+  }
 }
 
 wsServer.on("upgrade", (req, socket, head) => fanout.handleUpgrade(req, socket, head));
@@ -240,6 +258,9 @@ const orderApi = createOrderApi({
 });
 const orderApiServer = http.createServer(orderApi);
 
+// 추가 게이트웨이 신원 연결을 관찰자보다 먼저 읽기 시작한다(quick-260929-sas). 첫 적재 전 도착한 추가 게이트웨이
+// 행은 아무에게도 푸시되지 않는다(fail closed) — 브라우저 REST 새로고침이 복원한다.
+gatewayIdentities?.start();
 // 관찰자 연결을 게이트웨이마다 부팅 즉시 연다(Phase 19 D-13 — 장 시간과 무관 · 사용자 접속과 무관).
 // 결선(applied → fanout · frame → fanout)이 전부 붙은 **뒤에** 시작해야 첫 배치가 버려지지 않는다.
 for (const p of journalPipelines) p.observer.start();
@@ -329,6 +350,7 @@ async function shutdown(signal: string): Promise<void> {
       p.access.close();
       p.status.close();
     }
+    gatewayIdentities?.close();
     const undrained = journalPipelines.filter((_, i) => !drained[i]).map((p) => p.upstream.gateway);
     if (undrained.length > 0) {
       logger.warn(
