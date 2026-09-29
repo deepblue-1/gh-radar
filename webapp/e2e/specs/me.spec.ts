@@ -12,6 +12,15 @@ import {
   type LocalRelay,
 } from '../fixtures/relay';
 import { leavesOverflowing } from '../overflow';
+import {
+  BUNDLE_ORDER_NOS,
+  BUNDLE_ROWS,
+  ROW_12451,
+  ROW_12453,
+  ROW_MANUAL,
+  TIMELINE_BY_ANCHOR,
+  orderRow,
+} from '@/test-fixtures/order-timeline';
 import { buildSetVITriggerRespFrame } from '../../../relay/tests/helpers/frames.js';
 
 /**
@@ -328,6 +337,57 @@ const TODAY_ORDERS: JournalOrderRow[] = [
 
 /** 화면 줄 수 — 조각 체결 4건이 한 줄로 접혀 9행이 6줄이 된다. */
 const TODAY_ORDER_LINES = 6;
+
+/**
+ * Phase 25 25-08 — 오늘 주문 행 펼침(P25-E) 전용 목록. 기존 `TODAY_ORDERS` 건수 단언(9행 · 6줄)을 흔들지 않게
+ * P25-E 케이스만 `**\/api/orders` 를 이 목록으로 덮어쓴다(라우트는 나중에 건 것이 이긴다).
+ *
+ * 전부 계좌 A · 거래일 = 실행일 KST 오늘. 행 · 타임라인 값은 `@/test-fixtures/order-timeline`(기획서 하루 흐름 ·
+ * 채택 목업 EV_12451 · EV_12453 · EV_SELL)과 같다.
+ *   12451 선매수(체결) · 12453 후매수(대기 중 취소) · 조각 매도 7건 12461~12467(한 줄 묶음) · 수동 12470(통보만) ·
+ *   방향 미상 12490(「주문」 · 응답 0건) · 접수 불명(−2 · 주문번호 없음) · KB 거부 R(New)(주문번호 없음 · 방향 참고).
+ */
+const onToday = (row: JournalOrderRow): JournalOrderRow => ({ ...row, tradeDate: TODAY });
+const P25_UNKNOWN_SIDE = orderRow({
+  id: 'ord-12490',
+  orderNo: '12490',
+  side: null,
+  lastSeq: 40,
+  createdAt: '2026-09-29T02:20:00.000Z',
+  updatedAt: '2026-09-29T02:20:00.000Z',
+});
+const P25_RECEIPT_UNKNOWN = orderRow({
+  id: 'ord-rej-2',
+  orderNo: null,
+  status: 'rejected',
+  noticeType: 'R',
+  resultCode: -2,
+  lastSeq: 41,
+  createdAt: '2026-09-29T02:30:00.000Z',
+  updatedAt: '2026-09-29T02:30:00.000Z',
+});
+const P25_REJECT_NEW = orderRow({
+  id: 'ord-rej-new',
+  orderNo: null,
+  status: 'rejected',
+  noticeType: 'R',
+  requestKind: 'New',
+  resultCode: 1,
+  lastSeq: 42,
+  createdAt: '2026-09-29T02:40:00.000Z',
+  updatedAt: '2026-09-29T02:40:00.000Z',
+});
+const P25_ORDERS: JournalOrderRow[] = [
+  ROW_12451,
+  ROW_12453,
+  ...BUNDLE_ROWS,
+  ROW_MANUAL,
+  P25_UNKNOWN_SIDE,
+  P25_RECEIPT_UNKNOWN,
+  P25_REJECT_NEW,
+].map(onToday);
+/** 조각 매도 묶음 줄의 주문번호 표기. */
+const P25_BUNDLE_NO = '#12461~12467';
 
 /** UI-SPEC 이 기준으로 삼은 모바일 폭(§반응형 "모바일 390px"). */
 const MOBILE_VIEWPORT = { width: 390, height: 844 } as const;
@@ -981,5 +1041,307 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await expect(
       page.locator(`[data-slot="strategy-card"][data-key^="${E2E_ISIN}:"][data-open="true"]`).first(),
     ).toBeVisible({ timeout: 15_000 });
+  });
+  // =========================================================================
+  // Phase 25 25-08 — 오늘 주문 행 펼침 (D-01 ~ D-04 · 결정 8-A · UI-SPEC 검증 훅 「오늘 주문」)
+  // =========================================================================
+
+  /** 펼침 조회 목 — URL 의 id · orderNos 로 픽스처 타임라인을 돌려주고 요청을 센다. */
+  interface EventsMock {
+    urls: string[];
+    /** 다음 응답을 이 상태 코드로(한 번). */
+    failNext: boolean;
+    /** 다음 응답을 이만큼 늦춘다(한 번 · ms). */
+    delayNext: number;
+  }
+
+  async function mockP25(page: Page): Promise<EventsMock> {
+    const mock: EventsMock = { urls: [], failNext: false, delayNext: 0 };
+    await page.route('**/api/orders', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(P25_ORDERS),
+      });
+    });
+    await page.route('**/api/orders/*/events**', async (route) => {
+      const url = new URL(route.request().url());
+      mock.urls.push(url.pathname + url.search);
+      const id = decodeURIComponent(url.pathname.split('/').at(-2) ?? '');
+      if (mock.delayNext > 0) {
+        const ms = mock.delayNext;
+        mock.delayNext = 0;
+        await new Promise((r) => setTimeout(r, ms));
+      }
+      if (mock.failNext) {
+        mock.failNext = false;
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: { code: 'INTERNAL', message: 'boom' } }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(TIMELINE_BY_ANCHOR[id] ?? []),
+      });
+    });
+    return mock;
+  }
+
+  const p25TableRow = (page: Page, text: string) =>
+    todayOrdersCard(page).locator('[data-slot="today-order-table-row"]').filter({ hasText: text });
+  const p25CardRow = (page: Page, text: string) => todayOrderRows(page).filter({ hasText: text });
+
+  async function openP25(page: Page, viewport: { width: number; height: number }): Promise<void> {
+    await page.setViewportSize(viewport);
+    await page.goto('/me');
+    await waitForAccounts(page, 2);
+    await expect(todayOrdersCard(page).locator('h2 + span')).toHaveText(`${P25_ORDERS.length}건`, {
+      timeout: 15_000,
+    });
+  }
+
+  test('P25-E1 1280 — 12451 행 클릭 → aria-expanded true · 상세 colSpan 8 · 같은 ms 두 줄 통보 먼저 · 요청 1회', async ({
+    page,
+  }) => {
+    const mock = await mockP25(page);
+    await openP25(page, { width: 1280, height: 900 });
+
+    const row = p25TableRow(page, '12451');
+    await expect(row).toHaveCount(1);
+    const button = row.locator('button[data-slot="today-order-expand"]');
+    await expect(button).toHaveAttribute('aria-expanded', 'false');
+
+    // 행 어디든 — 종목 칸을 누른다(버튼 밖).
+    await row.locator('td').nth(1).click();
+    await expect(button).toHaveAttribute('aria-expanded', 'true');
+
+    const detail = row.locator('xpath=following-sibling::tr[1]');
+    await expect(detail).toHaveAttribute('data-slot', 'today-order-detail');
+    const cell = detail.locator('td');
+    await expect(cell).toHaveAttribute('colspan', '8');
+    await expect(button).toHaveAttribute('aria-controls', (await cell.getAttribute('id'))!);
+
+    const items = detail.locator('[data-slot="order-timeline-item"]');
+    await expect(items).toHaveCount(6);
+    expect(await items.evaluateAll((els) => els.map((el) => el.getAttribute('data-source')))).toEqual([
+      'strategy',
+      'journal',
+      'strategy',
+      'journal',
+      'strategy',
+      'journal',
+    ]);
+    // 같은 ms 09:45:07.415 — 통보(체결) 먼저, 상따(첫 체결) 다음.
+    await expect(items.nth(3)).toContainText('09:45:07.415');
+    await expect(items.nth(3)).toContainText('체결 매수 100주 @12,350 (누적 100/300)');
+    await expect(items.nth(4)).toContainText('09:45:07.415');
+    await expect(items.nth(4)).toContainText('첫 체결');
+    await expect(items.nth(5)).toContainText('전량 체결 200주 @12,350 (누적 300/300)');
+
+    // 상세 셀 — 높이 auto · 위 2 / 아래 10 · 배경 없음(층 없는 .tbl-wrap 규칙을 `!` 가 이겼는가 실측).
+    const css = await cell.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return {
+        pt: cs.paddingTop,
+        pb: cs.paddingBottom,
+        ws: cs.whiteSpace,
+        bg: cs.backgroundColor,
+        h: el.getBoundingClientRect().height,
+      };
+    });
+    expect(css.pt).toBe('2px');
+    expect(css.pb).toBe('10px');
+    expect(css.ws).toBe('normal');
+    expect(css.h).toBeGreaterThan(6 * 16);
+    // 열린 행 셀 배경은 primary 6% — 투명이 아니다.
+    const openBg = await row.locator('td').first().evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(openBg).not.toBe('rgba(0, 0, 0, 0)');
+
+    // 실측 스크린샷(열린 행 + 상세).
+    await todayOrdersCard(page).screenshot({ path: test.info().outputPath('p25-e1-1280-expand.png') });
+
+    // 요청은 1회(StrictMode 이중 마운트 · 두 배치 중복 없음).
+    await page.waitForTimeout(600);
+    expect(mock.urls).toEqual([`/api/orders/${ROW_12451.id}/events?orderNos=12451`]);
+  });
+
+  test('P25-E2 1280 — 두 행 동시 펼침 · 다시 클릭 닫힘', async ({ page }) => {
+    await mockP25(page);
+    await openP25(page, { width: 1280, height: 900 });
+
+    const a = p25TableRow(page, '12451');
+    const b = p25TableRow(page, '12453');
+    await a.locator('td').nth(2).click();
+    await b.locator('td').nth(2).click();
+    const details = todayOrdersCard(page).locator('tr[data-slot="today-order-detail"]');
+    await expect(details).toHaveCount(2);
+    await expect(a.locator('button[data-slot="today-order-expand"]')).toHaveAttribute('aria-expanded', 'true');
+    await expect(b.locator('button[data-slot="today-order-expand"]')).toHaveAttribute('aria-expanded', 'true');
+    // 12453 — 취소 확인(새 번호 12460)이 원주문 타임라인에 선다.
+    await expect(b.locator('xpath=following-sibling::tr[1]')).toContainText('취소 확인 잔량 300주');
+
+    // 버튼으로 닫아도 한 번만 토글된다(행 클릭과 이중 토글 없음).
+    await a.locator('button[data-slot="today-order-expand"]').click();
+    await expect(a.locator('button[data-slot="today-order-expand"]')).toHaveAttribute('aria-expanded', 'false');
+    await expect(details).toHaveCount(1);
+    await b.locator('td').nth(4).click();
+    await expect(details).toHaveCount(0);
+  });
+
+  test('P25-E3 묶음 행 → 한 타임라인 · 줄마다 #주문번호 · 요청 URL 에 orderNos 7개', async ({ page }) => {
+    const mock = await mockP25(page);
+    await openP25(page, { width: 1280, height: 900 });
+
+    const row = p25TableRow(page, P25_BUNDLE_NO);
+    await expect(row).toHaveCount(1);
+    await expect(row).toContainText('(7건)');
+    await row.locator('td').nth(1).click();
+
+    const items = row.locator('xpath=following-sibling::tr[1]').locator('[data-slot="order-timeline-item"]');
+    await expect(items.first()).toBeVisible();
+    const texts = await items.allTextContents();
+    expect(texts.length).toBeGreaterThan(14);
+    for (const text of texts) expect(text).toMatch(/#1246[1-7]$/);
+    await expect(items.filter({ hasText: '(누적 120/600)' })).toHaveCount(1);
+    await expect(items.filter({ hasText: '(누적 600/600)' })).toHaveCount(1);
+    await row
+      .locator('xpath=following-sibling::tr[1]')
+      .screenshot({ path: test.info().outputPath('p25-e3-1280-bundle.png') });
+
+    await expect.poll(() => mock.urls.length).toBe(1);
+    const url = new URL(`http://x${mock.urls[0]}`);
+    expect(url.pathname).toBe(`/api/orders/${BUNDLE_ROWS[0]!.id}/events`);
+    expect(url.searchParams.get('orderNos')?.split(',')).toEqual([...BUNDLE_ORDER_NOS]);
+  });
+
+  test('P25-E4 주문번호 없는 거부 행 → expand 버튼 · aria-expanded 부재 · 클릭 뒤 today-order-detail 0', async ({
+    page,
+  }) => {
+    const mock = await mockP25(page);
+    await openP25(page, { width: 1280, height: 900 });
+
+    for (const text of ['접수 불명', '거부']) {
+      const row = p25TableRow(page, text).first();
+      await expect(row).toBeVisible();
+      await expect(row.locator('button[data-slot="today-order-expand"]')).toHaveCount(0);
+      await expect(row.locator('[aria-expanded]')).toHaveCount(0);
+      // ▶ 자리는 남는다(시각 열 정렬) — 보이지 않을 뿐.
+      await expect(row.locator('td').first().locator('[aria-hidden="true"]')).toHaveCSS('visibility', 'hidden');
+      await expect(row).toHaveCSS('cursor', 'auto');
+      await row.locator('td').nth(1).click();
+    }
+    await expect(todayOrdersCard(page).locator('[data-slot="today-order-detail"]')).toHaveCount(0);
+    expect(mock.urls).toEqual([]);
+  });
+
+  test('P25-E5 로딩(1초 지연 → 「불러오는 중…」) · 실패(500 → 「이벤트를 불러오지 못했어요」 → 다시 시도 → 성공)', async ({
+    page,
+  }) => {
+    const mock = await mockP25(page);
+    await openP25(page, { width: 1280, height: 900 });
+
+    // 로딩 — 처음 펼침 조회 중 한 줄 + aria-busy.
+    mock.delayNext = 1_000;
+    const slow = p25TableRow(page, '12453');
+    await slow.locator('td').nth(1).click();
+    const slowDetail = slow.locator('xpath=following-sibling::tr[1]');
+    await expect(slowDetail.locator('[data-slot="order-timeline-loading"]')).toHaveText('불러오는 중…');
+    await expect(slowDetail.locator('[aria-busy="true"]')).toHaveCount(1);
+    await expect(slowDetail.locator('[data-slot="order-timeline-item"]')).toHaveCount(5, { timeout: 5_000 });
+    await expect(slowDetail.locator('[data-slot="order-timeline-loading"]')).toHaveCount(0);
+
+    // 실패 → 다시 시도 → 성공(수동 주문 — 통보 줄만 · 빈 문구 없음).
+    mock.failNext = true;
+    const manual = p25TableRow(page, '12470');
+    await manual.locator('td').nth(1).click();
+    const manualDetail = manual.locator('xpath=following-sibling::tr[1]');
+    const error = manualDetail.locator('[data-slot="order-timeline-error"]');
+    await expect(error).toContainText('이벤트를 불러오지 못했어요');
+    await expect(error).toHaveAttribute('role', 'status');
+    const before = mock.urls.length;
+    await error.getByRole('button', { name: '다시 시도' }).click();
+    const items = manualDetail.locator('[data-slot="order-timeline-item"]');
+    await expect(items).toHaveCount(1);
+    await expect(items.first()).toHaveAttribute('data-source', 'journal');
+    await expect(items.first()).toContainText('접수 매수 10주 @12,400');
+    await expect(manualDetail.locator('[data-slot="order-timeline-empty"]')).toHaveCount(0);
+    await expect(error).toHaveCount(0);
+    expect(mock.urls.length).toBe(before + 1);
+
+    // 응답 0건(방향 미상 12490 — 픽스처에 타임라인 없음) → 0건 한 줄.
+    const empty = p25TableRow(page, '12490');
+    await empty.locator('td').nth(1).click();
+    await expect(
+      empty.locator('xpath=following-sibling::tr[1]').locator('[data-slot="order-timeline-empty"]'),
+    ).toHaveText('전략 이벤트 없음 — 수동 주문이거나 상따 기록 전 주문');
+  });
+
+  test('P25-E6 390 카드 행 — 펼침 · 가장 긴 상따 「주문」 줄이 줄바꿈으로 전부 보이고 시각 칸 78px (백스톱 E2 overflow)', async ({
+    page,
+  }) => {
+    const mock = await mockP25(page);
+    await openP25(page, MOBILE_VIEWPORT);
+
+    const card = p25CardRow(page, '12451');
+    await expect(card).toHaveCount(1);
+    await card.click();
+    await expect(card.locator('button[data-slot="today-order-expand"]')).toHaveAttribute('aria-expanded', 'true');
+    const detail = card.locator('div[data-slot="today-order-detail"]');
+    await expect(detail).toHaveCSS('border-top-style', 'dashed');
+    const items = detail.locator('[data-slot="order-timeline-item"]');
+    await expect(items).toHaveCount(6);
+
+    // 가장 긴 줄 = 상따 「주문」(조건 · 근거 · 상한가 매수잔량 · 가격×수량 · 접수 · 누적).
+    const longest = items.first();
+    await expect(longest).toHaveAttribute('data-source', 'strategy');
+    await expect(longest).toContainText('주문 선매수 · 조건');
+    await expect(longest).toContainText('누적 861,800');
+
+    const list = page
+      .locator('[data-slot="today-orders-list"]')
+      .filter({ has: page.locator('[data-slot="today-order-row"]', { hasText: '12451' }) });
+    const listRight = (await boxOf(list)).right;
+    // 넘침 0 — li 안 어떤 잎도 목록 오른쪽 밖으로 밀리지 않는다(줄바꿈으로 전부 보인다).
+    expect(await leavesOverflowing(longest, listRight)).toEqual([]);
+    // 줄바꿈이 실제로 일어났다(한 줄 11px × 1.5 보다 훨씬 높다) — 헛통과 방지.
+    const liHeight = (await longest.boundingBox())!.height;
+    expect(liHeight).toBeGreaterThan(16.5 * 2.5);
+    // 시각 칸은 78px 그대로 — 밀리지 않는다.
+    for (const time of await detail.locator('[data-slot="order-timeline-time"]').all()) {
+      expect(Math.round((await time.boundingBox())!.width)).toBe(78);
+    }
+    // 백스톱 실측 스크린샷(E2 overflow).
+    await detail.screenshot({ path: test.info().outputPath('p25-e6-390-expand.png') });
+
+    // 본문 안 클릭은 닫지 않는다 · 보이는 배치(카드 행)에서만 조회 1회.
+    await longest.click();
+    await expect(card.locator('button[data-slot="today-order-expand"]')).toHaveAttribute('aria-expanded', 'true');
+    await page.waitForTimeout(600);
+    expect(mock.urls).toHaveLength(1);
+  });
+
+  test('P25-E7 별건 3 — 방향 미상 「주문」 data-side none · −2 「접수 불명」 data-tone muted · R(New) data-side-ref true', async ({
+    page,
+  }) => {
+    await mockP25(page);
+    await openP25(page, { width: 1280, height: 900 });
+
+    const unknownSide = p25TableRow(page, '12490').locator('[data-slot="today-order-side"]');
+    await expect(unknownSide).toHaveAttribute('data-side', 'none');
+    await expect(unknownSide).toHaveText('주문');
+
+    const receipt = p25TableRow(page, '접수 불명').locator('[data-slot="today-order-status"]');
+    await expect(receipt).toHaveText('접수 불명');
+    await expect(receipt).toHaveAttribute('data-tone', 'muted');
+
+    const rejectNew = todayOrdersCard(page)
+      .locator('[data-slot="today-order-table-row"]')
+      .filter({ has: page.locator('[data-slot="today-order-status"]', { hasText: /^거부$/ }) });
+    await expect(rejectNew).toHaveCount(1);
+    await expect(rejectNew.locator('[data-slot="today-order-side"]')).toHaveAttribute('data-side-ref', 'true');
   });
 });
