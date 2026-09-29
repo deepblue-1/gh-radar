@@ -3,17 +3,17 @@ gsd_state_version: "1.0"
 milestone: v1.0
 current_phase: 25
 current_phase_name: order-log-progress
-status: executing
-stopped_at: Completed 25-12-PLAN.md
-last_updated: "2026-09-29T15:39:45.534Z"
-last_activity: 2026-09-29
-last_activity_desc: Phase 25 execution started
-state_head: 8e6741906d13c77bc6ce789bcfc45ae6d214df3f
+status: verifying
+stopped_at: Completed 25-13-PLAN.md
+last_updated: "2026-09-29T16:29:14.672Z"
+last_activity: 2026-09-30
+last_activity_desc: "25-13 완료 — WR-02 수정 · relay:6821181b 배포 · push 6289e430..6821181b"
+state_head: 6821181b43554e722b7446eaea74935f52eaacaf
 progress:
   total_phases: 34
   completed_phases: 4
   total_plans: 337
-  completed_plans: 320
+  completed_plans: 321
 milestone_name: milestone
 ---
 
@@ -28,13 +28,13 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 25 (order-log-progress) — READY TO EXECUTE
-Plan: 12 of 12
+Phase: 25 (order-log-progress) — 갭 클로징 25-13 완료 · relay:6821181b · push 6289e430..6821181b · 재검증(WR-02) 대기
+Plan: 13 of 13
 Plans completed: 220 / 234
-Status: Ready to execute
+Status: Phase complete — ready for verification
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-29 - Completed quick task 260929-vzy: 후매수 「자동」 체크(relay buy3_schema 2 파생 · 웹 체크 · 미배포)
+Last activity: 2026-09-30 — 25-13 완료(WR-02 수정 · vzy 동반 배포 relay:6821181b · Vercel 6821181b)
 
 Progress: [█████████░] 93%
 
@@ -172,6 +172,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 25 P10 | 26 min | 3 tasks | 15 files |
 | Phase 25 P11 | 확인만 | 3 tasks | 1 files |
 | Phase 25 P12 | 56min | 3 tasks | 1 files |
+| Phase 25 P13 | 37 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -444,6 +445,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 25]: [25-12] Phase 25 배포는 병합 커밋 6289e430 하나로 relay:6289e430 → server gh-radar-server-00053-cmm → webapp(Vercel 6289e430) 순서 · 롤백 대상 relay 4c143596 · server 00052-88h
 - [Phase 25]: [25-12] gh-trade 1712001c blob 차이(SetLimitChaser 말미 post_buy_auto)는 재생성 없이 5f49cfa5 생성물로 배포 — 와이어 호환(buy3_schema 1). 재생성·배포는 quick-260929-vzy 몫
 - [Phase 25]: [25-12] push 는 배포·검증 커밋 6289e430 만(fast-forward) — 동시 세션 vzy 커밋은 미배포. 첫 거래일 UAT 는 2026-09-30 장중 gh-trade 알림 대기
+- [Phase 25]: 25-13: WR-02 — #clearCaches 가 진행률 키를 지우면 그 userId 에게만 unf.progress snap:true entries:[] 1프레임(이미 연결된 브라우저 사본 비움 · D-13 무변경). (A) vzy 동반 배포 relay:6821181b · push 6289e430..6821181b
 
 ### Pending Todos
 
@@ -515,8 +517,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-09-29T14:50:36.822Z
-Stopped at: Completed 25-12-PLAN.md
+Last session: 2026-09-29T16:29:13.850Z
+Stopped at: Completed 25-13-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
