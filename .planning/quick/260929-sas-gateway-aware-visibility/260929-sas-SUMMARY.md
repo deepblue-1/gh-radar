@@ -160,6 +160,7 @@ None. Every new surface (table, view, function, RPC redefinitions, relay identit
 | (f) relay 배포 판정 | 21:38 | 배포본 4c143596..HEAD 에 이 quick 밖 relay/shared 커밋 14건 → 계획 규칙대로 **배포하지 않음**. relay 변경(9cfc746f · 5cfacb83)은 다음 Phase 25 relay 배포에 실린다. 그동안 배포 relay 의 KYOBO 푸시는 옛 문자열 규칙이지만 시드가 오늘 가시성과 같아 실효 차이 없음 — README 과도기 문구대로 kyobo127 에 새 user_id 추가 금지 |
 | (g) KB smoke | 21:38:23 | PASS 12 · FAIL 0 · SKIP 1 |
 
+- (e) 보강 21:5x KST: 사용자가 `!` 로 anon 키를 넣어 `check` 재실행 → **PASS C6 anon 거부 (연결 테이블, 뷰, dma_visible_accounts) = (거부, 거부, 거부)** · ALL PASS. 원격에서도 anon 차단 실측 확인(SKIP 해소).
 - Phase 25 세션(「phase25: 주문로그」)에 통보: 25-11 의 원격 적용은 「확인만」, U4 픽스처 연결 1줄(76764b87), relay 변경 동반 배포.
 - 저장소 변경은 Task 1 · 2 커밋 5건뿐이다. push 는 이 quick 범위 밖이다.
 
