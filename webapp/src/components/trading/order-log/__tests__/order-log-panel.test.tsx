@@ -89,17 +89,35 @@ describe('OrderLogPanel', () => {
     expect([...opts].map((o) => o.textContent)).toEqual(['전체', '005930']);
   });
 
-  it('창 분리 → window.open("/trading/order-log?account=A&kind=market", "gh-radar-order-log", "width=960,height=720,noopener")', async () => {
+  it('창 분리 → window.open("/trading/order-log?account=A&kind=market", "gh-radar-order-log", "width=960,height=720") — noopener 없음 · 연 창의 opener 를 끊고 앞으로 (R4 · WR-04)', async () => {
     const user = userEvent.setup();
-    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    const popup = { opener: window as unknown, focus: vi.fn() };
+    const open = vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window);
     render(<OrderLogPanel accountNo={FIXTURE_ACCOUNT_NO} phoneBand={false} feed={feedOf(STRATEGY_DAY_ROWS)} />);
     await user.selectOptions(screen.getByRole('combobox', { name: '구분' }), 'market');
     await user.click(screen.getByRole('button', { name: '주문로그 새 창으로 열기' }));
     expect(open).toHaveBeenCalledWith(
       `/trading/order-log?account=${FIXTURE_ACCOUNT_NO}&kind=market`,
       'gh-radar-order-log',
-      'width=960,height=720,noopener',
+      'width=960,height=720',
     );
+    // noopener 는 이름으로 기존 창을 찾지 않아 누를 때마다 새 창이 쌓인다 — features 에 넣지 않는다.
+    expect(String(open.mock.calls[0]?.[2])).not.toContain('noopener');
+    expect(popup.opener).toBeNull();
+    expect(popup.focus).toHaveBeenCalledTimes(1);
+
+    // 다시 누르면 같은 이름으로 연다(브라우저가 같은 창을 재사용한다).
+    await user.click(screen.getByRole('button', { name: '주문로그 새 창으로 열기' }));
+    expect(open).toHaveBeenCalledTimes(2);
+    expect(open.mock.calls[1]?.[1]).toBe('gh-radar-order-log');
+  });
+
+  it('창 분리 — 팝업이 막혀 window.open 이 null 이어도 예외 없음 (WR-04)', async () => {
+    const user = userEvent.setup();
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    render(<OrderLogPanel accountNo={FIXTURE_ACCOUNT_NO} phoneBand={false} feed={feedOf(STRATEGY_DAY_ROWS)} />);
+    await user.click(screen.getByRole('button', { name: '주문로그 새 창으로 열기' }));
+    expect(open).toHaveBeenCalledTimes(1);
   });
 
   it('피드 상태가 목록으로 간다 — loading 줄 0 · error + 다시 시도 → feed.retry', async () => {

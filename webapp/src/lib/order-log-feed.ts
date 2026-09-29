@@ -222,8 +222,29 @@ export function orderLogQueryString(q: OrderLogQuery, today: string): string {
 export const ORDER_LOG_WINDOW_PATH = '/trading/order-log';
 /** 창 이름 — 다시 누르면 같은 창을 재사용한다(창이 쌓이지 않는다 · R4). */
 export const ORDER_LOG_WINDOW_NAME = 'gh-radar-order-log';
-/** F-A 한 줄이 대부분 잘리지 않는 폭 · opener 를 넘기지 않는다(R4). */
-export const ORDER_LOG_WINDOW_FEATURES = 'width=960,height=720,noopener';
+/**
+ * F-A 한 줄이 대부분 잘리지 않는 폭 (R4).
+ *
+ * ⚠️ `noopener` 를 넣지 않는다 (WR-04). HTML 표준의 「rules for choosing a navigable」 은 noopener 면 이름으로 기존 창을
+ * 찾지 않고 늘 새 창을 만든다 — 누를 때마다 창과 wss 가 쌓여 R4(재사용)가 깨진다. opener 차단은 연 뒤
+ * `openOrderLogWindow` 가 `opener = null` 로 대신한다(같은 출처라 noopener 의 보안 이득이 작다).
+ */
+export const ORDER_LOG_WINDOW_FEATURES = 'width=960,height=720';
+
+/**
+ * 주문로그 창을 연다 — 같은 이름의 창이 있으면 그 창을 재사용해 새 URL 로 옮기고 앞으로 가져온다(R4 · WR-04).
+ * 연 창의 `opener` 는 끊는다(역참조 차단). 팝업 차단 등으로 창이 없으면 아무것도 하지 않는다.
+ */
+export function openOrderLogWindow(url: string): void {
+  const w = window.open(url, ORDER_LOG_WINDOW_NAME, ORDER_LOG_WINDOW_FEATURES);
+  if (w === null) return;
+  try {
+    w.opener = null;
+  } catch {
+    // 일부 환경은 opener 쓰기를 막는다 — 재사용이 요구사항이라 여기서 실패해도 창은 그대로 쓴다.
+  }
+  w.focus();
+}
 
 /* ── 창 분리 날짜 이동 (25-10 · 결정 5) ────────────────────────────────── */
 

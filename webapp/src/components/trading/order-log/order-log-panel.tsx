@@ -10,7 +10,8 @@
  * - 종목 이름 = relay 라벨(`useIsinLabels`) → 마스터 폴백(`useStockNames` — relay 가 이름을 모르는 종목만) →
  *   단축코드 → ISIN(오늘 주문 카드 ⑥ 규율 · 새 조회 경로 없음).
  * - 필터를 바꾸면 목록이 맨 아래로 · 핀 0 · 폰 펼침 전부 접힘(`resetKey` = 필터 JSON).
- * - 창 분리 = `/trading/order-log?{정본 쿼리}` 를 `gh-radar-order-log` 창(960×720 · noopener)으로(R3 · R4).
+ * - 창 분리 = `/trading/order-log?{정본 쿼리}` 를 `gh-radar-order-log` 창(960×720)으로 — 같은 창 재사용 · opener 는
+ *   연 뒤 끊는다(R3 · R4 · WR-04 — `noopener` 는 이름 재사용을 막아 쓰지 않는다).
  * - 새 색 토큰 0 · 새 shadcn 컴포넌트 0 · 폰 판정은 prop(새 경계 숫자 없음).
  */
 import { useCallback, useMemo, useState } from 'react';
@@ -20,11 +21,10 @@ import type { StrategyEventRow } from '@gh-radar/shared';
 import { useIsinLabels } from '@/lib/isin-labels';
 import {
   DEFAULT_ORDER_LOG_FILTERS,
-  ORDER_LOG_WINDOW_FEATURES,
-  ORDER_LOG_WINDOW_NAME,
   ORDER_LOG_WINDOW_PATH,
   applyOrderLogFilters,
   inScope,
+  openOrderLogWindow,
   orderLogQueryString,
   stockOptions,
   type OrderLogFilters as OrderLogFilterValue,
@@ -79,11 +79,7 @@ export function OrderLogPanel({ accountNo, phoneBand, feed }: OrderLogPanelProps
       { account: accountNo === '' ? null : accountNo, date: feed.date || today, filters },
       today,
     );
-    window.open(
-      query === '' ? ORDER_LOG_WINDOW_PATH : `${ORDER_LOG_WINDOW_PATH}?${query}`,
-      ORDER_LOG_WINDOW_NAME,
-      ORDER_LOG_WINDOW_FEATURES,
-    );
+    openOrderLogWindow(query === '' ? ORDER_LOG_WINDOW_PATH : `${ORDER_LOG_WINDOW_PATH}?${query}`);
   }, [accountNo, feed.date, filters]);
 
   const filtered = filters.stock !== 'all' || filters.ex !== 'all' || filters.kind !== 'all';
