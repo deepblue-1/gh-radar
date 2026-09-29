@@ -1314,7 +1314,7 @@ Plans:
 **정본:** `reference/` 9개 파일(기획서 전문 · gh-radar 함의 · 필드 v0.1 · 대조 기록 · 목업 2종) · gh-trade `docs/features/order-journal.md` · 이 저장소 `19-GH-TRADE-HANDOFF.md`(저널 규약 동형).
 **Requirements**: TBD
 **Depends on:** Phase 19 (계좌 저널 관찰자) · Phase 24 (상따 3그룹 용어) · gh-trade StrategyEvent/QueueProgress 서버 phase
-**Plans:** 12/12 plans executed
+**Plans:** 12/13 plans executed (갭 클로징 1 — 25-13)
 
 Plans:
 **Wave 1**
@@ -1346,3 +1346,7 @@ Plans:
 **Wave 6** *(blocked on Wave 5 completion)*
 
 - [x] 25-12-PLAN.md — 배포: gh-trade 서버 예고 → 준비 게이트 → relay → server → webapp push → 첫 거래일 UAT (W6)
+
+**Wave 7** *(갭 클로징 — 25-VERIFICATION 갭 1건: 25-06 「세션 교체 뒤 옛 진행률 없음」 부분 미충족 = 25-REVIEW WR-02)*
+
+- [ ] 25-13-PLAN.md — [WR-02] `#clearCaches` 가 진행률을 지우면 그 사용자에게 `unf.progress` snap:true [] 1프레임 · fanout 레벨 증명(이미 연결된 실 ws) · 교체 경계 테스트 · relay 배포(메인 세션 · 20:00 KST 이후 · vzy 동반/보류 선택) (W7)

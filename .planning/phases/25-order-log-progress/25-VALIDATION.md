@@ -71,6 +71,9 @@ created: "2026-09-29"
 | 25-11-T3 | 11 | 5 | 원격 REVOKE 확인 | T-25-44 · 46 | anon 401/403 · 키 출력 금지 | CLI(curl 읽기 전용) | `test -f .planning/phases/25-order-log-progress/25-11-SUMMARY.md && grep -Eq "(401\|403)" …` | — | ⬜ pending |
 | 25-12-T2 | 12 | 6 | 배포 준비 게이트(배포 커밋 대조 · 전체) | T-25-47 · 50 | 배포 명령 미실행 | full suite + pgTAP + e2e | `sync-relay-schema.sh --check` · Full suite command · pgTAP 3파일 · Playwright 5 spec | ✅ | ⬜ pending |
 | 25-12-T1 · T3 | 12 | 6 | 배포 순서 · 첫 거래일 UAT | T-25-48 · 49 · 51 · 52 | 메인 세션 배포만 | manual(checkpoint) | — | — | ⬜ pending |
+| 25-13-T1 | 13 | 7 | 갭 closure — 25-06 「세션 교체 뒤 옛 진행률 없음」(WR-02) · D-13 보존 | T-25-53 · 54 | 초기화 스냅은 그 userId 에게만 · `#onQueueProgress`/`#onReady` 무변경 | integration(실 ws · 실 WsFanout) + unit + 웹 스토어(무변경 증명) | `pnpm --filter @gh-radar/relay exec vitest run tests/fanout.test.ts -t "P4 세션 교체" --reporter=verbose` · `pnpm --filter @gh-radar/relay exec vitest run tests/hub.test.ts -t "잔량진행률 83" --reporter=verbose` · `pnpm --filter @gh-radar/webapp exec vitest --run src/lib/__tests__/relay-socket.test.ts -t "unf.progress"` | ✅ 확장 | ⬜ pending |
+| 25-13-T2 | 13 | 7 | 교체 경계(무진행률 무프레임 · 사용자 격리 · 교체 뒤 억제/재충전/옛 세션 무시) · 배포 준비 게이트 | T-25-53 · 55 · 57 | 배포 명령 미실행 | unit + full relay + 웹 단위 + e2e | `pnpm --filter @gh-radar/relay exec vitest run tests/hub.test.ts -t "WR-02" --reporter=verbose` · `pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/relay run typecheck && pnpm --filter @gh-radar/relay run typecheck:tests && pnpm --filter @gh-radar/relay run test` · `pnpm --filter @gh-radar/webapp run typecheck && pnpm --filter @gh-radar/webapp run test && pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/unfilled-progress.spec.ts` | ✅ 확장 | ⬜ pending |
+| 25-13-T3 | 13 | 7 | relay 배포(메인 세션 · 20:00 KST 이후 · relay 먼저 → push) | T-25-56 · 57 · 58 · 59 | 메인 세션 배포만 · DMA_HOST/DMA_KYOBO_HOST 미주입 | manual(checkpoint) | — | — | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
