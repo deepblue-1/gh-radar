@@ -34,7 +34,7 @@ Plans completed: 220 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-29 - Completed quick task 260929-sas: 주문 가시성 게이트웨이 인지 조인(원격 적용 · relay 는 Phase 25 배포 동반 대기)
+Last activity: 2026-09-29 - Completed quick task 260929-vzy: 후매수 「자동」 체크(relay buy3_schema 2 파생 · 웹 체크 · 미배포)
 
 Progress: [█████████░] 93%
 
@@ -505,6 +505,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 36 | VI 설정 줄 「다른 단말에서 변경됨」 고지 제거 — 상따 카드 배너 제거와 짝 · vitest trading 1404 green (92fbebbe) | 2026-09-29 | 92fbebbe | — |
 | 37 | 오늘 주문 종목명 누락 — relay 스냅샷에 없는 종목은 stocks 마스터 이름 폴백(ISIN 당 세션 1회) | 2026-09-29 | 829d2729 | — |
 | 38 | 크롬 무채색 분홍 끼 — color-mix `in oklch` → `in oklab` 64곳/37파일(Chromium 이 저채도 hue 를 none=0° 로 떨굼 · 헤더 등). WebKit 과 픽셀 일치 · vitest 2823 green | 2026-09-29 | 5aa2dbbe | — |
+| 260929-vzy | **후매수 「자동」 체크 (gh-trade dcaa78b1)** — 생성물 2파일 그대로 커밋(동기화 스크립트 미실행 · Phase 25 생성물 보존). shared postBuyAuto(입력 필수) · relay 는 postBuyAuto 있을 때만 buy3_schema=2(없으면 1 — 옛 탭 재전송이 자동을 끄지 않음) · 60/64 에코 디코드(부재 false). 웹: 후매수 스위치 바로 왼쪽 「자동」 체크(에코 표시) · 매수주문 끄면 자동도 끔 · 켜기 사전 검증 · 자동만 켠 등록은 철거 아님 · 로그 「후매수 자동 체크/해제」. relay 731 · webapp 3049 · e2e vzy-1/P24-7 · a11y green. 미배포(relay 먼저 → push) · 이월: 15:40 해제 귀속이 자동만 켠 전략 미집계 | 2026-09-29 | 127c1028 · fb175921 · d261c8d0 · bf36a28f · eac3a60e · b8db4c3c · 25ba301d | [260929-vzy-post-buy-auto-checkbox-relay-webapp](./quick/260929-vzy-post-buy-auto-checkbox-relay-webapp/) |
 
 ## Session Continuity
 
