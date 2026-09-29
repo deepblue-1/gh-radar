@@ -1314,7 +1314,7 @@ Plans:
 **정본:** `reference/` 9개 파일(기획서 전문 · gh-radar 함의 · 필드 v0.1 · 대조 기록 · 목업 2종) · gh-trade `docs/features/order-journal.md` · 이 저장소 `19-GH-TRADE-HANDOFF.md`(저널 규약 동형).
 **Requirements**: TBD
 **Depends on:** Phase 19 (계좌 저널 관찰자) · Phase 24 (상따 3그룹 용어) · gh-trade StrategyEvent/QueueProgress 서버 phase
-**Plans:** 6/12 plans executed
+**Plans:** 7/12 plans executed
 
 Plans:
 **Wave 1**
@@ -1331,7 +1331,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 25-07-PLAN.md — 작업대 공용 패널 「주문로그」 탭(피드 · 필터 · 핀 · 배지 · 폰 펼침) + 관찰자 켠 브라우저 e2e (W3)
+- [x] 25-07-PLAN.md — 작업대 공용 패널 「주문로그」 탭(피드 · 필터 · 핀 · 배지 · 폰 펼침) + 관찰자 켠 브라우저 e2e (W3)
 - [ ] 25-08-PLAN.md — 오늘 주문 행 펼침(통보 + 상따 타임라인 · 묶음 · 라이브 · 디바운스) (W3)
 - [ ] 25-09-PLAN.md — 미체결 진행률 B안 3표면 + 모바일 r3 (W3)
 
