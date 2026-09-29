@@ -19,6 +19,12 @@
  *
  * ④ 사용자가 직접 맨 아래까지 내리거나 `scrollToBottom()` 을 부르면 pending 0. `resetKey` 가 바뀌면(마운트 ·
  *   필터 변경 · 날짜 이동) 맨 아래로 · pending 0. `scrollToBottom(smooth)` 는 reduced-motion 이면 즉시.
+ *
+ * ⑤ 가려진 스크롤러 (WR-03) — 카드 접힘(`hidden={!open}`) · 카드 탭 접힘(`hidden={folded}`) · 폰 밴드 공용 패널 접힘은
+ *   `display:none` 이라 목록이 마운트된 채 기하가 전부 0 이다. 그대로 재면 「맨 아래」 가 늘 참이고 `scrollTop =
+ *   scrollHeight(0)` 은 효과가 없어, 다시 보일 때 새 줄이 화면 밖(스크롤 0)에 남는다. 그래서 `clientHeight === 0` 이면
+ *   가려진 것으로 보고 ⓐ 줄 증가 판정 · 스크롤 이벤트를 건너뛰어 「맨 아래였다」 상태를 보존하고(올려 보던 중이면 pending
+ *   누적은 그대로), ⓑ ResizeObserver 로 0 → >0 전이(다시 보임)를 잡아 맨 아래였으면 `scrollTop = scrollHeight` 로 맞춘다.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -59,8 +65,11 @@ export function useStickToBottom<T extends HTMLElement>(
   const prevCountRef = useRef(itemCount);
   /** 직전 커밋(또는 스크롤) 시점의 scrollHeight — 삽입 전 거리 계산의 기준(②). */
   const lastHeightRef = useRef(0);
+  /** `atBottom` 의 동기 사본 — 가려진 동안 · 다시 보일 때 판정(⑤)은 렌더를 기다리지 않는다. */
+  const atBottomRef = useRef(true);
 
   const markBottom = useCallback((bottom: boolean) => {
+    atBottomRef.current = bottom;
     setAtBottom(bottom);
     if (bottom) setPending(0);
   }, []);
@@ -69,12 +78,31 @@ export function useStickToBottom<T extends HTMLElement>(
     const el = ref.current;
     if (el === null) return;
     const onScroll = () => {
+      // 가려지는 순간 브라우저가 scrollTop 을 0 으로 되돌리며 내는 이벤트는 사용자 스크롤이 아니다(⑤).
+      if (el.clientHeight === 0) return;
       lastHeightRef.current = el.scrollHeight;
       markBottom(distanceToBottom(el) <= thresholdPx);
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
   }, [thresholdPx, markBottom]);
+
+  // ⑤ 다시 보임(clientHeight 0 → >0) — 맨 아래였으면 맨 아래로 맞춘다(가려진 동안 늘어난 줄 · 초기화된 스크롤 위치).
+  useEffect(() => {
+    const el = ref.current;
+    if (el === null || typeof ResizeObserver === 'undefined') return;
+    let wasHidden = el.clientHeight === 0;
+    const ro = new ResizeObserver(() => {
+      const hidden = el.clientHeight === 0;
+      if (wasHidden && !hidden && atBottomRef.current) {
+        el.scrollTop = el.scrollHeight;
+        lastHeightRef.current = el.scrollHeight;
+      }
+      wasHidden = hidden;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // ③ 줄 수 증가 — 따라감 또는 누적. (아래 resetKey 효과보다 먼저 선언 — 같은 커밋이면 reset 이 이긴다.)
   useLayoutEffect(() => {
@@ -84,6 +112,12 @@ export function useStickToBottom<T extends HTMLElement>(
     if (delta <= 0) return;
     const el = ref.current;
     if (el === null) return;
+    if (el.clientHeight === 0) {
+      // 가려져 있다(⑤) — 기하가 0 이라 판정할 수 없다. 「맨 아래였다」 는 보존하고(다시 보일 때 맞춘다),
+      // 올려 보던 중이었으면 새 줄 수만 누적한다.
+      if (!atBottomRef.current) setPending((n) => n + delta);
+      return;
+    }
     const grown = el.scrollHeight - lastHeightRef.current;
     const wasAtBottom = distanceToBottom(el) - Math.max(0, grown) <= thresholdPx;
     if (wasAtBottom) el.scrollTop = el.scrollHeight;
