@@ -61,6 +61,7 @@ import {
   SAMPLE_ISIN,
   STRATEGY_MSG,
   buildLoginRespFrame,
+  buildQueueProgressFrame,
   buildQueuedWindowStateFrame,
 } from "./helpers/frames.js";
 
@@ -864,6 +865,71 @@ describe("WsFanout", () => {
     expect(snap?.items).toHaveLength(1);
     expect(snap?.items[0]?.isin).toBe(SAMPLE_ISIN);
     expect(snap?.items[0]?.exchange).toBe("NXT");
+  });
+
+  describe("unf.progress (Phase 25)", () => {
+    it("P1 인증 직후 unf.progress snap:true 는 캐시가 비어도 1프레임이다 (rate.cross.snap 규율)", async () => {
+      const conn = await authed("token-a");
+      await waitFor(() => framesOf(conn.inbox, "unf.progress").length >= 1, "진행률 스냅");
+      await flushIo(20);
+
+      expect(framesOf(conn.inbox, "unf.progress")).toEqual([{ t: "unf.progress", snap: true, entries: [] }]);
+    });
+
+    it("P2 가짜 게이트웨이 83 → 실 세션 → hub → ws: 허용 계좌 1건만 · dmaUserId 키 없음 (T-25-24 · T-25-25)", async () => {
+      const conn = await authed("token-a");
+      await waitFor(() => gateway.sockets.length >= 1, "게이트웨이 연결");
+      const sock = gateway.sockets[0];
+      if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+
+      gateway.sendFrame(
+        sock,
+        buildQueueProgressFrame({
+          isin: SAMPLE_ISIN,
+          exchange: "KRX",
+          items: [
+            { accountNo: SAMPLE_ACCOUNT_NO, dmaUserId: "kb-a", orderNo: "12453", group: 3, progressBp: 8800 },
+            { accountNo: FOREIGN_ACCOUNT_NO, dmaUserId: "kb-other", orderNo: "99999" },
+          ],
+        }),
+      );
+      await waitFor(
+        () => framesOf(conn.inbox, "unf.progress").some((m) => m.snap === false),
+        "진행률 라이브 프레임",
+      );
+
+      const live = framesOf(conn.inbox, "unf.progress").filter((m) => m.snap === false);
+      expect(live).toHaveLength(1);
+      expect(live[0]).toMatchObject({ t: "unf.progress", snap: false, i: SAMPLE_ISIN, x: "KRX" });
+      const items = live[0]?.snap === false ? live[0].items : [];
+      expect(items.map((it) => [it.accountNo, it.orderNo])).toEqual([[SAMPLE_ACCOUNT_NO, "12453"]]);
+      expect(Object.keys(items[0] ?? {})).not.toContain("dmaUserId");
+      expect(JSON.stringify(conn.inbox)).not.toContain(FOREIGN_ACCOUNT_NO);
+      expect(h.hub.unhandledFrameCount()).toBe(0);
+    });
+
+    it("P3 두 번째 탭이 인증하면 그 연결의 snap:true entries 에 직전 항목이 있다", async () => {
+      await authed("token-a");
+      await waitFor(() => gateway.sockets.length >= 1, "게이트웨이 연결");
+      const sock = gateway.sockets[0];
+      if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+      gateway.sendFrame(sock, buildQueueProgressFrame({ exchange: "NXT", items: [{ orderNo: "777" }] }));
+      await waitFor(() => h.hub.getQueueProgressEntries(USER_A).length === 1, "진행률 캐시");
+
+      const tab = await open();
+      tab.ws.sendAuth("token-a");
+      await waitFor(() => framesOf(tab.inbox, "unf.progress").length >= 1, "새 탭 진행률 스냅");
+      await flushIo(20);
+
+      const snaps = framesOf(tab.inbox, "unf.progress");
+      expect(snaps).toHaveLength(1);
+      expect(snaps[0]).toMatchObject({
+        t: "unf.progress",
+        snap: true,
+        entries: [{ i: SAMPLE_ISIN, x: "NXT", items: [expect.objectContaining({ orderNo: "777", accountNo: SAMPLE_ACCOUNT_NO })] }],
+      });
+      expect(JSON.stringify(snaps[0])).not.toContain("dmaUserId");
+    });
   });
 
   it("⑭-3 드롭 0 게이트 — 76·77·78 왕복에 default 0·warn 0, 미등록 99 는 여전히 warn 1 (T-17-10)", async () => {
