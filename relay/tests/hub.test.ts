@@ -652,4 +652,66 @@ describe("SubscriptionHub — 잔량진행률 83 QueueProgress (Phase 25-06)", (
       .map((e) => e.userId);
     expect(snapTargets).toEqual(["user-1"]);
   });
+
+  it("진행률이 없던 사용자의 세션 교체는 unf.progress 를 내지 않는다 (WR-02 · 소음 0)", () => {
+    expect(hub.getQueueProgressEntries("user-1")).toEqual([]);
+
+    const next = new FakeSession("user-1");
+    next.allowedAccounts = session.allowedAccounts;
+    hub.attach(next);
+
+    // 사본은 캐시를 거친 값뿐이다 — 캐시가 비었으면 사본도 비어 있어 알릴 것이 없다(T-25-55).
+    expect(progressFrames()).toEqual([]);
+  });
+
+  it("세션 교체 초기화 스냅은 그 사용자에게만 — 다른 사용자의 진행률 · 팬아웃은 그대로 (WR-02 · T-15-02)", () => {
+    const other = new FakeSession("user-2");
+    other.allowedAccounts = [{ accountNo: SAMPLE_ACCOUNT_NO, name: "위탁종합" }];
+    hub.attach(other);
+    session.pushFrame(buildQueueProgressFrame({ items: [{ orderNo: "12453" }] }));
+    other.pushFrame(buildQueueProgressFrame({ items: [{ orderNo: "55501" }] }));
+    const user2Before = fanout.filter((e) => e.userId === "user-2" && e.msg.t === "unf.progress").length;
+    expect(user2Before).toBe(1);
+
+    const next = new FakeSession("user-1");
+    next.allowedAccounts = session.allowedAccounts;
+    hub.attach(next);
+
+    const snapTargets = fanout
+      .filter((e) => e.msg.t === "unf.progress" && e.msg.snap === true)
+      .map((e) => e.userId);
+    expect(snapTargets).toEqual(["user-1"]);
+    const user2Entries = hub.getQueueProgressEntries("user-2");
+    expect(user2Entries).toHaveLength(1);
+    expect(user2Entries[0]?.items.map((it) => it.orderNo)).toEqual(["55501"]);
+    expect(fanout.filter((e) => e.userId === "user-2" && e.msg.t === "unf.progress")).toHaveLength(user2Before);
+  });
+
+  it("교체 뒤 새 세션의 빈 83 은 억제 · 비어 있지 않은 83 은 다시 채움 · 옛 세션의 늦은 83 은 무시 (WR-02 · T-25-27)", () => {
+    session.pushFrame(buildQueueProgressFrame({ items: [{ orderNo: "12453" }] }));
+    const next = new FakeSession("user-1");
+    next.allowedAccounts = session.allowedAccounts;
+    hub.attach(next);
+    // 기준 — 교체 초기화 스냅까지 포함한 프레임 수.
+    const base = progressFrames().length;
+
+    // 같은 키의 빈 83: 캐시도 사본도 이미 비었으니 빈→빈 억제가 그대로 맞다.
+    next.pushFrame(buildQueueProgressFrame({ items: [] }));
+    expect(progressFrames()).toHaveLength(base);
+
+    // 비어 있지 않은 83: 종전대로 snap:false 로 다시 채운다.
+    next.pushFrame(buildQueueProgressFrame({ items: [{ orderNo: "20001" }] }));
+    expect(progressFrames()).toHaveLength(base + 1);
+    const refill = progressFrames().at(-1);
+    expect(refill).toMatchObject({ t: "unf.progress", snap: false, i: SAMPLE_ISIN, x: "KRX" });
+    expect(refill?.snap === false ? refill.items : []).toHaveLength(1);
+    expect(hub.getQueueProgressEntries("user-1")).toHaveLength(1);
+
+    // 옛 세션이 늦게 민 83: `#onFrame` 정본 대조로 무시된다.
+    session.pushFrame(buildQueueProgressFrame({ items: [{ orderNo: "99001" }] }));
+    expect(progressFrames()).toHaveLength(base + 1);
+    const entries = hub.getQueueProgressEntries("user-1");
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.items.map((it) => it.orderNo)).toEqual(["20001"]);
+  });
 });
