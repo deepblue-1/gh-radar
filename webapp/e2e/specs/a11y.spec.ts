@@ -9,6 +9,9 @@ import {
   withLocalRelay,
   type LocalRelay,
 } from '../fixtures/relay';
+import { kstDateIso, type StrategyEventRow } from '@gh-radar/shared';
+import { FIXTURE_TRADE_DATE, STRATEGY_DAY_ROWS } from '@/test-fixtures/strategy-day';
+import { ROW_12451, TIMELINE_BY_ANCHOR } from '@/test-fixtures/order-timeline';
 
 /**
  * Phase 06 Plan 06 — axe 접근성 자동 검증 (SRCH-01/02/03).
@@ -781,6 +784,158 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
       afterAlert,
       `critical/serious 위반 ${afterAlert.length}건\n${JSON.stringify(afterAlert, null, 2)}`,
     ).toEqual([]);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  /*
+    ★ Phase 25-10 — 새 표면 전체 axe 매트릭스(UI-SPEC 「접근성 계약」 · 검증 훅).
+      표면 5: 공용 패널 주문로그 · 카드 주문로그 · 창 분리 `/trading/order-log` · 오늘 주문 행 펼침 · 미체결 진행률 보조행
+      × 폭 2 × 라이트 · 다크 = 20 스캔. 폭 344 = 본문을 정확히 344 로 맞춘다(작업대 · 마이페이지는 앱 셸 안 본문
+      `trading-workbench` · `me-page` clientWidth, 창 분리는 셸이 없어 뷰포트 = 본문). 폭 1280 = 뷰포트 1280(실측 본문:
+      작업대 992 · 마이페이지 900(max-width) · 창 분리 1280 — annotation `P25-axe-widths`). 복원은 `page.route` 목(하루치 전략 이벤트 · 오늘 주문 ·
+      펼침 이벤트), 진행률은 `pushQueueProgress`. 판정 · 예외는 이 파일 `DEFERRED_RULES` 그대로(새 예외 없음 —
+      `--faint` 보조 글자 대비는 기존 `color-contrast` 이연 규칙과 같게 다룬다).
+  */
+  test('Phase 25 axe 매트릭스 — 공용 패널 주문로그 · 카드 주문로그 · 창 분리 · 오늘 주문 펼침 · 진행률 보조행 × 본문 344 · 1280 × 라이트 · 다크 critical/serious 0', async ({
+    page,
+  }) => {
+    test.setTimeout(240_000);
+    const TODAY = kstDateIso();
+    const shift = Date.parse(`${TODAY}T00:00:00+09:00`) - Date.parse(`${FIXTURE_TRADE_DATE}T00:00:00+09:00`);
+    const dayRows: StrategyEventRow[] = STRATEGY_DAY_ROWS.map((r) => ({ ...r, tradeDate: TODAY, gwTimeMs: r.gwTimeMs + shift }));
+    await page.route('**/api/strategy-events*', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(dayRows) }),
+    );
+    await page.route('**/api/orders', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{ ...ROW_12451, tradeDate: TODAY }]),
+      }),
+    );
+    await page.route('**/api/orders/*/events**', (route) => {
+      const id = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-2) ?? '');
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(TIMELINE_BY_ANCHOR[id] ?? []),
+      });
+    });
+
+    const failures: string[] = [];
+    const widths: string[] = [];
+    let scans = 0;
+    const scan = async (label: string, include: string) => {
+      await expect(page.locator(include).first()).toBeVisible();
+      const results = await new AxeBuilder({ page }).include(include).withTags(['wcag2a', 'wcag2aa']).analyze();
+      const blocking = blockingViolations(results);
+      scans += 1;
+      if (blocking.length > 0) {
+        failures.push(
+          `${label} — ${JSON.stringify(blocking.map((v) => ({ id: v.id, impact: v.impact, nodes: v.nodes.map((n) => n.target) })))}`,
+        );
+      }
+    };
+    /** 테마를 `localStorage.theme` 로 고정해 연다. */
+    const gotoThemed = async (url: string, theme: 'light' | 'dark') => {
+      await page.goto(url);
+      await page.evaluate((t) => localStorage.setItem('theme', t), theme);
+      await page.reload();
+      await expect(page.locator('html')).toHaveClass(new RegExp(`(^|\\s)${theme}(\\s|$)`));
+    };
+    /** 앱 셸 안 본문(`sel` clientWidth)을 정확히 `target` 으로 — 모자란 만큼 뷰포트를 옮긴다. */
+    const sizeBodyTo = async (sel: string, target: number) => {
+      let viewport = target <= 700 ? target + 16 : target;
+      for (let i = 0; i < 6; i += 1) {
+        await page.setViewportSize({ width: viewport, height: 900 });
+        const width = await page.locator(sel).evaluate((el) => el.clientWidth);
+        if (target > 700 || width === target) return width;
+        viewport += target - width;
+      }
+      return page.locator(sel).evaluate((el) => el.clientWidth);
+    };
+    const UNF_WAIT = {
+      orderNo: '12453',
+      isin: E2E_ISIN,
+      side: 'B' as const,
+      price: 98_000,
+      orderQty: 300,
+      filledQty: 0,
+      unfilledQty: 300,
+      exchange: 'KRX' as const,
+    };
+    const PROGRESS = {
+      accountNo: E2E_ACCOUNT_NO,
+      orderNo: '12453',
+      group: 3,
+      expectedCum: 1_100_000,
+      currentCum: 1_088_000,
+      remainingVolume: 12_000,
+      progressBp: 8800,
+    };
+
+    for (const theme of ['light', 'dark'] as const) {
+      for (const target of [344, 1280]) {
+        const tag = `${theme} · 본문 ${target}`;
+
+        // ── A. 작업대 — 공용 패널 주문로그 · 진행률 보조행 · 카드 주문로그
+        await page.setViewportSize({ width: target <= 700 ? target + 16 : target, height: 900 });
+        await gotoThemed(LC_FOCUS_URL, theme);
+        await expect(page.locator('[data-slot="workbench-status-bar"]')).toHaveAttribute('data-status', 'ready', {
+          timeout: 30_000,
+        });
+        await expect(page.locator(LC_OPEN_CARD)).toHaveCount(1, { timeout: 15_000 });
+        const wbWidth = await sizeBodyTo('[data-slot="trading-workbench"]', target);
+        widths.push(`${tag} wb=${wbWidth}`);
+        await relay.pushAccountState({ unfilled: [UNF_WAIT] });
+        await relay.pushQueueProgress({ isin: E2E_ISIN, exchange: 'KRX', items: [PROGRESS] });
+
+        const panels = page.getByTestId('shared-panels');
+        const unfold = panels.getByRole('button', { name: '펼치기 ▴' });
+        if (await unfold.isVisible()) await unfold.click();
+        await panels.getByRole('tab', { name: /^주문로그/ }).click();
+        await expect(panels.locator('li[data-slot="order-log-line"]').first()).toBeVisible({ timeout: 15_000 });
+        await scan(`${tag} · 공용 패널 주문로그`, '[data-testid="shared-panels"]');
+
+        await panels.getByRole('tab', { name: /^미체결/ }).click();
+        await expect(panels.locator('[data-slot="unfilled-progress"]').first()).toBeVisible({ timeout: 15_000 });
+        await scan(`${tag} · 진행률 보조행`, '[data-testid="shared-panels"]');
+
+        const cardTabs = page.locator(`${LC_OPEN_CARD} [data-slot="card-tabs"]`);
+        await cardTabs.getByRole('tab', { name: /^주문로그/ }).click();
+        const fold = cardTabs.locator('[data-slot="card-tabs-fold"]');
+        if ((await fold.getAttribute('aria-expanded')) !== 'true') await fold.click();
+        await expect(cardTabs.locator('li[data-slot="order-log-line"]').first()).toBeVisible({ timeout: 15_000 });
+        await scan(`${tag} · 카드 주문로그`, `${LC_OPEN_CARD} [data-slot="card-tabs"]`);
+
+        // ── B. 마이페이지 — 오늘 주문 행 펼침
+        await gotoThemed('/me', theme);
+        await expect(page.locator('[data-slot="me-status-bar"]')).toHaveAttribute('data-status', 'ready', {
+          timeout: 30_000,
+        });
+        const meWidth = await sizeBodyTo('[data-slot="me-page"]', target);
+        widths.push(`${tag} me=${meWidth}`);
+        const expand = page.locator('[data-slot="today-orders-card"] button[data-slot="today-order-expand"]:visible').first();
+        await expect(expand).toBeVisible({ timeout: 15_000 });
+        await expand.click();
+        await expect(expand).toHaveAttribute('aria-expanded', 'true');
+        await expect(page.locator('[data-slot="today-order-detail"]:visible li').first()).toBeVisible({ timeout: 15_000 });
+        await scan(`${tag} · 오늘 주문 펼침`, '[data-slot="today-orders-card"]');
+
+        // ── C. 창 분리 — 셸 없음(뷰포트 = 본문)
+        await page.setViewportSize({ width: target, height: 900 });
+        await gotoThemed(`/trading/order-log?account=${E2E_ACCOUNT_NO}`, theme);
+        await expect(page.locator('main[data-slot="order-log-window"] li[data-slot="order-log-line"]').first()).toBeVisible({
+          timeout: 30_000,
+        });
+        widths.push(`${tag} window=${await page.locator('main[data-slot="order-log-window"]').evaluate((el) => el.clientWidth)}`);
+        await scan(`${tag} · 창 분리`, 'main[data-slot="order-log-window"]');
+      }
+    }
+    test.info().annotations.push({ type: 'P25-axe-widths', description: widths.join(' | ') });
+    console.log(`[P25-axe] scans=${scans} widths: ${widths.join(' | ')}`);
+    expect(scans, '매트릭스 20 스캔(표면 5 × 본문 2 × 테마 2)').toBe(20);
+    expect(failures, 'critical/serious 위반').toEqual([]);
   });
 
   // ─────────────────────────────────────────────────────────────────────────

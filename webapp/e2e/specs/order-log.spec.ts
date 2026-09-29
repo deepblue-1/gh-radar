@@ -3,9 +3,22 @@ import { test, expect, type Locator, type Page } from '@playwright/test';
 import { kstDateIso, type StrategyEventRow } from '@gh-radar/shared';
 
 import { mockStockApi } from '../fixtures/mock-api';
+import { installNativeApp } from '../fixtures/native-app';
 import { FIXTURE_SAMSUNG } from '../fixtures/stocks';
-import { withLocalRelay, type FakeStrategyEventInput, type LocalRelay } from '../fixtures/relay';
-import { FIXTURE_TRADE_DATE, STRATEGY_DAY_BY_NAME, STRATEGY_DAY_ROWS } from '@/test-fixtures/strategy-day';
+import {
+  E2E_ACCOUNT_NO,
+  E2E_ISIN,
+  E2E_LONG_NAME_ISIN,
+  withLocalRelay,
+  type FakeStrategyEventInput,
+  type LocalRelay,
+} from '../fixtures/relay';
+import {
+  FIXTURE_TRADE_DATE,
+  STRATEGY_BRANCH_ROWS,
+  STRATEGY_DAY_BY_NAME,
+  STRATEGY_DAY_ROWS,
+} from '@/test-fixtures/strategy-day';
 
 /**
  * Phase 25-07 — 작업대 공용 패널 「주문로그」 탭 브라우저 종단 (D-05~D-08 · UI-SPEC ②-0 · ②-1).
@@ -21,6 +34,9 @@ import { FIXTURE_TRADE_DATE, STRATEGY_DAY_BY_NAME, STRATEGY_DAY_ROWS } from '@/t
  * ③ 규약(fixtures/relay.ts ⑥): 파일 내부 직렬 · beforeAll 1회 relay · afterAll stop · beforeEach reset.
  *   ★ 실서버 IP · 실계좌 리터럴 없음 — 게이트웨이는 127.0.0.1 스텁, 관찰자 비밀은 테스트 전용 값(T-25-32).
  *   ★ 전략 seq 는 픽스처가 스펙 수명 동안 조밀하게 다시 매긴다(relay 기록기 연속성 — fixtures/relay.ts ⑦).
+ *
+ * ④ Phase 25-10 — 카드 탭 「주문로그」(P25-7) · 창 분리 페이지 `/trading/order-log`(P25-8) · 백스톱 실측(P25-9 —
+ *   폰 밴드 공용 패널 탭 줄 한 줄 · 카드 탭 줄이 카드 폭을 밀지 않음 · 카드 주문로그 본문 고정 높이 · 자동 따라감).
  */
 
 test.describe.configure({ mode: 'serial' });
@@ -253,5 +269,227 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
     await expect(statusBar(page)).toHaveAttribute('data-status', 'ready', { timeout: 30_000 });
     await expect(orderLogTab(page)).toHaveAttribute('aria-selected', 'true');
     await expect(lines(page)).toHaveCount(1);
+  });
+
+  // ===========================================================================
+  // Phase 25-10 — 카드 탭 · 창 분리 · 백스톱
+  // ===========================================================================
+
+  const FOCUS_URL = '/trading?code=005930';
+  const cardOf = (page: Page) => page.locator(`[data-slot="strategy-card"][data-key^="${E2E_ISIN}:"]`);
+  const cardTabs = (page: Page) => cardOf(page).locator('[data-slot="card-tabs"]');
+  const cardLines = (page: Page) => cardTabs(page).locator('li[data-slot="order-log-line"]');
+  const cardOrderLogBody = (page: Page) =>
+    cardTabs(page).locator('[data-slot="order-log"][data-surface="card"] [data-slot="order-log-body"]');
+
+  /** 카드 범위 = 카드 계좌 주문 + 이 종목 · KRX(시세 포함). */
+  const inCardScope = (r: StrategyEventRow) =>
+    r.isin === E2E_ISIN && r.exchange === 'KRX' && (r.kind === 1 || r.kind === 2 || r.accountNo === E2E_ACCOUNT_NO);
+
+  async function openFocusCard(page: Page): Promise<void> {
+    await page.goto(FOCUS_URL);
+    await expect(statusBar(page)).toHaveAttribute('data-status', 'ready', { timeout: 30_000 });
+    await expect(cardOf(page)).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+  }
+
+  async function openCardOrderLog(page: Page): Promise<void> {
+    const tab = cardTabs(page).getByRole('tab', { name: /^주문로그/ });
+    if ((await tab.getAttribute('aria-selected')) !== 'true') await tab.click();
+    await expect(tab).toHaveAttribute('aria-selected', 'true');
+    // 카드 탭이 접힌 채(저장된 선호) 마운트됐으면 편다.
+    const fold = cardTabs(page).locator('[data-slot="card-tabs-fold"]');
+    if ((await fold.getAttribute('aria-expanded')) !== 'true') await fold.click();
+    await expect(cardTabs(page).locator('[data-slot="card-tabs-body"]')).toBeVisible();
+  }
+
+  test('P25-7 카드 탭 — 「전략로그」(값 log) · 「주문로그」 필터줄 · 핀 부재 · 다른 종목 · 거래소 줄 0 · 푸시 1건 → 맨 아래 따라감', async ({
+    page,
+  }) => {
+    const otherStock = today(STRATEGY_DAY_BY_NAME.buy12452!, { isin: E2E_LONG_NAME_ISIN, stockCode: '000660', seq: 9001 });
+    const nxtMarket = today(STRATEGY_BRANCH_ROWS.exposedOpen!);
+    await mockRestore(page, [byName('exposed'), byName('buy12451'), nxtMarket, otherStock]);
+    await openFocusCard(page);
+
+    // 탭 줄 — 5개 순서 · 값 log 트리거의 라벨이 「전략로그」
+    const tabIds = await cardTabs(page)
+      .getByRole('tab')
+      .evaluateAll((els) => els.map((e) => ({ v: e.id.replace(/^.*-trigger-/, ''), t: (e.textContent ?? '').trim() })));
+    expect(tabIds.map((x) => x.v)).toEqual(['info', 'unfilled', 'holdings', 'orderlog', 'log']);
+    expect(tabIds.find((x) => x.v === 'log')!.t).toMatch(/^전략로그/);
+
+    await openCardOrderLog(page);
+    await expect(cardTabs(page).locator('[data-slot="order-log"][data-surface="card"]')).toHaveCount(1);
+    await expect(cardTabs(page).locator('[data-slot="order-log-filters"]')).toHaveCount(0);
+    await expect(cardLines(page)).toHaveCount(2);
+    await expect(cardLines(page).nth(0)).toHaveText(/^09:42:13\.215 상한가노출 매도잔량 185,400 \| 누적 620,000$/);
+    await expect(cardLines(page).nth(1)).toHaveText(/^09:45:02\.861 #12451 선매수 주문 · 조건 매도잔량≤50,000 .+ \| 누적 861,800$/);
+    // 거래소 · 종목 칸이 없다 — title(F-A 전체 평문)에만 있다.
+    await expect(cardLines(page).nth(1)).toHaveAttribute('title', /^\[09:45:02\.861\]\[12451\]\[선매수\] KRX \| /);
+    await expect(cardTabs(page).locator('[data-slot="order-log-pin"]')).toHaveCount(0);
+
+    await relay.pushStrategyEvents([wire(byName('queued12451'))]);
+    await expect(cardLines(page)).toHaveCount(3, { timeout: 15_000 });
+    await expect(cardLines(page).nth(2)).toHaveText(/^09:45:02\.880 #12451 선매수 대기 · /);
+    await expect
+      .poll(async () => {
+        const g = await scrollGeometry(cardOrderLogBody(page));
+        return g.top + g.client >= g.height - 24;
+      })
+      .toBe(true);
+    await expect(cardTabs(page).locator('[data-slot="order-log-pin"]')).toHaveCount(0);
+    await cardOf(page).screenshot({ path: test.info().outputPath('p25-7-card-orderlog-1280.png') });
+  });
+
+  /** 창 분리 복원 목 — 날짜별 응답 · 요청 URL 기록(날짜 이동마다 1회 확인). */
+  async function mockWindowRestore(
+    page: Page,
+    todayRows: readonly StrategyEventRow[],
+  ): Promise<{ urls: string[] }> {
+    const urls: string[] = [];
+    await page.route('**/api/strategy-events*', async (route) => {
+      const url = new URL(route.request().url());
+      urls.push(url.pathname + url.search);
+      const past = url.searchParams.get('date');
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(past === null || past === TODAY ? todayRows : []),
+      });
+    });
+    return { urls };
+  }
+
+  const win = (page: Page) => page.locator('main[data-slot="order-log-window"]');
+  const winLines = (page: Page) => win(page).locator('li[data-slot="order-log-line"]');
+
+  test('P25-8 창 분리 — 앱 셸 · 사이드바 부재 · 오늘 › disabled · ‹ → URL date 하루 전 + 조회 1회 · 과거일 푸시 무시 · 핀 부재 · 0건 문구 / 앱 셸에선 창 분리 버튼 비표시', async ({
+    page,
+  }) => {
+    const restore = await mockWindowRestore(page, [byName('exposed'), byName('buy12451')]);
+    await page.goto(`/trading/order-log?account=${E2E_ACCOUNT_NO}`);
+    await expect(win(page)).toBeVisible({ timeout: 30_000 });
+    await expect(winLines(page)).toHaveCount(2, { timeout: 15_000 });
+    await expect(page).toHaveTitle(`주문로그 · ${TODAY}`);
+    await expect(page.locator('[data-slot="app-aside"]')).toHaveCount(0);
+    await expect(page.locator('[data-slot="app-menu-button"]')).toHaveCount(0);
+    await expect(win(page).locator('[data-slot="order-log-popout"]')).toHaveCount(0);
+    await expect(win(page).locator('[data-slot="order-log-date-next"]')).toBeDisabled();
+    await expect(win(page).locator('[data-slot="order-log-date-today"]')).toHaveAttribute('aria-current', 'date');
+    expect(restore.urls).toEqual(['/api/strategy-events']);
+    await page.screenshot({ path: test.info().outputPath('p25-8-window-today-1280.png') });
+
+    // ‹ 이전 날 — URL · 조회 1회 · 과거일 문구
+    const yesterday = new Date(Date.parse(`${TODAY}T12:00:00+09:00`) - 86_400_000).toISOString().slice(0, 10);
+    await win(page).getByRole('button', { name: '이전 날' }).click();
+    await expect(page).toHaveURL(new RegExp(`[?&]date=${yesterday}(&|$)`));
+    await expect(page).toHaveURL(new RegExp(`[?&]account=${E2E_ACCOUNT_NO}(&|$)`));
+    await expect(win(page).locator('[data-slot="order-log-date"]')).toHaveText(new RegExp(`^${yesterday} \\(.\\)$`));
+    await expect(win(page).locator('[data-slot="order-log-empty"]')).toContainText('이 날은 주문로그가 없어요');
+    await expect(win(page).locator('[data-slot="order-log-empty"]')).toContainText(
+      '주말·휴장일이거나 주문·상한가 이벤트가 없던 날이에요',
+    );
+    expect(restore.urls).toEqual(['/api/strategy-events', `/api/strategy-events?date=${yesterday}`]);
+    await expect(page).toHaveTitle(`주문로그 · ${yesterday}`);
+    await page.screenshot({ path: test.info().outputPath('p25-8-window-past-1280.png') });
+    await expect(win(page).locator('[data-slot="order-log-date-today"]')).not.toHaveAttribute('aria-current', 'date');
+    await expect(win(page).locator('[data-slot="order-log-date-next"]')).toBeEnabled();
+
+    // 과거일 — 오늘 푸시가 와도 줄 0 · 핀 없음. 오늘로 돌아오면 같은 푸시가 보인다(푸시가 실제로 왔다는 대조군).
+    await relay.pushStrategyEvents([wire(byName('queued12451'))]);
+    await page.waitForTimeout(1_500);
+    await expect(winLines(page)).toHaveCount(0);
+    await expect(win(page).locator('[data-slot="order-log-pin"]')).toHaveCount(0);
+    await win(page).locator('[data-slot="order-log-date-today"]').click();
+    await expect(page).not.toHaveURL(/[?&]date=/);
+    await expect(winLines(page)).toHaveCount(3, { timeout: 15_000 });
+    expect(restore.urls).toHaveLength(3);
+
+    // 앱 셸 — 작업대의 창 분리 버튼은 보이지 않는다(T-25-42).
+    const native = await page.context().newPage();
+    await installNativeApp(native);
+    await mockStockApi(native, { searchResults: [FIXTURE_SAMSUNG] });
+    await mockRestore(native, []);
+    await native.goto(WORKBENCH_URL);
+    await expect(native.locator('[data-slot="workbench-status-bar"]')).toHaveAttribute('data-status', 'ready', {
+      timeout: 30_000,
+    });
+    await expect(native.locator('[data-slot="order-log-popout"]')).toBeHidden();
+    await native.close();
+  });
+
+  test('P25-9 백스톱 — 폰 밴드(390) 공용 패널 탭 4개 + 접기 한 줄 · 카드 탭 줄이 카드 폭을 밀지 않음 / 카드 주문로그 12줄 → 카드 높이 불변 · ≈3줄 · 새 줄 따라감', async ({
+    page,
+  }) => {
+    const restored = STRATEGY_DAY_ROWS.map((r) => today(r)).filter(inCardScope);
+    const extra = Array.from({ length: Math.max(0, 12 - restored.length) }, (_, i) =>
+      today(STRATEGY_DAY_BY_NAME.exposed!, { seq: 9100 + i, gwTimeMs: restored.at(-1)!.gwTimeMs + (i + 1) * 1_000 }),
+    );
+    const rows = [...restored, ...extra].slice(0, 12);
+    await mockRestore(page, rows);
+    await page.setViewportSize(PHONE_VIEWPORT);
+    await openFocusCard(page);
+
+    // ── E5 overflow — 공용 패널 탭 줄(폰 밴드)
+    const bar = sharedPanels(page).getByRole('tablist', { name: '공용 패널' });
+    const tabTops = await bar.getByRole('tab').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().top));
+    const foldBtn = sharedPanels(page).getByRole('button', { name: /^(펼치기 ▴|접기 ▾)$/ });
+    const foldTop = (await foldBtn.boundingBox())!.y;
+    expect(tabTops).toHaveLength(4);
+    const tops = [...tabTops, foldTop];
+    const ySpread = Math.max(...tops) - Math.min(...tops);
+    expect(ySpread, '공용 패널 탭 4개 + 접기가 한 줄').toBeLessThanOrEqual(4);
+
+    // ── E5 overflow — 카드 탭 줄(탭 5개)이 카드 폭을 밀지 않는다
+    const cardW0 = (await cardOf(page).boundingBox())!.width;
+    const cardTabList = cardTabs(page).getByRole('tablist', { name: '카드 탭' });
+    const tl = await cardTabList.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth }));
+    // 격자 부모는 `display:contents` 래퍼일 수 있다 — 작업대 루트(`wb`) 폭과 비교한다.
+    const gridW = await page.locator('[data-slot="trading-workbench"]').evaluate((el) => el.clientWidth);
+    expect(cardW0, '카드가 작업대 폭을 넘지 않는다').toBeLessThanOrEqual(gridW + 1);
+    expect(cardW0, '카드가 뷰포트를 넘지 않는다').toBeLessThanOrEqual(PHONE_VIEWPORT.width);
+
+    // ── E6 overflow — 카드 주문로그 본문(12줄): 카드 높이 불변 · ≈3줄 · 따라감
+    await cardTabs(page).getByRole('tab', { name: /^정보/ }).click();
+    const fold = cardTabs(page).locator('[data-slot="card-tabs-fold"]');
+    if ((await fold.getAttribute('aria-expanded')) !== 'true') await fold.click();
+    const tabsH0 = (await cardTabs(page).boundingBox())!.height;
+    await openCardOrderLog(page);
+    await expect(cardLines(page)).toHaveCount(12);
+    const tabsH1 = (await cardTabs(page).boundingBox())!.height;
+    expect(Math.abs(tabsH1 - tabsH0), '탭을 바꿔도 카드 탭 높이 불변').toBeLessThanOrEqual(1);
+    const cardW1 = (await cardOf(page).boundingBox())!.width;
+    expect(Math.abs(cardW1 - cardW0), '주문로그 탭이 카드 폭을 밀지 않는다').toBeLessThanOrEqual(1);
+
+    const scroller = cardOrderLogBody(page);
+    const lineH = await cardLines(page).first().evaluate((el) => el.getBoundingClientRect().height);
+    const g0 = await scrollGeometry(scroller);
+    // 보이는 줄 = (스크롤러 높이 − 목록 위아래 패딩) ÷ 줄 높이 — 패딩(3px×2)은 줄이 아니다.
+    const listPadY = await cardTabs(page)
+      .locator('ol[data-slot="order-log-list"]')
+      .evaluate((el) => parseFloat(getComputedStyle(el).paddingTop) + parseFloat(getComputedStyle(el).paddingBottom));
+    const visibleLines = (g0.client - listPadY) / lineH;
+    expect(visibleLines, '보이는 줄 ≈3').toBeGreaterThanOrEqual(2);
+    expect(visibleLines, '보이는 줄 ≈3').toBeLessThanOrEqual(4);
+    await expect.poll(async () => {
+      const g = await scrollGeometry(scroller);
+      return g.height - g.top - g.client;
+    }).toBeLessThanOrEqual(24);
+
+    const last = rows.at(-1)!;
+    await relay.pushStrategyEvents([wire({ ...last, seq: 9200, gwTimeMs: last.gwTimeMs + 5_000 })]);
+    await expect(cardLines(page)).toHaveCount(13, { timeout: 15_000 });
+    await expect
+      .poll(async () => {
+        const g = await scrollGeometry(scroller);
+        return g.top + g.client >= g.height - 24;
+      })
+      .toBe(true);
+    const tabsH2 = (await cardTabs(page).boundingBox())!.height;
+    expect(Math.abs(tabsH2 - tabsH0), '새 줄이 와도 카드 탭 높이 불변').toBeLessThanOrEqual(1);
+
+    await page.screenshot({ path: test.info().outputPath('p25-9-card-orderlog-390.png'), fullPage: true });
+    const note = `viewport=390 sharedTabs ySpread=${ySpread.toFixed(1)} · cardTabList scrollWidth=${tl.sw} clientWidth=${tl.cw} · card width=${cardW0.toFixed(1)}/${cardW1.toFixed(1)} wb=${gridW} · card-tabs height ${tabsH0.toFixed(1)}/${tabsH1.toFixed(1)}/${tabsH2.toFixed(1)} · scroller client=${g0.client} padY=${listPadY} lineH=${lineH.toFixed(1)} visible≈${visibleLines.toFixed(2)}`;
+    test.info().annotations.push({ type: 'P25-9-backstop', description: note });
+    console.log(`[P25-9] ${note}`);
   });
 });
