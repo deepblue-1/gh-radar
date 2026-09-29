@@ -413,3 +413,52 @@ describe("mergeOrderNotices — 3초 창 (D-16 / T-17-36)", () => {
     expect(merged.map((m) => m.head)).toEqual(rows);
   });
 });
+
+describe("mergeOrderNotices — 묶음 구성원 members (Phase 25 D-02 · 펼침 키)", () => {
+  it("⑭-1 단건은 members = [head]", () => {
+    const only = autoFill({ orderNo: "0000100001" });
+    const merged = mergeOrderNotices([only]);
+    expect(merged[0]?.members).toEqual([only]);
+  });
+
+  it("⑭-2 묶음 members 는 시간 오름차순 구성원 전부 — 입력(최신 먼저) 순서와 무관", () => {
+    const rows = [
+      autoFill({ orderNo: "0000100003", createdAt: at(2_000) }),
+      autoFill({ orderNo: "0000100002", createdAt: at(1_000) }),
+      autoFill({ orderNo: "0000100001", createdAt: at(0) }),
+    ];
+    const merged = mergeOrderNotices(rows);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.members.map((m) => m.orderNo)).toEqual([
+      "0000100001",
+      "0000100002",
+      "0000100003",
+    ]);
+  });
+
+  it("⑭-3 새 조각(더 최신)이 들어와 head 가 바뀌어도 members[0].id 는 그대로", () => {
+    const before = mergeOrderNotices([
+      autoFill({ orderNo: "0000100002", createdAt: at(1_000) }),
+      autoFill({ orderNo: "0000100001", createdAt: at(0) }),
+    ]);
+    const after = mergeOrderNotices([
+      autoFill({ orderNo: "0000100003", createdAt: at(2_000) }),
+      autoFill({ orderNo: "0000100002", createdAt: at(1_000) }),
+      autoFill({ orderNo: "0000100001", createdAt: at(0) }),
+    ]);
+    expect(after[0]?.head.id).not.toBe(before[0]?.head.id);
+    expect(after[0]?.members[0]?.id).toBe(before[0]?.members[0]?.id);
+    expect(after[0]?.members).toHaveLength(3);
+  });
+
+  it("⑭-4 묶이지 않은 두 행은 각자 members 한 개", () => {
+    const merged = mergeOrderNotices(
+      [
+        autoFill({ orderNo: "0000100002", createdAt: at(2_000) }),
+        autoFill({ orderNo: "0000100001", createdAt: at(0) }),
+      ],
+      1_000,
+    );
+    expect(merged.map((m) => m.members.length)).toEqual([1, 1]);
+  });
+});

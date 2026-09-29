@@ -34,6 +34,7 @@ vi.mock('../api', async () => {
 import { ApiClientError } from '../api';
 import {
   compareJournalNewestFirst,
+  fetchOrderEvents,
   fetchTodayOrders,
   mergeJournalRows,
   orderDisplayStatus,
@@ -113,6 +114,39 @@ describe('fetchTodayOrders', () => {
     apiFetchMock.mockResolvedValue(payload);
 
     await expect(fetchTodayOrders()).resolves.toEqual(payload);
+  });
+});
+
+// ===========================================================================
+// fetchOrderEvents (Phase 25 D-02 — 펼침 클릭 1회 = GET 1회)
+// ===========================================================================
+
+describe('fetchOrderEvents', () => {
+  it('첫 통보 행 id + 구성원 주문번호 쉼표 목록을 Bearer 로 호출한다', async () => {
+    apiFetchMock.mockResolvedValue([]);
+
+    await fetchOrderEvents('a1', ['12461', '12462']);
+
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+    const [path, init] = apiFetchMock.mock.calls[0] as [string, { headers: Record<string, string> }];
+    expect(path).toBe('/api/orders/a1/events?orderNos=12461,12462');
+    expect(init.headers.Authorization).toBe('Bearer tok-abc');
+  });
+
+  it('주문번호가 없으면 쿼리 문자열 없이 부른다(서버가 행 자신의 번호로 대체)', async () => {
+    apiFetchMock.mockResolvedValue([]);
+
+    await fetchOrderEvents('a1', []);
+
+    expect(apiFetchMock.mock.calls[0]?.[0]).toBe('/api/orders/a1/events');
+  });
+
+  it('id · 주문번호는 인코딩한다 · 응답 bare array 를 그대로 돌려준다', async () => {
+    const payload = [{ source: 'journal', gwTimeMs: 1, seq: 1, event: {} }];
+    apiFetchMock.mockResolvedValue(payload);
+
+    await expect(fetchOrderEvents('a/b', ['Q 1'])).resolves.toEqual(payload);
+    expect(apiFetchMock.mock.calls[0]?.[0]).toBe('/api/orders/a%2Fb/events?orderNos=Q%201');
   });
 });
 
