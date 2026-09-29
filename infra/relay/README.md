@@ -1111,12 +1111,59 @@ gcloud compute ssh radar-gw --zone=asia-northeast3-a --tunnel-through-iap \
 
 #### 신원 규칙
 
-gh-radar 사용자 → `dma_credentials.dma_user_id` 문자열 → **모든 게이트웨이의** `dma_account_access` 행. REST
-`dma_journal_orders_for_user` 와 `journal.rows` 푸시가 둘 다 이 규칙이다(게이트웨이 조건 없음). 그래서:
+가시성은 **게이트웨이 인지**다(quick-260929-sas — 옛 「자격증명 문자열 → 모든 게이트웨이」 규칙을 대체). 사용자는 게이트웨이마다
+신원 하나로 그 게이트웨이의 `dma_account_access` 행과 `(gateway, dma_user_id)` 둘 다 맞을 때만 잇는다.
 
-- kyobo127 `users.toml` 의 user_id 는 **같은 사람이면 KB 와 같은 문자열**이어야 한다.
-- **다른 사람이면 어떤 KB dma_user_id 와도 겹치지 않아야** 한다 — 겹치면 그 KB 사용자가 교보 계좌 주문을 본다.
+- **주 게이트웨이(KB)** = 자격증명 신원 — `dma_credentials` 의 `dma_user_id`(자격증명의 `gateway` 칸 · 기본 `KB`).
+- **추가 게이트웨이(KYOBO)** = 명시 연결 — `dma_gateway_identities` 의 `(user_id, 'KYOBO', dma_user_id)` 행.
+- 정본은 뷰 `dma_visibility_identities` **하나**다(자격증명 신원 UNION ALL 연결 신원). REST 조회 3종
+  (`dma_journal_orders_for_user` · `dma_strategy_events_for_user` · `dma_order_events_for_user` — 전부
+  `dma_visible_accounts` 경유)과 relay 추가 게이트웨이 푸시(`journal.rows` · `journal.events`)가 같은 규칙이다.
+- 연결은 **자격증명이 있을 때만** 유효하다(자격증명 행 = allowlist). 자격증명과 **같은 게이트웨이의 연결은 무시**된다.
+- 같은 문자열이 KB 와 교보 `users.toml` 에 있어도 **연결 없이는 교보 계좌가 안 보인다** — 교보 user_id 문자열은 KB 와
+  같든 다르든 상관없다. 연결 추가가 곧 승인이다.
 - KYOBO 계좌 주문은 오늘 주문 카드에 계좌번호만 있는 묶음으로 뜬다.
+
+#### 신원 연결 추가 · 제거 (quick-260929-sas)
+
+Supabase 대시보드 SQL 편집기(또는 서비스롤)에서 실행한다. `dma_gateway_identities` 는 서비스롤 전용이다(RLS · 정책 0개).
+`<이메일>` · `<교보 users.toml user_id>` 만 바꾼다.
+
+```sql
+-- 추가 — 자격증명이 있는 사용자에게만 들어간다. 자격증명이 없으면 0행이 정상이다(먼저 자격증명 등록).
+-- 이미 연결이 있으면 바뀌지 않는다(0행) — 바꾸려면 제거 후 추가.
+INSERT INTO public.dma_gateway_identities (user_id, gateway, dma_user_id)
+SELECT u.id, 'KYOBO', '<교보 users.toml user_id>'
+  FROM auth.users u
+  JOIN public.dma_credentials c ON c.user_id = u.id
+ WHERE u.email = '<이메일>'
+ON CONFLICT (user_id, gateway) DO NOTHING;
+
+-- 제거
+DELETE FROM public.dma_gateway_identities l
+ USING auth.users u
+ WHERE l.user_id = u.id
+   AND u.email = '<이메일>'
+   AND l.gateway = 'KYOBO';
+
+-- 현황 (user_id 는 앞 8자만)
+SELECT l.gateway, left(l.user_id::text, 8) AS user8, l.dma_user_id, l.created_at
+  FROM public.dma_gateway_identities l
+ ORDER BY l.gateway, l.created_at;
+```
+
+- **반영 시점:** REST(새로고침 · 오늘 주문 · 주문로그 복원)는 즉시다. relay 푸시는 신원을 60초마다 다시 읽으므로 **최대
+  60초** 뒤다(`IDENTITY_REFRESH_MS` · `relay/src/journal/identities.ts`). 첫 적재 전 · 조회 실패 첫 구간에는 추가 게이트웨이
+  푸시를 아무에게도 보내지 않는다(fail closed — 새로고침이 복원한다).
+- **공유 계정:** 같은 교보 user_id 를 쓰는 gh-radar 사용자가 여럿이면 **사용자마다** 한 행씩 넣는다.
+- **권한 회수:** 자격증명(`dma_credentials`)을 지워 권한을 거둘 때 연결 행도 **함께 지운다**. 남겨 두면 자격증명을 다시
+  등록하는 순간 교보 가시성이 되살아난다.
+- **시드 이력:** 2026-09 적용 시 마이그레이션 `20260929190000` 이 그때의 KYOBO 가시성을 그대로 연결로 옮겼다(교보 매핑에
+  있는 dma_user_id 를 가진 자격증명 행마다 1행). 그 뒤 새 교보 user_id 는 위 추가 SQL 로만 보인다.
+- **과도기:** 배포된 relay 가 이 quick 커밋을 포함하기 전에는 relay 의 KYOBO 푸시가 옛 문자열 규칙이다(REST 는 마이그레이션
+  적용 즉시 새 규칙). 그동안 kyobo127 `users.toml` 에 **새 user_id 를 추가하지 않는다.** 포함 여부:
+  `git merge-base --is-ancestor 5cfacb83 "$(curl -s https://dma.jx1.io/healthz | jq -r .version)" && echo 포함`
+  (`5cfacb83` = relay 신원 규칙의 마지막 커밋 — journal.rows · journal.events 둘 다 포함).
 
 #### 롤아웃 순서 (5단계)
 
@@ -1128,7 +1175,8 @@ gh-radar 사용자 → `dma_credentials.dma_user_id` 문자열 → **모든 게�
 3. relay 배포: `DMA_KYOBO_HOST=<교보 DMA 주소 — §교보 SecuwaySSL 도달 대상 행> bash scripts/deploy-relay.sh`
    (다른 필수 env 는 평소대로). 다음 배포부터는 실행 중 값이 보존된다 — 다시 주입하지 않아도 된다.
 4. 확인: `/healthz` 의 `journalGateways.KYOBO.state` live · docker logs 의 `"gateway":"KYOBO"` 로그인 성공 줄 ·
-   `dma_account_access` 의 `gateway=KYOBO` 행 수 · 신원 교차 확인(KYOBO dma_user_id 와 `dma_credentials` 교집합을 사람이 승인).
+   `dma_account_access` 의 `gateway=KYOBO` 행 수 · 신원(새 KYOBO user_id 는 연결을 추가하기 전까지 누구에게도 보이지 않는다 —
+   연결 추가가 곧 승인이다(§신원 연결)).
 5. `bash scripts/smoke-relay.sh` — KB 회귀 없음.
 
 **역순이면:** relay 가 먼저 뜨면 kyobo127 이 옛 비밀(또는 비밀 없음)로 거부해 KYOBO 가 `rejected` 로 굳는다(D-13 — relay
@@ -1206,8 +1254,8 @@ bash scripts/smoke-relay.sh   # 끝의 「참고 — KYOBO 관찰자 감시」 �
 #### 끄기 · 롤백
 
 - `DMA_KYOBO_HOST=off bash scripts/deploy-relay.sh` — 보존 규칙을 끊는 유일한 방법이다(KYOBO 3줄이 env-file 에서 빠진다).
-- 매핑 행은 로그인 스냅샷으로만 교체되므로 끈 뒤에도 `dma_account_access` 의 `gateway=KYOBO` 행이 남아 REST 복원에 계속 뜬다.
-  가시성까지 거두려면 서비스롤로 그 행들을 삭제한다(값은 출력하지 않는다).
+- 매핑 행은 로그인 스냅샷으로만 교체되므로 끈 뒤에도 `dma_account_access` 의 `gateway=KYOBO` 행이 남는다. 가시성까지
+  거두려면 연결 행을 삭제한다(§신원 연결 추가 · 제거) — 매핑 행 삭제는 필요 없다.
 - 비밀이 없거나 relay SA 접근권이 없으면 `deploy-relay.sh` 는 「⚠ KYOBO 관찰자 생략」 한 줄만 남기고 KB 단독으로 배포를 끝낸다.
 - `DMA_KYOBO_HOST=off` 배포 · 옛 이미지 `--rollback` 은 같은 실행에서 KYOBO 감시(정책 → 체크)도 지운다(§KYOBO 끊김 알림).
 
