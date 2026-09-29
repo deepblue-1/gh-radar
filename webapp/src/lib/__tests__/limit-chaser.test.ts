@@ -173,6 +173,7 @@ describe('isDeleteIntent / crudOf — 삭제 판정 (D-08, Pitfall 7)', () => {
         sellEnabled: false,
         cancelQtyEnabled: false,
         cancelTradeEnabled: false,
+        postBuyAuto: false,
       }),
     ).toBe(true);
   });
@@ -184,6 +185,7 @@ describe('isDeleteIntent / crudOf — 삭제 판정 (D-08, Pitfall 7)', () => {
         sellEnabled: false,
         cancelQtyEnabled: true,
         cancelTradeEnabled: false,
+        postBuyAuto: false,
       }),
     ).toBe(false);
     expect(
@@ -192,6 +194,7 @@ describe('isDeleteIntent / crudOf — 삭제 판정 (D-08, Pitfall 7)', () => {
         sellEnabled: false,
         cancelQtyEnabled: false,
         cancelTradeEnabled: true,
+        postBuyAuto: false,
       }),
     ).toBe(false);
   });
@@ -203,6 +206,7 @@ describe('isDeleteIntent / crudOf — 삭제 판정 (D-08, Pitfall 7)', () => {
         sellEnabled: false,
         cancelQtyEnabled: false,
         cancelTradeEnabled: false,
+        postBuyAuto: false,
       }),
     ).toBe(false);
   });

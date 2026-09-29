@@ -73,10 +73,10 @@ export type LimitChaserSeedPrices = Pick<
   'buyWatchPrice' | 'buyOrderPrice' | 'sellWatchPrice' | 'sellOrderPrice' | 'sweepWatchPrice'
 >;
 
-/** 삭제 판정에 필요한 게이트 4종 — 서버 정규화(`crud "D"`)와 같은 집합이다. */
+/** 삭제 판정에 필요한 게이트 4종 + 후매수 자동 — 서버 정규화(`crud "D"`)와 같은 집합이다(quick-260929-vzy). */
 export type LimitChaserGates = Pick<
   LimitChaserFormValues,
-  'buyEnabled' | 'sellEnabled' | 'cancelQtyEnabled' | 'cancelTradeEnabled'
+  'buyEnabled' | 'sellEnabled' | 'cancelQtyEnabled' | 'cancelTradeEnabled' | 'postBuyAuto'
 >;
 
 /**
@@ -99,13 +99,16 @@ export function buyOrderQtyFromAmount(amountManwon: number, price: number): numb
  * 매수 그룹의 잔량/체결 조건 · 한방체결 · 취소의 체결/잔량추적 체크만 켜진 것은 **켜진 것이 아니다**
  * (취소는 취소잔량이 꺼져 있으면 무장하지 않는다 — 아래 게이트 규칙과 같은 뜻).
  * 에코의 `buyEnabled`/`sellEnabled` 는 무장 상태라 발주가 나가면 false 로 온다.
+ * 후매수 ☐자동(quick-260929-vzy)도 켜진 것이다 — 나중에 서버가 매수를 켜는 무장이라, 걷어 보이지 않게 하면
+ * 숨은 무장이 된다(2026-09-23 「켜진 전략」 규칙의 확장 · P-1).
  */
 export function isActiveStrategy(c: {
   buyEnabled: boolean;
   sellEnabled: boolean;
   cancelQtyEnabled: boolean;
+  postBuyAuto: boolean;
 }): boolean {
-  return c.buyEnabled || c.sellEnabled || c.cancelQtyEnabled;
+  return c.buyEnabled || c.sellEnabled || c.cancelQtyEnabled || c.postBuyAuto;
 }
 
 /**
@@ -150,13 +153,16 @@ export function parseStrategyKey(
  *
  * 매수·매도·**취소 2종**이 전부 꺼지면 서버가 `crud` 를 `"D"` 로 정규화한다. 취소 게이트가
  * 하나라도 켜져 있으면 매수·매도를 둘 다 꺼도 전략이 **남는다**.
+ * 후매수 ☐자동이 켜져 있어도 남는다(quick-260929-vzy · P-1) — gh-trade dcaa78b1 은 자동만 켠 등록을 삭제로
+ * 정규화하지 않고, WinForms `AnyArmed` 에도 ☐자동이 들어간다. relay `#isTeardown` 과 **같은 다섯 항**이다.
  */
 export function isDeleteIntent(gates: LimitChaserGates): boolean {
   return (
     !gates.buyEnabled &&
     !gates.sellEnabled &&
     !gates.cancelQtyEnabled &&
-    !gates.cancelTradeEnabled
+    !gates.cancelTradeEnabled &&
+    !gates.postBuyAuto
   );
 }
 

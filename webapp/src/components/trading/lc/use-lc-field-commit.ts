@@ -196,9 +196,12 @@ export const LC_REJECT_ECHO_GRACE_MS = 1_000;
  * 세 그룹 스위치는 미등록에서 켜면 D-01 로 마스터가 같은 제출에 켜진다 — 그것이 곧 등록이다.
  * ★ 한방(`sweepEnabled`)은 선매수 안 체크가 됐다 — 미등록에서 한방만 켜 보내면 게이트 4종 OFF → 서버가
  *   `D` 로 정규화한다(존재하지 않는 키의 철거 프레임 · RESEARCH webapp 1). 그래서 등록 필드가 아니다.
+ * ★ 후매수 ☐자동(`postBuyAuto` · quick-260929-vzy)은 등록 필드다 — 자동만 켠 등록도 등록이다(서버 · WinForms 동형 · P-1).
  */
 export const LC_GATE_FIELDS = [
   'buyEnabled', 'preBuyEnabled', 'extraBuyEnabled', 'postBuyEnabled', 'sellEnabled', 'cancelQtyEnabled',
+  // 후매수 ☐자동(quick-260929-vzy · P-1) — 자동만 켠 등록도 등록이다(서버 · WinForms 동형). 끄기는 무장 해제다(isDisarm).
+  'postBuyAuto',
 ] as const satisfies readonly LcFieldKey[];
 
 /** 문구 원천 — UI-SPEC Copywriting Contract 원문 그대로다. 다른 곳에서 다시 적지 않는다. */
