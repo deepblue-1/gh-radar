@@ -484,13 +484,16 @@ describe("TodayOrdersCard — 통보 묶기 (17-10 / D-16)", () => {
     expect(document.body.textContent).not.toContain("건)");
   });
 
-  it("⑦-4 묶인 행을 펼치는 UI 는 만들지 않는다 (이번 phase 범위 밖)", async () => {
+  it("⑦-4 묶인 행의 버튼은 펼침 토글뿐이다 (17-10 범위 밖이던 펼침을 Phase 25 D-02 가 열었다)", async () => {
     fetchTodayOrdersMock.mockResolvedValue(AUTO_SELL_FILLS);
 
     render(<TodayOrdersCard />);
 
     await waitFor(() => expect(listRows()).toHaveLength(1));
-    expect(document.querySelectorAll('[data-slot="today-orders-card"] button')).toHaveLength(0);
+    // 표 · 카드 행 두 벌(CSS 로 한쪽만 보임)의 시각 칸 토글 — 그 밖의 버튼은 없다.
+    const buttons = [...document.querySelectorAll('[data-slot="today-orders-card"] button')];
+    expect(buttons).toHaveLength(2);
+    expect(buttons.every((b) => b.getAttribute("data-slot") === "today-order-expand")).toBe(true);
   });
 });
 

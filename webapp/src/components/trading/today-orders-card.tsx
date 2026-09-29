@@ -86,10 +86,19 @@
  *   다시 마운트되면 첫 렌더부터 그 행으로 서고(「불러오는 중」 없음) 마운트 조회가 뒤에서 교체한다.
  *   날짜가 바뀌면 키가 달라 어제 목록을 오늘 것처럼 보이지 않는다(T-21-86). 실패는 캐시를 쓰지 않는다.
  *   사용자 전환 시 AuthProvider 가 캐시를 비운다(T-21-85).
+ *
+ * ⑬ 행 펼침 (Phase 25 D-01 ~ D-04 · 채택 1-A · 2-A · 3-A · 결정 8-A)
+ *   주문번호가 하나라도 있는 행(`isExpandable`)은 **행 전체 클릭**으로 펼쳐 통보 + 상따 한 타임라인
+ *   (`OrderTimeline`)을 본다. 실제 토글은 시각 칸의 `<button aria-expanded aria-controls>` 가 맡고 행 클릭은 그
+ *   토글로 위임한다(행에 role=button 을 주지 않는다 — 표 의미 유지). 여러 행 동시 펼침 · 상태는 메모리 Set
+ *   (새로고침하면 닫힘). 키는 묶음 **첫 통보 행 id**(`members[0].id`) — 조각이 더 들어와 `head` 가 바뀌어도
+ *   열린 채다(렌더 키도 같은 값이라 본문이 다시 마운트되지 않는다). 주문번호 없는 행(거부 · 접수 불명)은 ▶ 자리만
+ *   남기고(visibility hidden) 버튼 · 클릭 · hover 가 없다. 표 ↔ 카드 행은 CSS 로 둘 다 DOM 에 있으므로 펼침
+ *   본문(= 조회)은 **보이는 배치 한 곳에만** 마운트한다(`useTableLayout`) — 클릭 1회 = 조회 1회.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { kstDateIso, type JournalOrderRow } from "@gh-radar/shared";
 
 import {
@@ -102,6 +111,7 @@ import {
 } from "@/components/ui/table";
 import { ExchangeTag } from "@/components/trading/exchange-tag";
 import { OriginTag, originTagOf } from "@/components/trading/origin-tag";
+import { OrderTimeline } from "@/components/trading/order-timeline";
 import { useIsinLabels, type IsinLabel } from "@/lib/isin-labels";
 import { useStockNames } from "@/lib/stock-names";
 import {
@@ -120,6 +130,7 @@ import {
   orderDisplayStatus,
   type OrderDisplayStatus,
 } from "@/lib/orders-api";
+import { isExpandable } from "@/lib/order-timeline";
 import { readQueryCache, writeQueryCache } from "@/lib/query-cache";
 import { useRelayContext } from "@/lib/relay-provider";
 import { cn } from "@/lib/utils";
@@ -191,6 +202,40 @@ function todayOrdersCacheKey(date: string): string {
   return `me:today-orders:${date}`;
 }
 
+/**
+ * 표 배치(≥1280)인가 — 카드의 표 ↔ 카드 행 전환과 **같은 뷰포트 경계**(`max-[1279px]:hidden` /
+ * `min-[1280px]:hidden`). 두 배치가 모두 DOM 에 있어 펼침 본문을 양쪽에 두면 조회가 두 번 나간다 — 보이는 쪽
+ * 하나에만 본문을 마운트하려고 읽는다(위 ⑬). 서버 · 하이드레이션 첫 렌더는 카드 행(펼친 행이 없어 차이 없음).
+ */
+const TABLE_LAYOUT_QUERY = "(min-width: 1280px)";
+
+function subscribeTableLayout(onChange: () => void): () => void {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return () => {};
+  const mql = window.matchMedia(TABLE_LAYOUT_QUERY);
+  mql.addEventListener("change", onChange);
+  return () => mql.removeEventListener("change", onChange);
+}
+
+function useTableLayout(): boolean {
+  return useSyncExternalStore(
+    subscribeTableLayout,
+    () => typeof window.matchMedia === "function" && window.matchMedia(TABLE_LAYOUT_QUERY).matches,
+    () => false,
+  );
+}
+
+/** 펼침 키 = 묶음 첫 통보 행 id(위 ⑬). 렌더 키도 같은 값이다. */
+const expandKeyOf = (notice: MergedOrderNotice): string => (notice.members[0] ?? notice.head).id;
+
+/** 펼침 상태 — 행 1개 몫. */
+interface RowExpand {
+  expandable: boolean;
+  expanded: boolean;
+  onToggle: () => void;
+  /** 이 배치가 보이는 배치인가 — 펼침 본문(조회)은 여기서만 마운트한다. */
+  active: boolean;
+}
+
 export function TodayOrdersCard() {
   const { accounts, journalRows, journalState, status } = useRelayContext();
   /* 종목명의 원천(위 ⑥). 이미 받은 프레임만 읽는다 — 새 조회 경로가 아니다. */
@@ -204,6 +249,26 @@ export function TodayOrdersCard() {
     () => readQueryCache<JournalOrderRow[]>(todayOrdersCacheKey(kstDateIso())) ?? null,
   );
   const [failed, setFailed] = useState(false);
+  /* 펼친 행(위 ⑬) — 메모리 Set · 키 = 묶음 첫 통보 행 id. 새로고침하면 전부 닫힌다(D-04). */
+  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
+  const toggle = useCallback((key: string) => {
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+  const tableLayout = useTableLayout();
+  const expandOf = (notice: MergedOrderNotice, table: boolean): RowExpand => {
+    const key = expandKeyOf(notice);
+    return {
+      expandable: isExpandable(notice),
+      expanded: open.has(key),
+      onToggle: () => toggle(key),
+      active: tableLayout === table,
+    };
+  };
 
   const load = useCallback(async () => {
     try {
@@ -424,9 +489,10 @@ export function TodayOrdersCard() {
                   <TableBody>
                     {group.merged.map((notice) => (
                       <OrderTableRow
-                        key={notice.head.id}
+                        key={expandKeyOf(notice)}
                         notice={notice}
                         label={labelOf(notice.head.isin)}
+                        expand={expandOf(notice, true)}
                       />
                     ))}
                   </TableBody>
@@ -440,9 +506,10 @@ export function TodayOrdersCard() {
               >
                 {group.merged.map((notice) => (
                   <OrderCardRow
-                    key={notice.head.id}
+                    key={expandKeyOf(notice)}
                     notice={notice}
                     label={labelOf(notice.head.isin)}
+                    expand={expandOf(notice, false)}
                   />
                 ))}
               </div>
@@ -458,17 +525,37 @@ export function TodayOrdersCard() {
 function OrderTableRow({
   notice,
   label: isinLabel,
+  expand,
 }: {
   notice: MergedOrderNotice;
   label: IsinLabel | undefined;
+  expand: RowExpand;
 }) {
   const row = notice.head;
   const stock = stockLabel(row, isinLabel);
   const facts = noticeFactsOf(row);
   const label = orderNoticeLabel(facts);
+  const detailId = `today-order-detail-t-${expandKeyOf(notice)}`;
   return (
-    <TableRow data-slot="today-order-table-row">
-      <TableCell className="mono text-[length:var(--t-caption)]">{orderTime(notice.at)}</TableCell>
+    <Fragment>
+    <TableRow
+      data-slot="today-order-table-row"
+      onClick={expand.expandable ? expand.onToggle : undefined}
+      className={cn(
+        expand.expandable ? "cursor-pointer" : "[&:hover>td]:!bg-transparent",
+        // 열린 행 셀 배경 — `.tbl-wrap tbody tr:hover td`(층 없는 규칙)를 이기도록 `!`.
+        expand.expanded && "[&>td]:!bg-[color-mix(in_srgb,var(--primary)_6%,transparent)]",
+      )}
+    >
+      <TableCell className="mono text-[length:var(--t-caption)]">
+        <ExpandToggle
+          expand={expand}
+          controls={detailId}
+          srLabel={`${stock.name} ${label.text}`}
+        >
+          {orderTime(notice.at)}
+        </ExpandToggle>
+      </TableCell>
       {/*
         표 셀에는 폭 제약이 없어 `truncate` 가 동작하지 않는다 — 대신 `Table` 이
         감싸는 `.tbl-wrap overflow-x-auto` 가 가로 스크롤로 받는다(설계된 동작).
@@ -508,6 +595,86 @@ function OrderTableRow({
         )}
       </TableCell>
     </TableRow>
+    {expand.expanded && (
+      <TableRow data-slot="today-order-detail">
+        {/*
+          `.tbl-wrap tbody td`(높이 · 패딩)와 `tr:hover td` 는 globals.css 의 층 없는 규칙이라 유틸이 진다 —
+          높이 auto · 위 2 / 아래 10 · hover 배경 없음을 `!` 로 준다(UI-SPEC ① ⚠ · globals.css 무변경).
+        */}
+        <TableCell
+          id={detailId}
+          colSpan={8}
+          className="!h-auto whitespace-normal !bg-transparent !pb-2.5 !pt-0.5"
+        >
+          {expand.active && (
+            <OrderTimeline notice={notice} bundled={notice.count > 1} mobile={false} />
+          )}
+        </TableCell>
+      </TableRow>
+    )}
+    </Fragment>
+  );
+}
+
+/**
+ * 시각 칸의 펼침 토글 (위 ⑬ · UI-SPEC ① 트리거 · 접근성 계약).
+ *
+ * 펼칠 수 있는 행 = 실제 `<button aria-expanded aria-controls>` — 내용은 ▶(aria-hidden · 10px 고정 폭) + 시각
+ * 텍스트 + sr-only 「{종목} {행위} 펼치기/접기」. 행 클릭과 겹치지 않게 전파를 끊는다(한 번 클릭 = 한 번 토글).
+ * 펼칠 수 없는 행 = ▶ 자리만 `visibility:hidden` 으로 남겨 시각 열 정렬을 지킨다(목업 `.caret.none`).
+ */
+function ExpandToggle({
+  expand,
+  controls,
+  srLabel,
+  children,
+}: {
+  expand: RowExpand;
+  controls: string;
+  srLabel: string;
+  children: ReactNode;
+}) {
+  if (!expand.expandable) {
+    return (
+      <>
+        <span
+          aria-hidden="true"
+          className="mr-1 inline-block w-2.5 text-[10px]"
+          style={{ visibility: "hidden" }}
+        >
+          ▶
+        </span>
+        {children}
+      </>
+    );
+  }
+  return (
+    <button
+      type="button"
+      data-slot="today-order-expand"
+      aria-expanded={expand.expanded}
+      aria-controls={controls}
+      onClick={(e: MouseEvent) => {
+        e.stopPropagation();
+        expand.onToggle();
+      }}
+      className="inline-flex cursor-pointer items-baseline rounded-[var(--r-sm)] border-0 bg-transparent p-0 text-inherit [font:inherit] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]"
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          "mr-1 inline-block w-2.5 text-[10px] transition-transform duration-150 motion-reduce:transition-none",
+          expand.expanded ? "rotate-90 text-[var(--primary)]" : "text-[var(--faint)]",
+        )}
+      >
+        ▶
+      </span>
+      {children}
+      <span className="sr-only">
+        {" "}
+        {srLabel} {expand.expanded ? "접기" : "펼치기"}
+      </span>
+    </button>
   );
 }
 
@@ -518,16 +685,29 @@ function OrderTableRow({
 function OrderCardRow({
   notice,
   label: isinLabel,
+  expand,
 }: {
   notice: MergedOrderNotice;
   label: IsinLabel | undefined;
+  expand: RowExpand;
 }) {
   const row = notice.head;
   const stock = stockLabel(row, isinLabel);
   const facts = noticeFactsOf(row);
   const label = orderNoticeLabel(facts);
+  const detailId = `today-order-detail-m-${expandKeyOf(notice)}`;
   return (
-    <div data-slot="today-order-row" className="min-w-0 px-[var(--s-3)] py-[var(--s-2)]">
+    <div
+      data-slot="today-order-row"
+      onClick={expand.expandable ? expand.onToggle : undefined}
+      className={cn(
+        "min-w-0 px-[var(--s-3)] py-[var(--s-2)]",
+        expand.expandable && "cursor-pointer",
+        expand.expanded
+          ? "bg-[color-mix(in_srgb,var(--primary)_6%,transparent)]"
+          : expand.expandable && "hover:bg-[color-mix(in_oklch,var(--fg)_3%,transparent)]",
+      )}
+    >
       <div className="flex min-w-0 items-center gap-[var(--s-2)]">
         <span
           className={cn(
@@ -560,7 +740,9 @@ function OrderCardRow({
       */}
       <div className="mt-1 flex min-w-0 flex-wrap gap-y-0.5 items-center gap-x-[var(--s-2)]">
         <span className="flex flex-none items-center gap-1">
-          <RowValue>{orderTime(notice.at)}</RowValue>
+          <ExpandToggle expand={expand} controls={detailId} srLabel={`${stock.name} ${label.text}`}>
+            <RowValue>{orderTime(notice.at)}</RowValue>
+          </ExpandToggle>
         </span>
         <span className="flex flex-none items-center gap-1">
           <RowKey>수량</RowKey>
@@ -578,6 +760,19 @@ function OrderCardRow({
           )}
         </span>
       </div>
+      {expand.expanded && (
+        /* 펼침 본문 — 점선 아래 타임라인(목업 `.row .det`). 본문 안 클릭은 행 토글로 번지지 않는다. */
+        <div
+          data-slot="today-order-detail"
+          id={detailId}
+          onClick={(e) => e.stopPropagation()}
+          className="mt-2 cursor-default border-t border-dashed border-[var(--border-subtle)] pt-2"
+        >
+          {expand.active && (
+            <OrderTimeline notice={notice} bundled={notice.count > 1} mobile />
+          )}
+        </div>
+      )}
     </div>
   );
 }
