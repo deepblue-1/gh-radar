@@ -141,8 +141,10 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
     expect(await lines(page).nth(0).getAttribute('data-new')).toBeNull();
     await expect(lines(page).nth(1)).toHaveAttribute('data-new', '');
     await expect.poll(() => lines(page).nth(1).getAttribute('data-new'), { timeout: 6_000 }).toBeNull();
-    // 폴링 없음 — 마운트 1회
-    expect(restore.count()).toBe(1);
+    // 폴링 없음 — 마운트 1회 + (마운트 때 relay 가 아직 ready 가 아니었으면) 첫 ready 1회(WR-05 — 복원 ~ 인증 사이 누락 메우기).
+    // 위 강조 제거 대기(최대 6초) 동안 첫 ready 는 이미 지났다 — 그 뒤로 더 늘지 않는다.
+    expect(restore.count()).toBeGreaterThanOrEqual(1);
+    expect(restore.count()).toBeLessThanOrEqual(2);
   });
 
   test('P25-2 새 로그 배지 — 미체결 탭 활성 중 푸시 3 → 「주문로그 (3)」 · 탭 열면 괄호 없음', async ({ page }) => {
@@ -375,7 +377,8 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
     await expect(win(page).locator('[data-slot="order-log-popout"]')).toHaveCount(0);
     await expect(win(page).locator('[data-slot="order-log-date-next"]')).toBeDisabled();
     await expect(win(page).locator('[data-slot="order-log-date-today"]')).toHaveAttribute('aria-current', 'date');
-    expect(restore.urls).toEqual(['/api/strategy-events']);
+    // 마운트 조회 1회 + 첫 ready 1회(WR-05) — 창 분리는 새 wss 를 열어 마운트 때 relay 가 ready 가 아니다.
+    await expect.poll(() => [...restore.urls], { timeout: 15_000 }).toEqual(['/api/strategy-events', '/api/strategy-events']);
     await page.screenshot({ path: test.info().outputPath('p25-8-window-today-1280.png') });
 
     // ‹ 이전 날 — URL · 조회 1회 · 과거일 문구
@@ -388,7 +391,7 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
     await expect(win(page).locator('[data-slot="order-log-empty"]')).toContainText(
       '주말·휴장일이거나 주문·상한가 이벤트가 없던 날이에요',
     );
-    expect(restore.urls).toEqual(['/api/strategy-events', `/api/strategy-events?date=${yesterday}`]);
+    expect(restore.urls).toEqual(['/api/strategy-events', '/api/strategy-events', `/api/strategy-events?date=${yesterday}`]);
     await expect(page).toHaveTitle(`주문로그 · ${yesterday}`);
     await page.screenshot({ path: test.info().outputPath('p25-8-window-past-1280.png') });
     await expect(win(page).locator('[data-slot="order-log-date-today"]')).not.toHaveAttribute('aria-current', 'date');
@@ -402,7 +405,7 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
     await win(page).locator('[data-slot="order-log-date-today"]').click();
     await expect(page).not.toHaveURL(/[?&]date=/);
     await expect(winLines(page)).toHaveCount(3, { timeout: 15_000 });
-    expect(restore.urls).toHaveLength(3);
+    expect(restore.urls).toHaveLength(4);
 
     // 앱 셸 — 작업대의 창 분리 버튼은 보이지 않는다(T-25-42).
     const native = await page.context().newPage();

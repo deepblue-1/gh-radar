@@ -8,7 +8,7 @@ import { strategyEventKey, type StrategyEventRow } from '@gh-radar/shared';
  *
  * 잠그는 것:
  *  - 오늘: 마운트 조회 1회 · 복원 성공 뒤 도착한 batch 행만 newKeys(3초 뒤 빠짐) · 조회 실패 = error + 푸시 행 유지
- *  - retry() = 조회 1회 · relay ready 재진입 = 조회 1회(마운트 뒤 첫 ready 는 건너뜀) · 폴링 없음
+ *  - retry() = 조회 1회 · relay ready 전이 = 조회 1회(마운트 뒤 첫 ready 포함 — WR-05) · 마운트 때 ready 면 추가 조회 없음 · 폴링 없음
  *  - 과거일: 그 날짜로 조회 · 푸시 무시 · newKeys 비어 있음
  *  - useUnseenOrderLogCount: 가려진 동안 범위 안 batch 행 수 누적 · 보이면 0
  *
@@ -133,30 +133,86 @@ describe('useOrderLogFeed — 오늘', () => {
     expect(result.current.rows.map((r) => r.seq)).toEqual([exposed.seq, buy12451.seq]);
   });
 
-  it('relay ready 재진입 → 조회 1회 (마운트 뒤 첫 ready 는 건너뛴다)', async () => {
+  it('relay ready 전이 → 조회 1회 — 마운트 뒤 첫 ready 도 포함 · 재진입도 1회 · 폴링 없음 (WR-05)', async () => {
     mockRelay = { ...mockRelay, status: 'connecting' };
     fetchStrategyEventsMock.mockResolvedValue([]);
     const { rerender } = renderHook(() => useOrderLogFeed());
     await flush();
     expect(fetchStrategyEventsMock).toHaveBeenCalledTimes(1);
 
-    mockRelay = { ...mockRelay, status: 'ready' }; // 첫 ready — 건너뜀
+    mockRelay = { ...mockRelay, status: 'ready' }; // 첫 ready — 복원 ~ 인증 사이 누락을 메운다
     rerender();
     await flush();
-    expect(fetchStrategyEventsMock).toHaveBeenCalledTimes(1);
+    expect(fetchStrategyEventsMock).toHaveBeenCalledTimes(2);
+
+    // ready 유지 중 리렌더는 전이가 아니다.
+    rerender();
+    await flush();
+    expect(fetchStrategyEventsMock).toHaveBeenCalledTimes(2);
 
     mockRelay = { ...mockRelay, status: 'reconnecting' };
     rerender();
     mockRelay = { ...mockRelay, status: 'ready' }; // 재진입
     rerender();
     await flush();
-    expect(fetchStrategyEventsMock).toHaveBeenCalledTimes(2);
+    expect(fetchStrategyEventsMock).toHaveBeenCalledTimes(3);
 
     // 폴링 없음 — 시간이 흘러도 더 부르지 않는다.
     act(() => {
       vi.advanceTimersByTime(10 * 60_000);
     });
+    expect(fetchStrategyEventsMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('복원이 relay 인증보다 먼저 끝나 그 사이 적재된 이벤트는 첫 ready 재조회로 채워진다 — 누락 0 (WR-05)', async () => {
+    mockRelay = { ...mockRelay, status: 'connecting' };
+    // 마운트 조회: 그 시점 DB 에는 exposed 만 있다.
+    fetchStrategyEventsMock.mockResolvedValueOnce([exposed]);
+    const { result, rerender } = renderHook(() => useOrderLogFeed());
+    await flush();
+    expect(result.current.rows.map((r) => r.seq)).toEqual([exposed.seq]);
+
+    // 복원 응답 뒤 · 인증 전에 buy12451 이 적재됐다 — relay 는 재생하지 않으므로 푸시로는 오지 않는다.
+    fetchStrategyEventsMock.mockResolvedValueOnce([exposed, buy12451]);
+    mockRelay = { ...mockRelay, status: 'ready' };
+    rerender();
+    await flush();
+    expect(result.current.rows.map((r) => r.seq)).toEqual([exposed.seq, buy12451.seq]);
+    expect(result.current.status).toBe('ready');
+  });
+
+  it('마운트 조회가 진행 중일 때 첫 ready 가 오면 새로 조회하고 옛 응답은 버린다 (WR-05)', async () => {
+    mockRelay = { ...mockRelay, status: 'connecting' };
+    let resolveFirst: (rows: StrategyEventRow[]) => void = () => {};
+    fetchStrategyEventsMock.mockImplementationOnce(
+      () => new Promise<StrategyEventRow[]>((resolve) => { resolveFirst = resolve; }),
+    );
+    const { result, rerender } = renderHook(() => useOrderLogFeed());
+    await flush();
+    expect(fetchStrategyEventsMock).toHaveBeenCalledTimes(1);
+
+    fetchStrategyEventsMock.mockResolvedValueOnce([exposed, buy12451]);
+    mockRelay = { ...mockRelay, status: 'ready' };
+    rerender();
+    await flush();
     expect(fetchStrategyEventsMock).toHaveBeenCalledTimes(2);
+    expect(result.current.rows.map((r) => r.seq)).toEqual([exposed.seq, buy12451.seq]);
+
+    // 늦게 도착한 마운트 응답(인증 전 DB 읽기)은 버린다.
+    await act(async () => {
+      resolveFirst([exposed]);
+      await Promise.resolve();
+    });
+    expect(result.current.rows.map((r) => r.seq)).toEqual([exposed.seq, buy12451.seq]);
+  });
+
+  it('마운트 때 이미 ready 면 마운트 조회 1회뿐 — 추가 조회 없음 (WR-05)', async () => {
+    fetchStrategyEventsMock.mockResolvedValue([]);
+    const { rerender } = renderHook(() => useOrderLogFeed());
+    await flush();
+    rerender();
+    await flush();
+    expect(fetchStrategyEventsMock).toHaveBeenCalledTimes(1);
   });
 
   it('어제 거래일 푸시 행은 받지 않는다', async () => {

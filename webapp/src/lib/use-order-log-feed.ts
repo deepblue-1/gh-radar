@@ -6,9 +6,14 @@
  * ① 원천 둘: REST 하루치 복원(`fetchStrategyEvents` — `GET /api/strategy-events`) + relay 스토어 `strategyEvents`
  *   (`journal.events` 푸시 누적). 병합 · 오늘 경계는 순수 함수 `mergeStrategyEvents` 하나다.
  *
- * ② 복원은 **날짜별 1회** + `retry()` + relay 재인증(ready **재진입**) 때만 1회 — 폴링은 없다.
- *   ready 재진입 판정은 `today-orders-card.tsx` ⑦ 과 같다: 마운트 뒤 **첫** ready 는 마운트 조회와 같은 시점이라
- *   건너뛰고, ready 가 유지되는 동안의 리렌더는 전이가 아니다. 과거일은 푸시가 없어 재조회하지 않는다.
+ * ② 복원은 **날짜별 1회** + `retry()` + relay 인증(ready **로 전이**)마다 1회 — 폴링은 없다.
+ *   마운트 때 이미 ready 였으면 전이가 아니라 마운트 조회만 한다(조회가 인증 뒤라 빈틈이 없다). 마운트 때 ready 가
+ *   아니었으면(창 분리처럼 새 wss 를 여는 경우) **첫** ready 에서도 한 번 더 조회한다 (WR-05) — 마운트 조회와 relay
+ *   인증은 병렬이라, 조회가 DB 를 읽은 뒤 · 인증 전에 적재된 이벤트는 REST 에도 없고 `journal.events` 로도 오지 않는다
+ *   (relay 는 삽입 시점에 연결된 사용자에게만 밀고 재생하지 않는다). 조회가 아직 진행 중이어도 그 DB 읽기 시점이 인증
+ *   전일 수 있으므로 새로 조회한다(`reqRef` 가 옛 응답을 버린다). 겹친 줄은 병합이 키로 흡수한다. 오늘 주문 카드 ⑦ 은
+ *   첫 ready 를 건너뛰지만 `journalState` 전이 재조회라는 보완 경로가 따로 있다 — 주문로그에는 없다. ready 가 유지되는
+ *   동안의 리렌더는 전이가 아니다. 과거일은 푸시가 없어 재조회하지 않는다.
  *
  * ③ 과거일(창 분리 날짜 이동)은 그 날짜 조회 결과만 보인다 — 푸시 무시 · newKeys 없음 · latestPush null.
  *
@@ -97,17 +102,12 @@ export function useOrderLogFeed({ date: dateOpt }: { date?: string } = {}): Orde
     void load();
   }, [load]);
 
-  // ② relay 재인증(ready 재진입) — 오늘만.
-  const wasReadyRef = useRef(relayStatus === 'ready');
+  // ② relay 인증(ready 로 전이) — 오늘만. 마운트 뒤 첫 ready 도 포함한다(WR-05 — 복원 ~ 인증 사이 누락 메우기).
   const prevRelayRef = useRef(relayStatus);
   useEffect(() => {
     const prev = prevRelayRef.current;
     prevRelayRef.current = relayStatus;
     if (relayStatus !== 'ready' || prev === 'ready') return;
-    if (!wasReadyRef.current) {
-      wasReadyRef.current = true;
-      return;
-    }
     if (isToday) void load();
   }, [relayStatus, isToday, load]);
 
