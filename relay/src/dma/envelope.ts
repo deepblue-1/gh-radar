@@ -49,6 +49,7 @@ import type {
   RelayLcWatchSide,
   RelayLimitChaser,
   RelayLimitChaserInput,
+  RelayQueueProgressItem,
   RelayQueuedWindowMsg,
   RelayQuote,
   RelayRateCrossItem,
@@ -78,6 +79,7 @@ import { UnfilledState } from "../generated/stock-dma/unfilled-state.js";
 import { GetTradeTapeReq } from "../generated/stock-dma/get-trade-tape-req.js";
 import { LivePing } from "../generated/stock-dma/live-ping.js";
 import { LoginReq } from "../generated/stock-dma/login-req.js";
+import { QueueProgressItem } from "../generated/stock-dma/queue-progress-item.js";
 import { RateCrossAlert } from "../generated/stock-dma/rate-cross-alert.js";
 import type { LoginResp } from "../generated/stock-dma/login-resp.js";
 import { SubscribeQuoteReq } from "../generated/stock-dma/subscribe-quote-req.js";
@@ -147,6 +149,13 @@ export const MAX_JOURNAL_BATCH_RECORDS = 500;
 export const MAX_STRATEGY_BATCH_EVENTS = 500;
 /** 전략 이벤트 `snap_qty` · `snap_cum` 원소 상한. 계약은 즉시 · 1초 · 3초 = 최대 3 — 여유를 둔 폭주 방어선. */
 const MAX_STRATEGY_SNAP_COUNT = 16;
+/**
+ * 잔량진행률(83) 1프레임 항목 상한 (Phase 25 · T-25-27).
+ *
+ * 한 (isin, exchange) 의 대기 주문 전량이다 — 실사용은 계좌 수 × 전략 수라 한 자릿수~수십 건이다.
+ * 상한은 깨진 벡터 길이로 순회가 폭주하는 것만 막는다(초과분은 앞 N건 · `takeCount` 경고).
+ */
+export const MAX_QUEUE_PROGRESS_ITEMS = 200;
 /** 관찰자 로그인 응답(79) 계좌 매핑 상한 (T-19-33). users.toml 평탄화 행 수 — 실사용은 수십 행이다. */
 export const MAX_OBSERVER_ACCOUNT_COUNT = 1024;
 
@@ -723,6 +732,88 @@ export function parseQueuedWindowState(env: Envelope): RelayQueuedWindowMsg | nu
     g3Open: q.g3Open(),
     nxtPreopenOpen: q.nxtPreopenOpen(),
   };
+}
+
+/**
+ * 잔량진행률 항목 1건의 **relay 내부** 형태 — 공개 칸(`RelayQueueProgressItem`) + 주문자.
+ *
+ * `dmaUserId` 는 hub 가 계좌 필터 뒤 **캐시 전에 지운다**(T-19-08 · T-25-25). 파서가 미리 지우지 않는
+ * 이유: 파서는 수신 원문의 충실한 번역이고, 무엇을 내보낼지는 소유자를 아는 hub 가 정한다.
+ */
+export type QueueProgressWireItem = RelayQueueProgressItem & { dmaUserId: string };
+
+/** 잔량진행률 1프레임 (83) — 그 (isin, exchange) 의 대기 주문 **전량**. */
+export type QueueProgressFrame = {
+  isin: string;
+  exchange: RelayExchange;
+  /** `[]` = 그 종목 · 거래소의 대기 주문이 모두 사라졌다(G1 ⓕ) — 파싱 실패(`null`)와 다른 뜻이다. */
+  items: QueueProgressWireItem[];
+};
+
+/**
+ * 잔량진행률 (83 — `queue_progress` 슬롯 · Phase 25). **total** — 예외 없이 값 또는 `null`.
+ *
+ * - 슬롯 null · 종목/거래소 형식 이상 → `dropField` 후 `null`(그 프레임 전체를 모른다).
+ * - 항목 수는 `takeCount(MAX_QUEUE_PROGRESS_ITEMS)`.
+ * - 계좌 형식 이상(빈 값 · 12자 초과) 항목은 **건너뛰고** 프레임당 경고 1줄(건수 · 마스킹 표본)만 남긴다.
+ *   진행률은 seq 가 없는 전량 스냅샷이라 한 항목을 버려도 갭 루프가 생기지 않는다(관찰자 80 과 다르다) —
+ *   그리고 계좌가 없는 항목은 hub 계좌 필터를 어차피 통과할 수 없다.
+ * - 64비트 칸은 `toNum` 경계를 지난다(D-34). 값은 **계산하지 않는다** — 서버 진실 원본(T-25-28).
+ */
+export function parseQueueProgress(env: Envelope): QueueProgressFrame | null {
+  const msgType = MSG.QueueProgress;
+  const qp = env.queueProgress();
+  if (qp === null) return dropField("slot-null", msgType, { slot: "queue_progress" });
+
+  const isin = qp.isin() ?? "";
+  const exchange = qp.exchange() ?? "";
+  if (!isValidIsin(isin)) return dropField("bad-isin", msgType, { isin });
+  if (!isValidExchange(exchange)) return dropField("bad-exchange", msgType, { isin, exchange });
+
+  const n = takeCount(qp.itemsLength(), MAX_QUEUE_PROGRESS_ITEMS, "잔량진행률 항목");
+  const items: QueueProgressWireItem[] = [];
+  const scratch = new QueueProgressItem();
+  let skipped = 0;
+  let sampleAccount: string | null = null;
+  for (let i = 0; i < n; i += 1) {
+    const it = qp.items(i, scratch);
+    if (it === null) {
+      skipped += 1;
+      continue;
+    }
+    const accountNo = it.accountNo() ?? "";
+    if (!isValidAccountNo(accountNo)) {
+      skipped += 1;
+      sampleAccount ??= accountNo;
+      continue;
+    }
+    items.push({
+      accountNo,
+      dmaUserId: it.dmaUserId() ?? "",
+      orderNo: it.orderNo() ?? "",
+      exchange: it.exchange() ?? "",
+      isin: it.isin() ?? "",
+      group: it.group(),
+      expectedCum: toNum(it.expectedCum(), "queue_progress.expected_cum"),
+      currentCum: toNum(it.currentCum(), "queue_progress.current_cum"),
+      remainingVolume: toNum(it.remainingVolume(), "queue_progress.remaining_volume"),
+      progressBp: it.progressBp(),
+    });
+  }
+  if (skipped > 0) {
+    // 계좌번호 원문은 로그에 넣지 않는다(T-15-15) — 마스킹 표본과 길이만.
+    logger.warn(
+      {
+        isin,
+        exchange,
+        skipped,
+        sampleAccount: sampleAccount === null ? null : maskAccountNo(sampleAccount),
+        sampleLen: sampleAccount?.length ?? null,
+      },
+      "[DMA] 잔량진행률 항목 스킵 — 계좌 형식 이상 (진행률 항목)",
+    );
+  }
+  return { isin, exchange, items };
 }
 
 /**

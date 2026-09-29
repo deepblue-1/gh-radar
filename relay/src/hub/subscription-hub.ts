@@ -58,17 +58,20 @@
 import { EventEmitter } from "node:events";
 
 import type {
+  RelayAccount,
   RelayAccountState,
   RelayExchange,
   RelayLimitChaser,
   RelayOrderMsg,
   RelayOutbound,
+  RelayQueueProgressItem,
   RelayQueuedWindowMsg,
   RelayQuote,
   RelayRateCrossItem,
   RelaySubLevel,
   RelayTape,
   RelayTapeEntry,
+  RelayUnfProgressEntry,
   RelayViNoticeMsg,
   RelayViOrderItem,
   RelayViTrigger,
@@ -93,6 +96,7 @@ import {
   parseLimitChaserEcho,
   parseLimitChaserList,
   parseOrderResp,
+  parseQueueProgress,
   parseQueuedWindowState,
   parseQuoteState,
   parseRateCrossAlert,
@@ -105,6 +109,7 @@ import {
   parseViTrigger,
   type ParsedOrderResp,
   type ParsedSymbolMasterFrame,
+  type QueueProgressFrame,
   type QuoteLevelByte,
 } from "../dma/envelope.js";
 import { MSG } from "../dma/msg-type.js";
@@ -145,6 +150,15 @@ export interface HubSession {
   readonly userId: string;
   /** 운용 준비 여부. false 면 구독 프레임을 보내지 않는다. */
   readonly isReady: boolean;
+  /**
+   * 세션 허용 계좌 (Phase 25-06). `DmaSession.allowedAccounts` 가 구조적으로 만족한다 — 게이트웨이 응답과
+   * 대조된 목록이 유일한 근거다(T-16-01 동형).
+   *
+   * 잔량진행률(83)은 Broadcast 라 시세만 구독한 세션에도 **남의 계좌 항목**이 실린다(gh-trade D-19).
+   * hub 는 이 목록으로 항목을 거른 뒤에만 캐시 · 팬아웃한다. **없으면 진행률 항목을 전부 거른다**
+   * (fail-closed · T-19-02 동형 · T-25-24).
+   */
+  readonly allowedAccounts?: readonly RelayAccount[];
   /** 게이트웨이 요청 프레임 송신. */
   send(payload: Uint8Array): boolean;
   on(event: "frame", listener: (e: TransportFrameEvent) => void): unknown;
@@ -449,6 +463,14 @@ export class SubscriptionHub extends EventEmitter {
    * 와 **다른 상태**다. `#viTriggers` 의 3상태 규율과 같은 이유로 뭉개지 않는다.
    */
   readonly #queuedWindows = new Map<string, RelayQueuedWindowMsg>();
+  /**
+   * `${userId}|${isin}|${exchange}` (`subKey`) → 그 종목 · 거래소의 **허용 계좌** 대기 주문 진행률 전량 (25-06).
+   *
+   * 83 은 (isin, exchange) 단위 **전량 교체**다 — 병합하지 않는다. 빈 값은 키째 지운다(「그 종목 · 거래소
+   * 대기 주문 전부 사라짐」 G1 ⓕ). 항목은 세션 허용 계좌로 거르고 주문자(`dmaUserId`)를 뺀 공개 칸만
+   * 담는다(T-25-24 · T-25-25). 값은 서버 원본 그대로다 — relay 는 진행률을 계산하지 않는다.
+   */
+  readonly #queueProgress = new Map<string, RelayQueueProgressItem[]>();
   /**
    * `#onFrame` 의 `default:` 도달 누적 수 (17-03 / T-17-10).
    *
@@ -800,6 +822,24 @@ export class SubscriptionHub extends EventEmitter {
     return this.#queuedWindows.get(userId);
   }
 
+  /**
+   * 그 사용자에게 보이는 잔량진행률 전량 (25-06) — 인증 직후 `unf.progress` snap:true 의 원천.
+   *
+   * 캐시에는 비어 있지 않은 키만 있다(빈 값은 키째 지운다). 반환은 사본이다 — 소비자가 배열을 고쳐도
+   * 캐시가 바뀌지 않는다. `[]` 는 「보이는 대기 주문 없음」이고 인증 경로는 그것도 1프레임으로 내린다.
+   */
+  getQueueProgressEntries(userId: string): RelayUnfProgressEntry[] {
+    const prefix = userPrefix(userId);
+    const out: RelayUnfProgressEntry[] = [];
+    for (const [key, items] of this.#queueProgress) {
+      if (!key.startsWith(prefix) || items.length === 0) continue;
+      const parsed = this.#splitKey(key);
+      if (parsed === null) continue;
+      out.push({ i: parsed.isin, x: parsed.exchange, items: [...items] });
+    }
+    return out;
+  }
+
   /** 마지막 호가 스냅샷. 있으면 브라우저에 즉시 내려 깜빡임을 없앤다. */
   getSnapshot(userId: string, isin: string, exchange: RelayExchange): RelayQuote | undefined {
     return this.#quotes.get(subKey(userId, isin, exchange));
@@ -955,6 +995,7 @@ export class SubscriptionHub extends EventEmitter {
     this.#viOrders.clear();
     this.#rateCrossItems.clear();
     this.#queuedWindows.clear();
+    this.#queueProgress.clear();
   }
 
   // ----------------------------------------------------------
@@ -1066,6 +1107,13 @@ export class SubscriptionHub extends EventEmitter {
       case MSG.QueuedWindowState: {
         const state = parseQueuedWindowState(e.env);
         if (state !== null) this.#onQueuedWindow(userId, session, state);
+        return;
+      }
+      case MSG.QueueProgress: {
+        // 화이트리스트와 **같은 커밋**의 명시 case 다(PC-12 · 25-06). 83 은 Broadcast 라 시세만 구독한
+        // 세션에도 **남의 계좌 항목**을 싣는다(gh-trade D-19) — 계좌 필터는 아래 핸들러가 캐시 전에 한다.
+        const frame = parseQueueProgress(e.env);
+        if (frame !== null) this.#onQueueProgress(userId, session, frame);
         return;
       }
       case MSG.VIOrderNotice: {
@@ -1188,6 +1236,46 @@ export class SubscriptionHub extends EventEmitter {
     this.#queuedWindows.set(userId, state);
     if (!session.isReady) return;
     this.#fanout(userId, state);
+  }
+
+  /**
+   * 잔량진행률 (83) — (isin, exchange) 키 **전량 교체** (25-06 · 77 패턴).
+   *
+   * 1. **계좌 필터가 먼저다.** 세션 허용 계좌 Set 에 없는 항목은 버리고, 주문자(`dmaUserId`)를 뺀 공개
+   *    칸만 남긴다(T-25-24 · T-25-25). 허용 목록이 없으면 전부 거른다(fail-closed).
+   * 2. 이전 값이 없거나 비었고 새 값도 비면 **아무것도 하지 않는다** — 83 은 종목마다 1초 스로틀로
+   *    오므로 빈→빈 팬아웃은 순수 소음이다(T-25-27). 비어 있지 않던 키가 비면 한 번 보낸다(삭제 신호 —
+   *    계좌 분기가 이전 스냅샷 계좌에도 빈 스냅샷을 보내는 이유가 이것이다).
+   * 3. 캐시는 Ready 와 무관하게 갱신하고, 팬아웃은 Ready 세션에만 한다 — 인증 직후 스냅이 그 사이 값을
+   *    내린다(76/77 규율).
+   *
+   * 같은 세션이 계좌 선언과 시세 구독을 함께 하면 같은 83 이 두 번 올 수 있다 — 전량 교체라 결과가
+   * 같다(멱등). 중복 제거는 하지 않는다.
+   */
+  #onQueueProgress(userId: string, session: HubSession, frame: QueueProgressFrame): void {
+    const allowed = new Set((session.allowedAccounts ?? []).map((a) => a.accountNo));
+    const items: RelayQueueProgressItem[] = [];
+    for (const it of frame.items) {
+      if (!allowed.has(it.accountNo)) continue;
+      items.push({
+        accountNo: it.accountNo,
+        orderNo: it.orderNo,
+        exchange: it.exchange,
+        isin: it.isin,
+        group: it.group,
+        expectedCum: it.expectedCum,
+        currentCum: it.currentCum,
+        remainingVolume: it.remainingVolume,
+        progressBp: it.progressBp,
+      });
+    }
+    const key = subKey(userId, frame.isin, frame.exchange);
+    const prev = this.#queueProgress.get(key);
+    if ((prev === undefined || prev.length === 0) && items.length === 0) return;
+    if (items.length === 0) this.#queueProgress.delete(key);
+    else this.#queueProgress.set(key, items);
+    if (!session.isReady) return;
+    this.#fanout(userId, { t: "unf.progress", snap: false, i: frame.isin, x: frame.exchange, items: [...items] });
   }
 
   /** 시세는 **배치하지 않는다** — 업스트림 100ms 코얼레싱을 그대로 통과시킨다 (D-35). */
@@ -1679,6 +1767,11 @@ export class SubscriptionHub extends EventEmitter {
     // 예약창도 버린다 — 키가 userId 자체이므로 지우면 `getQueuedWindow` 가 다시
     // `undefined`(모름)가 되고, 새 세션의 77 이 올 때까지 아무 프레임도 내리지 않는다.
     this.#queuedWindows.delete(userId);
+    // 잔량진행률도 버린다 — 77 · 78 이 여기 있는 것과 같은 이유다(RESEARCH Pitfall 6 · T-25-26). 남기면
+    // 세션 교체 뒤 인증 직후 스냅이 이미 사라진 대기 주문의 진행률을 그린다. 새 세션의 83 이 다시 채운다.
+    for (const key of [...this.#queueProgress.keys()]) {
+      if (key.startsWith(prefix)) this.#queueProgress.delete(key);
+    }
     const timer = this.#flushTimers.get(userId);
     if (timer !== undefined) {
       clearTimeout(timer);

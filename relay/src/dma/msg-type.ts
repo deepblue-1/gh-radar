@@ -39,6 +39,15 @@
  *   (`default:` 로 떨어져 `unhandledFrameCount()` 를 올리지 않는다). 요청 **5 `ObserverLoginReq`** 는 C→S 라
  *   화이트리스트에 넣지 않는다.
  *
+ *   25-06 이 잔량진행률 푸시 **83 `QueueProgress`** 를 더한다(26종 — gh-trade Phase 25 G1 · fbs 5f49cfa5).
+ *   하류 책임은 이렇다 — 파서는 `envelope.ts` 의 `parseQueueProgress` 이고, `SubscriptionHub.#onFrame` 에
+ *   **명시 `case`** 가 있다. 그 case 가 **세션 허용 계좌**(`HubSession.allowedAccounts`)로 항목을 거르고
+ *   주문자(`dma_user_id`)를 지운 뒤 (isin, exchange) 키로 **전량 교체** 캐시하고, Ready 세션에만
+ *   브라우저 `{t:"unf.progress"}` 로 팬아웃한다. 83 은 **Broadcast** 이고 계좌를 선언한 세션(relay 사용자
+ *   세션 포함 — UpdateAccountNoReq 선언 ∩ users.toml 허용)과 그 종목을 시세 구독한 세션에 오므로
+ *   (gh-trade D-19), 시세만 구독한 세션에는 **남의 계좌 항목**이 실린다 — 계좌 필터가 핵심 방어선이다.
+ *   화이트리스트와 명시 case 는 **같은 커밋**이다(PC-12).
+ *
  *   quick-260923-cqj 가 **57 `SymbolMasterResp`** 를 더한다(23종). 당일 신규상장 종목은 Supabase
  *   `stocks` 에 아직 없어서(KRX 가 전 영업일 데이터를 다음 영업일 08:00 에 공개한다) 이름을 못
  *   풀었다. 57 은 그 미스를 채우는 **보조 이름 원천**이다. 하류 책임은 이렇다 — 파서는 `envelope.ts`
@@ -56,8 +65,8 @@
  *   - 26/68 (Reconcile) · 30/31/70 (NXT 전용 상따) 도 v1 범위 밖이다.
  *   - 39/81/82 사용자 세션 전략 이벤트 경로(백필 · 푸시)는 쓰지 않는다 — 전략 이벤트 정본은 관찰자 80
  *     경로다(Phase 25 CONTEXT 재량 · Deferred). 81/82 는 호가를 구독한 세션에 Notice 로 쏟아지므로
- *     debug 드롭이다(RESEARCH Pitfall 5). 83 `QueueProgress` 는 25-06 이 `INBOUND_MSG_TYPES` · hub 명시
- *     case 를 한 커밋으로 넣는다 — 그 전까지는 정체불명과 같은 warn 드롭이다.
+ *     debug 드롭이다(RESEARCH Pitfall 5). 83 `QueueProgress` 는 25-06 부터 `INBOUND_MSG_TYPES` · hub 명시
+ *     case 로 받는다(위 「유입 집합」 참조) — 이 목록에 없다.
  *
  *   ★ **이 목록이 바뀌면 아래 `OUT_OF_SCOPE_INBOUND_MSG_TYPES` 도 같이 바꾼다.** 주석과 상수가
  *     어긋나면 로그 레벨이 조용히 틀어지고, 그 틀어짐은 「경고가 안 뜬다」로만 드러나
@@ -73,7 +82,7 @@
 /**
  * relay 가 사용하는 `msg_type` 값. 생성 코드 `stock-dma/msg-type.ts` 의 부분집합이다.
  *
- * 요청(C→S)은 1~38, 응답/푸시(S→C)는 50~80 대역이다.
+ * 요청(C→S)은 1~38, 응답/푸시(S→C)는 50~83 대역이다.
  */
 export const MSG = {
   // --- 요청 (relay → 게이트웨이) ---
@@ -182,6 +191,12 @@ export const MSG = {
   ObserverLoginResp: 79,
   /** 주문 저널 배치 (`journal_batch` 슬롯). 관찰자 연결 전용 · gh-radar 19 D-09 — 관찰자 연결에만 Notice + 펌프 스로틀. */
   JournalBatch: 80,
+  /**
+   * 잔량진행률 (`queue_progress` 슬롯 · Phase 25). **Broadcast** · (isin, exchange) 당 1초 스로틀 ·
+   * 그 종목 · 거래소 대기 주문 **전량**(빈 벡터 = 전부 사라짐). 수신 = 계좌를 선언한 세션 + 그 종목을
+   * 시세 구독한 세션(gh-trade D-19) — 남의 계좌 항목이 실릴 수 있어 **계좌 필터는 hub** 가 한다.
+   */
+  QueueProgress: 83,
 } as const;
 
 /** `MSG` 의 값 유니온. */
@@ -198,7 +213,7 @@ export type MsgTypeValue = (typeof MSG)[keyof typeof MSG];
  * 이 7종의 하류 처리 책임을 명시한다 — 넓힌 만큼 명시 `case` 로 받는 것이 조건이다.
  *
  * ★ 17-03 이 76·77·78 을 더해 **22종**이 됐다. quick-260923-cqj 가 57 을 더해 **23종**, 19-09 가 관찰자
- *   응답 79·80 을 더해 **25종**이다. 이 집합은
+ *   응답 79·80 을 더해 **25종**, 25-06 이 잔량진행률 83 을 더해 **26종**이다. 이 집합은
  *   `SubscriptionHub.#onFrame` 의 명시 `case` 와 **한 커밋에서만** 함께 자란다 — 번호 하나를
  *   먼저 넣고 case 를 다음 커밋으로 미루면 그 사이의 빌드에서 프레임이 `default:` 로 조용히
  *   떨어져 「조용히 사라지는 프레임 0」(PC-12) 불변식이 깨진다.
@@ -229,6 +244,7 @@ export const INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
   MSG.RateCrossSnapshot,
   MSG.ObserverLoginResp,
   MSG.JournalBatch,
+  MSG.QueueProgress,
 ]);
 
 /**
