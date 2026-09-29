@@ -18,6 +18,7 @@ import type { RelayJournalStateMsg } from "@gh-radar/shared";
 import { JournalObserver, OBSERVER_CLIENT_NAME } from "../src/journal/observer.js";
 import { JournalStatus } from "../src/journal/status.js";
 import { JournalWriter } from "../src/journal/writer.js";
+import { createStrategyWriter } from "../src/journal/strategy-stream.js";
 import { createOrderApi } from "../src/order/order-api.js";
 import type { TransportFrameEvent } from "../src/dma/dma-client.js";
 import type {
@@ -27,7 +28,9 @@ import type {
   ObserverFrame,
   ObserverLoginResult,
   ObserverTransport,
+  StrategyEventRecord,
 } from "../src/journal/types.js";
+import { fakeStrategyEventRecord } from "./helpers/frames.js";
 
 const SECRET = "observer-secret-DO-NOT-LOG-7f3a";
 const GATEWAY = "KB";
@@ -103,12 +106,20 @@ class FakeCodec implements JournalCodec {
   }
 }
 
-type CursorRow = { journal_epoch: string; last_seq: number };
+/** 커서 행 — 전략 칸(Phase 25)은 선택. 두 기록기가 같은 행을 각자 칸으로 읽는다. */
+type CursorRow = {
+  journal_epoch: string;
+  last_seq: number;
+  strategy_journal_epoch?: string | null;
+  strategy_last_seq?: number;
+};
 
 type FakeDb = {
   supabase: SupabaseClient;
   cursorReads: () => number;
   applies: () => number;
+  /** `dma_strategy_apply` 호출 수(Phase 25). */
+  strategyApplies: () => number;
   /** 적용 RPC 를 멈춰 둔다(큐 상한 시나리오). */
   holdApplies: () => void;
 };
@@ -116,6 +127,7 @@ type FakeDb = {
 function fakeDb(opts: { cursor?: CursorRow | null; cursorErrors?: number } = {}): FakeDb {
   let cursorReads = 0;
   let applies = 0;
+  let strategyApplies = 0;
   let hold = false;
   let cursorErrors = opts.cursorErrors ?? 0;
   const supabase = {
@@ -134,8 +146,9 @@ function fakeDb(opts: { cursor?: CursorRow | null; cursorErrors?: number } = {})
       }),
     }),
     rpc: (fn: string, args: Record<string, unknown>) => {
-      if (fn !== "dma_journal_apply") return Promise.resolve({ data: null, error: { message: `unknown ${fn}` } });
-      applies += 1;
+      if (fn === "dma_strategy_apply") strategyApplies += 1;
+      else if (fn === "dma_journal_apply") applies += 1;
+      else return Promise.resolve({ data: null, error: { message: `unknown ${fn}` } });
       if (hold) return new Promise(() => undefined);
       const events = args.p_events as Array<{ seq: number }>;
       return Promise.resolve({
@@ -148,6 +161,7 @@ function fakeDb(opts: { cursor?: CursorRow | null; cursorErrors?: number } = {})
     supabase,
     cursorReads: () => cursorReads,
     applies: () => applies,
+    strategyApplies: () => strategyApplies,
     holdApplies: () => {
       hold = true;
     },
@@ -232,6 +246,8 @@ type Rig = {
   codec: FakeCodec;
   db: FakeDb;
   writer: JournalWriter;
+  /** 전략 기록기(Phase 25) — `rig({ strategy })` 일 때만. */
+  strategyWriter: ReturnType<typeof createStrategyWriter> | undefined;
   access: { replace: ReturnType<typeof vi.fn> };
   observer: JournalObserver;
   status: JournalStatus;
@@ -241,17 +257,31 @@ type Rig = {
 
 const rigs: Rig[] = [];
 
-function rig(opts: { secret?: string | undefined; cursor?: CursorRow | null; cursorErrors?: number; maxQueue?: number } = {}): Rig {
+function rig(
+  opts: {
+    secret?: string | undefined;
+    cursor?: CursorRow | null;
+    cursorErrors?: number;
+    maxQueue?: number;
+    /** 전략 기록기를 같은 fakeDb 위에 붙인다(Phase 25). 생략하면 전략 스트림 없음(구 동작). */
+    strategy?: { maxQueue?: number };
+  } = {},
+): Rig {
   const transport = new FakeTransport();
   const codec = new FakeCodec();
   const db = fakeDb({ cursor: opts.cursor, cursorErrors: opts.cursorErrors });
   const writer = new JournalWriter({ supabase: db.supabase, gateway: GATEWAY, maxQueue: opts.maxQueue });
+  const strategyWriter =
+    opts.strategy !== undefined
+      ? createStrategyWriter({ supabase: db.supabase, gateway: GATEWAY, maxQueue: opts.strategy.maxQueue })
+      : undefined;
   const access = { replace: vi.fn() };
   const observer = new JournalObserver({
     secret: "secret" in opts ? opts.secret : SECRET,
     gateway: GATEWAY,
     codec,
     writer,
+    ...(strategyWriter !== undefined ? { strategyWriter } : {}),
     access,
     transport,
     host: "127.0.0.1",
@@ -262,7 +292,7 @@ function rig(opts: { secret?: string | undefined; cursor?: CursorRow | null; cur
   // 부팅 결선(19-10)과 같은 모양 — 상태 프레임 → fanout.deliverJournalState.
   const deliverJournalState = vi.fn((f: RelayJournalStateMsg) => frames.push(f));
   status.on("frame", (f) => deliverJournalState(f));
-  const r = { transport, codec, db, writer, access, observer, status, frames, deliverJournalState };
+  const r = { transport, codec, db, writer, strategyWriter, access, observer, status, frames, deliverJournalState };
   rigs.push(r);
   return r;
 }
@@ -271,6 +301,7 @@ afterEach(() => {
   for (const r of rigs) {
     r.status.close();
     r.writer.close();
+    r.strategyWriter?.close();
   }
   rigs.length = 0;
   vi.useRealTimers();
@@ -719,6 +750,214 @@ describe("seq 역행 방어 — 같은 epoch 인데 게이트웨이 head 가 받
     expect(r.writer.lastReceivedSeq).toBe(10);
     expect(r.observer.state).toBe("live");
     expect(countLogs(logs, "error", "저널 seq 역행")).toBe(0);
+  });
+});
+
+// ============================================================
+// Phase 25 — 두 스트림 경계 (25-02 Task 1)
+// ============================================================
+
+/** 80 두 스트림 배치 — 주문 레코드 · 전략 이벤트를 seq 목록으로. */
+function batch2(opts: {
+  records?: number[];
+  headSeq?: number;
+  caughtUp?: boolean;
+  strategy?: number[];
+  strategyHeadSeq?: number;
+  strategyCaughtUp?: boolean;
+}): ObserverFrame {
+  const records = opts.records ?? [];
+  const strategy = opts.strategy ?? [];
+  const strategyEvents: StrategyEventRecord[] = strategy.map((seq) => fakeStrategyEventRecord({ seq }));
+  return {
+    k: "batch",
+    batch: {
+      records: records.map(record),
+      headSeq: opts.headSeq ?? records[records.length - 1] ?? 0,
+      caughtUp: opts.caughtUp ?? true,
+      strategyEvents,
+      strategyHeadSeq: opts.strategyHeadSeq ?? strategy[strategy.length - 1] ?? 0,
+      strategyCaughtUp: opts.strategyCaughtUp ?? true,
+    },
+  };
+}
+
+function strategyOf(r: Rig): NonNullable<Rig["strategyWriter"]> {
+  if (r.strategyWriter === undefined) throw new Error("rig({ strategy }) 로 만들어야 한다");
+  return r.strategyWriter;
+}
+
+describe("두 스트림 (Phase 25) — 전략 갭 · resync · 구 게이트웨이 · 두 pending · 주문 먼저 · since epoch 짝", () => {
+  it("두 스트림 since epoch 짝 — 전략 epoch = 주문 epoch 면 전략 마지막 수신 7 · 옛 epoch(ep-0)면 0 · 전략 기록기 없으면 0", async () => {
+    const same = rig({
+      cursor: { journal_epoch: "ep-1", last_seq: 10, strategy_journal_epoch: "ep-1", strategy_last_seq: 7 },
+      strategy: {},
+    });
+    await bootToLogin(same);
+    expect(same.codec.logins[0]).toEqual({
+      secret: SECRET,
+      sinceSeq: 10,
+      epoch: "ep-1",
+      client: OBSERVER_CLIENT_NAME,
+      strategySinceSeq: 7,
+    });
+
+    // 옛 epoch 의 전략 seq 를 새 epoch 와 짝지으면 게이트웨이가 새 구간 앞부분을 건너뛴다(RESEARCH Pitfall 3).
+    const stale = rig({
+      cursor: { journal_epoch: "ep-1", last_seq: 10, strategy_journal_epoch: "ep-0", strategy_last_seq: 7 },
+      strategy: {},
+    });
+    await bootToLogin(stale);
+    expect(stale.codec.logins[0]).toMatchObject({ sinceSeq: 10, epoch: "ep-1", strategySinceSeq: 0 });
+
+    // 전략 기록기 미주입 — 커서 행에 전략 칸이 있어도 전략 since 는 0(구 동작).
+    const none = rig({
+      cursor: { journal_epoch: "ep-1", last_seq: 10, strategy_journal_epoch: "ep-1", strategy_last_seq: 7 },
+    });
+    await bootToLogin(none);
+    expect(none.codec.logins[0]).toMatchObject({ sinceSeq: 10, epoch: "ep-1", strategySinceSeq: 0 });
+  });
+
+  it("두 스트림 두 pending — 주문 caught_up 이어도 전략 caught_up 전에는 replaying · 다음 배치 전략 caught_up 에서 live", async () => {
+    const r = rig({
+      cursor: { journal_epoch: "ep-1", last_seq: 10, strategy_journal_epoch: "ep-1", strategy_last_seq: 0 },
+      strategy: {},
+    });
+    await bootToLogin(r);
+    r.transport.frame(
+      loginOk({ epoch: "ep-1", headSeq: 10, oldestSeq: 1, resync: false, strategyHeadSeq: 5, strategyOldestSeq: 1, strategyResync: false }),
+    );
+    // 주문은 이미 head(10)까지 받았다 — 전략(head 5 · 수신 0)만 밀려 있다.
+    expect(r.observer.state).toBe("replaying");
+    expect(r.observer.strategyHeadSeq).toBe(5);
+
+    r.transport.frame(batch2({ records: [], headSeq: 10, caughtUp: true, strategy: [], strategyHeadSeq: 5, strategyCaughtUp: false }));
+    expect(r.observer.state).toBe("replaying");
+
+    r.transport.frame(batch2({ records: [], headSeq: 10, caughtUp: true, strategy: [1, 2, 3, 4, 5], strategyCaughtUp: true }));
+    expect(r.transport.drops).toEqual([]);
+    expect(r.observer.state).toBe("live");
+    expect(strategyOf(r).lastReceivedSeq).toBe(5);
+    expect(r.writer.lastReceivedSeq).toBe(10);
+    expectOnlyLogins(r);
+  });
+
+  it("두 스트림 구 게이트웨이 — 로그인 전략 0/0/false · 배치 전략 빈 벡터 · strategy caught_up false 여도 주문 caught_up 만으로 live", async () => {
+    const r = rig({ strategy: {} });
+    await bootToLogin(r);
+    r.transport.frame(loginOk({ headSeq: 1, strategyHeadSeq: 0, strategyOldestSeq: 0, strategyResync: false }));
+    expect(r.observer.state).toBe("replaying"); // 주문 pending 만
+
+    // 구 게이트웨이 프레임은 전략 필드가 없다 → 코덱이 빈 벡터 · head 0 · caught_up false 로 푼다(실 TCP 는 journal-gateway).
+    r.transport.frame(batch2({ records: [1], headSeq: 1, caughtUp: true, strategy: [], strategyHeadSeq: 0, strategyCaughtUp: false }));
+    expect(r.observer.state).toBe("live");
+    expect(r.transport.drops).toEqual([]);
+    expect(strategyOf(r).lastReceivedSeq).toBeNull();
+    await flush();
+    expect(r.db.strategyApplies()).toBe(0);
+  });
+
+  it("두 스트림 전략 갭 — 전략 수신 3 에서 [5] → 「전략 seq 갭」 끊기 · 재로그인 strategySinceSeq 3 · 주문 커서 불변", async () => {
+    const logs = await spyLogs();
+    const r = rig({
+      cursor: { journal_epoch: "ep-1", last_seq: 10, strategy_journal_epoch: "ep-1", strategy_last_seq: 3 },
+      strategy: {},
+    });
+    await bootToLogin(r);
+    expect(r.codec.logins[0]).toMatchObject({ sinceSeq: 10, strategySinceSeq: 3 });
+    r.transport.frame(
+      loginOk({ epoch: "ep-1", headSeq: 10, oldestSeq: 1, resync: false, strategyHeadSeq: 5, strategyOldestSeq: 1, strategyResync: false }),
+    );
+    expect(r.observer.state).toBe("replaying");
+
+    r.transport.frame(batch2({ records: [], headSeq: 10, caughtUp: true, strategy: [5], strategyCaughtUp: true })); // 4 가 빠졌다
+    expect(r.transport.drops).toEqual(["전략 seq 갭"]);
+    expect(r.observer.state).toBe("connecting");
+    expect(strategyOf(r).lastReceivedSeq).toBe(3);
+    expect(r.writer.lastReceivedSeq).toBe(10);
+    // 기록기 로그에 스트림 문맥이 붙는다 — 주문 갭과 운영 판독이 섞이지 않는다.
+    const gapLog = logs.find((c) => c.level === "error" && c.args.some((a) => typeof a === "string" && a.includes("seq 갭 — 연결을 끊고")));
+    expect(gapLog?.args[0]).toMatchObject({ stream: "strategy", expected: 4, got: 5 });
+
+    r.transport.down();
+    r.transport.up();
+    expect(r.codec.logins[1]).toEqual({
+      secret: SECRET,
+      sinceSeq: 10,
+      epoch: "ep-1",
+      client: OBSERVER_CLIENT_NAME,
+      strategySinceSeq: 3,
+    });
+    expectOnlyLogins(r);
+    expectNoSecret(logs);
+  });
+
+  it("두 스트림 전략 overflow — 전략 maxQueue 2 · 이벤트 3건 → 「전략 큐 상한」 · 주문분은 적재됨", async () => {
+    const r = rig({ strategy: { maxQueue: 2 } });
+    r.db.holdApplies(); // 적용이 멈춰 큐가 빠지지 않는다
+    await bootToLogin(r);
+    r.transport.frame(loginOk({ headSeq: 1, strategyHeadSeq: 3, strategyOldestSeq: 1, strategyResync: false }));
+    expect(r.observer.state).toBe("replaying");
+
+    r.transport.frame(batch2({ records: [1], headSeq: 1, caughtUp: true, strategy: [1, 2, 3], strategyCaughtUp: true }));
+    expect(r.transport.drops).toEqual(["전략 큐 상한"]);
+    expect(r.observer.state).toBe("connecting");
+    expect(strategyOf(r).queueDepth).toBe(0);
+    expect(strategyOf(r).lastReceivedSeq).toBeNull();
+    // 주문 push 는 먼저 끝났다(주문 먼저) — 재로그인은 주문 since 1 · 전략 since 0.
+    expect(r.writer.lastReceivedSeq).toBe(1);
+    r.transport.up();
+    expect(r.codec.logins[1]).toMatchObject({ sinceSeq: 1, epoch: "ep-1", strategySinceSeq: 0 });
+    expectOnlyLogins(r);
+  });
+
+  it("두 스트림 주문 먼저 — 주문 갭이 있는 프레임의 전략 이벤트는 기록기에 들어가지 않는다(「저널 seq 갭」 · 전략 큐 0)", async () => {
+    const r = rig({ strategy: {} });
+    await bootToLogin(r);
+    r.transport.frame(loginOk({ headSeq: 5, strategyHeadSeq: 1, strategyOldestSeq: 1, strategyResync: false }));
+    r.transport.frame(batch2({ records: [1, 2], headSeq: 5, caughtUp: false, strategy: [], strategyHeadSeq: 1, strategyCaughtUp: false }));
+    expect(r.observer.state).toBe("replaying");
+
+    r.transport.frame(batch2({ records: [4], headSeq: 5, caughtUp: false, strategy: [1], strategyCaughtUp: true })); // 주문 3 이 빠졌다
+    expect(r.transport.drops).toEqual(["저널 seq 갭"]);
+    expect(r.observer.state).toBe("connecting");
+    expect(strategyOf(r).queueDepth).toBe(0);
+    expect(strategyOf(r).lastReceivedSeq).toBeNull();
+    await flush();
+    expect(r.db.strategyApplies()).toBe(0);
+    // 재로그인 since 로 다시 받는다 — 주문 2 · 전략 0(아직 이 프레임을 보지 않았다).
+    r.transport.up();
+    expect(r.codec.logins[1]).toMatchObject({ sinceSeq: 2, strategySinceSeq: 0 });
+  });
+
+  it("두 스트림 strategy_resync · strategy_oldest 0 → 전략 마지막 수신 비움(error 로그 · stream strategy) · 전략 pending 없음 → 즉시 live · 다음 전략 이벤트 수용", async () => {
+    const logs = await spyLogs();
+    const r = rig({
+      cursor: { journal_epoch: "ep-1", last_seq: 10, strategy_journal_epoch: "ep-1", strategy_last_seq: 7 },
+      strategy: {},
+    });
+    await bootToLogin(r);
+    expect(strategyOf(r).lastReceivedSeq).toBe(7);
+
+    r.transport.frame(
+      loginOk({ epoch: "ep-1", headSeq: 10, oldestSeq: 1, resync: false, strategyHeadSeq: 9, strategyOldestSeq: 0, strategyResync: true }),
+    );
+    expect(strategyOf(r).lastReceivedSeq).toBeNull();
+    expect(strategyOf(r).epoch).toBe("ep-1");
+    // 주문 커서는 영향받지 않는다(resync 는 스트림별 · G1 ⓑ).
+    expect(r.writer.lastReceivedSeq).toBe(10);
+    expect(r.observer.state).toBe("live");
+    const resyncLogs = logs.filter((c) => c.level === "error" && c.args.some((a) => typeof a === "string" && a.includes("저널 재동기화")));
+    expect(resyncLogs).toHaveLength(1);
+    expect(resyncLogs[0]?.args[0]).toMatchObject({ stream: "strategy", resync: true });
+
+    // 새 구간 첫 이벤트(head+1)는 갭 판정 없이 받는다.
+    r.transport.frame(batch2({ records: [], headSeq: 10, caughtUp: true, strategy: [10], strategyCaughtUp: true }));
+    expect(r.transport.drops).toEqual([]);
+    expect(strategyOf(r).lastReceivedSeq).toBe(10);
+    expect(r.observer.state).toBe("live");
+    expectOnlyLogins(r);
+    expectNoSecret(logs);
   });
 });
 

@@ -7,7 +7,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { JournalOrderDbRow } from "@gh-radar/shared";
+import { toStrategyEventRow } from "@gh-radar/shared";
+import type { JournalOrderDbRow, StrategyEventDbRow, StrategyEventRow } from "@gh-radar/shared";
 
 import { logger } from "../src/logger.js";
 import {
@@ -17,7 +18,9 @@ import {
   type JournalApplyEvent,
   type JournalWriterDeps,
 } from "../src/journal/writer.js";
-import type { JournalRecord, JournalWriterHealth } from "../src/journal/types.js";
+import { STRATEGY_STREAM, createStrategyWriter, type StrategyApplyEvent } from "../src/journal/strategy-stream.js";
+import type { JournalRecord, JournalWriterHealth, StrategyEventRecord } from "../src/journal/types.js";
+import { fakeStrategyEventRecord } from "./helpers/frames.js";
 
 const GATEWAY = "KB";
 
@@ -36,7 +39,7 @@ type Step = "ok" | "error" | "throw" | "hold";
 
 type CursorResponse = { data: unknown; error: unknown };
 
-function fakeDb(opts: { cursor?: CursorResponse; defaultStep?: Step } = {}) {
+function fakeDb(opts: { cursor?: CursorResponse; defaultStep?: Step; rowsOf?: (events: JournalApplyEvent[]) => unknown[] } = {}) {
   const calls: RpcCall[] = [];
   const script: Step[] = [];
   const holds: Array<() => void> = [];
@@ -50,7 +53,7 @@ function fakeDb(opts: { cursor?: CursorResponse; defaultStep?: Step } = {}) {
       skipped: 0,
       errors: [],
       last_seq: events.length > 0 ? String(Math.max(...events.map((e) => e.seq))) : 0,
-      rows: [] as JournalOrderDbRow[],
+      rows: (opts.rowsOf?.(events) ?? []) as JournalOrderDbRow[],
     },
     error: null,
   });
@@ -433,5 +436,145 @@ describe("JournalWriter", () => {
     await vi.advanceTimersByTimeAsync(60_000);
     await flush();
     expect(db.calls).toHaveLength(1);
+  });
+});
+
+// ============================================================
+// Phase 25 — 전략 스트림 서술자 (25-02 Task 1)
+// ============================================================
+
+/** 적용 RPC 가 전략 이벤트 1건을 공개 행으로 되돌리는 가짜 — `dma_user_id` 를 빼고 게이트웨이 · epoch · 종목코드를 붙인다. */
+function strategyDbRowOf(ev: StrategyApplyEvent, epoch: string): StrategyEventDbRow {
+  const { dma_user_id: _dmaUserId, ...rest } = ev;
+  void _dmaUserId;
+  return { ...rest, gateway: GATEWAY, journal_epoch: epoch, stock_code: "005930" };
+}
+
+describe("전략 스트림 서술자 (Phase 25) — 커서 칸 · 적용 RPC · 재시도 · 반환 매퍼 · 로그 문맥", () => {
+  type StrategyWriter = ReturnType<typeof createStrategyWriter>;
+  const writers: StrategyWriter[] = [];
+  const make = (db: ReturnType<typeof fakeDb>): StrategyWriter => {
+    const w = createStrategyWriter({ supabase: db.supabase, gateway: GATEWAY });
+    writers.push(w);
+    return w;
+  };
+  const ev = (seq: number): StrategyEventRecord => fakeStrategyEventRecord({ seq });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    for (const w of writers) w.close();
+    writers.length = 0;
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("서술자 정본 — name strategy · rpc dma_strategy_apply · 커서 칸 strategy_journal_epoch / strategy_last_seq", () => {
+    expect(STRATEGY_STREAM).toMatchObject({
+      name: "strategy",
+      rpc: "dma_strategy_apply",
+      cursorEpochColumn: "strategy_journal_epoch",
+      cursorSeqColumn: "strategy_last_seq",
+    });
+  });
+
+  it("readCursor — select 는 전략 두 칸만 · 행 {ep-1, 42} → 커서 적재 · 주문 칸은 읽지 않는다", async () => {
+    const db = fakeDb({
+      cursor: {
+        data: { strategy_journal_epoch: "ep-1", strategy_last_seq: 42 },
+        error: null,
+      },
+    });
+    const w = make(db);
+    await expect(w.readCursor()).resolves.toEqual({ epoch: "ep-1", lastSeq: 42 });
+    expect(db.cursorQueries).toEqual([
+      { table: "dma_journal_cursor", cols: "strategy_journal_epoch, strategy_last_seq", col: "gateway", val: GATEWAY },
+    ]);
+    expect(w.epoch).toBe("ep-1");
+    expect(w.lastReceivedSeq).toBe(42);
+    expect(w.lastAppliedSeq).toBe(42);
+  });
+
+  it("readCursor — 주문 스트림만 적용된 행(strategy_journal_epoch null) → 커서 없음(epoch '' · lastReceivedSeq null) · 로그 stream strategy", async () => {
+    const infoSpy = vi.spyOn(logger, "info");
+    const db = fakeDb({
+      // 실제 PostgREST 는 select 한 칸만 돌려주지만, 여분 칸이 섞여 와도 주문 칸을 읽으면 안 된다.
+      cursor: { data: { journal_epoch: "ep-1", last_seq: 42, strategy_journal_epoch: null, strategy_last_seq: 0 }, error: null },
+    });
+    const w = make(db);
+    await expect(w.readCursor()).resolves.toEqual({ epoch: "", lastSeq: 0 });
+    expect(w.epoch).toBe("");
+    expect(w.lastReceivedSeq).toBeNull();
+    const noCursor = infoSpy.mock.calls.find((c) => String(c[1]).includes("커서 없음"));
+    expect(noCursor?.[0]).toMatchObject({ gateway: GATEWAY, stream: "strategy" });
+  });
+
+  it("적용 — rpc dma_strategy_apply · 실패 1회 뒤 같은 배치 재호출(p_events seq 동일) · 실패 동안 커서 불변 · applied 는 toStrategyEventRow 모양 · 로그 stream strategy", async () => {
+    const db = fakeDb({
+      rowsOf: (events) => (events as unknown as StrategyApplyEvent[]).map((e) => strategyDbRowOf(e, "ep-1")),
+    });
+    db.script.push("error", "ok");
+    const errorSpy = vi.spyOn(logger, "error");
+    const w = make(db);
+    const applied: StrategyEventRow[][] = [];
+    w.on("applied", (rows) => applied.push(rows));
+    w.beginEpoch("ep-1", { resync: false, headSeq: 0 });
+
+    expect(w.push([ev(1), ev(2)])).toBe("ok");
+    await flush();
+    expect(db.calls).toHaveLength(1);
+    expect(w.lastAppliedSeq).toBeNull();
+    expect(applied).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(1_000); // backoffDelayMs(1)
+    await flush();
+    expect(db.calls).toHaveLength(2);
+    expect(db.calls.map((c) => c.fn)).toEqual(["dma_strategy_apply", "dma_strategy_apply"]);
+    for (const c of db.calls) {
+      expect(c.args.p_gateway).toBe(GATEWAY);
+      expect(c.args.p_epoch).toBe("ep-1");
+      expect(c.args.p_events.map((e) => e.seq)).toEqual([1, 2]);
+    }
+    expect(w.lastAppliedSeq).toBe(2);
+    expect(w.queueDepth).toBe(0);
+
+    // 반환 행은 스트림 매퍼(toStrategyEventRow)를 지난다 — 공개 행 모양 · dmaUserId 없음.
+    const sent = db.calls[1]?.args.p_events as unknown as StrategyApplyEvent[];
+    expect(applied).toEqual([sent.map((e) => toStrategyEventRow(strategyDbRowOf(e, "ep-1")))]);
+    expect(JSON.stringify(applied)).not.toMatch(/dmaUserId|dma_user_id/);
+
+    const failLogs = errorSpy.mock.calls.filter((c) => String(c[1]).includes("dma_strategy_apply 실패"));
+    expect(failLogs).toHaveLength(1);
+    expect(failLogs[0]?.[0]).toMatchObject({ gateway: GATEWAY, stream: "strategy", rpc: "dma_strategy_apply", batch: 2, firstSeq: 1, lastSeq: 2 });
+    // 이 기록기의 모든 로그 인자에 stream: "strategy" 가 있다(두 기록기 로그 판독 분리 · T-25-06).
+    const logged = errorSpy.mock.calls.map((c) => c[0] as Record<string, unknown>);
+    expect(logged.length).toBeGreaterThan(0);
+    for (const o of logged) expect(o.stream).toBe("strategy");
+  });
+
+  it("모든 로그 인자에 stream strategy — 커서 · epoch 시작 · 갭 · 상한 · 재동기화", async () => {
+    const calls: Array<{ level: string; arg: unknown }> = [];
+    for (const level of ["debug", "info", "warn", "error"] as const) {
+      vi.spyOn(logger, level).mockImplementation(((arg: unknown) => {
+        calls.push({ level, arg });
+      }) as never);
+    }
+    const db = fakeDb({ defaultStep: "hold" });
+    const w = createStrategyWriter({ supabase: db.supabase, gateway: GATEWAY, maxQueue: 3 });
+    writers.push(w);
+    await w.readCursor(); // 커서 없음
+    w.beginEpoch("ep-1", { resync: false, headSeq: 0 }); // epoch 시작
+    expect(w.push([ev(1), ev(2)])).toBe("ok");
+    expect(w.push([ev(1)])).toBe("ok"); // 중복(debug)
+    expect(w.push([ev(4)])).toBe("gap");
+    expect(w.push([ev(3), ev(4)])).toBe("overflow");
+    w.beginEpoch("ep-2", { resync: true, headSeq: 0 }); // 재동기화
+
+    expect(calls.length).toBeGreaterThanOrEqual(6);
+    for (const c of calls) expect(c.arg).toMatchObject({ gateway: GATEWAY, stream: "strategy" });
+    db.release();
+    await flush();
   });
 });

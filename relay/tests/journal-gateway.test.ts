@@ -14,35 +14,50 @@ import { MSG } from "../src/dma/msg-type.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { createJournalCodec } from "../src/journal/codec.js";
 import { JournalObserver, OBSERVER_CLIENT_NAME, type ObserverWriter } from "../src/journal/observer.js";
-import type { JournalCursor, JournalPushResult, JournalRecord, ObserverAccountRow } from "../src/journal/types.js";
+import type {
+  JournalCursor,
+  JournalPushResult,
+  JournalRecord,
+  ObserverAccountRow,
+  StrategyEventRecord,
+} from "../src/journal/types.js";
 import { startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
 import {
   SAMPLE_ACCOUNT_NO,
   buildObserverLoginRespFrame,
   buildServerMessageFrame,
   fakeJournalRecord,
+  fakeStrategyEventRecord,
 } from "./helpers/frames.js";
 
 const SECRET = "observer-secret-DO-NOT-LOG-gw-19-09";
 const GATEWAY = "KB";
 
-/** 기록기 가짜 — 커서 없음에서 시작하고, push 를 모으며 마지막 수신 seq · epoch 를 실제 기록기 규칙대로 갱신한다. */
-class FakeWriter implements ObserverWriter {
+/**
+ * 기록기 가짜 — 커서(기본 없음)에서 시작하고, push 를 모으며 마지막 수신 seq · epoch 를 실제 기록기 규칙대로
+ * 갱신한다. 주문 · 전략 스트림 둘 다에 쓴다(Phase 25 — 제네릭).
+ */
+class FakeWriter<R extends { seq: number } = JournalRecord> implements ObserverWriter<R> {
   epoch = "";
   lastReceivedSeq: number | null = null;
-  readonly pushed: JournalRecord[] = [];
+  readonly pushed: R[] = [];
+  /** push 호출마다 받은 배열 그대로 — 코덱이 푼 벡터(빈 벡터 포함)를 단언한다. */
+  readonly pushCalls: R[][] = [];
+
+  constructor(private readonly cursor: JournalCursor = { epoch: "", lastSeq: 0 }) {}
 
   readCursor(): Promise<JournalCursor> {
-    this.epoch = "";
-    this.lastReceivedSeq = null;
-    return Promise.resolve({ epoch: "", lastSeq: 0 });
+    this.epoch = this.cursor.epoch;
+    this.lastReceivedSeq = this.cursor.epoch === "" ? null : this.cursor.lastSeq;
+    return Promise.resolve({ ...this.cursor });
   }
   beginEpoch(epoch: string, opts: { resync: boolean }): void {
     if (!opts.resync && epoch === this.epoch) return;
     this.epoch = epoch;
     this.lastReceivedSeq = null;
   }
-  push(records: readonly JournalRecord[]): JournalPushResult {
+  push(records: readonly R[]): JournalPushResult {
+    this.pushCalls.push([...records]);
     for (const r of records) {
       if (this.lastReceivedSeq !== null && r.seq <= this.lastReceivedSeq) continue;
       this.pushed.push(r);
@@ -81,6 +96,7 @@ describe("관찰자 실 TCP 통합 — 가짜 게이트웨이 · 실 DmaClient �
   let gateway: FakeGateway;
   let observer: JournalObserver | null = null;
   let writer: FakeWriter;
+  let strategyWriter: FakeWriter<StrategyEventRecord> | undefined;
   let access: { replace: Mock<(rows: readonly ObserverAccountRow[]) => void> };
   /** 게이트웨이가 관찰자 연결에서 받은 msg_type 전량(이 파일의 게이트웨이에는 관찰자만 붙는다). */
   let received: number[];
@@ -91,6 +107,7 @@ describe("관찰자 실 TCP 통합 — 가짜 게이트웨이 · 실 DmaClient �
     received = [];
     gateway.onFrame((msgType) => received.push(msgType));
     writer = new FakeWriter();
+    strategyWriter = undefined;
     access = { replace: vi.fn<(rows: readonly ObserverAccountRow[]) => void>() };
   });
 
@@ -110,6 +127,7 @@ describe("관찰자 실 TCP 통합 — 가짜 게이트웨이 · 실 DmaClient �
       gateway: GATEWAY,
       codec: createJournalCodec(),
       writer,
+      ...(strategyWriter !== undefined ? { strategyWriter } : {}),
       access,
       host: "127.0.0.1",
       port: gateway.port,
@@ -229,6 +247,52 @@ describe("관찰자 실 TCP 통합 — 가짜 게이트웨이 · 실 DmaClient �
     gateway.pushJournalBatch(sock, { records: [reject], headSeq: 41, caughtUp: true });
     await waitFor(() => writer.pushed.length === 1, "로컬 거부 레코드 적재");
     expect(writer.pushed[0]).toEqual(fakeJournalRecord(reject));
+    expect(o.state).toBe("live");
+  });
+
+  it("⑦ 구 게이트웨이 프레임(omitStrategy: true — 전략 슬롯 부재) · 로그인 전략 0/0/false → 코덱이 strategyEvents [] · 주문 caught_up 만으로 live (Phase 25 · Pitfall 2)", async () => {
+    strategyWriter = new FakeWriter<StrategyEventRecord>();
+    gateway.respondObserverLogin({ epoch: "ep-1", headSeq: 1, oldestSeq: 1, resync: false });
+    const o = startObserver();
+    const sock = await gateway.waitForObserverConnection(3000);
+    await waitFor(() => o.state === "replaying", "로그인 뒤 replaying(주문 pending 만)");
+    expect(gateway.observerLoginRequests()[0]).toMatchObject({ strategySinceSeq: 0 });
+
+    gateway.pushJournalBatch(sock, { records: [{ seq: 1 }], omitStrategy: true });
+    await waitFor(() => o.state === "live", "구 프레임 뒤 live");
+    expect(writer.pushed.map((r) => r.seq)).toEqual([1]);
+    expect(strategyWriter.pushCalls).toEqual([[]]);
+    expect(strategyWriter.lastReceivedSeq).toBeNull();
+    expect(o.strategyHeadSeq).toBe(0);
+  });
+
+  it("⑧ 로그인 strategy_resync · strategy_oldest 0 → 전략 기록기 비움(주문 커서 유지) · 즉시 live · 다음 전략 이벤트 수용 (Phase 25 · G1 ⓑ)", async () => {
+    writer = new FakeWriter({ epoch: "ep-1", lastSeq: 2 });
+    strategyWriter = new FakeWriter<StrategyEventRecord>({ epoch: "ep-1", lastSeq: 7 });
+    gateway.respondObserverLogin({
+      epoch: "ep-1",
+      headSeq: 2,
+      oldestSeq: 1,
+      resync: false,
+      strategyHeadSeq: 9,
+      strategyOldestSeq: 0,
+      strategyResync: true,
+    });
+    const o = startObserver();
+    const sock = await gateway.waitForObserverConnection(3000);
+    await waitFor(() => o.state === "live", "strategy_resync · oldest 0 → live");
+    // 로그인 요청은 두 기록기 epoch 가 같아 전략 since 7 을 실었다(와이어 5 왕복).
+    expect(gateway.observerLoginRequests()).toEqual([
+      { secret: SECRET, sinceSeq: 2, epoch: "ep-1", client: OBSERVER_CLIENT_NAME, strategySinceSeq: 7 },
+    ]);
+    expect(strategyWriter.lastReceivedSeq).toBeNull();
+    expect(strategyWriter.epoch).toBe("ep-1");
+    expect(writer.lastReceivedSeq).toBe(2);
+    expect(o.strategyHeadSeq).toBe(9);
+
+    gateway.pushJournalBatch(sock, { records: [], headSeq: 2, strategyEvents: [{ seq: 10 }], strategyHeadSeq: 10 });
+    await waitFor(() => strategyWriter?.pushed.length === 1, "새 구간 첫 전략 이벤트 적재");
+    expect(strategyWriter.pushed).toEqual([fakeStrategyEventRecord({ seq: 10 })]);
     expect(o.state).toBe("live");
   });
 });
