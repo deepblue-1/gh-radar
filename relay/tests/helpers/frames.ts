@@ -42,6 +42,8 @@ import { JournalRecord as WireJournalRecord } from "../../src/generated/stock-dm
 import { ObserverAccount } from "../../src/generated/stock-dma/observer-account.js";
 import { ObserverLoginResp } from "../../src/generated/stock-dma/observer-login-resp.js";
 import { StrategyEvent as WireStrategyEvent } from "../../src/generated/stock-dma/strategy-event.js";
+import { QueueProgress } from "../../src/generated/stock-dma/queue-progress.js";
+import { QueueProgressItem } from "../../src/generated/stock-dma/queue-progress-item.js";
 import { MSG } from "../../src/dma/msg-type.js";
 import type { JournalRecord, StrategyEventRecord } from "../../src/journal/types.js";
 
@@ -1596,4 +1598,74 @@ function buildStrategyEvent(b: flatbuffers.Builder, e: StrategyEventRecord): fla
     BigInt(e.askQtyAtLimit),
     e.openAtLimit,
   );
+}
+
+// ============================================================
+// 잔량진행률 (83 `QueueProgress`) — Phase 25-06
+// ============================================================
+
+/**
+ * 진행률 항목 1건. **모든 필드가 선택**이다 — 계좌 빈 항목 · 남의 계좌 항목 · 모르는 group 을
+ * 만들 수 있어야 파서 가드와 hub 계좌 필터를 시험할 수 있다.
+ * 계좌 기본값은 `SAMPLE_ACCOUNT_NO`, 종목 · 거래소 기본값은 프레임의 값이다.
+ */
+export type FakeQueueProgressItemInput = {
+  accountNo?: string;
+  /** 게이트웨이 원문의 주문자 — relay 는 hub 에서 캐시 전에 지운다(T-19-08). */
+  dmaUserId?: string;
+  orderNo?: string;
+  exchange?: string;
+  isin?: string;
+  group?: number;
+  expectedCum?: number;
+  currentCum?: number;
+  remainingVolume?: number;
+  progressBp?: number;
+};
+
+/** 83 프레임 입력. 종목 · 거래소 기본값은 `SAMPLE_ISIN` · `"KRX"`, 항목 기본값은 빈 벡터(= 대기 주문 전부 사라짐). */
+export type FakeQueueProgressInput = {
+  isin?: string;
+  exchange?: string;
+  items?: FakeQueueProgressItemInput[];
+};
+
+/** 잔량진행률 프레임 (83 · `queue_progress` 슬롯). 항목 순서는 입력 그대로다. */
+export function buildQueueProgressFrame(input: FakeQueueProgressInput = {}): Uint8Array {
+  const frameIsin = input.isin ?? SAMPLE_ISIN;
+  const frameExchange = input.exchange ?? "KRX";
+  const b = new flatbuffers.Builder(1024);
+  const offsets = (input.items ?? []).map((it) => {
+    // 문자열을 먼저 만든다 (FlatBuffers 중첩 제약).
+    const accountNo = b.createString(it.accountNo ?? SAMPLE_ACCOUNT_NO);
+    const dmaUserId = b.createString(it.dmaUserId ?? "dma-user-1");
+    const orderNo = b.createString(it.orderNo ?? "12453");
+    const exchange = b.createString(it.exchange ?? frameExchange);
+    const isin = b.createString(it.isin ?? frameIsin);
+    return QueueProgressItem.createQueueProgressItem(
+      b,
+      accountNo,
+      dmaUserId,
+      orderNo,
+      exchange,
+      isin,
+      it.group ?? 1,
+      BigInt(it.expectedCum ?? 1_100_000),
+      BigInt(it.currentCum ?? 1_088_000),
+      BigInt(it.remainingVolume ?? 12_000),
+      it.progressBp ?? 8800,
+    );
+  });
+  const items = QueueProgress.createItemsVector(b, offsets);
+  const isin = b.createString(frameIsin);
+  const exchange = b.createString(frameExchange);
+  const progress = QueueProgress.createQueueProgress(b, isin, exchange, items);
+
+  Envelope.startEnvelope(b);
+  // `MSG.QueueProgress` 가 아니라 생성 enum 을 쓴다 — 화이트리스트 밖 번호로도 프레임을 만들 수 있어야
+  // 「83 은 INBOUND 에 있다」 단언이 이 빌더에 기대지 않는다.
+  Envelope.addMsgType(b, MsgType.QueueProgress);
+  Envelope.addQueueProgress(b, progress);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
 }

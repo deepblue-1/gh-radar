@@ -18,7 +18,7 @@ import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as flatbuffers from "flatbuffers";
 
-import type { RelayOutbound, RelayTape } from "@gh-radar/shared";
+import type { RelayAccount, RelayOutbound, RelayTape, RelayUnfProgressMsg } from "@gh-radar/shared";
 
 import {
   SubscriptionHub,
@@ -39,6 +39,8 @@ import {
   buildTradeTapeFrame,
   buildJournalBatchFrame,
   buildObserverLoginRespFrame,
+  buildQueueProgressFrame,
+  SAMPLE_ACCOUNT_NO,
   type FakeTapeEntryInput,
 } from "./helpers/frames.js";
 import { logger } from "../src/logger.js";
@@ -101,6 +103,8 @@ function decodeReq(payload: Uint8Array): SentReq {
 class FakeSession extends EventEmitter implements HubSession {
   readonly sent: SentReq[] = [];
   isReady = true;
+  /** 세션 허용 계좌(25-06). 생략하면 진행률 항목을 전부 거른다(fail-closed). */
+  allowedAccounts?: RelayAccount[];
 
   constructor(readonly userId: string) {
     super();
@@ -504,5 +508,142 @@ describe("SubscriptionHub — 관찰자 전용 프레임(79 · 80)이 사용자 
     expect(fanout).toEqual([]);
     expect(session.sent).toEqual([]);
     hub.closeAll();
+  });
+});
+
+describe("SubscriptionHub — 잔량진행률 83 QueueProgress (Phase 25-06)", () => {
+  /** 남의 계좌 — 83 은 시세만 구독한 세션에도 이 항목을 싣고 온다(gh-trade D-19). */
+  const OTHER_ACCOUNT = "9999999901";
+
+  let hub: SubscriptionHub;
+  let session: FakeSession;
+  let fanout: HubFanoutEvent[];
+
+  function progressFrames(): RelayUnfProgressMsg[] {
+    return fanout.map((e) => e.msg).filter((m): m is RelayUnfProgressMsg => m.t === "unf.progress");
+  }
+
+  beforeEach(() => {
+    resetDroppedEnvelopeCount();
+    hub = new SubscriptionHub();
+    fanout = [];
+    hub.on("fanout", (e) => fanout.push(e));
+    session = new FakeSession("user-1");
+    session.allowedAccounts = [{ accountNo: SAMPLE_ACCOUNT_NO, name: "위탁종합" }];
+    hub.attach(session);
+  });
+
+  afterEach(() => {
+    hub.closeAll();
+  });
+
+  it("허용 계좌 항목만 팬아웃 · 캐시한다 — 남의 계좌 0건 · dmaUserId 키 없음 (T-25-24 · T-25-25)", () => {
+    session.pushFrame(
+      buildQueueProgressFrame({
+        isin: SAMPLE_ISIN,
+        exchange: "KRX",
+        items: [
+          { accountNo: SAMPLE_ACCOUNT_NO, dmaUserId: "dma-1", orderNo: "12453", group: 3, progressBp: 8800 },
+          { accountNo: OTHER_ACCOUNT, dmaUserId: "dma-9", orderNo: "99999" },
+        ],
+      }),
+    );
+
+    expect(hub.unhandledFrameCount()).toBe(0);
+    expect(fanout.map((e) => e.userId)).toEqual(["user-1"]);
+    const frames = progressFrames();
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toEqual({
+      t: "unf.progress",
+      snap: false,
+      i: SAMPLE_ISIN,
+      x: "KRX",
+      items: [
+        {
+          accountNo: SAMPLE_ACCOUNT_NO,
+          orderNo: "12453",
+          exchange: "KRX",
+          isin: SAMPLE_ISIN,
+          group: 3,
+          expectedCum: 1_100_000,
+          currentCum: 1_088_000,
+          remainingVolume: 12_000,
+          progressBp: 8800,
+        },
+      ],
+    });
+    expect(JSON.stringify(frames[0])).not.toContain("dmaUserId");
+    expect(JSON.stringify(frames[0])).not.toContain(OTHER_ACCOUNT);
+
+    const entries = hub.getQueueProgressEntries("user-1");
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.items.map((it) => it.orderNo)).toEqual(["12453"]);
+    expect(JSON.stringify(entries)).not.toContain("dmaUserId");
+  });
+
+  it("허용 계좌 목록이 없는 세션은 전부 거른다 — 캐시 · 팬아웃 0 (fail-closed)", () => {
+    const bare = new FakeSession("user-2");
+    hub.attach(bare);
+    bare.pushFrame(buildQueueProgressFrame({ items: [{ accountNo: SAMPLE_ACCOUNT_NO }] }));
+
+    expect(progressFrames()).toEqual([]);
+    expect(hub.getQueueProgressEntries("user-2")).toEqual([]);
+    expect(hub.unhandledFrameCount()).toBe(0);
+  });
+
+  it("Ready 이전에는 캐시만 한다 — 팬아웃 0 · 엔트리에는 있다", () => {
+    session.isReady = false;
+    session.pushFrame(buildQueueProgressFrame({ items: [{ orderNo: "12453" }] }));
+
+    expect(progressFrames()).toEqual([]);
+    expect(hub.getQueueProgressEntries("user-1")).toEqual([
+      { i: SAMPLE_ISIN, x: "KRX", items: [expect.objectContaining({ orderNo: "12453" })] },
+    ]);
+  });
+
+  it("비어 있던 키에 빈 스냅샷은 팬아웃하지 않고, 비어 있지 않던 키가 비면 한 번 보낸다(삭제 신호) (T-25-27)", () => {
+    // 빈 → 빈: 1초 × 종목 폭주 억제. 남의 계좌만 실린 프레임도 거르면 빈 값이다.
+    session.pushFrame(buildQueueProgressFrame({ items: [] }));
+    session.pushFrame(buildQueueProgressFrame({ items: [{ accountNo: OTHER_ACCOUNT }] }));
+    expect(progressFrames()).toEqual([]);
+
+    session.pushFrame(buildQueueProgressFrame({ items: [{ orderNo: "12453" }] }));
+    expect(progressFrames()).toHaveLength(1);
+
+    // 비어 있지 않음 → 빈: 전량 교체라 「대기 주문 전부 사라짐」을 한 번 알린다.
+    session.pushFrame(buildQueueProgressFrame({ items: [] }));
+    const frames = progressFrames();
+    expect(frames).toHaveLength(2);
+    expect(frames[1]).toEqual({ t: "unf.progress", snap: false, i: SAMPLE_ISIN, x: "KRX", items: [] });
+    expect(hub.getQueueProgressEntries("user-1")).toEqual([]);
+
+    // 그 뒤의 빈 값은 다시 억제된다.
+    session.pushFrame(buildQueueProgressFrame({ items: [] }));
+    expect(progressFrames()).toHaveLength(2);
+  });
+
+  it("(isin, exchange) 키 단위 전량 교체 — 같은 종목 다른 거래소는 독립 · 같은 프레임 재수신은 같은 결과(멱등)", () => {
+    session.pushFrame(buildQueueProgressFrame({ exchange: "KRX", items: [{ orderNo: "1" }, { orderNo: "2" }] }));
+    session.pushFrame(buildQueueProgressFrame({ exchange: "NXT", items: [{ orderNo: "7" }] }));
+    session.pushFrame(buildQueueProgressFrame({ exchange: "KRX", items: [{ orderNo: "2" }] }));
+    session.pushFrame(buildQueueProgressFrame({ exchange: "KRX", items: [{ orderNo: "2" }] }));
+
+    const byKey = new Map(hub.getQueueProgressEntries("user-1").map((e) => [`${e.i}|${e.x}`, e.items.map((it) => it.orderNo)]));
+    expect(byKey).toEqual(
+      new Map([
+        [`${SAMPLE_ISIN}|KRX`, ["2"]],
+        [`${SAMPLE_ISIN}|NXT`, ["7"]],
+      ]),
+    );
+  });
+
+  it("세션 교체(#clearCaches) 뒤 옛 진행률이 남지 않는다 (T-25-26 · Pitfall 6)", () => {
+    session.pushFrame(buildQueueProgressFrame({ items: [{ orderNo: "12453" }] }));
+    expect(hub.getQueueProgressEntries("user-1")).toHaveLength(1);
+
+    const next = new FakeSession("user-1");
+    next.allowedAccounts = session.allowedAccounts;
+    hub.attach(next);
+    expect(hub.getQueueProgressEntries("user-1")).toEqual([]);
   });
 });

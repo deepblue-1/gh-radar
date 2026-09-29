@@ -238,15 +238,15 @@ describe("MSG 상수", () => {
     }
   });
 
-  it("INBOUND_MSG_TYPES 는 응답 대역(50~80)만 담는다", () => {
+  it("INBOUND_MSG_TYPES 는 응답 대역(50~83)만 담는다", () => {
     // 15-02 의 12종 + 16-04 전략 응답 7종 + 17-03 신규 푸시 3종 + quick-260923-cqj 57
-    // + 19-09 관찰자 응답 79·80 = 25종.
+    // + 19-09 관찰자 응답 79·80 + 25-06 잔량진행률 83 = 26종.
     // 개수를 못박아 두면 화이트리스트가 의도 없이 넓어지는 순간(= 새 유입 집합이 생기는 순간)
     // 여기서 먼저 깨진다 (PC-12).
-    expect(INBOUND_MSG_TYPES.size).toBe(25);
+    expect(INBOUND_MSG_TYPES.size).toBe(26);
     for (const v of INBOUND_MSG_TYPES) {
       expect(v).toBeGreaterThanOrEqual(50);
-      expect(v).toBeLessThanOrEqual(80);
+      expect(v).toBeLessThanOrEqual(83);
     }
     // 요청 계열이 수신 경로로 들어오는 것 자체가 이상 신호다.
     expect(INBOUND_MSG_TYPES.has(MSG.LoginReq)).toBe(false);
@@ -301,6 +301,15 @@ describe("MSG 상수", () => {
     expect(INBOUND_MSG_TYPES.has(MSG.ObserverLoginResp)).toBe(true);
     expect(INBOUND_MSG_TYPES.has(MSG.JournalBatch)).toBe(true);
     expect(INBOUND_MSG_TYPES.has(MSG.ObserverLoginReq)).toBe(false);
+  });
+
+  it("83 QueueProgress 는 생성 enum 과 같고 화이트리스트에 있다 — hub 명시 case 와 한 커밋 (25-06 · PC-12)", () => {
+    expect(MSG.QueueProgress).toBe(MsgType.QueueProgress);
+    expect(MSG.QueueProgress).toBe(83);
+    expect(INBOUND_MSG_TYPES.has(MSG.QueueProgress)).toBe(true);
+    // 81 · 82 는 여전히 범위 밖이다(전략 이벤트 정본은 관찰자 80).
+    expect(INBOUND_MSG_TYPES.has(MsgType.StrategyEventsResp)).toBe(false);
+    expect(INBOUND_MSG_TYPES.has(MsgType.StrategyEventPush)).toBe(false);
   });
 
   it("57 SymbolMasterResp 는 화이트리스트에 있고 27 요청은 없다 — hub 명시 case 와 한 커밋 (quick-260923-cqj)", () => {

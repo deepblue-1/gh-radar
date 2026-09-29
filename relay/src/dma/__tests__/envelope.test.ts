@@ -97,6 +97,8 @@ import {
   buildObserverLoginReq,
   parseObserverLoginResp,
   parseJournalBatch,
+  parseQueueProgress,
+  MAX_QUEUE_PROGRESS_ITEMS,
   type ViTriggerInput,
 } from "../envelope.js";
 import { encode } from "../../ws/protocol.js";
@@ -119,6 +121,7 @@ import {
   buildJournalBatchFrame,
   buildObserverLoginRespFrame,
   fakeStrategyEventRecord,
+  buildQueueProgressFrame,
   SAMPLE_ACCOUNT_NO,
 } from "../../../tests/helpers/frames.js";
 import { readObserverLoginRequest } from "../../../tests/helpers/fake-gateway.js";
@@ -2051,5 +2054,98 @@ describe("관찰자 두 스트림 — 80 전략 이벤트 · 79/5 전략 커서 
       expect(caught, `strategySinceSeq ${strategySinceSeq}`).toBeInstanceOf(RangeError);
       expect(String((caught as Error).message)).not.toContain(SECRET);
     }
+  });
+});
+
+describe("잔량진행률 83 QueueProgress 파서 (Phase 25-06)", () => {
+  /** 프레임 바이트 → Envelope. 83 이 수신 화이트리스트를 통과해야 한다(PC-12). */
+  function envOf(bytes: Uint8Array): Envelope {
+    const parsed = tryParseEnvelope(Buffer.from(bytes));
+    if (parsed === null) throw new Error("화이트리스트 드롭");
+    return parsed.env;
+  }
+
+  it("항목 1건을 같은 값으로 읽는다 — dmaUserId 는 relay 내부까지 남고(hub 가 지운다) 64비트는 number", () => {
+    const frame = parseQueueProgress(
+      envOf(
+        buildQueueProgressFrame({
+          isin: SAMPLE_ISIN,
+          exchange: "KRX",
+          items: [
+            {
+              accountNo: SAMPLE_ACCOUNT_NO,
+              dmaUserId: "dma-1",
+              orderNo: "12453",
+              group: 3,
+              expectedCum: 1_100_000,
+              currentCum: 1_088_000,
+              remainingVolume: 12_000,
+              progressBp: 8800,
+            },
+          ],
+        }),
+      ),
+    );
+    expect(frame).toEqual({
+      isin: SAMPLE_ISIN,
+      exchange: "KRX",
+      items: [
+        {
+          accountNo: SAMPLE_ACCOUNT_NO,
+          dmaUserId: "dma-1",
+          orderNo: "12453",
+          exchange: "KRX",
+          isin: SAMPLE_ISIN,
+          group: 3,
+          expectedCum: 1_100_000,
+          currentCum: 1_088_000,
+          remainingVolume: 12_000,
+          progressBp: 8800,
+        },
+      ],
+    });
+    expect(typeof frame?.items[0]?.remainingVolume).toBe("number");
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("빈 항목 벡터는 items [] 다(null 아님) — 「그 종목 · 거래소 대기 주문 전부 사라짐」(G1 ⓕ)", () => {
+    const frame = parseQueueProgress(envOf(buildQueueProgressFrame({ exchange: "NXT", items: [] })));
+    expect(frame).toEqual({ isin: SAMPLE_ISIN, exchange: "NXT", items: [] });
+    expect(droppedEnvelopeCount()).toBe(0);
+  });
+
+  it("계좌 빈 항목은 건너뛰고 프레임당 경고 1줄(건수 · 마스킹)만 남긴다 — 나머지 항목은 살린다", () => {
+    const frame = parseQueueProgress(
+      envOf(
+        buildQueueProgressFrame({
+          items: [{ accountNo: "", orderNo: "1" }, { orderNo: "2" }, { accountNo: "", orderNo: "3" }],
+        }),
+      ),
+    );
+    expect(frame?.items.map((it) => it.orderNo)).toEqual(["2"]);
+    const calls = warn.mock.calls.filter((c: unknown[]) => String(c[1]).includes("진행률 항목"));
+    expect(calls).toHaveLength(1);
+    const [fields] = calls[0] as [Record<string, unknown>];
+    expect(fields).toMatchObject({ skipped: 2 });
+    expect(droppedEnvelopeCount()).toBe(0);
+  });
+
+  it("거래소가 KRX/NXT 가 아니면 null · 드롭 카운터 +1", () => {
+    expect(parseQueueProgress(envOf(buildQueueProgressFrame({ exchange: "XXX" })))).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+    const [fields] = warn.mock.calls[0] as [Record<string, unknown>];
+    expect(fields.reason).toBe("bad-exchange");
+  });
+
+  it("맨 envelope 83 은 slot-null 로 null", () => {
+    expect(parseQueueProgress(envOf(buildBareEnvelope(83)))).toBeNull();
+    const [fields] = warn.mock.calls[0] as [Record<string, unknown>];
+    expect(fields.reason).toBe("slot-null");
+  });
+
+  it(`항목 상한(${MAX_QUEUE_PROGRESS_ITEMS}) 초과는 앞 N건만`, () => {
+    const items = Array.from({ length: MAX_QUEUE_PROGRESS_ITEMS + 1 }, (_, i) => ({ orderNo: String(i + 1) }));
+    const frame = parseQueueProgress(envOf(buildQueueProgressFrame({ items })));
+    expect(frame?.items).toHaveLength(MAX_QUEUE_PROGRESS_ITEMS);
   });
 });
