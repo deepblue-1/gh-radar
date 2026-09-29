@@ -50,6 +50,8 @@ describe("inTradingWindow — 평일 · KRX 휴장일 아님 · 08:00~20:00 KST"
 class FakeObserver extends EventEmitter {
   state: JournalObserverState = "connecting";
   headSeq: number | null = null;
+  /** 게이트웨이가 알려 준 전략 스트림 head (Phase 25). */
+  strategyHeadSeq: number | null = null;
   set(next: JournalObserverState): void {
     this.state = next;
     this.emit("state", next);
@@ -208,6 +210,8 @@ describe("JournalStatus — journal.state 디바운스 (D-04 (a))", () => {
       lastAppliedAgeSec: 42,
       seqRegressions: 0,
       lastSeqRegressionAgeSec: null,
+      // 전략 기록기 미주입 — 칸은 있고 값은 null(키 집합 고정).
+      strategy: null,
     });
     // seq 역행 신호는 카운터 + 마지막 관측 뒤 경과초로 드러난다(상태는 바꾸지 않는다).
     writer.h = { ...writer.h, seqRegressions: 1, lastSeqRegressionAtMs: Date.now() - 5_000 };
@@ -229,7 +233,17 @@ describe("JournalStatus — journal.state 디바운스 (D-04 (a))", () => {
 // ============================================================
 
 function health(state: JournalHealth["state"], disconnectedSec: number | null): JournalHealth {
-  return { state, lastSeq: 1, headSeq: 1, lagSeq: 0, disconnectedSec, lastAppliedAgeSec: 1, seqRegressions: 0, lastSeqRegressionAgeSec: null };
+  return {
+    state,
+    lastSeq: 1,
+    headSeq: 1,
+    lagSeq: 0,
+    disconnectedSec,
+    lastAppliedAgeSec: 1,
+    seqRegressions: 0,
+    lastSeqRegressionAgeSec: null,
+    strategy: null,
+  };
 }
 
 describe("journalAlerting — 장중 180초 · rejected 즉시 · 장 밖 false (D-04 (b))", () => {
@@ -248,5 +262,96 @@ describe("journalAlerting — 장중 180초 · rejected 즉시 · 장 밖 false 
     ["rejected", 0, OUT, false],
   ] as const)("%s · %s초 · %s → %s", (state, sec, now, expected) => {
     expect(journalAlerting(health(state, sec), now)).toBe(expected);
+  });
+});
+
+// ============================================================
+// Phase 25 — 전략 스트림 관측값 (25-02 Task 2)
+// ============================================================
+
+describe("JournalStatus — journal.strategy 전략 스트림 관측값 (Phase 25 · 503 판정 무관)", () => {
+  const IN = kst("2026-09-28T10:00:00");
+  let status: JournalStatus | undefined;
+
+  beforeEach(() => {
+    status = undefined;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    vi.setSystemTime(BOOT);
+  });
+
+  afterEach(() => {
+    status?.close();
+    vi.useRealTimers();
+  });
+
+  function boot(): { observer: FakeObserver; writer: FakeWriter; strategyWriter: FakeWriter; frames: RelayJournalStateMsg[] } {
+    const observer = new FakeObserver();
+    const writer = new FakeWriter();
+    const strategyWriter = new FakeWriter();
+    const s = new JournalStatus({ observer, writer, strategyWriter });
+    status = s;
+    const frames: RelayJournalStateMsg[] = [];
+    s.on("frame", (f) => frames.push(f));
+    return { observer, writer, strategyWriter, frames };
+  }
+
+  it("health().strategy — lastSeq(전략 lastAppliedSeq) · headSeq(관찰자 strategyHeadSeq) · lagSeq · dbError · queueDepth", () => {
+    const { observer, strategyWriter } = boot();
+    observer.strategyHeadSeq = 12;
+    strategyWriter.h = { ...strategyWriter.h, lastAppliedSeq: 10, queueDepth: 3 };
+    expect(status?.health(Date.now()).strategy).toEqual({ lastSeq: 10, headSeq: 12, lagSeq: 2, dbError: false, queueDepth: 3 });
+
+    // head 가 적용보다 뒤처져 보이면(적용 직후 · 재로그인 전) 0 으로 자른다.
+    observer.strategyHeadSeq = 9;
+    expect(status?.health(Date.now()).strategy?.lagSeq).toBe(0);
+
+    // 둘 중 하나라도 모르면 lagSeq null.
+    strategyWriter.h = { ...strategyWriter.h, lastAppliedSeq: null };
+    expect(status?.health(Date.now()).strategy).toEqual({ lastSeq: null, headSeq: 9, lagSeq: null, dbError: false, queueDepth: 3 });
+    observer.strategyHeadSeq = null;
+    strategyWriter.h = { ...strategyWriter.h, lastAppliedSeq: 4 };
+    expect(status?.health(Date.now()).strategy?.lagSeq).toBeNull();
+  });
+
+  it("strategyWriter 미주입 → strategy null · 키 집합은 같다", () => {
+    const observer = new FakeObserver();
+    const s = new JournalStatus({ observer, writer: new FakeWriter() });
+    status = s;
+    observer.strategyHeadSeq = 5;
+    const h = s.health(Date.now());
+    expect(h.strategy).toBeNull();
+    expect("strategy" in h).toBe(true);
+  });
+
+  it("전략 기록기 dbError → 파생 상태 live 유지 · journalAlerting false · 본문 strategy.dbError true · 프레임 추가 0", async () => {
+    const { observer, strategyWriter, frames } = boot();
+    observer.set("live");
+    expect(frames).toEqual([{ t: "journal.state", s: "live" }]);
+
+    strategyWriter.setDbError(true);
+    const h = status?.health(Date.now());
+    expect(h?.state).toBe("live");
+    expect(h?.strategy?.dbError).toBe(true);
+    expect(journalAlerting(h as JournalHealth, IN)).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(JOURNAL_ALERT_AFTER_MS + 10_000);
+    expect(frames).toEqual([{ t: "journal.state", s: "live" }]);
+    expect(status?.health(Date.now()).disconnectedSec).toBeNull();
+  });
+
+  it("주문 기록기 dbError 는 종전대로 db_error — 전략 칸은 그와 독립", () => {
+    const { observer, writer } = boot();
+    observer.set("live");
+    writer.setDbError(true);
+    const h = status?.health(Date.now());
+    expect(h?.state).toBe("db_error");
+    expect(h?.strategy?.dbError).toBe(false);
+  });
+
+  it("close 뒤 전략 기록기 health 리스너 0", () => {
+    const { strategyWriter } = boot();
+    expect(strategyWriter.listenerCount("health")).toBe(1);
+    status?.close();
+    expect(strategyWriter.listenerCount("health")).toBe(0);
   });
 });

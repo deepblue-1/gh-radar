@@ -8,6 +8,7 @@
  *   GET  /rest/v1/dma_journal_cursor?…         → 시드한 커서 행(기본 없음 = 빈 배열)
  *   POST /rest/v1/rpc/dma_journal_sync_access  → 행 수
  *   POST /rest/v1/rpc/dma_journal_apply        → 입력 seq 로 `{applied, skipped:0, errors:[], last_seq, rows:[]}`
+ *   POST /rest/v1/rpc/dma_strategy_apply       → 같은 모양(Phase 25 — 부팅 결선 증명용 · 푸시 행은 25-01 트레이서 몫)
  *
  * 모든 요청을 (method, path, query, body) 로 기록한다. 위에 없는 경로도 **빈 배열 200** 으로 받고 기록한다 —
  * 404 로 막으면 relay 쪽 증상(재시도 · 오류 로그)이 원인을 가리고, 기록이 있으면 테스트 출력에 누락 경로가
@@ -27,8 +28,16 @@ export type StubRequest = {
   body: unknown;
 };
 
-/** `dma_journal_cursor` 행 (relay 가 select 하는 두 열). */
-export type StubCursorRow = { journal_epoch: string; last_seq: number };
+/**
+ * `dma_journal_cursor` 행. 주문 기록기는 앞 두 칸, 전략 기록기(Phase 25)는 전략 두 칸을 select 한다 — 스텁은
+ * select 와 무관하게 행 전체를 돌려주고 기록기가 자기 칸만 읽는다. 전략 칸 생략 · null = 전략 커서 없음.
+ */
+export type StubCursorRow = {
+  journal_epoch: string;
+  last_seq: number;
+  strategy_journal_epoch?: string | null;
+  strategy_last_seq?: number;
+};
 
 export type SupabaseStub = {
   readonly url: string;
@@ -48,6 +57,7 @@ const KNOWN_PATHS: ReadonlySet<string> = new Set([
   "/rest/v1/dma_journal_cursor",
   "/rest/v1/rpc/dma_journal_sync_access",
   "/rest/v1/rpc/dma_journal_apply",
+  "/rest/v1/rpc/dma_strategy_apply",
 ]);
 
 function parseBody(raw: string): unknown {
@@ -95,7 +105,8 @@ export async function startSupabaseStub(): Promise<SupabaseStub> {
           json(200, Array.isArray(rows) ? rows.length : 0);
           return;
         }
-        case "/rest/v1/rpc/dma_journal_apply": {
+        case "/rest/v1/rpc/dma_journal_apply":
+        case "/rest/v1/rpc/dma_strategy_apply": {
           const events = (body as { p_events?: Array<{ seq: number }> } | null)?.p_events ?? [];
           const lastSeq = events.length > 0 ? Math.max(...events.map((e) => Number(e.seq))) : 0;
           json(200, { applied: events.length, skipped: 0, errors: [], last_seq: lastSeq, rows: [] });

@@ -287,7 +287,7 @@ function rig(
     host: "127.0.0.1",
     port: 9100,
   });
-  const status = new JournalStatus({ observer, writer });
+  const status = new JournalStatus({ observer, writer, ...(strategyWriter !== undefined ? { strategyWriter } : {}) });
   const frames: RelayJournalStateMsg[] = [];
   // 부팅 결선(19-10)과 같은 모양 — 상태 프레임 → fanout.deliverJournalState.
   const deliverJournalState = vi.fn((f: RelayJournalStateMsg) => frames.push(f));
@@ -383,43 +383,82 @@ describe("관찰자 tracer — 기동 → 로그인 → 배치 1건 → 기록�
     await flushIo();
     expect(r.writer.lastAppliedSeq).toBe(1);
 
-    const app = createOrderApi({
-      relayOrderSecret: "test-relay-order-secret-0123456789",
-      appVersion: "test-sha",
-      nodeEnv: "test",
-      sessions: { stats: () => ({ sessionCount: 0, readyCount: 0, everReadyCount: 0, stalledCount: 0 }) },
-      dmaHost: "127.0.0.1",
-      networkInterfaces: () => ({
-        lo: [{ address: "127.0.0.1", family: "IPv4", internal: true } as os.NetworkInterfaceInfo],
-      }),
-      journal: r.status,
+    const { status, text } = await fetchHealthz(r.status);
+    expect(status).toBe(200);
+    const body = JSON.parse(text) as { journal: Record<string, unknown> };
+    expect(body.journal).toEqual({
+      state: "live",
+      lastSeq: 1,
+      headSeq: 1,
+      lagSeq: 0,
+      disconnectedSec: null,
+      lastAppliedAgeSec: expect.any(Number),
+      seqRegressions: 0,
+      lastSeqRegressionAgeSec: null,
+      // 전략 기록기 미주입 rig — 칸은 있고 값은 null (Phase 25).
+      strategy: null,
     });
-    const server = http.createServer(app);
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-    try {
-      const { port } = server.address() as AddressInfo;
-      const res = await fetch(`http://127.0.0.1:${port}/healthz`);
-      expect(res.status).toBe(200);
-      const text = await res.text();
-      const body = JSON.parse(text) as { journal: Record<string, unknown> };
-      expect(body.journal).toEqual({
-        state: "live",
-        lastSeq: 1,
+    expectNoIdentifiers(text);
+  });
+
+  it("④b /healthz journal.strategy — 전략 기록기 주입 · 전략 이벤트 1건 적용 → {lastSeq 1 · headSeq 1 · lagSeq 0 · dbError false · queueDepth 0} · 식별자 키 없음 (Phase 25)", async () => {
+    const r = rig({ strategy: {} });
+    await bootToLogin(r);
+    r.transport.frame(loginOk({ headSeq: 1, strategyHeadSeq: 1, strategyOldestSeq: 1, strategyResync: false }));
+    r.transport.frame({
+      k: "batch",
+      batch: {
+        records: [record(1)],
         headSeq: 1,
-        lagSeq: 0,
-        disconnectedSec: null,
-        lastAppliedAgeSec: expect.any(Number),
-        seqRegressions: 0,
-        lastSeqRegressionAgeSec: null,
-      });
-      expect(text).not.toMatch(/"(accountNo|userId|account_no|user_id|dmaUserId)"/);
-      expect(text).not.toContain("11112222");
-      expect(text).not.toContain(SECRET);
-    } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    }
+        caughtUp: true,
+        strategyEvents: [fakeStrategyEventRecord({ seq: 1 })],
+        strategyHeadSeq: 1,
+        strategyCaughtUp: true,
+      },
+    });
+    await flushIo();
+    expect(r.observer.state).toBe("live");
+    expect(r.db.strategyApplies()).toBe(1);
+
+    const { status, text } = await fetchHealthz(r.status);
+    expect(status).toBe(200);
+    const body = JSON.parse(text) as { journal: Record<string, unknown> };
+    expect(body.journal.strategy).toEqual({ lastSeq: 1, headSeq: 1, lagSeq: 0, dbError: false, queueDepth: 0 });
+    expectNoIdentifiers(text);
   });
 });
+
+/** 실 `createOrderApi` 로 `/healthz` 를 한 번 부른다(상태 코드 · 본문 원문). */
+async function fetchHealthz(journal: JournalStatus): Promise<{ status: number; text: string }> {
+  const app = createOrderApi({
+    relayOrderSecret: "test-relay-order-secret-0123456789",
+    appVersion: "test-sha",
+    nodeEnv: "test",
+    sessions: { stats: () => ({ sessionCount: 0, readyCount: 0, everReadyCount: 0, stalledCount: 0 }) },
+    dmaHost: "127.0.0.1",
+    networkInterfaces: () => ({
+      lo: [{ address: "127.0.0.1", family: "IPv4", internal: true } as os.NetworkInterfaceInfo],
+    }),
+    journal,
+  });
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+  try {
+    const { port } = server.address() as AddressInfo;
+    const res = await fetch(`http://127.0.0.1:${port}/healthz`);
+    return { status: res.status, text: await res.text() };
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
+/** 공개 `/healthz` 본문에 계좌 · 사용자 식별자 · 비밀이 없다(T-19-07 · T-25-10). */
+function expectNoIdentifiers(text: string): void {
+  expect(text).not.toMatch(/"(accountNo|userId|account_no|user_id|dmaUserId|dma_user_id)"/);
+  expect(text).not.toContain("11112222");
+  expect(text).not.toContain("1234567801"); // 전략 이벤트 픽스처 계좌(SAMPLE_ACCOUNT_NO)
+  expect(text).not.toContain(SECRET);
+}
 
 // ============================================================
 // Task 2 — 실패 경로 · 비밀

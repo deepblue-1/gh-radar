@@ -330,6 +330,73 @@ describe("relay 부팅 결선 — 실 프로세스 · 관찰자 경로 (Phase 19
   );
 
   it(
+    "전략 이벤트 적용 결선 (Phase 25) — 전략 커서 없음 → 로그인 strategySinceSeq 0 → 80 전략 BuyOrder 1건 → dma_strategy_apply(KB) → healthz journal.strategy.lastSeq 1",
+    async () => {
+      const { gateway, supabase } = await rig();
+      // 주문 스트림만 적용된 커서 행 — 전략 칸은 NULL(원격 마이그레이션 직후 모양).
+      supabase.seedCursor({ journal_epoch: "ep-b", last_seq: 0, strategy_journal_epoch: null, strategy_last_seq: 0 });
+      gateway.respondObserverLogin({ epoch: "ep-b", headSeq: 0, oldestSeq: 0, resync: false, strategyHeadSeq: 0 });
+
+      const relay = await spawnRelay({
+        gatewayPort: gateway.port,
+        supabaseUrl: supabase.url,
+        nodeEnv: "test",
+        secret: BOOT_SECRET,
+      });
+      const sock = await withTimeout(gateway.waitForObserverConnection(BOOT_WAIT_MS), BOOT_WAIT_MS + 1_000, "관찰자 연결", relay);
+      // 전략 기록기 epoch("") ≠ 주문 epoch("ep-b") — 전략 since 는 0(Pitfall 3).
+      expect(gateway.observerLoginRequests()).toEqual([
+        { secret: BOOT_SECRET, sinceSeq: 0, epoch: "ep-b", client: "gh-radar-relay", strategySinceSeq: 0 },
+      ]);
+      await waitFor(
+        () => getHealthz(relay.orderApiPort),
+        (h) => journalOf(h)?.state === "live",
+        "healthz journal live(두 pending 없음)",
+        relay,
+      );
+
+      // 80 — 주문 0건 · 전략 BuyOrder(kind 3) seq 1.
+      gateway.pushJournalBatch(sock, { records: [], headSeq: 0, strategyEvents: [{ seq: 1 }] });
+      const applies = await waitFor(
+        () => supabase.requestsTo("/rest/v1/rpc/dma_strategy_apply"),
+        (rs) => rs.length >= 1,
+        "dma_strategy_apply 수신",
+        relay,
+      );
+      expect(applies).toHaveLength(1);
+      const body = applies[0]?.body as {
+        p_gateway: string;
+        p_epoch: string;
+        p_events: Array<{ seq: number; kind: number }>;
+      };
+      expect(applies[0]?.method).toBe("POST");
+      expect(body.p_gateway).toBe(GATEWAY);
+      expect(body.p_epoch).toBe("ep-b");
+      expect(body.p_events.map((e) => e.seq)).toEqual([1]);
+      expect(body.p_events[0]?.kind).toBe(3);
+      // 주문 적용 RPC 는 부르지 않았다(주문 0건).
+      expect(supabase.requestsTo("/rest/v1/rpc/dma_journal_apply")).toEqual([]);
+
+      const h = await waitFor(
+        () => getHealthz(relay.orderApiPort),
+        (x) => (journalOf(x)?.strategy as Record<string, unknown> | null | undefined)?.lastSeq === 1,
+        "healthz journal.strategy.lastSeq 1",
+        relay,
+      );
+      expect(h.status).toBe(200);
+      expect(journalOf(h)?.strategy).toEqual({ lastSeq: 1, headSeq: 1, lagSeq: 0, dbError: false, queueDepth: 0 });
+      expect(JSON.stringify(h.body)).not.toMatch(/"(accountNo|userId|account_no|user_id|dmaUserId|dma_user_id)"/);
+      expect(supabase.unknownRequests()).toEqual([]);
+
+      relay.child.kill("SIGTERM");
+      const exit = await withTimeout(relay.exited, 5_000, "SIGTERM 종료", relay);
+      expect(exit, relay.output()).toEqual({ code: 0, signal: null });
+      expect(relay.output()).not.toContain(BOOT_SECRET);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
     "production + DMA_OBSERVER_SECRET 없음 → 5초 안에 비정상 종료 · 사유 문구",
     async () => {
       const { gateway, supabase } = await rig();
