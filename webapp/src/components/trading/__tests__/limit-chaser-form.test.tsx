@@ -2324,7 +2324,18 @@ describe('⑲ 선매수 자동 체크 D-06 · D-07 · D-08 — 사람의 선매�
     const { rerender } = render(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog })} />);
     click(sw('선매수 켜기'));
     expect(lastConfig()).toMatchObject({ cancelQtyEnabled: false, cancelQtyTrackEnabled: false, cancelTradeEnabled: true });
-    const ok = { ...s, buyEnabled: true, preBuyEnabled: true };
+    // 성공 에코는 요청한 대로 선다(매도 3체크 · 취소>체결 · 상한가로 채운 가격) — 줄은 에코로 확정한다(R3-G1).
+    const ok = {
+      ...s,
+      buyEnabled: true,
+      preBuyEnabled: true,
+      sellEnabled: true,
+      sellQtyTrackEnabled: true,
+      sellTradeQtyEnabled: true,
+      cancelTradeEnabled: true,
+      sellOrderPrice: 150_800,
+      sellWatchPrice: 150_800,
+    };
     rerender(<LimitChaserForm {...props({ server: ok, upperLimit: 150_800, onClientLog, serverAnswerSeq: 1 })} />);
     expect(onClientLog).toHaveBeenCalledTimes(1);
     const [text, level] = onClientLog.mock.calls[0]!;
@@ -3156,8 +3167,9 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 선매
     cancelTradeEnabled: true,
     cancelQtyTrackEnabled: true,
   } as const;
-  const PRE_FULL_LINE =
-    '선매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 150,800원';
+  /** 부분 거부 — 에코가 매도주문만 눕혔다. 「켬」 은 에코에 선 항목만 · 눕힌 항목은 서버 거부 · error (R3-G1 · R4-WR-01). */
+  const PRE_PARTIAL_LINE =
+    '선매수 자동 체크 — 켬: 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 켜지 않음: 매도주문(서버 거부) / 매도 주문가격·비교가격 = 상한가 150,800원';
   const autoLines = (log: ReturnType<typeof vi.fn>): [string, string][] =>
     (log.mock.calls as [string, string][]).filter(([text]) => text.includes('자동 체크'));
   const failedShown = () => (document.body.textContent ?? '').includes('반영하지 못했어요');
@@ -3181,7 +3193,7 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 선매
     return view;
   }
 
-  it('F1 부분 거부 — 거부 신호 먼저 → 같은 제출 에코(매도만 눕힘) → 「선매수 자동 체크」 한 줄 → 다음 답 신호에 대기 추가매수 1건', () => {
+  it('F1 부분 거부 — 거부 신호 먼저 → 같은 제출 에코(매도만 눕힘) → 「선매수 자동 체크 … 켜지 않음: 매도주문(서버 거부)」 error 한 줄 → 다음 답 신호에 대기 추가매수 1건', () => {
     const onClientLog = vi.fn();
     const { rerender } = startAndReject(onClientLog);
 
@@ -3196,7 +3208,7 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 선매
     rerender(
       <LimitChaserForm {...props({ server: pre, upperLimit: 150_800, onClientLog, serverAnswerSeq: 1, serverRejectSeq: 1 })} />,
     );
-    expect(autoLines(onClientLog)).toEqual([[PRE_FULL_LINE, 'info']]);
+    expect(autoLines(onClientLog)).toEqual([[PRE_PARTIAL_LINE, 'error']]);
     expect(failedShown()).toBe(false);
     expect(sentConfigs()).toHaveLength(1);
 

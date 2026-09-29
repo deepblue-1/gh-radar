@@ -33,6 +33,7 @@ import {
   isMarketCloseReleaseNotice,
   isMasterOnlyDelta,
   limitChaserGateDisarmed,
+  confirmAutoChecks,
   marketCloseReleaseKeysOf,
   parseStrategyKey,
   seedListSharesDefaults,
@@ -787,6 +788,162 @@ describe('D-35 — groupAutoChecksOf · groupAutoCheckLogLine 은 그룹 인자 
       expect(pre.text.startsWith('선매수 자동 체크 — ')).toBe(true);
       expect(extra?.level).toBe(pre.level);
       expect(extra?.text).toBe(pre.text.replace(/^선매수 /, '추가매수 '));
+    }
+  });
+});
+
+/**
+ * R3-G1 · 24-REVIEW-R4 R4-WR-01 — 자동 체크 판정은 누른 순간 · 꺼내는 순간의 **예측**이다. 로그 줄은 성공 에코(무장 상태)로
+ * 사후 확정한다: 요청했는데 에코에 서지 않은 항목은 「켬」 에서 빠지고 「켜지 않음(서버 거부)」 로 옮긴다. 가격 조각도 에코에
+ * 선 칸만 남는다. 요청이 전부 섰으면 결과는 입력과 같다(기존 줄 불변).
+ */
+describe('confirmAutoChecks — 자동 체크 예측을 성공 에코로 확정한다 (R3-G1 · R4-WR-01)', () => {
+  const base = (over: Partial<LimitChaserFormValues> = {}): LimitChaserFormValues => ({
+    ...defaultLimitChaserForm(),
+    sellEnabled: false,
+    sellQtyTrackEnabled: false,
+    sellTradeQtyEnabled: false,
+    cancelQtyEnabled: false,
+    cancelTradeEnabled: false,
+    cancelQtyTrackEnabled: false,
+    sellOrderPrice: 0,
+    sellWatchPrice: 0,
+    sellWatchQty: 10,
+    sellMinTradeQty: 30_000,
+    sellOrderRatio: 100,
+    cancelWatchQty: 10,
+    ...over,
+  });
+  /** 요청 6체크 + 가격 둘이 전부 선 에코 — over 로 눕힌다. */
+  const echoed = (over: Partial<LimitChaserFormValues> = {}): LimitChaserFormValues =>
+    base({
+      sellEnabled: true,
+      sellQtyTrackEnabled: true,
+      sellTradeQtyEnabled: true,
+      cancelQtyEnabled: true,
+      cancelTradeEnabled: true,
+      cancelQtyTrackEnabled: true,
+      sellOrderPrice: 150_800,
+      sellWatchPrice: 150_800,
+      ...over,
+    });
+  const FULL =
+    '선매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 150,800원';
+  const PARTIAL =
+    '선매수 자동 체크 — 켬: 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 켜지 않음: 매도주문(서버 거부) / 매도 주문가격·비교가격 = 상한가 150,800원';
+
+  it('요청 6 · 에코 6 → 입력과 같은 결과 · 줄은 종전 문장 그대로 info', () => {
+    const auto = groupAutoChecksOf('preBuyEnabled', base(), 150_800);
+    const r = confirmAutoChecks(auto, echoed());
+    expect(r).toEqual(auto);
+    expect(groupAutoCheckLogLine(r)).toEqual({ text: FULL, level: 'info' });
+  });
+
+  it('요청 6 · 에코 5(매도주문만 눕힘 · 가격 섬) → 켬 5 · 매도주문(서버 거부) · priceFilled 그대로 · error', () => {
+    const auto = groupAutoChecksOf('preBuyEnabled', base(), 150_800);
+    const r = confirmAutoChecks(auto, echoed({ sellEnabled: false }));
+    expect(r.turnedOn).toEqual(['매도>잔량추적', '매도>체결', '취소', '취소>체결', '취소>잔량추적']);
+    expect(r.skipped).toEqual([{ item: '매도주문', reason: '서버 거부' }]);
+    expect(r.priceFilled).toBe(150_800);
+    expect(r.companions).not.toHaveProperty('sellEnabled');
+    expect(groupAutoCheckLogLine(r)).toEqual({ text: PARTIAL, level: 'error' });
+  });
+
+  it('예측 생략(취소 매수잔량 0)과 서버 거부(매도주문)가 섞이면 skipped 는 항목 정본 순서다', () => {
+    const auto = groupAutoChecksOf('preBuyEnabled', base({ cancelWatchQty: 0 }), 150_800);
+    const r = confirmAutoChecks(auto, echoed({ sellEnabled: false, cancelQtyEnabled: false, cancelQtyTrackEnabled: false }));
+    expect(r.skipped).toEqual([
+      { item: '매도주문', reason: '서버 거부' },
+      { item: '취소', reason: '취소 매수잔량 0' },
+      { item: '취소>잔량추적', reason: '취소 매수잔량 0' },
+    ]);
+    expect(r.turnedOn).toEqual(['매도>잔량추적', '매도>체결', '취소>체결']);
+    expect(groupAutoCheckLogLine(r)?.text).toBe(
+      '선매수 자동 체크 — 켬: 매도>잔량추적 · 매도>체결 · 취소>체결 / 켜지 않음: 매도주문(서버 거부) · 취소(취소 매수잔량 0) · 취소>잔량추적(취소 매수잔량 0) / 매도 주문가격·비교가격 = 상한가 150,800원',
+    );
+  });
+
+  it('채운 가격 두 칸 중 에코에 한 칸만 서면 그 칸 이름만 · 둘 다 안 서면 가격 조각 없음 · 입력 불변(순수)', () => {
+    const auto = groupAutoChecksOf('preBuyEnabled', base(), 150_800);
+    const snapshot = structuredClone(auto);
+
+    const watchOnly = confirmAutoChecks(auto, echoed({ sellOrderPrice: 0 }));
+    expect(watchOnly.companions).not.toHaveProperty('sellOrderPrice');
+    expect(watchOnly.companions.sellWatchPrice).toBe(150_800);
+    expect(watchOnly.priceFilled).toBe(150_800);
+    expect(groupAutoCheckLogLine(watchOnly)?.text.endsWith(' / 매도 비교가격 = 상한가 150,800원')).toBe(true);
+
+    const none = confirmAutoChecks(auto, echoed({ sellOrderPrice: 140_000, sellWatchPrice: 140_000 }));
+    expect(none.priceFilled).toBeNull();
+    expect(groupAutoCheckLogLine(none)?.text).toBe(
+      '선매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적',
+    );
+
+    expect(auto).toEqual(snapshot);
+  });
+});
+
+/**
+ * R3-G1 · R4-WR-01 선택지 (ii) — `refused` = 이 흐름에서 서버가 눕힌 내 동반 필드(훅 ⑬). 꺼내는 순간 자동 체크는 그 항목을
+ * 다시 켜지 않고 「서버 거부」 로 적는다. 예측 사유가 있으면 예측 사유가 먼저, 이미 켜진 항목은 목록 밖이다.
+ */
+describe('groupAutoChecksOf refused — 서버가 눕힌 동반은 다시 켜지 않는다 (R3-G1 · R4-WR-01)', () => {
+  const base = (over: Partial<LimitChaserFormValues> = {}): LimitChaserFormValues => ({
+    ...defaultLimitChaserForm(),
+    sellEnabled: false,
+    sellQtyTrackEnabled: false,
+    sellTradeQtyEnabled: false,
+    cancelQtyEnabled: false,
+    cancelTradeEnabled: false,
+    cancelQtyTrackEnabled: false,
+    sellOrderPrice: 0,
+    sellWatchPrice: 0,
+    sellWatchQty: 10,
+    sellMinTradeQty: 30_000,
+    sellOrderRatio: 100,
+    cancelWatchQty: 10,
+    ...over,
+  });
+  const refused = (...keys: (keyof LimitChaserFormValues)[]): ReadonlySet<keyof LimitChaserFormValues> => new Set(keys);
+
+  it('refused 매도주문 · 예측 조건 모두 통과 → 매도주문(서버 거부) · companions 에 sellEnabled 없음 · 나머지는 켠다', () => {
+    const r = groupAutoChecksOf('extraBuyEnabled', base(), 150_800, refused('sellEnabled'));
+    expect(r.skipped).toEqual([{ item: '매도주문', reason: '서버 거부' }]);
+    expect(r.turnedOn).toEqual(['매도>잔량추적', '매도>체결', '취소', '취소>체결', '취소>잔량추적']);
+    expect(r.companions).not.toHaveProperty('sellEnabled');
+    expect(groupAutoCheckLogLine(r)).toEqual({
+      level: 'error',
+      text: '추가매수 자동 체크 — 켬: 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 켜지 않음: 매도주문(서버 거부) / 매도 주문가격·비교가격 = 상한가 150,800원',
+    });
+  });
+
+  it('이미 켜진 항목은 refused 여도 목록 밖 · 예측 사유가 있으면 예측 사유가 먼저다', () => {
+    const on = groupAutoChecksOf('extraBuyEnabled', base({ sellEnabled: true }), 150_800, refused('sellEnabled'));
+    expect(on.turnedOn).not.toContain('매도주문');
+    expect(on.skipped).toEqual([]);
+
+    const predicted = groupAutoChecksOf('extraBuyEnabled', base({ sellWatchQty: 0 }), 150_800, refused('sellEnabled'));
+    expect(predicted.skipped[0]).toEqual({ item: '매도주문', reason: '매도 매수잔량 0' });
+  });
+
+  it('refused 취소 → 취소(서버 거부) · 취소>잔량추적 도 취소가 받은 사유(서버 거부)를 따른다', () => {
+    const r = groupAutoChecksOf('extraBuyEnabled', base(), 150_800, refused('cancelQtyEnabled'));
+    expect(r.skipped).toEqual([
+      { item: '취소', reason: '서버 거부' },
+      { item: '취소>잔량추적', reason: '서버 거부' },
+    ]);
+    expect(r.turnedOn).toEqual(['매도주문', '매도>잔량추적', '매도>체결', '취소>체결']);
+    expect(r.companions).not.toHaveProperty('cancelQtyEnabled');
+    expect(r.companions).not.toHaveProperty('cancelQtyTrackEnabled');
+  });
+
+  it('refused 를 생략하거나 비우면 결과가 종전과 같다', () => {
+    for (const over of [{}, { cancelWatchQty: 0 }, { sellWatchQty: 0 }, { sellEnabled: true }] as Partial<LimitChaserFormValues>[]) {
+      for (const upper of [150_800, 0]) {
+        expect(groupAutoChecksOf('preBuyEnabled', base(over), upper, refused())).toEqual(
+          groupAutoChecksOf('preBuyEnabled', base(over), upper),
+        );
+      }
     }
   });
 });

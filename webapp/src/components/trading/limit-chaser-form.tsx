@@ -107,6 +107,7 @@ import {
   formFromServer,
   isDeleteIntent,
   isLegacyBuySchema,
+  confirmAutoChecks,
   groupAutoCheckLogLine,
   groupAutoChecksOf,
   isMasterOnlyDelta,
@@ -1057,6 +1058,9 @@ export function LimitChaserForm({
           — 보낸 성공은 한 실행에 최대 1건이라 덮이지 않는다.
       (c) 일반 성공의 필드가 선매수 · 추가매수이고 그 슬롯이 아직 남아 있으면 **줄 없이 슬롯만 비운다** — 보내지 않은
           no-op · 대기 접기 성공이다(D-08 · GC-IN-03). (b) 가 소비한 슬롯은 이미 없으므로 겹치지 않는다.
+    ★ (b) 의 줄 **내용은 성공 에코로 확정**한다(R3-G1 · 24-REVIEW-R4 R4-WR-01). 슬롯의 계산은 예측이고, 부분 거부면 서버가
+      요청 항목 일부만 눕힌다 — `confirmAutoChecks(예측, 에코)` 가 에코에 선 항목만 「켬」 으로 두고, 서지 않은 항목은
+      「켜지 않음(서버 거부)」 · error 로 옮긴다. 전부 섰으면 줄은 종전과 같다.
     ★ 이 이펙트는 제출을 만들지 않는다 — 로그 한 줄만 내보낸다.
   */
   const sentSuccessSeenRef = useRef(sentSuccessSeq);
@@ -1079,8 +1083,11 @@ export function LimitChaserForm({
           const auto = autoCheckRef.current[gate];
           delete autoCheckRef.current[gate];
           // 그새 그 그룹을 다시 꺼 그 확정이 성공한 경우는 켠 사건이 아니다. 마지막 계산 = 실제로 나간 cfg 의 판정(WR-03)
-          //   — 켤 것도 생략도 없으면 줄 없음.
-          const line = serverRef.current?.[gate] === true && auto !== undefined ? groupAutoCheckLogLine(auto) : null;
+          //   — 켤 것도 생략도 없으면 줄 없음. 내용은 성공 에코로 확정한다 — 요청했으나 서지 않은 항목은
+          //   「켜지 않음(서버 거부)」(R3-G1).
+          const echoNow = serverRef.current;
+          const line =
+            echoNow?.[gate] === true && auto !== undefined ? groupAutoCheckLogLine(confirmAutoChecks(auto, echoNow)) : null;
           if (line !== null) clientLogRef.current?.(line.text, line.level);
         }
       }

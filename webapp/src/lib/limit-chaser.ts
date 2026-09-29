@@ -290,8 +290,13 @@ export function seedListSharesDefaults(listShares: number): ListSharesSeed | nul
 export type AutoCheckGate = 'preBuyEnabled' | 'extraBuyEnabled';
 /** 자동 체크 항목(개명 D-09 반영) — 순서가 곧 로그 순서다. */
 export type AutoCheckItem = '매도주문' | '매도>잔량추적' | '매도>체결' | '취소' | '취소>체결' | '취소>잔량추적';
-/** 켜지 않은 사유 — UI-SPEC 닫힌 목록. 새 사유를 여기 더하지 않는다(문구 원천이 UI-SPEC 이다). */
-export type AutoCheckReason = '매도 매수잔량 0' | '취소 매수잔량 0' | '매도 체결 0' | '매도비율 0' | '상한가 미수신';
+/**
+ * 켜지 않은 사유 — UI-SPEC 닫힌 목록. 새 사유를 여기 더하지 않는다(문구 원천이 UI-SPEC 이다).
+ * 「서버 거부」 는 UI-SPEC 닫힌 목록을 함께 개정해 더했다(2026-09-29 · quick-260929-htw · R3-G1 · R4-WR-01) — 요청했으나
+ * 성공 에코에 서지 않은 항목이다. 에코의 플래그는 무장 상태(cfg ∧ armed)라 사실의 핵심은 「그 순간 방어가 서 있지
+ * 않다」 이다. 구체 사유는 서버 ERROR 원문 줄이 말한다.
+ */
+export type AutoCheckReason = '매도 매수잔량 0' | '취소 매수잔량 0' | '매도 체결 0' | '매도비율 0' | '상한가 미수신' | '서버 거부';
 
 export interface GroupAutoCheckResult {
   /** 로그 첫머리 그룹 이름 — `lc-fields.ts` 카드 제목과 같은 문자열(D-35). */
@@ -320,6 +325,12 @@ const AUTO_CHECK_FIELD = {
   '취소>잔량추적': 'cancelQtyTrackEnabled',
 } as const satisfies Record<AutoCheckItem, keyof LimitChaserFormValues>;
 
+/** 항목 정본 순서(= 로그 순서) — `AUTO_CHECK_FIELD` 키 순서. 사후 확정의 skipped 정렬에 쓴다. */
+const AUTO_CHECK_ORDER = Object.keys(AUTO_CHECK_FIELD) as AutoCheckItem[];
+
+/** 「서버가 눕힌 동반」 이 없음 — `groupAutoChecksOf` 넷째 인자 기본값. */
+const NO_REFUSED: ReadonlySet<keyof LimitChaserFormValues> = new Set();
+
 /**
  * 선매수 · 추가매수 켬 → 매도 · 취소 6체크 자동 켬 — **판정 지점 하나**(순수 함수 · 그룹 인자 한 벌 · D-35).
  *
@@ -345,11 +356,15 @@ const AUTO_CHECK_FIELD = {
  *   프레임 **전체**를 거부하므로(선매수 켬까지 함께 막힌다), 매도>잔량추적 · 매도>체결도 같은 사유로 켜지 않는다.
  * ★ 호출 자리는 **사람의 선매수 · 추가매수 스위치 핸들러 하나**다(D-08 · D-35) — 에코 · 재접속 · 다른 단말 변경 ·
  *   후매수 켜기에서 부르지 않는다. 추가매수 고유 사전 거부(사전 검증 줄 · D-16)는 이 함수보다 앞에서 돈다.
+ * ★ `refused`(R3-G1 · 24-REVIEW-R4 R4-WR-01 선택지 (ii)) = **이 흐름에서 서버가 눕힌 내 동반 필드**다. 호출자는 훅
+ *   `useLcFieldCommit` 의 ⑬(눕힌 동반)을 넘긴다. 판정 순서는 ① 이미 켜짐 → 목록 밖 ② 예측 첫 실패 사유 ③ refused →
+ *   「서버 거부」 ④ 켬 — 서버가 방금 거부한 무장을 같은 흐름에서 사람 모르게 다시 요청하지 않는다. 생략하면 종전과 같다.
  */
 export function groupAutoChecksOf(
   gate: AutoCheckGate,
   values: LimitChaserFormValues,
   upperLimit: number,
+  refused: ReadonlySet<keyof LimitChaserFormValues> = NO_REFUSED,
 ): GroupAutoCheckResult {
   const companions: Partial<LimitChaserFormValues> = {};
   let sellOrderPrice = values.sellOrderPrice;
@@ -382,17 +397,18 @@ export function groupAutoChecksOf(
 
   const turnedOn: AutoCheckItem[] = [];
   const skipped: { item: AutoCheckItem; reason: AutoCheckReason }[] = [];
-  const decide = (item: AutoCheckItem, checks: readonly Check[]): boolean => {
+  /** 켜짐(이미 켜짐 · 이번에 켬)이면 null, 켜지 않았으면 그 항목이 받은 사유. */
+  const decide = (item: AutoCheckItem, checks: readonly Check[]): AutoCheckReason | null => {
     const field = AUTO_CHECK_FIELD[item];
-    if (values[field]) return true; // 이미 켜짐 — 건드리지 않는다(목록에도 넣지 않는다).
-    const reason = firstFail(checks);
+    if (values[field]) return null; // 이미 켜짐 — 건드리지 않는다(목록에도 넣지 않는다).
+    const reason = firstFail(checks) ?? (refused.has(field) ? '서버 거부' : null);
     if (reason !== null) {
       skipped.push({ item, reason });
-      return false;
+      return reason;
     }
     companions[field] = true;
     turnedOn.push(item);
-    return true;
+    return null;
   };
 
   decide('매도주문', [
@@ -405,7 +421,7 @@ export function groupAutoChecksOf(
     [sellQtyZero, '매도 매수잔량 0'],
     [tradeZero, '매도 체결 0'],
   ]);
-  const cancelOn = decide('취소', [
+  const cancelReason = decide('취소', [
     [watchPriceMissing, '상한가 미수신'],
     [cancelQtyZero, '취소 매수잔량 0'],
   ]);
@@ -413,13 +429,41 @@ export function groupAutoChecksOf(
     [watchPriceMissing, '상한가 미수신'],
     [tradeZero, '매도 체결 0'],
   ]);
-  // 취소가 켜지지 않으면 따라 올릴 임계가 없다 — 사유는 취소가 못 켜진 사유(가격이 먼저)와 같다.
+  // 취소가 켜지지 않으면 따라 올릴 임계가 없다 — 사유는 취소가 실제로 받은 사유(가격이 먼저 · 서버 거부 포함)와 같다.
   decide('취소>잔량추적', [
     [watchPriceMissing, '상한가 미수신'],
-    [!cancelOn, '취소 매수잔량 0'],
+    ...(cancelReason !== null ? [[true, cancelReason] as const] : []),
   ]);
 
   return { groupLabel: AUTO_CHECK_GROUP_LABEL[gate], companions, turnedOn, skipped, priceFilled };
+}
+
+/** 사후 확정이 읽는 에코 필드 — 6플래그 + 매도 가격 둘(`RelayLimitChaser` · 폼 값 모두 그대로 들어간다). */
+export type AutoCheckEcho = Pick<
+  LimitChaserFormValues,
+  (typeof AUTO_CHECK_FIELD)[AutoCheckItem] | 'sellOrderPrice' | 'sellWatchPrice'
+>;
+
+/**
+ * 자동 체크 예측을 **성공 에코로 확정**한다(R3-G1 · 24-REVIEW-R4 R4-WR-01 · 순수 함수 · 판정 한 곳).
+ *
+ * `groupAutoChecksOf` 는 누른 순간 · 꺼내는 순간의 예측이다. 서버는 부분 거부로 요청 항목 일부만 눕힐 수 있다(무장 상태
+ * 에코 = cfg ∧ armed). 로그는 사실만 적는다 — 요청했는데 에코에 서지 않은 항목은 「켬」 에서 빼고 `서버 거부` 로 옮긴다
+ * (skipped 는 항목 정본 순서). 동반도 에코가 같은 값으로 선 것만 남기고, 가격 조각은 남은 동반에 가격이 있을 때만 선다.
+ * 요청이 전부 섰으면 결과는 입력과 같다(기존 줄 불변). 입력은 바꾸지 않는다.
+ */
+export function confirmAutoChecks(r: GroupAutoCheckResult, server: AutoCheckEcho): GroupAutoCheckResult {
+  const turnedOn = r.turnedOn.filter((item) => server[AUTO_CHECK_FIELD[item]] === true);
+  const refused = r.turnedOn.filter((item) => server[AUTO_CHECK_FIELD[item]] !== true);
+  const skipped = [...r.skipped, ...refused.map((item) => ({ item, reason: '서버 거부' as const }))].sort(
+    (a, b) => AUTO_CHECK_ORDER.indexOf(a.item) - AUTO_CHECK_ORDER.indexOf(b.item),
+  );
+  const companions: Partial<LimitChaserFormValues> = {};
+  for (const [k, v] of Object.entries(r.companions) as [keyof AutoCheckEcho, unknown][]) {
+    if (server[k] === v) (companions as Record<string, unknown>)[k] = v;
+  }
+  const priceKept = companions.sellOrderPrice !== undefined || companions.sellWatchPrice !== undefined;
+  return { ...r, companions, turnedOn, skipped, priceFilled: priceKept ? r.priceFilled : null };
 }
 
 /**
