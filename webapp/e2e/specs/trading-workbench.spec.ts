@@ -1670,16 +1670,18 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length).toBe(before + 1);
   });
 
-  test('13. 인라인 편집 중 다른 단말 변경 — 입력 8,000 유지 · Esc 뒤 행 = 에코 「5,000주」 + 카드 6초 배너(role=status) 「다른 단말에서 변경됐어요 · 서버 값으로 맞췄어요」 + 공용 로그 1줄 (옛 LC 5 · D-07 재정의)', async ({
+  test('13. 인라인 편집 중 다른 단말 변경 — 입력 8,000 유지 · Esc 뒤 행 = 에코 「5,000주」 + 공용 로그 「서버 반영 완료」 1줄 · 배너 없음 (옛 LC 5 · D-07 재정의 · 2026-09-29 배너 제거)', async ({
     page,
   }) => {
     /*
       옛 13 은 「에코가 더티를 덮는다」였다. D-07 은 편집 중인 버퍼가 **편집기의 것**이라 에코가 덮지 않는다
-      (E4) — 행 값(폼)은 서버를 따르고, 편집을 버리면(Esc) 그 행은 에코 값을 보인다. 배너·로그 규율은 그대로다.
+      (E4) — 행 값(폼)은 서버를 따르고, 편집을 버리면(Esc) 그 행은 에코 값을 보인다. 알림은 로그 전이 줄 하나뿐이다.
     */
     relay.seedLimitChasers([{ buyEnabled: true }]);
     await openFocusedCard(page);
     const before = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
+    // 로그 탭을 편집 전에 연다 — 편집 중에 탭을 누르면 인라인 편집기가 포커스를 잃고 닫힌다.
+    const rows = await logRows(page);
 
     await showLc(page, 'lc-buy-watch-qty');
     await lcRow(page, 'lc-buy-watch-qty').click();
@@ -1688,9 +1690,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await input.fill('8000');
     await relay.pushLimitChaserEcho({ buyEnabled: true, buyWatchQty: 5_000 });
 
-    const banner = cardOf(page, E2E_ISIN).locator('[data-slot="card-echo-banner"]');
-    await expect(banner).toContainText('다른 단말에서 변경됐어요 · 서버 값으로 맞췄어요', { timeout: 15_000 });
-    await expect(banner).toHaveAttribute('role', 'status');
+    await expect(rows.filter({ hasText: '서버 반영 완료' })).toHaveCount(1, { timeout: 15_000 });
     // 편집 중인 입력은 에코가 덮지 않는다 — 사용자가 치던 값이 그대로다.
     await expect(input).toHaveValue(/^8,?000$/);
     await expect(input).toBeFocused();
@@ -1702,10 +1702,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(page.locator(DIRTY_BAR_SEL)).toHaveCount(0);
     // 버린 편집은 나가지 않았다.
     expect(relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length).toBe(before);
-
-    // 배너는 6초 뒤 사라지지만 로그는 남는다.
-    await expect(banner).toHaveCount(0, { timeout: 15_000 });
-    await expect((await logRows(page)).filter({ hasText: '다른 단말에서 변경' })).toHaveCount(1);
+    await expect(cardOf(page, E2E_ISIN).getByText(/다른 단말/)).toHaveCount(0);
   });
 
   test('14. 매수·매도 OFF = 삭제 — cfg `D` → 에코 후 사이드바에서 빠지고 폼이 기본값, 삭제 버튼 없음 (옛 LC 6 · D-08)', async ({
@@ -2633,7 +2630,6 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(rows.first()).toContainText('서버가 매수 그룹 해제 — 매수 그룹이 모두 꺼져 매수주문도 끔', {
       timeout: 15_000,
     });
-    await expect(card.locator('[data-slot="card-echo-banner"]')).toHaveCount(0);
     await page.waitForTimeout(FOLD_QUIET_MS);
     expect(lcSetCount(relay), 'D-02 후반 — 서버 접힘 하강 전이 = 마스터 OFF 정확히 1건 · 자기 마스터 OFF 에코는 트리거가 아니다').toBe(
       beforeB + 1,
@@ -2801,13 +2797,11 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       postBuyTriggerQty: 0,
     });
     await expect(lcGroupStatus(card, 'post-buy')).toHaveText('소진', { timeout: 15_000 });
-    // 발동 · 재진입 에코의 부재 단언은 단계 3 의 후매수 해제 전이 로그 줄 뒤에 한다(GC-IN-04) — 앞선 에코가 배너를
-    // 세웠다면 ECHO_BANNER_MS(6초 · strategy-card.tsx) 동안 남아 이 시점에 잡히고, 반영 줄은 로그에 남는다.
+    // 발동 · 재진입 에코의 부재 단언은 단계 3 의 후매수 해제 전이 로그 줄 뒤에 한다(GC-IN-04) — 앞선 에코가 반영 줄을
+    // 세웠다면 로그에 남아 이 시점에 잡힌다.
     const rows = await logRows(page);
     await expect(rows.filter({ hasText: '후매수 무장 해제' })).toHaveCount(1, { timeout: 15_000 });
-    await expect(card.locator('[data-slot="card-echo-banner"]')).toHaveCount(0);
     await expect(rows.filter({ hasText: '서버 반영 완료' })).toHaveCount(0);
-    await expect(rows.filter({ hasText: '다른 단말에서 변경' })).toHaveCount(0);
     expect(lcSetCount(relay), '서버 단계 에코는 제출을 만들지 않는다').toBe(before);
     const postSummary = card.locator('[data-slot="lc-group-post-buy"] [data-slot="lc-group-summary"]');
     await expect(postSummary).toContainText('3회 · 남은 0회');

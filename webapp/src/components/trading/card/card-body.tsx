@@ -222,7 +222,6 @@ export function CardBody({
     rejectSeq,
     unacked,
     handleSent,
-    handleServerEcho,
     pushClientLog,
   } = card;
 
@@ -278,7 +277,6 @@ export function CardBody({
       currentPrice={quote !== null && quote.p > 0 ? quote.p : 0}
       tickRule={tickRule}
       onSent={handleSent}
-      onServerEcho={handleServerEcho}
       // D-36 판정 입력 — 호가 매수1호가. 호가 미수신 · 0 이면 0(허용 — 상한가로 치환하지 않는다).
       bestBid={quote !== null && quote.bp[0] > 0 ? quote.bp[0] : 0}
       // D-36 판정 입력 — 호가 매수1잔량. 미수신 · 0 이면 0(허용).

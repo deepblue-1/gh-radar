@@ -24,7 +24,7 @@
  *   `limitChasers.find(c => c.key === key)` 와 `lastLimitChaserEcho.key === key` 가 카드
  *   인스턴스마다 돈다. 작업대가 에코를 받아 카드에 **분배하지 않는다** — 분배 로직이 상관의
  *   두 번째 벌이 되고, 그 순간 「다른 카드의 에코로 내 더티가 지워지는」 경로가 생긴다.
- *   `pendingRef`·`unacked`·`ackTimer`·`overwrittenRef` 도 전부 인스턴스별이다.
+ *   `pendingRef`·`unacked`·`ackTimer` 도 전부 인스턴스별이다.
  *
  * ③ ★ 카드는 자기 `isin`/`exchange` 로만 구독한다 (T-18-26 · T-15-40 / T-16-02 승계)
  *   `useRelaySubscription` 이 자기 키의 시세만 돌려주고, 언마운트·키 변경 때 그 키를 해제한다.
@@ -84,7 +84,6 @@ import { strategyBadgesOf } from "@/components/trading/strategy-badge";
 import {
   echoAnswersSent,
   isRuntimeOnlyEcho,
-  limitChaserValuesChanged,
   marketCloseDisabledLogLine,
   serverMessageLogLine,
   strategiesDisabledLogLine,
@@ -103,11 +102,6 @@ import { useRelayContext, useRelaySubscription } from "@/lib/relay-provider";
 import type { RelayServerMessageEntry } from "@/lib/use-relay-socket";
 import { cn } from "@/lib/utils";
 
-/**
- * 에코 배너 자동 소멸(ms) — UI-SPEC A3 「6초 배너」.
- * 상수로 **내보내는** 이유: 테스트가 6000 을 다시 적으면 값을 바꿔도 테스트가 통과한다.
- */
-export const ECHO_BANNER_MS = 6_000;
 /**
  * 전송 후 「미반영」 판정까지의 대기(ms).
  * WinForms `RespTimeoutMs=3000` 과 **같은 값**이다 — 두 클라이언트가 다른 시각에 다른 말을
@@ -213,8 +207,6 @@ export interface StrategyCardState {
    * 에코까지 유예한다(24-REVIEW-R3 R3-WR-01 · `LC_REJECT_ECHO_GRACE_MS`).
    */
   rejectSeq: number;
-  /** 6초 에코 배너 문구(「다른 단말에서 변경됨」). */
-  banner: string | null;
   appliedAt: string | null;
   /** 최신 상따 몫 거부 1건 — 원문과 출처를 따로(배지 판정은 렌더 자리에서 한 번). */
   lastError: { text: string; src: string } | null;
@@ -233,7 +225,6 @@ export interface StrategyCardState {
    * 제출의 사유(D-02 후반 `'serverFold'` — 24-06 폼이 넘긴다)에 쓴다. 둘은 같은 수명이다.
    */
   handleSent: (cfg: RelayLimitChaserInput, meta?: { cause?: StrategySubmitCause }) => void;
-  handleServerEcho: (info: { overwrittenDirty: number }) => void;
   /**
    * 클라 합성 로그 한 줄 — 제출이 없어 에코가 말해 줄 수 없는 사건(D-16 상한가 차단 · 24-07 D-06)만 쓴다.
    * ★ `queueMicrotask` 로 한 박자 늦게 쌓는다 — 자식(폼) 이펙트가 부모(이 훅) 이펙트보다 먼저 돌아서, 같은 렌더의
@@ -339,10 +330,6 @@ export function useStrategyCardState({
   const [answerSeq, setAnswerSeq] = useState(0);
   /** lc.set 거부 통지 접수 횟수 — `StrategyCardState.rejectSeq`(R3-WR-01). */
   const [rejectSeq, setRejectSeq] = useState(0);
-  /** 폼이 알려 준 「이번 에코가 덮은 더티 필드 수」. 소비 즉시 0 으로 되돌린다. */
-  const overwrittenRef = useRef(0);
-  const [banner, setBanner] = useState<string | null>(null);
-  const bannerTimer = useRef<number | null>(null);
   const [appliedAt, setAppliedAt] = useState<string | null>(null);
   const [dirtyCount, setDirtyCount] = useState(0);
   /** 삭제 에코를 받으면 올린다 — 폼을 remount 해 빈 상태로 되돌리는 유일한 장치(⑤). */
@@ -421,10 +408,6 @@ export function useStrategyCardState({
     setAnswerSeq((n) => n + 1);
   }, []);
 
-  const handleServerEcho = useCallback((info: { overwrittenDirty: number }) => {
-    overwrittenRef.current = info.overwrittenDirty;
-  }, []);
-
   /** 직전 에코 — 전이 문장의 기준선이다. 전략 키가 바뀌면 되돌린다. */
   const prevServerRef = useRef<RelayLimitChaser | null>(null);
   useEffect(() => {
@@ -435,7 +418,6 @@ export function useStrategyCardState({
     pendingExpiryTimer.current = null;
     armInFlightRef.current = false;
     setUnacked(false);
-    setBanner(null);
     setAppliedAt(null);
     setLiveSeed(0);
   }, [key]);
@@ -509,7 +491,6 @@ export function useStrategyCardState({
     */
     if (prev !== null && isRuntimeOnlyEcho(prev, server)) {
       prevServerRef.current = server;
-      overwrittenRef.current = 0;
       return;
     }
     prevServerRef.current = server;
@@ -546,8 +527,7 @@ export function useStrategyCardState({
     const cause = disable !== undefined && disable.echo === server ? disable.cause : null;
     /*
       ★ 15:40 · 전부 정지가 원인인 에코는 내 제출의 답이 아니다 — 옛 hadOrder 규율 복원(WR-05). 원인 문장만
-        남기고 보낸 cfg · 사유는 넘기지 않는다(「클라가 지어낸 사유를 쓰지 않는다」). 아래 다른 단말 배너
-        판정은 `mine` 을 그대로 쓴다 — 원인 에코에서 배너가 새로 서지 않게.
+        남기고 보낸 cfg · 사유는 넘기지 않는다(「클라가 지어낸 사유를 쓰지 않는다」).
     */
     const attributed = cause !== null || !mine ? null : sent;
     const line = strategyLogLine(prev, server, {
@@ -557,40 +537,12 @@ export function useStrategyCardState({
     if (line !== null) pushLog(line);
     // 15:40 해제는 원인 1줄을 더 남긴다 — 사용자가 끄지 않은 해제의 이유를 로그가 말한다.
     if (cause === "marketClose") pushLog(marketCloseDisabledLogLine());
-
-    /*
-      다른 단말 변경 — **누가 보냈나가 아니라 무엇이 바뀌었나**로 판정한다 (quick-260926-nr2).
-      게이트·래치·런타임 카운터는 서버가 스스로 양방향으로 뒤집는다(에코 xxxEnabled = cfg && armed —
-      OnQuote 자동 래치, SubmitBuy/Sell/Cancel 게이트 소진, Restore*Gate 복원, OnExecution 체결,
-      lc.arm 답, 전부 정지). 그래서 「내가 보낸 적 없음」만으로는 다른 단말의 증거가 아니다 —
-      **사용자 설정 값**(`limitChaserValuesChanged`)이 내 요청 없이 바뀐 경우만 다른 단말이다.
-      후매수 발동 · 재진입 에코의 override 값(Pitfall 8)은 그 함수가 빼므로 여기 별도 조건이 없다(판정 한 곳).
-      「내 요청」 판정도 한 곳 — 위 `mine`(`echoAnswersSent`)이다(GC-WR-01).
-      전이 로그 줄(매수주문 무장·래치 ON 등)은 위에서 종전대로 남는다.
-      첫 스냅샷(prev === null)을 「다른 단말」이라고 하면 페이지를 열 때마다 배너가 뜬다.
-    */
-    const overwritten = overwrittenRef.current;
-    overwrittenRef.current = 0;
-    if (!mine && prev !== null && limitChaserValuesChanged(prev, server)) {
-      const text =
-        overwritten > 0
-          ? `다른 단말에서 변경돼 수정하던 값 ${overwritten}개가 서버 값으로 바뀌었어요`
-          : "다른 단말에서 변경됐어요 · 서버 값으로 맞췄어요";
-      setBanner(text);
-      pushLog(text);
-      if (bannerTimer.current != null) window.clearTimeout(bannerTimer.current);
-      bannerTimer.current = window.setTimeout(
-        () => setBanner(null),
-        ECHO_BANNER_MS,
-      );
-    }
     // `limitChaserDisableEchoes` 로 재실행돼도 위 동일성 조기 반환이 무해하게 만든다.
   }, [server, key, limitChaserDisableEchoes, pushLog, acceptAnswer]);
 
   useEffect(
     () => () => {
       if (ackTimer.current != null) window.clearTimeout(ackTimer.current);
-      if (bannerTimer.current != null) window.clearTimeout(bannerTimer.current);
       if (pendingExpiryTimer.current != null) window.clearTimeout(pendingExpiryTimer.current);
     },
     [],
@@ -742,7 +694,6 @@ export function useStrategyCardState({
     unacked,
     answerSeq,
     rejectSeq,
-    banner,
     appliedAt,
     lastError,
     resetSeq,
@@ -753,7 +704,6 @@ export function useStrategyCardState({
     setDirtyCount,
     handleArm,
     handleSent,
-    handleServerEcho,
     pushClientLog,
   };
 }
@@ -1057,7 +1007,7 @@ function StrategyCardImpl({
 /**
  * 카드 인라인 고지 — 토스트 없이 인라인으로만 말한다(D-27 · UI-SPEC 접근성).
  *
- * ★ 이 카드 **자기** 상태만 그린다 — 다른 카드의 배너·미반영·거부가 여기 설 수 없다(②).
+ * ★ 이 카드 **자기** 상태만 그린다 — 다른 카드의 미반영·거부가 여기 설 수 없다(②).
  * ★ 문구는 옛 상따 화면의 원문 그대로다(「미반영 · 서버 응답을 기다리고 있어요」 등).
  * ★ 서버 거부(`lastError`)는 `role="alert"` 다 — 상태가 아니라 경보다(T-16-07 · 옛 상태줄 계약 승계).
  *   18-13 에서 되살렸다: 훅은 계산하고 있었지만 카드가 그리지 않아, 거부가 기본으로 닫힌 공용 패널
@@ -1065,8 +1015,8 @@ function StrategyCardImpl({
  *   `serverMsgBadge` **하나**로 판정하는 텍스트 접두다 — 색만으로 가르면 WCAG 1.4.1 위반이다.
  */
 function CardNotices({ card }: { card: StrategyCardState }) {
-  const { banner, unacked, lastError } = card;
-  if (banner === null && !unacked && lastError === null) return null;
+  const { unacked, lastError } = card;
+  if (!unacked && lastError === null) return null;
   return (
     <div className="flex flex-col gap-1 border-t border-[var(--border-subtle)] px-2.5 py-1.5 text-[length:var(--t-caption)]">
       {lastError !== null && (
@@ -1079,11 +1029,6 @@ function CardNotices({ card }: { card: StrategyCardState }) {
             {serverMsgBadge(lastError.src)}
           </span>{" "}
           {lastError.text}
-        </p>
-      )}
-      {banner !== null && (
-        <p role="status" data-slot="card-echo-banner" className="m-0 text-[var(--fg)]">
-          {banner}
         </p>
       )}
       {unacked && (

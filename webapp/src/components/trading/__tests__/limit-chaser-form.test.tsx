@@ -866,12 +866,10 @@ describe('⑫ pane · 탭 — 두 pane 은 늘 DOM, 숨김은 CSS (260912-k2x ·
 });
 
 describe('⑬ 에코가 목록을 이긴다 · 편집 중 버퍼는 보존 (D-11 · E4 partial) (옛 ⑧⑪)', () => {
-  it('새 에코가 행을 덮는다 — 상위에 changed 수와 덮인 더티 0 을 알린다', () => {
-    const onServerEcho = vi.fn();
-    const { rerender } = render(<LimitChaserForm {...props({ onServerEcho })} />);
-    rerender(<LimitChaserForm {...props({ onServerEcho, server: echo({ buyWatchQty: 5_000 }) })} />);
+  it('새 에코가 행을 덮는다', () => {
+    const { rerender } = render(<LimitChaserForm {...props()} />);
+    rerender(<LimitChaserForm {...props({ server: echo({ buyWatchQty: 5_000 }) })} />);
     expect(rowText('lc-buy-watch-qty')).toBe('5,000주');
-    expect(onServerEcho).toHaveBeenLastCalledWith({ changed: 1, overwrittenDirty: 0 });
   });
 
   it('구서버 `buyOrderAmount: 0` 에코(서버가 모른다 · Pitfall 11) → 주문금액 행은 폼에 남은 값이 아니라 「—」 (D-04a · WR-07)', () => {

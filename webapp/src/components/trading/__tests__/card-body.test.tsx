@@ -167,7 +167,6 @@ function cardState(over: Partial<StrategyCardState> = {}): StrategyCardState {
     unacked: false,
     answerSeq: 0,
     rejectSeq: 0,
-    banner: null,
     appliedAt: null,
     lastError: null,
     resetSeq: 0,
@@ -178,7 +177,6 @@ function cardState(over: Partial<StrategyCardState> = {}): StrategyCardState {
     setDirtyCount: vi.fn(),
     handleArm: vi.fn(),
     handleSent: vi.fn(),
-    handleServerEcho: vi.fn(),
     pushClientLog: vi.fn(),
     ...over,
   };

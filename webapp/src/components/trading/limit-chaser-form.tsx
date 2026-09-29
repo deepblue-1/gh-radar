@@ -546,18 +546,11 @@ export interface LimitChaserFormProps {
    *   ① **3초 무응답 판정** — 보낸 시각을 모르면 「미반영」을 셀 수 없다. 그래도 **자동
    *      재전송은 하지 않는다**(T-16-10): 재전송은 사용자가 누르지 않은 두 번째 등록이다.
    *   ② **에코의 출처** — 내가 보낸 요청의 에코와 다른 단말의 변경을 구분하지 못하면
-   *      내 확정이 반영될 때마다 「다른 단말에서 변경됐어요」가 뜬다.
+   *      로그 전이 문장(D-01/D-02 동반 · 서버 접힘 사유)을 내 제출에 귀속할 수 없다.
    * `meta.cause` = 보낸 사유(D-02 후반 서버 접힘 자동 끔 = `'serverFold'`) — 카드가 에코 로그 귀속에 쓴다(24-05).
    * 사유 없는 전송은 인자 하나로 부른다.
    */
   onSent?: (cfg: RelayLimitChaserInput, meta?: LcCommitMeta) => void;
-  /**
-   * 에코가 도착해 폼을 서버값으로 덮었을 때 통지 (16-13, D-11).
-   *
-   * `overwrittenDirty` 는 Phase 20 D-04 이후 **언제나 0** 이다 — 더티 누적이 없고, 편집 중인 버퍼는
-   * 편집기의 것이라 에코가 덮지 않는다(E4). 계약(필드 모양)은 카드 상태 훅과 맞추려고 남겼다.
-   */
-  onServerEcho?: (info: { changed: number; overwrittenDirty: number }) => void;
   /**
    * 카드 3초 무응답 — 필드 확정 실패 판정 입력, UI-SPEC A10.
    *
@@ -604,7 +597,6 @@ export function LimitChaserForm({
   serverAnswerSeq = 0,
   serverRejectSeq = 0,
   onSent,
-  onServerEcho,
   unacked = false,
   currentPrice = 0,
   tickRule,
@@ -628,24 +620,15 @@ export function LimitChaserForm({
 
   const formRef = useRef(form);
   formRef.current = form;
-  const echoNotifyRef = useRef(onServerEcho);
-  echoNotifyRef.current = onServerEcho;
 
   /*
     D-11 · D-27 — 에코가 도착하면 **서버가 이긴다.** 목록 값은 에코로 덮인다.
     편집 중인 버퍼(인라인 편집기 · 시트)는 폼 값이 아니라 **편집기의 것**이라 여기서 덮이지 않는다(E4).
-    ★ 더티 누적이 없으므로(D-04) 「덮인 더티」는 언제나 0 이다 — 상위 배너는 「서버 값으로 맞췄어요」만 쓴다.
+    ★ 덮어도 따로 알리지 않는다 — 값은 화면에 · 전이는 로그 「서버 반영 완료」에 이미 보인다(다른 단말 배너 제거 · 2026-09-29).
   */
   useEffect(() => {
     if (server == null) return;
-    const prev = formRef.current;
-    const next = formFromServer(server, prev);
-    let changed = 0;
-    for (const k of Object.keys(next) as (keyof LimitChaserFormValues)[]) {
-      if (next[k] !== prev[k]) changed += 1;
-    }
-    setForm(next);
-    echoNotifyRef.current?.({ changed, overwrittenDirty: 0 });
+    setForm(formFromServer(server, formRef.current));
   }, [server]);
 
   /**
