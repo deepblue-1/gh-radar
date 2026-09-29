@@ -17,6 +17,7 @@ import { themesRouter } from "./routes/themes.js";
 import { homeRouter } from "./routes/home.js";
 import { chatRouter } from "./routes/chat.js";
 import { ordersRouter } from "./routes/orders.js";
+import { strategyEventsRouter } from "./routes/strategy-events.js";
 
 /**
  * server 측 키움 runtime 페어 (Phase 09.1 D-17/D-18).
@@ -94,6 +95,8 @@ export function createApp(deps: AppDeps): Express {
   app.use("/api/chat", chatRouter);
   // Phase 16 Plan 16 — DMA 주문 **조회 전용** (D-02). 접수는 relay wss 가 받는다.
   app.use("/api/orders", ordersRouter);
+  // Phase 25 D-07 — 하루치 주문로그(상따 전략 이벤트) 조회 전용. 적재는 relay 관찰자 기록기가 한다.
+  app.use("/api/strategy-events", strategyEventsRouter);
 
   // 9) 404 fallback
   app.use(notFoundHandler);
