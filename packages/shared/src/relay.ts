@@ -290,6 +290,12 @@ export type RelayLimitChaser = {
   /** 후매수 단계 — **S→C 전용**(런타임). `0` 꺼짐 / `1` 감시 / `2` 보유중 / `3` 소진. */
   postBuyPhase: number;
   /**
+   * 후매수 ☐자동(양방향 · gh-trade dcaa78b1 · quick-260929-vzy). ON 이면 서버가 선매수 무체결
+   * 전량취소나 잔고 0 전이 때 후매수를 1회 켜고(꺼진 마스터도 올림) 이 값을 `false` 로 에코한다.
+   * 판정은 서버다. 구서버 에코(슬롯 부재)는 `false`. 요청에는 relay 가 `buy3_schema` 2 와 함께 싣는다.
+   */
+  postBuyAuto: boolean;
+  /**
    * 전략 키 `${isin}:${accountNo}:${exchange}` — 게이트웨이 `LimitChaser::MakeKey` 와 동형.
    * 와이어에 실려 오는 필드가 아니라 **relay 가 파싱하며 채우는 파생값**이다. 실제 최대 29B 이고
    * `strategies.disable` 의 서버 키 상한(WR-09)은 64B 다.
@@ -357,7 +363,12 @@ export const LIMIT_CHASER_SERVER_ONLY_FIELDS = [
 export type LimitChaserServerOnlyField = (typeof LIMIT_CHASER_SERVER_ONLY_FIELDS)[number];
 
 /**
- * `lc.set` 이 실어 보내는 상따 설정 — **클라 입력 28 + 클라 고정 3 + Phase 24 C→S 12 = 43필드**.
+ * `lc.set` 이 실어 보내는 상따 설정 — **클라 입력 28 + 클라 고정 3 + Phase 24 C→S 12 = 43필드 + post_buy_auto = 44필드**.
+ *
+ * ⚠️ **`postBuyAuto` 는 새 클라 입력에서 필수다**(quick-260929-vzy). 빠뜨리면 relay 가 `buy3_schema` 1 로
+ *    싣고 서버가 자동을 유지해서, 매수주문 OFF 동반 끔(D-06)이 서버에 닿지 않는다 — 컴파일이 막게 한다.
+ *    relay 는 구 탭 관용으로 `postBuyAuto` 만 선택인 `LcSetCfg` 를 따로 받는다. 양방향이라
+ *    `LIMIT_CHASER_SERVER_*_FIELDS` 에는 넣지 않는다.
  *
  * ⚠️ **`buyWatchSide`(감시대상)를 뺀다** (Phase 24 ⑤ · 24-03). 새 서버는 읽지 않는다(gh-trade D-24 ·
  *    D-28 — 구 클라 판정에만 쓴다). 브라우저가 싣지 못하게 입력에서 뺀다. 읽기 전용

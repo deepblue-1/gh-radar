@@ -28,6 +28,7 @@
 import { z } from "zod";
 import { MAX_VI_ORDER_AMOUNT_KRW } from "@gh-radar/shared";
 import type { RelayExchange, RelayLimitChaserInput, RelayOutbound } from "@gh-radar/shared";
+import type { LcSetCfg } from "../dma/envelope.js";
 
 import { logger } from "../logger.js";
 
@@ -206,6 +207,12 @@ export const RelayLcSetSchema = z.object({
     /** 단위 만원. */
     postBuyOrderAmount: UIntSchema.optional(),
     postBuyOrderQty: UIntSchema.optional(),
+    // === 후매수 ☐자동(양방향 · gh-trade dcaa78b1 · quick-260929-vzy) — 위 12필드 블록 **밖**이다.
+    //   - 12필드 존재 판정(`buy3CfgOf`)에 들어가지 않는다 — 12개를 다 가진 옛 탭 cfg 는 이것 없이도 새 클라다.
+    //   - 부재는 relay 가 buy3_schema 1 로 싣는다(서버 값 유지 — 옛 탭이 자동을 지우지 않는다).
+    //   - superRefine 에 자동 완결성(수량 · 반등 · 매도비율) 검사를 넣지 않는다 — zod 위반은 소켓 종료이고,
+    //     서버가 불완전한 자동을 ERROR 로 눕히는 백스톱이다. 웹이 켜기 전에 사전 검증한다(P-2).
+    postBuyAuto: z.boolean().optional(),
   }).superRefine((cfg, ctx) => {
     // 서버 §9-2 ⑤ 반등률 1~100 과 동형 — 켜는 쪽만 본다(끄는 쪽 0 은 통과).
     // 값이 **있을 때만** 본다 — 부재(구 탭)는 fanout 이 거부 프레임으로 답한다.
@@ -435,7 +442,7 @@ export const LC_LEGACY_SET_REJECT_TEXT = "매수 설정 방식이 바뀌었어�
  * Phase 24 매수 3종 C→S 12 의 **중립값** — 옛 모양 **철거** 프레임에만 쓴다(`withNeutralBuy3`).
  *
  * ★ 이 객체의 키가 곧 신필드 목록의 **유일한 정본**이다(`LC_BUY3_INPUT_KEYS` 가 여기서 파생된다) —
- *   목록을 두 벌 두면 한쪽만 늘어난다. `withNeutralBuy3` 의 반환 타입이 `RelayLimitChaserInput` 이라
+ *   목록을 두 벌 두면 한쪽만 늘어난다. `withNeutralBuy3` 의 반환 타입이 `LcSetCfg` 라
  *   키가 빠지면 컴파일이 짚는다.
  */
 const LC_BUY3_NEUTRAL = {
@@ -469,10 +476,11 @@ function hasAllBuy3(cfg: RelayInboundWireLcSetCfg): cfg is LcSetCfgWithBuy3 {
 }
 
 /**
- * 새 클라 cfg 인가 — 신필드 12개가 **전부** 있으면 `RelayLimitChaserInput` 으로 좁혀 돌려주고,
+ * 새 클라 cfg 인가 — 신필드 12개가 **전부** 있으면 `LcSetCfg` 로 좁혀 돌려주고,
  * 하나라도 없으면 `null`(구 탭). 부재 판정의 **유일한** 자리다 — fanout `lc.set` 분기가 부른다.
+ * `postBuyAuto` 는 판정에 들어가지 않는다(선택 · 존재 여부는 조립기의 buy3_schema 파생만 가른다).
  */
-export function buy3CfgOf(cfg: RelayInboundWireLcSetCfg): RelayLimitChaserInput | null {
+export function buy3CfgOf(cfg: RelayInboundWireLcSetCfg): LcSetCfg | null {
   return hasAllBuy3(cfg) ? cfg : null;
 }
 
@@ -482,8 +490,9 @@ export function buy3CfgOf(cfg: RelayInboundWireLcSetCfg): RelayLimitChaserInput 
  * ⚠️ 게이트 4종이 **전부 OFF** 일 때만 부른다(T-24-42). 켜는 프레임을 채우면 옛 탭이 조용히 새 클라
  *    등록이 된다. 철거는 설정값과 무관하므로 중립값으로 충분하다 — 철거를 막으면 사용자가 무장을
  *    풀 수 없게 된다(T-16-44 「끄기는 언제나 허용」).
+ * `postBuyAuto` 는 채우지도 지우지도 않는다 — 입력에 있으면 그대로, 없으면 없는 채(buy3_schema 1).
  */
-export function withNeutralBuy3(cfg: RelayInboundWireLcSetCfg): RelayLimitChaserInput {
+export function withNeutralBuy3(cfg: RelayInboundWireLcSetCfg): LcSetCfg {
   return { ...cfg, ...LC_BUY3_NEUTRAL };
 }
 

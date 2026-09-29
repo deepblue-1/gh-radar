@@ -235,6 +235,8 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
     extraBuyMaxQty: 0,
     extraBuyOrderAmount: 4000, // DEFAULT_EXTRA_BUY_ORDER_AMOUNT (만원) — D-04
     postBuyEnabled: false,
+    // 후매수 ☐자동(quick-260929-vzy) — 새 폼은 자동 OFF(WinForms 종목 전환 초기화 동형).
+    postBuyAuto: false,
     postBuyReboundPct: 30, // DEFAULT_POST_BUY_REBOUND_PCT (%)
     postBuyFloorQty: 100_000, // DEFAULT_POST_BUY_FLOOR_QTY (주)
     postBuyReentry: 3, // DEFAULT_POST_BUY_REENTRY (회, 최초 포함)
@@ -575,6 +577,8 @@ export function formFromServer(
     //   buy3 서버는 세 금액을 늘 싣기 때문에 0 은 「모른다」가 아니라 사용자가 둔 값이다(D-03).
     extraBuyOrderAmount: server.extraBuyOrderAmount,
     postBuyEnabled: server.postBuyEnabled,
+    // 에코 그대로 — 서버가 자동을 발화하면 false 로 온다(quick-260929-vzy).
+    postBuyAuto: server.postBuyAuto,
     postBuyReboundPct: server.postBuyReboundPct,
     postBuyFloorQty: server.postBuyFloorQty,
     postBuyReentry: server.postBuyReentry,

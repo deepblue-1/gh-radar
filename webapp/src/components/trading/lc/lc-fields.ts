@@ -149,6 +149,11 @@ export interface LcGroupSpec {
   dimWhenOff: boolean;
   /** 제목줄 접기(Phase 24 ⑤ — 선매수 · 추가매수 · 후매수만). */
   collapsible: boolean;
+  /**
+   * 제목줄 체크(quick-260929-vzy — 후매수 ☐자동). 그룹 스위치와 같은 지위다 — 어느 행에도 속하지 않고
+   * 게이트가 꺼져도 흐리지 않는다(WinForms ☐자동 동형). 제목줄에서 스위치 바로 앞에 선다.
+   */
+  headerCheck?: { field: 'postBuyAuto'; checkId: string; label: string; ariaLabel: string; hint: string };
   rows: readonly LcRowSpec[];
 }
 
@@ -293,6 +298,13 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
     dimGate: 'postBuyEnabled',
     dimWhenOff: true,
     collapsible: true,
+    headerCheck: {
+      field: 'postBuyAuto',
+      checkId: 'lc-post-buy-auto',
+      label: '자동',
+      ariaLabel: '후매수 자동',
+      hint: '선매수가 한 주도 체결되지 않고 전량 취소되거나 잔고가 0 이 되면 서버가 후매수를 한 번 켜요 — 매수주문이 꺼져 있으면 함께 켜요',
+    },
     rows: [
       {
         kind: 'value',

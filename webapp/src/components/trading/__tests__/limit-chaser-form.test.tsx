@@ -15,7 +15,7 @@ import type { RelayLcSetMsg, RelayLimitChaser, RelayLimitChaserInput } from '@gh
  *   ③ 반영 판정은 에코의 그 필드 값뿐(거부도 답 신호를 올린다)
  *   ④ 동시에 나가 있는 전송은 1건(직렬화)
  *   ⑤ 전부 OFF = `crud "D"` · 취소 게이트가 살아 있으면 `"C"`(D-08 · Pitfall 7)
- *   ⑥ S→C 전용 필드 미송신 · cfg 43키 · 클라 고정 3(Pitfall 6)
+ *   ⑥ S→C 전용 필드 미송신 · cfg 44키(+ postBuyAuto · quick-260929-vzy) · 클라 고정 3(Pitfall 6)
  *   ⑦ 리스트 구성(D-19 · D-20 · D-21 · D-22) · 44px · 꺼진 그룹 흐림(편집 가능)
  *   ⑧ 감시대상 행이 없다(Phase 24 ⑤ — 새 서버는 감시대상을 읽지 않는다)
  *   ⑨ 체크 행(D-22)
@@ -383,7 +383,7 @@ describe('④ 동시에 나가 있는 전송은 1건이다 (UI-SPEC §6 직렬�
     rerender(<LimitChaserForm {...props({ server: next, serverAnswerSeq: 0 })} />);
     rerender(<LimitChaserForm {...props({ server: next, serverAnswerSeq: 1 })} />);
     expect(lastConfig().buyOrderPrice).toBe(150_000);
-    expect(Object.keys(lastConfig())).toHaveLength(43);
+    expect(Object.keys(lastConfig())).toHaveLength(44);
   });
 });
 
@@ -415,7 +415,7 @@ describe('⑤ 삭제 판정은 취소 게이트를 포함한다 (D-08 · Pitfall
   });
 });
 
-describe('⑥ S→C 전용 필드를 보내지 않는다 · cfg 43키 (Pitfall 6) (옛 ⑨)', () => {
+describe('⑥ S→C 전용 필드를 보내지 않는다 · cfg 44키 (Pitfall 6) (옛 ⑨)', () => {
   const FORBIDDEN = [
     'sellOrderQty',
     'sellQtyTrackBaseline',
@@ -477,23 +477,24 @@ describe('⑥ S→C 전용 필드를 보내지 않는다 · cfg 43키 (Pitfall 6
     'postBuyReentry',
     'postBuyOrderAmount',
     'postBuyOrderQty',
+    'postBuyAuto',
   ];
   function expectCleanCfg(cfg: RelayLimitChaserInput): void {
     const keys = Object.keys(cfg);
-    expect(keys).toHaveLength(43);
+    expect(keys).toHaveLength(44);
     expect(keys.sort()).toEqual([...EXPECTED_KEYS].sort());
     for (const f of FORBIDDEN) expect(keys).not.toContain(f);
     expect(keys).not.toContain('key');
     expect(keys).not.toContain('market');
   }
 
-  it('스위치 경로 cfg 키가 정확히 43개다 — 래치 상태여도 S→C 필드를 되보내지 않는다', () => {
+  it('스위치 경로 cfg 키가 정확히 44개다 — 래치 상태여도 S→C 필드를 되보내지 않는다', () => {
     render(<LimitChaserForm {...props({ server: echo({ sellEntryLatched: true }) })} />);
     click(sw('매도주문 켜기'));
     expectCleanCfg(lastConfig());
   });
 
-  it('값 경로 cfg 키도 정확히 43개다', () => {
+  it('값 경로 cfg 키도 정확히 44개다', () => {
     render(<LimitChaserForm {...props({ server: echo({ sellEntryLatched: true }) })} />);
     editInline('lc-sell-order-ratio', '50');
     expectCleanCfg(lastConfig());

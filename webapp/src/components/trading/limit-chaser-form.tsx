@@ -145,6 +145,7 @@ import {
   DerivedRow,
   formatSettingValue,
   GroupNote,
+  GroupHeaderCheck,
   GroupSummary,
   GroupSwitch,
   SettingGroup,
@@ -1437,6 +1438,23 @@ export function LimitChaserForm({
               disabled={gateDisabled(gate)}
               onCheckedChange={(v) => (isBuyGroupGate(gate) ? commitGroupSwitch(gate, v) : commitToggle(gate, v))}
               failureText={toggleFailureTextOf(gate)}
+            />
+          ) : undefined
+        }
+        // 제목줄 체크(quick-260929-vzy 후매수 ☐자동) — 스위치 바로 앞 · 에코 값을 그대로 보인다.
+        headerCheck={
+          spec.headerCheck ? (
+            <GroupHeaderCheck
+              id={spec.headerCheck.checkId}
+              label={spec.headerCheck.label}
+              ariaLabel={spec.headerCheck.ariaLabel}
+              hint={spec.headerCheck.hint}
+              checked={form.postBuyAuto}
+              busy={isBusy('postBuyAuto')}
+              flash={lc.flashField === 'postBuyAuto'}
+              failureText={toggleFailureTextOf('postBuyAuto')}
+              disabled={disabled}
+              onToggle={() => commitToggle('postBuyAuto', !form.postBuyAuto)}
             />
           ) : undefined
         }

@@ -30,7 +30,7 @@ import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as flatbuffers from "flatbuffers";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { RelayLimitChaserInput, RelayOutbound } from "@gh-radar/shared";
+import type { RelayOutbound } from "@gh-radar/shared";
 import type { SymbolInfo, SymbolLookup } from "../src/store/symbols.js";
 
 import {
@@ -44,7 +44,7 @@ import { SubscriptionHub, TAPE_BATCH_MS } from "../src/hub/subscription-hub.js";
 import { SessionManager } from "../src/dma/session-manager.js";
 import type { DmaSession } from "../src/dma/session.js";
 import { encryptDmaPassword } from "../src/store/credentials.js";
-import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
+import { resetDroppedEnvelopeCount, type LcSetCfg } from "../src/dma/envelope.js";
 import { MSG } from "../src/dma/msg-type.js";
 import { LC_LEGACY_SET_REJECT_TEXT } from "../src/ws/protocol.js";
 import { logger } from "../src/logger.js";
@@ -136,7 +136,7 @@ function fakeSupabase(): SupabaseClient {
  * "값이 왕복한다"는 착각이 생겨 에코-폼 비교가 오염된다 (Pitfall 6).
  * `market` 도 없다 — relay 가 ISIN 으로 푼다 (WR-03 / D-28).
  */
-function lcInput(overrides: Partial<RelayLimitChaserInput> = {}): RelayLimitChaserInput {
+function lcInput(overrides: Partial<LcSetCfg> = {}): LcSetCfg {
   return {
     isin: SAMPLE_ISIN,
     accountNo: SAMPLE_ACCOUNT_NO,
@@ -206,7 +206,7 @@ const BUY3_KEYS = [
 /**
  * 새로고침 전 옛 탭의 `lc.set` cfg — `lcInput` 에서 신필드 12개를 빼고 감시대상 `"1"` 을 싣는다(F-4).
  */
-function legacyCfg(overrides: Partial<RelayLimitChaserInput> = {}): Record<string, unknown> {
+function legacyCfg(overrides: Partial<LcSetCfg> = {}): Record<string, unknown> {
   const cfg: Record<string, unknown> = { ...lcInput(overrides), buyWatchSide: "1" };
   for (const k of BUY3_KEYS) delete cfg[k];
   return cfg;
@@ -1176,8 +1176,8 @@ describe("WsFanout", () => {
     expect(item.postBuyTriggerQty).toBe(330_000);
     expect(item.postBuyReentryLeft).toBe(2);
     expect(item.buyWatchSide).toBe("0");
-    // 활성 55 + key — 봉인된 매수 진입 래치는 없다.
-    expect(Object.keys(item)).toHaveLength(56);
+    // 활성 56(+ postBuyAuto · quick-260929-vzy) + key — 봉인된 매수 진입 래치는 없다.
+    expect(Object.keys(item)).toHaveLength(57);
   });
 
   /*
@@ -1717,7 +1717,7 @@ describe("WsFanout", () => {
     비움) 정상 후매수 전략까지 게이트웨이에 닿지 못했다. 갈래 = buy(가격) · preBuy · extraBuy · postBuy(각 그룹 수량)
     · sweep(선매수 하위) · sell.
   */
-  async function expectArmReject(cfg: RelayLimitChaserInput, gate: string): Promise<void> {
+  async function expectArmReject(cfg: LcSetCfg, gate: string): Promise<void> {
     const errSpy = vi.spyOn(logger, "error");
     const a = await authed("token-a");
     a.ws.sendRaw({ t: "lc.set", cfg });
@@ -1734,7 +1734,7 @@ describe("WsFanout", () => {
     expect(JSON.stringify(logged?.[0] ?? {})).not.toContain(SAMPLE_ACCOUNT_NO);
   }
 
-  async function expectArmPass(cfg: RelayLimitChaserInput): Promise<void> {
+  async function expectArmPass(cfg: LcSetCfg): Promise<void> {
     const a = await authed("token-a");
     a.ws.sendRaw({ t: "lc.set", cfg });
     await waitFor(

@@ -544,7 +544,7 @@ export const STRATEGY_MSG = {
 } as const;
 
 /**
- * 상따 전략 1건. **활성 55 필드 전부** override 가능하다(Phase 24: 39 − 1 + 17).
+ * 상따 전략 1건. **활성 56 필드 전부** override 가능하다(Phase 24: 39 − 1 + 17 · quick-260929-vzy +1 `postBuyAuto`).
  * (37 → 39: 17-01 재동기화로 `cancel_entry_latched` · `buy_entry_latched` 가 합류했다.)
  *
  * deprecated 8종(`client_key` · `sell_min_cum_volume` · `sell_cum_volume_enabled` ·
@@ -636,6 +636,8 @@ export type FakeLimitChaserInput = {
   postBuyReentryLeft?: number;
   /** **S→C 전용** — 0 꺼짐 / 1 감시 / 2 보유중 / 3 소진. */
   postBuyPhase?: number;
+  /** 후매수 ☐자동 — 양방향(quick-260929-vzy). 서버 에코는 늘 싣는다(부재 기본 false). */
+  postBuyAuto?: boolean;
 };
 
 /**
@@ -764,6 +766,7 @@ function emitSetLimitChaser(
   SetLimitChaser.addPostBuyTriggerQty(b, input.postBuyTriggerQty ?? 0);
   SetLimitChaser.addPostBuyReentryLeft(b, input.postBuyReentryLeft ?? 0);
   SetLimitChaser.addPostBuyPhase(b, input.postBuyPhase ?? 0);
+  SetLimitChaser.addPostBuyAuto(b, input.postBuyAuto ?? false);
   return SetLimitChaser.endSetLimitChaser(b);
 }
 
@@ -772,7 +775,7 @@ function emitSetLimitChaser(
  *
  * 서버는 「거부」를 응답 코드로 주지 않는다. 등록 성공은 **이 에코의 수신**이고,
  * 부분 거부는 **눕혀진 값**(예: `buyEnabled:false`)으로 온다. 그 두 경우를 테스트가
- * 직접 만들 수 있어야 하므로 55 필드가 전부 열려 있다.
+ * 직접 만들 수 있어야 하므로 56 필드가 전부 열려 있다.
  */
 export function buildSetLimitChaserRespFrame(input: FakeLimitChaserInput = {}): Uint8Array {
   const b = new flatbuffers.Builder(1024);

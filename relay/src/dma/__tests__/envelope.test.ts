@@ -100,6 +100,7 @@ import {
   parseQueueProgress,
   MAX_QUEUE_PROGRESS_ITEMS,
   type ViTriggerInput,
+  type LcSetCfg,
 } from "../envelope.js";
 import { encode } from "../../ws/protocol.js";
 import {
@@ -1168,7 +1169,7 @@ describe("계좌 상태 조립·파싱 (D-23 / T-15-07)", () => {
  */
 // 16-25(WR-03/D-28) 이후 `market` 은 `RelayLimitChaserInput` 밖이다 — relay 가 마스터에서
 // 채워 빌더에 넘긴다. 픽스처도 빌더와 **같은 형**(입력 + market)이어야 갈리지 않는다.
-type LcBuildInput = RelayLimitChaserInput & { market: OrderMarket };
+type LcBuildInput = LcSetCfg & { market: OrderMarket };
 
 function lcInput(over: Partial<LcBuildInput> = {}): LcBuildInput {
   return {
@@ -1582,9 +1583,9 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     // buy3_schema 는 relay 가 1 로 싣는다 — 되읽으면 1.
     expect(item!.buy3Schema).toBe(1);
 
-    // 활성 55 + 파생 key = 56. (39 − 1(매수 진입 래치 봉인) + 17(Phase 24) = 55 + key)
+    // 활성 56 + 파생 key = 57. (39 − 1(매수 진입 래치 봉인) + 17(Phase 24) + 1(postBuyAuto · quick-260929-vzy) = 56 + key)
     // 필드를 하나라도 빠뜨리면 여기서 잡힌다.
-    expect(Object.keys(item!)).toHaveLength(56);
+    expect(Object.keys(item!)).toHaveLength(57);
     expect(item!.key).toBe(strategyKey(SAMPLE_ISIN, SAMPLE_ACCOUNT_NO, "KRX"));
   });
 
@@ -1702,8 +1703,8 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     // 새 서버 에코에는 감시대상 슬롯이 없다 → "0".
     expect(single!.buyWatchSide).toBe("0");
     expect(list![0]!.buyWatchSide).toBe("0");
-    expect(Object.keys(single!)).toHaveLength(56);
-    expect(Object.keys(list![0]!)).toHaveLength(56);
+    expect(Object.keys(single!)).toHaveLength(57);
+    expect(Object.keys(list![0]!)).toHaveLength(57);
 
     // postBuyEnabled 는 서버 값 그대로 — false 로 접혀 온 에코는 false(phase 와 무관하게).
     const folded = parseLimitChaserEcho(

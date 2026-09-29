@@ -2467,6 +2467,72 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     }
   });
 
+  test('vzy-1 후매수 「자동」 — 체크 → 10 buy3_schema 2 · post_buy_auto · 에코 표시 · 서버 발화 에코로 풀림 · [상따] 사유 줄 (quick-260929-vzy 트레이서)', async ({
+    page,
+  }) => {
+    // 금액 · 반등을 명시한다 — 자동 켜기 사전 검증(P-2)이 붙어도 그대로 통과하게(주문가격 71,000 → 수량 563주 · 매도비율 60).
+    const seed = {
+      buyEnabled: true,
+      sellEnabled: true,
+      postBuyEnabled: false,
+      postBuyAuto: false,
+      postBuyOrderAmount: 4000,
+      postBuyReboundPct: 30,
+      postBuyReentry: 3,
+    };
+    relay.seedLimitChasers([seed]);
+    await openFocusedCard(page);
+    const card = cardOf(page, E2E_ISIN);
+    const auto = card.getByRole('checkbox', { name: '후매수 자동', exact: true });
+    await expect(auto).toHaveAttribute('aria-checked', 'false');
+
+    // 위치(D-05) — 제목줄 마지막 자식은 스위치 그대로, 체크는 그 바로 앞 형제.
+    const order = await card.evaluate((root) => {
+      const header = root.querySelector('[data-slot="lc-group-post-buy"] [data-slot="lc-group-header"]');
+      const last = header?.lastElementChild ?? null;
+      const check = header?.querySelector('[data-slot="lc-group-header-check"]') ?? null;
+      return {
+        lastRole: last?.getAttribute('role') ?? null,
+        checkIsPrevOfSwitch: check !== null && last !== null && check.nextElementSibling === last,
+      };
+    });
+    expect(order.lastRole).toBe('switch');
+    expect(order.checkIsPrevOfSwitch).toBe(true);
+
+    // ① 체크 → 10 한 건 — buy3_schema 2 · post_buy_auto true · 후매수 스위치는 그대로(자동은 서버 몫).
+    const base = lcSetCount(relay);
+    await auto.click();
+    await waitForSetAtGateway(relay, base + 1);
+    const sent = lcSetRequests(relay).at(-1)!;
+    expect(sent.buy3Schema).toBe(2);
+    expect(sent.postBuyAuto).toBe(true);
+    expect(sent.postBuyEnabled).toBe(false);
+
+    // ② 에코 postBuyAuto true → 체크 켜짐.
+    await relay.pushLimitChaserEcho({ ...seed, postBuyAuto: true });
+    await expect(auto).toHaveAttribute('aria-checked', 'true', { timeout: 15_000 });
+
+    // ③ 서버 발화 — 54 INFO 사유 줄 + 발화 에코(자동 false · 후매수 · 마스터 켜짐) → 체크 풀림 · 후매수 켜짐 · 로그 한 줄(D-07).
+    await relay.pushServerMessage({
+      level: 'INFO',
+      source: 'LimitChaser',
+      isin: E2E_ISIN,
+      accountNo: E2E_ACCOUNT_NO,
+      message: '후매수 자동 켬 — 잔고 0 · 미체결 없음',
+      kind: '',
+    });
+    await relay.pushLimitChaserEcho({ ...seed, postBuyAuto: false, postBuyEnabled: true, buyEnabled: true });
+    await expect(auto).toHaveAttribute('aria-checked', 'false', { timeout: 15_000 });
+    await expect(lcSwitch(card, '후매수 켜기')).toBeChecked();
+    const reason = (await logRows(page)).filter({ hasText: '후매수 자동 켬 — 잔고 0 · 미체결 없음' });
+    await expect(reason).toHaveCount(1, { timeout: 15_000 });
+    await expect(reason).toContainText('[상따] 서버 통지');
+
+    // ④ 에코 경로는 제출을 만들지 않는다.
+    await page.waitForTimeout(FOLD_QUIET_MS);
+    expect(lcSetCount(relay)).toBe(base + 1);
+  });
+
   /*
     ★ Phase 24 (24-08) — 24-04 ~ 24-07 이 단위 테스트로 세운 동작을 **진짜 relay + 스텁 게이트웨이** 위의 실브라우저로
       한 번씩 끝까지 잇는다. 「몇 건 나갔나」는 게이트웨이 10 개수(`lcSetCount`)로, 「무엇을 보냈나」는 디코드

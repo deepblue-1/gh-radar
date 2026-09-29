@@ -323,6 +323,12 @@ export interface SettingGroupProps {
   /** 제목줄 오른쪽 끝에 설 스위치(`GroupSwitch`). */
   switchNode?: ReactNode;
   /**
+   * 제목줄 체크(`GroupHeaderCheck` — quick-260929-vzy 후매수 ☐자동). 제목줄에서 스위치 **바로 앞**에 선다 —
+   * 스위치는 마지막 자식 그대로다(Phase 16 D-05 오터치 방어 · 여섯 그룹 스위치 세로 정렬).
+   * 「스위치 오른쪽」 으로 옮기려면 아래 제목줄에서 `{headerCheck}` · `{switchNode}` 두 노드 순서만 바꾼다.
+   */
+  headerCheck?: ReactNode;
+  /**
    * 접이식 제목줄(Phase 24 ⑤ · UI-SPEC §2) — 주면 제목줄이 `<button aria-expanded>` 가 되고 접힌 행 영역은
    * `hidden` 클래스로 숨는다(**언마운트하지 않는다** — 나가 있던 확정 · 열린 편집기 보존).
    */
@@ -361,6 +367,7 @@ export function SettingGroup({
   statusText,
   on,
   switchNode,
+  headerCheck,
   fold,
   precheckText = null,
   dimRows = true,
@@ -438,6 +445,7 @@ export function SettingGroup({
           ) : (
             titleFlow
           )}
+          {headerCheck}
           {switchNode}
         </div>
       ) : null}
@@ -541,6 +549,87 @@ export function GroupSwitch({
       >
         <SwitchPrimitive.Thumb className="block size-5 translate-x-[2px] rounded-full bg-white transition-transform duration-150 motion-reduce:transition-none data-[state=checked]:translate-x-[18px]" />
       </SwitchPrimitive.Root>
+    </FailureBubble>
+  );
+}
+
+export interface GroupHeaderCheckProps {
+  id: string;
+  /** 화면 라벨(「자동」). */
+  label: string;
+  /** 접근성 이름(「후매수 자동」) — 라벨만으로는 어느 그룹의 체크인지 모른다. */
+  ariaLabel: string;
+  /** 툴팁(`title`). */
+  hint: string;
+  checked: boolean;
+  disabled?: boolean;
+  /** 전송 중 — `aria-busy`. */
+  busy?: boolean;
+  /** 확정 뒤 900ms 강조(라벨 글자). */
+  flash?: boolean;
+  /** 거부·무응답 말풍선(E2 error). */
+  failureText?: string | null;
+  onToggle: () => void;
+}
+
+/**
+ * 그룹 제목줄 체크 「○ 자동」 (quick-260929-vzy — 후매수 ☐자동 · WinForms 동형).
+ *
+ * ★ 그룹 스위치와 같은 지위다 — 어느 행에도 속하지 않고, 게이트가 꺼져도 흐리지 않는다.
+ * ★ 원형은 `CheckValueRow` 의 `lc-check-circle` 과 같은 기하 · 색이다(size-5 · 테두리 1.5 · 켜지면 `--primary`).
+ * ★ 시각 높이 32 · **히트 44**(`GroupSwitch` 와 같은 `after:` 세로 확장 — 시각 크기 불변).
+ * ★ 라벨은 `whitespace-nowrap` · 말줄임 없음 — 잘린 라벨은 오발주다(P24-7 이 폭을 잰다).
+ */
+export function GroupHeaderCheck({
+  id,
+  label,
+  ariaLabel,
+  hint,
+  checked,
+  disabled = false,
+  busy = false,
+  flash = false,
+  failureText = null,
+  onToggle,
+}: GroupHeaderCheckProps) {
+  return (
+    <FailureBubble open={failureText != null && failureText !== ''} text={failureText ?? ''}>
+      <button
+        type="button"
+        role="checkbox"
+        id={id}
+        data-slot="lc-group-header-check"
+        aria-checked={checked}
+        aria-label={ariaLabel}
+        aria-busy={busy ? 'true' : undefined}
+        title={hint}
+        disabled={disabled}
+        onClick={onToggle}
+        className={cn(
+          'relative flex min-h-8 flex-none items-center gap-1.5 whitespace-nowrap rounded-[10px] px-1',
+          'disabled:cursor-not-allowed disabled:opacity-50',
+          "after:absolute after:inset-x-0 after:-inset-y-[6px] after:content-['']",
+        )}
+      >
+        <span
+          data-slot="lc-check-circle"
+          aria-hidden="true"
+          className={cn(
+            'flex size-5 flex-none items-center justify-center rounded-full border-[1.5px]',
+            checked ? 'border-[var(--primary)] bg-[var(--primary)]' : 'border-[var(--switch-off)] bg-transparent',
+          )}
+        >
+          {checked ? <Check className="size-3.5 text-white" strokeWidth={3} /> : null}
+        </span>
+        <span
+          className={cn(
+            'text-[13px] font-medium',
+            flash ? 'text-[var(--primary)]' : checked ? 'text-[var(--fg)]' : 'text-[var(--muted-fg)]',
+          )}
+        >
+          {label}
+        </span>
+      </button>
     </FailureBubble>
   );
 }

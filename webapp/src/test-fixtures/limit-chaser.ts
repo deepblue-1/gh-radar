@@ -2,13 +2,13 @@
  * 상따(`RelayLimitChaser`) 테스트 공용 픽스처 — **테스트 전용**이다. 제품 코드는 이 파일을
  * import 하지 않는다.
  *
- * Phase 24 매수 3종 17필드(C→S 12 + S→C 5)가 계약에 합류하면서 인라인 팩토리 17곳이 같은
+ * Phase 24 매수 3종 17필드(C→S 12 + S→C 5 · quick-260929-vzy 로 `postBuyAuto` 합류해 18)가 계약에 합류하면서 인라인 팩토리 17곳이 같은
  * 기본값을 각자 적어야 했다. 기본값을 한 곳에 두지 않으면 다음 필드 합류 때 17곳이 갈라진다 —
  * 신필드 기본값은 여기 `LC_BUY3_ECHO_DEFAULTS` 하나가 정본이다.
  */
 import type { RelayLimitChaser } from '@gh-radar/shared';
 
-/** Phase 24 신필드 17개. */
+/** Phase 24 신필드 17개 + 후매수 자동 1(quick-260929-vzy) = 18개. */
 type Buy3EchoFields = Pick<
   RelayLimitChaser,
   | 'buy3Schema'
@@ -28,10 +28,11 @@ type Buy3EchoFields = Pick<
   | 'postBuyTriggerQty'
   | 'postBuyReentryLeft'
   | 'postBuyPhase'
+  | 'postBuyAuto'
 >;
 
 /**
- * 신필드 17개의 **중립값** — 새 서버 에코(`buy3Schema: 1`)이고 세 그룹 스위치는 전부 꺼져 있으며
+ * 신필드 18개의 **중립값** — 새 서버 에코(`buy3Schema: 1`)이고 세 그룹 스위치는 전부 꺼져 있으며
  * 수는 0, 후매수 단계는 0(꺼짐)이다. 기존 테스트의 의미(매수 LED 「감시」 등)를 바꾸지 않는 값이다.
  */
 export const LC_BUY3_ECHO_DEFAULTS: Buy3EchoFields = {
@@ -52,6 +53,7 @@ export const LC_BUY3_ECHO_DEFAULTS: Buy3EchoFields = {
   postBuyTriggerQty: 0,
   postBuyReentryLeft: 0,
   postBuyPhase: 0,
+  postBuyAuto: false,
 };
 
 const ISIN = 'KR7005930003';

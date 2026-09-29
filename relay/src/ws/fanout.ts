@@ -80,7 +80,6 @@ import type {
   RelayExchange,
   RelayInbound,
   RelayLcArmMsg,
-  RelayLimitChaserInput,
   RelayNxtSnapMsg,
   RelayJournalStateMsg,
   RelayOutbound,
@@ -107,6 +106,7 @@ import {
   maskAccountNo,
   strategyKey,
   type ArmLatchMsgType,
+  type LcSetCfg,
 } from "../dma/envelope.js";
 import { MSG } from "../dma/msg-type.js";
 import {
@@ -1155,7 +1155,7 @@ export class WsFanout {
    */
   #isTeardown(
     cfg: Pick<
-      RelayLimitChaserInput,
+      LcSetCfg,
       "buyEnabled" | "sellEnabled" | "cancelQtyEnabled" | "cancelTradeEnabled"
     >,
   ): boolean {
@@ -1181,7 +1181,7 @@ export class WsFanout {
   #teardownMarket(
     userId: string,
     t: RelayInbound["t"],
-    cfg: RelayLimitChaserInput,
+    cfg: LcSetCfg,
   ): OrderMarket {
     // ① 키 조립 지점은 `strategyKey()` 하나뿐이다 — 세 필드를 여기서 손으로 비교하면
     //    12자 절단·거래소 정규화 중 한쪽만 반영돼 「에코가 영원히 안 맞는」 실패가 된다.
@@ -1267,7 +1267,7 @@ export class WsFanout {
     conn: Conn,
     userId: string,
     t: RelayInbound["t"],
-    cfg: RelayLimitChaserInput,
+    cfg: LcSetCfg,
   ): boolean {
     // ★ 이 줄을 지우면 안 된다 — 무용지물이 아니다. 게이트 4종이 **전부 꺼져 있어도**
     //   선매수 · 한방 체크나 그룹 수량 0 이 남아 있으면 아래 갈래가 **철거를 거부**한다.

@@ -1182,7 +1182,7 @@ export function buildDirectOrderReq(req: DirectOrderInput): Uint8Array {
 //
 // 모든 테이블을 `startXxx` + `addXxx` + `endXxx` **개별 호출**로 조립한다.
 // flatc 가 만들어 준 위치 인자 생성 함수(`create*` — 37 인자를 순서로 받는다)를 쓰지 않는 이유는
-// 하나다 — `SetLimitChaser` 는 deprecated 8슬롯을 포함한 45슬롯 테이블이라 인자가 한 칸만
+// 하나다 — `SetLimitChaser` 는 deprecated 8슬롯을 포함한 65슬롯 테이블(`startObject(65)`)이라 인자가 한 칸만
 // 밀려도 **타입이 우연히 맞아 컴파일된다**. bool 자리에 uint 가 들어가면 게이트가 뒤바뀐 채
 // 실계좌 발주가 나간다 (T-16-05). 이름 있는 `addXxx` 는 그 실수를 구조적으로 막는다.
 //
@@ -1240,6 +1240,19 @@ export const LC_FIXED_SWEEP_MIN_RATE = 0;
  * 구조적으로 막는다 (T-24-01).
  */
 export const LC_FIXED_BUY3_SCHEMA = 1;
+/**
+ * `post_buy_auto` 를 싣는 요청만 `buy3_schema` 2 (gh-trade dcaa78b1 · quick-260929-vzy).
+ * 서버는 2 이상일 때만 `post_buy_auto` 를 읽는다. 1 이면 서버 값을 유지한다(구 탭 재제출이
+ * 자동을 지우지 않는다). 브라우저가 고르는 값이 아니다 — `cfg.postBuyAuto` 존재로만 파생된다.
+ */
+export const LC_POST_BUY_AUTO_BUY3_SCHEMA = 2;
+
+/**
+ * relay 가 조립하는 cfg — `postBuyAuto` 만 선택(구 탭 관용 · quick-260929-vzy). 존재 여부가
+ * `buy3_schema`(1 | 2)를 정한다. shared 계약 `RelayLimitChaserInput` 에서는 필수다(새 탭이
+ * 빠뜨리면 컴파일이 막는다) — 「shared 는 새 클라 계약, relay 와이어는 구 탭 관용」 규약.
+ */
+export type LcSetCfg = Omit<RelayLimitChaserInput, "postBuyAuto"> & { postBuyAuto?: boolean };
 
 /**
  * 상따 설정 (MsgType 10). 응답은 60 에코다.
@@ -1250,7 +1263,7 @@ export const LC_FIXED_BUY3_SCHEMA = 1;
  *   두지 않는 것이 핵심이다: 기본값 `"K"` 를 두는 순간 코스닥 전략이 코스피로 등록된다.
  *
  * **클라 입력 28 + Phase 24 C→S 12 + relay 해석 1(`market`) + 클라 고정 4(sweep 3 ·
- * `buy3_schema`) = 45 필드만** 채운다. 나머지는 건드리지 않는다:
+ * `buy3_schema`) = 45 필드 + 선택 1(`post_buy_auto` — 입력에 있을 때만) = 최대 46 필드만** 채운다. 나머지는 건드리지 않는다:
  *   - **`buy_watch_side`** — **싣지 않는다**. 새 서버(buy3)는 감시대상을 읽지 않고, 슬롯이 있으면
  *     구 클라 흉내가 된다. 입력 계약(`RelayLimitChaserInput`)에서도 빠졌다(24-03).
  *   - **S→C 전용 9필드** (`sell_order_qty` · `sell_qty_track_baseline` · `sell_entry_latched` ·
@@ -1261,7 +1274,8 @@ export const LC_FIXED_BUY3_SCHEMA = 1;
  *     만들고 에코-폼 비교가 오염된다 (Pitfall 6).
  *   - **deprecated 8슬롯** — flatc 가 접근자를 만들지 않는다. 존재 자체를 모른 채로 둔다.
  *
- * `buy3_schema` 는 입력 타입에 아예 없고 `LC_FIXED_BUY3_SCHEMA`(= 1)로 못박는다(gh-trade D-24).
+ * `buy3_schema` 는 입력 타입에 아예 없다. 1(`LC_FIXED_BUY3_SCHEMA`) 또는 2(`LC_POST_BUY_AUTO_BUY3_SCHEMA`)
+ * 이고 **`postBuyAuto` 존재로만 파생**된다(gh-trade D-24 · dcaa78b1 · quick-260929-vzy).
  *
  * 고정 3(`sweepRecalcEnabled`/`sweepMinCount`/`sweepMinRate`)은 입력값과 무관하게 **relay 가
  * 못박는다**. WinForms 가 한 번도 다른 값을 보낸 적이 없어 서버의 Case3 경로가 실사용으로
@@ -1271,7 +1285,7 @@ export const LC_FIXED_BUY3_SCHEMA = 1;
  * @throws {OrderBuildError} ISIN·계좌번호·거래소 형식 위반, 단일문자 열거 밖 값, 수치 표현 범위 초과
  */
 export function buildSetLimitChaserReq(
-  cfg: RelayLimitChaserInput & { market: OrderMarket },
+  cfg: LcSetCfg & { market: OrderMarket },
 ): Uint8Array {
   // 서버와 같은 폭으로 먼저 자른다 — 자른 뒤의 값이 전략 키의 정본이다.
   const isin = truncateToWire(cfg.isin, 12, "isin");
@@ -1359,7 +1373,11 @@ export function buildSetLimitChaserReq(
   // cancel_entry_latched — S→C 전용.
   // buy_entry_latched — (deprecated) Phase 24 D-25 로 봉인. 접근자·빌더 없음.
   // === Phase 24 매수 3종 (gh-trade D-17 · D-24) ===
-  SetLimitChaser.addBuy3Schema(b, LC_FIXED_BUY3_SCHEMA);
+  // buy3_schema — 브라우저가 고를 수 없다(T-24-01 확장). `postBuyAuto` 존재로만 1/2 를 파생한다.
+  SetLimitChaser.addBuy3Schema(
+    b,
+    cfg.postBuyAuto === undefined ? LC_FIXED_BUY3_SCHEMA : LC_POST_BUY_AUTO_BUY3_SCHEMA,
+  );
   SetLimitChaser.addPreBuyEnabled(b, cfg.preBuyEnabled);
   SetLimitChaser.addExtraBuyEnabled(b, cfg.extraBuyEnabled);
   SetLimitChaser.addExtraBuyMinQty(b, toWireUint(cfg.extraBuyMinQty, "extraBuyMinQty"));
@@ -1376,6 +1394,9 @@ export function buildSetLimitChaserReq(
   // post_buy_trigger_qty — S→C 전용. 싣지 않는다.
   // post_buy_reentry_left — S→C 전용. 싣지 않는다.
   // post_buy_phase — S→C 전용. 싣지 않는다.
+  // post_buy_auto — 양방향(quick-260929-vzy). 입력에 있을 때만 싣는다(= buy3_schema 2). false 는
+  // FlatBuffers 기본값이라 버퍼에 쓰이지 않지만, 서버는 schema 2 에서 부재를 false 로 읽으므로 그걸로 된다.
+  if (cfg.postBuyAuto !== undefined) SetLimitChaser.addPostBuyAuto(b, cfg.postBuyAuto);
   const table = SetLimitChaser.endSetLimitChaser(b);
 
   Envelope.startEnvelope(b);
@@ -2101,10 +2122,10 @@ type ReadResult<T> = { ok: true; value: T } | { ok: false; reason: string; detai
  * 60 단건 에코와 64 목록 원소는 **같은 바이트**라 파서도 하나여야 한다 — 두 벌이면 한쪽만
  * 고쳐져 목록과 에코가 갈린다.
  *
- * **활성 55필드를 전부 읽는다.** S→C 전용 10(`sellOrderQty` · `sellQtyTrackBaseline` ·
+ * **활성 56필드(+ `postBuyAuto`)를 전부 읽는다.** S→C 전용 10(`sellOrderQty` · `sellQtyTrackBaseline` ·
  * `sellEntryLatched` · `cancelQtyTrackBaseline` · `cancelEntryLatched` · `buy3Schema` ·
  * `extraBuyAbandoned` · `postBuyTriggerQty` · `postBuyReentryLeft` · `postBuyPhase`)는
- * 보내지 않지만 읽어서 표시한다 — (`buy3Schema` 는 relay 가 늘 1 로 보내지만 에코 값은 서버 것을 읽는다)
+ * 보내지 않지만 읽어서 표시한다 — (`buy3Schema` 는 relay 가 1 또는 2 로 보내지만 에코 값은 서버 것을 읽는다)
  * 「보내지 않는 것」과 「읽지 않는 것」은 다른 문제다 (Pitfall 6).
  *
  * 실패 사유만 돌려주고 로그는 남기지 않는다. 단건은 프레임 드롭, 목록은 항목 스킵으로
@@ -2209,6 +2230,8 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       postBuyReentryLeft: t.postBuyReentryLeft(),
       // S→C 전용 — 0 꺼짐 / 1 감시 / 2 보유중 / 3 소진.
       postBuyPhase: t.postBuyPhase(),
+      // 양방향 — 서버 런타임 값(자동 발화 뒤 false). 슬롯 부재(구서버) = false.
+      postBuyAuto: t.postBuyAuto(),
       key: strategyKey(isin, accountNo, exchange),
     },
   };
