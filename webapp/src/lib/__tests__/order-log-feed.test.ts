@@ -7,10 +7,12 @@ import {
   ORDER_LOG_KIND_FILTERS,
   applyOrderLogFilters,
   inScope,
+  kstWeekdayShort,
   matchesKind,
   mergeStrategyEvents,
   orderLogQueryString,
   parseOrderLogQuery,
+  shiftKstDate,
   stockOptions,
 } from '../order-log-feed';
 import {
@@ -194,5 +196,23 @@ describe('창 분리 쿼리 (R3 · T-25-29 화이트리스트)', () => {
     const q = `account=1234567801&date=2026-09-26&stock=${buy12451.isin}&ex=NXT&kind=pre`;
     const parsed = parseOrderLogQuery(new URLSearchParams(q), '2026-09-29');
     expect(orderLogQueryString(parsed, '2026-09-29')).toBe(q);
+  });
+});
+
+/* ── Phase 25-10 — 창 분리 날짜 헬퍼 (결정 5 · 달력 하루씩) ─────────────────── */
+
+describe('shiftKstDate · kstWeekdayShort (25-10)', () => {
+  it('달력 하루씩 — 월 · 연 · 윤일 경계', () => {
+    expect(shiftKstDate('2026-09-29', -1)).toBe('2026-09-28');
+    expect(shiftKstDate('2026-09-01', -1)).toBe('2026-08-31');
+    expect(shiftKstDate('2026-12-31', 1)).toBe('2027-01-01');
+    expect(shiftKstDate('2024-03-01', -1)).toBe('2024-02-29');
+    expect(shiftKstDate('2026-09-26', 1)).toBe('2026-09-27'); // 주말도 한 칸
+  });
+
+  it('요일 = Intl ko-KR short · Asia/Seoul', () => {
+    expect(kstWeekdayShort('2026-09-29')).toBe('화');
+    expect(kstWeekdayShort('2026-09-27')).toBe('일');
+    expect(kstWeekdayShort('2026-10-03')).toBe('토');
   });
 });
