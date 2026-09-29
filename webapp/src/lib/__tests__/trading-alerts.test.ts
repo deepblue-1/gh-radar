@@ -277,7 +277,8 @@ describe("표시 문구 — 목업 textOf", () => {
   it("체결 · 주문수량을 모르면 체결 수량만", () => {
     const a = alertFromOrder(order({ no: "777", q: 100 }), null, 0, "x");
     expect(alertTitle(a)).toBe("주문 777 체결");
-    expect(alertSubtitle(a)).toBe("100주 · 128,500원 · KRX");
+    // 색인 미스라 방향을 모른다 → 행위 단어 「주문」 이 앞에 선다(Phase 25 별건 3 · UI-SPEC R18 의도된 통일).
+    expect(alertSubtitle(a)).toBe("주문 100주 · 128,500원 · KRX");
   });
 
   it("접수 — … · No 123", () => {

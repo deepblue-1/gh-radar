@@ -55,8 +55,9 @@ export function orderActionWord(facts: OrderActionFacts): string {
   if (facts.requestKind === "Modify") return "정정";
   if (facts.side === "B") return "매수";
   if (facts.side === "S") return "매도";
-  // side 를 모르고 위 분기에도 안 걸리면 **비운다**. 모르는 행위를 지어내지 않는다.
-  return "";
+  // 방향 미상은 「주문」 — gh-trade 대조 합의(2026-09-29) · 행위를 지어내지 않되 빈칸으로 두지 않는다.
+  // 「주문」 은 방향을 말하지 않으므로 `orderActionSide` 는 여전히 null 이다(방향색 없음).
+  return "주문";
 }
 
 /**
@@ -69,12 +70,27 @@ export function orderActionSide(facts: OrderActionFacts): NoticeSide {
   return facts.side;
 }
 
-/** 표시 조립의 입력 — 행위 판정 + 표시 전용 2필드. */
+/**
+ * 브로커 결과 코드 −2 — 주문이 **접수됐는지 확인되지 않은** 거부(Phase 25 별건 3 · WR-01).
+ * 오늘 주문 상태 칸(`orderDisplayStatus`)이 「거부」 대신 「접수 불명」 으로 가르고,
+ * 이 행의 방향은 참고 표기(`sideRef`)를 하지 않는다 — 상태 칸이 이미 말한다.
+ */
+export const RECEIPT_UNKNOWN_RESULT_CODE = -2;
+
+/** KB 거부 R(New) 방향 참고 표기의 문구 정본 — title · sr-only 가 같은 문자열을 쓴다. */
+export const SIDE_REF_TITLE = "거부 통보의 방향은 참고값이에요";
+
+/** 표시 조립의 입력 — 행위 판정 + 표시 전용 필드. */
 export interface OrderNoticeFacts extends OrderActionFacts {
   /** `OrderResp.requester` — `"Manual"` 뿐이다. **표시 전용**(D-08). */
   requester: string;
   /** `OrderResp.board` — `"G2"`·`"G3"` 만 시간외종가다. */
   board: string;
+  /**
+   * 브로커 결과 코드. `RECEIPT_UNKNOWN_RESULT_CODE`(−2)인지만 본다 — 참고 표기 제외용.
+   * 모르면(생략·`null`) −2 로 확인된 것이 아니므로 참고 표기 대상이다.
+   */
+  resultCode?: number | null;
 }
 
 export interface OrderNoticeLabel {
@@ -84,6 +100,11 @@ export interface OrderNoticeLabel {
   side: NoticeSide;
   /** 「수동」 메타. 아니면 `""`. */
   meta: string;
+  /**
+   * 방향이 **참고값**인가 — KB 거부 R(New) 의 side 는 틀릴 수 있다(gh-trade side_trusted 합의).
+   * 참이면 화면은 단어 · 화살표는 두고 색만 회색으로, `SIDE_REF_TITLE` 을 title · sr-only 로 붙인다.
+   */
+  sideRef: boolean;
 }
 
 /**
@@ -108,6 +129,11 @@ export function orderNoticeLabel(facts: OrderNoticeFacts): OrderNoticeLabel {
     text,
     side,
     meta: facts.requester === MANUAL_REQUESTER ? "수동" : "",
+    // 거부 통보(R) · 방향이 남은 행(= 신규 거부 — 취소·정정은 위에서 null) · 접수 불명(−2) 아님.
+    sideRef:
+      facts.noticeType === "R" &&
+      side !== null &&
+      facts.resultCode !== RECEIPT_UNKNOWN_RESULT_CODE,
   };
 }
 

@@ -26,6 +26,7 @@
 import type { JournalOrderRow, JournalOrderStatus, RelayAccount } from "@gh-radar/shared";
 
 import { authFetch } from "./auth-fetch";
+import { RECEIPT_UNKNOWN_RESULT_CODE } from "./order-notices";
 
 /**
  * 오늘(KST) 내가 볼 수 있는 계좌의 주문 전체를 복원한다. `requireAuth` 라우트라 Bearer 가 필수다.
@@ -127,7 +128,13 @@ export function groupJournalRowsByAccount(
 export interface OrderDisplayStatus {
   label: string;
   tone: "normal" | "muted" | "danger";
+  /** 칩 title 툴팁 — 「접수 불명」 의 확인 경로처럼 라벨만으로 모자랄 때만 있다. */
+  title?: string;
 }
+
+/** 「접수 불명」 칩 title — 문구 정본 한 곳(Phase 25 별건 3 · WR-01). */
+export const RECEIPT_UNKNOWN_TITLE =
+  "주문이 접수됐는지 확인되지 않았어요. 미체결·잔고에서 확인한 뒤 다시 주문하세요";
 
 /** 저널 행 status 6종 → 표시. `requested`·`timeout` 은 저널에 없다(relay 즉시응답 전용). */
 const STATUS_LABELS: Readonly<Record<JournalOrderStatus, OrderDisplayStatus>> = {
@@ -147,5 +154,10 @@ const STATUS_LABELS: Readonly<Record<JournalOrderStatus, OrderDisplayStatus>> = 
  * 모르는 값(계약 밖 · 새 서버)은 지어내지 않고 원문을 muted 로 보인다.
  */
 export function orderDisplayStatus(row: JournalOrderRow): OrderDisplayStatus {
+  // 접수 불명 선판정 — result_code −2 거부는 주문이 들어갔는지 모른다. 「거부」(danger)로 보이면
+  // 재주문을 부른다(WR-01). 투영 status 는 rejected 그대로 두고 **화면에서만** 가른다.
+  if (row.status === "rejected" && row.resultCode === RECEIPT_UNKNOWN_RESULT_CODE) {
+    return { label: "접수 불명", tone: "muted", title: RECEIPT_UNKNOWN_TITLE };
+  }
   return STATUS_LABELS[row.status] ?? { label: String(row.status), tone: "muted" };
 }
