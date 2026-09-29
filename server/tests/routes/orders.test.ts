@@ -34,6 +34,8 @@ type SupabaseOpts = {
   user?: { id: string } | null;
   /** `dma_journal_orders_for_user` 가 돌려줄 행(snake_case 원문). */
   rows?: Record<string, unknown>[];
+  /** `dma_order_events_for_user` 가 돌려줄 행(`source · gw_time_ms · seq · ev` 원문). */
+  eventRows?: Record<string, unknown>[];
   /** 주면 rpc 가 이 오류를 돌려준다. */
   rpcError?: { message: string };
 };
@@ -61,6 +63,7 @@ function makeSupabase(opts: SupabaseOpts): { client: any; rec: Recorder } {
       rec.rpcCalls.push({ fn, params });
       if (opts.rpcError) return { data: null, error: opts.rpcError };
       if (fn === "dma_journal_orders_for_user") return { data: opts.rows ?? [], error: null };
+      if (fn === "dma_order_events_for_user") return { data: opts.eventRows ?? [], error: null };
       return { data: null, error: { message: `unexpected rpc ${fn}` } };
     },
     from(table: string) {
@@ -361,5 +364,181 @@ describe("GET /api/orders", () => {
 
     expect(rec.fromTables).not.toContain("dma_orders");
     expect(rec.writes).toHaveLength(0);
+  });
+});
+
+// ============================================================
+// GET /api/orders/:id/events — 오늘 주문 행 펼침 (Phase 25 D-01 · D-02)
+// ============================================================
+
+/**
+ * `dma_order_events_for_user` 반환 행 원문. 통보 ev 는 `to_jsonb(j) - dma_user_id - apply_error - applied_at`,
+ * 전략 ev 는 공개 45키. bigint(gw_time_ms · seq)는 직렬화 방어를 잠그려고 문자열로 둔다.
+ */
+const EV_AT = Date.parse("2026-09-29T09:45:02.861+09:00");
+const journalEventDb = (over: Record<string, unknown> = {}) => ({
+  source: "journal",
+  gw_time_ms: String(EV_AT),
+  seq: "11",
+  ev: {
+    gateway: "KB",
+    journal_epoch: "ep-25",
+    seq: 11,
+    trade_date: "2026-09-29",
+    gw_time: "2026-09-29T00:45:02.861+00:00",
+    account_no: "1234567801",
+    isin: KOSPI_ISIN,
+    side: "B",
+    side_trusted: true,
+    order_no: "12451",
+    org_order_no: "",
+    notice_type: "A",
+    request_kind: "New",
+    requester: "",
+    origin: "LimitChaser",
+    exchange: "KRX",
+    board: "",
+    order_price: 12350,
+    order_qty: 300,
+    exec_price: 0,
+    exec_qty: 0,
+    result_code: 0,
+    message: "접수",
+    local_reject: false,
+    ...over,
+  },
+});
+const strategyEventDb = () => ({
+  source: "strategy",
+  gw_time_ms: String(EV_AT),
+  seq: "2",
+  ev: {
+    gateway: "KB", journal_epoch: "ep-25", seq: "2", trade_date: "2026-09-29", gw_time_ms: String(EV_AT),
+    kind: 3, group: 1, exchange: "KRX", isin: KOSPI_ISIN, stock_code: "005930", cum_volume: "861800",
+    account_no: "1234567801", order_no: "12451", price: 12350, qty: 300, order_condition: "",
+    reason_code: "", cond_threshold: "50000", cond_actual: "38200", cond_metric: 1, ev_kind: 1,
+    ev_price: 12350, ev_qty_before: "52100", ev_qty_after: "38200", ev_trade_qty: "0",
+    limit_bid_qty: "0", bid1_price: 0, bid1_qty: "0", accept_latency_us: 18000,
+    immediate_fill_qty: "0", queue_case: 0, base_cum: "0", ahead_qty: "0", expected_cum: "0",
+    error_volume: "0", remaining_volume: "0", has_remaining: false, cancel_reason: 0, result_code: 0,
+    message: "", entry_round: 0, snap_qty: [], snap_cum: [], ask_qty_at_limit: "0", open_at_limit: false,
+  },
+});
+
+describe("GET /api/orders/:id/events (Phase 25 D-01 · D-02)", () => {
+  const eventsUrl = (qs = "") => `/api/orders/${ORDER_ROW_ID}/events${qs}`;
+
+  it("㉕-a 미인증 → 401 · RPC 0회", async () => {
+    const { client, rec } = makeSupabase({ user: nextUser() });
+    const r = await request(createApp({ supabase: client })).get(eventsUrl());
+    expect(r.status).toBe(401);
+    expect(rec.rpcCalls).toHaveLength(0);
+  });
+
+  it("㉕-b :id 가 uuid 가 아니면 400 VALIDATION_FAILED · RPC 0회", async () => {
+    const { client, rec } = makeSupabase({ user: nextUser() });
+    const r = await request(createApp({ supabase: client }))
+      .get("/api/orders/not-a-uuid/events")
+      .set("Authorization", "Bearer tok");
+    expect(r.status).toBe(400);
+    expect(r.body.error.code).toBe("VALIDATION_FAILED");
+    expect(rec.rpcCalls).toHaveLength(0);
+  });
+
+  it("㉕-c orderNos 101개 · 빈 원소 · 영숫자 밖 문자 · 21자 → 400 · RPC 0회 (T-25-15)", async () => {
+    const tooMany = Array.from({ length: 101 }, (_, i) => String(10000 + i)).join(",");
+    for (const bad of [tooMany, "12451,", "12451,,12452", "12451;drop", "1".repeat(21), ""]) {
+      const { client, rec } = makeSupabase({ user: nextUser() });
+      const r = await request(createApp({ supabase: client }))
+        .get(eventsUrl(`?orderNos=${encodeURIComponent(bad)}`))
+        .set("Authorization", "Bearer tok");
+      expect(r.status, bad.slice(0, 30)).toBe(400);
+      expect(r.body.error.code).toBe("VALIDATION_FAILED");
+      expect(rec.rpcCalls).toHaveLength(0);
+    }
+  });
+
+  it("㉕-c2 orderNos 100개 · 예약 Q-ID(10자) · 20자 → 통과", async () => {
+    const hundred = Array.from({ length: 100 }, (_, i) => String(10000 + i)).join(",");
+    for (const ok of [hundred, "Q000000001", "1".repeat(20)]) {
+      const { client, rec } = makeSupabase({ user: nextUser() });
+      const r = await request(createApp({ supabase: client }))
+        .get(eventsUrl(`?orderNos=${ok}`))
+        .set("Authorization", "Bearer tok");
+      expect(r.status, ok.slice(0, 30)).toBe(200);
+      expect(rec.rpcCalls).toHaveLength(1);
+    }
+  });
+
+  it("㉕-d 정상 → RPC 1회 인자 {p_user_id: 인증 사용자, p_order_id: :id, p_order_nos} · user_id/account 쿼리 무시 (T-19-17 · T-25-13)", async () => {
+    const user = nextUser();
+    const other = nextUser();
+    const { client, rec } = makeSupabase({ user, eventRows: [] });
+
+    const r = await request(createApp({ supabase: client }))
+      .get(eventsUrl(`?orderNos=12451,12452&user_id=${other.id}&account=9999999999&p_user_id=${other.id}`))
+      .set("Authorization", "Bearer tok");
+
+    expect(r.status).toBe(200);
+    expect(rec.rpcCalls).toEqual([
+      {
+        fn: "dma_order_events_for_user",
+        params: { p_user_id: user.id, p_order_id: ORDER_ROW_ID, p_order_nos: ["12451", "12452"] },
+      },
+    ]);
+  });
+
+  it("㉕-e orderNos 생략 → p_order_nos: [] (RPC 가 행 자신의 번호로 대체)", async () => {
+    const user = nextUser();
+    const { client, rec } = makeSupabase({ user, eventRows: [] });
+    const r = await request(createApp({ supabase: client }))
+      .get(eventsUrl())
+      .set("Authorization", "Bearer tok");
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual([]);
+    expect(rec.rpcCalls[0].params).toEqual({ p_user_id: user.id, p_order_id: ORDER_ROW_ID, p_order_nos: [] });
+  });
+
+  it("㉕-f 200 bare array — toOrderTimelineRow 결과 · 순서 유지 · 주문자/apply_error 없음 (T-19-08)", async () => {
+    const { client } = makeSupabase({
+      user: nextUser(),
+      eventRows: [journalEventDb({ dma_user_id: "dma-leak", apply_error: "leak-err" }), strategyEventDb()],
+    });
+
+    const r = await request(createApp({ supabase: client }))
+      .get(eventsUrl("?orderNos=12451"))
+      .set("Authorization", "Bearer tok");
+
+    expect(r.status).toBe(200);
+    expect(Array.isArray(r.body)).toBe(true);
+    expect(r.body.map((x: any) => `${x.source}:${x.seq}`)).toEqual(["journal:11", "strategy:2"]);
+    expect(r.body[0]).toMatchObject({
+      source: "journal",
+      gwTimeMs: EV_AT,
+      seq: 11,
+      event: { orderNo: "12451", noticeType: "A", gwTimeMs: EV_AT, orderQty: 300, sideTrusted: true },
+    });
+    expect(r.body[1]).toMatchObject({
+      source: "strategy",
+      gwTimeMs: EV_AT,
+      seq: 2,
+      event: { kind: 3, group: 1, orderNo: "12451", cumVolume: 861800, stockCode: "005930" },
+    });
+    for (const leak of ["dma_user_id", "dmaUserId", "apply_error", "applyError", "applied_at", "dma-leak", "leak-err"]) {
+      expect(r.text).not.toContain(leak);
+    }
+  });
+
+  it("㉕-g RPC 오류 → 500 DB_ERROR · 원문 비노출", async () => {
+    const { client } = makeSupabase({
+      user: nextUser(),
+      rpcError: { message: "permission denied for function dma_order_events_for_user" },
+    });
+    const r = await request(createApp({ supabase: client }))
+      .get(eventsUrl("?orderNos=12451"))
+      .set("Authorization", "Bearer tok");
+    expect(r.status).toBe(500);
+    expect(r.body.error.code).toBe("DB_ERROR");
+    expect(r.text).not.toContain("permission denied");
   });
 });
