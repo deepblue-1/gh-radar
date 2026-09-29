@@ -104,16 +104,18 @@ INSERT INTO t_setup SELECT 'strategy_kyobo', public.dma_strategy_apply('KYOBO', 
   pg_temp.sev(1, 1, 0, '', '', '09:50:00.000')
 ));
 
--- KB 통보 (주문 저널 seq 1~5 · epoch ep-25 — 전략과 별도 seq 공간).
+-- KB 통보 (주문 저널 seq 11~15 · epoch ep-25 — 전략과 별도 seq 공간).
+-- 통보 A 의 seq(11)를 같은 ms 전략 BuyOrder 의 seq(2)보다 크게 둔다 — seq 만으로 정렬하면 전략이 먼저 나와
+-- 「같은 ms 는 통보 먼저」 규칙이 실제로 판별된다.
 INSERT INTO t_setup SELECT 'journal_kb', public.dma_journal_apply('KB', 'ep-25', jsonb_build_array(
-  pg_temp.jev(1, '1234567801', '12451', '09:45:02.861'),                                          -- A — BuyOrder 와 같은 ms
-  pg_temp.jev(2, '1234567801', '12451', '09:45:03.000',
+  pg_temp.jev(11, '1234567801', '12451', '09:45:02.861'),                                          -- A — BuyOrder 와 같은 ms
+  pg_temp.jev(12, '1234567801', '12451', '09:45:03.000',
     '{"notice_type":"E","exec_price":12350,"exec_qty":100,"message":"체결"}'::jsonb),              -- E 100주
-  pg_temp.jev(3, '1234567801', '12460', '09:50:00.000',
+  pg_temp.jev(13, '1234567801', '12460', '09:50:00.000',
     '{"notice_type":"C","org_order_no":"12451","request_kind":"Cancel","order_price":0,"side":"","side_trusted":false,"message":"취소확인"}'::jsonb),
-  pg_temp.jev(4, '1234567801', '12470', '09:51:00.000',
+  pg_temp.jev(14, '1234567801', '12470', '09:51:00.000',
     '{"notice_type":"M","org_order_no":"12451","request_kind":"Modify","isin":"KR700593000"}'::jsonb), -- 포이즌(새 행 isin 11자 · 원주문 12451)
-  pg_temp.jev(5, '1234567802', '12451', '09:45:05.000')                                           -- 다른 계좌 같은 주문번호
+  pg_temp.jev(15, '1234567802', '12451', '09:45:05.000')                                           -- 다른 계좌 같은 주문번호
 ));
 
 -- …7801 12451 투영 행 id.
@@ -126,8 +128,8 @@ SELECT plan(24);
 
 -- ── 0. 픽스처 전제 ─────────────────────────────────────────────
 SELECT isnt(
-  (SELECT apply_error FROM public.dma_journal_events WHERE gateway = 'KB' AND journal_epoch = 'ep-25' AND seq = 4),
-  NULL, '(픽스처, KB, …7801, 통보 seq 4 정정 12470 · org 12451 · isin 11자) 포이즌 — apply_error 가 남았다'
+  (SELECT apply_error FROM public.dma_journal_events WHERE gateway = 'KB' AND journal_epoch = 'ep-25' AND seq = 14),
+  NULL, '(픽스처, KB, …7801, 통보 seq 14 정정 12470 · org 12451 · isin 11자) 포이즌 — apply_error 가 남았다'
 );
 
 -- ── 1. 하루치 평면 목록: 가시성 매트릭스 ──────────────────────────
@@ -196,22 +198,22 @@ SELECT is(
 SELECT results_eq(
   $$SELECT source, seq::int, ev->>'order_no'
       FROM public.dma_order_events_for_user('00000000-0000-4000-8000-000000002501', pg_temp.oid12451(), ARRAY['12451'])$$,
-  $$VALUES ('journal', 1, '12451'), ('strategy', 2, '12451'), ('strategy', 6, '12451'),
-           ('journal', 2, '12451'), ('journal', 3, '12460')$$,
+  $$VALUES ('journal', 11, '12451'), ('strategy', 2, '12451'), ('strategy', 6, '12451'),
+           ('journal', 12, '12451'), ('journal', 13, '12460')$$,
   '(U1, KB, …7801, [12451]) A → BuyOrder(같은 ms 통보 먼저) → Queued → E → C(원주문번호 일치) · 포이즌 · 다른 계좌 제외'
 );
 SELECT is(
   (SELECT count(DISTINCT gw_time_ms)::int
      FROM public.dma_order_events_for_user('00000000-0000-4000-8000-000000002501', pg_temp.oid12451(), ARRAY['12451'])
-    WHERE (source = 'journal' AND seq = 1) OR (source = 'strategy' AND seq = 2)),
-  1, '(U1, KB, …7801, 통보 A seq 1 · 전략 BuyOrder seq 2) gw_time_ms 가 같은 ms 다'
+    WHERE (source = 'journal' AND seq = 11) OR (source = 'strategy' AND seq = 2)),
+  1, '(U1, KB, …7801, 통보 A seq 11 · 전략 BuyOrder seq 2) gw_time_ms 가 같은 ms 다'
 );
 SELECT is(
   (SELECT gw_time_ms
      FROM public.dma_order_events_for_user('00000000-0000-4000-8000-000000002501', pg_temp.oid12451(), ARRAY['12451'])
-    WHERE source = 'journal' AND seq = 1),
+    WHERE source = 'journal' AND seq = 11),
   (extract(epoch FROM '2026-09-29 09:45:02.861+09'::timestamptz) * 1000)::bigint,
-  '(U1, KB, …7801, 통보 A seq 1) gw_time_ms = 09:45:02.861 KST 원문 ms (timestamptz 왕복 무손실)'
+  '(U1, KB, …7801, 통보 A seq 11) gw_time_ms = 09:45:02.861 KST 원문 ms (timestamptz 왕복 무손실)'
 );
 SELECT results_eq(
   $$SELECT source, seq::int
@@ -231,8 +233,8 @@ SELECT ok(
 SELECT is(
   (SELECT ev->>'gw_time' IS NOT NULL AND ev->>'notice_type' = 'A'
      FROM public.dma_order_events_for_user('00000000-0000-4000-8000-000000002501', pg_temp.oid12451(), ARRAY['12451'])
-    WHERE source = 'journal' AND seq = 1),
-  true, '(U1, KB, …7801, 통보 seq 1) ev 에 gw_time · notice_type A 원문'
+    WHERE source = 'journal' AND seq = 11),
+  true, '(U1, KB, …7801, 통보 seq 11) ev 에 gw_time · notice_type A 원문'
 );
 SELECT set_eq(
   $$SELECT DISTINCT jsonb_object_keys(ev)
