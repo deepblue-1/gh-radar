@@ -224,3 +224,23 @@ export const ORDER_LOG_WINDOW_PATH = '/trading/order-log';
 export const ORDER_LOG_WINDOW_NAME = 'gh-radar-order-log';
 /** F-A 한 줄이 대부분 잘리지 않는 폭 · opener 를 넘기지 않는다(R4). */
 export const ORDER_LOG_WINDOW_FEATURES = 'width=960,height=720,noopener';
+
+/* ── 창 분리 날짜 이동 (25-10 · 결정 5) ────────────────────────────────── */
+
+/**
+ * KST 날짜 문자열을 **달력 하루씩** 옮긴다(주말 · 휴장일도 한 칸 — 결정 5). 입출력 모두 `YYYY-MM-DD` 이고 시각이 없어
+ * UTC 자정으로 계산해도 KST 달력과 같다(날짜만 다룬다 · 서머타임 없음).
+ */
+export function shiftKstDate(date: string, days: number): string {
+  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
+  const t = new Date(Date.UTC(y, m - 1, d + days));
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`;
+}
+
+const KST_WEEKDAY = new Intl.DateTimeFormat('ko-KR', { weekday: 'short', timeZone: 'Asia/Seoul' });
+
+/** KST 날짜의 요일 한 글자(「월」 …) — `Intl` ko-KR `weekday:"short"` · Asia/Seoul(UI-SPEC ③ 날짜 라벨). */
+export function kstWeekdayShort(date: string): string {
+  return KST_WEEKDAY.format(new Date(`${date}T12:00:00+09:00`));
+}

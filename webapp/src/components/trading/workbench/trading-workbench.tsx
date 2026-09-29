@@ -193,6 +193,7 @@ import { fetchStockDetail } from "@/lib/stock-api";
 import { alertTabFor, type TradingAlert } from "@/lib/trading-alerts";
 import { useTradingFocusRequest } from "@/lib/trading-focus";
 import {
+  WB_PHONE_BAND_BELOW,
   readTradingLayout,
   writeTradingLayout,
   type SavedLayout,
@@ -205,11 +206,10 @@ import { useViServerError } from "@/lib/use-vi-server-error";
 import type { RelayQueuedWindowMsg } from "@gh-radar/shared";
 
 /**
- * 페이지(`wb`) 폰 밴드 상한(미만) — 공용 패널 sticky 전환용. 카드(`lc`) 첫 경계 685 와 다른 값이다
- * (quick-260928-q5e 는 lc 만 내렸다 · §2.2b 「이 표를 재는 컨테이너는 둘이다」).
- * export — 주문로그 창 분리 페이지(25-10)가 같은 JS 상수로 폰 밴드를 판정한다(UI-SPEC R5 · 새 숫자 없음).
+ * 페이지(`wb`) 폰 밴드 상한(미만) — 정의는 `lib/trading-layout.ts`(25-10 이 옮겼다 — 창 분리 페이지가 이 큰 모듈을
+ * 번들에 끌어오지 않고 같은 상수를 읽게). 기존 import 경로를 위해 여기서 다시 내보낸다.
  */
-export const WB_PHONE_BAND_BELOW = 700;
+export { WB_PHONE_BAND_BELOW };
 /**
  * 격자 1열 고정 상한(미만) — 이 폭 아래에서만 단 수 세그먼트가 빠진다. 카드 밴드 경계가 아니라
  * 「2열 격자가 서는 최소 wb 폭」이다(§2.2b 「격자 열 수 경계」). 700 이면 갤럭시 폴드 안쪽 화면

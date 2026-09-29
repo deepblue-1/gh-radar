@@ -24,6 +24,14 @@ import type { RelayExchange } from "@gh-radar/shared";
 
 export const TRADING_LAYOUT_KEY_PREFIX = "gh-radar:trading-layout:";
 
+/**
+ * 페이지(`wb`) 폰 밴드 상한(미만) — 공용 패널 sticky 전환 · 주문로그 줄 탭 펼침용. 카드(`lc`) 첫 경계 685 와 다른
+ * 값이다(quick-260928-q5e 는 lc 만 내렸다 · globals.css §2.2b 「이 표를 재는 컨테이너는 둘이다」).
+ * 작업대(`trading-workbench.tsx` ⑤)와 주문로그 창 분리 페이지(25-10 · UI-SPEC R5)가 **이 상수 하나**로 판정한다 —
+ * 창 분리 페이지가 작업대 모듈을 번들에 끌어오지 않도록 가벼운 이 모듈에 둔다.
+ */
+export const WB_PHONE_BAND_BELOW = 700;
+
 /** 카드 상한 — 깨진 저장값이 화면을 수백 장 카드로 채우지 못하게. */
 const MAX_SAVED_CARDS = 60;
 const MAX_SAVED_SEEN = 400;
