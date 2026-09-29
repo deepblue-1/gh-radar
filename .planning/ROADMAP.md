@@ -1314,7 +1314,7 @@ Plans:
 **정본:** `reference/` 9개 파일(기획서 전문 · gh-radar 함의 · 필드 v0.1 · 대조 기록 · 목업 2종) · gh-trade `docs/features/order-journal.md` · 이 저장소 `19-GH-TRADE-HANDOFF.md`(저널 규약 동형).
 **Requirements**: TBD
 **Depends on:** Phase 19 (계좌 저널 관찰자) · Phase 24 (상따 3그룹 용어) · gh-trade StrategyEvent/QueueProgress 서버 phase
-**Plans:** 11/12 plans executed
+**Plans:** 12/12 plans executed
 
 Plans:
 **Wave 1**
@@ -1345,4 +1345,4 @@ Plans:
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 25-12-PLAN.md — 배포: gh-trade 서버 예고 → 준비 게이트 → relay → server → webapp push → 첫 거래일 UAT (W6)
+- [x] 25-12-PLAN.md — 배포: gh-trade 서버 예고 → 준비 게이트 → relay → server → webapp push → 첫 거래일 UAT (W6)
