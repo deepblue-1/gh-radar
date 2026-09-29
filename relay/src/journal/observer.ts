@@ -142,7 +142,7 @@ export class JournalObserver extends EventEmitter {
     return this.#headSeq;
   }
 
-  /** 게이트웨이가 알려 준 전략 스트림 마지막 seq. 아직 모르면 null(`/healthz` 전략 칸은 25-02). */
+  /** 게이트웨이가 알려 준 전략 스트림 마지막 seq. 아직 모르면 null(`/healthz` `journal.strategy.headSeq` 원천). */
   get strategyHeadSeq(): number | null {
     return this.#strategyHeadSeq;
   }

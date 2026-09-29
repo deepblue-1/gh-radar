@@ -404,7 +404,17 @@ describe("journal 판정 (Phase 19 D-04)", () => {
   const OUT_OF_WINDOW = new Date("2026-09-28T21:00:00+09:00");
 
   function journal(state: JournalHealth["state"], disconnectedSec: number | null): JournalHealth {
-    return { state, lastSeq: 41, headSeq: 42, lagSeq: 1, disconnectedSec, lastAppliedAgeSec: 3, seqRegressions: 0, lastSeqRegressionAgeSec: null };
+    return {
+      state,
+      lastSeq: 41,
+      headSeq: 42,
+      lagSeq: 1,
+      disconnectedSec,
+      lastAppliedAgeSec: 3,
+      seqRegressions: 0,
+      lastSeqRegressionAgeSec: null,
+      strategy: { lastSeq: 7, headSeq: 9, lagSeq: 2, dbError: false, queueDepth: 0 },
+    };
   }
 
   let h: Harness | null = null;
@@ -444,8 +454,12 @@ describe("journal 판정 (Phase 19 D-04)", () => {
     expect(body.journal).toMatchObject({ state: "connecting", disconnectedSec: 3600 });
   });
 
-  it("journal 필드 키는 8종이고 식별자 계열이 없다 (T-19-07 · smoke health_probe)", async () => {
+  it("journal 필드 키는 9종(+ strategy — Phase 25)이고 식별자 계열이 없다 (T-19-07 · T-25-10 · smoke health_probe)", async () => {
     const { body } = await probe(journal("live", null), IN_WINDOW);
+    // 전략 칸도 계수 · 불리언 5키뿐이다.
+    expect(Object.keys((body.journal as { strategy: object }).strategy).sort()).toEqual(
+      ["dbError", "headSeq", "lagSeq", "lastSeq", "queueDepth"],
+    );
     expect(Object.keys(body.journal as object).sort()).toEqual(
       [
         "disconnectedSec",
@@ -456,9 +470,21 @@ describe("journal 판정 (Phase 19 D-04)", () => {
         "lastSeqRegressionAgeSec",
         "seqRegressions",
         "state",
+        "strategy",
       ],
     );
     expect(JSON.stringify(body)).not.toMatch(/"(accountNo|userId|account_no|user_id)"/);
+  });
+
+  it("전략 스트림 적용 실패(journal.strategy.dbError · 큐 적체)만으로는 503 이 아니다 — 본문에만 드러난다 (Phase 25 · Pitfall 4)", async () => {
+    const j: JournalHealth = {
+      ...journal("live", null),
+      strategy: { lastSeq: 7, headSeq: 900, lagSeq: 893, dbError: true, queueDepth: 4_999 },
+    };
+    const { status, body } = await probe(j, IN_WINDOW);
+    expect(status).toBe(200);
+    expect(body.status).toBe("ok");
+    expect(body.journal).toMatchObject({ state: "live", strategy: { dbError: true, queueDepth: 4_999 } });
   });
 
   it("seq 역행 신호(seqRegressions > 0)만으로는 503 이 아니다 — 스트림은 정상, 본문에만 드러난다", async () => {
@@ -484,7 +510,17 @@ describe("journalGateways — 추가 게이트웨이 관찰자 (quick-260929-c8e
   const OUT_OF_WINDOW = new Date("2026-09-28T21:00:00+09:00");
 
   function journal(state: JournalHealth["state"], disconnectedSec: number | null): JournalHealth {
-    return { state, lastSeq: 41, headSeq: 42, lagSeq: 1, disconnectedSec, lastAppliedAgeSec: 3, seqRegressions: 0, lastSeqRegressionAgeSec: null };
+    return {
+      state,
+      lastSeq: 41,
+      headSeq: 42,
+      lagSeq: 1,
+      disconnectedSec,
+      lastAppliedAgeSec: 3,
+      seqRegressions: 0,
+      lastSeqRegressionAgeSec: null,
+      strategy: { lastSeq: 7, headSeq: 9, lagSeq: 2, dbError: false, queueDepth: 0 },
+    };
   }
 
   let h: Harness | null = null;
@@ -549,7 +585,7 @@ describe("journalGateways — 추가 게이트웨이 관찰자 (quick-260929-c8e
     });
   });
 
-  it("e KYOBO 키는 JournalHealth 8키 + alerting 뿐 · 식별자 계열 없음 (T-c8e-05)", async () => {
+  it("e KYOBO 키는 JournalHealth 9키 + alerting 뿐 · 식별자 계열 없음 (T-c8e-05)", async () => {
     const { body } = await probe({
       journal: journal("live", null),
       now: IN_WINDOW,
@@ -568,6 +604,7 @@ describe("journalGateways — 추가 게이트웨이 관찰자 (quick-260929-c8e
         "lastSeqRegressionAgeSec",
         "seqRegressions",
         "state",
+        "strategy",
       ],
     );
     expect(JSON.stringify(body)).not.toMatch(/"(accountNo|userId|account_no|user_id|dmaUserId|dma_user_id|host|secret)"/);

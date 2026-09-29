@@ -16,6 +16,10 @@
  *   - 기동 시각이 첫 이탈 시각이다 — 기동 후 10초 안에 live 가 못 되면 `since = 기동 시각` 으로 delayed.
  *   - disabled(비밀 미설정)는 표식 대상이 아니다 — 프레임을 내지 않고 스냅샷도 null.
  *
+ * 전략 스트림(Phase 25 — `health().strategy`): 전략 기록기 관측값은 `/healthz` 본문에만 싣는 **표시 신호**다.
+ * 파생 상태(`#derive`)와 503 판정(`journalAlerting`)은 주문 스트림 기준 그대로다 — 전략 적용이 실패해도 주문
+ * 기록은 정상일 수 있고, 반대로 섞으면 원격 마이그레이션 전 배포 한 번이 장중 거짓 503 을 만든다(RESEARCH Pitfall 4).
+ *
  * 운영 알림(D-04 (b)): `journalAlerting(health, now)` — 장중(`inTradingWindow`)에 rejected 이거나
  * live 가 아닌 지 `JOURNAL_ALERT_AFTER_MS`(180초) 이상이면 true → `/healthz` 503 → 기존 uptime check
  * `gh-radar-relay-healthz` + 정책 `gh-radar-relay-down` 이 알린다(relay 로그는 Cloud Logging 에 없다 —
@@ -29,6 +33,7 @@ import type {
   JournalDerivedState,
   JournalHealth,
   JournalObserverState,
+  JournalStrategyHealth,
   JournalWriterHealth,
 } from "./types.js";
 
@@ -53,6 +58,8 @@ export function journalAlerting(health: JournalHealth, now: Date): boolean {
 export type StatusObserverView = {
   readonly state: JournalObserverState;
   readonly headSeq: number | null;
+  /** 게이트웨이가 알려 준 전략 스트림 head (Phase 25). */
+  readonly strategyHeadSeq: number | null;
   on(event: "state", listener: (state: JournalObserverState) => void): unknown;
   off(event: "state", listener: (state: JournalObserverState) => void): unknown;
 };
@@ -67,6 +74,8 @@ export type StatusWriterView = {
 export type JournalStatusDeps = {
   observer: StatusObserverView;
   writer: StatusWriterView;
+  /** 전략 이벤트 기록기 (Phase 25). 주면 `health().strategy` 를 채운다 — 파생 상태 · 503 판정에는 쓰지 않는다. */
+  strategyWriter?: StatusWriterView;
   /** live 이탈 → `delayed` 프레임 디바운스(ms). 기본 `JOURNAL_DELAYED_AFTER_MS`. */
   delayedAfterMs?: number;
   /** 시각 원천(epoch ms). 기본 `Date.now`. */
@@ -81,6 +90,7 @@ export interface JournalStatus {
 export class JournalStatus extends EventEmitter {
   readonly #observer: StatusObserverView;
   readonly #writer: StatusWriterView;
+  readonly #strategyWriter: StatusWriterView | null;
   readonly #now: () => number;
   readonly #delayedAfterMs: number;
   #delayedTimer: NodeJS.Timeout | null = null;
@@ -97,6 +107,9 @@ export class JournalStatus extends EventEmitter {
     super();
     this.#observer = deps.observer;
     this.#writer = deps.writer;
+    this.#strategyWriter = deps.strategyWriter ?? null;
+    // 구독은 하되 재평가 결과는 불변이다(파생 상태는 전략 기록기를 보지 않는다) — 프레임 · 타이머에 영향 없음.
+    this.#strategyWriter?.on("health", this.#onChange);
     this.#now = deps.now ?? Date.now;
     this.#delayedAfterMs = deps.delayedAfterMs ?? JOURNAL_DELAYED_AFTER_MS;
     this.#derived = this.#derive();
@@ -129,6 +142,22 @@ export class JournalStatus extends EventEmitter {
       seqRegressions: w.seqRegressions,
       lastSeqRegressionAgeSec:
         w.lastSeqRegressionAtMs !== null ? secondsBetween(w.lastSeqRegressionAtMs, nowMs) : null,
+      strategy: this.#strategyHealth(),
+    };
+  }
+
+  /** 전략 스트림 한 칸 — 계수 · 불리언만(식별자 없음 · T-19-07). 전략 기록기 미주입이면 null. */
+  #strategyHealth(): JournalStrategyHealth | null {
+    if (this.#strategyWriter === null) return null;
+    const w = this.#strategyWriter.health();
+    const headSeq = this.#observer.strategyHeadSeq;
+    const lastSeq = w.lastAppliedSeq;
+    return {
+      lastSeq,
+      headSeq,
+      lagSeq: headSeq !== null && lastSeq !== null ? Math.max(headSeq - lastSeq, 0) : null,
+      dbError: w.dbError,
+      queueDepth: w.queueDepth,
     };
   }
 
@@ -136,6 +165,7 @@ export class JournalStatus extends EventEmitter {
     this.#clearDelayed();
     this.#observer.off("state", this.#onChange);
     this.#writer.off("health", this.#onChange);
+    this.#strategyWriter?.off("health", this.#onChange);
   }
 
   // ----------------------------------------------------------

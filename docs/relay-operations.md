@@ -63,6 +63,10 @@ DB 에 쓰지 않는다(D-01). 결선은 `relay/src/index.ts`, 모듈은 `relay/
     `select seq, apply_error from dma_journal_events where apply_error is not null order by seq desc limit 20;` 로 투영 실패가
     쌓였는지 본다. 적용 RPC 가 실패하는 동안 커서는 전진하지 않으므로 **유실은 없다** — 복구되면 같은 배치부터 다시 적용된다.
   - `journal.seqRegressions` > 0 — **503 이 아니다**(표시 신호). 위 「seq 역행 신호」.
+  - `journal.strategy` (Phase 25 — 전략 이벤트 스트림) — `{ lastSeq, headSeq, lagSeq, dbError, queueDepth }`. **503 판정 밖**(표시
+    신호 — `journal.state` 는 주문 스트림 기준 그대로). `dbError:true` 는 `dma_strategy_apply` 연속 실패다 — 원격 마이그레이션
+    (`dma_strategy_events` · `dma_strategy_apply`)이 적용됐는지 먼저 본다. `queueDepth` 가 계속 차면 전략 큐 상한에서 관찰자가
+    「전략 큐 상한」 으로 소켓을 끊고, 그 동안 **주문 기록도 멈춘다**(한 소켓 공유). 기록기 로그는 `stream:"strategy"` 로 갈린다.
 - **전환 순서 (D-14, 20:00 이후 · 사용자 승인).** ① DB 마이그레이션(추가 전용) → ② 관찰자 비밀 두 곳 → ③ gh-trade 게이트웨이 배포 ·
   재시작(관찰자 지원판) → ④ relay 배포(`git status -sb` 재확인 — 메인 체크아웃 HEAD/작업 트리를 빌드한다) → 검증(`journal.state` live ·
   `dma_account_access` 행 수 · 커서 행) → ⑤ server 배포 → ⑥ webapp push(= Vercel 프로덕션). 게이트웨이가 relay 보다 먼저여야 한다 —

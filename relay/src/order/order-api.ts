@@ -65,7 +65,7 @@ export interface OrderApiSessions {
 }
 
 /**
- * 추가 게이트웨이 관찰자 요약 (quick-260929-c8e). `JournalHealth` 8키 + `alerting`(주 게이트웨이였다면
+ * 추가 게이트웨이 관찰자 요약 (quick-260929-c8e). `JournalHealth` 9키(Phase 25 `strategy` 포함) + `alerting`(주 게이트웨이였다면
  * 503 이었을 조건 — `journalAlerting`) 뿐이다. 식별자는 없다.
  */
 export type JournalGatewayHealth = JournalHealth & { alerting: boolean };
@@ -135,7 +135,7 @@ export type HealthPayload = {
   journal?: JournalHealth;
   /**
    * 추가 게이트웨이 관찰자 상태 (quick-260929-c8e). 키는 게이트웨이 키(예: 교보), 값은 `journal` 과 같은
-   * 8키 + `alerting` 뿐이다 — **계좌·사용자 식별자 · 호스트 · 비밀이 없다**(T-c8e-05). 503 판정 밖이다.
+   * 9키 + `alerting` 뿐이다 — **계좌·사용자 식별자 · 호스트 · 비밀이 없다**(T-c8e-05). 503 판정 밖이다.
    * 추가 게이트웨이가 없으면 필드 자체가 없다.
    */
   journalGateways?: Record<string, JournalGatewayHealth>;

@@ -282,4 +282,24 @@ export type JournalHealth = {
   seqRegressions: number;
   /** 마지막 seq 역행 관측 뒤 몇 초인가. 없으면 null. */
   lastSeqRegressionAgeSec: number | null;
+  /**
+   * 전략 스트림 관측값 (Phase 25) — **표시 신호, 503 판정에 쓰지 않는다 · 식별자 없음**(계수 · 불리언만 — T-19-07).
+   * 전략 적용 연속 실패(`dbError`)나 큐 적체(`queueDepth`)는 여기서만 드러나고 `state`(주문 스트림 기준)는 바꾸지 않는다.
+   * 전략 기록기를 주입하지 않은 상태 요약이면 null(키는 늘 있다).
+   */
+  strategy: JournalStrategyHealth | null;
+};
+
+/** `JournalHealth.strategy` — 전략 스트림 한 칸. */
+export type JournalStrategyHealth = {
+  /** 전략 기록기가 DB 커서로 확인한 마지막 seq. 모르면 null. */
+  lastSeq: number | null;
+  /** 게이트웨이가 알려 준 전략 스트림 마지막 seq. 모르면 null. */
+  headSeq: number | null;
+  /** `headSeq − lastSeq`(0 이상). 둘 중 하나라도 모르면 null. */
+  lagSeq: number | null;
+  /** 전략 적용 RPC(`dma_strategy_apply`) 연속 실패. 파생 상태 `db_error` 와 무관하다. */
+  dbError: boolean;
+  /** 전략 기록기 큐 깊이 — 상한에 닿으면 관찰자가 「전략 큐 상한」 으로 소켓을 끊는다(주문 기록도 멈춘다). */
+  queueDepth: number;
 };
