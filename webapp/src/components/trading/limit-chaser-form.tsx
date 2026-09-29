@@ -1003,14 +1003,16 @@ export function LimitChaserForm({
             채움이 덮지 않고, 그사이 0 이 된 매도 매수잔량에 `sellEnabled` 를 싣지 않는다(relay 프레임 전체 거부 방지).
             D-01 마스터 동반도 같은 기준이다(전송 시점 서버 값이 이미 켜져 있으면 싣지 않는다).
             사전 검증 · D-36 은 위에서 누르는 순간 판정한다(R7).
+          ★ R4-WR-01 (ii) — 꺼내는 순간 계산은 이 흐름에서 서버가 눕힌 항목(훅 ⑬ `laid`)을 다시 켜지 않고 「서버 거부」 로
+            적는다. 사람의 새 클릭(흐름이 빈 뒤)은 평소대로 요청한다.
         */
         const autoGate: AutoCheckGate | null = gate === 'preBuyEnabled' || gate === 'extraBuyEnabled' ? gate : null;
         // 자기 그룹 슬롯만 비운다 — 후매수(autoGate null)는 어떤 슬롯도 건드리지 않는다(GC-WR-04).
         if (autoGate !== null) delete autoCheckRef.current[autoGate];
-        const outcome = commitField(gate, true, 'toggle', (base) => {
+        const outcome = commitField(gate, true, 'toggle', (base, laid) => {
           const companions: Partial<LimitChaserFormValues> = base.buyEnabled ? {} : { buyEnabled: true };
           if (autoGate === null) return companions;
-          const auto = groupAutoChecksOf(autoGate, base, upperLimitRef.current);
+          const auto = groupAutoChecksOf(autoGate, base, upperLimitRef.current, laid);
           autoCheckRef.current[autoGate] = auto;
           return { ...auto.companions, ...companions };
         });

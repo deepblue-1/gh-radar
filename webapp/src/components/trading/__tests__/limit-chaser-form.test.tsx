@@ -3217,7 +3217,23 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 선매
     );
     expect(sentConfigs()).toHaveLength(2);
     expect(lastConfig().extraBuyEnabled).toBe(true);
+    // R4-WR-01 — 같은 흐름의 대기 추가매수는 방금 서버가 눕힌 매도주문을 다시 싣지 않는다(훅 ⑬ 눕힌 동반).
+    expect(lastConfig().sellEnabled).toBe(false);
     expect(sw('추가매수 켜기')).toHaveAttribute('aria-checked', 'true');
+    expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(failedShown()).toBe(false);
+
+    // 추가매수 성공 에코 → 그 줄은 매도주문을 「켜지 않음(서버 거부)」 로 사실대로 적는다(error).
+    rerender(
+      <LimitChaserForm
+        {...props({ server: { ...pre, extraBuyEnabled: true }, upperLimit: 150_800, onClientLog, serverAnswerSeq: 3, serverRejectSeq: 1 })}
+      />,
+    );
+    expect(autoLines(onClientLog)).toEqual([
+      [PRE_PARTIAL_LINE, 'error'],
+      ['추가매수 자동 체크 — 켜지 않음: 매도주문(서버 거부)', 'error'],
+    ]);
+    expect(sentConfigs()).toHaveLength(2);
     expect(failedShown()).toBe(false);
   });
 

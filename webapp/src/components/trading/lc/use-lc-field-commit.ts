@@ -106,6 +106,7 @@
  *     판정 시점(확정의 no-op · 대기 진입의 낙관 표시와 되돌림 기준 · 같은 필드 재확정 · 꺼낼 때의 no-op · 전송 조립)
  *     마다 `companionsAt` 로 다시 계산하고, 계산 결과의 키가 바뀌면 빠진 키는 되돌리고 새 키의 되돌림 기준을 세운다
  *     (`reshow` 하나 — 두 경로가 같은 규칙). in-flight 기록에는 실제로 실은 계산 결과가 남는다.
+ *     함수의 둘째 인자는 ⑬ 눕힌 동반(`laid`)이다 — 인자 하나짜리 함수(D-02 마스터 끄기 등)는 그대로 호환된다.
  *
  * ⑫ 보낸 사유(`meta.cause`)는 `onSent(cfg, meta)` 로만 흐른다 — 카드가 에코 로그 귀속(24-05 「서버가 매수 그룹
  *   해제 — …」)에 쓴다. 성공 판정 · 되돌림 · 재시도 규칙(⑤)은 사유와 무관하게 같다.
@@ -113,6 +114,19 @@
  *   성공** 신호(`sentSuccessSeq` · `lastSentSuccessField`)는 이 훅이 소켓에 실은 in-flight 프레임의 에코 답일 때만 오른다.
  *   한 판정 실행에 in-flight 는 최대 1건이라 같은 실행의 늦은 에코 · 대기 접기 성공이 보낸 성공을 덮지 못한다 — 폼의
  *   자동 체크 로그는 보낸 성공으로만 줄을 쓴다(보내지 않은 켜기엔 줄 없음 · GC-IN-03). 판정 · 전송 규칙은 같다.
+ *
+ * ⑬ ★ 눕힌 동반(`laidRef` · R3-G1 · 24-REVIEW-R4 R4-WR-01 선택지 (ii)) — 서버는 동반 필드를 부분 거부로 눕힐 수 있다(⑪).
+ *   - 무엇을 모으나: 해소 ① 성공(matches) 때 in-flight 가 **켜 달라 실은** 동반 불리언(`inf.companions` 의 true) 중 그
+ *     에코에 서지 않은 필드(`server[k] !== true`).
+ *   - 누가 읽나: 동반 함수의 둘째 인자(`companionsAt(p, base, laid)`). 폼의 그룹 켬 자동 체크가 그 항목을 다시 켜지 않고
+ *     「서버 거부」 로 적는다 — 서버가 방금 거부한 무장을 같은 흐름에서 사람 모르게 다시 요청하지 않는다.
+ *     꺼내는 순간 계산 네 자리(sendNow · drain no-op · failQueue · commit shown)가 모두 같은 기억을 본다(WR-03 · WR-04).
+ *   - 언제 비우나: **흐름이 빈 상태**(in-flight · 대기 · 답 대기 장벽 · 결과 모름 장벽 모두 없음)의 사람의 새 확정.
+ *     새 클릭은 새 의도라 평소대로 요청한다(서버가 또 눕히면 로그가 사실대로 적는다).
+ *   - 왜 훅인가: 폼의 줄 소비와 훅의 대기 꺼내기는 흐름마다 실행 순서가 다르다(폼 단독은 줄 소비가 먼저, 카드 흐름은 답
+ *     신호 증가와 보낸 성공이 한 렌더로 합쳐져 꺼내기가 먼저) — 폼 슬롯으로 기억을 만들면 순서에 따라 비어 버린다.
+ *     in-flight 가 실제로 실은 값과 그 답 에코를 같은 실행에서 보는 곳은 이 훅뿐이다.
+ *   - T-16-10: 전송을 만들지 않는다 — 싣는 동반만 줄인다.
  */
 
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
@@ -308,10 +322,11 @@ export interface UseLcFieldCommitOptions {
 /**
  * 동반 필드(⑪) — 값 또는 **판정 시점의 기준값**(서버 동기값 `formFromServer(server, formRef.current)`, 미등록이면
  * 폼 값)으로 계산하는 함수. 함수는 대기열에서 꺼내는 순간에도 다시 불린다(WR-03) — 누른 순간의 값으로 굳히지 않는다.
+ * 둘째 인자 `laid` = 이 흐름에서 서버가 눕힌 동반 필드(⑬ · R3-G1) — 인자 하나짜리 함수도 그대로 들어간다.
  */
 export type LcCompanions =
   | Partial<LimitChaserFormValues>
-  | ((base: LimitChaserFormValues) => Partial<LimitChaserFormValues>);
+  | ((base: LimitChaserFormValues, laid: ReadonlySet<LcFieldKey>) => Partial<LimitChaserFormValues>);
 
 /** 확정의 부가 정보 — 전송 · 로그 귀속에만 쓴다(⑫). */
 export interface LcCommitMeta {
@@ -384,15 +399,16 @@ function booleanCompanions(
 
 /**
  * 동반 필드를 이 판정 시점의 기준값으로 계산한다(⑪ · WR-03) — 함수면 부르고, 값이면 그대로, 없으면 undefined.
- * 판정할 때마다 부른다(대기 건은 꺼내는 순간의 서버 동기값으로 다시 계산된다).
+ * 판정할 때마다 부른다(대기 건은 꺼내는 순간의 서버 동기값으로 다시 계산된다). `laid` 는 ⑬ 눕힌 동반이다.
  */
 function companionsAt(
   p: { companions?: LcCompanions },
   base: LimitChaserFormValues,
+  laid: ReadonlySet<LcFieldKey>,
 ): Partial<LimitChaserFormValues> | undefined {
   const c = p.companions;
   if (c === undefined) return undefined;
-  return typeof c === 'function' ? c(base) : c;
+  return typeof c === 'function' ? c(base, laid) : c;
 }
 
 /** 서버가 이미 이 확정 그대로인가 — 주 필드와 모든 동반 필드가 같을 때만(⑪). */
@@ -460,6 +476,11 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
    */
   const orphanRef = useRef<{ field: LcFieldKey; answerSeqAtSend: number } | null>(null);
   const orphanTimer = useRef<number | null>(null);
+  /**
+   * ⑬ 눕힌 동반(R3-G1 · R4-WR-01) — 이 흐름에서 in-flight 가 켜 달라 실었는데 성공 에코에 서지 않은 동반 필드.
+   * 동반 함수 둘째 인자로 넘기고, 흐름이 빈 상태의 사람의 새 확정에서 비운다.
+   */
+  const laidRef = useRef<Set<LcFieldKey>>(new Set());
   /** 거부 통지 답의 에코 유예 타이머(③ · R3-WR-01) — 걸려 있으면 마감을 늘리지 않는다. */
   const rejectGraceTimer = useRef<number | null>(null);
   const clearRejectGrace = useCallback(() => {
@@ -585,7 +606,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       // ② 기준값 = 서버 동기값 + 동반 필드(⑪) + 바꾼 필드. 동반은 **지금** 기준값으로 다시 계산한다(WR-03 —
       //   대기 건이면 꺼내는 순간의 서버 값). 계산 결과가 낙관 표시한 것과 다르면 표시 · 되돌림 기준을 맞춘다.
       const base = baseNow();
-      const companions = companionsAt(p, base);
+      const companions = companionsAt(p, base, laidRef.current);
       reshow(p, companions);
       const next: LimitChaserFormValues = { ...base, ...(companions ?? {}), [p.field]: p.value };
       // ⑨-2 범위 밖 cfg 는 연결을 끊는다 — 끄는 방향도 예외 없이 막는다(CR-01).
@@ -644,7 +665,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
     while (queueRef.current.length > 0) {
       const p = queueRef.current.shift()!;
       // no-op 판정도 꺼내는 순간의 서버 값으로 동반을 다시 계산한다(⑪ · WR-03).
-      if (server != null && sameAsServer(server, p.field, p.value, companionsAt(p, baseNow()))) {
+      if (server != null && sameAsServer(server, p.field, p.value, companionsAt(p, baseNow(), laidRef.current))) {
         // 서버가 이미 사용자가 확정한 값이다 — 보낼 것은 없지만 **성공**이다(20-REVIEW WR-06). 성공 신호가
         // 없으면 `queued` 로 열려 기다리던 시트·인라인 편집기가 닫히지 않는다.
         markSuccess(p.field);
@@ -678,7 +699,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
         // 서버가 이미 그 값이면 보낼 것이 없던 확정이다 — 실패가 아니라 성공이다(열린 시트·편집기를 닫는다 · WR-06).
         //   ★ 주 필드만 같다고 접지 않는다(WR-04) — drain · 즉시 경로와 같은 `sameAsServer` 로 동반까지 본다
         //     (동반은 지금 서버 동기값으로 계산 · WR-03). 보내지 않은 동반 마스터 OFF 를 낙관 표시로 남기지 않는다.
-        if (server != null && sameAsServer(server, q.field, q.value, companionsAt(q, baseNow()))) {
+        if (server != null && sameAsServer(server, q.field, q.value, companionsAt(q, baseNow(), laidRef.current))) {
           markSuccess(q.field);
           continue;
         }
@@ -745,8 +766,19 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
         return 'disconnected';
       }
 
+      // ⑬ 흐름이 비었다(in-flight · 대기 · 답 대기 장벽 · 결과 모름 장벽 없음) — 사람의 새 확정은 새 흐름의 시작이다.
+      //   눕힌 동반 기억을 비운다(새 클릭은 새 의도 · 평소대로 요청한다).
+      if (
+        inflightRef.current === null &&
+        queueRef.current.length === 0 &&
+        popAfterSeqRef.current === null &&
+        orphanRef.current === null
+      ) {
+        laidRef.current.clear();
+      }
+
       // 동반 필드는 이 판정 시점의 기준값으로 계산한다(⑪ · WR-03 — 대기에 서면 꺼낼 때 다시 계산한다).
-      const shown = companionsAt({ companions }, baseNow());
+      const shown = companionsAt({ companions }, baseNow(), laidRef.current);
 
       // 같은 필드가 대기 중 — 값 · 동반 필드 · 사유만 바꾸고 자리는 그대로다(⑦ · ⑪).
       const queued = queueRef.current.find((q) => q.field === field);
@@ -836,6 +868,12 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       if (matches) {
         clearRejectGrace();
         setInflight(null);
+        // ⑬ 켜 달라 실은 동반 중 이 에코에 서지 않은 필드 — 같은 흐름의 대기 동반 함수가 다시 싣지 않게 기억한다.
+        //   in-flight 기록의 동반은 실제로 실은 계산 값이다(함수가 아니다 · sendNow).
+        const carried = typeof inf.companions === 'function' ? undefined : inf.companions;
+        for (const [k, v] of Object.entries(booleanCompanions(carried)) as [LcFieldKey, unknown][]) {
+          if (v === true && server[k] !== true) laidRef.current.add(k);
+        }
         // 이 훅이 실은 프레임의 답 — 보낸 성공 신호는 여기서만 오른다(GC-IN-03 · R3-WR-02). 같은 실행의 ③ 늦은 에코
         //   성공은 일반 신호만 올리므로 이 신호를 덮지 못한다.
         markSuccess(inf.field);

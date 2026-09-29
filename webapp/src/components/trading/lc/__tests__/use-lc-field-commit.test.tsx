@@ -22,6 +22,7 @@ import {
   lcGroupAmountBlockOf,
   lcLegacyBlockOf,
   useLcFieldCommit,
+  type LcFieldKey,
   type UseLcFieldCommitOptions,
 } from '../use-lc-field-commit';
 import { lcRowByField } from '../lc-fields';
@@ -1016,6 +1017,102 @@ describe('R3-WR-01 — 거부 통지 답은 같은 제출의 에코를 LC_REJECT
     expect(errors).not.toHaveBeenCalled();
     expect(t.send).toHaveBeenCalledTimes(1);
     errors.mockRestore();
+  });
+});
+
+/**
+ * R3-G1 · 24-REVIEW-R4 R4-WR-01 — 훅 ⑬ 눕힌 동반. 해소 ① 성공 때 in-flight 가 켜 달라 실은 동반 중 에코에 서지 않은 필드를
+ * 모아, 같은 흐름에서 꺼내는 대기 건의 동반 함수 둘째 인자(laid)로 넘긴다. 흐름이 빈 뒤 사람의 새 확정은 빈 기억으로 시작한다.
+ * ★ 함수는 호출마다 laid 를 배열로 스냅숏한다(살아 있는 집합을 나중에 읽지 않는다). ★ 모든 케이스가 전송 수를 센다(T-16-10).
+ */
+describe('R3-G1 — 서버가 눕힌 동반은 같은 흐름의 대기 동반 함수에 laid 로 전달된다 (24-REVIEW-R4 R4-WR-01)', () => {
+  type CompanionFn = (base: LimitChaserFormValues, laid: ReadonlySet<LcFieldKey>) => Partial<LimitChaserFormValues>;
+
+  /** laid 스냅숏을 남기는 동반 함수 — laid 에 매도주문이 있으면 싣지 않는다(폼의 refused 판정과 같은 몫). */
+  function recordingCompanion() {
+    const seen: LcFieldKey[][] = [];
+    const fn = vi.fn<CompanionFn>((_base, laid) => {
+      seen.push([...laid]);
+      return laid.has('sellEnabled') ? {} : { sellEnabled: true };
+    });
+    return { fn, seen };
+  }
+
+  /** H1 과 같은 출발점 — 선매수 켬(정적 동반 마스터 · 매도) in-flight → 추가매수 켬(함수 동반) 대기 → 거부 신호. */
+  function prep() {
+    const t = setup({ server: echo({ buyEnabled: false }) });
+    const c = recordingCompanion();
+    act(() => {
+      expect(t.hook.result.current.commit('preBuyEnabled', true, 'toggle', { buyEnabled: true, sellEnabled: true })).toBe('sent');
+    });
+    act(() => {
+      expect(t.hook.result.current.commit('extraBuyEnabled', true, 'toggle', c.fn)).toBe('queued');
+    });
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(c.seen.every((l) => l.length === 0)).toBe(true);
+    t.update({ serverAnswerSeq: 1, serverRejectSeq: 1 });
+    expect(t.send).toHaveBeenCalledTimes(1);
+    return { t, c };
+  }
+
+  it('부분 거부 에코(선매수 ON · 매도 OFF) → 답 신호에 꺼낼 때 동반 함수가 받은 laid 에 sellEnabled 가 있다', () => {
+    const { t, c } = prep();
+    t.update({ server: echo({ buyEnabled: true, preBuyEnabled: true, sellEnabled: false }) });
+    expect(t.send).toHaveBeenCalledTimes(1);
+    const before = c.seen.length;
+
+    t.update({ serverAnswerSeq: 3 });
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(c.seen.length).toBeGreaterThan(before);
+    for (const laid of c.seen.slice(before)) expect(laid).toEqual(['sellEnabled']);
+  });
+
+  it('laid 에 매도주문이 있으면 싣지 않는다 → 두 번째 cfg sellEnabled false · 폼 sellEnabled 도 서버 값(false)으로 되돌아간다', () => {
+    const { t } = prep();
+    // 대기 진입 때는 laid 가 비어 매도주문을 낙관 표시했다.
+    expect(t.formRef.current.sellEnabled).toBe(true);
+    t.update({ server: echo({ buyEnabled: true, preBuyEnabled: true, sellEnabled: false }) });
+    t.update({ serverAnswerSeq: 3 });
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(t.cfgs()[1]!.extraBuyEnabled).toBe(true);
+    expect(t.cfgs()[1]!.sellEnabled).toBe(false);
+    expect(t.formRef.current.sellEnabled).toBe(false);
+    expect(t.formRef.current.extraBuyEnabled).toBe(true);
+  });
+
+  it('에코가 매도까지 세웠으면(sellEnabled true) 꺼낼 때 받은 laid 는 비어 있다', () => {
+    const { t, c } = prep();
+    t.update({ server: echo({ buyEnabled: true, preBuyEnabled: true, sellEnabled: true }) });
+    const before = c.seen.length;
+    t.update({ serverAnswerSeq: 3 });
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(c.seen.length).toBeGreaterThan(before);
+    for (const laid of c.seen.slice(before)) expect(laid).toEqual([]);
+  });
+
+  it('흐름이 빈 뒤(in-flight · 대기 · 답 대기 장벽 없음) 새로 확정한 함수 동반은 빈 laid 를 받는다 — 새 클릭은 새 의도', () => {
+    const { t, c } = prep();
+    t.update({ server: echo({ buyEnabled: true, preBuyEnabled: true, sellEnabled: false }) });
+    t.update({ serverAnswerSeq: 3 });
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(c.seen[c.seen.length - 1]).toEqual(['sellEnabled']);
+
+    // 추가매수 성공 에코 → 답 신호 증가까지 보내야 답 대기 장벽(popAfterSeq)이 풀린다.
+    t.update({ server: echo({ buyEnabled: true, preBuyEnabled: true, extraBuyEnabled: true, sellEnabled: false }) });
+    t.update({ serverAnswerSeq: 4 });
+    const r = t.hook.result.current;
+    expect(r.inflightField).toBeNull();
+    expect(r.queuedFields).toEqual([]);
+    expect(t.send).toHaveBeenCalledTimes(2);
+
+    const fresh = recordingCompanion();
+    act(() => {
+      expect(t.hook.result.current.commit('sweepEnabled', true, 'toggle', fresh.fn)).toBe('sent');
+    });
+    expect(fresh.seen.length).toBeGreaterThan(0);
+    for (const laid of fresh.seen) expect(laid).toEqual([]);
+    expect(t.cfgs()[2]!.sellEnabled).toBe(true);
+    expect(t.send).toHaveBeenCalledTimes(3);
   });
 });
 

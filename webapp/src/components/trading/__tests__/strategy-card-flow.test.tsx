@@ -1735,6 +1735,9 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 in-fli
   const FAILED = '반영하지 못했어요';
   const failedShown = () => (document.body.textContent ?? '').includes(FAILED);
   const autoPre = () => texts().filter((x) => x.startsWith('선매수 자동 체크 — '));
+  /** 부분 거부 — 에코에 선 항목만 「켬」 · 눕힌 매도주문은 서버 거부(R3-G1 · 24-REVIEW-R4 R4-WR-01). */
+  const PRE_PARTIAL =
+    '선매수 자동 체크 — 켬: 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 켜지 않음: 매도주문(서버 거부) / 매도 주문가격·비교가격 = 상한가 150,800원';
 
   beforeEach(() => {
     lastCard = null;
@@ -1804,8 +1807,14 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 in-fli
     rerender(<Card />);
 
     await waitFor(() => expect(lcSets()).toHaveLength(2));
-    expect(lcSets()[1]!.cfg).toMatchObject({ extraBuyEnabled: true, preBuyEnabled: true });
+    // R4-WR-01 — 대기 추가매수는 방금 서버가 눕힌 매도주문을 다시 싣지 않는다(훅 ⑬ 눕힌 동반).
+    expect(lcSets()[1]!.cfg).toMatchObject({ extraBuyEnabled: true, preBuyEnabled: true, sellEnabled: false });
     await waitFor(() => expect(autoPre()).toHaveLength(1));
+    // R3-G1 — 줄은 에코에 선 항목만 「켬」 · 눕힌 매도주문은 「켜지 않음(서버 거부)」 · error.
+    expect(autoPre()).toEqual([PRE_PARTIAL]);
+    const preRow = Array.from(logRows()).find((r) => (r.querySelectorAll('span')[1]?.textContent ?? '') === PRE_PARTIAL);
+    expect(preRow?.getAttribute('data-level')).toBe('error');
+    expect(lcSets()).toHaveLength(2);
     expect(failedShown()).toBe(false);
     expect(screen.getByRole('switch', { name: '선매수 켜기' })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByRole('switch', { name: '추가매수 켜기' })).toHaveAttribute('aria-checked', 'true');
