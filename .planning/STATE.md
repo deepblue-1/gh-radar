@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 25
 current_phase_name: order-log-progress
 status: executing
-stopped_at: Completed 25-07-PLAN.md
-last_updated: "2026-09-29T11:50:14.877Z"
+stopped_at: Completed 25-08-PLAN.md
+last_updated: "2026-09-29T12:14:42.816Z"
 last_activity: 2026-09-29
 last_activity_desc: Phase 25 execution started
-state_head: ab01cf2e90f315444282baa15fb8378444254b2f
+state_head: 366ce72a80bdf27eb57457b7b1a50da3f223f801
 progress:
   total_phases: 34
   completed_phases: 4
   total_plans: 336
-  completed_plans: 315
+  completed_plans: 316
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 25 (order-log-progress) — EXECUTING
-Plan: 8 of 12
+Plan: 9 of 12
 Plans completed: 220 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
@@ -167,6 +167,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 25 P05 | 6min | 2 tasks | 7 files |
 | Phase 25 P06 | 21min | 3 tasks | 15 files |
 | Phase 25 P07 | 44 min | 3 tasks | 21 files |
+| Phase 25 P08 | 19min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -426,6 +427,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 25]: 25-07: 주문로그 새 줄 강조·배지 원천은 strategyEventsBatch 가 아니라 strategyEvents 키 집합 스냅샷 비교 — batch 는 마지막 프레임만 들어 연속 푸시 렌더 합쳐짐에서 앞 줄을 놓친다
 - [Phase 25]: 25-07: useStickToBottom 따라감 판정은 직전 커밋 scrollHeight 기준 삽입 전 거리 — scroll 이벤트(다음 프레임)보다 먼저 온 푸시에 끌려 내려가지 않게
 - [Phase 25]: 25-07: 공용 패널 탭 값 정본 SHARED_PANEL_TABS(as const) → SharedPanelTab·isSharedPanelTab·SharedTab 파생 · 창 분리 상수 ORDER_LOG_WINDOW_* 는 order-log-feed.ts(25-10 공유)
+- [Phase 25]: 25-08: 오늘 주문 펼침 본문(조회)은 보이는 배치(표 ≥1280 / 카드 행) 한 곳에만 마운트 — 클릭 1회 = GET 1회
+- [Phase 25]: 25-08: 오늘 주문 행 렌더 키 = 펼침 키 = members[0].id — 조각이 들어와도 본문 재마운트 · 재조회 없음
+- [Phase 25]: 25-08: 통보 문장은 판정 필드만 보고 message 는 거부 꼬리로만 · 상따 문장은 timelineStrategyText 출력 그대로(D-09 두 줄 형식 변경은 shared 한 곳)
 
 ### Pending Todos
 
@@ -493,8 +497,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-09-29T11:49:44.308Z
-Stopped at: Completed 25-07-PLAN.md
+Last session: 2026-09-29T12:14:42.010Z
+Stopped at: Completed 25-08-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
