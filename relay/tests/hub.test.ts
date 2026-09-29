@@ -601,6 +601,95 @@ describe("SubscriptionHub — 잔량진행률 83 QueueProgress (Phase 25-06)", (
     ]);
   });
 
+  /** 웹 리듀서 규칙으로 「이미 연결된 탭의 사본」 을 모델링한다 — snap:true 는 전량 교체, snap:false 는 키 교체 · 빈 값은 키 삭제. */
+  function browserCopyKeys(): string[] {
+    const copy = new Map<string, string[]>();
+    for (const m of progressFrames()) {
+      if (m.snap) {
+        copy.clear();
+        for (const e of m.entries) copy.set(`${e.i}|${e.x}`, e.items.map((it) => it.orderNo));
+      } else if (m.items.length === 0) copy.delete(`${m.i}|${m.x}`);
+      else copy.set(`${m.i}|${m.x}`, m.items.map((it) => it.orderNo));
+    }
+    return [...copy.keys()];
+  }
+
+  it("같은 세션 재접속(Ready 이전)의 빈 83 이 키를 지우면 Ready 가 캐시 그대로 재동기화한다 — 사본에 옛 진행률이 남지 않는다 (R2-WR-01)", () => {
+    session.pushFrame(buildQueueProgressFrame({ items: [{ orderNo: "12453" }] }));
+    expect(browserCopyKeys()).toEqual([`${SAMPLE_ISIN}|KRX`]);
+
+    // 게이트웨이 재접속 — 같은 세션 객체라 `attach` · `#clearCaches` 를 거치지 않는다.
+    session.isReady = false;
+    session.pushFrame(buildQueueProgressFrame({ items: [] }));
+    expect(hub.getQueueProgressEntries("user-1")).toEqual([]);
+    // Ready 이전이라 팬아웃은 없다 — 사본에는 아직 남아 있다(이 구간 자체는 의도).
+    expect(browserCopyKeys()).toEqual([`${SAMPLE_ISIN}|KRX`]);
+
+    session.emitReady();
+    expect(progressFrames().at(-1)).toEqual({ t: "unf.progress", snap: true, entries: [] });
+    expect(browserCopyKeys()).toEqual([]);
+
+    // 이후 같은 키의 빈 83 은 캐시도 사본도 비었으니 억제가 맞다.
+    const base = progressFrames().length;
+    session.pushFrame(buildQueueProgressFrame({ items: [] }));
+    expect(progressFrames()).toHaveLength(base);
+  });
+
+  it("Ready 이전의 비어 있지 않은 갱신도 Ready 재동기화 스냅에 캐시 값 그대로 실린다 — 다른 키의 마지막 값은 유지 (R2-WR-01 · D-13)", () => {
+    session.pushFrame(buildQueueProgressFrame({ exchange: "KRX", items: [{ orderNo: "1" }] }));
+    session.pushFrame(buildQueueProgressFrame({ exchange: "NXT", items: [{ orderNo: "7" }] }));
+
+    session.isReady = false;
+    session.pushFrame(buildQueueProgressFrame({ exchange: "KRX", items: [{ orderNo: "2" }] }));
+    session.emitReady();
+
+    const snap = progressFrames().at(-1);
+    expect(snap).toMatchObject({ t: "unf.progress", snap: true });
+    const copy = new Map(
+      (snap?.snap === true ? snap.entries : []).map((e) => [`${e.i}|${e.x}`, e.items.map((it) => it.orderNo)]),
+    );
+    expect(copy).toEqual(
+      new Map([
+        [`${SAMPLE_ISIN}|KRX`, ["2"]],
+        [`${SAMPLE_ISIN}|NXT`, ["7"]],
+      ]),
+    );
+  });
+
+  it("Ready 이전 83 이 없었던 Ready 재진입은 unf.progress 를 내지 않는다 (R2-WR-01 · 소음 0)", () => {
+    session.pushFrame(buildQueueProgressFrame({ items: [{ orderNo: "12453" }] }));
+    const base = progressFrames().length;
+
+    session.isReady = false;
+    // 빈 → 빈 은 캐시를 바꾸지 않으므로 어긋남도 아니다.
+    session.pushFrame(buildQueueProgressFrame({ exchange: "NXT", items: [] }));
+    session.emitReady();
+    expect(progressFrames()).toHaveLength(base);
+
+    // Ready 를 한 번 더 받아도 마찬가지다.
+    session.emitReady();
+    expect(progressFrames()).toHaveLength(base);
+  });
+
+  it("Ready 이전 빈 83 으로 캐시가 이미 비었어도 이후 세션 교체는 초기화 스냅을 낸다 (R2-WR-01 · WR-02)", () => {
+    session.pushFrame(buildQueueProgressFrame({ items: [{ orderNo: "12453" }] }));
+    session.isReady = false;
+    session.pushFrame(buildQueueProgressFrame({ items: [] }));
+    expect(hub.getQueueProgressEntries("user-1")).toEqual([]);
+
+    // Ready 에 닿기 전에 세션이 교체된다 — 지울 캐시 키는 0 개지만 사본은 어긋나 있다.
+    const next = new FakeSession("user-1");
+    next.allowedAccounts = session.allowedAccounts;
+    hub.attach(next);
+    expect(progressFrames().at(-1)).toEqual({ t: "unf.progress", snap: true, entries: [] });
+    expect(browserCopyKeys()).toEqual([]);
+
+    // 표시는 소비됐다 — 새 세션의 첫 Ready 는 다시 보내지 않는다.
+    const base = progressFrames().length;
+    next.emitReady();
+    expect(progressFrames()).toHaveLength(base);
+  });
+
   it("비어 있던 키에 빈 스냅샷은 팬아웃하지 않고, 비어 있지 않던 키가 비면 한 번 보낸다(삭제 신호) (T-25-27)", () => {
     // 빈 → 빈: 1초 × 종목 폭주 억제. 남의 계좌만 실린 프레임도 거르면 빈 값이다.
     session.pushFrame(buildQueueProgressFrame({ items: [] }));
