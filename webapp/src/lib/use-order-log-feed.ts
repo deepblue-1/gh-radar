@@ -12,8 +12,11 @@
  *
  * ③ 과거일(창 분리 날짜 이동)은 그 날짜 조회 결과만 보인다 — 푸시 무시 · newKeys 없음 · latestPush null.
  *
- * ④ 새 줄 강조(R10) — 복원이 **성공한 뒤** 도착한 batch(`strategyEventsBatch` 삽입분)의 그날 행 키를 `newKeys` 에
- *   넣고 `NEW_LINE_HIGHLIGHT_MS`(3초) 뒤 뺀다. 복원 줄 · 복원과 겹친 푸시 줄은 강조하지 않는다. 언마운트 시 타이머 정리.
+ * ④ 새 줄 강조(R10) · 배지 원천 — 스토어 `strategyEvents` 에 **새로 나타난 키**를 직전 스냅샷과 비교해 가려낸다
+ *   (`latestPush`). 스토어의 `strategyEventsBatch` 는 마지막 프레임 삽입분 하나만 들고 있어, 프레임 둘이 한 렌더로
+ *   합쳐지면(연속 푸시) 앞 프레임 줄을 놓친다 — 키 집합 비교는 놓치지 않는다(상한 5,000 · O(n)). 마운트 시점에 이미
+ *   있던 줄은 새 줄이 아니다. 복원이 **성공한 뒤** 도착한 그날 줄 키를 `newKeys` 에 넣고 `NEW_LINE_HIGHLIGHT_MS`(3초)
+ *   뒤 뺀다. 복원 줄 · 복원과 겹친 푸시 줄은 강조하지 않는다. 언마운트 시 타이머 정리.
  *
  * ⑤ 실패는 `status: "error"` 로 수렴한다(사유를 풀어 쓰지 않는다 — 할 일은 「다시 시도」 하나). 복원이 실패해도
  *   푸시로 온 줄은 rows 에 그대로 있다.
@@ -41,7 +44,7 @@ export interface OrderLogFeed {
   retry: () => void;
   /** 3초 강조 중인 푸시 줄 키(`strategyEventKey`). */
   newKeys: ReadonlySet<string>;
-  /** 마지막 푸시 batch 의 그날 행(오늘일 때만) — 배지 카운트 원천. */
+  /** 마지막으로 스토어에 새로 나타난 그날 행(오늘일 때만 · 스냅샷 비교 ④) — 배지 카운트 원천. */
   latestPush: { seq: number; rows: StrategyEventRow[] } | null;
   /** 보고 있는 KST 날짜 `YYYY-MM-DD`. */
   date: string;
@@ -62,7 +65,7 @@ export const EMPTY_ORDER_LOG_FEED: OrderLogFeed = Object.freeze({
 });
 
 export function useOrderLogFeed({ date: dateOpt }: { date?: string } = {}): OrderLogFeed {
-  const { strategyEvents, strategyEventsBatch, status: relayStatus } = useRelayContext();
+  const { strategyEvents, status: relayStatus } = useRelayContext();
   const today = kstDateIso();
   const date = dateOpt ?? today;
   const isToday = date === today;
@@ -115,22 +118,33 @@ export function useOrderLogFeed({ date: dateOpt }: { date?: string } = {}): Orde
     [isToday, restoredRows, strategyEvents, date],
   );
 
-  // ④ 새 줄 강조 · 배지 원천. 마운트 시점에 이미 있던 batch 는 새 것이 아니다.
-  const mountBatchSeqRef = useRef(strategyEventsBatch.seq);
-  const latestPush = useMemo(() => {
-    if (!isToday || strategyEventsBatch.seq === mountBatchSeqRef.current) return null;
-    return {
-      seq: strategyEventsBatch.seq,
-      rows: strategyEventsBatch.rows.filter((r) => r.tradeDate === date),
-    };
-  }, [isToday, strategyEventsBatch, date]);
+  // ④ 새로 나타난 스토어 줄 — 직전 키 집합과 비교(마운트 시점 줄은 기준선).
+  const seenKeysRef = useRef<ReadonlySet<string> | null>(null);
+  const pushSeqRef = useRef(0);
+  const [latestPush, setLatestPush] = useState<{ seq: number; rows: StrategyEventRow[] } | null>(null);
+  useEffect(() => {
+    const seen = seenKeysRef.current;
+    const next = new Set<string>();
+    const added: StrategyEventRow[] = [];
+    for (const row of strategyEvents) {
+      const key = strategyEventKey(row);
+      next.add(key);
+      if (seen !== null && !seen.has(key)) added.push(row);
+    }
+    seenKeysRef.current = next;
+    if (!isToday) return;
+    const todays = added.filter((r) => r.tradeDate === date);
+    if (todays.length === 0) return;
+    pushSeqRef.current += 1;
+    setLatestPush({ seq: pushSeqRef.current, rows: todays });
+  }, [strategyEvents, isToday, date]);
 
   const [newKeys, setNewKeys] = useState<ReadonlySet<string>>(EMPTY_KEYS);
   const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
-  const lastBatchSeqRef = useRef(strategyEventsBatch.seq);
+  const lastPushSeqRef = useRef(0);
   useEffect(() => {
-    if (latestPush === null || latestPush.seq === lastBatchSeqRef.current) return;
-    lastBatchSeqRef.current = latestPush.seq;
+    if (latestPush === null || latestPush.seq === lastPushSeqRef.current) return;
+    lastPushSeqRef.current = latestPush.seq;
     if (!restoredOkRef.current) return;
     const restoredKeys = new Set((restoredRows ?? []).map(strategyEventKey));
     const keys = latestPush.rows.map(strategyEventKey).filter((k) => !restoredKeys.has(k));
@@ -164,7 +178,15 @@ export function useOrderLogFeed({ date: dateOpt }: { date?: string } = {}): Orde
   }, [load]);
 
   return useMemo(
-    () => ({ rows, status, retry, newKeys: isToday ? newKeys : EMPTY_KEYS, latestPush, date, isToday }),
+    () => ({
+      rows,
+      status,
+      retry,
+      newKeys: isToday ? newKeys : EMPTY_KEYS,
+      latestPush: isToday ? latestPush : null,
+      date,
+      isToday,
+    }),
     [rows, status, retry, newKeys, latestPush, date, isToday],
   );
 }

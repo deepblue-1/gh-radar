@@ -8,8 +8,10 @@
  *   카드 탭 본문 · 창 분리 뷰포트 높이 스크롤러가 각자 이 훅을 쓴다.
  *
  * ② 「맨 아래」 = `scrollHeight − scrollTop − clientHeight ≤ thresholdPx`(기본 24 — 줄 1개 ≈ 18.7px 보다 조금 커서
- *   반 줄 어긋남에 핀이 깜빡이지 않는다 · R1). 판정은 **스크롤 이벤트 시점**의 값을 기억한다 — 새 줄이 그려진
- *   뒤에 재면 늘어난 높이 때문에 늘 「맨 아래 아님」 이 된다.
+ *   반 줄 어긋남에 핀이 깜빡이지 않는다 · R1). 새 줄이 그려진 **뒤**에 재면 늘어난 높이 때문에 늘 「맨 아래 아님」 이라,
+ *   직전 커밋의 `scrollHeight` 를 기억해 두고 **삽입 전 거리** = 지금 거리 − 늘어난 높이 로 판정한다.
+ *   스크롤 이벤트 시점 값에 기대지 않는다 — 스크롤 이벤트는 다음 프레임에 비동기로 오므로, 사용자가 막 올린 그 프레임에
+ *   푸시가 먼저 도착하면 「아직 맨 아래」 로 읽혀 끌려 내려간다(e2e P25-3 에서 실측한 경주).
  *
  * ③ 줄 수가 늘면(layout effect — 페인트 전)
  *   맨 아래였으면 즉시 `scrollTop = scrollHeight`(부드러운 스크롤 아님), 올려 보는 중이면 위치를 지키고 증가분을
@@ -53,12 +55,12 @@ export function useStickToBottom<T extends HTMLElement>(
 ): StickToBottom<T> {
   const ref = useRef<T | null>(null);
   const [atBottom, setAtBottom] = useState(true);
-  const atBottomRef = useRef(true);
   const [pending, setPending] = useState(0);
   const prevCountRef = useRef(itemCount);
+  /** 직전 커밋(또는 스크롤) 시점의 scrollHeight — 삽입 전 거리 계산의 기준(②). */
+  const lastHeightRef = useRef(0);
 
   const markBottom = useCallback((bottom: boolean) => {
-    atBottomRef.current = bottom;
     setAtBottom(bottom);
     if (bottom) setPending(0);
   }, []);
@@ -66,7 +68,10 @@ export function useStickToBottom<T extends HTMLElement>(
   useEffect(() => {
     const el = ref.current;
     if (el === null) return;
-    const onScroll = () => markBottom(distanceToBottom(el) <= thresholdPx);
+    const onScroll = () => {
+      lastHeightRef.current = el.scrollHeight;
+      markBottom(distanceToBottom(el) <= thresholdPx);
+    };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
   }, [thresholdPx, markBottom]);
@@ -79,9 +84,11 @@ export function useStickToBottom<T extends HTMLElement>(
     if (delta <= 0) return;
     const el = ref.current;
     if (el === null) return;
-    if (atBottomRef.current) el.scrollTop = el.scrollHeight;
+    const grown = el.scrollHeight - lastHeightRef.current;
+    const wasAtBottom = distanceToBottom(el) - Math.max(0, grown) <= thresholdPx;
+    if (wasAtBottom) el.scrollTop = el.scrollHeight;
     else setPending((n) => n + delta);
-  }, [itemCount]);
+  }, [itemCount, thresholdPx]);
 
   // ④ 마운트 · 필터 변경 · 날짜 이동 — 맨 아래로.
   useLayoutEffect(() => {
@@ -89,6 +96,12 @@ export function useStickToBottom<T extends HTMLElement>(
     if (el !== null) el.scrollTop = el.scrollHeight;
     markBottom(true);
   }, [resetKey, markBottom]);
+
+  // 매 커밋 뒤 높이 기록 — 줄 · 핀 · 상태 줄 등 무엇이 높이를 바꿨든 다음 판정의 기준선이 된다(마지막에 선언).
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el !== null) lastHeightRef.current = el.scrollHeight;
+  });
 
   const scrollToBottom = useCallback(
     (smooth = true) => {

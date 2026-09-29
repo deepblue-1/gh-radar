@@ -102,6 +102,17 @@ describe('useOrderLogFeed — 오늘', () => {
     expect(NEW_LINE_HIGHLIGHT_MS).toBe(3000);
   });
 
+  it('프레임 둘이 한 렌더로 합쳐져도 두 프레임 줄을 모두 강조한다(스토어 키 비교 — batch 는 마지막 것만 든다)', async () => {
+    fetchStrategyEventsMock.mockResolvedValue([exposed]);
+    const { result, rerender } = renderHook(() => useOrderLogFeed());
+    await flush();
+    push([buy12451]);
+    push([entered1]); // 렌더 없이 연속 — strategyEventsBatch.rows 는 entered1 뿐
+    rerender();
+    expect([...result.current.newKeys].sort()).toEqual([strategyEventKey(buy12451), strategyEventKey(entered1)].sort());
+    expect(result.current.latestPush?.rows).toEqual([buy12451, entered1]);
+  });
+
   it('조회 실패 → status error · 푸시 행은 rows 에 남는다 · retry() → 조회 1회', async () => {
     fetchStrategyEventsMock.mockRejectedValueOnce(new Error('500'));
     const { result, rerender } = renderHook(() => useOrderLogFeed());

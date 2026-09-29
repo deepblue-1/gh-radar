@@ -87,6 +87,20 @@ describe('useStickToBottom', () => {
     expect(el.scrollTop).toBe(23 * 20);
   });
 
+  it('올린 직후 스크롤 이벤트가 오기 전에 줄이 늘어도 끌어내리지 않는다 (삽입 전 거리 판정 · e2e P25-3 경주)', () => {
+    const geo = { lines: 20 };
+    const { getByTestId, rerender } = render(<Harness count={20} />);
+    const el = getByTestId('scroller');
+    installGeometry(el, geo);
+    scrollTo(el, 20 * 20 - 172); // 맨 아래(이벤트 반영)
+    rerender(<Harness count={20} />); // 커밋 — 높이 기준선 400
+    el.scrollTop = 0; // 사용자가 올렸다 — scroll 이벤트는 아직(다음 프레임)
+    geo.lines = 23;
+    rerender(<Harness count={23} />);
+    expect(el.scrollTop).toBe(0);
+    expect(api.pending).toBe(3);
+  });
+
   it('사용자가 직접 맨 아래까지 내리면 pending 0', () => {
     const geo = { lines: 20 };
     const { getByTestId, rerender } = render(<Harness count={20} />);
