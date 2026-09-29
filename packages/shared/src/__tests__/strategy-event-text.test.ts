@@ -6,8 +6,8 @@ import {
   strategyEventKey,
   toStrategyEventRow,
 } from "../strategy-event";
-import { condMetricLabel, orderGroupSide, reasonOperator, strategyKindLabel } from "../strategy-event-labels";
-import { formatKstMs, formatSigned, orderLogLineText, strategyEventParts } from "../strategy-event-text";
+import { condMetricLabel, orderGroupLabel, orderGroupSide, reasonOperator, strategyKindLabel } from "../strategy-event-labels";
+import { formatKstMs, formatSigned, orderLogLineText, strategyEventParts, timelineStrategyText } from "../strategy-event-text";
 import {
   FIXTURE_STOCK_NAME,
   STRATEGY_BRANCH_ROWS,
@@ -193,5 +193,158 @@ describe("조립기 — 시세 이벤트 · 모르는 값 (Phase 25-04 Task 1)",
     expect(parts.tone).toBe("unknown");
     expect(parts.action).toBe("주문");
     expect(orderLogLineText(row, FIXTURE_STOCK_NAME)).toBe(golden("groupZeroOrder"));
+  });
+});
+
+describe("골든 — 기획서 하루 흐름 + 갈래 전량 (Phase 25-04 Task 2 · D-09)", () => {
+  const ALL: ReadonlyArray<readonly [string, (typeof STRATEGY_DAY_ROWS)[number]]> = [
+    ...Object.entries(STRATEGY_DAY_BY_NAME),
+    ...Object.entries(STRATEGY_BRANCH_ROWS),
+  ];
+  const ORDER_EVENTS = ALL.filter(([, row]) => !isMarketStrategyEvent(row.kind));
+
+  it("하루 흐름은 14줄 · seq 1~14 가 시각 순 · 갈래는 12개 · 골든 표 = 두 이름 목록의 합(빠짐 · 남는 키 없음)", () => {
+    expect(STRATEGY_DAY_ROWS.map((r) => r.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+    const times = STRATEGY_DAY_ROWS.map((r) => r.gwTimeMs);
+    expect([...times].sort((a, b) => a - b)).toEqual(times);
+    expect(Object.keys(STRATEGY_DAY_BY_NAME)).toEqual([
+      "exposed", "buy12451", "entered1", "queued12451", "fill12451", "buy12452", "queued12452",
+      "buy12453", "queued12453", "fill12452", "cancel12453", "sell12454", "sell12455", "reject",
+    ]);
+    expect(Object.keys(STRATEGY_BRANCH_ROWS)).toEqual([
+      "queuedPartial", "queuedFull", "exposedOpen", "enteredShort", "fillNegative", "cancelNoRemaining",
+      "cancelOther", "cancelUnknown", "unknownKind", "groupZeroOrder", "sellFillHook", "riseRate",
+    ]);
+    expect(Object.values(STRATEGY_BRANCH_ROWS).every((r) => r.seq >= 101)).toBe(true);
+    expect(Object.keys(STRATEGY_DAY_GOLDEN).sort()).toEqual(ALL.map(([n]) => n).sort());
+  });
+
+  it.each(ALL)("%s → 주문로그 탭 F-A 한 줄", (name, row) => {
+    expect(orderLogLineText(row, FIXTURE_STOCK_NAME)).toBe(STRATEGY_DAY_GOLDEN[name]!.logLine);
+  });
+
+  it.each(ORDER_EVENTS)("%s → 오늘 주문 펼침 { action, text }", (name, row) => {
+    const g = STRATEGY_DAY_GOLDEN[name]!;
+    expect(g.timelineAction).toBeDefined();
+    expect(timelineStrategyText(row)).toEqual({ action: g.timelineAction, text: g.timelineText });
+  });
+
+  it("두 표면은 같은 본문을 쓴다 — 펼침 text 는 [그룹 · ]본문 · 누적 (D-09 · R9)", () => {
+    for (const [, row] of ORDER_EVENTS) {
+      const body = strategyEventParts(row, "log").body;
+      expect(strategyEventParts(row, "timeline").body).toBe(body);
+      const { text } = timelineStrategyText(row);
+      // 그룹 접두 = 그룹 표시명(group 0 = None 이면 접두 없음)
+      const prefix = row.kind === 3 || row.kind === 6 ? orderGroupLabel(row.group) : null;
+      const expected = [prefix, body, strategyEventParts(row, "log").cum]
+        .filter((p): p is string => p !== null && p !== "")
+        .join(" · ");
+      expect(text).toBe(expected);
+    }
+  });
+});
+
+describe("조립기 — 주문 이벤트 갈래 (Phase 25-04 Task 2)", () => {
+  it("대기 세 갈래 — 일반 · 일부 즉시체결 · 전량 즉시체결(행위 즉시체결 · 대기 없음)", () => {
+    expect(strategyEventParts(STRATEGY_DAY_BY_NAME.queued12451!, "log")).toMatchObject({
+      badge: "선매수",
+      tone: "buy",
+      action: "대기",
+      body: "300주 · 체결예상 930,000 (900,000 + 30,000)",
+    });
+    expect(strategyEventParts(STRATEGY_BRANCH_ROWS.queuedPartial!, "log").body).toBe(
+      "200주 · 100주 즉시체결 · 체결예상 930,000 (900,000 + 30,000)",
+    );
+    const full = strategyEventParts(STRATEGY_BRANCH_ROWS.queuedFull!, "log");
+    expect(full.action).toBe("즉시체결");
+    expect(full.body).toBe("300주 · 대기 없음");
+  });
+
+  it("첫 체결 — 행위 탭 「체결」 · 펼침 「첫 체결」(R6) · 오차 부호만(+ / U+2212 · R8)", () => {
+    const fill = STRATEGY_DAY_BY_NAME.fill12451!;
+    expect(strategyEventParts(fill, "log").action).toBe("체결");
+    expect(strategyEventParts(fill, "timeline").action).toBe("첫 체결");
+    expect(strategyEventParts(fill, "log").body).toBe("오차 +16,000");
+    expect(strategyEventParts(STRATEGY_BRANCH_ROWS.fillNegative!, "log").body).toBe("오차 \u22125,000");
+    expect(strategyEventParts({ ...fill, errorVolume: 0 }, "log").body).toBe("오차 0");
+  });
+
+  it("매도 주문 — tone sell · 매수1 은 bid1_price>0 일 때만 · 방식은 order_condition 표시명(없으면 생략)", () => {
+    const sell = STRATEGY_DAY_BY_NAME.sell12454!;
+    const parts = strategyEventParts(sell, "log");
+    expect(parts.badge).toBe("호가매도");
+    expect(parts.tone).toBe("sell");
+    expect(parts.action).toBe("주문");
+    const noBid = strategyEventParts({ ...sell, bid1Price: 0, bid1Qty: 0 }, "log").body;
+    expect(noBid).not.toContain("매수1 12,350");
+    expect(strategyEventParts({ ...sell, orderCondition: "" }, "log").body).toContain("12,350×600주 · 접수");
+    expect(strategyEventParts({ ...sell, orderCondition: "3" }, "log").body).toContain("12,350×600주 3 · 접수");
+  });
+
+  it("근거 — 체결(매도 그룹이면 매도체결) · 체결통보 · 0 은 생략", () => {
+    expect(strategyEventParts(STRATEGY_DAY_BY_NAME.sell12455!, "log").body).toContain("근거 체결(12,350 매도체결 18,000주)");
+    expect(strategyEventParts(STRATEGY_BRANCH_ROWS.riseRate!, "log").body).toContain("근거 체결(12,350 체결 2,000주)");
+    const hook = strategyEventParts(STRATEGY_BRANCH_ROWS.sellFillHook!, "log");
+    expect(hook.badge).toBe("체결훅");
+    expect(hook.tone).toBe("sell");
+    expect(hook.body).toContain("근거 체결통보(12,300 50주)");
+    expect(hook.body).not.toContain("조건");
+  });
+
+  it("상승률 조건 — bp → 소수 둘째 자리 %", () => {
+    expect(strategyEventParts(STRATEGY_BRANCH_ROWS.riseRate!, "log").body).toMatch(/^조건 상승률≥3\.00% \/ 실측 4\.12% · /);
+  });
+
+  it("reason_code 가 표와 정확히 같지 않으면 연산자 생략(공백) — 쪼개 읽지 않는다(D-36)", () => {
+    const buy = STRATEGY_DAY_BY_NAME.buy12453!;
+    const body = strategyEventParts({ ...buy, reasonCode: `${buy.reasonCode} ` }, "log").body;
+    expect(body).toMatch(/^조건 매수잔량 100,000 \/ 실측 100,000 · /);
+  });
+
+  it("취소 — 남은 거래량은 has_remaining 일 때만 · 예상 누적이 0 이면 C + R · 음수는 U+2212 · tone 은 그룹 방향", () => {
+    const cancel = STRATEGY_DAY_BY_NAME.cancel12453!;
+    expect(strategyEventParts(cancel, "log").body).toBe("매수1 이탈 · 남은 거래량 12,000 (1,100,000 − 1,088,000)");
+    expect(strategyEventParts({ ...cancel, hasRemaining: false }, "log").body).toBe("매수1 이탈");
+    expect(strategyEventParts({ ...cancel, expectedCum: 0 }, "log").body).toBe(
+      "매수1 이탈 · 남은 거래량 12,000 (1,100,000 − 1,088,000)",
+    );
+    expect(
+      strategyEventParts({ ...cancel, remainingVolume: -3_000, expectedCum: 1_085_000 }, "log").body,
+    ).toBe("매수1 이탈 · 남은 거래량 \u22123,000 (1,085,000 − 1,088,000)");
+    expect(strategyEventParts(STRATEGY_BRANCH_ROWS.cancelUnknown!, "log")).toMatchObject({
+      badge: "호가매도",
+      tone: "sell",
+      action: "취소",
+      body: "42",
+    });
+  });
+
+  it("거부 — 주문번호 [—] · 사유는 서버 원문 그대로(문구 판정 없음) · 빈 문구면 행위만", () => {
+    const reject = STRATEGY_DAY_BY_NAME.reject!;
+    expect(orderLogLineText(reject, FIXTURE_STOCK_NAME)).toMatch(/^\[10:12:01\.004\]\[—\]\[후매수\] /);
+    const odd = "취소 · 체결 | 상한가노출";
+    expect(strategyEventParts({ ...reject, message: odd }, "log").body).toBe(odd);
+    const empty = { ...reject, message: "" };
+    expect(strategyEventParts(empty, "log").body).toBe("");
+    expect(orderLogLineText(empty, FIXTURE_STOCK_NAME)).toBe("[10:12:01.004][—][후매수] KRX | ○○전자 | 거부 | 누적 1,651,200");
+    expect(timelineStrategyText(empty)).toEqual({ action: "거부", text: "누적 1,651,200" });
+  });
+
+  it("펼침 그룹 접두는 주문 줄(kind 3 · 6)만 — 대기 · 첫 체결 · 취소 · 거부에는 없다(R9)", () => {
+    expect(timelineStrategyText(STRATEGY_DAY_BY_NAME.sell12455!).text.startsWith("체결매도 · ")).toBe(true);
+    expect(timelineStrategyText(STRATEGY_DAY_BY_NAME.queued12452!).text.startsWith("추가매수")).toBe(false);
+    expect(timelineStrategyText(STRATEGY_DAY_BY_NAME.cancel12453!).text.startsWith("후매수")).toBe(false);
+  });
+
+  it("시세 이벤트를 펼침에 그리면 행위 = 구분 표시명 · text = 본문 · 누적", () => {
+    expect(timelineStrategyText(STRATEGY_DAY_BY_NAME.entered1!)).toEqual({
+      action: "상한가진입 1차",
+      text: "잔량/누적 즉시 30,000/900,000 · 1초 55,000/903,000 · 3초 72,000/908,000 · 누적 900,000",
+    });
+  });
+
+  it("formatKstMs — 자정 직후 00:00:00.007 · NaN 은 —", () => {
+    expect(formatKstMs(kstMs("2026-09-30", "00:00:00.007"))).toBe("00:00:00.007");
+    expect(formatKstMs(Number.NaN)).toBe("—");
   });
 });
