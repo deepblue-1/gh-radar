@@ -43,6 +43,8 @@ type StartOptions = {
   journal?: JournalHealth;
   /** 시각 주입 — 가짜 타이머 대신 이것으로만 장중/장 밖을 흉내낸다. */
   now?: Date;
+  /** 추가 게이트웨이 관찰자 요약 스텁 (quick-260929-c8e). 생략하면 주입하지 않는다. */
+  journalGateways?: Array<{ gateway: string; health: JournalHealth }>;
 };
 
 /** VPN 이 서 있는 VM 의 실측 인터페이스 (2026-09-06 radar-gw). */
@@ -78,6 +80,9 @@ async function start(opts: StartOptions = {}): Promise<Harness> {
     sessions: apiSessions,
     ...(opts.journal !== undefined ? { journal: { health: () => opts.journal as JournalHealth } } : {}),
     ...(opts.now !== undefined ? { now: () => opts.now as Date } : {}),
+    ...(opts.journalGateways !== undefined
+      ? { journalGateways: opts.journalGateways.map((g) => ({ gateway: g.gateway, health: () => g.health })) }
+      : {}),
   });
   const server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
@@ -469,5 +474,102 @@ describe("journal 판정 (Phase 19 D-04)", () => {
     expect(res.status).toBe(503);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.vpn).toBe(false);
+  });
+});
+
+describe("journalGateways — 추가 게이트웨이 관찰자 (quick-260929-c8e · 503 판정 밖)", () => {
+  /** 2026-09-28(월) 10:00 KST — 장중. */
+  const IN_WINDOW = new Date("2026-09-28T10:00:00+09:00");
+  /** 2026-09-28(월) 21:00 KST — 장 밖. */
+  const OUT_OF_WINDOW = new Date("2026-09-28T21:00:00+09:00");
+
+  function journal(state: JournalHealth["state"], disconnectedSec: number | null): JournalHealth {
+    return { state, lastSeq: 41, headSeq: 42, lagSeq: 1, disconnectedSec, lastAppliedAgeSec: 3, seqRegressions: 0, lastSeqRegressionAgeSec: null };
+  }
+
+  let h: Harness | null = null;
+
+  afterEach(async () => {
+    await h?.close();
+    h = null;
+  });
+
+  async function probe(opts: StartOptions): Promise<{ status: number; body: Record<string, unknown> }> {
+    h = await start(opts);
+    const res = await fetch(h.url("/healthz"));
+    return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+  }
+
+  it("a 주입 없음 · 빈 배열 → 본문에 journalGateways 키가 없다 (KB 단독 페이로드 그대로)", async () => {
+    const none = await probe({ journal: journal("live", null), now: IN_WINDOW });
+    expect(none.status).toBe(200);
+    expect("journalGateways" in none.body).toBe(false);
+    await h?.close();
+    h = null;
+    const empty = await probe({ journal: journal("live", null), now: IN_WINDOW, journalGateways: [] });
+    expect(empty.status).toBe(200);
+    expect("journalGateways" in empty.body).toBe(false);
+    expect(Object.keys(empty.body).sort()).toEqual(Object.keys(none.body).sort());
+  });
+
+  it("b 장중 · KB live · KYOBO rejected → 200 · journalGateways.KYOBO {rejected · alerting true} · journal 불변", async () => {
+    const { status, body } = await probe({
+      journal: journal("live", null),
+      now: IN_WINDOW,
+      journalGateways: [{ gateway: "KYOBO", health: journal("rejected", 0) }],
+    });
+    expect(status).toBe(200);
+    expect(body.status).toBe("ok");
+    expect(body.journal).toEqual(journal("live", null));
+    expect(body.journalGateways).toEqual({ KYOBO: { ...journal("rejected", 0), alerting: true } });
+  });
+
+  it("c 장중 · KB rejected · KYOBO live → 503 (KB 판정 불변)", async () => {
+    const { status, body } = await probe({
+      journal: journal("rejected", 0),
+      now: IN_WINDOW,
+      journalGateways: [{ gateway: "KYOBO", health: journal("live", null) }],
+    });
+    expect(status).toBe(503);
+    expect(body.status).toBe("degraded");
+    expect(body.journalGateways).toEqual({ KYOBO: { ...journal("live", null), alerting: false } });
+  });
+
+  it("d 장 밖(21:00) · KYOBO connecting 3600초 → alerting false", async () => {
+    const { status, body } = await probe({
+      journal: journal("live", null),
+      now: OUT_OF_WINDOW,
+      journalGateways: [{ gateway: "KYOBO", health: journal("connecting", 3600) }],
+    });
+    expect(status).toBe(200);
+    expect((body.journalGateways as Record<string, Record<string, unknown>>).KYOBO).toMatchObject({
+      state: "connecting",
+      disconnectedSec: 3600,
+      alerting: false,
+    });
+  });
+
+  it("e KYOBO 키는 JournalHealth 8키 + alerting 뿐 · 식별자 계열 없음 (T-c8e-05)", async () => {
+    const { body } = await probe({
+      journal: journal("live", null),
+      now: IN_WINDOW,
+      journalGateways: [{ gateway: "KYOBO", health: journal("live", null) }],
+    });
+    const gateways = body.journalGateways as Record<string, object>;
+    expect(Object.keys(gateways)).toEqual(["KYOBO"]);
+    expect(Object.keys(gateways.KYOBO as object).sort()).toEqual(
+      [
+        "alerting",
+        "disconnectedSec",
+        "headSeq",
+        "lagSeq",
+        "lastAppliedAgeSec",
+        "lastSeq",
+        "lastSeqRegressionAgeSec",
+        "seqRegressions",
+        "state",
+      ],
+    );
+    expect(JSON.stringify(body)).not.toMatch(/"(accountNo|userId|account_no|user_id|dmaUserId|dma_user_id|host|secret)"/);
   });
 });

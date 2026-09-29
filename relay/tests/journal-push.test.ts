@@ -428,4 +428,49 @@ describe("저널 푸시 — 레코드 → 기록기 → 적용 RPC → 계좌 �
     expect(stateFrames(b)).toEqual([{ t: "journal.state", s: "live" }, delayed]);
     expect(stateFrames(u)).toEqual([]);
   });
+
+  it("⑥ 추가 게이트웨이(KYOBO) 매핑 푸시 (quick-260929-c8e) — 그 매핑으로만 거른다 · 인자 없으면 기존 매핑", async () => {
+    await start();
+    const { a1, a2, b, u } = await authAll();
+    /** 가짜 교보 계좌 — 실계좌가 아니다(명백한 가짜값). */
+    const KYOBO_ACC = "5555555501";
+    const kyoboAccess = new JournalAccess({ supabase: rpcSupabase(rpcCalls), gateway: "KYOBO", retryBaseMs: 10, retryMaxMs: 50 });
+    try {
+      kyoboAccess.replace([{ dmaUserId: "dma-other", accountNo: KYOBO_ACC, name: "교보 가짜 계좌", priority: 0 }]);
+
+      // KYOBO 매핑의 계좌 행 → 그 dma_user_id(dma-other) 를 가진 B 만 받는다.
+      const kyoboRow = dbRowOf(toApplyEvent(record(20, KYOBO_ACC, "dma-other")));
+      fanout.deliverJournalRows([toJournalOrderRow(kyoboRow)], kyoboAccess);
+      await waitFor(() => journalFrames(b).length === 1, "B KYOBO journal.rows");
+      await flushIo(8);
+      expect(journalFrames(b)).toEqual([[expect.objectContaining({ accountNo: KYOBO_ACC })]]);
+      expect(journalFrames(a1)).toEqual([]);
+      expect(journalFrames(a2)).toEqual([]);
+      expect(journalFrames(u)).toEqual([]);
+
+      // 같은 KYOBO 매핑으로 ACC1 행을 보내면 아무도 받지 않는다 — KB 매핑을 보지 않는다.
+      const acc1Row = toJournalOrderRow(dbRowOf(toApplyEvent(record(21, ACC1))));
+      fanout.deliverJournalRows([acc1Row], kyoboAccess);
+      await flushIo(8);
+      expect(journalFrames(a1)).toEqual([]);
+      expect(journalFrames(a2)).toEqual([]);
+      expect(journalFrames(b)).toHaveLength(1);
+
+      // 인자 없이 같은 ACC1 행 → 기존(주 게이트웨이) 매핑으로 A1 · A2 가 받는다.
+      fanout.deliverJournalRows([acc1Row]);
+      await waitFor(() => journalFrames(a1).length === 1 && journalFrames(a2).length === 1, "A1·A2 ACC1 journal.rows");
+      await flushIo(8);
+      expect(journalFrames(a1)).toEqual([[expect.objectContaining({ accountNo: ACC1 })]]);
+      expect(journalFrames(a2)).toEqual(journalFrames(a1));
+      expect(journalFrames(b)).toHaveLength(1);
+      expect(journalFrames(u)).toEqual([]);
+
+      // KYOBO 매핑 동기화는 p_gateway KYOBO 로 간다(KB 와 섞이지 않는다).
+      await flushIo(4);
+      const kyoboSyncs = rpcCalls.filter((c) => c.fn === "dma_journal_sync_access" && c.args.p_gateway === "KYOBO");
+      expect(kyoboSyncs).toHaveLength(1);
+    } finally {
+      kyoboAccess.close();
+    }
+  });
 });
