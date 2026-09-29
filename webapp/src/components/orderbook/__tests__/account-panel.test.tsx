@@ -6,6 +6,7 @@ import type {
   RelayAccount,
   RelayAccountState,
   RelayOrderResultMsg,
+  RelayQueueProgressItem,
   RelayUnfilled,
 } from '@gh-radar/shared';
 
@@ -35,15 +36,25 @@ import type {
  */
 
 const sendOrderMock = vi.fn();
+/**
+ * 컨텍스트 덮어쓰기 — 진행률 B안(Phase 25) 케이스가 `queueProgress` 를 넣는다. 렌더 시점에 읽으므로
+ * `rerender` 전에 바꾸면 푸시 스냅 교체와 같다. `beforeEach` 가 비운다(기존 케이스는 진행률 0).
+ */
+let mockRelayExtra: Record<string, unknown> = {};
 vi.mock('@/lib/relay-provider', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/relay-provider')>();
   return {
     ...actual,
-    useRelayContext: () => ({ ...actual.EMPTY_RELAY_VALUE, sendOrder: sendOrderMock }),
+    useRelayContext: () => ({
+      ...actual.EMPTY_RELAY_VALUE,
+      sendOrder: sendOrderMock,
+      ...mockRelayExtra,
+    }),
   };
 });
 
 import { AccountPanel, type AccountPanelProps } from '../account-panel';
+import { relayQuoteKey } from '@/lib/use-relay-socket';
 
 const ISIN = 'KR7042700005';
 const OTHER_ISIN = 'KR7007660005';
@@ -232,6 +243,7 @@ function orderResult(over: Partial<RelayOrderResultMsg> = {}): RelayOrderResultM
 beforeEach(() => {
   sendOrderMock.mockReset();
   sendOrderMock.mockResolvedValue(orderResult());
+  mockRelayExtra = {};
 });
 
 describe('AccountPanel — 미체결 표', () => {
@@ -1303,5 +1315,209 @@ describe('AccountPanel — 임베드 stock 스코프 (quick-260923-onn · 목업
     render(<AccountPanel {...embedBase({ section: 'unfilled', account: withUnfilled([]) })} />);
     expect(screen.getByText('미체결 주문이 없어요')).toBeInTheDocument();
     expect(root().querySelectorAll('p')).toHaveLength(2);
+  });
+});
+
+describe('AccountPanel — 진행률 B안 (Phase 25 · D-11~D-13)', () => {
+  const ACCT = '12345678-01';
+
+  /** 진행률 항목 1건 — 기본값은 픽스처 첫 행(0000135742 · KRX)의 후매수 88%. */
+  function item(over: Partial<RelayQueueProgressItem> = {}): RelayQueueProgressItem {
+    return {
+      accountNo: ACCT,
+      orderNo: '0000135742',
+      exchange: 'KRX',
+      isin: ISIN,
+      group: 3,
+      expectedCum: 1_100_000,
+      currentCum: 1_088_000,
+      remainingVolume: 12_000,
+      progressBp: 8800,
+      ...over,
+    };
+  }
+
+  /** 스냅 주입 — (isin, exchange) 키마다 전량. 렌더 전에 부른다. */
+  function pushProgress(items: RelayQueueProgressItem[]) {
+    const map = new Map<string, RelayQueueProgressItem[]>();
+    for (const it of items) {
+      const key = relayQuoteKey(it.isin, it.exchange);
+      map.set(key, [...(map.get(key) ?? []), it]);
+    }
+    mockRelayExtra = { queueProgress: map };
+  }
+
+  const progressRows = (scope: ParentNode = document) =>
+    Array.from(scope.querySelectorAll<HTMLElement>('tr[data-slot="unfilled-progress-row"]'));
+
+  describe('기본 모드 표(≥1280)', () => {
+    it('진행률 있는 행 바로 뒤 보조행 td[colspan=7] · 없는 행은 보조행 없음(D-11)', () => {
+      pushProgress([item()]);
+      renderPanel();
+      const table = tableOf('account-unfilled');
+      const rows = progressRows(table);
+      expect(rows).toHaveLength(1);
+      const target = cancelButtons('0000135742')
+        .map((b) => b.closest('tr'))
+        .find((tr) => tr !== null && table.contains(tr))!;
+      expect(target.nextElementSibling).toBe(rows[0]);
+      const td = rows[0]!.querySelector('td')!;
+      expect(td).toHaveAttribute('colspan', '7');
+      const line = td.querySelector('[data-slot="unfilled-progress"]')!;
+      expect(line).toHaveAttribute('data-variant', 'row');
+      expect(line.textContent).toContain('후매수');
+      expect(line.textContent).toContain('체결예상까지 12,000주 남음');
+      // 다른 행(0000135801 · NXT) 뒤에는 없다 — 대기 여부를 추정하지 않는다.
+      const other = cancelButtons('0000135801')
+        .map((b) => b.closest('tr'))
+        .find((tr) => tr !== null && table.contains(tr))!;
+      expect(other.nextElementSibling?.getAttribute('data-slot')).not.toBe('unfilled-progress-row');
+    });
+
+    it('진행률 0건이면 표 불변 — 보조행 0', () => {
+      renderPanel();
+      expect(progressRows()).toHaveLength(0);
+      expect(document.querySelectorAll('[data-slot="unfilled-progress"]')).toHaveLength(0);
+    });
+
+    it('스냅에서 항목이 빠지면 보조행만 사라지고 미체결 행은 남는다 · 미체결 행이 빠지면 보조행도 없다(D-13)', () => {
+      pushProgress([item()]);
+      const { rerender } = renderPanel();
+      expect(progressRows(tableOf('account-unfilled'))).toHaveLength(1);
+
+      pushProgress([]);
+      rerender(<AccountPanel {...baseProps()} />);
+      expect(progressRows()).toHaveLength(0);
+      expect(cancelButtons('0000135742').length).toBeGreaterThan(0);
+
+      // 진행률은 남았는데 미체결 행이 사라졌다(빠진 스냅샷 드롭) — 보조행도 없다.
+      pushProgress([item()]);
+      rerender(
+        <AccountPanel
+          {...baseProps({ account: withUnfilled([unf({ orderNo: '0000135801', side: 'S' })]) })}
+        />,
+      );
+      expect(progressRows()).toHaveLength(0);
+      expect(document.querySelectorAll('[data-slot="unfilled-progress"]')).toHaveLength(0);
+    });
+
+    it('계좌번호 앞 0 만 다른 항목은 붙지 않는다 — 문자열 동등(Pitfall 15)', () => {
+      pushProgress([item({ accountNo: `0${ACCT}` })]);
+      renderPanel();
+      expect(progressRows()).toHaveLength(0);
+    });
+
+    it('거래소가 다른 키(NXT)의 같은 주문번호는 붙지 않는다', () => {
+      pushProgress([item({ exchange: 'NXT' })]);
+      renderPanel();
+      expect(progressRows()).toHaveLength(0);
+    });
+
+    it('선택된 행이면 보조행 data-selected + 같은 선택 배경 · 보조행은 클릭 대상이 아니다', async () => {
+      const user = userEvent.setup();
+      const onSelect = vi.fn();
+      pushProgress([item()]);
+      renderPanel({ onSelectUnfilled: onSelect, selectedOrderNo: '0000135742' });
+      const [row] = progressRows(tableOf('account-unfilled'));
+      expect(row).toHaveAttribute('data-selected', 'true');
+      expect(row!.className).toContain('bg-[var(--accent)]');
+      expect(row).not.toHaveAttribute('title');
+      await user.click(row!.querySelector('td')!);
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it('취소 보관 행이면 UnfilledProgress muted(채움 --faint)', () => {
+      pushProgress([item({ progressBp: 9500, remainingVolume: 100 })]);
+      renderPanel({ account: withUnfilled([unf({ pendingCancelSent: true })]) });
+      const line = tableOf('account-unfilled').querySelector('[data-slot="unfilled-progress"]')!;
+      expect(line).toHaveAttribute('data-muted', 'true');
+      expect(line.querySelector('[data-slot="unfilled-progress-fill"]')!.className).toContain(
+        'bg-[var(--faint)]',
+      );
+    });
+  });
+
+  describe('임베드 표', () => {
+    const embedBase = (over: Partial<AccountPanelProps> = {}): AccountPanelProps =>
+      baseProps({
+        accounts: undefined,
+        onAccountChange: undefined,
+        code: undefined,
+        name: undefined,
+        isin: undefined,
+        currentPrice: undefined,
+        section: 'unfilled',
+        ...over,
+      });
+
+    it('공용 패널(account 스코프) colSpan 7 · 미체결 행 바로 뒤', () => {
+      pushProgress([item()]);
+      render(<AccountPanel {...embedBase()} />);
+      const [row] = progressRows();
+      expect(row).toBeDefined();
+      expect(row!.querySelector('td')).toHaveAttribute('colspan', '7');
+      expect(row!.previousElementSibling).toHaveAttribute(
+        'data-slot',
+        'account-embed-unfilled-row',
+      );
+      expect(row!.querySelector('[data-slot="unfilled-progress"]')).toHaveAttribute(
+        'data-variant',
+        'row',
+      );
+    });
+
+    it('카드 탭(stock 스코프) colSpan 5', () => {
+      pushProgress([item()]);
+      render(<AccountPanel {...embedBase({ embedScope: 'stock' })} />);
+      const [row] = progressRows();
+      expect(row!.querySelector('td')).toHaveAttribute('colspan', '5');
+    });
+
+    it('취소 결과 행이 있으면 순서가 [미체결 행 · 보조행 · 취소 결과 행]', async () => {
+      const user = userEvent.setup();
+      pushProgress([item()]);
+      render(<AccountPanel {...embedBase({ embedScope: 'stock' })} />);
+      await user.click(screen.getByRole('button', { name: '주문번호 0000135742 취소' }));
+      await user.click(await screen.findByRole('button', { name: '✕ 주문 취소' }));
+      const result = await waitFor(() => {
+        const el = document.querySelector('[data-slot="account-embed-cancel-result"]');
+        expect(el).not.toBeNull();
+        return el!;
+      });
+      const sub = result.previousElementSibling!;
+      expect(sub).toHaveAttribute('data-slot', 'unfilled-progress-row');
+      expect(sub.previousElementSibling).toHaveAttribute('data-slot', 'account-embed-unfilled-row');
+    });
+  });
+
+  describe('모바일 카드(<1280) r3', () => {
+    it('진행률 있는 행: r3 compact 가 StatusNotes(account-unfilled-note) 앞 · 없는 행은 StatusNotes 가 r2 바로 뒤', () => {
+      pushProgress([item()]);
+      renderPanel({
+        account: withUnfilled([
+          unf({ orderNo: '0000135742', pendingStatus: '대기중' }),
+          unf({ orderNo: '0000135801', side: 'S', pendingStatus: '대기중' }),
+        ]),
+      });
+      const [withP, withoutP] = unfilledCards();
+      const r3 = withP!.querySelector('[data-slot="unfilled-progress"]')!;
+      expect(r3).toHaveAttribute('data-variant', 'compact');
+      const note = withP!.querySelector('[data-slot="account-unfilled-note"]')!;
+      expect(r3.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(withP!.querySelector('[data-slot="account-unfilled-r2"]')!.nextElementSibling).toBe(r3);
+
+      expect(withoutP!.querySelector('[data-slot="unfilled-progress"]')).toBeNull();
+      expect(withoutP!.querySelector('[data-slot="account-unfilled-r2"]')!.nextElementSibling).toHaveAttribute(
+        'data-slot',
+        'account-unfilled-note',
+      );
+    });
+
+    it('취소 보관 카드의 r3 도 muted', () => {
+      pushProgress([item()]);
+      renderPanel({ account: withUnfilled([unf({ pendingCancelSent: true })]) });
+      const r3 = unfilledCards()[0]!.querySelector('[data-slot="unfilled-progress"]')!;
+      expect(r3).toHaveAttribute('data-muted', 'true');
+    });
   });
 });
