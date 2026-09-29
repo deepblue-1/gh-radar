@@ -304,6 +304,50 @@ describe("parseInbound — 전략·주문 인바운드 6종", () => {
   });
 
   /*
+    quick-260929-vzy — 후매수 ☐자동. `postBuyAuto` 는 선택이고 12필드 존재 판정(`buy3CfgOf`) 밖이다(D-02).
+    브라우저는 buy3_schema 를 고를 수 없다 — 조립기가 `postBuyAuto` 존재로만 파생한다(T-vzy-01).
+  */
+  it("①-auto 새 탭 cfg(12 + postBuyAuto)는 통과하고 44키 · 12 만 있고 자동이 없어도 새 클라 · 자동이 12를 대신하지 않는다 (D-02)", () => {
+    const full = parseInbound(lcSet({ postBuyAuto: true, buy3Schema: 2 }));
+    if (full?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(full.cfg.postBuyAuto).toBe(true);
+    expect(Object.keys(full.cfg)).toHaveLength(44);
+    // 브라우저가 실은 buy3Schema 는 파싱 결과에 없다.
+    expect(full.cfg).not.toHaveProperty("buy3Schema");
+    expect(buy3CfgOf(full.cfg)).not.toBeNull();
+
+    // 12 는 있고 postBuyAuto 가 없는 cfg(옛 새 탭) — 여전히 새 클라다.
+    const noAuto = parseInbound(lcSet());
+    if (noAuto?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(noAuto.cfg).not.toHaveProperty("postBuyAuto");
+    expect(buy3CfgOf(noAuto.cfg)).not.toBeNull();
+
+    // postBuyAuto 는 있고 12 중 하나가 빠진 cfg — 구 탭(null).
+    for (const k of BUY3_KEYS) {
+      const cfg = lcCfg({ postBuyAuto: true });
+      delete cfg[k];
+      const msg = parseInbound(JSON.stringify({ t: "lc.set", cfg }));
+      if (msg?.t !== "lc.set") throw new Error(`${k} 하나 빠진 cfg 가 스키마에서 떨어졌습니다`);
+      expect(buy3CfgOf(msg.cfg), k).toBeNull();
+    }
+
+    // 형식 위반은 스키마 위반이다.
+    expect(parseInbound(lcSet({ postBuyAuto: "true" }))).toBeNull();
+  });
+
+  it("①-auto-b withNeutralBuy3 는 입력에 없는 postBuyAuto 를 만들지 않는다 · 있으면 그대로 둔다", () => {
+    const legacy = parseInbound(JSON.stringify({ t: "lc.set", cfg: legacyCfg({ buyEnabled: false }) }));
+    if (legacy?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(withNeutralBuy3(legacy.cfg)).not.toHaveProperty("postBuyAuto");
+
+    const withAuto = parseInbound(
+      JSON.stringify({ t: "lc.set", cfg: legacyCfg({ buyEnabled: false, postBuyAuto: false }) }),
+    );
+    if (withAuto?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(withNeutralBuy3(withAuto.cfg).postBuyAuto).toBe(false);
+  });
+
+  /*
     WR-03 / D-28 — 시장 구분의 소유자는 relay 다. 브라우저가 `market` 을 실어 보내도 스키마가
     떨어뜨려야 한다. `order.new` 가 이미 같은 규율이고 `lc.set` 만 예외였다: 형식만 보는
     `z.enum(["K","Q"])` 는 `row.market === 'KOSDAQ' ? 'Q' : 'K'` 라는 브라우저의 **추측**을

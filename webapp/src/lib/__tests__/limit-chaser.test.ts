@@ -25,6 +25,7 @@ import {
   estimatedSellQty,
   exchangeLabeledName,
   formFromServer,
+  isActiveStrategy,
   isDeleteIntent,
   isLegacyAmountUnknown,
   isLegacyBuySchema,
@@ -209,6 +210,38 @@ describe('isDeleteIntent / crudOf — 삭제 판정 (D-08, Pitfall 7)', () => {
   it('crudOf 는 삭제 의도면 "D", 아니면 "C"', () => {
     expect(crudOf(defaultLimitChaserForm())).toBe('D');
     expect(crudOf({ ...defaultLimitChaserForm(), buyEnabled: true })).toBe('C');
+  });
+});
+
+/*
+  quick-260929-vzy — 후매수 ☐자동(P-1). 「자동만 켠 등록」은 삭제가 아니다 — gh-trade dcaa78b1 은 crud 가 D 가 아닌
+  이 등록을 삭제로 정규화하지 않고, WinForms `AnyArmed` 에도 ☐자동이 들어간다. relay `#isTeardown` 과 같은 다섯 항.
+*/
+describe('후매수 자동 — 삭제 판정 · 켜진 전략 · 폼 값 (quick-260929-vzy P-1)', () => {
+  const gatesOff = { buyEnabled: false, sellEnabled: false, cancelQtyEnabled: false, cancelTradeEnabled: false };
+
+  it('① 게이트 4종 OFF + 자동 ON 은 삭제가 아니다(crud C) · 다섯 항이 다 꺼지면 D', () => {
+    expect(isDeleteIntent({ ...gatesOff, postBuyAuto: true })).toBe(false);
+    expect(crudOf({ ...gatesOff, postBuyAuto: true })).toBe('C');
+    expect(isDeleteIntent({ ...gatesOff, postBuyAuto: false })).toBe(true);
+    expect(crudOf({ ...gatesOff, postBuyAuto: false })).toBe('D');
+  });
+
+  it('② 자동만 켠 전략도 켜진 전략이다 — 작업대에서 걷히지 않는다', () => {
+    expect(isActiveStrategy({ buyEnabled: false, sellEnabled: false, cancelQtyEnabled: false, postBuyAuto: true })).toBe(
+      true,
+    );
+    expect(isActiveStrategy({ buyEnabled: false, sellEnabled: false, cancelQtyEnabled: false, postBuyAuto: false })).toBe(
+      false,
+    );
+  });
+
+  it('③ 새 폼은 자동 OFF · 에코 값은 그대로 들인다', () => {
+    expect(defaultLimitChaserForm().postBuyAuto).toBe(false);
+    expect(formFromServer(serverEcho({ postBuyAuto: true }), defaultLimitChaserForm()).postBuyAuto).toBe(true);
+    expect(
+      formFromServer(serverEcho({ postBuyAuto: false }), { ...defaultLimitChaserForm(), postBuyAuto: true }).postBuyAuto,
+    ).toBe(false);
   });
 });
 

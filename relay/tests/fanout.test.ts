@@ -1481,6 +1481,91 @@ describe("WsFanout", () => {
     expect(JSON.stringify(logged?.[0] ?? {})).not.toContain(SAMPLE_ACCOUNT_NO);
   });
 
+  /*
+    quick-260929-vzy — 후매수 ☐자동. 브라우저 cfg 의 `postBuyAuto` 존재가 10 의 buy3_schema 를 정한다(D-03).
+    「자동만 켠 등록」은 철거가 아니다 — gh-trade dcaa78b1 은 이 등록을 삭제로 정규화하지 않는다(P-1 · T-vzy-04).
+  */
+  it("⑰-auto lc.set 의 postBuyAuto true → 10 buy3Schema 2 · true / false → 2 · false / 필드 없음 → 1 · false (D-03)", async () => {
+    const a = await authed("token-a");
+    const cases: { over: Partial<LcSetCfg>; schema: number; auto: boolean }[] = [
+      { over: { postBuyAuto: true }, schema: 2, auto: true },
+      { over: { postBuyAuto: false }, schema: 2, auto: false },
+      { over: {}, schema: 1, auto: false },
+    ];
+    for (const [i, c] of cases.entries()) {
+      a.ws.sendRaw({ t: "lc.set", cfg: lcInput(c.over) });
+      await waitFor(
+        () =>
+          gateway.strategyRequests().filter((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq).length ===
+          i + 1,
+        `10 수신 ${i + 1}`,
+      );
+    }
+    const reqs = gateway
+      .strategyRequests()
+      .filter((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq)
+      .map((r) => readSetLimitChaserRequest(r.msgType, r.payload)!);
+    expect(reqs.map((r) => [r.buy3Schema, r.postBuyAuto])).toEqual(
+      cases.map((c) => [c.schema, c.auto]),
+    );
+  });
+
+  it("⑰-auto-b 게이트 4종 OFF + postBuyAuto true(crud C)는 철거가 아니다 — 모르는 ISIN 이면 거부 · 0바이트, 자동 false 면 종전 철거 (P-1 · T-16-42)", async () => {
+    const a = await authed("token-a");
+    const gatesOff = {
+      isin: UNKNOWN_ISIN,
+      crud: "C" as const,
+      buyEnabled: false,
+      sellEnabled: false,
+      cancelQtyEnabled: false,
+      cancelTradeEnabled: false,
+    };
+
+    // ① 자동만 켠 등록 — 엄격 시장 해석이 걸린다(기본 "K" 폴백 금지).
+    a.ws.sendRaw({ t: "lc.set", cfg: lcInput({ ...gatesOff, postBuyAuto: true }) });
+    await waitFor(() => framesOf(a.inbox, "msg").length === 1, "거부 통지");
+    await flushIo(30);
+    expect(gateway.strategyRequests().map((r) => r.msgType)).not.toContain(
+      STRATEGY_MSG.SetLimitChaserReq,
+    );
+    const [rejected] = framesOf(a.inbox, "msg");
+    expect(rejected).toMatchObject({ lv: "ERROR", src: RELAY_MSG_SOURCE, i: UNKNOWN_ISIN });
+    expect(rejected?.m).toContain("전략을 등록할 수 없습니다");
+
+    // ② 같은 조건에 자동 false — 종전 ⑰-e 처럼 철거로 나간다.
+    a.ws.sendRaw({ t: "lc.set", cfg: lcInput({ ...gatesOff, postBuyAuto: false }) });
+    await waitFor(
+      () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+      "10 수신",
+    );
+    const req = gateway
+      .strategyRequests()
+      .find((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq);
+    expect(rootEnvelope(req!.payload).setLimitChaser()?.market()).toBe("K");
+    expect(framesOf(a.inbox, "msg")).toHaveLength(1);
+  });
+
+  it("⑰-auto-c 60 에코 postBuyAuto true → ws lc 프레임 item.postBuyAuto true · 57키 (D-01)", async () => {
+    const a = await authed("token-a");
+    a.ws.sendRaw({ t: "lc.set", cfg: lcInput() });
+    await waitFor(
+      () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+      "10 수신",
+    );
+    const sock = gateway.sockets[0];
+    if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+    gateway.pushLimitChaserEcho(sock, {
+      isin: SAMPLE_ISIN,
+      accountNo: SAMPLE_ACCOUNT_NO,
+      buyEnabled: true,
+      postBuyAuto: true,
+    });
+    await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
+    const item = framesOf(a.inbox, "lc").at(-1)!.item;
+    expect(item.postBuyAuto).toBe(true);
+    expect(Object.keys(item)).toHaveLength(57);
+  });
+
   it("⑰-e2 삭제의 시장은 **에코 캐시가 1순위**다 — 종목맵이 못 풀어도 폴백까지 가지 않는다", async () => {
     // 서버가 그 전략을 KOSDAQ("Q") 로 저장했다고 에코한다. `SymbolMap` 은 이 ISIN 을 모른다.
     gateway.respondLimitChaserList([

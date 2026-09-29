@@ -79,6 +79,7 @@ import {
   LC_FIXED_SWEEP_MIN_COUNT,
   LC_FIXED_SWEEP_MIN_RATE,
   LC_FIXED_BUY3_SCHEMA,
+  LC_POST_BUY_AUTO_BUY3_SCHEMA,
   MAX_STRATEGY_KEY_BYTES,
   parseLimitChaserEcho,
   parseLimitChaserList,
@@ -1355,6 +1356,42 @@ describe("전략 요청 조립 (16-04 / T-16-05·T-16-06)", () => {
     expect(presentSlots(t, [98])).toEqual([98]);
   });
 
+  /*
+    ③-auto — 후매수 ☐자동(quick-260929-vzy · gh-trade dcaa78b1). buy3_schema 는 `postBuyAuto` **존재로만** 파생된다
+    (D-03 · T-24-01 확장). 부재 = 1 · 슬롯 없음(서버 값 유지) · 있으면 = 2 · 값 그대로.
+  */
+  describe("③-auto post_buy_auto · buy3_schema 파생 (quick-260929-vzy D-03 · T-vzy-01)", () => {
+    const AUTO_VT = 132;
+
+    it("① postBuyAuto 없음 → buy3_schema 1 · vtable 132 슬롯 없음 · postBuyAuto() false", () => {
+      const t = readLc(lcInput());
+      expect(t.buy3Schema()).toBe(LC_FIXED_BUY3_SCHEMA);
+      expect(presentSlots(t, [AUTO_VT])).toEqual([]);
+      expect(t.postBuyAuto()).toBe(false);
+    });
+
+    it("② postBuyAuto true → buy3_schema 2 · 슬롯 있음 · true", () => {
+      expect(LC_POST_BUY_AUTO_BUY3_SCHEMA).toBe(2);
+      const t = readLc(lcInput({ postBuyAuto: true }));
+      expect(t.buy3Schema()).toBe(2);
+      expect(presentSlots(t, [AUTO_VT])).toEqual([AUTO_VT]);
+      expect(t.postBuyAuto()).toBe(true);
+    });
+
+    it("② postBuyAuto false → buy3_schema 2 · false(기본값이라 슬롯은 없어도 서버는 schema 2 에서 부재=false)", () => {
+      const t = readLc(lcInput({ postBuyAuto: false }));
+      expect(t.buy3Schema()).toBe(2);
+      expect(t.postBuyAuto()).toBe(false);
+    });
+
+    it("② 입력에 초과 속성 buy3Schema: 0 을 끼워도 1/2 로만 나간다 (브라우저는 스키마를 고를 수 없다)", () => {
+      const withoutAuto = { ...lcInput(), buy3Schema: 0 };
+      const withAuto = { ...lcInput({ postBuyAuto: true }), buy3Schema: 0 };
+      expect(readLc(withoutAuto).buy3Schema()).toBe(1);
+      expect(readLc(withAuto).buy3Schema()).toBe(2);
+    });
+  });
+
   it("④ isin·accountNo 는 서버 strncpy 와 같은 12자로 절단된다", () => {
     const t = readLc(lcInput({ isin: `${SAMPLE_ISIN}XX`, accountNo: "123456789012345" }));
 
@@ -1560,7 +1597,7 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     return parsed!;
   }
 
-  it("① 55필드 왕복 — 요청 필드가 그대로 돌아오고 S→C 전용은 0/false 다", () => {
+  it("① 56필드 왕복(57키) — 요청 필드가 그대로 돌아오고 S→C 전용은 0/false 다", () => {
     const cfg = lcInput();
     // 요청 빌더의 산출물을 에코 파서로 되읽는다. 빌더와 파서가 **같은 슬롯**을 보는지가
     // 이 왕복의 전부다 — 한쪽만 밀려도 값이 어긋나 실패 메시지에 그대로 드러난다.
@@ -1716,6 +1753,16 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     // 구 서버 흉내(buy3_schema 0) 도 파싱은 된다 — 판정은 UI 몫.
     const legacy = parseLimitChaserEcho(inbound(buildSetLimitChaserRespFrame({ buy3Schema: 0 })).env);
     expect(legacy!.buy3Schema).toBe(0);
+  });
+
+  it("⑤-auto 60 · 64 의 postBuyAuto 를 디코드한다 — 기본 프레임 false · true 에코는 true (quick-260929-vzy D-01)", () => {
+    const single = parseLimitChaserEcho(inbound(buildSetLimitChaserRespFrame({ postBuyAuto: true })).env);
+    const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([{ postBuyAuto: true }])).env);
+    expect(single!.postBuyAuto).toBe(true);
+    expect(list![0]!.postBuyAuto).toBe(true);
+    const plain = parseLimitChaserEcho(inbound(buildSetLimitChaserRespFrame({})).env);
+    expect(plain!.postBuyAuto).toBe(false);
+    expect(Object.keys(plain!)).toHaveLength(57);
   });
 
   it("⑤-3 S→C 전용 래치 2필드는 요청 조립기가 **싣지 않는다** (Pitfall 6 / T-17-03)", () => {

@@ -1850,7 +1850,7 @@ describe('companions — 한 확정 = 한 lc.set 에 동반 필드 (Phase 24 D-0
 });
 
 describe('게이트 필드 (Phase 24 — 세 그룹 스위치가 등록할 수 있다 · 한방은 체크가 됐다)', () => {
-  it('LC_GATE_FIELDS = 마스터 · 선 · 추가 · 후매수 · 매도 · 취소잔량 — 한방 없음', () => {
+  it('LC_GATE_FIELDS = 마스터 · 선 · 추가 · 후매수 · 매도 · 취소잔량 · 후매수 자동 — 한방 없음', () => {
     expect([...LC_GATE_FIELDS]).toEqual([
       'buyEnabled',
       'preBuyEnabled',
@@ -1858,7 +1858,32 @@ describe('게이트 필드 (Phase 24 — 세 그룹 스위치가 등록할 수 �
       'postBuyEnabled',
       'sellEnabled',
       'cancelQtyEnabled',
+      'postBuyAuto',
     ]);
+  });
+
+  /*
+    quick-260929-vzy P-1 — 「자동만 켠 등록」도 등록이다(gh-trade dcaa78b1 · WinForms AnyArmed 동형).
+    미등록에서 자동을 켜면 로컬 반영이 아니라 등록 전송이다. 자동 끄기는 무장 해제라 무장 가드를 지나지 않는다.
+  */
+  it('후매수 자동 — 미등록에서 켜면 등록 전송(crud C · postBuyAuto true) · 끄기는 무장 가드를 지나지 않는다 (P-1)', () => {
+    const t = setup({ server: null });
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('postBuyAuto', true, 'toggle');
+    });
+    expect(out).toBe('sent');
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.cfgs()[0]!.crud).toBe('C');
+    expect(t.cfgs()[0]!.postBuyAuto).toBe(true);
+
+    const armBlockOf = () => '매수주문 · 막힘';
+    const u = setup({ server: echo({ buyEnabled: true, postBuyAuto: true }), armBlockOf });
+    act(() => {
+      out = u.hook.result.current.commit('postBuyAuto', false, 'toggle');
+    });
+    expect(out).toBe('sent');
+    expect(u.cfgs()[0]!.postBuyAuto).toBe(false);
   });
 
   it('끄는 방향 한방 체크는 무장 가드를 지나지 않는다(무장 해제 — T-16-44)', () => {
