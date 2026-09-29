@@ -2078,6 +2078,41 @@ describe("관찰자 두 스트림 — 80 전략 이벤트 · 79/5 전략 커서 
     expect(JSON.stringify(fields)).not.toContain(longAccount);
   });
 
+  it.each([
+    ["seq 0", { seq: 0 }, "seq"],
+    ["trade_date 빈 문자열", { seq: 3, tradeDate: "" }, "trade_date"],
+    ["trade_date 형식 밖(YYYYMMDD)", { seq: 3, tradeDate: "20260929" }, "trade_date"],
+    ["trade_date 달력 밖(2월 30일)", { seq: 3, tradeDate: "2026-02-30" }, "trade_date"],
+  ] as const)(
+    "전략 이벤트 필수 키 계약 위반(%s) → 그 앞까지만 올리고 첫 위반을 표시 · strategyCaughtUp 거짓 · 주문 레코드는 그대로 (WR-01)",
+    (_label, bad, field) => {
+      const error = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+      const batch = parseJournalBatch(
+        envOf(
+          buildJournalBatchFrame({
+            records: [{ seq: 7 }],
+            strategyEvents: [{ seq: 1 }, { seq: 2 }, bad, { seq: 4 }],
+            strategyCaughtUp: true,
+          }),
+        ),
+      );
+      expect(batch).not.toBeNull();
+      expect(batch?.records.map((r) => r.seq)).toEqual([7]);
+      expect(batch?.strategyEvents.map((e) => e.seq)).toEqual([1, 2]);
+      expect(batch?.strategyContractViolation).toEqual({ seq: bad.seq, field });
+      expect(batch?.strategyCaughtUp).toBe(false);
+      const calls = error.mock.calls.filter((c: unknown[]) => String(c[1]).includes("필수 키 계약 위반"));
+      expect(calls).toHaveLength(1);
+      expect(JSON.stringify(calls[0]?.[0])).not.toContain(SAMPLE_ACCOUNT_NO);
+    },
+  );
+
+  it("계약을 지킨 전략 이벤트만 오면 위반 표시는 null (WR-01)", () => {
+    const batch = parseJournalBatch(envOf(buildJournalBatchFrame({ strategyEvents: [{ seq: 1 }, { seq: 2 }] })));
+    expect(batch?.strategyContractViolation).toBeNull();
+    expect(batch?.strategyCaughtUp).toBe(true);
+  });
+
   it("79 로그인 응답의 전략 head · oldest · resync 를 읽는다 · 없으면 0 / 0 / false", () => {
     const withStrategy = parseObserverLoginResp(
       envOf(buildObserverLoginRespFrame({ epoch: "ep-25", strategyHeadSeq: 9, strategyOldestSeq: 2, strategyResync: true })),

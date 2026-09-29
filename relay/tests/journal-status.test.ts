@@ -15,7 +15,12 @@ import {
   JournalStatus,
   journalAlerting,
 } from "../src/journal/status.js";
-import type { JournalHealth, JournalObserverState, JournalWriterHealth } from "../src/journal/types.js";
+import type {
+  JournalHealth,
+  JournalObserverState,
+  JournalWriterHealth,
+  StrategyPauseReason,
+} from "../src/journal/types.js";
 
 /** KST 벽시계 → Date. */
 function kst(isoLocal: string): Date {
@@ -52,6 +57,8 @@ class FakeObserver extends EventEmitter {
   headSeq: number | null = null;
   /** 게이트웨이가 알려 준 전략 스트림 head (Phase 25). */
   strategyHeadSeq: number | null = null;
+  /** 전략 수신 멈춤 사유 (WR-01). */
+  strategyPaused: StrategyPauseReason | null = null;
   set(next: JournalObserverState): void {
     this.state = next;
     this.emit("state", next);
@@ -299,7 +306,7 @@ describe("JournalStatus — journal.strategy 전략 스트림 관측값 (Phase 2
     const { observer, strategyWriter } = boot();
     observer.strategyHeadSeq = 12;
     strategyWriter.h = { ...strategyWriter.h, lastAppliedSeq: 10, queueDepth: 3 };
-    expect(status?.health(Date.now()).strategy).toEqual({ lastSeq: 10, headSeq: 12, lagSeq: 2, dbError: false, queueDepth: 3 });
+    expect(status?.health(Date.now()).strategy).toEqual({ lastSeq: 10, headSeq: 12, lagSeq: 2, dbError: false, queueDepth: 3, paused: null });
 
     // head 가 적용보다 뒤처져 보이면(적용 직후 · 재로그인 전) 0 으로 자른다.
     observer.strategyHeadSeq = 9;
@@ -307,10 +314,24 @@ describe("JournalStatus — journal.strategy 전략 스트림 관측값 (Phase 2
 
     // 둘 중 하나라도 모르면 lagSeq null.
     strategyWriter.h = { ...strategyWriter.h, lastAppliedSeq: null };
-    expect(status?.health(Date.now()).strategy).toEqual({ lastSeq: null, headSeq: 9, lagSeq: null, dbError: false, queueDepth: 3 });
+    expect(status?.health(Date.now()).strategy).toEqual({ lastSeq: null, headSeq: 9, lagSeq: null, dbError: false, queueDepth: 3, paused: null });
     observer.strategyHeadSeq = null;
     strategyWriter.h = { ...strategyWriter.h, lastAppliedSeq: 4 };
     expect(status?.health(Date.now()).strategy?.lagSeq).toBeNull();
+  });
+
+  it("전략 수신 멈춤(WR-01) → 본문 strategy.paused 에 사유 · 파생 상태 live 유지 · journalAlerting false · 프레임 추가 0", () => {
+    const { observer, frames } = boot();
+    observer.set("live");
+    const before = frames.length;
+    observer.strategyPaused = "contract";
+    const h = status?.health(Date.now());
+    expect(h?.strategy?.paused).toBe("contract");
+    expect(h?.state).toBe("live");
+    expect(h !== undefined && journalAlerting(h, kst("2026-09-28T10:00:00"))).toBe(false);
+    observer.strategyPaused = "overflow";
+    expect(status?.health(Date.now()).strategy?.paused).toBe("overflow");
+    expect(frames).toHaveLength(before);
   });
 
   it("strategyWriter 미주입 → strategy null · 키 집합은 같다", () => {

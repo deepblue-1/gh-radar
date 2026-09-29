@@ -138,6 +138,7 @@ describe("실 코덱 tracer — 프레임 바이트 → 화이트리스트 → d
         strategyEvents: [],
         strategyHeadSeq: 0,
         strategyCaughtUp: true,
+        strategyContractViolation: null,
       },
     });
     if (f.k !== "batch") throw new Error("unreachable");

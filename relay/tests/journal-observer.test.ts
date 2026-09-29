@@ -122,6 +122,10 @@ type FakeDb = {
   strategyApplies: () => number;
   /** 적용 RPC 를 멈춰 둔다(큐 상한 시나리오). */
   holdApplies: () => void;
+  /** 전략 적용 RPC 만 멈춰 둔다 — 주문 적용은 흐른다(WR-01 전략 역압 분리). */
+  holdStrategyApplies: () => void;
+  /** 멈춰 둔 전략 적용을 전부 성공으로 풀고 이후 호출은 바로 성공시킨다. */
+  releaseStrategyApplies: () => void;
 };
 
 function fakeDb(opts: { cursor?: CursorRow | null; cursorErrors?: number } = {}): FakeDb {
@@ -129,6 +133,8 @@ function fakeDb(opts: { cursor?: CursorRow | null; cursorErrors?: number } = {})
   let applies = 0;
   let strategyApplies = 0;
   let hold = false;
+  let holdStrategy = false;
+  const heldStrategy: Array<() => void> = [];
   let cursorErrors = opts.cursorErrors ?? 0;
   const supabase = {
     from: () => ({
@@ -151,10 +157,14 @@ function fakeDb(opts: { cursor?: CursorRow | null; cursorErrors?: number } = {})
       else return Promise.resolve({ data: null, error: { message: `unknown ${fn}` } });
       if (hold) return new Promise(() => undefined);
       const events = args.p_events as Array<{ seq: number }>;
-      return Promise.resolve({
+      const ok = {
         data: { applied: events.length, skipped: 0, errors: [], last_seq: Math.max(...events.map((e) => e.seq)), rows: [] },
         error: null,
-      });
+      };
+      if (fn === "dma_strategy_apply" && holdStrategy) {
+        return new Promise((resolve) => heldStrategy.push(() => resolve(ok)));
+      }
+      return Promise.resolve(ok);
     },
   } as unknown as SupabaseClient;
   return {
@@ -164,6 +174,13 @@ function fakeDb(opts: { cursor?: CursorRow | null; cursorErrors?: number } = {})
     strategyApplies: () => strategyApplies,
     holdApplies: () => {
       hold = true;
+    },
+    holdStrategyApplies: () => {
+      holdStrategy = true;
+    },
+    releaseStrategyApplies: () => {
+      holdStrategy = false;
+      for (const release of heldStrategy.splice(0)) release();
     },
   };
 }
@@ -423,7 +440,7 @@ describe("관찰자 tracer — 기동 → 로그인 → 배치 1건 → 기록�
     const { status, text } = await fetchHealthz(r.status);
     expect(status).toBe(200);
     const body = JSON.parse(text) as { journal: Record<string, unknown> };
-    expect(body.journal.strategy).toEqual({ lastSeq: 1, headSeq: 1, lagSeq: 0, dbError: false, queueDepth: 0 });
+    expect(body.journal.strategy).toEqual({ lastSeq: 1, headSeq: 1, lagSeq: 0, dbError: false, queueDepth: 0, paused: null });
     expectNoIdentifiers(text);
   });
 });
@@ -931,22 +948,102 @@ describe("두 스트림 (Phase 25) — 전략 갭 · resync · 구 게이트웨�
     expectNoSecret(logs);
   });
 
-  it("두 스트림 전략 overflow — 전략 maxQueue 2 · 이벤트 3건 → 「전략 큐 상한」 · 주문분은 적재됨", async () => {
+  it("두 스트림 전략 overflow — 소켓을 끊지 않고 전략 수신만 멈춘다 · 주문은 계속 적재 · live 유지 · healthz paused overflow (WR-01)", async () => {
+    const logs = await spyLogs();
     const r = rig({ strategy: { maxQueue: 2 } });
-    r.db.holdApplies(); // 적용이 멈춰 큐가 빠지지 않는다
+    r.db.holdStrategyApplies(); // 전략 적용만 멈춘다 — 주문 적용은 흐른다
     await bootToLogin(r);
     r.transport.frame(loginOk({ headSeq: 1, strategyHeadSeq: 3, strategyOldestSeq: 1, strategyResync: false }));
     expect(r.observer.state).toBe("replaying");
 
     r.transport.frame(batch2({ records: [1], headSeq: 1, caughtUp: true, strategy: [1, 2, 3], strategyCaughtUp: true }));
-    expect(r.transport.drops).toEqual(["전략 큐 상한"]);
-    expect(r.observer.state).toBe("connecting");
+    // 끊지 않는다 — 전략 쪽 지속 장애가 주문 저널 재로그인 반복 · 503 으로 번지지 않게.
+    expect(r.transport.drops).toEqual([]);
+    expect(r.observer.strategyPaused).toBe("overflow");
+    // 전략 pending 을 내려 주문 caught_up 만으로 live.
+    expect(r.observer.state).toBe("live");
     expect(strategyOf(r).queueDepth).toBe(0);
     expect(strategyOf(r).lastReceivedSeq).toBeNull();
-    // 주문 push 는 먼저 끝났다(주문 먼저) — 재로그인은 주문 since 1 · 전략 since 0.
     expect(r.writer.lastReceivedSeq).toBe(1);
+    const pauseLog = logs.find((c) => c.level === "error" && c.args.some((a) => typeof a === "string" && a.includes("전략 수신만 일시 중지")));
+    expect(pauseLog?.args[0]).toMatchObject({ reason: "overflow" });
+    expect(r.status.health(Date.now()).strategy?.paused).toBe("overflow");
+    expectOnlyLogins(r);
+  });
+
+  it("두 스트림 전략 overflow 일시 중지 동안 — 이후 프레임의 주문은 적재 · 전략분은 버림(since 불변) · 큐가 비면 재로그인 1회로 전략 since 이어받기 (WR-01)", async () => {
+    const r = rig({ strategy: { maxQueue: 3 } });
+    r.db.holdStrategyApplies();
+    await bootToLogin(r);
+    r.transport.frame(loginOk({ headSeq: 1, strategyHeadSeq: 2, strategyOldestSeq: 1, strategyResync: false }));
+
+    // 전략 1 · 2 는 큐에 들어가 적용 대기(멈춤) — 3 · 4 가 상한을 넘겨 일시 중지.
+    r.transport.frame(batch2({ records: [1], headSeq: 1, caughtUp: true, strategy: [1, 2], strategyCaughtUp: true }));
+    r.transport.frame(batch2({ records: [2], headSeq: 2, caughtUp: true, strategy: [3, 4], strategyCaughtUp: true }));
+    expect(r.observer.strategyPaused).toBe("overflow");
+    expect(r.transport.drops).toEqual([]);
+    expect(strategyOf(r).lastReceivedSeq).toBe(2);
+    expect(strategyOf(r).queueDepth).toBe(2);
+
+    // 전략 적용이 아직 멈춰 있다 — 다음 프레임도 주문만 적재하고 전략분(5)은 버린다. 끊지 않는다.
+    r.transport.frame(batch2({ records: [3], headSeq: 3, caughtUp: true, strategy: [5], strategyCaughtUp: true }));
+    expect(r.transport.drops).toEqual([]);
+    expect(r.writer.lastReceivedSeq).toBe(3);
+    expect(strategyOf(r).lastReceivedSeq).toBe(2);
+    expect(r.observer.state).toBe("live");
+    await flushIo();
+    expect(r.db.applies()).toBeGreaterThan(0);
+
+    // 전략 적용 복구 → 큐가 빈다. 다음 프레임에서 주문분을 먼저 적재하고 재로그인 1회로 전략 since 를 이어받는다.
+    r.db.releaseStrategyApplies();
+    await flushIo();
+    expect(strategyOf(r).queueDepth).toBe(0);
+    r.transport.frame(batch2({ records: [4], headSeq: 4, caughtUp: true, strategy: [6], strategyCaughtUp: true }));
+    expect(r.writer.lastReceivedSeq).toBe(4);
+    expect(r.transport.drops).toEqual(["전략 큐 해소 — 전략 이어받기"]);
+    expect(r.observer.state).toBe("connecting");
+
     r.transport.up();
-    expect(r.codec.logins[1]).toMatchObject({ sinceSeq: 1, epoch: "ep-1", strategySinceSeq: 0 });
+    expect(r.codec.logins[1]).toMatchObject({ sinceSeq: 4, epoch: "ep-1", strategySinceSeq: 2 });
+    r.transport.frame(loginOk({ epoch: "ep-1", resync: false, headSeq: 4, strategyHeadSeq: 6, strategyOldestSeq: 1, strategyResync: false }));
+    expect(r.observer.strategyPaused).toBeNull();
+    // 재생분(3..6)을 받는다 — 전략 큐 상한 3 안에서 두 프레임으로.
+    r.transport.frame(batch2({ records: [], headSeq: 4, caughtUp: true, strategy: [3, 4], strategyHeadSeq: 6, strategyCaughtUp: false }));
+    await flushIo();
+    r.transport.frame(batch2({ records: [], headSeq: 4, caughtUp: true, strategy: [5, 6], strategyCaughtUp: true }));
+    expect(r.transport.drops).toEqual(["전략 큐 해소 — 전략 이어받기"]);
+    expect(r.observer.strategyPaused).toBeNull();
+    expect(strategyOf(r).lastReceivedSeq).toBe(6);
+    expect(r.observer.state).toBe("live");
+    expectOnlyLogins(r);
+  });
+
+  it("두 스트림 전략 필수 키 계약 위반 — 앞 이벤트까지 적재 · 전략 수신만 중지(paused contract) · 주문은 계속 · 큐가 비어도 자동 재로그인 없음 (WR-01)", async () => {
+    const logs = await spyLogs();
+    const r = rig({ strategy: {} });
+    await bootToLogin(r);
+    r.transport.frame(loginOk({ headSeq: 1, strategyHeadSeq: 5, strategyOldestSeq: 1, strategyResync: false }));
+
+    // 파서가 seq 3(trade_date 위반) 앞까지만 넘기고 위반을 표시했다.
+    const f = batch2({ records: [1], headSeq: 1, caughtUp: true, strategy: [1, 2], strategyHeadSeq: 5, strategyCaughtUp: false });
+    if (f.k !== "batch") throw new Error("batch 프레임이어야 한다");
+    f.batch.strategyContractViolation = { seq: 3, field: "trade_date" };
+    r.transport.frame(f);
+    expect(r.transport.drops).toEqual([]);
+    expect(strategyOf(r).lastReceivedSeq).toBe(2);
+    expect(r.observer.strategyPaused).toBe("contract");
+    expect(r.observer.state).toBe("live");
+    const pauseLog = logs.find((c) => c.level === "error" && c.args.some((a) => typeof a === "string" && a.includes("필수 키 계약 위반")));
+    expect(pauseLog?.args[0]).toMatchObject({ reason: "contract", seq: 3, field: "trade_date" });
+
+    await flushIo();
+    expect(strategyOf(r).queueDepth).toBe(0);
+    // 큐가 비어도 재로그인하지 않는다 — 같은 위반 이벤트가 재생될 뿐이다. 주문은 계속 들어온다.
+    r.transport.frame(batch2({ records: [2], headSeq: 2, caughtUp: true, strategy: [4, 5], strategyCaughtUp: true }));
+    expect(r.transport.drops).toEqual([]);
+    expect(r.writer.lastReceivedSeq).toBe(2);
+    expect(strategyOf(r).lastReceivedSeq).toBe(2);
+    expect(r.status.health(Date.now()).strategy?.paused).toBe("contract");
     expectOnlyLogins(r);
   });
 

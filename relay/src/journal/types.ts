@@ -158,7 +158,26 @@ export type JournalBatchFrame = {
   strategyEvents: StrategyEventRecord[];
   strategyHeadSeq: number;
   strategyCaughtUp: boolean;
+  /**
+   * 전략 이벤트 필수 키 계약 위반 (WR-01). 적용 RPC 가 엄격 캐스트하는 키(`seq > 0` · `trade_date` YYYY-MM-DD)가
+   * 깨진 이벤트를 만나면 파서가 **그 앞까지만** `strategyEvents` 에 담고 여기에 첫 위반을 적는다 — 그대로 올리면
+   * 적용 RPC 가 배치 전체를 거부하고 기록기가 같은 배치를 영원히 재시도한다. 관찰자는 이것을 보고 전략 수신만
+   * 멈춘다(주문 저널은 계속). 생략 · null = 위반 없음.
+   */
+  strategyContractViolation?: StrategyContractViolation | null;
 };
+
+/** 전략 이벤트 필수 키 계약 위반 1건 — 식별자 없이 seq 와 칸 이름만(T-19-07). */
+export type StrategyContractViolation = { seq: number; field: "seq" | "trade_date" };
+
+/**
+ * 관찰자가 전략 수신을 멈춘 사유 (WR-01). 주문 저널과 소켓을 공유하므로 전략 쪽 장애로 소켓을 끊지 않고
+ * 전략분만 버린다(since 는 전진하지 않는다 · 다음 재로그인이 이어받는다).
+ *   - `overflow` — 전략 기록기 큐 상한(적용 RPC 지속 실패 · DB 지연). 큐가 비면 관찰자가 한 번 재로그인해 이어받는다.
+ *   - `contract` — 필수 키 계약 위반 이벤트(`StrategyContractViolation`). 자동 재개하지 않는다 — 재로그인해도 같은
+ *     이벤트가 재생되므로 게이트웨이 쪽 수정이 필요하다.
+ */
+export type StrategyPauseReason = "overflow" | "contract";
 
 /** 코덱이 수신 프레임 1건을 해석한 결과. */
 export type ObserverFrame =
@@ -322,6 +341,8 @@ export type JournalStrategyHealth = {
   lagSeq: number | null;
   /** 전략 적용 RPC(`dma_strategy_apply`) 연속 실패. 파생 상태 `db_error` 와 무관하다. */
   dbError: boolean;
-  /** 전략 기록기 큐 깊이 — 상한에 닿으면 관찰자가 「전략 큐 상한」 으로 소켓을 끊는다(주문 기록도 멈춘다). */
+  /** 전략 기록기 큐 깊이 — 상한에 닿으면 관찰자가 전략 수신만 멈춘다(`paused: "overflow"` · 주문 기록은 계속 · WR-01). */
   queueDepth: number;
+  /** 관찰자가 전략 수신을 멈춘 사유. null = 받는 중. 503 판정 밖(표시 신호 · WR-01). */
+  paused: StrategyPauseReason | null;
 };

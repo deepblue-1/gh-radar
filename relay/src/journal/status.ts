@@ -35,6 +35,7 @@ import type {
   JournalObserverState,
   JournalStrategyHealth,
   JournalWriterHealth,
+  StrategyPauseReason,
 } from "./types.js";
 
 /** live 를 벗어난 뒤 브라우저에 `delayed` 를 내기까지의 디바운스(ms). */
@@ -60,6 +61,8 @@ export type StatusObserverView = {
   readonly headSeq: number | null;
   /** 게이트웨이가 알려 준 전략 스트림 head (Phase 25). */
   readonly strategyHeadSeq: number | null;
+  /** 관찰자가 전략 수신을 멈춘 사유(WR-01). 생략 = 멈춤 없음(null). */
+  readonly strategyPaused?: StrategyPauseReason | null;
   on(event: "state", listener: (state: JournalObserverState) => void): unknown;
   off(event: "state", listener: (state: JournalObserverState) => void): unknown;
 };
@@ -158,6 +161,7 @@ export class JournalStatus extends EventEmitter {
       lagSeq: headSeq !== null && lastSeq !== null ? Math.max(headSeq - lastSeq, 0) : null,
       dbError: w.dbError,
       queueDepth: w.queueDepth,
+      paused: this.#observer.strategyPaused ?? null,
     };
   }
 

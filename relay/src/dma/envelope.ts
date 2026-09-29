@@ -96,6 +96,7 @@ import type {
   JournalRecord,
   ObserverAccountRow,
   ObserverLoginResult,
+  StrategyContractViolation,
   StrategyEventRecord,
 } from "../journal/types.js";
 import { MIN_ENVELOPE_SIZE, logDroppedFrame } from "./codec.js";
@@ -299,6 +300,26 @@ export function toNum(v: bigint, label: string): number {
 /** 12자 ISIN 형식 가드. */
 export function isValidIsin(s: string): boolean {
   return s.length === 12 && ISIN_PATTERN.test(s);
+}
+
+const TRADE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/** "YYYY-MM-DD" 이고 실제 달력 날짜인가 — Postgres `::date` 캐스트가 받는 형식만(WR-01). */
+export function isValidTradeDate(s: string): boolean {
+  if (!TRADE_DATE_PATTERN.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
+
+/**
+ * 전략 이벤트 필수 키 계약 검사 (WR-01) — `dma_strategy_apply` 가 엄격 캐스트하는 키만 본다. 여기서 걸리는 이벤트를
+ * 그대로 올리면 적용 RPC 가 배치 전체를 거부하고 기록기가 같은 배치를 영원히 재시도한다(`seq = 0` 은 `CHECK (seq > 0)`,
+ * `trade_date ""` 는 `::date` 캐스트 실패). `gw_time_ms` 는 `toNum` 을 지나 늘 정수라 캐스트가 실패하지 않는다.
+ */
+export function strategyEventContractField(ev: StrategyEventRecord): StrategyContractViolation["field"] | null {
+  if (!Number.isSafeInteger(ev.seq) || ev.seq <= 0) return "seq";
+  if (!isValidTradeDate(ev.tradeDate)) return "trade_date";
+  return null;
 }
 
 /** 거래소 화이트리스트 (D-04). */
@@ -2896,10 +2917,22 @@ export function parseJournalBatch(env: Envelope): JournalBatchFrame | null {
     let badStrategyIsin = 0;
     let sampleStrategyAccount: string | null = null;
     let sampleStrategySeq: number | null = null;
+    let strategyContractViolation: StrategyContractViolation | null = null;
     for (let i = 0; i < nStrategy; i += 1) {
       const w = r.strategyEvents(i, strategyScratch);
       if (w === null) return dropField("strategy-event-null", msgType, { index: i, count: nStrategy });
       const ev = readStrategyEvent(w);
+      // 필수 키 계약 위반(WR-01) — 이 이벤트부터는 올리지 않는다. 프레임 전체를 malformed 로 버리면 주문 레코드까지
+      // 재접속 루프에 갇히고, 위반 이벤트를 올리면 적용 RPC 가 영원히 거부한다. 관찰자가 이 표시로 전략 수신만 멈춘다.
+      const badField = strategyEventContractField(ev);
+      if (badField !== null) {
+        strategyContractViolation = { seq: ev.seq, field: badField };
+        logger.error(
+          { msgType, index: i, seq: ev.seq, field: badField, accepted: strategyEvents.length },
+          "[DMA] 전략 이벤트 필수 키 계약 위반 — 이 이벤트부터 올리지 않는다(앞 이벤트까지만 적재)",
+        );
+        break;
+      }
       // 시세 이벤트(kind 1·2)는 계좌가 원래 "" 다 — 형식 이상으로 세지 않는다(G1 ⓔ).
       if (ev.accountNo !== "" && !isValidAccountNo(ev.accountNo)) {
         badStrategyAccount += 1;
@@ -2934,7 +2967,8 @@ export function parseJournalBatch(env: Envelope): JournalBatchFrame | null {
       caughtUp: r.caughtUp() && n === rawCount,
       strategyEvents,
       strategyHeadSeq: toNum(r.strategyHeadSeq(), "journal_batch.strategy_head_seq"),
-      strategyCaughtUp: r.strategyCaughtUp() && nStrategy === rawStrategyCount,
+      strategyCaughtUp: r.strategyCaughtUp() && nStrategy === rawStrategyCount && strategyContractViolation === null,
+      strategyContractViolation,
     };
   } catch (err) {
     return dropField("parse-throw", msgType, { error: err instanceof Error ? err.name : "unknown" });

@@ -40,6 +40,8 @@ const GATEWAY = "KB";
 class FakeWriter<R extends { seq: number } = JournalRecord> implements ObserverWriter<R> {
   epoch = "";
   lastReceivedSeq: number | null = null;
+  /** 적용 워커가 없는 가짜 — 큐는 늘 비어 있다(전략 overflow 재개 판정용 · WR-01). */
+  readonly queueDepth = 0;
   readonly pushed: R[] = [];
   /** push 호출마다 받은 배열 그대로 — 코덱이 푼 벡터(빈 벡터 포함)를 단언한다. */
   readonly pushCalls: R[][] = [];

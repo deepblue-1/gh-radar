@@ -413,7 +413,7 @@ describe("journal 판정 (Phase 19 D-04)", () => {
       lastAppliedAgeSec: 3,
       seqRegressions: 0,
       lastSeqRegressionAgeSec: null,
-      strategy: { lastSeq: 7, headSeq: 9, lagSeq: 2, dbError: false, queueDepth: 0 },
+      strategy: { lastSeq: 7, headSeq: 9, lagSeq: 2, dbError: false, queueDepth: 0, paused: null },
     };
   }
 
@@ -456,9 +456,9 @@ describe("journal 판정 (Phase 19 D-04)", () => {
 
   it("journal 필드 키는 9종(+ strategy — Phase 25)이고 식별자 계열이 없다 (T-19-07 · T-25-10 · smoke health_probe)", async () => {
     const { body } = await probe(journal("live", null), IN_WINDOW);
-    // 전략 칸도 계수 · 불리언 5키뿐이다.
+    // 전략 칸도 계수 · 불리언 · 멈춤 사유(enum 문자열) 6키뿐이다(WR-01 paused).
     expect(Object.keys((body.journal as { strategy: object }).strategy).sort()).toEqual(
-      ["dbError", "headSeq", "lagSeq", "lastSeq", "queueDepth"],
+      ["dbError", "headSeq", "lagSeq", "lastSeq", "paused", "queueDepth"],
     );
     expect(Object.keys(body.journal as object).sort()).toEqual(
       [
@@ -479,12 +479,12 @@ describe("journal 판정 (Phase 19 D-04)", () => {
   it("전략 스트림 적용 실패(journal.strategy.dbError · 큐 적체)만으로는 503 이 아니다 — 본문에만 드러난다 (Phase 25 · Pitfall 4)", async () => {
     const j: JournalHealth = {
       ...journal("live", null),
-      strategy: { lastSeq: 7, headSeq: 900, lagSeq: 893, dbError: true, queueDepth: 4_999 },
+      strategy: { lastSeq: 7, headSeq: 900, lagSeq: 893, dbError: true, queueDepth: 4_999, paused: "overflow" },
     };
     const { status, body } = await probe(j, IN_WINDOW);
     expect(status).toBe(200);
     expect(body.status).toBe("ok");
-    expect(body.journal).toMatchObject({ state: "live", strategy: { dbError: true, queueDepth: 4_999 } });
+    expect(body.journal).toMatchObject({ state: "live", strategy: { dbError: true, queueDepth: 4_999, paused: "overflow" } });
   });
 
   it("seq 역행 신호(seqRegressions > 0)만으로는 503 이 아니다 — 스트림은 정상, 본문에만 드러난다", async () => {
@@ -519,7 +519,7 @@ describe("journalGateways — 추가 게이트웨이 관찰자 (quick-260929-c8e
       lastAppliedAgeSec: 3,
       seqRegressions: 0,
       lastSeqRegressionAgeSec: null,
-      strategy: { lastSeq: 7, headSeq: 9, lagSeq: 2, dbError: false, queueDepth: 0 },
+      strategy: { lastSeq: 7, headSeq: 9, lagSeq: 2, dbError: false, queueDepth: 0, paused: null },
     };
   }
 

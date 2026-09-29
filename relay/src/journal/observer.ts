@@ -33,6 +33,12 @@
  *         온다(같은 epoch · 별도 seq 공간 · G1 ⓐ). 로그인은 since 를 두 개 싣고(전략 since 는 두 기록기 epoch 가
  *         같을 때만 — Pitfall 3), live 는 두 스트림 pending 이 모두 내려간 뒤다. 배치는 주문 push 를 먼저 하고
  *         그것이 ok 일 때만 전략 push 를 한다 — 주문이 갭/상한으로 끊기면 그 프레임 전략분도 재로그인 since 로 다시 받는다.
+ *   WR-01 **전략 역압은 주문 스트림과 분리한다.** 전략 큐 상한(`overflow`)이나 필수 키 계약 위반(파서가 표시)에서는 소켓을
+ *         끊지 않고 **전략 수신만 멈춘다**(`#strategyPaused`) — 이후 프레임의 전략분은 버리고(since 는 전진하지 않는다) 주문
+ *         레코드는 계속 받는다. 끊으면 전략 쪽 지속 장애(마이그레이션 누락 · 포이즌 이벤트)가 재로그인 반복을 거쳐 주문 저널
+ *         503 으로 번진다(Pitfall 4 설계 의도 붕괴). `overflow` 는 전략 큐가 비면 한 번 재로그인해 `strategySinceSeq` 로
+ *         이어받는다. `contract` 는 자동 재개하지 않는다(같은 이벤트가 재생된다 — 게이트웨이 수정 몫). 멈춘 사유는
+ *         `/healthz` `journal.strategy.paused` 로 드러낸다. 전략 `gap` 은 종전대로 끊는다(재로그인 한 번으로 풀리는 일시 현상).
  */
 import { EventEmitter } from "node:events";
 
@@ -51,6 +57,7 @@ import type {
   ObserverTransport,
   JournalBatchFrame,
   StrategyEventRecord,
+  StrategyPauseReason,
 } from "./types.js";
 
 /** 관찰자 로그인 요청의 `client` 값 — 게이트웨이 로그에서 relay 관찰자를 구분한다. */
@@ -63,6 +70,8 @@ export type ObserverWriter<R = JournalRecord> = {
   push(records: readonly R[]): JournalPushResult;
   readonly epoch: string;
   readonly lastReceivedSeq: number | null;
+  /** 큐에 남은 레코드 수(진행 중 배치 포함) — 전략 `overflow` 일시 중지의 재개 판정(WR-01). */
+  readonly queueDepth: number;
 };
 
 /** 관찰자가 쓰는 매핑 표면 — `JournalAccess` 가 구조적으로 만족한다. */
@@ -114,6 +123,8 @@ export class JournalObserver extends EventEmitter {
   #pendingJournal = false;
   /** 전략 스트림이 아직 head 까지 못 따라잡았다. 구 게이트웨이(0/0/false) · 기록기 없음이면 처음부터 거짓. */
   #pendingStrategy = false;
+  /** 이 연결에서 전략 수신을 멈춘 사유(WR-01). null = 받는 중. 로그인 성공마다 비운다. */
+  #strategyPaused: StrategyPauseReason | null = null;
   #started = false;
   #stopped = false;
 
@@ -145,6 +156,11 @@ export class JournalObserver extends EventEmitter {
   /** 게이트웨이가 알려 준 전략 스트림 마지막 seq. 아직 모르면 null(`/healthz` `journal.strategy.headSeq` 원천). */
   get strategyHeadSeq(): number | null {
     return this.#strategyHeadSeq;
+  }
+
+  /** 전략 수신을 멈춘 사유. null = 받는 중(`/healthz` `journal.strategy.paused` 원천 · WR-01). */
+  get strategyPaused(): StrategyPauseReason | null {
+    return this.#strategyPaused;
   }
 
   // ----------------------------------------------------------
@@ -323,6 +339,11 @@ export class JournalObserver extends EventEmitter {
     strategyWriter?.beginEpoch(result.epoch, { resync: result.strategyResync, headSeq: result.strategyHeadSeq });
     // 「성공」 의 기준은 TCP 접속이 아니라 관찰자 로그인이다 — 여기서 백오프를 1초로 되돌린다.
     this.#transport?.resetReconnectAttempts();
+    // 새 연결 · 새 since — 전략 수신 일시 중지는 연결 단위다(WR-01). 멈춘 동안 버린 구간은 이 로그인의 전략 since 로 재생된다.
+    if (this.#strategyPaused !== null) {
+      logger.info({ gateway: this.#deps.gateway, reason: this.#strategyPaused }, "[JOURNAL] 재로그인 — 전략 수신 재개");
+      this.#strategyPaused = null;
+    }
     this.#headSeq = result.headSeq;
     this.#strategyHeadSeq = result.strategyHeadSeq;
     const received = writer.lastReceivedSeq ?? 0;
@@ -386,16 +407,32 @@ export class JournalObserver extends EventEmitter {
     }
     const strategyWriter = this.#deps.strategyWriter;
     if (strategyWriter !== undefined) {
-      const strategyResult = strategyWriter.push(batch.strategyEvents);
-      if (strategyResult === "gap") {
-        this.#dropTransport("전략 seq 갭");
-        return;
+      if (this.#strategyPaused !== null) {
+        // 전략 수신 일시 중지 중(WR-01) — 이 프레임 전략분은 버린다. since 는 전진하지 않았으므로 재로그인이 다시 준다.
+        if (this.#strategyPaused === "overflow" && strategyWriter.queueDepth === 0) {
+          // 전략 큐가 비었다(적용 복구) — 주문분은 위에서 이미 적재했다. 한 번 재로그인해 전략 since 로 이어받는다.
+          logger.info(
+            { gateway: this.#deps.gateway, strategySinceSeq: strategyWriter.lastReceivedSeq },
+            "[JOURNAL] 전략 큐 해소 — 재로그인으로 전략 수신 재개",
+          );
+          this.#dropTransport("전략 큐 해소 — 전략 이어받기");
+          return;
+        }
+      } else {
+        const strategyResult = strategyWriter.push(batch.strategyEvents);
+        if (strategyResult === "gap") {
+          this.#dropTransport("전략 seq 갭");
+          return;
+        }
+        if (strategyResult === "overflow") {
+          this.#pauseStrategy("overflow", { queueDepth: strategyWriter.queueDepth, incoming: batch.strategyEvents.length });
+        } else if (batch.strategyContractViolation) {
+          // 파서가 위반 이벤트 **앞까지만** 넘겼다 — 그 앞은 적재됐고, 위반 이벤트부터는 받지 않는다.
+          this.#pauseStrategy("contract", { ...batch.strategyContractViolation });
+        } else if (batch.strategyCaughtUp) {
+          this.#pendingStrategy = false;
+        }
       }
-      if (strategyResult === "overflow") {
-        this.#dropTransport("전략 큐 상한");
-        return;
-      }
-      if (batch.strategyCaughtUp) this.#pendingStrategy = false;
     }
     if (batch.caughtUp) this.#pendingJournal = false;
     if (!this.#pendingJournal && !this.#pendingStrategy) this.#setState("live");
@@ -416,6 +453,21 @@ export class JournalObserver extends EventEmitter {
     transport?.stopReconnect("관찰자 로그인 거부");
     transport?.destroy();
     this.#setState("rejected");
+  }
+
+  /**
+   * 전략 수신만 멈춘다(WR-01) — 소켓은 유지하고 주문 저널은 계속 받는다. 전략 pending 을 내려 주문 caught_up 만으로
+   * live 에 머물게 한다(전략 쪽 장애가 `journal.state` · `/healthz` 503 으로 번지지 않게). 조용히 멈추지 않는다(S-5).
+   */
+  #pauseStrategy(reason: StrategyPauseReason, ctx: Record<string, unknown>): void {
+    this.#strategyPaused = reason;
+    this.#pendingStrategy = false;
+    logger.error(
+      { gateway: this.#deps.gateway, reason, strategyLastReceivedSeq: this.#deps.strategyWriter?.lastReceivedSeq ?? null, ...ctx },
+      reason === "overflow"
+        ? "[JOURNAL] 전략 큐 상한 — 전략 수신만 일시 중지(주문 저널은 계속 · 큐가 비면 재로그인으로 이어받는다)"
+        : "[JOURNAL] 전략 이벤트 필수 키 계약 위반 — 전략 수신만 중지(주문 저널은 계속 · 게이트웨이 수정 필요)",
+    );
   }
 
   /** 현재 전송을 끊는다. 백오프 카운터는 두고 DmaClient 가 재접속한다. */
