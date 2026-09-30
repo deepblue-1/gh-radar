@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import type { RelayQueuedWindowMsg } from '@gh-radar/shared';
+import type { RelayQueuedWindowMsg, RelayQuoteStateMsg, RelaySubLimitMsg } from '@gh-radar/shared';
 
 /**
  * Phase 18 Plan 11 Task 1 — 작업대 상태줄 (D-04 · D-05 · D-17 · D-22 · E1, TRADE-09).
@@ -13,7 +13,9 @@ import type { RelayQueuedWindowMsg } from '@gh-radar/shared';
  *   - 단 수 세그먼트: 클릭 → localStorage 저장 + `onColsChange`. 폰 밴드면 DOM 에서 빠진다.
  *   - 알림음 토글: 아이콘 전용 · 기본 꺼짐 · 차단이면 「클릭해 활성화」 · `resumeToneContext` 는 클릭 안에서.
  *   - 알림 묶음에는 돌파 알림음 하나뿐이다 — VI 브라우저 알림 토글은 기능째 제거(quick-260922-tqr).
- *   - DMA 필에 재시도 버튼이 없다(자동 재연결).
+ *   - 주문(옛 DMA) 필에 재시도 버튼이 없다(자동 재연결).
+ *   - Phase 26 배지 2축(26-13 채택안 안 B): 시세 필은 모르면 없고 · live 「시세」 · down 「HH:MM:SS~ 멈춤」 적색 ·
+ *     구독 한도는 title · 주문 필은 ready 면 「주문」 뿐.
  */
 
 const toneState = { blocked: false };
@@ -56,6 +58,8 @@ function props(over: Partial<WorkbenchStatusBarProps> = {}): WorkbenchStatusBarP
   return {
     status: 'ready',
     statusLabel: '실시간',
+    quoteState: null,
+    subLimit: null,
     queuedWindow: undefined,
     appliedAt: null,
     cols: 1,
@@ -130,8 +134,9 @@ describe('WorkbenchStatusBar — 핵심만 (목록 개수·임계 문구 없음)
     expect(screen.queryByTestId('stat-breakout')).toBeNull();
     expect(screen.queryByTestId('stat-vi')).toBeNull();
     expect(screen.queryByTestId('stat-cards')).toBeNull();
-    // 남는 것: DMA · 구간 배지 · 반영 시각 · 단 수
-    expect(slot('workbench-dma')?.textContent).toBe('DMA 실시간');
+    // 남는 것: 주문 · 구간 배지 · 반영 시각 · 단 수 (시세 상태를 모르면 시세 필은 없다)
+    expect(visibleText(slot('workbench-dma') as Element)).toBe('주문');
+    expect(slot('workbench-quote')).toBeNull();
     expect(slot('workbench-window-badge')?.textContent).toBe('장전 · 예약매수/매도');
     expect(screen.getByTestId('stat-applied').textContent).toBe('반영 09:41:52');
     expect(screen.getByRole('group', { name: '카드 단 수' })).toBeTruthy();
@@ -218,13 +223,70 @@ describe('WorkbenchStatusBar — 돌파 알림음 (D-17)', () => {
   });
 });
 
-describe('WorkbenchStatusBar — DMA 필 (E1 error)', () => {
+describe('WorkbenchStatusBar — 주문 필 (E1 error)', () => {
   it('끊김/재연결은 필 하나가 말하고 재시도 버튼이 없다', () => {
     render(<WorkbenchStatusBar {...props({ status: 'connecting', statusLabel: '연결 중' })} />);
     const dma = slot('workbench-dma') as HTMLElement;
-    expect(dma.textContent).toBe('DMA 연결 중');
+    expect(dma.textContent).toBe('주문 연결 중');
     expect(within(dma).queryByRole('button')).toBeNull();
     expect(screen.queryByRole('button', { name: /다시|재시도|재연결/ })).toBeNull();
+  });
+});
+
+describe('WorkbenchStatusBar — 시세 필 (D-01 · D-04)', () => {
+  const live: RelayQuoteStateMsg = { t: 'quote.state', s: 'live' };
+  const down: RelayQuoteStateMsg = { t: 'quote.state', s: 'down', since: '2026-09-30T00:41:52.000Z' };
+  const limit: RelaySubLimitMsg = { t: 'sub.limit', i: 'KR7123450002', x: 'KRX', scope: 'user' };
+
+  it('quoteState 가 null(모름)이면 시세 필이 DOM 에 없다 — 주문 필만', () => {
+    render(<WorkbenchStatusBar {...props({ quoteState: null, subLimit: limit })} />);
+    expect(slot('workbench-quote')).toBeNull();
+    expect(slot('workbench-dma')).not.toBeNull();
+  });
+
+  it('live → 「● 시세」 · data-tone ok · aria-live polite · 주문 필 앞 · 점은 --led-armed', () => {
+    render(<WorkbenchStatusBar {...props({ quoteState: live })} />);
+    const quote = slot('workbench-quote') as HTMLElement;
+    expect(quote).toHaveAttribute('data-tone', 'ok');
+    expect(quote).toHaveAttribute('aria-live', 'polite');
+    expect(visibleText(quote)).toBe('시세');
+    expect(quote.textContent).toBe('시세 실시간');
+    expect(quote.querySelector('[aria-hidden="true"]')?.className).toContain('bg-[var(--led-armed)]');
+    expect(quote).not.toHaveAttribute('title');
+    // 채택안 순서 — 시세 필이 주문 필 앞에 선다.
+    const dma = slot('workbench-dma') as HTMLElement;
+    expect(quote.compareDocumentPosition(dma) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('down → 「● 시세 09:41:52~ 멈춤」(KST) · data-tone down · 점 · 상태어 --destructive · --up 없음', () => {
+    render(<WorkbenchStatusBar {...props({ quoteState: down })} />);
+    const quote = slot('workbench-quote') as HTMLElement;
+    expect(quote).toHaveAttribute('data-tone', 'down');
+    expect(visibleText(quote)).toBe('시세 09:41:52~ 멈춤');
+    expect(quote.querySelector('[aria-hidden="true"]')?.className).toContain('bg-[var(--destructive)]');
+    expect(quote.querySelector('b')?.className).toContain('text-[var(--destructive)]');
+    expect(quote.outerHTML).not.toContain('--up');
+  });
+
+  it('시세가 끊겨도 주문 필은 사용자 DMA 세션 상태를 따로 말한다', () => {
+    render(<WorkbenchStatusBar {...props({ quoteState: down, status: 'ready', statusLabel: '실시간' })} />);
+    const dma = slot('workbench-dma') as HTMLElement;
+    expect(visibleText(dma)).toBe('주문');
+    expect(dma.querySelector('[data-tone]')).toHaveAttribute('data-tone', 'ok');
+  });
+
+  it('구독 한도는 칩이 아니라 시세 필 title — 종목명 · 코드 · 거래소', () => {
+    render(
+      <WorkbenchStatusBar
+        {...props({ quoteState: live, subLimit: limit, subLimitLabel: { name: '○○바이오', code: '123450' } })}
+      />,
+    );
+    const quote = slot('workbench-quote') as HTMLElement;
+    expect(quote.getAttribute('title')).toBe(
+      '구독 한도 — 내 구독 종목이 200개에 닿아 ○○바이오(123450 · KRX) 시세를 받지 못했어요. 쓰지 않는 카드를 닫으면 다시 받을 수 있어요.',
+    );
+    expect(visibleText(quote)).toBe('시세');
+    expect(slot('workbench-sub-limit')).toBeNull();
   });
 });
 

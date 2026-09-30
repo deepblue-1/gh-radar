@@ -185,7 +185,7 @@ import { OrderLogFeedProvider } from "@/components/trading/order-log/order-log-f
 import { useAuth } from "@/lib/auth-context";
 import { readColsPref, type TradingCols } from "@/lib/breakout-list";
 import { exchangeChoicesOf } from "@/lib/exchange-choices";
-import { useIsinLabels } from "@/lib/isin-labels";
+import { useIsinLabels, type IsinLabel } from "@/lib/isin-labels";
 import { exchangeLabeledName, isActiveStrategy, parseStrategyKey, strategyKey } from "@/lib/limit-chaser";
 import { useNativeRefresh } from "@/lib/native/use-native-refresh";
 import { useRelayContext } from "@/lib/relay-provider";
@@ -1330,6 +1330,18 @@ function WorkbenchSurface() {
   const exchangeCopy = exchangeCopyRef.current;
 
   /*
+    Phase 26 D-01 — 구독 한도 거부 종목의 표시 라벨(시세 필 title). 거부는 카드가 구독할 때 나므로 카드가 아는
+    이름 · 코드가 먼저이고, 없으면 relay 라벨 역매핑이다. 둘 다 모르면 문구가 ISIN 원문을 쓴다(지어내지 않는다).
+  */
+  const subLimit = relay.subLimit;
+  const subLimitLabel = useMemo<IsinLabel | undefined>(() => {
+    if (subLimit === null) return undefined;
+    const card = cards.find((c) => c.isin === subLimit.i);
+    const known = labels.get(subLimit.i);
+    return { name: card?.name ?? known?.name, code: card?.code ?? known?.code };
+  }, [subLimit, cards, labels]);
+
+  /*
     주문로그 피드(Phase 25-07 · D-07)는 작업대 마운트 1회 — 공용 패널 「주문로그」 탭 · 카드 탭이 같은 피드를 읽는다.
     게이트 뒤(이 표면은 게이트를 통과해야 렌더된다)라 권한 없는 사용자는 조회하지 않는다. 25-10 — Provider 가 이
     표면의 폰 밴드(⑤)를 함께 실어 카드 탭 주문로그가 같은 판정을 쓴다(새 경계 · 컨테이너 선언 없음).
@@ -1363,6 +1375,9 @@ function WorkbenchSurface() {
           className="flex-[1_1_auto]"
           status={status}
           statusLabel={statusLabel}
+          quoteState={relay.quoteState}
+          subLimit={subLimit}
+          subLimitLabel={subLimitLabel}
           queuedWindow={queuedWindow}
           appliedAt={appliedAt}
           cols={cols}

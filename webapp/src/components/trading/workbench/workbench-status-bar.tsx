@@ -36,12 +36,27 @@
  *   relay 끊김/재연결은 DMA 필 **하나**가 말한다(● 색 + 라벨). 자동 재연결 중에는 버튼이 없다.
  *   자동 복구를 포기한 상태(작업대가 `onReconnect` 를 넘길 때)에만 「다시 연결」이 선다 — 18-10
  *   호가 탭 상태줄과 같은 규율. 주문·설정 오류는 이 줄이 아니라 해당 폼의 인라인 `role="status"` 몫이다.
+ *
+ * ⑥ ★ 배지 2축 — 「시세」 · 「주문」 (Phase 26 D-01 · D-04 · 26-13 채택안 안 B 점형)
+ *   정본은 목업 `.planning/phases/26-shared-quote-feed/reference/quote-badge-mockup.html` 머리 「26-14 정본 목록」.
+ *   판정은 `quotePillOf` · `orderPillOf`(`lib/quote-state.ts`) 한 곳이고 My page 상태줄도 같은 함수를 쓴다.
+ *   - 시세 필(`workbench-quote`)은 주문 필 앞에 서고, relay 가 시세 상태를 모르면(`quoteState === null`)
+ *     **없다**. 정상 「● 시세」 · 끊김 「● 시세 HH:MM:SS~ 멈춤」(점 · 상태어 `--destructive`). 구독 한도는
+ *     칩이 아니라 이 필의 `title` 이다.
+ *   - 주문 필은 옛 DMA 필 자리(`workbench-dma` · `aria-live` 유지 — a11y e2e 가 이 슬롯을 본다)이고 사용자
+ *     DMA 세션만 말한다. ready 면 「● 주문」 뿐, 그 밖은 `RELAY_STATE_LABELS` 문구(⑤ 규율 그대로).
+ *   - 시세가 끊겨도 호가 · 체결 숫자는 흐리지도 비우지도 않는다(D-04 — 끊긴 시각은 이 필에만).
+ *   - 상태 적색은 `--destructive` 다. 가격 방향 토큰(`--up`)을 상태에 쓰지 않는다.
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { Volume2, VolumeX } from "lucide-react";
-import type { RelayAccount, RelayQueuedWindowMsg } from "@gh-radar/shared";
-import { RELAY_STATE_LABELS } from "@gh-radar/shared";
+import type {
+  RelayAccount,
+  RelayQueuedWindowMsg,
+  RelayQuoteStateMsg,
+  RelaySubLimitMsg,
+} from "@gh-radar/shared";
 
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -52,7 +67,9 @@ import {
   writeTonePref,
   type TradingCols,
 } from "@/lib/breakout-list";
+import type { IsinLabel } from "@/lib/isin-labels";
 import { queuedWindowBadgeOf } from "@/lib/queued-window";
+import { orderPillOf, quotePillOf } from "@/lib/quote-state";
 import type { RelayStatus } from "@/lib/use-relay-socket";
 import { cn } from "@/lib/utils";
 
@@ -62,17 +79,15 @@ export const ACCOUNT_PILL_TITLE =
 
 const COLS: readonly TradingCols[] = [1, 2, 3];
 
-/** 점멸 도트를 쓰는 진행 상태 — 옛 상따·VI 상태줄과 같은 집합이다. */
-const PROGRESS_STATES: ReadonlySet<RelayStatus> = new Set<RelayStatus>([
-  "idle",
-  "connecting",
-  "logging_in",
-  "declaring",
-]);
-
 export interface WorkbenchStatusBarProps {
   status: RelayStatus;
   statusLabel: string;
+  /** 시세 전용 공유 연결 상태(⑥). `null` = relay 가 모름 → 시세 필 없음. */
+  quoteState: RelayQuoteStateMsg | null;
+  /** 구독 한도 거부 최신 1건(⑥). `null` = 없음 → 시세 필 title 없음. */
+  subLimit: RelaySubLimitMsg | null;
+  /** `subLimit.i` 의 표시 라벨(종목명 · 단축코드). 모르면 생략 — 문구가 ISIN 원문을 쓴다. */
+  subLimitLabel?: IsinLabel;
   /** 77 창 힌트. `undefined` = 모름 → 배지 없음(②). */
   queuedWindow: RelayQueuedWindowMsg | undefined;
   /** 서버 push 반영 시각 `HH:MM:SS`. `null` = 아직 없음 → 「—」. */
@@ -89,6 +104,9 @@ export interface WorkbenchStatusBarProps {
 export function WorkbenchStatusBar({
   status,
   statusLabel,
+  quoteState,
+  subLimit,
+  subLimitLabel,
   queuedWindow,
   appliedAt,
   cols,
@@ -97,7 +115,8 @@ export function WorkbenchStatusBar({
   onReconnect,
   className,
 }: WorkbenchStatusBarProps) {
-  const label = statusLabel === "" ? RELAY_STATE_LABELS.connecting : statusLabel;
+  const quote = quotePillOf(quoteState, subLimit, subLimitLabel);
+  const order = orderPillOf(status, statusLabel);
   const badge = queuedWindowBadgeOf(queuedWindow);
 
   const pickCols = (value: string) => {
@@ -119,17 +138,57 @@ export function WorkbenchStatusBar({
         className,
       )}
     >
+      {quote !== null && (
+        <span
+          data-slot="workbench-quote"
+          aria-live="polite"
+          data-tone={quote.tone}
+          title={quote.title ?? undefined}
+          className="inline-flex items-center gap-1.5 whitespace-nowrap"
+        >
+          <span
+            aria-hidden="true"
+            className={cn(
+              "block size-[7px] shrink-0 rounded-full",
+              quote.tone === "ok" ? "bg-[var(--led-armed)]" : "bg-[var(--destructive)]",
+            )}
+          />
+          {quote.label}
+          {quote.detail !== null && (
+            <>
+              {" "}
+              <b
+                className={cn(
+                  "font-semibold",
+                  quote.tone === "down" ? "text-[var(--destructive)]" : "text-[var(--fg)]",
+                )}
+              >
+                {quote.detail}
+              </b>
+            </>
+          )}
+          {quote.srDetail !== null && <span className="sr-only"> {quote.srDetail}</span>}
+        </span>
+      )}
+
       <span data-slot="workbench-dma" aria-live="polite" className="inline-flex items-center gap-1.5 whitespace-nowrap">
         <span
           aria-hidden="true"
-          data-tone={status === "ready" ? "ok" : "off"}
+          data-tone={order.tone}
           className={cn(
             "block size-[7px] shrink-0 rounded-full",
-            status === "ready" ? "bg-[var(--led-armed)]" : "bg-[var(--flat)]",
-            PROGRESS_STATES.has(status) && "animate-pulse motion-reduce:animate-none",
+            order.tone === "ok" ? "bg-[var(--led-armed)]" : "bg-[var(--flat)]",
+            order.pulse && "animate-pulse motion-reduce:animate-none",
           )}
         />
-        DMA <b className="font-semibold text-[var(--fg)]">{label}</b>
+        {order.label}
+        {order.detail !== null && (
+          <>
+            {" "}
+            <b className="font-semibold text-[var(--fg)]">{order.detail}</b>
+          </>
+        )}
+        {order.srDetail !== null && <span className="sr-only"> {order.srDetail}</span>}
       </span>
 
       {badge !== null && (
