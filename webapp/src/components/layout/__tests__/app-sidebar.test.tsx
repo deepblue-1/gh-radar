@@ -535,8 +535,8 @@ describe("AppSidebar — 3단 목록 (D-03 · E16)", () => {
 
     expect(tradingSubList()).toBeNull();
     const title = screen.getByRole("link", { name: "트레이딩" });
-    // 제목 다음 형제는 곧바로 My page 다.
-    expect(title.closest("li")?.nextElementSibling?.querySelector("a")).toHaveAccessibleName("My page");
+    // 제목 다음 형제는 곧바로 AI 애널리스트다.
+    expect(title.closest("li")?.nextElementSibling?.querySelector("a")).toHaveAccessibleName("AI 애널리스트");
     expect(screen.queryByText("등록된 전략 없음")).toBeNull();
   });
 

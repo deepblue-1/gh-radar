@@ -74,9 +74,9 @@ const LED_TONES: readonly (readonly string[])[] = [
  * 전략 항목을 뺀 링크 5개 — **순서까지** 계약이다. 「트레이딩」은 이제 소제목이 아니라 링크다.
  * 「검색」(`/search`)은 Phase 21 D-07 이 홈 바로 아래에 더한 단독 링크다. 검색 허브 하위 3페이지는
  * 사이드바에서 빠지고 허브 타일로만 들어간다(quick-260926-o2u D1).
- * 전략 3건은 「트레이딩」과 「My page」 사이에 선다(VI 미가동 — VI 줄 없음).
+ * 전략 3건은 「트레이딩」과 「AI 애널리스트」 사이에 선다(VI 미가동 — VI 줄 없음).
  */
-const TREE_LINKS = ['홈', '검색', '트레이딩', 'My page', 'AI 애널리스트'];
+const TREE_LINKS = ['홈', '검색', '트레이딩', 'AI 애널리스트', 'My page'];
 
 // ---------------------------------------------------------------------------
 // 조회구 — 트리를 반드시 좁힌다 (위 ④)
@@ -153,7 +153,7 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     await waitForTradingGroup(nav);
     await expect(strategyItems(nav)).toHaveCount(3, { timeout: 15_000 });
 
-    // 링크 순서가 계약대로다 — 전략 3건은 트레이딩과 My page 사이.
+    // 링크 순서가 계약대로다 — 전략 3건은 트레이딩과 AI 애널리스트 사이.
     expect(await linkOrder(nav)).toEqual([
       ...TREE_LINKS.slice(0, 3),
       'strategy',

@@ -5,10 +5,10 @@ current_phase: 25
 current_phase_name: order-log-progress
 status: verifying
 stopped_at: Phase 26 context gathered
-last_updated: "2026-09-30T07:07:03.060Z"
+last_updated: "2026-09-30T11:40:14.892Z"
 last_activity: 2026-09-30
 last_activity_desc: "25-13 완료 — WR-02 수정 · relay:6821181b 배포 · push 6289e430..6821181b"
-state_head: da0b010cdb5fad617201ecfa5f3cbfb9f4c9739a
+state_head: 72c1fb5b75a40b42d8bad952e9f65ef5868ac960
 progress:
   total_phases: 35
   completed_phases: 4
@@ -519,6 +519,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 260930-fi4 | **gh-trade a09dfc8b 동기화 — 83 first_filled · 추가매수 포기 수량 · OrderGroup 7/8** — 생성물 4파일(SYNC d303fe9f · buy_watch_side 슬롯 24 봉인 동반 → relay 상수 "0") · relay 83 firstFilled 파서·hub 통과 · 60/64/11.2 extraBuyAbandonQty 디코드(C→S 미적재) · 웹 보조행 「{그룹} · N주 / 0주 / 체결 시작」(막대 고정) · 전략 로그 「추가매수 포기 · 최대 초과 N」. 배포 대기(relay 먼저 → push → gh-trade 120) · 후속: buyWatchSide 죽은 필드 · lc.arm latch "buy" 관용 제거 | 2026-09-30 | 5b29b842 · 5fa405d8 · 3aac9a27 | [260930-fi4-83-first-filled-ordergroup-7-8-relay](./quick/260930-fi4-83-first-filled-ordergroup-7-8-relay/) |
 | 260930-lm7 | **오늘주문 신규 상장 종목명 — ISIN 대신 이름** — 원인: 오늘 상장 종목은 master-sync(08:10 · 전 영업일 KRX) 전이라 `stocks.isin` 이 비어 있음(intraday-sync bootstrap 은 code·name 만). `fetchStockNames` 가 isin 미해결 보통주 ISIN 만 단축코드로 한 번 더 조회(우선주 제외). 오늘주문 · 주문로그 공통. 세션 초 조회 실패(상장 전 bootstrap 전)는 null 캐시라 새로고침 필요 | 2026-09-30 | 359c755b · 1f21acff · 6adaa5ef | [260930-lm7-isin](./quick/260930-lm7-isin/) |
 | 260930-lq5 | **카드 주문로그 · 전략로그 → 버튼 + 한 종목 팝업** — 카드 탭은 정보 · 미체결 · 잔고만, 오른쪽 「주문로그(새 줄 배지)」 · 「전략로그」 버튼이 그 카드 종목 · 거래소 · 계좌 전용 다이얼로그를 연다(목업 v2 A). 주문로그 = 요약 한 줄 · 구분 필터 · 6열 표(시각 · 주문번호 뒤 4자리 · 구분 · 행위 · 내용 · 누적) · 위→아래 시간 흐름 · 창 분리 유지. 전략로그 = 시각 · 내용 · 오류만. 폰(<640) 전체 화면 두 줄 행. VI/돌파 알림 탭 → 정보. 공용 패널은 그대로 | 2026-09-30 | a4b45562 · 4d7683ff · 529af3e4 | [260930-lq5-log-popup](./quick/260930-lq5-log-popup/) |
+| 51 | 사이드바 메뉴 순서 교체 — AI 애널리스트를 My page 위로 | 2026-09-30 | 72c1fb5b | — |
 
 ## Session Continuity
 

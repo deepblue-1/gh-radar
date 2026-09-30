@@ -31,7 +31,7 @@ import { UserSection } from "./user-section";
  * 트리 (2단 + 트레이딩 3단 — Phase 18 D-03 이 트레이딩 그룹을 다시 짰다):
  *   홈 · 검색(`/search`, Phase 21 D-07)
  *   · [트레이딩 = `/trading` 링크] VI(가동 거래소 태그만 · 둘 다 꺼지면 없음) / 등록된 상따 전략 N개
- *   · My page · AI 애널리스트
+ *   · AI 애널리스트 · My page(트레이딩과 같은 노출 조건)
  *   상승률 상위 · 테마 · 관심종목은 사이드바에 없다 — `/search` 허브 타일로만 들어간다(quick-260926-o2u D1).
  *
  * ① 그룹 제목은 이제 「트레이딩」(링크) 하나뿐이다
@@ -448,15 +448,17 @@ export function AppSidebar() {
                 </ul>
               </li>
             )}
-            <li>
-              <NavLink item={NAV_ME} active={isActive(NAV_ME.href)} rail={rail} />
-            </li>
           </>
         )}
 
         <li>
           <NavLink item={NAV_CHAT} active={isActive(NAV_CHAT.href)} rail={rail} />
         </li>
+        {tradingVisible && (
+          <li>
+            <NavLink item={NAV_ME} active={isActive(NAV_ME.href)} rail={rail} />
+          </li>
+        )}
       </ul>
       {/*
         하단 한 줄 — 유저 섹션과 테마 토글이 나란히 선다. 토글이 탑바를 떠나 여기로 왔다.
