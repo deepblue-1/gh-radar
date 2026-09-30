@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 26
 current_phase_name: 시세 전용 공유 연결 — relay 종목 단위 팬아웃
 status: executing
-stopped_at: Completed 26-11-PLAN.md
-last_updated: "2026-09-30T15:02:45.545Z"
+stopped_at: Completed 26-12-PLAN.md
+last_updated: "2026-09-30T15:14:54.326Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 26 execution started
-state_head: f0efabb0e5ad62255fe0bf9793595561fb66ea98
+state_head: e752be53ccaf16e51cf7569fcb6fd369c5fe3704
 progress:
   total_phases: 35
   completed_phases: 4
   total_plans: 352
-  completed_plans: 332
+  completed_plans: 333
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 26 (시세 전용 공유 연결 — relay 종목 단위 팬아웃) — EXECUTING
-Plan: 12 of 15
+Plan: 13 of 15
 Plans completed: 220 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
@@ -184,6 +184,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 26 P09 | 5min | 2 tasks | 6 files |
 | Phase 26 P10 | 13min | 2 tasks | 5 files |
 | Phase 26 P11 | 10min | 2 tasks | 9 files |
+| Phase 26 P12 | 10min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -481,6 +482,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 26]: 83 재송신 넛지: 사용자의 이 세션 첫 참조가 이미 업스트림(live · linger)인 키면 같은 실효 level 29(true) 1건, 사용자 세션 Ready 에 참조 > 0 키마다 1건 — 승격 · 강등 29 가 나가는 호출은 생략 (26-11)
 - [Phase 26]: #userRefs 는 「본 키」 기억(참조 0 보존) — 사용자 한도는 active(참조 > 0) 계수로 판정, #releaseKey · #clearCaches 가 정리 (26-11)
 - [Phase 26]: QuoteStatus = quote.state 프레임(3초 디바운스) · healthz 7키의 한 원천. quoteAlerting 은 rejected · role_mismatch 즉시, 그 밖 장중 60초 (26-11)
+- [Phase 26]: 26-12: quote 는 journalGateways 와 달리 /healthz 503 축 — 폴백 없음(D-03)이라 단일 장애점 · 판정은 quoteAlerting 한 벌(장중 60초 · 거부/역할 불일치 즉시)
+- [Phase 26]: 26-12: quote.state 는 인증 직후 알 때만 스냅샷 · 전이는 #users 전 연결 · 미등록 0 — webapp 은 quoteState/subLimit 최신 1건만 보관하고 isStale 불변(D-04)
 
 ### Pending Todos
 
@@ -563,8 +566,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-09-30T15:02:44.575Z
-Stopped at: Completed 26-11-PLAN.md
+Last session: 2026-09-30T15:14:53.358Z
+Stopped at: Completed 26-12-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
