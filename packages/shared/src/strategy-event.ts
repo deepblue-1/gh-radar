@@ -29,7 +29,11 @@ export const STRATEGY_EVENT_KIND = {
   Rejected: 8,
 } as const;
 
-/** `OrderGroup` (G1 (c) · ubyte · 0 = None). 1~3 매수 · 4~6 매도. */
+/**
+ * `OrderGroup` (G1 (c) · ubyte · 0 = None). 1~3 매수 · 4~6 매도 · 7 수동 · 8 VI 자동주문(gh-trade 말미 추가
+ * 2026-09-30 — 번호 0~6 불변). 7 · 8 은 조건 필드가 비어 오고(cond_metric 0 · ev_kind 0 · reason_code "")
+ * 방향은 group 만이 아니라 kind 로 정한다 — `strategyEventSide`.
+ */
 export const ORDER_GROUP = {
   None: 0,
   PreBuy: 1,
@@ -38,6 +42,8 @@ export const ORDER_GROUP = {
   SellQuote: 4,
   SellTrade: 5,
   SellFillHook: 6,
+  Manual: 7,
+  VITrigger: 8,
 } as const;
 
 /**

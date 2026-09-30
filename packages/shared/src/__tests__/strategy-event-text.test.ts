@@ -6,7 +6,7 @@ import {
   strategyEventKey,
   toStrategyEventRow,
 } from "../strategy-event";
-import { condMetricLabel, orderGroupLabel, orderGroupSide, reasonOperator, strategyKindLabel } from "../strategy-event-labels";
+import { condMetricLabel, orderGroupLabel, reasonOperator, strategyEventSide, strategyKindLabel } from "../strategy-event-labels";
 import { formatKstMs, formatSigned, orderLogLineText, strategyEventParts, timelineStrategyText } from "../strategy-event-text";
 import {
   FIXTURE_STOCK_NAME,
@@ -71,11 +71,11 @@ describe("표시명 표 (D-10)", () => {
   it("모르는 코드는 원문 숫자 · 연산자는 reason_code 원문 정확 일치로만", () => {
     expect(strategyKindLabel(3)).toBe("주문");
     expect(strategyKindLabel(99)).toBe("99");
-    expect(orderGroupSide(1)).toBe("buy");
-    expect(orderGroupSide(5)).toBe("sell");
-    expect(orderGroupSide(0)).toBeNull();
-    expect(condMetricLabel(3, 1)).toBe("단건 체결");
-    expect(condMetricLabel(3, 5)).toBe("단건 매도체결");
+    expect(strategyEventSide(1, 3)).toBe("buy");
+    expect(strategyEventSide(5, 3)).toBe("sell");
+    expect(strategyEventSide(0, 3)).toBeNull();
+    expect(condMetricLabel(3, "buy")).toBe("단건 체결");
+    expect(condMetricLabel(3, "sell")).toBe("단건 매도체결");
     expect(reasonOperator("PreBuy B6Buy3 매물소진(매도1호가==감시가 && 잔량<=감시수량)")).toBe("≤");
     expect(reasonOperator("PreBuy B6Buy3")).toBeNull();
     expect(reasonOperator("")).toBeNull();
@@ -346,5 +346,48 @@ describe("조립기 — 주문 이벤트 갈래 (Phase 25-04 Task 2)", () => {
   it("formatKstMs — 자정 직후 00:00:00.007 · NaN 은 —", () => {
     expect(formatKstMs(kstMs("2026-09-30", "00:00:00.007"))).toBe("00:00:00.007");
     expect(formatKstMs(Number.NaN)).toBe("—");
+  });
+});
+
+/**
+ * quick-260930-e73 — gh-trade `OrderGroup` 말미 추가 7 Manual(수동) · 8 VITrigger(VI 자동주문).
+ * 수동/VI 주문은 조건 필드가 비어 온다(cond_metric 0 · ev_kind 0 · reason_code "") — 조건 자리에 출처 문구를
+ * 그리고, 방향은 group + kind 로 정한다. 픽스처는 건드리지 않고 기존 행을 펼쳐 만든다.
+ */
+const EMPTY_CONDITION = {
+  condMetric: 0,
+  condThreshold: 0,
+  condActual: 0,
+  evKind: 0,
+  evPrice: 0,
+  evQtyBefore: 0,
+  evQtyAfter: 0,
+  evTradeQty: 0,
+  reasonCode: "",
+} as const;
+
+const MANUAL_BUY = { ...STRATEGY_DAY_BY_NAME.buy12451!, group: 7, ...EMPTY_CONDITION };
+
+const EXPECTED_MANUAL_BUY_LINE =
+  "[09:45:02.861][12451][수동] KRX | ○○전자 | 주문 · 수동 주문 · 12,350×300주 · 접수 +18ms | 누적 861,800";
+
+describe("수동 · VI 주문 (quick-260930-e73)", () => {
+  it("수동 매수 주문(조건 빈 값) → F-A 한 줄 · 구분 수동 · tone buy · 조건 자리 「수동 주문」", () => {
+    expect(orderLogLineText(MANUAL_BUY, FIXTURE_STOCK_NAME)).toBe(EXPECTED_MANUAL_BUY_LINE);
+    const parts = strategyEventParts(MANUAL_BUY, "log");
+    expect(parts.badge).toBe("수동");
+    expect(parts.tone).toBe("buy");
+    expect(parts.action).toBe("주문");
+  });
+
+  it("수동 매수의 상한가 매수잔량은 0 일 때만 생략 — 값이 있으면 그린다", () => {
+    expect(strategyEventParts(MANUAL_BUY, "log").body).not.toContain("상한가 매수잔량");
+    expect(strategyEventParts({ ...MANUAL_BUY, limitBidQty: 152_000 }, "log").body).toContain("상한가 매수잔량 152,000");
+  });
+
+  it("상따 매수(group 1)는 상한가 매수잔량 0 을 그대로 그린다 — 기존 골든 바이트 동일", () => {
+    const buy = STRATEGY_DAY_BY_NAME.buy12451!;
+    expect(buy.limitBidQty).toBe(0);
+    expect(orderLogLineText(buy, FIXTURE_STOCK_NAME)).toBe(EXPECTED_BUY_LINE);
   });
 });

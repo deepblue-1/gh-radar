@@ -13,6 +13,9 @@
  * (주문 줄만 — R9) 뿐이다. 서버 문자열은 판정에 쓰지 않는다 — `message` 는 원문 그대로 붙이고(D-36),
  * `reason_code` 는 연산자 표 정확 일치 조회만 한다.
  *
+ * 7 수동 · 8 VI 는 조건이 빈 주문 줄의 조건 자리에 출처 문구(수동 주문 · VI 자동주문)를 그린다 · 방향은
+ * group + kind(`strategyEventSide`) — 수동은 매수 · 매도 겸용이라 group 만으로 방향을 읽지 않는다(quick-260930-e73).
+ *
  * 시각은 KST 로 고정한다 — 브라우저 로캘 · 시간대가 달라도 같은 문자열(트레이더 대조 · 골든 테스트).
  */
 import { isMarketStrategyEvent, type StrategyEventRow } from "./strategy-event";
@@ -21,8 +24,9 @@ import {
   condMetricLabel,
   orderConditionLabel,
   orderGroupLabel,
-  orderGroupSide,
+  orderGroupOriginText,
   reasonOperator,
+  strategyEventSide,
   strategyKindLabel,
 } from "./strategy-event-labels";
 
@@ -96,12 +100,12 @@ export function strategyEventParts(ev: StrategyEventRow, surface: "log" | "timel
         cum,
       };
     case 3:
-      return { ...orderBadge(ev.group), action: strategyKindLabel(3), body: buyOrderBody(ev), cum };
+      return { ...orderBadge(ev), action: strategyKindLabel(3), body: buyOrderBody(ev), cum };
     case 4: {
       // 전량 즉시체결 = Queued qty 0 · immediate_fill_qty = 전량 (gh-trade 정정 2026-09-29) — 대기가 없다.
       const allFilled = ev.qty === 0 && ev.immediateFillQty > 0;
       return {
-        ...orderBadge(ev.group),
+        ...orderBadge(ev),
         action: allFilled ? "즉시체결" : strategyKindLabel(4),
         body: queuedBody(ev, allFilled),
         cum,
@@ -109,18 +113,18 @@ export function strategyEventParts(ev: StrategyEventRow, surface: "log" | "timel
     }
     case 5:
       return {
-        ...orderBadge(ev.group),
+        ...orderBadge(ev),
         action: surface === "timeline" ? "첫 체결" : strategyKindLabel(5),
         body: `오차 ${formatSigned(ev.errorVolume)}`,
         cum,
       };
     case 6:
-      return { ...orderBadge(ev.group), action: strategyKindLabel(6), body: sellOrderBody(ev), cum };
+      return { ...orderBadge(ev), action: strategyKindLabel(6), body: sellOrderBody(ev), cum };
     case 7:
-      return { ...orderBadge(ev.group), action: strategyKindLabel(7), body: cancelledBody(ev), cum };
+      return { ...orderBadge(ev), action: strategyKindLabel(7), body: cancelledBody(ev), cum };
     case 8:
       // 거부 사유는 서버 원문 그대로 — 쪼개 읽거나 판정하지 않는다(D-36 · T-17-33).
-      return { ...orderBadge(ev.group), action: strategyKindLabel(8), body: ev.message, cum };
+      return { ...orderBadge(ev), action: strategyKindLabel(8), body: ev.message, cum };
     default:
       // D-10 모르는 kind — 그룹을 알아도 행위 · 본문 · 방향색을 지어내지 않는다.
       return { badge: orderGroupLabel(ev.group) ?? String(ev.kind), tone: "unknown", action: String(ev.kind), body: "", cum };
@@ -137,9 +141,12 @@ function formatQty(n: number): string {
   return n < 0 ? `${MINUS}${NUM.format(-n)}` : NUM.format(n);
 }
 
-/** 주문 이벤트 구분 칸 — 그룹 표시명 · 방향색. 모르는 그룹(0 포함)은 원문 숫자 · unknown(방향을 지어내지 않는다). */
-function orderBadge(group: number): Pick<StrategyEventParts, "badge" | "tone"> {
-  return { badge: orderGroupLabel(group) ?? String(group), tone: orderGroupSide(group) ?? "unknown" };
+/**
+ * 주문 이벤트 구분 칸 — 그룹 표시명 · 방향색(group + kind). 모르는 그룹(0 포함) · 방향을 정할 수 없는 수동
+ * 이벤트(거부 등)는 unknown — 방향을 지어내지 않는다.
+ */
+function orderBadge(ev: StrategyEventRow): Pick<StrategyEventParts, "badge" | "tone"> {
+  return { badge: orderGroupLabel(ev.group) ?? String(ev.group), tone: strategyEventSide(ev.group, ev.kind) ?? "unknown" };
 }
 
 /** 상한가노출 본문: (시초 상한가 · ) 매도잔량 N. */
@@ -165,12 +172,16 @@ function limitEnteredBody(ev: StrategyEventRow): string {
   return joinDot([`잔량/누적 ${snaps[0]}`, ...snaps.slice(1), tail]);
 }
 
-/** BuyOrder 본문: 조건 · 근거 · 상한가 매수잔량 · 가격×수량 · 접수 지연. */
+/**
+ * BuyOrder 본문: 조건 · 근거 · 상한가 매수잔량 · 가격×수량 · 접수 지연. 수동 · VI 주문은 상한가 매수가 아니라
+ * 「상한가 매수잔량 0」 이 측정값처럼 읽힌다 — 0 이면 조각을 생략한다(상따 0~6 은 0 도 그린다).
+ */
 function buyOrderBody(ev: StrategyEventRow): string {
+  const omitLimitBid = ev.limitBidQty === 0 && orderGroupOriginText(ev.group) !== null;
   return joinDot([
     conditionText(ev),
     evidenceText(ev),
-    `상한가 매수잔량 ${NUM.format(ev.limitBidQty)}`,
+    omitLimitBid ? null : `상한가 매수잔량 ${NUM.format(ev.limitBidQty)}`,
     `${NUM.format(ev.price)}×${NUM.format(ev.qty)}주`,
     latencyText(ev),
   ]);
@@ -222,11 +233,14 @@ function conditionValue(metric: number, v: number): string {
   return NUM.format(v);
 }
 
-/** 조건 조각 `조건 {지표}{연산자}{설정} / 실측 {실측}`. cond_metric 0 이면 null(조각 생략). */
+/**
+ * 조건 조각 `조건 {지표}{연산자}{설정} / 실측 {실측}`. cond_metric 0 이면 수동 · VI 는 출처 문구
+ * (수동 주문 · VI 자동주문), 그 밖은 null(조각 생략).
+ */
 function conditionText(ev: StrategyEventRow): string | null {
-  if (ev.condMetric === 0) return null;
+  if (ev.condMetric === 0) return orderGroupOriginText(ev.group);
   const op = reasonOperator(ev.reasonCode);
-  const metric = condMetricLabel(ev.condMetric, ev.group);
+  const metric = condMetricLabel(ev.condMetric, strategyEventSide(ev.group, ev.kind));
   // 연산자를 모르면 지표와 값 사이를 공백으로 둔다 — 방향을 지어내지 않는다(D-10).
   return `조건 ${metric}${op ?? " "}${conditionValue(ev.condMetric, ev.condThreshold)} / 실측 ${conditionValue(ev.condMetric, ev.condActual)}`;
 }
@@ -237,7 +251,7 @@ function latencyText(ev: StrategyEventRow): string | null {
 }
 
 /**
- * 근거 틱 조각. 호가(1) 근거는 지표로 매도/매수 1호가를 가르고, 체결(2)은 매도 그룹이면 「매도체결」,
+ * 근거 틱 조각. 호가(1) 근거는 지표로 매도/매수 1호가를 가르고, 체결(2)은 매도 방향이면 「매도체결」,
  * 체결통보(3)는 가격 · 수량만. 0 · 모르는 값이면 null(조각 생략).
  */
 function evidenceText(ev: StrategyEventRow): string | null {
@@ -249,7 +263,7 @@ function evidenceText(ev: StrategyEventRow): string | null {
     return `근거 호가(${before}→${after})`;
   }
   if (ev.evKind === 2) {
-    const trade = orderGroupSide(ev.group) === "sell" ? "매도체결" : "체결";
+    const trade = strategyEventSide(ev.group, ev.kind) === "sell" ? "매도체결" : "체결";
     return `근거 체결(${NUM.format(ev.evPrice)} ${trade} ${NUM.format(ev.evTradeQty)}주)`;
   }
   if (ev.evKind === 3) return `근거 체결통보(${NUM.format(ev.evPrice)} ${NUM.format(ev.evTradeQty)}주)`;

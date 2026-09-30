@@ -5,14 +5,16 @@ import {
   EVIDENCE_KIND_LABELS,
   ORDER_CONDITION_LABELS,
   ORDER_GROUP_LABELS,
+  ORDER_GROUP_ORIGIN_TEXTS,
   REASON_CODE_OPERATORS,
   STRATEGY_EVENT_KIND_LABELS,
   cancelReasonLabel,
   condMetricLabel,
   orderConditionLabel,
   orderGroupLabel,
-  orderGroupSide,
+  orderGroupOriginText,
   reasonOperator,
+  strategyEventSide,
   strategyKindLabel,
 } from "../strategy-event-labels";
 
@@ -45,7 +47,7 @@ describe("표시명 표 전수 (D-10)", () => {
     expect(strategyKindLabel(99)).toBe("99");
   });
 
-  it("OrderGroup 1~6 · 0 은 null · 모르면 원문 숫자 · 방향 1~3 매수 · 4~6 매도", () => {
+  it("OrderGroup 1~8 (7 수동 · 8 VI 말미 추가) · 0 은 null · 모르면 원문 숫자", () => {
     expect(ORDER_GROUP_LABELS).toEqual({
       1: "선매수",
       2: "추가매수",
@@ -53,17 +55,41 @@ describe("표시명 표 전수 (D-10)", () => {
       4: "호가매도",
       5: "체결매도",
       6: "체결훅",
+      7: "수동",
+      8: "VI",
     });
     expect(orderGroupLabel(0)).toBeNull();
     expect(orderGroupLabel(4)).toBe("호가매도");
+    expect(orderGroupLabel(7)).toBe("수동");
+    expect(orderGroupLabel(8)).toBe("VI");
     expect(orderGroupLabel(9)).toBe("9");
-    expect([1, 2, 3].map(orderGroupSide)).toEqual(["buy", "buy", "buy"]);
-    expect([4, 5, 6].map(orderGroupSide)).toEqual(["sell", "sell", "sell"]);
-    expect(orderGroupSide(0)).toBeNull();
-    expect(orderGroupSide(7)).toBeNull();
   });
 
-  it("CondMetric 1~7 (6 스윕 호가변경 · 7 상승률 말미 추가) · 3 은 매도 그룹이면 단건 매도체결", () => {
+  it("출처 문구 — 7 수동 주문 · 8 VI 자동주문 (WinForms 문구) · 0~6 · 모르는 group 은 null", () => {
+    expect(ORDER_GROUP_ORIGIN_TEXTS).toEqual({ 7: "수동 주문", 8: "VI 자동주문" });
+    expect(orderGroupOriginText(7)).toBe("수동 주문");
+    expect(orderGroupOriginText(8)).toBe("VI 자동주문");
+    for (const g of [0, 1, 2, 3, 4, 5, 6, 9, 99]) expect(orderGroupOriginText(g)).toBeNull();
+  });
+
+  it("strategyEventSide(group, kind) — 0~6 은 kind 무관 옛 규칙 · 8 VI 는 항상 매수 · 7 수동은 kind 로 · 모르는 group 은 null", () => {
+    const KINDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    // 0~6: kind 무관 1~3 매수 · 4~6 매도 · 0 null (기존과 바이트 동일)
+    const legacy = (g: number): "buy" | "sell" | null => (g >= 1 && g <= 3 ? "buy" : g >= 4 && g <= 6 ? "sell" : null);
+    for (let g = 0; g <= 6; g++) {
+      for (const k of KINDS) expect(strategyEventSide(g, k)).toBe(legacy(g));
+    }
+    // 8 VI — 매수 전용
+    for (const k of KINDS) expect(strategyEventSide(8, k)).toBe("buy");
+    // 7 수동 — 매도주문 6 만 매도 · 매수주문 3 · 대기 4 · 첫체결 5 · 취소 7 은 매수 · 그 밖(0·1·2·8 거부·9)은 null
+    expect(strategyEventSide(7, 6)).toBe("sell");
+    for (const k of [3, 4, 5, 7]) expect(strategyEventSide(7, k)).toBe("buy");
+    for (const k of [0, 1, 2, 8, 9]) expect(strategyEventSide(7, k)).toBeNull();
+    // 모르는 group — 방향을 지어내지 않는다(D-10)
+    for (const k of KINDS) expect(strategyEventSide(9, k)).toBeNull();
+  });
+
+  it("CondMetric 1~7 (6 스윕 호가변경 · 7 상승률 말미 추가) · 3 은 매도 방향이면 단건 매도체결", () => {
     expect(COND_METRIC_LABELS).toEqual({
       1: "매도잔량",
       2: "매수잔량",
@@ -73,12 +99,12 @@ describe("표시명 표 전수 (D-10)", () => {
       6: "스윕 호가변경",
       7: "상승률",
     });
-    expect(condMetricLabel(3, 1)).toBe("단건 체결");
-    expect(condMetricLabel(3, 5)).toBe("단건 매도체결");
-    expect(condMetricLabel(3, 0)).toBe("단건 체결");
-    expect(condMetricLabel(6, 1)).toBe("스윕 호가변경");
-    expect(condMetricLabel(7, 1)).toBe("상승률");
-    expect(condMetricLabel(8, 1)).toBe("8");
+    expect(condMetricLabel(3, "buy")).toBe("단건 체결");
+    expect(condMetricLabel(3, "sell")).toBe("단건 매도체결");
+    expect(condMetricLabel(3, null)).toBe("단건 체결");
+    expect(condMetricLabel(6, "buy")).toBe("스윕 호가변경");
+    expect(condMetricLabel(7, "buy")).toBe("상승률");
+    expect(condMetricLabel(8, "buy")).toBe("8");
   });
 
   it("EvidenceKind 1~3", () => {

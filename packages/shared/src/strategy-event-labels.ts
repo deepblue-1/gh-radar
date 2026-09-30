@@ -10,6 +10,9 @@
  * `server/src/trade/strategy/LimitChaser.h:204-247` `OrderReasonName` 반환 문자열 **원문 전체**이고,
  * 정확 일치로만 조회한다 — 문구를 쪼개 읽지 않는다(D-36). 폐기 · FillHook · 인수 · 후속 · 포기 ·
  * 재진입 · 소진 · 마스터 해제 · "" 는 조건식이 없어 표에 없다.
+ *
+ * 출처 문구 표(`ORDER_GROUP_ORIGIN_TEXTS`) — 조건이 빈 수동(7) · VI(8) 주문 줄의 조건 자리 문구. gh-trade
+ * WinForms 문구 글자 그대로(quick-260930-e73). 방향은 group + kind 한 함수(`strategyEventSide`)로만 읽는다.
  */
 
 /** `StrategyEventKind` 표시명 — 로그 줄의 「행위 단어」(시세 이벤트는 구분 칸 이름). */
@@ -32,6 +35,17 @@ export const ORDER_GROUP_LABELS: Readonly<Record<number, string>> = {
   4: "호가매도",
   5: "체결매도",
   6: "체결훅",
+  7: "수동",
+  8: "VI",
+};
+
+/**
+ * `OrderGroup` 출처 문구 — 조건이 빈(cond_metric 0) 수동 · VI 주문 줄의 조건 자리에 그린다.
+ * gh-trade WinForms 문구 글자 그대로. 0~6(상따)은 표에 없다 — 조건이 비면 조각을 생략한다.
+ */
+export const ORDER_GROUP_ORIGIN_TEXTS: Readonly<Record<number, string>> = {
+  7: "수동 주문",
+  8: "VI 자동주문",
 };
 
 /** `CondMetric` 표시명 — 「조건 {지표}{연산자}{설정값}」 의 지표. */
@@ -105,16 +119,37 @@ export function orderGroupLabel(code: number): string | null {
   return ORDER_GROUP_LABELS[code] ?? String(code);
 }
 
-/** 그룹 방향 — 1~3 매수 · 4~6 매도 · 그 밖 null(방향을 지어내지 않는다). */
-export function orderGroupSide(group: number): "buy" | "sell" | null {
+/** 그룹 출처 문구(7 수동 주문 · 8 VI 자동주문). 표에 없으면 null — 지어내지 않는다. */
+export function orderGroupOriginText(group: number): string | null {
+  return ORDER_GROUP_ORIGIN_TEXTS[group] ?? null;
+}
+
+/** 전략 이벤트 방향 — 구분 칸 색 · 「매도체결」 · 「단건 매도체결」 판정의 유일한 근거. */
+export type StrategyEventSide = "buy" | "sell";
+
+/**
+ * 이벤트 방향 = group + kind.
+ *   - 1~3 매수 · 4~6 매도 — kind 무관(상따 그룹은 그룹이 곧 방향).
+ *   - 8 VI 자동주문 — 매수 전용이라 kind 무관 매수.
+ *   - 7 수동 — 매수 · 매도 겸용이라 kind 로 정한다: 6 매도주문 → 매도 · 3 매수주문 · 4 대기 · 5 첫체결 ·
+ *     7 취소 → 매수(대기 · 체결 · 취소는 매수 흐름에서만 온다) · 그 밖(8 거부 등) null.
+ *   - 그 밖 group(0 포함 · 모르는 값) null — 방향을 지어내지 않는다(D-10).
+ */
+export function strategyEventSide(group: number, kind: number): StrategyEventSide | null {
   if (group >= 1 && group <= 3) return "buy";
   if (group >= 4 && group <= 6) return "sell";
+  if (group === 8) return "buy";
+  if (group === 7) {
+    if (kind === 6) return "sell";
+    if (kind === 3 || kind === 4 || kind === 5 || kind === 7) return "buy";
+    return null;
+  }
   return null;
 }
 
-/** 조건 지표 표시명. 3(TradeQty)은 매도 그룹이면 「단건 매도체결」. 모르면 원문 숫자. */
-export function condMetricLabel(code: number, group: number): string {
-  if (code === 3 && orderGroupSide(group) === "sell") return "단건 매도체결";
+/** 조건 지표 표시명. 3(TradeQty)은 매도 방향이면 「단건 매도체결」. 모르면 원문 숫자. */
+export function condMetricLabel(code: number, side: StrategyEventSide | null): string {
+  if (code === 3 && side === "sell") return "단건 매도체결";
   return COND_METRIC_LABELS[code] ?? String(code);
 }
 
