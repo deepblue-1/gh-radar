@@ -27,9 +27,11 @@ import type { RelayAccount, RelayOutbound, RelayTape, RelayUnfProgressMsg } from
 import {
   LINGER_MS,
   PRICE_MIN_INTERVAL_MS,
+  QUOTE_SUB_LIMIT,
   SubscriptionHub,
   TAPE_BATCH_MS,
   TAPE_RING_SIZE,
+  USER_SUB_LIMIT,
   type HubFanoutEvent,
   type HubMarketEvent,
   type HubQuoteFeed,
@@ -1619,5 +1621,200 @@ describe("linger (D-10)", () => {
 
     expect(vi.getTimerCount()).toBe(0);
     expect(hub.stats().lingerCount).toBe(0);
+  });
+});
+
+describe("구독 한도 (D-11 · D-15)", () => {
+  /**
+   * quote 연결 하나가 업스트림 2000 키(gh-trade `kMaxObserverSubsPerConn`)를 모든 사용자와 나눠 쓴다. 서버는 초과 구독을
+   * **조용히** 무시하므로(RESEARCH Pitfall 5) relay 가 업스트림 송신 **전에** 막는다(D-11). 자리를 만들 때는 가장 오래
+   * linger 한 키부터 29(false) 로 푼다. 한 사용자(모든 탭 합산)는 서로 다른 키 200 개까지다(D-15 — 종전 서버 세션당 200).
+   * 거부는 상태를 바꾸지 않는다 — 참조계수 · 업스트림 송신 0 · `subLimitRejects` +1 · warn 1건.
+   */
+  const Q = MSG.GetQuoteReq;
+  const S = MSG.SubscribeQuoteReq;
+  const T = MSG.GetTradeTapeReq;
+
+  let hub: SubscriptionHub;
+  let feed: FakeFeed;
+  let warn: { mock: { calls: unknown[][] } };
+
+  /** 합성 ISIN — `KR7` + 0 채움 숫자 9자리(12자). */
+  const isinOf = (n: number): string => `KR7${String(n).padStart(9, "0")}`;
+
+  /** 「구독 한도」 warn 의 구조화 필드만 모은다. */
+  const limitWarns = (): unknown[] =>
+    warn.mock.calls
+      .filter((args) => args.some((a) => typeof a === "string" && a.includes("구독 한도")))
+      .map((args) => args[0]);
+
+  function makeHub(opts?: ConstructorParameters<typeof SubscriptionHub>[0]): void {
+    hub = new SubscriptionHub(opts);
+    feed = new FakeFeed();
+    hub.attachFeed(feed);
+  }
+
+  /** 사용자 u0..u9 가 서로 다른 키 200 개씩 = 전역 2000 키. */
+  function fillGlobal(): void {
+    for (let u = 0; u < 10; u += 1) {
+      for (let k = 0; k < USER_SUB_LIMIT; k += 1) {
+        expect(hub.subscribe(`u${u}`, isinOf(u * USER_SUB_LIMIT + k), "KRX")).toBe("ok");
+      }
+    }
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-30T00:30:00.000Z"));
+    resetDroppedEnvelopeCount();
+    // 2000 키 구독의 info 로그는 테스트 출력만 어지럽힌다.
+    vi.spyOn(logger, "info").mockImplementation((() => undefined) as never);
+    warn = vi.spyOn(logger, "warn").mockImplementation((() => undefined) as never);
+    makeHub();
+  });
+
+  afterEach(() => {
+    hub.closeAll();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("HL1 상수는 서버 원문 복제다 — 전역 2000(kMaxObserverSubsPerConn) · 사용자 200(kMaxSubsPerConn)", () => {
+    expect(QUOTE_SUB_LIMIT).toBe(2000);
+    expect(USER_SUB_LIMIT).toBe(200);
+  });
+
+  it("HL2 전역 2000 에서 새 사용자의 새 키는 limit-global — 28/29/32 0건 · subLimitRejects 1 · warn 1 · 기존 키 불변", () => {
+    fillGlobal();
+    expect(hub.stats()).toMatchObject({ subscriptionCount: QUOTE_SUB_LIMIT, lingerCount: 0, subLimitRejects: 0 });
+    const before = feed.sent.length;
+    expect(before).toBe(QUOTE_SUB_LIMIT * 3);
+
+    expect(hub.subscribe("u10", isinOf(9_999), "KRX")).toBe("limit-global");
+
+    expect(feed.sent).toHaveLength(before);
+    expect(hub.refCount(isinOf(9_999), "KRX")).toBe(0);
+    expect(hub.subscriptionLevel(isinOf(9_999), "KRX")).toBeUndefined();
+    expect(hub.stats()).toMatchObject({ subscriptionCount: QUOTE_SUB_LIMIT, subLimitRejects: 1 });
+    expect(limitWarns()).toEqual([
+      { userId: "u10", isin: isinOf(9_999), exchange: "KRX", scope: "global", limit: QUOTE_SUB_LIMIT },
+    ]);
+    for (const n of [0, 1_000, 1_999]) expect(hub.refCount(isinOf(n), "KRX")).toBe(1);
+
+    // 이미 업스트림에 있는 키의 추가 구독은 전역 한도와 무관하다(새 업스트림 키가 아니다).
+    expect(hub.subscribe("u10", isinOf(0), "KRX")).toBe("ok");
+    expect(hub.refCount(isinOf(0), "KRX")).toBe(2);
+    expect(feed.sent).toHaveLength(before);
+  });
+
+  it("HL3 전역 2000 이 linger 키를 포함하면 가장 오래 linger 한 키를 29(false) 로 먼저 풀고 새 키를 받는다", () => {
+    fillGlobal();
+    hub.unsubscribe("u0", isinOf(0), "KRX");
+    vi.advanceTimersByTime(1_000);
+    hub.unsubscribe("u0", isinOf(1), "KRX");
+    expect(hub.stats()).toMatchObject({ subscriptionCount: QUOTE_SUB_LIMIT - 2, lingerCount: 2 });
+    const before = feed.sent.length;
+
+    expect(hub.subscribe("u10", isinOf(9_000), "KRX")).toBe("ok");
+
+    const sent = feed.sent.slice(before);
+    expect(sent.map((s) => [s.msgType, s.isin, s.subscribe])).toEqual([
+      [S, isinOf(0), false],
+      [Q, isinOf(9_000), null],
+      [S, isinOf(9_000), true],
+      [T, isinOf(9_000), null],
+    ]);
+    expect(hub.isLingering(isinOf(0), "KRX")).toBe(false);
+    expect(hub.isLingering(isinOf(1), "KRX")).toBe(true);
+    expect(hub.stats()).toMatchObject({ subscriptionCount: QUOTE_SUB_LIMIT - 1, lingerCount: 1, subLimitRejects: 0 });
+
+    // 남은 linger 키 하나도 같은 규칙 — 다 풀리면 lingerCount 0.
+    expect(hub.subscribe("u10", isinOf(9_001), "KRX")).toBe("ok");
+    expect(feed.sent.slice(before + 4)[0]).toMatchObject({ msgType: S, isin: isinOf(1), subscribe: false });
+    expect(hub.stats()).toMatchObject({ subscriptionCount: QUOTE_SUB_LIMIT, lingerCount: 0 });
+
+    // linger 키가 없으면 거부 — 기존 live 키를 축출하지 않는다(LRU 없음).
+    expect(hub.subscribe("u10", isinOf(9_002), "KRX")).toBe("limit-global");
+    expect(hub.stats()).toMatchObject({ subscriptionCount: QUOTE_SUB_LIMIT, subLimitRejects: 1 });
+
+    // 풀린 linger 키의 옛 만료 타이머는 침묵한다 — 29(false) 추가 0건.
+    const after = feed.sent.length;
+    vi.advanceTimersByTime(LINGER_MS * 2);
+    expect(feed.sent).toHaveLength(after);
+  });
+
+  it("HL4 한 사용자의 201번째 새 키는 limit-user — 다른 사용자의 새 키 · 그 사용자의 기존 키 추가 탭은 ok", () => {
+    for (let k = 0; k < USER_SUB_LIMIT; k += 1) expect(hub.subscribe("A", isinOf(k), "KRX")).toBe("ok");
+    const before = feed.sent.length;
+
+    expect(hub.subscribe("A", isinOf(500), "KRX")).toBe("limit-user");
+    expect(feed.sent).toHaveLength(before);
+    expect(hub.refCount(isinOf(500), "KRX")).toBe(0);
+    expect(limitWarns()).toEqual([
+      { userId: "A", isin: isinOf(500), exchange: "KRX", scope: "user", limit: USER_SUB_LIMIT },
+    ]);
+
+    // 같은 순간 다른 사용자는 새 키를 연다.
+    expect(hub.subscribe("B", isinOf(500), "KRX")).toBe("ok");
+    expect(hub.refCount(isinOf(500), "KRX")).toBe(1);
+
+    // A 가 이미 가진 키를 두 번째 탭(다른 level 포함)으로 — 사용자 키 수 불변.
+    expect(hub.subscribe("A", isinOf(0), "KRX")).toBe("ok");
+    expect(hub.subscribe("A", isinOf(1), "KRX", "price")).toBe("ok");
+    expect(hub.refCount(isinOf(0), "KRX")).toBe(2);
+
+    // B 가 이미 연 키라도 A 에게는 새 키 — 여전히 limit-user.
+    expect(hub.subscribe("A", isinOf(500), "KRX")).toBe("limit-user");
+    expect(hub.stats().subLimitRejects).toBe(2);
+  });
+
+  it("HL5 사용자가 키 하나를 끝까지 해제하면(그 사용자 참조 0) 사용자 키 수가 199 로 줄어 새 키를 받는다", () => {
+    for (let k = 0; k < USER_SUB_LIMIT; k += 1) hub.subscribe("A", isinOf(k), "KRX");
+    hub.subscribe("A", isinOf(0), "KRX"); // 두 번째 탭
+
+    hub.unsubscribe("A", isinOf(0), "KRX");
+    expect(hub.subscribe("A", isinOf(700), "KRX")).toBe("limit-user"); // 탭 하나가 남아 아직 200
+
+    hub.unsubscribe("A", isinOf(0), "KRX");
+    expect(hub.subscribe("A", isinOf(700), "KRX")).toBe("ok");
+    expect(hub.refCount(isinOf(700), "KRX")).toBe(1);
+    expect(hub.subscribe("A", isinOf(701), "KRX")).toBe("limit-user");
+  });
+
+  it("HL6 생성자 limits 주입이 두 한도를 바꾼다 — { global: 3, user: 2 }", () => {
+    hub.closeAll();
+    makeHub({ limits: { global: 3, user: 2 } });
+
+    expect(hub.subscribe("u1", isinOf(1), "KRX")).toBe("ok");
+    expect(hub.subscribe("u1", isinOf(2), "NXT")).toBe("ok");
+    expect(hub.subscribe("u1", isinOf(3), "KRX")).toBe("limit-user");
+    expect(hub.subscribe("u2", isinOf(3), "KRX")).toBe("ok");
+    expect(hub.subscribe("u3", isinOf(4), "KRX")).toBe("limit-global");
+    // 같은 ISIN 이라도 거래소가 다르면 다른 키다.
+    expect(hub.subscribe("u3", isinOf(2), "KRX")).toBe("limit-global");
+    expect(hub.subscribe("u3", isinOf(2), "NXT")).toBe("ok");
+    expect(hub.stats()).toMatchObject({ subscriptionCount: 3, subLimitRejects: 3 });
+    expect(limitWarns().map((w) => (w as { scope: string; limit: number }))).toEqual([
+      expect.objectContaining({ scope: "user", limit: 2 }),
+      expect.objectContaining({ scope: "global", limit: 3 }),
+      expect.objectContaining({ scope: "global", limit: 3 }),
+    ]);
+  });
+
+  it("HL7 거부된 키는 상태를 남기지 않는다 — 그 키 해제는 「참조계수 없는 해제」 warn 뒤 무시 · closeAll 이 사용자 계수를 비운다", () => {
+    hub.closeAll();
+    makeHub({ limits: { global: 3, user: 1 } });
+    expect(hub.subscribe("A", isinOf(1), "KRX")).toBe("ok");
+    expect(hub.subscribe("A", isinOf(2), "KRX")).toBe("limit-user");
+
+    hub.unsubscribe("A", isinOf(2), "KRX");
+    expect(
+      warn.mock.calls.filter((args) => args.some((a) => typeof a === "string" && a.includes("참조계수 없는 해제"))),
+    ).toHaveLength(1);
+    expect(hub.refCount(isinOf(1), "KRX")).toBe(1);
+
+    hub.closeAll();
+    hub.attachFeed(feed);
+    expect(hub.subscribe("A", isinOf(2), "KRX")).toBe("ok");
   });
 });
