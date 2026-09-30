@@ -27,6 +27,18 @@
  *         모르는 level 은 FULL 로 접는다 — 더 가벼운 경로로 열화시키지 않는다(서버 규칙과 동형).
  *         75 거래원도 FULL 전용이다. 출처: gh-trade 회신 `tasks/gh-trade-price-only-quote-subscription-reply.md`
  *         (quick-260923-exo) · fbs `SubscribeQuoteReq` 주석.
+ *   Phase 26 D-05  FULL 로 업스트림 구독된 키를 PRICE 소켓(돌파 칩)이 볼 때 relay 는 **서버 PRICE 규칙을 복제**한다 —
+ *         가격 섹션(A3 체결 · R8 VI · A6 종가)이 바뀐 59 만 통과시키고, 호가(B6)만 바뀐 틱은 price 소켓에 0건이다.
+ *         키당 최소 간격 `PRICE_MIN_INTERVAL_MS`(100ms · 서버 상수 복제)이고, 억제된 갱신은 버리지 않고 마지막 PRICE 송신
+ *         +100ms 에 **그 시점 최신 상태** 59 한 프레임으로 나간다(유실 없이 지연만). relay 는 서버 dirty 비트를 받지 못하므로
+ *         직전 캐시와 가격 섹션 필드를 비교해(`samePriceSection`) 복제한다 — 체결 시각 칸은 B6 도 덮어써 서명에서 뺀다.
+ *         알려진 차이(서버보다 엄격): VI 상태만 바뀐 R8(참조가 불변)은 와이어상 가격 칸이 같아 relay 는 통과시키지 않는다 —
+ *         PRICE 소비자 필드 근거는 26-07-SUMMARY 「D-05 편차」.
+ *   Phase 26 D-06  판정은 **hub 키 단위 1회**다 — 키마다 게이트 1개(`lastPriceSentMs` · `pending` · 타이머 1개)를 두고 결과를
+ *         `"market"` 이벤트의 `price` 플래그로 싣는다. fanout 은 소켓 level 로만 거르므로 비용이 소켓 수와 무관하다.
+ *         업스트림 실효 level 이 PRICE 인 키는 서버가 이미 걸렀으므로 판정 없이 전부 통과한다.
+ *   Phase 26 D-07  PRICE 소켓이 받는 59 본문은 FULL 과 **같은 `RelayQuote` 프레임**이다 — 플래그는 이벤트 메타데이터일 뿐
+ *         와이어가 아니다(축약 타입 · shared 타입 · 웹 파서 변경 0). 71 tape 는 full 소켓에만 간다.
  *   D-35  시세는 **추가 코얼레싱을 하지 않는다**(업스트림 100ms 를 그대로 통과).
  *         체결 테이프만 200ms 배치로 묶는다. 배치 타이머는 키마다가 아니라
  *         **전역 1개**다(Phase 26 — 키가 전역이 되면서 사용자 단위 타이머가 전역 1개로 접혔다) —
@@ -155,6 +167,49 @@ export const TAPE_RING_SIZE = MAX_TAPE_ENTRY_COUNT;
 /** `GetTradeTapeReq(32)` 로 요청하는 초기 체결 건수. 링버퍼 상한과 같다. */
 export const TAPE_REQUEST_COUNT = TAPE_RING_SIZE;
 
+/**
+ * PRICE 소켓 키당 최소 송신 간격(ms) = 100 (Phase 26 D-05).
+ *
+ * gh-trade `server/src/market/publish/MarketPublisher.h:159` `kPriceLevelMinIntervalMs = 100` 의 복제다 —
+ * quick-260923-hp5 에서 200→100 으로 내려 퍼블리셔 코얼레싱 틱 1개와 같아졌다. 회신 문서
+ * (`tasks/gh-trade-price-only-quote-subscription-reply.md`)의 「200ms」 는 hp5 이전 값이라 낡았다.
+ */
+export const PRICE_MIN_INTERVAL_MS = 100;
+
+/**
+ * 두 시세의 **가격 섹션**이 같은가 (Phase 26 D-05 — 서버 `kDirtyPriceMask` 의 relay 복제).
+ *
+ * 서버는 섹션별 dirty 비트(`kDirtyPriceMask = kDirtyTrade | kDirtyVI | kDirtyClose` · 호가 제외)로 판정하지만
+ * 와이어의 59 는 비트 없이 전체 상태를 싣는다 — 그래서 직전 캐시와 가격 섹션 필드를 비교한다.
+ *
+ * | 섹션 (서버 dirty)   | 서명 포함 필드                 | 비고 |
+ * |---------------------|--------------------------------|------|
+ * | A3 체결 (Trade=2)   | `p o h l c cs cr v va`         | 체결마다 `v`(누적거래량)가 오르므로 체결 틱은 반드시 다르다 |
+ * | R8 VI (VI=4)        | `viu vid`                      | VI 상태 · 종류는 와이어에 없다 → 상태만 바뀐 R8 은 못 본다(D-05 편차) |
+ * | A6 종가 (Close=8)   | `kc`                           | |
+ * | B6 호가 (Book=1)    | — (`ap aq bp bq ta tb` 제외)   | 호가만 바뀐 틱은 PRICE 소켓에 가지 않는다 |
+ * | 체결 시각           | — (`et` 제외)                  | B6 호가 갱신도 이 칸을 덮어쓴다 — 넣으면 호가 틱이 샌다(RESEARCH Pitfall 4) |
+ * | 마스터 정적         | — (`ul ll base ls` 제외)       | 가격 섹션 갱신과 무관 |
+ *
+ * 문자열 조립 대신 필드 12개를 직접 비교한다 — 초당 수백 프레임 경로다.
+ */
+export function samePriceSection(a: RelayQuote, b: RelayQuote): boolean {
+  return (
+    a.p === b.p &&
+    a.o === b.o &&
+    a.h === b.h &&
+    a.l === b.l &&
+    a.c === b.c &&
+    a.cs === b.cs &&
+    a.cr === b.cr &&
+    a.v === b.v &&
+    a.va === b.va &&
+    a.viu === b.viu &&
+    a.vid === b.vid &&
+    a.kc === b.kc
+  );
+}
+
 // ============================================================
 // 계약
 // ============================================================
@@ -230,7 +285,8 @@ export type HubMarketEvent = {
   full: boolean;
   /**
    * price 소켓에 보낼지 (D-06 — 키 단위 1회 판정 결과). tape 는 언제나 false(71 은 price 소켓에 가지 않는다).
-   * q 는 지금 언제나 true 다 — 서버 PRICE 규칙 복제 판정기(D-05)는 26-07 이 이 플래그를 채운다.
+   * q 는 서버 PRICE 규칙 복제 판정기(D-05 · `#priceFlag`)가 정한다 — 58 · 업스트림 PRICE 키는 참, FULL 업스트림 키는
+   * 가격 섹션이 바뀌고 100ms 간격이 찼을 때만 참. 지연 방출은 `{ full: false, price: true }` 로 따로 온다.
    */
   price: boolean;
 };
@@ -287,6 +343,18 @@ type PendingTape = {
 
 /** 키당 level 별 참조계수 (quick-260923-ge2). */
 type SubRefs = { full: number; price: number };
+
+/**
+ * 키당 PRICE 게이트 (Phase 26 D-05 · D-06) — 서버 `subs.priceSentTick` · `subs.pricePending` 의 relay 복제.
+ * FULL 업스트림 키에 price 소비자가 있을 때만 존재한다. 타이머는 키당 최대 1개다(T-26-11).
+ */
+type PriceGate = {
+  /** 마지막으로 price 소켓에 통과시킨 시각(`Date.now()`). */
+  lastPriceSentMs: number;
+  /** 가격 섹션 갱신이 억제된 채 남아 있는가 — 다음 허용 시점에 최신 상태로 나간다. */
+  pending: boolean;
+  timer: NodeJS.Timeout | null;
+};
 
 function totalRefs(refs: SubRefs): number {
   return refs.full + refs.price;
@@ -451,6 +519,11 @@ export class SubscriptionHub extends EventEmitter {
   readonly #refs = new Map<string, SubRefs>();
   /** 전역 스냅샷 캐시(`marketKey`) — 이미 Number 로 좁혀진 wire JSON 이다 (D-34/D-37). 1→0 에서 지운다. */
   readonly #quotes = new Map<string, RelayQuote>();
+  /**
+   * `marketKey` → PRICE 게이트 (D-05 · D-06). FULL 업스트림 + price 소비자가 있는 키만 둔다 — price 이탈 · FULL→PRICE
+   * 강등 · 1→0 · `closeAll` 에서 타이머와 같이 지운다(`#dropPriceGate`).
+   */
+  readonly #priceGates = new Map<string, PriceGate>();
   /** 전역 체결 링버퍼(`marketKey` · 키당 최근 `TAPE_RING_SIZE` 건). 1→0 에서 지운다. */
   readonly #tapes = new Map<string, RelayTapeEntry[]>();
   /** `marketKey` → 플러시 대기 배치 (전역). */
@@ -704,6 +777,9 @@ export class SubscriptionHub extends EventEmitter {
 
     const prevLevel = effectiveLevel(refs);
     refs[level] -= 1;
+    // PRICE 게이트는 「FULL 업스트림 + price 소비자」 인 키에만 뜻이 있다 — price 이탈 · FULL→PRICE 강등 · 1→0 이면
+    // 예약된 지연 방출과 함께 지운다(D-05 · T-26-11). feed 준비 여부와 무관하게 여기서 정리한다.
+    if (refs.price === 0 || effectiveLevel(refs) === "price") this.#dropPriceGate(key);
     const total = totalRefs(refs);
     if (total > 0) {
       const nextLevel = effectiveLevel(refs);
@@ -1094,6 +1170,10 @@ export class SubscriptionHub extends EventEmitter {
     if (this.#tapeFlushTimer !== null) clearTimeout(this.#tapeFlushTimer);
     this.#tapeFlushTimer = null;
     this.#pendingTapes.clear();
+    for (const gate of this.#priceGates.values()) {
+      if (gate.timer !== null) clearTimeout(gate.timer);
+    }
+    this.#priceGates.clear();
     // 옛 feed 의 늦은 프레임 · ready 는 정본 대조(`#feed`)로 침묵한다.
     this.#feed = null;
     this.#sessions.clear();
@@ -1455,14 +1535,95 @@ export class SubscriptionHub extends EventEmitter {
    */
   #onQuote(quote: RelayQuote): void {
     const key = marketKey(quote.i, quote.x);
-    if (!this.#refs.has(key)) {
+    const refs = this.#refs.get(key);
+    if (refs === undefined) {
       logger.debug({ isin: quote.i, exchange: quote.x }, "[HUB] 구독 없는 키의 시세 — 버림 (해제 뒤 늦은 프레임)");
       return;
     }
+    const prev = this.#quotes.get(key);
     this.#quotes.set(key, quote);
-    // price 플래그 = PRICE 소켓에 보낼지(D-06). 서버 PRICE 규칙 복제 판정기(D-05)는 26-07 이 이 자리에 붙는다 —
-    // 그 전까지는 58 · 59 모두 통과(업스트림 PRICE-only 키는 서버가 이미 걸렀다).
-    this.emit("market", { key, msg: quote, full: true, price: true });
+    // price 플래그 = PRICE 소켓에 보낼지(D-06 — 키 단위 1회). fanout 은 소켓 level 로만 거른다.
+    const price = this.#priceFlag(key, refs, prev, quote);
+    this.emit("market", { key, msg: quote, full: true, price });
+  }
+
+  /**
+   * 서버 PRICE 규칙 복제 판정 (D-05 · D-06 — gh-trade `MarketPublisher.cpp` ~1919 동형). 캐시를 새 값으로 바꾼 **뒤**
+   * 부른다 — 지연 방출은 캐시의 최신 상태를 싣는다.
+   *
+   *   58(snap)              → 참. 스냅샷이 최신 상태를 실었으니 pending · 타이머를 비우고 송신 시각을 찍는다.
+   *   price 참조 0          → 거짓(보낼 price 소켓이 없다). 게이트 정리.
+   *   업스트림 실효 PRICE   → 참 — 서버가 이미 걸렀다(판정 생략).
+   *   그 밖(FULL 업스트림)  → 가격 섹션이 바뀌었거나 pending 이면, 마지막 PRICE 송신 뒤 100ms 이상이면 참,
+   *                           아니면 거짓 + pending + 타이머 1개(`lastPriceSentMs + 100` · 이미 있으면 그대로).
+   */
+  #priceFlag(key: string, refs: SubRefs, prev: RelayQuote | undefined, quote: RelayQuote): boolean {
+    if (quote.snap) {
+      this.#dropPriceGate(key);
+      if (refs.price > 0 && refs.full > 0) {
+        this.#priceGates.set(key, { lastPriceSentMs: Date.now(), pending: false, timer: null });
+      }
+      return true;
+    }
+    if (refs.price === 0) {
+      this.#dropPriceGate(key);
+      return false;
+    }
+    if (refs.full === 0) {
+      this.#dropPriceGate(key);
+      return true;
+    }
+
+    let gate = this.#priceGates.get(key);
+    if (gate === undefined) {
+      // 스냅샷 없이 판정이 시작된 키(예: 승격 직후 58 보다 먼저 온 59) — 첫 가격 갱신은 바로 통과한다.
+      gate = { lastPriceSentMs: Number.NEGATIVE_INFINITY, pending: false, timer: null };
+      this.#priceGates.set(key, gate);
+    }
+    const changed = prev === undefined || !samePriceSection(prev, quote);
+    if (!changed && !gate.pending) return false;
+
+    const now = Date.now();
+    if (now - gate.lastPriceSentMs >= PRICE_MIN_INTERVAL_MS) {
+      gate.lastPriceSentMs = now;
+      gate.pending = false;
+      if (gate.timer !== null) clearTimeout(gate.timer);
+      gate.timer = null;
+      return true;
+    }
+    gate.pending = true;
+    if (gate.timer === null) {
+      const delay = Math.max(0, gate.lastPriceSentMs + PRICE_MIN_INTERVAL_MS - now);
+      gate.timer = setTimeout(() => this.#flushPrice(key), delay);
+    }
+    return false;
+  }
+
+  /**
+   * 지연 방출 (D-05 — 「유실 없이 지연만」). 키가 아직 FULL 업스트림 + price 소비자이고 pending 이면 **캐시의 최신 q**
+   * 한 프레임을 price 소켓에만 보낸다 — full 소켓은 이미 받았으므로 `full: false`. 본문은 캐시 그대로다(D-07).
+   */
+  #flushPrice(key: string): void {
+    const gate = this.#priceGates.get(key);
+    if (gate === undefined) return;
+    gate.timer = null;
+    const refs = this.#refs.get(key);
+    const msg = this.#quotes.get(key);
+    if (!gate.pending || refs === undefined || refs.price === 0 || refs.full === 0 || msg === undefined) {
+      gate.pending = false;
+      return;
+    }
+    gate.lastPriceSentMs = Date.now();
+    gate.pending = false;
+    this.emit("market", { key, msg, full: false, price: true });
+  }
+
+  /** 키의 PRICE 게이트와 예약된 지연 방출을 지운다. */
+  #dropPriceGate(key: string): void {
+    const gate = this.#priceGates.get(key);
+    if (gate === undefined) return;
+    if (gate.timer !== null) clearTimeout(gate.timer);
+    this.#priceGates.delete(key);
   }
 
   /**
