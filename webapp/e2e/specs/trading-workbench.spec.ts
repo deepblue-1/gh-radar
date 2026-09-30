@@ -4490,3 +4490,79 @@ test.describe('G-21-R3-10 이전 — 회선 단절 (자기 relay · 게이트웨
     await expect(ladderRows.first()).toContainText('99,000');
   });
 });
+
+/*
+  Phase 26 D-01 · D-04 — 배지 2축(26-13 채택안 안 B). 시세 전용 공유 연결만 끊는다 — 사용자 DMA 세션은 그대로다.
+  quote 로그인 자동 응답을 끄고(무응답) quote 소켓을 강제 종료하면 relay 는 재접속 · 로그인 타임아웃을 반복하고
+  3초 디바운스 뒤 `quote.state` down 을 보낸다. 자동 응답을 되켜면 다음 재시도에서 live 로 돌아온다.
+  자기 relay 를 띄운다 — 실패해도 quote 로그인 무응답 상태가 다른 describe 로 새지 않게(끝에서 되돌리기도 한다).
+*/
+test.describe('Phase 26 D-01 · D-04 — 시세 · 주문 배지 2축 (자기 relay · quote 연결만 끊는다)', () => {
+  let relay: LocalRelay;
+
+  test.beforeAll(async () => {
+    relay = await withLocalRelay();
+  });
+
+  test.afterAll(async () => {
+    await relay.stop();
+  });
+
+  test.beforeEach(async ({ page }) => {
+    relay.reset();
+    await page.setViewportSize(WIDE_VIEWPORT);
+    await mockStockApi(page, { searchResults: [FIXTURE_SAMSUNG] });
+  });
+
+  test('Phase 26 D-01 · D-04 — 시세 끊김은 시세 필만 적색 · 호가 숫자 불변 · 복구 뒤 live', async ({ page }) => {
+    test.setTimeout(90_000);
+    const quotePill = page.locator('[data-slot="workbench-quote"]');
+    const orderPill = page.locator('[data-slot="workbench-dma"]');
+    /** 셀 하나의 실효 불투명도 — 자기부터 문서 루트까지 opacity 의 곱(조상 흐림까지 잡는다). */
+    const effectiveOpacity = (loc: Locator) =>
+      loc.evaluate((el) => {
+        let o = 1;
+        for (let n: Element | null = el; n !== null; n = n.parentElement) o *= Number(getComputedStyle(n).opacity);
+        return o;
+      });
+
+    const card = await landOnCard(page);
+    const ladderRows = card.locator('[data-slot="orderbook-ladder"][data-variant="chaser"] [data-slot="ladder-row"]:visible');
+    await expect(ladderRows).toHaveCount(20, { timeout: 15_000 });
+    await expect(ladderRows.first()).toContainText('99,000');
+
+    // 평상시 — 「● 시세」 · 「● 주문」. 보이는 상태어가 없다(안 B).
+    await expect(quotePill).toHaveAttribute('data-tone', 'ok', { timeout: 15_000 });
+    await expect(quotePill).toHaveAttribute('aria-live', 'polite');
+    await expect(quotePill.locator('b')).toHaveCount(0);
+    await expect(orderPill.locator('b')).toHaveCount(0);
+    const opacityBefore = await effectiveOpacity(ladderRows.first());
+
+    try {
+      // quote 연결만 끊는다 — 로그인 무응답으로 재접속이 성공하지 못하게 한다.
+      relay.gateway.respondQuoteLogin(null);
+      relay.gateway.hardClose(await relay.quoteSocket());
+
+      // 3초 디바운스 뒤 시세 필만 적색 — 끊긴 시각(KST)과 「멈춤」.
+      await expect(quotePill).toHaveAttribute('data-tone', 'down', { timeout: 15_000 });
+      await expect(quotePill).toHaveText(/^시세 \d{2}:\d{2}:\d{2}~ 멈춤$/);
+      // 주문 필은 사용자 DMA 세션 상태를 따로 말한다 — 여전히 ready · 상태어 없음.
+      await expect(statusBar(page)).toHaveAttribute('data-status', 'ready');
+      await expect(orderPill.locator('b')).toHaveCount(0);
+      await expect(orderPill.locator('[data-tone]')).toHaveAttribute('data-tone', 'ok');
+
+      // ★ D-04 — 호가 숫자는 흐리지도 비우지도 않는다.
+      await expect(ladderRows).toHaveCount(20);
+      await expect(ladderRows.first()).toContainText('99,000');
+      expect(await effectiveOpacity(ladderRows.first())).toBe(opacityBefore);
+    } finally {
+      // 되돌린다 — 다음 로그인 재시도가 성공한다(로그인 타임아웃 5초 + 재접속 지연).
+      relay.gateway.respondQuoteLogin({ success: true });
+    }
+
+    await expect(quotePill).toHaveAttribute('data-tone', 'ok', { timeout: 30_000 });
+    await expect(quotePill.locator('b')).toHaveCount(0);
+    await expect(statusBar(page)).toHaveAttribute('data-status', 'ready');
+    await expect(ladderRows.first()).toContainText('99,000');
+  });
+});

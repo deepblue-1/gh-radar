@@ -71,9 +71,13 @@ export type RelaySessionState =
  * 브라우저가 상태 → 문구 switch 를 중복 구현하지 않게 계약에 둔다
  * (`SPECIALIST_LABELS` 선례, D-36 사상). `ready` 는 계좌 수를,
  * `reconnecting` 은 시도 횟수를 UI 에서 덧붙인다.
+ *
+ * Phase 26 — 이 상태는 이제 주문(사용자 DMA) 세션 상태다 · 시세는 `quote.state` 축(D-01). 상태줄 주문 필이
+ * 접두 「주문」 을 붙이므로 `connecting` 은 중립 「서버 연결 중…」 이고 화면에는 「주문 서버 연결 중…」 으로
+ * 읽힌다(26-13 채택안 안 B · 메모 ① (b) — 접두 생략 예외 규칙 없음).
  */
 export const RELAY_STATE_LABELS: Record<RelaySessionState, string> = {
-  connecting: "시세 서버 연결 중…",
+  connecting: "서버 연결 중…",
   logging_in: "DMA 로그인 중…",
   declaring: "계좌 확인 중…",
   ready: "실시간",

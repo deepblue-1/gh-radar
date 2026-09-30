@@ -52,7 +52,6 @@
  *   relay `unauthorized` 와 middleware 로그인 벽이다(T-16-04).
  */
 
-import { RELAY_STATE_LABELS } from "@gh-radar/shared";
 import type { RelayAccountState } from "@gh-radar/shared";
 
 import { PageHeader } from "@/components/layout/page-header";
@@ -63,19 +62,13 @@ import { DmaGate, useDmaGateReason } from "@/components/trading/dma-gate";
 import { StrategyStatusCard } from "@/components/trading/strategy-status-card";
 import { TodayOrdersCard } from "@/components/trading/today-orders-card";
 import { stockCodeOf } from "@/components/trading/vi-order-list";
+import { useIsinLabels } from "@/lib/isin-labels";
 import { isActiveStrategy } from "@/lib/limit-chaser";
 import { useNativeRefresh } from "@/lib/native/use-native-refresh";
 import { useRelayContext } from "@/lib/relay-provider";
-import { viAnyRunning, type RelayStatus } from "@/lib/use-relay-socket";
+import { orderPillOf, quotePillOf } from "@/lib/quote-state";
+import { viAnyRunning } from "@/lib/use-relay-socket";
 import { cn } from "@/lib/utils";
-
-/** 점멸 도트를 쓰는 진행 상태 (C1 로딩) — `relay-status-bar` 와 같은 집합이다. */
-const PROGRESS_STATES: ReadonlySet<RelayStatus> = new Set<RelayStatus>([
-  "idle",
-  "connecting",
-  "logging_in",
-  "declaring",
-]);
 
 /**
  * 서버가 준 갱신시각(`AccountState.st`)을 `HH:MM:SS` 로 읽는다.
@@ -160,15 +153,29 @@ function isNewerServerTime(a: ServerTimeKey, b: ServerTimeKey): boolean {
 }
 
 /**
- * 상태줄 (C1) — `DMA {상태}` · 상따 N건 · VI 가동/중지 · 계좌 N개 · 반영 시각.
+ * 상태줄 (C1) — `● 시세` · `● 주문 {상태}` · 상따 N건 · VI 가동/중지 · 계좌 N개 · 반영 시각.
  *
  * ★ 상태 문구는 `RELAY_STATE_LABELS` **단일 정본**을 쓴다(D-36). 화면마다 문구를 다시
  *   지으면 호가주문 탭은 「실시간」, My page 는 다른 말이 되어 같은 상태가 두 이름을 갖는다.
+ * ★ 시세 · 주문 2축(Phase 26 D-01 · D-04 · 26-13 채택안 안 B)은 작업대 상태줄과 **같은 판정 함수**
+ *   `quotePillOf` · `orderPillOf`(`lib/quote-state.ts`)를 쓴다. 시세 상태를 모르면 시세 필이 없고, 끊기면
+ *   시세 필만 적색 「HH:MM:SS~ 멈춤」 이며 주문 필은 사용자 DMA 세션만 말한다. 점도 작업대와 같은 톤
+ *   (정상 `--led-armed` · 진행/꺼짐 `--flat` · 끊김 `--destructive`)이다(채택안 메모 ④).
  */
 function MeStatusBar() {
-  const { status, statusLabel, accounts, limitChasers, viTriggers, accountStates } =
-    useRelayContext();
-  const label = statusLabel === "" ? RELAY_STATE_LABELS.connecting : statusLabel;
+  const {
+    status,
+    statusLabel,
+    quoteState,
+    subLimit,
+    accounts,
+    limitChasers,
+    viTriggers,
+    accountStates,
+  } = useRelayContext();
+  const labels = useIsinLabels();
+  const quote = quotePillOf(quoteState, subLimit, subLimit === null ? undefined : labels.get(subLimit.i));
+  const order = orderPillOf(status, statusLabel);
   const updatedAt = latestAccountTime(accountStates);
 
   return (
@@ -178,16 +185,57 @@ function MeStatusBar() {
       aria-live="polite"
       className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--muted)] px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--t-caption)] text-[var(--muted-fg)]"
     >
-      <span className="inline-flex items-center gap-1.5">
+      {quote !== null && (
+        <span
+          data-slot="me-quote"
+          aria-live="polite"
+          data-tone={quote.tone}
+          title={quote.title ?? undefined}
+          className="inline-flex items-center gap-1.5 whitespace-nowrap"
+        >
+          <span
+            aria-hidden="true"
+            className={cn(
+              "size-[7px] shrink-0 rounded-full",
+              quote.tone === "ok" ? "bg-[var(--led-armed)]" : "bg-[var(--destructive)]",
+            )}
+          />
+          {quote.label}
+          {quote.detail !== null && (
+            <>
+              {" "}
+              <b
+                className={cn(
+                  "font-semibold",
+                  quote.tone === "down" ? "text-[var(--destructive)]" : "text-[var(--fg)]",
+                )}
+              >
+                {quote.detail}
+              </b>
+            </>
+          )}
+          {quote.srDetail !== null && <span className="sr-only"> {quote.srDetail}</span>}
+        </span>
+      )}
+      <span data-slot="me-dma" className="inline-flex items-center gap-1.5 whitespace-nowrap">
         <span
           aria-hidden="true"
+          data-tone={order.tone}
           className={cn(
-            "size-[7px] shrink-0 rounded-full bg-current",
+            "size-[7px] shrink-0 rounded-full",
+            order.tone === "ok" ? "bg-[var(--led-armed)]" : "bg-[var(--flat)]",
             // prefers-reduced-motion 은 globals.css 전역 규칙 + 로컬 가드로 끈다.
-            PROGRESS_STATES.has(status) && "animate-pulse motion-reduce:animate-none",
+            order.pulse && "animate-pulse motion-reduce:animate-none",
           )}
         />
-        DMA <b className="font-semibold text-[var(--fg)]">{label}</b>
+        {order.label}
+        {order.detail !== null && (
+          <>
+            {" "}
+            <b className="font-semibold text-[var(--fg)]">{order.detail}</b>
+          </>
+        )}
+        {order.srDetail !== null && <span className="sr-only"> {order.srDetail}</span>}
       </span>
       <span>
         {/* 켜진 전략 수 — 카드·사이드바와 같은 isActiveStrategy 기준(quick-260928-no0). 등록 정본은 여전히 limitChasers 전수 */}
