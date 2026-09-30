@@ -34,7 +34,7 @@ Plans completed: 220 / 234
 Status: Phase complete — ready for verification
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-30 - Completed quick task 260930-e30: 사이드바 아이콘 레일 접기 + 스크롤 헤더 원형 햄버거
+Last activity: 2026-09-30 - Completed quick task 260930-fi4: gh-trade a09dfc8b 동기화(83 first_filled · 추가매수 포기 수량 · OrderGroup 7/8)
 
 Progress: [█████████░] 93%
 
@@ -515,6 +515,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 260930-e73 | **OrderGroup 7 수동 · 8 VI 표시 (gh-trade-82 계약)** — shared 표시명 7「수동」·8「VI」 · 방향은 group+kind(`strategyEventSide`: 8 매수 · 7 은 kind 6 매도 · 3/4/5/7 매수 · 그 밖 null) · 조건 비면 「수동 주문」/「VI 자동주문」 · 펼침 접두 중복 제거 · 진행률 보조행 7/8 라벨. relay·DB 무변경(통과 테스트만). 필터 칩 미추가(사용자 결정 대기) · 펼침 빈 상태 문구 후속. 미배포(gh-trade 배포 전 무해) | 2026-09-30 | 6d3ce955 · 404b1ae1 · 5a056b39 | [260930-e73-ordergroup-7-8-vi](./quick/260930-e73-ordergroup-7-8-vi/) |
 | 260930-e30 | **사이드바 아이콘 레일 접기 + 스크롤 헤더 원형 햄버거** — lg 헤더 PanelLeft 토글(햄버거 자리)로 240↔64 레일 · localStorage 영속 · head 인라인 스크립트로 첫 페인트 전 복원 · 레일=아이콘만+트레이딩 켜진 전략 수 배지+하단 세로 쌓기(드로어 무영향). 폰(<lg)·앱은 창 스크롤>8 이면 헤더 배경·로고·검색이 빠지고 햄버거만 좌·상 8px 반투명 원형으로 뜸(상단에서만 헤더 · 드로어 열림/포커스 시 강제 표시 · 앱 상태바 띠 흐림 유지). 목업 채택안 A·상단전용. 미push | 2026-09-30 | 394bf0f0 · 0df77a97 · b69716c6 | [260930-e30-sidebar-collapse-scroll-header](./quick/260930-e30-sidebar-collapse-scroll-header/) |
 | 47 | 주문로그 구분 필터 「수동」(group 7)·「VI」(group 8) 칩 추가 + 오늘주문 펼침 빈 상태 「주문 기록 없음」 | 2026-09-30 | 5bbb124c | — |
+| 260930-fi4 | **gh-trade a09dfc8b 동기화 — 83 first_filled · 추가매수 포기 수량 · OrderGroup 7/8** — 생성물 4파일(SYNC d303fe9f · buy_watch_side 슬롯 24 봉인 동반 → relay 상수 "0") · relay 83 firstFilled 파서·hub 통과 · 60/64/11.2 extraBuyAbandonQty 디코드(C→S 미적재) · 웹 보조행 「{그룹} · N주 / 0주 / 체결 시작」(막대 고정) · 전략 로그 「추가매수 포기 · 최대 초과 N」. 배포 대기(relay 먼저 → push → gh-trade 120) · 후속: buyWatchSide 죽은 필드 · lc.arm latch "buy" 관용 제거 | 2026-09-30 | 5b29b842 · 5fa405d8 · 3aac9a27 | [260930-fi4-83-first-filled-ordergroup-7-8-relay](./quick/260930-fi4-83-first-filled-ordergroup-7-8-relay/) |
 
 ## Session Continuity
 
