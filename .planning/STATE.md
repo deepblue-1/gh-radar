@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 26
 current_phase_name: 시세 전용 공유 연결 — relay 종목 단위 팬아웃
 status: executing
-stopped_at: Phase 26 context gathered
-last_updated: "2026-09-30T12:54:34.612Z"
+stopped_at: Completed 26-01-PLAN.md
+last_updated: "2026-09-30T13:04:51.650Z"
 last_activity: 2026-09-30
-last_activity_desc: "25-13 완료 — WR-02 수정 · relay:6821181b 배포 · push 6289e430..6821181b"
-state_head: 121775197c677b565bba767fd43eb63d1dd77e61
+last_activity_desc: Phase 26 execution started
+state_head: 5726c48e15264561273633904e79ec156f574812
 progress:
   total_phases: 35
   completed_phases: 4
   total_plans: 352
-  completed_plans: 321
+  completed_plans: 322
 milestone_name: milestone
 ---
 
@@ -24,17 +24,17 @@ milestone_name: milestone
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 25 — order-log-progress
+**Current focus:** Phase 26 — 시세 전용 공유 연결 — relay 종목 단위 팬아웃
 
 ## Current Position
 
-Phase: 26 (시세 전용 공유 연결 — relay 종목 단위 팬아웃) — READY TO EXECUTE
-Plan: 13 of 13
+Phase: 26 (시세 전용 공유 연결 — relay 종목 단위 팬아웃) — EXECUTING
+Plan: 2 of 15
 Plans completed: 220 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-30 - Completed quick task 260930-lq5: 카드 주문로그 · 전략로그 → 버튼 + 한 종목 팝업
+Last activity: 2026-09-30 — Phase 26 execution started
 
 Progress: [█████████░] 93%
 
@@ -173,6 +173,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 25 P11 | 확인만 | 3 tasks | 1 files |
 | Phase 25 P12 | 56min | 3 tasks | 1 files |
 | Phase 25 P13 | 37 min | 3 tasks | 4 files |
+| Phase 26 P01 | 4min | 1 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -447,6 +448,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 25]: [25-12] gh-trade 1712001c blob 차이(SetLimitChaser 말미 post_buy_auto)는 재생성 없이 5f49cfa5 생성물로 배포 — 와이어 호환(buy3_schema 1). 재생성·배포는 quick-260929-vzy 몫
 - [Phase 25]: [25-12] push 는 배포·검증 커밋 6289e430 만(fast-forward) — 동시 세션 vzy 커밋은 미배포. 첫 거래일 UAT 는 2026-09-30 장중 gh-trade 알림 대기
 - [Phase 25]: 25-13: WR-02 — #clearCaches 가 진행률 키를 지우면 그 userId 에게만 unf.progress snap:true entries:[] 1프레임(이미 연결된 브라우저 사본 비움 · D-13 무변경). (A) vzy 동반 배포 relay:6821181b · push 6289e430..6821181b
+- [Phase 26]: 26-01: 관찰자 role 검증은 envelope buildObserverLoginReq 한 곳 — 0/1 밖은 RangeError(비밀 미포함), ObserverLoginResult.role 필수(거부·구 게이트웨이 0) — 26-02 QuoteFeed role_mismatch 판정 근거
 
 ### Pending Todos
 
@@ -523,10 +525,10 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/26-shared-quote-feed/26-CONTEXT.md
+**Resume file:** None
 
-Last session: 2026-09-30T07:07:01.770Z
-Stopped at: Phase 26 context gathered
+Last session: 2026-09-30T13:04:50.766Z
+Stopped at: Completed 26-01-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
