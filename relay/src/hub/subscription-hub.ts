@@ -49,8 +49,14 @@
  *         이후 델타(67)를 반영한다. 참조계수 경로에 얹지 않는 이유가 이것이다 —
  *         아무 종목도 구독하지 않은 사용자도 자기 잔고는 봐야 한다.
  *   D-37  브라우저 재접속·다중 탭·**다른 사용자**에서 **스냅샷 캐시가 즉시 응답**한다(캐시는 전역이다).
- *         Phase 26 부터 전역 캐시는 **참조계수 1→0 에서 정리한다** — 키가 전역이라 남겨 두면 한 번이라도
- *         본 종목 수만큼 무한히 자란다. 재접속 왕복 동안 캐시를 살려 두는 역할은 linger(D-10 · 26-08)가 대체한다.
+ *         Phase 26 부터 전역 캐시는 **linger(D-10) 만료에서 해제한다** — 캐시 크기 ≤ 업스트림 키 수(live + linger).
+ *         키가 전역이라 영구 보존하면 한 번이라도 본 종목 수만큼 무한히 자란다.
+ *   Phase 26 D-10  **1→0 은 짧은 linger 뒤 해제**한다. 마지막 소비자가 떠난 키는 `LINGER_MS`(15초) 동안 업스트림
+ *         구독 · 캐시를 유지하다 29(false) + 캐시 · PRICE 게이트 삭제로 푼다(`#releaseKey`). 탭 전환 · 새로고침으로
+ *         그 안에 돌아오면 28 · 29 · 32 재요청 없이 캐시로 그린다 — 단 linger 당시 업스트림 level 과 새 실효 level 이
+ *         다르면 승격(28→29(0)→32) · 강등(29(1)) 규칙 그대로다. linger 키는 업스트림 키 수에 포함된다(26-09 2000 가드).
+ *         quote 연결 재접속(`ready`)에서는 linger 키를 되걸지 않고 즉시 정리한다(새 연결엔 구독이 없고 소비자도 없다).
+ *         LRU 축출 · 기존 구독 강제 해제는 없다 — 소비자 0 키를 푸는 것은 linger 만료 하나다.
  *   D-12  전략(상따 전수 · VI 설정 · VI 주문 추적)도 **세션 단위 캐시**를 여기 둔다.
  *         사용자당 DMA 세션이 1개이므로 「그 사용자의 전략이 지금 무엇인가」를 아는 객체도
  *         하나여야 한다. 캐시가 있어야 새 탭이 붙자마자 **종목 구독 없이** 전략을 본다 —
@@ -175,6 +181,15 @@ export const TAPE_REQUEST_COUNT = TAPE_RING_SIZE;
  * (`tasks/gh-trade-price-only-quote-subscription-reply.md`)의 「200ms」 는 hp5 이전 값이라 낡았다.
  */
 export const PRICE_MIN_INTERVAL_MS = 100;
+
+/**
+ * 마지막 소비자가 떠난 키의 구독 · 캐시 유지 시간(ms) = 15초 (Phase 26 D-10 · RESEARCH A3).
+ *
+ * D-10 재량(10~30초) 중 15초다 — 새로고침 왕복(2~3초 · session-manager.ts D-15 근거)과 탭 전환을 흡수하면서,
+ * 소비자 없는 키가 전역 2000 슬롯(D-11)을 점유하는 시간은 짧게 둔다. 운영값은 `QUOTE_LINGER_MS`(config)로 덮을 수 있고
+ * e2e 는 0(즉시 해제 — 테스트 간 전역 캐시 격리)을 쓴다.
+ */
+export const LINGER_MS = 15_000;
 
 /**
  * 두 시세의 **가격 섹션**이 같은가 (Phase 26 D-05 — 서버 `kDirtyPriceMask` 의 relay 복제).
@@ -304,7 +319,13 @@ export type HubOrderEvent = { userId: string; notice: ParsedOrderResp };
 /** `/healthz` 용 요약. 식별자(userId·ISIN)를 담지 않는다. */
 export type HubStats = {
   sessionCount: number;
+  /**
+   * **live** 시세 키 수 — 소비자(참조계수 합계 ≥1)가 있는 전역 `isin|ex` 키. linger 키는 빼고 센다
+   * (`#refs.size - #lingering.size`). 업스트림 구독 키 수 = `subscriptionCount + lingerCount`.
+   */
   subscriptionCount: number;
+  /** linger 중인 키 수 (D-10) — 소비자 0 이지만 업스트림 구독 · 캐시를 아직 유지하는 키. */
+  lingerCount: number;
   cachedQuoteCount: number;
   /** 캐시된 계좌 상태 **개수**. 계좌번호는 담지 않는다. */
   cachedAccountCount: number;
@@ -354,6 +375,18 @@ type PriceGate = {
   /** 가격 섹션 갱신이 억제된 채 남아 있는가 — 다음 허용 시점에 최신 상태로 나간다. */
   pending: boolean;
   timer: NodeJS.Timeout | null;
+};
+
+/**
+ * linger 표식 (Phase 26 D-10) — 소비자 0 이 된 키가 업스트림 구독 · 캐시를 유지하는 동안의 상태. 키당 타이머 1개(T-26-12).
+ */
+type Linger = {
+  /** 만료 타이머 — `#releaseKey(key, "linger 만료")`. */
+  timer: NodeJS.Timeout | null;
+  /** linger 에 들어간 시각(`Date.now()`) — 26-09 가드가 가장 오래된 linger 키부터 풀 때 쓴다. */
+  since: number;
+  /** linger 당시 업스트림 실효 level — 복귀 시 승격 · 강등 판정 기준. */
+  level: RelaySubLevel;
 };
 
 function totalRefs(refs: SubRefs): number {
@@ -515,16 +548,23 @@ export class SubscriptionHub extends EventEmitter {
    * 교체되면 여기가 정본이고 옛 feed 의 리스너는 정본 대조로 침묵한다(세션 규율 동형).
    */
   #feed: HubQuoteFeed | null = null;
-  /** `marketKey` (`${isin}|${exchange}` · 전역) → level 별 참조계수 (quick-260923-ge2 · Phase 26 D-12). */
+  /**
+   * `marketKey` (`${isin}|${exchange}` · 전역) → level 별 참조계수 (quick-260923-ge2 · Phase 26 D-12).
+   * linger 키(D-10)도 합계 0 인 항목으로 **남는다** — 업스트림 구독 키 집합 = `#refs` 의 키 전부(live + linger).
+   */
   readonly #refs = new Map<string, SubRefs>();
-  /** 전역 스냅샷 캐시(`marketKey`) — 이미 Number 로 좁혀진 wire JSON 이다 (D-34/D-37). 1→0 에서 지운다. */
+  /** `marketKey` → linger 표식 (D-10). 이 맵의 키는 모두 `#refs` 에 합계 0 으로 있다. */
+  readonly #lingering = new Map<string, Linger>();
+  /** linger 유지 시간(ms). 0 이하면 1→0 즉시 해제(26-03 동작 — e2e 격리용). */
+  readonly #lingerMs: number;
+  /** 전역 스냅샷 캐시(`marketKey`) — 이미 Number 로 좁혀진 wire JSON 이다 (D-34/D-37). linger 만료 · 재접속 정리에서 지운다. */
   readonly #quotes = new Map<string, RelayQuote>();
   /**
    * `marketKey` → PRICE 게이트 (D-05 · D-06). FULL 업스트림 + price 소비자가 있는 키만 둔다 — price 이탈 · FULL→PRICE
    * 강등 · 1→0 · `closeAll` 에서 타이머와 같이 지운다(`#dropPriceGate`).
    */
   readonly #priceGates = new Map<string, PriceGate>();
-  /** 전역 체결 링버퍼(`marketKey` · 키당 최근 `TAPE_RING_SIZE` 건). 1→0 에서 지운다. */
+  /** 전역 체결 링버퍼(`marketKey` · 키당 최근 `TAPE_RING_SIZE` 건). `#releaseKey` 에서 지운다. */
   readonly #tapes = new Map<string, RelayTapeEntry[]>();
   /** `marketKey` → 플러시 대기 배치 (전역). */
   readonly #pendingTapes = new Map<string, PendingTape>();
@@ -644,10 +684,14 @@ export class SubscriptionHub extends EventEmitter {
   /** 게이트웨이 종목마스터 보조 원천(27/57). 없으면 57 은 명시 case 에서 버려진다. */
   readonly #symbolMaster: HubSymbolMasterFeed | undefined;
 
-  constructor(opts?: { symbols?: SymbolLookup; symbolMaster?: HubSymbolMasterFeed }) {
+  /**
+   * @param opts.lingerMs 1→0 뒤 구독 · 캐시 유지 시간(ms · D-10). 생략 = `LINGER_MS`(15초) · 0 이하 = 즉시 해제.
+   */
+  constructor(opts?: { symbols?: SymbolLookup; symbolMaster?: HubSymbolMasterFeed; lingerMs?: number }) {
     super();
     this.#symbols = opts?.symbols;
     this.#symbolMaster = opts?.symbolMaster;
+    this.#lingerMs = opts?.lingerMs ?? LINGER_MS;
   }
 
   // ----------------------------------------------------------
@@ -733,6 +777,16 @@ export class SubscriptionHub extends EventEmitter {
       refs = { full: 0, price: 0 };
       this.#refs.set(key, refs);
     }
+
+    const linger = this.#lingering.get(key);
+    if (linger !== undefined) {
+      // linger 중 복귀 (D-10) — 업스트림 구독 · 캐시가 살아 있다. 타이머를 끄고 level 차이만 반영한다.
+      this.#clearLinger(key, linger);
+      refs[level] += 1;
+      this.#resumeFromLinger(userId, isin, exchange, linger, refs);
+      return;
+    }
+
     const prevTotal = totalRefs(refs);
     const prevLevel = prevTotal > 0 ? effectiveLevel(refs) : undefined;
     refs[level] += 1;
@@ -757,9 +811,55 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
-   * 참조계수 -1 (level 별 · 전역 키). **합계 1→0** 에서 `subscribe:false`, **FULL→PRICE 강등**에서
-   * 29(level=1) 1건이 quote 연결로 나간다. 잡지 않은 level 의 해제는 무시한다.
-   * 1→0 에서는 그 키의 전역 캐시(스냅샷 · 링버퍼 · 대기 배치)도 지운다 — D-37 헤더 · linger 는 26-08.
+   * linger 중 복귀의 프레임 (D-10). 참조계수를 올린 **뒤** 부른다. linger 당시 업스트림 level 과 새 실효 level 을 비교한다.
+   *   · 같다        → 프레임 0 — 캐시로 그린다.
+   *   · PRICE→FULL  → 승격 28 → 29(level=0) → 32 (0→1 · 승격과 같은 `#sendSubscribe`).
+   *   · FULL→PRICE  → 강등 29(level=1) 1건.
+   * quote 연결이 Ready 가 아니면 기록만 한다 — ready 의 합집합 재구독이 실효 level 로 되건다.
+   */
+  #resumeFromLinger(
+    userId: string,
+    isin: string,
+    exchange: RelayExchange,
+    linger: Linger,
+    refs: SubRefs,
+  ): void {
+    const nextLevel = effectiveLevel(refs);
+    const lingeredMs = Date.now() - linger.since;
+    if (nextLevel === linger.level) {
+      logger.info(
+        { userId, isin, exchange, level: nextLevel, lingeredMs },
+        "[HUB] linger 중 재구독 — 캐시로 그린다 (게이트웨이 재요청 0)",
+      );
+      return;
+    }
+    if (nextLevel === "full") {
+      logger.info(
+        { userId, isin, exchange, from: linger.level, level: nextLevel, lingeredMs },
+        "[HUB] linger 중 재구독 — PRICE→FULL 승격 (스냅샷+구독+체결 재송신)",
+      );
+      this.#sendSubscribe(isin, exchange, "full");
+      return;
+    }
+    const feed = this.#feed;
+    if (feed === null || !feed.isReady) {
+      logger.info(
+        { userId, isin, exchange, from: linger.level, level: nextLevel, hasFeed: feed !== null },
+        "[HUB] linger 중 재구독 — FULL→PRICE 강등, quote 연결이 준비되지 않아 기록만",
+      );
+      return;
+    }
+    feed.send(buildSubscribeQuoteReq(isin, exchange, true, QUOTE_LEVEL.PRICE));
+    logger.info(
+      { userId, isin, exchange, from: linger.level, level: nextLevel, lingeredMs },
+      "[HUB] linger 중 재구독 — FULL→PRICE 강등 29(level=1) 1건",
+    );
+  }
+
+  /**
+   * 참조계수 -1 (level 별 · 전역 키). **합계 1→0** 에서 linger(D-10)를 걸고 — 만료 시 `subscribe:false` + 캐시 삭제 —,
+   * **FULL→PRICE 강등**에서 29(level=1) 1건이 quote 연결로 나간다. 잡지 않은 level 의 해제는 무시한다.
+   * `lingerMs` 가 0 이하면 1→0 에서 바로 해제한다(`#releaseKey`).
    */
   unsubscribe(
     userId: string,
@@ -807,22 +907,63 @@ export class SubscriptionHub extends EventEmitter {
       return;
     }
 
+    if (this.#lingerMs <= 0) {
+      this.#releaseKey(key, "마지막 구독 해제 (linger 0)");
+      return;
+    }
+    // linger (D-10) — `#refs` 항목(0/0)을 남긴 채 업스트림 구독 · 캐시를 유지한다. 만료가 `#releaseKey` 를 부른다.
+    const linger: Linger = { timer: null, since: Date.now(), level: prevLevel };
+    linger.timer = setTimeout(() => {
+      linger.timer = null;
+      if (this.#lingering.get(key) !== linger) return; // 이미 복귀 · 정리됨 — 옛 타이머는 침묵
+      this.#releaseKey(key, "linger 만료");
+    }, this.#lingerMs);
+    this.#lingering.set(key, linger);
+    logger.info(
+      { userId, isin, exchange, level: prevLevel, lingerMs: this.#lingerMs },
+      "[HUB] 마지막 구독 해제 — linger 시작 (구독 · 캐시 유지)",
+    );
+  }
+
+  /**
+   * 키 하나를 **완전히** 푼다 (D-10 — linger 만료 · `lingerMs` 0 의 1→0 · quote 재접속의 linger 정리가 공유하는 한 자리).
+   * 참조계수 · linger 표식(타이머 포함) · 전역 캐시(스냅샷 · 링버퍼 · 대기 배치) · PRICE 게이트(타이머 포함)를 지운다.
+   * `sendUnsubscribe` 가 참이고 quote 연결이 Ready 면 29(false) 1건을 보낸다 — 재접속 정리는 새 연결에 구독이 없으니 거짓.
+   * 캐시가 남지 않으므로 전역 캐시 크기 ≤ 업스트림 키 수(live + linger)다(T-26-12).
+   */
+  #releaseKey(key: string, reason: string, sendUnsubscribe = true): void {
+    const linger = this.#lingering.get(key);
+    if (linger !== undefined) this.#clearLinger(key, linger);
     this.#refs.delete(key);
-    // 전역 캐시도 같이 지운다 — 키가 전역이라 남기면 한 번이라도 본 종목 수만큼 자란다(D-37 헤더).
-    // 재접속 왕복 동안 캐시를 살려 두는 역할은 linger(D-10 · 26-08)가 대체한다.
     this.#quotes.delete(key);
     this.#tapes.delete(key);
     this.#pendingTapes.delete(key);
+    this.#dropPriceGate(key);
+
+    const parts = this.#splitMarketKey(key);
+    if (parts === null) return;
+    const { isin, exchange } = parts;
+    if (!sendUnsubscribe) {
+      logger.info({ isin, exchange, reason }, "[HUB] 키 해제 — 업스트림 구독이 없어 해제 프레임 생략");
+      return;
+    }
     const feed = this.#feed;
     if (feed === null || !feed.isReady) {
       logger.info(
-        { userId, isin, exchange, hasFeed: feed !== null },
-        "[HUB] 마지막 구독 해제 — quote 연결이 준비되지 않아 해제 프레임 생략",
+        { isin, exchange, reason, hasFeed: feed !== null },
+        "[HUB] 키 해제 — quote 연결이 준비되지 않아 해제 프레임 생략",
       );
       return;
     }
     feed.send(buildSubscribeQuoteReq(isin, exchange, false));
-    logger.info({ userId, isin, exchange }, "[HUB] 마지막 구독 해제 — 업스트림 구독 해제");
+    logger.info({ isin, exchange, reason }, "[HUB] 키 해제 — 업스트림 구독 해제 29(false)");
+  }
+
+  /** linger 표식과 만료 타이머를 지운다(복귀 · 해제 공용). */
+  #clearLinger(key: string, linger: Linger): void {
+    if (linger.timer !== null) clearTimeout(linger.timer);
+    linger.timer = null;
+    this.#lingering.delete(key);
   }
 
   // ⚠️ `releaseAll(userId)` 가 여기 있었다 — **삭제됐다** (R2-IN-02). `detach` 와 같은
@@ -839,6 +980,9 @@ export class SubscriptionHub extends EventEmitter {
    * (D-03 · D-08). 합집합 burst 페이싱은 26-10 이 이 자리에 붙는다.
    */
   resubscribeAll(): void {
+    // linger 키(D-10)는 되걸지 않고 정리한다 — 새 연결에는 구독이 없고 소비자도 없다(29(false) 도 보낼 것이 없다).
+    const lingered = [...this.#lingering.keys()];
+    for (const key of lingered) this.#releaseKey(key, "quote 연결 재접속 — linger 키 정리", false);
     let count = 0;
     for (const [key, refs] of this.#refs.entries()) {
       const parts = this.#splitMarketKey(key);
@@ -847,7 +991,10 @@ export class SubscriptionHub extends EventEmitter {
       this.#sendSubscribe(parts.isin, parts.exchange, effectiveLevel(refs));
       count += 1;
     }
-    logger.info({ count }, "[HUB] quote 연결 Ready — 전역 보유 구독 합집합 재구독");
+    logger.info(
+      { count, lingerReleased: lingered.length },
+      "[HUB] quote 연결 Ready — 전역 보유 구독 합집합 재구독 (live 키만)",
+    );
   }
 
   /**
@@ -1150,11 +1297,17 @@ export class SubscriptionHub extends EventEmitter {
     return refs === undefined || totalRefs(refs) === 0 ? undefined : effectiveLevel(refs);
   }
 
+  /** 키가 linger 중인가(D-10 · 진단 · 테스트용) — 소비자 0 이지만 업스트림 구독 · 캐시를 유지하는 중. */
+  isLingering(isin: string, exchange: RelayExchange): boolean {
+    return this.#lingering.has(marketKey(isin, exchange));
+  }
+
   /** `/healthz` 요약. 식별자를 담지 않는다. */
   stats(): HubStats {
     return {
       sessionCount: this.#sessions.size,
-      subscriptionCount: this.#refs.size,
+      subscriptionCount: this.#refs.size - this.#lingering.size,
+      lingerCount: this.#lingering.size,
       cachedQuoteCount: this.#quotes.size,
       cachedAccountCount: this.#accountStates.size,
       cachedLimitChaserCount: this.#limitChasers.size,
@@ -1174,6 +1327,10 @@ export class SubscriptionHub extends EventEmitter {
       if (gate.timer !== null) clearTimeout(gate.timer);
     }
     this.#priceGates.clear();
+    for (const linger of this.#lingering.values()) {
+      if (linger.timer !== null) clearTimeout(linger.timer);
+    }
+    this.#lingering.clear();
     // 옛 feed 의 늦은 프레임 · ready 는 정본 대조(`#feed`)로 침묵한다.
     this.#feed = null;
     this.#sessions.clear();
@@ -1530,8 +1687,9 @@ export class SubscriptionHub extends EventEmitter {
   /**
    * 시세는 **배치하지 않는다** — 업스트림 100ms 코얼레싱을 그대로 통과시킨다 (D-35).
    *
-   * 참조계수 없는 키의 늦은 프레임(해제 29(false) 뒤 in-flight)은 **캐시하지 않고 버린다** — 넣으면 1→0 에서 지운
-   * 캐시가 되살아나 다음 구독자가 낡은 값을 즉시 받는다.
+   * 참조계수 없는 키의 늦은 프레임(linger 만료 · 해제 29(false) 뒤 in-flight)은 **캐시하지 않고 버린다** — 넣으면
+   * `#releaseKey` 가 지운 캐시가 되살아나 다음 구독자가 낡은 값을 즉시 받는다. linger 중인 키(D-10)는 `#refs` 에 남아
+   * 있으므로 캐시를 갱신한다 — 서버는 아직 구독 중이고, 복귀하는 소비자는 최신 캐시를 받아야 한다.
    */
   #onQuote(quote: RelayQuote): void {
     const key = marketKey(quote.i, quote.x);
