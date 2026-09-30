@@ -90,6 +90,14 @@ describe('matchesKind — 구분 필터 group 축 (D-08)', () => {
     for (const k of ['pre', 'add', 'post', 'sell', 'market'] as const) expect(matchesKind(unknown, k)).toBe(false);
   });
 
+  it('수동 7 · VI 8 주문 이벤트는 all 에만 — 칩 추가는 사용자 결정 대기 (quick-260930-e73)', () => {
+    for (const g of [7, 8]) {
+      const r = byGroup(g);
+      expect(matchesKind(r, 'all')).toBe(true);
+      for (const k of ['pre', 'add', 'post', 'sell', 'market'] as const) expect(matchesKind(r, k)).toBe(false);
+    }
+  });
+
   it('구분 옵션 라벨 = 전체 · 선매수 · 추가매수 · 후매수 · 매도 · 시세', () => {
     expect(ORDER_LOG_KIND_FILTERS.map((o) => o.label)).toEqual(['전체', '선매수', '추가매수', '후매수', '매도', '시세']);
     expect(ORDER_LOG_KIND_FILTERS.map((o) => o.value)).toEqual(['all', 'pre', 'add', 'post', 'sell', 'market']);

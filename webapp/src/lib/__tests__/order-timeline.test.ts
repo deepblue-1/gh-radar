@@ -309,6 +309,35 @@ describe("buildTimeline — 한 타임라인 (D-01 · D-02)", () => {
     expect(lines.map((l) => [l.source, l.action, l.text])).toEqual([["journal", "접수", "매수 10주 @12,400"]]);
   });
 
+  it("수동 주문(gh-trade 7 이후) — 통보 줄 + 상따 줄 「수동 주문 · …」 (quick-260930-e73)", () => {
+    const MANUAL_EV = {
+      ...strategyRow("buy12451"),
+      seq: 950,
+      gwTimeMs: at("10:30:00.120"),
+      group: 7,
+      orderNo: ROW_MANUAL.orderNo!,
+      price: 12_400,
+      qty: 10,
+      condMetric: 0,
+      condThreshold: 0,
+      condActual: 0,
+      evKind: 0,
+      evPrice: 0,
+      evQtyBefore: 0,
+      evQtyAfter: 0,
+      evTradeQty: 0,
+      reasonCode: "",
+    };
+    const lines = buildTimeline([...TIMELINE_MANUAL, strategyItem(MANUAL_EV)], [ROW_MANUAL], { bundled: false });
+    expect(lines.map((l) => [l.source, l.action])).toEqual([
+      ["journal", "접수"],
+      ["strategy", "주문"],
+    ]);
+    const strategyLine = lines.find((l) => l.source === "strategy")!;
+    expect(strategyLine.text).toBe(timelineStrategyText(MANUAL_EV).text);
+    expect(strategyLine.text.startsWith("수동 주문 · ")).toBe(true);
+  });
+
   it("빈 응답 — 빈 배열", () => {
     expect(buildTimeline([], [ROW_12451], { bundled: false })).toEqual([]);
   });

@@ -11,9 +11,10 @@
  *   Pitfall 15  조인은 (계좌번호, 주문번호) **문자열 동등**이다. 앞 0 · 하이픈을 다듬지 않는다 — gh-trade 가
  *         83 과 66/67 에 같은 원천 문자열을 싣는다(Q5). 어긋나면 조용히 보조행이 안 뜨므로 개발 모드에서
  *         `reportUnmatchedProgressOnce` 가 한 번 드러낸다.
- *   A-P1  (플래너 가정) gh-trade D-18 로 수동 · VI 매수도 추적돼 `group = 0` 항목이 온다. 표시명 표에서 0 은
- *         「표시명 없음」이라 진행률 종류명은 「매수」로 그린다 — 모든 추적 대상이 상한가 매수라 참인 단어이고,
- *         원문 「0」 을 보이면 D-10 모르는 값처럼 읽힌다. 다른 문구가 필요하면 `progressGroupLabel` 한 곳만 바꾼다.
+ *   A-P1  gh-trade 2026-09-30 계약으로 수동 · VI 대기 매수는 `group = 7` · `8` 로 온다 — 표시명 표의
+ *         「수동」 · 「VI」 로 그린다(quick-260930-e73). `group = 0` → 「매수」 는 서버 배포 전 · 옛 서버(수동 · VI 가
+ *         0 으로 오던 시기) 호환으로 유지한다 — 표시명 표에서 0 은 「표시명 없음」이고, 원문 「0」 을 보이면 D-10
+ *         모르는 값처럼 읽힌다. 다른 문구가 필요하면 `progressGroupLabel` 한 곳만 바꾼다.
  */
 import {
   orderGroupLabel,
@@ -79,7 +80,7 @@ export function progressView(
   };
 }
 
-/** 진행률 종류명 — 0 은 「매수」(A-P1), 1~6 은 표시명 표, 모르는 값은 원문 숫자(D-10). */
+/** 진행률 종류명 — 0 은 「매수」(A-P1 · 옛 서버 호환), 1~8 은 표시명 표(7 수동 · 8 VI), 모르는 값은 원문 숫자(D-10). */
 export function progressGroupLabel(group: number): string {
   if (group === 0) return "매수";
   return orderGroupLabel(group) ?? String(group);

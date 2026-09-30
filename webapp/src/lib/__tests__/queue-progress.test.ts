@@ -122,6 +122,15 @@ describe('progressView — D-12 클램프만 (웹 계산 없음)', () => {
     expect(progressView({ remainingVolume: 1, progressBp: 100, group: 0 }).groupLabel).toBe('매수');
     expect(progressView({ remainingVolume: 1, progressBp: 100, group: 9 }).groupLabel).toBe('9');
   });
+
+  it('group 7 수동 · 8 VI (gh-trade 2026-09-30 말미 추가) → 값 텍스트 종류명 「수동」 · 「VI」', () => {
+    expect(progressView({ remainingVolume: 1200, progressBp: 5000, group: 7 }).valueText).toBe(
+      '수동 체결예상까지 1,200주 남음, 50%',
+    );
+    expect(progressView({ remainingVolume: 1200, progressBp: 5000, group: 8 }).valueText).toBe(
+      'VI 체결예상까지 1,200주 남음, 50%',
+    );
+  });
 });
 
 describe('progressGroupLabel', () => {
@@ -130,6 +139,13 @@ describe('progressGroupLabel', () => {
     expect(progressGroupLabel(1)).toBe('선매수');
     expect(progressGroupLabel(2)).toBe('추가매수');
     expect(progressGroupLabel(3)).toBe('후매수');
+    expect(progressGroupLabel(9)).toBe('9');
+  });
+
+  it('7 → 수동 · 8 → VI (표시명 표 위임) · 0 은 옛 서버 호환으로 여전히 매수', () => {
+    expect(progressGroupLabel(7)).toBe('수동');
+    expect(progressGroupLabel(8)).toBe('VI');
+    expect(progressGroupLabel(0)).toBe('매수');
     expect(progressGroupLabel(9)).toBe('9');
   });
 });
