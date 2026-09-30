@@ -17,6 +17,9 @@
  *   D-13  DMA 세션 정본은 `SessionManager` 다. 여기서는 만들어서 넘겨주기만 한다.
  *   D-02  주문 접수는 **wss 하나**다. 내부 HTTP 의 주문 라우트는 16-16 에서 제거했고
  *         남은 것은 `/healthz` 뿐이다. 주문 결선은 `WsFanout` 에 넘기는 종목맵 하나다.
+ *   Phase 26 D-12  시세 업스트림 = **quote 연결 하나**(`QuoteFeed` · 관찰자 로그인 role 1 · `hub.attachFeed`).
+ *         사용자 세션은 종목을 구독하지 않는다 — 계좌 · 주문 · 전략만 싣는다. 비밀 원천은 D-17(`config.dmaQuoteObserverSecret`
+ *         — quote 키 우선 · 저널 비밀 폴백). 둘 다 없으면 quote 연결은 disabled 이고 게이트웨이 소켓을 열지 않는다.
  *   Phase 19 D-01  사용자 세션 경로는 DB 에 쓰지 않는다 — 주문 기록 경로는 제거됐고, 기록은
  *         관찰자 기록기 단독이다. 관찰자 → 기록기 → 적용 RPC → `fanout.deliverJournalRows` 결선은 이 파일이다.
  *   Phase 19 D-13  관찰자 연결은 **게이트웨이당 1개**(`config.journalUpstreams` — quick-260929-c8e)이고
@@ -39,7 +42,8 @@
  *   1. HTTP 서버 2개 `close()`  — 새 연결을 받지 않는다
  *   2. `fanout.closeAll(1001)`  — 살아 있는 wss 에 정상 close 프레임(going away)
  *   3. `sessionManager.closeAll()` — 구독 해제 + DMA TCP 종료
- *   4. 전 게이트웨이 `observer.stop()` — 관찰자 연결 종료(새 배치를 받지 않는다 — Phase 19 D-13)
+ *   4. quote 연결 `stop` · 전 게이트웨이 `observer.stop()` — 관찰자 연결 종료(새 시세 프레임 · 새 배치를 받지 않는다 —
+ *      Phase 19 D-13 · Phase 26). quote 연결의 로그인 타이머 · 재접속 백오프도 여기서 멈춘다.
  *   5. 전 게이트웨이 `writer` · `strategyWriter` `drain(2초)` **병렬** → 전 기록기 · `access` · `status` · 신원 적재기 `close()`
  *      — 큐에 남은 레코드를 적용 RPC 로 보낸다. 2초 안에 못 끝내도 **유실은 없다** — 커서는 적용 RPC
  *      트랜잭션 안에서만 전진하므로 다음 부팅이 남은 구간을 재생한다(D-12).
@@ -48,8 +52,9 @@
  *
  * 하지 않는 것:
  *   - 부팅 시 **사용자** DMA 세션을 미리 열지 않는다. 사용자 세션은 **사용자의 wss 인증에서만**
- *     생긴다 (D-13). 예외는 게이트웨이당 관찰자 연결 1개뿐이다(Phase 19 D-13 — 부팅 즉시 · 사용자와 무관).
- *     아무도 안 붙으면 게이트웨이로 나가는 TCP 는 비밀이 있는 관찰자 수만큼이다(추가 env 없으면 1개).
+ *     생긴다 (D-13). 예외는 게이트웨이당 관찰자 연결 1개와 주 게이트웨이 quote 연결 1개뿐이다(Phase 19 D-13 ·
+ *     Phase 26 D-12 — 부팅 즉시 · 사용자와 무관). 아무도 안 붙으면 게이트웨이로 나가는 TCP 는 비밀이 있는 관찰자 수 +
+ *     quote 연결 1개다(추가 env 없으면 2개 · 비밀이 둘 다 없으면 0개).
  *   - 비밀을 로그에 싣지 않는다. 부팅 로그는 포트·호스트·버전까지다.
  *   - 조용히 죽지 않는다. `unhandledRejection`/`uncaughtException` 을 잡아 사유를 남기고
  *     exit(1) 한다 — Docker 가 재시작할 때 로그에 원인이 남아야 한다.
@@ -72,6 +77,7 @@ import { GatewayIdentities } from "./journal/identities.js";
 import { JournalObserver } from "./journal/observer.js";
 import { JournalStatus } from "./journal/status.js";
 import { createJournalCodec } from "./journal/codec.js";
+import { QuoteFeed } from "./quote/feed.js";
 
 /** 종료 절차 상한(ms). 이 시간을 넘기면 정리를 포기하고 강제로 내려간다. */
 const SHUTDOWN_TIMEOUT_MS = 5_000;
@@ -181,6 +187,15 @@ const symbols = new SymbolMap(supabase, { fallback: gatewaySymbols });
 void symbols.start();
 
 const hub = new SubscriptionHub({ symbols, symbolMaster: gatewaySymbols });
+
+/**
+ * 시세 업스트림 = quote 연결 하나 (Phase 26 D-12). 주 게이트웨이에 관찰자 로그인 role 1 로 붙는다 — 사용자 세션과
+ * 저널 관찰자와는 별개의 TCP 다. hub 의 28/29/32 는 전부 이 연결로 나가고, 이 연결의 ready 가 전역 합집합 재구독의
+ * 유일한 트리거다. 비밀은 D-17 원천(quote 키 우선 · 저널 비밀 폴백)이고 deps 로만 넘긴다(로그 인자 금지 · T-26-05).
+ * 시작은 아래 관찰자 start 줄 옆 — 결선이 다 붙은 뒤다.
+ */
+const quoteFeed = new QuoteFeed({ secret: config.dmaQuoteObserverSecret, host: config.dmaHost, port: config.dmaPort });
+hub.attachFeed(quoteFeed);
 // 첫 Ready 에서 66/64/72 가 57 조립보다 먼저 와 이름 없이 캐시·팬아웃되므로, 교체 뒤 풀린 행만 재방송한다 (D-08).
 gatewaySymbols.on("updated", () => hub.refreshNames());
 
@@ -264,6 +279,8 @@ gatewayIdentities?.start();
 // 관찰자 연결을 게이트웨이마다 부팅 즉시 연다(Phase 19 D-13 — 장 시간과 무관 · 사용자 접속과 무관).
 // 결선(applied → fanout · frame → fanout)이 전부 붙은 **뒤에** 시작해야 첫 배치가 버려지지 않는다.
 for (const p of journalPipelines) p.observer.start();
+// 시세 전용 quote 연결도 같은 자리에서 연다(Phase 26 — 장 시간 · 사용자 접속과 무관). hub · fanout 결선이 다 붙은 뒤다.
+quoteFeed.start();
 
 // ============================================================
 // listen
@@ -282,6 +299,8 @@ wsServer.listen(config.wsPort, () => {
         version: config.appVersion,
         // 관찰자 기록 연결 여부만 싣는다 — 비밀·계좌는 없다(T-19-03).
         journalObserver: config.dmaObserverSecret !== undefined ? "enabled" : "disabled",
+        // 시세 전용 quote 연결 여부만 싣는다 — 비밀은 없다(Phase 26 D-17 · T-26-05).
+        quoteFeed: config.dmaQuoteObserverSecret !== undefined ? "enabled" : "disabled",
         // 추가 게이트웨이가 있을 때만 — 키 · 주소 · 활성 여부뿐이다(비밀 없음).
         ...(extraJournals.length > 0
           ? {
@@ -330,7 +349,8 @@ async function shutdown(signal: string): Promise<void> {
     await fanout.closeAll(WS_CLOSE_GOING_AWAY);
     // 3) 구독 해제 + DMA 소켓 종료
     await sessionManager.closeAll();
-    // 4) 전 게이트웨이 관찰자 연결 종료 — 이후 새 배치가 들어오지 않는다
+    // 4) quote 연결 · 전 게이트웨이 관찰자 연결 종료 — 이후 새 시세 프레임 · 새 배치가 들어오지 않는다
+    quoteFeed.stop();
     for (const p of journalPipelines) p.observer.stop();
     // 5) 전 기록기 drain(각 상한 2초 · 병렬 — 5초 데드맨 안) → 정리. 못 끝내도 커서가 RPC 안에서만
     //    전진하므로 다음 부팅이 재생한다.
