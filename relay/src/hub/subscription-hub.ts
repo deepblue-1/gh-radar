@@ -56,7 +56,14 @@
  *         그 안에 돌아오면 28 · 29 · 32 재요청 없이 캐시로 그린다 — 단 linger 당시 업스트림 level 과 새 실효 level 이
  *         다르면 승격(28→29(0)→32) · 강등(29(1)) 규칙 그대로다. linger 키는 업스트림 키 수에 포함된다(26-09 2000 가드).
  *         quote 연결 재접속(`ready`)에서는 linger 키를 되걸지 않고 즉시 정리한다(새 연결엔 구독이 없고 소비자도 없다).
- *         LRU 축출 · 기존 구독 강제 해제는 없다 — 소비자 0 키를 푸는 것은 linger 만료 하나다.
+ *         LRU 축출 · 기존 구독 강제 해제는 없다 — 소비자 0 키를 푸는 것은 linger 만료와 D-11 의 자리 만들기 둘이다.
+ *   Phase 26 D-11 · D-15  **구독 한도.** 업스트림 키(live + linger)가 `QUOTE_SUB_LIMIT`(2000)에 이르면 새 키는 업스트림
+ *         송신 **전에** 거부한다 — 서버는 초과 구독을 끊지 않고 조용히 무시하므로(RESEARCH Pitfall 5) 가드가 없으면
+ *         「구독했는데 시세가 안 온다」 로만 보인다. 자리를 만들 때는 가장 오래 linger 한 키부터 29(false) 로 풀고, linger
+ *         키가 없으면 거부한다(기존 live 구독 축출 없음). 한 사용자(모든 탭 합산)가 참조하는 서로 다른 키는
+ *         `USER_SUB_LIMIT`(200)까지다 — 사용자 세션의 서버 한도(세션당 200)가 사라진 빈자리를 메워, 한 탭의 버그가
+ *         전원의 새 구독을 막지 못하게 한다. 거부 = 상태 무변경 · `subLimitRejects` +1 · warn 1건 · `subscribe` 반환값
+ *         (`"limit-user"` / `"limit-global"`) — fanout 이 그 소켓에만 `{t:"sub.limit"}` 을 보낸다.
  *   D-12  전략(상따 전수 · VI 설정 · VI 주문 추적)도 **세션 단위 캐시**를 여기 둔다.
  *         사용자당 DMA 세션이 1개이므로 「그 사용자의 전략이 지금 무엇인가」를 아는 객체도
  *         하나여야 한다. 캐시가 있어야 새 탭이 붙자마자 **종목 구독 없이** 전략을 본다 —
@@ -190,6 +197,31 @@ export const PRICE_MIN_INTERVAL_MS = 100;
  * e2e 는 0(즉시 해제 — 테스트 간 전역 캐시 격리)을 쓴다.
  */
 export const LINGER_MS = 15_000;
+
+/**
+ * quote 연결 하나의 업스트림 구독 키(`isin|ex` · live + linger) 상한 = 2000 (Phase 26 D-11).
+ *
+ * gh-trade `inline constexpr size_t kMaxObserverSubsPerConn = 2000;`(MarketPublisher.h:94) 복제다. 서버 ApplySubscribe 는
+ * 초과분을 `++m_subLimitRejectCount; return;` 로 **무음 무시**한다(RESEARCH Pitfall 5) — 그래서 relay 가 송신 전에 막는다.
+ * 서버의 「그 연결이 구독 중인 키」 = relay `#refs` 의 키 전부(linger 포함)라 같은 집합을 센다.
+ */
+export const QUOTE_SUB_LIMIT = 2000;
+
+/**
+ * 한 사용자(모든 탭 합산)가 참조하는 서로 다른 `isin|ex` 키 상한 = 200 (Phase 26 D-15).
+ *
+ * 종전 사용자 세션의 서버 상한 `inline constexpr size_t kMaxSubsPerConn = 200;`(MarketPublisher.h:88)과 같은 수다.
+ * 사용자 세션이 종목을 구독하지 않게 되면서(D-08) 사라진 세션당 200 을 relay 가 메운다 — 없으면 한 사용자(버그 탭 ·
+ * 악성 탭)가 전역 2000 을 다 채워 다른 사용자가 새 종목을 못 연다(RESEARCH Security 「한 사용자가 2000 키 독점」).
+ */
+export const USER_SUB_LIMIT = 200;
+
+/**
+ * `subscribe` 판정 결과 (D-11 · D-15). `"ok"` 가 아니면 참조계수 · 업스트림 모두 무변경이다.
+ *   · `"limit-user"`   — 그 사용자에게 새 키인데 사용자 키 수가 `USER_SUB_LIMIT` 에 닿았다.
+ *   · `"limit-global"` — 업스트림에 없는 새 키인데 업스트림 키(live + linger)가 `QUOTE_SUB_LIMIT` 에 닿았고 풀 linger 키도 없다.
+ */
+export type HubSubscribeResult = "ok" | "limit-user" | "limit-global";
 
 /**
  * 두 시세의 **가격 섹션**이 같은가 (Phase 26 D-05 — 서버 `kDirtyPriceMask` 의 relay 복제).
@@ -342,6 +374,11 @@ export type HubStats = {
    * **운영에서도 0 이어야 한다** — 0 이 아니면 받아 줄 case 없는 번호가 유입되고 있다.
    */
   unhandledFrameCount: number;
+  /**
+   * 구독 한도 거부 누적 수 (D-11 전역 · D-15 사용자 합산). healthz quote 필드의 원천(26-12).
+   * 서버 `m_subLimitRejectCount` 와 달리 relay 는 송신 **전에** 거부하므로 서버 쪽 계수는 0 으로 남아야 한다.
+   */
+  subLimitRejects: number;
 };
 
 export interface SubscriptionHub {
@@ -557,6 +594,17 @@ export class SubscriptionHub extends EventEmitter {
   readonly #lingering = new Map<string, Linger>();
   /** linger 유지 시간(ms). 0 이하면 1→0 즉시 해제(26-03 동작 — e2e 격리용). */
   readonly #lingerMs: number;
+  /**
+   * 사용자별 키 참조 (D-15) — userId → `marketKey` → 그 사용자의 탭 · level 합산 참조 수. 0 이면 항목을 지우고,
+   * 빈 사용자 맵도 지운다. 안쪽 맵의 크기 = 그 사용자가 참조하는 서로 다른 키 수(`USER_SUB_LIMIT` 판정 대상).
+   */
+  readonly #userRefs = new Map<string, Map<string, number>>();
+  /** 전역 업스트림 키 상한 (D-11). 생성자 `limits.global` 로 테스트 주입. */
+  readonly #globalLimit: number;
+  /** 사용자당 키 상한 (D-15). 생성자 `limits.user` 로 테스트 주입. */
+  readonly #userLimit: number;
+  /** 구독 한도 거부 누적 수 (`stats().subLimitRejects`). */
+  #subLimitRejects = 0;
   /** 전역 스냅샷 캐시(`marketKey`) — 이미 Number 로 좁혀진 wire JSON 이다 (D-34/D-37). linger 만료 · 재접속 정리에서 지운다. */
   readonly #quotes = new Map<string, RelayQuote>();
   /**
@@ -686,12 +734,20 @@ export class SubscriptionHub extends EventEmitter {
 
   /**
    * @param opts.lingerMs 1→0 뒤 구독 · 캐시 유지 시간(ms · D-10). 생략 = `LINGER_MS`(15초) · 0 이하 = 즉시 해제.
+   * @param opts.limits 구독 한도(D-11 · D-15) — 생략 = `QUOTE_SUB_LIMIT`(2000) · `USER_SUB_LIMIT`(200). 테스트 주입용.
    */
-  constructor(opts?: { symbols?: SymbolLookup; symbolMaster?: HubSymbolMasterFeed; lingerMs?: number }) {
+  constructor(opts?: {
+    symbols?: SymbolLookup;
+    symbolMaster?: HubSymbolMasterFeed;
+    lingerMs?: number;
+    limits?: { global?: number; user?: number };
+  }) {
     super();
     this.#symbols = opts?.symbols;
     this.#symbolMaster = opts?.symbolMaster;
     this.#lingerMs = opts?.lingerMs ?? LINGER_MS;
+    this.#globalLimit = opts?.limits?.global ?? QUOTE_SUB_LIMIT;
+    this.#userLimit = opts?.limits?.user ?? USER_SUB_LIMIT;
   }
 
   // ----------------------------------------------------------
@@ -762,17 +818,39 @@ export class SubscriptionHub extends EventEmitter {
 
   /**
    * 참조계수 +1 (level 별 · **전역 키**). **0→1** 과 **PRICE→FULL 승격**에서만 quote 연결로 구독 프레임이 나간다.
-   * `level` 생략은 FULL — 기존 호출부는 종전과 같다. `userId` 는 로그용이다(사용자별 추적은 26-09 · 26-11 이 쓴다) —
-   * 두 사용자가 같은 키를 잡으면 업스트림 구독은 한 벌이다(Phase 26 D-12).
+   * `level` 생략은 FULL — 기존 호출부는 종전과 같다. 두 사용자가 같은 키를 잡으면 업스트림 구독은 한 벌이다(Phase 26 D-12).
+   *
+   * 참조계수를 바꾸기 **전에** 구독 한도를 판정한다(D-11 · D-15) — 판정 순서:
+   *   ① 그 사용자에게 새 키이고 사용자 키 수 ≥ 사용자 한도 → `"limit-user"`.
+   *   ② 업스트림에 없는 새 키(`#refs` 항목 없음 — linger 키는 항목이 있다)이고 `#refs.size`(live + linger) ≥ 전역 한도 →
+   *      linger 키가 있으면 `since` 가 가장 오래된 키를 29(false) 로 풀고 진행, 없으면 `"limit-global"`.
+   * 거부는 상태 무변경 · `subLimitRejects` +1 · warn 1건이다. 수용이면 사용자 참조를 올리고 종전 흐름 뒤 `"ok"`.
    */
   subscribe(
     userId: string,
     isin: string,
     exchange: RelayExchange,
     level: RelaySubLevel = "full",
-  ): void {
+  ): HubSubscribeResult {
     const key = marketKey(isin, exchange);
+    const userKeys = this.#userRefs.get(userId);
+    const userHeld = userKeys?.get(key) ?? 0;
+    if (userHeld === 0 && (userKeys?.size ?? 0) >= this.#userLimit) {
+      return this.#rejectSubscribe(userId, isin, exchange, "user", this.#userLimit);
+    }
     let refs = this.#refs.get(key);
+    if (refs === undefined && this.#refs.size >= this.#globalLimit) {
+      const oldest = this.#oldestLingerKey();
+      if (oldest === undefined) {
+        return this.#rejectSubscribe(userId, isin, exchange, "global", this.#globalLimit);
+      }
+      // 서버는 같은 연결의 명령을 FIFO 로 처리한다 — 29(false) 가 새 키 28/29 보다 먼저 나가면 서버 상한과 어긋나지 않는다.
+      this.#releaseKey(oldest, "구독 한도 — linger 먼저 해제 (D-11)");
+    }
+
+    if (userKeys === undefined) this.#userRefs.set(userId, new Map([[key, 1]]));
+    else userKeys.set(key, userHeld + 1);
+
     if (refs === undefined) {
       refs = { full: 0, price: 0 };
       this.#refs.set(key, refs);
@@ -784,7 +862,7 @@ export class SubscriptionHub extends EventEmitter {
       this.#clearLinger(key, linger);
       refs[level] += 1;
       this.#resumeFromLinger(userId, isin, exchange, linger, refs);
-      return;
+      return "ok";
     }
 
     const prevTotal = totalRefs(refs);
@@ -794,7 +872,7 @@ export class SubscriptionHub extends EventEmitter {
 
     if (prevTotal === 0) {
       this.#sendSubscribe(isin, exchange, nextLevel);
-      return;
+      return "ok";
     }
     if (prevLevel === "price" && nextLevel === "full") {
       logger.info(
@@ -802,12 +880,39 @@ export class SubscriptionHub extends EventEmitter {
         "[HUB] PRICE→FULL 승격 — 스냅샷+구독+체결 재송신",
       );
       this.#sendSubscribe(isin, exchange, "full");
-      return;
+      return "ok";
     }
     logger.info(
       { userId, isin, exchange, level: nextLevel, refs: { ...refs }, refCount: totalRefs(refs) },
       "[HUB] 이미 구독 중 — 게이트웨이로 다시 보내지 않는다 (탭 · 사용자 공유)",
     );
+    return "ok";
+  }
+
+  /** 구독 한도 거부 (D-11 · D-15) — 상태를 바꾸지 않고 계수 · warn 만 남긴다. */
+  #rejectSubscribe(
+    userId: string,
+    isin: string,
+    exchange: RelayExchange,
+    scope: "user" | "global",
+    limit: number,
+  ): HubSubscribeResult {
+    this.#subLimitRejects += 1;
+    logger.warn({ userId, isin, exchange, scope, limit }, "[HUB] 구독 한도 — 새 키 거부 (D-11 · D-15)");
+    return scope === "user" ? "limit-user" : "limit-global";
+  }
+
+  /** `since` 가 가장 오래된 linger 키 (D-11 자리 만들기). 없으면 undefined. 한도에 닿았을 때만 부르므로 선형 탐색이다. */
+  #oldestLingerKey(): string | undefined {
+    let oldestKey: string | undefined;
+    let oldestSince = Number.POSITIVE_INFINITY;
+    for (const [key, linger] of this.#lingering) {
+      if (linger.since < oldestSince) {
+        oldestSince = linger.since;
+        oldestKey = key;
+      }
+    }
+    return oldestKey;
   }
 
   /**
@@ -877,6 +982,7 @@ export class SubscriptionHub extends EventEmitter {
 
     const prevLevel = effectiveLevel(refs);
     refs[level] -= 1;
+    this.#releaseUserRef(userId, key);
     // PRICE 게이트는 「FULL 업스트림 + price 소비자」 인 키에만 뜻이 있다 — price 이탈 · FULL→PRICE 강등 · 1→0 이면
     // 예약된 지연 방출과 함께 지운다(D-05 · T-26-11). feed 준비 여부와 무관하게 여기서 정리한다.
     if (refs.price === 0 || effectiveLevel(refs) === "price") this.#dropPriceGate(key);
@@ -957,6 +1063,23 @@ export class SubscriptionHub extends EventEmitter {
     }
     feed.send(buildSubscribeQuoteReq(isin, exchange, false));
     logger.info({ isin, exchange, reason }, "[HUB] 키 해제 — 업스트림 구독 해제 29(false)");
+  }
+
+  /** 사용자 참조 -1 (D-15). 0 이면 항목을, 빈 사용자 맵이면 사용자를 지운다. */
+  #releaseUserRef(userId: string, key: string): void {
+    const userKeys = this.#userRefs.get(userId);
+    const held = userKeys?.get(key);
+    if (userKeys === undefined || held === undefined) {
+      // 전역 참조계수는 있는데 이 사용자 몫이 없다 — 회계 불일치 신호(S-5). 전역 해제는 그대로 진행한다.
+      logger.warn({ userId, key }, "[HUB] 사용자 참조 없는 해제 — 사용자 계수만 건너뜀");
+      return;
+    }
+    if (held > 1) {
+      userKeys.set(key, held - 1);
+      return;
+    }
+    userKeys.delete(key);
+    if (userKeys.size === 0) this.#userRefs.delete(userId);
   }
 
   /** linger 표식과 만료 타이머를 지운다(복귀 · 해제 공용). */
@@ -1315,6 +1438,7 @@ export class SubscriptionHub extends EventEmitter {
       cachedViOrderCount: this.#viOrders.size,
       cachedRateCrossCount: this.#rateCrossItems.size,
       unhandledFrameCount: this.#unhandledFrames,
+      subLimitRejects: this.#subLimitRejects,
     };
   }
 
@@ -1331,6 +1455,7 @@ export class SubscriptionHub extends EventEmitter {
       if (linger.timer !== null) clearTimeout(linger.timer);
     }
     this.#lingering.clear();
+    this.#userRefs.clear();
     // 옛 feed 의 늦은 프레임 · ready 는 정본 대조(`#feed`)로 침묵한다.
     this.#feed = null;
     this.#sessions.clear();
