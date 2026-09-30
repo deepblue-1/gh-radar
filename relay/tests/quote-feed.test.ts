@@ -134,7 +134,9 @@ type Rig = {
   readies: number;
 };
 
-function rig(secret: string | undefined = SECRET): Rig {
+/** `secret` 키를 명시하면 그 값(undefined 포함)을 쓴다 — 기본 매개변수는 undefined 를 삼키므로 객체로 받는다. */
+function rig(opts: { secret?: string | undefined } = {}): Rig {
+  const secret = "secret" in opts ? opts.secret : SECRET;
   const transport = new FakeTransport();
   const feed = new QuoteFeed({ secret, host: HOST, port: 9999, transport });
   const r: Rig = { feed, transport, states: [], frames: [], readies: 0 };
@@ -341,7 +343,7 @@ describe("QuoteFeed — 타임아웃 · 재접속 · 송신 · 끔", () => {
 
   it("L9 비밀 없음(undefined · '') → disabled · connect 0 · up 이 와도 로그인 0", () => {
     for (const secret of [undefined, ""]) {
-      const r = rig(secret);
+      const r = rig({ secret });
       r.feed.start();
       expect(r.feed.state).toBe("disabled");
       expect(r.transport.count("connect")).toBe(0);
