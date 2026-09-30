@@ -84,6 +84,8 @@ async function spawnRelay(opts: {
   };
   delete env.DMA_OBSERVER_SECRET;
   if (opts.secret !== undefined) env.DMA_OBSERVER_SECRET = opts.secret;
+  // Phase 26 D-17 — quote 비밀도 바깥 셸에서 상속되지 않게 지운다(케이스가 extraEnv 로 줄 때만 켜진다).
+  delete env.DMA_QUOTE_OBSERVER_SECRET;
   // 추가 관찰자 env 는 바깥 셸에서 상속되지 않게 지운 뒤, 케이스가 준 값만 덮는다.
   delete env.DMA_KYOBO_HOST;
   delete env.DMA_KYOBO_PORT;
@@ -435,6 +437,8 @@ describe("relay 부팅 결선 — 실 프로세스 · 관찰자 경로 (Phase 19
       // 부팅 직후 한 박자 더 — 관찰자가 붙지 않는다(커서도 읽지 않는다).
       await new Promise<void>((resolve) => setTimeout(resolve, 300));
       expect(gateway.observerLoginRequests()).toEqual([]);
+      // Phase 26 D-17 — 두 비밀이 다 없으면 quote 연결도 꺼진다(소켓 0 이 둘 다를 잠근다).
+      expect(gateway.quoteLoginRequests()).toEqual([]);
       expect(gateway.sockets).toHaveLength(0);
       expect(supabase.requestsTo("/rest/v1/dma_journal_cursor")).toEqual([]);
 
@@ -442,6 +446,7 @@ describe("relay 부팅 결선 — 실 프로세스 · 관찰자 경로 (Phase 19
       const exit = await withTimeout(relay.exited, 5_000, "SIGTERM 종료", relay);
       expect(exit, relay.output()).toEqual({ code: 0, signal: null });
       expect(relay.output()).toContain('"journalObserver":"disabled"');
+      expect(relay.output()).toContain('"quoteFeed":"disabled"');
     },
     TEST_TIMEOUT_MS,
   );
@@ -664,6 +669,111 @@ describe("다중 업스트림 (quick-260929-c8e)", () => {
       const exit = await withTimeout(relay.exited, 5_000, "SIGTERM 종료", relay);
       expect(exit, relay.output()).toEqual({ code: 0, signal: null });
       expect(relay.output()).not.toContain(KYOBO_SECRET);
+    },
+    TEST_TIMEOUT_MS,
+  );
+});
+
+// ============================================================
+// Phase 26 — 시세 전용 quote 연결 부팅 결선 (D-17 비밀 원천 · D-12 업스트림 = quote 연결 하나)
+// ============================================================
+
+/** e2e 구성 흉내 — quote 키만 둔다(저널 관찰자는 꺼진다). 의미 없는 더미다. */
+const QUOTE_ONLY_SECRET = "boot-quote-secret-only";
+/** 26-02 QUOTE_CLIENT_NAME — 스텁 쪽 기대값이라 relay 상수를 import 하지 않는다(서버가 보는 값). */
+const QUOTE_CLIENT = "gh-radar-relay/quote";
+
+describe("Phase 26 quote 연결 부팅 (D-17)", () => {
+  it(
+    "DMA_OBSERVER_SECRET 만(폴백) → quote 로그인 role 1 · client gh-radar-relay/quote · 같은 비밀 · 저널 role 0 1건 · SIGTERM 0 · 비밀 부재",
+    async () => {
+      const { gateway, supabase } = await rig();
+      respondKbLive(gateway);
+      gateway.respondQuoteLogin({ success: true });
+
+      const relay = await spawnRelay({
+        gatewayPort: gateway.port,
+        supabaseUrl: supabase.url,
+        nodeEnv: "test",
+        secret: BOOT_SECRET,
+      });
+
+      await withTimeout(gateway.waitForQuoteConnection(BOOT_WAIT_MS), BOOT_WAIT_MS + 1_000, "quote 연결", relay);
+      await withTimeout(gateway.waitForObserverConnection(BOOT_WAIT_MS), BOOT_WAIT_MS + 1_000, "저널 관찰자 연결", relay);
+
+      // D-17 폴백 — quote 비밀은 DMA_OBSERVER_SECRET 과 같은 값이다(프로덕션 Secret Manager 무변경 경로).
+      const quoteLogins = gateway.quoteLoginRequests();
+      expect(quoteLogins.length).toBeGreaterThanOrEqual(1);
+      expect(quoteLogins[0]).toMatchObject({ role: 1, client: QUOTE_CLIENT, secret: BOOT_SECRET, sinceSeq: 0, epoch: "" });
+      // 저널 관찰자는 종전과 같다 — role 0 로그인 1건.
+      expect(gateway.observerLoginRequests()).toEqual([
+        { secret: BOOT_SECRET, sinceSeq: 0, epoch: "", client: "gh-radar-relay", strategySinceSeq: 0, role: 0 },
+      ]);
+      // quote 연결이 79(role 1)를 받아 ready 가 된다 — hub 의 업스트림 송신자로 결선된 연결이다.
+      await waitFor(
+        () => relay.output(),
+        (out) => out.includes("[QUOTE] 시세 관찰자 로그인 성공 — ready"),
+        "quote 연결 ready",
+        relay,
+      );
+      await waitFor(() => getHealthz(relay.orderApiPort), (h) => h.status === 200, "healthz 200", relay);
+
+      relay.child.kill("SIGTERM");
+      const exit = await withTimeout(relay.exited, 5_000, "SIGTERM 종료", relay);
+      expect(exit, relay.output()).toEqual({ code: 0, signal: null });
+      const out = relay.output();
+      // 종료 순서 — 사용자 세션 정리 → quote 연결 · 저널 관찰자 stop(같은 자리) → 완료.
+      const iSessions = out.indexOf("[DMA] 전 세션 종료 완료");
+      const iQuote = out.indexOf("[QUOTE] 시세 연결 종료");
+      const iDone = out.indexOf("[relay] 종료 절차 완료");
+      expect(iSessions, out).toBeGreaterThan(-1);
+      expect(iQuote).toBeGreaterThan(iSessions);
+      expect(iDone).toBeGreaterThan(iQuote);
+      // 부팅 로그는 enabled/disabled 만 싣는다.
+      expect(out).toContain('"quoteFeed":"enabled"');
+      expect(out).toContain('"journalObserver":"enabled"');
+      // T-19-03 · T-26-05 — 비밀 문자열은 어느 출력에도 없다.
+      expect(out).not.toContain(BOOT_SECRET);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "DMA_QUOTE_OBSERVER_SECRET 만(e2e 구성) → 저널 관찰자 로그인 0 · quote 로그인 그 비밀 · SIGTERM 0 · 비밀 부재",
+    async () => {
+      const { gateway, supabase } = await rig();
+      gateway.respondQuoteLogin({ success: true });
+
+      const relay = await spawnRelay({
+        gatewayPort: gateway.port,
+        supabaseUrl: supabase.url,
+        nodeEnv: "test",
+        secret: undefined,
+        extraEnv: { DMA_QUOTE_OBSERVER_SECRET: QUOTE_ONLY_SECRET },
+      });
+
+      await withTimeout(gateway.waitForQuoteConnection(BOOT_WAIT_MS), BOOT_WAIT_MS + 1_000, "quote 연결", relay);
+      expect(gateway.quoteLoginRequests()[0]).toMatchObject({ role: 1, client: QUOTE_CLIENT, secret: QUOTE_ONLY_SECRET });
+
+      const h = await waitFor(
+        () => getHealthz(relay.orderApiPort),
+        (x) => x.status === 200 && journalOf(x) !== undefined,
+        "healthz 200 · journal 필드",
+        relay,
+      );
+      // 저널 관찰자는 꺼져 있다 — 로그인 0 · 커서 조회 0.
+      expect(journalOf(h)?.state).toBe("disabled");
+      await new Promise<void>((resolve) => setTimeout(resolve, 300));
+      expect(gateway.observerLoginRequests()).toEqual([]);
+      expect(supabase.requestsTo("/rest/v1/dma_journal_cursor")).toEqual([]);
+
+      relay.child.kill("SIGTERM");
+      const exit = await withTimeout(relay.exited, 5_000, "SIGTERM 종료", relay);
+      expect(exit, relay.output()).toEqual({ code: 0, signal: null });
+      const out = relay.output();
+      expect(out).toContain('"journalObserver":"disabled"');
+      expect(out).toContain('"quoteFeed":"enabled"');
+      expect(out).not.toContain(QUOTE_ONLY_SECRET);
     },
     TEST_TIMEOUT_MS,
   );
