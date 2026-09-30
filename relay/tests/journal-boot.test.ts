@@ -222,7 +222,7 @@ describe("relay 부팅 결선 — 실 프로세스 · 관찰자 경로 (Phase 19
         "strategy_journal_epoch,strategy_last_seq",
       ]);
       expect(gateway.observerLoginRequests()).toEqual([
-        { secret: BOOT_SECRET, sinceSeq: 0, epoch: "", client: "gh-radar-relay", strategySinceSeq: 0 },
+        { secret: BOOT_SECRET, sinceSeq: 0, epoch: "", client: "gh-radar-relay", strategySinceSeq: 0, role: 0 },
       ]);
 
       // ③ 로그인 응답(계좌 2행) → 매핑 동기화 RPC(p_gateway KB · p_rows 2).
@@ -346,7 +346,7 @@ describe("relay 부팅 결선 — 실 프로세스 · 관찰자 경로 (Phase 19
       const sock = await withTimeout(gateway.waitForObserverConnection(BOOT_WAIT_MS), BOOT_WAIT_MS + 1_000, "관찰자 연결", relay);
       // 전략 기록기 epoch("") ≠ 주문 epoch("ep-b") — 전략 since 는 0(Pitfall 3).
       expect(gateway.observerLoginRequests()).toEqual([
-        { secret: BOOT_SECRET, sinceSeq: 0, epoch: "ep-b", client: "gh-radar-relay", strategySinceSeq: 0 },
+        { secret: BOOT_SECRET, sinceSeq: 0, epoch: "ep-b", client: "gh-radar-relay", strategySinceSeq: 0, role: 0 },
       ]);
       await waitFor(
         () => getHealthz(relay.orderApiPort),
@@ -555,10 +555,10 @@ describe("다중 업스트림 (quick-260929-c8e)", () => {
 
       // 각 게이트웨이는 자기 비밀 하나만 받는다.
       expect(kb.observerLoginRequests()).toEqual([
-        { secret: BOOT_SECRET, sinceSeq: 0, epoch: "", client: "gh-radar-relay", strategySinceSeq: 0 },
+        { secret: BOOT_SECRET, sinceSeq: 0, epoch: "", client: "gh-radar-relay", strategySinceSeq: 0, role: 0 },
       ]);
       expect(kyobo.observerLoginRequests()).toEqual([
-        { secret: KYOBO_SECRET, sinceSeq: 0, epoch: "", client: "gh-radar-relay", strategySinceSeq: 0 },
+        { secret: KYOBO_SECRET, sinceSeq: 0, epoch: "", client: "gh-radar-relay", strategySinceSeq: 0, role: 0 },
       ]);
 
       // 커서 조회는 게이트웨이별 1회씩.

@@ -102,6 +102,8 @@ describe("실 코덱 tracer — 프레임 바이트 → 화이트리스트 → d
         strategyHeadSeq: 0,
         strategyOldestSeq: 0,
         strategyResync: false,
+        // 역할 에코 없음 = journal(0 — Phase 26 · ed2e0240).
+        role: 0,
       },
     });
     if (f.k !== "login") throw new Error("unreachable");

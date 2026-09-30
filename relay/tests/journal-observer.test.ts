@@ -234,6 +234,8 @@ function loginOk(over: Partial<ObserverLoginResult> = {}): ObserverFrame {
       strategyHeadSeq: 0,
       strategyOldestSeq: 0,
       strategyResync: false,
+      // 저널 관찰자 로그인의 역할 에코 = journal(0 — Phase 26 · ed2e0240).
+      role: 0,
       ...over,
     },
   };

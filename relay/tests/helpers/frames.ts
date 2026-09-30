@@ -1303,6 +1303,8 @@ export type FakeObserverLoginRespInput = {
   strategyHeadSeq?: number | bigint;
   strategyOldestSeq?: number | bigint;
   strategyResync?: boolean;
+  /** 수락한 역할 에코 (Phase 26 · ed2e0240). 기본 0 = journal · 1 = quote · 거부 응답은 0(게이트웨이 규약). */
+  role?: number;
 };
 
 /**
@@ -1340,6 +1342,7 @@ export function buildObserverLoginRespFrame(input: FakeObserverLoginRespInput = 
     BigInt(input.strategyHeadSeq ?? 0),
     BigInt(input.strategyOldestSeq ?? 0),
     input.strategyResync ?? false,
+    input.role ?? 0,
   );
   Envelope.startEnvelope(b);
   Envelope.addMsgType(b, MSG.ObserverLoginResp);

@@ -2151,7 +2151,7 @@ describe("관찰자 두 스트림 — 80 전략 이벤트 · 79/5 전략 커서 
   it("5 로그인 요청은 strategySinceSeq 를 싣는다 · 음수 · 비정수 · 2^53 이상은 RangeError(비밀 미포함)", () => {
     const bytes = buildObserverLoginReq({ secret: "s", sinceSeq: 3, epoch: "ep-25", client: "c", strategySinceSeq: 7 });
     const req = readObserverLoginRequest(MSG.ObserverLoginReq, Buffer.from(bytes));
-    expect(req).toEqual({ secret: "s", sinceSeq: 3, epoch: "ep-25", client: "c", strategySinceSeq: 7 });
+    expect(req).toEqual({ secret: "s", sinceSeq: 3, epoch: "ep-25", client: "c", strategySinceSeq: 7, role: 0 });
     const SECRET = "observer-secret-DO-NOT-LOG-25-01";
     for (const strategySinceSeq of [-1, 1.5, 2 ** 53, Number.NaN]) {
       let caught: unknown = null;
@@ -2163,6 +2163,52 @@ describe("관찰자 두 스트림 — 80 전략 이벤트 · 79/5 전략 커서 
       expect(caught, `strategySinceSeq ${strategySinceSeq}`).toBeInstanceOf(RangeError);
       expect(String((caught as Error).message)).not.toContain(SECRET);
     }
+  });
+});
+
+describe("관찰자 로그인 role (Phase 26 · ed2e0240)", () => {
+  /** 프레임 바이트 → Envelope. 79 가 수신 화이트리스트를 통과해야 한다. */
+  function envOf(bytes: Uint8Array): Envelope {
+    const parsed = tryParseEnvelope(Buffer.from(bytes));
+    if (parsed === null) throw new Error("화이트리스트 드롭");
+    return parsed.env;
+  }
+
+  it("5 로그인 요청은 role 을 싣는다 — 1 은 quote · 생략하면 0(journal)", () => {
+    const base = { secret: "s", sinceSeq: 0, epoch: "", client: "c", strategySinceSeq: 0 };
+    const quote = readObserverLoginRequest(MSG.ObserverLoginReq, Buffer.from(buildObserverLoginReq({ ...base, role: 1 })));
+    expect(quote?.role).toBe(1);
+    const journal = readObserverLoginRequest(MSG.ObserverLoginReq, Buffer.from(buildObserverLoginReq(base)));
+    expect(journal?.role).toBe(0);
+  });
+
+  it("role 0 · 1 밖의 값은 RangeError(비밀 미포함)", () => {
+    const SECRET = "observer-secret-DO-NOT-LOG-26-01";
+    for (const role of [2, -1, 1.5, Number.NaN]) {
+      let caught: unknown = null;
+      try {
+        buildObserverLoginReq({
+          secret: SECRET,
+          sinceSeq: 0,
+          epoch: "",
+          client: "c",
+          strategySinceSeq: 0,
+          // 타입은 0 | 1 만 받는다 — 런타임 가드를 부르려고 일부러 넓힌다.
+          role: role as 0 | 1,
+        });
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught, `role ${role}`).toBeInstanceOf(RangeError);
+      expect(String((caught as Error).message)).not.toContain(SECRET);
+    }
+  });
+
+  it("79 로그인 응답의 role 에코를 읽는다 · 없으면 0", () => {
+    const quote = parseObserverLoginResp(envOf(buildObserverLoginRespFrame({ role: 1 })));
+    expect(quote?.role).toBe(1);
+    const legacy = parseObserverLoginResp(envOf(buildObserverLoginRespFrame()));
+    expect(legacy?.role).toBe(0);
   });
 });
 

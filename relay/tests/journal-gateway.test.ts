@@ -146,7 +146,7 @@ describe("관찰자 실 TCP 통합 — 가짜 게이트웨이 · 실 DmaClient �
     const sock = await gateway.waitForObserverConnection(3000);
     await waitFor(() => o.state === "replaying", "로그인 뒤 replaying");
     expect(gateway.observerLoginRequests()).toEqual([
-      { secret: SECRET, sinceSeq: 0, epoch: "", client: OBSERVER_CLIENT_NAME, strategySinceSeq: 0 },
+      { secret: SECRET, sinceSeq: 0, epoch: "", client: OBSERVER_CLIENT_NAME, strategySinceSeq: 0, role: 0 },
     ]);
     expect(access.replace).toHaveBeenCalledWith([
       { dmaUserId: "dma-user-1", accountNo: SAMPLE_ACCOUNT_NO, name: "위탁종합", priority: 0 },
@@ -178,6 +178,7 @@ describe("관찰자 실 TCP 통합 — 가짜 게이트웨이 · 실 DmaClient �
       epoch: "ep-1",
       client: OBSERVER_CLIENT_NAME,
       strategySinceSeq: 0,
+      role: 0,
     });
 
     const second = await gateway.waitForObserverConnection(3000);
@@ -285,7 +286,7 @@ describe("관찰자 실 TCP 통합 — 가짜 게이트웨이 · 실 DmaClient �
     await waitFor(() => o.state === "live", "strategy_resync · oldest 0 → live");
     // 로그인 요청은 두 기록기 epoch 가 같아 전략 since 7 을 실었다(와이어 5 왕복).
     expect(gateway.observerLoginRequests()).toEqual([
-      { secret: SECRET, sinceSeq: 2, epoch: "ep-1", client: OBSERVER_CLIENT_NAME, strategySinceSeq: 7 },
+      { secret: SECRET, sinceSeq: 2, epoch: "ep-1", client: OBSERVER_CLIENT_NAME, strategySinceSeq: 7, role: 0 },
     ]);
     expect(strategyWriter.lastReceivedSeq).toBeNull();
     expect(strategyWriter.epoch).toBe("ep-1");

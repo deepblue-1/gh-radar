@@ -53,8 +53,13 @@ strategySinceSeq():bigint {
   return offset ? this.bb!.readUint64(this.bb_pos + offset) : BigInt('0');
 }
 
+role():number {
+  const offset = this.bb!.__offset(this.bb_pos, 14);
+  return offset ? this.bb!.readUint8(this.bb_pos + offset) : 0;
+}
+
 static startObserverLoginReq(builder:flatbuffers.Builder) {
-  builder.startObject(5);
+  builder.startObject(6);
 }
 
 static addSecret(builder:flatbuffers.Builder, secretOffset:flatbuffers.Offset) {
@@ -77,18 +82,23 @@ static addStrategySinceSeq(builder:flatbuffers.Builder, strategySinceSeq:bigint)
   builder.addFieldInt64(4, strategySinceSeq, BigInt('0'));
 }
 
+static addRole(builder:flatbuffers.Builder, role:number) {
+  builder.addFieldInt8(5, role, 0);
+}
+
 static endObserverLoginReq(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createObserverLoginReq(builder:flatbuffers.Builder, secretOffset:flatbuffers.Offset, sinceSeq:bigint, journalEpochOffset:flatbuffers.Offset, clientOffset:flatbuffers.Offset, strategySinceSeq:bigint):flatbuffers.Offset {
+static createObserverLoginReq(builder:flatbuffers.Builder, secretOffset:flatbuffers.Offset, sinceSeq:bigint, journalEpochOffset:flatbuffers.Offset, clientOffset:flatbuffers.Offset, strategySinceSeq:bigint, role:number):flatbuffers.Offset {
   ObserverLoginReq.startObserverLoginReq(builder);
   ObserverLoginReq.addSecret(builder, secretOffset);
   ObserverLoginReq.addSinceSeq(builder, sinceSeq);
   ObserverLoginReq.addJournalEpoch(builder, journalEpochOffset);
   ObserverLoginReq.addClient(builder, clientOffset);
   ObserverLoginReq.addStrategySinceSeq(builder, strategySinceSeq);
+  ObserverLoginReq.addRole(builder, role);
   return ObserverLoginReq.endObserverLoginReq(builder);
 }
 }

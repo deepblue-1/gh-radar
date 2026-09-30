@@ -142,6 +142,11 @@ export type ObserverLoginResult = {
   strategyHeadSeq: number;
   strategyOldestSeq: number;
   strategyResync: boolean;
+  /**
+   * 게이트웨이가 수락한 관찰자 역할 에코 (Phase 26 · ed2e0240 · 슬롯 26). 0 = journal · 1 = quote.
+   * 거부 응답과 구 게이트웨이(필드 없음)는 0 이다. 저널 관찰자는 role 을 싣지 않으므로 0 으로 로그인한다.
+   */
+  role: number;
 };
 
 /** 저널 배치 프레임 1건. */

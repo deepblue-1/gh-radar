@@ -2730,6 +2730,11 @@ export type ObserverLoginReqInput = {
    * 관찰자가 전략 기록기 epoch 와 주문 기록기 epoch 가 같을 때만 실제 값을 싣는다(RESEARCH Pitfall 3).
    */
   strategySinceSeq: number;
+  /**
+   * 관찰자 역할 (Phase 26 · gh-trade ed2e0240 · vtable 슬롯 14). 0 = journal(기본 · 생략 시 — 필드 없는 구 relay 와
+   * 같다) · 1 = quote(시세 전용 관찰자 — 저널 없음). 그 밖 값은 서버가 79 `success=false` 로 거부하므로 여기서 먼저 막는다.
+   */
+  role?: 0 | 1;
 };
 
 /**
@@ -2737,6 +2742,7 @@ export type ObserverLoginReqInput = {
  *
  * `since_seq` 는 ulong 이라 `BigInt` 로 싣는다. 음수·비정수·안전 정수 초과는 **호출자 버그**라 throw 한다 —
  * 조용히 0 으로 접으면 게이트웨이가 보관분 전체를 재생하고, 잘라 실으면 엉뚱한 구간을 건너뛴다.
+ * `role` 도 0 · 1 밖이면 호출자 버그라 throw 한다 — 서버가 거부할 로그인을 보내 재접속 루프를 돌지 않는다.
  * 비밀은 이 함수 밖으로 나가지 않는다 — **어떤 로그에도 싣지 않는다**(T-19-03 · throw 문구에도 없다).
  */
 export function buildObserverLoginReq(input: ObserverLoginReqInput): Uint8Array {
@@ -2746,6 +2752,10 @@ export function buildObserverLoginReq(input: ObserverLoginReqInput): Uint8Array 
   }
   if (!Number.isSafeInteger(strategySinceSeq) || strategySinceSeq < 0) {
     throw new RangeError(`관찰자 로그인 strategy_since_seq 가 0 이상의 안전 정수가 아니다: ${String(strategySinceSeq)}`);
+  }
+  const role = input.role ?? 0;
+  if (role !== 0 && role !== 1) {
+    throw new RangeError(`관찰자 로그인 role 이 0(journal) · 1(quote) 이 아니다: ${String(role)}`);
   }
   const b = new flatbuffers.Builder(256);
   // 문자열은 테이블 조립 **전에** 만든다 (FlatBuffers 중첩 제약).
@@ -2759,6 +2769,7 @@ export function buildObserverLoginReq(input: ObserverLoginReqInput): Uint8Array 
     epoch,
     client,
     BigInt(strategySinceSeq),
+    role,
   );
   Envelope.startEnvelope(b);
   Envelope.addMsgType(b, MSG.ObserverLoginReq);
@@ -2815,6 +2826,8 @@ export function parseObserverLoginResp(env: Envelope): ObserverLoginResult | nul
       strategyHeadSeq: toNum(r.strategyHeadSeq(), "observer_login_resp.strategy_head_seq"),
       strategyOldestSeq: toNum(r.strategyOldestSeq(), "observer_login_resp.strategy_oldest_seq"),
       strategyResync: r.strategyResync(),
+      // 수락한 역할 에코(Phase 26 · ed2e0240). 거부 응답 · 구 게이트웨이(필드 없음)는 0 으로 읽힌다.
+      role: r.role(),
     };
   } catch (err) {
     return dropField("parse-throw", msgType, { error: err instanceof Error ? err.name : "unknown" });

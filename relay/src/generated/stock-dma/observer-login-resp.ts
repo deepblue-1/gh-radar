@@ -91,8 +91,13 @@ strategyResync():boolean {
   return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
 }
 
+role():number {
+  const offset = this.bb!.__offset(this.bb_pos, 26);
+  return offset ? this.bb!.readUint8(this.bb_pos + offset) : 0;
+}
+
 static startObserverLoginResp(builder:flatbuffers.Builder) {
-  builder.startObject(11);
+  builder.startObject(12);
 }
 
 static addSuccess(builder:flatbuffers.Builder, success:boolean) {
@@ -151,12 +156,16 @@ static addStrategyResync(builder:flatbuffers.Builder, strategyResync:boolean) {
   builder.addFieldInt8(10, +strategyResync, +false);
 }
 
+static addRole(builder:flatbuffers.Builder, role:number) {
+  builder.addFieldInt8(11, role, 0);
+}
+
 static endObserverLoginResp(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createObserverLoginResp(builder:flatbuffers.Builder, success:boolean, messageOffset:flatbuffers.Offset, brokerOffset:flatbuffers.Offset, journalEpochOffset:flatbuffers.Offset, headSeq:bigint, oldestSeq:bigint, resync:boolean, accountsOffset:flatbuffers.Offset, strategyHeadSeq:bigint, strategyOldestSeq:bigint, strategyResync:boolean):flatbuffers.Offset {
+static createObserverLoginResp(builder:flatbuffers.Builder, success:boolean, messageOffset:flatbuffers.Offset, brokerOffset:flatbuffers.Offset, journalEpochOffset:flatbuffers.Offset, headSeq:bigint, oldestSeq:bigint, resync:boolean, accountsOffset:flatbuffers.Offset, strategyHeadSeq:bigint, strategyOldestSeq:bigint, strategyResync:boolean, role:number):flatbuffers.Offset {
   ObserverLoginResp.startObserverLoginResp(builder);
   ObserverLoginResp.addSuccess(builder, success);
   ObserverLoginResp.addMessage(builder, messageOffset);
@@ -169,6 +178,7 @@ static createObserverLoginResp(builder:flatbuffers.Builder, success:boolean, mes
   ObserverLoginResp.addStrategyHeadSeq(builder, strategyHeadSeq);
   ObserverLoginResp.addStrategyOldestSeq(builder, strategyOldestSeq);
   ObserverLoginResp.addStrategyResync(builder, strategyResync);
+  ObserverLoginResp.addRole(builder, role);
   return ObserverLoginResp.endObserverLoginResp(builder);
 }
 }
