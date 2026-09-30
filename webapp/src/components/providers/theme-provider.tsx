@@ -34,12 +34,12 @@ export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
 }
 
 /** 브라우저 크롬 색 — globals.css `--bg` 와 같은 값. 다크는 layout.tsx `viewport.themeColor`(서버 기본)와 같아야 한다. */
-const THEME_COLOR = { dark: '#101010', light: '#ffffff' } as const;
+const THEME_COLOR = { dark: '#0a0a0a', light: '#ffffff' } as const;
 
 /**
  * `<meta name="theme-color">` 를 OS 다크모드가 아니라 앱 테마(`resolvedTheme`)에 맞춘다(IN-06).
  * 해석 전(undefined)이면 아무것도 하지 않는다 — DOM 을 만들지 않는다(null 렌더).
- * App Router 는 클라 내비(경로·쿼리 모두)마다 viewport 메타 요소를 새로 만들어 서버 기본값(`#101010`)으로
+ * App Router 는 클라 내비(경로·쿼리 모두)마다 viewport 메타 요소를 새로 만들어 서버 기본값(`#0a0a0a`)으로
  * 되돌린다(실측). 그래서 한 번 설정하고 끝내지 않고 `<head>` 변화를 지켜보며 다시 맞춘다 — 값이 이미
  * 같으면 쓰지 않으므로 자기 쓰기로 되먹임이 돌지 않는다. 메타가 없으면 아무것도 하지 않는다.
  */

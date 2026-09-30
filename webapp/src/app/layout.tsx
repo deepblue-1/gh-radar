@@ -22,7 +22,7 @@ export const metadata: Metadata = {
 };
 
 /**
- * theme-color = 앱 테마(OS 다크모드 아님 · IN-06). 서버는 기본 다크(D-23a) `#101010` 단일값을 내고,
+ * theme-color = 앱 테마(OS 다크모드 아님 · IN-06). 서버는 기본 다크(D-23a) `#0a0a0a` 단일값을 내고,
  * 클라이언트는 `ThemeColorSync`(components/providers/theme-provider.tsx)가 `resolvedTheme` 에 맞춰
  * 갱신한다(라이트 `#ffffff`). OS 색 모드 미디어 분기는 두지 않는다 — 앱은 OS 다크모드를 보지 않으므로
  * (D-23 · enableSystem=false) 분기를 두면 OS 라이트 사용자가 다크 화면 위에 흰 크롬을 본다.
@@ -47,7 +47,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: 'cover',
-  themeColor: '#101010',
+  themeColor: '#0a0a0a',
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

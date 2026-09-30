@@ -5,10 +5,10 @@ current_phase: 26
 current_phase_name: 시세 전용 공유 연결 — relay 종목 단위 팬아웃
 status: executing
 stopped_at: Completed 26-08-PLAN.md
-last_updated: "2026-09-30T14:25:05.888Z"
+last_updated: "2026-09-30T14:26:52.079Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 26 execution started
-state_head: 6837d0f6c6197cf20ae1d769f422fff85fa0dfe8
+state_head: bfc900e39ed18cf830760b76325d23c39ead0840
 progress:
   total_phases: 35
   completed_phases: 4
@@ -546,6 +546,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 51 | 사이드바 메뉴 순서 교체 — AI 애널리스트를 My page 위로 | 2026-09-30 | 72c1fb5b | — |
 | 52 | 다크 토큰 청색 틴트 제거(무채색화) | 2026-09-30 | 9e14b49a | — |
 | 53 | 다크 면 사다리 한 단계 하향(토스 홈 스케일) | 2026-09-30 | f60c6905 | — |
+| 54 | 다크 면 사다리 두 단계 하향(목업 C 채택) | 2026-09-30 | bfc900e3 | — |
 
 ## Session Continuity
 

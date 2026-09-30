@@ -33,7 +33,7 @@
    (소비처가 전부 점선 플레이스홀더·OFF LED 윤곽·범위 밴드 같은 테두리/채움이라 글자 3차가
    아니라 「비활성」 역할이다).
 
-   면 구분은 명도 단계로 한다: 다크 bg #101010 → card #1a1a1a(layeredBackground) →
+   면 구분은 명도 단계로 한다: 다크 bg #0a0a0a → card #151515(layeredBackground) →
    raised(`--muted`) #2d2d2d(grey100) → `--raised-2` #3d3d3d(grey200). 라이트는 본문면
    `--surface` #f2f4f6 위 흰 카드, 카드 안 컨트롤은 `--muted` #f2f4f6 · `--raised-2` #e5e8eb.
 
@@ -131,7 +131,7 @@
   --new-bd: #ffd257;
 
   /* Phase 20 호가주문 토스식 — 상따 그룹 면(목업 `.grp`) · 스위치 off · 시트 dim(TDS dimmedBackground).
-     다크 그룹 면은 부모 `--card` #1a1a1a 보다 한 단계 밝은 #212121(UI-SPEC A9).
+     다크 그룹 면은 부모 `--card` #151515 보다 한 단계 밝은 #1a1a1a(UI-SPEC A9).
      ⚠️ 라이트·다크 둘 다 정의한다 — 한쪽만 두면 반대 테마에서 조용히 사라진다. */
   --group-bg: #f9fafb;
   --switch-off: #d1d6db;
@@ -190,13 +190,15 @@
    LCD(맥)에서는 푸르게 보여 기기마다 인상이 갈렸다. 아이폰 쪽 인상을 정본으로 삼아 상대휘도를
    유지한 채 B=R=G 로 맞췄다(각 값은 옛 값과 휘도 최근접 회색). 아래 주석의 grey100·grey200 등
    TDS 단계명은 명도 위계를 뜻하며, hex 는 이 무채색 값이 정본이다.
-   같은 날 사다리를 한 단계 내렸다(토스 홈 실측 바닥 #101012 · 카드 #1a191e 에 맞춤): 본문면
-   `--bg`·`--surface` #171717→#101010, `--card` #212121→#1a1a1a, `--group-bg` #2d2d2d→#212121,
-   `--band` 은 바닥 아래 한 단계 #0a0a0a. `--muted` 이상(컨트롤·트랙·선택면)은 그대로다. */
+   같은 날 면 사다리를 두 단계 내렸다(목업 4안 중 C · 토스 홈 실측 바닥 #101012 · 카드 #1a191e 보다
+   한 단계 아래): 본문면 `--bg`·`--surface`·`--side-bg` #171717→#0a0a0a, `--card` #212121→#151515,
+   `--group-bg` #2d2d2d→#1a1a1a, `--band` 은 바닥 아래 #050505(OLED 에서는 띠가 거의 안 보이며 행
+   구분선이 대신한다). 바닥→카드 차 11 은 토스 홈(10)과 같다. `--muted` 이상(컨트롤·트랙·선택면)은
+   그대로다 — 세그먼트 선택 오판은 곧 오발주라 상태 구분을 약하게 하지 않는다. */
 .dark {
-  --bg: #101010;
-  --surface: #101010;
-  --band: #0a0a0a;
+  --bg: #0a0a0a;
+  --surface: #0a0a0a;
+  --band: #050505;
   --fg: #ffffff;
   --fg-2: #e4e4e4;
   --muted: #2d2d2d;
@@ -207,7 +209,7 @@
   --border-subtle: #3d3d3d;
   --input: transparent;
   --ring: #3485fa;
-  --card: #1a1a1a;
+  --card: #151515;
   --card-fg: #ffffff;
   --popover: #2d2d2d;
   --popover-fg: #ffffff;
@@ -242,7 +244,7 @@
   --pill-on-fg: #ffffff;
   --ask-bar: rgba(52, 133, 250, 0.28);
   --bid-bar: rgba(240, 66, 81, 0.28);
-  --side-bg: #101010;
+  --side-bg: #0a0a0a;
 
   /* 선택·활성 축 다크 값 (sketch 003-A · 260925-gy6) — 의미와 쓰이는 자리는 `:root` 쪽 주석이 정본.
      다크 값은 003-A 이전 소비처가 쓰던 참조의 다크 해석값 그대로다(`--muted` #2d2d2d · `--fg`
@@ -268,8 +270,8 @@
   --new-bd: #6d5a1d;
 
   /* Phase 20 호가주문 토스식 다크 값 — 의미는 `:root` 정의 옆 주석이 정본이다. 그룹 면은 부모
-     `--card` #1a1a1a 보다 한 단계 밝은 #212121(UI-SPEC A9). */
-  --group-bg: #212121;
+     `--card` #151515 보다 한 단계 밝은 #1a1a1a(UI-SPEC A9). */
+  --group-bg: #1a1a1a;
   --switch-off: #4e4e4e;
   --dim: rgba(0, 0, 0, 0.56);
 

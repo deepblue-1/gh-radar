@@ -66,9 +66,9 @@ const LIGHT_EXPECTED: Record<string, string> = {
 };
 
 const DARK_EXPECTED: Record<string, string> = {
-  bg: '#101010',
-  surface: '#101010',
-  band: '#0a0a0a',
+  bg: '#0a0a0a',
+  surface: '#0a0a0a',
+  band: '#050505',
   fg: '#ffffff',
   'fg-2': '#e4e4e4',
   muted: '#2d2d2d',
@@ -77,7 +77,7 @@ const DARK_EXPECTED: Record<string, string> = {
   faint: '#636363',
   'raised-2': '#3d3d3d',
   'border-subtle': '#3d3d3d',
-  card: '#1a1a1a',
+  card: '#151515',
   popover: '#2d2d2d',
   primary: '#3485fa',
   up: '#f04251',
@@ -86,13 +86,13 @@ const DARK_EXPECTED: Record<string, string> = {
   'seg-on-bg': '#4e4e4e',
   'pill-on-bg': '#4e4e4e',
   'pill-on-fg': '#ffffff',
-  'side-bg': '#101010',
+  'side-bg': '#0a0a0a',
   'nav-on-bg': '#2d2d2d',
   'nav-on-fg': '#ffffff',
   'nav-on-line': '#ffffff',
   'spec-dot-bg': '#9e9e9e',
   'spec-dot-ring': 'rgba(255, 255, 255, 0.08)',
-  'group-bg': '#212121',
+  'group-bg': '#1a1a1a',
   'switch-off': '#4e4e4e',
 };
 

@@ -17,7 +17,7 @@ import { installNativeApp, nativeMessages } from '../fixtures/native-app';
  *     저장값이 웹과 같은 다크로 시작한다(D-23 동기화).
  *   - 오프라인 폴백(`mobile/www/index.html` · D-19)도 `?theme=light` 가 아니면 다크다 — 네이티브는 항상
  *     현재 테마를 넘기지만, 값이 없거나 모르면 웹·네이티브와 같은 기본(다크)으로 떨어진다.
- *   - `<meta name="theme-color">` 는 OS 다크모드가 아니라 **앱 테마**를 따른다(IN-06) — 기본 `#101010`
+ *   - `<meta name="theme-color">` 는 OS 다크모드가 아니라 **앱 테마**를 따른다(IN-06) — 기본 `#0a0a0a`
  *     (OS 라이트에서도) · 라이트 저장값이면 `#ffffff`.
  *
  * ② 깨지면 사용자가 겪는 일
@@ -98,12 +98,12 @@ test.describe('theme-color 메타 = 앱 테마(IN-06)', () => {
   test.describe('OS 라이트 에뮬레이트', () => {
     test.use({ colorScheme: 'light' });
 
-    test('저장값 없음 → 메타 하나 · #101010(OS 라이트여도 앱 기본 다크)', async ({ page }) => {
+    test('저장값 없음 → 메타 하나 · #0a0a0a(OS 라이트여도 앱 기본 다크)', async ({ page }) => {
       await page.goto('/login');
       await expect(page.getByRole('button', { name: /Google/ })).toBeVisible();
       const meta = page.locator(THEME_COLOR_META);
       await expect(meta).toHaveCount(1);
-      await expect(meta).toHaveAttribute('content', '#101010');
+      await expect(meta).toHaveAttribute('content', '#0a0a0a');
     });
 
     test('저장값 light → #ffffff · 클라 내비(쿼리만 바뀜) 뒤에도 유지', async ({ page }) => {
@@ -116,7 +116,7 @@ test.describe('theme-color 메타 = 앱 테마(IN-06)', () => {
       await expect(meta).toHaveCount(1);
       await expect(meta).toHaveAttribute('content', '#ffffff');
 
-      // App Router 는 클라 내비마다 viewport 메타를 새로 만들어 서버 기본값(#101010)으로 되돌린다(실측) —
+      // App Router 는 클라 내비마다 viewport 메타를 새로 만들어 서버 기본값(#0a0a0a)으로 되돌린다(실측) —
       // ThemeColorSync 가 다시 맞추지 않으면 라이트 사용자가 이동 뒤 다크 크롬을 본다.
       await page.evaluate(() => {
         (window as unknown as { next: { router: { push(href: string): void } } }).next.router.push(
@@ -129,13 +129,13 @@ test.describe('theme-color 메타 = 앱 테마(IN-06)', () => {
     });
   });
 
-  test('저장값 없음 · OS 다크 에뮬레이트 → #101010', async ({ page }) => {
+  test('저장값 없음 · OS 다크 에뮬레이트 → #0a0a0a', async ({ page }) => {
     await page.emulateMedia({ colorScheme: 'dark' });
     await page.goto('/login');
     await expect(page.getByRole('button', { name: /Google/ })).toBeVisible();
     const meta = page.locator(THEME_COLOR_META);
     await expect(meta).toHaveCount(1);
-    await expect(meta).toHaveAttribute('content', '#101010');
+    await expect(meta).toHaveAttribute('content', '#0a0a0a');
   });
 });
 
