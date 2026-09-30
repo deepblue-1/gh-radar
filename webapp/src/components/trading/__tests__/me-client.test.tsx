@@ -183,3 +183,71 @@ describe('MeStatusBar — 「상따 N건」은 켜진 전략 수 (quick-260928-n
     expect(bar).not.toHaveTextContent('상따 2건');
   });
 });
+
+describe('MeStatusBar — 시세 필 (D-01 · D-04)', () => {
+  /** 눈에 보이는 글자 — `sr-only` 조각을 뺀 textContent. */
+  function visibleText(el: Element): string {
+    const clone = el.cloneNode(true) as Element;
+    clone.querySelectorAll('.sr-only').forEach((n) => n.remove());
+    return clone.textContent ?? '';
+  }
+  const bar = () => document.querySelector('[data-slot="me-status-bar"]') as HTMLElement;
+  const quote = () => document.querySelector('[data-slot="me-quote"]') as HTMLElement | null;
+  const order = () => document.querySelector('[data-slot="me-dma"]') as HTMLElement;
+
+  beforeEach(() => {
+    mockGate = null;
+    mockFeed = [];
+  });
+
+  it('quoteState 가 null(모름)이면 시세 필이 없고 주문 필만 선다', () => {
+    mockRelay = { ...EMPTY_RELAY_VALUE, status: 'ready', statusLabel: '실시간' } as RelayContextValue;
+    render(<MeClient />);
+    expect(quote()).toBeNull();
+    expect(order()).not.toBeNull();
+    expect(visibleText(order())).toBe('주문');
+    expect(order().querySelector('[aria-hidden="true"]')?.className).toContain('bg-[var(--led-armed)]');
+  });
+
+  it('live → 「● 시세」 · 주문 필 앞 · 점 --led-armed', () => {
+    mockRelay = {
+      ...EMPTY_RELAY_VALUE,
+      status: 'ready',
+      statusLabel: '실시간',
+      quoteState: { t: 'quote.state', s: 'live' },
+    } as RelayContextValue;
+    render(<MeClient />);
+    const q = quote() as HTMLElement;
+    expect(q).toHaveAttribute('data-tone', 'ok');
+    expect(visibleText(q)).toBe('시세');
+    expect(q.querySelector('[aria-hidden="true"]')?.className).toContain('bg-[var(--led-armed)]');
+    expect(q.compareDocumentPosition(order()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('down → 「● 시세 09:41:52~ 멈춤」 적색 · 주문 필은 ready 그대로 · 상따/VI/계좌 칸 유지', () => {
+    mockRelay = {
+      ...EMPTY_RELAY_VALUE,
+      status: 'ready',
+      statusLabel: '실시간',
+      quoteState: { t: 'quote.state', s: 'down', since: '2026-09-30T00:41:52.000Z' },
+    } as RelayContextValue;
+    render(<MeClient />);
+    const q = quote() as HTMLElement;
+    expect(q).toHaveAttribute('data-tone', 'down');
+    expect(visibleText(q)).toBe('시세 09:41:52~ 멈춤');
+    expect(q.querySelector('[aria-hidden="true"]')?.className).toContain('bg-[var(--destructive)]');
+    expect(visibleText(order())).toBe('주문');
+    expect(bar()).toHaveAttribute('data-status', 'ready');
+    expect(bar()).toHaveTextContent('상따 0건');
+    expect(bar()).toHaveTextContent('VI 중지');
+    expect(bar()).toHaveTextContent('계좌 0개');
+  });
+
+  it('첫 페인트(idle) 주문 필은 「주문 서버 연결 중…」 — 연결 문구 상수는 이제 중립이다', () => {
+    mockRelay = { ...EMPTY_RELAY_VALUE } as RelayContextValue;
+    render(<MeClient />);
+    expect(order()).not.toBeNull();
+    expect(visibleText(order())).toBe('주문 서버 연결 중…');
+    expect(bar()).not.toHaveTextContent('시세 서버 연결 중');
+  });
+});
