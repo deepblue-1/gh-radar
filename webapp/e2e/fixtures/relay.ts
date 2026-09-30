@@ -68,6 +68,20 @@
  *   ★ 전략 seq 는 픽스처가 스펙 수명 동안 **조밀하게 다시 매긴다** — relay 는 스펙 파일 동안 한 프로세스이고
  *     기록기는 seq 연속성으로 중복 · 갭을 판정한다. 호출자가 준 seq 는 쓰지 않는다.
  *   비밀 · 계좌 · epoch 는 전부 테스트 전용 가짜 값이다(T-25-32).
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * ⑧ quote 연결 — Phase 26 (항상 켠다 · 저널 관찰자는 ⑦ 그대로 기본 off)
+ *
+ *   relay 는 종목 시세를 사용자 DMA 세션이 아니라 **시세 전용 공유 연결(관찰자 로그인 role 1)** 하나로만 받는다
+ *   (D-08 · D-03 폴백 없음). 그래서 relay env 에 테스트 전용 `DMA_QUOTE_OBSERVER_SECRET` 를 **항상** 넣는다 —
+ *   D-17 에 따라 이 키만으로 quote 연결이 열리고 저널 관찰자(`DMA_OBSERVER_SECRET`)는 `observer: true` 에서만 켜진다.
+ *   스텁 게이트웨이는 role 1 로그인에 79(role 1) + 빈 78 로 답한다(`respondQuoteLogin` — 부팅 **전에** 켠다).
+ *   ★ quote 연결은 부팅 직후 붙으므로 **게이트웨이 첫 소켓은 사용자 세션이 아니다** — 「첫 소켓」을 집는 대기는 쓰지 않는다.
+ *     - 0→1 구독의 28/32 자동 응답은 요청이 온 소켓(= quote 소켓)으로 그대로 돌아간다(`onFrame` 무변경 · Pitfall 8).
+ *     - 사용자 세션 전용 프레임(51 · 54 · 60 · 61 · 64 · 66/67 · 72/73 · 76 · 77 · 78)은 `userSocket()` — `LoginReq(1)` 를
+ *       보낸 연결만 고른다. 83(`pushQueueProgress`)도 사용자 세션 ② 경로 그대로다(계좌 필터 원천 · T-25-24).
+ *     - 체결 · 호가 주입(58/59 · 69/71)은 `quoteSocket()` — 사용자 세션으로 밀면 relay hub 가 이상 신호로 버린다.
+ *   비밀은 테스트 전용 리터럴이다(D-27 · T-26-05).
  */
 import { spawn } from 'node:child_process';
 import http from 'node:http';
@@ -141,6 +155,8 @@ export const E2E_DMA_USER_ID = '00000000-0000-4000-8000-0000000000e2';
 
 /** 관찰자 옵션(⑦)의 테스트 전용 값 — 실비밀 아님(T-25-32). */
 const E2E_OBSERVER_SECRET = 'e2e-observer-secret-test-only';
+/** quote 연결(⑧)의 테스트 전용 비밀 — 실비밀 아님(D-27 · T-26-05). 이것만으로 quote 연결이 열린다(D-17). */
+const E2E_QUOTE_SECRET = 'e2e-quote-secret-test-only';
 /** 관찰자 로그인 응답 epoch — 스텁 `dma_strategy_apply` 가 행 `journal_epoch` 로 되돌린다. */
 export const E2E_JOURNAL_EPOCH = 'e2e-ep';
 /** `dma_credentials` 시드 행의 게이트웨이 사용자 id — 관찰자 매핑의 키와 같아야 계좌 필터를 통과한다. */
@@ -232,6 +248,16 @@ export interface LocalRelay {
   strategyRequests(): StrategyRequest[];
   /** 자동 호가 응답을 켤 거래소 목록. 빈 배열이면 어떤 거래소에도 응답하지 않는다. */
   setRespondingExchanges(exchanges: readonly string[]): void;
+  /**
+   * 사용자 세션 소켓 — `LoginReq(1)` 를 보낸 살아 있는 게이트웨이 연결(⑧). 없으면 설 때까지 기다린다.
+   * 사용자 세션 전용 프레임(61 VI 에코 · 76/78 돌파 · 77 창 상태 …)을 spec 이 직접 밀 때 쓴다.
+   */
+  userSocket(): Promise<net.Socket>;
+  /**
+   * quote 소켓 — role 1 관찰자 로그인을 보낸 살아 있는 게이트웨이 연결(⑧). 없으면 설 때까지 기다린다.
+   * 체결 · 호가 프레임을 spec 이 직접 밀 때 쓴다(사용자 세션으로 밀면 relay 가 버린다).
+   */
+  quoteSocket(): Promise<net.Socket>;
 
   // --- 전략 (Phase 16) ---
   //
@@ -634,6 +660,8 @@ export async function withLocalRelay(opts: { observer?: boolean } = {}): Promise
       accounts: [{ dmaUserId: E2E_GATEWAY_USER, accountNo: E2E_ACCOUNT_NO }],
     });
   }
+  // ⑧ quote 연결 — relay 부팅 직후 role 1 로그인이 온다. 79(role 1) + 빈 78 자동 응답을 그 **전에** 켠다.
+  gateway.respondQuoteLogin({ success: true });
   const orderApiPort = await freePort();
   const credKey = randomBytes(32).toString('base64');
 
@@ -653,6 +681,7 @@ export async function withLocalRelay(opts: { observer?: boolean } = {}): Promise
     `GetQuoteReq(28)` / `GetTradeTapeReq(32)` 를 보고 그 키로 스냅샷을 되돌린다.
     이렇게 하면 "구독 → 응답" 순서가 실제 코드 경로로 이어져, 화면에 숫자가 뜬다는 것이
     곧 구독 왕복이 성립했다는 증거가 된다.
+    Phase 26(⑧) — 28/32 는 quote 연결에서 오므로 응답도 요청이 온 소켓(= quote 소켓)으로 그대로 간다.
   */
   /** `LoginReq(1)` 를 보낸 연결 = 사용자 세션 소켓(관찰자 소켓과 가른다 · ⑦). */
   const userSessionSockets = new WeakSet<object>();
@@ -694,6 +723,8 @@ export async function withLocalRelay(opts: { observer?: boolean } = {}): Promise
         SESSION_GRACE_MS: '0',
         // ⑦ 관찰자 옵션 — 테스트 전용 비밀. 끄면 키 자체를 넣지 않는다(부모 env 에 있어도 비운다).
         DMA_OBSERVER_SECRET: observer ? E2E_OBSERVER_SECRET : '',
+        // ⑧ quote 연결 — 항상 켠다. D-17: 이 키가 있으면 저널 비밀 없이도 quote 연결만 열린다.
+        DMA_QUOTE_OBSERVER_SECRET: E2E_QUOTE_SECRET,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
@@ -732,28 +763,43 @@ export async function withLocalRelay(opts: { observer?: boolean } = {}): Promise
   seedDmaCredential();
 
   /**
-   * 지금 살아 있는 게이트웨이 소켓. 없으면 **설 때까지 기다린다**.
+   * 지금 살아 있는 **사용자 세션** 소켓(`LoginReq(1)` 를 보낸 연결). 없으면 **설 때까지 기다린다**.
    *
    * relay 는 브라우저가 붙고 인증이 끝난 **뒤에야** DMA 세션을 연다. spec 이
    * `page.goto` 직후 주입하면 그 사이 소켓이 아직 없을 수 있는데, 여기서 그냥 던지면
    * "가끔 실패하는 E2E" 가 된다. 대기 상한을 넘기면 원인을 말하고 실패한다.
+   *
+   * 게이트웨이 「첫 소켓」은 고르지 않는다 — quote 연결(⑧)은 부팅 직후, 저널 관찰자(⑦)도 켜지면 부팅 직후
+   * 붙으므로 첫 소켓은 사용자 세션이 아니다. 관찰자 · quote 소켓에 사용자 프레임을 밀면 relay 가 버린다.
    */
-  const gatewaySocket = async (): Promise<Parameters<FakeGateway['pushQuote']>[0]> => {
-    try {
-      if (!observer) return await gateway.waitForConnection(RELAY_GATEWAY_WAIT_MS);
-      // ⑦ 관찰자 소켓이 먼저 붙어 있다 — LoginReq 를 보낸 사용자 세션 연결만 고른다.
-      const until = Date.now() + RELAY_GATEWAY_WAIT_MS;
-      for (;;) {
-        const sock = gateway.sockets.find((s) => !s.destroyed && userSessionSockets.has(s));
-        if (sock !== undefined) return sock;
-        if (Date.now() > until) throw new Error('사용자 세션 연결 대기 시간 초과');
-        await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  const userSocket = async (): Promise<net.Socket> => {
+    const until = Date.now() + RELAY_GATEWAY_WAIT_MS;
+    for (;;) {
+      const sock = gateway.sockets.find((s) => !s.destroyed && userSessionSockets.has(s));
+      if (sock !== undefined) return sock;
+      if (Date.now() > until) {
+        throw new Error(
+          `DMA 사용자 세션 연결이 ${RELAY_GATEWAY_WAIT_MS}ms 안에 서지 않았습니다. ` +
+            'relay 가 세션을 열기 전에 주입했을 수 있습니다 — 페이지를 열고 wss 인증·구독이 ' +
+            `끝난 뒤에 호출하세요.\n--- relay 로그 ---\n${output}`,
+        );
       }
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    }
+  };
+
+  /**
+   * 지금 살아 있는 **quote** 소켓(role 1 관찰자 로그인을 보낸 연결 · ⑧). 없으면 설 때까지 기다린다.
+   * 체결 · 호가 주입 전용 — 사용자 세션 전용 프레임은 여기로 밀지 않는다.
+   */
+  const quoteSocket = async (): Promise<net.Socket> => {
+    try {
+      return await gateway.waitForQuoteConnection(RELAY_GATEWAY_WAIT_MS);
     } catch {
       throw new Error(
-        `DMA 게이트웨이 연결이 ${RELAY_GATEWAY_WAIT_MS}ms 안에 서지 않았습니다. ` +
-          'relay 가 세션을 열기 전에 주입했을 수 있습니다 — 페이지를 열고 wss 인증·구독이 ' +
-          `끝난 뒤에 호출하세요.\n--- relay 로그 ---\n${output}`,
+        `DMA quote 연결이 ${RELAY_GATEWAY_WAIT_MS}ms 안에 서지 않았습니다. ` +
+          'relay env 의 DMA_QUOTE_OBSERVER_SECRET 과 스텁 respondQuoteLogin 을 확인하세요.' +
+          `\n--- relay 로그 ---\n${output}`,
       );
     }
   };
@@ -774,6 +820,8 @@ export async function withLocalRelay(opts: { observer?: boolean } = {}): Promise
     setRespondingExchanges(exchanges) {
       responding = new Set(exchanges);
     },
+    userSocket,
+    quoteSocket,
     seedLimitChasers(items) {
       gateway.respondLimitChaserList(items);
     },
@@ -784,26 +832,26 @@ export async function withLocalRelay(opts: { observer?: boolean } = {}): Promise
       gateway.respondViOrderList(items);
     },
     async pushLimitChaserEcho(cfg) {
-      gateway.pushLimitChaserEcho(await gatewaySocket(), cfg);
+      gateway.pushLimitChaserEcho(await userSocket(), cfg);
     },
     async pushViOrderList(items, snap) {
-      gateway.pushViOrderList(await gatewaySocket(), items, snap);
+      gateway.pushViOrderList(await userSocket(), items, snap);
     },
     async pushOrderResp(input) {
-      gateway.pushOrderResp(await gatewaySocket(), input);
+      gateway.pushOrderResp(await userSocket(), input);
     },
     async pushAccountState(input) {
       gateway.sendFrame(
-        await gatewaySocket(),
+        await userSocket(),
         buildAccountStateFrame({ accountNo: E2E_ACCOUNT_NO, ...input }),
       );
     },
     async pushServerMessage(input) {
-      gateway.sendFrame(await gatewaySocket(), buildServerMessageFrame(input));
+      gateway.sendFrame(await userSocket(), buildServerMessageFrame(input));
     },
     async pushQueueProgress(input) {
       gateway.sendFrame(
-        await gatewaySocket(),
+        await userSocket(),
         buildQueueProgressFrame({
           isin: E2E_ISIN,
           ...input,

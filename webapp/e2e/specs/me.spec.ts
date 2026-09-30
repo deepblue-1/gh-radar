@@ -666,7 +666,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     for (const c of CHASERS) {
       await relay.pushLimitChaserEcho({ ...c, buyEnabled: false, sellEnabled: false });
     }
-    const sock = await relay.gateway.waitForConnection(10_000);
+    const sock = await relay.userSocket();
     relay.gateway.sendFrame(sock, buildSetVITriggerRespFrame({ ...VI_CFG, run: false }));
 
     /*

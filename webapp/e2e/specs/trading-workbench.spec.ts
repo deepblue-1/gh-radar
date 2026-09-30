@@ -276,7 +276,7 @@ function viConfirmRequests(relay: LocalRelay) {
 
 /** 61 에코를 지금 밀어 넣는다 — 반영의 유일한 증거다. */
 async function pushViEcho(relay: LocalRelay, run: boolean, over: Record<string, unknown> = {}) {
-  const sock = await relay.gateway.waitForConnection(10_000);
+  const sock = await relay.userSocket();
   relay.gateway.sendFrame(sock, buildSetVITriggerRespFrame({ ...VI_CFG, ...over, run }));
 }
 
@@ -381,9 +381,9 @@ async function gridColumnCount(page: Page): Promise<number> {
   );
 }
 
-/** 돌파 스냅샷(78)을 지금 밀어 넣는다. 게이트웨이 연결을 기다린다. */
+/** 돌파 스냅샷(78)을 지금 밀어 넣는다. 사용자 세션 소켓을 기다린다(돌파는 사용자 세션 원천 — Phase 26 ⑧). */
 async function pushBreakout(relay: LocalRelay, isin: string): Promise<void> {
-  const sock = await relay.gateway.waitForConnection(15_000);
+  const sock = await relay.userSocket();
   relay.gateway.sendRateCrossSnapshot(sock, [
     {
       isin,
@@ -569,14 +569,14 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       순서의 정본은 relay `sortRateCrossNewestFirst` 와 웹 리듀서 `sortRateCross` 한 벌이다 — 스트립·표는
       받은 순서를 그대로 그린다(D-14). 여기서는 그 결과가 실브라우저에서 「최신 위」로 보이는지만 본다.
       케이스 3 과 같은 이유로 시세 자동 응답을 끈다(이탈 판정으로 행이 지워지지 않게).
-      `pushBreakout` 은 원소 1개 모양이라 쓰지 않고, 같은 `waitForConnection` 규율로 소켓을 직접 기다린다.
+      `pushBreakout` 은 원소 1개 모양이라 쓰지 않고, 같은 `relay.userSocket()` 으로 사용자 세션 소켓을 직접 기다린다.
     */
     relay.setRespondingExchanges([]);
     await page.goto(WORKBENCH_URL);
     await waitForReady(page);
 
     const base = { exchange: 'KRX', lastPrice: 118_000n, changeRate: 20.41, thresholdPct: 20, basePrice: 98_000n };
-    const sock = await relay.gateway.waitForConnection(15_000);
+    const sock = await relay.userSocket();
     // 게이트웨이 78 원순서는 오름차순(오래된 것이 먼저)이다 — 화면은 그 반대여야 한다.
     relay.gateway.sendRateCrossSnapshot(sock, [
       { ...base, isin: E2E_ISIN, exchangeTime: '090100000001' },
@@ -1823,7 +1823,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const three = card.locator('[data-tree="three"]');
 
     // 수량 5자리 + 상한가(7자) 체결 — 짧은 샘플은 공허한 단언을 만든다.
-    const sock = await relay.gateway.waitForConnection(15_000);
+    // 체결은 quote 연결로만 받는다(Phase 26 · 픽스처 ⑧) — 사용자 세션으로 밀면 relay 가 버린다.
+    const sock = await relay.quoteSocket();
     relay.gateway.pushTape(sock, {
       isin: E2E_ISIN,
       exchange: 'KRX',
@@ -3892,7 +3893,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
         await expect(card.locator('[data-slot="lc-derived"]')).toContainText('100,000주');
 
         // 수동주문 — 예약창(77 open)이면 「예약매수」「예약매도」 + 조각 수 상자까지 선다(최악 라벨).
-        const sock = await relay.gateway.waitForConnection(15_000);
+        const sock = await relay.userSocket();
         relay.gateway.sendQueuedWindowState(sock, { open: true, maxPieces: 5 });
         await tablist.getByRole('tab', { name: '수동' }).click();
         const form = card.getByTestId('manual-order-form');
@@ -4074,7 +4075,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const directOrders = () => relay.requestLog().filter((m) => m === DMA_MSG.DirectOrderReq).length;
 
     const card = await landOnCard(page);
-    const sock = await relay.gateway.waitForConnection(15_000);
+    const sock = await relay.userSocket();
     relay.gateway.sendQueuedWindowState(sock, { g2Open: true });
     try {
       const badge = statusBar(page).locator('[data-slot="workbench-window-badge"]');

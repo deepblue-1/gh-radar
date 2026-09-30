@@ -235,7 +235,7 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     expect(order[order.indexOf('트레이딩') + 1]).toBe('VI');
 
     // 61 에코를 거래소 지정으로 밀어 넣는다 — 태그 집합이 거래소별로 따라간다.
-    const sock = await relay.gateway.waitForConnection(10_000);
+    const sock = await relay.userSocket();
     relay.gateway.sendFrame(sock, buildSetVITriggerRespFrame({ ...cfg, exchange: 'NXT', run: true }));
     await expect.poll(() => viTagExchanges(nav), { timeout: 15_000 }).toEqual(['KRX', 'NXT']);
     await expect(viItem(nav)).toHaveAccessibleName('VI — KRX·NXT 가동');
