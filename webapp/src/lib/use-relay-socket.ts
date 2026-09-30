@@ -83,9 +83,11 @@ import {
   type RelayOrderResultMsg,
   type RelayOutbound,
   type RelayQuote,
+  type RelayQuoteStateMsg,
   type RelayServerMsg,
   type RelaySessionState,
   type RelaySubLevel,
+  type RelaySubLimitMsg,
   type RelayTape,
   type RelayStrategiesDisabledMsg,
   type RelayQueueProgressItem,
@@ -407,6 +409,17 @@ export interface RelayConnectionState {
    */
   journalState: RelayJournalStateMsg | null;
   /**
+   * 시세 전용 공유 연결 상태의 최신 프레임 (`{t:"quote.state"}` · Phase 26 D-01) — 배지 「시세」 축의 원천이다.
+   * relay 가 상태를 모르면(quote 연결 비활성) 오지 않으므로 null 이고, null 이면 배지를 그리지 않는다.
+   * **`isStale`(재접속 흐림)과 무관하다**(D-04) — 시세가 끊겨도 호가 · 체결 숫자는 마지막 캐시 값 그대로다.
+   */
+  quoteState: RelayQuoteStateMsg | null;
+  /**
+   * 가장 최근의 구독 한도 거부 1건 (`{t:"sub.limit"}` · Phase 26 D-11 · D-15). 거부된 그 소켓에만 온다.
+   * 아직 없으면 null. 표시는 소비자(배지 · 26-14)가 정한다.
+   */
+  subLimit: RelaySubLimitMsg | null;
+  /**
    * 전략 기록기가 민 전략 이벤트 (`{t:"journal.events"}` · Phase 25).
    *
    * relay 가 이 사용자에게 보이는 것만 보낸다 — 주문 이벤트는 접근 계좌, 시세 이벤트는 매핑 보유자 전원
@@ -659,6 +672,8 @@ interface RelayData {
   orders: RelayOrderMsg[];
   journalRows: JournalOrderRow[];
   journalState: RelayJournalStateMsg | null;
+  quoteState: RelayQuoteStateMsg | null;
+  subLimit: RelaySubLimitMsg | null;
   strategyEvents: StrategyEventRow[];
   strategyEventsBatch: { seq: number; rows: StrategyEventRow[] };
   queueProgress: ReadonlyMap<string, readonly RelayQueueProgressItem[]>;
@@ -699,6 +714,9 @@ const INITIAL_DATA: RelayData = {
   // 로그아웃(reset) 이 이 두 값으로 되돌린다 — 다음 사용자가 이전 사용자의 주문 행을 보지 않는다(T-19-16).
   journalRows: [],
   journalState: null,
+  // 로그아웃(reset) 이 null 로 되돌린다 — relay 가 모르면 배지를 그리지 않는다(Phase 26 D-01).
+  quoteState: null,
+  subLimit: null,
   // 로그아웃(reset) 이 비운다 — 다음 사용자가 이전 사용자의 주문 이벤트를 보지 않는다(Phase 25).
   strategyEvents: [],
   strategyEventsBatch: { seq: 0, rows: [] },
@@ -853,6 +871,15 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
     case "journal.state":
       // 최신 1건 보관. 전이 판정(delayed → live 재조회)은 소비자(카드)가 한다 — D-04 (a).
       return { ...state, journalState: frame };
+
+    case "quote.state":
+      // 최신 1건 보관 — 배지 「시세」 축 전용이다. 재접속 흐림 플래그와 무관하다(Phase 26 D-04): 호가 · 체결 값은
+      // 마지막 캐시 그대로 두고, 재접속 뒤 28 스냅샷이 오면 자연히 갱신된다.
+      return { ...state, quoteState: frame };
+
+    case "sub.limit":
+      // 최신 1건 보관 — 구독 한도 거부(D-11 · D-15). 전략 카드 오류(`{t:"msg"}`)와 섞지 않는다.
+      return { ...state, subLimit: frame };
 
     case "journal.events": {
       // 삽입이 없으면(전부 이미 있는 키) 같은 state — 목록 memo 가 헛돌지 않게.
@@ -2023,6 +2050,8 @@ export function useRelayConnection({
       orders: data.orders,
       journalRows: data.journalRows,
       journalState: data.journalState,
+      quoteState: data.quoteState,
+      subLimit: data.subLimit,
       strategyEvents: data.strategyEvents,
       strategyEventsBatch: data.strategyEventsBatch,
       queueProgress: data.queueProgress,

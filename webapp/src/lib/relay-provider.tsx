@@ -350,6 +350,9 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   // Provider 밖에는 소켓이 없다 — 푸시 행도 기록 연결 상태도 없다(Phase 19 D-03 · D-04).
   journalRows: EMPTY_JOURNAL_ROWS,
   journalState: null,
+  // Provider 밖에는 소켓이 없다 — 시세 연결 상태도 구독 한도 거부도 없다(Phase 26 D-01 — null 이면 배지 없음).
+  quoteState: null,
+  subLimit: null,
   // Provider 밖에는 소켓이 없다 — 전략 이벤트 푸시도 없다(Phase 25).
   strategyEvents: EMPTY_STRATEGY_EVENTS,
   strategyEventsBatch: EMPTY_STRATEGY_EVENTS_BATCH,
