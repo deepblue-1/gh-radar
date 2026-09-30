@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 
 import type { RelayLimitChaser, RelayViTrigger } from "@gh-radar/shared";
 
@@ -20,6 +20,8 @@ import type { RelayLimitChaser, RelayViTrigger } from "@gh-radar/shared";
  *  ⑦ 전략 0 + VI 꺼짐이면 3단 목록 자체가 없다 · 전략 0 + VI 가동이면 VI 한 줄만 — 빈 문구 없음
  *     (E16 empty/loading)
  *  ⑧ 하단 줄에 유저 섹션과 **테마 토글**이 나란히 산다 (토글이 탑바를 떠나 여기로 왔다)
+ *  ⑨ 레일(quick-260930-e30 D1) — 접힘에서만 `title` 툴팁 · 트레이딩 켜진 전략 수 배지(0 이면 없음).
+ *     펼침에서는 배지·title 이 DOM 에 없다(「트레이딩」 전체 일치 이름 조회 보존)
  */
 
 // ---------------------------------------------------------------------------
@@ -55,6 +57,7 @@ import { EMPTY_RELAY_VALUE } from "@/lib/relay-provider";
 import { TRADING_FOCUS_EVENT } from "@/lib/trading-focus";
 
 import { AppSidebar, strategyLedLabel } from "../app-sidebar";
+import { SIDEBAR_COLLAPSED_KEY, setSidebarCollapsed } from "@/lib/sidebar-collapse";
 import { LC_BUY3_ECHO_DEFAULTS } from "@/test-fixtures/limit-chaser";
 
 // ---------------------------------------------------------------------------
@@ -765,5 +768,65 @@ describe("AppSidebar — 하단 줄 (테마 토글의 새 집)", () => {
     render(<AppSidebar />);
 
     expect(screen.getByRole("button", { name: /모드로 전환$/ })).toBeInTheDocument();
+  });
+});
+
+describe("AppSidebar — 레일(quick-260930-e30 D1)", () => {
+  /** 꺼진 전략 — 매수·매도·취소잔량·매수후자동 모두 off(`isActiveStrategy` false). */
+  const CHASER_OFF = makeChaser({
+    isin: "KR7000660001",
+    accountNo: "37728502103",
+    exchange: "KRX",
+    buyEnabled: false,
+    sellEnabled: false,
+    cancelQtyEnabled: false,
+    postBuyAuto: false,
+  });
+
+  afterEach(() => {
+    act(() => setSidebarCollapsed(false));
+    window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
+  });
+
+  it("⑨ 접힘 + 켜진 전략 2 · 꺼진 전략 1 → 트레이딩 배지 「2」 · title 툴팁", () => {
+    setSidebarCollapsed(true);
+    setupReady({ limitChasers: [CHASER_A, CHASER_B, CHASER_OFF] });
+    render(<AppSidebar />);
+
+    const trading = screen.getByRole("link", { name: /^트레이딩/ });
+    expect(trading).toHaveAttribute("title", "트레이딩");
+    const badge = trading.querySelector('[data-slot="rail-badge"]');
+    expect(badge).not.toBeNull();
+    expect(badge?.textContent).toContain("2");
+    expect(badge?.textContent).toContain("켜진 전략 2개");
+    expect(screen.getByRole("link", { name: "홈" })).toHaveAttribute("title", "홈");
+  });
+
+  it("⑨ 접힘 + 켜진 전략 0 → 배지 없음", () => {
+    setSidebarCollapsed(true);
+    setupReady({ limitChasers: [CHASER_OFF] });
+    render(<AppSidebar />);
+
+    expect(document.querySelector('[data-slot="rail-badge"]')).toBeNull();
+    expect(screen.getByRole("link", { name: "트레이딩" })).toHaveAttribute("title", "트레이딩");
+  });
+
+  it("⑨ 펼침(기본) → 배지 없음 · title 없음 · 「트레이딩」 전체 일치 조회가 그대로 된다", () => {
+    setupReady({ limitChasers: [CHASER_A, CHASER_B, CHASER_OFF] });
+    render(<AppSidebar />);
+
+    expect(document.querySelector('[data-slot="rail-badge"]')).toBeNull();
+    const trading = screen.getByRole("link", { name: "트레이딩" });
+    expect(trading).not.toHaveAttribute("title");
+    expect(screen.getByRole("link", { name: "홈" })).not.toHaveAttribute("title");
+  });
+
+  it("⑨ 펼침 → 접힘 전환이 렌더에 반영된다(구독)", () => {
+    setupReady({ limitChasers: [CHASER_A] });
+    render(<AppSidebar />);
+    expect(document.querySelector('[data-slot="rail-badge"]')).toBeNull();
+
+    act(() => setSidebarCollapsed(true));
+    expect(document.querySelector('[data-slot="rail-badge"]')?.textContent).toContain("켜진 전략 1개");
   });
 });

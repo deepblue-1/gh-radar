@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 /**
  * 260911-w5h — **전역 크롬 계약 2건**.
@@ -11,6 +11,7 @@ import { render, screen } from '@testing-library/react';
  *    기본값**만 잠근다.
  * ② 모바일(<lg) 본문 여백이 **8px**, 데스크톱(≥lg)이 **24px** 이다. 390px 에서 24px×2 는
  *    본문 폭의 12% 였다.
+ * quick-260930-e30 — ④ 사이드바 토글(D1) · ⑤ 스크롤 헤더 구조(D2).
  * ③ 브랜드 표시명이 **GH Trade** 다(21-09 · D-21). 바뀌는 것은 노출 문자열뿐 — `gh-radar:`
  *    localStorage 키 · `[gh-radar]` 로그 접두 · `@gh-radar/*` 패키지명은 그대로다.
  *
@@ -47,6 +48,12 @@ vi.mock('next/navigation', () => ({
 
 import { ThemeProvider } from '@/components/providers/theme-provider';
 import { AppShell } from '@/components/layout/app-shell';
+import { SIDEBAR_COLLAPSED_KEY } from '@/lib/sidebar-collapse';
+
+afterEach(() => {
+  document.documentElement.removeAttribute('data-sidebar');
+  window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
+});
 
 describe('① 앱 기본 테마는 다크다 (260911-w5h → 21-18 D-23a)', () => {
   it('`defaultTheme="dark"` 로 next-themes 를 부른다', () => {
@@ -131,5 +138,74 @@ describe('③ 브랜드 표시명 GH Trade (21-09 · D-21)', () => {
     expect(header.textContent).not.toContain('gh-radar');
     const logo = screen.getByRole('link', { name: 'GH Trade 홈' });
     expect(logo.textContent).toContain('GH Trade');
+  });
+});
+
+describe('④ 데스크톱 사이드바 토글 (quick-260930-e30 D1)', () => {
+  it('토글이 aside 를 가리키고, 누르면 레일 속성·저장값·이름이 바뀌고 다시 누르면 원복한다', () => {
+    render(
+      <AppShell sidebar={<div>메뉴</div>}>
+        <div>본문</div>
+      </AppShell>,
+    );
+
+    const toggle = screen.getByRole('button', { name: '사이드바 접기' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(toggle).toHaveAttribute('aria-controls', 'app-aside');
+    const aside = document.getElementById('app-aside');
+    expect(aside?.tagName).toBe('ASIDE');
+    expect(aside).toHaveAttribute('data-slot', 'app-aside');
+    expect(aside?.className).toContain('rail:w-16');
+
+    fireEvent.click(toggle);
+    const expand = screen.getByRole('button', { name: '사이드바 펼치기' });
+    expect(expand).toHaveAttribute('aria-expanded', 'false');
+    expect(document.documentElement.getAttribute('data-sidebar')).toBe('rail');
+    expect(window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY)).toBe('1');
+
+    fireEvent.click(expand);
+    expect(screen.getByRole('button', { name: '사이드바 접기' })).toHaveAttribute('aria-expanded', 'true');
+    expect(document.documentElement.hasAttribute('data-sidebar')).toBe(false);
+    expect(window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY)).toBeNull();
+  });
+
+  it('`hideSidebar` 셸에는 토글이 없다', () => {
+    render(
+      <AppShell hideSidebar>
+        <div>본문</div>
+      </AppShell>,
+    );
+    expect(screen.queryByRole('button', { name: '사이드바 접기' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '사이드바 펼치기' })).toBeNull();
+  });
+});
+
+describe('⑤ 스크롤 헤더 구조 (quick-260930-e30 D2)', () => {
+  it('배경·블러는 형제 레이어에 있고 header 자신에는 없다 · 햄버거 잉크 보정과 원형 변형이 공존한다', () => {
+    render(
+      <AppShell sidebar={<div>메뉴</div>}>
+        <div>본문</div>
+      </AppShell>,
+    );
+
+    const header = screen.getByRole('banner');
+    expect(header).toHaveAttribute('data-slot', 'app-header');
+    // jsdom 초기 scrollY 0 → 보임.
+    expect(header).not.toHaveAttribute('data-scroll-hidden');
+
+    const bg = header.querySelector('[data-part="header-bg"]');
+    expect(bg).not.toBeNull();
+    expect(bg?.className).toContain('backdrop-blur-md');
+    expect(bg?.className).toContain('group-data-[scroll-hidden=true]/header:-translate-y-14');
+    /*
+      ★ 중첩 backdrop root 방지 계약 — header 에 backdrop-filter 가 있으면 header 가 backdrop root 가 되어
+        원형 햄버거의 블러가 본문이 아니라 빈 header 만 본다. 그래서 header 자신에는 `backdrop-blur` 가 없다.
+    */
+    expect(header.className).not.toContain('backdrop-blur');
+
+    const menu = screen.getByRole('button', { name: '사이드바 열기' });
+    expect(menu.className).toContain('-ml-2');
+    expect(menu.className).toContain('md:-ml-3');
+    expect(menu.className).toContain('group-data-[scroll-hidden=true]/header:rounded-[50%]');
   });
 });
