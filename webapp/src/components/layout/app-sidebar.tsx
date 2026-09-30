@@ -12,6 +12,7 @@ import {
   type LatchLedKind,
   type LatchLedTone,
 } from "@/components/trading/latch-led";
+import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import { useAuth } from "@/lib/auth-context";
 import { useIsinLabels } from "@/lib/isin-labels";
 import { exchangeLabeledName, isActiveStrategy } from "@/lib/limit-chaser";
@@ -64,6 +65,12 @@ import { UserSection } from "./user-section";
  *    세운다("데이터를 지우지 않는다 — isStale 만 세운다"). 목록은 그대로 있는데 메뉴만
  *    사라지는 상태를 만들지 않기 위해 `everReady` 래치를 둔다. 로그아웃·`unauthorized` 는
  *    래치를 **되돌린다** — 그 둘은 깜빡임이 아니라 권한 상실이다.
+ *
+ * ⑥ 레일 (quick-260930-e30 D1 · 목업 `.desk.rail.col`)
+ *    데스크톱 고정 aside 가 64px 아이콘 레일로 접히면 아이콘만 가운데 서고, 라벨은 `rail:sr-only`
+ *    (★ `hidden` 금지 — display:none 이면 링크 접근 이름이 사라진다), 3단 목록은 숨고, 하단은 세로로 쌓인다.
+ *    모양은 전부 `rail:` CSS 변형(globals.css — 고정 aside 안에서만 매칭 · 드로어는 영향 없음)이라 첫 페인트부터
+ *    맞다. React 값 `rail`(`useSidebarCollapsed`)은 레일 `title` 툴팁과 트레이딩 배지 렌더 여부에만 쓴다.
  */
 
 type NavIcon = ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" | "false" }>;
@@ -151,7 +158,9 @@ function isSearchHubPath(pathname: string): boolean {
 }
 
 const LINK_BASE =
-  "flex items-center gap-2 rounded-[var(--r)] px-3 py-2 text-[length:var(--t-sm)]";
+  "relative flex items-center gap-2 rounded-[var(--r)] px-3 py-2 text-[length:var(--t-sm)] rail:justify-center rail:px-0 rail:py-2.5";
+/** 링크 라벨 — 레일에서는 시각적으로만 숨긴다(sr-only · 접근 이름 유지, 위 ⑥). */
+const LINK_LABEL = "min-w-0 flex-1 truncate rail:sr-only";
 const LINK_IDLE =
   "text-[var(--muted-fg)] hover:bg-[color-mix(in_oklab,var(--muted)_60%,transparent)] hover:text-[var(--fg)]";
 // B 사이드바 `a.on` — sketch 003-A(260925-gy6): 라이트 blue50 면 + blue600 글자 ·
@@ -165,10 +174,13 @@ const SUB_LIST =
 function NavLink({
   item,
   active,
+  rail = false,
   children,
 }: {
   item: NavLeaf;
   active: boolean;
+  /** 레일 접힘 — `title` 툴팁만 켠다(펼침에는 중복 툴팁을 달지 않는다 · 위 ⑥). */
+  rail?: boolean;
   children?: React.ReactNode;
 }) {
   const Icon = item.icon;
@@ -177,10 +189,11 @@ function NavLink({
       href={item.href}
       aria-current={active ? "page" : undefined}
       data-nav-item
+      title={rail ? item.label : undefined}
       className={cn(LINK_BASE, active ? LINK_ACTIVE : LINK_IDLE)}
     >
       <Icon className="size-4 shrink-0" aria-hidden="true" />
-      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      <span className={LINK_LABEL}>{item.label}</span>
       {children}
     </Link>
   );
@@ -199,11 +212,17 @@ function GroupHeading({
   icon: Icon,
   item,
   active = false,
+  rail = false,
+  badge = 0,
 }: {
   label: string;
   icon: NavIcon;
   item: NavLeaf;
   active?: boolean;
+  /** 레일 접힘 — `title` 툴팁과 배지를 켠다(위 ⑥). */
+  rail?: boolean;
+  /** 레일 배지 숫자(켜진 전략 수). 0 이면 배지 없음. */
+  badge?: number;
 }) {
   return (
     <li>
@@ -211,6 +230,7 @@ function GroupHeading({
         href={item.href}
         aria-current={active ? "page" : undefined}
         data-nav-item
+        title={rail ? label : undefined}
         className={cn(
           LINK_BASE,
           "font-semibold tracking-[0.02em]",
@@ -218,7 +238,21 @@ function GroupHeading({
         )}
       >
         <Icon className="size-4 shrink-0" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <span className={LINK_LABEL}>{label}</span>
+        {/*
+          레일 배지 — 켜진 전략 수(목업 `.badge` · `--led-armed` 초록). ★ 레일 + 1개 이상일 때만 DOM 에 있다 —
+          펼침 상태에 텍스트가 남으면 기존 「트레이딩」 전체 일치 이름 조회가 깨진다. 드로어에서는 `hidden`
+          (aside 밖이라 `rail:flex` 불매칭)이라 보이지 않는다.
+        */}
+        {rail && badge > 0 && (
+          <span
+            data-slot="rail-badge"
+            className="absolute top-1 right-1 hidden h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--led-armed)] px-[3px] text-[9px] leading-none font-bold text-white rail:flex"
+          >
+            <span aria-hidden="true">{badge}</span>
+            <span className="sr-only">켜진 전략 {badge}개</span>
+          </span>
+        )}
       </Link>
     </li>
   );
@@ -355,6 +389,7 @@ export function AppSidebar() {
   const { limitChasers, viTriggers } = useRelayContext();
   const tradingVisible = useTradingVisible();
   const labels = useIsinLabels();
+  const rail = useSidebarCollapsed();
 
   const isActive = (href: string) => samePath(pathname, href);
   // 거래소별 진실 — 가동(run === true)인 거래소만, KRX → NXT 순.
@@ -370,10 +405,10 @@ export function AppSidebar() {
     <nav aria-label="주 메뉴" className="flex h-full flex-col justify-between">
       <ul className="m-0 flex list-none flex-col gap-1 p-0">
         <li>
-          <NavLink item={NAV_HOME} active={isActive(NAV_HOME.href)} />
+          <NavLink item={NAV_HOME} active={isActive(NAV_HOME.href)} rail={rail} />
         </li>
         <li>
-          <NavLink item={NAV_SEARCH_PAGE} active={isSearchHubPath(pathname)} />
+          <NavLink item={NAV_SEARCH_PAGE} active={isSearchHubPath(pathname)} rail={rail} />
         </li>
 
         {tradingVisible && (
@@ -383,6 +418,8 @@ export function AppSidebar() {
               icon={NAV_TRADING.icon}
               item={NAV_TRADING}
               active={isActive(NAV_TRADING.href)}
+              rail={rail}
+              badge={sidebarChasers.length}
             />
             {/*
               3단 = VI 0~1줄 + 등록 전략 N개 (D-03 · E16 · quick-260923-dmb). 둘 다 없으면 3단 목록
@@ -392,7 +429,8 @@ export function AppSidebar() {
               `limitChasers` 를 보므로 별도 동기화 없이 카드와 맞는다.
             */}
             {(viRunning.length > 0 || sidebarChasers.length > 0) && (
-              <li>
+              // 레일에서는 3단 목록(VI·전략)을 숨긴다 — 켜진 전략 수는 트레이딩 배지가 말한다(D1).
+              <li className="rail:hidden">
                 <ul className={SUB_LIST}>
                   {viRunning.length > 0 && (
                     <li>
@@ -411,22 +449,23 @@ export function AppSidebar() {
               </li>
             )}
             <li>
-              <NavLink item={NAV_ME} active={isActive(NAV_ME.href)} />
+              <NavLink item={NAV_ME} active={isActive(NAV_ME.href)} rail={rail} />
             </li>
           </>
         )}
 
         <li>
-          <NavLink item={NAV_CHAT} active={isActive(NAV_CHAT.href)} />
+          <NavLink item={NAV_CHAT} active={isActive(NAV_CHAT.href)} rail={rail} />
         </li>
       </ul>
       {/*
         하단 한 줄 — 유저 섹션과 테마 토글이 나란히 선다. 토글이 탑바를 떠나 여기로 왔다.
         `UserSection` 트리거의 `w-full` 은 이 래퍼 안에서만 늘어나므로 토글을 밀어내지 않는다.
         `user == null` 이면 `UserSection` 이 `null` 을 돌려주고 토글만 남는 것이 정상이다.
+        레일(⑥)에서는 세로로 쌓는다 — 테마 토글 위 · 아바타 원 아래(목업 `.foot` column-reverse).
       */}
-      <div className="flex min-w-0 items-center gap-1">
-        <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 items-center gap-1 rail:flex-col-reverse rail:gap-2">
+        <div className="min-w-0 flex-1 rail:flex-none">
           <UserSection />
         </div>
         <ThemeToggle className="size-9 shrink-0" />

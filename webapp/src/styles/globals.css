@@ -6,6 +6,12 @@
 /* Phase 21 (D-11) — 앱 셸(`html.native-app`, `<head>` 인라인 스크립트가 첫 페인트 전에 붙임) 전용 변형.
    `native:hidden` · `native:lg:inline-flex` 처럼 쓴다. 브라우저에서는 아무것도 매칭되지 않는다. */
 @custom-variant native (&:where(.native-app, .native-app *));
+/* quick-260930-e30 D1 — 데스크톱 사이드바 아이콘 레일(`html[data-sidebar="rail"]`, `<head>` 인라인 스크립트가
+   첫 페인트 전에 붙임 · lib/sidebar-collapse.ts). `rail:w-16` · `rail:sr-only` 처럼 쓴다.
+   ★ 고정 aside(`[data-slot="app-aside"]`) **자신과 그 안**에서만 매칭한다 — 모바일 드로어(SheetContent)의 같은
+     AppSidebar 는 aside 밖이라 절대 레일이 되지 않는다(D1 「드로어 안 사이드바는 항상 펼친 모양」).
+     aside 는 <lg 에서 `hidden` 이라 폭 조건을 따로 두지 않는다. */
+@custom-variant rail (&:where(html[data-sidebar="rail"] [data-slot="app-aside"], html[data-sidebar="rail"] [data-slot="app-aside"] *));
 
 @theme {
   /* spacing & radius는 Tailwind v4 기본 scale 사용 — 아래 토큰은 CSS 변수로만 보조 노출 */
@@ -784,12 +790,17 @@ html.native-app[data-native-platform="ios"] body * {
      출력 순서는 보장되지 않지만, 레이어 밖 규칙은 `utilities` 레이어를 명시도와 무관하게 항상 이긴다.
    - 뷰포트 브레이크포인트 층(§2.2b 의 「앱 셸·사이드바」)이다 — 상따 컨테이너 쿼리 밴드와 무관하다.
    - 브라우저(`native-app` 없음)에는 매칭되지 않는다(≥lg aside 보임 · 햄버거 숨김 그대로).
+   - quick-260930-e30 D1 — 앱은 aside 가 없으니 데스크톱 사이드바 접기 토글(`[data-slot="app-sidebar-toggle"]`)도
+     없다. 토글의 `lg:inline-flex` 와 커스텀 변형의 순서 문제 때문에 같은 레이어 밖 규칙을 쓴다.
    ───────────────────────────────────────────────────────────── */
 html.native-app [data-slot="app-aside"] {
   display: none;
 }
 html.native-app [data-slot="app-menu-button"] {
   display: inline-flex;
+}
+html.native-app [data-slot="app-sidebar-toggle"] {
+  display: none;
 }
 
 /* 폰 종목상세 하단 고정 「주문하기」 CTA 가 있을 때만 챗 FAB 을 CTA 위로 들어 올린다

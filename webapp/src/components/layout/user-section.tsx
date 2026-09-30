@@ -70,13 +70,18 @@ export function UserSection() {
   return (
     <Popover>
       <PopoverTrigger asChild>
+        {/*
+          quick-260930-e30 D1 — `rail:` 변형은 데스크톱 고정 aside 안에서만 걸린다(아바타 원만 남김).
+          ★ 이름 span 이 트리거의 **유일한 접근 이름**이라 display:none 이 아니라 sr-only 로만 숨긴다.
+          팝오버 내용은 불변.
+        */}
         <button
           type="button"
           aria-haspopup="menu"
-          className="flex w-full items-center gap-2 rounded-md p-2 text-left hover:bg-[var(--muted)]"
+          className="flex w-full items-center gap-2 rounded-md p-2 text-left hover:bg-[var(--muted)] rail:justify-center rail:rounded-full rail:p-0"
         >
           {renderAvatar("size-8")}
-          <span className="max-w-[140px] truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
+          <span className="max-w-[140px] truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)] rail:sr-only">
             {name}
           </span>
         </button>

@@ -39,6 +39,11 @@ export interface AppShellProps {
  * - `hideSidebar` 활성 시: 사이드바/Drawer 비활성 → 헤더 + 단일 main 컬럼.
  *   이때 테마 토글의 집(사이드바 하단)이 없으므로 헤더 우측에 토글을 되살린다
  *   (`themeToggle={!showSidebar}`).
+ * - quick-260930-e30 D1 — 데스크톱(lg+) 브라우저는 헤더 왼쪽 토글로 고정 사이드바를 240 ↔ 64px 아이콘 레일로
+ *   접는다(~200ms). 상태는 localStorage 에 남고 `<head>` 인라인 스크립트가 첫 페인트 전에 html 속성으로 적용해
+ *   깜빡임이 없다(`lib/sidebar-collapse.ts`). 모바일 드로어 안 사이드바와 앱(aside 숨김)은 불변 — 레일 변형은
+ *   고정 aside 안에서만 매칭된다. 본문은 `flex-1` 이라 늘어난 폭을 그대로 쓰고, 상따 컨테이너 밴드는
+ *   본문 폭 기준이라 자동으로 따라간다.
  * - Phase 21 D-32 — 탭 루트(`/` · `/search` · `/trading` · `/chat` · `/me`)는 모두 이 셸을 쓰므로 여기서
  *   `useTabRootScrollMemory()` 를 불러 탭 루트마다 창 스크롤 위치를 기록·복원한다(비 루트 페이지는 no-op).
  */
@@ -64,6 +69,7 @@ export function AppShell({
         nav={navContent}
         onMenuClick={showSidebar ? () => setSheetOpen(true) : undefined}
         themeToggle={!showSidebar}
+        sidebarToggle={showSidebar}
       />
 
       {/* ★ `overflow-hidden` 을 두지 않는다 — 스크롤 컨테이너가 되어 aside 의 sticky 를 죽인다. */}
@@ -74,7 +80,14 @@ export function AppShell({
             사이드바를 숨기는 표식이다(규칙은 globals.css 「Phase 21 앱 셸 — 사이드바·햄버거」). 앱은
             네이티브 탭바가 목적지를 가지므로 드로어(햄버거)만 쓴다. 브라우저는 종전 그대로다.
           */
-          <aside data-slot="app-aside" className="hidden w-60 shrink-0 border-r border-transparent bg-[var(--side-bg)] p-3 lg:sticky lg:top-[calc(3.5rem+var(--app-safe-top))] lg:block lg:h-[calc(100dvh-3.5rem-var(--app-safe-top))] lg:self-start lg:overflow-y-auto">
+          /*
+            quick-260930-e30 D1 — `rail:w-16 rail:px-2` 는 html[data-sidebar="rail"] 일 때만 걸린다(globals.css
+            `@custom-variant rail`). ★ 위 sticky 3종 묶음(aside sticky/self-start · 부모 flex 래퍼에 overflow-hidden
+            금지 · main min-w-0)은 그대로다 — `overflow-x-hidden` 은 **aside 자신**(이미 overflow-y-auto 스크롤
+            컨테이너)에 두는 것이라 sticky 와 무관하고, 64→240 펼침 전환 중 전략 줄의 LED 묶음(shrink-0)이
+            잠깐 넘쳐 가로 스크롤바가 번쩍이는 것을 막는다. `id` 는 헤더 토글의 `aria-controls` 대상이다.
+          */
+          <aside id="app-aside" data-slot="app-aside" className="hidden w-60 shrink-0 overflow-x-hidden border-r border-transparent bg-[var(--side-bg)] p-3 transition-[width,padding] duration-200 ease-out motion-reduce:transition-none rail:w-16 rail:px-2 lg:sticky lg:top-[calc(3.5rem+var(--app-safe-top))] lg:block lg:h-[calc(100dvh-3.5rem-var(--app-safe-top))] lg:self-start lg:overflow-y-auto">
             {sidebar}
           </aside>
         )}

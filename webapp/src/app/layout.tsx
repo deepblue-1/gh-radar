@@ -13,6 +13,7 @@ import { ChatFab } from '@/components/chat/chat-fab';
 import { ChatSheet } from '@/components/chat/chat-sheet';
 import { pretendard, geistMono } from '@/lib/fonts';
 import { NATIVE_DETECT_SCRIPT } from '@/lib/native/native-detect';
+import { SIDEBAR_RAIL_SCRIPT } from '@/lib/sidebar-collapse';
 import { NativeBridgeProvider } from '@/lib/native/native-bridge-provider';
 
 export const metadata: Metadata = {
@@ -60,6 +61,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         {/* D-11 — 앱 셸(Capacitor) 감지. 첫 페인트 전에 `html.native-app` 을 붙이고 `ready` 를
             네이티브로 보낸다. 브라우저에서는 아무것도 하지 않는다(lib/native/native-detect.ts). */}
         <script id="gh-native-detect" dangerouslySetInnerHTML={{ __html: NATIVE_DETECT_SCRIPT }} />
+        {/* quick-260930-e30 D1 — 데스크톱 사이드바 레일 접힘을 첫 페인트 전에 적용(`html[data-sidebar="rail"]`).
+            CSS 가 이 속성만 보고 aside 폭을 정하므로 240 → 64 깜빡임이 없다. 서버 HTML 과의 속성 차이는
+            `<html suppressHydrationWarning>` 이 덮는다. 브라우저 전용 모양이지만 앱에서는 aside 가 숨어 무해하다
+            (lib/sidebar-collapse.ts). */}
+        <script id="gh-sidebar-rail" dangerouslySetInnerHTML={{ __html: SIDEBAR_RAIL_SCRIPT }} />
       </head>
       <body>
         <ThemeProvider>

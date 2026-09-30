@@ -1,10 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { Menu } from 'lucide-react';
+import { Menu, PanelLeft } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import { ThemeToggle } from '@/components/layout/theme-toggle';
+import { useSidebarCollapsed } from '@/hooks/use-sidebar-collapsed';
+import { setSidebarCollapsed } from '@/lib/sidebar-collapse';
 
 export interface AppHeaderProps {
   /** 중앙 slot: 네비게이션 등 (선택). */
@@ -19,6 +21,11 @@ export interface AppHeaderProps {
    * 그 화면들만 이 prop 을 켜서 헤더 우측에 되살린다.
    */
   themeToggle?: boolean;
+  /**
+   * 데스크톱(lg+) 고정 사이드바 접기 토글을 렌더할지. 기본 `false` (quick-260930-e30 D1).
+   * 고정 사이드바가 있는 `AppShell` 만 켠다 — `AppShell hideSidebar` · `CenterShell` 에는 접을 사이드바가 없다.
+   */
+  sidebarToggle?: boolean;
 }
 
 /**
@@ -26,6 +33,7 @@ export interface AppHeaderProps {
  * - 56px sticky top-0, `bg-[--bg]/80 backdrop-blur-md` · 아래 테두리 없음(B `--hdr-bd: 0` — 옛 투명 1px 테두리는
  *   Phase 21 D-25 의 `box-content` 전환 때 걷었다: content-box 에서 1px 이 높이 57 을 만든다)
  * - 좌측: 로고(`GH Trade` — 표시명만 바꿨다 · D-21, `/` 로 이동) + 햄버거 버튼(<lg 만 표시, 44×44)
+ *   + 사이드바 접기 토글(lg+ 브라우저만 · `sidebarToggle` · quick-260930-e30 D1) — 햄버거와 **같은 자리**(로고 앞).
  * - 중앙: `nav` slot — Phase 6 이후 AppShell 이 `<GlobalSearch />` 를 주입.
  *   ★ 정렬이 폭에 따라 다르다 — `<lg` 는 **우측 정렬**(검색 아이콘 버튼이 탑바 오른쪽 끝),
  *   `lg+` 는 가운데(readonly 입력). 모바일에서 아이콘 하나가 어정쩡하게 가운데 뜨지 않게 한다.
@@ -33,7 +41,14 @@ export interface AppHeaderProps {
  *   (사이드바가 없는 `CenterShell` · `AppShell hideSidebar`)에서만 나온다.
  *   사이드바가 있는 일반 화면에서는 토글이 사이드바 하단 유저 섹션 줄에 산다.
  */
-export function AppHeader({ nav, onMenuClick, themeToggle = false }: AppHeaderProps) {
+export function AppHeader({
+  nav,
+  onMenuClick,
+  themeToggle = false,
+  sidebarToggle = false,
+}: AppHeaderProps) {
+  const collapsed = useSidebarCollapsed();
+  const toggleLabel = collapsed ? '사이드바 펼치기' : '사이드바 접기';
   return (
     <header
       /*
@@ -82,6 +97,31 @@ export function AppHeader({ nav, onMenuClick, themeToggle = false }: AppHeaderPr
             className="-ml-2 inline-flex h-11 w-11 items-center justify-center rounded-md text-[var(--fg)] transition-colors hover:bg-[var(--muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] md:-ml-3 lg:hidden"
           >
             <Menu className="h-5 w-5" aria-hidden="true" />
+          </button>
+        )}
+        {sidebarToggle && (
+          <button
+            type="button"
+            data-slot="app-sidebar-toggle"
+            onClick={() => setSidebarCollapsed(!collapsed)}
+            aria-label={toggleLabel}
+            title={toggleLabel}
+            aria-expanded={!collapsed}
+            aria-controls="app-aside"
+            /*
+              ★ quick-260930-e30 D1 — 데스크톱 사이드바 접기 토글.
+                (i) 햄버거 `lg:hidden` 과 이 토글 `hidden lg:inline-flex` 가 배타라 **같은 자리**(로고 앞)다.
+                    앱(`html.native-app`)은 globals.css 「Phase 21 앱 셸」 규칙이 토글을 숨기고 햄버거를 보인다.
+                (ii) 잉크 정렬 — 36 박스 안 20 아이콘이라 잉크가 8 안쪽이다. `-ml-2` 로 lg 헤더 패딩 24 선에
+                    잉크가 서고, 이는 사이드바 아이콘 열 x=24 와 같다(펼침: aside p-3 12 + 링크 px-3 12 ·
+                    레일: aside px-2 8 + (48−16)/2 16). 이 정렬은 `e2e/specs/shell-chrome.spec.ts` A1 이 잰다.
+                (iii) 위 모바일 햄버거의 잉크 보정 주석 체계(폰 8 · md↑ 12)는 이 토글과 무관하다 — 건드리지 않는다.
+              ★ 상태 표시(aria·title)만 React 값이다. 폭·레일 모양은 html 속성 + CSS 가 첫 페인트부터 정한다
+                (`lib/sidebar-collapse.ts`).
+            */
+            className="-ml-2 hidden size-9 items-center justify-center rounded-md text-[var(--muted-fg)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--fg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] motion-reduce:transition-none lg:inline-flex"
+          >
+            <PanelLeft className="h-5 w-5" aria-hidden="true" />
           </button>
         )}
         <Link
