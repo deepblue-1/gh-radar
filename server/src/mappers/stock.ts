@@ -155,7 +155,10 @@ export function mergeMasterAndQuote(
  * Phase 09.1 D-22 충돌 해소 (R3 RESOLVED) — server on-demand 호출이 worker 의
  * STEP1 매분 trade_amount/volume UPSERT 결과를 덮어쓰지 않도록 두 컬럼을 omit.
  */
-export type StockQuoteRowUpsert = Omit<StockQuoteRow, "volume" | "trade_amount">;
+export type StockQuoteRowUpsert = Omit<StockQuoteRow, "volume" | "trade_amount"> & {
+  /** 등락률 기준 시각 (quick 261001-bnc) — updated_at 과 같은 now. */
+  rate_updated_at: string;
+};
 
 /**
  * 키움 ka10001 응답 → stock_quotes UPSERT (부분 컬럼) row.
@@ -167,10 +170,15 @@ export type StockQuoteRowUpsert = Omit<StockQuoteRow, "volume" | "trade_amount">
  *   - server on-demand 호출은 가격/등락/OHLC/limits/market_cap 만 갱신
  *   - Supabase upsert({ onConflict: "code" }) 가 row 의 명시 키만 SET — 미언급
  *     컬럼 (volume, trade_amount) 은 기존 값 유지
+ *
+ * updated_at · rate_updated_at 은 같은 now (quick 261001-bnc).
+ * 이 행을 DB 에 쓸지는 호출부가 isQuoteSessionWindow 로 결정한다 — 창 안에서 받은 ka10001 flu_rt 만
+ * 오늘 등락률로 보증된다.
  */
 export function inquirePriceToQuoteRow(
   code: string,
   ka10001: KiwoomKa10001Row,
+  now: Date = new Date(),
 ): StockQuoteRowUpsert {
   const price = parseSignedPrice(ka10001.cur_prc);
   const open = parseSignedPrice(ka10001.open_pric);
@@ -181,6 +189,8 @@ export function inquirePriceToQuoteRow(
   const upperLimit = parseOptionalSignedNumber(ka10001.upl_pric);
   const lowerLimit = parseOptionalSignedNumber(ka10001.lst_pric);
   const marketCap = parseMac(ka10001.mac);
+
+  const nowIso = now.toISOString();
 
   // 명시 키만 — volume / trade_amount 는 의도적으로 omit (D-22)
   return {
@@ -194,6 +204,7 @@ export function inquirePriceToQuoteRow(
     market_cap: marketCap,
     upper_limit: (upperLimit !== null ? Math.abs(upperLimit) : 0).toString(),
     lower_limit: (lowerLimit !== null ? Math.abs(lowerLimit) : 0).toString(),
-    updated_at: new Date().toISOString(),
+    updated_at: nowIso,
+    rate_updated_at: nowIso,
   };
 }

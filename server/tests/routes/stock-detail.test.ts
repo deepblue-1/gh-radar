@@ -1,8 +1,10 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import { createApp } from "../../src/app";
 import { mockSupabase } from "../fixtures/supabase-mock";
 import { allMasters, samsungQuote } from "../fixtures/stocks";
+import { inquirePriceToQuoteRow } from "../../src/mappers/stock";
+import { resetKiwoomRateLimiter } from "../../src/kiwoom/rateLimiter";
 
 // Phase 09.1 D-17 — server 가 키움 ka10001 호출로 전환됨.
 // 기존 KIS rt_cd / output 패턴 → 키움 return_code / top-level fields 패턴.
@@ -37,6 +39,23 @@ function mockKiwoomRuntime(impl: (code: string) => Promise<any>) {
 }
 
 describe("/api/stocks/:code (마스터 universe + on-demand 키움 inquirePrice)", () => {
+  // quick 261001-bnc — on-demand upsert 는 KRX 세션 창(평일 · 비휴장 · KST 08:00~20:00) 안에서만.
+  // 시각을 거래일 장중으로 고정해 기존 테스트가 실행 시각(야간 로컬 · 주말 CI)에 흔들리지 않게 한다.
+  // toFake 는 Date 로만 한정 — setTimeout 까지 가짜로 만들면 supertest 요청이 멈춘다.
+  // 시각을 옮길 때마다 키움 token bucket 도 리셋한다 — bucket 은 Date.now() 차이로 리필하므로
+  // 시각이 멈추거나 역행하면 리필이 0/음수가 되어 acquireKiwoomRateToken 이 끝나지 않는다.
+  const setNow = (iso: string) => {
+    vi.setSystemTime(new Date(iso));
+    resetKiwoomRateLimiter();
+  };
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    setNow("2026-10-01T10:00:00+09:00");
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("마스터 존재 + 키움 호출 성공 → 200 + on-demand 값 우선 + stock_quotes upsert", async () => {
     const state: any = { masters: allMasters, quotes: [{ ...samsungQuote }] };
     const supa = mockSupabase(state);
@@ -63,6 +82,45 @@ describe("/api/stocks/:code (마스터 universe + on-demand 키움 inquirePrice)
     );
     expect(upsertPayload.rows[0]).not.toHaveProperty("volume");
     expect(upsertPayload.rows[0]).not.toHaveProperty("trade_amount");
+    // 창 안 upsert 는 등락률 기준 시각 rate_updated_at 을 updated_at 과 같은 now 로 찍는다 (261001-bnc)
+    expect(
+      state.upserts.filter((u: any) => u.table === "stock_quotes"),
+    ).toHaveLength(1);
+    expect(upsertPayload.rows[0].updated_at).toBe("2026-10-01T01:00:00.000Z");
+    expect(upsertPayload.rows[0].rate_updated_at).toBe(
+      upsertPayload.rows[0].updated_at,
+    );
+  });
+
+  it("창 밖 야간(00:28 KST) → fresh 시세 응답 유지 + stock_quotes upsert 0건 (261001-bnc 사고 시각)", async () => {
+    setNow("2026-10-01T00:28:00+09:00");
+    const state: any = { masters: allMasters, quotes: [{ ...samsungQuote }] };
+    const supa = mockSupabase(state);
+    const kiwoomRuntime = mockKiwoomRuntime(async () => okKa10001);
+    const r = await request(
+      createApp({ supabase: supa, kiwoomRuntime }),
+    ).get("/api/stocks/005930");
+    expect(r.status).toBe(200);
+    expect(r.body.price).toBe(70500); // fresh ka10001
+    expect(r.body.changeRate).toBe(0.71);
+    expect(
+      (state.upserts ?? []).filter((u: any) => u.table === "stock_quotes"),
+    ).toHaveLength(0);
+  });
+
+  it("창 밖 휴장일(2026-10-05 개천절 대체공휴일 10:00 KST) → stock_quotes upsert 0건", async () => {
+    setNow("2026-10-05T10:00:00+09:00");
+    const state: any = { masters: allMasters, quotes: [{ ...samsungQuote }] };
+    const supa = mockSupabase(state);
+    const kiwoomRuntime = mockKiwoomRuntime(async () => okKa10001);
+    const r = await request(
+      createApp({ supabase: supa, kiwoomRuntime }),
+    ).get("/api/stocks/005930");
+    expect(r.status).toBe(200);
+    expect(r.body.price).toBe(70500);
+    expect(
+      (state.upserts ?? []).filter((u: any) => u.table === "stock_quotes"),
+    ).toHaveLength(0);
   });
 
   it("마스터 존재 + 키움 호출 실패 → cached stock_quotes 폴백", async () => {
@@ -161,5 +219,23 @@ describe("/api/stocks/:code (마스터 universe + on-demand 키움 inquirePrice)
       createApp({ supabase: mockSupabase({ masters: allMasters }) }),
     ).get("/api/stocks/!!@@");
     expect(r.status).toBe(400);
+  });
+});
+
+describe("inquirePriceToQuoteRow now 인자 (261001-bnc)", () => {
+  it("주입 now → updated_at · rate_updated_at 둘 다 now.toISOString()", () => {
+    const now = new Date("2026-10-01T10:00:00+09:00");
+    const row = inquirePriceToQuoteRow("005930", okKa10001 as any, now);
+    expect(row.updated_at).toBe("2026-10-01T01:00:00.000Z");
+    expect(row.rate_updated_at).toBe("2026-10-01T01:00:00.000Z");
+  });
+
+  it("now 생략 → 현재 시각으로 두 필드가 같은 값", () => {
+    const before = Date.now();
+    const row = inquirePriceToQuoteRow("005930", okKa10001 as any);
+    const t = Date.parse(row.updated_at);
+    expect(t).toBeGreaterThanOrEqual(before);
+    expect(t).toBeLessThanOrEqual(Date.now());
+    expect(row.rate_updated_at).toBe(row.updated_at);
   });
 });

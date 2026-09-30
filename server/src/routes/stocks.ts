@@ -13,6 +13,7 @@ import { fetchInquirePrice } from "../kiwoom/inquirePrice.js";
 import type { KiwoomRuntime } from "../app.js";
 import { ApiError, StockNotFound } from "../errors.js";
 import { logger } from "../logger.js";
+import { isQuoteSessionWindow } from "../lib/quoteSessionWindow.js";
 import { newsRouter } from "./news.js";
 import { discussionsRouter } from "./discussions.js";
 import { comovementRouter } from "./comovement.js";
@@ -144,6 +145,12 @@ stocksRouter.get("/:code", async (req, res, next) => {
     // D-22 충돌 해소 (R3 RESOLVED) — partial upsert (volume/trade_amount 키 omit):
     //   Supabase upsert({ onConflict: "code" }) 가 명시 키만 UPDATE → STEP1 worker 의
     //   매분 trade_amount/volume UPSERT 결과를 server on-demand 호출이 덮어쓰지 않음.
+    //
+    // 세션 창 게이트 (quick 261001-bnc): ka10001 은 기준일자 없이 창 밖에서 전일 스냅샷을 준다.
+    //   00:28 KST 조회가 전일 상한가(023790 +29.99%)를 updated_at = now 로 기록해 home-sync 급등
+    //   테마를 오염시켰다. KRX 거래일 08:00~20:00 창 안에서만 upsert(rate_updated_at 스탬프),
+    //   창 밖은 upsert 자체를 건너뛰고 응답만 fresh 시세로 돌려준다.
+    const now = new Date();
     let freshUpsert: StockQuoteRowUpsert | null = null;
     if (kiwoomRuntime) {
       try {
@@ -153,16 +160,20 @@ stocksRouter.get("/:code", async (req, res, next) => {
           token,
           code,
         );
-        freshUpsert = inquirePriceToQuoteRow(code, ka10001Row);
-        // upsert (실패해도 응답 우선 — try/catch 분리)
-        const { error: upErr } = await supabase
-          .from("stock_quotes")
-          .upsert(freshUpsert, { onConflict: "code" });
-        if (upErr) {
-          logger.warn(
-            { code, err: upErr },
-            "stock_quotes upsert failed (continuing with fresh quote)",
-          );
+        freshUpsert = inquirePriceToQuoteRow(code, ka10001Row, now);
+        if (isQuoteSessionWindow(now)) {
+          // upsert (실패해도 응답 우선 — try/catch 분리)
+          const { error: upErr } = await supabase
+            .from("stock_quotes")
+            .upsert(freshUpsert, { onConflict: "code" });
+          if (upErr) {
+            logger.warn(
+              { code, err: upErr },
+              "stock_quotes upsert failed (continuing with fresh quote)",
+            );
+          }
+        } else {
+          logger.debug({ code }, "off-session: skip stock_quotes upsert");
         }
       } catch (err) {
         logger.warn(
