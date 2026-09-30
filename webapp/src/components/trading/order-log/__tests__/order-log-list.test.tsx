@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { act, render, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
+import { orderLogLineText } from '@gh-radar/shared';
+
 import { OrderLogList } from '../order-log-list';
 import {
   FIXTURE_STOCK_NAME,
@@ -296,5 +298,60 @@ describe('OrderLogList — card dense (25-10)', () => {
     rerender(<OrderLogList rows={many(13)} variant="card" nameOf={nameOf} />);
     expect(body.scrollTop).toBe(13 * 20);
     expect(container.querySelector('[data-slot="order-log-pin"]')).toBeNull();
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * quick-260930-e73 — gh-trade OrderGroup 말미 추가 7 수동 · 8 VI 줄 렌더 (웹 코드 무변경 — 조립기 dist 경유)
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+describe('OrderLogList — 수동 · VI 줄 (quick-260930-e73)', () => {
+  const EMPTY_CONDITION = {
+    condMetric: 0,
+    condThreshold: 0,
+    condActual: 0,
+    evKind: 0,
+    evPrice: 0,
+    evQtyBefore: 0,
+    evQtyAfter: 0,
+    evTradeQty: 0,
+    reasonCode: '',
+  } as const;
+  // seq 를 서로 다르게 — strategyEventKey(gateway|epoch|seq) 가 React key 라 같은 원행 파생끼리 겹치면 안 된다.
+  const manualBuy = { ...STRATEGY_DAY_BY_NAME.buy12451!, seq: 901, group: 7, ...EMPTY_CONDITION };
+  const manualSell = {
+    ...STRATEGY_DAY_BY_NAME.sell12454!,
+    seq: 902,
+    group: 7,
+    ...EMPTY_CONDITION,
+    bid1Price: 0,
+    bid1Qty: 0,
+  };
+  const viBuy = { ...manualBuy, seq: 903, group: 8 };
+  const manualReject = { ...STRATEGY_DAY_BY_NAME.reject!, seq: 904, group: 7 };
+  const unknownGroup = { ...manualBuy, seq: 905, group: 9 };
+  const rows = [manualBuy, manualSell, viBuy, manualReject, unknownGroup];
+
+  it('구분 칸 · 방향색 · data-group · 줄 평문이 조립기 출력과 같다', () => {
+    const { container } = render(<OrderLogList rows={rows} variant="panel" nameOf={() => FIXTURE_STOCK_NAME} />);
+    const lines = [...container.querySelectorAll('li[data-slot="order-log-line"]')];
+    expect(lines).toHaveLength(5);
+    const expected = [
+      { badge: '[수동]', tone: 'text-[var(--up)]', group: '7' },
+      { badge: '[수동]', tone: 'text-[var(--down)]', group: '7' },
+      { badge: '[VI]', tone: 'text-[var(--up)]', group: '8' },
+      { badge: '[수동]', tone: 'text-[var(--muted-fg)]', group: '7' },
+      { badge: '[9]', tone: 'text-[var(--muted-fg)]', group: '9' },
+    ];
+    lines.forEach((line, i) => {
+      const kind = line.querySelector('[data-slot="order-log-kind"]');
+      expect(kind?.textContent).toBe(expected[i]!.badge);
+      expect(kind?.className).toContain(expected[i]!.tone);
+      expect(line.getAttribute('data-group')).toBe(expected[i]!.group);
+      expect(normalize(line.textContent)).toBe(orderLogLineText(rows[i]!, FIXTURE_STOCK_NAME));
+    });
+    expect(normalize(lines[0]!.textContent)).toContain('주문 · 수동 주문 · 12,350×300주');
+    expect(normalize(lines[1]!.textContent)).not.toContain('매수1');
+    expect(normalize(lines[2]!.textContent)).toContain('주문 · VI 자동주문 · ');
   });
 });

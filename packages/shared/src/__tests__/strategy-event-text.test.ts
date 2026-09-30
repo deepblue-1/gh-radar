@@ -6,7 +6,14 @@ import {
   strategyEventKey,
   toStrategyEventRow,
 } from "../strategy-event";
-import { condMetricLabel, orderGroupLabel, reasonOperator, strategyEventSide, strategyKindLabel } from "../strategy-event-labels";
+import {
+  condMetricLabel,
+  orderGroupLabel,
+  orderGroupOriginText,
+  reasonOperator,
+  strategyEventSide,
+  strategyKindLabel,
+} from "../strategy-event-labels";
 import { formatKstMs, formatSigned, orderLogLineText, strategyEventParts, timelineStrategyText } from "../strategy-event-text";
 import {
   FIXTURE_STOCK_NAME,
@@ -234,8 +241,9 @@ describe("골든 — 기획서 하루 흐름 + 갈래 전량 (Phase 25-04 Task 2
       const body = strategyEventParts(row, "log").body;
       expect(strategyEventParts(row, "timeline").body).toBe(body);
       const { text } = timelineStrategyText(row);
-      // 그룹 접두 = 그룹 표시명(group 0 = None 이면 접두 없음)
-      const prefix = row.kind === 3 || row.kind === 6 ? orderGroupLabel(row.group) : null;
+      // 그룹 접두 = 그룹 표시명(group 0 = None 이면 접두 없음) · 조건 빈 수동/VI 주문 줄은 본문이 출처를 말해 생략
+      const originInBody = row.condMetric === 0 && orderGroupOriginText(row.group) !== null;
+      const prefix = (row.kind === 3 || row.kind === 6) && !originInBody ? orderGroupLabel(row.group) : null;
       const expected = [prefix, body, strategyEventParts(row, "log").cum]
         .filter((p): p is string => p !== null && p !== "")
         .join(" · ");
@@ -389,5 +397,79 @@ describe("수동 · VI 주문 (quick-260930-e73)", () => {
     const buy = STRATEGY_DAY_BY_NAME.buy12451!;
     expect(buy.limitBidQty).toBe(0);
     expect(orderLogLineText(buy, FIXTURE_STOCK_NAME)).toBe(EXPECTED_BUY_LINE);
+  });
+
+  it("펼침 — 조건 빈 수동 주문 줄은 출처를 한 번만 말한다(접두 「수동 · 」 없음)", () => {
+    expect(timelineStrategyText(MANUAL_BUY)).toEqual({
+      action: "주문",
+      text: "수동 주문 · 12,350×300주 · 접수 +18ms · 누적 861,800",
+    });
+  });
+
+  it("VI 매수 주문(group 8) → 구분 VI · tone buy · 조건 자리 「VI 자동주문」 · 펼침도 접두 없음", () => {
+    const vi = { ...MANUAL_BUY, group: 8 };
+    expect(orderLogLineText(vi, FIXTURE_STOCK_NAME)).toBe(
+      "[09:45:02.861][12451][VI] KRX | ○○전자 | 주문 · VI 자동주문 · 12,350×300주 · 접수 +18ms | 누적 861,800",
+    );
+    const parts = strategyEventParts(vi, "log");
+    expect(parts.badge).toBe("VI");
+    expect(parts.tone).toBe("buy");
+    expect(timelineStrategyText(vi)).toEqual({
+      action: "주문",
+      text: "VI 자동주문 · 12,350×300주 · 접수 +18ms · 누적 861,800",
+    });
+  });
+
+  it("수동 매도 주문(group 7 · kind 6 · bid1 0) → tone sell · 「매수1」 조각 없음 · 조건 자리 「수동 주문」", () => {
+    const sell = { ...STRATEGY_DAY_BY_NAME.sell12454!, group: 7, ...EMPTY_CONDITION, bid1Price: 0, bid1Qty: 0 };
+    expect(orderLogLineText(sell, FIXTURE_STOCK_NAME)).toBe(
+      "[10:11:40.210][12454][수동] KRX | ○○전자 | 주문 · 수동 주문 · 12,350×600주 지정가 · 접수 +16ms | 누적 1,640,000",
+    );
+    const parts = strategyEventParts(sell, "log");
+    expect(parts.badge).toBe("수동");
+    expect(parts.tone).toBe("sell");
+    expect(parts.body).not.toContain("매수1");
+    expect(timelineStrategyText(sell)).toEqual({
+      action: "주문",
+      text: "수동 주문 · 12,350×600주 지정가 · 접수 +16ms · 누적 1,640,000",
+    });
+  });
+
+  it("조건이 실린 수동 주문 → 본문은 조건부터 · 출처 문구 없음 · 펼침 접두 「수동 · 」", () => {
+    const conditioned = { ...STRATEGY_DAY_BY_NAME.buy12451!, group: 7 };
+    const body = strategyEventParts(conditioned, "log").body;
+    expect(body.startsWith("조건 매도잔량≤50,000 / 실측 38,200 · ")).toBe(true);
+    expect(body).not.toContain("수동 주문");
+    expect(timelineStrategyText(conditioned).text.startsWith("수동 · 조건 매도잔량≤50,000")).toBe(true);
+  });
+
+  it("수동(7) 대기 · 체결 · 취소 → 구분 수동 · tone buy · 거부 → tone unknown · 본문 = message 원문", () => {
+    for (const name of ["queued12452", "fill12451", "cancel12453"] as const) {
+      const parts = strategyEventParts({ ...STRATEGY_DAY_BY_NAME[name]!, group: 7 }, "log");
+      expect(parts.badge, name).toBe("수동");
+      expect(parts.tone, name).toBe("buy");
+    }
+    const reject = STRATEGY_DAY_BY_NAME.reject!;
+    const parts = strategyEventParts({ ...reject, group: 7 }, "log");
+    expect(parts.badge).toBe("수동");
+    expect(parts.tone).toBe("unknown");
+    expect(parts.body).toBe(reject.message);
+  });
+
+  it("VI(8) 대기 · 체결 · 취소 · 거부 → 구분 VI · tone buy", () => {
+    for (const name of ["queued12452", "fill12451", "cancel12453", "reject"] as const) {
+      const parts = strategyEventParts({ ...STRATEGY_DAY_BY_NAME[name]!, group: 8 }, "log");
+      expect(parts.badge, name).toBe("VI");
+      expect(parts.tone, name).toBe("buy");
+    }
+  });
+
+  it("모르는 group 9 주문 → 구분 원문 「9」 · tone unknown · 출처 문구 없음 · 0 조각 생략 없음(D-10) · 펼침 접두 「9 · 」", () => {
+    const unknown = { ...MANUAL_BUY, group: 9 };
+    const parts = strategyEventParts(unknown, "log");
+    expect(parts.badge).toBe("9");
+    expect(parts.tone).toBe("unknown");
+    expect(parts.body).toBe("상한가 매수잔량 0 · 12,350×300주 · 접수 +18ms");
+    expect(timelineStrategyText(unknown).text).toBe("9 · 상한가 매수잔량 0 · 12,350×300주 · 접수 +18ms · 누적 861,800");
   });
 });

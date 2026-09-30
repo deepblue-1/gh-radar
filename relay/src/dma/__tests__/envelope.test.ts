@@ -2043,6 +2043,16 @@ describe("관찰자 두 스트림 — 80 전략 이벤트 · 79/5 전략 커서 
     expect(batch?.strategyEvents).toEqual([fakeStrategyEventRecord(input)]);
   });
 
+  it("OrderGroup 말미 추가 7 수동 · 8 VI 를 원문 그대로 옮긴다 (quick-260930-e73)", () => {
+    // 수동 매수 주문 — 조건 필드가 빈 값(cond_metric 0 · ev_kind 0 · reason_code "")으로 온다.
+    const manual = { seq: 21, kind: 3, group: 7, condMetric: 0, evKind: 0, reasonCode: "", orderNo: "12451" };
+    // VI 자동주문 첫 체결
+    const vi = { seq: 22, kind: 5, group: 8, orderNo: "12452" };
+    const batch = parseJournalBatch(envOf(buildJournalBatchFrame({ strategyEvents: [manual, vi] })));
+    expect(batch?.strategyEvents).toEqual([fakeStrategyEventRecord(manual), fakeStrategyEventRecord(vi)]);
+    expect(batch?.strategyEvents.map((e) => e.group)).toEqual([7, 8]);
+  });
+
   it("구 게이트웨이(전략 필드 부재) → strategyEvents [] · head 0 · caughtUp false", () => {
     const batch = parseJournalBatch(envOf(buildJournalBatchFrame({ records: [{ seq: 3 }], omitStrategy: true })));
     expect(batch?.records).toHaveLength(1);
@@ -2189,6 +2199,23 @@ describe("잔량진행률 83 QueueProgress 파서 (Phase 25-06)", () => {
     });
     expect(typeof frame?.items[0]?.remainingVolume).toBe("number");
     expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("항목 group 7 · 8 을 원문 그대로 읽는다 (quick-260930-e73 — 수동 · VI 대기 매수)", () => {
+    const frame = parseQueueProgress(
+      envOf(
+        buildQueueProgressFrame({
+          items: [
+            { orderNo: "31", group: 7 },
+            { orderNo: "32", group: 8 },
+          ],
+        }),
+      ),
+    );
+    expect(frame?.items.map((it) => [it.orderNo, it.group])).toEqual([
+      ["31", 7],
+      ["32", 8],
+    ]);
   });
 
   it("빈 항목 벡터는 items [] 다(null 아님) — 「그 종목 · 거래소 대기 주문 전부 사라짐」(G1 ⓕ)", () => {

@@ -234,11 +234,19 @@ function conditionValue(metric: number, v: number): string {
 }
 
 /**
+ * 조건 자리의 출처 문구 — 조건이 빈(cond_metric 0) 수동 · VI 주문이면 「수동 주문」/「VI 자동주문」, 아니면 null.
+ * 조건 조각과 펼침 접두 판정이 이 한 규칙을 같이 쓴다(본문이 출처를 말하면 접두를 붙이지 않는다).
+ */
+function originInCondition(ev: StrategyEventRow): string | null {
+  return ev.condMetric === 0 ? orderGroupOriginText(ev.group) : null;
+}
+
+/**
  * 조건 조각 `조건 {지표}{연산자}{설정} / 실측 {실측}`. cond_metric 0 이면 수동 · VI 는 출처 문구
  * (수동 주문 · VI 자동주문), 그 밖은 null(조각 생략).
  */
 function conditionText(ev: StrategyEventRow): string | null {
-  if (ev.condMetric === 0) return orderGroupOriginText(ev.group);
+  if (ev.condMetric === 0) return originInCondition(ev);
   const op = reasonOperator(ev.reasonCode);
   const metric = condMetricLabel(ev.condMetric, strategyEventSide(ev.group, ev.kind));
   // 연산자를 모르면 지표와 값 사이를 공백으로 둔다 — 방향을 지어내지 않는다(D-10).
@@ -289,10 +297,13 @@ export function orderLogLineText(ev: StrategyEventRow, stockName: string): strin
 /**
  * 오늘 주문 펼침 타임라인 한 줄 — 행에 이미 있는 거래소 · 종목 · 주문번호를 뺀 `[그룹 · ]본문 · 누적 N`.
  * 그룹 접두는 주문 줄(kind 3 · 6)에만 붙는다 — 대기 · 첫 체결 · 취소 · 거부는 같은 주문의 연속이다(UI-SPEC R9).
- * group 0(None)은 접두가 없다. 시세 이벤트를 그리면 행위 칸에 구분 표시명(상한가진입 N차 등)을 쓴다.
+ * group 0(None)은 접두가 없다. 조건 없는 수동/VI 주문 줄은 본문이 출처(수동 주문 · VI 자동주문)를 말하므로 접두를
+ * 생략한다 — 「수동 · 수동 주문」 중복 방지(행에는 출처 칩도 있다). 시세 이벤트를 그리면 행위 칸에 구분 표시명
+ * (상한가진입 N차 등)을 쓴다.
  */
 export function timelineStrategyText(ev: StrategyEventRow): { action: string; text: string } {
   const parts = strategyEventParts(ev, "timeline");
-  const prefix = ev.kind === 3 || ev.kind === 6 ? orderGroupLabel(ev.group) : null;
+  const isOrderLine = ev.kind === 3 || ev.kind === 6;
+  const prefix = isOrderLine && originInCondition(ev) === null ? orderGroupLabel(ev.group) : null;
   return { action: parts.action ?? parts.badge, text: joinDot([prefix, parts.body, parts.cum]) };
 }
