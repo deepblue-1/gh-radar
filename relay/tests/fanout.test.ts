@@ -335,12 +335,15 @@ describe("WsFanout", () => {
   /** 사용자 세션 게이트웨이로 나간 시세 요청(28/29/32) 수 — Phase 26 에서 0 이어야 한다. */
   const userQuoteReqCount = (): number => gatewayMsgTypes.filter((t) => QUOTE_REQ_TYPES.has(t)).length;
 
-  async function startHarness(overrides: Partial<WsFanoutDeps> = {}): Promise<Harness> {
+  async function startHarness(
+    overrides: Partial<WsFanoutDeps> = {},
+    hubOpts?: ConstructorParameters<typeof SubscriptionHub>[0],
+  ): Promise<Harness> {
     const server = http.createServer();
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
     const port = (server.address() as AddressInfo).port;
 
-    const hub = new SubscriptionHub();
+    const hub = new SubscriptionHub(hubOpts);
     const sessions = new SessionManager({ host: "127.0.0.1", port: gateway.port, broker: "KB" });
     const acquireSpy = vi.spyOn(sessions, "acquire");
     const releaseSpy = vi.spyOn(sessions, "release");
@@ -704,6 +707,111 @@ describe("WsFanout", () => {
 
   it("⑫ 계약 밖 경로로는 업그레이드하지 않는다", async () => {
     await expect(connectWs(h.port, "/not-ws")).rejects.toThrow();
+  });
+
+  // ============================================================
+  // Phase 26 Plan 09 — 구독 한도 (D-11 전역 · D-15 사용자당)
+  // ============================================================
+  describe("구독 한도 — sub.limit 프레임 · 그 소켓만 · 게이트웨이 0 (D-11 · D-15)", () => {
+    /**
+     * 한도에 닿은 새 키는 hub 가 업스트림 송신 **전에** 거부하고(26-09 Task 1), fanout 은 **그 소켓에만**
+     * `{t:"sub.limit", i, x, scope}` 1건을 보낸다 — `{t:"msg"}` 가 아니다(전략 카드 오류 소비와 섞이지 않게 ·
+     * RESEARCH Pattern 9-2). 거부된 키는 그 소켓 `conn.keys` · 키 구독자 색인에 들어가지 않으므로, 나중에 다른
+     * 사용자가 그 키를 열어 59 가 와도 거부된 소켓에는 0건이다. 한도는 주입값 `{ global: 3, user: 2 }` 로 작게 잡는다.
+     */
+    const K1 = SAMPLE_ISIN;
+    const K2 = OTHER_ISIN;
+    const K3 = "KR7035420009";
+    const K4 = "KR7051910008";
+
+    const subscribeCount = (): number => quoteMsgTypes.filter((t) => t === MSG.SubscribeQuoteReq).length;
+    const quotesFor = (inbox: RelayOutbound[], isin: string): RelayOutbound[] =>
+      inbox.filter((m) => m.t === "q" && m.i === isin);
+
+    beforeEach(async () => {
+      // 바깥 하네스를 한도 주입 hub 로 다시 세운다. 옛 quote 소켓이 닫힌 뒤에 새 연결을 기다려야 옛 소켓을 집지 않는다.
+      const oldQuoteSock = quoteSock;
+      await h.close();
+      await waitFor(() => oldQuoteSock.destroyed, "옛 quote 소켓 종료");
+      h = await startHarness({}, { limits: { global: 3, user: 2 } });
+      quoteSock = await quoteGateway.waitForQuoteConnection();
+      quoteMsgTypes.length = 0;
+      quoteSubscribes.length = 0;
+    });
+
+    it("SL1 사용자 한도 — A 의 3번째 새 키는 그 소켓만 scope:user 1건 · {t:msg} 0 · 29 누적 2, 뒤에 B 가 그 키를 열어도 A 소켓에 59 0건", async () => {
+      const a1 = await authed("token-a");
+      const a2 = await authed("token-a");
+      const b = await authed("token-b");
+
+      a1.ws.sendSub(K1, "KRX");
+      a1.ws.sendSub(K2, "KRX");
+      await waitFor(() => subscribeCount() === 2, "A 두 키 29");
+
+      a1.ws.sendSub(K3, "KRX");
+      await waitFor(() => framesOf(a1.inbox, "sub.limit").length === 1, "A 소켓 sub.limit");
+      await flushIo(20);
+
+      expect(framesOf(a1.inbox, "sub.limit")).toEqual([{ t: "sub.limit", i: K3, x: "KRX", scope: "user" }]);
+      expect(framesOf(a1.inbox, "msg")).toHaveLength(0);
+      expect(framesOf(a2.inbox, "sub.limit")).toHaveLength(0);
+      expect(framesOf(b.inbox, "sub.limit")).toHaveLength(0);
+      expect(subscribeCount()).toBe(2);
+      expect(h.hub.refCount(K3, "KRX")).toBe(0);
+      expect(h.hub.stats().subLimitRejects).toBe(1);
+
+      // A 의 다른 탭이 A 가 이미 가진 키를 여는 것은 한도와 무관하다.
+      a2.ws.sendSub(K1, "KRX");
+      await waitFor(() => h.hub.refCount(K1, "KRX") === 2, "A 두 번째 탭 K1");
+      expect(framesOf(a2.inbox, "sub.limit")).toHaveLength(0);
+
+      // B 는 같은 순간 새 키를 연다 — 전역 3 이 찬다.
+      b.ws.sendSub(K3, "KRX");
+      await waitFor(() => h.hub.refCount(K3, "KRX") === 1, "B K3 구독");
+      await waitFor(() => subscribeCount() === 3, "B K3 29");
+
+      quoteGateway.pushQuote(quoteSock, { isin: K3, snapshot: true, lastPrice: 180_000n });
+      await waitFor(() => quotesFor(b.inbox, K3).length === 1, "B K3 시세");
+      await flushIo(20);
+      expect(quotesFor(a1.inbox, K3)).toHaveLength(0);
+      expect(quotesFor(a2.inbox, K3)).toHaveLength(0);
+      expect(framesOf(b.inbox, "sub.limit")).toHaveLength(0);
+      expect(userQuoteReqCount()).toBe(0);
+    });
+
+    it("SL2 전역 한도 — 3 키가 찬 뒤 B 의 새 키는 scope:global, A 가 키 하나를 놓아 linger 가 생기면 29(false) 뒤 수용", async () => {
+      const a = await authed("token-a");
+      const b = await authed("token-b");
+
+      a.ws.sendSub(K1, "KRX");
+      a.ws.sendSub(K2, "KRX");
+      b.ws.sendSub(K3, "KRX");
+      await waitFor(() => subscribeCount() === 3, "세 키 29");
+
+      b.ws.sendSub(K4, "KRX");
+      await waitFor(() => framesOf(b.inbox, "sub.limit").length === 1, "B 소켓 sub.limit");
+      await flushIo(20);
+      expect(framesOf(b.inbox, "sub.limit")).toEqual([{ t: "sub.limit", i: K4, x: "KRX", scope: "global" }]);
+      expect(framesOf(a.inbox, "sub.limit")).toHaveLength(0);
+      expect(framesOf(b.inbox, "msg")).toHaveLength(0);
+      expect(subscribeCount()).toBe(3);
+      expect(h.hub.refCount(K4, "KRX")).toBe(0);
+
+      // A 가 K1 을 놓으면 linger — 업스트림 키는 여전히 3 이지만 linger 키가 자리를 내준다.
+      a.ws.sendUnsub(K1, "KRX");
+      await waitFor(() => h.hub.isLingering(K1, "KRX"), "K1 linger");
+
+      b.ws.sendSub(K4, "KRX");
+      await waitFor(() => h.hub.refCount(K4, "KRX") === 1, "B K4 수용");
+      await waitFor(() => quoteSubscribes.length === 5, "29(false) K1 · 29(true) K4");
+      expect(quoteSubscribes.slice(3).map((q) => [q.isin, q.subscribe])).toEqual([
+        [K1, false],
+        [K4, true],
+      ]);
+      expect(framesOf(b.inbox, "sub.limit")).toHaveLength(1);
+      expect(h.hub.stats()).toMatchObject({ lingerCount: 0, subLimitRejects: 1 });
+      expect(userQuoteReqCount()).toBe(0);
+    });
   });
 
   // ============================================================
