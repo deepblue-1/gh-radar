@@ -38,6 +38,7 @@ import {
   type HubSession,
   samePriceSection,
 } from "../src/hub/subscription-hub.js";
+import { PACER_TIMEOUT_MS, PACER_WINDOW } from "../src/hub/subscribe-pacer.js";
 import { MSG } from "../src/dma/msg-type.js";
 import { resetDroppedEnvelopeCount, tryParseEnvelope } from "../src/dma/envelope.js";
 import { Envelope } from "../src/generated/stock-dma/envelope.js";
@@ -1663,6 +1664,18 @@ describe("구독 한도 (D-11 · D-15)", () => {
     }
   }
 
+  /**
+   * 26-10 페이싱 — 구독 요청은 in-flight 창(32 키)을 거친다. 응답을 주입하지 않으므로 타임아웃(3초)마다 창 하나씩 나간다.
+   * 송신이 더 늘지 않을 때까지 가짜 시계를 돌려 대기열을 비운다 — 한도 판정의 결론은 페이싱과 무관해야 한다.
+   */
+  function drainPacer(): void {
+    for (;;) {
+      const n = feed.sent.length;
+      vi.advanceTimersByTime(PACER_TIMEOUT_MS);
+      if (feed.sent.length === n) return;
+    }
+  }
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-30T00:30:00.000Z"));
@@ -1686,9 +1699,11 @@ describe("구독 한도 (D-11 · D-15)", () => {
 
   it("HL2 전역 2000 에서 새 사용자의 새 키는 limit-global — 28/29/32 0건 · subLimitRejects 1 · warn 1 · 기존 키 불변", () => {
     fillGlobal();
+    drainPacer();
     expect(hub.stats()).toMatchObject({ subscriptionCount: QUOTE_SUB_LIMIT, lingerCount: 0, subLimitRejects: 0 });
     const before = feed.sent.length;
     expect(before).toBe(QUOTE_SUB_LIMIT * 3);
+    expect(feed.subscribeReqs()).toHaveLength(QUOTE_SUB_LIMIT); // 29 누적 2000 — 페이싱 뒤에도 키마다 1건
 
     expect(hub.subscribe("u10", isinOf(9_999), "KRX")).toBe("limit-global");
 
@@ -1709,6 +1724,7 @@ describe("구독 한도 (D-11 · D-15)", () => {
 
   it("HL3 전역 2000 이 linger 키를 포함하면 가장 오래 linger 한 키를 29(false) 로 먼저 풀고 새 키를 받는다", () => {
     fillGlobal();
+    drainPacer();
     hub.unsubscribe("u0", isinOf(0), "KRX");
     vi.advanceTimersByTime(1_000);
     hub.unsubscribe("u0", isinOf(1), "KRX");
@@ -1816,5 +1832,169 @@ describe("구독 한도 (D-11 · D-15)", () => {
     hub.closeAll();
     hub.attachFeed(feed);
     expect(hub.subscribe("A", isinOf(2), "KRX")).toBe("ok");
+  });
+});
+
+describe("합집합 재구독 페이싱 (Pitfall 3)", () => {
+  /**
+   * 26-10 — quote 연결 하나가 사용자 전원의 키를 지므로, 재접속 뒤 합집합(최대 2000 키)을 한꺼번에 쏘면 58 · 69 Notice 가
+   * 서버 연결 송신 큐(1024 프레임 / 4MB · Gateway.h:72-73)를 넘겨 끊김 → 재접속 → 같은 burst 루프가 된다. hub 의 구독 요청은
+   * 언제나 in-flight 창(`PACER_WINDOW` 키)을 거친다 — 그 키의 응답(FULL=69 · PRICE=58)이나 `PACER_TIMEOUT_MS` 가 지나야
+   * 다음 키가 나간다. 응답이 없는 29(해제 · 강등)는 창 밖이다. 재구독 시작 · 완료는 로그 1줄씩(키 수 · 소요 ms · 타임아웃 수).
+   */
+  const Q = MSG.GetQuoteReq;
+  const S = MSG.SubscribeQuoteReq;
+  const T = MSG.GetTradeTapeReq;
+
+  let hub: SubscriptionHub;
+  let feed: FakeFeed;
+  let info: { mock: { calls: unknown[][] } };
+
+  /** 합성 ISIN — `KR7` + 0 채움 숫자 9자리(12자 · 파서 ISIN 검증 통과). */
+  const isinOf = (n: number): string => `KR7${String(n).padStart(9, "0")}`;
+  const quoteReqs = (): SentReq[] => feed.sent.filter((s) => s.msgType === Q);
+  /** 메시지 문자열에 `needle` 을 담은 info 로그의 구조화 필드. */
+  const logsOf = (needle: string): unknown[] =>
+    info.mock.calls
+      .filter((args) => args.some((a) => typeof a === "string" && a.includes(needle)))
+      .map((args) => args[0]);
+  /** 게이트웨이 응답 58(GetQuoteResp) · 69(TradeTapeResp) 주입. */
+  const push58 = (n: number): void => feed.pushFrame(buildQuoteStateFrame({ isin: isinOf(n) }));
+  const push69 = (n: number): void => feed.pushFrame(buildTradeTapeFrame({ isin: isinOf(n) }));
+
+  function makeHub(opts?: ConstructorParameters<typeof SubscriptionHub>[0]): void {
+    hub = new SubscriptionHub(opts);
+    feed = new FakeFeed();
+    hub.attachFeed(feed);
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-30T00:30:00.000Z"));
+    resetDroppedEnvelopeCount();
+    info = vi.spyOn(logger, "info").mockImplementation((() => undefined) as never);
+    vi.spyOn(logger, "warn").mockImplementation((() => undefined) as never);
+    makeHub();
+  });
+
+  afterEach(() => {
+    hub.closeAll();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("PH1 키 100 개 보유 상태에서 quote ready → 28 은 32 개만 · 69 응답 · 타임아웃에 따라 늘고 · 시작/완료 로그 1줄씩", () => {
+    feed.isReady = false;
+    for (let n = 0; n < 100; n += 1) hub.subscribe("u1", isinOf(n), "KRX");
+    expect(feed.sent).toHaveLength(0);
+
+    feed.emitReady();
+    expect(quoteReqs()).toHaveLength(PACER_WINDOW);
+    expect(feed.sent).toHaveLength(PACER_WINDOW * 3);
+    expect(logsOf("합집합 재구독 시작")).toEqual([{ keys: 100, lingerReleased: 0 }]);
+
+    // FULL 키는 58 로는 슬롯이 안 풀린다 — 69 가 와야 33번째 키가 나간다.
+    push58(0);
+    expect(quoteReqs()).toHaveLength(PACER_WINDOW);
+    push69(0);
+    expect(quoteReqs()).toHaveLength(PACER_WINDOW + 1);
+    expect(feed.sent.slice(-3).map((s) => [s.msgType, s.isin, s.level])).toEqual([
+      [Q, isinOf(PACER_WINDOW), null],
+      [S, isinOf(PACER_WINDOW), 0],
+      [T, isinOf(PACER_WINDOW), null],
+    ]);
+
+    // 응답이 없으면 3초마다 창 하나 — 33 → 65 → 97 → 100.
+    vi.advanceTimersByTime(PACER_TIMEOUT_MS);
+    expect(quoteReqs()).toHaveLength(PACER_WINDOW * 2 + 1);
+    vi.advanceTimersByTime(PACER_TIMEOUT_MS);
+    expect(quoteReqs()).toHaveLength(PACER_WINDOW * 3 + 1);
+    vi.advanceTimersByTime(PACER_TIMEOUT_MS);
+    expect(quoteReqs()).toHaveLength(100);
+    expect(logsOf("합집합 재구독 완료")).toEqual([]);
+
+    vi.advanceTimersByTime(PACER_TIMEOUT_MS);
+    expect(logsOf("합집합 재구독 완료")).toEqual([{ keys: 100, elapsedMs: PACER_TIMEOUT_MS * 4, timeouts: 99 }]);
+    // 키마다 29 정확히 1건 — 중복 · 누락 0.
+    expect(feed.subscribeReqs().map((s) => s.isin)).toEqual(Array.from({ length: 100 }, (_, n) => isinOf(n)));
+  });
+
+  it("PH2 평시 0→1 도 같은 창을 거친다 — PRICE 키는 58 에 · FULL 키는 69 에 다음 키가 나가고, 재구독 로그는 없다", () => {
+    for (let n = 0; n < PACER_WINDOW - 1; n += 1) hub.subscribe("u1", isinOf(n), "KRX");
+    hub.subscribe("u1", isinOf(PACER_WINDOW - 1), "KRX", "price");
+    hub.subscribe("u1", isinOf(PACER_WINDOW), "KRX");
+    hub.subscribe("u1", isinOf(PACER_WINDOW + 1), "KRX");
+    expect(quoteReqs()).toHaveLength(PACER_WINDOW);
+
+    push58(PACER_WINDOW - 1); // PRICE 키 — 58 에 풀린다
+    expect(quoteReqs().map((s) => s.isin).at(-1)).toBe(isinOf(PACER_WINDOW));
+    expect(quoteReqs()).toHaveLength(PACER_WINDOW + 1);
+
+    push58(0); // FULL 키 — 58 로는 안 풀린다
+    expect(quoteReqs()).toHaveLength(PACER_WINDOW + 1);
+    push69(0);
+    expect(quoteReqs()).toHaveLength(PACER_WINDOW + 2);
+
+    expect(logsOf("합집합 재구독")).toEqual([]);
+  });
+
+  it("PH3 대기 중 키의 해제는 프레임 0 · 대기 중 강등은 level 만 · in-flight 키의 해제는 29(false) 즉시 + 슬롯 반환", () => {
+    hub.closeAll();
+    makeHub({ lingerMs: 0 });
+    for (let n = 0; n < PACER_WINDOW; n += 1) hub.subscribe("u1", isinOf(n), "KRX");
+    hub.subscribe("u1", isinOf(40), "KRX");
+    hub.subscribe("u2", isinOf(40), "KRX", "price");
+    hub.subscribe("u1", isinOf(41), "KRX");
+    const before = feed.sent.length;
+    expect(before).toBe(PACER_WINDOW * 3);
+
+    hub.unsubscribe("u1", isinOf(41), "KRX"); // 1→0 (linger 0) — 대기 중이라 29(false) 도 없다
+    hub.unsubscribe("u1", isinOf(40), "KRX"); // FULL→PRICE 강등 — 대기 중이라 29(1) 도 없다
+    expect(feed.sent).toHaveLength(before);
+
+    hub.unsubscribe("u1", isinOf(0), "KRX"); // in-flight 키 해제 — 29(false) 즉시, 풀린 슬롯으로 40 이 PRICE 로 나간다
+    expect(feed.sent.slice(before).map((s) => [s.msgType, s.isin, s.subscribe, s.level])).toEqual([
+      [S, isinOf(0), false, 0],
+      [Q, isinOf(40), null, null],
+      [S, isinOf(40), true, 1],
+    ]);
+
+    vi.advanceTimersByTime(PACER_TIMEOUT_MS * 3);
+    expect(feed.sent.filter((s) => s.isin === isinOf(41))).toEqual([]);
+    expect(feed.sent.filter((s) => s.isin === isinOf(40))).toHaveLength(2);
+  });
+
+  it("PH4 재구독 도중 다시 끊겼다 붙으면 옛 창 · 대기열을 버리고 새 연결에 처음부터 32 키씩 — 중단 로그 1 · 완료 로그 1", () => {
+    feed.isReady = false;
+    for (let n = 0; n < 50; n += 1) hub.subscribe("u1", isinOf(n), "KRX");
+    feed.emitReady();
+    expect(quoteReqs()).toHaveLength(PACER_WINDOW);
+
+    // 끊김 — 준비되지 않은 동안 타임아웃이 슬롯을 풀어도 아무것도 나가지 않는다.
+    feed.isReady = false;
+    const mark = feed.sent.length;
+    vi.advanceTimersByTime(PACER_TIMEOUT_MS);
+    expect(feed.sent).toHaveLength(mark);
+
+    feed.emitReady();
+    const fresh = feed.sent.slice(mark).filter((s) => s.msgType === Q);
+    expect(fresh).toHaveLength(PACER_WINDOW);
+    expect(fresh[0]?.isin).toBe(isinOf(0)); // 새 연결엔 구독이 없다 — 합집합 처음부터
+    expect(logsOf("합집합 재구독 시작")).toHaveLength(2);
+    expect(logsOf("합집합 재구독 중단")).toEqual([
+      { keys: 50, elapsedMs: PACER_TIMEOUT_MS, timeouts: PACER_WINDOW, queued: 50 - PACER_WINDOW, inFlight: 0 },
+    ]);
+
+    vi.advanceTimersByTime(PACER_TIMEOUT_MS * 2);
+    expect(feed.sent.slice(mark).filter((s) => s.msgType === Q)).toHaveLength(50);
+    expect(logsOf("합집합 재구독 완료")).toEqual([{ keys: 50, elapsedMs: PACER_TIMEOUT_MS * 2, timeouts: 50 }]);
+  });
+
+  it("PH5 closeAll 이 페이서를 비운다 — 대기 · in-flight 타이머가 뒤늦게 아무것도 보내지 않는다", () => {
+    for (let n = 0; n < PACER_WINDOW + 8; n += 1) hub.subscribe("u1", isinOf(n), "KRX");
+    const mark = feed.sent.length;
+    hub.closeAll();
+    vi.advanceTimersByTime(PACER_TIMEOUT_MS * 5);
+    expect(feed.sent).toHaveLength(mark);
   });
 });

@@ -17,6 +17,8 @@
  *   G7  `readSubscribeRequest` — 29 되읽기 · 29 가 아니면 null.
  *   H1~H3 (26-06) 실 SubscriptionHub 를 붙인 경로 — 로그인 직후 78 · quote 76/83 무시 · hardClose → role 1 재로그인 → 전역 합집합 재구독
  *       (full 28·29(0)·32 · price 28·29(1)) · quote 연결 송신 msg_type ⊆ {4, 5, 28, 29, 32}(T-26-09).
+ *   H4 (26-10) 키 100 개 보유 · hardClose → 재로그인 → 게이트웨이가 받은 28 이 창 32 에서 멈추고, 첫 키에 58 + 69 를 밀면
+ *       33 이 된다 — 합집합 재구독이 서버 Notice 큐(1024 프레임 / 4MB)를 넘기지 않는다(RESEARCH Pitfall 3).
  *   공통 — 비밀은 어떤 로그 인자에도 없다(T-19-03 · T-26-05) · feed 가 quote 연결로 보낸 것은 로그인 · 핑뿐이다.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -33,7 +35,14 @@ import {
   type FakeGateway,
   type SubscribeRequest,
 } from "./helpers/fake-gateway.js";
-import { SAMPLE_ACCOUNT_NO, SAMPLE_ISIN, buildQueueProgressFrame } from "./helpers/frames.js";
+import {
+  SAMPLE_ACCOUNT_NO,
+  SAMPLE_ISIN,
+  buildQueueProgressFrame,
+  buildQuoteStateFrame,
+  buildTradeTapeFrame,
+} from "./helpers/frames.js";
+import { PACER_WINDOW } from "../src/hub/subscribe-pacer.js";
 
 const SECRET = "test-quote-secret-only";
 
@@ -383,6 +392,48 @@ describe("실 hub 결선 — 재접속 합집합 재구독 · 송신 집합 (Pha
     await waitFor(() => feedFrames.filter((t) => t === MSG.RateCrossSnapshot).length === 2, "재로그인 뒤 78");
     expect(hub.unhandledFrameCount()).toBe(0);
     expect(fanout).toEqual([]);
+  }, 10_000);
+
+  it("H4 키 100 개 보유 · hardClose → role 1 재로그인 → 게이트웨이가 받은 28 은 32 개에서 멈추고, 첫 키에 58 + 69 를 밀면 33 개가 된다 (Pitfall 3)", async () => {
+    gateway.respondQuoteLogin({ success: true });
+    const isinOf = (n: number): string => `KR7${String(n).padStart(9, "0")}`;
+    // feed Ready 이전에 100 키를 잡는다 — 참조계수만 기록되고 ready 가 합집합으로 되건다.
+    for (let n = 0; n < 100; n += 1) hub.subscribe("user-1", isinOf(n), "KRX");
+    const f = startFeed();
+    const q28On = (sock: unknown): GatewayReq[] =>
+      reqs.filter((r) => r.sock === sock && r.msgType === MSG.GetQuoteReq);
+
+    const first = await gateway.waitForQuoteConnection(3000);
+    await waitFor(() => f.state === "ready", "첫 로그인 → ready");
+    await waitFor(() => q28On(first).length === PACER_WINDOW, "첫 연결 창 32");
+
+    gateway.hardClose(first);
+    await waitFor(() => f.state !== "ready", "끊김 → ready 이탈");
+    await waitFor(() => gateway.quoteLoginRequests().length === 2, "재접속 로그인", 4000);
+    const second = await gateway.waitForQuoteConnection(3000);
+    expect(second).not.toBe(first);
+    await waitFor(() => f.state === "ready", "재로그인 → ready");
+    await waitFor(() => q28On(second).length === PACER_WINDOW, "재접속 창 32");
+    await sleep(150); // 창을 넘어 더 오지 않는지 볼 여유(타임아웃 3초보다 충분히 짧다)
+
+    // 창 상한 — 게이트웨이가 받은 미응답 시세 요청 키 수 ≤ 32 (한꺼번에 100 키를 쏘지 않는다).
+    expect(q28On(second)).toHaveLength(PACER_WINDOW);
+    expect(quoteReqsOn(second)).toHaveLength(PACER_WINDOW * 3);
+    const firstKey = q28On(second)[0]?.isin ?? "";
+    expect(firstKey).toBe(isinOf(0));
+
+    // 첫 키의 58 만으로는 창이 움직이지 않는다(FULL 은 69 가 가장 큰 Notice) — 69 까지 오면 33번째 키가 나간다.
+    gateway.sendFrame(second, buildQuoteStateFrame({ isin: firstKey }));
+    await sleep(100);
+    expect(q28On(second)).toHaveLength(PACER_WINDOW);
+    gateway.sendFrame(second, buildTradeTapeFrame({ isin: firstKey }));
+    await waitFor(() => q28On(second).length === PACER_WINDOW + 1, "첫 키 58 + 69 → 33번째 키");
+    await sleep(100);
+
+    expect(q28On(second)).toHaveLength(PACER_WINDOW + 1);
+    expect(q28On(second).at(-1)?.isin).toBe(isinOf(PACER_WINDOW));
+    expect(new Set(q28On(second).map((r) => r.isin)).size).toBe(PACER_WINDOW + 1); // 중복 0
+    expect(f.reconnects).toBe(1);
   }, 10_000);
 
   it("H3 quote 소켓으로 온 76 · 83(남의 계좌 포함)은 hub 에서 무시된다 — fanout 0 · market 0 · unhandledFrameCount 0 (T-26-02)", async () => {
