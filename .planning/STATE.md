@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 26
 current_phase_name: 시세 전용 공유 연결 — relay 종목 단위 팬아웃
 status: executing
-stopped_at: Completed 26-04-PLAN.md
-last_updated: "2026-09-30T13:37:08.329Z"
+stopped_at: Completed 26-05-PLAN.md
+last_updated: "2026-09-30T13:54:26.451Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 26 execution started
-state_head: 8d87f91fd119858f3e793e7fa292d57a53bd9bfe
+state_head: b7279938e44ca97ffa5f3c39f5c53322fa0db444
 progress:
   total_phases: 35
   completed_phases: 4
   total_plans: 352
-  completed_plans: 325
+  completed_plans: 326
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 26 (시세 전용 공유 연결 — relay 종목 단위 팬아웃) — EXECUTING
-Plan: 5 of 15
+Plan: 6 of 15
 Plans completed: 220 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
@@ -177,6 +177,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 26 P02 | 8min | 2 tasks | 4 files |
 | Phase 26 P03 | 11min | 1 tasks | 4 files |
 | Phase 26 P04 | 5min | 2 tasks | 5 files |
+| Phase 26 P05 | 14min | 1 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -458,6 +459,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 26]: 26-03: 전역 시세 캐시는 1→0 에서 정리 · 참조계수 없는 키의 늦은 58/59·69/71 은 캐시 안 하고 버림 (재접속 창은 linger 26-08 담당)
 - [Phase 26]: 26-04: quote 비밀 폴백(D-17)은 production 필수 검사 뒤 계산 — production 은 여전히 DMA_OBSERVER_SECRET 만 요구, quote 키로 우회 불가
 - [Phase 26]: 26-04: quote 연결은 주 게이트웨이에만 · 부팅 결선 뒤 관찰자 start 옆에서 start, 종료 4단계 관찰자 stop 앞에서 stop
+- [Phase 26]: [26-05] e2e quote 연결 기본 켬 · 저널 관찰자는 observer:true 만(D-17) — 주입 소켓은 역할로 고른다: 사용자 세션 프레임 userSocket() · 시세 quoteSocket() · 게이트웨이 첫 소켓 가정 금지
 
 ### Pending Todos
 
@@ -473,6 +475,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 닫힌 항목(근거 포함): [STATE-ARCHIVE.md](./STATE-ARCHIVE.md#닫힌-todo--blocker)
 
 - **Phase 22 Play 경로 → Phase 23 (2026-09-27).** Play Console 개발자 인증 미완료로 Android 는 Firebase App Distribution APK 로 재범위(22-05~22-10 재계획 · 체커 통과). Play 스토어 배포는 Phase 23 — 착수 조건: Play 개발자 인증 완료. 옛 22-05~22-07 은 phases/23-gh-trade-play/from-phase-22/.
+- [26-05] trading-workbench e2e 3건 실패(제품 코드·Phase 26 무관): 카드 헤더 종목명 폰 밴드 말줄임 2건(UI 결정 필요) · 터치 종목추가 16px 회귀 1건 — deferred-items.md
 
 ### Quick Tasks Completed
 
@@ -537,8 +540,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-09-30T13:37:07.474Z
-Stopped at: Completed 26-04-PLAN.md
+Last session: 2026-09-30T13:54:25.610Z
+Stopped at: Completed 26-05-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
