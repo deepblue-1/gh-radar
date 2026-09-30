@@ -47,6 +47,9 @@ import {
   buildJournalBatchFrame,
   buildObserverLoginRespFrame,
   buildQueueProgressFrame,
+  buildQueuedWindowStateFrame,
+  buildRateCrossAlertFrame,
+  buildRateCrossSnapshotFrame,
   SAMPLE_ACCOUNT_NO,
   type FakeTapeEntryInput,
 } from "./helpers/frames.js";
@@ -946,5 +949,234 @@ describe("SubscriptionHub — 잔량진행률 83 QueueProgress (Phase 25-06)", (
     const entries = hub.getQueueProgressEntries("user-1");
     expect(entries).toHaveLength(1);
     expect(entries[0]?.items.map((it) => it.orderNo)).toEqual(["20001"]);
+  });
+});
+
+/**
+ * Phase 26 (26-06) — quote 연결과 사용자 세션 사이의 **프레임 경계**. 26-03 트레이서가 코드로 넣고 전용 단언을 남겨 둔 갈래를
+ * 여기서 잠근다(PC-12 · T-26-02 · RESEARCH Pattern 2 수신 라우팅 표 · Open Q2 RESOLVED 무시안 · Pattern 10 ①).
+ *
+ * `unhandledFrameCount() === 0` 단언이 공허하지 않도록 ④ 가 같은 계수기가 살아 있음(명시 case 없는 번호 → 1)도 함께 본다.
+ */
+describe("SubscriptionHub — quote 연결 프레임 경계 (Phase 26)", () => {
+  /** 남의 계좌 — 83 은 시세만 구독한 연결에도 이 항목을 싣고 온다(gh-trade D-19 · MarketPublisher ①). */
+  const OTHER_ACCOUNT = "9999999901";
+
+  let hub: SubscriptionHub;
+  let feed: FakeFeed;
+  let session: FakeSession;
+  let fanout: HubFanoutEvent[];
+  let market: HubMarketEvent[];
+  /** logger.warn 스파이 — 호출 인자만 읽는다. */
+  let warn: { mock: { calls: unknown[][] } };
+
+  /** 특정 문구가 든 warn 호출의 첫 인자(구조화 필드)만 모은다. */
+  const warnsWith = (needle: string): unknown[] =>
+    warn.mock.calls
+      .filter((args) => args.some((a) => typeof a === "string" && a.includes(needle)))
+      .map((args) => args[0]);
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    resetDroppedEnvelopeCount();
+    warn = vi.spyOn(logger, "warn").mockImplementation((() => undefined) as never);
+    hub = new SubscriptionHub();
+    fanout = [];
+    market = [];
+    hub.on("fanout", (e) => fanout.push(e));
+    hub.on("market", (e) => market.push(e));
+    feed = new FakeFeed();
+    hub.attachFeed(feed);
+    session = new FakeSession("user-1");
+    session.allowedAccounts = [{ accountNo: SAMPLE_ACCOUNT_NO, name: "위탁종합" }];
+    hub.attach(session);
+  });
+
+  afterEach(() => {
+    hub.closeAll();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("① 사용자 세션(Ready)으로 온 58 · 59 · 69 · 71 은 명시 case warn 뒤 무시한다 — market 0 · fanout 0 · 캐시 0 · unhandledFrameCount 0 (PC-12 · D-08)", () => {
+    // 키를 잡아 둔 상태에서도 사용자 세션 시세가 전역 캐시 · "market" 으로 새지 않아야 한다(D-03 폴백 없음).
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
+    const feedSent = feed.sent.length;
+    market.length = 0;
+    fanout.length = 0;
+
+    session.pushFrame(buildQuoteStateFrame({ snapshot: true, lastPrice: 71_500n }));
+    session.pushFrame(buildQuoteStateFrame({ snapshot: false, lastPrice: 71_600n }));
+    session.pushFrame(buildTradeTapeFrame({ snapshot: true, entries: tapeEntries(["093015000000"]) }));
+    session.pushFrame(buildTradeTapeFrame({ snapshot: false, entries: tapeEntries(["093016000000"]) }));
+    vi.advanceTimersByTime(TAPE_BATCH_MS * 2);
+
+    expect(market).toEqual([]);
+    expect(fanout).toEqual([]);
+    expect(hub.getSnapshot(SAMPLE_ISIN, "KRX")).toBeUndefined();
+    expect(hub.getTape(SAMPLE_ISIN, "KRX") ?? []).toEqual([]);
+    expect(hub.unhandledFrameCount()).toBe(0);
+    expect(warnsWith("사용자 세션에 시세 프레임")).toEqual([
+      { userId: "user-1", msgType: MSG.GetQuoteResp },
+      { userId: "user-1", msgType: MSG.QuoteUpdate },
+      { userId: "user-1", msgType: MSG.TradeTapeResp },
+      { userId: "user-1", msgType: MSG.TradeTapePush },
+    ]);
+    // 무시는 되돌려 보내기도 아니다 — 업스트림 추가 송신 0, 사용자 세션 시세 요청 0.
+    expect(feed.sent).toHaveLength(feedSent);
+    expect(session.quoteReqs()).toHaveLength(0);
+  });
+
+  it("② quote 연결로 온 78(로그인 직후 빈 스냅샷) · 76 은 무시한다 — 사용자 돌파 캐시 불변 · fanout 0 · market 0 · unhandledFrameCount 0 (Open Q2 무시안)", () => {
+    session.pushFrame(buildRateCrossAlertFrame({ isin: SAMPLE_ISIN, exchangeTime: "093015000000" }));
+    const before = hub.getRateCrossItems("user-1");
+    expect(before.map((it) => it.isin)).toEqual([SAMPLE_ISIN]);
+    const fanoutBase = fanout.length;
+
+    // 빈 78 을 사용자 경로로 처리했다면 「전량 교체」 로 사용자 캐시가 비었을 것이다.
+    feed.pushFrame(buildRateCrossSnapshotFrame([]));
+    // 다른 종목 76 을 사용자 경로로 처리했다면 캐시에 한 줄 늘고 rate.cross 가 나갔을 것이다.
+    feed.pushFrame(buildRateCrossAlertFrame({ isin: OTHER_ISIN, exchangeTime: "093020000000" }));
+
+    expect(hub.getRateCrossItems("user-1")).toEqual(before);
+    expect(fanout).toHaveLength(fanoutBase);
+    expect(market).toEqual([]);
+    expect(hub.unhandledFrameCount()).toBe(0);
+    expect(feed.sent).toEqual([]);
+  });
+
+  it("③ quote 연결로 온 83(남의 계좌 포함)은 무시한다 — 사용자 83 캐시 불변 · fanout 0 · market 0 · unhandledFrameCount 0 (T-26-02 · Pattern 10 ①)", () => {
+    // 사용자 세션 ② 경로 — 계좌 필터 뒤 허용 계좌 1건만 캐시된다(25-06).
+    session.pushFrame(
+      buildQueueProgressFrame({
+        items: [
+          { accountNo: SAMPLE_ACCOUNT_NO, orderNo: "12453" },
+          { accountNo: OTHER_ACCOUNT, orderNo: "99999" },
+        ],
+      }),
+    );
+    const before = hub.getQueueProgressEntries("user-1");
+    expect(before).toHaveLength(1);
+    expect(before[0]?.items.map((it) => it.orderNo)).toEqual(["12453"]);
+    const fanoutBase = fanout.length;
+
+    // quote ① 경로 — 같은 키(허용 계좌 새 주문 + 남의 계좌) · 다른 키 · 빈 스냅샷. 어느 것도 사용자 캐시에 닿지 않는다.
+    feed.pushFrame(
+      buildQueueProgressFrame({
+        items: [
+          { accountNo: SAMPLE_ACCOUNT_NO, orderNo: "77777" },
+          { accountNo: OTHER_ACCOUNT, orderNo: "88888" },
+        ],
+      }),
+    );
+    feed.pushFrame(buildQueueProgressFrame({ isin: OTHER_ISIN, items: [{ accountNo: OTHER_ACCOUNT, orderNo: "66666" }] }));
+    feed.pushFrame(buildQueueProgressFrame({ items: [] }));
+
+    expect(hub.getQueueProgressEntries("user-1")).toEqual(before);
+    expect(fanout).toHaveLength(fanoutBase);
+    const leaked = JSON.stringify(fanout.map((e) => e.msg));
+    expect(leaked).not.toContain(OTHER_ACCOUNT);
+    expect(leaked).not.toContain("77777");
+    expect(market).toEqual([]);
+    expect(hub.unhandledFrameCount()).toBe(0);
+  });
+
+  it("④ quote 연결로 온 54 · 77 · 80 은 warn 각 1건 뒤 무시 — unhandledFrameCount 0 · fanout 0, 명시 case 없는 번호만 계수된다", () => {
+    feed.pushFrame(buildServerMessageFrame({ level: "WARN", message: "세션 정리", kind: "Purge" }));
+    feed.pushFrame(buildQueuedWindowStateFrame({ open: true }));
+    feed.pushFrame(buildJournalBatchFrame({ records: [{ seq: 1 }] }));
+
+    expect(warnsWith("quote 연결에 오지 않는 프레임")).toEqual([
+      { msgType: MSG.ServerMessage },
+      { msgType: MSG.QueuedWindowState },
+      { msgType: MSG.JournalBatch },
+    ]);
+    expect(hub.unhandledFrameCount()).toBe(0);
+    expect(fanout).toEqual([]);
+    expect(market).toEqual([]);
+    expect(hub.getQueuedWindow("user-1")).toBeUndefined();
+
+    // 계수기가 살아 있다 — 명시 case 가 없는 사용자 데이터 번호(51)는 default 로 떨어져 1 이 되고, 팬아웃은 여전히 0.
+    feed.pushFrame(buildOrderRespFrame());
+    expect(hub.unhandledFrameCount()).toBe(1);
+    expect(fanout).toEqual([]);
+  });
+
+  it("⑤ feed 미결선 상태의 구독은 참조계수만 기록하고, attachFeed + feed ready 에서 full 28 · 29(0) · 32 · price 28 · 29(1) 로 복원된다", () => {
+    const lone = new SubscriptionHub();
+    const loneSession = new FakeSession("user-1");
+    lone.attach(loneSession);
+
+    lone.subscribe("user-1", SAMPLE_ISIN, "KRX");
+    lone.subscribe("user-1", OTHER_ISIN, "KRX", "price");
+    expect(lone.refCount(SAMPLE_ISIN, "KRX")).toBe(1);
+    expect(lone.refCount(OTHER_ISIN, "KRX")).toBe(1);
+    expect(warnsWith("quote 연결 없이 구독")).toHaveLength(2);
+    // 사용자 세션이 폴백 송신자가 되지 않는다(D-03).
+    expect(loneSession.sent).toEqual([]);
+
+    const late = new FakeFeed();
+    late.isReady = false;
+    lone.attachFeed(late);
+    expect(late.sent).toEqual([]);
+
+    late.emitReady();
+    const full = late.sent.filter((s) => s.isin === SAMPLE_ISIN);
+    const price = late.sent.filter((s) => s.isin === OTHER_ISIN);
+    expect(full.map((s) => s.msgType)).toEqual([MSG.GetQuoteReq, MSG.SubscribeQuoteReq, MSG.GetTradeTapeReq]);
+    expect(full[1]).toMatchObject({ subscribe: true, level: 0 });
+    expect(price.map((s) => s.msgType)).toEqual([MSG.GetQuoteReq, MSG.SubscribeQuoteReq]);
+    expect(price[1]).toMatchObject({ subscribe: true, level: 1 });
+    expect(loneSession.quoteReqs()).toHaveLength(0);
+    lone.closeAll();
+  });
+
+  it("⑥ 해제(1→0) 뒤 늦게 온 59 · 71 은 캐시에 되살아나지 않는다 — getSnapshot 없음 · market 0", () => {
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
+    feed.pushFrame(buildQuoteStateFrame({ snapshot: true, lastPrice: 71_500n }));
+    expect(hub.getSnapshot(SAMPLE_ISIN, "KRX")?.p).toBe(71_500);
+
+    hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX");
+    expect(feed.subscribeReqs().at(-1)).toMatchObject({ isin: SAMPLE_ISIN, subscribe: false });
+    expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(0);
+    expect(hub.getSnapshot(SAMPLE_ISIN, "KRX")).toBeUndefined();
+    market.length = 0;
+
+    // 29(false) 가 서버에 닿기 전 이미 날아오던 틱.
+    feed.pushFrame(buildQuoteStateFrame({ snapshot: false, lastPrice: 71_600n }));
+    feed.pushFrame(buildTradeTapeFrame({ snapshot: false, entries: tapeEntries(["093016000000"]) }));
+
+    expect(hub.getSnapshot(SAMPLE_ISIN, "KRX")).toBeUndefined();
+    expect(hub.getTape(SAMPLE_ISIN, "KRX")).toBeUndefined();
+    expect(market).toEqual([]);
+    expect(hub.unhandledFrameCount()).toBe(0);
+  });
+
+  it("⑦ attachFeed 같은 객체는 no-op · 다른 객체는 warn 1 뒤 교체 — 옛 feed 의 58 · ready 는 침묵, 새 feed 의 58 은 market 1", () => {
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
+
+    hub.attachFeed(feed);
+    expect(warnsWith("quote 연결 교체")).toHaveLength(0);
+    expect(feed.listenerCount("frame")).toBe(1);
+    expect(feed.listenerCount("ready")).toBe(1);
+
+    const next = new FakeFeed();
+    hub.attachFeed(next);
+    expect(warnsWith("quote 연결 교체")).toHaveLength(1);
+    // 이미 Ready 인 새 feed 에는 보유 키를 그 자리에서 되건다(26-03 결정) — 지나간 ready 를 기다리지 않는다.
+    expect(next.sent.map((s) => s.msgType)).toEqual([MSG.GetQuoteReq, MSG.SubscribeQuoteReq, MSG.GetTradeTapeReq]);
+    market.length = 0;
+
+    const oldSent = feed.sent.length;
+    feed.pushFrame(buildQuoteStateFrame({ snapshot: false, lastPrice: 70_000n }));
+    feed.emitReady();
+    expect(market).toEqual([]);
+    expect(feed.sent).toHaveLength(oldSent);
+    expect(hub.getSnapshot(SAMPLE_ISIN, "KRX")).toBeUndefined();
+
+    next.pushFrame(buildQuoteStateFrame({ snapshot: false, lastPrice: 71_600n }));
+    expect(market).toHaveLength(1);
+    expect(market[0]?.msg).toMatchObject({ t: "q", i: SAMPLE_ISIN, x: "KRX", p: 71_600 });
+    expect(hub.unhandledFrameCount()).toBe(0);
   });
 });
