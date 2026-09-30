@@ -239,6 +239,22 @@ origin 에 올라간 Phase 26 몫은 relay · e2e 뿐이고 `webapp/src` 변경�
 - `keyCount` 는 구독 사용자 수에 따라 0 이상이다. `lastFrameAgeSec` 는 장 밖이고 구독이 없으면 null 이거나 크다. 둘 다 판정 대상이 아니다.
 - **실패 신호:** HTTP 503. 또는 `quote.state` 가 `role_mismatch`(구 서버 — Task 1 증거와 모순, 즉시 롤백) · `rejected`(관찰자 비밀 불일치 — 롤백 뒤 비밀 대조)다. 장 밖에서 `connecting`/`logging_in` 이 1분 넘게 이어지는 것도 터널 · 서버 도달 문제다(push 금지).
 
+## 배포 기록 — Task 3 (relay 완료 · push 대기)
+
+사용자 지시(「릴레이서버 배포해」)로 **08:05 KST 장중**에 relay 를 교체했다. 계획의 「20:00 이후」 창과 다르며, 사용자 결정이다. 코드 리뷰(26-REVIEW.md: critical 0 · warning 5) 뒤 배포했다.
+
+| 항목 | 결과 |
+|---|---|
+| 직전 태그(롤백 대상) | `relay:81f51ca7` |
+| 새 태그 | `relay:f07f5fbd` (코드 = `47fc9934`, 뒤는 docs 커밋) |
+| DMA_HOST | 실행 중 컨테이너 보존 (10.41.1.120:9100) · 미주입 |
+| smoke | PASS 12 · FAIL 0 · SKIP 1 (INV-9) |
+| `/healthz` | `status:"ok"` · `journal:"live"` · `quote:{state:"ready",keyCount:0,lingerCount:0,reconnects:0,subLimitRejects:0,disconnectedSec:null}` · 식별자 없음 |
+| relay 로그 | 08:06:16 `[QUOTE] 시세 관찰자 로그인 성공 — ready` (role 1 · client gh-radar-relay/quote) · 합집합 재구독 keys 0 |
+| 120 서버 로그 (gh-trade 세션 읽기 전용 확인) | 08:06:16.572 `[Gateway] 관찰자 로그인(quote — 시세 전용) conn=14 … client='gh-radar-relay/quote'` · 08:06:16.872 저널 관찰자 이어받기 since=3413 resync=false · 관찰자 quote 1 + journal 1 = 2 (상한 4) · 상한 경고·거부·요청 무처리 경고 0 |
+| push | **대기** — 사용자 지시 범위가 relay 까지 |
+| 첫 거래일 UAT (a)~(e) | 10/1 장중 관측 대기 |
+
 ## Task Commits
 
 1. **Task 1: gh-trade 120 가동본 확인** — 체크포인트(오케스트레이터 해소 · 커밋 없음)
