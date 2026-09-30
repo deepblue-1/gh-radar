@@ -1357,7 +1357,7 @@ Plans:
 **Goal:** 웹 유저 N 명이 같은 종목을 보면 gh-trade 서버 → relay(VPN) 구간에 같은 시세가 N 벌 흐르고, 유저별 주문 세션의 송신 큐에서 체결·주문 통보가 시세 뒤에 줄을 선다(현행: `SubscriptionHub` 참조계수 키 `userId|isin|ex`, 세션당 구독). 이를 **시세 전용 공유 연결 1개**로 바꾼다. (1) gh-trade: 관찰자 로그인(`ObserverLoginReq`)에 `role` 을 추가(journal / quote) — quote 역할 연결은 시세 계열 요청(28 GetQuote · 29 Subscribe · 32 GetTape · 거래원 · 마스터 · 등락률 돌파 스냅샷)만 허용하고 주문·전략·계좌·저널은 계속 관문에서 버린다. 인증은 기존 관찰자 공유 비밀 재사용(새 계정·새 비밀 없음), 관찰자 상한 4 안, quote 연결의 구독 상한(`kMaxSubsPerConn` 200)은 별도 값으로 검토. (2) relay: 시세 관찰자 세션 1개를 상시 유지(재접속 시 합집합 전량 재구독 · `/healthz` 반영), 구독 참조계수 키를 `isin|ex` 로 전역화(0→1 구독 · 1→0 해제 · 최고 level 로 구독), 스냅샷·체결 테이프·거래원 캐시를 유저 간 공유(새 탭은 게이트웨이 재요청 없이 캐시로 그림), PRICE 유저에게는 relay 가 71·75 제외·호가만 바뀐 59 건너뛰기를 직접 필터. 사용자 세션은 주문·계좌·상따 전략·등락률 돌파 알림·StrategyEvent(83)만 남긴다. gh-trade-client(WinForms) 는 relay 를 거치지 않고 직결 유지(범위 밖). 배포 순서 gh-trade 서버(120·127) → relay → webapp(변경 있으면). 착수 전 장중 실측(코어 3 사용률 · 연결별 송신 큐 깊이 · 주문 응답 지연) 을 before 기준선으로 남긴다.
 **Requirements**: TBD (discuss 에서 확정 — quote 역할 와이어 형식 · 구독 상한 값 · 공유 세션 단절 시 UX · PRICE 필터 판정 기준의 relay 이관 범위)
 **Depends on:** Phase 15 (relay·SubscriptionHub), Phase 19·25 (관찰자 로그인·펌프), gh-trade Phase 23 (관찰자 관문). gh-trade 쪽 서버 변경은 gh-trade 저장소에 별도 phase 로 진행.
-**Plans:** 9/15 plans executed
+**Plans:** 10/15 plans executed
 
 Plans:
 **Wave 1**
@@ -1398,7 +1398,7 @@ Plans:
 
 **Wave 10** *(blocked on Wave 9 completion)*
 
-- [ ] 26-10-PLAN.md — 재구독 in-flight 창 페이싱(Pitfall 3) — SubscribePacer + hub 결선 · 실 TCP 창 상한
+- [x] 26-10-PLAN.md — 재구독 in-flight 창 페이싱(Pitfall 3) — SubscribePacer + hub 결선 · 실 TCP 창 상한
 
 **Wave 11** *(blocked on Wave 10 completion)*
 
