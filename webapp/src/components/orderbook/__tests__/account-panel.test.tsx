@@ -1368,7 +1368,7 @@ describe('AccountPanel — 진행률 B안 (Phase 25 · D-11~D-13)', () => {
       const line = td.querySelector('[data-slot="unfilled-progress"]')!;
       expect(line).toHaveAttribute('data-variant', 'row');
       expect(line.textContent).toContain('후매수');
-      expect(line.textContent).toContain('체결예상까지 12,000주 남음');
+      expect(line.textContent).toContain('후매수·12,000주');
       // 다른 행(0000135801 · NXT) 뒤에는 없다 — 대기 여부를 추정하지 않는다.
       const other = cancelButtons('0000135801')
         .map((b) => b.closest('tr'))

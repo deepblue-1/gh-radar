@@ -124,12 +124,12 @@
  *     행 `onClick` 한 경로로 버블한다(키보드 Enter/Space 도 네이티브 click 이 행으로 버블).
  *
  * ⑫ 진행률 B안 (Phase 25 D-11~D-13 · UI-SPEC ④ · 결정 7-A)
- *   대기 중인 매수 미체결 행 **바로 아래** 한 줄(`UnfilledProgress`)이 「{그룹} · 체결예상까지 {N}주 남음
- *   [막대] {P}%」 를 그린다. 값은 `useRelayContext().queueProgress`(relay `unf.progress` 푸시 스냅)에서만
+ *   대기 중인 매수 미체결 행 **바로 아래** 한 줄(`UnfilledProgress`)이 WinForms 와 같은 「{그룹} · {N}주
+ *   [막대] {P}%」(100% 「· 0주」 · 첫 체결 뒤 「· 체결 시작」 — quick-260930-fi4)를 그린다. 값은 `useRelayContext().queueProgress`(relay `unf.progress` 푸시 스냅)에서만
  *   온다 — `findQueueProgress(map, account.a, row)` 로 (계좌, 주문번호) **문자열 동등** 조인 →
  *   `progressView`(클램프만). **웹은 진행률을 계산하지도, 대기 중인지 추정하지도 않는다.**
  *   - D-11 항목이 없으면 보조행 · r3 가 **없다**(즉시체결 주문에는 값이 영영 오지 않는다).
- *   - D-13 스냅에서 항목이 빠지면(첫 체결 · 취소) 보조행만 사라지고, 미체결 행이 사라지면 조인 대상이
+ *   - D-13 스냅에서 항목이 빠지면(전량 체결 · 취소 · 거부 — 첫 체결 뒤에도 서버가 first_filled 로 남긴다) 보조행만 사라지고, 미체결 행이 사라지면 조인 대상이
  *     없어 함께 사라진다(빠진 스냅샷 드롭 대비 이중 안전). 오래된 값 표식은 없다.
  *   - 자리: 기본 표(colSpan 7) · 임베드 표(`stockScope ? 5 : 7` — 취소 결과 행과 같은 식)는 미체결 행 뒤
  *     `<UnfilledProgressRow>` 한 컴포넌트다(두 벌이 아니다). 임베드는 **취소 결과 행보다 위**. 모바일 카드는

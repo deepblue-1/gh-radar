@@ -12,9 +12,10 @@ import { UnfilledProgress } from '../unfilled-progress';
  * 잠그는 규칙:
  *   - 값은 `progressView` 가 만든 보기 값 그대로다 — 이 컴포넌트는 계산하지 않는다
  *   - 막대 = `role="progressbar"` + 값 속성 4종 + 이름 · 값 텍스트(색만으로 말하지 않는다)
- *   - 90% 이상 · 0주 남음(full) → `data-near` + 채움 `--up` · 미만 `--primary`
+ *   - 문구는 WinForms 와 같다(quick-260930-fi4) — 대기 「{그룹} · N주」 · 100% 「{그룹} · 0주」
+ *   - 90% 이상 · 0주(full) → `data-near` + 채움 `--up` · 미만 `--primary`
  *   - 취소 보관(`muted`) → 숫자 `--muted-fg` · 채움 `--faint`(near 여도)
- *   - compact(모바일 r3) → 「체결예상까지」·「·」 생략 · 막대만 신축
+ *   - compact(모바일 r3) → row 와 같은 문구 · 막대만 신축(P-1)
  *   - first_filled(quick-260930-fi4) → 「{그룹} · 체결 시작」 · 서버 고정 % 막대 · near 아님(data-first-filled)
  */
 
@@ -30,12 +31,12 @@ describe('UnfilledProgress — row(데스크톱 보조행 한 줄)', () => {
   it('88% — 문구 · progressbar 속성 · 채움 폭 · --primary · near 없음', () => {
     render(<UnfilledProgress view={VIEW_88} variant="row" />);
     expect(root()).toHaveAttribute('data-variant', 'row');
-    expect(root().textContent).toBe('후매수·체결예상까지 12,000주 남음88%');
+    expect(root().textContent).toBe('후매수·12,000주88%');
     const bar = screen.getByRole('progressbar', { name: '체결예상까지 진행률' });
     expect(bar).toHaveAttribute('aria-valuenow', '88');
     expect(bar).toHaveAttribute('aria-valuemin', '0');
     expect(bar).toHaveAttribute('aria-valuemax', '100');
-    expect(bar).toHaveAttribute('aria-valuetext', '후매수 체결예상까지 12,000주 남음, 88%');
+    expect(bar).toHaveAttribute('aria-valuetext', '후매수 · 12,000주, 88%');
     expect(bar.className).toContain('w-[140px]');
     // 칸이 모자라면 막대만 줄어든다(40px 까지) — 문장 · % 는 flex-none.
     expect(bar.className).toContain('shrink');
@@ -53,9 +54,9 @@ describe('UnfilledProgress — row(데스크톱 보조행 한 줄)', () => {
     expect(fill().style.width).toBe('90%');
   });
 
-  it('full(remaining −5 · bp 10050) → 「0주 남음」 · 100% · --up (D-12)', () => {
+  it('full(remaining −5 · bp 10050) → 「· 0주」 · 100% · --up (D-12)', () => {
     render(<UnfilledProgress view={VIEW_FULL} variant="row" />);
-    expect(root().textContent).toContain('0주 남음');
+    expect(root().textContent).toContain('·0주');
     expect(root().textContent).toContain('100%');
     expect(root()).toHaveAttribute('data-near', 'true');
     expect(fill().style.width).toBe('100%');
@@ -90,12 +91,10 @@ describe('UnfilledProgress — row(데스크톱 보조행 한 줄)', () => {
 });
 
 describe('UnfilledProgress — compact(모바일 r3)', () => {
-  it('「체결예상까지」·「·」 없음 · 막대만 신축(flex-1 min-w-0) · 나머지 flex-none', () => {
+  it('compact 도 row 와 같은 문구 · 막대만 신축(flex-1 min-w-0) · 나머지 flex-none', () => {
     render(<UnfilledProgress view={VIEW_88} variant="compact" />);
     expect(root()).toHaveAttribute('data-variant', 'compact');
-    expect(root().textContent).toBe('후매수12,000주 남음88%');
-    expect(root().textContent).not.toContain('체결예상까지');
-    expect(root().textContent).not.toContain('·');
+    expect(root().textContent).toBe('후매수·12,000주88%');
     const kids = Array.from(root().children) as HTMLElement[];
     const bar = screen.getByRole('progressbar', { name: '체결예상까지 진행률' });
     expect(kids).toContain(bar);
@@ -107,8 +106,8 @@ describe('UnfilledProgress — compact(모바일 r3)', () => {
         expect(kid.className).toContain('flex-none');
       }
     }
-    // 접근성 값 텍스트는 두 모양이 같다 — 모바일도 「체결예상까지」 를 읽어 준다.
-    expect(bar).toHaveAttribute('aria-valuetext', '후매수 체결예상까지 12,000주 남음, 88%');
+    // 접근성 값 텍스트는 두 모양이 같다.
+    expect(bar).toHaveAttribute('aria-valuetext', '후매수 · 12,000주, 88%');
   });
 });
 

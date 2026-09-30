@@ -89,7 +89,7 @@ describe('progressView — D-12 클램프만 (웹 계산 없음)', () => {
       near: false,
       full: false,
       firstFilled: false,
-      valueText: '후매수 체결예상까지 12,000주 남음, 88%',
+      valueText: '후매수 · 12,000주, 88%',
     });
   });
 
@@ -97,21 +97,21 @@ describe('progressView — D-12 클램프만 (웹 계산 없음)', () => {
     expect(progressView({ remainingVolume: 5_000, progressBp: 9000, group: 3 })).toMatchObject({ pct: 90, near: true, full: false });
   });
 
-  it('remaining −5 · bp 10050 → 0주 남음 · 100% · near · full', () => {
+  it('remaining −5 · bp 10050 → 「· 0주」 · 100% · near · full', () => {
     expect(progressView({ remainingVolume: -5, progressBp: 10050, group: 1 })).toMatchObject({
       remaining: 0,
       pct: 100,
       near: true,
       full: true,
-      valueText: '선매수 체결예상까지 0주 남음, 100%',
+      valueText: '선매수 · 0주, 100%',
     });
   });
 
-  it('remaining ≤ 0 이면 bp 가 낮아도 0주 남음 · 100% (D-12)', () => {
+  it('remaining ≤ 0 이면 bp 가 낮아도 0주 · 100% (D-12)', () => {
     expect(progressView({ remainingVolume: 0, progressBp: 4200, group: 1 })).toMatchObject({ remaining: 0, pct: 100, full: true });
   });
 
-  it('bp ≥ 10000 이면 남은 수량이 있어도 0주 남음 · 100% (D-12)', () => {
+  it('bp ≥ 10000 이면 남은 수량이 있어도 0주 · 100% (D-12)', () => {
     expect(progressView({ remainingVolume: 300, progressBp: 10000, group: 1 })).toMatchObject({ remaining: 0, pct: 100, full: true });
   });
 
@@ -127,10 +127,10 @@ describe('progressView — D-12 클램프만 (웹 계산 없음)', () => {
 
   it('group 7 수동 · 8 VI (gh-trade 2026-09-30 말미 추가) → 값 텍스트 종류명 「수동」 · 「VI」', () => {
     expect(progressView({ remainingVolume: 1200, progressBp: 5000, group: 7 }).valueText).toBe(
-      '수동 체결예상까지 1,200주 남음, 50%',
+      '수동 · 1,200주, 50%',
     );
     expect(progressView({ remainingVolume: 1200, progressBp: 5000, group: 8 }).valueText).toBe(
-      'VI 체결예상까지 1,200주 남음, 50%',
+      'VI · 1,200주, 50%',
     );
   });
 });

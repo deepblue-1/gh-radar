@@ -44,7 +44,7 @@ const UNF_WAIT: FakeUnfilled = {
 };
 const UNF_PLAIN: FakeUnfilled = { ...UNF_WAIT, orderNo: ORDER_PLAIN, price: 97_900, orderQty: 100, unfilledQty: 100 };
 
-/** 진행률 항목 1건 — 기본은 88%(bp 8800) · 12,000주 남음 · 후매수(group 3). */
+/** 진행률 항목 1건 — 기본은 88%(bp 8800) · 12,000주 · 후매수(group 3). */
 function progressItem(over: Partial<{ remainingVolume: number; progressBp: number }> = {}) {
   return {
     accountNo: E2E_ACCOUNT_NO,
@@ -123,7 +123,7 @@ test.describe('Phase 25-09 — 미체결 진행률 B안 (로컬 relay · 가짜 
     await relay.pushQueueProgress({ isin: E2E_ISIN, exchange: 'KRX', items: [progressItem()] });
   }
 
-  test('P25-P1 /me 1280 — 보조행 「후매수 · 체결예상까지 12,000주 남음」 · 88% · progressbar 속성 4종 · 채움 계산 색 --primary', async ({
+  test('P25-P1 /me 1280 — 보조행 「후매수 · 12,000주」 · 88% · progressbar 속성 4종 · 채움 계산 색 --primary', async ({
     page,
   }) => {
     await openMe(page, DESKTOP_VIEWPORT);
@@ -145,8 +145,7 @@ test.describe('Phase 25-09 — 미체결 진행률 B안 (로컬 relay · 가짜 
 
     const line = sub.locator('[data-slot="unfilled-progress"]');
     await expect(line).toHaveAttribute('data-variant', 'row');
-    await expect(line).toContainText('후매수');
-    await expect(line).toContainText('체결예상까지 12,000주 남음');
+    await expect(line).toContainText('후매수·12,000주');
     await expect(line).toContainText('88%');
     await expect(line).not.toHaveAttribute('data-near', 'true');
 
@@ -154,7 +153,7 @@ test.describe('Phase 25-09 — 미체결 진행률 B안 (로컬 relay · 가짜 
     await expect(bar).toHaveAttribute('aria-valuenow', '88');
     await expect(bar).toHaveAttribute('aria-valuemin', '0');
     await expect(bar).toHaveAttribute('aria-valuemax', '100');
-    await expect(bar).toHaveAttribute('aria-valuetext', '후매수 체결예상까지 12,000주 남음, 88%');
+    await expect(bar).toHaveAttribute('aria-valuetext', '후매수 · 12,000주, 88%');
     expect((await bar.boundingBox())!.width).toBeCloseTo(140, 0);
 
     const fill = sub.locator('[data-slot="unfilled-progress-fill"]');
@@ -172,7 +171,7 @@ test.describe('Phase 25-09 — 미체결 진행률 B안 (로컬 relay · 가짜 
     expect(cell.ws).toBe('nowrap');
   });
 
-  test('P25-P2 bp 9000 → data-near true · 채움 --up / remaining −5 · bp 10050 → 「0주 남음」 100% (D-12)', async ({ page }) => {
+  test('P25-P2 bp 9000 → data-near true · 채움 --up / remaining −5 · bp 10050 → 「후매수 · 0주」 100% (D-12)', async ({ page }) => {
     await openMe(page, DESKTOP_VIEWPORT);
     const sub = progressRows(meTable(page)).first();
     await expect(sub).toBeVisible({ timeout: 15_000 });
@@ -185,7 +184,7 @@ test.describe('Phase 25-09 — 미체결 진행률 B안 (로컬 relay · 가짜 
     expect(up.actual).toBe(up.expected);
 
     await relay.pushQueueProgress({ isin: E2E_ISIN, exchange: 'KRX', items: [progressItem({ progressBp: 10_050, remainingVolume: -5 })] });
-    await expect(line).toContainText('0주 남음');
+    await expect(line).toContainText('후매수·0주');
     await expect(line).toContainText('100%');
     await expect(sub.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100');
     await expect(line).toHaveAttribute('data-near', 'true');
@@ -222,7 +221,7 @@ test.describe('Phase 25-09 — 미체결 진행률 B안 (로컬 relay · 가짜 
     const r3 = card.locator('[data-slot="unfilled-progress"]');
     await expect(r3).toBeVisible({ timeout: 15_000 });
     await expect(r3).toHaveAttribute('data-variant', 'compact');
-    await expect(r3).toHaveText('후매수12,000주 남음88%');
+    await expect(r3).toHaveText('후매수·12,000주88%');
 
     const order = await card.evaluate((el) => {
       const p = el.querySelector('[data-slot="unfilled-progress"]')!;
@@ -273,7 +272,7 @@ test.describe('Phase 25-09 — 미체결 진행률 B안 (로컬 relay · 가짜 
     expect(prev.slot).toBe('account-embed-unfilled-row');
     expect(prev.text).toContain(ORDER_WAIT);
     await expect(rows.first().locator('[data-slot="unfilled-progress"]')).toContainText(
-      '후매수·체결예상까지 12,000주 남음',
+      '후매수·12,000주',
     );
   });
 

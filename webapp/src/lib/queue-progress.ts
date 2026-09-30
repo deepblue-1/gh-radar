@@ -4,9 +4,9 @@
  * 규율 (정본: 25-CONTEXT · 25-UI-SPEC):
  *   D-11  진행률 항목이 **없으면 보조행도 없다** — 지어내지 않는다(`findQueueProgress` 가 `null`).
  *   D-12  웹은 진행률을 **계산하지 않는다** — 서버 값(`remaining_volume` · `progress_bp`)을 클램프만 한다.
- *         `remaining_volume ≤ 0 ∨ progress_bp ≥ 10000` → 「0주 남음」 · 100% · near.
+ *         `remaining_volume ≤ 0 ∨ progress_bp ≥ 10000` → 「{그룹} · 0주」 · 100% · near.
  *         그 밖: 남은 수량 `max(0, remaining_volume)` · % `min(100, max(0, floor(progress_bp / 100)))` ·
- *         % ≥ 90 → near(`--up` 색 · 「곧 내 차례」).
+ *         % ≥ 90 → near(`--up` 색 · 「곧 내 차례」). 문구는 WinForms 와 같은 「{그룹} · N주」(quick-260930-fi4).
  *   D-13  오래된 값 표식 없이 마지막 값을 유지한다 — 스토어(`use-relay-socket` `queueProgress`) 규율이다.
  *   Pitfall 15  조인은 (계좌번호, 주문번호) **문자열 동등**이다. 앞 0 · 하이픈을 다듬지 않는다 — gh-trade 가
  *         83 과 66/67 에 같은 원천 문자열을 싣는다(Q5). 어긋나면 조용히 보조행이 안 뜨므로 개발 모드에서
@@ -58,11 +58,11 @@ export type ProgressView = {
   pct: number;
   /** % ≥ 90 또는 full — `--up` 색(「곧 내 차례」). 색만이 아니라 숫자 % 가 늘 함께 있다(WCAG 1.4.1). */
   near: boolean;
-  /** `remaining_volume ≤ 0 ∨ progress_bp ≥ 10000` — 「0주 남음」 · 100%. first_filled 면 늘 false. */
+  /** `remaining_volume ≤ 0 ∨ progress_bp ≥ 10000` — 「· 0주」 · 100%. first_filled 면 늘 false. */
   full: boolean;
   /** 첫 체결이 났다(A-P2) — 「{그룹} · 체결 시작」 · 서버 고정 % · near 아님. */
   firstFilled: boolean;
-  /** 막대 `aria-valuetext` — 「{그룹} 체결예상까지 {N}주 남음, {P}%」. */
+  /** 막대 `aria-valuetext` — 보이는 문구 + 「, {P}%」: 대기 「{그룹} · {N}주, {P}%」 · first_filled 「{그룹} · 체결 시작, {P}%」. */
   valueText: string;
 };
 
@@ -102,7 +102,7 @@ export function progressView(item: ProgressViewInput): ProgressView {
     near,
     full,
     firstFilled: false,
-    valueText: `${groupLabel} 체결예상까지 ${NUMBER_FORMAT.format(remaining)}주 남음, ${pct}%`,
+    valueText: `${groupLabel} · ${NUMBER_FORMAT.format(remaining)}주, ${pct}%`,
   };
 }
 
