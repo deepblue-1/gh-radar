@@ -186,7 +186,8 @@ gatewaySymbols.start();
 const symbols = new SymbolMap(supabase, { fallback: gatewaySymbols });
 void symbols.start();
 
-const hub = new SubscriptionHub({ symbols, symbolMaster: gatewaySymbols });
+// D-10 linger — 기본 15초 · e2e 는 QUOTE_LINGER_MS=0 (테스트 간 전역 시세 캐시 격리).
+const hub = new SubscriptionHub({ symbols, symbolMaster: gatewaySymbols, lingerMs: config.quoteLingerMs });
 
 /**
  * 시세 업스트림 = quote 연결 하나 (Phase 26 D-12). 주 게이트웨이에 관찰자 로그인 role 1 로 붙는다 — 사용자 세션과

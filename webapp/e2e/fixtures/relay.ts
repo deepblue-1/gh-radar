@@ -721,6 +721,9 @@ export async function withLocalRelay(opts: { observer?: boolean } = {}): Promise
         DMA_PORT: String(gateway.port),
         // 마지막 소켓이 끊기면 DMA 세션도 즉시 반납 — 테스트 간 세션이 새지 않게.
         SESSION_GRACE_MS: '0',
+        // 테스트 사이에 전역 시세 캐시가 새지 않게 — 종전 per-user 캐시가 세션 교체로 비워지던 격리와 같은 결과(Phase 26 D-10).
+        // 기본값(15000)은 relay config 가 정하고, 프로덕션 배포 env 는 이 키를 넣지 않는다.
+        QUOTE_LINGER_MS: '0',
         // ⑦ 관찰자 옵션 — 테스트 전용 비밀. 끄면 키 자체를 넣지 않는다(부모 env 에 있어도 비운다).
         DMA_OBSERVER_SECRET: observer ? E2E_OBSERVER_SECRET : '',
         // ⑧ quote 연결 — 항상 켠다. D-17: 이 키가 있으면 저널 비밀 없이도 quote 연결만 열린다.

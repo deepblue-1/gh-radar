@@ -111,6 +111,12 @@ export type RelayConfig = {
    * 「새 비밀 없음」 은 서버 쪽 약속이고 relay env 키 추가는 그 약속을 깨지 않는다. 로그 인자로 넘기지 않는다.
    */
   dmaQuoteObserverSecret: string | undefined;
+  /**
+   * 마지막 소비자가 떠난 시세 키의 구독 · 캐시 유지 시간(ms · Phase 26 D-10 linger). 미설정 시 15000 = hub `LINGER_MS`.
+   * 0 = 1→0 즉시 해제 — **e2e 전용**이다(테스트 사이 전역 시세 캐시 격리). 프로덕션 배포 env 는 이 키를 넣지 않는다.
+   * 음수 · 비숫자는 기동을 거부한다(T-26-13 — 잘못된 값으로 캐시가 무한히 남거나 뜻밖에 즉시 풀리지 않게).
+   */
+  quoteLingerMs: number;
 };
 
 export function loadConfig(): RelayConfig {
@@ -128,6 +134,12 @@ export function loadConfig(): RelayConfig {
   }
   // D-17: quote 키 우선 · 빈 문자열은 「없음」 으로 보고 저널 비밀로 폴백한다.
   const dmaQuoteObserverSecret = optional("DMA_QUOTE_OBSERVER_SECRET") || dmaObserverSecret;
+  // D-10 linger — 기본 15000(hub LINGER_MS). 빈 문자열 · 음수 · 비숫자는 기동 거부(사유 문구에 값만 · 비밀 없음).
+  const quoteLingerRaw = optional("QUOTE_LINGER_MS") ?? "15000";
+  const quoteLingerMs = quoteLingerRaw.trim() === "" ? Number.NaN : Number(quoteLingerRaw);
+  if (!Number.isFinite(quoteLingerMs) || quoteLingerMs < 0) {
+    throw new Error(`QUOTE_LINGER_MS must be a finite number >= 0 (ms) — got "${quoteLingerRaw}"`);
+  }
 
   // 기본값은 로컬 mock 이다. 실서버 주소는 배포 env 가 반드시 명시해야 한다 (D-27).
   const dmaHost = optional("DMA_HOST") ?? "127.0.0.1";
@@ -178,5 +190,6 @@ export function loadConfig(): RelayConfig {
     dmaObserverSecret,
     journalUpstreams: [primary, ...extras],
     dmaQuoteObserverSecret,
+    quoteLingerMs,
   };
 }
