@@ -264,12 +264,15 @@ describe("SubscriptionHub", () => {
     hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
     hub.subscribe("user-2", SAMPLE_ISIN, "KRX");
 
+    // 업스트림 구독 한 벌(28 → 29 → 32) + user-2 첫 참조의 같은 level 29 넛지 1건(26-11 Pattern 10 — 83 재송신 트리거).
     expect(feed.sent.map((s) => s.msgType)).toEqual([
       MSG.GetQuoteReq,
       MSG.SubscribeQuoteReq,
       MSG.GetTradeTapeReq,
+      MSG.SubscribeQuoteReq,
     ]);
     expect(feed.sent[1]).toMatchObject({ subscribe: true, level: 0 });
+    expect(feed.sent[3]).toMatchObject({ subscribe: true, level: 0 });
     expect(session.quoteReqs()).toHaveLength(0);
     expect(other.quoteReqs()).toHaveLength(0);
     expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(2);
@@ -1506,8 +1509,9 @@ describe("linger (D-10)", () => {
     vi.advanceTimersByTime(5_000);
     const before = feed.sent.length;
 
-    // 새로고침 — 다른 사용자가 돌아와도 같다(전역 키).
-    hub.subscribe("user-2", SAMPLE_ISIN, "KRX");
+    // 새로고침 — 같은 사용자의 복귀는 이 세션에서 본 키라 넛지도 없다(26-11). 다른 사용자의 첫 참조는 29 넛지 1건이다
+    // — 「잔량진행률 넛지 (Pattern 10)」 N4.
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
     expect(feed.sent).toHaveLength(before);
     expect(hub.isLingering(SAMPLE_ISIN, "KRX")).toBe(false);
     expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(1);
@@ -1996,5 +2000,198 @@ describe("합집합 재구독 페이싱 (Pitfall 3)", () => {
     hub.closeAll();
     vi.advanceTimersByTime(PACER_TIMEOUT_MS * 5);
     expect(feed.sent).toHaveLength(mark);
+  });
+});
+
+describe("잔량진행률 넛지 (Pattern 10)", () => {
+  /**
+   * 26-11 — 서버는 83 을 「구독 연결 ① ∪ 계좌를 선언한 세션 ②」 로 보낸다(MarketPublisher.cpp:771-779). 조용한 키(체결 없는
+   * 상한가)는 dirty 가 서지 않아 83 이 29 성립 때만 다시 나간다(`RequestResend` · :1487 · :1507 · d43). 사용자 세션이 더는
+   * 29 를 보내지 않으므로, 어떤 사용자가 **이 세션에서 처음** 참조하는 키가 이미 업스트림(live 또는 linger)이면 hub 가 quote
+   * 연결로 같은 실효 level 의 29(subscribe=true) 1건 — 넛지 — 를 보낸다(28/32 없음). 사용자 세션이 Ready 로 (재)진입하면
+   * 그 사용자가 쥔(참조 > 0) 키마다 같은 넛지를 보낸다. 같은 사용자의 복귀(탭 전환 · 새로고침)는 넛지 0 이다(D-10).
+   * 「본 키」 기억은 키가 업스트림에서 완전히 풀리거나 그 사용자의 DMA 세션이 교체될 때 지워진다.
+   */
+  const Q = MSG.GetQuoteReq;
+  const S = MSG.SubscribeQuoteReq;
+  const T = MSG.GetTradeTapeReq;
+
+  let hub: SubscriptionHub;
+  let feed: FakeFeed;
+  let sessions: Map<string, FakeSession>;
+
+  /** 합성 ISIN — `KR7` + 0 채움 숫자 9자리(12자). */
+  const isinOf = (n: number): string => `KR7${String(n).padStart(9, "0")}`;
+  const K = SAMPLE_ISIN;
+  /** `from` 이후 quote 연결로 나간 프레임 [msgType, isin, subscribe, level]. */
+  const sentSince = (from: number): Array<[number, string, boolean | null, number | null]> =>
+    feed.sent.slice(from).map((s) => [s.msgType, s.isin, s.subscribe, s.level]);
+
+  function attachUser(userId: string): FakeSession {
+    const s = new FakeSession(userId);
+    hub.attach(s);
+    sessions.set(userId, s);
+    return s;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-30T00:30:00.000Z"));
+    resetDroppedEnvelopeCount();
+    vi.spyOn(logger, "info").mockImplementation((() => undefined) as never);
+    hub = new SubscriptionHub();
+    feed = new FakeFeed();
+    hub.attachFeed(feed);
+    sessions = new Map();
+    for (const u of ["A", "B", "C"]) attachUser(u);
+  });
+
+  afterEach(() => {
+    hub.closeAll();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("N1 A 가 K(full) 를 연 뒤 B 가 K 를 처음 열면 29(true · level 0) 정확히 1건 — 28 · 32 추가 0 · 사용자 세션 0", () => {
+    hub.subscribe("A", K, "KRX");
+    expect(sentSince(0).map((f) => f[0])).toEqual([Q, S, T]);
+    const before = feed.sent.length;
+
+    expect(hub.subscribe("B", K, "KRX")).toBe("ok");
+    expect(sentSince(before)).toEqual([[S, K, true, 0]]);
+    for (const s of sessions.values()) expect(s.quoteReqs()).toHaveLength(0);
+  });
+
+  it("N2 B 의 두 번째 탭은 넛지 0 이다", () => {
+    hub.subscribe("A", K, "KRX");
+    hub.subscribe("B", K, "KRX");
+    const before = feed.sent.length;
+
+    hub.subscribe("B", K, "KRX");
+    expect(sentSince(before)).toEqual([]);
+  });
+
+  it("N3 B 가 K 를 모두 닫았다가(참조 0 · A 가 쥐고 live) 다시 열면 넛지 0 — 이 세션에서 본 키 (D-10)", () => {
+    hub.subscribe("A", K, "KRX");
+    hub.subscribe("B", K, "KRX");
+    hub.subscribe("B", K, "KRX");
+    hub.unsubscribe("B", K, "KRX");
+    hub.unsubscribe("B", K, "KRX");
+    const before = feed.sent.length;
+
+    expect(hub.subscribe("B", K, "KRX")).toBe("ok");
+    expect(sentSince(before)).toEqual([]);
+  });
+
+  it("N4 A · B 가 모두 떠나 K 가 linger 일 때 새 사용자 C 가 열면 linger 취소 · 29(level 0) 넛지 1건 · 28/32 0", () => {
+    hub.subscribe("A", K, "KRX");
+    hub.subscribe("B", K, "KRX");
+    hub.unsubscribe("A", K, "KRX");
+    hub.unsubscribe("B", K, "KRX");
+    expect(hub.isLingering(K, "KRX")).toBe(true);
+    const before = feed.sent.length;
+
+    hub.subscribe("C", K, "KRX");
+    expect(hub.isLingering(K, "KRX")).toBe(false);
+    expect(sentSince(before)).toEqual([[S, K, true, 0]]);
+
+    // A 는 이 세션에서 K 를 봤다 — linger 뒤가 아니어도 복귀는 넛지 0.
+    const mark = feed.sent.length;
+    hub.subscribe("A", K, "KRX");
+    expect(sentSince(mark)).toEqual([]);
+  });
+
+  it("N5 PRICE 로만 구독된 키의 넛지는 29(level 1) · full 이 섞이면 실효 level(0)이다", () => {
+    hub.subscribe("A", K, "KRX", "price");
+    expect(sentSince(0)).toEqual([
+      [Q, K, null, null],
+      [S, K, true, 1],
+    ]);
+    let before = feed.sent.length;
+    hub.subscribe("B", K, "KRX", "price");
+    expect(sentSince(before)).toEqual([[S, K, true, 1]]);
+
+    hub.subscribe("A", OTHER_ISIN, "KRX", "full");
+    before = feed.sent.length;
+    hub.subscribe("C", OTHER_ISIN, "KRX", "price");
+    expect(sentSince(before)).toEqual([[S, OTHER_ISIN, true, 0]]);
+  });
+
+  it("N6 B 의 사용자 세션 ready 재발행 → B 가 참조 중(>0)인 키마다 넛지 1건 · 참조 0(본 키만)인 키는 0건 · 사용자 세션 시세 요청 0", () => {
+    hub.subscribe("A", isinOf(1), "KRX");
+    hub.subscribe("A", isinOf(2), "KRX");
+    hub.subscribe("B", isinOf(1), "KRX"); // 넛지
+    hub.subscribe("B", isinOf(2), "KRX"); // 넛지
+    hub.unsubscribe("B", isinOf(2), "KRX"); // 본 키만 남는다
+    hub.subscribe("B", isinOf(3), "KRX", "price"); // B 가 처음 연 키 — 0→1 구독
+    const before = feed.sent.length;
+
+    sessions.get("B")!.emitReady();
+    expect(sentSince(before)).toEqual([
+      [S, isinOf(1), true, 0],
+      [S, isinOf(3), true, 1],
+    ]);
+    expect(sessions.get("B")!.quoteReqs()).toHaveLength(0);
+  });
+
+  it("N7 B 의 세션 교체(attach 새 세션) 뒤 B 가 K 를 다시 열면 넛지 1건 — 본 키 기억이 세션과 함께 지워진다", () => {
+    hub.subscribe("A", K, "KRX");
+    hub.subscribe("B", K, "KRX");
+    hub.unsubscribe("B", K, "KRX");
+
+    attachUser("B"); // 새 세션 객체 — #clearCaches
+    const before = feed.sent.length;
+    hub.subscribe("B", K, "KRX");
+    expect(sentSince(before)).toEqual([[S, K, true, 0]]);
+  });
+
+  it("N8 K 의 구독이 페이서 대기열에 있으면 넛지는 합쳐진다 — K 의 29 는 끝까지 1건", () => {
+    for (let n = 0; n < PACER_WINDOW; n += 1) hub.subscribe("A", isinOf(n), "KRX");
+    hub.subscribe("A", K, "KRX"); // 창이 차서 대기
+    const before = feed.sent.length;
+
+    hub.subscribe("B", K, "KRX");
+    expect(sentSince(before)).toEqual([]);
+
+    feed.pushFrame(buildTradeTapeFrame({ isin: isinOf(0) })); // 창 한 칸 — 대기 K 가 나간다
+    expect(feed.sent.filter((s) => s.isin === K).map((s) => [s.msgType, s.subscribe, s.level])).toEqual([
+      [Q, null, null],
+      [S, true, 0],
+      [T, null, null],
+    ]);
+  });
+
+  it("N9 사용자당 한도(D-15)는 참조 > 0 인 키만 센다 — 본 키(참조 0) 200개가 있어도 새 키 ok", () => {
+    for (let k = 0; k < USER_SUB_LIMIT; k += 1) hub.subscribe("A", isinOf(k), "KRX");
+    for (let k = 0; k < USER_SUB_LIMIT; k += 1) hub.subscribe("B", isinOf(k), "KRX");
+    for (let k = 0; k < USER_SUB_LIMIT; k += 1) hub.unsubscribe("B", isinOf(k), "KRX");
+
+    expect(hub.subscribe("B", isinOf(900), "KRX")).toBe("ok");
+    // 본 키로 돌아오는 것도 새 키가 아니다 — 참조 > 0 이 201 이 되기 전까지 ok.
+    expect(hub.subscribe("B", isinOf(0), "KRX")).toBe("ok");
+    expect(hub.subscribe("A", isinOf(901), "KRX")).toBe("limit-user");
+  });
+
+  it("N10 키가 업스트림에서 완전히 풀리면 본 키 기억도 지워진다 — linger 만료 뒤 다시 열린 K 에 B 가 오면 넛지 1건", () => {
+    hub.subscribe("A", K, "KRX");
+    hub.subscribe("B", K, "KRX");
+    hub.unsubscribe("A", K, "KRX");
+    hub.unsubscribe("B", K, "KRX");
+    vi.advanceTimersByTime(LINGER_MS); // 29(false) · 키 해제
+
+    hub.subscribe("A", K, "KRX"); // A 는 새 0→1 구독(본 키 기억도 지워졌다)
+    const before = feed.sent.length;
+    hub.subscribe("B", K, "KRX");
+    expect(sentSince(before)).toEqual([[S, K, true, 0]]);
+  });
+
+  it("N11 quote 연결이 Ready 가 아니면 넛지를 보내지 않는다 — ready 의 합집합 재구독 29 가 같은 효과", () => {
+    hub.subscribe("A", K, "KRX");
+    feed.isReady = false;
+    const before = feed.sent.length;
+
+    hub.subscribe("B", K, "KRX");
+    sessions.get("B")!.emitReady();
+    expect(sentSince(before)).toEqual([]);
   });
 });

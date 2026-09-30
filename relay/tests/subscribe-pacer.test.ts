@@ -337,4 +337,44 @@ describe("SubscribePacer — in-flight 창 · 응답/타임아웃 · 대기 병�
     expect(idle).toBe(2);
     expect(sent.filter((s) => s.isin === isinOf(5))).toHaveLength(0);
   });
+  // 26-11 — 83 재송신 넛지(Pattern 10 · Pitfall 6). 넛지 29(subscribe=true · 같은 level)는 서버의 level 덮어쓰기 경로
+  // (`RequestResend`)만 태우고 응답(Notice)을 만들지 않으므로 창을 점유하지 않는다.
+  it("P10 nudge — 대기 중(미송신) 키면 프레임 0 · 대기 항목 그대로다(곧 나갈 구독 29 가 같은 효과)", () => {
+    subscribeRange(0, PACER_WINDOW + 1);
+    const before = sent.length;
+
+    pacer.control(
+      keyOf(PACER_WINDOW),
+      buildSubscribeQuoteReq(isinOf(PACER_WINDOW), "KRX", true, QUOTE_LEVEL.FULL),
+      "nudge",
+    );
+    expect(sent).toHaveLength(before);
+    expect(pacer.stats()).toMatchObject({ queued: 1, inFlight: PACER_WINDOW });
+
+    // 창이 열리면 대기 항목이 28 · 29(0) · 32 한 벌로 나간다 — 29 는 정확히 1건.
+    pacer.onResponse(keyOf(0), MSG.TradeTapeResp);
+    expect(sentFor(PACER_WINDOW)).toEqual([
+      [Q, null, null],
+      [S, true, QUOTE_LEVEL.FULL],
+      [T, null, null],
+    ]);
+  });
+
+  it("P11 nudge — in-flight · 이미 구독된 키면 29 1건을 즉시 보내고 창 · 대기열은 그대로다", () => {
+    subscribeRange(0, 2, "price");
+    pacer.onResponse(keyOf(0), MSG.GetQuoteResp); // 0 은 구독 완료 · 1 은 in-flight
+    const before = sent.length;
+
+    pacer.control(keyOf(0), buildSubscribeQuoteReq(isinOf(0), "KRX", true, QUOTE_LEVEL.PRICE), "nudge");
+    pacer.control(keyOf(1), buildSubscribeQuoteReq(isinOf(1), "KRX", true, QUOTE_LEVEL.PRICE), "nudge");
+    expect(sent.slice(before).map((s) => [s.msgType, s.isin, s.subscribe, s.level])).toEqual([
+      [S, isinOf(0), true, QUOTE_LEVEL.PRICE],
+      [S, isinOf(1), true, QUOTE_LEVEL.PRICE],
+    ]);
+    // in-flight 키의 넛지는 슬롯을 풀지 않는다 — 1 은 여전히 58 을 기다린다.
+    expect(pacer.stats()).toMatchObject({ queued: 0, inFlight: 1 });
+    expect(idle).toBe(0);
+    pacer.onResponse(keyOf(1), MSG.GetQuoteResp);
+    expect(pacer.stats()).toMatchObject({ queued: 0, inFlight: 0 });
+  });
 });

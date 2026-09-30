@@ -531,7 +531,7 @@ describe("WsFanout", () => {
   // 옛 ⑦ 「다른 사용자의 시세는 절대 넘어가지 않는다 (T-15-02)」 는 시세가 사용자별 세션으로 오던 전제였다(Pitfall 9).
   // Phase 26 에서 시세는 공개 공유 원천이고, 지키려던 것은 둘로 갈린다 — ① 그 키를 **잡은 소켓만** 받는다(잡지 않은
   // 소켓 · 자격증명 미등록 소켓 0건 · D-09) ② 사용자 데이터 격리는 ㉒ · P2 · 계좌 케이스가 그대로 지킨다.
-  it("⑦ Phase 26 트레이서 — 두 사용자 같은 종목: quote 연결 29 한 벌 · 사용자 세션 29 0 · 캐시 공유 · 구독 소켓만 수신 · 미등록 0", async () => {
+  it("⑦ Phase 26 트레이서 — 두 사용자 같은 종목: quote 연결 구독 한 벌(+ 두 번째 사용자 넛지 29 1) · 사용자 세션 29 0 · 캐시 공유 · 구독 소켓만 수신 · 미등록 0", async () => {
     const a = await authed("token-a");
     const a2 = await authed("token-a");
     const b = await authed("token-b");
@@ -554,10 +554,15 @@ describe("WsFanout", () => {
     await waitFor(() => u.inbox.filter((m) => m.t === "state" && m.s === "unauthorized").length === 2, "U 구독 거부");
     await flushIo(20);
 
-    // 업스트림 구독은 quote 연결 한 벌 — 28 → 29(true · level 0) → 32 각 1건.
+    // 업스트림 구독은 quote 연결 한 벌 — 28 → 29(true · level 0) → 32 각 1건. 두 번째로 연 사용자의 첫 참조는 같은 level 의
+    // 29 넛지 1건을 더한다(26-11 Pattern 10 — 서버 83 재송신 트리거). 28 · 32 는 여전히 1건이다.
+    await waitFor(() => quoteSubscribes.length === 2, "두 번째 사용자 첫 참조 넛지");
     expect(quoteMsgTypes.filter((t) => t === MSG.GetQuoteReq)).toHaveLength(1);
     expect(quoteMsgTypes.filter((t) => t === MSG.GetTradeTapeReq)).toHaveLength(1);
-    expect(quoteSubscribes).toEqual([{ isin: SAMPLE_ISIN, exchange: "KRX", subscribe: true, level: 0 }]);
+    expect(quoteSubscribes).toEqual([
+      { isin: SAMPLE_ISIN, exchange: "KRX", subscribe: true, level: 0 },
+      { isin: SAMPLE_ISIN, exchange: "KRX", subscribe: true, level: 0 },
+    ]);
     // 사용자 세션으로 나간 28/29/32 는 0건 (D-08 · D-12).
     expect(userQuoteReqCount()).toBe(0);
 
@@ -580,7 +585,8 @@ describe("WsFanout", () => {
     expect(h.hub.refCount(SAMPLE_ISIN, "KRX")).toBe(3);
     await flushIo(20);
     expect(quoteMsgTypes.filter((t) => t === MSG.GetQuoteReq)).toHaveLength(1);
-    expect(quoteSubscribes).toHaveLength(1);
+    // A 는 이 세션에서 이미 본 키다 — 두 번째 탭은 넛지 0 (D-10).
+    expect(quoteSubscribes).toHaveLength(2);
 
     // 갱신(59) 한 건이 세 구독 소켓에 각 1건씩 — 미등록 소켓은 여전히 0건.
     quoteGateway.pushQuote(quoteSock, { snapshot: false, lastPrice: 71_600n });
@@ -702,6 +708,32 @@ describe("WsFanout", () => {
       "linger 만료 뒤 29(false)",
     );
     expect(h.hub.getSnapshot(SAMPLE_ISIN, "KRX")).toBeUndefined();
+    expect(userQuoteReqCount()).toBe(0);
+  });
+
+  // 26-11 — 83 재송신 넛지(Pattern 10 · Pitfall 6 · d43 회귀 방지). 조용한 상한가 종목의 83 은 29 성립 때만 다시 나오므로,
+  // 이미 업스트림 구독 중인 키를 다른 사용자가 처음 열면 relay 가 quote 연결로 같은 level 29 1건을 보낸다(28 · 32 없음).
+  it("⑪-b 잔량진행률 넛지 — 두 번째 사용자 첫 참조 29 한 건 · 28 0 · 같은 사용자 두 번째 탭은 0", async () => {
+    const a = await authed("token-a");
+    a.ws.sendSub(SAMPLE_ISIN, "KRX");
+    await waitFor(() => quoteMsgTypes.includes(MSG.GetTradeTapeReq), "A 구독 28 · 29 · 32");
+    expect(quoteSubscribes).toHaveLength(1);
+
+    const b = await authed("token-b");
+    const b2 = await authed("token-b");
+    b.ws.sendSub(SAMPLE_ISIN, "KRX");
+    await waitFor(() => quoteSubscribes.length === 2, "B 첫 참조 넛지");
+    b2.ws.sendSub(SAMPLE_ISIN, "KRX");
+    await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 3, "A · B · B2 참조계수 3");
+    await flushIo(20);
+
+    expect(quoteMsgTypes.filter((t) => t === MSG.GetQuoteReq)).toHaveLength(1);
+    expect(quoteMsgTypes.filter((t) => t === MSG.GetTradeTapeReq)).toHaveLength(1);
+    expect(quoteSubscribes).toEqual([
+      { isin: SAMPLE_ISIN, exchange: "KRX", subscribe: true, level: 0 },
+      { isin: SAMPLE_ISIN, exchange: "KRX", subscribe: true, level: 0 },
+    ]);
+    // 사용자 세션으로는 시세 요청 0 — 83 은 서버가 계좌 선언 세션(②)으로 다시 낸다.
     expect(userQuoteReqCount()).toBe(0);
   });
 
