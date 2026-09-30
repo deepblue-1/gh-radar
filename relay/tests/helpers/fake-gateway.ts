@@ -26,6 +26,12 @@
  * Phase 19-09 추가 — 관찰자 모드. `ObserverLoginReq(5)` 는 `observerLoginRequests()` 에 기록하고,
  * `respondObserverLogin` 으로 켰을 때만 그 연결에 `ObserverLoginResp(79)` 를 자동 송신한다(기본 꺼짐 —
  * 일반 로그인 자동 응답과 분리). 저널 배치(80)는 테스트가 `pushJournalBatch` 로 직접 민다.
+ *
+ * Phase 26 — quote 모드: ed2e0240 서버 규약 흉내(79 role 에코 → 성공이면 78 1회) · role 1 로그인은 quote 목록에만.
+ * `ObserverLoginReq(5)` 의 role 이 1 이면 `quoteLoginRequests()` · quote 소켓에만 기록하고, `respondQuoteLogin` 으로 켰을
+ * 때만 그 연결에 79(기본 role 1 · epoch "" · 계좌 빈 벡터 — 거부면 role 0) 를 쓰고, 성공이면 빈 78 `RateCrossSnapshot` 을
+ * 이어 쓴다. role 0 은 종전 관찰자 경로 그대로라 `observerLoginRequests()` · `waitForObserverConnection` 은 저널 연결만
+ * 본다 — 저널 테스트 · e2e 관찰자 모드가 quote 연결을 저널 연결로 오인하지 않는다.
  */
 import net from "node:net";
 import * as flatbuffers from "flatbuffers";
@@ -105,6 +111,11 @@ export type FakeGatewayOptions = {
    * 일반 `LoginReq` 자동 응답과 분리한다(관찰자 모드를 쓰는 테스트만 켠다). `respondObserverLogin` 으로도 켠다.
    */
   observerLoginResp?: FakeObserverLoginRespInput;
+  /**
+   * role 1(quote) `ObserverLoginReq(5)` 자동 응답 내용 (Phase 26). **기본은 자동 응답 없음** — 관찰자 모드와 같은 규율.
+   * 지정한 필드 위에 `{ role: 1, accounts: [], epoch: "" }` 기본을 깐다(거부이고 role 미지정이면 role 0 — 서버 규약).
+   */
+  quoteLoginResp?: FakeObserverLoginRespInput;
 };
 
 /** `ObserverLoginReq(5)` 1건의 내용 (게이트웨이 흉내 — 요청 대역 직접 파싱). */
@@ -223,6 +234,21 @@ export type FakeGateway = {
    */
   waitForObserverConnection(timeoutMs?: number): Promise<net.Socket>;
 
+  // --- quote 모드 (Phase 26) ---
+
+  /**
+   * quote(role 1) 관찰자 로그인 자동 응답을 켜고 내용을 지정한다. 이후 role 1 `ObserverLoginReq(5)` 가 오면 **그 연결에만**
+   * 79 를 쓰고, 성공 응답이면 빈 78 을 이어 쓴다(서버 규약 — 확정-로그인). `null` 이면 끈다(무응답 재현).
+   */
+  respondQuoteLogin(resp: FakeObserverLoginRespInput | null): void;
+  /** 지금까지 수신한 role 1 `ObserverLoginReq(5)` 전량 (송신 순서 그대로). role 0 은 `observerLoginRequests()` 에만 있다. */
+  quoteLoginRequests(): ObserverLoginRequest[];
+  /**
+   * quote 로그인을 보낸 **살아 있는** 연결을 돌려준다. 없으면 다음 role 1 로그인이 온 연결을 기다린다 —
+   * `hardClose` 로 끊긴 연결은 건너뛰므로 재접속 뒤 호출하면 새 연결이 나온다.
+   */
+  waitForQuoteConnection(timeoutMs?: number): Promise<net.Socket>;
+
   /** 임의 바이트 주입 — 청크 경계를 테스트가 지정한다. 길이 프레이밍을 하지 않는다. */
   sendRaw(sock: net.Socket, bytes: Uint8Array): void;
   /** 정상 프레이밍으로 페이로드 1건 전송. */
@@ -314,6 +340,22 @@ export function readQuoteRequestKey(msgType: number, payload: Buffer): QuoteRequ
     return { isin: req.isin() ?? "", exchange: req.exchange() ?? "" };
   }
   return null;
+}
+
+/** 구독 요청(29) 내용 — `buildSubscribeQuoteReq(isin, exchange, subscribe, level)` 의 되읽기. */
+export type SubscribeRequest = { isin: string; exchange: string; subscribe: boolean; level: number };
+
+/**
+ * 구독 요청 프레임(29 `SubscribeQuoteReq`)의 내용을 꺼낸다 (Phase 26 — 26-03 트레이서 · 26-06 이 쓴다).
+ * **여기에 두는 이유는 `readQuoteRequestKey` 와 같다** — 생성 코드 해석을 스텁 한 벌에 모은다.
+ *
+ * @returns 29 이고 요청 테이블이 있으면 `{isin, exchange, subscribe, level}`, 그 외 `null`
+ */
+export function readSubscribeRequest(msgType: number, payload: Buffer): SubscribeRequest | null {
+  if (msgType !== MSG.SubscribeQuoteReq) return null;
+  const req = rootEnvelope(payload)?.subscribeQuoteReq();
+  if (req === null || req === undefined) return null;
+  return { isin: req.isin() ?? "", exchange: req.exchange() ?? "", subscribe: req.subscribe(), level: req.level() };
 }
 
 /** `SetVITriggerReq(11)` 요청 내용 — VI 전략 설정 전송분. */
@@ -548,6 +590,18 @@ export function readGetVITriggerExchange(msgType: number, payload: Buffer): stri
   return req.key() ?? "";
 }
 
+/** quote 관찰자 역할 (ed2e0240). 스텁은 relay 의 `QUOTE_ROLE` 을 import 하지 않는다 — 서버 규약 쪽 값이다. */
+const QUOTE_OBSERVER_ROLE = 1;
+
+/**
+ * quote 로그인 79 의 내용 — 서버 규약 기본(role 1 · epoch "" · 계좌 빈 벡터) 위에 테스트 지정값을 얹는다.
+ * 거부(`success === false`)이고 role 을 지정하지 않았으면 role 0 이다(서버 거부 응답 규약).
+ */
+function quoteLoginRespInput(resp: FakeObserverLoginRespInput): FakeObserverLoginRespInput {
+  const role = resp.role ?? (resp.success === false ? 0 : QUOTE_OBSERVER_ROLE);
+  return { accounts: [], epoch: "", ...resp, role };
+}
+
 export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<FakeGateway> {
   const handlers: FrameHandler[] = [];
   const sockets: net.Socket[] = [];
@@ -578,6 +632,12 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
   const observerSockets: net.Socket[] = [];
   const pendingObserverConnections: Array<(sock: net.Socket) => void> = [];
 
+  // quote 모드 (Phase 26) — 자동 응답은 기본 꺼짐. role 1 로그인은 여기에만 기록한다.
+  let quoteLoginResp: FakeObserverLoginRespInput | null = opts.quoteLoginResp ?? null;
+  const quoteLogins: ObserverLoginRequest[] = [];
+  const quoteSockets: net.Socket[] = [];
+  const pendingQuoteConnections: Array<(sock: net.Socket) => void> = [];
+
   const server = net.createServer((sock) => {
     sock.on("error", () => {
       // 강제 종료 테스트에서 ECONNRESET 이 정상적으로 발생한다 — 프로세스를 죽이지 않는다.
@@ -600,9 +660,20 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
         if (msgType === MSG.LoginReq && autoLogin) {
           sock.write(frame(buildLoginRespFrame(loginResp)));
         }
-        if (msgType === MSG.ObserverLoginReq) {
-          const req = readObserverLoginRequest(msgType, payload);
-          if (req !== null) observerLogins.push(req);
+        const observerReq = msgType === MSG.ObserverLoginReq ? readObserverLoginRequest(msgType, payload) : null;
+        if (observerReq !== null && observerReq.role === QUOTE_OBSERVER_ROLE) {
+          // quote(role 1) — quote 목록에만 기록한다. 서버 규약: 79(role 에코) → 성공이면 78 1회.
+          quoteLogins.push(observerReq);
+          if (!quoteSockets.includes(sock)) quoteSockets.push(sock);
+          if (quoteLoginResp !== null) {
+            const resp = quoteLoginRespInput(quoteLoginResp);
+            sock.write(frame(buildObserverLoginRespFrame(resp)));
+            if (resp.success !== false) sock.write(frame(buildRateCrossSnapshotFrame([])));
+          }
+          const waiter = pendingQuoteConnections.shift();
+          if (waiter) waiter(sock);
+        } else if (msgType === MSG.ObserverLoginReq) {
+          if (observerReq !== null) observerLogins.push(observerReq);
           if (!observerSockets.includes(sock)) observerSockets.push(sock);
           if (observerLoginResp !== null) sock.write(frame(buildObserverLoginRespFrame(observerLoginResp)));
           const waiter = pendingObserverConnections.shift();
@@ -762,6 +833,31 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
           resolve(sock);
         }
         pendingObserverConnections.push(onObserver);
+      });
+    },
+
+    respondQuoteLogin(resp) {
+      quoteLoginResp = resp;
+    },
+
+    quoteLoginRequests() {
+      return quoteLogins.map((r) => ({ ...r }));
+    },
+
+    waitForQuoteConnection(timeoutMs = 1000) {
+      const live = quoteSockets.find((s) => !s.destroyed);
+      if (live !== undefined) return Promise.resolve(live);
+      return new Promise<net.Socket>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          const i = pendingQuoteConnections.indexOf(onQuote);
+          if (i >= 0) pendingQuoteConnections.splice(i, 1);
+          reject(new Error(`가짜 게이트웨이 quote 연결 대기 시간 초과 (${timeoutMs}ms)`));
+        }, timeoutMs);
+        function onQuote(sock: net.Socket): void {
+          clearTimeout(timer);
+          resolve(sock);
+        }
+        pendingQuoteConnections.push(onQuote);
       });
     },
 
