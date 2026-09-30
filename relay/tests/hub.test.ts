@@ -313,10 +313,13 @@ describe("SubscriptionHub", () => {
     // 캐시 조회는 업스트림을 건드리지 않는다.
     expect(feed.sent).toHaveLength(before);
 
-    // 두 번째 사용자가 같은 키를 잡아도 업스트림 재요청이 없고 캐시가 그대로다 (유저 간 공유).
+    // 두 번째 사용자가 같은 키를 잡아도 업스트림 재요청(28 · 32)이 없고 캐시가 그대로다 (유저 간 공유). 그 사용자의 첫 참조라
+    // 같은 level 29 넛지 1건만 나간다(26-11 Pattern 10 — 서버 83 재송신 트리거).
     hub.attach(new FakeSession("user-2"));
     hub.subscribe("user-2", SAMPLE_ISIN, "KRX");
-    expect(feed.sent).toHaveLength(before);
+    expect(feed.sent.slice(before).map((s) => [s.msgType, s.subscribe, s.level])).toEqual([
+      [MSG.SubscribeQuoteReq, true, 0],
+    ]);
     expect(hub.getSnapshot(SAMPLE_ISIN, "KRX")?.p).toBe(70_950);
   });
 
@@ -335,7 +338,11 @@ describe("SubscriptionHub", () => {
     expect(userTypes).toContain(MSG.GetVITriggerReq);
     expect(userTypes).toContain(MSG.GetVIOrderListReq);
     expect(session.quoteReqs()).toHaveLength(0);
-    expect(feed.sent).toHaveLength(0);
+    // 재구독(28 · 32)은 없다. user-1 이 쥔 키에 83 재송신 넛지 29(같은 level) 1건만 quote 연결로 나간다(26-11 Pattern 10).
+    expect(feed.sent.map((s) => [s.msgType, s.isin, s.subscribe, s.level])).toEqual([
+      [MSG.SubscribeQuoteReq, SAMPLE_ISIN, true, 0],
+    ]);
+    feed.sent.length = 0;
 
     // quote 연결 ready — 두 사용자의 키 합집합이 전부 되걸린다.
     feed.emitReady();
@@ -1720,10 +1727,13 @@ describe("구독 한도 (D-11 · D-15)", () => {
     ]);
     for (const n of [0, 1_000, 1_999]) expect(hub.refCount(isinOf(n), "KRX")).toBe(1);
 
-    // 이미 업스트림에 있는 키의 추가 구독은 전역 한도와 무관하다(새 업스트림 키가 아니다).
+    // 이미 업스트림에 있는 키의 추가 구독은 전역 한도와 무관하다(새 업스트림 키가 아니다). u10 의 첫 참조라 29 넛지 1건뿐이다
+    // (26-11 Pattern 10 — 28 · 32 없음).
     expect(hub.subscribe("u10", isinOf(0), "KRX")).toBe("ok");
     expect(hub.refCount(isinOf(0), "KRX")).toBe(2);
-    expect(feed.sent).toHaveLength(before);
+    expect(feed.sent.slice(before).map((s) => [s.msgType, s.isin, s.subscribe])).toEqual([
+      [MSG.SubscribeQuoteReq, isinOf(0), true],
+    ]);
   });
 
   it("HL3 전역 2000 이 linger 키를 포함하면 가장 오래 linger 한 키를 29(false) 로 먼저 풀고 새 키를 받는다", () => {

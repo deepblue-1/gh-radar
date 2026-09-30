@@ -24,8 +24,9 @@
  *     응답을 새 level 기준으로 바꾼다.
  *
  * 창 밖(즉시) — 응답이 없는 29:
- *   해제 29(false) · 강등 29(level=1) 는 서버가 응답하지 않으므로(Notice 를 만들지 않는다) 창을 점유하지 않고 즉시 나간다.
- *   in-flight 키의 해제면 슬롯도 푼다(그 키의 58/69 를 더 기다릴 이유가 없다).
+ *   해제 29(false) · 강등 29(level=1) · 넛지 29(같은 level · 26-11)는 서버가 응답하지 않으므로(Notice 를 만들지 않는다) 창을
+ *   점유하지 않고 즉시 나간다. in-flight 키의 해제면 슬롯도 푼다(그 키의 58/69 를 더 기다릴 이유가 없다). 대기 중 키의 넛지는
+ *   버린다 — 곧 나갈 구독 29 가 같은 효과다.
  *
  * 순서 가정 (RESEARCH A10 · ASSUMED — 단일 명령 큐 구조로 추론): 서버 publisher 는 같은 연결의 명령을 FIFO 로 처리한다.
  * 그래서 이미 보낸 키에 대한 29 는 즉시 보내도 그 키의 앞선 28/29/32 뒤에 처리되고, 대기열은 FIFO 로 꺼낸다.
@@ -57,8 +58,14 @@ export const PACER_WINDOW = 32;
 /** 응답이 오지 않은 in-flight 키의 슬롯을 푸는 시간(ms) = 3초 (RESEARCH A5 · ASSUMED). */
 export const PACER_TIMEOUT_MS = 3_000;
 
-/** 창 밖 제어(응답 없는 29)의 종류. */
-export type PacerControlKind = "unsubscribe" | "demote";
+/**
+ * 창 밖 제어(응답 없는 29)의 종류.
+ *   · `"unsubscribe"` — 29(false). 대기 중이면 프레임 없이 항목을 지운다. in-flight 면 즉시 보내고 슬롯도 푼다.
+ *   · `"demote"`      — 29(level=1). 대기 중이면 항목 level 만 price 로 바꾼다.
+ *   · `"nudge"`       — 같은 실효 level 의 29(true) (26-11 · 83 재송신 넛지 · Pattern 10). 대기 중이면 아무것도 하지 않는다 —
+ *                       곧 나갈 구독 29 가 서버에서 같은 `RequestResend` 를 일으킨다. 그 밖은 즉시 보내고 창은 그대로다.
+ */
+export type PacerControlKind = "unsubscribe" | "demote" | "nudge";
 
 export interface SubscribePacerDeps {
   /** 요청을 보내도 되는가(quote 연결 Ready). 거짓이면 펌프가 멈추고 항목은 대기열에 남는다. */
@@ -142,12 +149,13 @@ export class SubscribePacer {
   }
 
   /**
-   * 응답 없는 29(해제 · 강등). 대기 중 키면 프레임 없이 항목만 고치고(해제 = 삭제 · 강등 = level price), 그 밖이면 즉시
-   * `payload` 를 보낸다 — 창을 점유하지 않는다. in-flight 키의 해제면 슬롯도 푼다.
+   * 응답 없는 29(해제 · 강등 · 넛지). 대기 중 키면 프레임 없이 항목만 고치고(해제 = 삭제 · 강등 = level price · 넛지 = 그대로),
+   * 그 밖이면 즉시 `payload` 를 보낸다 — 창을 점유하지 않는다. in-flight 키의 해제면 슬롯도 푼다.
    */
   control(key: string, payload: Uint8Array, kind: PacerControlKind): void {
     const queued = this.#queue.get(key);
     if (queued !== undefined) {
+      if (kind === "nudge") return;
       if (kind === "demote") {
         queued.level = "price";
         return;

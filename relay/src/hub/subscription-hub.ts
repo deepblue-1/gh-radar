@@ -64,6 +64,23 @@
  *         `USER_SUB_LIMIT`(200)까지다 — 사용자 세션의 서버 한도(세션당 200)가 사라진 빈자리를 메워, 한 탭의 버그가
  *         전원의 새 구독을 막지 못하게 한다. 거부 = 상태 무변경 · `subLimitRejects` +1 · warn 1건 · `subscribe` 반환값
  *         (`"limit-user"` / `"limit-global"`) — fanout 이 그 소켓에만 `{t:"sub.limit"}` 을 보낸다.
+ *   Phase 26 Pattern 10 · Pitfall 6  **83 재송신 넛지** (26-11 · d43 회귀 방지).
+ *         서버는 83(잔량진행률)을 두 경로로 낸다 — 「① 그 종목·거래소 시세 구독 연결 (FULL ∪ PRICE)」 과 「② 항목 계좌를 선언한
+ *         세션」(gh-trade MarketPublisher.cpp:771-779). relay 는 quote 연결의 83(①)을 무시하고(남의 계좌 포함 · T-25-24) 사용자
+ *         세션의 83(②)만 계좌 필터 뒤 캐시한다 — 사용자 경로는 그대로다. 83 은 키가 dirty 일 때만 나가므로 조용한 키(체결 없는
+ *         상한가)는 29 가 성립할 때 서버가 부르는 `m_queueTracker.RequestResend(key)`(:1487 신규 · :1507 level 덮어쓰기)로만 다시
+ *         나온다. 사용자 세션이 더는 29 를 보내지 않으므로, 넛지 없이 가면 A 가 보고 있는 조용한 종목을 B 가 열었을 때 B 의
+ *         대기 주문 진행률이 다음 체결까지 빈다(quick-260930-d43 이 고친 증상).
+ *         넛지 = quote 연결로 **같은 실효 level 의 29(subscribe=true) 1건**(28 · 32 없음 · 서버 level 덮어쓰기 → RequestResend →
+ *         다음 틱 83 이 그 사용자의 계좌 세션 ②에 닿는다). 보내는 때는 둘이다.
+ *           · 어떤 사용자가 **이 DMA 세션에서 처음** 참조하는 키가 이미 업스트림(live 또는 linger)일 때 — 단 같은 호출이
+ *             이미 29 를 보내는 승격 · 강등이면 그 29 가 같은 효과라 넛지하지 않는다.
+ *           · 사용자 세션이 Ready 로 (재)진입할 때 그 사용자가 쥔(참조 > 0) 키마다 — 계좌 선언 전의 넛지는 ②에 닿지 않을 수 있다.
+ *         같은 사용자의 복귀(탭 전환 · 새로고침 · linger 안 복귀)는 넛지 0 이다(D-10 — 28 · 29 · 32 재요청 없이 캐시로 그린다).
+ *         그래서 사용자별 참조(`#userRefs`)는 참조 0 이 돼도 항목을 남기는 **「본 키」 기억**이다. 본 키는 그 키가 업스트림에서
+ *         완전히 풀리거나(`#releaseKey`) 그 사용자의 DMA 세션이 교체될 때(`#clearCaches` — 83 캐시도 같이 비므로) 지운다.
+ *         넛지는 응답이 없는 29 라 페이서 창을 점유하지 않고, 그 키 구독이 아직 대기열에 있으면 합쳐진다(`"nudge"`).
+ *         quote 연결이 Ready 가 아니면 보내지 않는다 — ready 의 합집합 재구독 29 가 같은 효과다.
  *   D-12  전략(상따 전수 · VI 설정 · VI 주문 추적)도 **세션 단위 캐시**를 여기 둔다.
  *         사용자당 DMA 세션이 1개이므로 「그 사용자의 전략이 지금 무엇인가」를 아는 객체도
  *         하나여야 한다. 캐시가 있어야 새 탭이 붙자마자 **종목 구독 없이** 전략을 본다 —
@@ -427,6 +444,16 @@ type Linger = {
   level: RelaySubLevel;
 };
 
+/**
+ * 사용자 한 명의 「본 키」 기억 (D-15 · Phase 26 Pattern 10 · 26-11). 참조 0 도 항목으로 남아 「이 DMA 세션에서 본 키」 를 뜻한다.
+ */
+type UserKeys = {
+  /** `marketKey` → 그 사용자의 탭 · level 합산 참조 수(0 = 본 키 · 지금은 쥐지 않음). */
+  held: Map<string, number>;
+  /** 참조 > 0 인 키 수 — `USER_SUB_LIMIT` 판정 대상. */
+  active: number;
+};
+
 function totalRefs(refs: SubRefs): number {
   return refs.full + refs.price;
 }
@@ -598,10 +625,11 @@ export class SubscriptionHub extends EventEmitter {
   /** linger 유지 시간(ms). 0 이하면 1→0 즉시 해제(26-03 동작 — e2e 격리용). */
   readonly #lingerMs: number;
   /**
-   * 사용자별 키 참조 (D-15) — userId → `marketKey` → 그 사용자의 탭 · level 합산 참조 수. 0 이면 항목을 지우고,
-   * 빈 사용자 맵도 지운다. 안쪽 맵의 크기 = 그 사용자가 참조하는 서로 다른 키 수(`USER_SUB_LIMIT` 판정 대상).
+   * 사용자별 「본 키」 기억 (D-15 · Pattern 10) — userId → 그 사용자가 **이 DMA 세션에서 본 키**와 현재 참조 수. 참조가 0 이
+   * 돼도 항목을 남긴다(같은 사용자의 복귀는 넛지 0 · D-10). `USER_SUB_LIMIT` 은 참조 > 0 인 키 수(`active`)로만 판정한다.
+   * 본 키는 `#releaseKey`(업스트림 완전 해제)와 `#clearCaches`(세션 교체)에서 지우고, 빈 사용자 항목도 지운다.
    */
-  readonly #userRefs = new Map<string, Map<string, number>>();
+  readonly #userRefs = new Map<string, UserKeys>();
   /** 전역 업스트림 키 상한 (D-11). 생성자 `limits.global` 로 테스트 주입. */
   readonly #globalLimit: number;
   /** 사용자당 키 상한 (D-15). 생성자 `limits.user` 로 테스트 주입. */
@@ -844,12 +872,14 @@ export class SubscriptionHub extends EventEmitter {
     level: RelaySubLevel = "full",
   ): HubSubscribeResult {
     const key = marketKey(isin, exchange);
-    const userKeys = this.#userRefs.get(userId);
-    const userHeld = userKeys?.get(key) ?? 0;
-    if (userHeld === 0 && (userKeys?.size ?? 0) >= this.#userLimit) {
+    const seen = this.#userRefs.get(userId)?.held.get(key);
+    const userHeld = seen ?? 0;
+    if (userHeld === 0 && (this.#userRefs.get(userId)?.active ?? 0) >= this.#userLimit) {
       return this.#rejectSubscribe(userId, isin, exchange, "user", this.#userLimit);
     }
     let refs = this.#refs.get(key);
+    // 83 넛지 조건(Pattern 10) — 이 사용자의 첫 참조인데 키는 이미 업스트림(live · linger)에 있다.
+    const nudge = seen === undefined && refs !== undefined;
     if (refs === undefined && this.#refs.size >= this.#globalLimit) {
       const oldest = this.#oldestLingerKey();
       if (oldest === undefined) {
@@ -859,8 +889,14 @@ export class SubscriptionHub extends EventEmitter {
       this.#releaseKey(oldest, "구독 한도 — linger 먼저 해제 (D-11)");
     }
 
-    if (userKeys === undefined) this.#userRefs.set(userId, new Map([[key, 1]]));
-    else userKeys.set(key, userHeld + 1);
+    // 사용자 항목은 한도 판정(자리 만들기의 `#releaseKey` 가 본 키를 지울 수 있다) **뒤에** 다시 읽는다.
+    let user = this.#userRefs.get(userId);
+    if (user === undefined) {
+      user = { held: new Map(), active: 0 };
+      this.#userRefs.set(userId, user);
+    }
+    user.held.set(key, userHeld + 1);
+    if (userHeld === 0) user.active += 1;
 
     if (refs === undefined) {
       refs = { full: 0, price: 0 };
@@ -873,6 +909,8 @@ export class SubscriptionHub extends EventEmitter {
       this.#clearLinger(key, linger);
       refs[level] += 1;
       this.#resumeFromLinger(userId, isin, exchange, linger, refs);
+      // 승격 · 강등은 그 29 가 넛지 몫을 한다 — level 이 같을 때만 따로 넛지한다.
+      if (nudge && effectiveLevel(refs) === linger.level) this.#nudge(key, userId, "linger 중 새 사용자 첫 참조");
       return "ok";
     }
 
@@ -897,7 +935,34 @@ export class SubscriptionHub extends EventEmitter {
       { userId, isin, exchange, level: nextLevel, refs: { ...refs }, refCount: totalRefs(refs) },
       "[HUB] 이미 구독 중 — 게이트웨이로 다시 보내지 않는다 (탭 · 사용자 공유)",
     );
+    if (nudge) this.#nudge(key, userId, "새 사용자 첫 참조");
     return "ok";
+  }
+
+  /**
+   * 83 재송신 넛지 (Pattern 10 · Pitfall 6) — quote 연결로 그 키의 **실효 level** 29(subscribe=true) 1건. 서버는 이를 level
+   * 덮어쓰기로 받아 `RequestResend` 를 부르고, 다음 틱 83 이 계좌를 선언한 사용자 세션(②)에 닿는다. 응답이 없는 29 라 페이서
+   * 창을 점유하지 않고, 그 키 구독이 아직 대기 중이면 합쳐진다(`"nudge"` — 곧 나갈 구독 29 가 같은 효과).
+   * quote 연결이 Ready 가 아니면 보내지 않는다 — ready 의 합집합 재구독 29 가 같은 효과다.
+   */
+  #nudge(key: string, userId: string, reason: string): void {
+    const feed = this.#feed;
+    if (feed === null || !feed.isReady) return;
+    const refs = this.#refs.get(key);
+    const parts = this.#splitMarketKey(key);
+    if (refs === undefined || parts === null) return;
+    const level = effectiveLevel(refs);
+    this.#pacer.control(
+      key,
+      buildSubscribeQuoteReq(
+        parts.isin,
+        parts.exchange,
+        true,
+        level === "price" ? QUOTE_LEVEL.PRICE : QUOTE_LEVEL.FULL,
+      ),
+      "nudge",
+    );
+    logger.debug({ userId, isin: parts.isin, exchange: parts.exchange, level, reason }, "[HUB] 83 재송신 넛지 — 같은 level 29");
   }
 
   /** 구독 한도 거부 (D-11 · D-15) — 상태를 바꾸지 않고 계수 · warn 만 남긴다. */
@@ -1058,6 +1123,14 @@ export class SubscriptionHub extends EventEmitter {
     const linger = this.#lingering.get(key);
     if (linger !== undefined) this.#clearLinger(key, linger);
     this.#refs.delete(key);
+    // 본 키 기억도 지운다 (Pattern 10) — 다음에 이 키를 여는 사용자는 새 업스트림 구독(28 · 29 · 32)이나 첫 참조 넛지를 받는다.
+    for (const [userId, user] of this.#userRefs) {
+      const held = user.held.get(key);
+      if (held === undefined) continue;
+      if (held > 0) user.active -= 1; // 풀리는 키는 참조 0 이어야 한다 — 방어적으로만 맞춘다.
+      user.held.delete(key);
+      if (user.held.size === 0) this.#userRefs.delete(userId);
+    }
     this.#quotes.delete(key);
     this.#tapes.delete(key);
     this.#pendingTapes.delete(key);
@@ -1083,21 +1156,20 @@ export class SubscriptionHub extends EventEmitter {
     logger.info({ isin, exchange, reason }, "[HUB] 키 해제 — 업스트림 구독 해제 29(false)");
   }
 
-  /** 사용자 참조 -1 (D-15). 0 이면 항목을, 빈 사용자 맵이면 사용자를 지운다. */
+  /**
+   * 사용자 참조 -1 (D-15). 0 이 돼도 항목은 **본 키로 남긴다**(Pattern 10 — 같은 사용자의 복귀는 넛지 0) — 사용자 한도 계수
+   * (`active`)만 줄인다. 본 키 정리는 `#releaseKey` · `#clearCaches` 몫이다.
+   */
   #releaseUserRef(userId: string, key: string): void {
-    const userKeys = this.#userRefs.get(userId);
-    const held = userKeys?.get(key);
-    if (userKeys === undefined || held === undefined) {
+    const user = this.#userRefs.get(userId);
+    const held = user?.held.get(key);
+    if (user === undefined || held === undefined || held <= 0) {
       // 전역 참조계수는 있는데 이 사용자 몫이 없다 — 회계 불일치 신호(S-5). 전역 해제는 그대로 진행한다.
       logger.warn({ userId, key }, "[HUB] 사용자 참조 없는 해제 — 사용자 계수만 건너뜀");
       return;
     }
-    if (held > 1) {
-      userKeys.set(key, held - 1);
-      return;
-    }
-    userKeys.delete(key);
-    if (userKeys.size === 0) this.#userRefs.delete(userId);
+    user.held.set(key, held - 1);
+    if (held === 1) user.active -= 1;
   }
 
   /** linger 표식과 만료 타이머를 지운다(복귀 · 해제 공용). */
@@ -2407,6 +2479,14 @@ export class SubscriptionHub extends EventEmitter {
     // 4번째 줄은 사용자별 재조회가 **아니다** — 게이트웨이 종목마스터(27)의 relay 전체 1일 1회
     // 요청이고, 게이팅(이번 master-day 에 성공했는가·진행 중인가)은 피드가 쥔다(quick-260923-cqj D-02).
     this.#symbolMaster?.onSessionReady(session);
+    // 83 재송신 넛지 (Pattern 10) — 계좌를 (재)선언한 뒤라야 서버 83 이 이 세션(②)에 닿는다. 그 사용자가 쥔(참조 > 0) 키마다
+    // 같은 level 29 1건. 본 키(참조 0)는 보지 않는 종목이라 넛지하지 않는다. 시세 재구독이 **아니다**(28 · 32 없음 · D-08).
+    const user = this.#userRefs.get(userId);
+    if (user !== undefined) {
+      for (const [key, held] of user.held) {
+        if (held > 0) this.#nudge(key, userId, "사용자 세션 Ready");
+      }
+    }
   }
 
   /** **대상은 언제나 userId 하나**다. 전역 브로드캐스트 경로를 만들지 않는다 (T-15-02). */
@@ -2416,6 +2496,13 @@ export class SubscriptionHub extends EventEmitter {
 
   #clearCaches(userId: string): void {
     const prefix = userPrefix(userId);
+    // 본 키 기억(Pattern 10) 중 참조 0 인 것을 지운다 — 새 세션은 83 캐시가 비어 있으니 그 키로 돌아오면 다시 넛지해야 한다.
+    // 참조 > 0 은 탭이 아직 쥐고 있으므로 남긴다(새 세션의 `ready` 가 그 키들을 넛지한다).
+    const user = this.#userRefs.get(userId);
+    if (user !== undefined) {
+      for (const [key, held] of user.held) if (held === 0) user.held.delete(key);
+      if (user.held.size === 0) this.#userRefs.delete(userId);
+    }
     // 시세 캐시(`#quotes` · `#tapes`)는 전역이라 여기서 건드리지 않는다 (Phase 26 D-12) — 사용자 세션 교체와 무관하다.
     for (const key of [...this.#accountStates.keys()]) {
       if (key.startsWith(prefix)) this.#accountStates.delete(key);
