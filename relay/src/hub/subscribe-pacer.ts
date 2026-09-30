@@ -14,6 +14,9 @@
  *   - 한 번에 최대 `PACER_WINDOW` 키만 요청(28 → 29(level) → (FULL) 32)을 내보낸다(in-flight).
  *   - 그 키가 기다리는 응답 — FULL 은 69(가장 큰 Notice), PRICE 는 58 — 이 오거나 `PACER_TIMEOUT_MS` 가 지나면 슬롯을
  *     풀고 대기열 앞에서 다음 키를 보낸다. 타임아웃은 막힘 방지일 뿐 실패가 아니다(`stats().timeouts` 로 센다).
+ *   - 타이머는 **기다리는 쪽이 있을 때만** 하나 건다 — 대기열에 키가 있거나(슬롯을 기다림) `trackUntilIdle()` 로 완료 시점을
+ *     재는 중일 때, 가장 이른 in-flight 기한에 1개. 그 밖(평시 · 창 안에서 끝남)에는 타이머가 없고, 기한이 지난 in-flight 는
+ *     다음 `subscribe` 가 먼저 쓸어낸다(지연 0 · 결과 동일). 평시 구독마다 3초 타이머가 키 수만큼 쌓이지 않는다.
  *   - 평시 0→1 도 같은 경로다 — 창이 비어 있으면 즉시 나가므로 평시 지연은 0 이고, 코드 경로는 하나다.
  *   - 대기 중(아직 안 보낸) 키: 재요청은 그 항목 level 만 바꾸고(순서 유지), 해제는 항목을 지우고 아무 프레임도 내지 않고,
  *     강등은 항목 level 만 price 로 바꾼다 — 서버는 그 키를 끝내 모르거나 최종 level 한 벌만 본다.
@@ -87,7 +90,8 @@ type InFlight = {
   item: PacerItem;
   /** 이 키 슬롯을 푸는 응답 번호 — FULL = 69(TradeTapeResp) · PRICE = 58(GetQuoteResp). */
   expect: number;
-  timer: NodeJS.Timeout | null;
+  /** 응답 기한(`Date.now()` 기준 ms) — 지나면 타임아웃으로 슬롯을 푼다. */
+  deadline: number;
 };
 
 export class SubscribePacer {
@@ -99,6 +103,10 @@ export class SubscribePacer {
   readonly #queue = new Map<string, PacerItem>();
   readonly #inFlight = new Map<string, InFlight>();
   #timeouts = 0;
+  /** 타임아웃 스윕 타이머 — 최대 1개. 기다리는 쪽(대기열 · 추적)이 있을 때만 건다. */
+  #timer: NodeJS.Timeout | null = null;
+  /** `trackUntilIdle()` 이후 다음 idle 까지 참 — 대기열이 비어도 in-flight 기한을 타이머로 잰다. */
+  #tracking = false;
 
   constructor(deps: SubscribePacerDeps) {
     this.#deps = deps;
@@ -108,28 +116,29 @@ export class SubscribePacer {
   }
 
   /**
-   * 키 하나의 구독 요청(0→1 · 승격 · 재구독)을 넣는다.
+   * 키 하나의 구독 요청(0→1 · 승격 · 재구독)을 넣는다. 먼저 기한이 지난 in-flight 를 쓸어낸다.
    *   · 대기 중 → 그 항목 level 만 바꾼다(자리 유지).
    *   · in-flight · 준비됨 → 같은 슬롯에서 곧바로 다시 보낸다(승격).
    *   · 그 밖 → 대기열 뒤에 붙이고 펌프한다(창이 비어 있으면 즉시 나간다).
    */
   subscribe(key: string, isin: string, exchange: RelayExchange, level: RelaySubLevel): void {
+    this.#expireOverdue();
     const queued = this.#queue.get(key);
     if (queued !== undefined) {
       queued.level = level;
       return;
     }
-    const flying = this.#inFlight.get(key);
-    if (flying !== undefined) {
+    if (this.#inFlight.has(key)) {
       if (this.#deps.isReady()) {
         this.#dispatch({ key, isin, exchange, level });
+        this.#arm();
         return;
       }
       // 준비되지 않은 연결의 in-flight 는 응답이 오지 않는다 — 슬롯을 비우고 대기열로 돌린다(대기 · in-flight 이중 상태 방지).
-      this.#dropInFlight(flying);
+      this.#inFlight.delete(key);
     }
     this.#queue.set(key, { key, isin, exchange, level });
-    this.#pump();
+    this.#settle();
   }
 
   /**
@@ -144,39 +153,52 @@ export class SubscribePacer {
         return;
       }
       this.#queue.delete(key);
-      this.#checkIdle();
+      this.#settle();
       return;
     }
     this.#deps.send(payload);
-    if (kind !== "unsubscribe") return;
-    const flying = this.#inFlight.get(key);
-    if (flying === undefined) return;
-    this.#dropInFlight(flying);
-    this.#pump();
-    this.#checkIdle();
+    if (kind === "unsubscribe" && this.#inFlight.delete(key)) this.#settle();
   }
 
   /** quote 연결 응답(58 · 69). in-flight 키가 기다리던 번호면 슬롯을 풀고 다음 키를 보낸다. 그 밖은 무시한다. */
   onResponse(key: string, msgType: number): void {
     const flying = this.#inFlight.get(key);
     if (flying === undefined || flying.expect !== msgType) return;
-    this.#dropInFlight(flying);
-    this.#pump();
-    this.#checkIdle();
+    this.#inFlight.delete(key);
+    this.#settle();
   }
 
-  /** 대기열 · in-flight · 타이머를 비운다(quote 재접속 · closeAll). 타임아웃 누적 수는 남긴다. */
+  /**
+   * 다음 idle(대기열과 창이 모두 빔)까지 in-flight 기한을 타이머로 잰다 — 합집합 재구독 완료 시점(`onIdle`)을 응답이 끝내
+   * 오지 않아도 확정하기 위해서다. 이미 idle 이면 그 자리에서 `onIdle` 을 부른다.
+   */
+  trackUntilIdle(): void {
+    this.#tracking = true;
+    this.#settle();
+  }
+
+  /** 대기열 · in-flight · 타이머 · 추적을 비운다(quote 재접속 · closeAll). 타임아웃 누적 수는 남긴다. */
   reset(): void {
-    for (const flying of this.#inFlight.values()) {
-      if (flying.timer !== null) clearTimeout(flying.timer);
-      flying.timer = null;
-    }
+    this.#clearTimer();
     this.#inFlight.clear();
     this.#queue.clear();
+    this.#tracking = false;
   }
 
   stats(): SubscribePacerStats {
     return { queued: this.#queue.size, inFlight: this.#inFlight.size, timeouts: this.#timeouts };
+  }
+
+  /** 상태가 바뀐 뒤 공통 마무리 — 펌프 → idle 판정 → 타이머 재설정. */
+  #settle(): void {
+    this.#pump();
+    if (this.#queue.size === 0 && this.#inFlight.size === 0) {
+      this.#tracking = false;
+      this.#clearTimer();
+      this.#deps.onIdle?.();
+      return;
+    }
+    this.#arm();
   }
 
   /** 준비됐고 창에 자리가 있는 동안 대기열 앞에서 꺼내 보낸다. */
@@ -192,44 +214,55 @@ export class SubscribePacer {
    * 28 → 29(level) → (FULL) 32 — 순서가 계약이다(D-33 · quick-260923-ge2). 같은 키가 이미 in-flight 면 그 슬롯을 대체한다.
    */
   #dispatch(item: PacerItem): void {
-    const prev = this.#inFlight.get(item.key);
-    if (prev !== undefined && prev.timer !== null) clearTimeout(prev.timer);
-
     const { isin, exchange, level } = item;
     this.#deps.send(buildGetQuoteReq(isin, exchange));
+    // `"price"` 만 PRICE 바이트다. 그 밖은 전부 FULL — 모르는 값을 가벼운 경로로 열화시키지 않는다(서버 규칙과 동형).
     this.#deps.send(
       buildSubscribeQuoteReq(isin, exchange, true, level === "price" ? QUOTE_LEVEL.PRICE : QUOTE_LEVEL.FULL),
     );
     if (level !== "price") this.#deps.send(buildGetTradeTapeReq(isin, exchange, this.#tapeCount));
-
-    const flying: InFlight = {
+    this.#inFlight.set(item.key, {
       item,
       expect: level === "price" ? MSG.GetQuoteResp : MSG.TradeTapeResp,
-      timer: null,
-    };
-    flying.timer = setTimeout(() => {
-      flying.timer = null;
-      if (this.#inFlight.get(item.key) !== flying) return; // 이미 응답 · 해제 · 재송신 — 옛 타이머는 침묵
-      this.#inFlight.delete(item.key);
-      this.#timeouts += 1;
+      deadline: Date.now() + this.#timeoutMs,
+    });
+  }
+
+  /** 기한이 지난 in-flight 를 타임아웃으로 푼다. 풀린 수를 돌려준다. */
+  #expireOverdue(): number {
+    const now = Date.now();
+    let expired = 0;
+    for (const [key, flying] of this.#inFlight) {
+      if (flying.deadline > now) continue;
+      this.#inFlight.delete(key);
+      expired += 1;
+    }
+    if (expired > 0) {
+      this.#timeouts += expired;
       logger.debug(
-        { isin, exchange, level, timeoutMs: this.#timeoutMs, timeouts: this.#timeouts },
-        "[PACER] 응답 없이 타임아웃 — 슬롯 해제 후 다음 키",
+        { expired, timeoutMs: this.#timeoutMs, timeouts: this.#timeouts, queued: this.#queue.size },
+        "[PACER] 응답 없이 타임아웃 — 슬롯 해제",
       );
-      this.#pump();
-      this.#checkIdle();
-    }, this.#timeoutMs);
-    flying.timer.unref?.();
-    this.#inFlight.set(item.key, flying);
+    }
+    return expired;
   }
 
-  #dropInFlight(flying: InFlight): void {
-    if (flying.timer !== null) clearTimeout(flying.timer);
-    flying.timer = null;
-    this.#inFlight.delete(flying.item.key);
+  /** 기다리는 쪽(대기열 · 추적)과 in-flight 가 있으면 가장 이른 기한에 타이머 1개, 아니면 끈다. */
+  #arm(): void {
+    this.#clearTimer();
+    if (this.#inFlight.size === 0 || (this.#queue.size === 0 && !this.#tracking)) return;
+    let earliest = Number.POSITIVE_INFINITY;
+    for (const flying of this.#inFlight.values()) earliest = Math.min(earliest, flying.deadline);
+    this.#timer = setTimeout(() => {
+      this.#timer = null;
+      this.#expireOverdue();
+      this.#settle();
+    }, Math.max(0, earliest - Date.now()));
+    this.#timer.unref?.();
   }
 
-  #checkIdle(): void {
-    if (this.#queue.size === 0 && this.#inFlight.size === 0) this.#deps.onIdle?.();
+  #clearTimer(): void {
+    if (this.#timer !== null) clearTimeout(this.#timer);
+    this.#timer = null;
   }
 }

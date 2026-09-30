@@ -183,10 +183,39 @@ describe("SubscribePacer — in-flight 창 · 응답/타임아웃 · 대기 병�
     expect(quoteReqs()).toHaveLength(PACER_WINDOW + 1);
     expect(pacer.stats()).toEqual({ queued: 0, inFlight: 1, timeouts: PACER_WINDOW });
 
-    // 새로 나간 키도 제 타이머를 가진다(보낸 시점 기준 3초).
+    // 기다리는 쪽(대기열)이 없으면 타이머를 걸지 않는다 — 평시 구독이 키마다 3초 타이머를 쌓지 않는다.
+    expect(vi.getTimerCount()).toBe(0);
     vi.advanceTimersByTime(PACER_TIMEOUT_MS);
-    expect(pacer.stats()).toEqual({ queued: 0, inFlight: 0, timeouts: PACER_WINDOW + 1 });
+    expect(pacer.stats()).toEqual({ queued: 0, inFlight: 1, timeouts: PACER_WINDOW });
+
+    // 기한이 지난 in-flight 는 다음 subscribe 가 먼저 쓸어낸다 — 새 키는 지연 없이 곧바로 나간다.
+    subscribeRange(200, 1);
+    expect(sentFor(200)).toHaveLength(3);
+    expect(pacer.stats()).toEqual({ queued: 0, inFlight: 1, timeouts: PACER_WINDOW + 1 });
+    expect(idle).toBe(0);
+  });
+
+  it("P4b trackUntilIdle — 대기열이 비어도 in-flight 기한을 타이머로 재어 응답이 끝내 없으면 타임아웃으로 idle 을 확정한다", () => {
+    subscribeRange(0, 2);
+    expect(vi.getTimerCount()).toBe(0);
+    pacer.trackUntilIdle();
+    expect(vi.getTimerCount()).toBe(1); // 가장 이른 기한에 1개 — 키 수만큼 쌓지 않는다
+
+    pacer.onResponse(keyOf(0), MSG.TradeTapeResp);
+    expect(idle).toBe(0);
+    vi.advanceTimersByTime(PACER_TIMEOUT_MS);
     expect(idle).toBe(1);
+    expect(pacer.stats()).toEqual({ queued: 0, inFlight: 0, timeouts: 1 });
+    expect(vi.getTimerCount()).toBe(0);
+
+    // idle 뒤에는 추적이 풀린다 — 다음 평시 구독은 다시 타이머 0.
+    subscribeRange(10, 1);
+    expect(vi.getTimerCount()).toBe(0);
+
+    // 이미 idle 이면 그 자리에서 onIdle.
+    pacer.reset();
+    pacer.trackUntilIdle();
+    expect(idle).toBe(2);
   });
 
   it("P5 대기 중(미송신) 키 — 해제는 송신 0 · 대기열에서 빠진다 / price→full 재요청은 level 만 full / 강등은 level 만 price", () => {

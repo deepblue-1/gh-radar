@@ -98,7 +98,10 @@
  * 하지 않는 것:
  *   - 소켓을 모른다. 어떤 소켓에 보낼지는 `ws/fanout.ts` 가 `userId`(사용자 데이터) · 키 구독자 색인(시세)으로 정한다.
  *   - 세션 · quote 연결을 만들거나 닫지 않는다. 그것은 `SessionManager` · 부팅(`index.ts`) 소관이다.
- *   - 구독 요청을 큐잉하지 않는다. quote 연결 Ready 이전 구독은 참조계수에만 남고 quote 연결 `ready` 가 복원한다.
+ *   - 구독 요청을 한꺼번에 쏘지 않는다 — 구독 요청은 in-flight 창 큐(`SubscribePacer` · 창 32 키 · 응답(FULL=69 · PRICE=58)
+ *     또는 3초)를 거친다(Phase 26 Pitfall 3 — 재접속 합집합 재구독 burst 가 서버 Notice 큐 1024 프레임 / 4MB 를 넘기면
+ *     quote 연결이 끊겨 재접속 → 같은 burst 루프가 된다). 응답이 없는 29(해제 · 강등)는 창 밖으로 즉시 나간다.
+ *     quote 연결 Ready 이전 구독은 참조계수에만 남고 quote 연결 `ready` 가 `reset` 뒤 합집합으로 복원한다.
  */
 import { EventEmitter } from "node:events";
 
@@ -130,8 +133,6 @@ import {
   QUOTE_LEVEL,
   buildGetAccountStateReq,
   buildGetLimitChaserListReq,
-  buildGetQuoteReq,
-  buildGetTradeTapeReq,
   buildGetVIOrderListReq,
   buildGetVITriggerReq,
   buildSubscribeQuoteReq,
@@ -155,10 +156,10 @@ import {
   type ParsedOrderResp,
   type ParsedSymbolMasterFrame,
   type QueueProgressFrame,
-  type QuoteLevelByte,
 } from "../dma/envelope.js";
 import { MSG } from "../dma/msg-type.js";
 import type { SymbolLookup } from "../store/symbols.js";
+import { SubscribePacer } from "./subscribe-pacer.js";
 
 // ============================================================
 // 상수 정본
@@ -435,11 +436,6 @@ function effectiveLevel(refs: SubRefs): RelaySubLevel {
   return refs.full > 0 ? "full" : "price";
 }
 
-/** `"price"` 만 PRICE 바이트다. 그 밖은 전부 FULL — 모르는 값을 가벼운 경로로 열화시키지 않는다. */
-function levelByte(level: RelaySubLevel): QuoteLevelByte {
-  return level === "price" ? QUOTE_LEVEL.PRICE : QUOTE_LEVEL.FULL;
-}
-
 /**
  * 시세 구독 키 (Phase 26 D-12). **전역**이다 — fanout `keyOf` 와 같은 `${isin}|${exchange}` 형식.
  * 참조계수(`#refs`) · 스냅샷(`#quotes`) · 체결 링버퍼(`#tapes`) · 테이프 배치(`#pendingTapes`)가 이 키를 쓴다.
@@ -585,6 +581,13 @@ export class SubscriptionHub extends EventEmitter {
    * 교체되면 여기가 정본이고 옛 feed 의 리스너는 정본 대조로 침묵한다(세션 규율 동형).
    */
   #feed: HubQuoteFeed | null = null;
+  /**
+   * quote 연결 구독 요청 페이서 (Phase 26 Pitfall 3 · 26-10) — 28/29/32 는 in-flight 창을 거치고, 응답 없는 29 는 창 밖이다.
+   * 송신 대상은 언제나 현재 `#feed` 다. quote `ready`(합집합 재구독) · feed 교체 · `closeAll` 에서 `reset` 한다.
+   */
+  readonly #pacer: SubscribePacer;
+  /** 진행 중인 합집합 재구독(시작 시각 · 키 수 · 시작 시점 타임아웃 누적) — 완료 · 중단 로그용. 없으면 null. */
+  #resubscribeRun: { keys: number; startedAt: number; timeoutsAtStart: number } | null = null;
   /**
    * `marketKey` (`${isin}|${exchange}` · 전역) → level 별 참조계수 (quick-260923-ge2 · Phase 26 D-12).
    * linger 키(D-10)도 합계 0 인 항목으로 **남는다** — 업스트림 구독 키 집합 = `#refs` 의 키 전부(live + linger).
@@ -748,6 +751,12 @@ export class SubscriptionHub extends EventEmitter {
     this.#lingerMs = opts?.lingerMs ?? LINGER_MS;
     this.#globalLimit = opts?.limits?.global ?? QUOTE_SUB_LIMIT;
     this.#userLimit = opts?.limits?.user ?? USER_SUB_LIMIT;
+    this.#pacer = new SubscribePacer({
+      isReady: () => this.#feed?.isReady === true,
+      send: (payload) => this.#feed?.send(payload) ?? false,
+      tapeCount: TAPE_REQUEST_COUNT,
+      onIdle: () => this.#onPacerIdle(),
+    });
   }
 
   // ----------------------------------------------------------
@@ -793,6 +802,8 @@ export class SubscriptionHub extends EventEmitter {
     if (this.#feed === feed) return;
     if (this.#feed !== null) {
       logger.warn({ subscriptions: this.#refs.size }, "[HUB] quote 연결 교체 — 옛 연결 리스너는 침묵");
+      // 옛 연결로 보낸 in-flight 는 응답이 오지 않는다 — 창 · 대기열을 비우고 새 연결 ready 의 합집합 재구독에 맡긴다.
+      this.#pacer.reset();
     }
     this.#feed = feed;
     feed.on("frame", (e) => this.#onFeedFrame(feed, e));
@@ -954,10 +965,15 @@ export class SubscriptionHub extends EventEmitter {
       );
       return;
     }
-    feed.send(buildSubscribeQuoteReq(isin, exchange, true, QUOTE_LEVEL.PRICE));
+    // 응답 없는 29 — 창 밖 즉시(아직 대기 중인 키면 대기 항목 level 만 바뀐다 · 26-10).
+    this.#pacer.control(
+      marketKey(isin, exchange),
+      buildSubscribeQuoteReq(isin, exchange, true, QUOTE_LEVEL.PRICE),
+      "demote",
+    );
     logger.info(
       { userId, isin, exchange, from: linger.level, level: nextLevel, lingeredMs },
-      "[HUB] linger 중 재구독 — FULL→PRICE 강등 29(level=1) 1건",
+      "[HUB] linger 중 재구독 — FULL→PRICE 강등 29(level=1)",
     );
   }
 
@@ -1005,10 +1021,11 @@ export class SubscriptionHub extends EventEmitter {
         );
         return;
       }
-      feed.send(buildSubscribeQuoteReq(isin, exchange, true, QUOTE_LEVEL.PRICE));
+      // 응답 없는 29 — 창 밖 즉시(아직 대기 중인 키면 대기 항목 level 만 바뀐다 · 26-10).
+      this.#pacer.control(key, buildSubscribeQuoteReq(isin, exchange, true, QUOTE_LEVEL.PRICE), "demote");
       logger.info(
         { userId, isin, exchange, level: nextLevel, refs: { ...refs } },
-        "[HUB] FULL→PRICE 강등 — 29(level=1) 1건",
+        "[HUB] FULL→PRICE 강등 — 29(level=1)",
       );
       return;
     }
@@ -1061,7 +1078,8 @@ export class SubscriptionHub extends EventEmitter {
       );
       return;
     }
-    feed.send(buildSubscribeQuoteReq(isin, exchange, false));
+    // 응답 없는 29(false) — 창 밖 즉시, in-flight 키면 슬롯도 푼다. 아직 대기 중(미송신)이면 프레임 없이 대기열에서 뺀다(26-10).
+    this.#pacer.control(key, buildSubscribeQuoteReq(isin, exchange, false), "unsubscribe");
     logger.info({ isin, exchange, reason }, "[HUB] 키 해제 — 업스트림 구독 해제 29(false)");
   }
 
@@ -1100,23 +1118,63 @@ export class SubscriptionHub extends EventEmitter {
    * quote 연결 `ready` 에서 **Hub 가 소유한 전역 키 집합**(모든 사용자 참조계수의 합집합)을 순회해 전량
    * 재구독한다 (Pitfall 4 재정의 · 확정-재접속). 브라우저 상태에 의존하지 않는 것이 핵심이다 — 브라우저는
    * 아무것도 다시 보내지 않는다. 호출 원천은 quote 연결 `ready` 하나다 — 사용자 세션 `ready` 는 부르지 않는다
-   * (D-03 · D-08). 합집합 burst 페이싱은 26-10 이 이 자리에 붙는다.
+   * (D-03 · D-08).
+   *
+   * **페이싱 (Pitfall 3 · 26-10)** — 합집합을 for 루프로 한꺼번에 쏘지 않는다. 먼저 페이서를 `reset` 한다(끊긴 연결의 in-flight 는
+   * 응답이 오지 않고, 대기열은 아래에서 실효 level 로 다시 채운다). 각 키는 창(32 키)을 거쳐 응답(FULL=69 · PRICE=58) 또는
+   * 3초마다 다음 키가 나간다. 시작 · 완료(대기열과 창이 빌 때) 로그 1줄씩 — `{ keys, elapsedMs, timeouts }` 로 A5 가정(창 ·
+   * 타임아웃 값)을 실측 조정한다. 끝나기 전에 다시 끊겼다 붙으면 중단 로그 1줄 뒤 처음부터 다시 한다.
    */
   resubscribeAll(): void {
+    const interrupted = this.#resubscribeRun;
+    if (interrupted !== null) {
+      const s = this.#pacer.stats();
+      logger.info(
+        {
+          keys: interrupted.keys,
+          elapsedMs: Date.now() - interrupted.startedAt,
+          timeouts: s.timeouts - interrupted.timeoutsAtStart,
+          queued: s.queued,
+          inFlight: s.inFlight,
+        },
+        "[HUB] 합집합 재구독 중단 — quote 연결 재접속으로 처음부터 다시",
+      );
+      this.#resubscribeRun = null;
+    }
+    this.#pacer.reset();
     // linger 키(D-10)는 되걸지 않고 정리한다 — 새 연결에는 구독이 없고 소비자도 없다(29(false) 도 보낼 것이 없다).
     const lingered = [...this.#lingering.keys()];
     for (const key of lingered) this.#releaseKey(key, "quote 연결 재접속 — linger 키 정리", false);
-    let count = 0;
+
+    const live: Array<{ isin: string; exchange: RelayExchange; level: RelaySubLevel }> = [];
     for (const [key, refs] of this.#refs.entries()) {
       const parts = this.#splitMarketKey(key);
       if (parts === null) continue;
       // 키마다 **실효 level** 로 되건다 (quick-260923-ge2).
-      this.#sendSubscribe(parts.isin, parts.exchange, effectiveLevel(refs));
-      count += 1;
+      live.push({ ...parts, level: effectiveLevel(refs) });
     }
+    this.#resubscribeRun = { keys: live.length, startedAt: Date.now(), timeoutsAtStart: this.#pacer.stats().timeouts };
     logger.info(
-      { count, lingerReleased: lingered.length },
-      "[HUB] quote 연결 Ready — 전역 보유 구독 합집합 재구독 (live 키만)",
+      { keys: live.length, lingerReleased: lingered.length },
+      "[HUB] quote 연결 Ready — 합집합 재구독 시작 (live 키만 · in-flight 창 페이싱)",
+    );
+    for (const k of live) this.#sendSubscribe(k.isin, k.exchange, k.level);
+    // 완료 시점은 페이서 onIdle 이 정한다 — 응답이 끝내 오지 않아도 타임아웃으로 닫히게 추적을 건다(키 0 이면 즉시 완료).
+    this.#pacer.trackUntilIdle();
+  }
+
+  /** 페이서의 대기열과 창이 비었다 — 진행 중인 합집합 재구독이 있으면 완료 로그 1줄 (26-10). 평시 구독은 로그하지 않는다. */
+  #onPacerIdle(): void {
+    const run = this.#resubscribeRun;
+    if (run === null) return;
+    this.#resubscribeRun = null;
+    logger.info(
+      {
+        keys: run.keys,
+        elapsedMs: Date.now() - run.startedAt,
+        timeouts: this.#pacer.stats().timeouts - run.timeoutsAtStart,
+      },
+      "[HUB] 합집합 재구독 완료",
     );
   }
 
@@ -1456,6 +1514,9 @@ export class SubscriptionHub extends EventEmitter {
     }
     this.#lingering.clear();
     this.#userRefs.clear();
+    // 페이서 대기열 · in-flight 타이머 (26-10) — 뒤늦은 타이머가 아무것도 보내지 않게.
+    this.#pacer.reset();
+    this.#resubscribeRun = null;
     // 옛 feed 의 늦은 프레임 · ready 는 정본 대조(`#feed`)로 침묵한다.
     this.#feed = null;
     this.#sessions.clear();
@@ -1768,14 +1829,20 @@ export class SubscriptionHub extends EventEmitter {
       case MSG.GetQuoteResp:
       case MSG.QuoteUpdate: {
         const quote = parseQuoteState(e.env, e.msgType === MSG.GetQuoteResp);
-        // null 이면 파서가 이미 사유·카운터를 남겼다 — 여기서 다시 로그하지 않는다.
-        if (quote !== null) this.#onQuote(quote);
+        // null 이면 파서가 이미 사유·카운터를 남겼다 — 여기서 다시 로그하지 않는다(그 키 슬롯은 페이서 타임아웃이 푼다).
+        if (quote === null) return;
+        this.#onQuote(quote);
+        // 58 = 28 의 응답 — PRICE 키는 이것으로 창 슬롯이 풀린다(26-10). 59 푸시는 창과 무관하다.
+        if (e.msgType === MSG.GetQuoteResp) this.#pacer.onResponse(marketKey(quote.i, quote.x), e.msgType);
         return;
       }
       case MSG.TradeTapeResp:
       case MSG.TradeTapePush: {
         const tape = parseTradeTape(e.env, e.msgType === MSG.TradeTapeResp);
-        if (tape !== null) this.#onTape(tape);
+        if (tape === null) return;
+        this.#onTape(tape);
+        // 69 = 32 의 응답(가장 큰 Notice) — FULL 키는 이것으로 창 슬롯이 풀린다(26-10). 71 푸시는 창과 무관하다.
+        if (e.msgType === MSG.TradeTapeResp) this.#pacer.onResponse(marketKey(tape.i, tape.x), e.msgType);
         return;
       }
       case MSG.ObserverLoginResp:
@@ -2295,7 +2362,8 @@ export class SubscriptionHub extends EventEmitter {
    * (Phase 26 D-12 — 사용자 세션으로는 보내지 않는다 · D-03 폴백 없음).
    * FULL 3프레임 = 스냅샷 28 → 구독 29(level=0) → 체결 테이프 32.
    * PRICE 2프레임 = 스냅샷 28 → 구독 29(level=1) — 71 이 오지 않으므로 69 스냅샷도 요청하지 않는다.
-   * 순서가 계약이다.
+   * 순서가 계약이다. 프레임은 직접 보내지 않고 **페이서**(`#pacer.subscribe`)에 넣는다(Pitfall 3 · 26-10) — 창이 비어
+   * 있으면 즉시, 차 있으면 앞선 키의 응답(FULL=69 · PRICE=58) 또는 3초 뒤에 나간다. 대기 중 재요청은 level 만 바꾼다.
    */
   #sendSubscribe(isin: string, exchange: RelayExchange, level: RelaySubLevel): void {
     const feed = this.#feed;
@@ -2310,16 +2378,12 @@ export class SubscriptionHub extends EventEmitter {
       );
       return;
     }
-    feed.send(buildGetQuoteReq(isin, exchange));
-    feed.send(buildSubscribeQuoteReq(isin, exchange, true, levelByte(level)));
-    if (level === "full") {
-      feed.send(buildGetTradeTapeReq(isin, exchange, TAPE_REQUEST_COUNT));
-      logger.info({ isin, exchange, level }, "[HUB] 신규 구독 — 스냅샷+구독(FULL)+체결 요청 송신");
-      return;
-    }
+    this.#pacer.subscribe(marketKey(isin, exchange), isin, exchange, level);
     logger.info(
       { isin, exchange, level },
-      "[HUB] 신규 구독 — 스냅샷+구독(PRICE) 요청 송신 (체결 테이프 없음)",
+      level === "full"
+        ? "[HUB] 신규 구독 — 스냅샷+구독(FULL)+체결 요청을 페이서에 넣음"
+        : "[HUB] 신규 구독 — 스냅샷+구독(PRICE) 요청을 페이서에 넣음 (체결 테이프 없음)",
     );
   }
 
