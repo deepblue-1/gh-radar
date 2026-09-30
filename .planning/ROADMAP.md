@@ -40,6 +40,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 23: GH Trade Play 스토어 내부 테스트 배포 (개발자 인증 후)** - Play Console 개발자 인증 완료 뒤 진행 · Play 앱 서명 키 결정(one-way) · 첫 AAB 수동 업로드·내부 테스트 트랙 · Play SA·fastlane supply · 앱 서명 SHA-1 OAuth 추가 등록 · Firebase APK 테스터 1회 재설치 안내 (옛 22-05~22-07 플랜을 `from-phase-22/` 에 보관)
 - [x] **Phase 24: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영** - gh-trade Phase 24 의 `SetLimitChaser` 말미 append 17필드(`buy3_schema=1`) 를 relay 빌더·에코/열거 파서·webapp 상따 설정 3그룹(선매수/추가매수/후매수)에 반영. 감시대상(매도/매수잔량) 토글·매수 진입 래치(MsgType 38) 폐기, 매수 LED 2단계. 옵션 UI 는 WinForms 상따 창을 참고해 목업 게이트 먼저. 서버(24-11)·WinForms 배포 뒤에만 relay → webapp 배포. 브랜치 `gsd/phase-24-limitchaser-buy3` (completed 2026-09-29)
 - [ ] **Phase 25: 주문로그·잔량진행률 — gh-trade StrategyEvent 저널 수신·오늘 주문 펼침·작업대 주문로그 탭·미체결 진행률** - 기획서(MJ 9/27) 반영. 로그 7종은 gh-trade 서버 StrategyEvent(저널 80 append·별도 seq) → relay 적재·푸시 → 오늘 주문 행 펼침 + 작업대 「주문로그」 탭(전략 로그와 분리). 진행률 B안(대기 행 아래 2줄째) · 값은 `QueueProgress` 브로드캐스트. 풀안·용어 기존(후매수) 유지. 필드 v0.1 동결, 착수는 gh-trade fbs 해시 뒤.
+- [ ] **Phase 26: 시세 전용 공유 연결 — relay 종목 단위 팬아웃** - relay 가 유저별 DMA 세션마다 따로 구독해 gh-trade→relay VPN 구간에 같은 시세가 N 벌 흐르고 주문 세션 큐에서 통보가 시세 뒤에 줄을 서는 구조를, 관찰자 로그인 quote 역할(기존 공유 비밀 · 주문 권한 0) 시세 전용 연결 1개 + relay 참조계수 `isin|ex` 전역화 + 캐시 유저 간 공유 + PRICE 필터 relay 이관으로 바꾼다. WinForms 직결 유지. gh-trade 서버 변경은 gh-trade 저장소 별도 phase (추가 2026-09-30)
 
 ## Phase Details
 
@@ -1350,3 +1351,14 @@ Plans:
 **Wave 7** *(갭 클로징 — 25-VERIFICATION 갭 1건: 25-06 「세션 교체 뒤 옛 진행률 없음」 부분 미충족 = 25-REVIEW WR-02)*
 
 - [x] 25-13-PLAN.md — [WR-02] `#clearCaches` 가 진행률을 지우면 그 사용자에게 `unf.progress` snap:true [] 1프레임 · fanout 레벨 증명(이미 연결된 실 ws) · 교체 경계 테스트 · relay 배포(메인 세션 · 20:00 KST 이후 · vzy 동반/보류 선택) (W7)
+
+### Phase 26: 시세 전용 공유 연결 — relay 종목 단위 팬아웃
+
+**Goal:** 웹 유저 N 명이 같은 종목을 보면 gh-trade 서버 → relay(VPN) 구간에 같은 시세가 N 벌 흐르고, 유저별 주문 세션의 송신 큐에서 체결·주문 통보가 시세 뒤에 줄을 선다(현행: `SubscriptionHub` 참조계수 키 `userId|isin|ex`, 세션당 구독). 이를 **시세 전용 공유 연결 1개**로 바꾼다. (1) gh-trade: 관찰자 로그인(`ObserverLoginReq`)에 `role` 을 추가(journal / quote) — quote 역할 연결은 시세 계열 요청(28 GetQuote · 29 Subscribe · 32 GetTape · 거래원 · 마스터 · 등락률 돌파 스냅샷)만 허용하고 주문·전략·계좌·저널은 계속 관문에서 버린다. 인증은 기존 관찰자 공유 비밀 재사용(새 계정·새 비밀 없음), 관찰자 상한 4 안, quote 연결의 구독 상한(`kMaxSubsPerConn` 200)은 별도 값으로 검토. (2) relay: 시세 관찰자 세션 1개를 상시 유지(재접속 시 합집합 전량 재구독 · `/healthz` 반영), 구독 참조계수 키를 `isin|ex` 로 전역화(0→1 구독 · 1→0 해제 · 최고 level 로 구독), 스냅샷·체결 테이프·거래원 캐시를 유저 간 공유(새 탭은 게이트웨이 재요청 없이 캐시로 그림), PRICE 유저에게는 relay 가 71·75 제외·호가만 바뀐 59 건너뛰기를 직접 필터. 사용자 세션은 주문·계좌·상따 전략·등락률 돌파 알림·StrategyEvent(83)만 남긴다. gh-trade-client(WinForms) 는 relay 를 거치지 않고 직결 유지(범위 밖). 배포 순서 gh-trade 서버(120·127) → relay → webapp(변경 있으면). 착수 전 장중 실측(코어 3 사용률 · 연결별 송신 큐 깊이 · 주문 응답 지연) 을 before 기준선으로 남긴다.
+**Requirements**: TBD (discuss 에서 확정 — quote 역할 와이어 형식 · 구독 상한 값 · 공유 세션 단절 시 UX · PRICE 필터 판정 기준의 relay 이관 범위)
+**Depends on:** Phase 15 (relay·SubscriptionHub), Phase 19·25 (관찰자 로그인·펌프), gh-trade Phase 23 (관찰자 관문). gh-trade 쪽 서버 변경은 gh-trade 저장소에 별도 phase 로 진행.
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 26 to break down)
