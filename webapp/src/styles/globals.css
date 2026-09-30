@@ -88,6 +88,8 @@
   --seg-on-bg: #ffffff;
   --seg-on-fg: #191f28;
   --seg-on-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  /* quick-260930-e30 D2 — 스크롤 헤더 원형 햄버거 그림자(목업 `--fab-shadow` 그대로). 챗 FAB 은 자체 그림자를 쓴다. */
+  --menu-fab-shadow: 0 4px 14px rgba(0, 0, 0, 0.14), 0 0 0 1px rgba(0, 0, 0, 0.07);
   --pill-on-bg: #e8f3ff;
   --pill-on-fg: #1b64da;
   --ask-bar: rgba(49, 130, 246, 0.16);
@@ -226,6 +228,8 @@
   --seg-on-bg: #4d4d59;
   --seg-on-fg: #ffffff;
   --seg-on-shadow: 0 0 #0000;
+  /* quick-260930-e30 D2 — 원형 햄버거 그림자(다크 — 목업 `--fab-shadow` 그대로). */
+  --menu-fab-shadow: 0 2px 10px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08);
   --pill-on-bg: #4d4d59;
   --pill-on-fg: #ffffff;
   --ask-bar: rgba(52, 133, 250, 0.28);

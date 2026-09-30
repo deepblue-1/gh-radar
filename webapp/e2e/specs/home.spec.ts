@@ -142,7 +142,8 @@ test.describe('Phase 13 — 홈 승격 (HOME-01)', () => {
 
     // 클릭 → 펼침(aria-expanded=true) + overflow 종목 노출.
     await toggle.click();
-    const expanded = page.getByRole('button', { name: '접기' });
+    // exact — 헤더의 「사이드바 접기」 토글(quick-260930-e30 D1)이 부분 일치로 함께 잡히지 않게.
+    const expanded = page.getByRole('button', { name: '접기', exact: true });
     await expect(expanded).toHaveAttribute('aria-expanded', 'true');
     await expect(page.getByRole('link', { name: /가온칩스/ })).toBeVisible();
 

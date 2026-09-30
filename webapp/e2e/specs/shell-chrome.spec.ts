@@ -21,6 +21,7 @@ const KEY = 'gh-radar:sidebar-collapsed';
 const aside = (page: Page): Locator => page.locator('[data-slot="app-aside"]');
 const toggle = (page: Page): Locator => page.locator('[data-slot="app-sidebar-toggle"]');
 const menuButton = (page: Page): Locator => page.locator('[data-slot="app-menu-button"]');
+const header = (page: Page): Locator => page.locator('[data-slot="app-header"]');
 const desktopNav = (page: Page): Locator => page.locator('aside nav[aria-label="주 메뉴"]');
 
 async function widthOf(loc: Locator): Promise<number> {
@@ -132,5 +133,198 @@ test.describe('quick-260930-e30 D1 — 데스크톱 사이드바 레일', () => 
     await expect(toggle(page)).toHaveCount(1);
     await expect(toggle(page)).toBeHidden();
     await expect(aside(page)).toBeHidden();
+  });
+});
+
+// ===========================================================================
+
+/**
+ * 창 스크롤 300 을 만든다. 홈 픽스처 본문은 폭·로딩 시점에 따라 창 높이보다 짧을 수 있어(390x640 에서 여유 0~257
+ * 실측), main 끝에 2000px 스페이서를 붙여 **창**이 스크롤 주체가 되게 한다 — 판정 대상은 본문 내용이 아니라 창
+ * scrollY 다. 가드 — 그래도 300 을 못 내려가면 D2 단언이 전부 헛돈다. 원인을 메시지로 박는다.
+ */
+async function scrollTo300(page: Page): Promise<void> {
+  await expect(page.locator('main')).toBeVisible();
+  await expect(header(page)).toBeVisible();
+  const addSpacer = () =>
+    page.evaluate(() => {
+      const main = document.querySelector('main');
+      if (main && !main.querySelector('[data-e2e-spacer]')) {
+        const spacer = document.createElement('div');
+        spacer.setAttribute('data-e2e-spacer', '');
+        spacer.style.height = '2000px';
+        main.appendChild(spacer);
+      }
+      return document.documentElement.scrollHeight - window.innerHeight;
+    });
+  // 하이드레이션·로딩 교체로 스페이서가 떨어져 나갈 수 있어 붙을 때까지 다시 붙인다.
+  await expect.poll(addSpacer).toBeGreaterThanOrEqual(300);
+  const room = await page.evaluate(
+    () => document.documentElement.scrollHeight - window.innerHeight,
+  );
+  expect(room, `페이지가 짧아 창 스크롤 300 을 만들 수 없다(여유 ${room}px) — 픽스처/뷰포트 확인`).toBeGreaterThanOrEqual(300);
+  await page.evaluate(() => window.scrollTo(0, 300));
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThanOrEqual(300);
+}
+
+test.describe('quick-260930-e30 D2 — 스크롤 헤더 원형 햄버거', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockHomeApi(page, { response: HOME_POPULATED });
+    await mockStockApi(page);
+  });
+
+  test('B1 390 — 맨 위 헤더 · 300 스크롤이면 원형 햄버거만(좌·상 8 · 44 · 50%) · 클릭 통과 · 맨 위 복귀', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.setViewportSize({ width: 390, height: 640 });
+    await page.goto('/');
+
+    const hdr = header(page);
+    const logo = page.getByRole('link', { name: 'GH Trade 홈' });
+    await expect(hdr).not.toHaveAttribute('data-scroll-hidden');
+    expect(await logo.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+    const logoBox = await logo.boundingBox();
+    expect(logoBox).not.toBeNull();
+
+    await scrollTo300(page);
+    await expect(hdr).toHaveAttribute('data-scroll-hidden', 'true');
+
+    const btn = menuButton(page);
+    await expect.poll(async () => (await btn.boundingBox())?.x).toBeCloseTo(8, 0);
+    const box = (await btn.boundingBox())!;
+    expect(Math.abs(box.x - 8)).toBeLessThanOrEqual(1);
+    expect(Math.abs(box.y - 8)).toBeLessThanOrEqual(1);
+    expect(Math.round(box.width)).toBe(44);
+    expect(Math.round(box.height)).toBe(44);
+
+    const style = await btn.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { radius: cs.borderTopLeftRadius, bg: cs.backgroundColor, pe: cs.pointerEvents, shadow: cs.boxShadow };
+    });
+    expect(style.radius).toBe('50%');
+    expect(style.bg).not.toBe('rgba(0, 0, 0, 0)');
+    expect(style.bg).not.toBe('transparent');
+    expect(style.shadow).not.toBe('none');
+    expect(style.pe).toBe('auto');
+    expect(await hdr.evaluate((el) => getComputedStyle(el).pointerEvents)).toBe('none');
+    expect(await logo.evaluate((el) => getComputedStyle(el).opacity)).toBe('0');
+
+    // 로고가 있던 자리를 누르면 헤더가 아니라 그 아래 본문이 잡힌다(클릭 통과).
+    const cx = logoBox!.x + logoBox!.width / 2;
+    const cy = logoBox!.y + logoBox!.height / 2;
+    const insideHeader = await page.evaluate(
+      ([x, y]) => {
+        const el = document.elementFromPoint(x, y);
+        const h = document.querySelector('[data-slot="app-header"]');
+        return el != null && h != null && h.contains(el);
+      },
+      [cx, cy] as const,
+    );
+    expect(insideHeader).toBe(false);
+
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect(hdr).not.toHaveAttribute('data-scroll-hidden');
+  });
+
+  test('B2 390 — 스크롤 중 햄버거 → 드로어 열림 동안 헤더 강제 표시 · 닫고 포커스 빠지면 다시 숨김', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.setViewportSize({ width: 390, height: 640 });
+    await page.goto('/');
+    await scrollTo300(page);
+    const hdr = header(page);
+    await expect(hdr).toHaveAttribute('data-scroll-hidden', 'true');
+
+    await menuButton(page).click();
+    await expect(page.locator('[data-slot="sheet-content"]')).toBeVisible();
+    await expect(hdr).not.toHaveAttribute('data-scroll-hidden');
+
+    await page.keyboard.press('Escape');
+    await expect(page.locator('[data-slot="sheet-content"]')).toHaveCount(0);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(hdr).toHaveAttribute('data-scroll-hidden', 'true');
+  });
+
+  test('B3 390 — 스크롤 중 Tab 으로 헤더에 들어가면 헤더가 돌아온다', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.setViewportSize({ width: 390, height: 640 });
+    await page.goto('/');
+    await scrollTo300(page);
+    const hdr = header(page);
+    await expect(hdr).toHaveAttribute('data-scroll-hidden', 'true');
+
+    await page.keyboard.press('Tab');
+    expect(
+      await page.evaluate(() => {
+        const h = document.querySelector('[data-slot="app-header"]');
+        return h != null && h.contains(document.activeElement);
+      }),
+    ).toBe(true);
+    await expect(hdr).not.toHaveAttribute('data-scroll-hidden');
+  });
+
+  test('B4 1280 브라우저 — 스크롤해도 헤더 유지', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/');
+    await scrollTo300(page);
+    await page.waitForTimeout(400);
+    await expect(header(page)).not.toHaveAttribute('data-scroll-hidden');
+    const bg = await page.locator('[data-part="header-bg"]').evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { transform: cs.transform, translate: cs.translate };
+    });
+    expect(bg.transform).toBe('none');
+    expect(bg.translate).toBe('none');
+  });
+
+  test('B5 앱 1280 — 스크롤 300 이면 숨김 · 원형 x = 헤더 padding-left(24)', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await installNativeApp(page);
+    await page.goto('/');
+    await scrollTo300(page);
+
+    const hdr = header(page);
+    await expect(hdr).toHaveAttribute('data-scroll-hidden', 'true');
+    const btn = menuButton(page);
+    await expect(btn).toBeVisible();
+    const pad = await hdr.evaluate((el) => parseFloat(getComputedStyle(el).paddingLeft));
+    expect(pad).toBe(24);
+    const box = (await btn.boundingBox())!;
+    expect(Math.abs(box.x - pad)).toBeLessThanOrEqual(1);
+  });
+
+  /*
+    ★ Tailwind v4 `motion-reduce:transition-none` 는 `transition-property: none` 이다(duration 은 250ms 로 남는다).
+      「전환 없음」은 속성이 none 인 것으로 판정한다 — duration 이 0 이 아니어도 전환할 속성이 없다.
+  */
+  test('B6 390 — 전환 있음 · reduced-motion 이면 전환 없음', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 640 });
+    await page.goto('/');
+    const transition = () =>
+      menuButton(page).evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { property: cs.transitionProperty, duration: cs.transitionDuration };
+      });
+
+    const normal = await transition();
+    expect(normal.property).not.toBe('none');
+    expect(normal.duration.split(',').some((d) => d.trim() !== '0s')).toBe(true);
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await expect.poll(async () => (await transition()).property).toBe('none');
+    for (const sel of ['[data-part="header-bg"]']) {
+      expect(
+        await page.locator(sel).evaluate((el) => getComputedStyle(el).transitionProperty),
+      ).toBe('none');
+    }
+    expect(
+      await page
+        .getByRole('link', { name: 'GH Trade 홈' })
+        .evaluate((el) => getComputedStyle(el).transitionProperty),
+    ).toBe('none');
   });
 });

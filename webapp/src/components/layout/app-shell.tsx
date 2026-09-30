@@ -70,6 +70,8 @@ export function AppShell({
         onMenuClick={showSidebar ? () => setSheetOpen(true) : undefined}
         themeToggle={!showSidebar}
         sidebarToggle={showSidebar}
+        // quick-260930-e30 D2 — 드로어가 열려 있으면 스크롤 숨김 중에도 헤더를 강제로 보인다.
+        menuOpen={sheetOpen}
       />
 
       {/* ★ `overflow-hidden` 을 두지 않는다 — 스크롤 컨테이너가 되어 aside 의 sticky 를 죽인다. */}
