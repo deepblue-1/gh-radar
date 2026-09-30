@@ -25,10 +25,17 @@ function limitDownPrice(prevClose: number): number {
  * D-20: 활성 1,898 종목 매분 누적 UPSERT (onConflict: code).
  * D-21: stale cleanup 없음 (top_movers 와 의도적 차이) — 비활성 종목 마지막 가격 유지.
  *
- * payload 컬럼: code/price/change_amount/change_rate/volume/trade_amount/updated_at
- *   - open/high/low/upper_limit/lower_limit/market_cap 의도적 omit (STEP2 가 정확값 UPSERT, §3.3.3)
+ * payload 컬럼: code/price/change_amount/change_rate/volume/trade_amount/upper_limit/lower_limit/
+ *   updated_at/rate_updated_at
+ *   - open/high/low/market_cap 의도적 omit (STEP2 가 정확값 UPDATE, §3.3.3)
  *   - name/market 컬럼은 stock_quotes 에 존재하지 않음 — stocks 마스터 + top_movers 가 보유.
  *     market Map 인자는 top_movers 재구성에서만 사용 (호출자 책임).
+ */
+/*
+ * rate_updated_at (quick 261001-bnc): STEP1(ka10027)은 오늘 change_rate 의 권위 있는 writer 다.
+ *   호출부(index.ts)의 휴장일 가드 + detectStaleSnapshot 가드가 전일 재방출 사이클을 이미 걸러내므로
+ *   STEP1 이 쓰는 change_rate 는 곧 오늘 값이다 → updated_at 과 같은 now 로 rate_updated_at 을 찍는다.
+ *   home-sync 급등 신선도는 이 컬럼으로 판정한다 (updated_at 은 행 쓰기 시각일 뿐).
  */
 export async function upsertQuotesStep1(
   supabase: SupabaseClient,
@@ -51,6 +58,7 @@ export async function upsertQuotesStep1(
     upper_limit: limitUpPrice(prevCloseOf(u)),
     lower_limit: limitDownPrice(prevCloseOf(u)),
     updated_at: now,
+    rate_updated_at: now,
   }));
 
   let total = 0;
@@ -83,6 +91,7 @@ export async function upsertQuotesStep1(
  *
  * payload 컬럼: open/high/low/upper_limit/lower_limit/market_cap/updated_at
  *   - price/change/volume/trade_amount 의도적 omit (STEP1 매분 갱신 컬럼 보호)
+ *   - rate_updated_at 의도적 omit — change_rate 를 쓰지 않으므로 등락률 기준 시각을 보증할 수 없다 (261001-bnc)
  */
 export async function upsertQuotesStep2(
   supabase: SupabaseClient,
@@ -93,6 +102,11 @@ export async function upsertQuotesStep2(
   const now = new Date().toISOString();
   let updated = 0;
   for (const u of updates) {
+    // rate_updated_at 을 여기서 찍지 않는다 (261001-bnc). STEP2 는 change_rate 를 쓰지 않는다.
+    // hot set 에 모든 관심종목이 들어오므로 08:00~09:00(STEP1 이 NXT 거래 종목만 돌려주는 구간)에
+    // 관심종목인 KRX 전용 전일 급등주는 updated_at 만 오늘로 올라가고 change_rate 는 어제 값이다.
+    // 여기서 rate_updated_at 을 찍으면 home-sync 가 어제 상한가를 오늘 급등으로 싣는다
+    // (동일스틸럭스 023790 사고와 같은 부류).
     const { error } = await supabase
       .from("stock_quotes")
       .update({

@@ -16,18 +16,20 @@ import {
  * Phase 13 Plan 02 Task 1 + quick 260707-bqj — loadSurges (급등 종목 + 종목명 + 종목별 top-K 뉴스).
  *
  * 검증:
- *   - stock_quotes.change_rate >= surgeThreshold **AND updated_at >= 오늘 KST 자정** 만 로드,
+ *   - stock_quotes.change_rate >= surgeThreshold **AND rate_updated_at >= 오늘 KST 자정** 만 로드,
  *     change_rate desc 정렬, surgeMax cap.
  *   - stocks 마스터에서 종목명 해석.
  *   - Pitfall 1 (D-07): 종목별 top-K 뉴스를 청크 fetch 로 로드 → 단일 .in() 1000-row
  *     truncation 회피. 여러 종목이 각각 500건 뉴스여도 마지막 종목이 newsPerStock 건 유지.
  *   - 신선도 필터 (quick 260707-bqj): stale cleanup 없는 stock_quotes 에서 어제 급등/거래정지
- *     잔존 행 제외 — updated_at gte 컷오프가 주입한 now 의 KST 당일 자정.
+ *     잔존 행 제외 — rate_updated_at gte 컷오프가 주입한 now 의 KST 당일 자정.
+ *   - quick 261001-bnc: 신선도 컬럼은 등락률 기준 시각 rate_updated_at. 행 쓰기 시각(updated_at)
+ *     으로 판정하던 경로가 되살아나면 회귀 가드 테스트가 실패한다(동일스틸럭스 023790 사고).
  *
  * mock 주의: supabase-mock 의 `gte` 는 단일 vi.fn 이라 stock_quotes 쿼리의 두 gte 호출
- * (change_rate + updated_at) 을 같은 함수가 처리한다. `gte.mockResolvedValue` 는 첫 gte 까지
- * Promise 로 만들어 두 번째 `.gte("updated_at")` 체이닝을 깨뜨리므로, column 기준
- * mockImplementation(setQuotes) 으로 change_rate gte 는 chain, updated_at gte 는 resolve.
+ * (change_rate + rate_updated_at) 을 같은 함수가 처리한다. `gte.mockResolvedValue` 는 첫 gte 까지
+ * Promise 로 만들어 두 번째 rate_updated_at gte 체이닝을 깨뜨리므로, column 기준
+ * mockImplementation(setQuotes) 으로 change_rate gte 는 chain, rate_updated_at gte 는 resolve.
  */
 
 function cfg(over: Partial<HomeSyncConfig> = {}): HomeSyncConfig {
@@ -46,7 +48,7 @@ function cfg(over: Partial<HomeSyncConfig> = {}): HomeSyncConfig {
 }
 
 /**
- * stock_quotes gte mock 셋업 — change_rate gte 는 chain(this) 반환, updated_at gte 는
+ * stock_quotes gte mock 셋업 — change_rate gte 는 chain(this) 반환, rate_updated_at gte 는
  * responses 를 순차 resolve (retry 시퀀싱 재현). 이중 gte 체이닝 대응 핵심 헬퍼.
  */
 function setQuotes(
@@ -55,26 +57,26 @@ function setQuotes(
 ): void {
   let i = 0;
   chain.gte.mockImplementation((col: string) =>
-    col === "updated_at"
+    col === "rate_updated_at"
       ? Promise.resolve(responses[Math.min(i++, responses.length - 1)])
       : chain,
   );
 }
 
-/** stock_quotes gte 호출 중 updated_at gte 만 골라 컷오프 값 반환 (없으면 undefined). */
-function updatedAtCutoff(sb: MockSupabase): string | undefined {
+/** stock_quotes gte 호출 중 rate_updated_at gte 만 골라 컷오프 값 반환 (없으면 undefined). */
+function rateUpdatedAtCutoff(sb: MockSupabase): string | undefined {
   const calls = sb.from("stock_quotes").gte.mock.calls as Array<
     [string, string]
   >;
-  return calls.find((c) => c[0] === "updated_at")?.[1];
+  return calls.find((c) => c[0] === "rate_updated_at")?.[1];
 }
 
-/** stock_quotes updated_at gte 호출 횟수 (= 급등 쿼리 시도 횟수). */
-function updatedAtGteCount(sb: MockSupabase): number {
+/** stock_quotes rate_updated_at gte 호출 횟수 (= 급등 쿼리 시도 횟수). */
+function rateUpdatedAtGteCount(sb: MockSupabase): number {
   const calls = sb.from("stock_quotes").gte.mock.calls as Array<
     [string, string]
   >;
-  return calls.filter((c) => c[0] === "updated_at").length;
+  return calls.filter((c) => c[0] === "rate_updated_at").length;
 }
 
 describe("kstMidnightIso", () => {
@@ -152,7 +154,7 @@ describe("loadSurges", () => {
     expect(surges.find((s) => s.code === "005930")?.name).toBe("삼성전자");
   });
 
-  it("급등 쿼리에 updated_at 신선도 gte 컷오프 적용 (주입 now 의 KST 당일 자정)", async () => {
+  it("급등 쿼리에 rate_updated_at 신선도 gte 컷오프 적용 (주입 now 의 KST 당일 자정)", async () => {
     const sb = createMockSupabase();
     setQuotes(sb.from("stock_quotes"), [
       { data: [{ code: "005930", change_rate: 25 }], error: null },
@@ -168,8 +170,34 @@ describe("loadSurges", () => {
       now: new Date("2026-07-07T08:26:00+09:00"),
     });
 
-    // updated_at gte 가 호출되고, 값이 오늘 KST 자정(UTC 전일 15:00).
-    expect(updatedAtCutoff(sb)).toBe("2026-07-06T15:00:00.000Z");
+    // rate_updated_at gte 가 호출되고, 값이 오늘 KST 자정(UTC 전일 15:00).
+    expect(rateUpdatedAtCutoff(sb)).toBe("2026-07-06T15:00:00.000Z");
+  });
+
+  it("회귀 가드(261001-bnc): 급등 신선도를 행 쓰기 시각 updated_at 으로 판정하지 않는다", async () => {
+    // updated_at 은 행을 마지막으로 쓴 시각이라 server 상세 on-demand(00:28 KST 전일 스냅샷)·
+    // intraday-sync STEP2 hot set UPDATE 가 어제 change_rate 에 오늘 시각을 붙인다
+    // (동일스틸럭스 023790 +29.99% 사고). 판정은 rate_updated_at 1회뿐이어야 한다.
+    const sb = createMockSupabase();
+    setQuotes(sb.from("stock_quotes"), [
+      { data: [{ code: "005930", change_rate: 25 }], error: null },
+    ]);
+    sb.from("stocks").in.mockResolvedValue({
+      data: [{ code: "005930", name: "삼성전자", market: "KOSPI" }],
+      error: null,
+    });
+    sb.from("news_articles").order.mockResolvedValue({ data: [], error: null });
+
+    await loadSurges(sb as never, cfg(), {
+      retryDelayMs: 0,
+      now: new Date("2026-10-01T08:00:00+09:00"),
+    });
+
+    const cols = (
+      sb.from("stock_quotes").gte.mock.calls as Array<[string, string]>
+    ).map((c) => c[0]);
+    expect(cols.filter((c) => c === "updated_at")).toHaveLength(0);
+    expect(cols.filter((c) => c === "rate_updated_at")).toHaveLength(1);
   });
 
   it("신선도 컷오프는 자정 경계(직전/직후)에서 각자의 KST 당일 자정으로 계산", async () => {
@@ -181,7 +209,7 @@ describe("loadSurges", () => {
       emptyRetries: 0,
       now: new Date("2026-07-06T23:59:00+09:00"),
     });
-    expect(updatedAtCutoff(sbBefore)).toBe("2026-07-05T15:00:00.000Z");
+    expect(rateUpdatedAtCutoff(sbBefore)).toBe("2026-07-05T15:00:00.000Z");
 
     // 직후: 2026-07-07 00:01 KST → 2026-07-06T15:00Z.
     const sbAfter = createMockSupabase();
@@ -191,7 +219,7 @@ describe("loadSurges", () => {
       emptyRetries: 0,
       now: new Date("2026-07-07T00:01:00+09:00"),
     });
-    expect(updatedAtCutoff(sbAfter)).toBe("2026-07-06T15:00:00.000Z");
+    expect(rateUpdatedAtCutoff(sbAfter)).toBe("2026-07-06T15:00:00.000Z");
   });
 
   it("surgeMax 로 cap", async () => {
@@ -371,7 +399,7 @@ describe("loadSurges", () => {
     const surges = await loadSurges(sb as never, cfg(), { retryDelayMs: 0 });
 
     expect(surges.map((s) => s.code)).toEqual(["000660"]);
-    expect(updatedAtGteCount(sb)).toBe(2); // 1 + 재시도 1
+    expect(rateUpdatedAtGteCount(sb)).toBe(2); // 1 + 재시도 1
   });
 
   it("retry-on-empty: 모두 빈 결과면 재시도 소진 후 [] (진짜 급등 없는 날)", async () => {
@@ -384,7 +412,7 @@ describe("loadSurges", () => {
     });
 
     expect(surges).toEqual([]);
-    expect(updatedAtGteCount(sb)).toBe(3); // 1 + 재시도 2
+    expect(rateUpdatedAtGteCount(sb)).toBe(3); // 1 + 재시도 2
   });
 });
 

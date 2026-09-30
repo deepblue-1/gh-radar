@@ -56,11 +56,11 @@ const CLUSTER_PAYLOAD: HomeSnapshotPayload = {
 /** 급등 2종목 + 뉴스 — loadSurges 가 이 값을 반환하도록 mock supabase seed. */
 function seedSurgeSupabase() {
   const sb = createMockSupabase();
-  // loadSurges 급등 쿼리는 이중 gte(change_rate + updated_at 신선도 필터). change_rate gte 는
-  // chain 유지, updated_at gte 가 종결 resolve (quick 260707-bqj).
+  // loadSurges 급등 쿼리는 이중 gte(change_rate + rate_updated_at 신선도 필터). change_rate gte 는
+  // chain 유지, rate_updated_at gte 가 종결 resolve (quick 260707-bqj · 261001-bnc).
   const q = sb.from("stock_quotes");
   q.gte.mockImplementation((col: string) =>
-    col === "updated_at"
+    col === "rate_updated_at"
       ? Promise.resolve({
           data: [
             { code: "005930", change_rate: 25 },
@@ -432,7 +432,7 @@ describe("runHomeSyncCycle (전 거래일 테마 이월, quick-260915-boq)", () 
     const sb = createMockSupabase();
     const q = sb.from("stock_quotes");
     q.gte.mockImplementation((col: string) =>
-      col === "updated_at" ? Promise.resolve({ data: [], error: null }) : q,
+      col === "rate_updated_at" ? Promise.resolve({ data: [], error: null }) : q,
     );
     const snaps = sb.from("home_theme_snapshots");
     snaps.limit.mockResolvedValue({ data: [], error: null });
@@ -696,10 +696,10 @@ describe("runHomeSyncCycle (transient-empty 가드)", () => {
   /** stock_quotes gte → [] (급등 0) 로 seed. */
   function seedEmptySupabase() {
     const sb = createMockSupabase();
-    // 이중 gte(change_rate + updated_at) 대응 — updated_at gte 가 종결 resolve([]).
+    // 이중 gte(change_rate + rate_updated_at) 대응 — rate_updated_at gte 가 종결 resolve([]).
     const q = sb.from("stock_quotes");
     q.gte.mockImplementation((col: string) =>
-      col === "updated_at" ? Promise.resolve({ data: [], error: null }) : q,
+      col === "rate_updated_at" ? Promise.resolve({ data: [], error: null }) : q,
     );
     return sb;
   }
@@ -795,7 +795,7 @@ describe("runHomeSyncCycle (테마 힌트 배선, quick-260720-in0)", () => {
     const sb = createMockSupabase();
     const q = sb.from("stock_quotes");
     q.gte.mockImplementation((col: string) =>
-      col === "updated_at" ? Promise.resolve({ data: [], error: null }) : q,
+      col === "rate_updated_at" ? Promise.resolve({ data: [], error: null }) : q,
     );
     sb.from("home_theme_snapshots").limit.mockResolvedValue({ data: [], error: null });
     const cluster = vi.fn().mockResolvedValue(CLUSTER_PAYLOAD);

@@ -7,7 +7,10 @@ import { previousTradingDate } from "./tradingDay";
  * Phase 13 Plan 02 Task 1 — 오늘의 급등 종목 + 종목명 + 종목별 top-K 뉴스 로드.
  *
  * 흐름 (server/src/lib/quoteJoin.ts 청크 패턴 계승):
- *   1. stock_quotes.change_rate >= surgeThreshold 통과분 **전체** 로드 (정렬/cap 은 아직 안 함).
+ *   1. stock_quotes.change_rate >= surgeThreshold AND rate_updated_at >= 오늘 KST 자정 통과분
+ *      **전체** 로드 (정렬/cap 은 아직 안 함). 신선도는 등락률 기준 시각 rate_updated_at 으로 판정한다
+ *      — updated_at 은 행 쓰기 시각이라 server 상세 on-demand(00:28 KST 전일 스냅샷)·STEP2 hot set
+ *      UPDATE 가 어제 change_rate 에 오늘 시각을 붙였다(261001 동일스틸럭스 023790 +29.99%).
  *   2. stocks 마스터에서 code→name/market/security_group 해석 (청크 IN, QUOTE_CHUNK) 후
  *      ETN/ETF/레버리지·인버스 제외(isExcludedProduct) → change_rate desc → surgeMax cap.
  *      **필터가 slice 보다 먼저여야** 제외된 자리를 후순위 일반 종목이 채운다 (slice 를 먼저 하면
@@ -151,11 +154,14 @@ export async function loadSurges(
   const retryDelayMs = opts.retryDelayMs ?? 1500;
   // 사이클 기준 시각 1회 고정 — 신선도 컷오프와 뉴스 창 컷오프가 같은 now 를 쓴다(벽시계 직접 읽기 금지).
   const now = opts.now ?? new Date();
-  // stale cleanup 없는 stock_quotes(D-21)에서 어제 급등/거래정지 잔존 행 제외 — 오늘 KST 자정 이후 갱신만.
+  // stale cleanup 없는 stock_quotes(D-21)에서 어제 급등/거래정지 잔존 행 제외 — 등락률 기준 시각
+  // (rate_updated_at)이 오늘 KST 자정 이후인 행만. updated_at 필터는 쓰지 않는다: updated_at 은 행 쓰기
+  // 시각이라 server 상세 on-demand(00:28 KST 전일 스냅샷)·STEP2 hot set UPDATE 가 어제 change_rate 에
+  // 오늘 시각을 붙였다(261001 동일스틸럭스 023790 +29.99%). rate_updated_at 이 NULL 인 행은 제외(fail-safe).
   // 사이클 내 고정값이므로 retry 루프 밖에서 1회 계산.
   const freshnessCutoff = kstMidnightIso(now);
 
-  // 1) 급등 종목 (change_rate >= threshold, updated_at >= 오늘 KST 자정) — 통과분 전체.
+  // 1) 급등 종목 (change_rate >= threshold, rate_updated_at >= 오늘 KST 자정) — 통과분 전체.
   //    정렬/cap 은 2b(제외 필터 뒤)에서 한다.
   //    빈 결과(0행)는 상류 stock_quotes 갱신 갭 / 일시 read blip 일 수 있으므로 (에러 아닌
   //    빈 성공 응답일 때만) 짧게 재시도한다. 진짜 급등 없는 날은 재시도해도 0 → 빠르게 [] 반환.
@@ -165,7 +171,7 @@ export async function loadSurges(
       .from("stock_quotes")
       .select("code,change_rate")
       .gte("change_rate", cfg.surgeThreshold)
-      .gte("updated_at", freshnessCutoff);
+      .gte("rate_updated_at", freshnessCutoff);
     if (qErr) throw qErr;
     quoteRows = (data ?? []) as Array<{ code: string; change_rate: number }>;
     if (quoteRows.length > 0 || attempt === emptyRetries) break;

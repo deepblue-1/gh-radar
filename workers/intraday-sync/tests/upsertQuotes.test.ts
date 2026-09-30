@@ -52,6 +52,22 @@ describe("upsertQuotesStep1", () => {
     expect(payload[0].market_cap).toBeUndefined();
   });
 
+  it("rate_updated_at 을 updated_at 과 같은 now 로 함께 기록 (261001-bnc — STEP1 이 오늘 change_rate writer)", async () => {
+    const supabase = mockUpsert();
+    const mk = (code: string): IntradayCloseUpdate => ({
+      code, date: "2026-10-01", price: 1000, changeAmount: 100, changeRate: 11.11, volume: 1, tradeAmount: 1000,
+    });
+    await upsertQuotesStep1(
+      supabase as unknown as Parameters<typeof upsertQuotesStep1>[0],
+      [mk("023790"), mk("005930")],
+    );
+    const payload = supabase._upsert.mock.calls[0][0] as Array<Record<string, unknown>>;
+    for (const row of payload) {
+      expect(typeof row.updated_at).toBe("string");
+      expect(row.rate_updated_at).toBe(row.updated_at);
+    }
+  });
+
   it("upper/lower_limit 는 전일종가 기준 호가단위 산출 (260914 실측값 대조)", async () => {
     const supabase = mockUpsert();
     const mk = (code: string, price: number, changeAmount: number): IntradayCloseUpdate => ({
@@ -147,6 +163,29 @@ describe("upsertQuotesStep2", () => {
     expect(payload.trade_amount).toBeUndefined();
     // code 는 payload 가 아니라 .eq() 절에 사용
     expect(supabase._eq).toHaveBeenCalledWith("code", "005930");
+  });
+
+  it("rate_updated_at 은 쓰지 않는다 — change_rate 를 안 쓰는 hot set UPDATE (261001-bnc)", async () => {
+    const supabase = mockUpdateEq();
+    await upsertQuotesStep2(
+      supabase as unknown as Parameters<typeof upsertQuotesStep2>[0],
+      [
+        {
+          code: "023790",
+          date: "2026-10-01",
+          open: 100,
+          high: 110,
+          low: 95,
+          upperLimit: 130,
+          lowerLimit: 70,
+          marketCap: null,
+        },
+      ],
+    );
+    const payload = supabase._update.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("rate_updated_at");
+    expect(payload).not.toHaveProperty("change_rate");
+    expect(typeof payload.updated_at).toBe("string");
   });
 
   it("250 row → 250회 update 직렬 호출", async () => {
