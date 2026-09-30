@@ -46,12 +46,22 @@ import {
   WsFanout,
   type WsFanoutDeps,
 } from "../src/ws/fanout.js";
-import { SubscriptionHub, TAPE_BATCH_MS, type HubSession } from "../src/hub/subscription-hub.js";
+import {
+  PRICE_MIN_INTERVAL_MS,
+  SubscriptionHub,
+  TAPE_BATCH_MS,
+  type HubSession,
+} from "../src/hub/subscription-hub.js";
 import { SessionManager } from "../src/dma/session-manager.js";
 import { QuoteFeed } from "../src/quote/feed.js";
 import type { DmaSession } from "../src/dma/session.js";
 import { encryptDmaPassword } from "../src/store/credentials.js";
-import { resetDroppedEnvelopeCount, tryParseEnvelope, type LcSetCfg } from "../src/dma/envelope.js";
+import {
+  droppedEnvelopeCount,
+  resetDroppedEnvelopeCount,
+  tryParseEnvelope,
+  type LcSetCfg,
+} from "../src/dma/envelope.js";
 import type { TransportFrameEvent } from "../src/dma/dma-client.js";
 import { MSG } from "../src/dma/msg-type.js";
 import { LC_LEGACY_SET_REJECT_TEXT } from "../src/ws/protocol.js";
@@ -71,6 +81,7 @@ import {
   SAMPLE_ACCOUNT_NO,
   SAMPLE_ISIN,
   STRATEGY_MSG,
+  buildBareEnvelope,
   buildLoginRespFrame,
   buildQueueProgressFrame,
   buildQueuedWindowStateFrame,
@@ -810,6 +821,67 @@ describe("WsFanout", () => {
 
       expect(ws.closeInfo?.code).toBe(4400);
       expect(h.hub.refCount(SAMPLE_ISIN, "KRX")).toBe(0);
+    });
+
+    it("F8 PRICE/FULL 혼합 소켓 — 호가 틱 price 0 · 체결 price 1 · tape full 만 · 75 브라우저 0 (D-05 · D-07)", async () => {
+      // 같은 KRX 키를 A 는 full(호가창) · B 는 price(돌파 칩)로 본다 — 업스트림은 FULL 이라 호가 틱까지 흐르고,
+      // relay 가 서버 PRICE 규칙을 복제해 B 에게 가격 섹션이 바뀐 59 만 준다(hub 키 단위 판정 → fanout 소켓 level 필터).
+      const a = await authed("token-a");
+      const b = await authed("token-b");
+      a.ws.sendSub(SAMPLE_ISIN, "KRX");
+      b.ws.sendSub(SAMPLE_ISIN, "KRX", "price");
+      await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 2, "A full · B price 구독");
+      await waitFor(() => countOf(MSG.GetTradeTapeReq) === 1, "게이트웨이 체결 요청");
+      expect(h.hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBe("full");
+
+      // 58 — 두 소켓 모두.
+      quoteGateway.pushQuote(quoteSock, { snapshot: true });
+      await waitFor(
+        () => framesOf(a.inbox, "q").length === 1 && framesOf(b.inbox, "q").length === 1,
+        "A · B 스냅샷",
+      );
+
+      // 호가 · 체결 시각만 바뀐 59 → A 1 · B 0.
+      quoteGateway.pushQuote(quoteSock, {
+        snapshot: false,
+        askPrices: [71_100n, 71_200n, 71_300n, 71_400n, 71_500n, 71_600n, 71_700n, 71_800n, 71_900n, 72_000n],
+        bidQtys: [999n, 998n, 997n, 996n, 995n, 994n, 993n, 992n, 991n, 990n],
+        exchangeTime: "093016000000",
+      });
+      await waitFor(() => framesOf(a.inbox, "q").length === 2, "A 호가 틱");
+      await flushIo(20);
+      expect(framesOf(a.inbox, "q")[1]).toMatchObject({ snap: false, ap: expect.arrayContaining([71_100]) });
+      expect(framesOf(b.inbox, "q")).toHaveLength(1);
+
+      // 체결 59(마지막 PRICE 송신 +100ms) → A 1 · B 1. 하네스의 가짜 타이머는 `Date` 를 가짜로 두지 않아
+      // `vi.setSystemTime` 이 `Date.now()` 에 닿지 않는다 — 실시계에 단조 오프셋을 더하는 스파이로 100ms 를 민다
+      // (afterEach 의 restoreAllMocks 가 원복). 지연 방출 타이머가 아니라 「간격 충족 즉시 통과」 경로를 본다.
+      const realNow = Date.now.bind(Date);
+      vi.spyOn(Date, "now").mockImplementation(() => realNow() + PRICE_MIN_INTERVAL_MS);
+      await pushQuoteAndAwait([a.inbox, b.inbox], 71_200n);
+      await flushIo(20);
+      expect(framesOf(a.inbox, "q")).toHaveLength(3);
+      expect(framesOf(b.inbox, "q")).toHaveLength(2);
+      // D-07 — price 소켓이 받는 59 본문은 full 과 같은 RelayQuote 프레임(호가 배열까지 그대로).
+      expect(framesOf(b.inbox, "q")[1]).toEqual(framesOf(a.inbox, "q")[2]);
+      expect(framesOf(b.inbox, "q")[1]).toMatchObject({ p: 71_200, snap: false });
+
+      // 71 tape → A 1 · B 0.
+      await pushTapeAndFlush("090000000008");
+      await waitFor(() => framesOf(a.inbox, "tape").length === 1, "A tape");
+      await flushIo(20);
+      expect(framesOf(b.inbox, "tape")).toHaveLength(0);
+
+      // 75 거래원 → envelope 단계에서 드롭 — 두 소켓 모두 0 · 명시 case 없는 번호 계수도 0.
+      const aBefore = a.inbox.length;
+      const bBefore = b.inbox.length;
+      const dropsBefore = droppedEnvelopeCount();
+      quoteGateway.sendFrame(quoteSock, buildBareEnvelope(75));
+      await waitFor(() => droppedEnvelopeCount() === dropsBefore + 1, "75 envelope 드롭");
+      await flushIo(20);
+      expect(a.inbox).toHaveLength(aBefore);
+      expect(b.inbox).toHaveLength(bBefore);
+      expect(h.hub.unhandledFrameCount()).toBe(0);
     });
   });
 
