@@ -37,7 +37,7 @@ relay 가 유저별 DMA 세션마다 따로 시세를 구독해 gh-trade→relay
 
 ### ② PRICE 필터 relay 이관 범위
 
-- **D-05: FULL 로 구독된 키를 PRICE 소켓이 볼 때 relay 는 서버 PRICE 규칙을 그대로 복제한다** — 가격 섹션(A3 체결 · R8 VI · A6 종가)이 갱신된 59 만 통과, 호가(B6)만 바뀐 틱은 0건, 키당 최소 200ms 간격. 필드 정본은 `tasks/gh-trade-price-only-quote-subscription-reply.md`. ⚠ `relay/src/dma/envelope.ts:452` 주석은 「≥100ms」 라 회신문(200ms)과 어긋난다 — 리서치가 gh-trade `MarketPublisher` 로 확인해 값 하나로 맞추고 주석을 고친다. 71·75 는 PRICE 소켓에 보내지 않는다(71 은 `fanout.ts:1645` 현행 필터, 75 추가).
+- **D-05: FULL 로 구독된 키를 PRICE 소켓이 볼 때 relay 는 서버 PRICE 규칙을 그대로 복제한다** — 가격 섹션(A3 체결 · R8 VI · A6 종가)이 갱신된 59 만 통과, 호가(B6)만 바뀐 틱은 0건, 키당 최소 **100ms**(서버 `MarketPublisher.h:159` `kPriceLevelMinIntervalMs = 100`, quick-260923-hp5 에서 200→100 · 퍼블리셔 코얼레싱 틱 1개와 같음 — gh-trade 확인 2026-09-30). 방출 규칙(MarketPublisher.cpp ~1919 동형): 가격 섹션 갱신으로 pending 이 선 키에서 마지막 PRICE 송신 뒤 100ms 이상 지났을 때 **그 시점 최신 상태** 59 한 프레임 — 억제된 갱신은 버리지 않고 다음 허용 틱에 최신 상태로 나간다(유실 없이 지연만). ⚠ `tasks/gh-trade-price-only-quote-subscription-reply.md` 의 「200ms」 는 hp5 이전 값이라 낡았다 — 필드 정본(가격 섹션 3종·본문 동일)만 그 문서를 따르고 간격은 100ms 다. `relay/src/dma/envelope.ts:452` 주석(≥100ms)이 맞다. 71·75 는 PRICE 소켓에 보내지 않는다(71 은 `fanout.ts:1645` 현행 필터, 75 추가).
 - **D-06: 판정은 hub 키 단위 1회.** 키마다 마지막 가격 섹션·마지막 PRICE 송신 시각을 두고 59 프레임에 「PRICE 통과」 플래그를 붙인다. fanout 은 소켓 level 로만 거른다 — 소켓 수와 무관한 비용, 서버 코얼레싱(종목 단위 전역 틱)과 동형. PRICE-only 키는 업스트림 level=1 이라 서버가 이미 걸러 relay 판정은 전부 통과한다(무해).
 - **D-07: PRICE 소켓용 59 본문은 FULL 과 같은 프레임.** 축약 타입을 만들지 않는다. 웹 파서·리듀서·shared 타입 변경 0.
 
@@ -81,7 +81,7 @@ relay 가 유저별 DMA 세션마다 따로 시세를 구독해 gh-trade→relay
 - `server/src/net/Gateway.h` `kMaxObservers = 4` · `server/src/market/publish/MarketPublisher.h` `kMaxSubsPerConn = 200`(quote 2000 은 별도 값).
 
 ### relay 기존 규약
-- `tasks/gh-trade-price-only-quote-subscription-reply.md` — PRICE level 정본(59 만 · 가격 섹션 갱신 때만 · 키당 200ms · 본문은 FULL 과 같은 빌더 · 서버 코얼레싱은 종목 단위 전역 100ms 틱). D-05 판정기의 필드 정본.
+- `tasks/gh-trade-price-only-quote-subscription-reply.md` — PRICE level 정본(59 만 · 가격 섹션 갱신 때만 · 본문은 FULL 과 같은 빌더 · 서버 코얼레싱은 종목 단위 전역 100ms 틱). D-05 판정기의 **필드** 정본 — 문서의 「200ms」 는 낡았고 현행 최소 간격은 100ms(gh-trade `MarketPublisher.h:159`).
 - `relay/src/hub/subscription-hub.ts` 헤더 주석 §level(quick-260923-ge2) · D-33 · D-35 · D-23 — 구독 프레임 순서·승격/강등·「relay 추가 코얼레싱 없음」·계좌 상태는 구독과 무관.
 - `.planning/phases/15-dma-relay-kb-gh-trade-server-10-wss/15-CONTEXT.md` D-11 · D-13 · D-15 · D-16 · D-33 — wss 인증 · 사용자별 세션 · 5분 유예 · 재접속 · 시세 프레임.
 - `.planning/phases/19-account-order-journal/19-CONTEXT.md` D-04 · D-09 · D-10 · D-13 · D-14 — 관찰자 자격·비밀 하나·24시간 상시·거부 시 중단·빅뱅 전환 선례.

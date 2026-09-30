@@ -50,12 +50,12 @@
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| 서버 규칙 그대로 복제 | 가격 섹션 필드 비교 + 키당 200ms 최소 간격, 정본 `tasks/gh-trade-price-only-quote-subscription-reply.md` | ✓ |
+| 서버 규칙 그대로 복제 | 가격 섹션 필드 비교 + 키당 최소 간격(질문 시점 200ms 로 제시 → gh-trade 확인 후 100ms 로 정정), 정본 `tasks/gh-trade-price-only-quote-subscription-reply.md` | ✓ |
 | 200ms 간격만 | 필드 비교 없이 키당 200ms 에 하나, 호가만 바뀐 틱도 나감 | |
 | 71·75 만 빼고 59 전부 통과 | 필터 최소, PRICE 소켓도 10Hz, ge2 이전으로 후퇴 | |
 
 **User's choice:** 서버 규칙 그대로 복제
-**Notes:** `envelope.ts:452` 주석(≥100ms)과 회신문(200ms) 불일치 — 리서치가 확인해 하나로 맞춘다.
+**Notes:** `envelope.ts:452` 주석(≥100ms)과 회신문(200ms) 불일치를 gh-trade 세션에 물어 **100ms 가 맞다** 는 답을 받았다(`MarketPublisher.h:159` `kPriceLevelMinIntervalMs = 100`, quick-260923-hp5). 억제된 갱신은 다음 허용 틱에 최신 상태로 나간다(유실 없음). CONTEXT D-05 에 반영.
 
 | Option | Description | Selected |
 |--------|-------------|----------|
