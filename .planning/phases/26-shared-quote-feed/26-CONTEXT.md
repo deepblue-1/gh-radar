@@ -53,6 +53,13 @@ relay 가 유저별 DMA 세션마다 따로 시세를 구독해 gh-trade→relay
 - **D-12: 빅뱅 전환.** per-user 종목 구독 코드를 걷어내고 경로 하나만 남긴다(19 D-14 선례). env 플래그 병존 없음. 롤백 = 이전 relay 이미지 재배포(서버는 role 미지정 relay 를 journal 로 받으므로 그대로 둔다). — **Reversibility:** costly — 걷어낸 per-user 구독 경로·테스트를 되살리려면 hub·fanout·session-manager 를 다시 결선해야 하고, 그 사이 서버 구독 상한(200)·관찰자 정원(4) 전제가 바뀌어 있다.
 - **D-13: 착수 전 장중 기준선 실측(코어 3 사용률 · 연결별 송신 큐 깊이 · 주문 응답 지연)은 생략한다**(사용자 결정 2026-09-30). ROADMAP Phase 26 Goal 의 「착수 전 … before 기준선」 조항은 내린다 — 전후 비교 근거 없이 진행함을 알고 택했다. 배포 뒤 확인은 `/healthz`·relay 로그·smoke 로 한다.
 
+### ⑤ plan-phase 추가 결정 (2026-09-30 — 리서치 Open Questions 에 대한 사용자 답)
+
+- **D-14: 배지 2축 UI 는 HTML 목업 1장으로 검토 후 박제.** WorkbenchStatusBar · MeStatusBar 에 「시세」 필 추가 + 기존 필 「주문」 문구 변경은, 구현 전 라이트/다크 × live/down 목업 1장을 `checkpoint:human-verify` 로 열어 사용자 확인을 받은 뒤 채택안대로 구현한다. 별도 UI-SPEC 은 만들지 않는다.
+- **D-15: 사용자당 구독 키 상한 200 을 relay 가 추가로 건다.** 전역 2000(D-11) 과 별개로, 한 사용자(모든 탭 합산)가 참조하는 `isin|ex` 키가 200 을 넘으면 새 키를 거부 — 오류 프레임·healthz 카운터·경고 로그는 D-11 과 같은 경로. 사용자 세션에 구독이 없어진 뒤 서버의 세션당 200 이 더는 적용되지 않는 빈자리를 메운다.
+- **D-16: quote 세션 단절 503 은 장중 창에서만 판정한다(journal 선례).** `journalAlerting` 과 같이 `inTradingWindow`(KST 평일·비휴장·08:00~20:00) 안에서만 quote not-live 가 유예(재량, 권고 60초) 를 넘으면 503. 거부(`rejected`)·`role_mismatch` 는 창과 무관하게 즉시 503. `/healthz` 본문의 quote 필드는 24시간 싣는다. D-02 의 「Ready 가 아니면 503」 은 이 장중 창 규칙으로 좁힌다.
+- **D-17: quote 비밀은 `DMA_QUOTE_OBSERVER_SECRET` 우선, 없으면 `DMA_OBSERVER_SECRET` 폴백.** 프로덕션 Secret Manager·배포 스크립트는 바꾸지 않는다(값이 같아 폴백으로 동작). e2e 는 quote 키만 넣어 journal 관찰자는 꺼진 채 fake gateway 가 quote 로그인만 받는다. 「새 비밀 없음」 은 서버 쪽 약속이고 relay env 키 추가는 그 약속을 깨지 않는다.
+
 ### Claude's Discretion
 
 - quote 세션 구현 형태: `relay/src/journal/observer.ts` 상태기계를 role 매개변수로 재사용할지 파생 클래스로 둘지. 79 뒤 저널 필드는 무시, 78 은 hub 의 78 경로로 흘린다.
