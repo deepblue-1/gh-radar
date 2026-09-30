@@ -133,10 +133,11 @@ describe("QuoteStatus — quote.state 디바운스 · healthz 본문 (D-02 · D-
     expect(frames).toEqual([{ t: "quote.state", s: "down", since: BOOT.toISOString() }]);
 
     st().close();
+    const rebootAt = new Date(Date.now()).toISOString(); // 두 번째 기동 = 첫 이탈 시각
     boot();
     feed.set("role_mismatch");
     await vi.advanceTimersByTimeAsync(QUOTE_DOWN_AFTER_MS);
-    expect(frames).toEqual([{ t: "quote.state", s: "down", since: BOOT.toISOString() }]);
+    expect(frames).toEqual([{ t: "quote.state", s: "down", since: rebootAt }]);
     expect(st().health(Date.now()).state).toBe("role_mismatch");
   });
 

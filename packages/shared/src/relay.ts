@@ -1290,6 +1290,26 @@ export type RelayJournalStateMsg = {
   since?: string;
 };
 
+/** 시세 전용 공유 연결 상태 (Phase 26 D-01 · D-02). `live` = quote 연결 Ready · `down` = 끊김/재접속 중/거부. */
+export type RelayQuoteState = "live" | "down";
+
+/**
+ * 시세 전용 공유 연결 상태 표식 (Phase 26 D-01 배지 「시세」 축 원천 · D-02). 원천은 relay quote 연결(관찰자 role 1)의
+ * 상태 기계다 — 사용자 DMA 세션 상태(`RelayStateMsg`)와 별개 축이다.
+ *
+ * - 인증 직후 그 연결에 **스냅샷 1프레임**, 이후 상태가 바뀔 때(전이) 보낸다. `down` 은 3초 디바운스 뒤에만 나간다
+ *   (짧은 재접속 깜빡임은 배지에 드러나지 않는다).
+ * - `since` 는 quote 연결이 `live` 를 벗어난 시각(ISO). `live` 이면 생략한다.
+ * - relay 가 상태를 **모르면**(quote 연결 비활성) **보내지 않는다** — 브라우저는 프레임 부재를 「표식 없음」 으로 읽는다.
+ * - 계좌 · 사용자 식별자를 담지 않는다(공개 연결 상태).
+ */
+export type RelayQuoteStateMsg = {
+  t: "quote.state";
+  s: RelayQuoteState;
+  /** `live` 를 벗어난 시각(ISO). `live` 이면 없다. */
+  since?: string;
+};
+
 /**
  * relay 구독 한도 거부 (Phase 26 D-11 · D-15). 브라우저의 `sub` 이 한도에 닿아 구독이 **만들어지지 않았음**을 알린다.
  *
@@ -1362,6 +1382,7 @@ export type RelayOutbound =
   | RelayNxtSnapMsg
   | RelayJournalRowsMsg
   | RelayJournalStateMsg
+  | RelayQuoteStateMsg
   | RelaySubLimitMsg
   | RelayJournalEventsMsg
   | RelayUnfProgressMsg;

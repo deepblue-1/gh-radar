@@ -90,6 +90,9 @@ export type {
   RelayJournalStateMsg,
   // --- Phase 26 구독 한도 거부 (D-11 · D-15) ---
   RelaySubLimitMsg,
+  // --- Phase 26 시세 공유 연결 상태 (D-01 · D-02) ---
+  RelayQuoteState,
+  RelayQuoteStateMsg,
   // --- Phase 25 전략 이벤트 푸시 · 잔량진행률 프레임 ---
   RelayJournalEventsMsg,
   RelayUnfProgressEntry,
