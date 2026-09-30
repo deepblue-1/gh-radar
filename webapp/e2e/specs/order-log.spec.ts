@@ -3,6 +3,7 @@ import { test, expect, type Locator, type Page } from '@playwright/test';
 import { kstDateIso, type StrategyEventRow } from '@gh-radar/shared';
 
 import { mockStockApi } from '../fixtures/mock-api';
+import { scrollOverflowing } from '../overflow';
 import { installNativeApp } from '../fixtures/native-app';
 import { FIXTURE_SAMSUNG } from '../fixtures/stocks';
 import {
@@ -35,8 +36,9 @@ import {
  *   ★ 실서버 IP · 실계좌 리터럴 없음 — 게이트웨이는 127.0.0.1 스텁, 관찰자 비밀은 테스트 전용 값(T-25-32).
  *   ★ 전략 seq 는 픽스처가 스펙 수명 동안 조밀하게 다시 매긴다(relay 기록기 연속성 — fixtures/relay.ts ⑦).
  *
- * ④ Phase 25-10 — 카드 탭 「주문로그」(P25-7) · 창 분리 페이지 `/trading/order-log`(P25-8) · 백스톱 실측(P25-9 —
- *   폰 밴드 공용 패널 탭 줄 한 줄 · 카드 탭 줄이 카드 폭을 밀지 않음 · 카드 주문로그 본문 고정 높이 · 자동 따라감).
+ * ④ Phase 25-10 — 카드 주문로그(P25-7) · 창 분리 페이지 `/trading/order-log`(P25-8) · 백스톱 실측(P25-9).
+ *   quick-260930-lq5 — 카드 로그는 탭이 아니라 탭 줄 버튼 + 한 종목 팝업이다(P25-7 · P25-7b 1280/390 × 라이트/다크
+ *   스크린샷 · P25-9 폰 밴드 탭 줄 한 줄 · 팝업 전체 화면 맨 아래 · 새 줄 따라감).
  */
 
 test.describe.configure({ mode: 'serial' });
@@ -280,9 +282,12 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
   const FOCUS_URL = '/trading?code=005930';
   const cardOf = (page: Page) => page.locator(`[data-slot="strategy-card"][data-key^="${E2E_ISIN}:"]`);
   const cardTabs = (page: Page) => cardOf(page).locator('[data-slot="card-tabs"]');
-  const cardLines = (page: Page) => cardTabs(page).locator('li[data-slot="order-log-line"]');
-  const cardOrderLogBody = (page: Page) =>
-    cardTabs(page).locator('[data-slot="order-log"][data-surface="card"] [data-slot="order-log-body"]');
+  const logButton = (page: Page, kind: '주문로그' | '전략로그') =>
+    cardTabs(page).locator(`[data-slot="card-tabs-bar"] [data-slot="card-log-button"][data-log="${kind}"]`);
+  const dialog = (page: Page) => page.getByRole('dialog');
+  const popupRows = (page: Page) => dialog(page).locator('tr[data-slot="card-log-row"]');
+  const popupPhoneRows = (page: Page) => dialog(page).locator('li[data-slot="card-log-phone-row"]');
+  const popupBody = (page: Page) => dialog(page).locator('[data-slot="card-log-body"]');
 
   /** 카드 범위 = 카드 계좌 주문 + 이 종목 · KRX(시세 포함). */
   const inCardScope = (r: StrategyEventRow) =>
@@ -294,17 +299,24 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
     await expect(cardOf(page)).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
   }
 
-  async function openCardOrderLog(page: Page): Promise<void> {
-    const tab = cardTabs(page).getByRole('tab', { name: /^주문로그/ });
-    if ((await tab.getAttribute('aria-selected')) !== 'true') await tab.click();
-    await expect(tab).toHaveAttribute('aria-selected', 'true');
-    // 카드 탭이 접힌 채(저장된 선호) 마운트됐으면 편다.
-    const fold = cardTabs(page).locator('[data-slot="card-tabs-fold"]');
-    if ((await fold.getAttribute('aria-expanded')) !== 'true') await fold.click();
-    await expect(cardTabs(page).locator('[data-slot="card-tabs-body"]')).toBeVisible();
+  /** 카드 탭 줄 버튼 → 팝업. 줄 로케이터는 표(≥640) `tr` · 폰 `li`. */
+  async function openCardLog(page: Page, kind: '주문로그' | '전략로그' = '주문로그'): Promise<void> {
+    await logButton(page, kind).click();
+    await expect(dialog(page)).toBeVisible();
+    await expect(dialog(page)).toHaveAccessibleName(new RegExp(kind));
   }
 
-  test('P25-7 카드 탭 — 「전략로그」(값 log) · 「주문로그」 필터줄 · 핀 부재 · 다른 종목 · 거래소 줄 0 · 푸시 1건 → 맨 아래 따라감', async ({
+  async function closeCardLog(page: Page): Promise<void> {
+    await page.keyboard.press('Escape');
+    await expect(dialog(page)).toHaveCount(0);
+  }
+
+  const atBottom = async (loc: Locator) => {
+    const g = await scrollGeometry(loc);
+    return g.top + g.client >= g.height - 24;
+  };
+
+  test('P25-7 카드 주문로그 팝업 — 탭 3 + 버튼 2 · 제목 종목명 · 거래소만 · 범위 2행 · 푸시 따라감 · 닫힌 동안 배지', async ({
     page,
   }) => {
     const otherStock = today(STRATEGY_DAY_BY_NAME.buy12452!, { isin: E2E_LONG_NAME_ISIN, stockCode: '000660', seq: 9001 });
@@ -312,34 +324,127 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
     await mockRestore(page, [byName('exposed'), byName('buy12451'), nxtMarket, otherStock]);
     await openFocusCard(page);
 
-    // 탭 줄 — 5개 순서 · 값 log 트리거의 라벨이 「전략로그」
+    // 탭 줄 — 탭 3개(주문로그 · 전략로그 탭 없음) + 버튼 2개
     const tabIds = await cardTabs(page)
       .getByRole('tab')
-      .evaluateAll((els) => els.map((e) => ({ v: e.id.replace(/^.*-trigger-/, ''), t: (e.textContent ?? '').trim() })));
-    expect(tabIds.map((x) => x.v)).toEqual(['info', 'unfilled', 'holdings', 'orderlog', 'log']);
-    expect(tabIds.find((x) => x.v === 'log')!.t).toMatch(/^전략로그/);
+      .evaluateAll((els) => els.map((e) => e.id.replace(/^.*-trigger-/, '')));
+    expect(tabIds).toEqual(['info', 'unfilled', 'holdings']);
+    await expect(logButton(page, '주문로그')).toBeVisible();
+    await expect(logButton(page, '전략로그')).toBeVisible();
 
-    await openCardOrderLog(page);
-    await expect(cardTabs(page).locator('[data-slot="order-log"][data-surface="card"]')).toHaveCount(1);
-    await expect(cardTabs(page).locator('[data-slot="order-log-filters"]')).toHaveCount(0);
-    await expect(cardLines(page)).toHaveCount(2);
-    await expect(cardLines(page).nth(0)).toHaveText(/^09:42:13\.215 상한가노출 매도잔량 185,400 \| 누적 620,000$/);
-    await expect(cardLines(page).nth(1)).toHaveText(/^09:45:02\.861 #12451 선매수 주문 · 조건 매도잔량≤50,000 .+ \| 누적 861,800$/);
-    // 거래소 · 종목 칸이 없다 — title(F-A 전체 평문)에만 있다.
-    await expect(cardLines(page).nth(1)).toHaveAttribute('title', /^\[09:45:02\.861\]\[12451\]\[선매수\] KRX \| /);
-    await expect(cardTabs(page).locator('[data-slot="order-log-pin"]')).toHaveCount(0);
+    await openCardLog(page);
+    await expect(dialog(page)).toHaveAccessibleName(/삼성전자/);
+    await expect(dialog(page)).toHaveAccessibleName(/KRX/);
+    const dlgText = (await dialog(page).textContent()) ?? '';
+    expect(dlgText).not.toContain(E2E_ISIN);
+    expect(dlgText).not.toContain(E2E_ACCOUNT_NO);
+    await expect(dialog(page).locator('thead th')).toHaveText(['시각', '주문번호', '구분', '행위', '내용', '누적']);
 
+    // 범위 — NXT 시세 · 다른 종목 제외 · 오름차순
+    await expect(popupRows(page)).toHaveCount(2);
+    await expect(popupRows(page).nth(0).locator('td')).toHaveText(['09:42:13.215', '', '상한가노출', '', '매도잔량 185,400', '620,000']);
+    const r1 = popupRows(page).nth(1).locator('td');
+    await expect(r1.nth(1)).toHaveText('2451');
+    await expect(r1.nth(2)).toHaveText('선매수');
+    await expect(r1.nth(3)).toHaveText('주문');
+    await expect(r1.nth(4)).toHaveText(/^조건 매도잔량≤50,000/);
+    await expect(r1.nth(5)).toHaveText('861,800');
+
+    // 열린 동안 푸시 → 3행 · 맨 아래
     await relay.pushStrategyEvents([wire(byName('queued12451'))]);
-    await expect(cardLines(page)).toHaveCount(3, { timeout: 15_000 });
-    await expect(cardLines(page).nth(2)).toHaveText(/^09:45:02\.880 #12451 선매수 대기 · /);
-    await expect
-      .poll(async () => {
-        const g = await scrollGeometry(cardOrderLogBody(page));
-        return g.top + g.client >= g.height - 24;
-      })
-      .toBe(true);
-    await expect(cardTabs(page).locator('[data-slot="order-log-pin"]')).toHaveCount(0);
-    await cardOf(page).screenshot({ path: test.info().outputPath('p25-7-card-orderlog-1280.png') });
+    await expect(popupRows(page)).toHaveCount(3, { timeout: 15_000 });
+    await expect(popupRows(page).nth(2)).toHaveAttribute('data-new', '');
+    await expect.poll(() => atBottom(popupBody(page))).toBe(true);
+    await dialog(page).screenshot({ path: test.info().outputPath('p25-7-card-orderlog-popup-1280.png') });
+
+    // 닫힌 동안 푸시 1 → 배지 1 · 열면 배지 없음
+    await closeCardLog(page);
+    await expect(logButton(page, '주문로그').locator('[data-slot="card-log-badge"]')).toHaveCount(0);
+    await relay.pushStrategyEvents([wire(byName('fill12451'))]);
+    await expect(logButton(page, '주문로그').locator('[data-slot="card-log-badge"]')).toHaveText('1', { timeout: 15_000 });
+    await expect(logButton(page, '주문로그')).toHaveAccessibleName('주문로그, 새 로그 1건');
+    await openCardLog(page);
+    await expect(popupRows(page)).toHaveCount(4);
+    await expect(logButton(page, '주문로그').locator('[data-slot="card-log-badge"]')).toHaveCount(0);
+  });
+
+  test('P25-7b 카드 로그 팝업 실 UI — 1280 · 390 × 라이트 · 다크 스크린샷 8장 · 1280 가운데 ≤880 · 390 전체 화면 · 두 줄 행 · 가로 넘침 0', async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    relay.seedLimitChasers([{ buyEnabled: true }]);
+    await mockRestore(page, STRATEGY_DAY_ROWS.map((r) => today(r)).filter(inCardScope));
+    const notes: string[] = [];
+    for (const vp of [WIDE_VIEWPORT, PHONE_VIEWPORT]) {
+      for (const theme of ['light', 'dark'] as const) {
+        await page.setViewportSize(vp);
+        await page.goto(FOCUS_URL);
+        await page.evaluate((t) => localStorage.setItem('theme', t), theme);
+        await page.reload();
+        await expect(page.locator('html')).toHaveClass(new RegExp(`(^|\\s)${theme}(\\s|$)`));
+        await expect(statusBar(page)).toHaveAttribute('data-status', 'ready', { timeout: 30_000 });
+        await expect(cardOf(page)).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+        // 전략로그가 비지 않게 — 서버 통지(오류) 2건. 카드 로그는 메모리라 새로고침마다 다시 민다.
+        for (const message of ['주문 가능 금액이 부족합니다', '허용되지 않은 거래소입니다 — 설정을 확인한 뒤 다시 켜 주세요']) {
+          await relay.pushServerMessage({
+            level: 'ERROR',
+            source: 'SetLimitChaser',
+            isin: E2E_ISIN,
+            accountNo: E2E_ACCOUNT_NO,
+            message,
+            kind: '',
+          });
+        }
+        await expect(cardOf(page).locator('[data-slot="card-server-error"]')).toContainText('허용되지 않은 거래소입니다', {
+          timeout: 15_000,
+        });
+
+        for (const kind of ['주문로그', '전략로그'] as const) {
+          await openCardLog(page, kind);
+          // 열림 애니메이션(zoom-in 100ms)이 끝난 상자로 잰다.
+          await expect.poll(async () => (await dialog(page).boundingBox())!.width, { timeout: 5_000 }).toBeGreaterThan(0);
+          await page.waitForTimeout(250);
+          const box = (await dialog(page).boundingBox())!;
+          if (kind === '전략로그') {
+            // 서버 오류 줄은 data-level="error"(옅은 빨강 배경 + 빨강 글자 · D4).
+            const errRows = dialog(page).locator('[data-slot="card-log-row"][data-level="error"], [data-slot="card-log-phone-row"][data-level="error"]');
+            await expect(errRows.filter({ visible: true }).first()).toBeVisible({ timeout: 15_000 });
+          }
+          if (vp.width === 1280) {
+            expect(box.width, `${kind} 1280 폭 ≤ 880`).toBeLessThanOrEqual(881);
+            expect(box.height, `${kind} 1280 높이 ≈ 80vh`).toBeGreaterThanOrEqual(vp.height * 0.75);
+            await expect(dialog(page).locator('table[data-slot="card-log-table"]')).toBeVisible();
+            await expect(dialog(page).locator('thead th').first()).toBeVisible();
+            await expect(popupPhoneRows(page).first()).toBeHidden();
+          } else {
+            expect(Math.abs(box.x), `${kind} 390 전체 화면 x`).toBeLessThanOrEqual(1);
+            expect(Math.abs(box.y), `${kind} 390 전체 화면 y`).toBeLessThanOrEqual(1);
+            expect(Math.abs(box.width - vp.width), `${kind} 390 전체 화면 폭`).toBeLessThanOrEqual(1);
+            expect(Math.abs(box.height - vp.height), `${kind} 390 전체 화면 높이`).toBeLessThanOrEqual(1);
+            await expect(dialog(page).locator('table[data-slot="card-log-table"]')).toBeHidden();
+            await expect(popupPhoneRows(page).first()).toBeVisible();
+          }
+          // 본문만 스크롤 — 다이얼로그 자체는 넘치지 않고, 본문은 가로로 넘치지 않는다.
+          const dlgOverflow = await dialog(page).evaluate((el) => el.scrollHeight - el.clientHeight);
+          expect(dlgOverflow, `${kind} 다이얼로그 자체 세로 넘침 0`).toBeLessThanOrEqual(1);
+          const bodyX = await popupBody(page).evaluate((el) => el.scrollWidth - el.clientWidth);
+          expect(bodyX, `${kind} 본문 가로 넘침 0`).toBeLessThanOrEqual(0);
+          expect(await scrollOverflowing(page, '[role="dialog"]'), `${kind} 머리 넘침 0`).toEqual([]);
+          await expect.poll(() => atBottom(popupBody(page))).toBe(true);
+          const slug = kind === '주문로그' ? 'orderlog' : 'stratlog';
+          await page.screenshot({ path: test.info().outputPath(`lq5-${slug}-${vp.width}-${theme}.png`) });
+          notes.push(`${slug}-${vp.width}-${theme} box=${box.width.toFixed(0)}x${box.height.toFixed(0)}`);
+          await closeCardLog(page);
+          // 닫으면 포커스가 버튼으로 돌아온다.
+          await expect(logButton(page, kind)).toBeFocused();
+        }
+        if (theme === 'light') {
+          await cardOf(page).screenshot({ path: test.info().outputPath(`lq5-card-${vp.width}-${theme}.png`) });
+        }
+      }
+    }
+    test.info().annotations.push({ type: 'lq5-shots', description: notes.join(' | ') });
+    console.log(`[lq5] ${notes.join(' | ')}`);
   });
 
   /** 창 분리 복원 목 — 날짜별 응답 · 요청 URL 기록(날짜 이동마다 1회 확인). */
@@ -420,7 +525,7 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
     await native.close();
   });
 
-  test('P25-9 백스톱 — 폰 밴드(390) 공용 패널 탭 4개 + 접기 한 줄 · 카드 탭 줄이 카드 폭을 밀지 않음 / 카드 주문로그 12줄 → 카드 높이 불변 · ≈3줄 · 새 줄 따라감', async ({
+  test('P25-9 백스톱 — 폰 밴드(390) 공용 패널 탭 4개 + 접기 한 줄 · 카드 탭 줄(탭 3 + 버튼 2 + 접기) 한 줄 · 카드 폭 불변 / 카드 주문로그 12줄 → 팝업 전체 화면 맨 아래 · 새 줄 따라감', async ({
     page,
   }) => {
     const restored = STRATEGY_DAY_ROWS.map((r) => today(r)).filter(inCardScope);
@@ -442,56 +547,40 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
     const ySpread = Math.max(...tops) - Math.min(...tops);
     expect(ySpread, '공용 패널 탭 4개 + 접기가 한 줄').toBeLessThanOrEqual(4);
 
-    // ── E5 overflow — 카드 탭 줄(탭 5개)이 카드 폭을 밀지 않는다
+    // ── E5 overflow — 카드 탭 줄(탭 3 + 버튼 2 + 접기)이 한 줄이고 카드 폭을 밀지 않는다
     const cardW0 = (await cardOf(page).boundingBox())!.width;
-    const cardTabList = cardTabs(page).getByRole('tablist', { name: '카드 탭' });
-    const tl = await cardTabList.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth }));
-    // 격자 부모는 `display:contents` 래퍼일 수 있다 — 작업대 루트(`wb`) 폭과 비교한다.
+    const cardBar = cardTabs(page).locator('[data-slot="card-tabs-bar"]');
+    const centers = await cardBar
+      .locator('[role="tab"], [data-slot="card-log-button"], [data-slot="card-tabs-fold"]')
+      .evaluateAll((els) => els.map((e) => {
+        const r = e.getBoundingClientRect();
+        return r.top + r.height / 2;
+      }));
+    expect(centers, '탭 3 + 버튼 2 + 접기').toHaveLength(6);
+    const cardSpread = Math.max(...centers) - Math.min(...centers);
+    expect(cardSpread, '카드 탭 줄 한 줄').toBeLessThanOrEqual(4);
+    const cardBarOver = await cardBar.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(cardBarOver, '카드 탭 줄 가로 넘침 0').toBeLessThanOrEqual(0);
     const gridW = await page.locator('[data-slot="trading-workbench"]').evaluate((el) => el.clientWidth);
     expect(cardW0, '카드가 작업대 폭을 넘지 않는다').toBeLessThanOrEqual(gridW + 1);
     expect(cardW0, '카드가 뷰포트를 넘지 않는다').toBeLessThanOrEqual(PHONE_VIEWPORT.width);
 
-    // ── E6 overflow — 카드 주문로그 본문(12줄): 카드 높이 불변 · ≈3줄 · 따라감
-    await cardTabs(page).getByRole('tab', { name: /^정보/ }).click();
-    const fold = cardTabs(page).locator('[data-slot="card-tabs-fold"]');
-    if ((await fold.getAttribute('aria-expanded')) !== 'true') await fold.click();
-    const tabsH0 = (await cardTabs(page).boundingBox())!.height;
-    await openCardOrderLog(page);
-    await expect(cardLines(page)).toHaveCount(12);
-    const tabsH1 = (await cardTabs(page).boundingBox())!.height;
-    expect(Math.abs(tabsH1 - tabsH0), '탭을 바꿔도 카드 탭 높이 불변').toBeLessThanOrEqual(1);
-    const cardW1 = (await cardOf(page).boundingBox())!.width;
-    expect(Math.abs(cardW1 - cardW0), '주문로그 탭이 카드 폭을 밀지 않는다').toBeLessThanOrEqual(1);
-
-    const scroller = cardOrderLogBody(page);
-    const lineH = await cardLines(page).first().evaluate((el) => el.getBoundingClientRect().height);
+    // ── E6 — 카드 주문로그 12줄 → 팝업(전체 화면) 열자마자 맨 아래 · 새 줄 따라감
+    await openCardLog(page);
+    await expect(popupPhoneRows(page)).toHaveCount(12);
+    const scroller = popupBody(page);
     const g0 = await scrollGeometry(scroller);
-    // 보이는 줄 = (스크롤러 높이 − 목록 위아래 패딩) ÷ 줄 높이 — 패딩(3px×2)은 줄이 아니다.
-    const listPadY = await cardTabs(page)
-      .locator('ol[data-slot="order-log-list"]')
-      .evaluate((el) => parseFloat(getComputedStyle(el).paddingTop) + parseFloat(getComputedStyle(el).paddingBottom));
-    const visibleLines = (g0.client - listPadY) / lineH;
-    expect(visibleLines, '보이는 줄 ≈3').toBeGreaterThanOrEqual(2);
-    expect(visibleLines, '보이는 줄 ≈3').toBeLessThanOrEqual(4);
-    await expect.poll(async () => {
-      const g = await scrollGeometry(scroller);
-      return g.height - g.top - g.client;
-    }).toBeLessThanOrEqual(24);
+    await expect.poll(() => atBottom(scroller)).toBe(true);
 
     const last = rows.at(-1)!;
     await relay.pushStrategyEvents([wire({ ...last, seq: 9200, gwTimeMs: last.gwTimeMs + 5_000 })]);
-    await expect(cardLines(page)).toHaveCount(13, { timeout: 15_000 });
-    await expect
-      .poll(async () => {
-        const g = await scrollGeometry(scroller);
-        return g.top + g.client >= g.height - 24;
-      })
-      .toBe(true);
-    const tabsH2 = (await cardTabs(page).boundingBox())!.height;
-    expect(Math.abs(tabsH2 - tabsH0), '새 줄이 와도 카드 탭 높이 불변').toBeLessThanOrEqual(1);
+    await expect(popupPhoneRows(page)).toHaveCount(13, { timeout: 15_000 });
+    await expect.poll(() => atBottom(scroller)).toBe(true);
+    await closeCardLog(page);
+    const cardW1 = (await cardOf(page).boundingBox())!.width;
+    expect(Math.abs(cardW1 - cardW0), '팝업이 카드 폭을 밀지 않는다').toBeLessThanOrEqual(1);
 
-    await page.screenshot({ path: test.info().outputPath('p25-9-card-orderlog-390.png'), fullPage: true });
-    const note = `viewport=390 sharedTabs ySpread=${ySpread.toFixed(1)} · cardTabList scrollWidth=${tl.sw} clientWidth=${tl.cw} · card width=${cardW0.toFixed(1)}/${cardW1.toFixed(1)} wb=${gridW} · card-tabs height ${tabsH0.toFixed(1)}/${tabsH1.toFixed(1)}/${tabsH2.toFixed(1)} · scroller client=${g0.client} padY=${listPadY} lineH=${lineH.toFixed(1)} visible≈${visibleLines.toFixed(2)}`;
+    const note = `viewport=390 sharedTabs ySpread=${ySpread.toFixed(1)} · cardBar centers spread=${cardSpread.toFixed(1)} over=${cardBarOver} · card width=${cardW0.toFixed(1)}/${cardW1.toFixed(1)} wb=${gridW} · popup scroller client=${g0.client} height=${g0.height}`;
     test.info().annotations.push({ type: 'P25-9-backstop', description: note });
     console.log(`[P25-9] ${note}`);
   });

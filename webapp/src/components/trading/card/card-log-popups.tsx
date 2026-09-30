@@ -85,7 +85,7 @@ const NEW_EDGE = 'shadow-[inset_3px_0_0_var(--primary)]';
 
 const TH_CLASS =
   'sticky top-0 z-[1] border-b border-[var(--border-subtle)] bg-[var(--popover)] px-2.5 py-2 text-left text-[12px] font-semibold whitespace-nowrap text-[var(--muted-fg)] first:pl-5 last:pr-5';
-const TD_CLASS = 'border-b border-[var(--border)] px-2.5 py-2 align-top first:pl-5 last:pr-5';
+const TD_CLASS = 'border-b border-[var(--border-subtle)] px-2.5 py-2 align-top first:pl-5 last:pr-5';
 /** 표 행 hover — 오류 행은 제 배경을 지킨다. */
 const TD_HOVER = 'group-hover:bg-[color-mix(in_oklab,var(--muted)_60%,transparent)]';
 /** 내용 — 줄바꿈 · 잘림 없음 · mono 금지(한글 본문 · 260911-w5h). */
@@ -448,7 +448,7 @@ export function CardOrderLogPopup({ feed, accountNo, isin, exchange, stockName }
                   data-kind={row.kind}
                   data-reject={reject ? '' : undefined}
                   data-new={fresh ? '' : undefined}
-                  className={cn('border-b border-[var(--border)] px-4 py-2.5', reject && ERR_BG, fresh && NEW_EDGE)}
+                  className={cn('border-b border-[var(--border-subtle)] px-4 py-2.5', reject && ERR_BG, fresh && NEW_EDGE)}
                 >
                   <div className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap">
                     <span className="mono flex-none text-[var(--muted-fg)]">{formatKstMs(row.gwTimeMs).slice(0, 8)}</span>
@@ -547,7 +547,7 @@ export function CardStrategyLogPopup({ entries, stockName, exchange }: CardStrat
                     key={entry.id}
                     data-slot="card-log-phone-row"
                     data-level={entry.level ?? 'info'}
-                    className={cn('border-b border-[var(--border)] px-4 py-2.5', error && ERR_BG)}
+                    className={cn('border-b border-[var(--border-subtle)] px-4 py-2.5', error && ERR_BG)}
                   >
                     <div className="mono text-[var(--muted-fg)]">{entry.at}</div>
                     <div className={cn('mt-1', BODY_TEXT, error ? 'text-[var(--destructive)]' : 'text-[var(--fg-2)]')}>

@@ -796,7 +796,7 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
       펼침 이벤트), 진행률은 `pushQueueProgress`. 판정 · 예외는 이 파일 `DEFERRED_RULES` 그대로(새 예외 없음 —
       `--faint` 보조 글자 대비는 기존 `color-contrast` 이연 규칙과 같게 다룬다).
   */
-  test('Phase 25 axe 매트릭스 — 공용 패널 주문로그 · 카드 주문로그 · 창 분리 · 오늘 주문 펼침 · 진행률 보조행 × 본문 344 · 1280 × 라이트 · 다크 critical/serious 0', async ({
+  test('Phase 25 axe 매트릭스 — 공용 패널 주문로그 · 카드 로그 팝업 · 창 분리 · 오늘 주문 펼침 · 진행률 보조행 × 본문 344 · 1280 × 라이트 · 다크 critical/serious 0', async ({
     page,
   }) => {
     test.setTimeout(240_000);
@@ -878,7 +878,7 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
       for (const target of [344, 1280]) {
         const tag = `${theme} · 본문 ${target}`;
 
-        // ── A. 작업대 — 공용 패널 주문로그 · 진행률 보조행 · 카드 주문로그
+        // ── A. 작업대 — 공용 패널 주문로그 · 진행률 보조행 · 카드 로그 팝업(quick-260930-lq5)
         await page.setViewportSize({ width: target <= 700 ? target + 16 : target, height: 900 });
         await gotoThemed(LC_FOCUS_URL, theme);
         await expect(page.locator('[data-slot="workbench-status-bar"]')).toHaveAttribute('data-status', 'ready', {
@@ -901,12 +901,16 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
         await expect(panels.locator('[data-slot="unfilled-progress"]').first()).toBeVisible({ timeout: 15_000 });
         await scan(`${tag} · 진행률 보조행`, '[data-testid="shared-panels"]');
 
-        const cardTabs = page.locator(`${LC_OPEN_CARD} [data-slot="card-tabs"]`);
-        await cardTabs.getByRole('tab', { name: /^주문로그/ }).click();
-        const fold = cardTabs.locator('[data-slot="card-tabs-fold"]');
-        if ((await fold.getAttribute('aria-expanded')) !== 'true') await fold.click();
-        await expect(cardTabs.locator('li[data-slot="order-log-line"]').first()).toBeVisible({ timeout: 15_000 });
-        await scan(`${tag} · 카드 주문로그`, `${LC_OPEN_CARD} [data-slot="card-tabs"]`);
+        const cardBar = page.locator(`${LC_OPEN_CARD} [data-slot="card-tabs-bar"]`);
+        await cardBar.locator('[data-slot="card-log-button"][data-log="주문로그"]').click();
+        await expect(page.locator('[role="dialog"] [data-slot="card-log-row"], [role="dialog"] [data-slot="card-log-phone-row"]').filter({ visible: true }).first()).toBeVisible({ timeout: 15_000 });
+        await scan(`${tag} · 카드 주문로그 팝업`, '[role="dialog"]');
+        await page.keyboard.press('Escape');
+        await expect(page.locator('[role="dialog"]')).toHaveCount(0);
+        await cardBar.locator('[data-slot="card-log-button"][data-log="전략로그"]').click();
+        await scan(`${tag} · 카드 전략로그 팝업`, '[role="dialog"]');
+        await page.keyboard.press('Escape');
+        await expect(page.locator('[role="dialog"]')).toHaveCount(0);
 
         // ── B. 마이페이지 — 오늘 주문 행 펼침
         await gotoThemed('/me', theme);
@@ -934,7 +938,7 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
     }
     test.info().annotations.push({ type: 'P25-axe-widths', description: widths.join(' | ') });
     console.log(`[P25-axe] scans=${scans} widths: ${widths.join(' | ')}`);
-    expect(scans, '매트릭스 20 스캔(표면 5 × 본문 2 × 테마 2)').toBe(20);
+    expect(scans, '매트릭스 24 스캔(표면 6 × 본문 2 × 테마 2)').toBe(24);
     expect(failures, 'critical/serious 위반').toEqual([]);
   });
 
