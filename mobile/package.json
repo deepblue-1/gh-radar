@@ -21,7 +21,7 @@
     "native:release:android:play": "cap sync && node scripts/verify-prod-config.mjs && bash scripts/release-android.sh beta",
     "native:open:ios": "cap open ios",
     "native:open:android": "cap open android",
-    "native:assets": "node scripts/render-resources.mjs && npx --yes @capacitor/assets@3.0.5 generate --ios --android --assetPath resources --iconBackgroundColor '#17171c' --iconBackgroundColorDark '#17171c' --splashBackgroundColor '#ffffff' --splashBackgroundColorDark '#17171c' && bash scripts/sharpen-adaptive-icons.sh"
+    "native:assets": "node scripts/render-resources.mjs && npx --yes @capacitor/assets@3.0.5 generate --ios --android --assetPath resources --iconBackgroundColor '#0a0a0a' --iconBackgroundColorDark '#0a0a0a' --splashBackgroundColor '#ffffff' --splashBackgroundColorDark '#0a0a0a' && bash scripts/sharpen-adaptive-icons.sh"
   },
   "dependencies": {
     "@capacitor/android": "8.5.2",

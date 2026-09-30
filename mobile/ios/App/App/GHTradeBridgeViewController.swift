@@ -248,7 +248,7 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
 
     // MARK: - 테마 (D-23 — 웹이 정본, 네이티브는 따라가며 마지막 값만 저장. OS 다크모드는 보지 않는다)
 
-    /// 라이트 `#ffffff` · 다크 `#17171c`(GHTradePalette.bg) 를 WebView/스크롤/창 배경에 칠하고
+    /// 라이트 `#ffffff` · 다크 `#0a0a0a`(GHTradePalette.bg) 를 WebView/스크롤/창 배경에 칠하고
     /// 상태바 · 시스템 크롬(스피너·키보드) · 탭바/페이드 팔레트를 바꾼 뒤 저장한다.
     func applyTheme(_ t: GHTradeTheme, animated: Bool) {
         let p = GHTradePalette.of(t)

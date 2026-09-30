@@ -35,11 +35,11 @@ struct GHTradePalette {
         switch theme {
         case .dark:
             return GHTradePalette(
-                card: UIColor(hex: 0x202027),
-                bg: UIColor(hex: 0x17171c),
+                card: UIColor(hex: 0x151515),
+                bg: UIColor(hex: 0x0a0a0a),
                 primary: UIColor(hex: 0x3485fa),
-                muted: UIColor(hex: 0x9e9ea4),
-                glass: UIColor(hex: 0x2c2c35),
+                muted: UIColor(hex: 0x9e9e9e),
+                glass: UIColor(hex: 0x2d2d2d),
                 glassAlpha: 0.62
             )
         case .light:

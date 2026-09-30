@@ -4,7 +4,7 @@ import UIKit
 //
 // 수치 정본 = CONTEXT D-27b: 높이 60 · radius 30(= 높이/2, 연속 곡률) · 라벨 없음(접근 이름은 accessibilityLabel) ·
 // 아이콘 26 세로 가운데 · 활성 = 아이콘 뒤 캡슐 56×36 radius 18 `--primary` + filled/굵은 심볼 + primary 색 ·
-// 비활성 `--muted-fg` · 테두리 없음 · 유리(ultra-thin 재질 + glass 틴트 다크 #2c2c35 62% / 라이트 #ffffff 72%) ·
+// 비활성 `--muted-fg` · 테두리 없음 · 유리(ultra-thin 재질 + glass 틴트 다크 #2d2d2d 62% / 라이트 #ffffff 72%) ·
 // 그림자 두 겹 (0,4) r12 14% + (0,1) r1 8% · 탭바 위 86pt 하단 페이드(`--bg` 80% @75%).
 // 색 토큰(bg · primary · muted · card)은 D-27a 그대로.
 // 위치·폭(좌우 16 · 최대 560 · 바닥 max(inset − 14, 14))은 VC 의 Auto Layout 이 정한다(GHTradeBridgeViewController).

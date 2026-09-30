@@ -19,7 +19,7 @@ const fontUrl = new URL('../../webapp/public/fonts/PretendardVariable.woff2', im
 
 const ICON = 1024;
 const SPLASH = 2732;
-const DARK_BG = '#17171c';
+const DARK_BG = '#0a0a0a';
 
 const iconSvg = (await readFile(iconSvgUrl, 'utf8')).trim();
 const fontBase64 = (await readFile(fontUrl)).toString('base64');
