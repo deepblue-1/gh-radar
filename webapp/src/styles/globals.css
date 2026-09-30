@@ -33,11 +33,11 @@
    (소비처가 전부 점선 플레이스홀더·OFF LED 윤곽·범위 밴드 같은 테두리/채움이라 글자 3차가
    아니라 「비활성」 역할이다).
 
-   면 구분은 명도 단계로 한다: 다크 bg #17171c → card #202027(layeredBackground) →
-   raised(`--muted`) #2c2c35(grey100) → `--raised-2` #3c3c47(grey200). 라이트는 본문면
+   면 구분은 명도 단계로 한다: 다크 bg #171717 → card #212121(layeredBackground) →
+   raised(`--muted`) #2d2d2d(grey100) → `--raised-2` #3d3d3d(grey200). 라이트는 본문면
    `--surface` #f2f4f6 위 흰 카드, 카드 안 컨트롤은 `--muted` #f2f4f6 · `--raised-2` #e5e8eb.
 
-   `--border-subtle` = TDS hairlineBorder(라이트 #e5e8eb · 다크 #3c3c47) — **행 구분선·입력
+   `--border-subtle` = TDS hairlineBorder(라이트 #e5e8eb · 다크 #3d3d3d) — **행 구분선·입력
    hairline 전용**이다(방향 테두리 `border-t/b/l/r` · `divide-*` · Separator). 가드 테스트가
    방향 구분선이 `--border` 로 돌아가는 것을 막는다.
    `--border` = 면 외곽선 잔재 — **무테 유지를 위해 거의 안 보이는 값을 의도적으로 유지**한다.
@@ -131,7 +131,7 @@
   --new-bd: #ffd257;
 
   /* Phase 20 호가주문 토스식 — 상따 그룹 면(목업 `.grp`) · 스위치 off · 시트 dim(TDS dimmedBackground).
-     다크 그룹 면은 부모 `--card` #202027 보다 한 단계 밝은 grey100(UI-SPEC A9).
+     다크 그룹 면은 부모 `--card` #212121 보다 한 단계 밝은 grey100(UI-SPEC A9).
      ⚠️ 라이트·다크 둘 다 정의한다 — 한쪽만 두면 반대 테마에서 조용히 사라진다. */
   --group-bg: #f9fafb;
   --switch-off: #d1d6db;
@@ -185,66 +185,71 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* 다크 무채색화(260930) — 옛 값(TDS grey 계열 #17171c·#202027·#2c2c35·#3c3c47·#4d4d59 …)은 B 채널이
+   R·G 보다 5~12 높은 미세 청색 틴트였다. OLED(아이폰)에서는 저휘도 크로마가 눌려 무채색으로,
+   LCD(맥)에서는 푸르게 보여 기기마다 인상이 갈렸다. 아이폰 쪽 인상을 정본으로 삼아 상대휘도를
+   유지한 채 B=R=G 로 맞췄다(각 값은 옛 값과 휘도 최근접 회색). 아래 주석의 grey100·grey200 등
+   TDS 단계명은 명도 위계를 뜻하며, hex 는 이 무채색 값이 정본이다. */
 .dark {
-  --bg: #17171c;
-  --surface: #17171c;
-  --band: #101013;
+  --bg: #171717;
+  --surface: #171717;
+  --band: #101010;
   --fg: #ffffff;
-  --fg-2: #e4e4e5;
-  --muted: #2c2c35;
-  --muted-fg: #9e9ea4;
-  --faint: #62626d;
-  --raised-2: #3c3c47;
+  --fg-2: #e4e4e4;
+  --muted: #2d2d2d;
+  --muted-fg: #9e9e9e;
+  --faint: #636363;
+  --raised-2: #3d3d3d;
   --border: rgba(255, 255, 255, 0.06);
-  --border-subtle: #3c3c47;
+  --border-subtle: #3d3d3d;
   --input: transparent;
   --ring: #3485fa;
-  --card: #202027;
+  --card: #212121;
   --card-fg: #ffffff;
-  --popover: #2c2c35;
+  --popover: #2d2d2d;
   --popover-fg: #ffffff;
   --primary: #3485fa;
   --primary-fg: #ffffff;
-  --secondary: #2c2c35;
-  --secondary-fg: #e4e4e5;
+  --secondary: #2d2d2d;
+  --secondary-fg: #e4e4e4;
   --accent: rgba(52, 133, 250, 0.16);
   --accent-fg: #8ab8ff;
   --destructive: #f04251;
   --destructive-fg: #ffffff;
   --up: #f04251;
   --down: #3485fa;
-  --flat: #9e9ea4;
+  --flat: #9e9e9e;
   --up-bg: rgba(240, 66, 81, 0.16);
   --down-bg: rgba(52, 133, 250, 0.16);
 
   /* B 세그먼트·알약·호가 막대·사이드바 다크 값 — 의미는 `:root` 쪽 주석. `:root` 와 같은 집합을
      빠짐없이 정의한다. `--seg-on-shadow` 는 `none` 대신 `0 0 #0000` — Tailwind shadow 합성에서
      무효값이 되지 않게.
-     선택 면 `--seg-on-bg`·`--pill-on-bg` = grey300 #4d4d59(TDS 공식값 · 260925-0pf). 트랙
-     `--muted` grey100 #2c2c35 대비 명도비가 grey200 1.27:1 · 옛 비공식 #454552 1.47:1 ·
+     선택 면 `--seg-on-bg`·`--pill-on-bg` = grey300 #4e4e4e(TDS 공식값 · 260925-0pf). 트랙
+     `--muted` grey100 #2d2d2d 대비 명도비가 grey200 1.27:1 · 옛 비공식 #454552 1.47:1 ·
      grey300 1.66:1 이다. 세그먼트 선택(감시대상 매도잔량/매수잔량 등) 오판은 곧 오발주라
      옛 값보다 약해지면 안 된다 → grey300. hover(`--raised-2` grey200)와 선택도 다시 갈린다.
      `--bid-bar`·`--up-bg` 는 다크 red500 #f04251 의 rgba 틴트. */
-  --seg-on-bg: #4d4d59;
+  --seg-on-bg: #4e4e4e;
   --seg-on-fg: #ffffff;
   --seg-on-shadow: 0 0 #0000;
   /* quick-260930-e30 D2 — 원형 햄버거 그림자(다크 — 목업 `--fab-shadow` 그대로). */
   --menu-fab-shadow: 0 2px 10px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08);
-  --pill-on-bg: #4d4d59;
+  --pill-on-bg: #4e4e4e;
   --pill-on-fg: #ffffff;
   --ask-bar: rgba(52, 133, 250, 0.28);
   --bid-bar: rgba(240, 66, 81, 0.28);
-  --side-bg: #101013;
+  --side-bg: #101010;
 
   /* 선택·활성 축 다크 값 (sketch 003-A · 260925-gy6) — 의미와 쓰이는 자리는 `:root` 쪽 주석이 정본.
-     다크 값은 003-A 이전 소비처가 쓰던 참조의 다크 해석값 그대로다(`--muted` #2c2c35 · `--fg`
-     #ffffff · `--muted-fg` #9e9ea4 · 링 = `--fg` 8% 투명 혼합 = rgba(255,255,255,0.08)) — 다크 렌더
+     다크 값은 003-A 이전 소비처가 쓰던 참조의 다크 해석값 그대로다(`--muted` #2d2d2d · `--fg`
+     #ffffff · `--muted-fg` #9e9e9e · 링 = `--fg` 8% 투명 혼합 = rgba(255,255,255,0.08)) — 다크 렌더
      무변경. `--muted`·`--fg`·`--muted-fg` 를 바꾸면 이 값도 함께 고쳐라(tds-tokens.test 가 동치를
      고정한다). `var(...)` 참조가 아니라 literal 로 둔다(다크 토큰 관례 · 테마 토큰 값 검사). */
-  --nav-on-bg: #2c2c35;
+  --nav-on-bg: #2d2d2d;
   --nav-on-fg: #ffffff;
   --nav-on-line: #ffffff;
-  --spec-dot-bg: #9e9ea4;
+  --spec-dot-bg: #9e9e9e;
   --spec-dot-ring: rgba(255, 255, 255, 0.08);
 
   /* 상따 래치 LED 다크 값 (Phase 17 · D-21) — 의미는 `:root` 정의 옆 주석이 정본이다.
@@ -260,9 +265,9 @@
   --new-bd: #6d5a1d;
 
   /* Phase 20 호가주문 토스식 다크 값 — 의미는 `:root` 정의 옆 주석이 정본이다. 그룹 면은 부모
-     `--card` #202027 보다 한 단계 밝은 grey100(UI-SPEC A9). */
-  --group-bg: #2c2c35;
-  --switch-off: #4d4d59;
+     `--card` #212121 보다 한 단계 밝은 grey100(UI-SPEC A9). */
+  --group-bg: #2d2d2d;
+  --switch-off: #4e4e4e;
   --dim: rgba(0, 0, 0, 0.56);
 
   /* shadcn sidebar overrides for dark */
@@ -473,6 +478,9 @@ html[lang="ko"] {
    - **걷지 않는 것**: 체크박스 · 버튼 · 링크 · `<select>` · `<input type="range">` 슬라이더.
      이들은 테두리로 포커스를 말할 수 없거나(슬라이더 트랙은 `h-1` 배경뿐이다) 테두리 자체가
      없어서, **전역 이중 링이 유일한 포커스 표시**다. 걷으면 표시가 사라진다.
+   - **예외 하나**: 작업대 카드 제목 토글 버튼(`data-slot="card-toggle"`)은 걷는다. 대신 카드
+     `<article>` 이 `has-[…:focus-visible]` 로 자기 테두리색을 바꿔 한 겹으로 말한다
+     (`strategy-card.tsx`). 굵은 제목 텍스트 위 이중 링이 형광펜 상자처럼 보여서다(quick-260930).
    - 아래 두 셀렉터는 앱 전체의 포커스 표시가 걸려 있는 지점이다. 고치지 말 것.
    ───────────────────────────────────────────────────────────── */
 *:focus-visible {

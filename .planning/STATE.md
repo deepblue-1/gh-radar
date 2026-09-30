@@ -5,10 +5,10 @@ current_phase: 26
 current_phase_name: 시세 전용 공유 연결 — relay 종목 단위 팬아웃
 status: executing
 stopped_at: Completed 26-01-PLAN.md
-last_updated: "2026-09-30T13:04:51.650Z"
+last_updated: "2026-09-30T13:09:33.404Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 26 execution started
-state_head: 5726c48e15264561273633904e79ec156f574812
+state_head: 9e14b49ad86299c0047c823b9bf063514be1532e
 progress:
   total_phases: 35
   completed_phases: 4
@@ -522,6 +522,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 260930-lm7 | **오늘주문 신규 상장 종목명 — ISIN 대신 이름** — 원인: 오늘 상장 종목은 master-sync(08:10 · 전 영업일 KRX) 전이라 `stocks.isin` 이 비어 있음(intraday-sync bootstrap 은 code·name 만). `fetchStockNames` 가 isin 미해결 보통주 ISIN 만 단축코드로 한 번 더 조회(우선주 제외). 오늘주문 · 주문로그 공통. 세션 초 조회 실패(상장 전 bootstrap 전)는 null 캐시라 새로고침 필요 | 2026-09-30 | 359c755b · 1f21acff · 6adaa5ef | [260930-lm7-isin](./quick/260930-lm7-isin/) |
 | 260930-lq5 | **카드 주문로그 · 전략로그 → 버튼 + 한 종목 팝업** — 카드 탭은 정보 · 미체결 · 잔고만, 오른쪽 「주문로그(새 줄 배지)」 · 「전략로그」 버튼이 그 카드 종목 · 거래소 · 계좌 전용 다이얼로그를 연다(목업 v2 A). 주문로그 = 요약 한 줄 · 구분 필터 · 6열 표(시각 · 주문번호 뒤 4자리 · 구분 · 행위 · 내용 · 누적) · 위→아래 시간 흐름 · 창 분리 유지. 전략로그 = 시각 · 내용 · 오류만. 폰(<640) 전체 화면 두 줄 행. VI/돌파 알림 탭 → 정보. 공용 패널은 그대로 | 2026-09-30 | a4b45562 · 4d7683ff · 529af3e4 | [260930-lq5-log-popup](./quick/260930-lq5-log-popup/) |
 | 51 | 사이드바 메뉴 순서 교체 — AI 애널리스트를 My page 위로 | 2026-09-30 | 72c1fb5b | — |
+| 52 | 다크 토큰 청색 틴트 제거(무채색화) | 2026-09-30 | 9e14b49a | — |
 
 ## Session Continuity
 

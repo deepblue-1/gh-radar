@@ -39,7 +39,7 @@ describe('getChartPalette', () => {
       up: '#f04251',
       down: '#3485fa',
       text: '#7e7e87',
-      grid: '#2c2c35',
+      grid: '#2d2d2d',
     });
   });
 

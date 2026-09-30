@@ -37,7 +37,7 @@ export interface ChartPalette {
  * - up/down = 테마별 red500(라이트 #f04452 / 다크 #f04251) · blue500(라이트 #3182f6 / 다크 #3485fa).
  *   globals.css 의 테마별 `--up`/`--down` 과 같은 hex 다 — styles/__tests__/tds-tokens.test.ts 가 교차 단언.
  * - 축 글자 = grey500(3차 텍스트 — 라이트 #8b95a1 / 다크 #7e7e87), grid = grey100(라이트 #f2f4f6 /
- *   다크 #2c2c35). 두 테마가 같은 역할의 공식 단계를 쓴다.
+ *   다크 #2d2d2d). 두 테마가 같은 역할의 공식 단계를 쓴다.
  */
 const PALETTES: Record<'light' | 'dark', ChartPalette> = {
   light: {
@@ -51,7 +51,7 @@ const PALETTES: Record<'light' | 'dark', ChartPalette> = {
     up: '#f04251',
     down: '#3485fa',
     text: '#7e7e87',
-    grid: '#2c2c35',
+    grid: '#2d2d2d',
     bg: 'rgba(0, 0, 0, 0)',
   },
 } as const;
