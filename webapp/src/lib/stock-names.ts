@@ -26,15 +26,19 @@ import { createClient } from "@/lib/supabase/client";
 const names = new Map<string, string | null>();
 const inflight = new Set<string>();
 
+/** 보통주 ISIN — 6자가 단축코드다. 우선주(KR7005931001 → 005935)는 달라서 떼지 않는다. */
+const COMMON_ISIN_RE = /^KR7([0-9A-Z]{5}0)00\d$/;
+
 /** 테스트 전용 — 모듈 캐시를 비운다. */
 export function clearStockNameCache(): void {
   names.clear();
   inflight.clear();
 }
 
-/** 마스터에서 ISIN 묶음의 이름을 읽는다. 오류는 던진다. */
+/** 마스터에서 ISIN 묶음의 이름을 읽는다(isin → 없으면 보통주는 단축코드). 오류는 던진다. */
 export async function fetchStockNames(isins: readonly string[]): Promise<Map<string, string>> {
-  const { data, error } = await createClient()
+  const supabase = createClient();
+  const { data, error } = await supabase
     .from("stocks")
     .select("isin,name")
     .in("isin", [...isins]);
@@ -42,6 +46,23 @@ export async function fetchStockNames(isins: readonly string[]): Promise<Map<str
   const out = new Map<string, string>();
   for (const row of (data ?? []) as { isin: string | null; name: string | null }[]) {
     if (row.isin && row.name) out.set(row.isin, row.name);
+  }
+
+  const byCode = new Map<string, string>();
+  for (const isin of isins) {
+    const m = out.has(isin) ? null : COMMON_ISIN_RE.exec(isin);
+    if (m) byCode.set(m[1]!, isin);
+  }
+  if (byCode.size === 0) return out;
+
+  const res = await supabase
+    .from("stocks")
+    .select("code,name")
+    .in("code", [...byCode.keys()]);
+  if (res.error) throw res.error;
+  for (const row of (res.data ?? []) as { code: string; name: string | null }[]) {
+    const isin = byCode.get(row.code);
+    if (isin && row.name) out.set(isin, row.name);
   }
   return out;
 }
