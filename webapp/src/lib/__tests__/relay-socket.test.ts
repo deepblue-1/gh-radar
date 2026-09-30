@@ -2074,6 +2074,110 @@ describe('journal.rows / journal.state (Phase 19 D-03·D-04)', () => {
 });
 
 // ============================================================
+// Phase 26 Plan 12 — quote.state / sub.limit (D-01 · D-04)
+// ============================================================
+
+describe('quote.state / sub.limit (Phase 26 D-01 · D-04)', () => {
+  const DOWN = { t: 'quote.state', s: 'down', since: '2026-09-30T01:02:03.000Z' } as const;
+
+  it('초기 quoteState · subLimit 은 null — relay 가 모르면 배지를 그리지 않는다', async () => {
+    const hook = render({ enabled: true });
+    expect(hook.result.current.quoteState).toBeNull();
+    expect(hook.result.current.subLimit).toBeNull();
+    await connected(hook);
+    expect(hook.result.current.quoteState).toBeNull();
+    expect(hook.result.current.subLimit).toBeNull();
+  });
+
+  it('quote.state 는 최신 1건을 보관한다 — down 뒤 live 가 오면 교체', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+
+    await act(async () => {
+      ws.push(DOWN);
+    });
+    expect(hook.result.current.quoteState).toEqual(DOWN);
+
+    await act(async () => {
+      ws.push({ t: 'quote.state', s: 'live' });
+    });
+    expect(hook.result.current.quoteState).toEqual({ t: 'quote.state', s: 'live' });
+  });
+
+  it('sub.limit 는 최신 1건을 보관한다 — 두 번째가 오면 교체', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+
+    await act(async () => {
+      ws.push({ t: 'sub.limit', i: ISIN_A, x: 'KRX', scope: 'user' });
+    });
+    expect(hook.result.current.subLimit).toEqual({ t: 'sub.limit', i: ISIN_A, x: 'KRX', scope: 'user' });
+
+    await act(async () => {
+      ws.push({ t: 'sub.limit', i: ISIN_B, x: 'NXT', scope: 'global' });
+    });
+    expect(hook.result.current.subLimit).toEqual({ t: 'sub.limit', i: ISIN_B, x: 'NXT', scope: 'global' });
+  });
+
+  it('quote.state down 전후로 isStale 과 호가 캐시가 그대로다 — 흐림은 배지만 (D-04)', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push(quoteFrame({ p: 70_000 }));
+    });
+    flushMarket();
+    const staleBefore = hook.result.current.isStale;
+    const quotesBefore = hook.result.current.quotes;
+
+    await act(async () => {
+      ws.push(DOWN);
+    });
+    expect(hook.result.current.quoteState?.s).toBe('down');
+    expect(hook.result.current.isStale).toBe(staleBefore);
+    expect(hook.result.current.quotes).toBe(quotesBefore);
+    expect(quoteOf(hook, ISIN_A, 'KRX')?.p).toBe(70_000);
+
+    await act(async () => {
+      ws.push({ t: 'quote.state', s: 'live' });
+    });
+    expect(hook.result.current.isStale).toBe(staleBefore);
+    expect(hook.result.current.quotes).toBe(quotesBefore);
+  });
+
+  it('로그아웃(enabled false → reset) 뒤 quoteState · subLimit 가 null 로 돌아간다', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push(DOWN);
+      ws.push({ t: 'sub.limit', i: ISIN_A, x: 'KRX', scope: 'user' });
+    });
+    expect(hook.result.current.quoteState).not.toBeNull();
+    expect(hook.result.current.subLimit).not.toBeNull();
+
+    await act(async () => {
+      hook.rerender({ enabled: false });
+    });
+    expect(hook.result.current.quoteState).toBeNull();
+    expect(hook.result.current.subLimit).toBeNull();
+  });
+
+  it('모르는 t 는 여전히 무시한다 — 반환 상태 참조가 그대로다', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push(DOWN);
+    });
+    const before = hook.result.current;
+
+    await act(async () => {
+      ws.push({ t: 'quote.state.v2', s: 'weird' });
+    });
+    expect(hook.result.current).toBe(before);
+    expect(hook.result.current.quoteState).toEqual(DOWN);
+  });
+});
+
+// ============================================================
 // 복귀(resume) — 모바일 백그라운드·탭 복귀·네트워크 복구 (debug mobile-bg-resume-gaps 2·3·3b)
 // ============================================================
 
