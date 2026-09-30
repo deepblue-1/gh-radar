@@ -235,6 +235,8 @@ const fanout = new WsFanout({
   journalAccess,
   // 기록 연결 상태 — 인증 직후 `journal.state` 스냅샷 1프레임의 출처(Phase 19 D-04 (a)).
   journalState: journalStatus,
+  // 시세 전용 공유 연결 상태 — 인증 직후 `quote.state` 스냅샷 1프레임의 출처(Phase 26 D-01).
+  quoteState: quoteStatus,
 });
 
 // 기록기가 적용한 행 → 계좌 권한 사용자별 부분집합 푸시(D-03). 상태 전이 프레임 → 인증된 전 연결(D-04 (a)).
@@ -242,6 +244,8 @@ journalWriter.on("applied", (rows) => fanout.deliverJournalRows(rows));
 // 전략 기록기가 적용한 이벤트 → 주문 이벤트는 계좌 권한 사용자 · 시세 이벤트는 매핑 보유자 전원(Phase 25 · T-25-01).
 primaryJournal.strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows));
 journalStatus.on("frame", (frame) => fanout.deliverJournalState(frame));
+// 시세 연결 상태 전이(3초 디바운스) → 인증된 전 연결(Phase 26 D-01). `/healthz` 와 같은 원천이다.
+quoteStatus.on("frame", (frame) => fanout.deliverQuoteState(frame));
 // 추가 게이트웨이 — 적용 행은 **그 게이트웨이의 매핑 + 명시 신원 연결로만** 거른다(주 게이트웨이 매핑 · 자격증명
 // 문자열을 보지 않는다 — quick-260929-sas).
 // 상태 frame 은 어디에도 결선하지 않는다 — 브라우저 `journal.state` 는 주 게이트웨이 한 원천이다

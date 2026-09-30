@@ -90,6 +90,7 @@ import type {
   RelayNxtSnapMsg,
   RelayJournalStateMsg,
   RelayOutbound,
+  RelayQuoteStateMsg,
   RelayServerMsg,
   RelayStateMsg,
   RelaySubLevel,
@@ -309,6 +310,11 @@ export type WsFanoutDeps = {
    * 「표식 없음」 으로 읽는다.
    */
   journalState?: { frame(): RelayJournalStateMsg | null };
+  /**
+   * 시세 전용 공유 연결 상태 원천(Phase 26 D-01 — `QuoteStatus`). 인증 직후 `quote.state` 스냅샷 1프레임의 출처다.
+   * 없거나 `frame()` 이 null(quote 연결 disabled · 아직 판정 전)이면 보내지 않는다 — `journalState` 와 같은 규율이다.
+   */
+  quoteState?: { frame(): RelayQuoteStateMsg | null };
 };
 
 /** `/healthz` 용 요약. 식별자를 담지 않는다. */
@@ -426,6 +432,8 @@ export class WsFanout {
   #journalAccessWarned = false;
   /** 기록 연결 상태 원천 (Phase 19 D-04 (a)). 없으면 `journal.state` 스냅샷을 보내지 않는다. */
   readonly #journalState: { frame(): RelayJournalStateMsg | null } | null;
+  /** 시세 전용 공유 연결 상태 원천 (Phase 26 D-01). 없으면 `quote.state` 스냅샷을 보내지 않는다. */
+  readonly #quoteState: { frame(): RelayQuoteStateMsg | null } | null;
 
   constructor(deps: WsFanoutDeps) {
     this.#server = deps.server;
@@ -439,6 +447,7 @@ export class WsFanout {
     this.#symbols = deps.symbols ?? null;
     this.#journalAccess = deps.journalAccess ?? null;
     this.#journalState = deps.journalState ?? null;
+    this.#quoteState = deps.quoteState ?? null;
 
     this.#wss = new WebSocketServer({
       noServer: true,
@@ -730,6 +739,10 @@ export class WsFanout {
     // (Phase 19 D-04 (a)). 관찰자 비활성·판정 전의 「모름」 을 live/delayed 로 지어내지 않는다.
     const journalFrame = this.#journalState?.frame() ?? null;
     if (journalFrame !== null) this.#send(conn, journalFrame);
+    // `quote.state` 도 `journal.state` 와 같다 — relay 가 시세 연결 상태를 **알 때만** 보낸다(Phase 26 D-01).
+    // quote 연결 disabled · 판정 전의 「모름」 을 live/down 으로 지어내지 않는다.
+    const quoteFrame = this.#quoteState?.frame() ?? null;
+    if (quoteFrame !== null) this.#send(conn, quoteFrame);
   }
 
   /** 현재 NXT 거래가능 집합 프레임. 원천이 없거나 아직 모르면 `null` (quick-260923-pq2). */
@@ -1685,6 +1698,19 @@ export class WsFanout {
    * 미인증·자격증명 미등록 연결에는 가지 않는다. 프레임에는 계좌·사용자 식별자가 없다.
    */
   deliverJournalState(frame: RelayJournalStateMsg): void {
+    for (const entry of this.#users.values()) {
+      for (const conn of entry.conns) this.#send(conn, frame);
+    }
+  }
+
+  /**
+   * 시세 전용 공유 연결 상태 프레임을 인증된 **모든** 연결에 내린다 (Phase 26 D-01 — 배지 「시세」 축).
+   *
+   * `deliverJournalState` 와 같은 근거다 — 내리는 값이 사용자 데이터가 아니라 relay **운영 상태**(공유 시세 연결이
+   * 살아 있는가)라 T-15-02(사용자 격리)와 무관하다. `#users` 만 돌므로 미인증 · 자격증명 미등록 연결에는 가지 않는다
+   * (D-09 — 시세를 못 보는 사용자에게 시세 축을 알리지 않는다). 프레임에는 계좌 · 사용자 식별자가 없다(T-26-21).
+   */
+  deliverQuoteState(frame: RelayQuoteStateMsg): void {
     for (const entry of this.#users.values()) {
       for (const conn of entry.conns) this.#send(conn, frame);
     }
