@@ -24,6 +24,7 @@ import type { AddressInfo } from "node:net";
 import { createOrderApi, type OrderApiSessions } from "../src/order/order-api.js";
 import type { SessionStats } from "../src/dma/session-manager.js";
 import type { JournalHealth } from "../src/journal/types.js";
+import type { QuoteHealth } from "../src/quote/status.js";
 
 const SECRET = "test-relay-order-secret-0123456789";
 
@@ -45,6 +46,8 @@ type StartOptions = {
   now?: Date;
   /** 추가 게이트웨이 관찰자 요약 스텁 (quick-260929-c8e). 생략하면 주입하지 않는다. */
   journalGateways?: Array<{ gateway: string; health: JournalHealth }>;
+  /** 시세 전용 공유 연결 요약 스텁 (Phase 26 D-02). 생략하면 quote 소스 없음. */
+  quote?: QuoteHealth;
 };
 
 /** VPN 이 서 있는 VM 의 실측 인터페이스 (2026-09-06 radar-gw). */
@@ -83,6 +86,7 @@ async function start(opts: StartOptions = {}): Promise<Harness> {
     ...(opts.journalGateways !== undefined
       ? { journalGateways: opts.journalGateways.map((g) => ({ gateway: g.gateway, health: () => g.health })) }
       : {}),
+    ...(opts.quote !== undefined ? { quote: { health: () => opts.quote as QuoteHealth } } : {}),
   });
   const server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
@@ -608,5 +612,116 @@ describe("journalGateways — 추가 게이트웨이 관찰자 (quick-260929-c8e
       ],
     );
     expect(JSON.stringify(body)).not.toMatch(/"(accountNo|userId|account_no|user_id|dmaUserId|dma_user_id|host|secret)"/);
+  });
+});
+
+describe("quote 판정 (Phase 26 D-02 · D-16)", () => {
+  /** 2026-09-28(월) 10:00 KST — 장중. */
+  const IN_WINDOW = new Date("2026-09-28T10:00:00+09:00");
+  /** 2026-09-28(월) 21:00 KST — 장 밖. */
+  const OUT_OF_WINDOW = new Date("2026-09-28T21:00:00+09:00");
+
+  function quote(state: QuoteHealth["state"], disconnectedSec: number | null): QuoteHealth {
+    return {
+      state,
+      keyCount: 12,
+      lingerCount: 2,
+      lastFrameAgeSec: state === "ready" ? 1 : 40,
+      reconnects: 3,
+      subLimitRejects: 0,
+      disconnectedSec,
+    };
+  }
+
+  function journal(state: JournalHealth["state"], disconnectedSec: number | null): JournalHealth {
+    return {
+      state,
+      lastSeq: 41,
+      headSeq: 42,
+      lagSeq: 1,
+      disconnectedSec,
+      lastAppliedAgeSec: 3,
+      seqRegressions: 0,
+      lastSeqRegressionAgeSec: null,
+      strategy: { lastSeq: 7, headSeq: 9, lagSeq: 2, dbError: false, queueDepth: 0, paused: null },
+    };
+  }
+
+  let h: Harness | null = null;
+
+  afterEach(async () => {
+    await h?.close();
+    h = null;
+  });
+
+  async function probe(opts: StartOptions): Promise<{ status: number; body: Record<string, unknown> }> {
+    h = await start(opts);
+    const res = await fetch(h.url("/healthz"));
+    return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+  }
+
+  it("quote 소스 없음 → 본문에 quote 키 없음 · 판정 종전 그대로", async () => {
+    const { status, body } = await probe({ now: IN_WINDOW });
+    expect(status).toBe(200);
+    expect(body.status).toBe("ok");
+    expect("quote" in body).toBe(false);
+  });
+
+  it("장중 10:00 · connecting 30초 → 200 · 본문 quote.state connecting (유예 안 — Pitfall 7)", async () => {
+    const { status, body } = await probe({ quote: quote("connecting", 30), now: IN_WINDOW });
+    expect(status).toBe(200);
+    expect(body.status).toBe("ok");
+    expect((body.quote as QuoteHealth).state).toBe("connecting");
+    expect(body.quote).toEqual(quote("connecting", 30));
+  });
+
+  it("장중 10:00 · connecting 61초 → 503 degraded (사용자 세션 stalled 와 같은 등급 — D-02)", async () => {
+    const { status, body } = await probe({ quote: quote("connecting", 61), now: IN_WINDOW });
+    expect(status).toBe(503);
+    expect(body.status).toBe("degraded");
+    // 503 이어도 vpn · dma 는 각자의 사실만 말한다.
+    expect(body.vpn).toBe(true);
+    expect(body.dma).toBe(true);
+  });
+
+  it("장 밖 21:00 · connecting 1시간 → 200 · 본문에 disconnectedSec 3600 (본문은 24시간 — D-16)", async () => {
+    const { status, body } = await probe({ quote: quote("connecting", 3600), now: OUT_OF_WINDOW });
+    expect(status).toBe(200);
+    expect(body.status).toBe("ok");
+    expect(body.quote).toMatchObject({ state: "connecting", disconnectedSec: 3600 });
+  });
+
+  it.each(["rejected", "role_mismatch"] as const)("장 밖 21:00 · %s → 503 즉시 (설정 오류는 창과 무관 — D-16)", async (state) => {
+    const { status, body } = await probe({ quote: quote(state, 0), now: OUT_OF_WINDOW });
+    expect(status).toBe(503);
+    expect(body.status).toBe("degraded");
+    expect((body.quote as QuoteHealth).state).toBe(state);
+  });
+
+  it("장중 10:00 · ready → 200", async () => {
+    const { status, body } = await probe({ quote: quote("ready", null), now: IN_WINDOW });
+    expect(status).toBe(200);
+    expect(body.status).toBe("ok");
+  });
+
+  it("journal 알림과 quote 알림은 AND 로 합쳐진다 — 둘 중 하나만 참이어도 503", async () => {
+    const journalOnly = await probe({ journal: journal("connecting", 180), quote: quote("ready", null), now: IN_WINDOW });
+    expect(journalOnly.status).toBe(503);
+    await h?.close();
+    h = null;
+    const quoteOnly = await probe({ journal: journal("live", null), quote: quote("connecting", 61), now: IN_WINDOW });
+    expect(quoteOnly.status).toBe(503);
+    await h?.close();
+    h = null;
+    const both = await probe({ journal: journal("live", null), quote: quote("ready", null), now: IN_WINDOW });
+    expect(both.status).toBe(200);
+  });
+
+  it("quote 필드 키는 정확히 7개이고 식별자 계열이 없다 (T-26-18 · smoke health_probe)", async () => {
+    const { body } = await probe({ journal: journal("live", null), quote: quote("ready", null), now: IN_WINDOW });
+    expect(Object.keys(body.quote as object).sort()).toEqual(
+      ["disconnectedSec", "keyCount", "lastFrameAgeSec", "lingerCount", "reconnects", "state", "subLimitRejects"],
+    );
+    expect(JSON.stringify(body)).not.toMatch(/"(accountNo|userId|account_no|user_id)"/);
   });
 });
