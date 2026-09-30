@@ -73,7 +73,7 @@ import { cardAccountSliceOf } from "@/components/trading/card/card-account-slice
 import { CardHeader } from "@/components/trading/card/card-header";
 import { DirtyBarHostContext } from "@/components/trading/dirty-action-bar";
 import { LC_ORPHAN_WAIT_MS } from "@/components/trading/lc/use-lc-field-commit";
-import { CardTabs, type CardOrderLogInput, type CardTabRequest } from "@/components/trading/card/card-tabs";
+import { CardTabs, type CardTabRequest } from "@/components/trading/card/card-tabs";
 import { useOrderLogFeedContext } from "@/components/trading/order-log/order-log-feed-context";
 import type { AccountRowOrigin } from "@/components/orderbook/account-panel";
 import {
@@ -902,25 +902,8 @@ function StrategyCardImpl({
   const toggleId = `${idBase}-toggle`;
   const bodyId = `${idBase}-body`;
   const displayName = name === "" ? isin : name;
-  /*
-    카드 탭 「주문로그」(Phase 25-10 · D-06) — 작업대 공용 피드 하나를 이 카드 종목 · 거래소로 좁혀 읽는다(카드마다
-    조회하지 않는다). Provider 밖(작업대 밖 렌더)이면 null → 탭 자체가 없다. 카드는 이미 relay 컨텍스트 소비자라
-    푸시마다 재렌더되는 것은 기존과 같다(T-18-29 예산 불변).
-  */
+  // 주문로그 버튼 팝업의 피드 — 작업대 공용 피드 하나, 카드마다 조회하지 않는다(Provider 밖이면 null → 버튼 없음).
   const orderLogCtx = useOrderLogFeedContext();
-  const orderLog = useMemo<CardOrderLogInput | undefined>(
-    () =>
-      orderLogCtx === null
-        ? undefined
-        : {
-            feed: orderLogCtx,
-            isin,
-            exchange,
-            stockName: displayName,
-            phoneBand: orderLogCtx.phoneBand,
-          },
-    [orderLogCtx, isin, exchange, displayName],
-  );
 
   /*
     UI-SPEC Q-3 — 같은 종목 카드가 둘일 때 어느 전략인지 종목명 `title` 이 말한다. 보이는 요소는
@@ -1003,8 +986,10 @@ function StrategyCardImpl({
               originOf={originOf}
               onCancelSubmitted={onCancelSubmitted}
               requestedTab={requestedTab}
-              orderLog={orderLog}
-              cardOpen={open}
+              isin={isin}
+              exchange={exchange}
+              stockName={displayName}
+              orderLogFeed={orderLogCtx ?? undefined}
             />
             <CardNotices card={card} />
             {body?.(card)}

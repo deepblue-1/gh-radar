@@ -9,11 +9,16 @@ import {
   inScope,
   kstWeekdayShort,
   matchesKind,
+  matchesSide,
   mergeStrategyEvents,
   orderLogQueryString,
+  orderLogSummary,
+  orderNoTail,
   parseOrderLogQuery,
   shiftKstDate,
+  sideFilterKind,
   stockOptions,
+  ORDER_LOG_SIDE_FILTERS,
 } from '../order-log-feed';
 import {
   FIXTURE_ACCOUNT_NO,
@@ -227,5 +232,55 @@ describe('shiftKstDate · kstWeekdayShort (25-10)', () => {
     expect(kstWeekdayShort('2026-09-29')).toBe('화');
     expect(kstWeekdayShort('2026-09-27')).toBe('일');
     expect(kstWeekdayShort('2026-10-03')).toBe('토');
+  });
+});
+
+/* ── quick-260930-lq5 — 카드 한 종목 팝업 헬퍼 (D3) ─────────────────────── */
+
+describe('카드 한 종목 팝업 헬퍼 (quick-260930-lq5)', () => {
+  it('orderNoTail — 뒤 4자리 · 짧으면 그대로 · 빈 번호 「—」', () => {
+    expect(orderNoTail('0000012451')).toBe('2451');
+    expect(orderNoTail('12451')).toBe('2451');
+    expect(orderNoTail('451')).toBe('451');
+    expect(orderNoTail('')).toBe('—');
+  });
+
+  it('ORDER_LOG_SIDE_FILTERS — 전체 · 매수 · 매도 · 시세 순', () => {
+    expect(ORDER_LOG_SIDE_FILTERS.map((o) => o.label)).toEqual(['전체', '매수', '매도', '시세']);
+    expect(ORDER_LOG_SIDE_FILTERS.map((o) => o.value)).toEqual(['all', 'buy', 'sell', 'market']);
+  });
+
+  it('matchesSide — 배지 색(tone) 축 · 시세 = kind 1·2 · 수동 매도(group 7 · kind 6)는 매도', () => {
+    const sell = STRATEGY_DAY_BY_NAME.sell12454!;
+    const manualSell = row(sell, { seq: 990, group: 7, kind: 6 });
+    const manualBuy = row(buy12451, { seq: 991, group: 7, kind: 3 });
+    const vi = row(buy12451, { seq: 992, group: 8, kind: 3 });
+    const all = [exposed, buy12451, sell, manualSell, manualBuy, vi];
+    expect(all.filter((r) => matchesSide(r, 'all'))).toHaveLength(6);
+    expect(all.filter((r) => matchesSide(r, 'buy'))).toEqual([buy12451, manualBuy, vi]);
+    expect(all.filter((r) => matchesSide(r, 'sell'))).toEqual([sell, manualSell]);
+    expect(all.filter((r) => matchesSide(r, 'market'))).toEqual([exposed]);
+  });
+
+  it('sideFilterKind — 창 분리 kind 로 옮김 · 매수는 창에 대응 칩이 없어 전체', () => {
+    expect(sideFilterKind('all')).toBe('all');
+    expect(sideFilterKind('market')).toBe('market');
+    expect(sideFilterKind('sell')).toBe('sell');
+    expect(sideFilterKind('buy')).toBe('all');
+  });
+
+  it('orderLogSummary — kind 로 센다 · 누적 = 마지막 행 cumVolume · 빈 배열이면 null', () => {
+    const rows = STRATEGY_DAY_ROWS;
+    const count = (kinds: number[]) => rows.filter((r) => kinds.includes(r.kind)).length;
+    expect(orderLogSummary(rows)).toEqual({
+      orders: count([3, 6]),
+      fills: count([5]),
+      rejects: count([8]),
+      cancels: count([7]),
+      cum: rows[rows.length - 1]!.cumVolume,
+    });
+    expect(orderLogSummary(rows).orders).toBeGreaterThan(0);
+    expect(orderLogSummary(rows).rejects).toBe(1);
+    expect(orderLogSummary([])).toEqual({ orders: 0, fills: 0, rejects: 0, cancels: 0, cum: null });
   });
 });

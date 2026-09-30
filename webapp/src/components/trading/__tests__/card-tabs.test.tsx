@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type {
   RelayAccountState,
@@ -32,14 +32,14 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
 import { CardTabs, type CardTabsProps } from '../card/card-tabs';
 import { readPanelsPref, TRADING_PANELS_KEY, writePanelsPref } from '@/lib/trading-layout';
 import type { StrategyLogEntry } from '../strategy-log';
-import type { StrategyEventRow } from '@gh-radar/shared';
+import { strategyEventKey, strategyEventParts, type StrategyEventRow } from '@gh-radar/shared';
 import type { OrderLogFeed } from '@/lib/use-order-log-feed';
+import { matchesSide, orderLogSummary } from '@/lib/order-log-feed';
 import {
   FIXTURE_ACCOUNT_NO,
   FIXTURE_STOCK_NAME,
   STRATEGY_BRANCH_ROWS,
   STRATEGY_DAY_BY_NAME,
-  STRATEGY_DAY_GOLDEN,
 } from '@/test-fixtures/strategy-day';
 
 const ISIN = 'KR7196170005';
@@ -100,6 +100,9 @@ function props(over: Partial<CardTabsProps> = {}): CardTabsProps {
     selectedOrderNo: null,
     onSelectUnfilled: vi.fn(),
     priceOf: () => 420_000,
+    isin: ISIN,
+    exchange: 'KRX',
+    stockName: '알테오젠',
     ...over,
   };
 }
@@ -384,19 +387,22 @@ describe('CardTabs — 고정 높이 본문 · 접기 (quick-260925-ptw)', () =>
 });
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Phase 25-10 Task 1 — 카드 탭 「주문로그」 (D-06 · 결정 3-A · 4-B · UI-SPEC ②-2)
+ * quick-260930-lq5 — 카드 「주문로그」 버튼 + 한 종목 팝업 (D1 · D2 · D3 · D5)
  *
- * 잠그는 것: 탭 5개 순서 info → unfilled → holdings → orderlog → log · 「로그」 → 「전략로그」 라벨만(값 log) ·
- * 요청 통로 `{ tab: "orderlog" }` · 본문 = card dense 목록(필터줄 · 핀 없음) · 범위 = 카드 계좌 주문 + 그 종목 ·
- * 그 거래소(시세 포함) · 빈/로딩/실패 · 가려진 동안 배지(다른 탭 · 카드 탭 접힘 · 카드 접힘).
+ * 잠그는 것: 주문로그 탭 없음 · 탭 줄 접기 앞 버튼 · 배지(닫힌 동안 범위 안 새 줄 수 · 열면 0) · 다이얼로그 제목 =
+ * 알약 + 종목명 + 거래소(ISIN · 계좌 없음) · 표 6열 · 범위(카드 계좌 주문 + 그 종목 · 그 거래소 시세) · 오름차순 ·
+ * 번호 뒤 4자리 · 내용 = strategyEventParts body 그대로 · 거부 · 새 줄 표시 · 요약 · 구분 세그먼트 · 창 분리 URL · 상태 문구.
+ * 다이얼로그는 body 포털이라 `screen` 으로 찾는다(jsdom 은 CSS 를 적용하지 않아 폰 행도 DOM 에 있다 — 표 행으로 한정).
  * ──────────────────────────────────────────────────────────────────────────── */
 
-describe('CardTabs — 주문로그 탭 (Phase 25)', () => {
+describe('CardTabs — 주문로그 버튼 + 팝업 (quick-260930-lq5)', () => {
   const buy = STRATEGY_DAY_BY_NAME.buy12451!; // 카드 계좌 · KRX · 이 종목
   const exposed = STRATEGY_DAY_BY_NAME.exposed!; // 시세 · KRX · 이 종목
   const exposedNxt = STRATEGY_BRANCH_ROWS.exposedOpen!; // 시세 · NXT(다른 거래소)
   const otherAccount: StrategyEventRow = { ...buy, seq: 901, accountNo: '9999999901', orderNo: '77777' };
   const otherStock: StrategyEventRow = { ...buy, seq: 902, isin: 'KR7000660001', stockCode: '000660' };
+  const reject = STRATEGY_DAY_BY_NAME.reject!; // 거부 · 빈 주문번호
+  const sell = STRATEGY_DAY_BY_NAME.sell12454!;
   const ISIN_KRX = buy.isin;
 
   function feed(over: Partial<OrderLogFeed> = {}): OrderLogFeed {
@@ -415,83 +421,39 @@ describe('CardTabs — 주문로그 탭 (Phase 25)', () => {
   function olProps(f: OrderLogFeed, over: Partial<CardTabsProps> = {}): CardTabsProps {
     return props({
       accountNo: FIXTURE_ACCOUNT_NO,
-      orderLog: { feed: f, isin: ISIN_KRX, exchange: 'KRX', stockName: FIXTURE_STOCK_NAME, phoneBand: false },
+      isin: ISIN_KRX,
+      exchange: 'KRX',
+      stockName: FIXTURE_STOCK_NAME,
+      orderLogFeed: f,
       ...over,
     });
   }
 
-  const olBody = () => root().querySelector<HTMLElement>('[data-slot="order-log"][data-surface="card"]');
-  const olLines = () => [...root().querySelectorAll<HTMLElement>('li[data-slot="order-log-line"]')];
-  const normalize = (s: string | null): string => (s ?? '').replace(/\s+/g, ' ').trim();
+  const olButton = () =>
+    root().querySelector<HTMLButtonElement>('[data-slot="card-tabs-bar"] [data-slot="card-log-button"][data-log="주문로그"]');
+  const dialog = () => screen.getByRole('dialog');
+  const tableRows = () => [...dialog().querySelectorAll<HTMLElement>('tr[data-slot="card-log-row"]')];
+  const cells = (tr: HTMLElement) => [...tr.querySelectorAll('td')].map((td) => td.textContent ?? '');
+  const count = () => dialog().querySelector('[data-slot="card-log-count"]')?.textContent;
 
-  it('탭 5개 순서 [정보, 미체결(2), 잔고(1), 주문로그, 전략로그(3)] · 값 log 트리거가 「전략로그」', () => {
-    render(<CardTabs {...olProps(feed())} />);
-    expect(tabs().map((t) => t.textContent)).toEqual(['정보', '미체결(2)', '잔고(1)', '주문로그', '전략로그(3)']);
-    expect(tabs().map((t) => t.id.replace(/^.*-trigger-/, ''))).toEqual([
-      'info',
-      'unfilled',
-      'holdings',
-      'orderlog',
-      'log',
-    ]);
-  });
+  it('주문로그 탭(tab role)은 없고 탭 줄 안 접기 버튼 앞에 「주문로그」 버튼 · 피드가 없으면 버튼 없음', () => {
+    const view = render(<CardTabs {...olProps(feed())} />);
+    expect(tabs().map((t) => t.id.replace(/^.*-trigger-/, ''))).not.toContain('orderlog');
+    const btn = olButton()!;
+    expect(btn).not.toBeNull();
+    expect(btn.textContent).toBe('주문로그');
+    const fold = root().querySelector('[data-slot="card-tabs-fold"]')!;
+    expect(btn.compareDocumentPosition(fold) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    view.unmount();
 
-  it('orderLog prop 이 없으면(작업대 밖) 주문로그 탭이 없다', () => {
     render(<CardTabs {...props()} />);
-    expect(tabs().map((t) => t.id.replace(/^.*-trigger-/, ''))).toEqual(['info', 'unfilled', 'holdings', 'log']);
+    expect(olButton()).toBeNull();
   });
 
-  it('요청 { tab: "orderlog", seq: 2 } → 주문로그 탭 활성 · 펼침(저장된 접힘이 있어도)', () => {
-    writePanelsPref({ cardTabsFolded: true });
-    render(<CardTabs {...olProps(feed(), { requestedTab: { tab: 'orderlog', seq: 2 } })} />);
-    expect(tabNamed('주문로그')).toHaveAttribute('aria-selected', 'true');
-    expect(root().querySelector('[data-slot="card-tabs-body"]')).not.toHaveAttribute('hidden');
-    expect(olBody()).not.toBeNull();
-  });
-
-  it('본문 = card dense 목록 · 필터줄 · 핀 없음 · 줄 = 카드 계좌 주문 + 그 종목 · 그 거래소 시세만', async () => {
+  it('배지: 닫힌 동안 범위 안 푸시 2건(+범위 밖 2건) → 「2」 · 이름 「주문로그, 새 로그 2건」 · 열면 없음 · 닫은 뒤 다시 센다', async () => {
     const user = userEvent.setup();
-    render(<CardTabs {...olProps(feed())} />);
-    await user.click(tabNamed('주문로그'));
-    expect(olBody()).not.toBeNull();
-    expect(root().querySelector('[data-slot="order-log-filters"]')).toBeNull();
-    expect(root().querySelector('[data-slot="order-log-pin"]')).toBeNull();
-    const lines = olLines();
-    expect(lines).toHaveLength(2);
-    expect(normalize(lines[0]!.textContent)).toBe('09:42:13.215 상한가노출 매도잔량 185,400 | 누적 620,000');
-    expect(normalize(lines[1]!.textContent)).toBe(
-      STRATEGY_DAY_GOLDEN.buy12451!.logLine.replace('[09:45:02.861][12451][선매수] KRX | ○○전자 | ', '09:45:02.861 #12451 선매수 '),
-    );
-    // 전체 문장 툴팁은 F-A 와 같다(줄 전체 평문 — 거래소 · 종목 포함).
-    expect(lines[1]!.getAttribute('title')).toBe(STRATEGY_DAY_GOLDEN.buy12451!.logLine);
-  });
-
-  it('빈 상태 = dense 제목만 「이 종목의 주문로그가 없어요」 · 로딩 「불러오는 중…」 · 실패 한 줄 + 다시 시도 = feed.retry', async () => {
-    const user = userEvent.setup();
-    const { rerender } = render(<CardTabs {...olProps(feed({ rows: [] }))} />);
-    await user.click(tabNamed('주문로그'));
-    const empty = root().querySelector<HTMLElement>('[data-slot="order-log-empty"]')!;
-    expect(normalize(empty.textContent)).toBe('이 종목의 주문로그가 없어요');
-    expect(empty.className).toContain('m-2');
-    expect(empty.className).toContain('py-2');
-
-    rerender(<CardTabs {...olProps(feed({ rows: [], status: 'loading' }))} />);
-    expect(root().querySelector('[data-slot="order-log-loading"]')?.textContent).toBe('불러오는 중…');
-
-    const retry = vi.fn();
-    rerender(<CardTabs {...olProps(feed({ rows: [], status: 'error', retry }))} />);
-    const err = root().querySelector<HTMLElement>('[data-slot="order-log-error"]')!;
-    expect(err.getAttribute('role')).toBe('status');
-    expect(err.textContent).toContain('오늘 주문로그를 불러오지 못했어요');
-    await user.click(within(err).getByRole('button', { name: '다시 시도' }));
-    expect(retry).toHaveBeenCalledTimes(1);
-  });
-
-  it('배지: 정보 탭 활성 중 범위 안 푸시 2건(+범위 밖 2건) → 「주문로그(2)」 · 이름 「주문로그, 새 로그 2건」 · 열면 괄호 없음', async () => {
-    const user = userEvent.setup();
-    const f0 = feed();
-    const { rerender } = render(<CardTabs {...olProps(f0)} />);
-    expect(tabNamed('주문로그').textContent).toBe('주문로그');
+    const { rerender } = render(<CardTabs {...olProps(feed())} />);
+    expect(root().querySelector('[data-slot="card-log-badge"]')).toBeNull();
     const pushed = [
       { ...buy, seq: 950 },
       { ...exposed, seq: 951 },
@@ -499,55 +461,121 @@ describe('CardTabs — 주문로그 탭 (Phase 25)', () => {
       { ...exposedNxt, seq: 953 },
     ];
     rerender(<CardTabs {...olProps(feed({ latestPush: { seq: 1, rows: pushed } }))} />);
-    expect(tabNamed('주문로그').textContent).toBe('주문로그(2)');
-    expect(tabNamed('주문로그')).toHaveAttribute('aria-label', '주문로그, 새 로그 2건');
-    await user.click(tabNamed('주문로그'));
-    expect(tabNamed('주문로그').textContent).toBe('주문로그');
-    expect(tabNamed('주문로그')).not.toHaveAttribute('aria-label');
+    expect(root().querySelector('[data-slot="card-log-badge"]')?.textContent).toBe('2');
+    expect(olButton()).toHaveAttribute('aria-label', '주문로그, 새 로그 2건');
+
+    await user.click(olButton()!);
+    expect(dialog()).toBeInTheDocument();
+    expect(root().querySelector('[data-slot="card-log-badge"]')).toBeNull();
+    expect(olButton()).not.toHaveAttribute('aria-label');
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    rerender(<CardTabs {...olProps(feed({ latestPush: { seq: 2, rows: [{ ...buy, seq: 954 }] } }))} />);
+    expect(root().querySelector('[data-slot="card-log-badge"]')?.textContent).toBe('1');
   });
 
-  it('주문로그 탭 활성이어도 카드 탭을 접으면 가려짐으로 센다 · 다시 펴면 0', async () => {
-    const user = userEvent.setup();
-    const req = { tab: 'orderlog' as const, seq: 1 };
-    const { rerender } = render(<CardTabs {...olProps(feed(), { requestedTab: req })} />);
-    await user.click(root().querySelector<HTMLElement>('[data-slot="card-tabs-fold"]')!);
-    const pushed = feed({ latestPush: { seq: 1, rows: [{ ...buy, seq: 960 }] } });
-    rerender(<CardTabs {...olProps(pushed, { requestedTab: req })} />);
-    expect(tabNamed('주문로그').textContent).toBe('주문로그(1)');
-    await user.click(root().querySelector<HTMLElement>('[data-slot="card-tabs-fold"]')!);
-    expect(tabNamed('주문로그').textContent).toBe('주문로그');
-  });
-
-  it('주문로그 탭이 활성이어도 카드가 접혀 있으면(cardOpen false) 센다 · 카드를 펴면 0', () => {
-    const req = { tab: 'orderlog' as const, seq: 1 };
-    const { rerender } = render(<CardTabs {...olProps(feed(), { requestedTab: req, cardOpen: false })} />);
-    rerender(
-      <CardTabs
-        {...olProps(feed({ latestPush: { seq: 1, rows: [{ ...buy, seq: 970 }] } }), { requestedTab: req, cardOpen: false })}
-      />,
-    );
-    expect(tabNamed('주문로그').textContent).toBe('주문로그(1)');
-    rerender(
-      <CardTabs
-        {...olProps(feed({ latestPush: { seq: 1, rows: [{ ...buy, seq: 970 }] } }), { requestedTab: req, cardOpen: true })}
-      />,
-    );
-    expect(tabNamed('주문로그').textContent).toBe('주문로그');
-  });
-
-  it('주문로그 탭 활성 · 펼침 · 카드 펼침이면 푸시가 와도 배지 0', () => {
-    const req = { tab: 'orderlog' as const, seq: 1 };
-    const { rerender } = render(<CardTabs {...olProps(feed(), { requestedTab: req })} />);
-    rerender(<CardTabs {...olProps(feed({ latestPush: { seq: 1, rows: [{ ...buy, seq: 980 }] } }), { requestedTab: req })} />);
-    expect(tabNamed('주문로그').textContent).toBe('주문로그');
-  });
-
-  it('본문 공통 고정 높이 · 접기 규칙은 그대로 — 주문로그 탭도 같은 card-tabs-body 안', async () => {
+  it('다이얼로그: 이름 = 주문로그 · 종목명 · KRX · ISIN/계좌 없음 · 표 머리 6열 · 범위 안 2행 오름차순 · 번호 뒤 4자리 · 내용 = parts.body', async () => {
     const user = userEvent.setup();
     render(<CardTabs {...olProps(feed())} />);
-    await user.click(tabNamed('주문로그'));
-    const body = root().querySelector<HTMLElement>('[data-slot="card-tabs-body"]')!;
-    expect(body.className).toContain('h-[calc(3*(11px*var(--lh-normal)+6px)+4px)]');
-    expect(body.contains(olBody())).toBe(true);
+    await user.click(olButton()!);
+    const dlg = dialog();
+    const name = dlg.getAttribute('aria-labelledby');
+    const title = document.getElementById(name!)!.textContent!;
+    expect(title).toContain('주문로그');
+    expect(title).toContain(FIXTURE_STOCK_NAME);
+    expect(title).toContain('KRX');
+    expect(title).not.toContain(ISIN_KRX);
+    expect(title).not.toContain(FIXTURE_ACCOUNT_NO);
+    expect([...dlg.querySelectorAll('thead th')].map((th) => th.textContent)).toEqual([
+      '시각',
+      '주문번호',
+      '구분',
+      '행위',
+      '내용',
+      '누적',
+    ]);
+    const rows = tableRows();
+    expect(rows).toHaveLength(2);
+    const [r0, r1] = rows.map(cells);
+    expect(r0![0]).toBe('09:42:13.215');
+    expect(r0![1]).toBe('');
+    expect(r0![2]).toBe('상한가노출');
+    expect(r0![4]).toBe(strategyEventParts(exposed, 'log').body);
+    expect(r0![5]).toBe('620,000');
+    expect(r1![1]).toBe('2451');
+    expect(r1![2]).toBe('선매수');
+    expect(r1![3]).toBe('주문');
+    expect(r1![4]).toBe(strategyEventParts(buy, 'log').body);
+    expect(r1![5]).toBe('861,800');
+    expect(count()).toBe('2건');
+  });
+
+  it('거부 행 data-reject · 빈 번호 「—」 · 새 줄 data-new · 요약 = orderLogSummary · 세그먼트 「매도」 로 좁힘', async () => {
+    const user = userEvent.setup();
+    const rows = [exposed, buy, sell, reject];
+    render(<CardTabs {...olProps(feed({ rows, newKeys: new Set([strategyEventKey(sell)]) }))} />);
+    await user.click(olButton()!);
+    const trs = tableRows();
+    expect(trs).toHaveLength(4);
+    expect(trs[3]).toHaveAttribute('data-reject');
+    expect(cells(trs[3]!)[1]).toBe('—');
+    expect(trs[2]).toHaveAttribute('data-new');
+    expect(trs[1]).not.toHaveAttribute('data-new');
+
+    const sum = orderLogSummary(rows);
+    const summary = dialog().querySelector('[data-slot="card-log-summary"]')!.textContent;
+    expect(summary).toBe(
+      `주문${sum.orders}체결${sum.fills}거부${sum.rejects}취소${sum.cancels}누적${sum.cum!.toLocaleString('ko-KR')}`,
+    );
+
+    const group = within(dialog()).getByRole('group', { name: '구분' });
+    expect(within(group).getAllByRole('button').map((b) => b.textContent)).toEqual(['전체', '매수', '매도', '시세']);
+    await user.click(within(group).getByRole('button', { name: '매도' }));
+    expect(within(group).getByRole('button', { name: '매도' })).toHaveAttribute('aria-pressed', 'true');
+    expect(tableRows().map((tr) => cells(tr)[2])).toEqual(rows.filter((r) => matchesSide(r, 'sell')).map((r) => strategyEventParts(r, 'log').badge));
+    expect(count()).toBe(`${rows.filter((r) => matchesSide(r, 'sell')).length}건`);
+  });
+
+  it('창 분리 → window.open 에 account · stock=ISIN · ex=KRX · 매도면 kind=sell', async () => {
+    const user = userEvent.setup();
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    render(<CardTabs {...olProps(feed())} />);
+    await user.click(olButton()!);
+    await user.click(within(dialog()).getByRole('button', { name: '주문로그 새 창으로 열기' }));
+    const url0 = new URL(String(open.mock.calls[0]![0]), 'http://x');
+    expect(url0.pathname).toBe('/trading/order-log');
+    expect(url0.searchParams.get('account')).toBe(FIXTURE_ACCOUNT_NO);
+    expect(url0.searchParams.get('stock')).toBe(ISIN_KRX);
+    expect(url0.searchParams.get('ex')).toBe('KRX');
+    expect(url0.searchParams.get('kind')).toBeNull();
+
+    await user.click(within(dialog()).getByRole('button', { name: '매도' }));
+    await user.click(within(dialog()).getByRole('button', { name: '주문로그 새 창으로 열기' }));
+    const url1 = new URL(String(open.mock.calls[1]![0]), 'http://x');
+    expect(url1.searchParams.get('kind')).toBe('sell');
+    open.mockRestore();
+  });
+
+  it('상태: 로딩 「불러오는 중…」 · 실패 「오늘 주문로그를 불러오지 못했어요」 + 다시 시도 = feed.retry · 빈 「이 종목의 주문로그가 없어요」 · 필터 0행 「조건에 맞는 로그가 없어요」', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<CardTabs {...olProps(feed({ rows: [], status: 'loading' }))} />);
+    await user.click(olButton()!);
+    expect(dialog().querySelector('[data-slot="card-log-loading"]')?.textContent).toBe('불러오는 중…');
+
+    const retry = vi.fn();
+    rerender(<CardTabs {...olProps(feed({ rows: [], status: 'error', retry }))} />);
+    const err = dialog().querySelector<HTMLElement>('[data-slot="card-log-error"]')!;
+    expect(err.getAttribute('role')).toBe('status');
+    expect(err.textContent).toContain('오늘 주문로그를 불러오지 못했어요');
+    await user.click(within(err).getByRole('button', { name: '다시 시도' }));
+    expect(retry).toHaveBeenCalledTimes(1);
+
+    rerender(<CardTabs {...olProps(feed({ rows: [] }))} />);
+    expect(dialog().querySelector('[data-slot="card-log-empty"]')?.textContent).toBe('이 종목의 주문로그가 없어요');
+
+    rerender(<CardTabs {...olProps(feed({ rows: [exposed] }))} />);
+    await user.click(within(dialog()).getByRole('button', { name: '매수' }));
+    expect(dialog().querySelector('[data-slot="card-log-empty"]')?.textContent).toBe('조건에 맞는 로그가 없어요');
   });
 });

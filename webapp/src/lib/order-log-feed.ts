@@ -20,9 +20,14 @@
  * ④ R3 창 분리 쿼리 — `account` · `date` · `stock`(ISIN) · `ex` · `kind`, 「전체」 는 생략
  *   화이트리스트 파싱이다(T-25-29): 모르는 값은 무시(전체) · 형식 오류/미래 날짜는 오늘로 교정 · `all` 은 별칭.
  *   쿼리는 필터일 뿐 권한이 아니다 — 가시성은 서버가 `req.userId` 로 판정한다.
+ *
+ * ⑤ 카드 한 종목 팝업 (quick-260930-lq5 · D3) — 범위는 카드 그대로(`inScope`), 필터는 구분 하나
+ *   「전체 · 매수 · 매도 · 시세」 = **구분 배지 색 축**(`strategyEventParts(row,'log').tone`). ③ 의 group 축에는
+ *   「매수」 합집합 값이 없고, 수동 · VI 주문도 배지 색대로 들어가야 배지가 빨간데 「매수」 에서 빠지는 일이 없다.
+ *   창 분리 URL 로는 기존 kind 값으로 옮긴다(`sideFilterKind`). 요약 줄은 kind 로만 센다.
  */
 
-import { compareStrategyEventAsc, isMarketStrategyEvent, strategyEventKey } from '@gh-radar/shared';
+import { compareStrategyEventAsc, isMarketStrategyEvent, strategyEventKey, strategyEventParts } from '@gh-radar/shared';
 import type { StrategyEventRow } from '@gh-radar/shared';
 
 /* ── 필터 타입 ─────────────────────────────────────────────────────── */
@@ -137,6 +142,66 @@ export function stockOptions(
   return [...byIsin.entries()]
     .map(([value, label]) => ({ value, label }))
     .sort((a, b) => a.label.localeCompare(b.label, 'ko') || (a.value < b.value ? -1 : a.value > b.value ? 1 : 0));
+}
+
+/* ── ⑤ 카드 한 종목 팝업 (quick-260930-lq5) ─────────────────────────────── */
+
+export type OrderLogSideFilter = 'all' | 'buy' | 'sell' | 'market';
+
+/** 팝업 구분 세그먼트 — 순서 · 라벨이 채택 목업 ②A 그대로다. */
+export const ORDER_LOG_SIDE_FILTERS: ReadonlyArray<{ value: OrderLogSideFilter; label: string }> = [
+  { value: 'all', label: '전체' },
+  { value: 'buy', label: '매수' },
+  { value: 'sell', label: '매도' },
+  { value: 'market', label: '시세' },
+];
+
+/** 배지 색 축으로 거른다 — 모르는 방향(unknown)은 「전체」 에만 보인다(방향을 지어내지 않는다 · D-10). */
+export function matchesSide(row: StrategyEventRow, side: OrderLogSideFilter): boolean {
+  if (side === 'all') return true;
+  return strategyEventParts(row, 'log').tone === side;
+}
+
+/**
+ * 팝업 구분 → 창 분리 kind. 창의 「매도」 는 상따 매도 그룹(4~6)이라 가깝다. 「매수」 는 창에 대응 칩이 없어
+ * (선매수 · 추가매수 · 후매수가 따로다) 좁히지 않고 전체로 연다 — 줄을 숨기지 않는 쪽이 안전하다.
+ */
+export function sideFilterKind(side: OrderLogSideFilter): OrderLogKindFilter {
+  if (side === 'market') return 'market';
+  if (side === 'sell') return 'sell';
+  return 'all';
+}
+
+/** 주문번호 뒤 4자리(D3). 빈 번호는 「—」(기존 목록과 같은 표기). */
+export function orderNoTail(orderNo: string): string {
+  return orderNo === '' ? '—' : orderNo.slice(-4);
+}
+
+export interface OrderLogSummary {
+  /** 매수 · 매도 주문(kind 3 · 6). */
+  orders: number;
+  /** 첫 체결(kind 5). */
+  fills: number;
+  rejects: number;
+  cancels: number;
+  /** 마지막 행 누적 거래량 — 행이 없으면 null. */
+  cum: number | null;
+}
+
+/** 팝업 머리 오늘 요약 한 줄(D3) — 범위 안 행을 kind 로만 센다. `rows` 는 오름차순. */
+export function orderLogSummary(rows: readonly StrategyEventRow[]): OrderLogSummary {
+  let orders = 0;
+  let fills = 0;
+  let rejects = 0;
+  let cancels = 0;
+  for (const r of rows) {
+    if (r.kind === 3 || r.kind === 6) orders += 1;
+    else if (r.kind === 5) fills += 1;
+    else if (r.kind === 8) rejects += 1;
+    else if (r.kind === 7) cancels += 1;
+  }
+  const last = rows[rows.length - 1];
+  return { orders, fills, rejects, cancels, cum: last === undefined ? null : last.cumVolume };
 }
 
 /* ── ④ 창 분리 쿼리 ────────────────────────────────────────────────── */
