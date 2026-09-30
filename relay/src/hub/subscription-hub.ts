@@ -2,12 +2,16 @@
  * Phase 15 Plan 04 — RELAY-01. 종목 구독 참조계수 + 스냅샷 캐시 + Ready 재구독.
  *
  * gh-radar 에 선례가 없는 모듈이라 15-RESEARCH §Pattern 5 가 설계 정본이다.
- * "누가 무엇을 보고 있는가"를 아는 **유일한 객체**이며, 브라우저 소켓 수(탭)와
- * 게이트웨이 구독 수를 분리한다 — 탭 3개가 같은 종목을 봐도 KB 방향 구독은 1개다.
+ * "누가 무엇을 보고 있는가"를 아는 **유일한 객체**이며, 브라우저 소켓 수(탭 · 사용자)와
+ * 게이트웨이 구독 수를 분리한다 — 사용자 5명이 탭 3개씩 같은 종목을 봐도 KB 방향 구독은 1개다.
  *
  * 결정 근거:
- *   D-13  키에 **userId 를 포함한다**. 세션이 사용자별이므로 구독도 사용자별이다.
- *         전역 키를 쓰면 A 사용자의 해제가 B 세션의 구독을 끊는다.
+ *   Phase 26 D-12  시세 키는 **전역 `isin|ex`**(`marketKey`)이고 업스트림 송신자는 **quote 연결 하나**
+ *         (`attachFeed` 로 결선한 `HubQuoteFeed` — 관찰자 로그인 role 1)다. 참조계수 · 스냅샷 · 체결 캐시가
+ *         사용자 간에 공유되고, 사용자 DMA 세션은 종목을 구독하지 않는다(D-08 — 주문 · 계좌 · 전략 · 77 · 78 · 76 ·
+ *         83 만 남는다). 옛 D-13 「키에 userId 를 포함한다」 는 이 빅뱅에서 내렸다 — 사용자별 3단 키
+ *         (`progressKey`)는 83 잔량진행률 캐시에만 남는다(계좌 필터가 사용자 단위라서). 전역 키에서 A 의 해제가
+ *         B 의 구독을 끊지 않는 근거는 키가 아니라 **참조계수**다(합계 1→0 에서만 29(false)).
  *   D-33  0→1 전이에서 `GetQuoteReq(28)` → `SubscribeQuoteReq(29, true)` →
  *         `GetTradeTapeReq(32)`. 1→0 에서 `SubscribeQuoteReq(29, false)`.
  *         체결 테이프는 **별도 구독이 없다**(시세 구독 편승) — 해제 프레임도 없다.
@@ -25,14 +29,16 @@
  *         (quick-260923-exo) · fbs `SubscribeQuoteReq` 주석.
  *   D-35  시세는 **추가 코얼레싱을 하지 않는다**(업스트림 100ms 를 그대로 통과).
  *         체결 테이프만 200ms 배치로 묶는다. 배치 타이머는 키마다가 아니라
- *         **사용자(세션) 단위 1개**다 — 종목 10개를 보면 타이머 10개가 도는 구조를 만들지 않는다.
+ *         **전역 1개**다(Phase 26 — 키가 전역이 되면서 사용자 단위 타이머가 전역 1개로 접혔다) —
+ *         종목 10개를 보면 타이머 10개가 도는 구조를 만들지 않는다.
  *   D-36  `ServerMessage(54)` 는 해석하지 않고 그대로 흘린다.
  *   D-23  계좌 상태(잔고·미체결)는 **종목 구독과 무관**하다. 세션 `ready` 마다
  *         `GetAccountStateReq(25)`{account_no:""} 를 1회 보내 전 계좌 스냅샷(66)을 받고,
  *         이후 델타(67)를 반영한다. 참조계수 경로에 얹지 않는 이유가 이것이다 —
  *         아무 종목도 구독하지 않은 사용자도 자기 잔고는 봐야 한다.
- *   D-37  브라우저 재접속·다중 탭에서 **스냅샷 캐시가 즉시 응답**한다. 그래서 캐시는
- *         참조계수가 0 이 되어도 버리지 않는다 — 재접속 왕복 동안 살아 있어야 의미가 있다.
+ *   D-37  브라우저 재접속·다중 탭·**다른 사용자**에서 **스냅샷 캐시가 즉시 응답**한다(캐시는 전역이다).
+ *         Phase 26 부터 전역 캐시는 **참조계수 1→0 에서 정리한다** — 키가 전역이라 남겨 두면 한 번이라도
+ *         본 종목 수만큼 무한히 자란다. 재접속 왕복 동안 캐시를 살려 두는 역할은 linger(D-10 · 26-08)가 대체한다.
  *   D-12  전략(상따 전수 · VI 설정 · VI 주문 추적)도 **세션 단위 캐시**를 여기 둔다.
  *         사용자당 DMA 세션이 1개이므로 「그 사용자의 전략이 지금 무엇인가」를 아는 객체도
  *         하나여야 한다. 캐시가 있어야 새 탭이 붙자마자 **종목 구독 없이** 전략을 본다 —
@@ -40,20 +46,34 @@
  *   D-13  전략 재조회는 **재접속(`ready`) 시에만** 일어난다. 주기 타이머·수동 새로고침
  *         진입점을 만들지 않는다 — 사용자 조작에 대한 60/61 에코는 Notice(유실 없음)라
  *         재조회로 메울 것이 없고, 폴링은 게이트웨이 왕복을 사용자 수에 비례시킨다.
- *   Pitfall 4  재구독 트리거는 세션의 `ready` 이벤트 **하나뿐**이다. 재구독 경로를 두 벌
- *              만들면 "재접속 후 새로고침해야 시세가 나온다" 증상이 생긴다.
- *   T-15-02  팬아웃은 `{userId, msg}` 로만 나간다. 전역(사용자 무관) 브로드캐스트
- *            경로를 **만들지 않는 것**이 타인 체결·잔고 유출의 구조적 방어다.
+ *   Pitfall 4  시세 재구독 트리거는 **quote 연결의 `ready` 하나뿐**이다(전역 참조계수 합집합을 실효 level 로).
+ *              사용자 세션 `ready` 는 시세를 건드리지 않는다 — 계좌 · 전략 · 83 재동기화 · 종목마스터만 한다
+ *              (D-03 폴백 없음 · D-08). 재구독 경로를 두 벌 만들면 "재접속 후 새로고침해야 시세가 나온다"
+ *              증상이 생기고, 사용자 세션으로 시세를 되걸면 per-user 경로가 폴백으로 되살아난다.
+ *   T-15-02  **사용자 데이터**(계좌 · 주문 · 전략 · 83 · 54 · 77 · 76/78)는 `{userId, msg}` 로만 나간다(`"fanout"`).
+ *            전역 브로드캐스트 경로를 사용자 데이터에 **만들지 않는 것**이 타인 체결·잔고 유출의 구조적 방어다.
+ *            공개 시세(q · tape)는 `"market"` **한 경로**로 나가고, 그 페이로드 타입을 `RelayQuote | RelayTape` 로
+ *            좁혀 사용자 데이터가 이 경로를 탈 수 없게 컴파일 단계에서 막는다(Phase 26 T-26-01 재정의).
  *   S-5      구독 실패·이중 해제·세션 부재는 전부 사유와 함께 로그를 남긴다.
+ *
+ * quote 연결(`HubQuoteFeed`)로 오는 프레임 — `#onFeedFrame` 의 명시 case 표 (PC-12 · Phase 26):
+ *   58/59 GetQuoteResp · QuoteUpdate   → 전역 스냅샷 캐시 + `"market"` (q)
+ *   69/71 TradeTapeResp · TradeTapePush → 전역 링버퍼 + 전역 200ms 배치 + `"market"` (tape · full 소켓만)
+ *   79    ObserverLoginResp            → 무시 (feed 가 스스로 소비한다)
+ *   76/78 RateCrossAlert · Snapshot    → 무시 (돌파 원천은 사용자 세션 그대로 — RESEARCH Open Q2 RESOLVED 무시안)
+ *   83    QueueProgress                → 무시 (사용자 세션 ② 경로가 계좌 필터 뒤 캐시 — Pattern 10 ① · T-25-24)
+ *   54/77/80 ServerMessage · QueuedWindowState · JournalBatch → warn (quote 연결에 오지 않는 프레임)
+ *   그 밖                              → `default:` — `unhandledFrameCount` 계수 (PC-12 게이트 공유)
+ * 반대로 **사용자 세션**으로 58/59/69/71 이 오면 구독이 없으니 이상 신호다 — 명시 case warn 뒤 버린다.
  *
  * 캐시에 담는 형태는 **이미 Number 로 좁혀진 wire JSON**(`RelayQuote`/`RelayTapeEntry`)이다.
  * 게이트웨이의 64비트 정수 변환은 `envelope.ts` 파서가 한 번만 하고, 여기서는 매 push 마다
  * 재변환하지 않는다 (D-34).
  *
  * 하지 않는 것:
- *   - 소켓을 모른다. 어떤 소켓에 보낼지는 `ws/fanout.ts` 가 `userId` 로 정한다.
- *   - 세션을 만들거나 닫지 않는다. 그것은 `SessionManager` 소관이다.
- *   - 구독 요청을 큐잉하지 않는다. Ready 이전 구독은 참조계수에만 남고 `ready` 가 복원한다.
+ *   - 소켓을 모른다. 어떤 소켓에 보낼지는 `ws/fanout.ts` 가 `userId`(사용자 데이터) · 키 구독자 색인(시세)으로 정한다.
+ *   - 세션 · quote 연결을 만들거나 닫지 않는다. 그것은 `SessionManager` · 부팅(`index.ts`) 소관이다.
+ *   - 구독 요청을 큐잉하지 않는다. quote 연결 Ready 이전 구독은 참조계수에만 남고 quote 연결 `ready` 가 복원한다.
  */
 import { EventEmitter } from "node:events";
 
@@ -148,7 +168,7 @@ export const TAPE_REQUEST_COUNT = TAPE_RING_SIZE;
 export interface HubSession {
   /** gh-radar 사용자 id. 팬아웃 대상 선택의 유일한 기준이다 (T-15-02). */
   readonly userId: string;
-  /** 운용 준비 여부. false 면 구독 프레임을 보내지 않는다. */
+  /** 운용 준비 여부. false 면 계좌 · 전략 요청을 보내지 않는다(종목 구독은 Phase 26 부터 quote 연결 몫). */
   readonly isReady: boolean;
   /**
    * 세션 허용 계좌 (Phase 25-06). `DmaSession.allowedAccounts` 가 구조적으로 만족한다 — 게이트웨이 응답과
@@ -176,8 +196,44 @@ export interface HubSymbolMasterFeed {
   onFrame(userId: string, frame: ParsedSymbolMasterFrame | null): void;
 }
 
-/** 팬아웃 1건. **대상은 언제나 특정 userId 하나**다 (T-15-02). */
+/**
+ * Hub 가 **시세 업스트림 송신자**(quote 연결)에 요구하는 표면 (Phase 26 D-12).
+ *
+ * `HubSession` 에서 `userId` · `allowedAccounts` 를 뺀 것이다 — quote 연결은 사용자가 아니고 계좌를 선언하지 않는다.
+ * `QuoteFeed`(relay/src/quote/feed.ts)가 구조적으로 만족하고, 테스트는 소켓 없이 바이트를 되읽는 가짜를 넣는다.
+ */
+export interface HubQuoteFeed {
+  /** 로그인(79 role 1)까지 끝나 요청(28/29/32)을 보내도 되는가. false 면 참조계수만 기록한다. */
+  readonly isReady: boolean;
+  /** 게이트웨이 요청 프레임 송신. */
+  send(payload: Uint8Array): boolean;
+  on(event: "frame", listener: (e: TransportFrameEvent) => void): unknown;
+  /** (재)로그인 완료 — 전역 참조계수 합집합 재구독의 **유일한** 트리거다 (Pitfall 4 재정의). */
+  on(event: "ready", listener: () => void): unknown;
+}
+
+/** 팬아웃 1건. **대상은 언제나 특정 userId 하나**다 (T-15-02) — 사용자 데이터 전용 경로다. */
 export type HubFanoutEvent = { userId: string; msg: RelayOutbound };
+
+/**
+ * 공개 시세 1건 (Phase 26 D-06 · D-12). **대상은 사용자가 아니라 키**(`isin|ex`)다 — fanout 이 키 구독자 색인으로
+ * 그 키를 잡은 소켓에만 보내고, 소켓 level 로만 거른다.
+ *
+ * 페이로드를 `RelayQuote | RelayTape` 로 **좁혀** 선언한다 — 계좌 · 주문 · 전략 · 83 같은 사용자 데이터는 타입상
+ * 이 경로에 실을 수 없다(T-15-02 를 「사용자 데이터 격리」 로 재정의 · T-26-01). 넓히지 말 것.
+ */
+export type HubMarketEvent = {
+  /** `${isin}|${ex}` — fanout `keyOf` 와 같은 형식. */
+  key: string;
+  msg: RelayQuote | RelayTape;
+  /** full 소켓에 보낼지. */
+  full: boolean;
+  /**
+   * price 소켓에 보낼지 (D-06 — 키 단위 1회 판정 결과). tape 는 언제나 false(71 은 price 소켓에 가지 않는다).
+   * q 는 지금 언제나 true 다 — 서버 PRICE 규칙 복제 판정기(D-05)는 26-07 이 이 플래그를 채운다.
+   */
+  price: boolean;
+};
 
 /**
  * 주문 통보 1건 (`OrderResp(51)`), **파싱된 원문 그대로**.
@@ -213,8 +269,10 @@ export type HubStats = {
 
 export interface SubscriptionHub {
   on(event: "fanout", listener: (e: HubFanoutEvent) => void): this;
+  on(event: "market", listener: (e: HubMarketEvent) => void): this;
   on(event: "order", listener: (e: HubOrderEvent) => void): this;
   emit(event: "fanout", e: HubFanoutEvent): boolean;
+  emit(event: "market", e: HubMarketEvent): boolean;
   emit(event: "order", e: HubOrderEvent): boolean;
 }
 
@@ -244,8 +302,20 @@ function levelByte(level: RelaySubLevel): QuoteLevelByte {
   return level === "price" ? QUOTE_LEVEL.PRICE : QUOTE_LEVEL.FULL;
 }
 
-/** 구독 키. **userId 를 포함한다** — 사용자 간 구독 교차를 구조적으로 막는다 (D-13). */
-function subKey(userId: string, isin: string, exchange: RelayExchange): string {
+/**
+ * 시세 구독 키 (Phase 26 D-12). **전역**이다 — fanout `keyOf` 와 같은 `${isin}|${exchange}` 형식.
+ * 참조계수(`#refs`) · 스냅샷(`#quotes`) · 체결 링버퍼(`#tapes`) · 테이프 배치(`#pendingTapes`)가 이 키를 쓴다.
+ * 이력: Phase 15 D-13 의 3단 키(userId 포함)는 이 빅뱅에서 내렸다 — 사용자별 3단 키는 `progressKey` 하나다.
+ */
+function marketKey(isin: string, exchange: RelayExchange): string {
+  return `${isin}|${exchange}`;
+}
+
+/**
+ * 잔량진행률(83) 캐시 키 (25-06) — `${userId}|${isin}|${exchange}` 3단 형식. **83 `#queueProgress` 전용**이다.
+ * 사용자별인 이유는 항목이 그 사용자 세션의 허용 계좌로 걸러진 부분집합이기 때문이다(T-25-24) — 공유하면 남의 계좌가 샌다.
+ */
+function progressKey(userId: string, isin: string, exchange: RelayExchange): string {
   return `${userId}|${isin}|${exchange}`;
 }
 
@@ -273,7 +343,7 @@ function lcKey(userId: string, item: RelayLimitChaser): string {
  * 연 거래소(KRX 접속매매 세션이 닫힌 시간의 NXT 접속매매도 판정하므로 NXT 일 수 있다)다.
  * 그래서 **뒤에 온 76 이 거래소째 덮는다**. 거래소를 키에 두면 KRX 행 뒤 NXT 재돌파가 다음
  * 78 까지 두 원소로 남는다. 브라우저 리듀서 `upsertRateCross` · 스트립 `breakoutKey` 가 같은 축이다.
- * 앞에 `userId` 를 붙이는 것은 `subKey` 와 같은 규율이다 (T-17-08).
+ * 앞에 `userId` 를 붙이는 것은 `progressKey` 와 같은 규율이다 (T-17-08).
  */
 function rateCrossKey(userId: string, isin: string): string {
   return `${userId}|${isin}`;
@@ -330,7 +400,7 @@ function viPendingKey(userId: string, item: RelayViOrderItem): string {
  * VI 전략 캐시 키 (17-05 / D-06). 서버가 **거래소별 1건**으로 관리하므로 캐시도 거래소별이다.
  *
  * `userId` 만으로 키를 잡으면 NXT 응답이 KRX 행을 덮어 「KRX 에 등록했는데 NXT 설정이 보인다」가
- * 된다. 앞에 `userId` 를 붙이는 규율은 `subKey` 와 같다 (T-16-02).
+ * 된다. 앞에 `userId` 를 붙이는 규율은 `progressKey` 와 같다 (T-16-02).
  */
 function viTriggerKey(userId: string, exchange: RelayExchange): string {
   return `${userId}|${exchange}`;
@@ -365,22 +435,28 @@ function fillMissingName<T extends { isin: string; name?: string; code?: string 
 /**
  * 구독 참조계수 + 스냅샷 캐시의 단일 정본.
  *
- * 사용법: 세션을 얻은 직후 `attach(session)` → 브라우저 `sub`/`unsub` 마다
- * `subscribe`/`unsubscribe` → `"fanout"` 이벤트를 그 userId 의 소켓 집합에만 전송.
+ * 사용법: 부팅에서 `attachFeed(quoteFeed)` 1회 · 세션을 얻은 직후 `attach(session)` → 브라우저 `sub`/`unsub` 마다
+ * `subscribe`/`unsubscribe` → 시세는 `"market"`(키 단위 · fanout 키 구독자 색인), 사용자 데이터는 `"fanout"`
+ * (그 userId 의 소켓 집합에만).
  */
 export class SubscriptionHub extends EventEmitter {
   /** userId → 세션. 세션이 교체되면 여기가 정본이고 옛 리스너는 침묵한다. */
   readonly #sessions = new Map<string, HubSession>();
-  /** `${userId}|${isin}|${exchange}` → level 별 참조계수 (quick-260923-ge2). */
+  /**
+   * 시세 업스트림 송신자 (Phase 26 D-12) — quote 연결 하나. 없으면(부팅 결선 전 · 비밀 없음) 참조계수만 기록한다.
+   * 교체되면 여기가 정본이고 옛 feed 의 리스너는 정본 대조로 침묵한다(세션 규율 동형).
+   */
+  #feed: HubQuoteFeed | null = null;
+  /** `marketKey` (`${isin}|${exchange}` · 전역) → level 별 참조계수 (quick-260923-ge2 · Phase 26 D-12). */
   readonly #refs = new Map<string, SubRefs>();
-  /** 스냅샷 캐시 — 이미 Number 로 좁혀진 wire JSON 이다 (D-34/D-37). */
+  /** 전역 스냅샷 캐시(`marketKey`) — 이미 Number 로 좁혀진 wire JSON 이다 (D-34/D-37). 1→0 에서 지운다. */
   readonly #quotes = new Map<string, RelayQuote>();
-  /** 체결 링버퍼 (키당 최근 `TAPE_RING_SIZE` 건). */
+  /** 전역 체결 링버퍼(`marketKey` · 키당 최근 `TAPE_RING_SIZE` 건). 1→0 에서 지운다. */
   readonly #tapes = new Map<string, RelayTapeEntry[]>();
-  /** userId → (키 → 플러시 대기 배치). */
-  readonly #pending = new Map<string, Map<string, PendingTape>>();
-  /** userId → 배치 타이머 1개 (키 단위로 만들지 않는다 — D-35). */
-  readonly #flushTimers = new Map<string, NodeJS.Timeout>();
+  /** `marketKey` → 플러시 대기 배치 (전역). */
+  readonly #pendingTapes = new Map<string, PendingTape>();
+  /** 전역 배치 타이머 **1개** (키 · 사용자 단위로 만들지 않는다 — D-35). */
+  #tapeFlushTimer: NodeJS.Timeout | null = null;
   /**
    * `${userId}|${accountNo}` → **누적 반영된 전량 스냅샷** (D-23/D-37).
    *
@@ -464,7 +540,7 @@ export class SubscriptionHub extends EventEmitter {
    */
   readonly #queuedWindows = new Map<string, RelayQueuedWindowMsg>();
   /**
-   * `${userId}|${isin}|${exchange}` (`subKey`) → 그 종목 · 거래소의 **허용 계좌** 대기 주문 진행률 전량 (25-06).
+   * `${userId}|${isin}|${exchange}` (`progressKey`) → 그 종목 · 거래소의 **허용 계좌** 대기 주문 진행률 전량 (25-06).
    *
    * 83 은 (isin, exchange) 단위 **전량 교체**다 — 병합하지 않는다. 빈 값은 키째 지운다(「그 종목 · 거래소
    * 대기 주문 전부 사라짐」 G1 ⓕ). 항목은 세션 허용 계좌로 거르고 주문자(`dmaUserId`)를 뺀 공개 칸만
@@ -519,10 +595,8 @@ export class SubscriptionHub extends EventEmitter {
     if (prev === session) return;
 
     if (prev !== undefined) {
-      logger.info(
-        { userId, subscriptions: this.#countKeys(userId) },
-        "[HUB] 세션 교체 — 캐시 폐기, 참조계수 유지 (ready 에서 전량 재구독)",
-      );
+      // 시세 구독 · 캐시는 전역이라 사용자 세션 교체와 무관하다 (Phase 26 D-08) — 사용자 캐시만 버린다.
+      logger.info({ userId }, "[HUB] 세션 교체 — 사용자 캐시 폐기 (계좌 · 전략은 ready 에서 재요청)");
       this.#clearCaches(userId);
     }
 
@@ -531,6 +605,30 @@ export class SubscriptionHub extends EventEmitter {
     session.on("frame", (e) => this.#onFrame(userId, session, e));
     session.on("ready", () => this.#onReady(userId, session));
     logger.info({ userId }, "[HUB] 세션 결선");
+  }
+
+  /**
+   * 시세 업스트림 송신자(quote 연결)를 결선한다 (Phase 26 D-12). 부팅에서 1회 부른다.
+   *
+   * - 같은 객체 재호출은 no-op (리스너 1벌).
+   * - 다른 객체면 warn 후 교체한다 — 옛 feed 의 리스너는 떼지 않고 `#feed` 정본 대조로 침묵시킨다(`attach` 규율 동형).
+   * - `"ready"` → 인자 없는 `resubscribeAll()` — 전역 참조계수 합집합 재구독의 **유일한** 트리거다(Pitfall 4 재정의).
+   * - 결선 시점에 이미 Ready 이고 보유 키가 있으면(교체 결선) 그 자리에서 한 번 재구독한다 — 이미 지나간 `ready` 를
+   *   기다리면 새 feed 에는 구독이 영영 걸리지 않는다.
+   */
+  attachFeed(feed: HubQuoteFeed): void {
+    if (this.#feed === feed) return;
+    if (this.#feed !== null) {
+      logger.warn({ subscriptions: this.#refs.size }, "[HUB] quote 연결 교체 — 옛 연결 리스너는 침묵");
+    }
+    this.#feed = feed;
+    feed.on("frame", (e) => this.#onFeedFrame(feed, e));
+    feed.on("ready", () => {
+      if (this.#feed !== feed) return;
+      this.resubscribeAll();
+    });
+    logger.info({ ready: feed.isReady, subscriptions: this.#refs.size }, "[HUB] quote 연결 결선");
+    if (feed.isReady && this.#refs.size > 0) this.resubscribeAll();
   }
 
   // ⚠️ `detach(userId)` 가 여기 있었다 — **삭제됐다** (R2-IN-02). 호출자가 `relay/src` ·
@@ -546,8 +644,9 @@ export class SubscriptionHub extends EventEmitter {
   // ----------------------------------------------------------
 
   /**
-   * 참조계수 +1 (level 별). **0→1** 과 **PRICE→FULL 승격**에서만 게이트웨이로 구독 프레임이 나간다.
-   * `level` 생략은 FULL — 기존 호출부는 종전과 같다.
+   * 참조계수 +1 (level 별 · **전역 키**). **0→1** 과 **PRICE→FULL 승격**에서만 quote 연결로 구독 프레임이 나간다.
+   * `level` 생략은 FULL — 기존 호출부는 종전과 같다. `userId` 는 로그용이다(사용자별 추적은 26-09 · 26-11 이 쓴다) —
+   * 두 사용자가 같은 키를 잡으면 업스트림 구독은 한 벌이다(Phase 26 D-12).
    */
   subscribe(
     userId: string,
@@ -555,7 +654,7 @@ export class SubscriptionHub extends EventEmitter {
     exchange: RelayExchange,
     level: RelaySubLevel = "full",
   ): void {
-    const key = subKey(userId, isin, exchange);
+    const key = marketKey(isin, exchange);
     let refs = this.#refs.get(key);
     if (refs === undefined) {
       refs = { full: 0, price: 0 };
@@ -567,7 +666,7 @@ export class SubscriptionHub extends EventEmitter {
     const nextLevel = effectiveLevel(refs);
 
     if (prevTotal === 0) {
-      this.#sendSubscribe(userId, isin, exchange, nextLevel);
+      this.#sendSubscribe(isin, exchange, nextLevel);
       return;
     }
     if (prevLevel === "price" && nextLevel === "full") {
@@ -575,18 +674,19 @@ export class SubscriptionHub extends EventEmitter {
         { userId, isin, exchange, level: nextLevel, refs: { ...refs } },
         "[HUB] PRICE→FULL 승격 — 스냅샷+구독+체결 재송신",
       );
-      this.#sendSubscribe(userId, isin, exchange, "full");
+      this.#sendSubscribe(isin, exchange, "full");
       return;
     }
     logger.info(
       { userId, isin, exchange, level: nextLevel, refs: { ...refs }, refCount: totalRefs(refs) },
-      "[HUB] 이미 구독 중 — 게이트웨이로 다시 보내지 않는다 (탭 공유)",
+      "[HUB] 이미 구독 중 — 게이트웨이로 다시 보내지 않는다 (탭 · 사용자 공유)",
     );
   }
 
   /**
-   * 참조계수 -1 (level 별). **합계 1→0** 에서 `subscribe:false`, **FULL→PRICE 강등**에서
-   * 29(level=1) 1건이 나간다. 잡지 않은 level 의 해제는 무시한다.
+   * 참조계수 -1 (level 별 · 전역 키). **합계 1→0** 에서 `subscribe:false`, **FULL→PRICE 강등**에서
+   * 29(level=1) 1건이 quote 연결로 나간다. 잡지 않은 level 의 해제는 무시한다.
+   * 1→0 에서는 그 키의 전역 캐시(스냅샷 · 링버퍼 · 대기 배치)도 지운다 — D-37 헤더 · linger 는 26-08.
    */
   unsubscribe(
     userId: string,
@@ -594,7 +694,7 @@ export class SubscriptionHub extends EventEmitter {
     exchange: RelayExchange,
     level: RelaySubLevel = "full",
   ): void {
-    const key = subKey(userId, isin, exchange);
+    const key = marketKey(isin, exchange);
     const refs = this.#refs.get(key);
     if (refs === undefined || refs[level] <= 0) {
       // 조용히 넘기지 않는다 — 참조계수 누수·이중 해제는 여기서만 보인다 (S-5).
@@ -615,15 +715,15 @@ export class SubscriptionHub extends EventEmitter {
         return;
       }
       // FULL→PRICE 강등 — 서버는 같은 키 재구독을 level 덮어쓰기로 처리한다.
-      const session = this.#sessions.get(userId);
-      if (session === undefined || !session.isReady) {
+      const feed = this.#feed;
+      if (feed === null || !feed.isReady) {
         logger.info(
-          { userId, isin, exchange, level: nextLevel, hasSession: session !== undefined },
-          "[HUB] FULL→PRICE 강등 — 세션이 준비되지 않아 기록만 (ready 가 실효 level 로 복원)",
+          { userId, isin, exchange, level: nextLevel, hasFeed: feed !== null },
+          "[HUB] FULL→PRICE 강등 — quote 연결이 준비되지 않아 기록만 (quote ready 가 실효 level 로 복원)",
         );
         return;
       }
-      session.send(buildSubscribeQuoteReq(isin, exchange, true, QUOTE_LEVEL.PRICE));
+      feed.send(buildSubscribeQuoteReq(isin, exchange, true, QUOTE_LEVEL.PRICE));
       logger.info(
         { userId, isin, exchange, level: nextLevel, refs: { ...refs } },
         "[HUB] FULL→PRICE 강등 — 29(level=1) 1건",
@@ -632,16 +732,20 @@ export class SubscriptionHub extends EventEmitter {
     }
 
     this.#refs.delete(key);
-    // 캐시는 남긴다 — 재접속·재구독에서 즉시 응답해야 한다 (D-37).
-    const session = this.#sessions.get(userId);
-    if (session === undefined || !session.isReady) {
+    // 전역 캐시도 같이 지운다 — 키가 전역이라 남기면 한 번이라도 본 종목 수만큼 자란다(D-37 헤더).
+    // 재접속 왕복 동안 캐시를 살려 두는 역할은 linger(D-10 · 26-08)가 대체한다.
+    this.#quotes.delete(key);
+    this.#tapes.delete(key);
+    this.#pendingTapes.delete(key);
+    const feed = this.#feed;
+    if (feed === null || !feed.isReady) {
       logger.info(
-        { userId, isin, exchange, hasSession: session !== undefined },
-        "[HUB] 마지막 구독 해제 — 세션이 준비되지 않아 해제 프레임 생략",
+        { userId, isin, exchange, hasFeed: feed !== null },
+        "[HUB] 마지막 구독 해제 — quote 연결이 준비되지 않아 해제 프레임 생략",
       );
       return;
     }
-    session.send(buildSubscribeQuoteReq(isin, exchange, false));
+    feed.send(buildSubscribeQuoteReq(isin, exchange, false));
     logger.info({ userId, isin, exchange }, "[HUB] 마지막 구독 해제 — 업스트림 구독 해제");
   }
 
@@ -653,21 +757,21 @@ export class SubscriptionHub extends EventEmitter {
   //    다시 만든다 — 쓰이지 않는 채로 미리 놓아두지 않는다.
 
   /**
-   * 세션 `ready` 에서 **Hub 가 소유한 키 집합**을 순회해 전량 재구독한다 (Pitfall 4).
-   * 브라우저 상태에 의존하지 않는 것이 핵심이다 — 브라우저는 아무것도 다시 보내지 않는다.
+   * quote 연결 `ready` 에서 **Hub 가 소유한 전역 키 집합**(모든 사용자 참조계수의 합집합)을 순회해 전량
+   * 재구독한다 (Pitfall 4 재정의 · 확정-재접속). 브라우저 상태에 의존하지 않는 것이 핵심이다 — 브라우저는
+   * 아무것도 다시 보내지 않는다. 호출 원천은 quote 연결 `ready` 하나다 — 사용자 세션 `ready` 는 부르지 않는다
+   * (D-03 · D-08). 합집합 burst 페이싱은 26-10 이 이 자리에 붙는다.
    */
-  resubscribeAll(userId: string): void {
-    const prefix = userPrefix(userId);
+  resubscribeAll(): void {
     let count = 0;
     for (const [key, refs] of this.#refs.entries()) {
-      if (!key.startsWith(prefix)) continue;
-      const parts = this.#splitKey(key);
+      const parts = this.#splitMarketKey(key);
       if (parts === null) continue;
       // 키마다 **실효 level** 로 되건다 (quick-260923-ge2).
-      this.#sendSubscribe(userId, parts.isin, parts.exchange, effectiveLevel(refs));
+      this.#sendSubscribe(parts.isin, parts.exchange, effectiveLevel(refs));
       count += 1;
     }
-    logger.info({ userId, count }, "[HUB] Ready — 보유 구독 전량 재구독");
+    logger.info({ count }, "[HUB] quote 연결 Ready — 전역 보유 구독 합집합 재구독");
   }
 
   /**
@@ -841,21 +945,24 @@ export class SubscriptionHub extends EventEmitter {
     const out: RelayUnfProgressEntry[] = [];
     for (const [key, items] of this.#queueProgress) {
       if (!key.startsWith(prefix) || items.length === 0) continue;
-      const parsed = this.#splitKey(key);
+      const parsed = this.#splitProgressKey(key);
       if (parsed === null) continue;
       out.push({ i: parsed.isin, x: parsed.exchange, items: [...items] });
     }
     return out;
   }
 
-  /** 마지막 호가 스냅샷. 있으면 브라우저에 즉시 내려 깜빡임을 없앤다. */
-  getSnapshot(userId: string, isin: string, exchange: RelayExchange): RelayQuote | undefined {
-    return this.#quotes.get(subKey(userId, isin, exchange));
+  /**
+   * 마지막 호가 스냅샷(전역 캐시 — Phase 26 D-12). 있으면 브라우저에 즉시 내려 깜빡임을 없앤다.
+   * 사용자 간에 공유된다 — 다른 사용자가 먼저 연 종목도 새 탭은 게이트웨이 왕복 없이 즉시 그린다.
+   */
+  getSnapshot(isin: string, exchange: RelayExchange): RelayQuote | undefined {
+    return this.#quotes.get(marketKey(isin, exchange));
   }
 
-  /** 최근 체결 링버퍼의 복사본. 재접속 직후 테이프를 즉시 채우는 데 쓴다. */
-  getTape(userId: string, isin: string, exchange: RelayExchange): RelayTapeEntry[] | undefined {
-    const ring = this.#tapes.get(subKey(userId, isin, exchange));
+  /** 최근 체결 링버퍼(전역)의 복사본. 새 탭 · 재접속 직후 테이프를 즉시 채우는 데 쓴다. */
+  getTape(isin: string, exchange: RelayExchange): RelayTapeEntry[] | undefined {
+    const ring = this.#tapes.get(marketKey(isin, exchange));
     return ring === undefined ? undefined : [...ring];
   }
 
@@ -955,19 +1062,15 @@ export class SubscriptionHub extends EventEmitter {
     return this.#unhandledFrames;
   }
 
-  /** 현재 참조계수 — level 합계(진단·테스트용). */
-  refCount(userId: string, isin: string, exchange: RelayExchange): number {
-    const refs = this.#refs.get(subKey(userId, isin, exchange));
+  /** 현재 전역 참조계수 — 모든 사용자 · 탭 · level 합계(진단·테스트용). */
+  refCount(isin: string, exchange: RelayExchange): number {
+    const refs = this.#refs.get(marketKey(isin, exchange));
     return refs === undefined ? 0 : totalRefs(refs);
   }
 
   /** 업스트림 실효 level(진단·테스트용). 구독이 없으면 undefined (quick-260923-ge2). */
-  subscriptionLevel(
-    userId: string,
-    isin: string,
-    exchange: RelayExchange,
-  ): RelaySubLevel | undefined {
-    const refs = this.#refs.get(subKey(userId, isin, exchange));
+  subscriptionLevel(isin: string, exchange: RelayExchange): RelaySubLevel | undefined {
+    const refs = this.#refs.get(marketKey(isin, exchange));
     return refs === undefined || totalRefs(refs) === 0 ? undefined : effectiveLevel(refs);
   }
 
@@ -988,9 +1091,11 @@ export class SubscriptionHub extends EventEmitter {
 
   /** 프로세스 종료용 — 대기 중인 배치 타이머를 전부 끄고 상태를 비운다. */
   closeAll(): void {
-    for (const timer of this.#flushTimers.values()) clearTimeout(timer);
-    this.#flushTimers.clear();
-    this.#pending.clear();
+    if (this.#tapeFlushTimer !== null) clearTimeout(this.#tapeFlushTimer);
+    this.#tapeFlushTimer = null;
+    this.#pendingTapes.clear();
+    // 옛 feed 의 늦은 프레임 · ready 는 정본 대조(`#feed`)로 침묵한다.
+    this.#feed = null;
     this.#sessions.clear();
     this.#refs.clear();
     this.#quotes.clear();
@@ -1017,18 +1122,14 @@ export class SubscriptionHub extends EventEmitter {
 
     switch (e.msgType) {
       case MSG.GetQuoteResp:
-      case MSG.QuoteUpdate: {
-        const quote = parseQuoteState(e.env, e.msgType === MSG.GetQuoteResp);
-        // null 이면 파서가 이미 사유·카운터를 남겼다 — 여기서 다시 로그하지 않는다.
-        if (quote !== null) this.#onQuote(userId, quote);
-        return;
-      }
+      case MSG.QuoteUpdate:
       case MSG.TradeTapeResp:
-      case MSG.TradeTapePush: {
-        const tape = parseTradeTape(e.env, e.msgType === MSG.TradeTapeResp);
-        if (tape !== null) this.#onTape(userId, tape);
+      case MSG.TradeTapePush:
+        // Phase 26 D-08 — 사용자 세션은 종목을 구독하지 않는다. 시세는 quote 연결(`#onFeedFrame`)로만 온다.
+        // 여기로 오면 게이트웨이 라우팅 이상(또는 구독이 새는 회귀)이라 warn 을 남기고 버린다 — 캐시에 넣으면
+        // 사용자 세션이 시세 원천으로 되살아난다(D-03 폴백 없음). `default:` 에 맡기지 않는 명시 case 다(PC-12).
+        logger.warn({ userId, msgType: e.msgType }, "[HUB] 사용자 세션에 시세 프레임 — 구독이 없으니 이상 신호, 무시");
         return;
-      }
       case MSG.OrderResp: {
         const notice = parseOrderResp(e.env);
         if (notice !== null) this.#onOrderNotice(userId, notice);
@@ -1279,7 +1380,7 @@ export class SubscriptionHub extends EventEmitter {
         firstFilled: it.firstFilled,
       });
     }
-    const key = subKey(userId, frame.isin, frame.exchange);
+    const key = progressKey(userId, frame.isin, frame.exchange);
     const prev = this.#queueProgress.get(key);
     if ((prev === undefined || prev.length === 0) && items.length === 0) return;
     if (items.length === 0) this.#queueProgress.delete(key);
@@ -1292,10 +1393,76 @@ export class SubscriptionHub extends EventEmitter {
     this.#fanout(userId, { t: "unf.progress", snap: false, i: frame.isin, x: frame.exchange, items: [...items] });
   }
 
-  /** 시세는 **배치하지 않는다** — 업스트림 100ms 코얼레싱을 그대로 통과시킨다 (D-35). */
-  #onQuote(userId: string, quote: RelayQuote): void {
-    this.#quotes.set(subKey(userId, quote.i, quote.x), quote);
-    this.#fanout(userId, quote);
+  /**
+   * quote 연결 수신 (Phase 26 D-12) — `#onFeedFrame` 명시 case 표는 파일 헤더에 있다.
+   *
+   * 정본 feed 가 아니면(교체된 옛 연결의 늦은 프레임) 아무것도 하지 않는다. 사용자 데이터 프레임이 여기 올 일은 없고,
+   * 와도 `"fanout"`/`"market"` 어느 쪽으로도 흘리지 않는다 — 사용자 경로는 그 사용자 세션(`#onFrame`) 하나다.
+   */
+  #onFeedFrame(feed: HubQuoteFeed, e: TransportFrameEvent): void {
+    if (this.#feed !== feed) return;
+
+    switch (e.msgType) {
+      case MSG.GetQuoteResp:
+      case MSG.QuoteUpdate: {
+        const quote = parseQuoteState(e.env, e.msgType === MSG.GetQuoteResp);
+        // null 이면 파서가 이미 사유·카운터를 남겼다 — 여기서 다시 로그하지 않는다.
+        if (quote !== null) this.#onQuote(quote);
+        return;
+      }
+      case MSG.TradeTapeResp:
+      case MSG.TradeTapePush: {
+        const tape = parseTradeTape(e.env, e.msgType === MSG.TradeTapeResp);
+        if (tape !== null) this.#onTape(tape);
+        return;
+      }
+      case MSG.ObserverLoginResp:
+        // feed 가 스스로 소비한다(26-02) — ready 뒤 재수신은 이상하지만 해석할 것이 없다.
+        return;
+      case MSG.RateCrossAlert:
+      case MSG.RateCrossSnapshot:
+        // 돌파 원천은 사용자 세션 그대로다(D-08) — quote 쪽 76/78 을 합치면 서버 트래픽은 그대로인 채 N+1 원천
+        // 중복 제거만 늘어난다(RESEARCH Open Q2 RESOLVED 무시안 · Pattern 2).
+        logger.debug({ msgType: e.msgType }, "[HUB] quote 연결 76/78 — 무시 (돌파는 사용자 세션 원천)");
+        return;
+      case MSG.QueueProgress:
+        // 83 은 사용자 세션 ② 경로(계좌 선언)로도 오고, 그쪽이 계좌 필터 **뒤** 캐시한다(T-25-24). quote 쪽 83(①)을
+        // 사용자별로 다시 뿌리면 같은 스냅샷이 두 원천에서 겹치고, 필터 실수 한 번에 남의 계좌가 샌다(Pattern 10 ①).
+        logger.debug({ msgType: e.msgType }, "[HUB] quote 연결 83 — 무시 (사용자 세션 경로가 계좌 필터 후 캐시)");
+        return;
+      case MSG.ServerMessage:
+      case MSG.QueuedWindowState:
+      case MSG.JournalBatch:
+        // 서버 규약상 quote 역할에는 오지 않는다(54 두 역할 모두 미수신 · 77 사용자 세션 · 80 journal 역할).
+        logger.warn({ msgType: e.msgType }, "[HUB] quote 연결에 오지 않는 프레임 — 무시");
+        return;
+      default:
+        // `#onFrame` 과 **같은 계수기**를 쓴다 — PC-12 게이트는 연결 종류와 무관하게 「받아 줄 case 없는 번호」 0 이다.
+        this.#unhandledFrames += 1;
+        logger.debug(
+          { msgType: e.msgType, unhandledFrameCount: this.#unhandledFrames },
+          "[HUB] quote 연결 — 명시 case 없는 프레임 (PC-12 게이트)",
+        );
+        return;
+    }
+  }
+
+  /**
+   * 시세는 **배치하지 않는다** — 업스트림 100ms 코얼레싱을 그대로 통과시킨다 (D-35).
+   *
+   * 참조계수 없는 키의 늦은 프레임(해제 29(false) 뒤 in-flight)은 **캐시하지 않고 버린다** — 넣으면 1→0 에서 지운
+   * 캐시가 되살아나 다음 구독자가 낡은 값을 즉시 받는다.
+   */
+  #onQuote(quote: RelayQuote): void {
+    const key = marketKey(quote.i, quote.x);
+    if (!this.#refs.has(key)) {
+      logger.debug({ isin: quote.i, exchange: quote.x }, "[HUB] 구독 없는 키의 시세 — 버림 (해제 뒤 늦은 프레임)");
+      return;
+    }
+    this.#quotes.set(key, quote);
+    // price 플래그 = PRICE 소켓에 보낼지(D-06). 서버 PRICE 규칙 복제 판정기(D-05)는 26-07 이 이 자리에 붙는다 —
+    // 그 전까지는 58 · 59 모두 통과(업스트림 PRICE-only 키는 서버가 이미 걸렀다).
+    this.emit("market", { key, msg: quote, full: true, price: true });
   }
 
   /**
@@ -1625,9 +1792,16 @@ export class SubscriptionHub extends EventEmitter {
     };
   }
 
-  /** 체결은 링버퍼에 쌓고 200ms 배치로 내보낸다 (D-35). */
-  #onTape(userId: string, tape: RelayTape): void {
-    const key = subKey(userId, tape.i, tape.x);
+  /**
+   * 체결은 전역 링버퍼에 쌓고 전역 200ms 배치로 내보낸다 (D-35). 참조계수 없는 키는 `#onQuote` 와 같은 이유로 버린다.
+   * 배치 플러시는 키마다 `"market"` tape 1건 — full 소켓 전용(`price: false` · 71 은 price 소켓에 가지 않는다).
+   */
+  #onTape(tape: RelayTape): void {
+    const key = marketKey(tape.i, tape.x);
+    if (!this.#refs.has(key)) {
+      logger.debug({ isin: tape.i, exchange: tape.x }, "[HUB] 구독 없는 키의 체결 — 버림 (해제 뒤 늦은 프레임)");
+      return;
+    }
 
     // 스냅샷(69)은 전량 교체, 증분(71)은 뒤에 이어붙임 — 계약 그대로다.
     const ring = tape.snap ? [] : (this.#tapes.get(key) ?? []);
@@ -1635,45 +1809,37 @@ export class SubscriptionHub extends EventEmitter {
     if (ring.length > TAPE_RING_SIZE) ring.splice(0, ring.length - TAPE_RING_SIZE);
     this.#tapes.set(key, ring);
 
-    let perUser = this.#pending.get(userId);
-    if (perUser === undefined) {
-      perUser = new Map<string, PendingTape>();
-      this.#pending.set(userId, perUser);
-    }
-    const current = perUser.get(key);
+    const current = this.#pendingTapes.get(key);
     if (current === undefined || tape.snap) {
       // 스냅샷은 앞서 쌓인 증분을 무효화한다 — 전량 교체로 승격한다.
-      perUser.set(key, { isin: tape.i, exchange: tape.x, snap: tape.snap, entries: [...tape.e] });
+      this.#pendingTapes.set(key, { isin: tape.i, exchange: tape.x, snap: tape.snap, entries: [...tape.e] });
     } else {
       current.entries.push(...tape.e);
     }
 
-    this.#armFlush(userId);
+    this.#armFlush();
   }
 
-  #armFlush(userId: string): void {
-    if (this.#flushTimers.has(userId)) return; // 세션 단위 타이머 1개 (D-35)
-    const timer = setTimeout(() => {
-      this.#flushTimers.delete(userId);
-      this.#flush(userId);
+  #armFlush(): void {
+    if (this.#tapeFlushTimer !== null) return; // 전역 타이머 1개 (D-35)
+    this.#tapeFlushTimer = setTimeout(() => {
+      this.#tapeFlushTimer = null;
+      this.#flush();
     }, TAPE_BATCH_MS);
-    this.#flushTimers.set(userId, timer);
   }
 
-  #flush(userId: string): void {
-    const perUser = this.#pending.get(userId);
-    if (perUser === undefined || perUser.size === 0) return;
-    for (const pending of perUser.values()) {
+  #flush(): void {
+    if (this.#pendingTapes.size === 0) return;
+    for (const [key, pending] of this.#pendingTapes) {
       if (pending.entries.length === 0) continue;
-      this.#fanout(userId, {
-        t: "tape",
-        i: pending.isin,
-        x: pending.exchange,
-        snap: pending.snap,
-        e: pending.entries,
+      this.emit("market", {
+        key,
+        msg: { t: "tape", i: pending.isin, x: pending.exchange, snap: pending.snap, e: pending.entries },
+        full: true,
+        price: false,
       });
     }
-    perUser.clear();
+    this.#pendingTapes.clear();
   }
 
   // ----------------------------------------------------------
@@ -1681,55 +1847,46 @@ export class SubscriptionHub extends EventEmitter {
   // ----------------------------------------------------------
 
   /**
-   * 0→1 전이(와 PRICE→FULL 승격·ready 재구독)의 프레임 (D-33 · quick-260923-ge2).
+   * 0→1 전이(와 PRICE→FULL 승격·quote ready 재구독)의 프레임 (D-33 · quick-260923-ge2) — **quote 연결로** 보낸다
+   * (Phase 26 D-12 — 사용자 세션으로는 보내지 않는다 · D-03 폴백 없음).
    * FULL 3프레임 = 스냅샷 28 → 구독 29(level=0) → 체결 테이프 32.
    * PRICE 2프레임 = 스냅샷 28 → 구독 29(level=1) — 71 이 오지 않으므로 69 스냅샷도 요청하지 않는다.
    * 순서가 계약이다.
    */
-  #sendSubscribe(
-    userId: string,
-    isin: string,
-    exchange: RelayExchange,
-    level: RelaySubLevel,
-  ): void {
-    const session = this.#sessions.get(userId);
-    if (session === undefined) {
-      logger.warn(
-        { userId, isin, exchange, level },
-        "[HUB] 세션 없이 구독 — 참조계수만 기록 (세션 결선 후 ready 가 복원한다)",
-      );
+  #sendSubscribe(isin: string, exchange: RelayExchange, level: RelaySubLevel): void {
+    const feed = this.#feed;
+    if (feed === null) {
+      logger.warn({ isin, exchange, level }, "[HUB] quote 연결 없이 구독 — 참조계수만 기록");
       return;
     }
-    if (!session.isReady) {
+    if (!feed.isReady) {
       logger.info(
-        { userId, isin, exchange, level },
-        "[HUB] Ready 이전 구독 — 참조계수만 기록 (ready 에서 전량 재구독)",
+        { isin, exchange, level },
+        "[HUB] quote 연결 Ready 이전 — 참조계수만 기록 (ready 에서 전량 재구독)",
       );
       return;
     }
-    session.send(buildGetQuoteReq(isin, exchange));
-    session.send(buildSubscribeQuoteReq(isin, exchange, true, levelByte(level)));
+    feed.send(buildGetQuoteReq(isin, exchange));
+    feed.send(buildSubscribeQuoteReq(isin, exchange, true, levelByte(level)));
     if (level === "full") {
-      session.send(buildGetTradeTapeReq(isin, exchange, TAPE_REQUEST_COUNT));
-      logger.info(
-        { userId, isin, exchange, level },
-        "[HUB] 신규 구독 — 스냅샷+구독(FULL)+체결 요청 송신",
-      );
+      feed.send(buildGetTradeTapeReq(isin, exchange, TAPE_REQUEST_COUNT));
+      logger.info({ isin, exchange, level }, "[HUB] 신규 구독 — 스냅샷+구독(FULL)+체결 요청 송신");
       return;
     }
     logger.info(
-      { userId, isin, exchange, level },
+      { isin, exchange, level },
       "[HUB] 신규 구독 — 스냅샷+구독(PRICE) 요청 송신 (체결 테이프 없음)",
     );
   }
 
   #onReady(userId: string, session: HubSession): void {
     if (this.#sessions.get(userId) !== session) return;
-    // 재구독·계좌 재요청·전략 재요청은 **같은 트리거 한 자리**에서만 일어난다 (Pitfall 4).
+    // 계좌 재요청·전략 재요청은 **같은 트리거 한 자리**에서만 일어난다 (Pitfall 4).
     // 경로를 두 벌 만들면 "재접속 후 잔고만 안 나온다"·"재접속 후 전략만 안 나온다"가 생긴다.
-    // D-13: 이 세 줄 말고 사용자별 재조회를 거는 곳은 없다 — 주기 타이머도, 브라우저가 부를 수
+    // D-13: 이 줄들 말고 사용자별 재조회를 거는 곳은 없다 — 주기 타이머도, 브라우저가 부를 수
     // 있는 수동 새로고침 진입점도 만들지 않는다.
-    this.resubscribeAll(userId);
+    // 시세 재구독은 여기서 하지 않는다 — **quote 연결 ready 하나다**(Phase 26 D-03 · D-08 · Pitfall 4 재정의).
+    // 사용자 세션으로 종목을 되걸면 per-user 경로가 폴백으로 되살아난다.
     this.requestAccountState(userId);
     this.requestStrategySnapshot(userId);
     // 잔량진행률 재동기화 (R2-WR-01) — 게이트웨이 재요청이 **아니다**(83 은 재요청 경로가 없다). Ready 이전
@@ -1751,12 +1908,7 @@ export class SubscriptionHub extends EventEmitter {
 
   #clearCaches(userId: string): void {
     const prefix = userPrefix(userId);
-    for (const key of [...this.#quotes.keys()]) {
-      if (key.startsWith(prefix)) this.#quotes.delete(key);
-    }
-    for (const key of [...this.#tapes.keys()]) {
-      if (key.startsWith(prefix)) this.#tapes.delete(key);
-    }
+    // 시세 캐시(`#quotes` · `#tapes`)는 전역이라 여기서 건드리지 않는다 (Phase 26 D-12) — 사용자 세션 교체와 무관하다.
     for (const key of [...this.#accountStates.keys()]) {
       if (key.startsWith(prefix)) this.#accountStates.delete(key);
     }
@@ -1816,33 +1968,32 @@ export class SubscriptionHub extends EventEmitter {
     }
     const unsynced = this.#progressUnsynced.delete(userId);
     if (clearedProgress > 0 || unsynced) this.#fanout(userId, { t: "unf.progress", snap: true, entries: [] });
-    const timer = this.#flushTimers.get(userId);
-    if (timer !== undefined) {
-      clearTimeout(timer);
-      this.#flushTimers.delete(userId);
-    }
-    this.#pending.delete(userId);
-  }
-
-  #countKeys(userId: string): number {
-    const prefix = userPrefix(userId);
-    let n = 0;
-    for (const key of this.#refs.keys()) if (key.startsWith(prefix)) n += 1;
-    return n;
   }
 
   /**
-   * 키를 되돌려 읽는다. userId(Supabase uuid)·ISIN(12자 영숫자)·거래소 어디에도
+   * 83 진행률 키(`progressKey` 3단)를 되돌려 읽는다. userId(Supabase uuid)·ISIN(12자 영숫자)·거래소 어디에도
    * `|` 가 들어갈 수 없으므로 분해가 모호하지 않다.
    */
-  #splitKey(key: string): { isin: string; exchange: RelayExchange } | null {
+  #splitProgressKey(key: string): { isin: string; exchange: RelayExchange } | null {
     const parts = key.split("|");
     if (parts.length !== 3) {
-      logger.warn({ segments: parts.length }, "[HUB] 구독 키 분해 실패 — 무시");
+      logger.warn({ segments: parts.length }, "[HUB] 진행률 키 분해 실패 — 무시");
       return null;
     }
-    const isin = parts[1] ?? "";
-    const exchange = parts[2] ?? "";
+    return this.#exchangeOf(parts[1] ?? "", parts[2] ?? "");
+  }
+
+  /** 시세 키(`marketKey` 2단)를 되돌려 읽는다. */
+  #splitMarketKey(key: string): { isin: string; exchange: RelayExchange } | null {
+    const parts = key.split("|");
+    if (parts.length !== 2) {
+      logger.warn({ segments: parts.length }, "[HUB] 시세 키 분해 실패 — 무시");
+      return null;
+    }
+    return this.#exchangeOf(parts[0] ?? "", parts[1] ?? "");
+  }
+
+  #exchangeOf(isin: string, exchange: string): { isin: string; exchange: RelayExchange } | null {
     if (exchange !== "KRX" && exchange !== "NXT") {
       logger.warn({ exchange }, "[HUB] 알 수 없는 거래소 키 — 무시");
       return null;

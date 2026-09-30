@@ -12,6 +12,12 @@
  * 타이머 규율(15-03 과 동일): 가짜 타이머는 `setTimeout` 계열만 대체하고 `setImmediate` 는
  * 진짜로 둔다. 소켓 I/O 대기는 **고정 flush 횟수가 아니라 조건 폴링**이다.
  *
+ * Phase 26 Plan 03 — 시세 업스트림은 **quote 연결 하나**다(D-12). 하네스는 사용자 세션 게이트웨이와 **별도의** 스텁
+ * 인스턴스(`quoteGateway`)에 실 `QuoteFeed`(role 1)를 붙이고 `hub.attachFeed` 로 결선한다 — 운영은 같은 서버지만 relay 는
+ * 연결마다 host/port 를 따로 받고, 사용자 게이트웨이 첫 소켓을 쓰는 기존 케이스 수십 개를 흔들지 않기 위해서다.
+ * 시세 주입은 quote 소켓으로, 28/29/32 단언은 quote 게이트웨이 수신으로 하고, 사용자 게이트웨이로 나간 28/29/32 는 0 이어야
+ * 한다. ⑦ 은 Phase 26 트레이서(두 사용자 × 같은 종목)로 교체됐다(RESEARCH Pitfall 9).
+ *
  * Phase 16 Plan 07 추가 — **전략 표면**(⑬~㉒). 검증 대상은 같은 신뢰 경계다:
  *   · 인증만 하면 전략 스냅샷 3프레임이 **구독 없이** 온다 (D-12)
  *   · 「0건」과 「아직 모른다」를 가른다 — `getViTrigger` 가 `undefined` 면 `vi` 프레임이 없다
@@ -42,6 +48,7 @@ import {
 } from "../src/ws/fanout.js";
 import { SubscriptionHub, TAPE_BATCH_MS, type HubSession } from "../src/hub/subscription-hub.js";
 import { SessionManager } from "../src/dma/session-manager.js";
+import { QuoteFeed } from "../src/quote/feed.js";
 import type { DmaSession } from "../src/dma/session.js";
 import { encryptDmaPassword } from "../src/store/credentials.js";
 import { resetDroppedEnvelopeCount, tryParseEnvelope, type LcSetCfg } from "../src/dma/envelope.js";
@@ -52,9 +59,11 @@ import { logger } from "../src/logger.js";
 import { Envelope } from "../src/generated/stock-dma/envelope.js";
 import {
   readSetLimitChaserRequest,
+  readSubscribeRequest,
   readViSetRequest,
   startFakeGateway,
   type FakeGateway,
+  type SubscribeRequest,
 } from "./helpers/fake-gateway.js";
 import { connectWs, type TestWs } from "./helpers/ws-client.js";
 import {
@@ -269,6 +278,12 @@ async function flushIo(turns = 4): Promise<void> {
   }
 }
 
+/** quote 관찰자 비밀 — 테스트 전용 값. 실서버 비밀 · 호스트 리터럴은 쓰지 않는다 (D-27 · T-26-07). */
+const QUOTE_SECRET = "test-quote-secret-only";
+
+/** 시세 요청 3종 — Phase 26 부터 사용자 세션 게이트웨이로는 0건이어야 한다 (D-08). */
+const QUOTE_REQ_TYPES = new Set<number>([MSG.GetQuoteReq, MSG.SubscribeQuoteReq, MSG.GetTradeTapeReq]);
+
 async function waitFor(predicate: () => boolean, label: string, turns = 600): Promise<void> {
   for (let i = 0; i < turns; i += 1) {
     if (predicate()) return;
@@ -283,6 +298,8 @@ type Harness = {
   fanout: WsFanout;
   hub: SubscriptionHub;
   sessions: SessionManager;
+  /** 시세 전용 공유 연결 (Phase 26 — 실 `QuoteFeed` · quote 스텁 게이트웨이). */
+  feed: QuoteFeed;
   acquireSpy: ReturnType<typeof vi.spyOn>;
   releaseSpy: ReturnType<typeof vi.spyOn>;
   close: () => Promise<void>;
@@ -290,10 +307,21 @@ type Harness = {
 
 describe("WsFanout", () => {
   let gateway: FakeGateway;
+  /** quote 연결 전용 스텁 게이트웨이 (Phase 26 — role 1 로그인 자동 응답). */
+  let quoteGateway: FakeGateway;
+  /** quote 연결의 게이트웨이 측 소켓 — 시세 주입처. */
+  let quoteSock: Awaited<ReturnType<FakeGateway["waitForQuoteConnection"]>>;
   let h: Harness;
   const sockets: TestWs[] = [];
-  /** 게이트웨이가 받은 요청 프레임 종류 누적. */
+  /** 사용자 세션 게이트웨이가 받은 요청 프레임 종류 누적. */
   let gatewayMsgTypes: number[];
+  /** quote 게이트웨이가 받은 요청 프레임 종류 누적. */
+  let quoteMsgTypes: number[];
+  /** quote 게이트웨이가 받은 29 되읽기 누적. */
+  let quoteSubscribes: SubscribeRequest[];
+
+  /** 사용자 세션 게이트웨이로 나간 시세 요청(28/29/32) 수 — Phase 26 에서 0 이어야 한다. */
+  const userQuoteReqCount = (): number => gatewayMsgTypes.filter((t) => QUOTE_REQ_TYPES.has(t)).length;
 
   async function startHarness(overrides: Partial<WsFanoutDeps> = {}): Promise<Harness> {
     const server = http.createServer();
@@ -317,15 +345,23 @@ describe("WsFanout", () => {
       ...overrides,
     });
 
+    // 시세 업스트림 = quote 연결 하나 (Phase 26 D-12). 부팅 결선(index.ts)은 26-04 — 여기서는 테스트가 직접 붙인다.
+    const feed = new QuoteFeed({ secret: QUOTE_SECRET, host: "127.0.0.1", port: quoteGateway.port });
+    hub.attachFeed(feed);
+    feed.start();
+    await waitFor(() => feed.isReady, "quote 연결 ready");
+
     return {
       port,
       server,
       fanout,
       hub,
       sessions,
+      feed,
       acquireSpy,
       releaseSpy,
       close: async () => {
+        feed.stop();
         await fanout.close();
         await sessions.closeAll();
         hub.closeAll();
@@ -358,9 +394,19 @@ describe("WsFanout", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
     resetDroppedEnvelopeCount();
     gatewayMsgTypes = [];
+    quoteMsgTypes = [];
+    quoteSubscribes = [];
     gateway = await startFakeGateway({ autoLogin: true, loginResp: { success: true } });
     gateway.onFrame((msgType) => gatewayMsgTypes.push(msgType));
+    quoteGateway = await startFakeGateway();
+    quoteGateway.respondQuoteLogin({ success: true });
+    quoteGateway.onFrame((msgType, payload) => {
+      quoteMsgTypes.push(msgType);
+      const sub = readSubscribeRequest(msgType, payload);
+      if (sub !== null) quoteSubscribes.push(sub);
+    });
     h = await startHarness();
+    quoteSock = await quoteGateway.waitForQuoteConnection();
   });
 
   afterEach(async () => {
@@ -368,6 +414,7 @@ describe("WsFanout", () => {
     sockets.length = 0;
     await h.close();
     await gateway.close();
+    await quoteGateway.close();
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
@@ -418,7 +465,9 @@ describe("WsFanout", () => {
     ws.sendSub(SAMPLE_ISIN, "KRX");
     await waitFor(() => inbox.length > 1, "구독 거부 상태 프레임");
     expect(inbox[1]).toEqual({ t: "state", s: "unauthorized" });
-    expect(h.hub.refCount(USER_NONE, SAMPLE_ISIN, "KRX")).toBe(0);
+    // 미등록 사용자의 sub 은 전역 참조계수에 닿지 않는다 (D-09 — 공유 캐시 · quote 구독도 못 연다).
+    expect(h.hub.refCount(SAMPLE_ISIN, "KRX")).toBe(0);
+    expect(quoteMsgTypes.filter((t) => QUOTE_REQ_TYPES.has(t))).toHaveLength(0);
     expect(ws.closeInfo).toBeNull();
   });
 
@@ -440,28 +489,21 @@ describe("WsFanout", () => {
     );
   });
 
-  it("⑥ 같은 사용자 탭 2개는 게이트웨이 구독 1건을 공유하고 둘 다 시세를 받는다", async () => {
+  it("⑥ 같은 사용자 탭 2개는 quote 연결 구독 1건을 공유하고 둘 다 시세를 받는다", async () => {
     const first = await authed("token-a");
     const second = await authed("token-a");
 
     first.ws.sendSub(SAMPLE_ISIN, "KRX");
     second.ws.sendSub(SAMPLE_ISIN, "KRX");
-    await waitFor(
-      () => h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX") === 2,
-      "두 탭의 참조계수",
-    );
-    await waitFor(
-      () => gatewayMsgTypes.includes(MSG.SubscribeQuoteReq),
-      "게이트웨이 구독 요청 수신",
-    );
+    await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 2, "두 탭의 참조계수");
+    await waitFor(() => quoteMsgTypes.includes(MSG.SubscribeQuoteReq), "quote 연결 구독 요청 수신");
 
-    // 탭이 2개여도 KB 방향 구독은 1건이다.
-    expect(gatewayMsgTypes.filter((t) => t === MSG.SubscribeQuoteReq)).toHaveLength(1);
+    // 탭이 2개여도 KB 방향 구독은 1건이고, 그 1건은 quote 연결로 나간다 (Phase 26 D-12).
+    expect(quoteMsgTypes.filter((t) => t === MSG.SubscribeQuoteReq)).toHaveLength(1);
+    expect(userQuoteReqCount()).toBe(0);
     expect(gateway.sockets).toHaveLength(1);
 
-    const sock = gateway.sockets[0];
-    if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
-    gateway.pushQuote(sock, { snapshot: true, lastPrice: 70_950n });
+    quoteGateway.pushQuote(quoteSock, { snapshot: true, lastPrice: 70_950n });
 
     await waitFor(
       () => first.inbox.some((m) => m.t === "q") && second.inbox.some((m) => m.t === "q"),
@@ -471,30 +513,73 @@ describe("WsFanout", () => {
     expect(quote).toMatchObject({ i: SAMPLE_ISIN, x: "KRX", p: 70_950 });
   });
 
-  it("⑦ 다른 사용자의 시세는 절대 넘어가지 않는다 (T-15-02)", async () => {
+  // 옛 ⑦ 「다른 사용자의 시세는 절대 넘어가지 않는다 (T-15-02)」 는 시세가 사용자별 세션으로 오던 전제였다(Pitfall 9).
+  // Phase 26 에서 시세는 공개 공유 원천이고, 지키려던 것은 둘로 갈린다 — ① 그 키를 **잡은 소켓만** 받는다(잡지 않은
+  // 소켓 · 자격증명 미등록 소켓 0건 · D-09) ② 사용자 데이터 격리는 ㉒ · P2 · 계좌 케이스가 그대로 지킨다.
+  it("⑦ Phase 26 트레이서 — 두 사용자 같은 종목: quote 연결 29 한 벌 · 사용자 세션 29 0 · 캐시 공유 · 구독 소켓만 수신 · 미등록 0", async () => {
     const a = await authed("token-a");
-    await waitFor(() => gateway.sockets.length === 1, "A 게이트웨이 연결");
-    const sockA = gateway.sockets[0];
-
+    const a2 = await authed("token-a");
     const b = await authed("token-b");
-    await waitFor(() => gateway.sockets.length === 2, "B 게이트웨이 연결");
+    await waitFor(() => gateway.sockets.length === 2, "A · B 사용자 세션 연결");
+
+    const u = await open();
+    u.ws.sendAuth("token-none");
+    await waitFor(() => u.inbox.some((m) => m.t === "state" && m.s === "unauthorized"), "U unauthorized");
+
+    // quote 로그인은 role 1 · 전용 client 로 나갔다 (26-02 · 서버 로그에서 저널 관찰자와 갈린다).
+    const logins = quoteGateway.quoteLoginRequests();
+    expect(logins).toHaveLength(1);
+    expect(logins[0]).toMatchObject({ role: 1, client: "gh-radar-relay/quote" });
 
     a.ws.sendSub(SAMPLE_ISIN, "KRX");
     b.ws.sendSub(SAMPLE_ISIN, "KRX");
-    await waitFor(
-      () =>
-        h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX") === 1 &&
-        h.hub.refCount(USER_B, SAMPLE_ISIN, "KRX") === 1,
-      "양쪽 참조계수",
-    );
-
-    if (sockA === undefined) throw new Error("A 소켓 없음");
-    gateway.pushQuote(sockA, { snapshot: true, lastPrice: 71_500n });
-    await waitFor(() => a.inbox.some((m) => m.t === "q"), "A 시세 수신");
+    u.ws.sendSub(SAMPLE_ISIN, "KRX");
+    await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 2, "A · B 전역 참조계수 2");
+    await waitFor(() => quoteMsgTypes.includes(MSG.GetTradeTapeReq), "quote 연결 체결 요청 수신");
+    await waitFor(() => u.inbox.filter((m) => m.t === "state" && m.s === "unauthorized").length === 2, "U 구독 거부");
     await flushIo(20);
 
-    expect(a.inbox.filter((m) => m.t === "q")).toHaveLength(1);
-    expect(b.inbox.filter((m) => m.t === "q")).toHaveLength(0);
+    // 업스트림 구독은 quote 연결 한 벌 — 28 → 29(true · level 0) → 32 각 1건.
+    expect(quoteMsgTypes.filter((t) => t === MSG.GetQuoteReq)).toHaveLength(1);
+    expect(quoteMsgTypes.filter((t) => t === MSG.GetTradeTapeReq)).toHaveLength(1);
+    expect(quoteSubscribes).toEqual([{ isin: SAMPLE_ISIN, exchange: "KRX", subscribe: true, level: 0 }]);
+    // 사용자 세션으로 나간 28/29/32 는 0건 (D-08 · D-12).
+    expect(userQuoteReqCount()).toBe(0);
+
+    quoteGateway.pushQuote(quoteSock, { snapshot: true, lastPrice: 71_500n });
+    await waitFor(
+      () => framesOf(a.inbox, "q").length === 1 && framesOf(b.inbox, "q").length === 1,
+      "A · B 스냅샷 수신",
+    );
+    await flushIo(20);
+    expect(framesOf(a.inbox, "q")[0]).toMatchObject({ i: SAMPLE_ISIN, x: "KRX", p: 71_500 });
+    expect(framesOf(b.inbox, "q")[0]).toMatchObject({ i: SAMPLE_ISIN, x: "KRX", p: 71_500 });
+    // 그 키를 잡지 않은 소켓(같은 사용자의 두 번째 탭)과 자격증명 미등록 소켓은 0건.
+    expect(framesOf(a2.inbox, "q")).toHaveLength(0);
+    expect(framesOf(u.inbox, "q")).toHaveLength(0);
+
+    // 캐시가 찬 뒤 새 탭이 같은 키를 잡으면 게이트웨이 재요청 없이 즉시 받는다 (유저 간 캐시 공유).
+    a2.ws.sendSub(SAMPLE_ISIN, "KRX");
+    await waitFor(() => framesOf(a2.inbox, "q").length === 1, "A2 캐시 즉시 응답");
+    expect(framesOf(a2.inbox, "q")[0]).toMatchObject({ p: 71_500, snap: true });
+    expect(h.hub.refCount(SAMPLE_ISIN, "KRX")).toBe(3);
+    await flushIo(20);
+    expect(quoteMsgTypes.filter((t) => t === MSG.GetQuoteReq)).toHaveLength(1);
+    expect(quoteSubscribes).toHaveLength(1);
+
+    // 갱신(59) 한 건이 세 구독 소켓에 각 1건씩 — 미등록 소켓은 여전히 0건.
+    quoteGateway.pushQuote(quoteSock, { snapshot: false, lastPrice: 71_600n });
+    await waitFor(
+      () => [a.inbox, b.inbox, a2.inbox].every((inbox) => framesOf(inbox, "q").some((q) => q.p === 71_600)),
+      "A · B · A2 갱신 수신",
+    );
+    await flushIo(20);
+    for (const inbox of [a.inbox, b.inbox, a2.inbox]) {
+      expect(framesOf(inbox, "q").filter((q) => q.p === 71_600)).toHaveLength(1);
+    }
+    expect(framesOf(u.inbox, "q")).toHaveLength(0);
+    expect(userQuoteReqCount()).toBe(0);
+    expect(h.hub.unhandledFrameCount()).toBe(0);
   });
 
   it("⑧ 송신 대기가 임계를 연속으로 넘으면 그 연결만 종료한다 (T-15-08)", async () => {
@@ -521,22 +606,22 @@ describe("WsFanout", () => {
 
     first.ws.sendSub(SAMPLE_ISIN, "KRX");
     second.ws.sendSub(SAMPLE_ISIN, "KRX");
-    await waitFor(() => h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX") === 2, "참조계수 2");
+    await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 2, "참조계수 2");
+    await waitFor(() => quoteSubscribes.length === 1, "quote 연결 구독");
 
     await first.ws.close();
-    await waitFor(() => h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX") === 1, "참조계수 1로 감소");
+    await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 1, "참조계수 1로 감소");
     expect(h.releaseSpy).toHaveBeenCalledTimes(1);
     // 남은 탭의 구독은 살아 있다 — 해제 프레임이 나가지 않았다.
-    expect(gatewayMsgTypes.filter((t) => t === MSG.SubscribeQuoteReq)).toHaveLength(1);
+    expect(quoteMsgTypes.filter((t) => t === MSG.SubscribeQuoteReq)).toHaveLength(1);
 
     await second.ws.close();
-    await waitFor(() => h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX") === 0, "참조계수 0");
+    await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 0, "참조계수 0");
     expect(h.releaseSpy).toHaveBeenCalledTimes(2);
-    // 마지막 해제에서만 subscribe:false 가 나간다(요청 프레임 2건 = 구독 + 해제).
-    await waitFor(
-      () => gatewayMsgTypes.filter((t) => t === MSG.SubscribeQuoteReq).length === 2,
-      "업스트림 구독 해제",
-    );
+    // 마지막 해제에서만 subscribe:false 가 quote 연결로 나간다(요청 프레임 2건 = 구독 + 해제).
+    await waitFor(() => quoteSubscribes.length === 2, "업스트림 구독 해제");
+    expect(quoteSubscribes[1]).toMatchObject({ isin: SAMPLE_ISIN, exchange: "KRX", subscribe: false });
+    expect(userQuoteReqCount()).toBe(0);
   });
 
   it("⑩ 스키마 위반(ISIN 길이)은 close(4400) 이다", async () => {
@@ -546,26 +631,30 @@ describe("WsFanout", () => {
     await waitFor(() => ws.closeInfo !== null, "스키마 위반 close");
 
     expect(ws.closeInfo?.code).toBe(4400);
-    expect(h.hub.refCount(USER_A, "KR700593", "KRX")).toBe(0);
+    expect(h.hub.refCount("KR700593", "KRX")).toBe(0);
   });
 
-  it("⑪ 재접속하면 스냅샷 캐시가 즉시 응답한다 (D-37)", async () => {
+  // 옛 ⑪ 은 「재접속(참조계수 0 을 지난 뒤)에도 캐시가 즉시 응답」 이었다. 전역 캐시는 1→0 에서 정리하므로(D-37 헤더)
+  // 그 재접속 창은 linger(D-10 · 26-08)가 맡는다. 여기서는 같은 목적의 현재 경로 — 같은 키를 다른 소켓이 잡고
+  // 있는 동안 새 소켓은 게이트웨이 재요청 없이 캐시로 즉시 그린다 — 를 단언한다.
+  it("⑪ 같은 키를 다른 소켓이 잡고 있는 동안 새 소켓은 캐시로 즉시 응답하고 28 재송은 0 이다 (D-37)", async () => {
     const first = await authed("token-a");
     first.ws.sendSub(SAMPLE_ISIN, "KRX");
-    await waitFor(() => h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX") === 1, "구독 성립");
-    await waitFor(() => gateway.sockets.length === 1, "게이트웨이 연결");
+    await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 1, "구독 성립");
+    await waitFor(() => quoteMsgTypes.includes(MSG.GetTradeTapeReq), "quote 연결 구독 요청");
 
-    const sock = gateway.sockets[0];
-    if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
-    gateway.pushQuote(sock, { snapshot: true, lastPrice: 69_800n });
+    quoteGateway.pushQuote(quoteSock, { snapshot: true, lastPrice: 69_800n });
     await waitFor(() => first.inbox.some((m) => m.t === "q"), "첫 시세 수신");
 
     // 새 탭이 붙어 같은 종목을 구독하면 게이트웨이 왕복 없이 캐시가 먼저 온다.
     const second = await authed("token-a");
     second.ws.sendSub(SAMPLE_ISIN, "KRX");
     await waitFor(() => second.inbox.some((m) => m.t === "q"), "캐시 즉시 응답");
+    await flushIo(20);
 
     expect(second.inbox.find((m) => m.t === "q")).toMatchObject({ p: 69_800, snap: true });
+    expect(quoteMsgTypes.filter((t) => t === MSG.GetQuoteReq)).toHaveLength(1);
+    expect(userQuoteReqCount()).toBe(0);
   });
 
   it("⑫ 계약 밖 경로로는 업그레이드하지 않는다", async () => {
@@ -576,21 +665,21 @@ describe("WsFanout", () => {
   // quick-260923-ge2 — 가격 전용 구독 lv (full|price)
   // ============================================================
   describe("가격 전용 구독 lv (quick-260923-ge2)", () => {
+    /** quote 연결로 나간 요청 수 (Phase 26 — 업스트림 송신자는 quote 연결 하나다). */
     const countOf = (msgType: number): number =>
-      gatewayMsgTypes.filter((t) => t === msgType).length;
+      quoteMsgTypes.filter((t) => t === msgType).length;
 
-    function gatewaySock() {
-      const sock = gateway.sockets[0];
-      if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
-      return sock;
-    }
+    afterEach(() => {
+      // 이 describe 의 어떤 케이스도 사용자 세션으로 시세 요청을 보내지 않는다 (D-08).
+      expect(userQuoteReqCount()).toBe(0);
+    });
 
-    /** 체결 1건을 hub 링버퍼까지 들이고 200ms 배치 창을 닫는다. */
+    /** 체결 1건을 hub 전역 링버퍼까지 들이고 200ms 배치 창을 닫는다. */
     async function pushTapeAndFlush(tradeTime: string): Promise<void> {
-      const before = h.hub.getTape(USER_A, SAMPLE_ISIN, "KRX")?.length ?? 0;
-      gateway.pushTape(gatewaySock(), { snapshot: false, entries: [{ tradeTime }] });
+      const before = h.hub.getTape(SAMPLE_ISIN, "KRX")?.length ?? 0;
+      quoteGateway.pushTape(quoteSock, { snapshot: false, entries: [{ tradeTime }] });
       await waitFor(
-        () => (h.hub.getTape(USER_A, SAMPLE_ISIN, "KRX")?.length ?? 0) > before,
+        () => (h.hub.getTape(SAMPLE_ISIN, "KRX")?.length ?? 0) > before,
         "hub 링버퍼에 체결 도착",
       );
       vi.advanceTimersByTime(TAPE_BATCH_MS);
@@ -602,7 +691,7 @@ describe("WsFanout", () => {
      */
     async function pushQuoteAndAwait(inboxes: RelayOutbound[][], lastPrice: bigint): Promise<void> {
       const before = inboxes.map((inbox) => framesOf(inbox, "q").length);
-      gateway.pushQuote(gatewaySock(), { snapshot: false, lastPrice });
+      quoteGateway.pushQuote(quoteSock, { snapshot: false, lastPrice });
       await waitFor(
         () => inboxes.every((inbox, i) => framesOf(inbox, "q").length > (before[i] ?? 0)),
         "시세 도착",
@@ -614,7 +703,7 @@ describe("WsFanout", () => {
       b.ws.sendSub(SAMPLE_ISIN, "KRX", "price");
       await waitFor(() => countOf(MSG.SubscribeQuoteReq) === 1, "게이트웨이 구독 요청");
 
-      expect(h.hub.subscriptionLevel(USER_A, SAMPLE_ISIN, "KRX")).toBe("price");
+      expect(h.hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBe("price");
       expect(countOf(MSG.GetQuoteReq)).toBe(1);
 
       await pushTapeAndFlush("090000000001");
@@ -633,12 +722,12 @@ describe("WsFanout", () => {
       const a = await authed("token-a");
       const b = await authed("token-a");
       a.ws.sendSub(SAMPLE_ISIN, "KRX");
-      await waitFor(() => h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX") === 1, "A 구독");
+      await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 1, "A 구독");
       b.ws.sendSub(SAMPLE_ISIN, "KRX", "price");
-      await waitFor(() => h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX") === 2, "B 구독");
+      await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 2, "B 구독");
       await waitFor(() => countOf(MSG.GetTradeTapeReq) === 1, "게이트웨이 체결 요청");
 
-      expect(h.hub.subscriptionLevel(USER_A, SAMPLE_ISIN, "KRX")).toBe("full");
+      expect(h.hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBe("full");
       // 실효 level 이 그대로라 price 추가는 재송신이 없다.
       expect(countOf(MSG.SubscribeQuoteReq)).toBe(1);
 
@@ -664,8 +753,8 @@ describe("WsFanout", () => {
       await waitFor(() => framesOf(b.inbox, "tape").length === 1, "승격 tape 스냅샷");
       await waitFor(() => countOf(MSG.GetTradeTapeReq) === 1, "승격 재송신");
 
-      expect(h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX")).toBe(1);
-      expect(h.hub.subscriptionLevel(USER_A, SAMPLE_ISIN, "KRX")).toBe("full");
+      expect(h.hub.refCount(SAMPLE_ISIN, "KRX")).toBe(1);
+      expect(h.hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBe("full");
       expect(countOf(MSG.GetQuoteReq)).toBe(2);
       expect(countOf(MSG.SubscribeQuoteReq)).toBe(2);
       expect(framesOf(b.inbox, "tape")[0]).toMatchObject({ i: SAMPLE_ISIN, x: "KRX", snap: true });
@@ -680,8 +769,8 @@ describe("WsFanout", () => {
       await waitFor(() => countOf(MSG.SubscribeQuoteReq) === 2, "강등 29");
       await flushIo(20);
 
-      expect(h.hub.subscriptionLevel(USER_A, SAMPLE_ISIN, "KRX")).toBe("price");
-      expect(h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX")).toBe(1);
+      expect(h.hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBe("price");
+      expect(h.hub.refCount(SAMPLE_ISIN, "KRX")).toBe(1);
       expect(countOf(MSG.GetTradeTapeReq)).toBe(1);
       expect(countOf(MSG.GetQuoteReq)).toBe(1);
     });
@@ -694,23 +783,23 @@ describe("WsFanout", () => {
       b.ws.sendSub(SAMPLE_ISIN, "KRX", "price");
       // 뒤따르는 프레임이 처리됐음을 보장하는 표식 — 다른 키 구독.
       b.ws.sendSub(OTHER_ISIN, "KRX", "price");
-      await waitFor(() => h.hub.refCount(USER_A, OTHER_ISIN, "KRX") === 1, "표식 구독");
+      await waitFor(() => h.hub.refCount(OTHER_ISIN, "KRX") === 1, "표식 구독");
       await waitFor(() => countOf(MSG.SubscribeQuoteReq) === 2, "표식 29");
       await flushIo(20);
 
-      expect(h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX")).toBe(1);
+      expect(h.hub.refCount(SAMPLE_ISIN, "KRX")).toBe(1);
       expect(countOf(MSG.SubscribeQuoteReq)).toBe(2);
     });
 
     it("F6 price 소켓이 닫히면 그 level 로 해제돼 참조계수 0 · 29 가 구독+해제 2건이다", async () => {
       const b = await authed("token-a");
       b.ws.sendSub(SAMPLE_ISIN, "KRX", "price");
-      await waitFor(() => h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX") === 1, "price 구독");
+      await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 1, "price 구독");
 
       await b.ws.close();
-      await waitFor(() => h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX") === 0, "참조계수 0");
+      await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 0, "참조계수 0");
       await waitFor(() => countOf(MSG.SubscribeQuoteReq) === 2, "업스트림 해제");
-      expect(h.hub.subscriptionLevel(USER_A, SAMPLE_ISIN, "KRX")).toBeUndefined();
+      expect(h.hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBeUndefined();
     });
 
     it("F7 열거 밖 lv 는 close(4400) 이다", async () => {
@@ -720,7 +809,7 @@ describe("WsFanout", () => {
       await waitFor(() => ws.closeInfo !== null, "스키마 위반 close");
 
       expect(ws.closeInfo?.code).toBe(4400);
-      expect(h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX")).toBe(0);
+      expect(h.hub.refCount(SAMPLE_ISIN, "KRX")).toBe(0);
     });
   });
 
@@ -772,7 +861,7 @@ describe("WsFanout", () => {
     expect(viList?.items).toHaveLength(3);
 
     // 페이지는 전략을 따로 요청하지 않는다 — 구독이 0건인 채로 다 왔다.
-    expect(h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX")).toBe(0);
+    expect(h.hub.refCount(SAMPLE_ISIN, "KRX")).toBe(0);
   });
 
   it("⑭ 0건도 프레임이 오지만, VI 를 아직 모르면 vi 프레임은 오지 않는다", async () => {
@@ -1991,7 +2080,7 @@ describe("WsFanout", () => {
     const a = await authed("token-a");
 
     a.ws.sendSub(SAMPLE_ISIN, "KRX");
-    await waitFor(() => h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX") === 1, "구독 성립");
+    await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 1, "구독 성립");
 
     a.ws.sendRaw({ t: "lc.set", cfg: lcInput() });
     await waitFor(
@@ -2001,11 +2090,11 @@ describe("WsFanout", () => {
     await flushIo(30);
 
     // 전략 메시지는 구독 회계에 손대지 않는다.
-    expect(h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX")).toBe(1);
+    expect(h.hub.refCount(SAMPLE_ISIN, "KRX")).toBe(1);
 
     // `undefined|undefined` 키가 만들어졌다면 이 해제가 「잡지 않은 키」로 무시된다.
     a.ws.sendUnsub(SAMPLE_ISIN, "KRX");
-    await waitFor(() => h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX") === 0, "구독 해제");
+    await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 0, "구독 해제");
   });
 
   it("㉑ 인바운드 상한을 넘긴 프레임은 게이트웨이로 나가지 않고 경고는 1회다 (T-16-06)", async () => {

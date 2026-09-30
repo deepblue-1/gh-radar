@@ -19,15 +19,20 @@
  *   6. 인증 직후 **계좌 스냅샷 + 전략 스냅샷 3프레임**을 그 연결로 내린다 (D-12/D-23/D-37).
  *      브라우저는 이것을 요청하지 않는다 — 구독을 기다리면 아무 종목도 열지 않은 탭이
  *      영원히 빈 잔고·빈 전략 목록을 본다
- *   7. sub(lv full|price · 기본 full) → 참조계수 +1(level 별), q 스냅샷 캐시가 있으면 그 소켓에
- *      즉시 전송 (D-37). tape 캐시는 full 만 보낸다. 같은 소켓 재 sub 은 level 갱신(같으면 무시).
- *      price 키의 tape 는 `#deliver` 가 그 소켓에서 걸러낸다 (quick-260923-ge2 — 정본은 gh-trade
- *      회신 quick-260923-exo · hub 헤더 D-33 아래 level 블록)
+ *   7. sub(lv full|price · 기본 full) → **전역** 참조계수 +1(level 별 · Phase 26 D-12), q 스냅샷 캐시가 있으면
+ *      그 소켓에 즉시 전송 (D-37 — 캐시는 사용자 간 공유다). tape 캐시는 full 만 보낸다. 같은 소켓 재 sub 은
+ *      level 갱신(같으면 무시). 시세는 hub `"market"` 이벤트 한 경로로 오고 `#keyConns`(키 → 그 키를 잡은 소켓)
+ *      색인으로 **그 키를 잡은 소켓에만** 간다 — tape 는 full 소켓만, q 는 full 소켓 + price 플래그가 선 price
+ *      소켓(D-06 · `#deliverMarket`). level 정본은 gh-trade 회신 quick-260923-exo · hub 헤더 D-33 아래 level 블록
  *   8. close → authTimer 정리, **그 소켓이 잡은 키만** 해제, `sessions.release`
  *
  * 결정 근거:
- *   T-15-02  팬아웃 대상은 `Map<userId, …>` 로만 고른다. **전역 브로드캐스트 함수를
- *            만들지 않는 것**이 타인 체결·잔고 유출의 구조적 방어다.
+ *   T-15-02  **사용자 데이터**(계좌 · 주문 · 전략 · 83)의 팬아웃 대상은 `Map<userId, …>` 로만 고른다(`#deliver`).
+ *            사용자 데이터에 **전역 브로드캐스트 함수를 만들지 않는 것**이 타인 체결·잔고 유출의 구조적 방어다.
+ *            공개 시세(q · tape)는 키 구독자 색인(`#keyConns` → `#deliverMarket`)으로 간다 — 계좌 필터가 없는 이유는
+ *            공개 시세라서이고, hub `HubMarketEvent.msg` 타입이 `RelayQuote | RelayTape` 로 좁혀져 있어 사용자
+ *            데이터가 이 경로를 탈 수 없다(Phase 26 T-26-01). 자격증명 미등록 소켓(D-09)은 sub 단계에서 막혀
+ *            색인에 들어가지 않는다.
  *   T-15-04  토큰은 첫 메시지 본문 전용이다. URL·쿼리스트링에 절대 싣지 않는다 —
  *            Caddy 액세스 로그·브라우저 히스토리에 그대로 남는다. 로그에도 넣지 않는다.
  *   T-15-08  `bufferedAmount` 임계 초과가 연속 3회면 **그 연결만** terminate.
@@ -93,7 +98,7 @@ import { logger } from "../logger.js";
 import { verifyToken } from "../auth/verify-token.js";
 import { getDmaCredentials } from "../store/credentials.js";
 import { safePgError } from "../store/pg-error.js";
-import type { SubscriptionHub } from "../hub/subscription-hub.js";
+import type { HubMarketEvent, SubscriptionHub } from "../hub/subscription-hub.js";
 import type { DmaSession } from "../dma/session.js";
 import type { DmaCredentials } from "../dma/session-manager.js";
 import {
@@ -392,6 +397,11 @@ export class WsFanout {
   readonly #conns = new Set<Conn>();
   /** userId → 팬아웃 대상. **여기 없는 사용자에게는 아무것도 가지 않는다** (T-15-02). */
   readonly #users = new Map<string, UserEntry>();
+  /**
+   * 시세 키(`keyOf` = `${isin}|${ex}`) → 그 키를 잡은 소켓 집합 (Phase 26 — 키 구독자 색인). `#deliverMarket` 의 대상이다.
+   * `conn.keys` 와 **같은 자리**(`#indexKey` · `#unindexKey` — sub 신규 · unsub · `#onClose`)에서만 고친다. 빈 Set 은 지운다.
+   */
+  readonly #keyConns = new Map<string, Set<Conn>>();
 
   readonly #heartbeat: NodeJS.Timeout;
   readonly #onUpgrade: (req: IncomingMessage, socket: Duplex, head: Buffer) => void;
@@ -437,8 +447,10 @@ export class WsFanout {
     this.#onUpgrade = (req, socket, head): void => this.handleUpgrade(req, socket, head);
     this.#server?.on("upgrade", this.#onUpgrade);
 
-    // Hub 는 **userId 를 지정해서만** 내보낸다. 여기서 그 사용자의 소켓 집합으로 좁힌다.
+    // Hub 는 사용자 데이터를 **userId 를 지정해서만** 내보낸다. 여기서 그 사용자의 소켓 집합으로 좁힌다.
     this.#hub.on("fanout", (e) => this.#deliver(e.userId, e.msg));
+    // 공개 시세는 키 단위다 (Phase 26 D-12) — 그 키를 잡은 소켓에만, 소켓 level 로 거른다.
+    this.#hub.on("market", (e) => this.#deliverMarket(e));
 
     // 주문 상관 (D-02). `send` 로 `#send` 를 넘기는 것이 핵심이다 — 핸들러가 소켓을 직접
     // 잡으면 전송 경로가 두 벌이 되고, 한쪽이 대상 선택을 틀리는 순간 타인의 체결이 샌다.
@@ -988,18 +1000,19 @@ export class WsFanout {
         if (lv === "full") {
           // 이 소켓은 price 동안 tape 를 받은 적이 없다 — 링버퍼를 스냅샷으로 준다.
           // q 는 이미 받고 있으므로 다시 보내지 않는다.
-          this.#sendTapeSnapshot(conn, userId, msg.isin, msg.ex);
+          this.#sendTapeSnapshot(conn, msg.isin, msg.ex);
         }
         return;
       }
       conn.keys.set(key, { isin: msg.isin, ex: msg.ex, lv });
+      this.#indexKey(key, conn);
       this.#hub.subscribe(userId, msg.isin, msg.ex, lv);
 
-      // 캐시가 있으면 게이트웨이 응답을 기다리지 않고 즉시 그린다 (D-37).
-      const snapshot = this.#hub.getSnapshot(userId, msg.isin, msg.ex);
+      // 캐시가 있으면 게이트웨이 응답을 기다리지 않고 즉시 그린다 (D-37 — 전역 캐시라 다른 사용자가 먼저 연 종목도).
+      const snapshot = this.#hub.getSnapshot(msg.isin, msg.ex);
       if (snapshot !== undefined) this.#send(conn, snapshot);
       // tape 캐시는 full 만 — price 소켓은 tape 를 받지 않는다 (quick-260923-ge2).
-      if (lv === "full") this.#sendTapeSnapshot(conn, userId, msg.isin, msg.ex);
+      if (lv === "full") this.#sendTapeSnapshot(conn, msg.isin, msg.ex);
       return;
     }
 
@@ -1010,15 +1023,37 @@ export class WsFanout {
     }
     const held = conn.keys.get(key);
     conn.keys.delete(key);
+    this.#unindexKey(key, conn);
     this.#hub.unsubscribe(userId, msg.isin, msg.ex, held?.lv ?? "full");
   }
 
-  /** hub 링버퍼 캐시가 있으면 그 소켓에 tape 스냅샷 1프레임을 보낸다 (D-37). */
-  #sendTapeSnapshot(conn: Conn, userId: string, isin: string, ex: RelayExchange): void {
-    const tape = this.#hub.getTape(userId, isin, ex);
+  /** hub 전역 링버퍼 캐시가 있으면 그 소켓에 tape 스냅샷 1프레임을 보낸다 (D-37). */
+  #sendTapeSnapshot(conn: Conn, isin: string, ex: RelayExchange): void {
+    const tape = this.#hub.getTape(isin, ex);
     if (tape !== undefined && tape.length > 0) {
       this.#send(conn, { t: "tape", i: isin, x: ex, snap: true, e: tape });
     }
+  }
+
+  /**
+   * 키 구독자 색인에 넣는다 (Phase 26). **`conn.keys` 를 바꾸는 같은 자리에서만** 부른다 — sub 신규 등록 ·
+   * unsub · `#onClose`. 두 벌 자료를 다른 자리에서 고치면 한쪽만 갱신돼 시세가 새거나 끊긴다.
+   */
+  #indexKey(key: string, conn: Conn): void {
+    let conns = this.#keyConns.get(key);
+    if (conns === undefined) {
+      conns = new Set<Conn>();
+      this.#keyConns.set(key, conns);
+    }
+    conns.add(conn);
+  }
+
+  /** 키 구독자 색인에서 뺀다. 빈 Set 은 지운다(키 수만큼 빈 Set 이 쌓이지 않게). */
+  #unindexKey(key: string, conn: Conn): void {
+    const conns = this.#keyConns.get(key);
+    if (conns === undefined) return;
+    conns.delete(conn);
+    if (conns.size === 0) this.#keyConns.delete(key);
   }
 
   // ----------------------------------------------------------
@@ -1403,8 +1438,9 @@ export class WsFanout {
       return;
     }
 
-    // **이 소켓이 잡은 키만** 해제한다 — 다른 탭의 구독을 끊으면 안 된다.
-    for (const { isin, ex, lv } of conn.keys.values()) {
+    // **이 소켓이 잡은 키만** 해제한다 — 다른 탭 · 다른 사용자의 구독을 끊으면 안 된다.
+    for (const [key, { isin, ex, lv }] of conn.keys) {
+      this.#unindexKey(key, conn);
       this.#hub.unsubscribe(userId, isin, ex, lv);
     }
     conn.keys.clear();
@@ -1633,17 +1669,34 @@ export class WsFanout {
     }
   }
 
-  /** **그 사용자의 소켓 집합에만** 보낸다. 전역 순회 경로를 만들지 않는다 (T-15-02). */
+  /**
+   * **그 사용자의 소켓 집합에만** 보낸다 — 사용자 데이터 전용 경로다. 전역 순회 경로를 만들지 않는다 (T-15-02).
+   * 시세(q · tape)는 Phase 26 부터 이 경로로 오지 않는다 — `#deliverMarket` 한 경로다.
+   */
   #deliver(userId: string, msg: RelayOutbound): void {
     const entry = this.#users.get(userId);
     if (entry === undefined) return;
-    for (const conn of entry.conns) {
-      // price 로 잡은 키에는 tape 를 보내지 않는다 (quick-260923-ge2). 게이트웨이 가동본이 level 을
-      // 모르는 구버전이거나 같은 키를 다른 탭이 FULL 로 봐서 71 이 흘러와도 relay 가 자체 보장한다.
-      // 그 소켓이 **잡지 않은 키**의 tape 는 종전대로 간다(브라우저가 키로 거른다 — use-relay-socket
-      // 규율 7). 사용자 격리는 그대로다 — 이 사용자의 소켓 집합 안에서 건너뛰기만 한다 (T-15-02).
-      if (msg.t === "tape" && conn.keys.get(keyOf(msg.i, msg.x))?.lv === "price") continue;
-      this.#send(conn, msg);
+    for (const conn of entry.conns) this.#send(conn, msg);
+  }
+
+  /**
+   * 공개 시세 1건을 **그 키를 잡은 소켓에만** 보낸다 (Phase 26 D-06 · D-12).
+   *
+   * - 대상은 `#keyConns`(키 구독자 색인)다 — 사용자 · 탭 수와 무관하게 키 단위 1회 순회.
+   * - 소켓 level 로만 거른다: tape 는 full 소켓만(71 은 price 소켓에 가지 않는다 — quick-260923-ge2 규칙 이관),
+   *   full 소켓은 `e.full`, price 소켓은 `e.price` 일 때만. 판정(D-05)은 hub 가 키 단위로 이미 했다.
+   * - 계좌 필터가 없다 — 공개 시세이고, `HubMarketEvent.msg` 타입이 사용자 데이터를 싣지 못한다(T-26-01).
+   * - 색인과 `conn.keys` 가 어긋나면(방어) 그 소켓은 건너뛴다.
+   */
+  #deliverMarket(e: HubMarketEvent): void {
+    const conns = this.#keyConns.get(e.key);
+    if (conns === undefined) return;
+    for (const conn of conns) {
+      const lv = conn.keys.get(e.key)?.lv;
+      if (lv === undefined) continue;
+      if (e.msg.t === "tape" && lv !== "full") continue;
+      if (lv === "full" ? !e.full : !e.price) continue;
+      this.#send(conn, e.msg);
     }
   }
 

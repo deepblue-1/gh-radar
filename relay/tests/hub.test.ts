@@ -1,9 +1,13 @@
 /**
  * Phase 15 Plan 04 — RELAY-01. `SubscriptionHub` 단위 테스트.
  *
- * 검증 대상은 **구독 회계**다 — 탭이 늘어도 게이트웨이 구독은 1개, 사용자 간 구독이
- * 교차하지 않음, 스냅샷 캐시 즉시 응답(D-37), `ready` 전량 재구독(Pitfall 4),
- * 체결 200ms 배치와 링버퍼 상한(D-35).
+ * 검증 대상은 **구독 회계**다 — 탭 · 사용자가 늘어도 게이트웨이 구독은 1개, 스냅샷 캐시 즉시 응답(D-37),
+ * `ready` 전량 재구독(Pitfall 4), 체결 200ms 배치와 링버퍼 상한(D-35).
+ *
+ * Phase 26 (26-03 빅뱅 · D-12) — 시세의 업스트림 송신자는 **quote 연결 하나**(`FakeFeed`)이고 키는 전역 `isin|ex` 다.
+ * per-user 전제를 단언하던 케이스(③ 사용자 간 구독 격리 · ④ 사용자별 캐시 · ⑤ 세션 ready 재구독 · ⑨ 시세 userId 팬아웃
+ * · ⑪/L8 세션 미Ready)는 「무엇을 지키려던 것인가」 로 다시 썼다(RESEARCH Pitfall 9) — 각 케이스 앞 주석 참조.
+ * 사용자 데이터 격리(⑨ 51/66 · 83 describe)는 그대로 사용자 세션(`FakeSession`)으로 단언한다.
  *
  * 세션은 **가짜 객체**를 쓴다. 세션 상태기계(로그인·재접속)는 15-03 이 소켓까지 붙여
  * 이미 증명했고, 여기서 다시 소켓을 세우면 검증 대상이 흐려진다. 대신 게이트웨이로 나간
@@ -25,6 +29,8 @@ import {
   TAPE_BATCH_MS,
   TAPE_RING_SIZE,
   type HubFanoutEvent,
+  type HubMarketEvent,
+  type HubQuoteFeed,
   type HubSession,
 } from "../src/hub/subscription-hub.js";
 import { MSG } from "../src/dma/msg-type.js";
@@ -33,6 +39,7 @@ import { Envelope } from "../src/generated/stock-dma/envelope.js";
 import type { TransportFrameEvent } from "../src/dma/dma-client.js";
 import {
   SAMPLE_ISIN,
+  buildAccountStateFrame,
   buildOrderRespFrame,
   buildQuoteStateFrame,
   buildServerMessageFrame,
@@ -132,6 +139,45 @@ class FakeSession extends EventEmitter implements HubSession {
   subscribeReqs(): SentReq[] {
     return this.sent.filter((s) => s.msgType === MSG.SubscribeQuoteReq);
   }
+
+  /** 시세 요청(28/29/32) — Phase 26 부터 사용자 세션으로는 **0건**이어야 한다 (D-08 · D-12). */
+  quoteReqs(): SentReq[] {
+    return this.sent.filter((s) => QUOTE_REQ_TYPES.has(s.msgType));
+  }
+}
+
+const QUOTE_REQ_TYPES = new Set<number>([MSG.GetQuoteReq, MSG.SubscribeQuoteReq, MSG.GetTradeTapeReq]);
+
+/**
+ * `HubQuoteFeed` 최소 구현 (Phase 26) — quote 연결(`QuoteFeed`)의 대역. `FakeSession` 과 같은 방식으로 보낸 바이트를
+ * 실제 FlatBuffers 로 되읽어 쌓고, 게이트웨이 프레임 주입 · ready 재발행을 흉내 낸다.
+ */
+class FakeFeed extends EventEmitter implements HubQuoteFeed {
+  readonly sent: SentReq[] = [];
+  isReady = true;
+
+  send(payload: Uint8Array): boolean {
+    this.sent.push(decodeReq(payload));
+    return true;
+  }
+
+  /** quote 연결로 게이트웨이 프레임이 들어오는 상황을 재현한다. */
+  pushFrame(payload: Uint8Array): void {
+    const parsed = tryParseEnvelope(Buffer.from(payload));
+    if (parsed === null) throw new Error("테스트 프레임이 수신 화이트리스트를 통과하지 못했습니다");
+    const event: TransportFrameEvent = { ...parsed, generation: 1 };
+    this.emit("frame", event);
+  }
+
+  /** (재)로그인 완료 — 합집합 재구독 트리거. */
+  emitReady(): void {
+    this.isReady = true;
+    this.emit("ready", {});
+  }
+
+  subscribeReqs(): SentReq[] {
+    return this.sent.filter((s) => s.msgType === MSG.SubscribeQuoteReq);
+  }
 }
 
 function tapeEntries(times: string[]): FakeTapeEntryInput[] {
@@ -140,15 +186,21 @@ function tapeEntries(times: string[]): FakeTapeEntryInput[] {
 
 describe("SubscriptionHub", () => {
   let hub: SubscriptionHub;
+  let feed: FakeFeed;
   let session: FakeSession;
   let fanout: HubFanoutEvent[];
+  let market: HubMarketEvent[];
 
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
     resetDroppedEnvelopeCount();
     hub = new SubscriptionHub();
     fanout = [];
+    market = [];
     hub.on("fanout", (e) => fanout.push(e));
+    hub.on("market", (e) => market.push(e));
+    feed = new FakeFeed();
+    hub.attachFeed(feed);
     session = new FakeSession("user-1");
     hub.attach(session);
   });
@@ -158,21 +210,23 @@ describe("SubscriptionHub", () => {
     vi.useRealTimers();
   });
 
-  it("① 같은 (user,isin,ex) 를 두 번 구독해도 게이트웨이 구독은 1건이다 (탭 공유)", () => {
+  it("① 같은 (isin,ex) 를 두 번 구독해도 quote 연결 구독은 1건이다 (탭 공유) — 사용자 세션으로는 0건", () => {
     hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
     hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
 
-    const subs = session.subscribeReqs();
+    const subs = feed.subscribeReqs();
     expect(subs).toHaveLength(1);
     expect(subs[0]).toMatchObject({ isin: SAMPLE_ISIN, exchange: "KRX", subscribe: true });
     // 0→1 전이의 3프레임이 순서대로 나간다 (D-33).
-    expect(session.sent.map((s) => s.msgType)).toEqual([
+    expect(feed.sent.map((s) => s.msgType)).toEqual([
       MSG.GetQuoteReq,
       MSG.SubscribeQuoteReq,
       MSG.GetTradeTapeReq,
     ]);
-    expect(session.sent[2]?.count).toBe(TAPE_RING_SIZE);
-    expect(hub.refCount("user-1", SAMPLE_ISIN, "KRX")).toBe(2);
+    expect(feed.sent[2]?.count).toBe(TAPE_RING_SIZE);
+    expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(2);
+    // 업스트림 송신자는 quote 연결 하나다 — 사용자 세션 송신 큐에 시세 요청이 없다 (D-08 · D-12).
+    expect(session.quoteReqs()).toHaveLength(0);
   });
 
   it("② 해제는 마지막 1건에서만 subscribe:false 를 보낸다", () => {
@@ -180,133 +234,185 @@ describe("SubscriptionHub", () => {
     hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
 
     hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX");
-    expect(session.subscribeReqs().filter((s) => s.subscribe === false)).toHaveLength(0);
-    expect(hub.refCount("user-1", SAMPLE_ISIN, "KRX")).toBe(1);
+    expect(feed.subscribeReqs().filter((s) => s.subscribe === false)).toHaveLength(0);
+    expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(1);
 
     hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX");
-    const releases = session.subscribeReqs().filter((s) => s.subscribe === false);
+    const releases = feed.subscribeReqs().filter((s) => s.subscribe === false);
     expect(releases).toHaveLength(1);
     expect(releases[0]).toMatchObject({ isin: SAMPLE_ISIN, exchange: "KRX" });
-    expect(hub.refCount("user-1", SAMPLE_ISIN, "KRX")).toBe(0);
+    expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(0);
   });
 
-  it("③ 다른 사용자의 해제가 첫 사용자의 구독을 끊지 않는다 (D-13 키 격리)", () => {
+  // 옛 ③ 은 「다른 사용자의 해제가 첫 사용자의 구독을 끊지 않는다」 를 **사용자별 키**로 지켰다(D-13).
+  // 키가 전역이 된 뒤 같은 목적은 **참조계수**가 지킨다 — A 의 해제는 합계를 1 로 내릴 뿐 29(false) 를 내지 않는다.
+  it("③ 두 사용자 같은 키 = 업스트림 한 벌 — A 해제는 유지 · B 해제에서 29(false) 와 그 키 캐시 정리 (Phase 26 D-12)", () => {
     const other = new FakeSession("user-2");
     hub.attach(other);
 
     hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
     hub.subscribe("user-2", SAMPLE_ISIN, "KRX");
-    hub.unsubscribe("user-2", SAMPLE_ISIN, "KRX");
 
-    expect(hub.refCount("user-1", SAMPLE_ISIN, "KRX")).toBe(1);
-    expect(session.subscribeReqs().filter((s) => s.subscribe === false)).toHaveLength(0);
-    expect(other.subscribeReqs().filter((s) => s.subscribe === false)).toHaveLength(1);
+    expect(feed.sent.map((s) => s.msgType)).toEqual([
+      MSG.GetQuoteReq,
+      MSG.SubscribeQuoteReq,
+      MSG.GetTradeTapeReq,
+    ]);
+    expect(feed.sent[1]).toMatchObject({ subscribe: true, level: 0 });
+    expect(session.quoteReqs()).toHaveLength(0);
+    expect(other.quoteReqs()).toHaveLength(0);
+    expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(2);
+
+    feed.pushFrame(buildQuoteStateFrame({ snapshot: true, lastPrice: 70_950n }));
+    expect(hub.getSnapshot(SAMPLE_ISIN, "KRX")?.p).toBe(70_950);
+
+    const before = feed.sent.length;
+    hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX");
+    expect(feed.sent).toHaveLength(before);
+    expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(1);
+    expect(hub.getSnapshot(SAMPLE_ISIN, "KRX")?.p).toBe(70_950);
+
+    hub.unsubscribe("user-2", SAMPLE_ISIN, "KRX");
+    expect(feed.sent).toHaveLength(before + 1);
+    expect(feed.sent.at(-1)).toMatchObject({ msgType: MSG.SubscribeQuoteReq, subscribe: false });
+    expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(0);
+    // 전역 캐시는 1→0 에서 정리한다 (D-37 헤더 · linger 는 26-08).
+    expect(hub.getSnapshot(SAMPLE_ISIN, "KRX")).toBeUndefined();
+    expect(hub.getTape(SAMPLE_ISIN, "KRX")).toBeUndefined();
+    expect(session.quoteReqs()).toHaveLength(0);
+    expect(other.quoteReqs()).toHaveLength(0);
   });
 
-  it("④ 스냅샷 캐시가 채워지면 게이트웨이 송신 없이 즉시 반환한다 (D-37)", () => {
+  it("④ 전역 스냅샷 캐시가 채워지면 송신 없이 즉시 반환하고 다른 사용자도 같은 캐시를 본다 (D-37 · Phase 26)", () => {
     hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
-    session.pushFrame(buildQuoteStateFrame({ snapshot: true, lastPrice: 70_950n }));
+    feed.pushFrame(buildQuoteStateFrame({ snapshot: true, lastPrice: 70_950n }));
 
-    const before = session.sent.length;
-    const snapshot = hub.getSnapshot("user-1", SAMPLE_ISIN, "KRX");
+    const before = feed.sent.length;
+    const snapshot = hub.getSnapshot(SAMPLE_ISIN, "KRX");
 
     expect(snapshot?.p).toBe(70_950);
     expect(snapshot?.snap).toBe(true);
     // 캐시 조회는 업스트림을 건드리지 않는다.
-    expect(session.sent).toHaveLength(before);
-    // 다른 사용자의 캐시는 비어 있다 (키에 userId 가 들어 있으므로).
-    expect(hub.getSnapshot("user-2", SAMPLE_ISIN, "KRX")).toBeUndefined();
+    expect(feed.sent).toHaveLength(before);
+
+    // 두 번째 사용자가 같은 키를 잡아도 업스트림 재요청이 없고 캐시가 그대로다 (유저 간 공유).
+    hub.attach(new FakeSession("user-2"));
+    hub.subscribe("user-2", SAMPLE_ISIN, "KRX");
+    expect(feed.sent).toHaveLength(before);
+    expect(hub.getSnapshot(SAMPLE_ISIN, "KRX")?.p).toBe(70_950);
   });
 
-  it("⑤ ready 재발행이 보유 키를 전량 재구독한다 (Pitfall 4)", () => {
+  it("⑤ quote 연결 ready 가 전역 합집합을 재구독하고, 사용자 세션 ready 는 28/29/32 를 0건 보낸다 (Pitfall 4 · D-03 · D-08)", () => {
+    const other = new FakeSession("user-2");
+    hub.attach(other);
     hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
-    hub.subscribe("user-1", OTHER_ISIN, "NXT");
-    session.sent.length = 0;
+    hub.subscribe("user-2", OTHER_ISIN, "NXT");
+    feed.sent.length = 0;
 
+    // 사용자 세션 ready — 계좌 · 전략 재요청은 그대로, 시세는 건드리지 않는다.
     session.emitReady();
+    const userTypes = session.sent.map((s) => s.msgType);
+    expect(userTypes).toContain(MSG.GetAccountStateReq);
+    expect(userTypes).toContain(MSG.GetLimitChaserListReq);
+    expect(userTypes).toContain(MSG.GetVITriggerReq);
+    expect(userTypes).toContain(MSG.GetVIOrderListReq);
+    expect(session.quoteReqs()).toHaveLength(0);
+    expect(feed.sent).toHaveLength(0);
 
-    const resubscribed = session
+    // quote 연결 ready — 두 사용자의 키 합집합이 전부 되걸린다.
+    feed.emitReady();
+    const resubscribed = feed
       .subscribeReqs()
       .filter((s) => s.subscribe === true)
       .map((s) => `${s.isin}|${s.exchange}`);
     expect(resubscribed.sort()).toEqual([`${OTHER_ISIN}|NXT`, `${SAMPLE_ISIN}|KRX`]);
     // 재구독도 3프레임 세트다 — 스냅샷 없이 구독만 걸면 첫 화면이 비어 있다.
-    expect(session.sent.filter((s) => s.msgType === MSG.GetQuoteReq)).toHaveLength(2);
-    expect(session.sent.filter((s) => s.msgType === MSG.GetTradeTapeReq)).toHaveLength(2);
+    expect(feed.sent.filter((s) => s.msgType === MSG.GetQuoteReq)).toHaveLength(2);
+    expect(feed.sent.filter((s) => s.msgType === MSG.GetTradeTapeReq)).toHaveLength(2);
+    expect(session.quoteReqs()).toHaveLength(0);
+    expect(other.quoteReqs()).toHaveLength(0);
   });
 
-  it("⑥ 체결은 200ms 배치로 1회만 나간다 (100ms 안의 3건 → entry 3개)", () => {
+  it("⑥ 체결은 전역 200ms 배치로 \"market\" tape 1건만 나간다 (100ms 안의 3건 → entry 3개 · full 전용)", () => {
     hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
 
-    session.pushFrame(
-      buildTradeTapeFrame({ snapshot: false, entries: tapeEntries(["090000000001"]) }),
-    );
+    feed.pushFrame(buildTradeTapeFrame({ snapshot: false, entries: tapeEntries(["090000000001"]) }));
     vi.advanceTimersByTime(50);
-    session.pushFrame(
-      buildTradeTapeFrame({ snapshot: false, entries: tapeEntries(["090000000002"]) }),
-    );
+    feed.pushFrame(buildTradeTapeFrame({ snapshot: false, entries: tapeEntries(["090000000002"]) }));
     vi.advanceTimersByTime(50);
-    session.pushFrame(
-      buildTradeTapeFrame({ snapshot: false, entries: tapeEntries(["090000000003"]) }),
-    );
+    feed.pushFrame(buildTradeTapeFrame({ snapshot: false, entries: tapeEntries(["090000000003"]) }));
 
     // 배치 창이 아직 닫히지 않았다 — 한 건도 나가지 않는다.
-    expect(fanout.filter((e) => e.msg.t === "tape")).toHaveLength(0);
+    expect(market.filter((e) => e.msg.t === "tape")).toHaveLength(0);
 
     vi.advanceTimersByTime(TAPE_BATCH_MS);
 
-    const tapes = fanout.map((e) => e.msg).filter((m): m is RelayTape => m.t === "tape");
+    const tapes = market.filter((e) => e.msg.t === "tape");
     expect(tapes).toHaveLength(1);
-    expect(tapes[0]?.e.map((entry) => entry.t)).toEqual([
-      "090000000001",
-      "090000000002",
-      "090000000003",
-    ]);
-    expect(tapes[0]?.snap).toBe(false);
+    expect(tapes[0]).toMatchObject({ key: `${SAMPLE_ISIN}|KRX`, full: true, price: false });
+    const tape = tapes[0]?.msg as RelayTape;
+    expect(tape.e.map((entry) => entry.t)).toEqual(["090000000001", "090000000002", "090000000003"]);
+    expect(tape.snap).toBe(false);
+    // 시세는 사용자 경로로 나가지 않는다.
+    expect(fanout).toHaveLength(0);
   });
 
-  it("⑦ 체결 링버퍼는 상한을 넘으면 오래된 것부터 버린다", () => {
+  it("⑦ 전역 체결 링버퍼는 상한을 넘으면 오래된 것부터 버린다", () => {
     hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
 
     const full = Array.from({ length: TAPE_RING_SIZE }, (_, i) =>
       `0900000${String(i).padStart(5, "0")}`,
     );
-    session.pushFrame(buildTradeTapeFrame({ snapshot: true, entries: tapeEntries(full) }));
-    session.pushFrame(
+    feed.pushFrame(buildTradeTapeFrame({ snapshot: true, entries: tapeEntries(full) }));
+    feed.pushFrame(
       buildTradeTapeFrame({
         snapshot: false,
         entries: tapeEntries(["091000000001", "091000000002", "091000000003"]),
       }),
     );
 
-    const ring = hub.getTape("user-1", SAMPLE_ISIN, "KRX");
+    const ring = hub.getTape(SAMPLE_ISIN, "KRX");
     expect(ring).toHaveLength(TAPE_RING_SIZE);
     // 앞의 3건이 밀려났다.
     expect(ring?.[0]?.t).toBe(full[3]);
     expect(ring?.[TAPE_RING_SIZE - 1]?.t).toBe("091000000003");
   });
 
-  it("⑧ 시세는 배치하지 않고 그대로 통과시킨다 (D-35 — 추가 코얼레싱 없음)", () => {
+  it("⑧ 시세는 배치하지 않고 \"market\" 으로 그대로 통과시킨다 (D-35 — 추가 코얼레싱 없음)", () => {
     hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
 
-    session.pushFrame(buildQuoteStateFrame({ snapshot: false, lastPrice: 71_000n }));
-    session.pushFrame(buildQuoteStateFrame({ snapshot: false, lastPrice: 71_100n }));
+    feed.pushFrame(buildQuoteStateFrame({ snapshot: true, lastPrice: 71_000n }));
+    feed.pushFrame(buildQuoteStateFrame({ snapshot: false, lastPrice: 71_100n }));
 
-    const quotes = fanout.map((e) => e.msg).filter((m) => m.t === "q");
+    const quotes = market.filter((e) => e.msg.t === "q");
     expect(quotes).toHaveLength(2);
-    expect(fanout.every((e) => e.userId === "user-1")).toBe(true);
+    expect(quotes[0]).toMatchObject({ key: `${SAMPLE_ISIN}|KRX`, full: true, price: true });
+    expect(quotes[0]?.msg).toMatchObject({ t: "q", i: SAMPLE_ISIN, x: "KRX", p: 71_000, snap: true });
+    expect(quotes[1]?.msg).toMatchObject({ p: 71_100, snap: false });
+    expect(fanout).toHaveLength(0);
   });
 
-  it("⑨ 팬아웃 대상은 언제나 프레임을 보낸 세션의 userId 하나다 (T-15-02)", () => {
+  // 옛 ⑨ 는 「팬아웃 대상은 프레임을 보낸 세션의 userId 하나」 였다. 시세는 이제 사용자 데이터가 아니다 —
+  // 지키려던 것(T-15-02 · 타인 체결 · 잔고 유출 방어)은 **사용자 데이터** 에 대해 그대로 단언한다.
+  it("⑨ 시세는 \"market\"(userId 없음) · 51/66 사용자 데이터는 \"fanout\" userId 하나다 (T-15-02 재정의 · T-26-01)", () => {
     const other = new FakeSession("user-2");
     hub.attach(other);
     hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
     hub.subscribe("user-2", SAMPLE_ISIN, "KRX");
 
-    other.pushFrame(buildQuoteStateFrame({ snapshot: true }));
+    feed.pushFrame(buildQuoteStateFrame({ snapshot: true }));
+    expect(market).toHaveLength(1);
+    expect(market[0]).not.toHaveProperty("userId");
+    expect(fanout).toHaveLength(0);
 
-    expect(fanout).toHaveLength(1);
-    expect(fanout[0]?.userId).toBe("user-2");
+    other.pushFrame(buildOrderRespFrame({ noticeType: "E", orderNo: "0000054321" }));
+    other.pushFrame(buildAccountStateFrame({ snapshot: true }));
+
+    expect(fanout.map((e) => e.msg.t)).toEqual(["order", "acct"]);
+    expect(fanout.every((e) => e.userId === "user-2")).toBe(true);
+    // 사용자 데이터는 "market" 으로 새지 않는다 (타입도 막고 경로도 없다).
+    expect(market).toHaveLength(1);
+    expect(market.every((e) => e.msg.t === "q" || e.msg.t === "tape")).toBe(true);
   });
 
   it("⑩ ServerMessage(54)는 해석 없이 그대로 흘린다 (D-36)", () => {
@@ -319,23 +425,27 @@ describe("SubscriptionHub", () => {
     expect(msgs[0]).toMatchObject({ lv: "WARN", m: "세션 정리", kind: "Purge" });
   });
 
-  it("⑪ Ready 이전 구독은 프레임을 보내지 않고 ready 에서 복원된다", () => {
-    const late = new FakeSession("user-3");
-    late.isReady = false;
-    hub.attach(late);
+  it("⑪ quote 연결 Ready 이전 구독은 프레임을 보내지 않고 quote ready 에서 복원된다", () => {
+    feed.isReady = false;
 
-    hub.subscribe("user-3", SAMPLE_ISIN, "KRX");
-    expect(late.sent).toHaveLength(0);
-    expect(hub.refCount("user-3", SAMPLE_ISIN, "KRX")).toBe(1);
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
+    expect(feed.sent).toHaveLength(0);
+    expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(1);
 
-    late.emitReady();
-    expect(late.subscribeReqs().filter((s) => s.subscribe === true)).toHaveLength(1);
+    feed.emitReady();
+    expect(feed.sent.map((s) => s.msgType)).toEqual([
+      MSG.GetQuoteReq,
+      MSG.SubscribeQuoteReq,
+      MSG.GetTradeTapeReq,
+    ]);
+    expect(feed.subscribeReqs().filter((s) => s.subscribe === true)).toHaveLength(1);
+    expect(session.quoteReqs()).toHaveLength(0);
   });
 
   it("⑫ 참조계수 없는 해제는 무시한다 (이중 해제 방어)", () => {
     hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX");
-    expect(session.sent).toHaveLength(0);
-    expect(hub.refCount("user-1", SAMPLE_ISIN, "KRX")).toBe(0);
+    expect(feed.sent).toHaveLength(0);
+    expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(0);
   });
 
   it("⑬ 주문 통보의 `bd`·`rk`·`rq` 가 브라우저 프레임까지 간다 (17-02 / D-08)", () => {
@@ -374,106 +484,105 @@ describe("SubscriptionHub", () => {
     it("L1 PRICE 단독 0→1 은 28 → 29(level=1) 두 프레임이고 32 는 나가지 않는다", () => {
       hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "price");
 
-      expect(session.sent.map((s) => s.msgType)).toEqual([Q, S]);
-      expect(session.sent[1]).toMatchObject({ subscribe: true, level: 1 });
-      expect(session.sent.filter((s) => s.msgType === T)).toHaveLength(0);
-      expect(hub.subscriptionLevel("user-1", SAMPLE_ISIN, "KRX")).toBe("price");
+      expect(feed.sent.map((s) => s.msgType)).toEqual([Q, S]);
+      expect(feed.sent[1]).toMatchObject({ subscribe: true, level: 1 });
+      expect(feed.sent.filter((s) => s.msgType === T)).toHaveLength(0);
+      expect(hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBe("price");
     });
 
     it("L2 level 생략은 FULL — 28 → 29(level=0) → 32", () => {
       hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
 
-      expect(session.sent.map((s) => s.msgType)).toEqual([Q, S, T]);
-      expect(session.sent[1]).toMatchObject({ subscribe: true, level: 0 });
-      expect(hub.subscriptionLevel("user-1", SAMPLE_ISIN, "KRX")).toBe("full");
+      expect(feed.sent.map((s) => s.msgType)).toEqual([Q, S, T]);
+      expect(feed.sent[1]).toMatchObject({ subscribe: true, level: 0 });
+      expect(hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBe("full");
     });
 
     it("L3 PRICE→FULL 승격은 28 → 29(level=0) → 32 를 다시 보낸다", () => {
       hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "price");
-      session.sent.length = 0;
+      feed.sent.length = 0;
 
       hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "full");
 
-      expect(session.sent.map((s) => s.msgType)).toEqual([Q, S, T]);
-      expect(session.sent[1]).toMatchObject({ subscribe: true, level: 0 });
-      expect(hub.refCount("user-1", SAMPLE_ISIN, "KRX")).toBe(2);
-      expect(hub.subscriptionLevel("user-1", SAMPLE_ISIN, "KRX")).toBe("full");
+      expect(feed.sent.map((s) => s.msgType)).toEqual([Q, S, T]);
+      expect(feed.sent[1]).toMatchObject({ subscribe: true, level: 0 });
+      expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(2);
+      expect(hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBe("full");
     });
 
     it("L4 FULL 이탈로 PRICE 만 남으면 29(level=1) 1건, 마지막 이탈은 29(false) 1건", () => {
       hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "full");
       hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "price");
       // 실효 level 이 그대로 full 이라 price 추가는 프레임을 내지 않는다.
-      expect(session.sent.map((s) => s.msgType)).toEqual([Q, S, T]);
+      expect(feed.sent.map((s) => s.msgType)).toEqual([Q, S, T]);
 
       hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX", "full");
-      expect(session.sent).toHaveLength(4);
-      expect(session.sent[3]).toMatchObject({ msgType: S, subscribe: true, level: 1 });
-      expect(hub.refCount("user-1", SAMPLE_ISIN, "KRX")).toBe(1);
-      expect(hub.subscriptionLevel("user-1", SAMPLE_ISIN, "KRX")).toBe("price");
+      expect(feed.sent).toHaveLength(4);
+      expect(feed.sent[3]).toMatchObject({ msgType: S, subscribe: true, level: 1 });
+      expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(1);
+      expect(hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBe("price");
 
       hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX", "price");
-      expect(session.sent).toHaveLength(5);
-      expect(session.sent[4]).toMatchObject({ msgType: S, subscribe: false });
-      expect(hub.refCount("user-1", SAMPLE_ISIN, "KRX")).toBe(0);
-      expect(hub.subscriptionLevel("user-1", SAMPLE_ISIN, "KRX")).toBeUndefined();
+      expect(feed.sent).toHaveLength(5);
+      expect(feed.sent[4]).toMatchObject({ msgType: S, subscribe: false });
+      expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(0);
+      expect(hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBeUndefined();
     });
 
     it("L5 FULL 이 남아 있으면 PRICE 이탈은 프레임을 내지 않는다", () => {
       hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "full");
       hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "price");
-      const before = session.sent.length;
+      const before = feed.sent.length;
 
       hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX", "price");
 
-      expect(session.sent).toHaveLength(before);
-      expect(hub.subscriptionLevel("user-1", SAMPLE_ISIN, "KRX")).toBe("full");
-      expect(hub.refCount("user-1", SAMPLE_ISIN, "KRX")).toBe(1);
+      expect(feed.sent).toHaveLength(before);
+      expect(hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBe("full");
+      expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(1);
     });
 
-    it("L6 resubscribeAll 은 키마다 실효 level 로 되건다", () => {
+    it("L6 quote ready 의 resubscribeAll 은 키마다 실효 level 로 되건다", () => {
       hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "price");
       hub.subscribe("user-1", OTHER_ISIN, "NXT", "full");
-      session.sent.length = 0;
+      feed.sent.length = 0;
 
-      session.emitReady();
+      feed.emitReady();
 
-      const sample = session.sent.filter((s) => s.isin === SAMPLE_ISIN);
-      const other = session.sent.filter((s) => s.isin === OTHER_ISIN);
+      const sample = feed.sent.filter((s) => s.isin === SAMPLE_ISIN);
+      const other = feed.sent.filter((s) => s.isin === OTHER_ISIN);
       expect(sample.map((s) => s.msgType)).toEqual([Q, S]);
       expect(sample[1]).toMatchObject({ subscribe: true, level: 1 });
       expect(other.map((s) => s.msgType)).toEqual([Q, S, T]);
       expect(other[1]).toMatchObject({ subscribe: true, level: 0 });
-      expect(session.sent.filter((s) => s.msgType === T)).toHaveLength(1);
+      expect(feed.sent.filter((s) => s.msgType === T)).toHaveLength(1);
     });
 
     it("L7 잡지 않은 level 의 해제는 무시한다 (참조계수 불변)", () => {
       hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "full");
-      const before = session.sent.length;
+      const before = feed.sent.length;
 
       hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX", "price");
 
-      expect(session.sent).toHaveLength(before);
-      expect(hub.refCount("user-1", SAMPLE_ISIN, "KRX")).toBe(1);
-      expect(hub.subscriptionLevel("user-1", SAMPLE_ISIN, "KRX")).toBe("full");
+      expect(feed.sent).toHaveLength(before);
+      expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(1);
+      expect(hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBe("full");
     });
 
-    it("L8 Ready 이전 승격·강등은 프레임 없이 기록만 하고 ready 가 실효 level 로 복원한다", () => {
-      const late = new FakeSession("user-3");
-      late.isReady = false;
-      hub.attach(late);
+    it("L8 quote 연결 Ready 이전 승격·강등은 프레임 없이 기록만 하고 quote ready 가 실효 level 로 복원한다", () => {
+      feed.isReady = false;
 
-      hub.subscribe("user-3", SAMPLE_ISIN, "KRX", "price");
-      hub.subscribe("user-3", SAMPLE_ISIN, "KRX", "full");
-      hub.unsubscribe("user-3", SAMPLE_ISIN, "KRX", "full");
-      expect(late.sent).toHaveLength(0);
-      expect(hub.subscriptionLevel("user-3", SAMPLE_ISIN, "KRX")).toBe("price");
+      hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "price");
+      hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "full");
+      hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX", "full");
+      expect(feed.sent).toHaveLength(0);
+      expect(hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBe("price");
 
-      late.emitReady();
+      feed.emitReady();
 
-      const quoteReqs = late.sent.filter((s) => s.isin === SAMPLE_ISIN);
+      const quoteReqs = feed.sent.filter((s) => s.isin === SAMPLE_ISIN);
       expect(quoteReqs.map((s) => s.msgType)).toEqual([Q, S]);
       expect(quoteReqs[1]).toMatchObject({ subscribe: true, level: 1 });
+      expect(session.quoteReqs()).toHaveLength(0);
     });
   });
 });
