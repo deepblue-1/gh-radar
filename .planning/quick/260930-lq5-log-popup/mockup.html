@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>주문로그 · 전략로그 팝업 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css" />
+<style>
+/* globals.css 토큰 인라인 (라이트 :root / 다크 .dark) */
+:root {
+  --bg:#ffffff; --surface:#f2f4f6; --fg:#191f28; --fg-2:#333d4b; --muted:#f2f4f6; --muted-fg:#6b7684;
+  --faint:#b0b8c1; --raised-2:#e5e8eb; --border:#f2f4f6; --border-subtle:#e5e8eb; --card:#ffffff; --popover:#ffffff;
+  --primary:#3182f6; --accent:#e8f3ff; --accent-fg:#1b64da; --destructive:#f04452;
+  --up:#f04452; --down:#3182f6; --up-bg:#ffeeee; --down-bg:#e8f3ff;
+  --pill-on-bg:#e8f3ff; --pill-on-fg:#1b64da;
+  --overlay: rgba(0,0,0,.45);
+  --dlg-shadow: 0 12px 40px rgba(0,0,0,.18), 0 0 0 1px rgba(0,0,0,.06);
+}
+.dark {
+  --bg:#17171c; --surface:#17171c; --fg:#ffffff; --fg-2:#e4e4e5; --muted:#2c2c35; --muted-fg:#9e9ea4;
+  --faint:#62626d; --raised-2:#3c3c47; --border:rgba(255,255,255,.06); --border-subtle:#3c3c47; --card:#202027; --popover:#2c2c35;
+  --primary:#3485fa; --accent:rgba(52,133,250,.16); --accent-fg:#8ab8ff; --destructive:#f04251;
+  --up:#f04251; --down:#3485fa; --up-bg:rgba(240,66,81,.16); --down-bg:rgba(52,133,250,.16);
+  --pill-on-bg:#4d4d59; --pill-on-fg:#ffffff;
+  --overlay: rgba(0,0,0,.6);
+  --dlg-shadow: 0 12px 40px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.08);
+}
+* { box-sizing:border-box; }
+html, body { margin:0; }
+body { font-family:'Pretendard Variable',Pretendard,-apple-system,sans-serif; background:var(--surface); color:var(--fg); }
+html.dark body { background:#0d0d10; }
+.mono { font-variant-numeric: tabular-nums; font-feature-settings:"tnum"; }
+svg { width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; display:block; flex:none; }
+.page { max-width:1180px; margin:0 auto; padding:24px 16px 80px; }
+.top { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
+.top h1 { font-size:22px; margin:0; }
+.btn-theme { border:1px solid var(--border-subtle); background:var(--card); color:var(--fg); border-radius:8px; padding:8px 12px; font:inherit; font-size:13px; cursor:pointer; }
+.lead { color:var(--muted-fg); font-size:14px; margin:0 0 20px; line-height:1.6; }
+h2 { font-size:18px; margin:44px 0 6px; }
+.sub { color:var(--muted-fg); font-size:13px; margin:0 0 16px; line-height:1.6; }
+.tag { display:inline-block; font-size:11px; font-weight:700; padding:2px 6px; border-radius:4px; background:var(--pill-on-bg); color:var(--pill-on-fg); margin-right:6px; vertical-align:1px; }
+.vlabel { font-size:14px; font-weight:700; margin:24px 0 4px; }
+.vdesc { font-size:13px; color:var(--muted-fg); margin:0 0 10px; line-height:1.55; }
+
+/* ───────── 공용 패널 (작업대 하단) ───────── */
+.panel { background:var(--card); border-radius:12px; padding:10px 12px 12px; }
+.tabsrow { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.tabs { display:inline-flex; gap:2px; background:var(--muted); border-radius:8px; padding:2px; }
+.tab { font-size:12px; font-weight:600; color:var(--muted-fg); padding:4px 12px; border-radius:6px; cursor:default; white-space:nowrap; }
+.tab.on { background:var(--pill-on-bg); color:var(--pill-on-fg); }
+.tab.old { text-decoration:line-through; opacity:.55; }
+.spacer { flex:1; }
+.logbtn { display:inline-flex; align-items:center; gap:5px; height:26px; padding:0 10px; border-radius:6px; border:1px solid var(--border-subtle);
+  background:var(--card); color:var(--fg-2); font:inherit; font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap; }
+.logbtn:hover { background:var(--muted); }
+.logbtn .n { min-width:16px; height:16px; padding:0 4px; border-radius:8px; background:var(--primary); color:#fff; font-size:10px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; }
+.logbtn.sm { height:22px; padding:0 7px; font-size:11px; gap:4px; }
+.fold { width:22px; height:22px; border:0; background:transparent; color:var(--muted-fg); display:inline-flex; align-items:center; justify-content:center; border-radius:6px; }
+.ptable { width:100%; border-collapse:collapse; margin-top:10px; font-size:12px; }
+.ptable th { text-align:left; font-weight:600; color:var(--muted-fg); padding:6px 8px; border-bottom:1px solid var(--border-subtle); white-space:nowrap; }
+.ptable td { padding:7px 8px; border-bottom:1px solid var(--border); white-space:nowrap; }
+.ptable .num { text-align:right; }
+
+/* 카드 탭 줄 */
+.card { background:var(--card); border-radius:12px; padding:10px 12px; max-width:460px; }
+.card .hd { display:flex; align-items:baseline; gap:8px; margin-bottom:8px; }
+.card .hd b { font-size:15px; }
+.card .hd span { font-size:12px; color:var(--muted-fg); }
+.ctabs { display:flex; align-items:center; gap:4px; }
+.ctab { font-size:11px; font-weight:600; color:var(--muted-fg); padding:3px 8px; border-radius:6px; white-space:nowrap; }
+.ctab.on { background:var(--pill-on-bg); color:var(--pill-on-fg); }
+.cbody { height:72px; margin-top:6px; display:grid; grid-template-columns:repeat(5,1fr); gap:4px 8px; font-size:11px; }
+.cbody div { display:flex; flex-direction:column; }
+.cbody i { font-style:normal; color:var(--muted-fg); }
+.cbody b { font-weight:600; }
+
+/* ───────── 다이얼로그 무대 ───────── */
+.stage { position:relative; border-radius:12px; overflow:hidden; background:var(--surface); height:640px; border:1px solid var(--border-subtle); }
+.stage::before { content:""; position:absolute; inset:0; background:
+  repeating-linear-gradient(90deg, transparent 0 310px, var(--border-subtle) 310px 311px), var(--bg); opacity:.7; }
+.stage .ov { position:absolute; inset:0; background:var(--overlay); }
+.dlg { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:min(1040px, calc(100% - 48px)); height:calc(100% - 56px);
+  background:var(--popover); border-radius:16px; box-shadow:var(--dlg-shadow); display:flex; flex-direction:column; overflow:hidden; }
+.dh { display:flex; align-items:center; gap:10px; padding:16px 20px 10px; }
+.dh h3 { margin:0; font-size:18px; font-weight:700; }
+.dh .meta { font-size:12px; color:var(--muted-fg); }
+.dh .ic { width:30px; height:30px; border:0; border-radius:8px; background:transparent; color:var(--muted-fg); display:inline-flex; align-items:center; justify-content:center; cursor:pointer; }
+.dh .ic svg { width:17px; height:17px; }
+.dh .ic:hover { background:var(--muted); color:var(--fg); }
+.filters { display:flex; align-items:center; gap:8px; padding:0 20px 12px; flex-wrap:wrap; border-bottom:1px solid var(--border-subtle); }
+.sel { height:30px; border-radius:8px; background:var(--muted); border:0; padding:0 28px 0 10px; font:inherit; font-size:12px; font-weight:600; color:var(--fg); display:inline-flex; align-items:center; position:relative; }
+.sel::after { content:""; position:absolute; right:10px; top:12px; border:4px solid transparent; border-top-color:var(--muted-fg); }
+.seg { display:inline-flex; background:var(--muted); border-radius:8px; padding:2px; gap:2px; }
+.seg span { font-size:12px; font-weight:600; color:var(--muted-fg); padding:4px 10px; border-radius:6px; }
+.seg span.on { background:var(--card); color:var(--fg); box-shadow:0 1px 3px rgba(0,0,0,.1); }
+.dark .seg span.on { background:#4d4d59; box-shadow:none; }
+.count { font-size:12px; color:var(--muted-fg); margin-left:auto; }
+.dbody { flex:1; overflow:auto; }
+.ltable { width:100%; border-collapse:separate; border-spacing:0; font-size:12.5px; }
+.ltable thead th { position:sticky; top:0; z-index:1; background:var(--popover); text-align:left; font-size:12px; font-weight:600; color:var(--muted-fg);
+  padding:9px 10px; border-bottom:1px solid var(--border-subtle); white-space:nowrap; }
+.ltable td { padding:8px 10px; border-bottom:1px solid var(--border); vertical-align:top; }
+.ltable td.nw { white-space:nowrap; }
+.ltable .num { text-align:right; }
+.ltable tbody tr:hover td { background:color-mix(in oklab, var(--muted) 60%, transparent); }
+.ltable td:first-child, .ltable th:first-child { padding-left:20px; }
+.ltable td:last-child, .ltable th:last-child { padding-right:20px; }
+.t-time { color:var(--muted-fg); }
+.t-ono { color:var(--muted-fg); }
+.badge { display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:5px; font-size:11px; font-weight:700; white-space:nowrap; }
+.b-buy { background:var(--up-bg); color:var(--up); }
+.b-sell { background:var(--down-bg); color:var(--down); }
+.b-market { background:var(--accent); color:var(--accent-fg); }
+.b-muted { background:var(--muted); color:var(--muted-fg); }
+.ex { font-size:11px; font-weight:700; color:var(--muted-fg); }
+.ex.nxt { color:var(--accent-fg); }
+.act { font-weight:700; }
+.act.rej { color:var(--destructive); }
+.body { color:var(--fg-2); line-height:1.5; }
+.stk { font-weight:600; }
+tr.err td { background:color-mix(in oklab, var(--up-bg) 70%, transparent); }
+tr.err .body { color:var(--destructive); }
+.grp td { background:var(--muted) !important; font-weight:700; font-size:12px; padding-top:7px; padding-bottom:7px; }
+.grp .gmeta { font-weight:500; color:var(--muted-fg); margin-left:8px; }
+.new td:first-child { box-shadow: inset 3px 0 0 var(--primary); }
+
+/* ───────── 폰 ───────── */
+.phones { display:flex; gap:28px; flex-wrap:wrap; }
+.phone { width:390px; height:720px; border-radius:28px; border:1px solid var(--border-subtle); overflow:hidden; background:var(--popover); display:flex; flex-direction:column; flex:none; }
+.phone .dh { padding:14px 16px 8px; }
+.phone .filters { padding:0 16px 10px; }
+.prow { padding:10px 16px; border-bottom:1px solid var(--border); font-size:12.5px; }
+.prow .l1 { display:flex; align-items:center; gap:6px; white-space:nowrap; }
+.prow .l1 .stk { overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.prow .l1 .r { margin-left:auto; color:var(--muted-fg); }
+.prow .l2 { margin-top:4px; color:var(--fg-2); line-height:1.5; }
+.prow.err { background:color-mix(in oklab, var(--up-bg) 70%, transparent); }
+.prow.err .l2 { color:var(--destructive); }
+.pgrp { padding:8px 16px; background:var(--muted); font-size:12px; font-weight:700; }
+.pgrp span { font-weight:500; color:var(--muted-fg); margin-left:6px; }
+@media (max-width: 720px) { .stage { height:560px; } .dlg { width:calc(100% - 16px); height:calc(100% - 16px); } }
+/* v2 — 한 종목 팝업 */
+.dlg.one { width:min(880px, calc(100% - 48px)); }
+.stkhd { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+.stkhd .nm { font-size:18px; font-weight:700; }
+.stkhd .cd { font-size:12px; color:var(--muted-fg); }
+.kind { font-size:12px; font-weight:700; color:var(--muted-fg); padding:2px 8px; border-radius:6px; background:var(--muted); }
+.sumline { display:flex; gap:16px; flex-wrap:wrap; padding:0 20px 12px; font-size:12px; color:var(--muted-fg); }
+.sumline b { color:var(--fg); font-weight:600; margin-left:4px; }
+.ogrp td { background:var(--muted) !important; font-size:12px; padding-top:7px !important; padding-bottom:7px !important; }
+.ogrp .ono { font-weight:700; color:var(--fg); margin-right:8px; }
+.ogrp .osum { color:var(--muted-fg); }
+.ogrp .st { font-weight:700; margin-left:8px; }
+.st.done { color:var(--fg); } .st.rej { color:var(--destructive); } .st.cxl { color:var(--muted-fg); }
+.mrow td { color:var(--muted-fg); }
+.mrow .body { color:var(--muted-fg); }
+.q { margin-top:10px; padding:10px 12px; border-radius:8px; background:var(--card); border:1px dashed var(--border-subtle); font-size:13px; color:var(--fg-2); line-height:1.6; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="top">
+    <h1>주문로그 · 전략로그 → 버튼 + 팝업 <span style="font-size:14px;color:var(--muted-fg);font-weight:600">v2 · 한 종목</span></h1>
+    <button class="btn-theme" onclick="document.documentElement.classList.toggle('dark')">라이트 / 다크 전환</button>
+  </div>
+  <p class="lead">
+    종목 카드의 버튼으로 여니까 팝업은 <b>그 카드의 종목 · 거래소 · 계좌 하나만</b> 보여 줍니다.<br />
+    그래서 종목 · 거래소 칸과 종목 · 거래소 필터를 없애고, 종목명 · 거래소는 <b>팝업 제목에만</b> 표시하고, 주문번호는 <b>뒤 4자리</b>만 보여 줍니다.
+    진입 버튼은 v1 그대로입니다. 샘플 데이터는 가짜입니다.
+  </p>
+
+  <!-- ① 진입 (채택) -->
+  <h2><span class="tag">①</span>진입 버튼 — 채택 (v1 그대로)</h2>
+  <p class="sub">카드 탭은 「정보 · 미체결 · 잔고」만 남고, 오른쪽의 「주문로그」 · 「전략로그」 버튼이 이 카드 종목의 팝업을 엽니다.</p>
+  <div class="card">
+    <div class="hd"><b>대원전선</b><span class="mono">006340 · KRX</span></div>
+    <div class="ctabs">
+      <span class="ctab on">정보</span><span class="ctab">미체결 1</span><span class="ctab">잔고 1</span>
+      <span class="spacer"></span>
+      <button class="logbtn sm" onclick="go('dOrderA')">주문로그 <span class="n">2</span></button>
+      <button class="logbtn sm" onclick="go('dStrat')">전략로그</button>
+      <button class="fold" title="접기"><svg viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></svg></button>
+    </div>
+    <div class="cbody mono">
+      <div><i>현재가</i><b style="color:var(--up)">12,350</b></div><div><i>등락</i><b style="color:var(--up)">+29.9%</b></div><div><i>거래량</i><b>1.65M</b></div><div><i>매도잔량</i><b>38,200</b></div><div><i>매수잔량</i><b>0</b></div>
+      <div><i>시가</i><b>9,800</b></div><div><i>고가</i><b>12,350</b></div><div><i>저가</i><b>9,750</b></div><div><i>상한가</i><b>12,350</b></div><div><i>VI</i><b>—</b></div>
+    </div>
+  </div>
+
+  <!-- ② 주문로그 -->
+  <h2><span class="tag">②</span>주문로그 팝업 (한 종목) — 변형 둘</h2>
+  <p class="sub">팝업 제목에 <b>종목명 · 거래소</b>만 표시합니다(표에는 종목 · 거래소 칸 없음). 주문번호는 <b>뒤 4자리</b>만 보여 줍니다. 그 아래 오늘 요약 한 줄(주문 · 체결 · 거부 · 취소 건수, 마지막 누적).
+    필터는 구분(전체 · 매수 · 매도 · 시세) 하나만 남습니다. 「창 분리」도 그 종목으로 걸러진 채 열립니다.
+    두 변형 모두 <b>위 → 아래가 시간 흐름</b>(오래된 줄이 위)이고, 열면 맨 아래(최신)로 스크롤된 상태입니다.</p>
+
+  <p class="vlabel">A. 시간순 한 줄 목록</p>
+  <p class="vdesc">열: <b>시각 · 주문번호 · 구분 · 행위 · 내용 · 누적</b>. 시세 이벤트(상한가노출 · 진입)와 주문 이벤트가 시각대로 섞입니다. 지금 탭의 한 줄 문장을 칸으로 나눈 모양 그대로입니다.</p>
+  <div class="stage"><div class="ov"></div>
+    <div class="dlg one" id="dOrderA">
+      <div class="dh">
+        <div class="stkhd"><span class="kind">주문로그</span><span class="nm">대원전선</span><span class="cd">KRX</span></div>
+        <span class="spacer"></span>
+        <button class="ic" title="창 분리"><svg viewBox="0 0 24 24"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></button>
+        <button class="ic" title="닫기"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div class="sumline mono"><span>주문<b>3</b></span><span>체결<b>1</b></span><span>거부<b style="color:var(--destructive)">1</b></span><span>취소<b>1</b></span><span>누적<b>1,651,200</b></span></div>
+      <div class="filters">
+        <div class="seg"><span class="on">전체</span><span>매수</span><span>매도</span><span>시세</span></div>
+        <span class="count mono">10건</span>
+      </div>
+      <div class="dbody"><table class="ltable mono" id="tA"></table></div>
+    </div>
+  </div>
+
+  <p class="vlabel">B. 주문번호별 묶음</p>
+  <p class="vdesc">주문 하나(2451)의 <b>주문 → 대기 → 체결/거부/취소</b>를 한 묶음으로 모읍니다. 묶음 머리에 그룹 · 가격×수량 · 최종 상태(체결 · 거부 · 취소)를 요약합니다.
+    시세 이벤트는 주문번호가 없어 흐린 줄로 시각 자리에 끼워 넣습니다. 묶음 순서는 주문을 낸 시각 순입니다.</p>
+  <div class="stage"><div class="ov"></div>
+    <div class="dlg one" id="dOrderB">
+      <div class="dh">
+        <div class="stkhd"><span class="kind">주문로그</span><span class="nm">대원전선</span><span class="cd">KRX</span></div>
+        <span class="spacer"></span>
+        <button class="ic" title="창 분리"><svg viewBox="0 0 24 24"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></button>
+        <button class="ic" title="닫기"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div class="sumline mono"><span>주문<b>3</b></span><span>체결<b>1</b></span><span>거부<b style="color:var(--destructive)">1</b></span><span>취소<b>1</b></span><span>누적<b>1,651,200</b></span></div>
+      <div class="filters">
+        <div class="seg"><span class="on">전체</span><span>매수</span><span>매도</span><span>시세</span></div>
+        <span class="count mono">10건</span>
+      </div>
+      <div class="dbody"><table class="ltable mono" id="tB"></table></div>
+    </div>
+  </div>
+
+  <!-- ③ 전략로그 -->
+  <h2><span class="tag">③</span>전략로그 팝업 (한 종목)</h2>
+  <p class="sub">같은 제목(종목명 · 거래소)에 <b>시각 · 내용</b> 두 칸입니다. 서버 거부(오류) 줄은 옅은 빨강으로 칠하고, 「오류만」 토글을 둡니다.
+    주문로그와 같이 위 → 아래가 시간 흐름이고 열면 맨 아래입니다. 이 카드 전략의 로그만 나옵니다(지금 카드 탭 「전략로그」와 같은 데이터).</p>
+  <div class="stage" style="height:540px"><div class="ov"></div>
+    <div class="dlg one" id="dStrat">
+      <div class="dh">
+        <div class="stkhd"><span class="kind">전략로그</span><span class="nm">대원전선</span><span class="cd">KRX</span></div>
+        <span class="spacer"></span>
+        <button class="ic" title="닫기"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div class="filters">
+        <div class="seg"><span class="on">전체</span><span>오류만</span></div>
+        <span class="count mono">9건</span>
+      </div>
+      <div class="dbody"><table class="ltable mono" id="tS"></table></div>
+    </div>
+  </div>
+
+  <!-- ④ 폰 -->
+  <h2><span class="tag">④</span>폰 폭 — 전체 화면 · 두 줄 행</h2>
+  <p class="sub">왼쪽 = 주문로그 A, 가운데 = 주문로그 B, 오른쪽 = 전략로그. 종목 칸이 빠져 1줄이 넉넉해집니다.</p>
+  <div class="phones">
+    <div class="phone">
+      <div class="dh"><div class="stkhd"><span class="nm" style="font-size:16px">대원전선</span><span class="cd mono">KRX · 주문로그</span></div><span class="spacer"></span>
+        <button class="ic" title="닫기"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+      <div class="filters"><div class="seg"><span class="on">전체</span><span>매수</span><span>매도</span><span>시세</span></div></div>
+      <div class="dbody" id="pA"></div>
+    </div>
+    <div class="phone">
+      <div class="dh"><div class="stkhd"><span class="nm" style="font-size:16px">대원전선</span><span class="cd mono">KRX · 주문로그</span></div><span class="spacer"></span>
+        <button class="ic" title="닫기"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+      <div class="filters"><div class="seg"><span class="on">전체</span><span>매수</span><span>매도</span><span>시세</span></div></div>
+      <div class="dbody" id="pB"></div>
+    </div>
+    <div class="phone">
+      <div class="dh"><div class="stkhd"><span class="nm" style="font-size:16px">대원전선</span><span class="cd mono">KRX · 전략로그</span></div><span class="spacer"></span>
+        <button class="ic" title="닫기"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+      <div class="filters"><div class="seg"><span class="on">전체</span><span>오류만</span></div></div>
+      <div class="dbody" id="pS"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// 한 종목(대원전선 · KRX) 샘플 — 문장은 shared 조립기(strategyEventParts) 출력 모양 그대로.
+const ORDER = [
+  { t:"09:00:01.402", o:null,   b:"상한가노출", tone:"market", a:null,  body:"매도잔량 185,400", cum:"620,000" },
+  { t:"09:00:02.880", o:null,   b:"상한가진입 1차", tone:"market", a:null, body:"잔량/누적 즉시 30,000/900,000 · 1초 55,000/903,000 · 3초 72,000/908,000", cum:"900,000" },
+  { t:"09:00:02.901", o:"0000012451",b:"선매수", tone:"buy", a:"주문", body:"조건 매도잔량≤50,000 / 실측 38,200 · 근거 호가(매도1잔량 52,100→38,200) · 상한가 매수잔량 0 · 12,350×300주 · 접수 +18ms", cum:"861,800" },
+  { t:"09:00:02.919", o:"0000012451",b:"선매수", tone:"buy", a:"대기", body:"앞 잔량 1,240,000 · 즉시체결 0", cum:"861,800" },
+  { t:"09:00:03.402", o:"0000012451",b:"선매수", tone:"buy", a:"체결", body:"오차 +1,200", cum:"903,000" },
+  { t:"09:12:40.117", o:null,   b:"상한가진입 2차", tone:"market", a:null, body:"잔량/누적 즉시 18,400/1,208,000 · 1초 21,000/1,209,500", cum:"1,208,000" },
+  { t:"09:12:44.010", o:"0000012460",b:"추가매수", tone:"buy", a:"주문", body:"조건 매도잔량≤20,000 / 실측 18,400 · 12,350×120주 · 접수 +21ms", cum:"1,210,000" },
+  { t:"09:12:44.090", o:"0000012460",b:"추가매수", tone:"buy", a:"거부", body:"주문가능수량 초과", cum:"1,210,000", err:true },
+  { t:"10:05:13.551", o:"0000012488",b:"후매도", tone:"sell", a:"주문", body:"조건 매수잔량≤100,000 / 실측 92,300 · 12,350×300주 · 접수 +17ms", cum:"1,651,200", nw:true },
+  { t:"10:05:13.600", o:"0000012488",b:"후매도", tone:"sell", a:"취소", body:"자동취소 · 매수잔량 회복 128,000", cum:"1,651,200", nw:true },
+];
+const HEAD = { "0000012451":{px:"12,350×300주", st:"체결", cls:"done"}, "0000012460":{px:"12,350×120주", st:"거부", cls:"rej"}, "0000012488":{px:"12,350×300주", st:"취소", cls:"cxl"} };
+const STRAT = [
+  { t:"08:59:40", x:"전략이 등록됐어요" },
+  { t:"08:59:41", x:"선매수 체크 — 매수주문도 켬" },
+  { t:"09:00:02", x:"[상따] 선매수 발동 — 매수 300주 @12,350" },
+  { t:"09:12:44", x:"[상따] 추가매수 매수 120주 @12,350" },
+  { t:"09:12:44", x:"서버 통지 — 주문가능수량 초과로 추가매수 주문이 거부됐어요", err:true },
+  { t:"09:12:45", x:"추가매수 포기 · 최대 초과 120" },
+  { t:"10:05:12", x:"매도 진입 래치 ON — 감시 시작" },
+  { t:"10:05:13", x:"매수 미체결 자동취소 무장" },
+  { t:"15:40:00", x:"서버가 KRX 전략을 자동 비활성화했어요 (장 마감 규칙)" },
+];
+const toneCls = { buy:"b-buy", sell:"b-sell", market:"b-market", unknown:"b-muted" };
+const badge = (r) => `<span class="badge ${toneCls[r.tone]}">${r.b}</span>`;
+const act = (r) => `<span class="act ${r.a === "거부" ? "rej" : ""}">${r.a ?? ""}</span>`;
+const ono = (o) => o.slice(-4);
+const cls = (r, extra = "") => `${r.err ? "err" : ""} ${r.nw ? "new" : ""} ${extra}`;
+
+// A — 시간순
+document.getElementById("tA").innerHTML =
+  `<thead><tr><th>시각</th><th>주문번호</th><th>구분</th><th>행위</th><th>내용</th><th class="num">누적</th></tr></thead><tbody>` +
+  ORDER.map((r) => `<tr class="${cls(r)}"><td class="nw t-time">${r.t}</td><td class="nw t-ono">${r.o ? ono(r.o) : ""}</td><td class="nw">${badge(r)}</td>
+    <td class="nw">${act(r)}</td><td class="body">${r.body}</td><td class="nw num">${r.cum}</td></tr>`).join("") + `</tbody>`;
+
+// B — 주문번호 묶음. 시세 줄은 흐린 단독 줄로 시각 자리에.
+function blocks() {
+  const out = []; const seen = new Map();
+  for (const r of ORDER) {
+    if (!r.o) { out.push({ market: r }); continue; }
+    if (!seen.has(r.o)) { const g = { o: r.o, rows: [] }; seen.set(r.o, g); out.push(g); }
+    seen.get(r.o).rows.push(r);
+  }
+  return out;
+}
+document.getElementById("tB").innerHTML =
+  `<thead><tr><th>시각</th><th>구분</th><th>행위</th><th>내용</th><th class="num">누적</th></tr></thead><tbody>` +
+  blocks().map((g) => g.market
+    ? `<tr class="mrow"><td class="nw t-time">${g.market.t}</td><td class="nw">${badge(g.market)}</td><td></td><td class="body">${g.market.body}</td><td class="nw num">${g.market.cum}</td></tr>`
+    : `<tr class="ogrp"><td colspan="5"><span class="ono">${ono(g.o)}</span>${badge(g.rows[0])} <span class="osum">${HEAD[g.o].px}</span><span class="st ${HEAD[g.o].cls}">${HEAD[g.o].st}</span></td></tr>` +
+      g.rows.map((r) => `<tr class="${cls(r)}"><td class="nw t-time">${r.t}</td><td></td><td class="nw">${act(r)}</td><td class="body">${r.body}</td><td class="nw num">${r.cum}</td></tr>`).join("")
+  ).join("") + `</tbody>`;
+
+// 전략로그
+document.getElementById("tS").innerHTML =
+  `<thead><tr><th>시각</th><th>내용</th></tr></thead><tbody>` +
+  STRAT.map((r) => `<tr class="${r.err ? "err" : ""}"><td class="nw t-time" style="width:90px">${r.t}</td><td class="body">${r.x}</td></tr>`).join("") + `</tbody>`;
+
+// 폰
+document.getElementById("pA").innerHTML = ORDER.map((r) => `<div class="prow ${r.err ? "err" : ""}">
+  <div class="l1"><span class="t-time">${r.t.slice(0, 8)}</span>${badge(r)}${act(r)}${r.o ? `<span class="t-ono">${ono(r.o)}</span>` : ""}<span class="r">누적 ${r.cum}</span></div>
+  <div class="l2">${r.body}</div></div>`).join("");
+document.getElementById("pB").innerHTML = blocks().map((g) => g.market
+  ? `<div class="prow" style="color:var(--muted-fg)"><div class="l1"><span class="t-time">${g.market.t.slice(0, 8)}</span>${badge(g.market)}<span class="r">누적 ${g.market.cum}</span></div><div class="l2" style="color:var(--muted-fg)">${g.market.body}</div></div>`
+  : `<div class="pgrp">${ono(g.o)} ${g.rows[0].b}<span>${HEAD[g.o].px}</span><span class="st ${HEAD[g.o].cls}" style="float:right">${HEAD[g.o].st}</span></div>` +
+    g.rows.map((r) => `<div class="prow ${r.err ? "err" : ""}"><div class="l1"><span class="t-time">${r.t.slice(0, 8)}</span>${act(r)}<span class="r">누적 ${r.cum}</span></div><div class="l2">${r.body}</div></div>`).join("")
+).join("");
+document.getElementById("pS").innerHTML = STRAT.map((r) => `<div class="prow ${r.err ? "err" : ""}">
+  <div class="l1"><span class="t-time">${r.t}</span></div><div class="l2">${r.x}</div></div>`).join("");
+// 열면 맨 아래(최신)
+for (const el of document.querySelectorAll(".dbody")) el.scrollTop = el.scrollHeight;
+function go(id) { document.getElementById(id).scrollIntoView({ behavior: "smooth", block: "center" }); }
+</script>
+</body>
+</html>
