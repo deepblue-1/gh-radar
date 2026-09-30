@@ -25,6 +25,7 @@ import * as flatbuffers from "flatbuffers";
 import type { RelayAccount, RelayOutbound, RelayTape, RelayUnfProgressMsg } from "@gh-radar/shared";
 
 import {
+  PRICE_MIN_INTERVAL_MS,
   SubscriptionHub,
   TAPE_BATCH_MS,
   TAPE_RING_SIZE,
@@ -32,6 +33,7 @@ import {
   type HubMarketEvent,
   type HubQuoteFeed,
   type HubSession,
+  samePriceSection,
 } from "../src/hub/subscription-hub.js";
 import { MSG } from "../src/dma/msg-type.js";
 import { resetDroppedEnvelopeCount, tryParseEnvelope } from "../src/dma/envelope.js";
@@ -1178,5 +1180,237 @@ describe("SubscriptionHub — quote 연결 프레임 경계 (Phase 26)", () => {
     expect(market).toHaveLength(1);
     expect(market[0]?.msg).toMatchObject({ t: "q", i: SAMPLE_ISIN, x: "KRX", p: 71_600 });
     expect(hub.unhandledFrameCount()).toBe(0);
+  });
+});
+
+describe("PRICE 판정 (D-05 · D-06)", () => {
+  /**
+   * 서버 PRICE 규칙(gh-trade `MarketPublisher.cpp` · `MarketPublisher.h:159`)의 relay 복제 — FULL 로 업스트림 구독된
+   * 키를 PRICE 소켓이 볼 때 가격 섹션(A3 체결 · R8 VI · A6 종가)이 바뀐 59 만 100ms 간격으로 통과시키고, 억제분은
+   * 마지막 PRICE 송신 +100ms 에 **그 시점 최신 상태**로 지연 방출한다(유실 없이 지연만). 시간 판정은 `Date.now()`
+   * 라 `Date` 까지 가짜로 민다.
+   */
+  const KEY = `${SAMPLE_ISIN}|KRX`;
+  /** 호가(B6)만 바뀐 입력 — 체결 시각 칸(`et`)도 B6 가 덮어쓰므로 같이 바꾼다(Pitfall 4). */
+  const BOOK_ONLY = {
+    askPrices: [71_100n, 71_200n, 71_300n, 71_400n, 71_500n, 71_600n, 71_700n, 71_800n, 71_900n, 72_000n],
+    bidQtys: [999n, 998n, 997n, 996n, 995n, 994n, 993n, 992n, 991n, 990n],
+    exchangeTime: "093016000000",
+  };
+
+  let hub: SubscriptionHub;
+  let feed: FakeFeed;
+  let market: HubMarketEvent[];
+
+  const quotes = (): HubMarketEvent[] => market.filter((e) => e.msg.t === "q");
+  const last = (): HubMarketEvent | undefined => quotes().at(-1);
+  const push59 = (input: Parameters<typeof buildQuoteStateFrame>[0] = {}): void =>
+    feed.pushFrame(buildQuoteStateFrame({ snapshot: false, ...input }));
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-30T00:30:00.000Z"));
+    resetDroppedEnvelopeCount();
+    hub = new SubscriptionHub();
+    market = [];
+    hub.on("market", (e) => market.push(e));
+    feed = new FakeFeed();
+    hub.attachFeed(feed);
+  });
+
+  afterEach(() => {
+    hub.closeAll();
+    vi.useRealTimers();
+  });
+
+  /** full 1 · price 1 로 잡고 58 을 한 번 받은 상태(업스트림 FULL). */
+  function mixedWithSnapshot(): void {
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "full");
+    hub.subscribe("user-2", SAMPLE_ISIN, "KRX", "price");
+    feed.pushFrame(buildQuoteStateFrame({ snapshot: true }));
+  }
+
+  it("P1 상수는 서버 kPriceLevelMinIntervalMs 와 같은 100ms 다", () => {
+    expect(PRICE_MIN_INTERVAL_MS).toBe(100);
+  });
+
+  it("P2 samePriceSection — 호가 6칸 · 체결 시각만 다르면 같다 · 가격 섹션 12칸 중 하나라도 다르면 다르다", () => {
+    const base = {
+      t: "q", i: SAMPLE_ISIN, x: "KRX", snap: false,
+      p: 70_950, o: 70_000, h: 71_500, l: 69_800, c: 950, cs: "2", cr: 1.36, v: 1, va: 2,
+      ap: [1], aq: [1], bp: [1], bq: [1], ta: 1, tb: 1, ul: 91_000, ll: 49_000, base: 70_000,
+      viu: 77_000, vid: 63_000, kc: 0, ls: 5, et: "093015123456",
+    } as const;
+    const q = { ...base, ap: [...base.ap], aq: [...base.aq], bp: [...base.bp], bq: [...base.bq] };
+    expect(samePriceSection(q, { ...q, ap: [2], aq: [2], bp: [2], bq: [2], ta: 9, tb: 9, et: "093016000000" })).toBe(true);
+    expect(samePriceSection(q, { ...q, ul: 1, ll: 1, base: 1, ls: 1 })).toBe(true);
+    for (const f of ["p", "o", "h", "l", "c", "cr", "v", "va", "viu", "vid", "kc"] as const) {
+      expect(samePriceSection(q, { ...q, [f]: q[f] + 1 }), f).toBe(false);
+    }
+    expect(samePriceSection(q, { ...q, cs: "5" })).toBe(false);
+  });
+
+  it("P3 58 은 full · price 모두 통과한다", () => {
+    mixedWithSnapshot();
+
+    expect(quotes()).toHaveLength(1);
+    expect(last()).toMatchObject({ key: KEY, full: true, price: true });
+  });
+
+  it("P4 호가 · 체결 시각만 바뀐 59 는 price 소켓에 가지 않는다 — 타이머도 걸지 않는다", () => {
+    mixedWithSnapshot();
+    vi.advanceTimersByTime(PRICE_MIN_INTERVAL_MS);
+
+    push59(BOOK_ONLY);
+
+    expect(quotes()).toHaveLength(2);
+    expect(last()).toMatchObject({ full: true, price: false });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("P5 체결이 바뀐 59(마지막 PRICE 송신 +100ms 이상)는 price 소켓에도 간다", () => {
+    mixedWithSnapshot();
+    vi.advanceTimersByTime(PRICE_MIN_INTERVAL_MS);
+
+    push59({ lastPrice: 71_000n, cumVolume: 12_345_700n });
+
+    expect(last()).toMatchObject({ full: true, price: true });
+    expect(last()?.msg).toMatchObject({ p: 71_000, v: 12_345_700 });
+  });
+
+  it("P6 100ms 안의 체결은 억제되고 pending — 마지막 송신 +100ms 에 그 시점 최신 상태 1건이 price 로만 나간다", () => {
+    mixedWithSnapshot();
+    vi.advanceTimersByTime(PRICE_MIN_INTERVAL_MS);
+    // t0 — 체결 59 통과.
+    push59({ lastPrice: 71_000n, cumVolume: 12_345_700n });
+    expect(last()).toMatchObject({ price: true });
+
+    // t0+60 — 체결 59 억제(pending).
+    vi.advanceTimersByTime(60);
+    push59({ lastPrice: 71_100n, cumVolume: 12_345_800n });
+    expect(last()).toMatchObject({ full: true, price: false });
+    expect(vi.getTimerCount()).toBe(1);
+
+    // t0+80 — 호가만 바뀐 59: 서명은 그대로지만 pending 이라 여전히 억제 · 타이머는 1개 그대로.
+    vi.advanceTimersByTime(20);
+    push59({ lastPrice: 71_100n, cumVolume: 12_345_800n, ...BOOK_ONLY });
+    expect(last()).toMatchObject({ full: true, price: false });
+    const latest = last()?.msg;
+    expect(vi.getTimerCount()).toBe(1);
+    const before = quotes().length;
+
+    // t0+99 — 아직 아니다.
+    vi.advanceTimersByTime(19);
+    expect(quotes()).toHaveLength(before);
+
+    // t0+100 — 지연 방출 1건: full 소켓은 이미 받았으므로 full:false · 본문은 t0+80 의 최신 상태.
+    vi.advanceTimersByTime(1);
+    expect(quotes()).toHaveLength(before + 1);
+    expect(last()).toMatchObject({ key: KEY, full: false, price: true });
+    expect(last()?.msg).toEqual(latest);
+    expect(vi.getTimerCount()).toBe(0);
+
+    // 방출 직후 같은 서명의 59 는 다시 억제되지 않고 그냥 거짓이다(pending 해제).
+    vi.advanceTimersByTime(PRICE_MIN_INTERVAL_MS);
+    push59({ lastPrice: 71_100n, cumVolume: 12_345_800n, ...BOOK_ONLY });
+    expect(last()).toMatchObject({ full: true, price: false });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("P7 VI 발동예상가만 · KRX 종가만 바뀐 59 도 가격 섹션이라 통과한다(간격 충족 시)", () => {
+    mixedWithSnapshot();
+
+    vi.advanceTimersByTime(PRICE_MIN_INTERVAL_MS);
+    push59({ viUpPrice: 78_000n });
+    expect(last()).toMatchObject({ full: true, price: true });
+
+    vi.advanceTimersByTime(PRICE_MIN_INTERVAL_MS);
+    push59({ viUpPrice: 78_000n, krxClosePrice: 70_950n });
+    expect(last()).toMatchObject({ full: true, price: true });
+  });
+
+  it("P8 업스트림 실효 level 이 PRICE 인 키는 판정하지 않는다 — 서버가 이미 걸렀으니 호가만 바뀐 59 도 통과", () => {
+    hub.subscribe("user-2", SAMPLE_ISIN, "KRX", "price");
+    feed.pushFrame(buildQuoteStateFrame({ snapshot: true }));
+
+    push59(BOOK_ONLY);
+
+    expect(last()).toMatchObject({ full: true, price: true });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("P9 price 참조 0 인 키(FULL 전용)는 59 가 price:false 이고 타이머를 걸지 않는다", () => {
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "full");
+    feed.pushFrame(buildQuoteStateFrame({ snapshot: true }));
+
+    push59({ lastPrice: 71_000n, cumVolume: 12_345_700n });
+
+    expect(last()).toMatchObject({ full: true, price: false });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("P10 pending 중 FULL→PRICE 강등이면 예약된 지연 방출은 0건이다", () => {
+    mixedWithSnapshot();
+    vi.advanceTimersByTime(PRICE_MIN_INTERVAL_MS);
+    push59({ lastPrice: 71_000n, cumVolume: 12_345_700n });
+    vi.advanceTimersByTime(30);
+    push59({ lastPrice: 71_100n, cumVolume: 12_345_800n });
+    expect(vi.getTimerCount()).toBe(1);
+    const before = market.length;
+
+    hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX", "full");
+    vi.advanceTimersByTime(PRICE_MIN_INTERVAL_MS * 3);
+
+    expect(market).toHaveLength(before);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("P11 pending 중 1→0 해제면 예약된 지연 방출은 0건이다", () => {
+    mixedWithSnapshot();
+    vi.advanceTimersByTime(PRICE_MIN_INTERVAL_MS);
+    push59({ lastPrice: 71_000n, cumVolume: 12_345_700n });
+    vi.advanceTimersByTime(30);
+    push59({ lastPrice: 71_100n, cumVolume: 12_345_800n });
+    expect(vi.getTimerCount()).toBe(1);
+    const before = market.length;
+
+    hub.unsubscribe("user-2", SAMPLE_ISIN, "KRX", "price");
+    hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX", "full");
+    vi.advanceTimersByTime(PRICE_MIN_INTERVAL_MS * 3);
+
+    expect(market).toHaveLength(before);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("P12 pending 중 price 소비자만 빠지면(FULL 은 남음) 예약된 지연 방출은 0건이다", () => {
+    mixedWithSnapshot();
+    vi.advanceTimersByTime(PRICE_MIN_INTERVAL_MS);
+    push59({ lastPrice: 71_000n, cumVolume: 12_345_700n });
+    vi.advanceTimersByTime(30);
+    push59({ lastPrice: 71_100n, cumVolume: 12_345_800n });
+    const before = market.length;
+
+    hub.unsubscribe("user-2", SAMPLE_ISIN, "KRX", "price");
+    vi.advanceTimersByTime(PRICE_MIN_INTERVAL_MS * 3);
+
+    expect(market).toHaveLength(before);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("P13 58 이 pending 을 덮는다 — 스냅샷이 최신 상태를 이미 실었으니 지연 방출 0건", () => {
+    mixedWithSnapshot();
+    vi.advanceTimersByTime(PRICE_MIN_INTERVAL_MS);
+    push59({ lastPrice: 71_000n, cumVolume: 12_345_700n });
+    vi.advanceTimersByTime(30);
+    push59({ lastPrice: 71_100n, cumVolume: 12_345_800n });
+    expect(vi.getTimerCount()).toBe(1);
+
+    feed.pushFrame(buildQuoteStateFrame({ snapshot: true, lastPrice: 71_200n }));
+    expect(last()).toMatchObject({ full: true, price: true });
+    const before = market.length;
+    vi.advanceTimersByTime(PRICE_MIN_INTERVAL_MS * 3);
+
+    expect(market).toHaveLength(before);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
