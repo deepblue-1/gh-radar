@@ -10,12 +10,18 @@
  *
  * ② 호출량 — ISIN 마다 세션당 한 번
  *   모듈 캐시(`names`)가 결과를 들고, 없는 종목도 `null` 로 기억해 다시 묻지 않는다.
- *   모르는 ISIN 들은 `.in()` 한 번으로 묶어 조회한다. `tick-rule.ts` 와 같은 읽기 전용 마스터
- *   조회이고 공식 쿼터가 걸린 외부 API 가 아니다.
+ *   모르는 ISIN 들은 isin `.in()` 한 번 — 그래도 못 찾은 보통주가 있을 때만 코드 `.in()` 한 번 더.
+ *   `tick-rule.ts` 와 같은 읽기 전용 마스터 조회이고 공식 쿼터가 걸린 외부 API 가 아니다.
  *
  * ③ 우선순위는 relay 가 먼저다
  *   소비자는 relay 라벨의 이름이 있으면 그것을 쓰고, 없을 때만 이 값을 쓴다. 이 훅에는
  *   relay 가 이름을 모르는 ISIN 만 넘긴다.
+ *
+ * ④ 신규 상장 — 코드 폴백
+ *   오늘 상장한 종목은 master-sync(평일 08:10, 전 영업일 KRX 기준) 전이라 `stocks.isin` 이 비어
+ *   있다(intraday-sync bootstrap 이 code·name 만 넣는다). isin 으로 못 찾은 보통주 모양 ISIN 만
+ *   단축코드로 다시 찾는다. 우선주는 ISIN 6자가 단축코드와 달라(005931 → 005935) 떼지 않는다 —
+ *   틀린 코드가 틀린 이름을 만들면 안 된다.
  */
 
 import { useEffect, useMemo, useState } from "react";
