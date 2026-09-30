@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 26
 current_phase_name: 시세 전용 공유 연결 — relay 종목 단위 팬아웃
 status: executing
-stopped_at: Completed 26-06-PLAN.md
-last_updated: "2026-09-30T14:02:28.579Z"
+stopped_at: Completed 26-07-PLAN.md
+last_updated: "2026-09-30T14:11:40.166Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 26 execution started
-state_head: 51a073044987604f11264ada1fcc12b63a5345e2
+state_head: 7f9b8138532ef9a21dddfc5804ed42fe384b0adc
 progress:
   total_phases: 35
   completed_phases: 4
   total_plans: 352
-  completed_plans: 327
+  completed_plans: 328
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 26 (시세 전용 공유 연결 — relay 종목 단위 팬아웃) — EXECUTING
-Plan: 7 of 15
+Plan: 8 of 15
 Plans completed: 220 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
@@ -179,6 +179,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 26 P04 | 5min | 2 tasks | 5 files |
 | Phase 26 P05 | 14min | 1 tasks | 4 files |
 | Phase 26 P06 | 6min | 2 tasks | 2 files |
+| Phase 26 P07 | 7min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -462,6 +463,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 26]: 26-04: quote 연결은 주 게이트웨이에만 · 부팅 결선 뒤 관찰자 start 옆에서 start, 종료 4단계 관찰자 stop 앞에서 stop
 - [Phase 26]: [26-05] e2e quote 연결 기본 켬 · 저널 관찰자는 observer:true 만(D-17) — 주입 소켓은 역할로 고른다: 사용자 세션 프레임 userSocket() · 시세 quoteSocket() · 게이트웨이 첫 소켓 가정 금지
 - [Phase 26]: 26-06: quote 경계 테스트는 hub 무수정 특성화 — 뮤테이션 8종으로 공허하지 않음 증명, T-26-09 송신 집합 ⊆ {4,5,28,29,32} 는 실 TCP describe afterEach 불변식
+- [Phase 26]: Phase 26-07: PRICE 소켓 판정은 hub 키 단위 1회 — samePriceSection 12필드(et · 호가 · 정적 제외) + PRICE_MIN_INTERVAL_MS 100 + 키당 pending 타이머 1개, 억제분은 +100ms 에 캐시 최신 q 를 {full:false, price:true} 로
+- [Phase 26]: Phase 26-07: D-05 편차(VI 상태만 바뀐 R8 불통과)는 PRICE 소비처(use-breakout-quotes)가 q.p 만 읽어 표시 차이 없음 — 26-07-SUMMARY 「D-05 편차」
+- [Phase 26]: Phase 26-07: PRICE 게이트 정리는 unsubscribe 한 줄(refs.price === 0 || 실효 PRICE) — 26-08 linger 가 1→0 을 바꿀 때 같이 옮길 것
 
 ### Pending Todos
 
@@ -542,8 +546,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-09-30T14:02:27.745Z
-Stopped at: Completed 26-06-PLAN.md
+Last session: 2026-09-30T14:11:39.302Z
+Stopped at: Completed 26-07-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
