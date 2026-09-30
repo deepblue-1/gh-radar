@@ -1,20 +1,18 @@
 "use client";
 
 /**
- * CardTabs — 펼친 전략 카드 본문 상단 「정보 | 미체결 N | 잔고 N | 전략로그 N」 교체 탭 + 오른쪽 「주문로그」 버튼
- * (quick-260923-onn · 2026-09-23 목업 ②A · quick-260930-lq5 주문로그 탭 → 버튼 + 팝업).
+ * CardTabs — 펼친 전략 카드 본문 상단 「정보 | 미체결 N | 잔고 N」 교체 탭 + 오른쪽 「주문로그」 · 「전략로그」 버튼
+ * (quick-260923-onn · 2026-09-23 목업 ②A · quick-260930-lq5 로그 탭 두 개 → 버튼 + 한 종목 팝업).
  *
  * ① 무엇을 그리는가
  *   종전 `QuoteGrid10` 자리에 탭 줄(24px · 선택 알약 `--pill-on-*` — 공용 패널 탭 문법의 얇은 판)이 서고,
  *   기본 탭 「정보」가 기존 10칸 그대로다. 본문은 **모든 탭 공통 고정 높이 = 정보 탭 3줄**(≈72px)
  *   · 넘치면 세로 스크롤(quick-260925-ptw → 260925 후속 사용자 결정 「카드 탭 높이는 다 같아야 한다 ·
  *   정보탭 기준 3줄」). 탭을 바꾸거나 목록이 비어도 카드 높이가 변하지 않는다. 표 탭은 이 높이에서
- *   머리 1 + 데이터 1행쯤, 로그는 3줄쯤 보이고 나머지는 스크롤이다. 빈 상태는 `dense` 로 이 높이 안에 든다.
- *   본문 공통 고정 높이 안의 탭별 모양:
- *     정보 = 10칸 3줄 · 미체결/잔고 = 표(머리 + 1행쯤) · 전략로그 = StrategyLog embed dense.
- *   탭 줄 오른쪽 = [주문로그 버튼][접기](⑧). 접기 버튼이 본문을 접는다 — 접혀도 탭 알약(건수 포함)과 버튼은 보인다.
- *   「미체결」·「잔고」는 **이 카드 종목·거래소·계좌로 자른** 계좌 상태, 「전략로그」(값 `log`)는 카드 훅의 전략 로그다.
- *   건수 괄호는 미체결 · 잔고 · 전략로그(총 건수), 0 이면 생략.
+ *   머리 1 + 데이터 1행쯤이 보이고 나머지는 스크롤이다. 빈 상태는 `dense` 로 이 높이 안에 든다.
+ *   본문 공통 고정 높이 안의 탭별 모양: 정보 = 10칸 3줄 · 미체결/잔고 = 표(머리 + 1행쯤).
+ *   탭 줄 오른쪽 = [주문로그][전략로그][접기](목업 ① · ⑧). 접기 버튼이 본문을 접는다 — 접혀도 탭 알약(건수 포함)과
+ *   버튼은 보인다. 「미체결」·「잔고」는 **이 카드 종목·거래소·계좌로 자른** 계좌 상태다. 건수 괄호는 0 이면 생략.
  *
  * ② ★ 데이터는 슬라이스 하나 — 접힌 헤더 요약 칩과 같은 값
  *   `account` 는 `cardAccountSliceOf().account`(strategy-card 가 1회 파생)다. 헤더 칩 숫자 ·
@@ -37,6 +35,7 @@
  *   ★ 펼친 상태에서 **이미 선택된 탭을 다시 누르면 접는다**(접기 버튼과 같은 동작 · 선호 true 저장 —
  *     2026-09-26 사용자 요청). 다른 탭을 누르면 전환만 한다.
  *   ★ 로그 버튼은 탭 알약이 아니다 — 접힘 · 탭 재클릭 규칙과 무관하게 팝업만 연다.
+ *   ★ 저장된 카드 탭 값은 없다(접힘만 저장) — 탭 값이 줄어도(`orderlog` · `log` 제거) 저장값 가드가 필요 없다.
  *
  * ⑥ 반응형은 카드의 `@container/lc` 가 잰다 — 뷰포트 브레이크포인트도, 새 `@container` 선언도
  *   두지 않는다(D-28). 로그 팝업은 body 포털 오버레이라 이 규율 밖이다(card-log-popups ④).
@@ -44,14 +43,15 @@
  * ⑦ 탭 요청 통로 (quick-260923-pgu · 목업 ③A) — 작업대 이벤트 알림을 누르면 그 카드의 맞는 탭으로
  *   간다. 요청은 `{ tab, seq }` 이고 **`seq` 가 바뀔 때만** 이긴다 — 사용자 클릭은 그대로 로컬 state
  *   다(⑤). 이 컴포넌트는 카드를 처음 펼칠 때 마운트되므로 새로 펼쳐지는 카드는 마운트 효과로 요청을
- *   소비한다.
+ *   소비한다. VI · 돌파 알림은 이제 「정보」 탭을 연다 — 로그 팝업을 자동으로 열지 않는다(`alertTabFor` · lq5 D6).
  *
- * ⑧ 「주문로그」 버튼 + 팝업 — card-log-popups.tsx · quick-260930-lq5 D1~D3
+ * ⑧ 「주문로그」 · 「전략로그」 버튼 + 팝업 — card-log-popups.tsx · quick-260930-lq5 D1~D5
  *   - 데이터는 작업대 공용 피드 하나(`orderLogFeed` — strategy-card 가 넘긴다) — 카드마다 조회하지 않는다.
  *     피드가 없으면(작업대 밖 렌더) 버튼 자체가 없다.
  *   - 범위 = 카드 계좌의 주문 이벤트 + 시세 이벤트, 둘 다 그 종목 · 그 거래소만(`inScope`). 제목 · 범위의 종목 ·
  *     거래소 · 표시명은 이 컴포넌트가 받은 `isin` · `exchange` · `stockName` 하나다.
  *   - 배지 = 팝업이 닫혀 있는 동안 도착한 범위 안 푸시 수 · 열면 0.
+ *   - 전략로그 = 카드 훅의 로그(`log`) 그대로 · 버튼은 늘 있고 배지가 없다.
  */
 
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
@@ -65,9 +65,9 @@ import type {
 } from "@gh-radar/shared";
 
 import { AccountPanel, type AccountRowOrigin } from "@/components/orderbook/account-panel";
-import { CardOrderLogPopup } from "@/components/trading/card/card-log-popups";
+import { CardOrderLogPopup, CardStrategyLogPopup } from "@/components/trading/card/card-log-popups";
 import { QuoteGrid10 } from "@/components/trading/card/quote-grid-10";
-import { StrategyLog, type StrategyLogEntry } from "@/components/trading/strategy-log";
+import type { StrategyLogEntry } from "@/components/trading/strategy-log";
 import { nextUnfilledSelection } from "@/components/trading/workbench/shared-panels";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { readPanelsPref, writePanelsPref } from "@/lib/trading-layout";
@@ -75,7 +75,7 @@ import type { OrderLogFeed } from "@/lib/use-order-log-feed";
 import { cn } from "@/lib/utils";
 import type { RelayStatus } from "@/lib/use-relay-socket";
 
-export type CardTab = "info" | "unfilled" | "holdings" | "log";
+export type CardTab = "info" | "unfilled" | "holdings";
 
 /** 탭 전환 요청(⑦) — `seq` 가 바뀔 때만 적용된다. */
 export interface CardTabRequest {
@@ -200,7 +200,6 @@ export function CardTabs({
   }, [reqSeq, reqTab]);
   const unfilledCount = account?.unf.length ?? 0;
   const holdingCount = account?.hold.length ?? 0;
-  const logCount = log.length;
 
   /** ③ — 토글 판정은 공용 패널과 같은 헬퍼 하나. */
   const handleSelect = useCallback(
@@ -235,10 +234,6 @@ export function CardTabs({
             잔고
             <CountBadge count={holdingCount} />
           </TabsTrigger>
-          <TabsTrigger value="log" className={CARD_TAB_TRIGGER} {...triggerHandlers("log")}>
-            전략로그
-            <CountBadge count={logCount} />
-          </TabsTrigger>
         </TabsList>
         {orderLogFeed !== undefined && (
           <CardOrderLogPopup
@@ -249,6 +244,7 @@ export function CardTabs({
             stockName={stockName}
           />
         )}
+        <CardStrategyLogPopup entries={log} stockName={stockName} exchange={exchange} />
         <button
           type="button"
           data-slot="card-tabs-fold"
@@ -308,9 +304,6 @@ export function CardTabs({
             priceOf={priceOf}
             onCancelSubmitted={onCancelSubmitted}
           />
-        </TabsContent>
-        <TabsContent value="log" className="min-w-0">
-          <StrategyLog entries={log} variant="embed" emptyTitle="로그 없음" dense />
         </TabsContent>
       </div>
     </Tabs>

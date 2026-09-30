@@ -337,9 +337,9 @@ describe("alertTabFor — 클릭 시 여는 탭", () => {
     expect(alertTabFor(base, { hasHolding: true, cardIsNew: false })).toBe("holdings");
     expect(alertTabFor(base, opts)).toBe("unfilled");
   });
-  it("vi/breakout → 로그 · 새로 만든 카드면 정보", () => {
-    expect(alertTabFor({ ...base, kind: "vi" }, opts)).toBe("log");
-    expect(alertTabFor({ ...base, kind: "breakout" }, opts)).toBe("log");
+  it("vi/breakout → 카드가 새것이든 아니든 정보 (quick-260930-lq5 D6 — 로그 탭 없음)", () => {
+    expect(alertTabFor({ ...base, kind: "vi" }, opts)).toBe("info");
+    expect(alertTabFor({ ...base, kind: "breakout" }, opts)).toBe("info");
     expect(alertTabFor({ ...base, kind: "vi" }, { hasHolding: false, cardIsNew: true })).toBe("info");
     expect(alertTabFor({ ...base, kind: "breakout" }, { hasHolding: true, cardIsNew: true })).toBe("info");
   });

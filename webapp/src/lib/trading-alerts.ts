@@ -357,8 +357,9 @@ export function alertSubtitle(a: TradingAlert): string {
 }
 
 /**
- * 토스트 클릭이 여는 카드 탭. 주문 통보는 「미체결」(체결은 보유가 있으면 「잔고」), VI·돌파는 「로그」
- * — 단 알림이 **새로 만든** 카드면 로그가 비어 있으므로 「정보」.
+ * 토스트 클릭이 여는 카드 탭. 주문 통보는 「미체결」(체결은 보유가 있으면 「잔고」), VI · 돌파는 정보 탭
+ * (전략로그는 버튼 팝업으로 옮겨 탭이 없다 · quick-260930-lq5 D6 — 팝업을 자동으로 열지 않는다).
+ * `opts.cardIsNew` 는 이제 판정에 쓰이지 않지만 호출부(trading-workbench) 시그니처를 바꾸지 않으려고 남긴다.
  */
 export function alertTabFor(
   a: Pick<TradingAlert, "kind">,
@@ -369,7 +370,7 @@ export function alertTabFor(
       return opts.hasHolding ? "holdings" : "unfilled";
     case "vi":
     case "breakout":
-      return opts.cardIsNew ? "info" : "log";
+      return "info";
     default:
       return "unfilled";
   }

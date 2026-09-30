@@ -48,6 +48,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import type { StrategyLogEntry } from '@/components/trading/strategy-log';
 import { isNativeApp } from '@/lib/native/native-detect';
 import {
   ORDER_LOG_SIDE_FILTERS,
@@ -465,6 +466,96 @@ export function CardOrderLogPopup({ feed, accountNo, isin, exchange, stockName }
                   )}
                 </li>
               ))}
+            </ol>
+          </>
+        )}
+      </LogScroller>
+    </LogDialog>
+  );
+}
+
+/* ── 전략로그 (D1 · D4 · D5) ────────────────────────────────────────────── */
+
+type StratFilter = 'all' | 'error';
+const STRAT_FILTERS: ReadonlyArray<{ value: StratFilter; label: string }> = [
+  { value: 'all', label: '전체' },
+  { value: 'error', label: '오류만' },
+];
+const STRAT_EMPTY_TITLE = '로그 없음'; // 기존 카드 탭 문구
+const STRAT_HEADERS = ['시각', '내용'] as const;
+
+export interface CardStrategyLogPopupProps {
+  /** 카드 훅 로그 — **최신이 index 0**. */
+  entries: readonly StrategyLogEntry[];
+  stockName: string;
+  exchange: RelayExchange;
+}
+
+export function CardStrategyLogPopup({ entries, stockName, exchange }: CardStrategyLogPopupProps) {
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState<StratFilter>('all');
+  // 카드 로그는 최신이 위(index 0)다 — 팝업은 위 → 아래 = 시간 흐름이라 뒤집어 그린다(D4 · ③).
+  const visible = useMemo(() => {
+    const asc = [...entries].reverse();
+    return filter === 'error' ? asc.filter((e) => e.level === 'error') : asc;
+  }, [entries, filter]);
+
+  const onOpenChange = (next: boolean) => {
+    if (next) setFilter('all'); // 다시 열면 전체부터.
+    setOpen(next);
+  };
+
+  return (
+    <LogDialog kind="전략로그" stockName={stockName} exchange={exchange} open={open} onOpenChange={onOpenChange} badge={0}>
+      <LogSegments label="보기" options={STRAT_FILTERS} value={filter} onChange={setFilter} count={visible.length} />
+      <LogScroller label="전략로그 목록" count={visible.length} resetKey={filter}>
+        {entries.length === 0 && <EmptyBox title={STRAT_EMPTY_TITLE} />}
+        {entries.length > 0 && visible.length === 0 && <EmptyBox title={FILTERED_EMPTY_TITLE} />}
+        {visible.length > 0 && (
+          <>
+            <table data-slot="card-log-table" className="hidden w-full border-separate border-spacing-0 text-[12.5px] sm:table">
+              <thead>
+                <tr>
+                  {STRAT_HEADERS.map((h) => (
+                    <th key={h} scope="col" className={TH_CLASS}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((entry) => {
+                  const error = entry.level === 'error';
+                  const bg = error ? ERR_BG : TD_HOVER;
+                  return (
+                    <tr key={entry.id} data-slot="card-log-row" data-level={entry.level ?? 'info'} className="group">
+                      <td className={cn(TD_CLASS, bg, 'mono w-[90px] whitespace-nowrap text-[var(--muted-fg)]')}>{entry.at}</td>
+                      <td className={cn(TD_CLASS, bg, BODY_TEXT, error ? 'text-[var(--destructive)]' : 'text-[var(--fg-2)]')}>
+                        {entry.text}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {/* 폰(<640) 두 줄 행(D5) — 1줄 시각 / 2줄 내용. */}
+            <ol data-slot="card-log-phone-list" className="m-0 list-none p-0 text-[12.5px] sm:hidden">
+              {visible.map((entry) => {
+                const error = entry.level === 'error';
+                return (
+                  <li
+                    key={entry.id}
+                    data-slot="card-log-phone-row"
+                    data-level={entry.level ?? 'info'}
+                    className={cn('border-b border-[var(--border)] px-4 py-2.5', error && ERR_BG)}
+                  >
+                    <div className="mono text-[var(--muted-fg)]">{entry.at}</div>
+                    <div className={cn('mt-1', BODY_TEXT, error ? 'text-[var(--destructive)]' : 'text-[var(--fg-2)]')}>
+                      {entry.text}
+                    </div>
+                  </li>
+                );
+              })}
             </ol>
           </>
         )}

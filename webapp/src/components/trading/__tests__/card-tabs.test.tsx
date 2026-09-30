@@ -9,12 +9,12 @@ import type {
 } from '@gh-radar/shared';
 
 /**
- * quick-260923-onn — 펼친 카드 본문 상단 「정보 | 미체결 N | 잔고 | 로그 N」 탭 (목업 ②A).
+ * quick-260923-onn — 펼친 카드 본문 상단 「정보 | 미체결 N | 잔고 N」 탭 (목업 ②A) + quick-260930-lq5 로그 버튼 두 개.
  *
  * 잠그는 것:
- *   - 탭 4개 · 배지는 미체결·로그만(0 이면 생략) · 기본 정보 = 기존 10칸
+ *   - 탭 3개 · 건수는 미체결·잔고만(0 이면 생략) · 기본 정보 = 기존 10칸
  *   - 미체결 탭 = AccountPanel stock 스코프(5열) · 행 선택은 공용 패널과 같은 토글 헬퍼
- *   - 잔고 탭 = 1행 6열(`priceOf`) · 로그 탭 = StrategyLog embed · 빈 문구 3종 원문
+ *   - 잔고 탭 = 1행 6열(`priceOf`) · 전략로그 = 버튼 팝업(시각 · 내용 2열 · 오류만) · 빈 문구 원문
  *   - 탭 state 는 컴포넌트 안 · 뷰포트 브레이크포인트 · `@container` 재선언 없음(D-28)
  *
  * ★ 스텁 경계 — shared-panels.test 와 같다(AccountPanel 이 `useRelayContext().sendOrder` 를 읽는다).
@@ -133,19 +133,30 @@ afterEach(() => {
 });
 
 describe('CardTabs — 탭 줄', () => {
-  it('탭 4개 [정보, 미체결(2), 잔고(1), 전략로그(3)] · 건수는 제목 괄호 · 정보엔 없음 · 기본 정보 = 10칸', () => {
+  it('탭 3개 [정보, 미체결(2), 잔고(1)] · 값 info · unfilled · holdings · 건수는 제목 괄호 · 정보엔 없음 · 기본 정보 = 10칸', () => {
     render(<CardTabs {...props()} />);
-    expect(tabs().map((t) => t.textContent)).toEqual(['정보', '미체결(2)', '잔고(1)', '전략로그(3)']);
-    expect(root().querySelectorAll('[data-slot="card-tab-count"]')).toHaveLength(3);
+    expect(tabs().map((t) => t.textContent)).toEqual(['정보', '미체결(2)', '잔고(1)']);
+    expect(tabs().map((t) => t.id.replace(/^.*-trigger-/, ''))).toEqual(['info', 'unfilled', 'holdings']);
+    expect(root().querySelectorAll('[data-slot="card-tab-count"]')).toHaveLength(2);
     expect(tabNamed('정보').querySelector('[data-slot="card-tab-count"]')).toBeNull();
     expect(tabNamed('정보')).toHaveAttribute('aria-selected', 'true');
     expect(root().querySelector('[data-slot="lc-quote-grid"]')).not.toBeNull();
   });
 
-  it('미체결 0 · 잔고 0 · 전략로그 0 이면 괄호 0개', () => {
+  it('미체결 0 · 잔고 0 이면 괄호 0개', () => {
     render(<CardTabs {...props({ account: acct({ unf: [], hold: [] }), log: [] })} />);
     expect(root().querySelectorAll('[data-slot="card-tab-count"]')).toHaveLength(0);
-    expect(tabs().map((t) => t.textContent)).toEqual(['정보', '미체결', '잔고', '전략로그']);
+    expect(tabs().map((t) => t.textContent)).toEqual(['정보', '미체결', '잔고']);
+  });
+
+  it('탭 줄 = 탭 3 + [전략로그 버튼](피드 없어도 · 배지 없음) + 접기 — 순서대로', () => {
+    render(<CardTabs {...props()} />);
+    const bar = root().querySelector('[data-slot="card-tabs-bar"]')!;
+    const strat = bar.querySelector('[data-slot="card-log-button"][data-log="전략로그"]')!;
+    expect(strat.textContent).toBe('전략로그');
+    expect(strat.querySelector('[data-slot="card-log-badge"]')).toBeNull();
+    const fold = bar.querySelector('[data-slot="card-tabs-fold"]')!;
+    expect(strat.compareDocumentPosition(fold) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 
@@ -193,7 +204,7 @@ describe('CardTabs — 미체결', () => {
   });
 });
 
-describe('CardTabs — 잔고 · 로그', () => {
+describe('CardTabs — 잔고 · 전략로그 팝업', () => {
   it('잔고 탭 → 1행 · priceOf 현재가로 평가손익 계산 · 없으면 「보유 없음」', async () => {
     const user = userEvent.setup();
     const { unmount } = render(<CardTabs {...props()} />);
@@ -207,24 +218,61 @@ describe('CardTabs — 잔고 · 로그', () => {
     expect(within(root()).getByText('보유 없음')).toBeInTheDocument();
   });
 
-  it('로그 탭 → 3줄 · 빈 로그면 「로그 없음」', async () => {
+  const stratButton = () =>
+    root().querySelector<HTMLButtonElement>('[data-slot="card-log-button"][data-log="전략로그"]')!;
+
+  it('전략로그 버튼 → 다이얼로그(이름 전략로그 · 종목명 · 거래소) · 머리 [시각, 내용] · 오래된 줄 위 · 오류 행 data-level · 창 분리 없음', async () => {
     const user = userEvent.setup();
-    const { unmount } = render(<CardTabs {...props()} />);
-    await user.click(tabNamed('전략로그'));
-    expect(root().querySelectorAll('[data-slot="strategy-log-row"]')).toHaveLength(3);
+    const log: StrategyLogEntry[] = [
+      { id: '3', at: '09:42:00', text: '서버 반영 완료' },
+      { id: '2', at: '09:41:00', text: '주문가능수량 초과로 거부됐어요', level: 'error' },
+      { id: '1', at: '09:40:00', text: '등록' },
+    ];
+    render(<CardTabs {...props({ log })} />);
+    await user.click(stratButton());
+    const dlg = screen.getByRole('dialog');
+    const title = document.getElementById(dlg.getAttribute('aria-labelledby')!)!.textContent!;
+    expect(title).toContain('전략로그');
+    expect(title).toContain('알테오젠');
+    expect(title).toContain('KRX');
+    expect([...dlg.querySelectorAll('thead th')].map((th) => th.textContent)).toEqual(['시각', '내용']);
+    const rows = [...dlg.querySelectorAll<HTMLElement>('tr[data-slot="card-log-row"]')];
+    expect(rows.map((r) => r.querySelector('td')!.textContent)).toEqual(['09:40:00', '09:41:00', '09:42:00']);
+    expect(rows[1]).toHaveAttribute('data-level', 'error');
+    expect(rows[1]!.querySelectorAll('td')[1]!.className).toContain('text-[var(--destructive)]');
+    expect(rows[0]).toHaveAttribute('data-level', 'info');
+    expect(dlg.querySelector('[data-slot="card-log-popout"]')).toBeNull();
+    expect(dlg.querySelector('[data-slot="card-log-count"]')?.textContent).toBe('3건');
+
+    const group = within(dlg).getByRole('group', { name: '보기' });
+    await user.click(within(group).getByRole('button', { name: '오류만' }));
+    const errOnly = [...dlg.querySelectorAll<HTMLElement>('tr[data-slot="card-log-row"]')];
+    expect(errOnly).toHaveLength(1);
+    expect(errOnly[0]!.textContent).toContain('주문가능수량 초과로 거부됐어요');
+    expect(dlg.querySelector('[data-slot="card-log-count"]')?.textContent).toBe('1건');
+  });
+
+  it('빈 로그 → 「로그 없음」 · 오류만인데 0 → 「조건에 맞는 로그가 없어요」', async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<CardTabs {...props({ log: [] })} />);
+    await user.click(stratButton());
+    expect(screen.getByRole('dialog').querySelector('[data-slot="card-log-empty"]')?.textContent).toBe('로그 없음');
     unmount();
 
-    render(<CardTabs {...props({ log: [] })} />);
-    await user.click(tabNamed('전략로그'));
-    expect(within(root()).getByText('로그 없음')).toBeInTheDocument();
+    render(<CardTabs {...props()} />);
+    await user.click(stratButton());
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: '오류만' }));
+    expect(screen.getByRole('dialog').querySelector('[data-slot="card-log-empty"]')?.textContent).toBe(
+      '조건에 맞는 로그가 없어요',
+    );
   });
 });
 
 describe('CardTabs — 반응형 · 상태', () => {
-  it('탭 4개를 차례로 켜도 뷰포트 브레이크포인트 · @container 재선언이 없다 (D-28)', async () => {
+  it('탭 3개를 차례로 켜도 뷰포트 브레이크포인트 · @container 재선언이 없다 (D-28 · 포털 다이얼로그는 밖)', async () => {
     const user = userEvent.setup();
     render(<CardTabs {...props()} />);
-    for (const label of ['정보', '미체결', '잔고', '전략로그']) {
+    for (const label of ['정보', '미체결', '잔고']) {
       await user.click(tabNamed(label));
       const all = [root(), ...Array.from(root().querySelectorAll('*'))].map(
         (el) => el.getAttribute('class') ?? '',
@@ -242,19 +290,18 @@ describe('CardTabs — 반응형 · 상태', () => {
     await user.click(tabNamed('잔고'));
     view.rerender(<CardTabs {...props({ log: LOG.slice(0, 1), selectedOrderNo: '3407000064' })} />);
     expect(tabNamed('잔고')).toHaveAttribute('aria-selected', 'true');
-    expect(tabNamed('전략로그').textContent).toBe('전략로그(1)');
   });
 });
 
 describe('CardTabs — 탭 요청 통로 (quick-260923-pgu · 알림 클릭)', () => {
   it('requestedTab 으로 탭이 바뀌고, 같은 seq 재렌더는 사용자 선택을 지키며, 새 seq 는 다시 이긴다', async () => {
     const user = userEvent.setup();
-    const view = render(<CardTabs {...props({ requestedTab: { tab: 'log', seq: 1 } })} />);
-    expect(tabNamed('전략로그')).toHaveAttribute('aria-selected', 'true');
-
-    await user.click(tabNamed('잔고'));
-    view.rerender(<CardTabs {...props({ requestedTab: { tab: 'log', seq: 1 } })} />);
+    const view = render(<CardTabs {...props({ requestedTab: { tab: 'holdings', seq: 1 } })} />);
     expect(tabNamed('잔고')).toHaveAttribute('aria-selected', 'true');
+
+    await user.click(tabNamed('정보'));
+    view.rerender(<CardTabs {...props({ requestedTab: { tab: 'holdings', seq: 1 } })} />);
+    expect(tabNamed('정보')).toHaveAttribute('aria-selected', 'true');
 
     view.rerender(<CardTabs {...props({ requestedTab: { tab: 'unfilled', seq: 2 } })} />);
     expect(tabNamed('미체결')).toHaveAttribute('aria-selected', 'true');
@@ -270,12 +317,12 @@ describe('CardTabs — 고정 높이 본문 · 접기 (quick-260925-ptw)', () =>
   const body = () => root().querySelector('[data-slot="card-tabs-body"]') as HTMLElement;
   const fold = () => root().querySelector('[data-slot="card-tabs-fold"]') as HTMLButtonElement;
 
-  it('본문 래퍼 하나가 네 탭을 담고 공통 고정 높이(정보 탭 3줄) · 세로 스크롤이다 — 탭별 높이 없음 (260925 후속)', async () => {
+  it('본문 래퍼 하나가 세 탭을 담고 공통 고정 높이(정보 탭 3줄) · 세로 스크롤이다 — 탭별 높이 없음 (260925 후속)', async () => {
     const user = userEvent.setup();
     render(<CardTabs {...props()} />);
     const H = 'h-[calc(3*(11px*var(--lh-normal)+6px)+4px)]';
     // 정보는 이미 활성이라 다시 누르면 접힌다(260926) — 다른 탭부터 돌고 정보로 돌아온다.
-    for (const label of ['미체결', '잔고', '전략로그', '정보']) {
+    for (const label of ['미체결', '잔고', '정보']) {
       await user.click(tabNamed(label));
       const panel = within(root()).getByRole('tabpanel');
       expect(body().contains(panel)).toBe(true);
@@ -306,7 +353,7 @@ describe('CardTabs — 고정 높이 본문 · 접기 (quick-260925-ptw)', () =>
     expect(fold()).toHaveAttribute('aria-expanded', 'false');
     expect(fold()).toHaveAttribute('aria-label', '탭 펼치기');
     expect(fold()).toHaveAttribute('title', '탭 펼치기');
-    expect(tabs().map((t) => t.textContent)).toEqual(['정보', '미체결(2)', '잔고(1)', '전략로그(3)']);
+    expect(tabs().map((t) => t.textContent)).toEqual(['정보', '미체결(2)', '잔고(1)']);
     expect(readPanelsPref().cardTabsFolded).toBe(true);
 
     await user.click(fold());
@@ -322,9 +369,9 @@ describe('CardTabs — 고정 높이 본문 · 접기 (quick-260925-ptw)', () =>
     expect(fold()).toHaveAttribute('aria-expanded', 'false');
     view.unmount();
 
-    render(<CardTabs {...props({ requestedTab: { tab: 'log', seq: 1 } })} />);
+    render(<CardTabs {...props({ requestedTab: { tab: 'holdings', seq: 1 } })} />);
     expect(body()).not.toHaveAttribute('hidden');
-    expect(tabNamed('전략로그')).toHaveAttribute('aria-selected', 'true');
+    expect(tabNamed('잔고')).toHaveAttribute('aria-selected', 'true');
   });
 
   it('접힌 상태에서 탭(활성 탭 포함)을 누르면 펼쳐지고 false 저장', async () => {
