@@ -569,6 +569,7 @@ describe("SubscriptionHub — 잔량진행률 83 QueueProgress (Phase 25-06)", (
           currentCum: 1_088_000,
           remainingVolume: 12_000,
           progressBp: 8800,
+          firstFilled: false,
         },
       ],
     });
@@ -579,6 +580,40 @@ describe("SubscriptionHub — 잔량진행률 83 QueueProgress (Phase 25-06)", (
     expect(entries).toHaveLength(1);
     expect(entries[0]?.items.map((it) => it.orderNo)).toEqual(["12453"]);
     expect(JSON.stringify(entries)).not.toContain("dmaUserId");
+  });
+
+  it("firstFilled true 항목이 팬아웃 · 캐시에 true 로 남는다 — dmaUserId 없음 · 남의 계좌 0건 (quick-260930-fi4 · T-fi4-01)", () => {
+    session.pushFrame(
+      buildQueueProgressFrame({
+        items: [
+          {
+            accountNo: SAMPLE_ACCOUNT_NO,
+            dmaUserId: "dma-1",
+            orderNo: "41",
+            group: 3,
+            remainingVolume: 4000,
+            progressBp: 9650,
+            firstFilled: true,
+          },
+          { accountNo: OTHER_ACCOUNT, dmaUserId: "dma-9", orderNo: "99999", firstFilled: true },
+        ],
+      }),
+    );
+
+    const frames = progressFrames();
+    expect(frames).toHaveLength(1);
+    const fanned = frames[0]!.snap === false ? frames[0]!.items : [];
+    expect(fanned).toHaveLength(1);
+    expect(fanned[0]).toMatchObject({ orderNo: "41", remainingVolume: 4000, progressBp: 9650, firstFilled: true });
+    expect(fanned[0]).not.toHaveProperty("dmaUserId");
+    expect(JSON.stringify(frames[0])).not.toContain(OTHER_ACCOUNT);
+
+    const entries = hub.getQueueProgressEntries("user-1");
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.items).toHaveLength(1);
+    expect(entries[0]?.items[0]?.firstFilled).toBe(true);
+    expect(entries[0]?.items[0]).not.toHaveProperty("dmaUserId");
+    expect(JSON.stringify(entries)).not.toContain(OTHER_ACCOUNT);
   });
 
   it("허용 계좌 목록이 없는 세션은 전부 거른다 — 캐시 · 팬아웃 0 (fail-closed)", () => {

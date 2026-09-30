@@ -85,8 +85,13 @@ progressBp():number {
   return offset ? this.bb!.readInt32(this.bb_pos + offset) : 0;
 }
 
+firstFilled():boolean {
+  const offset = this.bb!.__offset(this.bb_pos, 24);
+  return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
+}
+
 static startQueueProgressItem(builder:flatbuffers.Builder) {
-  builder.startObject(10);
+  builder.startObject(11);
 }
 
 static addAccountNo(builder:flatbuffers.Builder, accountNoOffset:flatbuffers.Offset) {
@@ -129,12 +134,16 @@ static addProgressBp(builder:flatbuffers.Builder, progressBp:number) {
   builder.addFieldInt32(9, progressBp, 0);
 }
 
+static addFirstFilled(builder:flatbuffers.Builder, firstFilled:boolean) {
+  builder.addFieldInt8(10, +firstFilled, +false);
+}
+
 static endQueueProgressItem(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createQueueProgressItem(builder:flatbuffers.Builder, accountNoOffset:flatbuffers.Offset, dmaUserIdOffset:flatbuffers.Offset, orderNoOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset, isinOffset:flatbuffers.Offset, group:OrderGroup, expectedCum:bigint, currentCum:bigint, remainingVolume:bigint, progressBp:number):flatbuffers.Offset {
+static createQueueProgressItem(builder:flatbuffers.Builder, accountNoOffset:flatbuffers.Offset, dmaUserIdOffset:flatbuffers.Offset, orderNoOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset, isinOffset:flatbuffers.Offset, group:OrderGroup, expectedCum:bigint, currentCum:bigint, remainingVolume:bigint, progressBp:number, firstFilled:boolean):flatbuffers.Offset {
   QueueProgressItem.startQueueProgressItem(builder);
   QueueProgressItem.addAccountNo(builder, accountNoOffset);
   QueueProgressItem.addDmaUserId(builder, dmaUserIdOffset);
@@ -146,6 +155,7 @@ static createQueueProgressItem(builder:flatbuffers.Builder, accountNoOffset:flat
   QueueProgressItem.addCurrentCum(builder, currentCum);
   QueueProgressItem.addRemainingVolume(builder, remainingVolume);
   QueueProgressItem.addProgressBp(builder, progressBp);
+  QueueProgressItem.addFirstFilled(builder, firstFilled);
   return QueueProgressItem.endQueueProgressItem(builder);
 }
 }

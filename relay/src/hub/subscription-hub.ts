@@ -1276,6 +1276,7 @@ export class SubscriptionHub extends EventEmitter {
         currentCum: it.currentCum,
         remainingVolume: it.remainingVolume,
         progressBp: it.progressBp,
+        firstFilled: it.firstFilled,
       });
     }
     const key = subKey(userId, frame.isin, frame.exchange);

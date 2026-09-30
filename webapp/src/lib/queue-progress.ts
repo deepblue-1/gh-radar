@@ -15,6 +15,11 @@
  *         「수동」 · 「VI」 로 그린다(quick-260930-e73). `group = 0` → 「매수」 는 서버 배포 전 · 옛 서버(수동 · VI 가
  *         0 으로 오던 시기) 호환으로 유지한다 — 표시명 표에서 0 은 「표시명 없음」이고, 원문 「0」 을 보이면 D-10
  *         모르는 값처럼 읽힌다. 다른 문구가 필요하면 `progressGroupLabel` 한 곳만 바꾼다.
+ *   A-P2  `first_filled`(quick-260930-fi4 · gh-trade a09dfc8b) — 첫 체결이 난 주문은 서버가 네 값
+ *         (`expected_cum` · `current_cum` · `remaining_volume` · `progress_bp`)을 **첫 체결 순간 값으로 고정**해
+ *         전량 체결 · 취소 · 거부까지 보낸다. 웹은 계산하지 않고(% 는 같은 floor · 클램프) 대기(near ·
+ *         「곧 내 차례」)로 칠하지 않는다 — 「{그룹} · 체결 시작」 별도 상태다. 마지막 값 유지(D-13)는 같다.
+ *         옛 relay(필드 부재)는 `=== true` 판정으로 false 다.
  */
 import {
   orderGroupLabel,
@@ -53,19 +58,39 @@ export type ProgressView = {
   pct: number;
   /** % ≥ 90 또는 full — `--up` 색(「곧 내 차례」). 색만이 아니라 숫자 % 가 늘 함께 있다(WCAG 1.4.1). */
   near: boolean;
-  /** `remaining_volume ≤ 0 ∨ progress_bp ≥ 10000` — 「0주 남음」 · 100%. */
+  /** `remaining_volume ≤ 0 ∨ progress_bp ≥ 10000` — 「0주 남음」 · 100%. first_filled 면 늘 false. */
   full: boolean;
+  /** 첫 체결이 났다(A-P2) — 「{그룹} · 체결 시작」 · 서버 고정 % · near 아님. */
+  firstFilled: boolean;
   /** 막대 `aria-valuetext` — 「{그룹} 체결예상까지 {N}주 남음, {P}%」. */
   valueText: string;
 };
 
 const NUMBER_FORMAT = new Intl.NumberFormat("ko-KR");
 
+/** first_filled 문구(A-P2) — WinForms 와 같은 말. 컴포넌트와 값 텍스트가 함께 쓴다. */
+export const PROGRESS_FIRST_FILLED_TEXT = "체결 시작";
+
+/** `progressView` 입력 — `firstFilled` 는 옛 relay 관용으로 선택이다(부재 = false · P-5). */
+export type ProgressViewInput = Pick<RelayQueueProgressItem, "remainingVolume" | "progressBp" | "group"> &
+  Partial<Pick<RelayQueueProgressItem, "firstFilled">>;
+
 /** 진행률 항목 → 보기 값. 계산하지 않는다 — 클램프만(D-12). */
-export function progressView(
-  item: Pick<RelayQueueProgressItem, "remainingVolume" | "progressBp" | "group">,
-): ProgressView {
+export function progressView(item: ProgressViewInput): ProgressView {
   const groupLabel = progressGroupLabel(item.group);
+  if (item.firstFilled === true) {
+    // A-P2 — 서버가 첫 체결 순간 값으로 고정했다. 대기(near · full)가 아닌 별도 상태.
+    const pct = item.progressBp >= 10000 ? 100 : Math.min(100, Math.max(0, Math.floor(item.progressBp / 100)));
+    return {
+      groupLabel,
+      remaining: Math.max(0, item.remainingVolume),
+      pct,
+      near: false,
+      full: false,
+      firstFilled: true,
+      valueText: `${groupLabel} · ${PROGRESS_FIRST_FILLED_TEXT}, ${pct}%`,
+    };
+  }
   const full = item.remainingVolume <= 0 || item.progressBp >= 10000;
   const remaining = full ? 0 : Math.max(0, item.remainingVolume);
   const pct = full ? 100 : Math.min(100, Math.max(0, Math.floor(item.progressBp / 100)));
@@ -76,6 +101,7 @@ export function progressView(
     pct,
     near,
     full,
+    firstFilled: false,
     valueText: `${groupLabel} 체결예상까지 ${NUMBER_FORMAT.format(remaining)}주 남음, ${pct}%`,
   };
 }

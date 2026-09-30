@@ -28,6 +28,7 @@ function item(overrides: Partial<RelayQueueProgressItem> = {}): RelayQueueProgre
     currentCum: 1_088_000,
     remainingVolume: 12_000,
     progressBp: 8800,
+    firstFilled: false,
     ...overrides,
   };
 }
@@ -87,6 +88,7 @@ describe('progressView — D-12 클램프만 (웹 계산 없음)', () => {
       pct: 88,
       near: false,
       full: false,
+      firstFilled: false,
       valueText: '후매수 체결예상까지 12,000주 남음, 88%',
     });
   });
@@ -130,6 +132,37 @@ describe('progressView — D-12 클램프만 (웹 계산 없음)', () => {
     expect(progressView({ remainingVolume: 1200, progressBp: 5000, group: 8 }).valueText).toBe(
       'VI 체결예상까지 1,200주 남음, 50%',
     );
+  });
+});
+
+describe('progressView — first_filled (quick-260930-fi4 · 서버가 첫 체결 순간 값으로 고정)', () => {
+  it('firstFilled · bp 9650 · 4,000주 → 96% · near 아님 · full 아님 · 「체결 시작」', () => {
+    expect(progressView({ group: 3, remainingVolume: 4000, progressBp: 9650, firstFilled: true })).toEqual({
+      groupLabel: '후매수',
+      remaining: 4000,
+      pct: 96,
+      near: false,
+      full: false,
+      firstFilled: true,
+      valueText: '후매수 · 체결 시작, 96%',
+    });
+  });
+
+  it('firstFilled · bp 10050 · remaining −5 → full 아님 · pct 100 · 여전히 체결 시작', () => {
+    expect(progressView({ group: 3, remainingVolume: -5, progressBp: 10050, firstFilled: true })).toMatchObject({
+      remaining: 0,
+      pct: 100,
+      near: false,
+      full: false,
+      firstFilled: true,
+      valueText: '후매수 · 체결 시작, 100%',
+    });
+  });
+
+  it('firstFilled 가 없으면(옛 relay) false — 기존 대기 결과 그대로', () => {
+    const legacy = progressView({ group: 3, remainingVolume: 12_000, progressBp: 8800 });
+    expect(legacy.firstFilled).toBe(false);
+    expect(legacy).toMatchObject({ pct: 88, near: false, full: false, remaining: 12000 });
   });
 });
 

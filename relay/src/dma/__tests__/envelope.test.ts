@@ -89,7 +89,6 @@ import {
   parseDisableStrategiesResp,
   fromWireMarket,
   fromWireCrud,
-  fromWireWatchSide,
   toOrderOrigin,
   strategyKey,
   skippedStrategyItemCount,
@@ -1254,8 +1253,9 @@ describe("전략 요청 조립 (16-04 / T-16-05·T-16-06)", () => {
     expect(t.buyWatchPrice()).toBe(71_100);
     expect(t.buyWatchQty()).toBe(10_000);
     expect(t.buyMinTradeQty()).toBe(30_000);
-    // Phase 24 — buy_watch_side 는 싣지 않는다(buy3 서버는 읽지 않는다). 슬롯 부재 = null.
-    expect(t.buyWatchSide()).toBeNull();
+    // Phase 24 — buy_watch_side 는 싣지 않는다(buy3 서버는 읽지 않는다). gh-trade a3610261 로
+    // 슬롯 24 가 봉인돼 접근자가 사라졌으므로 vtable 슬롯 부재로 직접 증명한다.
+    expect(presentSlots(t, [24])).toEqual([]);
     expect(t.buyTradeQtyEnabled()).toBe(true);
     expect(t.buyEnabled()).toBe(true);
     expect(t.sellOrderPrice()).toBe(71_200);
@@ -1343,7 +1343,8 @@ describe("전략 요청 조립 (16-04 / T-16-05·T-16-06)", () => {
     expect(t.postBuyOrderAmount()).toBe(4000);
     expect(t.postBuyOrderQty()).toBe(3);
     // 입력이 "1" 이어도 싣지 않는다 — 구 클라 경로(buy3_schema=0 ∧ side "1")를 열 수 없다.
-    expect(t.buyWatchSide()).toBeNull();
+    // 슬롯 24 봉인(gh-trade a3610261)으로 접근자가 없어 vtable 슬롯 부재로 증명한다.
+    expect(presentSlots(t, [24])).toEqual([]);
     // S→C 전용 4필드는 vtable 슬롯 자체가 없다.
     expect(presentSlots(t, LC_SERVER_ONLY_VTABLES)).toEqual([]);
     // 대조군 — 실은 필드는 슬롯이 있다(판정기가 늘 빈 배열을 내는 거짓 green 방지).
@@ -1996,9 +1997,6 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
 
     expect(fromWireCrud("Delete")).toBe("D");
     expect(fromWireCrud("")).toBe("C");
-
-    expect(fromWireWatchSide("1")).toBe("1");
-    expect(fromWireWatchSide("")).toBe("0");
   });
 });
 
@@ -2194,6 +2192,8 @@ describe("잔량진행률 83 QueueProgress 파서 (Phase 25-06)", () => {
           currentCum: 1_088_000,
           remainingVolume: 12_000,
           progressBp: 8800,
+          // 옵션 없이 만든 프레임(= 옛 서버 · 슬롯 부재) → 생성 기본 false.
+          firstFilled: false,
         },
       ],
     });
@@ -2216,6 +2216,36 @@ describe("잔량진행률 83 QueueProgress 파서 (Phase 25-06)", () => {
       ["31", 7],
       ["32", 8],
     ]);
+  });
+
+  it("first_filled true 항목 → firstFilled true · 네 값은 서버가 고정한 원문 그대로 (quick-260930-fi4)", () => {
+    const frame = parseQueueProgress(
+      envOf(
+        buildQueueProgressFrame({
+          items: [
+            {
+              orderNo: "41",
+              group: 3,
+              expectedCum: 1_100_000,
+              currentCum: 1_061_500,
+              remainingVolume: 4000,
+              progressBp: 9650,
+              firstFilled: true,
+            },
+            { orderNo: "42", group: 3 },
+          ],
+        }),
+      ),
+    );
+    expect(frame?.items[0]).toMatchObject({
+      orderNo: "41",
+      expectedCum: 1_100_000,
+      currentCum: 1_061_500,
+      remainingVolume: 4000,
+      progressBp: 9650,
+      firstFilled: true,
+    });
+    expect(frame?.items[1]?.firstFilled).toBe(false);
   });
 
   it("빈 항목 벡터는 items [] 다(null 아님) — 「그 종목 · 거래소 대기 주문 전부 사라짐」(G1 ⓕ)", () => {

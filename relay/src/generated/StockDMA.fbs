@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 5f49cfa5 + dcaa78b1 (SetLimitChaser)
-// synced-date:        2026-09-29
+// server-repo-commit: d303fe9f
+// synced-date:        2026-09-30
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -400,7 +400,7 @@ table SetLimitChaser {
 
     // === 매수 조건 ===
     // 호가(B6) 기반 매수 조건:
-    //   buyWatchSide='0' (매도호가 비교):
+    //   선매수(종전 매도호가 비교 갈래):
     //     - ask1Price == buyWatchPrice && ask1Qty <= buyWatchQty → 주문
     //     - bid1Price == buyWatchPrice → 주문 (매수호가가 감시가에 도달)
     //     - ask1Price > buyWatchPrice → 주문 (가격 상승)
@@ -410,9 +410,8 @@ table SetLimitChaser {
     buy_watch_price: uint;       // 매수 감시가격 (원, 보통 상한가)
     buy_watch_qty: uint;         // 매수 감시수량 (주, 최우선 호가 잔량과 비교)
     buy_min_trade_qty: uint;     // 최소 체결수량 (주, 이 값 이상 체결 시 주문)
-    buy_watch_side: string;      // 호가비교 위치 ("0"=매도호가, "1"=매수호가) // Phase 24 부터 cfg 에 싣지 않는다 — 서버는
-                                 // 구 클라(buy3_schema 부재)의 "1" 거부 판정(D-28)에만 읽는다. 봉인은 gh-radar 가 buy3_schema=1
-                                 // 전송을 배포한 뒤 후속 작업이다 (D-28 ③ — 이 페이즈에서 봉인하지 않는다)
+    buy_watch_side: string (deprecated);   // (봉인) 구 호가비교 위치("0" 매도잔량 / "1" 매수잔량) — Phase 24 D-24/D-28 ③,
+                                 // quick-260930-1s8 로 슬롯 24 봉인. 서버는 읽지 않는다(구 클라 매수 ON 은 값과 무관하게 거부)
     buy_trade_qty_enabled: bool; // 체결수량 조건 활성화
     buy_enabled: bool;           // 매수 감시 활성화 — Phase 24 부터 세 매수의 마스터(D-01). 에코는 cfg ∧ 마스터 무장: 그룹 하나의 발주로는 접히지 않고, 선·추가·후매수가 모두 접히면(발주·포기·소진) 서버가 내려 OFF 로 온다(D-34)
 
@@ -585,8 +584,8 @@ table SetLimitChaser {
     // - buy_enabled 는 세 매수의 **마스터**다(D-01). buy_watch_price·buy_order_price 는 세 매수 공통(D-20).
     // - 기존 buy_order_qty·buy_order_amount·buy_watch_qty·buy_trade_qty_enabled·buy_min_trade_qty·
     //   sweep_* 는 **선매수의 값**으로 재해석한다(D-17).
-    // - 구/신 클라 판별은 buy3_schema 의 부재(0) 하나다(D-24) — 구 클라의 Set 은 "선매수만 켠 등록" 이다.
-    buy3_schema: ubyte;              // 0 = 구 클라(필드 부재) → buy_enabled 를 "선매수만 켠 등록" 으로 읽는다.
+    // - 구/신 클라 판별은 buy3_schema 의 부재(0) 하나다(D-24).
+    buy3_schema: ubyte;              // 0 = 구 클라(필드 부재) → 매수 ON 은 고정 문구 ERROR 로 거부하고 매수 3종을 켜지 않는다(D-28 · quick-260930-1s8).
                                      // 1 = 3종 클라 · 2 = post_buy_auto 를 싣는 클라(quick-260929-ucy — 서버는 2 이상일 때만
                                      // post_buy_auto 를 읽는다). 서버 에코는 1 그대로 (D-24 판정 정본). vtable 98
     pre_buy_enabled: bool;           // 선매수 체크 (양방향) — 에코는 무장과 접힌다(D-03). vtable 100
@@ -609,10 +608,14 @@ table SetLimitChaser {
     post_buy_reentry_left: ubyte;    // **S→C 전용** 재진입 잔여(회). 요청값은 서버가 읽지 않는다. vtable 128
     post_buy_phase: ubyte;           // **S→C 전용** 0 꺼짐 / 1 감시 / 2 보유중 / 3 소진. 요청값은 서버가 읽지 않는다. vtable 130
     // === 이하 quick-260929-ucy 추가 (말미 append) ===
-    post_buy_auto: bool;             // ☐자동(양방향) — ON 이면 선매수 무체결 전량취소 또는 보유 0 전이 때 서버가 후매수를 1회 켜고
+    post_buy_auto: bool;             // ☐자동(양방향) — ON 이면 선매수·추가매수가 상따 취소 옵션으로 무체결 전량취소되거나 보유 0 전이 때 서버가 후매수를 1회 켜고
                                      // 이 값을 false 로 에코한다(꺼져 있던 마스터도 올린다 — docs/strategy/limit-chaser.md §5-3-1).
                                      // 서버는 buy3_schema >= 2 일 때만 읽는다(1 이하는 서버 값 유지 — 구 클라·gh-radar relay).
                                      // 에코는 서버 런타임 값. vtable 132
+    // === 이하 quick-260930-e5o 추가 (말미 append) ===
+    extra_buy_abandon_qty: uint;     // **S→C 전용** 추가매수 포기가 성립한 틱의 매수1잔량(주) — 포기 아님 = 0. 클라 상태 줄
+                                     // 「추가매수 포기(최대 초과 N — …)」 의 N. 재기동에도 유지된다(상태 파일 add_buy_abandon_qty).
+                                     // 요청값은 서버가 읽지 않는다. vtable 134
 }
 
 // VITrigger (VI 발동) 전략 설정
@@ -1261,7 +1264,9 @@ enum OrderGroup : ubyte {
     PostBuy = 3,         // 후매수 (코드 주석 "반등": 발동잔량 ≤ 하향 래칫)
     SellQuote = 4,       // 호가매도 (ShouldSellOnQuote, B6)
     SellTrade = 5,       // 체결매도 (ShouldSellOnTrade, A3)
-    SellFillHook = 6     // 체결훅 즉시매도
+    SellFillHook = 6,    // 체결훅 즉시매도
+    Manual = 7,          // 수동 주문 — quick-260930-e5o, gh-radar 합의 말미 append
+    VITrigger = 8        // VI 자동주문 — quick-260930-e5o, gh-radar 합의 말미 append
 }
 
 enum CondMetric : ubyte {
@@ -1348,7 +1353,7 @@ table StrategyEventBatch {       // 81/82 공용 본문 (66/67 동형)
     is_snapshot: bool;           // true = 81 백필, false = 82 푸시
 }
 
-table QueueProgressItem {        // 그 (isin, exchange) 의 대기 주문 1건
+table QueueProgressItem {        // 그 (isin, exchange) 의 대기 또는 첫 체결 뒤 남은 주문 1건
     account_no: string;          // 필수 — relay 계좌 권한 게이트
     dma_user_id: string;
     order_no: string;
@@ -1359,12 +1364,13 @@ table QueueProgressItem {        // 그 (isin, exchange) 의 대기 주문 1건
     current_cum: ulong;          // 현재 누적거래량 (서버가 진실 원본)
     remaining_volume: long;      // expected_cum − current_cum
     progress_bp: int;            // 진행률 bp (0~10000)
+    first_filled: bool;          // 첫 체결이 났다 — true 면 expected_cum·current_cum·remaining_volume·progress_bp 는 첫 체결 순간 값으로 고정(current_cum = 그 순간 누적), 전량 체결·취소·정정·거부 때 빠진다. 기본 false (quick-260930-e5g)
 }
 
-table QueueProgress {            // 83 본문 — 종목·거래소별 대기 주문 **전체 스냅샷** (1초 스로틀 Broadcast, D-19)
+table QueueProgress {            // 83 본문 — 종목·거래소별 대기·첫 체결 뒤 주문 **전체 스냅샷** (1초 스로틀 Broadcast, D-19)
     isin: string;
     exchange: string;
-    items: [QueueProgressItem];  // 빈 벡터 허용 = 전부 사라짐 (첫 체결·취소 뒤 한 번 더 나간다)
+    items: [QueueProgressItem];  // 빈 벡터 허용 = 전부 사라짐 (항목이 first_filled 로 바뀌거나 전량 체결·취소·정정·거부로 빠진 뒤 한 번 더 나간다)
 }
 
 // ============================================================================

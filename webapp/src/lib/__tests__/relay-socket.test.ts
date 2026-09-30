@@ -2882,6 +2882,7 @@ describe('unf.progress (Phase 25)', () => {
     currentCum: 1_088_000,
     remainingVolume: 12_000,
     progressBp: 8800,
+    firstFilled: false,
   };
   const B: RelayQueueProgressItem = { ...A, orderNo: '77701', exchange: 'NXT', isin: ISIN_B, group: 1 };
 

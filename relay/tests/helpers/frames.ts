@@ -569,11 +569,7 @@ export type FakeLimitChaserInput = {
   buyWatchPrice?: number;
   buyWatchQty?: number;
   buyMinTradeQty?: number;
-  /**
-   * 첫 글자만 파싱된다. `"1"`=매수호가, 그 외=매도호가.
-   * **주지 않으면 슬롯을 싣지 않는다** — 새 서버(buy3) 에코는 이 슬롯이 없다(Phase 24).
-   */
-  buyWatchSide?: string;
+  // buy_watch_side(슬롯 24)는 gh-trade a3610261 로 봉인돼 빌더가 없다 — 입력도 두지 않는다.
   buyTradeQtyEnabled?: boolean;
   buyEnabled?: boolean;
   sellOrderPrice?: number;
@@ -700,9 +696,6 @@ function emitSetLimitChaser(
   const accountNo = b.createString(input.accountNo ?? SAMPLE_ACCOUNT_NO);
   const market = b.createString(input.market ?? d.market);
   const crud = b.createString(input.crud ?? d.crud);
-  // 새 서버(buy3) 에코에는 감시대상 슬롯이 없다 — 명시로 줄 때만 싣는다(구 서버 흉내).
-  const buyWatchSide =
-    input.buyWatchSide === undefined ? undefined : b.createString(input.buyWatchSide);
   const exchange = b.createString(input.exchange ?? d.exchange);
 
   SetLimitChaser.startSetLimitChaser(b);
@@ -715,7 +708,6 @@ function emitSetLimitChaser(
   SetLimitChaser.addBuyWatchPrice(b, input.buyWatchPrice ?? d.buyWatchPrice);
   SetLimitChaser.addBuyWatchQty(b, input.buyWatchQty ?? d.buyWatchQty);
   SetLimitChaser.addBuyMinTradeQty(b, input.buyMinTradeQty ?? d.buyMinTradeQty);
-  if (buyWatchSide !== undefined) SetLimitChaser.addBuyWatchSide(b, buyWatchSide);
   SetLimitChaser.addBuyTradeQtyEnabled(b, input.buyTradeQtyEnabled ?? false);
   SetLimitChaser.addBuyEnabled(b, input.buyEnabled ?? false);
   SetLimitChaser.addSellOrderPrice(b, input.sellOrderPrice ?? d.sellOrderPrice);
@@ -1624,6 +1616,8 @@ export type FakeQueueProgressItemInput = {
   currentCum?: number;
   remainingVolume?: number;
   progressBp?: number;
+  /** 첫 체결(슬롯 24). 주지 않으면 false — 기본값이라 버퍼에 쓰이지 않아 옛 서버 프레임과 같다. */
+  firstFilled?: boolean;
 };
 
 /** 83 프레임 입력. 종목 · 거래소 기본값은 `SAMPLE_ISIN` · `"KRX"`, 항목 기본값은 빈 벡터(= 대기 주문 전부 사라짐). */
@@ -1657,6 +1651,7 @@ export function buildQueueProgressFrame(input: FakeQueueProgressInput = {}): Uin
       BigInt(it.currentCum ?? 1_088_000),
       BigInt(it.remainingVolume ?? 12_000),
       it.progressBp ?? 8800,
+      it.firstFilled ?? false,
     );
   });
   const items = QueueProgress.createItemsVector(b, offsets);

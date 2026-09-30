@@ -300,4 +300,11 @@ export type RelayQueueProgressItem = {
   remainingVolume: number;
   /** 진행률 basis point (0~10000). */
   progressBp: number;
+  /**
+   * 첫 체결이 났다(83 `first_filled` · gh-trade d303fe9f vtable 24). true 면 위 네 값
+   * (`expectedCum` · `currentCum` · `remainingVolume` · `progressBp`)은 서버가 **첫 체결 순간 값으로
+   * 고정**해 보낸다 — 웹은 다시 계산하지 않는다. 전량 체결 · 취소 · 정정 · 거부 때 항목이 빠진다
+   * (빈 83 규칙). 옛 서버(슬롯 부재) = false.
+   */
+  firstFilled: boolean;
 };

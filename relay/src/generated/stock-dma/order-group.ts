@@ -9,5 +9,7 @@ export enum OrderGroup {
   PostBuy = 3,
   SellQuote = 4,
   SellTrade = 5,
-  SellFillHook = 6
+  SellFillHook = 6,
+  Manual = 7,
+  VITrigger = 8
 }

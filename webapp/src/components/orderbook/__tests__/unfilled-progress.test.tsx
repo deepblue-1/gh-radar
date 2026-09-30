@@ -15,11 +15,13 @@ import { UnfilledProgress } from '../unfilled-progress';
  *   - 90% 이상 · 0주 남음(full) → `data-near` + 채움 `--up` · 미만 `--primary`
  *   - 취소 보관(`muted`) → 숫자 `--muted-fg` · 채움 `--faint`(near 여도)
  *   - compact(모바일 r3) → 「체결예상까지」·「·」 생략 · 막대만 신축
+ *   - first_filled(quick-260930-fi4) → 「{그룹} · 체결 시작」 · 서버 고정 % 막대 · near 아님(data-first-filled)
  */
 
 const VIEW_88 = progressView({ group: 3, remainingVolume: 12_000, progressBp: 8800 });
 const VIEW_90 = progressView({ group: 3, remainingVolume: 3_000, progressBp: 9000 });
 const VIEW_FULL = progressView({ group: 1, remainingVolume: -5, progressBp: 10_050 });
+const VIEW_FIRST = progressView({ group: 3, remainingVolume: 4_000, progressBp: 9_650, firstFilled: true });
 
 const root = () => document.querySelector<HTMLElement>('[data-slot="unfilled-progress"]')!;
 const fill = () => root().querySelector<HTMLElement>('[data-slot="unfilled-progress-fill"]')!;
@@ -107,5 +109,31 @@ describe('UnfilledProgress — compact(모바일 r3)', () => {
     }
     // 접근성 값 텍스트는 두 모양이 같다 — 모바일도 「체결예상까지」 를 읽어 준다.
     expect(bar).toHaveAttribute('aria-valuetext', '후매수 체결예상까지 12,000주 남음, 88%');
+  });
+});
+
+describe('UnfilledProgress — first_filled(quick-260930-fi4)', () => {
+  for (const variant of ['row', 'compact'] as const) {
+    it(`${variant} — 「후매수·체결 시작96%」 · data-first-filled · near 없음 · 채움 --primary 96%`, () => {
+      render(<UnfilledProgress view={VIEW_FIRST} variant={variant} />);
+      expect(root().textContent).toBe('후매수·체결 시작96%');
+      expect(root()).toHaveAttribute('data-first-filled', 'true');
+      expect(root()).not.toHaveAttribute('data-near');
+      expect(fill().style.width).toBe('96%');
+      expect(fill().className).toContain('bg-[var(--primary)]');
+      expect(fill().className).not.toContain('bg-[var(--up)]');
+      const amount = root().querySelector('[data-slot="unfilled-progress-amount"]')!;
+      expect(amount.textContent).toBe('체결 시작');
+      const bar = screen.getByRole('progressbar', { name: '체결예상까지 진행률' });
+      expect(bar).toHaveAttribute('aria-valuenow', '96');
+      expect(bar).toHaveAttribute('aria-valuetext', '후매수 · 체결 시작, 96%');
+    });
+  }
+
+  it('muted(취소 보관) → 채움 --faint', () => {
+    render(<UnfilledProgress view={VIEW_FIRST} variant="row" muted />);
+    expect(root()).toHaveAttribute('data-first-filled', 'true');
+    expect(fill().className).toContain('bg-[var(--faint)]');
+    expect(fill().className).not.toContain('bg-[var(--primary)]');
   });
 });

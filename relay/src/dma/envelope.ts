@@ -46,7 +46,6 @@ import type {
   RelayHolding,
   RelayKrxSession,
   RelayLcCrud,
-  RelayLcWatchSide,
   RelayLimitChaser,
   RelayLimitChaserInput,
   RelayQueueProgressItem,
@@ -763,11 +762,14 @@ export function parseQueuedWindowState(env: Envelope): RelayQueuedWindowMsg | nu
  */
 export type QueueProgressWireItem = RelayQueueProgressItem & { dmaUserId: string };
 
-/** 잔량진행률 1프레임 (83) — 그 (isin, exchange) 의 대기 주문 **전량**. */
+/**
+ * 잔량진행률 1프레임 (83) — 그 (isin, exchange) 의 대기 · 첫 체결 뒤 주문 **전량**.
+ * `firstFilled` 항목은 서버가 네 값을 첫 체결 순간 값으로 고정해 전량 체결 · 취소 · 거부까지 싣는다.
+ */
 export type QueueProgressFrame = {
   isin: string;
   exchange: RelayExchange;
-  /** `[]` = 그 종목 · 거래소의 대기 주문이 모두 사라졌다(G1 ⓕ) — 파싱 실패(`null`)와 다른 뜻이다. */
+  /** `[]` = 그 종목 · 거래소의 해당 주문이 모두 사라졌다(G1 ⓕ) — 파싱 실패(`null`)와 다른 뜻이다. */
   items: QueueProgressWireItem[];
 };
 
@@ -819,6 +821,8 @@ export function parseQueueProgress(env: Envelope): QueueProgressFrame | null {
       currentCum: toNum(it.currentCum(), "queue_progress.current_cum"),
       remainingVolume: toNum(it.remainingVolume(), "queue_progress.remaining_volume"),
       progressBp: it.progressBp(),
+      // 슬롯 부재(옛 서버) = 생성 기본 false. 계산하지 않는다(T-25-28).
+      firstFilled: it.firstFilled(),
     });
   }
   if (skipped > 0) {
@@ -1924,16 +1928,6 @@ export function fromWireCrud(raw: string): RelayLcCrud {
 }
 
 /**
- * 수신 매수 감시 기준호가 정규화 — 첫 글자 `'1'` 만 매수호가이고 그 외는 전부 매도호가다.
- *
- * 빈 문자열이 매도호가("0")로 접히는 것은 서버 기본값과 같다. 지어낸 기본값이 아니라
- * **서버 규약의 복제**이므로 감시 기준이 뒤집히지 않는다.
- */
-export function fromWireWatchSide(raw: string): RelayLcWatchSide {
-  return raw.charAt(0) === "1" ? "1" : "0";
-}
-
-/**
  * 계좌 상태 조회 요청 (MsgType 25). 응답은 66(스냅샷)이고 이후 67(델타)이 편승한다.
  *
  * `accountNo` 를 **빈 문자열로 보내면 전 계좌 스냅샷**이 온다 — 계좌당 1프레임이다
@@ -2179,8 +2173,9 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       buyWatchPrice: t.buyWatchPrice(),
       buyWatchQty: t.buyWatchQty(),
       buyMinTradeQty: t.buyMinTradeQty(),
-      // 새 서버(buy3) 에코에는 슬롯이 없어 `"0"` 으로 읽힌다(Phase 24).
-      buyWatchSide: fromWireWatchSide(t.buyWatchSide() ?? ""),
+      // gh-trade a3610261 로 슬롯 24 봉인 — 생성 접근자가 없다. buy3 서버 에코에는 원래 없어
+      // 종전에도 "0" 이었다(Phase 24). 값 영향 0 — 상수로 채운다.
+      buyWatchSide: "0",
       buyTradeQtyEnabled: t.buyTradeQtyEnabled(),
       // 에코의 게이트는 설정값이 아니라 **무장 상태**다(`cfg.buyEnabled && buyArmed`).
       // 여기서 해석하지 않고 그대로 올린다 — 문구 구분은 UI 몫이다 (Pitfall 10).

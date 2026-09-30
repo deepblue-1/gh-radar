@@ -165,8 +165,9 @@ export type RelayLimitChaser = {
   /** 매수 최소 체결수량(주). */
   buyMinTradeQty: number;
   /**
-   * 매수 감시 기준 호가 — **읽기 전용**(옛 서버 에코 호환). 새 서버(buy3) 에코에는 없다 — relay 가
-   * `"0"` 으로 채운다. 입력(`RelayLimitChaserInput`)에서는 빠졌다(Phase 24 ⑤ · 24-03).
+   * 매수 감시 기준 호가 — **읽기 전용**(옛 서버 에코 호환). relay 가 늘 `"0"` 을 채운다 — gh-trade
+   * 슬롯 24 봉인(a3610261)으로 생성 접근자가 없고, 새 서버(buy3) 에코에는 원래 없었다.
+   * 입력(`RelayLimitChaserInput`)에서는 빠졌다(Phase 24 ⑤ · 24-03).
    */
   buyWatchSide: RelayLcWatchSide;
   /** 매수 체결수량 조건 사용 여부. */
@@ -1297,7 +1298,7 @@ export type RelayUnfProgressEntry = {
   /** ISIN. */
   i: string;
   x: RelayExchange;
-  /** 그 (isin, exchange) 의 대기 주문 **전량** — 빈 배열 = 대기 주문이 모두 사라졌다(G1 ⓕ). */
+  /** 그 (isin, exchange) 의 대기 · 첫 체결 뒤 주문 **전량** — 빈 배열 = 해당 주문이 모두 사라졌다(G1 ⓕ). */
   items: RelayQueueProgressItem[];
 };
 

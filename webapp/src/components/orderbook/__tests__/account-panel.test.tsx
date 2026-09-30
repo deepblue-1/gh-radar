@@ -1334,6 +1334,7 @@ describe('AccountPanel — 진행률 B안 (Phase 25 · D-11~D-13)', () => {
       currentCum: 1_088_000,
       remainingVolume: 12_000,
       progressBp: 8800,
+      firstFilled: false,
       ...over,
     };
   }

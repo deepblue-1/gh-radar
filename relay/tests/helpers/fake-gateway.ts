@@ -362,7 +362,8 @@ export function readViSetRequest(msgType: number, payload: Buffer): ViSetRequest
  * `SetLimitChaserReq(10)` 요청 내용 — 상따 설정 전송분(Phase 24 트레이서 · e2e · 통합 공용).
  *
  * `buyWatchSide` 는 **와이어 원문**이다 — 슬롯이 없으면 `null`(relay 가 싣지 않았다는 증거).
- * `readViSetRequest.exchange` 와 같은 이유로 정규화하지 않는다.
+ * `readViSetRequest.exchange` 와 같은 이유로 정규화하지 않는다. 슬롯 24 는 gh-trade a3610261 로
+ * 봉인돼 생성 접근자가 없으므로 vtable 슬롯 24 를 원시로 읽는다.
  */
 export interface SetLimitChaserRequest {
   isin: string;
@@ -414,6 +415,19 @@ export interface SetLimitChaserRequest {
 /** S→C 전용 4필드의 vtable 오프셋(생성 코드 `__offset(bb_pos, N)` 의 N). */
 const LC_SERVER_ONLY_VTABLE_SLOTS = [112, 126, 128, 130] as const;
 
+/** 봉인된 `buy_watch_side` 의 vtable 오프셋 — gh-trade a3610261 이후 생성 접근자가 없다. */
+const BUY_WATCH_SIDE_SEALED_VT = 24;
+
+/** 접근자가 사라진 봉인 문자열 슬롯을 원시로 읽는다 — 슬롯 부재면 `null`. */
+function readSealedStringSlot(
+  bb: flatbuffers.ByteBuffer,
+  bbPos: number,
+  vt: number,
+): string | null {
+  const offset = bb.__offset(bbPos, vt);
+  return offset === 0 ? null : (bb.__string(bbPos + offset) as string);
+}
+
 /**
  * 상따 설정 요청(10) 내용을 꺼낸다. `readViSetRequest` 와 같은 이유로 여기 있다.
  *
@@ -441,7 +455,7 @@ export function readSetLimitChaserRequest(
     buyOrderQty: req.buyOrderQty(),
     buyWatchPrice: req.buyWatchPrice(),
     buy3Schema: req.buy3Schema(),
-    buyWatchSide: req.buyWatchSide(),
+    buyWatchSide: readSealedStringSlot(bb, req.bb_pos, BUY_WATCH_SIDE_SEALED_VT),
     preBuyEnabled: req.preBuyEnabled(),
     extraBuyEnabled: req.extraBuyEnabled(),
     extraBuyMinQty: req.extraBuyMinQty(),

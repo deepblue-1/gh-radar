@@ -27,13 +27,16 @@
  *     회색인데 한 조각만 살아 있으면 살아 있는 주문으로 읽힌다(account-panel ⑨).
  *   - `selected` = 선택된 미체결 행(⑩) — 선택 배경(accent) 위라 `--fg` 조각을 `--accent-fg` 로 바꾼다
  *     (행의 다른 셀 · SideTag 와 같은 규칙).
+ *   - first_filled(quick-260930-fi4 · `view.firstFilled`) — 두 모양 모두 「{그룹} · 체결 시작 [막대] {P}%」.
+ *     막대는 서버가 첫 체결 순간 고정한 % 그대로이고 대기(near · 「곧 내 차례」)로 칠하지 않는다 — 채움
+ *     `--primary`(muted 면 `--faint`), 루트 `data-first-filled`. 이 분기에도 산술이 없다.
  *   - 새 토큰 0 · 이 한 줄은 클릭 대상이 아니다(버튼 · 핸들러 없음).
  *
  * 문구 조각(「체결예상까지」 · 「주 남음」 · 막대 이름)은 아래 상수 한 곳에 둔다 — gh-trade 와 합의된 공용
  * 문구가 바뀌면 여기와 `progressView` 의 값 텍스트만 고친다.
  */
 
-import type { ProgressView } from '@/lib/queue-progress';
+import { PROGRESS_FIRST_FILLED_TEXT, type ProgressView } from '@/lib/queue-progress';
 import { cn } from '@/lib/utils';
 
 /** 막대 접근성 이름(UI-SPEC 접근성 계약). */
@@ -70,7 +73,11 @@ export function UnfilledProgress({
     : selected
       ? 'text-[var(--accent-fg)]'
       : 'text-[var(--fg)]';
-  const fill = muted ? 'bg-[var(--faint)]' : view.near ? 'bg-[var(--up)]' : 'bg-[var(--primary)]';
+  const fill = muted
+    ? 'bg-[var(--faint)]'
+    : view.near && !view.firstFilled
+      ? 'bg-[var(--up)]'
+      : 'bg-[var(--primary)]';
   const remaining = NUMBER_FORMAT.format(view.remaining);
 
   const bar = (
@@ -103,7 +110,8 @@ export function UnfilledProgress({
     <div
       data-slot="unfilled-progress"
       data-variant={variant}
-      data-near={view.near ? 'true' : undefined}
+      data-near={view.near && !view.firstFilled ? 'true' : undefined}
+      data-first-filled={view.firstFilled ? 'true' : undefined}
       data-muted={muted ? 'true' : undefined}
       className={cn(
         'flex min-w-0 items-center gap-2 text-[11px] leading-[1.5] whitespace-nowrap text-[var(--muted-fg)]',
@@ -114,12 +122,23 @@ export function UnfilledProgress({
       <span data-slot="unfilled-progress-kind" className={cn('flex-none font-semibold', strong)}>
         {view.groupLabel}
       </span>
-      {!compact && <span className="flex-none">·</span>}
-      <span className="flex-none">
-        {!compact && `${LEAD} `}
-        <b className={cn('mono font-semibold', strong)}>{remaining}</b>
-        {REMAIN_TAIL}
-      </span>
+      {view.firstFilled ? (
+        <>
+          <span className="flex-none">·</span>
+          <span data-slot="unfilled-progress-amount" className="flex-none">
+            <b className={cn('font-semibold', strong)}>{PROGRESS_FIRST_FILLED_TEXT}</b>
+          </span>
+        </>
+      ) : (
+        <>
+          {!compact && <span className="flex-none">·</span>}
+          <span className="flex-none">
+            {!compact && `${LEAD} `}
+            <b className={cn('mono font-semibold', strong)}>{remaining}</b>
+            {REMAIN_TAIL}
+          </span>
+        </>
+      )}
       {bar}
       <b className={cn('mono flex-none font-semibold', strong)}>{view.pct}%</b>
     </div>
