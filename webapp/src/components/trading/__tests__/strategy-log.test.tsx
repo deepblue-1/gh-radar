@@ -185,11 +185,12 @@ describe('serverMessageLogLine / strategiesDisabledLogLine', () => {
 });
 
 describe('S→C 전용 필드 · 값 변경 판정 · 런타임 전용 에코 (quick-260926-nr2)', () => {
-  it('LIMIT_CHASER_SERVER_ONLY_FIELDS 는 정확히 10개이고 COUNTER(3) ∪ LATCH(2) ∪ RUNTIME(5) 와 같다 (Phase 24)', () => {
-    expect(LIMIT_CHASER_SERVER_ONLY_FIELDS).toHaveLength(10);
+  it('LIMIT_CHASER_SERVER_ONLY_FIELDS 는 정확히 11개이고 COUNTER(3) ∪ LATCH(2) ∪ RUNTIME(6) 와 같다 (Phase 24 · quick-260930-fi4)', () => {
+    expect(LIMIT_CHASER_SERVER_ONLY_FIELDS).toHaveLength(11);
     expect(LIMIT_CHASER_SERVER_COUNTER_FIELDS).toHaveLength(3);
     expect(LIMIT_CHASER_SERVER_LATCH_FIELDS).toHaveLength(2);
-    expect(LIMIT_CHASER_SERVER_RUNTIME_FIELDS).toHaveLength(5);
+    expect(LIMIT_CHASER_SERVER_RUNTIME_FIELDS).toHaveLength(6);
+    expect(LIMIT_CHASER_SERVER_RUNTIME_FIELDS).toContain('extraBuyAbandonQty');
     expect(new Set(LIMIT_CHASER_SERVER_ONLY_FIELDS)).toEqual(
       new Set([
         ...LIMIT_CHASER_SERVER_COUNTER_FIELDS,
@@ -466,11 +467,11 @@ describe('⑰ 취소 래치 전이 2종 + skip 집합 (17-11 Task 2 · Phase 24 
     );
   });
 
-  it('⑰-6 ★ 두 표가 28종 닫힌 집합으로 동형이다 — 문구/전이가 한쪽만 늘지 않는다 (Phase 24: −buyFired +그룹 6 +동반 6 +서버 접힘 1 · quick-260929-vzy +자동 2)', () => {
-    expect(TRANSITION_ORDER).toHaveLength(28);
-    expect(Object.keys(TRANSITION_TEXT)).toHaveLength(28);
+  it('⑰-6 ★ 두 표가 29종 닫힌 집합으로 동형이다 — 문구/전이가 한쪽만 늘지 않는다 (Phase 24: −buyFired +그룹 6 +동반 6 +서버 접힘 1 · quick-260929-vzy +자동 2 · quick-260930-fi4 +포기 1)', () => {
+    expect(TRANSITION_ORDER).toHaveLength(29);
+    expect(Object.keys(TRANSITION_TEXT)).toHaveLength(29);
     // 중복 없음 + 두 표의 원소 집합이 정확히 같다.
-    expect(new Set(TRANSITION_ORDER).size).toBe(28);
+    expect(new Set(TRANSITION_ORDER).size).toBe(29);
     expect([...TRANSITION_ORDER].sort()).toEqual(Object.keys(TRANSITION_TEXT).sort());
   });
 
@@ -774,6 +775,50 @@ describe('후매수 자동 — 로그 전이 · 54 사유 줄 (quick-260929-vzy 
     const out = serverMessageLogLine(reason);
     expect(out.text).toBe(`[상따] 서버 통지 — ${m}`);
     expect(out.level).toBe('info');
+  });
+});
+
+/*
+  quick-260930-fi4 — 추가매수 포기 수량(gh-trade extra_buy_abandon_qty · S→C 런타임). 포기가 성립한 에코
+  (추가매수 게이트 접힘 + extraBuyAbandoned false→true)는 「추가매수 무장 해제」 대신 「추가매수 포기 · 최대 초과 N」
+  한 조각(P-4 · WinForms 상태 줄 정렬). 게이트 변화 없는 런타임 에코는 여전히 0줄(D-13).
+*/
+describe('추가매수 포기 수량 — 로그 전이 (quick-260930-fi4)', () => {
+  const armed = at({ buyEnabled: true, extraBuyEnabled: true, extraBuyAbandoned: false, extraBuyAbandonQty: 0 });
+
+  it('포기 성립 에코 → 「추가매수 포기 · 최대 초과 645,842」 (N0 콤마 · 「주」 없음)', () => {
+    const abandoned = { ...armed, extraBuyEnabled: false, extraBuyAbandoned: true, extraBuyAbandonQty: 645_842 };
+    expect(strategyLogLine(armed, abandoned)).toBe('추가매수 포기 · 최대 초과 645,842');
+  });
+
+  it('같은 전이에 수량 0(옛 서버) → 「추가매수 포기」 만', () => {
+    const abandoned = { ...armed, extraBuyEnabled: false, extraBuyAbandoned: true, extraBuyAbandonQty: 0 };
+    expect(strategyLogLine(armed, abandoned)).toBe('추가매수 포기');
+  });
+
+  it('포기 없이 게이트만 꺼짐 → 「추가매수 무장 해제」 (기존)', () => {
+    expect(strategyLogLine(armed, { ...armed, extraBuyEnabled: false })).toBe('추가매수 무장 해제');
+  });
+
+  it('포기 유지 중 수량만 645,842 → 700,000 → 런타임 전용 · 0줄 · 서버 반영 완료 없음', () => {
+    const a = { ...armed, extraBuyEnabled: false, extraBuyAbandoned: true, extraBuyAbandonQty: 645_842 };
+    const b = { ...a, extraBuyAbandonQty: 700_000 };
+    expect(isRuntimeOnlyEcho(a, b)).toBe(true);
+    expect(limitChaserValuesChanged(a, b)).toBe(false);
+    expect(strategyLogLine(a, b)).toBeNull();
+  });
+
+  it('재무장(포기 true → false · 수량 → 0 · 게이트 켜짐) → 「추가매수 무장」', () => {
+    const a = { ...armed, extraBuyEnabled: false, extraBuyAbandoned: true, extraBuyAbandonQty: 645_842 };
+    const b = { ...armed, extraBuyEnabled: true, extraBuyAbandoned: false, extraBuyAbandonQty: 0 };
+    expect(strategyLogLine(a, b)).toBe('추가매수 무장');
+  });
+
+  it('게이트 변화 없이 포기 플래그 · 수량만 바뀐 에코 → 기존대로 런타임 전용 · 0줄', () => {
+    const off = at({ buyEnabled: true });
+    const b = { ...off, extraBuyAbandoned: true, extraBuyAbandonQty: 645_842 };
+    expect(isRuntimeOnlyEcho(off, b)).toBe(true);
+    expect(strategyLogLine(off, b)).toBeNull();
   });
 });
 

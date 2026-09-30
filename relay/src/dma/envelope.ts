@@ -1291,9 +1291,9 @@ export type LcSetCfg = Omit<RelayLimitChaserInput, "postBuyAuto"> & { postBuyAut
  * `buy3_schema`) = 45 필드 + 선택 1(`post_buy_auto` — 입력에 있을 때만) = 최대 46 필드만** 채운다. 나머지는 건드리지 않는다:
  *   - **`buy_watch_side`** — **싣지 않는다**. 새 서버(buy3)는 감시대상을 읽지 않고, 슬롯이 있으면
  *     구 클라 흉내가 된다. 입력 계약(`RelayLimitChaserInput`)에서도 빠졌다(24-03).
- *   - **S→C 전용 9필드** (`sell_order_qty` · `sell_qty_track_baseline` · `sell_entry_latched` ·
+ *   - **S→C 전용 10필드** (`sell_order_qty` · `sell_qty_track_baseline` · `sell_entry_latched` ·
  *     `cancel_qty_track_baseline` · `cancel_entry_latched` · `extra_buy_abandoned` ·
- *     `post_buy_trigger_qty` · `post_buy_reentry_left` · `post_buy_phase`) — 서버가
+ *     `extra_buy_abandon_qty` · `post_buy_trigger_qty` · `post_buy_reentry_left` · `post_buy_phase`) — 서버가
  *     계산해 에코로만 내려주는 값이다. 실어 보내면
  *     서버는 무시하지만, 보내는 쪽 코드에 남아 있는 것만으로 "왕복하는 값"이라는 착각을
  *     만들고 에코-폼 비교가 오염된다 (Pitfall 6).
@@ -1419,6 +1419,7 @@ export function buildSetLimitChaserReq(
   // post_buy_trigger_qty — S→C 전용. 싣지 않는다.
   // post_buy_reentry_left — S→C 전용. 싣지 않는다.
   // post_buy_phase — S→C 전용. 싣지 않는다.
+  // extra_buy_abandon_qty — S→C 전용(quick-260930-fi4). 싣지 않는다.
   // post_buy_auto — 양방향(quick-260929-vzy). 입력에 있을 때만 싣는다(= buy3_schema 2). false 는
   // FlatBuffers 기본값이라 버퍼에 쓰이지 않지만, 서버는 schema 2 에서 부재를 false 로 읽으므로 그걸로 된다.
   if (cfg.postBuyAuto !== undefined) SetLimitChaser.addPostBuyAuto(b, cfg.postBuyAuto);
@@ -2137,9 +2138,9 @@ type ReadResult<T> = { ok: true; value: T } | { ok: false; reason: string; detai
  * 60 단건 에코와 64 목록 원소는 **같은 바이트**라 파서도 하나여야 한다 — 두 벌이면 한쪽만
  * 고쳐져 목록과 에코가 갈린다.
  *
- * **활성 56필드(+ `postBuyAuto`)를 전부 읽는다.** S→C 전용 10(`sellOrderQty` · `sellQtyTrackBaseline` ·
+ * **활성 57필드(+ `postBuyAuto` · `extraBuyAbandonQty`)를 전부 읽는다.** S→C 전용 11(`sellOrderQty` · `sellQtyTrackBaseline` ·
  * `sellEntryLatched` · `cancelQtyTrackBaseline` · `cancelEntryLatched` · `buy3Schema` ·
- * `extraBuyAbandoned` · `postBuyTriggerQty` · `postBuyReentryLeft` · `postBuyPhase`)는
+ * `extraBuyAbandoned` · `extraBuyAbandonQty` · `postBuyTriggerQty` · `postBuyReentryLeft` · `postBuyPhase`)는
  * 보내지 않지만 읽어서 표시한다 — (`buy3Schema` 는 relay 가 1 또는 2 로 보내지만 에코 값은 서버 것을 읽는다)
  * 「보내지 않는 것」과 「읽지 않는 것」은 다른 문제다 (Pitfall 6).
  *
@@ -2231,6 +2232,8 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       extraBuyOrderQty: t.extraBuyOrderQty(),
       // S→C 전용 — 추가매수 포기(최대 초과 · 상한가 이탈 최소 미달).
       extraBuyAbandoned: t.extraBuyAbandoned(),
+      // S→C 전용 — 포기 성립 틱의 매수1잔량(주, uint32 · quick-260930-fi4). 슬롯 부재(옛 서버) = 0.
+      extraBuyAbandonQty: t.extraBuyAbandonQty(),
       // D-21 · gh-trade D-32 — 서버가 cfg ∧ 마스터 무장 ∧ 단계 ≠ 소진으로 이미 접어 보낸다.
       // relay 는 다시 접지 않는다.
       postBuyEnabled: t.postBuyEnabled(),

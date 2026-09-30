@@ -127,7 +127,7 @@ export function isRelayExchange(value: string): value is RelayExchange {
  *
  * ⚠️ **S→C 전용 필드(`sellOrderQty`·`sellQtyTrackBaseline`·`sellEntryLatched`·
  *    `cancelQtyTrackBaseline`·`cancelEntryLatched` · Phase 24 의 `buy3Schema`·`extraBuyAbandoned`·
- *    `postBuyTriggerQty`·`postBuyReentryLeft`·`postBuyPhase`)를 두지 않는다** — `buy3Schema` 는
+ *    `postBuyTriggerQty`·`postBuyReentryLeft`·`postBuyPhase` · quick-260930-fi4 의 `extraBuyAbandonQty`)를 두지 않는다** — `buy3Schema` 는
  *    relay 가 `LC_FIXED_BUY3_SCHEMA` 로 못박는다(브라우저가 0 을 보내 구 클라 경로를 열 수 없다).
  *    나머지는 서버가 계산해 에코로만 주는 값이라, 받으면
  *    "값이 왕복한다"는 착각이 생기고 에코-폼 비교가 오염된다 (Pitfall 6). `z.object` 가 미지

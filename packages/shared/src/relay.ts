@@ -106,22 +106,24 @@ export type RelayLcCrud = "C" | "D";
 export type RelayLcWatchSide = "0" | "1";
 
 /**
- * 상따(LimitChaser) 전략 1건 — `SetLimitChaser` **활성 55필드**의 와이어 표현 + 파생 `key`.
+ * 상따(LimitChaser) 전략 1건 — `SetLimitChaser` **활성 57필드**의 와이어 표현 + 파생 `key`.
  * (37 → 39: 17-01 재동기화로 취소 · 매수 진입 확인 래치가 합류했다.
  *  39 → 55: Phase 24 재생성 — 매수 진입 확인 래치가 봉인(deprecated, gh-trade D-25)되고
- *  매수 3종 17필드가 합류했다: 39 − 1 + 17 = 55.)
+ *  매수 3종 17필드가 합류했다: 39 − 1 + 17 = 55.
+ *  55 → 57: `postBuyAuto`(quick-260929-vzy) · `extraBuyAbandonQty`(quick-260930-fi4). 슬롯 24
+ *  `buyWatchSide` 는 gh-trade a3610261 로 봉인됐지만 relay 가 `"0"` 으로 채워 키는 남는다.)
  *
  * 필드명은 FlatBuffers 생성 코드 접근자와 같은 camelCase 다(`sell_order_ratio` →
  * `sellOrderRatio`). 게이트웨이의 deprecated 8슬롯은 접근자 자체가 없으므로 여기에도 없다 —
  * 보내지도 읽지도 않는다.
  *
- * ⚠️ **S→C 전용 10필드** — `sellOrderQty` · `sellQtyTrackBaseline` · `sellEntryLatched` ·
+ * ⚠️ **S→C 전용 11필드** — `sellOrderQty` · `sellQtyTrackBaseline` · `sellEntryLatched` ·
  *    `cancelQtyTrackBaseline` · `cancelEntryLatched` · `buy3Schema` · `extraBuyAbandoned` ·
- *    `postBuyTriggerQty` · `postBuyReentryLeft` · `postBuyPhase`. 서버가 계산해
+ *    `extraBuyAbandonQty` · `postBuyTriggerQty` · `postBuyReentryLeft` · `postBuyPhase`. 서버가 계산해
  *    **에코로만** 내려주고 요청값은 무시한다. ★ 목록의 정본은 아래
  *    `LIMIT_CHASER_SERVER_ONLY_FIELDS` 다 — 여기 나열은 설명이고, 코드는 그 const 만 쓴다.
  *    브라우저가 되보내면 "값이 왕복한다"는 착각이 생겨 에코-폼 비교 로직이 오염된다
- *    (Pitfall 6). 그래서 인바운드 `lc.set` 은 `RelayLimitChaserInput` 으로 이 10개를 뺀다.
+ *    (Pitfall 6). 그래서 인바운드 `lc.set` 은 `RelayLimitChaserInput` 으로 이 11개를 뺀다.
  *    (`buy3Schema` 는 relay 가 `LC_FIXED_BUY3_SCHEMA = 1` 로 못박아 싣는다 — 입력으로는 받지 않는다.)
  *
  * ⚠️ **에코의 `buyEnabled`/`sellEnabled` 는 설정값이 아니라 무장 상태**다 — 서버가
@@ -267,6 +269,12 @@ export type RelayLimitChaser = {
    */
   extraBuyAbandoned: boolean;
   /**
+   * 추가매수 포기 수량 — **S→C 전용**(런타임 · gh-trade d303fe9f vtable 134). 추가매수 포기가 성립한 틱의
+   * 매수1잔량(주). `0` = 포기 아님 또는 옛 서버. 재무장 시 서버가 0 으로 되돌린다. `extraBuyAbandoned`
+   * 가 true 일 때만 의미가 있다.
+   */
+  extraBuyAbandonQty: number;
+  /**
    * 후매수 체크(양방향). 에코는 `cfg ∧ 마스터 무장 ∧ 단계 ≠ 소진` 으로 서버가 이미 접어 보낸다
    * (gh-trade D-31 · D-32). relay · 웹은 다시 접지 않는다(D-21). 무장 여부는 `postBuyPhase`.
    */
@@ -339,19 +347,21 @@ export const LIMIT_CHASER_SERVER_LATCH_FIELDS = [
 ] as const satisfies readonly (keyof RelayLimitChaser)[];
 
 /**
- * S→C 전용 **런타임 에코** 5필드(Phase 24) — 서버가 스스로 움직이는 런타임 에코다. D-13 로그 없음.
+ * S→C 전용 **런타임 에코** 6필드(Phase 24 5 + quick-260930-fi4 `extraBuyAbandonQty`) — 서버가 스스로 움직이는
+ * 런타임 에코다. D-13 로그 없음(추가매수 포기 전이 줄만 수량을 읽는다 — webapp strategy-log).
  * ★ 에코에서 이것만 바뀌었으면 「서버 반영 완료」도 「다른 단말」도 아니다(카운터와 같은 규율).
  */
 export const LIMIT_CHASER_SERVER_RUNTIME_FIELDS = [
   "buy3Schema",
   "extraBuyAbandoned",
+  "extraBuyAbandonQty",
   "postBuyTriggerQty",
   "postBuyReentryLeft",
   "postBuyPhase",
 ] as const satisfies readonly (keyof RelayLimitChaser)[];
 
 /**
- * S→C 전용 10필드의 **유일한 정본** — 카운터(3) ∪ 래치(2) ∪ 런타임(5). `RelayLimitChaserInput`(Omit) 과 웹앱 로그의
+ * S→C 전용 11필드의 **유일한 정본** — 카운터(3) ∪ 래치(2) ∪ 런타임(6). `RelayLimitChaserInput`(Omit) 과 웹앱 로그의
  * 값 변경 판정 skip 이 모두 이 const 에서 파생된다. 목록을 두 벌 두면 언젠가 갈라진다.
  */
 export const LIMIT_CHASER_SERVER_ONLY_FIELDS = [
@@ -376,7 +386,7 @@ export type LimitChaserServerOnlyField = (typeof LIMIT_CHASER_SERVER_ONLY_FIELDS
  *    `RelayLimitChaser.buyWatchSide` 는 옛 서버 에코 호환으로 남는다(파서 · 24-02 추출 도구).
  *    옛 탭이 실어 보내도 relay zod(`z.object`)가 미지 키로 떨어뜨린다.
  *
- * `RelayLimitChaser` 에서 S→C 전용 10필드와 파생 `key`, 그리고 `market` 을 뺀 것이다. 고정 3 은
+ * `RelayLimitChaser` 에서 S→C 전용 11필드와 파생 `key`, 그리고 `market` 을 뺀 것이다. 고정 3 은
  * `sweepRecalcEnabled: true` · `sweepMinCount: 0` · `sweepMinRate: 0` 으로 WinForms
  * `LimitChaserForm.Send()` 와 같은 값을 보낸다. CONTEXT 의 "29필드" 는 실측과 다르다 (Pitfall 6).
  *

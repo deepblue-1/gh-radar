@@ -1252,8 +1252,8 @@ describe("WsFanout", () => {
     expect(item.postBuyTriggerQty).toBe(330_000);
     expect(item.postBuyReentryLeft).toBe(2);
     expect(item.buyWatchSide).toBe("0");
-    // 활성 56(+ postBuyAuto · quick-260929-vzy) + key — 봉인된 매수 진입 래치는 없다.
-    expect(Object.keys(item)).toHaveLength(57);
+    // 활성 57(+ postBuyAuto · quick-260929-vzy · extraBuyAbandonQty · quick-260930-fi4) + key — 봉인된 매수 진입 래치는 없다.
+    expect(Object.keys(item)).toHaveLength(58);
   });
 
   /*
@@ -1621,7 +1621,7 @@ describe("WsFanout", () => {
     expect(framesOf(a.inbox, "msg")).toHaveLength(1);
   });
 
-  it("⑰-auto-c 60 에코 postBuyAuto true → ws lc 프레임 item.postBuyAuto true · 57키 (D-01)", async () => {
+  it("⑰-auto-c 60 에코 postBuyAuto true → ws lc 프레임 item.postBuyAuto true · 58키 (D-01)", async () => {
     const a = await authed("token-a");
     a.ws.sendRaw({ t: "lc.set", cfg: lcInput() });
     await waitFor(
@@ -1639,7 +1639,7 @@ describe("WsFanout", () => {
     await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
     const item = framesOf(a.inbox, "lc").at(-1)!.item;
     expect(item.postBuyAuto).toBe(true);
-    expect(Object.keys(item)).toHaveLength(57);
+    expect(Object.keys(item)).toHaveLength(58);
   });
 
   it("⑰-e2 삭제의 시장은 **에코 캐시가 1순위**다 — 종목맵이 못 풀어도 폴백까지 가지 않는다", async () => {

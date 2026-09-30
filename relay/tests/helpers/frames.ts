@@ -544,7 +544,8 @@ export const STRATEGY_MSG = {
 } as const;
 
 /**
- * 상따 전략 1건. **활성 56 필드 전부** override 가능하다(Phase 24: 39 − 1 + 17 · quick-260929-vzy +1 `postBuyAuto`).
+ * 상따 전략 1건. **활성 57 필드 전부** override 가능하다(Phase 24: 39 − 1 + 17 · quick-260929-vzy +1 `postBuyAuto` ·
+ * quick-260930-fi4 +1 `extraBuyAbandonQty`).
  * (37 → 39: 17-01 재동기화로 `cancel_entry_latched` · `buy_entry_latched` 가 합류했다.)
  *
  * deprecated 8종(`client_key` · `sell_min_cum_volume` · `sell_cum_volume_enabled` ·
@@ -552,9 +553,9 @@ export const STRATEGY_MSG = {
  * `sell_price_break_enabled`)은 flatc 가 접근자를 만들지 않아 여기에도 없다 —
  * 보내지도 읽지도 않는다.
  *
- * **S→C 전용 10필드**(`sellOrderQty` · `sellQtyTrackBaseline` · `sellEntryLatched` ·
+ * **S→C 전용 11필드**(`sellOrderQty` · `sellQtyTrackBaseline` · `sellEntryLatched` ·
  * `cancelQtyTrackBaseline` · `cancelEntryLatched` · Phase 24 의 `buy3Schema` · `extraBuyAbandoned` ·
- * `postBuyTriggerQty` · `postBuyReentryLeft` · `postBuyPhase`)도 주입할 수 있다. 서버가 계산해 에코로만 내려주는 값이라,
+ * `postBuyTriggerQty` · `postBuyReentryLeft` · `postBuyPhase` · quick-260930-fi4 의 `extraBuyAbandonQty`)도 주입할 수 있다. 서버가 계산해 에코로만 내려주는 값이라,
  * "에코가 화면에 그대로 뜨는가"를 검증하려면 테스트가 직접 심을 수 있어야 한다.
  */
 export type FakeLimitChaserInput = {
@@ -634,6 +635,8 @@ export type FakeLimitChaserInput = {
   postBuyPhase?: number;
   /** 후매수 ☐자동 — 양방향(quick-260929-vzy). 서버 에코는 늘 싣는다(부재 기본 false). */
   postBuyAuto?: boolean;
+  /** **S→C 전용** — 추가매수 포기 성립 틱의 매수1잔량(주, vtable 134). 기본 0 = 포기 아님 · 옛 서버. */
+  extraBuyAbandonQty?: number;
 };
 
 /**
@@ -759,6 +762,7 @@ function emitSetLimitChaser(
   SetLimitChaser.addPostBuyReentryLeft(b, input.postBuyReentryLeft ?? 0);
   SetLimitChaser.addPostBuyPhase(b, input.postBuyPhase ?? 0);
   SetLimitChaser.addPostBuyAuto(b, input.postBuyAuto ?? false);
+  SetLimitChaser.addExtraBuyAbandonQty(b, input.extraBuyAbandonQty ?? 0);
   return SetLimitChaser.endSetLimitChaser(b);
 }
 
