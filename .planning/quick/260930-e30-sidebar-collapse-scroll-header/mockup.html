@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>사이드바 접기 · 스크롤 헤더 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css" />
+<style>
+/* globals.css 토큰 인라인 (라이트 :root / 다크 .dark) */
+:root {
+  --bg:#ffffff; --surface:#f2f4f6; --fg:#191f28; --fg-2:#333d4b; --muted:#f2f4f6; --muted-fg:#6b7684;
+  --faint:#b0b8c1; --border-subtle:#e5e8eb; --ring:#3182f6; --card:#ffffff; --primary:#3182f6;
+  --up:#f04452; --down:#3182f6; --side-bg:#ffffff; --nav-on-bg:#e8f3ff; --nav-on-fg:#1b64da;
+  --led-latent:#ff9f1a; --led-armed:#03b26c; --flat:#6b7684;
+  --fab-shadow: 0 4px 14px rgba(0,0,0,.14), 0 0 0 1px rgba(0,0,0,.07);
+  --r: 8px;
+}
+.dark {
+  --bg:#17171c; --surface:#17171c; --fg:#ffffff; --fg-2:#d1d1d6; --muted:#2c2c35; --muted-fg:#9e9ea4;
+  --faint:#5c5c66; --border-subtle:#3c3c47; --card:#202027; --primary:#3485fa;
+  --side-bg:#101013; --nav-on-bg:#2c2c35; --nav-on-fg:#ffffff;
+  --fab-shadow: 0 2px 10px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.08);
+}
+* { box-sizing:border-box; }
+body { margin:0; font-family:'Pretendard Variable',Pretendard,-apple-system,sans-serif; background:var(--surface); color:var(--fg); }
+.dark body, body.dark { background:#0d0d10; }
+svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; display:block; }
+.page { max-width:1180px; margin:0 auto; padding:24px 16px 80px; }
+.top { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
+.top h1 { font-size:22px; margin:0; }
+.btn { border:1px solid var(--border-subtle); background:var(--card); color:var(--fg); border-radius:8px; padding:8px 12px; font:inherit; font-size:13px; cursor:pointer; }
+.lead { color:var(--muted-fg); font-size:14px; margin:0 0 28px; line-height:1.6; }
+h2 { font-size:18px; margin:40px 0 6px; }
+.sub { color:var(--muted-fg); font-size:13px; margin:0 0 16px; line-height:1.6; }
+.tag { display:inline-block; font-size:11px; font-weight:700; padding:2px 6px; border-radius:4px; background:var(--nav-on-bg); color:var(--nav-on-fg); margin-right:6px; vertical-align:1px; }
+.variants { display:grid; gap:28px; }
+.vlabel { font-size:14px; font-weight:700; margin:0 0 4px; }
+.vdesc { font-size:13px; color:var(--muted-fg); margin:0 0 10px; line-height:1.55; }
+.hint { font-size:12px; color:var(--primary); font-weight:600; }
+
+/* ───────── 데스크톱 프레임 ───────── */
+.desk { border-radius:12px; overflow:hidden; border:1px solid var(--border-subtle); background:var(--bg); height:430px; display:flex; flex-direction:column; }
+.hdr { height:56px; flex:none; display:flex; align-items:center; gap:12px; padding:0 24px; background:var(--bg); }
+.logo { font-size:17px; font-weight:700; letter-spacing:-.01em; white-space:nowrap; }
+.iconbtn { width:36px; height:36px; border:0; border-radius:8px; background:transparent; color:var(--muted-fg); display:inline-flex; align-items:center; justify-content:center; cursor:pointer; flex:none; transition:background .15s,color .15s; }
+.iconbtn:hover { background:var(--muted); color:var(--fg); }
+.iconbtn.sb-toggle { margin-left:-8px; }
+.gsearch { flex:1; display:flex; justify-content:center; }
+.gsearch div { width:min(420px,100%); height:36px; border-radius:8px; background:var(--muted); color:var(--muted-fg); font-size:13px; display:flex; align-items:center; gap:8px; padding:0 12px; }
+.gsearch svg { width:16px; height:16px; }
+.body { flex:1; display:flex; min-height:0; }
+.side { width:240px; flex:none; background:var(--side-bg); padding:12px; display:flex; flex-direction:column; justify-content:space-between; overflow:hidden; transition:width .22s ease, padding .22s ease; }
+.nav { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px; }
+.nav a { display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:var(--r); color:var(--muted-fg); font-size:14px; text-decoration:none; white-space:nowrap; position:relative; }
+.nav a svg { width:16px; height:16px; flex:none; }
+.nav a:hover { background:color-mix(in oklab,var(--muted) 60%,transparent); color:var(--fg); }
+.nav a.on { background:var(--nav-on-bg); color:var(--nav-on-fg); font-weight:600; }
+.nav a.grp { font-weight:600; letter-spacing:.02em; }
+.nav a .lbl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; transition:opacity .15s; }
+.subl { list-style:none; margin:4px 0 0 12px; padding:0 0 0 8px; border-left:1px solid var(--border-subtle); display:flex; flex-direction:column; gap:4px; overflow:hidden; }
+.subl a { padding:8px; font-weight:600; color:var(--fg); }
+.ex { font-size:10px; font-weight:700; padding:1px 5px; border-radius:4px; background:var(--nav-on-bg); color:var(--nav-on-fg); }
+.leds { display:inline-flex; gap:3px; margin-left:auto; }
+.leds i { width:7px; height:7px; border-radius:50%; background:var(--flat); display:block; }
+.leds i.a { background:var(--led-armed); } .leds i.l { background:var(--led-latent); }
+.foot { display:flex; align-items:center; gap:4px; }
+.user { flex:1; min-width:0; display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:8px; font-size:13px; white-space:nowrap; overflow:hidden; }
+.av { width:28px; height:28px; border-radius:50%; background:var(--primary); color:#fff; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; flex:none; }
+.badge { position:absolute; top:4px; right:4px; min-width:14px; height:14px; padding:0 3px; border-radius:7px; background:var(--led-armed); color:#fff; font-size:9px; font-weight:700; display:none; align-items:center; justify-content:center; }
+.main { flex:1; min-width:0; background:var(--surface); padding:24px; overflow:hidden; display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px; align-content:start; transition:padding .22s; }
+.card { background:var(--card); border-radius:12px; padding:14px; height:120px; }
+.card b { font-size:13px; display:block; margin-bottom:10px; }
+.bar { height:8px; border-radius:4px; background:var(--muted); margin-bottom:8px; }
+.dark .bar { background:#2c2c35; }
+.dark .card { background:#202027; }
+
+/* A — 아이콘 레일(64px) */
+.desk.rail.col .side { width:64px; padding:12px 8px; }
+.desk.rail.col .nav a { justify-content:center; padding:10px 0; }
+.desk.rail.col .nav a .lbl, .desk.rail.col .nav a .leds, .desk.rail.col .nav a .ex { display:none; }
+.desk.rail.col .subl { display:none; }
+.desk.rail.col .badge { display:flex; }
+.desk.rail.col .foot { flex-direction:column-reverse; gap:8px; }
+.desk.rail.col .user { justify-content:center; padding:0; flex:none; }
+.desk.rail.col .user span:not(.av) { display:none; }
+/* B — 완전 숨김 */
+.desk.hide.col .side { width:0; padding:12px 0; }
+
+/* ───────── 모바일 프레임 ───────── */
+.phones { display:flex; flex-wrap:wrap; gap:28px; align-items:flex-start; }
+.phonecol { display:flex; flex-direction:column; gap:10px; }
+.phone { width:375px; max-width:100%; height:700px; border-radius:36px; border:10px solid #111; background:var(--surface); position:relative; overflow:hidden; box-shadow:0 10px 40px rgba(0,0,0,.18); }
+.scr { position:absolute; inset:0; overflow-y:auto; scrollbar-width:none; }
+.scr::-webkit-scrollbar { display:none; }
+/* 앱 상태바(= --app-safe-top). 브라우저는 0 이라 이 띠가 없다. */
+.sbar { position:sticky; top:0; z-index:40; height:44px; display:flex; align-items:center; justify-content:space-between; padding:0 26px; font-size:14px; font-weight:600; background:color-mix(in oklab,var(--bg) 88%,transparent); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); }
+.mhdr { position:sticky; top:44px; z-index:30; height:56px; display:flex; align-items:center; gap:12px; padding:0 8px; margin-bottom:-56px; }
+.mhdr::before { content:""; position:absolute; inset:0; background:color-mix(in oklab,var(--bg) 88%,transparent); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); z-index:-1; transition:transform .25s ease, opacity .25s ease; }
+.mhdr .logo, .mhdr .msearch { transition:transform .25s ease, opacity .2s ease; }
+.mhdr .msearch { margin-left:auto; margin-right:-8px; width:44px; height:44px; border:0; background:transparent; color:var(--fg); display:flex; align-items:center; justify-content:center; }
+/* 햄버거 — 헤더 상태: 44×44 투명 사각(현행 -ml-2). 숨김 상태: 원형 배경이 떠오른다. */
+.ham { width:44px; height:44px; margin-left:-8px; border:0; border-radius:12px; background:transparent; color:var(--fg); display:flex; align-items:center; justify-content:center; cursor:pointer; flex:none; transition:transform .25s ease, background .25s ease, box-shadow .25s ease, border-radius .25s ease; }
+.phone.hid .mhdr { pointer-events:none; }
+.phone.hid .ham { pointer-events:auto; }
+.phone.hid .mhdr::before { transform:translateY(-100%); opacity:0; }
+.phone.hid .mhdr .logo, .phone.hid .mhdr .msearch { transform:translateY(-40px); opacity:0; }
+.phone.hid .ham { transform:translate(12px,4px); border-radius:50%; background:color-mix(in oklab,var(--card) 82%,transparent); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); box-shadow:var(--fab-shadow); }
+.content { padding:108px 8px 40px; display:flex; flex-direction:column; gap:8px; }
+.dark .phone { background:#17171c; }
+.mcard { background:var(--card); border-radius:16px; padding:16px; }
+.mcard h4 { margin:0 0 10px; font-size:17px; }
+.row { display:flex; align-items:center; justify-content:space-between; padding:10px 0; font-size:15px; }
+.row small { display:block; color:var(--muted-fg); font-size:12px; margin-top:2px; }
+.row .p { text-align:right; font-weight:600; font-variant-numeric:tabular-nums; }
+.row .up { color:var(--up); font-size:13px; }
+.ctrl { display:flex; flex-direction:column; gap:6px; font-size:13px; max-width:375px; }
+.ctrl label { display:flex; gap:6px; align-items:flex-start; line-height:1.45; cursor:pointer; }
+.state { font-size:12px; color:var(--muted-fg); }
+.notes { font-size:13px; color:var(--fg-2); line-height:1.7; max-width:420px; padding-left:18px; margin:0; }
+.notes li { margin-bottom:6px; }
+@media (max-width:720px){ .main { padding:12px; } .hdr { padding:0 16px; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="top">
+    <h1>사이드바 접기 · 스크롤 헤더</h1>
+    <button class="btn" id="theme">다크로 보기</button>
+  </div>
+  <p class="lead">quick-260930-e30 목업 · globals.css 토큰 그대로. 모든 프레임은 직접 눌러보고 스크롤할 수 있습니다.</p>
+
+  <!-- ① 사이드바 접기 -->
+  <h2><span class="tag">①</span>사이드바 접기 / 펼치기 — 데스크톱(≥1024)</h2>
+  <p class="sub">토글 버튼은 모바일 햄버거와 <b>같은 자리</b>(헤더 왼쪽, 로고 앞)에 둡니다. 모바일(&lt;1024)은 지금처럼 햄버거→드로어라 변화 없음. 접힘 상태는 브라우저에 기억(새로고침·페이지 이동 후에도 유지).</p>
+  <div class="variants">
+    <div>
+      <p class="vlabel">A. 아이콘 레일로 접기 (240 → 64px)</p>
+      <p class="vdesc">아이콘만 남고 라벨·전략 하위목록은 숨김. 트레이딩 아이콘에 켜진 전략 수 배지, 마우스를 올리면 이름 툴팁. 접어도 메뉴 이동은 한 번에 됩니다.</p>
+      <div class="desk rail" data-desk></div>
+      <p class="hint">↑ 헤더 왼쪽 패널 아이콘을 눌러보세요</p>
+    </div>
+    <div>
+      <p class="vlabel">B. 완전히 숨기기 (240 → 0)</p>
+      <p class="vdesc">본문이 전체 폭을 씁니다. 메뉴를 쓰려면 다시 펼쳐야 합니다(또는 ⌘/Ctrl+B 같은 단축키를 추가할 수 있음).</p>
+      <div class="desk hide" data-desk></div>
+      <p class="hint">↑ 헤더 왼쪽 패널 아이콘을 눌러보세요</p>
+    </div>
+  </div>
+
+  <!-- ② 스크롤 헤더 -->
+  <h2><span class="tag">②</span>스크롤하면 헤더가 사라지고 원형 햄버거만 — 모바일(&lt;1024) · 앱</h2>
+  <p class="sub">햄버거가 있는 화면에만 적용합니다(데스크톱은 사이드바가 있어 헤더 유지). 헤더 배경·로고·검색 아이콘이 위로 빠지고, 햄버거는 그 자리에서 <b>반투명 원형 배경</b>을 입고 떠 있습니다.</p>
+  <div class="phones">
+    <div class="phonecol">
+      <div class="phone" id="live"></div>
+      <div class="ctrl">
+        <span class="state" id="st">상태: 헤더 보임</span>
+        <label><input type="radio" name="mode" value="top" checked /> <span><b>상단에 있을 때만 헤더</b> — 조금이라도 내리면 원형 햄버거만 (말씀하신 방식)</span></label>
+        <label><input type="radio" name="mode" value="up" /> <span><b>위로 스크롤하면 헤더 복귀</b> — 내릴 땐 숨고, 살짝 올리면 바로 다시 보임</span></label>
+      </div>
+    </div>
+    <div class="phonecol">
+      <div class="phone hid" id="static"></div>
+      <span class="state">정지 화면: 스크롤된 상태</span>
+    </div>
+    <ol class="notes">
+      <li>원형 버튼은 44px(터치 타깃 유지) 반투명 + 흐림(유리 느낌), 그림자로 본문과 분리. 좌측 8px·상단 8px 띄움(현행 헤더 햄버거는 화면 끝에 붙어 있어 원형이면 잘려 보임).</li>
+      <li>앱에서는 상태바(시계) 띠는 흐린 배경을 유지 — 헤더가 빠져도 본문 글자가 시계 밑으로 비치지 않게.</li>
+      <li>상따·작업대 알림 토스트(헤더 바로 아래 고정)는 헤더가 숨어도 같은 자리 유지.</li>
+      <li>드로어를 연 상태·키보드 포커스 중에는 헤더가 강제로 보이게 유지.</li>
+    </ol>
+  </div>
+</div>
+
+<template id="desk-tpl">
+  <div class="hdr">
+    <button class="iconbtn sb-toggle" title="사이드바 접기" aria-label="사이드바 접기"><i data-i="panel"></i></button>
+    <span class="logo">GH Trade</span>
+    <div class="gsearch"><div><i data-i="search"></i>종목명·코드 검색</div></div>
+  </div>
+  <div class="body">
+    <aside class="side">
+      <ul class="nav">
+        <li><a class="on" title="홈"><i data-i="home"></i><span class="lbl">홈</span></a></li>
+        <li><a title="검색"><i data-i="search"></i><span class="lbl">검색</span></a></li>
+        <li><a class="grp" title="트레이딩"><i data-i="zap"></i><span class="lbl">트레이딩</span><span class="badge">2</span></a>
+          <ul class="subl">
+            <li><a><span class="lbl">VI</span><span class="ex">KRX</span></a></li>
+            <li><a><span class="lbl">삼성전자</span><span class="leds"><i class="a"></i><i></i><i class="l"></i></span></a></li>
+            <li><a><span class="lbl">에코프로 · NXT</span><span class="leds"><i class="a"></i><i class="a"></i><i></i></span></a></li>
+          </ul>
+        </li>
+        <li><a title="My page"><i data-i="user"></i><span class="lbl">My page</span></a></li>
+        <li><a title="AI 애널리스트"><i data-i="chat"></i><span class="lbl">AI 애널리스트</span></a></li>
+      </ul>
+      <div class="foot">
+        <div class="user"><span class="av">A</span><span>alex</span></div>
+        <button class="iconbtn" title="테마"><i data-i="sun"></i></button>
+      </div>
+    </aside>
+    <section class="main">
+      <div class="card"><b>상승률 상위</b><div class="bar"></div><div class="bar" style="width:70%"></div><div class="bar" style="width:40%"></div></div>
+      <div class="card"><b>관심종목</b><div class="bar"></div><div class="bar" style="width:60%"></div></div>
+      <div class="card"><b>테마</b><div class="bar"></div><div class="bar" style="width:80%"></div></div>
+      <div class="card"><b>뉴스</b><div class="bar"></div><div class="bar" style="width:50%"></div></div>
+      <div class="card"><b>토론방 요약</b><div class="bar"></div><div class="bar" style="width:65%"></div></div>
+      <div class="card"><b>VI 발동</b><div class="bar"></div><div class="bar" style="width:35%"></div></div>
+    </section>
+  </div>
+</template>
+
+<template id="phone-tpl">
+  <div class="scr">
+    <div class="sbar"><span>9:41</span><span>●●● ▮</span></div>
+    <header class="mhdr">
+      <button class="ham" aria-label="사이드바 열기"><i data-i="menu"></i></button>
+      <span class="logo">GH Trade</span>
+      <button class="msearch" aria-label="검색"><i data-i="search"></i></button>
+    </header>
+    <div class="content"></div>
+  </div>
+</template>
+
+<script>
+const ICONS = {
+  menu:'<line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/>',
+  panel:'<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
+  home:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  zap:'<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
+  user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  chat:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
+};
+const icons = (root) => root.querySelectorAll('i[data-i]').forEach((el) => {
+  el.outerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[el.dataset.i]}</svg>`;
+});
+
+// 데스크톱 프레임
+document.querySelectorAll('[data-desk]').forEach((desk) => {
+  desk.append(document.getElementById('desk-tpl').content.cloneNode(true));
+  icons(desk);
+  const t = desk.querySelector('.sb-toggle');
+  t.addEventListener('click', () => {
+    const col = desk.classList.toggle('col');
+    t.title = t.ariaLabel = col ? '사이드바 펼치기' : '사이드바 접기';
+  });
+});
+
+// 모바일 프레임
+const STOCKS = [['에코프로','086520','128,400','+29.87%'],['삼성전자','005930','84,200','+6.12%'],['한미반도체','042700','152,300','+18.44%'],['알테오젠','196170','402,000','+11.20%'],['HLB','028300','96,700','+24.95%'],['레인보우로보틱스','277810','221,500','+15.03%'],['두산로보틱스','454910','88,900','+9.81%'],['포스코퓨처엠','003670','243,000','+7.66%']];
+const fill = (phone) => {
+  phone.append(document.getElementById('phone-tpl').content.cloneNode(true));
+  icons(phone);
+  const c = phone.querySelector('.content');
+  ['상승률 상위','관심종목','테마 급등'].forEach((title, k) => {
+    const card = document.createElement('div');
+    card.className = 'mcard';
+    card.innerHTML = `<h4>${title}</h4>` + STOCKS.map(([n, code, p, r], i) => {
+      const s = STOCKS[(i + k * 3) % STOCKS.length];
+      return `<div class="row"><div>${s[0]}<small>${s[1]}</small></div><div class="p">${s[2]}<div class="up">${s[3]}</div></div></div>`;
+    }).join('');
+    c.append(card);
+  });
+};
+const live = document.getElementById('live');
+const stat = document.getElementById('static');
+fill(live); fill(stat);
+stat.querySelector('.scr').scrollTop = 220;
+
+let mode = 'top', lastY = 0;
+const scr = live.querySelector('.scr');
+const st = document.getElementById('st');
+const setHid = (h) => { live.classList.toggle('hid', h); st.textContent = h ? '상태: 원형 햄버거만' : '상태: 헤더 보임'; };
+scr.addEventListener('scroll', () => {
+  const y = scr.scrollTop;
+  if (y < 8) setHid(false);
+  else if (mode === 'top') setHid(true);
+  else if (y > lastY + 4) setHid(true);
+  else if (y < lastY - 4) setHid(false);
+  lastY = y;
+}, { passive: true });
+document.querySelectorAll('input[name=mode]').forEach((r) => r.addEventListener('change', () => { mode = r.value; scr.scrollTop = 0; setHid(false); }));
+
+// 테마
+const tb = document.getElementById('theme');
+tb.addEventListener('click', () => {
+  const d = document.documentElement.classList.toggle('dark');
+  document.body.classList.toggle('dark', d);
+  tb.textContent = d ? '라이트로 보기' : '다크로 보기';
+});
+</script>
+</body>
+</html>

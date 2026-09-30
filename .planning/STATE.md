@@ -34,7 +34,7 @@ Plans completed: 220 / 234
 Status: Phase complete — ready for verification
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-30 - Completed quick task 260930-e73: OrderGroup 7 수동 · 8 VI 표시 대응
+Last activity: 2026-09-30 - Completed quick task 260930-e30: 사이드바 아이콘 레일 접기 + 스크롤 헤더 원형 햄버거
 
 Progress: [█████████░] 93%
 
@@ -513,6 +513,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 38 | 크롬 무채색 분홍 끼 — color-mix `in oklch` → `in oklab` 64곳/37파일(Chromium 이 저채도 hue 를 none=0° 로 떨굼 · 헤더 등). WebKit 과 픽셀 일치 · vitest 2823 green | 2026-09-29 | 5aa2dbbe | — |
 | 260929-vzy | **후매수 「자동」 체크 (gh-trade dcaa78b1)** — 생성물 2파일 그대로 커밋(동기화 스크립트 미실행 · Phase 25 생성물 보존). shared postBuyAuto(입력 필수) · relay 는 postBuyAuto 있을 때만 buy3_schema=2(없으면 1 — 옛 탭 재전송이 자동을 끄지 않음) · 60/64 에코 디코드(부재 false). 웹: 후매수 스위치 바로 왼쪽 「자동」 체크(에코 표시) · 매수주문 끄면 자동도 끔 · 켜기 사전 검증 · 자동만 켠 등록은 철거 아님 · 로그 「후매수 자동 체크/해제」. relay 731 · webapp 3049 · e2e vzy-1/P24-7 · a11y green. 미배포(relay 먼저 → push) · 이월: 15:40 해제 귀속이 자동만 켠 전략 미집계 | 2026-09-29 | 127c1028 · fb175921 · d261c8d0 · bf36a28f · eac3a60e · b8db4c3c · 25ba301d | [260929-vzy-post-buy-auto-checkbox-relay-webapp](./quick/260929-vzy-post-buy-auto-checkbox-relay-webapp/) |
 | 260930-e73 | **OrderGroup 7 수동 · 8 VI 표시 (gh-trade-82 계약)** — shared 표시명 7「수동」·8「VI」 · 방향은 group+kind(`strategyEventSide`: 8 매수 · 7 은 kind 6 매도 · 3/4/5/7 매수 · 그 밖 null) · 조건 비면 「수동 주문」/「VI 자동주문」 · 펼침 접두 중복 제거 · 진행률 보조행 7/8 라벨. relay·DB 무변경(통과 테스트만). 필터 칩 미추가(사용자 결정 대기) · 펼침 빈 상태 문구 후속. 미배포(gh-trade 배포 전 무해) | 2026-09-30 | 6d3ce955 · 404b1ae1 · 5a056b39 | [260930-e73-ordergroup-7-8-vi](./quick/260930-e73-ordergroup-7-8-vi/) |
+| 260930-e30 | **사이드바 아이콘 레일 접기 + 스크롤 헤더 원형 햄버거** — lg 헤더 PanelLeft 토글(햄버거 자리)로 240↔64 레일 · localStorage 영속 · head 인라인 스크립트로 첫 페인트 전 복원 · 레일=아이콘만+트레이딩 켜진 전략 수 배지+하단 세로 쌓기(드로어 무영향). 폰(<lg)·앱은 창 스크롤>8 이면 헤더 배경·로고·검색이 빠지고 햄버거만 좌·상 8px 반투명 원형으로 뜸(상단에서만 헤더 · 드로어 열림/포커스 시 강제 표시 · 앱 상태바 띠 흐림 유지). 목업 채택안 A·상단전용. 미push | 2026-09-30 | 394bf0f0 · 0df77a97 · b69716c6 | [260930-e30-sidebar-collapse-scroll-header](./quick/260930-e30-sidebar-collapse-scroll-header/) |
 
 ## Session Continuity
 
