@@ -51,6 +51,7 @@ import { isGatewayLinkUp } from "../dma/link-health.js";
 import type { SessionStats } from "../dma/session-manager.js";
 import type { JournalHealth } from "../journal/types.js";
 import { journalAlerting } from "../journal/status.js";
+import { quoteAlerting, type QuoteHealth } from "../quote/status.js";
 
 // ============================================================
 // 계약
@@ -92,6 +93,11 @@ export type OrderApiDeps = {
    * 주지 않거나 빈 배열이면 키 자체가 없다(KB 단독 페이로드가 바이트 단위로 같다).
    */
   journalGateways?: ReadonlyArray<{ gateway: string; health(nowMs: number): JournalHealth }>;
+  /**
+   * 시세 전용 공유 연결 요약(Phase 26 D-02 — `QuoteStatus`). 주면 `/healthz` 가 `quote` 필드를 **항상**(24시간) 싣고
+   * `quoteAlerting` 으로 503 판정에 **합류**한다(`journalGateways` 와 달리 본문 전용이 아니다). 주지 않으면 필드가 없다.
+   */
+  quote?: { health(nowMs: number): QuoteHealth };
   /** 시각 주입구 — 테스트가 장중/장 밖을 흉내낸다. 기본 `new Date()`. */
   now?: () => Date;
 };
@@ -139,6 +145,13 @@ export type HealthPayload = {
    * 추가 게이트웨이가 없으면 필드 자체가 없다.
    */
   journalGateways?: Record<string, JournalGatewayHealth>;
+  /**
+   * 시세 전용 공유 연결 상태 (Phase 26 D-02 · D-16). 키는 `state · keyCount · lingerCount · lastFrameAgeSec · reconnects ·
+   * subLimitRejects · disconnectedSec` **7개 고정**이다 — 상태 · 계수 · 경과초뿐이고 **계좌·사용자 식별자 · 호스트 · 비밀이
+   * 없다**(T-15-22 · T-26-18 · smoke `health_probe` 가 식별자 키를 grep 한다). 503 판정에 들어간다(`quoteAlerting`).
+   * quote 소스가 없으면 필드 자체가 없다.
+   */
+  quote?: QuoteHealth;
 };
 
 // ============================================================
@@ -298,6 +311,19 @@ export function createOrderApi(deps: OrderApiDeps): Express {
    *   2. `deploy-relay.sh` 기동 확인이 `curl -sf` 다 — 장중 추가 게이트웨이 때문에 503 이면 KB 배포가 실패한다.
    *   3. 롤아웃 중 거부(게이트웨이 쪽 비밀 미배치)는 KB 가용성과 무관하다.
    * 상태는 본문 `journalGateways.<키>.alerting` 으로 드러낸다(같은 `journalAlerting` · 같은 `now`).
+   *
+   * ★ 2026-10-01 보강 (Phase 26 D-02 · D-16) — 시세 전용 공유 연결(`quote`)은 **503 축이다.** 사용자 DMA 세션
+   * stalled 와 **같은 등급**으로 `healthy` 에 AND 로 더한다(`quoteOk`). 위 `journalGateways` 를 본문 전용으로 둔 것과
+   * 다른 이유: quote 연결에는 **폴백이 없다**(D-03 — 사용자 세션으로 시세를 재구독하지 않는다). 끊기면 **전 사용자의
+   * 시세가 함께 멈추는** 단일 장애점이므로 기존 uptime `gh-radar-relay-healthz` 가 정책 변경 없이 그대로 울려야 한다.
+   *   - `rejected` · `role_mismatch` 는 설정 오류(관찰자 비밀 · 서버 관문)라 기다려도 풀리지 않는다 — 시각과 무관하게 즉시 503.
+   *   - 그 밖 not-live 는 **장중 창**(`inTradingWindow` · KST 평일 · 비휴장 · 08:00~20:00) 안에서 60초
+   *     (`QUOTE_ALERT_AFTER_MS`) 를 넘을 때만 503 이다. 장 밖 · 유예 안은 200 이고 본문 `quote` 는 24시간 실린다.
+   *   - 그 유예가 `deploy-relay.sh` 의 `curl -sf` 기동 확인과 e2e `waitForRelay` 를 지킨다(RESEARCH Pitfall 7 — 기동 직후
+   *     quote 는 `connecting` 이다). 배포는 20:00 이후라 애초에 창 밖이다.
+   *   - `disabled`(관찰자 비밀 미설정 — 개발 · 테스트 전용)는 판정 대상이 아니다.
+   * 판정식의 정본은 `quote/status.ts` 의 `quoteAlerting` 한 벌이다 — 여기에 복제하지 않는다. 기존 `linkUp` · `sessionsOk`
+   * · `journalOk` 의 정의는 그대로다.
    */
   const readInterfaces = deps.networkInterfaces ?? (() => os.networkInterfaces());
 
@@ -318,7 +344,10 @@ export function createOrderApi(deps: OrderApiDeps): Express {
     const now = deps.now?.() ?? new Date();
     const journal = deps.journal?.health(now.getTime());
     const journalOk = journal === undefined || !journalAlerting(journal, now);
-    const healthy = linkUp && sessionsOk && journalOk;
+    // 시세 전용 공유 연결(Phase 26 D-02 · D-16) — 폴백이 없어 503 축이다. 소스가 없으면 판정에서 빠진다.
+    const quote = deps.quote?.health(now.getTime());
+    const quoteOk = quote === undefined || !quoteAlerting(quote, now);
+    const healthy = linkUp && sessionsOk && journalOk && quoteOk;
     // 추가 게이트웨이 — 본문에만 싣는다(판정 밖). 없으면 키도 없다.
     const extra = deps.journalGateways ?? [];
     let journalGateways: Record<string, JournalGatewayHealth> | undefined;
@@ -340,6 +369,7 @@ export function createOrderApi(deps: OrderApiDeps): Express {
       stalledCount: stats.stalledCount,
       ...(journal !== undefined ? { journal } : {}),
       ...(journalGateways !== undefined ? { journalGateways } : {}),
+      ...(quote !== undefined ? { quote } : {}),
     };
 
     res.status(healthy ? 200 : 503).json(payload);

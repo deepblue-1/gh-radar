@@ -66,6 +66,7 @@ Phase 15 (RELAY-03) 의 IaaS 자산. gh-radar 최초의 GCE VM 이다.
 | `netcut-daily.timer` | **`disabled`** (2026-09-22 15:41 KST~) — 4일 무재발로 중지, 재발 감지는 wg-probe 가 맡는다. 재가동은 `sudo systemctl enable --now netcut-daily.timer` (§외부 경로 단절 판정 — netcut). **메타데이터 미등록이라 VM 재생성 시 소멸** | `systemctl is-enabled netcut-daily.timer` / `systemctl list-timers 'netcut-*' --all` |
 | `securwayssl.service` | `active` + **`enabled`** — 교보 SecuwaySSL VPN 상시 DMA 터널 (2026-09-21 신설, §교보 SecuwaySSL VPN). `MainPID` 은 `secuway-connect` 래퍼(sslvpn 추적). **메타데이터 미등록이라 VM 재생성 시 소멸** | `systemctl is-active securwayssl.service` |
 | `securwayssl-watchdog.timer` | `active` + `enabled` — 3분 주기 교보 터널 keepalive + 도달성 복구 | `systemctl is-active securwayssl-watchdog.timer` |
+| relay → KB 게이트웨이 연결 | 사용자 세션 N · 저널 관찰자 1 · **quote 관찰자 1(시세 전용 · Phase 26)** — Phase 26 relay 배포 뒤부터. quote 연결은 폴백이 없어 `/healthz` 503 축이다(§quote 연결 축 — 시세 멈춤 판정) | `curl -s https://dma.jx1.io/healthz \| jq .quote` |
 
 > 이 표의 값은 2026-09-08 19:0x KST 에 읽기 명령만으로 수집했다(quick-260908-py9).
 > 라이브 전환 경위는 §실서버 라이브 상태, VPN 정책은 §VPN 조작 을 보라.
@@ -565,6 +566,74 @@ nc -z 10.41.1.120 9100 && echo reachable   # connect 후 즉시 close. 프레임
 | (B) P5 FAIL | VM 쪽 VPN 이 죽었다 → §VPN 조작 의 회수·재접속 절차 |
 | (B) IAP 접속 거부 | 실행 주체에 `roles/iap.tunnelResourceAccessor` 확인 (§VM 접근) |
 | (B) 창 강제 종료 후 잔여 별칭 | `--stop` / `-Stop` |
+
+---
+
+## quote 연결 축 — 시세 멈춤 판정
+
+> **Phase 26 (시세 전용 공유 연결).** 시세 업스트림은 사용자 세션이 아니라 relay 가 부팅 즉시 여는 **quote 관찰자
+> 연결 하나**(관찰자 로그인 role 1 · client `gh-radar-relay/quote`)다. 전 사용자의 호가 · 체결이 이 연결 하나로 온다.
+> **폴백이 없다**(D-03 — 사용자 세션으로 시세를 재구독하지 않는다). 그래서 이 연결은 단일 장애점이고, 끊기면
+> `/healthz` 가 사용자 DMA 세션 stalled 와 **같은 등급**으로 503 을 낸다(D-02). 기존 uptime
+> `gh-radar-relay-healthz` 와 정책 `gh-radar-relay-down` 이 **정책 변경 없이** 그대로 잡는다.
+> (교보 `journalGateways` 는 본문 전용이라 503 밖이다 — 이 축과 다르다.)
+
+### 503 조건 (D-16)
+
+| quote `state` | 시각 | `/healthz` |
+|---|---|---|
+| `rejected` · `role_mismatch` | **무관**(장 밖 포함) | **503 즉시** — 설정 오류라 기다려도 풀리지 않는다 |
+| `connecting` · `logging_in` | 장중(KST 평일 · 비휴장 · 08:00~20:00) · `disconnectedSec` ≥ 60 | **503** |
+| `connecting` · `logging_in` | 장중 60초 미만 · 또는 장 밖 | 200 (본문에만 드러난다) |
+| `ready` · `disabled` | — | 200 |
+
+60초 유예가 `deploy-relay.sh` 의 `curl -sf` 기동 확인을 지킨다 — 기동 직후 quote 는 `connecting` 이다. 배포는 20:00
+이후라 애초에 장중 창 밖이다. 판정식 정본은 `relay/src/quote/status.ts` 의 `quoteAlerting` 한 벌이다.
+
+### `/healthz` `.quote` 필드 해석
+
+본문 `quote` 는 **24시간** 실린다. 키는 7개 고정이고 식별자 · 호스트 · 비밀이 없다(smoke `health_probe` 통과).
+
+```bash
+curl -s https://dma.jx1.io/healthz | jq .quote
+# {"state":"ready","keyCount":37,"lingerCount":2,"lastFrameAgeSec":0,"reconnects":1,"subLimitRejects":0,"disconnectedSec":null}
+```
+
+| 키 | 읽는 법 |
+|---|---|
+| `state` | quote 연결 상태 기계 그대로 — `disabled · connecting · logging_in · ready · rejected · role_mismatch` |
+| `keyCount` | 업스트림 live 구독 키 수(전 사용자 합집합) |
+| `lingerCount` | 마지막 구독자가 떠난 뒤 해제를 미루는 중인 키 수(D-10) |
+| `lastFrameAgeSec` | quote 연결로 마지막 프레임을 받은 뒤 경과초. **장중에 `keyCount > 0` 인데 수 초 이상이면 시세 멈춤 의심** |
+| `reconnects` | ready 복귀 누적 수(첫 ready 제외). **짧은 간격으로 급증하면 끊김 루프**(RESEARCH Pitfall 3) — 서버 로그와 대조 |
+| `subLimitRejects` | 구독 한도 거부 누적 수(D-11 전역 2000 · D-15 사용자당). 늘면 한도에 닿은 사용자가 있다 |
+| `disconnectedSec` | ready 를 벗어난 뒤 경과초. `ready` · `disabled` 면 `null` |
+
+### 로그
+
+```bash
+# relay — quote 연결 상태 전이 · 로그인 · 끊김 (VM 시계 UTC)
+sudo docker logs --since <t> gh-radar-relay 2>&1 | grep -E '\[QUOTE\]|\[HUB\] (quote 연결 Ready — )?합집합 재구독'
+```
+
+- relay `[QUOTE] 시세 관찰자 로그인 성공 — ready` · `[QUOTE] 시세 연결 끊김` · `[QUOTE] 시세 연결 상태 전이` ·
+  `[QUOTE] 시세 관찰자 로그인 거부 — 재접속 중단` · `[QUOTE] 시세 관찰자 role_mismatch …`
+- relay `[HUB] quote 연결 Ready — 합집합 재구독 시작` · `[HUB] 합집합 재구독 중단 — quote 연결 재접속으로 처음부터 다시`
+- gh-trade 서버 로그(게이트웨이 쪽): `[Gateway] 관찰자 로그인(quote — 시세 전용) conn=… ip=… client='gh-radar-relay/quote'`
+  — 이 줄이 relay 의 `ready` 와 같은 시각 창에 있어야 한다. relay 가 재접속을 반복하는데 이 줄이 없으면 로그인
+  요청이 서버에 닿지 않은 것이다(터널 쪽 — 아래 not-live).
+
+### 503 원인별 조치
+
+| 원인 (`.quote.state`) | 뜻 | 조치 |
+|---|---|---|
+| `rejected` | 서버가 관찰자 로그인을 거부 — 관찰자 비밀 불일치(§관찰자 비밀) | 게이트웨이 `observer.toml` 과 relay Secret 을 대조 → 맞춘 뒤 **relay 재시작**(거부 뒤에는 재접속을 멈춘다) |
+| `role_mismatch` | 게이트웨이가 quote 역할(role 1)을 모른다 — 구 서버 | gh-trade 서버 가동본이 **`ed2e0240` 을 포함**하는지 확인(gh-trade STATE.md 의 실서버 배포 커밋) → 포함본 가동 후 **relay 재시작** |
+| `connecting` · `logging_in` 60초+ (장중) | 연결은 시도 중인데 ready 가 안 선다 | 터널 쪽이다 — §터널 정지 판정 절차 — wg-probe 와 §3자 대조 로 간다. relay 사용자 세션도 같이 끊겼으면 VM · openconnect 쪽 |
+
+> 거부 · 역할 불일치는 relay 가 **스스로 재시도하지 않는다** — 원인을 고친 뒤 재시작이 복구 절차다.
+> 브라우저는 같은 원천(`QuoteStatus`)에서 `quote.state` 프레임을 받는다 — 배지는 3초 디바운스, 알림은 60초 유예라
+> 짧은 재접속은 배지에도 알림에도 드러나지 않는다.
 
 ---
 

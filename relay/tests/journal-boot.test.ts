@@ -487,7 +487,7 @@ function kyoboEnv(kyobo: FakeGateway): Record<string, string> {
 
 describe("다중 업스트림 (quick-260929-c8e)", () => {
   it(
-    "M1 KYOBO env 없음 → 관찰자 로그인 1(KB) · 커서 조회 gateway=eq.KB 1회 · healthz 키 8종 · journalGateways 없음",
+    "M1 KYOBO env 없음 → 관찰자 로그인 1(KB) · 커서 조회 gateway=eq.KB 1회 · healthz 키 9종(+ quote — Phase 26) · journalGateways 없음",
     async () => {
       const { gateway, supabase } = await rig();
       respondKbLive(gateway);
@@ -505,7 +505,8 @@ describe("다중 업스트림 (quick-260929-c8e)", () => {
         relay,
       );
       expect(Object.keys(h.body ?? {}).sort()).toEqual(
-        ["dma", "everReadyCount", "journal", "sessionCount", "stalledCount", "status", "version", "vpn"],
+        // `quote` — 시세 전용 공유 연결 상태(Phase 26 D-02 · 26-12). quote 연결은 비밀이 있으면 늘 결선된다.
+        ["dma", "everReadyCount", "journal", "quote", "sessionCount", "stalledCount", "status", "version", "vpn"],
       );
       expect(gateway.observerLoginRequests()).toHaveLength(1);
       // 주문 · 전략 기록기 각 1회(Phase 25) — 둘 다 같은 게이트웨이 키다.

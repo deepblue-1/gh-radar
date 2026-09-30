@@ -655,6 +655,8 @@ describe("quote 판정 (Phase 26 D-02 · D-16)", () => {
   });
 
   async function probe(opts: StartOptions): Promise<{ status: number; body: Record<string, unknown> }> {
+    // 한 케이스 안에서 여러 번 두드릴 수 있게 앞 하네스를 먼저 닫는다.
+    await h?.close();
     h = await start(opts);
     const res = await fetch(h.url("/healthz"));
     return { status: res.status, body: (await res.json()) as Record<string, unknown> };
@@ -707,12 +709,8 @@ describe("quote 판정 (Phase 26 D-02 · D-16)", () => {
   it("journal 알림과 quote 알림은 AND 로 합쳐진다 — 둘 중 하나만 참이어도 503", async () => {
     const journalOnly = await probe({ journal: journal("connecting", 180), quote: quote("ready", null), now: IN_WINDOW });
     expect(journalOnly.status).toBe(503);
-    await h?.close();
-    h = null;
     const quoteOnly = await probe({ journal: journal("live", null), quote: quote("connecting", 61), now: IN_WINDOW });
     expect(quoteOnly.status).toBe(503);
-    await h?.close();
-    h = null;
     const both = await probe({ journal: journal("live", null), quote: quote("ready", null), now: IN_WINDOW });
     expect(both.status).toBe(200);
   });

@@ -44,7 +44,8 @@
  *   3. `sessionManager.closeAll()` — 구독 해제 + DMA TCP 종료
  *   4. quote 연결 `stop` · 전 게이트웨이 `observer.stop()` — 관찰자 연결 종료(새 시세 프레임 · 새 배치를 받지 않는다 —
  *      Phase 19 D-13 · Phase 26). quote 연결의 로그인 타이머 · 재접속 백오프도 여기서 멈춘다.
- *   5. 전 게이트웨이 `writer` · `strategyWriter` `drain(2초)` **병렬** → 전 기록기 · `access` · `status` · 신원 적재기 `close()`
+ *   5. 전 게이트웨이 `writer` · `strategyWriter` `drain(2초)` **병렬** → 전 기록기 · `access` · `status` · quote 상태 ·
+ *      신원 적재기 `close()`
  *      — 큐에 남은 레코드를 적용 RPC 로 보낸다. 2초 안에 못 끝내도 **유실은 없다** — 커서는 적용 RPC
  *      트랜잭션 안에서만 전진하므로 다음 부팅이 남은 구간을 재생한다(D-12).
  *   6. `hub.closeAll()` · `symbols` · 종목마스터 — 배치·재적재 타이머 정리(남기면 프로세스가 안 내려간다)
@@ -78,6 +79,7 @@ import { JournalObserver } from "./journal/observer.js";
 import { JournalStatus } from "./journal/status.js";
 import { createJournalCodec } from "./journal/codec.js";
 import { QuoteFeed } from "./quote/feed.js";
+import { QuoteStatus } from "./quote/status.js";
 
 /** 종료 절차 상한(ms). 이 시간을 넘기면 정리를 포기하고 강제로 내려간다. */
 const SHUTDOWN_TIMEOUT_MS = 5_000;
@@ -197,6 +199,11 @@ const hub = new SubscriptionHub({ symbols, symbolMaster: gatewaySymbols, lingerM
  */
 const quoteFeed = new QuoteFeed({ secret: config.dmaQuoteObserverSecret, host: config.dmaHost, port: config.dmaPort });
 hub.attachFeed(quoteFeed);
+/**
+ * quote 연결 상태 요약 (Phase 26 D-02 · D-16) — 브라우저 `quote.state` 프레임과 `/healthz` `quote` 필드의 **한 원천**이다
+ * (`JournalStatus` 동형). 둘이 같은 객체를 읽으므로 배지와 운영 알림이 어긋나지 않는다. fanout 생성 전에 둔다.
+ */
+const quoteStatus = new QuoteStatus({ feed: quoteFeed, hubStats: () => hub.stats() });
 // 첫 Ready 에서 66/64/72 가 57 조립보다 먼저 와 이름 없이 캐시·팬아웃되므로, 교체 뒤 풀린 행만 재방송한다 (D-08).
 gatewaySymbols.on("updated", () => hub.refreshNames());
 
@@ -271,6 +278,8 @@ const orderApi = createOrderApi({
     gateway: p.upstream.gateway,
     health: (nowMs: number) => p.status.health(nowMs),
   })),
+  // `/healthz` 의 `quote` 필드 + 503 판정(Phase 26 D-02 · D-16 — 장중 60초 · 거부 즉시). 폴백이 없어 503 축이다.
+  quote: quoteStatus,
 });
 const orderApiServer = http.createServer(orderApi);
 
@@ -371,6 +380,7 @@ async function shutdown(signal: string): Promise<void> {
       p.access.close();
       p.status.close();
     }
+    quoteStatus.close();
     gatewayIdentities?.close();
     const undrained = journalPipelines.filter((_, i) => !drained[i]).map((p) => p.upstream.gateway);
     if (undrained.length > 0) {
