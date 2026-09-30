@@ -55,6 +55,7 @@ import {
 } from "../src/hub/subscription-hub.js";
 import { SessionManager } from "../src/dma/session-manager.js";
 import { QuoteFeed } from "../src/quote/feed.js";
+import { QUOTE_DOWN_AFTER_MS, QuoteStatus } from "../src/quote/status.js";
 import type { DmaSession } from "../src/dma/session.js";
 import { encryptDmaPassword } from "../src/store/credentials.js";
 import {
@@ -312,6 +313,8 @@ type Harness = {
   sessions: SessionManager;
   /** 시세 전용 공유 연결 (Phase 26 — 실 `QuoteFeed` · quote 스텁 게이트웨이). */
   feed: QuoteFeed;
+  /** quote 연결 상태 원천 (Phase 26 D-01 · 26-12). `startHarness` 세 번째 인자 `quoteStatus: true` 일 때만 있다. */
+  quoteStatus: QuoteStatus | null;
   acquireSpy: ReturnType<typeof vi.spyOn>;
   releaseSpy: ReturnType<typeof vi.spyOn>;
   close: () => Promise<void>;
@@ -338,6 +341,7 @@ describe("WsFanout", () => {
   async function startHarness(
     overrides: Partial<WsFanoutDeps> = {},
     hubOpts?: ConstructorParameters<typeof SubscriptionHub>[0],
+    harnessOpts: { quoteStatus?: boolean } = {},
   ): Promise<Harness> {
     const server = http.createServer();
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
@@ -348,6 +352,12 @@ describe("WsFanout", () => {
     const acquireSpy = vi.spyOn(sessions, "acquire");
     const releaseSpy = vi.spyOn(sessions, "release");
 
+    // 시세 업스트림 = quote 연결 하나 (Phase 26 D-12). 부팅 결선(index.ts)은 26-04 — 여기서는 테스트가 직접 붙인다.
+    // 상태 원천(`QuoteStatus`)이 fanout deps 로 들어가야 해서 feed 를 fanout 보다 먼저 만든다(시작은 아래).
+    const feed = new QuoteFeed({ secret: QUOTE_SECRET, host: "127.0.0.1", port: quoteGateway.port });
+    // index.ts 결선과 같은 모양 — `new QuoteStatus({ feed, hubStats: () => hub.stats() })` (26-12).
+    const quoteStatus = harnessOpts.quoteStatus === true ? new QuoteStatus({ feed, hubStats: () => hub.stats() }) : null;
+
     const fanout = new WsFanout({
       server,
       supabase: fakeSupabase(),
@@ -357,11 +367,11 @@ describe("WsFanout", () => {
       path: WS_PATH,
       // 종목맵은 **전략 분기의 전제**다 (WR-03) — 없으면 `lc.set` 이 전부 거부된다.
       symbols: SYMBOLS,
+      ...(quoteStatus !== null ? { quoteState: quoteStatus } : {}),
       ...overrides,
     });
+    quoteStatus?.on("frame", (frame) => fanout.deliverQuoteState(frame));
 
-    // 시세 업스트림 = quote 연결 하나 (Phase 26 D-12). 부팅 결선(index.ts)은 26-04 — 여기서는 테스트가 직접 붙인다.
-    const feed = new QuoteFeed({ secret: QUOTE_SECRET, host: "127.0.0.1", port: quoteGateway.port });
     hub.attachFeed(feed);
     feed.start();
     await waitFor(() => feed.isReady, "quote 연결 ready");
@@ -373,9 +383,11 @@ describe("WsFanout", () => {
       hub,
       sessions,
       feed,
+      quoteStatus,
       acquireSpy,
       releaseSpy,
       close: async () => {
+        quoteStatus?.close();
         feed.stop();
         await fanout.close();
         await sessions.closeAll();
@@ -843,6 +855,100 @@ describe("WsFanout", () => {
       expect(framesOf(b.inbox, "sub.limit")).toHaveLength(1);
       expect(h.hub.stats()).toMatchObject({ lingerCount: 0, subLimitRejects: 1 });
       expect(userQuoteReqCount()).toBe(0);
+    });
+  });
+
+  // ============================================================
+  // Phase 26 Plan 12 — quote.state (D-01 원천)
+  // ============================================================
+  describe("quote.state (Phase 26 D-01)", () => {
+    /**
+     * 시세 전용 공유 연결 상태를 브라우저 배지 「시세」 축으로 내린다. 인증된 연결은 인증 직후 relay 가 상태를 **알 때만**
+     * 스냅샷 1프레임을 받고, 상태 전이(3초 디바운스 — `QuoteStatus`)마다 같은 프레임을 받는다. `dma_credentials` 미등록
+     * (`token-none`) 연결은 스냅샷도 전이도 0 이다(D-09 — 시세를 못 보는 사용자에게 시세 축을 알리지 않는다).
+     * 하네스는 index.ts 와 같은 결선(`quoteState: quoteStatus` · `on("frame") → deliverQuoteState`)을 쓴다.
+     */
+    const quoteStates = (inbox: RelayOutbound[]): RelayOutbound[] => framesOf(inbox, "quote.state");
+
+    /** 미등록 연결 — unauthorized 상태 프레임까지 받은 뒤 돌려준다. */
+    async function unregistered(): Promise<{ ws: TestWs; inbox: RelayOutbound[] }> {
+      const conn = await open();
+      conn.ws.sendAuth("token-none");
+      await waitFor(() => conn.inbox.some((m) => m.t === "state" && m.s === "unauthorized"), "token-none unauthorized");
+      return conn;
+    }
+
+    it("QS1 quoteState 미주입 하네스 → 인증 스냅샷에 quote.state 0 (모르면 보내지 않는다)", async () => {
+      const a = await authed("token-a");
+      await flushIo(20);
+      expect(quoteStates(a.inbox)).toHaveLength(0);
+    });
+
+    describe("QuoteStatus 주입", () => {
+      beforeEach(async () => {
+        // 바깥 하네스를 상태 원천 주입 하네스로 다시 세운다. 옛 quote 소켓이 닫힌 뒤에 새 연결을 기다려야 옛 소켓을 집지 않는다.
+        const oldQuoteSock = quoteSock;
+        await h.close();
+        await waitFor(() => oldQuoteSock.destroyed, "옛 quote 소켓 종료");
+        h = await startHarness({}, undefined, { quoteStatus: true });
+        quoteSock = await quoteGateway.waitForQuoteConnection();
+      });
+
+      it("QS2 feed ready 뒤 인증 → 인증 스냅샷 묶음에 {t:quote.state, s:live} 정확히 1프레임 · 미등록 0", async () => {
+        expect(h.quoteStatus?.frame()).toEqual({ t: "quote.state", s: "live" });
+        const a = await authed("token-a");
+        const none = await unregistered();
+        await waitFor(() => quoteStates(a.inbox).length === 1, "A quote.state 스냅샷");
+        await flushIo(20);
+
+        expect(quoteStates(a.inbox)).toEqual([{ t: "quote.state", s: "live" }]);
+        expect(quoteStates(none.inbox)).toHaveLength(0);
+      });
+
+      it("QS3 quote 소켓 끊김 → +3초 인증된 A · B 에 down 각 1건 · 미등록 0, 재접속 ready → live 각 1건", async () => {
+        const a = await authed("token-a");
+        const b = await authed("token-b");
+        const none = await unregistered();
+        await waitFor(() => quoteStates(a.inbox).length === 1 && quoteStates(b.inbox).length === 1, "A · B 스냅샷");
+
+        // 재로그인을 막고 quote 소켓을 끊는다 — 짧은 깜빡임이 아니라 3초 넘는 끊김을 만든다.
+        quoteGateway.respondQuoteLogin(null);
+        const cutAtMs = Date.now();
+        quoteGateway.hardClose(quoteSock);
+        await waitFor(() => !h.feed.isReady, "quote 연결 끊김 감지");
+
+        // 디바운스 직전까지는 아무것도 안 간다.
+        vi.advanceTimersByTime(QUOTE_DOWN_AFTER_MS - 1);
+        await flushIo(10);
+        expect(quoteStates(a.inbox)).toHaveLength(1);
+
+        vi.advanceTimersByTime(1);
+        await waitFor(() => quoteStates(a.inbox).length === 2 && quoteStates(b.inbox).length === 2, "A · B down");
+        for (const inbox of [a.inbox, b.inbox]) {
+          const down = quoteStates(inbox)[1] as { t: "quote.state"; s: string; since?: string };
+          expect(down.s).toBe("down");
+          expect(down.since).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+          // 이탈 시각이다 — 끊은 시각 전후(실시계)로 잡힌다.
+          expect(Math.abs(Date.parse(down.since as string) - cutAtMs)).toBeLessThan(2_000);
+        }
+        expect(quoteStates(none.inbox)).toHaveLength(0);
+
+        // 로그인 응답을 되살리고 재접속 · 로그인 타임아웃 · 백오프를 시계로 흘려 ready 까지 간다.
+        quoteGateway.respondQuoteLogin({ success: true });
+        for (let i = 0; i < 60 && !h.feed.isReady; i++) {
+          vi.advanceTimersByTime(1_000);
+          await flushIo(10);
+        }
+        expect(h.feed.isReady).toBe(true);
+        await waitFor(() => quoteStates(a.inbox).length === 3 && quoteStates(b.inbox).length === 3, "A · B live");
+        await flushIo(20);
+
+        expect(quoteStates(a.inbox)[2]).toEqual({ t: "quote.state", s: "live" });
+        expect(quoteStates(b.inbox)[2]).toEqual({ t: "quote.state", s: "live" });
+        expect(quoteStates(a.inbox)).toHaveLength(3);
+        expect(quoteStates(b.inbox)).toHaveLength(3);
+        expect(quoteStates(none.inbox)).toHaveLength(0);
+      });
     });
   });
 
