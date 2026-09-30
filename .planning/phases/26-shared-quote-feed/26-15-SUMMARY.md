@@ -252,7 +252,10 @@ origin 에 올라간 Phase 26 몫은 relay · e2e 뿐이고 `webapp/src` 변경�
 | `/healthz` | `status:"ok"` · `journal:"live"` · `quote:{state:"ready",keyCount:0,lingerCount:0,reconnects:0,subLimitRejects:0,disconnectedSec:null}` · 식별자 없음 |
 | relay 로그 | 08:06:16 `[QUOTE] 시세 관찰자 로그인 성공 — ready` (role 1 · client gh-radar-relay/quote) · 합집합 재구독 keys 0 |
 | 120 서버 로그 (gh-trade 세션 읽기 전용 확인) | 08:06:16.572 `[Gateway] 관찰자 로그인(quote — 시세 전용) conn=14 … client='gh-radar-relay/quote'` · 08:06:16.872 저널 관찰자 이어받기 since=3413 resync=false · 관찰자 quote 1 + journal 1 = 2 (상한 4) · 상한 경고·거부·요청 무처리 경고 0 |
-| push | **대기** — 사용자 지시 범위가 relay 까지 |
+| push | 08:31 KST `af7139ae..0380796e` (Phase 26 커밋 34건만 · 남의 커밋 없음 · 사용자 지시 「배포해서 확인해보자」) |
+| Vercel | `gh-radar-webapp-bv4jva3e1` Ready (빌드 1m) · 별칭 gh-radar-webapp.vercel.app · 서빙 번들에 `quote.state` 처리 포함 확인 |
+| 배포 뒤 relay `/healthz` | 08:47 `quote:{state:"ready",keyCount:4,lastFrameAgeSec:0,reconnects:0,subLimitRejects:0}` · sessionCount 3 — 브라우저 구독이 quote 연결로 흐름 |
+| 운영 화면 육안 확인 | 로그인 필요 — 사용자 확인 대기(상태줄 「● 시세」·「● 주문」 두 필) |
 | 첫 거래일 UAT (a)~(e) | 10/1 장중 관측 대기 |
 
 ## Task Commits
