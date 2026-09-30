@@ -1291,6 +1291,24 @@ export type RelayJournalStateMsg = {
 };
 
 /**
+ * relay 구독 한도 거부 (Phase 26 D-11 · D-15). 브라우저의 `sub` 이 한도에 닿아 구독이 **만들어지지 않았음**을 알린다.
+ *
+ * - `scope: "global"` — 시세 공유 연결의 업스트림 키(2000 · 서버 `kMaxObserverSubsPerConn`)가 찼다(D-11).
+ * - `scope: "user"` — 이 사용자(모든 탭 합산)가 참조하는 서로 다른 종목 키가 200 에 닿았다(D-15).
+ * - **거부한 그 소켓에만** 1건 간다. 같은 사용자의 다른 탭 · 다른 사용자에게는 가지 않는다.
+ * - 서버는 초과 구독을 조용히 무시하므로 relay 가 송신 전에 막고 이 프레임으로 드러낸다 — 없으면 「구독했는데 시세가 안
+ *   온다」 로만 보인다.
+ * - `{t:"msg"}` 를 재사용하지 않는 이유: 그 슬롯은 전략 카드가 같은 ISIN 오류로 소비한다(relay 발 거부 `src:"Relay"`).
+ *   구독 한도는 전략 오류가 아니므로 별도 프레임이다. 모르는 `t` 는 옛 webapp 리듀서가 무시한다.
+ */
+export type RelaySubLimitMsg = {
+  t: "sub.limit";
+  i: string;
+  x: RelayExchange;
+  scope: "global" | "user";
+};
+
+/**
  * 상따 전략 이벤트 푸시 (Phase 25). 원천은 relay **전략 기록기**가 `dma_strategy_apply` 에서 돌려받은
  * 삽입 행이다(관찰자 80 두 번째 스트림 — 주문 저널 `journal.rows` 와 별도 기록기 · 별도 커서).
  *
@@ -1344,6 +1362,7 @@ export type RelayOutbound =
   | RelayNxtSnapMsg
   | RelayJournalRowsMsg
   | RelayJournalStateMsg
+  | RelaySubLimitMsg
   | RelayJournalEventsMsg
   | RelayUnfProgressMsg;
 

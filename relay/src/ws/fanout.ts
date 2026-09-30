@@ -24,6 +24,8 @@
  *      level 갱신(같으면 무시). 시세는 hub `"market"` 이벤트 한 경로로 오고 `#keyConns`(키 → 그 키를 잡은 소켓)
  *      색인으로 **그 키를 잡은 소켓에만** 간다 — tape 는 full 소켓만, q 는 full 소켓 + price 플래그가 선 price
  *      소켓(D-06 · `#deliverMarket`). level 정본은 gh-trade 회신 quick-260923-exo · hub 헤더 D-33 아래 level 블록
+ *      구독 한도(Phase 26 D-11 전역 2000 · D-15 사용자당 200)에 닿은 새 키는 hub 가 업스트림 송신 전에 거부하고, 그 소켓에만
+ *      `{t:"sub.limit", i, x, scope}` 1건을 보낸다 — `conn.keys` · `#keyConns` 에 넣지 않는다(`{t:"msg"}` 재사용 금지).
  *   8. close → authTimer 정리, **그 소켓이 잡은 키만** 해제, `sessions.release`
  *
  * 결정 근거:
@@ -991,7 +993,16 @@ export class WsFanout {
         // 내린다** — 반대 순서면 합계가 0 을 지나 29(false) 뒤 재구독이 나간다.
         const prev = held.lv;
         held.lv = lv;
-        this.#hub.subscribe(userId, msg.isin, msg.ex, lv);
+        const result = this.#hub.subscribe(userId, msg.isin, msg.ex, lv);
+        if (result !== "ok") {
+          // 이미 가진 키라 한도(D-11 · D-15)에 걸릴 수 없다 — 걸렸다면 회계 불일치다. 옛 level 을 지키고 해제를 생략한다.
+          held.lv = prev;
+          logger.warn(
+            { userId, isin: msg.isin, ex: msg.ex, prev, lv, result },
+            "[WS] level 갱신이 구독 한도에 걸림 — 옛 level 유지 (회계 불일치 신호)",
+          );
+          return;
+        }
         this.#hub.unsubscribe(userId, msg.isin, msg.ex, prev);
         logger.info(
           { userId, isin: msg.isin, ex: msg.ex, prev, lv },
@@ -1004,9 +1015,19 @@ export class WsFanout {
         }
         return;
       }
+      // hub 판정이 **먼저**다 (D-11 · D-15) — 거부된 키는 이 소켓의 소유권 기록 · 키 구독자 색인에 넣지 않는다.
+      const result = this.#hub.subscribe(userId, msg.isin, msg.ex, lv);
+      if (result !== "ok") {
+        this.#send(conn, {
+          t: "sub.limit",
+          i: msg.isin,
+          x: msg.ex,
+          scope: result === "limit-user" ? "user" : "global",
+        });
+        return;
+      }
       conn.keys.set(key, { isin: msg.isin, ex: msg.ex, lv });
       this.#indexKey(key, conn);
-      this.#hub.subscribe(userId, msg.isin, msg.ex, lv);
 
       // 캐시가 있으면 게이트웨이 응답을 기다리지 않고 즉시 그린다 (D-37 — 전역 캐시라 다른 사용자가 먼저 연 종목도).
       const snapshot = this.#hub.getSnapshot(msg.isin, msg.ex);

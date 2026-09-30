@@ -88,6 +88,8 @@ export type {
   RelayJournalRowsMsg,
   RelayJournalState,
   RelayJournalStateMsg,
+  // --- Phase 26 구독 한도 거부 (D-11 · D-15) ---
+  RelaySubLimitMsg,
   // --- Phase 25 전략 이벤트 푸시 · 잔량진행률 프레임 ---
   RelayJournalEventsMsg,
   RelayUnfProgressEntry,
