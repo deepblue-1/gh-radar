@@ -56,6 +56,9 @@ export const logger = pino(
           "*.DMA_OBSERVER_SECRET",
           // quick-260929-c8e — 추가 게이트웨이 관찰자 비밀(교보). 같은 이유의 실수 방어다.
           "*.DMA_OBSERVER_SECRET_KYOBO",
+          // Phase 26 D-17 — 시세 전용 관찰자(quote 연결) 비밀 (T-26-05). env 이름 · 설정 필드 두 표기.
+          "*.DMA_QUOTE_OBSERVER_SECRET",
+          "*.dmaQuoteObserverSecret",
         ],
         censor: "[REDACTED]",
       },

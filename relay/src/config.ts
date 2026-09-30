@@ -23,6 +23,9 @@
  *              `DMA_KYOBO_PORT`            포트. 없거나 빈 값이면 9100.
  *              `DMA_OBSERVER_SECRET_KYOBO` 비밀. 없으면 그 관찰자는 disabled(production 에서도 기동은 막지 않는다).
  *            **사용자 세션(SessionManager)은 주 게이트웨이 단일**이다 — 추가 게이트웨이는 관찰자 전용이다.
+ *   26 D-17  시세 전용 관찰자(role 1 · quote 연결) 비밀 = `DMA_QUOTE_OBSERVER_SECRET` 우선, 없거나 빈 값이면
+ *            `DMA_OBSERVER_SECRET` 폴백. 프로덕션(Secret Manager 에 `DMA_OBSERVER_SECRET` 하나)은 폴백으로 같은
+ *            비밀을 쓰고 배포 스크립트는 바뀌지 않는다. production 필수 검사는 여전히 `DMA_OBSERVER_SECRET` 만 본다.
  *
  * 하지 않는 것:
  *   - 여기서 값을 검증(길이·형식)하지 않는다. 존재 여부만 본다 — 검증은 사용처가 한다.
@@ -101,6 +104,13 @@ export type RelayConfig = {
    * 행만 온다. 추가 env 가 없으면 길이 1 — 오늘과 같다. 게이트웨이 키는 서로 겹치지 않는다(겹치면 기동 거부).
    */
   journalUpstreams: readonly [JournalUpstream, ...JournalUpstream[]];
+  /**
+   * 시세 전용 관찰자(role 1 · quote 연결) 비밀 (Phase 26 D-17). `DMA_QUOTE_OBSERVER_SECRET` 이 있으면 그 값,
+   * 없거나 빈 문자열이면 `DMA_OBSERVER_SECRET` 폴백. 둘 다 없으면 undefined — QuoteFeed 가 disabled 로 남고
+   * 게이트웨이 소켓을 열지 않는다. e2e 처럼 quote 키만 두면 저널 관찰자는 꺼진 채 quote 연결만 켜진다.
+   * 「새 비밀 없음」 은 서버 쪽 약속이고 relay env 키 추가는 그 약속을 깨지 않는다. 로그 인자로 넘기지 않는다.
+   */
+  dmaQuoteObserverSecret: string | undefined;
 };
 
 export function loadConfig(): RelayConfig {
@@ -116,6 +126,8 @@ export function loadConfig(): RelayConfig {
   if (nodeEnv === "production" && dmaObserverSecret === undefined) {
     throw new Error("DMA_OBSERVER_SECRET must be set in production (Phase 19 D-13)");
   }
+  // D-17: quote 키 우선 · 빈 문자열은 「없음」 으로 보고 저널 비밀로 폴백한다.
+  const dmaQuoteObserverSecret = optional("DMA_QUOTE_OBSERVER_SECRET") || dmaObserverSecret;
 
   // 기본값은 로컬 mock 이다. 실서버 주소는 배포 env 가 반드시 명시해야 한다 (D-27).
   const dmaHost = optional("DMA_HOST") ?? "127.0.0.1";
@@ -165,5 +177,6 @@ export function loadConfig(): RelayConfig {
     sessionGraceMs: Number(optional("SESSION_GRACE_MS") ?? "300000"),
     dmaObserverSecret,
     journalUpstreams: [primary, ...extras],
+    dmaQuoteObserverSecret,
   };
 }
