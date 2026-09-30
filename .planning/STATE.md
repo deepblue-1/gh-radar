@@ -5,10 +5,10 @@ current_phase: 25
 current_phase_name: order-log-progress
 status: verifying
 stopped_at: Completed 25-13-PLAN.md
-last_updated: "2026-09-29T16:29:14.672Z"
+last_updated: "2026-09-30T01:59:32.416Z"
 last_activity: 2026-09-30
 last_activity_desc: "25-13 완료 — WR-02 수정 · relay:6821181b 배포 · push 6289e430..6821181b"
-state_head: 6821181b43554e722b7446eaea74935f52eaacaf
+state_head: 5bbb124cec10a60a50cf487db3ae94b32490515a
 progress:
   total_phases: 34
   completed_phases: 4
@@ -514,6 +514,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 260929-vzy | **후매수 「자동」 체크 (gh-trade dcaa78b1)** — 생성물 2파일 그대로 커밋(동기화 스크립트 미실행 · Phase 25 생성물 보존). shared postBuyAuto(입력 필수) · relay 는 postBuyAuto 있을 때만 buy3_schema=2(없으면 1 — 옛 탭 재전송이 자동을 끄지 않음) · 60/64 에코 디코드(부재 false). 웹: 후매수 스위치 바로 왼쪽 「자동」 체크(에코 표시) · 매수주문 끄면 자동도 끔 · 켜기 사전 검증 · 자동만 켠 등록은 철거 아님 · 로그 「후매수 자동 체크/해제」. relay 731 · webapp 3049 · e2e vzy-1/P24-7 · a11y green. 미배포(relay 먼저 → push) · 이월: 15:40 해제 귀속이 자동만 켠 전략 미집계 | 2026-09-29 | 127c1028 · fb175921 · d261c8d0 · bf36a28f · eac3a60e · b8db4c3c · 25ba301d | [260929-vzy-post-buy-auto-checkbox-relay-webapp](./quick/260929-vzy-post-buy-auto-checkbox-relay-webapp/) |
 | 260930-e73 | **OrderGroup 7 수동 · 8 VI 표시 (gh-trade-82 계약)** — shared 표시명 7「수동」·8「VI」 · 방향은 group+kind(`strategyEventSide`: 8 매수 · 7 은 kind 6 매도 · 3/4/5/7 매수 · 그 밖 null) · 조건 비면 「수동 주문」/「VI 자동주문」 · 펼침 접두 중복 제거 · 진행률 보조행 7/8 라벨. relay·DB 무변경(통과 테스트만). 필터 칩 미추가(사용자 결정 대기) · 펼침 빈 상태 문구 후속. 미배포(gh-trade 배포 전 무해) | 2026-09-30 | 6d3ce955 · 404b1ae1 · 5a056b39 | [260930-e73-ordergroup-7-8-vi](./quick/260930-e73-ordergroup-7-8-vi/) |
 | 260930-e30 | **사이드바 아이콘 레일 접기 + 스크롤 헤더 원형 햄버거** — lg 헤더 PanelLeft 토글(햄버거 자리)로 240↔64 레일 · localStorage 영속 · head 인라인 스크립트로 첫 페인트 전 복원 · 레일=아이콘만+트레이딩 켜진 전략 수 배지+하단 세로 쌓기(드로어 무영향). 폰(<lg)·앱은 창 스크롤>8 이면 헤더 배경·로고·검색이 빠지고 햄버거만 좌·상 8px 반투명 원형으로 뜸(상단에서만 헤더 · 드로어 열림/포커스 시 강제 표시 · 앱 상태바 띠 흐림 유지). 목업 채택안 A·상단전용. 미push | 2026-09-30 | 394bf0f0 · 0df77a97 · b69716c6 | [260930-e30-sidebar-collapse-scroll-header](./quick/260930-e30-sidebar-collapse-scroll-header/) |
+| 47 | 주문로그 구분 필터 「수동」(group 7)·「VI」(group 8) 칩 추가 + 오늘주문 펼침 빈 상태 「주문 기록 없음」 | 2026-09-30 | 5bbb124c | — |
 
 ## Session Continuity
 
