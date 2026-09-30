@@ -12,10 +12,10 @@
  *   같은 함수에 종목 · 거래소 범위를 더 싣는다(시세 이벤트에도 걸린다). 계좌가 없으면(null) 시세 이벤트만.
  *   이 범위는 **보기 선택**이다 — 받을 수 있는 행은 서버 RPC · relay fanout 이 계좌 권한으로 이미 제한했다(T-25-30).
  *
- * ③ D-08 구분 축 — group 기준 6값, kind 필터는 없다
+ * ③ D-08 구분 축 — group 기준 8값, kind 필터는 없다
  *   선매수 group 1 · 추가매수 2 · 후매수 3 · 매도 = 호가매도 4 · 체결매도 5 · 체결훅 6 합침 · 시세 = kind 1·2.
  *   모르는 group(0 · 계약 밖)인 주문 이벤트는 「전체」 에만 보인다 — 방향을 지어내지 않는다(D-10).
- *   수동 7 · VI 8 주문 이벤트는 칩이 없어 「전체」 에만 보인다(칩 추가는 사용자 결정 대기 · quick-260930-e73).
+ *   수동 7 · VI 8 주문 이벤트는 「수동」·「VI」 칩(manual · vi)으로 거른다.
  *
  * ④ R3 창 분리 쿼리 — `account` · `date` · `stock`(ISIN) · `ex` · `kind`, 「전체」 는 생략
  *   화이트리스트 파싱이다(T-25-29): 모르는 값은 무시(전체) · 형식 오류/미래 날짜는 오늘로 교정 · `all` 은 별칭.
@@ -27,7 +27,7 @@ import type { StrategyEventRow } from '@gh-radar/shared';
 
 /* ── 필터 타입 ─────────────────────────────────────────────────────── */
 
-export type OrderLogKindFilter = 'all' | 'pre' | 'add' | 'post' | 'sell' | 'market';
+export type OrderLogKindFilter = 'all' | 'pre' | 'add' | 'post' | 'sell' | 'manual' | 'vi' | 'market';
 export type OrderLogExchangeFilter = 'all' | 'KRX' | 'NXT';
 
 export interface OrderLogFilters {
@@ -46,6 +46,8 @@ export const ORDER_LOG_KIND_FILTERS: ReadonlyArray<{ value: OrderLogKindFilter; 
   { value: 'add', label: '추가매수' },
   { value: 'post', label: '후매수' },
   { value: 'sell', label: '매도' },
+  { value: 'manual', label: '수동' },
+  { value: 'vi', label: 'VI' },
   { value: 'market', label: '시세' },
 ];
 
@@ -100,6 +102,8 @@ const KIND_GROUPS: Readonly<Record<Exclude<OrderLogKindFilter, 'all' | 'market'>
   add: [2],
   post: [3],
   sell: [4, 5, 6],
+  manual: [7],
+  vi: [8],
 };
 
 export function matchesKind(row: StrategyEventRow, kind: OrderLogKindFilter): boolean {
@@ -148,7 +152,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const ISIN_RE = /^[A-Z0-9]{12}$/;
 const ACCOUNT_RE = /^[0-9A-Za-z-]{1,20}$/;
 const EXCHANGES: ReadonlySet<string> = new Set(['KRX', 'NXT']);
-const KINDS: ReadonlySet<string> = new Set(['pre', 'add', 'post', 'sell', 'market']);
+const KINDS: ReadonlySet<string> = new Set(['pre', 'add', 'post', 'sell', 'manual', 'vi', 'market']);
 
 /** 형식 + 실제 달력 날짜(`2026-02-30` 거부). */
 function isCalendarDate(v: string): boolean {

@@ -161,7 +161,7 @@ export function OrderTimeline({ notice, bundled, mobile }: OrderTimelineProps) {
           data-slot="order-timeline-empty"
           className="pb-0.5 pl-0.5 pt-1 text-[11px] text-[var(--faint)]"
         >
-          전략 이벤트 없음 — 수동 주문이거나 상따 기록 전 주문
+          주문 기록 없음
         </div>
       )}
       {failed && (

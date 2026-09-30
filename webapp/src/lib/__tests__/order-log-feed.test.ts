@@ -87,20 +87,25 @@ describe('matchesKind — 구분 필터 group 축 (D-08)', () => {
   it('모르는 group(0) 주문 이벤트는 all 에만', () => {
     const unknown = byGroup(0);
     expect(matchesKind(unknown, 'all')).toBe(true);
-    for (const k of ['pre', 'add', 'post', 'sell', 'market'] as const) expect(matchesKind(unknown, k)).toBe(false);
+    for (const k of ['pre', 'add', 'post', 'sell', 'manual', 'vi', 'market'] as const) expect(matchesKind(unknown, k)).toBe(false);
   });
 
-  it('수동 7 · VI 8 주문 이벤트는 all 에만 — 칩 추가는 사용자 결정 대기 (quick-260930-e73)', () => {
+  it('수동 7 = manual · VI 8 = vi — 다른 칩에는 없다', () => {
+    expect(matchesKind(byGroup(7), 'manual')).toBe(true);
+    expect(matchesKind(byGroup(8), 'vi')).toBe(true);
+    expect(matchesKind(byGroup(7), 'vi')).toBe(false);
+    expect(matchesKind(byGroup(8), 'manual')).toBe(false);
     for (const g of [7, 8]) {
       const r = byGroup(g);
       expect(matchesKind(r, 'all')).toBe(true);
       for (const k of ['pre', 'add', 'post', 'sell', 'market'] as const) expect(matchesKind(r, k)).toBe(false);
     }
+    for (const g of [1, 3, 6]) for (const k of ['manual', 'vi'] as const) expect(matchesKind(byGroup(g), k)).toBe(false);
   });
 
-  it('구분 옵션 라벨 = 전체 · 선매수 · 추가매수 · 후매수 · 매도 · 시세', () => {
-    expect(ORDER_LOG_KIND_FILTERS.map((o) => o.label)).toEqual(['전체', '선매수', '추가매수', '후매수', '매도', '시세']);
-    expect(ORDER_LOG_KIND_FILTERS.map((o) => o.value)).toEqual(['all', 'pre', 'add', 'post', 'sell', 'market']);
+  it('구분 옵션 라벨 = 전체 · 선매수 · 추가매수 · 후매수 · 매도 · 수동 · VI · 시세', () => {
+    expect(ORDER_LOG_KIND_FILTERS.map((o) => o.label)).toEqual(['전체', '선매수', '추가매수', '후매수', '매도', '수동', 'VI', '시세']);
+    expect(ORDER_LOG_KIND_FILTERS.map((o) => o.value)).toEqual(['all', 'pre', 'add', 'post', 'sell', 'manual', 'vi', 'market']);
   });
 });
 

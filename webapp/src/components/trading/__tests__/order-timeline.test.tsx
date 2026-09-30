@@ -133,7 +133,7 @@ describe("OrderTimeline — 조회 · 상태", () => {
 
     render(<OrderTimeline notice={noticeOf([ROW_12451])} bundled={false} mobile={false} />);
 
-    const empty = await screen.findByText("전략 이벤트 없음 — 수동 주문이거나 상따 기록 전 주문");
+    const empty = await screen.findByText("주문 기록 없음");
     expect(empty).toHaveAttribute("data-slot", "order-timeline-empty");
     expect(items()).toHaveLength(0);
   });

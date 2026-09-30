@@ -1277,7 +1277,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await empty.locator('td').nth(1).click();
     await expect(
       empty.locator('xpath=following-sibling::tr[1]').locator('[data-slot="order-timeline-empty"]'),
-    ).toHaveText('전략 이벤트 없음 — 수동 주문이거나 상따 기록 전 주문');
+    ).toHaveText('주문 기록 없음');
   });
 
   test('P25-E6 390 카드 행 — 펼침 · 가장 긴 상따 「주문」 줄이 줄바꿈으로 전부 보이고 시각 칸 78px (백스톱 E2 overflow)', async ({
