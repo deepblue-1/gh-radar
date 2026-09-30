@@ -5,10 +5,10 @@ current_phase: 26
 current_phase_name: 시세 전용 공유 연결 — relay 종목 단위 팬아웃
 status: executing
 stopped_at: Completed 26-07-PLAN.md
-last_updated: "2026-09-30T14:11:40.166Z"
+last_updated: "2026-09-30T14:12:48.563Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 26 execution started
-state_head: 7f9b8138532ef9a21dddfc5804ed42fe384b0adc
+state_head: f60c6905b8d8135703e6fb50c64b713d60e7b7d8
 progress:
   total_phases: 35
   completed_phases: 4
@@ -541,6 +541,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 260930-lq5 | **카드 주문로그 · 전략로그 → 버튼 + 한 종목 팝업** — 카드 탭은 정보 · 미체결 · 잔고만, 오른쪽 「주문로그(새 줄 배지)」 · 「전략로그」 버튼이 그 카드 종목 · 거래소 · 계좌 전용 다이얼로그를 연다(목업 v2 A). 주문로그 = 요약 한 줄 · 구분 필터 · 6열 표(시각 · 주문번호 뒤 4자리 · 구분 · 행위 · 내용 · 누적) · 위→아래 시간 흐름 · 창 분리 유지. 전략로그 = 시각 · 내용 · 오류만. 폰(<640) 전체 화면 두 줄 행. VI/돌파 알림 탭 → 정보. 공용 패널은 그대로 | 2026-09-30 | a4b45562 · 4d7683ff · 529af3e4 | [260930-lq5-log-popup](./quick/260930-lq5-log-popup/) |
 | 51 | 사이드바 메뉴 순서 교체 — AI 애널리스트를 My page 위로 | 2026-09-30 | 72c1fb5b | — |
 | 52 | 다크 토큰 청색 틴트 제거(무채색화) | 2026-09-30 | 9e14b49a | — |
+| 53 | 다크 면 사다리 한 단계 하향(토스 홈 스케일) | 2026-09-30 | f60c6905 | — |
 
 ## Session Continuity
 
