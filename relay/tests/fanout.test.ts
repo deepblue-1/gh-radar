@@ -47,6 +47,7 @@ import {
   type WsFanoutDeps,
 } from "../src/ws/fanout.js";
 import {
+  LINGER_MS,
   PRICE_MIN_INTERVAL_MS,
   SubscriptionHub,
   TAPE_BATCH_MS,
@@ -629,9 +630,15 @@ describe("WsFanout", () => {
     await second.ws.close();
     await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 0, "참조계수 0");
     expect(h.releaseSpy).toHaveBeenCalledTimes(2);
-    // 마지막 해제에서만 subscribe:false 가 quote 연결로 나간다(요청 프레임 2건 = 구독 + 해제).
-    await waitFor(() => quoteSubscribes.length === 2, "업스트림 구독 해제");
+    // 마지막 소비자가 떠나도 linger(D-10) 동안은 업스트림 구독이 남는다 — 해제 프레임이 아직 없다.
+    expect(h.hub.isLingering(SAMPLE_ISIN, "KRX")).toBe(true);
+    await flushIo(20);
+    expect(quoteSubscribes).toHaveLength(1);
+    // linger 만료에서만 subscribe:false 가 quote 연결로 나간다(요청 프레임 2건 = 구독 + 해제).
+    vi.advanceTimersByTime(LINGER_MS);
+    await waitFor(() => quoteSubscribes.length === 2, "linger 만료 뒤 업스트림 구독 해제");
     expect(quoteSubscribes[1]).toMatchObject({ isin: SAMPLE_ISIN, exchange: "KRX", subscribe: false });
+    expect(h.hub.isLingering(SAMPLE_ISIN, "KRX")).toBe(false);
     expect(userQuoteReqCount()).toBe(0);
   });
 
@@ -645,10 +652,10 @@ describe("WsFanout", () => {
     expect(h.hub.refCount("KR700593", "KRX")).toBe(0);
   });
 
-  // 옛 ⑪ 은 「재접속(참조계수 0 을 지난 뒤)에도 캐시가 즉시 응답」 이었다. 전역 캐시는 1→0 에서 정리하므로(D-37 헤더)
-  // 그 재접속 창은 linger(D-10 · 26-08)가 맡는다. 여기서는 같은 목적의 현재 경로 — 같은 키를 다른 소켓이 잡고
-  // 있는 동안 새 소켓은 게이트웨이 재요청 없이 캐시로 즉시 그린다 — 를 단언한다.
-  it("⑪ 같은 키를 다른 소켓이 잡고 있는 동안 새 소켓은 캐시로 즉시 응답하고 28 재송은 0 이다 (D-37)", async () => {
+  // ⑪ 은 Phase 15 에서 「재접속(참조계수 0 을 지난 뒤)에도 캐시가 즉시 응답」 이었다(D-37). 26-03 이 전역 캐시를 1→0 에서
+  // 정리하면서 잠시 「같은 키를 다른 소켓이 잡고 있는 동안」 으로 좁혔고, linger(D-10 · 26-08)가 들어와 본래 목적 —
+  // 탭 전환 · 새로고침으로 소켓이 닫혔다 다시 열려도 게이트웨이 재요청 없이 캐시로 즉시 그린다 — 을 되찾았다.
+  it("⑪ linger 안 재접속 — 소켓 close 뒤 5초에 새 소켓이 sub 하면 캐시 q 가 즉시 오고 28 누적 1 · 29(false) 0, 새 소켓도 닫히면 그로부터 LINGER_MS 뒤 29(false) 1 (D-10)", async () => {
     const first = await authed("token-a");
     first.ws.sendSub(SAMPLE_ISIN, "KRX");
     await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 1, "구독 성립");
@@ -657,14 +664,41 @@ describe("WsFanout", () => {
     quoteGateway.pushQuote(quoteSock, { snapshot: true, lastPrice: 69_800n });
     await waitFor(() => first.inbox.some((m) => m.t === "q"), "첫 시세 수신");
 
-    // 새 탭이 붙어 같은 종목을 구독하면 게이트웨이 왕복 없이 캐시가 먼저 온다.
+    // 새로고침 — 소켓이 닫히면 참조계수 0 이지만 linger 라 해제 프레임이 나가지 않는다.
+    await first.ws.close();
+    await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 0, "참조계수 0");
+    await flushIo(20);
+    expect(h.hub.isLingering(SAMPLE_ISIN, "KRX")).toBe(true);
+    expect(quoteSubscribes.filter((s) => s.subscribe === false)).toHaveLength(0);
+
+    vi.advanceTimersByTime(5_000);
+
+    // 새 소켓이 같은 종목을 잡으면 게이트웨이 왕복 없이 캐시가 먼저 온다.
     const second = await authed("token-a");
     second.ws.sendSub(SAMPLE_ISIN, "KRX");
-    await waitFor(() => second.inbox.some((m) => m.t === "q"), "캐시 즉시 응답");
+    await waitFor(() => second.inbox.some((m) => m.t === "q"), "linger 캐시 즉시 응답");
     await flushIo(20);
 
     expect(second.inbox.find((m) => m.t === "q")).toMatchObject({ p: 69_800, snap: true });
     expect(quoteMsgTypes.filter((t) => t === MSG.GetQuoteReq)).toHaveLength(1);
+    expect(quoteMsgTypes.filter((t) => t === MSG.SubscribeQuoteReq)).toHaveLength(1);
+    expect(quoteMsgTypes.filter((t) => t === MSG.GetTradeTapeReq)).toHaveLength(1);
+    expect(h.hub.isLingering(SAMPLE_ISIN, "KRX")).toBe(false);
+
+    // 첫 close 로부터 LINGER_MS 가 지나도 복귀가 타이머를 취소했으니 해제가 없다.
+    vi.advanceTimersByTime(LINGER_MS);
+    await flushIo(20);
+    expect(quoteSubscribes.filter((s) => s.subscribe === false)).toHaveLength(0);
+
+    // 새 소켓도 닫히면 그로부터 LINGER_MS 뒤 29(false) 1건.
+    await second.ws.close();
+    await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 0, "참조계수 0 (두 번째)");
+    vi.advanceTimersByTime(LINGER_MS);
+    await waitFor(
+      () => quoteSubscribes.filter((s) => s.subscribe === false).length === 1,
+      "linger 만료 뒤 29(false)",
+    );
+    expect(h.hub.getSnapshot(SAMPLE_ISIN, "KRX")).toBeUndefined();
     expect(userQuoteReqCount()).toBe(0);
   });
 
@@ -809,6 +843,8 @@ describe("WsFanout", () => {
 
       await b.ws.close();
       await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 0, "참조계수 0");
+      // 해제 프레임은 linger(D-10) 만료에서 나간다.
+      vi.advanceTimersByTime(LINGER_MS);
       await waitFor(() => countOf(MSG.SubscribeQuoteReq) === 2, "업스트림 해제");
       expect(h.hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBeUndefined();
     });

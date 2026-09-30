@@ -25,6 +25,7 @@ import * as flatbuffers from "flatbuffers";
 import type { RelayAccount, RelayOutbound, RelayTape, RelayUnfProgressMsg } from "@gh-radar/shared";
 
 import {
+  LINGER_MS,
   PRICE_MIN_INTERVAL_MS,
   SubscriptionHub,
   TAPE_BATCH_MS,
@@ -234,7 +235,7 @@ describe("SubscriptionHub", () => {
     expect(session.quoteReqs()).toHaveLength(0);
   });
 
-  it("② 해제는 마지막 1건에서만 subscribe:false 를 보낸다", () => {
+  it("② 해제는 마지막 1건에서만 subscribe:false 를 보낸다 (linger 만료 뒤 · D-10)", () => {
     hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
     hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
 
@@ -243,6 +244,8 @@ describe("SubscriptionHub", () => {
     expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(1);
 
     hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX");
+    expect(feed.subscribeReqs().filter((s) => s.subscribe === false)).toHaveLength(0);
+    vi.advanceTimersByTime(LINGER_MS);
     const releases = feed.subscribeReqs().filter((s) => s.subscribe === false);
     expect(releases).toHaveLength(1);
     expect(releases[0]).toMatchObject({ isin: SAMPLE_ISIN, exchange: "KRX" });
@@ -251,7 +254,7 @@ describe("SubscriptionHub", () => {
 
   // 옛 ③ 은 「다른 사용자의 해제가 첫 사용자의 구독을 끊지 않는다」 를 **사용자별 키**로 지켰다(D-13).
   // 키가 전역이 된 뒤 같은 목적은 **참조계수**가 지킨다 — A 의 해제는 합계를 1 로 내릴 뿐 29(false) 를 내지 않는다.
-  it("③ 두 사용자 같은 키 = 업스트림 한 벌 — A 해제는 유지 · B 해제에서 29(false) 와 그 키 캐시 정리 (Phase 26 D-12)", () => {
+  it("③ 두 사용자 같은 키 = 업스트림 한 벌 — A 해제는 유지 · B 해제 뒤 linger 만료에서 29(false) 와 그 키 캐시 정리 (Phase 26 D-12 · D-10)", () => {
     const other = new FakeSession("user-2");
     hub.attach(other);
 
@@ -278,10 +281,14 @@ describe("SubscriptionHub", () => {
     expect(hub.getSnapshot(SAMPLE_ISIN, "KRX")?.p).toBe(70_950);
 
     hub.unsubscribe("user-2", SAMPLE_ISIN, "KRX");
+    // 1→0 은 linger(D-10) — 만료 전에는 해제 프레임이 없고 캐시가 남는다.
+    expect(feed.sent).toHaveLength(before);
+    expect(hub.getSnapshot(SAMPLE_ISIN, "KRX")?.p).toBe(70_950);
+    vi.advanceTimersByTime(LINGER_MS);
     expect(feed.sent).toHaveLength(before + 1);
     expect(feed.sent.at(-1)).toMatchObject({ msgType: MSG.SubscribeQuoteReq, subscribe: false });
     expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(0);
-    // 전역 캐시는 1→0 에서 정리한다 (D-37 헤더 · linger 는 26-08).
+    // 전역 캐시는 linger 만료에서 정리한다 (D-37 헤더 · D-10).
     expect(hub.getSnapshot(SAMPLE_ISIN, "KRX")).toBeUndefined();
     expect(hub.getTape(SAMPLE_ISIN, "KRX")).toBeUndefined();
     expect(session.quoteReqs()).toHaveLength(0);
@@ -515,7 +522,7 @@ describe("SubscriptionHub", () => {
       expect(hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBe("full");
     });
 
-    it("L4 FULL 이탈로 PRICE 만 남으면 29(level=1) 1건, 마지막 이탈은 29(false) 1건", () => {
+    it("L4 FULL 이탈로 PRICE 만 남으면 29(level=1) 1건, 마지막 이탈은 linger 만료 뒤 29(false) 1건", () => {
       hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "full");
       hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "price");
       // 실효 level 이 그대로 full 이라 price 추가는 프레임을 내지 않는다.
@@ -528,6 +535,8 @@ describe("SubscriptionHub", () => {
       expect(hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBe("price");
 
       hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX", "price");
+      expect(feed.sent).toHaveLength(4);
+      vi.advanceTimersByTime(LINGER_MS);
       expect(feed.sent).toHaveLength(5);
       expect(feed.sent[4]).toMatchObject({ msgType: S, subscribe: false });
       expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(0);
@@ -1133,12 +1142,13 @@ describe("SubscriptionHub — quote 연결 프레임 경계 (Phase 26)", () => {
     lone.closeAll();
   });
 
-  it("⑥ 해제(1→0) 뒤 늦게 온 59 · 71 은 캐시에 되살아나지 않는다 — getSnapshot 없음 · market 0", () => {
+  it("⑥ 해제(1→0) 후 linger 만료 뒤 늦게 온 59 · 71 은 캐시에 되살아나지 않는다 — getSnapshot 없음 · market 0 (D-10)", () => {
     hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
     feed.pushFrame(buildQuoteStateFrame({ snapshot: true, lastPrice: 71_500n }));
     expect(hub.getSnapshot(SAMPLE_ISIN, "KRX")?.p).toBe(71_500);
 
     hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX");
+    vi.advanceTimersByTime(LINGER_MS);
     expect(feed.subscribeReqs().at(-1)).toMatchObject({ isin: SAMPLE_ISIN, subscribe: false });
     expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(0);
     expect(hub.getSnapshot(SAMPLE_ISIN, "KRX")).toBeUndefined();
@@ -1379,6 +1389,11 @@ describe("PRICE 판정 (D-05 · D-06)", () => {
     vi.advanceTimersByTime(PRICE_MIN_INTERVAL_MS * 3);
 
     expect(market).toHaveLength(before);
+    // 남은 타이머는 linger(D-10) 만료 1개뿐이다 — PRICE 지연 방출은 1→0 에서 지워졌다.
+    expect(hub.isLingering(SAMPLE_ISIN, "KRX")).toBe(true);
+    expect(vi.getTimerCount()).toBe(1);
+    vi.advanceTimersByTime(LINGER_MS);
+    expect(market).toHaveLength(before);
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -1412,5 +1427,197 @@ describe("PRICE 판정 (D-05 · D-06)", () => {
 
     expect(market).toHaveLength(before);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("linger (D-10)", () => {
+  /**
+   * 마지막 소비자가 떠난 키는 `LINGER_MS`(15초) 동안 업스트림 구독 · 전역 캐시를 유지하다 해제한다(D-10 · RESEARCH A3).
+   * 탭 전환 · 새로고침으로 같은 종목이 돌아오면 28 · 29 · 32 재요청 없이 캐시로 그린다. 만료 = 29(false) + 캐시 · PRICE
+   * 게이트 삭제. quote 연결 재접속(ready)에서는 linger 키를 되걸지 않고 정리한다(소비자가 없다).
+   */
+  const Q = MSG.GetQuoteReq;
+  const S = MSG.SubscribeQuoteReq;
+  const T = MSG.GetTradeTapeReq;
+
+  let hub: SubscriptionHub;
+  let feed: FakeFeed;
+  let market: HubMarketEvent[];
+
+  const releases = (): SentReq[] => feed.subscribeReqs().filter((s) => s.subscribe === false);
+
+  function makeHub(opts?: { lingerMs?: number }): void {
+    hub = new SubscriptionHub(opts);
+    market = [];
+    hub.on("market", (e) => market.push(e));
+    feed = new FakeFeed();
+    hub.attachFeed(feed);
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-30T00:30:00.000Z"));
+    resetDroppedEnvelopeCount();
+    makeHub();
+  });
+
+  afterEach(() => {
+    hub.closeAll();
+    vi.useRealTimers();
+  });
+
+  it("LG1 상수는 15초다 (D-10 재량 10~30초 · RESEARCH A3)", () => {
+    expect(LINGER_MS).toBe(15_000);
+  });
+
+  it("LG2 1→0 은 29(false) 를 미루고 캐시를 유지한다 — LINGER_MS 뒤 29(false) 1건 · 캐시 삭제 · lingerCount 0", () => {
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
+    feed.pushFrame(buildQuoteStateFrame({ snapshot: true, lastPrice: 71_500n }));
+    feed.pushFrame(buildTradeTapeFrame({ snapshot: true, entries: tapeEntries(["093015000000"]) }));
+
+    hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX");
+    expect(releases()).toHaveLength(0);
+    expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(0);
+    expect(hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBeUndefined();
+    expect(hub.isLingering(SAMPLE_ISIN, "KRX")).toBe(true);
+    expect(hub.stats()).toMatchObject({ lingerCount: 1, subscriptionCount: 0, cachedQuoteCount: 1 });
+    expect(hub.getSnapshot(SAMPLE_ISIN, "KRX")?.p).toBe(71_500);
+    expect(hub.getTape(SAMPLE_ISIN, "KRX")).toHaveLength(1);
+
+    vi.advanceTimersByTime(LINGER_MS - 1);
+    expect(releases()).toHaveLength(0);
+
+    vi.advanceTimersByTime(1);
+    expect(releases()).toHaveLength(1);
+    expect(releases()[0]).toMatchObject({ isin: SAMPLE_ISIN, exchange: "KRX" });
+    expect(hub.isLingering(SAMPLE_ISIN, "KRX")).toBe(false);
+    expect(hub.stats()).toMatchObject({ lingerCount: 0, subscriptionCount: 0, cachedQuoteCount: 0 });
+    expect(hub.getSnapshot(SAMPLE_ISIN, "KRX")).toBeUndefined();
+    expect(hub.getTape(SAMPLE_ISIN, "KRX")).toBeUndefined();
+  });
+
+  it("LG3 linger 중 같은 level 재구독은 28 · 29 · 32 0건 · 캐시 그대로 · 만료 타이머 취소(LINGER_MS 뒤에도 29(false) 0)", () => {
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
+    feed.pushFrame(buildQuoteStateFrame({ snapshot: true, lastPrice: 71_500n }));
+    hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX");
+    vi.advanceTimersByTime(5_000);
+    const before = feed.sent.length;
+
+    // 새로고침 — 다른 사용자가 돌아와도 같다(전역 키).
+    hub.subscribe("user-2", SAMPLE_ISIN, "KRX");
+    expect(feed.sent).toHaveLength(before);
+    expect(hub.isLingering(SAMPLE_ISIN, "KRX")).toBe(false);
+    expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(1);
+    expect(hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBe("full");
+    expect(hub.getSnapshot(SAMPLE_ISIN, "KRX")?.p).toBe(71_500);
+    expect(hub.stats()).toMatchObject({ lingerCount: 0, subscriptionCount: 1 });
+
+    vi.advanceTimersByTime(LINGER_MS * 2);
+    expect(feed.sent).toHaveLength(before);
+    expect(releases()).toHaveLength(0);
+  });
+
+  it("LG4 FULL 로 linger 중 price 재구독은 강등 29(level=1) 1건만 보낸다", () => {
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "full");
+    hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX", "full");
+    const before = feed.sent.length;
+
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "price");
+
+    expect(feed.sent.slice(before).map((s) => s.msgType)).toEqual([S]);
+    expect(feed.sent.at(-1)).toMatchObject({ subscribe: true, level: 1 });
+    expect(hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBe("price");
+  });
+
+  it("LG5 PRICE 로 linger 중 full 재구독은 승격 28 → 29(level=0) → 32 를 보낸다", () => {
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "price");
+    hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX", "price");
+    const before = feed.sent.length;
+
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "full");
+
+    expect(feed.sent.slice(before).map((s) => s.msgType)).toEqual([Q, S, T]);
+    expect(feed.sent[before + 1]).toMatchObject({ subscribe: true, level: 0 });
+    expect(hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBe("full");
+  });
+
+  it("LG6 lingerMs 0 이면 1→0 즉시 29(false) · 캐시 삭제 (26-03 동작 · e2e 격리)", () => {
+    hub.closeAll();
+    makeHub({ lingerMs: 0 });
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
+    feed.pushFrame(buildQuoteStateFrame({ snapshot: true, lastPrice: 71_500n }));
+
+    hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX");
+
+    expect(releases()).toHaveLength(1);
+    expect(hub.isLingering(SAMPLE_ISIN, "KRX")).toBe(false);
+    expect(hub.getSnapshot(SAMPLE_ISIN, "KRX")).toBeUndefined();
+    expect(hub.stats()).toMatchObject({ lingerCount: 0, subscriptionCount: 0, cachedQuoteCount: 0 });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("LG7 linger 중 quote 연결 ready 는 그 키를 되걸지 않고 정리한다(29 0 · 캐시 삭제) — live 키만 재구독", () => {
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
+    hub.subscribe("user-1", OTHER_ISIN, "NXT");
+    feed.pushFrame(buildQuoteStateFrame({ snapshot: true, lastPrice: 71_500n }));
+    hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX");
+    expect(hub.stats()).toMatchObject({ lingerCount: 1, subscriptionCount: 1 });
+    feed.sent.length = 0;
+
+    feed.emitReady();
+
+    expect(feed.sent.filter((s) => s.isin === SAMPLE_ISIN)).toEqual([]);
+    expect(feed.sent.filter((s) => s.isin === OTHER_ISIN).map((s) => s.msgType)).toEqual([Q, S, T]);
+    expect(hub.isLingering(SAMPLE_ISIN, "KRX")).toBe(false);
+    expect(hub.getSnapshot(SAMPLE_ISIN, "KRX")).toBeUndefined();
+    expect(hub.stats()).toMatchObject({ lingerCount: 0, subscriptionCount: 1 });
+    // 만료 타이머도 같이 꺼졌다 — 뒤늦은 29(false) 가 새 연결로 나가지 않는다.
+    vi.advanceTimersByTime(LINGER_MS);
+    expect(releases()).toHaveLength(0);
+  });
+
+  it("LG8 linger 중 59 는 캐시를 갱신한다(서버는 아직 구독 중) — 업스트림 송신 0 · price 플래그 거짓", () => {
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
+    feed.pushFrame(buildQuoteStateFrame({ snapshot: true, lastPrice: 71_500n }));
+    hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX");
+    const before = feed.sent.length;
+    market.length = 0;
+
+    feed.pushFrame(buildQuoteStateFrame({ snapshot: false, lastPrice: 71_600n }));
+
+    expect(hub.getSnapshot(SAMPLE_ISIN, "KRX")?.p).toBe(71_600);
+    expect(feed.sent).toHaveLength(before);
+    expect(market).toHaveLength(1);
+    expect(market[0]).toMatchObject({ full: true, price: false });
+  });
+
+  it("LG9 linger 만료 뒤 늦게 온 59 · 71 은 캐시에 되살아나지 않는다 (26-06 ⑥ 승계)", () => {
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
+    feed.pushFrame(buildQuoteStateFrame({ snapshot: true, lastPrice: 71_500n }));
+    hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX");
+    vi.advanceTimersByTime(LINGER_MS);
+    expect(releases()).toHaveLength(1);
+    market.length = 0;
+
+    feed.pushFrame(buildQuoteStateFrame({ snapshot: false, lastPrice: 71_600n }));
+    feed.pushFrame(buildTradeTapeFrame({ snapshot: false, entries: tapeEntries(["093016000000"]) }));
+
+    expect(hub.getSnapshot(SAMPLE_ISIN, "KRX")).toBeUndefined();
+    expect(hub.getTape(SAMPLE_ISIN, "KRX")).toBeUndefined();
+    expect(market).toEqual([]);
+  });
+
+  it("LG10 linger 타이머는 키당 1개이고 closeAll 이 전부 끈다", () => {
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
+    hub.subscribe("user-1", OTHER_ISIN, "NXT");
+    hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX");
+    hub.unsubscribe("user-1", OTHER_ISIN, "NXT");
+    expect(hub.stats().lingerCount).toBe(2);
+    expect(vi.getTimerCount()).toBe(2);
+
+    hub.closeAll();
+
+    expect(vi.getTimerCount()).toBe(0);
+    expect(hub.stats().lingerCount).toBe(0);
   });
 });
