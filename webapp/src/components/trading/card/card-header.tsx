@@ -178,9 +178,14 @@ export function CardHeader({
         <button
           type="button"
           id={toggleId}
+          data-slot="card-toggle"
           aria-expanded={open}
           aria-controls={controlsId}
           onClick={toggle}
+          // 포커스는 전역 이중 링이 아니라 **카드 테두리 한 겹**으로 말한다 — 15px 굵은 제목에 링이
+          // 얹히면 형광펜 상자처럼 뜬다. 짝은 `strategy-card.tsx` 의 `has-[[data-slot=card-toggle]
+          // :focus-visible]` 테두리다. 이 속성만 남기고 그 짝을 지우면 포커스가 사라진다(WCAG 2.4.7).
+          data-focus-ring="seamless"
           className="flex min-w-0 items-center gap-2 rounded-[var(--r-sm)] text-left"
         >
           <span

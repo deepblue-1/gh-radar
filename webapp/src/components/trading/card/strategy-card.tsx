@@ -941,6 +941,9 @@ function StrategyCardImpl({
         "scroll-mt-[calc(4rem+var(--app-safe-top))]",
         // 미반영 값이 있으면 카드 테두리가 파랗다 — 바가 어느 카드 것인지 모양으로 말한다(목업 B).
         card.dirtyCount > 0 && "border-[color-mix(in_oklab,var(--primary)_55%,var(--border))]",
+        // 제목 토글 버튼의 포커스 표시 — 버튼은 `data-focus-ring="seamless"` 로 전역 링을 걷었고
+        // 여기서 카드 테두리색 한 겹으로 대신 말한다(입력류와 같은 규약). 변형 유틸이라 더티색보다 이긴다.
+        "has-[[data-slot=card-toggle]:focus-visible]:border-[var(--ring)]",
       )}
     >
       <CardHeader
