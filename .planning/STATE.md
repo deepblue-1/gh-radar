@@ -5,10 +5,10 @@ current_phase: 26
 current_phase_name: 시세 전용 공유 연결 — relay 종목 단위 팬아웃
 status: executing
 stopped_at: Completed 26-14-PLAN.md
-last_updated: "2026-09-30T15:49:01.388Z"
-last_activity: 2026-09-30
+last_updated: "2026-10-01T01:26:52.254Z"
+last_activity: 2026-10-01
 last_activity_desc: Phase 26 execution started
-state_head: 21e495e61635f0b9c8b607895c92779ab43b16a4
+state_head: 3de6aab5bbaabf51b9702e6d98b4b217ed9df02b
 progress:
   total_phases: 35
   completed_phases: 4
@@ -34,7 +34,7 @@ Plans completed: 220 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-10-01 - Completed quick task 261001-bnc: home-sync 급등 신선도를 rate_updated_at 으로 분리
+Last activity: 2026-10-01 - Completed quick task 261001-dyi: 작업대 카드 접힘 PRICE · 펼침 FULL 구독
 
 Progress: [█████████░] 93%
 
@@ -569,6 +569,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 52 | 다크 토큰 청색 틴트 제거(무채색화) | 2026-09-30 | 9e14b49a | — |
 | 53 | 다크 면 사다리 한 단계 하향(토스 홈 스케일) | 2026-09-30 | f60c6905 | — |
 | 54 | 다크 면 사다리 두 단계 하향(목업 C 채택) | 2026-09-30 | bfc900e3 | — |
+| 261001-dyi | 작업대 종목카드 접힘 시 시세 구독 FULL→PRICE 강등 · 펼치면 FULL 승격 + relay 같은 소켓 승격에 캐시 호가 스냅샷 선송신 (relay 배포 → push 순서) | 2026-10-01 | 3de6aab5 | [261001-dyi-full-price-full](./quick/261001-dyi-full-price-full/) |
 
 ## Session Continuity
 
