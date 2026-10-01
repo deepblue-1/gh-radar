@@ -570,6 +570,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 53 | 다크 면 사다리 한 단계 하향(토스 홈 스케일) | 2026-09-30 | f60c6905 | — |
 | 54 | 다크 면 사다리 두 단계 하향(목업 C 채택) | 2026-09-30 | bfc900e3 | — |
 | 261001-dyi | 작업대 종목카드 접힘 시 시세 구독 FULL→PRICE 강등 · 펼치면 FULL 승격 + relay 같은 소켓 승격에 캐시 호가 스냅샷 선송신 (relay 배포 → push 순서) | 2026-10-01 | 3de6aab5 | [261001-dyi-full-price-full](./quick/261001-dyi-full-price-full/) |
+| 55 | 종목 카드 「전략로그」 버튼 라벨 → 「로그」 | 2026-10-01 | 3aeb02c0 | — |
 
 ## Session Continuity
 
