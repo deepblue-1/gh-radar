@@ -21,7 +21,7 @@
  *      영원히 빈 잔고·빈 전략 목록을 본다
  *   7. sub(lv full|price · 기본 full) → **전역** 참조계수 +1(level 별 · Phase 26 D-12), q 스냅샷 캐시가 있으면
  *      그 소켓에 즉시 전송 (D-37 — 캐시는 사용자 간 공유다). tape 캐시는 full 만 보낸다. 같은 소켓 재 sub 은
- *      level 갱신(같으면 무시). 시세는 hub `"market"` 이벤트 한 경로로 오고 `#keyConns`(키 → 그 키를 잡은 소켓)
+ *      level 갱신(같으면 무시) — price→full 승격은 q 캐시 → tape 캐시 스냅샷을 그 소켓에 준다(quick-261001-dyi). 시세는 hub `"market"` 이벤트 한 경로로 오고 `#keyConns`(키 → 그 키를 잡은 소켓)
  *      색인으로 **그 키를 잡은 소켓에만** 간다 — tape 는 full 소켓만, q 는 full 소켓 + price 플래그가 선 price
  *      소켓(D-06 · `#deliverMarket`). level 정본은 gh-trade 회신 quick-260923-exo · hub 헤더 D-33 아래 level 블록
  *      구독 한도(Phase 26 D-11 전역 2000 · D-15 사용자당 200)에 닿은 새 키는 hub 가 업스트림 송신 전에 거부하고, 그 소켓에만
@@ -1022,8 +1022,13 @@ export class WsFanout {
           "[WS] 같은 소켓 재구독 — level 갱신",
         );
         if (lv === "full") {
+          // price→full 승격 (quick-261001-dyi). price 소켓은 가격 섹션이 바뀐 59 만 받았으므로 그 사이
+          // 호가 틱(매수1잔량 등)이 빠져 있다. 업스트림이 이미 FULL 이면(다른 소비자) hub 승격도 없어 58 이
+          // 오지 않는다 — 캐시(`#onQuote` 가 모든 59 로 갱신)를 즉시 준다. 업스트림이 PRICE 였으면 hub 승격
+          // 28 의 58 이 곧 덮는다. 순서는 q → tape(새 키 분기와 같다).
+          const snapshot = this.#hub.getSnapshot(msg.isin, msg.ex);
+          if (snapshot !== undefined) this.#send(conn, snapshot);
           // 이 소켓은 price 동안 tape 를 받은 적이 없다 — 링버퍼를 스냅샷으로 준다.
-          // q 는 이미 받고 있으므로 다시 보내지 않는다.
           this.#sendTapeSnapshot(conn, msg.isin, msg.ex);
         }
         return;
