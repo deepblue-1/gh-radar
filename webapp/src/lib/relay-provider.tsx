@@ -99,6 +99,7 @@ import type {
   RelayOrderResultMsg,
   RelayQueueProgressItem,
   RelayQuote,
+  RelaySubLevel,
   RelayTapeEntry,
 } from "@gh-radar/shared";
 
@@ -495,6 +496,14 @@ export interface UseRelaySubscriptionOptions {
   exchange: RelayExchange;
   /** false 면 구독하지 않고, true→false 전환 시 기존 구독을 해제한다. 기본 true. */
   enabled?: boolean;
+  /**
+   * 구독 level. 기본 `"full"`(호가 · 테이프 전부). 작업대 카드가 접혀 있으면 `"price"` 를 쓴다
+   * (quick-261001-dyi — 가격 섹션이 바뀐 59 만 받는다).
+   *
+   * 키는 그대로 두고 level 만 바뀌면 **새 level 을 먼저 잡고 옛 level 을 놓는다** — 탭 참조계수
+   * 합계가 0 을 지나지 않아 와이어에는 `unsub` 없이 실효 level 변화분 `sub` 1건만 나간다.
+   */
+  level?: RelaySubLevel;
 }
 
 /**
@@ -516,19 +525,52 @@ export function useRelaySubscription({
   isin,
   exchange,
   enabled = true,
+  level = "full",
 }: UseRelaySubscriptionOptions): RelaySocketState {
   const relay = useRelayContext();
   const { subscribe, unsubscribe } = relay;
 
   const active = enabled && isin.length > 0;
 
+  /*
+    level 전환을 키 수명 effect 와 **나눈** 이유(quick-261001-dyi).
+    effect 하나에 level 을 deps 로 넣으면 전환이 「cleanup(옛 level 해제) → 재실행(새 level 구독)」
+    이 된다. 그 키를 이 소비자만 쥐고 있으면 탭 참조계수가 1→0 을 지나 와이어 `unsub` 이 실제로
+    나가고, relay 는 linger · 업스트림 29(false)/재구독을 만든다. 그래서 키 수명(구독·해제)과
+    level 전환(새 level 먼저 잡고 옛 level 놓기)을 따로 둔다. relay fanout 도 같은 소켓 level
+    갱신을 「새 level 을 먼저 올리고 옛 level 을 내린다」 로 처리한다 — 같은 규율이다.
+    `heldLevelRef` 는 지금 실제로 잡고 있는 level 이다. 해제는 항상 그 값으로 한다(누수 0).
+  */
+  const levelRef = useRef(level);
+  levelRef.current = level;
+  const heldLevelRef = useRef<RelaySubLevel | null>(null);
+
+  // 키 수명 — level 은 deps 에 넣지 않는다(위 주석). 잡을 때는 최신 level 을 쓴다.
   useEffect(() => {
     if (!active) return;
-    subscribe(isin, exchange);
+    const lv = levelRef.current;
+    subscribe(isin, exchange, lv);
+    heldLevelRef.current = lv;
     // 키가 바뀌면 **이전 키**를 해제한다 — 클로저가 붙잡은 isin/exchange 가 정확히 그것이다.
     // 빠뜨리면 relay 참조계수가 새고 업스트림 구독이 영원히 남는다.
-    return () => unsubscribe(isin, exchange);
+    return () => {
+      const held = heldLevelRef.current;
+      heldLevelRef.current = null;
+      if (held !== null) unsubscribe(isin, exchange, held);
+    };
   }, [active, isin, exchange, subscribe, unsubscribe]);
+
+  // level 전환 — 같은 키에서 새 level 을 **먼저** 잡고 옛 level 을 놓는다. cleanup 은 없다
+  // (해제는 키 수명 effect 가 heldLevelRef 로 한다). 키와 level 이 한 커밋에서 함께 바뀌면
+  // 키 수명 effect 가 이미 새 level 로 잡았으므로 여기서는 「같음」 으로 빠진다.
+  useEffect(() => {
+    if (!active) return;
+    const held = heldLevelRef.current;
+    if (held === null || held === level) return;
+    subscribe(isin, exchange, level);
+    unsubscribe(isin, exchange, held);
+    heldLevelRef.current = level;
+  }, [active, isin, exchange, level, subscribe, unsubscribe]);
 
   const key = relayQuoteKey(isin, exchange);
   const quote = active ? (relay.quotes.get(key) ?? null) : null;

@@ -28,6 +28,12 @@
  *
  * ③ ★ 카드는 자기 `isin`/`exchange` 로만 구독한다 (T-18-26 · T-15-40 / T-16-02 승계)
  *   `useRelaySubscription` 이 자기 키의 시세만 돌려주고, 언마운트·키 변경 때 그 키를 해제한다.
+ *   펼친 카드는 `full`, 접힌 카드는 `price` 로 구독한다(quick-261001-dyi). 접힌 헤더가 시세에서
+ *   읽는 값은 `p`(현재가) · `cr`(등락률) 둘뿐이고, 둘 다 relay PRICE 게이트의 가격 섹션
+ *   (`samePriceSection`)이라 접힌 동안에도 갱신된다. 요약 칩(미체결 · 보유)은 계좌 슬라이스
+ *   (66/67), LED 는 서버 에코, 83 잔량진행률은 사용자 세션 경로라 level 과 무관하다. 접기 ·
+ *   펼치기는 새 level 을 먼저 잡고 옛 level 을 놓는다(`useRelaySubscription`) — 와이어에는
+ *   `unsub` 없이 `sub` 1건만 나간다.
  *
  * ④ ★ 재렌더 예산 (T-18-29)
  *   카드는 `useIsinLabels()` 의 Map 을 구독하지 않는다 — 계좌 델타가 100ms 마다 오면 Map 이
@@ -47,6 +53,8 @@
  *   그 아래 본문 자리는 `body` 렌더 prop 이다 — 카드 상태(서버 전략 · 시세 · 전송/에코 콜백)를 **카드 밖으로 끌어올리지 않고** 본문에 건넨다.
  *   접힌 카드는 헤더만 **보인다** — 한 번 펼친 본문은 숨김(`hidden`)으로 남아 더티 값·「결과
  *   모름」 잠금·에코 상관을 지킨다(WR-02). 한 번도 펼친 적 없는 카드는 본문을 만들지 않는다.
+ *   숨은 본문의 호가 · 테이프는 접힌 동안(price 구독) 가격 섹션이 바뀐 59 에 실린 값으로만 움직인다.
+ *   펼치면 full 승격 + relay 승격 스냅샷(같은 quick — 캐시 q 를 tape 보다 먼저)으로 즉시 채워진다.
  */
 
 import {
@@ -65,6 +73,7 @@ import type {
   RelayLimitChaserInput,
   RelayOrderResultMsg,
   RelayQuote,
+  RelaySubLevel,
   RelayTapeEntry,
   RelayUnfilled,
 } from "@gh-radar/shared";
@@ -186,6 +195,11 @@ export interface UseStrategyCardStateOptions {
   /** 위(작업대 상태줄 · 옛 화면 계좌 칩)에서 내려받은 계좌. 비어 있으면 키가 없다. */
   accountNo: string;
   exchange: RelayExchange;
+  /**
+   * 시세 구독 level. 기본 `"full"`. 작업대 카드는 접혀 있으면 `"price"` 를 넘긴다(③ ·
+   * quick-261001-dyi). 전환 순서(새 level 먼저)는 `useRelaySubscription` 이 보장한다.
+   */
+  level?: RelaySubLevel;
 }
 
 /** 카드 1장의 상태 — 본문(`body` 렌더 prop)과 옛 화면이 읽는 계약이다. */
@@ -244,6 +258,7 @@ export function useStrategyCardState({
   isin,
   accountNo,
   exchange,
+  level: subLevel = "full",
 }: UseStrategyCardStateOptions): StrategyCardState {
   const {
     limitChasers,
@@ -258,6 +273,7 @@ export function useStrategyCardState({
     isin,
     exchange,
     enabled: isin.length > 0,
+    level: subLevel,
   });
   const { quote, tape, isStale } = subscription;
 
@@ -864,7 +880,13 @@ function StrategyCardImpl({
   alerted = false,
   requestedTab,
 }: StrategyCardProps) {
-  const card = useStrategyCardState({ isin, accountNo, exchange });
+  // 펼친 카드만 full(호가 · 테이프), 접힌 카드는 price — 파일 상단 ③ (quick-261001-dyi).
+  const card = useStrategyCardState({
+    isin,
+    accountNo,
+    exchange,
+    level: open ? "full" : "price",
+  });
   const [dirtyHost, setDirtyHost] = useState<HTMLDivElement | null>(null);
   usePinnedToViewportBottom(dirtyHost, card.dirtyCount > 0);
   const { key, quote, ledServer, handleArm, dirtyCount, log } = card;
