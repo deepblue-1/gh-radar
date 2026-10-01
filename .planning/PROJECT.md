@@ -60,6 +60,7 @@
 | 실시간 시세 소스: KIS → 키움 OpenAPI 전환 | KIS REST 폴링 한계 (per-stock N+1, rate limit) → 키움 ka10027 페이지네이션 단일 호출로 활성 종목 매분 갱신. Direct VPC Egress + Static IP whitelist 필수. | Phase 09.1 (2026-05-15) — KIS 완전 폐기 |
 | 캔들스틱 차트 채택 (Out of Scope 정책 반전) | 2026-05-15 사용자 명시 — 상세 페이지 자체 완결성 우선, TradingView/키움과의 차별화보다 트레이더가 화면 전환 없이 가격 흐름을 즉시 파악하는 가치 우선. RESEARCH 비교 후 lightweight-charts 5.2.0 lock-in. | Phase 09.2 |
 | 모바일 = Capacitor Remote-URL 셸 + 네이티브 탭바/로그인 (Phase 21) | 웹 한 벌을 운영 URL 로 그대로 쓰고(middleware 인증·OAuth callback 때문에 static export 불가), Google 이 WebView OAuth 를 막아 네이티브 Sign-In 이 필수 | ✓ Good — UAT 4차 30/30 (2026-09-26) |
+| 시세는 relay 공유 연결 1개로 팬아웃 (Phase 26) | 유저별 DMA 세션 구독이면 같은 시세가 VPN 구간에 N 벌 흐르고 주문 통보가 시세 뒤에 줄을 섬 → 관찰자 로그인 quote 역할(주문 권한 0) 연결 1개 · 참조계수 `isin\|ex` 전역화 · 캐시 공유 · PRICE 필터 relay 이관. 폴백 없음이라 `/healthz` 503 축으로 감시 | ✓ Good — 첫 거래일 UAT (a)~(e) pass (2026-10-01) |
 
 ## Evolution
 
@@ -79,4 +80,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-26 after Phase 21 (GH Trade 모바일 앱, MOBILE-01) — 스토어/TestFlight 테스트 배포는 다음 별도 phase*
+*Last updated: 2026-10-01 after Phase 26 (시세 전용 공유 연결 — relay 종목 단위 팬아웃)*

@@ -506,7 +506,6 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 닫힌 항목(근거 포함): [STATE-ARCHIVE.md](./STATE-ARCHIVE.md#닫힌-todo--blocker)
 
 - **Phase 22 Play 경로 → Phase 23 (2026-09-27).** Play Console 개발자 인증 미완료로 Android 는 Firebase App Distribution APK 로 재범위(22-05~22-10 재계획 · 체커 통과). Play 스토어 배포는 Phase 23 — 착수 조건: Play 개발자 인증 완료. 옛 22-05~22-07 은 phases/23-gh-trade-play/from-phase-22/.
-- [26-05] trading-workbench e2e 3건 실패(제품 코드·Phase 26 무관): 카드 헤더 종목명 폰 밴드 말줄임 2건(UI 결정 필요) · 터치 종목추가 16px 회귀 1건 — deferred-items.md
 
 ### Quick Tasks Completed
 
@@ -578,7 +577,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-09-30T15:49:00.481Z
+Last session: 2026-10-01T03:30:00Z
 Stopped at: Phase 26 complete, ready to plan Phase 18
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
