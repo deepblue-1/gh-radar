@@ -1066,9 +1066,12 @@ export class WsFanout {
     this.#hub.unsubscribe(userId, msg.isin, msg.ex, held?.lv ?? "full");
   }
 
-  /** hub 전역 링버퍼 캐시가 있으면 그 소켓에 tape 스냅샷 1프레임을 보낸다 (D-37). */
+  /**
+   * hub 전역 링버퍼 캐시가 있으면 그 소켓에 tape 스냅샷 1프레임을 보낸다 (D-37). **플러시된 부분만** 준다 — 200ms 배치
+   * 대기분은 곧 나갈 증분이 이 소켓에도 주므로, 넣으면 같은 체결이 두 번 그려진다(26-REVIEW WR-02 · `getFlushedTape`).
+   */
   #sendTapeSnapshot(conn: Conn, isin: string, ex: RelayExchange): void {
-    const tape = this.#hub.getTape(isin, ex);
+    const tape = this.#hub.getFlushedTape(isin, ex);
     if (tape !== undefined && tape.length > 0) {
       this.#send(conn, { t: "tape", i: isin, x: ex, snap: true, e: tape });
     }

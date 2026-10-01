@@ -1166,6 +1166,35 @@ describe("WsFanout", () => {
       expect(h.hub.unhandledFrameCount()).toBe(0);
     });
 
+    it("F10 이미 흐르는 종목을 새 full 소켓이 200ms 배치 창 안에 구독해도 같은 체결이 두 번 오지 않는다 (26-REVIEW WR-02)", async () => {
+      const a = await authed("token-a");
+      a.ws.sendSub(SAMPLE_ISIN, "KRX");
+      await waitFor(() => countOf(MSG.GetTradeTapeReq) === 1, "게이트웨이 체결 요청");
+      await pushTapeAndFlush("090000000011");
+      await waitFor(() => framesOf(a.inbox, "tape").length === 1, "A tape 1");
+
+      // 배치 창 안의 증분 1건 — hub 링버퍼에는 들어갔지만 아직 브라우저로 나가지 않았다.
+      const before = h.hub.getTape(SAMPLE_ISIN, "KRX")?.length ?? 0;
+      quoteGateway.pushTape(quoteSock, { snapshot: false, entries: [{ tradeTime: "090000000012" }] });
+      await waitFor(() => (h.hub.getTape(SAMPLE_ISIN, "KRX")?.length ?? 0) > before, "hub 링버퍼에 체결 도착");
+
+      // 그 창 안에 B 가 붙는다 — 스냅샷은 플러시된 부분(11)만, 대기분(12)은 곧 나갈 증분이 준다.
+      const b = await authed("token-b");
+      b.ws.sendSub(SAMPLE_ISIN, "KRX");
+      await waitFor(() => framesOf(b.inbox, "tape").length === 1, "B tape 스냅샷");
+      vi.advanceTimersByTime(TAPE_BATCH_MS);
+      await waitFor(() => framesOf(b.inbox, "tape").length === 2, "B 배치 증분");
+      await flushIo(20);
+
+      const bTapes = framesOf(b.inbox, "tape");
+      expect(bTapes).toHaveLength(2);
+      expect(bTapes[0]).toMatchObject({ snap: true });
+      expect(bTapes[1]).toMatchObject({ snap: false });
+      expect(bTapes.flatMap((f) => f.e.map((e) => e.t))).toEqual(["090000000011", "090000000012"]);
+      // A 는 증분만 한 번 더 받는다.
+      expect(framesOf(a.inbox, "tape").flatMap((f) => f.e.map((e) => e.t))).toEqual(["090000000011", "090000000012"]);
+    });
+
     it("F9 업스트림 FULL 에서 price 소켓이 full 로 승격하면 캐시 q(호가 틱 반영)를 tape 보다 먼저 즉시 받는다 · 업스트림 재요청 0 (quick-261001-dyi)", async () => {
       // 작업대 카드 펼치기 = 같은 소켓 price→full 재 sub. 다른 소비자(A)가 이미 FULL 이면 hub 승격도 58 도 없다 —
       // relay 가 캐시를 주지 않으면 B 의 호가는 「접힌 동안 마지막 체결 시점」 값으로 다음 FULL 59 까지 남는다.

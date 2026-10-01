@@ -382,6 +382,34 @@ describe("SubscriptionHub", () => {
     expect(fanout).toHaveLength(0);
   });
 
+  it("⑥-b getFlushedTape — 200ms 배치 대기 증분은 빼고 준다 · 대기 스냅샷이면 undefined · 플러시 뒤 전량 (26-REVIEW WR-02)", () => {
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
+    expect(hub.getFlushedTape(SAMPLE_ISIN, "KRX")).toBeUndefined();
+
+    // 대기 중인 스냅샷(69) — 곧 나갈 snap:true 가 전량을 준다.
+    feed.pushFrame(buildTradeTapeFrame({ snapshot: true, entries: tapeEntries(["090000000001", "090000000002"]) }));
+    expect(hub.getTape(SAMPLE_ISIN, "KRX")).toHaveLength(2);
+    expect(hub.getFlushedTape(SAMPLE_ISIN, "KRX")).toBeUndefined();
+    vi.advanceTimersByTime(TAPE_BATCH_MS);
+    expect(hub.getFlushedTape(SAMPLE_ISIN, "KRX")?.map((e) => e.t)).toEqual(["090000000001", "090000000002"]);
+
+    // 대기 중인 증분(71) 2건 — 플러시된 앞부분만.
+    feed.pushFrame(buildTradeTapeFrame({ snapshot: false, entries: tapeEntries(["090000000003"]) }));
+    feed.pushFrame(buildTradeTapeFrame({ snapshot: false, entries: tapeEntries(["090000000004"]) }));
+    expect(hub.getTape(SAMPLE_ISIN, "KRX")).toHaveLength(4);
+    expect(hub.getFlushedTape(SAMPLE_ISIN, "KRX")?.map((e) => e.t)).toEqual(["090000000001", "090000000002"]);
+    vi.advanceTimersByTime(TAPE_BATCH_MS);
+    expect(hub.getFlushedTape(SAMPLE_ISIN, "KRX")).toHaveLength(4);
+  });
+
+  it("⑥-c getFlushedTape — 대기 증분이 링버퍼 상한보다 길면 빈 배열(링 전체가 대기분)", () => {
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
+    const many = Array.from({ length: TAPE_RING_SIZE + 5 }, (_, i) => `0910000${String(i).padStart(5, "0")}`);
+    feed.pushFrame(buildTradeTapeFrame({ snapshot: false, entries: tapeEntries(many) }));
+    expect(hub.getTape(SAMPLE_ISIN, "KRX")).toHaveLength(TAPE_RING_SIZE);
+    expect(hub.getFlushedTape(SAMPLE_ISIN, "KRX")).toEqual([]);
+  });
+
   it("⑦ 전역 체결 링버퍼는 상한을 넘으면 오래된 것부터 버린다", () => {
     hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
 

@@ -1436,10 +1436,29 @@ export class SubscriptionHub extends EventEmitter {
     return this.#quotes.get(marketKey(isin, exchange));
   }
 
-  /** 최근 체결 링버퍼(전역)의 복사본. 새 탭 · 재접속 직후 테이프를 즉시 채우는 데 쓴다. */
+  /** 최근 체결 링버퍼(전역)의 복사본 — 아직 플러시 안 된 대기분까지 포함한 원본 그대로(진단 · 테스트용). */
   getTape(isin: string, exchange: RelayExchange): RelayTapeEntry[] | undefined {
     const ring = this.#tapes.get(marketKey(isin, exchange));
     return ring === undefined ? undefined : [...ring];
+  }
+
+  /**
+   * 새 탭 · price→full 승격 직후 tape 스냅샷(`snap:true`)으로 줄 링버퍼 — **이미 플러시된 부분만**이다(26-REVIEW WR-02).
+   *
+   * `#onTape` 는 증분(71)을 링버퍼에 먼저 넣고 같은 항목을 `#pendingTapes` 에도 넣어 200ms 뒤 증분으로 내보낸다. 그 창
+   * 안에 새 소켓이 붙어 링버퍼 전체를 스냅샷으로 받으면, 곧이어 같은 대기분이 `snap:false` 로 **그 소켓에도** 가서 같은
+   * 체결이 두 줄이 된다(웹 `applyMarketFrames` 는 중복을 거르지 않고 앞에 붙인다). 그래서 대기 증분을 뺀 앞부분만 준다 —
+   * 빠진 꼬리는 곧 나갈 플러시가 채운다. 대기분이 스냅샷(69 전량 교체)이면 곧 나갈 `snap:true` 가 전량을 주므로 undefined.
+   * 대기분이 링버퍼보다 길면(상한 절단) 링버퍼 전체가 대기분이라 빈 배열이다.
+   */
+  getFlushedTape(isin: string, exchange: RelayExchange): RelayTapeEntry[] | undefined {
+    const key = marketKey(isin, exchange);
+    const ring = this.#tapes.get(key);
+    if (ring === undefined) return undefined;
+    const pending = this.#pendingTapes.get(key);
+    if (pending === undefined) return [...ring];
+    if (pending.snap) return undefined;
+    return ring.slice(0, Math.max(0, ring.length - pending.entries.length));
   }
 
   /**
