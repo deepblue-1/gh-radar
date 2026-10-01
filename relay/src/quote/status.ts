@@ -16,8 +16,9 @@
  *   - disabled(비밀 미설정)는 표식 대상이 아니다 — 프레임을 내지 않고 스냅샷도 null.
  *   - rejected · role_mismatch 도 배지에서는 down 이다(사유 구분은 healthz 본문 `state` 가 한다).
  *
- * 운영 알림(D-16): `quoteAlerting(health, now)` — `rejected` · `role_mismatch` 는 설정 오류라 기다려도 풀리지 않으므로 장중
- * 창과 무관하게 즉시 참. 그 밖 not-live 는 장중(`inTradingWindow` · KST 평일 · 비휴장 · 08:00~20:00)에 `QUOTE_ALERT_AFTER_MS`
+ * 운영 알림(D-16): `quoteAlerting(health, now)` — `rejected` · `role_mismatch` 는 사람이 봐야 하는 상태라 장중 창과 무관하게
+ * 즉시 참(role_mismatch 는 설정 오류로 영구 정지 · rejected 는 비밀 불일치일 수도 일시적 정원 초과일 수도 있어 5분 간격 유한
+ * 재시도 중에도 rejected 로 머무는 동안은 503 — 26-REVIEW WR-03 · feed.ts). 그 밖 not-live 는 장중(`inTradingWindow` · KST 평일 · 비휴장 · 08:00~20:00)에 `QUOTE_ALERT_AFTER_MS`
  * (60초) 이상 이어질 때만 참이다 — 유예가 없으면 기동 직후 · 서버 재기동마다 503 이 나서 deploy-relay.sh 의 `curl -sf`
  * 기동 확인과 e2e `waitForRelay` 가 깨진다(RESEARCH Pitfall 7 · A6). D-02 의 「Ready 가 아니면 503」 은 이 규칙으로 좁혀진다.
  *
@@ -109,7 +110,7 @@ export type QuoteHealth = {
  * `/healthz` 알림 판정(순수 함수 · D-16). 판정 순서가 계약이다 — 거부 · 역할 불일치 검사가 장중 창 판정보다 **먼저**다.
  */
 export function quoteAlerting(health: QuoteHealth, now: Date): boolean {
-  // 로그인 거부 · 역할 불일치는 설정 오류라 기다려도 풀리지 않는다 — 장 밖에도 즉시 알린다.
+  // 로그인 거부 · 역할 불일치는 사람이 봐야 한다 — 장 밖에도 즉시 알린다(rejected 의 유한 재시도 대기 중에도 · WR-03).
   if (health.state === "rejected" || health.state === "role_mismatch") return true;
   if (!inTradingWindow(now)) return false;
   // ready 여도 장중 · 구독 키가 있는데 프레임이 끊겼으면 끊김과 같다(WR-01 — half-open · 터널 정지).

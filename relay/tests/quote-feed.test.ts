@@ -16,6 +16,8 @@
  *   L8  send 는 ready 일 때만 전송에 넘긴다.
  *   L9  비밀 없음 → disabled · connect 0 (D-17 「quote 비밀 없음 = 끔」).
  *   L10 모든 케이스에서 logger 네 레벨 호출 인자에 비밀 · 호스트 문자열 0회 (T-19-03 · T-26-05 · T-26-07).
+ *   R1~R4 거부(79 success=false) 뒤 5분 간격 유한 재시도(26-REVIEW WR-03) — 기다리는 동안 rejected · 재시도는 connect 1회 ·
+ *       성공하면 계수 리셋 · 상한(12회) 뒤에는 정지 · role_mismatch 는 재시도 없음 · stop 은 재시도를 지운다.
  *   W1~W5 수신 워치독(26-REVIEW WR-01) — 장중 · keyCount>0 · 마지막 생존 신호 뒤 QUOTE_STALL_RECONNECT_MS 무수신이면
  *       dropTransport 1회 · connecting. 프레임이 흐르면 · 키 0 · 장 밖 · keyCount 미주입이면 끊지 않는다. 재접속 직후에는
  *       옛 lastFrameAtMs 가 아니라 ready 진입 시각부터 잰다.
@@ -23,7 +25,14 @@
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { QUOTE_CLIENT_NAME, QUOTE_ROLE, QuoteFeed, type QuoteFeedState } from "../src/quote/feed.js";
+import {
+  QUOTE_CLIENT_NAME,
+  QUOTE_REJECTED_RETRY_MAX,
+  QUOTE_REJECTED_RETRY_MS,
+  QUOTE_ROLE,
+  QuoteFeed,
+  type QuoteFeedState,
+} from "../src/quote/feed.js";
 import { LOGIN_RESP_TIMEOUT_MS } from "../src/dma/session.js";
 import { QUOTE_STALL_CHECK_MS, QUOTE_STALL_RECONNECT_MS } from "../src/quote/status.js";
 import { MSG } from "../src/dma/msg-type.js";
@@ -267,6 +276,7 @@ describe("QuoteFeed — 정지 경로 (거부 · 역할 불일치)", () => {
     r.transport.emitUp();
     expect(loginRequests(r.transport)).toHaveLength(1);
     expect(r.feed.state).toBe("rejected");
+    r.feed.stop(); // WR-03 재시도 타이머 정리
   });
 
   it("L5 79 success ∧ role 0 (구 서버) → role_mismatch · 같은 순서 · error 로그에 role 0 · 이후 up 에도 로그인 0", () => {
@@ -295,6 +305,98 @@ describe("QuoteFeed — 정지 경로 (거부 · 역할 불일치)", () => {
     // 정지 뒤 온 프레임도 넘기지 않는다.
     r.transport.emitFrame(buildQuoteStateFrame({ snapshot: false }));
     expect(r.frames).toHaveLength(0);
+  });
+});
+
+describe("QuoteFeed — 거부 뒤 유한 재시도 (26-REVIEW WR-03)", () => {
+  function reject(r: Rig): void {
+    r.transport.emitFrame(buildObserverLoginRespFrame({ success: false, message: "거부", accounts: [] }));
+  }
+
+  it("상수 — 5분 간격 · 최대 12회", () => {
+    expect(QUOTE_REJECTED_RETRY_MS).toBe(300_000);
+    expect(QUOTE_REJECTED_RETRY_MAX).toBe(12);
+  });
+
+  it("R1 거부 → 5분 동안 rejected · 5분 뒤 connecting + connect 1회 → up 에 로그인 1건 → 성공이면 ready", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const r = rig();
+    r.feed.start();
+    r.transport.emitUp();
+    reject(r);
+    expect(r.feed.state).toBe("rejected");
+
+    await vi.advanceTimersByTimeAsync(QUOTE_REJECTED_RETRY_MS - 1);
+    expect(r.feed.state).toBe("rejected");
+    expect(r.transport.count("connect")).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(r.feed.state).toBe("connecting");
+    expect(r.transport.count("connect")).toBe(2);
+
+    r.transport.emitUp();
+    expect(loginRequests(r.transport)).toHaveLength(2);
+    login(r);
+    expect(r.feed.state).toBe("ready");
+    expect(r.readies).toBe(1);
+    r.feed.stop();
+  });
+
+  it("R2 연속 거부는 12회까지 재시도 · 13번째 거부 뒤에는 더 연결하지 않고 error 로그가 상한 소진을 말한다", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const r = rig();
+    r.feed.start();
+    r.transport.emitUp();
+    reject(r);
+    for (let i = 0; i < QUOTE_REJECTED_RETRY_MAX; i += 1) {
+      await vi.advanceTimersByTimeAsync(QUOTE_REJECTED_RETRY_MS);
+      r.transport.emitUp();
+      reject(r);
+    }
+    expect(r.transport.count("connect")).toBe(1 + QUOTE_REJECTED_RETRY_MAX);
+    await vi.advanceTimersByTimeAsync(QUOTE_REJECTED_RETRY_MS * 3);
+    expect(r.transport.count("connect")).toBe(1 + QUOTE_REJECTED_RETRY_MAX);
+    expect(r.feed.state).toBe("rejected");
+    expect(errorLogArgs("재시도 상한 소진")).toBeDefined();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("R3 성공한 ready 는 거부 계수를 되돌린다 — 그 뒤 거부도 다시 재시도한다", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const r = rig();
+    r.feed.start();
+    r.transport.emitUp();
+    reject(r);
+    await vi.advanceTimersByTimeAsync(QUOTE_REJECTED_RETRY_MS);
+    r.transport.emitUp();
+    login(r);
+    expect(r.feed.state).toBe("ready");
+
+    r.transport.emitDown();
+    r.transport.emitUp();
+    reject(r);
+    const args = errorLogArgs("긴 간격 재시도 예약");
+    expect(args).toBeDefined();
+    expect(logs.filter((c) => c.level === "error").at(-1)?.args[0]).toMatchObject({ attempt: 1 });
+    r.feed.stop();
+  });
+
+  it("R4 role_mismatch 는 재시도하지 않는다 · rejected 대기 중 stop 은 재시도를 지운다", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const mismatch = rig();
+    mismatch.feed.start();
+    mismatch.transport.emitUp();
+    login(mismatch, { role: 0 });
+    await vi.advanceTimersByTimeAsync(QUOTE_REJECTED_RETRY_MS * 3);
+    expect(mismatch.transport.count("connect")).toBe(1);
+    expect(mismatch.feed.state).toBe("role_mismatch");
+
+    const r = rig();
+    r.feed.start();
+    r.transport.emitUp();
+    reject(r);
+    r.feed.stop();
+    await vi.advanceTimersByTimeAsync(QUOTE_REJECTED_RETRY_MS * 2);
+    expect(r.transport.count("connect")).toBe(1);
   });
 });
 

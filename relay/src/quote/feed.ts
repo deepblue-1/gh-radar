@@ -14,7 +14,13 @@
  *               ready 뒤 전부 "frame" 으로 넘긴다 — 78 · 76 · 83 을 무시할지는 hub 가 명시 case 로 정한다
  *               (RESEARCH Open Q2 RESOLVED · PC-12).
  *   확정-인증    관찰자 공유 비밀 재사용 · 19 D-13 동형: **24시간 상시** · `DmaClient` 의 상한 있는 백오프 재접속 ·
- *               **거부(79 success=false)면 재접속 루프 정지**(`rejected`) — 재시작 전 복구 없음.
+ *               거부(79 success=false)면 백오프 재접속 루프는 끊는다(`rejected`).
+ *   WR-03        단, quote 는 폴백 없는 단일 장애점이라 거부 한 번에 영구 정지하지 않는다(26-REVIEW WR-03). 게이트웨이 거부 문구는
+ *               사유를 가르지 않고(23 D-09~D-13), 관찰자 정원(kMaxObservers 4 · journal+quote 합산)은 옛 half-open 연결 ·
+ *               배포 겹침 · 개발 PC relay 로 **일시적으로** 찰 수 있다. 그래서 `rejected` 는 `QUOTE_REJECTED_RETRY_MS`(5분)
+ *               간격 · 최대 `QUOTE_REJECTED_RETRY_MAX`(12회 = 1시간) 유한 재시도다. 공유 비밀이라 계정 잠금 위험이 없다(사용자
+ *               세션 T-15-10 과 다르다). 기다리는 동안 상태는 `rejected` 라 `/healthz` 503 · error 로그는 그대로이고, 재시도를
+ *               다 쓰면 예전처럼 재시작 전 복구 없음으로 굳는다. 저널 관찰자(19 D-13)의 정지 정책은 바꾸지 않는다.
  *   Pitfall 2    role 을 모르는 구 서버는 role 필드를 무시하고 journal 관찰자로 수락한다(79 success · role 0). 그러면 28/29/32
  *               가 버려져 「Ready 인데 시세가 영원히 안 온다」 + 관찰자 정원 1칸 낭비가 된다 → `role_mismatch` 로 거부와 같이
  *               정지한다(T-26-04). 서버 교체 뒤 relay 재시작으로 복구한다.
@@ -34,6 +40,7 @@
  *   logging_in → (79 거부) rejected ■ · (79 ok · role≠1) role_mismatch ■ · (응답 타임아웃) connecting
  *   ready/logging_in → (down) connecting → … (ready 로 돌아오면 reconnects +1)
  *   ■ = 정지(재접속 루프 끊김 · 이후 up 에도 로그인하지 않는다)
+ *   rejected → (QUOTE_REJECTED_RETRY_MS · 최대 QUOTE_REJECTED_RETRY_MAX 회) connecting → … (WR-03 — role_mismatch 는 영구 정지)
  *   ready → (수신 워치독: 장중 · keyCount>0 · 무수신 QUOTE_STALL_RECONNECT_MS) dropTransport → connecting (26-REVIEW WR-01)
  *
  * 수신 워치독 (26-REVIEW WR-01): 게이트웨이는 서버 → 클라 핑이 없고, DmaClient 의 송신 정체 감지는 커널 송신 버퍼가 찰 때만
@@ -61,6 +68,15 @@ export const QUOTE_CLIENT_NAME = "gh-radar-relay/quote";
 
 /** 관찰자 로그인 역할 — 1 = quote(시세 전용). 게이트웨이는 79 에 수락한 역할을 에코한다. */
 export const QUOTE_ROLE = 1;
+
+/**
+ * 관찰자 로그인 거부(`rejected`) 뒤 재시도 간격(ms) = 5분 (26-REVIEW WR-03). 일시적 정원 초과(옛 half-open 관찰자는 게이트웨이
+ * 유휴 스윕 90초면 풀린다 · 배포 겹침은 수 분)를 넘기고, 비밀 불일치처럼 안 풀리는 거부에는 게이트웨이를 두드리지 않을 만큼 길다.
+ */
+export const QUOTE_REJECTED_RETRY_MS = 5 * 60_000;
+
+/** 거부 뒤 재시도 상한 = 12회(5분 × 12 = 1시간). 다 쓰면 재시작 전 복구 없음으로 굳는다(옛 정지 정책). */
+export const QUOTE_REJECTED_RETRY_MAX = 12;
 
 export type QuoteFeedState = "disabled" | "connecting" | "logging_in" | "ready" | "rejected" | "role_mismatch";
 
@@ -112,6 +128,10 @@ export class QuoteFeed extends EventEmitter {
   #loginTimer: NodeJS.Timeout | null = null;
   /** ready 동안 도는 수신 워치독 점검 타이머(WR-01). ready 를 벗어나면(`#setState`) · stop 에서 지운다. */
   #stallTimer: NodeJS.Timeout | null = null;
+  /** 거부 뒤 재시도 타이머(WR-03). stop · 재시도 발화에서 지운다. */
+  #rejectedRetryTimer: NodeJS.Timeout | null = null;
+  /** 연속 거부 횟수 — ready 에서 0 으로 되돌린다. `QUOTE_REJECTED_RETRY_MAX` 를 넘으면 더 재시도하지 않는다. */
+  #rejectedCount = 0;
 
   readonly #onUp = (e: TransportUpEvent): void => this.#handleUp(e);
   readonly #onDown = (e: TransportDownEvent): void => this.#handleDown(e);
@@ -177,6 +197,7 @@ export class QuoteFeed extends EventEmitter {
     this.#stopped = true;
     this.#clearLoginTimer();
     this.#clearStallTimer();
+    this.#clearRejectedRetry();
     const transport = this.#transport;
     if (transport !== null && this.#started) {
       transport.off("up", this.#onUp);
@@ -202,7 +223,7 @@ export class QuoteFeed extends EventEmitter {
     if (transport === null || this.#stopped) return;
     if (e.generation !== transport.generation) return; // 구세대
     if (this.#isHalted()) {
-      // 거부 · 역할 불일치 뒤에는 다시 로그인하지 않는다(재시작 전 복구 없음).
+      // 거부 · 역할 불일치 뒤에는 이 up 으로 로그인하지 않는다. rejected 의 복구는 `#armRejectedRetry` 의 connect 뿐이다(WR-03).
       logger.warn({ state: this.#state }, "[QUOTE] 정지된 시세 연결에 전송 up — 로그인하지 않는다");
       return;
     }
@@ -265,9 +286,24 @@ export class QuoteFeed extends EventEmitter {
     }
     this.#clearLoginTimer();
     if (!result.success) {
+      // WR-03 — 루프는 끊되(정지 순서 그대로) 긴 간격 유한 재시도를 건다. 거부 사유(비밀 · 정원)를 문구로 단정하지 않는다.
+      this.#rejectedCount += 1;
+      const attempt = this.#rejectedCount;
+      const willRetry = attempt <= QUOTE_REJECTED_RETRY_MAX;
       this.#halt("rejected", "관찰자 로그인 거부", () =>
-        logger.error({ gatewayMessage: result.message }, "[QUOTE] 시세 관찰자 로그인 거부 — 재접속 중단"),
+        logger.error(
+          {
+            gatewayMessage: result.message,
+            attempt,
+            maxRetries: QUOTE_REJECTED_RETRY_MAX,
+            ...(willRetry ? { retryInMs: QUOTE_REJECTED_RETRY_MS } : {}),
+          },
+          willRetry
+            ? "[QUOTE] 시세 관찰자 로그인 거부 — 재접속 루프 중단 · 긴 간격 재시도 예약(정원 초과일 수 있다)"
+            : "[QUOTE] 시세 관찰자 로그인 거부 — 재시도 상한 소진 · 재접속 중단(relay 재시작 전 복구 없음)",
+        ),
       );
+      if (willRetry) this.#armRejectedRetry();
       return;
     }
     if (result.role !== QUOTE_ROLE) {
@@ -282,6 +318,7 @@ export class QuoteFeed extends EventEmitter {
     }
     // 「성공」 의 기준은 TCP 접속이 아니라 관찰자 로그인이다 — 여기서 백오프를 되돌린다.
     this.#transport?.resetReconnectAttempts();
+    this.#rejectedCount = 0;
     if (this.#everReady) this.#reconnects += 1;
     this.#everReady = true;
     this.#readyAtMs = Date.now();
@@ -305,6 +342,31 @@ export class QuoteFeed extends EventEmitter {
     transport?.stopReconnect(reason);
     transport?.destroy();
     this.#setState(next);
+  }
+
+  /**
+   * 거부 뒤 재시도(WR-03). `QUOTE_REJECTED_RETRY_MS` 뒤에도 여전히 `rejected` 면 connecting 으로 되돌리고 `connect()` 한다 —
+   * `#halt` 가 destroy 한 DmaClient 는 소켓이 없으므로 새로 열고 자동 재접속을 다시 켠다. 이어지는 up 이 로그인 1건을 보낸다.
+   */
+  #armRejectedRetry(): void {
+    this.#clearRejectedRetry();
+    this.#rejectedRetryTimer = setTimeout(() => {
+      this.#rejectedRetryTimer = null;
+      if (this.#stopped || this.#state !== "rejected" || this.#transport === null) return;
+      logger.warn(
+        { attempt: this.#rejectedCount + 1, maxRetries: QUOTE_REJECTED_RETRY_MAX },
+        "[QUOTE] 시세 관찰자 거부 뒤 재시도 — 다시 연결한다",
+      );
+      this.#setState("connecting");
+      this.#transport.connect();
+    }, QUOTE_REJECTED_RETRY_MS);
+    this.#rejectedRetryTimer.unref?.();
+  }
+
+  #clearRejectedRetry(): void {
+    if (this.#rejectedRetryTimer === null) return;
+    clearTimeout(this.#rejectedRetryTimer);
+    this.#rejectedRetryTimer = null;
   }
 
   #isHalted(): boolean {

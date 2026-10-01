@@ -582,7 +582,7 @@ nc -z 10.41.1.120 9100 && echo reachable   # connect 후 즉시 close. 프레임
 
 | quote `state` | 시각 | `/healthz` |
 |---|---|---|
-| `rejected` · `role_mismatch` | **무관**(장 밖 포함) | **503 즉시** — 설정 오류라 기다려도 풀리지 않는다 |
+| `rejected` · `role_mismatch` | **무관**(장 밖 포함) | **503 즉시** — 사람이 봐야 한다(`rejected` 는 5분 간격 재시도 중에도 `rejected` 인 동안 503) |
 | `connecting` · `logging_in` | 장중(KST 평일 · 비휴장 · 08:00~20:00) · `disconnectedSec` ≥ 60 | **503** |
 | `connecting` · `logging_in` | 장중 60초 미만 · 또는 장 밖 | 200 (본문에만 드러난다) |
 | `ready` — **수신 정체** | 장중 · `keyCount` > 0 · `lastFrameAgeSec` ≥ 120 | **503** (26-REVIEW WR-01 — half-open · 터널 정지) |
@@ -626,7 +626,8 @@ sudo docker logs --since <t> gh-radar-relay 2>&1 | grep -E '\[QUOTE\]|\[HUB\] (q
 ```
 
 - relay `[QUOTE] 시세 관찰자 로그인 성공 — ready` · `[QUOTE] 시세 연결 끊김` · `[QUOTE] 시세 연결 상태 전이` ·
-  `[QUOTE] 시세 관찰자 로그인 거부 — 재접속 중단` · `[QUOTE] 시세 관찰자 role_mismatch …`
+  `[QUOTE] 시세 관찰자 로그인 거부 — 재접속 루프 중단 · 긴 간격 재시도 예약…` · `[QUOTE] 시세 관찰자 거부 뒤 재시도` ·
+  `[QUOTE] 시세 관찰자 로그인 거부 — 재시도 상한 소진 …` · `[QUOTE] 시세 관찰자 role_mismatch …` · `[QUOTE] 시세 수신 정체 — 연결 재수립…`
 - relay `[HUB] quote 연결 Ready — 합집합 재구독 시작` · `[HUB] 합집합 재구독 중단 — quote 연결 재접속으로 처음부터 다시`
 - gh-trade 서버 로그(게이트웨이 쪽): `[Gateway] 관찰자 로그인(quote — 시세 전용) conn=… ip=… client='gh-radar-relay/quote'`
   — 이 줄이 relay 의 `ready` 와 같은 시각 창에 있어야 한다. relay 가 재접속을 반복하는데 이 줄이 없으면 로그인
@@ -636,11 +637,13 @@ sudo docker logs --since <t> gh-radar-relay 2>&1 | grep -E '\[QUOTE\]|\[HUB\] (q
 
 | 원인 (`.quote.state`) | 뜻 | 조치 |
 |---|---|---|
-| `rejected` | 서버가 관찰자 로그인을 거부 — 관찰자 비밀 불일치(§관찰자 비밀) | 게이트웨이 `observer.toml` 과 relay Secret 을 대조 → 맞춘 뒤 **relay 재시작**(거부 뒤에는 재접속을 멈춘다) |
+| `rejected` | 서버가 관찰자 로그인을 거부 — 관찰자 비밀 불일치(§관찰자 비밀) **또는 관찰자 정원 초과**(`kMaxObservers` 4 · journal+quote 합산 — 옛 half-open 관찰자 · 배포 겹침 · 개발 PC relay). 거부 문구는 사유를 가르지 않는다 | relay 가 **5분 간격 · 최대 12회(1시간)** 스스로 다시 붙는다(26-REVIEW WR-03 · 로그 `거부 뒤 재시도`). 정원 초과면 그 안에 풀린다. 계속 거부면 게이트웨이 `observer.toml` 과 relay Secret 을 대조 → 맞춘 뒤 다음 재시도를 기다리거나 **relay 재시작**(12회를 다 쓰면 재시작 전 복구 없음) |
 | `role_mismatch` | 게이트웨이가 quote 역할(role 1)을 모른다 — 구 서버 | gh-trade 서버 가동본이 **`ed2e0240` 을 포함**하는지 확인(gh-trade STATE.md 의 실서버 배포 커밋) → 포함본 가동 후 **relay 재시작** |
 | `connecting` · `logging_in` 60초+ (장중) | 연결은 시도 중인데 ready 가 안 선다 | 터널 쪽이다 — §터널 정지 판정 절차 — wg-probe 와 §3자 대조 로 간다. relay 사용자 세션도 같이 끊겼으면 VM · openconnect 쪽 |
 
-> 거부 · 역할 불일치는 relay 가 **스스로 재시도하지 않는다** — 원인을 고친 뒤 재시작이 복구 절차다.
+> 역할 불일치는 relay 가 **스스로 재시도하지 않는다** — 원인을 고친 뒤 재시작이 복구 절차다. 거부(`rejected`)는 quote 연결만
+> 5분 간격 유한 재시도(최대 12회)다 — 폴백 없는 단일 장애점이라 일시적 정원 초과 한 번에 시세 전체가 멈추지 않게 한다
+> (공유 비밀이라 계정 잠금 위험이 없다). 저널 관찰자의 「거부면 재시작 전 재시도 없음」(19 D-13)은 그대로다.
 > 브라우저는 같은 원천(`QuoteStatus`)에서 `quote.state` 프레임을 받는다 — 배지는 3초 디바운스, 알림은 60초 유예라
 > 짧은 재접속은 배지에도 알림에도 드러나지 않는다.
 
@@ -1137,7 +1140,8 @@ rm -f "$T"
 ```
 
 **적용 순서 · 순환(로테이션).** 게이트웨이는 `observer.toml` 을 기동 때 읽고(핫리로드 없음), relay 는 컨테이너 기동 때
-env 로 받는다. 그리고 relay 관찰자는 **로그인 거부를 받으면 relay 재시작 전까지 다시 시도하지 않는다**(D-13 · T-19-28).
+env 로 받는다. 그리고 relay **저널** 관찰자는 **로그인 거부를 받으면 relay 재시작 전까지 다시 시도하지 않는다**(D-13 · T-19-28).
+(quote 관찰자는 5분 간격 · 최대 12회 다시 시도한다 — §quote 연결 축 · 26-REVIEW WR-03. 그래도 순서는 아래와 같다.)
 그래서 두 값을 바꾼 뒤에는 **게이트웨이 재시작 → relay 재배포(마지막)** 순서여야 한다 — relay 를 먼저 새 값으로 올리면
 옛 값을 든 게이트웨이가 거부해 relay 가 `rejected` 로 굳고, 그 뒤 게이트웨이를 재시작해도 풀리지 않는다(relay 를 한 번 더
 재배포해야 한다). 게이트웨이 재시작이 전략 무인 복원을 동반하므로 **두 곳 모두 20:00 이후 같은 창**에서 바꾼다.
