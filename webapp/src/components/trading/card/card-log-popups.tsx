@@ -91,7 +91,7 @@ const TD_HOVER = 'group-hover:bg-[color-mix(in_oklab,var(--muted)_60%,transparen
 /** 내용 — 줄바꿈 · 잘림 없음 · mono 금지(한글 본문 · 260911-w5h). */
 const BODY_TEXT = 'leading-[1.5] [word-break:keep-all] [overflow-wrap:anywhere]';
 
-type LogKind = '주문로그' | '전략로그';
+type LogKind = '주문로그' | '로그';
 
 function LogTriggerButton({ kind, badge, ...rest }: { kind: LogKind; badge: number } & ComponentProps<'button'>) {
   return (
@@ -506,9 +506,9 @@ export function CardStrategyLogPopup({ entries, stockName, exchange }: CardStrat
   };
 
   return (
-    <LogDialog kind="전략로그" stockName={stockName} exchange={exchange} open={open} onOpenChange={onOpenChange} badge={0}>
+    <LogDialog kind="로그" stockName={stockName} exchange={exchange} open={open} onOpenChange={onOpenChange} badge={0}>
       <LogSegments label="보기" options={STRAT_FILTERS} value={filter} onChange={setFilter} count={visible.length} />
-      <LogScroller label="전략로그 목록" count={visible.length} resetKey={filter}>
+      <LogScroller label="로그 목록" count={visible.length} resetKey={filter}>
         {entries.length === 0 && <EmptyBox title={STRAT_EMPTY_TITLE} />}
         {entries.length > 0 && visible.length === 0 && <EmptyBox title={FILTERED_EMPTY_TITLE} />}
         {visible.length > 0 && (

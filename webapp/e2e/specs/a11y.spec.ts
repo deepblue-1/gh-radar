@@ -907,7 +907,7 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
         await scan(`${tag} · 카드 주문로그 팝업`, '[role="dialog"]');
         await page.keyboard.press('Escape');
         await expect(page.locator('[role="dialog"]')).toHaveCount(0);
-        await cardBar.locator('[data-slot="card-log-button"][data-log="전략로그"]').click();
+        await cardBar.locator('[data-slot="card-log-button"][data-log="로그"]').click();
         await scan(`${tag} · 카드 전략로그 팝업`, '[role="dialog"]');
         await page.keyboard.press('Escape');
         await expect(page.locator('[role="dialog"]')).toHaveCount(0);

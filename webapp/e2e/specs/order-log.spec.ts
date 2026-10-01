@@ -282,7 +282,7 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
   const FOCUS_URL = '/trading?code=005930';
   const cardOf = (page: Page) => page.locator(`[data-slot="strategy-card"][data-key^="${E2E_ISIN}:"]`);
   const cardTabs = (page: Page) => cardOf(page).locator('[data-slot="card-tabs"]');
-  const logButton = (page: Page, kind: '주문로그' | '전략로그') =>
+  const logButton = (page: Page, kind: '주문로그' | '로그') =>
     cardTabs(page).locator(`[data-slot="card-tabs-bar"] [data-slot="card-log-button"][data-log="${kind}"]`);
   const dialog = (page: Page) => page.getByRole('dialog');
   const popupRows = (page: Page) => dialog(page).locator('tr[data-slot="card-log-row"]');
@@ -300,7 +300,7 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
   }
 
   /** 카드 탭 줄 버튼 → 팝업. 줄 로케이터는 표(≥640) `tr` · 폰 `li`. */
-  async function openCardLog(page: Page, kind: '주문로그' | '전략로그' = '주문로그'): Promise<void> {
+  async function openCardLog(page: Page, kind: '주문로그' | '로그' = '주문로그'): Promise<void> {
     await logButton(page, kind).click();
     await expect(dialog(page)).toBeVisible();
     await expect(dialog(page)).toHaveAccessibleName(new RegExp(kind));
@@ -330,7 +330,7 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
       .evaluateAll((els) => els.map((e) => e.id.replace(/^.*-trigger-/, '')));
     expect(tabIds).toEqual(['info', 'unfilled', 'holdings']);
     await expect(logButton(page, '주문로그')).toBeVisible();
-    await expect(logButton(page, '전략로그')).toBeVisible();
+    await expect(logButton(page, '로그')).toBeVisible();
 
     await openCardLog(page);
     await expect(dialog(page)).toHaveAccessibleName(/삼성전자/);
@@ -399,13 +399,13 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
           timeout: 15_000,
         });
 
-        for (const kind of ['주문로그', '전략로그'] as const) {
+        for (const kind of ['주문로그', '로그'] as const) {
           await openCardLog(page, kind);
           // 열림 애니메이션(zoom-in 100ms)이 끝난 상자로 잰다.
           await expect.poll(async () => (await dialog(page).boundingBox())!.width, { timeout: 5_000 }).toBeGreaterThan(0);
           await page.waitForTimeout(250);
           const box = (await dialog(page).boundingBox())!;
-          if (kind === '전략로그') {
+          if (kind === '로그') {
             // 서버 오류 줄은 data-level="error"(옅은 빨강 배경 + 빨강 글자 · D4).
             const errRows = dialog(page).locator('[data-slot="card-log-row"][data-level="error"], [data-slot="card-log-phone-row"][data-level="error"]');
             await expect(errRows.filter({ visible: true }).first()).toBeVisible({ timeout: 15_000 });

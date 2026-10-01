@@ -152,8 +152,8 @@ describe('CardTabs — 탭 줄', () => {
   it('탭 줄 = 탭 3 + [전략로그 버튼](피드 없어도 · 배지 없음) + 접기 — 순서대로', () => {
     render(<CardTabs {...props()} />);
     const bar = root().querySelector('[data-slot="card-tabs-bar"]')!;
-    const strat = bar.querySelector('[data-slot="card-log-button"][data-log="전략로그"]')!;
-    expect(strat.textContent).toBe('전략로그');
+    const strat = bar.querySelector('[data-slot="card-log-button"][data-log="로그"]')!;
+    expect(strat.textContent).toBe('로그');
     expect(strat.querySelector('[data-slot="card-log-badge"]')).toBeNull();
     const fold = bar.querySelector('[data-slot="card-tabs-fold"]')!;
     expect(strat.compareDocumentPosition(fold) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -219,7 +219,7 @@ describe('CardTabs — 잔고 · 전략로그 팝업', () => {
   });
 
   const stratButton = () =>
-    root().querySelector<HTMLButtonElement>('[data-slot="card-log-button"][data-log="전략로그"]')!;
+    root().querySelector<HTMLButtonElement>('[data-slot="card-log-button"][data-log="로그"]')!;
 
   it('전략로그 버튼 → 다이얼로그(이름 전략로그 · 종목명 · 거래소) · 머리 [시각, 내용] · 오래된 줄 위 · 오류 행 data-level · 창 분리 없음', async () => {
     const user = userEvent.setup();
@@ -232,7 +232,7 @@ describe('CardTabs — 잔고 · 전략로그 팝업', () => {
     await user.click(stratButton());
     const dlg = screen.getByRole('dialog');
     const title = document.getElementById(dlg.getAttribute('aria-labelledby')!)!.textContent!;
-    expect(title).toContain('전략로그');
+    expect(title).toContain('로그');
     expect(title).toContain('알테오젠');
     expect(title).toContain('KRX');
     expect([...dlg.querySelectorAll('thead th')].map((th) => th.textContent)).toEqual(['시각', '내용']);
