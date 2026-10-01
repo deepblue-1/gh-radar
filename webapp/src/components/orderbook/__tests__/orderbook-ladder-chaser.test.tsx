@@ -517,8 +517,8 @@ describe('OrderbookLadder — 상따 변형', () => {
     expect(boldRows).toHaveLength(1);
     expect(boldRows[0]!.textContent).toContain('99,900');
     expect(boldRows[0]!.textContent).toContain('최근 체결가');
-    // 토스 B — 최근 체결가 행은 raised 면(`--muted`)도 함께 받는다(굵기 채널은 그대로).
-    expect(boldRows[0]!.className).toContain('bg-[var(--muted)]');
+    // 토스 B — 최근 체결가 행은 raised 면(`--muted` 를 한 단계 내린 60%)도 함께 받는다(굵기 채널은 그대로).
+    expect(boldRows[0]!.className).toContain('bg-[color-mix(in_oklab,var(--muted)_60%,transparent)]');
     // 나머지 행은 전부 보통 굵기다 — 굵기가 「여기」를 말하는 유일한 축이기 때문이다.
     for (const r of rows) {
       if (r === boldRows[0]) continue;
@@ -532,8 +532,10 @@ describe('OrderbookLadder — 상따 변형', () => {
       container.querySelectorAll<HTMLElement>('[data-slot="ladder-row-mobile"]'),
     );
 
-    const bordered = rows.filter((r) => r.className.includes('border-t'));
+    // 둥근 행에 `border-t` 를 걸면 양 끝이 휘어 `::before` 일직선으로 그린다.
+    const bordered = rows.filter((r) => r.className.includes('before:bg-[var(--border-subtle)]'));
     expect(bordered).toHaveLength(1);
+    for (const r of rows) expect(r.className).not.toContain('border-t');
     // 11번째 행(매도 10 다음) = 매수 1호가.
     expect(rows.indexOf(bordered[0]!)).toBe(10);
     expect(bordered[0]!.textContent).toContain('매수 1호가');

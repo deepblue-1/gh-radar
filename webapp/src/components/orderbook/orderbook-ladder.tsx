@@ -1165,14 +1165,20 @@ function ChaserLadder({
                     // 상한가는 **행 배경**이 말한다(마커 배지를 대신한다).
                     isUpper && 'bg-[color-mix(in_oklab,var(--up)_8%,transparent)]',
                     // 최근 체결가 행 = raised 면(B `.v-b .lr.cur`). 굵기 채널은 그대로 함께 말한다.
-                    isLast && 'bg-[var(--muted)]',
+                    // `--muted` 통째는 너무 밝아 카드면과 반쯤 섞어 한 단계 내렸다(다크 ≈#232323 · 라이트 ≈#f7f8fa ·
+                    // 2026-10-01 사용자 요청).
+                    isLast && 'bg-[color-mix(in_oklab,var(--muted)_60%,transparent)]',
                     /*
                       ★ 매도1/매수1 경계선. `<ul>` 안에 `<hr>` 을 넣지 않는 이유는 axe 의
                         `list` 규칙이 「`ul` 의 직계 자식은 `li`/`script`/`template` 뿐」을
-                        보기 때문이다. 행 테두리는 그 규칙을 건드리지 않으면서 같은 선을 그리고,
+                        보기 때문이다. 행 안의 선은 그 규칙을 건드리지 않으면서 같은 선을 그리고,
                         스크롤 내용의 일부라 스크롤과 함께 움직인다.
+                      ★ `border-t` 가 아니라 `::before` 1px 선이다 — 행이 `rounded-[10px]` 라 테두리를
+                        걸면 양 끝이 모서리를 따라 휘었다(2026-10-01 사용자 지적). 선은 레이아웃 폭을
+                        차지하지 않고 굵기·색은 이전 테두리와 같다.
                     */
-                    isBidTop && 'border-t border-[var(--border-subtle)]',
+                    isBidTop &&
+                      'before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[var(--border-subtle)]',
                   )}
                 >
                   {pct > 0 && (
