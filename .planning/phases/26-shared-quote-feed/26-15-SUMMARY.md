@@ -3,9 +3,8 @@ phase: 26-shared-quote-feed
 plan: 15
 subsystem: 배포 · relay · webapp
 tags: [deploy, relay, quote-feed, gate, schema-sync, healthz, vercel, rollback]
-# 초안 — Task 1(해소) · Task 2(준비 게이트 green) 기록. Task 3(메인 세션 배포) 대기라 halted.
-# Task 3 결과를 붙인 뒤 status: complete 로 마감한다(ROADMAP 완료 표시도 그때).
-status: halted
+# Task 1(해소) · Task 2(준비 게이트 green) · Task 3(배포 · 리뷰 수정 재배포 · 첫 거래일 UAT) 완료 — 2026-10-01 마감.
+status: complete
 
 requires:
   - phase: 26-14
@@ -16,6 +15,7 @@ provides:
   - "Task 1 증거 — KB 120 가동 빌드 c1af966a(2026-09-30 20:38:49 KST 기동) ⊃ ed2e0240"
   - "배포 준비 게이트 green @ 47fc9934 — 생성물 최신 · build/typecheck · 단위 relay 881 · webapp 3140 · shared 249 · e2e 7 spec 131 passed"
   - "Task 3 절차 · 롤백 명령(직전 태그 후보 81f51ca7) · /healthz 기대 본문"
+  - "프로덕션 relay f07f5fbd → 1b65d813(리뷰 수정 WR-01~05 포함) · webapp push · 첫 거래일 UAT (a)~(e) pass"
 affects: [26-verification, gh-trade-phase-26]
 
 # Actuals (#2632 · #3968) — commits 는 측정값(rev-list plan_head_before..HEAD, 이 초안 docs 커밋 전).
@@ -67,24 +67,33 @@ coverage:
     human_judgment: false
   - id: D3
     description: "Task 3 프로덕션 배포(relay → smoke · healthz · 서버 로그 → push → Vercel) · 첫 거래일 UAT"
-    verification: []
+    verification:
+      - kind: other
+        ref: "deploy-relay.sh f07f5fbd · smoke-relay.sh PASS 12 · FAIL 0 · SKIP 1 · 공개 /healthz quote ready"
+        status: pass
+      - kind: other
+        ref: "공개 /healthz 2026-10-01 12:00 KST — version 1b65d813 · quote ready · keyCount 5 · reconnects 0 · subLimitRejects 0"
+        status: pass
+      - kind: manual
+        ref: "첫 거래일 장중 UAT (a)~(e) · 운영 화면 2축 필 · 리뷰 수정 WR-01·03·04 실측 — 사용자 pass(2026-10-01)"
+        status: pass
     human_judgment: true
-    rationale: "메인 세션 배포 대기(서브에이전트 배포 금지) — 아직 수행 전"
+    rationale: "장중 체감 · 두 사용자 화면 대조 · 로그인 화면 육안 확인은 사용자 판정이다"
 
 duration: 16min
 completed: 2026-10-01
 ---
 
-# Phase 26 Plan 15: 배포 — 준비 게이트 · 절차 초안 Summary (Task 3 대기)
+# Phase 26 Plan 15: 배포 — 준비 게이트 · 프로덕션 배포 · 첫 거래일 UAT Summary
 
-**KB 120 가동본 `c1af966a` 가 `ed2e0240` 을 포함함을 확인했다. HEAD `47fc9934` 에서 생성물(0 변경) · build · 단위(relay 881 · webapp 3140 · shared 249) · e2e 7 spec(131 passed)이 모두 green 이다. 메인 세션이 쓸 relay 배포 · 롤백(`--rollback 81f51ca7` 후보) 절차와 `/healthz` quote 7키 기대 본문을 정리했다. 아무것도 배포하지 않았다.**
+**KB 120 가동본 `c1af966a` 가 `ed2e0240` 을 포함함을 확인했다. HEAD `47fc9934` 에서 생성물(0 변경) · build · 단위(relay 881 · webapp 3140 · shared 249) · e2e 7 spec(131 passed)이 모두 green 이다. 메인 세션이 이 절차로 relay(`f07f5fbd` → 리뷰 수정 뒤 `1b65d813`)와 webapp 을 배포했고, 2026-10-01 첫 거래일 UAT (a)~(e) 를 사용자가 pass 로 판정했다.**
 
 ## Performance
 
 - **Duration:** 16 min (Task 2 게이트)
 - **Started:** 2026-09-30T22:36:23Z (2026-10-01 07:36 KST)
 - **Completed:** 2026-09-30T22:52:28Z (2026-10-01 07:52 KST)
-- **Tasks:** 2 / 3 (Task 3 메인 세션 배포 대기)
+- **Tasks:** 3 / 3
 - **Files modified:** 1 (이 SUMMARY)
 
 ## Task 1 — gh-trade 120 가동본 ed2e0240 포함 확인 (RESEARCH A11 · 해소됨)
@@ -239,7 +248,7 @@ origin 에 올라간 Phase 26 몫은 relay · e2e 뿐이고 `webapp/src` 변경�
 - `keyCount` 는 구독 사용자 수에 따라 0 이상이다. `lastFrameAgeSec` 는 장 밖이고 구독이 없으면 null 이거나 크다. 둘 다 판정 대상이 아니다.
 - **실패 신호:** HTTP 503. 또는 `quote.state` 가 `role_mismatch`(구 서버 — Task 1 증거와 모순, 즉시 롤백) · `rejected`(관찰자 비밀 불일치 — 롤백 뒤 비밀 대조)다. 장 밖에서 `connecting`/`logging_in` 이 1분 넘게 이어지는 것도 터널 · 서버 도달 문제다(push 금지).
 
-## 배포 기록 — Task 3 (relay 완료 · push 대기)
+## 배포 기록 — Task 3
 
 사용자 지시(「릴레이서버 배포해」)로 **08:05 KST 장중**에 relay 를 교체했다. 계획의 「20:00 이후」 창과 다르며, 사용자 결정이다. 코드 리뷰(26-REVIEW.md: critical 0 · warning 5) 뒤 배포했다.
 
@@ -255,14 +264,26 @@ origin 에 올라간 Phase 26 몫은 relay · e2e 뿐이고 `webapp/src` 변경�
 | push | 08:31 KST `af7139ae..0380796e` (Phase 26 커밋 34건만 · 남의 커밋 없음 · 사용자 지시 「배포해서 확인해보자」) |
 | Vercel | `gh-radar-webapp-bv4jva3e1` Ready (빌드 1m) · 별칭 gh-radar-webapp.vercel.app · 서빙 번들에 `quote.state` 처리 포함 확인 |
 | 배포 뒤 relay `/healthz` | 08:47 `quote:{state:"ready",keyCount:4,lastFrameAgeSec:0,reconnects:0,subLimitRejects:0}` · sessionCount 3 — 브라우저 구독이 quote 연결로 흐름 |
-| 운영 화면 육안 확인 | 로그인 필요 — 사용자 확인 대기(상태줄 「● 시세」·「● 주문」 두 필) |
-| 첫 거래일 UAT (a)~(e) | 10/1 장중 관측 대기 |
+| 리뷰 수정 재배포 | 26-REVIEW-FIX.md WR-01~05(`96810716`~`b8b51e77`) 뒤 relay `1b65d813` 교체 · push 완료. 12:00 KST 공개 `/healthz`: `version:"1b65d813"` · `status:"ok"` · `quote:{state:"ready",keyCount:5,lastFrameAgeSec:0,reconnects:0,subLimitRejects:0}` · journal live |
+| 운영 화면 육안 확인 | **pass**(사용자 확인 2026-10-01) — 상태줄 「● 시세」·「● 주문」 두 필 |
+| 첫 거래일 UAT (a)~(e) | **pass**(사용자 판정 2026-10-01) — 아래 표 |
+| 리뷰 수정 실측 확인 | **pass**(사용자 확인 2026-10-01) — WR-01 수신 정체 임계값 · WR-03 로그인 거부 유한 재시도 · WR-04 한도 거부 키 30초 재구독 |
+
+### 첫 거래일 UAT (2026-10-01 장중)
+
+| 항목 | 결과 |
+|---|---|
+| (a) 두 사용자가 같은 종목 → `quote.keyCount` 가 종목 수만큼만 · 두 화면 호가 동일 | pass |
+| (b) 돌파 칩(PRICE 소켓)이 호가만 바뀌는 틱에 깜빡이지 않음 | pass |
+| (c) 상한가 대기 주문 잔량진행률 막대가 종목을 새로 열 때 비지 않음(Pattern 10 넛지) | pass |
+| (d) `quote.subLimitRejects` 0 · `quote.reconnects` 0 유지 | pass |
+| (e) 주문 응답이 체감상 늦어지지 않음(D-13 — 수치 기준선 없음) | pass |
 
 ## Task Commits
 
 1. **Task 1: gh-trade 120 가동본 확인** — 체크포인트(오케스트레이터 해소 · 커밋 없음)
 2. **Task 2: 배포 준비 게이트** — 코드 커밋 없음(생성물 최신 · 재생성 0). 이 SUMMARY 초안 docs 커밋만 있다
-3. **Task 3: 메인 세션 배포** — 대기
+3. **Task 3: 메인 세션 배포** — 코드 커밋 없음. 배포 기록 docs `0380796e` · `6f8f21f6` · 이 마감 커밋
 
 ## Decisions Made
 
@@ -296,11 +317,11 @@ origin 에 올라간 Phase 26 몫은 relay · e2e 뿐이고 `webapp/src` 변경�
 
 ## Next
 
-**Task 3 — 메인 세션 배포 (checkpoint:human-action · blocking-human).** 위 ④ 절차를 순서대로 따른다. 결과(relay 새/직전 태그 · smoke PASS/FAIL/SKIP · `/healthz` quote 발췌 · 서버 로그 줄 · push 커밋 · Vercel 확인 · UAT)를 붙이면 이 SUMMARY 를 `status: complete` 로 마감한다.
+Phase 26 검증(VERIFICATION) · 완료 표시. deferred-items 2건은 사용자 결정으로 수정하지 않는다(2026-10-01).
 
 ---
 *Phase: 26-shared-quote-feed*
-*Draft: 2026-10-01 (Task 3 대기)*
+*Completed: 2026-10-01*
 
 ## Self-Check: PASSED
 
