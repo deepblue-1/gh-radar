@@ -585,7 +585,16 @@ nc -z 10.41.1.120 9100 && echo reachable   # connect 후 즉시 close. 프레임
 | `rejected` · `role_mismatch` | **무관**(장 밖 포함) | **503 즉시** — 설정 오류라 기다려도 풀리지 않는다 |
 | `connecting` · `logging_in` | 장중(KST 평일 · 비휴장 · 08:00~20:00) · `disconnectedSec` ≥ 60 | **503** |
 | `connecting` · `logging_in` | 장중 60초 미만 · 또는 장 밖 | 200 (본문에만 드러난다) |
-| `ready` · `disabled` | — | 200 |
+| `ready` — **수신 정체** | 장중 · `keyCount` > 0 · `lastFrameAgeSec` ≥ 120 | **503** (26-REVIEW WR-01 — half-open · 터널 정지) |
+| `ready` (정체 아님) · `disabled` | — | 200 |
+
+**수신 워치독 (26-REVIEW WR-01).** 게이트웨이는 서버 → 클라 핑이 없어서, 터널이 조용히 멈추면 TCP 재전송 타임아웃(수 분~15분)
+까지 quote 는 `ready` 에 머문다. 그래서 relay 가 스스로 본다 — ready 동안 10초마다 「장중 · `keyCount` > 0 · 마지막 생존
+신호(마지막 프레임 · ready 진입 중 늦은 쪽) 뒤 **90초** 무수신」 이면 전송을 끊고 재접속한다(로그
+`[QUOTE] 시세 수신 정체 — 연결 재수립`). 진짜 정지면 재접속이 실패해 배지가 3초 뒤 down, `/healthz` 가 60초 유예 뒤 503 이다.
+링크가 멀쩡하면(조용한 종목만 구독한 오탐) 재접속 · 재구독이 몇 초 안에 끝나 배지에 드러나지 않는다. 위 표의 120초 정체
+503 은 워치독이 재접속해도 프레임이 끝내 안 오는 경우의 백스톱이다. 두 값(90 · 120)은 **실측 전 보수값**이다 — 장중
+`lastFrameAgeSec` 분포와 `수신 정체` 로그 빈도를 보고 `relay/src/quote/status.ts` 상수에서 조정한다(근거 주석 정본).
 
 60초 유예가 `deploy-relay.sh` 의 `curl -sf` 기동 확인을 지킨다 — 기동 직후 quote 는 `connecting` 이다. 배포는 20:00
 이후라 애초에 장중 창 밖이다. 판정식 정본은 `relay/src/quote/status.ts` 의 `quoteAlerting` 한 벌이다.
@@ -604,7 +613,7 @@ curl -s https://dma.jx1.io/healthz | jq .quote
 | `state` | quote 연결 상태 기계 그대로 — `disabled · connecting · logging_in · ready · rejected · role_mismatch` |
 | `keyCount` | 업스트림 live 구독 키 수(전 사용자 합집합) |
 | `lingerCount` | 마지막 구독자가 떠난 뒤 해제를 미루는 중인 키 수(D-10) |
-| `lastFrameAgeSec` | quote 연결로 마지막 프레임을 받은 뒤 경과초. **장중에 `keyCount > 0` 인데 수 초 이상이면 시세 멈춤 의심** |
+| `lastFrameAgeSec` | quote 연결로 마지막 프레임을 받은 뒤 경과초. **장중에 `keyCount > 0` 인데 수 초 이상이면 시세 멈춤 의심** — 90초면 워치독이 재접속하고, 120초+ 가 이어지면 503(위 표) |
 | `reconnects` | ready 복귀 누적 수(첫 ready 제외). **짧은 간격으로 급증하면 끊김 루프**(RESEARCH Pitfall 3) — 서버 로그와 대조 |
 | `subLimitRejects` | 구독 한도 거부 누적 수(D-11 전역 2000 · D-15 사용자당). 늘면 한도에 닿은 사용자가 있다 |
 | `disconnectedSec` | ready 를 벗어난 뒤 경과초. `ready` · `disabled` 면 `null` |

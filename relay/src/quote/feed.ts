@@ -34,6 +34,13 @@
  *   logging_in → (79 거부) rejected ■ · (79 ok · role≠1) role_mismatch ■ · (응답 타임아웃) connecting
  *   ready/logging_in → (down) connecting → … (ready 로 돌아오면 reconnects +1)
  *   ■ = 정지(재접속 루프 끊김 · 이후 up 에도 로그인하지 않는다)
+ *   ready → (수신 워치독: 장중 · keyCount>0 · 무수신 QUOTE_STALL_RECONNECT_MS) dropTransport → connecting (26-REVIEW WR-01)
+ *
+ * 수신 워치독 (26-REVIEW WR-01): 게이트웨이는 서버 → 클라 핑이 없고, DmaClient 의 송신 정체 감지는 커널 송신 버퍼가 찰 때만
+ *   발동한다. 그래서 터널이 조용히 멈추면(half-open) TCP 재전송 타임아웃(수 분~15분)까지 `ready` 에 머문다. ready 동안
+ *   `QUOTE_STALL_CHECK_MS` 마다 「장중 · 구독 키 있음 · 마지막 생존 신호(마지막 프레임 · ready 진입 중 늦은 쪽) 뒤
+ *   `QUOTE_STALL_RECONNECT_MS` 무수신」 을 보고, 참이면 전송을 끊어 DmaClient 재접속에 넘긴다. 임계값 근거는 `quote/status.ts`
+ *   상수 주석이 정본이다. `keyCount` 를 주입하지 않으면(단위 테스트 · 도구) 워치독은 돌지 않는다.
  *
  * hub 표면(26-03 `HubQuoteFeed`): `isReady` · `send` · `on("frame")` · `on("ready")`. 상태 전이마다 `"state"` 이벤트
  * (26-11 `QuoteStatus` 가 구독한다).
@@ -45,7 +52,9 @@ import { buildObserverLoginReq, parseObserverLoginResp } from "../dma/envelope.j
 import { MSG } from "../dma/msg-type.js";
 import { LOGIN_RESP_TIMEOUT_MS } from "../dma/session.js";
 import { logger } from "../logger.js";
+import { inTradingWindow } from "../journal/trading-window.js";
 import type { ObserverLoginResult, ObserverTransport } from "../journal/types.js";
+import { QUOTE_STALL_CHECK_MS, QUOTE_STALL_RECONNECT_MS } from "./status.js";
 
 /** quote 관찰자 로그인의 `client` 값 — 게이트웨이 로그 `client='…'` 에서 저널 관찰자(`gh-radar-relay`)와 가른다. */
 export const QUOTE_CLIENT_NAME = "gh-radar-relay/quote";
@@ -64,6 +73,11 @@ export type QuoteFeedDeps = {
   transport?: ObserverTransport;
   /** 로그인 응답 대기 상한(ms). 기본 `LOGIN_RESP_TIMEOUT_MS`(session.ts 정본 — 값을 복제하지 않는다). */
   loginTimeoutMs?: number;
+  /**
+   * 업스트림 live 구독 키 수(hub `stats().subscriptionCount`) — 수신 워치독(WR-01)의 「구독 키 있음」 조건. 구독이 없으면
+   * 무수신이 정상이다. 주입하지 않으면 워치독을 돌리지 않는다.
+   */
+  keyCount?: () => number;
 };
 
 /** "ready" 이벤트 페이로드 — hub 가 `resubscribeAll` 트리거로만 쓴다. */
@@ -93,7 +107,11 @@ export class QuoteFeed extends EventEmitter {
   #everReady = false;
   #reconnects = 0;
   #lastFrameAtMs: number | null = null;
+  /** 마지막 ready 진입 시각 — 재접속 직후 옛 `lastFrameAtMs` 로 워치독이 곧바로 끊지 않게 한다. */
+  #readyAtMs: number | null = null;
   #loginTimer: NodeJS.Timeout | null = null;
+  /** ready 동안 도는 수신 워치독 점검 타이머(WR-01). ready 를 벗어나면(`#setState`) · stop 에서 지운다. */
+  #stallTimer: NodeJS.Timeout | null = null;
 
   readonly #onUp = (e: TransportUpEvent): void => this.#handleUp(e);
   readonly #onDown = (e: TransportDownEvent): void => this.#handleDown(e);
@@ -158,6 +176,7 @@ export class QuoteFeed extends EventEmitter {
     if (this.#stopped) return;
     this.#stopped = true;
     this.#clearLoginTimer();
+    this.#clearStallTimer();
     const transport = this.#transport;
     if (transport !== null && this.#started) {
       transport.off("up", this.#onUp);
@@ -265,7 +284,9 @@ export class QuoteFeed extends EventEmitter {
     this.#transport?.resetReconnectAttempts();
     if (this.#everReady) this.#reconnects += 1;
     this.#everReady = true;
+    this.#readyAtMs = Date.now();
     this.#setState("ready");
+    this.#armStallWatch();
     logger.info({ reconnects: this.#reconnects }, "[QUOTE] 시세 관찰자 로그인 성공 — ready");
     this.emit("ready", {});
   }
@@ -302,6 +323,44 @@ export class QuoteFeed extends EventEmitter {
     return v !== undefined && v !== "";
   }
 
+  /**
+   * 수신 워치독(WR-01) — ready 동안 `QUOTE_STALL_CHECK_MS` 마다 본다. 장중 · 구독 키 있음 · 마지막 생존 신호 뒤
+   * `QUOTE_STALL_RECONNECT_MS` 무수신이면 전송을 끊는다(백오프 카운터는 두고 DmaClient 가 재접속 · 합집합 재구독).
+   */
+  #armStallWatch(): void {
+    this.#clearStallTimer();
+    const keyCount = this.#deps.keyCount;
+    if (keyCount === undefined || this.#transport === null) return;
+    const gen = this.#transport.generation;
+    this.#stallTimer = setTimeout(() => {
+      this.#stallTimer = null;
+      if (this.#stopped || this.#state !== "ready" || this.#transport === null) return;
+      if (gen !== this.#transport.generation) return; // 구세대 — 새 연결의 ready 가 다시 건다
+      const nowMs = Date.now();
+      const lastSignMs = Math.max(this.#lastFrameAtMs ?? 0, this.#readyAtMs ?? nowMs);
+      const silentMs = nowMs - lastSignMs;
+      if (silentMs >= QUOTE_STALL_RECONNECT_MS && inTradingWindow(new Date(nowMs))) {
+        const keys = keyCount();
+        if (keys > 0) {
+          logger.warn(
+            { silentSec: Math.floor(silentMs / 1000), keyCount: keys, thresholdMs: QUOTE_STALL_RECONNECT_MS },
+            "[QUOTE] 시세 수신 정체 — 연결 재수립(half-open · 터널 정지 의심)",
+          );
+          this.#dropTransport("quote 수신 정체");
+          return;
+        }
+      }
+      this.#armStallWatch();
+    }, QUOTE_STALL_CHECK_MS);
+    this.#stallTimer.unref?.();
+  }
+
+  #clearStallTimer(): void {
+    if (this.#stallTimer === null) return;
+    clearTimeout(this.#stallTimer);
+    this.#stallTimer = null;
+  }
+
   #armLoginTimer(gen: number): void {
     this.#clearLoginTimer();
     this.#loginTimer = setTimeout(() => {
@@ -324,6 +383,7 @@ export class QuoteFeed extends EventEmitter {
     if (this.#state === next) return;
     const from = this.#state;
     this.#state = next;
+    if (next !== "ready") this.#clearStallTimer();
     logger.info({ from, to: next }, "[QUOTE] 시세 연결 상태 전이");
     this.emit("state", next);
   }

@@ -13,8 +13,11 @@ import type { QuoteFeedState } from "../src/quote/feed.js";
 import {
   QUOTE_ALERT_AFTER_MS,
   QUOTE_DOWN_AFTER_MS,
+  QUOTE_STALL_ALERT_AFTER_MS,
+  QUOTE_STALL_CHECK_MS,
   QuoteStatus,
   quoteAlerting,
+  quoteStalled,
   type QuoteHealth,
 } from "../src/quote/status.js";
 
@@ -153,7 +156,52 @@ describe("QuoteStatus — quote.state 디바운스 · healthz 본문 (D-02 · D-
   it("생성 시점에 이미 ready 면 live 스냅샷이 서 있다 — 인증 직후 frame() 이 null 이 아니다", () => {
     boot("ready");
     expect(st().frame()).toEqual({ t: "quote.state", s: "live" });
-    expect(vi.getTimerCount()).toBe(0);
+    // down 디바운스 타이머는 없다 — ready 동안 도는 정체 점검(WR-01) 하나뿐이다.
+    expect(vi.getTimerCount()).toBe(1);
+  });
+
+  it("WR-01 ready 인데 장중 · 키 7 · 마지막 프레임 뒤 120초 무수신 → down(since = 마지막 프레임) · 프레임이 다시 오면 live", async () => {
+    boot("ready");
+    frames.length = 0;
+    const lastAt = Date.now();
+    feed.lastFrameAtMs = lastAt;
+
+    await vi.advanceTimersByTimeAsync(QUOTE_STALL_ALERT_AFTER_MS - QUOTE_STALL_CHECK_MS);
+    expect(frames).toEqual([]);
+    await vi.advanceTimersByTimeAsync(QUOTE_STALL_CHECK_MS);
+    expect(frames).toEqual([{ t: "quote.state", s: "down", since: new Date(lastAt).toISOString() }]);
+
+    // 워치독 재접속 — ready 로 돌아와도 프레임이 없으면 down 을 지킨다(배지 깜빡임 없음).
+    feed.set("connecting");
+    await vi.advanceTimersByTimeAsync(1_000);
+    feed.set("ready");
+    expect(frames).toHaveLength(1);
+
+    // 프레임 재개 → 다음 점검에서 live.
+    feed.lastFrameAtMs = Date.now();
+    await vi.advanceTimersByTimeAsync(QUOTE_STALL_CHECK_MS);
+    expect(frames.at(-1)).toEqual({ t: "quote.state", s: "live" });
+    expect(frames).toHaveLength(2);
+  });
+
+  it("WR-01 정체가 아닌 끊김 down 은 ready 복귀에서 바로 live — 마지막 프레임이 오래돼도(재구독 스냅샷 전)", async () => {
+    boot("ready");
+    feed.lastFrameAtMs = Date.now();
+    frames.length = 0;
+    feed.set("connecting");
+    await vi.advanceTimersByTimeAsync(QUOTE_STALL_ALERT_AFTER_MS * 2);
+    expect(frames.map((f) => f.s)).toEqual(["down"]);
+    feed.set("ready");
+    expect(frames.map((f) => f.s)).toEqual(["down", "live"]);
+  });
+
+  it("WR-01 장 밖(21:00)에는 오래 무수신이어도 정체 down 을 내지 않는다", async () => {
+    vi.setSystemTime(kst("2026-09-28T21:00:00"));
+    boot("ready");
+    feed.lastFrameAtMs = Date.now();
+    frames.length = 0;
+    await vi.advanceTimersByTimeAsync(QUOTE_STALL_ALERT_AFTER_MS * 3);
+    expect(frames).toEqual([]);
   });
 
   it("health — 키 집합 7개 고정 · hub stats 그대로 · lastFrameAgeSec · disconnectedSec · 식별자 0 (T-26-18)", async () => {
@@ -243,5 +291,23 @@ describe("quoteAlerting — 거부 · 역할 불일치 즉시 · 그 밖은 장�
   it("ready · disabled 는 장중에도 거짓", () => {
     expect(quoteAlerting(qh("ready", null), WEEKDAY_IN)).toBe(false);
     expect(quoteAlerting(qh("disabled", null), WEEKDAY_IN)).toBe(false);
+  });
+
+  it("WR-01 ready 수신 정체 — 장중 · 키>0 · lastFrameAgeSec 119 거짓 · 120 참 · 장 밖 · 키 0 · 미수신(null)은 거짓", () => {
+    expect(QUOTE_STALL_ALERT_AFTER_MS).toBe(120_000);
+    const stalled = (age: number | null, keyCount = 1): QuoteHealth => ({
+      ...qh("ready", null),
+      lastFrameAgeSec: age,
+      keyCount,
+    });
+    expect(quoteAlerting(stalled(119), WEEKDAY_IN)).toBe(false);
+    expect(quoteAlerting(stalled(120), WEEKDAY_IN)).toBe(true);
+    expect(quoteStalled(stalled(120), WEEKDAY_IN)).toBe(true);
+    expect(quoteAlerting(stalled(3_600), WEEKDAY_OUT)).toBe(false);
+    expect(quoteAlerting(stalled(3_600), SATURDAY)).toBe(false);
+    expect(quoteAlerting(stalled(3_600, 0), WEEKDAY_IN)).toBe(false);
+    expect(quoteAlerting(stalled(null), WEEKDAY_IN)).toBe(false);
+    // ready 가 아니면 정체 판정이 아니라 끊김 유예(60초)가 정한다.
+    expect(quoteStalled({ ...qh("connecting", 10), lastFrameAgeSec: 3_600 }, WEEKDAY_IN)).toBe(false);
   });
 });

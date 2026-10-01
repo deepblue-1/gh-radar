@@ -195,9 +195,15 @@ const hub = new SubscriptionHub({ symbols, symbolMaster: gatewaySymbols, lingerM
  * 시세 업스트림 = quote 연결 하나 (Phase 26 D-12). 주 게이트웨이에 관찰자 로그인 role 1 로 붙는다 — 사용자 세션과
  * 저널 관찰자와는 별개의 TCP 다. hub 의 28/29/32 는 전부 이 연결로 나가고, 이 연결의 ready 가 전역 합집합 재구독의
  * 유일한 트리거다. 비밀은 D-17 원천(quote 키 우선 · 저널 비밀 폴백)이고 deps 로만 넘긴다(로그 인자 금지 · T-26-05).
- * 시작은 아래 관찰자 start 줄 옆 — 결선이 다 붙은 뒤다.
+ * 시작은 아래 관찰자 start 줄 옆 — 결선이 다 붙은 뒤다. `keyCount` 는 수신 워치독(26-REVIEW WR-01)의 「구독 키 있음」
+ * 조건이다 — 구독이 없으면 무수신이 정상이라 재접속하지 않는다.
  */
-const quoteFeed = new QuoteFeed({ secret: config.dmaQuoteObserverSecret, host: config.dmaHost, port: config.dmaPort });
+const quoteFeed = new QuoteFeed({
+  secret: config.dmaQuoteObserverSecret,
+  host: config.dmaHost,
+  port: config.dmaPort,
+  keyCount: () => hub.stats().subscriptionCount,
+});
 hub.attachFeed(quoteFeed);
 /**
  * quote 연결 상태 요약 (Phase 26 D-02 · D-16) — 브라우저 `quote.state` 프레임과 `/healthz` `quote` 필드의 **한 원천**이다

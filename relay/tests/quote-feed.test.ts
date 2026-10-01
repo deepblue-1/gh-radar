@@ -16,12 +16,16 @@
  *   L8  send 는 ready 일 때만 전송에 넘긴다.
  *   L9  비밀 없음 → disabled · connect 0 (D-17 「quote 비밀 없음 = 끔」).
  *   L10 모든 케이스에서 logger 네 레벨 호출 인자에 비밀 · 호스트 문자열 0회 (T-19-03 · T-26-05 · T-26-07).
+ *   W1~W5 수신 워치독(26-REVIEW WR-01) — 장중 · keyCount>0 · 마지막 생존 신호 뒤 QUOTE_STALL_RECONNECT_MS 무수신이면
+ *       dropTransport 1회 · connecting. 프레임이 흐르면 · 키 0 · 장 밖 · keyCount 미주입이면 끊지 않는다. 재접속 직후에는
+ *       옛 lastFrameAtMs 가 아니라 ready 진입 시각부터 잰다.
  */
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { QUOTE_CLIENT_NAME, QUOTE_ROLE, QuoteFeed, type QuoteFeedState } from "../src/quote/feed.js";
 import { LOGIN_RESP_TIMEOUT_MS } from "../src/dma/session.js";
+import { QUOTE_STALL_CHECK_MS, QUOTE_STALL_RECONNECT_MS } from "../src/quote/status.js";
 import { MSG } from "../src/dma/msg-type.js";
 import { resetDroppedEnvelopeCount, tryParseEnvelope } from "../src/dma/envelope.js";
 import type { TransportFrameEvent } from "../src/dma/dma-client.js";
@@ -135,10 +139,16 @@ type Rig = {
 };
 
 /** `secret` 키를 명시하면 그 값(undefined 포함)을 쓴다 — 기본 매개변수는 undefined 를 삼키므로 객체로 받는다. */
-function rig(opts: { secret?: string | undefined } = {}): Rig {
+function rig(opts: { secret?: string | undefined; keyCount?: () => number } = {}): Rig {
   const secret = "secret" in opts ? opts.secret : SECRET;
   const transport = new FakeTransport();
-  const feed = new QuoteFeed({ secret, host: HOST, port: 9999, transport });
+  const feed = new QuoteFeed({
+    secret,
+    host: HOST,
+    port: 9999,
+    transport,
+    ...(opts.keyCount !== undefined ? { keyCount: opts.keyCount } : {}),
+  });
   const r: Rig = { feed, transport, states: [], frames: [], readies: 0 };
   feed.on("state", (s: QuoteFeedState) => r.states.push(s));
   feed.on("frame", (e: TransportFrameEvent) => r.frames.push(e));
@@ -367,5 +377,102 @@ describe("QuoteFeed — 타임아웃 · 재접속 · 송신 · 끔", () => {
     expect(loginRequests(r.transport)).toHaveLength(1);
     r.transport.emitFrame(buildQuoteStateFrame({ snapshot: false }));
     expect(r.frames).toHaveLength(0);
+  });
+});
+
+describe("QuoteFeed — 수신 워치독 (26-REVIEW WR-01)", () => {
+  /** 월 10:00 KST — 장중 창 안. */
+  const IN_WINDOW = new Date("2026-09-28T01:00:00.000Z");
+  /** 월 21:00 KST — 장 밖. */
+  const OUT_OF_WINDOW = new Date("2026-09-28T12:00:00.000Z");
+
+  function fakeClock(at: Date): void {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    vi.setSystemTime(at);
+  }
+
+  it("상수 — 워치독 90초 · 점검 10초 (실측 전 보수값 · 근거는 status.ts)", () => {
+    expect(QUOTE_STALL_RECONNECT_MS).toBe(90_000);
+    expect(QUOTE_STALL_CHECK_MS).toBe(10_000);
+  });
+
+  it("W1 장중 · 키 3 · ready 뒤 무수신 90초 → dropTransport 1회('quote 수신 정체') · connecting · warn 로그", async () => {
+    fakeClock(IN_WINDOW);
+    const r = rig({ keyCount: () => 3 });
+    bootToReady(r);
+
+    await vi.advanceTimersByTimeAsync(QUOTE_STALL_RECONNECT_MS - 1);
+    expect(r.transport.count("dropTransport")).toBe(0);
+    expect(r.feed.state).toBe("ready");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(r.transport.drops).toEqual(["quote 수신 정체"]);
+    expect(r.feed.state).toBe("connecting");
+    expect(
+      logs.some((c) => c.level === "warn" && c.args.some((a) => typeof a === "string" && a.includes("수신 정체"))),
+    ).toBe(true);
+
+    // 끊은 뒤에는 점검을 멈춘다 — 다음 ready 가 다시 건다.
+    await vi.advanceTimersByTimeAsync(QUOTE_STALL_RECONNECT_MS * 3);
+    expect(r.transport.count("dropTransport")).toBe(1);
+  });
+
+  it("W2 프레임이 30초마다 오면 5분이 지나도 끊지 않는다", async () => {
+    fakeClock(IN_WINDOW);
+    const r = rig({ keyCount: () => 3 });
+    bootToReady(r);
+    for (let i = 0; i < 10; i += 1) {
+      await vi.advanceTimersByTimeAsync(30_000);
+      r.transport.emitFrame(buildQuoteStateFrame({ snapshot: false }));
+    }
+    expect(r.transport.count("dropTransport")).toBe(0);
+    expect(r.feed.state).toBe("ready");
+  });
+
+  it("W3 키 0 이거나 장 밖이면 오래 조용해도 끊지 않는다", async () => {
+    fakeClock(IN_WINDOW);
+    const noKeys = rig({ keyCount: () => 0 });
+    bootToReady(noKeys);
+    await vi.advanceTimersByTimeAsync(QUOTE_STALL_RECONNECT_MS * 5);
+    expect(noKeys.transport.count("dropTransport")).toBe(0);
+    noKeys.feed.stop();
+
+    vi.setSystemTime(OUT_OF_WINDOW);
+    const offHours = rig({ keyCount: () => 5 });
+    bootToReady(offHours);
+    await vi.advanceTimersByTimeAsync(QUOTE_STALL_RECONNECT_MS * 5);
+    expect(offHours.transport.count("dropTransport")).toBe(0);
+    offHours.feed.stop();
+  });
+
+  it("W4 keyCount 미주입이면 워치독 타이머를 걸지 않는다 · stop 은 타이머를 지운다", () => {
+    fakeClock(IN_WINDOW);
+    const bare = rig();
+    bootToReady(bare);
+    expect(vi.getTimerCount()).toBe(0);
+
+    const wired = rig({ keyCount: () => 1 });
+    bootToReady(wired);
+    expect(vi.getTimerCount()).toBe(1);
+    wired.feed.stop();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("W5 재접속 직후에는 옛 lastFrameAtMs 가 아니라 ready 진입 시각부터 잰다", async () => {
+    fakeClock(IN_WINDOW);
+    const r = rig({ keyCount: () => 2 });
+    bootToReady(r);
+    r.transport.emitFrame(buildQuoteStateFrame({ snapshot: false }));
+    await vi.advanceTimersByTimeAsync(80_000);
+    r.transport.emitDown();
+    await vi.advanceTimersByTimeAsync(5_000);
+    r.transport.emitUp();
+    login(r);
+    expect(r.feed.state).toBe("ready");
+
+    // 마지막 프레임 기준으로는 이미 85초 — 그래도 ready 진입 뒤 90초 전에는 끊지 않는다.
+    await vi.advanceTimersByTimeAsync(QUOTE_STALL_RECONNECT_MS - 1);
+    expect(r.transport.count("dropTransport")).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(r.transport.count("dropTransport")).toBe(1);
   });
 });

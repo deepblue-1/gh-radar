@@ -21,6 +21,11 @@
  * (60초) 이상 이어질 때만 참이다 — 유예가 없으면 기동 직후 · 서버 재기동마다 503 이 나서 deploy-relay.sh 의 `curl -sf`
  * 기동 확인과 e2e `waitForRelay` 가 깨진다(RESEARCH Pitfall 7 · A6). D-02 의 「Ready 가 아니면 503」 은 이 규칙으로 좁혀진다.
  *
+ * 수신 정체(26-REVIEW WR-01): TCP 가 살아 있는 척하는 동안(half-open · 터널 정지) `state` 는 `ready` 에 머문다. 그래서
+ * 장중 · 구독 키가 있는데 프레임이 끊긴 상태를 따로 본다 — 복구는 `QuoteFeed` 수신 워치독(`QUOTE_STALL_RECONNECT_MS` →
+ * `dropTransport` → 위 디바운스 · 60초 유예로 배지 · 알림), 판정 백스톱은 `quoteStalled`(`QUOTE_STALL_ALERT_AFTER_MS` —
+ * ready 인데 프레임 0 이 이어지면 배지 down · `/healthz` 503). 상수 근거는 아래 상수 주석이 정본이다.
+ *
  * 식별자 금지 (T-26-18): `QuoteHealth` 는 7키 고정 — 상태 · 계수 · 경과초뿐이다. 계좌 · 사용자 식별자 · 호스트 · 비밀을 싣지
  * 않는다(`/healthz` 는 공개 경로이고 smoke `health_probe` 가 식별자 키를 grep 한다). 프레임에도 계좌 · 사용자가 없다.
  */
@@ -41,6 +46,46 @@ export const QUOTE_DOWN_AFTER_MS = 3_000;
  * 배포 스크립트 · e2e 부팅이 깨진다(RESEARCH Pitfall 7 · A6). rejected · role_mismatch 는 유예 없이 즉시.
  */
 export const QUOTE_ALERT_AFTER_MS = 60_000;
+
+/*
+ * 수신 정체 임계값 (26-REVIEW WR-01) — **실측 전 보수값**이다. 조정할 때는 아래 근거를 같이 고친다.
+ *
+ * 게이트웨이는 서버 → 클라 핑을 보내지 않는다(LivePing 은 클라 → 서버 단방향 · dma-client D-32). 그래서 「프레임이 없다」 는
+ * 「연결이 죽었다」 와 「구독 종목이 조용하다」 를 가르지 못한다. 장중 창(08:00~20:00)에는 조용한 구간이 실제로 있다 — 상한가에
+ * 묶인 종목만 구독한 경우, KRX 전용 키의 장전(08:00~08:30) · 장후 시간외 단일가(10분 주기), NXT 의 15:20~15:40 공백 등.
+ * 오탐의 값은 재접속(합집합 재구독 1회)과 알림 소음이므로 임계값은 짧게 잡지 않는다. 실측(재구독 완료 로그 · `lastFrameAgeSec`
+ * 장중 분포) 뒤 줄인다.
+ */
+
+/**
+ * 수신 워치독 임계값(ms) = 90초. ready 동안 장중 · `keyCount > 0` 인데 마지막 생존 신호(마지막 프레임 · ready 진입 중 늦은 쪽)
+ * 뒤로 이만큼 무수신이면 `QuoteFeed` 가 전송을 끊어 재접속을 유도한다. 90초는 게이트웨이가 무활동 클라를 끊는 유휴 스윕과 같은
+ * 값이다 — 서버가 클라에게 주는 유예를 클라도 서버에게 준다. TCP 재전송 타임아웃(수 분~15분)보다는 훨씬 빠르다.
+ * 진짜 터널 정지면 재접속이 실패해 위 디바운스(3초)로 배지가, `QUOTE_ALERT_AFTER_MS` 로 503 이 선다. 링크가 멀쩡하면(오탐)
+ * 재접속 + 로그인이 3초 디바운스 안에 끝나 배지에 드러나지 않고, 재구독 스냅샷(58/69)이 곧 프레임을 채운다.
+ */
+export const QUOTE_STALL_RECONNECT_MS = 90_000;
+
+/**
+ * 정체 판정 백스톱(ms) = 120초 — 워치독(90초) + 점검 주기 · 재접속 여유 30초. **마지막 프레임**부터 잰다(ready 진입 시각이
+ * 아니다). 그래서 워치독 재접속이 로그인까지는 되는데 프레임이 끝내 안 오는 경우(재접속 루프)에도 배지 down · `/healthz`
+ * 503 이 유지된다. 정상 동작에서는 워치독이 먼저 끊으므로 이 값에 닿지 않는다.
+ */
+export const QUOTE_STALL_ALERT_AFTER_MS = 120_000;
+
+/** 정체 점검 주기(ms) = 10초 — 워치독(`QuoteFeed`)과 배지(`QuoteStatus`)가 같은 값을 쓴다. ready 동안에만 돈다. */
+export const QUOTE_STALL_CHECK_MS = 10_000;
+
+/**
+ * 수신 정체 판정(순수 함수 · WR-01) — `quoteAlerting` 과 배지 점검의 한 원천. ready · 장중 · `keyCount > 0` · 마지막 프레임 뒤
+ * `QUOTE_STALL_ALERT_AFTER_MS` 이상일 때만 참. 프레임을 한 번도 받지 않았으면(`lastFrameAgeSec` null) 거짓 — 그 경우는
+ * 워치독이 ready 진입 시각 기준으로 끊는다.
+ */
+export function quoteStalled(health: QuoteHealth, now: Date): boolean {
+  if (health.state !== "ready" || health.keyCount <= 0 || health.lastFrameAgeSec === null) return false;
+  if (health.lastFrameAgeSec * 1000 < QUOTE_STALL_ALERT_AFTER_MS) return false;
+  return inTradingWindow(now);
+}
 
 /** `/healthz` 의 `quote` 필드 — 7키 고정 · 식별자 없음(T-26-18). */
 export type QuoteHealth = {
@@ -67,7 +112,9 @@ export function quoteAlerting(health: QuoteHealth, now: Date): boolean {
   // 로그인 거부 · 역할 불일치는 설정 오류라 기다려도 풀리지 않는다 — 장 밖에도 즉시 알린다.
   if (health.state === "rejected" || health.state === "role_mismatch") return true;
   if (!inTradingWindow(now)) return false;
-  if (health.state === "ready" || health.state === "disabled") return false;
+  // ready 여도 장중 · 구독 키가 있는데 프레임이 끊겼으면 끊김과 같다(WR-01 — half-open · 터널 정지).
+  if (health.state === "ready") return quoteStalled(health, now);
+  if (health.state === "disabled") return false;
   return (health.disconnectedSec ?? 0) * 1000 >= QUOTE_ALERT_AFTER_MS;
 }
 
@@ -93,6 +140,10 @@ export class QuoteStatus extends EventEmitter {
   readonly #feed: QuoteStatusDeps["feed"];
   readonly #hubStats: QuoteStatusDeps["hubStats"];
   #downTimer: NodeJS.Timeout | null = null;
+  /** ready 동안 도는 정체 점검 타이머(WR-01). ready 를 벗어나면 지운다. */
+  #stallTimer: NodeJS.Timeout | null = null;
+  /** 마지막으로 낸 down 이 정체 판정(ready 중) 몫인가 — 워치독 재접속으로 ready 가 돌아와도 정체가 이어지면 down 을 지킨다. */
+  #stallDown = false;
   /** ready 를 벗어난 시각. ready · disabled 면 null. 기동 시각이 첫 값이다(아직 붙지 않았다). */
   #notLiveSinceMs: number | null;
   /** 마지막으로 낸 프레임. 아직 판정 전이거나 disabled 면 null. */
@@ -133,6 +184,7 @@ export class QuoteStatus extends EventEmitter {
 
   close(): void {
     this.#clearDownTimer();
+    this.#clearStallTimer();
     this.#feed.off("state", this.#onState);
   }
 
@@ -146,13 +198,21 @@ export class QuoteStatus extends EventEmitter {
     if (state === "ready") {
       this.#clearDownTimer();
       this.#notLiveSinceMs = null;
-      if (this.#lastFrame === null || this.#lastFrame.s === "down") this.#publish({ t: "quote.state", s: "live" });
+      // 정체 down 은 ready 복귀만으로 풀지 않는다 — 프레임이 다시 와야 풀린다(워치독 재접속 루프에서 배지가 깜빡이지 않게).
+      const nowMs = Date.now();
+      const keepStall = this.#stallDown && quoteStalled(this.health(nowMs), new Date(nowMs));
+      if (!keepStall && (this.#lastFrame === null || this.#lastFrame.s === "down")) {
+        this.#publish({ t: "quote.state", s: "live" });
+      }
+      this.#armStallCheck();
       return;
     }
+    this.#clearStallTimer();
     if (state === "disabled") {
       this.#clearDownTimer();
       this.#notLiveSinceMs = null;
       this.#lastFrame = null;
+      this.#stallDown = false;
       return;
     }
     // ready 도 disabled 도 아닌 상태 사이의 이동(connecting → logging_in …)은 이탈 시각 · 타이머를 잇는다.
@@ -174,6 +234,35 @@ export class QuoteStatus extends EventEmitter {
     this.#downTimer.unref?.();
   }
 
+  /**
+   * ready 동안 `QUOTE_STALL_CHECK_MS` 마다 정체를 본다(WR-01). 정체면 down(since = 마지막 프레임 시각), 풀리면 live.
+   * 판정식은 `/healthz` 와 같은 `quoteStalled` 다 — 배지와 알림이 어긋나지 않는다(D-02).
+   */
+  #armStallCheck(): void {
+    if (this.#stallTimer !== null) return;
+    this.#stallTimer = setTimeout(() => {
+      this.#stallTimer = null;
+      if (this.#feed.state !== "ready") return;
+      const nowMs = Date.now();
+      const stalled = quoteStalled(this.health(nowMs), new Date(nowMs));
+      if (stalled && this.#lastFrame?.s !== "down") {
+        const lastFrameAtMs = this.#feed.lastFrameAtMs ?? nowMs;
+        this.#publish({ t: "quote.state", s: "down", since: new Date(lastFrameAtMs).toISOString() });
+        this.#stallDown = true;
+      } else if (!stalled && this.#stallDown && this.#lastFrame?.s === "down") {
+        this.#publish({ t: "quote.state", s: "live" });
+      }
+      this.#armStallCheck();
+    }, QUOTE_STALL_CHECK_MS);
+    this.#stallTimer.unref?.();
+  }
+
+  #clearStallTimer(): void {
+    if (this.#stallTimer === null) return;
+    clearTimeout(this.#stallTimer);
+    this.#stallTimer = null;
+  }
+
   #clearDownTimer(): void {
     if (this.#downTimer === null) return;
     clearTimeout(this.#downTimer);
@@ -182,6 +271,7 @@ export class QuoteStatus extends EventEmitter {
 
   #publish(frame: RelayQuoteStateMsg): void {
     this.#lastFrame = frame;
+    if (frame.s === "live") this.#stallDown = false;
     this.emit("frame", frame);
   }
 }
