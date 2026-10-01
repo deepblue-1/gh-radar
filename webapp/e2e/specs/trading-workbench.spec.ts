@@ -420,6 +420,27 @@ function captureOrderFrames(page: Page): Record<string, unknown>[] {
   return frames;
 }
 
+/**
+ * 브라우저가 relay 로 보낸 구독 제어 프레임(`sub` · `unsub`)만 모은다 — 카드 접기/펼치기의 구독 level
+ * 전환이 와이어에 무엇을 남기는지 본다(quick-261001-dyi). 파싱 실패 · 다른 `t` 는 무시한다.
+ */
+function captureSubFrames(page: Page): Record<string, unknown>[] {
+  const frames: Record<string, unknown>[] = [];
+  page.on('websocket', (ws) => {
+    if (!ws.url().includes(':8090')) return;
+    ws.on('framesent', ({ payload }) => {
+      if (typeof payload !== 'string') return;
+      try {
+        const msg = JSON.parse(payload) as Record<string, unknown>;
+        if (msg.t === 'sub' || msg.t === 'unsub') frames.push(msg);
+      } catch {
+        // 구독 제어가 아닌 프레임 — 무시
+      }
+    });
+  });
+  return frames;
+}
+
 /** 종목상세 「트레이딩」 착지 URL(21-33) — 이관 케이스가 카드를 세우는 경로다. */
 const LANDING_URL = `${WORKBENCH_URL}?code=005930`;
 
@@ -1668,6 +1689,63 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(page.locator(DIRTY_BAR_SEL)).toHaveCount(0);
     // 접었다 펴는 동안 아무것도 나가지 않았다.
     expect(relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length).toBe(before + 1);
+  });
+
+  test('GC2b 카드를 접으면 그 키를 price 로, 펼치면 full 로 구독한다 — 브라우저 sub 1건씩 · unsub 0 · 게이트웨이 29 강등 / 28 · 32 승격 (quick-261001-dyi)', async ({
+    page,
+  }) => {
+    /*
+      접힌 카드는 헤더(p · cr)만 보이므로 price 로 충분하다. 전환은 새 level 을 먼저 잡고 옛 level 을 놓으므로
+      와이어에는 unsub 없이 sub 1건만 나간다. relay 는 강등에 29 만, 승격에 28→29(0)→32 를 업스트림으로 보낸다.
+      ★ 사용자 세션 Ready 넛지(29 1건)가 기준선 뒤에 늦게 끼어들 수 있어 29 는 「≥」, 28 · 32 는 정확히 본다
+        (넛지는 28 · 32 를 보내지 않는다 — hub 헤더 Pattern 10).
+    */
+    const subs = captureSubFrames(page);
+    relay.seedLimitChasers([{ buyEnabled: true }]);
+    await openFocusedCard(page);
+
+    const card = cardOf(page, E2E_ISIN);
+    const toggle = toggleOf(page, E2E_ISIN);
+    const countMsg = (t: number) => relay.requestLog().filter((m) => m === t).length;
+    const base = subs.length;
+    const keyFrames = () => subs.slice(base).filter((f) => f.isin === E2E_ISIN);
+    const quoteReq0 = countMsg(DMA_MSG.GetQuoteReq);
+    const subReq0 = countMsg(DMA_MSG.SubscribeQuoteReq);
+    const tapeReq0 = countMsg(DMA_MSG.GetTradeTapeReq);
+
+    // 접기 — price 로 강등
+    await toggle.click();
+    await expect(card).toHaveAttribute('data-open', 'false');
+    await expect
+      .poll(keyFrames, { timeout: 10_000 })
+      .toEqual([{ t: 'sub', isin: E2E_ISIN, ex: 'KRX', lv: 'price' }]);
+    await expect
+      .poll(() => countMsg(DMA_MSG.SubscribeQuoteReq), { timeout: 10_000 })
+      .toBeGreaterThanOrEqual(subReq0 + 1);
+    expect(countMsg(DMA_MSG.GetQuoteReq)).toBe(quoteReq0);
+    expect(countMsg(DMA_MSG.GetTradeTapeReq)).toBe(tapeReq0);
+    // 접힌 헤더 가격은 꺼지지 않는다 — 시세 캐시는 level 변경으로 지워지지 않는다.
+    const headerPrice = card.locator('[data-slot="card-header-price"] [data-part="price"]');
+    await expect(headerPrice).toHaveText(/\d/);
+    await expect(headerPrice).not.toHaveText('—');
+
+    // 펼치기 — full 로 승격(lv 키 없음)
+    await toggle.click();
+    await expect(card).toHaveAttribute('data-open', 'true');
+    await expect
+      .poll(keyFrames, { timeout: 10_000 })
+      .toEqual([
+        { t: 'sub', isin: E2E_ISIN, ex: 'KRX', lv: 'price' },
+        { t: 'sub', isin: E2E_ISIN, ex: 'KRX' },
+      ]);
+    await expect.poll(() => countMsg(DMA_MSG.GetQuoteReq), { timeout: 10_000 }).toBe(quoteReq0 + 1);
+    await expect.poll(() => countMsg(DMA_MSG.GetTradeTapeReq), { timeout: 10_000 }).toBe(tapeReq0 + 1);
+    await expect(card.locator('[data-slot="orderbook-ladder"]').first()).toContainText('97,900', {
+      timeout: 15_000,
+    });
+
+    // 전 구간에서 그 키의 해제는 0건이다.
+    expect(keyFrames().filter((f) => f.t === 'unsub')).toHaveLength(0);
   });
 
   test('13. 인라인 편집 중 다른 단말 변경 — 입력 8,000 유지 · Esc 뒤 행 = 에코 「5,000주」 + 공용 로그 「서버 반영 완료」 1줄 · 배너 없음 (옛 LC 5 · D-07 재정의 · 2026-09-29 배너 제거)', async ({
