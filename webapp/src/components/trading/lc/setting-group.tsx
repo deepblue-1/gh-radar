@@ -126,13 +126,13 @@ function useRefocusAfterEdit(editing: boolean, target: RefObject<HTMLElement | n
 }
 
 /**
- * 제목 있는 그룹의 제목 요소 id + 상태 문구 id(공백으로 이은 id 목록) — 값 버튼의 `aria-describedby`
+ * 그룹의 제목 요소 id + 상태 문구 id(공백으로 이은 id 목록) — 값 버튼의 `aria-describedby`
  * 가 된다(20-07 a11y · Phase 24 R10).
  *
  * ★ ≥685 두 열에서는 매수·매도 쪽 값 버튼이 **같은 이름**을 가질 수 있다(「비교가격 127,400원」 ·
  *   「체결 30,000주」). 이름과 별개로 **설명**에 그룹 제목을 붙여 가른다. Phase 24 부터는 상태 문구도
  *   함께 가리킨다 — 흐린 행의 비시각 경로다(「주문가격 13,000원, 매수주문 꺼짐」). 보이는 변화는 없다.
- *   제목 없는 가격 섹션과 그룹 밖 렌더는 `undefined` 다.
+ *   그룹 밖 렌더는 `undefined` 다.
  */
 const GroupTitleIdContext = createContext<string | undefined>(undefined);
 
@@ -347,9 +347,7 @@ export interface SettingGroupProps {
  * 그룹 카드 (UI-SPEC §1 · 스케치 `.grp`) — `--group-bg` 면 · radius 16 · 패딩 10 10 4.
  * 그룹 사이 간격 10 은 부모(`flex flex-col gap-2.5`)가 준다.
  *
- * ★ 헤더는 `title` 이 있을 때만 그린다 — 가격 섹션은 헤더 없이 접근성 이름만 갖는다.
- * ★ 상단 패딩은 제목 유무로 가른다(G-21-R3-5) — 제목 없는 그룹은 첫 44px 행(items-center)이 위 여백을
- *   이미 가지므로 pt-1(4)이다. pt-2.5 를 그대로 두면 위 ≈21px · 아래 ≈15px 로 비대칭이 된다.
+ * ★ 모든 그룹 카드는 제목줄을 갖는다(quick-261001-gjk) — 상단 패딩 pt-2.5.
  * ★ 제목과 상태는 **한 텍스트 흐름**이다(`min-w-0 flex-1`). 폰 밴드에서 「발주 완료 · 무장 해제」가
  *   길면 상태가 둘째 줄로 내려간다 — 헤더만 커지고 행 높이는 불변이며 말줄임은 없다(E1 long-text).
  *   제목과 상태 사이의 공백 문자는 장식이 아니다 — `keep-all` 에서 둘 사이의 유일한 줄바꿈 기회다.
@@ -378,7 +376,7 @@ export function SettingGroup({
   const statusId = useId();
   const rowsId = useId();
   const collapsed = fold !== undefined && !fold.expanded;
-  const describedBy = spec.title ? (statusText ? `${titleId} ${statusId}` : titleId) : undefined;
+  const describedBy = statusText ? `${titleId} ${statusId}` : titleId;
 
   // 제목 · (쉐브런) · 상태는 **한 텍스트 흐름**이다 — 길면 상태가 둘째 줄로 내려가고 말줄임하지 않는다.
   const titleFlow = (
@@ -421,34 +419,31 @@ export function SettingGroup({
     <section
       data-slot={`lc-group-${spec.slot}`}
       title={spec.hint}
-      aria-label={spec.ariaLabel}
-      className={cn('min-w-0 rounded-[16px] bg-[var(--group-bg)] px-2.5 pb-1', spec.title ? 'pt-2.5' : 'pt-1')}
+      className="min-w-0 rounded-[16px] bg-[var(--group-bg)] px-2.5 pt-2.5 pb-1"
     >
-      {spec.title ? (
-        <div
-          data-slot="lc-group-header"
-          className={cn('flex min-h-6 min-w-0 items-center gap-2 px-0.5', !fold && 'pb-0.5')}
-        >
-          {fold ? (
-            // 스위치는 이 버튼 **밖 형제**다 — 버튼 안 스위치는 HTML 상 불가하고, 형제라 전파 차단 없이
-            // 스위치가 접기와 독립으로 동작한다(UI-SPEC §2).
-            <button
-              type="button"
-              data-slot="lc-group-fold"
-              aria-expanded={fold.expanded}
-              aria-controls={rowsId}
-              onClick={fold.onToggle}
-              className="-mx-0.5 flex min-h-8 min-w-0 flex-1 items-center rounded-[10px] px-1 pb-0.5 text-left pointer-fine:hover:bg-[color-mix(in_srgb,var(--fg)_5%,transparent)]"
-            >
-              {titleFlow}
-            </button>
-          ) : (
-            titleFlow
-          )}
-          {headerCheck}
-          {switchNode}
-        </div>
-      ) : null}
+      <div
+        data-slot="lc-group-header"
+        className={cn('flex min-h-6 min-w-0 items-center gap-2 px-0.5', !fold && 'pb-0.5')}
+      >
+        {fold ? (
+          // 스위치는 이 버튼 **밖 형제**다 — 버튼 안 스위치는 HTML 상 불가하고, 형제라 전파 차단 없이
+          // 스위치가 접기와 독립으로 동작한다(UI-SPEC §2).
+          <button
+            type="button"
+            data-slot="lc-group-fold"
+            aria-expanded={fold.expanded}
+            aria-controls={rowsId}
+            onClick={fold.onToggle}
+            className="-mx-0.5 flex min-h-8 min-w-0 flex-1 items-center rounded-[10px] px-1 pb-0.5 text-left pointer-fine:hover:bg-[color-mix(in_srgb,var(--fg)_5%,transparent)]"
+          >
+            {titleFlow}
+          </button>
+        ) : (
+          titleFlow
+        )}
+        {headerCheck}
+        {switchNode}
+      </div>
       {precheckText ? (
         <p
           data-slot="lc-group-precheck"

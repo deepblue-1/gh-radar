@@ -296,7 +296,7 @@ describe('② SettingGroup — 둥근 면 · 제목줄 · 꺼진 그룹 흐림 (
       const section = container.querySelector('section') as HTMLElement;
       const header = section.querySelector('[data-slot="lc-group-header"]');
       expect(header, g.slot).not.toBeNull();
-      expect(header).toHaveTextContent(String(g.title));
+      expect(header).toHaveTextContent(g.title);
       expect(section.hasAttribute('aria-label'), g.slot).toBe(false);
       const tokens = section.className.split(/\s+/);
       expect(tokens, g.slot).toContain('pt-2.5');

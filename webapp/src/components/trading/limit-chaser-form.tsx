@@ -6,7 +6,7 @@
  * ① 무엇을 어디에
  *   무엇을 어떤 순서로 그리는지는 **`lc/lc-fields.ts` 한 곳**이 정한다(D-19) — 매수 쪽 =
  *   매수주문 공통 카드(주문가격 · 비교가격) → 선매수 → 추가매수 → 후매수(접이식 카드 3장 · Phase 24 ⑤) ·
- *   매도 쪽 = [주문가격 · 매도비율] → 매도주문 → 매수취소(맨 아래). 행 모양은 `lc/setting-group.tsx` 의
+ *   매도 쪽 = 매도주문 카드(주문가격 · 비교가격 · 매도비율 · 매수잔량 · 잔량추적 · 체결) → 매수취소(맨 아래). 행 모양은 `lc/setting-group.tsx` 의
  *   조각이다(값 행 · 체크 값 행 · 읽기 전용 행 · 그룹 카드 · 그룹 스위치). 이 파일은 그 둘을 **값·전송
  *   배선**으로 잇는다. 표시 판정(의미어 · 요약 줄 · 접근성 이름 · 흐림)도 `lc-fields.ts` 순수 함수다.
  *   ★ 세 그룹 카드의 접힘은 폼 인스턴스 `useState` 하나다(R1) — 저장하지 않고, 에코 · 탭 전환 · 밴드 변화에
@@ -1388,7 +1388,7 @@ export function LimitChaserForm({
           <CheckValueRow
             key={row.checkId}
             checkId={row.checkId}
-            groupTitle={group.title ?? ''}
+            groupTitle={group.title}
             label={row.label}
             checked={form[check]}
             onToggle={() => commitToggle(check, !form[check])}
@@ -1454,7 +1454,7 @@ export function LimitChaserForm({
       <SettingGroup
         key={slot}
         spec={spec}
-        statusText={spec.title ? statusOf(spec.statusKey) : undefined}
+        statusText={statusOf(spec.statusKey)}
         on={gate ? form[gate] : undefined}
         // 흐림은 행마다 한 번(`lcRowDimOf`) — 컨테이너까지 흐리면 .45 × .45 가 된다(⑩ · UI-SPEC §9).
         dimRows={false}

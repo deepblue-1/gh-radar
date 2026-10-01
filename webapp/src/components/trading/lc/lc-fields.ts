@@ -7,7 +7,8 @@
  * 되면 갈라진다.
  *
  * ★ 매수 쪽 = 「매수주문」 공통 카드(주문가격 · 비교가격 · 마스터 스위치, 접기 없음) → 선매수 → 추가매수 →
- *   후매수(접이식 카드 3장 · 스케치 009 D). 매도 쪽 = 가격 → 매도주문 → 매수취소(맨 아래) — 구조 그대로.
+ *   후매수(접이식 카드 3장 · 스케치 009 D). 매도 쪽 = 「매도주문」 카드(주문가격 · 비교가격 · 매도비율 ·
+ *   매수잔량 · ○잔량추적 · ○체결 · 접기 없음 — quick-261001-gjk 로 한 카드) → 매수취소(맨 아래).
  * ★ 매수취소 그룹 스위치 = `cancelQtyEnabled`(D-21). 스위치가 꺼져도 체결 · 잔량추적 체크는 켤 수 있다
  *   (quick-260912-u58 ④). 흐림은 행마다 판정한다(`lcRowDimOf` — 매수취소 「체결」은 자기 체크 축만).
  * ★ 체크가 달린 필드는 체크 행(D-22) — 「○ 라벨 ─ 값 ›」(`checkValue`) 또는 값 없는 「○ 라벨」(`check`).
@@ -127,22 +128,20 @@ export type LcStatusKey = 'buy' | 'preBuy' | 'extraBuy' | 'postBuy' | 'sell' | '
 
 export interface LcGroupSpec {
   /** `data-slot="lc-group-{slot}"` — e2e 앵커. */
-  slot: 'buy' | 'pre-buy' | 'extra-buy' | 'post-buy' | 'sell-price' | 'sell' | 'cancel';
-  /** 카드 제목 — 없으면 헤더 줄이 없다(매도 가격 섹션). */
-  title?: '매수주문' | '선매수' | '추가매수' | '후매수' | '매도주문' | '매수취소';
-  /** 헤더 없는 섹션의 접근성 이름. */
-  ariaLabel?: string;
+  slot: 'buy' | 'pre-buy' | 'extra-buy' | 'post-buy' | 'sell' | 'cancel';
+  /**
+   * 카드 제목 — 제목줄 · 값 버튼 설명(aria-describedby) · 체크 접근성 이름 접두가 쓴다.
+   * 모든 카드가 제목줄을 갖는다(quick-261001-gjk).
+   */
+  title: '매수주문' | '선매수' | '추가매수' | '후매수' | '매도주문' | '매수취소';
   /** 그룹 툴팁(`<section title>`) — 화면에는 그리지 않는다. */
   hint?: string;
   gate?: LcGate;
-  /**
-   * 이 그룹의 행이 따르는 상태 문구 키.
-   * ★ 매도 가격 섹션은 헤더가 없지만 매도가격 · 매도비율은 **매도주문**의 값이다 — 그래서 `sell` 을 갖는다.
-   */
+  /** 이 그룹의 행이 따르는 상태 문구 키. */
   statusKey?: LcStatusKey;
   /**
-   * 이 게이트가 꺼지면 이 그룹의 행(과 요약 줄)을 흐린다(⑩ · UI-SPEC §9). 매도 가격 섹션은 게이트가 없지만
-   * 매도주문 게이트로 흐린다(R9). 시트 「감시 중」 안내(D-05)의 매수 쪽 판정 게이트이기도 하다.
+   * 이 게이트가 꺼지면 이 그룹의 행(과 요약 줄)을 흐린다(⑩ · UI-SPEC §9).
+   * 시트 「감시 중」 안내(D-05)의 매수 쪽 판정 게이트이기도 하다.
    */
   dimGate?: LcGate;
   /** 옛 컨테이너 흐림 경로(`SettingGroup` 기본 `dimRows`) · 접힌 요약 줄 흐림 — 편집은 막지 않는다(D-01). */
@@ -634,8 +633,7 @@ export function lcRowA11yNameOf(
   row: Extract<LcRowSpec, { kind: 'value' | 'checkValue' }>,
   valueText: string,
 ): string {
-  const prefix = row.a11yPrefix ?? group.title ?? '';
-  const head = prefix === '' ? row.label : `${prefix} ${row.label}`;
+  const head = `${row.a11yPrefix ?? group.title} ${row.label}`;
   return valueText === '—' ? `${head} 미입력` : `${head} ${valueText}`;
 }
 
