@@ -1165,6 +1165,66 @@ describe("WsFanout", () => {
       expect(b.inbox).toHaveLength(bBefore);
       expect(h.hub.unhandledFrameCount()).toBe(0);
     });
+
+    it("F9 업스트림 FULL 에서 price 소켓이 full 로 승격하면 캐시 q(호가 틱 반영)를 tape 보다 먼저 즉시 받는다 · 업스트림 재요청 0 (quick-261001-dyi)", async () => {
+      // 작업대 카드 펼치기 = 같은 소켓 price→full 재 sub. 다른 소비자(A)가 이미 FULL 이면 hub 승격도 58 도 없다 —
+      // relay 가 캐시를 주지 않으면 B 의 호가는 「접힌 동안 마지막 체결 시점」 값으로 다음 FULL 59 까지 남는다.
+      const a = await authed("token-a");
+      const b = await authed("token-b");
+      a.ws.sendSub(SAMPLE_ISIN, "KRX");
+      b.ws.sendSub(SAMPLE_ISIN, "KRX", "price");
+      await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 2, "A full · B price 구독");
+      await waitFor(() => countOf(MSG.GetTradeTapeReq) === 1, "게이트웨이 체결 요청");
+      expect(h.hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBe("full");
+
+      quoteGateway.pushQuote(quoteSock, { snapshot: true });
+      await waitFor(
+        () => framesOf(a.inbox, "q").length === 1 && framesOf(b.inbox, "q").length === 1,
+        "A · B 스냅샷",
+      );
+      // tape 캐시도 채워 둔다 — 승격 스냅샷 순서(q → tape)를 보기 위해.
+      await pushTapeAndFlush("090000000009");
+      await waitFor(() => framesOf(a.inbox, "tape").length === 1, "A tape");
+
+      // 호가만 바뀐 59 — A 1 · B 0 (F8 재확인). hub 캐시는 이 틱으로 갱신된다.
+      quoteGateway.pushQuote(quoteSock, {
+        snapshot: false,
+        askPrices: [71_100n, 71_200n, 71_300n, 71_400n, 71_500n, 71_600n, 71_700n, 71_800n, 71_900n, 72_000n],
+        bidQtys: [999n, 998n, 997n, 996n, 995n, 994n, 993n, 992n, 991n, 990n],
+        exchangeTime: "093016000000",
+      });
+      await waitFor(() => framesOf(a.inbox, "q").length === 2, "A 호가 틱");
+      await flushIo(20);
+      expect(framesOf(b.inbox, "q")).toHaveLength(1);
+      expect(framesOf(b.inbox, "tape")).toHaveLength(0);
+
+      const quoteReqBefore = countOf(MSG.GetQuoteReq);
+      const subReqBefore = countOf(MSG.SubscribeQuoteReq);
+      const tapeReqBefore = countOf(MSG.GetTradeTapeReq);
+      const bBefore = b.inbox.length;
+
+      b.ws.sendSub(SAMPLE_ISIN, "KRX", "full");
+      await waitFor(() => framesOf(b.inbox, "q").length === 2, "승격 q 스냅샷");
+      await waitFor(() => framesOf(b.inbox, "tape").length === 1, "승격 tape 스냅샷");
+      await flushIo(20);
+
+      // 캐시 q 는 호가 틱을 반영한다 — 매수1잔량 999.
+      const promoted = framesOf(b.inbox, "q")[1];
+      expect(promoted).toMatchObject({ i: SAMPLE_ISIN, x: "KRX" });
+      expect(promoted.bq).toContain(999);
+      // 순서: q 다음 tape.
+      const after = b.inbox.slice(bBefore);
+      const qIdx = after.findIndex((f) => f.t === "q");
+      const tapeIdx = after.findIndex((f) => f.t === "tape");
+      expect(qIdx).toBeGreaterThanOrEqual(0);
+      expect(qIdx).toBeLessThan(tapeIdx);
+      // 업스트림 재요청 없이 캐시에서 왔다.
+      expect(countOf(MSG.GetQuoteReq)).toBe(quoteReqBefore);
+      expect(countOf(MSG.SubscribeQuoteReq)).toBe(subReqBefore);
+      expect(countOf(MSG.GetTradeTapeReq)).toBe(tapeReqBefore);
+      expect(h.hub.refCount(SAMPLE_ISIN, "KRX")).toBe(2);
+      expect(h.hub.subscriptionLevel(SAMPLE_ISIN, "KRX")).toBe("full");
+    });
   });
 
   // ============================================================
