@@ -156,11 +156,63 @@ describe('StrategyCard', () => {
         <StrategyCard {...baseProps} isin={ISIN_A} exchange="NXT" />
       </RelayContext.Provider>,
     );
+    // 펼친 카드(open=true)는 full 로 구독한다(quick-261001-dyi).
     expect(subscribe).toHaveBeenCalledTimes(1);
-    expect(subscribe).toHaveBeenCalledWith(ISIN_A, 'NXT');
+    expect(subscribe).toHaveBeenCalledWith(ISIN_A, 'NXT', 'full');
     unmount();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
-    expect(unsubscribe).toHaveBeenCalledWith(ISIN_A, 'NXT');
+    expect(unsubscribe).toHaveBeenCalledWith(ISIN_A, 'NXT', 'full');
+  });
+
+  describe('구독 level — 펼침 full · 접힘 price (quick-261001-dyi)', () => {
+    const view = (open: boolean) => (
+      <RelayContext.Provider value={relay()}>
+        <StrategyCard {...baseProps} open={open} isin={ISIN_A} exchange="KRX" />
+      </RelayContext.Provider>
+    );
+
+    it('한 번도 펼친 적 없는 접힌 카드는 price 로 구독한다', () => {
+      const { unmount } = render(view(false));
+      expect(subscribe.mock.calls).toEqual([[ISIN_A, 'KRX', 'price']]);
+      unmount();
+      expect(unsubscribe.mock.calls).toEqual([[ISIN_A, 'KRX', 'price']]);
+    });
+
+    it('접기는 price 를 먼저 잡고 full 을 놓는다 — 펼치기는 대칭, 언마운트는 마지막 level 로', () => {
+      const { rerender, unmount } = render(view(true));
+      expect(subscribe.mock.calls).toEqual([[ISIN_A, 'KRX', 'full']]);
+
+      // 접기
+      rerender(view(false));
+      expect(subscribe.mock.calls).toEqual([
+        [ISIN_A, 'KRX', 'full'],
+        [ISIN_A, 'KRX', 'price'],
+      ]);
+      expect(unsubscribe.mock.calls).toEqual([[ISIN_A, 'KRX', 'full']]);
+      // 새 level 이 먼저다 — 거꾸로면 탭 참조계수가 1→0 을 지나 와이어 unsub 이 나간다
+      expect(subscribe.mock.invocationCallOrder[1]).toBeLessThan(
+        unsubscribe.mock.invocationCallOrder[0],
+      );
+
+      // 펼치기
+      rerender(view(true));
+      expect(subscribe.mock.calls.at(-1)).toEqual([ISIN_A, 'KRX', 'full']);
+      expect(unsubscribe.mock.calls.at(-1)).toEqual([ISIN_A, 'KRX', 'price']);
+      expect(subscribe.mock.invocationCallOrder[2]).toBeLessThan(
+        unsubscribe.mock.invocationCallOrder[1],
+      );
+
+      // 다시 접고 언마운트하면 마지막으로 잡은 price 를 놓는다
+      rerender(view(false));
+      unmount();
+      expect(subscribe.mock.calls).toHaveLength(4);
+      expect(unsubscribe.mock.calls).toEqual([
+        [ISIN_A, 'KRX', 'full'],
+        [ISIN_A, 'KRX', 'price'],
+        [ISIN_A, 'KRX', 'full'],
+        [ISIN_A, 'KRX', 'price'],
+      ]);
+    });
   });
 
   it('limitChasers 에 다른 키 전략이 여럿 있어도 자기 key 의 것만 읽는다', () => {
@@ -204,8 +256,8 @@ describe('StrategyCard', () => {
     rerender(view(krxOnly, 'NXT'));
     expect(card().getAttribute('data-key')).toBe(keyOf(ISIN_A, 'NXT'));
     expect(serverKey('NXT')).toBe('none');
-    expect(unsubscribe).toHaveBeenCalledWith(ISIN_A, 'KRX');
-    expect(subscribe).toHaveBeenCalledWith(ISIN_A, 'NXT');
+    expect(unsubscribe).toHaveBeenCalledWith(ISIN_A, 'KRX', 'full');
+    expect(subscribe).toHaveBeenCalledWith(ISIN_A, 'NXT', 'full');
     expect(card().querySelector('[data-part="name"]')?.getAttribute('title')).toMatch(/ · NXT$/);
 
     // NXT 전략이 생기면 그것을 읽는다.

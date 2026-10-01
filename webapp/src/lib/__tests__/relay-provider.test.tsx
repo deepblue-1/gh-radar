@@ -44,6 +44,7 @@ import type {
   RelayExchange,
   RelayLimitChaser,
   RelayQuote,
+  RelaySubLevel,
   RelayViOrderItem,
   RelayViTrigger,
 } from '@gh-radar/shared';
@@ -245,12 +246,15 @@ function QuoteConsumer({
   id,
   isin,
   exchange,
+  level,
 }: {
   id: string;
   isin: string;
   exchange: RelayExchange;
+  /** 생략하면 훅 기본값(full). 카드 접힘 = price (quick-261001-dyi). */
+  level?: RelaySubLevel;
 }) {
-  const relay = useRelaySubscription({ isin, exchange });
+  const relay = useRelaySubscription({ isin, exchange, level });
   return (
     <div data-testid={`quote-${id}`}>{relay.quote == null ? 'none' : String(relay.quote.p)}</div>
   );
@@ -509,6 +513,157 @@ describe('useRelaySubscription — 구독 참조계수', () => {
 
     // 참조계수가 2라고 두 번 보내면 relay 쪽 계수가 부풀어 해제가 영원히 안 끝난다
     expect(ws2.sentOfType('sub')).toEqual([{ t: 'sub', isin: ISIN_A, ex: 'KRX' }]);
+  });
+});
+
+/**
+ * quick-261001-dyi — 작업대 카드는 펼치면 full, 접으면 price 로 구독한다.
+ *
+ * 전환은 **새 level 먼저 잡고 옛 level 을 놓는다**. 순서가 거꾸로면 탭 참조계수 합계가 1→0 을
+ * 지나 와이어에 `unsub` 이 실제로 나가고, relay linger · 업스트림 29(false)/재구독이 생긴다.
+ * 그래서 단언은 그 키의 sub/unsub 프레임 배열 전체로 한다(③-a 관례).
+ */
+function subFramesOf(ws: FakeWebSocket, isin: string, ex: RelayExchange) {
+  return ws
+    .parsedSent()
+    .filter((m) => (m.t === 'sub' || m.t === 'unsub') && m.isin === isin && m.ex === ex);
+}
+
+describe('useRelaySubscription — level 전환 (quick-261001-dyi)', () => {
+  it('L1 full → price 는 lv:price sub 1건, price → full 은 sub 1건 — unsub 0', async () => {
+    const view = render(
+      <RelayProvider>
+        <QuoteConsumer id="a1" isin={ISIN_A} exchange="KRX" level="full" />
+      </RelayProvider>,
+    );
+    const ws = await acceptAndAuth();
+    expect(subFramesOf(ws, ISIN_A, 'KRX')).toEqual([{ t: 'sub', isin: ISIN_A, ex: 'KRX' }]);
+
+    await act(async () => {
+      view.rerender(
+        <RelayProvider>
+          <QuoteConsumer id="a1" isin={ISIN_A} exchange="KRX" level="price" />
+        </RelayProvider>,
+      );
+    });
+    expect(subFramesOf(ws, ISIN_A, 'KRX')).toEqual([
+      { t: 'sub', isin: ISIN_A, ex: 'KRX' },
+      { t: 'sub', isin: ISIN_A, ex: 'KRX', lv: 'price' },
+    ]);
+
+    await act(async () => {
+      view.rerender(
+        <RelayProvider>
+          <QuoteConsumer id="a1" isin={ISIN_A} exchange="KRX" level="full" />
+        </RelayProvider>,
+      );
+    });
+    expect(subFramesOf(ws, ISIN_A, 'KRX')).toEqual([
+      { t: 'sub', isin: ISIN_A, ex: 'KRX' },
+      { t: 'sub', isin: ISIN_A, ex: 'KRX', lv: 'price' },
+      { t: 'sub', isin: ISIN_A, ex: 'KRX' },
+    ]);
+    expect(ws.sentOfType('unsub')).toHaveLength(0);
+  });
+
+  it('L1-b level=price 로 처음 마운트하면 lv:price sub 1건으로 시작한다', async () => {
+    render(
+      <RelayProvider>
+        <QuoteConsumer id="a1" isin={ISIN_A} exchange="KRX" level="price" />
+      </RelayProvider>,
+    );
+    const ws = await acceptAndAuth();
+    expect(subFramesOf(ws, ISIN_A, 'KRX')).toEqual([
+      { t: 'sub', isin: ISIN_A, ex: 'KRX', lv: 'price' },
+    ]);
+  });
+
+  it('L2 다른 full 소비자가 있으면 전환은 0건, 그 소비자가 빠질 때 lv:price 로 강등 — unsub 0', async () => {
+    const view = render(
+      <RelayProvider>
+        <QuoteConsumer id="a1" isin={ISIN_A} exchange="KRX" level="full" />
+      </RelayProvider>,
+    );
+    const ws = await acceptAndAuth();
+    await act(async () => {
+      view.rerender(
+        <RelayProvider>
+          <QuoteConsumer id="a1" isin={ISIN_A} exchange="KRX" level="full" />
+          <QuoteConsumer id="a2" isin={ISIN_A} exchange="KRX" level="full" />
+        </RelayProvider>,
+      );
+    });
+    expect(subFramesOf(ws, ISIN_A, 'KRX')).toHaveLength(1);
+
+    // a1 만 접는다 — a2 가 full 을 쥐고 있어 와이어 level 은 그대로다
+    await act(async () => {
+      view.rerender(
+        <RelayProvider>
+          <QuoteConsumer id="a1" isin={ISIN_A} exchange="KRX" level="price" />
+          <QuoteConsumer id="a2" isin={ISIN_A} exchange="KRX" level="full" />
+        </RelayProvider>,
+      );
+    });
+    expect(subFramesOf(ws, ISIN_A, 'KRX')).toEqual([{ t: 'sub', isin: ISIN_A, ex: 'KRX' }]);
+
+    // a2 가 빠지면 남은 price 로 강등한다 — 해제가 아니다
+    await act(async () => {
+      view.rerender(
+        <RelayProvider>
+          <QuoteConsumer id="a1" isin={ISIN_A} exchange="KRX" level="price" />
+        </RelayProvider>,
+      );
+    });
+    expect(subFramesOf(ws, ISIN_A, 'KRX')).toEqual([
+      { t: 'sub', isin: ISIN_A, ex: 'KRX' },
+      { t: 'sub', isin: ISIN_A, ex: 'KRX', lv: 'price' },
+    ]);
+    expect(ws.sentOfType('unsub')).toHaveLength(0);
+  });
+
+  it('L3 전환 3회 뒤 언마운트는 unsub 정확히 1건, 재마운트는 sub 1건 — 참조계수 누수 0', async () => {
+    const view = render(
+      <RelayProvider>
+        <QuoteConsumer id="a1" isin={ISIN_A} exchange="KRX" level="full" />
+      </RelayProvider>,
+    );
+    const ws = await acceptAndAuth();
+    for (const level of ['price', 'full', 'price'] as const) {
+      await act(async () => {
+        view.rerender(
+          <RelayProvider>
+            <QuoteConsumer id="a1" isin={ISIN_A} exchange="KRX" level={level} />
+          </RelayProvider>,
+        );
+      });
+    }
+    expect(ws.sentOfType('unsub')).toHaveLength(0);
+
+    await act(async () => {
+      view.rerender(<RelayProvider>{null}</RelayProvider>);
+    });
+    // 버킷(초당 6건)이 비어도 남은 프레임이 나가게 시간을 흘린다
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(ws.sentOfType('unsub')).toEqual([{ t: 'unsub', isin: ISIN_A, ex: 'KRX' }]);
+
+    // 남은 계수가 있으면 0→1 이 아니라 sub 이 나가지 않는다
+    const subsBefore = ws.sentOfType('sub').length;
+    await act(async () => {
+      view.rerender(
+        <RelayProvider>
+          <QuoteConsumer id="a2" isin={ISIN_A} exchange="KRX" level="full" />
+        </RelayProvider>,
+      );
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(ws.sentOfType('sub').slice(subsBefore)).toEqual([
+      { t: 'sub', isin: ISIN_A, ex: 'KRX' },
+    ]);
+    expect(ws.sentOfType('unsub')).toHaveLength(1);
   });
 });
 
