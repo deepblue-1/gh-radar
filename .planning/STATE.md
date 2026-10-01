@@ -5,10 +5,10 @@ current_phase: 26
 current_phase_name: 시세 전용 공유 연결 — relay 종목 단위 팬아웃
 status: executing
 stopped_at: Completed 26-14-PLAN.md
-last_updated: "2026-10-01T01:26:52.254Z"
+last_updated: "2026-10-01T03:06:17.670Z"
 last_activity: 2026-10-01
 last_activity_desc: Phase 26 execution started
-state_head: 3de6aab5bbaabf51b9702e6d98b4b217ed9df02b
+state_head: 980ab8db5fd215949b208668ab34dc4946c65334
 progress:
   total_phases: 35
   completed_phases: 4
@@ -34,7 +34,7 @@ Plans completed: 220 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-10-01 - Completed quick task 261001-dyi: 작업대 카드 접힘 PRICE · 펼침 FULL 구독
+Last activity: 2026-10-01 - Completed quick task 261001-gjk: 상따 매도 열 — 가격 섹션과 매도주문 카드 합치기
 
 Progress: [█████████░] 93%
 
@@ -571,6 +571,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 54 | 다크 면 사다리 두 단계 하향(목업 C 채택) | 2026-09-30 | bfc900e3 | — |
 | 261001-dyi | 작업대 종목카드 접힘 시 시세 구독 FULL→PRICE 강등 · 펼치면 FULL 승격 + relay 같은 소켓 승격에 캐시 호가 스냅샷 선송신 (relay 배포 → push 순서) | 2026-10-01 | 3de6aab5 | [261001-dyi-full-price-full](./quick/261001-dyi-full-price-full/) |
 | 55 | 종목 카드 「전략로그」 버튼 라벨 → 「로그」 | 2026-10-01 | 3aeb02c0 | — |
+| 58 | 종목카드 호가/체결 톤 다운 — 체결 플래시 3%·1단 현재가 행 배경 한 단계 낮춤·매도1/매수1 경계선 일직선 (fa31efea) | 2026-10-01 | fa31efea | — |
+| 261001-gjk | 상따 매도 열 — 가격 섹션과 매도주문 카드 합치기(주문가격·비교가격·매도비율·매수잔량·잔량추적·체결) | 2026-10-01 | 980ab8db | [261001-gjk-sell-card-merge](./quick/261001-gjk-sell-card-merge/) |
 
 ## Session Continuity
 
