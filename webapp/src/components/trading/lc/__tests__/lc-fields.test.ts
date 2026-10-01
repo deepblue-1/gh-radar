@@ -58,9 +58,9 @@ const valueRow = (id: string) => {
 };
 
 describe('① 매수 카드 4장 스펙 (스케치 009 D · ROADMAP ⑤)', () => {
-  it('LC_BUY_GROUPS slot 순서 = buy → pre-buy → extra-buy → post-buy · 매도 쪽은 그대로', () => {
+  it('LC_BUY_GROUPS slot 순서 = buy → pre-buy → extra-buy → post-buy · 매도 쪽 = sell → cancel (quick-261001-gjk 한 카드)', () => {
     expect(LC_BUY_GROUPS.map((g) => g.slot)).toEqual(['buy', 'pre-buy', 'extra-buy', 'post-buy']);
-    expect(LC_SELL_GROUPS.map((g) => g.slot)).toEqual(['sell-price', 'sell', 'cancel']);
+    expect(LC_SELL_GROUPS.map((g) => g.slot)).toEqual(['sell', 'cancel']);
   });
 
   it('세 그룹 카드만 접힌다 — 공통 카드 · 매도 쪽은 접기 없음', () => {

@@ -518,19 +518,34 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
       el.getAttribute('data-slot'),
     );
 
-  it('매수 pane = 매수주문 → 선매수 → 추가매수 → 후매수 · 매도 pane = 가격 → 매도주문 → 매수취소(맨 아래)', () => {
+  it('매수 pane = 매수주문 → 선매수 → 추가매수 → 후매수 · 매도 pane = 매도주문 → 매수취소(맨 아래) (quick-261001-gjk)', () => {
     render(<LimitChaserForm {...props()} />);
     expect(slotsIn('buy')).toEqual(['lc-group-buy', 'lc-group-pre-buy', 'lc-group-extra-buy', 'lc-group-post-buy']);
-    expect(slotsIn('sell')).toEqual(['lc-group-sell-price', 'lc-group-sell', 'lc-group-cancel']);
+    expect(slotsIn('sell')).toEqual(['lc-group-sell', 'lc-group-cancel']);
     expect(document.querySelector('[data-slot="lc-group-buy-price"]')).toBeNull();
     expect(document.querySelector('[data-slot="lc-group-sweep"]')).toBeNull();
   });
 
-  it('매도 가격 섹션은 제목·스위치가 없고 접근성 이름 「매도 가격 설정」 이다', () => {
-    render(<LimitChaserForm {...props()} />);
-    expect(group('sell-price').getAttribute('aria-label')).toBe('매도 가격 설정');
-    expect(group('sell-price').querySelector('[data-slot="lc-group-header"]')).toBeNull();
-    expect(within(group('sell-price')).queryAllByRole('switch')).toHaveLength(0);
+  it('매도주문 한 카드 — 제목줄(스위치 「매도주문 켜기」) 아래 주문가격 · 비교가격 · 매도비율 · 매수잔량 · ○잔량추적 · ○체결 · (래치 때) 기준선 (quick-261001-gjk)', () => {
+    render(<LimitChaserForm {...props({ server: echo({ sellEntryLatched: true }) })} />);
+    const header = group('sell').querySelector('[data-slot="lc-group-header"]') as HTMLElement;
+    expect(header).not.toBeNull();
+    expect(within(header).getByText('매도주문')).toBeInTheDocument();
+    expect(within(header).getByRole('switch', { name: '매도주문 켜기' })).toBeInTheDocument();
+    const rows = Array.from((group('sell').querySelector('[data-slot="lc-group-rows"]') as HTMLElement).children);
+    const keyOf = (el: Element) =>
+      el.getAttribute('data-lc-field') ??
+      el.querySelector('[data-lc-field]')?.getAttribute('data-lc-field') ??
+      el.getAttribute('data-slot');
+    expect(rows.map(keyOf)).toEqual([
+      'lc-sell-order-price',
+      'lc-sell-watch-price',
+      'lc-sell-order-ratio',
+      'lc-sell-watch-qty',
+      'lc-sell-qty-track-ratio',
+      'lc-sell-min-trade-qty',
+      'lc-derived',
+    ]);
   });
 
   it('선매수 행 = 금액 · 매도잔량 · ○체결량 · ○한방 · 한방가격 · 매도주문 잔량추적·체결 · 매수취소 체결·잔량추적은 그룹 끝', () => {
@@ -568,7 +583,7 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
     const rows = document.querySelectorAll<HTMLElement>(
       '[data-lc-field]:not([data-slot="lc-check-row"] [data-lc-field]), [data-slot="lc-check-row"], [data-slot="lc-derived"], [data-slot="lc-post-buy-trigger"]',
     );
-    // 값 행 17(공통 2 · 선매수 3 · 추가매수 3 · 후매수 4 · 매도 가격 2 · 매도주문 2 · 취소 1) + 체크 행 6 + 기준선 1
+    // 값 행 17(공통 2 · 선매수 3 · 추가매수 3 · 후매수 4 · 매도주문 4 · 취소 1) + 체크 행 6 + 기준선 1
     // + 발동잔량 1 = 25 (고정 스키마 — E1 zero-one-many).
     expect(rows).toHaveLength(25);
     for (const r of Array.from(rows)) expect(r.className).toContain('min-h-[44px]');
@@ -1489,9 +1504,10 @@ describe('⑮ 매수 카드 4장 · 제목줄 접기 · 요약 줄 · 자동 펼
     expect(opacityLayers(fold('pre-buy'))).toBe(0);
   });
 
-  it('⑩ 흐림 — 매도 에코 OFF 면 매도 가격 섹션 · 매도주문 행 · 매수취소 스위치 OFF 면 매수잔량 · 체결은 자기 체크만', () => {
+  it('⑩ 흐림 — 매도 에코 OFF 면 매도주문 행(주문가격 · 매도비율 포함) · 매수취소 스위치 OFF 면 매수잔량 · 체결은 자기 체크만', () => {
     render(<LimitChaserForm {...props({ server: echo({ sellEnabled: false, cancelQtyEnabled: false, cancelTradeEnabled: true }) })} />);
     expect(opacityLayers(row('lc-sell-order-price'))).toBe(1);
+    expect(opacityLayers(row('lc-sell-order-ratio'))).toBe(1);
     expect(opacityLayers(row('lc-sell-watch-qty'))).toBe(1);
     expect(opacityLayers(row('lc-cancel-watch-qty'))).toBe(1);
     const cancelTradeLabel = within(document.getElementById('lc-cancel-trade') as HTMLElement).getByText('체결');

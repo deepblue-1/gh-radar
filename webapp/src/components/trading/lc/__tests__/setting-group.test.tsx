@@ -55,9 +55,9 @@ const idOf = (r: LcRowSpec): string | null =>
   r.kind === 'value' || r.kind === 'checkValue' ? r.id : r.kind === 'check' ? r.checkId : null;
 
 describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (D-19 · D-21 · D-22 · Phase 24 ⑤ · D-09)', () => {
-  it('매수 쪽 슬롯 순서 = 매수주문 → 선매수 → 추가매수 → 후매수 · 매도 쪽 = 가격 → 매도주문 → 매수취소(맨 아래)', () => {
+  it('매수 쪽 슬롯 순서 = 매수주문 → 선매수 → 추가매수 → 후매수 · 매도 쪽 = 매도주문 → 매수취소(맨 아래) (quick-261001-gjk)', () => {
     expect(LC_BUY_GROUPS.map((g) => g.slot)).toEqual(['buy', 'pre-buy', 'extra-buy', 'post-buy']);
-    expect(LC_SELL_GROUPS.map((g) => g.slot)).toEqual(['sell-price', 'sell', 'cancel']);
+    expect(LC_SELL_GROUPS.map((g) => g.slot)).toEqual(['sell', 'cancel']);
   });
 
   it('매수주문 공통 카드 = 주문가격 · 비교가격 · 선매수 = 금액 · 매도잔량 · ○체결량 · ○한방 · 한방가격', () => {
@@ -82,13 +82,24 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
     ]);
   });
 
-  it('매도주문 행 = 비교가격 · 매수잔량 · 잔량추적 % · 체결 · (조건부) 기준선 · 매수취소 = 매수잔량 · 체결 · 잔량추적', () => {
+  it('매도주문 행 = 주문가격 · 비교가격 · 매도비율 · 매수잔량 · 잔량추적 % · 체결 · (조건부) 기준선 · 매수취소 = 매수잔량 · 체결 · 잔량추적 (quick-261001-gjk)', () => {
     expect(groupOf('sell').rows.map((r) => r.kind)).toEqual([
+      'value',
+      'value',
       'value',
       'value',
       'checkValue',
       'checkValue',
       'derived',
+    ]);
+    expect(groupOf('sell').rows.map(idOf)).toEqual([
+      'lc-sell-order-price',
+      'lc-sell-watch-price',
+      'lc-sell-order-ratio',
+      'lc-sell-watch-qty',
+      'lc-sell-qty-track-ratio',
+      'lc-sell-min-trade-qty',
+      null,
     ]);
     expect(groupOf('cancel').rows.map((r) => r.kind)).toEqual(['value', 'check', 'check']);
     expect(groupOf('cancel').rows.map(idOf)).toEqual([
@@ -161,7 +172,7 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
     expect(spec('lc-cancel-watch-qty').desc).toBe('매도 비교가격의 매수잔량이 이 값보다 적으면 매수 주문을 취소해요');
   });
 
-  it('스위치 이름 6개(「한방체결 켜기」 없음) · 매수취소 스위치 = cancelQtyEnabled · 매도 가격 섹션은 제목 · 스위치 없음', () => {
+  it('스위치 이름 6개(「한방체결 켜기」 없음) · 매수취소 스위치 = cancelQtyEnabled', () => {
     expect(LC_SWITCH_LABEL).toEqual({
       buyEnabled: '매수주문 켜기',
       preBuyEnabled: '선매수 켜기',
@@ -172,9 +183,8 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
     });
     expect(groupOf('cancel').gate).toBe('cancelQtyEnabled');
     expect(groupOf('cancel').title).toBe('매수취소');
-    expect(groupOf('sell-price').title).toBeUndefined();
-    expect(groupOf('sell-price').gate).toBeUndefined();
-    expect(groupOf('sell-price').ariaLabel).toBe('매도 가격 설정');
+    expect(groupOf('sell').title).toBe('매도주문');
+    expect(groupOf('sell').gate).toBe('sellEnabled');
   });
 
   it('lcNavigableRows 는 값 편집 행만 — 체크 전용 · 기준선 · 발동잔량 · 소진 안내는 건너뛴다 (R4)', () => {
@@ -194,7 +204,9 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
     ]);
     expect(lcNavigableRows('cancel')).toEqual([{ field: 'cancelWatchQty', id: 'lc-cancel-watch-qty' }]);
     expect(lcNavigableRows('sell').map((r) => r.id)).toEqual([
+      'lc-sell-order-price',
       'lc-sell-watch-price',
+      'lc-sell-order-ratio',
       'lc-sell-watch-qty',
       'lc-sell-qty-track-ratio',
       'lc-sell-min-trade-qty',
@@ -272,32 +284,26 @@ describe('② SettingGroup — 둥근 면 · 제목줄 · 꺼진 그룹 흐림 (
     expect(section.getAttribute('title')).toBe(groupOf('buy').hint ?? null);
   });
 
-  it('가격 섹션은 헤더가 없고 접근성 이름 「매도 가격 설정」 이다', () => {
-    const { container } = render(
-      <SettingGroup spec={groupOf('sell-price')}>
-        <div>행</div>
-      </SettingGroup>,
-    );
-    const section = container.querySelector('section') as HTMLElement;
-    expect(section.getAttribute('aria-label')).toBe('매도 가격 설정');
-    expect(section.querySelector('[data-slot="lc-group-header"]')).toBeNull();
-    expect(screen.getByRole('region', { name: '매도 가격 설정' })).toBe(section);
-  });
-
-  it.each(['sell-price'] as const)(
-    '제목 없는 가격 섹션(%s)은 상단 패딩 pt-1 — 44px 행이 위 여백을 이미 가진다(G-21-R3-5)',
-    (slot) => {
-      const { container } = render(
-        <SettingGroup spec={groupOf(slot)}>
+  it('모든 그룹 카드(매수 4 + 매도 2)는 제목줄이 있고 section 에 aria-label 이 없으며 상단 패딩이 pt-2.5 다 — 헤더 없는 카드 재발 방지 (quick-261001-gjk)', () => {
+    const groups = [...LC_BUY_GROUPS, ...LC_SELL_GROUPS];
+    expect(groups).toHaveLength(6);
+    for (const g of groups) {
+      const { container, unmount } = render(
+        <SettingGroup spec={g}>
           <div>행</div>
         </SettingGroup>,
       );
-      const tokens = (container.querySelector('section') as HTMLElement).className.split(/\s+/);
-      expect(tokens).toContain('pt-1');
-      expect(tokens).not.toContain('pt-2.5');
-      for (const c of ['px-2.5', 'pb-1']) expect(tokens).toContain(c);
-    },
-  );
+      const section = container.querySelector('section') as HTMLElement;
+      const header = section.querySelector('[data-slot="lc-group-header"]');
+      expect(header, g.slot).not.toBeNull();
+      expect(header).toHaveTextContent(String(g.title));
+      expect(section.hasAttribute('aria-label'), g.slot).toBe(false);
+      const tokens = section.className.split(/\s+/);
+      expect(tokens, g.slot).toContain('pt-2.5');
+      expect(tokens, g.slot).not.toContain('pt-1');
+      unmount();
+    }
+  });
 
   it('헤더는 제목 15/600 + 상태 한 흐름이고 스위치는 오른쪽 끝(마지막 자식)이다', () => {
     const { container } = render(
@@ -650,6 +656,7 @@ describe('⑦ 값 버튼의 그룹 설명 — 이름은 「{라벨} {값}{단위
           />
         </SettingGroup>
         <SettingGroup spec={groupOf('sell')} statusText="감시 중" on>
+          <SettingRow id="lc-sell-order-price" label="주문가격" unit="원" value={127_400} editing={false} onActivate={() => {}} />
           <SettingRow id="lc-sell-watch-price" label="비교가격" unit="원" value={127_400} editing={false} onActivate={() => {}} />
           <CheckValueRow
             checkId="lc-sell-trade"
@@ -662,9 +669,6 @@ describe('⑦ 값 버튼의 그룹 설명 — 이름은 「{라벨} {값}{단위
             valueId="lc-sell-min-trade-qty"
             onActivateValue={() => {}}
           />
-        </SettingGroup>
-        <SettingGroup spec={groupOf('sell-price')}>
-          <SettingRow id="lc-sell-order-price" label="주문가격" unit="원" value={127_400} editing={false} onActivate={() => {}} />
         </SettingGroup>
       </div>,
     );
@@ -682,10 +686,10 @@ describe('⑦ 값 버튼의 그룹 설명 — 이름은 「{라벨} {값}{단위
     expect(trade[1]).toHaveAccessibleDescription(/^매도주문/);
   });
 
-  it('체크 버튼(이름에 그룹이 이미 있다) · 제목 없는 가격 섹션 행은 설명을 달지 않는다', () => {
+  it('체크 버튼(이름에 그룹이 이미 있다)은 설명을 달지 않는다 · 매도주문 카드 안 주문가격 행은 카드 설명을 단다 (quick-261001-gjk)', () => {
     renderTwoColumns();
     expect(screen.getByRole('checkbox', { name: '매수주문 체결' })).not.toHaveAttribute('aria-describedby');
-    expect(screen.getByRole('button', { name: '주문가격 127,400원' })).not.toHaveAttribute('aria-describedby');
+    expect(screen.getByRole('button', { name: '주문가격 127,400원' })).toHaveAccessibleDescription('매도주문 감시 중');
   });
 
   it('설명은 카드 제목 + 상태 문구다 — 흐린 행의 비시각 경로(Phase 24 R10 · 「비교가격 127,400원, 매수주문 감시 중」)', () => {

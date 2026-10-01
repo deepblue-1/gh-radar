@@ -355,13 +355,15 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
 
 export const LC_SELL_GROUPS: readonly LcGroupSpec[] = [
   {
-    slot: 'sell-price',
-    ariaLabel: '매도 가격 설정',
+    slot: 'sell',
+    title: '매도주문',
+    gate: 'sellEnabled',
     statusKey: 'sell',
     dimGate: 'sellEnabled',
-    dimWhenOff: false,
+    dimWhenOff: true,
     collapsible: false,
     rows: [
+      // 주문가격 · 매도비율도 매도주문의 값이다(quick-261001-gjk — 제목줄 아래 한 카드).
       {
         kind: 'value',
         field: 'sellOrderPrice',
@@ -373,6 +375,15 @@ export const LC_SELL_GROUPS: readonly LcGroupSpec[] = [
       },
       {
         kind: 'value',
+        field: 'sellWatchPrice',
+        id: 'lc-sell-watch-price',
+        label: '비교가격',
+        unit: '원',
+        desc: '이 가격의 매수잔량을 지켜봐요',
+        a11yPrefix: '매도',
+      },
+      {
+        kind: 'value',
         field: 'sellOrderRatio',
         id: 'lc-sell-order-ratio',
         label: '매도비율',
@@ -380,26 +391,6 @@ export const LC_SELL_GROUPS: readonly LcGroupSpec[] = [
         desc: '보유 수량 중 매도할 비율이에요',
         a11yPrefix: '매도',
         range: { min: 1, max: 100 },
-      },
-    ],
-  },
-  {
-    slot: 'sell',
-    title: '매도주문',
-    gate: 'sellEnabled',
-    statusKey: 'sell',
-    dimGate: 'sellEnabled',
-    dimWhenOff: true,
-    collapsible: false,
-    rows: [
-      {
-        kind: 'value',
-        field: 'sellWatchPrice',
-        id: 'lc-sell-watch-price',
-        label: '비교가격',
-        unit: '원',
-        desc: '이 가격의 매수잔량을 지켜봐요',
-        a11yPrefix: '매도',
       },
       {
         kind: 'value',

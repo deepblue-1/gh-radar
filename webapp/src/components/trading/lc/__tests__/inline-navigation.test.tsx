@@ -175,19 +175,21 @@ describe('① Tab / Shift+Tab — 같은 그룹 안 값 행만 (D-14 · A5)', ()
     expect(document.activeElement).toBe(row('lc-buy-watch-price'));
   });
 
-  it('매도주문: 비교가격 → 매수잔량 → 잔량추적 → 체결 → 종료 (체크 값 행의 값만 · 기준선 행 건너뜀)', async () => {
+  it('매도주문: 주문가격 → 비교가격 → 매도비율 → 매수잔량 → 잔량추적 → 체결 → 종료 (체크 값 행의 값만 · 기준선 행 건너뜀 · 매수취소로 넘어가지 않는다 · quick-261001-gjk)', async () => {
     const user = userEvent.setup();
     render(<LimitChaserForm {...props({ tab: 'sell', server: echo({ sellEntryLatched: true }) })} />);
-    await user.click(row('lc-sell-watch-price'));
+    await user.click(row('lc-sell-order-price'));
     const order: (string | null)[] = [editingId()];
-    for (let i = 0; i < 4; i += 1) {
+    for (let i = 0; i < 7; i += 1) {
       const id = editingId();
       if (id === null) break;
       key(input(id)!, 'Tab');
       order.push(editingId());
     }
     expect(order).toEqual([
+      'lc-sell-order-price',
       'lc-sell-watch-price',
+      'lc-sell-order-ratio',
       'lc-sell-watch-qty',
       'lc-sell-qty-track-ratio',
       'lc-sell-min-trade-qty',
