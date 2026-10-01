@@ -2107,6 +2107,11 @@ describe('quote.state / sub.limit (Phase 26 D-01 · D-04)', () => {
   it('sub.limit 는 최신 1건을 보관한다 — 두 번째가 오면 교체', async () => {
     const hook = render({ enabled: true });
     const ws = await connected(hook);
+    // relay 는 이 소켓이 보낸 sub 에만 거부를 돌려준다 — 구독 중인 키여야 표식이 선다(WR-04).
+    act(() => {
+      hook.result.current.subscribe(ISIN_A, 'KRX');
+      hook.result.current.subscribe(ISIN_B, 'NXT');
+    });
 
     await act(async () => {
       ws.push({ t: 'sub.limit', i: ISIN_A, x: 'KRX', scope: 'user' });
@@ -2147,6 +2152,9 @@ describe('quote.state / sub.limit (Phase 26 D-01 · D-04)', () => {
   it('로그아웃(enabled false → reset) 뒤 quoteState · subLimit 가 null 로 돌아간다', async () => {
     const hook = render({ enabled: true });
     const ws = await connected(hook);
+    act(() => {
+      hook.result.current.subscribe(ISIN_A, 'KRX');
+    });
     await act(async () => {
       ws.push(DOWN);
       ws.push({ t: 'sub.limit', i: ISIN_A, x: 'KRX', scope: 'user' });
@@ -2159,6 +2167,106 @@ describe('quote.state / sub.limit (Phase 26 D-01 · D-04)', () => {
     });
     expect(hook.result.current.quoteState).toBeNull();
     expect(hook.result.current.subLimit).toBeNull();
+  });
+
+  // --- 26-REVIEW WR-04 — 거부 뒤 재시도 · 표식 해제 -----------------------------------
+
+  const subsOf = (ws: FakeWebSocket, isin: string) =>
+    ws.parsedSent().filter((m) => m.t === 'sub' && m.isin === isin);
+
+  it('WR-04 거부된 키는 30초 보류 뒤 다시 sub 한다 — 보류 중 다른 흘림에는 섞이지 않고, 그 키의 q 가 오면 표식이 풀린다', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    act(() => {
+      hook.result.current.subscribe(ISIN_A, 'KRX');
+    });
+    expect(subsOf(ws, ISIN_A)).toHaveLength(1);
+
+    await act(async () => {
+      ws.push({ t: 'sub.limit', i: ISIN_A, x: 'KRX', scope: 'user' });
+    });
+    expect(hook.result.current.subLimit).toMatchObject({ i: ISIN_A, x: 'KRX' });
+
+    // 다른 카드가 열려 흘림이 돈다 — 거부 키는 보류 중이라 다시 나가지 않는다.
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+      hook.result.current.subscribe(ISIN_B, 'KRX');
+    });
+    expect(subsOf(ws, ISIN_B)).toHaveLength(1);
+    expect(subsOf(ws, ISIN_A)).toHaveLength(1);
+
+    act(() => {
+      vi.advanceTimersByTime(29_000);
+    });
+    expect(subsOf(ws, ISIN_A)).toHaveLength(2);
+
+    // 재시도가 수락됐다 — 그 키의 시세가 오면 표식이 풀린다.
+    await act(async () => {
+      ws.push(quoteFrame({ i: ISIN_A, x: 'KRX' }));
+    });
+    flushMarket();
+    expect(hook.result.current.subLimit).toBeNull();
+  });
+
+  it('WR-04 거부된 카드를 닫으면 표식이 풀리고 unsub · 재시도가 없다', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    act(() => {
+      hook.result.current.subscribe(ISIN_A, 'KRX');
+    });
+    await act(async () => {
+      ws.push({ t: 'sub.limit', i: ISIN_A, x: 'KRX', scope: 'user' });
+    });
+    expect(hook.result.current.subLimit).not.toBeNull();
+
+    act(() => {
+      hook.result.current.unsubscribe(ISIN_A, 'KRX');
+    });
+    expect(hook.result.current.subLimit).toBeNull();
+    expect(ws.parsedSent().filter((m) => m.t === 'unsub')).toHaveLength(0);
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(subsOf(ws, ISIN_A)).toHaveLength(1);
+  });
+
+  it('WR-04 구독하지 않은 키의 거부(닫은 뒤 늦게 온 응답)는 표식을 세우지 않는다', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'sub.limit', i: ISIN_A, x: 'KRX', scope: 'global' });
+    });
+    expect(hook.result.current.subLimit).toBeNull();
+  });
+
+  it('WR-04 소켓이 끊기면 표식이 풀리고, 새 소켓 인증 뒤 거부 키도 한 번 다시 sub 한다', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    act(() => {
+      hook.result.current.subscribe(ISIN_A, 'KRX');
+    });
+    await act(async () => {
+      ws.push({ t: 'sub.limit', i: ISIN_A, x: 'KRX', scope: 'user' });
+    });
+    expect(hook.result.current.subLimit).not.toBeNull();
+
+    await act(async () => {
+      ws.serverClose(1006);
+    });
+    expect(hook.result.current.subLimit).toBeNull();
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+    });
+    await settle();
+    const ws2 = FakeWebSocket.last();
+    expect(ws2).not.toBe(ws);
+    await act(async () => {
+      ws2.accept();
+    });
+    await act(async () => {
+      ws2.push({ t: 'state', s: 'ready', accounts: [] });
+    });
+    expect(subsOf(ws2, ISIN_A)).toHaveLength(1);
   });
 
   it('모르는 t 는 여전히 무시한다 — 반환 상태 참조가 그대로다', async () => {

@@ -230,6 +230,17 @@ const SUB_FRAME_RATE_PER_SEC = 6;
 const SUB_FRAME_BURST = 6;
 
 /**
+ * 구독 한도 거부(`sub.limit`) 뒤 그 키를 다시 보내기까지(ms) = 30초 (26-REVIEW WR-04).
+ *
+ * relay 는 거부된 키를 이 소켓의 구독으로 기록하지 않는다. 그런데 `sendSub` 는 보내는 순간 `wireSubs` 에 「와이어에 있음」
+ * 을 적으므로, 되돌리지 않으면 `flushSubscriptions` 가 그 키를 다시 보내지 않아 카드는 새로고침 전까지 시세 0 이다. 그래서
+ * 거부된 키는 `wireSubs` 에서 빼고 이 시간 동안 보류했다가 다시 흘린다 — 다른 카드를 닫아 자리가 나면 다음 재시도에서
+ * 받는다(배지 문구 「쓰지 않는 카드를 닫으면 다시 받을 수 있어요」 가 사실이 된다). 짧으면 한도에 닿은 동안 키마다 헛
+ * 거부를 되풀이해 구독 제어 버킷(초당 6건)을 갉아먹고, 길면 자리가 난 뒤에도 늦게 붙는다.
+ */
+const SUB_LIMIT_RETRY_MS = 30_000;
+
+/**
  * 백오프 지연 계산. attempt 는 1-based.
  * 상태 바의 `(다음 n초)` 안내도 이 함수를 통과시킨다(단일 정본).
  */
@@ -417,6 +428,8 @@ export interface RelayConnectionState {
   /**
    * 가장 최근의 구독 한도 거부 1건 (`{t:"sub.limit"}` · Phase 26 D-11 · D-15). 거부된 그 소켓에만 온다.
    * 아직 없으면 null. 표시는 소비자(배지 · 26-14)가 정한다.
+   * 풀리는 때(26-REVIEW WR-04): 그 키의 `q` 가 오면(재시도가 수락됨) · 그 키의 마지막 구독이 풀리면 · 소켓 수명 경계
+   * (`local-status` — 새 소켓은 전 구독을 다시 보내고, 여전히 넘치면 relay 가 다시 알린다).
    */
   subLimit: RelaySubLimitMsg | null;
   /**
@@ -771,6 +784,8 @@ type RelayAction =
     }
   /** 소켓 단절/복구에 따른 신선도 표식. */
   | { type: "stale"; value: boolean }
+  /** 이 키의 마지막 구독이 풀렸다 — 그 키의 구독 한도 표식을 지운다(WR-04). 다른 키 표식이면 무동작. */
+  | { type: "sub-limit-clear"; isin: string; ex: RelayExchange }
   /** 세션 종료(로그아웃·비활성화). 이전 사용자의 계좌·전략을 메모리에 남기지 않는다. */
   | { type: "reset" }
   /** 이 브라우저가 `strategies.disable` 을 소켓에 실었다 — 전부 정지 in-flight 창을 연다. */
@@ -797,7 +812,15 @@ function relayReducer(state: RelayData, action: RelayAction): RelayData {
         attempt: action.attempt ?? 0,
         // 브라우저가 만든 상태(연결 시도·백오프·게이트)는 곧 연결 수명 경계다(quick-260926-nr2).
         ...CLOSED_DISABLE_WINDOWS,
+        // 구독 한도 거부는 그 소켓 몫이다 — 새 소켓은 전 구독을 다시 보내고, 여전히 넘치면 relay 가 다시 알린다(WR-04).
+        subLimit: null,
       };
+
+    case "sub-limit-clear": {
+      const limit = state.subLimit;
+      if (limit === null || limit.i !== action.isin || limit.x !== action.ex) return state;
+      return { ...state, subLimit: null };
+    }
 
     case "strategies-disable-sent":
       return state.killSwitchInFlight ? state : { ...state, killSwitchInFlight: true };
@@ -1131,10 +1154,13 @@ function applyMarketFrames(state: RelayData, market: readonly RelayMarketFrame[]
   let quotes: Map<string, RelayQuote> | null = null;
   let tapes: Map<string, RelayTapeEntry[]> | null = null;
   let isStale = state.isStale;
+  let subLimit = state.subLimit;
 
   for (const frame of market) {
     const key = relayQuoteKey(frame.i, frame.x);
     if (frame.t === "q") {
+      // 거부됐던 키의 시세가 온다 = 재시도가 수락됐다 — 구독 한도 표식을 지운다(WR-04).
+      if (subLimit !== null && subLimit.i === frame.i && subLimit.x === frame.x) subLimit = null;
       quotes ??= new Map(state.quotes);
       const prev = quotes.get(key) ?? null;
       // snap=true 는 전량 교체, false 는 같은 키 병합 (D-33).
@@ -1155,6 +1181,7 @@ function applyMarketFrames(state: RelayData, market: readonly RelayMarketFrame[]
     quotes: quotes ?? state.quotes,
     tapes: tapes ?? state.tapes,
     isStale,
+    subLimit,
   };
 }
 
@@ -1416,6 +1443,13 @@ export function useRelayConnection({
   const subRefilledAtRef = useRef(0);
   /** 토큰이 모자라 남은 구독 제어를 다시 흘릴 타이머. */
   const subFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * 구독 한도로 거부된 키(WR-04) — `wireSubs` 에서 빠졌고, 재시도 타이머가 풀기 전까지 `flushSubscriptions` 가 보내지 않는다.
+   * 소켓이 바뀌면 비운다(`resetSubPacing`).
+   */
+  const subLimitHeldRef = useRef<Set<string>>(new Set());
+  /** 보류한 거부 키를 `SUB_LIMIT_RETRY_MS` 뒤 다시 흘릴 타이머(소켓당 1개). */
+  const subLimitRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** `rid` → 대기 중인 주문 Promise. */
   const pendingOrdersRef = useRef<Map<string, PendingOrder>>(new Map());
   /**
@@ -1455,6 +1489,8 @@ export function useRelayConnection({
     const priceSubs: SubRefEntry[] = [];
     for (const [key, entry] of subRefsRef.current) {
       if (entry.full + entry.price < 1) continue;
+      // 구독 한도로 거부된 키는 재시도 타이머가 풀 때까지 보내지 않는다(WR-04).
+      if (subLimitHeldRef.current.has(key)) continue;
       const lv = effectiveSubLevel(entry);
       const wire = wireSubsRef.current.get(key);
       if (wire !== undefined && wire.lv === lv) continue;
@@ -1517,6 +1553,12 @@ export function useRelayConnection({
     if (subFlushTimerRef.current !== null) {
       clearTimeout(subFlushTimerRef.current);
       subFlushTimerRef.current = null;
+    }
+    // 거부 보류도 소켓 몫이다 — 새 소켓에는 거부 기록이 없으므로 전 구독을 다시 보낸다(WR-04).
+    subLimitHeldRef.current.clear();
+    if (subLimitRetryTimerRef.current !== null) {
+      clearTimeout(subLimitRetryTimerRef.current);
+      subLimitRetryTimerRef.current = null;
     }
   }, []);
 
@@ -1711,6 +1753,23 @@ export function useRelayConnection({
           if (!authAckedRef.current) {
             authAckedRef.current = true;
             setAuthEpoch((v) => v + 1);
+          }
+        }
+
+        if (frame.t === "sub.limit") {
+          // relay 는 거부된 키를 이 소켓 구독으로 기록하지 않았다 — 와이어 기록을 되돌리고 보류했다가 다시 보낸다(WR-04).
+          // 표식(subLimit)은 아래 공통 dispatch 가 세운다.
+          const key = relayQuoteKey(frame.i, frame.x);
+          wireSubsRef.current.delete(key);
+          // 그 사이 카드를 닫았다 — 더 원하지 않는 키의 거부는 표식도 재시도도 없다.
+          if (!subRefsRef.current.has(key)) return;
+          subLimitHeldRef.current.add(key);
+          if (subLimitRetryTimerRef.current === null) {
+            subLimitRetryTimerRef.current = setTimeout(() => {
+              subLimitRetryTimerRef.current = null;
+              subLimitHeldRef.current.clear();
+              flushSubscriptionsRef.current();
+            }, SUB_LIMIT_RETRY_MS);
           }
         }
 
@@ -1949,6 +2008,9 @@ export function useRelayConnection({
       }
 
       subRefsRef.current.delete(key);
+      // 거부됐던 키를 닫았다 — 보류 · 표식을 함께 푼다(WR-04). relay 는 이 키를 들고 있지 않으므로 unsub 도 없다.
+      subLimitHeldRef.current.delete(key);
+      dispatch({ type: "sub-limit-clear", isin, ex: exchange });
       const wire = wireSubsRef.current.get(key);
       if (!wire) return;
       wireSubsRef.current.delete(key);
