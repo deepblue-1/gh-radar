@@ -423,6 +423,8 @@ export interface RelayConnectionState {
    * 시세 전용 공유 연결 상태의 최신 프레임 (`{t:"quote.state"}` · Phase 26 D-01) — 배지 「시세」 축의 원천이다.
    * relay 가 상태를 모르면(quote 연결 비활성) 오지 않으므로 null 이고, null 이면 배지를 그리지 않는다.
    * **`isStale`(재접속 흐림)과 무관하다**(D-04) — 시세가 끊겨도 호가 · 체결 숫자는 마지막 캐시 값 그대로다.
+   * 브라우저 ↔ relay 소켓이 끊기면(`local-status`) null(모름)로 되돌린다(26-REVIEW WR-05) — 이 브라우저에 시세가 한 줄도
+   * 오지 않는데 옛 소켓의 live 를 그리지 않는다. 새 소켓의 인증 직후 스냅샷이 다시 채운다(relay 가 모르면 계속 null).
    */
   quoteState: RelayQuoteStateMsg | null;
   /**
@@ -814,6 +816,9 @@ function relayReducer(state: RelayData, action: RelayAction): RelayData {
         ...CLOSED_DISABLE_WINDOWS,
         // 구독 한도 거부는 그 소켓 몫이다 — 새 소켓은 전 구독을 다시 보내고, 여전히 넘치면 relay 가 다시 알린다(WR-04).
         subLimit: null,
+        // 시세 상태도 그 소켓 몫이다 — 소켓이 없는 동안은 「모름」이다. live 로 위장하지 않는다(quote-state.ts ② · WR-05).
+        // 새 소켓의 인증 직후 `quote.state` 스냅샷이 다시 채운다 — relay 가 재기동 직후라 모르면 보내지 않아 null 로 남는다.
+        quoteState: null,
       };
 
     case "sub-limit-clear": {
@@ -897,7 +902,8 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
 
     case "quote.state":
       // 최신 1건 보관 — 배지 「시세」 축 전용이다. 재접속 흐림 플래그와 무관하다(Phase 26 D-04): 호가 · 체결 값은
-      // 마지막 캐시 그대로 두고, 재접속 뒤 28 스냅샷이 오면 자연히 갱신된다.
+      // 마지막 캐시 그대로 두고, 재접속 뒤 28 스냅샷이 오면 자연히 갱신된다. 브라우저 소켓 단절은 `local-status` 가
+      // null 로 되돌린다(WR-05).
       return { ...state, quoteState: frame };
 
     case "sub.limit":

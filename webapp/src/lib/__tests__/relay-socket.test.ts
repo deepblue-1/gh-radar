@@ -2269,6 +2269,65 @@ describe('quote.state / sub.limit (Phase 26 D-01 · D-04)', () => {
     expect(subsOf(ws2, ISIN_A)).toHaveLength(1);
   });
 
+  // --- 26-REVIEW WR-05 — 브라우저 소켓이 끊기면 시세 상태는 「모름」 -------------------------
+
+  it('WR-05 소켓이 끊기면 quoteState 가 null(모름) — 재연결 중 시세 필이 옛 live 로 남지 않는다', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'quote.state', s: 'live' });
+    });
+    expect(hook.result.current.quoteState).toEqual({ t: 'quote.state', s: 'live' });
+
+    await act(async () => {
+      ws.serverClose(1006);
+    });
+    expect(hook.result.current.status).toBe('reconnecting');
+    expect(hook.result.current.quoteState).toBeNull();
+  });
+
+  it('WR-05 새 relay 가 quote.state 스냅샷을 보내지 않으면(재기동 직후 · 비활성) 이전 relay 의 live 를 이어 그리지 않는다', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'quote.state', s: 'live' });
+    });
+    await act(async () => {
+      ws.serverClose(1006);
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+    });
+    await settle();
+    const ws2 = FakeWebSocket.last();
+    await act(async () => {
+      ws2.accept();
+    });
+    await act(async () => {
+      ws2.push({ t: 'state', s: 'ready', accounts: [] });
+    });
+    expect(hook.result.current.status).toBe('ready');
+    expect(hook.result.current.quoteState).toBeNull();
+
+    await act(async () => {
+      ws2.push(DOWN);
+    });
+    expect(hook.result.current.quoteState).toEqual(DOWN);
+  });
+
+  it('WR-05 재시도 없는 종료(4401 → unauthorized)에서도 quoteState 는 null', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'quote.state', s: 'live' });
+    });
+    await act(async () => {
+      ws.serverClose(4401);
+    });
+    expect(hook.result.current.status).toBe('unauthorized');
+    expect(hook.result.current.quoteState).toBeNull();
+  });
+
   it('모르는 t 는 여전히 무시한다 — 반환 상태 참조가 그대로다', async () => {
     const hook = render({ enabled: true });
     const ws = await connected(hook);
