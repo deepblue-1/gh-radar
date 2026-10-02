@@ -25,6 +25,7 @@ import {
   lcRowById,
   lcSummaryOf,
   lcValueTextOf,
+  POST_BUY_UNLOCK_SR_TEXT,
   type LcGroupSpec,
   type LcRowSpec,
 } from '../lc-fields';
@@ -161,6 +162,22 @@ describe('③ lcSummaryOf — 요약 항목 · 순서 · 꺼진 kv (UI-SPEC §3 
     const hot = lcSummaryOf('post-buy', values({ postBuyFloorQty: 0 }), srv({ postBuyPhase: 2, postBuyTriggerQty: 330_000 }));
     expect(hot[2]).toEqual({ key: '최소', value: '없음', off: false });
     expect(hot[4]).toEqual({ key: '발동잔량', value: '330,000주', off: false });
+  });
+
+  it('후매수 발동잔량 0 · 해제선 > 0 → 해제선을 꺼진 kv 색 + sr 「잠금 해제선」 (quick-261002-fim)', () => {
+    expect(lcSummaryOf('post-buy', values(), srv({ postBuyPhase: 1, postBuyUnlockQty: 264_000 }))[4]).toEqual({
+      key: '발동잔량',
+      value: '264,000주',
+      off: true,
+      sr: POST_BUY_UNLOCK_SR_TEXT,
+    });
+    expect(POST_BUY_UNLOCK_SR_TEXT).toBe('잠금 해제선');
+  });
+
+  it('후매수 발동잔량 · 해제선이 둘 다 오면 발동잔량이 우선 — sr 키 없음 (quick-261002-fim)', () => {
+    expect(
+      lcSummaryOf('post-buy', values(), srv({ postBuyPhase: 1, postBuyTriggerQty: 330_000, postBuyUnlockQty: 264_000 }))[4],
+    ).toEqual({ key: '발동잔량', value: '330,000주', off: false });
   });
 
   it('접기 없는 카드는 요약이 없다', () => {

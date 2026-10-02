@@ -48,6 +48,7 @@ import { isServerFoldEdge, LC_FOLD_HIDDEN_DEFER_MS, LimitChaserForm, type LimitC
 import { buyOrderQtyFromAmount } from '@/lib/limit-chaser';
 import { LC_COMMIT_TEXT, LC_REJECT_ECHO_GRACE_MS } from '../lc/use-lc-field-commit';
 import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
+import { POST_BUY_UNLOCK_SR_TEXT } from '../lc/lc-fields';
 
 const ISIN = 'KR7086520004';
 const ACCOUNT = '37728502101';
@@ -1485,6 +1486,37 @@ describe('⑮ 매수 카드 4장 · 제목줄 접기 · 요약 줄 · 자동 펼
     const v = within(trig).getByText('330,000주');
     expect(v.className).toContain('text-[var(--up)]');
     expect(rowText('lc-post-buy-reentry')).toBe('3회 · 남은 2회');
+  });
+
+  it('잠금 중(단계 1 · 발동잔량 0) — 해제선 「264,000주」 를 `--muted-fg` 회색 + sr-only 「잠금 해제선」 (quick-261002-fim)', () => {
+    render(
+      <LimitChaserForm
+        {...props({
+          server: echo({ postBuyEnabled: true, postBuyPhase: 1, postBuyTriggerQty: 0, postBuyUnlockQty: 264_000 }),
+        })}
+      />,
+    );
+    const trig = group('post-buy').querySelector('[data-slot="lc-post-buy-trigger"]') as HTMLElement;
+    expect(trig.querySelector('button')).toBeNull();
+    const v = within(trig).getByText('264,000주');
+    expect(v.className).toContain('text-[var(--muted-fg)]');
+    expect(v.className).not.toContain('--up');
+    expect(trig.querySelector('.sr-only')!.textContent!.trim()).toBe(POST_BUY_UNLOCK_SR_TEXT);
+    expect(within(trig).queryByText('—')).toBeNull();
+  });
+
+  it('발동잔량 · 해제선이 둘 다 오면 발동잔량 「330,000주」 `--up` 만 — 해제선은 그리지 않는다 (quick-261002-fim)', () => {
+    render(
+      <LimitChaserForm
+        {...props({
+          server: echo({ postBuyEnabled: true, postBuyPhase: 1, postBuyTriggerQty: 330_000, postBuyUnlockQty: 264_000 }),
+        })}
+      />,
+    );
+    const trig = group('post-buy').querySelector('[data-slot="lc-post-buy-trigger"]') as HTMLElement;
+    expect(within(trig).getByText('330,000주').className).toContain('text-[var(--up)]');
+    expect(within(trig).queryByText('264,000주')).toBeNull();
+    expect(trig.querySelector('.sr-only')).toBeNull();
   });
 
   it('⑩ 흐림 — 선매수 OFF 면 선매수 행 · 요약 한 겹 · 한방 체크 OFF 면 한방가격 흐림 · 원형 체크는 흐리지 않는다', () => {

@@ -36,7 +36,7 @@
  * ⑥ Phase 24 규칙 (24-05 · ROADMAP ⑨)
  *   - **D-13 클라 합성은 게이트 전이만.** 발동 · 포기 · 소진 · 재진입 사유는 서버 사유 줄
  *     (`source="LimitChaser"`, 배지 `[상따]`)이 원문으로 말한다 — 여기서 다시 쓰지 않는다. 런타임
- *     필드(`postBuyPhase` · `postBuyTriggerQty` · `postBuyReentryLeft` · `extraBuyAbandoned`)만 바뀐
+ *     필드(`postBuyPhase` · `postBuyTriggerQty` · `postBuyReentryLeft` · `extraBuyAbandoned` · `postBuyUnlockQty`)만 바뀐
  *     에코는 0줄이다(`isRuntimeOnlyEcho`).
  *     예외 하나 — **추가매수 포기**는 게이트 접힘 에코(gh-trade 에코 = cfg ∧ 무장 ∧ !포기)에서 「추가매수
  *     무장 해제」 대신 수량과 함께 한 줄(「추가매수 포기 · 최대 초과 N」)로 쓴다(사용자 결정 2026-09-30 ·
@@ -254,12 +254,12 @@ function cancelArmedOf(item: RelayLimitChaser): boolean {
  * - 매수 그룹 게이트 3종(Phase 24 — `preBuyEnabled` · `extraBuyEnabled` · `postBuyEnabled`): 에코의
  *   그룹 게이트도 무장 상태로 접혀 온다(추가매수 포기 · 후매수 소진 · 발주). 전이는 그룹 문장
  *   (「선매수 무장」 등)이 말한다(24-05).
- * - S→C 전용 11필드(shared `LIMIT_CHASER_SERVER_ONLY_FIELDS` — 이름을 여기 다시 나열하지 않는다):
+ * - S→C 전용 12필드(shared `LIMIT_CHASER_SERVER_ONLY_FIELDS` — 이름을 여기 다시 나열하지 않는다):
  *   ★ 래치 2종도 게이트 축이다 (17-11 / D-23 · T-17-39). 빠지면 **사용자가 켜지도 않은**
  *     래치 변화가 「서버 반영 완료」로 보고돼, 자기가 하지 않은 수정이 반영된 줄 안다.
  *     래치 자체는 전이 문장(래치 ON/해제)이 각자 말한다.
- *   ★ 런타임 6종(Phase 24 D-13 — `buy3Schema` · 추가매수 포기 · 포기 수량(quick-260930-fi4) · 후매수
- *     발동잔량 · 잔여 · 단계)은 서버가 스스로 움직이는 값이다. 로그를 남기지 않는다(포기 전이 조각만 수량을 읽는다).
+ *   ★ 런타임 7종(Phase 24 D-13 — `buy3Schema` · 추가매수 포기 · 포기 수량(quick-260930-fi4) · 후매수
+ *     발동잔량 · 잔여 · 단계 · 후매수 잠금 해제선(quick-261002-fim))은 서버가 스스로 움직이는 값이다. 로그를 남기지 않는다(포기 전이 조각만 수량을 읽는다).
  *   ★ 카운터 3종은 서버 런타임 값이다 — 체결(`OnExecution`)이 `sellOrderQty` 를, 호가 래칫이
  *     기준선을 바꾼다. 사용자 설정의 반영이 아니다.
  * - `crud` · `key`: 삭제 판정·파생 키.
@@ -284,7 +284,7 @@ const VALUE_COMPARE_SKIP: ReadonlySet<keyof RelayLimitChaser> = new Set<keyof Re
 ]);
 
 /**
- * 런타임 전용 비교에서 빼는 필드 — S→C 카운터 3종 + 런타임 6종(Phase 24 D-13 · quick-260930-fi4) + relay 파생 표시값.
+ * 런타임 전용 비교에서 빼는 필드 — S→C 카운터 3종 + 런타임 7종(Phase 24 D-13 · quick-260930-fi4 · quick-261002-fim) + relay 파생 표시값.
  * 래치는 **넣지 않는다**.
  */
 const RUNTIME_ONLY_SKIP: ReadonlySet<keyof RelayLimitChaser> = new Set<keyof RelayLimitChaser>([

@@ -468,8 +468,13 @@ export function SettingGroup({
 /**
  * 접힌 카드의 요약 줄(UI-SPEC §3 · 스케치 `.sumline`) — 순수 텍스트(버튼 아님 · 접기 트리거 아님).
  * kv 는 `nowrap` 이고 **kv 사이에서만** 줄바꿈한다. 꺼진 kv 는 값 글자만 `--muted-fg` 다.
+ * `sr` 이 있는 kv 만 값 앞에 sr-only 접두를 둔다(후매수 잠금 해제선 · quick-261002-fim).
  */
-export function GroupSummary({ items }: { items: readonly { key: string; value: string; off: boolean }[] }) {
+export function GroupSummary({
+  items,
+}: {
+  items: readonly { key: string; value: string; off: boolean; sr?: string }[];
+}) {
   return (
     <div
       data-slot="lc-group-summary"
@@ -478,6 +483,7 @@ export function GroupSummary({ items }: { items: readonly { key: string; value: 
       {items.map((kv) => (
         <span key={kv.key} className="whitespace-nowrap">
           <span className="mr-[3px] text-[12px] text-[var(--muted-fg)]">{kv.key}</span>
+          {kv.sr ? <span className="sr-only">{`${kv.sr} `}</span> : null}
           <span className={cn('font-medium tabular-nums', kv.off ? 'text-[var(--muted-fg)]' : 'text-[var(--fg-2)]')}>
             {kv.value}
           </span>
@@ -797,6 +803,13 @@ export interface DerivedRowProps {
   valueText?: string;
   /** 값 0 일 때 스크린리더 글자(「없음」) — 「—」 를 「대시」로 읽지 않게 한다. */
   srText?: string;
+  /**
+   * 값 0 일 때 대신 회색으로 보일 보조값 — 후매수 잠금 해제선(quick-261002-fim). 0 · 미지정이면
+   * `valueText` 로 떨어진다. 값이 있으면 쓰지 않는다(값 우선).
+   */
+  mutedValue?: number;
+  /** `mutedValue` 앞에 읽힐 sr-only 접두(「잠금 해제선」). */
+  mutedSrText?: string;
   /** `data-slot` — 기본 `lc-derived`(기준선 행). 발동잔량은 `lc-post-buy-trigger`. */
   slot?: string;
   /** 흐림(⑩) — 그룹 에코 OFF. */
@@ -814,14 +827,24 @@ export function DerivedRow({
   emphasis = false,
   valueText,
   srText,
+  mutedValue,
+  mutedSrText,
   slot = 'lc-derived',
   dim = false,
 }: DerivedRowProps) {
+  const muted = value === 0 && (mutedValue ?? 0) > 0;
   const empty = value === 0 && valueText !== undefined;
   return (
     <div data-slot={slot} className={cn(ROW_BOX, dim && 'opacity-45 pointer-fine:hover:opacity-100')}>
       <span className={LABEL_TEXT}>{label}</span>
-      {empty ? (
+      {muted ? (
+        <span className="whitespace-nowrap text-[15px] font-medium leading-[1.5]">
+          {mutedSrText ? <span className="sr-only">{`${mutedSrText} `}</span> : null}
+          <span data-muted-value="true" className="tabular-nums text-[var(--muted-fg)]">
+            {formatSettingValue(mutedValue ?? 0, unit)}
+          </span>
+        </span>
+      ) : empty ? (
         <span className="whitespace-nowrap text-[15px] font-medium leading-[1.5]">
           <span aria-hidden={srText ? 'true' : undefined} className="text-[var(--muted-fg)]">
             {valueText}

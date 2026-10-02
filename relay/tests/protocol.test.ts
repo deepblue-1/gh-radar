@@ -183,6 +183,8 @@ describe("parseInbound — 전략·주문 인바운드 6종", () => {
           postBuyTriggerQty: 330_000,
           postBuyReentryLeft: 2,
           postBuyPhase: 2,
+          // quick-261002-fim — 후매수 잠금 해제선도 S→C 전용이다. 떨어져야 한다.
+          postBuyUnlockQty: 264_000,
         },
       }),
     );
@@ -205,6 +207,7 @@ describe("parseInbound — 전략·주문 인바운드 6종", () => {
       "postBuyTriggerQty",
       "postBuyReentryLeft",
       "postBuyPhase",
+      "postBuyUnlockQty",
     ]) {
       expect(msg.cfg).not.toHaveProperty(k);
     }

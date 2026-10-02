@@ -1784,8 +1784,9 @@ describe("WsFanout", () => {
     expect(item.postBuyTriggerQty).toBe(330_000);
     expect(item.postBuyReentryLeft).toBe(2);
     expect(item.buyWatchSide).toBe("0");
-    // 활성 57(+ postBuyAuto · quick-260929-vzy · extraBuyAbandonQty · quick-260930-fi4) + key — 봉인된 매수 진입 래치는 없다.
-    expect(Object.keys(item)).toHaveLength(58);
+    // 활성 58(+ postBuyAuto · quick-260929-vzy · extraBuyAbandonQty · quick-260930-fi4 · postBuyUnlockQty · quick-261002-fim)
+    // + key — 봉인된 매수 진입 래치는 없다.
+    expect(Object.keys(item)).toHaveLength(59);
   });
 
   /*
@@ -2153,7 +2154,7 @@ describe("WsFanout", () => {
     expect(framesOf(a.inbox, "msg")).toHaveLength(1);
   });
 
-  it("⑰-auto-c 60 에코 postBuyAuto true → ws lc 프레임 item.postBuyAuto true · 58키 (D-01)", async () => {
+  it("⑰-auto-c 60 에코 postBuyAuto true → ws lc 프레임 item.postBuyAuto true · 59키 (D-01)", async () => {
     const a = await authed("token-a");
     a.ws.sendRaw({ t: "lc.set", cfg: lcInput() });
     await waitFor(
@@ -2171,7 +2172,32 @@ describe("WsFanout", () => {
     await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
     const item = framesOf(a.inbox, "lc").at(-1)!.item;
     expect(item.postBuyAuto).toBe(true);
-    expect(Object.keys(item)).toHaveLength(58);
+    expect(Object.keys(item)).toHaveLength(59);
+  });
+
+  it("⑰-unlock 60 에코 postBuyUnlockQty 264000 → ws lc 프레임 item 그대로 · 59키 (quick-261002-fim)", async () => {
+    // hub 는 상따 에코 객체를 통째로 캐시 · 팬아웃한다 — 필드 합류에 hub 코드 변경이 없다는 것을 이 통과가 증명한다.
+    const a = await authed("token-a");
+    a.ws.sendRaw({ t: "lc.set", cfg: lcInput() });
+    await waitFor(
+      () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+      "10 수신",
+    );
+    const sock = gateway.sockets[0];
+    if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+    gateway.pushLimitChaserEcho(sock, {
+      isin: SAMPLE_ISIN,
+      accountNo: SAMPLE_ACCOUNT_NO,
+      buyEnabled: true,
+      postBuyEnabled: true,
+      postBuyPhase: 1,
+      postBuyUnlockQty: 264_000,
+    });
+    await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
+    const item = framesOf(a.inbox, "lc").at(-1)!.item;
+    expect(item.postBuyUnlockQty).toBe(264_000);
+    expect(item.postBuyTriggerQty).toBe(0);
+    expect(Object.keys(item)).toHaveLength(59);
   });
 
   it("⑰-e2 삭제의 시장은 **에코 캐시가 1순위**다 — 종목맵이 못 풀어도 폴백까지 가지 않는다", async () => {

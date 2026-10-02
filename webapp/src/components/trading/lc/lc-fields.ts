@@ -559,11 +559,22 @@ export function lcValueTextOf(
   }
 }
 
+/**
+ * 후매수 잠금 해제선의 접근성 접두(quick-261002-fim) — 발동잔량 칸이 회색 해제선을 보일 때 스크린리더가
+ * 「발동잔량 264,000주」로 오독하지 않게 값 앞에 읽힌다. 펼친 행(DerivedRow) · 접힌 요약 kv 공용 정본.
+ */
+export const POST_BUY_UNLOCK_SR_TEXT = '잠금 해제선';
+
 /** 요약 kv 한 개 — `off` 면 값 글자만 `--muted-fg`(꺼진 하위 항목 · 「—」). */
 export interface LcSummaryItem {
   key: string;
   value: string;
   off: boolean;
+  /**
+   * 값 앞에 읽힐 sr-only 접두 — 회색 해제선처럼 key 만으로는 오독되는 값(「발동잔량 264,000주」)에만 둔다
+   * (quick-261002-fim). 다른 kv 는 키를 두지 않는다.
+   */
+  sr?: string;
 }
 
 /** 금액 kv — 「—」 은 꺼진 kv 다. */
@@ -575,6 +586,7 @@ function amountItem(field: LcNumField, values: LimitChaserFormValues, unknown: b
 /**
  * 접힌 카드의 요약 줄(UI-SPEC §3 · R5) — 항목 · 순서 · 표기. 접기 없는 카드는 빈 배열.
  * 의미어(「무제한」「1주」「없음」)는 꺼진 kv 가 아니다(정상 색). 발동잔량은 요약에서 빨강을 쓰지 않는다.
+ * 발동잔량 0 · 해제선 > 0 이면 해제선을 꺼진 kv 색으로(+ sr 접두 「잠금 해제선」 · quick-261002-fim).
  * `amountUnknown` = 서버가 선매수 금액을 모른다(D-04a · 폼의 `amountRequired`).
  */
 export function lcSummaryOf(
@@ -608,6 +620,7 @@ export function lcSummaryOf(
       ];
     case 'post-buy': {
       const trigger = server?.postBuyTriggerQty ?? 0;
+      const unlock = server?.postBuyUnlockQty ?? 0;
       return [
         amountItem('postBuyOrderAmount', values, false),
         { key: '최대', value: text('postBuyReentry', '회'), off: false },
@@ -615,7 +628,9 @@ export function lcSummaryOf(
         { key: '반등', value: fmt(values.postBuyReboundPct, '%'), off: false },
         trigger > 0
           ? { key: '발동잔량', value: fmt(trigger, '주'), off: false }
-          : { key: '발동잔량', value: '—', off: true },
+          : unlock > 0
+            ? { key: '발동잔량', value: fmt(unlock, '주'), off: true, sr: POST_BUY_UNLOCK_SR_TEXT }
+            : { key: '발동잔량', value: '—', off: true },
       ];
     }
     default:

@@ -32,6 +32,7 @@ import {
   LC_SWITCH_LABEL,
   lcNavigableRows,
   lcRowById,
+  POST_BUY_UNLOCK_SR_TEXT,
   type LcGroupSpec,
   type LcRowSpec,
 } from '../lc-fields';
@@ -856,6 +857,29 @@ describe('⑨-b GroupSummary · GroupNote — 요약 kv · 소진 안내', () =>
     expect(box.innerHTML).not.toMatch(/truncate|text-ellipsis/);
   });
 
+  it('sr 있는 kv 만 값 앞에 sr-only 접두 · 값은 `--muted-fg` — sr 없는 kv 는 종전 마크업 (quick-261002-fim)', () => {
+    const { container } = render(
+      <GroupSummary
+        items={[
+          { key: '반등', value: '30%', off: false },
+          { key: '발동잔량', value: '264,000주', off: true, sr: POST_BUY_UNLOCK_SR_TEXT },
+        ]}
+      />,
+    );
+    const kvs = Array.from(container.querySelector('[data-slot="lc-group-summary"]')!.children) as HTMLElement[];
+    // sr 없는 kv — 키 · 값 두 칸 그대로 · sr-only 0개.
+    expect(kvs[0].children).toHaveLength(2);
+    expect(kvs[0].querySelectorAll('.sr-only')).toHaveLength(0);
+    // sr 있는 kv — 키 · sr-only 접두 · 값.
+    const [key, sr, val] = Array.from(kvs[1].children) as HTMLElement[];
+    expect(key.textContent).toBe('발동잔량');
+    expect(sr.className).toContain('sr-only');
+    expect(sr.textContent!.trim()).toBe('잠금 해제선');
+    expect(val.textContent).toBe('264,000주');
+    expect(val.className).toContain('text-[var(--muted-fg)]');
+    expect(kvs[1].querySelectorAll('.sr-only')).toHaveLength(1);
+  });
+
   it('GroupNote — 역할 없는 정적 텍스트 12.5px `--muted-fg`', () => {
     const { container } = render(<GroupNote slot="lc-post-buy-exhausted">소진 — 안내</GroupNote>);
     const note = container.querySelector('[data-slot="lc-post-buy-exhausted"]') as HTMLElement;
@@ -996,6 +1020,71 @@ describe('⑪ 표시 문자열 · 접근성 이름 · 행 단위 흐림 · 발�
     expect(dash.className).not.toContain('--up');
     expect(dash).toHaveAttribute('aria-hidden', 'true');
     expect((row.querySelector('.sr-only') as HTMLElement).textContent).toBe('없음');
+  });
+
+  it('DerivedRow 값 0 · mutedValue 264,000 → 해제선 「264,000주」 `--muted-fg` + sr-only 「잠금 해제선」 (quick-261002-fim)', () => {
+    const { container } = render(
+      <DerivedRow
+        slot="lc-post-buy-trigger"
+        label="발동잔량"
+        value={0}
+        unit="주"
+        emphasis
+        valueText="—"
+        srText="없음"
+        mutedValue={264_000}
+        mutedSrText={POST_BUY_UNLOCK_SR_TEXT}
+      />,
+    );
+    const row = container.querySelector('[data-slot="lc-post-buy-trigger"]') as HTMLElement;
+    const v = within(row).getByText('264,000주');
+    expect(v.className).toContain('text-[var(--muted-fg)]');
+    expect(v.className).not.toContain('--up');
+    expect(v.className).not.toContain('font-semibold');
+    expect(v).toHaveAttribute('data-muted-value', 'true');
+    expect(v).not.toHaveAttribute('aria-hidden');
+    expect((row.querySelector('.sr-only') as HTMLElement).textContent!.trim()).toBe('잠금 해제선');
+    expect(within(row).queryByText('—')).toBeNull();
+  });
+
+  it('DerivedRow 값 330,000 · mutedValue 264,000 → 값 우선(`--up`) · 해제선 · sr-only 없음 (quick-261002-fim)', () => {
+    const { container } = render(
+      <DerivedRow
+        slot="lc-post-buy-trigger"
+        label="발동잔량"
+        value={330_000}
+        unit="주"
+        emphasis
+        valueText="—"
+        srText="없음"
+        mutedValue={264_000}
+        mutedSrText={POST_BUY_UNLOCK_SR_TEXT}
+      />,
+    );
+    const row = container.querySelector('[data-slot="lc-post-buy-trigger"]') as HTMLElement;
+    expect(within(row).getByText('330,000주').className).toContain('text-[var(--up)]');
+    expect(within(row).queryByText('264,000주')).toBeNull();
+    expect(row.querySelector('.sr-only')).toBeNull();
+  });
+
+  it('DerivedRow 값 0 · mutedValue 0 → 종전 「—」 + sr-only 「없음」 (quick-261002-fim)', () => {
+    const { container } = render(
+      <DerivedRow
+        slot="lc-post-buy-trigger"
+        label="발동잔량"
+        value={0}
+        unit="주"
+        emphasis
+        valueText="—"
+        srText="없음"
+        mutedValue={0}
+        mutedSrText={POST_BUY_UNLOCK_SR_TEXT}
+      />,
+    );
+    const row = container.querySelector('[data-slot="lc-post-buy-trigger"]') as HTMLElement;
+    expect(within(row).getByText('—')).toHaveAttribute('aria-hidden', 'true');
+    expect((row.querySelector('.sr-only') as HTMLElement).textContent).toBe('없음');
+    expect(row.querySelector('[data-muted-value]')).toBeNull();
   });
 
   it('DerivedRow 기본(emphasis 없음)은 기존 기준선 행 그대로 — slot lc-derived', () => {

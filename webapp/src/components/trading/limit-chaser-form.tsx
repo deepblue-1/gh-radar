@@ -131,6 +131,7 @@ import {
   lcRowOfField,
   lcSummaryOf,
   lcValueTextOf,
+  POST_BUY_UNLOCK_SR_TEXT,
   type LcGate,
   type LcGroupSpec,
   type LcNumField,
@@ -1417,6 +1418,7 @@ export function LimitChaserForm({
       case 'derived':
         if (row.source === 'postBuyTriggerQty') {
           // 후매수 발동잔량 — 펼침이면 단계 0 에서도 늘 그린다(「—」 · sr-only 「없음」 · UI-SPEC §6 · E5).
+          // 발동잔량 0 · 해제선 > 0 이면 해제선 회색(gh-trade 259bc869 · quick-261002-fim).
           return (
             <DerivedRow
               key="post-buy-trigger"
@@ -1427,6 +1429,8 @@ export function LimitChaserForm({
               emphasis
               valueText="—"
               srText="없음"
+              mutedValue={server?.postBuyUnlockQty ?? 0}
+              mutedSrText={POST_BUY_UNLOCK_SR_TEXT}
               dim={dim}
             />
           );

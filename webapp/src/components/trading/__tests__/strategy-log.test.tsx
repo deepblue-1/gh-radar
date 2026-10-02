@@ -185,12 +185,13 @@ describe('serverMessageLogLine / strategiesDisabledLogLine', () => {
 });
 
 describe('S→C 전용 필드 · 값 변경 판정 · 런타임 전용 에코 (quick-260926-nr2)', () => {
-  it('LIMIT_CHASER_SERVER_ONLY_FIELDS 는 정확히 11개이고 COUNTER(3) ∪ LATCH(2) ∪ RUNTIME(6) 와 같다 (Phase 24 · quick-260930-fi4)', () => {
-    expect(LIMIT_CHASER_SERVER_ONLY_FIELDS).toHaveLength(11);
+  it('LIMIT_CHASER_SERVER_ONLY_FIELDS 는 정확히 12개이고 COUNTER(3) ∪ LATCH(2) ∪ RUNTIME(7) 와 같다 (Phase 24 · quick-260930-fi4 · quick-261002-fim)', () => {
+    expect(LIMIT_CHASER_SERVER_ONLY_FIELDS).toHaveLength(12);
     expect(LIMIT_CHASER_SERVER_COUNTER_FIELDS).toHaveLength(3);
     expect(LIMIT_CHASER_SERVER_LATCH_FIELDS).toHaveLength(2);
-    expect(LIMIT_CHASER_SERVER_RUNTIME_FIELDS).toHaveLength(6);
+    expect(LIMIT_CHASER_SERVER_RUNTIME_FIELDS).toHaveLength(7);
     expect(LIMIT_CHASER_SERVER_RUNTIME_FIELDS).toContain('extraBuyAbandonQty');
+    expect(LIMIT_CHASER_SERVER_RUNTIME_FIELDS).toContain('postBuyUnlockQty');
     expect(new Set(LIMIT_CHASER_SERVER_ONLY_FIELDS)).toEqual(
       new Set([
         ...LIMIT_CHASER_SERVER_COUNTER_FIELDS,
@@ -819,6 +820,27 @@ describe('추가매수 포기 수량 — 로그 전이 (quick-260930-fi4)', () =
     const b = { ...off, extraBuyAbandoned: true, extraBuyAbandonQty: 645_842 };
     expect(isRuntimeOnlyEcho(off, b)).toBe(true);
     expect(strategyLogLine(off, b)).toBeNull();
+  });
+});
+
+/*
+  quick-261002-fim — 후매수 잠금 해제선(gh-trade post_buy_unlock_qty · S→C 런타임). 서버가 스스로 움직이는 값이라
+  이것만 바뀐 에코는 로그 0줄 · 「서버 반영 완료」 없음이다. strategy-log.tsx 코드는 바뀌지 않았다 — 런타임 목록
+  스프레드(VALUE_COMPARE_SKIP · RUNTIME_ONLY_SKIP)가 자동으로 빼는지를 여기서 증명한다.
+*/
+describe('후매수 잠금 해제선 — 런타임 전용 에코 (quick-261002-fim)', () => {
+  const watching = at({ buyEnabled: true, postBuyEnabled: true, postBuyPhase: 1, postBuyTriggerQty: 0, postBuyUnlockQty: 0 });
+
+  it.each([
+    ['0 → 264,000', 0, 264_000],
+    ['264,000 → 250,000', 264_000, 250_000],
+    ['264,000 → 0', 264_000, 0],
+  ])('해제선만 %s → 런타임 전용 · 값 변경 없음 · 0줄', (_name, from, to) => {
+    const a = { ...watching, postBuyUnlockQty: from };
+    const b = { ...watching, postBuyUnlockQty: to };
+    expect(isRuntimeOnlyEcho(a, b)).toBe(true);
+    expect(limitChaserValuesChanged(a, b)).toBe(false);
+    expect(strategyLogLine(a, b)).toBeNull();
   });
 });
 

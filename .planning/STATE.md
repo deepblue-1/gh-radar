@@ -6,8 +6,8 @@ current_phase_name: gh-trade 신규 기능 UI — 통합 트레이딩 작업대(
 status: planning
 stopped_at: Phase 26 complete, ready to plan Phase 18
 last_updated: "2026-10-01T03:15:05.454Z"
-last_activity: 2026-10-01
-last_activity_desc: Phase 26 complete, transitioned to Phase 18
+last_activity: 2026-10-02
+last_activity_desc: Completed quick task 261002-fim (post_buy_unlock_qty 종단)
 state_head: 6bd06b9025d7287c8822c0bf35adab1c4631fb55
 progress:
   total_phases: 35
@@ -34,7 +34,7 @@ Plans completed: 220 / 234
 Status: Ready to plan
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-10-01 — Phase 26 complete, transitioned to Phase 18
+Last activity: 2026-10-02 — Completed quick task 261002-fim: 상따 post_buy_unlock_qty 종단
 
 Progress: [█████████░] 93%
 
@@ -572,6 +572,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 55 | 종목 카드 「전략로그」 버튼 라벨 → 「로그」 | 2026-10-01 | 3aeb02c0 | — |
 | 58 | 종목카드 호가/체결 톤 다운 — 체결 플래시 3%·1단 현재가 행 배경 한 단계 낮춤·매도1/매수1 경계선 일직선 (fa31efea) | 2026-10-01 | fa31efea | — |
 | 261001-gjk | 상따 매도 열 — 가격 섹션과 매도주문 카드 합치기(주문가격·비교가격·매도비율·매수잔량·잔량추적·체결) | 2026-10-01 | 980ab8db | [261001-gjk-sell-card-merge](./quick/261001-gjk-sell-card-merge/) |
+| 261002-fim | 상따 후매수 잠금 해제선 `post_buy_unlock_qty` 종단 — gh-trade 259bc869 생성물 재동기화(vtable 136) · relay 60/64 파서(C→S 미적재) · shared 런타임 7/S→C 12 · 웹 「발동잔량」 칸(펼침·접힘): 발동잔량 0 이고 해제선 > 0 이면 회색 + sr 「잠금 해제선」. 서버 미배포 동안 0. relay 배포 → push 순서 | 2026-10-02 | 단일 커밋(코드+문서) | [261002-fim-post-buy-unlock-qty-relay-shared-hub](./quick/261002-fim-post-buy-unlock-qty-relay-shared-hub/) |
 
 ## Session Continuity
 

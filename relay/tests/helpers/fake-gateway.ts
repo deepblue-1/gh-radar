@@ -450,15 +450,16 @@ export interface SetLimitChaserRequest {
   cancelTradeEnabled: boolean;
   cancelQtyTrackEnabled: boolean;
   /**
-   * S→C 전용 5필드(`extra_buy_abandoned` 112 · `post_buy_trigger_qty` 126 ·
-   * `post_buy_reentry_left` 128 · `post_buy_phase` 130 · `extra_buy_abandon_qty` 134) 중 vtable 슬롯이 **있는** 오프셋.
+   * S→C 전용 6필드(`extra_buy_abandoned` 112 · `post_buy_trigger_qty` 126 ·
+   * `post_buy_reentry_left` 128 · `post_buy_phase` 130 · `extra_buy_abandon_qty` 134 ·
+   * `post_buy_unlock_qty` 136) 중 vtable 슬롯이 **있는** 오프셋.
    * 요청은 빈 배열이어야 한다.
    */
   serverOnlySlots: number[];
 }
 
-/** S→C 전용 5필드의 vtable 오프셋(생성 코드 `__offset(bb_pos, N)` 의 N). */
-const LC_SERVER_ONLY_VTABLE_SLOTS = [112, 126, 128, 130, 134] as const;
+/** S→C 전용 6필드의 vtable 오프셋(생성 코드 `__offset(bb_pos, N)` 의 N). `post_buy_unlock_qty` 136 은 quick-261002-fim. */
+const LC_SERVER_ONLY_VTABLE_SLOTS = [112, 126, 128, 130, 134, 136] as const;
 
 /** 봉인된 `buy_watch_side` 의 vtable 오프셋 — gh-trade a3610261 이후 생성 접근자가 없다. */
 const BUY_WATCH_SIDE_SEALED_VT = 24;
