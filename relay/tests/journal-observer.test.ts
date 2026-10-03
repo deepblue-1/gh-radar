@@ -376,7 +376,7 @@ describe("관찰자 tracer — 기동 → 로그인 → 배치 1건 → 기록�
     r.transport.frame(loginOk());
 
     expect(r.access.replace).toHaveBeenCalledTimes(1);
-    expect(r.access.replace).toHaveBeenCalledWith(ACCOUNTS);
+    expect(r.access.replace).toHaveBeenCalledWith(ACCOUNTS, { skipped: 0 });
     expect(beginEpoch).toHaveBeenCalledWith("ep-1", { resync: true, headSeq: 1 });
     expect(r.transport.resets).toBe(0);
     expect(r.observer.headSeq).toBe(1);
@@ -424,6 +424,7 @@ describe("관찰자 tracer — 기동 → 로그인 → 배치 1건 → 기록�
       lastSeqRegressionAgeSec: null,
       duplicatesAfterRegression: 0,
       lastDuplicateAfterRegressionAgeSec: null,
+      mapping: null,
       // 전략 기록기 미주입 rig — 칸은 있고 값은 null (Phase 25).
       strategy: null,
     });

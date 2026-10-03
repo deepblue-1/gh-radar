@@ -88,7 +88,8 @@ export type ObserverWriter<R = JournalRecord> = {
 
 /** 관찰자가 쓰는 매핑 표면 — `JournalAccess` 가 구조적으로 만족한다. */
 export type ObserverAccess = {
-  replace(rows: readonly ObserverAccountRow[]): void;
+  /** `meta.skipped` = 파서가 이미 버린 항목 수(WR-04 — 매핑 관측값). */
+  replace(rows: readonly ObserverAccountRow[], meta?: { skipped?: number }): void;
 };
 
 export type JournalObserverDeps = {
@@ -424,7 +425,7 @@ export class JournalObserver extends EventEmitter {
       return;
     }
     const writer = this.#deps.writer;
-    this.#deps.access.replace(result.accounts);
+    this.#deps.access.replace(result.accounts, { skipped: result.skippedAccounts ?? 0 });
     // headSeq 를 함께 넘긴다 — 같은 epoch 인데 head 가 마지막 수신 seq 보다 작으면(seq 역행) 기록기가
     // lastReceivedSeq 를 **유지**하고 드러낸다. 그 뒤 head ≤ 수신 이므로 아래 규칙으로 곧바로 live 다.
     writer.beginEpoch(result.epoch, { resync: result.resync, headSeq: result.headSeq });

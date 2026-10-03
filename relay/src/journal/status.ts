@@ -32,6 +32,7 @@ import { inTradingWindow } from "./trading-window.js";
 import type {
   JournalDerivedState,
   JournalHealth,
+  JournalMappingHealth,
   JournalObserverState,
   JournalStrategyHealth,
   JournalWriterHealth,
@@ -74,9 +75,16 @@ export type StatusWriterView = {
   off(event: "health", listener: (health: JournalWriterHealth) => void): unknown;
 };
 
+/** 상태가 보는 매핑 표면 — `JournalAccess` 가 만족한다(WR-04). */
+export type StatusAccessView = {
+  health(): JournalMappingHealth;
+};
+
 export type JournalStatusDeps = {
   observer: StatusObserverView;
   writer: StatusWriterView;
+  /** 계좌 매핑 (19-REVIEW WR-04). 주면 `health().mapping` 을 채운다 — 파생 상태 · 503 판정에는 쓰지 않는다. */
+  access?: StatusAccessView;
   /** 전략 이벤트 기록기 (Phase 25). 주면 `health().strategy` 를 채운다 — 파생 상태 · 503 판정에는 쓰지 않는다. */
   strategyWriter?: StatusWriterView;
   /** live 이탈 → `delayed` 프레임 디바운스(ms). 기본 `JOURNAL_DELAYED_AFTER_MS`. */
@@ -94,6 +102,7 @@ export class JournalStatus extends EventEmitter {
   readonly #observer: StatusObserverView;
   readonly #writer: StatusWriterView;
   readonly #strategyWriter: StatusWriterView | null;
+  readonly #access: StatusAccessView | null;
   readonly #now: () => number;
   readonly #delayedAfterMs: number;
   #delayedTimer: NodeJS.Timeout | null = null;
@@ -111,6 +120,7 @@ export class JournalStatus extends EventEmitter {
     this.#observer = deps.observer;
     this.#writer = deps.writer;
     this.#strategyWriter = deps.strategyWriter ?? null;
+    this.#access = deps.access ?? null;
     // 구독은 하되 재평가 결과는 불변이다(파생 상태는 전략 기록기를 보지 않는다) — 프레임 · 타이머에 영향 없음.
     this.#strategyWriter?.on("health", this.#onChange);
     this.#now = deps.now ?? Date.now;
@@ -149,6 +159,8 @@ export class JournalStatus extends EventEmitter {
       duplicatesAfterRegression: w.duplicatesAfterRegression,
       lastDuplicateAfterRegressionAgeSec:
         w.lastDuplicateAfterRegressionAtMs !== null ? secondsBetween(w.lastDuplicateAfterRegressionAtMs, nowMs) : null,
+      // 매핑 관측값(WR-04) — 표시 신호(빈 스냅샷 거부 · 버린 항목).
+      mapping: this.#access?.health() ?? null,
       strategy: this.#strategyHealth(),
     };
   }

@@ -148,9 +148,10 @@ describe("관찰자 실 TCP 통합 — 가짜 게이트웨이 · 실 DmaClient �
     expect(gateway.observerLoginRequests()).toEqual([
       { secret: SECRET, sinceSeq: 0, epoch: "", client: OBSERVER_CLIENT_NAME, strategySinceSeq: 0, role: 0 },
     ]);
-    expect(access.replace).toHaveBeenCalledWith([
-      { dmaUserId: "dma-user-1", accountNo: SAMPLE_ACCOUNT_NO, name: "위탁종합", priority: 0 },
-    ]);
+    expect(access.replace).toHaveBeenCalledWith(
+      [{ dmaUserId: "dma-user-1", accountNo: SAMPLE_ACCOUNT_NO, name: "위탁종합", priority: 0 }],
+      { skipped: 0 },
+    );
 
     const recs = [{ seq: 1 }, { seq: 2, noticeType: "E", execPrice: 70_000, execQty: 10 }];
     gateway.pushJournalBatch(sock, { records: recs, headSeq: 2, caughtUp: true });

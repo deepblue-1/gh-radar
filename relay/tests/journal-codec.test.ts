@@ -98,6 +98,8 @@ describe("실 코덱 tracer — 프레임 바이트 → 화이트리스트 → d
           { dmaUserId: "dma-a", accountNo: SAMPLE_ACCOUNT_NO, name: "위탁종합", priority: 0 },
           { dmaUserId: "dma-b", accountNo: "1234567802", name: "위탁2", priority: 1 },
         ],
+        // 형식 이상으로 건너뛴 매핑 항목 없음(19-REVIEW WR-04 — /healthz journal.mapping.skipped 원천).
+        skippedAccounts: 0,
         // 전략 저널 없음(0/0/false — G1 ⓑ). 이 프레임은 전략 세 필드를 쓰지 않았다.
         strategyHeadSeq: 0,
         strategyOldestSeq: 0,
@@ -184,6 +186,8 @@ describe("실 코덱 tracer — 프레임 바이트 → 화이트리스트 → d
     if (f.k !== "login") throw new Error(`login 이 아니다: ${f.k}`);
     expect(f.result.accounts.map((a) => a.accountNo)).toEqual([SAMPLE_ACCOUNT_NO, "1234567802"]);
     expect(skippedAccountEntryCount()).toBe(before + 1);
+    // 건너뛴 수가 로그인 결과에 실려 매핑 관측값(/healthz journal.mapping.skipped)으로 간다(19-REVIEW WR-04).
+    expect(f.result.skippedAccounts).toBe(1);
   });
 
   it("⑥ buildLoginReq → 생성 reader 로 읽으면 secret · since · epoch · client 가 같다 · msg_type 5", () => {

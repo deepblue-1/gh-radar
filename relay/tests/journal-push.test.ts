@@ -36,6 +36,7 @@ import { SessionManager } from "../src/dma/session-manager.js";
 import { encryptDmaPassword } from "../src/store/credentials.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { JournalAccess } from "../src/journal/access.js";
+import { logger } from "../src/logger.js";
 import { JournalWriter, toApplyEvent, type JournalApplyEvent } from "../src/journal/writer.js";
 import type { GatewayIdentityView, JournalRecord, StrategyEventRecord } from "../src/journal/types.js";
 import { JournalObserver } from "../src/journal/observer.js";
@@ -473,6 +474,45 @@ describe("저널 푸시 — 레코드 → 기록기 → 적용 RPC → 계좌 �
     expect(after[1]?.args.p_rows).toEqual([
       { dma_user_id: "dma-other", account_no: ACC2, name: "다른 계좌", priority: 0 },
     ]);
+  });
+
+  it("19-REVIEW WR-04 — 빈(전부 걸러진) 매핑 스냅샷은 교체 거부 · 메모리 라우팅 · DB 매핑 유지 · health 계수(rows · skipped · emptySnapshotsRejected)", async () => {
+    await start();
+    access.replace(
+      [
+        { dmaUserId: "dma-shared", accountNo: ACC1, name: "공유 계좌", priority: 0 },
+        { dmaUserId: "", accountNo: ACC2, name: "빈 식별자", priority: 1 },
+      ],
+      { skipped: 2 },
+    );
+    expect(access.health()).toEqual({ rows: 1, skipped: 3, emptySnapshotsRejected: 0 });
+    await flushIo(4);
+    expect(rpcCalls.filter((c) => c.fn === "dma_journal_sync_access")).toHaveLength(1);
+
+    const errorSpy = vi.spyOn(logger, "error");
+    // users.toml 로드 실패 · 계좌번호 형식 변경 — 성공 응답인데 유효 항목 0.
+    access.replace([], { skipped: 4 });
+    access.replace([{ dmaUserId: "", accountNo: "", name: "", priority: 0 }]);
+    expect(access.accountsOf("dma-shared")?.has(ACC1)).toBe(true);
+    expect(access.size).toBe(1);
+    await flushIo(4);
+    // DB 로 빈 스냅샷을 보내지 않는다 — dma_journal_sync_access 가 게이트웨이 매핑을 전부 지우지 않게.
+    expect(rpcCalls.filter((c) => c.fn === "dma_journal_sync_access")).toHaveLength(1);
+    expect(access.health()).toEqual({ rows: 1, skipped: 1, emptySnapshotsRejected: 2 });
+    const hits = errorSpy.mock.calls.filter((c) => typeof c[1] === "string" && c[1].includes("빈 매핑 스냅샷"));
+    expect(hits).toHaveLength(2);
+    expect(hits[0]?.[0]).toMatchObject({ gateway: GATEWAY, received: 0, skipped: 4, keptRows: 1, rejected: 1 });
+    // 로그에 계좌 · 사용자 식별자를 싣지 않는다(T-19-14).
+    expect(JSON.stringify(hits)).not.toContain(ACC1);
+    expect(JSON.stringify(hits)).not.toContain("dma-shared");
+  });
+
+  it("19-REVIEW WR-04 — 부팅 직후(메모리 비어 있음)의 빈 스냅샷도 DB 로 보내지 않는다(DB 에 직전 정본이 남는다)", async () => {
+    await start();
+    access.replace([]);
+    await flushIo(4);
+    expect(rpcCalls.filter((c) => c.fn === "dma_journal_sync_access")).toHaveLength(0);
+    expect(access.health()).toEqual({ rows: 0, skipped: 0, emptySnapshotsRejected: 1 });
   });
 
   it("⑤ journal.state (Phase 19-07 D-04 (a)) — 스냅샷은 알 때만 · deliverJournalState 는 인증 사용자 전원 · 미인증 0", async () => {

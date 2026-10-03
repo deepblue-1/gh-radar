@@ -66,6 +66,12 @@ DB 에 쓰지 않는다(D-01). 결선은 `relay/src/index.ts`, 모듈은 `relay/
     `select seq, apply_error from dma_journal_events where apply_error is not null order by seq desc limit 20;` 로 투영 실패가
     쌓였는지 본다. 적용 RPC 가 실패하는 동안 커서는 전진하지 않으므로 **유실은 없다** — 복구되면 같은 배치부터 다시 적용된다.
   - `journal.seqRegressions` > 0 — **503 이 아니다**(표시 신호). 위 「seq 역행 신호」.
+  - `journal.mapping` — `{ rows, skipped, emptySnapshotsRejected }`(계수만 · 503 판정 밖 · 19-REVIEW WR-04). 관찰자 로그인 응답의
+    계좌 매핑 스냅샷 관측값이다. `emptySnapshotsRejected` > 0 이면 게이트웨이가 성공 응답에 **유효 매핑 0행**을 보냈다(users.toml
+    로드 실패 · 계좌번호 형식 변경) — relay 는 교체를 거부하고 직전 매핑(메모리 · `dma_account_access`)을 유지한다. 로그
+    `[journal] 빈 매핑 스냅샷 — 교체 거부`. 게이트웨이 users.toml 을 확인한다. `skipped` > 0 은 마지막 스냅샷에서 형식 이상으로
+    버린 항목 수다 — 그 계좌의 주문은 아무에게도 안 보인다(로그 `skipAccount`). 게이트웨이 매핑을 **의도적으로 전부 비우려면**
+    relay 가 거부하므로 운영 SQL(`delete from dma_account_access where gateway = '<키>';`)로 한다.
   - `journal.strategy` (Phase 25 — 전략 이벤트 스트림) — `{ lastSeq, headSeq, lagSeq, dbError, queueDepth, paused }`. **503 판정 밖**(표시
     신호 — `journal.state` 는 주문 스트림 기준 그대로). `dbError:true` 는 `dma_strategy_apply` 연속 실패다 — 원격 마이그레이션
     (`dma_strategy_events` · `dma_strategy_apply`)이 적용됐는지 먼저 본다. 관찰자는 전략 쪽 장애로 소켓을 끊지 않고 **전략 수신만

@@ -2843,15 +2843,19 @@ export function parseObserverLoginResp(env: Envelope): ObserverLoginResult | nul
     const n = takeCount(r.accountsLength(), MAX_OBSERVER_ACCOUNT_COUNT, "관찰자 계좌 매핑");
     const accounts: ObserverAccountRow[] = [];
     const scratch = new ObserverAccount();
+    // 건너뛴 항목 수 — 매핑 관측값(`/healthz` `journal.mapping.skipped` · 19-REVIEW WR-04). 상한 초과분도 버린 것이다.
+    let skippedAccounts = Math.max(r.accountsLength() - n, 0);
     for (let i = 0; i < n; i += 1) {
       const a = r.accounts(i, scratch);
       if (a === null) {
         skipAccount("entry-null", i, "");
+        skippedAccounts += 1;
         continue;
       }
       const accountNo = a.accountNo() ?? "";
       if (!isValidAccountNo(accountNo)) {
         skipAccount("bad-account-no", i, accountNo);
+        skippedAccounts += 1;
         continue;
       }
       accounts.push({
@@ -2871,6 +2875,7 @@ export function parseObserverLoginResp(env: Envelope): ObserverLoginResult | nul
       oldestSeq: toNum(r.oldestSeq(), "observer_login_resp.oldest_seq"),
       resync: r.resync(),
       accounts,
+      skippedAccounts,
       // 구 게이트웨이(필드 없음)는 기본값 0 / 0 / false 로 읽힌다 = 「전략 저널 없음」(G1 ⓑ).
       strategyHeadSeq: toNum(r.strategyHeadSeq(), "observer_login_resp.strategy_head_seq"),
       strategyOldestSeq: toNum(r.strategyOldestSeq(), "observer_login_resp.strategy_oldest_seq"),

@@ -35,6 +35,21 @@ export type JournalAccessDeps = {
 
 type SyncRow = { dma_user_id: string; account_no: string; name: string; priority: number };
 
+/**
+ * 매핑 관측값 (`/healthz` `journal.mapping` · 19-REVIEW WR-04). 계수만 — 계좌 · 사용자 식별자 없음(T-19-07).
+ */
+export type JournalAccessHealth = {
+  /** 지금 유효한 매핑 행 수. */
+  rows: number;
+  /** 마지막으로 받은 스냅샷에서 버린 항목 수(형식 이상 계좌번호 · 빈 식별자 — 파서 · 여기 합계). */
+  skipped: number;
+  /** 부팅 뒤 거부한 빈 스냅샷 수 — 유효 행이 0 인 스냅샷은 메모리 · DB 매핑을 지우지 않고 버린다. */
+  emptySnapshotsRejected: number;
+};
+
+/** `replace` 의 부가 정보 — 파서가 이미 버린 항목 수(형식 이상 계좌번호 등 · WR-04). */
+export type AccessReplaceMeta = { skipped?: number };
+
 export class JournalAccess implements JournalAccessView {
   readonly #supabase: SupabaseClient;
   readonly #gateway: string;
@@ -49,6 +64,8 @@ export class JournalAccess implements JournalAccessView {
   #retryTimer: NodeJS.Timeout | null = null;
   #failures = 0;
   #closed = false;
+  #lastSkipped = 0;
+  #emptySnapshotsRejected = 0;
 
   constructor(deps: JournalAccessDeps) {
     this.#supabase = deps.supabase;
@@ -66,14 +83,24 @@ export class JournalAccess implements JournalAccessView {
     return this.#map.get(dmaUserId);
   }
 
+  health(): JournalAccessHealth {
+    return { rows: this.#rows, skipped: this.#lastSkipped, emptySnapshotsRejected: this.#emptySnapshotsRejected };
+  }
+
   /**
    * 관찰자 로그인 응답의 매핑 스냅샷으로 **전체를 교체**한다. 메모리 교체는 동기이고 DB 동기화는
    * 비동기로 예약한다.
    *
    * 빈 `dmaUserId`/`accountNo` 행은 버린다(warn · 행 수만) — DB RPC 는 그런 행이 하나라도 있으면
    * 교체 전체를 거부하므로, 그대로 보내면 한 행 때문에 매핑 동기화가 영원히 재시도에 갇힌다.
+   *
+   * **유효 행이 0 인 스냅샷은 적용하지 않는다**(19-REVIEW WR-04). 게이트웨이 users.toml 로드 실패 · 계좌번호 형식
+   * 변경으로 전부 걸러진 경우 그대로 교체하면 전 사용자의 REST 조회가 0행 · 푸시가 멈춰 「오늘 낸 주문이 없어요」
+   * 거짓 빈 목록이 된다(T-19-31). 메모리 · DB 매핑은 직전 그대로 두고 error 로그 · `health().emptySnapshotsRejected`
+   * 로 드러낸다. 부팅 직후(메모리 비어 있음)도 같다 — DB 에는 직전 정본이 남아 있다. 게이트웨이 매핑을 의도적으로
+   * 전부 비우는 일은 운영 SQL 로 한다(`docs/relay-operations.md`).
    */
-  replace(rows: readonly ObserverAccountRow[]): void {
+  replace(rows: readonly ObserverAccountRow[], meta: AccessReplaceMeta = {}): void {
     const next = new Map<string, Set<string>>();
     const syncRows: SyncRow[] = [];
     let dropped = 0;
@@ -97,6 +124,28 @@ export class JournalAccess implements JournalAccessView {
     }
     if (dropped > 0) {
       logger.warn({ gateway: this.#gateway, dropped }, "[journal] 매핑 스냅샷에 빈 식별자 행 — 버린다");
+    }
+    const parserSkipped = meta.skipped ?? 0;
+    this.#lastSkipped = parserSkipped + dropped;
+    if (syncRows.length === 0) {
+      this.#emptySnapshotsRejected += 1;
+      logger.error(
+        {
+          gateway: this.#gateway,
+          received: rows.length,
+          skipped: this.#lastSkipped,
+          keptRows: this.#rows,
+          rejected: this.#emptySnapshotsRejected,
+        },
+        "[journal] 빈 매핑 스냅샷 — 교체 거부(메모리 · DB 매핑 유지)",
+      );
+      return;
+    }
+    if (this.#lastSkipped > 0) {
+      logger.warn(
+        { gateway: this.#gateway, skipped: this.#lastSkipped, rows: syncRows.length },
+        "[journal] 매핑 스냅샷 일부 항목을 버렸다 — 그 계좌 주문은 아무에게도 안 보인다",
+      );
     }
     this.#map = next;
     this.#rows = syncRows.length;

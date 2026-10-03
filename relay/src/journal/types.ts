@@ -136,6 +136,11 @@ export type ObserverLoginResult = {
   resync: boolean;
   accounts: ObserverAccountRow[];
   /**
+   * 파서가 형식 이상(계좌번호 · null 항목)으로 건너뛴 매핑 항목 수(19-REVIEW WR-04). `/healthz` `journal.mapping.skipped`
+   * 원천. 생략 = 0(테스트 · 구 코덱).
+   */
+  skippedAccounts?: number;
+  /**
    * 전략 이벤트 스트림의 head · oldest · resync (Phase 25 — 같은 epoch · 별도 seq 공간). 주문 3필드와 같은 뜻을
    * 전략 스트림에 한 번 더 판정한 값이다(G1 ⓑ). 전략 저널이 없거나 구 게이트웨이면 0 / 0 / false.
    */
@@ -350,11 +355,23 @@ export type JournalHealth = {
   /** 마지막으로 위 레코드를 본 뒤 몇 초인가. 없으면 null. */
   lastDuplicateAfterRegressionAgeSec: number | null;
   /**
+   * 계좌 매핑 관측값(19-REVIEW WR-04) — `{ rows, skipped, emptySnapshotsRejected }` 계수만(식별자 없음 · T-19-07).
+   * 표시 신호다(503 판정 밖). 매핑을 주입하지 않은 상태 요약이면 null(키는 늘 있다).
+   */
+  mapping: JournalMappingHealth | null;
+  /**
    * 전략 스트림 관측값 (Phase 25) — **표시 신호, 503 판정에 쓰지 않는다 · 식별자 없음**(계수 · 불리언만 — T-19-07).
    * 전략 적용 연속 실패(`dbError`)나 큐 적체(`queueDepth`)는 여기서만 드러나고 `state`(주문 스트림 기준)는 바꾸지 않는다.
    * 전략 기록기를 주입하지 않은 상태 요약이면 null(키는 늘 있다).
    */
   strategy: JournalStrategyHealth | null;
+};
+
+/** `JournalHealth.mapping` — 계좌 매핑 한 칸 (`JournalAccess.health()` 와 같은 모양). */
+export type JournalMappingHealth = {
+  rows: number;
+  skipped: number;
+  emptySnapshotsRejected: number;
 };
 
 /** `JournalHealth.strategy` — 전략 스트림 한 칸. */

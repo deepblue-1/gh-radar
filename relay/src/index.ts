@@ -141,7 +141,7 @@ function createJournalPipeline(upstream: JournalUpstream): JournalPipeline {
     strategyWriter,
     access,
   });
-  const status = new JournalStatus({ observer, writer, strategyWriter });
+  const status = new JournalStatus({ observer, writer, strategyWriter, access });
   return { upstream, writer, strategyWriter, access, observer, status };
 }
 

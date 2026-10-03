@@ -196,6 +196,19 @@ describe("JournalStatus — journal.state 디바운스 (D-04 (a))", () => {
     expect(st().health(Date.now()).state).toBe("rejected");
   });
 
+  it("19-REVIEW WR-04 — 매핑 주입 시 health().mapping = access.health() (rows · skipped · emptySnapshotsRejected) · 파생 상태 불변", () => {
+    observer = new FakeObserver();
+    observer.state = "live";
+    writer = new FakeWriter();
+    const access = { health: () => ({ rows: 0, skipped: 5, emptySnapshotsRejected: 2 }) };
+    const s = new JournalStatus({ observer, writer, access });
+    status = s;
+    expect(s.health(Date.now())).toMatchObject({
+      state: "live",
+      mapping: { rows: 0, skipped: 5, emptySnapshotsRejected: 2 },
+    });
+  });
+
   it("disabled → frame null · 프레임 0 · disconnectedSec null", async () => {
     boot();
     observer.set("disabled");
@@ -221,6 +234,7 @@ describe("JournalStatus — journal.state 디바운스 (D-04 (a))", () => {
       lastSeqRegressionAgeSec: null,
       duplicatesAfterRegression: 0,
       lastDuplicateAfterRegressionAgeSec: null,
+      mapping: null,
       // 전략 기록기 미주입 — 칸은 있고 값은 null(키 집합 고정).
       strategy: null,
     });
@@ -262,6 +276,7 @@ function health(state: JournalHealth["state"], disconnectedSec: number | null): 
     lastSeqRegressionAgeSec: null,
     duplicatesAfterRegression: 0,
     lastDuplicateAfterRegressionAgeSec: null,
+    mapping: null,
     strategy: null,
   };
 }
