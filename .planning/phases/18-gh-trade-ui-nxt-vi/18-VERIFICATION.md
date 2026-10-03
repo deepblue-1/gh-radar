@@ -1,12 +1,13 @@
 ---
 phase: 18-gh-trade-ui-nxt-vi
-verified: 2026-09-22T13:10:00Z
+verified: 2026-10-03T12:54:14Z
 status: passed
 previous_status: gaps_found
-closed_by: "갭 클로징 R2·R3·R4 (18-VERIFICATION-R2/R3/R4.md) + 18-UAT-R4.md 11/11 pass (2026-09-23)"
-score: 13/15 must-haves verified
+closed_by: "갭 클로징 R2·R3·R4 (18-VERIFICATION-R2/R3/R4.md) + 18-UAT-R4.md 11/11 pass (2026-09-23) + 재검증 R5 (18-VERIFICATION-R5.md, 2026-10-03 — 후속 Phase 19·20·21 대체 반영, 갭 0)"
+score: "13/15 must-haves verified (R1 정본) · R5 재검증 12/12 (VERIFIED 10 · SUPERSEDED 2 · 갭 0) — 18-VERIFICATION-R5.md 승계"
 covered_files:
   - .planning/REQUIREMENTS.md
+  - .planning/ROADMAP.md
   - .planning/phases/18-gh-trade-ui-nxt-vi/18-01-PLAN.md
   - .planning/phases/18-gh-trade-ui-nxt-vi/18-01-SUMMARY.md
   - .planning/phases/18-gh-trade-ui-nxt-vi/18-02-PLAN.md
@@ -88,43 +89,66 @@ covered_files:
   - .planning/phases/18-gh-trade-ui-nxt-vi/18-REVIEW-R3.md
   - .planning/phases/18-gh-trade-ui-nxt-vi/18-REVIEW-R4.md
   - .planning/phases/18-gh-trade-ui-nxt-vi/18-REVIEW.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-UAT-R3.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-UAT-R4.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-UAT.md
   - .planning/phases/18-gh-trade-ui-nxt-vi/18-UI-SPEC.md
   - .planning/phases/18-gh-trade-ui-nxt-vi/18-VALIDATION.md
   - .planning/phases/18-gh-trade-ui-nxt-vi/18-orderbook-tab-mockup.html
   - .planning/phases/18-gh-trade-ui-nxt-vi/18-workbench-mockup.html
   - .planning/phases/18-gh-trade-ui-nxt-vi/deferred-items.md
+  - .planning/phases/19-account-order-journal/19-CONTEXT.md
+  - .planning/phases/21-gh-trade-mobile-app/21-CONTEXT.md
+  - .planning/quick/260922-tqr-workbench-ui-cleanup/260922-tqr-SUMMARY.md
+  - .planning/quick/260922-uhw-r4-wr-01-cross-exchange-result-unknown-l/260922-uhw-SUMMARY.md
+  - .planning/quick/260923-bjb-workbench-top-cleanup/260923-bjb-SUMMARY.md
+  - .planning/quick/260923-dmb-vi-vi/260923-dmb-SUMMARY.md
+  - .planning/quick/260923-pgu-wb-alerts-vi-3-3-2026-09-23-a/260923-pgu-SUMMARY.md
+  - .planning/quick/260923-pgv-wb-exchange-toggle-krx-nxt-d-10/260923-pgv-SUMMARY.md
+  - .planning/quick/260926-rcc-breakout-nxt-feed-exchange-rate-cross-is/260926-rcc-SUMMARY.md
+  - .planning/quick/260926-s5v-breakout-row-open-card-fire-exchange-re-/260926-s5v-SUMMARY.md
+  - relay/src/dma/envelope.ts
+  - relay/src/hub/subscription-hub.ts
   - relay/src/order/notice-status.ts
-  - relay/src/store/orders.ts
   - relay/src/ws/order-handler.ts
-  - relay/tests/helpers/fake-dma-orders.ts
-  - relay/tests/order-store.test.ts
+  - relay/src/ws/protocol.ts
+  - relay/tests/order-api.test.ts
+  - relay/tests/rate-cross.test.ts
   - relay/tests/ws-order.test.ts
-  - webapp/e2e/specs/search.spec.ts
+  - supabase/migrations/20260924200100_dma_journal_rpcs.sql
   - webapp/e2e/specs/trading-workbench.spec.ts
-  - webapp/src/components/orderbook/__tests__/trade-tape.test.tsx
+  - webapp/src/app/trading/limit-chaser/[key]/page.tsx
+  - webapp/src/app/trading/limit-chaser/new/page.tsx
+  - webapp/src/app/trading/limit-chaser/page.tsx
+  - webapp/src/app/trading/page.tsx
+  - webapp/src/app/trading/vi/page.tsx
+  - webapp/src/components/layout/app-sidebar.tsx
   - webapp/src/components/orderbook/order-confirm-dialog.tsx
-  - webapp/src/components/orderbook/trade-tape.tsx
-  - webapp/src/components/stock/stock-orderbook-section.tsx
+  - webapp/src/components/stock/stock-detail-tabs.tsx
+  - webapp/src/components/trading/__tests__/breakout-strip.test.tsx
   - webapp/src/components/trading/__tests__/manual-order-form.test.tsx
   - webapp/src/components/trading/__tests__/trading-workbench.test.tsx
   - webapp/src/components/trading/__tests__/vi-settings-rows.test.tsx
-  - webapp/src/components/trading/__tests__/workbench-status-bar.test.tsx
+  - webapp/src/components/trading/__tests__/vi-trigger-strip.test.tsx
   - webapp/src/components/trading/card/card-body.tsx
+  - webapp/src/components/trading/card/card-header.tsx
   - webapp/src/components/trading/card/manual-order-form.tsx
-  - webapp/src/components/trading/workbench/stock-add-bar.tsx
+  - webapp/src/components/trading/vi-order-list.tsx
+  - webapp/src/components/trading/workbench/breakout-strip.tsx
   - webapp/src/components/trading/workbench/trading-workbench.tsx
   - webapp/src/components/trading/workbench/vi-settings-rows.tsx
+  - webapp/src/components/trading/workbench/vi-trigger-strip.tsx
   - webapp/src/components/trading/workbench/workbench-status-bar.tsx
-  - webapp/src/components/ui/command.tsx
+  - webapp/src/lib/__tests__/breakout-list.test.ts
   - webapp/src/lib/__tests__/relay-provider.test.tsx
-  - webapp/src/lib/__tests__/vi-alert.test.ts
   - webapp/src/lib/alert-tone.ts
   - webapp/src/lib/breakout-list.ts
+  - webapp/src/lib/queued-window.ts
   - webapp/src/lib/relay-provider.tsx
-  - webapp/src/lib/vi-alert.ts
-covered_digest: "v1:sha256:d9d6ddb621cae0a73831060819f89925d09c80179635c06011d8c9842513b234"
-previous_covered_digest: "v1:sha256:56b8eba6e325fe856cacd00895e529f2e9d205f9e6ef14986e2e2d72331cd749"
-refingerprinted: "2026-09-23 — 18-VERIFICATION-R4 covered_files(UAT/VERIFICATION 문서 제외) + quick-260922-tqr·uhw 변경 파일로 재지문. 근거: HEAD 에서 relay 534 · webapp 1460/1 skip green, 18-UAT-R4 11/11 pass(배포된 HEAD 대상)"
+  - webapp/src/lib/use-breakout-quotes.ts
+covered_digest: "v1:sha256:5ea22c3d33ba14efc110ecbf95ddca36cff7bc8e0b6c92396cf89c92ca06851c"
+previous_covered_digest: "v1:sha256:d9d6ddb621cae0a73831060819f89925d09c80179635c06011d8c9842513b234"
+refingerprinted: "2026-10-03 — 18-VERIFICATION-R5 covered_files(140개: PLAN/SUMMARY/UAT/REVIEW + 현행 구현·후속 Phase·quick 근거; VERIFICATION 문서 제외)로 재지문. 근거: 현재 HEAD 에서 relay 915 · webapp 3182/1 skip green, 대상 테스트 webapp 434 · relay 120 통과, 18-UAT-R4 11/11 pass. 후속 Phase 가 지운/바꾼 산출물은 R5 Superseded 로 기록(갭 아님)"
 behavior_unverified: 0
 overrides_applied: 0
 gaps:
