@@ -422,6 +422,8 @@ describe("관찰자 tracer — 기동 → 로그인 → 배치 1건 → 기록�
       lastAppliedAgeSec: expect.any(Number),
       seqRegressions: 0,
       lastSeqRegressionAgeSec: null,
+      duplicatesAfterRegression: 0,
+      lastDuplicateAfterRegressionAgeSec: null,
       // 전략 기록기 미주입 rig — 칸은 있고 값은 null (Phase 25).
       strategy: null,
     });

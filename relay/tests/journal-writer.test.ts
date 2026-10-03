@@ -396,6 +396,44 @@ describe("JournalWriter", () => {
     expect(w.lastReceivedSeq).toBe(43);
   });
 
+  it("19-REVIEW WR-03 — 역행 뒤 잃은 구간(head 41..42)의 seq 로 온 레코드 = 게이트웨이 seq 재사용 의심 · error · healthz 계수 · 재생 중복(≤ head)은 세지 않는다", async () => {
+    const db = fakeDb({ cursor: { data: { journal_epoch: "ep-1", last_seq: 42 }, error: null } });
+    const errorSpy = vi.spyOn(logger, "error");
+    const w = make(db);
+    await w.readCursor();
+    w.beginEpoch("ep-1", { resync: true, headSeq: 40 }); // 41..42 를 게이트웨이가 잃었다
+    expect(w.health()).toMatchObject({ duplicatesAfterRegression: 0, lastDuplicateAfterRegressionAtMs: null });
+
+    // 게이트웨이가 보관분을 재생(39 · 40 — 정상 중복)하고, 합의를 어겨 새 레코드를 41 · 42 로 매겼다.
+    expect(w.push([record(39), record(40), record(41), record(42)])).toBe("ok");
+    expect(w.lastReceivedSeq).toBe(42);
+    expect(w.queueDepth).toBe(0); // 아무것도 적재되지 않았다 — 그래서 드러내야 한다
+    const hits = errorSpy.mock.calls.filter((c) => typeof c[1] === "string" && c[1].includes("게이트웨이 seq 재사용 의심"));
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.[0]).toMatchObject({ reused: 2, firstReusedSeq: 41, lostAfterSeq: 40, lostThroughSeq: 42 });
+    expect(w.health().duplicatesAfterRegression).toBe(2);
+    expect(w.health().lastDuplicateAfterRegressionAtMs).not.toBeNull();
+
+    // 합의대로 since+1(43)부터 오면 정상 적재 · 계수 불변.
+    expect(w.push([record(43)])).toBe("ok");
+    expect(w.health().duplicatesAfterRegression).toBe(2);
+  });
+
+  it("19-REVIEW WR-03 — 역행이 없던 epoch 의 재생 중복 · 새 epoch 로 바뀐 뒤의 같은 seq 는 계수하지 않는다", async () => {
+    const db = fakeDb({ cursor: { data: { journal_epoch: "ep-1", last_seq: 42 }, error: null } });
+    const w = make(db);
+    await w.readCursor();
+    w.beginEpoch("ep-1", { resync: false, headSeq: 45 });
+    expect(w.push([record(41), record(42), record(43)])).toBe("ok"); // 겹친 재생 — 정상
+    expect(w.health().duplicatesAfterRegression).toBe(0);
+
+    w.beginEpoch("ep-1", { resync: false, headSeq: 40 }); // 역행 — 잃은 구간 41..43
+    w.beginEpoch("ep-2", { resync: true, headSeq: 50 }); // 새 epoch — 구간 폐기
+    expect(w.push([record(41)])).toBe("ok");
+    expect(w.push([record(41)])).toBe("ok"); // 새 epoch 안의 단순 중복
+    expect(w.health().duplicatesAfterRegression).toBe(0);
+  });
+
   it("⑧ drain — 큐가 비면 true · 시간 초과면 false", async () => {
     const db = fakeDb({ defaultStep: "hold" });
     const w = make(db);

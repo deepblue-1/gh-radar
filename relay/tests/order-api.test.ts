@@ -417,6 +417,8 @@ describe("journal 판정 (Phase 19 D-04)", () => {
       lastAppliedAgeSec: 3,
       seqRegressions: 0,
       lastSeqRegressionAgeSec: null,
+      duplicatesAfterRegression: 0,
+      lastDuplicateAfterRegressionAgeSec: null,
       strategy: { lastSeq: 7, headSeq: 9, lagSeq: 2, dbError: false, queueDepth: 0, paused: null },
     };
   }
@@ -467,9 +469,11 @@ describe("journal 판정 (Phase 19 D-04)", () => {
     expect(Object.keys(body.journal as object).sort()).toEqual(
       [
         "disconnectedSec",
+        "duplicatesAfterRegression",
         "headSeq",
         "lagSeq",
         "lastAppliedAgeSec",
+        "lastDuplicateAfterRegressionAgeSec",
         "lastSeq",
         "lastSeqRegressionAgeSec",
         "seqRegressions",
@@ -523,6 +527,8 @@ describe("journalGateways — 추가 게이트웨이 관찰자 (quick-260929-c8e
       lastAppliedAgeSec: 3,
       seqRegressions: 0,
       lastSeqRegressionAgeSec: null,
+      duplicatesAfterRegression: 0,
+      lastDuplicateAfterRegressionAgeSec: null,
       strategy: { lastSeq: 7, headSeq: 9, lagSeq: 2, dbError: false, queueDepth: 0, paused: null },
     };
   }
@@ -601,9 +607,11 @@ describe("journalGateways — 추가 게이트웨이 관찰자 (quick-260929-c8e
       [
         "alerting",
         "disconnectedSec",
+        "duplicatesAfterRegression",
         "headSeq",
         "lagSeq",
         "lastAppliedAgeSec",
+        "lastDuplicateAfterRegressionAgeSec",
         "lastSeq",
         "lastSeqRegressionAgeSec",
         "seqRegressions",
@@ -643,6 +651,8 @@ describe("quote 판정 (Phase 26 D-02 · D-16)", () => {
       lastAppliedAgeSec: 3,
       seqRegressions: 0,
       lastSeqRegressionAgeSec: null,
+      duplicatesAfterRegression: 0,
+      lastDuplicateAfterRegressionAgeSec: null,
       strategy: { lastSeq: 7, headSeq: 9, lagSeq: 2, dbError: false, queueDepth: 0, paused: null },
     };
   }

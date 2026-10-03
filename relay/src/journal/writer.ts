@@ -24,7 +24,9 @@
  *              since+1 → 갭 → since=head 재접속 → 갭이 끝없이 반복된다.
  *
  * seq 연속성(push 시점 · 동기):
- *   - `lastReceivedSeq` 이하 = 중복 → 건너뛴다(재접속 직후 겹친 재생).
+ *   - `lastReceivedSeq` 이하 = 중복 → 건너뛴다(재접속 직후 겹친 재생). 단 seq 역행으로 게이트웨이가 잃은 구간
+ *     (역행 head 초과 ~ 그때의 마지막 수신 seq)의 중복은 재생이 아니라 seq 재사용이다 — error 로그 · health
+ *     `duplicatesAfterRegression` 으로 드러낸다(19-REVIEW WR-03 · 조용한 영구 누락 방지).
  *   - 첫 비중복 레코드가 `lastReceivedSeq + 1` 이 아니면 **그 앞까지만** 적재하고 `gap` —
  *     호출자는 연결을 끊고 `since_seq = lastReceivedSeq` 로 다시 받는다.
  *   - `lastReceivedSeq === null`(새 epoch · 커서 없음)이면 첫 레코드는 판정 없이 받는다.
@@ -236,6 +238,13 @@ export class JournalWriter<R extends { seq: number } = JournalRecord, Out = Jour
   /** 부팅 뒤 관측한 seq 역행 횟수 · 마지막 관측 시각(`beginEpoch`). */
   #seqRegressions = 0;
   #lastSeqRegressionAtMs: number | null = null;
+  /**
+   * seq 역행으로 게이트웨이가 잃은 구간(WR-03) — `(afterSeq, throughSeq]`. 이 epoch 에서 이 구간 seq 로 오는 레코드는
+   * 재생이 아니라 게이트웨이가 seq 를 다시 매긴 새 레코드다. epoch 가 바뀌거나 resync 로 수신 seq 를 비우면 null.
+   */
+  #regressionWindow: { epoch: string; afterSeq: number; throughSeq: number } | null = null;
+  #duplicatesAfterRegression = 0;
+  #lastDuplicateAfterRegressionAtMs: number | null = null;
 
   /** `drain` 대기자. 큐가 비고 진행 중 호출이 끝나면 전부 깨운다. */
   #idleWaiters: Array<() => void> = [];
@@ -283,6 +292,8 @@ export class JournalWriter<R extends { seq: number } = JournalRecord, Out = Jour
       lastAppliedAtMs: this.#lastAppliedAtMs,
       seqRegressions: this.#seqRegressions,
       lastSeqRegressionAtMs: this.#lastSeqRegressionAtMs,
+      duplicatesAfterRegression: this.#duplicatesAfterRegression,
+      lastDuplicateAfterRegressionAtMs: this.#lastDuplicateAfterRegressionAtMs,
     };
   }
 
@@ -342,6 +353,13 @@ export class JournalWriter<R extends { seq: number } = JournalRecord, Out = Jour
     if (epoch === from && received !== null && opts.headSeq < received) {
       this.#seqRegressions += 1;
       this.#lastSeqRegressionAtMs = Date.now();
+      // 잃은 구간을 기억한다(WR-03) — 같은 epoch 에서 역행이 거듭되면 구간을 넓힌다.
+      const prev = this.#regressionWindow?.epoch === epoch ? this.#regressionWindow : null;
+      this.#regressionWindow = {
+        epoch,
+        afterSeq: Math.min(prev?.afterSeq ?? opts.headSeq, opts.headSeq),
+        throughSeq: Math.max(prev?.throughSeq ?? received, received),
+      };
       logger.error(
         { gateway: this.#gateway, stream: this.#stream.name, epoch, headSeq: opts.headSeq, lastReceivedSeq: received, resync: opts.resync },
         "[JOURNAL] 저널 seq 역행 — 같은 epoch 인데 게이트웨이 head 가 받은 seq 보다 작다",
@@ -351,6 +369,7 @@ export class JournalWriter<R extends { seq: number } = JournalRecord, Out = Jour
     if (!opts.resync && epoch === from) return;
     this.#epoch = epoch;
     this.#lastReceivedSeq = null;
+    this.#regressionWindow = null;
     if (opts.resync || from !== "") {
       // 조용한 전면 누락을 드러낸다(Pitfall 3) — 커서가 가리키던 저장소가 사라졌다는 뜻이다.
       logger.error(
@@ -385,10 +404,18 @@ export class JournalWriter<R extends { seq: number } = JournalRecord, Out = Jour
     let last = this.#lastReceivedSeq;
     const accepted: R[] = [];
     let duplicates = 0;
+    /** 역행으로 잃은 구간 seq 로 온 중복 — 재생이 아니라 seq 를 재사용한 새 레코드다(WR-03). */
+    let reused = 0;
+    let firstReusedSeq: number | null = null;
+    const window = this.#regressionWindow?.epoch === this.#epoch ? this.#regressionWindow : null;
     let gap: { expected: number; got: number } | null = null;
     for (const record of records) {
       if (last !== null && record.seq <= last) {
         duplicates += 1;
+        if (window !== null && record.seq > window.afterSeq && record.seq <= window.throughSeq) {
+          reused += 1;
+          firstReusedSeq ??= record.seq;
+        }
         continue;
       }
       if (last !== null && record.seq !== last + 1) {
@@ -398,8 +425,28 @@ export class JournalWriter<R extends { seq: number } = JournalRecord, Out = Jour
       accepted.push(record);
       last = record.seq;
     }
-    if (duplicates > 0) {
-      logger.debug({ gateway: this.#gateway, stream, duplicates, lastReceivedSeq: this.#lastReceivedSeq }, "[journal] 중복 seq 건너뜀");
+    if (reused > 0) {
+      // 조용한 영구 누락을 드러낸다(WR-03) — 운영 LOG_LEVEL 에서 보이는 error · healthz 계수.
+      this.#duplicatesAfterRegression += reused;
+      this.#lastDuplicateAfterRegressionAtMs = Date.now();
+      logger.error(
+        {
+          gateway: this.#gateway,
+          stream,
+          reused,
+          firstReusedSeq,
+          lostAfterSeq: window?.afterSeq,
+          lostThroughSeq: window?.throughSeq,
+          lastReceivedSeq: this.#lastReceivedSeq,
+        },
+        "[journal] seq 역행 뒤 잃은 구간의 seq 로 레코드가 왔다 — 게이트웨이 seq 재사용 의심 · 건너뜀(DB 미적재)",
+      );
+    }
+    if (duplicates > reused) {
+      logger.debug(
+        { gateway: this.#gateway, stream, duplicates: duplicates - reused, lastReceivedSeq: this.#lastReceivedSeq },
+        "[journal] 중복 seq 건너뜀",
+      );
     }
 
     if (this.#queue.length + accepted.length > this.#maxQueue) {

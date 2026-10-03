@@ -301,6 +301,15 @@ export type JournalWriterHealth = {
   seqRegressions: number;
   /** 마지막 seq 역행 관측 시각(epoch ms). 없으면 null. */
   lastSeqRegressionAtMs: number | null;
+  /**
+   * seq 역행 뒤 **잃은 구간**(역행 head 초과 ~ 역행 시점 마지막 수신 seq 이하)의 seq 로 온 레코드 수 (19-REVIEW WR-03).
+   * gh-trade 합의(다음 seq = since+1)를 게이트웨이가 어기고 그 구간 seq 를 새 레코드에 다시 매기면, 기록기는 중복으로
+   * 보고 건너뛴다(DB PK 도 옛 내용을 지킨다) — 새 주문 · 체결의 조용한 누락이다. 역행 head 이하의 재생 중복은 정상이라
+   * 세지 않는다. 0 이면 없음.
+   */
+  duplicatesAfterRegression: number;
+  /** 마지막으로 위 레코드를 본 시각(epoch ms). 없으면 null. */
+  lastDuplicateAfterRegressionAtMs: number | null;
 };
 
 /**
@@ -333,6 +342,13 @@ export type JournalHealth = {
   seqRegressions: number;
   /** 마지막 seq 역행 관측 뒤 몇 초인가. 없으면 null. */
   lastSeqRegressionAgeSec: number | null;
+  /**
+   * seq 역행 뒤 잃은 구간 seq 로 온(= 건너뛴) 레코드 수(`JournalWriterHealth.duplicatesAfterRegression` · WR-03).
+   * 0 보다 크면 게이트웨이가 seq 를 재사용했다는 뜻이고 그 레코드는 DB 에 들어가지 않았다. 표시 신호다(503 판정 밖).
+   */
+  duplicatesAfterRegression: number;
+  /** 마지막으로 위 레코드를 본 뒤 몇 초인가. 없으면 null. */
+  lastDuplicateAfterRegressionAgeSec: number | null;
   /**
    * 전략 스트림 관측값 (Phase 25) — **표시 신호, 503 판정에 쓰지 않는다 · 식별자 없음**(계수 · 불리언만 — T-19-07).
    * 전략 적용 연속 실패(`dbError`)나 큐 적체(`queueDepth`)는 여기서만 드러나고 `state`(주문 스트림 기준)는 바꾸지 않는다.

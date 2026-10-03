@@ -74,6 +74,8 @@ class FakeWriter extends EventEmitter {
     lastAppliedAtMs: null,
     seqRegressions: 0,
     lastSeqRegressionAtMs: null,
+    duplicatesAfterRegression: 0,
+    lastDuplicateAfterRegressionAtMs: null,
   };
   health(): JournalWriterHealth {
     return this.h;
@@ -217,12 +219,21 @@ describe("JournalStatus — journal.state 디바운스 (D-04 (a))", () => {
       lastAppliedAgeSec: 42,
       seqRegressions: 0,
       lastSeqRegressionAgeSec: null,
+      duplicatesAfterRegression: 0,
+      lastDuplicateAfterRegressionAgeSec: null,
       // 전략 기록기 미주입 — 칸은 있고 값은 null(키 집합 고정).
       strategy: null,
     });
     // seq 역행 신호는 카운터 + 마지막 관측 뒤 경과초로 드러난다(상태는 바꾸지 않는다).
     writer.h = { ...writer.h, seqRegressions: 1, lastSeqRegressionAtMs: Date.now() - 5_000 };
     expect(st().health(Date.now())).toMatchObject({ state: "connecting", seqRegressions: 1, lastSeqRegressionAgeSec: 5 });
+    // 19-REVIEW WR-03 — 역행 뒤 seq 재사용 의심 계수도 같은 표시 신호 축이다(상태 불변).
+    writer.h = { ...writer.h, duplicatesAfterRegression: 3, lastDuplicateAfterRegressionAtMs: Date.now() - 2_000 };
+    expect(st().health(Date.now())).toMatchObject({
+      state: "connecting",
+      duplicatesAfterRegression: 3,
+      lastDuplicateAfterRegressionAgeSec: 2,
+    });
     observer.set("live");
     expect(st().health(Date.now()).disconnectedSec).toBeNull();
   });
@@ -249,6 +260,8 @@ function health(state: JournalHealth["state"], disconnectedSec: number | null): 
     lastAppliedAgeSec: 1,
     seqRegressions: 0,
     lastSeqRegressionAgeSec: null,
+    duplicatesAfterRegression: 0,
+    lastDuplicateAfterRegressionAgeSec: null,
     strategy: null,
   };
 }

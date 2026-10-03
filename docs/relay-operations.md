@@ -36,6 +36,9 @@ DB 에 쓰지 않는다(D-01). 결선은 `relay/src/index.ts`, 모듈은 `relay/
   `since+1` 로 올리기로 했다(Phase 23 합의). 비우면 1..head 재생 → since+1 → 갭 → 재접속이 끝없이 반복된다. **503 은 아니다**
   (스트림은 정상). 보이면 게이트웨이의 잃은 구간(head+1..since)이 DB 에는 있고 게이트웨이에는 없는 상태이니 gh-trade 에 알리고,
   게이트웨이가 그 구간 seq 를 **다시 쓰지 않는지**(since+1 부터 이어지는지) 확인한다 — 다시 쓰면 relay 는 중복으로 보고 건너뛴다.
+  그 경우는 healthz `journal.duplicatesAfterRegression`(> 0) · `journal.lastDuplicateAfterRegressionAgeSec` 와 error 로그
+  `[journal] seq 역행 뒤 잃은 구간의 seq 로 레코드가 왔다 — 게이트웨이 seq 재사용 의심`(firstReusedSeq · lostAfterSeq ·
+  lostThroughSeq)으로 드러난다 — 그 레코드(새 주문·체결)는 DB 에 **없다**. 503 은 아니다. gh-trade 에 알리고 그 구간을 대조한다.
 - **로그인 거부 = 재시작 전 복구 없음.** 게이트웨이가 관찰자 로그인을 거부하면(`[JOURNAL] 관찰자 로그인 거부 — 재접속 중단`)
   relay 는 재접속을 멈추고 `rejected` 로 굳는다(계정 잠금·로그 폭주 방지 — D-13 · T-19-28). 원인은 거의 항상 비밀 불일치다.
   두 값을 맞춘 뒤 **relay 를 재배포(또는 컨테이너 재시작)** 해야 풀린다. 게이트웨이만 재시작해서는 안 풀린다.

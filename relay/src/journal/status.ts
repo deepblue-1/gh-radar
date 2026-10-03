@@ -145,6 +145,10 @@ export class JournalStatus extends EventEmitter {
       seqRegressions: w.seqRegressions,
       lastSeqRegressionAgeSec:
         w.lastSeqRegressionAtMs !== null ? secondsBetween(w.lastSeqRegressionAtMs, nowMs) : null,
+      // 역행 뒤 seq 재사용 의심(WR-03) — 같은 표시 신호 축(503 판정 밖).
+      duplicatesAfterRegression: w.duplicatesAfterRegression,
+      lastDuplicateAfterRegressionAgeSec:
+        w.lastDuplicateAfterRegressionAtMs !== null ? secondsBetween(w.lastDuplicateAfterRegressionAtMs, nowMs) : null,
       strategy: this.#strategyHealth(),
     };
   }
