@@ -30,6 +30,7 @@ export enum MsgType {
   ArmCancelLatchReq = 37,
   ArmBuyLatchReq = 38,
   GetStrategyEventsReq = 39,
+  BulkSellReq = 40,
   LoginResp = 50,
   OrderResp = 51,
   OrderConfirm = 52,

@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 259bc869
-// synced-date:        2026-10-02
+// server-repo-commit: 26b3493e
+// synced-date:        2026-10-03
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -18,6 +18,7 @@ enum MsgType : byte {
     //   30~38: 30/31 봉인(Phase 16 NXT-06 통합 — 재사용 금지) · 32 체결 테이프 · 33/34 VI 확인·목록 ·
     //          35 거래원 · 36/37 상따 매도·취소 래치 수동 점등 · 38 봉인(Phase 24 D-25)
     //   39:    전략 이벤트 백필 조회 (Phase 25)
+    //   40:    일괄매도 (quick-261002-qvg)
     LoginReq = 1,
     DirectOrderReq = 2,
     UpdateAccountNoReq = 3,
@@ -75,6 +76,14 @@ enum MsgType : byte {
     // === 이하 Phase 25 추가 (상따 주문로그·잔량진행률 — 25-HANDOFF-gh-radar-fields-v0.1, D-01/D-03) ===
     GetStrategyEventsReq = 39,     // 전략 이벤트 오늘분 백필 조회 (C→S, Phase 25 D-07) — 요청 테이블은 get_quote_req 슬롯
                                    // 재사용(35 선례, isin + exchange). exchange "" = 전 거래소. 응답은 81 StrategyEventsResp
+
+    // === 이하 quick-261002-qvg 추가 (상따창 일괄매도 — D-01/D-02/D-05) ===
+    BulkSellReq = 40,              // 상따창 일괄매도 (C→S) — 그 계좌·종목의 매수 미체결(KRX·NXT) 전량 취소 +
+                                   // 서버 매도가능수량 전량을 요청 가격·거래소로 매도한다.
+                                   // 요청 테이블은 direct_order_req 슬롯 재사용(35 선례) — stock_code·account_no·price·
+                                   // market·exchange 만 읽고 side·quantity·order_type 등은 무시한다(대상·수량은 서버 원장).
+                                   // 응답 번호 없음 — 건별은 51 OrderResp, 요약 1줄은 54 ServerMessage(source "DirectOrder").
+                                   // 예약 구간(77 open)의 KRX 매도 요청은 서버가 거부한다(D-05 — NXT 요청은 통과).
 
     // Server -> Client
     //   50~59: 기본 응답 (로그인, 주문, 체결, 메시지, 계좌)
@@ -430,17 +439,18 @@ table SetLimitChaser {
     sell_trade_qty_enabled: bool; // 체결수량 조건 활성화
     sell_cum_volume_enabled: bool (deprecated); // (봉인) 구 누적거래량 조건 — 조건 폐기 (D-13)
 
-    // === 한방체결 조건 (Case 2: 호가변경횟수 기반) ===
-    // - 호가 전량 소진(A3의 ask1Price=0, bid1Price=0)되는 대량 체결 감지
-    // - 체결가 == sweepWatchPrice이고, 호가변경 횟수가 sweepMinTickCount 이상이면 주문
-    sweep_watch_price: uint;      // 한방체결 감시가격 (원, 보통 상한가 1틱 아래)
-    sweep_enabled: bool;          // 한방체결 조건 활성화 (Case 2/3 공통)
-    sweep_min_tick_count: ubyte;  // Case 2: 최소 호가변경 횟수
+    // === 한방 조건 (Case 2: 「한방 N건 @가격」 — 버스트가 쓸고 간 호가 칸 수 기반) ===
+    // - 버스트 체결 = A3 매도1·매수1호가가 둘 다 0 으로 이어진 조각들(큰 주문 하나의 분할 체결).
+    //   마지막 조각은 호가가 실려 오며, 직전 A3 가 0/0 매수 조각이면 그 마지막 조각도 센다 (quick-261003-phd).
+    // - 체결가 == sweepWatchPrice이고, 쓸고 간 호가 칸 수가 sweepMinTickCount 이상이면 주문
+    sweep_watch_price: uint;      // 한방 감시가격 (원, 클라 기본 = 상한가)
+    sweep_enabled: bool;          // 한방 조건 활성화 (Case 2/3 공통)
+    sweep_min_tick_count: ubyte;  // Case 2: 최소 한방 건수(호가 칸 수)
     sweep_recalc_enabled: bool;   // 체결 후 호가잔량 차감 재평가
 
-    // === 한방체결 조건 (Case 3: 연속 한방체결 횟수 + 상승률 기반) ===
-    // - 연속 한방체결 횟수가 sweepMinCount 이상이고, 상승률이 sweepMinRate 이상이면 주문
-    sweep_min_count: ubyte;       // Case 3: 최소 연속 한방체결 횟수 (0=비활성)
+    // === 한방 조건 (Case 3: 버스트 횟수 + 상승률 기반) ===
+    // - 연속 버스트 조각(0/0 매수체결) 횟수가 sweepMinCount 이상이고, 상승률이 sweepMinRate 이상이면 주문
+    sweep_min_count: ubyte;       // Case 3: 최소 버스트 횟수 (0=비활성)
     sweep_min_rate: uint;         // Case 3: 최소 상승률 (BasisPoints, 예: 2950=29.5%)
 
     exchange: string;             // 거래소 — **서버가 읽는다**. "KRX" / "NXT" 화이트리스트.
@@ -454,7 +464,7 @@ table SetLimitChaser {
 
     // A3Buy4 조건 (2026.04.16 gotrader v2.26.1/2.28 — 상한가 안착 시점 포착)
     // - A3(체결) 패킷 자체의 매수1호가가 상한가와 같으면 매수 주문
-    // - 한방체결 체크(`sweep_enabled`) 종속 — 원전 `cond.BidSumTradeCheck`
+    // - 한방 체크(`sweep_enabled`) 종속 — 원전 `cond.BidSumTradeCheck`
     //
     // ★ Phase 11 의 전용 게이트(D-09)를 철회하면서도 필드를 **지우지 않고**
     //   (deprecated) 로 봉인한다. FlatBuffers 는 테이블 필드 id 를 **선언 순서로**
@@ -587,7 +597,8 @@ table SetLimitChaser {
     // - 구/신 클라 판별은 buy3_schema 의 부재(0) 하나다(D-24).
     buy3_schema: ubyte;              // 0 = 구 클라(필드 부재) → 매수 ON 은 고정 문구 ERROR 로 거부하고 매수 3종을 켜지 않는다(D-28 · quick-260930-1s8).
                                      // 1 = 3종 클라 · 2 = post_buy_auto 를 싣는 클라(quick-260929-ucy — 서버는 2 이상일 때만
-                                     // post_buy_auto 를 읽는다). 서버 에코는 1 그대로 (D-24 판정 정본). vtable 98
+                                     // post_buy_auto 를 읽는다) · 3 = extra_buy_burst_release 를 싣는 클라(quick-261003-phd 후속 —
+                                     // 서버는 3 이상일 때만 읽는다). 서버 에코는 1 그대로 (D-24 판정 정본). vtable 98
     pre_buy_enabled: bool;           // 선매수 체크 (양방향) — 에코는 무장과 접힌다(D-03). vtable 100
     // ★ 아래 6필드의 와이어 이름은 extra_buy_* 다 (Phase 24 D-29 — C# 생성물의 buy_* 빌더 메서드와 이름 충돌
     //   회피로 add_→extra_). 선언 위치·형·순서·vtable 슬롯(102~112)은 그대로라 와이어 바이트가 같다.
@@ -621,6 +632,12 @@ table SetLimitChaser {
                                      // floor(peak × (100 − 반등률) / 100), 그 밖 0. 매수1잔량이 이 값 이하가 되면 잠금이 풀린다.
                                      // 클라 「발동」 칸 회색 표시. post_buy_trigger_qty 의 의미는 그대로(잠금 중 0).
                                      // 요청값은 서버가 읽지 않는다. vtable 136
+    // === 이하 quick-261003-phd 추가 (말미 append) ===
+    extra_buy_burst_release: bool;   // 추가매수 ☐버스트 시 해제(양방향, 와이어 이름 extra_buy_* 규약 D-29) — ON 이면 버스트 상한가가
+                                     // 판정된 뒤 처음 만나는 B6 틱에 켜져 있던 추가매수를 서버가 내린다(포기 아님 — extra_buy_abandoned
+                                     // 무접촉, 사용자가 다시 켤 수 있다). 판정당 1회. 서버는 buy3_schema >= 3 일 때만 읽는다 — 그 미만
+                                     // (C# 구 클라 · 웹 lc.set 재제출을 중계하는 gh-radar relay)은 서버 값 유지(2026-10-03 gh-radar 합의,
+                                     // post_buy_auto 와 같은 규약). 에코는 설정값. vtable 138
 }
 
 // VITrigger (VI 발동) 전략 설정
@@ -953,6 +970,10 @@ table QuoteState {
                                     // 경계에 0. 0 = 잔량 없음·미수신(구 서버는 필드 부재라 역시 0).
                                     // 기존 필드 번호 불변을 위한 맨 끝 append (quick-260928-ccl)
     off_hours_close_bid_qty: long;  // 같은 원천의 매수호가 총잔량 — 규칙은 off_hours_close_ask_qty 와 같다
+    burst_upper_limit: bool;        // 버스트 상한가 — 상한 매도잔량이 사라질 때까지의 상한가 매수체결이 전부 버스트 조각
+                                    // (A3 매도1·매수1호가 0/0 으로 이어진 조각들 + 그 마지막 조각)이면 true. 서버 추적기
+                                    // (server/src/market/krx/BurstLimit.h) 판정, 거래소별(KRX/NXT 각자). 58/59 매 프레임,
+                                    // 상한가 이탈(B6)·06:00 에 false. 구 서버는 필드 부재라 false. 맨 끝 append (quick-261003-phd)
 }
 
 // 체결 테이프 1건 (D-02)
@@ -1271,7 +1292,9 @@ enum StrategyEventKind : ubyte {
     FirstFill = 5,       // 첫체결 — error_volume = expected_cum − 첫 체결 시점 누적
     SellOrder = 6,       // 매도주문
     Cancelled = 7,       // 취소 — cancel_reason · remaining_volume
-    Rejected = 8         // 거부 — result_code · message
+    Rejected = 8,        // 거부 — result_code · message
+    // 9 는 gh-radar 예약 요청 중이라 비워 둔다(사용 금지).
+    BurstLimit = 10      // 버스트 상한가 — 시세 이벤트, 계좌 없음. cond_actual 조각수 · ev_trade_qty 합계수량 · ev_price 상한가 (quick-261003-phd)
 }
 
 enum OrderGroup : ubyte {
