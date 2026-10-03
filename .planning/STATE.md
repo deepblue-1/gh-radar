@@ -5,10 +5,10 @@ current_phase: 18
 current_phase_name: gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
 status: planning
 stopped_at: Phase 26 complete, ready to plan Phase 18
-last_updated: "2026-10-01T03:15:05.454Z"
+last_updated: "2026-10-03T06:12:57.517Z"
 last_activity: 2026-10-02
 last_activity_desc: Completed quick task 261002-fim (post_buy_unlock_qty 종단)
-state_head: 6bd06b9025d7287c8822c0bf35adab1c4631fb55
+state_head: 451c307089a82b774179ded40b32d22cf847f546
 progress:
   total_phases: 35
   completed_phases: 5
@@ -573,6 +573,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 58 | 종목카드 호가/체결 톤 다운 — 체결 플래시 3%·1단 현재가 행 배경 한 단계 낮춤·매도1/매수1 경계선 일직선 (fa31efea) | 2026-10-01 | fa31efea | — |
 | 261001-gjk | 상따 매도 열 — 가격 섹션과 매도주문 카드 합치기(주문가격·비교가격·매도비율·매수잔량·잔량추적·체결) | 2026-10-01 | 980ab8db | [261001-gjk-sell-card-merge](./quick/261001-gjk-sell-card-merge/) |
 | 261002-fim | 상따 후매수 잠금 해제선 `post_buy_unlock_qty` 종단 — gh-trade 259bc869 생성물 재동기화(vtable 136) · relay 60/64 파서(C→S 미적재) · shared 런타임 7/S→C 12 · 웹 「발동잔량」 칸(펼침·접힘): 발동잔량 0 이고 해제선 > 0 이면 회색 + sr 「잠금 해제선」. 서버 미배포 동안 0. relay 배포 → push 순서 | 2026-10-02 | 단일 커밋(코드+문서) | [261002-fim-post-buy-unlock-qty-relay-shared-hub](./quick/261002-fim-post-buy-unlock-qty-relay-shared-hub/) |
+| 61 | 교보 VPN 감시 타이머 탐침 112→119 (radar-gw 재설치·재기동, 119:22 도달 확인) | 2026-10-03 | 단일 커밋 | — |
 
 ## Session Continuity
 

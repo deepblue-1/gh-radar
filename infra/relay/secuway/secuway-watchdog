@@ -5,7 +5,9 @@
 #   liveness  : if the DMA host is unreachable while systemd still thinks the
 #               service is active (client alive but tunnel died), restart it.
 set -uo pipefail
-HOST=10.16.207.112
+# 2026-10-03: .112 was dropped from the Kyobo ACL — probing it restarted the
+# tunnel every 3 min. Probe .119 (kyobo119, DMA + nightly report host).
+HOST=10.16.207.119
 PORT=22
 if timeout 3 bash -c "</dev/tcp/$HOST/$PORT" 2>/dev/null; then
   exit 0
