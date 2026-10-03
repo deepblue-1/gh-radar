@@ -249,6 +249,34 @@ describe('후매수 자동 — 삭제 판정 · 켜진 전략 · 폼 값 (quick-
   });
 });
 
+/*
+  quick-261003-rc4 P-4 — 추가매수 ☐버스트 시 해제는 게이트가 아니다(아무것도 무장하지 않는다). 삭제 판정 · crud ·
+  켜진 전략 판정에 들어가지 않는다 — 버스트만 켠 상태는 여전히 삭제 의도.
+*/
+describe('추가매수 버스트 시 해제 — 폼 값 · 게이트 아님 (quick-261003-rc4 B9)', () => {
+  const gatesOff = { buyEnabled: false, sellEnabled: false, cancelQtyEnabled: false, cancelTradeEnabled: false };
+
+  it('새 폼은 OFF · 에코 값을 그대로 들인다', () => {
+    expect(defaultLimitChaserForm().extraBuyBurstRelease).toBe(false);
+    expect(formFromServer(serverEcho({ extraBuyBurstRelease: true }), defaultLimitChaserForm()).extraBuyBurstRelease).toBe(
+      true,
+    );
+    expect(
+      formFromServer(serverEcho({ extraBuyBurstRelease: false }), { ...defaultLimitChaserForm(), extraBuyBurstRelease: true })
+        .extraBuyBurstRelease,
+    ).toBe(false);
+  });
+
+  it('버스트만 켠 상태는 삭제 의도 · crud D · 켜진 전략 아님 (판정 무변경)', () => {
+    const burstOnly = { ...defaultLimitChaserForm(), ...gatesOff, postBuyAuto: false, extraBuyBurstRelease: true };
+    expect(isDeleteIntent(burstOnly)).toBe(true);
+    expect(crudOf(burstOnly)).toBe('D');
+    // 버스트 해제 필드가 실린 에코 모양을 그대로 넘겨도 판정은 다섯 항뿐이다.
+    const echoLike = { buyEnabled: false, sellEnabled: false, cancelQtyEnabled: false, postBuyAuto: false, extraBuyBurstRelease: true };
+    expect(isActiveStrategy(echoLike)).toBe(false);
+  });
+});
+
 describe('seedFromUpperLimit — 상한가 5칸 시딩', () => {
   it('매수감시가·매수가격·매도감시가·매도가격·한방가격 5칸을 상한가로 채운다', () => {
     expect(seedFromUpperLimit(130_000)).toEqual({

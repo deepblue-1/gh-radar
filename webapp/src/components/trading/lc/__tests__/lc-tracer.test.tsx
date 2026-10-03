@@ -244,7 +244,7 @@ describe('트레이서 — 「호가변경」 한 행 (20-01 · D-04 · D-14 · 
     const cfg = lcSets()[0]!.cfg!;
     expect(cfg.sweepMinTickCount).toBe(5);
     expect(cfg.sellOrderRatio).toBe(100);
-    expect(Object.keys(cfg)).toHaveLength(44); // 31 + Phase 24 C→S 12 + postBuyAuto(quick-260929-vzy) (감시대상은 Phase 24 ⑤ 로 빠졌다)
+    expect(Object.keys(cfg)).toHaveLength(45); // 31 + Phase 24 C→S 12 + postBuyAuto(quick-260929-vzy) + extraBuyBurstRelease(quick-261003-rc4) (감시대상은 Phase 24 ⑤ 로 빠졌다)
 
     // 반영 중 — 입력칸 잠김(에코 전).
     expect(editor()!.readOnly).toBe(true);

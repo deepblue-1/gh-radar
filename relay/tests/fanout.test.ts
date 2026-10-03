@@ -1784,9 +1784,9 @@ describe("WsFanout", () => {
     expect(item.postBuyTriggerQty).toBe(330_000);
     expect(item.postBuyReentryLeft).toBe(2);
     expect(item.buyWatchSide).toBe("0");
-    // 활성 58(+ postBuyAuto · quick-260929-vzy · extraBuyAbandonQty · quick-260930-fi4 · postBuyUnlockQty · quick-261002-fim)
-    // + key — 봉인된 매수 진입 래치는 없다.
-    expect(Object.keys(item)).toHaveLength(59);
+    // 활성 59(+ postBuyAuto · quick-260929-vzy · extraBuyAbandonQty · quick-260930-fi4 · postBuyUnlockQty · quick-261002-fim
+    // · extraBuyBurstRelease · quick-261003-rc4) + key — 봉인된 매수 진입 래치는 없다.
+    expect(Object.keys(item)).toHaveLength(60);
   });
 
   /*
@@ -2154,7 +2154,77 @@ describe("WsFanout", () => {
     expect(framesOf(a.inbox, "msg")).toHaveLength(1);
   });
 
-  it("⑰-auto-c 60 에코 postBuyAuto true → ws lc 프레임 item.postBuyAuto true · 59키 (D-01)", async () => {
+  /*
+    quick-261003-rc4 — 추가매수 ☐버스트 시 해제. cfg 에 postBuyAuto · extraBuyBurstRelease 가 둘 다 있으면 10 의
+    buy3_schema 3(D-01). 버스트 해제는 아무것도 무장하지 않는다 — 게이트 4종 OFF 면 종전 철거(#isTeardown 무변경).
+  */
+  it("⑰-burst lc.set 둘 다 → 10 buy3Schema 3 · burst true / 자동만 → 2 / 둘 다 없음 → 1 · 60 에코 burst → ws lc item (B8)", async () => {
+    const a = await authed("token-a");
+    const cases: { over: Partial<LcSetCfg>; schema: number; burst: boolean }[] = [
+      { over: { postBuyAuto: false, extraBuyBurstRelease: true }, schema: 3, burst: true },
+      { over: { postBuyAuto: true }, schema: 2, burst: false },
+      { over: {}, schema: 1, burst: false },
+    ];
+    for (const [i, c] of cases.entries()) {
+      a.ws.sendRaw({ t: "lc.set", cfg: lcInput(c.over) });
+      await waitFor(
+        () =>
+          gateway.strategyRequests().filter((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq).length ===
+          i + 1,
+        `10 수신 ${i + 1}`,
+      );
+    }
+    const reqs = gateway
+      .strategyRequests()
+      .filter((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq)
+      .map((r) => readSetLimitChaserRequest(r.msgType, r.payload)!);
+    expect(reqs.map((r) => [r.buy3Schema, r.extraBuyBurstRelease])).toEqual(
+      cases.map((c) => [c.schema, c.burst]),
+    );
+
+    // 에코 → ws lc item 에 실린다(hub 무변경 — 객체를 통째로 캐시 · 팬아웃).
+    const sock = gateway.sockets[0];
+    if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+    gateway.pushLimitChaserEcho(sock, {
+      isin: SAMPLE_ISIN,
+      accountNo: SAMPLE_ACCOUNT_NO,
+      buyEnabled: true,
+      extraBuyEnabled: true,
+      extraBuyBurstRelease: true,
+    });
+    await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
+    const item = framesOf(a.inbox, "lc").at(-1)!.item;
+    expect(item.extraBuyBurstRelease).toBe(true);
+    expect(Object.keys(item)).toHaveLength(60);
+  });
+
+  it("⑰-burst-b 게이트 4종 OFF + postBuyAuto false + extraBuyBurstRelease true(crud C)는 철거다 — 모르는 ISIN 이어도 10 으로 나간다 (#isTeardown 무변경)", async () => {
+    const a = await authed("token-a");
+    a.ws.sendRaw({
+      t: "lc.set",
+      cfg: lcInput({
+        isin: UNKNOWN_ISIN,
+        crud: "C",
+        buyEnabled: false,
+        sellEnabled: false,
+        cancelQtyEnabled: false,
+        cancelTradeEnabled: false,
+        postBuyAuto: false,
+        extraBuyBurstRelease: true,
+      }),
+    });
+    await waitFor(
+      () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+      "10 수신",
+    );
+    const req = gateway
+      .strategyRequests()
+      .find((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq);
+    expect(rootEnvelope(req!.payload).setLimitChaser()?.market()).toBe("K");
+    expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+  });
+
+  it("⑰-auto-c 60 에코 postBuyAuto true → ws lc 프레임 item.postBuyAuto true · 60키 (D-01)", async () => {
     const a = await authed("token-a");
     a.ws.sendRaw({ t: "lc.set", cfg: lcInput() });
     await waitFor(
@@ -2172,10 +2242,10 @@ describe("WsFanout", () => {
     await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
     const item = framesOf(a.inbox, "lc").at(-1)!.item;
     expect(item.postBuyAuto).toBe(true);
-    expect(Object.keys(item)).toHaveLength(59);
+    expect(Object.keys(item)).toHaveLength(60);
   });
 
-  it("⑰-unlock 60 에코 postBuyUnlockQty 264000 → ws lc 프레임 item 그대로 · 59키 (quick-261002-fim)", async () => {
+  it("⑰-unlock 60 에코 postBuyUnlockQty 264000 → ws lc 프레임 item 그대로 · 60키 (quick-261002-fim)", async () => {
     // hub 는 상따 에코 객체를 통째로 캐시 · 팬아웃한다 — 필드 합류에 hub 코드 변경이 없다는 것을 이 통과가 증명한다.
     const a = await authed("token-a");
     a.ws.sendRaw({ t: "lc.set", cfg: lcInput() });
@@ -2197,7 +2267,7 @@ describe("WsFanout", () => {
     const item = framesOf(a.inbox, "lc").at(-1)!.item;
     expect(item.postBuyUnlockQty).toBe(264_000);
     expect(item.postBuyTriggerQty).toBe(0);
-    expect(Object.keys(item)).toHaveLength(59);
+    expect(Object.keys(item)).toHaveLength(60);
   });
 
   it("⑰-e2 삭제의 시장은 **에코 캐시가 1순위**다 — 종목맵이 못 풀어도 폴백까지 가지 않는다", async () => {

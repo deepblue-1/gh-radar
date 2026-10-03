@@ -419,7 +419,8 @@ export interface SetLimitChaserRequest {
   buyOrderPrice: number;
   buyOrderQty: number;
   buyWatchPrice: number;
-  /** relay 파생값 — 1(자동 미적재 · `LC_FIXED_BUY3_SCHEMA`) 또는 2(자동 적재 · `LC_POST_BUY_AUTO_BUY3_SCHEMA`). */
+  /** relay 파생값 — 1(자동 미적재 · `LC_FIXED_BUY3_SCHEMA`) · 2(자동 적재 · `LC_POST_BUY_AUTO_BUY3_SCHEMA`) ·
+   *  3(자동 + 버스트 시 해제 적재 · `LC_BURST_RELEASE_BUY3_SCHEMA` · quick-261003-rc4). */
   buy3Schema: number;
   /** 슬롯 부재 = `null`. buy3 요청은 이 슬롯이 없어야 한다. */
   buyWatchSide: string | null;
@@ -437,6 +438,8 @@ export interface SetLimitChaserRequest {
   postBuyOrderQty: number;
   /** 후매수 ☐자동(quick-260929-vzy) — 슬롯 부재(buy3_schema 1 · 또는 false 기본값) = false. */
   postBuyAuto: boolean;
+  /** 추가매수 ☐버스트 시 해제(quick-261003-rc4 · vtable 138) — 슬롯 부재(buy3_schema 1/2 · 또는 false 기본값) = false. */
+  extraBuyBurstRelease: boolean;
   /**
    * 매도 · 취소 게이트 · 체크(Phase 24 24-08 — D-06 자동 체크 · D-02 후반 서버 접힘 자동 끔의 실브라우저 단언).
    * 선매수를 켜는 한 번의 10 에 동반으로 실리는지, 자동 끔 제출이 매도 게이트를 그대로 싣는지를 본다.
@@ -515,6 +518,7 @@ export function readSetLimitChaserRequest(
     postBuyOrderAmount: req.postBuyOrderAmount(),
     postBuyOrderQty: req.postBuyOrderQty(),
     postBuyAuto: req.postBuyAuto(),
+    extraBuyBurstRelease: req.extraBuyBurstRelease(),
     sellEnabled: req.sellEnabled(),
     sellTradeQtyEnabled: req.sellTradeQtyEnabled(),
     sellQtyTrackEnabled: req.sellQtyTrackEnabled(),

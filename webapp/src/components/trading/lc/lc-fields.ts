@@ -56,6 +56,7 @@ export type LcBoolField = Extract<
   | 'sellTradeQtyEnabled'
   | 'cancelTradeEnabled'
   | 'cancelQtyTrackEnabled'
+  | 'extraBuyBurstRelease'
 >;
 /** 상따 행 단위 — 키패드 단위 전부(후매수 「최대」가 「회」를 쓴다 · 0 허용 — D-30). */
 export type LcUnit = PadUnit;
@@ -287,6 +288,9 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
         desc: '상한가 매수잔량이 이 값을 넘으면 포기해요 · 0 = 무제한',
         range: UINT32,
       },
+      // ☐버스트 시 해제(quick-261003-rc4 · gh-trade 3c6e6cff 클라 배치 = 최소~최대 줄 아래) — 켜 두면 버스트 상한가
+      // 판정 뒤 첫 B6 틱에 서버가 추가매수를 내린다(포기 아님). 독립 축이 아니다 — 추가매수 OFF 면 같이 흐린다(P-2).
+      { kind: 'check', check: 'extraBuyBurstRelease', checkId: 'lc-extra-buy-burst-release', label: '버스트 시 해제' },
     ],
   },
   {
@@ -617,6 +621,8 @@ export function lcSummaryOf(
         amountItem('extraBuyOrderAmount', values, false),
         { key: '최소', value: text('extraBuyMinQty', '주'), off: false },
         { key: '최대', value: text('extraBuyMaxQty', '주'), off: false },
+        // ☐버스트 시 해제 — ON 일 때만 덧붙인다(OFF 기본 사용자에게 요약은 종전 그대로 · P-3).
+        ...(values.extraBuyBurstRelease ? [{ key: '버스트 시 해제', value: '켬', off: false }] : []),
       ];
     case 'post-buy': {
       const trigger = server?.postBuyTriggerQty ?? 0;

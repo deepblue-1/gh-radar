@@ -110,13 +110,14 @@ export type RelayLcCrud = "C" | "D";
 export type RelayLcWatchSide = "0" | "1";
 
 /**
- * 상따(LimitChaser) 전략 1건 — `SetLimitChaser` **활성 58필드**의 와이어 표현 + 파생 `key`.
+ * 상따(LimitChaser) 전략 1건 — `SetLimitChaser` **활성 59필드**의 와이어 표현 + 파생 `key`.
  * (37 → 39: 17-01 재동기화로 취소 · 매수 진입 확인 래치가 합류했다.
  *  39 → 55: Phase 24 재생성 — 매수 진입 확인 래치가 봉인(deprecated, gh-trade D-25)되고
  *  매수 3종 17필드가 합류했다: 39 − 1 + 17 = 55.
  *  55 → 57: `postBuyAuto`(quick-260929-vzy) · `extraBuyAbandonQty`(quick-260930-fi4). 슬롯 24
  *  `buyWatchSide` 는 gh-trade a3610261 로 봉인됐지만 relay 가 `"0"` 으로 채워 키는 남는다.
- *  57 → 58: `postBuyUnlockQty`(quick-261002-fim).)
+ *  57 → 58: `postBuyUnlockQty`(quick-261002-fim).
+ *  58 → 59: `extraBuyBurstRelease`(quick-261003-rc4).)
  *
  * 필드명은 FlatBuffers 생성 코드 접근자와 같은 camelCase 다(`sell_order_ratio` →
  * `sellOrderRatio`). 게이트웨이의 deprecated 8슬롯은 접근자 자체가 없으므로 여기에도 없다 —
@@ -254,7 +255,8 @@ export type RelayLimitChaser = {
   //     `buyWatchQty` · `buyTradeQtyEnabled` · `buyMinTradeQty` · `sweep*` 는 **선매수의 값**이다.
   /**
    * 신 클라 판정 — **S→C 전용**(런타임). 서버 에코는 늘 `1`, 구 서버(필드 부재)는 `0`.
-   * 요청에는 relay 가 `LC_FIXED_BUY3_SCHEMA = 1` 로 못박아 싣는다(gh-trade D-24).
+   * 요청에는 relay 가 `postBuyAuto` · `extraBuyBurstRelease` 존재로만 파생한 1 · 2 · 3 을 싣는다(gh-trade D-24 ·
+   * quick-260929-vzy · quick-261003-rc4) — 브라우저는 고르지 못한다.
    */
   buy3Schema: number;
   /** 선매수 체크(양방향). 에코는 무장과 접힌 값이다(gh-trade D-03). */
@@ -280,6 +282,14 @@ export type RelayLimitChaser = {
    * 가 true 일 때만 의미가 있다.
    */
   extraBuyAbandonQty: number;
+  /**
+   * 추가매수 ☐버스트 시 해제(양방향 · gh-trade 3dabd6ff vtable 138 · quick-261003-rc4). ON 이면 버스트 상한가
+   * 판정 뒤 처음 만나는 B6 틱에 켜져 있던 추가매수를 서버가 내린다 — 판정당 1회 · **포기 아님**
+   * (`extraBuyAbandoned` 무접촉 · 사용자가 다시 켤 수 있다). 해제는 `extraBuyEnabled` OFF 에코 + 54 INFO 사유 줄로
+   * 드러나고, 이 값의 에코는 **설정값 그대로**다. 구서버 에코(슬롯 부재) = false. 요청에는 relay 가
+   * `buy3_schema` 3 과 함께 싣는다(서버는 3 이상에서만 읽는다 — 그 미만은 서버 값 유지).
+   */
+  extraBuyBurstRelease: boolean;
   /**
    * 후매수 체크(양방향). 에코는 `cfg ∧ 마스터 무장 ∧ 단계 ≠ 소진` 으로 서버가 이미 접어 보낸다
    * (gh-trade D-31 · D-32). relay · 웹은 다시 접지 않는다(D-21). 무장 여부는 `postBuyPhase`.
@@ -388,12 +398,17 @@ export const LIMIT_CHASER_SERVER_ONLY_FIELDS = [
 export type LimitChaserServerOnlyField = (typeof LIMIT_CHASER_SERVER_ONLY_FIELDS)[number];
 
 /**
- * `lc.set` 이 실어 보내는 상따 설정 — **클라 입력 28 + 클라 고정 3 + Phase 24 C→S 12 = 43필드 + post_buy_auto = 44필드**.
+ * `lc.set` 이 실어 보내는 상따 설정 — **클라 입력 28 + 클라 고정 3 + Phase 24 C→S 12 = 43필드 + post_buy_auto = 44필드
+ * + extra_buy_burst_release = 45필드**.
  *
  * ⚠️ **`postBuyAuto` 는 새 클라 입력에서 필수다**(quick-260929-vzy). 빠뜨리면 relay 가 `buy3_schema` 1 로
  *    싣고 서버가 자동을 유지해서, 매수주문 OFF 동반 끔(D-06)이 서버에 닿지 않는다 — 컴파일이 막게 한다.
  *    relay 는 구 탭 관용으로 `postBuyAuto` 만 선택인 `LcSetCfg` 를 따로 받는다. 양방향이라
  *    `LIMIT_CHASER_SERVER_*_FIELDS` 에는 넣지 않는다.
+ *
+ * ⚠️ **`extraBuyBurstRelease` 도 새 클라 입력에서 필수다**(quick-261003-rc4). 빠뜨리면 relay 가 `buy3_schema` 2 로
+ *    싣고 서버가 값을 유지해서, 체크가 서버에 반영되지 않는다(에코가 되돌린다). relay 는 구 탭 관용으로 이 필드도
+ *    선택인 `LcSetCfg` 를 받는다. 양방향이라 `LIMIT_CHASER_SERVER_*_FIELDS` 에는 넣지 않는다.
  *
  * ⚠️ **`buyWatchSide`(감시대상)를 뺀다** (Phase 24 ⑤ · 24-03). 새 서버는 읽지 않는다(gh-trade D-24 ·
  *    D-28 — 구 클라 판정에만 쓴다). 브라우저가 싣지 못하게 입력에서 뺀다. 읽기 전용

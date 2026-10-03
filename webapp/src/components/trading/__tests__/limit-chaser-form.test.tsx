@@ -15,7 +15,7 @@ import type { RelayLcSetMsg, RelayLimitChaser, RelayLimitChaserInput } from '@gh
  *   ③ 반영 판정은 에코의 그 필드 값뿐(거부도 답 신호를 올린다)
  *   ④ 동시에 나가 있는 전송은 1건(직렬화)
  *   ⑤ 전부 OFF = `crud "D"` · 취소 게이트가 살아 있으면 `"C"`(D-08 · Pitfall 7)
- *   ⑥ S→C 전용 필드 미송신 · cfg 44키(+ postBuyAuto · quick-260929-vzy) · 클라 고정 3(Pitfall 6)
+ *   ⑥ S→C 전용 필드 미송신 · cfg 45키(+ postBuyAuto · quick-260929-vzy + extraBuyBurstRelease · quick-261003-rc4) · 클라 고정 3(Pitfall 6)
  *   ⑦ 리스트 구성(D-19 · D-20 · D-21 · D-22) · 44px · 꺼진 그룹 흐림(편집 가능)
  *   ⑧ 감시대상 행이 없다(Phase 24 ⑤ — 새 서버는 감시대상을 읽지 않는다)
  *   ⑨ 체크 행(D-22)
@@ -384,7 +384,8 @@ describe('④ 동시에 나가 있는 전송은 1건이다 (UI-SPEC §6 직렬�
     rerender(<LimitChaserForm {...props({ server: next, serverAnswerSeq: 0 })} />);
     rerender(<LimitChaserForm {...props({ server: next, serverAnswerSeq: 1 })} />);
     expect(lastConfig().buyOrderPrice).toBe(150_000);
-    expect(Object.keys(lastConfig())).toHaveLength(44);
+    // 44 + extraBuyBurstRelease(quick-261003-rc4) = 45.
+    expect(Object.keys(lastConfig())).toHaveLength(45);
   });
 });
 
@@ -416,7 +417,7 @@ describe('⑤ 삭제 판정은 취소 게이트를 포함한다 (D-08 · Pitfall
   });
 });
 
-describe('⑥ S→C 전용 필드를 보내지 않는다 · cfg 44키 (Pitfall 6) (옛 ⑨)', () => {
+describe('⑥ S→C 전용 필드를 보내지 않는다 · cfg 45키 (Pitfall 6) (옛 ⑨)', () => {
   const FORBIDDEN = [
     'sellOrderQty',
     'sellQtyTrackBaseline',
@@ -479,23 +480,25 @@ describe('⑥ S→C 전용 필드를 보내지 않는다 · cfg 44키 (Pitfall 6
     'postBuyOrderAmount',
     'postBuyOrderQty',
     'postBuyAuto',
+    // + extraBuyBurstRelease(quick-261003-rc4) = 45.
+    'extraBuyBurstRelease',
   ];
   function expectCleanCfg(cfg: RelayLimitChaserInput): void {
     const keys = Object.keys(cfg);
-    expect(keys).toHaveLength(44);
+    expect(keys).toHaveLength(45);
     expect(keys.sort()).toEqual([...EXPECTED_KEYS].sort());
     for (const f of FORBIDDEN) expect(keys).not.toContain(f);
     expect(keys).not.toContain('key');
     expect(keys).not.toContain('market');
   }
 
-  it('스위치 경로 cfg 키가 정확히 44개다 — 래치 상태여도 S→C 필드를 되보내지 않는다', () => {
+  it('스위치 경로 cfg 키가 정확히 45개다 — 래치 상태여도 S→C 필드를 되보내지 않는다', () => {
     render(<LimitChaserForm {...props({ server: echo({ sellEntryLatched: true }) })} />);
     click(sw('매도주문 켜기'));
     expectCleanCfg(lastConfig());
   });
 
-  it('값 경로 cfg 키도 정확히 44개다', () => {
+  it('값 경로 cfg 키도 정확히 45개다', () => {
     render(<LimitChaserForm {...props({ server: echo({ sellEntryLatched: true }) })} />);
     editInline('lc-sell-order-ratio', '50');
     expectCleanCfg(lastConfig());
@@ -584,9 +587,9 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
     const rows = document.querySelectorAll<HTMLElement>(
       '[data-lc-field]:not([data-slot="lc-check-row"] [data-lc-field]), [data-slot="lc-check-row"], [data-slot="lc-derived"], [data-slot="lc-post-buy-trigger"]',
     );
-    // 값 행 17(공통 2 · 선매수 3 · 추가매수 3 · 후매수 4 · 매도주문 4 · 취소 1) + 체크 행 6 + 기준선 1
-    // + 발동잔량 1 = 25 (고정 스키마 — E1 zero-one-many).
-    expect(rows).toHaveLength(25);
+    // 값 행 17(공통 2 · 선매수 3 · 추가매수 3 · 후매수 4 · 매도주문 4 · 취소 1) + 체크 행 7(+ 추가매수 버스트 시 해제 ·
+    // quick-261003-rc4) + 기준선 1 + 발동잔량 1 = 26 (고정 스키마 — E1 zero-one-many).
+    expect(rows).toHaveLength(26);
     for (const r of Array.from(rows)) expect(r.className).toContain('min-h-[44px]');
     openInline('lc-sweep-watch-price');
     const editing = document.querySelector('[data-lc-field="lc-sweep-watch-price"][data-editing="true"]') as HTMLElement;
@@ -3423,5 +3426,62 @@ describe('후매수 자동 — 마스터 OFF 동반 끔 · 켜기 사전 검증 
     c.unmount();
     render(<LimitChaserForm {...props({ server: echo({ postBuyAuto: true }), disabled: true })} />);
     expect(auto()).toBeDisabled();
+  });
+});
+
+describe('추가매수 「버스트 시 해제」 체크 — 양방향 설정값 · 게이트 아님 (quick-261003-rc4 B10)', () => {
+  const burst = () => chk('추가매수 버스트 시 해제');
+
+  it('추가매수 카드 마지막 행 · id lc-extra-buy-burst-release · 기본 OFF', () => {
+    render(<LimitChaserForm {...props()} />);
+    const btn = document.getElementById('lc-extra-buy-burst-release') as HTMLElement;
+    expect(btn).toBe(burst());
+    expect(btn.getAttribute('role')).toBe('checkbox');
+    expect(btn).toHaveAttribute('aria-checked', 'false');
+    // 추가매수 그룹 행 영역의 마지막 행이다(최소 · 최대 잔량 행 밑).
+    const rowsEl = group('extra-buy');
+    const ids = [...rowsEl.querySelectorAll('[id^="lc-extra-buy"]')].map((el) => el.id);
+    expect(ids.at(-1)).toBe('lc-extra-buy-burst-release');
+    expect(ids.indexOf('lc-extra-buy-max-qty')).toBeLessThan(ids.indexOf('lc-extra-buy-burst-release'));
+  });
+
+  it('등록된 전략에서 누르면 lc.set 1건 · cfg 45키 · extraBuyBurstRelease true', () => {
+    render(<LimitChaserForm {...props()} />);
+    click(burst());
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().extraBuyBurstRelease).toBe(true);
+    expect(Object.keys(lastConfig())).toHaveLength(45);
+    expect(burst()).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('에코가 false 로 오면(구 서버 · schema 미지원) 서버 값으로 되돌고 말풍선 「반영하지 못했어요」', () => {
+    const srv = echo();
+    const { rerender } = render(<LimitChaserForm {...props({ server: srv })} />);
+    click(burst());
+    expect(burst()).toHaveAttribute('aria-checked', 'true');
+    rerender(<LimitChaserForm {...props({ server: echo(), serverAnswerSeq: 1 })} />);
+    expect(burst()).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText('반영하지 못했어요').closest('[role="alert"]')).not.toBeNull();
+  });
+
+  it('에코 true 를 따른다(종목 진입 · 다른 단말이 켠 값)', () => {
+    render(<LimitChaserForm {...props({ server: echo({ extraBuyBurstRelease: true }) })} />);
+    expect(burst()).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('미등록 전략이면 로컬만 · 전송 0', () => {
+    render(<LimitChaserForm {...props({ server: null, upperLimit: 30_000 })} />);
+    click(burst());
+    expect(sentConfigs()).toHaveLength(0);
+    expect(burst()).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('추가매수 스위치 OFF 면 라벨이 흐려진다(값 유지) · 원형 체크는 흐리지 않는다', () => {
+    render(<LimitChaserForm {...props({ server: echo({ extraBuyEnabled: false, extraBuyBurstRelease: true }) })} />);
+    const label = within(burst()).getByText('버스트 시 해제');
+    expect(opacityLayers(label)).toBe(1);
+    expect(burst()).toHaveAttribute('aria-checked', 'true');
+    const circle = burst().querySelector('[data-slot="lc-check-circle"]') as HTMLElement;
+    expect(opacityLayers(circle)).toBe(0);
   });
 });

@@ -338,6 +338,33 @@ describe("parseInbound — 전략·주문 인바운드 6종", () => {
     expect(parseInbound(lcSet({ postBuyAuto: "true" }))).toBeNull();
   });
 
+  /*
+    quick-261003-rc4 — 추가매수 ☐버스트 시 해제. `extraBuyBurstRelease` 도 선택이고 12필드 존재 판정 밖이다.
+    buy3_schema 3 은 조립기가 필드 존재로만 파생한다(D-01 · T-rc4-01).
+  */
+  it("①-burst 새 탭 cfg(12 + postBuyAuto + extraBuyBurstRelease)는 통과하고 45키 · 없어도 통과(구 탭) · buy3Schema 는 떨어진다 (B7)", () => {
+    const full = parseInbound(lcSet({ postBuyAuto: false, extraBuyBurstRelease: true, buy3Schema: 3 }));
+    if (full?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(full.cfg.extraBuyBurstRelease).toBe(true);
+    expect(full.cfg.postBuyAuto).toBe(false);
+    expect(Object.keys(full.cfg)).toHaveLength(45);
+    expect(full.cfg).not.toHaveProperty("buy3Schema");
+    expect(buy3CfgOf(full.cfg)).not.toBeNull();
+
+    // 구 탭 — 필드 없음도 통과 · 키를 만들지 않는다.
+    const old = parseInbound(lcSet({ postBuyAuto: true }));
+    if (old?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(old.cfg).not.toHaveProperty("extraBuyBurstRelease");
+    expect(Object.keys(old.cfg)).toHaveLength(44);
+
+    // withNeutralBuy3 는 extraBuyBurstRelease 를 채우지도 지우지도 않는다.
+    expect(withNeutralBuy3(old.cfg)).not.toHaveProperty("extraBuyBurstRelease");
+    expect(withNeutralBuy3(full.cfg).extraBuyBurstRelease).toBe(true);
+
+    // 형식 위반은 스키마 위반이다.
+    expect(parseInbound(lcSet({ extraBuyBurstRelease: "true" }))).toBeNull();
+  });
+
   it("①-auto-b withNeutralBuy3 는 입력에 없는 postBuyAuto 를 만들지 않는다 · 있으면 그대로 둔다", () => {
     const legacy = parseInbound(JSON.stringify({ t: "lc.set", cfg: legacyCfg({ buyEnabled: false }) }));
     if (legacy?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");

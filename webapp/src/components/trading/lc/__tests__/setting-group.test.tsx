@@ -71,7 +71,14 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
       'lc-sweep-tick',
       'lc-sweep-watch-price',
     ]);
-    expect(groupOf('extra-buy').rows.map(idOf)).toEqual(['lc-extra-buy-amount', 'lc-extra-buy-min-qty', 'lc-extra-buy-max-qty']);
+    // + ☐버스트 시 해제 체크 행(quick-261003-rc4 — 최소 · 최대 잔량 밑 마지막 행).
+    expect(groupOf('extra-buy').rows.map((r) => r.kind)).toEqual(['value', 'value', 'value', 'check']);
+    expect(groupOf('extra-buy').rows.map(idOf)).toEqual([
+      'lc-extra-buy-amount',
+      'lc-extra-buy-min-qty',
+      'lc-extra-buy-max-qty',
+      'lc-extra-buy-burst-release',
+    ]);
     expect(groupOf('post-buy').rows.map((r) => r.kind)).toEqual(['value', 'value', 'note', 'value', 'value', 'derived']);
     expect(groupOf('post-buy').rows.map(idOf)).toEqual([
       'lc-post-buy-amount',
@@ -131,6 +138,7 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
       extraBuyOrderAmount: 'lc-extra-buy-amount',
       extraBuyMinQty: 'lc-extra-buy-min-qty',
       extraBuyMaxQty: 'lc-extra-buy-max-qty',
+      extraBuyBurstRelease: 'lc-extra-buy-burst-release',
       postBuyOrderAmount: 'lc-post-buy-amount',
       postBuyReentry: 'lc-post-buy-reentry',
       postBuyFloorQty: 'lc-post-buy-floor-qty',

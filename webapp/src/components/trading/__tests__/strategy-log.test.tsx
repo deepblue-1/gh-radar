@@ -915,3 +915,33 @@ describe('StrategyLog embed — 빈 문구 override (quick-260923-onn)', () => {
     expect(screen.getByText('아직 기록이 없어요')).toBeInTheDocument();
   });
 });
+
+/*
+  quick-261003-rc4 P-5 — 추가매수 ☐버스트 시 해제(양방향 설정값). VALUE_COMPARE_SKIP 에 넣지 않는다 — 서버는 이 값을
+  스스로 뒤집지 않으므로(에코 = 설정값) 사용자가 바꾼 에코는 종전 일반 경로다. 서버의 버스트 해제는
+  extraBuyEnabled OFF 에코(「추가매수 무장 해제」) + 54 INFO 사유 줄로 드러난다 — 새 전이 문구 없음(특성 테스트).
+*/
+describe('추가매수 버스트 시 해제 — 로그 전이 특성 (quick-261003-rc4 B12)', () => {
+  const armed = at({ buyEnabled: true, extraBuyEnabled: true, extraBuyBurstRelease: false });
+
+  it('extraBuyBurstRelease 만 바뀐 내 요청의 에코 → 「서버 반영 완료」 (켬 · 끔 둘 다)', () => {
+    const on = { ...armed, extraBuyBurstRelease: true };
+    expect(strategyLogLine(armed, on)).toBe('서버 반영 완료');
+    expect(strategyLogLine(on, armed)).toBe('서버 반영 완료');
+  });
+
+  it('서버 버스트 해제 모양 에코(extraBuyEnabled true → false · 포기 아님 · burst true 유지) → 「추가매수 무장 해제」', () => {
+    const before = { ...armed, extraBuyBurstRelease: true };
+    const released = { ...before, extraBuyEnabled: false, extraBuyAbandoned: false };
+    const line = strategyLogLine(before, released) ?? '';
+    expect(line).toBe('추가매수 무장 해제');
+    expect(line).not.toContain('포기');
+  });
+
+  it('54 INFO 사유 줄(서버 원문) — 상따 몫 · 「[상따] 서버 통지 — 추가매수 해제 — 버스트 상한가(…)」', () => {
+    const m = '추가매수 해제 — 버스트 상한가(조각 3 · 합계 123,456주)';
+    const reason = msg({ lv: 'INFO', src: 'LimitChaser', i: 'KR7005930003', a: '1234567801', kind: '', m });
+    expect(isLimitChaserServerMessage(reason)).toBe(true);
+    expect(serverMessageLogLine(reason).text).toBe(`[상따] 서버 통지 — ${m}`);
+  });
+});

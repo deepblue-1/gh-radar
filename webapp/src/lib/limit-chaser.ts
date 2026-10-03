@@ -240,6 +240,9 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
     extraBuyMinQty: 0,
     extraBuyMaxQty: 0,
     extraBuyOrderAmount: 4000, // DEFAULT_EXTRA_BUY_ORDER_AMOUNT (만원) — D-04
+    // 추가매수 ☐버스트 시 해제(quick-261003-rc4) — 새 폼은 OFF(gh-trade 클라 기본 해제 · 종목 전환 초기화 동형).
+    // 게이트가 아니다 — 삭제 판정 · 켜진 전략 판정에 들어가지 않는다(P-4).
+    extraBuyBurstRelease: false,
     postBuyEnabled: false,
     // 후매수 ☐자동(quick-260929-vzy) — 새 폼은 자동 OFF(WinForms 종목 전환 초기화 동형).
     postBuyAuto: false,
@@ -582,6 +585,8 @@ export function formFromServer(
     // ★ 금액 0 도 그대로 들인다 — 선매수와 같은 규칙이다(구서버 에코의 선매수 금액만 예외 · `isLegacyAmountUnknown`).
     //   buy3 서버는 세 금액을 늘 싣기 때문에 0 은 「모른다」가 아니라 사용자가 둔 값이다(D-03).
     extraBuyOrderAmount: server.extraBuyOrderAmount,
+    // 에코 그대로 — 설정값(서버는 버스트 해제 때 이 값이 아니라 extraBuyEnabled 를 내린다 · quick-261003-rc4).
+    extraBuyBurstRelease: server.extraBuyBurstRelease,
     postBuyEnabled: server.postBuyEnabled,
     // 에코 그대로 — 서버가 자동을 발화하면 false 로 온다(quick-260929-vzy).
     postBuyAuto: server.postBuyAuto,
