@@ -3,16 +3,19 @@ phase: "20"
 slug: "toss-order-ticket"
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
-status: draft
-nyquist_compliant: false
+# 2026-10-03 validate-phase §6 State A: 재실행(webapp 15 파일 918 ✓ · tick-rule 13 ✓ · shared krxTick/limitUp 31 ✓ · 실패 0) → validated · 갭 0 · superseded 5
+# P20-3 e2e 는 알려진 적색(R3-W1: 344 카드 헤더 종목명 24px 넘침 — Phase 20 우측 패널 밖 원인, deferred-items 이월) · 폭/44px 불변식은 단위 테스트로 green.
+status: validated
+nyquist_compliant: true
 wave_0_complete: true
 created: "2026-09-25"
+validated: "2026-10-03"
 ---
 
 # Phase 20 — Validation Strategy
 
 > Per-phase validation contract for feedback sampling during execution.
-> 정본 출처: `20-RESEARCH.md` §Validation Architecture. 모든 명령은 worktree 루트 `/Users/alex/repos/gh-radar/.claude/worktrees/toss-b` 에서 실행한다.
+> 정본 출처: `20-RESEARCH.md` §Validation Architecture. 모든 명령은 master 루트 `/Users/alex/repos/gh-radar` 에서 실행한다(toss-b worktree 는 2026-09-25 병합 후 종료).
 
 ---
 
@@ -25,7 +28,7 @@ created: "2026-09-25"
 | **Quick run command** | `pnpm --filter @gh-radar/webapp exec vitest --run <파일들>` (주의: `pnpm … test -- <name>` 은 필터가 안 되고 전체 suite 를 돈다) |
 | **Full suite command** | `pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/webapp run typecheck && pnpm --filter @gh-radar/webapp run test` |
 | **Shared unit** | `pnpm --filter @gh-radar/shared exec vitest --run src/krxTick.test.ts src/limitUp.test.ts` |
-| **E2E (phase gate)** | `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/trading-workbench.spec.ts e2e/specs/orderbook.spec.ts e2e/specs/a11y.spec.ts e2e/specs/sidebar-tree.spec.ts` (포트 3100 에 다른 dev 서버가 없는지 먼저 확인 — `reuseExistingServer` 함정) |
+| **E2E (phase gate)** | `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/trading-workbench.spec.ts e2e/specs/a11y.spec.ts e2e/specs/sidebar-tree.spec.ts` (`orderbook.spec.ts` 는 Phase 21 D-31 에서 삭제 · d33572c1 — 잔존 케이스는 trading-workbench 로 이전) (포트 3100 에 다른 dev 서버가 없는지 먼저 확인 — `reuseExistingServer` 함정) |
 | **Estimated runtime** | quick < 5s · full ~30s (기준선 99 파일 · 1731 통과 · 1 skip) |
 
 ---
@@ -34,7 +37,7 @@ created: "2026-09-25"
 
 - **After every task commit:** Run `pnpm --filter @gh-radar/webapp exec vitest --run <해당 task 가 만든/바꾼 테스트 파일>` (shared 변경 시 `pnpm --filter @gh-radar/shared build` 선행)
 - **After every plan wave:** Run `pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/webapp run typecheck && pnpm --filter @gh-radar/webapp run test`
-- **Before `/gsd-verify-work`:** Full suite green + e2e 4 spec(순차 `workers: 1`) + 폭 4개(본문 344/700/830/992) × 최악값 잘림 0 + 시각 확인(다크/라이트 · 폰 390 · 태블릿 768 터치 · 데스크톱 1280)
+- **Before `/gsd-verify-work`:** Full suite green + e2e 3 spec(순차 `workers: 1`) + 폭 4개(본문 344/685/830/992 — 경계 700 → 685, quick-260928-q5e) × 최악값 잘림 0 + 시각 확인(다크/라이트 · 폰 390 · 태블릿 768 터치 · 데스크톱 1280)
 - **Max feedback latency:** 30 seconds
 
 ---
@@ -42,32 +45,35 @@ created: "2026-09-25"
 ## Per-Task Verification Map
 
 > Requirements 는 ROADMAP 에서 TBD 이므로 CONTEXT.md 의 D-XX 결정을 요구사항 열에 쓴다. Task ID 는 플래너가 채웠다(2026-09-25, 플랜 20-01~20-07). Status 는 20-07 Task 3 이 실행 결과로 채웠다(2026-09-25 · webapp 107 파일 1970 통과 · 1 skip · shared 10 파일 131 · relay 22 파일 632 · e2e 4 spec 71 passed). 20-08(갭 클로징 · D-24 상단 상태줄 안 C) 행 3개는 20-08 Task 3 이 실행 결과로 채웠다(2026-09-25 · webapp 108 파일 2081 통과 · 1 skip · relay 22 파일 632 · e2e 5 spec 85 passed).
+> **2026-10-03 감사(validate-phase §6 State A):** master 에서 재실행 — webapp 15 파일 918 ✓ · `tick-rule.test.tsx` 13 ✓ · shared krxTick/limitUp 31 ✓ · 실패 0. 이후 phase 가 지운 파일·뒤집은 결정은 SUPERSEDED 로 표기하고 명령에서 뺐다. e2e 는 이번 감사에서 재실행하지 않았다(P20-3 은 알려진 적색 R3-W1).
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 20-01-T1 | 01 | 1 | D-04 · D-14 · D-14a · D-14c · D-20 (트레이서) | T-20-01 · T-20-03 · T-20-04 | 「호가변경」 인라인 Enter → lc.set 1회(서버 값 + 필드 1개) · 에코 일치 때만 행 갱신 · 거부 = 실패 문구 · 미등록 = 전송 0 | component + e2e | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/lc/__tests__/lc-tracer.test.tsx` · `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/trading-workbench.spec.ts -g "P20-1"` | ❌ W0(신설) | ✅ green |
-| 20-01-T2 | 01 | 1 | D-04 · D-05 · D-06 · D-07 | T-20-02 · T-20-04 · T-20-08 | 거부(answerSeq 만) = 실패 · unacked = 실패 · 늦은 에코 = 성공 · 직렬화 1건 · 실패 시 대기 폐기 + 실패 표시 · 무장 불가 = 전송 0 · 토글 되돌림 | unit | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/lc/__tests__/use-lc-field-commit.test.tsx` | ❌ W0(신설) | ✅ green |
-| 20-02-T1 | 02 | 1 | D-15 · D-15 회귀 | T-20-10 | 7구간 한 곳 · limitUpPrice/order-panel 행동 보존 · 자동 보정 없음 | unit | `pnpm --filter @gh-radar/shared exec vitest --run src/krxTick.test.ts src/limitUp.test.ts` · `pnpm --filter @gh-radar/webapp exec vitest --run src/components/orderbook/__tests__/order-panel.test.tsx` | ❌ W0 / ✅ 회귀 | ✅ green |
-| 20-02-T2 | 02 | 1 | D-16 · D-17 · D-14c · D-15 | T-20-06 | 숫자만 · 9자리 상한 · fresh 덮어쓰기 · 칩 단위별 · 검증 문구 원문 | unit | `pnpm --filter @gh-radar/webapp exec vitest --run src/lib/__tests__/numpad.test.ts` | ❌ W0(신설) | ✅ green |
-| 20-02-T3 | 02 | 1 | Pitfall 5 폭 예산 · UI Considerations overflow | T-20-12 | 본문 344/700/830/992 × 최악값 행 넘침 px 실측 → 20-04 백스톱 레벨 · 코드 비커밋 | spike | `node "${TMPDIR:-/tmp}/gh-radar-p20-spike/lc-width-spike.mjs"` (JSON 4밴드) | — (일회성) | ✅ green (20-02 실측 · 실브라우저 단언은 20-07 P20-3 이 대체) |
-| 20-03-T1 | 03 | 2 | D-12 · 토큰 | — | SSR 스냅샷 inline · coarse → sheet · change 구독 · --group-bg/--switch-off/--dim 양 테마 · oklch 0 | unit | `pnpm --filter @gh-radar/webapp exec vitest --run src/lib/__tests__/use-edit-mode.test.ts src/styles/__tests__/tds-tokens.test.ts` | ❌ W0 / ⚠️ 기대값 추가 | ✅ green |
-| 20-03-T2 | 03 | 2 | D-13 · D-16 · D-17 · D-23 · D-05 · D-06 · D-07 | T-20-01 · T-20-04 · T-20-10 · T-20-11 | body 직속 포털 · role=dialog · 닫힐 때 연 행으로 포커스 복귀 · busy 시 Esc/바깥 무시 · D-15 잠금 | component | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/lc/__tests__/number-pad-sheet.test.tsx` | ❌ W0(신설) | ✅ green |
-| 20-03-T3 | 03 | 2 | D-12 · D-13 | T-20-04 | hasTouch → 시트 · 390→370 · 768→440 가운데 · radius 28 · body 직속 · 적용 → 10 → 에코 → 닫힘 | component + e2e | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/lc/__tests__/lc-tracer.test.tsx` · `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/trading-workbench.spec.ts -g "P20-"` | ❌ W0(새 describe) | ✅ green |
-| 20-04-T1 | 04 | 3 | D-01 · D-02 · D-19 · D-20 · D-21 · D-22 | — | 스펙 순서 · role=switch · 원형 체크 role=checkbox · 감시대상 group+aria-pressed · 44px · 뷰포트 BP 0 · 말줄임 0 | component | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/lc/__tests__/setting-group.test.tsx` | ❌ (신설) | ✅ green |
-| 20-04-T2 | 04 | 3 | D-01 · D-03 · D-04 · 불변식(컨테이너) | T-20-01 · T-20-03 · T-20-12 · T-20-13 | dirty-action-bar DOM 부재 · 워크벤치 배관 diff 0 · 카드 컨테이너·/lc 유틸만 · lc-group-* 슬롯 유지 | component | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/__tests__/card-body.test.tsx src/components/trading/__tests__/strategy-card-flow.test.tsx src/components/trading/__tests__/strategy-card.test.tsx src/components/stock/__tests__/stock-orderbook-section.test.tsx` | ⚠️ 갱신 | ✅ green |
-| 20-04-T3 | 04 | 3 | D-01 · D-02 · D-04 · D-19 · D-20 · D-21 · D-22 | T-20-13 | 스위치 4 즉시 · 값 확정 1회 · 32필드 · 미등록 로컬 · 무장 가드 · 에코 | component | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/__tests__/limit-chaser-form.test.tsx` | ⚠️ 재작성 | ✅ green |
-| 20-05-T1 | 05 | 4 | D-14 · D-14a · D-14c · D-15 | T-20-01 · T-20-10 | ↑↓ 한 호가/1 · 위반 저장 거부 + 말풍선 · 위반 blur 취소 · busy readOnly · 안내 문구·저장 버튼 0 | component | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/lc/__tests__/inline-value-editor.test.tsx` | ❌ (신설) | ✅ green |
-| 20-05-T2 | 05 | 4 | D-14 · D-14b | T-20-02 · T-20-14 | Tab 같은 그룹 다음(감시대상 건너뜀) · 한 번 클릭 전환 · 직렬화 · 옮긴 뒤 실패 표시 | component | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/lc/__tests__/inline-navigation.test.tsx` | ❌ (신설) | ✅ green |
-| 20-06-T1 | 06 | 4 | D-08 · D-09 · D-11 · D-15 | T-20-10 · T-20-15 | 상자/48·38 버튼 · 스테퍼 제거 · 전체 선택·↑↓ · 가격 검증 줄(주문 안 막음) · 주문 경로 줄 diff 0 | component | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/__tests__/manual-order-form.test.tsx` | ⚠️ 부분 갱신 | ✅ green |
-| 20-06-T2 | 06 | 4 | D-10 · D-17 · D-23 | T-20-05 · T-20-09 | 시트 「입력」 = 값만 채움 · sendOrder 0 · 주문은 확인 다이얼로그로만 · 현재가/상한가 같은 카드 | component | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/__tests__/manual-order-form.test.tsx src/components/trading/__tests__/card-body.test.tsx` | ⚠️ 새 describe | ✅ green |
-| 20-07-T1 | 07 | 5 | 불변식(폭) · D-04 · D-20 | T-20-12 · T-20-17 | 셀렉터 이관 · 더티 케이스 5개 재정의 · P20-3 최악값 × 4밴드 잘림 0 · 44px · 그룹 높이 동일 | e2e | `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/trading-workbench.spec.ts` | ⚠️ 확장 | ✅ green |
-| 20-07-T2 | 07 | 5 | D-10 · D-12 · D-13 · D-15 · a11y · 주문 경로 | T-20-09 · T-20-11 | P20-4 매수가격 시트 · P20-5 수동주문 시트(주문 0) · 호가 탭 시트 vs FAB · 스위치 role · 시트 axe 0 | e2e | `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/trading-workbench.spec.ts e2e/specs/orderbook.spec.ts e2e/specs/a11y.spec.ts e2e/specs/sidebar-tree.spec.ts` | ⚠️ ⑦·11 재정의 | ✅ green |
-| 20-07-T3 | 07 | 5 | 전체 게이트 | T-20-16 | build_command · test_command · shared 전체 · webapp build · e2e 4 spec | gate | config `build_command` · `test_command` · e2e 4 spec | ✅ | ✅ green (build · test · shared · webapp build · e2e 71 passed) |
-| 20-08-T1 | 08 | 6 | D-24(≥700) · 불변식 (트레이서) | T-20-18 · T-20-19 · T-20-20 | 거부 문장 → 고지 줄 role=alert 한 번(상태줄 alert 0) · LED 점 3개(sr-only) · 「계좌」「반영」 sr-only/title · 본문 700·830·992·뷰포트 1440 거부 최악값 1줄 · 잘림 0 | component + e2e | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/stock/__tests__/stock-orderbook-section.test.tsx` · `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/orderbook.spec.ts` | ⚠️ ③ 이관 · ③-e 신설 · P20-6 ① 신설 | ✅ green |
-| 20-08-T2 | 08 | 6 | D-24(<700) · 불변식(컨테이너 · 잘림 0) | T-20-18 · T-20-19 · T-20-21 | 연결 점+시각 · 계좌 select 하나(이름 칩 · 중복/빈 이름은 번호) · 구간/연결 이상 → 고지 줄 · 「다시 연결」 두 자리 같은 reconnect · P20-6 ①②③ 폰 1줄 · 700 끊김 ≤2줄 · select 본래 폭 판정 · axe 0 | component + e2e | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/stock/__tests__/stock-orderbook-section.test.tsx src/components/stock/__tests__/orderbook.test.tsx` · `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/orderbook.spec.ts` | ⚠️ ⑬ 이관 · ③-f~i 신설 · overflow.ts selectsClipped · P20-6 ②③ 신설 | ✅ green |
-| 20-08-T3 | 08 | 6 | 전체 게이트 · UI-SPEC 계약(A7 → D-24 · §10) | T-20-16 | build_command · test_command · e2e 5 spec(orderbook · trading-workbench · a11y · sidebar-tree · stock-detail-tabs) | gate | config `build_command` · `test_command` · `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/orderbook.spec.ts e2e/specs/trading-workbench.spec.ts e2e/specs/a11y.spec.ts e2e/specs/sidebar-tree.spec.ts e2e/specs/stock-detail-tabs.spec.ts` | ✅ | ✅ green (build 0 error TS · relay 22 파일 632 · webapp 108 파일 2081 통과 · 1 skip · e2e 5 spec 85 passed) |
+| 20-01-T1 | 01 | 1 | D-04 · D-14 · D-14a · D-14c · D-20 (트레이서) | T-20-01 · T-20-03 · T-20-04 | 「호가변경」 인라인 Enter → lc.set 1회(서버 값 + 필드 1개) · 에코 일치 때만 행 갱신 · 거부 = 실패 문구 · 미등록 = 전송 0 | component + e2e | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/lc/__tests__/lc-tracer.test.tsx` · `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/trading-workbench.spec.ts -g "P20-1"` | ❌ W0(신설) | ✅ green (2026-10-03 · lc-tracer 17) |
+| 20-01-T2 | 01 | 1 | D-04 · D-05 · D-06 · D-07 | T-20-02 · T-20-04 · T-20-08 | 거부(answerSeq 만) = 실패 · unacked = 실패 · 늦은 에코 = 성공 · 직렬화 1건 · 실패 시 대기 폐기 + 실패 표시 · 무장 불가 = 전송 0 · 토글 되돌림 | unit | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/lc/__tests__/use-lc-field-commit.test.tsx` | ❌ W0(신설) | ✅ green (2026-10-03 · use-lc-field-commit 113) |
+| 20-02-T1 | 02 | 1 | D-15 · D-15 회귀 | T-20-10 | 7구간 한 곳 · limitUpPrice/order-panel 행동 보존 · 자동 보정 없음 | unit | `pnpm --filter @gh-radar/shared exec vitest --run src/krxTick.test.ts src/limitUp.test.ts` · `pnpm --filter @gh-radar/webapp exec vitest --run src/components/orderbook/__tests__/order-panel.test.tsx` | ❌ W0 / ✅ 회귀 | ✅ green (2026-10-03 · shared krxTick/limitUp 31 · order-panel 23) |
+| 20-02-T2 | 02 | 1 | D-16 · D-17 · D-14c · D-15 | T-20-06 | 숫자만 · 9자리 상한 · fresh 덮어쓰기 · 칩 단위별 · 검증 문구 원문 | unit | `pnpm --filter @gh-radar/webapp exec vitest --run src/lib/__tests__/numpad.test.ts` | ❌ W0(신설) | ✅ green (2026-10-03 · numpad 82) |
+| 20-02-T3 | 02 | 1 | Pitfall 5 폭 예산 · UI Considerations overflow | T-20-12 | 본문 344/700/830/992 × 최악값 행 넘침 px 실측 → 20-04 백스톱 레벨 · 코드 비커밋 | spike | `node "${TMPDIR:-/tmp}/gh-radar-p20-spike/lc-width-spike.mjs"` (JSON 4밴드) | — (일회성) | SUPERSEDED (일회성 설계 — 20-02 실측 후 코드 폐기 · 실브라우저 단언은 e2e P20-3 이 대체) |
+| 20-03-T1 | 03 | 2 | D-12 · 토큰 | — | SSR 스냅샷 inline · coarse → sheet · change 구독 · --group-bg/--switch-off/--dim 양 테마 · oklch 0 | unit | `pnpm --filter @gh-radar/webapp exec vitest --run src/lib/__tests__/use-edit-mode.test.ts src/styles/__tests__/tds-tokens.test.ts` | ❌ W0 / ⚠️ 기대값 추가 | ✅ green (2026-10-03 · use-edit-mode 7 · tds-tokens 67) |
+| 20-03-T2 | 03 | 2 | D-13 · D-16 · D-17 · D-23 · D-05 · D-06 · D-07 | T-20-01 · T-20-04 · T-20-10 · T-20-11 | body 직속 포털 · role=dialog · 닫힐 때 연 행으로 포커스 복귀 · busy 시 Esc/바깥 무시 · D-15 잠금 | component | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/lc/__tests__/number-pad-sheet.test.tsx` | ❌ W0(신설) | ✅ green (2026-10-03 · number-pad-sheet 34) |
+| 20-03-T3 | 03 | 2 | D-12 · D-13 | T-20-04 | hasTouch → 시트 · 390→370 · 768→440 가운데 · radius 28 · body 직속 · 적용 → 10 → 에코 → 닫힘 | component + e2e | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/lc/__tests__/lc-tracer.test.tsx` · `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/trading-workbench.spec.ts -g "P20-"` | ❌ W0(새 describe) | ✅ green (2026-10-03 · lc-tracer ⑫ · e2e P20-2 이번 감사 미실행) |
+| 20-04-T1 | 04 | 3 | D-01 · D-02 · D-19 · D-20 · D-21 · D-22 | — | 스펙 순서 · role=switch · 원형 체크 role=checkbox · 감시대상 group+aria-pressed · 44px · 뷰포트 BP 0 · 말줄임 0 | component | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/lc/__tests__/setting-group.test.tsx` | ❌ (신설) | ✅ green (2026-10-03 · setting-group 69 · D-19 그룹 순서는 Phase 24 재편 스펙을 따름) · D-02/D-02a 감시대상 토글 SUPERSEDED (Phase 24 ⑤, 989fb4cd) |
+| 20-04-T2 | 04 | 3 | D-01 · D-03 · D-04 · 불변식(컨테이너) | T-20-01 · T-20-03 · T-20-12 · T-20-13 | dirty-action-bar DOM 부재 · 워크벤치 배관 diff 0 · 카드 컨테이너·/lc 유틸만 · lc-group-* 슬롯 유지 | component | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/__tests__/card-body.test.tsx src/components/trading/__tests__/strategy-card-flow.test.tsx src/components/trading/__tests__/strategy-card.test.tsx` | ⚠️ 갱신 | ✅ green (2026-10-03 · card-body 56 · 밴드 685/830/992 · strategy-card-flow 66 · strategy-card 18) · stock-orderbook-section.test.tsx SUPERSEDED (Phase 21 D-31 삭제, bc36464c) |
+| 20-04-T3 | 04 | 3 | D-01 · D-02 · D-04 · D-19 · D-20 · D-21 · D-22 | T-20-13 | 스위치 4 즉시 · 값 확정 1회 · 32필드 · 미등록 로컬 · 무장 가드 · 에코 | component | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/__tests__/limit-chaser-form.test.tsx` | ⚠️ 재작성 | ✅ green (2026-10-03 · limit-chaser-form 223) · D-04a 레거시 금액 특례 SUPERSEDED (Phase 24-12, e9aa0da1, lcLegacyBlockOf) |
+| 20-05-T1 | 05 | 4 | D-14 · D-14a · D-14c · D-15 | T-20-01 · T-20-10 | ↑↓ 한 호가/1 · 위반 저장 거부 + 말풍선 · 위반 blur 취소 · busy readOnly · 안내 문구·저장 버튼 0 | component | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/lc/__tests__/inline-value-editor.test.tsx` | ❌ (신설) | ✅ green (2026-10-03 · inline-value-editor 34) |
+| 20-05-T2 | 05 | 4 | D-14 · D-14b | T-20-02 · T-20-14 | Tab 같은 그룹 다음(감시대상 건너뜀) · 한 번 클릭 전환 · 직렬화 · 옮긴 뒤 실패 표시 | component | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/lc/__tests__/inline-navigation.test.tsx` | ❌ (신설) | ✅ green (2026-10-03 · inline-navigation 20) |
+| 20-06-T1 | 06 | 4 | D-08 · D-09 · D-11 · D-15 | T-20-10 · T-20-15 | 상자/48·38 버튼 · 스테퍼 제거 · 전체 선택·↑↓ · 가격 검증 줄(주문 안 막음) · 주문 경로 줄 diff 0 | component | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/__tests__/manual-order-form.test.tsx` | ⚠️ 부분 갱신 | ✅ green (2026-10-03 · manual-order-form 89 · 소스 `webapp/src/components/trading/card/manual-order-form.tsx`) |
+| 20-06-T2 | 06 | 4 | D-10 · D-17 · D-23 | T-20-05 · T-20-09 | 시트 「입력」 = 값만 채움 · sendOrder 0 · 주문은 확인 다이얼로그로만 · 현재가/상한가 같은 카드 | component | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/__tests__/manual-order-form.test.tsx src/components/trading/__tests__/card-body.test.tsx` | ⚠️ 새 describe | ✅ green (2026-10-03 · manual-order-form · card-body · e2e P20-5 이번 감사 미실행) |
+| 20-07-T1 | 07 | 5 | 불변식(폭) · D-04 · D-20 | T-20-12 · T-20-17 | 셀렉터 이관 · 더티 케이스 5개 재정의 · P20-3 최악값 × 4밴드 잘림 0 · 44px · 그룹 높이 동일 | e2e | `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/trading-workbench.spec.ts` | ⚠️ 확장 | ⚠️ 알려진 적색 — e2e P20-3 (`trading-workbench.spec.ts:3788`) R3-W1: 344 카드 헤더 종목명 24px 넘침 · Phase 20 우측 패널 밖 원인(헤더 제외 시 우측 패널 통과) · deferred-items 이월 · 44px 불변식은 단위 테스트로 green |
+| 20-07-T2 | 07 | 5 | D-10 · D-12 · D-13 · D-15 · a11y · 주문 경로 | T-20-09 · T-20-11 | P20-4 매수가격 시트 · P20-5 수동주문 시트(주문 0) · 호가 탭 시트 vs FAB · 스위치 role · 시트 axe 0 | e2e | `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/trading-workbench.spec.ts e2e/specs/a11y.spec.ts e2e/specs/sidebar-tree.spec.ts` | ⚠️ ⑦·11 재정의 | ✅ green (2026-09-25 실행 · orderbook.spec 은 명령에서 제외 — Phase 21 D-31 삭제, d33572c1) |
+| 20-07-T3 | 07 | 5 | 전체 게이트 | T-20-16 | build_command · test_command · shared 전체 · webapp build · e2e 4 spec | gate | config `build_command` · `test_command` · e2e 3 spec(trading-workbench · a11y · sidebar-tree) | ✅ | ✅ green (build · test · shared · webapp build · e2e 71 passed — 2026-09-25 · orderbook.spec 은 이후 삭제) |
+| 20-08-T1 | 08 | 6 | D-24(≥700) · 불변식 (트레이서) | T-20-18 · T-20-19 · T-20-20 | 거부 문장 → 고지 줄 role=alert 한 번(상태줄 alert 0) · LED 점 3개(sr-only) · 「계좌」「반영」 sr-only/title · 본문 700·830·992·뷰포트 1440 거부 최악값 1줄 · 잘림 0 | component + e2e | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/stock/__tests__/stock-orderbook-section.test.tsx` · `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/orderbook.spec.ts` | ⚠️ ③ 이관 · ③-e 신설 · P20-6 ① 신설 | SUPERSEDED — 호스트 호가 탭 삭제(Phase 21 D-31 · bc36464c · d33572c1) · `20-VERIFICATION-R3.md` R3-S1 |
+| 20-08-T2 | 08 | 6 | D-24(<700) · 불변식(컨테이너 · 잘림 0) | T-20-18 · T-20-19 · T-20-21 | 연결 점+시각 · 계좌 select 하나(이름 칩 · 중복/빈 이름은 번호) · 구간/연결 이상 → 고지 줄 · 「다시 연결」 두 자리 같은 reconnect · P20-6 ①②③ 폰 1줄 · 700 끊김 ≤2줄 · select 본래 폭 판정 · axe 0 | component + e2e | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/stock/__tests__/stock-orderbook-section.test.tsx src/components/stock/__tests__/orderbook.test.tsx` · `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/orderbook.spec.ts` | ⚠️ ⑬ 이관 · ③-f~i 신설 · overflow.ts selectsClipped · P20-6 ②③ 신설 | SUPERSEDED — 호스트 호가 탭 삭제(Phase 21 D-31 · bc36464c · d33572c1) · `20-VERIFICATION-R3.md` R3-S1 |
+| 20-08-T3 | 08 | 6 | 전체 게이트 · UI-SPEC 계약(A7 → D-24 · §10) | T-20-16 | build_command · test_command · e2e 5 spec(orderbook · trading-workbench · a11y · sidebar-tree · stock-detail-tabs) | gate | config `build_command` · `test_command` · `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/trading-workbench.spec.ts e2e/specs/a11y.spec.ts e2e/specs/sidebar-tree.spec.ts e2e/specs/stock-detail-tabs.spec.ts` | ✅ | ✅ green (2026-09-25 실행 · orderbook.spec 은 명령에서 제외 — Phase 21 D-31 삭제 · P20-6 ③ 은 `trading-workbench.spec.ts:4143` 으로 이전) |
 
-*Status: ⬜ 대기 · ✅ green · ❌ red · ⚠️ flaky*
+| D-15a · D-18 (교차) | 02 · 01 | 1 | D-15a · D-18 | — | 호가단위 규칙 표시 · 900ms 반영 표시 | unit + component | `pnpm --filter @gh-radar/webapp exec vitest --run src/lib/__tests__/tick-rule.test.tsx src/components/trading/lc/__tests__/lc-tracer.test.tsx` | ✅ | ✅ green (2026-10-03 · tick-rule 13 · lc-tracer ④ 900ms) |
+
+*Status: ⬜ 대기 · ✅ green · ❌ red · ⚠️ flaky · SUPERSEDED = 이후 phase 가 대상 파일/결정을 지우거나 뒤집음*
 
 ---
 
@@ -89,20 +95,34 @@ created: "2026-09-25"
 
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
-| 시각 확인(다크/라이트 · 토스 톤) | D-01 · D-08 · D-13 | 색·둥근면·간격은 목업 대조가 필요 | 폰 390 · 태블릿 768(터치) · 데스크톱 1280 에서 목업 `002-toss-order-ticket/index.html` 과 나란히 비교 |
-| 실기 하이브리드 기기(터치+마우스) 판정 | D-12 | Playwright 로 재현 불가(Surface · iPad+트랙패드) | 실기에서 행 탭 → 시트, 마우스 클릭 → 인라인 확인 |
-| 실 게이트웨이 반영 지연/실패 | D-05 · D-06 | 실서버 타임아웃은 e2e 모킹 밖 | relay 연결을 끊고 적용 → 「반영하지 못했어요 · 다시 시도」 + 입력값 보존 확인 |
-| 상단 상태줄 목업 안 C 대조(다크/라이트 · 폰 360/390 · 태블릿 768 · 데스크톱 1280) | D-24 | 톤(색·간격·정렬) 대조는 스크린샷 자동 비교로 판정할 수 없다 | worktree dev(PORT=3100) `/stocks/005930?tab=orderbook` 를 목업 `status-strip-variants.html` 안 C 와 나란히 — 폰: 「● 시각 · 계좌 이름 ⌄ · KRX\|NXT · 점 3개」 한 줄 + 구간 배지·연결 이상은 아래 고지 줄 · ≥700: 「● DMA 실시간 · 번호·이름 select · KRX\|NXT · 점 3개 · 배지 ··· 시각」 한 줄 · 잘림·말줄임·겹침 없음 |
+| 시각 확인(다크/라이트 · 토스 톤) | D-01 · D-08 · D-13 | 색·둥근면·간격은 목업 대조가 필요 | 폰 390 · 태블릿 768(터치) · 데스크톱 1280 에서 목업 `002-toss-order-ticket/index.html` 과 나란히 비교 — ✅ 종결(`20-UAT.md` 6/6 pass · 2026-10-03) |
+| 실기 하이브리드 기기(터치+마우스) 판정 | D-12 | Playwright 로 재현 불가(Surface · iPad+트랙패드) | 실기에서 행 탭 → 시트, 마우스 클릭 → 인라인 확인 — ✅ 종결(`20-UAT.md` 6/6 pass · 2026-10-03) |
+| 실 게이트웨이 반영 지연/실패 | D-05 · D-06 | 실서버 타임아웃은 e2e 모킹 밖 | relay 연결을 끊고 적용 → 「반영하지 못했어요 · 다시 시도」 + 입력값 보존 확인 — ✅ 종결(`20-UAT.md` 6/6 pass · 2026-10-03) |
+| 상단 상태줄 목업 안 C 대조(다크/라이트 · 폰 360/390 · 태블릿 768 · 데스크톱 1280) | D-24 | 톤(색·간격·정렬) 대조는 스크린샷 자동 비교로 판정할 수 없다 | worktree dev(PORT=3100) `/stocks/005930?tab=orderbook` 를 목업 `status-strip-variants.html` 안 C 와 나란히 — 폰: 「● 시각 · 계좌 이름 ⌄ · KRX\|NXT · 점 3개」 한 줄 + 구간 배지·연결 이상은 아래 고지 줄 · ≥700: 「● DMA 실시간 · 번호·이름 select · KRX\|NXT · 점 3개 · 배지 ··· 시각」 한 줄 · 잘림·말줄임·겹침 없음 — ✅ 종결(`20-UAT.md` 6/6 pass · 2026-10-03 · 경계는 현재 685 · 호스트 호가 탭은 Phase 21 D-31 에서 삭제) |
 
 ---
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 30s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 30s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** validated 2026-10-03 (validate-phase §6 State A · HEAD 9dc19d4b · P20-3 e2e 알려진 적색 R3-W1 이월)
+
+---
+
+## Validation Audit 2026-10-03
+
+> master 재실행(HEAD 9dc19d4b): webapp 15 파일 918 ✓ · `tick-rule.test.tsx` 13 ✓ · shared krxTick/limitUp 31 ✓ — 실패 0. e2e 는 이번 감사에서 재실행하지 않았다. 수동 4건은 `20-UAT.md` 6/6 pass(2026-10-03)로 종결.
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+| Superseded | 5 (D-02 · D-02a 감시대상 토글 — Phase 24 ⑤ 989fb4cd · D-04a 레거시 금액 특례 — Phase 24-12 e9aa0da1 · D-24 호스트 호가 탭 — Phase 21 D-31 bc36464c/d33572c1 · 폭 스파이크 20-02-T3 — 일회성, P20-3 대체) |
+| Known red | 1 (e2e P20-3 — R3-W1: 344 카드 헤더 종목명 24px 넘침 · Phase 20 우측 패널 밖 원인 · deferred-items 이월) |

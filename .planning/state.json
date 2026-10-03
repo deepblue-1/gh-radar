@@ -125,9 +125,9 @@
     }
   ],
   "next": {
-    "command": "/gsd:progress --next",
-    "label": "Advance to the next step (plan phase 20)",
-    "reason": "Phase 20 of 35 — needs a plan"
+    "command": "/gsd-progress",
+    "label": "Phase 23 — Play 개발자 인증 후 진행",
+    "reason": "Phase 18·19·20 완료(2026-10-03); 남은 미완료는 Phase 23"
   },
   "updated_at": "2026-10-03T13:01:25.200Z"
 }
