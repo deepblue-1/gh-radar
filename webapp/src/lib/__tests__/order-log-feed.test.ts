@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import type { StrategyEventRow } from '@gh-radar/shared';
+import { isMarketStrategyEvent, type StrategyEventRow } from '@gh-radar/shared';
 
 import {
   DEFAULT_ORDER_LOG_FILTERS,
@@ -70,6 +70,22 @@ describe('inScope — 공용 패널 범위 (결정 1-A)', () => {
     expect(inScope(buy12451, { accountNo: null })).toBe(false);
     expect(inScope(exposed, { accountNo: null })).toBe(true);
   });
+  it('버스트 상한가(kind 10 · quick-261003-rc4)는 kind 1 처럼 시세 — 계좌 무관 · 종목/거래소 범위만 · market 필터 통과', () => {
+    const burst = row(exposed, { seq: 900, kind: 10, condActual: 3, evTradeQty: 123_456 });
+    expect(inScope(burst, { accountNo: OTHER_ACCOUNT })).toBe(true);
+    expect(inScope(burst, { accountNo: null })).toBe(true);
+    expect(inScope(burst, { accountNo: FIXTURE_ACCOUNT_NO, isin: burst.isin, exchange: burst.exchange })).toBe(true);
+    expect(inScope(burst, { accountNo: FIXTURE_ACCOUNT_NO, isin: OTHER_ISIN })).toBe(false);
+    expect(inScope(burst, { accountNo: FIXTURE_ACCOUNT_NO, exchange: 'NXT' })).toBe(false);
+    expect(matchesKind(burst, 'market')).toBe(matchesKind(exposed, 'market'));
+    expect(matchesKind(burst, 'market')).toBe(true);
+    expect(matchesKind(burst, 'all')).toBe(true);
+    for (const k of ['pre', 'add', 'post', 'sell', 'manual', 'vi'] as const) expect(matchesKind(burst, k)).toBe(false);
+    // 예약 kind 9(계좌 '')는 시세가 아니다 — 계좌가 비어 있어도 다른 계좌 범위 밖 · market 필터 불통과.
+    const reserved = row(exposed, { seq: 901, kind: 9 });
+    expect(inScope(reserved, { accountNo: OTHER_ACCOUNT })).toBe(false);
+    expect(matchesKind(reserved, 'market')).toBe(false);
+  });
 });
 
 describe('matchesKind — 구분 필터 group 축 (D-08)', () => {
@@ -119,7 +135,7 @@ describe('applyOrderLogFilters · stockOptions', () => {
     expect(applyOrderLogFilters(STRATEGY_DAY_ROWS, DEFAULT_ORDER_LOG_FILTERS)).toHaveLength(STRATEGY_DAY_ROWS.length);
     const market = applyOrderLogFilters(STRATEGY_DAY_ROWS, { ...DEFAULT_ORDER_LOG_FILTERS, kind: 'market' });
     expect(market.length).toBeGreaterThan(0);
-    expect(market.every((r) => r.kind === 1 || r.kind === 2)).toBe(true);
+    expect(market.every((r) => isMarketStrategyEvent(r.kind))).toBe(true);
     expect(applyOrderLogFilters(STRATEGY_DAY_ROWS, { ...DEFAULT_ORDER_LOG_FILTERS, ex: 'NXT' })).toHaveLength(0);
     expect(applyOrderLogFilters(STRATEGY_DAY_ROWS, { ...DEFAULT_ORDER_LOG_FILTERS, stock: OTHER_ISIN })).toHaveLength(0);
   });

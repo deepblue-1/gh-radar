@@ -5,7 +5,7 @@
  * 표시명은 `strategy-event-labels.ts` 표에서만 고르고(D-10), 서버 코드는 문장을 만들지 않는다.
  *
  * 전 종류 완성 — 25-04: 시세 1 상한가노출 · 2 상한가진입 · 주문 3 매수 주문 · 4 대기(세 갈래) · 5 첫 체결 ·
- * 6 매도 주문 · 7 취소 · 8 거부. 모르는 kind 는 D-10 규칙(구분 = 그룹 표시명 또는 원문 kind · 행위 = 원문 kind ·
+ * 6 매도 주문 · 7 취소 · 8 거부 · (quick-261003-rc4) 시세 10 버스트 상한가. 모르는 kind 는 D-10 규칙(구분 = 그룹 표시명 또는 원문 kind · 행위 = 원문 kind ·
  * 본문 "") — 지어내지 않는다.
  *
  * 두 표면(D-09): 주문로그 탭 `orderLogLineText`(`거래소 | 종목 | 행위 · 본문 | 누적 N`) · 오늘 주문 펼침
@@ -99,6 +99,8 @@ export function strategyEventParts(ev: StrategyEventRow, surface: "log" | "timel
         body: limitEnteredBody(ev),
         cum,
       };
+    case 10:
+      return { badge: strategyKindLabel(10), tone: "market", action: null, body: burstLimitBody(ev), cum };
     case 3:
       return { ...orderBadge(ev), action: strategyKindLabel(3), body: buyOrderBody(ev), cum };
     case 4: {
@@ -152,6 +154,14 @@ function orderBadge(ev: StrategyEventRow): Pick<StrategyEventParts, "badge" | "t
 /** 상한가노출 본문: (시초 상한가 · ) 매도잔량 N. */
 function limitExposedBody(ev: StrategyEventRow): string {
   return joinDot([ev.openAtLimit ? "시초 상한가" : null, `매도잔량 ${NUM.format(ev.askQtyAtLimit)}`]);
+}
+
+/**
+ * 버스트 상한가 본문: `조각 N · 합계 M주` (gh-trade 3c6e6cff StrategyEventFormatter 문구). 슬롯 재사용 —
+ * cond_actual = 조각 수 · ev_trade_qty = 합계 수량. ev_price(상한가)는 그리지 않는다(시세 이벤트 본문에 가격 없음).
+ */
+function burstLimitBody(ev: StrategyEventRow): string {
+  return joinDot([`조각 ${NUM.format(ev.condActual)}`, `합계 ${NUM.format(ev.evTradeQty)}주`]);
 }
 
 /** 상한가진입 스냅 이름 — 벡터 순서 = 즉시 · 1초 · 3초 (`.fbs` 주석). */

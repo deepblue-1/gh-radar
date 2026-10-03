@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import type { StrategyEventRow } from '@gh-radar/shared';
+import { isMarketStrategyEvent, type StrategyEventRow } from '@gh-radar/shared';
 
 /**
  * Phase 25-07 Task 2 — 공용 패널 주문로그 본문 (UI-SPEC ②-1 · 결정 1-A · R3 · R4).
@@ -41,7 +41,7 @@ function feedOf(rows: readonly StrategyEventRow[], over: Partial<OrderLogFeed> =
 }
 
 const lines = (c: HTMLElement) => c.querySelectorAll('li[data-slot="order-log-line"]');
-const marketCount = STRATEGY_DAY_ROWS.filter((r) => r.kind === 1 || r.kind === 2).length;
+const marketCount = STRATEGY_DAY_ROWS.filter((r) => isMarketStrategyEvent(r.kind)).length;
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });

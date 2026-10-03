@@ -58,9 +58,9 @@ describe("strategy-event 계약 (Phase 25 · T-25-02)", () => {
     expect(row.snapQty).toEqual([1, 2]);
   });
 
-  it("isMarketStrategyEvent 는 kind 1 · 2 만 참", () => {
-    expect([0, 1, 2, 3, 4, 5, 6, 7, 8, 99].map(isMarketStrategyEvent)).toEqual([
-      false, true, true, false, false, false, false, false, false, false,
+  it("isMarketStrategyEvent 는 kind 1 · 2 · 10 만 참 (9 는 예약 — 거짓)", () => {
+    expect([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 99].map(isMarketStrategyEvent)).toEqual([
+      false, true, true, false, false, false, false, false, false, false, true, false,
     ]);
   });
 
@@ -191,6 +191,22 @@ describe("조립기 — 시세 이벤트 · 모르는 값 (Phase 25-04 Task 1)",
     expect(orderLogLineText(row, FIXTURE_STOCK_NAME)).toBe(golden("unknownKind"));
     // 그룹도 없으면 구분 칸은 kind 원문 숫자
     expect(strategyEventParts({ ...row, group: 0 }, "log").badge).toBe("99");
+  });
+
+  it("버스트 상한가(kind 10 · quick-261003-rc4) → 구분 「버스트 상한가」 · tone market · 행위 없음 · 「조각 N · 합계 M주」 · 주문번호 칸 없음", () => {
+    const exposed = STRATEGY_DAY_BY_NAME.exposed!;
+    const row = { ...exposed, seq: 90, kind: 10, condActual: 3, evTradeQty: 123_456, evPrice: 12_350 };
+    expect(strategyEventParts(row, "log")).toEqual({
+      badge: "버스트 상한가",
+      tone: "market",
+      action: null,
+      body: "조각 3 · 합계 123,456주",
+      cum: "누적 620,000",
+    });
+    expect(orderLogLineText(row, FIXTURE_STOCK_NAME)).toBe(
+      "[09:42:13.215][버스트 상한가] KRX | ○○전자 | 조각 3 · 합계 123,456주 | 누적 620,000",
+    );
+    expect(timelineStrategyText(row)).toEqual({ action: "버스트 상한가", text: "조각 3 · 합계 123,456주 · 누적 620,000" });
   });
 
   it("group 0 주문 이벤트 → 구분 칸 원문 「0」 · tone unknown(방향을 지어내지 않는다)", () => {

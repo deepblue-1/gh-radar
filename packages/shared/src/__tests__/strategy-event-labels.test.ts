@@ -29,7 +29,7 @@ import {
  */
 
 describe("표시명 표 전수 (D-10)", () => {
-  it("StrategyEventKind 1~8", () => {
+  it("StrategyEventKind 1~8 · 10(버스트 상한가 — quick-261003-rc4) · 9 는 예약이라 표에 없다", () => {
     expect(STRATEGY_EVENT_KIND_LABELS).toEqual({
       1: "상한가노출",
       2: "상한가진입",
@@ -39,7 +39,10 @@ describe("표시명 표 전수 (D-10)", () => {
       6: "주문",
       7: "취소",
       8: "거부",
+      10: "버스트 상한가",
     });
+    expect(strategyKindLabel(10)).toBe("버스트 상한가");
+    expect(strategyKindLabel(9)).toBe("9");
     expect([1, 2, 3, 4, 5, 6, 7, 8].map(strategyKindLabel)).toEqual([
       "상한가노출", "상한가진입", "주문", "대기", "체결", "주문", "취소", "거부",
     ]);

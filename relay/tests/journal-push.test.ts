@@ -645,6 +645,91 @@ describe("저널 푸시 — 레코드 → 기록기 → 적용 RPC → 계좌 �
       strategyWriter.close();
     }
   });
+  it("⑦-burst kind 10 버스트 상한가(quick-261003-rc4) — 관찰자 80 → 적용 RPC → journal.events: 계좌 없는 10 은 A1·A2·B 전원 · 계좌 빈 예약 kind 9 는 아무도", async () => {
+    await start();
+    const { STRATEGY_DAY_BY_NAME } = await loadStrategyDayFixture();
+    const exposed = STRATEGY_DAY_BY_NAME.exposed;
+    if (exposed === undefined) throw new Error("픽스처 exposed 없음");
+    // 시세 이벤트 exposed(계좌 "")를 펼쳐 kind 10 · 슬롯 재사용(조각 수 · 합계)만 바꾼다.
+    const burst: StrategyEventRow = { ...exposed, seq: 1, kind: 10, condActual: 3, evTradeQty: 123_456 };
+    // 예약 kind 9 — 계좌가 비어도 시세가 아니다(주문 이벤트 규칙 → 어느 계좌와도 안 맞아 비공개).
+    const reserved: StrategyEventRow = { ...exposed, seq: 2, kind: 9 };
+    expect(burst.accountNo).toBe("");
+    expect(reserved.accountNo).toBe("");
+
+    const a1 = await open("token-a1", "ready");
+    const a2 = await open("token-a2", "ready");
+    const b = await open("token-b", "ready");
+    const u = await open("token-u", "unauthorized");
+
+    gateway.respondObserverLogin({
+      broker: GATEWAY,
+      epoch: exposed.journalEpoch,
+      headSeq: 0,
+      oldestSeq: 0,
+      resync: false,
+      accounts: [
+        { dmaUserId: "dma-shared", accountNo: ACC1, name: "공유 계좌", priority: 0 },
+        { dmaUserId: "dma-other", accountNo: ACC2, name: "다른 계좌", priority: 0 },
+      ],
+      strategyHeadSeq: 0,
+      strategyOldestSeq: 0,
+      strategyResync: false,
+    });
+
+    const db = rpcSupabase(rpcCalls);
+    const orderWriter = new JournalWriter({ supabase: db, gateway: GATEWAY });
+    const strategyWriter = createStrategyWriter({ supabase: db, gateway: GATEWAY });
+    strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows));
+    const observer = new JournalObserver({
+      secret: "observer-secret-DO-NOT-LOG-rc4",
+      gateway: GATEWAY,
+      host: "127.0.0.1",
+      port: gateway.port,
+      codec: createJournalCodec(),
+      writer: orderWriter,
+      strategyWriter,
+      access,
+    });
+    observer.start();
+    try {
+      const sock = await gateway.waitForObserverConnection(3_000);
+      await waitFor(() => observer.state === "live", "관찰자 live");
+
+      gateway.pushJournalBatch(sock, {
+        records: [],
+        strategyEvents: [recordOf(burst, ""), recordOf(reserved, "")],
+        strategyHeadSeq: 2,
+        strategyCaughtUp: true,
+      });
+      await waitFor(
+        () => eventFrames(a1).length === 1 && eventFrames(a2).length === 1 && eventFrames(b).length === 1,
+        "A1·A2·B journal.events",
+      );
+      await flushIo(8);
+
+      // 두 건 모두 적용 RPC 로 저장은 된다(kind 화이트리스트 없음 — 가시성은 조회 · 푸시 쪽 판정).
+      const applies = rpcCalls.filter((c) => c.fn === "dma_strategy_apply");
+      expect(applies).toHaveLength(1);
+      const events = applies[0]?.args.p_events as StrategyApplyEvent[];
+      expect(events.map((e) => [e.seq, e.kind])).toEqual([
+        [1, 10],
+        [2, 9],
+      ]);
+
+      // kind 10 은 시세 — 다른 계좌 사용자 B 까지 전원. kind 9 는 누구에게도 가지 않는다.
+      expect(eventFrames(a1)).toEqual([[burst]]);
+      expect(eventFrames(a2)).toEqual([[burst]]);
+      expect(eventFrames(b)).toEqual([[burst]]);
+      expect(eventFrames(u)).toEqual([]);
+      expect(eventFrames(a1).flat().some((r) => r.kind === 9)).toBe(false);
+      expect(eventFrames(b).flat().some((r) => r.kind === 9)).toBe(false);
+    } finally {
+      observer.stop();
+      orderWriter.close();
+      strategyWriter.close();
+    }
+  });
   it("⑧ 추가 게이트웨이 journal.rows 는 명시 신원 연결로만 (quick-260929-sas) — 같은 자격증명 문자열이라도 연결 없으면 0", async () => {
     await start();
     const { a1, a2, b, u } = await authAll();

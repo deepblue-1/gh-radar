@@ -25,6 +25,8 @@ export const STRATEGY_EVENT_KIND_LABELS: Readonly<Record<number, string>> = {
   6: "주문",
   7: "취소",
   8: "거부",
+  // 9 — gh-radar 「상태전이」 예약(표에 없다 — 오면 원문 숫자).
+  10: "버스트 상한가",
 };
 
 /** `OrderGroup` 표시명 — 로그 줄의 「구분」 칸. 0(None)은 표에 없다. */

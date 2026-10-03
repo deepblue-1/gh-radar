@@ -3,7 +3,7 @@
 --
 -- 두 경로:
 --   ① 하루치 평면 목록 — 작업대 「주문로그」 탭 복원 · 창 분리 날짜 이동(GET /api/strategy-events).
---      주문 이벤트는 dma_account_access 계좌 조인, 시세 이벤트(kind 1·2)는 그 게이트웨이 매핑 보유 사용자 전원.
+--      주문 이벤트는 dma_account_access 계좌 조인, 시세 이벤트(kind 1·2·10)는 그 게이트웨이 매핑 보유 사용자 전원.
 --   ② 주문 1건 이벤트 — 오늘 주문 행 펼침(GET /api/orders/:id/events). 통보(dma_journal_events) + 전략
 --      (dma_strategy_events) UNION ALL · 게이트웨이 · 거래일 · 계좌는 :id 행에서 읽는다.
 --
@@ -99,7 +99,11 @@ INSERT INTO t_setup SELECT 'strategy_kb', public.dma_strategy_apply('KB', 'ep-25
   pg_temp.sev(3, 4, 1, '1234567802', '22001', '09:46:00.000'),                                    -- …7802 Queued
   pg_temp.sev(4, 3, 1, '', '12999', '09:47:00.000'),                                              -- 형식 이상(계좌 '') 주문 이벤트
   pg_temp.sev(5, 3, 1, '1234567801', '11111', '14:00:00.000', '{}'::jsonb, '2026-09-28'),         -- …7801 어제
-  pg_temp.sev(6, 4, 1, '1234567801', '12451', '09:45:02.880', '{"qty":300}'::jsonb)               -- …7801 Queued 12451
+  pg_temp.sev(6, 4, 1, '1234567801', '12451', '09:45:02.880', '{"qty":300}'::jsonb),              -- …7801 Queued 12451
+  -- quick-261003-rc4 — 다음 날(2026-09-30)로 밀어 기존 2026-09-29 단언을 건드리지 않는다.
+  pg_temp.sev(7, 10, 0, '', '', '10:00:00.000',
+    '{"cond_actual":3,"ev_trade_qty":123456,"ev_price":12350}'::jsonb, '2026-09-30'),            -- 시세 BurstLimit(10)
+  pg_temp.sev(8, 9, 0, '', '', '10:00:01.000', '{}'::jsonb, '2026-09-30')                        -- 예약 kind 9(계좌 '') 대조군
 ));
 -- KYOBO 시세 이벤트 1건.
 INSERT INTO t_setup SELECT 'strategy_kyobo', public.dma_strategy_apply('KYOBO', 'ep-k', jsonb_build_array(
@@ -126,7 +130,7 @@ CREATE FUNCTION pg_temp.oid12451() RETURNS uuid LANGUAGE sql AS $$
    WHERE gateway = 'KB' AND trade_date = '2026-09-29' AND account_no = '1234567801' AND order_no = '12451'
 $$;
 
-SELECT plan(24);
+SELECT plan(28);
 
 -- ── 0. 픽스처 전제 ─────────────────────────────────────────────
 SELECT isnt(
@@ -170,6 +174,29 @@ SELECT results_eq(
   $$SELECT (r->>'seq')::int FROM public.dma_strategy_events_for_user('00000000-0000-4000-8000-000000002501', '2026-09-28') r$$,
   $$VALUES (5)$$,
   '(U1, KB, …7801, 어제 2026-09-28) 그날 것만 — seq 5'
+);
+
+-- ── 1b. 시세 이벤트 kind 10 BurstLimit (quick-261003-rc4 · gh-trade 3dabd6ff) ───
+-- 시세 판정은 kind 집합 {1, 2, 10} 으로만 — 계좌가 빈 예약 kind 9 는 주문 이벤트 규칙에 떨어져 아무에게도 안 보인다.
+SELECT results_eq(
+  $$SELECT r->>'gateway', (r->>'seq')::int, (r->>'kind')::int, r->>'account_no'
+      FROM public.dma_strategy_events_for_user('00000000-0000-4000-8000-000000002501', '2026-09-30') r$$,
+  $$VALUES ('KB', 7, 10, '')$$,
+  '(U1, KB, …7801, 2026-09-30) 시세 BurstLimit seq 7 한 행 — 예약 kind 9 seq 8 은 보이지 않는다'
+);
+SELECT results_eq(
+  $$SELECT r->>'gateway', (r->>'seq')::int, (r->>'kind')::int, r->>'account_no'
+      FROM public.dma_strategy_events_for_user('00000000-0000-4000-8000-000000002502', '2026-09-30') r$$,
+  $$VALUES ('KB', 7, 10, '')$$,
+  '(U2, KB, …7802, 2026-09-30) 다른 계좌 사용자에게도 시세 BurstLimit seq 7 한 행'
+);
+SELECT is_empty(
+  $$SELECT 1 FROM public.dma_strategy_events_for_user('00000000-0000-4000-8000-000000002503', '2026-09-30')$$,
+  '(U3, 매핑 없음, —, 2026-09-30) 0행 — BurstLimit 도 보이지 않는다'
+);
+SELECT is_empty(
+  $$SELECT 1 FROM public.dma_strategy_events_for_user('00000000-0000-4000-8000-000000002504', '2026-09-30')$$,
+  '(U4, KYOBO, …7803, 2026-09-30) 0행 — KB BurstLimit 비공개'
 );
 
 -- ── 2. 하루치 평면 목록: 공개 컬럼 ─────────────────────────────────

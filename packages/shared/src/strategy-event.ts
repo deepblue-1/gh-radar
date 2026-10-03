@@ -9,7 +9,7 @@
  *   추가 포함)도 숫자 그대로 싣고, 표시명은 `strategy-event-labels.ts` 가 모르면 원문 숫자로 그린다(D-10).
  * - T-19-08 · T-25-02: 주문자(`dma_user_id`)는 **싣지 않는다** — 적재 입력에만 있고 적용 RPC 반환 rows ·
  *   `journal.events` 프레임 · 조회 RPC 어디에도 없다.
- * - 가시성: 주문 이벤트(kind 3~8)는 그 계좌 권한 사용자에게만, 시세 이벤트(kind 1·2)는 자격증명이 있는
+ * - 가시성: 주문 이벤트(kind 3~8)는 그 계좌 권한 사용자에게만, 시세 이벤트(kind 1·2·10)는 자격증명이 있는
  *   사용자 전원에게 간다. 판정은 **kind 로만** 한다(`isMarketStrategyEvent`) — 빈 계좌번호로 판정하면 형식
  *   이상 주문 이벤트가 전 사용자에게 샌다(RESEARCH Security).
  *
@@ -27,6 +27,10 @@ export const STRATEGY_EVENT_KIND = {
   SellOrder: 6,
   Cancelled: 7,
   Rejected: 8,
+  // 9 — gh-radar 「상태전이」 예약 번호. 사용 금지(키를 두지 않는다 · 시세 판정에도 넣지 않는다).
+  /** 버스트 상한가 — 상한 매도잔량이 버스트 조각만으로 소진(gh-trade 3dabd6ff · 시세 이벤트 · 계좌 없음).
+   *  슬롯 재사용: condActual = 조각 수 · evTradeQty = 합계 수량 · evPrice = 상한가 · cumVolume = 누적. */
+  BurstLimit: 10,
 } as const;
 
 /**
@@ -47,11 +51,19 @@ export const ORDER_GROUP = {
 } as const;
 
 /**
- * 시세 이벤트(상한가노출 · 상한가진입)인가. 이 이벤트는 계좌가 없어 `account_no` 가 빈 문자열이지만,
- * 판정은 반드시 kind 로 한다 — 빈 계좌번호 비교로 공개 여부를 정하지 않는다(T-25-01).
+ * 시세 이벤트(상한가노출 · 상한가진입 · 버스트 상한가)인가. 이 이벤트는 계좌가 없어 `account_no` 가 빈
+ * 문자열이지만, 판정은 반드시 kind 로 한다 — 빈 계좌번호 비교로 공개 여부를 정하지 않는다(T-25-01).
+ * 예약 kind 9 는 시세가 아니다(계좌가 비면 아무에게도 안 보인다).
+ *
+ * ★ 같은 집합 {1, 2, 10} 을 조회 RPC `dma_strategy_events_for_user`(supabase 20261003120000)가 SQL 로 쓴다 —
+ *   하나만 바뀌면 wss 푸시와 REST 백필이 갈린다.
  */
 export function isMarketStrategyEvent(kind: number): boolean {
-  return kind === STRATEGY_EVENT_KIND.LimitExposed || kind === STRATEGY_EVENT_KIND.LimitEntered;
+  return (
+    kind === STRATEGY_EVENT_KIND.LimitExposed ||
+    kind === STRATEGY_EVENT_KIND.LimitEntered ||
+    kind === STRATEGY_EVENT_KIND.BurstLimit
+  );
 }
 
 /**

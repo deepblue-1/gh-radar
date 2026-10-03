@@ -52,6 +52,26 @@ describe('OrderLogList (panel · F-A)', () => {
     const line = container.querySelector('li[data-slot="order-log-line"]');
     expect(normalize(line?.textContent ?? '')).toMatch(/^\[09:42:13\.215\]\[[^\]]+\] KRX \| ○○전자/);
   });
+  it('버스트 상한가(kind 10 · quick-261003-rc4) → 시세 톤 배지 「버스트 상한가」 · 주문번호 칸 없음 · 「조각 N · 합계 M주」 · 누적', () => {
+    const exposed = STRATEGY_DAY_BY_NAME.exposed!;
+    const burst = { ...exposed, seq: 900, kind: 10, condActual: 3, evTradeQty: 123_456 };
+    const { container } = render(
+      <OrderLogList rows={[exposed, burst]} variant="panel" nameOf={() => FIXTURE_STOCK_NAME} />,
+    );
+    const lines = container.querySelectorAll('li[data-slot="order-log-line"]');
+    expect(lines).toHaveLength(2);
+    const line = lines[1]!;
+    expect(line.getAttribute('data-kind')).toBe('10');
+    const kind = line.querySelector('[data-slot="order-log-kind"]');
+    expect(kind?.textContent).toBe('[버스트 상한가]');
+    // kind 1 행과 같은 시세 톤.
+    const marketKind = lines[0]!.querySelector('[data-slot="order-log-kind"]');
+    expect(kind?.className).toContain('text-[var(--accent-fg)]');
+    expect(kind?.className).toBe(marketKind?.className);
+    const text = normalize(line.textContent);
+    expect(text).toBe('[09:42:13.215][버스트 상한가] KRX | ○○전자 | 조각 3 · 합계 123,456주 | 누적 620,000');
+    expect(text).toBe(orderLogLineText(burst, FIXTURE_STOCK_NAME));
+  });
 });
 
 /* ────────────────────────────────────────────────────────────────────────────
