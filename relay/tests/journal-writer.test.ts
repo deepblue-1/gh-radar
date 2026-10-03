@@ -432,10 +432,20 @@ describe("JournalWriter", () => {
 
     w.close();
     expect(vi.getTimerCount()).toBe(0);
-    expect(w.push([record(2)])).toBe("overflow");
+    // 종료된 기록기는 큐 상한이 아니라 not_ready 다(19-REVIEW WR-02 — 사유 분리).
+    expect(w.push([record(2)])).toBe("not_ready");
     await vi.advanceTimersByTimeAsync(60_000);
     await flush();
     expect(db.calls).toHaveLength(1);
+  });
+
+  it("19-REVIEW WR-02 — epoch 미설정(beginEpoch 전) push 는 overflow 가 아니라 not_ready · 적재 0 · RPC 0", async () => {
+    const db = fakeDb({});
+    const w = make(db);
+    expect(w.push([record(1)])).toBe("not_ready");
+    expect(w.queueDepth).toBe(0);
+    await flush();
+    expect(db.calls).toHaveLength(0);
   });
 });
 

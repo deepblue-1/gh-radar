@@ -374,12 +374,12 @@ export class JournalWriter<R extends { seq: number } = JournalRecord, Out = Jour
     const stream = this.#stream.name;
     if (this.#closed) {
       logger.warn({ gateway: this.#gateway, stream, incoming: records.length }, "[journal] 종료된 기록기에 push — 적재하지 않는다");
-      return "overflow";
+      return "not_ready";
     }
     if (this.#epoch === "") {
       // 적용 RPC 는 빈 epoch 를 거부한다 — 받아 두면 영원히 재시도에 갇힌다. 결선 순서 오류다.
       logger.error({ gateway: this.#gateway, stream, incoming: records.length }, "[journal] epoch 미설정 상태의 push — 적재하지 않는다");
-      return "overflow";
+      return "not_ready";
     }
 
     let last = this.#lastReceivedSeq;

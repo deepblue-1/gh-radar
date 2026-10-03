@@ -24,6 +24,9 @@
  *   D-13  **거부 = 정지.** 게이트웨이가 관찰자 로그인을 거부하면 `stopReconnect` 로 루프를 끊고 `rejected`
  *         로 확정한다. 이후 up 이 와도 로그인을 다시 보내지 않는다(재시작 전 복구 없음 — 15 D-16 ·
  *         T-15-10 동형 · T-19-28). 거부 사유는 게이트웨이의 단일 문구 그대로 남기고 추측해 재시도하지 않는다.
+ *   WR-02 (19-REVIEW) 백오프를 1초로 되돌리는 시점은 로그인 성공이 아니라 **로그인 뒤 첫 진전**(주문 레코드 적재 ·
+ *         live 진입)이다 — 로그인 뒤 결정적 실패(같은 갭 · 같은 깨진 프레임)가 1초 무한 재접속이 되지 않게. 성공 응답의
+ *         빈 epoch 는 계약 위반 정지(rejected)이고, 기록기 `not_ready`(종료 · epoch 미설정)는 「큐 상한」 과 다른 사유로 끊는다.
  *   D-09  (relay 몫) 관찰자 연결은 **로그인 요청 외에 아무것도 보내지 않는다.** LivePing 은 `DmaClient`
  *         가 소유한다. 서버측 강제는 gh-trade 몫이다.
  *   D-10  비밀은 로그인 페이로드를 만드는 코덱에만 넘긴다. **어떤 로그 인자에도 싣지 않는다**(T-19-03) —
@@ -136,6 +139,12 @@ export class JournalObserver extends EventEmitter {
   #strategyPaused: StrategyPauseReason | null = null;
   #started = false;
   #stopped = false;
+  /**
+   * 이 연결에서 백오프를 이미 1초로 되돌렸는가(19-REVIEW WR-02). 되돌리는 시점은 로그인 성공이 아니라 「로그인 뒤 첫
+   * 진전」(주문 레코드 적재 · live 진입)이다 — 로그인 뒤의 결정적 실패(같은 갭 · 같은 깨진 프레임)가 1초 주기
+   * 무한 재접속이 되지 않게. up 마다 내린다.
+   */
+  #progressedThisConn = false;
 
   #loginTimer: NodeJS.Timeout | null = null;
   #cursorTimer: NodeJS.Timeout | null = null;
@@ -331,6 +340,7 @@ export class JournalObserver extends EventEmitter {
     }
     const secret = this.#deps.secret;
     if (secret === undefined || secret === "") return;
+    this.#progressedThisConn = false;
 
     const writer = this.#deps.writer;
     const strategyWriter = this.#deps.strategyWriter;
@@ -407,6 +417,12 @@ export class JournalObserver extends EventEmitter {
       this.#reject(result.message);
       return;
     }
+    if (result.epoch === "") {
+      // 성공 응답인데 epoch 가 없다 — 게이트웨이 설정 · 계약 오류(WR-02). 받아도 적용 RPC 가 빈 epoch 를 거부하므로
+      // 재접속은 같은 결과의 반복일 뿐이다. 거부와 같은 정지 경로로 확정하고(장중 즉시 503) 사유를 따로 남긴다.
+      this.#halt("관찰자 로그인 epoch 없음", "[JOURNAL] 관찰자 로그인 성공 응답에 epoch 가 없다 — 게이트웨이 계약 위반 · 재접속 중단");
+      return;
+    }
     const writer = this.#deps.writer;
     this.#deps.access.replace(result.accounts);
     // headSeq 를 함께 넘긴다 — 같은 epoch 인데 head 가 마지막 수신 seq 보다 작으면(seq 역행) 기록기가
@@ -419,8 +435,7 @@ export class JournalObserver extends EventEmitter {
     if (strategyActive) {
       strategyWriter.beginEpoch(result.epoch, { resync: result.strategyResync, headSeq: result.strategyHeadSeq });
     }
-    // 「성공」 의 기준은 TCP 접속이 아니라 관찰자 로그인이다 — 여기서 백오프를 1초로 되돌린다.
-    this.#transport?.resetReconnectAttempts();
+    // 백오프는 여기서 되돌리지 않는다(WR-02) — 로그인 뒤 첫 진전(`#markProgress`)에서 되돌린다.
     // 새 연결 · 새 since — 전략 수신 일시 중지는 연결 단위다(WR-01). 멈춘 동안 버린 구간은 이 로그인의 전략 since 로 재생된다.
     // 단 `cursor` 는 연결 단위가 아니다 — 커서를 읽어야만 풀린다.
     if (this.#strategyPaused !== null && strategyActive) {
@@ -476,7 +491,13 @@ export class JournalObserver extends EventEmitter {
     this.#strategyHeadSeq = batch.strategyHeadSeq;
     // 주문 먼저 — 여기서 끊기면 이 프레임의 전략분은 버리고 재로그인 since 로 다시 받는다(전략 기록기는 아직
     // 이 프레임을 보지 않았으므로 전략 since 가 그대로다 · DB PK 가 겹친 재생을 흡수한다).
+    const receivedBefore = this.#deps.writer.lastReceivedSeq;
     const result = this.#deps.writer.push(batch.records);
+    if (result === "not_ready") {
+      // 기록기가 받을 수 없다(종료 · epoch 미설정) — 큐 압력이 아니다(WR-02). 적재 0 · 같은 since 로 다시 받는다.
+      this.#dropTransport("저널 기록기 준비 안 됨");
+      return;
+    }
     if (result === "gap") {
       // 기록기가 갭 앞까지 적재했다. 재접속 로그인이 since = 마지막 수신 seq 로 이어받는다(D-12).
       this.#dropTransport("저널 seq 갭");
@@ -487,6 +508,8 @@ export class JournalObserver extends EventEmitter {
       this.#dropTransport("저널 큐 상한");
       return;
     }
+    // 주문 레코드를 실제로 적재했다 = 로그인 뒤 진전 — 백오프를 되돌린다(WR-02).
+    if (this.#deps.writer.lastReceivedSeq !== receivedBefore) this.#markProgress();
     const strategyWriter = this.#deps.strategyWriter;
     if (strategyWriter !== undefined) {
       if (this.#strategyPaused !== null) {
@@ -506,7 +529,8 @@ export class JournalObserver extends EventEmitter {
           this.#dropTransport("전략 seq 갭");
           return;
         }
-        if (strategyResult === "overflow") {
+        if (strategyResult === "overflow" || strategyResult === "not_ready") {
+          // not_ready(종료 · epoch 미설정)도 종전처럼 전략만 멈춘다 — 사유는 기록기 로그가 따로 남긴다.
           this.#pauseStrategy("overflow", { queueDepth: strategyWriter.queueDepth, incoming: batch.strategyEvents.length });
         } else if (batch.strategyContractViolation) {
           // 파서가 위반 이벤트 **앞까지만** 넘겼다 — 그 앞은 적재됐고, 위반 이벤트부터는 받지 않는다.
@@ -530,11 +554,28 @@ export class JournalObserver extends EventEmitter {
    */
   #reject(gatewayMessage: string): void {
     logger.error({ gateway: this.#deps.gateway, gatewayMessage }, "[JOURNAL] 관찰자 로그인 거부 — 재접속 중단 (D-13)");
+    this.#stopLoop("관찰자 로그인 거부");
+  }
+
+  /** 거부 외의 정지 확정(계약 위반 — WR-02). 사유 로그를 따로 남기고 같은 정지 경로를 탄다. */
+  #halt(reason: string, message: string): void {
+    logger.error({ gateway: this.#deps.gateway, reason }, message);
+    this.#stopLoop(reason);
+  }
+
+  #stopLoop(reason: string): void {
     const transport = this.#transport;
     // 루프를 먼저 끊고 전송을 닫는다 — 순서가 바뀌면 닫힘이 부른 down 이 재접속을 예약한다(session #failNoRetry 동형).
-    transport?.stopReconnect("관찰자 로그인 거부");
+    transport?.stopReconnect(reason);
     transport?.destroy();
     this.#setState("rejected");
+  }
+
+  /** 로그인 뒤 첫 진전에서 한 번만 백오프를 1초로 되돌린다(WR-02). */
+  #markProgress(): void {
+    if (this.#progressedThisConn) return;
+    this.#progressedThisConn = true;
+    this.#transport?.resetReconnectAttempts();
   }
 
   /**
@@ -584,6 +625,8 @@ export class JournalObserver extends EventEmitter {
   }
 
   #setState(next: JournalObserverState): void {
+    // live 진입 = 로그인 뒤 진전(재생할 것이 없던 로그인 포함) — 백오프를 되돌린다(WR-02).
+    if (next === "live") this.#markProgress();
     if (this.#state === next) return;
     const from = this.#state;
     this.#state = next;

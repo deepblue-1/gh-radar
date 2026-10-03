@@ -368,7 +368,7 @@ describe("관찰자 tracer — 기동 → 로그인 → 배치 1건 → 기록�
     expect(r.observer.state).toBe("logging_in");
   });
 
-  it("② 로그인 성공(epoch ep-1 · headSeq 1 · resync · 계좌 2행) → access.replace · beginEpoch · resetReconnectAttempts · replaying", async () => {
+  it("② 로그인 성공(epoch ep-1 · headSeq 1 · resync · 계좌 2행) → access.replace · beginEpoch · replaying (백오프 리셋은 첫 진전까지 미룬다 — WR-02)", async () => {
     const r = rig();
     const beginEpoch = vi.spyOn(r.writer, "beginEpoch");
     await bootToLogin(r);
@@ -378,7 +378,7 @@ describe("관찰자 tracer — 기동 → 로그인 → 배치 1건 → 기록�
     expect(r.access.replace).toHaveBeenCalledTimes(1);
     expect(r.access.replace).toHaveBeenCalledWith(ACCOUNTS);
     expect(beginEpoch).toHaveBeenCalledWith("ep-1", { resync: true, headSeq: 1 });
-    expect(r.transport.resets).toBe(1);
+    expect(r.transport.resets).toBe(0);
     expect(r.observer.headSeq).toBe(1);
     expect(r.observer.state).toBe("replaying");
   });
@@ -744,6 +744,70 @@ describe("관찰자 실패 경로 — 거부 정지 · 타임아웃 · 갭/상�
     expect(r.codec.logins).toHaveLength(1);
     expect(r.transport.drops).toEqual([]);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("19-REVIEW WR-02 — 백오프 리셋은 로그인 뒤 첫 진전에서 · 계약 위반 epoch 정지 · not_ready 사유 분리", () => {
+  it("로그인 성공만으로는 리셋하지 않는다 → 첫 배치 적재에서 1회 · 이후 배치는 추가 리셋 없음", async () => {
+    const r = rig();
+    await bootToLogin(r);
+    r.transport.frame(loginOk({ headSeq: 3 }));
+    expect(r.transport.resets).toBe(0);
+    r.transport.frame(batch([1], 3, false));
+    expect(r.transport.resets).toBe(1);
+    r.transport.frame(batch([2, 3], 3, true));
+    expect(r.observer.state).toBe("live");
+    expect(r.transport.resets).toBe(1);
+  });
+
+  it("로그인 직후 같은 갭이 반복되면 리셋하지 않는다(백오프가 자란다 — 1초 무한 재접속 방지)", async () => {
+    const r = rig({ cursor: { journal_epoch: "ep-1", last_seq: 2 } });
+    r.observer.start();
+    await flush();
+    for (let i = 0; i < 3; i += 1) {
+      r.transport.up();
+      r.transport.frame(loginOk({ resync: false, headSeq: 9 }));
+      r.transport.frame(batch([4, 5], 9, false)); // 3 이 게이트웨이 저널에서 영구히 빠졌다
+      r.transport.down();
+    }
+    expect(r.transport.drops).toEqual(["저널 seq 갭", "저널 seq 갭", "저널 seq 갭"]);
+    expect(r.transport.resets).toBe(0);
+  });
+
+  it("재생할 것이 없는 로그인(곧바로 live)은 진전이다 → 리셋 1회", async () => {
+    const r = rig({ cursor: { journal_epoch: "ep-1", last_seq: 4 } });
+    r.observer.start();
+    await flush();
+    r.transport.up();
+    r.transport.frame(loginOk({ resync: false, headSeq: 4 }));
+    expect(r.observer.state).toBe("live");
+    expect(r.transport.resets).toBe(1);
+  });
+
+  it("성공 응답인데 epoch 가 비었다 → 계약 위반 정지(rejected · stopReconnect) · 매핑 교체 0 · 이후 up 에도 로그인 0", async () => {
+    const logs = await spyLogs();
+    const r = rig();
+    await bootToLogin(r);
+    r.transport.frame(loginOk({ epoch: "" }));
+    expect(r.observer.state).toBe("rejected");
+    expect(r.transport.stops).toEqual(["관찰자 로그인 epoch 없음"]);
+    expect(r.transport.destroys).toBe(1);
+    expect(r.access.replace).not.toHaveBeenCalled();
+    expect(countLogs(logs, "error", "[JOURNAL] 관찰자 로그인 성공 응답에 epoch 가 없다 — 게이트웨이 계약 위반 · 재접속 중단")).toBe(1);
+    // 「저널 큐 상한」 같은 틀린 사유로 끊지 않는다.
+    expect(r.transport.drops).toEqual([]);
+    r.transport.up();
+    expect(r.codec.logins).toHaveLength(1);
+  });
+
+  it("기록기 not_ready(종료 · epoch 미설정) → 「저널 큐 상한」 이 아니라 「저널 기록기 준비 안 됨」 으로 끊는다", async () => {
+    const r = rig();
+    await bootToLogin(r);
+    r.transport.frame(loginOk({ headSeq: 1 }));
+    vi.spyOn(r.writer, "push").mockReturnValue("not_ready");
+    r.transport.frame(batch([1], 1, true));
+    expect(r.transport.drops).toEqual(["저널 기록기 준비 안 됨"]);
+    expect(r.transport.resets).toBe(0);
   });
 });
 

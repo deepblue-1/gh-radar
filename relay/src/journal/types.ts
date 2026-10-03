@@ -277,8 +277,10 @@ export type ExtraGatewayRoute = {
  *   - `ok`       — 전부 적재(중복은 건너뜀)
  *   - `gap`      — seq 건너뜀 발견. 앞부분만 적재됐다 — 호출자는 연결을 끊고 `since_seq` 로 다시 받는다
  *   - `overflow` — 큐 상한 초과. 아무것도 적재하지 않았다 — 호출자는 연결을 끊는다(T-19-09)
+ *   - `not_ready` — 기록기가 받을 수 없는 상태(종료됨 · epoch 미설정). 아무것도 적재하지 않았다. 큐 압력이 아니라
+ *     결선 · 계약 문제이므로 `overflow` 와 가른다(19-REVIEW WR-02 — 운영자가 원인을 큐 상한으로 오판하지 않게)
  */
-export type JournalPushResult = "ok" | "gap" | "overflow";
+export type JournalPushResult = "ok" | "gap" | "overflow" | "not_ready";
 
 /** 기록기 관측값 (`/healthz` · `health` 이벤트). 식별자·계좌를 담지 않는다. */
 export type JournalWriterHealth = {
