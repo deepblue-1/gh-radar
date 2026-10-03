@@ -39,6 +39,8 @@
  *         503 으로 번진다(Pitfall 4 설계 의도 붕괴). `overflow` 는 전략 큐가 비면 한 번 재로그인해 `strategySinceSeq` 로
  *         이어받는다. `contract` 는 자동 재개하지 않는다(같은 이벤트가 재생된다 — 게이트웨이 수정 몫). 멈춘 사유는
  *         `/healthz` `journal.strategy.paused` 로 드러낸다. 전략 `gap` 은 종전대로 끊는다(재로그인 한 번으로 풀리는 일시 현상).
+ *         부팅 경로도 같다(19-REVIEW WR-01) — 연결의 필수 조건은 **주문 커서**뿐이다. 전략 커서 읽기 실패는 `cursor` 로
+ *         전략 수신만 멈추고 따로 백오프로 다시 읽는다. 읽히면 한 번 재로그인해 전략 since 로 이어받는다.
  */
 import { EventEmitter } from "node:events";
 
@@ -59,6 +61,13 @@ import type {
   StrategyEventRecord,
   StrategyPauseReason,
 } from "./types.js";
+
+/** 전략 수신 일시 중지 로그 문구 — 사유별 한 곳. */
+const PAUSE_MESSAGES: Readonly<Record<StrategyPauseReason, string>> = {
+  overflow: "[JOURNAL] 전략 큐 상한 — 전략 수신만 일시 중지(주문 저널은 계속 · 큐가 비면 재로그인으로 이어받는다)",
+  contract: "[JOURNAL] 전략 이벤트 필수 키 계약 위반 — 전략 수신만 중지(주문 저널은 계속 · 게이트웨이 수정 필요)",
+  cursor: "[JOURNAL] 전략 커서 읽기 실패 — 전략 수신만 중지(주문 저널은 계속 · 커서를 다시 읽으면 재로그인으로 이어받는다)",
+};
 
 /** 관찰자 로그인 요청의 `client` 값 — 게이트웨이 로그에서 relay 관찰자를 구분한다. */
 export const OBSERVER_CLIENT_NAME = "gh-radar-relay";
@@ -130,6 +139,13 @@ export class JournalObserver extends EventEmitter {
 
   #loginTimer: NodeJS.Timeout | null = null;
   #cursorTimer: NodeJS.Timeout | null = null;
+  /** 전략 커서 재읽기 타이머(WR-01 — 전략 커서 실패 격리). */
+  #strategyCursorTimer: NodeJS.Timeout | null = null;
+  /**
+   * 전략 기록기가 DB 커서를 읽었는가(WR-01). 전략 기록기가 없으면 의미 없다(늘 거짓이지만 쓰이지 않는다). 거짓인 동안은
+   * 전략 수신이 `cursor` 로 멈춰 있고 로그인 응답이 전략 기록기를 건드리지 않는다.
+   */
+  #strategyCursorReady = false;
   /** 이미 warn 을 남긴 예상 밖 msgType — 번호별 1회만 알린다. */
   readonly #warnedMsgTypes = new Set<number>();
 
@@ -205,6 +221,10 @@ export class JournalObserver extends EventEmitter {
       clearTimeout(this.#cursorTimer);
       this.#cursorTimer = null;
     }
+    if (this.#strategyCursorTimer !== null) {
+      clearTimeout(this.#strategyCursorTimer);
+      this.#strategyCursorTimer = null;
+    }
     const transport = this.#transport;
     if (transport !== null) {
       transport.off("up", this.#onUp);
@@ -215,13 +235,18 @@ export class JournalObserver extends EventEmitter {
   }
 
   /**
-   * 커서를 읽은 **뒤에만** 연결한다 — since 를 모르고 붙으면 게이트웨이가 전체를 재생한다. 주문 · 전략 커서를
-   * **둘 다** 읽어야 연결한다(어느 하나 실패 = 같은 백오프 재시도 — 한쪽 since 만 알고 붙으면 다른 쪽이 전량 재생된다).
-   * 읽기 실패는 `backoffDelayMs` 로 무한 재시도한다(상태는 connecting 그대로 — D-13).
+   * 커서를 읽은 **뒤에만** 연결한다 — since 를 모르고 붙으면 게이트웨이가 전체를 재생한다. **주문 커서만** 연결의
+   * 필수 조건이다(읽기 실패는 `backoffDelayMs` 로 무한 재시도 · 상태는 connecting 그대로 — D-13).
+   *
+   * 전략 커서 읽기 실패는 전략 수신 일시 중지(`cursor`)로 격리한다(19-REVIEW WR-01) — 전략 칸 하나의 장애(마이그레이션
+   * 누락 · 권한 · 스키마 캐시)가 주문 저널 연결 자체를 막아 장중 503 으로 번지지 않게. 전략 커서는 따로 백오프로
+   * 다시 읽고(`#retryStrategyCursor`), 읽히면 한 번 재로그인해 전략 since 로 이어받는다. 멈춘 동안 받은 전략분은
+   * 버린다 — 전략 since 를 모르므로 어떤 값을 보내도 게이트웨이가 보관분 처음부터 재생한다(0 이면 oldest 부터,
+   * since > head 면 resync) — 버린 구간은 커서를 읽은 뒤 재로그인이 since 로 다시 받는다.
    */
   async #loadCursorThenConnect(attempt: number): Promise<void> {
     try {
-      await Promise.all([this.#deps.writer.readCursor(), this.#deps.strategyWriter?.readCursor()]);
+      await this.#deps.writer.readCursor();
     } catch (err) {
       if (this.#stopped) return;
       const retryInMs = backoffDelayMs(attempt);
@@ -238,7 +263,57 @@ export class JournalObserver extends EventEmitter {
       return;
     }
     if (this.#stopped) return;
+    const strategyWriter = this.#deps.strategyWriter;
+    if (strategyWriter !== undefined) {
+      try {
+        await strategyWriter.readCursor();
+        this.#strategyCursorReady = true;
+      } catch (err) {
+        if (this.#stopped) return;
+        this.#pauseStrategy("cursor", { pgError: safePgError(err) });
+        this.#scheduleStrategyCursorRetry(1);
+      }
+    }
+    if (this.#stopped) return;
     this.#transport?.connect();
+  }
+
+  /** 전략 커서 재읽기 예약 — `backoffDelayMs(attempt)`(1→30초 상한). 연결과 무관하게 돈다(WR-01). */
+  #scheduleStrategyCursorRetry(attempt: number): void {
+    const retryInMs = backoffDelayMs(attempt);
+    this.#strategyCursorTimer = setTimeout(() => {
+      this.#strategyCursorTimer = null;
+      if (this.#stopped) return;
+      void this.#retryStrategyCursor(attempt);
+    }, retryInMs);
+    this.#strategyCursorTimer.unref?.();
+  }
+
+  async #retryStrategyCursor(attempt: number): Promise<void> {
+    const strategyWriter = this.#deps.strategyWriter;
+    if (strategyWriter === undefined) return;
+    try {
+      await strategyWriter.readCursor();
+    } catch (err) {
+      if (this.#stopped) return;
+      logger.error(
+        { gateway: this.#deps.gateway, pgError: safePgError(err), attempt },
+        "[JOURNAL] 전략 커서 읽기 재시도 실패 — 전략 수신 중지 유지(주문 저널은 계속)",
+      );
+      this.#scheduleStrategyCursorRetry(attempt + 1);
+      return;
+    }
+    if (this.#stopped) return;
+    this.#strategyCursorReady = true;
+    logger.info(
+      { gateway: this.#deps.gateway, strategySinceSeq: strategyWriter.lastReceivedSeq, attempt },
+      "[JOURNAL] 전략 커서 복구",
+    );
+    // 이미 로그인한 연결이면 한 번 재로그인해 전략 since 로 이어받는다. 연결 중 · 로그인 중이면 다음 로그인 응답이
+    // 커서를 반영한다(#onLogin — 그 로그인의 전략 since 가 0 이었어도 기록기가 중복을 건너뛰거나 resync 로 받는다).
+    if (this.#state === "live" || this.#state === "replaying") {
+      this.#dropTransport("전략 커서 복구 — 전략 이어받기");
+    }
   }
 
   // ----------------------------------------------------------
@@ -266,8 +341,11 @@ export class JournalObserver extends EventEmitter {
     const epoch = writer.epoch;
     // 로그인 요청의 epoch 는 하나(주문 기록기 epoch)다. 전략 기록기가 다른 epoch(옛 저장소 · 커서 없음)에 있으면
     // 그 seq 를 이 epoch 와 짝지으면 안 된다 — 0 으로 처음부터 받는다(RESEARCH Pitfall 3).
+    // 전략 커서를 아직 못 읽었으면(WR-01 `cursor`) 이어받을 기준이 없다 — 0.
     const strategySinceSeq =
-      strategyWriter !== undefined && strategyWriter.epoch === writer.epoch ? (strategyWriter.lastReceivedSeq ?? 0) : 0;
+      strategyWriter !== undefined && this.#strategyCursorReady && strategyWriter.epoch === writer.epoch
+        ? (strategyWriter.lastReceivedSeq ?? 0)
+        : 0;
     const payload = this.#deps.codec.buildLoginReq({ secret, sinceSeq, epoch, client: this.#client, strategySinceSeq });
     this.#setState("logging_in");
     if (!transport.send(payload)) {
@@ -335,12 +413,17 @@ export class JournalObserver extends EventEmitter {
     // lastReceivedSeq 를 **유지**하고 드러낸다. 그 뒤 head ≤ 수신 이므로 아래 규칙으로 곧바로 live 다.
     writer.beginEpoch(result.epoch, { resync: result.resync, headSeq: result.headSeq });
     // 전략 스트림도 같은 epoch 로 — resync · head 는 전략 스트림 값으로 판정한다(G1 ⓑ).
+    // 전략 커서를 아직 못 읽었으면(WR-01 `cursor`) 전략 기록기를 건드리지 않는다 — 커서를 읽은 뒤의 재로그인이 정한다.
     const strategyWriter = this.#deps.strategyWriter;
-    strategyWriter?.beginEpoch(result.epoch, { resync: result.strategyResync, headSeq: result.strategyHeadSeq });
+    const strategyActive = strategyWriter !== undefined && this.#strategyCursorReady;
+    if (strategyActive) {
+      strategyWriter.beginEpoch(result.epoch, { resync: result.strategyResync, headSeq: result.strategyHeadSeq });
+    }
     // 「성공」 의 기준은 TCP 접속이 아니라 관찰자 로그인이다 — 여기서 백오프를 1초로 되돌린다.
     this.#transport?.resetReconnectAttempts();
     // 새 연결 · 새 since — 전략 수신 일시 중지는 연결 단위다(WR-01). 멈춘 동안 버린 구간은 이 로그인의 전략 since 로 재생된다.
-    if (this.#strategyPaused !== null) {
+    // 단 `cursor` 는 연결 단위가 아니다 — 커서를 읽어야만 풀린다.
+    if (this.#strategyPaused !== null && strategyActive) {
       logger.info({ gateway: this.#deps.gateway, reason: this.#strategyPaused }, "[JOURNAL] 재로그인 — 전략 수신 재개");
       this.#strategyPaused = null;
     }
@@ -371,8 +454,7 @@ export class JournalObserver extends EventEmitter {
     // 주문 caught_up 만으로 live 가 된다(RESEARCH Pitfall 2).
     const strategyReceived = strategyWriter?.lastReceivedSeq ?? 0;
     const nothingToReplayStrategy = result.strategyResync && result.strategyOldestSeq === 0;
-    this.#pendingStrategy =
-      strategyWriter !== undefined && !nothingToReplayStrategy && result.strategyHeadSeq > strategyReceived;
+    this.#pendingStrategy = strategyActive && !nothingToReplayStrategy && result.strategyHeadSeq > strategyReceived;
     this.#setState(this.#pendingJournal || this.#pendingStrategy ? "replaying" : "live");
   }
 
@@ -464,9 +546,7 @@ export class JournalObserver extends EventEmitter {
     this.#pendingStrategy = false;
     logger.error(
       { gateway: this.#deps.gateway, reason, strategyLastReceivedSeq: this.#deps.strategyWriter?.lastReceivedSeq ?? null, ...ctx },
-      reason === "overflow"
-        ? "[JOURNAL] 전략 큐 상한 — 전략 수신만 일시 중지(주문 저널은 계속 · 큐가 비면 재로그인으로 이어받는다)"
-        : "[JOURNAL] 전략 이벤트 필수 키 계약 위반 — 전략 수신만 중지(주문 저널은 계속 · 게이트웨이 수정 필요)",
+      PAUSE_MESSAGES[reason],
     );
   }
 

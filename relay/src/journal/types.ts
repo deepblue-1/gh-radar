@@ -181,8 +181,11 @@ export type StrategyContractViolation = { seq: number; field: "seq" | "trade_dat
  *   - `overflow` — 전략 기록기 큐 상한(적용 RPC 지속 실패 · DB 지연). 큐가 비면 관찰자가 한 번 재로그인해 이어받는다.
  *   - `contract` — 필수 키 계약 위반 이벤트(`StrategyContractViolation`). 자동 재개하지 않는다 — 재로그인해도 같은
  *     이벤트가 재생되므로 게이트웨이 쪽 수정이 필요하다.
+ *   - `cursor` — 전략 커서(`dma_journal_cursor` 전략 칸) 읽기 실패(19-REVIEW WR-01). 주문 커서만으로 연결하고 전략
+ *     커서는 백오프로 따로 다시 읽는다. 읽히면 한 번 재로그인해 전략 since 로 이어받는다. 재로그인으로 풀리지 않는다 —
+ *     커서를 읽어야만 풀린다(since 를 모른 채 받으면 갭 판정이 무너진다).
  */
-export type StrategyPauseReason = "overflow" | "contract";
+export type StrategyPauseReason = "overflow" | "contract" | "cursor";
 
 /** 코덱이 수신 프레임 1건을 해석한 결과. */
 export type ObserverFrame =
