@@ -161,6 +161,7 @@ function quoteFrame(over: Partial<RelayQuote> = {}): RelayQuote {
     vid: 62_000,
     ls: 5_969_782_550,
     kc: 0,
+    bul: false,
     et: '093015123456',
     ...over,
   };

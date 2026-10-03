@@ -100,6 +100,7 @@ const EMPTY_LADDER_QUOTE: RelayQuote = {
   viu: 0,
   vid: 0,
   kc: 0,
+  bul: false,
   ls: 0,
   et: '',
 };

@@ -604,6 +604,8 @@ export function parseQuoteState(env: Envelope, isSnapshot: boolean): RelayQuote 
     // KRX 정규장 종가. 오늘 종가가 아니면 서버가 `0` 을 보낸다 — **`0` 도 권위값**이라
     // 거르지 않는다. NXT 프레임에도 KRX 값이 실린다 (D-11). 벽시계 판정은 어디에도 없다.
     kc: toNum(q.krxClosePrice(), "krx_close_price"),
+    // 버스트 상한가 — 서버 권위값 · 거래소별(이 프레임의 x) · 계산 없음. 부재(구 서버) = false (quick-261003-rc4).
+    bul: q.burstUpperLimit(),
     // 해석하지 않고 원문 그대로 흘린다 — 신선도 판정의 원천 (D-34).
     et: q.exchangeTime() ?? "",
   };

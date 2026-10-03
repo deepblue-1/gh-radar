@@ -252,11 +252,12 @@ export type HubSubscribeResult = "ok" | "limit-user" | "limit-global";
  * | A3 체결 (Trade=2)   | `p o h l c cs cr v va`         | 체결마다 `v`(누적거래량)가 오르므로 체결 틱은 반드시 다르다 |
  * | R8 VI (VI=4)        | `viu vid`                      | VI 상태 · 종류는 와이어에 없다 → 상태만 바뀐 R8 은 못 본다(D-05 편차) |
  * | A6 종가 (Close=8)   | `kc`                           | |
+ * | 버스트 상한가       | `bul`                          | 서버가 체결 섹션(kDirtyTrade)으로 표시 — QuoteStore ResetAllBurstLimit (quick-261003-rc4) |
  * | B6 호가 (Book=1)    | — (`ap aq bp bq ta tb` 제외)   | 호가만 바뀐 틱은 PRICE 소켓에 가지 않는다 |
  * | 체결 시각           | — (`et` 제외)                  | B6 호가 갱신도 이 칸을 덮어쓴다 — 넣으면 호가 틱이 샌다(RESEARCH Pitfall 4) |
  * | 마스터 정적         | — (`ul ll base ls` 제외)       | 가격 섹션 갱신과 무관 |
  *
- * 문자열 조립 대신 필드 12개를 직접 비교한다 — 초당 수백 프레임 경로다.
+ * 문자열 조립 대신 필드 13개를 직접 비교한다 — 초당 수백 프레임 경로다.
  */
 export function samePriceSection(a: RelayQuote, b: RelayQuote): boolean {
   return (
@@ -271,7 +272,8 @@ export function samePriceSection(a: RelayQuote, b: RelayQuote): boolean {
     a.va === b.va &&
     a.viu === b.viu &&
     a.vid === b.vid &&
-    a.kc === b.kc
+    a.kc === b.kc &&
+    a.bul === b.bul
   );
 }
 

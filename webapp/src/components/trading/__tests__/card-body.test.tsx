@@ -104,6 +104,7 @@ function quote(over: Partial<RelayQuote> = {}): RelayQuote {
     viu: 0,
     vid: 0,
     kc: 0,
+    bul: false,
     ls: 0,
     et: '093000000000',
     ...over,

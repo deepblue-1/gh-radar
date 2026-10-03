@@ -48,6 +48,7 @@ function makeQuote(over: Partial<RelayQuote> = {}): RelayQuote {
     vid: 88_000,
     ls: 5_969_782_550,
     kc: 0,
+    bul: false,
     et: '093015123456',
     ...over,
   };
@@ -257,5 +258,14 @@ describe('OrderbookLadder', () => {
     );
 
     expect(container.innerHTML).not.toContain('--primary');
+  });
+});
+
+describe('OrderbookLadder — 기본 변형은 「버스트」 표식이 없다 (quick-261003-rc4 P-7)', () => {
+  it('Q6 variant orderbook · bul true → ladder-burst 0개', () => {
+    const { container } = render(
+      <OrderbookLadder quote={makeQuote({ bul: true })} depth={10} isStale={false} basePrice={BASE} onPriceClick={vi.fn()} />,
+    );
+    expect(container.querySelectorAll('[data-slot="ladder-burst"]')).toHaveLength(0);
   });
 });

@@ -22,7 +22,7 @@ import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as flatbuffers from "flatbuffers";
 
-import type { RelayAccount, RelayOutbound, RelayTape, RelayUnfProgressMsg } from "@gh-radar/shared";
+import type { RelayAccount, RelayOutbound, RelayQuote, RelayTape, RelayUnfProgressMsg } from "@gh-radar/shared";
 
 import {
   LINGER_MS,
@@ -1285,12 +1285,12 @@ describe("PRICE 판정 (D-05 · D-06)", () => {
     expect(PRICE_MIN_INTERVAL_MS).toBe(100);
   });
 
-  it("P2 samePriceSection — 호가 6칸 · 체결 시각만 다르면 같다 · 가격 섹션 12칸 중 하나라도 다르면 다르다", () => {
+  it("P2 samePriceSection — 호가 6칸 · 체결 시각만 다르면 같다 · 가격 섹션 13칸(+ bul) 중 하나라도 다르면 다르다", () => {
     const base = {
       t: "q", i: SAMPLE_ISIN, x: "KRX", snap: false,
       p: 70_950, o: 70_000, h: 71_500, l: 69_800, c: 950, cs: "2", cr: 1.36, v: 1, va: 2,
       ap: [1], aq: [1], bp: [1], bq: [1], ta: 1, tb: 1, ul: 91_000, ll: 49_000, base: 70_000,
-      viu: 77_000, vid: 63_000, kc: 0, ls: 5, et: "093015123456",
+      viu: 77_000, vid: 63_000, kc: 0, bul: false, ls: 5, et: "093015123456",
     } as const;
     const q = { ...base, ap: [...base.ap], aq: [...base.aq], bp: [...base.bp], bq: [...base.bq] };
     expect(samePriceSection(q, { ...q, ap: [2], aq: [2], bp: [2], bq: [2], ta: 9, tb: 9, et: "093016000000" })).toBe(true);
@@ -1299,6 +1299,20 @@ describe("PRICE 판정 (D-05 · D-06)", () => {
       expect(samePriceSection(q, { ...q, [f]: q[f] + 1 }), f).toBe(false);
     }
     expect(samePriceSection(q, { ...q, cs: "5" })).toBe(false);
+    // 버스트 상한가 — 서버가 체결 섹션(kDirtyTrade)으로 표시한다(QuoteStore ResetAllBurstLimit · quick-261003-rc4 P-8).
+    expect(samePriceSection(q, { ...q, bul: !q.bul })).toBe(false);
+    expect(samePriceSection({ ...q, bul: true }, { ...q, bul: true })).toBe(true);
+  });
+
+  it("Q3 59 burstUpperLimit true → FULL · PRICE 소켓 q 프레임에 bul true 가 실린다 (hub 는 객체 그대로 캐시 · 팬아웃)", () => {
+    mixedWithSnapshot();
+    expect((last()!.msg as RelayQuote).bul).toBe(false);
+    vi.advanceTimersByTime(PRICE_MIN_INTERVAL_MS);
+
+    push59({ burstUpperLimit: true });
+
+    expect(last()).toMatchObject({ key: KEY, full: true, price: true });
+    expect((last()!.msg as RelayQuote).bul).toBe(true);
   });
 
   it("P3 58 은 full · price 모두 통과한다", () => {

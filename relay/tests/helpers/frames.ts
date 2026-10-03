@@ -91,6 +91,11 @@ export type FakeQuoteInput = {
    * 「아직 종가가 없다」는 정상 입력이지 미지정 마커가 아니다.
    */
   krxClosePrice?: bigint;
+  /**
+   * 버스트 상한가 (`QuoteState.burst_upper_limit` · gh-trade 3dabd6ff · quick-261003-rc4). 서버 판정 · 거래소별.
+   * 기본 `false` — 구 서버(필드 부재)와 같다.
+   */
+  burstUpperLimit?: boolean;
 };
 
 const TEN = (base: bigint, step: bigint): bigint[] =>
@@ -137,6 +142,7 @@ export function buildQuoteStateFrame(input: FakeQuoteInput = {}): Uint8Array {
   QuoteState.addExchangeTime(b, exchangeTime);
   QuoteState.addIsSnapshot(b, snapshot);
   QuoteState.addKrxClosePrice(b, input.krxClosePrice ?? 0n);
+  QuoteState.addBurstUpperLimit(b, input.burstUpperLimit ?? false);
   const quote = QuoteState.endQuoteState(b);
 
   Envelope.startEnvelope(b);

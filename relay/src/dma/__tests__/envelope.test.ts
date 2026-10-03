@@ -434,6 +434,19 @@ describe("parseQuoteState", () => {
     expect(quote!.x).toBe("NXT");
     expect(quote!.kc).toBe(12_625);
   });
+  it("Q1 버스트 상한가 bul 을 거래소별 프레임 값 그대로 나른다 — 부재 false · NXT true / KRX false 가 섞이지 않는다 (quick-261003-rc4)", () => {
+    const on = parseQuote(buildQuoteStateFrame({ burstUpperLimit: true }));
+    expect(on!.bul).toBe(true);
+    expect(typeof on!.bul).toBe("boolean");
+
+    const absent = parseQuote(buildQuoteStateFrame({}), false);
+    expect(absent!.bul).toBe(false);
+
+    const nxt = parseQuote(buildQuoteStateFrame({ exchange: "NXT", burstUpperLimit: true, snapshot: false }), false);
+    const krx = parseQuote(buildQuoteStateFrame({ exchange: "KRX", burstUpperLimit: false, snapshot: false }), false);
+    expect([nxt!.x, nxt!.bul]).toEqual(["NXT", true]);
+    expect([krx!.x, krx!.bul]).toEqual(["KRX", false]);
+  });
 });
 
 describe("parseTradeTape", () => {

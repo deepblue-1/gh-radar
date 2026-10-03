@@ -64,6 +64,14 @@
  *                         ★ **범례 줄은 없다** — 방향·상한가·최근 체결가는 각 행의 보조
  *                           텍스트가 말한다. 그 텍스트가 WCAG 1.4.1 을 잇는 유일한 채널이므로
  *                           함께 지우면 그 순간 색 단독 전달이 된다.
+ *                         ★ **「버스트」 표식**(quick-261003-rc4 · `BurstMark`) — `quote.bul === true`
+ *                           (서버 판정 버스트 상한가 · 거래소별)일 때 세 트리 각각의 매도 10단 블록
+ *                           위에 겹쳐 그린다. gh-trade 3c6e6cff 호가창 배치(매도 영역 가운데 빨간
+ *                           「버스트」)의 웹 번역이다. 버스트 상한가 상태의 매도호가는 비어 있어 가리는
+ *                           값이 없다. absolute 겹침이라 **레이아웃 폭 0**(행 수 · 열 폭 · 마커 슬롯
+ *                           불변 — 위 「현재가 표시는 레이아웃 폭을 차지하지 않는 방식」 규율)이고
+ *                           `pointer-events-none` 이라 호가 행 클릭(가격 선택)을 가로채지 않는다.
+ *                           기본 `"orderbook"` 변형에는 없다(프로덕션 사용처가 chaser 뿐).
  *
  *   왜 한 파일에 두 트리인가: 「호가 10단을 어떻게 그리는가」는 이 파일의 책임이고, 색·바
  *   정규화·기준가 대비 방향색 같은 **규칙이 공유**된다. 파일을 쪼개면 그 규칙이 두 벌이 되고
@@ -104,6 +112,8 @@ const FLASH_BG = 'motion-safe:bg-[color-mix(in_oklab,var(--fg)_14%,transparent)]
 const LADDER_ROW_H = 'h-8';
 /** 2단 호가 10행 높이 스크롤 박스 — `LADDER_ROW_H`(32px) × 10. 두 값은 한 쌍이다. */
 const LADDER_BOX_TWO_H = 'h-[320px]';
+/** 1단 사다리 10행 높이 스크롤 박스 — 44px 2줄 행 × 10(260924-vj1). 「버스트」 표식도 이 높이(매도 10단)를 쓴다. */
+const LADDER_BOX_ONE_H = 'h-[440px]';
 /** 배경만 부드럽게 사라지게 한다. 폭·위치는 절대 전환 대상이 아니다. */
 const FLASH_FADE =
   'motion-safe:transition-[background-color] motion-safe:duration-150 motion-reduce:transition-none';
@@ -625,6 +635,28 @@ function MarkerSlot({ kind }: { kind: 'upper' | 'trade' | 'none' }) {
   );
 }
 
+/**
+ * 「버스트」 겹침 표식(quick-261003-rc4) — 한 트리의 매도 10단 블록(`heightClass` = 그 트리의 행 × 10) 위
+ * 가운데에 알약 하나. absolute · `pointer-events-none` 이라 레이아웃 폭 0 · 클릭 무간섭이다. 잔량 바(`z-[1]`)
+ * 위에 선다. 글자는 국내 관례 빨강 `--up`(gh-trade 클라 빨간 큰 글자) · 바탕은 `--card` 반투명.
+ */
+function BurstMark({ heightClass }: { heightClass: string }) {
+  return (
+    <div
+      data-slot="ladder-burst"
+      className={cn(
+        'pointer-events-none absolute inset-x-0 top-0 z-[2] flex items-center justify-center',
+        heightClass,
+      )}
+    >
+      <span className="rounded-[var(--r-md)] border border-[var(--up)] bg-[color-mix(in_oklab,var(--card)_85%,transparent)] px-3 py-1 text-[length:var(--t-lg)] leading-none font-bold whitespace-nowrap text-[var(--up)]">
+        <span aria-hidden="true">버스트</span>
+        <span className="sr-only">버스트 상한가</span>
+      </span>
+    </div>
+  );
+}
+
 /** 마커 종류 판정 — 상한가가 최근 체결가보다 우선한다(상한가는 이 화면의 최상위 정보다). */
 function markerOf(
   price: number,
@@ -767,6 +799,8 @@ function ChaserLadder({
   }
 
   const lastTradePrice = recentTrades[0]?.p ?? quote.p;
+  /** 버스트 상한가 — 서버 권위값 · 이 프레임 거래소의 값. `=== true` 로만 본다(키 없는 옛 relay 프레임 안전). */
+  const burst = quote.bul === true;
   const asks = rows.filter((r) => r.side === 'ask');
   const bids = rows.filter((r) => r.side === 'bid');
 
@@ -913,7 +947,9 @@ function ChaserLadder({
       className={cn('flex min-w-0 flex-col', isStale && 'opacity-[.55]', className)}
     >
       {/* ── 3단 표 (본문 830~) — 32px 행(`LADDER_ROW_H`) · 최근 체결 10건 · 마커 슬롯 ── */}
-      <div data-slot="ladder-tree" data-tree="three" className="hidden @min-[830px]/lc:block">
+      <div data-slot="ladder-tree" data-tree="three" className="relative hidden @min-[830px]/lc:block">
+        {/* 매도 10단은 표 맨 위(thead 없음)라 10 × 행 = `LADDER_BOX_TWO_H` 와 같은 높이다. */}
+        {burst && <BurstMark heightClass={LADDER_BOX_TWO_H} />}
         <table
           aria-label="호가 10단 (매도 10단계 · 매수 10단계) 및 최근 체결 10건"
           className="mono w-full table-fixed border-collapse text-[length:var(--t-caption)]"
@@ -1093,6 +1129,8 @@ function ChaserLadder({
           data-slot="ladder-scroll-two"
           className={cn(LADDER_BOX_TWO_H, 'relative overflow-x-hidden overflow-y-auto')}
         >
+          {/* 스크롤 내용과 함께 움직여 매도 10단 블록에 붙어 있다. */}
+          {burst && <BurstMark heightClass={LADDER_BOX_TWO_H} />}
           <table
             aria-label="호가 10단 (매도 10단계 · 매수 10단계)"
             className="mono w-full table-fixed border-collapse text-[length:var(--t-caption)]"
@@ -1134,8 +1172,9 @@ function ChaserLadder({
           ref={scrollRef}
           tabIndex={0}
           data-slot="ladder-scroll"
-          className="relative h-[440px] overflow-x-hidden overflow-y-auto"
+          className={cn(LADDER_BOX_ONE_H, 'relative overflow-x-hidden overflow-y-auto')}
         >
+          {burst && <BurstMark heightClass={LADDER_BOX_ONE_H} />}
           <ul
             aria-label="호가 10단 (매도 10단계 · 매수 10단계)"
             className="m-0 flex list-none flex-col p-0"

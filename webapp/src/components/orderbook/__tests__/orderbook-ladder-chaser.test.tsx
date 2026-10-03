@@ -59,6 +59,7 @@ function makeQuote(over: Partial<RelayQuote> = {}): RelayQuote {
     vid: 90_000,
     ls: 5_969_782_550,
     kc: 0,
+    bul: false,
     et: '093015123456',
     ...over,
   };
@@ -750,5 +751,60 @@ describe('OrderbookLadder — 상따 변형', () => {
     expect(oneBox).not.toBeNull();
     expect(oneBox.className).toContain('h-[440px]');
     expect(oneBox).toHaveAttribute('tabindex', '0');
+  });
+});
+
+/*
+  quick-261003-rc4 — 호가창 「버스트」(QuoteState.burst_upper_limit → RelayQuote.bul). gh-trade 3c6e6cff 클라는 매도 영역
+  가운데에 빨간 「버스트」 를 그린다. 웹은 세 트리 각각의 매도 10단 블록 위에 absolute 겹침 표식 하나(CSS 로 한 트리만
+  보인다) · pointer-events 없음 · 행 수 · 마커 슬롯 · 열 구성 무변경.
+*/
+describe('OrderbookLadder — 상따 「버스트」 겹침 표식 (quick-261003-rc4)', () => {
+  const marks = (c: HTMLElement) => c.querySelectorAll<HTMLElement>('[data-slot="ladder-burst"]');
+
+  it('Q4 bul true → 세 트리에 하나씩 · absolute · pointer-events-none · 「버스트」 + sr-only 「버스트 상한가」 · 행 · 마커 불변', () => {
+    const { container } = renderChaser({ quote: makeQuote({ bul: true }) });
+    const all = marks(container);
+    expect(all).toHaveLength(3);
+    const trees = [...all].map((m) => m.closest('[data-slot="ladder-tree"]')?.getAttribute('data-tree'));
+    expect(trees.sort()).toEqual(['one', 'three', 'two']);
+    for (const m of Array.from(all)) {
+      expect(m.className).toContain('absolute');
+      expect(m.className).toContain('pointer-events-none');
+      expect(m.className).toContain('top-0');
+      const visible = m.querySelector('[aria-hidden="true"]');
+      expect(visible?.textContent).toBe('버스트');
+      expect(m.querySelector('.sr-only')?.textContent).toBe('버스트 상한가');
+      expect(m.querySelector('[class*="whitespace-nowrap"]')).not.toBeNull();
+    }
+    // 레이아웃 불변 — 20행 + 체결 헤더 1 · 마커 슬롯 20(3단 표만).
+    expect(container.querySelectorAll('[data-slot="ladder-row"]')).toHaveLength(20);
+    expect(container.querySelectorAll('[data-slot="ladder-fill-head"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-slot="ladder-marker"]')).toHaveLength(20);
+    // 겹침의 기준 상자 — 3단 트리 wrapper · 2단 · 1단 스크롤 박스가 relative 다.
+    const three = container.querySelector('[data-tree="three"]') as HTMLElement;
+    expect(three.className).toContain('relative');
+    expect(marks(three)).toHaveLength(1);
+  });
+
+  it('Q5 bul false · 키 없음(옛 relay 프레임) · quote null → 표식 0개', () => {
+    const off = renderChaser({ quote: makeQuote({ bul: false }) });
+    expect(marks(off.container)).toHaveLength(0);
+    off.unmount();
+    const { bul: _bul, ...legacy } = makeQuote();
+    void _bul;
+    const old = renderChaser({ quote: legacy as RelayQuote });
+    expect(marks(old.container)).toHaveLength(0);
+    old.unmount();
+    const empty = renderChaser({ quote: null });
+    expect(marks(empty.container)).toHaveLength(0);
+  });
+
+  it('Q6 bul true 여도 onPriceSelect 가 있는 chaser 의 가격 있는 매수 행 클릭은 종전대로 가격을 넘긴다', () => {
+    const onPriceSelect = vi.fn();
+    const { container } = renderChaser({ quote: makeQuote({ bul: true }), onPriceSelect });
+    const bidRow = container.querySelector<HTMLElement>('[data-tree="three"] [data-slot="ladder-row"][data-side="bid"]')!;
+    bidRow.click();
+    expect(onPriceSelect).toHaveBeenCalledWith(99_900);
   });
 });
