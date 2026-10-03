@@ -419,8 +419,10 @@ describe("journal 판정 (Phase 19 D-04)", () => {
       lastSeqRegressionAgeSec: null,
       duplicatesAfterRegression: 0,
       lastDuplicateAfterRegressionAgeSec: null,
+      projectionErrors: 0,
+      lastProjectionErrorAgeSec: null,
       mapping: null,
-      strategy: { lastSeq: 7, headSeq: 9, lagSeq: 2, dbError: false, queueDepth: 0, paused: null },
+      strategy: { lastSeq: 7, headSeq: 9, lagSeq: 2, dbError: false, queueDepth: 0, paused: null, projectionErrors: 0 },
     };
   }
 
@@ -461,11 +463,11 @@ describe("journal 판정 (Phase 19 D-04)", () => {
     expect(body.journal).toMatchObject({ state: "connecting", disconnectedSec: 3600 });
   });
 
-  it("journal 필드 키는 9종(+ strategy — Phase 25)이고 식별자 계열이 없다 (T-19-07 · T-25-10 · smoke health_probe)", async () => {
+  it("journal 필드 키는 9종(+ strategy — Phase 25 · + 19-REVIEW WR-03/04/05 표시 신호 5종)이고 식별자 계열이 없다 (T-19-07 · T-25-10 · smoke health_probe)", async () => {
     const { body } = await probe(journal("live", null), IN_WINDOW);
-    // 전략 칸도 계수 · 불리언 · 멈춤 사유(enum 문자열) 6키뿐이다(WR-01 paused).
+    // 전략 칸도 계수 · 불리언 · 멈춤 사유(enum 문자열) 7키뿐이다(WR-01 paused · 19-REVIEW WR-05 projectionErrors).
     expect(Object.keys((body.journal as { strategy: object }).strategy).sort()).toEqual(
-      ["dbError", "headSeq", "lagSeq", "lastSeq", "paused", "queueDepth"],
+      ["dbError", "headSeq", "lagSeq", "lastSeq", "paused", "projectionErrors", "queueDepth"],
     );
     expect(Object.keys(body.journal as object).sort()).toEqual(
       [
@@ -475,9 +477,11 @@ describe("journal 판정 (Phase 19 D-04)", () => {
         "lagSeq",
         "lastAppliedAgeSec",
         "lastDuplicateAfterRegressionAgeSec",
+        "lastProjectionErrorAgeSec",
         "lastSeq",
         "lastSeqRegressionAgeSec",
         "mapping",
+        "projectionErrors",
         "seqRegressions",
         "state",
         "strategy",
@@ -489,12 +493,19 @@ describe("journal 판정 (Phase 19 D-04)", () => {
   it("전략 스트림 적용 실패(journal.strategy.dbError · 큐 적체)만으로는 503 이 아니다 — 본문에만 드러난다 (Phase 25 · Pitfall 4)", async () => {
     const j: JournalHealth = {
       ...journal("live", null),
-      strategy: { lastSeq: 7, headSeq: 900, lagSeq: 893, dbError: true, queueDepth: 4_999, paused: "overflow" },
+      strategy: { lastSeq: 7, headSeq: 900, lagSeq: 893, dbError: true, queueDepth: 4_999, paused: "overflow", projectionErrors: 0 },
     };
     const { status, body } = await probe(j, IN_WINDOW);
     expect(status).toBe(200);
     expect(body.status).toBe("ok");
-    expect(body.journal).toMatchObject({ state: "live", strategy: { dbError: true, queueDepth: 4_999, paused: "overflow" } });
+    expect(body.journal).toMatchObject({ state: "live", strategy: { dbError: true, queueDepth: 4_999, paused: "overflow", projectionErrors: 0 } });
+  });
+
+  it("19-REVIEW WR-05 — 투영 실패 누적(projectionErrors > 0)만으로는 503 이 아니다 — 본문에만 드러난다", async () => {
+    const j: JournalHealth = { ...journal("live", null), projectionErrors: 12, lastProjectionErrorAgeSec: 40 };
+    const { status, body } = await probe(j, IN_WINDOW);
+    expect(status).toBe(200);
+    expect(body.journal).toMatchObject({ state: "live", projectionErrors: 12, lastProjectionErrorAgeSec: 40 });
   });
 
   it("seq 역행 신호(seqRegressions > 0)만으로는 503 이 아니다 — 스트림은 정상, 본문에만 드러난다", async () => {
@@ -531,8 +542,10 @@ describe("journalGateways — 추가 게이트웨이 관찰자 (quick-260929-c8e
       lastSeqRegressionAgeSec: null,
       duplicatesAfterRegression: 0,
       lastDuplicateAfterRegressionAgeSec: null,
+      projectionErrors: 0,
+      lastProjectionErrorAgeSec: null,
       mapping: null,
-      strategy: { lastSeq: 7, headSeq: 9, lagSeq: 2, dbError: false, queueDepth: 0, paused: null },
+      strategy: { lastSeq: 7, headSeq: 9, lagSeq: 2, dbError: false, queueDepth: 0, paused: null, projectionErrors: 0 },
     };
   }
 
@@ -615,9 +628,11 @@ describe("journalGateways — 추가 게이트웨이 관찰자 (quick-260929-c8e
         "lagSeq",
         "lastAppliedAgeSec",
         "lastDuplicateAfterRegressionAgeSec",
+        "lastProjectionErrorAgeSec",
         "lastSeq",
         "lastSeqRegressionAgeSec",
         "mapping",
+        "projectionErrors",
         "seqRegressions",
         "state",
         "strategy",
@@ -657,8 +672,10 @@ describe("quote 판정 (Phase 26 D-02 · D-16)", () => {
       lastSeqRegressionAgeSec: null,
       duplicatesAfterRegression: 0,
       lastDuplicateAfterRegressionAgeSec: null,
+      projectionErrors: 0,
+      lastProjectionErrorAgeSec: null,
       mapping: null,
-      strategy: { lastSeq: 7, headSeq: 9, lagSeq: 2, dbError: false, queueDepth: 0, paused: null },
+      strategy: { lastSeq: 7, headSeq: 9, lagSeq: 2, dbError: false, queueDepth: 0, paused: null, projectionErrors: 0 },
     };
   }
 

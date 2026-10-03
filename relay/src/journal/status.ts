@@ -159,6 +159,10 @@ export class JournalStatus extends EventEmitter {
       duplicatesAfterRegression: w.duplicatesAfterRegression,
       lastDuplicateAfterRegressionAgeSec:
         w.lastDuplicateAfterRegressionAtMs !== null ? secondsBetween(w.lastDuplicateAfterRegressionAtMs, nowMs) : null,
+      // 투영 실패(WR-05) — 표시 신호(503 판정 밖). 포이즌 격리로 커서는 전진하므로 state 는 live 그대로다.
+      projectionErrors: w.projectionErrors,
+      lastProjectionErrorAgeSec:
+        w.lastProjectionErrorAtMs !== null ? secondsBetween(w.lastProjectionErrorAtMs, nowMs) : null,
       // 매핑 관측값(WR-04) — 표시 신호(빈 스냅샷 거부 · 버린 항목).
       mapping: this.#access?.health() ?? null,
       strategy: this.#strategyHealth(),
@@ -178,6 +182,7 @@ export class JournalStatus extends EventEmitter {
       dbError: w.dbError,
       queueDepth: w.queueDepth,
       paused: this.#observer.strategyPaused ?? null,
+      projectionErrors: w.projectionErrors,
     };
   }
 

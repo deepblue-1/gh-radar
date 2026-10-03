@@ -245,6 +245,9 @@ export class JournalWriter<R extends { seq: number } = JournalRecord, Out = Jour
   #regressionWindow: { epoch: string; afterSeq: number; throughSeq: number } | null = null;
   #duplicatesAfterRegression = 0;
   #lastDuplicateAfterRegressionAtMs: number | null = null;
+  /** 부팅 뒤 누적 투영 실패(적용 RPC 반환 errors) · 마지막 관측 시각(WR-05). */
+  #projectionErrors = 0;
+  #lastProjectionErrorAtMs: number | null = null;
 
   /** `drain` 대기자. 큐가 비고 진행 중 호출이 끝나면 전부 깨운다. */
   #idleWaiters: Array<() => void> = [];
@@ -294,6 +297,8 @@ export class JournalWriter<R extends { seq: number } = JournalRecord, Out = Jour
       lastSeqRegressionAtMs: this.#lastSeqRegressionAtMs,
       duplicatesAfterRegression: this.#duplicatesAfterRegression,
       lastDuplicateAfterRegressionAtMs: this.#lastDuplicateAfterRegressionAtMs,
+      projectionErrors: this.#projectionErrors,
+      lastProjectionErrorAtMs: this.#lastProjectionErrorAtMs,
     };
   }
 
@@ -610,6 +615,12 @@ export class JournalWriter<R extends { seq: number } = JournalRecord, Out = Jour
 
     for (const e of result.errors) {
       logger.warn({ gateway: this.#gateway, stream: this.#stream.name, seq: e.seq, error: e.error }, "[journal] 투영 실패 이벤트 — apply_error 기록됨");
+    }
+    if (result.errors.length > 0) {
+      // 운영자에게 보이게 한다(WR-05) — relay 로그는 Cloud Logging 에 없으므로 `/healthz` 계수가 유일한 원격 신호다.
+      this.#projectionErrors += result.errors.length;
+      this.#lastProjectionErrorAtMs = Date.now();
+      this.emit("health", this.health());
     }
     const rows = result.rows.map((row) => this.#stream.toOut(row));
     if (rows.length === 0) return;

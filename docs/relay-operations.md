@@ -66,13 +66,18 @@ DB 에 쓰지 않는다(D-01). 결선은 `relay/src/index.ts`, 모듈은 `relay/
     `select seq, apply_error from dma_journal_events where apply_error is not null order by seq desc limit 20;` 로 투영 실패가
     쌓였는지 본다. 적용 RPC 가 실패하는 동안 커서는 전진하지 않으므로 **유실은 없다** — 복구되면 같은 배치부터 다시 적용된다.
   - `journal.seqRegressions` > 0 — **503 이 아니다**(표시 신호). 위 「seq 역행 신호」.
+  - `journal.projectionErrors` > 0 · `journal.lastProjectionErrorAgeSec` — 부팅 뒤 누적 투영 실패(19-REVIEW WR-05). **503 이 아니다**
+    (포이즌 격리 — 원문은 적재되고 커서는 전진하므로 `state` 는 live). 그만큼의 통보가 주문 행에 반영되지 않았다는 뜻이다 —
+    게이트웨이 업데이트로 새 `notice_type`/`request_kind` 가 생겼거나 CHECK 위반이 체계적으로 난다. 위 `db_error` 의
+    `apply_error` 조회로 사유를 보고, 값이 짧은 간격으로 계속 늘면 투영 RPC 수정이 필요하다. (전략 스트림은
+    `journal.strategy.projectionErrors`.) relay 재시작 시 0 으로 돌아간다 — DB 정본은 `apply_error is not null` 행 수다.
   - `journal.mapping` — `{ rows, skipped, emptySnapshotsRejected }`(계수만 · 503 판정 밖 · 19-REVIEW WR-04). 관찰자 로그인 응답의
     계좌 매핑 스냅샷 관측값이다. `emptySnapshotsRejected` > 0 이면 게이트웨이가 성공 응답에 **유효 매핑 0행**을 보냈다(users.toml
     로드 실패 · 계좌번호 형식 변경) — relay 는 교체를 거부하고 직전 매핑(메모리 · `dma_account_access`)을 유지한다. 로그
     `[journal] 빈 매핑 스냅샷 — 교체 거부`. 게이트웨이 users.toml 을 확인한다. `skipped` > 0 은 마지막 스냅샷에서 형식 이상으로
     버린 항목 수다 — 그 계좌의 주문은 아무에게도 안 보인다(로그 `skipAccount`). 게이트웨이 매핑을 **의도적으로 전부 비우려면**
     relay 가 거부하므로 운영 SQL(`delete from dma_account_access where gateway = '<키>';`)로 한다.
-  - `journal.strategy` (Phase 25 — 전략 이벤트 스트림) — `{ lastSeq, headSeq, lagSeq, dbError, queueDepth, paused }`. **503 판정 밖**(표시
+  - `journal.strategy` (Phase 25 — 전략 이벤트 스트림) — `{ lastSeq, headSeq, lagSeq, dbError, queueDepth, paused, projectionErrors }`. **503 판정 밖**(표시
     신호 — `journal.state` 는 주문 스트림 기준 그대로). `dbError:true` 는 `dma_strategy_apply` 연속 실패다 — 원격 마이그레이션
     (`dma_strategy_events` · `dma_strategy_apply`)이 적용됐는지 먼저 본다. 관찰자는 전략 쪽 장애로 소켓을 끊지 않고 **전략 수신만
     멈춘다**(주문 기록은 계속 — WR-01). `paused` 가 그 사유다:
@@ -81,6 +86,9 @@ DB 에 쓰지 않는다(D-01). 결선은 `relay/src/index.ts`, 모듈은 `relay/
     - `"contract"` — 게이트웨이가 필수 키(`seq > 0` · `trade_date` YYYY-MM-DD)를 어긴 전략 이벤트를 보냈다. relay 로그
       「전략 이벤트 필수 키 계약 위반」 에 seq · 칸 이름이 있다. **자동 재개하지 않는다**(재로그인해도 같은 이벤트가 재생된다) —
       gh-trade 쪽 수정 뒤 relay 재시작(또는 다음 재접속)으로 그 seq 부터 다시 받는다.
+    - `"cursor"` — 부팅 시 전략 커서(`dma_journal_cursor` 전략 칸) 읽기 실패(19-REVIEW WR-01). 주문 저널은 주문 커서만으로
+      붙어 계속 기록한다. relay 가 전략 커서를 백오프(1→30초)로 다시 읽고, 읽히면 재로그인 1회로 전략 since 를 이어받는다.
+      오래가면 전략 칸 마이그레이션(Phase 25) · 권한을 본다. 로그 「전략 커서 읽기 실패」.
     - `null` — 받는 중. 기록기 로그는 `stream:"strategy"` 로 갈린다.
 - **전환 순서 (D-14, 20:00 이후 · 사용자 승인).** ① DB 마이그레이션(추가 전용) → ② 관찰자 비밀 두 곳 → ③ gh-trade 게이트웨이 배포 ·
   재시작(관찰자 지원판) → ④ relay 배포(`git status -sb` 재확인 — 메인 체크아웃 HEAD/작업 트리를 빌드한다) → 검증(`journal.state` live ·

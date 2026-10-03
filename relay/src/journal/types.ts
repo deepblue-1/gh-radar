@@ -315,6 +315,13 @@ export type JournalWriterHealth = {
   duplicatesAfterRegression: number;
   /** 마지막으로 위 레코드를 본 시각(epoch ms). 없으면 null. */
   lastDuplicateAfterRegressionAtMs: number | null;
+  /**
+   * 부팅 뒤 누적 투영 실패 건수(적용 RPC 반환 `errors` — 19-REVIEW WR-05). 포이즌 격리로 원문은 적재되고 커서는 전진하지만
+   * 그 이벤트는 주문 행에 반영되지 않았다(`dma_journal_events.apply_error`). 0 이면 없음.
+   */
+  projectionErrors: number;
+  /** 마지막 투영 실패 관측 시각(epoch ms). 없으면 null. */
+  lastProjectionErrorAtMs: number | null;
 };
 
 /**
@@ -355,6 +362,13 @@ export type JournalHealth = {
   /** 마지막으로 위 레코드를 본 뒤 몇 초인가. 없으면 null. */
   lastDuplicateAfterRegressionAgeSec: number | null;
   /**
+   * 부팅 뒤 누적 투영 실패 건수(`JournalWriterHealth.projectionErrors` · 19-REVIEW WR-05). 0 보다 크면 그만큼의 통보가
+   * 주문 행에 반영되지 않았다 — `dma_journal_events.apply_error` 를 본다. 표시 신호다(503 판정 밖).
+   */
+  projectionErrors: number;
+  /** 마지막 투영 실패 뒤 몇 초인가. 없으면 null. */
+  lastProjectionErrorAgeSec: number | null;
+  /**
    * 계좌 매핑 관측값(19-REVIEW WR-04) — `{ rows, skipped, emptySnapshotsRejected }` 계수만(식별자 없음 · T-19-07).
    * 표시 신호다(503 판정 밖). 매핑을 주입하지 않은 상태 요약이면 null(키는 늘 있다).
    */
@@ -388,4 +402,6 @@ export type JournalStrategyHealth = {
   queueDepth: number;
   /** 관찰자가 전략 수신을 멈춘 사유. null = 받는 중. 503 판정 밖(표시 신호 · WR-01). */
   paused: StrategyPauseReason | null;
+  /** 전략 적용 RPC 의 부팅 뒤 누적 투영 실패 건수(19-REVIEW WR-05). 표시 신호. */
+  projectionErrors: number;
 };

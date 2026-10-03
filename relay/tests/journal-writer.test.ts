@@ -39,7 +39,15 @@ type Step = "ok" | "error" | "throw" | "hold";
 
 type CursorResponse = { data: unknown; error: unknown };
 
-function fakeDb(opts: { cursor?: CursorResponse; defaultStep?: Step; rowsOf?: (events: JournalApplyEvent[]) => unknown[] } = {}) {
+function fakeDb(
+  opts: {
+    cursor?: CursorResponse;
+    defaultStep?: Step;
+    rowsOf?: (events: JournalApplyEvent[]) => unknown[];
+    /** 적용 RPC 반환 `errors`(투영 실패 · 포이즌 격리) — 19-REVIEW WR-05. */
+    errorsOf?: (events: JournalApplyEvent[]) => Array<{ seq: number; error: string }>;
+  } = {},
+) {
   const calls: RpcCall[] = [];
   const script: Step[] = [];
   const holds: Array<() => void> = [];
@@ -51,7 +59,7 @@ function fakeDb(opts: { cursor?: CursorResponse; defaultStep?: Step; rowsOf?: (e
     data: {
       applied: events.length,
       skipped: 0,
-      errors: [],
+      errors: opts.errorsOf?.(events) ?? [],
       last_seq: events.length > 0 ? String(Math.max(...events.map((e) => e.seq))) : 0,
       rows: (opts.rowsOf?.(events) ?? []) as JournalOrderDbRow[],
     },
@@ -432,6 +440,31 @@ describe("JournalWriter", () => {
     expect(w.push([record(41)])).toBe("ok");
     expect(w.push([record(41)])).toBe("ok"); // 새 epoch 안의 단순 중복
     expect(w.health().duplicatesAfterRegression).toBe(0);
+  });
+
+  it("19-REVIEW WR-05 — 투영 실패(errors) 누적 → health().projectionErrors · lastProjectionErrorAtMs · health 이벤트 · 커서는 전진(dbError 아님)", async () => {
+    const db = fakeDb({
+      errorsOf: (events) =>
+        events.filter((e) => e.seq % 2 === 0).map((e) => ({ seq: e.seq, error: "dma_journal_project: 알 수 없는 notice_type X" })),
+    });
+    const w = make(db);
+    const healths: number[] = [];
+    w.on("health", (h) => healths.push(h.projectionErrors));
+    w.beginEpoch("ep-1", { resync: false, headSeq: 0 });
+    expect(w.health()).toMatchObject({ projectionErrors: 0, lastProjectionErrorAtMs: null });
+
+    w.push([record(1), record(2), record(3), record(4)]);
+    await flush();
+    expect(w.health().projectionErrors).toBe(2);
+    expect(w.health().lastProjectionErrorAtMs).not.toBeNull();
+    expect(w.health().dbError).toBe(false);
+    expect(w.lastAppliedSeq).toBe(4);
+    expect(healths).toEqual([2]);
+
+    w.push([record(5)]); // 실패 없는 배치 — 계수 불변 · health 이벤트 없음
+    await flush();
+    expect(w.health().projectionErrors).toBe(2);
+    expect(healths).toEqual([2]);
   });
 
   it("⑧ drain — 큐가 비면 true · 시간 초과면 false", async () => {

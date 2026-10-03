@@ -424,6 +424,8 @@ describe("관찰자 tracer — 기동 → 로그인 → 배치 1건 → 기록�
       lastSeqRegressionAgeSec: null,
       duplicatesAfterRegression: 0,
       lastDuplicateAfterRegressionAgeSec: null,
+      projectionErrors: 0,
+      lastProjectionErrorAgeSec: null,
       mapping: null,
       // 전략 기록기 미주입 rig — 칸은 있고 값은 null (Phase 25).
       strategy: null,
@@ -453,7 +455,7 @@ describe("관찰자 tracer — 기동 → 로그인 → 배치 1건 → 기록�
     const { status, text } = await fetchHealthz(r.status);
     expect(status).toBe(200);
     const body = JSON.parse(text) as { journal: Record<string, unknown> };
-    expect(body.journal.strategy).toEqual({ lastSeq: 1, headSeq: 1, lagSeq: 0, dbError: false, queueDepth: 0, paused: null });
+    expect(body.journal.strategy).toEqual({ lastSeq: 1, headSeq: 1, lagSeq: 0, dbError: false, queueDepth: 0, paused: null, projectionErrors: 0 });
     expectNoIdentifiers(text);
   });
 });

@@ -386,7 +386,7 @@ describe("relay 부팅 결선 — 실 프로세스 · 관찰자 경로 (Phase 19
         relay,
       );
       expect(h.status).toBe(200);
-      expect(journalOf(h)?.strategy).toEqual({ lastSeq: 1, headSeq: 1, lagSeq: 0, dbError: false, queueDepth: 0, paused: null });
+      expect(journalOf(h)?.strategy).toEqual({ lastSeq: 1, headSeq: 1, lagSeq: 0, dbError: false, queueDepth: 0, paused: null, projectionErrors: 0 });
       expect(JSON.stringify(h.body)).not.toMatch(/"(accountNo|userId|account_no|user_id|dmaUserId|dma_user_id)"/);
       expect(supabase.unknownRequests()).toEqual([]);
 

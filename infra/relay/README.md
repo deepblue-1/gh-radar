@@ -1174,8 +1174,10 @@ KYOBO env 가 없으면 relay 는 이전과 **똑같다**(관찰자 1개 · `/he
 
 #### /healthz 필드
 
-`journalGateways.KYOBO` 는 `journal` 과 같은 JournalHealth 8키(`state · lastSeq · headSeq · lagSeq · disconnectedSec ·
-lastAppliedAgeSec · seqRegressions · lastSeqRegressionAgeSec`) + `alerting` 이다. `alerting` 은 「KB 였다면 503 이었을 조건」
+`journalGateways.KYOBO` 는 `journal` 과 같은 JournalHealth 키(`state · lastSeq · headSeq · lagSeq · disconnectedSec ·
+lastAppliedAgeSec · seqRegressions · lastSeqRegressionAgeSec · duplicatesAfterRegression · lastDuplicateAfterRegressionAgeSec ·
+projectionErrors · lastProjectionErrorAgeSec · mapping · strategy` — 뒤 다섯은 19-REVIEW WR-03/04/05 표시 신호, 503 판정 밖) +
+`alerting` 이다. `alerting` 은 「KB 였다면 503 이었을 조건」
 (장중 rejected 또는 live 아님 180초 이상)이다. **503 에서 제외한 이유 셋:**
 
 1. 교보 터널은 약 4시간마다 재로그인하고 데스크톱 SecuwaySSL 과 상호배제된다 — 그 끊김이 KB relay-down 알림

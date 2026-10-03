@@ -76,6 +76,8 @@ class FakeWriter extends EventEmitter {
     lastSeqRegressionAtMs: null,
     duplicatesAfterRegression: 0,
     lastDuplicateAfterRegressionAtMs: null,
+    projectionErrors: 0,
+    lastProjectionErrorAtMs: null,
   };
   health(): JournalWriterHealth {
     return this.h;
@@ -234,6 +236,8 @@ describe("JournalStatus — journal.state 디바운스 (D-04 (a))", () => {
       lastSeqRegressionAgeSec: null,
       duplicatesAfterRegression: 0,
       lastDuplicateAfterRegressionAgeSec: null,
+      projectionErrors: 0,
+      lastProjectionErrorAgeSec: null,
       mapping: null,
       // 전략 기록기 미주입 — 칸은 있고 값은 null(키 집합 고정).
       strategy: null,
@@ -241,6 +245,9 @@ describe("JournalStatus — journal.state 디바운스 (D-04 (a))", () => {
     // seq 역행 신호는 카운터 + 마지막 관측 뒤 경과초로 드러난다(상태는 바꾸지 않는다).
     writer.h = { ...writer.h, seqRegressions: 1, lastSeqRegressionAtMs: Date.now() - 5_000 };
     expect(st().health(Date.now())).toMatchObject({ state: "connecting", seqRegressions: 1, lastSeqRegressionAgeSec: 5 });
+    // 19-REVIEW WR-05 — 투영 실패 누적도 표시 신호다(상태 · 503 판정 불변).
+    writer.h = { ...writer.h, projectionErrors: 4, lastProjectionErrorAtMs: Date.now() - 7_000 };
+    expect(st().health(Date.now())).toMatchObject({ state: "connecting", projectionErrors: 4, lastProjectionErrorAgeSec: 7 });
     // 19-REVIEW WR-03 — 역행 뒤 seq 재사용 의심 계수도 같은 표시 신호 축이다(상태 불변).
     writer.h = { ...writer.h, duplicatesAfterRegression: 3, lastDuplicateAfterRegressionAtMs: Date.now() - 2_000 };
     expect(st().health(Date.now())).toMatchObject({
@@ -276,6 +283,8 @@ function health(state: JournalHealth["state"], disconnectedSec: number | null): 
     lastSeqRegressionAgeSec: null,
     duplicatesAfterRegression: 0,
     lastDuplicateAfterRegressionAgeSec: null,
+    projectionErrors: 0,
+    lastProjectionErrorAgeSec: null,
     mapping: null,
     strategy: null,
   };
@@ -334,7 +343,7 @@ describe("JournalStatus — journal.strategy 전략 스트림 관측값 (Phase 2
     const { observer, strategyWriter } = boot();
     observer.strategyHeadSeq = 12;
     strategyWriter.h = { ...strategyWriter.h, lastAppliedSeq: 10, queueDepth: 3 };
-    expect(status?.health(Date.now()).strategy).toEqual({ lastSeq: 10, headSeq: 12, lagSeq: 2, dbError: false, queueDepth: 3, paused: null });
+    expect(status?.health(Date.now()).strategy).toEqual({ lastSeq: 10, headSeq: 12, lagSeq: 2, dbError: false, queueDepth: 3, paused: null, projectionErrors: 0 });
 
     // head 가 적용보다 뒤처져 보이면(적용 직후 · 재로그인 전) 0 으로 자른다.
     observer.strategyHeadSeq = 9;
@@ -342,7 +351,7 @@ describe("JournalStatus — journal.strategy 전략 스트림 관측값 (Phase 2
 
     // 둘 중 하나라도 모르면 lagSeq null.
     strategyWriter.h = { ...strategyWriter.h, lastAppliedSeq: null };
-    expect(status?.health(Date.now()).strategy).toEqual({ lastSeq: null, headSeq: 9, lagSeq: null, dbError: false, queueDepth: 3, paused: null });
+    expect(status?.health(Date.now()).strategy).toEqual({ lastSeq: null, headSeq: 9, lagSeq: null, dbError: false, queueDepth: 3, paused: null, projectionErrors: 0 });
     observer.strategyHeadSeq = null;
     strategyWriter.h = { ...strategyWriter.h, lastAppliedSeq: 4 };
     expect(status?.health(Date.now()).strategy?.lagSeq).toBeNull();
