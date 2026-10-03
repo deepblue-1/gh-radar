@@ -1,8 +1,8 @@
 ---
 phase: 25-order-log-progress
-verified: 2026-09-30T00:00:00Z
-status: gaps_found
-score: 11/12 plans' must_haves fully verified (1 partial — 25-06)
+verified: 2026-10-03T12:00:00Z
+status: passed
+score: 12/12 plans' must_haves fully verified (round 2 · 25-VERIFICATION-R2.md — gap closed by 25-13) · UAT 7/7 pass 2026-10-03 · Nyquist validated
 requirements_note: "Phase 25 요구사항 ID 없음 — ROADMAP.md 「Requirements: TBD」, 12개 PLAN 전부 `requirements: []`. REQUIREMENTS.md 에도 Phase 25 매핑 행 없음(grep 0건). 요구사항 커버리지 섹션은 그래서 생략한다."
 covered_files:
   - ".planning/REQUIREMENTS.md"
@@ -30,7 +30,12 @@ covered_files:
   - ".planning/phases/25-order-log-progress/25-11-SUMMARY.md"
   - ".planning/phases/25-order-log-progress/25-12-PLAN.md"
   - ".planning/phases/25-order-log-progress/25-12-SUMMARY.md"
+  - ".planning/phases/25-order-log-progress/25-13-PLAN.md"
+  - ".planning/phases/25-order-log-progress/25-13-SUMMARY.md"
   - ".planning/phases/25-order-log-progress/25-REVIEW.md"
+  - ".planning/phases/25-order-log-progress/25-UAT.md"
+  - ".planning/phases/25-order-log-progress/25-VALIDATION.md"
+  - ".planning/phases/25-order-log-progress/25-VERIFICATION-R2.md"
   - ".planning/phases/25-order-log-progress/deferred-items.md"
   - "packages/shared/src/__fixtures__/strategy-day.ts"
   - "packages/shared/src/order-timeline.ts"
@@ -73,10 +78,12 @@ covered_files:
   - "webapp/src/lib/trading-layout.ts"
   - "webapp/src/lib/use-order-log-feed.ts"
   - "webapp/src/lib/use-stick-to-bottom.ts"
-covered_digest: "v1:sha256:3f6c7682e8a7554cecb866b056b40c27c8be1a86f8f42bb345be8f188ec56156"
+
+covered_digest: "v1:sha256:56ebfda3b540d3e51be991b1d8f23f2a675515187860e57b4633d12ba2371deb"
 behavior_unverified: 0
 overrides_applied: 0
 gaps:
+
   - truth: "25-06 must_have: 「세션 교체(#clearCaches) 뒤 옛 진행률이 남지 않는다(RESEARCH Pitfall 6)」"
     status: partial
     reason: >
@@ -96,11 +103,14 @@ gaps:
     missing:
       - "#clearCaches 에서 비우기 직전에 그 사용자의 진행률 키마다 빈 unf.progress(snap:false, items:[]) 팬아웃 — 또는 새 세션 ready 시 1회 snap:true 팬아웃으로 브라우저 Map 을 초기화(WR-02 제안 a/b)"
       - "이미 연결된 브라우저가 실제로 갱신을 받는지 검증하는 fanout 레벨 테스트(현재 hub.test.ts:640 은 허브 내부 상태만 봄)"
+
 deferred:
+
   - truth: "기획서 D-09 두 줄 문장 형식(gh-trade 537266ea · bddf2e76) 적용"
     addressed_in: "Phase 25 플랜 범위 밖 후속(25-11-SUMMARY.md 명시)"
     evidence: "25-11-SUMMARY.md: 「D-09 두 줄 형식 — gh-trade 537266ea · bddf2e76, 정본 docs/features/order-log-progress.md ⑦. Phase 25 플랜 범위 밖 후속으로 남긴다.」 — 계획 단계 이후 사용자 결정으로 명시적으로 범위 밖 처리됐으므로 갭이 아니라 후속 항목으로 기록한다."
 advisory:
+
   - finding: "WR-01(코드 리뷰): 전략 기록기 지속 실패(포이즌 이벤트 · DB 오류)가 큐 상한(5,000)에 닿으면 관찰자 소켓 전체가 끊겨 결국 주문 저널 적재까지 지연된다 — ROADMAP 이 명시한 「별도 트랜잭션 — 한쪽 포이즌이 다른 쪽 커서를 막지 않게」 의도가 DB 트랜잭션 수준에서는 지켜지지만(dma_strategy_apply 별도 advisory lock 확인) 소켓 백프레셔 수준에서는 새지 않는다."
     category: architectural
     reason: "정상 운영 조건(마이그레이션 적용됨 · 계약 준수 이벤트)에서는 재현되지 않고, 포이즌 이벤트나 원격 DB 장애가 지속될 때만 발현하는 견고성 결함이다. 25-02 must_haves 문구를 문자 그대로 위반하지는 않지만 ROADMAP 설계 의도와 어긋난다 — 후속 관찰/수정 권장."
@@ -118,6 +128,7 @@ advisory:
     reason: "드문 타이밍 경합이고 다음 ready 재진입이나 날짜 이동으로 자연 해소된다 — 필수 표시 truth 를 구조적으로 무너뜨리지는 않는다."
     evidence_status: "코드 리뷰 WR-05 파일·라인 근거 확인(use-order-log-feed.ts:100-112) — 재현 테스트 없음"
 human_verification:
+
   - test: "첫 거래일 UAT (a): 상따 매수 1건 발생 시 주문로그 탭에 BuyOrder 줄(조건 · 근거 · 상한가 매수잔량 · 접수 +ms)이 게이트웨이 로그의 전송 시각 · 조건값과 일치하는지 로그인 세션에서 대조"
     expected: "실이벤트 필드값이 게이트웨이 원본과 일치"
     why_human: "실 시세·주문 이벤트가 필요해 장중 실거래로만 검증 가능(25-12-SUMMARY UAT 체크리스트 항목 a, 배포 시점 headSeq=0)"
@@ -139,8 +150,10 @@ human_verification:
   - test: "운영 웹 로그인 세션 육안 확인: 작업대 공용 패널 「주문로그」 탭 · 카드 「주문로그」/「전략로그」 탭 · /trading/order-log 창 · 마이페이지 오늘 주문 행 ▶ 펼침 · DevTools WS 인증 직후 unf.progress snap 1프레임"
     expected: "다섯 표면 모두 정상 렌더 · 새로고침 후 6289e430 번들 반영"
     why_human: "25-12-SUMMARY 「사용자 항목 1」에 명시된 대로 아직 미수행 — 시각적 확인은 로그인 브라우저 세션에서만 가능"
+latest_round: 2 (25-VERIFICATION-R2.md · round-1 body below kept as record)
 ---
 
+> **2026-10-03 정본 승계:** frontmatter 는 최신 라운드(`25-VERIFICATION-R2.md` · gap 0 · human_needed) + 25-UAT 7/7 pass + 25-VALIDATION validated 로 `passed` 승계. 아래 본문은 1라운드(gaps_found · WR-02) 기록 그대로다.
 # Phase 25: 주문로그·잔량진행률 Verification Report
 
 **Phase Goal:** ROADMAP.md 「Phase 25」 절 전문 — gh-trade StrategyEvent 저널을 relay 두 번째 스트림으로 수신해 오늘 주문 카드 행 펼침 · 작업대 「주문로그」 탭 · 미체결 진행률(B안) 3표면으로 노출하고, 별건 3(방향 미상 · 접수 불명 · R(New))을 처리한다. 착수·배포 순서(마이그레이션 → gh-trade 서버 → relay → server → webapp push)를 지킨다.

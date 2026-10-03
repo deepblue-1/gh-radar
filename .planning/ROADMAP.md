@@ -39,7 +39,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 22: GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK)** - App Store Connect·TestFlight 업로드 · Android 업로드 키(저장소 밖) 서명 APK → Firebase App Distribution 테스터 배포 · 릴리스 빌드 Google 로그인 유지(SHA-1·키체인) · 버전 규칙·반복 빌드 절차 · 개인정보처리방침 `/privacy` · `native:verify-prod` 게이트 (Play 스토어 배포는 개발자 인증 뒤 별도 phase · 정식 출시·심사 대응·데이터 보안 양식은 범위 밖) (completed 2026-09-27)
 - [ ] **Phase 23: GH Trade Play 스토어 내부 테스트 배포 (개발자 인증 후)** - Play Console 개발자 인증 완료 뒤 진행 · Play 앱 서명 키 결정(one-way) · 첫 AAB 수동 업로드·내부 테스트 트랙 · Play SA·fastlane supply · 앱 서명 SHA-1 OAuth 추가 등록 · Firebase APK 테스터 1회 재설치 안내 (옛 22-05~22-07 플랜을 `from-phase-22/` 에 보관)
 - [x] **Phase 24: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영** - gh-trade Phase 24 의 `SetLimitChaser` 말미 append 17필드(`buy3_schema=1`) 를 relay 빌더·에코/열거 파서·webapp 상따 설정 3그룹(선매수/추가매수/후매수)에 반영. 감시대상(매도/매수잔량) 토글·매수 진입 래치(MsgType 38) 폐기, 매수 LED 2단계. 옵션 UI 는 WinForms 상따 창을 참고해 목업 게이트 먼저. 서버(24-11)·WinForms 배포 뒤에만 relay → webapp 배포. 브랜치 `gsd/phase-24-limitchaser-buy3` (completed 2026-09-29)
-- [ ] **Phase 25: 주문로그·잔량진행률 — gh-trade StrategyEvent 저널 수신·오늘 주문 펼침·작업대 주문로그 탭·미체결 진행률** - 기획서(MJ 9/27) 반영. 로그 7종은 gh-trade 서버 StrategyEvent(저널 80 append·별도 seq) → relay 적재·푸시 → 오늘 주문 행 펼침 + 작업대 「주문로그」 탭(전략 로그와 분리). 진행률 B안(대기 행 아래 2줄째) · 값은 `QueueProgress` 브로드캐스트. 풀안·용어 기존(후매수) 유지. 필드 v0.1 동결, 착수는 gh-trade fbs 해시 뒤.
+- [x] **Phase 25: 주문로그·잔량진행률 — gh-trade StrategyEvent 저널 수신·오늘 주문 펼침·작업대 주문로그 탭·미체결 진행률** - 기획서(MJ 9/27) 반영. 로그 7종은 gh-trade 서버 StrategyEvent(저널 80 append·별도 seq) → relay 적재·푸시 → 오늘 주문 행 펼침 + 작업대 「주문로그」 탭(전략 로그와 분리). 진행률 B안(대기 행 아래 2줄째) · 값은 `QueueProgress` 브로드캐스트. 풀안·용어 기존(후매수) 유지. 필드 v0.1 동결, 착수는 gh-trade fbs 해시 뒤. (completed 2026-10-03)
 - [x] **Phase 26: 시세 전용 공유 연결 — relay 종목 단위 팬아웃** - relay 가 유저별 DMA 세션마다 따로 구독해 gh-trade→relay VPN 구간에 같은 시세가 N 벌 흐르고 주문 세션 큐에서 통보가 시세 뒤에 줄을 서는 구조를, 관찰자 로그인 quote 역할(기존 공유 비밀 · 주문 권한 0) 시세 전용 연결 1개 + relay 참조계수 `isin|ex` 전역화 + 캐시 유저 간 공유 + PRICE 필터 relay 이관으로 바꾼다. WinForms 직결 유지. gh-trade 서버 변경은 gh-trade 저장소 별도 phase (추가 2026-09-30) (completed 2026-10-01)
 
 ## Phase Details
@@ -1315,7 +1315,7 @@ Plans:
 **정본:** `reference/` 9개 파일(기획서 전문 · gh-radar 함의 · 필드 v0.1 · 대조 기록 · 목업 2종) · gh-trade `docs/features/order-journal.md` · 이 저장소 `19-GH-TRADE-HANDOFF.md`(저널 규약 동형).
 **Requirements**: TBD
 **Depends on:** Phase 19 (계좌 저널 관찰자) · Phase 24 (상따 3그룹 용어) · gh-trade StrategyEvent/QueueProgress 서버 phase
-**Plans:** 13/13 plans executed (갭 클로징 1 — 25-13)
+**Plans:** 13/13 plans complete
 
 Plans:
 **Wave 1**

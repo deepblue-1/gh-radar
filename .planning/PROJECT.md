@@ -61,6 +61,7 @@
 | 캔들스틱 차트 채택 (Out of Scope 정책 반전) | 2026-05-15 사용자 명시 — 상세 페이지 자체 완결성 우선, TradingView/키움과의 차별화보다 트레이더가 화면 전환 없이 가격 흐름을 즉시 파악하는 가치 우선. RESEARCH 비교 후 lightweight-charts 5.2.0 lock-in. | Phase 09.2 |
 | 모바일 = Capacitor Remote-URL 셸 + 네이티브 탭바/로그인 (Phase 21) | 웹 한 벌을 운영 URL 로 그대로 쓰고(middleware 인증·OAuth callback 때문에 static export 불가), Google 이 WebView OAuth 를 막아 네이티브 Sign-In 이 필수 | ✓ Good — UAT 4차 30/30 (2026-09-26) |
 | 시세는 relay 공유 연결 1개로 팬아웃 (Phase 26) | 유저별 DMA 세션 구독이면 같은 시세가 VPN 구간에 N 벌 흐르고 주문 통보가 시세 뒤에 줄을 섬 → 관찰자 로그인 quote 역할(주문 권한 0) 연결 1개 · 참조계수 `isin\|ex` 전역화 · 캐시 공유 · PRICE 필터 relay 이관. 폴백 없음이라 `/healthz` 503 축으로 감시 | ✓ Good — 첫 거래일 UAT (a)~(e) pass (2026-10-01) |
+| 주문로그·잔량진행률은 gh-trade 서버 StrategyEvent(80 별도 seq)·QueueProgress(83)를 진실 원본으로 relay 가 적재·팬아웃 (Phase 25) | 웹이 문구를 파싱하거나 진행률을 재계산하면 클라(WinForms)와 갈라짐 → 값은 서버가 정하고 웹은 표시만. 계약 변경(수동/VI group 7·8 · first_filled · 추가매수 포기 수량)은 gh-radar relay·웹 먼저 배포 → 서버 나중 | ✓ Good — UAT 7/7 pass · Nyquist validated (2026-10-03) |
 
 ## Evolution
 
@@ -80,4 +81,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-01 after Phase 26 (시세 전용 공유 연결 — relay 종목 단위 팬아웃)*
+*Last updated: 2026-10-03 after Phase 25 (주문로그·잔량진행률)*
