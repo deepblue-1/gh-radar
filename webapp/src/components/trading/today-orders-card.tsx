@@ -25,6 +25,12 @@
  * ④ ★ 실패는 **이 카드 안에서** 수렴한다
  *   조회가 깨져도 throw 하지 않는다. 이 카드가 터지면 같은 트리의 전략·계좌 카드까지
  *   함께 죽는다 — 주문 목록 하나 때문에 잔고를 못 보는 것이 훨씬 나쁘다.
+ *   ★ 단 이 카드 안의 **유효한 데이터는 버리지 않는다** (19-REVIEW WR-07). 실패해도 직전 성공 결과와
+ *   `journal.rows` 푸시 행은 그대로 그리고, 오류는 목록 위 한 줄 안내로만 낸다 — 재인증 · `delayed → live`
+ *   재조회(모바일 백그라운드 복귀 시점이라 실패 확률이 가장 높다) 한 번의 실패가 정상 목록을 통째로 가리지
+ *   않게. 보일 행이 하나도 없을 때만 종전 오류 문구다(「주문 없음」 으로 오해하지 않게). 실패하면 짧은 지수
+ *   재시도(2 · 4 · 8초, 3회)로 스스로 회복한다. 조회는 세대 번호로 가려 **마지막으로 시작한 조회의 응답만**
+ *   반영한다(IN-01 — 겹친 재조회의 늦은 옛 응답이 새 스냅샷을 덮지 않게).
  *
  * ⑤ ★ 좁은 폭에서는 표가 아니라 **카드 행**이다 (account-panel 헤더 ⑧ 과 같은 규율)
  *   flex 자식 중 `flex:1 1 auto; min-width:0` 은 **종목 칸 하나뿐**이고 나머지는 전부
@@ -136,6 +142,10 @@ import { useRelayContext } from "@/lib/relay-provider";
 import { cn } from "@/lib/utils";
 
 const KRW = new Intl.NumberFormat("ko-KR");
+
+/** 조회 실패 재시도 — 횟수 · 첫 지연(ms). 지연은 2배씩(2 · 4 · 8초) (위 ④ · 19-REVIEW WR-07). */
+const LOAD_RETRY_MAX = 3;
+const LOAD_RETRY_BASE_MS = 2_000;
 
 /**
  * 주문 시각 — `created_at`(UTC ISO) 을 **KST** 로 읽는다.
@@ -270,25 +280,60 @@ export function TodayOrdersCard() {
     };
   };
 
+  /* 조회 세대 · 재시도 타이머(위 ④). 새 조회(마운트 · 재인증 · 기록 복구)가 시작되면 옛 응답 · 예약된 재시도는 무효다. */
+  const loadGenRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const load = useCallback(async () => {
-    try {
-      const rows = await fetchTodayOrders();
-      setRestored(rows);
-      setFailed(false);
-      writeQueryCache(todayOrdersCacheKey(kstDateIso()), rows);
-    } catch {
-      /*
-        어떤 실패든 여기서 멈춘다(위 ④). 실패 사유를 화면에 풀어 쓰지 않는다 —
-        401/500/타임아웃 중 무엇이든 사용자가 할 일은 같다(다시 열어 보기).
-      */
-      setRestored([]);
-      setFailed(true);
+    loadGenRef.current += 1;
+    const gen = loadGenRef.current;
+    if (retryTimerRef.current !== null) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
     }
+    const attemptLoad = async (attempt: number): Promise<void> => {
+      try {
+        const rows = await fetchTodayOrders();
+        if (gen !== loadGenRef.current) return; // 더 나중에 시작한 조회가 있다 — 옛 응답은 버린다(IN-01)
+        setRestored(rows);
+        setFailed(false);
+        writeQueryCache(todayOrdersCacheKey(kstDateIso()), rows);
+      } catch {
+        if (gen !== loadGenRef.current) return;
+        /*
+          어떤 실패든 여기서 멈춘다(위 ④). 실패 사유를 화면에 풀어 쓰지 않는다 —
+          401/500/타임아웃 중 무엇이든 사용자가 할 일은 같다(다시 열어 보기).
+          직전 성공 결과는 지우지 않는다(WR-07) — 처음부터 실패했으면 [] 로 두어 푸시 행이 서게 한다.
+        */
+        setRestored((prev) => prev ?? []);
+        setFailed(true);
+        if (attempt < LOAD_RETRY_MAX) {
+          retryTimerRef.current = setTimeout(() => {
+            retryTimerRef.current = null;
+            if (gen !== loadGenRef.current) return;
+            void attemptLoad(attempt + 1);
+          }, LOAD_RETRY_BASE_MS * 2 ** attempt);
+        }
+      }
+    };
+    await attemptLoad(0);
   }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  /* 언마운트 — 진행 중 응답 · 예약된 재시도를 무효로 한다(위 ④). */
+  useEffect(
+    () => () => {
+      loadGenRef.current += 1;
+      if (retryTimerRef.current !== null) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+    },
+    [],
+  );
 
   /*
     ★ relay 재인증(ready **재진입**)마다 1회 다시 부른다 (위 ⑦ · debug mobile-bg-resume-gaps 4).
@@ -408,7 +453,21 @@ export function TodayOrdersCard() {
         </p>
       )}
 
-      {failed ? (
+      {/*
+        조회 실패 안내 (위 ④ · WR-07) — 보일 행이 있으면 목록을 그대로 두고 머리 아래 한 줄로만 알린다.
+        기록 지연 안내와 같은 문법(토큰 · 크기)이다. 재시도가 성공하면 사라진다.
+      */}
+      {failed && rows.length > 0 && (
+        <p
+          role="status"
+          data-testid="today-orders-error-note"
+          className="rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--muted)] px-[var(--s-3)] py-1.5 text-[length:var(--t-caption)] text-[var(--muted-fg)]"
+        >
+          <b className="font-semibold text-[var(--fg)]">불러오기 실패</b> — 목록이 최신이 아닐 수 있어요.
+        </p>
+      )}
+
+      {failed && rows.length === 0 ? (
         <p
           role="status"
           data-testid="today-orders-error"

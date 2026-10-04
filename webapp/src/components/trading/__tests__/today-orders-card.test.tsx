@@ -1251,3 +1251,103 @@ describe("TodayOrdersCard — 행 펼침 (Phase 25 D-04)", () => {
     expect(fetchOrderEventsMock.mock.calls.length).toBe(calls);
   });
 });
+
+describe("TodayOrdersCard — 조회 실패 수렴 · 재시도 · 세대 (19-REVIEW WR-07 · IN-01)", () => {
+  const boom = () => new ApiClientError({ code: "HTTP_500", message: "boom", status: 500 });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("WR-07-1 재인증 재조회가 실패해도 직전 목록은 그대로 서고, 오류는 목록 위 한 줄 안내로만 뜬다", async () => {
+    fetchTodayOrdersMock.mockResolvedValue(THREE_ORDERS);
+    mockRelay = { ...EMPTY_RELAY_VALUE, status: "ready" };
+    const view = render(<TodayOrdersCard />);
+    await waitFor(() => expect(listRows()).toHaveLength(3));
+
+    // 백그라운드 복귀 — 재인증 재조회가 일시적 네트워크 오류로 실패한다.
+    fetchTodayOrdersMock.mockRejectedValue(boom());
+    mockRelay = { ...mockRelay, status: "reconnecting" };
+    view.rerender(<TodayOrdersCard />);
+    mockRelay = { ...mockRelay, status: "ready" };
+    view.rerender(<TodayOrdersCard />);
+
+    await waitFor(() => expect(screen.getByTestId("today-orders-error-note")).toBeInTheDocument());
+    expect(listRows()).toHaveLength(3);
+    expect(screen.queryByTestId("today-orders-error")).toBeNull();
+  });
+
+  it("WR-07-2 마운트 조회가 실패해도 뒤에 온 journal.rows 푸시 행은 화면에 선다(오류 문구가 가리지 않는다)", async () => {
+    fetchTodayOrdersMock.mockRejectedValue(boom());
+    const view = render(<TodayOrdersCard />);
+    await waitFor(() => expect(screen.getByTestId("today-orders-error")).toBeInTheDocument());
+
+    mockRelay = { ...EMPTY_RELAY_VALUE, journalRows: [row({ id: "p", orderNo: "0000177777" })] };
+    view.rerender(<TodayOrdersCard />);
+
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+    expect(screen.getByTestId("today-orders-error-note")).toBeInTheDocument();
+    expect(screen.queryByTestId("today-orders-error")).toBeNull();
+    // 「오늘 낸 주문이 없어요」 거짓 빈 목록도 아니다.
+    expect(screen.queryByTestId("today-orders-empty")).toBeNull();
+  });
+
+  it("WR-07-3 실패 뒤 지수 재시도(2초)로 스스로 회복한다 · 안내가 사라진다 · 재시도는 최대 3회", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    fetchTodayOrdersMock.mockRejectedValueOnce(boom()).mockResolvedValueOnce(THREE_ORDERS);
+    render(<TodayOrdersCard />);
+    await waitFor(() => expect(screen.getByTestId("today-orders-error")).toBeInTheDocument());
+    expect(fetchTodayOrdersMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await waitFor(() => expect(listRows()).toHaveLength(3));
+    expect(fetchTodayOrdersMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId("today-orders-error")).toBeNull();
+    expect(screen.queryByTestId("today-orders-error-note")).toBeNull();
+  });
+
+  it("WR-07-4 계속 실패하면 2·4·8초 뒤 3회까지만 재시도하고 멈춘다(폴링이 아니다) · 언마운트 뒤 재시도 없음", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    fetchTodayOrdersMock.mockRejectedValue(boom());
+    const view = render(<TodayOrdersCard />);
+    await waitFor(() => expect(screen.getByTestId("today-orders-error")).toBeInTheDocument());
+    await vi.advanceTimersByTimeAsync(2_000 + 4_000 + 8_000);
+    expect(fetchTodayOrdersMock).toHaveBeenCalledTimes(4);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchTodayOrdersMock).toHaveBeenCalledTimes(4);
+
+    // 언마운트하면 예약된 재시도가 없어진다.
+    fetchTodayOrdersMock.mockClear();
+    fetchTodayOrdersMock.mockRejectedValue(boom());
+    view.unmount();
+    render(<TodayOrdersCard />).unmount();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchTodayOrdersMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("IN-01 겹친 재조회 — 먼저 시작한 조회의 응답이 늦게 와도 나중 조회 결과를 덮지 않는다", async () => {
+    let resolveOld: (rows: JournalOrderRow[]) => void = () => {};
+    fetchTodayOrdersMock.mockReturnValueOnce(
+      new Promise<JournalOrderRow[]>((resolve) => {
+        resolveOld = resolve;
+      }),
+    );
+    mockRelay = { ...EMPTY_RELAY_VALUE, status: "ready" };
+    const view = render(<TodayOrdersCard />);
+    expect(fetchTodayOrdersMock).toHaveBeenCalledTimes(1);
+
+    // 재인증 재조회(나중 조회)가 먼저 끝난다 — 최신 스냅샷(체결).
+    fetchTodayOrdersMock.mockResolvedValueOnce([row({ id: "a", status: "filled", lastSeq: 5 })]);
+    mockRelay = { ...mockRelay, status: "reconnecting" };
+    view.rerender(<TodayOrdersCard />);
+    mockRelay = { ...mockRelay, status: "ready" };
+    view.rerender(<TodayOrdersCard />);
+    await waitFor(() => expect(listRows()[0]?.textContent).toContain("체결"));
+
+    // 옛 조회 응답(접수 · 다른 행 포함)이 늦게 도착 — 버린다.
+    resolveOld([row({ id: "a", status: "accepted", lastSeq: 1 }), row({ id: "old", orderNo: "0000199999" })]);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(listRows()).toHaveLength(1);
+    expect(listRows()[0]?.textContent).toContain("체결");
+  });
+});
