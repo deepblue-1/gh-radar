@@ -26,7 +26,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(93);
+SELECT plan(96);
 
 -- ── 테이블 존재 ──────────────────────────────────────────────────
 SELECT has_table('public', 'dma_journal_events', 'public.dma_journal_events 테이블이 있다');
@@ -120,6 +120,10 @@ SELECT is(has_function_privilege('service_role', 'public.dma_journal_origin(text
 SELECT is(has_function_privilege('anon', 'public.dma_journal_orders_for_user(uuid, date)', 'EXECUTE'), false, 'anon 에게 public.dma_journal_orders_for_user(uuid, date) EXECUTE 가 없다');
 SELECT is(has_function_privilege('authenticated', 'public.dma_journal_orders_for_user(uuid, date)', 'EXECUTE'), false, 'authenticated 에게 public.dma_journal_orders_for_user(uuid, date) EXECUTE 가 없다');
 SELECT is(has_function_privilege('service_role', 'public.dma_journal_orders_for_user(uuid, date)', 'EXECUTE'), true, 'service_role 에게 public.dma_journal_orders_for_user(uuid, date) EXECUTE 가 있다');
+-- 19-REVIEW WR-06 — jsonb 래퍼도 service_role 전용(PUBLIC · anon · authenticated 명시 REVOKE).
+SELECT is(has_function_privilege('anon', 'public.dma_journal_orders_for_user_json(uuid, date)', 'EXECUTE'), false, 'anon 에게 public.dma_journal_orders_for_user_json(uuid, date) EXECUTE 가 없다');
+SELECT is(has_function_privilege('authenticated', 'public.dma_journal_orders_for_user_json(uuid, date)', 'EXECUTE'), false, 'authenticated 에게 public.dma_journal_orders_for_user_json(uuid, date) EXECUTE 가 없다');
+SELECT is(has_function_privilege('service_role', 'public.dma_journal_orders_for_user_json(uuid, date)', 'EXECUTE'), true, 'service_role 에게 public.dma_journal_orders_for_user_json(uuid, date) EXECUTE 가 있다');
 
 -- ── dma_account_orders 정상 행 (lives_ok) ─────────────────────────
 SELECT lives_ok(

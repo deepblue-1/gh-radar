@@ -23,7 +23,8 @@ import { ApiError } from "../errors.js";
  * 서비스롤 `SupabaseClient` 를 인자로 받는 순수 함수 모듈(`chat-history.ts` 규약).
  *
  * ── 방어선 (Phase 19 기준) ──────────────────────────────────
- *   D-06     가시성 필터는 RPC `dma_journal_orders_for_user` 안의 조인
+ *   D-06     가시성 필터는 RPC `dma_journal_orders_for_user` 안의 조인(server 는 그 jsonb 래퍼
+ *            `dma_journal_orders_for_user_json` 을 부른다 — 19-REVIEW WR-06)
  *            (`user_id → dma_credentials.dma_user_id → dma_account_access → 계좌`)이 정본이다.
  *            server 는 행을 거르지 않고, 거를 근거(계좌 매핑)도 갖지 않는다.
  *   T-19-17  이 함수는 **인증된 `userId` 하나만** RPC 에 넘긴다 — 라우트가 `requireAuth` 로 확정한
@@ -52,6 +53,11 @@ const DbError = (msg: string) => new ApiError(500, "DB_ERROR", msg);
 /**
  * 하루치 주문 목록 (새로고침 후 복원). 기본값은 **KST 오늘**이다 — 저널 행의 `trade_date` 가
  * 게이트웨이 KST 거래일이라 UTC 구간 변환이 필요 없다.
+ *
+ * ★ 19-REVIEW WR-06 — **jsonb 단일 값** RPC(`dma_journal_orders_for_user_json`)를 부른다. SETOF 함수
+ *   (`dma_journal_orders_for_user`)는 PostgREST `max_rows`(1000)에 **조용히** 잘려, 공유 계좌 주문이 많은 날
+ *   가장 오래된 주문부터 사라졌다. 래퍼는 같은 행 · 같은 정렬(created_at DESC, last_seq DESC) · 같은 25칸을
+ *   배열 하나로 준다(themes.ts 와 같은 패턴). 가시성 규칙은 여전히 SETOF 함수 한 곳이다.
  */
 export async function listTodayOrders(
   supabase: SupabaseClient,
@@ -59,12 +65,14 @@ export async function listTodayOrders(
   date?: string,
 ): Promise<JournalOrderRow[]> {
   const tradeDate = resolveTradeDate(date);
-  const { data, error } = await supabase.rpc("dma_journal_orders_for_user", {
+  const { data, error } = await supabase.rpc("dma_journal_orders_for_user_json", {
     p_user_id: userId,
     p_trade_date: tradeDate,
   });
   if (error) throw DbError("주문 목록 조회에 실패했습니다.");
-  return ((data ?? []) as JournalOrderDbRow[]).map(toJournalOrderRow);
+  // RPC 는 늘 배열을 준다(coalesce '[]'). 배열이 아니면 계약 위반 — 빈 목록으로 감추지 않는다.
+  if (!Array.isArray(data)) throw DbError("주문 목록 조회에 실패했습니다.");
+  return (data as JournalOrderDbRow[]).map(toJournalOrderRow);
 }
 
 /**

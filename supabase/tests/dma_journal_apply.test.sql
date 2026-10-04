@@ -114,7 +114,7 @@ $$;
 
 CREATE TEMP TABLE t_apply (label text PRIMARY KEY, r jsonb NOT NULL);
 
-SELECT plan(79);
+SELECT plan(83);
 
 -- ── 1. 매핑 동기화: dma-shared → …7801 ──────────────────────────
 SELECT is(
@@ -631,6 +631,32 @@ SELECT is(
 SELECT is(
   (SELECT row(journal_epoch, last_seq)::text FROM public.dma_journal_cursor WHERE gateway = 'KB2'),
   '(ep-2,10)', '(KB2 ep-2 빈 배열) 커서 (ep-2, 10) 불변'
+);
+
+-- ── 23. 19-REVIEW WR-06 — jsonb 래퍼 = SETOF 조회와 같은 행 · 같은 순서 · 같은 키(max_rows 절단 방지) ──
+SELECT is(
+  jsonb_array_length(public.dma_journal_orders_for_user_json('00000000-0000-4000-8000-000000001901', '2026-09-28')),
+  (SELECT count(*)::int FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000001901', '2026-09-28')),
+  '(U1, 2026-09-28) jsonb 래퍼 원소 수 = SETOF 조회 행 수'
+);
+SELECT results_eq(
+  $$SELECT (e.value->>'id')::uuid
+      FROM jsonb_array_elements(public.dma_journal_orders_for_user_json('00000000-0000-4000-8000-000000001901', '2026-09-28'))
+           WITH ORDINALITY AS e(value, n)
+     ORDER BY e.n$$,
+  $$SELECT id FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000001901', '2026-09-28')$$,
+  '(U1, 2026-09-28) jsonb 래퍼 id 순서 = SETOF 조회 순서(created_at DESC, last_seq DESC)'
+);
+SELECT set_eq(
+  $$SELECT jsonb_object_keys(public.dma_journal_orders_for_user_json('00000000-0000-4000-8000-000000001901', '2026-09-28')->0)$$,
+  $$SELECT jsonb_object_keys(to_jsonb(x))
+      FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000001901', '2026-09-28') x$$,
+  '(U1, 2026-09-28) jsonb 래퍼 원소 키 집합 = SETOF 반환 컬럼 집합(dma_user_id 없음)'
+);
+SELECT is(
+  public.dma_journal_orders_for_user_json('00000000-0000-4000-8000-0000000019ff', '2026-09-28'),
+  '[]'::jsonb,
+  '(자격증명 없는 사용자) jsonb 래퍼 = [] (null 아님)'
 );
 
 SELECT * FROM finish(true);

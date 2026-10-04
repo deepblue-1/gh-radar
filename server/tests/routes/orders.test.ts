@@ -32,8 +32,10 @@ const nextUser = () => ({ id: `00000000-0000-4000-8000-${String(++userSeq).padSt
 
 type SupabaseOpts = {
   user?: { id: string } | null;
-  /** `dma_journal_orders_for_user` 가 돌려줄 행(snake_case 원문). */
+  /** `dma_journal_orders_for_user_json` 이 돌려줄 배열의 원소(snake_case 원문 — SETOF 함수 반환 행과 같은 모양). */
   rows?: Record<string, unknown>[];
+  /** 주면 json RPC 의 `data` 를 이 값으로 그대로 돌려준다(계약 위반 응답 시나리오 — 19-REVIEW WR-06). */
+  jsonData?: unknown;
   /** `dma_order_events_for_user` 가 돌려줄 행(`source · gw_time_ms · seq · ev` 원문). */
   eventRows?: Record<string, unknown>[];
   /** 주면 rpc 가 이 오류를 돌려준다. */
@@ -62,7 +64,10 @@ function makeSupabase(opts: SupabaseOpts): { client: any; rec: Recorder } {
     async rpc(fn: string, params: Record<string, unknown>) {
       rec.rpcCalls.push({ fn, params });
       if (opts.rpcError) return { data: null, error: opts.rpcError };
-      if (fn === "dma_journal_orders_for_user") return { data: opts.rows ?? [], error: null };
+      // 19-REVIEW WR-06 — jsonb 단일 값 래퍼(배열 하나). `jsonData` 로 원문을 바꿀 수 있다.
+      if (fn === "dma_journal_orders_for_user_json") {
+        return { data: "jsonData" in opts ? opts.jsonData : (opts.rows ?? []), error: null };
+      }
       if (fn === "dma_order_events_for_user") return { data: opts.eventRows ?? [], error: null };
       return { data: null, error: { message: `unexpected rpc ${fn}` } };
     },
@@ -212,7 +217,7 @@ describe("GET /api/orders", () => {
     expect(r.body).toHaveLength(2);
     // 새 테이블 RPC 왕복 1회 (D-05 · Cloud Run 왕복 비용).
     expect(rec.rpcCalls).toHaveLength(1);
-    expect(rec.rpcCalls[0].fn).toBe("dma_journal_orders_for_user");
+    expect(rec.rpcCalls[0].fn).toBe("dma_journal_orders_for_user_json");
 
     expect(r.body[0]).toEqual({
       id: ORDER_ROW_ID,
@@ -278,7 +283,7 @@ describe("GET /api/orders", () => {
     expect(r.body).toEqual([]);
     expect(rec.rpcCalls).toEqual([
       {
-        fn: "dma_journal_orders_for_user",
+        fn: "dma_journal_orders_for_user_json",
         params: { p_user_id: user.id, p_trade_date: kstDateIso() },
       },
     ]);
@@ -339,10 +344,44 @@ describe("GET /api/orders", () => {
     }
   });
 
+  it("19-REVIEW WR-06 — jsonb 단일 값 RPC 라 1000행 상한(max_rows)에 잘리지 않는다: 1,500행 그대로 · RPC 1회", async () => {
+    const user = nextUser();
+    const rows = Array.from({ length: 1_500 }, (_, i) =>
+      journalRow({ id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`, last_seq: 1_500 - i }),
+    );
+    const { client, rec } = makeSupabase({ user, rows });
+
+    const r = await request(createApp({ supabase: client }))
+      .get("/api/orders")
+      .set("Authorization", "Bearer tok");
+
+    expect(r.status).toBe(200);
+    expect(r.body).toHaveLength(1_500);
+    // 순서는 RPC 가 정한 그대로(created_at DESC, last_seq DESC) — server 가 다시 정렬하지 않는다.
+    expect(r.body[0].lastSeq).toBe(1_500);
+    expect(r.body[1_499].lastSeq).toBe(1);
+    expect(rec.rpcCalls).toEqual([
+      { fn: "dma_journal_orders_for_user_json", params: { p_user_id: user.id, p_trade_date: kstDateIso() } },
+    ]);
+  });
+
+  it("19-REVIEW WR-06 — json RPC 가 배열이 아닌 값을 주면 빈 목록으로 감추지 않고 500 DB_ERROR", async () => {
+    for (const bad of [null, { rows: [] }, "[]"]) {
+      const { client } = makeSupabase({ user: nextUser(), jsonData: bad });
+
+      const r = await request(createApp({ supabase: client }))
+        .get("/api/orders")
+        .set("Authorization", "Bearer tok");
+
+      expect(r.status, JSON.stringify(bad)).toBe(500);
+      expect(r.body.error.code).toBe("DB_ERROR");
+    }
+  });
+
   it("⑯-g RPC 오류 → 500 DB_ERROR · 원문 비노출 (T-19-24)", async () => {
     const { client } = makeSupabase({
       user: nextUser(),
-      rpcError: { message: "permission denied for function dma_journal_orders_for_user" },
+      rpcError: { message: "permission denied for function dma_journal_orders_for_user_json" },
     });
 
     const r = await request(createApp({ supabase: client }))
