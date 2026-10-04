@@ -114,7 +114,7 @@ $$;
 
 CREATE TEMP TABLE t_apply (label text PRIMARY KEY, r jsonb NOT NULL);
 
-SELECT plan(83);
+SELECT plan(89);
 
 -- ── 1. 매핑 동기화: dma-shared → …7801 ──────────────────────────
 SELECT is(
@@ -631,6 +631,49 @@ SELECT is(
 SELECT is(
   (SELECT row(journal_epoch, last_seq)::text FROM public.dma_journal_cursor WHERE gateway = 'KB2'),
   '(ep-2,10)', '(KB2 ep-2 빈 배열) 커서 (ep-2, 10) 불변'
+);
+
+-- ── 24. 19-REVIEW WR-09 — 이미 적용된(skipped) 이벤트도 그 이벤트가 가리키는 행을 rows 로 돌려준다 ──
+-- 커밋 뒤 응답 유실 → 기록기가 같은 배치를 재시도 → 두 번째 호출도 첫 호출이 바꾼 행을 푸시할 수 있어야 한다.
+-- 투영 · 커서는 그대로(읽기만) — 「PK 삽입 성공 = 1회 적용」 불변식 무변경.
+SELECT is(
+  (SELECT jsonb_path_query_array(r->'rows', '$[*].order_no') FROM t_apply WHERE label = 'replay'),
+  '["0000100001"]'::jsonb,
+  '(seq 1 재생, …7801) skipped 이벤트의 행 0000100001 이 rows 로 돌아온다(재시도 푸시 유실 방지)'
+);
+SELECT is(
+  (SELECT row(jsonb_array_length(r->'rows'), r->'rows'->0->>'order_no', r->'rows'->0->>'status', r->'rows'->0->>'filled_qty')::text
+     FROM t_apply WHERE label = 'e_replay'),
+  '(1,0000300010,filled,10)',
+  '(seq 11·12 재생, …9003) rows = 행 1개(중복 제거) · 최신 상태 (0000300010, filled, 10) — 두 이벤트가 같은 행'
+);
+
+INSERT INTO t_apply SELECT 'c41_replay', public.dma_journal_apply('KB', 'ep-3', jsonb_build_array(
+  pg_temp.ev(41, '10:10:03', '{"order_no":"0000200002","org_order_no":"0000200001","notice_type":"C",
+    "request_kind":"Cancel","side":"","side_trusted":false,"origin":"LimitChaser","requester":"","order_price":0}')));
+SELECT is(
+  (SELECT row((r->>'applied')::int, (r->>'skipped')::int,
+              (SELECT string_agg(x->>'order_no', ',' ORDER BY x->>'order_no') FROM jsonb_array_elements(r->'rows') x))::text
+     FROM t_apply WHERE label = 'c41_replay'),
+  '(0,1,"0000200001,0000200002")',
+  '(seq 41 C 재생, …9003) (applied, skipped, rows 주문번호) = (0, 1, 원주문 + 취소 행) — 첫 적용과 같은 두 행'
+);
+SELECT is(
+  (SELECT row(status, last_seq)::text FROM pg_temp.o('0000200001')),
+  '(cancelled,41)', '(seq 41 C 재생, …9003) 원주문 (status, last_seq) 불변 = (cancelled, 41) — 반환만 늘고 투영은 없다'
+);
+
+INSERT INTO t_apply SELECT 'local_replay', public.dma_journal_apply('KB', 'ep-3', jsonb_build_array(
+  pg_temp.ev(30, '10:40:00', '{"local_reject":true,"notice_type":"R","order_qty":5,"result_code":-1,"message":"한도 초과"}'),
+  pg_temp.ev(31, '10:40:00', '{"local_reject":true,"notice_type":"R","order_qty":0,"result_code":-1,"message":"한도 초과"}')));
+SELECT set_eq(
+  $$SELECT (x->>'id')::uuid FROM t_apply, jsonb_array_elements(r->'rows') x WHERE label = 'local_replay'$$,
+  $$SELECT id FROM public.dma_account_orders WHERE gateway = 'KB' AND journal_epoch = 'ep-3' AND reject_seq IN (30, 31)$$,
+  '(seq 30·31 로컬 거부 재생, …9003) rows = reject_seq 30·31 거부 행 두 개(주문번호 없는 행도 seq 로 찾는다)'
+);
+SELECT is(
+  (SELECT row((r->>'applied')::int, (r->>'skipped')::int)::text FROM t_apply WHERE label = 'local_replay'),
+  '(0,2)', '(seq 30·31 로컬 거부 재생, …9003) (applied, skipped) = (0, 2) — 거부 행이 늘지 않는다'
 );
 
 -- ── 23. 19-REVIEW WR-06 — jsonb 래퍼 = SETOF 조회와 같은 행 · 같은 순서 · 같은 키(max_rows 절단 방지) ──

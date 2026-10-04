@@ -467,6 +467,53 @@ describe("JournalWriter", () => {
     expect(healths).toEqual([2]);
   });
 
+  it("19-REVIEW WR-09 — 커밋 뒤 응답 유실 → 같은 배치 재시도가 전부 skipped 여도 RPC 가 돌려준 행을 applied 로 1회 푸시한다", async () => {
+    const dbRow = (seq: number): JournalOrderDbRow => ({
+      id: "00000000-0000-4000-8000-000000000901",
+      trade_date: "2026-09-28",
+      account_no: "11112222-01",
+      isin: "KR7005930003",
+      stock_code: "005930",
+      exchange: "KRX",
+      board: null,
+      side: "B",
+      order_type: "N",
+      org_order_no: null,
+      qty: 10,
+      price: 70_000,
+      order_no: "0000100001",
+      filled_qty: 10,
+      modified_qty: 0,
+      status: "filled",
+      result_code: 0,
+      notice_type: "E",
+      message: null,
+      origin: "manual",
+      requester: null,
+      request_kind: null,
+      last_seq: seq,
+      created_at: "2026-09-28T00:00:01+00:00",
+      updated_at: "2026-09-28T00:00:02+00:00",
+    });
+    // 첫 호출은 DB 에서 커밋됐지만 응답이 유실됐다(throw). 재시도는 DB 기준 전부 skipped 이고, WR-09 마이그레이션 뒤로는
+    // 그 이벤트가 가리키는 행을 rows 로 돌려준다(applied 0 · skipped 1 · rows 1).
+    const db = fakeDb({ rowsOf: (events) => events.map((e) => dbRow(e.seq)) });
+    db.script.push("throw", "ok");
+    const w = make(db);
+    const applied: Array<Array<{ id: string; status: string; lastSeq: number }>> = [];
+    w.on("applied", (rows) => applied.push(rows.map((r) => ({ id: r.id, status: r.status, lastSeq: r.lastSeq }))));
+    w.beginEpoch("ep-1", { resync: false, headSeq: 0 });
+
+    w.push([record(1)]);
+    await flush();
+    expect(applied).toEqual([]);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await flush();
+    expect(db.calls.map((c) => c.args.p_events.map((e) => e.seq))).toEqual([[1], [1]]); // 같은 배치 재시도
+    expect(applied).toEqual([[{ id: "00000000-0000-4000-8000-000000000901", status: "filled", lastSeq: 1 }]]);
+    expect(w.lastAppliedSeq).toBe(1);
+  });
+
   it("⑧ drain — 큐가 비면 true · 시간 초과면 false", async () => {
     const db = fakeDb({ defaultStep: "hold" });
     const w = make(db);
