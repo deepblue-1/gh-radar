@@ -125,9 +125,9 @@
     }
   ],
   "next": {
-    "command": "/gsd-progress",
-    "label": "Phase 23 — Play 개발자 인증 후 진행",
-    "reason": "Phase 18·19·20 완료(2026-10-03); 남은 미완료는 Phase 23"
+    "command": "/gsd:progress --next",
+    "label": "Advance to the next step (plan phase 23)",
+    "reason": "Phase 23 of 35 — needs a plan"
   },
-  "updated_at": "2026-10-03T13:01:25.200Z"
+  "updated_at": "2026-10-04T16:48:32.514Z"
 }

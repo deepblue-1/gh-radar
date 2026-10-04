@@ -41,6 +41,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 24: gh-trade 상따 매수주문 3종 분리(선매수·추가매수·후매수) relay·webapp 반영** - gh-trade Phase 24 의 `SetLimitChaser` 말미 append 17필드(`buy3_schema=1`) 를 relay 빌더·에코/열거 파서·webapp 상따 설정 3그룹(선매수/추가매수/후매수)에 반영. 감시대상(매도/매수잔량) 토글·매수 진입 래치(MsgType 38) 폐기, 매수 LED 2단계. 옵션 UI 는 WinForms 상따 창을 참고해 목업 게이트 먼저. 서버(24-11)·WinForms 배포 뒤에만 relay → webapp 배포. 브랜치 `gsd/phase-24-limitchaser-buy3` (completed 2026-09-29)
 - [x] **Phase 25: 주문로그·잔량진행률 — gh-trade StrategyEvent 저널 수신·오늘 주문 펼침·작업대 주문로그 탭·미체결 진행률** - 기획서(MJ 9/27) 반영. 로그 7종은 gh-trade 서버 StrategyEvent(저널 80 append·별도 seq) → relay 적재·푸시 → 오늘 주문 행 펼침 + 작업대 「주문로그」 탭(전략 로그와 분리). 진행률 B안(대기 행 아래 2줄째) · 값은 `QueueProgress` 브로드캐스트. 풀안·용어 기존(후매수) 유지. 필드 v0.1 동결, 착수는 gh-trade fbs 해시 뒤. (completed 2026-10-03)
 - [x] **Phase 26: 시세 전용 공유 연결 — relay 종목 단위 팬아웃** - relay 가 유저별 DMA 세션마다 따로 구독해 gh-trade→relay VPN 구간에 같은 시세가 N 벌 흐르고 주문 세션 큐에서 통보가 시세 뒤에 줄을 서는 구조를, 관찰자 로그인 quote 역할(기존 공유 비밀 · 주문 권한 0) 시세 전용 연결 1개 + relay 참조계수 `isin|ex` 전역화 + 캐시 유저 간 공유 + PRICE 필터 relay 이관으로 바꾼다. WinForms 직결 유지. gh-trade 서버 변경은 gh-trade 저장소 별도 phase (추가 2026-09-30) (completed 2026-10-01)
+- [ ] **Phase 27: 자동매도 연동 — gh-trade Phase 28 와이어 계약 반영** - 인박스 261004-auto-sell-wire.md. relay 생성물 동기화(gh-trade master) · relay schema 4·에코 4필드·84 캐시·41/42/43 중계 · 문장 조립기 kind 11~14/group 9·CancelReason 10/11 · webapp 자동매도 칸·바로시작/중지·사용자 설정 화면. 서버 120 은 이미 가동 중, gh-radar 는 relay → webapp 순 (추가 2026-10-05)
 
 ## Phase Details
 
@@ -1419,3 +1420,14 @@ Plans:
 **Wave 15** *(blocked on Wave 14 completion)*
 
 - [x] 26-15-PLAN.md — 배포: 120 가동본 확인 → 준비 게이트 → 메인 세션 relay → smoke/healthz/서버 로그 → push
+
+### Phase 27: 자동매도 연동 — gh-trade Phase 28 와이어 계약 반영
+
+**Goal:** gh-trade Phase 28 자동매도가 KB 120 실서버에서 이미 내보내는 와이어(인박스 `docs/inbox/from-gh-trade/261004-auto-sell-wire.md`, HANDOFF §4-1 v0.2)를 gh-radar 가 받아서 보여 주고 조작할 수 있게 한다. ① relay 생성물을 gh-trade master(65caaf2e, fbs blob 68679e9a)에서 동기화 — SYNC MARKER 26b3493e → master, 신규/변경 .ts 12 · 삭제 0, Phase 27(gh-trade) 의 85 LimitFeature·슬롯 90·kind 15 는 생성물에 같이 실리되 중계·표시는 범위 밖. ② relay: `lcBuy3SchemaOf` 4번째 분기(schema 4 = 자동매도 요청 4필드 동반) · S→C 전용 에코 4필드(vtable 148~154 `auto_sell_state/sold_qty/basis/basis_price`)를 서버전용 필드 목록에 · 84 `UserSettingsResp` 사용자별 캐시 + 브라우저 인증 때 재전송(77 패턴) · 41 `AutoSellCommandReq`(Start 1/Stop 2) · 42 `SetUserSettingsReq`(11값 전체 교체) · 43 `GetUserSettingsReq` 중계 · 54 ERROR `src="AutoSellCommand"` 통과. ③ shared 문장 조립기: kind 11 Triggered·12 Modified·13 State·14 Pause / group 9 AutoSell 칸 재해석(HANDOFF §4-1 v0.2 표 — reason_code 첫 토큰 정확 일치, kind 6 은 `AutoSellAsk1/Bid1` 과 `AutoSellAuctionOrder` 를 reason_code 로 분기, group 7↔9 가 뒤바뀔 수 있으니 `AutoSell` 토큰도 함께 판정) + CancelReason 10 「매수 우선 취소」 · 11 「동시호가 감축」 라벨. ④ webapp: 상따 카드 자동매도 칸(요청 4 + 에코 4, 킬 스위치·단일 행 비활성화 시 `auto_sell_enabled=false` 에코 반영) · 바로시작/중지(41) · 카드 「미반영」 해제에 `src="AutoSellCommand"` 분기 · 사용자 설정 화면(금액 만원 단위, `present=false` 면 내장 기본값 표시, 저장 때만 42 — UI 는 HTML 목업 먼저). ⑤ 배포 relay → webapp(push) 순, 인박스 노트 `status: done` + `done_commit` 경로 지정 커밋.
+**Requirements**: TBD
+**Depends on:** Phase 25(주문로그 문장 조립기·StrategyEvent 적재), Phase 26(relay 팬아웃)
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 27 to break down)
