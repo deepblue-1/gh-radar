@@ -359,8 +359,31 @@ async function sizeCardTo(page: Page, isin: string, target: number): Promise<voi
 }
 
 /** 카드 1장의 잘림 0 — 두 판정을 **나란히**(overflow.ts 주석). */
+/**
+ * 카드 안 `scrollOverflowing` — 단, 카드 헤더 종목명(`data-part="name"`)의 말줄임은 뺀다.
+ *
+ * 종목명은 폰 폭에서 현재가·등락률이 뜨면 말줄임된다 — 사용자 결정 2026-10-01 「수정 필요없음」
+ * (Phase 26 deferred wontfix). 그래서 넘침 목록에서 빼되, 대신 말줄임 장치(ellipsis)와 전체 이름을
+ * 담은 `title` 이 있는지 본다. 다른 요소의 넘침은 그대로 돌려준다.
+ */
+async function cardScrollOverflowing(
+  page: Page,
+  isin: string,
+  label: string,
+): Promise<{ tag: string; text: string; over: number }[]> {
+  const nameEl = cardOf(page, isin).locator('[data-part="name"]');
+  const nameText = (await nameEl.count()) > 0 ? ((await nameEl.first().textContent()) ?? '') : null;
+  const all = await scrollOverflowing(page, cardSelector(isin));
+  const isName = (s: { tag: string; text: string }) => s.tag === 'b' && s.text === nameText?.slice(0, 24);
+  if (nameText !== null && all.some(isName)) {
+    await expect(nameEl.first(), `${label} — 종목명 말줄임`).toHaveCSS('text-overflow', 'ellipsis');
+    expect(await nameEl.first().getAttribute('title'), `${label} — 종목명 title`).toContain(nameText);
+  }
+  return all.filter((s) => !isName(s));
+}
+
 async function expectCardNotClipped(page: Page, isin: string, label: string): Promise<void> {
-  const scrolled = await scrollOverflowing(page, cardSelector(isin));
+  const scrolled = await cardScrollOverflowing(page, isin, label);
   expect(scrolled, `${label} — 내용이 상자를 넘친 요소`).toEqual([]);
   const box = await cardOf(page, isin).boundingBox();
   expect(box, `${label} — 카드를 잴 수 없다`).not.toBeNull();
@@ -2494,8 +2517,9 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       .filter((r): r is NonNullable<typeof r> => r !== null);
     const last = sets.at(-1)!;
     expect(last.buyWatchPrice).toBe(next);
-    // 새 웹은 lc.set 에 postBuyAuto 를 항상 싣는다 → relay 가 buy3_schema 2 로 파생(quick-260929-vzy · 존재로만 1/2). 1 은 자동 필드 없는 옛 탭 몫.
-    expect(last.buy3Schema).toBe(2);
+    // 새 웹은 lc.set 에 postBuyAuto · extraBuyBurstRelease 를 항상 싣는다 → relay 가 buy3_schema 3 으로 파생
+    // (quick-261003-rc4 · 존재로만 1/2/3). 2 는 버스트 해제 없는 탭, 1 은 자동 필드 없는 옛 탭 몫.
+    expect(last.buy3Schema).toBe(3);
     expect(last.postBuyEnabled).toBe(true);
     expect(last.postBuyReentry).toBe(3);
     expect(last.postBuyReboundPct).toBe(30);
@@ -2547,7 +2571,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     }
   });
 
-  test('vzy-1 후매수 「자동」 — 체크 → 10 buy3_schema 2 · post_buy_auto · 에코 표시 · 서버 발화 에코로 풀림 · [상따] 사유 줄 (quick-260929-vzy 트레이서)', async ({
+  test('vzy-1 후매수 「자동」 — 체크 → 10 buy3_schema 3 · post_buy_auto · 에코 표시 · 서버 발화 에코로 풀림 · [상따] 사유 줄 (quick-260929-vzy 트레이서)', async ({
     page,
   }) => {
     // 금액 · 반등을 명시한다 — 자동 켜기 사전 검증(P-2)이 붙어도 그대로 통과하게(주문가격 71,000 → 수량 563주 · 매도비율 60).
@@ -2579,12 +2603,12 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(order.lastRole).toBe('switch');
     expect(order.checkIsPrevOfSwitch).toBe(true);
 
-    // ① 체크 → 10 한 건 — buy3_schema 2 · post_buy_auto true · 후매수 스위치는 그대로(자동은 서버 몫).
+    // ① 체크 → 10 한 건 — buy3_schema 3(버스트 해제 동반 · quick-261003-rc4) · post_buy_auto true · 후매수 스위치는 그대로(자동은 서버 몫).
     const base = lcSetCount(relay);
     await auto.click();
     await waitForSetAtGateway(relay, base + 1);
     const sent = lcSetRequests(relay).at(-1)!;
-    expect(sent.buy3Schema).toBe(2);
+    expect(sent.buy3Schema).toBe(3);
     expect(sent.postBuyAuto).toBe(true);
     expect(sent.postBuyEnabled).toBe(false);
 
@@ -2691,8 +2715,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await waitForSetAtGateway(relay, before + 1);
 
     const sent = lcSetRequests(relay).at(-1)!;
-    // 자동 필드 동반 → buy3_schema 2 (P24-1 주석).
-    expect(sent.buy3Schema).toBe(2);
+    // 자동 · 버스트 해제 필드 동반 → buy3_schema 3 (P24-1 주석).
+    expect(sent.buy3Schema).toBe(3);
     expect(sent.crud).toBe('C');
     expect(sent.preBuyEnabled).toBe(true);
     expect(sent.buyEnabled, 'D-01 — 마스터 동반').toBe(true);
@@ -3656,8 +3680,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(lcSetCount(relay), '사람 한 번 = 10 한 건').toBe(before + 1);
 
     const sent = lcSetRequests(relay).at(-1)!;
-    // 자동 필드 동반 → buy3_schema 2 (P24-1 주석).
-    expect(sent.buy3Schema).toBe(2);
+    // 자동 · 버스트 해제 필드 동반 → buy3_schema 3 (P24-1 주석).
+    expect(sent.buy3Schema).toBe(3);
     expect(sent.crud).toBe('C');
     expect(sent.extraBuyEnabled).toBe(true);
     expect(sent.preBuyEnabled, '추가매수만 켰다 — 선매수는 그대로').toBe(false);
@@ -3921,7 +3945,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       const box = await editing.boundingBox();
       expect(box, `${label} — 편집 중 행을 잴 수 없다`).not.toBeNull();
       expect(Math.abs(box!.height - 44), `${label} — 편집 중 행 높이 ${box!.height}`).toBeLessThanOrEqual(0.5);
-      expect(await scrollOverflowing(page, cardSelector(E2E_ISIN)), `${label} — 편집 중 넘침`).toEqual([]);
+      expect(await cardScrollOverflowing(page, E2E_ISIN, label), `${label} — 편집 중 넘침`).toEqual([]);
       await page.locator('#lc-buy-watch-qty').press('Escape');
       await expect(page.locator('#lc-buy-watch-qty')).toHaveCount(0);
     };
@@ -4224,20 +4248,21 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
   });
 
   /*
-    ★ quick-260922-tqr — iOS Safari 는 16px 미만 입력에 포커스하면 확대하고 되돌리지 않는다.
-      종목 추가란은 터치 기기에서 16px 다. iPhone **가로** 폭(844)으로 재는 이유: 폭 브레이크포인트
-      (`sm`·`md`)를 넘는 폭에서도 16px 여야 가로 모드에서 다시 확대되지 않는다.
+    ★ quick-260922-tqr 는 터치 기기 종목 추가란을 16px 로 했지만(iOS Safari 의 16px 미만 포커스 확대 방지),
+      quick-260925-ptw 가 확대/축소 자체를 막고(`app/layout.tsx` viewport) 입력 글꼴을 14px(`--t-sm`)
+      하나로 정했다 — 사용자 결정 2026-10-01 「수정 필요없음」(Phase 26 deferred wontfix). 현 계약은 터치
+      기기에서도 14px 다. iPhone **가로** 폭(844)으로 재는 이유: 폭 브레이크포인트를 넘어도 같아야 한다.
       relay 픽스처가 이 describe 의 beforeAll/beforeEach 에 있어 반드시 안쪽에 둔다.
   */
-  test.describe('종목 추가란 글꼴 — 터치 기기 (quick-260922-tqr)', () => {
+  test.describe('종목 추가란 글꼴 — 터치 기기 (quick-260925-ptw 계약)', () => {
     test.use({ hasTouch: true, viewport: { width: 844, height: 390 } });
 
-    test('터치 기기 · iPhone 가로 폭 844 에서 종목 추가 입력이 16px 다', async ({ page }) => {
+    test('터치 기기 · iPhone 가로 폭 844 에서 종목 추가 입력이 14px 다', async ({ page }) => {
       // 바깥 beforeEach 가 WIDE_VIEWPORT 로 덮으므로 여기서 iPhone 가로 폭으로 되돌린다.
       await page.setViewportSize({ width: 844, height: 390 });
       await page.goto(WORKBENCH_URL);
       await waitForReady(page);
-      await expect(addBox(page)).toHaveCSS('font-size', '16px');
+      await expect(addBox(page)).toHaveCSS('font-size', '14px');
     });
   });
 
