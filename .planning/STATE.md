@@ -5,10 +5,10 @@ current_phase: 23
 current_phase_name: GH Trade Play 스토어 내부 테스트 배포 (개발자 인증 후)
 status: planning
 stopped_at: Phase 18·19·20 complete (2026-10-03) — 남은 미완료는 Phase 23 (Play 개발자 인증 대기)
-last_updated: "2026-10-03T13:01:25.181Z"
+last_updated: "2026-10-04T00:22:20.728Z"
 last_activity: 2026-10-03
 last_activity_desc: Phase 18·19·20 완료 처리 (재검증 R5/R3 · 19 첫 검증 · 19-13 실장 대조)
-state_head: 9dc19d4b04d7d9f5eb8dafaabe8d030a513f7e76
+state_head: 032519fc2e95ff91d43f3891bb26ac96dddce764
 progress:
   total_phases: 35
   completed_phases: 6
@@ -573,6 +573,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 261002-fim | 상따 후매수 잠금 해제선 `post_buy_unlock_qty` 종단 — gh-trade 259bc869 생성물 재동기화(vtable 136) · relay 60/64 파서(C→S 미적재) · shared 런타임 7/S→C 12 · 웹 「발동잔량」 칸(펼침·접힘): 발동잔량 0 이고 해제선 > 0 이면 회색 + sr 「잠금 해제선」. 서버 미배포 동안 0. relay 배포 → push 순서 | 2026-10-02 | 단일 커밋(코드+문서) | [261002-fim-post-buy-unlock-qty-relay-shared-hub](./quick/261002-fim-post-buy-unlock-qty-relay-shared-hub/) |
 | 61 | 교보 VPN 감시 타이머 탐침 112→119 (radar-gw 재설치·재기동, 119:22 도달 확인) | 2026-10-03 | 단일 커밋 | — |
 | 261003-rc4 | 버스트 상한가 후속 (gh-trade quick-261003-phd) — 생성물 재동기화(SYNC 26b3493e · BurstLimit 10 · burst_upper_limit · extra_buy_burst_release vtable 138 · BulkSellReq 40) · 주문로그 kind 10 「버스트 상한가 · 조각 N · 합계 M주」(shared 시세 이벤트 판정 + 조회 RPC 가시성 (1,2,10) 마이그레이션 20261003120000 · pgTAP 28) · 추가매수 「☐버스트 시 해제」 양방향(relay buy3_schema 3 = postBuyAuto+burst 둘 다 실릴 때만) · 상따 호가창 「버스트」 겹침 표식(relay `bul`). 배포 순서 DB → relay → push | 2026-10-03 | 648e7892·dc439352·6181ee5d·4b328171 | [261003-rc4-burst-limit-followup](./quick/261003-rc4-burst-limit-followup/) |
+| 63 | 작업대 e2e 알려진 적색 정리 — 헤더 종목명 말줄임 허용(wontfix 2026-10-01) · 종목추가 14px · buy3_schema 3 (e7c95ce7 · 69/69) | 2026-10-04 | 032519fc | — |
 
 ## Session Continuity
 
