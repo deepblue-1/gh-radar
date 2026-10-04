@@ -4,7 +4,7 @@ slug: "toss-order-ticket"
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
 # 2026-10-03 validate-phase §6 State A: 재실행(webapp 15 파일 918 ✓ · tick-rule 13 ✓ · shared krxTick/limitUp 31 ✓ · 실패 0) → validated · 갭 0 · superseded 5
-# P20-3 e2e 는 알려진 적색(R3-W1: 344 카드 헤더 종목명 24px 넘침 — Phase 20 우측 패널 밖 원인, deferred-items 이월) · 폭/44px 불변식은 단위 테스트로 green.
+# P20-3 e2e 알려진 적색(R3-W1: 344 카드 헤더 종목명 24px 넘침)은 2026-10-04 해소 — 종목명 말줄임은 사용자 결정 2026-10-01 wontfix 라 판정에서 빼고 ellipsis+title 을 단언(e7c95ce7) · trading-workbench.spec 69/69 green.
 status: validated
 nyquist_compliant: true
 wave_0_complete: true
@@ -64,7 +64,7 @@ validated: "2026-10-03"
 | 20-05-T2 | 05 | 4 | D-14 · D-14b | T-20-02 · T-20-14 | Tab 같은 그룹 다음(감시대상 건너뜀) · 한 번 클릭 전환 · 직렬화 · 옮긴 뒤 실패 표시 | component | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/lc/__tests__/inline-navigation.test.tsx` | ❌ (신설) | ✅ green (2026-10-03 · inline-navigation 20) |
 | 20-06-T1 | 06 | 4 | D-08 · D-09 · D-11 · D-15 | T-20-10 · T-20-15 | 상자/48·38 버튼 · 스테퍼 제거 · 전체 선택·↑↓ · 가격 검증 줄(주문 안 막음) · 주문 경로 줄 diff 0 | component | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/__tests__/manual-order-form.test.tsx` | ⚠️ 부분 갱신 | ✅ green (2026-10-03 · manual-order-form 89 · 소스 `webapp/src/components/trading/card/manual-order-form.tsx`) |
 | 20-06-T2 | 06 | 4 | D-10 · D-17 · D-23 | T-20-05 · T-20-09 | 시트 「입력」 = 값만 채움 · sendOrder 0 · 주문은 확인 다이얼로그로만 · 현재가/상한가 같은 카드 | component | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/trading/__tests__/manual-order-form.test.tsx src/components/trading/__tests__/card-body.test.tsx` | ⚠️ 새 describe | ✅ green (2026-10-03 · manual-order-form · card-body · e2e P20-5 이번 감사 미실행) |
-| 20-07-T1 | 07 | 5 | 불변식(폭) · D-04 · D-20 | T-20-12 · T-20-17 | 셀렉터 이관 · 더티 케이스 5개 재정의 · P20-3 최악값 × 4밴드 잘림 0 · 44px · 그룹 높이 동일 | e2e | `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/trading-workbench.spec.ts` | ⚠️ 확장 | ⚠️ 알려진 적색 — e2e P20-3 (`trading-workbench.spec.ts:3788`) R3-W1: 344 카드 헤더 종목명 24px 넘침 · Phase 20 우측 패널 밖 원인(헤더 제외 시 우측 패널 통과) · deferred-items 이월 · 44px 불변식은 단위 테스트로 green |
+| 20-07-T1 | 07 | 5 | 불변식(폭) · D-04 · D-20 | T-20-12 · T-20-17 | 셀렉터 이관 · 더티 케이스 5개 재정의 · P20-3 최악값 × 4밴드 잘림 0 · 44px · 그룹 높이 동일 | e2e | `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/trading-workbench.spec.ts` | ⚠️ 확장 | ✅ green (2026-10-04 · e7c95ce7) — R3-W1 해소: 헤더 종목명 말줄임은 wontfix(2026-10-01)라 판정에서 빼고 ellipsis+title 단언 · trading-workbench.spec 69/69 |
 | 20-07-T2 | 07 | 5 | D-10 · D-12 · D-13 · D-15 · a11y · 주문 경로 | T-20-09 · T-20-11 | P20-4 매수가격 시트 · P20-5 수동주문 시트(주문 0) · 호가 탭 시트 vs FAB · 스위치 role · 시트 axe 0 | e2e | `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/trading-workbench.spec.ts e2e/specs/a11y.spec.ts e2e/specs/sidebar-tree.spec.ts` | ⚠️ ⑦·11 재정의 | ✅ green (2026-09-25 실행 · orderbook.spec 은 명령에서 제외 — Phase 21 D-31 삭제, d33572c1) |
 | 20-07-T3 | 07 | 5 | 전체 게이트 | T-20-16 | build_command · test_command · shared 전체 · webapp build · e2e 4 spec | gate | config `build_command` · `test_command` · e2e 3 spec(trading-workbench · a11y · sidebar-tree) | ✅ | ✅ green (build · test · shared · webapp build · e2e 71 passed — 2026-09-25 · orderbook.spec 은 이후 삭제) |
 | 20-08-T1 | 08 | 6 | D-24(≥700) · 불변식 (트레이서) | T-20-18 · T-20-19 · T-20-20 | 거부 문장 → 고지 줄 role=alert 한 번(상태줄 alert 0) · LED 점 3개(sr-only) · 「계좌」「반영」 sr-only/title · 본문 700·830·992·뷰포트 1440 거부 최악값 1줄 · 잘림 0 | component + e2e | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/stock/__tests__/stock-orderbook-section.test.tsx` · `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/orderbook.spec.ts` | ⚠️ ③ 이관 · ③-e 신설 · P20-6 ① 신설 | SUPERSEDED — 호스트 호가 탭 삭제(Phase 21 D-31 · bc36464c · d33572c1) · `20-VERIFICATION-R3.md` R3-S1 |
@@ -125,4 +125,4 @@ validated: "2026-10-03"
 | Resolved | 0 |
 | Escalated | 0 |
 | Superseded | 5 (D-02 · D-02a 감시대상 토글 — Phase 24 ⑤ 989fb4cd · D-04a 레거시 금액 특례 — Phase 24-12 e9aa0da1 · D-24 호스트 호가 탭 — Phase 21 D-31 bc36464c/d33572c1 · 폭 스파이크 20-02-T3 — 일회성, P20-3 대체) |
-| Known red | 1 (e2e P20-3 — R3-W1: 344 카드 헤더 종목명 24px 넘침 · Phase 20 우측 패널 밖 원인 · deferred-items 이월) |
+| Known red | 1 → 0 (e2e P20-3 — R3-W1 · 2026-10-04 e7c95ce7 로 해소, 헤더 종목명 말줄임 허용 판정) |
