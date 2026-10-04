@@ -179,6 +179,10 @@
 - **상따 화면(`/trading/limit-chaser`)의 반응형은 뷰포트가 아니라 본문 폭 4밴드 컨테이너 쿼리다.** 밴드 표와 경계 3개(본문 685 · 830 · 992)의 실측 근거는 `webapp/src/styles/globals.css` 상단 주석(§2.2b)이 정본이다. 여기에 표를 복사하지 마라 — 표가 둘이 되면 갈라진다. 앱 셸·사이드바는 여전히 뷰포트 브레이크포인트다.
 <!-- GSD:conventions-end -->
 
+## gh-trade 인박스
+
+- **세션·작업을 시작하면 `docs/inbox/from-gh-trade/` 의 `status: open` 노트부터 읽는다.** gh-trade 가 넘긴 계약(StockDMA.fbs · relay) 변경이다. 처리하면 노트의 `status: done` 과 `done_commit` 을 채워 경로를 지정해 커밋한다. 형식은 그 디렉터리 `README.md` 가 정본이다.
+
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
 ## Architecture
 
