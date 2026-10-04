@@ -1351,3 +1351,60 @@ describe("TodayOrdersCard — 조회 실패 수렴 · 재시도 · 세대 (19-RE
     expect(listRows()[0]?.textContent).toContain("체결");
   });
 });
+
+describe("TodayOrdersCard — 주문 단위 묶음의 상태 · 펼침 (19-REVIEW WR-08)", () => {
+  const autoSell = (id: string, orderNo: string, at: string, over: Partial<JournalOrderRow> = {}) =>
+    row({ id, orderNo, side: "S", origin: "limit_chaser", noticeType: "E", status: "filled", filledQty: 10, createdAt: at, ...over });
+  const statusOf = (el: Element) => el.querySelector('[data-slot="today-order-status"]')?.textContent;
+
+  it("WR-08-c1 체결 1 · 부분체결 2 묶음의 상태 칸은 「부분체결」 — 대표(최신) 행의 「체결」 이 아니다", async () => {
+    fetchTodayOrdersMock.mockResolvedValue([
+      autoSell("g3", "0000300003", "2026-09-10T00:30:02.000Z"),
+      autoSell("g2", "0000300002", "2026-09-10T00:30:01.000Z", { status: "partially_filled", filledQty: 4 }),
+      autoSell("g1", "0000300001", "2026-09-10T00:30:00.000Z", { status: "partially_filled", filledQty: 2 }),
+    ]);
+    render(<TodayOrdersCard />);
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+    expect(listRows()[0]?.textContent).toContain("(3건)");
+    expect(statusOf(listRows()[0]!)).toBe("부분체결");
+    // 표 배치도 같은 값.
+    const tr = document.querySelector('[data-slot="today-order-table-row"]')!;
+    expect(statusOf(tr)).toBe("부분체결");
+  });
+
+  it("WR-08-c2 열어 둔 단건 행이 체결로 바뀌어 다른 묶음에 합류해도(members[0] 이 바뀜) 닫히지 않는다", async () => {
+    // g1(체결 · 단독 묶음 첫 행) 과 g2(매도 접수 — AG 키) 는 처음엔 서로 다른 줄이다.
+    fetchTodayOrdersMock.mockResolvedValue([
+      autoSell("g2", "0000300002", "2026-09-10T00:30:01.000Z", { noticeType: "A", status: "accepted", filledQty: 0, lastSeq: 1 }),
+      autoSell("g1", "0000300001", "2026-09-10T00:30:00.000Z", { lastSeq: 1 }),
+    ]);
+    const view = render(<TodayOrdersCard />);
+    await waitFor(() => expect(listRows()).toHaveLength(2));
+    const g2Row = [...listRows()].find((el) => el.textContent?.includes("0000300002"))!;
+    fireEvent.click(g2Row);
+    await waitFor(() =>
+      expect(
+        [...listRows()].find((el) => el.textContent?.includes("0000300002"))
+          ?.querySelector('button[data-slot="today-order-expand"]')
+          ?.getAttribute("aria-expanded"),
+      ).toBe("true"),
+    );
+
+    // g2 가 체결되어 마지막 통보가 E 가 된다 → g1 과 같은 체결 묶음(첫 행 = g1)으로 합류한다.
+    mockRelay = {
+      ...mockRelay,
+      journalRows: [autoSell("g2", "0000300002", "2026-09-10T00:30:01.000Z", { lastSeq: 2 })],
+    };
+    view.rerender(<TodayOrdersCard />);
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+    expect(listRows()[0]?.textContent).toContain("(2건)");
+    const button = listRows()[0]!.querySelector('button[data-slot="today-order-expand"]');
+    expect(button?.getAttribute("aria-expanded")).toBe("true");
+
+    // 닫으면 구성원 키가 전부 지워져 닫힌 채다.
+    fireEvent.click(button!);
+    await waitFor(() =>
+      expect(listRows()[0]!.querySelector('button[data-slot="today-order-expand"]')?.getAttribute("aria-expanded")).toBe("false"),
+    );
+  });
+});

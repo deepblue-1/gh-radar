@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { JournalOrderRow } from "@gh-radar/shared";
 
 import {
+  mergedStatusOf,
   mergeKeyOf,
   mergeOrderNotices,
   orderActionSide,
@@ -460,5 +461,50 @@ describe("mergeOrderNotices — 묶음 구성원 members (Phase 25 D-02 · 펼�
       1_000,
     );
     expect(merged.map((m) => m.members.length)).toEqual([1, 1]);
+  });
+});
+
+describe("mergeOrderNotices — 주문 단위 행의 묶음 상태 (19-REVIEW WR-08)", () => {
+  it("WR-08-1 체결 1 · 부분체결 2 가 섞인 묶음의 상태는 「체결」 이 아니라 부분체결이다 — 대표 행 하나의 상태를 쓰지 않는다", () => {
+    const merged = mergeOrderNotices([
+      autoFill({ id: "x3", orderNo: "0000100003", createdAt: at(2_000), status: "filled", filledQty: 10 }),
+      autoFill({ id: "x2", orderNo: "0000100002", createdAt: at(1_000), status: "partially_filled", filledQty: 4 }),
+      autoFill({ id: "x1", orderNo: "0000100001", createdAt: at(0), status: "partially_filled", filledQty: 2 }),
+    ]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.head.status).toBe("filled"); // 대표 행(최신)은 체결이지만
+    expect(merged[0]?.status).toBe("partially_filled"); // 묶음은 부분체결
+    // 수량은 단건 행과 같은 뜻 — 주문 수량 합.
+    expect(merged[0]?.qty).toBe(30);
+  });
+
+  it("WR-08-2 모두 같은 상태면 그 값 · 단건은 그 행의 상태 그대로", () => {
+    const all = mergeOrderNotices([
+      autoFill({ orderNo: "0000100002", createdAt: at(1_000) }),
+      autoFill({ orderNo: "0000100001", createdAt: at(0) }),
+    ]);
+    expect(all[0]?.status).toBe("filled");
+    const single = mergeOrderNotices([autoFill({ status: "partially_filled", filledQty: 3 })]);
+    expect(single[0]?.status).toBe("partially_filled");
+    expect(mergedStatusOf([])).toBe("accepted");
+  });
+
+  it("WR-08-3 매도 접수 묶음에 체결이 섞이면(마지막 통보 A · 체결 먼저 온 행) 부분체결 — 「접수」 로 보이지 않는다", () => {
+    const merged = mergeOrderNotices([
+      autoFill({ orderNo: "0000100002", createdAt: at(500), noticeType: "A", status: "filled", filledQty: 10 }),
+      autoFill({ orderNo: "0000100001", createdAt: at(0), noticeType: "A", status: "accepted", filledQty: 0 }),
+    ]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.status).toBe("partially_filled");
+  });
+
+  it("WR-08-4 다른 행의 취소확인으로 닫힌 자동주문(마지막 통보 E · status cancelled)은 묶지 않는다 — 독립 사건", () => {
+    const cancelled = autoFill({ id: "c1", orderNo: "0000100001", createdAt: at(0), status: "cancelled", filledQty: 4 });
+    const filled = autoFill({ id: "f2", orderNo: "0000100002", createdAt: at(500) });
+    expect(mergeKeyOf(cancelled)).toBe("NO|0000100001");
+    expect(mergeKeyOf(autoFill({ status: "modified" }))).toBe("NO|0000100001");
+    const merged = mergeOrderNotices([filled, cancelled]);
+    expect(merged).toHaveLength(2);
+    expect(merged.map((m) => m.status)).toEqual(["filled", "cancelled"]);
   });
 });

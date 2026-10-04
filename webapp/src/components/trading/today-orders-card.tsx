@@ -98,7 +98,9 @@
  *   (`OrderTimeline`)을 본다. 실제 토글은 시각 칸의 `<button aria-expanded aria-controls>` 가 맡고 행 클릭은 그
  *   토글로 위임한다(행에 role=button 을 주지 않는다 — 표 의미 유지). 여러 행 동시 펼침 · 상태는 메모리 Set
  *   (새로고침하면 닫힘). 키는 묶음 **첫 통보 행 id**(`members[0].id`) — 조각이 더 들어와 `head` 가 바뀌어도
- *   열린 채다(렌더 키도 같은 값이라 본문이 다시 마운트되지 않는다). 주문번호 없는 행(거부 · 접수 불명)은 ▶ 자리만
+ *   열린 채다(렌더 키도 같은 값이라 본문이 다시 마운트되지 않는다). 열림 판정은 구성원 id 중 하나라도 열린 키면
+ *   열림이다(19-REVIEW WR-08 — 행이 체결 · 취소로 다른 묶음에 옮겨 `members[0]` 이 바뀌어도 닫히지 않게).
+ *   상태 칸은 대표 행이 아니라 묶음 상태(`MergedOrderNotice.status` — 구성원으로부터 계산)를 그린다(WR-08). 주문번호 없는 행(거부 · 접수 불명)은 ▶ 자리만
  *   남기고(visibility hidden) 버튼 · 클릭 · hover 가 없다. 표 ↔ 카드 행은 CSS 로 둘 다 DOM 에 있으므로 펼침
  *   본문(= 조회)은 **보이는 배치 한 곳에만** 마운트한다(`useTableLayout`) — 클릭 1회 = 조회 1회.
  */
@@ -261,21 +263,26 @@ export function TodayOrdersCard() {
   const [failed, setFailed] = useState(false);
   /* 펼친 행(위 ⑬) — 메모리 Set · 키 = 묶음 첫 통보 행 id. 새로고침하면 전부 닫힌다(D-04). */
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
-  const toggle = useCallback((key: string) => {
+  /*
+    펼침 판정은 **구성원 중 하나라도** 열린 키를 가지면 열림이다(19-REVIEW WR-08). 묶기 키는 행의 마지막 통보 ·
+    상태로 정해져 행이 다른 묶음으로 옮겨 갈 수 있다(A→E 로 단건 → 체결 묶음 · 취소로 묶음 → 단건) — 그때
+    `members[0].id` 가 바뀌어도 열어 둔 행이 닫히지 않게. 닫을 때는 구성원 키를 전부 지운다.
+  */
+  const toggle = useCallback((keys: readonly string[], openKey: string) => {
     setOpen((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (keys.some((k) => next.has(k))) for (const k of keys) next.delete(k);
+      else next.add(openKey);
       return next;
     });
   }, []);
   const tableLayout = useTableLayout();
   const expandOf = (notice: MergedOrderNotice, table: boolean): RowExpand => {
-    const key = expandKeyOf(notice);
+    const memberKeys = notice.members.map((m) => m.id);
     return {
       expandable: isExpandable(notice),
-      expanded: open.has(key),
-      onToggle: () => toggle(key),
+      expanded: memberKeys.some((k) => open.has(k)),
+      onToggle: () => toggle(memberKeys, expandKeyOf(notice)),
       active: tableLayout === table,
     };
   };
@@ -645,7 +652,7 @@ function OrderTableRow({
       <TableCell className="num mono text-[length:var(--t-caption)]">{qtyText(notice)}</TableCell>
       <TableCell className="num mono text-[length:var(--t-caption)]">{priceText(notice)}</TableCell>
       <TableCell>
-        <StatusTag shown={orderDisplayStatus(row)} />
+        <StatusTag shown={orderDisplayStatus({ ...row, status: notice.status })} />
       </TableCell>
       <TableCell className="mono text-[length:var(--t-caption)]">
         {notice.orderNoText ?? "—"}
@@ -789,7 +796,7 @@ function OrderCardRow({
           <OriginTag tag={originTagOf(row.origin)} slot="today-order-origin" />
         </span>
         <span className="ml-auto flex flex-none items-center gap-1">
-          <StatusTag shown={orderDisplayStatus(row)} />
+          <StatusTag shown={orderDisplayStatus({ ...row, status: notice.status })} />
         </span>
       </div>
       {/*

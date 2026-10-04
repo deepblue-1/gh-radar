@@ -19,7 +19,7 @@
  *   — `ActionWord`(:466) · `ActionSide`(:478) · `BuildOrderScreen`(:500 부근 board 접두).
  */
 
-import type { JournalOrderRow } from "@gh-radar/shared";
+import type { JournalOrderRow, JournalOrderStatus } from "@gh-radar/shared";
 
 /** 매매구분. `null` = 모른다(지어내지 않는다). */
 export type NoticeSide = "B" | "S" | null;
@@ -163,6 +163,15 @@ export function orderNoticeLabel(facts: OrderNoticeFacts): OrderNoticeLabel {
  *
  * ★ 현재 시각을 읽지 않는다. 입력 행의 `createdAt` 만 본다 — 같은 입력은 언제 불러도
  *   같은 출력이다(그래서 타이머 없이 단위 테스트로 잠긴다).
+ *
+ * ★ 행은 **주문 한 건 = 한 행**이다(Phase 19 D-03 — 17-10 의 통보 한 건 = 한 행이 아니다). `noticeType` 은 그
+ *   주문의 「마지막 통보」, `qty` 는 「주문 수량」, `status` 는 주문 전체의 진행 단계다(19-REVIEW WR-08). 그래서
+ *   - 묶음의 **상태는 구성원 상태로부터 계산**한다(`MergedOrderNotice.status`) — 대표 행 하나의 상태를 그리면
+ *     3건 중 1건만 체결이어도 「체결」 로 보인다. 모두 같으면 그 값, 섞이면 「부분체결」(묶음 전체로는 아직 다
+ *     체결되지 않았고 체결분은 있다).
+ *   - 수량은 묶음 구성원의 **주문 수량 합**이다 — 단건 행의 수량 칸(주문 수량)과 같은 뜻이다. 체결 진행은 상태 칸이 말한다.
+ *   - 진행 축 밖으로 끝난 주문(취소 · 정정 · 거부 — 다른 행의 취소확인으로 원주문이 닫힌 경우 포함)은 묶지 않는다.
+ *     「한 건 한 건이 독립 사건」 원칙 그대로이고, 묶음 상태가 접수 · 부분체결 · 체결 세 값 안에서만 정해진다.
  */
 
 /** 묶인(또는 단건인) 한 줄. */
@@ -171,6 +180,11 @@ export interface MergedOrderNotice {
   head: JournalOrderRow;
   /** 묶인 건수. `1` 이면 묶임 표기를 붙이지 않는다. */
   count: number;
+  /**
+   * 묶음의 상태 — 구성원 상태로부터 계산한다(19-REVIEW WR-08). 단건은 그 행의 상태 그대로. 묶음은 모두 같으면 그 값,
+   * 섞이면 `partially_filled`. 화면 상태 칸은 대표 행이 아니라 이 값을 그린다.
+   */
+  status: JournalOrderStatus;
   /**
    * 수량 합계. 수량을 모르는 구성원(`qty` null — 체결이 접수보다 먼저 온 행 · 로컬 거부)은 0 으로
    * 더한다. 구성원 **전부** 모르면 `null`(화면은 「—」) — 모르는 수량을 0 으로 지어내지 않는다.
@@ -199,6 +213,24 @@ export interface MergedOrderNotice {
 /** 기본 묶기 창 — 정본 C# `LogPanelRenderer.MERGE_WINDOW_MS` 와 같다. */
 export const MERGE_WINDOW_MS = 3000;
 
+/** 묶을 수 있는 주문 상태 — 진행 축 세 값(WR-08). 취소 · 정정 · 거부로 끝난 주문은 묶지 않는다. */
+const PROGRESS_STATUSES: ReadonlySet<JournalOrderStatus> = new Set<JournalOrderStatus>([
+  "accepted",
+  "partially_filled",
+  "filled",
+]);
+
+/**
+ * 묶음 상태 — 구성원 상태로부터 계산한다(WR-08). 모두 같으면 그 값, 섞이면 「부분체결」: 구성원이 진행 축 세 값
+ * 안에 있으므로(`mergeKeyOf`) 섞였다는 것은 체결분이 있되 전부 체결은 아니라는 뜻이다.
+ */
+export function mergedStatusOf(members: readonly JournalOrderRow[]): JournalOrderStatus {
+  const first = members[0]?.status;
+  if (first === undefined) return "accepted";
+  if (members.every((m) => m.status === first)) return first;
+  return "partially_filled";
+}
+
 /**
  * 묶기 키 — **한 곳에서만** 만든다. 분기 안에 흩뿌리면 「체결만 고치고 접수는 잊는」
  * 어긋남이 조용히 산다(정본 C# `NotificationHub.MergeKeyOf` :573 동형).
@@ -213,6 +245,8 @@ export function mergeKeyOf(row: JournalOrderRow): string {
   const automated =
     (row.origin === "limit_chaser" || row.origin === "vi") && row.requester !== MANUAL_REQUESTER;
   if (!automated) return own;
+  // 진행 축(접수 · 부분체결 · 체결) 밖으로 끝난 주문은 독립 사건이다 — 묶지 않는다(WR-08 · 위 머리 주석).
+  if (!PROGRESS_STATUSES.has(row.status)) return own;
 
   const axis = `${row.origin}|${row.isin}|${row.exchange}|${row.side}`;
   // 체결은 접두 `FG`, 매도 접수는 `AG` — 접두가 달라 둘이 섞이지 않는다.
@@ -299,6 +333,7 @@ export function mergeOrderNotices(
       out: {
         head: item.row,
         count: 1,
+        status: item.row.status,
         qty: item.row.qty,
         priceMin: knownPrice(item.row.price),
         priceMax: knownPrice(item.row.price),
@@ -316,7 +351,9 @@ export function mergeOrderNotices(
     open.set(key, fresh);
   }
 
-  return groups.sort((a, b) => a.headIndex - b.headIndex).map((group) => group.out);
+  return groups
+    .sort((a, b) => a.headIndex - b.headIndex)
+    .map((group) => ({ ...group.out, status: mergedStatusOf(group.out.members) }));
 }
 
 /** 범위에 넣을 수 있는 단가 — null(모름)·0 이하(취소 등)는 없는 값이다. */
