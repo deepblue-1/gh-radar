@@ -192,3 +192,12 @@ pgTAP 실행 방법:
 _수정: 2026-10-04_
 _수정자: Claude (gsd-code-fixer)_
 _반복 차수: 1_
+
+## 배포 기록 (2026-10-04 · 휴장일 · 사용자 승인)
+
+| 순서 | 대상 | 결과 |
+|------|------|------|
+| 1 | DB | `supabase db push` — `20261004090000_dma_journal_orders_for_user_json` · `20261004090100_dma_journal_apply_skipped_rows` 적용. 새 jsonb RPC 와 기존 RPC 의 id 집합이 09-29(131) · 10-02(69) 에서 같음 |
+| 2 | relay | `relay:af16e058` (배포 커밋 detached worktree) — healthz `journal.state live` · lastSeq 5062 = headSeq · lag 0 · `mapping.rows 3` · 새 키(`projectionErrors` · `duplicatesAfterRegression` · `mapping`) 노출 · `smoke-relay.sh` PASS 10 · FAIL 0 · SKIP 2 |
+| 3 | server | `gh-radar-server-00055-wlg` (APP_VERSION af16e058 · env 키 집합 라이브와 동일) · smoke PASS 15 · FAIL 0 |
+| 4 | webapp | `git push origin master` → Vercel 프로덕션 `gh-radar-webapp-r1b8mb414` Ready(1m) · 프로덕션 별칭 갱신 확인 |
