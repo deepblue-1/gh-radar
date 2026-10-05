@@ -107,4 +107,29 @@ DB 에 쓰지 않는다(D-01). 결선은 `relay/src/index.ts`, 모듈은 `relay/
 - **radar-gw 재생성 · 이전 · 디스크 정리 · relay SA(`gh-radar-relay-sa`) 교체는 gh-trade 에 먼저 알린다.** 운반이 멈추면 119 의 90일 회전으로 원본(pcap.zst)이 유실된다.
 - **GCS 버킷 `gs://gh-trade-tick-archive`**(프로젝트 gh-radar · asia-northeast3 · ARCHIVE · 균일 버킷 액세스 · 공개 접근 방지). relay SA 는 이 버킷에만 `roles/storage.objectCreator` + `objectViewer`(프로젝트 IAM 무변경, SA 키 파일 없음 — VM 메타데이터 자격). 덮어쓰기·삭제는 `storage.objects.delete` 403 으로 거부됨(2026-10-05 시험). 객체 경로 `raw/<krx|nxt>/<YYYYMMDD>/<YYYYMMDD-HHMM[-N]>.pcap.zst`. Archive 클래스라 꺼낼 때 GB당 요금이 붙는다.
 - **확인:** radar-gw 에서 `systemctl list-timers tick-archive.timer --all`(켜진 뒤 NEXT = 13:00 UTC) · `journalctl -u tick-archive` 요약 줄 `[tick-archive] uploaded=… anomalies=0 failed=0` · `gcloud storage ls gs://gh-trade-tick-archive/raw/`. relay 영향은 평소 relay 로그·메모리로 본다(운반은 22:00).
-- **gh-radar 적재 경로와의 관계:** 상한가 밤 export(`261005-limitup-feature-85.md` 계약)는 radar-gw → 119 rsync pull → Supabase/Storage 로 들어오며 이 버킷을 거치지 않는다. export·DuckDB 를 같은 버킷에 복사하는 것은 백업 용도일 뿐 gh-radar 적재에는 필요 없다(gh-trade 재량).
+- **gh-radar 적재 경로와의 관계:** 상한가 밤 export(`261005-limitup-feature-85.md` 계약)는 radar-gw → 119 rsync pull → gh-radar 소유 버킷 `gs://gh-radar-limitup-export` → Cloud Run Job → Supabase/Storage 로 들어오며(아래 「gh-radar 상한가 export 운반기」) 이 버킷을 거치지 않는다. export·DuckDB 를 같은 버킷에 복사하는 것은 백업 용도일 뿐 gh-radar 적재에는 필요 없다(gh-trade 재량).
+
+### gh-radar 상한가 export 운반기 (Phase 28)
+
+정본: `infra/relay/limitup-pull/`(스크립트 · 유닛 · 설치기 — 설정 env 와 옵션은 `limitup-pull.sh` 머리 주석). gh-trade `tick-archive` 와 같은 문법(전용 사용자 · 지문 대조 · 키는 없을 때만 · 자원 상한 · `Asia/Seoul` 타이머)이며 같은 호스트에 나란히 산다.
+
+- **무엇.** 평일 21:00 KST 에 119 `~/ticks/export`(rrsync 읽기 전용, 원격 `/`)를 radar-gw 로컬 미러로 `rsync -az --delete --exclude='*.tmp'` 받고, `gcloud storage rsync` 2단(① `manifest.json` 을 뺀 데이터 ② manifest 까지)으로 `gs://gh-radar-limitup-export/export` 에 올린다. 운반만 한다 — 판단 · 적재 · 알림은 Cloud Run Job `gh-radar-limitup-sync`(21:20, manifest sha256 대조 · 날짜 단위 교체)가 한다. radar-gw 에 Node 런타임 · Supabase 키를 두지 않는다(D-13). GCS 객체를 지우는 명령은 부르지 않는다 — 버킷 사본이 남아 재적재가 된다(D-16).
+- **radar-gw 소유물.** 시스템 사용자 `limitpull`(홈 `/var/lib/limitpull`, nologin) · ed25519 키 `/var/lib/limitpull/.ssh/id_ed25519`(주석 `radar-gw-pull` — 119 등록 줄 · gh-trade `server/tools/analysis/README.md` 의 `grep -c 'radar-gw-pull'` 과 같은 문자열, D-21) + 119 호스트키 고정 known_hosts · 미러 `/var/lib/limitpull/export/`(119 가 export 를 지우지 않으므로 하루 약 4MB 씩 늘어난다 — 디스크 여유를 가끔 본다) · 잠금 `/var/lib/limitpull/export.lock` · `/usr/local/lib/limitup-pull/limitup-pull.sh` · `/etc/limitup-pull.env`(`BUCKET` · `REMOTE`) · `limitup-pull.service`(oneshot, Nice 19 · IO idle · MemoryMax 300M · OOMScoreAdjust 500 — relay 보다 먼저 죽는다, gcloud 1 프로세스 · 2 스레드 · 합성 업로드 끔, `[Install]` 없음) · `limitup-pull.timer`(`Mon..Fri 21:00:00 Asia/Seoul`, Persistent 없음). 평일 06:30~20:30 KST 수동 실행은 「장중 — 건너뜀」(시험은 `--allow-daytime`).
+- **지우지 말 것:** `limitpull` 사용자 · `/var/lib/limitpull` · `limitup-pull.*` 유닛. 키를 다시 만들면 119 `authorized_keys` 등록을 gh-trade 사용자가 다시 해야 한다(설치기는 키가 없을 때만 만든다).
+- **GCS 버킷 `gs://gh-radar-limitup-export`**(프로젝트 gh-radar · asia-northeast3 · STANDARD · 균일 버킷 액세스 · 공개 접근 방지). relay SA(`gh-radar-relay-sa`)는 이 버킷에만 `roles/storage.objectUser` — D+1 보충으로 119 가 어제 날짜를 다시 써서 같은 경로 덮어쓰기가 생기고, 덮어쓰기에는 `storage.objects.delete` 가 필요하다(gh-trade 2026-10-05 실측: `objectCreator`+`objectViewer` 로는 403). 적재 워커 SA 는 `roles/storage.objectViewer`. 설정 스크립트 `scripts/setup-limitup-sync-iam.sh`(28-08). 프로젝트 IAM 무변경 · SA JSON 키 없음(VM 메타데이터 자격).
+- **설치 · 재설치(멱등).** VM 재생성 시 relay 메타데이터 밖이라 다시 실행한다. 119 지문은 radar-gw 에서 `sudo ssh-keygen -lf /var/lib/tickarc/.ssh/known_hosts`(gh-trade 가 이미 고정 — 2026-10-05 `SHA256:7s4iOpsEMcJkjLHD9KpGv7TIDXxJj2ip5Na+hU4aiJY`)로 얻는다.
+
+  ```bash
+  # (맥, repo root) 4파일 복사 → 설치. 지문이 다르면 아무것도 쓰지 않고 종료 2
+  gcloud compute scp --tunnel-through-iap --zone asia-northeast3-a \
+    infra/relay/limitup-pull/{limitup-pull.sh,limitup-pull.service,limitup-pull.timer,install.sh} radar-gw:~/limitup-pull-src/
+  gcloud compute ssh radar-gw --zone asia-northeast3-a --tunnel-through-iap --command \
+    'sudo bash ~/limitup-pull-src/install.sh --bucket gs://gh-radar-limitup-export --host-fp SHA256:<119 지문>'
+  # (radar-gw) 자가 시험 · 시간대 해석 확인
+  /usr/local/lib/limitup-pull/limitup-pull.sh --self-test
+  systemd-analyze calendar 'Mon..Fri 21:00:00 Asia/Seoul'
+  ```
+
+- **키 등록(119 — gh-trade 사용자).** 설치기는 키 **지문**만 출력한다. 공개키 본문(`sudo cat /var/lib/limitpull/.ssh/id_ed25519.pub`)은 gh-trade 인박스 노트 추기로 1회 전달하고 저장소 파일 · 로그에는 남기지 않는다. 119 등록 줄은 `restrict,command="/usr/local/bin/rrsync -ro /home/smok95/ticks/export" ssh-ed25519 AAAA… radar-gw-pull`(정본: gh-trade `server/tools/analysis/README.md` 「rrsync 읽기 전용 키」). **등록 전까지 타이머는 disabled** — 등록 뒤 `sudo -H -u limitpull env $(cat /etc/limitup-pull.env) /usr/local/lib/limitup-pull/limitup-pull.sh --check` 로 확인하고 `install.sh … --enable-timer`(또는 `systemctl enable --now limitup-pull.timer`)로 켠다.
+- **확인:** `systemctl list-timers limitup-pull.timer --all`(켜진 뒤 NEXT = 12:00 UTC) · `journalctl -u limitup-pull` 요약 줄 `[limitup-pull] dates=… latest=… rsync=ok upload=ok` · `gcloud storage ls gs://gh-radar-limitup-export/export/`. `--dry-run` 은 받을 날짜와 올릴 객체 개수만 보인다(전송 없음, 장중에도 됨). 종료코드 0 정상(건너뜀 포함) · 1 rsync/업로드 실패 · 2 사용법/설정.
+- **변경 시 gh-trade 에 알린다.** 이 운반기의 설치 · 재설치 · 키 교체 · 제거는 같은 호스트를 쓰는 gh-trade 에 인박스 노트 추기로 알린다(이 절 위 규칙과 같다). 되돌리기는 radar-gw 정리(타이머 disable · 유닛 · `limitpull` 제거) + 119 `authorized_keys` 의 `radar-gw-pull` 줄 삭제(gh-trade 사용자)를 함께 맞춘다.
