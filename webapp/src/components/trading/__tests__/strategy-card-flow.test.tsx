@@ -2031,6 +2031,36 @@ describe('Phase 27 41 in-flight', () => {
     expect(logRows().length).toBe(before);
   });
 
+  /*
+    27-REVIEW WR-01 — 41 은 lc.set · lc.arm 응답 채널(`unacked` · `answerSeq`)을 건드리지 않는다. 그 채널은 폼 커밋
+    훅의 진행 판정 입력이라 41 의 거부 · 무응답이 실리면 다른 그룹의 진행 중 lc.set 이 거짓 실패로 떨어진다.
+  */
+  it('WR-01 — 41 거부는 answerSeq 를 올리지 않는다(lc.set 진행 판정 불오염)', async () => {
+    setRelay({ limitChasers: [watching] });
+    const { rerender } = render(<Card />);
+    const seq0 = lastCard!.answerSeq;
+    press('start');
+    setRelay({
+      limitChasers: [watching],
+      messages: [msg({ lv: 'ERROR', src: 'AutoSellCommand', i: ISIN, a: ACCOUNT, m: REJECT_HOLD })],
+    });
+    rerender(<Card />);
+    await waitFor(() => expect(lastCard!.autoSellPending).toBeNull());
+    expect(lastCard!.answerSeq).toBe(seq0);
+  });
+
+  it('WR-01 — 41 무응답은 공용 unacked 가 아니라 autoSellUnacked 만 세운다 · 상태줄 「미반영」은 선다', () => {
+    setRelay({ limitChasers: [watching] });
+    render(<Card />);
+    press('start');
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+    });
+    expect(lastCard!.unacked).toBe(false);
+    expect(lastCard!.autoSellUnacked).toBe(true);
+    expect(unacked()?.textContent).toContain('미반영');
+  });
+
   it('pending 중 54 INFO AutoSell 사유 줄 → 로그에만 · pending 유지(해제 대상 아님)', async () => {
     setRelay({ limitChasers: [watching] });
     const { rerender } = render(<Card />);

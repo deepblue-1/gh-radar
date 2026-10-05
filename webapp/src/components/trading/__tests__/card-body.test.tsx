@@ -180,6 +180,7 @@ function cardState(over: Partial<StrategyCardState> = {}): StrategyCardState {
     setDirtyCount: vi.fn(),
     handleArm: vi.fn(),
     autoSellPending: null,
+    autoSellUnacked: false,
     onAutoSellCommand: vi.fn(),
     handleSent: vi.fn(),
     pushClientLog: vi.fn(),

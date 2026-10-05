@@ -62,6 +62,10 @@
  *   stop → !enabled)를 실을 때, 41 거부 54(AutoSellCommand · Account · Relay — `isAutoSellCommandRejection`),
  *   또는 41 **전용** 3초 타이머(「미반영」만) 중 먼저 오는 것으로 끝난다. 공용 `ackTimer` 를 쓰지 않는 이유:
  *   키 일치 에코 이펙트가 아무 에코에나 그 타이머를 지운다 — 300ms 런타임 푸시가 41 의 답으로 둔갑한다.
+ *   ★ 41 은 lc.set · lc.arm 응답 채널(`unacked` · `answerSeq` · `ackTimer`)을 **건드리지 않는다**(27-REVIEW WR-01).
+ *     그 채널은 폼 커밋 훅의 진행 판정 입력이라, 41 의 거부(`acceptAnswer`)나 무응답(`setUnacked`)이 실리면
+ *     다른 그룹에서 진행 중이던 lc.set 이 거짓 「반영 안 됨」 · 타임아웃으로 떨어진다. 41 무응답은 전용
+ *     `autoSellUnacked` 로만 서고, 상태줄은 `unacked || autoSellUnacked` 로 그린다.
  *   재전송은 없다(T-16-10 · T-17-40). 버튼 렌더 활성과 전송 가드는 같은 `server` 로 `autoSellButtonsOf` 를 읽는다.
  */
 
@@ -259,6 +263,11 @@ export interface StrategyCardState {
    */
   autoSellPending: AutoSellAction | null;
   /**
+   * 41 이 3초 안에 답을 받지 못했다 — **표시만** 한다(재전송 없음). lc.set · lc.arm 의 `unacked` 와 따로 둔다
+   * (27-REVIEW WR-01) — 폼 커밋 훅에는 `unacked` 만 넘어가므로 41 무응답이 lc.set 진행 판정을 흔들지 않는다.
+   */
+  autoSellUnacked: boolean;
+  /**
    * 자동매도 바로시작 · 중지 → `{t:"autosell.cmd"}` 1건(D-06). 에코 없음 · 버튼 규칙상 비활성 action ·
    * in-flight 중이면 아무것도 보내지 않는다. `send` 가 false 면 추적도 재전송도 없다.
    */
@@ -414,6 +423,8 @@ export function useStrategyCardState({
    */
   const autoSellCmdRef = useRef<AutoSellAction | null>(null);
   const [autoSellPending, setAutoSellPending] = useState<AutoSellAction | null>(null);
+  /** 41 전용 「미반영」 — 공용 `unacked` 와 분리(⑥ · 27-REVIEW WR-01). */
+  const [autoSellUnacked, setAutoSellUnacked] = useState(false);
   /** 41 **전용** 3초 타이머 — 공용 `ackTimer` 와 분리(⑥ — 키 일치 이펙트가 아무 에코에나 공용 타이머를 지운다). */
   const autoSellCmdTimer = useRef<number | null>(null);
   /** 41 대기를 끝낸다(또는 연다) — ref · state · 41 타이머를 함께. 「미반영」 표시는 호출자가 정한다. */
@@ -482,6 +493,7 @@ export function useStrategyCardState({
     pendingExpiryTimer.current = null;
     armInFlightRef.current = false;
     setAutoSellCmd(null);
+    setAutoSellUnacked(false);
     setUnacked(false);
     setAppliedAt(null);
     setLiveSeed(0);
@@ -671,8 +683,9 @@ export function useStrategyCardState({
       }
       if (autoSellAnswer) {
         // 41 거부 = 서버 원문 줄 + 버튼 재활성 + 「미반영」 해제(D-08). 본문은 읽지 않고 다시 보내지 않는다.
+        // ★ `acceptAnswer` 를 부르지 않는다 — `answerSeq` · `ackTimer` 는 lc.set · lc.arm 전용이다(WR-01).
         setAutoSellCmd(null);
-        acceptAnswer();
+        setAutoSellUnacked(false);
       }
       /*
         ★ 상태줄에도 남긴다 — 로그만 있으면 스크롤 밖에서 조용히 지나간다(T-16-07).
@@ -788,12 +801,14 @@ export function useStrategyCardState({
       if (autoSellCmdRef.current !== null) return;
       if (!send({ t: "autosell.cmd", isin, accountNo, exchange, action })) return;
       setAutoSellCmd(action);
+      setAutoSellUnacked(false);
       autoSellCmdTimer.current = window.setTimeout(() => {
         // 3초 무응답 — 「미반영」만 세우고 버튼을 푼다. 아무것도 다시 보내지 않는다.
+        // ★ 공용 `setUnacked` 금지 — 폼 커밋 훅이 진행 중 lc.set 을 타임아웃으로 접는다(WR-01).
         autoSellCmdTimer.current = null;
         autoSellCmdRef.current = null;
         setAutoSellPending(null);
-        setUnacked(true);
+        setAutoSellUnacked(true);
       }, ACK_TIMEOUT_MS);
     },
     [server, send, isin, accountNo, exchange, setAutoSellCmd],
@@ -820,6 +835,7 @@ export function useStrategyCardState({
     setDirtyCount,
     handleArm,
     autoSellPending,
+    autoSellUnacked,
     onAutoSellCommand,
     handleSent,
     pushClientLog,
@@ -1151,7 +1167,9 @@ function StrategyCardImpl({
  *   `serverMsgBadge` **하나**로 판정하는 텍스트 접두다 — 색만으로 가르면 WCAG 1.4.1 위반이다.
  */
 function CardNotices({ card }: { card: StrategyCardState }) {
-  const { unacked, lastError } = card;
+  const { lastError } = card;
+  // 41 무응답(`autoSellUnacked`)도 같은 문구로 선다 — 채널만 따로이고 사용자에게 하는 말은 같다(WR-01).
+  const unacked = card.unacked || card.autoSellUnacked;
   if (!unacked && lastError === null) return null;
   return (
     <div className="flex flex-col gap-1 border-t border-[var(--border-subtle)] px-2.5 py-1.5 text-[length:var(--t-caption)]">
