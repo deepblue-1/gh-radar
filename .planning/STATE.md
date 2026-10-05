@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 28
 current_phase_name: 상한가 특징 연동 — gh-trade Phase 27 계약 반영
 status: executing
-stopped_at: Completed 28-05-PLAN.md
-last_updated: "2026-10-05T09:13:23.130Z"
+stopped_at: Completed 28-16-PLAN.md
+last_updated: "2026-10-05T09:21:41.951Z"
 last_activity: 2026-10-05
 last_activity_desc: Phase 28 execution started
-state_head: a8e3028120c61d9e414f35346f57cf3a3fe05e7f
+state_head: f7f766ce48cec6efb1625e0546284b9c58a46d73
 progress:
   total_phases: 37
   completed_phases: 4
   total_plans: 377
-  completed_plans: 351
+  completed_plans: 352
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 28 (상한가 특징 연동 — gh-trade Phase 27 계약 반영) — EXECUTING
-Plan: 6 of 16
+Plan: 7 of 16
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-10-05 — Phase 28 execution started
@@ -198,6 +198,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 28 P03 | 10 min | 1 tasks | 28 files |
 | Phase 28 P04 | 7min | 2 tasks | 5 files |
 | Phase 28 P05 | 10min | 2 tasks | 7 files |
+| Phase 28 P16 | 4 min | 1 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -529,6 +530,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 28]: 28-03: limitup_loads.files_sig IS NULL = 미적재(skip 만 기록) · record_skip 은 streak 만 올리고 성공 commit 이 0 으로
 - [Phase 28]: 28-04: 운반기 flock 잠금을 미러 밖 /var/lib/limitpull/export.lock 에 둔다 — 미러 안 .lock 은 rsync --delete 가 지운다
 - [Phase 28]: 28-05: 85 스냅샷은 새 키 full · price→full 승격 직후 q → tape → 85 (price 소켓 제외) · 웹은 full 소비자 0 에서 limitFeatures 키 드롭
+- [Phase 28]: 28-16: limitup-sync 판정 순서 고정 manifest → schema → files_sig(unchanged · record_skip 없음) → sha → 적재. skip 은 warn + limitup_record_skip, streak >= 3 이면 alert → main 종료 1, 예외는 사유 로그 + 1
+- [Phase 28]: 28-16: main(argv) 가 종료 코드를 반환하고 CLI 가드만 process.exit — record_skip 반환이 정수가 아니면 throw(알림이 조용히 사라지지 않게)
 
 ### Pending Todos
 
@@ -621,8 +624,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-10-05T09:13:21.014Z
-Stopped at: Completed 28-05-PLAN.md
+Last session: 2026-10-05T09:21:28.801Z
+Stopped at: Completed 28-16-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
