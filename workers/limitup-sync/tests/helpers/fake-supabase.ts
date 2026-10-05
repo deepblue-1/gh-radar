@@ -1,7 +1,7 @@
 /**
  * 가짜 Supabase — 워커가 부르는 호출을 순서대로 기록하고 응답은 테스트가 정한다.
  *
- * 지원: `from(t).insert(rows)` · `from(t).select(cols).gte(col, v)` · `rpc(name, args)` ·
+ * 지원: `from(t).insert(rows)` · `from(t).select(cols).gte(col, v)` · `from(t).update(values).eq(col, v)` · `rpc(name, args)` ·
  * `storage.from(bucket).upload/list/remove`(28-06 격자 업로드 · 보존 정리 — 응답은 `storage` 주입, 기본 성공 ·
  * list 는 빈 배열).
  *
@@ -17,6 +17,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export type Call =
   | { kind: "insert"; table: string; rows: Record<string, unknown>[] }
   | { kind: "select"; table: string; cols: string; gte: [string, unknown] }
+  | { kind: "update"; table: string; values: Record<string, unknown>; eq: [string, unknown] }
   | { kind: "rpc"; name: string; args: Record<string, unknown> }
   | { kind: "storage"; bucket: string; op: "upload" | "list" | "remove"; args: unknown[] };
 
@@ -29,6 +30,8 @@ export type FakeOptions = {
   rpc?: Record<string, Resp | ((args: Record<string, unknown>) => Resp)>;
   /** insert 응답 — 함수면 (table, rows, n번째 insert) 로 계산. 기본 성공. */
   insert?: (table: string, rows: Record<string, unknown>[], n: number) => Resp;
+  /** update 응답(표 이름별). 기본 성공. */
+  update?: Record<string, Resp>;
   /** `limitup_loads` select 응답 행(이력). `select.limitup_loads` 가 있으면 그쪽이 이긴다. */
   loads?: LoadRow[];
   /** `limitup_record_skip` 반환 streak. `rpc.limitup_record_skip` 이 있으면 그쪽이 이긴다. */
@@ -61,6 +64,14 @@ export function makeFakeSupabase(opts: FakeOptions = {}): { sb: SupabaseClient; 
           calls.push({ kind: "insert", table, rows });
           inserts += 1;
           return done(opts.insert?.(table, rows, inserts), { error: null });
+        },
+        update(values: Record<string, unknown>) {
+          return {
+            eq(col: string, v: unknown) {
+              calls.push({ kind: "update", table, values, eq: [col, v] });
+              return done(opts.update?.[table], { error: null });
+            },
+          };
         },
         select(cols: string) {
           return {

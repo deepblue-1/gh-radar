@@ -120,6 +120,24 @@ describe("dispatch — 「바뀐 날짜만」(D-14 · files_sig)", () => {
     expect(skipWarns()).toEqual([]);
   });
 
+  it("unchanged 인데 이력 skip_streak > 0 → limitup_loads streak 0 · 사유 null 갱신 1회(연속이 끊겼다)", async () => {
+    addDay(GOOD);
+    const { out, fake } = await run({ loads: [{ date: GOOD, files_sig: SIG, skip_streak: 2 }] });
+    expect(out.skipped.unchanged).toEqual([GOOD]);
+    expect(fake.calls.filter((c) => c.kind === "update")).toEqual([
+      { kind: "update", table: "limitup_loads", values: { skip_streak: 0, last_skip_reason: null }, eq: ["date", GOOD] },
+    ]);
+    expect(rpcs(fake.calls, "limitup_record_skip")).toEqual([]);
+    expect(out.alert).toBe(false);
+  });
+
+  it("unchanged streak 갱신 오류 → throw(조용히 넘기지 않는다)", async () => {
+    addDay(GOOD);
+    await expect(
+      run({ loads: [{ date: GOOD, files_sig: SIG, skip_streak: 1 }], update: { limitup_loads: { error: { message: "boom" } } } }),
+    ).rejects.toThrow(/streak reset 20261002: boom/);
+  });
+
   it("이력 files_sig 가 다르거나 null(= skip 만 있던 날짜)이면 적재", async () => {
     addDay(BAD);
     addDay(GOOD);

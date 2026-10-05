@@ -94,12 +94,14 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
   const dates = listExportDates(config.exportDir, since);
 
   let sb: SupabaseClient | null = null;
-  const prevSig = new Map<string, string | null>();
+  const prev = new Map<string, { sig: string | null; streak: number }>();
   if (!dryRun) {
     sb = createSupabaseClient(config);
     const { data, error } = await sb.from("limitup_loads").select("date, files_sig, skip_streak").gte("date", since);
     if (error) throw new Error(`limitup_loads select: ${error.message}`);
-    for (const r of (data ?? []) as { date: string; files_sig: string | null }[]) prevSig.set(r.date, r.files_sig);
+    for (const r of (data ?? []) as { date: string; files_sig: string | null; skip_streak: number | null }[]) {
+      prev.set(r.date, { sig: r.files_sig, streak: r.skip_streak ?? 0 });
+    }
   }
 
   const result: DispatchResult = {
@@ -143,9 +145,19 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
       continue;
     }
     const sig = filesSig(m);
-    if (prevSig.get(date) === sig) {
+    const p = prev.get(date);
+    if (p?.sig === sig) {
       result.skipped.unchanged.push(date);
       log.info({ date }, "limitup day unchanged — files_sig 같음");
+      // 적재본과 같은 export 로 돌아왔다 = 연속 skip 이 끊겼다. streak 를 0 으로 — 띄엄띄엄 skip 이 「3연속」 알림을 내지 않게
+      if (p.streak > 0 && sb) {
+        const { error } = await sb
+          .from("limitup_loads")
+          .update({ skip_streak: 0, last_skip_reason: null })
+          .eq("date", date);
+        if (error) throw new Error(`limitup_loads streak reset ${date}: ${error.message}`);
+        log.info({ date, streak: p.streak }, "limitup skip streak reset — 적재본과 같은 export");
+      }
       continue;
     }
     const bad = await verifyFiles(config.exportDir, date, m);
@@ -201,7 +213,7 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
       schemaVersion: m.schema_version,
       expected: counts,
     });
-    log.info({ date, rows: counts, replaced: prevSig.has(date), sigChanged: prevSig.get(date) !== sig }, "limitup day committed");
+    log.info({ date, rows: counts, replaced: prev.has(date), sigChanged: p?.sig !== sig }, "limitup day committed");
     result.loaded.push(date);
   }
 
