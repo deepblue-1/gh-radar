@@ -1,0 +1,28 @@
+displayName: gh-radar-limitup-sync-failure
+documentation:
+  content: |
+    Cloud Run Job `gh-radar-limitup-sync` 의 실행 실패를 감지 — 밤 상한가 export 적재 실패.
+    Phase 28 D-20 — 같은 날짜 3회 연속 skip(sha/schema/manifest) 또는 예외(행 수 불일치 · stage/commit RPC 오류 · 보존 정리 오류)면 종료 1.
+    사유 확인: `gcloud logging read 'jsonPayload.msg=~"limitup-sync"' --limit 50`
+    운반(119 → radar-gw → GCS) 확인: radar-gw 에서 `journalctl -u limitup-pull`
+  mimeType: text/markdown
+conditions:
+  - displayName: limitup-sync failed execution count > 0
+    conditionThreshold:
+      filter: |
+        resource.type = "cloud_run_job"
+        AND resource.labels.job_name = "gh-radar-limitup-sync"
+        AND metric.type = "run.googleapis.com/job/completed_execution_count"
+        AND metric.labels.result = "failed"
+      comparison: COMPARISON_GT
+      thresholdValue: 0
+      duration: 0s
+      aggregations:
+        - alignmentPeriod: 300s
+          perSeriesAligner: ALIGN_SUM
+combiner: OR
+enabled: true
+notificationChannels:
+  - "${NOTIFICATION_CHANNEL_ID}"
+alertStrategy:
+  autoClose: 1800s
