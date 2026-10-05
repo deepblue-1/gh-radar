@@ -2,6 +2,7 @@
 
 import type { RelayLimitChaser } from "@gh-radar/shared";
 
+import { lcAutoSellBasisText } from "@/components/trading/lc/lc-fields";
 import {
   Tooltip,
   TooltipContent,
@@ -129,17 +130,16 @@ const AUTO_SELL_LED: Record<1 | 2 | 3 | 4, { tone: LatchLedTone; label: LatchLed
   4: { tone: "latent", label: "완료" },
 };
 
-const KRW = new Intl.NumberFormat("ko-KR");
-
 /**
  * 자동매도 LED 툴팁 — WinForms 원문 형식 `상태 · 기준 N원`(limit-chaser.md §10 「자동매도 칸」).
- * 기준 낱말은 에코 `autoSellBasis` 만 본다 — 2 → 「매수가」, 그 밖 → 「상한가」(클라 판정 없음). 기준가격 0(미정)이면
- * 「 · 기준 …」 꼬리를 뺀다.
+ *
+ * 「기준 …」 꼬리는 카드 「기준」 행과 **같은 함수**(`lcAutoSellBasisText` — shared `autoSellBasisLabel` 낱말 ·
+ * 상태 0 · 기준 0(미정) → 「—」)가 짓는다 (27-REVIEW IN-04). 「—」 이면 꼬리를 뺀다. 같은 에코를 두 표면이
+ * 다르게 말하지 않게 낱말 · 금액 포맷 · 「없음」 규칙을 여기서 다시 짓지 않는다.
  */
-function autoSellTooltipOf(label: LatchLedLabel, basis: number, basisPrice: number): string {
-  if (basisPrice <= 0) return `자동매도 ${label}`;
-  const word = basis === 2 ? "매수가" : "상한가";
-  return `자동매도 ${label} · 기준 ${word} ${KRW.format(basisPrice)}원`;
+function autoSellTooltipOf(label: LatchLedLabel, server: RelayLimitChaser): string {
+  const basis = lcAutoSellBasisText(server);
+  return basis === "—" ? `자동매도 ${label}` : `자동매도 ${label} · 기준 ${basis}`;
 }
 
 /**
@@ -166,7 +166,7 @@ export function latchLedStateOf(
       tone,
       clickable: false,
       label,
-      tooltip: autoSellTooltipOf(label, server.autoSellBasis, server.autoSellBasisPrice),
+      tooltip: autoSellTooltipOf(label, server),
     };
   }
 

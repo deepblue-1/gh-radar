@@ -14,6 +14,7 @@ import {
   type LatchLedKind,
   type LatchLedState,
 } from "../latch-led";
+import { lcAutoSellBasisText } from "../lc/lc-fields";
 import { LC_BUY3_ECHO_DEFAULTS } from "@/test-fixtures/limit-chaser";
 
 /**
@@ -450,6 +451,23 @@ describe("Phase 27 자동 LED (D-04 — WinForms ledAutoSell 동형 · 클릭 �
     ).toBe("자동매도 감시 · 기준 매수가 12,800원");
     expect(latchLedStateOf("autoSell", chaser({ autoSellState: 1, autoSellBasis: 0, autoSellBasisPrice: 0 })).tooltip).toBe(
       "자동매도 대기",
+    );
+  });
+
+  it("툴팁 꼬리는 카드 「기준」 행(lcAutoSellBasisText)과 같은 규칙 — 기준 0(미정)이면 기준가격이 있어도 꼬리 없음 (IN-04)", () => {
+    for (const [autoSellBasis, autoSellBasisPrice] of [
+      [0, 13_000],
+      [1, 13_000],
+      [2, 12_800],
+    ] as const) {
+      const server = chaser({ autoSellState: 3, autoSellBasis, autoSellBasisPrice });
+      const basis = lcAutoSellBasisText(server);
+      const tip = latchLedStateOf("autoSell", server).tooltip;
+      expect(tip).toBe(basis === "—" ? "자동매도 매도중" : `자동매도 매도중 · 기준 ${basis}`);
+    }
+    // 카드가 「—」 인 basis 0 에서 LED 도 꼬리를 달지 않는다(종전엔 「기준 상한가 13,000원」).
+    expect(latchLedStateOf("autoSell", chaser({ autoSellState: 3, autoSellBasis: 0, autoSellBasisPrice: 13_000 })).tooltip).toBe(
+      "자동매도 매도중",
     );
   });
 
