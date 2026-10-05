@@ -183,6 +183,7 @@ frontmatter `key-decisions` 참고.
 ## Issues Encountered
 
 - **streak 잔존(후속 판단 거리 — 28-06/28-08 참고):** 적재된 날짜(sig A, streak 0)가 운반 중 한 번 sha skip(streak 1, files_sig 는 A 그대로)된 뒤 다음 run 에서 다시 sig A 로 돌아오면 `unchanged` 로 넘어간다. 성공 commit 이 없으니 streak 는 1 로 남는다. 이후 그 날짜가 띄엄띄엄 두 번 더 skip 되면 연속이 아닌데도 3 이 되어 알림이 뜰 수 있다. 플랜 truth(「files_sig 같으면 commit 하지 않는다」)를 지키려고 그대로 두었다. 고친다면 「unchanged 이고 skip_streak > 0 이면 streak 를 0 으로 되돌리는 RPC」가 필요하다(마이그레이션 → 이 플랜 범위 밖). 실제로는 D+1 재export 뒤 보존 창 90일 안에서 같은 날짜가 세 번 막혀야 생기는 드문 경우다.
+  - **해결(2026-10-05 · `d4a044dd` fix(28-16), 사용자 「다 반영」):** unchanged 이고 이력 `skip_streak > 0` 이면 워커가 `limitup_loads` 를 직접 갱신(skip_streak 0 · last_skip_reason null — service_role 은 표 UPDATE 권한 보유)해 마이그레이션 없이 고쳤다. 갱신 오류는 throw. dispatch.test 2건 추가(73 passed). 배포 이미지 `limitup-sync:d4a044dd` 에 실렸다.
 - 같은 시각 다른 세션이 master 에 `4d141470 docs(27)` 를 커밋했다. 그래서 `rev-list` 로 잰 커밋 수는 2 다(frontmatter 주석).
 
 ## Known Stubs

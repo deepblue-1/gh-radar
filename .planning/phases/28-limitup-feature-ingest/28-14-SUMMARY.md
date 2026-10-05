@@ -3,9 +3,7 @@ phase: 28-limitup-feature-ingest
 plan: 14
 subsystem: 배포 · Supabase · GCS · Cloud Run Job · radar-gw
 tags: [deploy, gate, supabase-db-push, pgtap, gcs, iam, cloud-run-job, scheduler, radar-gw, limitup-pull, rollback]
-# 초안 — Task 1(준비 게이트 green) 만 끝났다. Task 2([BLOCKING] DB push · checkpoint:human-action · blocking-human) 대기,
-# Task 3(GCS · IAM · 워커 · 시드 smoke · radar-gw 설치) 은 Task 2 뒤.
-status: in-progress
+status: complete
 
 requires:
   - phase: 28-01
@@ -26,6 +24,9 @@ requires:
     provides: "적재 규칙 — 바뀐 날짜만 · skip 기록 · 3연속 skip 알림"
 provides:
   - "배포 준비 게이트 green @ 5c78dab3 — typecheck 5종 · 단위 shared 376 · relay 1007 · webapp 3501(1 skipped) · server 308 · limitup-sync 71 · pgTAP 4파일 PASS · e2e 6 spec 130 passed · 워커 dry-run 4일 합계 = 인박스 · 이미지 amd64 빌드 + 컨테이너 dry-run"
+  - "원격 DB 마이그레이션 5개 적용(20261006090000~090400) · RPC smoke a~e 통과"
+  - "GCS gs://gh-radar-limitup-export · 워커 SA · Job gh-radar-limitup-sync(이미지 d4a044dd) · Scheduler 21:20 평일 · 알림 gh-radar-limitup-sync-failure · 4일 시드 적재 smoke PASS 12 ×4"
+  - "radar-gw 운반기 설치(타이머 disabled) · 키 지문 SHA256:qLovMlHsTyP2f3sR7MqbrkTi41Bhkc02uD0iELuqGak · 119 지문 SHA256:7s4iOpsEMcJkjLHD9KpGv7TIDXxJj2ip5Na+hU4aiJY"
   - "Task 2 명령(마이그레이션 5개 · push · RPC smoke a~e) · Task 3 명령(IAM → 배포 → 시드 → smoke 날짜별 기대 숫자 → radar-gw 복사 · 설치 · 공개키) · 되돌리기(수동 DROP 순서)"
 affects: [28-15, 28-verification]
 
@@ -33,8 +34,8 @@ affects: [28-15, 28-verification]
 # 준비 게이트는 코드 변경 없음 — docs 전용이라 0 이 정상. tokens = 이 SUMMARY chars/4.
 actuals:
   tokens: 6200
-  tasks: 1
-  commits: 0
+  tasks: 3
+  commits: 1   # Task 3 직전 메인 세션 fix(28-16) d4a044dd — 연속 skip 수 리셋(사용자 「다 반영」)
 plan_head_before: 5c78dab3d5ccd2e3ab26f45cea257990b2b92b10
 
 tech-stack:
@@ -75,23 +76,23 @@ coverage:
     description: "Task 2 [BLOCKING] supabase db push(마이그레이션 5개) + RPC smoke a~e"
     verification:
       - kind: manual
-        ref: "메인 세션 — 대기"
-        status: pending
+        ref: "메인 세션 2026-10-05 20:52 KST — supabase db push 5파일 적용 · smoke a [] · b {access:false} · c anon 401 42501 · d public:false · e limitup_ 표 10"
+        status: pass
     human_judgment: true
     rationale: "원격 DB 쓰기 · Secret 읽기는 메인 세션이 사용자 확인 뒤 한다(서브에이전트 배포 분류기 차단)"
   - id: D3
     description: "Task 3 GCS · IAM · 워커 배포 · 시드 smoke(행 수 == manifest) · radar-gw 설치(타이머 disabled) · 공개키"
     verification:
       - kind: manual
-        ref: "메인 세션 — Task 2 뒤 대기"
-        status: pending
+        ref: "메인 세션 2026-10-05 20:53~21:05 KST — IAM · 배포 · 시드 · smoke 4날짜 PASS 12/FAIL 0 · radar-gw 설치 · 타이머 disabled"
+        status: pass
     human_judgment: true
 
 duration: 9min
-completed: (진행 중 — Task 1 2026-10-05)
+completed: 2026-10-05
 ---
 
-# Phase 28 Plan 14: 배포 ① — 준비 게이트 · DB push · GCS/IAM/워커 · radar-gw 설치 Summary (초안)
+# Phase 28 Plan 14: 배포 ① — 준비 게이트 · DB push · GCS/IAM/워커 · radar-gw 설치 Summary
 
 **HEAD `5c78dab3` 기준으로 typecheck 5종, 단위 테스트 5개 패키지(shared 376 · relay 1007 · webapp 3501 · server 308 · limitup-sync 71), pgTAP 4파일, e2e 6 spec(130 passed), 워커 dry-run(4일 합계가 인박스 숫자와 같음), 워커 이미지 amd64 빌드와 컨테이너 안 dry-run 이 모두 통과했다. 배포는 하지 않았다. 아래 Task 2·3 명령은 메인 세션이 사용자 확인 뒤 그대로 쓰도록 실제 값으로 적었다.**
 
@@ -100,7 +101,7 @@ completed: (진행 중 — Task 1 2026-10-05)
 - **Duration:** 9 min (Task 1 게이트)
 - **Started:** 2026-10-05T11:33:37Z (20:33 KST)
 - **Task 1 completed:** 2026-10-05T11:42Z (20:42 KST)
-- **Tasks:** 1 / 3 (Task 2 체크포인트 대기)
+- **Tasks:** 3 / 3 (Task 2 · 3 은 메인 세션이 사용자 승인 「니가 다 반영하고 배포해」 뒤 실행)
 - **Files modified:** 1 (이 SUMMARY)
 
 ## Task 1 — 배포 준비 게이트 (배포하지 않음)
@@ -360,11 +361,48 @@ GCP · radar-gw 되돌리기(Task 3 를 했을 때만):
 - 버킷 `gs://gh-radar-limitup-export` 는 지우지 않는 것을 권한다(D-16: 재적재용 사본). 버킷 IAM 두 바인딩만 `remove-iam-policy-binding` 한다.
 - radar-gw: `systemctl disable --now limitup-pull.timer` · 유닛 · `/usr/local/lib/limitup-pull` · `/etc/limitup-pull.env` · `limitpull` 사용자를 지운다. 119 `authorized_keys` 의 `radar-gw-pull` 줄 삭제는 gh-trade 사용자와 함께 맞추고, 인박스 노트로 알린다(docs/relay-operations.md).
 
+## Task 2 결과 — DB push · RPC smoke (2026-10-05 20:52 KST)
+
+- `supabase migration list --linked` — Remote 공백이 정확히 `20261006090000` · `090100` · `090200` · `090300` · `090400` 다섯.
+- `supabase db push --linked --yes` — 다섯 파일 「Applying migration …」 · 「Finished supabase db push.」
+- smoke(키는 변수에만 · 출력 0):
+
+| | 호출 | 결과 |
+|---|---|---|
+| a | `dma_strategy_events_for_user_json` (service role) | `[]` |
+| b | `limitup_report_for_user` (service role · 0 uuid) | `{"access": false}` |
+| c | anon 키로 a · 보고서 RPC · `limitup_entries` 표 | 401 · `42501 permission denied for function …` / 401 / 401 `permission denied for table` |
+| d | Storage 버킷 `limitup-grid` | `public:false` · 10MB · `application/gzip` |
+| e | `inspect db table-stats` | `limitup_` 표 10개 전부 |
+
+## Task 3 결과 — GCS · IAM · 워커 · 시드 · radar-gw (2026-10-05 20:53~21:05 KST)
+
+1. `setup-limitup-sync-iam.sh` — 첫 실행은 SA 생성 직후 전파 지연으로 Secret 바인딩 400. 20초 뒤 재실행(멱등)으로 완료: 워커 SA `gh-radar-limitup-sync-sa` · secretAccessor · 버킷 `gs://gh-radar-limitup-export` 생성 · 워커 objectViewer · relay SA objectUser.
+2. `deploy-limitup-sync.sh` (NOTIFICATION_CHANNEL_ID `14409521670382124894` · ops email) — 이미지 `limitup-sync:d4a044dd` · Job `gh-radar-limitup-sync` · Scheduler `gh-radar-limitup-sync-nightly`(`20 21 * * 1-5` Asia/Seoul · ENABLED) · 알림 정책 생성 `projects/gh-radar/alertPolicies/8811279302594685098`.
+3. 시드 — 버킷 비어 있음 확인 뒤 `gcloud storage rsync ~/ticks/research/export … --recursive --checksums-only` → 4 날짜 디렉터리.
+4. smoke — 날짜마다 `PASS: 12  FAIL: 0`(첫 실행 execution `gh-radar-limitup-sync-kdrkp` 가 4일 적재 · 이후 unchanged skip):
+
+| 날짜 | entries · locks · jumps · member_alloc · facts · touches | 격자 |
+|---|---|---|
+| 20261002 | 29 · 12 · 9,231 · 62,209 · 169 · 31 | 29 |
+| 20261001 | 27 · 5 · 11,684 · 61,971 · 111 · 32 | 27 |
+| 20260930 | 23 · 10 · 18,576 · 79,220 · 134 · 45 | 23 |
+| 20260929 | 20 · 12 · 1,135 · 49,847 · 128 · 108 | 20 |
+| 합 | 99 · 39 · 40,626 · 253,247 · 542 · 216 | 99 |
+
+5. radar-gw — 119 호스트키 지문 `SHA256:7s4iOpsEMcJkjLHD9KpGv7TIDXxJj2ip5Na+hU4aiJY`(기록값과 일치) · 4파일 scp · `install.sh --bucket gs://gh-radar-limitup-export --host-fp …`(`--enable-timer` 없음) → 사용자 `limitpull` 생성 · 키 생성 · 키 지문 `256 SHA256:qLovMlHsTyP2f3sR7MqbrkTi41Bhkc02uD0iELuqGak radar-gw-pull (ED25519)` · 타이머 `disabled` · `--self-test` OK 13 · `systemd-analyze calendar` 다음 실행 Tue 2026-10-06 21:00 KST · `systemd-analyze verify` rc 0. 복사 원본 `~/limitup-pull-src` 는 지웠다.
+
+공개키(28-15 Task 1 이 인박스 노트에 한 번 추기):
+
+```
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJCgU7SWiM+dAYN26xUi/zUUt2IUD308fnQS5Ofv00wd radar-gw-pull
+```
+
 ## Task Commits
 
 1. **Task 1: 배포 준비 게이트** — 코드 커밋 없음(게이트 green · 회귀 0). 이 SUMMARY 초안 docs 커밋만 있다.
-2. **Task 2: [BLOCKING] DB push + RPC smoke** — 대기(checkpoint:human-action · blocking-human).
-3. **Task 3: GCS · IAM · 워커 · 시드 smoke · radar-gw** — Task 2 뒤 대기.
+2. **Task 2: [BLOCKING] DB push + RPC smoke** — 원격 반영(커밋 없음). 아래 「Task 2 결과」.
+3. **Task 3: GCS · IAM · 워커 · 시드 smoke · radar-gw** — 원격 반영. 직전 `d4a044dd` fix(28-16)(연속 skip 수 리셋)를 이미지에 실었다. 아래 「Task 3 결과」.
 
 ## Decisions Made
 
@@ -398,11 +436,11 @@ GCP · radar-gw 되돌리기(Task 3 를 했을 때만):
 
 ## Next
 
-메인 세션이 사용자 확인을 받고 Task 2(③)를 실행한다. 결과를 붙이면, Task 3(④)도 같은 방식으로 진행한다. 둘 다 끝나면 continuation executor 가 결과·공개키·지문을 이 SUMMARY 에 옮기고 마감한 뒤 STATE/ROADMAP 을 갱신한다.
+28-15 — 공개키 인박스 추기 · relay → server → push(webapp) · 119 등록 뒤 타이머 · 인박스 마감.
 
 ---
 *Phase: 28-limitup-feature-ingest*
-*Task 1 completed: 2026-10-05 (초안)*
+*Completed: 2026-10-05*
 
 ## Self-Check: PASSED
 
