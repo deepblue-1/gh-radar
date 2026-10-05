@@ -164,6 +164,7 @@ function cardState(over: Partial<StrategyCardState> = {}): StrategyCardState {
     server: null,
     quote: null,
     tape: [],
+    limitFeature: null,
     isStale: false,
     log: [],
     unacked: false,

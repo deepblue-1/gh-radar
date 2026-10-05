@@ -40,6 +40,7 @@ import { RELAY_STATE_LABELS } from '@gh-radar/shared';
 import type {
   JournalOrderRow,
   RelayAccountState,
+  RelayLimitFeatureMsg,
   RelayOrderNewMsg,
   RelayQueueProgressItem,
   RelayQuote,
@@ -3268,5 +3269,103 @@ describe('Phase 27 user.settings — 84 사용자 설정 3상태 (77 queuedWindo
       hook.rerender({ enabled: false });
     });
     expect(hook.result.current.userSettings).toBeUndefined();
+  });
+});
+
+describe('Phase 28 limit.feature (85 상한가 특징 — 시장 배치 · 키별 교체)', () => {
+  function lf(over: Partial<RelayLimitFeatureMsg> = {}): RelayLimitFeatureMsg {
+    return {
+      t: 'limit.feature',
+      i: ISIN_A,
+      x: 'KRX',
+      gwTimeMs: 1_791_164_130_000,
+      featureSchema: 1,
+      upperPx: 13000,
+      lastPx: 13000,
+      rateBp: 3000,
+      basePx: 10000,
+      qQty: 133_077,
+      qKrw: 1_730_000_000,
+      wallKrwVisible: 0,
+      wallQtyHidden: 0,
+      wallTruncated: false,
+      sellLed10s: 3_700,
+      buyLed10s: 6_300,
+      cancel10s: 2_300,
+      new10s: 12_400,
+      auctionFill10s: 0,
+      drainS: -1,
+      lockState: 1,
+      lockElapsedS: 43,
+      burstUpperLimit: false,
+      auction: false,
+      memberBuy: [{ memberNo: '00050', dQty: 52_000, dValue: 676_000_000, shareBp: 7407 }],
+      memberSell: [],
+      memberDeltaPartial: false,
+      modelState: 0,
+      modelSchemaVersion: 0,
+      pBreakBp: -1,
+      pHorizonS: 0,
+      ...over,
+    };
+  }
+
+  const featureOf = (hook: ReturnType<typeof render>, isin: string, ex: 'KRX' | 'NXT') =>
+    hook.result.current.limitFeatures.get(relayQuoteKey(isin, ex));
+
+  it('프레임은 시장 배치(≤ RELAY_MARKET_BATCH_MS)로 들어간다 — 배치 전에는 없고 뒤에는 그 프레임 그대로', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    const frame = lf();
+    await act(async () => {
+      ws.push(frame);
+    });
+    expect(featureOf(hook, ISIN_A, 'KRX')).toBeUndefined();
+    flushMarket();
+    expect(featureOf(hook, ISIN_A, 'KRX')).toEqual(frame);
+    expect(featureOf(hook, ISIN_A, 'NXT')).toBeUndefined();
+  });
+
+  it('같은 키 두 번째 프레임은 통째로 교체(병합 없음) · 다른 키는 건드리지 않는다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push(lf());
+      ws.push(lf({ x: 'NXT', lockState: 0, lockElapsedS: 0 }));
+    });
+    flushMarket();
+    await act(async () => {
+      ws.push(lf({ lockState: 2, lockElapsedS: 0, memberBuy: [] }));
+    });
+    flushMarket();
+    expect(featureOf(hook, ISIN_A, 'KRX')).toMatchObject({ lockState: 2, lockElapsedS: 0, memberBuy: [] });
+    expect(featureOf(hook, ISIN_A, 'NXT')).toMatchObject({ lockState: 0 });
+  });
+
+  it('85 만 온 배치는 quotes · tapes 참조를 바꾸지 않는다 (copy-on-write)', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    const quotesBefore = hook.result.current.quotes;
+    const tapesBefore = hook.result.current.tapes;
+    await act(async () => {
+      ws.push(lf());
+    });
+    flushMarket();
+    expect(hook.result.current.quotes).toBe(quotesBefore);
+    expect(hook.result.current.tapes).toBe(tapesBefore);
+  });
+
+  it('로그아웃(enabled false → reset) 뒤 limitFeatures 는 빈 Map', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push(lf());
+    });
+    flushMarket();
+    expect(hook.result.current.limitFeatures.size).toBe(1);
+    await act(async () => {
+      hook.rerender({ enabled: false });
+    });
+    expect(hook.result.current.limitFeatures.size).toBe(0);
   });
 });

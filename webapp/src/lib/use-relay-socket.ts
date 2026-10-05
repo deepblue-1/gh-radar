@@ -36,7 +36,7 @@
  *  7. **시세·체결은 키별 맵에 담는다** — 전역 연결에는 여러 종목이 섞이므로 「내 키에
  *     해당하는 것만 고르기」는 **소비자 책임**이다(T-16-02). 승격 전의 `wantedKeyRef` 지연
  *     프레임 필터가 `useRelaySubscription` 으로 옮겨진 이유다.
- *  8. **시세·체결(q/tape)은 `RELAY_MARKET_BATCH_MS` 모아 한 번에 적용한다** (quick-260923-elb).
+ *  8. **시세·체결·상한가 특징(q/tape/limit.feature)은 `RELAY_MARKET_BATCH_MS` 모아 한 번에 적용한다** (quick-260923-elb · 85 는 Phase 28).
  *     컨텍스트가 1개라 상태가 프레임마다 바뀌면 `/trading` 트리 전체가 **어느 종목의 틱이든**
  *     다시 그려진다 — 돌파 40종목이 붙으면 프레임 600/s 가 커밋 140/s 로 번져 팬리스 노트북
  *     한 코어를 채웠다(debug `trading-cpu-260923`). 배치는 커밋 수에 상한(≈10/s)을 건다.
@@ -89,6 +89,7 @@ import {
   type RelaySubLevel,
   type RelaySubLimitMsg,
   type RelayTape,
+  type RelayLimitFeatureMsg,
   type RelayStrategiesDisabledMsg,
   type RelayQueueProgressItem,
   type RelayQueuedWindowMsg,
@@ -369,6 +370,12 @@ export interface RelayConnectionState {
   quotes: ReadonlyMap<string, RelayQuote>;
   /** `isin|exchange` → 체결 테이프. **최신이 index 0**, 키당 상한 200. */
   tapes: ReadonlyMap<string, RelayTapeEntry[]>;
+  /**
+   * `isin|exchange` → 키별 마지막 85 상한가 특징 (Phase 28 · 28-01). 100ms 시장 배치로 갱신 — 같은 키 다음 프레임이
+   * 통째로 교체한다. relay 는 그 키를 **FULL 로 잡은 소켓에만** 내리므로, 카드는 자기 level 이 `"full"` 일 때만
+   * 읽는다(D-05 · UI-SPEC P-1 — 접힌 카드는 85 를 받지 않는다).
+   */
+  limitFeatures: ReadonlyMap<string, RelayLimitFeatureMsg>;
   /**
    * **계좌번호 → 병합된 계좌 상태** (16-15). 잔고·미체결 병합 결과이며, 델타는
    * upsert + 0행/`rm` 제거 후 스냅샷 형태로 정규화된다.
@@ -658,6 +665,11 @@ export interface RelaySocketState {
   /** **자기 구독 키**의 체결 테이프. 최신이 index 0. */
   tape: RelayTapeEntry[];
   /**
+   * **자기 구독 키**의 마지막 85 상한가 특징 (Phase 28 · 28-01). 아직 안 왔으면 null. relay 는 FULL 소켓에만
+   * 보내므로 price 로 잡은 소비자는 이 값을 쓰지 않는다(D-05 — 카드가 level 로 거른다).
+   */
+  limitFeature: RelayLimitFeatureMsg | null;
+  /**
    * **계좌번호 → 병합된 계좌 상태.** 계좌 축 소비자는 이것만 쓴다 (16-23).
    *
    * 「마지막 수신 계좌」 단일 값(`account`)은 계약에서 **제거됐다** — 그 값을 계좌 축에
@@ -692,6 +704,8 @@ interface RelayData {
   accounts: RelayAccount[];
   quotes: Map<string, RelayQuote>;
   tapes: Map<string, RelayTapeEntry[]>;
+  /** 키별 마지막 85 — 시장 배치로 갱신 · 카드는 level full 일 때만 읽는다(D-05). */
+  limitFeatures: Map<string, RelayLimitFeatureMsg>;
   accountStates: Map<string, RelayAccountState>;
   orderIndex: ReadonlyMap<string, OrderIndexEntry>;
   orders: RelayOrderMsg[];
@@ -734,6 +748,7 @@ const INITIAL_DATA: RelayData = {
   accounts: [],
   quotes: new Map(),
   tapes: new Map(),
+  limitFeatures: new Map(),
   accountStates: new Map(),
   orderIndex: new Map(),
   orders: [],
@@ -773,11 +788,11 @@ const INITIAL_DATA: RelayData = {
   nxtTradable: null,
 };
 
-/** 배치 대상 프레임 — 시세·체결 두 종류뿐이다 (파일 상단 규율 8). */
-type RelayMarketFrame = RelayQuote | RelayTape;
+/** 배치 대상 프레임 — 시세 · 체결 · 상한가 특징(85 · Phase 28) 세 종류뿐이다 (파일 상단 규율 8). */
+type RelayMarketFrame = RelayQuote | RelayTape | RelayLimitFeatureMsg;
 
 function isMarketFrame(frame: RelayOutbound): frame is RelayMarketFrame {
-  return frame.t === "q" || frame.t === "tape";
+  return frame.t === "q" || frame.t === "tape" || frame.t === "limit.feature";
 }
 
 type RelayAction =
@@ -1177,6 +1192,7 @@ function applyMarketFrames(state: RelayData, market: readonly RelayMarketFrame[]
 
   let quotes: Map<string, RelayQuote> | null = null;
   let tapes: Map<string, RelayTapeEntry[]> | null = null;
+  let limitFeatures: Map<string, RelayLimitFeatureMsg> | null = null;
   let isStale = state.isStale;
   let subLimit = state.subLimit;
 
@@ -1191,6 +1207,10 @@ function applyMarketFrames(state: RelayData, market: readonly RelayMarketFrame[]
       // 키가 슬롯 동일성을 보장하므로 승격 전의 `sameSlot` 비교는 필요 없다.
       quotes.set(key, frame.snap || prev == null ? frame : { ...prev, ...frame });
       if (frame.snap) isStale = false;
+    } else if (frame.t === "limit.feature") {
+      // 85 는 키당 1초 · 값이 바뀐 키만 온다 — 같은 키는 통째로 교체(병합 없음 · 서버 진실 원본).
+      limitFeatures ??= new Map(state.limitFeatures);
+      limitFeatures.set(key, frame);
     } else {
       tapes ??= new Map(state.tapes);
       // 와이어는 시간 오름차순 배치 → 최신이 index 0 이 되도록 뒤집어 prepend 한다.
@@ -1204,6 +1224,7 @@ function applyMarketFrames(state: RelayData, market: readonly RelayMarketFrame[]
     ...state,
     quotes: quotes ?? state.quotes,
     tapes: tapes ?? state.tapes,
+    limitFeatures: limitFeatures ?? state.limitFeatures,
     isStale,
     subLimit,
   };
@@ -2131,6 +2152,7 @@ export function useRelayConnection({
       accounts: data.accounts,
       quotes: data.quotes,
       tapes: data.tapes,
+      limitFeatures: data.limitFeatures,
       accountStates: data.accountStates,
       orderIndex: data.orderIndex,
       orders: data.orders,

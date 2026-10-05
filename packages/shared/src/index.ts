@@ -167,3 +167,13 @@ export {
   sideDisplayText,
   serverMsgBadge,
 } from "./strategy-display";
+// --- Phase 28 상한가 특징(85) 표시 순수 함수 — WinForms BuildLimitFeatureCells · FormatEok · FormatDuration 동형 ---
+export {
+  formatEok,
+  formatDuration,
+  formatRatePct,
+  formatGroup,
+  limitFeatureCells,
+  limitFeatureTabSuffix,
+} from "./limit-feature";
+export type { LimitFeatureCell, LimitFeatureTone, LimitFeatureTabSuffix } from "./limit-feature";

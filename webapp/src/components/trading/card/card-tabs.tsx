@@ -52,6 +52,14 @@
  *     거래소 · 표시명은 이 컴포넌트가 받은 `isin` · `exchange` · `stockName` 하나다.
  *   - 배지 = 팝업이 닫혀 있는 동안 도착한 범위 안 푸시 수 · 열면 0.
  *   - 전략로그 = 카드 훅의 로그(`log`) 그대로 · 버튼은 늘 있고 배지가 없다.
+ *
+ * ⑨ 네 번째 탭 「상한가」 (Phase 28 · 28-01 · D-01~D-04 · UI-SPEC ①) — 85 상한가 특징 3줄 9칸 표(`LimitFeatureTable`).
+ *   - 순서 「정보 · 미체결 · 잔고 · 상한가」. 본문은 같은 공통 고정 높이 안이라 탭을 바꿔도 카드 높이가 같다(D-02).
+ *   - 트리거 접미(D-04 — 건수 괄호와 같은 자리 문법): lock 1 「 · 잠김 {dur}」(`--up` — 선택 알약 안에서도 유지) ·
+ *     lock 2 「 · 깨짐」 · 그 밖 접미 없음. 탭 제목에는 「째」 를 붙이지 않는다.
+ *   - **자동 전환 없음** — 85 가 와도 · 잠김으로 바뀌어도 활성 탭은 사용자가 고른 탭 그대로다(`alertTabFor` 도
+ *     `"limit"` 을 돌려주지 않는다).
+ *   - `limitFeature` 는 카드가 level `"full"` 일 때만 값이다(strategy-card — 접힌 카드는 85 를 받지 않는다 · D-05).
  */
 
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
@@ -59,13 +67,16 @@ import { ChevronDown } from "lucide-react";
 import type {
   RelayAccountState,
   RelayExchange,
+  RelayLimitFeatureMsg,
   RelayOrderResultMsg,
   RelayQuote,
   RelayUnfilled,
 } from "@gh-radar/shared";
+import { limitFeatureTabSuffix } from "@gh-radar/shared";
 
 import { AccountPanel, type AccountRowOrigin } from "@/components/orderbook/account-panel";
 import { CardOrderLogPopup, CardStrategyLogPopup } from "@/components/trading/card/card-log-popups";
+import { LimitFeatureTable } from "@/components/trading/card/limit-feature-table";
 import { QuoteGrid10 } from "@/components/trading/card/quote-grid-10";
 import type { StrategyLogEntry } from "@/components/trading/strategy-log";
 import { nextUnfilledSelection } from "@/components/trading/workbench/shared-panels";
@@ -75,7 +86,7 @@ import type { OrderLogFeed } from "@/lib/use-order-log-feed";
 import { cn } from "@/lib/utils";
 import type { RelayStatus } from "@/lib/use-relay-socket";
 
-export type CardTab = "info" | "unfilled" | "holdings";
+export type CardTab = "info" | "unfilled" | "holdings" | "limit";
 
 /** 탭 전환 요청(⑦) — `seq` 가 바뀔 때만 적용된다. */
 export interface CardTabRequest {
@@ -106,6 +117,12 @@ export interface CardTabsProps {
   stockName: string;
   /** 작업대 공용 주문로그 피드(⑧) — 없으면(작업대 밖) 주문로그 버튼 없음. */
   orderLogFeed?: OrderLogFeed;
+  /**
+   * 자기 키의 마지막 85 상한가 특징(⑨). 카드 level 이 `"full"` 이 아니면 null 이다 — 9칸 「—」 · 제목 「상한가」.
+   */
+  limitFeature: RelayLimitFeatureMsg | null;
+  /** relay 접속 끊김(stale). 28-07 이 「상한가」 표 · 탭 제목 접미 표기에 쓴다 — 지금은 전달만 한다. */
+  isStale?: boolean;
 }
 
 /** 공용 패널 `TAB_TRIGGER` 와 같은 문법 — 카드 안이라 더 얇게 24px(h-6). */
@@ -119,6 +136,25 @@ const CARD_TAB_TRIGGER =
   ≈ 71.5px. 정보 칸 문법(글꼴·패딩)을 바꾸면 여기도 같이 바꾼다.
 */
 const CARD_TABS_BODY_H = "h-[calc(3*(11px*var(--lh-normal)+6px)+4px)]";
+
+/**
+ * 「상한가」 트리거 접미(⑨ · D-04) — 「 · 잠김 43초」 / 「 · 깨짐」. 85 없음 · 미도달이면 아무것도 그리지 않는다.
+ * 색은 자식 span 에 둔다 — 선택 알약의 활성 글자색(`--pill-on-fg`)이 「잠김 …」 의 `--up` 을 덮지 않게.
+ */
+function LimitFeatureTabTitle({ feature }: { feature: RelayLimitFeatureMsg | null }) {
+  const suffix = limitFeatureTabSuffix(feature);
+  if (suffix === null) return null;
+  // 앞 공백은 span 밖 텍스트 노드로 둔다 — span 첫 글자 공백은 접근 이름 계산에서 잘려 「상한가· 잠김」 이 된다.
+  return (
+    <>
+      {" "}
+      <span data-slot="card-tab-limit-state">
+        {"· "}
+        <span className={suffix.tone === "up" ? "mono text-[var(--up)]" : undefined}>{suffix.text}</span>
+      </span>
+    </>
+  );
+}
 
 /** 탭 제목 뒤 건수 「미체결(2)」 — 0 이면 생략(2026-09-23 사용자 요청: 배지 대신 제목 괄호). */
 function CountBadge({ count }: { count: number }) {
@@ -146,6 +182,7 @@ export function CardTabs({
   exchange,
   stockName,
   orderLogFeed,
+  limitFeature,
 }: CardTabsProps) {
   const [tab, setTab] = useState<CardTab>(requestedTab?.tab ?? "info");
   /**
@@ -234,6 +271,10 @@ export function CardTabs({
             잔고
             <CountBadge count={holdingCount} />
           </TabsTrigger>
+          <TabsTrigger value="limit" className={CARD_TAB_TRIGGER} {...triggerHandlers("limit")}>
+            상한가
+            <LimitFeatureTabTitle feature={limitFeature} />
+          </TabsTrigger>
         </TabsList>
         {orderLogFeed !== undefined && (
           <CardOrderLogPopup
@@ -304,6 +345,9 @@ export function CardTabs({
             priceOf={priceOf}
             onCancelSubmitted={onCancelSubmitted}
           />
+        </TabsContent>
+        <TabsContent value="limit" className="h-full min-w-0">
+          <LimitFeatureTable feature={limitFeature} />
         </TabsContent>
       </div>
     </Tabs>

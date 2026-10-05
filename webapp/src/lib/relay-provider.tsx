@@ -93,6 +93,7 @@ import type {
   StrategyEventRow,
   RelayAccountState,
   RelayExchange,
+  RelayLimitFeatureMsg,
   RelayOrderCancelMsg,
   RelayOrderModifyMsg,
   RelayOrderNewMsg,
@@ -313,6 +314,7 @@ const EMPTY_ACCOUNT_STATES: ReadonlyMap<string, RelayAccountState> = new Map();
 /** 빈 주문번호 색인의 고정 참조 — 같은 이유(소비자 효과가 헛돌지 않게). */
 const EMPTY_ORDER_INDEX: ReadonlyMap<string, OrderIndexEntry> = new Map();
 const EMPTY_TAPES: ReadonlyMap<string, RelayTapeEntry[]> = new Map();
+const EMPTY_LIMIT_FEATURES: ReadonlyMap<string, RelayLimitFeatureMsg> = new Map();
 /**
  * 두 거래소 모두 「아직 모름」인 고정 참조 (17-06 / D-06). 매 렌더 새 객체를 만들면
  * `viAnyRunning` 을 memo 로 감싼 소비처가 전부 무효화된다.
@@ -344,6 +346,7 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   accounts: [],
   quotes: EMPTY_QUOTES,
   tapes: EMPTY_TAPES,
+  limitFeatures: EMPTY_LIMIT_FEATURES,
   accountStates: EMPTY_ACCOUNT_STATES,
   // 본 주문이 없다 — 알림 조인 색인도 비어 있다(quick-260923-pgu).
   orderIndex: EMPTY_ORDER_INDEX,
@@ -576,6 +579,7 @@ export function useRelaySubscription({
   const key = relayQuoteKey(isin, exchange);
   const quote = active ? (relay.quotes.get(key) ?? null) : null;
   const tape = active ? (relay.tapes.get(key) ?? EMPTY_TAPE) : EMPTY_TAPE;
+  const limitFeature = active ? (relay.limitFeatures.get(key) ?? null) : null;
 
   return useMemo<RelaySocketState>(
     () => ({
@@ -586,6 +590,7 @@ export function useRelaySubscription({
       accounts: relay.accounts,
       quote,
       tape,
+      limitFeature,
       // 계좌 축 선택은 **소비자가** 한다 — 훅은 어느 계좌를 골랐는지 모른다(CR-01).
       accountStates: relay.accountStates,
       orders: relay.orders,
@@ -594,7 +599,7 @@ export function useRelaySubscription({
       send: relay.send,
       reconnect: relay.reconnect,
     }),
-    [relay, quote, tape],
+    [relay, quote, tape, limitFeature],
   );
 }
 

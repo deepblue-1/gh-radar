@@ -80,6 +80,7 @@ import type {
   RelayLimitChaser,
   RelayLimitChaserInput,
   RelayOrderResultMsg,
+  RelayLimitFeatureMsg,
   RelayQuote,
   RelaySubLevel,
   RelayTapeEntry,
@@ -222,6 +223,11 @@ export interface StrategyCardState {
   server: RelayLimitChaser | null;
   quote: RelayQuote | null;
   tape: RelayTapeEntry[];
+  /**
+   * 자기 키의 마지막 85 상한가 특징 (Phase 28 · 28-01). 카드 level 이 `"full"` 일 때만 값이 있다 — 접힌 카드(price)는
+   * 85 를 받지 않으므로 null(얼린 값 방지 · D-05 · UI-SPEC P-1).
+   */
+  limitFeature: RelayLimitFeatureMsg | null;
   isStale: boolean;
   log: StrategyLogEntry[];
   /** 3초 안에 답이 없었다 — **표시만** 한다. 재전송 경로가 없다(T-16-10). */
@@ -298,6 +304,9 @@ export function useStrategyCardState({
     level: subLevel,
   });
   const { quote, tape, isStale } = subscription;
+  // D-05 · UI-SPEC P-1 — 접힌 카드(price)는 85 를 받지 않으므로 쓰지 않는다(마지막 「잠김 43초」 가 얼어 남지 않게).
+  // `?? null` — 소켓 상태를 부분만 흉내 내는 소비자(테스트 스텁 · 옛 모양)에서도 「85 없음」 으로 수렴한다.
+  const limitFeature = subLevel === "full" ? (subscription.limitFeature ?? null) : null;
 
   const key =
     isin === "" || accountNo === ""
@@ -795,6 +804,7 @@ export function useStrategyCardState({
     server,
     quote,
     tape,
+    limitFeature,
     isStale,
     log,
     unacked,
@@ -1106,6 +1116,8 @@ function StrategyCardImpl({
               exchange={exchange}
               stockName={displayName}
               orderLogFeed={orderLogCtx ?? undefined}
+              limitFeature={card.limitFeature}
+              isStale={card.isStale}
             />
             <CardNotices card={card} />
             {body?.(card)}

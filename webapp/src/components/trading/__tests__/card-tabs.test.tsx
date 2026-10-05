@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import type {
   RelayAccountState,
   RelayHolding,
+  RelayLimitFeatureMsg,
   RelayOrderResultMsg,
   RelayUnfilled,
 } from '@gh-radar/shared';
@@ -12,7 +13,7 @@ import type {
  * quick-260923-onn — 펼친 카드 본문 상단 「정보 | 미체결 N | 잔고 N」 탭 (목업 ②A) + quick-260930-lq5 로그 버튼 두 개.
  *
  * 잠그는 것:
- *   - 탭 3개 · 건수는 미체결·잔고만(0 이면 생략) · 기본 정보 = 기존 10칸
+ *   - 탭 4개(Phase 28 「상한가」 추가) · 건수는 미체결·잔고만(0 이면 생략) · 기본 정보 = 기존 10칸
  *   - 미체결 탭 = AccountPanel stock 스코프(5열) · 행 선택은 공용 패널과 같은 토글 헬퍼
  *   - 잔고 탭 = 1행 6열(`priceOf`) · 전략로그 = 버튼 팝업(시각 · 내용 2열 · 오류만) · 빈 문구 원문
  *   - 탭 state 는 컴포넌트 안 · 뷰포트 브레이크포인트 · `@container` 재선언 없음(D-28)
@@ -103,6 +104,7 @@ function props(over: Partial<CardTabsProps> = {}): CardTabsProps {
     isin: ISIN,
     exchange: 'KRX',
     stockName: '알테오젠',
+    limitFeature: null,
     ...over,
   };
 }
@@ -133,10 +135,10 @@ afterEach(() => {
 });
 
 describe('CardTabs — 탭 줄', () => {
-  it('탭 3개 [정보, 미체결(2), 잔고(1)] · 값 info · unfilled · holdings · 건수는 제목 괄호 · 정보엔 없음 · 기본 정보 = 10칸', () => {
+  it('탭 4개 [정보, 미체결(2), 잔고(1), 상한가] · 값 info · unfilled · holdings · limit · 건수는 제목 괄호 · 정보엔 없음 · 기본 정보 = 10칸', () => {
     render(<CardTabs {...props()} />);
-    expect(tabs().map((t) => t.textContent)).toEqual(['정보', '미체결(2)', '잔고(1)']);
-    expect(tabs().map((t) => t.id.replace(/^.*-trigger-/, ''))).toEqual(['info', 'unfilled', 'holdings']);
+    expect(tabs().map((t) => t.textContent)).toEqual(['정보', '미체결(2)', '잔고(1)', '상한가']);
+    expect(tabs().map((t) => t.id.replace(/^.*-trigger-/, ''))).toEqual(['info', 'unfilled', 'holdings', 'limit']);
     expect(root().querySelectorAll('[data-slot="card-tab-count"]')).toHaveLength(2);
     expect(tabNamed('정보').querySelector('[data-slot="card-tab-count"]')).toBeNull();
     expect(tabNamed('정보')).toHaveAttribute('aria-selected', 'true');
@@ -146,10 +148,10 @@ describe('CardTabs — 탭 줄', () => {
   it('미체결 0 · 잔고 0 이면 괄호 0개', () => {
     render(<CardTabs {...props({ account: acct({ unf: [], hold: [] }), log: [] })} />);
     expect(root().querySelectorAll('[data-slot="card-tab-count"]')).toHaveLength(0);
-    expect(tabs().map((t) => t.textContent)).toEqual(['정보', '미체결', '잔고']);
+    expect(tabs().map((t) => t.textContent)).toEqual(['정보', '미체결', '잔고', '상한가']);
   });
 
-  it('탭 줄 = 탭 3 + [전략로그 버튼](피드 없어도 · 배지 없음) + 접기 — 순서대로', () => {
+  it('탭 줄 = 탭 4 + [전략로그 버튼](피드 없어도 · 배지 없음) + 접기 — 순서대로', () => {
     render(<CardTabs {...props()} />);
     const bar = root().querySelector('[data-slot="card-tabs-bar"]')!;
     const strat = bar.querySelector('[data-slot="card-log-button"][data-log="로그"]')!;
@@ -269,10 +271,10 @@ describe('CardTabs — 잔고 · 전략로그 팝업', () => {
 });
 
 describe('CardTabs — 반응형 · 상태', () => {
-  it('탭 3개를 차례로 켜도 뷰포트 브레이크포인트 · @container 재선언이 없다 (D-28 · 포털 다이얼로그는 밖)', async () => {
+  it('탭 4개를 차례로 켜도 뷰포트 브레이크포인트 · @container 재선언이 없다 (D-28 · 포털 다이얼로그는 밖)', async () => {
     const user = userEvent.setup();
     render(<CardTabs {...props()} />);
-    for (const label of ['정보', '미체결', '잔고']) {
+    for (const label of ['정보', '미체결', '잔고', '상한가']) {
       await user.click(tabNamed(label));
       const all = [root(), ...Array.from(root().querySelectorAll('*'))].map(
         (el) => el.getAttribute('class') ?? '',
@@ -353,7 +355,7 @@ describe('CardTabs — 고정 높이 본문 · 접기 (quick-260925-ptw)', () =>
     expect(fold()).toHaveAttribute('aria-expanded', 'false');
     expect(fold()).toHaveAttribute('aria-label', '탭 펼치기');
     expect(fold()).toHaveAttribute('title', '탭 펼치기');
-    expect(tabs().map((t) => t.textContent)).toEqual(['정보', '미체결(2)', '잔고(1)']);
+    expect(tabs().map((t) => t.textContent)).toEqual(['정보', '미체결(2)', '잔고(1)', '상한가']);
     expect(readPanelsPref().cardTabsFolded).toBe(true);
 
     await user.click(fold());
@@ -624,5 +626,107 @@ describe('CardTabs — 주문로그 버튼 + 팝업 (quick-260930-lq5)', () => {
     rerender(<CardTabs {...olProps(feed({ rows: [exposed] }))} />);
     await user.click(within(dialog()).getByRole('button', { name: '매수' }));
     expect(dialog().querySelector('[data-slot="card-log-empty"]')?.textContent).toBe('조건에 맞는 로그가 없어요');
+  });
+});
+
+describe('Phase 28 상한가 탭 (D-01~D-04 · UI-SPEC ①)', () => {
+  /** 잠김 시나리오 85 (relay 헬퍼 `buildLimitFeatureFrame` 기본값과 같은 값). */
+  function lf(over: Partial<RelayLimitFeatureMsg> = {}): RelayLimitFeatureMsg {
+    return {
+      t: 'limit.feature',
+      i: ISIN,
+      x: 'KRX',
+      gwTimeMs: 1_791_164_130_000,
+      featureSchema: 1,
+      upperPx: 13000,
+      lastPx: 13000,
+      rateBp: 3000,
+      basePx: 10000,
+      qQty: 133_077,
+      qKrw: 1_730_000_000,
+      wallKrwVisible: 0,
+      wallQtyHidden: 0,
+      wallTruncated: false,
+      sellLed10s: 3_700,
+      buyLed10s: 6_300,
+      cancel10s: 2_300,
+      new10s: 12_400,
+      auctionFill10s: 0,
+      drainS: -1,
+      lockState: 1,
+      lockElapsedS: 43,
+      burstUpperLimit: false,
+      auction: false,
+      memberBuy: [],
+      memberSell: [],
+      memberDeltaPartial: false,
+      modelState: 0,
+      modelSchemaVersion: 0,
+      pBreakBp: -1,
+      pHorizonS: 0,
+      ...over,
+    };
+  }
+
+  const table = () => root().querySelector('[data-slot="lc-limit-feature"]') as HTMLTableElement | null;
+  const cellTexts = () =>
+    Array.from(table()!.querySelectorAll('[data-slot="lc-limit-feature-cell"]')).map((c) => c.textContent);
+
+  it('트리거 4개 순서 「정보 · 미체결 · 잔고 · 상한가」 · lock 1 이면 4번째 접근 이름 「상한가 · 잠김 43초」 (「째」 없음 · --up 조각)', () => {
+    render(<CardTabs {...props({ limitFeature: lf() })} />);
+    const names = tabs().map((t) => t.textContent);
+    expect(names.slice(0, 3)).toEqual(['정보', '미체결(2)', '잔고(1)']);
+    expect(screen.getByRole('tab', { name: '상한가 · 잠김 43초' })).toBe(tabs()[3]);
+    const state = tabs()[3]!.querySelector('[data-slot="card-tab-limit-state"]')!;
+    expect(state.querySelector('.text-\\[var\\(--up\\)\\]')?.textContent).toBe('잠김 43초');
+  });
+
+  it('lock 2 → 「상한가 · 깨짐」(색 없음) · lock 0 · null → 「상한가」 접미 없음', () => {
+    const { rerender } = render(<CardTabs {...props({ limitFeature: lf({ lockState: 2, lockElapsedS: 0 }) })} />);
+    expect(screen.getByRole('tab', { name: '상한가 · 깨짐' })).toBeDefined();
+    expect(tabs()[3]!.querySelector('.text-\\[var\\(--up\\)\\]')).toBeNull();
+    rerender(<CardTabs {...props({ limitFeature: lf({ lockState: 0, lockElapsedS: 0 }) })} />);
+    expect(tabs()[3]!.textContent).toBe('상한가');
+    rerender(<CardTabs {...props({ limitFeature: null })} />);
+    expect(tabs()[3]!.textContent).toBe('상한가');
+    expect(tabs()[3]!.querySelector('[data-slot="card-tab-limit-state"]')).toBeNull();
+  });
+
+  it('「상한가」 클릭 → 표 지금 행 「잠김 43초째 | 대기 17.3억 | 소진 —」 · 첫 칸 --up 600 · 10초 · 창구 6칸 「—」', async () => {
+    const user = userEvent.setup();
+    render(<CardTabs {...props({ limitFeature: lf() })} />);
+    await user.click(tabNamed('상한가'));
+    expect(tabNamed('상한가')).toHaveAttribute('aria-selected', 'true');
+    expect(table()).not.toBeNull();
+    expect(table()!.getAttribute('aria-label')).toBe('상한가 특징');
+    expect(Array.from(table()!.querySelectorAll('th[scope="row"]')).map((th) => th.textContent)).toEqual([
+      '지금',
+      '10초',
+      '창구',
+    ]);
+    expect(cellTexts()).toEqual(['잠김 43초째', '대기 17.3억', '소진 —', '—', '—', '—', '—', '—', '—']);
+    const first = table()!.querySelector('[data-slot="lc-limit-feature-cell"]')!;
+    expect(first.className).toContain('text-[var(--up)]');
+    expect(first.className).toContain('font-semibold');
+  });
+
+  it('feature null 이면 9칸 모두 「—」(--faint)', async () => {
+    const user = userEvent.setup();
+    render(<CardTabs {...props({ limitFeature: null })} />);
+    await user.click(tabNamed('상한가'));
+    expect(cellTexts()).toEqual(Array.from({ length: 9 }, () => '—'));
+    for (const c of table()!.querySelectorAll('[data-slot="lc-limit-feature-cell"]')) {
+      expect(c.className).toContain('text-[var(--faint)]');
+    }
+  });
+
+  it('자동 전환 없음 — feature 를 바꿔 넣어도(미도달 → 잠김) 활성 탭은 「정보」 그대로 (D-04)', () => {
+    const { rerender } = render(<CardTabs {...props({ limitFeature: null })} />);
+    expect(tabNamed('정보')).toHaveAttribute('aria-selected', 'true');
+    rerender(<CardTabs {...props({ limitFeature: lf({ lockState: 0 }) })} />);
+    rerender(<CardTabs {...props({ limitFeature: lf() })} />);
+    expect(tabNamed('정보')).toHaveAttribute('aria-selected', 'true');
+    expect(tabNamed('상한가')).toHaveAttribute('aria-selected', 'false');
+    expect(tabNamed('상한가').textContent).toBe('상한가 · 잠김 43초');
   });
 });
