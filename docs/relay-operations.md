@@ -97,3 +97,14 @@ DB 에 쓰지 않는다(D-01). 결선은 `relay/src/index.ts`, 모듈은 `relay/
 - **롤백.** relay 는 `bash scripts/deploy-relay.sh --rollback <이전 태그>` — 이전 relay 는 사용자 세션 경로로 `dma_orders` 를 다시 쓴다
   (동결 해제 = 수용 가능한 롤백 상태). 배포 스크립트의 비밀 사전 검사는 롤백에도 4종을 요구하므로 관찰자 비밀은 지우지 않는다(옛
   이미지는 그 env 를 무시한다). server 는 이전 revision, webapp 은 Vercel 이전 배포 승격. DB 는 추가 전용이라 롤백하지 않는다.
+
+## radar-gw 호스트 공유 — gh-trade 시세 원본 운반기 (2026-10-05)
+
+출처: gh-trade 인박스 `docs/inbox/from-gh-trade/261005-tick-raw-archive-gcs.md`(gh-trade quick-261005-fxh, 정본 문서는 gh-trade `server/tools/archive/README.md`). 와이어·DB·relay 무변경 — radar-gw **호스트**에만 얹힌 것이라 relay 운영자가 알아야 할 제약만 적는다.
+
+- **radar-gw 에 gh-trade 소유물이 있다.** 시스템 사용자 `tickarc`(홈 `/var/lib/tickarc`, nologin, ed25519 키 `radar-gw-tickarc` + 119 호스트키 고정 known_hosts) · `/usr/local/lib/tick-archive/tick-archive.sh` · `/etc/tick-archive.env` · `tick-archive.service`(oneshot, Nice 19 · IO idle · MemoryMax 600M · OOMScoreAdjust 500 — 메모리가 모자라면 relay 보다 먼저 죽는다, rsync `--bwlimit` 10MiB/s) · `tick-archive.timer`(매일 22:00 KST, 장 밖) · apt `rsync`(딸린 `rsync.service` 는 disabled 그대로). 타이머는 사용자가 119 에 키를 등록한 뒤 켠다(설치 직후는 disabled).
+- **지우지 말 것:** `tickarc` 사용자 · `/var/lib/tickarc` · `tick-archive.*` 유닛 · `rsync` 패키지. 키를 다시 만들면 119(실거래 호스트) `authorized_keys` 등록을 사용자가 다시 해야 한다.
+- **radar-gw 재생성 · 이전 · 디스크 정리 · relay SA(`gh-radar-relay-sa`) 교체는 gh-trade 에 먼저 알린다.** 운반이 멈추면 119 의 90일 회전으로 원본(pcap.zst)이 유실된다.
+- **GCS 버킷 `gs://gh-trade-tick-archive`**(프로젝트 gh-radar · asia-northeast3 · ARCHIVE · 균일 버킷 액세스 · 공개 접근 방지). relay SA 는 이 버킷에만 `roles/storage.objectCreator` + `objectViewer`(프로젝트 IAM 무변경, SA 키 파일 없음 — VM 메타데이터 자격). 덮어쓰기·삭제는 `storage.objects.delete` 403 으로 거부됨(2026-10-05 시험). 객체 경로 `raw/<krx|nxt>/<YYYYMMDD>/<YYYYMMDD-HHMM[-N]>.pcap.zst`. Archive 클래스라 꺼낼 때 GB당 요금이 붙는다.
+- **확인:** radar-gw 에서 `systemctl list-timers tick-archive.timer --all`(켜진 뒤 NEXT = 13:00 UTC) · `journalctl -u tick-archive` 요약 줄 `[tick-archive] uploaded=… anomalies=0 failed=0` · `gcloud storage ls gs://gh-trade-tick-archive/raw/`. relay 영향은 평소 relay 로그·메모리로 본다(운반은 22:00).
+- **gh-radar 적재 경로와의 관계:** 상한가 밤 export(`261005-limitup-feature-85.md` 계약)는 radar-gw → 119 rsync pull → Supabase/Storage 로 들어오며 이 버킷을 거치지 않는다. export·DuckDB 를 같은 버킷에 복사하는 것은 백업 용도일 뿐 gh-radar 적재에는 필요 없다(gh-trade 재량).
