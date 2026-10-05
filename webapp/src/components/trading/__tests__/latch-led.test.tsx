@@ -421,4 +421,51 @@ describe("Phase 27 자동 LED (D-04 — WinForms ledAutoSell 동형 · 클릭 �
     expect(el.textContent).toContain("자동상태매도중");
     expect(screen.queryByRole("button")).toBeNull();
   });
+
+  it.each([
+    [0, "off", "OFF"],
+    [1, "latent", "대기"],
+    [2, "armed", "감시"],
+    [3, "armed", "매도중"],
+    [4, "latent", "완료"],
+    [5, "off", "OFF"],
+  ] as const)("상태 %i → %s 「%s」 · 늘 클릭 불가 (체크 값은 보지 않는다)", (autoSellState, tone, label) => {
+    // 체크가 꺼져 있어도 상태가 진실이다 — 체크 값으로 판정을 바꾸지 않는다.
+    for (const autoSellEnabled of [true, false]) {
+      const st = latchLedStateOf("autoSell", chaser({ autoSellEnabled, autoSellState }));
+      expect(st.tone).toBe(tone);
+      expect(st.label).toBe(label);
+      expect(st.clickable).toBe(false);
+    }
+  });
+
+  it("server null → OFF · 툴팁 없음 / 상태 0 → OFF · 툴팁 「자동매도 꺼짐」", () => {
+    expect(latchLedStateOf("autoSell", null)).toEqual({ tone: "off", clickable: false, label: "OFF", tooltip: null });
+    expect(latchLedStateOf("autoSell", chaser({ autoSellState: 0 })).tooltip).toBe("자동매도 꺼짐");
+  });
+
+  it("툴팁 — 기준 2 는 「매수가」 · 기준가격 0 이면 꼬리 없음", () => {
+    expect(
+      latchLedStateOf("autoSell", chaser({ autoSellState: 2, autoSellBasis: 2, autoSellBasisPrice: 12_800 })).tooltip,
+    ).toBe("자동매도 감시 · 기준 매수가 12,800원");
+    expect(latchLedStateOf("autoSell", chaser({ autoSellState: 1, autoSellBasis: 0, autoSellBasisPrice: 0 })).tooltip).toBe(
+      "자동매도 대기",
+    );
+  });
+
+  it("다섯 상태 모두 <span> 이고 눌러도 onArm 을 부르지 않는다 · 점 변형도 같다", async () => {
+    const onArm = vi.fn();
+    for (const autoSellState of [0, 1, 2, 3, 4]) {
+      for (const variant of ["chip", "dot"] as const) {
+        const { unmount } = render(
+          <LatchLed kind="autoSell" variant={variant} server={chaser({ autoSellState })} onArm={onArm} />,
+        );
+        expect(ledEl("autoSell").tagName).toBe("SPAN");
+        expect(screen.queryByRole("button")).toBeNull();
+        await userEvent.click(ledEl("autoSell"));
+        unmount();
+      }
+    }
+    expect(onArm).not.toHaveBeenCalled();
+  });
 });

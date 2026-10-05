@@ -1158,3 +1158,59 @@ describe('isMasterOnlyDelta — D-02 후반 자동 끔은 buyEnabled 한 필드�
     expect(isMasterOnlyDelta({ ...webCfgOf(echo), buyEnabled: true }, echo)).toBe(true);
   });
 });
+
+/*
+  Phase 27 — ☐자동매도만 켠 등록은 삭제가 아니다(gh-trade IsAutoSellActive · WinForms AnyArmed). relay `#isTeardown` 과
+  같은 여섯 항이다. 새 폼 기본값은 스위치 OFF · 시작조건 0 · 비율 10 · 방법 3(양쪽), 에코가 있으면 에코 값 그대로.
+*/
+describe("Phase 27 자동매도 — 삭제 판정 · 켜진 전략 · 폼 값", () => {
+  const allOff = {
+    buyEnabled: false,
+    sellEnabled: false,
+    cancelQtyEnabled: false,
+    cancelTradeEnabled: false,
+    postBuyAuto: false,
+  };
+
+  it('게이트 · 자동 전부 OFF + autoSellEnabled true 는 삭제가 아니다(crud C) · 여섯 항이 다 꺼지면 D', () => {
+    expect(isDeleteIntent({ ...allOff, autoSellEnabled: true })).toBe(false);
+    expect(crudOf({ ...allOff, autoSellEnabled: true })).toBe('C');
+    expect(crudOf({ ...allOff, autoSellEnabled: false })).toBe('D');
+    // 폼 값 전체로 넘겨도 같다(호출부 모양).
+    expect(crudOf({ ...defaultLimitChaserForm(), autoSellEnabled: true })).toBe('C');
+  });
+
+  it('자동매도만 켠 에코는 켜진 전략이다 — 작업대에서 걷히지 않는다', () => {
+    expect(isActiveStrategy(serverEcho({ ...allOff, autoSellEnabled: true }))).toBe(true);
+    expect(isActiveStrategy(serverEcho({ ...allOff, autoSellEnabled: false }))).toBe(false);
+  });
+
+  it('defaultLimitChaserForm() 자동매도 4필드 = false / 0 / 10 / 3', () => {
+    const f = defaultLimitChaserForm();
+    expect([f.autoSellEnabled, f.autoSellStartCond, f.autoSellRatioPct, f.autoSellMethod]).toEqual([false, 0, 10, 3]);
+  });
+
+  it('formFromServer 는 에코 4필드를 그대로 들인다 — 0 은 0(메우지 않는다) · 에코 전용 4필드는 폼에 없다', () => {
+    const zero = formFromServer(
+      serverEcho({ autoSellEnabled: false, autoSellStartCond: 0, autoSellRatioPct: 0, autoSellMethod: 0 }),
+      defaultLimitChaserForm(),
+    );
+    expect([zero.autoSellEnabled, zero.autoSellStartCond, zero.autoSellRatioPct, zero.autoSellMethod]).toEqual([
+      false, 0, 0, 0,
+    ]);
+    const on = formFromServer(
+      serverEcho({
+        autoSellEnabled: true,
+        autoSellStartCond: 2,
+        autoSellRatioPct: 15,
+        autoSellMethod: 1,
+        autoSellState: 3,
+        autoSellSoldQty: 6000,
+      }),
+      defaultLimitChaserForm(),
+    );
+    expect([on.autoSellEnabled, on.autoSellStartCond, on.autoSellRatioPct, on.autoSellMethod]).toEqual([true, 2, 15, 1]);
+    expect(on).not.toHaveProperty('autoSellState');
+    expect(on).not.toHaveProperty('autoSellSoldQty');
+  });
+});

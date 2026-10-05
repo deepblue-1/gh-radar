@@ -1450,7 +1450,8 @@ export function buildSetLimitChaserReq(
   }
 
   const buy3Schema = lcBuy3SchemaOf(cfg);
-  if (cfg.extraBuyBurstRelease !== undefined && buy3Schema !== LC_BURST_RELEASE_BUY3_SCHEMA) {
+  // `<` — schema 4(자동매도 동반)도 버스트 해제를 싣는다. `!==` 로 두면 schema 4 마다 거짓 경고가 남는다(27-01 Task 3).
+  if (cfg.extraBuyBurstRelease !== undefined && buy3Schema < LC_BURST_RELEASE_BUY3_SCHEMA) {
     // P-1 — 3 은 post_buy_auto 동반일 때만. 자동 없이 3 을 보내면 서버가 자동을 부재 = false 로 지운다.
     // 거부(소켓 종료) 대신 안전 폴백: schema 1 · 버스트 필드 미적재(서버 값 유지).
     logger.warn(

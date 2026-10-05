@@ -2224,6 +2224,48 @@ describe("WsFanout", () => {
     expect(framesOf(a.inbox, "msg")).toHaveLength(0);
   });
 
+  describe("Phase 27 자동매도만 켠 등록 — #isTeardown 여섯 항(웹 isDeleteIntent 와 같은 커밋)", () => {
+    it("게이트 4종 OFF + 자동 false + 버스트 false + autoSellEnabled true(crud C)는 철거가 아니다 — 모르는 ISIN 이면 거부 · 0바이트, autoSellEnabled false 면 종전 철거", async () => {
+      const a = await authed("token-a");
+      const gatesOff = {
+        isin: UNKNOWN_ISIN,
+        crud: "C" as const,
+        buyEnabled: false,
+        sellEnabled: false,
+        cancelQtyEnabled: false,
+        cancelTradeEnabled: false,
+        postBuyAuto: false,
+        extraBuyBurstRelease: false,
+        autoSellStartCond: 2,
+        autoSellRatioPct: 10,
+        autoSellMethod: 3,
+      };
+
+      // ① 자동매도만 켠 등록 — 엄격 시장 해석이 걸린다(기본 "K" 폴백 금지 · 서버 IsAutoSellActive).
+      a.ws.sendRaw({ t: "lc.set", cfg: lcInput({ ...gatesOff, autoSellEnabled: true }) });
+      await waitFor(() => framesOf(a.inbox, "msg").length === 1, "거부 통지");
+      await flushIo(30);
+      expect(gateway.strategyRequests().map((r) => r.msgType)).not.toContain(
+        STRATEGY_MSG.SetLimitChaserReq,
+      );
+      const [rejected] = framesOf(a.inbox, "msg");
+      expect(rejected).toMatchObject({ lv: "ERROR", src: RELAY_MSG_SOURCE, i: UNKNOWN_ISIN });
+
+      // ② 같은 조건에 autoSellEnabled false — 철거로 나간다(시장 해석 폴백 "K" · schema 4 그대로).
+      a.ws.sendRaw({ t: "lc.set", cfg: lcInput({ ...gatesOff, autoSellEnabled: false }) });
+      await waitFor(
+        () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+        "10 수신",
+      );
+      const raw = gateway
+        .strategyRequests()
+        .find((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq)!;
+      expect(rootEnvelope(raw.payload).setLimitChaser()?.market()).toBe("K");
+      expect(readSetLimitChaserRequest(raw.msgType, raw.payload)!.buy3Schema).toBe(4);
+      expect(framesOf(a.inbox, "msg")).toHaveLength(1);
+    });
+  });
+
   it("⑰-autosell lc.set 자동매도 4필드 + 자동 + 버스트 → 10 buy3Schema 4 · 4값 그대로 · 버스트 동반 · 에코 슬롯 없음 → 60 에코(매도중) → ws lc item 8필드 (Phase 27 트레이서)", async () => {
     const a = await authed("token-a");
     a.ws.sendRaw({

@@ -757,3 +757,57 @@ describe("parseInbound — 알 수 없는 입력", () => {
     expect(parseInbound('"lc.set"')).toBeNull();
   });
 });
+
+describe("Phase 27 lc.set 자동매도 4필드 — 선택 · 켜면 범위 · 에코 전용 키 strip", () => {
+  const AUTO = { autoSellStartCond: 2, autoSellRatioPct: 10, autoSellMethod: 3 };
+
+  it("자동매도 ON + 비율 0 · 51 / 방법 0 · 4 는 위반(close 4400 경로) · ON + 1~50 · 1~3 은 통과", () => {
+    expect(parseInbound(lcSet({ ...AUTO, autoSellEnabled: true, autoSellRatioPct: 0 }))).toBeNull();
+    expect(parseInbound(lcSet({ ...AUTO, autoSellEnabled: true, autoSellRatioPct: 51 }))).toBeNull();
+    expect(parseInbound(lcSet({ ...AUTO, autoSellEnabled: true, autoSellMethod: 0 }))).toBeNull();
+    expect(parseInbound(lcSet({ ...AUTO, autoSellEnabled: true, autoSellMethod: 4 }))).toBeNull();
+    expect(parseInbound(lcSet({ ...AUTO, autoSellEnabled: true, autoSellRatioPct: 1, autoSellMethod: 1 }))).not.toBeNull();
+    expect(parseInbound(lcSet({ ...AUTO, autoSellEnabled: true, autoSellRatioPct: 50, autoSellMethod: 3 }))).not.toBeNull();
+  });
+
+  it("자동매도 OFF + 비율 0 · 방법 0 은 통과한다(옛 서버 · 미등록 키 에코 0 이 소켓 종료가 되지 않게)", () => {
+    expect(
+      parseInbound(lcSet({ autoSellEnabled: false, autoSellStartCond: 0, autoSellRatioPct: 0, autoSellMethod: 0 })),
+    ).not.toBeNull();
+  });
+
+  it("시작조건은 0~9 — 10 · -1 은 위반 · 형식 위반(문자열)도 위반", () => {
+    expect(parseInbound(lcSet({ ...AUTO, autoSellEnabled: false, autoSellStartCond: 10 }))).toBeNull();
+    expect(parseInbound(lcSet({ ...AUTO, autoSellEnabled: false, autoSellStartCond: -1 }))).toBeNull();
+    expect(parseInbound(lcSet({ ...AUTO, autoSellEnabled: false, autoSellStartCond: 9 }))).not.toBeNull();
+    expect(parseInbound(lcSet({ ...AUTO, autoSellEnabled: "true" }))).toBeNull();
+  });
+
+  it("에코 전용 4키를 실어 보내면 strip — cfg 에 남지 않고 12필드 존재 판정(buy3CfgOf)에도 무관", () => {
+    const msg = parseInbound(
+      lcSet({
+        postBuyAuto: false,
+        extraBuyBurstRelease: false,
+        ...AUTO,
+        autoSellEnabled: true,
+        autoSellState: 3,
+        autoSellSoldQty: 6000,
+        autoSellBasis: 1,
+        autoSellBasisPrice: 13_000,
+      }),
+    );
+    if (msg?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    for (const k of ["autoSellState", "autoSellSoldQty", "autoSellBasis", "autoSellBasisPrice"]) {
+      expect(msg.cfg, k).not.toHaveProperty(k);
+    }
+    expect(msg.cfg).toMatchObject({ autoSellEnabled: true, ...AUTO });
+    expect(Object.keys(msg.cfg)).toHaveLength(49);
+    expect(buy3CfgOf(msg.cfg)).not.toBeNull();
+
+    // 구 탭 — 4필드 없음도 통과 · 키를 만들지 않는다(withNeutralBuy3 도 채우지 않는다).
+    const old = parseInbound(lcSet({ postBuyAuto: false, extraBuyBurstRelease: false }));
+    if (old?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(old.cfg).not.toHaveProperty("autoSellEnabled");
+    expect(withNeutralBuy3(old.cfg)).not.toHaveProperty("autoSellEnabled");
+  });
+});

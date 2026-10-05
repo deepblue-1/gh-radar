@@ -388,3 +388,29 @@ describe('CardHeader — 거래소 선택지 (quick-260923-pq2)', () => {
     expect(document.querySelector('[data-slot="card-exchange-segment"]')).toBeNull();
   });
 });
+
+describe("Phase 27 카드 헤더 「자동」 LED (D-04)", () => {
+  it('펼침 칩 4개 · 접힌 점 4개가 같은 latchLedStateOf 판정 — 자동 매도중은 둘 다 armed', () => {
+    const server = echo({ autoSellEnabled: true, autoSellState: 3, autoSellBasis: 1, autoSellBasisPrice: 13_000 });
+    const { view } = renderHeader({ open: true, ledServer: server });
+    const chip = header().querySelector('[data-slot="latch-led"][data-kind="autoSell"]') as HTMLElement;
+    expect(chip.getAttribute('data-tone')).toBe('armed');
+    expect(chip.textContent).toContain('매도중');
+    expect(chip.tagName).toBe('SPAN');
+    view.unmount();
+
+    renderHeader({ open: false, ledServer: server });
+    const dots = Array.from(header().querySelectorAll('[data-slot="latch-led"][data-variant="dot"]'));
+    expect(dots).toHaveLength(4);
+    const auto = dots.find((d) => d.getAttribute('data-kind') === 'autoSell') as HTMLElement;
+    expect(auto.getAttribute('data-tone')).toBe('armed');
+    expect(auto.tagName).toBe('SPAN');
+  });
+
+  it('자동 칩을 눌러도 onArm · onToggle 이 불리지 않는다 (클릭 불가 · 전파 차단)', () => {
+    const { props } = renderHeader({ open: true, ledServer: echo({ autoSellState: 1 }) });
+    fireEvent.click(header().querySelector('[data-slot="latch-led"][data-kind="autoSell"]') as HTMLElement);
+    expect(props.onArm).not.toHaveBeenCalled();
+    expect(props.onToggle).not.toHaveBeenCalled();
+  });
+});

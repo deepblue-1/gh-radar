@@ -56,6 +56,8 @@ import {
   buildQueuedWindowStateFrame,
   buildRateCrossAlertFrame,
   buildRateCrossSnapshotFrame,
+  buildUserSettingsFrame,
+  buildBareEnvelope,
   SAMPLE_ACCOUNT_NO,
   type FakeTapeEntryInput,
 } from "./helpers/frames.js";
@@ -672,6 +674,91 @@ describe("SubscriptionHub — 관찰자 전용 프레임(79 · 80)이 사용자 
     expect(fanout).toEqual([]);
     expect(session.sent).toEqual([]);
     hub.closeAll();
+  });
+});
+
+describe("Phase 27 사용자 설정 84 — 사용자별 캐시 · Ready 게이트 · 폐기 · quote 경계 · 85 강등", () => {
+  let hub: SubscriptionHub;
+  let session: FakeSession;
+  let fanout: HubFanoutEvent[];
+
+  const settingsFrames = () => fanout.filter((e) => e.msg.t === "user.settings");
+
+  beforeEach(() => {
+    resetDroppedEnvelopeCount();
+    hub = new SubscriptionHub();
+    fanout = [];
+    hub.on("fanout", (e) => fanout.push(e));
+    session = new FakeSession("user-1");
+    hub.attach(session);
+  });
+
+  afterEach(() => {
+    hub.closeAll();
+    vi.restoreAllMocks();
+  });
+
+  it("Ready 전 84 는 캐시만 한다 — 팬아웃 0 · getUserSettings 는 그 값 · unhandledFrameCount 0 (Pitfall 4)", () => {
+    expect(hub.getUserSettings("user-1")).toBeUndefined();
+    session.isReady = false;
+    session.pushFrame(buildUserSettingsFrame({ present: true, autoSellPeriodSec: 5 }));
+
+    expect(settingsFrames()).toEqual([]);
+    expect(hub.getUserSettings("user-1")).toMatchObject({ t: "user.settings", present: true, autoSellPeriodSec: 5 });
+    expect(hub.unhandledFrameCount()).toBe(0);
+  });
+
+  it("Ready 뒤 84 는 {t:\"user.settings\"} 1프레임으로 그 사용자에게만 팬아웃 · 두 번째 84 는 캐시를 교체한다", () => {
+    session.pushFrame(buildUserSettingsFrame({ present: false }));
+    expect(settingsFrames()).toHaveLength(1);
+    expect(settingsFrames()[0]!.userId).toBe("user-1");
+    expect(settingsFrames()[0]!.msg).toMatchObject({ t: "user.settings", present: false, autoSellRatioDefaultPct: 10 });
+
+    session.pushFrame(buildUserSettingsFrame({ present: true, autoSellRatioDefaultPct: 15 }));
+    expect(settingsFrames()).toHaveLength(2);
+    expect(hub.getUserSettings("user-1")).toMatchObject({ present: true, autoSellRatioDefaultPct: 15 });
+    expect(hub.unhandledFrameCount()).toBe(0);
+  });
+
+  it("세션 교체 · closeAll 뒤 getUserSettings 는 undefined(모름) — 지어낸 기본값이 남지 않는다", () => {
+    session.pushFrame(buildUserSettingsFrame({ present: true }));
+    expect(hub.getUserSettings("user-1")).toBeDefined();
+
+    hub.attach(new FakeSession("user-1"));
+    expect(hub.getUserSettings("user-1")).toBeUndefined();
+
+    const again = new FakeSession("user-2");
+    hub.attach(again);
+    again.pushFrame(buildUserSettingsFrame({ present: true }));
+    expect(hub.getUserSettings("user-2")).toBeDefined();
+    hub.closeAll();
+    expect(hub.getUserSettings("user-2")).toBeUndefined();
+  });
+
+  it("quote 연결로 온 84 는 명시 warn 1건 뒤 무시 — 사용자 캐시 불변 · 팬아웃 0 · unhandledFrameCount 0", () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation((() => undefined) as never);
+    const feed = new FakeFeed();
+    hub.attachFeed(feed);
+    feed.pushFrame(buildUserSettingsFrame({ present: true }));
+
+    const quoteWarns = warn.mock.calls.filter((args) =>
+      args.some((a) => typeof a === "string" && a.includes("quote 연결에 오지 않는 프레임")),
+    );
+    expect(quoteWarns.map((args) => args[0])).toEqual([{ msgType: MSG.UserSettingsResp }]);
+    expect(hub.unhandledFrameCount()).toBe(0);
+    expect(settingsFrames()).toEqual([]);
+    expect(hub.getUserSettings("user-1")).toBeUndefined();
+  });
+
+  it("85 LimitFeature 는 화이트리스트 밖 — 수신 파서에서 debug 드롭(warn 0) · hub 까지 오지 않는다", () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation((() => undefined) as never);
+    const debug = vi.spyOn(logger, "debug").mockImplementation((() => undefined) as never);
+    expect(tryParseEnvelope(Buffer.from(buildBareEnvelope(85)))).toBeNull();
+    expect(warn).not.toHaveBeenCalled();
+    expect(debug).toHaveBeenCalledTimes(1);
+    expect(() => session.pushFrame(buildBareEnvelope(85))).toThrow(/화이트리스트/);
+    expect(fanout).toEqual([]);
+    expect(hub.unhandledFrameCount()).toBe(0);
   });
 });
 

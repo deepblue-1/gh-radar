@@ -81,7 +81,9 @@ import {
   LC_FIXED_BUY3_SCHEMA,
   LC_POST_BUY_AUTO_BUY3_SCHEMA,
   LC_BURST_RELEASE_BUY3_SCHEMA,
+  LC_AUTO_SELL_BUY3_SCHEMA,
   lcBuy3SchemaOf,
+  parseUserSettings,
   MAX_STRATEGY_KEY_BYTES,
   parseLimitChaserEcho,
   parseLimitChaserList,
@@ -125,6 +127,7 @@ import {
   buildObserverLoginRespFrame,
   fakeStrategyEventRecord,
   buildQueueProgressFrame,
+  buildUserSettingsFrame,
   SAMPLE_ACCOUNT_NO,
 } from "../../../tests/helpers/frames.js";
 import { readObserverLoginRequest } from "../../../tests/helpers/fake-gateway.js";
@@ -262,6 +265,16 @@ describe("tryParseEnvelope — total 파서", () => {
     expect(debug).not.toHaveBeenCalled();
     const [fields] = warn.mock.calls[0] as [Record<string, unknown>];
     expect(fields.reason).toBe("unknown-msg-type");
+  });
+
+  it("Phase 27 ⑤-a85 85 LimitFeature 는 범위 밖 응답이다 — debug 로만 드롭되고 warn 은 0 (Pitfall 7)", () => {
+    expect(tryParseEnvelope(Buffer.from(buildBareEnvelope(85)))).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+    expect(warn).not.toHaveBeenCalled();
+    expect(debug).toHaveBeenCalledTimes(1);
+    const [fields] = debug.mock.calls[0] as [Record<string, unknown>];
+    expect(fields.reason).toBe("out-of-scope-msg-type");
+    expect(fields.msgTypeHint).toBe(85);
   });
 
   it("⑤-a4 강등 집합은 **응답 대역 7종뿐**이고 요청 번호는 하나도 없다", () => {
@@ -2468,5 +2481,176 @@ describe("잔량진행률 83 QueueProgress 파서 (Phase 25-06)", () => {
     const items = Array.from({ length: MAX_QUEUE_PROGRESS_ITEMS + 1 }, (_, i) => ({ orderNo: String(i + 1) }));
     const frame = parseQueueProgress(envOf(buildQueueProgressFrame({ items })));
     expect(frame?.items).toHaveLength(MAX_QUEUE_PROGRESS_ITEMS);
+  });
+});
+
+describe("Phase 27 자동매도 와이어 — schema 1~4 파생 · 에코 슬롯 · readLimitChaser 8필드 · 84 파서", () => {
+  const AUTO_REQ_VT = [140, 142, 144, 146] as const;
+  const AUTO_ECHO_VT = [148, 150, 152, 154] as const;
+  const BURST_VT = 138;
+  const AUTO_SELL_REQ = {
+    autoSellEnabled: true,
+    autoSellStartCond: 2,
+    autoSellRatioPct: 10,
+    autoSellMethod: 3,
+  } as const;
+
+  function readLc(cfg: LcBuildInput): SetLimitChaser {
+    const env = readBack(buildSetLimitChaserReq(cfg));
+    const t = env.setLimitChaser(new SetLimitChaser());
+    expect(t).not.toBeNull();
+    return t!;
+  }
+
+  function inbound(bytes: Uint8Array) {
+    const parsed = tryParseEnvelope(Buffer.from(bytes));
+    expect(parsed).not.toBeNull();
+    return parsed!;
+  }
+
+  it("lcBuy3SchemaOf 표 — 자동 없음 1 · 자동만 2 · 자동+버스트 3 · 자동+버스트+4필드 4 · 4필드 하나 빠짐 3 · 4필드만(자동 없음) 1", () => {
+    expect(LC_AUTO_SELL_BUY3_SCHEMA).toBe(4);
+    expect(lcBuy3SchemaOf({})).toBe(1);
+    expect(lcBuy3SchemaOf({ postBuyAuto: false })).toBe(2);
+    expect(lcBuy3SchemaOf({ postBuyAuto: false, extraBuyBurstRelease: false })).toBe(3);
+    expect(lcBuy3SchemaOf({ postBuyAuto: false, extraBuyBurstRelease: false, ...AUTO_SELL_REQ })).toBe(4);
+    // 값 무관 — 존재로만. 꺼진 스위치 · 0 도 4.
+    expect(
+      lcBuy3SchemaOf({
+        postBuyAuto: false,
+        extraBuyBurstRelease: false,
+        autoSellEnabled: false,
+        autoSellStartCond: 0,
+        autoSellRatioPct: 0,
+        autoSellMethod: 0,
+      }),
+    ).toBe(4);
+    for (const missing of Object.keys(AUTO_SELL_REQ) as (keyof typeof AUTO_SELL_REQ)[]) {
+      const partial: Partial<typeof AUTO_SELL_REQ> = { ...AUTO_SELL_REQ };
+      delete partial[missing];
+      expect(lcBuy3SchemaOf({ postBuyAuto: true, extraBuyBurstRelease: true, ...partial }), missing).toBe(3);
+    }
+    expect(lcBuy3SchemaOf({ ...AUTO_SELL_REQ })).toBe(1);
+  });
+
+  it("4필드만 있고 자동 없음 → schema 1 · 자동매도 슬롯 0 · warn 1회 · throw 없음 (P-1 단조성)", () => {
+    warn.mockClear();
+    const t = readLc(lcInput({ ...AUTO_SELL_REQ }));
+    expect(t.buy3Schema()).toBe(LC_FIXED_BUY3_SCHEMA);
+    expect(presentSlots(t, AUTO_REQ_VT)).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    // 값 · 계좌를 로그에 싣지 않는다 — 결손의 모양만.
+    const [fields] = warn.mock.calls[0] as [Record<string, unknown>];
+    expect(Object.keys(fields).sort()).toEqual(["buy3Schema", "isin"]);
+  });
+
+  it("schema 4 요청 — 4슬롯 140~146 · 값 그대로 · 버스트 해제(138) 동반 · 에코 슬롯 148~154 없음", () => {
+    warn.mockClear();
+    const t = readLc(lcInput({ postBuyAuto: false, extraBuyBurstRelease: true, ...AUTO_SELL_REQ }));
+    expect(t.buy3Schema()).toBe(4);
+    expect(presentSlots(t, AUTO_REQ_VT)).toEqual([...AUTO_REQ_VT]);
+    expect([t.autoSellEnabled(), t.autoSellStartCond(), t.autoSellRatioPct(), t.autoSellMethod()]).toEqual([
+      true, 2, 10, 3,
+    ]);
+    // `>=` — schema 4 에서도 ☐버스트 시 해제가 실린다(RESEARCH Pitfall 1).
+    expect(presentSlots(t, [BURST_VT])).toEqual([BURST_VT]);
+    expect(t.extraBuyBurstRelease()).toBe(true);
+    expect(presentSlots(t, AUTO_ECHO_VT)).toEqual([]);
+    expect(warn.mock.calls.map((c: unknown[]) => c[1])).toEqual([]);
+  });
+
+  it("schema ≤ 3 요청에는 자동매도 4슬롯이 없다 · 어떤 요청에도 에코 슬롯 148~154 가 없다", () => {
+    const cases: Partial<LcBuildInput>[] = [
+      {},
+      { postBuyAuto: true },
+      { postBuyAuto: true, extraBuyBurstRelease: true },
+      { postBuyAuto: true, extraBuyBurstRelease: true, autoSellEnabled: true, autoSellRatioPct: 10 },
+    ];
+    for (const over of cases) {
+      const t = readLc(lcInput(over));
+      expect(t.buy3Schema()).toBeLessThanOrEqual(3);
+      expect(presentSlots(t, AUTO_REQ_VT)).toEqual([]);
+      expect(presentSlots(t, AUTO_ECHO_VT)).toEqual([]);
+    }
+    // 브라우저가 에코 전용 키를 초과 속성으로 끼워도 조립기는 add 하지 않는다.
+    const forged = {
+      ...lcInput({ postBuyAuto: true, extraBuyBurstRelease: true, ...AUTO_SELL_REQ }),
+      autoSellState: 3,
+      autoSellSoldQty: 6000,
+      autoSellBasis: 1,
+      autoSellBasisPrice: 13_000,
+    } as LcBuildInput;
+    expect(presentSlots(readLc(forged), AUTO_ECHO_VT)).toEqual([]);
+  });
+
+  it("schema 4 범위 — 시작조건 · 비율 · 방법은 ubyte 표현 범위 밖이면 OrderBuildError", () => {
+    const base = { postBuyAuto: true, extraBuyBurstRelease: true, ...AUTO_SELL_REQ };
+    expect(() => buildSetLimitChaserReq(lcInput({ ...base, autoSellRatioPct: 256 }))).toThrow(/ubyte/);
+    expect(() => buildSetLimitChaserReq(lcInput({ ...base, autoSellStartCond: -1 }))).toThrow(/ubyte/);
+  });
+
+  it("readLimitChaser — 8슬롯 부재 에코는 false/0 · 값이 있으면 그대로 (60 · 64 공용)", () => {
+    const absent = parseLimitChaserEcho(inbound(buildSetLimitChaserRespFrame({})).env)!;
+    expect({
+      autoSellEnabled: absent.autoSellEnabled,
+      autoSellStartCond: absent.autoSellStartCond,
+      autoSellRatioPct: absent.autoSellRatioPct,
+      autoSellMethod: absent.autoSellMethod,
+      autoSellState: absent.autoSellState,
+      autoSellSoldQty: absent.autoSellSoldQty,
+      autoSellBasis: absent.autoSellBasis,
+      autoSellBasisPrice: absent.autoSellBasisPrice,
+    }).toEqual({
+      autoSellEnabled: false,
+      autoSellStartCond: 0,
+      autoSellRatioPct: 0,
+      autoSellMethod: 0,
+      autoSellState: 0,
+      autoSellSoldQty: 0,
+      autoSellBasis: 0,
+      autoSellBasisPrice: 0,
+    });
+    const echo = {
+      ...AUTO_SELL_REQ,
+      autoSellState: 3,
+      autoSellSoldQty: 6000,
+      autoSellBasis: 1,
+      autoSellBasisPrice: 13_000,
+    };
+    const single = parseLimitChaserEcho(inbound(buildSetLimitChaserRespFrame(echo)).env);
+    const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
+    expect(single).toMatchObject(echo);
+    expect(list![0]).toMatchObject(echo);
+  });
+
+  it("parseUserSettings — 11값 + present 왕복", () => {
+    const parsed = inbound(buildUserSettingsFrame({ present: true, autoSellPeriodSec: 5 }));
+    expect(parsed.msgType).toBe(MSG.UserSettingsResp);
+    expect(parseUserSettings(parsed.env)).toEqual({
+      t: "user.settings",
+      present: true,
+      preBuyAmount: 4000,
+      addBuyAmount: 4000,
+      postBuyAmount: 4000,
+      postBuyMaxCount: 3,
+      postBuyFloorQty: 100_000,
+      postBuyReboundPct: 30,
+      sellQtyTrackRatio: 55,
+      autoSellPeriodSec: 5,
+      auctionSellRatioPct: 20,
+      autoSellRatioDefaultPct: 10,
+      autoSellMethodDefault: 3,
+    });
+    // present 기본 false — 서버 내장 기본값.
+    expect(parseUserSettings(inbound(buildUserSettingsFrame()).env)!.present).toBe(false);
+  });
+
+  it("parseUserSettings — 슬롯 없는 84 는 null + dropField(slot-null)", () => {
+    const parsed = inbound(buildBareEnvelope(MSG.UserSettingsResp));
+    expect(droppedEnvelopeCount()).toBe(0);
+    expect(parseUserSettings(parsed.env)).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+    const [fields] = warn.mock.calls.at(-1) as [Record<string, unknown>];
+    expect(fields.reason).toBe("slot-null");
   });
 });

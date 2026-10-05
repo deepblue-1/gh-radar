@@ -948,3 +948,29 @@ describe('추가매수 버스트 시 해제 — 로그 전이 특성 (quick-2610
     expect(serverMessageLogLine(reason).text).toBe(`[상따] 서버 통지 — ${m}`);
   });
 });
+
+describe("Phase 27 자동매도 에코 — 런타임 전용 · 게이트 축 (RUNTIME_ONLY_SKIP · VALUE_COMPARE_SKIP)", () => {
+  it('autoSellState · autoSellSoldQty(· 기준)만 바뀐 300ms 에코는 「서버 반영 완료」가 아니다 — 런타임 전용', () => {
+    const a = at({ autoSellEnabled: true, autoSellState: 2, autoSellBasis: 1, autoSellBasisPrice: 13_000 });
+    const b = { ...a, autoSellState: 3, autoSellSoldQty: 6000 };
+    expect(strategyLogLine(a, b)).toBeNull();
+    expect(limitChaserValuesChanged(a, b)).toBe(false);
+    expect(isRuntimeOnlyEcho(a, b)).toBe(true);
+    expect(isRuntimeOnlyEcho(a, { ...b, autoSellBasis: 2, autoSellBasisPrice: 12_800 })).toBe(true);
+  });
+
+  it('autoSellEnabled 만 바뀐 에코는 값 변경 줄이 없다 — 게이트 축(61 · 54 사유 줄이 말한다)', () => {
+    const a = at({ autoSellEnabled: false });
+    const b = at({ autoSellEnabled: true });
+    expect(strategyLogLine(a, b) ?? '').not.toContain('서버 반영 완료');
+    expect(limitChaserValuesChanged(a, b)).toBe(false);
+    // 게이트는 런타임 값이 아니다 — 런타임 전용 에코로 뭉개지 않는다.
+    expect(isRuntimeOnlyEcho(a, b)).toBe(false);
+  });
+
+  it('자동매도 요청 값(비율)이 바뀌면 그때는 「서버 반영 완료」 — skip 이 값 축까지 먹지 않는다', () => {
+    const a = at({ autoSellEnabled: true, autoSellRatioPct: 10 });
+    expect(limitChaserValuesChanged(a, { ...a, autoSellRatioPct: 20 })).toBe(true);
+    expect(strategyLogLine(a, { ...a, autoSellRatioPct: 20 })).toBe('서버 반영 완료');
+  });
+});
