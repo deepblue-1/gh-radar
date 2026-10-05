@@ -67,9 +67,12 @@ test.describe('quick-260930-e30 D1 — 데스크톱 사이드바 레일', () => 
     expect((await widthOf(page.locator('main'))) - mainBefore).toBeLessThanOrEqual(178);
 
     const nav = desktopNav(page);
-    for (const name of ['홈', '검색', 'AI 애널리스트']) {
+    for (const name of ['홈', '검색']) {
       await expect(nav.getByRole('link', { name, exact: true })).toHaveCount(1);
     }
+    // 이 spec 은 로컬 relay 없는 로그인 사용자(tradingVisible 거짓) — 「AI 애널리스트」 는 분석 하위(트레이딩 권한자
+    // 전용 · quick-261005-vk1 D-01)라 레일에도 없다. 권한자의 레일 아이콘은 단위 테스트(app-sidebar)가 잠근다.
+    await expect(nav.getByRole('link', { name: 'AI 애널리스트', exact: true })).toHaveCount(0);
     const home = nav.getByRole('link', { name: '홈', exact: true });
     await expect(home).toHaveAttribute('title', '홈');
     expect(await widthOf(home.locator('span').first())).toBeLessThanOrEqual(1);

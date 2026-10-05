@@ -400,10 +400,10 @@ describe("AppSidebar — 조건부 숨김 (N4/D-19)", () => {
     expect(screen.queryByText("트레이딩")).toBeNull();
     expect(screen.queryByRole("link", { name: "My page" })).toBeNull();
     expect(screen.queryByRole("link", { name: /VI/ })).toBeNull();
-    // 공개 항목은 그대로 보인다.
+    // 공개 항목은 홈 · 검색뿐 — 「AI 애널리스트」 는 분석 하위(트레이딩 권한자 전용 · quick-261005-vk1 D-01).
     expect(screen.getByRole("link", { name: "홈" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "검색" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "AI 애널리스트" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "AI 애널리스트" })).toBeNull();
   });
 
   it("③-b status=unauthorized 면 로그인 상태여도 미렌더", () => {
@@ -413,6 +413,7 @@ describe("AppSidebar — 조건부 숨김 (N4/D-19)", () => {
 
     expect(screen.queryByText("트레이딩")).toBeNull();
     expect(screen.queryByRole("link", { name: "My page" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "AI 애널리스트" })).toBeNull();
   });
 
   it("③-c 판정 전(연결 중)에는 숨긴 상태로 시작한다 — 깜빡임 금지", () => {
@@ -535,7 +536,7 @@ describe("AppSidebar — 3단 목록 (D-03 · E16)", () => {
 
     expect(tradingSubList()).toBeNull();
     const title = screen.getByRole("link", { name: "트레이딩" });
-    // 제목 다음 형제는 곧바로 「분석」 그룹 제목이다(Phase 28 D-09 — 트레이딩 그룹 다음 · AI 애널리스트 앞).
+    // 제목 다음 형제는 곧바로 「분석」 그룹 제목이다(Phase 28 D-09 — 트레이딩 그룹 다음).
     expect(title.closest("li")?.nextElementSibling?.querySelector("a")).toHaveAttribute("href", "/analytics/limitup");
     expect(screen.queryByText("등록된 전략 없음")).toBeNull();
   });
@@ -862,7 +863,7 @@ describe("AppSidebar — 「분석 › 상한가 보고서」 (Phase 28 D-09 · 
     expect(screen.queryByText("상한가 보고서")).toBeNull();
   });
 
-  it("tradingVisible 참 → 트레이딩 그룹(제목 + 3단) 다음 · AI 애널리스트 앞 · 링크는 /analytics/limitup", () => {
+  it("tradingVisible 참 → 트레이딩 그룹(제목 + 3단) 다음 · 하위 = 상한가 보고서 · AI 애널리스트 · 링크는 /analytics/limitup", () => {
     setupReady();
     render(<AppSidebar />);
     expect(analytics()).toHaveAttribute("href", "/analytics/limitup");
@@ -889,6 +890,43 @@ describe("AppSidebar — 「분석 › 상한가 보고서」 (Phase 28 D-09 · 
     expect(sub.querySelector("ul")!.className).toContain("border-l");
     expect(report()!.hasAttribute("data-nav-item")).toBe(true);
     expect(analytics()!.hasAttribute("data-nav-item")).toBe(true);
+    // 「AI 애널리스트」 = 같은 SUB_LIST 안 두 번째 항목(quick-261005-vk1 D-01)
+    const subLinks = Array.from(sub.querySelectorAll("ul > li > a"));
+    expect(subLinks.map((a) => a.getAttribute("data-sidebar-item"))).toEqual(["limitup-report", "chat"]);
+    const chat = screen.getByRole("link", { name: "AI 애널리스트" });
+    expect(chat).toBe(subLinks[1]);
+    expect(chat).toHaveAttribute("href", "/chat");
+    expect(chat.hasAttribute("data-nav-item")).toBe(true);
+    // 펼침에서는 레일 전용 아이콘이 없다(접근 이름 중복 없음)
+    expect(screen.getAllByRole("link", { name: "AI 애널리스트" })).toHaveLength(1);
+  });
+
+  it("/chat → 「AI 애널리스트」 하위 항목만 활성(aria-current + 선택 토큰) · 「분석」 제목은 꺼짐", () => {
+    mockPathname = "/chat";
+    setupReady();
+    render(<AppSidebar />);
+    const chat = screen.getByRole("link", { name: "AI 애널리스트" });
+    expect(chat).toHaveAttribute("aria-current", "page");
+    expect(chat.className).toContain("bg-[var(--nav-on-bg)]");
+    expect(chat.querySelector("span")!.className).not.toContain("text-[var(--fg)]");
+    expect(analytics()).not.toHaveAttribute("aria-current");
+    expect(analytics()!.className).not.toContain("bg-[var(--nav-on-bg)]");
+    expect(document.querySelectorAll('nav [aria-current="page"]')).toHaveLength(1);
+  });
+
+  it("tradingVisible 거짓 → 「AI 애널리스트」 미렌더(비로그인 · unauthorized · 판정 전)", () => {
+    for (const [auth, status] of [
+      [guest(), "ready"],
+      [authed(), "unauthorized"],
+      [authed(), "connecting"],
+    ] as const) {
+      mockAuth = auth;
+      mockRelay = relayState({ status });
+      const r = render(<AppSidebar />);
+      expect(screen.queryByRole("link", { name: "AI 애널리스트" })).toBeNull();
+      expect(document.querySelector('[data-sidebar-item="chat"]')).toBeNull();
+      r.unmount();
+    }
   });
 
   it("/analytics/limitup → 「분석」 제목만 활성(선택 토큰 + aria-current) · 하위 「상한가 보고서」 는 LINK_IDLE", () => {
@@ -930,5 +968,34 @@ describe("AppSidebar — 「분석 › 상한가 보고서」 (Phase 28 D-09 · 
     expect(analytics()!.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     expect(within(analytics()!).getByText("분석").className).toContain("rail:sr-only");
     expect(report()!.closest("li.rail\\:hidden")).not.toBeNull();
+  });
+
+  it("레일 + tradingVisible → 「분석」 아이콘 바로 다음 li(hidden rail:block)에 「AI 애널리스트」 아이콘 링크", () => {
+    setSidebarCollapsed(true);
+    setupReady();
+    render(<AppSidebar />);
+    const analyticsLi = analytics()!.closest("li")!;
+    // 분석 제목 li → 하위 목록 li(rail:hidden) → 레일 전용 li
+    const railLi = analyticsLi.nextElementSibling!.nextElementSibling!;
+    expect(railLi.className).toContain("hidden");
+    expect(railLi.className).toContain("rail:block");
+    const icon = railLi.querySelector("a")!;
+    expect(icon).toHaveAttribute("href", "/chat");
+    expect(icon).toHaveAttribute("title", "AI 애널리스트");
+    expect(icon.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("레일이 아니면 레일 전용 li 가 없다 · tradingVisible 거짓이면 레일에서도 없다", () => {
+    setupReady();
+    const a = render(<AppSidebar />);
+    expect(document.querySelector("li.rail\\:block")).toBeNull();
+    a.unmount();
+
+    setSidebarCollapsed(true);
+    mockAuth = guest();
+    mockRelay = relayState({ status: "ready" });
+    render(<AppSidebar />);
+    expect(document.querySelector("li.rail\\:block")).toBeNull();
+    expect(screen.queryByRole("link", { name: "AI 애널리스트" })).toBeNull();
   });
 });

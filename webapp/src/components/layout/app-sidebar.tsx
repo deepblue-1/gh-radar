@@ -31,8 +31,9 @@ import { UserSection } from "./user-section";
  * 트리 (2단 + 트레이딩 3단 — Phase 18 D-03 이 트레이딩 그룹을 다시 짰다):
  *   홈 · 검색(`/search`, Phase 21 D-07)
  *   · [트레이딩 = `/trading` 링크] VI(가동 거래소 태그만 · 둘 다 꺼지면 없음) / 등록된 상따 전략 N개
- *   · [분석 = `/analytics/limitup` 링크] 상한가 보고서 (Phase 28 D-09 · 트레이딩과 같은 노출 조건 · 제목만 활성)
- *   · AI 애널리스트 · My page(트레이딩과 같은 노출 조건)
+ *   · [분석 = `/analytics/limitup` 링크] 상한가 보고서 · AI 애널리스트 (Phase 28 D-09 · 트레이딩과 같은 노출 조건 ·
+ *     「AI 애널리스트」 는 2026-10-05 사용자 결정(quick-261005-vk1 D-01)으로 분석 하위로 옮겨 트레이딩 권한자 전용)
+ *   · My page(트레이딩과 같은 노출 조건)
  *   상승률 상위 · 테마 · 관심종목은 사이드바에 없다 — `/search` 허브 타일로만 들어간다(quick-260926-o2u D1).
  *
  * ① 그룹 제목은 이제 「트레이딩」(링크) 하나뿐이다
@@ -71,7 +72,10 @@ import { UserSection } from "./user-section";
  *    데스크톱 고정 aside 가 64px 아이콘 레일로 접히면 아이콘만 가운데 서고, 라벨은 `rail:sr-only`
  *    (★ `hidden` 금지 — display:none 이면 링크 접근 이름이 사라진다), 3단 목록은 숨고, 하단은 세로로 쌓인다.
  *    모양은 전부 `rail:` CSS 변형(globals.css — 고정 aside 안에서만 매칭 · 드로어는 영향 없음)이라 첫 페인트부터
- *    맞다. React 값 `rail`(`useSidebarCollapsed`)은 레일 `title` 툴팁과 트레이딩 배지 렌더 여부에만 쓴다.
+ *    맞다. React 값 `rail`(`useSidebarCollapsed`)은 레일 `title` 툴팁 · 트레이딩 배지 · 「AI 애널리스트」 레일 전용
+ *    아이콘(분석 하위 목록이 레일에서 숨으므로 권한자가 /chat 에 닿는 길 — 「분석」 아이콘 바로 밑) 렌더 여부에만 쓴다.
+ *    레일 전용 아이콘은 배지와 같은 「`rail &&` 렌더 + `hidden rail:block` CSS」 이중 가드다(펼침 · 드로어 · jsdom 에서
+ *    접근 이름 중복 없음). 하이드레이션 직후(서버 스냅샷 false) 한 박자 늦게 뜨는 것은 배지와 같은 수용 범위다.
  */
 
 type NavIcon = ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" | "false" }>;
@@ -102,9 +106,11 @@ const NAV_TRADING: NavLeaf = { href: "/trading", label: "트레이딩", icon: Za
 const VI_TAG_ORDER: readonly RelayExchange[] = ["KRX", "NXT"];
 
 /**
- * 「분석」 그룹 제목 = `/analytics/limitup` 링크(Phase 28 D-09 — 지금 유일한 하위 페이지라 레일에서도 아이콘으로 들어간다).
- * 노출은 트레이딩과 같은 `tradingVisible`(D-10 · DMA 연결 사용자만 — 숨김은 권한이 아니다, 위 ④).
+ * 「분석」 그룹 제목 = `/analytics/limitup` 링크(Phase 28 D-09 — 레일에서도 아이콘으로 상한가 보고서에 들어간다).
+ * 하위 = 상한가 보고서 · AI 애널리스트(`/chat` — 2026-10-05 사용자 결정 quick-261005-vk1 D-01: 트레이딩 권한자 전용 ·
+ * 레일은 전용 아이콘). 노출은 트레이딩과 같은 `tradingVisible`(D-10 · DMA 연결 사용자만 — 숨김은 권한이 아니다, 위 ④).
  * 활성 = 경로가 `/analytics` 로 시작할 때 **제목만**(R-7 — 한 줄만 켠다, 위 ②) · `aria-current` 는 정확 일치일 때만.
+ * `/chat` 은 `/analytics` 밖이라 제목이 켜지지 않으므로 「AI 애널리스트」 하위 항목이 스스로 켜진다(켜지는 줄은 여전히 하나).
  * 모바일 탭바에는 넣지 않는다 — 앱/좁은 화면은 드로어 사이드바로 들어간다.
  */
 const NAV_ANALYTICS: NavLeaf = { href: "/analytics/limitup", label: "분석", icon: ChartLine };
@@ -469,7 +475,7 @@ export function AppSidebar() {
 
         {tradingVisible && (
           <>
-            {/* 「분석」(Phase 28 D-09 · D-10) — 트레이딩 그룹 바로 다음 · AI 애널리스트 앞, 같은 노출 조건. */}
+            {/* 「분석」(Phase 28 D-09 · D-10) — 트레이딩 그룹 바로 다음 · My page 앞, 같은 노출 조건. */}
             <GroupHeading
               label={NAV_ANALYTICS.label}
               icon={NAV_ANALYTICS.icon}
@@ -478,7 +484,10 @@ export function AppSidebar() {
               ariaCurrent={isActive(NAV_ANALYTICS.href)}
               rail={rail}
             />
-            {/* 하위는 활성 표시를 받지 않는다(R-7) · 레일에서는 숨긴다(제목 아이콘이 같은 곳으로 간다). */}
+            {/*
+              하위 — 상한가 보고서는 제목이 대신 켜지므로 활성 표시가 없다(R-7). AI 애널리스트(/chat)는 「분석」 접두 밖이라
+              스스로 켜진다. 레일에서는 이 목록을 숨긴다(제목 아이콘 = 상한가 보고서 · 아래 레일 전용 아이콘 = /chat).
+            */}
             <li className="rail:hidden">
               <ul className={SUB_LIST}>
                 <li>
@@ -491,14 +500,36 @@ export function AppSidebar() {
                     <span className="min-w-0 flex-1 truncate text-[var(--fg)]">{NAV_LIMITUP_REPORT.label}</span>
                   </Link>
                 </li>
+                <li>
+                  <Link
+                    href={NAV_CHAT.href}
+                    data-nav-item
+                    data-sidebar-item="chat"
+                    aria-current={isActive(NAV_CHAT.href) ? "page" : undefined}
+                    className={cn(SUB_ITEM, isActive(NAV_CHAT.href) ? LINK_ACTIVE : LINK_IDLE)}
+                  >
+                    <span
+                      className={cn(
+                        "min-w-0 flex-1 truncate",
+                        // 활성일 때는 선택 글자색(--nav-on-fg)이 보이게 고정 --fg 를 걸지 않는다.
+                        !isActive(NAV_CHAT.href) && "text-[var(--fg)]",
+                      )}
+                    >
+                      {NAV_CHAT.label}
+                    </span>
+                  </Link>
+                </li>
               </ul>
             </li>
+            {/* 레일 전용 — 하위 목록이 숨으므로 /chat 아이콘을 「분석」 아이콘 바로 밑에(위 ⑥ 이중 가드). */}
+            {rail && (
+              <li className="hidden rail:block">
+                <NavLink item={NAV_CHAT} active={isActive(NAV_CHAT.href)} rail />
+              </li>
+            )}
           </>
         )}
 
-        <li>
-          <NavLink item={NAV_CHAT} active={isActive(NAV_CHAT.href)} rail={rail} />
-        </li>
         {tradingVisible && (
           <li>
             <NavLink item={NAV_ME} active={isActive(NAV_ME.href)} rail={rail} />
