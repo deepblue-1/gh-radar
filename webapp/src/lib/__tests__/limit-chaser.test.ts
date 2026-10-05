@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LIMIT_CHASER_SERVER_ONLY_FIELDS } from '@gh-radar/shared';
-import type { RelayLimitChaser, RelayLimitChaserInput } from '@gh-radar/shared';
+import type { RelayLimitChaser, RelayLimitChaserInput, RelayUserSettingsMsg } from '@gh-radar/shared';
 
 /**
  * Phase 16 Plan 12 — 상따 순수 함수 계약 검증 (TRADE-01).
@@ -45,6 +45,7 @@ import {
   marketCloseReleaseKeysOf,
   parseStrategyKey,
   seedListSharesDefaults,
+  seedFromUserSettings,
   groupAutoCheckLogLine,
   groupAutoChecksOf,
   seedFromUpperLimit,
@@ -1302,5 +1303,113 @@ describe('Phase 27 41 판정', () => {
     expect(isLimitChaserServerMessage({ src: 'Account', i: '' })).toBe(false);
     expect(isLimitChaserServerMessage({ src: 'VITrigger', i: ISIN })).toBe(false);
     expect(isLimitChaserServerMessage({ src: 'Relay', i: '' })).toBe(false);
+  });
+});
+
+describe('Phase 27 84 시딩', () => {
+  /** 서버 내장 기본값(fbs 주석) — present false 일 때 84 가 싣는 값. */
+  const BUILTIN: Omit<RelayUserSettingsMsg, 'present'> = {
+    t: 'user.settings',
+    preBuyAmount: 4000,
+    addBuyAmount: 4000,
+    postBuyAmount: 4000,
+    postBuyMaxCount: 3,
+    postBuyFloorQty: 100_000,
+    postBuyReboundPct: 30,
+    sellQtyTrackRatio: 55,
+    autoSellPeriodSec: 3,
+    auctionSellRatioPct: 20,
+    autoSellRatioDefaultPct: 10,
+    autoSellMethodDefault: 3,
+  };
+  const us = (present: boolean, patch: Partial<RelayUserSettingsMsg> = {}): RelayUserSettingsMsg => ({
+    ...BUILTIN,
+    present,
+    ...patch,
+  });
+  const SAVED = us(true, {
+    preBuyAmount: 5000,
+    addBuyAmount: 6000,
+    postBuyAmount: 7000,
+    postBuyMaxCount: 4,
+    postBuyFloorQty: 200_000,
+    postBuyReboundPct: 40,
+    sellQtyTrackRatio: 60,
+    autoSellPeriodSec: 9,
+    auctionSellRatioPct: 33,
+    autoSellRatioDefaultPct: 15,
+    autoSellMethodDefault: 1,
+  });
+
+  it('84 미수신(undefined) = 빈 패치 — 폼은 D-04 상수 그대로', () => {
+    expect(seedFromUserSettings(undefined)).toEqual({});
+  });
+
+  it('present true — 9칸 매핑(WinForms ResetStrategyOptionsToDefault 동형) · 매도 주기 · 동시호가 비율 키 없음', () => {
+    const seed = seedFromUserSettings(SAVED);
+    expect(seed).toEqual({
+      buyOrderAmount: 5000,
+      extraBuyOrderAmount: 6000,
+      postBuyOrderAmount: 7000,
+      postBuyReentry: 4,
+      postBuyFloorQty: 200_000,
+      postBuyReboundPct: 40,
+      sellQtyTrackRatio: 60,
+      autoSellRatioPct: 15,
+      autoSellMethod: 1,
+    });
+    expect(Object.keys(seed)).not.toContain('autoSellPeriodSec');
+    expect(Object.keys(seed)).not.toContain('auctionSellRatioPct');
+  });
+
+  it('present false(서버 내장값) — D-04 상수와 같은 9값', () => {
+    const d = defaultLimitChaserForm();
+    expect(seedFromUserSettings(us(false))).toEqual({
+      buyOrderAmount: d.buyOrderAmount,
+      extraBuyOrderAmount: d.extraBuyOrderAmount,
+      postBuyOrderAmount: d.postBuyOrderAmount,
+      postBuyReentry: d.postBuyReentry,
+      postBuyFloorQty: d.postBuyFloorQty,
+      postBuyReboundPct: d.postBuyReboundPct,
+      sellQtyTrackRatio: d.sellQtyTrackRatio,
+      autoSellRatioPct: d.autoSellRatioPct,
+      autoSellMethod: d.autoSellMethod,
+    });
+  });
+
+  it('lc 범위 밖 칸만 D-04 상수로 폴백 — 잔량추적 0 → 55 · 반등 0 → 30 · 방법 0 → 3 · 비율 0 → 10 (Pitfall 9)', () => {
+    const seed = seedFromUserSettings({
+      ...SAVED,
+      sellQtyTrackRatio: 0,
+      postBuyReboundPct: 0,
+      autoSellMethodDefault: 0,
+      autoSellRatioDefaultPct: 0,
+    });
+    expect(seed).toEqual({
+      buyOrderAmount: 5000,
+      extraBuyOrderAmount: 6000,
+      postBuyOrderAmount: 7000,
+      postBuyReentry: 4,
+      postBuyFloorQty: 200_000,
+      postBuyReboundPct: 30,
+      sellQtyTrackRatio: 55,
+      autoSellRatioPct: 10,
+      autoSellMethod: 3,
+    });
+  });
+
+  it('비율 51(lc 켬 범위 1~50 밖) · 방법 4 · 금액 음수 · 소수도 그 칸만 폴백 — 시딩된 폼이 lcRangeIssue 에 막히지 않는다', () => {
+    const seed = seedFromUserSettings({
+      ...SAVED,
+      autoSellRatioDefaultPct: 51,
+      autoSellMethodDefault: 4,
+      preBuyAmount: -1,
+      postBuyFloorQty: 1.5,
+    });
+    expect(seed.autoSellRatioPct).toBe(10);
+    expect(seed.autoSellMethod).toBe(3);
+    expect(seed.buyOrderAmount).toBe(4000);
+    expect(seed.postBuyFloorQty).toBe(100_000);
+    expect(seed.extraBuyOrderAmount).toBe(6000);
   });
 });

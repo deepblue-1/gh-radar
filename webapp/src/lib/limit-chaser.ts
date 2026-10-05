@@ -37,7 +37,17 @@
  *     서버가 정규화한 결과가 정본이고, 클라 판정과 갈릴 수 있다(Pitfall 7).
  */
 
-import type { RelayExchange, RelayLcCrud, RelayLimitChaser, RelayLimitChaserInput } from '@gh-radar/shared';
+import type {
+  RelayExchange,
+  RelayLcCrud,
+  RelayLimitChaser,
+  RelayLimitChaserInput,
+  RelayUserSettingsMsg,
+  RelayUserSettingsValues,
+} from '@gh-radar/shared';
+
+// lc-fields 는 이 모듈에서 **타입만** 가져간다 — 런타임 순환이 없다. 84 시딩의 칸별 범위 판정이 lc 행 범위 정본을 쓴다.
+import { lcRowOfField } from '@/components/trading/lc/lc-fields';
 
 /**
  * 폼이 실제로 편집하는 값 — 필드 목록의 정본은 아래 `Omit` 목록이다(숫자를 여기 적지 않는다 — 필드가 합류할 때
@@ -260,8 +270,8 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
     postBuyReentry: 3, // DEFAULT_POST_BUY_REENTRY (회, 최초 포함)
     postBuyOrderAmount: 4000, // DEFAULT_POST_BUY_ORDER_AMOUNT (만원) — D-04
     // === Phase 27 자동매도 요청 4필드 — 스위치 OFF · 시작조건 0 · 비율 10% · 방법 3(양쪽) ===
-    // D-11 이 84 사용자 설정 시딩(비율 · 방법 기본값)으로 바꾼다 — 27-07. 비율 · 방법을 0 으로 두지 않는다: schema 4 에서
-    // 0 이 저장되면 41 바로시작이 「설정이 올바르지 않습니다」로 거부된다(RESEARCH Pitfall 5).
+    // 비율 · 방법은 84 시딩 폴백(D-11 · `seedFromUserSettings`) — 84 미수신 · 범위 밖일 때만 이 값이 남는다. 비율 · 방법을
+    // 0 으로 두지 않는다: schema 4 에서 0 이 저장되면 41 바로시작이 「설정이 올바르지 않습니다」로 거부된다(RESEARCH Pitfall 5).
     autoSellEnabled: false,
     autoSellStartCond: 0,
     autoSellRatioPct: 10,
@@ -307,6 +317,89 @@ export function seedListSharesDefaults(listShares: number): ListSharesSeed | nul
     extraBuyMaxQty: Math.min(percent, UINT32_MAX),
     sellMinTradeQty: permille,
   };
+}
+
+/* ── 사용자 기본설정(84) 시딩 (Phase 27 · 27-07 · D-11) ───────────────────────────────────────── */
+
+/** 84 사용자 설정이 채우는 새 폼 9칸. 매도 주기 · 동시호가 비율은 서버 전용이라 폼 칸이 없다. */
+export type UserSettingsSeed = Pick<
+  LimitChaserFormValues,
+  | 'buyOrderAmount'
+  | 'extraBuyOrderAmount'
+  | 'postBuyOrderAmount'
+  | 'postBuyReentry'
+  | 'postBuyFloorQty'
+  | 'postBuyReboundPct'
+  | 'sellQtyTrackRatio'
+  | 'autoSellRatioPct'
+  | 'autoSellMethod'
+>;
+
+/** 폼 칸 ← 84 값 — 순서 = WinForms `ResetStrategyOptionsToDefault` 대입 순서가 아니라 화면(매수 → 매도) 순서. */
+const USER_SETTINGS_SEED_MAP: readonly (readonly [keyof UserSettingsSeed, keyof RelayUserSettingsValues])[] = [
+  ['buyOrderAmount', 'preBuyAmount'],
+  ['extraBuyOrderAmount', 'addBuyAmount'],
+  ['postBuyOrderAmount', 'postBuyAmount'],
+  ['postBuyReentry', 'postBuyMaxCount'],
+  ['postBuyFloorQty', 'postBuyFloorQty'],
+  ['postBuyReboundPct', 'postBuyReboundPct'],
+  ['sellQtyTrackRatio', 'sellQtyTrackRatio'],
+  ['autoSellRatioPct', 'autoSellRatioDefaultPct'],
+  ['autoSellMethod', 'autoSellMethodDefault'],
+];
+
+/**
+ * 이 값이 그 칸의 lc 행 범위에 드는가 — 범위 정본은 `lc-fields` 행(`inputRange ?? range` · 3택은 `options`)이다.
+ * 게이트를 켠 cfg 의 좁은 범위(`inputRange`)로 본다 — 시딩된 값이 사용자가 그룹을 켜는 순간 `lcRangeIssue` 에 걸리면
+ * 안 된다. 범위가 없는 칸(금액 · 하한잔량)은 relay `UIntSchema` = 0 이상 정수.
+ */
+function fitsLcRange(field: keyof UserSettingsSeed, v: number): boolean {
+  if (!Number.isInteger(v) || v < 0) return false;
+  const hit = lcRowOfField(field);
+  if (hit === null) return true;
+  const { row } = hit;
+  if (row.kind === 'choice') return row.options.some((o) => o.value === v);
+  if (row.kind !== 'value' && row.kind !== 'checkValue') return true;
+  const range = row.inputRange ?? row.range;
+  return range === undefined || (v >= range.min && v <= range.max);
+}
+
+/**
+ * 사용자 기본설정(84) → 새 폼 9칸 시딩 — WinForms `ResetStrategyOptionsToDefault`(LimitChaserForm.cs :5765~5810)
+ * 매핑 동형 · 순수 함수.
+ *
+ *   | 폼 칸                 | 84                        | WinForms 컨트롤          |
+ *   |----------------------|---------------------------|-------------------------|
+ *   | buyOrderAmount       | preBuyAmount (만원)        | numBuyOrderAmount        |
+ *   | extraBuyOrderAmount  | addBuyAmount (만원)        | numAddBuyOrderAmount     |
+ *   | postBuyOrderAmount   | postBuyAmount (만원)       | numPostBuyOrderAmount    |
+ *   | postBuyReentry       | postBuyMaxCount (회)       | numPostBuyReentry        |
+ *   | postBuyFloorQty      | postBuyFloorQty (주)       | numPostBuyFloorQty       |
+ *   | postBuyReboundPct    | postBuyReboundPct (%)      | numPostBuyReboundPct     |
+ *   | sellQtyTrackRatio    | sellQtyTrackRatio (%)      | numSellQtyTrackRatio     |
+ *   | autoSellRatioPct     | autoSellRatioDefaultPct (%)| 자동매도 비율             |
+ *   | autoSellMethod       | autoSellMethodDefault      | 자동매도 방법             |
+ *
+ * - 84 미수신(`undefined`)이면 빈 패치 — 폼에는 `defaultLimitChaserForm()` 의 D-04 상수가 남는다.
+ * - `present=false` 면 84 가 서버 내장 기본값을 실은 것이라 그대로 쓴다(값은 D-04 상수와 같다).
+ * - 서버 설정 범위가 lc 범위보다 넓다(잔량추적 0~90 vs 1~90 · 반등 0~100 vs 켬 1~100 · …). WinForms 는 `Clamp` 로
+ *   컨트롤 범위에 끼우지만 웹은 **그 칸만** D-04 상수로 떨어뜨린다(정보성 반영 · Pitfall 9 — 시딩된 폼이 `lcRangeIssue`
+ *   에 막혀 어떤 확정도 못 보내는 사고 차단). 폴백 값의 유일한 출처는 `defaultLimitChaserForm()` 이다.
+ * 적용 규칙(D-17 ①~④ 동형)은 호출자(폼) 몫이다:
+ *   ① 서버에 그 키의 전략이 있으면 시딩하지 않는다(에코가 이긴다).
+ *   ② 84 가 늦게 오면 열려 있는 미등록 폼을 다시 시딩한다.
+ *   ③ 사용자가 이 폼에서 손댄 칸은 덮지 않는다.
+ *   ④ 전송 · 로그 · 강조를 만들지 않는다(값만 바뀌고 첫 등록 cfg 에 실린다).
+ */
+export function seedFromUserSettings(us: RelayUserSettingsMsg | undefined): Partial<UserSettingsSeed> {
+  if (us === undefined) return {};
+  const fallback = defaultLimitChaserForm();
+  const seed: Partial<UserSettingsSeed> = {};
+  for (const [field, key] of USER_SETTINGS_SEED_MAP) {
+    const v = us[key];
+    seed[field] = fitsLcRange(field, v) ? v : fallback[field];
+  }
+  return seed;
 }
 
 /* ── 그룹 켬 자동 체크 (Phase 24 · 24-07 · 24-17 · D-06 · D-07 · D-08 · D-20 · D-35) ─────────────────── */
