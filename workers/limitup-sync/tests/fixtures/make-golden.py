@@ -14,12 +14,8 @@ gh-trade `server/tools/analysis` 를 sys.path 에 넣어 `tickana.report` · `ti
 `max(q_krw) FROM grid`(최대 잔량 — 여기서는 export 격자 coarse ∪ fine). `name` · `q_max_ms` 는 gh-radar 쪽
 보조 열(창구 alloc 행의 마지막 non-null name · 최대 잔량 점의 t_ms, 동률은 이른 시각)이다.
 
-**int64 넘침 보정(28-06 발견 · gh-trade 에 알릴 것).** gh-trade `facts.member_top` 은
-`d_value.astype("int64") * ov`(ov = 겹친 길이 ns)를 numpy int64 로 곱한다. d_value 10억 × 겹침 60초(6e10 ns)
-= 6e19 > 2^63 이라 값이 조용히 감겨(wrap) 비중이 틀린다 — 이 픽스처 하루에서도 창구 5곳의 숫자가 갈린다.
-docstring 정의(「d_value 를 겹친 길이 ÷ 구간 길이로 가중」)는 그대로 두고 곱셈만 float64 로 하는 `member_top_f64` 로
-`tickana.report.member_top` 을 바꿔 끼운 뒤 `fingerprint_agg` 를 부른다. 원본(int64)과 갈리는 창구는 실행 때
-stderr 에 찍는다 — gh-trade 가 같은 한 줄(float 곱셈)을 고치면 두 값이 같아진다.
+**int64 넘침(28-06 발견) — gh-trade f483d409 에서 해결.** gh-trade `facts.member_top` 이 창구 가중을 float64 로 곱한다
+(전에는 int64 라 d_value × 겹친 길이 ns 가 감겼다). 그래서 이 스크립트는 gh-trade 함수를 보정 없이 그대로 부른다.
 """
 from __future__ import annotations
 
@@ -31,32 +27,10 @@ from pathlib import Path
 GH_TRADE_ANALYSIS = Path("/Users/alex/repos/gh-trade/server/tools/analysis")
 sys.path.insert(0, str(GH_TRADE_ANALYSIS))
 
-import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
-import tickana.report as report  # noqa: E402
-from tickana.facts import member_top as member_top_int64  # noqa: E402
 from tickana.report import _sec, _sell_share_after, fingerprint_agg  # noqa: E402
 
-
-def member_top_f64(alloc, side, lo, hi, n=3):
-    """facts.member_top 원문과 같다 — 가중 곱셈만 float64(int64 넘침 방지)."""
-    if alloc is None or not len(alloc):
-        return []
-    a = alloc[alloc["side"] == side]
-    if not len(a):
-        return []
-    s, e = a["start_ns"].astype("int64").to_numpy(), a["end_ns"].astype("int64").to_numpy()
-    ov = np.clip(np.minimum(e, int(hi)) - np.maximum(s, int(lo)), 0, None)
-    w = a["d_value"].astype("float64").to_numpy() * ov.astype("float64") / np.maximum(e - s, 1)
-    names = {str(m): (None if pd.isna(nm) else str(nm)) for m, nm in zip(a["member"], a["name"])}
-    by = pd.Series(w, index=a["member"].astype(str).to_numpy()).groupby(level=0).sum()
-    by = by[by > 0]
-    if not len(by):
-        return []
-    tot = float(by.sum())
-    ranked = sorted(by.items(), key=lambda kv: (-kv[1], kv[0]))[:n]
-    return [(m, names.get(m), v / tot) for m, v in ranked]
 
 HERE = Path(__file__).resolve().parent
 DAY = HERE / "export" / "20261002"
@@ -82,20 +56,7 @@ locks = read_tbl("locks")
 alloc = read_tbl("member_alloc")
 
 # ⓐ 창구 기여분 — fingerprint_agg 를 날짜 하루로 부르고 sum · cnt 로 접는다(지문표 평균 = 90일 SUM ÷ SUM).
-with np.errstate(over="ignore"):
-    report.member_top = member_top_int64
-    agg_int64 = fingerprint_agg(alloc, locks, entries, DATE)
-report.member_top = member_top_f64
 agg = fingerprint_agg(alloc, locks, entries, DATE)
-report.member_top = member_top_int64
-diverged = sorted(
-    m for m in set(agg) | set(agg_int64)
-    if m not in agg or m not in agg_int64
-    or any(abs(sum(agg[m][k]) - sum(agg_int64[m][k])) > 1e-12 for k in ("entry", "lock_buy", "pre_sell"))
-    or any(agg[m][k] != agg_int64[m][k] for k in ("n", "lead", "n_broke", "n_lock", "n_held"))
-)
-if diverged:
-    print(f"[int64 넘침] gh-trade member_top 원본과 갈리는 창구 {len(diverged)}곳: {diverged}", file=sys.stderr)
 names: dict[str, str | None] = {}
 for m, nm in zip(alloc["member"].astype(str), alloc["name"]):
     if nm is not None and not pd.isna(nm):

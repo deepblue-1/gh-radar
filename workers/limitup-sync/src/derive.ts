@@ -12,10 +12,8 @@
  * 단위: export 는 `*_ms`, gh-trade 원문은 `*_ns`. 비중은 비율이라 단위가 약분되고 `max(e − s, 1)` 의 1 은 길이 0 구간
  * (그때 겹침도 0)에서만 쓰여 결과가 같다.
  *
- * 주의 — gh-trade `member_top` int64 넘침: 원문은 `d_value(int64) × 겹침(ns, int64)` 을 numpy int64 로 곱해
- * 6e19 급에서 값이 감긴다(28-06 픽스처에서 창구 5곳이 갈림). 여기서는 정의(「d_value 를 겹친 길이 ÷ 구간 길이로
- * 가중」)대로 실수 곱셈을 한다 — 골든도 같은 보정(member_top_f64)으로 만들었고, gh-trade 가 곱셈 한 줄을 고치면
- * 두 쪽 숫자가 같아진다.
+ * 창구 가중은 정의(「d_value 를 겹친 길이 ÷ 구간 길이로 가중」)대로 실수 곱셈이다. gh-trade `member_top` 도
+ * f483d409 부터 float64 로 곱한다(전에는 int64 라 6e19 급에서 감겼다 — 28-06 발견) — 골든은 보정 없이 gh-trade 함수 그대로.
  */
 import type { Row } from "./load";
 

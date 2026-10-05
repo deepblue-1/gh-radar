@@ -540,7 +540,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 28]: 28-05: 85 스냅샷은 새 키 full · price→full 승격 직후 q → tape → 85 (price 소켓 제외) · 웹은 full 소비자 0 에서 limitFeatures 키 드롭
 - [Phase 28]: 28-16: limitup-sync 판정 순서 고정 manifest → schema → files_sig(unchanged · record_skip 없음) → sha → 적재. skip 은 warn + limitup_record_skip, streak >= 3 이면 alert → main 종료 1, 예외는 사유 로그 + 1
 - [Phase 28]: 28-16: main(argv) 가 종료 코드를 반환하고 CLI 가드만 process.exit — record_skip 반환이 정수가 아니면 throw(알림이 조용히 사라지지 않게)
-- [Phase 28]: 28-06: 창구 비중 가중 곱셈은 실수 — gh-trade facts.member_top 의 int64 곱셈 넘침(d_value × 겹침 ns)을 따르지 않는다. 골든도 member_top_f64 보정, gh-trade 에 알릴 것
+- [Phase 28]: 28-06: 창구 비중 가중 곱셈은 실수 — gh-trade facts.member_top 의 int64 곱셈 넘침(d_value × 겹침 ns)을 따르지 않는다. gh-trade 가 f483d409 에서 float64 로 고침(인박스 261005-member-top-int64) — 골든 보정 제거
 - [Phase 28]: 28-06: 격자 업로드는 commit 앞 · run 끝 limitup_purge_old(90, 30) + Storage 폴더 + kind 15 purge(30) — 정리 실패는 적재 날짜를 남기고 종료 1
 - [Phase 28]: 28-07: MEMBER_CODES 는 C# 사전 줄을 perl 치환으로 생성 후 (키|이름|외국계) 순서 diff 로 검증 — 61개 일치
 - [Phase 28]: 28-07: 행 머리 「지금 · 10초 · 창구」 를 shared LIMIT_FEATURE_ROW_HEADERS 로 — 표 th 와 툴팁 줄 머리 한 벌
