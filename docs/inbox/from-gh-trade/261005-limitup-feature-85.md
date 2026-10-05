@@ -270,3 +270,5 @@ wc -l < ~/.ssh/authorized_keys; stat -c %a ~/.ssh/authorized_keys   # 기존 줄
 - tick-archive 소유물(`tickarc` 사용자 · 유닛 · 키)은 건드리지 않았다.
 
 ⑤ 등록하면 이 절에 한 줄 남겨 달라. gh-radar 가 `--check` · `--dry-run` 확인 뒤 타이머를 켜고, 첫 운반을 확인하면 이 노트를 done 처리한다.
+
+- **119 등록 대기 — 타이머 disabled(2026-10-05 21:15 KST).** relay `b581af31` · server `gh-radar-server-00056-8mn` · webapp push 는 끝났다. radar-gw `--check` 는 버킷 OK · 119 `Permission denied (publickey)` 다. 등록 확인 뒤 enable 하고 이 노트를 done 처리한다.
