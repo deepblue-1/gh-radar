@@ -321,7 +321,7 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
     return g.top + g.client >= g.height - 24;
   };
 
-  test('P25-7 카드 주문로그 팝업 — 탭 3 + 버튼 2 · 제목 종목명 · 거래소만 · 범위 2행 · 푸시 따라감 · 닫힌 동안 배지', async ({
+  test('P25-7 카드 주문로그 팝업 — 탭 4 + 버튼 2 · 제목 종목명 · 거래소만 · 범위 2행 · 푸시 따라감 · 닫힌 동안 배지', async ({
     page,
   }) => {
     const otherStock = today(STRATEGY_DAY_BY_NAME.buy12452!, { isin: E2E_LONG_NAME_ISIN, stockCode: '000660', seq: 9001 });
@@ -329,11 +329,11 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
     await mockRestore(page, [byName('exposed'), byName('buy12451'), nxtMarket, otherStock]);
     await openFocusCard(page);
 
-    // 탭 줄 — 탭 3개(주문로그 · 전략로그 탭 없음) + 버튼 2개
+    // 탭 줄 — 탭 4개(주문로그 · 전략로그 탭 없음 · Phase 28 「상한가」 추가) + 버튼 2개
     const tabIds = await cardTabs(page)
       .getByRole('tab')
       .evaluateAll((els) => els.map((e) => e.id.replace(/^.*-trigger-/, '')));
-    expect(tabIds).toEqual(['info', 'unfilled', 'holdings']);
+    expect(tabIds).toEqual(['info', 'unfilled', 'holdings', 'limit']);
     await expect(logButton(page, '주문로그')).toBeVisible();
     await expect(logButton(page, '로그')).toBeVisible();
 
@@ -530,7 +530,7 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
     await native.close();
   });
 
-  test('P25-9 백스톱 — 폰 밴드(390) 공용 패널 탭 4개 + 접기 한 줄 · 카드 탭 줄(탭 3 + 버튼 2 + 접기) 한 줄 · 카드 폭 불변 / 카드 주문로그 12줄 → 팝업 전체 화면 맨 아래 · 새 줄 따라감', async ({
+  test('P25-9 백스톱 — 폰 밴드(390) 공용 패널 탭 4개 + 접기 한 줄 · 카드 탭 줄(탭 4 + 버튼 2 + 접기) 한 줄 · 카드 폭 불변 / 카드 주문로그 12줄 → 팝업 전체 화면 맨 아래 · 새 줄 따라감', async ({
     page,
   }) => {
     const restored = STRATEGY_DAY_ROWS.map((r) => today(r)).filter(inCardScope);
@@ -552,7 +552,7 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
     const ySpread = Math.max(...tops) - Math.min(...tops);
     expect(ySpread, '공용 패널 탭 4개 + 접기가 한 줄').toBeLessThanOrEqual(4);
 
-    // ── E5 overflow — 카드 탭 줄(탭 3 + 버튼 2 + 접기)이 한 줄이고 카드 폭을 밀지 않는다
+    // ── E5 overflow — 카드 탭 줄(탭 4 + 버튼 2 + 접기)이 한 줄이고 카드 폭을 밀지 않는다(Phase 28 「상한가」 추가)
     const cardW0 = (await cardOf(page).boundingBox())!.width;
     const cardBar = cardTabs(page).locator('[data-slot="card-tabs-bar"]');
     const centers = await cardBar
@@ -561,7 +561,7 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
         const r = e.getBoundingClientRect();
         return r.top + r.height / 2;
       }));
-    expect(centers, '탭 3 + 버튼 2 + 접기').toHaveLength(6);
+    expect(centers, '탭 4 + 버튼 2 + 접기').toHaveLength(7);
     const cardSpread = Math.max(...centers) - Math.min(...centers);
     expect(cardSpread, '카드 탭 줄 한 줄').toBeLessThanOrEqual(4);
     const cardBarOver = await cardBar.evaluate((el) => el.scrollWidth - el.clientWidth);
