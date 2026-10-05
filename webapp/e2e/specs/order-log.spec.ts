@@ -21,6 +21,9 @@ import {
   STRATEGY_BRANCH_ROWS,
   STRATEGY_DAY_BY_NAME,
   STRATEGY_DAY_ROWS,
+  STRATEGY_LIMIT_FEATURE_BY_NAME,
+  STRATEGY_LIMIT_FEATURE_GOLDEN,
+  STRATEGY_LIMIT_FEATURE_ROWS,
 } from '@/test-fixtures/strategy-day';
 
 /**
@@ -44,6 +47,11 @@ import {
  *
  * ⑤ Phase 27-08 — 「자동매도」 구분 칩(P27-O1 · D-14). 자동매도 행은 `STRATEGY_AUTO_SELL_ROWS`, 줄 텍스트 기대값은
  *   `STRATEGY_AUTO_SELL_GOLDEN` 한 벌을 읽는다(문자열 두 벌 금지 — 종목명 칸만 실제 표시 이름으로 느슨하게).
+ *
+ * ⑥ Phase 28-11 — 「상한가 특징」 체크(P28-O1 · D-07 · D-18). kind 15 행은 `STRATEGY_LIMIT_FEATURE_ROWS`(날짜만 오늘로),
+ *   줄 기대값은 `STRATEGY_LIMIT_FEATURE_GOLDEN` 한 벌. 복원 목은 `?lf=1` 일 때만 kind 15 를 더 싣는다(서버 28-02 규약).
+ *   ★ 이 체크가 필터줄에 칩 하나를 더해 폰 밴드(390) 공용 패널 필터줄은 두 줄로 넘어간다(UI-SPEC ② E2 — flex-wrap 허용).
+ *     P27-O1 의 390 「한 줄」 잣대는 select 칩 3개(「자동매도」 값이 칩을 깨지 않는가)로 좁혔다.
  */
 
 test.describe.configure({ mode: 'serial' });
@@ -686,8 +694,10 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
     await openOrderLogTab(page);
     if ((await kind.inputValue()) !== 'auto') await kind.selectOption({ label: '자동매도' });
     await expect(lines(page)).toHaveCount(allG9.length);
-    const tabSpread390 = await centerSpread(filterItems);
-    expect(tabSpread390, '390 탭 칩 줄 한 줄').toBeLessThanOrEqual(4);
+    // Phase 28 — 「상한가 특징」 체크 칩이 더해져 390 필터줄은 두 줄로 넘어간다(UI-SPEC ② E2 · flex-wrap 허용).
+    // 「자동매도」(가장 긴 값)가 select 칩 셋을 깨지 않는지만 본다 — 가로 넘침 0 은 그대로.
+    const tabSpread390 = await centerSpread(filterBar.locator(':scope > [data-slot="order-log-chip"]'));
+    expect(tabSpread390, '390 select 칩 3개 한 줄').toBeLessThanOrEqual(4);
     expect(await filterBar.evaluate((el) => el.scrollWidth - el.clientWidth), '390 탭 칩 줄 가로 넘침 0').toBeLessThanOrEqual(0);
 
     // ── ③ 카드 주문로그 팝업(1280) — 「자동매도」 = group 9 · 「매도」 = 매도 색에서 group 9 를 뺀 것
@@ -754,5 +764,126 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
     const note = `tab spread 1280=${tabSpread1280.toFixed(1)} 390=${tabSpread390.toFixed(1)} · popup seg spread 1280=${segSpread1280.toFixed(1)} 390=${segSpread390.toFixed(1)} · tab g9=${allG9.length} card g9=${cardG9}`;
     test.info().annotations.push({ type: 'P27-O1', description: note });
     console.log(`[P27-O1] ${note}`);
+  });
+
+  // ===========================================================================
+  // Phase 28-11 — 「상한가 특징」 체크 (D-07 · D-18)
+  // ===========================================================================
+
+  /** kind 15 골든 → 정규식. 종목명 칸(픽스처 「○○전자」)만 실제 표시 이름을 받는다. */
+  const lfGolden = (name: string): RegExp => {
+    const g = STRATEGY_LIMIT_FEATURE_GOLDEN[name];
+    if (g === undefined) throw new Error(`kind 15 골든 ${name} 없음`);
+    const esc = g.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`^${esc.replace('○○전자', '.+')}$`);
+  };
+
+  test('P28-O1 상한가 특징 체크 — 기본 숨김 · 켜면 전체/시세에 분당 줄', async ({ page }) => {
+    test.setTimeout(120_000);
+    const LIVE = 'lfAuctionLocked'; // 관찰자 저널(80)로 라이브 푸시되는 kind 15
+    const lfNames = Object.keys(STRATEGY_LIMIT_FEATURE_BY_NAME);
+    const restoredLf = lfNames.filter((n) => n !== LIVE).map((n) => today(STRATEGY_LIMIT_FEATURE_BY_NAME[n]!));
+    expect(restoredLf.length).toBe(STRATEGY_LIMIT_FEATURE_ROWS.length - 1);
+    const orders = [byName('exposed'), byName('buy12451')];
+
+    // 복원 목 — `?lf=1` 이면 주문 행 + kind 15, 아니면 주문 행만(서버 기본 = kind 15 제외). URL 을 기록한다.
+    const urls: string[] = [];
+    await page.route('**/api/strategy-events*', async (route) => {
+      const url = route.request().url();
+      urls.push(url);
+      const lf = new URL(url).searchParams.get('lf') === '1';
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(lf ? [...orders, ...restoredLf] : orders),
+      });
+    });
+    const lfRequests = () => urls.filter((u) => u.includes('lf=1')).length;
+
+    const chip = () => sharedPanels(page).getByRole('checkbox', { name: '상한가 특징' });
+    const kind15 = () => sharedPanels(page).locator('li[data-slot="order-log-line"][data-kind="15"]');
+    const badge = () => logButton(page, '주문로그').locator('[data-slot="card-log-badge"]');
+
+    // ── (a) 기본 꺼짐 — kind 15 줄 0 · lf=1 조회 없음 · 라이브 kind 15 는 카드 배지에 가산되지 않는다
+    await openFocusCard(page);
+    await openOrderLogTab(page);
+    await expect(lines(page)).toHaveCount(orders.length);
+    await expect(chip()).not.toBeChecked();
+    await expect(sharedPanels(page).locator('[data-slot="order-log-check-limit-feature"]')).not.toHaveAttribute('data-on');
+    expect(lfRequests()).toBe(0);
+
+    await relay.pushStrategyEvents([wire(today(STRATEGY_LIMIT_FEATURE_BY_NAME[LIVE]!)), wire(byName('queued12451'))]);
+    await expect(lines(page)).toHaveCount(orders.length + 1, { timeout: 15_000 });
+    await expect(kind15()).toHaveCount(0);
+    await expect(badge()).toHaveText('1', { timeout: 15_000 }); // 주문 1행만 — kind 15 는 세지 않는다
+    await expect(logButton(page, '주문로그')).toHaveAccessibleName('주문로그, 새 로그 1건');
+
+    // ── (b) 칩 클릭 → lf=1 정확히 1회 · 골든 줄 · lead 「잠김 43초」 = --up · 구분 「상한가특징」
+    await chip().click();
+    await expect(chip()).toBeChecked();
+    await expect(sharedPanels(page).locator('[data-slot="order-log-check-limit-feature"]')).toHaveAttribute('data-on', '');
+    await expect(kind15()).toHaveCount(lfNames.length, { timeout: 15_000 }); // 복원 5 + 라이브 1
+    await expect(lines(page)).toHaveCount(orders.length + 1 + lfNames.length);
+    expect(lfRequests()).toBe(1);
+    expect(urls.filter((u) => u.includes('lf=1')).every((u) => !u.includes('date='))).toBe(true);
+    for (const n of lfNames) await expect(lines(page).filter({ hasText: lfGolden(n) }), n).toHaveCount(1);
+    const locked = lines(page).filter({ hasText: lfGolden('lfLocked43') });
+    await expect(locked).toHaveAttribute('data-kind', '15');
+    const lead = locked.locator('[data-slot="order-log-lead"]');
+    await expect(lead).toHaveText('잠김 43초');
+    const [leadColor, upColor] = await lead.evaluate((el) => {
+      const probe = document.createElement('span');
+      probe.style.color = 'var(--up)';
+      el.parentElement!.appendChild(probe);
+      const up = getComputedStyle(probe).color;
+      probe.remove();
+      return [getComputedStyle(el).color, up];
+    });
+    expect(leadColor).toBe(upColor);
+    await expect(sharedPanels(page).locator('[data-slot="order-log-count"]')).toHaveText(`${orders.length + 1 + lfNames.length}건`);
+    await sharedPanels(page).screenshot({ path: test.info().outputPath('p28-o1-limit-feature-on-1280.png') });
+
+    // 켜진 뒤의 kind 15 푸시는 카드 배지에 더한다(꺼짐일 때만 소음 금지)
+    await relay.pushStrategyEvents([
+      wire(today(STRATEGY_LIMIT_FEATURE_BY_NAME.lfLocked103!, { gwTimeMs: today(STRATEGY_LIMIT_FEATURE_BY_NAME.lfLocked103!).gwTimeMs + 30 * 60_000 })),
+    ]);
+    await expect(kind15()).toHaveCount(lfNames.length + 1, { timeout: 15_000 });
+    await expect(badge()).toHaveText('2', { timeout: 15_000 });
+    expect(lfRequests()).toBe(1); // 라이브 푸시는 재조회를 부르지 않는다
+
+    // ── (c) 구분 「시세」 → kind 15 유지 · 「선매수」 → 없음
+    const kind = sharedPanels(page).getByRole('combobox', { name: '구분' });
+    await kind.selectOption({ label: '시세' });
+    await expect(kind15()).toHaveCount(lfNames.length + 1);
+    await kind.selectOption({ label: '선매수' });
+    await expect(kind15()).toHaveCount(0);
+    // 선매수(group 1) 주문 줄만 — 복원 buy12451 · 라이브 queued12451 중 group 1
+    await expect(lines(page)).toHaveCount([...orders, byName('queued12451')].filter((r) => r.kind !== 1 && r.kind !== 2 && r.group === 1).length);
+    await kind.selectOption({ label: '전체' });
+
+    // 카드 주문로그 팝업 — 같은 칩(켜짐) · 「시세」 세그먼트에 kind 15 · 「매수」 에는 없다
+    await openCardLog(page);
+    await expect(dialog(page).getByRole('checkbox', { name: '상한가 특징' })).toBeChecked();
+    const seg = dialog(page).getByRole('group', { name: '구분' });
+    const popupKind15 = () => dialog(page).locator('tr[data-slot="card-log-row"][data-kind="15"]');
+    await seg.getByRole('button', { name: '시세', exact: true }).click();
+    await expect(popupKind15()).toHaveCount(lfNames.length + 1);
+    await expect(popupKind15().first().locator('td').nth(2)).toHaveText('상한가특징');
+    await seg.getByRole('button', { name: '매수', exact: true }).click();
+    await expect(popupKind15()).toHaveCount(0);
+    await closeCardLog(page);
+
+    // ── (d) 새로고침 → 칩 켜짐 유지(pref) · lf=1 조회가 다시 1회(+ 마운트 때 relay 가 아직 ready 가 아니었으면 첫 ready 1회 — WR-05)
+    const before = lfRequests();
+    await page.reload();
+    await expect(statusBar(page)).toHaveAttribute('data-status', 'ready', { timeout: 30_000 });
+    await openOrderLogTab(page);
+    await expect(chip()).toBeChecked();
+    // 라이브 푸시 두 줄은 relay 가 재생하지 않고 목 복원에도 없다 — 복원(lf=1) kind 15 만 남는다.
+    await expect(kind15()).toHaveCount(restoredLf.length, { timeout: 15_000 });
+    await expect(lines(page)).toHaveCount(orders.length + restoredLf.length);
+    expect(lfRequests() - before).toBeGreaterThanOrEqual(1);
+    expect(lfRequests() - before).toBeLessThanOrEqual(2);
+    console.log(`[P28-O1] lf=1 requests total=${lfRequests()} after-reload=${lfRequests() - before}`);
   });
 });
