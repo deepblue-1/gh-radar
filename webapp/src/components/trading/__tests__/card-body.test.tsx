@@ -779,3 +779,30 @@ describe('Phase 27 자동매도 그룹 — 제목줄 상태 낱말 (D-03 · 판�
     expect(groupStatusClassOf('꺼짐')).toBe('text-[var(--muted-fg)]');
   });
 });
+
+describe('Phase 27 바로시작 · 중지 — 카드 본문 배선 (D-08 칩 전이)', () => {
+  const autoServer = server({ autoSellEnabled: true, autoSellState: 1, autoSellRatioPct: 10, autoSellMethod: 3 });
+  const asGroup = () => document.querySelector('[data-slot="lc-group-auto-sell"]') as HTMLElement;
+  const asStatus = () => asGroup().querySelector('[data-slot="lc-group-status"]')?.textContent ?? null;
+
+  it('pending 이 없으면 서버 낱말 · start/stop pending 이면 AUTO_SELL_PEND_TEXT 로 덮인다', () => {
+    const { rerender } = render(<CardBody {...props({ card: cardState({ server: autoServer }) })} />);
+    expect(asStatus()).toBe('대기');
+    rerender(<CardBody {...props({ card: cardState({ server: autoServer, autoSellPending: 'start' }) })} />);
+    expect(asStatus()).toBe('바로시작 전송…');
+    rerender(<CardBody {...props({ card: cardState({ server: autoServer, autoSellPending: 'stop' }) })} />);
+    expect(asStatus()).toBe('중지 전송…');
+  });
+
+  it('펼친 자동매도 카드의 바로시작 → 카드 onAutoSellCommand("start")', () => {
+    const onAutoSellCommand = vi.fn();
+    render(<CardBody {...props({ card: cardState({ server: autoServer, onAutoSellCommand }) })} />);
+    act(() => {
+      fireEvent.click(asGroup().querySelector('[data-slot="lc-group-fold"]') as HTMLElement);
+    });
+    act(() => {
+      fireEvent.click(asGroup().querySelector('[data-slot="lc-auto-sell-start"]') as HTMLElement);
+    });
+    expect(onAutoSellCommand).toHaveBeenCalledWith('start');
+  });
+});

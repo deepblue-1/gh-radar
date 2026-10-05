@@ -11,6 +11,7 @@ import {
   E2E_ISIN,
   E2E_LONG_NAME_ISIN,
   RELAY_WS_URL,
+  readAutoSellCommandRequest,
   readSetLimitChaserRequest,
   readViConfirmRequest,
   readViSetRequest,
@@ -2773,6 +2774,90 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await page.waitForTimeout(1_000);
     expect(lcSetCount(relay), '범위 밖 켜기는 relay 에 닿지 않는다(close 4400 방지)').toBe(beforeGuard);
     await expect(lcSwitch(group, '자동매도 켜기')).not.toBeChecked();
+  });
+
+  test('P27-3 바로시작 · 중지 — 41 → 60 에코 기대 전이 → 칩 · 버튼 전환 · 54 거부 원문 (D-05~D-09)', async ({ page }) => {
+    const seed = {
+      buyEnabled: true,
+      autoSellEnabled: true,
+      autoSellState: 1,
+      autoSellRatioPct: 10,
+      autoSellMethod: 3,
+      autoSellStartCond: 2,
+    };
+    relay.seedLimitChasers([seed]);
+    await openFocusedCard(page);
+    const card = cardOf(page, E2E_ISIN);
+    const group = card.locator('[data-slot="lc-group-auto-sell"]');
+    const fold = group.locator('[data-slot="lc-group-fold"]');
+    const chip = group.locator('[data-slot="lc-group-status"]');
+    const start = group.locator('[data-slot="lc-auto-sell-start"]');
+    const stop = group.locator('[data-slot="lc-auto-sell-stop"]');
+    const autoLed = card.locator('[data-slot="card-header"] [data-slot="latch-led"][data-kind="autoSell"]');
+    /** 게이트웨이가 받은 41 — 순서대로 읽는다(브라우저 → relay → 게이트웨이 바이트). */
+    const autoSellCmds = () =>
+      relay
+        .strategyRequests()
+        .filter((r) => r.msgType === DMA_MSG.AutoSellCommandReq)
+        .map((r) => readAutoSellCommandRequest(r.payload));
+
+    // ① 접힌 카드에는 버튼이 없다 → 펼치면 마지막 행 · 대기(1) = 바로시작 활성 · 중지 비활성.
+    await expect(chip).toHaveText('대기', { timeout: 15_000 });
+    await expect(start).toHaveCount(0);
+    await fold.click();
+    await expect(start).toBeEnabled();
+    await expect(stop).toBeDisabled();
+
+    // ② 바로시작 → 칩 「바로시작 전송…」(점선) · 두 버튼 잠금 · 41 action 1 한 건(확인창 없음).
+    await start.click();
+    await expect(chip).toHaveText('바로시작 전송…');
+    await expect(chip).toHaveClass(/border-dashed/);
+    await expect(start).toBeDisabled();
+    await expect(stop).toBeDisabled();
+    await expect.poll(() => autoSellCmds().length, { timeout: 15_000 }).toBe(1);
+    expect(autoSellCmds()[0]).toEqual({ isin: E2E_ISIN, accountNo: E2E_ACCOUNT_NO, exchange: 'KRX', action: 1 });
+
+    // ③ 60 에코 매도중(기대 전이) → 칩 「매도중」 · 중지 활성 · 바로시작 비활성 · 헤더 LED 매도중.
+    await relay.pushLimitChaserEcho({ ...seed, autoSellState: 3 });
+    await expect(chip).toHaveText('매도중', { timeout: 15_000 });
+    await expect(stop).toBeEnabled();
+    await expect(start).toBeDisabled();
+    await expect(autoLed).toHaveAttribute('data-tone', 'armed');
+    await expect(autoLed).toContainText('매도중');
+
+    // ④ 중지 → 41 action 2 → 에코 꺼짐(enabled false · 0) → 칩 없음 · 바로시작 활성.
+    await stop.click();
+    await expect(chip).toHaveText('중지 전송…');
+    await expect.poll(() => autoSellCmds().length, { timeout: 15_000 }).toBe(2);
+    expect(autoSellCmds()[1]).toEqual({ isin: E2E_ISIN, accountNo: E2E_ACCOUNT_NO, exchange: 'KRX', action: 2 });
+    await relay.pushLimitChaserEcho({ ...seed, autoSellEnabled: false, autoSellState: 0 });
+    await expect(chip).toHaveCount(0, { timeout: 15_000 });
+    await expect(start).toBeEnabled();
+    await expect(stop).toBeDisabled();
+
+    // ⑤ 거부 — 대기(1)로 되돌리고 바로시작 → 54 ERROR AutoSellCommand 원문 → 로그 · 버튼 재활성 · 「미반영」 없음.
+    await relay.pushLimitChaserEcho(seed);
+    await expect(chip).toHaveText('대기', { timeout: 15_000 });
+    await start.click();
+    await expect(chip).toHaveText('바로시작 전송…');
+    await expect.poll(() => autoSellCmds().length, { timeout: 15_000 }).toBe(3);
+    await relay.pushServerMessage({
+      level: 'ERROR',
+      source: 'AutoSellCommand',
+      isin: E2E_ISIN,
+      accountNo: E2E_ACCOUNT_NO,
+      message: '자동매도 바로시작 거부 — 보유수량 0',
+      kind: '',
+    });
+    await expect(chip).toHaveText('대기', { timeout: 15_000 });
+    await expect(start).toBeEnabled();
+    const rejected = (await logRows(page)).filter({ hasText: '자동매도 바로시작 거부 — 보유수량 0' });
+    await expect(rejected).toHaveCount(1);
+    await expect(rejected).toContainText('[상따]');
+    await expect(rejected).toHaveAttribute('data-level', 'error');
+    await page.waitForTimeout(3_500);
+    await expect(card.locator('[data-slot="card-unacked"]')).toHaveCount(0);
+    expect(autoSellCmds(), '재전송 없음').toHaveLength(3);
   });
 
   test('vzy-1 후매수 「자동」 — 체크 → 10 buy3_schema 3 · post_buy_auto · 에코 표시 · 서버 발화 에코로 풀림 · [상따] 사유 줄 (quick-260929-vzy 트레이서)', async ({

@@ -114,7 +114,10 @@ import {
   isMasterOnlyDelta,
   seedFromUpperLimit,
   seedListSharesDefaults,
+  autoSellButtonsOf,
+  autoSellStartBlocked,
   type AutoCheckGate,
+  type AutoSellAction,
   type GroupAutoCheckResult,
   type LimitChaserFormValues,
 } from '@/lib/limit-chaser';
@@ -144,6 +147,7 @@ import {
 } from '@/components/trading/lc/lc-fields';
 import { NumberPadSheet } from '@/components/trading/lc/number-pad-sheet';
 import {
+  AutoSellActions,
   CheckValueRow,
   ChoiceRow,
   DerivedRow,
@@ -586,6 +590,17 @@ export interface LimitChaserFormProps {
    * 토스트 · 다이얼로그를 쓰지 않는 이유는 파일 상단 ⑥.
    */
   onClientLog?: (text: string, level: 'info' | 'error') => void;
+  /**
+   * 41(바로시작 · 중지) 응답 대기 action — 카드 훅 `autoSellPending`(Phase 27 D-08). 대기 중이면 두 버튼이 잠기고,
+   * 자동매도 그룹의 스위치 · 값 · 방법 행 확정도 막힌다(상호 배제 — 41 즉답 에코가 그 확정의 답으로 섞이지 않게).
+   * 다른 그룹은 막지 않는다. 기본 `null`.
+   */
+  autoSellPending?: AutoSellAction | null;
+  /**
+   * 자동매도 바로시작 · 중지 → 카드 훅 `onAutoSellCommand`(41 전송 · 대기 · 가드). 없으면 버튼 행을 그리지 않는다
+   * (옛 경로 · 카드 밖 폼).
+   */
+  onAutoSellCommand?: (action: AutoSellAction) => void;
   className?: string;
 }
 
@@ -609,6 +624,8 @@ export function LimitChaserForm({
   bestBid = 0,
   bestBidQty = 0,
   onClientLog,
+  autoSellPending = null,
+  onAutoSellCommand,
   className,
 }: LimitChaserFormProps) {
   const { send } = useRelayContext();
@@ -925,9 +942,27 @@ export function LimitChaserForm({
    * 방법)는 전송 직전 `lcRangeIssue` 가 막는다(Pitfall 5 — 폼 맨 위 한 줄).
    */
   const gateDisabled = (gate: LcGate): boolean =>
-    gate === 'cancelQtyEnabled' || gate === 'autoSellEnabled'
-      ? disabled || (legacy && !form[gate])
-      : gateBlocked(gate, !form[gate]);
+    gate === 'autoSellEnabled' && autoSellPending !== null
+      ? true
+      : gate === 'cancelQtyEnabled' || gate === 'autoSellEnabled'
+        ? disabled || (legacy && !form[gate])
+        : gateBlocked(gate, !form[gate]);
+  /**
+   * 41 대기 중 그룹 확정 잠금(Phase 27 재량 — RESEARCH Pitfall 6 상호 배제). 자동매도 그룹만 — 다른 그룹은 막지 않는다
+   * (D-07 「다른 그룹 무관」). 대기는 ≤3초다(카드 41 전용 타이머).
+   */
+  const autoSellLocked = (group: LcGroupSpec): boolean => autoSellPending !== null && group.slot === 'auto-sell';
+  /**
+   * 자동매도 바로시작 · 중지 활성(D-05 · D-07 · D-09) — 판정 입력은 폼 `server` prop = 카드 훅의 같은 `server` 다
+   * (카드 전송 가드와 한 입력). 바로시작만 자동매도 그룹 확정(in-flight · 대기열 · 실패)이 깨끗해야 한다.
+   */
+  const autoSellButtons = autoSellButtonsOf(server);
+  const autoSellIdle = autoSellPending === null && !disabled;
+  const autoSellStartEnabled =
+    autoSellIdle &&
+    autoSellButtons.start &&
+    !autoSellStartBlocked({ inflightField: lc.inflightField, queuedFields: lc.queuedFields, failures: lc.failures });
+  const autoSellStopEnabled = autoSellIdle && autoSellButtons.stop;
 
   /*
     그룹 켜기 사전 검증 줄(UI-SPEC §7) — 카드마다 한 자리지만 폼 전체에 **늘 한 줄**이다(누른 카드의 것).
@@ -1353,9 +1388,9 @@ export function LimitChaserForm({
   }
 
   /** 값 행이 공유하는 편집 배선(값 행 · 체크 값 행의 값 버튼). */
-  function valueProps(field: LcNumField) {
+  function valueProps(field: LcNumField, locked = false) {
     return {
-      disabled,
+      disabled: disabled || locked,
       busy: isBusy(field),
       flash: lc.flashField === field,
       failed: lc.failures[field] !== undefined,
@@ -1391,7 +1426,7 @@ export function LimitChaserForm({
             value={shownValueOf(row.field)}
             {...displayOf(group, row)}
             dim={dim}
-            {...valueProps(row.field)}
+            {...valueProps(row.field, autoSellLocked(group))}
             onActivate={(el) => activateRow(row.field, el)}
             editor={
               editingField === row.field
@@ -1447,7 +1482,7 @@ export function LimitChaserForm({
             a11yName={`${group.title} ${row.label}`}
             sheetTitle={`${group.title} ${row.label}`}
             description={row.desc}
-            disabled={disabled}
+            disabled={disabled || autoSellLocked(group)}
             dim={dim}
             busy={isBusy(row.field)}
             flash={lc.flashField === row.field}
@@ -1540,6 +1575,17 @@ export function LimitChaserForm({
         dimRows={false}
         // 그룹 켜기 사전 검증 줄 — 누른 카드 한 자리(UI-SPEC §7 · R8).
         precheckText={precheck !== null && precheck.slot === slot ? precheck.text : null}
+        // Phase 27 D-05 — 자동매도 펼친 본문 마지막 행(접힌 카드에서는 SettingGroup 이 그리지 않는다).
+        footer={
+          slot === 'auto-sell' && onAutoSellCommand !== undefined ? (
+            <AutoSellActions
+              startEnabled={autoSellStartEnabled}
+              stopEnabled={autoSellStopEnabled}
+              onStart={() => onAutoSellCommand('start')}
+              onStop={() => onAutoSellCommand('stop')}
+            />
+          ) : undefined
+        }
         fold={
           spec.collapsible && isFoldSlot(slot)
             ? {

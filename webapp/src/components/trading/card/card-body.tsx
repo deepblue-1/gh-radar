@@ -61,7 +61,7 @@ import {
   ManualOrderForm,
 } from '@/components/trading/card/manual-order-form';
 import type { StrategyCardState } from '@/components/trading/card/strategy-card';
-import { isLegacyBuySchema } from '@/lib/limit-chaser';
+import { AUTO_SELL_PEND_TEXT, isLegacyBuySchema } from '@/lib/limit-chaser';
 import type { RelayStatus } from '@/lib/use-relay-socket';
 import { useTickRule } from '@/lib/tick-rule';
 import { cn } from '@/lib/utils';
@@ -235,6 +235,8 @@ export function CardBody({
     unacked,
     handleSent,
     pushClientLog,
+    autoSellPending,
+    onAutoSellCommand,
   } = card;
 
   /** 폰 밴드 3탭 중 옵션 쪽 선택 — 옵션 폼의 pane 을 **제어형**으로 가른다(D-19). */
@@ -263,7 +265,10 @@ export function CardBody({
   const displayName = name === '' ? isin : name;
   // 시간외종가 「참고 종가」(스케치 008 ③ — 가격 잠김 · 참고 종가). `kc > 0` 하나가 「종가 확정」 신호다(벽시계 아님).
   const closeRef = referenceClose ?? (quote !== null && quote.kc > 0 ? quote.kc : null);
-  const groups = cardGroupStatusOf(server);
+  // D-08 — 41 응답 대기 중이면 자동매도 칩을 「… 전송…」(점선)으로 덮는다. 낙관 갱신이 아니다 — 서버 낱말은 에코가 바꾼다.
+  const serverGroups = cardGroupStatusOf(server);
+  const groups =
+    autoSellPending === null ? serverGroups : { ...serverGroups, autoSell: AUTO_SELL_PEND_TEXT[autoSellPending] };
   // D-15a — 종목 분류 → 호가 단위 잠금 강도. 조회 중(`undefined`)은 주식 잠금 그대로다.
   const tickRule = useTickRule(isin);
 
@@ -297,6 +302,9 @@ export function CardBody({
       onClientLog={pushClientLog}
       tab={optionsTab}
       hideTabs
+      // Phase 27 D-05 ~ D-09 — 바로시작 · 중지(41). 전송 · 대기 · 가드는 카드 훅, 활성 판정은 같은 `server` 로 폼이.
+      autoSellPending={autoSellPending}
+      onAutoSellCommand={onAutoSellCommand}
     />
   );
 

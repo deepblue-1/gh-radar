@@ -36,6 +36,7 @@ import { Switch as SwitchPrimitive } from 'radix-ui';
 
 import type { LcGroupSpec } from '@/components/trading/lc/lc-fields';
 import { LcSheetShell } from '@/components/trading/lc/number-pad-sheet';
+import { AUTO_SELL_PEND_TEXT } from '@/lib/limit-chaser';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
 import { useEditMode } from '@/lib/use-edit-mode';
 import { cn } from '@/lib/utils';
@@ -117,7 +118,59 @@ export function groupStatusClassOf(text: string): string {
   if (text.startsWith('구서버')) return 'text-[var(--destructive)]'; // WR-02 구서버 에코 — 「포기」 와 같은 경고 결
   if (text === '감시' || text === '매도중') return 'text-[var(--led-armed)]';
   if (text === '대기' || text === '완료') return 'text-[var(--led-latent)]';
+  // 41 응답 대기(Phase 27 D-08 · 목업 `.chip.pend`) — 중립 글자 + 점선 테두리(새 토큰 0 · 낱말이 「전송…」 을 말한다).
+  if (text === AUTO_SELL_PEND_TEXT.start || text === AUTO_SELL_PEND_TEXT.stop) {
+    return 'text-[var(--muted-fg)] rounded-full border border-dashed border-[var(--border)] px-1.5';
+  }
   return 'text-[var(--muted-fg)]';
+}
+
+export interface AutoSellActionsProps {
+  /** 바로시작 활성 — `autoSellButtonsOf(server).start` ∧ 41 대기 없음 ∧ D-07 그룹 확정이 깨끗함(판정은 폼). */
+  startEnabled: boolean;
+  /** 중지 활성 — `autoSellButtonsOf(server).stop` ∧ 41 대기 없음(확정 상태 무관 · D-07). */
+  stopEnabled: boolean;
+  onStart: () => void;
+  onStop: () => void;
+}
+
+/**
+ * 자동매도 바로시작 · 중지 버튼 행(Phase 27 D-05 · 목업 `.act`) — 자동매도 그룹 `footer` 자리.
+ *
+ * 높이 40 · 간격 8 · 둘이 폭을 나눈다. 「바로시작」 = 상승(`--up`) 채움 · 흰 글자, 「중지」 = float(`--muted`) —
+ * 새 색 토큰 0. 버튼 아래 설명 줄은 없다(D-05). 확인창 없이 누르는 즉시 콜백(D-06) — 판정 · 전송은 호출부.
+ */
+export function AutoSellActions({ startEnabled, stopEnabled, onStart, onStop }: AutoSellActionsProps) {
+  const base =
+    'h-10 min-w-0 flex-1 rounded-[12px] text-[14px] font-semibold transition-colors disabled:cursor-default disabled:opacity-40';
+  return (
+    <div data-slot="lc-auto-sell-actions" className="flex gap-2 px-1 pt-1.5 pb-2">
+      <button
+        type="button"
+        data-slot="lc-auto-sell-start"
+        disabled={!startEnabled}
+        onClick={onStart}
+        className={cn(
+          base,
+          'bg-[var(--up)] text-[var(--destructive-fg)] enabled:pointer-fine:hover:bg-[color-mix(in_oklab,var(--up)_88%,black)]',
+        )}
+      >
+        바로시작
+      </button>
+      <button
+        type="button"
+        data-slot="lc-auto-sell-stop"
+        disabled={!stopEnabled}
+        onClick={onStop}
+        className={cn(
+          base,
+          'bg-[var(--muted)] text-[var(--fg)] enabled:pointer-fine:hover:bg-[var(--raised-2)]',
+        )}
+      >
+        중지
+      </button>
+    </div>
+  );
 }
 
 /**

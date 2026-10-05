@@ -3655,3 +3655,134 @@ describe('Phase 27 자동매도 카드 — 3택 행 · 누적/기준 · 칩 · �
     });
   });
 });
+
+/*
+  Phase 27 Plan 05 Task 3 — 자동매도 바로시작 · 중지 버튼 행(D-05 · D-07 · D-08 · D-09).
+  활성 = autoSellButtonsOf(server) ∧ 41 대기 없음 ∧ (바로시작만) 자동매도 그룹 확정이 깨끗함. 41 대기 중에는 자동매도
+  그룹의 스위치 · 값 · 방법 행 확정을 막는다(RESEARCH Pitfall 6 상호 배제 — 다른 그룹 무관).
+*/
+describe('Phase 27 바로시작 · 중지', () => {
+  const autoEcho = (over: Partial<RelayLimitChaser> = {}) =>
+    echo({ autoSellEnabled: true, autoSellStartCond: 2, autoSellRatioPct: 10, autoSellMethod: 3, ...over });
+  const asProps = (server: RelayLimitChaser | null, over: Partial<LimitChaserFormProps> = {}) =>
+    props({
+      tab: 'sell',
+      hideTabs: true,
+      server,
+      groupStatus: cardGroupStatusOf(server),
+      autoSellPending: null,
+      onAutoSellCommand: vi.fn(),
+      ...over,
+    });
+  const startBtn = () => document.querySelector<HTMLButtonElement>('[data-slot="lc-auto-sell-start"]');
+  const stopBtn = () => document.querySelector<HTMLButtonElement>('[data-slot="lc-auto-sell-stop"]');
+  const radios = () => within(screen.getByRole('radiogroup', { name: '자동매도 방법' })).getAllByRole('radio');
+
+  it('펼친 자동매도 카드 마지막 행에 바로시작 · 중지 · 접힌 카드에는 둘 다 없음 · 설명 줄 없음', () => {
+    render(<LimitChaserForm {...asProps(autoEcho({ autoSellState: 1 }))} />);
+    expect(startBtn()).toBeNull();
+    expect(stopBtn()).toBeNull();
+    click(fold('auto-sell'));
+    const footer = group('auto-sell').querySelector('[data-slot="lc-group-footer"]') as HTMLElement;
+    expect(footer).not.toBeNull();
+    expect(Array.from(footer.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['바로시작', '중지']);
+    expect(footer.textContent).toBe('바로시작중지');
+    // 마지막 행 — 행 영역의 마지막 자식이 버튼 행이다.
+    const rows = group('auto-sell').querySelector('[data-slot="lc-group-rows"]') as HTMLElement;
+    expect(rows.lastElementChild).toBe(footer);
+  });
+
+  it('에코 state 1 → 바로시작 활성 · 중지 비활성 / 2 · 3 → 반대 / 0 · 4 → 바로시작 / 에코 없음 → 둘 다 비활성', () => {
+    const { rerender } = render(<LimitChaserForm {...asProps(autoEcho({ autoSellState: 1 }))} />);
+    click(fold('auto-sell'));
+    expect([startBtn()!.disabled, stopBtn()!.disabled]).toEqual([false, true]);
+    for (const st of [2, 3]) {
+      rerender(<LimitChaserForm {...asProps(autoEcho({ autoSellState: st }))} />);
+      expect([startBtn()!.disabled, stopBtn()!.disabled]).toEqual([true, false]);
+    }
+    for (const st of [0, 4]) {
+      rerender(<LimitChaserForm {...asProps(autoEcho({ autoSellState: st }))} />);
+      expect([startBtn()!.disabled, stopBtn()!.disabled]).toEqual([false, true]);
+    }
+    rerender(<LimitChaserForm {...asProps(null)} />);
+    expect([startBtn()!.disabled, stopBtn()!.disabled]).toEqual([true, true]);
+  });
+
+  it('바로시작 클릭 → onAutoSellCommand("start") 1회 · 확인창 없음 / 중지 → "stop"', () => {
+    const onAutoSellCommand = vi.fn();
+    const { rerender } = render(<LimitChaserForm {...asProps(autoEcho({ autoSellState: 1 }), { onAutoSellCommand })} />);
+    click(fold('auto-sell'));
+    click(startBtn()!);
+    expect(onAutoSellCommand).toHaveBeenCalledTimes(1);
+    expect(onAutoSellCommand).toHaveBeenLastCalledWith('start');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    rerender(<LimitChaserForm {...asProps(autoEcho({ autoSellState: 3 }), { onAutoSellCommand })} />);
+    click(stopBtn()!);
+    expect(onAutoSellCommand).toHaveBeenLastCalledWith('stop');
+    expect(sentConfigs()).toHaveLength(0);
+  });
+
+  it('D-07 — 자동매도 방법 확정 in-flight 동안 바로시작 비활성 · 중지 규칙 그대로', () => {
+    const { rerender } = render(<LimitChaserForm {...asProps(autoEcho({ autoSellState: 1 }))} />);
+    click(fold('auto-sell'));
+    click(radios()[2]!);
+    expect(sentConfigs()).toHaveLength(1);
+    expect(startBtn()!.disabled).toBe(true);
+    // 감시(2) 에코가 오기 전 — 중지는 버튼 규칙(state 1 → 비활성)만 본다. state 2 런타임 에코면 중지 활성.
+    rerender(<LimitChaserForm {...asProps(autoEcho({ autoSellState: 2 }))} />);
+    expect(stopBtn()!.disabled).toBe(false);
+  });
+
+  it('D-07 — 자동매도 그룹 필드 실패 표시 중 바로시작 비활성', () => {
+    const { rerender } = render(<LimitChaserForm {...asProps(autoEcho({ autoSellState: 1 }))} />);
+    click(fold('auto-sell'));
+    click(radios()[1]!);
+    rerender(<LimitChaserForm {...asProps(autoEcho({ autoSellState: 1 }), { unacked: true })} />);
+    expect(startBtn()!.disabled).toBe(true);
+  });
+
+  it('D-07 — 다른 그룹(매도주문) 확정 in-flight 는 바로시작에 영향 없음', () => {
+    render(<LimitChaserForm {...asProps(autoEcho({ autoSellState: 1, sellEnabled: true }))} />);
+    click(fold('auto-sell'));
+    click(within(group('sell')).getByRole('switch'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().sellEnabled).toBe(false);
+    expect(startBtn()!.disabled).toBe(false);
+  });
+
+  it('pending start → 두 버튼 비활성 · 제목줄 「바로시작 전송…」 점선 · 자동매도 스위치 · 값 · 방법 행 비활성(다른 그룹 무관)', () => {
+    const server = autoEcho({ autoSellState: 1, sellEnabled: true });
+    const { rerender } = render(
+      <LimitChaserForm
+        {...asProps(server, {
+          autoSellPending: 'start',
+          groupStatus: { ...cardGroupStatusOf(server), autoSell: '바로시작 전송…' },
+        })}
+      />,
+    );
+    click(fold('auto-sell'));
+    expect([startBtn()!.disabled, stopBtn()!.disabled]).toEqual([true, true]);
+    const status = group('auto-sell').querySelector('[data-slot="lc-group-status"]') as HTMLElement;
+    expect(status.textContent).toBe('바로시작 전송…');
+    expect(status.className).toContain('border-dashed');
+    expect(within(group('auto-sell')).getByRole('switch', { name: '자동매도 켜기' })).toBeDisabled();
+    expect(row('lc-auto-sell-start-cond')).toBeDisabled();
+    expect(row('lc-auto-sell-ratio')).toBeDisabled();
+    for (const r of radios()) expect(r).toBeDisabled();
+    // 다른 그룹은 막지 않는다.
+    expect(within(group('sell')).getByRole('switch')).not.toBeDisabled();
+
+    rerender(
+      <LimitChaserForm
+        {...asProps(autoEcho({ autoSellState: 3 }), {
+          autoSellPending: 'stop',
+          groupStatus: { ...cardGroupStatusOf(server), autoSell: '중지 전송…' },
+        })}
+      />,
+    );
+    expect(status.textContent).toBe('중지 전송…');
+    expect(status.className).toContain('border-dashed');
+    expect([startBtn()!.disabled, stopBtn()!.disabled]).toEqual([true, true]);
+  });
+});
