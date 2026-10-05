@@ -17,6 +17,10 @@ import { LimitupSparkline } from './limitup-sparkline';
  *   라벨은 `xl:sr-only` 로 남는다(데스크톱 머리줄은 장식이라 `aria-hidden`).
  * - 행 = `<ol>` 의 `<li>` 안 `<button type="button">` — 누르면 `#ev-{isin}` 사건 카드(28-13)로 스크롤한 뒤 그 카드 `h3`
  *   로 포커스를 옮긴다. 카드가 아직 없으면 아무것도 하지 않는다.
+ * - 접근 이름은 UI-SPEC 「{종목명} {코드} — 사건 카드로 이동」 그대로(`aria-label`). button 의 자식은 presentational 이라
+ *   이름만으로는 행 값이 보조기기에 닿지 않으므로, 행 값을 한 문장(`rowDescription`)으로 엮은 sr-only 조각을
+ *   `aria-describedby` 로 잇는다(WR-A05). 보이는 칸들을 직접 잇지 않는 까닭: 인라인 칸 글자가 띄어쓰기 없이 붙어
+ *   「잠김2최대23.4억」 처럼 읽힌다.
  * - 탐지 0 인 날 = 격자 자리 빈 상태 「이 날은 상한가 사건이 없어요」(E7 empty — 페이지는 정상).
  */
 
@@ -56,6 +60,19 @@ function ResultTags({ tags, className }: { tags: readonly LimitupResultTag[]; cl
       ))}
     </span>
   );
+}
+
+/** 행 값 설명(WR-A05) — 「결과 깨짐 · 유지, 첫 잠김 09:30:00, 잠김 2, 최대 23.4억, +60초 매도 4%, 창구 키움증권 · 신한증권 (추정)」. */
+export function rowDescription(r: LimitupDayRow): string {
+  const members = r.members === '—' ? r.members : `${r.members} (추정)`;
+  return [
+    `결과 ${r.tags.join(' · ')}`,
+    `첫 잠김 ${r.firstLock}`,
+    `잠김 ${r.lockCount}`,
+    `최대 ${r.maxQ}`,
+    `+60초 매도 ${r.sell60}`,
+    `창구 ${members}`,
+  ].join(', ');
 }
 
 /** 메타 한 칸 — 폰: 「라벨 값」 · xl: 라벨 sr-only + 값이 자기 열을 잡는다. */
@@ -130,6 +147,7 @@ export function LimitupDayGrid({ rows }: { rows: readonly LimitupDayRow[] }) {
                   type="button"
                   data-isin={r.isin}
                   aria-label={`${r.label}${r.code ? ` ${r.code}` : ''} — 사건 카드로 이동`}
+                  aria-describedby={`limitup-row-desc-${r.isin}`}
                   onClick={() => scrollToEventCard(r.isin)}
                   className={cn(
                     'grid min-h-11 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 rounded-[var(--r)] px-2 py-3 text-left',
@@ -175,6 +193,9 @@ export function LimitupDayGrid({ rows }: { rows: readonly LimitupDayRow[] }) {
                         </span>
                       )}
                     </Meta>
+                  </span>
+                  <span id={`limitup-row-desc-${r.isin}`} className="sr-only">
+                    {rowDescription(r)}
                   </span>
                 </button>
               </li>

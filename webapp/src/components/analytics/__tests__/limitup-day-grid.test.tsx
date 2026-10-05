@@ -83,6 +83,17 @@ describe('LimitupDayGrid', () => {
     expect(rowButtons().every((b) => b.getAttribute('type') === 'button')).toBe(true);
   });
 
+  it('행 값은 설명(aria-describedby)으로 보조기기에 닿는다 — 결과 태그 · 첫 잠김 · 잠김 · 최대 · +60초 매도 · 창구 (WR-A05)', () => {
+    renderGrid();
+    const [, alpha, c] = rowButtons();
+    expect(alpha).toHaveAccessibleName('알파 000010 — 사건 카드로 이동');
+    expect(alpha).toHaveAccessibleDescription(
+      '결과 깨짐 · 유지, 첫 잠김 09:30:00, 잠김 2, 최대 23.4억, +60초 매도 4%, 창구 키움증권 · 신한증권 (추정)',
+    );
+    // 값 없는 칸은 「—」 그대로 · 창구가 없으면 (추정) 꼬리 없음
+    expect(c).toHaveAccessibleDescription(/^결과 미도달, 첫 잠김 —, 잠김 .+, 창구 —$/);
+  });
+
   it('제목 「하루 격자」 + 부제 · 데스크톱 머리줄은 aria-hidden 8칸', () => {
     renderGrid();
     expect(screen.getByRole('heading', { level: 2, name: '하루 격자' })).toBeTruthy();
