@@ -7,10 +7,12 @@
  * 「1.1억」 으로 적는다(WinForms 「1.2억」 · RESEARCH Pitfall 6).
  *
  * 색은 tone 으로만 돌려준다 — CSS 변수 적용은 컴포넌트 책임이다(`limit-up-format.ts` 규율).
- * 10초 · 창구 행(칸 4~9)은 28-07 이 채운다 — 이 플랜에서는 「—」(faint)다.
+ * 28-07 — 10초 · 창구 행(칸 4~9) · 폰 밴드 문구(`narrow`) · 툴팁(`ApplyLimitFeatureTable`)을 채웠다. 같은 숫자 함수를
+ * kind 15 문장(28-09)과 보고서(28-12/13)가 다시 쓴다 — shared 순수 함수 1벌.
  */
 
-import type { RelayLimitFeatureMsg } from "./relay";
+import { memberName } from "./member-codes";
+import type { RelayLimitFeatureMember, RelayLimitFeatureMsg } from "./relay";
 
 /** 칸 색 축 — `--up` · `--down` · `--fg` · `--muted-fg` · `--faint`. */
 export type LimitFeatureTone = "up" | "down" | "fg" | "muted" | "faint";
@@ -21,7 +23,7 @@ export type LimitFeatureCell = {
   tone: LimitFeatureTone;
   /** 600 굵기 — 지금 행 「잠김 N초째」 만. */
   strong: boolean;
-  /** 폰 밴드 문구(28-07 이 10초 행에서 채운다). null = 모든 밴드에서 `text`. */
+  /** 폰 밴드 문구(카드 `lc` < 첫 경계) — 잠김 중 10초 행 칸 2 · 3 만. null = 모든 밴드에서 `text`. */
   narrow: string | null;
 };
 
@@ -64,6 +66,50 @@ export function formatRatePct(rateBp: number): string {
   return `${t > 0 ? "+" : "-"}${Math.trunc(a / 10)}.${a % 10}%`;
 }
 
+/**
+ * 100·part/total 을 .NET `Math.Round` 기본(MidpointRounding.ToEven — 짝수 반올림)으로 (WinForms 「우세 NN%」).
+ * 정수 입력이라 몫 · 나머지 산술로 .5 경계를 정확히 판정한다. `total` > 0 이어야 한다.
+ */
+export function roundPctHalfEven(part: number, total: number): number {
+  const num = part * 100;
+  const q = Math.floor(num / total);
+  const r = num - q * total;
+  if (2 * r > total) return q + 1;
+  if (2 * r === total) return q % 2 === 1 ? q + 1 : q;
+  return q;
+}
+
+/**
+ * 주 → |q| ≥ 1만이면 「+5.2만」(.NET `(q / 10000.0).ToString("+0.0;-0.0") + "만"` — 0 에서 먼 쪽), 그보다 작으면
+ * 「+3,200」 · 「-2,300」 · 0 → 「0」(.NET `"+#,0;-#,0;0"`). WinForms `FormatManQty` 동형.
+ */
+export function formatManQty(qty: number): string {
+  const a = Math.abs(qty);
+  if (a >= 10_000) {
+    const t = Math.floor((a + 500) / 1000);
+    return `${qty < 0 ? "-" : "+"}${Math.trunc(t / 10)}.${t % 10}만`;
+  }
+  if (qty > 0) return `+${formatGroup(qty)}`;
+  if (qty < 0) return `-${formatGroup(a)}`;
+  return "0";
+}
+
+/** bp(≥ 0) → 「18.3」 (.NET `(bp / 100.0).ToString("0.0")` — 십분위 정수로 0 에서 먼 쪽). */
+function formatBpPct1(bp: number): string {
+  const t = Math.floor((bp + 5) / 10);
+  return `${Math.trunc(t / 10)}.${t % 10}`;
+}
+
+/** 창구 목록에서 회원번호가 있는 첫 원소 — 없으면 null (WinForms `FirstMember`). */
+function firstMember(list: readonly RelayLimitFeatureMember[] | null | undefined): RelayLimitFeatureMember | null {
+  if (!list) return null;
+  for (const m of list) if (m && m.memberNo) return m;
+  return null;
+}
+
+/** 행 머리 3개(WinForms `LimitFeatureTable.RowHeaders`) — 표 `<th>` 와 툴팁 줄 머리가 같은 글자를 쓴다. */
+export const LIMIT_FEATURE_ROW_HEADERS = ["지금", "10초", "창구"] as const;
+
 function cell(text: string, tone: LimitFeatureTone = "fg", strong = false): LimitFeatureCell {
   return { text, tone, strong, narrow: null };
 }
@@ -102,9 +148,63 @@ export function limitFeatureCells(msg: RelayLimitFeatureMsg | null): LimitFeatur
   }
   if (msg.auction) now[0] = { ...now[0]!, text: `단일가 · ${now[0]!.text}` };
 
-  // 10초 · 창구 행 — 28-07 이 WinForms 갈래(우세 % 짝수 반올림 · 잔량 신규/취소 · 창구명 · 깨짐확률)로 채운다.
-  const rest = Array.from({ length: 6 }, () => ({ ...EMPTY_CELL }));
-  return [...now, ...rest];
+  // 10초 행 — 체결 우세(큰 쪽 비율 · 짝수 반올림) · 잠김 중 잔량 신규/취소, 그 밖 체결 합.
+  const led = msg.sellLed10s + msg.buyLed10s;
+  let lead: LimitFeatureCell;
+  if (led === 0) lead = cell("체결 없음");
+  else if (msg.sellLed10s > msg.buyLed10s) lead = cell(`매도 우세 ${roundPctHalfEven(msg.sellLed10s, led)}%`, "down");
+  else if (msg.buyLed10s > msg.sellLed10s) lead = cell(`매수 우세 ${roundPctHalfEven(msg.buyLed10s, led)}%`, "up");
+  else lead = cell("매수·매도 반반");
+  let ten: LimitFeatureCell[];
+  if (msg.lockState === 1) {
+    const n = msg.new10s > 0 ? `+${formatGroup(msg.new10s)}` : "0";
+    const c = msg.cancel10s > 0 ? `-${formatGroup(msg.cancel10s)}` : "0";
+    ten = [
+      lead,
+      { ...cell(`잔량 신규 ${n}`), narrow: `신규 ${msg.new10s > 0 ? formatManQty(msg.new10s) : "0"}` },
+      { ...cell(`잔량 취소 ${c}`, "down"), narrow: `취소 ${msg.cancel10s > 0 ? formatManQty(-msg.cancel10s) : "0"}` },
+    ];
+  } else {
+    ten = [lead, cell(`체결 ${formatGroup(led)}주`), cell(DASH)];
+  }
+
+  // 창구 행 — 매수 · 매도 상위 1(회원번호 있는 첫 원소) + 깨짐확률(모델 적용 중일 때만).
+  const buy = firstMember(msg.memberBuy);
+  const sell = firstMember(msg.memberSell);
+  const win = [
+    buy ? cell(`매수 ${memberName(buy.memberNo)} ${formatManQty(buy.dQty)}`, "up") : cell(`매수 ${DASH}`),
+    sell ? cell(`매도 ${memberName(sell.memberNo)} ${formatManQty(sell.dQty)}`, "down") : cell(`매도 ${DASH}`),
+    msg.modelState === 1 && msg.pBreakBp >= 0
+      ? cell(`깨짐확률 ${formatBpPct1(msg.pBreakBp)}%`)
+      : cell("깨짐확률 관찰 중", "muted"),
+  ];
+  return [...now, ...ten, ...win];
+}
+
+/** epoch ms → KST 「HH:mm:ss」(밀리초는 잘라낸다 — WinForms `FormatTimeKst(...).Substring(0, 8)`). 0 이하 → 「」. */
+function formatTimeKstHms(epochMs: number): string {
+  if (!(epochMs > 0)) return "";
+  const sec = (((Math.floor((epochMs + 9 * 3_600_000) / 1000)) % 86_400) + 86_400) % 86_400;
+  const p2 = (n: number) => String(n).padStart(2, "0");
+  return `${p2(Math.trunc(sec / 3600))}:${p2(Math.trunc(sec / 60) % 60)}:${p2(sec % 60)}`;
+}
+
+/**
+ * 표 툴팁(WinForms `ApplyLimitFeatureTable` 동형). 줄 3개 「{행 머리} {칸1} · {칸2} · {칸3}」(늘 **넓은 밴드 문구**) +
+ * 4번째 줄 「HH:mm:ss 기준」(gwTimeMs KST) · 확률 적용 중(modelState 1 · pBreakBp ≥ 0 · pHorizonS > 0)이면
+ * 「 · 깨짐확률은 N초 안」. 시각이 없으면 확률 꼬리만 「깨짐확률은 N초 안」 줄로. null(85 없음) → 「」.
+ */
+export function limitFeatureTooltip(msg: RelayLimitFeatureMsg | null): string {
+  if (msg === null) return "";
+  const cells = limitFeatureCells(msg);
+  const lines = LIMIT_FEATURE_ROW_HEADERS.map(
+    (h, r) => `${h} ${cells[r * 3]!.text} · ${cells[r * 3 + 1]!.text} · ${cells[r * 3 + 2]!.text}`,
+  );
+  const time = formatTimeKstHms(msg.gwTimeMs);
+  const horizon = msg.modelState === 1 && msg.pBreakBp >= 0 && msg.pHorizonS > 0;
+  if (time) lines.push(`${time} 기준${horizon ? ` · 깨짐확률은 ${msg.pHorizonS}초 안` : ""}`);
+  else if (horizon) lines.push(`깨짐확률은 ${msg.pHorizonS}초 안`);
+  return lines.join("\n");
 }
 
 /**
@@ -116,3 +216,4 @@ export function limitFeatureTabSuffix(msg: RelayLimitFeatureMsg | null): LimitFe
   if (msg.lockState === 2) return { text: "깨짐", tone: "fg" };
   return null;
 }
+
