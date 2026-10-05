@@ -32,7 +32,7 @@ Phase: 28 (상한가 특징 연동 — gh-trade Phase 27 계약 반영) — EXEC
 Plan: 16 of 16
 Status: Phase complete — ready for verification
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-10-05 — Phase 28 execution started
+Last activity: 2026-10-05 - Completed quick task 261005-vk1: 상한가 보고서 리스트 펼침·사건 차트 가독성(스케치 011-A) + AI 애널리스트 분석 하위 이동
 
 Progress: [█████████░] 93%
 
@@ -579,6 +579,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 261005-vk1 | **상한가 보고서 리스트 펼침 · 사건 차트 가독성(스케치 011-A) + AI 애널리스트 분석 하위** — 상한가 미도달 종목 제외(캡션 한 줄) · KPI 4칸(상한가 도달·종가까지 유지·깨짐·어제 D+1) · 하루 격자→종목 리스트 아코디언(한 번에 하나) · 한 줄 요약 · 번호 마커↔사실 문장(호버 상호 강조) · 기준선 탐지율만(25% 제거) · 「상한가 직전 1분」/「깨짐 직전 1분」 창 음영·용어 · 직전 1분 매수 1위를 member_entry_buy 사실에서 · 사이드바 AI 애널리스트 분석 하위(트레이딩 권한자만, 레일 아이콘). typecheck 0 · vitest 3530/1 skip · e2e 3 spec 통과. 미배포(push 대기) | 2026-10-05 | e76c7d1c | [261005-vk1-011-a-ai](./quick/261005-vk1-011-a-ai/) |
 | 260928-nf6 | **discussion-sync 사전 예산 판정 과대 추정 수정** — 필요량을 104종목×백필 30페이지=3,120 으로 잡아 하루 사용량 ~1,880 이후 KST 자정까지 매 정각 skip(최근 30일 265회, 평일 오후 수집 공백). 남은 예산 < 종목 수×1 일 때만 skip, 상한은 기존 요청 단위 원자적 하드캡. 판정 근거 필드 로그. 회귀 4케이스(재현 1986 실행 · 부족 skip · 경계 · 하드캡) · 86 passed | 2026-09-28 | 80df4f59 | [260928-nf6-discussion-sync](./quick/260928-nf6-discussion-sync/) |
 | 260927-u9t | **크롤링 워커 소스 실패 알림** — theme-sync·discussion-sync 가 소스 실패에도 exit 0 이라 무음(09-11~27 네이버 테마 0개, 09-27 Bright Data 401 10시간). 로그 매치 알림 정책 2개(gh-radar-theme-sync-source-failure · gh-radar-discussion-sync-source-failure, jsonPayload.level>=50 + backoff/fatal, 시간당 1통) + pino Cloud Logging severity 매핑 + 배포 스크립트 update-or-create. 30일 로그 재생 오탐 0. 두 잡 :90060c93 배포. 선행 fix 8d88d1e0 = 네이버 테마 소스를 m.stock.naver.com JSON API 로 전환 | 2026-09-27 | 90060c93 | [260927-u9t-theme-sync-discussion-sync](./quick/260927-u9t-theme-sync-discussion-sync/) |
 | 260925-gy6 | **라이트 선택·활성 = 스케치 003-A(브랜치 theme/toss-b · 미병합)** — 라이트 `--pill-on-*` 검정 → blue50 #e8f3ff/blue600 #1b64da(알약 9곳 자동) · `--side-bg` 흰색 · 새 토큰 5개(`--nav-on-bg/fg/line` · `--spec-dot-bg/ring`, 다크 값 = 종전 렌더 색) → 사이드바 활성 · 종목상세 탭 선택(글자 blue600 · 밑줄 blue500) · 내 테마 칩 · 스펙트럼 현재가 점. 세그먼트 선택색은 Phase 20 D-02 로 제외. 다크 무변경(가드 테스트). typecheck 0 · webapp 1748/1 skip · 라이트 갤러리 3화면×6폭 넘침 0 | 2026-09-25 | — | [260925-gy6-sketch-003-a-blue50-blue600](./quick/260925-gy6-sketch-003-a-blue50-blue600/) |
