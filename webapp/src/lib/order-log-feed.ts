@@ -27,6 +27,7 @@
  *   「매수」 합집합 값이 없고, 수동 · VI 주문도 배지 색대로 들어가야 배지가 빨간데 「매수」 에서 빠지는 일이 없다.
  *   단 「자동매도」 는 group 9 이고 「매도」 는 매도 색에서 group 9 를 뺀다 — 자동매도 줄도 매도 색이라 두 칩이 겹치지
  *   않게(Phase 27 D-14). 창 분리 URL 로는 기존 kind 값으로 옮긴다(`sideFilterKind`). 요약 줄은 kind 로만 센다.
+ *   「시세」 는 색이 아니라 kind(`isMarketStrategyEvent`)다 — kind 15 상한가 특징(tone "feature")도 시세다(Phase 28 Pitfall 4).
  */
 
 import { compareStrategyEventAsc, isMarketStrategyEvent, strategyEventKey, strategyEventParts } from '@gh-radar/shared';
@@ -174,6 +175,9 @@ export function matchesSide(row: StrategyEventRow, side: OrderLogSideFilter): bo
   if (side === 'all') return true;
   if (side === 'auto') return matchesKind(row, 'auto');
   if (side === 'sell' && matchesKind(row, 'auto')) return false;
+  // 「시세」 는 tone 이 아니라 kind 로 판정한다(Phase 28 Pitfall 4) — kind 15 상한가 특징은 tone "feature" 라
+  // 색 축으로 거르면 시세에서 빠진다. 분류(시세 여부)와 색(tone)을 분리한다.
+  if (side === 'market') return isMarketStrategyEvent(row.kind);
   return strategyEventParts(row, 'log').tone === side;
 }
 

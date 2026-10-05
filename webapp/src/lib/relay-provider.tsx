@@ -360,6 +360,9 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   // Provider 밖에는 소켓이 없다 — 전략 이벤트 푸시도 없다(Phase 25).
   strategyEvents: EMPTY_STRATEGY_EVENTS,
   strategyEventsBatch: EMPTY_STRATEGY_EVENTS_BATCH,
+  // kind 15 별도 목록도 비어 있다(Phase 28 D-18) — 빈 고정 참조를 같이 쓴다.
+  limitFeatureEvents: EMPTY_STRATEGY_EVENTS,
+  limitFeatureEventsBatch: EMPTY_STRATEGY_EVENTS_BATCH,
   // Provider 밖에는 소켓이 없다 — 진행률 푸시도 없다(25-06 · D-11 없으면 보조행 없음).
   queueProgress: EMPTY_QUEUE_PROGRESS,
   messages: [],

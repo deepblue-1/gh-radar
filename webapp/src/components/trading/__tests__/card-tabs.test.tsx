@@ -464,6 +464,8 @@ describe('CardTabs — 주문로그 버튼 + 팝업 (quick-260930-lq5)', () => {
       latestPush: null,
       date: '2026-09-29',
       isToday: true,
+      showLimitFeature: false,
+      setShowLimitFeature: vi.fn(),
       ...over,
     };
   }

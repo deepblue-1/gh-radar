@@ -144,6 +144,11 @@ export interface TradingPanelsPref {
    * (quick-260925-ptw). 이미 떠 있는 카드는 자기 값을 유지한다.
    */
   cardTabsFolded?: boolean;
+  /**
+   * 주문로그 「상한가 특징」 체크(Phase 28 D-07 · D-18) — 세 주문로그 표면(공용 패널 · 카드 주문로그 팝업 ·
+   * 창 분리 `/trading/order-log`)이 같은 값을 공유한다. 기본 꺼짐(kind 15 줄 숨김).
+   */
+  orderLogLimitFeature?: boolean;
 }
 
 export function readPanelsPref(): TradingPanelsPref {
@@ -159,6 +164,7 @@ export function readPanelsPref(): TradingPanelsPref {
     if (isSharedPanelTab(p.sharedTab)) out.sharedTab = p.sharedTab;
     if (typeof p.sharedFolded === "boolean") out.sharedFolded = p.sharedFolded;
     if (typeof p.cardTabsFolded === "boolean") out.cardTabsFolded = p.cardTabsFolded;
+    if (typeof p.orderLogLimitFeature === "boolean") out.orderLogLimitFeature = p.orderLogLimitFeature;
     return out;
   } catch {
     return {};

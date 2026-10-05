@@ -52,6 +52,7 @@ import type {
 } from '@gh-radar/shared';
 import {
   MAX_JOURNAL_ROWS,
+  MAX_LIMIT_FEATURE_EVENTS,
   MAX_STRATEGY_EVENTS,
   RELAY_MARKET_BATCH_MS,
   RELAY_MARKET_BUFFER_MAX,
@@ -65,7 +66,7 @@ import {
   type RelayConnectionState,
 } from '../use-relay-socket';
 import { useRelayContext } from '../relay-provider';
-import { STRATEGY_DAY_BY_NAME, kstMs } from '@/test-fixtures/strategy-day';
+import { STRATEGY_DAY_BY_NAME, STRATEGY_LIMIT_FEATURE_BY_NAME, kstMs } from '@/test-fixtures/strategy-day';
 
 const ISIN_A = 'KR7005930003';
 /** 로그에 **새면 안 되는** 값. 계좌번호가 콘솔에 찍히는지 단언에 쓴다(T-16-18). */
@@ -3141,6 +3142,99 @@ describe('journal.events (Phase 25)', () => {
     });
     expect(hook.result.current.strategyEvents).toEqual([]);
     expect(hook.result.current.strategyEventsBatch).toEqual({ seq: 0, rows: [] });
+  });
+});
+
+describe('journal.events kind 15 별도 스토어 (Phase 28 D-18 · Pitfall 3)', () => {
+  const buy = STRATEGY_DAY_BY_NAME.buy12451!;
+  const exposed = STRATEGY_DAY_BY_NAME.exposed!;
+  const lf43 = STRATEGY_LIMIT_FEATURE_BY_NAME.lfLocked43!;
+  const lf103 = STRATEGY_LIMIT_FEATURE_BY_NAME.lfLocked103!;
+
+  it('kind 15 두 행 + 주문 한 행 → strategyEvents 에 주문 행만 · limitFeatureEvents 에 kind 15 두 행 · 각 batch 도 갈린다', async () => {
+    const hook = render({ enabled: true });
+    expect(hook.result.current.limitFeatureEvents).toEqual([]);
+    expect(hook.result.current.limitFeatureEventsBatch).toEqual({ seq: 0, rows: [] });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: [lf43, buy, lf103] });
+    });
+    expect(hook.result.current.strategyEvents).toEqual([buy]);
+    expect(hook.result.current.strategyEventsBatch).toEqual({ seq: 1, rows: [buy] });
+    expect(hook.result.current.limitFeatureEvents).toEqual([lf43, lf103]);
+    expect(hook.result.current.limitFeatureEventsBatch).toEqual({ seq: 1, rows: [lf43, lf103] });
+    expect(hook.result.current.strategyEventsBatch.rows.some((r) => r.kind === 15)).toBe(false);
+  });
+
+  it('kind 15 만 온 프레임은 strategyEvents · strategyEventsBatch 참조를 바꾸지 않는다(반대도 같다)', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: [buy] });
+    });
+    const events = hook.result.current.strategyEvents;
+    const batch = hook.result.current.strategyEventsBatch;
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: [lf43] });
+    });
+    expect(hook.result.current.strategyEvents).toBe(events);
+    expect(hook.result.current.strategyEventsBatch).toBe(batch);
+    const lfEvents = hook.result.current.limitFeatureEvents;
+    const lfBatch = hook.result.current.limitFeatureEventsBatch;
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: [exposed] });
+    });
+    expect(hook.result.current.limitFeatureEvents).toBe(lfEvents);
+    expect(hook.result.current.limitFeatureEventsBatch).toBe(lfBatch);
+  });
+
+  it('strategyEvents 4,999 행 + kind 15 1,000 행 → 주문 이벤트가 하나도 버려지지 않는다', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    const base = kstMs('2026-09-29', '08:00:00.000');
+    const orders = Array.from({ length: 4_999 }, (_, i) => ({ ...exposed, seq: i + 10, gwTimeMs: base + i }));
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: orders });
+    });
+    const features = Array.from({ length: 1_000 }, (_, i) => ({ ...lf43, seq: 100_000 + i, gwTimeMs: base + 10_000 + i }));
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: features });
+    });
+    expect(hook.result.current.strategyEvents).toHaveLength(4_999);
+    expect(hook.result.current.strategyEvents[0]?.seq).toBe(10);
+    expect(hook.result.current.limitFeatureEvents).toHaveLength(1_000);
+  });
+
+  it(`limitFeatureEvents 상한 ${MAX_LIMIT_FEATURE_EVENTS} — 넘으면 오래된 것부터 버린다`, async () => {
+    expect(MAX_LIMIT_FEATURE_EVENTS).toBe(5000);
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    const base = kstMs('2026-09-29', '09:00:00.000');
+    const many = Array.from({ length: MAX_LIMIT_FEATURE_EVENTS }, (_, i) => ({ ...lf43, seq: i + 10, gwTimeMs: base + i }));
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: many });
+    });
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: [{ ...lf43, seq: 1_000_000, gwTimeMs: base + MAX_LIMIT_FEATURE_EVENTS }] });
+    });
+    const rows = hook.result.current.limitFeatureEvents;
+    expect(rows).toHaveLength(MAX_LIMIT_FEATURE_EVENTS);
+    expect(rows[0]?.seq).toBe(11);
+    expect(rows[rows.length - 1]?.seq).toBe(1_000_000);
+  });
+
+  it('로그아웃(reset) 뒤 limitFeatureEvents · batch 도 비워진다', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: [lf43] });
+    });
+    expect(hook.result.current.limitFeatureEvents).toHaveLength(1);
+    await act(async () => {
+      hook.rerender({ enabled: false });
+    });
+    expect(hook.result.current.limitFeatureEvents).toEqual([]);
+    expect(hook.result.current.limitFeatureEventsBatch).toEqual({ seq: 0, rows: [] });
   });
 });
 

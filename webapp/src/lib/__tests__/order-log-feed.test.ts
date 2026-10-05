@@ -27,6 +27,7 @@ import {
   STRATEGY_BRANCH_ROWS,
   STRATEGY_DAY_BY_NAME,
   STRATEGY_DAY_ROWS,
+  STRATEGY_LIMIT_FEATURE_ROWS,
 } from '@/test-fixtures/strategy-day';
 
 /**
@@ -376,5 +377,27 @@ describe('Phase 27 자동매도 필터 (D-14 · 정보성 반영 Q5 · Q8)', () 
   it('sideFilterKind — 자동매도 → auto · 매도 → sell', () => {
     expect(sideFilterKind('auto')).toBe('auto');
     expect(sideFilterKind('sell')).toBe('sell');
+  });
+});
+
+describe('Phase 28 kind 15 상한가 특징 — 시세 = kind (D-07 · Pitfall 4)', () => {
+  it('matchesSide(kind 15, market) 참 · buy/sell/auto 거짓 · all 참 — tone "feature" 가 시세에서 빠지지 않는다', () => {
+    expect(STRATEGY_LIMIT_FEATURE_ROWS.length).toBeGreaterThan(0);
+    for (const r of STRATEGY_LIMIT_FEATURE_ROWS) {
+      expect(r.kind).toBe(15);
+      expect(matchesSide(r, 'market')).toBe(true);
+      expect(matchesSide(r, 'all')).toBe(true);
+      for (const s of ['buy', 'sell', 'auto'] as const) expect(matchesSide(r, s)).toBe(false);
+    }
+  });
+
+  it('matchesKind(kind 15, market) 참 · 다른 구분 값은 거짓', () => {
+    for (const r of STRATEGY_LIMIT_FEATURE_ROWS) {
+      expect(matchesKind(r, 'market')).toBe(true);
+      expect(matchesKind(r, 'all')).toBe(true);
+      for (const k of ORDER_LOG_KIND_FILTERS.map((f) => f.value).filter((v) => v !== 'all' && v !== 'market')) {
+        expect(matchesKind(r, k)).toBe(false);
+      }
+    }
   });
 });

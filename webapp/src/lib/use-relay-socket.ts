@@ -65,6 +65,7 @@ import {
 import {
   RELAY_STATE_LABELS,
   RELAY_WS_CLOSE,
+  STRATEGY_EVENT_KIND,
   compareStrategyEventAsc,
   strategyEventKey,
   type JournalOrderRow,
@@ -147,6 +148,14 @@ export const MAX_JOURNAL_ROWS = 2000;
  * 버린다(화면은 REST 조회가 오늘분을 다시 준다 · 25-03).
  */
 export const MAX_STRATEGY_EVENTS = 5000;
+/**
+ * 상한가 특징(kind 15 `LimitFeature`) 보관 상한 (Phase 28 D-18 · RESEARCH Pitfall 3).
+ *
+ * kind 15 는 분당 · 키당 1행이라 장중 분당 수십 행 · 하루 수천~1만 행이 된다. 주문 이벤트와 같은 목록
+ * (`MAX_STRATEGY_EVENTS`)에 넣으면 당일 푸시로만 받은 주문 이벤트가 밀려 잘린다 — 그래서 **별도 목록**에
+ * 따로 상한을 둔다. 넘으면 오래된 것부터 버린다(체크를 켤 때 REST `?lf=1` 이 그날 분량을 다시 준다).
+ */
+export const MAX_LIMIT_FEATURE_EVENTS = 5000;
 /** VI 발동 통지 누적 상한. 표시·이력용이라 오래된 건은 버린다. */
 const MAX_VI_NOTICES = 50;
 /**
@@ -456,6 +465,15 @@ export interface RelayConnectionState {
    */
   strategyEventsBatch: { seq: number; rows: StrategyEventRow[] };
   /**
+   * 상한가 특징(kind 15) 이벤트 — `journal.events` 중 kind 15 만 따로 보관한다 (Phase 28 D-18 · Pitfall 3).
+   *
+   * `strategyEvents` 와 같은 키 · 정렬 규칙이고 상한만 `MAX_LIMIT_FEATURE_EVENTS` 다. 주문로그는 「상한가 특징」
+   * 체크가 켜졌을 때만 이것을 목록에 섞는다(D-07). 비우는 것은 `reset` 뿐이다.
+   */
+  limitFeatureEvents: StrategyEventRow[];
+  /** `strategyEventsBatch` 의 kind 15 짝 — 체크가 켜졌을 때만 새 줄 강조 · 배지 원천이 된다. */
+  limitFeatureEventsBatch: { seq: number; rows: StrategyEventRow[] };
+  /**
    * 미체결 잔량진행률 (`{t:"unf.progress"}` · Phase 25-06) — 키 `relayQuoteKey(isin, exchange)` → 그
    * (종목, 거래소)의 대기 주문 진행률 전량.
    *
@@ -715,6 +733,8 @@ interface RelayData {
   subLimit: RelaySubLimitMsg | null;
   strategyEvents: StrategyEventRow[];
   strategyEventsBatch: { seq: number; rows: StrategyEventRow[] };
+  limitFeatureEvents: StrategyEventRow[];
+  limitFeatureEventsBatch: { seq: number; rows: StrategyEventRow[] };
   queueProgress: ReadonlyMap<string, readonly RelayQueueProgressItem[]>;
   messages: RelayServerMessageEntry[];
   isStale: boolean;
@@ -761,6 +781,9 @@ const INITIAL_DATA: RelayData = {
   // 로그아웃(reset) 이 비운다 — 다음 사용자가 이전 사용자의 주문 이벤트를 보지 않는다(Phase 25).
   strategyEvents: [],
   strategyEventsBatch: { seq: 0, rows: [] },
+  // kind 15 별도 목록(D-18) — reset 이 같이 비운다.
+  limitFeatureEvents: [],
+  limitFeatureEventsBatch: { seq: 0, rows: [] },
   // 로그아웃(reset) 이 비운다 — 다음 사용자가 이전 사용자의 대기 주문 진행률을 보지 않는다(25-06).
   queueProgress: new Map(),
   messages: [],
@@ -951,13 +974,30 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
       return { ...state, subLimit: frame };
 
     case "journal.events": {
-      // 삽입이 없으면(전부 이미 있는 키) 같은 state — 목록 memo 가 헛돌지 않게.
-      const { next, inserted } = upsertStrategyEvents(state.strategyEvents, frame.rows);
-      if (inserted.length === 0) return state;
+      // kind 15(상한가 특징)는 별도 목록으로 가른다(Phase 28 D-18 · Pitfall 3) — 분당 수십 행이 주문 이벤트
+      // 상한을 먹지 않게. 삽입이 없는 쪽은 그 필드를 바꾸지 않고, 둘 다 없으면 같은 state(목록 memo 헛돎 방지).
+      const orderRows: StrategyEventRow[] = [];
+      const featureRows: StrategyEventRow[] = [];
+      for (const row of frame.rows) {
+        (row.kind === STRATEGY_EVENT_KIND.LimitFeature ? featureRows : orderRows).push(row);
+      }
+      const ev = upsertStrategyEvents(state.strategyEvents, orderRows);
+      const lf = upsertStrategyEvents(state.limitFeatureEvents, featureRows, MAX_LIMIT_FEATURE_EVENTS);
+      if (ev.inserted.length === 0 && lf.inserted.length === 0) return state;
       return {
         ...state,
-        strategyEvents: next,
-        strategyEventsBatch: { seq: state.strategyEventsBatch.seq + 1, rows: inserted },
+        ...(ev.inserted.length > 0
+          ? {
+              strategyEvents: ev.next,
+              strategyEventsBatch: { seq: state.strategyEventsBatch.seq + 1, rows: ev.inserted },
+            }
+          : null),
+        ...(lf.inserted.length > 0
+          ? {
+              limitFeatureEvents: lf.next,
+              limitFeatureEventsBatch: { seq: state.limitFeatureEventsBatch.seq + 1, rows: lf.inserted },
+            }
+          : null),
       };
     }
 
@@ -1168,11 +1208,13 @@ export function upsertJournalRows(
  * ★ 키 `strategyEventKey`(`gateway|journalEpoch|seq`) 기준 **삽입 전용** — 이벤트는 불변 원문이라 이미 있는 키는
  *   건너뛴다(재접속 · REST 복원과 겹친 재수신). 한 프레임 안의 같은 키도 첫 건만 남는다.
  * ★ 삽입이 0 이면 `next` 는 **입력 배열 참조 그대로**다.
- * ★ 정렬은 `compareStrategyEventAsc`(오름차순 — 새 로그는 아래), 상한을 넘으면 앞(가장 오래된 것)부터 버린다.
+ * ★ 정렬은 `compareStrategyEventAsc`(오름차순 — 새 로그는 아래), 상한(`limit` · 기본 `MAX_STRATEGY_EVENTS`)을
+ *   넘으면 앞(가장 오래된 것)부터 버린다. kind 15 목록은 `MAX_LIMIT_FEATURE_EVENTS` 로 부른다(Phase 28 D-18).
  */
 export function upsertStrategyEvents(
   prev: readonly StrategyEventRow[],
   incoming: readonly StrategyEventRow[],
+  limit: number = MAX_STRATEGY_EVENTS,
 ): { next: StrategyEventRow[]; inserted: StrategyEventRow[] } {
   let keys: Set<string> | null = null;
   const inserted: StrategyEventRow[] = [];
@@ -1186,7 +1228,7 @@ export function upsertStrategyEvents(
   }
   if (inserted.length === 0) return { next: prev as StrategyEventRow[], inserted };
   const merged = [...prev, ...inserted].sort(compareStrategyEventAsc);
-  const next = merged.length > MAX_STRATEGY_EVENTS ? merged.slice(merged.length - MAX_STRATEGY_EVENTS) : merged;
+  const next = merged.length > limit ? merged.slice(merged.length - limit) : merged;
   return { next, inserted };
 }
 
@@ -2178,6 +2220,8 @@ export function useRelayConnection({
       subLimit: data.subLimit,
       strategyEvents: data.strategyEvents,
       strategyEventsBatch: data.strategyEventsBatch,
+      limitFeatureEvents: data.limitFeatureEvents,
+      limitFeatureEventsBatch: data.limitFeatureEventsBatch,
       queueProgress: data.queueProgress,
       messages: data.messages,
       isStale: data.isStale,
