@@ -4,14 +4,14 @@ milestone: v1.0
 current_phase: 23
 current_phase_name: GH Trade Play 스토어 내부 테스트 배포 (개발자 인증 후)
 status: planning
-stopped_at: Phase 18·19·20 complete (2026-10-03) — 남은 미완료는 Phase 23 (Play 개발자 인증 대기)
-last_updated: "2026-10-04T02:12:41.346Z"
+stopped_at: Phase 27 context gathered (2026-10-05)
+last_updated: "2026-10-05T02:32:20.746Z"
 last_activity: 2026-10-03
 last_activity_desc: Phase 18·19·20 완료 처리 (재검증 R5/R3 · 19 첫 검증 · 19-13 실장 대조)
-state_head: 8c183e4b9b44d8fa47a0b4972123c8fa819d9650
+state_head: bac316008b2e37291ead2c469f1b612dbe393b0d
 progress:
-  total_phases: 35
-  completed_phases: 6
+  total_phases: 36
+  completed_phases: 4
   total_plans: 352
   completed_plans: 337
 milestone_name: milestone
@@ -579,10 +579,10 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 ## Session Continuity
 
-**Resume file:** None
+**Resume file:** .planning/phases/27-auto-sell-integration/27-CONTEXT.md
 
-Last session: 2026-10-01T03:30:00Z
-Stopped at: Phase 19 complete, ready to plan Phase 20
+Last session: 2026-10-05T02:32:19.083Z
+Stopped at: Phase 27 context gathered (2026-10-05)
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
