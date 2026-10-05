@@ -33,6 +33,8 @@ vi.mock('@/lib/supabase/client', () => ({
 const fetchReportMock = vi.fn();
 vi.mock('@/lib/limitup-api', () => ({
   fetchLimitupReport: (d?: string) => fetchReportMock(d),
+  // 28-13 사건 카드가 격자 서명 URL 을 부른다 — 이 파일은 머리 · KPI · 격자만 보므로 응답하지 않는다(레인 「불러오는 중…」).
+  fetchLimitupGridUrls: () => new Promise(() => {}),
 }));
 
 import { ApiClientError } from '@/lib/api';

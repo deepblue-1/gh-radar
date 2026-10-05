@@ -3,7 +3,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-import type { LimitupDate, LimitupReportResponse } from '@gh-radar/shared';
+import type {
+  LimitupDate,
+  LimitupEntryRow,
+  LimitupFactRow,
+  LimitupMarkRow,
+  LimitupReportResponse,
+} from '@gh-radar/shared';
 
 import { PageHeader } from '@/components/layout/page-header';
 import { CARD } from '@/components/layout/page-layout';
@@ -16,10 +22,15 @@ import { cn } from '@/lib/utils';
 
 import { LimitupDateNav } from './limitup-date-nav';
 import { LimitupDayGrid } from './limitup-day-grid';
+import { LimitupEventCard } from './limitup-event-card';
+import { LimitupFingerprintTable } from './limitup-fingerprint-table';
 import { LimitupKpiStrip } from './limitup-kpi-strip';
+import { LimitupYesterdayTable } from './limitup-yesterday-table';
 
 /**
- * 상한가 보고서 본문 (Phase 28 Plan 12 · UI-SPEC ④-0 ~ ④-3 · D-10 · D-11).
+ * 상한가 보고서 본문 (Phase 28 Plan 12 · 13 · UI-SPEC ④-0 ~ ④-6 · D-10 · D-11).
+ *
+ * 세로 순서(gh-trade D-20 고정): 머리 → KPI → 하루 격자 → 사건 카드(격자 행 순서대로 종목마다 1장) → 창구 지문표 → 어제 결과.
  *
  * ① URL 정본 = `?d=YYYYMMDD`. 쿼리 없음 = 최신 적재 날짜(URL 을 쓰지 않는다 — server 가 최신을 정한다).
  *   형식 오류 → `router.replace("/analytics/limitup")` 로 정본화(최신). 날짜 이동은 `router.push`(히스토리에 남는다 — 재량 행사).
@@ -98,6 +109,7 @@ export function LimitupReport() {
   const loaded = resp !== null && resp.loaded ? resp : null;
   const kpis = useMemo(() => (loaded ? kpisOf(loaded) : null), [loaded]);
   const rows = useMemo(() => (loaded ? dayRowsOf(loaded) : null), [loaded]);
+  const byIsin = useMemo(() => (loaded ? groupDay(loaded.day) : null), [loaded]);
 
   const gateReason = gate ?? (phase.kind === 'gate' ? phase.reason : null);
   if (gateReason !== null) {
@@ -152,11 +164,41 @@ export function LimitupReport() {
         <>
           <LimitupKpiStrip kpis={kpis} />
           <LimitupDayGrid rows={rows} />
-          {/* 28-13: 사건 카드(격자 행 순서 · `#ev-{isin}`) → 창구 지문표 → 어제 결과 가 이 아래에 선다. */}
+          {loaded !== null &&
+            byIsin !== null &&
+            rows.map((r) => (
+              <LimitupEventCard
+                key={`${loaded.date}-${r.isin}`}
+                date={loaded.date}
+                row={r}
+                entry={byIsin.entries.get(r.isin) ?? null}
+                facts={byIsin.facts.get(r.isin) ?? NONE_FACTS}
+                marks={byIsin.marks.get(r.isin) ?? NONE_MARKS}
+              />
+            ))}
+          {loaded !== null && <LimitupFingerprintTable rows={loaded.fingerprint} />}
+          {loaded !== null && <LimitupYesterdayTable prev={loaded.prev} />}
         </>
       )}
     </div>
   );
+}
+
+const NONE_FACTS: LimitupFactRow[] = [];
+const NONE_MARKS: LimitupMarkRow[] = [];
+
+/** 하루 묶음을 종목별로 — 사건 카드 입력(entries 1행 · facts · 레인 2 마커). */
+function groupDay(day: { entries: LimitupEntryRow[]; facts: LimitupFactRow[]; marks: LimitupMarkRow[] }) {
+  const push = <T,>(m: Map<string, T[]>, k: string, v: T) => {
+    const list = m.get(k);
+    if (list) list.push(v);
+    else m.set(k, [v]);
+  };
+  const facts = new Map<string, LimitupFactRow[]>();
+  for (const f of day.facts) push(facts, f.isin, f);
+  const marks = new Map<string, LimitupMarkRow[]>();
+  for (const m of day.marks) push(marks, m.isin, m);
+  return { entries: new Map(day.entries.map((e) => [e.isin, e])), facts, marks };
 }
 
 function EmptyBox({ title, body, children }: { title: string; body: string; children?: ReactNode }) {

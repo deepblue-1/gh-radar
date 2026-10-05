@@ -19,8 +19,10 @@ import {
   fingerprintRowsOf,
   fmtSpan,
   gridSeries,
+  estimateLabelWidth,
   laneEntryOf,
   laneLockOf,
+  layoutLaneLabels,
   lockTagsOf,
   memberBarsOf,
   yesterdayRowsOf,
@@ -400,5 +402,47 @@ describe('yesterdayRowsOf — 이전 적재 날짜 locks 를 종목마다 한 �
       ['덕우전자', '5,730', '5,640', '−1.6%', 'down'],
       ['000030', '1,000', '—', '—', 'fg'],
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 오버레이 글자 배치 (E8 overflow backstop)
+// ---------------------------------------------------------------------------
+
+describe('layoutLaneLabels — 14px 줄 칸에 겹치지 않게', () => {
+  const overlaps = (a: { left: number; top: number; width: number }, b: typeof a) =>
+    a.top === b.top && a.left < b.left + b.width && b.left < a.left + a.width;
+
+  it('폰 폭(328px)에서 덕우전자 레인 2 라벨이 서로 겹치지 않고 레인 안에 있다', () => {
+    const lane = laneLockOf(gridOf(DUKWOO), locksOf(DUKWOO), marksOf(DUKWOO))!;
+    const items = [
+      ...lane.lines.map((l) => ({ id: l.kind, text: l.label, xPct: 0, yPct: l.y, align: 'start' as const })),
+      ...lane.marks
+        .filter((m) => m.label !== null)
+        .map((m, i) => ({ id: `m${i}`, text: m.label!, xPct: m.x, yPct: m.y, align: 'auto' as const })),
+    ];
+    const placed = layoutLaneLabels(items, 328, 120);
+    expect(placed.length).toBe(items.length); // 다섯 개 다 들어간다
+    for (const p of placed) {
+      expect(p.left).toBeGreaterThanOrEqual(0);
+      expect(p.left + p.width).toBeLessThanOrEqual(328);
+      expect(p.top + 14).toBeLessThanOrEqual(120);
+    }
+    for (let i = 0; i < placed.length; i += 1)
+      for (let j = i + 1; j < placed.length; j += 1) expect(overlaps(placed[i]!, placed[j]!)).toBe(false);
+  });
+
+  it('줄이 모자라면 뒤 항목을 버린다(title 로만 남는다) · 폭보다 긴 글자도 버린다', () => {
+    const items = Array.from({ length: 6 }, (_, i) => ({
+      id: String(i), text: '깨짐 09:06:12', xPct: 50, yPct: 50, align: 'auto' as const,
+    }));
+    const placed = layoutLaneLabels(items, 100, 28); // 2줄 · 한 줄에 하나
+    expect(placed.map((p) => p.id)).toEqual(['0', '1']);
+    expect(layoutLaneLabels([{ id: 'x', text: '아주 긴 글자 라벨', xPct: 0, yPct: 0, align: 'start' }], 40, 120)).toEqual([]);
+  });
+
+  it('estimateLabelWidth — 한글 11px · 숫자 6.6px 어림', () => {
+    expect(estimateLabelWidth('깨짐')).toBe(24);
+    expect(estimateLabelWidth('10')).toBe(16);
   });
 });

@@ -244,6 +244,35 @@ export function anchorMsOf(
   return starts.length > 0 ? Math.min(...starts) : null;
 }
 
+export interface LaneWindow {
+  lo: number;
+  hi: number;
+  /** 「09:00~09:07」 — 캡션 조각(격자 파일 없이도 계산된다 — 로딩 중 캡션). */
+  range: string;
+}
+
+/** 레인 1 창 [a − 600, a + 60] ∩ 장중 — 기준 시각이 없으면 null. */
+export function entryWindowOf(
+  entry: LimitupEntryRow | null,
+  locks: readonly Pick<LimitupLockRow, 'start_ms'>[],
+): (LaneWindow & { anchorSec: number }) | null {
+  const anchor = anchorMsOf(entry, locks);
+  if (anchor == null) return null;
+  const a = kstSecOf(anchor);
+  const [lo, hi] = clip(a - ENTRY_WINDOW_S, a + MEMBER_WINDOW_S);
+  return { lo, hi, range: `${hhmm(lo)}~${hhmm(hi)}`, anchorSec: a };
+}
+
+/** 레인 2 창 [첫 잠김 시작 − 120, 마지막 잠김 끝(장 끝까지면 15:30) + 60] ∩ 장중 — 잠김이 없으면 null. */
+export function lockWindowOf(locks: readonly Pick<LimitupLockRow, 'start_ms' | 'end_ms'>[]): LaneWindow | null {
+  const lk = locks.filter((l) => l.start_ms != null);
+  if (lk.length === 0) return null;
+  const starts = lk.map((l) => kstSecOf(l.start_ms!));
+  const ends = lk.map((l) => (l.end_ms != null ? kstSecOf(l.end_ms) : SECS_END));
+  const [lo, hi] = clip(Math.min(...starts) - LOCK_LEAD_S, Math.max(...ends) + MEMBER_WINDOW_S);
+  return { lo, hi, range: `${hhmm(lo)}~${hhmm(hi)}` };
+}
+
 export interface LaneEntry {
   kind: 'entry';
   loSec: number;
@@ -267,10 +296,9 @@ export function laneEntryOf(
   entry: LimitupEntryRow | null,
   locks: readonly LimitupLockRow[],
 ): LaneEntry | null {
-  const anchor = anchorMsOf(entry, locks);
-  if (anchor == null) return null;
-  const a = kstSecOf(anchor);
-  const [lo, hi] = clip(a - ENTRY_WINDOW_S, a + MEMBER_WINDOW_S);
+  const win = entryWindowOf(entry, locks);
+  if (win === null) return null;
+  const { lo, hi, anchorSec: a } = win;
   const x = (s: number) => xOf(s, lo, hi);
 
   const price = gridSeries(grid, lo, hi, 'last_px');
@@ -322,7 +350,7 @@ export function laneEntryOf(
     });
   }
 
-  const range = `${hhmm(lo)}~${hhmm(hi)}`;
+  const range = win.range;
   const firstUpperText = fu != null ? `첫 상한가 체결 ${kstClock(fu)}` : '상한가 체결 없음';
   return {
     kind: 'entry',
@@ -363,12 +391,13 @@ export function laneLockOf(
   locks: readonly LimitupLockRow[],
   marks: readonly LimitupMarkRow[],
 ): LaneLock | null {
+  const win = lockWindowOf(locks);
+  if (win === null) return null;
+  const { lo, hi } = win;
   const lk = locks.filter((l) => l.start_ms != null).sort((p, q) => p.lock_id - q.lock_id);
-  if (lk.length === 0) return null;
   const starts = lk.map((l) => kstSecOf(l.start_ms!));
   // 장 끝까지 잠김(end_ms null) = 15:30.
   const ends = lk.map((l) => (l.end_ms != null ? kstSecOf(l.end_ms) : SECS_END));
-  const [lo, hi] = clip(Math.min(...starts) - LOCK_LEAD_S, Math.max(...ends) + MEMBER_WINDOW_S);
   const x = (s: number) => xOf(s, lo, hi);
 
   const q = gridSeries(grid, lo, hi, 'q_krw');
@@ -455,7 +484,7 @@ export function laneLockOf(
     kind: 'lock',
     loSec: lo,
     hiSec: hi,
-    range: `${hhmm(lo)}~${hhmm(hi)}`,
+    range: win.range,
     path: pathOf(q, x, y),
     shades,
     lines: [{ kind: 'base', y: y(LANE_BASELINE_KRW), label: '기준 10억' }],
@@ -670,4 +699,81 @@ export function yesterdayRowsOf(
       };
     });
   return { date: fmtYmdShort(prev.date), rows };
+}
+
+// ---------------------------------------------------------------------------
+// 레인 오버레이 글자 배치 (UI-SPEC E8 overflow — 폰 360px 에서 라벨이 겹치지 않는다)
+// ---------------------------------------------------------------------------
+
+export interface LaneLabelItem {
+  id: string;
+  text: string;
+  /** 붙을 자리(0~100 %). */
+  xPct: number;
+  yPct: number;
+  /** start = 자리 오른쪽으로 · end = 자리 왼쪽으로 · auto = 왼쪽 절반이면 start. */
+  align: 'start' | 'end' | 'auto';
+}
+
+export interface PlacedLaneLabel {
+  id: string;
+  left: number;
+  top: number;
+  width: number;
+}
+
+export const LANE_LABEL_ROW_H = 14;
+const LABEL_GAP = 4;
+const LABEL_OFFSET = 5;
+
+/** 11px 글자 폭 어림(px) — 한글 · 원숫자 1em, 좁은 문장부호 0.32em, 그 밖 0.6em. 실제보다 조금 넓게 잡는다. */
+export function estimateLabelWidth(text: string): number {
+  let w = 0;
+  for (const ch of text) {
+    const c = ch.codePointAt(0)!;
+    if ((c >= 0xac00 && c <= 0xd7a3) || (c >= 0x2460 && c <= 0x24ff) || c >= 0x3000) w += 11;
+    else if (' .,:;'.includes(ch)) w += 3.5;
+    else w += 6.6;
+  }
+  return Math.ceil(w) + 2;
+}
+
+/**
+ * 오버레이 글자를 14px 줄 칸에 하나씩 놓는다 — 붙을 자리 바로 위 줄을 먼저 보고, 겹치면 위 · 아래 줄로 번갈아 옮긴다.
+ * 어느 줄에도 들어가지 않는 글자는 버린다(그 마커는 `title` 로만 남는다). 앞에 둔 항목이 우선이다.
+ * 좌우는 레인 폭 안으로 민다. 반환 좌표는 px(레인 왼쪽 위 기준).
+ */
+export function layoutLaneLabels(
+  items: readonly LaneLabelItem[],
+  widthPx: number,
+  heightPx: number,
+): PlacedLaneLabel[] {
+  const rows = Math.max(1, Math.floor(heightPx / LANE_LABEL_ROW_H));
+  const taken: { left: number; right: number }[][] = Array.from({ length: rows }, () => []);
+  const out: PlacedLaneLabel[] = [];
+  for (const it of items) {
+    const w = estimateLabelWidth(it.text);
+    if (w > widthPx) continue;
+    const x = (it.xPct / 100) * widthPx;
+    const y = (it.yPct / 100) * heightPx;
+    const align = it.align === 'auto' ? (it.xPct < 50 ? 'start' : 'end') : it.align;
+    let left = align === 'start' ? x + (it.xPct <= 0 ? 0 : LABEL_OFFSET) : x - (it.xPct >= 100 ? 0 : LABEL_OFFSET) - w;
+    left = Math.min(Math.max(left, 0), widthPx - w);
+    // 자리 바로 위 줄 — 맨 위면 자리를 덮지 않게 아래 줄.
+    let pref = Math.floor((y - 2) / LANE_LABEL_ROW_H) - 1;
+    if (pref < 0) pref = Math.min(rows - 1, Math.floor((y + 4) / LANE_LABEL_ROW_H) + 1);
+    pref = Math.min(Math.max(pref, 0), rows - 1);
+    const order = [pref];
+    for (let d = 1; d < rows; d += 1) {
+      if (pref - d >= 0) order.push(pref - d);
+      if (pref + d < rows) order.push(pref + d);
+    }
+    const lo = left - LABEL_GAP;
+    const hi = left + w + LABEL_GAP;
+    const row = order.find((r) => taken[r]!.every((t) => hi <= t.left || lo >= t.right));
+    if (row === undefined) continue;
+    taken[row]!.push({ left, right: left + w });
+    out.push({ id: it.id, left: r2(left), top: row * LANE_LABEL_ROW_H, width: w });
+  }
+  return out;
 }
