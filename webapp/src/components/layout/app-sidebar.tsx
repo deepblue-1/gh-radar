@@ -109,8 +109,9 @@ const VI_TAG_ORDER: readonly RelayExchange[] = ["KRX", "NXT"];
  * 「분석」 그룹 제목 = `/analytics/limitup` 링크(Phase 28 D-09 — 레일에서도 아이콘으로 상한가 보고서에 들어간다).
  * 하위 = 상한가 보고서 · AI 애널리스트(`/chat` — 2026-10-05 사용자 결정 quick-261005-vk1 D-01: 트레이딩 권한자 전용 ·
  * 레일은 전용 아이콘). 노출은 트레이딩과 같은 `tradingVisible`(D-10 · DMA 연결 사용자만 — 숨김은 권한이 아니다, 위 ④).
- * 활성 = 경로가 `/analytics` 로 시작할 때 **제목만**(R-7 — 한 줄만 켠다, 위 ②) · `aria-current` 는 정확 일치일 때만.
- * `/chat` 은 `/analytics` 밖이라 제목이 켜지지 않으므로 「AI 애널리스트」 하위 항목이 스스로 켜진다(켜지는 줄은 여전히 하나).
+ * 활성 = **하위 항목**이 켠다 — `/analytics/limitup` 은 「상한가 보고서」, `/chat` 은 「AI 애널리스트」(2026-10-06 사용자 요청 —
+ * 하위가 둘이 되어 제목만 켜면 어느 화면인지 안 보인다). 한 줄만 켜는 R-7(위 ②)은 그대로라 펼친 상태에서 제목은 켜지 않는다.
+ * 레일은 하위 목록이 숨으므로 제목 아이콘이 `/analytics` 접두 일치로 켜진다(`rail` 값 기준 — 배지와 같은 한 박자 지연 수용).
  * 모바일 탭바에는 넣지 않는다 — 앱/좁은 화면은 드로어 사이드바로 들어간다.
  */
 const NAV_ANALYTICS: NavLeaf = { href: "/analytics/limitup", label: "분석", icon: ChartLine };
@@ -414,6 +415,7 @@ export function AppSidebar() {
   const rail = useSidebarCollapsed();
 
   const isActive = (href: string) => samePath(pathname, href);
+  const limitupActive = pathname.startsWith(NAV_LIMITUP_REPORT.href);
   // 거래소별 진실 — 가동(run === true)인 거래소만, KRX → NXT 순.
   const viRunning = VI_TAG_ORDER.filter((ex) => viTriggers[ex]?.run === true);
   /*
@@ -480,13 +482,14 @@ export function AppSidebar() {
               label={NAV_ANALYTICS.label}
               icon={NAV_ANALYTICS.icon}
               item={NAV_ANALYTICS}
-              active={pathname.startsWith("/analytics")}
-              ariaCurrent={isActive(NAV_ANALYTICS.href)}
+              active={rail && pathname.startsWith("/analytics")}
+              ariaCurrent={rail && isActive(NAV_ANALYTICS.href)}
               rail={rail}
             />
             {/*
-              하위 — 상한가 보고서는 제목이 대신 켜지므로 활성 표시가 없다(R-7). AI 애널리스트(/chat)는 「분석」 접두 밖이라
-              스스로 켜진다. 레일에서는 이 목록을 숨긴다(제목 아이콘 = 상한가 보고서 · 아래 레일 전용 아이콘 = /chat).
+              하위 — 각자 자기 경로에서 켜진다(R-7: 펼친 상태에서 켜지는 줄은 하나). 레일에서는 이 목록을 숨긴다
+              (제목 아이콘 = 상한가 보고서 · 아래 레일 전용 아이콘 = /chat) — 그래서 aria-current 도 레일에서는 내려놓는다
+              (숨은 하위와 보이는 아이콘이 둘 다 「지금 이 페이지」 라고 말하지 않게).
             */}
             <li className="rail:hidden">
               <ul className={SUB_LIST}>
@@ -495,9 +498,18 @@ export function AppSidebar() {
                     href={NAV_LIMITUP_REPORT.href}
                     data-nav-item
                     data-sidebar-item="limitup-report"
-                    className={cn(SUB_ITEM, LINK_IDLE)}
+                    aria-current={limitupActive && !rail ? "page" : undefined}
+                    className={cn(SUB_ITEM, limitupActive ? LINK_ACTIVE : LINK_IDLE)}
                   >
-                    <span className="min-w-0 flex-1 truncate text-[var(--fg)]">{NAV_LIMITUP_REPORT.label}</span>
+                    <span
+                      className={cn(
+                        "min-w-0 flex-1 truncate",
+                        // 활성일 때는 선택 글자색(--nav-on-fg)이 보이게 고정 --fg 를 걸지 않는다.
+                        !limitupActive && "text-[var(--fg)]",
+                      )}
+                    >
+                      {NAV_LIMITUP_REPORT.label}
+                    </span>
                   </Link>
                 </li>
                 <li>
@@ -505,7 +517,7 @@ export function AppSidebar() {
                     href={NAV_CHAT.href}
                     data-nav-item
                     data-sidebar-item="chat"
-                    aria-current={isActive(NAV_CHAT.href) ? "page" : undefined}
+                    aria-current={isActive(NAV_CHAT.href) && !rail ? "page" : undefined}
                     className={cn(SUB_ITEM, isActive(NAV_CHAT.href) ? LINK_ACTIVE : LINK_IDLE)}
                   >
                     <span

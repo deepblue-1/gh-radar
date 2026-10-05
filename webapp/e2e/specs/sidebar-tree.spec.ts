@@ -365,7 +365,7 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     );
   });
 
-  test('6. 「분석」 클릭 → /analytics/limitup 도착 · 제목만 활성 · 빈 이력 빈 상태 (Phase 28 D-09 · D-10 · R-7)', async ({
+  test('6. 「분석」 클릭 → /analytics/limitup 도착 · 하위 「상한가 보고서」 만 활성 · 빈 이력 빈 상태 (Phase 28 D-09 · D-10 · R-7)', async ({
     page,
   }) => {
     await page.route('**/api/limitup/report*', (route) =>
@@ -391,13 +391,14 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     await expect(page.getByRole('button', { name: '이전 보고서' })).toBeDisabled();
     await expect(page.getByRole('button', { name: '다음 보고서' })).toBeDisabled();
 
-    // 한 줄만 켠다 — 「분석」 제목이 aria-current, 하위 「상한가 보고서」 는 무표시.
+    // 한 줄만 켠다 — 하위 「상한가 보고서」 가 aria-current, 「분석」 제목은 무표시(2026-10-06 — 하위가 켠다).
     const navAfter = desktopNav(page);
     await waitForTradingGroup(navAfter);
-    await expect(navAfter.getByRole('link', { name: '분석', exact: true })).toHaveAttribute('aria-current', 'page');
-    await expect(navAfter.getByRole('link', { name: '상한가 보고서', exact: true })).not.toHaveAttribute(
+    await expect(navAfter.getByRole('link', { name: '상한가 보고서', exact: true })).toHaveAttribute(
       'aria-current',
+      'page',
     );
+    await expect(navAfter.getByRole('link', { name: '분석', exact: true })).not.toHaveAttribute('aria-current');
     await expect(navAfter.locator('[data-nav-item][aria-current="page"]')).toHaveCount(1);
   });
 

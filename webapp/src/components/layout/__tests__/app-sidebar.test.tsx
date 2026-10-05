@@ -929,27 +929,41 @@ describe("AppSidebar — 「분석 › 상한가 보고서」 (Phase 28 D-09 · 
     }
   });
 
-  it("/analytics/limitup → 「분석」 제목만 활성(선택 토큰 + aria-current) · 하위 「상한가 보고서」 는 LINK_IDLE", () => {
+  it("/analytics/limitup → 하위 「상한가 보고서」 만 활성(선택 토큰 + aria-current) · 「분석」 제목은 꺼짐 (2026-10-06)", () => {
     mockPathname = "/analytics/limitup";
     setupReady();
     render(<AppSidebar />);
-    expect(analytics()).toHaveAttribute("aria-current", "page");
-    expect(analytics()!.className).toContain("bg-[var(--nav-on-bg)]");
-    expect(analytics()!.className).toContain("text-[var(--nav-on-fg)]");
-    expect(report()).not.toHaveAttribute("aria-current");
-    expect(report()!.className).not.toContain("bg-[var(--nav-on-bg)]");
-    expect(report()!.className).toContain("text-[var(--muted-fg)]");
+    expect(report()).toHaveAttribute("aria-current", "page");
+    expect(report()!.className).toContain("bg-[var(--nav-on-bg)]");
+    expect(report()!.className).toContain("text-[var(--nav-on-fg)]");
+    expect(analytics()).not.toHaveAttribute("aria-current");
+    expect(analytics()!.className).not.toContain("bg-[var(--nav-on-bg)]");
     // 한 줄만 켠다 — 트레이딩 · 홈은 꺼져 있다
     expect(screen.getByRole("link", { name: "트레이딩" })).not.toHaveAttribute("aria-current");
     expect(document.querySelectorAll('nav [aria-current="page"]')).toHaveLength(1);
   });
 
-  it("/analytics/other → 제목은 활성이지만 aria-current 없음(정확 일치일 때만)", () => {
-    mockPathname = "/analytics/other";
+  it("레일 + /analytics/limitup → 하위가 숨으므로 「분석」 아이콘이 활성 · aria-current 는 아이콘 하나", () => {
+    mockPathname = "/analytics/limitup";
+    setSidebarCollapsed(true);
     setupReady();
     render(<AppSidebar />);
+    expect(analytics()).toHaveAttribute("aria-current", "page");
     expect(analytics()!.className).toContain("bg-[var(--nav-on-bg)]");
-    expect(analytics()).not.toHaveAttribute("aria-current");
+    expect(report()).not.toHaveAttribute("aria-current");
+    expect(document.querySelectorAll('nav [aria-current="page"]')).toHaveLength(1);
+  });
+
+  it("레일 + /chat → 레일 전용 「AI 애널리스트」 아이콘만 aria-current · 「분석」 아이콘은 꺼짐", () => {
+    mockPathname = "/chat";
+    setSidebarCollapsed(true);
+    setupReady();
+    render(<AppSidebar />);
+    expect(analytics()!.className).not.toContain("bg-[var(--nav-on-bg)]");
+    const current = document.querySelectorAll('nav [aria-current="page"]');
+    expect(current).toHaveLength(1);
+    expect(current[0]).toHaveAttribute("href", "/chat");
+    expect(current[0].closest("li.rail\\:block")).not.toBeNull();
   });
 
   it("다른 경로 → 「분석」 비활성", () => {

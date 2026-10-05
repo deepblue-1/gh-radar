@@ -171,14 +171,15 @@ test.describe('Phase 28 Plan 13 — 상한가 보고서 (로컬 relay)', () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     const rec = await installLimitupMocks(page);
 
-    // (a) 사이드바 「분석」 → /analytics/limitup · 「분석」 링크 aria-current="page".
+    // (a) 사이드바 「분석」 → /analytics/limitup · 하위 「상한가 보고서」 가 aria-current="page"(2026-10-06 — 하위가 켠다).
     await page.goto('/trading');
     const nav = page.locator('aside nav[aria-label="주 메뉴"]');
     const analytics = nav.getByRole('link', { name: '분석', exact: true });
     await expect(analytics).toBeVisible({ timeout: 30_000 });
     await analytics.click();
     await expect(page).toHaveURL((u) => u.pathname === '/analytics/limitup' && u.search === '');
-    await expect(nav.getByRole('link', { name: '분석', exact: true })).toHaveAttribute('aria-current', 'page');
+    await expect(nav.getByRole('link', { name: '상한가 보고서', exact: true })).toHaveAttribute('aria-current', 'page');
+    await expect(nav.getByRole('link', { name: '분석', exact: true })).not.toHaveAttribute('aria-current');
 
     // (b) 날짜 알약 = 최신 · › disabled · ‹ → 이전 적재 날짜(?d=).
     await expect(pill(page)).toHaveText('10/02 (금)', { timeout: 30_000 });
