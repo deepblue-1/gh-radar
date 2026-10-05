@@ -436,6 +436,8 @@ export interface SetLimitChaserRequest {
   buyEnabled: boolean;
   buyOrderPrice: number;
   buyOrderQty: number;
+  /** 선매수 주문금액(만원) — 새 폼 84 시딩(Phase 27 · 27-07 P27-4)이 첫 등록 cfg 에 실렸는가를 바이트로 본다. */
+  buyOrderAmount: number;
   buyWatchPrice: number;
   /** relay 파생값 — 1(자동 미적재 · `LC_FIXED_BUY3_SCHEMA`) · 2(자동 적재 · `LC_POST_BUY_AUTO_BUY3_SCHEMA`) ·
    *  3(자동 + 버스트 시 해제 적재 · `LC_BURST_RELEASE_BUY3_SCHEMA` · quick-261003-rc4) ·
@@ -545,6 +547,7 @@ export function readSetLimitChaserRequest(
     buyEnabled: req.buyEnabled(),
     buyOrderPrice: req.buyOrderPrice(),
     buyOrderQty: req.buyOrderQty(),
+    buyOrderAmount: req.buyOrderAmount(),
     buyWatchPrice: req.buyWatchPrice(),
     buy3Schema: req.buy3Schema(),
     buyWatchSide: readSealedStringSlot(bb, req.bb_pos, BUY_WATCH_SIDE_SEALED_VT),

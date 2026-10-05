@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { RelayLcSetMsg, RelayLimitChaser, RelayLimitChaserInput } from '@gh-radar/shared';
+import type { RelayLcSetMsg, RelayLimitChaser, RelayLimitChaserInput, RelayUserSettingsMsg } from '@gh-radar/shared';
 
 /**
  * Phase 20 Plan 04 Task 3 — 상따 설정 **토스식 리스트** 폼 계약 (TRADE-01 · D-01~D-04 · D-19~D-22).
@@ -35,11 +35,13 @@ import type { RelayLcSetMsg, RelayLimitChaser, RelayLimitChaserInput } from '@gh
  */
 
 const sendMock = vi.fn();
+/** 스토어의 84 사용자 설정(Phase 27 · 27-07) — 기본 미수신. 케이스가 바꾸면 다음 렌더부터 보인다. */
+let mockUserSettings: RelayUserSettingsMsg | undefined;
 vi.mock('@/lib/relay-provider', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/relay-provider')>();
   return {
     ...actual,
-    useRelayContext: () => ({ ...actual.EMPTY_RELAY_VALUE, send: sendMock }),
+    useRelayContext: () => ({ ...actual.EMPTY_RELAY_VALUE, send: sendMock, userSettings: mockUserSettings }),
   };
 });
 
@@ -190,6 +192,7 @@ function blurEditor(id: string): void {
 }
 
 beforeEach(() => {
+  mockUserSettings = undefined;
   sendMock.mockReset();
   // ★ 기본은 「소켓에 실렸다」 — `mockReset()` 뒤 기본 반환 `undefined`(falsy)면 모든 케이스가
   //   「전송 실패」 경로로 떨어진다.
@@ -3784,5 +3787,117 @@ describe('Phase 27 바로시작 · 중지', () => {
     expect(status.textContent).toBe('중지 전송…');
     expect(status.className).toContain('border-dashed');
     expect([startBtn()!.disabled, stopBtn()!.disabled]).toEqual([true, true]);
+  });
+});
+
+/*
+  Phase 27 Plan 07 — 새 전략 폼 84 시딩(D-11). 시딩 규칙 = D-17 동형:
+  ① 서버 에코가 있으면 에코가 이긴다 ② 84 가 늦게 오면 열린 미등록 폼을 다시 시딩 ③ 손댄 칸 보존 ④ 전송 · 로그 0.
+*/
+describe('Phase 27 새 폼 84 시딩', () => {
+  const SAVED: RelayUserSettingsMsg = {
+    t: 'user.settings',
+    present: true,
+    preBuyAmount: 5000,
+    addBuyAmount: 6000,
+    postBuyAmount: 7000,
+    postBuyMaxCount: 4,
+    postBuyFloorQty: 200_000,
+    postBuyReboundPct: 40,
+    sellQtyTrackRatio: 60,
+    autoSellPeriodSec: 3,
+    auctionSellRatioPct: 20,
+    autoSellRatioDefaultPct: 15,
+    autoSellMethodDefault: 1,
+  };
+  const newForm = (over: Partial<LimitChaserFormProps> = {}) =>
+    props({ server: null, upperLimit: 30_000, listShares: 10_000_000, ...over });
+
+  it('84 가 있으면 첫 렌더부터 9칸이 84 값 · 상한가 5칸 · 상장주식수 5칸 시딩은 종전대로 · 전송 0', () => {
+    mockUserSettings = SAVED;
+    const onClientLog = vi.fn();
+    render(<LimitChaserForm {...newForm({ onClientLog })} />);
+    expect(rowText('lc-buy-order-amount')).toBe('5,000만원');
+    expect(rowText('lc-extra-buy-amount')).toBe('6,000만원');
+    expect(rowText('lc-post-buy-amount')).toBe('7,000만원');
+    expect(rowText('lc-buy-order-price')).toBe('30,000원');
+    expect(rowText('lc-buy-watch-qty')).toBe('30,000주');
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(onClientLog).not.toHaveBeenCalled();
+    click(sw('매수주문 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({
+      buyEnabled: true,
+      buyOrderAmount: 5000,
+      extraBuyOrderAmount: 6000,
+      postBuyOrderAmount: 7000,
+      postBuyReentry: 4,
+      postBuyFloorQty: 200_000,
+      postBuyReboundPct: 40,
+      sellQtyTrackRatio: 60,
+      autoSellRatioPct: 15,
+      autoSellMethod: 1,
+      buyWatchPrice: 30_000,
+      buyWatchQty: 30_000,
+      buyOrderQty: buyOrderQtyFromAmount(5000, 30_000),
+    });
+    expect(Object.keys(lastConfig())).not.toContain('autoSellPeriodSec');
+  });
+
+  it('84 미수신으로 열린 폼 → D-04 상수 · 뒤에 84 도착 → 손대지 않은 칸만 84 · 확정한 칸(선매수 금액 4,500 · 방법)은 유지 · 전송 0 · 로그 0', () => {
+    const onClientLog = vi.fn();
+    const { rerender } = render(<LimitChaserForm {...newForm({ onClientLog })} />);
+    expect(rowText('lc-buy-order-amount')).toBe('4,000만원');
+    expect(rowText('lc-post-buy-amount')).toBe('4,000만원');
+    editInline('lc-buy-order-amount', '4500');
+    expect(rowText('lc-buy-order-amount')).toBe('4,500만원');
+    // 방법(3택)도 손댄 칸이다 — 미등록 폼이라 로컬만 바뀐다(⑪).
+    click(fold('auto-sell'));
+    const methodRadios = () => within(screen.getByRole('radiogroup', { name: '자동매도 방법' })).getAllByRole('radio');
+    click(methodRadios()[2]!);
+    expect(methodRadios()[2]).toHaveAttribute('aria-checked', 'true');
+    expect(sendMock).not.toHaveBeenCalled();
+    mockUserSettings = SAVED;
+    rerender(<LimitChaserForm {...newForm({ onClientLog })} />);
+    expect(rowText('lc-buy-order-amount')).toBe('4,500만원');
+    expect(rowText('lc-extra-buy-amount')).toBe('6,000만원');
+    expect(rowText('lc-post-buy-amount')).toBe('7,000만원');
+    expect(rowText('lc-auto-sell-ratio')).toBe('15%');
+    expect(methodRadios()[2]).toHaveAttribute('aria-checked', 'true');
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(onClientLog).not.toHaveBeenCalled();
+    // 84 가 다시 와도(브로드캐스트) 손댄 칸은 그대로 · 나머지는 새 값.
+    mockUserSettings = { ...SAVED, preBuyAmount: 9000, addBuyAmount: 8000 };
+    rerender(<LimitChaserForm {...newForm({ onClientLog })} />);
+    expect(rowText('lc-buy-order-amount')).toBe('4,500만원');
+    expect(rowText('lc-extra-buy-amount')).toBe('8,000만원');
+    expect(sendMock).not.toHaveBeenCalled();
+    click(sw('매수주문 켜기'));
+    expect(lastConfig()).toMatchObject({
+      buyOrderAmount: 4500,
+      extraBuyOrderAmount: 8000,
+      autoSellRatioPct: 15,
+      autoSellMethod: 2,
+    });
+  });
+
+  it('서버 에코가 있는 전략 폼은 84 로 덮지 않는다(에코가 이긴다) — 마운트 · 도착 둘 다', () => {
+    mockUserSettings = SAVED;
+    const s = echo();
+    const { rerender } = render(<LimitChaserForm {...props({ server: s })} />);
+    expect(rowText('lc-buy-order-amount')).toBe('50만원');
+    mockUserSettings = { ...SAVED, preBuyAmount: 9000 };
+    rerender(<LimitChaserForm {...props({ server: s })} />);
+    expect(rowText('lc-buy-order-amount')).toBe('50만원');
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('에코가 한 번 왔던 폼은 에코가 사라져도 84 로 다시 시딩하지 않는다(이미 등록된 전략의 값)', () => {
+    const s = echo();
+    const { rerender } = render(<LimitChaserForm {...props({ server: s })} />);
+    mockUserSettings = SAVED;
+    rerender(<LimitChaserForm {...props({ server: null })} />);
+    expect(rowText('lc-buy-order-amount')).toBe('50만원');
+    expect(sendMock).not.toHaveBeenCalled();
   });
 });

@@ -2860,6 +2860,39 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(autoSellCmds(), '재전송 없음').toHaveLength(3);
   });
 
+  test('P27-4 새 폼 84 시딩 — /me 기본값이 새 카드 첫 등록 cfg 에 실린다 (D-11)', async ({ page }) => {
+    await page.goto(WORKBENCH_URL);
+    await waitForReady(page);
+    // 사용자 세션에 84(서버 저장값)를 민다 — /me 에서 바꾼 기본값이 브로드캐스트로 도착한 모양.
+    await relay.pushUserSettings({ present: true, preBuyAmount: 5000, autoSellRatioDefaultPct: 15, autoSellMethodDefault: 1 });
+
+    // 에코 없는 새 종목 카드 — 84 가 카드보다 늦어도 미등록 폼은 손대지 않은 칸을 다시 시딩한다.
+    const before = lcSetCount(relay);
+    await addStockByKeyboard(page);
+    const card = cardOf(page, E2E_ISIN);
+    await expect(lcValue(page, 'lc-buy-order-price')).toHaveText(`${LIVE_UPPER_LIMIT}원`, { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-buy-order-amount')).toHaveText('5,000만원', { timeout: 15_000 });
+    // 84 기본값 칸(추가매수 금액) — present 이지만 값은 내장값 4,000.
+    await expect(lcValue(page, 'lc-extra-buy-amount')).toHaveText('4,000만원');
+    const group = card.locator('[data-slot="lc-group-auto-sell"]');
+    const fold = group.locator('[data-slot="lc-group-fold"]');
+    if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click();
+    await expect(fold).toHaveAttribute('aria-expanded', 'true');
+    await expect(lcValue(page, 'lc-auto-sell-ratio')).toHaveText('15%');
+    const methodSeg = group.getByRole('radiogroup', { name: '자동매도 방법' });
+    await expect(methodSeg.getByRole('radio', { name: '매도1호가', exact: true })).toHaveAttribute('aria-checked', 'true');
+    expect(lcSetCount(relay), '시딩은 전송을 만들지 않는다').toBe(before);
+
+    // 매수 스위치 확정 = 첫 등록 10 한 건 — 시딩된 값이 그대로 실린다.
+    await lcSwitch(card, '매수주문 켜기').click();
+    await waitForSetAtGateway(relay, before + 1);
+    const sent = lcSetRequests(relay).at(-1)!;
+    expect(sent.buyEnabled).toBe(true);
+    expect(sent.buyOrderAmount).toBe(5000);
+    expect(sent.autoSellRatioPct).toBe(15);
+    expect(sent.autoSellMethod).toBe(1);
+  });
+
   test('vzy-1 후매수 「자동」 — 체크 → 10 buy3_schema 3 · post_buy_auto · 에코 표시 · 서버 발화 에코로 풀림 · [상따] 사유 줄 (quick-260929-vzy 트레이서)', async ({
     page,
   }) => {

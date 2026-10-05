@@ -114,6 +114,7 @@ import {
   isMasterOnlyDelta,
   seedFromUpperLimit,
   seedListSharesDefaults,
+  seedFromUserSettings,
   autoSellButtonsOf,
   autoSellStartBlocked,
   type AutoCheckGate,
@@ -628,14 +629,15 @@ export function LimitChaserForm({
   onAutoSellCommand,
   className,
 }: LimitChaserFormProps) {
-  const { send } = useRelayContext();
+  const { send, userSettings } = useRelayContext();
   const [ownTab, setTab] = useState<'buy' | 'sell'>('buy');
   // 제어형이면 바깥 값이 이긴다(카드 본문의 3탭) — 자체 상태는 옛 화면 경로에서만 쓰인다.
   const tab = controlledTab ?? ownTab;
 
   const [form, setForm] = useState<LimitChaserFormValues>(() => {
-    const base = defaultLimitChaserForm();
-    if (server != null) return formFromServer(server, base);
+    if (server != null) return formFromServer(server, defaultLimitChaserForm());
+    // 새 전략 — D-04 상수 위에 84 사용자 기본설정 9칸(D-11 · 미수신이면 빈 패치 · lc 범위 밖 칸은 상수 그대로).
+    const base = { ...defaultLimitChaserForm(), ...seedFromUserSettings(userSettings) };
     // 상한가 5칸 시딩은 **신규 폼 1회**다(`SeedFromUpperLimitOnce`). 매 렌더 걸면 에코가
     // 덮은 값을 다시 상한가로 되돌린다.
     return upperLimit != null && upperLimit > 0 ? { ...base, ...seedFromUpperLimit(upperLimit) } : base;
@@ -759,6 +761,27 @@ export function LimitChaserForm({
     }
     if (Object.keys(patch).length > 0) setForm((prev) => ({ ...prev, ...patch }));
   }, [listShares, server]);
+
+  /*
+    ★ D-11 84 사용자 기본설정 재시딩(27-07) — 84 가 열려 있는 **미등록** 폼에 늦게(또는 브로드캐스트로 다시) 오면
+      손대지 않은 칸만 새 값으로 바꾼다. 초기값은 위 `useState` 가 이미 같은 함수로 채웠다.
+      ① 서버 에코가 한 번이라도 온 폼은 시딩하지 않는다(에코가 이긴다 — 에코가 사라져도 그 값은 등록된 전략의 값이다).
+      ③ `touchedRef`(값 · 3택 방법)에 든 칸은 덮지 않는다.
+      ④ 전송 · 로그(`onClientLog`) · 강조를 만들지 않는다 — `setForm` 한 번뿐이고 값은 첫 등록 cfg 에 실린다(D-17 ④ 동형).
+      ★ 같은 값이면 `setForm` 을 부르지 않는다 — 마운트 직후 같은 84 로 도는 첫 실행은 no-op 이다(불필요한 렌더 0).
+  */
+  const hadServerRef = useRef(server != null);
+  useEffect(() => {
+    if (server != null) hadServerRef.current = true;
+    if (hadServerRef.current) return; // ①
+    const seed = seedFromUserSettings(userSettings);
+    const cur = formRef.current;
+    const patch: Partial<LimitChaserFormValues> = {};
+    for (const [field, value] of Object.entries(seed) as [keyof typeof seed, number][]) {
+      if (!touchedRef.current.has(field) && cur[field] !== value) patch[field] = value; // ③
+    }
+    if (Object.keys(patch).length > 0) setForm((prev) => ({ ...prev, ...patch }));
+  }, [userSettings, server]);
   useEffect(() => {
     if (successSeq === 0 || lastSuccessField === null) return;
     setEditingField((cur) => (cur === lastSuccessField ? null : cur));
