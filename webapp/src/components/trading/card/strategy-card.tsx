@@ -55,6 +55,14 @@
  *   모름」 잠금·에코 상관을 지킨다(WR-02). 한 번도 펼친 적 없는 카드는 본문을 만들지 않는다.
  *   숨은 본문의 호가 · 테이프는 접힌 동안(price 구독) 가격 섹션이 바뀐 59 에 실린 값으로만 움직인다.
  *   펼치면 full 승격 + relay 승격 스냅샷(같은 quick — 캐시 q 를 tape 보다 먼저)으로 즉시 채워진다.
+ *
+ * ⑥ ★ 자동매도 바로시작 · 중지(41 `autosell.cmd` — Phase 27 D-05 ~ D-09)
+ *   `lc.arm` in-flight 의 복제지만 **해제 조건이 다르다.** 확인창 없이 1건 보내고(D-06) 낙관 색을 칠하지
+ *   않는다 — 칩 · 버튼은 에코가 바꾼다. 대기는 그 키의 60 에코가 **기대 전이**(start → state 3 ∧ enabled ·
+ *   stop → !enabled)를 실을 때, 41 거부 54(AutoSellCommand · Account · Relay — `isAutoSellCommandRejection`),
+ *   또는 41 **전용** 3초 타이머(「미반영」만) 중 먼저 오는 것으로 끝난다. 공용 `ackTimer` 를 쓰지 않는 이유:
+ *   키 일치 에코 이펙트가 아무 에코에나 그 타이머를 지운다 — 300ms 런타임 푸시가 41 의 답으로 둔갑한다.
+ *   재전송은 없다(T-16-10 · T-17-40). 버튼 렌더 활성과 전송 가드는 같은 `server` 로 `autoSellButtonsOf` 를 읽는다.
  */
 
 import {
@@ -102,10 +110,14 @@ import {
   type StrategySubmitCause,
 } from "@/components/trading/strategy-log";
 import {
+  autoSellButtonsOf,
+  isAutoSellCommandRejection,
+  isAutoSellCommandSettled,
   isLimitChaserArmRejection,
   isLimitChaserServerMessage,
   isLimitChaserSetRejection,
   strategyKey,
+  type AutoSellAction,
 } from "@/lib/limit-chaser";
 import { exchangeChoicesOf } from "@/lib/exchange-choices";
 import { useRelayContext, useRelaySubscription } from "@/lib/relay-provider";
@@ -235,6 +247,16 @@ export interface StrategyCardState {
   dirtyCount: number;
   setDirtyCount: (n: number) => void;
   handleArm: (kind: ArmableLatchKind) => void;
+  /**
+   * 41 이 소켓에 실렸고 아직 답(기대 전이 에코 · 41 거부 54 · 3초)이 없는 action — 없으면 `null`(D-08).
+   * 카드당 1건이다. 렌더는 이 값으로 두 버튼을 잠그고 제목줄 칩을 「… 전송…」으로 덮는다.
+   */
+  autoSellPending: AutoSellAction | null;
+  /**
+   * 자동매도 바로시작 · 중지 → `{t:"autosell.cmd"}` 1건(D-06). 에코 없음 · 버튼 규칙상 비활성 action ·
+   * in-flight 중이면 아무것도 보내지 않는다. `send` 가 false 면 추적도 재전송도 없다.
+   */
+  onAutoSellCommand: (action: AutoSellAction) => void;
   /**
    * 보낸 직후 통지 — `cfg` 는 그 에코의 로그 귀속(D-01/D-02 동반)에, `meta.cause` 는 사람 손이 아닌
    * 제출의 사유(D-02 후반 `'serverFold'` — 24-06 폼이 넘긴다)에 쓴다. 둘은 같은 수명이다.
@@ -377,6 +399,22 @@ export function useStrategyCardState({
    */
   const armInFlightRef = useRef(false);
 
+  /**
+   * 41(바로시작 · 중지)이 소켓에 실렸고 아직 답이 없는 action(⑥ · D-08). 54 스트림 이펙트가 동기로 읽어야
+   * 해서 ref 가 정본이고, 렌더용 `autoSellPending` 은 그 거울이다. 둘은 `setAutoSellCmd` 로만 함께 바뀐다.
+   */
+  const autoSellCmdRef = useRef<AutoSellAction | null>(null);
+  const [autoSellPending, setAutoSellPending] = useState<AutoSellAction | null>(null);
+  /** 41 **전용** 3초 타이머 — 공용 `ackTimer` 와 분리(⑥ — 키 일치 이펙트가 아무 에코에나 공용 타이머를 지운다). */
+  const autoSellCmdTimer = useRef<number | null>(null);
+  /** 41 대기를 끝낸다(또는 연다) — ref · state · 41 타이머를 함께. 「미반영」 표시는 호출자가 정한다. */
+  const setAutoSellCmd = useCallback((action: AutoSellAction | null) => {
+    if (autoSellCmdTimer.current != null) window.clearTimeout(autoSellCmdTimer.current);
+    autoSellCmdTimer.current = null;
+    autoSellCmdRef.current = action;
+    setAutoSellPending(action);
+  }, []);
+
   /** 3초 「미반영」 대기를 (다시) 건다 — lc.set 과 lc.arm 이 같은 타이머를 쓴다. */
   const startAckWait = useCallback(() => {
     setUnacked(false);
@@ -434,10 +472,11 @@ export function useStrategyCardState({
     if (pendingExpiryTimer.current != null) window.clearTimeout(pendingExpiryTimer.current);
     pendingExpiryTimer.current = null;
     armInFlightRef.current = false;
+    setAutoSellCmd(null);
     setUnacked(false);
     setAppliedAt(null);
     setLiveSeed(0);
-  }, [key]);
+  }, [key, setAutoSellCmd]);
 
   /**
    * ③-b **「서버가 답했다」의 정본은 60 에코 스트림이다** — 파생 목록이 아니다
@@ -468,6 +507,18 @@ export function useStrategyCardState({
     armInFlightRef.current = false;
     acceptAnswer();
   }, [lastLimitChaserEcho, key, acceptAnswer]);
+
+  /*
+    ★ 41 해제 — 그 키의 에코가 **기대 전이**를 실었을 때만(⑥ · D-08). 위 이펙트가 아무 에코에나 `acceptAnswer` 로
+      공용 대기를 거두는 것과 다르다 — 300ms 런타임 푸시 · lc.set 에코는 41 의 답이 아니다. 위 이펙트는 그대로 둔다.
+  */
+  useEffect(() => {
+    if (key === "" || lastLimitChaserEcho === null) return;
+    if (lastLimitChaserEcho.key !== key) return;
+    const pending = autoSellCmdRef.current;
+    if (pending === null || !isAutoSellCommandSettled(pending, lastLimitChaserEcho)) return;
+    setAutoSellCmd(null);
+  }, [lastLimitChaserEcho, key, setAutoSellCmd]);
 
   useEffect(() => {
     const prev = prevServerRef.current;
@@ -561,6 +612,7 @@ export function useStrategyCardState({
     () => () => {
       if (ackTimer.current != null) window.clearTimeout(ackTimer.current);
       if (pendingExpiryTimer.current != null) window.clearTimeout(pendingExpiryTimer.current);
+      if (autoSellCmdTimer.current != null) window.clearTimeout(autoSellCmdTimer.current);
     },
     [],
   );
@@ -593,8 +645,14 @@ export function useStrategyCardState({
       */
       const armAnswer =
         armInFlightRef.current && isLimitChaserArmRejection(msg, isin, accountNo);
-      // VI 몫·무관한 System 통지는 여기서 그리지 않는다(표시 몫 불변).
-      if (!armAnswer && !isLimitChaserServerMessage(msg)) continue;
+      /*
+        ★ 내 41 의 거부 답인가(⑥ · 「카드 미반영 해제 키」) — 41 in-flight 창 안에서만 묻는다(54 에 거래소가 없다).
+          거부 3출처 중 `Relay`(i "")는 아래 표시 몫 판정에 걸리지 않으므로 가드가 이 값을 OR 해야 원문 줄이 선다.
+      */
+      const autoSellAnswer =
+        autoSellCmdRef.current !== null && isAutoSellCommandRejection(msg, isin, accountNo);
+      // VI 몫·무관한 System 통지는 여기서 그리지 않는다(표시 몫 불변 — 41 · arm in-flight 가 아니면 종전 그대로).
+      if (!armAnswer && !autoSellAnswer && !isLimitChaserServerMessage(msg)) continue;
       const { text, level } = serverMessageLogLine(msg);
       pushLog(text, level);
       if (armAnswer) {
@@ -602,12 +660,17 @@ export function useStrategyCardState({
         armInFlightRef.current = false;
         acceptAnswer();
       }
+      if (autoSellAnswer) {
+        // 41 거부 = 서버 원문 줄 + 버튼 재활성 + 「미반영」 해제(D-08). 본문은 읽지 않고 다시 보내지 않는다.
+        setAutoSellCmd(null);
+        acceptAnswer();
+      }
       /*
         ★ 상태줄에도 남긴다 — 로그만 있으면 스크롤 밖에서 조용히 지나간다(T-16-07).
         ★ arm 거절은 WARN 이어도 카드 경보에 세운다 — 사용자 클릭에 대한 거절은 **클릭한 자리**에
           보여야 한다(PC-7 무로그 fail-safe 금지).
       */
-      if (level !== "error" && !armAnswer) continue;
+      if (level !== "error" && !armAnswer && !autoSellAnswer) continue;
       setLastError({ text: msg.m, src: msg.src });
       /*
         ★ **거부도 답이다.** 서버가 사유를 말한 순간 「모른다」는 거짓이 되므로 「미반영」을
@@ -634,7 +697,7 @@ export function useStrategyCardState({
         setRejectSeq((n) => n + 1);
       }
     }
-  }, [messages, pushLog, isin, accountNo, acceptAnswer]);
+  }, [messages, pushLog, isin, accountNo, acceptAnswer, setAutoSellCmd]);
 
   /* ── 15:40 서버 자동 비활성화(65) ─────────────────────────────────────── */
 
@@ -701,6 +764,32 @@ export function useStrategyCardState({
     [ledServer, send, startAckWait],
   );
 
+  /**
+   * 자동매도 바로시작 · 중지 → `{t:"autosell.cmd"}` 1건 (⑥ · D-06 · D-08 · D-09).
+   *
+   * ★ 판정 입력은 훅의 `server` 하나다 — 버튼 렌더(폼 `server` prop 의 `autoSellButtonsOf(server)`)와 같은 값이라
+   *   렌더 활성과 전송 가드가 갈리지 않는다. 삭제 에코로 `server === null` 이면 둘 다 막힌다.
+   * ★ 확인창 없음 · 낙관 갱신 없음 · 재전송 없음 — `send` 가 참일 때만 대기를 연다(T-16-10 · T-17-40).
+   * ★ 41 의 `accountNo` 는 카드 계좌, `exchange` 는 카드 거래소 키다(D-09). 보유 0 · 단일가는 추정하지 않는다.
+   */
+  const onAutoSellCommand = useCallback(
+    (action: AutoSellAction) => {
+      if (server === null) return;
+      if (!autoSellButtonsOf(server)[action]) return;
+      if (autoSellCmdRef.current !== null) return;
+      if (!send({ t: "autosell.cmd", isin, accountNo, exchange, action })) return;
+      setAutoSellCmd(action);
+      autoSellCmdTimer.current = window.setTimeout(() => {
+        // 3초 무응답 — 「미반영」만 세우고 버튼을 푼다. 아무것도 다시 보내지 않는다.
+        autoSellCmdTimer.current = null;
+        autoSellCmdRef.current = null;
+        setAutoSellPending(null);
+        setUnacked(true);
+      }, ACK_TIMEOUT_MS);
+    },
+    [server, send, isin, accountNo, exchange, setAutoSellCmd],
+  );
+
   return {
     key,
     server,
@@ -720,6 +809,8 @@ export function useStrategyCardState({
     dirtyCount,
     setDirtyCount,
     handleArm,
+    autoSellPending,
+    onAutoSellCommand,
     handleSent,
     pushClientLog,
   };

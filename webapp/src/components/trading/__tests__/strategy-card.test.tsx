@@ -645,3 +645,73 @@ describe('StrategyCard 더티 바 탭바 비킴 (G-21-R3-2)', () => {
     expect(host.style.transform).toBe('translateY(-656px)');
   });
 });
+
+/**
+ * Phase 27 Plan 05 Task 2 — 41 in-flight 은 카드 인스턴스 · 전략 키 단위다(T-18-25 승계).
+ *   - 카드 키(종목 · 계좌 · 거래소)가 바뀌면 pending 이 비고 41 타이머도 꺼진다.
+ *   - 다른 카드의 기대 전이 에코는 이 카드의 pending 을 풀지 않는다.
+ */
+describe('Phase 27 41 in-flight — 키 리셋 · 카드 격리', () => {
+  function asProbe(s: StrategyCardState): ReactNode {
+    return (
+      <div data-testid={`as-${s.key}`}>
+        <span data-part="pending">{s.autoSellPending ?? 'none'}</span>
+        <button type="button" onClick={() => s.onAutoSellCommand('start')}>
+          바로시작 호출
+        </button>
+      </div>
+    );
+  }
+  const pendingOf = (key: string) =>
+    screen.getByTestId(`as-${key}`).querySelector('[data-part="pending"]')?.textContent;
+  const waitingA = (exchange: RelayExchange = 'KRX') =>
+    echo(ISIN_A, { exchange, autoSellEnabled: true, autoSellState: 1 });
+
+  it('거래소(카드 키)가 바뀌면 pending 이 비고 3초 뒤에도 미반영이 서지 않는다', () => {
+    const value = relay({ limitChasers: [waitingA('KRX'), waitingA('NXT')] });
+    const { rerender } = render(
+      <RelayContext.Provider value={value}>
+        <StrategyCard {...baseProps} isin={ISIN_A} exchange="KRX" body={asProbe} />
+      </RelayContext.Provider>,
+    );
+    fireEvent.click(screen.getByText('바로시작 호출'));
+    expect(send).toHaveBeenCalledWith({
+      t: 'autosell.cmd',
+      isin: ISIN_A,
+      accountNo: ACCOUNT,
+      exchange: 'KRX',
+      action: 'start',
+    });
+    expect(pendingOf(keyOf(ISIN_A, 'KRX'))).toBe('start');
+
+    rerender(
+      <RelayContext.Provider value={value}>
+        <StrategyCard {...baseProps} isin={ISIN_A} exchange="NXT" body={asProbe} />
+      </RelayContext.Provider>,
+    );
+    expect(pendingOf(keyOf(ISIN_A, 'NXT'))).toBe('none');
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS * 2);
+    });
+    expect(document.querySelector('[data-slot="card-unacked"]')).toBeNull();
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('다른 카드 키의 기대 전이 에코는 이 카드의 pending 을 풀지 않는다', () => {
+    const a = waitingA();
+    const b = echo(ISIN_B, { autoSellEnabled: true, autoSellState: 1 });
+    const { rerender } = render(
+      <RelayContext.Provider value={relay({ limitChasers: [a, b] })}>
+        <StrategyCard {...baseProps} isin={ISIN_A} body={asProbe} />
+      </RelayContext.Provider>,
+    );
+    fireEvent.click(screen.getByText('바로시작 호출'));
+    const bRunning = { ...b, autoSellState: 3 };
+    rerender(
+      <RelayContext.Provider value={relay({ limitChasers: [a, bRunning], lastLimitChaserEcho: bRunning })}>
+        <StrategyCard {...baseProps} isin={ISIN_A} body={asProbe} />
+      </RelayContext.Provider>,
+    );
+    expect(pendingOf(keyOf(ISIN_A))).toBe('start');
+  });
+});

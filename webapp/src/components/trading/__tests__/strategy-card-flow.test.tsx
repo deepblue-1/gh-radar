@@ -1821,3 +1821,226 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 in-fli
     expect(screen.getByRole('switch', { name: '추가매수 켜기' })).toHaveAttribute('aria-checked', 'true');
   });
 });
+
+/**
+ * Phase 27 Plan 05 Task 2 — 41(바로시작 · 중지) 응답 대기 기계 (D-06 · D-08 · D-09).
+ *
+ * `lc.arm` in-flight 의 복제지만 해제 조건이 다르다 — 그 키의 아무 에코가 아니라 **기대 전이**
+ * (start → state 3 ∧ enabled · stop → !enabled), 또는 41 거부 3출처(AutoSellCommand · Account · Relay),
+ * 또는 3초 무응답(「미반영」 · 재전송 없음)이다. 버튼 렌더 전이라 카드 상태 `onAutoSellCommand` 를 직접 부른다.
+ */
+describe('Phase 27 41 in-flight', () => {
+  const texts = () =>
+    Array.from(logRows()).map((r) => r.querySelectorAll('span')[1]?.textContent ?? '');
+  const hasText = (t: string) => texts().some((x) => x.includes(t));
+  const asCmds = () =>
+    sendMock.mock.calls
+      .map(([m]) => m as { t?: string; action?: string })
+      .filter((m) => m?.t === 'autosell.cmd');
+  const press = (action: 'start' | 'stop') =>
+    act(() => {
+      lastCard!.onAutoSellCommand(action);
+    });
+  const watching = echo({ sellEnabled: true, autoSellEnabled: true, autoSellState: 1, autoSellRatioPct: 10, autoSellMethod: 3 });
+  const REJECT_HOLD = '자동매도 바로시작 거부 — 보유수량 0';
+  const REJECT_ACCOUNT = '이 세션에 등록되지 않은 계좌입니다 — 자동매도 명령 거부 (계좌 등록 후 다시 시도하세요)';
+
+  it('start → autosell.cmd 1건(isin · 계좌 · 거래소 · action) · pending start · 두 번째 호출 · 비활성 action 무시', () => {
+    setRelay({ limitChasers: [watching] });
+    render(<Card />);
+    press('start');
+    expect(asCmds()).toEqual([
+      { t: 'autosell.cmd', isin: ISIN, accountNo: ACCOUNT, exchange: 'KRX', action: 'start' },
+    ]);
+    expect(lastCard!.autoSellPending).toBe('start');
+    press('start');
+    press('stop');
+    expect(asCmds()).toHaveLength(1);
+  });
+
+  it('state 3 에코에 start 는 보내지 않는다 · stop 은 보낸다(버튼 규칙과 같은 판정)', () => {
+    setRelay({ limitChasers: [echo({ autoSellEnabled: true, autoSellState: 3 })] });
+    render(<Card />);
+    press('start');
+    expect(asCmds()).toHaveLength(0);
+    expect(lastCard!.autoSellPending).toBeNull();
+    press('stop');
+    expect(asCmds().map((m) => m.action)).toEqual(['stop']);
+    expect(lastCard!.autoSellPending).toBe('stop');
+  });
+
+  it('server === null 이면 보내지 않는다 — 에코 state 1 뒤 삭제 에코로 null 이 된 다음 호출도 0건', () => {
+    setRelay({ limitChasers: [] });
+    const { rerender } = render(<Card />);
+    press('start');
+    expect(asCmds()).toHaveLength(0);
+
+    setRelay({ limitChasers: [watching] });
+    rerender(<Card />);
+    const del = echo({ ...watching, crud: 'D' });
+    setRelay({ limitChasers: [], lastLimitChaserEcho: del });
+    rerender(<Card />);
+    expect(lastCard!.server).toBeNull();
+    press('start');
+    expect(asCmds()).toHaveLength(0);
+    expect(lastCard!.autoSellPending).toBeNull();
+  });
+
+  it('send false → pending 없음 · 3초 뒤에도 미반영 없음 · 재전송 없음', () => {
+    sendMock.mockReturnValue(false);
+    setRelay({ limitChasers: [watching] });
+    render(<Card />);
+    press('start');
+    expect(lastCard!.autoSellPending).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS * 3);
+    });
+    expect(unacked()).toBeNull();
+    expect(asCmds()).toHaveLength(1);
+  });
+
+  it('기대 전이 에코(state 3 ∧ enabled) → pending 해제 · 3초 지나도 미반영 없음', () => {
+    setRelay({ limitChasers: [watching] });
+    const { rerender } = render(<Card />);
+    press('start');
+    const e1 = echo({ ...watching, autoSellState: 3 });
+    setRelay({ limitChasers: [e1], lastLimitChaserEcho: e1 });
+    rerender(<Card />);
+    expect(lastCard!.autoSellPending).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS * 3);
+    });
+    expect(unacked()).toBeNull();
+    expect(asCmds()).toHaveLength(1);
+  });
+
+  it('stop 의 기대 전이 = !enabled — enabled true 인 런타임 에코로는 풀리지 않는다', () => {
+    const running = echo({ autoSellEnabled: true, autoSellState: 3 });
+    setRelay({ limitChasers: [running] });
+    const { rerender } = render(<Card />);
+    press('stop');
+    const runtime = echo({ autoSellEnabled: true, autoSellState: 3, autoSellSoldQty: 500 });
+    setRelay({ limitChasers: [runtime], lastLimitChaserEcho: runtime });
+    rerender(<Card />);
+    expect(lastCard!.autoSellPending).toBe('stop');
+    const off = echo({ autoSellEnabled: false, autoSellState: 0, autoSellSoldQty: 500 });
+    setRelay({ limitChasers: [off], lastLimitChaserEcho: off });
+    rerender(<Card />);
+    expect(lastCard!.autoSellPending).toBeNull();
+  });
+
+  it('기대 전이가 아닌 런타임 에코가 와도 41 타이머는 살아 있다 → 3초에 pending 해제 · 미반영 · 재전송 없음', () => {
+    setRelay({ limitChasers: [watching] });
+    const { rerender } = render(<Card />);
+    press('start');
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    const e1 = echo({ ...watching, autoSellState: 2, autoSellSoldQty: 0, autoSellBasisPrice: 13_000 });
+    setRelay({ limitChasers: [e1], lastLimitChaserEcho: e1 });
+    rerender(<Card />);
+    expect(lastCard!.autoSellPending).toBe('start');
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+    });
+    expect(lastCard!.autoSellPending).toBeNull();
+    expect(unacked()?.textContent).toContain('미반영');
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(asCmds()).toHaveLength(1);
+  });
+
+  it('pending 중 54 ERROR AutoSellCommand(i · a 일치) → [상따] 원문 로그 · pending 해제 · 미반영 없음', async () => {
+    setRelay({ limitChasers: [watching] });
+    const { rerender } = render(<Card />);
+    press('start');
+    setRelay({
+      limitChasers: [watching],
+      messages: [msg({ lv: 'ERROR', src: 'AutoSellCommand', i: ISIN, a: ACCOUNT, m: REJECT_HOLD })],
+    });
+    rerender(<Card />);
+    await waitFor(() => expect(hasText(`[상따] 서버가 거부했어요 — ${REJECT_HOLD}`)).toBe(true));
+    expect(lastCard!.autoSellPending).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS * 3);
+    });
+    expect(unacked()).toBeNull();
+    expect(asCmds()).toHaveLength(1);
+  });
+
+  it('다른 종목의 54 AutoSellCommand 거부는 이 카드의 pending 을 풀지 않는다', () => {
+    setRelay({ limitChasers: [watching] });
+    const { rerender } = render(<Card />);
+    press('start');
+    setRelay({
+      limitChasers: [watching],
+      messages: [msg({ lv: 'ERROR', src: 'AutoSellCommand', i: 'KR7247540008', a: ACCOUNT, m: REJECT_HOLD })],
+    });
+    rerender(<Card />);
+    expect(lastCard!.autoSellPending).toBe('start');
+  });
+
+  it('pending 중 54 ERROR Account(i · a 일치 — 41 계좌 가드) → 원문 로그 · pending 해제 · 미반영 없음', async () => {
+    setRelay({ limitChasers: [watching] });
+    const { rerender } = render(<Card />);
+    press('start');
+    setRelay({
+      limitChasers: [watching],
+      messages: [msg({ lv: 'ERROR', src: 'Account', i: ISIN, a: ACCOUNT, m: REJECT_ACCOUNT })],
+    });
+    rerender(<Card />);
+    await waitFor(() => expect(hasText(REJECT_ACCOUNT)).toBe(true));
+    expect(lastCard!.autoSellPending).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS * 3);
+    });
+    expect(unacked()).toBeNull();
+  });
+
+  it('pending 중 54 ERROR Relay(i · a 빈) → 원문 로그가 선다 · pending 해제 · 미반영 없음', async () => {
+    const RELAY_REJECT = '전략 세션이 준비되지 않았어요';
+    setRelay({ limitChasers: [watching] });
+    const { rerender } = render(<Card />);
+    press('start');
+    setRelay({
+      limitChasers: [watching],
+      messages: [msg({ lv: 'ERROR', src: 'Relay', i: '', a: '', m: RELAY_REJECT })],
+    });
+    rerender(<Card />);
+    await waitFor(() => expect(hasText(RELAY_REJECT)).toBe(true));
+    expect(lastCard!.autoSellPending).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS * 3);
+    });
+    expect(unacked()).toBeNull();
+  });
+
+  it('pending 이 아닐 때 같은 Relay 줄은 종전대로 그리지 않는다(표시 몫 불변)', () => {
+    setRelay({ limitChasers: [watching] });
+    const { rerender } = render(<Card />);
+    const before = logRows().length;
+    setRelay({
+      limitChasers: [watching],
+      messages: [msg({ lv: 'ERROR', src: 'Relay', i: '', a: '', m: '전략 세션이 준비되지 않았어요' })],
+    });
+    rerender(<Card />);
+    act(() => {
+      vi.advanceTimersByTime(50);
+    });
+    expect(logRows().length).toBe(before);
+  });
+
+  it('pending 중 54 INFO AutoSell 사유 줄 → 로그에만 · pending 유지(해제 대상 아님)', async () => {
+    setRelay({ limitChasers: [watching] });
+    const { rerender } = render(<Card />);
+    press('start');
+    setRelay({
+      limitChasers: [watching],
+      messages: [msg({ lv: 'INFO', src: 'AutoSell', i: ISIN, a: ACCOUNT, m: '자동매도 대기 → 매도중 (바로시작)' })],
+    });
+    rerender(<Card />);
+    await waitFor(() => expect(hasText('[상따] 서버 통지 — 자동매도 대기 → 매도중 (바로시작)')).toBe(true));
+    expect(lastCard!.autoSellPending).toBe('start');
+  });
+});
