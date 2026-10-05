@@ -4,7 +4,7 @@ reviewed: 2026-10-05T12:30:00Z
 depth: standard
 diff_base: e8b9ce0f
 review_head: 5755e256
-parts: "A(relay · shared · webapp 42) + B(DB · worker · server · infra 33) — 76 소스 파일 범위가 커서 두 리뷰어로 나눠 병렬 실행"
+parts: "A(relay · shared · webapp 42) + B(DB · worker · server · infra 33) — 75 소스 파일 범위가 커서 두 리뷰어로 나눠 병렬 실행"
 files_reviewed: 75
 files_reviewed_list:
   - packages/shared/src/index.ts
