@@ -780,6 +780,29 @@ export function isLimitChaserServerMessage(msg: {
 }
 
 /**
+ * 이 상따 몫 통지(`isLimitChaserServerMessage`)를 **이 전략 카드**가 그려도 되는가 — 키 축(27-REVIEW WR-04).
+ *
+ * `isLimitChaserServerMessage` 는 「상따 화면 몫인가」만 묻고 종목을 보지 않는다 — 전 종목 피드
+ * (`strategy-log-feed`)에는 그게 맞지만, 카드가 그대로 쓰면 카드 A 의 41 거부(「자동매도 바로시작 거부 — 보유수량 0」)
+ * 가 **열린 모든 카드**의 로그 · 상태줄에 서고, 주기적으로 흐르는 자동매도 사유 줄(`AutoSell` INFO)이 다른 종목
+ * 카드 로그에 섞인다. 서버는 상따 · 자동매도 통지에 i(isin) · a(계좌)를 채워 보내므로 거를 근거가 있다.
+ *
+ * - `i` 가 빔 → 통과(종목 축이 없는 통지 — 종전 동작 유지).
+ * - `i` 가 참 → 내 isin 이어야 한다. `a` 가 차 있으면 계좌도 같아야 한다.
+ *
+ * 54 에는 거래소가 없어 같은 종목 · 계좌의 KRX · NXT 두 카드는 가르지 못한다(둘 다 그린다).
+ * 표시 몫 판정이다 — 「내 요청의 답인가」는 `isLimitChaserSetRejection` 등 응답 판정이 따로 묻는다.
+ */
+export function isServerMessageForStrategy(
+  msg: { i: string; a: string },
+  isin: string,
+  accountNo: string,
+): boolean {
+  if (msg.i === '') return true;
+  return msg.i === isin && (msg.a === '' || msg.a === accountNo);
+}
+
+/**
  * 이 통지가 **바로 이 전략의 `lc.set` 에 대한 서버의 거부 답**인가
  * (debug `lc-unacked-stuck-new-route`).
  *

@@ -31,6 +31,7 @@ import {
   isLegacyBuySchema,
   isLimitChaserArmRejection,
   isLimitChaserServerMessage,
+  isServerMessageForStrategy,
   isLimitChaserSetRejection,
   isAutoSellCommandRejection,
   isAutoSellCommandSettled,
@@ -1303,6 +1304,14 @@ describe('Phase 27 41 판정', () => {
     expect(isLimitChaserServerMessage({ src: 'Account', i: '' })).toBe(false);
     expect(isLimitChaserServerMessage({ src: 'VITrigger', i: ISIN })).toBe(false);
     expect(isLimitChaserServerMessage({ src: 'Relay', i: '' })).toBe(false);
+  });
+
+  it('isServerMessageForStrategy — i 빔 통과 · i 일치 ∧ (a 빔 ∨ a 일치)만 내 카드 몫(WR-04)', () => {
+    expect(isServerMessageForStrategy({ i: '', a: '' }, ISIN, ACCOUNT)).toBe(true);
+    expect(isServerMessageForStrategy({ i: ISIN, a: '' }, ISIN, ACCOUNT)).toBe(true);
+    expect(isServerMessageForStrategy({ i: ISIN, a: ACCOUNT }, ISIN, ACCOUNT)).toBe(true);
+    expect(isServerMessageForStrategy({ i: ISIN, a: '9999999999' }, ISIN, ACCOUNT)).toBe(false);
+    expect(isServerMessageForStrategy({ i: 'KR7247540008', a: ACCOUNT }, ISIN, ACCOUNT)).toBe(false);
   });
 });
 

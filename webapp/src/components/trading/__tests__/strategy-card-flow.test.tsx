@@ -684,7 +684,8 @@ describe('철거 에코 · 거부 = 서버의 답 (옛 ㉑)', () => {
     expect(unacked()).toBeNull();
   });
 
-  it('㉑-d 다른 계좌의 상따 거부는 문구는 서도 「미반영」을 거두지 않는다 — 전략 키는 두 축이다', async () => {
+  // 27-REVIEW WR-04 — 다른 계좌(i 같음 · a 다름)의 통지는 이 카드 몫이 아니다: 문구도 서지 않는다(종전엔 섰다).
+  it('㉑-d 다른 계좌의 상따 거부는 문구도 서지 않고 「미반영」도 거두지 않는다 — 전략 키는 두 축이다', async () => {
     setRelay({ limitChasers: [], quote: quote() });
     const { rerender } = render(<Card />);
     armThenDisarm();
@@ -695,7 +696,10 @@ describe('철거 에코 · 거부 = 서버의 답 (옛 ㉑)', () => {
       messages: [msg({ lv: 'ERROR', src: 'SetLimitChaser', m: '다른 계좌의 거부', i: ISIN, a: '99999999999' })],
     });
     rerender(<Card />);
-    await waitFor(() => expect(serverError()).not.toBeNull());
+    await act(async () => {
+      vi.advanceTimersByTime(50);
+    });
+    expect(serverError()).toBeNull();
     act(() => {
       vi.advanceTimersByTime(ACK_TIMEOUT_MS * 3);
     });
@@ -2105,6 +2109,26 @@ describe('Phase 27 41 in-flight', () => {
     rerender(<Card />);
     expect(unacked()).toBeNull();
     expect(asCmds()).toHaveLength(1);
+  });
+
+  it('WR-04 — 다른 종목의 AutoSellCommand 거부 · AutoSell 사유 줄은 이 카드 로그 · 상태줄에 서지 않는다', async () => {
+    const OTHER = 'KR7247540008';
+    setRelay({ limitChasers: [watching] });
+    const { rerender } = render(<Card />);
+    const before = logRows().length;
+    setRelay({
+      limitChasers: [watching],
+      messages: [
+        msg({ lv: 'INFO', src: 'AutoSell', i: OTHER, a: ACCOUNT, m: '자동매도 감시 → 매도중' }),
+        msg({ lv: 'ERROR', src: 'AutoSellCommand', i: OTHER, a: ACCOUNT, m: REJECT_HOLD }),
+      ],
+    });
+    rerender(<Card />);
+    await act(async () => {
+      vi.advanceTimersByTime(50);
+    });
+    expect(logRows().length).toBe(before);
+    expect(serverError()).toBeNull();
   });
 
   it('pending 중 54 INFO AutoSell 사유 줄 → 로그에만 · pending 유지(해제 대상 아님)', async () => {

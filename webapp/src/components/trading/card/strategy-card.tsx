@@ -123,6 +123,7 @@ import {
   isLimitChaserArmRejection,
   isLimitChaserServerMessage,
   isLimitChaserSetRejection,
+  isServerMessageForStrategy,
   strategyKey,
   type AutoSellAction,
 } from "@/lib/limit-chaser";
@@ -708,7 +709,9 @@ export function useStrategyCardState({
       const autoSellAnswer =
         autoSellCmdRef.current !== null && isAutoSellCommandRejection(msg, isin, accountNo);
       // VI 몫·무관한 System 통지는 여기서 그리지 않는다(표시 몫 불변 — 41 · arm in-flight 가 아니면 종전 그대로).
-      if (!armAnswer && !autoSellAnswer && !isLimitChaserServerMessage(msg)) continue;
+      // ★ 상따 몫이어도 남의 종목(·계좌) 통지는 이 카드에 세우지 않는다(27-REVIEW WR-04 — `isServerMessageForStrategy`).
+      const mine = isLimitChaserServerMessage(msg) && isServerMessageForStrategy(msg, isin, accountNo);
+      if (!armAnswer && !autoSellAnswer && !mine) continue;
       const { text, level } = serverMessageLogLine(msg);
       pushLog(text, level);
       if (armAnswer) {
