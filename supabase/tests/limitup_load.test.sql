@@ -2,7 +2,8 @@
 -- Phase 28 Plan 03 — 상한가 특징 밤 적재(stage → 날짜 원자 commit) pgTAP.
 --
 -- 대상: 20261006090100_limitup_tables.sql(표 10개 · 잠금) · 20261006090200_limitup_load_rpcs.sql
---   (limitup_stage_clear · limitup_commit_day · limitup_record_skip).
+--   (limitup_stage_clear · limitup_commit_day · limitup_record_skip) · 20261006090300_limitup_retention_storage.sql
+--   (limitup_purge_old — 28-06).
 --
 -- 잠그는 것:
 --   - commit 한 번이 8표(노트 6 + 파생 2)에 stage 행을 그대로 옮긴다 — 예약어 열 "foreign" · "values" · 배열 열 q_krw 포함
@@ -10,7 +11,9 @@
 --   - 재적재로 행이 줄면 옛 행이 남지 않는다(삭제 후 삽입 — upsert 아님)
 --   - 기대 수가 틀리거나 payload date 가 다르면 예외이고 기존 행 · stage 가 그대로(원자성)
 --   - limitup_record_skip 연속 1 · 2 · 3, 성공 commit 이 0 으로 · skip 은 files_sig 를 건드리지 않는다
---   - 권한: anon · authenticated 는 10표 · 3 RPC 불가, service_role 가능 · RLS 10표 활성 · 정책 0개 · facts GIN 없음
+--   - 보존 정리 limitup_purge_old(90, 30): 91일 전 날짜의 표 5 · 파생 2 · 이력 · stage 삭제 · 89일 전은 남김 ·
+--     member_alloc 은 31일 전 삭제 · 29일 전 남김 · 보존 일수 0 이하 예외 (28-06)
+--   - 권한: anon · authenticated 는 10표 · 4 RPC 불가, service_role 가능 · RLS 10표 활성 · 정책 0개 · facts GIN 없음
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/limitup_load.test.sql`
 -- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(원격 DB 접촉 0). 전체가 한 트랜잭션 + ROLLBACK.
@@ -21,7 +24,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(118);
+SELECT plan(145);
 
 -- stage 행 1개 — payload 에 date 를 기본으로 싣는다(p_payload 가 덮을 수 있다).
 CREATE FUNCTION pg_temp.st(p_date text, p_tbl text, p_seq int, p_payload jsonb) RETURNS void
@@ -113,6 +116,59 @@ SELECT is((SELECT files_sig FROM public.limitup_loads WHERE date = '20261002'), 
 SELECT throws_like($$ SELECT public.limitup_commit_day('2026-10-02', 'x', 'y', 1, '{}') $$,
                    '%bad date%', 'G 날짜 형식 YYYYMMDD 아니면 예외');
 
+-- ── H. 보존 정리 limitup_purge_old(90, 30) — 28-06 ───────────────────
+-- 날짜는 실행 시각 기준 KST 오늘에서 계산한다(d91 · d89 · d31 · d29).
+CREATE TEMP TABLE t_d (k text PRIMARY KEY, d text);
+INSERT INTO t_d SELECT k, to_char((now() AT TIME ZONE 'Asia/Seoul')::date - n, 'YYYYMMDD')
+  FROM (VALUES ('d91', 91), ('d90', 90), ('d89', 89), ('d31', 31), ('d29', 29)) AS v(k, n);
+CREATE FUNCTION pg_temp.dd(p_k text) RETURNS text LANGUAGE sql AS $$ SELECT d FROM t_d WHERE k = p_k $$;
+
+-- d91 · d89: 8표 1행씩 commit(이력 생김) + 남은 stage 1행. d31 · d29: member_alloc 1행 commit.
+CREATE FUNCTION pg_temp.day8(p_date text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM pg_temp.st(p_date, 'entries', 1, '{"isin":"KR7000000001"}');
+  PERFORM pg_temp.st(p_date, 'locks', 1, '{"isin":"KR7000000001","lock_id":1}');
+  PERFORM pg_temp.st(p_date, 'jumps', 1, '{"isin":"KR7000000001","jump_no":1}');
+  PERFORM pg_temp.st(p_date, 'member_alloc', 1, '{"isin":"KR7000000001","sweep_no":1,"side":"buy","member":"00002"}');
+  PERFORM pg_temp.st(p_date, 'facts', 1, '{"isin":"KR7000000001","event_no":0,"fact_no":1}');
+  PERFORM pg_temp.st(p_date, 'touches', 1, '{"isin":"KR7000000001","touch_id":1}');
+  PERFORM pg_temp.st(p_date, 'grid_summary', 1, '{"isin":"KR7000000001","step_s":10,"sec0":32400,"q_krw":[1]}');
+  PERFORM pg_temp.st(p_date, 'member_daily', 1, '{"member":"00002","n":1,"entry_sum":0,"entry_cnt":0,"lock_buy_sum":0,"lock_buy_cnt":0,"pre_sell_sum":0,"pre_sell_cnt":0,"lead":0,"n_broke":0,"n_lock":0,"n_held":0}');
+  PERFORM public.limitup_commit_day(p_date, 'mf', 'sig-' || p_date, 1,
+    '{"entries":1,"locks":1,"jumps":1,"member_alloc":1,"facts":1,"touches":1,"grid_summary":1,"member_daily":1}');
+  PERFORM pg_temp.st(p_date, 'entries', 1, '{"isin":"KR7000000009"}');  -- commit 뒤 남은 stage(중단된 run 흉내)
+END $$;
+CREATE FUNCTION pg_temp.alloc1(p_date text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM pg_temp.st(p_date, 'member_alloc', 1, '{"isin":"KR7000000001","sweep_no":1,"side":"buy","member":"00002"}');
+  PERFORM public.limitup_commit_day(p_date, 'mf', 'sig-' || p_date, 1, '{"member_alloc":1}');
+END $$;
+SELECT pg_temp.day8(pg_temp.dd('d91'));
+SELECT pg_temp.day8(pg_temp.dd('d89'));
+SELECT pg_temp.alloc1(pg_temp.dd('d31'));
+SELECT pg_temp.alloc1(pg_temp.dd('d29'));
+
+INSERT INTO t_res SELECT 'purge', public.limitup_purge_old(90, 30);
+SELECT is((SELECT r->>'cutoff' FROM t_res WHERE label = 'purge'), pg_temp.dd('d90'), 'H cutoff = KST 오늘 − 90일');
+SELECT is((SELECT r #>> '{deleted,entries}' FROM t_res WHERE label = 'purge'), '1', 'H 반환 deleted.entries = 1(d91)');
+
+CREATE TEMP TABLE t_keep (t text PRIMARY KEY);
+INSERT INTO t_keep VALUES ('limitup_entries'), ('limitup_locks'), ('limitup_jumps'), ('limitup_facts'), ('limitup_touches'),
+  ('limitup_grid_summary'), ('limitup_member_daily'), ('limitup_loads'), ('limitup_stage');
+CREATE FUNCTION pg_temp.cnt(p_t text, p_date text) RETURNS integer LANGUAGE plpgsql AS $$
+DECLARE v integer;
+BEGIN
+  EXECUTE format('SELECT count(*)::int FROM public.%I WHERE date = $1', p_t) INTO v USING p_date;
+  RETURN v;
+END $$;
+SELECT is(pg_temp.cnt(t, pg_temp.dd('d91')), 0, 'H ' || t || ' 91일 전 삭제') FROM t_keep ORDER BY t;
+SELECT is(pg_temp.cnt(t, pg_temp.dd('d89')), 1, 'H ' || t || ' 89일 전 남김') FROM t_keep ORDER BY t;
+SELECT is(pg_temp.cnt('limitup_member_alloc', pg_temp.dd('d89')), 0, 'H member_alloc 89일 전 삭제(30일 보존)');
+SELECT is(pg_temp.cnt('limitup_member_alloc', pg_temp.dd('d31')), 0, 'H member_alloc 31일 전 삭제');
+SELECT is(pg_temp.cnt('limitup_member_alloc', pg_temp.dd('d29')), 1, 'H member_alloc 29일 전 남김');
+SELECT throws_like($$ SELECT public.limitup_purge_old(0, 30) $$, '%keep days must be >= 1%',
+                   'H 보존 일수 0 이하 → 예외(보존 창이 사라지지 않게)');
+
 -- ── F. 잠금 · 권한 ─────────────────────────────────────────────────
 CREATE TEMP TABLE t_tbls (t text PRIMARY KEY);
 INSERT INTO t_tbls VALUES
@@ -130,7 +186,8 @@ SELECT is(has_table_privilege(r.role, x.t, r.priv), r.expect, format('%s %s %s =
 SELECT is(has_function_privilege(r.role, f.sig, 'EXECUTE'), r.expect, format('%s EXECUTE %s = %s', r.role, f.sig, r.expect))
   FROM (VALUES ('public.limitup_stage_clear(text)'),
                ('public.limitup_commit_day(text, text, text, integer, jsonb)'),
-               ('public.limitup_record_skip(text, text)')) AS f(sig)
+               ('public.limitup_record_skip(text, text)'),
+               ('public.limitup_purge_old(integer, integer)')) AS f(sig)
  CROSS JOIN (VALUES ('anon', false), ('authenticated', false), ('service_role', true)) AS r(role, expect)
  ORDER BY f.sig, r.role;
 

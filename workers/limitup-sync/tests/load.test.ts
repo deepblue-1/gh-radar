@@ -15,6 +15,13 @@ const manifest = JSON.parse(readFileSync(join(FIXTURE, DATE, "manifest.json"), "
 const manifestRows = Object.fromEntries(
   EXPORT_TABLES.map((t) => [t, manifest.files.find((f) => f.name === `${t}.ndjson.gz`)!.rows]),
 ) as Record<(typeof EXPORT_TABLES)[number], number>;
+// 28-06: stage · commit 기대 수 = 6표 + 파생 2(골든의 행 수 — 계산 대조는 derive.test.ts).
+const goldenDerive = JSON.parse(readFileSync(join(FIXTURE, DATE, "expected-derive.json"), "utf8")) as {
+  member_daily: unknown[];
+  grid_summary: unknown[];
+};
+const stageRows = { ...manifestRows, grid_summary: goldenDerive.grid_summary.length, member_daily: goldenDerive.member_daily.length };
+const STAGE_TABLES = [...EXPORT_TABLES, "grid_summary", "member_daily"] as const;
 
 async function runDispatch(fake: ReturnType<typeof makeFakeSupabase>, opts: { dryRun?: boolean } = {}) {
   vi.resetModules();
@@ -53,17 +60,19 @@ describe("readNdjsonGz", () => {
   });
 });
 
-describe("dispatch — 정상 경로(stage_clear → stage insert × k → commit 1회)", () => {
-  it("호출 순서 · 표별 stage 행 합 == manifest rows · commit 인자", async () => {
+describe("dispatch — 정상 경로(stage_clear → 격자 업로드 → stage insert × k → commit 1회 → 정리)", () => {
+  it("호출 순서 · 표별 stage 행 합 == manifest rows(+ 파생 2) · commit 인자", async () => {
     const fake = makeFakeSupabase();
     const { out } = await runDispatch(fake);
 
     const seq = kinds(fake.calls);
+    const commitAt = seq.indexOf("rpc:limitup_commit_day");
     expect(seq[0]).toBe("select:limitup_loads");
     expect(seq[1]).toBe("rpc:limitup_stage_clear");
-    expect(seq[seq.length - 1]).toBe("rpc:limitup_commit_day");
-    expect(seq.slice(2, -1).every((k) => k === "insert:limitup_stage")).toBe(true);
+    expect(seq.slice(2, 5)).toEqual(["storage:", "storage:", "storage:"]); // 격자 3개 업로드(commit 앞 — 28-06)
+    expect(seq.slice(5, commitAt).every((k) => k === "insert:limitup_stage")).toBe(true);
     expect(seq.filter((k) => k === "rpc:limitup_commit_day")).toHaveLength(1);
+    expect(seq.slice(commitAt + 1)).toEqual(["rpc:limitup_purge_old", "storage:", "rpc:dma_strategy_events_purge_limit_feature"]);
 
     const select = fake.calls[0] as Extract<Call, { kind: "select" }>;
     expect(select.cols).toBe("date, files_sig, skip_streak");
@@ -80,7 +89,7 @@ describe("dispatch — 정상 경로(stage_clear → stage insert × k → commi
         staged[r.tbl as string] = (staged[r.tbl as string] ?? 0) + 1;
       }
     }
-    expect(staged).toEqual(manifestRows);
+    expect(staged).toEqual(stageRows);
 
     // seq 는 표마다 1..n 연속, payload = export 행 원문
     const memberSeqs = inserts.flatMap((i) => i.rows).filter((r) => r.tbl === "member_alloc").map((r) => r.seq);
@@ -88,20 +97,20 @@ describe("dispatch — 정상 경로(stage_clear → stage insert × k → commi
     const firstEntry = inserts.flatMap((i) => i.rows).find((r) => r.tbl === "entries" && r.seq === 1)!;
     expect(firstEntry.payload).toEqual(readNdjsonGz(join(FIXTURE, DATE, "entries.ndjson.gz"))[0]);
 
-    const commit = fake.calls[fake.calls.length - 1] as Extract<Call, { kind: "rpc" }>;
+    const commit = fake.calls[commitAt] as Extract<Call, { kind: "rpc" }>;
     expect(commit.args.p_date).toBe(DATE);
-    expect(commit.args.p_expected).toEqual(manifestRows);
-    expect(Object.keys(commit.args.p_expected as object).sort()).toEqual([...EXPORT_TABLES].sort());
+    expect(commit.args.p_expected).toEqual(stageRows);
+    expect(Object.keys(commit.args.p_expected as object).sort()).toEqual([...STAGE_TABLES].sort());
     expect(commit.args.p_files_sig).toBe(filesSig(manifest));
     expect(commit.args.p_schema_version).toBe(1);
     expect(commit.args.p_manifest_sha256).toMatch(/^[0-9a-f]{64}$/);
 
-    expect(out).toMatchObject({ dryRun: false, dates: [DATE], loaded: [DATE], totals: manifestRows });
+    expect(out).toMatchObject({ dryRun: false, dates: [DATE], loaded: [DATE], totals: stageRows });
   });
 
   it("청크 크기 env 반영 — LIMITUP_STAGE_CHUNK=1000 기본 · 500 이면 표마다 ceil(n/500) 요청", async () => {
     const countInserts = (calls: Call[]) => calls.filter((c) => c.kind === "insert").length;
-    const ceilSum = (chunk: number) => EXPORT_TABLES.reduce((s, t) => s + Math.ceil(manifestRows[t] / chunk), 0);
+    const ceilSum = (chunk: number) => STAGE_TABLES.reduce((s, t) => s + Math.ceil(stageRows[t] / chunk), 0);
 
     const a = makeFakeSupabase();
     await runDispatch(a);
@@ -122,7 +131,7 @@ describe("dispatch — 정상 경로(stage_clear → stage insert × k → commi
     const { out, createSupabaseClient } = await runDispatch(fake, { dryRun: true });
     expect(createSupabaseClient).not.toHaveBeenCalled();
     expect(fake.calls).toEqual([]);
-    expect(out).toMatchObject({ dryRun: true, dates: [DATE], loaded: [], rows: { [DATE]: manifestRows }, totals: manifestRows });
+    expect(out).toMatchObject({ dryRun: true, dates: [DATE], loaded: [], rows: { [DATE]: stageRows }, totals: stageRows });
   });
 
   it("보존 창(LIMITUP_KEEP_DAYS) 밖 날짜는 적재하지 않는다", async () => {
@@ -130,7 +139,13 @@ describe("dispatch — 정상 경로(stage_clear → stage insert × k → commi
     const fake = makeFakeSupabase();
     const { out } = await runDispatch(fake);
     expect(out.dates).toEqual([]);
-    expect(fake.calls.filter((c) => c.kind !== "select")).toEqual([]);
+    // 날짜 호출 0 — 남는 것은 run 끝 보존 정리뿐(28-06)
+    expect(kinds(fake.calls)).toEqual([
+      "select:limitup_loads",
+      "rpc:limitup_purge_old",
+      "storage:",
+      "rpc:dma_strategy_events_purge_limit_feature",
+    ]);
   });
 });
 

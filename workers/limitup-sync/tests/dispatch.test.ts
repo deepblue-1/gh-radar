@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createHash } from "node:crypto";
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { makeFakeSupabase, type Call, type FakeOptions } from "./helpers/fake-supabase";
 import { filesSig, type Manifest } from "../src/manifest";
 
@@ -10,6 +12,8 @@ import { filesSig, type Manifest } from "../src/manifest";
  * 같은 날짜 3연속 skip → alert → main 종료 1 · 예외 → 사유 로그 + 종료 1 (D-14 · D-20).
  *
  * 변조 날짜는 os.tmpdir() 아래 픽스처 사본으로 만든다(커밋된 픽스처는 바꾸지 않는다).
+ *
+ * 28-06 — 파생 2표 stage · 격자 업로드(commit 앞) · run 끝 보존 정리(limitup_purge_old · Storage 폴더 · kind 15).
  */
 
 const FIXTURE = join(__dirname, "fixtures", "export");
@@ -34,11 +38,23 @@ function fakeLogger() {
 let dir: string;
 let log: ReturnType<typeof fakeLogger>;
 
-/** 픽스처를 dir/<date> 로 복사 — manifest.date = date, edit 가 있으면 manifest 를 바꾸거나 원문 문자열로 덮는다. */
+/**
+ * 픽스처를 dir/<date> 로 복사 — manifest.date = date, edit 가 있으면 manifest 를 바꾸거나 원문 문자열로 덮는다.
+ * 다른 날짜 사본은 격자 JSON 의 date 도 그 날짜로 바꾸고 manifest sha256 을 다시 계산한다(격자 date ≠ 적재 날짜는 오류).
+ */
 function addDay(date: string, edit?: (m: Manifest) => Manifest | string) {
   cpSync(join(FIXTURE, SRC), join(dir, date), { recursive: true });
   const mp = join(dir, date, "manifest.json");
   const m = { ...(JSON.parse(readFileSync(mp, "utf8")) as Manifest), date };
+  if (date !== SRC) {
+    for (const f of m.files.filter((x) => x.name.startsWith("grid/"))) {
+      const gp = join(dir, date, f.name);
+      const g = JSON.parse(gunzipSync(readFileSync(gp)).toString("utf8")) as { date: string };
+      const bytes = gzipSync(JSON.stringify({ ...g, date }));
+      writeFileSync(gp, bytes);
+      f.sha256 = createHash("sha256").update(bytes).digest("hex");
+    }
+  }
   const out = edit ? edit(m) : m;
   writeFileSync(mp, typeof out === "string" ? out : JSON.stringify(out, null, 1));
 }
@@ -81,6 +97,8 @@ beforeEach(() => {
   process.env.LOG_LEVEL = "silent";
   delete process.env.LIMITUP_STAGE_CHUNK;
   delete process.env.LIMITUP_KEEP_DAYS;
+  delete process.env.LIMITUP_ALLOC_KEEP_DAYS;
+  delete process.env.KIND15_KEEP_DAYS;
 });
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
@@ -94,7 +112,8 @@ describe("dispatch — 「바뀐 날짜만」(D-14 · files_sig)", () => {
     addDay(GOOD);
     corrupt(GOOD, "touches.ndjson.gz"); // verifyFiles 가 돌았다면 sha skip 이 됐을 것 — unchanged 가 먼저다
     const { out, fake } = await run({ loads: [{ date: GOOD, files_sig: SIG, skip_streak: 0 }] });
-    expect(fake.calls.map((c) => c.kind)).toEqual(["select"]);
+    // select 뒤는 run 끝 보존 정리뿐(limitup_purge_old · storage list · kind 15) — 그 날짜 호출 0
+    expect(fake.calls.map((c) => c.kind)).toEqual(["select", "rpc", "storage", "rpc"]);
     expect(out.skipped).toEqual({ schema: [], sha: [], manifest: [], unchanged: [GOOD] });
     expect(out.loaded).toEqual([]);
     expect(out.alert).toBe(false);
@@ -225,5 +244,122 @@ describe("main — 종료 코드(D-20): skip 만 0 · 같은 날짜 3연속 1 ·
     expect(err).toBeInstanceOf(Error);
     expect(err.message).toMatch(/limitup_stage insert 20261002 \w+ seq \d+\.\.\d+: boom/);
     expect(rpcs(fake.calls, "limitup_commit_day")).toEqual([]);
+  });
+});
+
+// ── 28-06 — 파생 2표 · 격자 업로드 · 보존 정리 ─────────────────────────
+const golden = JSON.parse(readFileSync(join(FIXTURE, SRC, "expected-derive.json"), "utf8")) as {
+  member_daily: { member: string }[];
+  grid_summary: { isin: string }[];
+};
+const GRID_ISINS = golden.grid_summary.map((g) => g.isin);
+const tableRows = Object.fromEntries(
+  fixtureManifest.files.filter((f) => !f.name.startsWith("grid/")).map((f) => [f.name.replace(".ndjson.gz", ""), f.rows]),
+);
+const EXPECTED8 = { ...tableRows, grid_summary: GRID_ISINS.length, member_daily: golden.member_daily.length };
+
+const label = (c: Call) =>
+  c.kind === "rpc" ? `rpc:${c.name}` : c.kind === "storage" ? `storage:${c.op}` : `${c.kind}:${c.table}`;
+
+describe("dispatch — 파생 stage · 격자 업로드(commit 앞) · 기대 수 8키 (28-06)", () => {
+  it("업로드 → stage → commit 순서: stage_clear → upload × 3 → stage insert(6표 + 파생 2) → commit_day(8키) → 정리", async () => {
+    addDay(GOOD);
+    const { out, fake } = await run();
+    const seq = fake.calls.map(label);
+    const firstInsert = seq.indexOf("insert:limitup_stage");
+    const commitAt = seq.indexOf("rpc:limitup_commit_day");
+    expect(seq.slice(0, firstInsert)).toEqual([
+      "select:limitup_loads",
+      "rpc:limitup_stage_clear",
+      "storage:upload",
+      "storage:upload",
+      "storage:upload",
+    ]);
+    expect(seq.slice(firstInsert, commitAt).every((k) => k === "insert:limitup_stage")).toBe(true);
+    expect(seq.slice(commitAt)).toEqual([
+      "rpc:limitup_commit_day",
+      "rpc:limitup_purge_old",
+      "storage:list",
+      "rpc:dma_strategy_events_purge_limit_feature",
+    ]);
+
+    const uploads = fake.calls.filter((c): c is Extract<Call, { kind: "storage" }> => c.kind === "storage" && c.op === "upload");
+    expect(uploads.map((u) => u.args[0])).toEqual(GRID_ISINS.map((i) => `grid/${GOOD}/${i}.json.gz`));
+    for (const [k, u] of uploads.entries()) {
+      expect(u.bucket).toBe("limitup-grid");
+      expect(u.args[2]).toEqual({ contentType: "application/gzip", upsert: true });
+      expect(Buffer.compare(u.args[1] as Buffer, readFileSync(join(FIXTURE, SRC, "grid", `${GRID_ISINS[k]}.json.gz`)))).toBe(0);
+    }
+
+    const staged: Record<string, number> = {};
+    for (const i of inserts(fake.calls)) for (const r of i.rows) staged[r.tbl as string] = (staged[r.tbl as string] ?? 0) + 1;
+    expect(staged).toEqual(EXPECTED8);
+    const derived = inserts(fake.calls).flatMap((i) => i.rows).filter((r) => r.tbl === "grid_summary" || r.tbl === "member_daily");
+    for (const r of derived) expect((r.payload as { date: string }).date).toBe(GOOD);
+
+    const commit = rpcs(fake.calls, "limitup_commit_day")[0];
+    expect(commit.args.p_expected).toEqual(EXPECTED8);
+    expect(Object.keys(commit.args.p_expected as object)).toHaveLength(8);
+    expect(out).toMatchObject({ loaded: [GOOD], grids: 3, totals: EXPECTED8 });
+  });
+
+  it("업로드 error 면 commit 0회 · dispatch throw(사유에 경로) · 정리도 안 한다(다음 run 이 날짜를 다시 한다)", async () => {
+    addDay(GOOD);
+    const fake = makeFakeSupabase({
+      storage: (_b, op, args) => (op === "upload" && String(args[0]).endsWith(`${GRID_ISINS[1]}.json.gz`) ? { error: { message: "507 quota" } } : undefined),
+    });
+    const { dispatch } = await loadIndex(fake);
+    await expect(dispatch({ now: NOW })).rejects.toThrow(`limitup-grid/grid/${GOOD}/${GRID_ISINS[1]}.json.gz: 507 quota`);
+    expect(rpcs(fake.calls, "limitup_commit_day")).toEqual([]);
+    expect(inserts(fake.calls)).toEqual([]);
+    expect(rpcs(fake.calls, "limitup_purge_old")).toEqual([]);
+  });
+
+  it("dry-run — 파생 행 수 · 격자 수만 합계에 · 업로드 · stage · commit · 정리 없음", async () => {
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    addDay(GOOD);
+    const { out, fake } = await run({}, { dryRun: true });
+    expect(fake.calls).toEqual([]);
+    expect(out).toMatchObject({ rows: { [GOOD]: EXPECTED8 }, totals: EXPECTED8, grids: 3, purged: null, loaded: [] });
+  });
+});
+
+describe("dispatch — run 끝 보존 정리 (D-16 · D-19 · D-08 · 28-06)", () => {
+  const GRID_DIRS = ["20260601", "20260706", "20260707", "20261002", "x"];
+  const storage = (_b: string, op: string, args: unknown[]) =>
+    op === "list"
+      ? args[0] === "grid"
+        ? { data: GRID_DIRS.map((name) => ({ name, id: null })) }
+        : { data: [{ name: "KR7000000001.json.gz" }] }
+      : undefined;
+
+  it("날짜 0개여도 limitup_purge_old { 90, 30 } 1회 · cutoff 이전 Storage 폴더만 remove · kind 15 { 30 } 1회 · 결과 purged", async () => {
+    const { out, fake } = await run({ storage, rpc: { dma_strategy_events_purge_limit_feature: { data: 4 } } });
+    expect(out.dates).toEqual([]);
+    expect(rpcs(fake.calls, "limitup_purge_old").map((c) => c.args)).toEqual([{ p_keep_days: 90, p_alloc_keep_days: 30 }]);
+    expect(rpcs(fake.calls, "dma_strategy_events_purge_limit_feature").map((c) => c.args)).toEqual([{ p_keep_days: 30 }]);
+    const removes = fake.calls.filter((c): c is Extract<Call, { kind: "storage" }> => c.kind === "storage" && c.op === "remove");
+    expect(removes.map((r) => r.args[0])).toEqual([["grid/20260601/KR7000000001.json.gz"], ["grid/20260706/KR7000000001.json.gz"]]);
+    expect(out.purged).toEqual({ tables: { cutoff: "", alloc_cutoff: "", deleted: {} }, storageDates: ["20260601", "20260706"], kind15: 4 });
+  });
+
+  it("LIMITUP_ALLOC_KEEP_DAYS · KIND15_KEEP_DAYS env 를 RPC 인자로", async () => {
+    process.env.LIMITUP_ALLOC_KEEP_DAYS = "20";
+    process.env.KIND15_KEEP_DAYS = "14";
+    const { fake } = await run();
+    expect(rpcs(fake.calls, "limitup_purge_old")[0].args).toEqual({ p_keep_days: 90, p_alloc_keep_days: 20 });
+    expect(rpcs(fake.calls, "dma_strategy_events_purge_limit_feature")[0].args).toEqual({ p_keep_days: 14 });
+  });
+
+  it("정리 RPC error → 적재된 날짜를 담은 error 로그 + throw → main 종료 1", async () => {
+    addDay(GOOD);
+    const fake = makeFakeSupabase({ rpc: { limitup_purge_old: { error: { message: "canceling statement due to statement timeout" } } } });
+    const { main } = await loadIndex(fake);
+    expect(await main(["node", "index.ts"])).toBe(1);
+    expect(rpcs(fake.calls, "limitup_commit_day").map((c) => c.args.p_date)).toEqual([GOOD]); // 적재는 끝났다
+    expect(log.calls.error.map((e) => e.msg)).toEqual(["limitup purge failed — 적재는 끝남", "limitup-sync failed"]);
+    expect(log.calls.error[0].obj).toMatchObject({ loaded: [GOOD], grids: 3 });
+    expect((log.calls.error[1].obj.err as Error).message).toMatch(/limitup_purge_old: canceling statement/);
   });
 });
