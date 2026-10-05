@@ -548,7 +548,30 @@ describe('memberBarsOf — 상한가 직전 1분 매수(event 0) · 마지막 �
     expect(bars.entry.bars.map((b) => b.name)).toEqual(['어딘가']);
     expect(bars.sell?.bars).toEqual([]); // lock 2 의 사실이 없다
     expect(bars.sell?.range).toBe('10:59:00~11:00:00');
-    expect(memberBarsOf([], []).entry).toEqual({ bars: [], range: null });
+    expect(memberBarsOf([], []).entry).toEqual({ bars: [], range: null, total: null });
+    // 금액 키가 없는 옛 날짜 — amount · total 은 null(비율만)
+    expect(bars.entry.bars[0]!.amount).toBeNull();
+    expect(bars.entry.total).toBeNull();
+  });
+
+  it('금액 키(v{k} · vtot — gh-trade d8e35018) → 막대 amount 「약 3.2억」 · 창 전체 total · 빈 자리 null', () => {
+    const f = [
+      fact({
+        event_no: 0,
+        fact_no: 1,
+        t_ms: kstMs(D, '10:19:53'),
+        template_id: 'member_entry_buy',
+        text: '진입 1분 매수 창구 상위: 키움증권 90.1% · 신한증권 4.5% · —  —%',
+        values: { m1: '키움증권', m1_code: '00050', s1: 90.1, v1: 321_000_000, m2: '신한증권', m2_code: '00002', s2: 4.5, v2: 45_310_000, m3: '—', m3_code: null, s3: '—', v3: null, vtot: 356_300_000 },
+      }),
+    ];
+    const bars = memberBarsOf(f, []);
+    expect(bars.entry.bars.map((b) => b.amount)).toEqual(['약 3.2억', '약 4,531만']);
+    expect(bars.entry.total).toBe('약 3.6억');
+    // 사실 문장 본문도 values 로 다시 짠다 — 「이름 비중(약 금액)」
+    const ev = eventsOf(null, [], f);
+    expect(ev[0]!.text).toContain('키움증권 90.1%(약 3.2억) · 신한증권 4.5%(약 4,531만)');
+    expect(ev[0]!.text).not.toContain('—%');
   });
 });
 

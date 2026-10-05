@@ -525,7 +525,13 @@ export function eventsOf(
     if (isWindow) {
       const head = f.template_id === 'member_entry_buy' ? '상한가 직전 1분 매수 창구' : '깨짐 직전 1분 매도 창구';
       const i = raw.indexOf(': ');
-      const body = i >= 0 ? raw.slice(i + 2) : raw;
+      // 금액 키(v{k})가 있으면 values 로 다시 짠다 — 「키움증권 90.1%(약 3.2억) · …」. 없으면(옛 날짜) 원문 꼬리 그대로.
+      const bars = barsOfValues(f.values);
+      const body = bars.some((b) => b.amount !== null)
+        ? bars.map((b) => `${b.name} ${b.label}${b.amount !== null ? `(${b.amount})` : ''}`).join(' · ')
+        : i >= 0
+          ? raw.slice(i + 2)
+          : raw;
       text = `${head}${window ? ` (${window.range})` : ''}: ${body}`;
       short = head;
     } else {
@@ -903,6 +909,16 @@ export interface MemberBar {
   pct: number;
   /** 「54.4%」. */
   label: string;
+  /**
+   * 추정 금액 「약 3.2억」 — values `v{k}`(원 정수 · gh-trade d8e35018 가산 키, 인박스 261006-member-fact-krw).
+   * 키가 없는 옛 날짜 · null 자리는 null(비율만 표시).
+   */
+  amount: string | null;
+}
+
+/** 창구 추정 금액 「약 3.2억」 · 「약 4,531만」 — 유한 양수가 아니면 null. */
+export function approxKrwOf(v: unknown): string | null {
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? `약 ${fmtKrwShort(v)}` : null;
 }
 
 function barsOfValues(values: Record<string, unknown> | null | undefined): MemberBar[] {
@@ -914,7 +930,7 @@ function barsOfValues(values: Record<string, unknown> | null | undefined): Membe
     const code = values[`m${k}_code`];
     const raw = values[`m${k}`];
     const name = typeof code === 'string' && code !== '' ? memberName(code) : typeof raw === 'string' ? raw : DASH;
-    out.push({ name, pct: s, label: s >= 99.95 ? '100%' : `${s.toFixed(1)}%` });
+    out.push({ name, pct: s, label: s >= 99.95 ? '100%' : `${s.toFixed(1)}%`, amount: approxKrwOf(values[`v${k}`]) });
   }
   return out;
 }
@@ -923,6 +939,8 @@ export interface MemberBarGroup {
   bars: MemberBar[];
   /** 창 「09:05:01~09:06:01」 · 기준 시각이 없으면 null. */
   range: string | null;
+  /** 창 전체 추정 금액 「약 3.6억」(values `vtot` — 상위 3 밖 창구 포함 · 비중 분모) · 없으면 null. */
+  total: string | null;
 }
 
 /**
@@ -945,11 +963,19 @@ export function memberBarsOf(
       ? facts.find((f) => f.event_no === last.lock_id && f.template_id === 'member_prebreak_sell')
       : undefined;
   return {
-    entry: { bars: barsOfValues(entryFact?.values), range: wins.entry?.range ?? null },
+    entry: {
+      bars: barsOfValues(entryFact?.values),
+      range: wins.entry?.range ?? null,
+      total: approxKrwOf(entryFact?.values?.vtot),
+    },
     sell:
       last === undefined
         ? null
-        : { bars: barsOfValues(sellFact?.values), range: wins.sell.get(last.lock_id)?.range ?? null },
+        : {
+            bars: barsOfValues(sellFact?.values),
+            range: wins.sell.get(last.lock_id)?.range ?? null,
+            total: approxKrwOf(sellFact?.values?.vtot),
+          },
   };
 }
 

@@ -100,7 +100,11 @@ function Bars({ bars, tone }: { bars: readonly MemberBar[]; tone: 'up' | 'down' 
     <div
       data-slot="limitup-bars"
       data-tone={tone}
-      className="mt-1 grid grid-cols-[72px_1fr_40px] items-center gap-x-2 gap-y-1"
+      className={cn(
+        'mt-1 grid items-center gap-x-2 gap-y-1',
+        // 금액 칸은 금액 키가 있는 날짜에만 — 옛 날짜는 기존 3칸 그대로.
+        bars.some((b) => b.amount !== null) ? 'grid-cols-[72px_1fr_40px_64px]' : 'grid-cols-[72px_1fr_40px]',
+      )}
     >
       {bars.map((b, i) => (
         <div key={i} className="contents">
@@ -115,6 +119,11 @@ function Bars({ bars, tone }: { bars: readonly MemberBar[]; tone: 'up' | 'down' 
             />
           </span>
           <span className="mono text-right text-[length:var(--t-caption)] text-[var(--fg-2)]">{b.label}</span>
+          {bars.some((x) => x.amount !== null) && (
+            <span data-slot="limitup-bar-amount" className="mono text-right text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+              {b.amount ?? '—'}
+            </span>
+          )}
         </div>
       ))}
     </div>
@@ -134,7 +143,8 @@ function MemberGroup({
     <div className="min-w-0" data-group={tone === 'up' ? 'entry' : 'sell'}>
       <h4 className="m-0 text-[length:var(--t-caption)] font-semibold text-[var(--fg)]">{title}</h4>
       <p className={cn(CAPTION, 'mono')}>
-        {group.range ?? '—'} · 1분 단위 배분이라 추정
+        {group.range ?? '—'}
+        {group.total !== null ? ` · 전체 ${group.total} · 1분 배분 추정` : ' · 1분 단위 배분이라 추정'}
       </p>
       <Bars bars={group.bars} tone={tone} />
     </div>
