@@ -9,6 +9,7 @@ import { EXPORT_TABLES, commitDay, readNdjsonGz, stageDay, type ExportTbl, type 
 import { gridSummaryOf, memberDailyOf } from "./derive";
 import { GRID_NAME_RE, readGridGz, uploadGrids } from "./grid";
 import { kstYmdDaysAgo, purgeOld, type PurgeResult } from "./purge";
+import { freshnessOf, STALE_TRADING_DAYS, type Freshness } from "./freshness";
 
 export { KNOWN_SCHEMA_VERSION } from "./manifest";
 export { kstYmdDaysAgo } from "./purge";
@@ -34,6 +35,8 @@ export { kstYmdDaysAgo } from "./purge";
  * 다음 날짜로 간다. sha 대조를 통과한 뒤의 오류는 데이터가 그대로인 한 매일 밤 같은 자리에서 다시 나므로, 루프를
  * 멈추면 그보다 새 날짜와 run 끝 정리(kind 15 purge 포함)가 보존 창(90일)이 끝날 때까지 막힌다.
  * 운영 탈출구 `LIMITUP_SKIP_DATES=YYYYMMDD,…` — 그 날짜는 읽지도 기록하지도 않는다(`excluded` · warn 로그).
+ * 신선도(WR-B01): GCS 의 가장 새 export 날짜 뒤로 export 가 없는 KRX 거래일이 `STALE_TRADING_DAYS`(3) 이상이면
+ * `freshness.stale` → main 이 error 로그 + 종료 1(119 export · radar-gw 운반이 멈추면 「새 날짜 없음」 정상 종료로 묻힌다).
  * 날짜 루프 뒤(날짜 0개 · 실패 날짜가 있어도) 보존 정리 `purgeOld` 1회(D-16 · D-19 · D-08 — purge.ts). 정리 오류는
  * 적재된 날짜를 사유와 함께 error 로그로 남기고 throw → 종료 1.
  *
@@ -72,6 +75,8 @@ export type DispatchResult = {
   failed: FailedDay[];
   /** `LIMITUP_SKIP_DATES` 로 운영자가 뺀 날짜 — 읽지도 기록하지도 않는다. */
   excluded: string[];
+  /** export 신선도(WR-B01) — `stale` 이면 main 종료 1. */
+  freshness: Freshness;
 };
 
 const SKIP_TEXT: Record<SkipReason, string> = {
@@ -130,6 +135,7 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
     alertDates: [],
     failed: [],
     excluded: [],
+    freshness: freshnessOf(dates, since, now),
   };
 
   /** `limitup_record_skip` → 새 streak 가 임계 이상이면 alertDates. RPC 오류는 throw. reason 은 DB 에서 자유 텍스트. */
@@ -280,10 +286,18 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
   return result;
 }
 
-/** 실행 1회 → 종료 코드(D-20): skip 만 0 · 같은 날짜 3연속 skip 1 · 실패 날짜 1(CR-B01) · 예외 1(사유 로그). */
-export async function main(argv: string[] = process.argv): Promise<number> {
+/** 실행 1회 → 종료 코드(D-20): skip 만 0 · 같은 날짜 3연속 skip 1 · 실패 날짜 1(CR-B01) · stale 1(WR-B01) · 예외 1(사유 로그). */
+export async function main(argv: string[] = process.argv, now?: Date): Promise<number> {
   try {
-    const result = await dispatch({ dryRun: argv.includes("--dry-run") });
+    const result = await dispatch({ dryRun: argv.includes("--dry-run"), now });
+    const { freshness } = result;
+    if (freshness.stale) {
+      // 실패 · alert 와 겹쳐도 따로 남긴다 — 운반 정지는 다른 원인이고, 로그 검색 한 줄로 찾을 수 있어야 한다.
+      logger.error(
+        { freshness, threshold: STALE_TRADING_DAYS },
+        "limitup-sync stale — 최신 export 뒤로 새 export 가 없는 거래일이 임계 이상 (119 export · radar-gw 운반 확인)",
+      );
+    }
     if (result.failed.length > 0) {
       logger.error({ result }, "limitup-sync day failed — 실패 날짜가 있다(다른 날짜 · 정리는 진행)");
       return 1;
@@ -292,6 +306,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       logger.error({ result }, "limitup-sync alert — 같은 날짜 3회 연속 skip");
       return 1;
     }
+    if (freshness.stale) return 1;
     logger.info({ result }, "limitup-sync complete");
     return 0;
   } catch (err) {

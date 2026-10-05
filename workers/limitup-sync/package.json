@@ -9,14 +9,15 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@gh-radar/shared": "workspace:*",
     "@supabase/supabase-js": "^2.49.0",
     "dotenv": "^16.4.0",
     "pino": "^9.0.0"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0",
-    "vitest": "^3.0.0",
-    "@types/node": "^22.0.0"
+    "vitest": "^3.0.0"
   }
 }

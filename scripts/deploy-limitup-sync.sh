@@ -12,7 +12,8 @@ set -euo pipefail
 #     워커 env LIMITUP_EXPORT_DIR=/mnt/export/export (버킷 접두 export/ — radar-gw 운반기가 올린다)
 #   - Scheduler 평일 21:20 KST (radar-gw 운반 21:00 KST 뒤)
 #   - task-timeout 1800s · memory 1Gi (첫 run 은 GCS 의 전 날짜를 한 번에 적재)
-#   - 실패 실행 알림 정책 gh-radar-limitup-sync-failure (D-20 — 3회 연속 skip · 예외 = 종료 1)
+#   - 실패 실행 알림 정책 gh-radar-limitup-sync-failure (D-20 — 3회 연속 skip · 예외 = 종료 1 ·
+#     CR-B01 실패 날짜 · WR-B01 export 3 거래일 공백(stale) 도 종료 1)
 #   - --oauth-service-account-email 사용 (OIDC 금지 — Cloud Run Admin API 호출)
 #
 # 필수 env: GCP_PROJECT_ID · SUPABASE_URL (없으면 시작부터 실패)

@@ -491,6 +491,9 @@ importers:
 
   workers/limitup-sync:
     dependencies:
+      '@gh-radar/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@supabase/supabase-js':
         specifier: ^2.49.0
         version: 2.103.2

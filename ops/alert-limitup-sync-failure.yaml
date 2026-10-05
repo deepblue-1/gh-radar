@@ -3,7 +3,10 @@ documentation:
   content: |
     Cloud Run Job `gh-radar-limitup-sync` 의 실행 실패를 감지 — 밤 상한가 export 적재 실패.
     Phase 28 D-20 — 같은 날짜 3회 연속 skip(sha/schema/manifest) 또는 예외(행 수 불일치 · stage/commit RPC 오류 · 보존 정리 오류)면 종료 1.
-    사유 확인: `gcloud logging read 'jsonPayload.msg=~"limitup-sync"' --limit 50`
+    CR-B01 — 날짜 하나가 실패해도 다른 날짜 · 보존 정리는 진행하고 실패 날짜가 있으면 종료 1(`limitup day failed` 로그에 날짜 · 사유).
+    같은 날짜가 매일 같은 자리에서 실패하면(데이터 그대로인 영구 오류) Job env `LIMITUP_SKIP_DATES=YYYYMMDD,…` 로 빼고 원인을 고친다.
+    WR-B01 — 가장 새 export 뒤로 새 export 가 없는 KRX 거래일이 3일 이상이면 종료 1(`limitup-sync stale` 로그) — 119 export · radar-gw 운반 정지 신호.
+    사유 확인: `gcloud logging read 'jsonPayload.msg=~"limitup"' --limit 50`
     운반(119 → radar-gw → GCS) 확인: radar-gw 에서 `journalctl -u limitup-pull`
   mimeType: text/markdown
 conditions:

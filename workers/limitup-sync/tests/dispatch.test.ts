@@ -241,7 +241,7 @@ describe("main — 종료 코드(D-20): skip 만 0 · 같은 날짜 3연속 1 ·
     expect(rpcs(fake.calls, "limitup_commit_day").map((c) => c.args.p_date)).toEqual([GOOD]);
 
     log.calls.error.length = 0;
-    expect(await main(["node", "index.ts"])).toBe(1);
+    expect(await main(["node", "index.ts"], NOW)).toBe(1);
     expect(log.calls.error.map((e) => e.msg)).toEqual(["limitup-sync alert — 같은 날짜 3회 연속 skip"]);
     expect(log.calls.error[0].obj).toMatchObject({ result: { alert: true, alertDates: [BAD] } });
   });
@@ -252,7 +252,7 @@ describe("main — 종료 코드(D-20): skip 만 0 · 같은 날짜 3연속 1 ·
     const { out, main } = await run({ recordSkip: 2 });
     expect(out.alert).toBe(false);
     expect(out.alertDates).toEqual([]);
-    expect(await main(["node", "index.ts"])).toBe(0);
+    expect(await main(["node", "index.ts"], NOW)).toBe(0);
     expect(log.calls.error).toEqual([]);
   });
 
@@ -263,7 +263,7 @@ describe("main — 종료 코드(D-20): skip 만 0 · 같은 날짜 3연속 1 ·
       recordSkip: 1,
     });
     const { main } = await loadIndex(fake);
-    expect(await main(["node", "index.ts"])).toBe(1);
+    expect(await main(["node", "index.ts"], NOW)).toBe(1);
     expect(log.calls.error.map((e) => e.msg)).toEqual([
       "limitup day failed — 다음 날짜로 진행",
       "limitup-sync day failed — 실패 날짜가 있다(다른 날짜 · 정리는 진행)",
@@ -273,6 +273,30 @@ describe("main — 종료 코드(D-20): skip 만 0 · 같은 날짜 3연속 1 ·
     expect(err.message).toMatch(/limitup_stage insert 20261002 \w+ seq \d+\.\.\d+: boom/);
     expect(rpcs(fake.calls, "limitup_commit_day")).toEqual([]);
     expect(rpcs(fake.calls, "limitup_record_skip").map((c) => c.args)).toEqual([{ p_date: GOOD, p_reason: "load" }]);
+  });
+});
+
+describe("main — 신선도(WR-B01): 최신 export 뒤 3 거래일째 새 export 가 없으면 error 로그 + 종료 1", () => {
+  it("export 는 10/2 까지 · 오늘 10/8 21:20 KST(10/5 휴장 · 10/6~8 거래일 3) → stale · main 1 · 정리는 그대로", async () => {
+    addDay(GOOD);
+    const fake = makeFakeSupabase({ loads: [{ date: GOOD, files_sig: SIG, skip_streak: 0 }] });
+    const { dispatch, main } = await loadIndex(fake);
+    const out = await dispatch({ now: new Date("2026-10-08T12:20:00Z") });
+    expect(out.freshness).toEqual({ latestExport: GOOD, missingTradingDays: 3, stale: true });
+    expect(rpcs(fake.calls, "dma_strategy_events_purge_limit_feature")).toHaveLength(1);
+
+    expect(await main(["node", "index.ts"], new Date("2026-10-08T12:20:00Z"))).toBe(1);
+    expect(log.calls.error.map((e) => e.msg)).toEqual([
+      "limitup-sync stale — 최신 export 뒤로 새 export 가 없는 거래일이 임계 이상 (119 export · radar-gw 운반 확인)",
+    ]);
+    expect(log.calls.error[0].obj).toMatchObject({ freshness: { latestExport: GOOD, stale: true }, threshold: 3 });
+  });
+
+  it("같은 export 라도 오늘이 10/5(휴장) 이면 fresh → main 0", async () => {
+    addDay(GOOD);
+    const { out, main } = await run({ loads: [{ date: GOOD, files_sig: SIG, skip_streak: 0 }] });
+    expect(out.freshness).toMatchObject({ missingTradingDays: 0, stale: false });
+    expect(await main(["node", "index.ts"], NOW)).toBe(0);
   });
 });
 
@@ -297,7 +321,7 @@ describe("dispatch — 날짜 격리(CR-B01): 한 날짜의 영구 오류가 뒤
     expect(log.calls.error[0]).toMatchObject({ msg: "limitup day failed — 다음 날짜로 진행", obj: { date: BAD } });
 
     log.calls.error.length = 0;
-    expect(await main(["node", "index.ts"])).toBe(1);
+    expect(await main(["node", "index.ts"], NOW)).toBe(1);
     expect(log.calls.error.at(-1)?.obj).toMatchObject({ result: { loaded: [GOOD], failed: [{ date: BAD }] } });
   });
 
@@ -311,7 +335,7 @@ describe("dispatch — 날짜 격리(CR-B01): 한 날짜의 영구 오류가 뒤
     expect(out.loaded).toEqual([GOOD]);
     expect(rpcs(fake.calls, "limitup_record_skip")).toEqual([]);
     expect(log.calls.warn.map((w) => w.msg)).toContain("limitup day excluded — LIMITUP_SKIP_DATES(운영자 제외)");
-    expect(await main(["node", "index.ts"])).toBe(0);
+    expect(await main(["node", "index.ts"], NOW)).toBe(0);
   });
 });
 
@@ -426,7 +450,7 @@ describe("dispatch — run 끝 보존 정리 (D-16 · D-19 · D-08 · 28-06)", (
     addDay(GOOD);
     const fake = makeFakeSupabase({ rpc: { limitup_purge_old: { error: { message: "canceling statement due to statement timeout" } } } });
     const { main } = await loadIndex(fake);
-    expect(await main(["node", "index.ts"])).toBe(1);
+    expect(await main(["node", "index.ts"], NOW)).toBe(1);
     expect(rpcs(fake.calls, "limitup_commit_day").map((c) => c.args.p_date)).toEqual([GOOD]); // 적재는 끝났다
     expect(log.calls.error.map((e) => e.msg)).toEqual(["limitup purge failed — 적재는 끝남", "limitup-sync failed"]);
     expect(log.calls.error[0].obj).toMatchObject({ loaded: [GOOD], grids: 3 });
