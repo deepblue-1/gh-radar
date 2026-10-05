@@ -116,8 +116,14 @@ export type OrderEventsQueryT = z.infer<typeof OrderEventsQuery>;
 
 /**
  * Phase 25 D-07 — `GET /api/strategy-events` 쿼리 (창 분리 페이지 과거일 이동 · 작업대 주문로그 탭 복원).
- * `GET /api/orders` 와 **같은 `date` 규칙**(생략 = KST 오늘 · `YYYY-MM-DD`)이라 재정의하지 않고 별칭으로 둔다 —
+ * `GET /api/orders` 와 **같은 `date` 규칙**(생략 = KST 오늘 · `YYYY-MM-DD`)이라 `OrderListQuery` 를 확장한다 —
  * 두 목록의 날짜 규칙이 갈라지지 않게. 실재 검사(`2026-02-30` → 400)는 `resolveTradeDate` 가 한다.
  */
-export const StrategyEventsQuery = OrderListQuery;
+export const StrategyEventsQuery = OrderListQuery.extend({
+  /**
+   * Phase 28 D-18 — `"1"` 이면 kind 15(상한가 특징)를 싣는다. 기본(생략 · `"0"`)은 제외 — 하루 수천~1만 행이
+   * 주문로그 기본 응답에 섞이지 않게. 그 밖의 값은 400.
+   */
+  lf: z.enum(["0", "1"]).optional(),
+});
 export type StrategyEventsQueryT = z.infer<typeof StrategyEventsQuery>;

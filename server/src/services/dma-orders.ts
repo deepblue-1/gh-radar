@@ -37,7 +37,9 @@ import { ApiError } from "../errors.js";
  *            행 id + 주문번호 배열만 넘긴다. 가시성은 RPC 조인이고 게이트웨이 · 거래일 · 계좌는 **행에서** 읽는다
  *            (클라 입력 계좌 없음).
  *   T-25-14  (Phase 25) `listStrategyEvents` — 하루치 주문로그 RPC `dma_strategy_events_for_user` 가 주문 이벤트는
- *            계좌 조인, 시세 이벤트(kind 1·2)는 그 게이트웨이 매핑 보유자 전원으로 가른다. server 는 거르지 않는다.
+ *            계좌 조인, 시세 이벤트(kind 1·2·10·15)는 그 게이트웨이 매핑 보유자 전원으로 가른다. server 는 거르지 않는다.
+ *            server 는 그 jsonb 래퍼 `dma_strategy_events_for_user_json` 을 부른다 — max_rows 절단 방지(19-REVIEW WR-06 선례 ·
+ *            Phase 28 D-18 — kind 15 는 `includeLimitFeature` 일 때만).
  *
  * (구 T-15-01 「`WHERE user_id` 명시 필터가 서버 경로의 실제 방어선」 은 `dma_orders` 시절의 사실이다.
  *  새 테이블에는 `user_id` 가 없다 — 행은 사용자가 아니라 계좌 기준이다.)
@@ -97,19 +99,28 @@ export async function listOrderEvents(
 /**
  * Phase 25 D-07 — 하루치 주문로그 평면 목록(작업대 「주문로그」 탭 복원 · 창 분리 과거일 이동). RPC 1회 ·
  * 순서(gw_time_ms → gateway → seq)는 RPC 가 정하고 여기서는 유지한다. 기본값은 KST 오늘.
+ *
+ * ★ Phase 28 D-18 — **jsonb 단일 값** RPC(`dma_strategy_events_for_user_json`)를 부른다. SETOF 함수는 PostgREST
+ *   `max_rows`(1000)에 조용히 잘리고(오름차순이라 늦은 시각 행부터 사라진다), kind 15(상한가 특징)가 하루 수천~1만
+ *   행이라 그대로 섞으면 확정 사고다. 래퍼는 같은 행 · 같은 정렬을 배열 하나로 주고, kind 15 는
+ *   `includeLimitFeature` 일 때만 싣는다(`?lf=1`). 가시성 규칙은 여전히 SETOF 함수 한 곳이다.
  */
 export async function listStrategyEvents(
   supabase: SupabaseClient,
   userId: string,
   date?: string,
+  includeLimitFeature = false,
 ): Promise<StrategyEventRow[]> {
   const tradeDate = resolveTradeDate(date);
-  const { data, error } = await supabase.rpc("dma_strategy_events_for_user", {
+  const { data, error } = await supabase.rpc("dma_strategy_events_for_user_json", {
     p_user_id: userId,
     p_trade_date: tradeDate,
+    p_include_limit_feature: includeLimitFeature,
   });
   if (error) throw DbError("주문로그 조회에 실패했습니다.");
-  return ((data ?? []) as StrategyEventDbRow[]).map(toStrategyEventRow);
+  // RPC 는 늘 배열을 준다(coalesce '[]'). 배열이 아니면 계약 위반 — 빈 목록으로 감추지 않는다.
+  if (!Array.isArray(data)) throw DbError("주문로그 조회에 실패했습니다.");
+  return (data as StrategyEventDbRow[]).map(toStrategyEventRow);
 }
 
 /**

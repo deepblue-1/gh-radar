@@ -15,8 +15,12 @@ import { listStrategyEvents } from "../services/dma-orders.js";
  *   `journal.events` 푸시가 같은 매퍼(`toStrategyEventRow`)로 이어 붙인다.
  *
  * 가시성은 RPC(`dma_strategy_events_for_user`) 조인 하나가 정본이다 — 주문 이벤트는 `dma_account_access` 계좌
- * 조인, 시세 이벤트(kind 1·2)는 그 게이트웨이 매핑 보유 사용자 전원. relay 푸시(WsFanout)와 같은 규칙이라
+ * 조인, 시세 이벤트(kind 1·2·10·15)는 그 게이트웨이 매핑 보유 사용자 전원. relay 푸시(WsFanout)와 같은 규칙이라
  * 새로고침 전후 목록이 갈리지 않는다. server 는 행을 거르지 않고 거를 근거도 갖지 않는다.
+ *
+ * `?lf=1` (Phase 28 D-18): kind 15(상한가 특징 — 분당 · 키당 1행)를 싣는다. 기본(생략 · `lf=0`)은 제외한다 —
+ * 하루 수천~1만 행이 기본 주문로그 응답을 채우지 않게. 조회는 jsonb 래퍼 `dma_strategy_events_for_user_json`
+ * 1회라 PostgREST max_rows(1000) 절단이 없다. `lf` 는 `"0" | "1"` 만 — 그 밖은 400.
  *
  * ── 방어선 ──────────────────────────────────────────────────
  *   T-15-03  `requireAuth()` — 미인증 401
@@ -39,7 +43,12 @@ strategyEventsRouter.get("/", requireAuth(), async (req, res, next) => {
     }
     const supabase = req.app.locals.supabase as SupabaseClient;
     // 사용자 id 는 인증이 확정한 값 하나만 넘긴다 (T-19-17). 가시성 필터는 RPC 조인.
-    const rows: StrategyEventRow[] = await listStrategyEvents(supabase, req.userId!, parsed.data.date);
+    const rows: StrategyEventRow[] = await listStrategyEvents(
+      supabase,
+      req.userId!,
+      parsed.data.date,
+      parsed.data.lf === "1",
+    );
     // 코드베이스 규약: list 엔드포인트는 bare array.
     res.json(rows);
   } catch (e) {

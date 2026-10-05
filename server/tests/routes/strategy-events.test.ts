@@ -6,9 +6,12 @@ import { createApp } from "../../src/app";
 /**
  * `GET /api/strategy-events` — 하루치 주문로그 평면 목록 (Phase 25 D-07 · 작업대 「주문로그」 탭 복원 · 창 분리 과거일 이동).
  *
- * server 는 `dma_strategy_events_for_user` RPC 를 **왕복 1회** 부르고 공유 매퍼 `toStrategyEventRow` 로 camelCase 행을
- * 만든다. 가시성(주문 이벤트 계좌 조인 · 시세 kind 1·2 게이트웨이 공개)은 RPC 안의 조인이 정본이라 mock 은 필터를
- * 흉내 내지 않고 **무엇을 넘겼는지**만 기록한다(`orders.test.ts` 와 같은 모양의 최소 mock).
+ * server 는 jsonb 래퍼 `dma_strategy_events_for_user_json` RPC 를 **왕복 1회** 부르고 공유 매퍼 `toStrategyEventRow` 로
+ * camelCase 행을 만든다. 가시성(주문 이벤트 계좌 조인 · 시세 kind 1·2·10·15 게이트웨이 공개)은 RPC 안의 조인이 정본이라
+ * mock 은 필터를 흉내 내지 않고 **무엇을 넘겼는지**만 기록한다(`orders.test.ts` 와 같은 모양의 최소 mock).
+ *
+ * Phase 28 D-18 — 래퍼는 jsonb 배열 하나(PostgREST max_rows 절단 없음)이고 kind 15(상한가 특징)는 `?lf=1` 일 때만 싣는다
+ * (`p_include_limit_feature`). 배열이 아닌 응답은 계약 위반이라 500.
  */
 
 let userSeq = 0;
@@ -19,6 +22,8 @@ type Rec = { rpcCalls: { fn: string; params: Record<string, unknown> }[] };
 function makeSupabase(opts: {
   user?: { id: string } | null;
   rows?: Record<string, unknown>[];
+  /** RPC data 를 그대로 덮는다(배열 아님 계약 위반 케이스). */
+  rawData?: unknown;
   rpcError?: { message: string };
 }): { client: any; rec: Rec } {
   const rec: Rec = { rpcCalls: [] };
@@ -32,7 +37,9 @@ function makeSupabase(opts: {
     async rpc(fn: string, params: Record<string, unknown>) {
       rec.rpcCalls.push({ fn, params });
       if (opts.rpcError) return { data: null, error: opts.rpcError };
-      if (fn === "dma_strategy_events_for_user") return { data: opts.rows ?? [], error: null };
+      if (fn === "dma_strategy_events_for_user_json") {
+        return { data: "rawData" in opts ? opts.rawData : (opts.rows ?? []), error: null };
+      }
       return { data: null, error: { message: `unexpected rpc ${fn}` } };
     },
   };
@@ -85,7 +92,10 @@ describe("GET /api/strategy-events (Phase 25 D-07)", () => {
     expect(r.status).toBe(200);
     expect(r.body).toEqual([]);
     expect(rec.rpcCalls).toEqual([
-      { fn: "dma_strategy_events_for_user", params: { p_user_id: user.id, p_trade_date: kstDateIso() } },
+      {
+        fn: "dma_strategy_events_for_user_json",
+        params: { p_user_id: user.id, p_trade_date: kstDateIso(), p_include_limit_feature: false },
+      },
     ]);
   });
 
@@ -96,7 +106,11 @@ describe("GET /api/strategy-events (Phase 25 D-07)", () => {
       .get("/api/strategy-events?date=2026-09-26")
       .set("Authorization", "Bearer tok");
     expect(r.status).toBe(200);
-    expect(rec.rpcCalls[0].params).toEqual({ p_user_id: user.id, p_trade_date: "2026-09-26" });
+    expect(rec.rpcCalls[0].params).toEqual({
+      p_user_id: user.id,
+      p_trade_date: "2026-09-26",
+      p_include_limit_feature: false,
+    });
   });
 
   it("⑤ 200 bare array — toStrategyEventRow 결과 · 순서 유지 · dma_user_id 가 섞여 와도 응답에 없다 (T-19-08)", async () => {
@@ -144,5 +158,56 @@ describe("GET /api/strategy-events (Phase 25 D-07)", () => {
     expect(r.status).toBe(500);
     expect(r.body.error.code).toBe("DB_ERROR");
     expect(r.text).not.toContain("permission denied");
+  });
+
+  it("⑦ lf — 1 이면 p_include_limit_feature true · 0 이면 false · 그 밖(2 · true) 400 VALIDATION_FAILED · RPC 0회 (Phase 28 D-18)", async () => {
+    {
+      const user = nextUser();
+      const { client, rec } = makeSupabase({
+        user,
+        rows: [eventRow({ seq: "3", kind: 15, group: 0, account_no: "", order_no: "" })],
+      });
+      const r = await request(createApp({ supabase: client }))
+        .get("/api/strategy-events?date=2026-10-05&lf=1")
+        .set("Authorization", "Bearer tok");
+      expect(r.status).toBe(200);
+      expect(rec.rpcCalls).toEqual([
+        {
+          fn: "dma_strategy_events_for_user_json",
+          params: { p_user_id: user.id, p_trade_date: "2026-10-05", p_include_limit_feature: true },
+        },
+      ]);
+      expect(r.body.map((x: any) => x.kind)).toEqual([15]);
+    }
+    {
+      const user = nextUser();
+      const { client, rec } = makeSupabase({ user, rows: [] });
+      const r = await request(createApp({ supabase: client }))
+        .get("/api/strategy-events?lf=0")
+        .set("Authorization", "Bearer tok");
+      expect(r.status).toBe(200);
+      expect(rec.rpcCalls).toHaveLength(1);
+      expect(rec.rpcCalls[0].params.p_include_limit_feature).toBe(false);
+    }
+    for (const bad of ["2", "true", ""]) {
+      const { client, rec } = makeSupabase({ user: nextUser() });
+      const r = await request(createApp({ supabase: client }))
+        .get(`/api/strategy-events?lf=${bad}`)
+        .set("Authorization", "Bearer tok");
+      expect(r.status, bad).toBe(400);
+      expect(r.body.error.code).toBe("VALIDATION_FAILED");
+      expect(rec.rpcCalls).toHaveLength(0);
+    }
+  });
+
+  it("⑧ RPC data 가 배열이 아니면(객체 · null) 500 DB_ERROR — 빈 목록으로 감추지 않는다", async () => {
+    for (const rawData of [{ gateway: "KB" }, null]) {
+      const { client } = makeSupabase({ user: nextUser(), rawData });
+      const r = await request(createApp({ supabase: client }))
+        .get("/api/strategy-events")
+        .set("Authorization", "Bearer tok");
+      expect(r.status, JSON.stringify(rawData)).toBe(500);
+      expect(r.body.error.code).toBe("DB_ERROR");
+    }
   });
 });
