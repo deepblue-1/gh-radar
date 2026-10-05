@@ -1,9 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useState, type ReactNode } from 'react';
-import type { RelayExchange, RelayLimitChaser, RelayLimitChaserInput } from '@gh-radar/shared';
+import type {
+  RelayExchange,
+  RelayLimitChaser,
+  RelayLimitChaserInput,
+  RelayLimitFeatureMsg,
+} from '@gh-radar/shared';
 
 import { EMPTY_RELAY_VALUE, RelayContext, type RelayContextValue } from '@/lib/relay-provider';
+import { relayQuoteKey } from '@/lib/use-relay-socket';
 import {
   ACK_TIMEOUT_MS,
   StrategyCard,
@@ -212,6 +218,49 @@ describe('StrategyCard', () => {
         [ISIN_A, 'KRX', 'full'],
         [ISIN_A, 'KRX', 'price'],
       ]);
+    });
+  });
+
+  describe('Phase 28 접힌 카드의 85 — level price 면 스토어에 값이 있어도 null · 탭 영역 없음 (D-05 · UI-SPEC ①-2)', () => {
+    const feature = {
+      t: 'limit.feature',
+      i: ISIN_A,
+      x: 'KRX',
+      lockState: 1,
+      lockElapsedS: 43,
+    } as unknown as RelayLimitFeatureMsg;
+    const withFeature = () =>
+      relay({ limitFeatures: new Map([[relayQuoteKey(ISIN_A, 'KRX'), feature]]) });
+    /** 카드 상태의 85 를 DOM 으로 비춘다 — 숨김 본문 안에서도 읽힌다. */
+    const probeFeature = (s: StrategyCardState): ReactNode => (
+      <span data-testid="probe-lf">{s.limitFeature === null ? 'none' : String(s.limitFeature.lockElapsedS)}</span>
+    );
+    const view = (open: boolean, value: RelayContextValue) => (
+      <RelayContext.Provider value={value}>
+        <StrategyCard {...baseProps} open={open} isin={ISIN_A} exchange="KRX" body={probeFeature} />
+      </RelayContext.Provider>
+    );
+
+    it('한 번도 펼친 적 없는 접힌 카드 — 탭 영역 없음 · 헤더에 「잠김」 없음', () => {
+      render(view(false, withFeature()));
+      const card = cardOf(ISIN_A);
+      expect(card.querySelector('[role="tablist"]')).toBeNull();
+      expect(screen.queryByTestId('probe-lf')).toBeNull();
+      expect(card.textContent).not.toContain('잠김');
+    });
+
+    it('펼친 카드는 85 를 쓰고, 접으면(price) 같은 스토어 값이 있어도 limitFeature 가 null', () => {
+      const value = withFeature();
+      const { rerender } = render(view(true, value));
+      expect(screen.getByTestId('probe-lf').textContent).toBe('43');
+      expect(screen.getByRole('tab', { name: /상한가 · 잠김 43초/ })).toBeInTheDocument();
+
+      rerender(view(false, value));
+      expect(screen.getByTestId('probe-lf').textContent).toBe('none');
+      // 숨김 본문 안의 탭 제목도 접미 없이 「상한가」 로 돌아간다 — 얼린 「잠김 43초」 가 남지 않는다.
+      const body = cardOf(ISIN_A).querySelector('[data-slot="strategy-card-body"]') as HTMLElement;
+      expect(body.hidden).toBe(true);
+      expect(body.textContent).not.toContain('잠김');
     });
   });
 

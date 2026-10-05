@@ -3368,4 +3368,106 @@ describe('Phase 28 limit.feature (85 상한가 특징 — 시장 배치 · 키�
     });
     expect(hook.result.current.limitFeatures.size).toBe(0);
   });
+  describe('Phase 28 limit-feature.drop — 탭 안 full 소비자 0 이면 키를 지운다 (UI-SPEC ①-2 얼린 값 방지)', () => {
+    /** 키 하나에 85 를 시장 배치로 들인다. */
+    async function seed(ws: FakeWebSocket, over: Partial<RelayLimitFeatureMsg> = {}): Promise<void> {
+      await act(async () => {
+        ws.push(lf(over));
+      });
+      flushMarket();
+    }
+
+    it('D1 full 1 · price 0 에서 unsubscribe(full) → limitFeatures 에서 키 삭제', async () => {
+      const hook = render();
+      const ws = await connected(hook);
+      act(() => {
+        hook.result.current.subscribe(ISIN_A, 'KRX');
+      });
+      await seed(ws);
+      expect(featureOf(hook, ISIN_A, 'KRX')).toBeDefined();
+
+      act(() => {
+        hook.result.current.unsubscribe(ISIN_A, 'KRX');
+      });
+      expect(hook.result.current.limitFeatures.has(relayQuoteKey(ISIN_A, 'KRX'))).toBe(false);
+    });
+
+    it('D2 접기(price 먼저 잡고 full 놓기 — full 0 · price 1) → 강등만으로도 키 삭제', async () => {
+      const hook = render();
+      const ws = await connected(hook);
+      act(() => {
+        hook.result.current.subscribe(ISIN_A, 'KRX');
+      });
+      await seed(ws);
+
+      act(() => {
+        hook.result.current.subscribe(ISIN_A, 'KRX', 'price');
+      });
+      act(() => {
+        hook.result.current.unsubscribe(ISIN_A, 'KRX');
+      });
+      expect(featureOf(hook, ISIN_A, 'KRX')).toBeUndefined();
+      // 와이어는 강등 재송신(lv:"price")이지 해제가 아니다.
+      expect(ws.parsedSent().at(-1)).toEqual({ t: 'sub', isin: ISIN_A, ex: 'KRX', lv: 'price' });
+    });
+
+    it('D3 같은 키를 다른 카드가 full 로 잡고 있으면(full 2 → 1) 지우지 않는다', async () => {
+      const hook = render();
+      const ws = await connected(hook);
+      act(() => {
+        hook.result.current.subscribe(ISIN_A, 'KRX');
+        hook.result.current.subscribe(ISIN_A, 'KRX');
+      });
+      await seed(ws);
+      const before = hook.result.current.limitFeatures;
+
+      act(() => {
+        hook.result.current.unsubscribe(ISIN_A, 'KRX');
+      });
+      expect(featureOf(hook, ISIN_A, 'KRX')).toMatchObject({ lockState: 1, lockElapsedS: 43 });
+      expect(hook.result.current.limitFeatures).toBe(before);
+    });
+
+    it('D4 price 해제 · 다른 키 해제는 그 키를 건드리지 않는다', async () => {
+      const hook = render();
+      const ws = await connected(hook);
+      act(() => {
+        hook.result.current.subscribe(ISIN_A, 'KRX');
+        hook.result.current.subscribe(ISIN_A, 'KRX', 'price');
+        hook.result.current.subscribe(ISIN_B, 'KRX');
+      });
+      await seed(ws);
+      await seed(ws, { i: ISIN_B });
+
+      act(() => {
+        hook.result.current.unsubscribe(ISIN_A, 'KRX', 'price');
+      });
+      expect(featureOf(hook, ISIN_A, 'KRX')).toBeDefined();
+
+      act(() => {
+        hook.result.current.unsubscribe(ISIN_B, 'KRX');
+      });
+      expect(featureOf(hook, ISIN_B, 'KRX')).toBeUndefined();
+      expect(featureOf(hook, ISIN_A, 'KRX')).toMatchObject({ lockElapsedS: 43 });
+    });
+
+    it('D5 드롭 뒤 다시 full 로 잡고 relay 스냅샷이 오면 즉시 채워진다 (D-23)', async () => {
+      const hook = render();
+      const ws = await connected(hook);
+      act(() => {
+        hook.result.current.subscribe(ISIN_A, 'KRX');
+      });
+      await seed(ws);
+      act(() => {
+        hook.result.current.unsubscribe(ISIN_A, 'KRX');
+      });
+      expect(featureOf(hook, ISIN_A, 'KRX')).toBeUndefined();
+
+      act(() => {
+        hook.result.current.subscribe(ISIN_A, 'KRX');
+      });
+      await seed(ws, { lockElapsedS: 50 });
+      expect(featureOf(hook, ISIN_A, 'KRX')).toMatchObject({ lockElapsedS: 50 });
+    });
+  });
 });

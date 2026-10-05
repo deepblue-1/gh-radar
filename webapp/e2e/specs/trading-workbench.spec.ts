@@ -2744,6 +2744,48 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(await cardHeight()).toBe(before);
   });
 
+  test('P28-1b 접었다 펼친 카드 — 스냅샷 즉시 · 얼린 값 없음 (D-23 relay 스냅샷 · UI-SPEC ①-2 · D-05)', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    relay.seedLimitChasers([{ buyEnabled: true }]);
+    await openFocusedCard(page);
+    const card = cardOf(page, E2E_ISIN);
+    const toggle = toggleOf(page, E2E_ISIN);
+    const header = card.locator('[data-slot="card-header"]');
+    const limitTab = card.locator('[data-slot="card-tabs"]').getByRole('tab').nth(3);
+    const limitState = limitTab.locator('[data-slot="card-tab-limit-state"]');
+
+    // ① 85(lock 1 · 43초) — P28-1 과 같은 재시도(FULL 업스트림 구독 전 프레임은 relay 가 버린다).
+    const sock = await relay.quoteSocket();
+    await expect(async () => {
+      pushLimitFeatureFixture(relay.gateway, sock, { isin: E2E_ISIN, exchange: 'KRX' });
+      await expect(limitTab).toHaveAccessibleName('상한가 · 잠김 43초', { timeout: 1_000 });
+    }).toPass({ timeout: 15_000 });
+
+    // ② 접기(price 강등) — 스토어 키가 지워지고 카드는 85 를 쓰지 않는다. 헤더에 「잠김」 칩이 없다(D-05 칩 폐기).
+    await toggle.click();
+    await expect(card).toHaveAttribute('data-open', 'false');
+    await expect(limitState).toHaveCount(0);
+    await expect(header).not.toContainText('잠김');
+
+    // ③ 펼치기(full 승격) — 게이트웨이가 새 85 를 보내지 않아도 relay 스냅샷이 즉시 「잠김 43초」 를 다시 세운다.
+    await toggle.click();
+    await expect(card).toHaveAttribute('data-open', 'true');
+    await expect(limitTab).toHaveAccessibleName('상한가 · 잠김 43초', { timeout: 5_000 });
+
+    // ④ 얼린 값이 아니라 relay 캐시의 최신값이다 — 접힌 동안 온 85(50초)는 브라우저(price)에 오지 않지만 hub 는
+    //    캐시하고(키 구독 중), 다시 펼치면 그 값이 스냅샷으로 온다. 접힌 동안 카드에는 어떤 「잠김」 도 없다.
+    await toggle.click();
+    await expect(card).toHaveAttribute('data-open', 'false');
+    pushLimitFeatureFixture(relay.gateway, sock, { isin: E2E_ISIN, exchange: 'KRX', lockElapsedS: 50 });
+    // 접힌 동안 흘러온 증분이 없음을 볼 여유(시장 배치 100ms 를 넉넉히 넘긴다).
+    await page.waitForTimeout(500);
+    await expect(limitState).toHaveCount(0);
+    await expect(header).not.toContainText('잠김');
+    await toggle.click();
+    await expect(card).toHaveAttribute('data-open', 'true');
+    await expect(limitTab).toHaveAccessibleName('상한가 · 잠김 50초', { timeout: 5_000 });
+  });
+
   test('P27-2 자동매도 카드 — 펼침 · 스위치 등록 · 방법 세그먼트 · 칩 대기→감시 · 요약 · 폰 시트 · 범위 가드 (D-01 · D-02 · D-03 · Pitfall 5)', async ({
     page,
   }) => {

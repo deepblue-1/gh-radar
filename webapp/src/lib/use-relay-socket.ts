@@ -816,6 +816,11 @@ type RelayAction =
   | { type: "stale"; value: boolean }
   /** 이 키의 마지막 구독이 풀렸다 — 그 키의 구독 한도 표식을 지운다(WR-04). 다른 키 표식이면 무동작. */
   | { type: "sub-limit-clear"; isin: string; ex: RelayExchange }
+  /**
+   * 탭 안에서 이 키를 full 로 보는 소비자가 0 이 됐다(접기 강등 · 해제) — 그 키의 85 를 지운다. 남겨 두면 다시 펼친
+   * 카드가 옛 「잠김 43초」 를 얼린 채 보인다(UI-SPEC ①-2). 다시 full 로 잡으면 relay 스냅샷(D-23)이 즉시 채운다.
+   */
+  | { type: "limit-feature.drop"; key: string }
   /** 세션 종료(로그아웃·비활성화). 이전 사용자의 계좌·전략을 메모리에 남기지 않는다. */
   | { type: "reset" }
   /** 이 브라우저가 `strategies.disable` 을 소켓에 실었다 — 전부 정지 in-flight 창을 연다. */
@@ -853,6 +858,13 @@ function relayReducer(state: RelayData, action: RelayAction): RelayData {
       const limit = state.subLimit;
       if (limit === null || limit.i !== action.isin || limit.x !== action.ex) return state;
       return { ...state, subLimit: null };
+    }
+
+    case "limit-feature.drop": {
+      if (!state.limitFeatures.has(action.key)) return state;
+      const limitFeatures = new Map(state.limitFeatures);
+      limitFeatures.delete(action.key);
+      return { ...state, limitFeatures };
     }
 
     case "strategies-disable-sent":
@@ -2046,6 +2058,10 @@ export function useRelayConnection({
       // 잡지 않은 level 의 해제는 무시한다 — relay hub 「참조계수 없는 해제 — 무시」 와 동형.
       if (!entry || entry[level] <= 0) return;
       entry[level] -= 1;
+      // full 소비자 0 — 강등(price 소비자 남음)과 완전 해제 두 경로 모두 85 를 지운다(얼린 값 방지 · UI-SPEC ①-2).
+      // 이미 날아오던 85 가 드롭 뒤 한 번 더 들어올 수 있으나, 접힌 카드는 level 게이트로 쓰지 않고 다시 펼치면
+      // 승격 스냅샷(D-23)이 즉시 덮는다.
+      if (level === "full" && entry.full === 0) dispatch({ type: "limit-feature.drop", key });
       if (entry.full + entry.price > 0) {
         // 아직 다른 소비자가 보고 있다 — full→price 강등이면 `lv:"price"` 로 재송신, 아니면 무동작.
         flushSubscriptions();
