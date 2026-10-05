@@ -99,6 +99,7 @@ beforeEach(() => {
   delete process.env.LIMITUP_KEEP_DAYS;
   delete process.env.LIMITUP_ALLOC_KEEP_DAYS;
   delete process.env.KIND15_KEEP_DAYS;
+  delete process.env.LIMITUP_SKIP_DATES;
 });
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
@@ -131,11 +132,13 @@ describe("dispatch — 「바뀐 날짜만」(D-14 · files_sig)", () => {
     expect(out.alert).toBe(false);
   });
 
-  it("unchanged streak 갱신 오류 → throw(조용히 넘기지 않는다)", async () => {
+  it("unchanged streak 갱신 오류 → 그 날짜 failed(사유 보존 · 조용히 넘기지 않는다)", async () => {
     addDay(GOOD);
-    await expect(
-      run({ loads: [{ date: GOOD, files_sig: SIG, skip_streak: 1 }], update: { limitup_loads: { error: { message: "boom" } } } }),
-    ).rejects.toThrow(/streak reset 20261002: boom/);
+    const { out } = await run({
+      loads: [{ date: GOOD, files_sig: SIG, skip_streak: 1 }],
+      update: { limitup_loads: { error: { message: "boom" } } },
+    });
+    expect(out.failed).toEqual([{ date: GOOD, error: expect.stringMatching(/streak reset 20261002: boom/) }]);
   });
 
   it("이력 files_sig 가 다르거나 null(= skip 만 있던 날짜)이면 적재", async () => {
@@ -216,11 +219,13 @@ describe("dispatch — skip 기록(D-14 · D-20) · 한 날짜의 skip 은 다�
     expect(out.alert).toBe(false);
   });
 
-  it("record_skip RPC 오류 → 날짜 · 사유 · 메시지를 담아 throw(무로그 fail-safe 금지)", async () => {
+  it("record_skip RPC 오류 → 그 날짜 failed(날짜 · 사유 · 메시지 보존 · 무로그 fail-safe 금지) · load 기록 실패도 error 로그", async () => {
     addDay(BAD, (m) => ({ ...m, schema_version: 2 }));
     const fake = makeFakeSupabase({ rpc: { limitup_record_skip: { error: { message: "permission denied" } } } });
     const { dispatch } = await loadIndex(fake);
-    await expect(dispatch({ now: NOW })).rejects.toThrow(/limitup_record_skip 20261001 schema: permission denied/);
+    const out = await dispatch({ now: NOW });
+    expect(out.failed).toEqual([{ date: BAD, error: expect.stringMatching(/limitup_record_skip 20261001 schema: permission denied/) }]);
+    expect(log.calls.error.map((e) => e.msg)).toEqual(["limitup day failed — 다음 날짜로 진행", "limitup_record_skip(load) failed"]);
   });
 });
 
@@ -251,17 +256,62 @@ describe("main — 종료 코드(D-20): skip 만 0 · 같은 날짜 3연속 1 ·
     expect(log.calls.error).toEqual([]);
   });
 
-  it("stage insert 오류 → dispatch throw → main 이 사유(표 · 날짜 · supabase 메시지)를 error 로그 · 종료 1", async () => {
+  it("stage insert 오류 → 그 날짜 failed → main 이 사유(표 · 날짜 · supabase 메시지)를 error 로그 · 종료 1", async () => {
     addDay(GOOD);
-    const fake = makeFakeSupabase({ insert: (_t, _r, n) => (n === 2 ? { error: { message: "boom" } } : { error: null }) });
+    const fake = makeFakeSupabase({
+      insert: (_t, _r, n) => (n === 2 ? { error: { message: "boom" } } : { error: null }),
+      recordSkip: 1,
+    });
     const { main } = await loadIndex(fake);
     expect(await main(["node", "index.ts"])).toBe(1);
-    expect(log.calls.error).toHaveLength(1);
-    expect(log.calls.error[0].msg).toBe("limitup-sync failed");
+    expect(log.calls.error.map((e) => e.msg)).toEqual([
+      "limitup day failed — 다음 날짜로 진행",
+      "limitup-sync day failed — 실패 날짜가 있다(다른 날짜 · 정리는 진행)",
+    ]);
     const err = log.calls.error[0].obj.err as Error;
     expect(err).toBeInstanceOf(Error);
     expect(err.message).toMatch(/limitup_stage insert 20261002 \w+ seq \d+\.\.\d+: boom/);
     expect(rpcs(fake.calls, "limitup_commit_day")).toEqual([]);
+    expect(rpcs(fake.calls, "limitup_record_skip").map((c) => c.args)).toEqual([{ p_date: GOOD, p_reason: "load" }]);
+  });
+});
+
+describe("dispatch — 날짜 격리(CR-B01): 한 날짜의 영구 오류가 뒤 날짜 · 정리를 막지 않는다", () => {
+  /** 행 수 불일치 — sha 대조는 통과(파일 그대로 · manifest rows 만 틀림)하고 매 run 같은 자리에서 다시 나는 오류. */
+  const rowsOff = (m: Manifest): Manifest => ({
+    ...m,
+    files: m.files.map((f) => (f.name === "touches.ndjson.gz" ? { ...f, rows: f.rows + 1 } : f)),
+  });
+
+  it("앞 날짜 행 수 불일치 → 그 날짜만 failed · record_skip load · 뒤 날짜 적재 · run 끝 정리(kind 15 포함) 실행 · main 종료 1", async () => {
+    addDay(BAD, rowsOff);
+    addDay(GOOD);
+    const { out, fake, main } = await run({ recordSkip: 1 });
+
+    expect(out.failed).toEqual([{ date: BAD, error: `${BAD}: touches.ndjson.gz rows ${tableRows.touches} != manifest ${tableRows.touches + 1}` }]);
+    expect(out.loaded).toEqual([GOOD]);
+    expect(rpcs(fake.calls, "limitup_commit_day").map((c) => c.args.p_date)).toEqual([GOOD]);
+    expect(rpcs(fake.calls, "limitup_record_skip").map((c) => c.args)).toEqual([{ p_date: BAD, p_reason: "load" }]);
+    expect(rpcs(fake.calls, "limitup_purge_old")).toHaveLength(1);
+    expect(rpcs(fake.calls, "dma_strategy_events_purge_limit_feature")).toHaveLength(1);
+    expect(log.calls.error[0]).toMatchObject({ msg: "limitup day failed — 다음 날짜로 진행", obj: { date: BAD } });
+
+    log.calls.error.length = 0;
+    expect(await main(["node", "index.ts"])).toBe(1);
+    expect(log.calls.error.at(-1)?.obj).toMatchObject({ result: { loaded: [GOOD], failed: [{ date: BAD }] } });
+  });
+
+  it("LIMITUP_SKIP_DATES — 그 날짜는 읽지도 기록하지도 않고 excluded · 나머지 적재 · main 종료 0", async () => {
+    process.env.LIMITUP_SKIP_DATES = ` ${BAD} ,`;
+    addDay(BAD, rowsOff);
+    addDay(GOOD);
+    const { out, fake, main } = await run({ recordSkip: 1 });
+    expect(out.excluded).toEqual([BAD]);
+    expect(out.failed).toEqual([]);
+    expect(out.loaded).toEqual([GOOD]);
+    expect(rpcs(fake.calls, "limitup_record_skip")).toEqual([]);
+    expect(log.calls.warn.map((w) => w.msg)).toContain("limitup day excluded — LIMITUP_SKIP_DATES(운영자 제외)");
+    expect(await main(["node", "index.ts"])).toBe(0);
   });
 });
 
@@ -321,16 +371,18 @@ describe("dispatch — 파생 stage · 격자 업로드(commit 앞) · 기대 �
     expect(out).toMatchObject({ loaded: [GOOD], grids: 3, totals: EXPECTED8 });
   });
 
-  it("업로드 error 면 commit 0회 · dispatch throw(사유에 경로) · 정리도 안 한다(다음 run 이 날짜를 다시 한다)", async () => {
+  it("업로드 error 면 commit 0회 · 그 날짜 failed(사유에 경로 · 다음 run 이 날짜를 다시 한다) · 정리는 그대로 돈다(CR-B01)", async () => {
     addDay(GOOD);
     const fake = makeFakeSupabase({
       storage: (_b, op, args) => (op === "upload" && String(args[0]).endsWith(`${GRID_ISINS[1]}.json.gz`) ? { error: { message: "507 quota" } } : undefined),
+      recordSkip: 1,
     });
     const { dispatch } = await loadIndex(fake);
-    await expect(dispatch({ now: NOW })).rejects.toThrow(`limitup-grid/grid/${GOOD}/${GRID_ISINS[1]}.json.gz: 507 quota`);
+    const out = await dispatch({ now: NOW });
+    expect(out.failed).toEqual([{ date: GOOD, error: expect.stringContaining(`limitup-grid/grid/${GOOD}/${GRID_ISINS[1]}.json.gz: 507 quota`) }]);
     expect(rpcs(fake.calls, "limitup_commit_day")).toEqual([]);
     expect(inserts(fake.calls)).toEqual([]);
-    expect(rpcs(fake.calls, "limitup_purge_old")).toEqual([]);
+    expect(rpcs(fake.calls, "limitup_purge_old")).toHaveLength(1);
   });
 
   it("dry-run — 파생 행 수 · 격자 수만 합계에 · 업로드 · stage · commit · 정리 없음", async () => {

@@ -27,10 +27,15 @@ export { kstYmdDaysAgo } from "./purge";
  *
  * skip(D-20) = warn 로그 + (dryRun 이 아니면) `limitup_record_skip(date, reason)` — 돌아온 streak 가
  * `ALERT_SKIP_STREAK`(3) 이상이면 `alertDates`. 한 날짜의 skip 은 다른 날짜를 막지 않는다 — run 은 끝까지 돈 뒤
- * main 이 종료 코드를 정한다: skip 만 → 0 · alert → 1(알림 정책이 실패 실행을 잡는다) · 예외 → 사유 로그 + 1
- * (무로그 fail-safe 금지 — 행 수 불일치 · stage/commit/RPC 오류는 사유를 담아 throw).
- * 날짜 루프 뒤(날짜 0개여도) 보존 정리 `purgeOld` 1회(D-16 · D-19 · D-08 — purge.ts). 정리 오류는 적재된 날짜를
- * 사유와 함께 error 로그로 남기고 throw → 종료 1.
+ * main 이 종료 코드를 정한다: skip 만 → 0 · alert → 1(알림 정책이 실패 실행을 잡는다) · 실패 날짜 → 1.
+ *
+ * 날짜 격리(CR-B01): 한 날짜 안에서 skip 이 아닌 오류(행 수 불일치 · 격자 isin/date 불일치 · JSON 파손 · stage/commit
+ * RPC 오류 · statement_timeout)는 그 날짜만 `failed` 로 기록하고(error 로그 + `limitup_record_skip(date, "load")`)
+ * 다음 날짜로 간다. sha 대조를 통과한 뒤의 오류는 데이터가 그대로인 한 매일 밤 같은 자리에서 다시 나므로, 루프를
+ * 멈추면 그보다 새 날짜와 run 끝 정리(kind 15 purge 포함)가 보존 창(90일)이 끝날 때까지 막힌다.
+ * 운영 탈출구 `LIMITUP_SKIP_DATES=YYYYMMDD,…` — 그 날짜는 읽지도 기록하지도 않는다(`excluded` · warn 로그).
+ * 날짜 루프 뒤(날짜 0개 · 실패 날짜가 있어도) 보존 정리 `purgeOld` 1회(D-16 · D-19 · D-08 — purge.ts). 정리 오류는
+ * 적재된 날짜를 사유와 함께 error 로그로 남기고 throw → 종료 1.
  *
  * `--dry-run`: Supabase 무접촉(env 불필요 · record_skip · 업로드 · 정리 없음) — 날짜별 행 수(파생 2표 포함) · 합계 ·
  * 격자 수 · skip 만 낸다.
@@ -41,6 +46,9 @@ export { kstYmdDaysAgo } from "./purge";
 export const ALERT_SKIP_STREAK = 3;
 
 export type SkipReason = "schema" | "sha" | "manifest";
+
+/** skip 이 아닌 오류로 끝난 날짜 하나(CR-B01) — 사유 메시지와 함께. */
+export type FailedDay = { date: string; error: string };
 
 export type DispatchResult = {
   dryRun: boolean;
@@ -60,6 +68,10 @@ export type DispatchResult = {
   alert: boolean;
   /** record_skip 이 돌려준 streak >= ALERT_SKIP_STREAK 인 날짜. */
   alertDates: string[];
+  /** skip 이 아닌 오류로 끝난 날짜(CR-B01) — 하나라도 있으면 main 종료 1. 다른 날짜 · 정리는 막지 않는다. */
+  failed: FailedDay[];
+  /** `LIMITUP_SKIP_DATES` 로 운영자가 뺀 날짜 — 읽지도 기록하지도 않는다. */
+  excluded: string[];
 };
 
 const SKIP_TEXT: Record<SkipReason, string> = {
@@ -116,12 +128,12 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
     skipped: { schema: [], sha: [], manifest: [], unchanged: [] },
     alert: false,
     alertDates: [],
+    failed: [],
+    excluded: [],
   };
 
-  /** warn + (dryRun 이 아니면) record_skip → 새 streak 가 임계 이상이면 alertDates. RPC 오류는 throw. */
-  const skip = async (date: string, reason: SkipReason, detail: Record<string, unknown>): Promise<void> => {
-    result.skipped[reason].push(date);
-    log.warn({ date, reason, detail }, `limitup-sync skip — ${SKIP_TEXT[reason]}`);
+  /** `limitup_record_skip` → 새 streak 가 임계 이상이면 alertDates. RPC 오류는 throw. reason 은 DB 에서 자유 텍스트. */
+  const recordSkip = async (date: string, reason: SkipReason | "load"): Promise<void> => {
     if (dryRun || !sb) return;
     const { data, error } = await sb.rpc("limitup_record_skip", { p_date: date, p_reason: reason });
     if (error) throw new Error(`limitup_record_skip ${date} ${reason}: ${error.message}`);
@@ -133,16 +145,24 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
     }
   };
 
-  for (const date of dates) {
+  /** warn + (dryRun 이 아니면) record_skip. */
+  const skip = async (date: string, reason: SkipReason, detail: Record<string, unknown>): Promise<void> => {
+    result.skipped[reason].push(date);
+    log.warn({ date, reason, detail }, `limitup-sync skip — ${SKIP_TEXT[reason]}`);
+    await recordSkip(date, reason);
+  };
+
+  /** 날짜 하나 적재 — skip 은 return, skip 이 아닌 오류는 throw(아래 루프가 그 날짜만 실패로 격리한다 · CR-B01). */
+  const loadDay = async (date: string): Promise<void> => {
     const mr = readManifest(config.exportDir, date);
     if (!mr.ok) {
       await skip(date, "manifest", { error: mr.reason });
-      continue;
+      return;
     }
     const m = mr.manifest;
     if (m.schema_version !== KNOWN_SCHEMA_VERSION) {
       await skip(date, "schema", { schema_version: m.schema_version, known: KNOWN_SCHEMA_VERSION });
-      continue;
+      return;
     }
     const sig = filesSig(m);
     const p = prev.get(date);
@@ -158,12 +178,12 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
         if (error) throw new Error(`limitup_loads streak reset ${date}: ${error.message}`);
         log.info({ date, streak: p.streak }, "limitup skip streak reset — 적재본과 같은 export");
       }
-      continue;
+      return;
     }
     const bad = await verifyFiles(config.exportDir, date, m);
     if (bad.length > 0) {
       await skip(date, "sha", { files: bad });
-      continue;
+      return;
     }
 
     const tables = {} as Record<ExportTbl, Row[]>;
@@ -199,7 +219,7 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
 
     if (dryRun || !sb) {
       result.grids += grids.length;
-      continue;
+      return;
     }
 
     const { error: clearErr } = await sb.rpc("limitup_stage_clear", { p_date: date });
@@ -215,6 +235,29 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
     });
     log.info({ date, rows: counts, replaced: prev.has(date), sigChanged: p?.sig !== sig }, "limitup day committed");
     result.loaded.push(date);
+  };
+
+  for (const date of dates) {
+    if (config.skipDates.includes(date)) {
+      result.excluded.push(date);
+      log.warn({ date }, "limitup day excluded — LIMITUP_SKIP_DATES(운영자 제외)");
+      continue;
+    }
+    try {
+      await loadDay(date);
+    } catch (err) {
+      // 날짜 하나의 영구 오류가 그 뒤 날짜 · run 끝 정리를 막지 않게(CR-B01 head-of-line) — 실패로 기록하고 다음 날짜로.
+      const error = err instanceof Error ? err.message : String(err);
+      result.failed.push({ date, error });
+      log.error({ date, err }, "limitup day failed — 다음 날짜로 진행");
+      if (!dryRun && sb) {
+        try {
+          await recordSkip(date, "load");
+        } catch (e) {
+          log.error({ date, err: e }, "limitup_record_skip(load) failed");
+        }
+      }
+    }
   }
 
   result.alert = result.alertDates.length > 0;
@@ -237,10 +280,14 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
   return result;
 }
 
-/** 실행 1회 → 종료 코드(D-20): skip 만 0 · 같은 날짜 3연속 skip 1 · 예외 1(사유 로그). */
+/** 실행 1회 → 종료 코드(D-20): skip 만 0 · 같은 날짜 3연속 skip 1 · 실패 날짜 1(CR-B01) · 예외 1(사유 로그). */
 export async function main(argv: string[] = process.argv): Promise<number> {
   try {
     const result = await dispatch({ dryRun: argv.includes("--dry-run") });
+    if (result.failed.length > 0) {
+      logger.error({ result }, "limitup-sync day failed — 실패 날짜가 있다(다른 날짜 · 정리는 진행)");
+      return 1;
+    }
     if (result.alert) {
       logger.error({ result }, "limitup-sync alert — 같은 날짜 3회 연속 skip");
       return 1;

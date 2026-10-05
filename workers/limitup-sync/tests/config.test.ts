@@ -10,6 +10,7 @@ const KEYS = [
   "LIMITUP_ALLOC_KEEP_DAYS",
   "LIMITUP_STAGE_CHUNK",
   "KIND15_KEEP_DAYS",
+  "LIMITUP_SKIP_DATES",
 ];
 
 describe("loadConfig (limitup-sync)", () => {
@@ -68,5 +69,14 @@ describe("loadConfig (limitup-sync)", () => {
     process.env.LIMITUP_EXPORT_DIR = "/tmp/export";
     process.env[key] = val;
     expect(() => loadConfig({ dryRun: true })).toThrow(new RegExp(`Invalid ${key}`));
+  });
+
+  it("LIMITUP_SKIP_DATES — 기본 [] · 쉼표 목록(공백 · 빈 칸 무시) · 8자리 날짜가 아니면 throw(CR-B01 운영 탈출구)", () => {
+    process.env.LIMITUP_EXPORT_DIR = "/tmp/export";
+    expect(loadConfig({ dryRun: true }).skipDates).toEqual([]);
+    process.env.LIMITUP_SKIP_DATES = "20261002, 20261005,";
+    expect(loadConfig({ dryRun: true }).skipDates).toEqual(["20261002", "20261005"]);
+    process.env.LIMITUP_SKIP_DATES = "2026-10-02";
+    expect(() => loadConfig({ dryRun: true })).toThrow(/Invalid LIMITUP_SKIP_DATES/);
   });
 });

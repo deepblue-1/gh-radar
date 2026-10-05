@@ -149,7 +149,7 @@ describe("dispatch — 정상 경로(stage_clear → 격자 업로드 → stage 
   });
 });
 
-describe("dispatch — 예외는 사유를 담아 throw(main 이 로그 + 종료 1)", () => {
+describe("dispatch — 날짜 안 오류는 사유를 담아 그 날짜 failed(CR-B01 — main 이 로그 + 종료 1)", () => {
   let dir: string;
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "limitup-load-"));
@@ -161,14 +161,18 @@ describe("dispatch — 예외는 사유를 담아 throw(main 이 로그 + 종료
   // sha256 불일치 · 모르는 schema_version · 깨진 manifest 는 28-16 부터 throw 가 아니라 날짜 skip(+ limitup_record_skip)
   // 이다 — tests/dispatch.test.ts 가 증명한다.
 
-  it("stage insert 오류 → 표 · seq 범위 · 메시지를 담아 throw · commit 없음", async () => {
+  it("stage insert 오류 → 표 · seq 범위 · 메시지를 담아 failed · commit 없음", async () => {
     const fake = makeFakeSupabase({ insert: (_t, _rows, n) => (n === 2 ? { error: { message: "boom" } } : { error: null }) });
-    await expect(runDispatch(fake)).rejects.toThrow(/limitup_stage insert 20261002 \w+ seq \d+\.\.\d+: boom/);
+    const { out } = await runDispatch(fake);
+    expect(out.failed).toEqual([{ date: DATE, error: expect.stringMatching(/limitup_stage insert 20261002 \w+ seq \d+\.\.\d+: boom/) }]);
+    expect(out.loaded).toEqual([]);
     expect(fake.calls.some((c) => c.kind === "rpc" && c.name === "limitup_commit_day")).toBe(false);
   });
 
-  it("commit RPC 오류 → throw", async () => {
+  it("commit RPC 오류 → 사유를 담아 failed", async () => {
     const fake = makeFakeSupabase({ rpc: { limitup_commit_day: { error: { message: "stage 1 expected 2" } } } });
-    await expect(runDispatch(fake)).rejects.toThrow(/limitup_commit_day 20261002: stage 1 expected 2/);
+    const { out } = await runDispatch(fake);
+    expect(out.failed).toEqual([{ date: DATE, error: "limitup_commit_day 20261002: stage 1 expected 2" }]);
+    expect(out.loaded).toEqual([]);
   });
 });

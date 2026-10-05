@@ -17,6 +17,9 @@ set -euo pipefail
 #
 # 필수 env: GCP_PROJECT_ID · SUPABASE_URL (없으면 시작부터 실패)
 #           NOTIFICATION_CHANNEL_ID (없으면 마지막 알림 단계만 실패 — Job · Scheduler 는 이미 반영됨)
+# 선택 env: LIMITUP_SKIP_DATES=YYYYMMDD,… — 적재에서 뺄 날짜(CR-B01 운영 탈출구). --set-env-vars 가 Job env 를
+#           통째로 바꾸므로 재배포 때도 유지하려면 이 env 로 넘긴다. 배포 없이 켜려면
+#           gcloud run jobs update gh-radar-limitup-sync --region=asia-northeast3 --update-env-vars=^@^LIMITUP_SKIP_DATES=…
 # 선행: bash scripts/setup-limitup-sync-iam.sh (SA · Secret accessor · 버킷 · 버킷 IAM)
 # ═══════════════════════════════════════════════════════════════
 
@@ -87,7 +90,7 @@ docker push "$IMAGE_LATEST"
 
 # Section 5: Deploy Cloud Run Job (GCS 볼륨 읽기 전용 마운트)
 RUNTIME_SA="gh-radar-limitup-sync-sa@${EXPECTED_PROJECT}.iam.gserviceaccount.com"
-COMMON_ENV="^@^SUPABASE_URL=${SUPABASE_URL}@LOG_LEVEL=info@APP_VERSION=${SHA}@LIMITUP_EXPORT_DIR=/mnt/export/export@LIMITUP_KEEP_DAYS=90@LIMITUP_ALLOC_KEEP_DAYS=30@KIND15_KEEP_DAYS=30"
+COMMON_ENV="^@^SUPABASE_URL=${SUPABASE_URL}@LOG_LEVEL=info@APP_VERSION=${SHA}@LIMITUP_EXPORT_DIR=/mnt/export/export@LIMITUP_KEEP_DAYS=90@LIMITUP_ALLOC_KEEP_DAYS=30@KIND15_KEEP_DAYS=30${LIMITUP_SKIP_DATES:+@LIMITUP_SKIP_DATES=${LIMITUP_SKIP_DATES}}"
 COMMON_SECRETS="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest"
 
 deploy_job() {
