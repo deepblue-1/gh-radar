@@ -1,18 +1,18 @@
 ---
 gsd_state_version: "1.0"
 milestone: v1.0
-current_phase: 23
-current_phase_name: GH Trade Play 스토어 내부 테스트 배포 (개발자 인증 후)
+current_phase: 27
+current_phase_name: 자동매도 연동 — gh-trade Phase 28 와이어 계약 반영
 status: planning
 stopped_at: Phase 27 context gathered (2026-10-05)
-last_updated: "2026-10-05T03:35:41.921Z"
+last_updated: "2026-10-05T04:39:18.681Z"
 last_activity: 2026-10-03
 last_activity_desc: Phase 18·19·20 완료 처리 (재검증 R5/R3 · 19 첫 검증 · 19-13 실장 대조)
-state_head: 552413c24b4aedaeb87045f5f57af67e57d7c560
+state_head: 332696f2dcc96b9366fc3020766aa855b45f4f60
 progress:
-  total_phases: 36
+  total_phases: 37
   completed_phases: 4
-  total_plans: 352
+  total_plans: 361
   completed_plans: 337
 milestone_name: milestone
 ---
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 23 — GH Trade Play 스토어 내부 테스트 배포 (개발자 인증 후)
+Phase: 27 (자동매도 연동 — gh-trade Phase 28 와이어 계약 반영) — READY TO EXECUTE
 Plan: Not started (Play Console 개발자 인증 대기)
 Status: Phase 18·19·20 완료 처리 2026-10-03 — 18 재검증 R5 passed · 19 검증 passed + 19-13 첫 거래일 대조 종결 · 20 재검증 R3 passed + UAT 6/6
 Production URL: https://gh-radar-webapp.vercel.app
