@@ -1,10 +1,10 @@
 ---
-status: open            # open | done
+status: done
 from_commit: 65caaf2e        # 10/5 갱신 — master 병합 63aa0899 · 처음 확정 23d7721a
 from_branch: master
 date: 2026-10-05            # 처음 2026-10-04
 fbs_sync_marker: 26b3493e
-done_commit:            # gh-radar 가 처리한 커밋 해시 — done 으로 바꿀 때 채운다
+done_commit: 78486f1b
 ---
 
 # Phase 28 자동매도 — 와이어 계약 확정 (HANDOFF §4-1 v0.2 그대로)
