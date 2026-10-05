@@ -1,0 +1,159 @@
+{
+ "member_daily": [
+  {
+   "member": "00002",
+   "name": "신한증권",
+   "n": 5,
+   "entry_sum": 0.4027069896223604,
+   "entry_cnt": 3,
+   "lock_buy_sum": 1.1622043489301417,
+   "lock_buy_cnt": 2,
+   "pre_sell_sum": 0.15009967019771084,
+   "pre_sell_cnt": 1,
+   "lead": 0,
+   "n_broke": 1,
+   "n_lock": 2,
+   "n_held": 1
+  },
+  {
+   "member": "00003",
+   "name": "한국증권",
+   "n": 5,
+   "entry_sum": 0.5066883891596177,
+   "entry_cnt": 3,
+   "lock_buy_sum": 0.202877639939235,
+   "lock_buy_cnt": 2,
+   "pre_sell_sum": 0.18807705277781128,
+   "pre_sell_cnt": 1,
+   "lead": 0,
+   "n_broke": 1,
+   "n_lock": 2,
+   "n_held": 1
+  },
+  {
+   "member": "00005",
+   "name": "미래에셋증권",
+   "n": 2,
+   "entry_sum": 0.19046187419750227,
+   "entry_cnt": 1,
+   "lock_buy_sum": 0.0,
+   "lock_buy_cnt": 1,
+   "pre_sell_sum": 0.0,
+   "pre_sell_cnt": 0,
+   "lead": 0,
+   "n_broke": 0,
+   "n_lock": 1,
+   "n_held": 1
+  },
+  {
+   "member": "00008",
+   "name": "유진증권",
+   "n": 1,
+   "entry_sum": 0.0,
+   "entry_cnt": 0,
+   "lock_buy_sum": 0.0,
+   "lock_buy_cnt": 1,
+   "pre_sell_sum": 0.3096029220019566,
+   "pre_sell_cnt": 1,
+   "lead": 0,
+   "n_broke": 1,
+   "n_lock": 1,
+   "n_held": 0
+  },
+  {
+   "member": "00012",
+   "name": "NH투자증권",
+   "n": 3,
+   "entry_sum": 0.25390814784889304,
+   "entry_cnt": 2,
+   "lock_buy_sum": 0.04782369955845251,
+   "lock_buy_cnt": 1,
+   "pre_sell_sum": 0.03391028554272123,
+   "pre_sell_cnt": 1,
+   "lead": 0,
+   "n_broke": 1,
+   "n_lock": 1,
+   "n_held": 0
+  },
+  {
+   "member": "00021",
+   "name": "한화투자",
+   "n": 1,
+   "entry_sum": 0.050102021450839654,
+   "entry_cnt": 1,
+   "lock_buy_sum": 0.0,
+   "lock_buy_cnt": 0,
+   "pre_sell_sum": 0.0,
+   "pre_sell_cnt": 0,
+   "lead": 0,
+   "n_broke": 0,
+   "n_lock": 0,
+   "n_held": 0
+  },
+  {
+   "member": "00033",
+   "name": "JP모간",
+   "n": 2,
+   "entry_sum": 0.49563417381678704,
+   "entry_cnt": 1,
+   "lock_buy_sum": 0.04761981489578629,
+   "lock_buy_cnt": 1,
+   "pre_sell_sum": 0.0,
+   "pre_sell_cnt": 0,
+   "lead": 0,
+   "n_broke": 0,
+   "n_lock": 1,
+   "n_held": 1
+  },
+  {
+   "member": "00050",
+   "name": "키움증권",
+   "n": 5,
+   "entry_sum": 1.100498403904,
+   "entry_cnt": 3,
+   "lock_buy_sum": 0.5394744966763847,
+   "lock_buy_cnt": 2,
+   "pre_sell_sum": 0.3183100694797999,
+   "pre_sell_cnt": 1,
+   "lead": 1,
+   "n_broke": 1,
+   "n_lock": 2,
+   "n_held": 1
+  },
+  {
+   "member": "00077",
+   "name": "토스증권",
+   "n": 1,
+   "entry_sum": 0.0,
+   "entry_cnt": 0,
+   "lock_buy_sum": 0.0,
+   "lock_buy_cnt": 1,
+   "pre_sell_sum": 0.0,
+   "pre_sell_cnt": 0,
+   "lead": 0,
+   "n_broke": 0,
+   "n_lock": 1,
+   "n_held": 1
+  }
+ ],
+ "grid_summary": [
+  {
+   "isin": "KR7069920007",
+   "q_max_krw": 2346454647,
+   "q_max_ms": 1790919446000,
+   "sell_share_60s": 0.24605858595688773
+  },
+  {
+   "isin": "KR7263600009",
+   "q_max_krw": 3705287310,
+   "q_max_ms": 1790899426000,
+   "sell_share_60s": 0.7826114495641058
+  },
+  {
+   "isin": "KR7308100007",
+   "q_max_krw": 365176832,
+   "q_max_ms": 1790921507000,
+   "sell_share_60s": null
+  }
+ ]
+}
