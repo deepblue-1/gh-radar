@@ -233,3 +233,13 @@ gh-radar 쪽 순서는 항상 DB → relay → webapp 이고, push 가 곧 webap
 3. **kind 15 저장 경로** — 옛 relay 가 모르는 kind 값(15)을 거르지 않고 `dma_strategy_events` 에 숫자 그대로 넣는가? 계좌 없는 행(시세 이벤트 1/2/10 과 같은 모양)을 RPC `dma_strategy_events_for_user` 가 어떻게 다루는지도. 하루 수천~1만 행이 늘어나는데 보존·인덱스 정책이 필요한가?
 4. **85 수신 로그** — relay quote 연결이 FULL 구독하는 키가 있으면 85 가 키당 1초마다 온다. 옛 relay 의 unknown MsgType warn 이 프레임마다 찍히면 로그가 커진다 — 레벨·샘플링 확인 부탁.
 5. **`facts.values` jsonb 인덱스** — 웹이 근거 키로 검색·필터할 계획이 있으면 GIN 인덱스가 필요한가? 없으면 행 표시용으로만 쓴다.
+
+## gh-radar 답 — 2026-10-05 (Phase 28 discuss, `.planning/phases/28-limitup-feature-ingest/28-CONTEXT.md`)
+
+1. **grid 객체 한도·형식** — 문제 없음. Supabase Storage 객체 상한(기본 50MB)·서명 URL 응답 상한 모두 종목당 최대 376KB·하루 2.5MB 와 자릿수가 다르다. fine 창이 하루 전체(23,400초 × 24열)가 돼도 gzip 수 MB 수준. 형식은 보낸 그대로(`grid/<date>/<isin>.json.gz`) 받는다. 27-17 UAT 뒤 최대치 추기는 참고로만 받겠다.
+2. **보존 기간** — Supabase 표 6개 · Storage 격자 **전부 90일**(119 원본과 같은 창). radar-gw 로컬은 `--delete` 미러, GCS 사본(`gs://gh-radar-limitup-export`, 적재 워커 입력)은 지우지 않아 재적재 가능. export 디렉터리를 119 가 지우지 않는 것은 그대로 둬도 된다.
+3. **kind 15 저장 경로** — 옛 relay 도 kind 값을 거르지 않고 숫자 그대로 `dma_strategy_events` 에 넣는다(`kind` CHECK 없음 · 저널 포맷 무변경). 다만 현재 조회 RPC `dma_strategy_events_for_user` 는 `kind NOT IN (1,2,10)` 을 계좌 조인으로 보내므로 계좌 없는 15 는 **아무에게도 안 보인 채 적재**된다 — Phase 28 이 시세 집합을 `(1,2,10,15)` 로 재정의해 게이트웨이 매핑 사용자 전원 가시로 바꾼다(relay 라이브 푸시도 같은 판정). 보존은 kind 15 만 `trade_date` 기준 30일 뒤 삭제(주문·시세 1/2/10 은 감사 기록으로 유지). 인덱스는 기존 `(trade_date, gateway, account_no)` 로 조회 충분.
+4. **85 수신 로그** — gh-radar Phase 27 이 85 를 `OUT_OF_SCOPE_INBOUND_MSG_TYPES` 에 넣어 **debug 레벨 드롭**(warn 아님)이다. Phase 28 이 85 를 INBOUND 로 올려 FULL 구독 브라우저에 중계하면 드롭 자체가 없다. 서버 Phase 27 선배포는 안전하다(둘 다 경로에서 warn 폭주 없음).
+5. **`facts.values` GIN** — 없음. 웹은 근거 키로 검색·필터하지 않고 행 표시용(`facts.text` + `values` 강조)으로만 쓴다.
+
+**gh-radar 쪽 설계 요약(참고):** 85 → 작업대 상따 카드 새 탭 「상한가」(WinForms 3줄 9칸 동형, 자동 전환 없음, 탭 제목 「상한가 · 잠김 43초」) · kind 15 → 주문로그 「상한가 특징」 체크(기본 숨김) · export → radar-gw 타이머(평일 21:00 rsync + GCS 업로드만) → Cloud Run Job `limitup-sync`(21:20, manifest sha256 대조 · 날짜 단위 교체) → `/analytics/limitup` 보고서(최상위 「분석」 메뉴, DMA 사용자만, D-20 구성 한 페이지). **radar-gw 공개키는 생성 후 이 노트에 추기해 전달한다**(119 등록 전까지 타이머 disabled).

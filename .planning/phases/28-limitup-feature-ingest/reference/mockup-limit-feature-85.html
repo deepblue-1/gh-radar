@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 28 목업 — 작업대 상따 카드 「상한가 특징」(85) 표시 A/B/C</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+
+/* ── globals.css 토큰(라이트 :root / .dark 실제 값) ── */
+.f {
+  --bg: #ffffff; --surface: #f2f4f6; --card: #ffffff; --fg: #191f28; --fg2: #333d4b; --muted: #f2f4f6; --mfg: #6b7684; --faint: #b0b8c1; --r2: #e5e8eb; --hair: #e5e8eb;
+  --up: #f04452; --down: #3182f6; --flat: #6b7684; --upbg: #ffeeee; --dnbg: #e8f3ff; --pill-bg: #e8f3ff; --pill-fg: #1b64da; --seg-bg: #ffffff; --seg-fg: #191f28;
+  --askbar: rgba(49,130,246,.16); --bidbar: rgba(240,68,82,.16); --armed: #03b26c; --latent: #ff9f1a; --side: #ffffff;
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+}
+.f.dark {
+  --bg: #0a0a0a; --surface: #0a0a0a; --card: #151515; --fg: #ffffff; --fg2: #e4e4e4; --muted: #2d2d2d; --mfg: #9e9e9e; --faint: #636363; --r2: #3d3d3d; --hair: #3d3d3d;
+  --up: #f04251; --down: #3485fa; --flat: #9e9e9e; --upbg: rgba(240,66,81,.16); --dnbg: rgba(52,133,250,.16); --pill-bg: #4e4e4e; --pill-fg: #ffffff; --seg-bg: #4e4e4e; --seg-fg: #ffffff;
+  --askbar: rgba(52,133,250,.28); --bidbar: rgba(240,66,81,.28); --armed: #2fca73; --latent: #ffb13d; --side: #0a0a0a;
+}
+.f { position: relative; flex: none; overflow: hidden; background: var(--bg); color: var(--fg2); font-family: var(--font); -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 1px #2a2a31; display: flex; }
+.f.phone { width: 390px; height: 844px; border-radius: 30px; }
+.f.tablet { width: 768px; height: 1000px; border-radius: 24px; }
+.f.desktop { width: 1280px; height: 900px; border-radius: 12px; }
+.side { display: none; }
+.f.desktop .side { display: flex; flex-direction: column; gap: 2px; width: 240px; flex: none; padding: 18px 12px; background: var(--side); border-right: 1px solid var(--hair); }
+.side .brand { font-weight: 700; font-size: 17px; padding: 4px 10px 16px; color: var(--fg); }
+.side a { padding: 9px 10px; border-radius: 10px; color: var(--mfg); font-size: 15px; font-weight: 500; }
+.side a.on { background: var(--pill-bg); color: var(--pill-fg); font-weight: 600; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 0 16px; background: var(--surface); }
+.f.desktop .main { padding: 0 24px; }
+.topbar { display: flex; align-items: center; gap: 10px; height: 48px; font-size: 13px; color: var(--mfg); }
+.topbar b { color: var(--fg); font-size: 15px; font-weight: 600; }
+.topbar .sp { flex: 1; }
+.topbar .acct { font-size: 12px; background: var(--muted); padding: 3px 8px; border-radius: 999px; }
+
+/* ── 전략 카드(실제 workbench 카드 문법) ── */
+.card { background: var(--card); border-radius: 14px; border: 1px solid var(--hair); display: flex; flex-direction: column; container: lc / inline-size; min-height: 0; }
+.f.phone .card { border-radius: 0; margin: 0 -16px; border-left: 0; border-right: 0; flex: 1; }
+.f .card:has(.body.hidden) { flex: none; }
+.hd { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 10px 12px 6px; }
+.hd .car { font-size: 12px; color: var(--mfg); }
+.hd .nm { font-size: 17px; font-weight: 700; color: var(--fg); }
+.hd .i { width: 16px; height: 16px; border-radius: 50%; border: 1.2px solid var(--mfg); color: var(--mfg); font-size: 10px; display: grid; place-items: center; }
+.hd .seg { display: inline-flex; background: var(--muted); border-radius: 999px; padding: 2px; }
+.hd .seg span { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; color: var(--mfg); }
+.hd .seg span.on { background: var(--pill-bg); color: var(--pill-fg); }
+.hd .px { margin-left: auto; font-size: 17px; font-weight: 700; color: var(--up); }
+.hd .px small { font-size: 12px; font-weight: 500; margin-left: 4px; }
+.hd .x { width: 32px; height: 32px; display: grid; place-items: center; color: var(--mfg); font-size: 18px; margin-right: -8px; }
+.leds { display: flex; gap: 6px; flex-basis: 100%; }
+@container lc (min-width: 760px) { .leds { flex-basis: auto; margin-left: 8px; } .hd .px { margin-left: auto; } }
+.led { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px 0 7px; border-radius: 999px; border: 1px solid var(--hair); font-size: 12px; color: var(--fg2); white-space: nowrap; }
+.led i { width: 7px; height: 7px; border-radius: 50%; border: 1.2px solid var(--mfg); }
+.led i.on { background: var(--armed); border-color: var(--armed); }
+.led i.lat { background: var(--latent); border-color: var(--latent); }
+.led b { font-weight: 600; }
+.led.lockc { color: var(--up); border-color: var(--up); }
+.dots { display: inline-flex; gap: 4px; align-items: center; padding: 0 4px; }
+.dots i { width: 7px; height: 7px; border-radius: 50%; border: 1.2px solid var(--mfg); }
+.dots i.on { background: var(--armed); border-color: var(--armed); } .dots i.lat { background: var(--latent); border-color: var(--latent); }
+.tabs .t b.lock { color: var(--up); font-weight: 600; }
+.tabs .t.on b.lock { color: var(--up); }
+/* 카드 탭 줄 */
+.tabs { display: flex; align-items: center; gap: 2px; padding: 4px 8px 0; border-top: 1px solid var(--hair); }
+.tabs .t { font-size: 12px; font-weight: 500; color: var(--fg2); padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
+.tabs .t.on { background: var(--pill-bg); color: var(--pill-fg); font-weight: 600; }
+.tabs .sp { flex: 1; }
+.tabs .btn { font-size: 12px; font-weight: 500; color: var(--fg2); padding: 3px 8px; border-radius: 6px; background: var(--muted); white-space: nowrap; }
+.tabs .fold { width: 24px; height: 24px; display: grid; place-items: center; color: var(--mfg); font-size: 11px; }
+.tabbody { height: 72px; overflow: hidden; padding: 4px 8px 0; }
+.q10 { display: grid; grid-template-columns: repeat(2, auto 1fr); column-gap: 8px; font-size: 11px; line-height: 1.5; }
+.q10 > span { padding: 3px 0; white-space: nowrap; }
+.q10 .k { color: var(--mfg); }
+.q10 .v { text-align: right; font-weight: 500; color: var(--fg); }
+.q10 .v.up { color: var(--up); } .q10 .v.dn { color: var(--down); }
+@container lc (min-width: 685px) { .q10 { grid-template-columns: repeat(5, auto 1fr); column-gap: 10px; } }
+@container lc (min-width: 992px) { .q10 { grid-template-columns: repeat(10, auto 1fr); } }
+.f.phone .q10 > span:nth-child(n+13) { display: none; }
+.srv { font-size: 12px; color: var(--up); padding: 6px 12px; border-top: 1px solid var(--hair); }
+.srv b { font-weight: 600; }
+/* 본문: 좌 호가 | 우 폼 */
+.body { flex: 1; min-height: 0; display: grid; grid-template-columns: 42% 1fr; border-top: 1px solid var(--hair); }
+@container lc (min-width: 685px) { .body { grid-template-columns: 260px 1fr; } }
+@container lc (min-width: 830px) { .body { grid-template-columns: 400px 1fr; } }
+@container lc (min-width: 992px) { .body { grid-template-columns: 460px 1fr; } }
+.lad { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--hair); }
+.lad-scroll { flex: 1; overflow-y: auto; scrollbar-width: none; padding: 6px 6px 0; }
+/* 1단 사다리(폰) */
+.l1 .r { display: grid; grid-template-columns: 1fr 60px; align-items: center; height: 44px; gap: 6px; }
+.l1 .r .p { font-size: 15px; font-weight: 600; line-height: 1.1; }
+.l1 .r .p small { display: block; font-size: 11px; font-weight: 400; }
+.l1 .r .b { position: relative; height: 36px; border-radius: 6px; display: flex; align-items: center; justify-content: flex-end; padding-right: 6px; font-size: 11.5px; color: var(--fg); overflow: hidden; }
+.l1 .r .b i { position: absolute; right: 0; top: 0; bottom: 0; }
+.l1 .ask .b i { background: var(--askbar); } .l1 .bid .b i { background: var(--bidbar); }
+.l1 .r.cur { background: var(--muted); border-radius: 8px; }
+.l1 .r.empty .p { color: var(--faint); }
+/* 3단 호가표(≥685) */
+.l3 { width: 100%; border-collapse: collapse; font-size: 12px; }
+.l3 td { height: 32px; padding: 0 6px; white-space: nowrap; vertical-align: middle; }
+.l3 .bar { position: relative; }
+.l3 .bar i { position: absolute; top: 4px; bottom: 4px; border-radius: 4px; }
+.l3 .ask .bar i { right: 0; background: var(--askbar); } .l3 .bid .bar i { left: 0; background: var(--bidbar); }
+.l3 .bar span { position: relative; z-index: 1; }
+.l3 .ask .bar { text-align: right; } .l3 .bid .bar { text-align: left; }
+.l3 .px { text-align: center; font-weight: 600; width: 76px; }
+.l3 .pc { text-align: center; color: var(--mfg); width: 44px; font-size: 11px; }
+.l3 tr.cur .px { outline: 1px solid var(--fg); outline-offset: -2px; border-radius: 6px; }
+.l3 .ask .px, .l3 .ask .bar span { color: var(--down); } .l3 .bid .px, .l3 .bid .bar span { color: var(--up); }
+.l3 tr.empty .px { color: var(--faint); }
+.tape { border-top: 1px solid var(--hair); font-size: 11px; color: var(--mfg); padding: 4px 6px; }
+.tape .hh { font-size: 10.5px; font-weight: 600; margin-bottom: 2px; }
+.tape .tr { display: grid; grid-template-columns: 40px 1fr 32px; gap: 6px; height: 22px; align-items: center; }
+.tape .tr b { color: var(--fg); font-weight: 500; text-align: right; }
+.tape .tr .q { text-align: right; }
+.up { color: var(--up); } .dn { color: var(--down); } .mu { color: var(--mfg); }
+/* 우 pane */
+.pan { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 8px 8px 0; }
+.pan-scroll { flex: 1; overflow-y: auto; scrollbar-width: none; padding-bottom: 12px; }
+.sseg { display: flex; background: var(--muted); border-radius: 12px; padding: 3px; gap: 2px; margin-bottom: 8px; }
+.sseg span { flex: 1; text-align: center; font-size: 15px; font-weight: 600; color: var(--mfg); height: 34px; line-height: 34px; border-radius: 10px; }
+.sseg span.on { background: var(--seg-bg); color: var(--seg-fg); box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+@container lc (min-width: 685px) { .sseg { display: none; } }
+.cols { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.cols > .c { min-width: 0; }
+.cols > .c.hide { display: none; }
+.sh { display: none; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; margin: 8px 2px 6px; color: var(--fg); }
+.sh i { width: 8px; height: 8px; border-radius: 50%; }
+.manual { display: none; justify-content: flex-end; }
+.manual span { font-size: 13px; font-weight: 500; background: var(--muted); padding: 7px 12px; border-radius: 8px; color: var(--fg2); }
+@container lc (min-width: 685px) { .cols { grid-template-columns: 1fr 1fr; gap: 16px; } .sh { display: flex; } .cols > .c.hide { display: block; } .manual { display: flex; } }
+.grp { margin-top: 10px; border-radius: 16px; padding: 10px 12px 6px; background: var(--muted); }
+.f.dark .grp { background: #1f1f1f; }
+.grp-h { display: flex; align-items: center; gap: 8px; min-height: 30px; }
+.grp-h .t { font-size: 15px; font-weight: 600; color: var(--fg); }
+.grp-h .s { font-size: 12px; color: var(--mfg); }
+.grp-h .chev { color: var(--faint); font-size: 14px; }
+.grp-h .sw { margin-left: auto; width: 40px; height: 24px; border-radius: 999px; background: var(--r2); position: relative; flex: none; }
+.grp-h .sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; }
+.grp-h .sw.on { background: var(--down); } .grp-h .sw.on::after { transform: translateX(16px); }
+.lrow { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 44px; }
+.lrow .k { font-size: 14px; color: var(--mfg); white-space: nowrap; }
+.lrow .v { font-size: 15px; font-weight: 500; color: var(--fg); white-space: nowrap; margin-left: auto; }
+.lrow .v::after { content: ' ›'; color: var(--faint); }
+.sum { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 0 0 6px; font-size: 13px; color: var(--mfg); line-height: 1.4; }
+.sum .kv { white-space: nowrap; }
+.sum .kv small { font-size: 12px; margin-right: 3px; }
+.chip { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; background: var(--r2); color: var(--mfg); }
+.chip.live { color: var(--armed); background: color-mix(in srgb, var(--armed) 16%, transparent); }
+.hidden { display: none !important; }
+
+/* ════ 상한가 특징(85) — 3줄 표 (WinForms tblLimitFeature 9칸 규칙) ════ */
+.ft { display: grid; grid-template-columns: auto 1fr 1fr 1fr; font-size: 12.5px; line-height: 1.2; }
+.ft > div { display: flex; align-items: center; min-height: 28px; padding: 0 8px; border-bottom: 1px solid var(--hair); white-space: nowrap; overflow: hidden; min-width: 0; color: var(--fg); font-weight: 500; }
+.ft > div > span { overflow: hidden; text-overflow: ellipsis; }
+.ft > .h { background: var(--muted); color: var(--mfg); font-size: 11.5px; font-weight: 600; padding: 0 10px; }
+.ft > div:nth-last-child(-n+4) { border-bottom: 0; }
+.ft .lock { color: var(--up); font-weight: 600; }
+.ft .obs { color: var(--mfg); font-weight: 500; }
+.ft .dash { color: var(--faint); }
+.ft i.w { font-style: normal; display: none; }
+@container lc (min-width: 685px) { .ft i.w { display: inline; } }
+/* A — 카드 탭 「상한가」(탭 본문 3줄 고정 높이 72px 안) */
+.tabbody.ftA { padding: 0; }
+.tabbody.ftA .ft > div { min-height: 24px; }
+.tabbody.ftA .ft > div:nth-last-child(-n+4) { border-bottom: 0; }
+/* B — 호가 사다리 아래(≥685) / 폰은 탭 본문 아래 전폭 띠 */
+.ftB-lad { flex: none; border-top: 1px solid var(--hair); }
+.ftB-top { border-top: 1px solid var(--hair); }
+/* C — 탭 본문 아래 전폭 띠(모든 폭) */
+.ftC { border-top: 1px solid var(--hair); }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">변형</span><button data-v="A" class="on">A 카드 탭 「상한가」 ★채택</button><button data-v="B">B 호가 아래</button><button data-v="C">C 탭 아래 전폭 띠</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390</button><button data-w="tablet">태블릿 768</button><button data-w="desktop">데스크톱 1280</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="light" class="on">라이트</button><button data-t="dark">다크</button></div>
+  <div class="g"><span class="l">서버 값(시뮬)</span><button data-s="0">미도달</button><button data-s="1" class="on">잠김</button><button data-s="2">깨짐</button><button data-au>단일가</button><button data-md>깨짐확률 적용</button><button data-old>구 서버(85 없음)</button><button data-fold>카드 접기</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+
+<script>
+const UPPER = 13000, BASE = 10000;
+const fmt = n => Number(n).toLocaleString('ko-KR');
+const pctOf = p => { const x = (p - BASE) / BASE * 100; return (x > 0 ? '+' : '') + x.toFixed(1) + '%'; };
+const eok = krw => (krw / 1e8).toFixed(1) + '억';
+const man = qty => qty >= 10000 ? (qty / 10000).toFixed(1) + '만' : fmt(qty);
+const secs = s => s < 0 ? '—' : s < 60 ? `${s}초` : `${Math.floor(s / 60)}분 ${s % 60}초`;
+
+const DESC = {
+  A: '<b>A · 카드 탭 「상한가」(2026-10-05 채택)</b> — 「정보 | 미체결 | 잔고」 옆 네 번째 탭, 탭 본문 고정 높이 72px 에 3줄 표. <b>자동 전환 없음</b>(사용자 클릭만). 탭 제목 = 잠김 중 「상한가 · 잠김 43초」(빨강) · 깨짐 「상한가 · 깨짐」 · 그 밖 「상한가」. <b>접힌 카드</b> 헤더 요약 칩에 잠김 중에만 「잠김 43초」 칩. 상한가 근접 전·구 서버는 9칸 「—」.',
+  B: '<b>B · 호가 사다리 아래(WinForms 동형 위치)</b> — 카드 폭 685 이상은 좌 호가 칸 맨 아래(체결 테이프 아래)에 3줄 표가 붙는다. 폰(42% 사다리)은 칸이 좁아 <b>탭 본문 아래 전폭 띠</b>로 내려온다. 호가와 특징을 같은 눈높이에서 본다. 카드 높이 +84px.',
+  C: '<b>C · 탭 본문 아래 전폭 띠(모든 폭)</b> — 정보 10칸 바로 아래, 본문(호가|폼) 위에 3줄 표가 전폭으로 늘 보인다. 폰·데스크톱이 같은 자리. 카드 높이 +84px, 폼이 그만큼 내려간다.',
+};
+const INIT = () => ({ v: 'A', w: 'phone', t: 'light', side: 'buy', st: 1, au: false, model: false, old: false, tab: 'feat', folded: false });
+let S = INIT();
+
+/* 서버 85 값(시뮬) — 시총 1,000억 급 소형주, 상한가 13,000 */
+function feat() {
+  if (S.old) return null;
+  const b = { upper: UPPER, last: UPPER, rate_bp: 3000, q_krw: 17.3e8, wall_krw: 0, wall_trunc: false, drain_s: -1, lock_state: 1, lock_elapsed_s: 43,
+    sell10: 3700, buy10: 6300, new10: 12400, cancel10: 2300, mb: ['키움', 52000], ms: ['신한', 18000], auction: S.au, model: S.model, p_break_bp: 1830 };
+  if (S.st === 0) Object.assign(b, { rate_bp: 2680, last: 12680, q_krw: 0, wall_krw: 4.2e8, wall_trunc: true, lock_state: 0, lock_elapsed_s: 0, sell10: 8200, buy10: 11900, new10: 0, cancel10: 0, mb: ['미래', 31000], ms: ['키움', 22000] });
+  if (S.st === 2) Object.assign(b, { rate_bp: 2920, last: 12920, q_krw: 2.1e8, wall_krw: 0.9e8, lock_state: 2, lock_elapsed_s: 0, drain_s: 95, sell10: 14300, buy10: 5100, new10: 0, cancel10: 0, mb: ['NH', 9000], ms: ['키움', 41000] });
+  return b;
+}
+/* 9칸 규칙 (BuildLimitFeatureCells 동형 — 서버 값 그대로, 단위 변환·비율만) */
+function cells(f) {
+  if (!f) return [0, 1, 2].map(() => ['—', '—', '—'].map(x => `<span class="dash">${x}</span>`));
+  const wall = `매도벽 ${eok(f.wall_krw)}${f.wall_trunc ? '+' : ''}`;
+  const pre = f.auction ? '단일가 · ' : '';
+  let now;
+  if (f.lock_state === 1) now = [`<span class="lock">${pre}잠김 ${secs(f.lock_elapsed_s)}째</span>`, `대기 ${eok(f.q_krw)}`, `소진 ${secs(f.drain_s)}`];
+  else if (f.lock_state === 2) now = [`${pre}깨짐`, `대기 ${eok(f.q_krw)}`, wall];
+  else now = [`${pre}미도달 (+${(f.rate_bp / 100).toFixed(1)}%)`, wall, `상한가 ${fmt(f.upper)}`];
+  const tot = f.sell10 + f.buy10;
+  const dom = tot === 0 ? '체결 없음' : f.buy10 > f.sell10 ? `<span class="up">매수 우세 ${Math.round(f.buy10 / tot * 100)}%</span>` : f.sell10 > f.buy10 ? `<span class="dn">매도 우세 ${Math.round(f.sell10 / tot * 100)}%</span>` : '매수·매도 반반';
+  const ten = [dom, f.lock_state === 1 ? `<i class="w">잔량 </i>신규 +${man(f.new10)}` : `체결 ${man(tot)}주`, f.lock_state === 1 ? `<span class="dn"><i class="w">잔량 </i>취소 -${man(f.cancel10)}</span>` : `<span class="dash">—</span>`];
+  const prob = f.model ? `깨짐확률 ${(f.p_break_bp / 100).toFixed(1)}%` : `<span class="obs">깨짐확률 관찰 중</span>`;
+  const mem = [`<span class="up">매수 ${f.mb[0]} +${man(f.mb[1])}</span>`, `<span class="dn">매도 ${f.ms[0]} +${man(f.ms[1])}</span>`, prob];
+  return [now, ten, mem];
+}
+function table(f) {
+  const [now, ten, mem] = cells(f);
+  const row = (h, r) => `<div class="h">${h}</div>${r.map(c => `<div><span>${c}</span></div>`).join('')}`;
+  return `<div class="ft">${row('지금', now)}${row('10초', ten)}${row('창구', mem)}</div>`;
+}
+
+/* 정보 10칸 */
+function q10(f) {
+  const last = f ? f.last : 12990;
+  const kv = [['기준', fmt(BASE), ''], ['시가', '10,350', 'up'], ['고가', fmt(Math.max(last, 12990)), 'up'], ['저가', '10,200', 'up'], ['상한', fmt(UPPER), 'up'], ['하한', '7,000', 'dn'], ['상승VI', '11,400', ''], ['거래', '912억', ''], ['시총', '1,012억', ''], ['발행1%', '77,840주', '']];
+  return `<div class="q10">${kv.map(([k, v, c]) => `<span class="k">${k}</span><span class="v ${c}">${v}</span>`).join('')}</div>`;
+}
+/* 호가 */
+function ladderRows(f) {
+  const st = f ? f.lock_state : 0;
+  if (st === 1) return { asks: [[13000, 0]], bids: [[13000, 133077], [12995, 4210], [12990, 9087], [12985, 10087], [12980, 20087]], cur: 13000 };
+  if (st === 2) return { asks: [[13000, 6900], [12995, 1200], [12990, 3100], [12985, 2200], [12980, 900]], bids: [[12920, 16154], [12915, 8087], [12910, 12087], [12905, 10087], [12900, 20087]], cur: 12920 };
+  return { asks: [[13000, 2100], [12995, 1900], [12990, 12300], [12985, 9000], [12980, 7100]], bids: [[12680, 8213], [12675, 10087], [12670, 20087], [12665, 30087], [12660, 40087]], cur: 12680 };
+}
+function ladder1(f) {
+  const { asks, bids, cur } = ladderRows(f);
+  const mx = Math.max(...asks.map(a => a[1]), ...bids.map(b => b[1]), 1);
+  const r = (side, p, q) => `<div class="r ${side} ${p === cur ? 'cur' : ''} ${q ? '' : 'empty'}"><div class="p ${q ? (side === 'ask' ? 'dn' : 'up') : ''}">${fmt(p)}<small>${pctOf(p)}</small></div><div class="b">${q ? `<i style="width:${Math.max(8, q / mx * 100)}%"></i><span>${man(q).replace('만', '만')}</span>` : ''}</div></div>`;
+  return asks.map(([p, q]) => r('ask', p, q)).join('') + bids.map(([p, q]) => r('bid', p, q)).join('');
+}
+function ladder3(f) {
+  const { asks, bids, cur } = ladderRows(f);
+  const mx = Math.max(...asks.map(a => a[1]), ...bids.map(b => b[1]), 1);
+  const a = ([p, q]) => `<tr class="ask ${p === cur ? 'cur' : ''} ${q ? '' : 'empty'}"><td class="bar">${q ? `<i style="width:${Math.max(6, q / mx * 100)}%"></i><span>${fmt(q)}</span>` : ''}</td><td class="px">${fmt(p)}</td><td class="pc">${pctOf(p)}</td><td></td></tr>`;
+  const b = ([p, q]) => `<tr class="bid ${p === cur ? 'cur' : ''}"><td></td><td class="px">${fmt(p)}</td><td class="pc">${pctOf(p)}</td><td class="bar"><i style="width:${Math.max(6, q / mx * 100)}%"></i><span>${fmt(q)}</span></td></tr>`;
+  return `<table class="l3">${asks.map(a).join('')}${bids.map(b).join('')}</table>`;
+}
+function tape(f) {
+  const st = f ? f.lock_state : 0;
+  const rows = st === 1 ? [['13:42:07', 13000, 1200, 'up'], ['13:42:06', 13000, 300, 'up'], ['13:42:04', 13000, 2500, 'up']] : st === 2 ? [['13:42:07', 12920, 800, 'dn'], ['13:42:07', 12915, 1500, 'dn'], ['13:42:06', 12930, 200, 'up']] : [['13:42:07', 12680, 400, 'up'], ['13:42:06', 12675, 900, 'dn'], ['13:42:05', 12680, 1100, 'up']];
+  return `<div class="tape"><div class="hh">체결</div>${rows.map(([t, p, q, c]) => `<div class="tr"><span>${t}</span><b>${fmt(p)}</b><span class="q ${c}">${fmt(q)}</span></div>`).join('')}</div>`;
+}
+/* 우 pane */
+const row = (k, v) => `<div class="lrow"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+const kv = (k, v) => `<span class="kv"><small>${k}</small>${v}</span>`;
+const fold = (t, s, sum) => `<div class="grp"><div class="grp-h"><span class="t">${t}</span><span class="chev">›</span>${s}<span class="sw ${s ? 'on' : ''}"></span></div><div class="sum">${sum}</div></div>`;
+function buyList() {
+  return `<div class="grp"><div class="grp-h"><span class="t">매수주문</span><span class="s">감시 중</span><span class="sw on"></span></div>${row('주문가격', '13,000원')}${row('비교가격', '13,000원')}</div>`
+    + fold('선매수', '<span class="chip live">감시 중</span>', kv('금액', '4,000만원') + kv('매도잔량', '1,300만원') + kv('체결량', '3,900만원') + kv('한방', '꺼짐'))
+    + fold('추가매수', '', kv('금액', '4,000만원') + kv('최소', '6,500만원') + kv('최대', '무제한'))
+    + fold('후매수', '', kv('금액', '4,000만원') + kv('최대', '3회') + kv('최소', '1.3억') + kv('반등', '30%'));
+}
+function sellList() {
+  return `<div class="grp">${row('주문가격', '13,000원')}${row('매도비율', '100%')}</div>
+  <div class="grp"><div class="grp-h"><span class="t">매도주문</span><span class="s">감시 중</span><span class="sw on"></span></div>${row('비교가격', '13,000원')}${row('매도잔량', '1,300만원')}</div>
+  <div class="grp"><div class="grp-h"><span class="t">매수취소</span><span class="s">대기</span><span class="sw on"></span></div>${row('매수잔량', '13만원')}</div>
+  ${fold('자동매도', '<span class="chip live">감시</span>', kv('시작조건', '2%') + kv('비율', '10%') + kv('방법', '양쪽'))}`;
+}
+function pane() {
+  return `<div class="pan"><div class="manual"><span>수동주문</span></div>
+    <div class="sseg"><span class="${S.side === 'buy' ? 'on' : ''}" data-side="buy">매수</span><span class="${S.side === 'sell' ? 'on' : ''}" data-side="sell">매도</span><span>수동</span></div>
+    <div class="pan-scroll"><div class="cols">
+      <div class="c ${S.side === 'buy' ? '' : 'hide'}"><div class="sh"><i style="background:var(--up)"></i>매수</div>${buyList()}</div>
+      <div class="c ${S.side === 'sell' ? '' : 'hide'}"><div class="sh"><i style="background:var(--down)"></i>매도</div>${sellList()}</div>
+    </div></div></div>`;
+}
+function card() {
+  const f = feat();
+  const wide = S.w !== 'phone';
+  const last = f ? f.last : 12990;
+  const featTab = S.v === 'A';
+  const showFeat = featTab && S.tab === 'feat';
+  const ttl = !f ? '상한가' : f.lock_state === 1 ? `상한가 · <b class="lock">잠김 ${secs(f.lock_elapsed_s)}</b>` : f.lock_state === 2 ? '상한가 · 깨짐' : '상한가';
+  const tabs = `<div class="tabs"><span class="t ${!showFeat ? 'on' : ''}" data-tab="info">정보</span><span class="t">미체결</span><span class="t">잔고</span>${featTab ? `<span class="t ${showFeat ? 'on' : ''}" data-tab="feat">${ttl}</span>` : ''}<span class="sp"></span><span class="btn">주문로그</span><span class="btn">전략로그</span><span class="fold">⌃</span></div>`;
+  const tabbody = showFeat ? `<div class="tabbody ftA">${table(f)}</div>` : `<div class="tabbody">${q10(f)}</div>`;
+  const bTop = S.v === 'B' && !wide ? `<div class="ftB-top">${table(f)}</div>` : '';
+  const bLad = S.v === 'B' && wide ? `<div class="ftB-lad">${table(f)}</div>` : '';
+  const c = S.v === 'C' ? `<div class="ftC">${table(f)}</div>` : '';
+  return `<div class="card">
+    <div class="hd"><span class="car">${S.folded ? '▶' : '▼'}</span><span class="nm">원익홀딩스</span><span class="i">i</span><span class="seg"><span class="on">KRX</span><span>NXT</span></span>
+      <span class="px">${fmt(last)}<small>${pctOf(last)}</small></span><span class="x">✕</span>
+      ${S.folded ? `<div class="leds"><span class="dots"><i class="on"></i><i class="on"></i><i class="lat"></i></span><span class="led">미체결 <b>2</b></span><span class="led">잔고 <b>3,000주</b></span>${f && f.lock_state === 1 ? `<span class="led lockc">잠김 <b>${secs(f.lock_elapsed_s)}</b></span>` : ''}</div>` : `<div class="leds"><span class="led"><i class="on"></i>매수 <b>감시</b></span><span class="led"><i class="on"></i>매도 <b>감시</b></span><span class="led"><i class="lat"></i>취소 <b>대기</b></span><span class="led"><i class="on"></i>자동 <b>감시</b></span></div>`}
+    </div>
+    ${S.folded ? '' : tabs + tabbody + bTop + c}
+    <div class="body ${S.folded ? 'hidden' : ''}"><div class="lad"><div class="lad-scroll ${wide ? '' : 'l1'}">${wide ? ladder3(f) : ladder1(f)}</div>${tape(f)}${bLad}</div>${pane()}</div>
+  </div>`;
+}
+function frame() {
+  return `<div class="f ${S.w} ${S.t === 'dark' ? 'dark' : ''}" id="F">
+    <aside class="side"><div class="brand">gh-radar</div><a>홈</a><a>스캐너</a><a>테마</a><a>관심종목</a><a class="on">트레이딩</a><a>AI 챗봇</a><a>마이</a></aside>
+    <div class="main"><div class="topbar"><b>트레이딩</b><span>상따 작업대</span><span class="sp"></span><span class="acct">KB 12345-67</span></div>${card()}</div>
+  </div>`;
+}
+function render() {
+  document.getElementById('stage').innerHTML = frame();
+  document.getElementById('desc').innerHTML = DESC[S.v];
+  document.querySelectorAll('#nav [data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === S.v));
+  document.querySelectorAll('#nav [data-w]').forEach(b => b.classList.toggle('on', b.dataset.w === S.w));
+  document.querySelectorAll('#nav [data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === S.t));
+  document.querySelectorAll('#nav [data-s]').forEach(b => b.classList.toggle('on', +b.dataset.s === S.st && !S.old));
+  document.querySelector('#nav [data-au]').classList.toggle('on', S.au);
+  document.querySelector('#nav [data-md]').classList.toggle('on', S.model);
+  document.querySelector('#nav [data-old]').classList.toggle('on', S.old);
+  document.querySelector('#nav [data-fold]').classList.toggle('on', S.folded);
+}
+document.getElementById('nav').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.v) { S.v = b.dataset.v; S.tab = 'feat'; }
+  if (b.dataset.w) S.w = b.dataset.w;
+  if (b.dataset.t) S.t = b.dataset.t;
+  if (b.dataset.s !== undefined) { S.st = +b.dataset.s; S.old = false; }
+  if (b.hasAttribute('data-au')) S.au = !S.au;
+  if (b.hasAttribute('data-md')) S.model = !S.model;
+  if (b.hasAttribute('data-old')) S.old = !S.old;
+  if (b.hasAttribute('data-fold')) S.folded = !S.folded;
+  render();
+});
+document.getElementById('stage').addEventListener('click', e => {
+  const tb = e.target.closest('[data-tab]'); if (tb) { S.tab = tb.dataset.tab; return render(); }
+  const sg = e.target.closest('[data-side]'); if (sg) { S.side = sg.dataset.side; return render(); }
+});
+render();
+</script>
+</body>
+</html>

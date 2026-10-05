@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 28 목업 — 주문로그 안 kind 15 「상한가 특징」 줄 (노출 방식 A/B/C)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+.f { --bg: #ffffff; --surface: #f2f4f6; --fg: #191f28; --fg2: #333d4b; --muted: #f2f4f6; --mfg: #6b7684; --faint: #b0b8c1; --hair: #e5e8eb; --up: #f04452; --down: #3182f6; --upbg: #ffeeee; --dnbg: #e8f3ff; --pill-bg: #ffffff; --pill-fg: #191f28; --rowbg: #ffffff;
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif; }
+.f.dark { --bg: #151515; --surface: #0a0a0a; --fg: #ffffff; --fg2: #e4e4e4; --muted: #2d2d2d; --mfg: #9e9e9e; --faint: #636363; --hair: #3d3d3d; --up: #f04251; --down: #3485fa; --upbg: rgba(240,66,81,.16); --dnbg: rgba(52,133,250,.16); --pill-bg: #4e4e4e; --pill-fg: #ffffff; }
+.f { position: relative; flex: none; overflow: hidden; background: var(--bg); color: var(--fg2); font-family: var(--font); -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 1px #2a2a31; display: flex; flex-direction: column; }
+.f.phone { width: 390px; height: 844px; border-radius: 30px; }
+.f.desktop { width: 880px; height: 720px; border-radius: 16px; }
+.hd { padding: 14px 20px 0; display: flex; align-items: center; gap: 8px; }
+.f.phone .hd { padding: 14px 16px 0; }
+.hd .tag { font-size: 12px; background: var(--muted); padding: 3px 8px; border-radius: 6px; color: var(--fg2); }
+.hd .nm { font-size: 17px; font-weight: 700; color: var(--fg); }
+.hd .ex { font-size: 12px; color: var(--mfg); }
+.hd .sp { flex: 1; }
+.hd .ic { color: var(--mfg); font-size: 18px; margin-left: 10px; }
+.stat { padding: 8px 20px 0; font-size: 13px; color: var(--mfg); display: flex; gap: 12px; }
+.f.phone .stat { padding: 8px 16px 0; }
+.stat b { color: var(--fg); font-weight: 600; }
+.segrow { display: flex; align-items: center; gap: 8px; padding: 10px 20px 8px; }
+.f.phone .segrow { padding: 10px 16px 8px; }
+.seg { display: inline-flex; background: var(--muted); border-radius: 10px; padding: 2px; gap: 2px; }
+.seg span { font-size: 13px; font-weight: 500; color: var(--mfg); padding: 5px 12px; border-radius: 8px; cursor: pointer; }
+.seg span.on { background: var(--pill-bg); color: var(--pill-fg); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+.chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--fg2); cursor: pointer; padding: 4px 8px; border-radius: 999px; border: 1px solid var(--hair); }
+.chk i { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid var(--faint); display: grid; place-items: center; font-size: 10px; color: #fff; }
+.chk.on i { background: var(--down); border-color: var(--down); }
+.chk.on i::after { content: '✓'; }
+.cnt { margin-left: auto; font-size: 12px; color: var(--mfg); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead th { font-weight: 500; color: var(--mfg); font-size: 12px; text-align: left; padding: 6px 8px; border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair); }
+thead th:first-child { padding-left: 20px; } thead th:last-child { text-align: right; padding-right: 20px; }
+tbody td { padding: 9px 8px; border-bottom: 1px solid var(--hair); vertical-align: top; line-height: 1.45; color: var(--fg2); }
+tbody td:first-child { padding-left: 20px; color: var(--mfg); white-space: nowrap; } tbody td:last-child { text-align: right; padding-right: 20px; white-space: nowrap; color: var(--fg); }
+td.no { color: var(--mfg); white-space: nowrap; }
+td.act { color: var(--fg); font-weight: 500; white-space: nowrap; }
+.ch { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 5px; white-space: nowrap; }
+.ch.buy { background: var(--upbg); color: var(--up); } .ch.sell { background: var(--dnbg); color: var(--down); } .ch.mkt { background: var(--dnbg); color: var(--down); }
+.ch.lf { background: var(--muted); color: var(--fg2); }
+tr.lf td { color: var(--mfg); }
+tr.lf td .lock { color: var(--up); font-weight: 600; }
+tr.lf td .b { color: var(--fg2); }
+tr.rej td { background: var(--upbg); color: var(--up); }
+.scroll { flex: 1; overflow-y: auto; }
+/* 폰: 카드형 2줄 */
+.ph { padding: 10px 16px; border-bottom: 1px solid var(--hair); font-size: 13px; }
+.ph .l1 { display: flex; align-items: center; gap: 6px; }
+.ph .l1 .t { color: var(--mfg); } .ph .l1 .a { font-weight: 600; color: var(--fg); } .ph .l1 .n { color: var(--mfg); } .ph .l1 .c { margin-left: auto; color: var(--fg); }
+.ph .l2 { margin-top: 4px; color: var(--fg2); line-height: 1.45; }
+.ph.lf .l2 { color: var(--mfg); }
+.ph.lf .l2 .lock { color: var(--up); font-weight: 600; } .ph.lf .l2 .b { color: var(--fg2); }
+.ph.rej { background: var(--upbg); } .ph.rej .l2 { color: var(--up); }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">노출 방식</span><button data-v="A" class="on">A 기본 숨김 + 「상한가 특징」 체크</button><button data-v="B">B 항상 포함</button><button data-v="C">C 적재만(안 보임)</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="desktop" class="on">데스크톱 팝업 880</button><button data-w="phone">폰 390</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="light" class="on">라이트</button><button data-t="dark">다크</button></div>
+  <div class="g"><span class="l">세그먼트</span><button data-s="all" class="on">전체</button><button data-s="mkt">시세</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+<script>
+const DESC = {
+  A: '<b>A · 기본 숨김 + 「상한가 특징」 체크(권장)</b> — kind 15 는 시세 집합(1·2·10)에 넣어 전원 가시 + 문장 조립기 분기. 주문로그 「전체」 뷰에서는 <b>기본 숨김</b>이고, 세그먼트 옆 「상한가 특징」 체크를 켜면 분당 줄이 섞인다(「시세」 세그먼트도 같은 체크를 따른다). 분당 줄이 주문 줄을 묻지 않는다.',
+  B: '<b>B · 항상 포함</b> — 시세 이벤트 1·2·10 과 같은 취급. 「전체」·「시세」 뷰에 분당 줄이 늘 섞인다. 잠김 중 종목마다 1분에 한 줄이라 장중 로그가 길어진다(수십 키 × 390분).',
+  C: '<b>C · 적재만</b> — RPC·조립기·화면 무변경. DB 에만 쌓이고 웹 어디에도 안 보인다. 밤 export 보고서가 같은 값을 더 정밀하게(1초 격자) 가지므로 지금은 안 보여도 된다는 판단. 나중에 켜기 쉽다.',
+};
+let S = { v: 'A', w: 'desktop', t: 'light', seg: 'all', chk: true };
+/* kind 15 한 줄 — 슬롯 매핑표대로 85 필드 이름으로 되돌린 값(분 경계 스냅샷) */
+const LF = [
+  ['09:46:00.000', 1, 43, 17.3, 0, -1, 63, 12400, 2300, '키움 +5.2만', '신한 +1.8만', 0, 900000],
+  ['09:47:00.000', 1, 103, 16.1, 0, -1, 58, 3100, 7900, '키움 +2.1만', 'NH +3.4만', 0, 1061000],
+  ['09:48:00.000', 2, 0, 2.1, 0.9, 95, 37, 0, 0, 'NH +0.9만', '키움 +4.1만', 0, 1640000],
+];
+const lfText = r => {
+  const [t, ls, el, q, wall, drain, buyPct, nw, cx, mb, ms, m, cum] = r;
+  const now = ls === 1 ? `<span class="lock">잠김 ${el < 60 ? el + '초' : Math.floor(el / 60) + '분 ' + (el % 60) + '초'}</span> · 잔량 <span class="b">${q}억</span> · 매도벽 ${wall}억 · 소진 ${drain < 0 ? '—' : drain + '초'}`
+    : ls === 2 ? `깨짐 · 잔량 ${q}억 · 매도벽 ${wall}억 · 소진 ${drain < 0 ? '—' : drain + '초'}` : `미도달 · 매도벽 ${wall}억`;
+  const ten = `10초 ${buyPct >= 50 ? '매수 우세 ' + buyPct + '%' : '매도 우세 ' + (100 - buyPct) + '%'}${ls === 1 ? ` · 신규 +${nw.toLocaleString()} / 취소 -${cx.toLocaleString()}` : ''}`;
+  return `${now} · ${ten} · 창구 매수 ${mb} / 매도 ${ms} · 깨짐확률 ${m ? m / 100 + '%' : '관찰 중'}`;
+};
+const ORD = [
+  ['09:45:02.861', '2451', 'buy', '선매수', '주문', '조건 매도잔량≤50,000 / 실측 38,200 · 근거 호가(매도1잔량 52,100→38,200) · 상한가 매수잔량 0 · 13,000×300주 · 접수 +18ms', '861,800'],
+  ['09:45:02.880', '', 'mkt', '상한가진입 1차', '', '잔량/누적 즉시 30,000/900,000 · 1초 55,000/903,000 · 3초 72,000/908,000', '900,000'],
+  ['09:45:02.880', '2451', 'buy', '선매수', '대기', '300주 · 체결예상 930,000 (900,000 + 30,000)', '900,000'],
+  ['09:45:07.415', '2451', 'buy', '선매수', '체결', '오차 +16,000', '914,000'],
+  ['LF', 0],
+  ['09:46:15.330', '2452', 'buy', '추가매수', '주문', '조건 매수잔량≥150,000 / 실측 152,000 · 근거 호가(매수1잔량 148,500→152,000) · 상한가 매수잔량 152,000 · 13,000×300주 · 접수 +17ms', '950,000'],
+  ['09:46:15.347', '2452', 'buy', '추가매수', '대기', '300주 · 체결예상 1,102,000 (950,000 + 152,000)', '950,000'],
+  ['LF', 1],
+  ['09:47:31.208', '2452', 'buy', '추가매수', '체결', '오차 +41,000', '1,061,000'],
+  ['09:47:40.105', '2453', 'buy', '후매수', '주문', '조건 매수잔량>100,000 / 실측 100,000 · 근거 호가(매수1잔량 104,000→100,000) · 상한가 매수잔량 100,000 · 13,000×300주 · 접수 +17ms', '1,100,000'],
+  ['LF', 2],
+  ['09:48:03.411', '2453', 'buy', '후매수', '취소', '매수1 이탈 · 남은 거래량 12,000 (1,100,000 − 1,088,000)', '1,088,000'],
+  ['09:48:40.210', '2454', 'sell', '호가매도', '주문', '조건 매수잔량≤50,000 / 실측 47,800 · 근거 호가(매수1잔량 51,200→47,800) · 매수1 12,920·47,800주 · 12,920×600주 지정가 · 접수 +16ms', '1,640,000'],
+  ['09:49:01.004', '—', 'buy', '후매수', '거부', '주문거부 가격범위초과', '1,651,200', 'rej'],
+];
+function rows() {
+  const showLf = S.v === 'B' || (S.v === 'A' && S.chk);
+  return ORD.filter(r => {
+    if (r[0] === 'LF') return showLf;
+    if (S.seg === 'mkt') return r[2] === 'mkt';
+    return true;
+  });
+}
+function desk() {
+  const body = rows().map(r => {
+    if (r[0] === 'LF') { const x = LF[r[1]]; return `<tr class="lf"><td>${x[0]}</td><td class="no"></td><td><span class="ch lf">상한가특징</span></td><td class="act"></td><td>${lfText(x)}</td><td>${x[12].toLocaleString()}</td></tr>`; }
+    const [t, no, side, grp, act, txt, cum, cls] = r;
+    return `<tr class="${cls ?? ''}"><td>${t}</td><td class="no">${no}</td><td><span class="ch ${side}">${grp}</span></td><td class="act">${act}</td><td>${txt}</td><td>${cum}</td></tr>`;
+  }).join('');
+  return `<div class="scroll"><table><thead><tr><th>시각</th><th>주문번호</th><th>구분</th><th>행위</th><th>내용</th><th>누적</th></tr></thead><tbody>${body}</tbody></table></div>`;
+}
+function phone() {
+  const body = rows().map(r => {
+    if (r[0] === 'LF') { const x = LF[r[1]]; return `<div class="ph lf"><div class="l1"><span class="t">${x[0].slice(0, 8)}</span><span class="ch lf">상한가특징</span><span class="c">누적 ${x[12].toLocaleString()}</span></div><div class="l2">${lfText(x)}</div></div>`; }
+    const [t, no, side, grp, act, txt, cum, cls] = r;
+    return `<div class="ph ${cls ?? ''}"><div class="l1"><span class="t">${t.slice(0, 8)}</span><span class="ch ${side}">${grp}</span><span class="a">${act}</span><span class="n">${no}</span><span class="c">누적 ${cum}</span></div><div class="l2">${txt}</div></div>`;
+  }).join('');
+  return `<div class="scroll">${body}</div>`;
+}
+function frame() {
+  const n = rows().length;
+  const chk = S.v === 'A' ? `<span class="chk ${S.chk ? 'on' : ''}" data-chk><i></i>상한가 특징</span>` : '';
+  return `<div class="f ${S.w} ${S.t === 'dark' ? 'dark' : ''}">
+    <div class="hd">${S.w === 'desktop' ? `<span class="tag">주문로그</span><span class="nm">원익홀딩스</span><span class="ex">KRX</span>` : `<span class="nm">원익홀딩스</span><span class="ex">KRX · 주문로그</span>`}<span class="sp"></span><span class="ic">⧉</span><span class="ic">✕</span></div>
+    <div class="stat"><span>주문 <b>5</b></span><span>체결 <b>2</b></span><span>거부 <b>1</b></span><span>취소 <b>1</b></span><span>누적 <b>1,651,200</b></span></div>
+    <div class="segrow"><span class="seg"><span class="${S.seg === 'all' ? 'on' : ''}" data-seg="all">전체</span><span>매수</span><span>매도</span><span class="${S.seg === 'mkt' ? 'on' : ''}" data-seg="mkt">시세</span></span>${chk}<span class="cnt">${n}건</span></div>
+    ${S.w === 'desktop' ? desk() : phone()}
+  </div>`;
+}
+function render() {
+  document.getElementById('stage').innerHTML = frame();
+  document.getElementById('desc').innerHTML = DESC[S.v];
+  for (const k of ['v', 'w', 't', 's']) document.querySelectorAll(`#nav [data-${k}]`).forEach(b => b.classList.toggle('on', b.dataset[k] === (k === 's' ? S.seg : S[k])));
+}
+document.getElementById('nav').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.v) S.v = b.dataset.v; if (b.dataset.w) S.w = b.dataset.w; if (b.dataset.t) S.t = b.dataset.t; if (b.dataset.s) S.seg = b.dataset.s;
+  render();
+});
+document.getElementById('stage').addEventListener('click', e => {
+  if (e.target.closest('[data-chk]')) { S.chk = !S.chk; return render(); }
+  const sg = e.target.closest('[data-seg]'); if (sg) { S.seg = sg.dataset.seg; return render(); }
+});
+render();
+</script>
+</body>
+</html>
