@@ -5,8 +5,14 @@
  * 표시명은 `strategy-event-labels.ts` 표에서만 고르고(D-10), 서버 코드는 문장을 만들지 않는다.
  *
  * 전 종류 완성 — 25-04: 시세 1 상한가노출 · 2 상한가진입 · 주문 3 매수 주문 · 4 대기(세 갈래) · 5 첫 체결 ·
- * 6 매도 주문 · 7 취소 · 8 거부 · (quick-261003-rc4) 시세 10 버스트 상한가. 모르는 kind 는 D-10 규칙(구분 = 그룹 표시명 또는 원문 kind · 행위 = 원문 kind ·
+ * 6 매도 주문 · 7 취소 · 8 거부 · (quick-261003-rc4) 시세 10 버스트 상한가 · (Phase 27) 자동매도 11 발동 · 12 정정 ·
+ * 13 상태 · 14 멈춤/재개 + kind 6 자동매도 두 변종. 모르는 kind 는 D-10 규칙(구분 = 그룹 표시명 또는 원문 kind · 행위 = 원문 kind ·
  * 본문 "") — 지어내지 않는다.
+ *
+ * 자동매도(gh-trade Phase 28 · HANDOFF §4-1 v0.2)는 기존 칸을 재해석한다 — 조각 낱말은 WinForms
+ * `StrategyEventFormatter` 문장 규칙 표(gh-trade `docs/features/order-log-progress.md`)를 F-A 문법으로 옮긴 것이다.
+ * kind 6 은 `reason_code` **첫 토큰**(`reasonToken` · 정확 일치)이 본문을 가른다 — group 은 WR-05 로 4/5/6 ↔ 9 가
+ * 뒤바뀔 수 있어 본문 판정에 쓰지 않고, 배지는 서버가 말한 group 그대로 둔다. 꼬리 문구는 읽지 않는다(D-36).
  *
  * 두 표면(D-09): 주문로그 탭 `orderLogLineText`(`거래소 | 종목 | 행위 · 본문 | 누적 N`) · 오늘 주문 펼침
  * `timelineStrategyText`(`[그룹 · ]본문 · 누적 N`). 본문은 같고 표면 차이는 행위 단어(첫 체결 — R6)와 그룹 접두
@@ -20,12 +26,17 @@
  */
 import { isMarketStrategyEvent, type StrategyEventRow } from "./strategy-event";
 import {
+  AUTO_SELL_PAUSE_LABELS,
+  autoSellBasisLabel,
+  autoSellStateLabel,
   cancelReasonLabel,
   condMetricLabel,
+  isAutoSellReason,
   orderConditionLabel,
   orderGroupLabel,
   orderGroupOriginText,
   reasonOperator,
+  reasonToken,
   strategyEventSide,
   strategyKindLabel,
 } from "./strategy-event-labels";
@@ -120,17 +131,46 @@ export function strategyEventParts(ev: StrategyEventRow, surface: "log" | "timel
         body: `오차 ${formatSigned(ev.errorVolume)}`,
         cum,
       };
-    case 6:
+    case 6: {
+      // 자동매도 토큰 우선(조립기 규약) — 배지는 늘 group 그대로(WR-05 쌍을 지어 바꾸지 않는다).
+      const token = reasonToken(ev.reasonCode);
+      if (token === "AutoSellAuctionOrder") {
+        return { ...orderBadge(ev), action: strategyKindLabel(6), body: autoSellAuctionBody(ev), cum };
+      }
+      if (isAutoSellReason(ev.reasonCode)) {
+        return { ...orderBadge(ev), action: strategyKindLabel(6), body: autoSellOrderBody(ev, token), cum };
+      }
+      // 집합 밖 자동매도 토큰(미래 사유) — 칸 뜻을 모르므로 D-10 폴백(기존 매도 본문으로 오독하지 않는다).
+      if (token.startsWith("AutoSell")) return unknownKindParts(ev, cum);
       return { ...orderBadge(ev), action: strategyKindLabel(6), body: sellOrderBody(ev), cum };
+    }
     case 7:
       return { ...orderBadge(ev), action: strategyKindLabel(7), body: cancelledBody(ev), cum };
     case 8:
       // 거부 사유는 서버 원문 그대로 — 쪼개 읽거나 판정하지 않는다(D-36 · T-17-33).
       return { ...orderBadge(ev), action: strategyKindLabel(8), body: ev.message, cum };
+    case 11:
+      return { ...orderBadge(ev), action: strategyKindLabel(11), body: autoSellTriggeredBody(ev), cum };
+    case 12:
+      return { ...orderBadge(ev), action: strategyKindLabel(12), body: autoSellModifiedBody(ev), cum };
+    case 13:
+      return { ...orderBadge(ev), action: strategyKindLabel(13), body: autoSellStateBody(ev), cum };
+    case 14:
+      return {
+        ...orderBadge(ev),
+        // 14 는 kind 당 한 낱말이 아니다 — cond_actual 1 VI 멈춤 · 2 동시호가 멈춤 · 3 재개 · 그 밖 원문 숫자(D-15).
+        action: AUTO_SELL_PAUSE_LABELS[ev.condActual] ?? String(ev.condActual),
+        body: autoSellPauseBody(ev),
+        cum,
+      };
     default:
-      // D-10 모르는 kind — 그룹을 알아도 행위 · 본문 · 방향색을 지어내지 않는다.
-      return { badge: orderGroupLabel(ev.group) ?? String(ev.kind), tone: "unknown", action: String(ev.kind), body: "", cum };
+      return unknownKindParts(ev, cum);
   }
+}
+
+/** D-10 모르는 kind — 그룹을 알아도 행위 · 본문 · 방향색을 지어내지 않는다. */
+function unknownKindParts(ev: StrategyEventRow, cum: string): StrategyEventParts {
+  return { badge: orderGroupLabel(ev.group) ?? String(ev.kind), tone: "unknown", action: String(ev.kind), body: "", cum };
 }
 
 /** 조각을 「 · 」 로 잇는다 — 빈 조각(null · "")은 거른다. 모든 본문 · 두 표면이 이 한 헬퍼를 쓴다(D-09). */
@@ -199,14 +239,107 @@ function buyOrderBody(ev: StrategyEventRow): string {
 
 /** SellOrder 본문: 조건 · 근거 · (매수1 가격·잔량) · 가격×수량 방식 · 접수 지연. */
 function sellOrderBody(ev: StrategyEventRow): string {
-  const method = ev.orderCondition === "" ? "" : ` ${orderConditionLabel(ev.orderCondition)}`;
   return joinDot([
     conditionText(ev),
     evidenceText(ev),
     ev.bid1Price > 0 ? `매수1 ${NUM.format(ev.bid1Price)}·${NUM.format(ev.bid1Qty)}주` : null,
-    `${NUM.format(ev.price)}×${NUM.format(ev.qty)}주${method}`,
+    `${NUM.format(ev.price)}×${NUM.format(ev.qty)}주${methodSuffix(ev)}`,
     latencyText(ev),
   ]);
+}
+
+/** 매도주문 방식 꼬리 — `order_condition` 빈 값이면 없음, 그 밖 「 지정가」 등(모르면 원문). */
+function methodSuffix(ev: StrategyEventRow): string {
+  return ev.orderCondition === "" ? "" : ` ${orderConditionLabel(ev.orderCondition)}`;
+}
+
+/**
+ * 자동매도 주기 매도(kind 6 · AutoSellAsk1/Bid1) 본문:
+ * `매도 {qty}주 @{price}[ 방식] · 주기 거래량 {cond_actual} × {cond_threshold}% · {매도1호가|매수1호가} · (매수1 …) · (접수 …)`.
+ * cond_metric 3 을 「단건 매도체결」 로, 근거 틱을 「근거 …」 로 읽지 않는다 — 칸이 재해석돼 있다(RESEARCH 3-c).
+ * 호가 몫 낱말은 토큰으로만 고른다(Ask1 · Bid1) — 그 밖 자동매도 토큰이면 조각을 생략한다.
+ */
+function autoSellOrderBody(ev: StrategyEventRow, token: string): string {
+  const side = token === "AutoSellAsk1" ? "매도1호가" : token === "AutoSellBid1" ? "매수1호가" : null;
+  return joinDot([
+    `매도 ${NUM.format(ev.qty)}주 @${NUM.format(ev.price)}${methodSuffix(ev)}`,
+    `주기 거래량 ${NUM.format(ev.condActual)} × ${NUM.format(ev.condThreshold)}%`,
+    side,
+    ev.bid1Price > 0 ? `매수1 ${NUM.format(ev.bid1Price)}·${NUM.format(ev.bid1Qty)}주` : null,
+    latencyText(ev),
+  ]);
+}
+
+/**
+ * 장전 동시호가 회차(kind 6 · AutoSellAuctionOrder) 본문:
+ * `동시호가 {회차}회차 매도 {qty}주 @{하한가} · 예상체결량 {M} × {비율}% · 예상체결가 {E} · 보관 {a}→{b} · (접수 …)`.
+ * ev_kind 1(Quote)이어도 「근거 호가」 가 아니다 — `ev_qty_before/after` 는 회차 전/후 누적 보관 수량(group 9 한정 뜻).
+ */
+function autoSellAuctionBody(ev: StrategyEventRow): string {
+  return joinDot([
+    `동시호가 ${ev.entryRound}회차 매도 ${NUM.format(ev.qty)}주 @${NUM.format(ev.price)}${methodSuffix(ev)}`,
+    `예상체결량 ${NUM.format(ev.condActual)} × ${NUM.format(ev.condThreshold)}%`,
+    ev.evPrice > 0 ? `예상체결가 ${NUM.format(ev.evPrice)}` : null,
+    `보관 ${NUM.format(ev.evQtyBefore)}→${NUM.format(ev.evQtyAfter)}`,
+    latencyText(ev),
+  ]);
+}
+
+/**
+ * 발동(kind 11) 본문: `{기준} {N}% 이탈 (발동가 {price})`(N = 시작조건 · 0 이면 `{기준} 이탈`) · `실측 {체결가}` ·
+ * `기준 {기준} {기준가격}`(0 이면 생략). 기준 낱말은 queue_case(기준 종류)만 본다.
+ */
+function autoSellTriggeredBody(ev: StrategyEventRow): string {
+  const basis = autoSellBasisLabel(ev.queueCase);
+  const head =
+    ev.condThreshold > 0
+      ? `${basis} ${NUM.format(ev.condThreshold)}% 이탈 (발동가 ${NUM.format(ev.price)})`
+      : `${basis} 이탈`;
+  return joinDot([
+    head,
+    `실측 ${NUM.format(ev.condActual)}`,
+    ev.bid1Price > 0 ? `기준 ${basis} ${NUM.format(ev.bid1Price)}` : null,
+  ]);
+}
+
+/**
+ * 정정(kind 12) 본문: `{qty}주 @{새 가격}` · `원주문 @{원주문 가격} 잔량 {원주문 잔량}주` · `새 번호 {message}`(빈 값이면
+ * 생략) · (접수 …). 주문번호 칸(order_no)은 원주문 번호다 — 오늘 주문 타임라인이 그 번호로 묶는다.
+ */
+function autoSellModifiedBody(ev: StrategyEventRow): string {
+  return joinDot([
+    `${NUM.format(ev.qty)}주 @${NUM.format(ev.price)}`,
+    `원주문 @${NUM.format(ev.condThreshold)} 잔량 ${NUM.format(ev.condActual)}주`,
+    // 서버 원문 그대로 붙인다(숫자만 오는 계약 — 쪼개 읽거나 판정하지 않는다 · D-36).
+    ev.message === "" ? null : `새 번호 ${ev.message}`,
+    latencyText(ev),
+  ]);
+}
+
+/**
+ * 상태(kind 13) 본문: `자동매도 {이전} → {새}` · `기준 {기준} {price}`(price 0 이면 생략) · `매도 누적 {qty}주`(0 이면
+ * 생략). 상태 낱말은 카드 칩과 같은 표 하나(0 꺼짐 · 1 대기 · 2 감시 · 3 매도중 · 4 완료 · 그 밖 원문 숫자).
+ */
+function autoSellStateBody(ev: StrategyEventRow): string {
+  return joinDot([
+    `자동매도 ${autoSellStateLabel(ev.condThreshold)} → ${autoSellStateLabel(ev.condActual)}`,
+    ev.price > 0 ? `기준 ${autoSellBasisLabel(ev.queueCase)} ${NUM.format(ev.price)}` : null,
+    ev.qty > 0 ? `매도 누적 ${NUM.format(ev.qty)}주` : null,
+  ]);
+}
+
+/** 멈춤 꼬리 — 미체결은 그대로 두고 신규 · 정정만 멈춘다(gh-trade §6-6). */
+const AUTO_SELL_PAUSE_TAIL = "신규·정정 멈춤(미체결 유지)";
+
+/**
+ * 멈춤/재개(kind 14) 본문: 1 `VI 발동 · 신규·정정 멈춤(미체결 유지)` · 2 `동시호가 · …`(NXT 는 「단일가」) ·
+ * 3 `새 T0 누적 {expected_cum}` · 그 밖 ""(행위가 원문 숫자를 말한다 — 지어내지 않는다).
+ */
+function autoSellPauseBody(ev: StrategyEventRow): string {
+  if (ev.condActual === 1) return joinDot(["VI 발동", AUTO_SELL_PAUSE_TAIL]);
+  if (ev.condActual === 2) return joinDot([ev.exchange === "NXT" ? "단일가" : "동시호가", AUTO_SELL_PAUSE_TAIL]);
+  if (ev.condActual === 3) return `새 T0 누적 ${NUM.format(ev.expectedCum)}`;
+  return "";
 }
 
 /**

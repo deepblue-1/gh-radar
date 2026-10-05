@@ -17,6 +17,8 @@ import {
 import { formatKstMs, formatSigned, orderLogLineText, strategyEventParts, timelineStrategyText } from "../strategy-event-text";
 import {
   FIXTURE_STOCK_NAME,
+  STRATEGY_AUTO_SELL_GOLDEN,
+  STRATEGY_AUTO_SELL_ROWS,
   STRATEGY_BRANCH_ROWS,
   STRATEGY_DAY_BY_NAME,
   STRATEGY_DAY_DB_ROWS,
@@ -488,5 +490,163 @@ describe("수동 · VI 주문 (quick-260930-e73)", () => {
     expect(parts.tone).toBe("unknown");
     expect(parts.body).toBe("상한가 매수잔량 0 · 12,350×300주 · 접수 +18ms");
     expect(timelineStrategyText(unknown).text).toBe("10 · 상한가 매수잔량 0 · 12,350×300주 · 접수 +18ms · 누적 861,800");
+  });
+});
+
+/**
+ * Phase 27 — 자동매도 조립기 (gh-trade Phase 28 · HANDOFF §4-1 v0.2 · CONTEXT D-14~D-16 · 「조립기 규약」).
+ *
+ * 잠그는 것:
+ *   ① kind 6 은 reason_code **첫 토큰** 우선 — Ask1/Bid1 주기 매도 · AuctionOrder 회차 본문 · 집합 밖 AutoSell 토큰은
+ *      D-10 폴백 · 그 밖 토큰은 group 9 여도 기존 매도 본문(WR-05 4/5/6 ↔ 9). 배지는 서버가 말한 group 그대로.
+ *   ② 자동매도 본문은 「단건 매도체결」 · 「근거 호가」 를 쓰지 않는다(칸 재해석 오독 방지 — RESEARCH 3-c).
+ *   ③ kind 11 · 12 · 13 · 14 문장 조각(WinForms 문장 규칙 표 → 웹 F-A 문법) · 빈 주문번호 `[—]`.
+ *   ④ 골든은 `toBe` 직접 비교 · 기존 「하루 흐름 14줄 · 갈래 12개」 단언과 섞이지 않는다(seq 201~ 별도 표).
+ */
+describe("Phase 27 자동매도 조립기", () => {
+  const AS = STRATEGY_AUTO_SELL_ROWS;
+  const row = (name: string) => AS[name]!;
+
+  it("골든 표 = 자동매도 행 이름 전량 · seq 201~ · 시각 순 · 모두 계좌 이벤트", () => {
+    expect(Object.keys(STRATEGY_AUTO_SELL_GOLDEN).sort()).toEqual(Object.keys(AS).sort());
+    const rows = Object.values(AS);
+    expect(rows.every((r) => r.seq >= 201)).toBe(true);
+    const seqs = rows.map((r) => r.seq);
+    expect([...seqs].sort((a, b) => a - b)).toEqual(seqs);
+    const times = rows.map((r) => r.gwTimeMs);
+    expect([...times].sort((a, b) => a - b)).toEqual(times);
+    expect(rows.every((r) => !isMarketStrategyEvent(r.kind) && r.accountNo !== "")).toBe(true);
+  });
+
+  it.each(Object.entries(STRATEGY_AUTO_SELL_ROWS))("%s → 주문로그 탭 F-A 한 줄 · 오늘 주문 펼침", (name, ev) => {
+    const g = STRATEGY_AUTO_SELL_GOLDEN[name]!;
+    expect(orderLogLineText(ev, FIXTURE_STOCK_NAME)).toBe(g.logLine);
+    expect(timelineStrategyText(ev)).toEqual({ action: g.timelineAction, text: g.timelineText });
+    // 두 표면은 같은 본문을 쓴다(D-09).
+    expect(strategyEventParts(ev, "timeline").body).toBe(strategyEventParts(ev, "log").body);
+  });
+
+  it("kind 6 · group 9 · AutoSellAsk1 → 자동매도(sell) · 주문 · 주기 매도 조각 · 「단건 매도체결」 · 「근거 호가」 없음", () => {
+    const parts = strategyEventParts(row("asAsk1"), "log");
+    expect(parts).toEqual({
+      badge: "자동매도",
+      tone: "sell",
+      action: "주문",
+      body: "매도 6,000주 @12,990 · 주기 거래량 60,000 × 10% · 매도1호가",
+      cum: "누적 974,000",
+    });
+    expect(parts.body).not.toContain("단건 매도체결");
+    expect(parts.body).not.toContain("근거");
+  });
+
+  it("AutoSellBid1 → 끝 조각 「매수1호가」", () => {
+    expect(strategyEventParts(row("asBid1"), "log").body).toContain("주기 거래량 30,000 × 10% · 매수1호가");
+  });
+
+  it("AutoSellAuctionOrder → 회차 · 예상체결량 × 비율 · 예상체결가 · 보관 a→b — evKind 1 이어도 「근거 호가」 없음", () => {
+    const ev = row("asAuctionOrder");
+    expect(ev.evKind).toBe(1);
+    const parts = strategyEventParts(ev, "log");
+    expect(parts.badge).toBe("자동매도");
+    expect(parts.tone).toBe("sell");
+    expect(parts.body).toBe("동시호가 1회차 매도 1,200주 @7,000 · 예상체결량 6,000 × 20% · 예상체결가 12,500 · 보관 10,000→8,800");
+    expect(parts.body).not.toContain("근거");
+  });
+
+  it("WR-05 — group 9 인데 상따 사유면 기존 매도 본문 · 배지 「자동매도」 그대로", () => {
+    const parts = strategyEventParts(row("asWr05LegacyInGroup9"), "log");
+    expect(parts.badge).toBe("자동매도");
+    expect(parts.tone).toBe("sell");
+    expect(parts.body).toContain("조건 단건 매도체결≥10,000 / 실측 18,000");
+    expect(parts.body).not.toContain("주기 거래량");
+  });
+
+  it("WR-05 — group 5 인데 AutoSellAsk1 이면 자동매도 본문 · 배지 「체결매도」 그대로", () => {
+    const parts = strategyEventParts(row("asWr05AutoSellInGroup5"), "log");
+    expect(parts.badge).toBe("체결매도");
+    expect(parts.body).toBe("매도 6,000주 @12,990 · 주기 거래량 60,000 × 10% · 매도1호가");
+  });
+
+  it("집합 밖 AutoSell 토큰 → D-10 폴백(행위 원문 kind · 본문 없음 · tone unknown)", () => {
+    expect(strategyEventParts(row("asUnknownToken"), "log")).toEqual({
+      badge: "자동매도",
+      tone: "unknown",
+      action: "6",
+      body: "",
+      cum: "누적 1,662,000",
+    });
+  });
+
+  it("kind 11 발동 — N>0 · N=0 · 기준 매수가", () => {
+    expect(strategyEventParts(row("asTriggerN"), "log")).toEqual({
+      badge: "자동매도",
+      tone: "sell",
+      action: "발동",
+      body: "상한가 2% 이탈 (발동가 12,800) · 실측 12,790 · 기준 상한가 13,000",
+      cum: "누적 914,000",
+    });
+    expect(strategyEventParts(row("asTrigger0"), "log").body).toBe("상한가 이탈 · 실측 12,990 · 기준 상한가 13,000");
+    expect(strategyEventParts(row("asTriggerBuyPrice"), "log").body).toBe(
+      "매수가 3% 이탈 (발동가 12,125) · 실측 12,100 · 기준 매수가 12,500",
+    );
+  });
+
+  it("kind 12 정정 — 원주문 · 새 번호 / 새 번호 빈 값이면 조각 생략 · 주문번호 칸 = 원주문", () => {
+    const ev = row("asModify");
+    const parts = strategyEventParts(ev, "log");
+    expect(parts.action).toBe("정정");
+    expect(parts.body).toBe("3,000주 @12,950 · 원주문 @13,100 잔량 2,000주 · 새 번호 0000123 · 접수 +14ms");
+    expect(orderLogLineText(ev, FIXTURE_STOCK_NAME)).toContain("[0000100][자동매도]");
+    const noNew = strategyEventParts(row("asModifyNoNewNo"), "log").body;
+    expect(noNew).toBe("3,000주 @12,950 · 원주문 @13,100 잔량 2,000주");
+    expect(noNew).not.toContain("새 번호");
+    expect(timelineStrategyText(row("asModifyNoNewNo")).text).toBe("3,000주 @12,950 · 원주문 @13,100 잔량 2,000주 · 누적 1,011,000");
+  });
+
+  it("kind 13 상태 — 전이 낱말 · 기준(price 0 이면 없음) · 매도 누적(0 이면 없음) · 모르는 상태 원문", () => {
+    expect(strategyEventParts(row("asStateSelling"), "log")).toEqual({
+      badge: "자동매도",
+      tone: "sell",
+      action: "상태",
+      body: "자동매도 감시 → 매도중 · 기준 상한가 13,000",
+      cum: "누적 914,000",
+    });
+    expect(strategyEventParts(row("asStateOn"), "log").body).toBe("자동매도 꺼짐 → 대기");
+    expect(strategyEventParts(row("asStateDone"), "log").body).toBe("자동매도 매도중 → 완료 · 기준 상한가 13,000 · 매도 누적 6,000주");
+    expect(strategyEventParts(row("asStateUnknown"), "log").body).toBe("자동매도 완료 → 9");
+  });
+
+  it("kind 14 멈춤/재개 — cond_actual 로 행위 · NXT 는 「단일가」 · 모르는 값은 원문", () => {
+    expect(strategyEventParts(row("asPauseVI"), "log")).toMatchObject({
+      action: "VI 멈춤",
+      body: "VI 발동 · 신규·정정 멈춤(미체결 유지)",
+    });
+    expect(strategyEventParts(row("asPauseAuctionKrx"), "log")).toMatchObject({
+      action: "동시호가 멈춤",
+      body: "동시호가 · 신규·정정 멈춤(미체결 유지)",
+    });
+    expect(strategyEventParts(row("asPauseAuctionNxt"), "log")).toMatchObject({
+      action: "동시호가 멈춤",
+      body: "단일가 · 신규·정정 멈춤(미체결 유지)",
+    });
+    expect(strategyEventParts(row("asResume"), "log")).toMatchObject({ action: "재개", body: "새 T0 누적 1,600,000" });
+    expect(strategyEventParts(row("asPauseUnknown"), "log")).toMatchObject({ action: "7", body: "" });
+  });
+
+  it("kind 7 · group 9 — 취소 사유 10 「매수 우선 취소」 · 11 「동시호가 감축」", () => {
+    expect(strategyEventParts(row("asCancelBuyFirst"), "log").body).toBe("매수 우선 취소");
+    expect(strategyEventParts(row("asCancelAuctionTrim"), "log").body).toBe("동시호가 감축");
+  });
+
+  it("kind 11 · 13 · 14 의 빈 주문번호 → F-A 줄 `[—]`", () => {
+    for (const name of ["asTriggerN", "asStateOn", "asPauseVI"]) {
+      expect(row(name).orderNo).toBe("");
+      expect(orderLogLineText(row(name), FIXTURE_STOCK_NAME)).toMatch(/^\[[0-9:.]+\]\[—\]\[자동매도\] /);
+    }
+  });
+
+  it("kind 15 LimitFeature 는 조립기 밖 — D-10 폴백(원문 숫자)", () => {
+    const ev = { ...row("asStateOn"), kind: 15, group: 0 };
+    expect(strategyEventParts(ev, "log")).toMatchObject({ badge: "15", tone: "unknown", action: "15", body: "" });
   });
 });

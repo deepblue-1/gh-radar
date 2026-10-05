@@ -9,9 +9,11 @@
  * 값은 기획서(`reference/spec-order-log-progress-20260929.md`) 예시 하루 흐름 · 채택 목업 F-A 데이터와 같다.
  * seq 는 시각 순이다 — 25-01 이 `exposed`(seq 1) · `buy12451`(seq 2) 를 세웠고, 25-04 가 seq 3 부터 하루 전량을 잇는다.
  *
- * 두 벌:
+ * 세 벌:
  *   - `STRATEGY_DAY_*` — 기획서 하루 흐름(seq 1~14). 목록 · 스토어 · e2e 목 응답이 「하루」 로 쓴다.
  *   - `STRATEGY_BRANCH_ROWS` — 조립 규칙의 갈래(seq 101~ — 하루 흐름과 섞이지 않게). 골든 테스트 전용.
+ *   - `STRATEGY_AUTO_SELL_ROWS` — Phase 27 자동매도(group 9 · kind 6/7 · 11~14) 갈래(seq 201~). 기대 문장은
+ *     별도 표 `STRATEGY_AUTO_SELL_GOLDEN` — 앞 두 벌의 개수 단언을 건드리지 않는다.
  * 기대 문장은 `STRATEGY_DAY_GOLDEN` 한 표(하루 흐름 + 갈래 이름 전량)다.
  *
  * 실계좌 · 실서버 값 없음 — 계좌는 relay `SAMPLE_ACCOUNT_NO` · e2e `E2E_ACCOUNT_NO` 와 같은 가짜 값이다(D-27).
@@ -720,5 +722,578 @@ export const STRATEGY_DAY_GOLDEN: Readonly<
     timelineAction: "주문",
     timelineText:
       "선매수 · 조건 상승률≥3.00% / 실측 4.12% · 근거 체결(12,350 체결 2,000주) · 상한가 매수잔량 0 · 12,350×100주 · 접수 +18ms · 누적 1,170,000",
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 27 — 자동매도 (gh-trade Phase 28 · HANDOFF §4-1 v0.2 칸 재해석 · order-log-progress.md ④ 표)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 자동매도 갈래(seq 201~ · 시각 순). 값은 `limit-chaser.md` §6-6 예시 — 상한가 13,000 · 기준가 10,000(하한가
+ * 7,000) · 시작조건 2% → 발동가 12,800 · 비율 10% · 주기 거래량 60,000 → 6,000주. 계좌는 가짜 값(D-27).
+ * kind 11 · 13 · 14 는 주문번호가 없다(F-A 줄 `[—]`) · kind 12 order_no = 원주문 번호 · message = 새 번호.
+ */
+const AUTO_SELL_DB_ROWS: ReadonlyArray<readonly [string, StrategyEventDbRow]> = [
+  [
+    // 장전 동시호가 회차 — price 하한가 · cond 동시호가 매도비율 % / 예상체결량 · ev_kind 1(Quote)여도 「근거 호가」 아님
+    "asAuctionOrder",
+    dbRow({
+      seq: 201,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "08:40:00.010"),
+      kind: 6,
+      group: 9,
+      account_no: FIXTURE_ACCOUNT_NO,
+      order_no: "13001",
+      price: 7_000,
+      qty: 1_200,
+      reason_code: "AutoSellAuctionOrder 동시호가회차매도",
+      cond_threshold: 20,
+      cond_actual: 6_000,
+      cond_metric: 3,
+      ev_kind: 1,
+      ev_price: 12_500,
+      ev_qty_before: 10_000,
+      ev_qty_after: 8_800,
+      ev_trade_qty: 6_000,
+      entry_round: 1,
+    }),
+  ],
+  [
+    // 회차 감축 취소 — cancel_reason 11
+    "asCancelAuctionTrim",
+    dbRow({
+      seq: 202,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "08:45:00.020"),
+      kind: 7,
+      group: 9,
+      account_no: FIXTURE_ACCOUNT_NO,
+      order_no: "13001",
+      qty: 400,
+      cancel_reason: 11,
+    }),
+  ],
+  [
+    // 켬 0 → 1 — 같은 틱에 감시 전이가 없으면 기준가격 0(기준 조각 없음)
+    "asStateOn",
+    dbRow({
+      seq: 203,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "09:30:00.100"),
+      kind: 13,
+      group: 9,
+      cum_volume: 850_000,
+      account_no: FIXTURE_ACCOUNT_NO,
+      reason_code: "AutoSellStateChange 상태변경",
+      cond_threshold: 0,
+      cond_actual: 1,
+      queue_case: 1,
+    }),
+  ],
+  [
+    // 발동 N>0 — 상한가 2% 이탈 · 발동가 12,800 · 실측 체결가 12,790 · 기준가격 13,000 · cum = T0 누적
+    "asTriggerN",
+    dbRow({
+      seq: 204,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "10:00:00.200"),
+      kind: 11,
+      group: 9,
+      cum_volume: 914_000,
+      account_no: FIXTURE_ACCOUNT_NO,
+      price: 12_800,
+      reason_code: "AutoSellTriggerN 발동(체결가<=발동가)",
+      cond_threshold: 2,
+      cond_actual: 12_790,
+      cond_metric: 4,
+      ev_kind: 2,
+      ev_price: 12_790,
+      ev_qty_before: 10_000,
+      ev_trade_qty: 500,
+      bid1_price: 13_000,
+      queue_case: 1,
+      entry_round: 2,
+    }),
+  ],
+  [
+    // 발동 N=0 — 기준가격 이탈 관측 뒤 다음 체결(발동가 없음)
+    "asTrigger0",
+    dbRow({
+      seq: 205,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "10:00:01.300"),
+      kind: 11,
+      group: 9,
+      cum_volume: 915_000,
+      account_no: FIXTURE_ACCOUNT_NO,
+      reason_code: "AutoSellTrigger0 발동(기준가격 이탈 뒤 다음 체결)",
+      cond_threshold: 0,
+      cond_actual: 12_990,
+      cond_metric: 4,
+      ev_kind: 2,
+      ev_price: 12_990,
+      ev_trade_qty: 100,
+      bid1_price: 13_000,
+      queue_case: 1,
+    }),
+  ],
+  [
+    // 발동 — 기준 종류 2 매수가 (매수가 12,500 · 3% → 발동가 12,125)
+    "asTriggerBuyPrice",
+    dbRow({
+      seq: 206,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "10:00:02.400"),
+      kind: 11,
+      group: 9,
+      exchange: "NXT",
+      cum_volume: 320_000,
+      account_no: FIXTURE_ACCOUNT_NO,
+      price: 12_125,
+      reason_code: "AutoSellTriggerN 발동(체결가<=발동가)",
+      cond_threshold: 3,
+      cond_actual: 12_100,
+      cond_metric: 4,
+      ev_kind: 2,
+      ev_price: 12_100,
+      ev_trade_qty: 200,
+      bid1_price: 12_500,
+      queue_case: 2,
+      entry_round: 3,
+    }),
+  ],
+  [
+    // 감시 2 → 매도중 3 — 기준가격 13,000 · 누적 매도 0(조각 없음)
+    "asStateSelling",
+    dbRow({
+      seq: 207,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "10:00:02.500"),
+      kind: 13,
+      group: 9,
+      cum_volume: 914_000,
+      account_no: FIXTURE_ACCOUNT_NO,
+      price: 13_000,
+      reason_code: "AutoSellStateChange 상태변경",
+      cond_threshold: 2,
+      cond_actual: 3,
+      queue_case: 1,
+    }),
+  ],
+  [
+    // 주기 매도(매도1호가) — 주기 거래량 60,000 × 10% = 6,000주 · ev_qty_before/after = 직전/이번 주기 누적
+    "asAsk1",
+    dbRow({
+      seq: 208,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "10:00:10.500"),
+      kind: 6,
+      group: 9,
+      cum_volume: 974_000,
+      account_no: FIXTURE_ACCOUNT_NO,
+      order_no: "13002",
+      price: 12_990,
+      qty: 6_000,
+      reason_code: "AutoSellAsk1 주기매도(매도1호가)",
+      cond_threshold: 10,
+      cond_actual: 60_000,
+      cond_metric: 3,
+      ev_kind: 2,
+      ev_price: 12_990,
+      ev_qty_before: 914_000,
+      ev_qty_after: 974_000,
+      ev_trade_qty: 60_000,
+    }),
+  ],
+  [
+    // 주기 매도(매수1호가) — 양쪽의 매수1 몫 · 주문조건 · 매수1 · 접수 지연 조각까지
+    "asBid1",
+    dbRow({
+      seq: 209,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "10:00:20.600"),
+      kind: 6,
+      group: 9,
+      cum_volume: 1_004_000,
+      account_no: FIXTURE_ACCOUNT_NO,
+      order_no: "13003",
+      price: 12_980,
+      qty: 3_000,
+      order_condition: "0",
+      reason_code: "AutoSellBid1 주기매도(매수1호가)",
+      cond_threshold: 10,
+      cond_actual: 30_000,
+      cond_metric: 3,
+      ev_kind: 2,
+      ev_price: 12_980,
+      ev_qty_before: 974_000,
+      ev_qty_after: 1_004_000,
+      ev_trade_qty: 30_000,
+      bid1_price: 12_980,
+      bid1_qty: 45_000,
+      accept_latency_us: 16_000,
+    }),
+  ],
+  [
+    // 정정 — order_no 원주문 · 새 가격/수량 · 원주문 가격/잔량 · message 새 번호(숫자만)
+    "asModify",
+    dbRow({
+      seq: 210,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "10:00:30.700"),
+      kind: 12,
+      group: 9,
+      cum_volume: 1_010_000,
+      account_no: FIXTURE_ACCOUNT_NO,
+      order_no: "0000100",
+      price: 12_950,
+      qty: 3_000,
+      reason_code: "AutoSellModify 정정(비싼 미체결 → 목표가)",
+      cond_threshold: 13_100,
+      cond_actual: 2_000,
+      cond_metric: 4,
+      message: "0000123",
+      accept_latency_us: 14_000,
+    }),
+  ],
+  [
+    // 정정 — 새 번호를 모르면 message 빈 값(「새 번호」 조각 생략)
+    "asModifyNoNewNo",
+    dbRow({
+      seq: 211,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "10:00:31.800"),
+      kind: 12,
+      group: 9,
+      cum_volume: 1_011_000,
+      account_no: FIXTURE_ACCOUNT_NO,
+      order_no: "0000101",
+      price: 12_950,
+      qty: 3_000,
+      reason_code: "AutoSellModify 정정(비싼 미체결 → 목표가)",
+      cond_threshold: 13_100,
+      cond_actual: 2_000,
+      cond_metric: 4,
+    }),
+  ],
+  [
+    // 매수 우선 취소 — cancel_reason 10
+    "asCancelBuyFirst",
+    dbRow({
+      seq: 212,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "10:00:40.900"),
+      kind: 7,
+      group: 9,
+      cum_volume: 1_020_000,
+      account_no: FIXTURE_ACCOUNT_NO,
+      order_no: "13003",
+      qty: 3_000,
+      cancel_reason: 10,
+    }),
+  ],
+  [
+    // VI 멈춤 — cond_actual 1
+    "asPauseVI",
+    dbRow({
+      seq: 213,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "10:01:00.010"),
+      kind: 14,
+      group: 9,
+      cum_volume: 1_030_000,
+      account_no: FIXTURE_ACCOUNT_NO,
+      reason_code: "AutoSellPauseVI 멈춤(VI)",
+      cond_actual: 1,
+    }),
+  ],
+  [
+    // 동시호가 멈춤 (KRX)
+    "asPauseAuctionKrx",
+    dbRow({
+      seq: 214,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "15:20:00.020"),
+      kind: 14,
+      group: 9,
+      cum_volume: 1_500_000,
+      account_no: FIXTURE_ACCOUNT_NO,
+      reason_code: "AutoSellPauseAuction 멈춤(동시호가)",
+      cond_actual: 2,
+    }),
+  ],
+  [
+    // 동시호가 멈춤 (NXT — 본문 「단일가」)
+    "asPauseAuctionNxt",
+    dbRow({
+      seq: 215,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "15:20:00.030"),
+      kind: 14,
+      group: 9,
+      exchange: "NXT",
+      cum_volume: 400_000,
+      account_no: FIXTURE_ACCOUNT_NO,
+      reason_code: "AutoSellPauseAuction 멈춤(동시호가)",
+      cond_actual: 2,
+    }),
+  ],
+  [
+    // 재개 — expected_cum = 새 T0
+    "asResume",
+    dbRow({
+      seq: 216,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "15:30:00.040"),
+      kind: 14,
+      group: 9,
+      cum_volume: 1_600_000,
+      account_no: FIXTURE_ACCOUNT_NO,
+      reason_code: "AutoSellResume 재개(새 T0)",
+      cond_actual: 3,
+      expected_cum: 1_600_000,
+    }),
+  ],
+  [
+    // 매도중 3 → 완료 4 — 누적 매도 6,000주
+    "asStateDone",
+    dbRow({
+      seq: 217,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "15:31:00.050"),
+      kind: 13,
+      group: 9,
+      cum_volume: 1_650_000,
+      account_no: FIXTURE_ACCOUNT_NO,
+      price: 13_000,
+      qty: 6_000,
+      reason_code: "AutoSellStateChange 상태변경",
+      cond_threshold: 3,
+      cond_actual: 4,
+      queue_case: 1,
+    }),
+  ],
+  [
+    // WR-05 — 상따 체결매도가 group 9 로 뒤바뀌어 옴(사유는 상따) → 기존 매도 본문 · 배지는 group 그대로
+    "asWr05LegacyInGroup9",
+    dbRow({
+      seq: 218,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "15:32:00.060"),
+      kind: 6,
+      group: 9,
+      cum_volume: 1_660_000,
+      account_no: FIXTURE_ACCOUNT_NO,
+      order_no: "13004",
+      price: 12_350,
+      qty: 300,
+      order_condition: "0",
+      reason_code: "A3 체결수량(체결가==감시가 && 체결수량>=최소)",
+      cond_threshold: 10_000,
+      cond_actual: 18_000,
+      cond_metric: 3,
+      ev_kind: 2,
+      ev_price: 12_350,
+      ev_trade_qty: 18_000,
+      bid1_price: 12_350,
+      bid1_qty: 42_000,
+      accept_latency_us: 16_000,
+    }),
+  ],
+  [
+    // WR-05 — 자동매도 주기 매도가 group 5 로 뒤바뀌어 옴(사유는 AutoSellAsk1) → 자동매도 본문 · 배지 「체결매도」
+    "asWr05AutoSellInGroup5",
+    dbRow({
+      seq: 219,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "15:32:01.070"),
+      kind: 6,
+      group: 5,
+      cum_volume: 1_661_000,
+      account_no: FIXTURE_ACCOUNT_NO,
+      order_no: "13005",
+      price: 12_990,
+      qty: 6_000,
+      reason_code: "AutoSellAsk1 주기매도(매도1호가)",
+      cond_threshold: 10,
+      cond_actual: 60_000,
+      cond_metric: 3,
+      ev_kind: 2,
+      ev_price: 12_990,
+      ev_trade_qty: 60_000,
+    }),
+  ],
+  [
+    // 집합 밖 AutoSell 토큰(미래 사유) — D-10 폴백(원문 kind · 본문 없음)
+    "asUnknownToken",
+    dbRow({
+      seq: 220,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "15:32:02.080"),
+      kind: 6,
+      group: 9,
+      cum_volume: 1_662_000,
+      account_no: FIXTURE_ACCOUNT_NO,
+      order_no: "13006",
+      price: 12_990,
+      qty: 100,
+      reason_code: "AutoSellFoo 미래사유",
+      cond_threshold: 10,
+      cond_actual: 1_000,
+      cond_metric: 3,
+    }),
+  ],
+  [
+    // 모르는 멈춤 값 — 행위 원문 숫자 · 본문 없음
+    "asPauseUnknown",
+    dbRow({
+      seq: 221,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "15:32:03.090"),
+      kind: 14,
+      group: 9,
+      cum_volume: 1_663_000,
+      account_no: FIXTURE_ACCOUNT_NO,
+      reason_code: "AutoSellPauseVI 멈춤(VI)",
+      cond_actual: 7,
+    }),
+  ],
+  [
+    // 모르는 상태 값 — 낱말 원문 숫자
+    "asStateUnknown",
+    dbRow({
+      seq: 222,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "15:32:04.100"),
+      kind: 13,
+      group: 9,
+      cum_volume: 1_664_000,
+      account_no: FIXTURE_ACCOUNT_NO,
+      reason_code: "AutoSellStateChange 상태변경",
+      cond_threshold: 4,
+      cond_actual: 9,
+    }),
+  ],
+];
+
+/** 자동매도 갈래 이름 → 공개 행 (seq 201~ · 앞 두 벌과 별도). */
+export const STRATEGY_AUTO_SELL_ROWS: Readonly<Record<string, StrategyEventRow>> = Object.fromEntries(
+  AUTO_SELL_DB_ROWS.map(([name, r]) => [name, toStrategyEventRow(r)]),
+);
+
+/**
+ * 자동매도 갈래 → 표면별 기대 문장(골든 — `toBe` 직접 비교). 조각 낱말은 WinForms `StrategyEventFormatter`
+ * 문장 규칙 표(order-log-progress.md 「자동매도」 절)를 웹 F-A 「행위 · 본문 | 누적」 문법으로 옮긴 것이다.
+ */
+export const STRATEGY_AUTO_SELL_GOLDEN: Readonly<
+  Record<string, { logLine: string; timelineAction: string; timelineText: string }>
+> = {
+  asAuctionOrder: {
+    logLine:
+      "[08:40:00.010][13001][자동매도] KRX | ○○전자 | 주문 · 동시호가 1회차 매도 1,200주 @7,000 · 예상체결량 6,000 × 20% · 예상체결가 12,500 · 보관 10,000→8,800 | 누적 0",
+    timelineAction: "주문",
+    timelineText:
+      "자동매도 · 동시호가 1회차 매도 1,200주 @7,000 · 예상체결량 6,000 × 20% · 예상체결가 12,500 · 보관 10,000→8,800 · 누적 0",
+  },
+  asCancelAuctionTrim: {
+    logLine: "[08:45:00.020][13001][자동매도] KRX | ○○전자 | 취소 · 동시호가 감축 | 누적 0",
+    timelineAction: "취소",
+    timelineText: "동시호가 감축 · 누적 0",
+  },
+  asStateOn: {
+    logLine: "[09:30:00.100][—][자동매도] KRX | ○○전자 | 상태 · 자동매도 꺼짐 → 대기 | 누적 850,000",
+    timelineAction: "상태",
+    timelineText: "자동매도 꺼짐 → 대기 · 누적 850,000",
+  },
+  asTriggerN: {
+    logLine:
+      "[10:00:00.200][—][자동매도] KRX | ○○전자 | 발동 · 상한가 2% 이탈 (발동가 12,800) · 실측 12,790 · 기준 상한가 13,000 | 누적 914,000",
+    timelineAction: "발동",
+    timelineText: "상한가 2% 이탈 (발동가 12,800) · 실측 12,790 · 기준 상한가 13,000 · 누적 914,000",
+  },
+  asTrigger0: {
+    logLine:
+      "[10:00:01.300][—][자동매도] KRX | ○○전자 | 발동 · 상한가 이탈 · 실측 12,990 · 기준 상한가 13,000 | 누적 915,000",
+    timelineAction: "발동",
+    timelineText: "상한가 이탈 · 실측 12,990 · 기준 상한가 13,000 · 누적 915,000",
+  },
+  asTriggerBuyPrice: {
+    logLine:
+      "[10:00:02.400][—][자동매도] NXT | ○○전자 | 발동 · 매수가 3% 이탈 (발동가 12,125) · 실측 12,100 · 기준 매수가 12,500 | 누적 320,000",
+    timelineAction: "발동",
+    timelineText: "매수가 3% 이탈 (발동가 12,125) · 실측 12,100 · 기준 매수가 12,500 · 누적 320,000",
+  },
+  asStateSelling: {
+    logLine:
+      "[10:00:02.500][—][자동매도] KRX | ○○전자 | 상태 · 자동매도 감시 → 매도중 · 기준 상한가 13,000 | 누적 914,000",
+    timelineAction: "상태",
+    timelineText: "자동매도 감시 → 매도중 · 기준 상한가 13,000 · 누적 914,000",
+  },
+  asAsk1: {
+    logLine:
+      "[10:00:10.500][13002][자동매도] KRX | ○○전자 | 주문 · 매도 6,000주 @12,990 · 주기 거래량 60,000 × 10% · 매도1호가 | 누적 974,000",
+    timelineAction: "주문",
+    timelineText: "자동매도 · 매도 6,000주 @12,990 · 주기 거래량 60,000 × 10% · 매도1호가 · 누적 974,000",
+  },
+  asBid1: {
+    logLine:
+      "[10:00:20.600][13003][자동매도] KRX | ○○전자 | 주문 · 매도 3,000주 @12,980 지정가 · 주기 거래량 30,000 × 10% · 매수1호가 · 매수1 12,980·45,000주 · 접수 +16ms | 누적 1,004,000",
+    timelineAction: "주문",
+    timelineText:
+      "자동매도 · 매도 3,000주 @12,980 지정가 · 주기 거래량 30,000 × 10% · 매수1호가 · 매수1 12,980·45,000주 · 접수 +16ms · 누적 1,004,000",
+  },
+  asModify: {
+    logLine:
+      "[10:00:30.700][0000100][자동매도] KRX | ○○전자 | 정정 · 3,000주 @12,950 · 원주문 @13,100 잔량 2,000주 · 새 번호 0000123 · 접수 +14ms | 누적 1,010,000",
+    timelineAction: "정정",
+    timelineText: "3,000주 @12,950 · 원주문 @13,100 잔량 2,000주 · 새 번호 0000123 · 접수 +14ms · 누적 1,010,000",
+  },
+  asModifyNoNewNo: {
+    logLine:
+      "[10:00:31.800][0000101][자동매도] KRX | ○○전자 | 정정 · 3,000주 @12,950 · 원주문 @13,100 잔량 2,000주 | 누적 1,011,000",
+    timelineAction: "정정",
+    timelineText: "3,000주 @12,950 · 원주문 @13,100 잔량 2,000주 · 누적 1,011,000",
+  },
+  asCancelBuyFirst: {
+    logLine: "[10:00:40.900][13003][자동매도] KRX | ○○전자 | 취소 · 매수 우선 취소 | 누적 1,020,000",
+    timelineAction: "취소",
+    timelineText: "매수 우선 취소 · 누적 1,020,000",
+  },
+  asPauseVI: {
+    logLine:
+      "[10:01:00.010][—][자동매도] KRX | ○○전자 | VI 멈춤 · VI 발동 · 신규·정정 멈춤(미체결 유지) | 누적 1,030,000",
+    timelineAction: "VI 멈춤",
+    timelineText: "VI 발동 · 신규·정정 멈춤(미체결 유지) · 누적 1,030,000",
+  },
+  asPauseAuctionKrx: {
+    logLine:
+      "[15:20:00.020][—][자동매도] KRX | ○○전자 | 동시호가 멈춤 · 동시호가 · 신규·정정 멈춤(미체결 유지) | 누적 1,500,000",
+    timelineAction: "동시호가 멈춤",
+    timelineText: "동시호가 · 신규·정정 멈춤(미체결 유지) · 누적 1,500,000",
+  },
+  asPauseAuctionNxt: {
+    logLine:
+      "[15:20:00.030][—][자동매도] NXT | ○○전자 | 동시호가 멈춤 · 단일가 · 신규·정정 멈춤(미체결 유지) | 누적 400,000",
+    timelineAction: "동시호가 멈춤",
+    timelineText: "단일가 · 신규·정정 멈춤(미체결 유지) · 누적 400,000",
+  },
+  asResume: {
+    logLine: "[15:30:00.040][—][자동매도] KRX | ○○전자 | 재개 · 새 T0 누적 1,600,000 | 누적 1,600,000",
+    timelineAction: "재개",
+    timelineText: "새 T0 누적 1,600,000 · 누적 1,600,000",
+  },
+  asStateDone: {
+    logLine:
+      "[15:31:00.050][—][자동매도] KRX | ○○전자 | 상태 · 자동매도 매도중 → 완료 · 기준 상한가 13,000 · 매도 누적 6,000주 | 누적 1,650,000",
+    timelineAction: "상태",
+    timelineText: "자동매도 매도중 → 완료 · 기준 상한가 13,000 · 매도 누적 6,000주 · 누적 1,650,000",
+  },
+  asWr05LegacyInGroup9: {
+    logLine:
+      "[15:32:00.060][13004][자동매도] KRX | ○○전자 | 주문 · 조건 단건 매도체결≥10,000 / 실측 18,000 · 근거 체결(12,350 매도체결 18,000주) · 매수1 12,350·42,000주 · 12,350×300주 지정가 · 접수 +16ms | 누적 1,660,000",
+    timelineAction: "주문",
+    timelineText:
+      "자동매도 · 조건 단건 매도체결≥10,000 / 실측 18,000 · 근거 체결(12,350 매도체결 18,000주) · 매수1 12,350·42,000주 · 12,350×300주 지정가 · 접수 +16ms · 누적 1,660,000",
+  },
+  asWr05AutoSellInGroup5: {
+    logLine:
+      "[15:32:01.070][13005][체결매도] KRX | ○○전자 | 주문 · 매도 6,000주 @12,990 · 주기 거래량 60,000 × 10% · 매도1호가 | 누적 1,661,000",
+    timelineAction: "주문",
+    timelineText: "체결매도 · 매도 6,000주 @12,990 · 주기 거래량 60,000 × 10% · 매도1호가 · 누적 1,661,000",
+  },
+  asUnknownToken: {
+    logLine: "[15:32:02.080][13006][자동매도] KRX | ○○전자 | 6 | 누적 1,662,000",
+    timelineAction: "6",
+    timelineText: "자동매도 · 누적 1,662,000",
+  },
+  asPauseUnknown: {
+    logLine: "[15:32:03.090][—][자동매도] KRX | ○○전자 | 7 | 누적 1,663,000",
+    timelineAction: "7",
+    timelineText: "누적 1,663,000",
+  },
+  asStateUnknown: {
+    logLine: "[15:32:04.100][—][자동매도] KRX | ○○전자 | 상태 · 자동매도 완료 → 9 | 누적 1,664,000",
+    timelineAction: "상태",
+    timelineText: "자동매도 완료 → 9 · 누적 1,664,000",
   },
 };
