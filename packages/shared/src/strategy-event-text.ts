@@ -6,7 +6,8 @@
  *
  * 전 종류 완성 — 25-04: 시세 1 상한가노출 · 2 상한가진입 · 주문 3 매수 주문 · 4 대기(세 갈래) · 5 첫 체결 ·
  * 6 매도 주문 · 7 취소 · 8 거부 · (quick-261003-rc4) 시세 10 버스트 상한가 · (Phase 27) 자동매도 11 발동 · 12 정정 ·
- * 13 상태 · 14 멈춤/재개 + kind 6 자동매도 두 변종. 모르는 kind 는 D-10 규칙(구분 = 그룹 표시명 또는 원문 kind · 행위 = 원문 kind ·
+ * 13 상태 · 14 멈춤/재개 + kind 6 자동매도 두 변종 · (Phase 28) 시세 15 상한가 특징(분당 · 키당 1행 — 본문은
+ * `limit-feature.ts` `limitFeatureLogParts` 가 슬롯을 85 이름으로 되돌려 만든다 · UI-SPEC ②-2). 모르는 kind 는 D-10 규칙(구분 = 그룹 표시명 또는 원문 kind · 행위 = 원문 kind ·
  * 본문 "") — 지어내지 않는다.
  *
  * 자동매도(gh-trade Phase 28 · HANDOFF §4-1 v0.2)는 기존 칸을 재해석한다 — 조각 낱말은 WinForms
@@ -24,6 +25,7 @@
  *
  * 시각은 KST 로 고정한다 — 브라우저 로캘 · 시간대가 달라도 같은 문자열(트레이더 대조 · 골든 테스트).
  */
+import { limitFeatureLogParts } from "./limit-feature";
 import { isMarketStrategyEvent, type StrategyEventRow } from "./strategy-event";
 import {
   AUTO_SELL_PAUSE_LABELS,
@@ -83,11 +85,16 @@ export function formatSigned(n: number): string {
 export type StrategyEventParts = {
   /** 구분 칸 — 주문 이벤트는 그룹 표시명, 시세 이벤트는 종류 표시명. */
   badge: string;
-  /** 구분 칸 색 축 — buy `--up` · sell `--down` · market `--accent-fg` · unknown `--muted-fg`. */
-  tone: "buy" | "sell" | "market" | "unknown";
+  /**
+   * 구분 칸 색 축 — buy `--up` · sell `--down` · market `--accent-fg` · unknown `--muted-fg` ·
+   * feature `--muted-fg` — kind 15 상한가 특징(D-07 · 중립 회색 · 본문도 `--muted-fg`).
+   */
+  tone: "buy" | "sell" | "market" | "unknown" | "feature";
   /** 행위 단어(600). 시세 이벤트는 null · 모르는 kind 는 원문 숫자(D-10). */
   action: string | null;
-  /** 본문 조각을 「 · 」 로 이은 문장. */
+  /** 본문 앞 강조 조각 — 표면이 `--up` 600 으로 그린다. kind 15 잠김 줄만(「잠김 43초」 · 「단일가 · 잠김 12초」). */
+  lead?: string;
+  /** 본문 조각을 「 · 」 로 이은 문장(lead 는 빠진다 — 평문은 `orderLogLineText` 가 lead · body 를 잇는다). */
   body: string;
   /** `누적 N` 꼬리. */
   cum: string;
@@ -112,6 +119,11 @@ export function strategyEventParts(ev: StrategyEventRow, surface: "log" | "timel
       };
     case 10:
       return { badge: strategyKindLabel(10), tone: "market", action: null, body: burstLimitBody(ev), cum };
+    case 15: {
+      // 관찰자 저널 상한가 특징 — 행위 · 주문번호 없음(시세 이벤트 문법) · 잠김 줄만 lead.
+      const { lead, body } = limitFeatureLogParts(ev);
+      return { badge: strategyKindLabel(15), tone: "feature", action: null, ...(lead ? { lead } : {}), body, cum };
+    }
     case 3:
       return { ...orderBadge(ev), action: strategyKindLabel(3), body: buyOrderBody(ev), cum };
     case 4: {
@@ -422,7 +434,7 @@ function evidenceText(ev: StrategyEventRow): string | null {
 }
 
 /**
- * F-A 한 줄 평문 — `[시각][주문번호][구분] 거래소 | 종목 | 행위 · 본문 | 누적 N`.
+ * F-A 한 줄 평문 — `[시각][주문번호][구분] 거래소 | 종목 | 행위 · (lead · )본문 | 누적 N`.
  * 시세 이벤트는 주문번호 칸이 없고 행위 단어도 없다. 주문번호가 빈 주문 이벤트(거부)는 `[—]`.
  * 줄의 `title`(잘림 보완) · 복사 대조 · 골든 테스트가 이 문자열을 쓴다(UI-SPEC R11).
  */
@@ -432,7 +444,7 @@ export function orderLogLineText(ev: StrategyEventRow, stockName: string): strin
     `[${formatKstMs(ev.gwTimeMs)}]` +
     (isMarketStrategyEvent(ev.kind) ? "" : `[${ev.orderNo === "" ? "—" : ev.orderNo}]`) +
     `[${parts.badge}]`;
-  const sentence = joinDot([parts.action, parts.body]);
+  const sentence = joinDot([parts.action, parts.lead ?? null, parts.body]);
   const middle = [ev.exchange, stockName, sentence].filter((s) => s !== "").join(" | ");
   return `${head} ${middle} | ${parts.cum}`;
 }

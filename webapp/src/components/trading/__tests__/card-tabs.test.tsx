@@ -41,6 +41,7 @@ import {
   FIXTURE_STOCK_NAME,
   STRATEGY_BRANCH_ROWS,
   STRATEGY_DAY_BY_NAME,
+  STRATEGY_LIMIT_FEATURE_BY_NAME,
 } from '@/test-fixtures/strategy-day';
 
 const ISIN = 'KR7196170005';
@@ -626,6 +627,34 @@ describe('CardTabs — 주문로그 버튼 + 팝업 (quick-260930-lq5)', () => {
     rerender(<CardTabs {...olProps(feed({ rows: [exposed] }))} />);
     await user.click(within(dialog()).getByRole('button', { name: '매수' }));
     expect(dialog().querySelector('[data-slot="card-log-empty"]')?.textContent).toBe('조건에 맞는 로그가 없어요');
+  });
+
+  it('kind 15 상한가 특징 줄(28-09 · UI-SPEC ②-2): 배지 「상한가특징」 --muted 면 · --muted-fg 글자 · 주문번호 칸 빈칸 · lead 「잠김 43초」 --up 600 · 내용 --muted-fg', async () => {
+    const user = userEvent.setup();
+    const locked = STRATEGY_LIMIT_FEATURE_BY_NAME.lfLocked43!;
+    expect(locked.isin).toBe(ISIN_KRX);
+    render(<CardTabs {...olProps(feed({ rows: [locked, buy] }))} />);
+    await user.click(olButton()!);
+    const tr = tableRows().find((r) => r.getAttribute('data-kind') === '15')!;
+    expect(tr).toBeDefined();
+    const badge = tr.querySelector<HTMLElement>('[data-slot="card-log-kind"]')!;
+    expect(badge.textContent).toBe('상한가특징');
+    expect(badge.className).toContain('bg-[var(--muted)]');
+    expect(badge.className).toContain('text-[var(--muted-fg)]');
+    const [, orderNo, , action, body] = [...tr.querySelectorAll<HTMLElement>('td')];
+    expect(orderNo!.textContent).toBe('');
+    expect(action!.textContent).toBe('');
+    expect(body!.className).toContain('text-[var(--muted-fg)]');
+    expect(body!.textContent).toBe(`잠김 43초 · ${strategyEventParts(locked, 'log').body}`);
+    const lead = body!.querySelector<HTMLElement>('[data-slot="order-log-lead"]')!;
+    expect(lead.textContent).toBe('잠김 43초');
+    expect(lead.className).toContain('text-[var(--up)]');
+    expect(lead.className).toContain('font-semibold');
+    // 폰 두 줄 행도 같은 lead.
+    const phone = [...dialog().querySelectorAll<HTMLElement>('li[data-slot="card-log-phone-row"]')].find(
+      (li) => li.getAttribute('data-kind') === '15',
+    )!;
+    expect(phone.querySelector('[data-slot="order-log-lead"]')?.textContent).toBe('잠김 43초');
   });
 });
 

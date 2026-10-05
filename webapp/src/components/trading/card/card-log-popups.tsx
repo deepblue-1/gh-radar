@@ -23,7 +23,8 @@
  *
  * ⑤ 문장 조립 없음 — 행 조각은 `strategyEventParts(row,'log')` 출력(badge · tone · action · body · cum)을 칸에
  *   배치만 한다(Phase 25 D-09 — 문장 형식이 바뀌면 shared 한 곳만 고친다). 전략로그는 `entry.text` 그대로.
- *   서버 원문은 React 텍스트 노드로만 그린다(T-lq5-01).
+ *   서버 원문은 React 텍스트 노드로만 그린다(T-lq5-01). 28-09 — kind 15 잠김 줄은 조각 `lead`(「잠김 43초」)를 내용 칸 앞에
+ *   `--up` 600 으로 두고, tone `feature` 는 배지 · 내용 모두 `--muted-fg`(UI-SPEC ②-2).
  *
  * ⑥ 창 분리 — 주문로그 머리 아이콘. 기존 창 분리 URL 에 계좌 · 종목(ISIN) · 거래소 · 구분(`sideFilterKind`)을 싣는다.
  *   앱 셸에서는 숨긴다 — `native:hidden`(첫 페인트) + 마운트 뒤 `isNativeApp()`(order-log-filters 와 같은 규칙 · T-lq5-04).
@@ -283,7 +284,28 @@ const BADGE_TONE: Record<StrategyEventParts['tone'], string> = {
   sell: 'bg-[var(--down-bg)] text-[var(--down)]',
   market: 'bg-[var(--accent)] text-[var(--accent-fg)]',
   unknown: 'bg-[var(--muted)] text-[var(--muted-fg)]',
+  feature: 'bg-[var(--muted)] text-[var(--muted-fg)]',
 };
+
+/** 내용 칸 글자색 — 거부 `--destructive` · kind 15 상한가 특징 `--muted-fg`(UI-SPEC ②-2) · 그 밖 `--fg-2`. */
+function bodyTone(parts: StrategyEventParts, reject: boolean): string {
+  if (reject) return 'text-[var(--destructive)]';
+  return parts.tone === 'feature' ? 'text-[var(--muted-fg)]' : 'text-[var(--fg-2)]';
+}
+
+/** 내용 칸 — kind 15 잠김 줄의 lead(「잠김 43초」)만 `--up` 600 으로 앞에 두고 「 · 」 뒤 본문(조립기 조각 그대로). */
+function LogBody({ parts }: { parts: StrategyEventParts }) {
+  if (!parts.lead) return <>{parts.body}</>;
+  return (
+    <>
+      <span data-slot="order-log-lead" className="font-semibold text-[var(--up)]">
+        {parts.lead}
+      </span>
+      {parts.body !== '' && ' · '}
+      {parts.body}
+    </>
+  );
+}
 
 function KindBadge({ parts }: { parts: StrategyEventParts }) {
   return (
@@ -430,8 +452,8 @@ export function CardOrderLogPopup({ feed, accountNo, isin, exchange, stockName }
                       <td className={cn(TD_CLASS, bg, 'font-semibold whitespace-nowrap', reject && 'text-[var(--destructive)]')}>
                         {parts.action ?? ''}
                       </td>
-                      <td className={cn(TD_CLASS, bg, BODY_TEXT, reject ? 'text-[var(--destructive)]' : 'text-[var(--fg-2)]')}>
-                        {parts.body}
+                      <td className={cn(TD_CLASS, bg, BODY_TEXT, bodyTone(parts, reject))}>
+                        <LogBody parts={parts} />
                       </td>
                       <td className={cn(TD_CLASS, bg, 'mono text-right whitespace-nowrap')}>{NUM.format(row.cumVolume)}</td>
                     </tr>
@@ -459,9 +481,9 @@ export function CardOrderLogPopup({ feed, accountNo, isin, exchange, stockName }
                     {!market && <span className="mono flex-none text-[var(--muted-fg)]">{orderNoTail(row.orderNo)}</span>}
                     <span className="mono ml-auto flex-none pl-1 text-[var(--muted-fg)]">{parts.cum}</span>
                   </div>
-                  {parts.body !== '' && (
-                    <div className={cn('mt-1', BODY_TEXT, reject ? 'text-[var(--destructive)]' : 'text-[var(--fg-2)]')}>
-                      {parts.body}
+                  {(parts.body !== '' || Boolean(parts.lead)) && (
+                    <div className={cn('mt-1', BODY_TEXT, bodyTone(parts, reject))}>
+                      <LogBody parts={parts} />
                     </div>
                   )}
                 </li>

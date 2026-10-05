@@ -25,6 +25,9 @@ import {
   STRATEGY_DAY_DB_ROWS,
   STRATEGY_DAY_GOLDEN,
   STRATEGY_DAY_ROWS,
+  STRATEGY_LIMIT_FEATURE_BY_NAME,
+  STRATEGY_LIMIT_FEATURE_GOLDEN,
+  STRATEGY_LIMIT_FEATURE_ROWS,
   kstMs,
 } from "../__fixtures__/strategy-day";
 
@@ -646,9 +649,44 @@ describe("Phase 27 자동매도 조립기", () => {
       expect(orderLogLineText(row(name), FIXTURE_STOCK_NAME)).toMatch(/^\[[0-9:.]+\]\[—\]\[자동매도\] /);
     }
   });
+});
 
-  it("kind 15 LimitFeature 는 조립기 밖 — D-10 폴백(원문 숫자)", () => {
-    const ev = { ...row("asStateOn"), kind: 15, group: 0 };
-    expect(strategyEventParts(ev, "log")).toMatchObject({ badge: "15", tone: "unknown", action: "15", body: "" });
+describe("Phase 28 kind 15 (28-09 · UI-SPEC ②-2)", () => {
+  const lf = (name: string) => STRATEGY_LIMIT_FEATURE_BY_NAME[name]!;
+
+  it("잠김 행 → 구분 「상한가특징」 · tone feature · 행위 없음 · lead 「잠김 43초」 · 본문 · 누적", () => {
+    expect(strategyEventParts(lf("lfLocked43"), "log")).toEqual({
+      badge: "상한가특징",
+      tone: "feature",
+      action: null,
+      lead: "잠김 43초",
+      body: "잔량 17.3억 · 매도벽 0 · 소진 — · 10초 매수 우세 63% · 신규 +12,400 / 취소 -2,300 · 창구 매수 키움증권 74% / 매도 신한증권 100% · 깨짐확률 관찰 중",
+      cum: "누적 900,000",
+    });
+  });
+
+  it("깨짐 · 미도달 행 → lead 키 자체가 없다", () => {
+    for (const name of ["lfBroken", "lfNotReached"]) {
+      const parts = strategyEventParts(lf(name), "log");
+      expect(parts.tone).toBe("feature");
+      expect("lead" in parts).toBe(false);
+    }
+  });
+
+  it("orderLogLineText — 주문번호 칸 없음 · lead · 본문 한 줄 · 골든 한 벌과 같다", () => {
+    expect(isMarketStrategyEvent(15)).toBe(true);
+    for (const r of STRATEGY_LIMIT_FEATURE_ROWS) {
+      const name = Object.keys(STRATEGY_LIMIT_FEATURE_BY_NAME).find((n) => STRATEGY_LIMIT_FEATURE_BY_NAME[n]!.seq === r.seq)!;
+      expect(orderLogLineText(r, FIXTURE_STOCK_NAME)).toBe(STRATEGY_LIMIT_FEATURE_GOLDEN[name]);
+    }
+    expect(orderLogLineText(lf("lfLocked43"), FIXTURE_STOCK_NAME)).toBe(
+      "[09:46:00.000][상한가특징] KRX | ○○전자 | 잠김 43초 · 잔량 17.3억 · 매도벽 0 · 소진 — · 10초 매수 우세 63% · 신규 +12,400 / 취소 -2,300 · 창구 매수 키움증권 74% / 매도 신한증권 100% · 깨짐확률 관찰 중 | 누적 900,000",
+    );
+  });
+
+  it("기존 kind(1 · 2 · 10 · 주문 · 모르는 kind)는 lead 가 없다 — 골든 불변", () => {
+    const rows = [...STRATEGY_DAY_ROWS, ...Object.values(STRATEGY_BRANCH_ROWS), ...Object.values(STRATEGY_AUTO_SELL_ROWS)];
+    for (const r of rows) expect("lead" in strategyEventParts(r, "log")).toBe(false);
+    expect("lead" in strategyEventParts({ ...STRATEGY_DAY_ROWS[0]!, kind: 99 }, "log")).toBe(false);
   });
 });

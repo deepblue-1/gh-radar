@@ -10,6 +10,8 @@ import {
   STRATEGY_BRANCH_ROWS,
   STRATEGY_DAY_BY_NAME,
   STRATEGY_DAY_GOLDEN,
+  STRATEGY_LIMIT_FEATURE_BY_NAME,
+  STRATEGY_LIMIT_FEATURE_GOLDEN,
 } from '@/test-fixtures/strategy-day';
 
 /**
@@ -374,5 +376,55 @@ describe('OrderLogList — 수동 · VI 줄 (quick-260930-e73)', () => {
     expect(normalize(lines[0]!.textContent)).toContain('주문 · 수동 주문 · 12,350×300주');
     expect(normalize(lines[1]!.textContent)).not.toContain('매수1');
     expect(normalize(lines[2]!.textContent)).toContain('주문 · VI 자동주문 · ');
+  });
+});
+
+describe('OrderLogList — kind 15 상한가 특징 줄 (28-09 · UI-SPEC ②-2)', () => {
+  const locked = STRATEGY_LIMIT_FEATURE_BY_NAME.lfLocked43!;
+  const broken = STRATEGY_LIMIT_FEATURE_BY_NAME.lfBroken!;
+  const nameOf = () => FIXTURE_STOCK_NAME;
+
+  it('F-A: 구분 「상한가특징」 --muted-fg · lead 「잠김 43초」 --up 600 · 본문 --muted-fg · 주문번호 칸 없음 · title = 골든', () => {
+    const { container } = render(<OrderLogList rows={[locked]} variant="panel" nameOf={nameOf} />);
+    const line = container.querySelector<HTMLElement>('li[data-slot="order-log-line"]')!;
+    expect(line.getAttribute('data-kind')).toBe('15');
+    const kind = line.querySelector('[data-slot="order-log-kind"]')!;
+    expect(kind.textContent).toBe('[상한가특징]');
+    expect(kind.className).toContain('text-[var(--muted-fg)]');
+    const lead = line.querySelector<HTMLElement>('[data-slot="order-log-lead"]')!;
+    expect(lead.textContent).toBe('잠김 43초');
+    expect(lead.className).toContain('text-[var(--up)]');
+    expect(lead.className).toContain('font-semibold');
+    const body = line.querySelector<HTMLElement>('[data-slot="order-log-feature-body"]')!;
+    expect(body.className).toContain('text-[var(--muted-fg)]');
+    expect(body.textContent).toMatch(/^잔량 17\.3억 · 매도벽 0 · /);
+    // 주문번호 칸 없음 — 시각 바로 뒤가 구분 칸.
+    expect(normalize(line.textContent)).toMatch(/^\[09:46:00\.000\]\[상한가특징\] KRX \| ○○전자 \| 잠김 43초 · 잔량/);
+    expect(normalize(line.textContent)).toBe(STRATEGY_LIMIT_FEATURE_GOLDEN.lfLocked43);
+    expect(line.getAttribute('title')).toBe(orderLogLineText(locked, FIXTURE_STOCK_NAME));
+    expect(line.getAttribute('title')).toBe(STRATEGY_LIMIT_FEATURE_GOLDEN.lfLocked43);
+  });
+
+  it('깨짐 줄은 lead 가 없다 · 본문만 --muted-fg', () => {
+    const { container } = render(<OrderLogList rows={[broken]} variant="panel" nameOf={nameOf} />);
+    const line = container.querySelector<HTMLElement>('li[data-slot="order-log-line"]')!;
+    expect(line.querySelector('[data-slot="order-log-lead"]')).toBeNull();
+    expect(line.querySelector('[data-slot="order-log-feature-body"]')?.textContent).toMatch(/^깨짐 · 잔량 2\.1억/);
+    expect(normalize(line.textContent)).toBe(STRATEGY_LIMIT_FEATURE_GOLDEN.lfBroken);
+  });
+
+  it('card dense: 시각 · 구분 · lead · 본문 | 누적 — 주문번호 칸 없음', () => {
+    const { container } = render(<OrderLogList rows={[locked]} variant="card" nameOf={nameOf} />);
+    const line = container.querySelector<HTMLElement>('li[data-slot="order-log-line"]')!;
+    expect(normalize(line.textContent)).toBe(
+      '09:46:00.000 상한가특징 잠김 43초 · 잔량 17.3억 · 매도벽 0 · 소진 — · 10초 매수 우세 63% · 신규 +12,400 / 취소 -2,300 · 창구 매수 키움증권 74% / 매도 신한증권 100% · 깨짐확률 관찰 중 | 누적 900,000',
+    );
+    expect(line.querySelector('[data-slot="order-log-lead"]')?.className).toContain('text-[var(--up)]');
+  });
+
+  it('주문 줄은 lead · feature 본문 span 이 없다(기존 DOM 불변)', () => {
+    const { container } = render(<OrderLogList rows={[STRATEGY_DAY_BY_NAME.buy12451!]} variant="panel" nameOf={nameOf} />);
+    expect(container.querySelector('[data-slot="order-log-lead"]')).toBeNull();
+    expect(container.querySelector('[data-slot="order-log-feature-body"]')).toBeNull();
   });
 });

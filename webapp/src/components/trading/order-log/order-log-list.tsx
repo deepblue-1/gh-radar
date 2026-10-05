@@ -37,8 +37,13 @@
  *     배치만 바꾼 것이고, 문장을 여기서 만들거나 쪼개지 않는다(D-09 — 문장 형식이 바뀌면 shared 한 곳만 고친다).
  *     잘림 · 색 · `title`(= `orderLogLineText` 줄 전체 평문) · 폰 밴드 펼침은 F-A 와 같다.
  *  ⑦ 빈 상태는 dense 박스(`m-2 py-2` · StrategyLog dense 와 같은 문법) — 호출자가 `emptyBody={null}` 로 제목만 준다.
+ *
+ * 28-09 kind 15 상한가 특징 줄(UI-SPEC ②-2) — 구분 칸 tone `feature` = `--muted-fg`(중립 회색) · 조립기 `lead`(잠김 줄
+ * 「잠김 43초」)만 `--up` 600 · 나머지 본문 `--muted-fg`(주문 줄보다 한 단계 옅다). 두 배치(F-A · dense)가 같은
+ * `Sentence` 로 행위 · lead · 본문을 「 · 」 로 잇는다 — 평문 `title` 은 조립기 `orderLogLineText` 그대로.
  */
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   formatKstMs,
   isMarketStrategyEvent,
@@ -85,7 +90,51 @@ const TONE_CLASS: Record<StrategyEventParts['tone'], string> = {
   sell: 'text-[var(--down)]',
   market: 'text-[var(--accent-fg)]',
   unknown: 'text-[var(--muted-fg)]',
+  feature: 'text-[var(--muted-fg)]',
 };
+
+/**
+ * 줄 문장 — {행위 600} · {lead `--up` 600} · 본문. 빈 조각은 건너뛰고 「 · 」 로 잇는다(조립기 `joinDot` 과 같은 규칙).
+ * kind 15(tone feature) 본문만 `--muted-fg` span 이고, 그 밖 본문은 글자 노드 그대로(기존 DOM 불변).
+ */
+function Sentence({ parts }: { parts: StrategyEventParts }) {
+  const pieces: ReactNode[] = [];
+  if (parts.action !== null) {
+    pieces.push(
+      <span key="action" className="font-semibold">
+        {parts.action}
+      </span>,
+    );
+  }
+  if (parts.lead) {
+    pieces.push(
+      <span key="lead" data-slot="order-log-lead" className="font-semibold text-[var(--up)]">
+        {parts.lead}
+      </span>,
+    );
+  }
+  if (parts.body !== '') {
+    pieces.push(
+      parts.tone === 'feature' ? (
+        <span key="body" data-slot="order-log-feature-body" className="text-[var(--muted-fg)]">
+          {parts.body}
+        </span>
+      ) : (
+        <Fragment key="body">{parts.body}</Fragment>
+      ),
+    );
+  }
+  return (
+    <>
+      {pieces.map((p, i) => (
+        <Fragment key={i}>
+          {i > 0 && ' · '}
+          {p}
+        </Fragment>
+      ))}
+    </>
+  );
+}
 
 /** 스크롤러 높이 — panel 172px(목업 `.body` ≈ 9줄) · card 본문 전부 · window 뷰포트 남은 높이. */
 const BODY_CLASS: Record<OrderLogListProps['variant'], string> = {
@@ -212,7 +261,7 @@ export function OrderLogList({
               const name = nameOf(row);
               const market = isMarketStrategyEvent(row.kind);
               const middle = [row.exchange, name].filter((s) => s !== '').join(' | ');
-              const hasSentence = parts.action !== null || parts.body !== '';
+              const hasSentence = parts.action !== null || Boolean(parts.lead) || parts.body !== '';
               const open = tappable && openKeys.has(key);
               const fresh = newKeys.has(key);
               const content = dense ? (
@@ -235,9 +284,7 @@ export function OrderLogList({
                       open ? 'basis-full overflow-visible whitespace-normal' : 'overflow-hidden text-ellipsis',
                     )}
                   >
-                    {parts.action !== null && <span className="font-semibold">{parts.action}</span>}
-                    {parts.action !== null && parts.body !== '' && ' · '}
-                    {parts.body}
+                    <Sentence parts={parts} />
                     <span className="text-[var(--muted-fg)]">
                       {hasSentence && ' '}
                       {'| '}
@@ -265,9 +312,7 @@ export function OrderLogList({
                   >
                     {middle}
                     {hasSentence && ' | '}
-                    {parts.action !== null && <span className="font-semibold">{parts.action}</span>}
-                    {parts.action !== null && parts.body !== '' && ' · '}
-                    {parts.body}
+                    <Sentence parts={parts} />
                     <span className="text-[var(--muted-fg)]">
                       {' | '}
                       {parts.cum}
