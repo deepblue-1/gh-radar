@@ -1511,6 +1511,153 @@ describe("WsFanout", () => {
     });
   });
 
+  describe("Phase 28 85 스냅샷 (D-23) — 새 키 full · price→full 승격 직후 q → tape → 85, price 소켓 제외", () => {
+    // 서버는 값이 바뀐 키만 85 를 보내고 새 구독에 재송신하지 않는다(gh-trade LimitFeature.cpp · RESEARCH Pitfall 1) —
+    // relay 가 hub 캐시를 스냅샷으로 주지 않으면 조용한 키는 새로 펼친 카드에서 최대 60초 「—」 로 남는다.
+
+    /** 체결 1건을 hub 전역 링버퍼까지 들이고 200ms 배치 창을 닫는다 (ge2 describe 의 같은 이름 헬퍼). */
+    async function pushTapeAndFlush(tradeTime: string): Promise<void> {
+      const before = h.hub.getTape(SAMPLE_ISIN, "KRX")?.length ?? 0;
+      quoteGateway.pushTape(quoteSock, { snapshot: false, entries: [{ tradeTime }] });
+      await waitFor(
+        () => (h.hub.getTape(SAMPLE_ISIN, "KRX")?.length ?? 0) > before,
+        "hub 링버퍼에 체결 도착",
+      );
+      vi.advanceTimersByTime(TAPE_BATCH_MS);
+    }
+
+    /** A 를 full 로 세우고 q · tape · 85 캐시를 전부 채운다 — A 가 85 증분 1건을 받을 때까지 기다린다. */
+    async function primeFullCaches(): Promise<{ ws: TestWs; inbox: RelayOutbound[] }> {
+      const a = await authed("token-a");
+      a.ws.sendSub(SAMPLE_ISIN, "KRX");
+      await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 1, "A full 구독");
+      quoteGateway.pushQuote(quoteSock, { snapshot: true });
+      await waitFor(() => framesOf(a.inbox, "q").length === 1, "A q");
+      await pushTapeAndFlush("090000000021");
+      await waitFor(() => framesOf(a.inbox, "tape").length === 1, "A tape");
+      quoteGateway.sendLimitFeature(quoteSock);
+      await waitFor(() => framesOf(a.inbox, "limit.feature").length === 1, "A 85 증분");
+      expect(h.hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toBeDefined();
+      return a;
+    }
+
+    /** q → tape → limit.feature 순서 단언 — 셋 다 있어야 한다. */
+    function expectSnapshotOrder(frames: RelayOutbound[]): void {
+      const qIdx = frames.findIndex((f) => f.t === "q");
+      const tapeIdx = frames.findIndex((f) => f.t === "tape");
+      const lfIdx = frames.findIndex((f) => f.t === "limit.feature");
+      expect(qIdx).toBeGreaterThanOrEqual(0);
+      expect(tapeIdx).toBeGreaterThan(qIdx);
+      expect(lfIdx).toBeGreaterThan(tapeIdx);
+    }
+
+    it("LS1 캐시된 키를 새 소켓이 full 로 sub → q → tape → limit.feature 1프레임 · 값은 hub 캐시 그대로", async () => {
+      await primeFullCaches();
+      const b = await authed("token-b");
+      const bBefore = b.inbox.length;
+
+      b.ws.sendSub(SAMPLE_ISIN, "KRX");
+      await waitFor(() => framesOf(b.inbox, "limit.feature").length === 1, "B 85 스냅샷");
+      await flushIo(20);
+
+      expectSnapshotOrder(b.inbox.slice(bBefore));
+      expect(framesOf(b.inbox, "limit.feature")).toHaveLength(1);
+      expect(framesOf(b.inbox, "limit.feature")[0]).toEqual(h.hub.getLimitFeature(SAMPLE_ISIN, "KRX"));
+      expect(framesOf(b.inbox, "limit.feature")[0]).toMatchObject({ lockState: 1, lockElapsedS: 43 });
+    });
+
+    it("LS2 같은 키를 새 소켓이 price 로 sub → q 스냅샷만 · limit.feature 0 (D-05 · P-1)", async () => {
+      await primeFullCaches();
+      const b = await authed("token-b");
+
+      b.ws.sendSub(SAMPLE_ISIN, "KRX", "price");
+      await waitFor(() => framesOf(b.inbox, "q").length === 1, "B q 스냅샷");
+      await flushIo(20);
+
+      expect(framesOf(b.inbox, "limit.feature")).toHaveLength(0);
+      expect(framesOf(b.inbox, "tape")).toHaveLength(0);
+    });
+
+    it("LS3 price 로 잡던 소켓이 같은 키를 full 로 재sub(승격) → q → tape → limit.feature 1프레임", async () => {
+      const a = await primeFullCaches();
+      const b = await authed("token-b");
+      b.ws.sendSub(SAMPLE_ISIN, "KRX", "price");
+      await waitFor(() => framesOf(b.inbox, "q").length === 1, "B price q 스냅샷");
+      // price 동안 85 증분은 B 에 오지 않는다 — A 가 받은 두 번째 85 뒤 표식 q 로 확인.
+      quoteGateway.sendLimitFeature(quoteSock, { lockElapsedS: 44 });
+      await waitFor(() => framesOf(a.inbox, "limit.feature").length === 2, "A 두 번째 85");
+      quoteGateway.pushQuote(quoteSock, { snapshot: false, lastPrice: 13_000n });
+      await waitFor(() => framesOf(b.inbox, "q").length === 2, "B 표식 q");
+      expect(framesOf(b.inbox, "limit.feature")).toHaveLength(0);
+      const bBefore = b.inbox.length;
+
+      b.ws.sendSub(SAMPLE_ISIN, "KRX", "full");
+      await waitFor(() => framesOf(b.inbox, "limit.feature").length === 1, "승격 85 스냅샷");
+      await flushIo(20);
+
+      expectSnapshotOrder(b.inbox.slice(bBefore));
+      expect(framesOf(b.inbox, "limit.feature")).toHaveLength(1);
+      // 승격 스냅샷은 마지막 값(44초)이다.
+      expect(framesOf(b.inbox, "limit.feature")[0]).toMatchObject({ lockElapsedS: 44 });
+      expect(h.hub.refCount(SAMPLE_ISIN, "KRX")).toBe(2);
+    });
+
+    it("LS4 full → price 강등 재sub → 스냅샷 없음 · 이후 85 증분 0", async () => {
+      const a = await primeFullCaches();
+      const b = await authed("token-b");
+      b.ws.sendSub(SAMPLE_ISIN, "KRX");
+      await waitFor(() => framesOf(b.inbox, "limit.feature").length === 1, "B full 85 스냅샷");
+      await flushIo(20);
+      const bBefore = b.inbox.length;
+
+      b.ws.sendSub(SAMPLE_ISIN, "KRX", "price");
+      await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 2, "강등 뒤 참조 2");
+      await flushIo(20);
+      quoteGateway.sendLimitFeature(quoteSock, { lockElapsedS: 50 });
+      await waitFor(() => framesOf(a.inbox, "limit.feature").length === 2, "A 증분");
+      quoteGateway.pushQuote(quoteSock, { snapshot: false, lastPrice: 13_000n });
+      await waitFor(() => b.inbox.slice(bBefore).some((f) => f.t === "q"), "B 표식 q");
+      await flushIo(20);
+
+      expect(b.inbox.slice(bBefore).filter((f) => f.t === "limit.feature")).toHaveLength(0);
+      expect(framesOf(b.inbox, "limit.feature")).toHaveLength(1);
+    });
+
+    it("LS5 캐시가 없는 키를 full 로 sub → limit.feature 0 (지어내지 않는다)", async () => {
+      const a = await authed("token-a");
+      a.ws.sendSub(SAMPLE_ISIN, "KRX");
+      await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 1, "A full 구독");
+      quoteGateway.pushQuote(quoteSock, { snapshot: true });
+      await waitFor(() => framesOf(a.inbox, "q").length >= 1, "A q");
+      await flushIo(20);
+
+      expect(h.hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toBeUndefined();
+      expect(framesOf(a.inbox, "limit.feature")).toHaveLength(0);
+    });
+
+    it("LS6 마지막 해제 · linger 만료 뒤 도착한 85 는 캐시를 되살리지 않는다 — 재구독(full)에 limit.feature 0", async () => {
+      const a = await primeFullCaches();
+      a.ws.sendUnsub(SAMPLE_ISIN, "KRX");
+      await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 0, "A 해제");
+      vi.advanceTimersByTime(LINGER_MS);
+      await waitFor(() => h.hub.getLimitFeature(SAMPLE_ISIN, "KRX") === undefined, "linger 만료 · 캐시 삭제");
+
+      // 해제와 재구독 사이의 늦은 85 — 구독 없는 키라 버린다.
+      quoteGateway.sendLimitFeature(quoteSock, { lockElapsedS: 99 });
+      await flushIo(20);
+      expect(h.hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toBeUndefined();
+
+      const aBefore = a.inbox.length;
+      a.ws.sendSub(SAMPLE_ISIN, "KRX");
+      await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 1, "A 재구독");
+      quoteGateway.pushQuote(quoteSock, { snapshot: true });
+      await waitFor(() => a.inbox.slice(aBefore).some((f) => f.t === "q"), "A 재구독 q");
+      await flushIo(20);
+
+      expect(a.inbox.slice(aBefore).filter((f) => f.t === "limit.feature")).toHaveLength(0);
+    });
+  });
+
   describe("unf.progress (Phase 25)", () => {
     it("P1 인증 직후 unf.progress snap:true 는 캐시가 비어도 1프레임이다 (rate.cross.snap 규율)", async () => {
       const conn = await authed("token-a");

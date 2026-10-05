@@ -902,6 +902,27 @@ describe("Phase 28 85 LimitFeature — quote 연결 수신 · 키 캐시 · full
     expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toBeUndefined();
   });
 
+  it("linger 0 해제 → 늦은 85 → 재구독: 캐시는 되살아나지 않는다 — 재구독 스냅샷 원천 없음 (28-05 D-23)", () => {
+    hub.closeAll();
+    makeHub({ lingerMs: 0 });
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
+    feed.pushFrame(buildLimitFeatureFrame());
+    hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX");
+    expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toBeUndefined();
+
+    // 해제와 재구독 사이에 도착한 85 — 구독 없는 키라 버린다.
+    feed.pushFrame(buildLimitFeatureFrame({ lockElapsedS: 99 }));
+    expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toBeUndefined();
+
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
+    // fanout 의 FULL 스냅샷(`#sendLimitFeatureSnapshot`)이 읽는 자리 — 다음 85 전까지 비어 있다.
+    expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toBeUndefined();
+    expect(featureEvents()).toHaveLength(1);
+
+    feed.pushFrame(buildLimitFeatureFrame({ lockElapsedS: 7 }));
+    expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toMatchObject({ lockElapsedS: 7 });
+  });
+
   it("closeAll 뒤 캐시 없음", () => {
     hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
     feed.pushFrame(buildLimitFeatureFrame());

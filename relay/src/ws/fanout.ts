@@ -1084,11 +1084,12 @@ export class WsFanout {
           // price→full 승격 (quick-261001-dyi). price 소켓은 가격 섹션이 바뀐 59 만 받았으므로 그 사이
           // 호가 틱(매수1잔량 등)이 빠져 있다. 업스트림이 이미 FULL 이면(다른 소비자) hub 승격도 없어 58 이
           // 오지 않는다 — 캐시(`#onQuote` 가 모든 59 로 갱신)를 즉시 준다. 업스트림이 PRICE 였으면 hub 승격
-          // 28 의 58 이 곧 덮는다. 순서는 q → tape(새 키 분기와 같다).
+          // 28 의 58 이 곧 덮는다. 순서는 q → tape → 85(새 키 분기와 같다).
           const snapshot = this.#hub.getSnapshot(msg.isin, msg.ex);
           if (snapshot !== undefined) this.#send(conn, snapshot);
-          // 이 소켓은 price 동안 tape 를 받은 적이 없다 — 링버퍼를 스냅샷으로 준다.
+          // 이 소켓은 price 동안 tape · 85 를 받은 적이 없다 — 링버퍼 · 키 캐시를 스냅샷으로 준다.
           this.#sendTapeSnapshot(conn, msg.isin, msg.ex);
+          this.#sendLimitFeatureSnapshot(conn, msg.isin, msg.ex);
         }
         return;
       }
@@ -1109,8 +1110,11 @@ export class WsFanout {
       // 캐시가 있으면 게이트웨이 응답을 기다리지 않고 즉시 그린다 (D-37 — 전역 캐시라 다른 사용자가 먼저 연 종목도).
       const snapshot = this.#hub.getSnapshot(msg.isin, msg.ex);
       if (snapshot !== undefined) this.#send(conn, snapshot);
-      // tape 캐시는 full 만 — price 소켓은 tape 를 받지 않는다 (quick-260923-ge2).
-      if (lv === "full") this.#sendTapeSnapshot(conn, msg.isin, msg.ex);
+      // tape · 85 캐시는 full 만 — price 소켓은 둘 다 받지 않는다 (quick-260923-ge2 · Phase 28 D-05).
+      if (lv === "full") {
+        this.#sendTapeSnapshot(conn, msg.isin, msg.ex);
+        this.#sendLimitFeatureSnapshot(conn, msg.isin, msg.ex);
+      }
       return;
     }
 
@@ -1134,6 +1138,17 @@ export class WsFanout {
     if (tape !== undefined && tape.length > 0) {
       this.#send(conn, { t: "tape", i: isin, x: ex, snap: true, e: tape });
     }
+  }
+
+  /**
+   * hub 키 캐시에 마지막 85 가 있으면 그 소켓에 `limit.feature` 1프레임을 보낸다 (Phase 28 D-23). 서버는 값이 바뀐
+   * 키만 85 를 보내고 새 구독에 재송신하지 않는다 — 이 스냅샷이 없으면 조용한 키는 새로 펼친 카드에서 최대 60초
+   * 「—」 로 남는다(RESEARCH Pitfall 1). **full 소켓만** 부른다 — price 소켓은 85 를 받지 않는다(D-05 · P-1).
+   * 부르는 자리(새 키 full · price→full 승격)의 순서는 q → tape → 85.
+   */
+  #sendLimitFeatureSnapshot(conn: Conn, isin: string, ex: RelayExchange): void {
+    const lf = this.#hub.getLimitFeature(isin, ex);
+    if (lf !== undefined) this.#send(conn, lf);
   }
 
   /**
