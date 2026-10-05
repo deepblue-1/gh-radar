@@ -55,6 +55,15 @@
  *   에 오므로 Ready 게이트로 버리면 안 된다(캐시만). quote 연결로 오면 `#onFeedFrame` 의 명시 warn case 다.
  *   요청 **41 · 42 · 43** 은 C→S 라 화이트리스트에 넣지 않는다. 화이트리스트와 명시 case 는 **같은 커밋**이다.
  *
+ *   28-01 이 상한가 특징 푸시 **85 `LimitFeature`** 를 더한다(28종 — gh-trade Phase 27 · fbs 2404509b ·
+ *   Envelope 슬롯 90). 27-01 이 넣어 둔 debug 드롭을 되돌린다. 하류 책임은 이렇다 — 파서는 `envelope.ts`
+ *   의 `parseLimitFeature` 이고, `SubscriptionHub.#onFeedFrame`(quote 관찰자 연결)에 **명시 `case`** 가 있다.
+ *   그 case 가 (isin, exchange) **키별 마지막 1프레임 캐시**에 넣고 `"market"` 이벤트(`full: true, price: false`)
+ *   로 그 키를 **FULL 로 잡은 브라우저 소켓에만** `{t:"limit.feature"}` 로 팬아웃한다(price 소켓 금지 — 접힌
+ *   카드는 85 를 받지 않는다). 85 는 계좌 · 주문자가 없는 **공개 시세 파생값**이다. 사용자 세션으로 오면
+ *   `#onFrame` 의 **명시 warn case** 다(사용자 세션은 종목을 구독하지 않는다 — Phase 26 D-08).
+ *   화이트리스트와 명시 case 는 **같은 커밋**이다(PC-12).
+ *
  *   quick-260923-cqj 가 **57 `SymbolMasterResp`** 를 더한다(23종). 당일 신규상장 종목은 Supabase
  *   `stocks` 에 아직 없어서(KRX 가 전 영업일 데이터를 다음 영업일 08:00 에 공개한다) 이름을 못
  *   풀었다. 57 은 그 미스를 채우는 **보조 이름 원천**이다. 하류 책임은 이렇다 — 파서는 `envelope.ts`
@@ -74,9 +83,7 @@
  *     경로다(Phase 25 CONTEXT 재량 · Deferred). 81/82 는 호가를 구독한 세션에 Notice 로 쏟아지므로
  *     debug 드롭이다(RESEARCH Pitfall 5). 83 `QueueProgress` 는 25-06 부터 `INBOUND_MSG_TYPES` · hub 명시
  *     case 로 받는다(위 「유입 집합」 참조) — 이 목록에 없다.
- *   - 85 `LimitFeature`(gh-trade Phase 27 — 상한가 특징 · Envelope 슬롯 90)는 중계 · 표시가 범위 밖이다
- *     (gh-radar Phase 27 CONTEXT Deferred). 서버가 배포하면 quote 관찰자 연결로 **키당 1초마다** 오므로
- *     정체불명 warn 으로 두면 로그가 홍수가 된다 — debug 드롭이다(27-01 · RESEARCH Pitfall 7).
+ *     85 `LimitFeature` 는 28-01 부터 `INBOUND_MSG_TYPES` · hub 명시 case 로 받는다(위 「유입 집합」).
  *
  *   ★ **이 목록이 바뀌면 아래 `OUT_OF_SCOPE_INBOUND_MSG_TYPES` 도 같이 바꾼다.** 주석과 상수가
  *     어긋나면 로그 레벨이 조용히 틀어지고, 그 틀어짐은 「경고가 안 뜬다」로만 드러나
@@ -92,7 +99,7 @@
 /**
  * relay 가 사용하는 `msg_type` 값. 생성 코드 `stock-dma/msg-type.ts` 의 부분집합이다.
  *
- * 요청(C→S)은 1~38, 응답/푸시(S→C)는 50~83 대역이다.
+ * 요청(C→S)은 1~43, 응답/푸시(S→C)는 50~85 대역이다.
  */
 export const MSG = {
   // --- 요청 (relay → 게이트웨이) ---
@@ -221,6 +228,12 @@ export const MSG = {
    * 43 응답 · 42 성공 뒤 같은 사용자 전 세션 브로드캐스트. `present` 는 이 응답 전용.
    */
   UserSettingsResp: 84,
+  /**
+   * 상한가 특징 (`limit_feature` 슬롯 90 · Phase 28 — gh-trade Phase 27 · fbs 2404509b). **S→C Broadcast** ·
+   * (isin, exchange) 당 **1초 스로틀** · 값이 바뀐(dirty) 키만 · 그 키를 **FULL 구독**한 연결에만 온다
+   * (quote 관찰자 연결 포함). 요청 짝 없음 — 새 구독에 재송신하지 않으므로 hub 가 키별 마지막 1프레임을 캐시한다.
+   */
+  LimitFeature: 85,
 } as const;
 
 /** `MSG` 의 값 유니온. */
@@ -238,7 +251,7 @@ export type MsgTypeValue = (typeof MSG)[keyof typeof MSG];
  *
  * ★ 17-03 이 76·77·78 을 더해 **22종**이 됐다. quick-260923-cqj 가 57 을 더해 **23종**, 19-09 가 관찰자
  *   응답 79·80 을 더해 **25종**, 25-06 이 잔량진행률 83 을 더해 **26종**, 27-01 이 사용자 설정 84 를
- *   더해 **27종**이다. 이 집합은
+ *   더해 **27종**, 28-01 이 상한가 특징 85 를 더해 **28종**이다. 이 집합은
  *   `SubscriptionHub.#onFrame` 의 명시 `case` 와 **한 커밋에서만** 함께 자란다 — 번호 하나를
  *   먼저 넣고 case 를 다음 커밋으로 미루면 그 사이의 빌드에서 프레임이 `default:` 로 조용히
  *   떨어져 「조용히 사라지는 프레임 0」(PC-12) 불변식이 깨진다.
@@ -271,6 +284,7 @@ export const INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
   MSG.JournalBatch,
   MSG.QueueProgress,
   MSG.UserSettingsResp,
+  MSG.LimitFeature,
 ]);
 
 /**
@@ -281,7 +295,7 @@ export const INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
  * 25~55초마다 밀어 넣으므로, 이것을 정체불명과 같은 WARNING 으로 쌓으면 진짜 이상 신호가
  * 그 사이에 묻힌다. 드롭 자체는 설계대로 옳다 — 틀린 것은 로그 레벨 하나였다.
  *
- * 원소는 **응답 대역 7종뿐**이다(생성 코드 `stock-dma/msg-type.ts` 의 enum 이름을 인용한다.
+ * 원소는 **응답 대역 6종뿐**이다(생성 코드 `stock-dma/msg-type.ts` 의 enum 이름을 인용한다.
  * 리터럴을 지어내지 않는다). 57 `SymbolMasterResp` 는 quick-260923-cqj 에서 `INBOUND_MSG_TYPES`
  * 로 옮겨 갔다:
  *   - `ReconcileAccountStateResp` = 68
@@ -290,10 +304,11 @@ export const INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
  *   - `MemberStatsPush` = 75
  *   - `StrategyEventsResp` = 81 (Phase 25 — 전략 이벤트 정본은 관찰자 80 경로)
  *   - `StrategyEventPush` = 82 (Phase 25 — 같은 이유 · 호가 구독 세션에 Notice 로 쏟아진다)
- *   - `LimitFeature` = 85 (27-01 — 중계 · 표시 범위 밖 · quote 관찰자 연결로 키당 1초마다 온다)
+ *
+ * 85 `LimitFeature` 는 28-01 에서 `INBOUND_MSG_TYPES` 로 옮겨 갔다(27-01 의 debug 드롭을 되돌림).
  *
  * 요청 대역(20 · 26 · 30 · 31)은 **의도적으로 뺐다** — 위 주석의 ★ 참조.
  */
 export const OUT_OF_SCOPE_INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
-  68, 70, 74, 75, 81, 82, 85,
+  68, 70, 74, 75, 81, 82,
 ]);

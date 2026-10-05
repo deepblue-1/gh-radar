@@ -109,6 +109,8 @@ import {
   parseJournalBatch,
   parseQueueProgress,
   MAX_QUEUE_PROGRESS_ITEMS,
+  parseLimitFeature,
+  MAX_LIMIT_FEATURE_MEMBERS,
   type ViTriggerInput,
   type LcSetCfg,
 } from "../envelope.js";
@@ -134,6 +136,7 @@ import {
   fakeStrategyEventRecord,
   buildQueueProgressFrame,
   buildUserSettingsFrame,
+  buildLimitFeatureFrame,
   SAMPLE_ACCOUNT_NO,
 } from "../../../tests/helpers/frames.js";
 import { readObserverLoginRequest } from "../../../tests/helpers/fake-gateway.js";
@@ -273,21 +276,20 @@ describe("tryParseEnvelope — total 파서", () => {
     expect(fields.reason).toBe("unknown-msg-type");
   });
 
-  it("Phase 27 ⑤-a85 85 LimitFeature 는 범위 밖 응답이다 — debug 로만 드롭되고 warn 은 0 (Pitfall 7)", () => {
-    expect(tryParseEnvelope(Buffer.from(buildBareEnvelope(85)))).toBeNull();
-    expect(droppedEnvelopeCount()).toBe(1);
+  it("Phase 28 ⑤-a85 85 LimitFeature 는 파싱된다 — 화이트리스트 통과 · 드롭 0 (27-01 debug 드롭 되돌림)", () => {
+    const parsed = tryParseEnvelope(Buffer.from(buildLimitFeatureFrame()));
+    expect(parsed).not.toBeNull();
+    expect(parsed!.msgType).toBe(85);
+    expect(droppedEnvelopeCount()).toBe(0);
     expect(warn).not.toHaveBeenCalled();
-    expect(debug).toHaveBeenCalledTimes(1);
-    const [fields] = debug.mock.calls[0] as [Record<string, unknown>];
-    expect(fields.reason).toBe("out-of-scope-msg-type");
-    expect(fields.msgTypeHint).toBe(85);
+    expect(debug).not.toHaveBeenCalled();
   });
 
-  it("⑤-a4 강등 집합은 **응답 대역 7종뿐**이고 요청 번호는 하나도 없다", () => {
+  it("Phase 28 ⑤-a4 강등 집합은 **응답 대역 6종뿐**이고 요청 번호는 하나도 없다", () => {
     // 57 은 quick-260923-cqj 에서 INBOUND 로 옮겨 갔다(보조 이름 원천).
     // 81 · 82 는 Phase 25 — 전략 이벤트 정본은 관찰자 80 경로다(83 은 25-06 이 INBOUND 로 넣는다).
-    // 85 LimitFeature 는 27-01 — 중계 · 표시 범위 밖(quote 관찰자 연결로 키당 1초마다 온다).
-    expect([...OUT_OF_SCOPE_INBOUND_MSG_TYPES].sort((a, b) => a - b)).toEqual([68, 70, 74, 75, 81, 82, 85]);
+    // 85 LimitFeature 는 28-01 에서 INBOUND 로 옮겨 갔다(27-01 의 debug 드롭을 되돌림).
+    expect([...OUT_OF_SCOPE_INBOUND_MSG_TYPES].sort((a, b) => a - b)).toEqual([68, 70, 74, 75, 81, 82]);
     for (const n of OUT_OF_SCOPE_INBOUND_MSG_TYPES) expect(n).toBeGreaterThanOrEqual(50);
   });
 
@@ -316,6 +318,93 @@ describe("tryParseEnvelope — total 파서", () => {
     expect(droppedEnvelopeCount()).toBe(1);
     const [fields] = warn.mock.calls[0] as [Record<string, unknown>];
     expect(fields.reason).toBe("slot-null");
+  });
+});
+
+describe("Phase 28 parseLimitFeature (85 · limit_feature 슬롯 90)", () => {
+  const parse = (bytes: Uint8Array) => {
+    const parsed = tryParseEnvelope(Buffer.from(bytes));
+    expect(parsed).not.toBeNull();
+    return parseLimitFeature(parsed!.env);
+  };
+
+  it("기본 프레임 → camelCase number 필드 전부 (bigint 는 toNum 경계 · list_shares · team_sim 은 싣지 않는다)", () => {
+    const msg = parse(buildLimitFeatureFrame());
+    expect(msg).toEqual({
+      t: "limit.feature",
+      i: SAMPLE_ISIN,
+      x: "KRX",
+      gwTimeMs: 1_791_164_130_000,
+      featureSchema: 1,
+      upperPx: 13000,
+      lastPx: 13000,
+      rateBp: 3000,
+      basePx: 10000,
+      qQty: 133_077,
+      qKrw: 1_730_000_000,
+      wallKrwVisible: 0,
+      wallQtyHidden: 0,
+      wallTruncated: false,
+      sellLed10s: 3_700,
+      buyLed10s: 6_300,
+      cancel10s: 2_300,
+      new10s: 12_400,
+      auctionFill10s: 0,
+      drainS: -1,
+      lockState: 1,
+      lockElapsedS: 43,
+      burstUpperLimit: false,
+      auction: false,
+      memberBuy: [{ memberNo: "00050", dQty: 52_000, dValue: 676_000_000, shareBp: 7407 }],
+      memberSell: [{ memberNo: "00002", dQty: 18_000, dValue: 234_000_000, shareBp: 10000 }],
+      memberDeltaPartial: false,
+      modelState: 0,
+      modelSchemaVersion: 0,
+      pBreakBp: -1,
+      pHorizonS: 0,
+    });
+    expect(droppedEnvelopeCount()).toBe(0);
+  });
+
+  it("bigint 경계 — 2^53 초과 금액은 MAX_SAFE_INTEGER 로 클램프 · 음수 증분 수량은 그대로", () => {
+    const msg = parse(
+      buildLimitFeatureFrame({
+        qKrw: 2n ** 60n,
+        cancel10s: -5n,
+        memberSell: [{ memberNo: "00002", dQty: -18_000n, dValue: -234_000_000n, shareBp: 0 }],
+      }),
+    );
+    expect(msg?.qKrw).toBe(Number.MAX_SAFE_INTEGER);
+    expect(msg?.cancel10s).toBe(-5);
+    expect(msg?.memberSell[0]).toEqual({ memberNo: "00002", dQty: -18_000, dValue: -234_000_000, shareBp: 0 });
+  });
+
+  it(`창구를 4개 실으면 앞 ${MAX_LIMIT_FEATURE_MEMBERS}개만 (takeCount 상한 · 경고 1건)`, () => {
+    const four = ["00050", "00002", "00005", "00036"].map((memberNo) => ({ memberNo, dQty: 1n, dValue: 1n, shareBp: 1 }));
+    const msg = parse(buildLimitFeatureFrame({ memberBuy: four }));
+    expect(MAX_LIMIT_FEATURE_MEMBERS).toBe(3);
+    expect(msg?.memberBuy.map((m) => m.memberNo)).toEqual(["00050", "00002", "00005"]);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("잘못된 isin 은 드롭 (bad-isin)", () => {
+    expect(parse(buildLimitFeatureFrame({ isin: "BAD" }))).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+    const [fields] = warn.mock.calls[0] as [Record<string, unknown>];
+    expect(fields).toMatchObject({ reason: "bad-isin", msgType: 85 });
+  });
+
+  it("잘못된 거래소는 드롭 (bad-exchange)", () => {
+    expect(parse(buildLimitFeatureFrame({ exchange: "XXX" }))).toBeNull();
+    const [fields] = warn.mock.calls[0] as [Record<string, unknown>];
+    expect(fields).toMatchObject({ reason: "bad-exchange", msgType: 85 });
+  });
+
+  it("슬롯 null(맨 envelope 85) 은 화이트리스트는 통과하고 파서가 slot-null 로 드롭", () => {
+    expect(parse(buildBareEnvelope(85))).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+    const [fields] = warn.mock.calls[0] as [Record<string, unknown>];
+    expect(fields).toMatchObject({ reason: "slot-null", msgType: 85, slot: "limit_feature" });
   });
 });
 

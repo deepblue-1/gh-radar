@@ -1479,6 +1479,38 @@ describe("WsFanout", () => {
     expect(snap?.items[0]?.exchange).toBe("NXT");
   });
 
+  describe("Phase 28 85 full 전용 — limit.feature 는 그 키를 FULL 로 잡은 소켓에만", () => {
+    it("LF1 같은 키를 full 소켓 하나 · price 소켓 하나가 잡은 상태에서 quote 연결 85 → full 소켓 1프레임 · price 소켓 0", async () => {
+      const full = await authed("token-a");
+      const price = await authed("token-a");
+      full.ws.sendSub(SAMPLE_ISIN, "KRX");
+      await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 1, "full 구독");
+      price.ws.sendSub(SAMPLE_ISIN, "KRX", "price");
+      await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 2, "price 구독");
+
+      quoteGateway.sendLimitFeature(quoteSock);
+      await waitFor(() => framesOf(full.inbox, "limit.feature").length === 1, "full 소켓 85");
+      // 순서 보존 표식 — 85 뒤에 민 q 가 price 소켓에 도착하면 그 앞의 85 는 오지 않은 것이다.
+      quoteGateway.pushQuote(quoteSock, { snapshot: true, lastPrice: 13_000n });
+      await waitFor(() => framesOf(price.inbox, "q").length >= 1, "price 소켓 표식 q");
+      await flushIo(20);
+
+      const frames = framesOf(full.inbox, "limit.feature");
+      expect(frames).toHaveLength(1);
+      expect(frames[0]).toMatchObject({
+        t: "limit.feature",
+        i: SAMPLE_ISIN,
+        x: "KRX",
+        lockState: 1,
+        lockElapsedS: 43,
+        qKrw: 1_730_000_000,
+        memberBuy: [{ memberNo: "00050", dQty: 52_000, dValue: 676_000_000, shareBp: 7407 }],
+      });
+      expect(framesOf(price.inbox, "limit.feature")).toHaveLength(0);
+      expect(h.hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toMatchObject({ lockState: 1 });
+    });
+  });
+
   describe("unf.progress (Phase 25)", () => {
     it("P1 인증 직후 unf.progress snap:true 는 캐시가 비어도 1프레임이다 (rate.cross.snap 규율)", async () => {
       const conn = await authed("token-a");

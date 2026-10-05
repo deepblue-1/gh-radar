@@ -230,13 +230,18 @@ describe("MSG 상수", () => {
       MSG.GetUserSettingsReq,
       MSG.UserSettingsResp,
     ]).toEqual([41, 42, 43, 84]);
-    // 84 만 수신 대역 — hub 명시 case 와 한 커밋(PC-12). 41/42/43 은 C→S, 85 는 범위 밖(debug 드롭).
+    // 84 만 수신 대역 — hub 명시 case 와 한 커밋(PC-12). 41/42/43 은 C→S.
     expect(INBOUND_MSG_TYPES.has(MSG.UserSettingsResp)).toBe(true);
-    for (const v of [MSG.AutoSellCommandReq, MSG.SetUserSettingsReq, MSG.GetUserSettingsReq, 85]) {
+    for (const v of [MSG.AutoSellCommandReq, MSG.SetUserSettingsReq, MSG.GetUserSettingsReq]) {
       expect(INBOUND_MSG_TYPES.has(v), `msg_type ${v}`).toBe(false);
     }
-    expect(MsgType.LimitFeature).toBe(85);
-    expect(Object.keys(MSG)).not.toContain("LimitFeature");
+  });
+
+  it("Phase 28 85 LimitFeature 는 수신 대역이다 — 생성 enum 과 이름·값 일치 · 화이트리스트 (27-01 debug 드롭 되돌림)", () => {
+    // 28-01 — 화이트리스트 · hub `#onFeedFrame` 명시 case · 사용자 세션 warn case 가 한 커밋이다(PC-12).
+    expect(MSG.LimitFeature).toBe(MsgType.LimitFeature);
+    expect(MSG.LimitFeature).toBe(85);
+    expect(INBOUND_MSG_TYPES.has(85)).toBe(true);
   });
 
   it("38(구 매수 진입 래치)은 생성 enum 에만 남고 relay MSG 에는 없다 — 번호 봉인 (Phase 24 D-25)", () => {
@@ -259,15 +264,16 @@ describe("MSG 상수", () => {
     }
   });
 
-  it("INBOUND_MSG_TYPES 는 응답 대역(50~84)만 담는다", () => {
+  it("Phase 28 INBOUND_MSG_TYPES 는 응답 대역(50~85)만 담는다 — 28종", () => {
     // 15-02 의 12종 + 16-04 전략 응답 7종 + 17-03 신규 푸시 3종 + quick-260923-cqj 57
-    // + 19-09 관찰자 응답 79·80 + 25-06 잔량진행률 83 = 26종 + 27-01 사용자 설정 84 = 27종.
+    // + 19-09 관찰자 응답 79·80 + 25-06 잔량진행률 83 = 26종 + 27-01 사용자 설정 84 = 27종
+    // + 28-01 상한가 특징 85 = 28종.
     // 개수를 못박아 두면 화이트리스트가 의도 없이 넓어지는 순간(= 새 유입 집합이 생기는 순간)
     // 여기서 먼저 깨진다 (PC-12).
-    expect(INBOUND_MSG_TYPES.size).toBe(27);
+    expect(INBOUND_MSG_TYPES.size).toBe(28);
     for (const v of INBOUND_MSG_TYPES) {
       expect(v).toBeGreaterThanOrEqual(50);
-      expect(v).toBeLessThanOrEqual(84);
+      expect(v).toBeLessThanOrEqual(85);
     }
     // 요청 계열이 수신 경로로 들어오는 것 자체가 이상 신호다.
     expect(INBOUND_MSG_TYPES.has(MSG.LoginReq)).toBe(false);

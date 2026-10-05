@@ -31,8 +31,9 @@
  * 결정 근거:
  *   T-15-02  **사용자 데이터**(계좌 · 주문 · 전략 · 83)의 팬아웃 대상은 `Map<userId, …>` 로만 고른다(`#deliver`).
  *            사용자 데이터에 **전역 브로드캐스트 함수를 만들지 않는 것**이 타인 체결·잔고 유출의 구조적 방어다.
- *            공개 시세(q · tape)는 키 구독자 색인(`#keyConns` → `#deliverMarket`)으로 간다 — 계좌 필터가 없는 이유는
- *            공개 시세라서이고, hub `HubMarketEvent.msg` 타입이 `RelayQuote | RelayTape` 로 좁혀져 있어 사용자
+ *            공개 시세(q · tape · 85 limit.feature)는 키 구독자 색인(`#keyConns` → `#deliverMarket`)으로 간다 — 계좌
+ *            필터가 없는 이유는 공개 시세라서이고, hub `HubMarketEvent.msg` 타입이 `RelayQuote | RelayTape |
+ *            RelayLimitFeatureMsg`(28-01 — 계좌 · 주문자 없는 공개 시세 파생값)로 좁혀져 있어 사용자
  *            데이터가 이 경로를 탈 수 없다(Phase 26 T-26-01). 자격증명 미등록 소켓(D-09)은 sub 단계에서 막혀
  *            색인에 들어가지 않는다.
  *   T-15-04  토큰은 첫 메시지 본문 전용이다. URL·쿼리스트링에 절대 싣지 않는다 —
@@ -1806,7 +1807,8 @@ export class WsFanout {
    * 공개 시세 1건을 **그 키를 잡은 소켓에만** 보낸다 (Phase 26 D-06 · D-12).
    *
    * - 대상은 `#keyConns`(키 구독자 색인)다 — 사용자 · 탭 수와 무관하게 키 단위 1회 순회.
-   * - 소켓 level 로만 거른다: tape 는 full 소켓만(71 은 price 소켓에 가지 않는다 — quick-260923-ge2 규칙 이관),
+   * - 소켓 level 로만 거른다: tape 와 85 `limit.feature` 는 full 소켓만(71 은 price 소켓에 가지 않는다 — quick-260923-ge2
+ *   규칙 이관 · 85 는 FULL 구독 전용 · 접힌 카드 = price 구독은 받지 않는다 — 28-01 · UI-SPEC P-1),
    *   full 소켓은 `e.full`, price 소켓은 `e.price` 일 때만. 판정(D-05)은 hub 가 키 단위로 이미 했다.
    * - 계좌 필터가 없다 — 공개 시세이고, `HubMarketEvent.msg` 타입이 사용자 데이터를 싣지 못한다(T-26-01).
    * - 색인과 `conn.keys` 가 어긋나면(방어) 그 소켓은 건너뛴다.
@@ -1817,7 +1819,7 @@ export class WsFanout {
     for (const conn of conns) {
       const lv = conn.keys.get(e.key)?.lv;
       if (lv === undefined) continue;
-      if (e.msg.t === "tape" && lv !== "full") continue;
+      if ((e.msg.t === "tape" || e.msg.t === "limit.feature") && lv !== "full") continue;
       if (lv === "full" ? !e.full : !e.price) continue;
       this.#send(conn, e.msg);
     }

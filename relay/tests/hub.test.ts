@@ -22,7 +22,14 @@ import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as flatbuffers from "flatbuffers";
 
-import type { RelayAccount, RelayOutbound, RelayQuote, RelayTape, RelayUnfProgressMsg } from "@gh-radar/shared";
+import type {
+  RelayAccount,
+  RelayLimitFeatureMsg,
+  RelayOutbound,
+  RelayQuote,
+  RelayTape,
+  RelayUnfProgressMsg,
+} from "@gh-radar/shared";
 
 import {
   LINGER_MS,
@@ -57,7 +64,7 @@ import {
   buildRateCrossAlertFrame,
   buildRateCrossSnapshotFrame,
   buildUserSettingsFrame,
-  buildBareEnvelope,
+  buildLimitFeatureFrame,
   SAMPLE_ACCOUNT_NO,
   type FakeTapeEntryInput,
 } from "./helpers/frames.js";
@@ -732,7 +739,7 @@ describe("Phase 27 #onReady 43 — 전략 스냅샷 요청 끝에 사용자 설�
   });
 });
 
-describe("Phase 27 사용자 설정 84 — 사용자별 캐시 · Ready 게이트 · 폐기 · quote 경계 · 85 강등", () => {
+describe("Phase 27 사용자 설정 84 — 사용자별 캐시 · Ready 게이트 · 폐기 · quote 경계", () => {
   let hub: SubscriptionHub;
   let session: FakeSession;
   let fanout: HubFanoutEvent[];
@@ -804,16 +811,103 @@ describe("Phase 27 사용자 설정 84 — 사용자별 캐시 · Ready 게이�
     expect(settingsFrames()).toEqual([]);
     expect(hub.getUserSettings("user-1")).toBeUndefined();
   });
+});
 
-  it("85 LimitFeature 는 화이트리스트 밖 — 수신 파서에서 debug 드롭(warn 0) · hub 까지 오지 않는다", () => {
-    const warn = vi.spyOn(logger, "warn").mockImplementation((() => undefined) as never);
-    const debug = vi.spyOn(logger, "debug").mockImplementation((() => undefined) as never);
-    expect(tryParseEnvelope(Buffer.from(buildBareEnvelope(85)))).toBeNull();
-    expect(warn).not.toHaveBeenCalled();
-    expect(debug).toHaveBeenCalledTimes(1);
-    expect(() => session.pushFrame(buildBareEnvelope(85))).toThrow(/화이트리스트/);
-    expect(fanout).toEqual([]);
+describe("Phase 28 85 LimitFeature — quote 연결 수신 · 키 캐시 · full 전용 방출 · 사용자 세션 warn · 해제 정리", () => {
+  let hub: SubscriptionHub;
+  let feed: FakeFeed;
+  let session: FakeSession;
+  let fanout: HubFanoutEvent[];
+  let market: HubMarketEvent[];
+
+  const featureEvents = (): HubMarketEvent[] => market.filter((e) => e.msg.t === "limit.feature");
+
+  function makeHub(opts?: { lingerMs?: number }): void {
+    hub = new SubscriptionHub(opts);
+    fanout = [];
+    market = [];
+    hub.on("fanout", (e) => fanout.push(e));
+    hub.on("market", (e) => market.push(e));
+    feed = new FakeFeed();
+    hub.attachFeed(feed);
+    session = new FakeSession("user-1");
+    hub.attach(session);
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    resetDroppedEnvelopeCount();
+    makeHub();
+  });
+
+  afterEach(() => {
+    hub.closeAll();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("구독 중 키의 feed 85 → market 이벤트 { full: true, price: false } 1건 · getLimitFeature 가 같은 값", () => {
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
+    feed.pushFrame(buildLimitFeatureFrame());
+
+    const events = featureEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ key: `${SAMPLE_ISIN}|KRX`, full: true, price: false });
+    const msg = events[0]!.msg as RelayLimitFeatureMsg;
+    expect(msg).toMatchObject({ t: "limit.feature", i: SAMPLE_ISIN, x: "KRX", lockState: 1, lockElapsedS: 43 });
+    expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toEqual(msg);
+    // 공개 시세 경로다 — 사용자 팬아웃(`"fanout"`)으로는 한 건도 나가지 않는다(T-26-01).
+    expect(fanout.filter((e) => e.msg.t === "limit.feature")).toEqual([]);
     expect(hub.unhandledFrameCount()).toBe(0);
+  });
+
+  it("같은 키 두 번째 85 는 캐시를 통째로 교체한다 (키별 마지막 1프레임 · D-23)", () => {
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
+    feed.pushFrame(buildLimitFeatureFrame());
+    feed.pushFrame(buildLimitFeatureFrame({ lockState: 2, lockElapsedS: 0 }));
+    expect(featureEvents()).toHaveLength(2);
+    expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toMatchObject({ lockState: 2, lockElapsedS: 0 });
+  });
+
+  it("구독 없는 키의 85 → 이벤트 0 · 캐시 없음 (해제 뒤 늦은 프레임이 캐시를 되살리지 않는다)", () => {
+    feed.pushFrame(buildLimitFeatureFrame());
+    expect(featureEvents()).toEqual([]);
+    expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toBeUndefined();
+    expect(hub.unhandledFrameCount()).toBe(0);
+  });
+
+  it("사용자 세션으로 온 85 → 명시 warn 1건 · unhandledFrameCount 불변 · 이벤트 0 (Phase 26 D-08)", () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation((() => undefined) as never);
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
+    session.pushFrame(buildLimitFeatureFrame());
+
+    const sessionWarns = warn.mock.calls.filter((args) =>
+      args.some((a) => typeof a === "string" && a.includes("사용자 세션에 시세 프레임")),
+    );
+    expect(sessionWarns.map((args) => args[0])).toEqual([{ userId: "user-1", msgType: MSG.LimitFeature }]);
+    expect(hub.unhandledFrameCount()).toBe(0);
+    expect(featureEvents()).toEqual([]);
+    expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toBeUndefined();
+  });
+
+  it("linger 0 해제 뒤 캐시 없음 — #releaseKey 가 지운다", () => {
+    hub.closeAll();
+    makeHub({ lingerMs: 0 });
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
+    feed.pushFrame(buildLimitFeatureFrame());
+    expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toBeDefined();
+
+    hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX");
+    expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(0);
+    expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toBeUndefined();
+  });
+
+  it("closeAll 뒤 캐시 없음", () => {
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
+    feed.pushFrame(buildLimitFeatureFrame());
+    expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toBeDefined();
+    hub.closeAll();
+    expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toBeUndefined();
   });
 });
 

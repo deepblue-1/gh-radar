@@ -50,6 +50,7 @@ import {
   buildBareEnvelope,
   buildJournalBatchFrame,
   buildLimitChaserListRespFrame,
+  buildLimitFeatureFrame,
   buildObserverLoginRespFrame,
   buildLoginRespFrame,
   buildOrderRespFrame,
@@ -66,6 +67,7 @@ import {
   type FakeAccount,
   type FakeJournalBatchInput,
   type FakeLimitChaserInput,
+  type FakeLimitFeatureInput,
   type FakeObserverLoginRespInput,
   type FakeLoginRespInput,
   type FakeOrderRespInput,
@@ -222,6 +224,11 @@ export type FakeGateway = {
   sendQueuedWindowState(sock: net.Socket, input?: FakeQueuedWindowInput): void;
   /** 사용자 설정 주입 (84 · Phase 27). 로그인 직후 84 · 42 뒤 브로드캐스트를 테스트가 직접 재현한다. */
   sendUserSettings(sock: net.Socket, input?: FakeUserSettingsInput): void;
+  /**
+   * 상한가 특징 주입 (85 · Phase 28). 서버는 그 키를 FULL 구독한 연결에만 보낸다 — 테스트는 quote 관찰자 연결
+   * (`waitForQuoteConnection`)로 민다. 기본 = 잠김 시나리오(lock 1 · 43초째 · 대기 17.3억).
+   */
+  sendLimitFeature(sock: net.Socket, input?: FakeLimitFeatureInput): void;
   /**
    * `GetUserSettingsReq(43)` 자동 응답(84)의 내용을 심는다 (Phase 27). **기본 null = 무응답** — 켜면 43 을 보낸
    * 그 연결에 84 1프레임을 쓴다. `null` 로 다시 끈다(Pitfall 10 — 기존 프레임 개수 단언 보호).
@@ -945,6 +952,10 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
 
     sendUserSettings(sock, input) {
       sock.write(frame(buildUserSettingsFrame(input)));
+    },
+
+    sendLimitFeature(sock, input) {
+      sock.write(frame(buildLimitFeatureFrame(input)));
     },
 
     seedUserSettings(input) {

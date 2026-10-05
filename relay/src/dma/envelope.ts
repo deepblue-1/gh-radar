@@ -48,6 +48,8 @@ import type {
   RelayLcCrud,
   RelayLimitChaser,
   RelayLimitChaserInput,
+  RelayLimitFeatureMember,
+  RelayLimitFeatureMsg,
   RelayQueueProgressItem,
   RelayQueuedWindowMsg,
   RelayUserSettingsMsg,
@@ -81,6 +83,7 @@ import { UnfilledState } from "../generated/stock-dma/unfilled-state.js";
 import { GetTradeTapeReq } from "../generated/stock-dma/get-trade-tape-req.js";
 import { LivePing } from "../generated/stock-dma/live-ping.js";
 import { LoginReq } from "../generated/stock-dma/login-req.js";
+import { MemberDelta } from "../generated/stock-dma/member-delta.js";
 import { QueueProgressItem } from "../generated/stock-dma/queue-progress-item.js";
 import { RateCrossAlert } from "../generated/stock-dma/rate-cross-alert.js";
 import type { LoginResp } from "../generated/stock-dma/login-resp.js";
@@ -160,6 +163,11 @@ const MAX_STRATEGY_SNAP_COUNT = 16;
  * 상한은 깨진 벡터 길이로 순회가 폭주하는 것만 막는다(초과분은 앞 N건 · `takeCount` 경고).
  */
 export const MAX_QUEUE_PROGRESS_ITEMS = 200;
+/**
+ * 상한가 특징(85) 창구 벡터 상한 (Phase 28). 서버는 매수 · 매도 각각 「이 분 B9 증분 상위 3」 을 싣는다 —
+ * 상한은 깨진 벡터 길이로 순회가 폭주하는 것만 막는다(초과분은 앞 3건 · `takeCount` 경고).
+ */
+export const MAX_LIMIT_FEATURE_MEMBERS = 3;
 /** 관찰자 로그인 응답(79) 계좌 매핑 상한 (T-19-33). users.toml 평탄화 행 수 — 실사용은 수십 행이다. */
 export const MAX_OBSERVER_ACCOUNT_COUNT = 1024;
 
@@ -871,6 +879,81 @@ export function parseQueueProgress(env: Envelope): QueueProgressFrame | null {
     );
   }
   return { isin, exchange, items };
+}
+
+/**
+ * 상한가 특징 (85 · `limit_feature` 슬롯 90 · Phase 28 — gh-trade Phase 27 · fbs 2404509b).
+ *
+ * - 슬롯 null · 종목/거래소 형식 이상 → `dropField` 후 `null`(그 프레임 전체를 모른다).
+ * - 창구 벡터는 매수 · 매도 각각 `takeCount(MAX_LIMIT_FEATURE_MEMBERS)` — `MemberDelta` scratch 재사용.
+ * - 64비트 칸은 전부 `toNum` 경계를 지난다(D-34). 값은 **계산하지 않는다** — 서버 진실 원본(D-19).
+ * - 공개 시세 파생값이라 계좌 · 주문자 필드가 없다 — 계좌 스킵 로깅이 필요 없다.
+ * - `list_shares` · `team_sim` 은 싣지 않는다(표시 자리 없음 — shared `RelayLimitFeatureMsg` JSDoc).
+ */
+export function parseLimitFeature(env: Envelope): RelayLimitFeatureMsg | null {
+  const msgType = MSG.LimitFeature;
+  const lf = env.limitFeature();
+  if (lf === null) return dropField("slot-null", msgType, { slot: "limit_feature" });
+
+  const isin = lf.isin() ?? "";
+  const exchange = lf.exchange() ?? "";
+  if (!isValidIsin(isin)) return dropField("bad-isin", msgType, { isin });
+  if (!isValidExchange(exchange)) return dropField("bad-exchange", msgType, { isin, exchange });
+
+  const scratch = new MemberDelta();
+  const members = (
+    len: number,
+    at: (i: number, o: MemberDelta) => MemberDelta | null,
+  ): RelayLimitFeatureMember[] => {
+    const n = takeCount(len, MAX_LIMIT_FEATURE_MEMBERS, "상한가 특징 창구");
+    const out: RelayLimitFeatureMember[] = [];
+    for (let i = 0; i < n; i += 1) {
+      const m = at(i, scratch);
+      if (m === null) continue;
+      out.push({
+        memberNo: m.memberNo() ?? "",
+        dQty: toNum(m.dQty(), "limit_feature.d_qty"),
+        dValue: toNum(m.dValue(), "limit_feature.d_value"),
+        shareBp: m.shareBp(),
+      });
+    }
+    return out;
+  };
+
+  return {
+    t: "limit.feature",
+    i: isin,
+    x: exchange,
+    gwTimeMs: toNum(lf.gwTimeMs(), "limit_feature.gw_time_ms"),
+    featureSchema: lf.featureSchema(),
+    upperPx: lf.upperPx(),
+    lastPx: lf.lastPx(),
+    rateBp: lf.rateBp(),
+    basePx: lf.basePx(),
+    qQty: toNum(lf.qQty(), "limit_feature.q_qty"),
+    qKrw: toNum(lf.qKrw(), "limit_feature.q_krw"),
+    wallKrwVisible: toNum(lf.wallKrwVisible(), "limit_feature.wall_krw_visible"),
+    wallQtyHidden: toNum(lf.wallQtyHidden(), "limit_feature.wall_qty_hidden"),
+    wallTruncated: lf.wallTruncated(),
+    sellLed10s: toNum(lf.sellLed10s(), "limit_feature.sell_led_10s"),
+    buyLed10s: toNum(lf.buyLed10s(), "limit_feature.buy_led_10s"),
+    cancel10s: toNum(lf.cancel10s(), "limit_feature.cancel_10s"),
+    new10s: toNum(lf.new10s(), "limit_feature.new_10s"),
+    auctionFill10s: toNum(lf.auctionFill10s(), "limit_feature.auction_fill_10s"),
+    drainS: lf.drainS(),
+    lockState: lf.lockState(),
+    lockElapsedS: lf.lockElapsedS(),
+    burstUpperLimit: lf.burstUpperLimit(),
+    auction: lf.auction(),
+    // 매수 · 매도가 scratch 하나를 나눠 쓴다 — 원소는 읽는 즉시 평범한 객체로 복사되므로 안전하다.
+    memberBuy: members(lf.memberBuyLength(), (i, o) => lf.memberBuy(i, o)),
+    memberSell: members(lf.memberSellLength(), (i, o) => lf.memberSell(i, o)),
+    memberDeltaPartial: lf.memberDeltaPartial(),
+    modelState: lf.modelState(),
+    modelSchemaVersion: lf.modelSchemaVersion(),
+    pBreakBp: lf.pBreakBp(),
+    pHorizonS: lf.pHorizonS(),
+  };
 }
 
 /**

@@ -45,6 +45,8 @@ import { ObserverLoginResp } from "../../src/generated/stock-dma/observer-login-
 import { StrategyEvent as WireStrategyEvent } from "../../src/generated/stock-dma/strategy-event.js";
 import { QueueProgress } from "../../src/generated/stock-dma/queue-progress.js";
 import { QueueProgressItem } from "../../src/generated/stock-dma/queue-progress-item.js";
+import { LimitFeature } from "../../src/generated/stock-dma/limit-feature.js";
+import { MemberDelta } from "../../src/generated/stock-dma/member-delta.js";
 import { MSG } from "../../src/dma/msg-type.js";
 import type { JournalRecord, StrategyEventRecord } from "../../src/journal/types.js";
 
@@ -1760,6 +1762,133 @@ export function buildQueueProgressFrame(input: FakeQueueProgressInput = {}): Uin
   // 「83 은 INBOUND 에 있다」 단언이 이 빌더에 기대지 않는다.
   Envelope.addMsgType(b, MsgType.QueueProgress);
   Envelope.addQueueProgress(b, progress);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+// ============================================================
+// 상한가 특징 (85) — Phase 28 28-01
+// ============================================================
+
+/** 85 창구 1건(`MemberDelta`). 64비트 칸은 와이어 그대로 bigint 로 받는다. */
+export type FakeLimitFeatureMemberInput = {
+  memberNo?: string;
+  dQty?: bigint;
+  dValue?: bigint;
+  shareBp?: number;
+};
+
+/**
+ * 85 `LimitFeature` 입력(32필드 선택). 기본값 = **잠김 시나리오**(lock 1 · 43초째 · 대기 17.3억 · 소진 ∞ ·
+ * 매수 창구 00050 · 매도 창구 00002) — e2e P28-1 이 「상한가 · 잠김 43초」 · 「잠김 43초째 | 대기 17.3억 | 소진 —」 을
+ * 단언하는 근거다. 실서버 값이 아니다.
+ */
+export type FakeLimitFeatureInput = {
+  isin?: string;
+  exchange?: string;
+  gwTimeMs?: bigint;
+  featureSchema?: number;
+  upperPx?: number;
+  lastPx?: number;
+  rateBp?: number;
+  basePx?: number;
+  listShares?: bigint;
+  qQty?: bigint;
+  qKrw?: bigint;
+  wallKrwVisible?: bigint;
+  wallQtyHidden?: bigint;
+  wallTruncated?: boolean;
+  sellLed10s?: bigint;
+  buyLed10s?: bigint;
+  cancel10s?: bigint;
+  new10s?: bigint;
+  auctionFill10s?: bigint;
+  drainS?: number;
+  lockState?: number;
+  lockElapsedS?: number;
+  burstUpperLimit?: boolean;
+  auction?: boolean;
+  memberBuy?: FakeLimitFeatureMemberInput[];
+  memberSell?: FakeLimitFeatureMemberInput[];
+  memberDeltaPartial?: boolean;
+  modelState?: number;
+  modelSchemaVersion?: number;
+  pBreakBp?: number;
+  pHorizonS?: number;
+};
+
+/** 기본 매수 창구(잠김 시나리오). */
+export const FAKE_LIMIT_FEATURE_MEMBER_BUY: FakeLimitFeatureMemberInput[] = [
+  { memberNo: "00050", dQty: 52_000n, dValue: 676_000_000n, shareBp: 7407 },
+];
+/** 기본 매도 창구(잠김 시나리오). */
+export const FAKE_LIMIT_FEATURE_MEMBER_SELL: FakeLimitFeatureMemberInput[] = [
+  { memberNo: "00002", dQty: 18_000n, dValue: 234_000_000n, shareBp: 10000 },
+];
+
+/**
+ * 상한가 특징 프레임 (85 · `limit_feature` 슬롯 90). 이름 있는 `add*` 빌더로 조립한다(위치 인자
+ * `createLimitFeature` · `createMemberDelta` 금지 — 칸이 밀려도 컴파일이 못 잡는다). 문자열 · 벡터는 테이블을 열기
+ * **전에** 전부 만든다(16-RESEARCH Pitfall 2).
+ */
+export function buildLimitFeatureFrame(input: FakeLimitFeatureInput = {}): Uint8Array {
+  const b = new flatbuffers.Builder(1024);
+
+  const member = (m: FakeLimitFeatureMemberInput): flatbuffers.Offset => {
+    const memberNo = b.createString(m.memberNo ?? "00050");
+    MemberDelta.startMemberDelta(b);
+    MemberDelta.addMemberNo(b, memberNo);
+    MemberDelta.addDQty(b, m.dQty ?? 0n);
+    MemberDelta.addDValue(b, m.dValue ?? 0n);
+    MemberDelta.addShareBp(b, m.shareBp ?? 0);
+    return MemberDelta.endMemberDelta(b);
+  };
+  const buyOffsets = (input.memberBuy ?? FAKE_LIMIT_FEATURE_MEMBER_BUY).map(member);
+  const sellOffsets = (input.memberSell ?? FAKE_LIMIT_FEATURE_MEMBER_SELL).map(member);
+  const memberBuy = LimitFeature.createMemberBuyVector(b, buyOffsets);
+  const memberSell = LimitFeature.createMemberSellVector(b, sellOffsets);
+  const isin = b.createString(input.isin ?? SAMPLE_ISIN);
+  const exchange = b.createString(input.exchange ?? "KRX");
+
+  LimitFeature.startLimitFeature(b);
+  LimitFeature.addIsin(b, isin);
+  LimitFeature.addExchange(b, exchange);
+  // 장중 고정 시각(2026-10-05 10:35:30 KST) — 테스트 결정성.
+  LimitFeature.addGwTimeMs(b, input.gwTimeMs ?? 1_791_164_130_000n);
+  LimitFeature.addFeatureSchema(b, input.featureSchema ?? 1);
+  LimitFeature.addUpperPx(b, input.upperPx ?? 13000);
+  LimitFeature.addLastPx(b, input.lastPx ?? 13000);
+  LimitFeature.addRateBp(b, input.rateBp ?? 3000);
+  LimitFeature.addBasePx(b, input.basePx ?? 10000);
+  LimitFeature.addListShares(b, input.listShares ?? 25_000_000n);
+  LimitFeature.addQQty(b, input.qQty ?? 133_077n);
+  LimitFeature.addQKrw(b, input.qKrw ?? 1_730_000_000n);
+  LimitFeature.addWallKrwVisible(b, input.wallKrwVisible ?? 0n);
+  LimitFeature.addWallQtyHidden(b, input.wallQtyHidden ?? 0n);
+  LimitFeature.addWallTruncated(b, input.wallTruncated ?? false);
+  LimitFeature.addSellLed10s(b, input.sellLed10s ?? 3_700n);
+  LimitFeature.addBuyLed10s(b, input.buyLed10s ?? 6_300n);
+  LimitFeature.addCancel10s(b, input.cancel10s ?? 2_300n);
+  LimitFeature.addNew10s(b, input.new10s ?? 12_400n);
+  LimitFeature.addAuctionFill10s(b, input.auctionFill10s ?? 0n);
+  LimitFeature.addDrainS(b, input.drainS ?? -1);
+  LimitFeature.addLockState(b, input.lockState ?? 1);
+  LimitFeature.addLockElapsedS(b, input.lockElapsedS ?? 43);
+  LimitFeature.addBurstUpperLimit(b, input.burstUpperLimit ?? false);
+  LimitFeature.addAuction(b, input.auction ?? false);
+  LimitFeature.addMemberBuy(b, memberBuy);
+  LimitFeature.addMemberSell(b, memberSell);
+  LimitFeature.addMemberDeltaPartial(b, input.memberDeltaPartial ?? false);
+  LimitFeature.addModelState(b, input.modelState ?? 0);
+  LimitFeature.addModelSchemaVersion(b, input.modelSchemaVersion ?? 0);
+  LimitFeature.addPBreakBp(b, input.pBreakBp ?? -1);
+  LimitFeature.addPHorizonS(b, input.pHorizonS ?? 0);
+  const feature = LimitFeature.endLimitFeature(b);
+
+  Envelope.startEnvelope(b);
+  // 생성 enum 을 쓴다 — 「85 는 INBOUND 에 있다」 단언이 이 빌더에 기대지 않게(buildQueueProgressFrame 과 같은 규율).
+  Envelope.addMsgType(b, MsgType.LimitFeature);
+  Envelope.addLimitFeature(b, feature);
   b.finish(Envelope.endEnvelope(b));
   return b.asUint8Array();
 }

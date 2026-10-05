@@ -94,19 +94,21 @@
  *              증상이 생기고, 사용자 세션으로 시세를 되걸면 per-user 경로가 폴백으로 되살아난다.
  *   T-15-02  **사용자 데이터**(계좌 · 주문 · 전략 · 83 · 54 · 77 · 76/78)는 `{userId, msg}` 로만 나간다(`"fanout"`).
  *            전역 브로드캐스트 경로를 사용자 데이터에 **만들지 않는 것**이 타인 체결·잔고 유출의 구조적 방어다.
- *            공개 시세(q · tape)는 `"market"` **한 경로**로 나가고, 그 페이로드 타입을 `RelayQuote | RelayTape` 로
+ *            공개 시세(q · tape · 85 limit.feature)는 `"market"` **한 경로**로 나가고, 그 페이로드 타입을
+ *            `RelayQuote | RelayTape | RelayLimitFeatureMsg` 로
  *            좁혀 사용자 데이터가 이 경로를 탈 수 없게 컴파일 단계에서 막는다(Phase 26 T-26-01 재정의).
  *   S-5      구독 실패·이중 해제·세션 부재는 전부 사유와 함께 로그를 남긴다.
  *
  * quote 연결(`HubQuoteFeed`)로 오는 프레임 — `#onFeedFrame` 의 명시 case 표 (PC-12 · Phase 26):
  *   58/59 GetQuoteResp · QuoteUpdate   → 전역 스냅샷 캐시 + `"market"` (q)
  *   69/71 TradeTapeResp · TradeTapePush → 전역 링버퍼 + 전역 200ms 배치 + `"market"` (tape · full 소켓만)
+ *   85    LimitFeature                 → 전역 키 캐시(키별 마지막 1프레임) + `"market"` (limit.feature · full 소켓만 · 28-01)
  *   79    ObserverLoginResp            → 무시 (feed 가 스스로 소비한다)
  *   76/78 RateCrossAlert · Snapshot    → 무시 (돌파 원천은 사용자 세션 그대로 — RESEARCH Open Q2 RESOLVED 무시안)
  *   83    QueueProgress                → 무시 (사용자 세션 ② 경로가 계좌 필터 뒤 캐시 — Pattern 10 ① · T-25-24)
  *   54/77/80 ServerMessage · QueuedWindowState · JournalBatch → warn (quote 연결에 오지 않는 프레임)
  *   그 밖                              → `default:` — `unhandledFrameCount` 계수 (PC-12 게이트 공유)
- * 반대로 **사용자 세션**으로 58/59/69/71 이 오면 구독이 없으니 이상 신호다 — 명시 case warn 뒤 버린다.
+ * 반대로 **사용자 세션**으로 58/59/69/71/85 가 오면 구독이 없으니 이상 신호다 — 명시 case warn 뒤 버린다.
  *
  * 캐시에 담는 형태는 **이미 Number 로 좁혀진 wire JSON**(`RelayQuote`/`RelayTapeEntry`)이다.
  * 게이트웨이의 64비트 정수 변환은 `envelope.ts` 파서가 한 번만 하고, 여기서는 매 push 마다
@@ -127,6 +129,7 @@ import type {
   RelayAccountState,
   RelayExchange,
   RelayLimitChaser,
+  RelayLimitFeatureMsg,
   RelayOrderMsg,
   RelayOutbound,
   RelayQueueProgressItem,
@@ -160,6 +163,7 @@ import {
   parseDisableStrategiesResp,
   parseLimitChaserEcho,
   parseLimitChaserList,
+  parseLimitFeature,
   parseOrderResp,
   parseQueueProgress,
   parseQueuedWindowState,
@@ -346,11 +350,15 @@ export type HubFanoutEvent = { userId: string; msg: RelayOutbound };
  *
  * 페이로드를 `RelayQuote | RelayTape` 로 **좁혀** 선언한다 — 계좌 · 주문 · 전략 · 83 같은 사용자 데이터는 타입상
  * 이 경로에 실을 수 없다(T-15-02 를 「사용자 데이터 격리」 로 재정의 · T-26-01). 넓히지 말 것.
+ *
+ * 28-01 이 `RelayLimitFeatureMsg`(85 상한가 특징)를 더한 이유: 85 는 호가 · 체결에서 서버가 계산한 **공개 시세
+ * 파생값**이고 계좌 · 주문자 필드가 없다 — 키(isin, 거래소)만 있는 q · tape 와 같은 부류라 T-26-01 규칙 안이다.
+ * 사용자 데이터 타입(계좌 · 주문 · 전략 · 83 · 84)은 여전히 이 유니온에 없다 — 그 규칙은 그대로다.
  */
 export type HubMarketEvent = {
   /** `${isin}|${ex}` — fanout `keyOf` 와 같은 형식. */
   key: string;
-  msg: RelayQuote | RelayTape;
+  msg: RelayQuote | RelayTape | RelayLimitFeatureMsg;
   /** full 소켓에 보낼지. */
   full: boolean;
   /**
@@ -650,6 +658,12 @@ export class SubscriptionHub extends EventEmitter {
   readonly #priceGates = new Map<string, PriceGate>();
   /** 전역 체결 링버퍼(`marketKey` · 키당 최근 `TAPE_RING_SIZE` 건). `#releaseKey` 에서 지운다. */
   readonly #tapes = new Map<string, RelayTapeEntry[]>();
+  /**
+   * 키별 마지막 85 1프레임(`marketKey` · 28-01 · D-23). 서버는 값이 바뀐 키만 보내고 새 구독에 재송신하지 않는다
+   * (gh-trade `LimitFeature.cpp` 316-334) — 조용한 키는 다음 분 경계까지 최대 60초 프레임이 없다. 그래서 relay 가
+   * 마지막 값을 들고 있다가 FULL 구독 직후 스냅샷으로 내린다(28-05). `#releaseKey` · `closeAll` 에서 지운다.
+   */
+  readonly #limitFeatures = new Map<string, RelayLimitFeatureMsg>();
   /** `marketKey` → 플러시 대기 배치 (전역). */
   readonly #pendingTapes = new Map<string, PendingTape>();
   /** 전역 배치 타이머 **1개** (키 · 사용자 단위로 만들지 않는다 — D-35). */
@@ -1146,6 +1160,7 @@ export class SubscriptionHub extends EventEmitter {
     }
     this.#quotes.delete(key);
     this.#tapes.delete(key);
+    this.#limitFeatures.delete(key);
     this.#pendingTapes.delete(key);
     this.#dropPriceGate(key);
 
@@ -1463,6 +1478,14 @@ export class SubscriptionHub extends EventEmitter {
     return this.#quotes.get(marketKey(isin, exchange));
   }
 
+  /**
+   * 마지막 상한가 특징(85 · 전역 키 캐시 — 28-01 · D-23). 서버가 새 구독에 재송신하지 않으므로 FULL 구독 직후
+   * 이것을 내려 「—」 공백을 없앤다(스냅샷 송신은 28-05).
+   */
+  getLimitFeature(isin: string, exchange: RelayExchange): RelayLimitFeatureMsg | undefined {
+    return this.#limitFeatures.get(marketKey(isin, exchange));
+  }
+
   /** 최근 체결 링버퍼(전역)의 복사본 — 아직 플러시 안 된 대기분까지 포함한 원본 그대로(진단 · 테스트용). */
   getTape(isin: string, exchange: RelayExchange): RelayTapeEntry[] | undefined {
     const ring = this.#tapes.get(marketKey(isin, exchange));
@@ -1641,6 +1664,7 @@ export class SubscriptionHub extends EventEmitter {
     this.#refs.clear();
     this.#quotes.clear();
     this.#tapes.clear();
+    this.#limitFeatures.clear();
     this.#accountStates.clear();
     this.#limitChasers.clear();
     this.#limitChaserKnown.clear();
@@ -1667,7 +1691,9 @@ export class SubscriptionHub extends EventEmitter {
       case MSG.QuoteUpdate:
       case MSG.TradeTapeResp:
       case MSG.TradeTapePush:
+      case MSG.LimitFeature:
         // Phase 26 D-08 — 사용자 세션은 종목을 구독하지 않는다. 시세는 quote 연결(`#onFeedFrame`)로만 온다.
+        // 85(28-01)도 FULL 구독 연결에만 오는 시세 파생값이라 같은 묶음이다.
         // 여기로 오면 게이트웨이 라우팅 이상(또는 구독이 새는 회귀)이라 warn 을 남기고 버린다 — 캐시에 넣으면
         // 사용자 세션이 시세 원천으로 되살아난다(D-03 폴백 없음). `default:` 에 맡기지 않는 명시 case 다(PC-12).
         logger.warn({ userId, msgType: e.msgType }, "[HUB] 사용자 세션에 시세 프레임 — 구독이 없으니 이상 신호, 무시");
@@ -1984,6 +2010,13 @@ export class SubscriptionHub extends EventEmitter {
         if (e.msgType === MSG.TradeTapeResp) this.#pacer.onResponse(marketKey(tape.i, tape.x), e.msgType);
         return;
       }
+      case MSG.LimitFeature: {
+        const lf = parseLimitFeature(e.env);
+        // null 이면 파서가 이미 사유·카운터를 남겼다.
+        if (lf === null) return;
+        this.#onLimitFeature(lf);
+        return;
+      }
       case MSG.ObserverLoginResp:
         // feed 가 스스로 소비한다(26-02) — ready 뒤 재수신은 이상하지만 해석할 것이 없다.
         return;
@@ -2036,6 +2069,21 @@ export class SubscriptionHub extends EventEmitter {
     // price 플래그 = PRICE 소켓에 보낼지(D-06 — 키 단위 1회). fanout 은 소켓 level 로만 거른다.
     const price = this.#priceFlag(key, refs, prev, quote);
     this.emit("market", { key, msg: quote, full: true, price });
+  }
+
+  /**
+   * 상한가 특징 85 (28-01 · D-01 · D-23) — `#onQuote` 와 같은 수명 규칙. 참조계수 없는 키의 늦은 프레임은 캐시하지
+   * 않고 버린다(해제 뒤 캐시가 되살아나지 않게). 방출은 `{ full: true, price: false }` 고정 — 85 는 FULL 구독 소켓
+   * 전용이다(접힌 카드 = price 구독은 받지 않는다 · UI-SPEC P-1 · tape `#flush` 와 같은 플래그).
+   */
+  #onLimitFeature(msg: RelayLimitFeatureMsg): void {
+    const key = marketKey(msg.i, msg.x);
+    if (!this.#refs.has(key)) {
+      logger.debug({ isin: msg.i, exchange: msg.x }, "[HUB] 구독 없는 키의 상한가 특징 — 버림");
+      return;
+    }
+    this.#limitFeatures.set(key, msg);
+    this.emit("market", { key, msg, full: true, price: false });
   }
 
   /**

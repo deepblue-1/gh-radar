@@ -103,6 +103,9 @@ export type {
   // --- Phase 27 인바운드 2종(41 바로시작/중지 · 42 사용자 설정 저장) ---
   RelayAutoSellCmdMsg,
   RelayUserSettingsSetMsg,
+  // --- Phase 28 상한가 특징(85 `LimitFeature` · FULL 소켓 전용 공개 시세 파생값) ---
+  RelayLimitFeatureMember,
+  RelayLimitFeatureMsg,
 } from "./relay";
 export {
   RELAY_STATE_LABELS,

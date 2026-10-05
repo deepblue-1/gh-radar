@@ -25,6 +25,10 @@
  *   D-36  `ServerMessage(54)`는 해석 없이 `{t:"msg"}` 로 흘린다. 연결 상태도 상태
  *         프레임 하나로만 표현해 브라우저가 상태 분기를 중복 구현하지 않게 한다.
  *
+ * 변경 이력(최근):
+ *   Phase 28 (28-01) — 상한가 특징 85 `{t:"limit.feature"}` (`RelayLimitFeatureMsg`) 를 `RelayOutbound` 에 더한다.
+ *         공개 시세 파생값 — FULL 구독 소켓에만 간다.
+ *
  * DB 는 snake_case (`dma_credentials` · `dma_orders`), 게이트웨이 필드도 snake_case 다.
  * row/프레임 → 아래 타입 변환 책임은 **server·relay 의 순수함수**에 있다 (chat.ts 규약).
  * webapp 은 변환하지 않는다.
@@ -1545,6 +1549,94 @@ export type RelayUnfProgressMsg =
   | ({ t: "unf.progress"; snap: false } & RelayUnfProgressEntry)
   | { t: "unf.progress"; snap: true; entries: RelayUnfProgressEntry[] };
 
+/**
+ * 상한가 특징 창구 1건 (85 `MemberDelta` · gh-trade Phase 27). 이 분 B9 증분 상위 3 중 하나 —
+ * **출처 추정(분 단위)** 이다.
+ */
+export type RelayLimitFeatureMember = {
+  /** 회원사 번호(원문 — 「00050」 식). 빈 문자열 = 서버가 비워 보냄. */
+  memberNo: string;
+  /** 이 분 증분 수량(주) = 현재 전량 − 분 시작 전량. */
+  dQty: number;
+  /** 이 분 증분 금액(원). */
+  dValue: number;
+  /** 그 쪽(매수/매도) 양수 증분 금액 합 대비 비중 bp(0~10000). */
+  shareBp: number;
+};
+
+/**
+ * 상한가 특징 (85 `LimitFeature` · gh-trade Phase 27 · fbs 2404509b · Envelope 슬롯 90 · Phase 28 28-01).
+ *
+ * S→C **Broadcast** · (isin, 거래소) 키당 **1초 스로틀** · 값이 바뀐 키만 · 그 키를 **FULL 구독**한
+ * 연결에만 온다. relay 는 키별 마지막 1프레임을 캐시하고 그 키를 FULL 로 잡은 브라우저 소켓에만
+ * 내린다(price 소켓 금지 — 접힌 카드는 받지 않는다). **공개 시세 파생값**이라 계좌 · 주문자 필드가 없다.
+ *
+ * 값은 서버 진실 원본이다 — 웹은 단위 변환 · 비율만 한다(D-19). 소수는 bp(1% = 100), 초는 정수.
+ * `list_shares` · `team_sim` 은 싣지 않는다(표시 자리가 없다 — team_sim 은 승격 전 빈 벡터).
+ */
+export type RelayLimitFeatureMsg = {
+  t: "limit.feature";
+  /** ISIN. */
+  i: string;
+  x: RelayExchange;
+  /** 관측 시각 epoch ms(1초 틱 시각). */
+  gwTimeMs: number;
+  /** 특징 사전 판 번호(v1 = 1). */
+  featureSchema: number;
+  /** 상한가(원). 0 = 미상. */
+  upperPx: number;
+  /** 현재가(원). */
+  lastPx: number;
+  /** 등락률 bp(하락 음수). */
+  rateBp: number;
+  /** 기준가(원). */
+  basePx: number;
+  /** 상한가 매수잔량(주). */
+  qQty: number;
+  /** 상한가 매수잔량 금액(원) = qQty × upperPx. */
+  qKrw: number;
+  /** 상한가까지 남은 매도벽 금액(원, 보이는 10단계). */
+  wallKrwVisible: number;
+  /** 10호가 밖 매도 수량(주, 가격 미상). */
+  wallQtyHidden: number;
+  /** 상한가가 10호가 밖이라 매도벽이 잘림. */
+  wallTruncated: boolean;
+  /** 지난 10초 매도 주도 체결량(주). */
+  sellLed10s: number;
+  /** 지난 10초 매수 주도 체결량(주). */
+  buyLed10s: number;
+  /** 지난 10초 상한가 잔량 취소(주, 하한). */
+  cancel10s: number;
+  /** 지난 10초 상한가 잔량 신규(주, 하한). */
+  new10s: number;
+  /** 지난 10초 단일가 체결로 빠진 상한가 잔량(주). */
+  auctionFill10s: number;
+  /** 소진 예상(정수 초). −1 = ∞. */
+  drainS: number;
+  /** 0 미도달 · 1 잠김 · 2 도달 뒤 비잠김. */
+  lockState: number;
+  /** 이번 잠김 경과(정수 초). lockState ≠ 1 이면 0. */
+  lockElapsedS: number;
+  /** 버스트 상한가(58/59 `burst_upper_limit` 과 같은 판정). */
+  burstUpperLimit: boolean;
+  /** 단일가 구간(VI · 동시호가 · NXT 단일가). */
+  auction: boolean;
+  /** 이 분 B9 매수 증분 상위 3 — 출처 추정(분 단위). */
+  memberBuy: RelayLimitFeatureMember[];
+  /** 이 분 B9 매도 증분 상위 3 — 출처 추정(분 단위). */
+  memberSell: RelayLimitFeatureMember[];
+  /** 창구 증분 일부 미상(분 시작 기준 없음 · 5단계 밖 출입). */
+  memberDeltaPartial: boolean;
+  /** 0 관찰 중 · 1 적용. */
+  modelState: number;
+  /** 적용 중 모델 파일 schema_version(modelState 0 이면 0). */
+  modelSchemaVersion: number;
+  /** N초 안 깨짐 확률 bp. −1 = 없음(modelState 0). */
+  pBreakBp: number;
+  /** 확률의 창 N(초). modelState 0 이면 0. */
+  pHorizonS: number;
+};
+
 /** relay 가 브라우저로 보내는 모든 메시지. `t` 로 분기한다. */
 export type RelayOutbound =
   | RelayStateMsg
@@ -1570,7 +1662,8 @@ export type RelayOutbound =
   | RelayQuoteStateMsg
   | RelaySubLimitMsg
   | RelayJournalEventsMsg
-  | RelayUnfProgressMsg;
+  | RelayUnfProgressMsg
+  | RelayLimitFeatureMsg;
 
 // ============================================================
 // 주문 DTO (webapp → server → relay)
