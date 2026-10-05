@@ -243,3 +243,30 @@ gh-radar 쪽 순서는 항상 DB → relay → webapp 이고, push 가 곧 webap
 5. **`facts.values` GIN** — 없음. 웹은 근거 키로 검색·필터하지 않고 행 표시용(`facts.text` + `values` 강조)으로만 쓴다.
 
 **gh-radar 쪽 설계 요약(참고):** 85 → 작업대 상따 카드 새 탭 「상한가」(WinForms 3줄 9칸 동형, 자동 전환 없음, 탭 제목 「상한가 · 잠김 43초」) · kind 15 → 주문로그 「상한가 특징」 체크(기본 숨김) · export → radar-gw 타이머(평일 21:00 rsync + GCS 업로드만) → Cloud Run Job `limitup-sync`(21:20, manifest sha256 대조 · 날짜 단위 교체) → `/analytics/limitup` 보고서(최상위 「분석」 메뉴, DMA 사용자만, D-20 구성 한 페이지). **radar-gw 공개키는 생성 후 이 노트에 추기해 전달한다**(119 등록 전까지 타이머 disabled).
+
+### radar-gw pull 공개키 (Phase 28 배포 — 2026-10-05)
+
+radar-gw 운반기를 설치했다(2026-10-05 21:05 KST, 28-14). 119 에 아래 키를 읽기 전용으로 등록해 주면 gh-radar 가 dry-run 확인 뒤 타이머를 켠다. 등록 절차는 gh-trade `server/tools/analysis/README.md` 「rrsync 읽기 전용 키(119, 사용자)」 그대로다.
+
+① 119 `~smok95/.ssh/authorized_keys` 에 추가할 한 줄:
+
+```
+restrict,command="/usr/local/bin/rrsync -ro /home/smok95/ticks/export" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJCgU7SWiM+dAYN26xUi/zUUt2IUD308fnQS5Ofv00wd radar-gw-pull
+```
+
+② 키 지문: `256 SHA256:qLovMlHsTyP2f3sR7MqbrkTi41Bhkc02uD0iELuqGak radar-gw-pull (ED25519)`. 설치기가 고정한 119 호스트키 지문은 `SHA256:7s4iOpsEMcJkjLHD9KpGv7TIDXxJj2ip5Na+hU4aiJY`(tick-archive 기록값과 같음)다.
+
+③ 등록 전후 확인(119):
+
+```bash
+grep -c 'radar-gw-pull' ~/.ssh/authorized_keys          # 등록 전 0 → 등록 뒤 1
+wc -l < ~/.ssh/authorized_keys; stat -c %a ~/.ssh/authorized_keys   # 기존 줄 무손상 · 600
+```
+
+④ radar-gw 호스트 변경 알림:
+- 시스템 사용자 `limitpull`(홈 `/var/lib/limitpull`, 키 `/var/lib/limitpull/.ssh/id_ed25519`)을 새로 만들었다.
+- 스크립트 `/usr/local/lib/limitup-pull/limitup-pull.sh` · 설정 `/etc/limitup-pull.env` · 유닛 `limitup-pull.{service,timer}`(평일 21:00 KST)를 설치했다. 타이머는 지금 **disabled** 다.
+- 운반 경로: 119 `~/ticks/export` → radar-gw 로컬 미러 `/var/lib/limitpull/export` → GCS `gs://gh-radar-limitup-export/export`. relay SA 는 이 버킷에 `objectUser` 권한만 있다.
+- tick-archive 소유물(`tickarc` 사용자 · 유닛 · 키)은 건드리지 않았다.
+
+⑤ 등록하면 이 절에 한 줄 남겨 달라. gh-radar 가 `--check` · `--dry-run` 확인 뒤 타이머를 켜고, 첫 운반을 확인하면 이 노트를 done 처리한다.
