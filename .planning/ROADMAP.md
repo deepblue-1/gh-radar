@@ -42,6 +42,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 25: 주문로그·잔량진행률 — gh-trade StrategyEvent 저널 수신·오늘 주문 펼침·작업대 주문로그 탭·미체결 진행률** - 기획서(MJ 9/27) 반영. 로그 7종은 gh-trade 서버 StrategyEvent(저널 80 append·별도 seq) → relay 적재·푸시 → 오늘 주문 행 펼침 + 작업대 「주문로그」 탭(전략 로그와 분리). 진행률 B안(대기 행 아래 2줄째) · 값은 `QueueProgress` 브로드캐스트. 풀안·용어 기존(후매수) 유지. 필드 v0.1 동결, 착수는 gh-trade fbs 해시 뒤. (completed 2026-10-03)
 - [x] **Phase 26: 시세 전용 공유 연결 — relay 종목 단위 팬아웃** - relay 가 유저별 DMA 세션마다 따로 구독해 gh-trade→relay VPN 구간에 같은 시세가 N 벌 흐르고 주문 세션 큐에서 통보가 시세 뒤에 줄을 서는 구조를, 관찰자 로그인 quote 역할(기존 공유 비밀 · 주문 권한 0) 시세 전용 연결 1개 + relay 참조계수 `isin|ex` 전역화 + 캐시 유저 간 공유 + PRICE 필터 relay 이관으로 바꾼다. WinForms 직결 유지. gh-trade 서버 변경은 gh-trade 저장소 별도 phase (추가 2026-09-30) (completed 2026-10-01)
 - [ ] **Phase 27: 자동매도 연동 — gh-trade Phase 28 와이어 계약 반영** - 인박스 261004-auto-sell-wire.md. relay 생성물 동기화(gh-trade master) · relay schema 4·에코 4필드·84 캐시·41/42/43 중계 · 문장 조립기 kind 11~14/group 9·CancelReason 10/11 · webapp 자동매도 칸·바로시작/중지·사용자 설정 화면. 서버 120 은 이미 가동 중, gh-radar 는 relay → webapp 순 (추가 2026-10-05)
+- [ ] **Phase 28: 상한가 특징 연동 — gh-trade Phase 27 계약 반영** - 인박스 261005-limitup-feature-85.md. (A) 85 LimitFeature 실시간 중계·상따/호가 탭 표시 (B) 저널 kind 15 적재·문장 조립기 (C) 119 밤 export → Supabase 표 6 + Storage 격자(radar-gw 21:00 pull·manifest 날짜 단위 교체) → 웹 보고서 페이지. 배포 DB → radar-gw → relay → webapp (추가 2026-10-05)
 
 ## Phase Details
 
@@ -1431,3 +1432,14 @@ Plans:
 Plans:
 
 - [ ] TBD (run /gsd-plan-phase 27 to break down)
+
+### Phase 28: 상한가 특징 연동 — gh-trade Phase 27 계약 반영
+
+**Goal:** gh-trade Phase 27 「실시간 상한가 특징 + 밤 export」 계약(인박스 `docs/inbox/from-gh-trade/261005-limitup-feature-85.md`, 정본 gh-trade `docs/features/limitup-feature.md` · `docs/analysis/feature-dictionary.md` · `server/tools/analysis/tickana/export.py`)을 gh-radar 가 받아 장중에는 상한가 특징을 실시간으로, 밤에는 그날 상한가 사건 보고서를 웹에서 볼 수 있게 한다. 세 갈래. **(A) 와이어 85 `LimitFeature`**(S→C Broadcast, FULL 구독 키마다 1초 스로틀, Envelope 슬롯 90, 32필드 — 생성물은 Phase 27 동기화에 이미 실림): relay 가 quote 관찰자 연결의 85 를 받아 FULL 구독 브라우저에 1초·키당 1프레임 중계(드롭 허용), 중계 전까지는 unknown MsgType warn 이 키·초마다 찍히지 않게 명시 `case`(17-03 규칙). 웹은 상따 카드/종목상세 호가 탭에 「지금 · 10초 · 창구」 요약(WinForms quick-261005-fit 동형, 시각 규칙은 목업 게이트). **(B) 관찰자 저널 `StrategyEventKind` 15**(80 으로 분당·키당 1행, 계좌 없음, 82·81 에는 없음): `dma_strategy_events` 적재 확인(kind 값 필터·RPC `dma_strategy_events_for_user` 가시성 — 시세 이벤트 1/2/10 과 같은 취급인지 판정) + shared 문장 조립기 kind 15 분기(슬롯 매핑표대로 85 필드 이름으로 되돌림, `message` 파싱 `buy:…;sell:…|m=N`) + 보존·인덱스 정책(하루 수천~1만 행). **(C) 119 밤 export 적재**: Supabase 표 6개 `limitup_entries`·`limitup_locks`·`limitup_jumps`·`limitup_member_alloc`·`limitup_facts(values jsonb)`·`limitup_touches`(열·PK = 노트 표, `schema_version` 행마다) + Storage 비공개 버킷 `limitup-grid`(`grid/<date>/<isin>.json.gz`, server 가 인증 뒤 단기 서명 URL) · radar-gw pull 타이머(평일 21:00 KST, `rsync -az --delete --exclude='*.tmp' smok95@10.16.207.119:/` rrsync 읽기 전용 키 — 공개키는 gh-radar 가 만들어 인박스로 전달, 119 등록은 gh-trade 사용자) · 적재기(manifest.json 있는 날짜만 · sha256 대조 · 아는 `schema_version` 만 · manifest 가 바뀐 날짜는 **날짜 단위 교체** 재적재 — D+1 보충으로 어제 export 가 다시 쓰인다) · 웹 보고서 페이지(B 하루 격자 · A 사건 카드 · C 창구 지문 · 어제 결과 — `facts.text` 완성 문장 그대로 + `source` 실측/추정/모형 표기 유지, `limit_up_events(code,date)` 와 `short_code`+`date` 조인). 노트의 질문 5건(grid 객체 한도 · 보존 기간 · kind 15 저장 경로·RPC · 85 수신 로그 레벨 · `facts.values` GIN) 은 discuss 에서 답을 정해 노트에 추기한다. 배포 DB → radar-gw 타이머 → relay → webapp(push) 순, 인박스 노트 `status: done` + `done_commit`.
+**Requirements**: TBD
+**Depends on:** Phase 27(relay 생성물 동기화 — 85·kind 15 생성물 포함), Phase 25(StrategyEvent 적재·문장 조립기), Phase 26(relay quote 관찰자 연결)
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 28 to break down)
