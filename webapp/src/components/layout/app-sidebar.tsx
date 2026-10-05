@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ComponentType } from "react";
-import { Home, MessageSquare, Search, User, Zap } from "lucide-react";
+import { ChartLine, Home, MessageSquare, Search, User, Zap } from "lucide-react";
 
 import { ExchangeTag } from "@/components/trading/exchange-tag";
 import {
@@ -31,6 +31,7 @@ import { UserSection } from "./user-section";
  * 트리 (2단 + 트레이딩 3단 — Phase 18 D-03 이 트레이딩 그룹을 다시 짰다):
  *   홈 · 검색(`/search`, Phase 21 D-07)
  *   · [트레이딩 = `/trading` 링크] VI(가동 거래소 태그만 · 둘 다 꺼지면 없음) / 등록된 상따 전략 N개
+ *   · [분석 = `/analytics/limitup` 링크] 상한가 보고서 (Phase 28 D-09 · 트레이딩과 같은 노출 조건 · 제목만 활성)
  *   · AI 애널리스트 · My page(트레이딩과 같은 노출 조건)
  *   상승률 상위 · 테마 · 관심종목은 사이드바에 없다 — `/search` 허브 타일로만 들어간다(quick-260926-o2u D1).
  *
@@ -99,6 +100,15 @@ const NAV_TRADING: NavLeaf = { href: "/trading", label: "트레이딩", icon: Za
 
 /** VI 줄 태그의 거래소 순서 — KRX 먼저(목업 `.asb` 순서 승계). */
 const VI_TAG_ORDER: readonly RelayExchange[] = ["KRX", "NXT"];
+
+/**
+ * 「분석」 그룹 제목 = `/analytics/limitup` 링크(Phase 28 D-09 — 지금 유일한 하위 페이지라 레일에서도 아이콘으로 들어간다).
+ * 노출은 트레이딩과 같은 `tradingVisible`(D-10 · DMA 연결 사용자만 — 숨김은 권한이 아니다, 위 ④).
+ * 활성 = 경로가 `/analytics` 로 시작할 때 **제목만**(R-7 — 한 줄만 켠다, 위 ②) · `aria-current` 는 정확 일치일 때만.
+ * 모바일 탭바에는 넣지 않는다 — 앱/좁은 화면은 드로어 사이드바로 들어간다.
+ */
+const NAV_ANALYTICS: NavLeaf = { href: "/analytics/limitup", label: "분석", icon: ChartLine };
+const NAV_LIMITUP_REPORT = { href: "/analytics/limitup", label: "상한가 보고서" } as const;
 
 const NAV_ME: NavLeaf = { href: "/me", label: "My page", icon: User };
 const NAV_CHAT: NavLeaf = { href: "/chat", label: "AI 애널리스트", icon: MessageSquare };
@@ -212,6 +222,7 @@ function GroupHeading({
   icon: Icon,
   item,
   active = false,
+  ariaCurrent = active,
   rail = false,
   badge = 0,
 }: {
@@ -219,6 +230,11 @@ function GroupHeading({
   icon: NavIcon;
   item: NavLeaf;
   active?: boolean;
+  /**
+   * `aria-current="page"` 여부(기본 = `active`). 접두 일치로 켜지는 그룹(「분석」)은 시각 활성과 갈라
+   * 정확 일치일 때만 「지금 이 페이지」라고 말한다.
+   */
+  ariaCurrent?: boolean;
   /** 레일 접힘 — `title` 툴팁과 배지를 켠다(위 ⑥). */
   rail?: boolean;
   /** 레일 배지 숫자(켜진 전략 수). 0 이면 배지 없음. */
@@ -228,7 +244,7 @@ function GroupHeading({
     <li>
       <Link
         href={item.href}
-        aria-current={active ? "page" : undefined}
+        aria-current={ariaCurrent ? "page" : undefined}
         data-nav-item
         title={rail ? label : undefined}
         className={cn(
@@ -448,6 +464,35 @@ export function AppSidebar() {
                 </ul>
               </li>
             )}
+          </>
+        )}
+
+        {tradingVisible && (
+          <>
+            {/* 「분석」(Phase 28 D-09 · D-10) — 트레이딩 그룹 바로 다음 · AI 애널리스트 앞, 같은 노출 조건. */}
+            <GroupHeading
+              label={NAV_ANALYTICS.label}
+              icon={NAV_ANALYTICS.icon}
+              item={NAV_ANALYTICS}
+              active={pathname.startsWith("/analytics")}
+              ariaCurrent={isActive(NAV_ANALYTICS.href)}
+              rail={rail}
+            />
+            {/* 하위는 활성 표시를 받지 않는다(R-7) · 레일에서는 숨긴다(제목 아이콘이 같은 곳으로 간다). */}
+            <li className="rail:hidden">
+              <ul className={SUB_LIST}>
+                <li>
+                  <Link
+                    href={NAV_LIMITUP_REPORT.href}
+                    data-nav-item
+                    data-sidebar-item="limitup-report"
+                    className={cn(SUB_ITEM, LINK_IDLE)}
+                  >
+                    <span className="min-w-0 flex-1 truncate text-[var(--fg)]">{NAV_LIMITUP_REPORT.label}</span>
+                  </Link>
+                </li>
+              </ul>
+            </li>
           </>
         )}
 

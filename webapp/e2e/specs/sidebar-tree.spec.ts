@@ -71,12 +71,13 @@ const LED_TONES: readonly (readonly string[])[] = [
 ];
 
 /**
- * 전략 항목을 뺀 링크 5개 — **순서까지** 계약이다. 「트레이딩」은 이제 소제목이 아니라 링크다.
+ * 전략 항목을 뺀 링크 7개 — **순서까지** 계약이다. 「트레이딩」은 이제 소제목이 아니라 링크다.
  * 「검색」(`/search`)은 Phase 21 D-07 이 홈 바로 아래에 더한 단독 링크다. 검색 허브 하위 3페이지는
  * 사이드바에서 빠지고 허브 타일로만 들어간다(quick-260926-o2u D1).
- * 전략 3건은 「트레이딩」과 「AI 애널리스트」 사이에 선다(VI 미가동 — VI 줄 없음).
+ * 전략 3건은 「트레이딩」 바로 아래에 선다(VI 미가동 — VI 줄 없음). 그 다음이 「분석」 그룹 제목 + 하위
+ * 「상한가 보고서」(Phase 28 D-09 — 트레이딩과 같은 노출 조건), 그 뒤 AI 애널리스트 · My page.
  */
-const TREE_LINKS = ['홈', '검색', '트레이딩', 'AI 애널리스트', 'My page'];
+const TREE_LINKS = ['홈', '검색', '트레이딩', '분석', '상한가 보고서', 'AI 애널리스트', 'My page'];
 
 // ---------------------------------------------------------------------------
 // 조회구 — 트리를 반드시 좁힌다 (위 ④)
@@ -153,7 +154,7 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     await waitForTradingGroup(nav);
     await expect(strategyItems(nav)).toHaveCount(3, { timeout: 15_000 });
 
-    // 링크 순서가 계약대로다 — 전략 3건은 트레이딩과 AI 애널리스트 사이.
+    // 링크 순서가 계약대로다 — 전략 3건은 트레이딩과 「분석」 사이.
     expect(await linkOrder(nav)).toEqual([
       ...TREE_LINKS.slice(0, 3),
       'strategy',
@@ -280,7 +281,11 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
       그 파일은 쿠키 없는 context 를 파일 전체에 강제하기 때문이다.
     */
     // 옛 경로는 서버에서 `/trading` 으로 리다이렉트된다 — 도착한 곳에서도 게이트가 서야 한다.
-    for (const path of ['/trading', '/trading/limit-chaser/new', '/trading/vi', '/me']) {
+    // Phase 28 D-10 — 상한가 보고서도 메뉴 숨김과 별개로 직접 진입이 게이트로 막힌다(본문 조회는 목으로 막아 둔다).
+    await page.route('**/api/limitup/report*', (route) =>
+      route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { code: 'DMA_UNMAPPED', message: 'x' } }) }),
+    );
+    for (const path of ['/trading', '/trading/limit-chaser/new', '/trading/vi', '/me', '/analytics/limitup']) {
       await page.goto(path);
       const gate = page.locator('[data-slot="dma-gate"]');
       await expect(gate).toBeVisible({ timeout: 30_000 });
@@ -352,6 +357,42 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     await expect(page).toHaveURL(
       (url) => url.pathname === '/trading' && url.searchParams.get('focus') === keyOf(CHASERS[0]),
     );
+  });
+
+  test('6. 「분석」 클릭 → /analytics/limitup 도착 · 제목만 활성 · 빈 이력 빈 상태 (Phase 28 D-09 · D-10 · R-7)', async ({
+    page,
+  }) => {
+    await page.route('**/api/limitup/report*', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ access: true, dates: [], date: null, loaded: false }),
+      }),
+    );
+    await page.goto('/trading');
+    const nav = desktopNav(page);
+    await waitForTradingGroup(nav);
+
+    const analytics = nav.getByRole('link', { name: '분석', exact: true });
+    await expect(analytics).toHaveAttribute('href', '/analytics/limitup');
+    await analytics.click();
+    await expect(page).toHaveURL((url) => url.pathname === '/analytics/limitup');
+
+    await expect(page.locator('main').getByRole('heading', { name: '상한가 보고서', level: 1 })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByText('아직 올라온 보고서가 없어요')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('button', { name: '이전 보고서' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: '다음 보고서' })).toBeDisabled();
+
+    // 한 줄만 켠다 — 「분석」 제목이 aria-current, 하위 「상한가 보고서」 는 무표시.
+    const navAfter = desktopNav(page);
+    await waitForTradingGroup(navAfter);
+    await expect(navAfter.getByRole('link', { name: '분석', exact: true })).toHaveAttribute('aria-current', 'page');
+    await expect(navAfter.getByRole('link', { name: '상한가 보고서', exact: true })).not.toHaveAttribute(
+      'aria-current',
+    );
+    await expect(navAfter.locator('[data-nav-item][aria-current="page"]')).toHaveCount(1);
   });
 
   test('5. 허브 하위 페이지(/scanner)에서 「검색」이 켜지고 그룹 링크는 없다 (quick-260926-o2u D1)', async ({

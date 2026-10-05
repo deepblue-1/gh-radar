@@ -535,8 +535,8 @@ describe("AppSidebar — 3단 목록 (D-03 · E16)", () => {
 
     expect(tradingSubList()).toBeNull();
     const title = screen.getByRole("link", { name: "트레이딩" });
-    // 제목 다음 형제는 곧바로 AI 애널리스트다.
-    expect(title.closest("li")?.nextElementSibling?.querySelector("a")).toHaveAccessibleName("AI 애널리스트");
+    // 제목 다음 형제는 곧바로 「분석」 그룹 제목이다(Phase 28 D-09 — 트레이딩 그룹 다음 · AI 애널리스트 앞).
+    expect(title.closest("li")?.nextElementSibling?.querySelector("a")).toHaveAttribute("href", "/analytics/limitup");
     expect(screen.queryByText("등록된 전략 없음")).toBeNull();
   });
 
@@ -828,5 +828,107 @@ describe("AppSidebar — 레일(quick-260930-e30 D1)", () => {
 
     act(() => setSidebarCollapsed(true));
     expect(document.querySelector('[data-slot="rail-badge"]')?.textContent).toContain("켜진 전략 1개");
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe("AppSidebar — 「분석 › 상한가 보고서」 (Phase 28 D-09 · D-10 · R-7)", () => {
+  afterEach(() => {
+    act(() => setSidebarCollapsed(false));
+    window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
+  });
+
+  const analytics = () => screen.queryByRole("link", { name: "분석" });
+  const report = () => screen.queryByRole("link", { name: "상한가 보고서" });
+
+  it("tradingVisible 거짓(비로그인 · unauthorized · 판정 전) → 「분석」 그룹 미렌더", () => {
+    mockAuth = guest();
+    mockRelay = relayState({ status: "ready" });
+    const a = render(<AppSidebar />);
+    expect(screen.queryByText("분석")).toBeNull();
+    expect(report()).toBeNull();
+    a.unmount();
+
+    mockAuth = authed();
+    mockRelay = relayState({ status: "unauthorized" });
+    const b = render(<AppSidebar />);
+    expect(screen.queryByText("분석")).toBeNull();
+    b.unmount();
+
+    mockRelay = relayState({ status: "connecting" });
+    render(<AppSidebar />);
+    expect(screen.queryByText("분석")).toBeNull();
+    expect(screen.queryByText("상한가 보고서")).toBeNull();
+  });
+
+  it("tradingVisible 참 → 트레이딩 그룹(제목 + 3단) 다음 · AI 애널리스트 앞 · 링크는 /analytics/limitup", () => {
+    setupReady();
+    render(<AppSidebar />);
+    expect(analytics()).toHaveAttribute("href", "/analytics/limitup");
+    expect(report()).toHaveAttribute("href", "/analytics/limitup");
+
+    const order = Array.from(document.querySelectorAll('nav[aria-label="주 메뉴"] a[href]')).map((a) => {
+      const item = a.getAttribute("data-sidebar-item");
+      return item === "strategy" ? "strategy" : (a.textContent ?? "").trim();
+    });
+    expect(order).toEqual([
+      "홈",
+      "검색",
+      "트레이딩",
+      "strategy",
+      "strategy",
+      "분석",
+      "상한가 보고서",
+      "AI 애널리스트",
+      "My page",
+    ]);
+    // 하위 항목은 그룹 제목 바로 다음 형제 li 안 SUB_LIST(트레이딩 3단과 같은 문법)
+    const sub = analytics()!.closest("li")!.nextElementSibling!;
+    expect(sub.className).toContain("rail:hidden");
+    expect(sub.querySelector("ul")!.className).toContain("border-l");
+    expect(report()!.hasAttribute("data-nav-item")).toBe(true);
+    expect(analytics()!.hasAttribute("data-nav-item")).toBe(true);
+  });
+
+  it("/analytics/limitup → 「분석」 제목만 활성(선택 토큰 + aria-current) · 하위 「상한가 보고서」 는 LINK_IDLE", () => {
+    mockPathname = "/analytics/limitup";
+    setupReady();
+    render(<AppSidebar />);
+    expect(analytics()).toHaveAttribute("aria-current", "page");
+    expect(analytics()!.className).toContain("bg-[var(--nav-on-bg)]");
+    expect(analytics()!.className).toContain("text-[var(--nav-on-fg)]");
+    expect(report()).not.toHaveAttribute("aria-current");
+    expect(report()!.className).not.toContain("bg-[var(--nav-on-bg)]");
+    expect(report()!.className).toContain("text-[var(--muted-fg)]");
+    // 한 줄만 켠다 — 트레이딩 · 홈은 꺼져 있다
+    expect(screen.getByRole("link", { name: "트레이딩" })).not.toHaveAttribute("aria-current");
+    expect(document.querySelectorAll('nav [aria-current="page"]')).toHaveLength(1);
+  });
+
+  it("/analytics/other → 제목은 활성이지만 aria-current 없음(정확 일치일 때만)", () => {
+    mockPathname = "/analytics/other";
+    setupReady();
+    render(<AppSidebar />);
+    expect(analytics()!.className).toContain("bg-[var(--nav-on-bg)]");
+    expect(analytics()).not.toHaveAttribute("aria-current");
+  });
+
+  it("다른 경로 → 「분석」 비활성", () => {
+    mockPathname = "/trading";
+    setupReady();
+    render(<AppSidebar />);
+    expect(analytics()!.className).not.toContain("bg-[var(--nav-on-bg)]");
+    expect(analytics()).not.toHaveAttribute("aria-current");
+  });
+
+  it("레일 — 제목은 아이콘 + sr-only 글자 + title 「분석」 · 하위 목록 rail:hidden", () => {
+    setSidebarCollapsed(true);
+    setupReady();
+    render(<AppSidebar />);
+    expect(analytics()).toHaveAttribute("title", "분석");
+    expect(analytics()!.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    expect(within(analytics()!).getByText("분석").className).toContain("rail:sr-only");
+    expect(report()!.closest("li.rail\\:hidden")).not.toBeNull();
   });
 });
