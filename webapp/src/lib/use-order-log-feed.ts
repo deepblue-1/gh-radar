@@ -32,6 +32,9 @@
  *   오늘이면 라이브 `limitFeatureEvents` 와 합친다. 끄면 rows 에서 뺀다. relay ready 전이 때 켜져 있으면 함께 재조회하고,
  *   꺼져 있으면 캐시를 버린다(다음에 켤 때 단절 구간까지 새로 받는다). 배지 · 새 줄 원천(latestPush)에는 켜진 동안 도착한
  *   kind 15 만 싣는다 — 꺼짐이면 분마다 오르는 소음 금지. 켜는 순간 이미 스토어에 있던 줄은 새 줄이 아니다(기준선 유지).
+ *   라이브 목록은 `MAX_LIMIT_FEATURE_EVENTS`(5,000) 상한이라 켜 둔 채 몇 시간이면 오래된 줄부터 버린다. 그때 버려진 줄이
+ *   조회 캐시 꼬리보다 뒤면 그 사이 구간이 목록에서 조용히 빠지므로(WR-A02), 상한에 닿은 라이브 목록의 가장 오래된
+ *   그날 줄이 캐시 꼬리보다 뒤에 있으면 `?lf=1` 을 한 번 더 불러 틈을 메운다(같은 틈에는 1회 — 루프 금지).
  *   체크 값은 `writePanelsPref({ orderLogLimitFeature })` 로 기억한다 — 세 표면이 같은 출처(localStorage)를 읽는다.
  *
  * `useUnseenOrderLogCount` — 새 로그 배지(R2): 탭이 가려진 동안 도착한 **범위 안** 푸시 줄 수(필터 선택 미적용).
@@ -44,6 +47,7 @@ import type { StrategyEventRow } from '@gh-radar/shared';
 import { useRelayContext } from './relay-provider';
 import { fetchStrategyEvents } from './strategy-events-api';
 import { readPanelsPref, writePanelsPref } from './trading-layout';
+import { MAX_LIMIT_FEATURE_EVENTS } from './use-relay-socket';
 import { inScope, mergeStrategyEvents, type OrderLogScope } from './order-log-feed';
 
 /** 새로 도착한 줄 강조 유지 시간(ms) — R10. */
@@ -166,6 +170,22 @@ export function useOrderLogFeed({ date: dateOpt }: { date?: string } = {}): Orde
     if (!showLimitFeature || lfCached) return;
     void loadLf();
   }, [showLimitFeature, lfCached, loadLf]);
+
+  // ⑥ 라이브 kind 15 축출로 생긴 틈 메우기(WR-A02). 라이브 목록(오름차순)이 상한에 닿았고 그 가장 오래된 그날 줄이 조회
+  // 캐시 꼬리보다 뒤면, 그 사이 줄은 캐시에도 라이브에도 없다 → lf=1 재조회. 같은 「가장 오래된 줄」 에는 한 번만 부른다
+  // (응답이 여전히 틈을 못 메워도 다음 축출 전까지 다시 부르지 않는다). 진행 중 · 실패 상태면 건너뛴다(실패 = retry).
+  const lfTail = restoredLf !== null && restoredLf.date === date ? restoredLf.rows.at(-1) : undefined;
+  const oldestLive = limitFeatureEvents.length >= MAX_LIMIT_FEATURE_EVENTS ? limitFeatureEvents[0] : undefined;
+  const lfGapRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!showLimitFeature || !isToday || !lfCached || lfStatus !== 'ready') return;
+    if (oldestLive === undefined || oldestLive.tradeDate !== date) return;
+    if (lfTail !== undefined && compareStrategyEventAsc(lfTail, oldestLive) >= 0) return;
+    const gapKey = strategyEventKey(oldestLive);
+    if (lfGapRef.current === gapKey) return;
+    lfGapRef.current = gapKey;
+    void loadLf();
+  }, [showLimitFeature, isToday, lfCached, lfStatus, oldestLive, lfTail, date, loadLf]);
 
   // ② relay 인증(ready 로 전이) — 오늘만. 마운트 뒤 첫 ready 도 포함한다(WR-05 — 복원 ~ 인증 사이 누락 메우기).
   const prevRelayRef = useRef(relayStatus);

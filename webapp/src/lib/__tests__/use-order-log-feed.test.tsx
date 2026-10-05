@@ -35,6 +35,7 @@ vi.mock('@/lib/auth-fetch', () => ({ authFetch: (path: string) => authFetchMock(
 
 import { EMPTY_RELAY_VALUE } from '@/lib/relay-provider';
 import { NEW_LINE_HIGHLIGHT_MS, useOrderLogFeed, useUnseenOrderLogCount } from '../use-order-log-feed';
+import { MAX_LIMIT_FEATURE_EVENTS } from '../use-relay-socket';
 import { readPanelsPref } from '../trading-layout';
 import {
   FIXTURE_ACCOUNT_NO,
@@ -475,6 +476,32 @@ describe('useOrderLogFeed — 상한가 특징 체크 (D-18 · D-07)', () => {
     expect(lfCalls()).toBe(2);
     expect(result.current.status).toBe('ready');
     expect(result.current.rows.map((r) => r.seq)).toEqual([exposed.seq, lf43.seq]);
+  });
+
+  it('켜 둔 채 라이브 목록이 상한에 닿아 캐시 꼬리 뒤 줄이 버려지면 lf=1 을 한 번 더 부른다 · 같은 틈에는 1회 (WR-A02)', async () => {
+    mockServer([], [lf43, lf103]);
+    window.localStorage.setItem(PANELS_KEY, JSON.stringify({ orderLogLimitFeature: true }));
+    const { result, rerender } = renderHook(() => useOrderLogFeed());
+    await flush();
+    expect(lfCalls()).toBe(1);
+
+    // 상한에 닿을 때까지 라이브만 받음 — 아직 꼬리(lf103) 이전 줄이 남아 있으면 틈이 아니다.
+    const base = lf103.gwTimeMs + 1_000;
+    const live = Array.from({ length: MAX_LIMIT_FEATURE_EVENTS - 1 }, (_, i) => ({ ...lf103, seq: 900_000 + i, gwTimeMs: base + i }));
+    mockRelay = { ...mockRelay, limitFeatureEvents: [lf103, ...live] };
+    rerender();
+    await flush();
+    expect(lfCalls()).toBe(1);
+
+    // lf103 다음 줄까지 버려졌다 — 가장 오래된 라이브 줄(live[1])이 꼬리보다 뒤 → 틈 → 재조회 1회.
+    mockRelay = { ...mockRelay, limitFeatureEvents: [...live.slice(1), { ...lf103, seq: 990_000, gwTimeMs: base + 10_000 }, { ...lf103, seq: 990_001, gwTimeMs: base + 10_001 }] };
+    rerender();
+    await flush();
+    expect(lfCalls()).toBe(2);
+    rerender();
+    await flush();
+    expect(lfCalls()).toBe(2); // 응답이 틈을 못 메워도 같은 틈으로는 다시 부르지 않는다
+    expect(result.current.status).toBe('ready');
   });
 
   it('과거일 — 켜면 (date, lf) 조회 · 복원 둘을 합친다 · 라이브 kind 15 무시', async () => {
