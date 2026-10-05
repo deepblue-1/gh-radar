@@ -31,6 +31,9 @@ export enum MsgType {
   ArmBuyLatchReq = 38,
   GetStrategyEventsReq = 39,
   BulkSellReq = 40,
+  AutoSellCommandReq = 41,
+  SetUserSettingsReq = 42,
+  GetUserSettingsReq = 43,
   LoginResp = 50,
   OrderResp = 51,
   OrderConfirm = 52,
@@ -62,5 +65,7 @@ export enum MsgType {
   JournalBatch = 80,
   StrategyEventsResp = 81,
   StrategyEventPush = 82,
-  QueueProgress = 83
+  QueueProgress = 83,
+  UserSettingsResp = 84,
+  LimitFeature = 85
 }

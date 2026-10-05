@@ -35,6 +35,7 @@ import { VIOrderNotice } from "../../src/generated/stock-dma/viorder-notice.js";
 import { RateCrossAlert } from "../../src/generated/stock-dma/rate-cross-alert.js";
 import { RateCrossSnapshot } from "../../src/generated/stock-dma/rate-cross-snapshot.js";
 import { QueuedWindowState } from "../../src/generated/stock-dma/queued-window-state.js";
+import { UserSettings } from "../../src/generated/stock-dma/user-settings.js";
 import { SymbolMaster } from "../../src/generated/stock-dma/symbol-master.js";
 import { SymbolMasterItem } from "../../src/generated/stock-dma/symbol-master-item.js";
 import { JournalBatch } from "../../src/generated/stock-dma/journal-batch.js";
@@ -550,9 +551,9 @@ export const STRATEGY_MSG = {
 } as const;
 
 /**
- * 상따 전략 1건. **활성 59 필드 전부** override 가능하다(Phase 24: 39 − 1 + 17 · quick-260929-vzy +1 `postBuyAuto` ·
+ * 상따 전략 1건. **활성 67 필드 전부** override 가능하다(Phase 24: 39 − 1 + 17 · quick-260929-vzy +1 `postBuyAuto` ·
  * quick-260930-fi4 +1 `extraBuyAbandonQty` · quick-261002-fim +1 `postBuyUnlockQty` ·
- * quick-261003-rc4 +1 `extraBuyBurstRelease`).
+ * quick-261003-rc4 +1 `extraBuyBurstRelease` · Phase 27 +8 자동매도).
  * (37 → 39: 17-01 재동기화로 `cancel_entry_latched` · `buy_entry_latched` 가 합류했다.)
  *
  * deprecated 8종(`client_key` · `sell_min_cum_volume` · `sell_cum_volume_enabled` ·
@@ -560,10 +561,11 @@ export const STRATEGY_MSG = {
  * `sell_price_break_enabled`)은 flatc 가 접근자를 만들지 않아 여기에도 없다 —
  * 보내지도 읽지도 않는다.
  *
- * **S→C 전용 12필드**(`sellOrderQty` · `sellQtyTrackBaseline` · `sellEntryLatched` ·
+ * **S→C 전용 16필드**(`sellOrderQty` · `sellQtyTrackBaseline` · `sellEntryLatched` ·
  * `cancelQtyTrackBaseline` · `cancelEntryLatched` · Phase 24 의 `buy3Schema` · `extraBuyAbandoned` ·
  * `postBuyTriggerQty` · `postBuyReentryLeft` · `postBuyPhase` · quick-260930-fi4 의 `extraBuyAbandonQty` ·
- * quick-261002-fim 의 `postBuyUnlockQty`)도 주입할 수 있다. 서버가 계산해 에코로만 내려주는 값이라,
+ * quick-261002-fim 의 `postBuyUnlockQty` · Phase 27 의 `autoSellState` · `autoSellSoldQty` · `autoSellBasis` ·
+ * `autoSellBasisPrice`)도 주입할 수 있다. 서버가 계산해 에코로만 내려주는 값이라,
  * "에코가 화면에 그대로 뜨는가"를 검증하려면 테스트가 직접 심을 수 있어야 한다.
  */
 export type FakeLimitChaserInput = {
@@ -649,6 +651,23 @@ export type FakeLimitChaserInput = {
   postBuyUnlockQty?: number;
   /** 추가매수 ☐버스트 시 해제 — 양방향(vtable 138 · quick-261003-rc4). 서버 에코는 설정값(부재 기본 false). */
   extraBuyBurstRelease?: boolean;
+  // === Phase 27 자동매도 8필드 (gh-trade 2404509b · vtable 140~154) ===
+  /** ☐자동매도 — 양방향(vtable 140). 부재 기본 false. */
+  autoSellEnabled?: boolean;
+  /** 시작조건 0~9 — 양방향(vtable 142). */
+  autoSellStartCond?: number;
+  /** 비율 % 1~50 — 양방향(vtable 144). */
+  autoSellRatioPct?: number;
+  /** 방법 1 매도1호가 · 2 매수1호가 · 3 양쪽 — 양방향(vtable 146). */
+  autoSellMethod?: number;
+  /** **S→C 전용** — 상태 0 없음 · 1 대기 · 2 감시 · 3 매도중 · 4 완료(vtable 148). */
+  autoSellState?: number;
+  /** **S→C 전용** — 누적 매도수량(주, vtable 150). */
+  autoSellSoldQty?: number;
+  /** **S→C 전용** — 기준 종류 1 상한가 · 2 매수가 · 0 미정(vtable 152). */
+  autoSellBasis?: number;
+  /** **S→C 전용** — 기준가격(원, vtable 154). */
+  autoSellBasisPrice?: number;
 };
 
 /**
@@ -777,6 +796,14 @@ function emitSetLimitChaser(
   SetLimitChaser.addExtraBuyAbandonQty(b, input.extraBuyAbandonQty ?? 0);
   SetLimitChaser.addPostBuyUnlockQty(b, input.postBuyUnlockQty ?? 0);
   SetLimitChaser.addExtraBuyBurstRelease(b, input.extraBuyBurstRelease ?? false);
+  SetLimitChaser.addAutoSellEnabled(b, input.autoSellEnabled ?? false);
+  SetLimitChaser.addAutoSellStartCond(b, input.autoSellStartCond ?? 0);
+  SetLimitChaser.addAutoSellRatioPct(b, input.autoSellRatioPct ?? 0);
+  SetLimitChaser.addAutoSellMethod(b, input.autoSellMethod ?? 0);
+  SetLimitChaser.addAutoSellState(b, input.autoSellState ?? 0);
+  SetLimitChaser.addAutoSellSoldQty(b, input.autoSellSoldQty ?? 0);
+  SetLimitChaser.addAutoSellBasis(b, input.autoSellBasis ?? 0);
+  SetLimitChaser.addAutoSellBasisPrice(b, input.autoSellBasisPrice ?? 0);
   return SetLimitChaser.endSetLimitChaser(b);
 }
 
@@ -1204,6 +1231,54 @@ export function buildQueuedWindowStateFrame(input: FakeQueuedWindowInput = {}): 
   Envelope.startEnvelope(b);
   Envelope.addMsgType(b, MSG.QueuedWindowState);
   Envelope.addQueuedWindowState(b, state);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+/**
+ * 사용자 설정 (84 · Phase 27). 11값 + `present`(84 전용). 금액 3칸은 **만원**.
+ */
+export type FakeUserSettingsInput = {
+  preBuyAmount?: number;
+  addBuyAmount?: number;
+  postBuyAmount?: number;
+  postBuyMaxCount?: number;
+  postBuyFloorQty?: number;
+  postBuyReboundPct?: number;
+  sellQtyTrackRatio?: number;
+  autoSellPeriodSec?: number;
+  auctionSellRatioPct?: number;
+  autoSellRatioDefaultPct?: number;
+  autoSellMethodDefault?: number;
+  present?: boolean;
+};
+
+/**
+ * 사용자 설정 프레임 (84). 기본값은 **서버 내장 기본값**(4000 · 4000 · 4000 · 3 · 100000 · 30 · 55 · 3 · 20 · 10 · 3)
+ * 에 `present` false(= 서버 저장값 없음)다. 이름 있는 `add*` 빌더로 조립한다(위치 인자 `createUserSettings` 금지 —
+ * 칸이 밀려도 컴파일이 못 잡는다).
+ */
+export function buildUserSettingsFrame(input: FakeUserSettingsInput = {}): Uint8Array {
+  const b = new flatbuffers.Builder(128);
+
+  UserSettings.startUserSettings(b);
+  UserSettings.addPreBuyAmount(b, input.preBuyAmount ?? 4000);
+  UserSettings.addAddBuyAmount(b, input.addBuyAmount ?? 4000);
+  UserSettings.addPostBuyAmount(b, input.postBuyAmount ?? 4000);
+  UserSettings.addPostBuyMaxCount(b, input.postBuyMaxCount ?? 3);
+  UserSettings.addPostBuyFloorQty(b, input.postBuyFloorQty ?? 100000);
+  UserSettings.addPostBuyReboundPct(b, input.postBuyReboundPct ?? 30);
+  UserSettings.addSellQtyTrackRatio(b, input.sellQtyTrackRatio ?? 55);
+  UserSettings.addAutoSellPeriodSec(b, input.autoSellPeriodSec ?? 3);
+  UserSettings.addAuctionSellRatioPct(b, input.auctionSellRatioPct ?? 20);
+  UserSettings.addAutoSellRatioDefaultPct(b, input.autoSellRatioDefaultPct ?? 10);
+  UserSettings.addAutoSellMethodDefault(b, input.autoSellMethodDefault ?? 3);
+  UserSettings.addPresent(b, input.present ?? false);
+  const settings = UserSettings.endUserSettings(b);
+
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.UserSettingsResp);
+  Envelope.addUserSettings(b, settings);
   b.finish(Envelope.endEnvelope(b));
   return b.asUint8Array();
 }

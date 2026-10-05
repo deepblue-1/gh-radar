@@ -244,7 +244,7 @@ describe('트레이서 — 「호가변경」 한 행 (20-01 · D-04 · D-14 · 
     const cfg = lcSets()[0]!.cfg!;
     expect(cfg.sweepMinTickCount).toBe(5);
     expect(cfg.sellOrderRatio).toBe(100);
-    expect(Object.keys(cfg)).toHaveLength(45); // 31 + Phase 24 C→S 12 + postBuyAuto(quick-260929-vzy) + extraBuyBurstRelease(quick-261003-rc4) (감시대상은 Phase 24 ⑤ 로 빠졌다)
+    expect(Object.keys(cfg)).toHaveLength(49); // 31 + Phase 24 C→S 12 + postBuyAuto(quick-260929-vzy) + extraBuyBurstRelease(quick-261003-rc4) + 자동매도 요청 4(Phase 27) (감시대상은 Phase 24 ⑤ 로 빠졌다)
 
     // 반영 중 — 입력칸 잠김(에코 전).
     expect(editor()!.readOnly).toBe(true);
@@ -416,6 +416,44 @@ describe('트레이서 — 「호가변경」 한 행 (20-01 · D-04 · D-14 · 
    주 포인터가 coarse 면 행을 눌러 키패드 시트가 열린다. 인라인 입력칸은 생기지 않는다.
    ⚠️ matchMedia 교체는 afterEach 에서 반드시 되돌린다(RESEARCH Pitfall 7).
    ───────────────────────────────────────────────────────────── */
+describe("Phase 27 자동매도 요청 4필드 — 값 확정 1회의 lc.set 이 에코 값 그대로 싣고 에코 전용 4키는 싣지 않는다 (27-01 트레이서 웹 끝)", () => {
+  it('자동매도 켠 에코(매도중)로 세운 카드에서 「호가변경」 5 → Enter = lc.set 1회 · cfg 에 요청 4필드 = 에코 값 · 에코 전용 4키 없음', () => {
+    setRelay({
+      limitChasers: [
+        echo({
+          autoSellEnabled: true,
+          autoSellStartCond: 2,
+          autoSellRatioPct: 10,
+          autoSellMethod: 3,
+          autoSellState: 3,
+          autoSellSoldQty: 6000,
+          autoSellBasis: 1,
+          autoSellBasisPrice: 13_000,
+        }),
+      ],
+    });
+    render(<Card />);
+
+    typeAndEnter(openEditor(), '5');
+
+    expect(lcSets()).toHaveLength(1);
+    const cfg = lcSets()[0]!.cfg!;
+    expect(cfg.sweepMinTickCount).toBe(5);
+    // 요청 4필드 — 에코 값 그대로(relay 가 넷의 존재로 buy3_schema 4 를 파생한다).
+    expect({
+      autoSellEnabled: cfg.autoSellEnabled,
+      autoSellStartCond: cfg.autoSellStartCond,
+      autoSellRatioPct: cfg.autoSellRatioPct,
+      autoSellMethod: cfg.autoSellMethod,
+    }).toEqual({ autoSellEnabled: true, autoSellStartCond: 2, autoSellRatioPct: 10, autoSellMethod: 3 });
+    // 에코 전용 4키는 싣지 않는다(서버가 계산한다 — Pitfall 6 · T-24-01).
+    for (const k of ['autoSellState', 'autoSellSoldQty', 'autoSellBasis', 'autoSellBasisPrice']) {
+      expect(Object.keys(cfg), k).not.toContain(k);
+    }
+    expect(Object.keys(cfg)).toHaveLength(49);
+  });
+});
+
 describe('트레이서 — 터치(시트) 경로 (20-03 · D-12 · D-13)', () => {
   beforeEach(() => mockPointer(true));
   afterEach(restoreMatchMedia);

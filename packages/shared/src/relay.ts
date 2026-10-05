@@ -110,27 +110,28 @@ export type RelayLcCrud = "C" | "D";
 export type RelayLcWatchSide = "0" | "1";
 
 /**
- * 상따(LimitChaser) 전략 1건 — `SetLimitChaser` **활성 59필드**의 와이어 표현 + 파생 `key`.
+ * 상따(LimitChaser) 전략 1건 — `SetLimitChaser` **활성 67필드**의 와이어 표현 + 파생 `key`.
  * (37 → 39: 17-01 재동기화로 취소 · 매수 진입 확인 래치가 합류했다.
  *  39 → 55: Phase 24 재생성 — 매수 진입 확인 래치가 봉인(deprecated, gh-trade D-25)되고
  *  매수 3종 17필드가 합류했다: 39 − 1 + 17 = 55.
  *  55 → 57: `postBuyAuto`(quick-260929-vzy) · `extraBuyAbandonQty`(quick-260930-fi4). 슬롯 24
  *  `buyWatchSide` 는 gh-trade a3610261 로 봉인됐지만 relay 가 `"0"` 으로 채워 키는 남는다.
  *  57 → 58: `postBuyUnlockQty`(quick-261002-fim).
- *  58 → 59: `extraBuyBurstRelease`(quick-261003-rc4).)
+ *  58 → 59: `extraBuyBurstRelease`(quick-261003-rc4).
+ *  59 → 67: 자동매도 8필드(Phase 27 · gh-trade 2404509b) — 양방향 4(vtable 140~146) + S→C 전용 4(148~154).)
  *
  * 필드명은 FlatBuffers 생성 코드 접근자와 같은 camelCase 다(`sell_order_ratio` →
  * `sellOrderRatio`). 게이트웨이의 deprecated 8슬롯은 접근자 자체가 없으므로 여기에도 없다 —
  * 보내지도 읽지도 않는다.
  *
- * ⚠️ **S→C 전용 12필드** — `sellOrderQty` · `sellQtyTrackBaseline` · `sellEntryLatched` ·
+ * ⚠️ **S→C 전용 16필드** — `sellOrderQty` · `sellQtyTrackBaseline` · `sellEntryLatched` ·
  *    `cancelQtyTrackBaseline` · `cancelEntryLatched` · `buy3Schema` · `extraBuyAbandoned` ·
  *    `extraBuyAbandonQty` · `postBuyTriggerQty` · `postBuyReentryLeft` · `postBuyPhase` ·
- *    `postBuyUnlockQty`. 서버가 계산해
+ *    `postBuyUnlockQty` · `autoSellState` · `autoSellSoldQty` · `autoSellBasis` · `autoSellBasisPrice`. 서버가 계산해
  *    **에코로만** 내려주고 요청값은 무시한다. ★ 목록의 정본은 아래
  *    `LIMIT_CHASER_SERVER_ONLY_FIELDS` 다 — 여기 나열은 설명이고, 코드는 그 const 만 쓴다.
  *    브라우저가 되보내면 "값이 왕복한다"는 착각이 생겨 에코-폼 비교 로직이 오염된다
- *    (Pitfall 6). 그래서 인바운드 `lc.set` 은 `RelayLimitChaserInput` 으로 이 12개를 뺀다.
+ *    (Pitfall 6). 그래서 인바운드 `lc.set` 은 `RelayLimitChaserInput` 으로 이 16개를 뺀다.
  *    (`buy3Schema` 는 relay 가 `LC_FIXED_BUY3_SCHEMA = 1` 로 못박아 싣는다 — 입력으로는 받지 않는다.)
  *
  * ⚠️ **에코의 `buyEnabled`/`sellEnabled` 는 설정값이 아니라 무장 상태**다 — 서버가
@@ -328,6 +329,39 @@ export type RelayLimitChaser = {
    */
   postBuyUnlockQty: number;
   /**
+   * ☐자동매도(양방향 · gh-trade 2404509b vtable 140 · Phase 27). 무장 토글이다 — 서버 `IsActive()` 에
+   * `IsAutoSellActive()` 가 들어 있어 이것만 켠 등록도 등록이다(삭제 · 철거 아님). 킬 스위치
+   * (`DisableStrategiesReq`) · 단일 행 비활성화도 이 값을 false 로 내린다(gh-trade CR-01). 구서버 에코
+   * (슬롯 부재) = false. 요청에는 relay 가 `buy3_schema` 4 와 함께 싣는다(서버는 4 이상에서만 읽는다).
+   */
+  autoSellEnabled: boolean;
+  /**
+   * 자동매도 시작조건(양방향 · vtable 142 · ubyte 0~9). `0` = 기준가격 이탈 관측 뒤 다음 체결 ·
+   * `N` = 기준가격 − 거래소 기준가×N%(호가단위 내림) 이하 체결. 구서버 에코(슬롯 부재) = 0.
+   */
+  autoSellStartCond: number;
+  /**
+   * 자동매도 비율 %(양방향 · vtable 144 · ubyte 1~50) — 주기 거래량 × 비율(올림). 켜는 요청은 1~50 이어야
+   * 한다(서버 §9-3 ②). 구서버 에코(슬롯 부재) = 0.
+   */
+  autoSellRatioPct: number;
+  /**
+   * 자동매도 방법(양방향 · vtable 146 · ubyte) — `1` 매도1호가 · `2` 매수1호가 · `3` 양쪽(절반절반).
+   * 켜는 요청은 1~3 이어야 한다. 구서버 에코(슬롯 부재) = 0.
+   */
+  autoSellMethod: number;
+  /**
+   * 자동매도 상태 — **S→C 전용**(런타임 · vtable 148). `0` 없음 · `1` 대기 · `2` 감시 · `3` 매도중 · `4` 완료
+   * (StrategyEvent kind 13 과 같은 값). 구서버 에코(슬롯 부재) = 0.
+   */
+  autoSellState: number;
+  /** 자동매도 누적 매도수량(주) — **S→C 전용**(런타임 · vtable 150). 구서버 에코 = 0. */
+  autoSellSoldQty: number;
+  /** 자동매도 기준 종류 — **S→C 전용**(런타임 · vtable 152). `1` 상한가 · `2` 매수가 · `0` 미정. */
+  autoSellBasis: number;
+  /** 자동매도 기준가격(원 — 상한가 또는 매수가) — **S→C 전용**(런타임 · vtable 154). `0` = 미정 또는 구서버. */
+  autoSellBasisPrice: number;
+  /**
    * 전략 키 `${isin}:${accountNo}:${exchange}` — 게이트웨이 `LimitChaser::MakeKey` 와 동형.
    * 와이어에 실려 오는 필드가 아니라 **relay 가 파싱하며 채우는 파생값**이다. 실제 최대 29B 이고
    * `strategies.disable` 의 서버 키 상한(WR-09)은 64B 다.
@@ -385,13 +419,27 @@ export const LIMIT_CHASER_SERVER_RUNTIME_FIELDS = [
 ] as const satisfies readonly (keyof RelayLimitChaser)[];
 
 /**
- * S→C 전용 12필드의 **유일한 정본** — 카운터(3) ∪ 래치(2) ∪ 런타임(7). `RelayLimitChaserInput`(Omit) 과 웹앱 로그의
- * 값 변경 판정 skip 이 모두 이 const 에서 파생된다. 목록을 두 벌 두면 언젠가 갈라진다.
+ * S→C 전용 **자동매도 에코** 4필드(Phase 27 · gh-trade 2404509b vtable 148~154) — 서버가 스스로 움직이는
+ * 자동매도 상태기계의 에코다. 서버는 요청값을 읽지 않는다.
+ * ★ 런타임 에코와 같은 규율 — 에코에서 이것만 바뀌었으면(300ms 주기 매도의 누적 · 상태 전이)
+ *    「서버 반영 완료」도 「다른 단말」도 아니다(webapp strategy-log `RUNTIME_ONLY_SKIP`).
+ */
+export const LIMIT_CHASER_SERVER_AUTO_SELL_FIELDS = [
+  "autoSellState",
+  "autoSellSoldQty",
+  "autoSellBasis",
+  "autoSellBasisPrice",
+] as const satisfies readonly (keyof RelayLimitChaser)[];
+
+/**
+ * S→C 전용 16필드의 **유일한 정본** — 카운터(3) ∪ 래치(2) ∪ 런타임(7) ∪ 자동매도(4). `RelayLimitChaserInput`(Omit) 과
+ * 웹앱 로그의 값 변경 판정 skip 이 모두 이 const 에서 파생된다. 목록을 두 벌 두면 언젠가 갈라진다.
  */
 export const LIMIT_CHASER_SERVER_ONLY_FIELDS = [
   ...LIMIT_CHASER_SERVER_COUNTER_FIELDS,
   ...LIMIT_CHASER_SERVER_LATCH_FIELDS,
   ...LIMIT_CHASER_SERVER_RUNTIME_FIELDS,
+  ...LIMIT_CHASER_SERVER_AUTO_SELL_FIELDS,
 ] as const satisfies readonly (keyof RelayLimitChaser)[];
 
 /** S→C 전용 필드 이름 합집합 — `LIMIT_CHASER_SERVER_ONLY_FIELDS` 에서 파생된다. */
@@ -399,7 +447,7 @@ export type LimitChaserServerOnlyField = (typeof LIMIT_CHASER_SERVER_ONLY_FIELDS
 
 /**
  * `lc.set` 이 실어 보내는 상따 설정 — **클라 입력 28 + 클라 고정 3 + Phase 24 C→S 12 = 43필드 + post_buy_auto = 44필드
- * + extra_buy_burst_release = 45필드**.
+ * + extra_buy_burst_release = 45필드 + 자동매도 요청 4 = 49필드**.
  *
  * ⚠️ **`postBuyAuto` 는 새 클라 입력에서 필수다**(quick-260929-vzy). 빠뜨리면 relay 가 `buy3_schema` 1 로
  *    싣고 서버가 자동을 유지해서, 매수주문 OFF 동반 끔(D-06)이 서버에 닿지 않는다 — 컴파일이 막게 한다.
@@ -410,12 +458,17 @@ export type LimitChaserServerOnlyField = (typeof LIMIT_CHASER_SERVER_ONLY_FIELDS
  *    싣고 서버가 값을 유지해서, 체크가 서버에 반영되지 않는다(에코가 되돌린다). relay 는 구 탭 관용으로 이 필드도
  *    선택인 `LcSetCfg` 를 받는다. 양방향이라 `LIMIT_CHASER_SERVER_*_FIELDS` 에는 넣지 않는다.
  *
+ * ⚠️ **자동매도 4필드(`autoSellEnabled` · `autoSellStartCond` · `autoSellRatioPct` · `autoSellMethod`)도 새 클라
+ *    입력에서 필수다**(Phase 27). relay 가 넷의 **존재**로 `buy3_schema` 4 를 파생한다 — 하나라도 빠지면 3 으로
+ *    싣고 서버가 저장값을 유지해서 자동매도 칸이 서버에 닿지 않는다. 옛 탭 관용은 `LcSetCfg` 의 선택 필드가
+ *    맡는다. 에코 전용 4필드(`autoSellState` 등)는 `LIMIT_CHASER_SERVER_AUTO_SELL_FIELDS` 로 빠진다.
+ *
  * ⚠️ **`buyWatchSide`(감시대상)를 뺀다** (Phase 24 ⑤ · 24-03). 새 서버는 읽지 않는다(gh-trade D-24 ·
  *    D-28 — 구 클라 판정에만 쓴다). 브라우저가 싣지 못하게 입력에서 뺀다. 읽기 전용
  *    `RelayLimitChaser.buyWatchSide` 는 옛 서버 에코 호환으로 남는다(파서 · 24-02 추출 도구).
  *    옛 탭이 실어 보내도 relay zod(`z.object`)가 미지 키로 떨어뜨린다.
  *
- * `RelayLimitChaser` 에서 S→C 전용 12필드와 파생 `key`, 그리고 `market` 을 뺀 것이다. 고정 3 은
+ * `RelayLimitChaser` 에서 S→C 전용 16필드와 파생 `key`, 그리고 `market` 을 뺀 것이다. 고정 3 은
  * `sweepRecalcEnabled: true` · `sweepMinCount: 0` · `sweepMinRate: 0` 으로 WinForms
  * `LimitChaserForm.Send()` 와 같은 값을 보낸다. CONTEXT 의 "29필드" 는 실측과 다르다 (Pitfall 6).
  *
@@ -1250,6 +1303,45 @@ export type RelayQueuedWindowMsg = {
 };
 
 /**
+ * 사용자 설정 11값 (42/84 `UserSettings` 본문 · Phase 27 — gh-trade 2404509b). 사용자(DMA 로그인 id)별
+ * 상따 기본설정이다. 범위는 fbs 주석 그대로(서버가 42 에서 범위 밖 하나면 요청 전체를 거부한다).
+ * 금액 3칸은 **단위 만원**(C# `LimitChaserDefaults` 와 같다).
+ */
+export type RelayUserSettingsValues = {
+  /** 선매수 주문금액 — **만원** · 0~999999999. */
+  preBuyAmount: number;
+  /** 추가매수 주문금액 — **만원** · 0~999999999. */
+  addBuyAmount: number;
+  /** 후매수 주문금액 — **만원** · 0~999999999. */
+  postBuyAmount: number;
+  /** 후매수 최대 횟수(최초 포함) · 0~255. */
+  postBuyMaxCount: number;
+  /** 후매수 하한잔량(주) · 0~99999999. */
+  postBuyFloorQty: number;
+  /** 후매수 반등률 % · 0~100. */
+  postBuyReboundPct: number;
+  /** 매도잔량 추적 비율 % · 0~90. */
+  sellQtyTrackRatio: number;
+  /** 자동매도 매도 주기(초) · 1~60 · 기본 3 — 서버가 전략 실행 때 직접 읽는다(폼에 칸 없음). */
+  autoSellPeriodSec: number;
+  /** 장전 동시호가 매도비율 % · 1~50 · 기본 20 — 서버 전용(폼에 칸 없음). */
+  auctionSellRatioPct: number;
+  /** 상따창 자동매도 비율 기본값 % · 1~50 · 기본 10. */
+  autoSellRatioDefaultPct: number;
+  /** 상따창 자동매도 방법 기본값 — `1` 매도1호가 · `2` 매수1호가 · `3` 양쪽 · 기본 3. */
+  autoSellMethodDefault: number;
+};
+
+/**
+ * 사용자 설정 응답 (84 — `UserSettingsResp`). **최신 1건만** 보관한다(77 동형 3상태 규율 — relay 는 84 를
+ * 받기 전에는 아무것도 내리지 않는다. 지어낸 기본값 금지).
+ *
+ * `present` 는 84 전용 — `false` 면 서버 저장값이 없어 서버가 **내장 기본값**을 실은 것이다(42 요청값은
+ * 서버가 읽지 않는다).
+ */
+export type RelayUserSettingsMsg = { t: "user.settings"; present: boolean } & RelayUserSettingsValues;
+
+/**
  * NXT 거래가능 종목 ISIN 집합 스냅샷(quick-260923-pq2). 원천은 게이트웨이 종목마스터 57 의
  * `nxt_tradable`(서버가 NXT A0 수신으로 판정 · fbs D-12) 하나다 — Supabase `stocks` 에는 NXT
  * 정보가 없다. relay 는 집합이 **적재돼 있을 때만** 인증 직후 1프레임을 내리고(적재 전엔 보내지
@@ -1417,6 +1509,7 @@ export type RelayOutbound =
   | RelayRateCrossMsg
   | RelayRateCrossSnapMsg
   | RelayQueuedWindowMsg
+  | RelayUserSettingsMsg
   | RelayNxtSnapMsg
   | RelayJournalRowsMsg
   | RelayJournalStateMsg

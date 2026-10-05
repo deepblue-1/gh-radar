@@ -218,6 +218,27 @@ describe("MSG 상수", () => {
     ]).toEqual([36, 37, 76, 77, 78]);
   });
 
+  it("Phase 27 재동기화로 더한 4종이 생성 enum 과 이름·값 모두 일치한다", () => {
+    // 일반 대조(`Object.entries(MSG)`)는 이름 오타를 못 잡는다 — 새 4종은 손으로 적어 대조한다.
+    expect(MSG.AutoSellCommandReq).toBe(MsgType.AutoSellCommandReq);
+    expect(MSG.SetUserSettingsReq).toBe(MsgType.SetUserSettingsReq);
+    expect(MSG.GetUserSettingsReq).toBe(MsgType.GetUserSettingsReq);
+    expect(MSG.UserSettingsResp).toBe(MsgType.UserSettingsResp);
+    expect([
+      MSG.AutoSellCommandReq,
+      MSG.SetUserSettingsReq,
+      MSG.GetUserSettingsReq,
+      MSG.UserSettingsResp,
+    ]).toEqual([41, 42, 43, 84]);
+    // 84 만 수신 대역 — hub 명시 case 와 한 커밋(PC-12). 41/42/43 은 C→S, 85 는 범위 밖(debug 드롭).
+    expect(INBOUND_MSG_TYPES.has(MSG.UserSettingsResp)).toBe(true);
+    for (const v of [MSG.AutoSellCommandReq, MSG.SetUserSettingsReq, MSG.GetUserSettingsReq, 85]) {
+      expect(INBOUND_MSG_TYPES.has(v), `msg_type ${v}`).toBe(false);
+    }
+    expect(MsgType.LimitFeature).toBe(85);
+    expect(Object.keys(MSG)).not.toContain("LimitFeature");
+  });
+
   it("38(구 매수 진입 래치)은 생성 enum 에만 남고 relay MSG 에는 없다 — 번호 봉인 (Phase 24 D-25)", () => {
     // 생성 enum 은 gh-trade 스키마의 거울이라 번호가 남는다(재사용 금지 기록). relay 는 그 번호를
     // 조립할 수 없어야 한다 — `MSG` 에 이름이 없으면 `buildArmLatchReq` 의 타입도 36|37 뿐이다.
@@ -238,15 +259,15 @@ describe("MSG 상수", () => {
     }
   });
 
-  it("INBOUND_MSG_TYPES 는 응답 대역(50~83)만 담는다", () => {
+  it("INBOUND_MSG_TYPES 는 응답 대역(50~84)만 담는다", () => {
     // 15-02 의 12종 + 16-04 전략 응답 7종 + 17-03 신규 푸시 3종 + quick-260923-cqj 57
-    // + 19-09 관찰자 응답 79·80 + 25-06 잔량진행률 83 = 26종.
+    // + 19-09 관찰자 응답 79·80 + 25-06 잔량진행률 83 = 26종 + 27-01 사용자 설정 84 = 27종.
     // 개수를 못박아 두면 화이트리스트가 의도 없이 넓어지는 순간(= 새 유입 집합이 생기는 순간)
     // 여기서 먼저 깨진다 (PC-12).
-    expect(INBOUND_MSG_TYPES.size).toBe(26);
+    expect(INBOUND_MSG_TYPES.size).toBe(27);
     for (const v of INBOUND_MSG_TYPES) {
       expect(v).toBeGreaterThanOrEqual(50);
-      expect(v).toBeLessThanOrEqual(83);
+      expect(v).toBeLessThanOrEqual(84);
     }
     // 요청 계열이 수신 경로로 들어오는 것 자체가 이상 신호다.
     expect(INBOUND_MSG_TYPES.has(MSG.LoginReq)).toBe(false);

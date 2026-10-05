@@ -5,6 +5,7 @@
 import * as flatbuffers from 'flatbuffers';
 
 import { AccountState } from '../stock-dma/account-state.js';
+import { AutoSellCommandReq } from '../stock-dma/auto-sell-command-req.js';
 import { ConfirmVIOrderReq } from '../stock-dma/confirm-viorder-req.js';
 import { DirectOrderReq } from '../stock-dma/direct-order-req.js';
 import { DisableStrategiesReq } from '../stock-dma/disable-strategies-req.js';
@@ -15,6 +16,7 @@ import { GetStrategyReq } from '../stock-dma/get-strategy-req.js';
 import { GetTradeTapeReq } from '../stock-dma/get-trade-tape-req.js';
 import { JournalBatch } from '../stock-dma/journal-batch.js';
 import { LimitChaserList } from '../stock-dma/limit-chaser-list.js';
+import { LimitFeature } from '../stock-dma/limit-feature.js';
 import { LivePing } from '../stock-dma/live-ping.js';
 import { LoginReq } from '../stock-dma/login-req.js';
 import { LoginResp } from '../stock-dma/login-resp.js';
@@ -41,6 +43,7 @@ import { TradeExecution } from '../stock-dma/trade-execution.js';
 import { TradeTape } from '../stock-dma/trade-tape.js';
 import { UpdateAccountNoReq } from '../stock-dma/update-account-no-req.js';
 import { UpdateAccountNoResp } from '../stock-dma/update-account-no-resp.js';
+import { UserSettings } from '../stock-dma/user-settings.js';
 import { VIOrderList } from '../stock-dma/viorder-list.js';
 import { VIOrderNotice } from '../stock-dma/viorder-notice.js';
 
@@ -258,8 +261,23 @@ queueProgress(obj?:QueueProgress):QueueProgress|null {
   return offset ? (obj || new QueueProgress()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+autoSellCommandReq(obj?:AutoSellCommandReq):AutoSellCommandReq|null {
+  const offset = this.bb!.__offset(this.bb_pos, 86);
+  return offset ? (obj || new AutoSellCommandReq()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
+userSettings(obj?:UserSettings):UserSettings|null {
+  const offset = this.bb!.__offset(this.bb_pos, 88);
+  return offset ? (obj || new UserSettings()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
+limitFeature(obj?:LimitFeature):LimitFeature|null {
+  const offset = this.bb!.__offset(this.bb_pos, 90);
+  return offset ? (obj || new LimitFeature()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
 static startEnvelope(builder:flatbuffers.Builder) {
-  builder.startObject(41);
+  builder.startObject(44);
 }
 
 static addMsgType(builder:flatbuffers.Builder, msgType:MsgType) {
@@ -416,6 +434,18 @@ static addStrategyEventBatch(builder:flatbuffers.Builder, strategyEventBatchOffs
 
 static addQueueProgress(builder:flatbuffers.Builder, queueProgressOffset:flatbuffers.Offset) {
   builder.addFieldOffset(40, queueProgressOffset, 0);
+}
+
+static addAutoSellCommandReq(builder:flatbuffers.Builder, autoSellCommandReqOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(41, autoSellCommandReqOffset, 0);
+}
+
+static addUserSettings(builder:flatbuffers.Builder, userSettingsOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(42, userSettingsOffset, 0);
+}
+
+static addLimitFeature(builder:flatbuffers.Builder, limitFeatureOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(43, limitFeatureOffset, 0);
 }
 
 static endEnvelope(builder:flatbuffers.Builder):flatbuffers.Offset {

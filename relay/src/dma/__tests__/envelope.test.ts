@@ -264,10 +264,11 @@ describe("tryParseEnvelope — total 파서", () => {
     expect(fields.reason).toBe("unknown-msg-type");
   });
 
-  it("⑤-a4 강등 집합은 **응답 대역 6종뿐**이고 요청 번호는 하나도 없다", () => {
+  it("⑤-a4 강등 집합은 **응답 대역 7종뿐**이고 요청 번호는 하나도 없다", () => {
     // 57 은 quick-260923-cqj 에서 INBOUND 로 옮겨 갔다(보조 이름 원천).
     // 81 · 82 는 Phase 25 — 전략 이벤트 정본은 관찰자 80 경로다(83 은 25-06 이 INBOUND 로 넣는다).
-    expect([...OUT_OF_SCOPE_INBOUND_MSG_TYPES].sort((a, b) => a - b)).toEqual([68, 70, 74, 75, 81, 82]);
+    // 85 LimitFeature 는 27-01 — 중계 · 표시 범위 밖(quote 관찰자 연결로 키당 1초마다 온다).
+    expect([...OUT_OF_SCOPE_INBOUND_MSG_TYPES].sort((a, b) => a - b)).toEqual([68, 70, 74, 75, 81, 82, 85]);
     for (const n of OUT_OF_SCOPE_INBOUND_MSG_TYPES) expect(n).toBeGreaterThanOrEqual(50);
   });
 
@@ -1675,7 +1676,7 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     return parsed!;
   }
 
-  it("① 59필드 왕복(60키) — 요청 필드가 그대로 돌아오고 S→C 전용은 0/false 다", () => {
+  it("① 67필드 왕복(68키) — 요청 필드가 그대로 돌아오고 S→C 전용은 0/false 다", () => {
     const cfg = lcInput();
     // 요청 빌더의 산출물을 에코 파서로 되읽는다. 빌더와 파서가 **같은 슬롯**을 보는지가
     // 이 왕복의 전부다 — 한쪽만 밀려도 값이 어긋나 실패 메시지에 그대로 드러난다.
@@ -1705,9 +1706,9 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
 
     // 활성 59 + 파생 key = 60. (39 − 1(매수 진입 래치 봉인) + 17(Phase 24) + 1(postBuyAuto · quick-260929-vzy)
     // + 1(extraBuyAbandonQty · quick-260930-fi4) + 1(postBuyUnlockQty · quick-261002-fim)
-    // + 1(extraBuyBurstRelease · quick-261003-rc4) = 59 + key).
+    // + 1(extraBuyBurstRelease · quick-261003-rc4) + 8(자동매도 · Phase 27) = 67 + key).
     // 필드를 하나라도 빠뜨리면 여기서 잡힌다.
-    expect(Object.keys(item!)).toHaveLength(60);
+    expect(Object.keys(item!)).toHaveLength(68);
     expect(item!.key).toBe(strategyKey(SAMPLE_ISIN, SAMPLE_ACCOUNT_NO, "KRX"));
   });
 
@@ -1825,8 +1826,8 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     // 새 서버 에코에는 감시대상 슬롯이 없다 → "0".
     expect(single!.buyWatchSide).toBe("0");
     expect(list![0]!.buyWatchSide).toBe("0");
-    expect(Object.keys(single!)).toHaveLength(60);
-    expect(Object.keys(list![0]!)).toHaveLength(60);
+    expect(Object.keys(single!)).toHaveLength(68);
+    expect(Object.keys(list![0]!)).toHaveLength(68);
 
     // postBuyEnabled 는 서버 값 그대로 — false 로 접혀 온 에코는 false(phase 와 무관하게).
     const folded = parseLimitChaserEcho(
@@ -1847,7 +1848,7 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     expect(list![0]!.postBuyAuto).toBe(true);
     const plain = parseLimitChaserEcho(inbound(buildSetLimitChaserRespFrame({})).env);
     expect(plain!.postBuyAuto).toBe(false);
-    expect(Object.keys(plain!)).toHaveLength(60);
+    expect(Object.keys(plain!)).toHaveLength(68);
   });
 
   it("⑤-abandon-qty 60 · 64 의 extraBuyAbandonQty 를 디코드한다 — 기본 프레임 0 · 포기 에코는 645842 (quick-260930-fi4)", () => {
@@ -1863,7 +1864,7 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
     expect(single).toMatchObject(echo);
     expect(list![0]).toMatchObject(echo);
-    expect(Object.keys(single!)).toHaveLength(60);
+    expect(Object.keys(single!)).toHaveLength(68);
   });
 
   it("⑤-unlock-qty 60 · 64 의 postBuyUnlockQty 를 디코드한다 — 기본 프레임 0 · 잠금 에코는 264000 (quick-261002-fim)", () => {
@@ -1878,8 +1879,8 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
     expect(single).toMatchObject(echo);
     expect(list![0]).toMatchObject(echo);
-    expect(Object.keys(single!)).toHaveLength(60);
-    expect(Object.keys(list![0]!)).toHaveLength(60);
+    expect(Object.keys(single!)).toHaveLength(68);
+    expect(Object.keys(list![0]!)).toHaveLength(68);
   });
 
   it("⑤-burst 60 · 64 의 extraBuyBurstRelease 를 디코드한다 — 슬롯 부재 false · true 에코는 true (quick-261003-rc4 B6)", () => {
@@ -1893,8 +1894,8 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
     expect(single).toMatchObject(echo);
     expect(list![0]).toMatchObject(echo);
-    expect(Object.keys(single!)).toHaveLength(60);
-    expect(Object.keys(list![0]!)).toHaveLength(60);
+    expect(Object.keys(single!)).toHaveLength(68);
+    expect(Object.keys(list![0]!)).toHaveLength(68);
   });
 
   it("⑤-3 S→C 전용 래치 2필드는 요청 조립기가 **싣지 않는다** (Pitfall 6 / T-17-03)", () => {

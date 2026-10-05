@@ -137,6 +137,7 @@ import type {
   RelayTape,
   RelayTapeEntry,
   RelayUnfProgressEntry,
+  RelayUserSettingsMsg,
   RelayViNoticeMsg,
   RelayViOrderItem,
   RelayViTrigger,
@@ -167,6 +168,7 @@ import {
   parseServerMessage,
   parseSymbolMasterFrame,
   parseTradeTape,
+  parseUserSettings,
   parseViOrderList,
   parseViOrderNotice,
   parseViTrigger,
@@ -733,6 +735,14 @@ export class SubscriptionHub extends EventEmitter {
    * 와 **다른 상태**다. `#viTriggers` 의 3상태 규율과 같은 이유로 뭉개지 않는다.
    */
   readonly #queuedWindows = new Map<string, RelayQueuedWindowMsg>();
+  /**
+   * `userId` → 사용자 설정 **최신 1건** (84 `UserSettingsResp` · 27-01).
+   *
+   * 키 부재(= `getUserSettings` 가 `undefined`)는 「84 를 아직 못 받았다」이고 `present:false`(서버 저장값 없음 ·
+   * 내장 기본값)와 **다른 상태**다. 지어낸 기본값을 넣지 않는다 — 넣으면 인증 직후 재생이 거짓 「저장값 없음」을
+   * 그린다(`#queuedWindows` 와 같은 3상태 규율).
+   */
+  readonly #userSettings = new Map<string, RelayUserSettingsMsg>();
   /**
    * `${userId}|${isin}|${exchange}` (`progressKey`) → 그 종목 · 거래소의 **허용 계좌** 대기 주문 진행률 전량 (25-06).
    *
@@ -1413,6 +1423,15 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
+   * 그 사용자의 사용자 설정 (84 · 27-01).
+   *
+   * **`undefined` 는 「84 를 아직 못 받았다」**이다 — `getQueuedWindow` 와 같은 3상태 규율. 모르면 내리지 않는다.
+   */
+  getUserSettings(userId: string): RelayUserSettingsMsg | undefined {
+    return this.#userSettings.get(userId);
+  }
+
+  /**
    * 그 사용자에게 보이는 잔량진행률 전량 (25-06) — 인증 직후 `unf.progress` snap:true 의 원천.
    *
    * 캐시에는 비어 있지 않은 키만 있다(빈 값은 키째 지운다). 반환은 사본이다 — 소비자가 배열을 고쳐도
@@ -1624,6 +1643,7 @@ export class SubscriptionHub extends EventEmitter {
     this.#viOrders.clear();
     this.#rateCrossItems.clear();
     this.#queuedWindows.clear();
+    this.#userSettings.clear();
     this.#queueProgress.clear();
     this.#progressUnsynced.clear();
   }
@@ -1733,6 +1753,13 @@ export class SubscriptionHub extends EventEmitter {
       case MSG.QueuedWindowState: {
         const state = parseQueuedWindowState(e.env);
         if (state !== null) this.#onQueuedWindow(userId, session, state);
+        return;
+      }
+      case MSG.UserSettingsResp: {
+        // 화이트리스트와 **같은 커밋**의 명시 case 다(PC-12 · 27-01). 84 는 LoginResp → 77 → 84 순으로 계좌 선언 전
+        // (Ready 전)에 온다 — 캐시는 늘, 팬아웃은 Ready 뒤(RESEARCH Pitfall 4).
+        const settings = parseUserSettings(e.env);
+        if (settings !== null) this.#onUserSettings(userId, session, settings);
         return;
       }
       case MSG.QueueProgress: {
@@ -1865,6 +1892,19 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
+   * 사용자 설정 (84 · 27-01) — **최신 1건만** 보관한다(77 동형).
+   *
+   * 84 는 로그인 직후 77 뒤 1프레임 · 43 응답 · 42 성공 뒤 같은 사용자 전 세션 브로드캐스트로 온다. 로그인 직후
+   * 84 는 Ready 전이라 **캐시만** 하고(인증한 탭은 fanout 의 인증 재생이 캐시를 내린다), Ready 세션의 84 만
+   * 팬아웃한다 — Ready 게이트로 버리면 탭이 영영 「불러오는 중」이 된다(RESEARCH Pitfall 4).
+   */
+  #onUserSettings(userId: string, session: HubSession, settings: RelayUserSettingsMsg): void {
+    this.#userSettings.set(userId, settings);
+    if (!session.isReady) return;
+    this.#fanout(userId, settings);
+  }
+
+  /**
    * 잔량진행률 (83) — (isin, exchange) 키 **전량 교체** (25-06 · 77 패턴).
    *
    * 1. **계좌 필터가 먼저다.** 세션 허용 계좌 Set 에 없는 항목은 버리고, 주문자(`dmaUserId`)를 뺀 공개
@@ -1955,7 +1995,9 @@ export class SubscriptionHub extends EventEmitter {
       case MSG.ServerMessage:
       case MSG.QueuedWindowState:
       case MSG.JournalBatch:
-        // 서버 규약상 quote 역할에는 오지 않는다(54 두 역할 모두 미수신 · 77 사용자 세션 · 80 journal 역할).
+      case MSG.UserSettingsResp:
+        // 서버 규약상 quote 역할에는 오지 않는다(54 두 역할 모두 미수신 · 77 사용자 세션 · 80 journal 역할 ·
+        // 84 는 `ProcessLoginReq` 경로에서만 송신 — 27-01).
         logger.warn({ msgType: e.msgType }, "[HUB] quote 연결에 오지 않는 프레임 — 무시");
         return;
       default:
@@ -2556,6 +2598,8 @@ export class SubscriptionHub extends EventEmitter {
     // 예약창도 버린다 — 키가 userId 자체이므로 지우면 `getQueuedWindow` 가 다시
     // `undefined`(모름)가 되고, 새 세션의 77 이 올 때까지 아무 프레임도 내리지 않는다.
     this.#queuedWindows.delete(userId);
+    // 사용자 설정도 버린다(27-01) — 77 과 같은 이유. 새 세션의 84 가 다시 채울 때까지 「모름」으로 둔다.
+    this.#userSettings.delete(userId);
     // 잔량진행률도 버린다 — 77 · 78 이 여기 있는 것과 같은 이유다(RESEARCH Pitfall 6 · T-25-26). 남기면
     // 세션 교체 뒤 인증 직후 스냅이 이미 사라진 대기 주문의 진행률을 그린다. 새 세션의 83 이 다시 채운다.
     //

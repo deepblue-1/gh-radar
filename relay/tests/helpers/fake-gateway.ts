@@ -420,7 +420,8 @@ export interface SetLimitChaserRequest {
   buyOrderQty: number;
   buyWatchPrice: number;
   /** relay 파생값 — 1(자동 미적재 · `LC_FIXED_BUY3_SCHEMA`) · 2(자동 적재 · `LC_POST_BUY_AUTO_BUY3_SCHEMA`) ·
-   *  3(자동 + 버스트 시 해제 적재 · `LC_BURST_RELEASE_BUY3_SCHEMA` · quick-261003-rc4). */
+   *  3(자동 + 버스트 시 해제 적재 · `LC_BURST_RELEASE_BUY3_SCHEMA` · quick-261003-rc4) ·
+   *  4(+ 자동매도 요청 4필드 적재 · `LC_AUTO_SELL_BUY3_SCHEMA` · Phase 27). */
   buy3Schema: number;
   /** 슬롯 부재 = `null`. buy3 요청은 이 슬롯이 없어야 한다. */
   buyWatchSide: string | null;
@@ -440,6 +441,24 @@ export interface SetLimitChaserRequest {
   postBuyAuto: boolean;
   /** 추가매수 ☐버스트 시 해제(quick-261003-rc4 · vtable 138) — 슬롯 부재(buy3_schema 1/2 · 또는 false 기본값) = false. */
   extraBuyBurstRelease: boolean;
+  /** ☐자동매도(Phase 27 · vtable 140) — 슬롯 부재(buy3_schema ≤ 3 · 또는 false 기본값) = false. */
+  autoSellEnabled: boolean;
+  /** 자동매도 시작조건(vtable 142) — 슬롯 부재 = 0. */
+  autoSellStartCond: number;
+  /** 자동매도 비율 %(vtable 144) — 슬롯 부재 = 0. */
+  autoSellRatioPct: number;
+  /** 자동매도 방법(vtable 146) — 슬롯 부재 = 0. */
+  autoSellMethod: number;
+  /**
+   * 자동매도 요청 4필드(140 · 142 · 144 · 146) 중 vtable 슬롯이 **있는** 오프셋. schema ≤ 3 요청은 빈 배열이어야
+   * 한다(기본값 false/0 도 버퍼에 안 쓰이므로 schema 4 에서도 값이 0 인 칸은 빠진다 — 접근자 값과 함께 본다).
+   */
+  autoSellReqSlots: number[];
+  /**
+   * 자동매도 **에코 전용** 4필드(`auto_sell_state` 148 · `auto_sell_sold_qty` 150 · `auto_sell_basis` 152 ·
+   * `auto_sell_basis_price` 154) 슬롯이 넷 다 **없는가**. 요청은 늘 true 여야 한다(T-24-01 — 서버 전용 값 미적재).
+   */
+  autoSellEchoSlotsEmpty: boolean;
   /**
    * 매도 · 취소 게이트 · 체크(Phase 24 24-08 — D-06 자동 체크 · D-02 후반 서버 접힘 자동 끔의 실브라우저 단언).
    * 선매수를 켜는 한 번의 10 에 동반으로 실리는지, 자동 끔 제출이 매도 게이트를 그대로 싣는지를 본다.
@@ -463,6 +482,12 @@ export interface SetLimitChaserRequest {
 
 /** S→C 전용 6필드의 vtable 오프셋(생성 코드 `__offset(bb_pos, N)` 의 N). `post_buy_unlock_qty` 136 은 quick-261002-fim. */
 const LC_SERVER_ONLY_VTABLE_SLOTS = [112, 126, 128, 130, 134, 136] as const;
+
+/** 자동매도 요청 4필드(양방향)의 vtable 오프셋 — Phase 27 · gh-trade 2404509b. */
+const LC_AUTO_SELL_REQ_VTABLE_SLOTS = [140, 142, 144, 146] as const;
+
+/** 자동매도 에코 전용 4필드의 vtable 오프셋 — 요청에 있으면 안 된다. */
+const LC_AUTO_SELL_ECHO_VTABLE_SLOTS = [148, 150, 152, 154] as const;
 
 /** 봉인된 `buy_watch_side` 의 vtable 오프셋 — gh-trade a3610261 이후 생성 접근자가 없다. */
 const BUY_WATCH_SIDE_SEALED_VT = 24;
@@ -519,6 +544,12 @@ export function readSetLimitChaserRequest(
     postBuyOrderQty: req.postBuyOrderQty(),
     postBuyAuto: req.postBuyAuto(),
     extraBuyBurstRelease: req.extraBuyBurstRelease(),
+    autoSellEnabled: req.autoSellEnabled(),
+    autoSellStartCond: req.autoSellStartCond(),
+    autoSellRatioPct: req.autoSellRatioPct(),
+    autoSellMethod: req.autoSellMethod(),
+    autoSellReqSlots: LC_AUTO_SELL_REQ_VTABLE_SLOTS.filter((vt) => bb.__offset(req.bb_pos, vt) !== 0),
+    autoSellEchoSlotsEmpty: LC_AUTO_SELL_ECHO_VTABLE_SLOTS.every((vt) => bb.__offset(req.bb_pos, vt) === 0),
     sellEnabled: req.sellEnabled(),
     sellTradeQtyEnabled: req.sellTradeQtyEnabled(),
     sellQtyTrackEnabled: req.sellQtyTrackEnabled(),

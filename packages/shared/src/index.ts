@@ -97,6 +97,9 @@ export type {
   RelayJournalEventsMsg,
   RelayUnfProgressEntry,
   RelayUnfProgressMsg,
+  // --- Phase 27 사용자 설정(84 — 42/84 `UserSettings`) ---
+  RelayUserSettingsValues,
+  RelayUserSettingsMsg,
 } from "./relay";
 export {
   RELAY_STATE_LABELS,
@@ -108,6 +111,8 @@ export {
   LIMIT_CHASER_SERVER_LATCH_FIELDS,
   LIMIT_CHASER_SERVER_ONLY_FIELDS,
   LIMIT_CHASER_SERVER_RUNTIME_FIELDS,
+  // --- Phase 27 자동매도 에코 전용 4필드 ---
+  LIMIT_CHASER_SERVER_AUTO_SELL_FIELDS,
 } from "./relay";
 // --- Phase 19 계좌 기준 주문 저널 행 계약. REST(server)와 wss 푸시(relay)가 같은 매퍼를 쓴다 ---
 export type {

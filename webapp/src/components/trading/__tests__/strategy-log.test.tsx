@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import {
+  LIMIT_CHASER_SERVER_AUTO_SELL_FIELDS,
   LIMIT_CHASER_SERVER_COUNTER_FIELDS,
   LIMIT_CHASER_SERVER_LATCH_FIELDS,
   LIMIT_CHASER_SERVER_ONLY_FIELDS,
@@ -185,11 +186,12 @@ describe('serverMessageLogLine / strategiesDisabledLogLine', () => {
 });
 
 describe('S→C 전용 필드 · 값 변경 판정 · 런타임 전용 에코 (quick-260926-nr2)', () => {
-  it('LIMIT_CHASER_SERVER_ONLY_FIELDS 는 정확히 12개이고 COUNTER(3) ∪ LATCH(2) ∪ RUNTIME(7) 와 같다 (Phase 24 · quick-260930-fi4 · quick-261002-fim)', () => {
-    expect(LIMIT_CHASER_SERVER_ONLY_FIELDS).toHaveLength(12);
+  it('LIMIT_CHASER_SERVER_ONLY_FIELDS 는 정확히 16개이고 COUNTER(3) ∪ LATCH(2) ∪ RUNTIME(7) ∪ AUTO_SELL(4) 와 같다 (Phase 24 · quick-260930-fi4 · quick-261002-fim · Phase 27)', () => {
+    expect(LIMIT_CHASER_SERVER_ONLY_FIELDS).toHaveLength(16);
     expect(LIMIT_CHASER_SERVER_COUNTER_FIELDS).toHaveLength(3);
     expect(LIMIT_CHASER_SERVER_LATCH_FIELDS).toHaveLength(2);
     expect(LIMIT_CHASER_SERVER_RUNTIME_FIELDS).toHaveLength(7);
+    expect(LIMIT_CHASER_SERVER_AUTO_SELL_FIELDS).toHaveLength(4);
     expect(LIMIT_CHASER_SERVER_RUNTIME_FIELDS).toContain('extraBuyAbandonQty');
     expect(LIMIT_CHASER_SERVER_RUNTIME_FIELDS).toContain('postBuyUnlockQty');
     expect(new Set(LIMIT_CHASER_SERVER_ONLY_FIELDS)).toEqual(
@@ -197,6 +199,7 @@ describe('S→C 전용 필드 · 값 변경 판정 · 런타임 전용 에코 (q
         ...LIMIT_CHASER_SERVER_COUNTER_FIELDS,
         ...LIMIT_CHASER_SERVER_LATCH_FIELDS,
         ...LIMIT_CHASER_SERVER_RUNTIME_FIELDS,
+        ...LIMIT_CHASER_SERVER_AUTO_SELL_FIELDS,
       ]),
     );
   });

@@ -127,9 +127,10 @@ export function isRelayExchange(value: string): value is RelayExchange {
  *
  * ⚠️ **S→C 전용 필드(`sellOrderQty`·`sellQtyTrackBaseline`·`sellEntryLatched`·
  *    `cancelQtyTrackBaseline`·`cancelEntryLatched` · Phase 24 의 `buy3Schema`·`extraBuyAbandoned`·
- *    `postBuyTriggerQty`·`postBuyReentryLeft`·`postBuyPhase` · quick-260930-fi4 의 `extraBuyAbandonQty` · quick-261002-fim 의 `postBuyUnlockQty`)를 두지 않는다** — `buy3Schema` 는
- *    relay 가 `postBuyAuto` · `extraBuyBurstRelease` 존재로만 1 · 2 · 3 을 파생한다(브라우저가 0 을 보내 구 클라 경로를
- *    열 수 없다 · `lcBuy3SchemaOf`).
+ *    `postBuyTriggerQty`·`postBuyReentryLeft`·`postBuyPhase` · quick-260930-fi4 의 `extraBuyAbandonQty` · quick-261002-fim 의 `postBuyUnlockQty` ·
+ *    Phase 27 자동매도 에코 `autoSellState`·`autoSellSoldQty`·`autoSellBasis`·`autoSellBasisPrice`)를 두지 않는다** — `buy3Schema` 는
+ *    relay 가 `postBuyAuto` · `extraBuyBurstRelease` · 자동매도 요청 4필드 존재로만 1 · 2 · 3 · 4 를 파생한다(브라우저가 0 을
+ *    보내 구 클라 경로를 열 수 없다 · `lcBuy3SchemaOf`).
  *    나머지는 서버가 계산해 에코로만 주는 값이라, 받으면
  *    "값이 왕복한다"는 착각이 생기고 에코-폼 비교가 오염된다 (Pitfall 6). `z.object` 가 미지
  *    키를 떨어뜨리므로 실려 와도 통과하지 못한다.
@@ -220,6 +221,18 @@ export const RelayLcSetSchema = z.object({
     //     있을 때만 buy3_schema 3 이다(조립기 `lcBuy3SchemaOf`).
     //   - superRefine 완결성 검사를 넣지 않는다 — 아무것도 무장하지 않는 설정값이다.
     extraBuyBurstRelease: z.boolean().optional(),
+    // === 자동매도 요청 4필드(양방향 · gh-trade 2404509b vtable 140~146 · Phase 27) — postBuyAuto 와 같이 12필드 블록 **밖**이다.
+    //   - 12필드 존재 판정(`buy3CfgOf`)에 들어가지 않는다 — 값만 `LcSetCfg` 로 통과한다.
+    //   - 넷 다 있고 postBuyAuto · extraBuyBurstRelease 도 있을 때만 buy3_schema 4(조립기 `lcBuy3SchemaOf`). 하나라도
+    //     없으면 종전 schema 로 싣고 서버가 저장값을 유지한다(옛 탭이 자동매도를 지우지 않는다).
+    //   - 에코 전용 4필드(`autoSellState` 등)는 두지 않는다 — `z.object` 가 미지 키로 떨어뜨린다.
+    autoSellEnabled: z.boolean().optional(),
+    /** 시작조건 0~9 — 0 = 기준가격 이탈 관측 뒤 다음 체결(서버 §6-6). */
+    autoSellStartCond: z.number().int().min(0).max(9).optional(),
+    /** 비율 % — 「켜면 1~50」 은 아래 `superRefine` 이 본다(꺼진 채 에코 0 은 통과). */
+    autoSellRatioPct: UByteSchema.optional(),
+    /** 방법 — 1 매도1호가 · 2 매수1호가 · 3 양쪽. 「켜면 1~3」 은 아래 `superRefine` 이 본다. */
+    autoSellMethod: UByteSchema.optional(),
   }).superRefine((cfg, ctx) => {
     // 서버 §9-2 ⑤ 반등률 1~100 과 동형 — 켜는 쪽만 본다(끄는 쪽 0 은 통과).
     // 값이 **있을 때만** 본다 — 부재(구 탭)는 fanout 이 거부 프레임으로 답한다.
@@ -233,6 +246,27 @@ export const RelayLcSetSchema = z.object({
         path: ["postBuyReboundPct"],
         message: "후매수 ON 이면 반등률은 1~100",
       });
+    }
+    // 서버 §9-3 ② 「켜는 요청만」 동형 — 자동매도 ON 이면 비율 1~50 · 방법 1~3(값이 실렸을 때만). 꺼진 채 0 은 통과한다
+    // (옛 서버 · 미등록 키 에코 0 이 소켓 종료가 되지 않게).
+    if (cfg.autoSellEnabled === true) {
+      if (
+        cfg.autoSellRatioPct !== undefined &&
+        (cfg.autoSellRatioPct < 1 || cfg.autoSellRatioPct > 50)
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["autoSellRatioPct"],
+          message: "자동매도 ON 이면 비율은 1~50",
+        });
+      }
+      if (cfg.autoSellMethod !== undefined && (cfg.autoSellMethod < 1 || cfg.autoSellMethod > 3)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["autoSellMethod"],
+          message: "자동매도 ON 이면 방법은 1~3",
+        });
+      }
     }
   }),
 });
@@ -485,7 +519,8 @@ function hasAllBuy3(cfg: RelayInboundWireLcSetCfg): cfg is LcSetCfgWithBuy3 {
 /**
  * 새 클라 cfg 인가 — 신필드 12개가 **전부** 있으면 `LcSetCfg` 로 좁혀 돌려주고,
  * 하나라도 없으면 `null`(구 탭). 부재 판정의 **유일한** 자리다 — fanout `lc.set` 분기가 부른다.
- * `postBuyAuto` · `extraBuyBurstRelease` 는 판정에 들어가지 않는다(선택 · 존재 여부는 조립기의 buy3_schema 파생만 가른다).
+ * `postBuyAuto` · `extraBuyBurstRelease` · 자동매도 4필드는 판정에 들어가지 않는다(선택 · 존재 여부는 조립기의 buy3_schema
+ * 파생만 가른다).
  */
 export function buy3CfgOf(cfg: RelayInboundWireLcSetCfg): LcSetCfg | null {
   return hasAllBuy3(cfg) ? cfg : null;

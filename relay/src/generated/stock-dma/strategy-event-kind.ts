@@ -12,5 +12,10 @@ export enum StrategyEventKind {
   SellOrder = 6,
   Cancelled = 7,
   Rejected = 8,
-  BurstLimit = 10
+  BurstLimit = 10,
+  AutoSellTriggered = 11,
+  AutoSellModified = 12,
+  AutoSellState = 13,
+  AutoSellPause = 14,
+  LimitFeature = 15
 }

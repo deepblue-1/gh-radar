@@ -250,6 +250,13 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
     postBuyFloorQty: 100_000, // DEFAULT_POST_BUY_FLOOR_QTY (주)
     postBuyReentry: 3, // DEFAULT_POST_BUY_REENTRY (회, 최초 포함)
     postBuyOrderAmount: 4000, // DEFAULT_POST_BUY_ORDER_AMOUNT (만원) — D-04
+    // === Phase 27 자동매도 요청 4필드 — 스위치 OFF · 시작조건 0 · 비율 10% · 방법 3(양쪽) ===
+    // D-11 이 84 사용자 설정 시딩(비율 · 방법 기본값)으로 바꾼다 — 27-07. 비율 · 방법을 0 으로 두지 않는다: schema 4 에서
+    // 0 이 저장되면 41 바로시작이 「설정이 올바르지 않습니다」로 거부된다(RESEARCH Pitfall 5).
+    autoSellEnabled: false,
+    autoSellStartCond: 0,
+    autoSellRatioPct: 10,
+    autoSellMethod: 3,
   };
 }
 
@@ -594,6 +601,11 @@ export function formFromServer(
     postBuyFloorQty: server.postBuyFloorQty,
     postBuyReentry: server.postBuyReentry,
     postBuyOrderAmount: server.postBuyOrderAmount,
+    // === Phase 27 자동매도 요청 4필드 — 에코 값 그대로(0 은 0 — 메우지 않는다). 에코 전용 4필드는 폼 타입에 없다. ===
+    autoSellEnabled: server.autoSellEnabled,
+    autoSellStartCond: server.autoSellStartCond,
+    autoSellRatioPct: server.autoSellRatioPct,
+    autoSellMethod: server.autoSellMethod,
   };
 }
 

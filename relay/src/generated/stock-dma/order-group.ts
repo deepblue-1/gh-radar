@@ -11,5 +11,6 @@ export enum OrderGroup {
   SellTrade = 5,
   SellFillHook = 6,
   Manual = 7,
-  VITrigger = 8
+  VITrigger = 8,
+  AutoSell = 9
 }

@@ -48,6 +48,13 @@
  *   (gh-trade D-19), 시세만 구독한 세션에는 **남의 계좌 항목**이 실린다 — 계좌 필터가 핵심 방어선이다.
  *   화이트리스트와 명시 case 는 **같은 커밋**이다(PC-12).
  *
+ *   27-01 이 사용자 설정 응답 **84 `UserSettingsResp`** 를 더한다(27종 — gh-trade Phase 28 · fbs 2404509b).
+ *   하류 책임은 이렇다 — 파서는 `envelope.ts` 의 `parseUserSettings` 이고, `SubscriptionHub.#onFrame` 에
+ *   **명시 `case`** 가 있다. 그 case 가 **사용자별 캐시**(최신 1건 — 77 동형)에 늘 넣고 Ready 세션에만
+ *   브라우저 `{t:"user.settings"}` 로 팬아웃한다. 84 는 LoginResp → 77 → 84 순으로 **계좌 선언 전**(Ready 전)
+ *   에 오므로 Ready 게이트로 버리면 안 된다(캐시만). quote 연결로 오면 `#onFeedFrame` 의 명시 warn case 다.
+ *   요청 **41 · 42 · 43** 은 C→S 라 화이트리스트에 넣지 않는다. 화이트리스트와 명시 case 는 **같은 커밋**이다.
+ *
  *   quick-260923-cqj 가 **57 `SymbolMasterResp`** 를 더한다(23종). 당일 신규상장 종목은 Supabase
  *   `stocks` 에 아직 없어서(KRX 가 전 영업일 데이터를 다음 영업일 08:00 에 공개한다) 이름을 못
  *   풀었다. 57 은 그 미스를 채우는 **보조 이름 원천**이다. 하류 책임은 이렇다 — 파서는 `envelope.ts`
@@ -67,6 +74,9 @@
  *     경로다(Phase 25 CONTEXT 재량 · Deferred). 81/82 는 호가를 구독한 세션에 Notice 로 쏟아지므로
  *     debug 드롭이다(RESEARCH Pitfall 5). 83 `QueueProgress` 는 25-06 부터 `INBOUND_MSG_TYPES` · hub 명시
  *     case 로 받는다(위 「유입 집합」 참조) — 이 목록에 없다.
+ *   - 85 `LimitFeature`(gh-trade Phase 27 — 상한가 특징 · Envelope 슬롯 90)는 중계 · 표시가 범위 밖이다
+ *     (gh-radar Phase 27 CONTEXT Deferred). 서버가 배포하면 quote 관찰자 연결로 **키당 1초마다** 오므로
+ *     정체불명 warn 으로 두면 로그가 홍수가 된다 — debug 드롭이다(27-01 · RESEARCH Pitfall 7).
  *
  *   ★ **이 목록이 바뀌면 아래 `OUT_OF_SCOPE_INBOUND_MSG_TYPES` 도 같이 바꾼다.** 주석과 상수가
  *     어긋나면 로그 레벨이 조용히 틀어지고, 그 틀어짐은 「경고가 안 뜬다」로만 드러나
@@ -127,6 +137,15 @@ export const MSG = {
   // 38 = 구 ArmBuyLatchReq — gh-trade Phase 24 D-25 로 폐기 · 번호 봉인, 재사용 금지.
   //      서버는 수신 시 ERROR 로 거부한다(§9-2 ⑥). relay 는 이 번호를 조립할 수 없다(키 없음).
   //      생성 enum `MsgType` 에는 번호 봉인 기록으로 남는다.
+  /**
+   * 자동매도 바로시작 1 / 중지 2 (`auto_sell_command_req` 슬롯 86 · C→S · Phase 27 — gh-trade 2404509b).
+   * 성공 = 60 에코, 실패 = 54 ERROR `src="AutoSellCommand"`(isin 동반).
+   */
+  AutoSellCommandReq: 41,
+  /** 사용자 설정 11값 **전체 교체** (`user_settings` 슬롯 88 · C→S · Phase 27). 성공 = 84 브로드캐스트, 실패 = 54 ERROR `src="SetUserSettings"`. */
+  SetUserSettingsReq: 42,
+  /** 사용자 설정 조회. **요청 테이블 없음 — 빈 Envelope** (C→S · Phase 27). 응답은 84. */
+  GetUserSettingsReq: 43,
 
   // --- 응답 · 푸시 (게이트웨이 → relay) ---
   /** 로그인 응답. */
@@ -197,6 +216,11 @@ export const MSG = {
    * 시세 구독한 세션(gh-trade D-19) — 남의 계좌 항목이 실릴 수 있어 **계좌 필터는 hub** 가 한다.
    */
   QueueProgress: 83,
+  /**
+   * 사용자 설정 (`user_settings` 슬롯 88 — 42 와 공유 · Phase 27). 로그인 직후 77 뒤 1프레임 ·
+   * 43 응답 · 42 성공 뒤 같은 사용자 전 세션 브로드캐스트. `present` 는 이 응답 전용.
+   */
+  UserSettingsResp: 84,
 } as const;
 
 /** `MSG` 의 값 유니온. */
@@ -213,7 +237,8 @@ export type MsgTypeValue = (typeof MSG)[keyof typeof MSG];
  * 이 7종의 하류 처리 책임을 명시한다 — 넓힌 만큼 명시 `case` 로 받는 것이 조건이다.
  *
  * ★ 17-03 이 76·77·78 을 더해 **22종**이 됐다. quick-260923-cqj 가 57 을 더해 **23종**, 19-09 가 관찰자
- *   응답 79·80 을 더해 **25종**, 25-06 이 잔량진행률 83 을 더해 **26종**이다. 이 집합은
+ *   응답 79·80 을 더해 **25종**, 25-06 이 잔량진행률 83 을 더해 **26종**, 27-01 이 사용자 설정 84 를
+ *   더해 **27종**이다. 이 집합은
  *   `SubscriptionHub.#onFrame` 의 명시 `case` 와 **한 커밋에서만** 함께 자란다 — 번호 하나를
  *   먼저 넣고 case 를 다음 커밋으로 미루면 그 사이의 빌드에서 프레임이 `default:` 로 조용히
  *   떨어져 「조용히 사라지는 프레임 0」(PC-12) 불변식이 깨진다.
@@ -245,6 +270,7 @@ export const INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
   MSG.ObserverLoginResp,
   MSG.JournalBatch,
   MSG.QueueProgress,
+  MSG.UserSettingsResp,
 ]);
 
 /**
@@ -255,7 +281,7 @@ export const INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
  * 25~55초마다 밀어 넣으므로, 이것을 정체불명과 같은 WARNING 으로 쌓으면 진짜 이상 신호가
  * 그 사이에 묻힌다. 드롭 자체는 설계대로 옳다 — 틀린 것은 로그 레벨 하나였다.
  *
- * 원소는 **응답 대역 6종뿐**이다(생성 코드 `stock-dma/msg-type.ts` 의 enum 이름을 인용한다.
+ * 원소는 **응답 대역 7종뿐**이다(생성 코드 `stock-dma/msg-type.ts` 의 enum 이름을 인용한다.
  * 리터럴을 지어내지 않는다). 57 `SymbolMasterResp` 는 quick-260923-cqj 에서 `INBOUND_MSG_TYPES`
  * 로 옮겨 갔다:
  *   - `ReconcileAccountStateResp` = 68
@@ -264,9 +290,10 @@ export const INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
  *   - `MemberStatsPush` = 75
  *   - `StrategyEventsResp` = 81 (Phase 25 — 전략 이벤트 정본은 관찰자 80 경로)
  *   - `StrategyEventPush` = 82 (Phase 25 — 같은 이유 · 호가 구독 세션에 Notice 로 쏟아진다)
+ *   - `LimitFeature` = 85 (27-01 — 중계 · 표시 범위 밖 · quote 관찰자 연결로 키당 1초마다 온다)
  *
  * 요청 대역(20 · 26 · 30 · 31)은 **의도적으로 뺐다** — 위 주석의 ★ 참조.
  */
 export const OUT_OF_SCOPE_INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
-  68, 70, 74, 75, 81, 82,
+  68, 70, 74, 75, 81, 82, 85,
 ]);

@@ -12,5 +12,7 @@ export enum CancelReason {
   Close = 6,
   SellTradeQty = 7,
   RejectResell = 8,
-  Other = 9
+  Other = 9,
+  AutoSellBuyFirst = 10,
+  AutoSellAuctionTrim = 11
 }
