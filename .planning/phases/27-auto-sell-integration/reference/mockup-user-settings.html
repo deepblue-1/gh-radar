@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 27 목업 — /me 「상따 기본설정」 섹션 (42/84 UserSettings 11값) 변형 A/B/C</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#nav button.warn.on { background: #ffb13d; border-color: #ffb13d; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+#toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(20px); background: #2c2c35; color: #fff; font-size: 13px; padding: 10px 16px; border-radius: 12px; opacity: 0; transition: all .2s; z-index: 99; max-width: 560px; line-height: 1.5; pointer-events: none; }
+#toast.show { opacity: 1; transform: translateX(-50%); }
+
+/* ── TDS 토큰 (globals.css 와 같은 값) ── */
+.f {
+  --bg: #17171c; --band: #101013; --layer: #202027; --float: #2c2c35; --g200: #3c3c47; --g300: #4d4d59;
+  --t900: #ffffff; --t800: #e4e4e5; --t600: #9e9ea4; --t500: #7e7e87; --t400: #62626d;
+  --hair: #3c3c47; --red: #f04251; --blue: #3485fa; --green: #2fca73; --amber: #ffb13d;
+  --red-box: rgba(240,66,81,.22); --blue-box: rgba(52,133,250,.22); --dim: rgba(0,0,0,.56);
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+}
+.f.light {
+  --bg: #ffffff; --band: #f2f4f6; --layer: #ffffff; --float: #f2f4f6; --g200: #e5e8eb; --g300: #d1d6db;
+  --t900: #191f28; --t800: #333d4b; --t600: #6b7684; --t500: #8b95a1; --t400: #b0b8c1;
+  --hair: #e5e8eb; --red: #f04452; --blue: #3182f6; --green: #03b26c; --amber: #ff9f1a;
+  --red-box: #ffeeee; --blue-box: #e8f3ff; --dim: rgba(0,0,0,.2);
+}
+.f { position: relative; flex: none; overflow: hidden; background: var(--bg); color: var(--t800); font-family: var(--font); -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); display: flex; }
+.f.phone { width: 390px; height: 844px; border-radius: 30px; }
+.f.desktop { width: 1280px; height: 860px; border-radius: 12px; }
+.side { display: none; }
+.f.desktop .side { display: flex; flex-direction: column; gap: 2px; width: 240px; flex: none; padding: 18px 12px; background: var(--band); }
+.side .brand { font-weight: 700; font-size: 17px; padding: 4px 10px 16px; color: var(--t900); }
+.side a { padding: 9px 10px; border-radius: 10px; color: var(--t600); font-size: 15px; font-weight: 500; }
+.side a.on { background: var(--float); color: var(--t900); font-weight: 600; }
+.col { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+.scroll { flex: 1; overflow-y: auto; scrollbar-width: none; padding: 12px 16px 90px; display: flex; flex-direction: column; gap: 12px; }
+.f.desktop .scroll { padding: 20px 24px 90px; max-width: 760px; }
+.ttl { font-size: 22px; font-weight: 700; color: var(--t900); padding: 4px 0 2px; }
+.status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--t600); }
+.status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+/* 계정 카드 A (실제 AccountCard 그대로) */
+.card { background: var(--layer); border-radius: 16px; }
+.f.light .card { background: #f9fafb; }
+.acct { display: flex; align-items: center; gap: 12px; padding: 14px 16px; min-height: 72px; }
+.acct .av { width: 44px; height: 44px; border-radius: 50%; background: var(--g200); display: grid; place-items: center; font-size: 17px; font-weight: 700; color: var(--t900); }
+.acct .nm { font-size: 16px; font-weight: 700; color: var(--t900); }
+.acct .em { font-size: 12.5px; color: var(--t600); }
+.acct .acts { margin-left: auto; display: flex; gap: 6px; }
+.acct .ib { width: 40px; height: 40px; border-radius: 12px; background: var(--float); display: grid; place-items: center; color: var(--t600); font-size: 15px; }
+/* 설정 섹션 */
+.sec { padding: 12px 10px 6px; }
+.sec-h { display: flex; align-items: center; gap: 8px; padding: 0 6px 6px; min-height: 30px; }
+.sec-h .t { font-size: 15px; font-weight: 600; color: var(--t900); }
+.sec-h .chip { margin-left: 2px; }
+.sec-h .sp { flex: 1; }
+.chip { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; background: var(--float); color: var(--t600); white-space: nowrap; }
+.chip.warn { color: var(--amber); background: color-mix(in srgb, var(--amber) 18%, transparent); }
+.chip.ok { color: var(--green); background: color-mix(in srgb, var(--green) 16%, transparent); }
+.sub { font-size: 12px; font-weight: 600; color: var(--t500); padding: 10px 6px 2px; }
+.dots { height: 0; border-top: 1px dashed var(--g300); margin: 6px 4px 2px; }
+.lrow { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 6px; min-height: 44px; cursor: pointer; border-radius: 10px; min-width: 0; }
+.lrow:hover { background: color-mix(in srgb, var(--t900) 5%, transparent); }
+.lrow .k { font-size: 14px; color: var(--t600); white-space: nowrap; }
+.lrow .v { font-size: 15px; font-weight: 500; color: var(--t800); white-space: nowrap; margin-left: auto; }
+.lrow .v::after { content: ' ›'; color: var(--t400); }
+.lrow.dirty .v { color: var(--blue); }
+.lrow.flash .v { color: var(--green); }
+.lrow .mseg { display: inline-flex; background: var(--float); border-radius: 9px; padding: 2px; gap: 2px; margin-left: auto; }
+.lrow .mseg button { font: inherit; border: 0; background: transparent; color: var(--t600); font-size: 12.5px; font-weight: 600; height: 26px; padding: 0 9px; border-radius: 7px; cursor: pointer; }
+.lrow .mseg button.on { background: var(--g300); color: var(--t900); }
+.f.light .lrow .mseg button.on { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+.lrow.ied { box-shadow: inset 0 0 0 1.5px var(--blue); background: var(--float); cursor: text; }
+.lrow.ied .v::after { content: none; }
+.lrow.ied input { width: 9ch; background: none; border: 0; outline: 0; color: var(--t900); font: inherit; font-size: 15px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.lrow.ied .u { font-size: 15px; font-weight: 500; color: var(--t800); margin-left: 2px; }
+.err { font-size: 12.5px; color: var(--red); padding: 0 6px 6px; line-height: 1.45; }
+.note { font-size: 12.5px; color: var(--t500); padding: 2px 6px 8px; line-height: 1.5; }
+.dimmed { opacity: .45; pointer-events: none; }
+/* B: 폼 한 장 */
+.frm { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; padding: 4px 6px; }
+.frm .fld { display: flex; flex-direction: column; gap: 4px; }
+.frm .fld.wide { grid-column: 1 / -1; }
+.frm label { font-size: 12px; color: var(--t600); }
+.frm .in { display: flex; align-items: center; height: 44px; border-radius: 12px; background: var(--float); padding: 0 12px; gap: 4px; }
+.frm .in input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--t900); font: inherit; font-size: 15px; font-weight: 600; text-align: right; }
+.frm .in .u { font-size: 13px; color: var(--t600); }
+.frm .in.bad { box-shadow: inset 0 0 0 1.5px var(--red); }
+.frm .mseg { display: flex; background: var(--float); border-radius: 12px; padding: 3px; gap: 2px; height: 44px; }
+.frm .mseg button { flex: 1; font: inherit; border: 0; background: transparent; color: var(--t600); font-size: 14px; font-weight: 600; border-radius: 9px; cursor: pointer; }
+.frm .mseg button.on { background: var(--g300); color: var(--t900); }
+.f.light .frm .mseg button.on { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+.frm-btns { display: flex; gap: 8px; padding: 10px 6px 6px; }
+.frm-btns button { flex: 1; font: inherit; height: 48px; border: 0; border-radius: 14px; font-size: 16px; font-weight: 600; cursor: pointer; }
+.frm-btns .save { background: var(--blue); color: #fff; }
+.frm-btns .undo { background: var(--float); color: var(--t800); }
+.frm-btns button:disabled { opacity: .38; cursor: default; }
+/* A: 하단 더티 액션 바 (DirtyActionBar 동형) */
+.dbar { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 8px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: var(--layer); border-top: 1px solid var(--hair); z-index: 5; }
+.f.light .dbar { background: #fff; }
+.dbar .cnt { font-size: 13px; color: var(--t600); flex: 1; }
+.dbar .cnt b { color: var(--blue); }
+.dbar button { font: inherit; height: 40px; border: 0; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; padding: 0 18px; }
+.dbar .save { background: var(--blue); color: #fff; }
+.dbar .undo { background: var(--float); color: var(--t800); }
+/* 아래 자리표시(전략 현황 카드) */
+.ph { padding: 14px 16px; color: var(--t500); font-size: 13px; }
+/* 시트 */
+.dim { position: absolute; inset: 0; background: var(--dim); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 20; }
+.sheet { position: absolute; left: 10px; right: 10px; bottom: 10px; background: var(--layer); border-radius: 28px; padding: 22px 20px 16px; transform: translateY(120%); transition: transform .25s ease; z-index: 21; }
+.f.light .sheet { background: #fff; }
+.f.open .dim { opacity: 1; pointer-events: auto; }
+.f.open .sheet { transform: none; }
+.sheet h3 { margin: 0 0 4px; font-size: 20px; font-weight: 700; color: var(--t900); }
+.sheet p { margin: 0 0 14px; font-size: 14px; color: var(--t600); }
+.sheet .disp { display: flex; align-items: baseline; gap: 4px; padding: 14px 16px; border-radius: 16px; background: var(--float); margin-bottom: 10px; }
+.sheet .disp .n { font-size: 26px; font-weight: 700; color: var(--t900); min-height: 32px; }
+.sheet .disp .u { font-size: 18px; font-weight: 600; color: var(--t800); }
+.sheet .disp .was { margin-left: auto; font-size: 12.5px; color: var(--t500); }
+.sheet .rng { font-size: 12.5px; color: var(--red); min-height: 16px; margin: -4px 0 8px 2px; }
+.pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; margin-bottom: 12px; }
+.pad button { font: inherit; border: 0; background: transparent; color: var(--t900); font-size: 24px; font-weight: 500; height: 52px; border-radius: 12px; cursor: pointer; }
+.pad button:active { background: var(--float); }
+.sheet .opts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.sheet .opts button { font: inherit; text-align: left; border: 0; border-radius: 14px; padding: 14px 16px; background: var(--float); color: var(--t900); font-size: 16px; font-weight: 600; cursor: pointer; display: flex; justify-content: space-between; }
+.sheet .opts button small { font-size: 12.5px; color: var(--t600); font-weight: 400; }
+.sheet .opts button.on { box-shadow: inset 0 0 0 2px var(--blue); }
+.btns { display: flex; gap: 8px; }
+.btns button { flex: 1; font: inherit; height: 52px; border: 0; border-radius: 16px; font-size: 17px; font-weight: 600; cursor: pointer; }
+.btns .b1 { background: var(--float); color: var(--t800); }
+.btns .b2 { background: var(--blue); color: #fff; }
+.btns .b2:disabled { opacity: .38; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">변형</span><button data-v="a" class="on">A 행 편집 + 하단 저장 바</button><button data-v="b">B 폼 한 장 + 저장 버튼</button><button data-v="c">C 행 확정마다 즉시 저장</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390</button><button data-w="desktop">데스크톱 1280</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
+  <div class="g"><span class="l">84 시뮬</span><button data-s="present" class="on">present=true</button><button data-s="absent">present=false (내장 기본값)</button><button data-s="loading">84 미수신</button><button data-reject class="warn">서버 거부 시뮬</button><button data-reset>초기화</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+<div id="toast"></div>
+
+<script>
+const fmt = n => Number(n).toLocaleString('ko-KR');
+const DESC = {
+  a: '<b>A 행 편집 + 하단 저장 바</b> — 상따 카드와 같은 「라벨 ─ 값 ›」 44px 행 11개(폰 시트 · 데스크톱 인라인). 값을 바꾸면 그 행이 파랗게(더티) 되고 <b>하단에 「저장」「되돌리기」 바</b>가 뜬다(DirtyActionBar 동형). 저장 = 42 한 번(11값 전체). 범위는 시트에서 미리 막고, 서버 거부 원문은 섹션 아래 빨간 한 줄.',
+  b: '<b>B 폼 한 장 + 저장 버튼</b> — 입력 필드 11개를 2열 그리드로 펼치고 섹션 끝에 「저장」「되돌리기」. 한눈에 전부 보이고 탭 순서로 쭉 입력. 상따 행 문법과는 다른 새 패턴. 범위 밖은 필드 빨간 테두리.',
+  c: '<b>C 행 확정마다 즉시 저장</b> — A 와 같은 행이지만 저장 버튼이 없다. 시트 적용 / 인라인 Enter 때마다 42(11값 전체)가 바로 나가고 행이 초록으로 반짝인다. 연속 편집이면 전송이 여러 번이고 중간 값이 다른 세션에 브로드캐스트된다.',
+};
+const F = {
+  preAmt: ['선매수 금액', '만원', 0, 999999999], addAmt: ['추가매수 금액', '만원', 0, 999999999], postAmt: ['후매수 금액', '만원', 0, 999999999],
+  postMax: ['후매수 최대', '회', 0, 255], postFloor: ['후매수 하한잔량', '주', 0, 99999999], postRebound: ['후매수 반등', '%', 0, 100],
+  trackRatio: ['매도 잔량추적', '%', 0, 90],
+  period: ['매도 주기', '초', 1, 60], auctionRatio: ['동시호가 매도비율', '%', 1, 50], ratioDefault: ['비율 기본값', '%', 1, 50], methodDefault: ['방법 기본값', '', 1, 3],
+};
+const GROUPS = [
+  ['매수 금액', ['preAmt', 'addAmt', 'postAmt']],
+  ['후매수', ['postMax', 'postFloor', 'postRebound']],
+  ['매도', ['trackRatio']],
+  ['자동매도', ['period', 'auctionRatio', 'ratioDefault', 'methodDefault']],
+];
+const BUILTIN = { preAmt: 4000, addAmt: 4000, postAmt: 4000, postMax: 3, postFloor: 100000, postRebound: 30, trackRatio: 55, period: 3, auctionRatio: 20, ratioDefault: 10, methodDefault: 3 };
+const SAVED = { preAmt: 3000, addAmt: 5000, postAmt: 2000, postMax: 2, postFloor: 150000, postRebound: 25, trackRatio: 55, period: 5, auctionRatio: 20, ratioDefault: 15, methodDefault: 1 };
+const METHOD = { 3: '양쪽', 1: '매도1호가', 2: '매수1호가' };
+
+const INIT = () => ({ v: 'a', w: 'phone', t: 'dark', s: 'present', server: { ...SAVED }, draft: { ...SAVED }, err: '', reject: false, flash: null });
+let S = INIT();
+const dirtyKeys = () => Object.keys(F).filter(k => S.draft[k] !== S.server[k]);
+const valText = k => k === 'methodDefault' ? METHOD[S.draft[k]] : fmt(S.draft[k]) + F[k][1];
+function toast(msg) { const t = document.getElementById('toast'); t.innerHTML = msg; t.classList.add('show'); clearTimeout(toast._h); toast._h = setTimeout(() => t.classList.remove('show'), 2600); }
+
+function rows() {
+  const dim = S.s === 'loading';
+  let h = '';
+  for (const [title, keys] of GROUPS) {
+    h += `<div class="sub">${title}</div>`;
+    for (const k of keys) {
+      const d = S.draft[k] !== S.server[k];
+      if (k === 'methodDefault' && S.w === 'desktop') {
+        h += `<div class="lrow ${d ? 'dirty' : ''} ${S.flash === k ? 'flash' : ''}" style="cursor:default"><span class="k">${F[k][0]}</span><span class="mseg">${[3, 1, 2].map(m => `<button data-m="${m}" class="${S.draft[k] === m ? 'on' : ''}">${METHOD[m]}</button>`).join('')}</span></div>`;
+      } else {
+        h += `<div class="lrow ${d ? 'dirty' : ''} ${S.flash === k ? 'flash' : ''}" data-id="${k}"><span class="k">${F[k][0]}</span><span class="v">${valText(k)}</span></div>`;
+      }
+    }
+  }
+  return `<div class="${dim ? 'dimmed' : ''}">${h}</div>`;
+}
+function form() {
+  const dim = S.s === 'loading';
+  let h = '<div class="frm">';
+  for (const [title, keys] of GROUPS) {
+    h += `<div class="fld wide sub" style="padding:6px 0 0">${title}</div>`;
+    for (const k of keys) {
+      const [label, unit, lo, hi] = F[k];
+      const bad = S.draft[k] < lo || S.draft[k] > hi;
+      if (k === 'methodDefault') h += `<div class="fld wide"><label>${label}</label><div class="mseg">${[3, 1, 2].map(m => `<button data-m="${m}" class="${S.draft[k] === m ? 'on' : ''}">${METHOD[m]}</button>`).join('')}</div></div>`;
+      else h += `<div class="fld"><label>${label} <span style="color:var(--t400)">${lo}~${fmt(hi)}</span></label><div class="in ${bad ? 'bad' : ''}"><input data-f="${k}" value="${S.draft[k]}" inputmode="numeric"><span class="u">${unit}</span></div></div>`;
+    }
+  }
+  h += '</div>';
+  const n = dirtyKeys().length;
+  h += `<div class="frm-btns"><button class="undo" data-undo ${n ? '' : 'disabled'}>되돌리기</button><button class="save" data-save ${n ? '' : 'disabled'}>저장${n ? ` (${n})` : ''}</button></div>`;
+  return `<div class="${dim ? 'dimmed' : ''}">${h}</div>`;
+}
+function section() {
+  const chip = S.s === 'loading' ? '<span class="chip">불러오는 중</span>' : S.s === 'absent' ? '<span class="chip warn">서버 저장값 없음 · 내장 기본값</span>' : '<span class="chip ok">서버 저장값</span>';
+  const note = S.s === 'loading' ? '<div class="note">DMA 세션이 준비되면 서버 설정(84)을 불러와요</div>' : S.s === 'absent' ? '<div class="note">아직 저장한 적이 없어요 · 저장하면 이 사용자(DMA 계정)의 모든 화면에 적용돼요</div>' : '<div class="note">새 전략 폼의 기본값이에요 · 매도 주기 · 동시호가 비율은 서버가 다음 주기부터 바로 써요</div>';
+  const body = S.v === 'b' ? form() : rows();
+  return `<section class="card sec"><div class="sec-h"><span class="t">상따 기본설정</span>${chip}<span class="sp"></span></div>${note}${body}${S.err ? `<div class="err">${S.err}</div>` : ''}</section>`;
+}
+function dbar() {
+  if (S.v !== 'a') return '';
+  const n = dirtyKeys().length; if (!n) return '';
+  return `<div class="dbar"><span class="cnt"><b>${n}개</b> 바뀜 · 저장하면 11값이 한 번에 반영돼요</span><button class="undo" data-undo>되돌리기</button><button class="save" data-save>저장</button></div>`;
+}
+function frame() {
+  return `<div class="f ${S.w} ${S.t === 'light' ? 'light' : ''}" id="F">
+    <aside class="side"><div class="brand">gh-radar</div><a>홈</a><a>스캐너</a><a>테마</a><a>관심종목</a><a>종목상세</a><a>트레이딩</a><a>AI 챗봇</a><a class="on">마이</a></aside>
+    <div class="col">
+      <div class="scroll">
+        <div class="ttl">마이</div>
+        <div class="status"><span class="dot"></span>DMA 연결됨 · 시세 실시간 · 주문 세션 준비됨</div>
+        <section class="card acct"><span class="av">E</span><div><div class="nm">alex</div><div class="em">ezmesya@gmail.com</div></div><div class="acts"><span class="ib">☾</span><span class="ib" style="color:var(--red)">⏻</span></div></section>
+        ${section()}
+        <section class="card ph">전략 현황 · 계좌별 미체결 · 잔고 카드 (현행 그대로, 아래로 밀림)</section>
+      </div>
+      ${dbar()}
+    </div>
+    <div class="dim" id="DIM"></div>
+    <div class="sheet" id="SHEET"></div>
+  </div>`;
+}
+function render() {
+  document.getElementById('stage').innerHTML = frame();
+  document.getElementById('desc').innerHTML = DESC[S.v];
+  document.querySelectorAll('#nav [data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === S.v));
+  document.querySelectorAll('#nav [data-w]').forEach(b => b.classList.toggle('on', b.dataset.w === S.w));
+  document.querySelectorAll('#nav [data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === S.t));
+  document.querySelectorAll('#nav [data-s]').forEach(b => b.classList.toggle('on', b.dataset.s === S.s));
+  document.querySelector('#nav [data-reject]').classList.toggle('on', S.reject);
+}
+
+/* ── 동작 ── */
+function setSim(s) {
+  S.s = s; S.err = '';
+  if (s === 'present') { S.server = { ...SAVED }; }
+  if (s === 'absent') { S.server = { ...BUILTIN }; }
+  if (s === 'loading') { S.server = { ...BUILTIN }; }
+  S.draft = { ...S.server }; render();
+}
+function save() {
+  if (S.reject) { S.err = '매도 주기는 1~60초여야 합니다(받은 값 99) — 서버 거부(SetUserSettings)'; render(); return; }
+  const bad = Object.keys(F).find(k => S.draft[k] < F[k][2] || S.draft[k] > F[k][3]);
+  if (bad) { S.err = `${F[bad][0]}은(는) ${F[bad][2]}~${fmt(F[bad][3])}${F[bad][1]} 사이여야 해요`; render(); return; }
+  S.server = { ...S.draft }; S.err = ''; if (S.s === 'absent') S.s = 'present'; render();
+  toast('42 전송 → 84 브로드캐스트 — 같은 DMA 계정의 다른 세션에도 반영');
+}
+function commit(k, raw) {
+  const n = Math.max(0, parseInt(String(raw).replace(/[^0-9]/g, ''), 10) || 0);
+  S.draft[k] = n;
+  if (S.v === 'c') { S.flash = k; save(); setTimeout(() => { S.flash = null; render(); }, 700); return; }
+  render();
+}
+let ED = null;
+function openSheet(k) {
+  const [label, unit, lo, hi] = F[k];
+  const sh = document.getElementById('SHEET');
+  if (k === 'methodDefault') {
+    sh.innerHTML = `<h3>${label}</h3><p>새 전략의 자동매도 방법 초기값이에요</p><div class="opts">${[3, 1, 2].map(m => `<button data-pick="${m}" class="${S.draft[k] === m ? 'on' : ''}">${METHOD[m]}</button>`).join('')}</div><div class="btns"><button class="b1" data-close>취소</button></div>`;
+  } else {
+    ED = { k, buf: '', sel: true };
+    sh.innerHTML = `<h3>${label}</h3><p>${lo}~${fmt(hi)}${unit}</p>
+      <div class="disp"><span class="n" id="SN">${fmt(S.draft[k])}</span><span class="u">${unit}</span><span class="was">지금 ${fmt(S.draft[k])}${unit}</span></div>
+      <div class="rng" id="RNG"></div>
+      <div class="pad">${['1','2','3','4','5','6','7','8','9','00','0','⌫'].map(x => `<button data-key="${x}">${x}</button>`).join('')}</div>
+      <div class="btns"><button class="b1" data-close>취소</button><button class="b2" data-apply id="APPLY">${S.v === 'c' ? '적용하고 저장' : '적용'}</button></div>`;
+  }
+  document.getElementById('F').classList.add('open');
+}
+function closeSheet() { document.getElementById('F').classList.remove('open'); ED = null; }
+function inlineEdit(rowEl, k) {
+  const [, unit] = F[k];
+  rowEl.classList.add('ied');
+  rowEl.querySelector('.v').innerHTML = `<input value="${fmt(S.draft[k])}" inputmode="numeric"><span class="u">${unit}</span>`;
+  const inp = rowEl.querySelector('input'); inp.focus(); inp.select();
+  const finish = ok => { if (ok) commit(k, inp.value); else render(); };
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); finish(true); } if (e.key === 'Escape') finish(false); });
+  inp.addEventListener('blur', () => finish(true));
+}
+
+document.getElementById('nav').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.v) { S.v = b.dataset.v; S.err = ''; }
+  if (b.dataset.w) S.w = b.dataset.w;
+  if (b.dataset.t) S.t = b.dataset.t;
+  if (b.dataset.s) return setSim(b.dataset.s);
+  if (b.hasAttribute('data-reject')) { S.reject = !S.reject; S.err = ''; }
+  if (b.hasAttribute('data-reset')) { const { v, w, t } = S; S = INIT(); Object.assign(S, { v, w, t }); }
+  render();
+});
+document.getElementById('stage').addEventListener('click', e => {
+  const t = e.target;
+  if (t.closest('[data-save]')) return save();
+  if (t.closest('[data-undo]')) { S.draft = { ...S.server }; S.err = ''; return render(); }
+  const m = t.closest('[data-m]'); if (m) { S.draft.methodDefault = +m.dataset.m; if (S.v === 'c') return save(); return render(); }
+  if (t.closest('#DIM') || t.closest('[data-close]')) return closeSheet();
+  const pick = t.closest('[data-pick]'); if (pick) { S.draft.methodDefault = +pick.dataset.pick; closeSheet(); if (S.v === 'c') return save(); return render(); }
+  const key = t.closest('[data-key]');
+  if (key && ED) {
+    const n = document.getElementById('SN');
+    if (key.dataset.key === '⌫') ED.buf = ED.buf.slice(0, -1); else if (ED.sel) { ED.buf = key.dataset.key; ED.sel = false; } else ED.buf += key.dataset.key;
+    const v = parseInt(ED.buf, 10) || 0; n.textContent = ED.buf ? fmt(v) : '0';
+    const [, u, lo, hi] = F[ED.k]; const bad = ED.buf !== '' && (v < lo || v > hi);
+    document.getElementById('RNG').textContent = bad ? `${lo}~${fmt(hi)}${u} 사이여야 해요` : ''; document.getElementById('APPLY').disabled = bad; return;
+  }
+  if (t.closest('[data-apply]') && ED) { const k = ED.k, v = ED.buf; closeSheet(); return commit(k, v === '' ? S.draft[k] : v); }
+  const rowEl = t.closest('.lrow'); if (rowEl && rowEl.dataset.id && !rowEl.classList.contains('ied')) {
+    if (S.w === 'desktop' && rowEl.dataset.id !== 'methodDefault') return inlineEdit(rowEl, rowEl.dataset.id);
+    return openSheet(rowEl.dataset.id);
+  }
+});
+document.getElementById('stage').addEventListener('change', e => {
+  const inp = e.target.closest('input[data-f]'); if (inp) commit(inp.dataset.f, inp.value);
+});
+render();
+</script>
+</body>
+</html>

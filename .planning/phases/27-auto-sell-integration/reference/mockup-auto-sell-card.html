@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 27 목업 — 상따 카드 「자동매도」 칸 (매도 pane 세 번째 그룹 카드)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+#toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(20px); background: #2c2c35; color: #fff; font-size: 13px; padding: 10px 16px; border-radius: 12px; opacity: 0; transition: all .2s; z-index: 99; max-width: 560px; line-height: 1.5; pointer-events: none; }
+#toast.show { opacity: 1; transform: translateX(-50%); }
+
+/* ── TDS 토큰 (globals.css :root / .dark 와 같은 값 · 스케치 009 동일) ── */
+.f {
+  --bg: #17171c; --band: #101013; --layer: #202027; --float: #2c2c35; --g200: #3c3c47; --g300: #4d4d59;
+  --t900: #ffffff; --t800: #e4e4e5; --t600: #9e9ea4; --t500: #7e7e87; --t400: #62626d;
+  --hair: #3c3c47; --red: #f04251; --blue: #3485fa; --green: #2fca73; --amber: #ffb13d;
+  --red-box: rgba(240,66,81,.22); --blue-box: rgba(52,133,250,.22); --dim: rgba(0,0,0,.56);
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+}
+.f.light {
+  --bg: #ffffff; --band: #f2f4f6; --layer: #ffffff; --float: #f2f4f6; --g200: #e5e8eb; --g300: #d1d6db;
+  --t900: #191f28; --t800: #333d4b; --t600: #6b7684; --t500: #8b95a1; --t400: #b0b8c1;
+  --hair: #e5e8eb; --red: #f04452; --blue: #3182f6; --green: #03b26c; --amber: #ff9f1a;
+  --red-box: #ffeeee; --blue-box: #e8f3ff; --dim: rgba(0,0,0,.2);
+}
+.f { position: relative; flex: none; overflow: hidden; background: var(--bg); color: var(--t800); font-family: var(--font); -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); display: flex; }
+.f.phone { width: 390px; height: 844px; border-radius: 30px; }
+.f.tablet { width: 768px; height: 1000px; border-radius: 24px; }
+.f.desktop { width: 1280px; height: 860px; border-radius: 12px; }
+.side { display: none; }
+.f.desktop .side { display: flex; flex-direction: column; gap: 2px; width: 240px; flex: none; padding: 18px 12px; background: var(--band); }
+.side .brand { font-weight: 700; font-size: 17px; padding: 4px 10px 16px; color: var(--t900); }
+.side a { padding: 9px 10px; border-radius: 10px; color: var(--t600); font-size: 15px; font-weight: 500; }
+.side a.on { background: var(--float); color: var(--t900); font-weight: 600; }
+.col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.hdr { display: flex; align-items: center; gap: 10px; padding: 12px 16px 0; }
+.f.desktop .hdr { padding: 20px 24px 0; }
+.hdr .back { font-size: 24px; color: var(--t800); }
+.hdr .nm { font-size: 17px; font-weight: 600; color: var(--t900); }
+.hdr .cd { font-size: 12px; color: var(--t600); background: var(--float); padding: 2px 7px; border-radius: 6px; }
+.hdr .px { font-size: 17px; font-weight: 600; color: var(--red); margin-left: 4px; }
+.hdr .sp { flex: 1; }
+.tabs { display: flex; gap: 18px; padding: 8px 16px 0; border-bottom: 1px solid var(--hair); }
+.f.desktop .tabs { padding: 8px 24px 0; }
+.tabs span { font-size: 17px; font-weight: 600; color: var(--t500); padding: 8px 0 10px; border-bottom: 2px solid transparent; }
+.tabs span.on { color: var(--t900); border-bottom-color: var(--t900); }
+/* 헤더 둘째 줄 — LED 4칩(매수 · 매도 · 취소 · 자동) */
+.strip { display: flex; align-items: center; gap: 6px; padding: 8px 16px; font-size: 12px; color: var(--t600); white-space: nowrap; overflow: hidden; }
+.f.desktop .strip { padding: 10px 24px; }
+.strip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex: none; }
+.f.phone .strip .dma { display: none; }
+.strip .led { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 999px; background: var(--float); font-size: 11.5px; flex: none; }
+.strip .led i { width: 7px; height: 7px; border-radius: 50%; }
+.strip .led b { color: var(--t800); font-weight: 600; }
+.strip .sp { flex: 1; }
+.strip .x { font-size: 11px; font-weight: 600; background: var(--float); border-radius: 999px; padding: 2px 8px; color: var(--t800); flex: none; }
+.wrap { flex: 1; min-height: 0; container: ob / inline-size; }
+.f.desktop .wrap { padding: 0 24px; }
+.body { height: 100%; display: grid; grid-template-columns: 42% 1fr; }
+@container ob (min-width: 700px) { .body { grid-template-columns: 260px 1fr; } }
+@container ob (min-width: 992px) { .body { grid-template-columns: 440px 1fr; } }
+.lad { overflow-y: auto; border-right: 1px solid var(--hair); scrollbar-width: none; }
+.lr { display: grid; grid-template-columns: 1fr auto; align-items: center; height: 48px; padding: 0 8px 0 14px; }
+.lr .p b { display: block; font-size: 15px; font-weight: 500; line-height: 1.2; }
+.lr .p small { font-size: 11.5px; }
+.q { min-width: 44px; text-align: right; font-size: 13px; padding: 5px 8px; border-radius: 8px; }
+.ask .q { background: var(--blue-box); color: var(--blue); }
+.bid .q { background: var(--red-box); color: var(--red); }
+.lr.cur { background: var(--float); }
+.midline { height: 1px; background: var(--hair); margin: 2px 0; }
+.up { color: var(--red); } .dn { color: var(--blue); }
+.pan { padding: 10px 12px 0 10px; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+@container ob (min-width: 700px) { .pan { padding: 12px 0 0 16px; } }
+.pan-scroll { flex: 1; overflow-y: auto; scrollbar-width: none; padding-bottom: 14px; }
+.seg { display: flex; background: var(--float); border-radius: 12px; padding: 3px; gap: 2px; }
+.seg button { flex: 1; font: inherit; border: 0; background: transparent; color: var(--t600); font-size: 15px; font-weight: 600; height: 34px; border-radius: 10px; cursor: pointer; white-space: nowrap; }
+.seg button.on { background: var(--g300); color: var(--t900); }
+.f.light .seg button.on { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+@container ob (min-width: 700px) { .only-narrow { display: none !important; } }
+.cols { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.cols > .c { min-width: 0; }
+.cols > .c.hide-narrow { display: none; }
+.side-h { display: none; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; margin: 10px 2px 0; color: var(--t900); }
+.side-h i { width: 8px; height: 8px; border-radius: 50%; }
+@container ob (min-width: 700px) { .cols { grid-template-columns: 1fr 1fr; } .side-h { display: flex; } .cols > .c.hide-narrow { display: block; } }
+
+.grp { margin-top: 10px; border-radius: 16px; padding: 10px 10px 4px; background: var(--layer); }
+.f.light .grp { background: #f9fafb; }
+.grp-h { display: flex; align-items: center; gap: 8px; padding: 0 2px 2px; min-height: 30px; }
+.grp-h .t { font-size: 15px; font-weight: 600; color: var(--t900); }
+.grp-h .s { font-size: 12px; color: var(--t500); }
+.grp-h .s.live { color: var(--green); }
+.grp-h .s.hold { color: var(--amber); }
+.grp-h .sw { margin-left: auto; }
+.sw { width: 40px; height: 24px; border-radius: 999px; background: var(--g300); position: relative; cursor: pointer; flex: none; transition: background .15s; }
+.sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.sw.on { background: var(--blue); } .sw.on::after { transform: translateX(16px); }
+.lrow { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 4px; min-height: 44px; cursor: pointer; border-radius: 10px; min-width: 0; }
+.lrow:hover { background: color-mix(in srgb, var(--t900) 5%, transparent); }
+.lrow .k { font-size: 14px; color: var(--t600); white-space: nowrap; }
+.lrow .v { font-size: 15px; font-weight: 500; color: var(--t800); white-space: nowrap; margin-left: auto; }
+.lrow .v::after { content: ' ›'; color: var(--t400); }
+.lrow .v small { font-size: 12px; color: var(--t500); font-weight: 500; margin-right: 3px; }
+.lrow.ro { cursor: default; }
+.lrow.ro:hover { background: transparent; }
+.lrow.ro .v::after { content: none; }
+.lrow.ro .v { color: var(--t600); }
+.lrow.ro .v.hot { color: var(--red); font-weight: 600; }
+.dimmed { opacity: .45; }
+.ck { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--g300); flex: none; display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 700; margin-right: 4px; }
+.ck.on { background: var(--blue); border-color: var(--blue); }
+.ck.on::after { content: '✓'; }
+.lrow.ckrow .k { color: var(--t800); font-weight: 500; }
+.chip { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; background: var(--float); color: var(--t600); white-space: nowrap; }
+.chip.live { color: var(--green); background: color-mix(in srgb, var(--green) 16%, transparent); }
+.chip.hold { color: var(--amber); background: color-mix(in srgb, var(--amber) 18%, transparent); }
+.chip.done { color: var(--blue); background: var(--blue-box); }
+.chip.pend { color: var(--t600); background: var(--float); border: 1px dashed var(--g300); }
+.err { font-size: 12.5px; color: var(--red); padding: 2px 6px 6px; line-height: 1.45; }
+.grp-h.fold { cursor: pointer; border-radius: 10px; margin: 0 -2px; padding: 0 4px 2px; }
+.grp-h.fold:hover { background: color-mix(in srgb, var(--t900) 5%, transparent); }
+.grp-h .chev { color: var(--t400); font-size: 14px; transition: transform .15s; margin-left: -2px; }
+.grp-h.open .chev { transform: rotate(90deg); }
+.sumline { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 2px 4px 8px; font-size: 13px; color: var(--t800); line-height: 1.4; }
+.sumline .kv { white-space: nowrap; font-weight: 500; }
+.sumline .kv small { font-size: 12px; color: var(--t500); font-weight: 400; margin-right: 3px; }
+.sumline .kv.off { color: var(--t500); }
+.sumline .kv.hot { color: var(--red); }
+/* 방법 선택 — 데스크톱 인라인 세그먼트 / 폰은 시트 */
+.lrow .mseg { display: inline-flex; background: var(--float); border-radius: 9px; padding: 2px; gap: 2px; margin-left: auto; }
+.lrow .mseg button { font: inherit; border: 0; background: transparent; color: var(--t600); font-size: 12.5px; font-weight: 600; height: 26px; padding: 0 9px; border-radius: 7px; cursor: pointer; }
+.lrow .mseg button.on { background: var(--g300); color: var(--t900); }
+.f.light .lrow .mseg button.on { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+/* 바로시작 · 중지 행 (본문 마지막) */
+.act { display: flex; gap: 8px; padding: 6px 4px 8px; }
+.act button { flex: 1; font: inherit; height: 40px; border: 0; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.act .start { background: var(--red); color: #fff; }
+.act .stop { background: var(--float); color: var(--t800); }
+.act button:disabled { opacity: .38; cursor: default; }
+.log { margin-top: 12px; padding: 8px 10px; border-radius: 12px; background: var(--band); font-size: 12px; line-height: 1.6; color: var(--t600); }
+.f.light .log { background: #f2f4f6; }
+.log .h { font-weight: 600; color: var(--t500); font-size: 11px; margin-bottom: 2px; }
+.log .e { color: var(--red); }
+.log .i b { color: var(--t800); font-weight: 500; }
+.log .tag { font-size: 10.5px; font-weight: 600; padding: 0 5px; border-radius: 5px; background: var(--float); color: var(--t600); margin-right: 4px; }
+/* 시트 */
+.dim { position: absolute; inset: 0; background: var(--dim); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 20; }
+.sheet { position: absolute; left: 10px; right: 10px; bottom: 10px; background: var(--layer); border-radius: 28px; padding: 22px 20px 16px; transform: translateY(120%); transition: transform .25s ease; z-index: 21; }
+.f.light .sheet { background: #fff; }
+.f.tablet .sheet { left: 50%; right: auto; width: 440px; margin-left: -220px; }
+.f.open .dim { opacity: 1; pointer-events: auto; }
+.f.open .sheet { transform: none; }
+.sheet h3 { margin: 0 0 4px; font-size: 20px; font-weight: 700; color: var(--t900); }
+.sheet p { margin: 0 0 14px; font-size: 14px; color: var(--t600); }
+.sheet .opts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.sheet .opts button { font: inherit; text-align: left; border: 0; border-radius: 14px; padding: 14px 16px; background: var(--float); color: var(--t900); font-size: 16px; font-weight: 600; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+.sheet .opts button small { font-size: 12.5px; color: var(--t600); font-weight: 400; }
+.sheet .opts button.on { box-shadow: inset 0 0 0 2px var(--blue); }
+.btns { display: flex; gap: 8px; }
+.btns button { flex: 1; font: inherit; height: 52px; border: 0; border-radius: 16px; font-size: 17px; font-weight: 600; cursor: pointer; }
+.btns .b1 { background: var(--float); color: var(--t800); }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390</button><button data-w="tablet">태블릿 768</button><button data-w="desktop">데스크톱 1280</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
+  <div class="g"><span class="l">서버 에코(시뮬)</span><button data-st="0">꺼짐</button><button data-st="1">대기</button><button data-st="2" class="on">감시</button><button data-st="3">매도중</button><button data-st="4">완료</button><button data-basis>기준 매수가↔상한가</button><button data-fold>카드 접기/펼치기</button><button data-reset>초기화</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+<div id="toast"></div>
+
+<script>
+const UPPER = 13000, CUR = 12990, BASE = 10000;
+const fmt = n => Number(n).toLocaleString('ko-KR');
+const pct = p => { const x = (p - BASE) / BASE * 100; return (x > 0 ? '+' : '') + x.toFixed(2) + '%'; };
+const cls = p => p > BASE ? 'up' : p < BASE ? 'dn' : '';
+
+const DESC = '<b>자동매도 카드 = 매도 pane 세 번째 그룹 카드</b>(매도주문 · 매수취소 아래). 제목줄 = 「자동매도 ›」 + <b>상태 칩</b>(대기/감시/매도중/완료 — 꺼지면 없음) + 스위치(☐자동매도). 본문 = 시작조건 · 비율 · 방법(3택) · <b>읽기 전용 2행</b>(누적 매도 · 기준) · <b>마지막 행 바로시작/중지</b>(상태에 따라 하나만 활성). 접으면 요약 줄에 전부. 헤더 LED 는 <b>4번째 「자동」</b> 추가. 상단 「서버 에코」로 상태를 바꿔 보세요 — 스위치·바로시작·중지도 눌러 볼 수 있습니다(60 에코 가정).';
+
+const INIT = () => ({
+  w: 'phone', t: 'dark', side: 'sell', open: true,
+  on: true, state: 2, basis: 1, basisPrice: UPPER, sold: 0, startCond: 2, ratio: 10, method: 3,
+  sellOn: true, sellPrice: 13000, sellRatio: 100, sellWatchPrice: 13000, sellWatchQty: 10, sellTrack: true, sellTrackRatio: 55, sellTrade: true, sellTradeQty: 30000,
+  cancelOn: true, cancelQty: 10, cancelTrade: true, cancelTrack: true,
+  pending: null, logs: [],
+});
+let S = INIT();
+const STATE_TXT = ['꺼짐', '대기', '감시', '매도중', '완료'];
+const STATE_CLS = ['', '', 'live', 'hold', 'done'];
+const METHOD = { 3: '양쪽', 1: '매도1호가', 2: '매수1호가' };
+
+function toast(msg) { const t = document.getElementById('toast'); t.innerHTML = msg; t.classList.add('show'); clearTimeout(toast._h); toast._h = setTimeout(() => t.classList.remove('show'), 2600); }
+function log(kind, text, tag) { S.logs.unshift({ kind, text, tag, at: new Date().toTimeString().slice(0, 8) }); S.logs = S.logs.slice(0, 5); }
+
+const condText = () => S.startCond === 0 ? '이탈 후 다음 체결' : `${S.startCond}%`;
+const basisText = () => S.state === 0 || S.basis === 0 ? '—' : `${S.basis === 1 ? '상한가' : '매수가'} ${fmt(S.basisPrice)}원`;
+const chip = () => S.pending ? `<span class="chip pend">${S.pending}</span>` : (S.state === 0 ? '' : `<span class="chip ${STATE_CLS[S.state]}">${STATE_TXT[S.state]}</span>`);
+const led = () => S.state === 0 ? ['OFF', 'var(--g300)'] : S.state === 3 ? ['매도중', 'var(--amber)'] : S.state === 4 ? ['완료', 'var(--blue)'] : [STATE_TXT[S.state], 'var(--green)'];
+
+const row = (k, v, id, dim) => `<div class="lrow ${dim ? 'dimmed' : ''}" data-id="${id}"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+const ckrow = (ck, label, v) => `<div class="lrow ckrow"><span class="ck ${S[ck] ? 'on' : ''}"></span><span class="k">${label}</span><span class="v">${v}</span></div>`;
+const roRow = (k, v, hot) => `<div class="lrow ro"><span class="k">${k}</span><span class="v ${hot ? 'hot' : ''}">${v}</span></div>`;
+function methodRow(dim) {
+  if (S.w === 'desktop') return `<div class="lrow ro ${dim ? 'dimmed' : ''}" style="cursor:default"><span class="k">방법</span><span class="mseg">${[3, 1, 2].map(m => `<button data-m="${m}" class="${S.method === m ? 'on' : ''}">${METHOD[m]}</button>`).join('')}</span></div>`;
+  return row('방법', METHOD[S.method], 'method', dim);
+}
+
+function autoSellCard() {
+  const dim = !S.on;
+  const kv = (k, v, c) => `<span class="kv ${c ?? ''}"><small>${k}</small>${v}</span>`;
+  const head = `<div class="grp-h fold ${S.open ? 'open' : ''}" data-fold-card><span class="t">자동매도</span><span class="chev">›</span>${chip()}<span class="sw ${S.on ? 'on' : ''}" data-sw></span></div>`;
+  if (!S.open) {
+    return `<div class="grp">${head}<div class="sumline ${dim ? 'dimmed' : ''}">${kv('시작조건', condText())}${kv('비율', S.ratio + '%')}${kv('방법', METHOD[S.method])}${kv('누적', S.sold ? fmt(S.sold) + '주' : '—', S.sold ? 'hot' : 'off')}${kv('기준', basisText(), S.state ? '' : 'off')}</div></div>`;
+  }
+  const canStart = S.state !== 3 && !S.pending;
+  const canStop = S.state === 3 && !S.pending;
+  return `<div class="grp">${head}
+    <div class="${dim ? 'dimmed' : ''}">
+      ${row('시작조건', condText(), 'startCond')}
+      ${row('비율', S.ratio + '%', 'ratio')}
+      ${methodRow(false)}
+    </div>
+    ${roRow('누적 매도', S.sold ? fmt(S.sold) + '주' : '—', S.sold > 0)}
+    ${roRow('기준', basisText(), false)}
+    <div class="act"><button class="start" data-start ${canStart ? '' : 'disabled'}>바로시작</button><button class="stop" data-stop ${canStop ? '' : 'disabled'}>중지</button></div>
+  </div>`;
+}
+
+function sellList() {
+  return `<div class="grp">${row('주문가격', fmt(S.sellPrice) + '원', 'sellPrice')}${row('매도비율', S.sellRatio + '%', 'sellRatio')}</div>
+  <div class="grp"><div class="grp-h"><span class="t">매도주문</span><span class="s ${S.sellOn ? 'live' : ''}">${S.sellOn ? '감시 중' : '꺼짐'}</span><span class="sw ${S.sellOn ? 'on' : ''}" data-b="sellOn"></span></div><div class="${S.sellOn ? '' : 'dimmed'}">${row('비교가격', fmt(S.sellWatchPrice) + '원', 'sellWatchPrice')}${row('매수잔량', fmt(S.sellWatchQty) + '주', 'sellWatchQty')}${ckrow('sellTrack', '잔량추적', S.sellTrackRatio + '%')}${ckrow('sellTrade', '체결', fmt(S.sellTradeQty) + '주')}</div></div>
+  <div class="grp"><div class="grp-h"><span class="t">매수취소</span><span class="s ${S.cancelOn ? 'live' : ''}">${S.cancelOn ? '대기' : '꺼짐'}</span><span class="sw ${S.cancelOn ? 'on' : ''}" data-b="cancelOn"></span></div>${row('매수잔량', fmt(S.cancelQty) + '주', 'cancelQty')}${ckrow('cancelTrade', '체결', '')}${ckrow('cancelTrack', '잔량추적', '')}</div>
+  ${autoSellCard()}`;
+}
+
+function buyList() {
+  const kv = (k, v) => `<span class="kv"><small>${k}</small>${v}</span>`;
+  const card = (t, s, sum) => `<div class="grp"><div class="grp-h fold"><span class="t">${t}</span><span class="chev">›</span>${s}<span class="sw ${s ? 'on' : ''}"></span></div><div class="sumline ${s ? '' : 'dimmed'}">${sum}</div></div>`;
+  return `<div class="grp"><div class="grp-h"><span class="t">매수주문</span><span class="s live">감시 중</span><span class="sw on"></span></div>${row('주문가격', '13,000원', 'x')}${row('비교가격', '13,000원', 'x')}</div>`
+    + card('선매수', '<span class="chip live">감시 중</span>', kv('금액', '4,000만원') + kv('매도잔량', '10,000주') + kv('체결량', '30,000주') + kv('한방', '꺼짐'))
+    + card('추가매수', '', kv('금액', '4,000만원') + kv('최소', '50,000주') + kv('최대', '무제한'))
+    + card('후매수', '', kv('금액', '4,000만원') + kv('최대', '3회') + kv('최소', '100,000주') + kv('반등', '30%') + kv('발동잔량', '—'));
+}
+
+function logHtml() {
+  return ''; // 전략 로그 패널은 이 목업 범위 밖 — 사용자 요청으로 제거(2026-10-05)
+  if (!S.logs.length) return '';
+  return `<div class="log"><div class="h">전략 로그</div>${S.logs.map(l => `<div class="${l.kind}">${l.at} · ${l.tag ? `<span class="tag">${l.tag}</span>` : ''}${l.text}</div>`).join('')}</div>`;
+}
+function ladder() {
+  const asks = [[13000, 0], [12995, 0], [12990, 8213], [12985, 40213], [12980, 30213]];
+  const bids = [[12990, 0], [12985, 10087], [12980, 20087], [12975, 30087], [12970, 40087], [12965, 50087]];
+  const pc = p => `<b class="${cls(p)}">${fmt(p)}</b><small class="${cls(p)}">${pct(p)}</small>`;
+  let h = '';
+  asks.forEach(([p, q]) => h += `<div class="lr ask"><div class="p">${pc(p)}</div>${q ? `<div class="q">${fmt(q)}</div>` : ''}</div>`);
+  h += '<div class="midline"></div>';
+  bids.forEach(([p, q], i) => h += `<div class="lr bid ${i ? '' : 'cur'}"><div class="p">${pc(p)}</div>${q ? `<div class="q">${fmt(q)}</div>` : ''}</div>`);
+  return h;
+}
+function panel() {
+  return `
+    <div class="seg only-narrow"><button data-side="buy" class="${S.side === 'buy' ? 'on' : ''}">매수</button><button data-side="sell" class="${S.side === 'sell' ? 'on' : ''}">매도</button><button data-side="manual">수동</button></div>
+    <div class="pan-scroll">
+      <div class="cols">
+        <div class="c ${S.side === 'buy' ? '' : 'hide-narrow'}"><div class="side-h"><i style="background:var(--red)"></i>매수</div>${buyList()}</div>
+        <div class="c ${S.side === 'sell' ? '' : 'hide-narrow'}"><div class="side-h"><i style="background:var(--blue)"></i>매도</div>${sellList()}</div>
+      </div>
+      ${logHtml()}
+    </div>`;
+}
+function frame() {
+  const [al, ac] = led();
+  return `<div class="f ${S.w} ${S.t === 'light' ? 'light' : ''}" id="F">
+    <aside class="side"><div class="brand">gh-radar</div><a>홈</a><a>스캐너</a><a>테마</a><a>관심종목</a><a class="on">종목상세</a><a>트레이딩</a><a>AI 챗봇</a><a>마이</a></aside>
+    <div class="col">
+      <div class="hdr"><span class="back">‹</span><span class="nm">원익홀딩스</span><span class="cd">030530</span><span class="px">${fmt(CUR)}원 +29.9%</span><span class="sp"></span></div>
+      <div class="tabs"><span>차트</span><span class="on">호가주문</span><span>종목정보</span><span>뉴스토론</span></div>
+      <div class="strip"><span class="dot"></span><span class="dma">DMA 실시간</span>
+        <span class="led"><i style="background:var(--green)"></i>매수 <b>감시</b></span>
+        <span class="led"><i style="background:${S.sellOn ? 'var(--green)' : 'var(--g300)'}"></i>매도 <b>${S.sellOn ? '감시' : 'OFF'}</b></span>
+        <span class="led"><i style="background:${S.cancelOn ? 'var(--amber)' : 'var(--g300)'}"></i>취소 <b>${S.cancelOn ? '대기' : 'OFF'}</b></span>
+        <span class="led"><i style="background:${ac}"></i>자동 <b>${al}</b></span>
+        <span class="sp"></span><span class="x">KRX</span></div>
+      <div class="wrap"><div class="body"><div class="lad">${ladder()}</div><div class="pan" id="PAN">${panel()}</div></div></div>
+    </div>
+    <div class="dim" id="DIM"></div>
+    <div class="sheet" id="SHEET"></div>
+  </div>`;
+}
+function render() {
+  document.getElementById('stage').innerHTML = frame();
+  document.getElementById('desc').innerHTML = DESC;
+  document.querySelectorAll('#nav [data-w]').forEach(b => b.classList.toggle('on', b.dataset.w === S.w));
+  document.querySelectorAll('#nav [data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === S.t));
+  document.querySelectorAll('#nav [data-st]').forEach(b => b.classList.toggle('on', +b.dataset.st === S.state));
+}
+
+/* ── 시뮬 규약(서버 §6-6 상태기계 요약) ── */
+function simState(st) {
+  S.pending = null; S.state = st; S.on = st !== 0;
+  if (st === 0) { S.sold = 0; S.basis = 0; }
+  if (st === 1) { S.sold = 0; S.basis = S.basis || 1; S.basisPrice = S.basis === 1 ? UPPER : 12500; log('i', `자동매도 꺼짐 → 대기 (기준 ${S.basis === 1 ? '상한가' : '매수가'} ${fmt(S.basisPrice)})`, '서버'); }
+  if (st === 2) { S.basis = S.basis || 1; S.basisPrice = S.basis === 1 ? UPPER : 12500; log('i', `자동매도 대기 → 감시 (발동가 ${fmt(S.basisPrice - Math.floor(BASE * S.startCond / 100))})`, '서버'); }
+  if (st === 3) { S.basis = S.basis || 1; S.basisPrice = S.basis === 1 ? UPPER : 12500; S.sold = S.sold || 6000; log('i', `자동매도 감시 → 매도중 — 발동 체결가 ${fmt(S.basisPrice - 100)} · T0 누적 914,000`, '서버'); log('i', `매도 6,000주 @12,990 (양쪽 3,000/3,000) — 주기 거래량 60,000 × 10%`, '자동매도'); }
+  if (st === 4) { S.sold = S.sold || 24000; log('i', `자동매도 매도중 → 완료 — 보유 0 · 누적 ${fmt(S.sold)}주`, '서버'); }
+  render();
+}
+function toggleSwitch() {
+  if (S.on) { S.on = false; S.pending = '미반영'; render(); setTimeout(() => simState(0), 500); return; }
+  S.on = true; S.pending = '미반영'; render(); setTimeout(() => simState(1), 500);
+}
+function cmd(action) {
+  S.pending = action === 1 ? '바로시작 전송…' : '중지 전송…'; render();
+  setTimeout(() => {
+    if (action === 1) { S.on = true; S.basis = 1; S.basisPrice = UPPER; S.pending = null; S.state = 3; S.sold = S.sold || 0; log('i', `자동매도 ${STATE_TXT[2]} → 매도중 (바로시작)`, '서버'); render(); }
+    else { S.pending = null; S.on = false; S.state = 0; log('i', '자동매도 매도중 → 꺼짐 (중지 — 미체결 유지)', '서버'); render(); }
+  }, 600);
+}
+function openSheet(id) {
+  const sh = document.getElementById('SHEET');
+  if (id === 'method') {
+    sh.innerHTML = `<h3>방법</h3><p>주기마다 낼 매도의 호가 쪽이에요 · 다음 주기부터 적용</p><div class="opts">${[3, 1, 2].map(m => `<button data-pick="${m}" class="${S.method === m ? 'on' : ''}">${METHOD[m]}<small>${m === 3 ? '반씩 매도1호가 · 매수1호가' : m === 1 ? '전량 매도1호가(공백이면 상한가)' : '전량 매수1호가(공백이면 건너뜀)'}</small></button>`).join('')}</div><div class="btns"><button class="b1" data-close>취소</button></div>`;
+  } else {
+    const [h, p] = id === 'startCond' ? ['시작조건', '기준가격에서 기준가 × N% 아래 체결이면 발동 · 0 = 이탈 관측 뒤 다음 체결 (0~9)'] : id === 'ratio' ? ['비율', '주기 거래량 × 비율만큼 팔아요 (1~50%)'] : ['값', ''];
+    const opts = id === 'startCond' ? [0, 1, 2, 3, 5, 9] : [5, 10, 20, 30, 50];
+    sh.innerHTML = `<h3>${h}</h3><p>${p}</p><div class="opts">${opts.map(v => `<button data-pick="${v}" data-f="${id}" class="${S[id] === v ? 'on' : ''}">${id === 'startCond' ? (v === 0 ? '이탈 후 다음 체결' : v + '%') : v + '%'}</button>`).join('')}</div><div class="btns"><button class="b1" data-close>취소</button></div>`;
+  }
+  document.getElementById('F').classList.add('open');
+}
+function closeSheet() { document.getElementById('F').classList.remove('open'); }
+
+document.getElementById('nav').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.w) S.w = b.dataset.w;
+  if (b.dataset.t) S.t = b.dataset.t;
+  if (b.dataset.st !== undefined) return simState(+b.dataset.st);
+  if (b.hasAttribute('data-basis')) { S.basis = S.basis === 1 ? 2 : 1; S.basisPrice = S.basis === 1 ? UPPER : 12500; }
+  if (b.hasAttribute('data-fold')) S.open = !S.open;
+  if (b.hasAttribute('data-reset')) { const { w, t } = S; S = INIT(); Object.assign(S, { w, t }); }
+  render();
+});
+document.getElementById('stage').addEventListener('click', e => {
+  const t = e.target;
+  if (t.closest('[data-sw]')) return toggleSwitch();
+  if (t.closest('[data-start]')) return cmd(1);
+  if (t.closest('[data-stop]')) return cmd(2);
+  const m = t.closest('[data-m]'); if (m) { S.method = +m.dataset.m; return render(); }
+  const bEl = t.closest('[data-b]'); if (bEl) { S[bEl.dataset.b] = !S[bEl.dataset.b]; return render(); }
+  if (t.closest('[data-fold-card]')) { S.open = !S.open; return render(); }
+  const seg = t.closest('[data-side]'); if (seg) { if (seg.dataset.side === 'manual') return toast('수동주문 탭 — 범위 밖'); S.side = seg.dataset.side; return render(); }
+  if (t.closest('#DIM') || t.closest('[data-close]')) return closeSheet();
+  const pick = t.closest('[data-pick]'); if (pick) { const f = pick.dataset.f ?? 'method'; S[f] = +pick.dataset.pick; closeSheet(); return render(); }
+  const rowEl = t.closest('.lrow'); if (rowEl && rowEl.dataset.id && ['startCond', 'ratio', 'method'].includes(rowEl.dataset.id)) return openSheet(rowEl.dataset.id);
+  if (rowEl && rowEl.dataset.id) return toast('이 행은 기존 상따 행 — 이 목업 범위 밖');
+});
+render();
+</script>
+</body>
+</html>
