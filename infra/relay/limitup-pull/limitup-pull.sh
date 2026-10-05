@@ -180,7 +180,8 @@ bucket_list() {
 do_check() {
     local fail=0 root n
     if root=$(rsync --list-only --no-human-readable -e "$RSH" "$REMOTE:/" </dev/null); then
-        n=$(printf '%s\n' "$root" | awk '$1 ~ /^d/ && $5 ~ /^[0-9]{8}$/' | wc -l | tr -d ' ')
+        # radar-gw 의 awk 는 mawk 1.3.4 — 반복 표현 {8} 을 모른다. 자릿수를 풀어 쓴다
+        n=$(printf '%s\n' "$root" | awk '$1 ~ /^d/ && $5 ~ /^[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]$/' | wc -l | tr -d ' ')
         log "check remote / OK (날짜 디렉터리 $n 개)"
     else
         warn "check remote / 실패"; fail=1
@@ -197,7 +198,7 @@ do_check() {
 do_dry_run() {
     local out dates n_up fail=0
     if out=$(pull_mirror -n --out-format='%n'); then
-        dates=$(printf '%s\n' "$out" | awk -F/ '$1 ~ /^[0-9]{8}$/ {print $1}' | LC_ALL=C sort -u | tr '\n' ' ')
+        dates=$(printf '%s\n' "$out" | awk -F/ '$1 ~ /^[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]$/ {print $1}' | LC_ALL=C sort -u | tr '\n' ' ')
         log "dry-run rsync 받을 날짜: ${dates:-(없음)}"
     else
         warn "dry-run rsync 실패"; fail=1
