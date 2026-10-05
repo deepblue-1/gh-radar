@@ -114,6 +114,7 @@ import type {
   FakeAccountStateInput,
   FakeStrategyEventInput,
   FakeLimitChaserInput,
+  FakeLimitFeatureInput,
   FakeOrderRespInput,
   FakeQueueProgressInput,
   FakeServerMessageInput,
@@ -147,6 +148,8 @@ export type { AutoSellCommandRequest, SetUserSettingsRequest, FakeUserSettingsIn
 export type { FakeQueueProgressInput };
 /** 전략 이벤트(80) 주입 입력 재export (25-07). */
 export type { FakeStrategyEventInput };
+/** 상한가 특징(85) 주입 입력 재export (Phase 28 · 28-01). */
+export type { FakeLimitFeatureInput };
 
 // ---------------------------------------------------------------------------
 // 상수 — 값의 정본은 여기 한 곳이다
@@ -641,6 +644,21 @@ export function pushQuoteFixture(
     viDownPrice: 88_000n,
     exchangeTime: '093015123456',
   });
+}
+
+/**
+ * 상한가 특징 85 1프레임을 그 소켓으로 밀어 넣는다 (Phase 28 · 28-01).
+ *
+ * 85 는 그 키를 **FULL 구독한 연결에만** 오는 공개 시세 파생값이다 — quote 관찰자 연결(`relay.quoteSocket()`)로 민다.
+ * 기본값은 relay 헬퍼 `buildLimitFeatureFrame` 의 잠김 시나리오(lock 1 · 43초째 · 대기 17.3억 · 소진 ∞)이고
+ * `opts` 의 나머지 필드가 그것을 덮는다. 실서버 값이 아니다.
+ */
+export function pushLimitFeatureFixture(
+  gateway: FakeGateway,
+  sock: Parameters<FakeGateway['sendLimitFeature']>[0],
+  opts: { isin: string; exchange: string } & FakeLimitFeatureInput,
+): void {
+  gateway.sendLimitFeature(sock, { ...opts, isin: opts.isin, exchange: opts.exchange });
 }
 
 /** 체결 3건(시간 오름차순 — 브라우저가 뒤집어 최신을 위로 올린다). */

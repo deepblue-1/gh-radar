@@ -11,6 +11,7 @@ import {
   E2E_ISIN,
   E2E_LONG_NAME_ISIN,
   RELAY_WS_URL,
+  pushLimitFeatureFixture,
   readAutoSellCommandRequest,
   readSetLimitChaserRequest,
   readViConfirmRequest,
@@ -2673,6 +2674,74 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
         expect(spread([...chipYs, infoY, closeY]), `${viewport.width} 카드 ${cardWidth} — 여섯이 한 줄`).toBeLessThanOrEqual(4);
       }
     }
+  });
+
+  test('P28-1 상한가 특징 한 경로 — 85 → relay → 카드 탭 「상한가 · 잠김 43초」 · 지금 행 · 카드 높이 불변 · 자동 전환 없음 (Phase 28 트레이서 · D-01~D-04)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    relay.seedLimitChasers([{ buyEnabled: true }]);
+    // 펼친 카드 = FULL 구독(85 는 그 키를 FULL 로 잡은 소켓에만 온다 · 접힌 카드 price 는 받지 않는다).
+    await openFocusedCard(page);
+    const card = cardOf(page, E2E_ISIN);
+    const tabsRoot = card.locator('[data-slot="card-tabs"]');
+    const tabs = tabsRoot.getByRole('tab');
+    const limitTab = tabs.nth(3);
+    await expect(tabs).toHaveCount(4);
+    await expect(tabs.nth(0)).toHaveText('정보');
+    await expect(limitTab).toHaveAccessibleName('상한가');
+
+    // 85 는 quote 관찰자 연결로 민다(픽스처 ⑧). FULL 업스트림 구독이 서기 전 프레임은 relay 가 버리므로(구독 없는 키)
+    // 트리거 이름이 바뀔 때까지 같은 프레임을 다시 민다 — 서버도 키당 1초마다 다시 보낸다.
+    const sock = await relay.quoteSocket();
+    await expect(async () => {
+      pushLimitFeatureFixture(relay.gateway, sock, { isin: E2E_ISIN, exchange: 'KRX' });
+      await expect(limitTab).toHaveAccessibleName('상한가 · 잠김 43초', { timeout: 1_000 });
+    }).toPass({ timeout: 15_000 });
+
+    // (a) 자동 전환 없음(D-04) — 85 가 와도 활성 탭은 「정보」 그대로.
+    await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true');
+    await expect(limitTab).toHaveAttribute('aria-selected', 'false');
+    // 「잠김 43초」 조각은 --up(선택 알약 밖에서도 · 안에서도 같은 색).
+    await expect(limitTab.locator('[data-slot="card-tab-limit-state"] .mono')).toHaveText('잠김 43초');
+
+    // (b) 카드 높이 기록 → 「상한가」 클릭 → 지금 행 3칸 → 카드 높이 전후 같다(D-02) · 탭 본문 스크롤 없음.
+    const cardHeight = () => card.evaluate((el) => el.getBoundingClientRect().height);
+    const before = await cardHeight();
+    await limitTab.click();
+    await expect(limitTab).toHaveAttribute('aria-selected', 'true');
+    const table = card.locator('[data-slot="lc-limit-feature"]');
+    await expect(table).toBeVisible();
+    const cells = table.locator('[data-slot="lc-limit-feature-cell"]');
+    await expect(cells).toHaveCount(9);
+    await expect(cells.nth(0)).toHaveText('잠김 43초째');
+    await expect(cells.nth(1)).toHaveText('대기 17.3억');
+    await expect(cells.nth(2)).toHaveText('소진 —');
+    // 10초 · 창구 행은 28-07 이 채운다 — 지금은 「—」.
+    await expect(cells.nth(3)).toHaveText('—');
+    const after = await cardHeight();
+    expect(after, '「상한가」 탭 선택 전후 카드 높이(D-02)').toBe(before);
+    const body = card.locator('[data-slot="card-tabs-body"]');
+    const { scrollHeight, clientHeight } = await body.evaluate((el) => ({
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+    }));
+    expect(scrollHeight, '탭 본문 스크롤 없음 — 3행이 공통 고정 높이를 정확히 채운다').toBe(clientHeight);
+
+    // (c) lock_state 2 프레임 → 트리거 이름 「상한가 · 깨짐」 · 지금 행 첫 칸 「깨짐」.
+    pushLimitFeatureFixture(relay.gateway, sock, {
+      isin: E2E_ISIN,
+      exchange: 'KRX',
+      lockState: 2,
+      lockElapsedS: 0,
+      qKrw: 210_000_000n,
+      wallKrwVisible: 90_000_000n,
+      wallTruncated: true,
+    });
+    await expect(limitTab).toHaveAccessibleName('상한가 · 깨짐', { timeout: 15_000 });
+    await expect(cells.nth(0)).toHaveText('깨짐');
+    await expect(cells.nth(2)).toHaveText('매도벽 0.9억+');
+    expect(await cardHeight()).toBe(before);
   });
 
   test('P27-2 자동매도 카드 — 펼침 · 스위치 등록 · 방법 세그먼트 · 칩 대기→감시 · 요약 · 폰 시트 · 범위 가드 (D-01 · D-02 · D-03 · Pitfall 5)', async ({
