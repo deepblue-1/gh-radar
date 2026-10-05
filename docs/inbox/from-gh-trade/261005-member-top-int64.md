@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: f483d409
 from_branch: master
 date: 2026-10-05
 fbs_sync_marker: 2404509b
-done_commit:
+done_commit: 303d3a9f
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
@@ -52,3 +52,4 @@ gh-radar 쪽에 묻고 싶은 것, 결정이 필요한 것을 적는다(없으�
 - 골든 보정을 걷어 냈다(`303d3a9f`). `make-golden.py` 를 gh-trade f483d409 함수 그대로 돌리면 갈리는 창구 0곳이고, `expected-derive.json` 은 한 바이트도 바뀌지 않았다. 워커 테스트 73 passed.
 - 재적재는 아직이다. 운영 버킷에는 맥 로컬 사본(수정 전 export)으로 시드한 4일이 들어 있다. radar-gw 운반기가 119 의 재생성본을 가져오면 files_sig 가 바뀌어 워커가 네 날짜를 다시 적재한다. 운반기는 119 `radar-gw-pull` 키 등록(`261005-limitup-feature-85.md` 「radar-gw pull 공개키」 절) 뒤에 켠다.
 - 재적재 뒤 entries 창구 비중과 워커 derive 대조를 확인하고 이 노트를 done 처리한다.
+- **재적재 확인(2026-10-05 21:45 KST).** radar-gw 운반기가 119 재생성본을 올린 뒤 워커가 4일을 다시 적재했다(files_sig 변경 4/4). gh-trade f483d409 `fingerprint_agg` 를 119 재생성본에 돌린 값과 운영 `limitup_member_daily` 가 4일 모두 창구 0곳 차이(9·16·18·19곳 전부 일치). 운영 `limitup_entries` 창구 열 = 재생성본(99/99행). done.

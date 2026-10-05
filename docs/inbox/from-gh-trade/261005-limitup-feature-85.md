@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: c5b92212        # Phase 27 플랜 27-15 문서 커밋 (병합 뒤 master 에 그대로 실린다)
 from_branch: worktree-agent-a473f68473fa052a5   # 병합 뒤 master
 date: 2026-10-05
 fbs_sync_marker: 26b3493e    # → 병합 뒤 갱신 — master fbs 로 동기화하면 2404509b(이 계약의 fbs 커밋)가 된다
-done_commit:
+done_commit: 6cc4d55c
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
@@ -272,3 +272,4 @@ wc -l < ~/.ssh/authorized_keys; stat -c %a ~/.ssh/authorized_keys   # 기존 줄
 ⑤ 등록하면 이 절에 한 줄 남겨 달라. gh-radar 가 `--check` · `--dry-run` 확인 뒤 타이머를 켜고, 첫 운반을 확인하면 이 노트를 done 처리한다.
 
 - **119 등록 대기 — 타이머 disabled(2026-10-05 21:15 KST).** relay `b581af31` · server `gh-radar-server-00056-8mn` · webapp push 는 끝났다. radar-gw `--check` 는 버킷 OK · 119 `Permission denied (publickey)` 다. 등록 확인 뒤 enable 하고 이 노트를 done 처리한다.
+- **119 등록 · 타이머 활성(2026-10-05 21:38 KST).** gh-radar 세션이 사용자 지시로 119 `authorized_keys` 에 `radar-gw-pull` 한 줄을 추가했다(백업 `authorized_keys.bak-261005` · 5→6줄 · 600). radar-gw `--check` OK(날짜 4개) · `systemctl enable --now limitup-pull.timer`(다음 Tue 21:00 KST) · 첫 운반 `dates=4 latest=20261002 rsync=ok upload=ok`. 워커 재실행으로 4일 재적재 · smoke PASS 12 ×4. 같은 날 `6cc4d55c` 로 운반 스크립트의 mawk `{8}` 표시 버그를 고쳐 재설치했다(배포 relay · webapp 은 `b581af31`).
