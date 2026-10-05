@@ -8,6 +8,7 @@ import {
   E2E_ACCOUNT_NO,
   E2E_ISIN,
   E2E_LONG_NAME_ISIN,
+  readSetUserSettingsRequest,
   withLocalRelay,
   type LocalRelay,
 } from '../fixtures/relay';
@@ -1343,5 +1344,125 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
       .filter({ has: page.locator('[data-slot="today-order-status"]', { hasText: /^거부$/ }) });
     await expect(rejectNew).toHaveCount(1);
     await expect(rejectNew.locator('[data-slot="today-order-side"]')).toHaveAttribute('data-side-ref', 'true');
+  });
+  /* ───────────────────────── Phase 27 (27-06) — /me 상따 기본설정 (42/84) ───────────────────────── */
+
+  const lcDefaults = (page: Page) => page.locator('[data-slot="me-lc-defaults"]');
+  const lcDefaultsChip = (page: Page) => page.locator('[data-slot="me-lc-defaults-chip"]');
+  const lcDefaultsRow = (page: Page, field: string) =>
+    page.locator(`[data-slot="me-lc-defaults-row"][data-field="me-lc-${field}"]`);
+  /** 게이트웨이가 받은 42 본문 전량(송신 순서). */
+  const setUserSettingsRequests = () =>
+    relay
+      .strategyRequests()
+      .map((r) => readSetUserSettingsRequest(r.payload))
+      .filter((r): r is NonNullable<typeof r> => r !== null);
+  /** 서버 내장 기본값(fixture `buildUserSettingsFrame` 기본 = fbs 주석). */
+  const USER_SETTINGS_BUILTIN = {
+    preBuyAmount: 4000,
+    addBuyAmount: 4000,
+    postBuyAmount: 4000,
+    postBuyMaxCount: 3,
+    postBuyFloorQty: 100_000,
+    postBuyReboundPct: 30,
+    sellQtyTrackRatio: 55,
+    autoSellPeriodSec: 3,
+    auctionSellRatioPct: 20,
+    autoSellRatioDefaultPct: 10,
+    autoSellMethodDefault: 3,
+  } as const;
+
+  test('P27-M1 상따 기본설정 — 84 표시 → 행 확정 42(캐시 + 1칸) → 84 플래시 · 거부 원문 (D-10 · D-12 · D-13)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/me');
+    await waitForAccounts(page, 2);
+
+    // 84 를 아직 못 받았다 — 지어낸 기본값 없이 「불러오는 중」 · 행 흐림.
+    await expect(lcDefaultsChip(page)).toHaveText('불러오는 중');
+    await expect(lcDefaults(page).locator('[data-slot="me-lc-defaults-rows"]')).toHaveAttribute('data-dim', 'true');
+
+    // D-10 — 상태줄 아래 · 전략 현황 위.
+    const barBox = await boxOf(page.locator('[data-slot="me-status-bar"]'));
+    const secBox = await boxOf(lcDefaults(page));
+    const stratBox = await boxOf(strategyCard(page));
+    expect(barBox.y).toBeLessThan(secBox.y);
+    expect(secBox.y).toBeLessThan(stratBox.y);
+
+    await relay.pushUserSettings({ present: true, autoSellPeriodSec: 3 });
+    await expect(lcDefaultsChip(page)).toHaveText('서버 저장값', { timeout: 15_000 });
+    const period = lcDefaultsRow(page, 'auto-sell-period-sec');
+    await expect(period.locator('[data-slot="lc-row-value"]')).toHaveText('3초');
+    // 84 가 와도 42 를 저절로 보내지 않는다(인박스 Q2).
+    expect(setUserSettingsRequests()).toHaveLength(0);
+
+    // 데스크톱 1280 인라인 — 매도 주기 5 Enter → 42 1건(84 캐시 11값 + 주기 5 · present 미적재).
+    await period.locator('button[data-lc-field="me-lc-auto-sell-period-sec"]').click();
+    const input = page.locator('input#me-lc-auto-sell-period-sec');
+    await expect(input).toBeFocused();
+    await input.fill('5');
+    await input.press('Enter');
+    await expect.poll(() => setUserSettingsRequests().length, { timeout: 15_000 }).toBe(1);
+    expect(setUserSettingsRequests()[0]).toEqual({
+      ...USER_SETTINGS_BUILTIN,
+      autoSellPeriodSec: 5,
+      presentSlotEmpty: true,
+    });
+
+    // 서버 브로드캐스트 84 → 행 「5초」 + 초록 플래시.
+    await relay.pushUserSettings({ present: true, autoSellPeriodSec: 5 });
+    await expect(period).toHaveAttribute('data-flash', 'ok', { timeout: 15_000 });
+    await expect(period.locator('[data-slot="lc-row-value"]')).toHaveText('5초');
+    await expect(period).not.toHaveAttribute('data-flash', 'ok', { timeout: 5_000 });
+
+    // 다시 확정 → 비행 중 서버 거부(54 SetUserSettings) → 섹션 아래 원문 · 행 값은 84(5초) 그대로.
+    await period.locator('button[data-lc-field="me-lc-auto-sell-period-sec"]').click();
+    await input.fill('9');
+    await input.press('Enter');
+    await expect.poll(() => setUserSettingsRequests().length, { timeout: 15_000 }).toBe(2);
+    expect(setUserSettingsRequests()[1]).toMatchObject({ autoSellPeriodSec: 9, presentSlotEmpty: true });
+    const rejectText = '매도 주기는 1~60초여야 합니다(받은 값 99)';
+    await relay.pushServerMessage({ level: 'ERROR', source: 'SetUserSettings', message: rejectText, isin: '' });
+    await expect(lcDefaults(page).locator('[data-slot="me-lc-defaults-reject"]')).toHaveText(rejectText, {
+      timeout: 15_000,
+    });
+    await expect(period.locator('[data-slot="lc-row-value"]')).toHaveText('5초');
+    await expect(period).toHaveAttribute('data-failed', 'true');
+    // 재전송 없음.
+    await page.waitForTimeout(500);
+    expect(setUserSettingsRequests()).toHaveLength(2);
+
+    // 1280 — 섹션 안 잎 요소가 카드 오른쪽 밖으로 밀리지 않는다.
+    expect(await leavesOverflowing(lcDefaults(page), (await boxOf(lcDefaults(page))).right)).toEqual([]);
+  });
+
+  test.describe('P27-M1 폰 390 — 터치 키패드 시트', () => {
+    test.use({ hasTouch: true, viewport: MOBILE_VIEWPORT });
+
+    test('P27-M1 폰 390 — 시트 61 → 적용 비활성 · 「1~60초 사이여야 해요」 · 전송 0 · 잘림 없음', async ({ page }) => {
+      await page.goto('/me');
+      await waitForAccounts(page, 2);
+      await relay.pushUserSettings({ present: false });
+      await expect(lcDefaultsChip(page)).toHaveText('서버 저장값 없음 · 내장 기본값', { timeout: 15_000 });
+      await expect(lcDefaults(page).locator('[data-slot="me-lc-defaults-note"]')).toHaveText(
+        '아직 저장한 적이 없어요 · 저장하면 이 사용자(DMA 계정)의 모든 화면에 적용돼요',
+      );
+      // 390 — 섹션 잎 요소 잘림 0.
+      expect(await leavesOverflowing(lcDefaults(page), (await boxOf(lcDefaults(page))).right)).toEqual([]);
+
+      await lcDefaultsRow(page, 'auto-sell-period-sec').locator('button[data-lc-field]').first().click();
+      const sheet = page.locator('[data-slot="numpad-sheet"]');
+      await expect(sheet).toBeVisible();
+      await expect(sheet).toContainText('1~60초');
+      const keypad = sheet.getByRole('group', { name: '숫자 키패드' });
+      await keypad.getByRole('button', { name: '6', exact: true }).click();
+      await keypad.getByRole('button', { name: '1', exact: true }).click();
+      await expect(sheet.locator('[data-slot="numpad-confirm"]')).toBeDisabled();
+      await expect(sheet.locator('[data-slot="numpad-status"]')).toHaveText('1~60초 사이여야 해요');
+      await sheet.getByRole('button', { name: '닫기' }).click();
+      await page.waitForTimeout(300);
+      expect(setUserSettingsRequests()).toHaveLength(0);
+    });
   });
 });

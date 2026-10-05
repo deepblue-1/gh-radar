@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import type { RelayUserSettingsMsg } from '@gh-radar/shared';
 
 import { EMPTY_RELAY_VALUE, type RelayContextValue } from '@/lib/relay-provider';
+import type { RelayServerMessageEntry } from '@/lib/use-relay-socket';
 
 /**
  * Phase 27 (27-06) — `/me` 「상따 기본설정」 섹션 (D-10 · D-12 · D-13 · 인박스 Q1/Q2 · 목업 변형 C).
@@ -16,6 +17,9 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/relay-provider')>();
   return { ...actual, useRelayContext: () => mockRelay };
 });
+
+let mockEditMode: 'inline' | 'sheet' = 'inline';
+vi.mock('@/lib/use-edit-mode', () => ({ useEditMode: () => mockEditMode }));
 
 import { LimitChaserDefaultsSection } from '../limit-chaser-defaults';
 
@@ -53,6 +57,7 @@ const rowValue = (field: string) =>
 
 beforeEach(() => {
   send = vi.fn(() => true);
+  mockEditMode = 'inline';
 });
 
 afterEach(() => {
@@ -132,5 +137,209 @@ describe('Phase 27 상따 기본설정 표시', () => {
     const method = within(section()).getByRole('radiogroup', { name: '방법 기본값' });
     expect(within(method).getByRole('radio', { checked: true })).toHaveTextContent('양쪽');
     expect(screen.getAllByText('양쪽').length).toBeGreaterThan(0);
+  });
+});
+
+/* ───────────────────────── Task 3 — 행 확정마다 즉시 42 ───────────────────────── */
+
+const VALUES_OF = (m: RelayUserSettingsMsg) => {
+  const { t: _t, present: _p, ...rest } = m;
+  return rest;
+};
+
+function msg(m: string, extra: Partial<RelayServerMessageEntry> = {}): RelayServerMessageEntry {
+  return { t: 'msg', lv: 'ERROR', m, i: '', a: '', src: 'SetUserSettings', kind: '', receivedAt: '10:00:00', ...extra };
+}
+
+/** 인라인으로 그 행을 열어 값을 넣고 Enter. */
+function inlineCommit(field: string, value: string) {
+  const btn = section().querySelector(`button[data-lc-field="me-lc-${field}"]`) as HTMLButtonElement;
+  fireEvent.click(btn);
+  const input = document.getElementById(`me-lc-${field}`) as HTMLInputElement;
+  fireEvent.change(input, { target: { value } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+}
+
+const sentPayloads = () => send.mock.calls.map((c) => c[0] as { t: string; s: Record<string, number> });
+const rowWrap = (field: string) =>
+  section().querySelector(`[data-slot="me-lc-defaults-row"][data-field="me-lc-${field}"]`) as HTMLElement;
+const rejectLine = () => section().querySelector('[data-slot="me-lc-defaults-reject"]');
+
+describe('Phase 27 상따 기본설정 즉시 저장(42)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('42 — 매도 주기 3 → 5 확정 = send 1회 · s 는 84 의 11값 그대로 + autoSellPeriodSec 5', () => {
+    const base = settings(true);
+    mockRelay = relay(base);
+    render(<LimitChaserDefaultsSection />);
+    inlineCommit('auto-sell-period-sec', '5');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sentPayloads()[0]).toEqual({ t: 'user.settings.set', s: { ...VALUES_OF(base), autoSellPeriodSec: 5 } });
+  });
+
+  it('42 — 시트에서 61 → 적용 비활성 · 「1~60초 사이여야 해요」 · 전송 0 / 잔량추적 0 은 허용(서버 범위 0~90)', () => {
+    mockEditMode = 'sheet';
+    const base = settings(true);
+    mockRelay = relay(base);
+    render(<LimitChaserDefaultsSection />);
+    fireEvent.click(section().querySelector('button[data-lc-field="me-lc-auto-sell-period-sec"]')!);
+    const sheet = document.querySelector('[data-slot="numpad-sheet"]') as HTMLElement;
+    expect(sheet).toHaveTextContent('1~60초');
+    const keypad = within(within(sheet).getByRole('group', { name: '숫자 키패드' }));
+    fireEvent.click(keypad.getByRole('button', { name: '6' }));
+    fireEvent.click(keypad.getByRole('button', { name: '1' }));
+    const confirm = sheet.querySelector('[data-slot="numpad-confirm"]') as HTMLButtonElement;
+    expect(confirm).toBeDisabled();
+    expect(sheet.querySelector('[data-slot="numpad-status"]')).toHaveTextContent('1~60초 사이여야 해요');
+    fireEvent.click(confirm);
+    expect(send).not.toHaveBeenCalled();
+    fireEvent.click(within(sheet).getByRole('button', { name: '닫기' }));
+
+    // 잔량추적 0 — lc.set(1~90) 보다 넓은 서버 범위(0~90) 그대로.
+    fireEvent.click(section().querySelector('button[data-lc-field="me-lc-sell-qty-track-ratio"]')!);
+    const sheet2 = document.querySelector('[data-slot="numpad-sheet"]') as HTMLElement;
+    fireEvent.click(within(within(sheet2).getByRole('group', { name: '숫자 키패드' })).getByRole('button', { name: '0' }));
+    const confirm2 = sheet2.querySelector('[data-slot="numpad-confirm"]') as HTMLButtonElement;
+    expect(confirm2).toBeEnabled();
+    fireEvent.click(confirm2);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sentPayloads()[0]!.s.sellQtyTrackRatio).toBe(0);
+  });
+
+  it('42 — 금액 범위 문구는 천단위 쉼표(0~999,999,999만원)', () => {
+    mockEditMode = 'sheet';
+    mockRelay = relay(settings(true));
+    render(<LimitChaserDefaultsSection />);
+    fireEvent.click(section().querySelector('button[data-lc-field="me-lc-pre-buy-amount"]')!);
+    const sheet = document.querySelector('[data-slot="numpad-sheet"]') as HTMLElement;
+    expect(sheet).toHaveTextContent('0~999,999,999만원');
+  });
+
+  it('42 — 비행 중 두 번째 확정은 즉시 안 보내고 84 뒤 새 캐시로 조립(앞 칸을 되돌리지 않는다)', () => {
+    const base = settings(true);
+    mockRelay = relay(base);
+    const view = render(<LimitChaserDefaultsSection />);
+    inlineCommit('auto-sell-period-sec', '5');
+    inlineCommit('auto-sell-ratio-default-pct', '15');
+    expect(send).toHaveBeenCalledTimes(1);
+
+    // 앞 건의 84 — 주기 5 가 실렸다.
+    const after = settings(true, { autoSellPeriodSec: 5 });
+    mockRelay = relay(after);
+    view.rerender(<LimitChaserDefaultsSection />);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(sentPayloads()[1]).toEqual({
+      t: 'user.settings.set',
+      s: { ...VALUES_OF(after), autoSellRatioDefaultPct: 15 },
+    });
+    expect(sentPayloads()[1]!.s.autoSellPeriodSec).toBe(5);
+  });
+
+  it('42 — 84 가 보낸 값을 실으면 그 행 플래시(~700ms) · 다른 탭 84 로 바뀐 행도 플래시', () => {
+    mockRelay = relay(settings(true));
+    const view = render(<LimitChaserDefaultsSection />);
+    inlineCommit('auto-sell-period-sec', '5');
+    mockRelay = relay(settings(true, { autoSellPeriodSec: 5 }));
+    view.rerender(<LimitChaserDefaultsSection />);
+    expect(rowWrap('auto-sell-period-sec')).toHaveAttribute('data-flash', 'ok');
+    expect(rowValue('auto-sell-period-sec')).toBe('5초');
+    act(() => {
+      vi.advanceTimersByTime(700);
+    });
+    expect(rowWrap('auto-sell-period-sec')).not.toHaveAttribute('data-flash');
+
+    // 다른 탭의 42 — 이 탭은 보낸 적 없다.
+    mockRelay = relay(settings(true, { autoSellPeriodSec: 5, postBuyMaxCount: 7 }));
+    view.rerender(<LimitChaserDefaultsSection />);
+    expect(rowWrap('post-buy-max-count')).toHaveAttribute('data-flash', 'ok');
+    expect(rowWrap('auto-sell-period-sec')).not.toHaveAttribute('data-flash');
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('42 — 3초 안에 84 · 거부가 없으면 그 행 실패 · 재전송 0 · 대기 건은 보내지 않고 실패', () => {
+    mockRelay = relay(settings(true));
+    const view = render(<LimitChaserDefaultsSection />);
+    inlineCommit('auto-sell-period-sec', '5');
+    inlineCommit('auto-sell-ratio-default-pct', '15');
+    act(() => {
+      vi.advanceTimersByTime(3_000);
+    });
+    expect(rowWrap('auto-sell-period-sec')).toHaveAttribute('data-failed', 'true');
+    expect(rowWrap('auto-sell-ratio-default-pct')).toHaveAttribute('data-failed', 'true');
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    // 늦은 84 가 와도 대기 건은 나가지 않는다.
+    mockRelay = relay(settings(true, { autoSellPeriodSec: 5 }));
+    view.rerender(<LimitChaserDefaultsSection />);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('42 — 비행 중 54 ERROR SetUserSettings → 섹션 아래 원문 · 행 값은 84 그대로 · 창 밖 거부는 줄을 세우지 않는다', () => {
+    mockRelay = relay(settings(true));
+    const view = render(<LimitChaserDefaultsSection />);
+
+    // 창 밖(비행 없음) 거부 — 다른 탭의 거부가 팬아웃돼도 줄이 서지 않는다.
+    const other = msg('다른 탭 거부');
+    mockRelay = { ...relay(settings(true)), messages: [other] };
+    view.rerender(<LimitChaserDefaultsSection />);
+    expect(rejectLine()).toBeNull();
+
+    inlineCommit('auto-sell-period-sec', '9');
+    const text = '매도 주기는 1~60초여야 합니다(받은 값 99)';
+    // 같은 사용자 다른 소스의 54(INFO · 다른 src)는 귀속하지 않는다.
+    const info = msg('자동매도 사유', { lv: 'INFO', src: 'AutoSell' });
+    mockRelay = { ...relay(settings(true)), messages: [msg(text), info, other] };
+    view.rerender(<LimitChaserDefaultsSection />);
+    expect(rejectLine()).toHaveTextContent(text);
+    expect(rejectLine()).toHaveAttribute('role', 'alert');
+    expect(rowValue('auto-sell-period-sec')).toBe('3초');
+    expect(rowWrap('auto-sell-period-sec')).toHaveAttribute('data-failed', 'true');
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('42 — 방법 기본값 선택 = 1회 · present=false 상태에서도 확정 때만 보낸다', () => {
+    const base = settings(false);
+    mockRelay = relay(base);
+    render(<LimitChaserDefaultsSection />);
+    expect(send).not.toHaveBeenCalled();
+    const method = within(section()).getByRole('radiogroup', { name: '방법 기본값' });
+    fireEvent.click(within(method).getByRole('radio', { name: '매도1호가' }));
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sentPayloads()[0]).toEqual({ t: 'user.settings.set', s: { ...VALUES_OF(base), autoSellMethodDefault: 1 } });
+  });
+
+  it('42 — 서버 값과 같은 확정은 보내지 않는다 · send false(끊김)는 실패 표시 · 재전송 0', () => {
+    mockRelay = relay(settings(true));
+    render(<LimitChaserDefaultsSection />);
+    inlineCommit('auto-sell-period-sec', '3');
+    expect(send).not.toHaveBeenCalled();
+    send.mockReturnValue(false);
+    inlineCommit('auto-sell-period-sec', '7');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(rowWrap('auto-sell-period-sec')).toHaveAttribute('data-failed', 'true');
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('42 — 84 미수신이면 어떤 확정도 보내지 않는다', () => {
+    mockRelay = relay(undefined);
+    render(<LimitChaserDefaultsSection />);
+    const btn = section().querySelector('button[data-lc-field="me-lc-auto-sell-period-sec"]') as HTMLButtonElement;
+    fireEvent.click(btn);
+    expect(document.getElementById('me-lc-auto-sell-period-sec')).toBeNull();
+    const method = within(section()).getByRole('radiogroup', { name: '방법 기본값' });
+    fireEvent.click(within(method).getByRole('radio', { name: '매도1호가' }));
+    expect(send).not.toHaveBeenCalled();
   });
 });
