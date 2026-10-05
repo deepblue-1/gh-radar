@@ -43,6 +43,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AUTO_SELL_STATE_LABELS } from '@gh-radar/shared';
 import type {
   RelayExchange,
   RelayLimitChaser,
@@ -105,7 +106,7 @@ const EMPTY_LADDER_QUOTE: RelayQuote = {
   et: '',
 };
 
-/** 카드 제목 옆 상태 문구 6개 — UI-SPEC §11 상태 문구 표(Phase 24). 키는 `lc-fields.ts` `LcStatusKey`. */
+/** 카드 제목 옆 상태 문구 7개 — UI-SPEC §11 상태 문구 표(Phase 24) + 자동매도 칩(Phase 27 D-03). 키는 `lc-fields.ts` `LcStatusKey`. */
 export interface CardGroupStatus {
   buy: string;
   preBuy: string;
@@ -113,6 +114,8 @@ export interface CardGroupStatus {
   postBuy: string;
   sell: string;
   cancel: string;
+  /** 자동매도 상태 낱말(1 대기 · 2 감시 · 3 매도중 · 4 완료) — 빈 문자열 = 칩 없음(0 · 범위 밖 · 에코 없음 · D-03). */
+  autoSell: string;
 }
 
 /** D-15 — 후매수 발동(단계 2) 중인 매도 · 취소 카드 상태 꼬리. 행 값에는 따로 표시하지 않는다. */
@@ -136,6 +139,8 @@ export const LC_LEGACY_BUY_STATUS = '구서버 전략 · 끄기만 가능';
  *   접히지 않고, 선 · 추가매수가 발주로 꺼진 사실은 서버 사유 줄이 말한다.
  * ★ 매도 · 취소 래치 단계(대기 ↔ 감시)는 `latchLedStateOf`(17-07)가 소유한다 — LED 칩과 상태 문구가 같은
  *   무장을 서로 다르게 말하지 않는다. 후매수 발동 중이면 꺼지지 않은 두 카드에 꼬리(D-15).
+ * ★ 자동매도(Phase 27 D-03) = 에코 `autoSellState` 1~4 의 shared 낱말 한 벌(`AUTO_SELL_STATE_LABELS`) · 0(꺼짐)과
+ *   범위 밖은 칩 없음(빈 문자열). 킬 스위치 · 단일 행 비활성화도 60 에코 그대로 그린다(CR-01 — 웹이 따로 접지 않는다).
  */
 export function cardGroupStatusOf(server: RelayLimitChaser | null): CardGroupStatus {
   const s = server;
@@ -163,7 +168,13 @@ export function cardGroupStatusOf(server: RelayLimitChaser | null): CardGroupSta
     postBuy,
     sell: tail(s?.sellEnabled === true ? stage('sell') : '꺼짐'),
     cancel: tail(latchLedStateOf('cancel', s).tone === 'off' ? '꺼짐' : stage('cancel')),
+    autoSell: autoSellChipOf(s?.autoSellState ?? 0),
   };
+}
+
+/** 자동매도 칩 낱말 — 1~4 만 shared 낱말, 그 밖(0 꺼짐 · 범위 밖)은 칩 없음(D-03). */
+function autoSellChipOf(state: number): string {
+  return state >= 1 && state <= 4 ? (AUTO_SELL_STATE_LABELS[state] ?? '') : '';
 }
 
 export interface CardBodyProps {

@@ -58,6 +58,7 @@ import { clearTickRuleCache } from '@/lib/tick-rule';
 import type { StrategyCardState } from '../card/strategy-card';
 import { CardBody, cardGroupStatusOf, LC_LEGACY_BUY_STATUS, type CardBodyProps } from '../card/card-body';
 import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
+import { groupStatusClassOf } from '../lc/setting-group';
 
 const ISIN = 'KR7042700005';
 const ACCOUNT = '12345678-01';
@@ -264,6 +265,7 @@ describe('② 그룹 상태 문구 표 (UI-SPEC §11 · D-02 · D-12 · D-15 —
       postBuy: '꺼짐',
       sell: '꺼짐',
       cancel: '꺼짐',
+      autoSell: '',
     });
     const { container } = render(<CardBody {...props()} />);
     const buy = container.querySelector('[data-slot="lc-group-buy"]') as HTMLElement;
@@ -741,5 +743,37 @@ describe('24-07 — 폼에 상장주식수(listShares = quote.ls) 를 넘긴다 
     unmount();
     render(<CardBody {...props({ card: cardState({ server: null, quote: null }) })} />);
     expect(maxRow()).toBe('무제한');
+  });
+});
+
+describe('Phase 27 자동매도 그룹 — 제목줄 상태 낱말 (D-03 · 판정 입력은 서버 에코 하나)', () => {
+  it.each<[number, string]>([
+    [1, '대기'],
+    [2, '감시'],
+    [3, '매도중'],
+    [4, '완료'],
+  ])('autoSellState %i → 「%s」', (state, text) => {
+    expect(cardGroupStatusOf(server({ autoSellEnabled: true, autoSellState: state })).autoSell).toBe(text);
+  });
+
+  it('상태 0 · 범위 밖 · 에코 없음 → 빈 문자열(칩 없음)', () => {
+    expect(cardGroupStatusOf(server({ autoSellState: 0 })).autoSell).toBe('');
+    expect(cardGroupStatusOf(server({ autoSellState: 7 })).autoSell).toBe('');
+    expect(cardGroupStatusOf(null).autoSell).toBe('');
+  });
+
+  it('킬 스위치 에코(autoSellEnabled false · 상태 0)는 칩 없음 — 웹이 따로 접지 않는다', () => {
+    expect(cardGroupStatusOf(server({ autoSellEnabled: false, autoSellState: 0 })).autoSell).toBe('');
+  });
+
+  it('칩 색 — 대기 · 완료 = --led-latent(주황) · 감시 · 매도중 = --led-armed(초록) · 기존 문구 결과 무변경 (D-03 개정)', () => {
+    expect(groupStatusClassOf('대기')).toBe('text-[var(--led-latent)]');
+    expect(groupStatusClassOf('완료')).toBe('text-[var(--led-latent)]');
+    expect(groupStatusClassOf('감시')).toBe('text-[var(--led-armed)]');
+    expect(groupStatusClassOf('매도중')).toBe('text-[var(--led-armed)]');
+    expect(groupStatusClassOf('감시 중')).toBe('text-[var(--led-armed)]');
+    expect(groupStatusClassOf('보유중')).toBe('text-[var(--led-latent)]');
+    expect(groupStatusClassOf('무장 · 대기')).toBe('text-[var(--muted-fg)]');
+    expect(groupStatusClassOf('꺼짐')).toBe('text-[var(--muted-fg)]');
   });
 });

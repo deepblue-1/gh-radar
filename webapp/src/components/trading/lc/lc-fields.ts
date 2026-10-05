@@ -17,7 +17,7 @@
  *   매수잔량). 그룹 카드 안 행의 보이는 라벨은 짧은 꼴이고 시트 제목만 그룹 이름을 되살린다(R14).
  */
 
-import type { RelayLimitChaser } from '@gh-radar/shared';
+import { AUTO_SELL_METHOD_LABELS, AUTO_SELL_METHOD_ORDER, autoSellBasisLabel, type RelayLimitChaser } from '@gh-radar/shared';
 
 import type { LimitChaserFormValues } from '@/lib/limit-chaser';
 import { rangeIssueText, type PadUnit } from '@/lib/numpad';
@@ -46,6 +46,8 @@ export type LcNumField = Extract<
   | 'sellQtyTrackRatio'
   | 'sellMinTradeQty'
   | 'cancelWatchQty'
+  | 'autoSellStartCond'
+  | 'autoSellRatioPct'
 >;
 /** 체크 필드 — 누르면 즉시 반영(D-04). 한방(`sweepEnabled`)은 Phase 24 로 선매수 카드 안 체크가 됐다. */
 export type LcBoolField = Extract<
@@ -72,6 +74,9 @@ export type LcUnit = PadUnit;
  *   - `postBuyReboundPct` `z.number().int().min(0).max(100)` + `.superRefine` 「후매수 ON 이면 1~100」
  *     (서버 §9-2 ⑤ 동형 — `lcRangeIssue` 가 같은 조건 규칙을 본다)
  *   - `extraBuyMinQty` · `extraBuyMaxQty` `UIntSchema`(0 이상) — 게이트웨이 uint32 한도를 적는다
+ *   - `autoSellStartCond` `z.number().int().min(0).max(9)` (Phase 27 · 늘)
+ *   - `autoSellRatioPct` · `autoSellMethod` `UByteSchema` + `.superRefine` 「자동매도 ON 이면 비율 1~50 · 방법 1~3」
+ *     (서버 §9-3 동형 — `lcRangeIssue` 가 같은 조건 규칙을 본다 · Pitfall 5)
  * 나머지 값 필드(가격·수량·금액)는 `UIntSchema`(0 이상 정수) — 키패드가 음수·소수를 만들 수 없어 범위가 없다.
  */
 export interface LcRange {
@@ -113,28 +118,47 @@ export type LcRowSpec =
       /** 그룹 스위치와 무관한 독립 무장 축(매수취소 「체결」) — 자기 체크 OFF 일 때만 흐린다(UI-SPEC §9). */
       independent?: boolean;
     }
-  | { kind: 'derived'; source: 'sellQtyTrackBaseline' | 'postBuyTriggerQty'; label: '잔량추적 기준선' | '발동잔량' }
+  /**
+   * 3택 행(Phase 27 D-02 — 자동매도 방법) — 폰 = 옵션 시트 · 데스크톱 = 인라인 세그먼트(`ChoiceRow`). 숫자 키패드가
+   * 아니라서 인라인 텍스트 편집기 · Tab 연속 편집(`lcNavigableRows`) 대상이 아니다(체크 행 규칙 동형).
+   * 옵션 순서 = 화면 순서(「양쪽 / 매도1호가 / 매수1호가」 = 와이어 3 · 1 · 2 · shared `AUTO_SELL_METHOD_ORDER`).
+   */
+  | {
+      kind: 'choice';
+      field: 'autoSellMethod';
+      id: string;
+      label: '방법';
+      /** 시트 설명(목업 원문). */
+      desc: string;
+      options: readonly { value: 1 | 2 | 3; label: string }[];
+    }
+  | {
+      kind: 'derived';
+      source: 'sellQtyTrackBaseline' | 'postBuyTriggerQty' | 'autoSellSoldQty' | 'autoSellBasisPrice';
+      label: '잔량추적 기준선' | '발동잔량' | '누적 매도' | '기준';
+    }
   | { kind: 'note'; note: 'postBuyExhausted' };
 
-/** 그룹 스위치 6개가 여닫는 게이트. */
+/** 그룹 스위치 7개가 여닫는 게이트(Phase 27 — 자동매도 스위치 추가). */
 export type LcGate =
   | 'buyEnabled'
   | 'preBuyEnabled'
   | 'extraBuyEnabled'
   | 'postBuyEnabled'
   | 'sellEnabled'
-  | 'cancelQtyEnabled';
-/** 그룹 상태 문구 키 — `card-body.tsx` `cardGroupStatusOf` 의 여섯 문구(UI-SPEC §11). */
-export type LcStatusKey = 'buy' | 'preBuy' | 'extraBuy' | 'postBuy' | 'sell' | 'cancel';
+  | 'cancelQtyEnabled'
+  | 'autoSellEnabled';
+/** 그룹 상태 문구 키 — `card-body.tsx` `cardGroupStatusOf` 의 일곱 문구(UI-SPEC §11 · Phase 27 D-03 자동매도 칩). */
+export type LcStatusKey = 'buy' | 'preBuy' | 'extraBuy' | 'postBuy' | 'sell' | 'cancel' | 'autoSell';
 
 export interface LcGroupSpec {
   /** `data-slot="lc-group-{slot}"` — e2e 앵커. */
-  slot: 'buy' | 'pre-buy' | 'extra-buy' | 'post-buy' | 'sell' | 'cancel';
+  slot: 'buy' | 'pre-buy' | 'extra-buy' | 'post-buy' | 'sell' | 'cancel' | 'auto-sell';
   /**
    * 카드 제목 — 제목줄 · 값 버튼 설명(aria-describedby) · 체크 접근성 이름 접두가 쓴다.
    * 모든 카드가 제목줄을 갖는다(quick-261001-gjk).
    */
-  title: '매수주문' | '선매수' | '추가매수' | '후매수' | '매도주문' | '매수취소';
+  title: '매수주문' | '선매수' | '추가매수' | '후매수' | '매도주문' | '매수취소' | '자동매도';
   /** 그룹 툴팁(`<section title>`) — 화면에는 그리지 않는다. */
   hint?: string;
   gate?: LcGate;
@@ -147,7 +171,7 @@ export interface LcGroupSpec {
   dimGate?: LcGate;
   /** 옛 컨테이너 흐림 경로(`SettingGroup` 기본 `dimRows`) · 접힌 요약 줄 흐림 — 편집은 막지 않는다(D-01). */
   dimWhenOff: boolean;
-  /** 제목줄 접기(Phase 24 ⑤ — 선매수 · 추가매수 · 후매수만). */
+  /** 제목줄 접기(Phase 24 ⑤ — 선매수 · 추가매수 · 후매수 · Phase 27 D-01 자동매도). */
   collapsible: boolean;
   /**
    * 제목줄 체크(quick-260929-vzy — 후매수 ☐자동). 그룹 스위치와 같은 지위다 — 어느 행에도 속하지 않고
@@ -453,6 +477,56 @@ export const LC_SELL_GROUPS: readonly LcGroupSpec[] = [
       { kind: 'check', check: 'cancelQtyTrackEnabled', checkId: 'lc-cancel-qty-track', label: '잔량추적' },
     ],
   },
+  /*
+    Phase 27 D-01 — 자동매도(체결매도) 카드. 매도 pane 세 번째 · 접이식 · 자기 게이트(`autoSellEnabled`)로만 흐린다 —
+    매도주문 스위치와 독립이다(서버 「자동매도만 켠 등록도 등록」 · 매도 체크 없이도 켜진다). 제목줄 칩은 에코
+    `autoSellState`(D-03 · `cardGroupStatusOf`). 바로시작 · 중지 버튼은 그룹 꼬리 `footer` 자리(27-05).
+  */
+  {
+    slot: 'auto-sell',
+    title: '자동매도',
+    gate: 'autoSellEnabled',
+    statusKey: 'autoSell',
+    dimGate: 'autoSellEnabled',
+    hint: '체결이 기준가격 아래로 내려오면 서버가 주기마다 체결량의 일정 비율을 팔아요',
+    dimWhenOff: true,
+    collapsible: true,
+    rows: [
+      {
+        kind: 'value',
+        field: 'autoSellStartCond',
+        id: 'lc-auto-sell-start-cond',
+        label: '시작조건',
+        unit: '%',
+        sheetTitle: '자동매도 시작조건',
+        desc: '기준가격에서 기준가 × N% 아래 체결이면 발동 · 0 = 이탈 관측 뒤 다음 체결 (0~9)',
+        range: { min: 0, max: 9 },
+      },
+      {
+        kind: 'value',
+        field: 'autoSellRatioPct',
+        id: 'lc-auto-sell-ratio',
+        label: '비율',
+        unit: '%',
+        sheetTitle: '자동매도 비율',
+        desc: '주기 거래량 × 비율만큼 팔아요 (1~50%)',
+        // 꺼진 옛 에코의 0 은 통과(relay UByte) — 켠 cfg 만 1~50(`lcRangeIssue` 조건 규칙 · Pitfall 5).
+        range: { min: 0, max: 255 },
+        inputRange: { min: 1, max: 50 },
+      },
+      {
+        kind: 'choice',
+        field: 'autoSellMethod',
+        id: 'lc-auto-sell-method',
+        label: '방법',
+        desc: '주기마다 낼 매도의 호가 쪽이에요 · 다음 주기부터 적용',
+        options: AUTO_SELL_METHOD_ORDER.map((value) => ({ value, label: lcAutoSellMethodText(value) })),
+      },
+      // S→C 전용 읽기 전용 — 펼침이면 상태 0 에서도 늘 그린다(「—」 · 값이 생기는 순간 행이 밀리지 않게).
+      { kind: 'derived', source: 'autoSellSoldQty', label: '누적 매도' },
+      { kind: 'derived', source: 'autoSellBasisPrice', label: '기준' },
+    ],
+  },
 ];
 
 /** 그룹 스위치 접근성 이름 — 기존 「○○ 켜기」 패턴(A-P2). 「한방체결 켜기」는 Phase 24 로 없어졌다. */
@@ -463,6 +537,7 @@ export const LC_SWITCH_LABEL: Record<LcGate, string> = {
   postBuyEnabled: '후매수 켜기',
   sellEnabled: '매도주문 켜기',
   cancelQtyEnabled: '매수취소 켜기',
+  autoSellEnabled: '자동매도 켜기',
 };
 
 const ALL_GROUPS: readonly LcGroupSpec[] = [...LC_BUY_GROUPS, ...LC_SELL_GROUPS];
@@ -471,7 +546,9 @@ const ALL_GROUPS: readonly LcGroupSpec[] = [...LC_BUY_GROUPS, ...LC_SELL_GROUPS]
 export function lcRowById(id: string): { group: LcGroupSpec; row: LcRowSpec } | null {
   for (const group of ALL_GROUPS) {
     for (const row of group.rows) {
-      if ((row.kind === 'value' || row.kind === 'checkValue') && row.id === id) return { group, row };
+      if ((row.kind === 'value' || row.kind === 'checkValue' || row.kind === 'choice') && row.id === id) {
+        return { group, row };
+      }
       if ((row.kind === 'checkValue' || row.kind === 'check') && row.checkId === id) return { group, row };
     }
   }
@@ -497,7 +574,7 @@ export function lcRowByField(
 export function lcRowOfField(field: string): { group: LcGroupSpec; row: LcRowSpec; isCheck: boolean } | null {
   for (const group of ALL_GROUPS) {
     for (const row of group.rows) {
-      if ((row.kind === 'value' || row.kind === 'checkValue') && row.field === field) {
+      if ((row.kind === 'value' || row.kind === 'checkValue' || row.kind === 'choice') && row.field === field) {
         return { group, row, isCheck: false };
       }
       if ((row.kind === 'checkValue' || row.kind === 'check') && row.check === field) {
@@ -509,7 +586,7 @@ export function lcRowOfField(field: string): { group: LcGroupSpec; row: LcRowSpe
 }
 
 /**
- * 값 편집이 가능한 행만 — 체크 전용 · 기준선 · 발동잔량(읽기 전용) · 소진 안내는 건너뛴다.
+ * 값 편집이 가능한 행만 — 체크 전용 · 3택(자동매도 방법) · 기준선 · 발동잔량 · 누적/기준(읽기 전용) · 소진 안내는 건너뛴다.
  * 20-05 의 Tab 연속 편집이 이 순서를 쓴다 — 같은 카드 안에서만 돈다(R4).
  */
 export function lcNavigableRows(slot: LcGroupSpec['slot']): readonly { field: LcNumField; id: string }[] {
@@ -558,9 +635,29 @@ export function lcValueTextOf(
       const phase = server?.postBuyPhase ?? 0;
       return phase === 0 ? fmt(v, '회') : `${fmt(v, '회')} · 남은 ${fmt(server?.postBuyReentryLeft ?? 0, '회')}`;
     }
+    case 'autoSellStartCond':
+      // Phase 27 D-02 — 0 = 이탈 관측 뒤 다음 체결(gh-trade §6-6). 그 밖은 기본 「N%」.
+      return v === 0 ? '이탈 후 다음 체결' : null;
     default:
       return null;
   }
+}
+
+/** 자동매도 방법 표시 — 옵션 밖(옛 에코 0 등)은 「—」(D-02 · 웹이 지어내지 않는다). */
+export function lcAutoSellMethodText(method: number): string {
+  return Object.hasOwn(AUTO_SELL_METHOD_LABELS, method) ? AUTO_SELL_METHOD_LABELS[method]! : '—';
+}
+
+/** 자동매도 누적 매도 — 0(또는 에코 없음) 「—」 · 그 밖 「N주」(D-02). */
+export function lcAutoSellSoldText(server: RelayLimitChaser | null): string {
+  const qty = server?.autoSellSoldQty ?? 0;
+  return qty > 0 ? fmt(qty, '주') : '—';
+}
+
+/** 자동매도 기준 — 상태 0 · 기준 0(미정) · 에코 없음 「—」 · 그 밖 「{상한가|매수가} N원」(D-02 · shared 낱말). */
+export function lcAutoSellBasisText(server: RelayLimitChaser | null): string {
+  if (server == null || server.autoSellState === 0 || server.autoSellBasis === 0) return '—';
+  return `${autoSellBasisLabel(server.autoSellBasis)} ${fmt(server.autoSellBasisPrice, '원')}`;
 }
 
 /**
@@ -579,6 +676,8 @@ export interface LcSummaryItem {
    * (quick-261002-fim). 다른 kv 는 키를 두지 않는다.
    */
   sr?: string;
+  /** 값 글자 `--up`(빨강) — 자동매도 「누적」 > 0 만(Phase 27 D-02 · 목업 `.kv.hot`). */
+  hot?: boolean;
 }
 
 /** 금액 kv — 「—」 은 꺼진 kv 다. */
@@ -639,6 +738,19 @@ export function lcSummaryOf(
             : { key: '발동잔량', value: '—', off: true },
       ];
     }
+    case 'auto-sell': {
+      // Phase 27 D-02 — 행과 같은 의미어 · 누적 > 0 은 빨강(hot) · 「—」 은 꺼진 kv. 누적 · 기준은 에코(`server`)만 읽는다.
+      const method = lcAutoSellMethodText(values.autoSellMethod);
+      const sold = lcAutoSellSoldText(server);
+      const basis = lcAutoSellBasisText(server);
+      return [
+        { key: '시작조건', value: text('autoSellStartCond', '%'), off: false },
+        { key: '비율', value: fmt(values.autoSellRatioPct, '%'), off: false },
+        { key: '방법', value: method, off: method === '—' },
+        sold === '—' ? { key: '누적', value: sold, off: true } : { key: '누적', value: sold, off: false, hot: true },
+        { key: '기준', value: basis, off: basis === '—' },
+      ];
+    }
     default:
       return [];
   }
@@ -674,27 +786,49 @@ export function lcRowDimOf(group: LcGroupSpec, row: LcRowSpec, values: LimitChas
       return groupOff || !values[row.check];
     case 'check':
       return (!row.independent && groupOff) || !values[row.check];
-    case 'derived':
+    case 'choice':
       return groupOff;
+    case 'derived':
+      // 자동매도 누적 · 기준은 서버 사실이라 흐리지 않는다(목업 `.lrow.ro` — 중지 뒤에도 누적은 읽혀야 한다 · D-02).
+      return row.source === 'autoSellSoldQty' || row.source === 'autoSellBasisPrice' ? false : groupOff;
     case 'note':
       return false;
   }
 }
 
 /**
+ * 조건부 범위(전송 직전 마지막 방어선 · relay zod `.superRefine` 동형) — 이 게이트가 켜진 cfg 에서만 `inputRange` 로
+ * 좁힌다. 꺼진 레거시 에코의 0 은 다른 필드 확정을 막지 않는다(RESEARCH Pitfall 4 · Phase 27 Pitfall 5).
+ */
+const CONDITIONAL_RANGE_GATE: Partial<Record<LcNumField, LcGate>> = {
+  postBuyReboundPct: 'postBuyEnabled',
+  autoSellRatioPct: 'autoSellEnabled',
+};
+
+/**
  * cfg 전체 범위 검사 — 필드 확정 훅의 **전송 직전 마지막 방어선**(CR-01). 시트·인라인이 편집 필드를
  * 먼저 잠그지만, `lc.set` 은 전 필드를 싣는다 — 체크 on/off 와 무관하게 비율 값도 전송 대상이고,
  * 서버 동기값이 범위 밖이면(레거시·다른 클라) **다른 필드**를 확정해도 그 값이 실려 연결이 끊긴다.
- * ★ 조건 규칙 한 줄 — `postBuyEnabled` 면 반등은 1~100(relay zod `.superRefine` · 서버 §9-2 ⑤ 동형).
- *   후매수가 꺼진 레거시 에코의 반등 0 은 통과시킨다(다른 필드 확정을 막지 않는다 · RESEARCH Pitfall 4).
+ * ★ 조건 규칙(`CONDITIONAL_RANGE_GATE`) — `postBuyEnabled` 면 반등은 1~100(relay zod `.superRefine` · 서버 §9-2 ⑤ 동형),
+ *   `autoSellEnabled` 면 비율 1~50 · 방법 1~3(Phase 27 · 서버 §9-3 동형). 꺼진 레거시 에코의 0 은 통과시킨다(다른 필드
+ *   확정을 막지 않는다 · RESEARCH Pitfall 4 · Phase 27 Pitfall 5). 켜는 확정은 relay 에 닿기 전에 막힌다(close 4400 방지).
  * 범위 밖 필드가 있으면 「{라벨} · {범위 문구}」, 없으면 null.
  */
 export function lcRangeIssue(values: LimitChaserFormValues): string | null {
   for (const group of ALL_GROUPS) {
     for (const row of group.rows) {
+      if (row.kind === 'choice') {
+        // 자동매도 방법 — 켠 cfg 만 옵션 값(1~3), 꺼진 cfg 는 relay UByte(0~255 · 옛 에코 0 통과).
+        const v = values[row.field];
+        const ok = values.autoSellEnabled
+          ? row.options.some((o) => o.value === v)
+          : Number.isInteger(v) && v >= 0 && v <= 255;
+        if (!ok) return `${row.label} · ${row.options.map((o) => o.label).join(' · ')} 중에서 골라 주세요`;
+        continue;
+      }
       if ((row.kind !== 'value' && row.kind !== 'checkValue') || row.range === undefined) continue;
-      const range =
-        row.field === 'postBuyReboundPct' && values.postBuyEnabled ? (row.inputRange ?? row.range) : row.range;
+      const gate = CONDITIONAL_RANGE_GATE[row.field];
+      const range = gate !== undefined && values[gate] ? (row.inputRange ?? row.range) : row.range;
       const v = values[row.field];
       const text = Number.isInteger(v)
         ? rangeIssueText(v, row.unit, range.min, range.max)

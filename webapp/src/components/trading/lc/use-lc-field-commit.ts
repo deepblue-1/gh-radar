@@ -197,11 +197,16 @@ export const LC_REJECT_ECHO_GRACE_MS = 1_000;
  * ★ 한방(`sweepEnabled`)은 선매수 안 체크가 됐다 — 미등록에서 한방만 켜 보내면 게이트 4종 OFF → 서버가
  *   `D` 로 정규화한다(존재하지 않는 키의 철거 프레임 · RESEARCH webapp 1). 그래서 등록 필드가 아니다.
  * ★ 후매수 ☐자동(`postBuyAuto` · quick-260929-vzy)은 등록 필드다 — 자동만 켠 등록도 등록이다(서버 · WinForms 동형 · P-1).
+ * ★ 자동매도 스위치(`autoSellEnabled` · Phase 27 D-01)도 등록 필드다 — 서버 「자동매도만 켠 등록도 등록」(`IsActive()` 에
+ *   `IsAutoSellActive()` · 삭제 정규화가 지우지 않는다). 끄기는 무장 해제다(isDisarm) — 범위 검사의 자동매도 조건 규칙은
+ *   켠 cfg 에서만 서므로 끄는 확정을 막지 않는다(T-16-44).
  */
 export const LC_GATE_FIELDS = [
   'buyEnabled', 'preBuyEnabled', 'extraBuyEnabled', 'postBuyEnabled', 'sellEnabled', 'cancelQtyEnabled',
   // 후매수 ☐자동(quick-260929-vzy · P-1) — 자동만 켠 등록도 등록이다(서버 · WinForms 동형). 끄기는 무장 해제다(isDisarm).
   'postBuyAuto',
+  // 자동매도(Phase 27 D-01) — 자동매도만 켠 등록도 등록이다(서버 · WinForms `AnyArmed` 동형). 끄기는 무장 해제다(isDisarm).
+  'autoSellEnabled',
 ] as const satisfies readonly LcFieldKey[];
 
 /** 문구 원천 — UI-SPEC Copywriting Contract 원문 그대로다. 다른 곳에서 다시 적지 않는다. */

@@ -1850,7 +1850,7 @@ describe('companions — 한 확정 = 한 lc.set 에 동반 필드 (Phase 24 D-0
 });
 
 describe('게이트 필드 (Phase 24 — 세 그룹 스위치가 등록할 수 있다 · 한방은 체크가 됐다)', () => {
-  it('LC_GATE_FIELDS = 마스터 · 선 · 추가 · 후매수 · 매도 · 취소잔량 · 후매수 자동 — 한방 없음', () => {
+  it('LC_GATE_FIELDS = 마스터 · 선 · 추가 · 후매수 · 매도 · 취소잔량 · 후매수 자동 · 자동매도 — 한방 없음', () => {
     expect([...LC_GATE_FIELDS]).toEqual([
       'buyEnabled',
       'preBuyEnabled',
@@ -1859,6 +1859,7 @@ describe('게이트 필드 (Phase 24 — 세 그룹 스위치가 등록할 수 �
       'sellEnabled',
       'cancelQtyEnabled',
       'postBuyAuto',
+      'autoSellEnabled',
     ]);
   });
 
@@ -1976,5 +1977,54 @@ describe('D-03 — 선매수 · 추가매수 · 후매수 금액 0 이면 그 �
     expect(lcGroupAmountBlockOf(v, 'extraBuyMinQty', 5)).toBeNull();
     expect(lcGroupAmountBlockOf(v, 'preBuyEnabled', true)).toBeNull();
     expect(lcGroupAmountBlockOf(v, 'buyWatchPrice', 1)).toBeNull();
+  });
+});
+
+describe('Phase 27 자동매도 그룹 — 등록 게이트 · 조건 범위 (D-01 · Pitfall 5)', () => {
+  it('LC_GATE_FIELDS 에 autoSellEnabled — 미등록에서 자동매도 스위치 확정은 등록 전송(crud C)', () => {
+    expect(LC_GATE_FIELDS).toContain('autoSellEnabled');
+    const t = setup({ server: null });
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('autoSellEnabled', true, 'toggle');
+    });
+    expect(out).toBe('sent');
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.cfgs()[0]!.crud).toBe('C');
+    expect(t.cfgs()[0]!.autoSellEnabled).toBe(true);
+    expect(t.cfgs()[0]!.autoSellRatioPct).toBe(10);
+    expect(t.cfgs()[0]!.autoSellMethod).toBe(3);
+  });
+
+  it('옛 에코 비율 0 · 방법 0 에서 켜는 확정은 소켓에 닿기 전에 막힌다(invalid · 전송 0)', () => {
+    const t = setup({ server: echo({ autoSellEnabled: false, autoSellRatioPct: 0, autoSellMethod: 0 }) });
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('autoSellEnabled', true, 'toggle');
+    });
+    expect(out).toBe('blocked');
+    expect(t.send).not.toHaveBeenCalled();
+    expect(t.hook.result.current.failures.autoSellEnabled?.reason).toBe('invalid');
+    expect(t.hook.result.current.failures.autoSellEnabled?.text).toMatch(/^비율 · /);
+  });
+
+  it('꺼진 옛 에코의 비율 0 · 방법 0 은 다른 카드 확정을 막지 않는다', () => {
+    const t = setup({ server: echo({ autoSellEnabled: false, autoSellRatioPct: 0, autoSellMethod: 0 }) });
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
+    });
+    expect(out).toBe('sent');
+  });
+
+  it('등록된 전략의 자동매도 끄기는 범위 밖 비율이어도 전송된다(끄는 방향 미판정 · T-16-44)', () => {
+    const armBlockOf = () => '매수주문 · 막힘';
+    const t = setup({ server: echo({ autoSellEnabled: true, autoSellRatioPct: 0, autoSellMethod: 0 }), armBlockOf });
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('autoSellEnabled', false, 'toggle');
+    });
+    expect(out).toBe('sent');
+    expect(t.cfgs()[0]!.autoSellEnabled).toBe(false);
   });
 });

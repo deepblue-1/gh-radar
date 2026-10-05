@@ -905,11 +905,14 @@ export function LimitChaserForm({
     key === undefined ? undefined : groupStatus?.[key];
   /**
    * 스위치를 지금 누를 수 없는가 — 정적 무장 판정(WR-06 · 시세 미수신)을 지나는 것은 마스터 · 세 그룹 · 매도다.
-   * 매수취소는 세션 미준비와 구서버 에코의 켜는 방향(WR-02)만 본다. 그룹 수량 0 · 그룹 고유 검증은 `disabled` 가
-   * 아니라 누르는 순간의 사전 검증이다(R7).
+   * 매수취소 · 자동매도(Phase 27 — 시세 무관 · 발주 판정은 서버)는 세션 미준비와 구서버 에코의 켜는 방향(WR-02)만
+   * 본다. 그룹 수량 0 · 그룹 고유 검증은 `disabled` 가 아니라 누르는 순간의 사전 검증이다(R7). 자동매도 범위(비율 ·
+   * 방법)는 전송 직전 `lcRangeIssue` 가 막는다(Pitfall 5 — 폼 맨 위 한 줄).
    */
   const gateDisabled = (gate: LcGate): boolean =>
-    gate === 'cancelQtyEnabled' ? disabled || (legacy && !form.cancelQtyEnabled) : gateBlocked(gate, !form[gate]);
+    gate === 'cancelQtyEnabled' || gate === 'autoSellEnabled'
+      ? disabled || (legacy && !form[gate])
+      : gateBlocked(gate, !form[gate]);
 
   /*
     그룹 켜기 사전 검증 줄(UI-SPEC §7) — 카드마다 한 자리지만 폼 전체에 **늘 한 줄**이다(누른 카드의 것).

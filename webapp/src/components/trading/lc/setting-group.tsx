@@ -101,12 +101,18 @@ const DIM_IN_ROW = 'opacity-45 group-focus-within/lcrow:opacity-100 pointer-fine
  * 그룹 상태 문구 색(UI-SPEC §11 · R3) — **첫 단어 기준**. 새 색 토큰 0 · 색은 보조 신호이고 의미는 단어가
  * 싣는다(WCAG 1.4.1). 「감시 중 · 후매수 발동」은 초록, 「무장 · 대기 · 후매수 발동」은 중립이다.
  * 「구서버 전략 · 끄기만 가능」(WR-02 · `LC_LEGACY_BUY_STATUS`)은 「포기」 와 같은 `--destructive` 다.
+ * ★ 자동매도 칩 낱말(Phase 27 D-03 · 2026-10-05 개정 — 헤더 LED D-04 와 같은 WinForms 색 규칙)은 **정확 일치**다:
+ *   「감시」「매도중」 = `--led-armed`(초록) · 「대기」「완료」 = `--led-latent`(주황). 목업의 「대기 중립 · 완료 파랑」은
+ *   이 개정으로 대체됐다(새 토큰 · 파랑 없음). 기존 startsWith 규칙 **뒤**에 두어 「무장 · 대기」 등 기존 문구 결과가
+ *   바뀌지 않는다.
  */
 export function groupStatusClassOf(text: string): string {
   if (text.startsWith('감시 중')) return 'text-[var(--led-armed)]';
   if (text.startsWith('보유중')) return 'text-[var(--led-latent)]';
   if (text.startsWith('포기')) return 'text-[var(--destructive)]';
   if (text.startsWith('구서버')) return 'text-[var(--destructive)]'; // WR-02 구서버 에코 — 「포기」 와 같은 경고 결
+  if (text === '감시' || text === '매도중') return 'text-[var(--led-armed)]';
+  if (text === '대기' || text === '완료') return 'text-[var(--led-latent)]';
   return 'text-[var(--muted-fg)]';
 }
 

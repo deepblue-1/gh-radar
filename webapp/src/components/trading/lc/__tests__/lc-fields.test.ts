@@ -20,9 +20,13 @@ import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
 import {
   LC_BUY_GROUPS,
   LC_SELL_GROUPS,
+  LC_SWITCH_LABEL,
+  lcNavigableRows,
   lcRangeIssue,
   lcRowA11yNameOf,
   lcRowById,
+  lcRowDimOf,
+  lcRowOfField,
   lcSummaryOf,
   lcValueTextOf,
   POST_BUY_UNLOCK_SR_TEXT,
@@ -61,19 +65,19 @@ const valueRow = (id: string) => {
 describe('① 매수 카드 4장 스펙 (스케치 009 D · ROADMAP ⑤)', () => {
   it('LC_BUY_GROUPS slot 순서 = buy → pre-buy → extra-buy → post-buy · 매도 쪽 = sell → cancel (quick-261001-gjk 한 카드)', () => {
     expect(LC_BUY_GROUPS.map((g) => g.slot)).toEqual(['buy', 'pre-buy', 'extra-buy', 'post-buy']);
-    expect(LC_SELL_GROUPS.map((g) => g.slot)).toEqual(['sell', 'cancel']);
+    expect(LC_SELL_GROUPS.map((g) => g.slot)).toEqual(['sell', 'cancel', 'auto-sell']);
   });
 
-  it('세 그룹 카드만 접힌다 — 공통 카드 · 매도 쪽은 접기 없음', () => {
+  it('세 그룹 카드 + 자동매도만 접힌다 — 공통 카드 · 매도주문 · 매수취소는 접기 없음 (Phase 27 D-01)', () => {
     const collapsible = [...LC_BUY_GROUPS, ...LC_SELL_GROUPS].filter((g) => g.collapsible).map((g) => g.slot);
-    expect(collapsible).toEqual(['pre-buy', 'extra-buy', 'post-buy']);
+    expect(collapsible).toEqual(['pre-buy', 'extra-buy', 'post-buy', 'auto-sell']);
   });
 
   it('모든 값 · 체크 id 가 유일하다', () => {
     const ids: string[] = [];
     for (const g of [...LC_BUY_GROUPS, ...LC_SELL_GROUPS] as LcGroupSpec[]) {
       for (const r of g.rows) {
-        if (r.kind === 'value' || r.kind === 'checkValue') ids.push(r.id);
+        if (r.kind === 'value' || r.kind === 'checkValue' || r.kind === 'choice') ids.push(r.id);
         if (r.kind === 'checkValue' || r.kind === 'check') ids.push(r.checkId);
       }
     }
@@ -266,5 +270,106 @@ describe('⑥ lcRangeIssue — 반등 0~100 + 「후매수 ON 이면 1~100」 (T
 
   it('최대 0 은 유효하다(0 = 사지 않음, D-30)', () => {
     expect(lcRangeIssue(values({ postBuyReentry: 0 }))).toBeNull();
+  });
+});
+
+describe('Phase 27 자동매도 그룹 — 스펙 · 의미어 · 요약 · 조건 범위 (D-01 · D-02 · Pitfall 5)', () => {
+  const autoSell = () => LC_SELL_GROUPS.find((g) => g.slot === 'auto-sell')!;
+
+  it('매도 pane 세 번째 카드 「자동매도」 — 접기 · 자기 게이트 · 자기 흐림 게이트(매도주문과 독립)', () => {
+    expect(LC_SELL_GROUPS.map((g) => g.slot)).toEqual(['sell', 'cancel', 'auto-sell']);
+    const g = autoSell();
+    expect(g.title).toBe('자동매도');
+    expect(g.gate).toBe('autoSellEnabled');
+    expect(g.dimGate).toBe('autoSellEnabled');
+    expect(g.statusKey).toBe('autoSell');
+    expect(g.collapsible).toBe(true);
+    expect(LC_SWITCH_LABEL.autoSellEnabled).toBe('자동매도 켜기');
+  });
+
+  it('행 순서 = 시작조건 · 비율 · 방법(choice) · 누적 매도 · 기준 — choice 옵션은 와이어 3 · 1 · 2', () => {
+    const rows = autoSell().rows;
+    expect(rows.map((r) => r.kind)).toEqual(['value', 'value', 'choice', 'derived', 'derived']);
+    expect(rows.map((r) => ('label' in r ? r.label : ''))).toEqual(['시작조건', '비율', '방법', '누적 매도', '기준']);
+    const choice = rows[2] as Extract<LcRowSpec, { kind: 'choice' }>;
+    expect(choice.field).toBe('autoSellMethod');
+    expect(choice.options).toEqual([
+      { value: 3, label: '양쪽' },
+      { value: 1, label: '매도1호가' },
+      { value: 2, label: '매수1호가' },
+    ]);
+  });
+
+  it('choice 행은 Tab 연속 편집 대상이 아니다 — 값 행 두 개만', () => {
+    expect(lcNavigableRows('auto-sell').map((r) => r.field)).toEqual(['autoSellStartCond', 'autoSellRatioPct']);
+  });
+
+  it('시작조건 0 = 「이탈 후 다음 체결」 · 그 밖은 의미어 없음(기본 「N%」)', () => {
+    expect(lcValueTextOf('autoSellStartCond', values({ autoSellStartCond: 0 }), null)).toBe('이탈 후 다음 체결');
+    expect(lcValueTextOf('autoSellStartCond', values({ autoSellStartCond: 2 }), null)).toBeNull();
+  });
+
+  it('요약 — 시작조건 · 비율 · 방법 · 누적(hot) · 기준', () => {
+    const items = lcSummaryOf(
+      'auto-sell',
+      values({ autoSellStartCond: 2, autoSellRatioPct: 10, autoSellMethod: 3 }),
+      srv({ autoSellSoldQty: 6000, autoSellState: 3, autoSellBasis: 1, autoSellBasisPrice: 13_000 }),
+    );
+    expect(items).toEqual([
+      { key: '시작조건', value: '2%', off: false },
+      { key: '비율', value: '10%', off: false },
+      { key: '방법', value: '양쪽', off: false },
+      { key: '누적', value: '6,000주', off: false, hot: true },
+      { key: '기준', value: '상한가 13,000원', off: false },
+    ]);
+  });
+
+  it('요약 — 누적 0 「—」(off) · 상태 0 또는 기준 0 → 기준 「—」 · 방법 0 → 「—」 · 시작조건 0 의미어', () => {
+    const v = values({ autoSellStartCond: 0, autoSellRatioPct: 10, autoSellMethod: 0 });
+    const off = lcSummaryOf('auto-sell', v, srv({ autoSellState: 0, autoSellBasis: 1, autoSellBasisPrice: 13_000 }));
+    expect(off).toEqual([
+      { key: '시작조건', value: '이탈 후 다음 체결', off: false },
+      { key: '비율', value: '10%', off: false },
+      { key: '방법', value: '—', off: true },
+      { key: '누적', value: '—', off: true },
+      { key: '기준', value: '—', off: true },
+    ]);
+    const noBasis = lcSummaryOf('auto-sell', v, srv({ autoSellState: 2, autoSellBasis: 0, autoSellBasisPrice: 13_000 }));
+    expect(noBasis[4]).toEqual({ key: '기준', value: '—', off: true });
+    const buyBasis = lcSummaryOf('auto-sell', v, srv({ autoSellState: 2, autoSellBasis: 2, autoSellBasisPrice: 12_500 }));
+    expect(buyBasis[4]).toEqual({ key: '기준', value: '매수가 12,500원', off: false });
+    // 에코 없음(미등록)
+    expect(lcSummaryOf('auto-sell', v, null).slice(3)).toEqual([
+      { key: '누적', value: '—', off: true },
+      { key: '기준', value: '—', off: true },
+    ]);
+  });
+
+  it('lcRangeIssue — 자동매도 켠 cfg 만 비율 1~50 · 방법 1~3 · 시작조건은 늘 0~9 (Pitfall 5 · 9-2)', () => {
+    expect(lcRangeIssue(values({ autoSellEnabled: true, autoSellRatioPct: 0 }))).toMatch(/^비율 · /);
+    expect(lcRangeIssue(values({ autoSellEnabled: true, autoSellRatioPct: 51 }))).toMatch(/^비율 · /);
+    expect(lcRangeIssue(values({ autoSellEnabled: true, autoSellRatioPct: 10, autoSellMethod: 0 }))).toMatch(/^방법 · /);
+    expect(lcRangeIssue(values({ autoSellEnabled: true, autoSellRatioPct: 10, autoSellMethod: 4 }))).toMatch(/^방법 · /);
+    expect(lcRangeIssue(values({ autoSellEnabled: true, autoSellRatioPct: 50, autoSellMethod: 2 }))).toBeNull();
+    // 꺼진 옛 에코의 0 · 0 은 다른 카드 확정을 막지 않는다
+    expect(lcRangeIssue(values({ autoSellEnabled: false, autoSellRatioPct: 0, autoSellMethod: 0 }))).toBeNull();
+    // 시작조건은 게이트와 무관
+    expect(lcRangeIssue(values({ autoSellEnabled: false, autoSellStartCond: 10 }))).toMatch(/^시작조건 · /);
+    expect(lcRangeIssue(values({ autoSellEnabled: false, autoSellStartCond: 9 }))).toBeNull();
+  });
+
+  it('행 흐림 — 입력 행 3개는 자동매도 게이트만 · 매도주문 OFF 와 무관 · 읽기 전용 2행은 흐리지 않는다', () => {
+    const g = autoSell();
+    const [start, ratio, method, sold, basis] = g.rows;
+    const off = values({ autoSellEnabled: false, sellEnabled: true });
+    expect([start, ratio, method].map((r) => lcRowDimOf(g, r!, off))).toEqual([true, true, true]);
+    expect([sold, basis].map((r) => lcRowDimOf(g, r!, off))).toEqual([false, false]);
+    const on = values({ autoSellEnabled: true, sellEnabled: false });
+    expect(g.rows.map((r) => lcRowDimOf(g, r, on))).toEqual([false, false, false, false, false]);
+  });
+
+  it('choice 행도 id · 필드로 찾는다 — 접힌 카드 자동 펼침(행 실패)이 쓴다', () => {
+    expect(lcRowById('lc-auto-sell-method')?.group.slot).toBe('auto-sell');
+    expect(lcRowOfField('autoSellMethod')).toMatchObject({ isCheck: false, group: { slot: 'auto-sell' } });
   });
 });
