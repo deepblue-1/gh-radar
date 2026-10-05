@@ -2717,8 +2717,9 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(cells.nth(0)).toHaveText('잠김 43초째');
     await expect(cells.nth(1)).toHaveText('대기 17.3억');
     await expect(cells.nth(2)).toHaveText('소진 —');
-    // 10초 · 창구 행은 28-07 이 채운다 — 지금은 「—」.
-    await expect(cells.nth(3)).toHaveText('—');
+    // 10초 · 창구 행(28-07) — 기본 프레임 sell 3,700 · buy 6,300 → 「매수 우세 63%」 · 창구 00050 → 「매수 키움증권 +5.2만」.
+    await expect(cells.nth(3)).toHaveText('매수 우세 63%');
+    await expect(cells.nth(6)).toHaveText('매수 키움증권 +5.2만');
     const after = await cardHeight();
     expect(after, '「상한가」 탭 선택 전후 카드 높이(D-02)').toBe(before);
     const body = card.locator('[data-slot="card-tabs-body"]');
@@ -2784,6 +2785,99 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await toggle.click();
     await expect(card).toHaveAttribute('data-open', 'true');
     await expect(limitTab).toHaveAccessibleName('상한가 · 잠김 50초', { timeout: 5_000 });
+  });
+
+  test('P28-2 9칸 폰 축약 · 높이 · 툴팁 — 카드 lc 폰 밴드 「신규 +1.2만」 · 창구 말줄임 + title · 긴 탭 제목 한 줄 / 넓은 밴드 「잔량 신규 +12,400」 (28-07 · D-02 · D-03 · D-04)', async ({
+    page,
+  }) => {
+    await page.setViewportSize(PHONE_VIEWPORT);
+    relay.seedLimitChasers([{ buyEnabled: true }]);
+    await openFocusedCard(page);
+    const card = cardOf(page, E2E_ISIN);
+    const bar = card.locator('[data-slot="card-tabs-bar"]');
+    const tabs = card.locator('[data-slot="card-tabs"]').getByRole('tab');
+    const limitTab = tabs.nth(3);
+
+    // 잠김 63초(긴 탭 제목) · 10초 신규 12,400 · 취소 2,300 · 창구 매수 00005 +12.3만 · 확률 적용(툴팁 꼬리).
+    const frame = {
+      isin: E2E_ISIN,
+      exchange: 'KRX',
+      lockState: 1,
+      lockElapsedS: 63,
+      new10s: 12_400n,
+      cancel10s: 2_300n,
+      memberBuy: [{ memberNo: '00005', dQty: 123_000n, dValue: 1_599_000_000n, shareBp: 8000 }],
+      modelState: 1,
+      modelSchemaVersion: 1,
+      pBreakBp: 1830,
+      pHorizonS: 60,
+    };
+    const sock = await relay.quoteSocket();
+    await expect(async () => {
+      pushLimitFeatureFixture(relay.gateway, sock, frame);
+      await expect(limitTab).toHaveAccessibleName('상한가 · 잠김 1분 3초', { timeout: 1_000 });
+    }).toPass({ timeout: 15_000 });
+
+    // (a) 긴 탭 제목에도 탭 줄은 한 줄 — 탭 4 + 로그 버튼 2 + 접기 중심선이 같고, 버튼들은 카드 안에 보인다(UI E1 long-text).
+    const centers = await bar
+      .locator('[role="tab"], [data-slot="card-log-button"], [data-slot="card-tabs-fold"]')
+      .evaluateAll((els) => els.map((e) => {
+        const r = e.getBoundingClientRect();
+        return r.top + r.height / 2;
+      }));
+    expect(centers, '탭 4 + 버튼 2 + 접기').toHaveLength(7);
+    expect(Math.max(...centers) - Math.min(...centers), '카드 탭 줄 한 줄(390)').toBeLessThanOrEqual(4);
+    const cardBox = (await card.boundingBox())!;
+    for (const btn of [
+      ...(await bar.locator('[data-slot="card-log-button"]').all()),
+      bar.locator('[data-slot="card-tabs-fold"]'),
+    ]) {
+      await expect(btn).toBeVisible();
+      const b = (await btn.boundingBox())!;
+      expect(b.x + b.width, '버튼이 카드 오른쪽 밖으로 밀리지 않는다').toBeLessThanOrEqual(cardBox.x + cardBox.width + 1);
+    }
+
+    // (b) 카드 높이 기록 → 「상한가」 클릭 → 높이 같고 탭 본문 스크롤 없음(D-02).
+    const cardHeight = () => card.evaluate((el) => el.getBoundingClientRect().height);
+    const before = await cardHeight();
+    await limitTab.click();
+    await expect(limitTab).toHaveAttribute('aria-selected', 'true');
+    const table = card.locator('[data-slot="lc-limit-feature"]');
+    const cells = table.locator('[data-slot="lc-limit-feature-cell"]');
+    await expect(cells).toHaveCount(9);
+    expect(await cardHeight(), '「상한가」 탭 선택 전후 카드 높이(390)').toBe(before);
+    const body = card.locator('[data-slot="card-tabs-body"]');
+    const geo = await body.evaluate((el) => ({ scrollHeight: el.scrollHeight, clientHeight: el.clientHeight }));
+    expect(geo.scrollHeight, '탭 본문 스크롤 없음(390)').toBe(geo.clientHeight);
+
+    // (c) 폰 밴드 — 잠김 중 10초 칸 2 · 3 의 **보이는** 글자는 축약형(넓은 span 은 CSS 로 숨김).
+    await expect(cells.nth(4)).toHaveText('신규 +1.2만', { useInnerText: true });
+    await expect(cells.nth(5)).toHaveText('취소 -2,300', { useInnerText: true });
+    await expect(cells.nth(4).locator('[data-band="wide"]')).toBeHidden();
+    await expect(cells.nth(4).locator('[data-band="narrow"]')).toBeVisible();
+
+    // (d) 창구 칸 1 은 칸 안에서 말줄임(UI E1 overflow) — 전체 문장은 표 title 이 받는다(늘 넓은 밴드 문구).
+    await expect(cells.nth(6)).toHaveText('매수 미래에셋증권 +12.3만');
+    const clip = await cells.nth(6).evaluate((el) => ({
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+      overflow: getComputedStyle(el).textOverflow,
+    }));
+    expect(clip.overflow).toBe('ellipsis');
+    expect(clip.scrollWidth, '창구 칸이 칸 폭을 넘는다 → 말줄임').toBeGreaterThan(clip.clientWidth);
+    const title = (await table.getAttribute('title')) ?? '';
+    expect(title).toContain('매수 미래에셋증권 +12.3만');
+    expect(title).toContain('잔량 신규 +12,400 · 잔량 취소 -2,300');
+    expect(title).toMatch(/\n\d{2}:\d{2}:\d{2} 기준 · 깨짐확률은 60초 안$/);
+    expect(await cardHeight(), '말줄임 칸이 있어도 카드 높이 그대로').toBe(before);
+
+    // (e) 넓은 밴드(1280) — 같은 칸이 전체 숫자 「잔량 신규 +12,400」 · 「잔량 취소 -2,300」.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await expect(cells.nth(4)).toHaveText('잔량 신규 +12,400', { useInnerText: true });
+    await expect(cells.nth(5)).toHaveText('잔량 취소 -2,300', { useInnerText: true });
+    await expect(cells.nth(4).locator('[data-band="narrow"]')).toBeHidden();
+    const geoWide = await body.evaluate((el) => ({ scrollHeight: el.scrollHeight, clientHeight: el.clientHeight }));
+    expect(geoWide.scrollHeight, '탭 본문 스크롤 없음(1280)').toBe(geoWide.clientHeight);
   });
 
   test('P27-2 자동매도 카드 — 펼침 · 스위치 등록 · 방법 세그먼트 · 칩 대기→감시 · 요약 · 폰 시트 · 범위 가드 (D-01 · D-02 · D-03 · Pitfall 5)', async ({

@@ -692,7 +692,7 @@ describe('Phase 28 상한가 탭 (D-01~D-04 · UI-SPEC ①)', () => {
     expect(tabs()[3]!.querySelector('[data-slot="card-tab-limit-state"]')).toBeNull();
   });
 
-  it('「상한가」 클릭 → 표 지금 행 「잠김 43초째 | 대기 17.3억 | 소진 —」 · 첫 칸 --up 600 · 10초 · 창구 6칸 「—」', async () => {
+  it('「상한가」 클릭 → 9칸 WinForms 문구(지금 · 10초 폰/넓은 두 span · 창구) · 첫 칸 --up 600 (28-07)', async () => {
     const user = userEvent.setup();
     render(<CardTabs {...props({ limitFeature: lf() })} />);
     await user.click(tabNamed('상한가'));
@@ -704,7 +704,18 @@ describe('Phase 28 상한가 탭 (D-01~D-04 · UI-SPEC ①)', () => {
       '10초',
       '창구',
     ]);
-    expect(cellTexts()).toEqual(['잠김 43초째', '대기 17.3억', '소진 —', '—', '—', '—', '—', '—', '—']);
+    // 잠김 중 10초 칸 2 · 3 은 폰 span + 넓은 span 이 같은 칸에 있다(CSS 컨테이너 쿼리로만 가른다).
+    expect(cellTexts()).toEqual([
+      '잠김 43초째',
+      '대기 17.3억',
+      '소진 —',
+      '매수 우세 63%',
+      '신규 +1.2만잔량 신규 +12,400',
+      '취소 -2,300잔량 취소 -2,300',
+      '매수 —',
+      '매도 —',
+      '깨짐확률 관찰 중',
+    ]);
     const first = table()!.querySelector('[data-slot="lc-limit-feature-cell"]')!;
     expect(first.className).toContain('text-[var(--up)]');
     expect(first.className).toContain('font-semibold');
@@ -728,5 +739,32 @@ describe('Phase 28 상한가 탭 (D-01~D-04 · UI-SPEC ①)', () => {
     expect(tabNamed('정보')).toHaveAttribute('aria-selected', 'true');
     expect(tabNamed('상한가')).toHaveAttribute('aria-selected', 'false');
     expect(tabNamed('상한가').textContent).toBe('상한가 · 잠김 43초');
+  });
+
+  it('탭 본문 래퍼는 「상한가」 에서도 공통 고정 높이(CARD_TABS_BODY_H) 그대로 — 카드 높이 불변 (D-02)', async () => {
+    const user = userEvent.setup();
+    render(<CardTabs {...props({ limitFeature: lf() })} />);
+    const body = root().querySelector('[data-slot="card-tabs-body"]') as HTMLElement;
+    const before = body.className;
+    await user.click(tabNamed('상한가'));
+    expect(body.className).toBe(before);
+    expect(body.className).toContain('h-[calc(3*(11px*var(--lh-normal)+6px)+4px)]');
+    expect(table()!.className).toContain('h-full');
+  });
+
+  it('접속 끊김(isStale) → 표 · 탭 제목 접미 data-stale + opacity .55 · 값은 그대로 (28-07)', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<CardTabs {...props({ limitFeature: lf(), isStale: true })} />);
+    const state = tabs()[3]!.querySelector('[data-slot="card-tab-limit-state"]')!;
+    expect(state.getAttribute('data-stale')).toBe('true');
+    expect(state.className).toContain('opacity-[.55]');
+    expect(tabNamed('상한가').textContent).toBe('상한가 · 잠김 43초');
+    await user.click(tabNamed('상한가'));
+    expect(table()!.getAttribute('data-stale')).toBe('true');
+    expect(table()!.className).toContain('opacity-[.55]');
+    expect(cellTexts()[0]).toBe('잠김 43초째');
+    rerender(<CardTabs {...props({ limitFeature: lf(), isStale: false })} />);
+    expect(table()!.hasAttribute('data-stale')).toBe(false);
+    expect(tabs()[3]!.querySelector('[data-slot="card-tab-limit-state"]')!.hasAttribute('data-stale')).toBe(false);
   });
 });

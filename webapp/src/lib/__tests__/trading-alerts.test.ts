@@ -22,6 +22,7 @@ import {
   resolveOrderEntry,
   type OrderIndexEntry,
   type TradingAlert,
+  type TradingAlertKind,
 } from "../trading-alerts";
 import { MERGE_WINDOW_MS } from "../order-notices";
 
@@ -342,5 +343,27 @@ describe("alertTabFor — 클릭 시 여는 탭", () => {
     expect(alertTabFor({ ...base, kind: "breakout" }, opts)).toBe("info");
     expect(alertTabFor({ ...base, kind: "vi" }, { hasHolding: false, cardIsNew: true })).toBe("info");
     expect(alertTabFor({ ...base, kind: "breakout" }, { hasHolding: true, cardIsNew: true })).toBe("info");
+  });
+  it("Phase 28 D-04 — 어떤 알림 종류 · 옵션 조합도 「상한가」 탭(\"limit\")을 열지 않는다(자동 전환 없음)", () => {
+    // Record<TradingAlertKind, true> — 유니온에 종류가 늘면 여기가 타입 오류로 먼저 깨진다(전수 보장).
+    const ALL_KINDS: Record<TradingAlertKind, true> = {
+      accept: true,
+      fill: true,
+      modify: true,
+      cancel: true,
+      reject: true,
+      vi: true,
+      breakout: true,
+    };
+    let calls = 0;
+    for (const kind of Object.keys(ALL_KINDS) as TradingAlertKind[]) {
+      for (const hasHolding of [false, true]) {
+        for (const cardIsNew of [false, true]) {
+          expect(alertTabFor({ kind }, { hasHolding, cardIsNew })).not.toBe("limit");
+          calls += 1;
+        }
+      }
+    }
+    expect(calls).toBe(7 * 4);
   });
 });

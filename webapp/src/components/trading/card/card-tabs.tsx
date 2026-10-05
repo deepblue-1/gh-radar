@@ -121,7 +121,7 @@ export interface CardTabsProps {
    * 자기 키의 마지막 85 상한가 특징(⑨). 카드 level 이 `"full"` 이 아니면 null 이다 — 9칸 「—」 · 제목 「상한가」.
    */
   limitFeature: RelayLimitFeatureMsg | null;
-  /** relay 접속 끊김(stale). 28-07 이 「상한가」 표 · 탭 제목 접미 표기에 쓴다 — 지금은 전달만 한다. */
+  /** relay 접속 끊김(stale) — 「상한가」 표 · 탭 제목 접미를 `opacity .55` + `data-stale` 로 감쇠한다(값은 유지 · 28-07). */
   isStale?: boolean;
 }
 
@@ -141,14 +141,19 @@ const CARD_TABS_BODY_H = "h-[calc(3*(11px*var(--lh-normal)+6px)+4px)]";
  * 「상한가」 트리거 접미(⑨ · D-04) — 「 · 잠김 43초」 / 「 · 깨짐」. 85 없음 · 미도달이면 아무것도 그리지 않는다.
  * 색은 자식 span 에 둔다 — 선택 알약의 활성 글자색(`--pill-on-fg`)이 「잠김 …」 의 `--up` 을 덮지 않게.
  */
-function LimitFeatureTabTitle({ feature }: { feature: RelayLimitFeatureMsg | null }) {
+function LimitFeatureTabTitle({ feature, isStale }: { feature: RelayLimitFeatureMsg | null; isStale: boolean }) {
   const suffix = limitFeatureTabSuffix(feature);
   if (suffix === null) return null;
   // 앞 공백은 span 밖 텍스트 노드로 둔다 — span 첫 글자 공백은 접근 이름 계산에서 잘려 「상한가· 잠김」 이 된다.
+  // 접속 끊김이면 값을 지우지 않고 감쇠만 한다(체결 테이프 문법 · 28-07).
   return (
     <>
       {" "}
-      <span data-slot="card-tab-limit-state">
+      <span
+        data-slot="card-tab-limit-state"
+        data-stale={isStale ? "true" : undefined}
+        className={isStale ? "opacity-[.55]" : undefined}
+      >
         {"· "}
         <span className={suffix.tone === "up" ? "mono text-[var(--up)]" : undefined}>{suffix.text}</span>
       </span>
@@ -183,6 +188,7 @@ export function CardTabs({
   stockName,
   orderLogFeed,
   limitFeature,
+  isStale = false,
 }: CardTabsProps) {
   const [tab, setTab] = useState<CardTab>(requestedTab?.tab ?? "info");
   /**
@@ -273,7 +279,7 @@ export function CardTabs({
           </TabsTrigger>
           <TabsTrigger value="limit" className={CARD_TAB_TRIGGER} {...triggerHandlers("limit")}>
             상한가
-            <LimitFeatureTabTitle feature={limitFeature} />
+            <LimitFeatureTabTitle feature={limitFeature} isStale={isStale} />
           </TabsTrigger>
         </TabsList>
         {orderLogFeed !== undefined && (
@@ -347,7 +353,7 @@ export function CardTabs({
           />
         </TabsContent>
         <TabsContent value="limit" className="h-full min-w-0">
-          <LimitFeatureTable feature={limitFeature} />
+          <LimitFeatureTable feature={limitFeature} isStale={isStale} />
         </TabsContent>
       </div>
     </Tabs>
