@@ -8,8 +8,8 @@
  *      날짜라 다음 run 이 마저 지운다. GCS 사본은 지우지 않는다(재적재 가능).
  *   ③ `dma_strategy_events_purge_limit_feature(p_keep_days)` — kind 15 만 kind15KeepDays(28-02).
  *
- * 오류는 단계 · 메시지를 담아 throw — 그날 적재는 이미 끝났으므로 dispatch 가 사유를 남기고 main 이 종료 1
- * (알림 정책이 정리 실패를 잡는다).
+ * 세 단계는 서로 막지 않는다(WR-B05) — 한 단계가 실패해도 나머지를 돌린 뒤, 단계 · 메시지를 담아 한 번 throw.
+ * 그날 적재는 이미 끝났으므로 dispatch 가 사유를 남기고 main 이 종료 1(알림 정책이 정리 실패를 잡는다).
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { GRID_BUCKET } from "./grid";
@@ -29,44 +29,73 @@ export function kstYmdDaysAgo(now: Date, days: number): string {
 export type PurgeConfig = { keepDays: number; allocKeepDays: number; kind15KeepDays: number; now: Date };
 
 export type PurgeResult = {
-  /** limitup_purge_old 반환 `{ cutoff, alloc_cutoff, deleted: { 표: 지운 수 } }`. */
+  /** limitup_purge_old 반환 `{ cutoff, alloc_cutoff, deleted: { 표: 지운 수 } }` — 그 단계가 실패하면 null. */
   tables: unknown;
-  /** 객체를 지운 Storage 날짜 폴더(오름차순). */
+  /** 정리를 마친 Storage 날짜 폴더(오름차순). */
   storageDates: string[];
-  /** kind 15 지운 행 수. */
-  kind15: number;
+  /** kind 15 지운 행 수 — 그 단계가 실패하면 null. */
+  kind15: number | null;
 };
 
+/**
+ * 세 단계는 서로 독립이다(WR-B05) — 표 · Storage 는 limitup 적재본, kind 15 는 relay 관찰자 저널의 시세 이벤트(하루
+ * 수천~1만 행 · 가장 빨리 커지는 표)다. 앞 단계의 무관한 실패(Storage API 일시 오류 등)가 kind 15 정리를 막지 않게
+ * 단계마다 따로 돌리고, 실패는 모아 마지막에 한 번 throw 한다(메시지 = 단계별 사유를 ` | ` 로 이은 것 · `partial` 에
+ * 끝난 단계 결과).
+ */
 export async function purgeOld(sb: SupabaseClient, cfg: PurgeConfig): Promise<PurgeResult> {
-  const { data: tables, error } = await sb.rpc("limitup_purge_old", {
-    p_keep_days: cfg.keepDays,
-    p_alloc_keep_days: cfg.allocKeepDays,
+  const out: PurgeResult = { tables: null, storageDates: [], kind15: null };
+  const errs: string[] = [];
+  const step = async (run: () => Promise<void>): Promise<void> => {
+    try {
+      await run();
+    } catch (e) {
+      errs.push(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  await step(async () => {
+    const { data: tables, error } = await sb.rpc("limitup_purge_old", {
+      p_keep_days: cfg.keepDays,
+      p_alloc_keep_days: cfg.allocKeepDays,
+    });
+    if (error) throw new Error(`limitup_purge_old: ${error.message}`);
+    out.tables = tables;
   });
-  if (error) throw new Error(`limitup_purge_old: ${error.message}`);
 
-  const cutoff = kstYmdDaysAgo(cfg.now, cfg.keepDays);
-  const bucket = sb.storage.from(GRID_BUCKET);
-  const { data: dirs, error: listErr } = await bucket.list("grid", { limit: LIST_LIMIT });
-  if (listErr) throw new Error(`storage list ${GRID_BUCKET}/grid: ${listErr.message}`);
-  const old = (dirs ?? [])
-    .map((d) => d.name)
-    .filter((n) => DATE_RE.test(n) && n < cutoff)
-    .sort();
-  for (const d of old) {
-    const { data: files, error: fe } = await bucket.list(`grid/${d}`, { limit: LIST_LIMIT });
-    if (fe) throw new Error(`storage list ${GRID_BUCKET}/grid/${d}: ${fe.message}`);
-    const paths = (files ?? []).map((f) => `grid/${d}/${f.name}`);
-    if (paths.length === 0) continue;
-    const { error: re } = await bucket.remove(paths);
-    if (re) throw new Error(`storage remove ${GRID_BUCKET}/grid/${d}: ${re.message}`);
-  }
-
-  const { data: k15, error: ke } = await sb.rpc("dma_strategy_events_purge_limit_feature", {
-    p_keep_days: cfg.kind15KeepDays,
+  await step(async () => {
+    const cutoff = kstYmdDaysAgo(cfg.now, cfg.keepDays);
+    const bucket = sb.storage.from(GRID_BUCKET);
+    const { data: dirs, error: listErr } = await bucket.list("grid", { limit: LIST_LIMIT });
+    if (listErr) throw new Error(`storage list ${GRID_BUCKET}/grid: ${listErr.message}`);
+    const old = (dirs ?? [])
+      .map((d) => d.name)
+      .filter((n) => DATE_RE.test(n) && n < cutoff)
+      .sort();
+    for (const d of old) {
+      const { data: files, error: fe } = await bucket.list(`grid/${d}`, { limit: LIST_LIMIT });
+      if (fe) throw new Error(`storage list ${GRID_BUCKET}/grid/${d}: ${fe.message}`);
+      const paths = (files ?? []).map((f) => `grid/${d}/${f.name}`);
+      if (paths.length > 0) {
+        const { error: re } = await bucket.remove(paths);
+        if (re) throw new Error(`storage remove ${GRID_BUCKET}/grid/${d}: ${re.message}`);
+      }
+      out.storageDates.push(d);
+    }
   });
-  if (ke) throw new Error(`dma_strategy_events_purge_limit_feature: ${ke.message}`);
-  const kind15 = Number(k15);
-  if (k15 === null || k15 === undefined || !Number.isInteger(kind15)) throw new Error(`dma_strategy_events_purge_limit_feature: bad count ${String(k15)}`);
 
-  return { tables, storageDates: old, kind15 };
+  await step(async () => {
+    const { data: k15, error: ke } = await sb.rpc("dma_strategy_events_purge_limit_feature", {
+      p_keep_days: cfg.kind15KeepDays,
+    });
+    if (ke) throw new Error(`dma_strategy_events_purge_limit_feature: ${ke.message}`);
+    const kind15 = Number(k15);
+    if (k15 === null || k15 === undefined || !Number.isInteger(kind15)) {
+      throw new Error(`dma_strategy_events_purge_limit_feature: bad count ${String(k15)}`);
+    }
+    out.kind15 = kind15;
+  });
+
+  if (errs.length > 0) throw Object.assign(new Error(errs.join(" | ")), { partial: out });
+  return out;
 }

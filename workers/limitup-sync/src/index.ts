@@ -317,7 +317,9 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
       log.info({ purged: result.purged }, "limitup purge done");
     } catch (err) {
       // 그날 적재는 이미 끝났다 — 무엇이 적재됐는지 남기고 실패로 끝낸다(알림 정책이 정리 실패를 잡는다).
-      log.error({ loaded: result.loaded, grids: result.grids, err }, "limitup purge failed — 적재는 끝남");
+      // 단계는 서로 막지 않는다(WR-B05) — 끝난 단계 결과(partial)도 같이 남긴다.
+      const partial = (err as { partial?: PurgeResult }).partial;
+      log.error({ loaded: result.loaded, grids: result.grids, partial, err }, "limitup purge failed — 적재는 끝남");
       throw err;
     }
   }

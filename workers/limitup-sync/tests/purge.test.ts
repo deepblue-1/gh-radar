@@ -89,4 +89,18 @@ describe("purgeOld", () => {
       purgeOld(fake({ rpc: { dma_strategy_events_purge_limit_feature: { data: null } } }).sb, CFG),
     ).rejects.toThrow(/bad count/);
   });
+
+  it("단계는 서로 막지 않는다 — 표 정리 · Storage 가 실패해도 kind 15 정리는 돈다 · 사유를 모아 한 번 throw (WR-B05)", async () => {
+    const f = fake({
+      rpc: { limitup_purge_old: { error: { message: "timeout" } }, dma_strategy_events_purge_limit_feature: { data: 9 } },
+      storage: (_b, op) => (op === "list" ? { error: { message: "503" } } : undefined),
+    });
+    const err = (await purgeOld(f.sb, CFG).catch((e: unknown) => e)) as Error & { partial: unknown };
+    expect(err.message).toBe("limitup_purge_old: timeout | storage list limitup-grid/grid: 503");
+    expect(f.calls.filter((c) => c.kind === "rpc").map((c) => (c as { name: string }).name)).toEqual([
+      "limitup_purge_old",
+      "dma_strategy_events_purge_limit_feature",
+    ]);
+    expect(err.partial).toEqual({ tables: null, storageDates: [], kind15: 9 });
+  });
 });
