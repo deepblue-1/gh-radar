@@ -51,7 +51,7 @@ gh-trade Phase 27 「실시간 상한가 특징 + 밤 export」 계약(인박스
 - **D-12: 시각 규칙 — 잔량 곡선은 중립색(`--fg`), 잠김 음영은 연한 회색면.** 매수·매도 관례색(`--up`/`--down`)은 창구 막대(매수 빨강 · 매도 파랑) · 깨짐 ● 빨강 · 큰 매도 ▼ 파랑 · 결과 태그(깨짐 `--up-bg`/`--up` · 유지 `--down-bg`/`--down`)에만. 기준선 10억 = 주황 점선(`--led-latent` 계열). 출처 배지 「실측 · 추정 · 모형」 = 작은 회색 칩, 사실 문장 줄 끝과 창구 열에 항상. SVG 는 inline, 라이브러리 없이(차트 라이브러리 oklch 함정 회피 — 토큰은 hex). 빈 날(manifest 행 0 · export 없음)·로딩 상태 모양은 플래너 재량.
 
 ### 적재 파이프라인
-- **D-13: radar-gw 타이머 = rsync + GCS 업로드만.** systemd timer(평일 21:00 KST, `netcut-daily.timer`/`tick-archive.timer` 선례) → oneshot: `rsync -az --delete --exclude='*.tmp' smok95@10.16.207.119:/ <local>/export/` → `gcloud storage rsync <local>/export gs://gh-radar-limitup-export/export`(relay SA 메타데이터 자격 · 버킷은 프로젝트 gh-radar · asia-northeast3 · 공개 접근 방지). radar-gw 에 Node 런타임·Supabase 키를 올리지 않는다. 키: radar-gw 에서 ed25519 1개 생성(`radar-gw-limitup-pull`), 공개키는 인박스 노트 추기로 gh-trade 에 전달, 119 등록 전까지 타이머 disabled. — **Reversibility:** costly — radar-gw 호스트 유닛·GCS 버킷·119 키가 걸린다.
+- **D-13: radar-gw 타이머 = rsync + GCS 업로드만.** systemd timer(평일 21:00 KST, `netcut-daily.timer`/`tick-archive.timer` 선례) → oneshot: `rsync -az --delete --exclude='*.tmp' smok95@10.16.207.119:/ <local>/export/` → `gcloud storage rsync <local>/export gs://gh-radar-limitup-export/export`(relay SA 메타데이터 자격 · 버킷은 프로젝트 gh-radar · asia-northeast3 · 공개 접근 방지). radar-gw 에 Node 런타임·Supabase 키를 올리지 않는다. 키: radar-gw 에서 ed25519 1개 생성(`radar-gw-pull`(D-21)), 공개키는 인박스 노트 추기로 gh-trade 에 전달, 119 등록 전까지 타이머 disabled. — **Reversibility:** costly — radar-gw 호스트 유닛·GCS 버킷·119 키가 걸린다.
 - **D-14: 적재기 = 새 Cloud Run Job 워커 `workers/limitup-sync`**(Scheduler 평일 21:20 KST, 기존 워커 한 벌: `scripts/deploy-limitup-sync.sh` · `setup-…-iam.sh` · `smoke-…` · `ops/alert-limitup-sync-failure.yaml`). GCS 의 `<D>/manifest.json` 이 있는 날짜만 · 파일마다 sha256 대조(불일치면 그 날짜 건너뛰고 로그) · `schema_version` 이 아는 값(지금 1)이 아니면 건너뛰고 로그 · 적재 이력 표(날짜별 manifest sha256)로 **바뀐 날짜만** 재적재 · 재적재는 **날짜 단위 삭제 후 삽입**(트랜잭션). 격자는 Storage `limitup-grid/grid/<date>/<isin>.json.gz` 로 업로드(기존 객체 덮어쓰기). 전송 형식(`Content-Encoding: gzip` vs 브라우저 해제)은 플래너 재량 — 서명 URL 응답에 상한이 없고 종목당 최대 수백 KB 라 어느 쪽도 된다.
 - **D-15: Supabase 표 6개 = 노트 표 그대로.** `facts.values` 에 GIN 인덱스는 **두지 않는다**(행 표시용 — 웹이 근거 키로 검색·필터하지 않는다). 읽기 RPC 는 기존 관행(`REVOKE anon/authenticated` 명시 · `TO anon, authenticated` 둘 다)을 따르되, 페이지가 DMA 게이트 뒤라 server 경유 읽기(`requireAuth`)로 통일한다. — **Reversibility:** costly — 표 6개·버킷·적재 이력 표가 걸린다.
 - **D-16: 보존 = 표 6개 · Storage 격자 전부 90일**(119 원본과 같은 창). 정리는 적재 워커가 run 끝에 `date` < 오늘−90일 행·객체를 지운다. GCS 사본은 지우지 않아 재적재 가능.
@@ -62,6 +62,16 @@ gh-trade Phase 27 「실시간 상한가 특징 + 밤 export」 계약(인박스
 3. **kind 15 저장 경로** — 옛 relay 도 kind 를 거르지 않고 숫자 그대로 넣는다(`dma_strategy_events.kind` CHECK 없음 · 저널 포맷 무변경). 현재 RPC 는 `kind NOT IN (1,2,10)` → 계좌 조인이라 계좌 없는 15 는 **아무에게도 안 보인 채 적재**된다 — 이 phase 가 시세 집합에 15 를 넣어 전원 가시로 바꾼다(D-06). 보존 30일(D-08). 인덱스는 기존 `(trade_date, gateway, account_no)` 로 조회 충분, purge 용 부분 인덱스는 플래너 재량.
 4. **85 수신 로그** — Phase 27(gh-radar) 이 85 를 `OUT_OF_SCOPE_INBOUND_MSG_TYPES` 에 넣어 **debug 레벨 드롭**(warn 아님, `envelope.ts:547`)이다. Phase 28 이 INBOUND 로 올리면 드롭 자체가 없다. 서버 Phase 27 선배포는 안전.
 5. **`facts.values` GIN** — 없음(D-15). 행 표시용만.
+
+### 플래닝 전 추가 결정 (2026-10-05 plan-phase — 리서치 Open Questions 에 대한 사용자 답)
+- **D-17: 파생 표 2개 + stage · 적재 이력 표를 D-15 의 6표에 더한다.** 워커가 같은 적재 트랜잭션에서 `limitup_grid_summary`(스파크라인·최대 잔량·+60초 매도 비중) · `limitup_member_daily`(창구 일별 기여분 — 지문표 원천)를 채운다. 6표는 노트 그대로, 파생은 언제든 재계산 가능. 날짜 단위 교체(D-14)는 stage 표 + commit RPC 1회로 원자화한다(PostgREST 는 요청 간 트랜잭션 불가). — **Reversibility:** reversible.
+- **D-18: kind 15 는 기본 조회·기본 스토어에서 분리한다(D-06/D-07 보강).** RPC 시세 집합 `(1,2,10,15)` 재정의(D-06)는 그대로 두되, 조회는 jsonb 래퍼 RPC(kind 15 포함 여부 인자 · 기본 제외)로 바꿔 `max_rows = 1000` 절단을 피한다. server 는 `?lf=1` 일 때만 kind 15 를 보내고, 웹은 kind 15 를 별도 스토어에 두어 `strategyEvents` 5,000 상한을 소비하지 않는다. 체크를 켜면 오늘 분량을 한 번 더 불러온다. 카드 팝업 「시세」 세그먼트는 tone 이 아니라 kind 로 판정한다.
+- **D-19: 보존 — `limitup_member_alloc` 만 30일, 나머지 표 5개 · 파생 2 · Storage 격자는 90일(D-16 수정).** 지문 파생 표(D-17)가 있으므로 원표는 30일로 충분. 정리는 워커 run 끝에.
+- **D-20: 워커 skip 종료 코드 = warn + 0, 같은 날짜가 3일 연속 skip 이면 비영 종료(알림).** sha·`schema_version` 불일치 한 번은 D+1 재export 로 자연 복구될 수 있어 알림을 띄우지 않는다. 연속 횟수는 적재 이력 표에 기록한다.
+- **D-21: radar-gw 키 주석 = `radar-gw-pull`**(gh-trade `server/tools/analysis/README.md` 등록 줄·grep 과 동일 — D-13 의 원래 문구 `radar-gw-limitup-pull` 을 이것으로 바꾼다). 키 파일 이름은 재량.
+- **D-22: 배포 순서에 server 를 넣는다 — DB → GCS·IAM·워커 → radar-gw(키 등록 뒤 타이머) → relay → server → webapp(push).** 보고서 라우트·kind 15 조회 파라미터가 server 변경이라서다.
+- **D-23: relay 85 키별 마지막 프레임 캐시 + FULL 구독(승격) 직후 스냅샷은 재량이 아니라 필수.** 서버는 값이 바뀐 키만 보내고 새 구독에 재전송하지 않으므로(`LimitFeature.cpp:316-334`) 캐시 없이는 새로 펼친 카드가 최대 60초 「—」. 스냅샷 순서 q→tape→85.
+- **「+60초 매도」 정의**는 gh-trade 보고서 정의(첫 잠김 시작 뒤 60초, 10초 창 6개 합) 그대로(gh-trade D-16 같은 숫자 원칙).
 
 ### Claude's Discretion
 - 85 브라우저 프레임 이름·스냅샷 캐시·1초 갱신 깜빡임 방지(바뀐 칸만 갱신) · 관측 시각 표기 위치(툴팁 또는 탭 본문 끝).
