@@ -22,7 +22,17 @@ import { cn } from '@/lib/utils';
 const TOP_N = 20;
 const DASH = '—';
 
-const HEADS = ['창구', '사건', '진입 1분 매수', '잠김 중 매수', '깨짐 전 1분 매도', '매도 선행', '유지율', '상태'] as const;
+// 「진입 1분 · 깨짐 전 1분」 → 「상한가 직전 1분 · 깨짐 직전 1분」(quick-261005-vk1 D-04 — 사건 카드 창구 막대와 같은 이름).
+const HEADS = [
+  '창구',
+  '사건',
+  '상한가 직전 1분 매수',
+  '잠김 중 매수',
+  '깨짐 직전 1분 매도',
+  '매도 선행',
+  '유지율',
+  '상태',
+] as const;
 
 export function LimitupFingerprintTable({ rows }: { rows: readonly LimitupFingerprintRow[] }) {
   const view = useMemo(() => fingerprintRowsOf(rows), [rows]);

@@ -198,9 +198,20 @@ test.describe('Phase 28 Plan 13 — 상한가 보고서 (로컬 relay)', () => {
     await assertKpiListAndExpand(page);
 
     // (f) 그 카드의 레인 2 SVG(gzip 해제) · grid-urls 는 그 날짜 1회 · 격자 파일은 연 행만(형지글로벌 없음 · 같은 격자 두 번 안 받음).
-    const lockSvg = cardOf(page, DUKWOO).getByRole('img', { name: /^덕우전자 잠김 전 구간 잔량 — 최대 27\.5억 09:06:02, 깨짐 09:06:12$/ });
+    const lockSvg = cardOf(page, DUKWOO).getByRole('img', { name: /^덕우전자 잠김 구간 잔량 — 최대 27\.5억 09:06:02, 깨짐 09:06:12$/ });
     await expect(lockSvg).toBeVisible({ timeout: 15_000 });
-    await expect(cardOf(page, DUKWOO).getByRole('img', { name: /^덕우전자 진입 10분 / })).toBeVisible();
+    await expect(cardOf(page, DUKWOO).getByRole('img', { name: /^덕우전자 상한가 도달까지 / })).toBeVisible();
+
+    // (f') 스케치 011 A — 한 줄 요약 · 레인 띠 번호 배지 ≥ 3 · 사실 문장은 시각 접두 없이 시작 · 번호 ↔ 사실 줄 호버 강조.
+    const dk = cardOf(page, DUKWOO);
+    await expect(dk.locator('[data-slot="limitup-story"]')).toContainText('10.1초 만에 깨짐(5,720원)');
+    expect(await dk.locator('[data-slot="limitup-event-band"] [data-event-n]').count()).toBeGreaterThanOrEqual(3);
+    const firstFact = (await dk.locator('[data-slot="limitup-fact-text"]').first().textContent()) ?? '';
+    expect(firstFact.startsWith('등락률 20% 첫 도달')).toBe(true);
+    await dk.locator('[data-slot="limitup-facts"] li[data-event-n="3"]').hover();
+    await expect(dk.locator('[data-slot="limitup-event-band"] [data-event-n="3"]')).toHaveAttribute('data-hl', 'true');
+    await page.mouse.move(0, 0);
+    await page.screenshot({ path: 'test-results/limitup-report-1280.png', fullPage: true });
     expect(rec.gridUrlDs.filter((d) => d === LIMITUP_LATEST)).toHaveLength(1);
     // 앞 문서(‹ 로 연 10/01)의 늦은 요청이 섞일 수 있어 이 문서의 날짜로 거른다.
     const hits = rec.gridHits.filter((h) => h.startsWith(`${LIMITUP_LATEST}/`)).map((h) => h.slice(9));
@@ -211,7 +222,14 @@ test.describe('Phase 28 Plan 13 — 상한가 보고서 (로컬 relay)', () => {
 
     // 색 감사(UI-SPEC 검증 훅) — 보고서 SVG 의 stroke/fill 허용 집합 · 초록 상태 토큰 0 · SVG 안 글자 요소 0.
     const audit = await page.locator('[data-slot="limitup-report"]').evaluate((root) => {
-      const allowed = new Set(['var(--fg)', 'var(--muted)', 'var(--led-latent)', 'var(--border-subtle)', 'none']);
+      const allowed = new Set([
+        'var(--fg)',
+        'var(--muted)',
+        'var(--led-latent)',
+        'var(--border-subtle)',
+        'var(--accent)', // 직전 1분 창 면(D-04)
+        'none',
+      ]);
       const bad: string[] = [];
       for (const el of root.querySelectorAll('svg *')) {
         for (const a of ['stroke', 'fill']) {
@@ -303,6 +321,6 @@ test.describe('Phase 28 Plan 13 — 상한가 보고서 (로컬 relay)', () => {
     // 페이지 자체는 가로로 넘치지 않는다(표 래퍼만 가로 스크롤).
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(0);
-    await page.screenshot({ path: 'test-results/limitup-report-390.png', fullPage: false });
+    await page.screenshot({ path: 'test-results/limitup-report-390.png', fullPage: true });
   });
 });

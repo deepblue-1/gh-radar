@@ -11,9 +11,12 @@
  *   - `_section_c_fingerprint`(826~880행) — 평균 · 「선행/관여 깨진 잠김」 · 「유지/관여 잠김」 · `MIN_FINGERPRINT_EVENTS = 10`
  *   - `_section_yesterday`(889~935행) — 이전 적재 날짜 잠김의 D+1 시가 손익
  *   - `facts.py` `_member_fact`(111~121행) — values `m{k}` · `m{k}_code` · `s{k}`(% 소수 1자리 또는 「—」)
- *   웹이 gh-trade 와 다르게 그리는 곳(UI-SPEC ④-4 · R-6): 레인 1 은 가격(위) + 매도벽(아래)을 한 레인에 겹쳐 그리고
- *   마커는 25% 도달 · 매도벽 소진 · 첫 상한가 체결 3개다(gh-trade 의 ▲ 매도벽 먹기 대신). 레인 2 의 마커는 RPC 가
- *   종목마다 krw 큰 순 40개로 자른 것이고, 글자 라벨은 가장 큰 ▼ · ✕ 하나씩 + 최대 점 + 깨짐만 단다(나머지는 title).
+ *   웹이 gh-trade 와 다르게 그리는 곳(UI-SPEC ④-4 · R-6 · quick-261005-vk1 D-04 스케치 011 A): 레인 1 「상한가 도달까지」 는
+ *   가격(위) + 매도벽(아래)을 한 레인에 겹쳐 그리고 기준선은 상한가 선 + **탐지율 선 하나**(사실 문장과 같은 기준 —
+ *   25% 선 · 「25% 도달」 마커 없음)다. 시각이 있는 사실은 `eventsOf` 가 시간순 번호를 매기고, 같은 번호가 레인 위 라벨 띠
+ *   (`layoutEventBand`)와 사실 문장 앞 배지에 함께 나온다. 창 사실(직전 1분 매수 · 깨짐 직전 1분 매도)은 번호 대신 레인의
+ *   파란 면이다(창 = `memberWindowsOf` — workers/limitup-sync derive.ts 와 같은 [anchor − 60s, anchor] · [end − 60s, end]).
+ *   레인 2 「잠김 구간」 의 ▼ · ✕ 는 RPC 가 종목마다 krw 큰 순 40개로 자른 맥락 글리프(title 만)다.
  *
  * 좌표: 레인 SVG 는 `viewBox="0 0 100 100"` + `preserveAspectRatio="none"` 이다. 모든 x · y 를 0~100(%)로 정규화해
  * 돌려주므로 SVG 경로와 HTML 오버레이(left/top %)가 같은 값을 쓴다. 하루 초 = KST 00:00 기준(`kstSecOf`).
@@ -35,7 +38,7 @@ import {
 } from '@gh-radar/shared';
 
 import { fmtRet } from './limit-up-format';
-import { fmtYmdShort, kstClock, kstSecOf } from './limitup-report';
+import { entryBuyTopOf, fmtYmdShort, kstClock, kstSecOf } from './limitup-report';
 
 const DASH = '—';
 const MINUS = '−';
@@ -43,7 +46,7 @@ const MINUS = '−';
 /** 장 시작 · 끝(하루 초). 창은 [09:00, 15:30 − 1초] 로 자른다(gh-trade `_clip_secs`). */
 export const SECS_START = 32_400;
 export const SECS_END = 55_800;
-/** 레인 1 「진입 10분」 — 기준 시각 앞 600초 · 뒤 60초. */
+/** 레인 1 「상한가 도달까지」(gh-trade 「진입 10분」) — 기준 시각 앞 600초 · 뒤 60초. */
 export const ENTRY_WINDOW_S = 600;
 export const MEMBER_WINDOW_S = 60;
 /** 레인 2 — 첫 잠김 시작 앞 120초. */
@@ -54,8 +57,6 @@ export const LANE_BASELINE_KRW = 1_000_000_000;
 const LANE_Y_FLOOR_KRW = 2_000_000_000;
 /** gh-trade `MIN_FINGERPRINT_EVENTS` — 관여 사건이 이 미만이면 「관찰 중」. */
 export const MIN_FINGERPRINT_EVENTS = 10;
-/** 사건 카드 머리 잠김 태그 최대 개수 — 넘치면 「+N」. */
-export const MAX_LOCK_TAGS = 6;
 
 // 레인 1 의 위 · 아래 절반(y 0~100 · 위 0).
 const PRICE_TOP = 8;
@@ -82,6 +83,39 @@ function clip(lo: number, hi: number): [number, number] {
 
 function nonEmpty(s: string | null | undefined): s is string {
   return s != null && s !== '';
+}
+
+/** epoch ms → 그날 KST 초(소수 — 마커 x 위치용). */
+function kstSecF(ms: number): number {
+  return kstSecOf(ms) + (((ms % 1000) + 1000) % 1000) / 1000;
+}
+
+function numOf(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+// ---------------------------------------------------------------------------
+// 서식 도우미 (D-04)
+// ---------------------------------------------------------------------------
+
+/** 지속(정밀) — 60초 미만 「10.1초」 · 60분 미만 「3분 35초」(내림) · 그 이상 「3시간 0분」(내림). */
+export function fmtDurPrecise(durS: number): string {
+  const s = Math.max(0, durS);
+  if (s < 60) return `${s.toFixed(1)}초`;
+  if (s < 3600) return `${Math.floor(s / 60)}분 ${Math.floor(s % 60)}초`;
+  return `${Math.floor(s / 3600)}시간 ${Math.floor((s % 3600) / 60)}분`;
+}
+
+/** 금액 짧게 — 1억 이상 「4.6억」(formatEok) · 그 아래 「7,000만」 · 0 「0만」. 부호는 붙이지 않는다(호출부가 단다). */
+export function fmtKrwShort(krw: number): string {
+  const a = Math.abs(krw);
+  if (a >= 100_000_000) return formatEok(a);
+  return `${formatGroup(Math.round(a / 10_000))}만`;
+}
+
+/** 사실 문장 앞 「HH:MM:SS.mmm 」 하나만 뗀다(시각 칸과 중복 — D-04). */
+export function stripFactClock(text: string): string {
+  return text.replace(/^\d{2}:\d{2}:\d{2}\.\d{3} /, '');
 }
 
 // ---------------------------------------------------------------------------
@@ -203,19 +237,21 @@ export interface LaneTick {
 }
 
 export interface LaneLine {
-  kind: 'upper' | 'p25' | 'base';
+  /** upper = 상한가(--border-subtle) · detect = 탐지율(--led-latent) · base = 기준 10억(--led-latent). */
+  kind: 'upper' | 'detect' | 'base';
   y: number;
   label: string;
+  /** 라벨 자리 — 오른쪽 위(선 위 · 오른쪽 정렬) / 왼쪽 아래(선 아래 · 왼쪽 정렬). */
+  place: 'right-above' | 'left-below';
 }
 
-export type LaneMarkKind = 'reach25' | 'wallClear' | 'firstUpper' | 'max' | 'sell' | 'cancel' | 'break';
+/** 번호 없는 맥락 마커 — 글자 없이 `title` 만(라벨 띠는 번호 사건 전용). */
+export type LaneMarkKind = 'wallClear' | 'sell' | 'cancel';
 
 export interface LaneMark {
   kind: LaneMarkKind;
   x: number;
   y: number;
-  /** 오버레이 글자 — 지정된 마커만. 나머지는 null(`title` 만). */
-  label: string | null;
   title: string;
 }
 
@@ -224,8 +260,24 @@ export interface LaneShade {
   w: number;
 }
 
+/** 창 음영(파란 면) — 「상한가 직전 1분」 · 「깨짐 직전 1분」. */
+export interface LaneWindowShade extends LaneShade {
+  caption: string;
+}
+
+/** 번호 사건 마커 — 라벨 띠 배지 · 지시선 · 점. */
+export interface LanePoint {
+  n: number;
+  x: number;
+  y: number;
+  emph: boolean;
+  tone: LimitupEventTone;
+  /** 띠 배지 글자(「09:06:01 첫 상한가 체결 · 5,730원」). */
+  bandLabel: string;
+}
+
 // ---------------------------------------------------------------------------
-// 레인 1 「진입 10분」
+// 기준 시각 · 창
 // ---------------------------------------------------------------------------
 
 /** 카드 · 지문표의 진입 기준 시각(gh-trade `_anchor_ns`) — epoch ms. */
@@ -273,6 +325,278 @@ export function lockWindowOf(locks: readonly Pick<LimitupLockRow, 'start_ms' | '
   return { lo, hi, range: `${hhmm(lo)}~${hhmm(hi)}` };
 }
 
+// ---------------------------------------------------------------------------
+// 직전 1분 창 (D-04 — workers/limitup-sync derive.ts 와 같은 정의)
+// ---------------------------------------------------------------------------
+
+export interface MemberWindow {
+  fromMs: number;
+  toMs: number;
+  /** 「09:05:01~09:06:01」. */
+  range: string;
+}
+
+function memberWindow(toMs: number): MemberWindow {
+  const fromMs = toMs - MEMBER_WINDOW_S * 1000;
+  return { fromMs, toMs, range: `${kstClock(fromMs)}~${kstClock(toMs)}` };
+}
+
+/**
+ * 상한가 직전 1분 매수 창 = [anchorMsOf − 60s, anchorMsOf](기준 시각이 없으면 null) · 깨짐 직전 1분 매도 창 = 깨진 잠김마다
+ * [end_ms − 60s, end_ms](lock_id → 창). 새 창 정의를 만들지 않는다 — derive.ts `anchorMs` 와 같은 사슬인 `anchorMsOf` 재사용.
+ */
+export function memberWindowsOf(
+  entry: LimitupEntryRow | null,
+  locks: readonly Pick<LimitupLockRow, 'lock_id' | 'start_ms' | 'end_ms' | 'broke'>[],
+): { entry: MemberWindow | null; sell: Map<number, MemberWindow> } {
+  const a = anchorMsOf(entry, locks);
+  const sell = new Map<number, MemberWindow>();
+  for (const l of locks) if (l.broke === true && l.end_ms != null) sell.set(l.lock_id, memberWindow(l.end_ms));
+  return { entry: a != null ? memberWindow(a) : null, sell };
+}
+
+// ---------------------------------------------------------------------------
+// 사건 — 번호 = 레인 마커 = 사실 문장 (D-04)
+// ---------------------------------------------------------------------------
+
+/** detect = 탐지율 도달(--led-latent) · break = 깨짐(--up) · fg = 그 밖. */
+export type LimitupEventTone = 'detect' | 'break' | 'fg';
+
+export interface LimitupEvent {
+  key: string;
+  tMs: number | null;
+  /** 「HH:MM:SS」 · t_ms 없으면 「—」. */
+  clock: string;
+  /** event_no 0 = 상한가 도달까지(레인 1) · 그 밖 = 잠김 구간(레인 2). */
+  lane: 'entry' | 'lock';
+  templateId: string | null;
+  /** 창 사실(직전 1분 매수/매도)의 창 — 그 밖 null. */
+  window: MemberWindow | null;
+  /** 시간순 번호(1부터) — 시각이 있고 창 사실이 아닌 것만. */
+  n: number | null;
+  /** 강조 사건(20% 도달 · 첫 상한가 · 잠김 시작 · 깨짐 · 종가까지 유지). */
+  emph: boolean;
+  tone: LimitupEventTone;
+  short: string;
+  val: string | null;
+  /** 라벨 띠 글자 「{clock} {short}」(+ 강조면 「 · {val}」). */
+  bandLabel: string;
+  /** 표시 문장 — 시각 접두 뗀 원문 · 창 사실은 머리만 「상한가 직전 1분 매수 창구 (range): 」 로 바꾼다. */
+  text: string;
+  /** `facts.source` 글자 그대로(「실측」·「추정(분 단위)」·「모형」). */
+  source: string | null;
+  /** values.px · values.krw(숫자일 때만) — 레인 마커 높이(사실 문장과 같은 원천). */
+  px: number | null;
+  krw: number | null;
+}
+
+const WINDOW_TEMPLATES = new Set(['member_entry_buy', 'member_prebreak_sell']);
+const SHORT_FALLBACK_LEN = 14;
+
+function sortFacts(facts: readonly LimitupFactRow[]): LimitupFactRow[] {
+  return [...facts].sort((a, b) => {
+    const an = a.t_ms == null;
+    const bn = b.t_ms == null;
+    if (an !== bn) return an ? 1 : -1;
+    if (!an && a.t_ms !== b.t_ms) return a.t_ms! - b.t_ms!;
+    if (a.event_no !== b.event_no) return a.event_no - b.event_no;
+    return a.fact_no - b.fact_no;
+  });
+}
+
+function shortOf(f: LimitupFactRow): { short: string | null; val: string | null; emph: boolean; tone: LimitupEventTone } {
+  const v = f.values ?? {};
+  const won = (k: string) => {
+    const x = numOf(v[k]);
+    return x != null ? `${formatGroup(x)}원` : null;
+  };
+  const krw = (k: string) => {
+    const x = numOf(v[k]);
+    return x != null ? fmtKrwShort(x) : null;
+  };
+  const plain = { emph: false, tone: 'fg' as const };
+  switch (f.template_id) {
+    case 'entry_threshold': {
+      const pct = numOf(v.pct);
+      return { short: pct != null ? `${pct}% 도달` : null, val: won('px'), emph: true, tone: 'detect' };
+    }
+    case 'burst_wall': {
+      const k = krw('krw');
+      return { short: k != null ? `매수 버스트 ${k}` : null, val: null, ...plain };
+    }
+    case 'first_upper':
+      return { short: '첫 상한가 체결', val: won('px'), emph: true, tone: 'fg' };
+    case 'lock_start': {
+      const id = numOf(v.lock_id);
+      return { short: id != null ? `잠김 ${id} 시작` : null, val: krw('q_krw'), emph: true, tone: 'fg' };
+    }
+    case 'big_new': {
+      const k = krw('krw');
+      return { short: k != null ? `매수 신규 +${k}` : null, val: null, ...plain };
+    }
+    case 'big_cancel': {
+      const k = krw('krw');
+      return { short: k != null ? `매수 취소 ${MINUS}${k}` : null, val: null, ...plain };
+    }
+    case 'q_max': {
+      const k = krw('krw');
+      return { short: k != null ? `최대 잔량 ${k}` : null, val: null, ...plain };
+    }
+    case 'lock_break': {
+      const px = won('px');
+      const dur = numOf(v.dur_s);
+      const val = [px, dur != null ? `${fmtDurPrecise(dur)} 유지` : null].filter(nonEmpty).join(' · ');
+      return { short: '깨짐', val: val !== '' ? val : null, emph: true, tone: 'break' };
+    }
+    case 'lock_hold': {
+      const dur = numOf(v.dur_s);
+      return { short: '종가까지 유지', val: dur != null ? fmtDurPrecise(dur) : null, emph: true, tone: 'fg' };
+    }
+    default:
+      return { short: null, val: null, ...plain };
+  }
+}
+
+/**
+ * 사실 → 사건 배열. 순서 = 사실 문장 정렬(t 없음 뒤 → t → event_no → fact_no — gh-trade 와 같다). 번호는 시각이 있고 창
+ * 사실이 아닌 것에만 시간순 1부터. 표시 문장 재조립은 창 사실 머리 교체와 시각 접두 제거뿐이다(나머지는 원문 그대로).
+ */
+export function eventsOf(
+  entry: LimitupEntryRow | null,
+  locks: readonly LimitupLockRow[],
+  facts: readonly LimitupFactRow[],
+): LimitupEvent[] {
+  const wins = memberWindowsOf(entry, locks);
+  let n = 0;
+  return sortFacts(facts).map((f) => {
+    const raw = f.text ?? DASH;
+    const stripped = stripFactClock(raw);
+    const isWindow = f.template_id !== null && WINDOW_TEMPLATES.has(f.template_id);
+    const window = !isWindow
+      ? null
+      : f.template_id === 'member_entry_buy'
+        ? wins.entry
+        : (wins.sell.get(f.event_no) ?? null);
+    let text = stripped;
+    let short: string;
+    let val: string | null = null;
+    let emph = false;
+    let tone: LimitupEventTone = 'fg';
+    if (isWindow) {
+      const head = f.template_id === 'member_entry_buy' ? '상한가 직전 1분 매수 창구' : '깨짐 직전 1분 매도 창구';
+      const i = raw.indexOf(': ');
+      const body = i >= 0 ? raw.slice(i + 2) : raw;
+      text = `${head}${window ? ` (${window.range})` : ''}: ${body}`;
+      short = head;
+    } else {
+      const o = shortOf(f);
+      short =
+        o.short ?? (stripped.length > SHORT_FALLBACK_LEN ? `${stripped.slice(0, SHORT_FALLBACK_LEN)}…` : stripped);
+      val = o.val;
+      emph = o.emph;
+      tone = o.tone;
+    }
+    const clock = f.t_ms != null ? kstClock(f.t_ms) : DASH;
+    const num = !isWindow && f.t_ms != null ? (n += 1) : null;
+    return {
+      key: `${f.event_no}-${f.fact_no}`,
+      tMs: f.t_ms,
+      clock,
+      lane: f.event_no === 0 ? 'entry' : 'lock',
+      templateId: f.template_id,
+      window,
+      n: num,
+      emph,
+      tone,
+      short,
+      val,
+      bandLabel: `${clock} ${short}${emph && val ? ` · ${val}` : ''}`,
+      text,
+      source: nonEmpty(f.source) ? f.source : null,
+      px: numOf(f.values?.px),
+      krw: numOf(f.values?.krw),
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 한 줄 요약 (D-04)
+// ---------------------------------------------------------------------------
+
+export interface StoryPart {
+  text: string;
+  strong?: boolean;
+  arrow?: boolean;
+}
+
+/**
+ * 한 줄 요약 — 「{탐지 시각} {pct}% 도달 → {간격} 뒤 {첫 상한 시각} 첫 상한가 {N}원 → {결과}」 + 둘째 줄(상한가 직전 1분 매수
+ * 1위). 사실만 — 해석 문구 없음. entry 도 잠김도 없으면 null.
+ */
+export function storyOf(
+  entry: LimitupEntryRow | null,
+  locks: readonly LimitupLockRow[],
+  facts: readonly LimitupFactRow[],
+): { parts: StoryPart[]; sub: string | null } | null {
+  if (entry === null && locks.length === 0) return null;
+  const segs: StoryPart[][] = [];
+
+  const pct = entry?.detect_rate_pct ?? null;
+  const tDet =
+    pct === 15 ? entry?.t15_ms : pct === 20 ? entry?.t20_ms : pct === 25 ? entry?.t25_ms : null;
+  if (tDet != null) segs.push([{ text: kstClock(tDet), strong: true }, { text: ` ${pct}% 도달` }]);
+
+  const fu = entry?.first_upper_ms ?? null;
+  const upper = entry?.upper_px ?? locks.find((l) => l.upper_px != null)?.upper_px ?? null;
+  if (fu != null) {
+    const seg: StoryPart[] = [];
+    if (tDet != null && fu >= tDet) seg.push({ text: `${fmtDurPrecise((fu - tDet) / 1000)} 뒤 ` });
+    seg.push({ text: kstClock(fu), strong: true }, { text: ' 첫 상한가' });
+    if (upper != null) seg.push({ text: ' ' }, { text: `${formatGroup(upper)}원`, strong: true });
+    segs.push(seg);
+  }
+
+  const sorted = [...locks].sort((a, b) => a.lock_id - b.lock_id);
+  const last = sorted[sorted.length - 1];
+  const closePx = entry?.close_px ?? last?.close_px ?? null;
+  const closeRet = entry?.close_ret ?? last?.close_ret ?? null;
+  const closeText =
+    closePx != null ? `종가 ${formatGroup(closePx)}원${closeRet != null ? ` (${fmtRet(closeRet * 100)})` : ''}` : null;
+  if (last === undefined) {
+    segs.push([{ text: ['잠김 없음', closeText].filter(nonEmpty).join(' · ') }]);
+  } else {
+    const head = sorted.length > 1 ? `잠김 ${last.lock_id} ` : '';
+    const dur = last.dur_s != null ? fmtDurPrecise(last.dur_s) : null;
+    if (last.broke === true) {
+      const bp = last.break_px != null ? `(${formatGroup(last.break_px)}원)` : '';
+      const tail = `만에 깨짐${bp}${closeText ? ` · ${closeText}` : ''}`;
+      segs.push(
+        dur != null
+          ? [{ text: head }, { text: dur, strong: true }, { text: ` ${tail}` }].filter((p) => p.text !== '')
+          : [{ text: `${head}깨짐${bp}${closeText ? ` · ${closeText}` : ''}` }],
+      );
+    } else {
+      segs.push(
+        dur != null
+          ? [{ text: `${head || '잠김 '}` }, { text: dur, strong: true }, { text: ' 유지, 종가 상한가' }]
+          : [{ text: `${head || '잠김 '}종가까지 유지` }],
+      );
+    }
+  }
+
+  const parts: StoryPart[] = [];
+  segs.forEach((seg, i) => {
+    if (i > 0) parts.push({ text: ' → ', arrow: true });
+    parts.push(...seg);
+  });
+  const top = entryBuyTopOf(facts);
+  return { parts, sub: top !== null ? `상한가 직전 1분 매수 1위 ${top.label}` : null };
+}
+
+// ---------------------------------------------------------------------------
+// 레인 1 「상한가 도달까지」
+// ---------------------------------------------------------------------------
+
 export interface LaneEntry {
   kind: 'entry';
   loSec: number;
@@ -285,16 +609,33 @@ export interface LaneEntry {
   wallPath: string;
   wallArea: string;
   lines: LaneLine[];
+  /** 번호 없는 맥락 마커(매도벽 소진 — title 만). */
   marks: LaneMark[];
+  /** 번호 사건 마커(창 안 · 레인 1 사건만). */
+  points: LanePoint[];
+  /** 상한가 직전 1분 파란 면. */
+  windows: LaneWindowShade[];
   ticks: LaneTick[];
   /** SVG aria-label 의 요약 조각(종목명 뒤). */
   summary: string;
+}
+
+function windowShade(w: MemberWindow, lo: number, hi: number, caption: string): LaneWindowShade | null {
+  const a = kstSecF(w.fromMs);
+  const b = kstSecF(w.toMs);
+  if (b < lo || a > hi) return null;
+  const x0 = xOf(a, lo, hi);
+  const x1 = xOf(b, lo, hi);
+  const w2 = Math.max(x1 - x0, 0.4);
+  const x = Math.min(x0, 100 - w2);
+  return { x: r2(x), w: r2(w2), caption };
 }
 
 export function laneEntryOf(
   grid: LimitupGridFile,
   entry: LimitupEntryRow | null,
   locks: readonly LimitupLockRow[],
+  events: readonly LimitupEvent[] = [],
 ): LaneEntry | null {
   const win = entryWindowOf(entry, locks);
   if (win === null) return null;
@@ -305,52 +646,58 @@ export function laneEntryOf(
   const wall = gridSeries(grid, lo, hi, 'wall_krw_visible');
 
   const upper = entry?.upper_px ?? locks.find((l) => l.upper_px != null)?.upper_px ?? null;
-  const p25 = entry?.base_px != null ? entry.base_px * 1.25 : null;
+  const pct = entry?.detect_rate_pct ?? null;
+  const detect = entry?.base_px != null && pct != null ? Math.round(entry.base_px * (1 + pct / 100)) : null;
   const pv = price.map((p) => p.v).filter((v): v is number => v != null);
-  const refs = [...pv, ...(upper != null ? [upper] : []), ...(p25 != null ? [p25] : [])];
+  const refs = [...pv, ...(upper != null ? [upper] : []), ...(detect != null ? [detect] : [])];
   const py = yScale(refs.length ? Math.min(...refs) : 0, refs.length ? Math.max(...refs) : 1, PRICE_TOP, PRICE_BOTTOM);
   const wv = wall.map((p) => p.v).filter((v): v is number => v != null);
   const wy = yScale(0, wv.length ? Math.max(...wv, 1) : 1, WALL_TOP, WALL_BOTTOM);
 
   const lines: LaneLine[] = [];
-  if (upper != null) lines.push({ kind: 'upper', y: py(upper), label: `상한가 ${formatGroup(upper)}` });
-  if (p25 != null) lines.push({ kind: 'p25', y: py(p25), label: '등락률 25%' });
+  if (upper != null)
+    lines.push({ kind: 'upper', y: py(upper), label: `상한가 ${formatGroup(upper)}원`, place: 'right-above' });
+  if (detect != null)
+    lines.push({
+      kind: 'detect',
+      y: py(detect),
+      label: `등락률 ${pct}% (탐지 기준) ${formatGroup(detect)}원`,
+      place: 'left-below',
+    });
 
   const marks: LaneMark[] = [];
-  const inWin = (s: number) => s >= lo && s <= hi;
-  const t25 = entry?.t25_ms;
-  if (t25 != null && inWin(kstSecOf(t25))) {
-    const s = kstSecOf(t25);
-    marks.push({
-      kind: 'reach25',
-      x: x(s),
-      y: p25 != null ? py(p25) : py(valueAt(price, s) ?? 0),
-      label: '25% 도달',
-      title: `${kstClock(t25)} 등락률 25% 도달`,
-    });
-  }
   const clear = wall.find((p) => p.sec <= a && p.v === 0);
   if (clear) {
-    marks.push({
-      kind: 'wallClear',
-      x: x(clear.sec),
-      y: WALL_BOTTOM,
-      label: '매도벽 소진',
-      title: `${clockSec(clear.sec)} 매도벽 소진`,
-    });
+    marks.push({ kind: 'wallClear', x: x(clear.sec), y: WALL_BOTTOM, title: `${clockSec(clear.sec)} 매도벽 소진` });
   }
-  const fu = entry?.first_upper_ms;
-  if (fu != null && inWin(kstSecOf(fu))) {
-    marks.push({
-      kind: 'firstUpper',
-      x: x(kstSecOf(fu)),
-      y: upper != null ? py(upper) : PRICE_TOP,
-      label: '첫 상한가 체결',
-      title: `${kstClock(fu)} 첫 상한가 체결`,
+
+  const clamp = (v: number) => r2(Math.min(Math.max(v, 0), 100));
+  const points: LanePoint[] = [];
+  const windows: LaneWindowShade[] = [];
+  for (const e of events) {
+    if (e.lane !== 'entry') continue;
+    if (e.window !== null) {
+      const sh = windowShade(e.window, lo, hi, '상한가 직전 1분');
+      if (sh) windows.push(sh);
+      continue;
+    }
+    if (e.n == null || e.tMs == null) continue;
+    const s = kstSecF(e.tMs);
+    if (s < lo || s > hi + 1) continue;
+    const pxFact = e.templateId === 'entry_threshold' || e.templateId === 'first_upper' ? e.px : null;
+    const v = pxFact ?? valueAt(price, s);
+    points.push({
+      n: e.n,
+      x: x(s),
+      y: clamp(v != null ? py(v) : PRICE_BOTTOM),
+      emph: e.emph,
+      tone: e.tone,
+      bandLabel: e.bandLabel,
     });
   }
 
   const range = win.range;
+  const fu = entry?.first_upper_ms;
   const firstUpperText = fu != null ? `첫 상한가 체결 ${kstClock(fu)}` : '상한가 체결 없음';
   return {
     kind: 'entry',
@@ -362,13 +709,15 @@ export function laneEntryOf(
     wallArea: areaOf(wall, x, wy, WALL_BOTTOM),
     lines,
     marks,
+    points,
+    windows,
     ticks: ticksOf(lo, hi),
     summary: `${range} 가격 · 매도벽 — ${firstUpperText}`,
   };
 }
 
 // ---------------------------------------------------------------------------
-// 레인 2 「잠김 전 구간」
+// 레인 2 「잠김 구간」
 // ---------------------------------------------------------------------------
 
 export interface LaneLock {
@@ -379,8 +728,12 @@ export interface LaneLock {
   /** 상한가 매수잔량 금액(`q_krw`) 곡선. */
   path: string;
   shades: LaneShade[];
+  /** 깨짐 직전 1분 파란 면. */
+  windows: LaneWindowShade[];
   lines: LaneLine[];
+  /** ▼ 큰 매도 · ✕ 취소 맥락 글리프(title 만). */
   marks: LaneMark[];
+  points: LanePoint[];
   ticks: LaneTick[];
   /** 「최대 17.3억 13:57:47, 깨짐 14:40:07」 — SVG aria-label 의 요약 조각. */
   summary: string;
@@ -390,6 +743,7 @@ export function laneLockOf(
   grid: LimitupGridFile,
   locks: readonly LimitupLockRow[],
   marks: readonly LimitupMarkRow[],
+  events: readonly LimitupEvent[] = [],
 ): LaneLock | null {
   const win = lockWindowOf(locks);
   if (win === null) return null;
@@ -402,7 +756,11 @@ export function laneLockOf(
 
   const q = gridSeries(grid, lo, hi, 'q_krw');
   const qv = q.map((p) => p.v).filter((v): v is number => v != null);
-  const yMax = Math.max(LANE_Y_FLOOR_KRW, ...qv);
+  const qMaxFacts = events
+    .filter((e) => e.lane === 'lock' && e.templateId === 'q_max')
+    .map((e) => e.krw)
+    .filter((v): v is number => v != null);
+  const yMax = Math.max(LANE_Y_FLOOR_KRW, ...qv, ...qMaxFacts);
   const y = yScale(0, yMax, LOCK_TOP, 100);
   const yAt = (s: number) => y(valueAt(q, s) ?? 0);
 
@@ -412,68 +770,55 @@ export function laneLockOf(
     return { x: x0, w: r2(Math.max(x1 - x0, 0.2)) };
   });
 
-  const out: LaneMark[] = [];
-
-  // 최대 점 — 잠김 구간 안의 최대(gh-trade 사실 「잠김 N 최대 잔량」 과 같은 축). 같은 값이면 이른 초.
+  // 최대(요약 문자열 — 잠김 구간 안의 격자 최대 · 같은 값이면 이른 초).
   const inLock = (s: number) => lk.some((_, i) => s >= starts[i]! && s < ends[i]!);
   let max: GridPoint | null = null;
   for (const p of q) {
     if (p.v == null || !inLock(p.sec)) continue;
     if (max === null || p.v > max.v!) max = p;
   }
-  if (max !== null) {
-    const t = clockSec(max.sec);
-    out.push({
-      kind: 'max',
-      x: x(max.sec),
-      y: y(max.v!),
-      label: `최대 ${formatEok(max.v!)} @${t}`,
-      title: `${t} 최대 잔량 ${formatEok(max.v!)}`,
-    });
-  }
 
-  // ▼ 큰 매도 · ✕ 취소 — 창 안만 · 가장 큰 krw 하나씩만 글자.
-  const inWin = marks.filter((m) => m.t_ms != null && kstSecOf(m.t_ms) >= lo && kstSecOf(m.t_ms) <= hi);
-  const biggest = (kind: LimitupMarkRow['kind']) => {
-    let best: LimitupMarkRow | null = null;
-    for (const m of inWin) if (m.kind === kind && (best === null || (m.krw ?? 0) > (best.krw ?? 0))) best = m;
-    return best;
-  };
-  const topSell = biggest('burst_sell');
-  const topCancel = biggest('cancel');
-  for (const m of inWin) {
-    const s = kstSecOf(m.t_ms!);
+  // ▼ 큰 매도 · ✕ 취소 — 창 안만 · 글자 없이 title.
+  const out: LaneMark[] = [];
+  for (const m of marks) {
+    if (m.t_ms == null) continue;
+    const s = kstSecOf(m.t_ms);
+    if (s < lo || s > hi) continue;
     const qty = m.qty != null ? `${formatGroup(m.qty)}주` : DASH;
     const krw = m.krw != null ? formatEok(m.krw) : DASH;
-    if (m.kind === 'burst_sell') {
-      out.push({
-        kind: 'sell',
-        x: x(s),
-        y: yAt(s),
-        label: m === topSell ? `${hhmm(s)} 매도 ${qty}` : null,
-        title: `${kstClock(m.t_ms!)} 큰 매도 ${qty} · ${krw}`,
-      });
-    } else {
-      out.push({
-        kind: 'cancel',
-        x: x(s),
-        y: yAt(s),
-        label: m === topCancel ? `취소 ${MINUS}${krw}` : null,
-        title: `${kstClock(m.t_ms!)} 취소 ${qty} · ${MINUS}${krw}`,
-      });
-    }
+    out.push(
+      m.kind === 'burst_sell'
+        ? { kind: 'sell', x: x(s), y: yAt(s), title: `${kstClock(m.t_ms)} 큰 매도 ${qty} · ${krw}` }
+        : { kind: 'cancel', x: x(s), y: yAt(s), title: `${kstClock(m.t_ms)} 취소 ${qty} · ${MINUS}${krw}` },
+    );
   }
 
-  // ● 깨진 잠김의 끝.
   const breakClocks: string[] = [];
   lk.forEach((l, i) => {
     if (l.broke !== true || l.end_ms == null) return;
     const s = ends[i]!;
     if (s < lo || s > hi) return;
-    const t = kstClock(l.end_ms);
-    breakClocks.push(t);
-    out.push({ kind: 'break', x: x(s), y: yAt(s), label: `깨짐 ${t}`, title: `${t} 잠김 ${l.lock_id} 깨짐` });
+    breakClocks.push(kstClock(l.end_ms));
   });
+
+  const clamp = (v: number) => r2(Math.min(Math.max(v, 0), 100));
+  const points: LanePoint[] = [];
+  const windows: LaneWindowShade[] = [];
+  for (const e of events) {
+    if (e.lane !== 'lock') continue;
+    if (e.window !== null) {
+      const sh = windowShade(e.window, lo, hi, '깨짐 직전 1분');
+      if (sh) windows.push(sh);
+      continue;
+    }
+    if (e.n == null || e.tMs == null) continue;
+    const sRaw = kstSecF(e.tMs);
+    if (sRaw < lo) continue;
+    // 창 끝(장 끝 clip) 뒤 — 종가까지 유지 등 — 은 오른쪽 끝에 고정한다.
+    const s = Math.min(sRaw, hi);
+    const v = e.templateId === 'q_max' ? (e.krw ?? valueAt(q, s)) : valueAt(q, s);
+    points.push({ n: e.n, x: x(s), y: clamp(y(v ?? 0)), emph: e.emph, tone: e.tone, bandLabel: e.bandLabel });
+  }
 
   const summary = [
     max !== null ? `최대 ${formatEok(max.v!)} ${clockSec(max.sec)}` : '최대 —',
@@ -487,87 +832,13 @@ export function laneLockOf(
     range: win.range,
     path: pathOf(q, x, y),
     shades,
-    lines: [{ kind: 'base', y: y(LANE_BASELINE_KRW), label: '기준 10억' }],
+    windows,
+    lines: [{ kind: 'base', y: y(LANE_BASELINE_KRW), label: '기준 10억', place: 'right-above' }],
     marks: out,
+    points,
     ticks: ticksOf(lo, hi),
     summary,
   };
-}
-
-// ---------------------------------------------------------------------------
-// 사건 카드 머리 — 잠김 태그
-// ---------------------------------------------------------------------------
-
-/** 1~20 → ①~⑳, 그 밖은 숫자 그대로. */
-export function circledNumber(n: number): string {
-  return Number.isInteger(n) && n >= 1 && n <= 20 ? String.fromCodePoint(0x2460 + n - 1) : String(n);
-}
-
-/** 지속 — 60초 미만 「N초」 · 60분 미만 「N분」 · 그 이상 「N시간 M분」(내림). */
-export function fmtSpan(durS: number): string {
-  const s = Math.max(0, Math.floor(durS));
-  if (s < 60) return `${s}초`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}분`;
-  return `${Math.floor(m / 60)}시간 ${m % 60}분`;
-}
-
-export interface LockTag {
-  text: string;
-  tone: 'up' | 'down';
-}
-
-export function lockTagsOf(locks: readonly LimitupLockRow[]): {
-  tags: LockTag[];
-  more: { text: string; title: string } | null;
-} {
-  const all = [...locks]
-    .sort((a, b) => a.lock_id - b.lock_id)
-    .map((l): LockTag => {
-      const head = `잠김 ${circledNumber(l.lock_id)}`;
-      if (l.broke === true) {
-        return { text: l.dur_s != null ? `${head} · ${fmtSpan(l.dur_s)} 뒤 깨짐` : `${head} · 깨짐`, tone: 'up' };
-      }
-      return { text: `${head} · 종가 유지`, tone: 'down' };
-    });
-  if (all.length <= MAX_LOCK_TAGS) return { tags: all, more: null };
-  const rest = all.slice(MAX_LOCK_TAGS);
-  return {
-    tags: all.slice(0, MAX_LOCK_TAGS),
-    more: { text: `+${rest.length}`, title: rest.map((t) => t.text).join(' · ') },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// 사실 문장
-// ---------------------------------------------------------------------------
-
-export interface FactLine {
-  key: string;
-  /** 「HH:MM:SS」 · t_ms 없으면 「—」. */
-  clock: string;
-  /** `facts.text` 그대로(재조립 없음). */
-  text: string;
-  /** `facts.source` 글자 그대로(「실측」·「추정(분 단위)」·「모형」). */
-  source: string | null;
-}
-
-export function factsSorted(facts: readonly LimitupFactRow[]): FactLine[] {
-  return [...facts]
-    .sort((a, b) => {
-      const an = a.t_ms == null;
-      const bn = b.t_ms == null;
-      if (an !== bn) return an ? 1 : -1;
-      if (!an && a.t_ms !== b.t_ms) return a.t_ms! - b.t_ms!;
-      if (a.event_no !== b.event_no) return a.event_no - b.event_no;
-      return a.fact_no - b.fact_no;
-    })
-    .map((f) => ({
-      key: `${f.event_no}-${f.fact_no}`,
-      clock: f.t_ms != null ? kstClock(f.t_ms) : DASH,
-      text: f.text ?? DASH,
-      source: nonEmpty(f.source) ? f.source : null,
-    }));
 }
 
 // ---------------------------------------------------------------------------
@@ -596,14 +867,22 @@ function barsOfValues(values: Record<string, unknown> | null | undefined): Membe
   return out;
 }
 
+export interface MemberBarGroup {
+  bars: MemberBar[];
+  /** 창 「09:05:01~09:06:01」 · 기준 시각이 없으면 null. */
+  range: string | null;
+}
+
 /**
- * 진입 1분 매수(event 0 `member_entry_buy`) · 마지막 깨진 잠김(end_ms 가장 늦은 것)의 깨짐 전 1분 매도
- * (`member_prebreak_sell`, event_no = lock_id). 깨진 잠김이 없으면 sell = null(막대 묶음 자체 없음).
+ * 상한가 직전 1분 매수(event 0 `member_entry_buy`) · 마지막 깨진 잠김(end_ms 가장 늦은 것)의 깨짐 직전 1분 매도
+ * (`member_prebreak_sell`, event_no = lock_id) + 각 창 range. 깨진 잠김이 없으면 sell = null(막대 묶음 자체 없음).
  */
 export function memberBarsOf(
   facts: readonly LimitupFactRow[],
   locks: readonly LimitupLockRow[],
-): { entry: MemberBar[]; sell: MemberBar[] | null } {
+  entry: LimitupEntryRow | null = null,
+): { entry: MemberBarGroup; sell: MemberBarGroup | null } {
+  const wins = memberWindowsOf(entry, locks);
   const entryFact = facts.find((f) => f.event_no === 0 && f.template_id === 'member_entry_buy');
   const broke = locks
     .filter((l) => l.broke === true)
@@ -614,8 +893,11 @@ export function memberBarsOf(
       ? facts.find((f) => f.event_no === last.lock_id && f.template_id === 'member_prebreak_sell')
       : undefined;
   return {
-    entry: barsOfValues(entryFact?.values),
-    sell: last === undefined ? null : barsOfValues(sellFact?.values),
+    entry: { bars: barsOfValues(entryFact?.values), range: wins.entry?.range ?? null },
+    sell:
+      last === undefined
+        ? null
+        : { bars: barsOfValues(sellFact?.values), range: wins.sell.get(last.lock_id)?.range ?? null },
   };
 }
 
@@ -702,29 +984,17 @@ export function yesterdayRowsOf(
 }
 
 // ---------------------------------------------------------------------------
-// 레인 오버레이 글자 배치 (UI-SPEC E8 overflow — 폰 360px 에서 라벨이 겹치지 않는다)
+// 라벨 띠 배치 (D-04 · UI-SPEC E8 overflow — 폰 360px 에서 배지가 겹치지 않는다)
 // ---------------------------------------------------------------------------
 
-export interface LaneLabelItem {
-  id: string;
-  text: string;
-  /** 붙을 자리(0~100 %). */
-  xPct: number;
-  yPct: number;
-  /** start = 자리 오른쪽으로 · end = 자리 왼쪽으로 · auto = 왼쪽 절반이면 start. */
-  align: 'start' | 'end' | 'auto';
-}
-
-export interface PlacedLaneLabel {
-  id: string;
-  left: number;
-  top: number;
-  width: number;
-}
-
-export const LANE_LABEL_ROW_H = 14;
-const LABEL_GAP = 4;
-const LABEL_OFFSET = 5;
+/** 라벨 띠 한 줄 높이(px) · 최대 줄 수 — 넘치면 점 위 번호만. */
+export const EVENT_BAND_ROW_H = 20;
+export const EVENT_BAND_MAX_ROWS = 3;
+/** 글자 없는(폰) 배지 폭 = 번호 원 하나. */
+export const EVENT_BADGE_NUM_W = 18;
+const BADGE_GAP = 4;
+/** 배지의 번호 원 중심 = 배지 왼쪽 + 9 — 마커 x 바로 위에 원이 오도록 왼쪽을 x − 9 로 둔다. */
+const BADGE_HALF = 9;
 
 /** 11px 글자 폭 어림(px) — 한글 · 원숫자 1em, 좁은 문장부호 0.32em, 그 밖 0.6em. 실제보다 조금 넓게 잡는다. */
 export function estimateLabelWidth(text: string): number {
@@ -738,42 +1008,56 @@ export function estimateLabelWidth(text: string): number {
   return Math.ceil(w) + 2;
 }
 
+export interface EventBandItem {
+  n: number;
+  /** 마커 x(px · 레인 왼쪽 기준). */
+  xPx: number;
+  /** 배지 글자 — 빈 문자열이면 번호만(폰). */
+  text: string;
+}
+
+export interface PlacedEventBadge {
+  n: number;
+  /** 0 ~ MAX_ROWS − 1 · −1 = 띠에 자리가 없어 점 위 번호만. */
+  row: number;
+  left: number;
+  width: number;
+}
+
 /**
- * 오버레이 글자를 14px 줄 칸에 하나씩 놓는다 — 붙을 자리 바로 위 줄을 먼저 보고, 겹치면 위 · 아래 줄로 번갈아 옮긴다.
- * 어느 줄에도 들어가지 않는 글자는 버린다(그 마커는 `title` 로만 남는다). 앞에 둔 항목이 우선이다.
- * 좌우는 레인 폭 안으로 민다. 반환 좌표는 px(레인 왼쪽 위 기준).
+ * 번호 배지를 라벨 띠에 시간순 탐욕 배치한다(스케치 011 `lane()` 의 rows 로직). 줄 r 은 그 줄 마지막 오른쪽 끝 + 4 가
+ * 배지 왼쪽(x − 9) 이하이고 배지가 폭 안에 들어가면 빈 줄이다. 세 줄이 다 차면 row −1(점 위 번호만). 배지는 폭 밖으로
+ * 나가지 않는다. 반환 rows = 쓰인 줄 수(0 이면 띠 없음).
  */
-export function layoutLaneLabels(
-  items: readonly LaneLabelItem[],
+export function layoutEventBand(
+  items: readonly EventBandItem[],
   widthPx: number,
-  heightPx: number,
-): PlacedLaneLabel[] {
-  const rows = Math.max(1, Math.floor(heightPx / LANE_LABEL_ROW_H));
-  const taken: { left: number; right: number }[][] = Array.from({ length: rows }, () => []);
-  const out: PlacedLaneLabel[] = [];
+): { rows: number; placed: PlacedEventBadge[] } {
+  const ends: number[] = [];
+  const placed: PlacedEventBadge[] = [];
   for (const it of items) {
-    const w = estimateLabelWidth(it.text);
-    if (w > widthPx) continue;
-    const x = (it.xPct / 100) * widthPx;
-    const y = (it.yPct / 100) * heightPx;
-    const align = it.align === 'auto' ? (it.xPct < 50 ? 'start' : 'end') : it.align;
-    let left = align === 'start' ? x + (it.xPct <= 0 ? 0 : LABEL_OFFSET) : x - (it.xPct >= 100 ? 0 : LABEL_OFFSET) - w;
-    left = Math.min(Math.max(left, 0), widthPx - w);
-    // 자리 바로 위 줄 — 맨 위면 자리를 덮지 않게 아래 줄.
-    let pref = Math.floor((y - 2) / LANE_LABEL_ROW_H) - 1;
-    if (pref < 0) pref = Math.min(rows - 1, Math.floor((y + 4) / LANE_LABEL_ROW_H) + 1);
-    pref = Math.min(Math.max(pref, 0), rows - 1);
-    const order = [pref];
-    for (let d = 1; d < rows; d += 1) {
-      if (pref - d >= 0) order.push(pref - d);
-      if (pref + d < rows) order.push(pref + d);
+    const w = it.text === '' ? EVENT_BADGE_NUM_W : estimateLabelWidth(it.text) + 24;
+    const want = Math.max(0, Math.min(it.xPx - BADGE_HALF, widthPx - w));
+    let row = -1;
+    for (let r = 0; r < EVENT_BAND_MAX_ROWS; r += 1) {
+      const end = ends[r];
+      if (end === undefined) {
+        if (w <= widthPx) row = r;
+        break;
+      }
+      if (end + BADGE_GAP <= it.xPx - BADGE_HALF && end + BADGE_GAP + w <= widthPx) {
+        row = r;
+        break;
+      }
     }
-    const lo = left - LABEL_GAP;
-    const hi = left + w + LABEL_GAP;
-    const row = order.find((r) => taken[r]!.every((t) => hi <= t.left || lo >= t.right));
-    if (row === undefined) continue;
-    taken[row]!.push({ left, right: left + w });
-    out.push({ id: it.id, left: r2(left), top: row * LANE_LABEL_ROW_H, width: w });
+    if (row < 0) {
+      placed.push({ n: it.n, row: -1, left: r2(it.xPx - BADGE_HALF), width: EVENT_BADGE_NUM_W });
+      continue;
+    }
+    const end = ends[row];
+    const left = end === undefined ? want : Math.max(want, end + BADGE_GAP);
+    ends[row] = left + w;
+    placed.push({ n: it.n, row, left: r2(left), width: w });
   }
-  return out;
+  return { rows: ends.length, placed };
 }

@@ -5,26 +5,31 @@ import type { LimitupFactRow, LimitupGridCol, LimitupGridFile, LimitupMarkRow } 
 /**
  * Phase 28 Plan 13 Task 1 — 사건 카드 레인 · 표 계산 lib (D-11 · D-12 · gh-trade `_section_a_cards` 창 · 마커 규칙).
  *
- * 잠그는 것(behavior 1~9):
+ * 잠그는 것:
  *  - gridSeries: fine 우선 · coarse 보충 · sec 오름차순 · null 보존
- *  - laneEntryOf: 기준 시각 사슬 · 창 [a − 600, a + 60] ∩ 장중 · 25% 도달 · 매도벽 소진 · 첫 상한가 체결 · 눈금 4개 · 상한가 · 25% 선
- *  - laneLockOf: 창 [첫 start − 120, 마지막 end + 60] · 음영 · 최대 점 라벨 · 가장 큰 ▼ · ✕ 하나씩만 글자 · 깨짐 ●
- *  - lockTagsOf · fmtSpan · circledNumber · factsSorted · memberBarsOf · fingerprintRowsOf · yesterdayRowsOf
+ *  - quick-261005-vk1 D-04(스케치 011 A): eventsOf 번호 · 짧은 라벨 · 창 사실 · 표시 문장(시각 접두 제거 · 창구 머리 교체) ·
+ *    storyOf 한 줄 요약 · memberWindowsOf 직전 1분 창 · layoutEventBand 라벨 띠 · 서식 도우미
+ *  - laneEntryOf: 창 [a − 600, a + 60] ∩ 장중 · 상한가 선 + 탐지율 선만(25% 없음) · 번호 마커 · 직전 1분 파란 면 · 매도벽 소진
+ *  - laneLockOf: 창 [첫 start − 120, 마지막 end + 60] · 음영 · 번호 마커(q_max 사실 krw · 창 끝 뒤 고정) · ▼ · ✕ title 만
+ *  - memberBarsOf(+ range) · fingerprintRowsOf · yesterdayRowsOf
  * 입력은 실 export 20261002(덕우전자 깨짐 · 엑시온그룹 유지 · 형지글로벌 미도달)와 합성 행.
  */
 
 import {
-  circledNumber,
-  factsSorted,
-  fingerprintRowsOf,
-  fmtSpan,
-  gridSeries,
+  EVENT_BAND_MAX_ROWS,
   estimateLabelWidth,
+  eventsOf,
+  fingerprintRowsOf,
+  fmtDurPrecise,
+  fmtKrwShort,
+  gridSeries,
   laneEntryOf,
   laneLockOf,
-  layoutLaneLabels,
-  lockTagsOf,
+  layoutEventBand,
   memberBarsOf,
+  memberWindowsOf,
+  storyOf,
+  stripFactClock,
   yesterdayRowsOf,
 } from '../limitup-lanes';
 import { kstClock } from '../limitup-report';
@@ -112,56 +117,71 @@ describe('gridSeries — fine 우선 · coarse 보충', () => {
 // laneEntryOf
 // ---------------------------------------------------------------------------
 
-describe('laneEntryOf — 진입 10분(gh-trade ENTRY_WINDOW_S 600 · MEMBER_WINDOW_S 60)', () => {
-  it('덕우전자 — 첫 상한 체결 09:06:01 기준 · 09:00 에서 잘림 · 마커 3종 · 눈금 4개', () => {
-    const lane = laneEntryOf(gridOf(DUKWOO), entryOf(DUKWOO), locksOf(DUKWOO))!;
+describe('laneEntryOf — 상한가 도달까지(창 [a − 600, a + 60]) · 탐지율 선 · 번호 마커', () => {
+  const evOf = (isin: string) => eventsOf(entryOf(isin), locksOf(isin), factsOf(isin));
+
+  it('덕우전자 — 첫 상한 체결 09:06:01 기준 · 09:00 에서 잘림 · 선 = 상한가 + 탐지 20% 뿐 · 눈금 4개', () => {
+    const lane = laneEntryOf(gridOf(DUKWOO), entryOf(DUKWOO), locksOf(DUKWOO), evOf(DUKWOO))!;
     expect(lane).not.toBeNull();
     expect(lane.range).toBe('09:00~09:07');
     expect(lane.ticks.map((t) => t.label)).toEqual(['09:00', '09:02', '09:04', '09:07']);
     expect(lane.ticks.map((t) => Math.round(t.x))).toEqual([0, 33, 67, 100]);
 
-    const byKind = Object.fromEntries(lane.marks.map((m) => [m.kind, m]));
-    expect(byKind.reach25?.label).toBe('25% 도달');
-    expect(byKind.wallClear?.label).toBe('매도벽 소진');
-    expect(byKind.wallClear?.title).toContain('09:03:40');
-    expect(byKind.firstUpper?.label).toBe('첫 상한가 체결');
-    expect(byKind.firstUpper?.title).toContain('09:06:01');
-    // 첫 상한 체결 = 창 끝에서 60초 앞(창 421초) — x ≈ 85.7%
-    expect(byKind.firstUpper!.x).toBeCloseTo(((32_761 - 32_400) / 421) * 100, 1);
+    expect(lane.lines.map((l) => [l.kind, l.label, l.place])).toEqual([
+      ['upper', '상한가 5,730원', 'right-above'],
+      ['detect', '등락률 20% (탐지 기준) 5,292원', 'left-below'],
+    ]);
+    const [upper, detect] = lane.lines;
+    expect(upper!.y).toBeLessThan(detect!.y); // 상한가가 위
+    expect(detect!.y).toBeLessThan(50);
 
-    const upper = lane.lines.find((l) => l.kind === 'upper')!;
-    const p25 = lane.lines.find((l) => l.kind === 'p25')!;
-    expect(upper.label).toBe('상한가 5,730');
-    expect(p25.label).toBe('등락률 25%');
-    // 가격은 위 절반 — 상한가가 25% 선보다 위(y 작음)
-    expect(upper.y).toBeLessThan(p25.y);
-    expect(p25.y).toBeLessThan(50);
+    // 25% 선 · 25% 도달 마커 · 글자 라벨은 없다
+    expect(JSON.stringify(lane)).not.toMatch(/25%/);
+    expect(lane.marks.map((m) => m.kind)).toEqual(['wallClear']);
+    expect(lane.marks[0]!.title).toContain('09:03:40');
+
+    // 번호 마커 ①②③ = 20% 도달 · 버스트 · 첫 상한가(창 안 레인 1 사건)
+    expect(lane.points.map((p) => p.n)).toEqual([1, 2, 3]);
+    expect(lane.points.map((p) => p.emph)).toEqual([true, false, true]);
+    expect(lane.points[0]!.tone).toBe('detect');
+    // 첫 상한 체결 = 창 끝에서 60초 앞(창 421초) — x ≈ 85.7%
+    expect(lane.points[2]!.x).toBeCloseTo(((32_761.938 - 32_400) / 421) * 100, 1);
+    // 첫 상한가 마커 높이 = 상한가 선
+    expect(lane.points[2]!.y).toBeCloseTo(upper!.y, 1);
+
+    // 상한가 직전 1분 파란 면 1개
+    expect(lane.windows).toHaveLength(1);
+    expect(lane.windows[0]!.caption).toBe('상한가 직전 1분');
+    expect(lane.windows[0]!.x + lane.windows[0]!.w).toBeCloseTo(lane.points[2]!.x, 0);
 
     expect(lane.pricePath.startsWith('M')).toBe(true);
     expect(lane.wallPath.startsWith('M')).toBe(true);
     expect(lane.wallArea).toMatch(/Z$/);
-    for (const m of lane.marks) expect(inRange(m.x) && inRange(m.y)).toBe(true);
+    for (const m of [...lane.marks, ...lane.points]) expect(inRange(m.x) && inRange(m.y)).toBe(true);
   });
 
-  it('25% 도달이 창 밖이면 그 마커는 없다(엑시온그룹 t25 12:09:57 · 창 14:35:27~14:46:27)', () => {
-    const lane = laneEntryOf(gridOf(AXION), entryOf(AXION), locksOf(AXION))!;
+  it('엑시온그룹 — 20% 도달(11:44)은 창(14:35~14:46) 밖이라 ① 마커 없음(사실 목록엔 ①)', () => {
+    const ev = evOf(AXION);
+    const lane = laneEntryOf(gridOf(AXION), entryOf(AXION), locksOf(AXION), ev)!;
     expect(lane.range).toBe('14:35~14:46');
-    expect(lane.marks.map((m) => m.kind)).not.toContain('reach25');
-    expect(lane.marks.map((m) => m.kind)).toContain('firstUpper');
+    expect(lane.points.map((p) => p.n)).toEqual([2, 3]);
+    expect(ev.find((e) => e.templateId === 'entry_threshold')!.n).toBe(1);
+    expect(lane.windows).toHaveLength(1);
   });
 
-  it('미도달(형지글로벌) — 기준 = t{detect_rate_pct} 15:10:28 · 첫 체결 · 25% 마커 없음', () => {
-    const lane = laneEntryOf(gridOf(HYUNGJI), entryOf(HYUNGJI), [])!;
+  it('미도달(형지글로벌) — 기준 = t{detect_rate_pct} 15:10:28 · 첫 상한 마커 없음', () => {
+    const lane = laneEntryOf(gridOf(HYUNGJI), entryOf(HYUNGJI), [], evOf(HYUNGJI))!;
     expect(lane.range).toBe('15:00~15:11');
-    expect(lane.marks.map((m) => m.kind)).not.toContain('firstUpper');
-    expect(lane.marks.map((m) => m.kind)).not.toContain('reach25');
+    expect(lane.summary).toContain('상한가 체결 없음');
   });
 
-  it('기준 시각이 하나도 없으면 null · entry 없이 잠김만 있으면 첫 잠김 시작', () => {
+  it('탐지율 · 기준가가 없으면 탐지 선 없음 · 기준 시각이 하나도 없으면 null · entry 없이 잠김만 있으면 첫 잠김 시작', () => {
     const g = synthGrid(34_500, 34_600);
     expect(laneEntryOf(g, entryRow({ isin: 'X' }), [])).toBeNull();
     const lane = laneEntryOf(g, null, [lockRow({ isin: 'X', lock_id: 1, start_ms: kstMs(D, '10:00:00') })])!;
     expect(lane.range).toBe('09:50~10:01');
+    expect(lane.lines.filter((l) => l.kind === 'detect')).toHaveLength(0);
+    expect(lane.points).toEqual([]);
   });
 
   it('매도벽 소진 = 창 안 기준 시각 이하에서 wall_krw_visible 이 처음 0 인 초', () => {
@@ -182,41 +202,63 @@ describe('laneEntryOf — 진입 10분(gh-trade ENTRY_WINDOW_S 600 · MEMBER_WIN
 // laneLockOf
 // ---------------------------------------------------------------------------
 
-describe('laneLockOf — 잠김 전 구간(창 [첫 start − 120, 마지막 end + 60])', () => {
+describe('laneLockOf — 잠김 구간(창 [첫 start − 120, 마지막 end + 60])', () => {
+  const evOf = (isin: string) => eventsOf(entryOf(isin), locksOf(isin), factsOf(isin));
+
   it('잠김 없음 → null', () => {
     expect(laneLockOf(gridOf(HYUNGJI), [], [])).toBeNull();
   });
 
-  it('덕우전자 — 음영 1 · 최대 점 · 가장 큰 ▼ · ✕ 하나씩만 글자 · 깨짐 ● 라벨', () => {
-    const lane = laneLockOf(gridOf(DUKWOO), locksOf(DUKWOO), marksOf(DUKWOO))!;
+  it('덕우전자 — 음영 1 · 번호 ④~⑨ · ▼ · ✕ 는 title 만 · 깨짐 직전 1분 면 · 요약 그대로', () => {
+    const lane = laneLockOf(gridOf(DUKWOO), locksOf(DUKWOO), marksOf(DUKWOO), evOf(DUKWOO))!;
     expect(lane.range).toBe('09:04~09:07');
     expect(lane.shades).toHaveLength(1);
-    expect(lane.lines.find((l) => l.kind === 'base')?.label).toBe('기준 10억');
+    expect(lane.lines).toEqual([expect.objectContaining({ kind: 'base', label: '기준 10억', place: 'right-above' })]);
 
-    const max = lane.marks.filter((m) => m.kind === 'max');
-    expect(max).toHaveLength(1);
-    expect(max[0]!.label).toBe('최대 27.5억 @09:06:02');
+    expect(lane.points.map((p) => p.n)).toEqual([4, 5, 6, 7, 8, 9]);
+    const brk = lane.points.find((p) => p.n === 9)!;
+    expect(brk.tone).toBe('break');
+    expect(brk.bandLabel).toBe('09:06:12 깨짐 · 5,720원 · 10.1초 유지');
 
     const sells = lane.marks.filter((m) => m.kind === 'sell');
     const cancels = lane.marks.filter((m) => m.kind === 'cancel');
     expect(sells).toHaveLength(7);
     expect(cancels).toHaveLength(6);
-    expect(sells.filter((m) => m.label !== null).map((m) => m.label)).toEqual(['09:06 매도 6,713주']);
-    expect(cancels.filter((m) => m.label !== null).map((m) => m.label)).toEqual(['취소 −4.6억']);
-    for (const m of [...sells, ...cancels]) expect(m.title).not.toBe('');
+    for (const m of lane.marks) {
+      expect(m.title).not.toBe('');
+      expect(m).not.toHaveProperty('label');
+    }
 
-    const br = lane.marks.filter((m) => m.kind === 'break');
-    expect(br.map((m) => m.label)).toEqual(['깨짐 09:06:12']);
+    expect(lane.windows.map((w) => w.caption)).toEqual(['깨짐 직전 1분']);
     expect(lane.summary).toBe('최대 27.5억 09:06:02, 깨짐 09:06:12');
     expect(lane.path.startsWith('M')).toBe(true);
-    for (const m of lane.marks) expect(inRange(m.x) && inRange(m.y)).toBe(true);
+    for (const m of [...lane.marks, ...lane.points]) expect(inRange(m.x) && inRange(m.y)).toBe(true);
   });
 
-  it('엑시온그룹 — 유지 잠김(깨짐 ● 없음) · 창 끝 = 15:30 에서 잘림', () => {
-    const lane = laneLockOf(gridOf(AXION), locksOf(AXION), marksOf(AXION))!;
+  it('엑시온그룹 — 종가까지 유지(15:30:08, 창 끝 15:29:59 밖)는 오른쪽 끝 x=100 에 고정 · q_max 마커 y = 사실 krw', () => {
+    const ev = evOf(AXION);
+    const lane = laneLockOf(gridOf(AXION), locksOf(AXION), marksOf(AXION), ev)!;
     expect(lane.range).toBe('14:43~15:29');
-    expect(lane.marks.filter((m) => m.kind === 'break')).toHaveLength(0);
+    const hold = lane.points.find((p) => p.bandLabel.includes('종가까지 유지'))!;
+    expect(hold.x).toBe(100);
+    expect(hold.bandLabel).toBe('15:30:08 종가까지 유지 · 44분 40초');
+    // q_max 6.9억 — y 축 상한(20억 바닥) 안에서 사실 krw 높이
+    const qmaxEv = ev.find((e) => e.templateId === 'q_max')!;
+    const qmax = lane.points.find((p) => p.n === qmaxEv.n)!;
+    expect(qmax.y).toBeGreaterThan(0);
+    expect(lane.windows).toHaveLength(0);
     expect(lane.summary.startsWith('최대 ')).toBe(true);
+  });
+
+  it('y 축 상한은 q_max 사실 krw 를 포함한다', () => {
+    const g = synthGrid(50_000, 50_100);
+    for (const w of [g.coarse, g.fine.windows[0]!]) w.cols.q_krw = w.sec.map(() => 1_000_000_000);
+    const lk = [lockRow({ isin: 'X', lock_id: 1, start_ms: kstMs(D, '13:55:00'), end_ms: kstMs(D, '14:00:00'), broke: true })];
+    const f = [
+      fact({ event_no: 1, fact_no: 1, t_ms: kstMs(D, '13:57:00'), template_id: 'q_max', values: { lock_id: 1, krw: 5_000_000_000 } }),
+    ];
+    const lane = laneLockOf(g, lk, [], eventsOf(null, lk, f))!;
+    expect(lane.points[0]!.y).toBeCloseTo(8, 0); // LOCK_TOP — 최대가 맨 위
   });
 
   it('end_ms null(장 끝까지 잠김) → 음영이 창 끝까지 · 창 밖 마커는 버린다', () => {
@@ -231,53 +273,7 @@ describe('laneLockOf — 잠김 전 구간(창 [첫 start − 120, 마지막 end
     const s = lane.shades[0]!;
     expect(s.x + s.w).toBeCloseTo(100, 0);
     expect(lane.marks.filter((x) => x.kind === 'sell')).toHaveLength(0);
-    expect(lane.marks.find((x) => x.kind === 'cancel')?.label).toBe('취소 −2.1억');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 태그 · 지속 · 원숫자
-// ---------------------------------------------------------------------------
-
-describe('lockTagsOf · fmtSpan · circledNumber', () => {
-  it('깨짐 = 「잠김 ③ · 43분 뒤 깨짐」(up) · 유지 = 「잠김 ④ · 종가 유지」(down) · 21 이상 원숫자 없음', () => {
-    const { tags, more } = lockTagsOf([
-      lockRow({ isin: 'X', lock_id: 4, broke: false, dur_s: 900 }),
-      lockRow({ isin: 'X', lock_id: 3, broke: true, dur_s: 2580 }),
-      lockRow({ isin: 'X', lock_id: 21, broke: true, dur_s: 45 }),
-    ]);
-    expect(tags).toEqual([
-      { text: '잠김 ③ · 43분 뒤 깨짐', tone: 'up' },
-      { text: '잠김 ④ · 종가 유지', tone: 'down' },
-      { text: '잠김 21 · 45초 뒤 깨짐', tone: 'up' },
-    ]);
-    expect(more).toBeNull();
-  });
-
-  it('실 export — 덕우전자 「잠김 ① · 10초 뒤 깨짐」 · 엑시온그룹 「잠김 ② · 종가 유지」', () => {
-    expect(lockTagsOf(locksOf(DUKWOO)).tags.map((t) => t.text)).toEqual(['잠김 ① · 10초 뒤 깨짐']);
-    expect(lockTagsOf(locksOf(AXION)).tags.map((t) => t.text)).toEqual(['잠김 ② · 종가 유지']);
-  });
-
-  it('8개 → 6개 + 「+2」(title 에 나머지)', () => {
-    const many = Array.from({ length: 8 }, (_, i) => lockRow({ isin: 'X', lock_id: i + 1, broke: true, dur_s: 30 }));
-    const { tags, more } = lockTagsOf(many);
-    expect(tags).toHaveLength(6);
-    expect(more?.text).toBe('+2');
-    expect(more?.title).toBe('잠김 ⑦ · 30초 뒤 깨짐 · 잠김 ⑧ · 30초 뒤 깨짐');
-  });
-
-  it('fmtSpan — 60초 미만 「N초」 · 60분 미만 「N분」 · 그 이상 「N시간 M분」', () => {
-    expect(fmtSpan(45)).toBe('45초');
-    expect(fmtSpan(10.103)).toBe('10초');
-    expect(fmtSpan(2580)).toBe('43분');
-    expect(fmtSpan(3700)).toBe('1시간 1분');
-  });
-
-  it('circledNumber — 1~20 원숫자 · 그 밖 숫자', () => {
-    expect(circledNumber(1)).toBe('①');
-    expect(circledNumber(20)).toBe('⑳');
-    expect(circledNumber(21)).toBe('21');
+    expect(lane.marks.find((x) => x.kind === 'cancel')?.title).toContain('−2.1억');
   });
 });
 
@@ -297,46 +293,167 @@ const fact = (p: Partial<LimitupFactRow> & { event_no: number; fact_no: number }
   ...p,
 });
 
-describe('factsSorted — t_ms(없으면 뒤) → event_no → fact_no · 글자 그대로', () => {
-  it('합성', () => {
+describe('eventsOf — 번호 = 레인 마커 = 사실 문장', () => {
+  it('합성 — 정렬 t_ms(없으면 뒤) → event_no → fact_no · 번호는 시각 있는 것만 · 짧은 이름 대체 · 시각 접두 제거', () => {
     const t = kstMs(D, '10:00:00');
-    const rows = factsSorted([
+    const rows = eventsOf(null, [], [
       fact({ event_no: 1, fact_no: 2, t_ms: null }),
-      fact({ event_no: 1, fact_no: 1, t_ms: t }),
+      fact({ event_no: 1, fact_no: 1, t_ms: t, text: '10:00:00.000 아주 긴 미지의 사실 문장 하나입니다' }),
       fact({ event_no: 0, fact_no: 3, t_ms: t }),
       fact({ event_no: 0, fact_no: 1, t_ms: t - 1000 }),
     ]);
-    expect(rows.map((r) => r.text)).toEqual(['e0f1', 'e0f3', 'e1f1', 'e1f2']);
+    expect(rows.map((r) => r.key)).toEqual(['0-1', '0-3', '1-1', '1-2']);
     expect(rows.map((r) => r.clock)).toEqual(['09:59:59', '10:00:00', '10:00:00', '—']);
+    expect(rows.map((r) => r.n)).toEqual([1, 2, 3, null]);
+    expect(rows.map((r) => r.lane)).toEqual(['entry', 'entry', 'lock', 'lock']);
+    expect(rows[2]!.text).toBe('아주 긴 미지의 사실 문장 하나입니다');
+    expect(rows[2]!.short).toBe('아주 긴 미지의 사실 문장…');
+    expect(rows[2]!.emph).toBe(false);
   });
 
-  it('실 export — 덕우전자 첫 줄 = 20% 첫 도달 · 출처 글자 그대로', () => {
-    const rows = factsSorted(factsOf(DUKWOO));
-    expect(rows[0]!.text).toBe('09:02:26.691 등락률 20% 첫 도달 — 현재가 5,300원');
-    expect(rows.map((r) => r.source)).toContain('추정(분 단위)');
-    expect(rows).toHaveLength(factsOf(DUKWOO).length);
+  it('덕우전자 — 번호 1~9 순서 · 창 사실 2개는 번호 없음 · 강조 5종', () => {
+    const ev = eventsOf(entryOf(DUKWOO), locksOf(DUKWOO), factsOf(DUKWOO));
+    const numbered = ev.filter((e) => e.n !== null);
+    expect(numbered.map((e) => [e.n, e.templateId, e.clock])).toEqual([
+      [1, 'entry_threshold', '09:02:26'],
+      [2, 'burst_wall', '09:02:51'],
+      [3, 'first_upper', '09:06:01'],
+      [4, 'lock_start', '09:06:01'],
+      [5, 'big_cancel', '09:06:01'],
+      [6, 'q_max', '09:06:02'],
+      [7, 'big_new', '09:06:02'],
+      [8, 'big_cancel', '09:06:11'],
+      [9, 'lock_break', '09:06:12'],
+    ]);
+    const wins = ev.filter((e) => e.window !== null);
+    expect(wins.map((e) => [e.templateId, e.n, e.window!.range])).toEqual([
+      ['member_entry_buy', null, '09:05:01~09:06:01'],
+      ['member_prebreak_sell', null, '09:05:12~09:06:12'],
+    ]);
+    expect(ev.filter((e) => e.emph).map((e) => e.templateId)).toEqual([
+      'entry_threshold',
+      'first_upper',
+      'lock_start',
+      'lock_break',
+    ]);
+  });
+
+  it('표시 문장 — 시각 접두 제거 · 창구 사실 머리 교체(+ range) · 출처 글자 그대로', () => {
+    const ev = eventsOf(entryOf(DUKWOO), locksOf(DUKWOO), factsOf(DUKWOO));
+    const by = (id: string) => ev.find((e) => e.templateId === id)!;
+    expect(by('entry_threshold').text).toBe('등락률 20% 첫 도달 — 현재가 5,300원');
+    expect(by('member_entry_buy').text).toBe(
+      '상한가 직전 1분 매수 창구 (09:05:01~09:06:01): 한국증권 54.4% · 신한증권 42.1% · NH투자증권 3.4%',
+    );
+    expect(by('member_prebreak_sell').text).toBe(
+      '깨짐 직전 1분 매도 창구 (09:05:12~09:06:12): 신한증권 96.2% · NH투자증권 3.8% · — —%',
+    );
+    expect(by('member_entry_buy').source).toBe('추정(분 단위)');
+    expect(ev.every((e) => !/^\d{2}:\d{2}:\d{2}\.\d{3} /.test(e.text))).toBe(true);
+  });
+
+  it('띠 라벨 — 강조는 「시각 짧은 이름 · 값」 · 그 밖은 「시각 짧은 이름」', () => {
+    const ev = eventsOf(entryOf(DUKWOO), locksOf(DUKWOO), factsOf(DUKWOO));
+    const byN = (n: number) => ev.find((e) => e.n === n)!.bandLabel;
+    expect(byN(1)).toBe('09:02:26 20% 도달 · 5,300원');
+    expect(byN(2)).toBe('09:02:51 매수 버스트 3,314만');
+    expect(byN(3)).toBe('09:06:01 첫 상한가 체결 · 5,730원');
+    expect(byN(4)).toBe('09:06:01 잠김 1 시작 · 23.9억');
+    expect(byN(5)).toBe('09:06:01 매수 취소 −7,000만');
+    expect(byN(6)).toBe('09:06:02 최대 잔량 27.6억');
+    expect(byN(7)).toBe('09:06:02 매수 신규 +4.6억');
   });
 });
 
-describe('memberBarsOf — 진입 1분 매수(event 0) · 마지막 깨진 잠김의 깨짐 전 1분 매도', () => {
-  it('덕우전자 — 매수 3 · 매도 2(「—」 자리 제외) · 이름 = memberName(m{k}_code)', () => {
-    const bars = memberBarsOf(factsOf(DUKWOO), locksOf(DUKWOO));
-    expect(bars.entry.map((b) => [b.name, b.pct])).toEqual([
+describe('storyOf — 한 줄 요약', () => {
+  const text = (isin: string) =>
+    storyOf(entryOf(isin), locksOf(isin), factsOf(isin))!.parts.map((p) => p.text).join('');
+
+  it('덕우전자 — 깨짐 · 둘째 줄 = 상한가 직전 1분 매수 1위', () => {
+    expect(text(DUKWOO)).toBe(
+      '09:02:26 20% 도달 → 3분 35초 뒤 09:06:01 첫 상한가 5,730원 → 10.1초 만에 깨짐(5,720원) · 종가 5,290원 (−7.7%)',
+    );
+    const st = storyOf(entryOf(DUKWOO), locksOf(DUKWOO), factsOf(DUKWOO))!;
+    expect(st.sub).toBe('상한가 직전 1분 매수 1위 한국증권 54.4%');
+    expect(st.parts.filter((p) => p.strong).map((p) => p.text)).toEqual(['09:02:26', '09:06:01', '5,730원', '10.1초']);
+    expect(st.parts.filter((p) => p.arrow)).toHaveLength(2);
+  });
+
+  it('엑시온그룹 — 종가까지 유지', () => {
+    expect(text(AXION)).toBe('11:44:57 20% 도달 → 3시간 0분 뒤 14:45:27 첫 상한가 1,349원 → 잠김 44분 40초 유지, 종가 상한가');
+  });
+
+  it('잠김 2개 이상이면 결과 앞에 「잠김 {id} 」 · 잠김 없음 · entry · 잠김 둘 다 없으면 null', () => {
+    const e = entryRow({ isin: 'X', detect_rate_pct: 20, t20_ms: kstMs(D, '09:00:00'), first_upper_ms: kstMs(D, '09:01:00'),
+      upper_px: 1000, close_px: 900, close_ret: -0.1 });
+    const lk = [
+      lockRow({ isin: 'X', lock_id: 1, broke: true, dur_s: 30, break_px: 990 }),
+      lockRow({ isin: 'X', lock_id: 2, broke: true, dur_s: 5.25, break_px: 980 }),
+    ];
+    expect(storyOf(e, lk, [])!.parts.map((p) => p.text).join('')).toBe(
+      '09:00:00 20% 도달 → 1분 0초 뒤 09:01:00 첫 상한가 1,000원 → 잠김 2 5.3초 만에 깨짐(980원) · 종가 900원 (−10.0%)',
+    );
+    expect(storyOf(e, [], [])!.parts.map((p) => p.text).join('')).toContain('→ 잠김 없음 · 종가 900원 (−10.0%)');
+    expect(storyOf(e, [], [])!.sub).toBeNull();
+    expect(storyOf(null, [], [])).toBeNull();
+  });
+});
+
+describe('memberWindowsOf — 직전 1분 창(derive.ts 와 같은 정의)', () => {
+  it('덕우전자 — 매수 창 [anchor − 60s, anchor] · 깨진 잠김 창 [end − 60s, end]', () => {
+    const w = memberWindowsOf(entryOf(DUKWOO), locksOf(DUKWOO));
+    expect(w.entry!.range).toBe('09:05:01~09:06:01');
+    expect(w.entry!.toMs - w.entry!.fromMs).toBe(60_000);
+    expect(w.entry!.toMs).toBe(entryOf(DUKWOO).first_upper_ms);
+    expect([...w.sell.entries()].map(([id, x]) => [id, x.range])).toEqual([[1, '09:05:12~09:06:12']]);
+  });
+
+  it('유지 잠김은 매도 창 없음 · 기준 시각 없으면 매수 창 null', () => {
+    expect(memberWindowsOf(entryOf(AXION), locksOf(AXION)).sell.size).toBe(0);
+    expect(memberWindowsOf(null, []).entry).toBeNull();
+  });
+});
+
+describe('서식 도우미 — fmtDurPrecise · fmtKrwShort · stripFactClock', () => {
+  it('fmtDurPrecise — 「10.1초」 · 「3분 35초」 · 「3시간 0분」(내림)', () => {
+    expect(fmtDurPrecise(10.103)).toBe('10.1초');
+    expect(fmtDurPrecise(215.247)).toBe('3분 35초');
+    expect(fmtDurPrecise(2680.4)).toBe('44분 40초');
+    expect(fmtDurPrecise(10829.87)).toBe('3시간 0분');
+  });
+  it('fmtKrwShort — 1억 이상 억 · 그 아래 만 · 0 「0만」', () => {
+    expect(fmtKrwShort(458_400_000)).toBe('4.6억');
+    expect(fmtKrwShort(69_997_680)).toBe('7,000만');
+    expect(fmtKrwShort(0)).toBe('0만');
+  });
+  it('stripFactClock — 앞 「HH:MM:SS.mmm 」 하나만', () => {
+    expect(stripFactClock('09:02:26.691 등락률 20% 첫 도달')).toBe('등락률 20% 첫 도달');
+    expect(stripFactClock('잠김 2 종가까지 유지 — 2680.4초')).toBe('잠김 2 종가까지 유지 — 2680.4초');
+  });
+});
+
+describe('memberBarsOf — 상한가 직전 1분 매수(event 0) · 마지막 깨진 잠김의 깨짐 직전 1분 매도 + 창', () => {
+  it('덕우전자 — 매수 3 · 매도 2(「—」 자리 제외) · 이름 = memberName(m{k}_code) · range', () => {
+    const bars = memberBarsOf(factsOf(DUKWOO), locksOf(DUKWOO), entryOf(DUKWOO));
+    expect(bars.entry.range).toBe('09:05:01~09:06:01');
+    expect(bars.sell!.range).toBe('09:05:12~09:06:12');
+    expect(bars.entry.bars.map((b) => [b.name, b.pct])).toEqual([
       ['한국증권', 54.4],
       ['신한증권', 42.1],
       ['NH투자증권', 3.4],
     ]);
-    expect(bars.sell?.map((b) => [b.name, b.pct])).toEqual([
+    expect(bars.sell?.bars.map((b) => [b.name, b.pct])).toEqual([
       ['신한증권', 96.2],
       ['NH투자증권', 3.8],
     ]);
-    expect(bars.entry[0]!.label).toBe('54.4%');
+    expect(bars.entry.bars[0]!.label).toBe('54.4%');
   });
 
   it('깨진 잠김 없음 → sell null (엑시온그룹)', () => {
-    const bars = memberBarsOf(factsOf(AXION), locksOf(AXION));
+    const bars = memberBarsOf(factsOf(AXION), locksOf(AXION), entryOf(AXION));
     expect(bars.sell).toBeNull();
-    expect(bars.entry[0]!.name).toBe('JP모간');
+    expect(bars.entry.bars[0]!.name).toBe('JP모간');
+    expect(bars.entry.range).toBe('14:44:27~14:45:27');
   });
 
   it('깨진 잠김은 있는데 사실이 없으면 [] · 코드가 없으면 m{k} 글자 · 마지막 깨진 잠김 = end_ms 가장 늦은 것', () => {
@@ -349,9 +466,10 @@ describe('memberBarsOf — 진입 1분 매수(event 0) · 마지막 깨진 잠�
       fact({ event_no: 1, fact_no: 1, template_id: 'member_prebreak_sell', values: { m1: 'A', m1_code: '00050', s1: 70 } }),
     ];
     const bars = memberBarsOf(f, lk);
-    expect(bars.entry.map((b) => b.name)).toEqual(['어딘가']);
-    expect(bars.sell).toEqual([]); // lock 2 의 사실이 없다
-    expect(memberBarsOf([], []).entry).toEqual([]);
+    expect(bars.entry.bars.map((b) => b.name)).toEqual(['어딘가']);
+    expect(bars.sell?.bars).toEqual([]); // lock 2 의 사실이 없다
+    expect(bars.sell?.range).toBe('10:59:00~11:00:00');
+    expect(memberBarsOf([], []).entry).toEqual({ bars: [], range: null });
   });
 });
 
@@ -409,36 +527,62 @@ describe('yesterdayRowsOf — 이전 적재 날짜 locks 를 종목마다 한 �
 // 오버레이 글자 배치 (E8 overflow backstop)
 // ---------------------------------------------------------------------------
 
-describe('layoutLaneLabels — 14px 줄 칸에 겹치지 않게', () => {
-  const overlaps = (a: { left: number; top: number; width: number }, b: typeof a) =>
-    a.top === b.top && a.left < b.left + b.width && b.left < a.left + a.width;
+describe('layoutEventBand — 라벨 띠(최대 3줄 · 넘치면 점 위 번호만)', () => {
+  const overlaps = (a: { row: number; left: number; width: number }, b: typeof a) =>
+    a.row === b.row && a.row >= 0 && a.left < b.left + b.width && b.left < a.left + a.width;
 
-  it('폰 폭(328px)에서 덕우전자 레인 2 라벨이 서로 겹치지 않고 레인 안에 있다', () => {
-    const lane = laneLockOf(gridOf(DUKWOO), locksOf(DUKWOO), marksOf(DUKWOO))!;
-    const items = [
-      ...lane.lines.map((l) => ({ id: l.kind, text: l.label, xPct: 0, yPct: l.y, align: 'start' as const })),
-      ...lane.marks
-        .filter((m) => m.label !== null)
-        .map((m, i) => ({ id: `m${i}`, text: m.label!, xPct: m.x, yPct: m.y, align: 'auto' as const })),
-    ];
-    const placed = layoutLaneLabels(items, 328, 120);
-    expect(placed.length).toBe(items.length); // 다섯 개 다 들어간다
-    for (const p of placed) {
+  it('같은 x 근처 5개 → 3줄까지 쌓고 4 · 5번째는 row −1 · 겹침 0 · 폭 안', () => {
+    const items = [1, 2, 3, 4, 5].map((n) => ({ n, xPx: 200 + n, text: `09:06:0${n} 매수 신규 +4.6억` }));
+    const { rows, placed } = layoutEventBand(items, 600);
+    expect(EVENT_BAND_MAX_ROWS).toBe(3);
+    expect(rows).toBe(3);
+    expect(placed.map((p) => p.row)).toEqual([0, 1, 2, -1, -1]);
+    for (const p of placed.filter((x) => x.row >= 0)) {
       expect(p.left).toBeGreaterThanOrEqual(0);
-      expect(p.left + p.width).toBeLessThanOrEqual(328);
-      expect(p.top + 14).toBeLessThanOrEqual(120);
+      expect(p.left + p.width).toBeLessThanOrEqual(600);
     }
     for (let i = 0; i < placed.length; i += 1)
       for (let j = i + 1; j < placed.length; j += 1) expect(overlaps(placed[i]!, placed[j]!)).toBe(false);
   });
 
-  it('줄이 모자라면 뒤 항목을 버린다(title 로만 남는다) · 폭보다 긴 글자도 버린다', () => {
-    const items = Array.from({ length: 6 }, (_, i) => ({
-      id: String(i), text: '깨짐 09:06:12', xPct: 50, yPct: 50, align: 'auto' as const,
-    }));
-    const placed = layoutLaneLabels(items, 100, 28); // 2줄 · 한 줄에 하나
-    expect(placed.map((p) => p.id)).toEqual(['0', '1']);
-    expect(layoutLaneLabels([{ id: 'x', text: '아주 긴 글자 라벨', xPct: 0, yPct: 0, align: 'start' }], 40, 120)).toEqual([]);
+  it('번호 원이 마커 바로 위(left = x − 9) · 오른쪽 끝 마커는 폭 안으로 당긴다 · 왼쪽 끝은 0', () => {
+    const { placed } = layoutEventBand(
+      [
+        { n: 1, xPx: 5, text: '09:02:26 20% 도달 · 5,300원' },
+        { n: 2, xPx: 250, text: '09:02:51 매수 버스트 3,314만' },
+        { n: 3, xPx: 798, text: '15:30:08 종가까지 유지 · 44분 40초' },
+      ],
+      800,
+    );
+    expect(placed[0]!.left).toBe(0);
+    expect(placed[1]!.left).toBe(241);
+    expect(placed[2]!.left + placed[2]!.width).toBe(800);
+    expect(placed.map((p) => p.row)).toEqual([0, 0, 0]);
+  });
+
+  it('글자 없는(폰) 배지는 폭 18 · 띠 없음이면 rows 0', () => {
+    const { placed } = layoutEventBand([{ n: 1, xPx: 100, text: '' }], 328);
+    expect(placed[0]).toEqual({ n: 1, row: 0, left: 91, width: 18 });
+    expect(layoutEventBand([], 328)).toEqual({ rows: 0, placed: [] });
+  });
+
+  it('폰 폭(328px · 번호만)에서 덕우전자 레인 2 번호 배지가 겹치지 않고 레인 안에 있다', () => {
+    const lane = laneLockOf(
+      gridOf(DUKWOO),
+      locksOf(DUKWOO),
+      marksOf(DUKWOO),
+      eventsOf(entryOf(DUKWOO), locksOf(DUKWOO), factsOf(DUKWOO)),
+    )!;
+    const { placed } = layoutEventBand(
+      lane.points.map((p) => ({ n: p.n, xPx: (p.x / 100) * 328, text: '' })),
+      328,
+    );
+    for (const p of placed.filter((x) => x.row >= 0)) {
+      expect(p.left).toBeGreaterThanOrEqual(0);
+      expect(p.left + p.width).toBeLessThanOrEqual(328);
+    }
+    for (let i = 0; i < placed.length; i += 1)
+      for (let j = i + 1; j < placed.length; j += 1) expect(overlaps(placed[i]!, placed[j]!)).toBe(false);
   });
 
   it('estimateLabelWidth — 한글 11px · 숫자 6.6px 어림', () => {

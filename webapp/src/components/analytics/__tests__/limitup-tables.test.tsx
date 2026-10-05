@@ -45,7 +45,16 @@ describe('LimitupFingerprintTable', () => {
     const sec = screen.getByRole('region', { name: '창구 지문표' });
     expect(within(sec).getByText('사건 10건 미만은 관찰 중')).toBeTruthy();
     const heads = within(sec).getAllByRole('columnheader').map((h) => h.textContent);
-    expect(heads).toEqual(['창구', '사건', '진입 1분 매수', '잠김 중 매수', '깨짐 전 1분 매도', '매도 선행', '유지율', '상태']);
+    expect(heads).toEqual([
+      '창구',
+      '사건',
+      '상한가 직전 1분 매수',
+      '잠김 중 매수',
+      '깨짐 직전 1분 매도',
+      '매도 선행',
+      '유지율',
+      '상태',
+    ]);
 
     const live = sec.querySelector('tr[data-member="00050"]')!;
     const cells = [...live.querySelectorAll('td')];
