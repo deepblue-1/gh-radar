@@ -2079,6 +2079,34 @@ describe('Phase 27 41 in-flight', () => {
     expect(unacked()?.textContent).toContain('미반영');
   });
 
+  it('WR-03 — 41 무응답 「미반영」은 그 키의 런타임 에코로 지워지지 않는다 · error 로그 1줄 · 늦은 기대 전이에 거둔다', async () => {
+    setRelay({ limitChasers: [watching] });
+    const { rerender } = render(<Card />);
+    press('start');
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+    });
+    expect(unacked()?.textContent).toContain('미반영');
+    await waitFor(() => expect(hasText('자동매도 바로시작 — 서버 응답 없음')).toBe(true));
+    const row = Array.from(logRows()).find((r) =>
+      (r.querySelectorAll('span')[1]?.textContent ?? '').includes('자동매도 바로시작 — 서버 응답 없음'),
+    );
+    expect(row?.getAttribute('data-level')).toBe('error');
+
+    // 같은 키의 300ms 런타임 에코(기대 전이 아님) — 「미반영」은 남는다.
+    const runtime = echo({ ...watching, autoSellState: 2, autoSellBasisPrice: 13_000 });
+    setRelay({ limitChasers: [runtime], lastLimitChaserEcho: runtime });
+    rerender(<Card />);
+    expect(unacked()?.textContent).toContain('미반영');
+
+    // 늦은 기대 전이(상태 3 ∧ enabled) — 서버는 바로시작대로 바뀌었다 → 거둔다.
+    const late = echo({ ...watching, autoSellState: 3 });
+    setRelay({ limitChasers: [late], lastLimitChaserEcho: late });
+    rerender(<Card />);
+    expect(unacked()).toBeNull();
+    expect(asCmds()).toHaveLength(1);
+  });
+
   it('pending 중 54 INFO AutoSell 사유 줄 → 로그에만 · pending 유지(해제 대상 아님)', async () => {
     setRelay({ limitChasers: [watching] });
     const { rerender } = render(<Card />);

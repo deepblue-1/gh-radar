@@ -66,6 +66,8 @@
  *     그 채널은 폼 커밋 훅의 진행 판정 입력이라, 41 의 거부(`acceptAnswer`)나 무응답(`setUnacked`)이 실리면
  *     다른 그룹에서 진행 중이던 lc.set 이 거짓 「반영 안 됨」 · 타임아웃으로 떨어진다. 41 무응답은 전용
  *     `autoSellUnacked` 로만 서고, 상태줄은 `unacked || autoSellUnacked` 로 그린다.
+ *   ★ 41 「미반영」은 그 키의 아무 에코로 거두지 않는다(WR-03) — 무응답으로 끝난 action 의 기대 전이가 늦게 보일 때,
+ *     다음 41 전송, 키 변경에서만 거둔다. 무응답에는 전략 로그 error 한 줄(「자동매도 바로시작 — 서버 응답 없음」)을 남긴다.
  *   재전송은 없다(T-16-10 · T-17-40). 버튼 렌더 활성과 전송 가드는 같은 `server` 로 `autoSellButtonsOf` 를 읽는다.
  */
 
@@ -425,6 +427,12 @@ export function useStrategyCardState({
   const [autoSellPending, setAutoSellPending] = useState<AutoSellAction | null>(null);
   /** 41 전용 「미반영」 — 공용 `unacked` 와 분리(⑥ · 27-REVIEW WR-01). */
   const [autoSellUnacked, setAutoSellUnacked] = useState(false);
+  /**
+   * 3초 무응답으로 끝난 41 의 action — `autoSellUnacked` 의 근거다(27-REVIEW WR-03). 「미반영」은 이 action 의
+   * **기대 전이**가 늦게라도 보일 때(`settleAutoSell`), 다음 41 전송, 키 변경에서만 거둔다 — 그 키의 아무 에코
+   * (300ms 런타임 푸시 · lc.set 에코)로는 거두지 않는다.
+   */
+  const autoSellTimedOutRef = useRef<AutoSellAction | null>(null);
   /** 41 **전용** 3초 타이머 — 공용 `ackTimer` 와 분리(⑥ — 키 일치 이펙트가 아무 에코에나 공용 타이머를 지운다). */
   const autoSellCmdTimer = useRef<number | null>(null);
   /** 41 대기를 끝낸다(또는 연다) — ref · state · 41 타이머를 함께. 「미반영」 표시는 호출자가 정한다. */
@@ -493,6 +501,7 @@ export function useStrategyCardState({
     pendingExpiryTimer.current = null;
     armInFlightRef.current = false;
     setAutoSellCmd(null);
+    autoSellTimedOutRef.current = null;
     setAutoSellUnacked(false);
     setUnacked(false);
     setAppliedAt(null);
@@ -533,13 +542,27 @@ export function useStrategyCardState({
     ★ 41 해제 — 그 키의 에코가 **기대 전이**를 실었을 때만(⑥ · D-08). 위 이펙트가 아무 에코에나 `acceptAnswer` 로
       공용 대기를 거두는 것과 다르다 — 300ms 런타임 푸시 · lc.set 에코는 41 의 답이 아니다. 위 이펙트는 그대로 둔다.
   */
+  /**
+   * 이 에코가 41 의 기대 전이를 실으면 대기를 끝낸다. 3초 무응답으로 끝난 41 의 기대 전이가 늦게 보이면
+   * 「미반영」도 거둔다(늦은 에코 = 성공 · WR-03) — 서버는 그 action 대로 이미 바뀌었다.
+   */
+  const settleAutoSell = useCallback(
+    (echo: RelayLimitChaser) => {
+      const pending = autoSellCmdRef.current;
+      if (pending !== null && isAutoSellCommandSettled(pending, echo)) setAutoSellCmd(null);
+      const timedOut = autoSellTimedOutRef.current;
+      if (timedOut !== null && isAutoSellCommandSettled(timedOut, echo)) {
+        autoSellTimedOutRef.current = null;
+        setAutoSellUnacked(false);
+      }
+    },
+    [setAutoSellCmd],
+  );
   useEffect(() => {
     if (key === "" || lastLimitChaserEcho === null) return;
     if (lastLimitChaserEcho.key !== key) return;
-    const pending = autoSellCmdRef.current;
-    if (pending === null || !isAutoSellCommandSettled(pending, lastLimitChaserEcho)) return;
-    setAutoSellCmd(null);
-  }, [lastLimitChaserEcho, key, setAutoSellCmd]);
+    settleAutoSell(lastLimitChaserEcho);
+  }, [lastLimitChaserEcho, key, settleAutoSell]);
   /*
     ★ 41 해제 둘째 입력 — 키별 정본 `server`(27-REVIEW WR-02). `lastLimitChaserEcho` 는 리듀서가 매 `lc` 프레임마다
       덮어쓰는 **단일 슬롯**이라, 서버 300ms 플러시 틱에 여러 키의 에코가 한 React 배치로 들어오면 내 기대 전이
@@ -550,10 +573,8 @@ export function useStrategyCardState({
   */
   useEffect(() => {
     if (server === null) return;
-    const pending = autoSellCmdRef.current;
-    if (pending === null || !isAutoSellCommandSettled(pending, server)) return;
-    setAutoSellCmd(null);
-  }, [server, setAutoSellCmd]);
+    settleAutoSell(server);
+  }, [server, settleAutoSell]);
 
   useEffect(() => {
     const prev = prevServerRef.current;
@@ -699,6 +720,7 @@ export function useStrategyCardState({
         // 41 거부 = 서버 원문 줄 + 버튼 재활성 + 「미반영」 해제(D-08). 본문은 읽지 않고 다시 보내지 않는다.
         // ★ `acceptAnswer` 를 부르지 않는다 — `answerSeq` · `ackTimer` 는 lc.set · lc.arm 전용이다(WR-01).
         setAutoSellCmd(null);
+        autoSellTimedOutRef.current = null;
         setAutoSellUnacked(false);
       }
       /*
@@ -815,17 +837,21 @@ export function useStrategyCardState({
       if (autoSellCmdRef.current !== null) return;
       if (!send({ t: "autosell.cmd", isin, accountNo, exchange, action })) return;
       setAutoSellCmd(action);
+      autoSellTimedOutRef.current = null;
       setAutoSellUnacked(false);
       autoSellCmdTimer.current = window.setTimeout(() => {
         // 3초 무응답 — 「미반영」만 세우고 버튼을 푼다. 아무것도 다시 보내지 않는다.
         // ★ 공용 `setUnacked` 금지 — 폼 커밋 훅이 진행 중 lc.set 을 타임아웃으로 접는다(WR-01).
+        // ★ 로그 한 줄을 남긴다 — 상태줄만으로는 바로시작이 먹지 않은 사실이 지나간다(PC-7 · WR-03).
         autoSellCmdTimer.current = null;
         autoSellCmdRef.current = null;
+        autoSellTimedOutRef.current = action;
         setAutoSellPending(null);
         setAutoSellUnacked(true);
+        pushLog(`자동매도 ${action === "start" ? "바로시작" : "중지"} — 서버 응답 없음`, "error");
       }, ACK_TIMEOUT_MS);
     },
-    [server, send, isin, accountNo, exchange, setAutoSellCmd],
+    [server, send, isin, accountNo, exchange, setAutoSellCmd, pushLog],
   );
 
   return {
