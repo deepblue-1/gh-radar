@@ -1462,14 +1462,14 @@ Plans:
 **Goal:** gh-trade Phase 27 「실시간 상한가 특징 + 밤 export」 계약(인박스 `docs/inbox/from-gh-trade/261005-limitup-feature-85.md`, 정본 gh-trade `docs/features/limitup-feature.md` · `docs/analysis/feature-dictionary.md` · `server/tools/analysis/tickana/export.py`)을 gh-radar 가 받아 장중에는 상한가 특징을 실시간으로, 밤에는 그날 상한가 사건 보고서를 웹에서 볼 수 있게 한다. 세 갈래. **(A) 와이어 85 `LimitFeature`**(S→C Broadcast, FULL 구독 키마다 1초 스로틀, Envelope 슬롯 90, 32필드 — 생성물은 Phase 27 동기화에 이미 실림): relay 가 quote 관찰자 연결의 85 를 받아 FULL 구독 브라우저에 1초·키당 1프레임 중계(드롭 허용), 중계 전까지는 unknown MsgType warn 이 키·초마다 찍히지 않게 명시 `case`(17-03 규칙). 웹은 상따 카드/종목상세 호가 탭에 「지금 · 10초 · 창구」 요약(WinForms quick-261005-fit 동형, 시각 규칙은 목업 게이트). **(B) 관찰자 저널 `StrategyEventKind` 15**(80 으로 분당·키당 1행, 계좌 없음, 82·81 에는 없음): `dma_strategy_events` 적재 확인(kind 값 필터·RPC `dma_strategy_events_for_user` 가시성 — 시세 이벤트 1/2/10 과 같은 취급인지 판정) + shared 문장 조립기 kind 15 분기(슬롯 매핑표대로 85 필드 이름으로 되돌림, `message` 파싱 `buy:…;sell:…|m=N`) + 보존·인덱스 정책(하루 수천~1만 행). **(C) 119 밤 export 적재**: Supabase 표 6개 `limitup_entries`·`limitup_locks`·`limitup_jumps`·`limitup_member_alloc`·`limitup_facts(values jsonb)`·`limitup_touches`(열·PK = 노트 표, `schema_version` 행마다) + Storage 비공개 버킷 `limitup-grid`(`grid/<date>/<isin>.json.gz`, server 가 인증 뒤 단기 서명 URL) · radar-gw pull 타이머(평일 21:00 KST, `rsync -az --delete --exclude='*.tmp' smok95@10.16.207.119:/` rrsync 읽기 전용 키 — 공개키는 gh-radar 가 만들어 인박스로 전달, 119 등록은 gh-trade 사용자) · 적재기(manifest.json 있는 날짜만 · sha256 대조 · 아는 `schema_version` 만 · manifest 가 바뀐 날짜는 **날짜 단위 교체** 재적재 — D+1 보충으로 어제 export 가 다시 쓰인다) · 웹 보고서 페이지(B 하루 격자 · A 사건 카드 · C 창구 지문 · 어제 결과 — `facts.text` 완성 문장 그대로 + `source` 실측/추정/모형 표기 유지, `limit_up_events(code,date)` 와 `short_code`+`date` 조인). 노트의 질문 5건(grid 객체 한도 · 보존 기간 · kind 15 저장 경로·RPC · 85 수신 로그 레벨 · `facts.values` GIN) 은 discuss 에서 답을 정해 노트에 추기한다. 배포 DB → radar-gw 타이머 → relay → webapp(push) 순, 인박스 노트 `status: done` + `done_commit`.
 **Requirements**: TBD
 **Depends on:** Phase 27(relay 생성물 동기화 — 85·kind 15 생성물 포함), Phase 25(StrategyEvent 적재·문장 조립기), Phase 26(relay quote 관찰자 연결)
-**Plans:** 2/16 plans executed
+**Plans:** 3/16 plans executed
 
 Plans:
 **Wave 1**
 
 - [x] 28-01-PLAN.md — (wave 1) 트레이서: 85 LimitFeature 한 경로 — relay 파서 · hub 키 캐시 · FULL 팬아웃 → 카드 탭 「상한가」 제목 · 지금 행 · e2e P28-1
 - [x] 28-02-PLAN.md — (wave 1) kind 15 가시성 한 경로 — RPC 시세 집합 (1,2,10,15) · jsonb 래퍼 · 30일 purge RPC · server `?lf=1` · shared 상수
-- [ ] 28-03-PLAN.md — (wave 1) 밤 적재 트레이서 — limitup 표 10 · 날짜 원자 commit RPC · 워커 핵심 경로 · 픽스처 · 실데이터 dry-run
+- [x] 28-03-PLAN.md — (wave 1) 밤 적재 트레이서 — limitup 표 10 · 날짜 원자 commit RPC · 워커 핵심 경로 · 픽스처 · 실데이터 dry-run
 - [ ] 28-04-PLAN.md — (wave 1) radar-gw 운반기 — limitup-pull systemd oneshot(rsync → GCS) · 설치기 · 키 주석 radar-gw-pull
 
 **Wave 2** *(blocked on Wave 1 completion)*
