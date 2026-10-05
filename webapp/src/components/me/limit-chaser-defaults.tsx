@@ -32,7 +32,7 @@
  *    - 저장 이력(로그)은 남기지 않는다(Deferred).
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AUTO_SELL_METHOD_LABELS,
   AUTO_SELL_METHOD_ORDER,
@@ -191,6 +191,13 @@ export function isSetUserSettingsRejection(msg: { lv: string; src: string }): bo
 
 const EMPTY_KEYS: ReadonlySet<UserSettingsKey> = new Set();
 
+/**
+ * 실패한 행 1건 — 말풍선 문구와 **시도한 값**(27-REVIEW WR-05). 늦게 온 84 가 그 값을 실으면 서버 저장은
+ * 성공한 것이라 실패를 거둔다(상따 카드 「③ 늦은 에코」와 같은 대응).
+ */
+type UserSettingsFailure = { text: string; value: number };
+type UserSettingsFailures = Partial<Record<UserSettingsKey, UserSettingsFailure>>;
+
 type SaveOutcome = "noop" | "sent" | "disconnected";
 
 interface UserSettingsSave {
@@ -219,7 +226,13 @@ function useUserSettingsSave(
   const flashTimers = useRef(new Map<UserSettingsKey, number>());
   const [inflightKey, setInflightKey] = useState<UserSettingsKey | null>(null);
   const [queuedKeys, setQueuedKeys] = useState<ReadonlySet<UserSettingsKey>>(EMPTY_KEYS);
-  const [failures, setFailures] = useState<Partial<Record<UserSettingsKey, string>>>({});
+  const [failureEntries, setFailures] = useState<UserSettingsFailures>({});
+  /** 렌더 계약은 문구만 — 시도 값은 84 늦은 성공 판정 전용이다. */
+  const failures = useMemo(() => {
+    const out: Partial<Record<UserSettingsKey, string>> = {};
+    for (const [k, f] of Object.entries(failureEntries) as [UserSettingsKey, UserSettingsFailure][]) out[k] = f.text;
+    return out;
+  }, [failureEntries]);
   const [flashKeys, setFlashKeys] = useState<ReadonlySet<UserSettingsKey>>(EMPTY_KEYS);
   const [rejectText, setRejectText] = useState<string | null>(null);
 
@@ -256,12 +269,12 @@ function useUserSettingsSave(
   const failQueue = useCallback(
     (text: string) => {
       if (queueRef.current.size === 0) return;
-      const keys = [...queueRef.current.keys()];
+      const entries = [...queueRef.current.entries()];
       queueRef.current.clear();
       syncQueue();
       setFailures((f) => {
         const next = { ...f };
-        for (const k of keys) next[k] = text;
+        for (const [k, value] of entries) next[k] = { text, value };
         return next;
       });
     },
@@ -275,7 +288,7 @@ function useUserSettingsSave(
       const s: RelayUserSettingsValues = { ...userSettingsValuesOf(base), [key]: value };
       if (!send({ t: "user.settings.set", s })) {
         // 소켓이 받지 않았다 — 비행을 세우지 않는다(답이 올 수 없다) · 재전송 없음.
-        setFailures((f) => ({ ...f, [key]: USER_SETTINGS_SAVE_TEXT.disconnected }));
+        setFailures((f) => ({ ...f, [key]: { text: USER_SETTINGS_SAVE_TEXT.disconnected, value } }));
         failQueue(USER_SETTINGS_SAVE_TEXT.disconnected);
         return "disconnected";
       }
@@ -289,7 +302,7 @@ function useUserSettingsSave(
         if (inflightRef.current?.key !== key) return;
         inflightRef.current = null;
         setInflightKey(null);
-        setFailures((f) => ({ ...f, [key]: USER_SETTINGS_SAVE_TEXT.timeout }));
+        setFailures((f) => ({ ...f, [key]: { text: USER_SETTINGS_SAVE_TEXT.timeout, value } }));
         failQueue(USER_SETTINGS_SAVE_TEXT.timeout);
       }, ACK_TIMEOUT_MS);
       return "sent";
@@ -347,6 +360,19 @@ function useUserSettingsSave(
     for (const row of USER_SETTINGS_ROWS) {
       if (prev[row.key] !== userSettings[row.key]) flash(row.key);
     }
+    /*
+      ★ 늦은 성공(27-REVIEW WR-05) — 3초 무응답 · 거부로 실패를 박은 행도 84 가 **시도한 그 값**을 실으면 서버에
+        저장된 것이다. 실패를 거둔다 — 안 거두면 새 값과 「반영되지 않았어요」가 동시에 선다. 재전송은 없다.
+    */
+    setFailures((f) => {
+      let next: UserSettingsFailures | null = null;
+      for (const [k, entry] of Object.entries(f) as [UserSettingsKey, UserSettingsFailure][]) {
+        if (userSettings[k] !== entry.value) continue;
+        next ??= { ...f };
+        delete next[k];
+      }
+      return next ?? f;
+    });
     const inflight = inflightRef.current;
     if (inflight !== null && userSettings[inflight.key] === inflight.value) {
       flash(inflight.key);
@@ -370,7 +396,7 @@ function useUserSettingsSave(
       if (inflight === null || !isSetUserSettingsRejection(msg)) continue;
       // 원문 그대로 · 비행 중인 행에 귀속 · 화면 값은 84 그대로(낙관 반영이 없어 되돌릴 값이 없다).
       setRejectText(msg.m);
-      setFailures((f) => ({ ...f, [inflight.key]: "" }));
+      setFailures((f) => ({ ...f, [inflight.key]: { text: "", value: inflight.value } }));
       endInflight();
       failQueue(USER_SETTINGS_SAVE_TEXT.timeout);
     }

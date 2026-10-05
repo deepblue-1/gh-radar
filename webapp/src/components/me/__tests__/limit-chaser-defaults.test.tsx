@@ -280,6 +280,30 @@ describe('Phase 27 상따 기본설정 즉시 저장(42)', () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  it('WR-05 — 3초 실패 뒤 늦은 84 가 시도한 값을 실으면 그 행 실패를 거둔다 · 다른 값의 84 · 저장 안 된 대기 행은 실패 유지', () => {
+    mockRelay = relay(settings(true));
+    const view = render(<LimitChaserDefaultsSection />);
+    inlineCommit('auto-sell-period-sec', '5');
+    inlineCommit('auto-sell-ratio-default-pct', '15');
+    act(() => {
+      vi.advanceTimersByTime(3_000);
+    });
+    expect(rowWrap('auto-sell-period-sec')).toHaveAttribute('data-failed', 'true');
+
+    // 시도한 값이 아닌 84(다른 탭이 7 로 저장) — 실패 유지.
+    mockRelay = relay(settings(true, { autoSellPeriodSec: 7 }));
+    view.rerender(<LimitChaserDefaultsSection />);
+    expect(rowWrap('auto-sell-period-sec')).toHaveAttribute('data-failed', 'true');
+
+    // 시도한 값 5 를 실은 늦은 84 — 서버 저장 성공 → 실패를 거둔다. 대기 행(15)은 보낸 적 없어 그대로 실패.
+    mockRelay = relay(settings(true, { autoSellPeriodSec: 5 }));
+    view.rerender(<LimitChaserDefaultsSection />);
+    expect(rowWrap('auto-sell-period-sec')).not.toHaveAttribute('data-failed');
+    expect(rowValue('auto-sell-period-sec')).toBe('5초');
+    expect(rowWrap('auto-sell-ratio-default-pct')).toHaveAttribute('data-failed', 'true');
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
   it('42 — 비행 중 54 ERROR SetUserSettings → 섹션 아래 원문 · 행 값은 84 그대로 · 창 밖 거부는 줄을 세우지 않는다', () => {
     mockRelay = relay(settings(true));
     const view = render(<LimitChaserDefaultsSection />);
