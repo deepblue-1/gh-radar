@@ -930,6 +930,48 @@ describe("Phase 28 85 LimitFeature — quote 연결 수신 · 키 캐시 · full
     hub.closeAll();
     expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toBeUndefined();
   });
+
+  // WR-A01 — 업스트림이 85 를 더는 받지 않는 자리에서 캐시를 지운다. 남기면 다시 FULL 로 잡을 때 낡은 값이 스냅샷이 된다.
+  it("FULL→PRICE 강등(unsubscribe) → 캐시 삭제 · 강등 뒤 늦은 85 도 버림 · 재승격 시 스냅샷 원천 없음", () => {
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "full");
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "price");
+    feed.pushFrame(buildLimitFeatureFrame({ lockElapsedS: 43 }));
+    expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toBeDefined();
+
+    hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX", "full"); // 마지막 FULL 소비자가 카드를 접었다
+    expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toBeUndefined();
+
+    feed.pushFrame(buildLimitFeatureFrame({ lockElapsedS: 44 })); // 강등 29 뒤 in-flight
+    expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toBeUndefined();
+    expect(featureEvents()).toHaveLength(1);
+
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "full"); // 다시 펼침 — 다음 85 전까지 스냅샷 없음
+    expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toBeUndefined();
+    feed.pushFrame(buildLimitFeatureFrame({ lockElapsedS: 5 }));
+    expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toMatchObject({ lockElapsedS: 5 });
+  });
+
+  it("linger(FULL) 중 PRICE 로 복귀(#resumeFromLinger 강등) → 캐시 삭제 · linger(FULL) 중에는 갱신", () => {
+    hub.closeAll();
+    makeHub({ lingerMs: 10_000 });
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "full");
+    hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX", "full"); // 1→0 — linger(FULL) 시작
+    feed.pushFrame(buildLimitFeatureFrame({ lockElapsedS: 10 })); // 업스트림은 아직 FULL — 캐시 갱신
+    expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toMatchObject({ lockElapsedS: 10 });
+
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "price"); // linger 중 PRICE 로 복귀 — 강등
+    expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toBeUndefined();
+  });
+
+  it("quote 연결 재접속(resubscribeAll) → 85 캐시 전부 삭제 — 끊긴 동안의 값은 모른다", () => {
+    hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "full");
+    feed.pushFrame(buildLimitFeatureFrame());
+    expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toBeDefined();
+
+    feed.emitReady();
+    expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toBeUndefined();
+    expect(hub.refCount(SAMPLE_ISIN, "KRX")).toBe(1); // 구독은 그대로 — 캐시만 비운다
+  });
 });
 
 describe("SubscriptionHub — 잔량진행률 83 QueueProgress (Phase 25-06)", () => {

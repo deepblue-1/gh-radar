@@ -662,6 +662,9 @@ export class SubscriptionHub extends EventEmitter {
    * 키별 마지막 85 1프레임(`marketKey` · 28-01 · D-23). 서버는 값이 바뀐 키만 보내고 새 구독에 재송신하지 않는다
    * (gh-trade `LimitFeature.cpp` 316-334) — 조용한 키는 다음 분 경계까지 최대 60초 프레임이 없다. 그래서 relay 가
    * 마지막 값을 들고 있다가 FULL 구독 직후 스냅샷으로 내린다(28-05). `#releaseKey` · `closeAll` 에서 지운다.
+   * 업스트림이 85 를 더는 받지 않는 자리 — FULL→PRICE 강등(`unsubscribe` · `#resumeFromLinger`)과 quote 재접속
+   * (`resubscribeAll` — 끊긴 동안의 85 를 모른다)에서도 지운다(WR-A01). 남겨 두면 다시 FULL 로 잡을 때 낡은
+   * 「잠김 N초째」 를 지금 값처럼 스냅샷으로 내리고, 서버는 새 구독에 재송신하지 않아 다음 85 까지 그대로 남는다.
    */
   readonly #limitFeatures = new Map<string, RelayLimitFeatureMsg>();
   /** `marketKey` → 플러시 대기 배치 (전역). */
@@ -1049,6 +1052,8 @@ export class SubscriptionHub extends EventEmitter {
       this.#sendSubscribe(isin, exchange, "full");
       return;
     }
+    // FULL→PRICE 강등 — 업스트림이 85 를 더는 보내지 않는다. 캐시를 남기면 다음 승격 스냅샷이 낡은 값이 된다(WR-A01).
+    this.#limitFeatures.delete(marketKey(isin, exchange));
     const feed = this.#feed;
     if (feed === null || !feed.isReady) {
       logger.info(
@@ -1104,7 +1109,9 @@ export class SubscriptionHub extends EventEmitter {
         );
         return;
       }
-      // FULL→PRICE 강등 — 서버는 같은 키 재구독을 level 덮어쓰기로 처리한다.
+      // FULL→PRICE 강등 — 서버는 같은 키 재구독을 level 덮어쓰기로 처리한다. 업스트림이 85 를 더는 보내지 않으므로
+      // 85 캐시를 지운다 — 남기면 다시 펼친 카드가 강등 전 마지막 프레임을 지금 값으로 받는다(WR-A01).
+      this.#limitFeatures.delete(key);
       const feed = this.#feed;
       if (feed === null || !feed.isReady) {
         logger.info(
@@ -1242,6 +1249,8 @@ export class SubscriptionHub extends EventEmitter {
       this.#resubscribeRun = null;
     }
     this.#pacer.reset();
+    // 새 연결은 85 를 재송신하지 않는다 — 끊긴 동안의 값은 모르므로 키 캐시를 통째로 비운다(WR-A01).
+    this.#limitFeatures.clear();
     // linger 키(D-10)는 되걸지 않고 정리한다 — 새 연결에는 구독이 없고 소비자도 없다(29(false) 도 보낼 것이 없다).
     const lingered = [...this.#lingering.keys()];
     for (const key of lingered) this.#releaseKey(key, "quote 연결 재접속 — linger 키 정리", false);
@@ -2078,8 +2087,16 @@ export class SubscriptionHub extends EventEmitter {
    */
   #onLimitFeature(msg: RelayLimitFeatureMsg): void {
     const key = marketKey(msg.i, msg.x);
-    if (!this.#refs.has(key)) {
+    const refs = this.#refs.get(key);
+    if (refs === undefined) {
       logger.debug({ isin: msg.i, exchange: msg.x }, "[HUB] 구독 없는 키의 상한가 특징 — 버림");
+      return;
+    }
+    // 실효 PRICE 키(강등 29 뒤 in-flight)의 늦은 85 도 버린다 — 강등이 지운 캐시가 되살아나지 않게(WR-A01).
+    // linger 중인 키(참조 0/0)는 linger 당시 level 이 FULL 이면 업스트림이 아직 FULL 이라 캐시를 갱신한다.
+    const upstreamFull = refs.full > 0 || this.#lingering.get(key)?.level === "full";
+    if (!upstreamFull) {
+      logger.debug({ isin: msg.i, exchange: msg.x }, "[HUB] PRICE 구독 키의 늦은 상한가 특징 — 버림");
       return;
     }
     this.#limitFeatures.set(key, msg);
