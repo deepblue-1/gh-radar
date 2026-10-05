@@ -1408,6 +1408,24 @@ export const USER_SETTINGS_RANGES = {
 } as const satisfies Readonly<Record<keyof RelayUserSettingsValues, { readonly min: number; readonly max: number }>>;
 
 /**
+ * 상따 `lc.set` 자동매도 요청 3칸의 범위 (Phase 27 · 서버 §9-3 ② 동형 · 27-REVIEW IN-06).
+ *
+ * relay zod(`RelayLcSetSchema`) · `.superRefine` 과 webapp lc 행 범위(`webapp/src/lib/lc-ranges.ts`)가 이 한 벌을 읽는다 —
+ * 세 곳에 숫자로 적으면 한쪽만 고쳐졌을 때 웹이 통과시킨 cfg 를 relay 가 close(4400)로 끊는다.
+ *   - `autoSellStartCond` 0~9 — **늘** 본다.
+ *   - `autoSellRatioPct` 1~50 · `autoSellMethod` 1~3 — **자동매도 ON 일 때만** 본다. 꺼진 채 실린 옛 에코 0 은 와이어
+ *     UByte(0~255) 범위로 통과한다(Pitfall 5). 방법 값의 화면 순서 · 표시명은 `AUTO_SELL_METHOD_ORDER` · `AUTO_SELL_METHOD_LABELS`.
+ * `USER_SETTINGS_RANGES` 의 `autoSellRatioDefaultPct` · `autoSellMethodDefault`(42 저장 범위)와는 별개 표다.
+ */
+export const LC_AUTO_SELL_RANGES = {
+  autoSellStartCond: { min: 0, max: 9 },
+  autoSellRatioPct: { min: 1, max: 50 },
+  autoSellMethod: { min: 1, max: 3 },
+} as const satisfies Readonly<
+  Record<"autoSellStartCond" | "autoSellRatioPct" | "autoSellMethod", { readonly min: number; readonly max: number }>
+>;
+
+/**
  * NXT 거래가능 종목 ISIN 집합 스냅샷(quick-260923-pq2). 원천은 게이트웨이 종목마스터 57 의
  * `nxt_tradable`(서버가 NXT A0 수신으로 판정 · fbs D-12) 하나다 — Supabase `stocks` 에는 NXT
  * 정보가 없다. relay 는 집합이 **적재돼 있을 때만** 인증 직후 1프레임을 내리고(적재 전엔 보내지

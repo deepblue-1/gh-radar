@@ -19,8 +19,13 @@
  *   - `autoSellRatioPct` · `autoSellMethod` `UByteSchema` + `.superRefine` 「자동매도 ON 이면 비율 1~50 · 방법 1~3」
  *     (서버 §9-3 동형 — `lcRangeIssue` 가 같은 조건 규칙을 본다 · Pitfall 5)
  * 나머지 값 필드(가격·수량·금액)는 `UIntSchema`(0 이상 정수) — 키패드가 음수·소수를 만들 수 없어 범위가 없다.
- * 자동매도 방법(3택)은 범위가 아니라 옵션 값이다 — 정본은 shared `AUTO_SELL_METHOD_ORDER`.
+ * 자동매도 3칸(`autoSellStartCond` · `autoSellRatioPct` · `autoSellMethod`)의 숫자는 shared `LC_AUTO_SELL_RANGES` 가
+ * 정본이다 — relay zod · superRefine 도 같은 상수를 읽는다(27-REVIEW IN-06).
+ * 자동매도 방법(3택)은 범위가 아니라 옵션 값이다 — 화면 순서 정본은 shared `AUTO_SELL_METHOD_ORDER` 이고, 그 값 집합이
+ * `LC_AUTO_SELL_RANGES.autoSellMethod`(1~3)와 같다는 것은 shared 테스트가 잠근다.
  */
+
+import { LC_AUTO_SELL_RANGES } from '@gh-radar/shared';
 
 import type { LimitChaserFormValues } from '@/lib/limit-chaser';
 
@@ -37,6 +42,8 @@ export interface LcFieldRange {
 }
 
 const UINT32: LcRange = { min: 0, max: 4_294_967_295 };
+/** relay `UByteSchema`(0~255) — 조건부 칸의 꺼진 cfg 범위. */
+const UBYTE: LcRange = { min: 0, max: 255 };
 
 /** 필드 → 범위. 행 정의는 `...LC_FIELD_RANGES.{필드}` 로 펼쳐 쓴다 — 숫자를 행에 다시 적지 않는다. */
 export const LC_FIELD_RANGES = {
@@ -47,9 +54,10 @@ export const LC_FIELD_RANGES = {
   postBuyReboundPct: { range: { min: 0, max: 100 }, inputRange: { min: 1, max: 100 } },
   sellOrderRatio: { range: { min: 1, max: 100 } },
   sellQtyTrackRatio: { range: { min: 1, max: 90 } },
-  autoSellStartCond: { range: { min: 0, max: 9 } },
+  // 자동매도 3칸의 숫자는 shared `LC_AUTO_SELL_RANGES`(relay zod · superRefine 과 같은 원천 · 27-REVIEW IN-06).
+  autoSellStartCond: { range: LC_AUTO_SELL_RANGES.autoSellStartCond },
   // 꺼진 옛 에코의 0 은 통과(relay UByte) — 켠 cfg 만 1~50(`lcRangeIssue` 조건 규칙 · Pitfall 5).
-  autoSellRatioPct: { range: { min: 0, max: 255 }, inputRange: { min: 1, max: 50 } },
+  autoSellRatioPct: { range: UBYTE, inputRange: LC_AUTO_SELL_RANGES.autoSellRatioPct },
 } as const satisfies Partial<Record<keyof LimitChaserFormValues, LcFieldRange>>;
 
 /** 그 필드의 범위 — 표에 없으면(가격 · 수량 · 금액) `undefined`. */

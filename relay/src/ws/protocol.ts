@@ -28,7 +28,7 @@
  *     이것이고, 그래서 이 파일에는 화이트리스트가 없다.
  */
 import { z } from "zod";
-import { MAX_VI_ORDER_AMOUNT_KRW, USER_SETTINGS_RANGES } from "@gh-radar/shared";
+import { LC_AUTO_SELL_RANGES, MAX_VI_ORDER_AMOUNT_KRW, USER_SETTINGS_RANGES } from "@gh-radar/shared";
 import type {
   RelayExchange,
   RelayLimitChaserInput,
@@ -234,8 +234,14 @@ export const RelayLcSetSchema = z.object({
     //     없으면 종전 schema 로 싣고 서버가 저장값을 유지한다(옛 탭이 자동매도를 지우지 않는다).
     //   - 에코 전용 4필드(`autoSellState` 등)는 두지 않는다 — `z.object` 가 미지 키로 떨어뜨린다.
     autoSellEnabled: z.boolean().optional(),
+    //   - 범위 숫자는 shared `LC_AUTO_SELL_RANGES` 한 벌에서 읽는다(웹 lc 행과 같은 원천 · 27-REVIEW IN-06).
     /** 시작조건 0~9 — 0 = 기준가격 이탈 관측 뒤 다음 체결(서버 §6-6). */
-    autoSellStartCond: z.number().int().min(0).max(9).optional(),
+    autoSellStartCond: z
+      .number()
+      .int()
+      .min(LC_AUTO_SELL_RANGES.autoSellStartCond.min)
+      .max(LC_AUTO_SELL_RANGES.autoSellStartCond.max)
+      .optional(),
     /** 비율 % — 「켜면 1~50」 은 아래 `superRefine` 이 본다(꺼진 채 에코 0 은 통과). */
     autoSellRatioPct: UByteSchema.optional(),
     /** 방법 — 1 매도1호가 · 2 매수1호가 · 3 양쪽. 「켜면 1~3」 은 아래 `superRefine` 이 본다. */
@@ -257,21 +263,26 @@ export const RelayLcSetSchema = z.object({
     // 서버 §9-3 ② 「켜는 요청만」 동형 — 자동매도 ON 이면 비율 1~50 · 방법 1~3(값이 실렸을 때만). 꺼진 채 0 은 통과한다
     // (옛 서버 · 미등록 키 에코 0 이 소켓 종료가 되지 않게).
     if (cfg.autoSellEnabled === true) {
+      const ratio = LC_AUTO_SELL_RANGES.autoSellRatioPct;
       if (
         cfg.autoSellRatioPct !== undefined &&
-        (cfg.autoSellRatioPct < 1 || cfg.autoSellRatioPct > 50)
+        (cfg.autoSellRatioPct < ratio.min || cfg.autoSellRatioPct > ratio.max)
       ) {
         ctx.addIssue({
           code: "custom",
           path: ["autoSellRatioPct"],
-          message: "자동매도 ON 이면 비율은 1~50",
+          message: `자동매도 ON 이면 비율은 ${ratio.min}~${ratio.max}`,
         });
       }
-      if (cfg.autoSellMethod !== undefined && (cfg.autoSellMethod < 1 || cfg.autoSellMethod > 3)) {
+      const method = LC_AUTO_SELL_RANGES.autoSellMethod;
+      if (
+        cfg.autoSellMethod !== undefined &&
+        (cfg.autoSellMethod < method.min || cfg.autoSellMethod > method.max)
+      ) {
         ctx.addIssue({
           code: "custom",
           path: ["autoSellMethod"],
-          message: "자동매도 ON 이면 방법은 1~3",
+          message: `자동매도 ON 이면 방법은 ${method.min}~${method.max}`,
         });
       }
     }

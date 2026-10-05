@@ -121,6 +121,8 @@ export {
   LIMIT_CHASER_SERVER_AUTO_SELL_FIELDS,
   // --- Phase 27 사용자 설정 42 범위 정본(relay zod · webapp /me 공용) ---
   USER_SETTINGS_RANGES,
+  // --- Phase 27 lc.set 자동매도 요청 범위 정본(relay zod · superRefine · webapp lc 행 공용 · 27-REVIEW IN-06) ---
+  LC_AUTO_SELL_RANGES,
 } from "./relay";
 // --- Phase 19 계좌 기준 주문 저널 행 계약. REST(server)와 wss 푸시(relay)가 같은 매퍼를 쓴다 ---
 export type {

@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { LC_AUTO_SELL_RANGES } from "../relay";
 import {
   AUTO_SELL_BASIS_LABELS,
   AUTO_SELL_METHOD_LABELS,
@@ -293,6 +294,19 @@ describe("Phase 27 자동매도 표시명 (D-15 · D-16)", () => {
     expect(AUTO_SELL_METHOD_LABELS).toEqual({ 1: "매도1호가", 2: "매수1호가", 3: "양쪽" });
     expect(AUTO_SELL_METHOD_ORDER).toEqual([3, 1, 2]);
     expect(AUTO_SELL_METHOD_ORDER.map((m) => AUTO_SELL_METHOD_LABELS[m])).toEqual(["양쪽", "매도1호가", "매수1호가"]);
+  });
+
+  it("lc.set 자동매도 범위 정본 — 시작조건 0~9 · 비율 1~50 · 방법 1~3 · 방법 옵션 집합 = 방법 범위 (27-REVIEW IN-06)", () => {
+    expect(LC_AUTO_SELL_RANGES).toEqual({
+      autoSellStartCond: { min: 0, max: 9 },
+      autoSellRatioPct: { min: 1, max: 50 },
+      autoSellMethod: { min: 1, max: 3 },
+    });
+    // 웹 3택 행의 옵션(AUTO_SELL_METHOD_ORDER)이 relay superRefine 범위와 같은 값 집합이어야 한다 — 한쪽만 늘면 갈린다.
+    const { min, max } = LC_AUTO_SELL_RANGES.autoSellMethod;
+    expect([...AUTO_SELL_METHOD_ORDER].sort((a, b) => a - b)).toEqual(
+      Array.from({ length: max - min + 1 }, (_, i) => min + i),
+    );
   });
 
   it("멈춤 표 — cond_actual 1 VI 멈춤 · 2 동시호가 멈춤 · 3 재개", () => {
