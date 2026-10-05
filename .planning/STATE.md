@@ -5,10 +5,10 @@ current_phase: 23
 current_phase_name: GH Trade Play 스토어 내부 테스트 배포 (개발자 인증 후)
 status: planning
 stopped_at: Phase 27 context gathered (2026-10-05)
-last_updated: "2026-10-05T02:32:20.746Z"
+last_updated: "2026-10-05T03:35:41.921Z"
 last_activity: 2026-10-03
 last_activity_desc: Phase 18·19·20 완료 처리 (재검증 R5/R3 · 19 첫 검증 · 19-13 실장 대조)
-state_head: bac316008b2e37291ead2c469f1b612dbe393b0d
+state_head: 552413c24b4aedaeb87045f5f57af67e57d7c560
 progress:
   total_phases: 36
   completed_phases: 4
@@ -576,6 +576,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 261003-rc4 | 버스트 상한가 후속 (gh-trade quick-261003-phd) — 생성물 재동기화(SYNC 26b3493e · BurstLimit 10 · burst_upper_limit · extra_buy_burst_release vtable 138 · BulkSellReq 40) · 주문로그 kind 10 「버스트 상한가 · 조각 N · 합계 M주」(shared 시세 이벤트 판정 + 조회 RPC 가시성 (1,2,10) 마이그레이션 20261003120000 · pgTAP 28) · 추가매수 「☐버스트 시 해제」 양방향(relay buy3_schema 3 = postBuyAuto+burst 둘 다 실릴 때만) · 상따 호가창 「버스트」 겹침 표식(relay `bul`). 배포 순서 DB → relay → push | 2026-10-03 | 648e7892·dc439352·6181ee5d·4b328171 | [261003-rc4-burst-limit-followup](./quick/261003-rc4-burst-limit-followup/) |
 | 63 | 작업대 e2e 알려진 적색 정리 — 헤더 종목명 말줄임 허용(wontfix 2026-10-01) · 종목추가 14px · buy3_schema 3 (e7c95ce7 · 69/69) | 2026-10-04 | 032519fc | — |
 | 64 | gh-trade 인박스 규약 — docs/inbox/from-gh-trade README · CLAUDE.md 규칙 | 2026-10-04 | 8c183e4b | — |
+| 65 | gh-trade 인박스 261005-tick-raw-archive-gcs 처리(fast) — radar-gw 호스트 공유 운영 제약을 docs/relay-operations.md 에 기록 · 질문 답 · 노트 done(aff21940) | 2026-10-05 | 552413c2 | — |
 
 ## Session Continuity
 
