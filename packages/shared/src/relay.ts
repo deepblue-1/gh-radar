@@ -694,6 +694,38 @@ export type RelayLcArmMsg = {
 };
 
 /**
+ * 자동매도 바로시작 / 중지 (`AutoSellCommandReq(41)` · Phase 27 — gh-trade `limit-chaser.md` §9-3).
+ *
+ * 바로시작 = `"start"` · 중지 = `"stop"` — relay 가 41 `action` 1/2 로 바꾼다. 브라우저는 와이어 숫자를 모른다
+ * (`lc.arm` 의 `latch` 문자열 선례).
+ *
+ * ⚠️ **별도 ack 프레임이 없다.** 응답은 그 키의 `lc`(60 에코 — Start → `autoSellState` 3 · Stop → `autoSellEnabled`
+ *    false), 실패는 `msg`(54 ERROR `src="AutoSellCommand"`) + isin · 계좌다.
+ * ⚠️ 계좌는 세션 선언 계좌여야 한다 — relay 가 화이트리스트 밖이면 게이트웨이에 보내지 않는다(IDOR · D-09).
+ */
+export type RelayAutoSellCmdMsg = {
+  t: "autosell.cmd";
+  isin: string;
+  accountNo: string;
+  exchange: RelayExchange;
+  action: "start" | "stop";
+};
+
+/**
+ * 사용자 설정 저장 (`SetUserSettingsReq(42)` · Phase 27). 11값 **전체 교체** — 부분 갱신이 아니다.
+ *
+ * 조립 기준은 서버 캐시(84 `user.settings`) + 바꾼 1칸이다(화면 로컬 값 금지 · T-20-03 동형). 범위는
+ * `USER_SETTINGS_RANGES` 하나 — 밖이면 relay zod 가 소켓을 닫으므로(4400) 웹이 같은 범위로 먼저 막는다.
+ *
+ * ⚠️ **별도 ack 프레임이 없다.** 성공 신호는 서버의 84 브로드캐스트(`user.settings`, 같은 사용자 전 세션)이고,
+ *    거부는 54 ERROR `src="SetUserSettings"`(첫 위반 문구 하나)다. 계좌 축이 없다 — 서버가 세션 신원으로 저장한다.
+ */
+export type RelayUserSettingsSetMsg = {
+  t: "user.settings.set";
+  s: RelayUserSettingsValues;
+};
+
+/**
  * VI 주문 확인 체크 토글 (`ConfirmVIOrderReq(33)`).
  *
  * `orderNo` 가 비면 서버가 **응답 없이 드롭**하므로 애초에 보내지 않는다(스키마가 거부).
@@ -816,6 +848,8 @@ export type RelayInbound =
   | RelayUnsubMsg
   | RelayLcSetMsg
   | RelayLcArmMsg
+  | RelayAutoSellCmdMsg
+  | RelayUserSettingsSetMsg
   | RelayViSetMsg
   | RelayViConfirmMsg
   | RelayStrategiesDisableMsg
@@ -1340,6 +1374,26 @@ export type RelayUserSettingsValues = {
  * 서버가 읽지 않는다).
  */
 export type RelayUserSettingsMsg = { t: "user.settings"; present: boolean } & RelayUserSettingsValues;
+
+/**
+ * 사용자 설정 11값의 서버 42 검증 범위 (Phase 27) — **fbs `table UserSettings` 주석 원문 그대로**.
+ *
+ * relay zod(`user.settings.set`)와 webapp `/me` 시트가 이 한 벌을 읽는다 — 두 곳에 적으면 언젠가 갈라진다.
+ * `lc.set` 범위와 다르다(잔량추적 · 반등은 여기서 0 허용) — 새 폼 시딩은 lc 범위 밖이면 D-04 상수로 폴백한다(27-07).
+ */
+export const USER_SETTINGS_RANGES = {
+  preBuyAmount: { min: 0, max: 999_999_999 },
+  addBuyAmount: { min: 0, max: 999_999_999 },
+  postBuyAmount: { min: 0, max: 999_999_999 },
+  postBuyMaxCount: { min: 0, max: 255 },
+  postBuyFloorQty: { min: 0, max: 99_999_999 },
+  postBuyReboundPct: { min: 0, max: 100 },
+  sellQtyTrackRatio: { min: 0, max: 90 },
+  autoSellPeriodSec: { min: 1, max: 60 },
+  auctionSellRatioPct: { min: 1, max: 50 },
+  autoSellRatioDefaultPct: { min: 1, max: 50 },
+  autoSellMethodDefault: { min: 1, max: 3 },
+} as const satisfies Readonly<Record<keyof RelayUserSettingsValues, { readonly min: number; readonly max: number }>>;
 
 /**
  * NXT 거래가능 종목 ISIN 집합 스냅샷(quick-260923-pq2). 원천은 게이트웨이 종목마스터 57 의

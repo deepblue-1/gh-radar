@@ -51,6 +51,7 @@ import type {
   RelayQueueProgressItem,
   RelayQueuedWindowMsg,
   RelayUserSettingsMsg,
+  RelayUserSettingsValues,
   RelayQuote,
   RelayRateCrossItem,
   RelayServerMsg,
@@ -65,6 +66,7 @@ import type {
 
 import { logger } from "../logger.js";
 import { AccountEntry } from "../generated/stock-dma/account-entry.js";
+import { AutoSellCommandReq } from "../generated/stock-dma/auto-sell-command-req.js";
 import { ConfirmVIOrderReq } from "../generated/stock-dma/confirm-viorder-req.js";
 import { DirectOrderReq } from "../generated/stock-dma/direct-order-req.js";
 import { DisableStrategiesReq } from "../generated/stock-dma/disable-strategies-req.js";
@@ -87,6 +89,7 @@ import { SymbolMasterItem } from "../generated/stock-dma/symbol-master-item.js";
 import { TradeTapeEntry } from "../generated/stock-dma/trade-tape-entry.js";
 import { VIOrderItem } from "../generated/stock-dma/viorder-item.js";
 import { UpdateAccountNoReq } from "../generated/stock-dma/update-account-no-req.js";
+import { UserSettings } from "../generated/stock-dma/user-settings.js";
 import { JournalRecord as WireJournalRecord } from "../generated/stock-dma/journal-record.js";
 import { ObserverAccount } from "../generated/stock-dma/observer-account.js";
 import { ObserverLoginReq } from "../generated/stock-dma/observer-login-req.js";
@@ -1842,6 +1845,111 @@ export function buildGetVIOrderListReq(): Uint8Array {
  */
 export function buildGetSymbolMasterReq(): Uint8Array {
   return buildBareRequest(MSG.GetSymbolMasterReq);
+}
+
+/** `AutoSellCommandReq.action` 와이어 값 — `1` 바로시작(Start) · `2` 중지(Stop). 그 밖은 서버가 「action 불명」 으로 거부한다. */
+export type AutoSellActionWire = 1 | 2;
+
+/** `buildAutoSellCommandReq` 입력. 브라우저 `autosell.cmd` 의 `"start" | "stop"` 은 fanout 이 1/2 로 바꿔 넘긴다. */
+export type AutoSellCommandInput = {
+  isin: string;
+  accountNo: string;
+  exchange: RelayExchange;
+  action: AutoSellActionWire;
+};
+
+/**
+ * 자동매도 바로시작 / 중지 (MsgType 41 · Envelope 슬롯 86 · Phase 27 — gh-trade `limit-chaser.md` §9-3 「명령 41」).
+ *
+ * 응답 번호가 없다 — 성공은 그 키의 `SetLimitChaserResp(60)` 에코(상태 변화), 실패는 54 ERROR
+ * source `"AutoSellCommand"` + isin · 계좌다. 그래서 호출부는 pending FIFO 에 넣지 않는다(`lc.arm` 선례).
+ *
+ * `isin` · `accountNo` 는 `buildSetLimitChaserReq` 와 **같은 폭으로 절단**한다 — 서버가 같은 `char[13]` 버퍼로
+ * 전략 키를 만들므로, 다르게 자르면 그 키의 전략을 못 찾아 「등록된 상따 전략이 없습니다」 가 된다.
+ *
+ * ★ 문자열 3개는 테이블 빌더를 **열기 전에** 만든다 · 이름 있는 `start`/`add`/`end` 만 쓴다 (T-16-05).
+ *
+ * @throws {OrderBuildError} ISIN · 계좌번호 · 거래소 형식 위반 (문구에 계좌번호를 싣지 않는다 — T-16-45)
+ * @throws {RangeError} `action` 이 1 · 2 가 아닐 때 — 서버 「action 불명」 까지 보내지 않는다
+ */
+export function buildAutoSellCommandReq(req: AutoSellCommandInput): Uint8Array {
+  const isin = truncateToWire(req.isin, 12, "isin");
+  const accountNo = truncateToWire(req.accountNo, MAX_ACCOUNT_NO_LEN, "accountNo");
+
+  if (!isValidIsin(isin)) {
+    throw new OrderBuildError("BAD_ISIN", `ISIN 형식 위반 (12자 필요, ${isin.length}자)`);
+  }
+  if (!isValidAccountNo(accountNo)) {
+    throw new OrderBuildError("BAD_ACCOUNT_NO", "계좌번호 형식 위반");
+  }
+  if (!isValidExchange(req.exchange)) {
+    throw new OrderBuildError("BAD_EXCHANGE", `알 수 없는 거래소: ${String(req.exchange)}`);
+  }
+  if (req.action !== 1 && req.action !== 2) {
+    throw new RangeError(`자동매도 action 은 1(바로시작) · 2(중지)만 허용: ${String(req.action)}`);
+  }
+
+  const b = new flatbuffers.Builder(128);
+  const isinOff = b.createString(isin);
+  const accountNoOff = b.createString(accountNo);
+  const exchangeOff = b.createString(req.exchange);
+
+  AutoSellCommandReq.startAutoSellCommandReq(b);
+  AutoSellCommandReq.addIsin(b, isinOff);
+  AutoSellCommandReq.addAccountNo(b, accountNoOff);
+  AutoSellCommandReq.addExchange(b, exchangeOff);
+  AutoSellCommandReq.addAction(b, req.action);
+  const table = AutoSellCommandReq.endAutoSellCommandReq(b);
+
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.AutoSellCommandReq);
+  Envelope.addAutoSellCommandReq(b, table);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+/**
+ * 사용자 설정 저장 (MsgType 42 · Envelope 슬롯 88 — 84 와 공유 · Phase 27 — gh-trade `limit-chaser.md` §9-3 「사용자 설정」).
+ *
+ * **11값 전체 교체**다(부분 갱신 아님). 서버는 범위 밖이 하나라도 있으면 요청 전체를 54 ERROR
+ * source `"SetUserSettings"` 로 거부하고, 성공하면 같은 사용자 **전 세션**에 84 를 브로드캐스트한다 — relay 는
+ * 성공을 지어내지 않는다(84 를 합성하지 않는다).
+ *
+ * `present` 는 **싣지 않는다** — 84 전용 필드이고 서버가 42 요청값을 읽지 않는다. 범위 정책(1~60 초 등)은
+ * `USER_SETTINGS_RANGES`(zod) 한 곳에 있고, 여기서는 와이어 표현 범위만 본다(`toWireUint`/`toWireUByte` 규율).
+ *
+ * @throws {OrderBuildError} 값이 uint/ubyte 표현 범위를 벗어날 때
+ */
+export function buildSetUserSettingsReq(s: RelayUserSettingsValues): Uint8Array {
+  const b = new flatbuffers.Builder(128);
+  UserSettings.startUserSettings(b);
+  UserSettings.addPreBuyAmount(b, toWireUint(s.preBuyAmount, "preBuyAmount"));
+  UserSettings.addAddBuyAmount(b, toWireUint(s.addBuyAmount, "addBuyAmount"));
+  UserSettings.addPostBuyAmount(b, toWireUint(s.postBuyAmount, "postBuyAmount"));
+  UserSettings.addPostBuyMaxCount(b, toWireUByte(s.postBuyMaxCount, "postBuyMaxCount"));
+  UserSettings.addPostBuyFloorQty(b, toWireUint(s.postBuyFloorQty, "postBuyFloorQty"));
+  UserSettings.addPostBuyReboundPct(b, toWireUByte(s.postBuyReboundPct, "postBuyReboundPct"));
+  UserSettings.addSellQtyTrackRatio(b, toWireUByte(s.sellQtyTrackRatio, "sellQtyTrackRatio"));
+  UserSettings.addAutoSellPeriodSec(b, toWireUByte(s.autoSellPeriodSec, "autoSellPeriodSec"));
+  UserSettings.addAuctionSellRatioPct(b, toWireUByte(s.auctionSellRatioPct, "auctionSellRatioPct"));
+  UserSettings.addAutoSellRatioDefaultPct(b, toWireUByte(s.autoSellRatioDefaultPct, "autoSellRatioDefaultPct"));
+  UserSettings.addAutoSellMethodDefault(b, toWireUByte(s.autoSellMethodDefault, "autoSellMethodDefault"));
+  // present — 84 전용(서버가 42 요청값을 읽지 않는다). 싣지 않는다.
+  const table = UserSettings.endUserSettings(b);
+
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.SetUserSettingsReq);
+  Envelope.addUserSettings(b, table);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+/**
+ * 사용자 설정 조회 (MsgType 43 · Phase 27 — gh-trade `limit-chaser.md` §9-3). **요청 테이블이 없다 — 빈 Envelope**
+ * (24/27/34 선례). 응답 84 는 요청 연결로 온다. hub 가 세션 Ready 스냅샷 요청 끝에 보낸다.
+ */
+export function buildGetUserSettingsReq(): Uint8Array {
+  return buildBareRequest(MSG.GetUserSettingsReq);
 }
 
 /** 주문 통보 (51) 파싱 결과. 값은 전부 **게이트웨이 원문**이고 해석하지 않는다. */

@@ -12,7 +12,8 @@ import { readFileSync } from "node:fs";
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as flatbuffers from "flatbuffers";
-import type { OrderMarket, RelayExchange, RelayLimitChaserInput } from "@gh-radar/shared";
+import type { OrderMarket, RelayExchange, RelayLimitChaserInput, RelayUserSettingsValues } from "@gh-radar/shared";
+import { USER_SETTINGS_RANGES } from "@gh-radar/shared";
 
 import { logger } from "../../logger.js";
 import { Envelope } from "../../generated/stock-dma/envelope.js";
@@ -24,6 +25,8 @@ import { SetLimitChaser } from "../../generated/stock-dma/set-limit-chaser.js";
 import { SetVITrigger } from "../../generated/stock-dma/set-vitrigger.js";
 import { ConfirmVIOrderReq } from "../../generated/stock-dma/confirm-viorder-req.js";
 import { DisableStrategiesReq } from "../../generated/stock-dma/disable-strategies-req.js";
+import { AutoSellCommandReq } from "../../generated/stock-dma/auto-sell-command-req.js";
+import { UserSettings } from "../../generated/stock-dma/user-settings.js";
 import { MSG, OUT_OF_SCOPE_INBOUND_MSG_TYPES } from "../msg-type.js";
 import {
   buildLoginReq,
@@ -84,6 +87,9 @@ import {
   LC_AUTO_SELL_BUY3_SCHEMA,
   lcBuy3SchemaOf,
   parseUserSettings,
+  buildAutoSellCommandReq,
+  buildSetUserSettingsReq,
+  buildGetUserSettingsReq,
   MAX_STRATEGY_KEY_BYTES,
   parseLimitChaserEcho,
   parseLimitChaserList,
@@ -2652,5 +2658,166 @@ describe("Phase 27 자동매도 와이어 — schema 1~4 파생 · 에코 슬롯
     expect(droppedEnvelopeCount()).toBe(1);
     const [fields] = warn.mock.calls.at(-1) as [Record<string, unknown>];
     expect(fields.reason).toBe("slot-null");
+  });
+});
+
+/**
+ * Phase 27 (27-02) — 요청 조립기 41 · 42 · 43 (gh-trade `limit-chaser.md` §9-3).
+ *
+ * 못박는 것: ① 41 의 네 칸이 슬롯 86 에 그대로 · 가드 3종(ISIN · 계좌 · 거래소) · action 1/2 밖은 송신 전 거부
+ * ② 42 의 11값이 슬롯 88 에 그대로 · `present`(84 전용)는 **싣지 않는다** ③ 43 은 본문 없는 Envelope
+ * ④ 세 요청 모두 수신 화이트리스트를 통과하지 못한다(반사 프레임 방어 — 42 는 84 와 슬롯을 공유해도 번호로 갈린다)
+ * ⑤ 범위 정본 `USER_SETTINGS_RANGES` 11키 = `RelayUserSettingsValues` 키 · 값 = fbs 주석.
+ */
+describe("Phase 27 요청 조립기 41 · 42 · 43", () => {
+  const SETTINGS: RelayUserSettingsValues = {
+    preBuyAmount: 5000,
+    addBuyAmount: 3000,
+    postBuyAmount: 999_999_999,
+    postBuyMaxCount: 255,
+    postBuyFloorQty: 99_999_999,
+    postBuyReboundPct: 0,
+    sellQtyTrackRatio: 90,
+    autoSellPeriodSec: 60,
+    auctionSellRatioPct: 50,
+    autoSellRatioDefaultPct: 1,
+    autoSellMethodDefault: 2,
+  };
+  /** `UserSettings.present` 의 vtable 오프셋(fbs 12번째 필드 — 4 + 2×11). */
+  const PRESENT_VT = 26;
+
+  function readAutoSell(bytes: Uint8Array): AutoSellCommandReq {
+    const env = readBack(bytes);
+    expect(env.msgType()).toBe(MSG.AutoSellCommandReq);
+    const t = env.autoSellCommandReq(new AutoSellCommandReq());
+    expect(t).not.toBeNull();
+    return t!;
+  }
+
+  it("41 바로시작 — msgType 41 · 슬롯 86 에 isin/계좌/거래소/action 1 이 그대로", () => {
+    const bytes = buildAutoSellCommandReq({
+      isin: SAMPLE_ISIN,
+      accountNo: SAMPLE_ACCOUNT_NO,
+      exchange: "KRX",
+      action: 1,
+    });
+    const env = readBack(bytes);
+    // 다른 본문 슬롯은 비어 있다 — 41 은 SetLimitChaser · UserSettings 를 싣지 않는다.
+    expect(env.setLimitChaser()).toBeNull();
+    expect(env.userSettings()).toBeNull();
+    expect(env.getStrategyReq()).toBeNull();
+    const t = readAutoSell(bytes);
+    expect({ isin: t.isin(), accountNo: t.accountNo(), exchange: t.exchange(), action: t.action() }).toEqual({
+      isin: SAMPLE_ISIN,
+      accountNo: SAMPLE_ACCOUNT_NO,
+      exchange: "KRX",
+      action: 1,
+    });
+  });
+
+  it("41 중지 — action 2 · NXT 도 왕복", () => {
+    const t = readAutoSell(
+      buildAutoSellCommandReq({ isin: SAMPLE_ISIN, accountNo: SAMPLE_ACCOUNT_NO, exchange: "NXT", action: 2 }),
+    );
+    expect(t.action()).toBe(2);
+    expect(t.exchange()).toBe("NXT");
+  });
+
+  it("41 가드 — ISIN 11자 BAD_ISIN · 빈 계좌 BAD_ACCOUNT_NO · 거래소 밖 BAD_EXCHANGE · 문구에 계좌번호 없음", () => {
+    const base = { isin: SAMPLE_ISIN, accountNo: SAMPLE_ACCOUNT_NO, exchange: "KRX" as RelayExchange, action: 1 as const };
+    const cases: [Parameters<typeof buildAutoSellCommandReq>[0], string][] = [
+      [{ ...base, isin: SAMPLE_ISIN.slice(0, 11) }, "BAD_ISIN"],
+      [{ ...base, accountNo: "" }, "BAD_ACCOUNT_NO"],
+      [{ ...base, exchange: "KOSDAQ" as RelayExchange }, "BAD_EXCHANGE"],
+    ];
+    for (const [req, code] of cases) {
+      let caught: unknown;
+      try {
+        buildAutoSellCommandReq(req);
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(OrderBuildError);
+      expect((caught as OrderBuildError).code).toBe(code);
+      expect((caught as OrderBuildError).message).not.toContain(SAMPLE_ACCOUNT_NO);
+    }
+  });
+
+  it("41 action 1 · 2 밖은 RangeError — 서버 「action 불명」 까지 가지 않는다", () => {
+    for (const action of [0, 3, 1.5] as const) {
+      expect(() =>
+        buildAutoSellCommandReq({
+          isin: SAMPLE_ISIN,
+          accountNo: SAMPLE_ACCOUNT_NO,
+          exchange: "KRX",
+          action: action as unknown as 1,
+        }),
+      ).toThrow(RangeError);
+    }
+  });
+
+  it("42 — msgType 42 · 슬롯 88 의 11값이 그대로(금액 만원 원값) · present 슬롯 미적재", () => {
+    const env = readBack(buildSetUserSettingsReq(SETTINGS));
+    expect(env.msgType()).toBe(MSG.SetUserSettingsReq);
+    expect(env.autoSellCommandReq()).toBeNull();
+    const u = env.userSettings(new UserSettings());
+    expect(u).not.toBeNull();
+    expect({
+      preBuyAmount: u!.preBuyAmount(),
+      addBuyAmount: u!.addBuyAmount(),
+      postBuyAmount: u!.postBuyAmount(),
+      postBuyMaxCount: u!.postBuyMaxCount(),
+      postBuyFloorQty: u!.postBuyFloorQty(),
+      postBuyReboundPct: u!.postBuyReboundPct(),
+      sellQtyTrackRatio: u!.sellQtyTrackRatio(),
+      autoSellPeriodSec: u!.autoSellPeriodSec(),
+      auctionSellRatioPct: u!.auctionSellRatioPct(),
+      autoSellRatioDefaultPct: u!.autoSellRatioDefaultPct(),
+      autoSellMethodDefault: u!.autoSellMethodDefault(),
+    }).toEqual(SETTINGS);
+    // present 는 84 전용 — 서버가 42 에서 읽지 않는다. 슬롯 자체가 없어야 한다(false 적재와 구별).
+    expect(u!.bb!.__offset(u!.bb_pos, PRESENT_VT)).toBe(0);
+  });
+
+  it("42 — 표현 범위 밖(음수 · 소수 · ubyte 256)은 송신 전 OrderBuildError", () => {
+    expect(() => buildSetUserSettingsReq({ ...SETTINGS, preBuyAmount: -1 })).toThrow(OrderBuildError);
+    expect(() => buildSetUserSettingsReq({ ...SETTINGS, autoSellPeriodSec: 1.5 })).toThrow(OrderBuildError);
+    expect(() => buildSetUserSettingsReq({ ...SETTINGS, postBuyMaxCount: 256 })).toThrow(OrderBuildError);
+  });
+
+  it("43 — msgType 43 · 본문 슬롯 없음(24/27/34 선례)", () => {
+    const env = readBack(buildGetUserSettingsReq());
+    expect(env.msgType()).toBe(MSG.GetUserSettingsReq);
+    expect(env.userSettings()).toBeNull();
+    expect(env.autoSellCommandReq()).toBeNull();
+    expect(env.getStrategyReq()).toBeNull();
+  });
+
+  it("41 · 42 · 43 요청은 수신 화이트리스트를 통과하지 못한다 (반사 프레임 방어)", () => {
+    for (const bytes of [
+      buildAutoSellCommandReq({ isin: SAMPLE_ISIN, accountNo: SAMPLE_ACCOUNT_NO, exchange: "KRX", action: 1 }),
+      buildSetUserSettingsReq(SETTINGS),
+      buildGetUserSettingsReq(),
+    ]) {
+      expect(tryParseEnvelope(Buffer.from(bytes))).toBeNull();
+    }
+    expect(droppedEnvelopeCount()).toBe(3);
+  });
+
+  it("USER_SETTINGS_RANGES — 11키 = RelayUserSettingsValues 키 · 값은 fbs 주석 범위 그대로", () => {
+    expect(Object.keys(USER_SETTINGS_RANGES).sort()).toEqual(Object.keys(SETTINGS).sort());
+    expect(USER_SETTINGS_RANGES).toEqual({
+      preBuyAmount: { min: 0, max: 999_999_999 },
+      addBuyAmount: { min: 0, max: 999_999_999 },
+      postBuyAmount: { min: 0, max: 999_999_999 },
+      postBuyMaxCount: { min: 0, max: 255 },
+      postBuyFloorQty: { min: 0, max: 99_999_999 },
+      postBuyReboundPct: { min: 0, max: 100 },
+      sellQtyTrackRatio: { min: 0, max: 90 },
+      autoSellPeriodSec: { min: 1, max: 60 },
+      auctionSellRatioPct: { min: 1, max: 50 },
+      autoSellRatioDefaultPct: { min: 1, max: 50 },
+      autoSellMethodDefault: { min: 1, max: 3 },
+    });
   });
 });

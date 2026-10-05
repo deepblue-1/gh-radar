@@ -100,6 +100,9 @@ export type {
   // --- Phase 27 사용자 설정(84 — 42/84 `UserSettings`) ---
   RelayUserSettingsValues,
   RelayUserSettingsMsg,
+  // --- Phase 27 인바운드 2종(41 바로시작/중지 · 42 사용자 설정 저장) ---
+  RelayAutoSellCmdMsg,
+  RelayUserSettingsSetMsg,
 } from "./relay";
 export {
   RELAY_STATE_LABELS,
@@ -113,6 +116,8 @@ export {
   LIMIT_CHASER_SERVER_RUNTIME_FIELDS,
   // --- Phase 27 자동매도 에코 전용 4필드 ---
   LIMIT_CHASER_SERVER_AUTO_SELL_FIELDS,
+  // --- Phase 27 사용자 설정 42 범위 정본(relay zod · webapp /me 공용) ---
+  USER_SETTINGS_RANGES,
 } from "./relay";
 // --- Phase 19 계좌 기준 주문 저널 행 계약. REST(server)와 wss 푸시(relay)가 같은 매퍼를 쓴다 ---
 export type {
