@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 27
 current_phase_name: 자동매도 연동 — gh-trade Phase 28 와이어 계약 반영
 status: executing
-stopped_at: Completed 27-03-PLAN.md
-last_updated: "2026-10-05T05:55:25.877Z"
+stopped_at: Completed 27-04-PLAN.md
+last_updated: "2026-10-05T06:28:01.666Z"
 last_activity: 2026-10-05
 last_activity_desc: Phase 27 execution started
-state_head: 264d76f2060a2b71edcf5c74d691f0297459d88b
+state_head: 6e3ebf728f0eb9be2ca2449febec7fe24f556032
 progress:
   total_phases: 37
   completed_phases: 4
   total_plans: 361
-  completed_plans: 340
+  completed_plans: 341
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 27 (자동매도 연동 — gh-trade Phase 28 와이어 계약 반영) — EXECUTING
-Plan: 4 of 9
+Plan: 5 of 9
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-10-05 — Phase 27 execution started
@@ -188,6 +188,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 27 P01 | 33 min | 3 tasks | 40 files |
 | Phase 27 P02 | 11min | 2 tasks | 13 files |
 | Phase 27 P03 | 8min | 2 tasks | 10 files |
+| Phase 27 P04 | 30min | 2 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -501,6 +502,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 27]: 27-02: 가짜 게이트웨이 43 자동응답은 seedUserSettings 기본 null(무응답) — 기존 인증 직후 프레임 단언 보호(Pitfall 10)
 - [Phase 27]: 27-03: kind 6 자동매도 본문은 reason_code 첫 토큰이 가르고 배지는 서버 group 그대로(WR-05 4/5/6↔9 내성) · 집합 밖 AutoSell 토큰은 D-10 폴백
 - [Phase 27]: 27-03: 자동매도 0 값 조각(기준가격 · 예상체결가 · 누적 매도 · 새 번호)은 생략 · 상태 0 낱말 「꺼짐」 · 54 AutoSell/AutoSellCommand 배지 [상따]
+- [Phase 27]: 27-04: 자동매도 3택 행(ChoiceRow)은 useEditMode 판정 + 카드 992 미만이면 마우스 기기도 「라벨 ─ 값 ›」 행 + 시트 — 세그먼트(약 235px)가 685~991 밴드 옵션 열 행에 안 들어간다(P24-7 실측)
+- [Phase 27]: 27-04: 자동매도 조건 범위는 CONDITIONAL_RANGE_GATE 표 하나 — 켠 cfg 만 비율 1~50 · 방법 1~3, 꺼진 옛 에코 0 은 다른 확정을 막지 않는다
 
 ### Pending Todos
 
@@ -593,8 +596,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-10-05T05:55:24.875Z
-Stopped at: Completed 27-03-PLAN.md
+Last session: 2026-10-05T06:27:45.798Z
+Stopped at: Completed 27-04-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.

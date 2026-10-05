@@ -1427,7 +1427,7 @@ Plans:
 **Goal:** gh-trade Phase 28 자동매도가 KB 120 실서버에서 이미 내보내는 와이어(인박스 `docs/inbox/from-gh-trade/261004-auto-sell-wire.md`, HANDOFF §4-1 v0.2)를 gh-radar 가 받아서 보여 주고 조작할 수 있게 한다. ① relay 생성물을 gh-trade master(65caaf2e, fbs blob 68679e9a)에서 동기화 — SYNC MARKER 26b3493e → master, 신규/변경 .ts 12 · 삭제 0, Phase 27(gh-trade) 의 85 LimitFeature·슬롯 90·kind 15 는 생성물에 같이 실리되 중계·표시는 범위 밖. ② relay: `lcBuy3SchemaOf` 4번째 분기(schema 4 = 자동매도 요청 4필드 동반) · S→C 전용 에코 4필드(vtable 148~154 `auto_sell_state/sold_qty/basis/basis_price`)를 서버전용 필드 목록에 · 84 `UserSettingsResp` 사용자별 캐시 + 브라우저 인증 때 재전송(77 패턴) · 41 `AutoSellCommandReq`(Start 1/Stop 2) · 42 `SetUserSettingsReq`(11값 전체 교체) · 43 `GetUserSettingsReq` 중계 · 54 ERROR `src="AutoSellCommand"` 통과. ③ shared 문장 조립기: kind 11 Triggered·12 Modified·13 State·14 Pause / group 9 AutoSell 칸 재해석(HANDOFF §4-1 v0.2 표 — reason_code 첫 토큰 정확 일치, kind 6 은 `AutoSellAsk1/Bid1` 과 `AutoSellAuctionOrder` 를 reason_code 로 분기, group 7↔9 가 뒤바뀔 수 있으니 `AutoSell` 토큰도 함께 판정) + CancelReason 10 「매수 우선 취소」 · 11 「동시호가 감축」 라벨. ④ webapp: 상따 카드 자동매도 칸(요청 4 + 에코 4, 킬 스위치·단일 행 비활성화 시 `auto_sell_enabled=false` 에코 반영) · 바로시작/중지(41) · 카드 「미반영」 해제에 `src="AutoSellCommand"` 분기 · 사용자 설정 화면(금액 만원 단위, `present=false` 면 내장 기본값 표시, 저장 때만 42 — UI 는 HTML 목업 먼저). ⑤ 배포 relay → webapp(push) 순, 인박스 노트 `status: done` + `done_commit` 경로 지정 커밋.
 **Requirements**: TBD
 **Depends on:** Phase 25(주문로그 문장 조립기·StrategyEvent 적재), Phase 26(relay 팬아웃)
-**Plans:** 3/9 plans executed
+**Plans:** 4/9 plans executed
 
 Plans:
 **Wave 1**
@@ -1441,7 +1441,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 27-04-PLAN.md — 상따 카드 「자동매도」 그룹(D-01~D-03): choice 행 · 누적/기준 · 상태 칩 (P27-2)
+- [x] 27-04-PLAN.md — 상따 카드 「자동매도」 그룹(D-01~D-03): choice 행 · 누적/기준 · 상태 칩 (P27-2)
 - [ ] 27-08-PLAN.md — 주문로그 · 카드 팝업 「자동매도」 칩 · 창 분리 kind=auto (P27-O1)
 
 **Wave 4** *(blocked on Wave 3 completion)*
