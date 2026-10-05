@@ -49,6 +49,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import { OrderLogLimitFeatureCheck } from '@/components/trading/order-log/order-log-filters';
 import type { StrategyLogEntry } from '@/components/trading/strategy-log';
 import { isNativeApp } from '@/lib/native/native-detect';
 import {
@@ -206,15 +207,18 @@ function LogSegments<T extends string>({
   value,
   onChange,
   count,
+  after,
 }: {
   label: string;
   options: ReadonlyArray<{ value: T; label: string }>;
   value: T;
   onChange: (v: T) => void;
   count: number;
+  /** 세그먼트 뒤 · 건수 앞 — 주문로그 팝업의 「상한가 특징」 체크(Phase 28 D-07). 좁으면 줄 넘김. */
+  after?: ReactNode;
 }) {
   return (
-    <div className="flex flex-none items-center gap-2 border-b border-[var(--border-subtle)] px-4 pb-2.5 sm:px-5 sm:pb-3">
+    <div className="flex flex-none flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-[var(--border-subtle)] px-4 pb-2.5 sm:px-5 sm:pb-3">
       <div role="group" aria-label={label} className="inline-flex gap-0.5 rounded-[8px] bg-[var(--muted)] p-0.5">
         {options.map((o) => (
           <button
@@ -228,6 +232,7 @@ function LogSegments<T extends string>({
           </button>
         ))}
       </div>
+      {after}
       <span data-slot="card-log-count" className="mono ml-auto text-[12px] text-[var(--muted-fg)]">
         {count}건
       </span>
@@ -398,8 +403,15 @@ export function CardOrderLogPopup({ feed, accountNo, isin, exchange, stockName }
         <SummaryItem label="취소" value={NUM.format(summary.cancels)} />
         <SummaryItem label="누적" value={summary.cum === null ? '—' : NUM.format(summary.cum)} />
       </div>
-      <LogSegments label="구분" options={ORDER_LOG_SIDE_FILTERS} value={side} onChange={setSide} count={visible.length} />
-      <LogScroller label="주문로그 목록" count={visible.length} resetKey={side}>
+      <LogSegments
+        label="구분"
+        options={ORDER_LOG_SIDE_FILTERS}
+        value={side}
+        onChange={setSide}
+        count={visible.length}
+        after={<OrderLogLimitFeatureCheck checked={feed.showLimitFeature} onChange={feed.setShowLimitFeature} />}
+      />
+      <LogScroller label="주문로그 목록" count={visible.length} resetKey={`${side}|${feed.showLimitFeature ? 'lf' : ''}`}>
         {feed.status === 'error' && (
           <div role="status" data-slot="card-log-error" className="px-5 pt-2.5 pb-0.5 text-[12px] leading-[1.5] text-[var(--muted-fg)]">
             {OL_ERROR_TEXT}

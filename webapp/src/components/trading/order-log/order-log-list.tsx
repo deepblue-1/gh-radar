@@ -76,7 +76,10 @@ export type OrderLogListProps = {
   emptyTitle?: string;
   /** 빈 박스 본문 — `null` 이면 본문 없음. */
   emptyBody?: string | null;
-  /** 줄 0 이 필터 때문이다 → 제목만 「조건에 맞는 로그가 없어요」. */
+  /**
+   * 줄 0 이 필터 때문이다 → 제목만 「조건에 맞는 로그가 없어요」. 판정은 호출부가 한다 — 「상한가 특징」 체크 켜짐도
+   * 기본값이 아닌 필터로 친다(Phase 28 D-07 · UI-SPEC ②-1). 꺼짐 기본에서 kind 15 만 있던 날은 기본 빈 문구다.
+   */
   filteredEmpty?: boolean;
   /** 바뀌면 맨 아래로 · 핀 0 · 폰 펼침 전부 접힘(필터 · 날짜). */
   resetKey?: string;

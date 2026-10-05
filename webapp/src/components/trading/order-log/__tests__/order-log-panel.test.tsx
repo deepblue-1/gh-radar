@@ -32,7 +32,12 @@ import { EMPTY_RELAY_VALUE } from '@/lib/relay-provider';
 import { clearStockNameCache } from '@/lib/stock-names';
 import { EMPTY_ORDER_LOG_FEED, type OrderLogFeed } from '@/lib/use-order-log-feed';
 import { OrderLogPanel } from '../order-log-panel';
-import { FIXTURE_ACCOUNT_NO, STRATEGY_DAY_ROWS } from '@/test-fixtures/strategy-day';
+import {
+  FIXTURE_ACCOUNT_NO,
+  STRATEGY_DAY_BY_NAME,
+  STRATEGY_DAY_ROWS,
+  STRATEGY_LIMIT_FEATURE_ROWS,
+} from '@/test-fixtures/strategy-day';
 
 const OTHER_ACCOUNT = '9999999901';
 
@@ -136,5 +141,53 @@ describe('OrderLogPanel', () => {
     const { container } = render(<OrderLogPanel accountNo={FIXTURE_ACCOUNT_NO} phoneBand={false} feed={feedOf([])} />);
     expect(container.querySelector('[data-slot="order-log-empty"]')?.textContent).toContain('오늘 주문로그가 없어요');
     expect(container.querySelector('[data-slot="order-log-count"]')?.textContent).toBe('0건');
+  });
+});
+
+describe('OrderLogPanel — 「상한가 특징」 체크 (Phase 28 D-07 · UI-SPEC ②-1)', () => {
+  const lfRows = STRATEGY_LIMIT_FEATURE_ROWS;
+  const emptyTitle = (c: HTMLElement) => c.querySelector('[data-slot="order-log-empty"]')?.textContent ?? '';
+
+  it('체크 꺼짐 기본 + 줄 0(kind 15 만 있던 날 — 피드가 이미 뺐다) → 기존 기본 빈 문구 · 칩 꺼짐', () => {
+    const { container } = render(<OrderLogPanel accountNo={FIXTURE_ACCOUNT_NO} phoneBand={false} feed={feedOf([])} />);
+    expect(screen.getByRole('checkbox', { name: '상한가 특징' })).not.toBeChecked();
+    expect(emptyTitle(container)).toContain('오늘 주문로그가 없어요');
+    expect(emptyTitle(container)).not.toContain('조건에 맞는 로그가 없어요');
+  });
+
+  it('체크 켜짐 → 「전체」·「시세」 에 kind 15 줄이 섞이고 「선매수」 에는 없다 · 필터 0 → 「조건에 맞는 로그가 없어요」', async () => {
+    const user = userEvent.setup();
+    const exposed = STRATEGY_DAY_BY_NAME.exposed!;
+    const buy = STRATEGY_DAY_BY_NAME.buy12451!;
+    const feed = feedOf([exposed, buy, ...lfRows], { showLimitFeature: true });
+    const { container } = render(<OrderLogPanel accountNo={FIXTURE_ACCOUNT_NO} phoneBand={false} feed={feed} />);
+    expect(screen.getByRole('checkbox', { name: '상한가 특징' })).toBeChecked();
+    const kind15 = () => container.querySelectorAll('li[data-slot="order-log-line"][data-kind="15"]');
+    expect(kind15()).toHaveLength(lfRows.length);
+    expect(container.querySelector('[data-slot="order-log-count"]')?.textContent).toBe(`${lfRows.length + 2}건`);
+
+    await user.selectOptions(screen.getByRole('combobox', { name: '구분' }), 'market');
+    expect(kind15()).toHaveLength(lfRows.length);
+    expect(lines(container)).toHaveLength(lfRows.length + 1);
+
+    await user.selectOptions(screen.getByRole('combobox', { name: '구분' }), 'pre');
+    expect(kind15()).toHaveLength(0);
+    expect(lines(container)).toHaveLength(1);
+
+    await user.selectOptions(screen.getByRole('combobox', { name: '구분' }), 'vi');
+    expect(lines(container)).toHaveLength(0);
+    expect(emptyTitle(container)).toContain('조건에 맞는 로그가 없어요');
+  });
+
+  it('체크 켜짐만으로도 기본값이 아니다 — kind 15 만 있는 날 「매수」 0 → 「조건에 맞는 로그가 없어요」 · 칩 클릭 → setShowLimitFeature(false)', async () => {
+    const user = userEvent.setup();
+    const setShowLimitFeature = vi.fn();
+    const feed = feedOf(lfRows, { showLimitFeature: true, setShowLimitFeature });
+    const { container } = render(<OrderLogPanel accountNo={FIXTURE_ACCOUNT_NO} phoneBand={false} feed={feed} />);
+    await user.selectOptions(screen.getByRole('combobox', { name: '구분' }), 'sell');
+    expect(lines(container)).toHaveLength(0);
+    expect(emptyTitle(container)).toContain('조건에 맞는 로그가 없어요');
+    await user.click(screen.getByRole('checkbox', { name: '상한가 특징' }));
+    expect(setShowLimitFeature).toHaveBeenCalledWith(false);
   });
 });

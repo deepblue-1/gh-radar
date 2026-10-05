@@ -82,7 +82,9 @@ export function OrderLogPanel({ accountNo, phoneBand, feed }: OrderLogPanelProps
     openOrderLogWindow(query === '' ? ORDER_LOG_WINDOW_PATH : `${ORDER_LOG_WINDOW_PATH}?${query}`);
   }, [accountNo, feed.date, filters]);
 
-  const filtered = filters.stock !== 'all' || filters.ex !== 'all' || filters.kind !== 'all';
+  // 「상한가 특징」 체크 켜짐도 기본값이 아닌 필터다(UI-SPEC ②-1 빈 문구 판정 · Phase 28 D-07).
+  const filtered =
+    filters.stock !== 'all' || filters.ex !== 'all' || filters.kind !== 'all' || feed.showLimitFeature;
 
   return (
     <div data-slot="order-log-panel" className="min-w-0">
@@ -92,6 +94,8 @@ export function OrderLogPanel({ accountNo, phoneBand, feed }: OrderLogPanelProps
         stockOptions={options}
         count={visible.length}
         onPopout={popout}
+        showLimitFeature={feed.showLimitFeature}
+        onShowLimitFeatureChange={feed.setShowLimitFeature}
       />
       <OrderLogList
         rows={visible}
@@ -102,7 +106,7 @@ export function OrderLogPanel({ accountNo, phoneBand, feed }: OrderLogPanelProps
         status={feed.status}
         onRetry={feed.retry}
         filteredEmpty={filtered && scoped.length > 0}
-        resetKey={JSON.stringify(filters)}
+        resetKey={`${JSON.stringify(filters)}|${feed.showLimitFeature ? 'lf' : ''}`}
       />
     </div>
   );

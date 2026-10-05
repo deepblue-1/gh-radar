@@ -3,7 +3,11 @@
 /**
  * OrderLogFilters — 주문로그 필터줄 (Phase 25-07 · UI-SPEC ②-1 · 채택 목업 `.filters` `.sel` `.sel.on`).
  *
- * 순서: 종목 → 거래소 → 구분 → N건 → (여백) → 창 분리 ↗. 계좌 칩은 없다(결정 1-A — 범위는 상태줄 계좌).
+ * 순서: 종목 → 거래소 → 구분 → 「상한가 특징」 체크 → N건 → (여백) → 창 분리 ↗. 계좌 칩은 없다(결정 1-A — 범위는 상태줄 계좌).
+ *
+ * - 「상한가 특징」 체크(Phase 28 D-07 · UI-SPEC ②-1) = `OrderLogLimitFeatureCheck` — 세 표면(공용 패널 · 카드 주문로그
+ *   팝업 · 창 분리)이 같은 컴포넌트다. 네이티브 체크박스 · 기본 꺼짐 · 켜짐이면 Accent 자리 1 · 화살표 없음. 값은 피드
+ *   (`OrderLogFeed.showLimitFeature`)가 들고 pref 로 기억한다 — 이 컴포넌트는 그리기만 한다.
  *
  * - 칩 = `<label>` 로 감싼 **네이티브 `<select>`**(R12 — shadcn Select 미설치 · 새 컴포넌트 0). 모바일 네이티브 피커 ·
  *   키보드 · 스크린리더가 공짜다. 이름은 select 의 `aria-label`(「종목」「거래소」「구분」) — label 안 텍스트에 선택값이
@@ -35,6 +39,43 @@ export interface OrderLogFiltersProps {
   count: number;
   /** 창 분리 — 없으면 버튼 없음(창 분리 페이지 자신). */
   onPopout?: () => void;
+  /** 「상한가 특징」 체크(Phase 28 D-07) — 피드 `showLimitFeature`. */
+  showLimitFeature: boolean;
+  onShowLimitFeatureChange: (next: boolean) => void;
+}
+
+/**
+ * 「상한가 특징」 체크 칩 (Phase 28 D-07 · UI-SPEC ②-1 · 접근성 계약) — `<label>` 안 네이티브 체크박스라 이름이
+ * 「상한가 특징」 이고 Space 로 토글된다. 칩 외형은 `Chip` 과 같은 높이(EX-3 `py-0.5`) · 11px · nowrap · 화살표 없음.
+ * 켜짐 = Accent 자리 1(테두리 `--primary` · 면 `--accent` · 글자 `--accent-fg`) · 체크 색 `accent-color: var(--primary)`(R-10).
+ */
+export function OrderLogLimitFeatureCheck({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <label
+      data-slot="order-log-check-limit-feature"
+      data-on={checked ? '' : undefined}
+      className={cn(
+        'inline-flex flex-none cursor-pointer items-center gap-1 rounded-[var(--r-sm)] border px-2 py-0.5 text-[11px] leading-[1.5] font-normal whitespace-nowrap',
+        checked
+          ? 'border-[var(--primary)] bg-[var(--accent)] text-[var(--accent-fg)]'
+          : 'border-[var(--border-subtle)] bg-transparent text-[var(--fg)]',
+      )}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="m-0 size-3 flex-none cursor-pointer accent-[var(--primary)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--ring)]"
+      />
+      상한가 특징
+    </label>
+  );
 }
 
 function Chip({ name, on, children }: { name: string; on: boolean; children: ReactNode }) {
@@ -62,7 +103,15 @@ function Chip({ name, on, children }: { name: string; on: boolean; children: Rea
 const SELECT_CLASS =
   'cursor-pointer appearance-none border-0 bg-transparent p-0 [font:inherit] text-inherit';
 
-export function OrderLogFilters({ filters, onChange, stockOptions, count, onPopout }: OrderLogFiltersProps) {
+export function OrderLogFilters({
+  filters,
+  onChange,
+  stockOptions,
+  count,
+  onPopout,
+  showLimitFeature,
+  onShowLimitFeatureChange,
+}: OrderLogFiltersProps) {
   // 앱 셸 판정은 마운트 뒤에 — SSR(false)과 첫 클라이언트 렌더를 맞춘다. 첫 페인트는 `native:hidden` 이 가린다.
   const [native, setNative] = useState(false);
   useEffect(() => setNative(isNativeApp()), []);
@@ -115,6 +164,7 @@ export function OrderLogFilters({ filters, onChange, stockOptions, count, onPopo
           ))}
         </select>
       </Chip>
+      <OrderLogLimitFeatureCheck checked={showLimitFeature} onChange={onShowLimitFeatureChange} />
       <span data-slot="order-log-count" className="mono flex-none text-[var(--faint)]">
         {count}건
       </span>

@@ -658,6 +658,43 @@ describe('CardTabs — 주문로그 버튼 + 팝업 (quick-260930-lq5)', () => {
     )!;
     expect(phone.querySelector('[data-slot="order-log-lead"]')?.textContent).toBe('잠김 43초');
   });
+
+  it('「상한가 특징」 체크 칩(28-11 · D-07): 세그먼트 뒤 · 건수 앞 · 꺼짐 기본 · 클릭 → feed.setShowLimitFeature(true)', async () => {
+    const user = userEvent.setup();
+    const setShowLimitFeature = vi.fn();
+    render(<CardTabs {...olProps(feed({ rows: [exposed, buy], setShowLimitFeature }))} />);
+    await user.click(olButton()!);
+    const box = within(dialog()).getByRole('checkbox', { name: '상한가 특징' });
+    expect(box).not.toBeChecked();
+    const chip = box.closest('[data-slot="order-log-check-limit-feature"]')!;
+    const group = within(dialog()).getByRole('group', { name: '구분' });
+    const countEl = dialog().querySelector('[data-slot="card-log-count"]')!;
+    expect(group.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(chip.compareDocumentPosition(countEl) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(tableRows().some((r) => r.getAttribute('data-kind') === '15')).toBe(false);
+    await user.click(box);
+    expect(setShowLimitFeature).toHaveBeenCalledWith(true);
+  });
+
+  it('체크 켜짐: 「시세」 세그먼트에 kind 15 가 남고(tone 아닌 kind 판정 · Pitfall 4) 「매수」 에는 없다 · 배지는 피드 latestPush 의 kind 15 를 센다', async () => {
+    const user = userEvent.setup();
+    const locked = STRATEGY_LIMIT_FEATURE_BY_NAME.lfLocked43!;
+    const f = feed({ rows: [exposed, buy, locked], showLimitFeature: true });
+    const { rerender } = render(<CardTabs {...olProps(f)} />);
+    rerender(<CardTabs {...olProps({ ...f, latestPush: { seq: 1, rows: [{ ...locked, seq: 999 }] } })} />);
+    expect(root().querySelector('[data-slot="card-log-badge"]')?.textContent).toBe('1');
+
+    await user.click(olButton()!);
+    expect(within(dialog()).getByRole('checkbox', { name: '상한가 특징' })).toBeChecked();
+    const kinds = () => tableRows().map((r) => r.getAttribute('data-kind'));
+    expect(kinds()).toContain('15');
+    const group = within(dialog()).getByRole('group', { name: '구분' });
+    await user.click(within(group).getByRole('button', { name: '시세' }));
+    expect(kinds().filter((k) => k === '15')).toHaveLength(1);
+    expect(count()).toBe('2건');
+    await user.click(within(group).getByRole('button', { name: '매수' }));
+    expect(kinds()).not.toContain('15');
+  });
 });
 
 describe('Phase 28 상한가 탭 (D-01~D-04 · UI-SPEC ①)', () => {

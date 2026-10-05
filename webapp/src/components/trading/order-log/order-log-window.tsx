@@ -118,7 +118,9 @@ export function OrderLogWindow() {
   const visible = useMemo(() => applyOrderLogFilters(scoped, filters), [scoped, filters]);
   const nameOf = useOrderLogNameOf(scoped);
   const options = useMemo(() => stockOptions(scoped, nameOf), [scoped, nameOf]);
-  const filtered = filters.stock !== 'all' || filters.ex !== 'all' || filters.kind !== 'all';
+  // 「상한가 특징」 체크 켜짐도 기본값이 아닌 필터다(UI-SPEC ②-1 빈 문구 판정 · Phase 28 D-07).
+  const filtered =
+    filters.stock !== 'all' || filters.ex !== 'all' || filters.kind !== 'all' || feed.showLimitFeature;
 
   const goDate = (next: string) => update({ ...query, date: next });
   const setFilters = (next: OrderLogFilterValue) => update({ ...query, filters: next });
@@ -180,7 +182,14 @@ export function OrderLogWindow() {
       </div>
 
       <div className="flex-none">
-        <OrderLogFilters filters={filters} onChange={setFilters} stockOptions={options} count={visible.length} />
+        <OrderLogFilters
+          filters={filters}
+          onChange={setFilters}
+          stockOptions={options}
+          count={visible.length}
+          showLimitFeature={feed.showLimitFeature}
+          onShowLimitFeatureChange={feed.setShowLimitFeature}
+        />
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col">
@@ -196,7 +205,7 @@ export function OrderLogWindow() {
           emptyTitle={isToday ? undefined : PAST_EMPTY_TITLE}
           emptyBody={isToday ? undefined : PAST_EMPTY_BODY}
           filteredEmpty={filtered && scoped.length > 0}
-          resetKey={`${date}|${JSON.stringify(filters)}`}
+          resetKey={`${date}|${JSON.stringify(filters)}|${feed.showLimitFeature ? 'lf' : ''}`}
           showPin={isToday}
         />
       </div>
