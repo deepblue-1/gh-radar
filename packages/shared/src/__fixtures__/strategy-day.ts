@@ -14,6 +14,8 @@
  *   - `STRATEGY_BRANCH_ROWS` — 조립 규칙의 갈래(seq 101~ — 하루 흐름과 섞이지 않게). 골든 테스트 전용.
  *   - `STRATEGY_AUTO_SELL_ROWS` — Phase 27 자동매도(group 9 · kind 6/7 · 11~14) 갈래(seq 201~). 기대 문장은
  *     별도 표 `STRATEGY_AUTO_SELL_GOLDEN` — 앞 두 벌의 개수 단언을 건드리지 않는다.
+ *   - `STRATEGY_LIMIT_FEATURE_ROWS` — Phase 28 관찰자 저널 kind 15 상한가 특징(분당 · 키당 1행 · 계좌 없음 · seq 301~).
+ *     기대 문장은 별도 표 `STRATEGY_LIMIT_FEATURE_GOLDEN`(행 이름 → `orderLogLineText`) — e2e 28-11 이 같은 한 벌을 읽는다.
  * 기대 문장은 `STRATEGY_DAY_GOLDEN` 한 표(하루 흐름 + 갈래 이름 전량)다.
  *
  * 실계좌 · 실서버 값 없음 — 계좌는 relay `SAMPLE_ACCOUNT_NO` · e2e `E2E_ACCOUNT_NO` 와 같은 가짜 값이다(D-27).
@@ -1296,4 +1298,172 @@ export const STRATEGY_AUTO_SELL_GOLDEN: Readonly<
     timelineAction: "상태",
     timelineText: "자동매도 완료 → 9 · 누적 1,664,000",
   },
+};
+
+// ── Phase 28 (28-09) — 관찰자 저널 kind 15 상한가 특징 ──────────────────────────────────────────────
+
+/**
+ * kind 15 행(gh-trade 인박스 261005 「(B)」 숫자 슬롯 매핑표 — 85 필드를 StrategyEvent 칸에 싣는다).
+ * price=last_px · ev_price=upper_px · limit_bid_qty=q_qty · ev_qty_before=q_krw · ev_qty_after=wall_krw_visible ·
+ * ask_qty_at_limit=wall_qty_hidden · open_at_limit=wall_truncated · ev_trade_qty=sell_led_10s · immediate_fill_qty=buy_led_10s ·
+ * ahead_qty=cancel_10s · base_cum=new_10s · expected_cum=auction_fill_10s · cond_threshold=drain_s · cond_actual=rate_bp ·
+ * entry_round=lock_state · qty=lock_elapsed_s · has_remaining=auction · result_code=p_break_bp · snap_qty 길이=model_state ·
+ * message=`buy:<회원>=<bp>,…;sell:<회원>=<bp>,…|m=<model>`. group 0 · 계좌 · 주문번호 "" · ev_kind 1(Quote).
+ */
+function limitFeatureDbRow(
+  over: Partial<StrategyEventDbRow> & Pick<StrategyEventDbRow, "seq" | "gw_time_ms">,
+): StrategyEventDbRow {
+  return dbRow({ kind: 15, group: 0, ev_kind: 1, ev_price: 13_000, price: 13_000, cond_actual: 3_000, result_code: -1, ...over });
+}
+
+const LIMIT_FEATURE_DB_ROWS: ReadonlyArray<readonly [string, StrategyEventDbRow]> = [
+  [
+    // 미도달(lock 0) · 매도벽 잘림(「+」) · 상한가 표기 · 10초 체결 합
+    "lfNotReached",
+    limitFeatureDbRow({
+      seq: 301,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "09:45:00.000"),
+      cum_volume: 700_000,
+      price: 12_680,
+      cond_actual: 2_680,
+      limit_bid_qty: 0,
+      ev_qty_before: 0,
+      ev_qty_after: 420_000_000,
+      ask_qty_at_limit: 15_000,
+      open_at_limit: true,
+      ev_trade_qty: 1_200,
+      immediate_fill_qty: 2_800,
+      entry_round: 0,
+      message: "buy:00050=6000,00030=4000;sell:00002=10000|m=0",
+    }),
+  ],
+  [
+    // 잠김(lock 1) 43초 — UI-SPEC ②-2 예문 그대로
+    "lfLocked43",
+    limitFeatureDbRow({
+      seq: 302,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "09:46:00.000"),
+      cum_volume: 900_000,
+      limit_bid_qty: 133_077,
+      ev_qty_before: 1_730_000_000,
+      ev_qty_after: 0,
+      cond_threshold: -1,
+      ev_trade_qty: 3_700,
+      immediate_fill_qty: 6_300,
+      base_cum: 12_400,
+      ahead_qty: 2_300,
+      entry_round: 1,
+      qty: 43,
+      message: "buy:00050=7407,00030=2222,00017=370;sell:00002=10000|m=0",
+    }),
+  ],
+  [
+    // 잠김 1분 43초 — 소진 분 표기 · 10초 반반 · 신규 0
+    "lfLocked103",
+    limitFeatureDbRow({
+      seq: 303,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "09:47:00.000"),
+      cum_volume: 905_000,
+      limit_bid_qty: 116_923,
+      ev_qty_before: 1_520_000_000,
+      ev_qty_after: 0,
+      cond_threshold: 95,
+      ev_trade_qty: 5_000,
+      immediate_fill_qty: 5_000,
+      base_cum: 0,
+      ahead_qty: 4_100,
+      entry_round: 1,
+      qty: 103,
+      message: "buy:00050=5000;sell:00002=6000,00003=4000|m=0",
+    }),
+  ],
+  [
+    // 깨짐(lock 2) — 매도 우세 · 체결 합 · 모델 적용(snap 길이 1 · 확률 18.3%)
+    "lfBroken",
+    limitFeatureDbRow({
+      seq: 304,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "09:48:00.000"),
+      cum_volume: 925_000,
+      price: 12_950,
+      cond_actual: 2_950,
+      limit_bid_qty: 16_154,
+      ev_qty_before: 210_000_000,
+      ev_qty_after: 90_000_000,
+      cond_threshold: 95,
+      ev_trade_qty: 14_356,
+      immediate_fill_qty: 5_044,
+      entry_round: 2,
+      qty: 0,
+      result_code: 1_830,
+      snap_qty: [1],
+      message: "buy:00050=7407;sell:00002=8000,00003=2000|m=1",
+    }),
+  ],
+  [
+    // 단일가(auction) 잠김 — lead 앞 「단일가 · 」 · 10초 체결 없음 · 창구 message 없음
+    "lfAuctionLocked",
+    limitFeatureDbRow({
+      seq: 305,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "10:12:00.000"),
+      cum_volume: 1_100_000,
+      limit_bid_qty: 75_385,
+      ev_qty_before: 980_000_000,
+      ev_qty_after: 0,
+      cond_threshold: -1,
+      entry_round: 1,
+      qty: 12,
+      has_remaining: true,
+      expected_cum: 1_500,
+      message: "",
+    }),
+  ],
+  [
+    // 256B 경계에서 잘린 message — 꼬리 원소 · 매도 갈래 · |m= 이 없다(지어내지 않는다 → 「매도 —」)
+    "lfTruncatedMessage",
+    limitFeatureDbRow({
+      seq: 306,
+      gw_time_ms: kstMs(FIXTURE_TRADE_DATE, "10:13:00.000"),
+      cum_volume: 1_200_000,
+      limit_bid_qty: 180_431,
+      ev_qty_before: 2_345_600_000,
+      ev_qty_after: 0,
+      cond_threshold: 600,
+      ev_trade_qty: 800,
+      immediate_fill_qty: 200,
+      base_cum: 3_000,
+      ahead_qty: 0,
+      entry_round: 1,
+      qty: 300,
+      message: "buy:00050=7407,0004",
+    }),
+  ],
+];
+
+/** kind 15 행(gw_time_ms 오름차순 · seq 301~ · 앞 세 벌과 별도). e2e 28-11 이 날짜만 옮겨 목 응답으로 쓴다. */
+export const STRATEGY_LIMIT_FEATURE_ROWS: readonly StrategyEventRow[] = LIMIT_FEATURE_DB_ROWS.map(([, r]) =>
+  toStrategyEventRow(r),
+);
+
+/** kind 15 행 이름 → 공개 행. */
+export const STRATEGY_LIMIT_FEATURE_BY_NAME: Readonly<Record<string, StrategyEventRow>> = Object.fromEntries(
+  LIMIT_FEATURE_DB_ROWS.map(([name, r]) => [name, toStrategyEventRow(r)]),
+);
+
+/**
+ * kind 15 행 이름 → 주문로그 F-A 한 줄 평문(`orderLogLineText` — 종목명 칸은 `FIXTURE_STOCK_NAME`). UI-SPEC ②-2 정본 —
+ * 구분 「상한가특징」 · 주문번호 칸 없음 · 행위 없음 · lead(「잠김 N초」)와 본문을 「 · 」 로 이은 한 줄 · 누적 = cum_volume.
+ */
+export const STRATEGY_LIMIT_FEATURE_GOLDEN: Readonly<Record<string, string>> = {
+  lfNotReached:
+    "[09:45:00.000][상한가특징] KRX | ○○전자 | 미도달 (+26.8%) · 매도벽 4.2억+ · 상한가 13,000 · 10초 매수 우세 70% · 체결 4,000주 · 창구 매수 키움증권 60% / 매도 신한증권 100% · 깨짐확률 관찰 중 | 누적 700,000",
+  lfLocked43:
+    "[09:46:00.000][상한가특징] KRX | ○○전자 | 잠김 43초 · 잔량 17.3억 · 매도벽 0 · 소진 — · 10초 매수 우세 63% · 신규 +12,400 / 취소 -2,300 · 창구 매수 키움증권 74% / 매도 신한증권 100% · 깨짐확률 관찰 중 | 누적 900,000",
+  lfLocked103:
+    "[09:47:00.000][상한가특징] KRX | ○○전자 | 잠김 1분 43초 · 잔량 15.2억 · 매도벽 0 · 소진 1분 35초 · 10초 매수·매도 반반 · 신규 0 / 취소 -4,100 · 창구 매수 키움증권 50% / 매도 신한증권 60% · 깨짐확률 관찰 중 | 누적 905,000",
+  lfBroken:
+    "[09:48:00.000][상한가특징] KRX | ○○전자 | 깨짐 · 잔량 2.1억 · 매도벽 0.9억 · 소진 1분 35초 · 10초 매도 우세 74% · 체결 19,400주 · 창구 매수 키움증권 74% / 매도 신한증권 80% · 깨짐확률 18.3% | 누적 925,000",
+  lfAuctionLocked:
+    "[10:12:00.000][상한가특징] KRX | ○○전자 | 단일가 · 잠김 12초 · 잔량 9.8억 · 매도벽 0 · 소진 — · 10초 체결 없음 · 신규 0 / 취소 0 · 창구 매수 — / 매도 — · 깨짐확률 관찰 중 | 누적 1,100,000",
+  lfTruncatedMessage:
+    "[10:13:00.000][상한가특징] KRX | ○○전자 | 잠김 5분 0초 · 잔량 23.5억 · 매도벽 0 · 소진 10분 0초 · 10초 매도 우세 80% · 신규 +3,000 / 취소 0 · 창구 매수 키움증권 74% / 매도 — · 깨짐확률 관찰 중 | 누적 1,200,000",
 };

@@ -9,10 +9,13 @@
  * 색은 tone 으로만 돌려준다 — CSS 변수 적용은 컴포넌트 책임이다(`limit-up-format.ts` 규율).
  * 28-07 — 10초 · 창구 행(칸 4~9) · 폰 밴드 문구(`narrow`) · 툴팁(`ApplyLimitFeatureTable`)을 채웠다. 같은 숫자 함수를
  * kind 15 문장(28-09)과 보고서(28-12/13)가 다시 쓴다 — shared 순수 함수 1벌.
+ * 28-09 — 관찰자 저널 kind 15 행(StrategyEvent 칸에 85 필드를 실은 것)을 85 이름으로 되돌리는 `limitFeatureOfStrategyEvent` ·
+ * 창구 `message` 파서(total) · 주문로그 한 줄 조각 `limitFeatureLogParts`(UI-SPEC ②-2 정본 — WinForms 에 kind 15 분기 없음).
  */
 
 import { memberName } from "./member-codes";
-import type { RelayLimitFeatureMember, RelayLimitFeatureMsg } from "./relay";
+import type { RelayExchange, RelayLimitFeatureMember, RelayLimitFeatureMsg } from "./relay";
+import type { StrategyEventRow } from "./strategy-event";
 
 /** 칸 색 축 — `--up` · `--down` · `--fg` · `--muted-fg` · `--faint`. */
 export type LimitFeatureTone = "up" | "down" | "fg" | "muted" | "faint";
@@ -107,6 +110,18 @@ function firstMember(list: readonly RelayLimitFeatureMember[] | null | undefined
   return null;
 }
 
+/**
+ * 10초 행 칸 1 — 「매도 우세 NN%」(down) / 「매수 우세 NN%」(up) / 「매수·매도 반반」 / 「체결 없음」. 큰 쪽 10초 체결 ÷ 합 ×
+ * 100 짝수 반올림. 9칸과 kind 15 문장(색 없이 글자만)이 같은 갈래를 쓴다.
+ */
+function tenSecondLead(msg: Pick<RelayLimitFeatureMsg, "sellLed10s" | "buyLed10s">): LimitFeatureCell {
+  const led = msg.sellLed10s + msg.buyLed10s;
+  if (led === 0) return cell("체결 없음");
+  if (msg.sellLed10s > msg.buyLed10s) return cell(`매도 우세 ${roundPctHalfEven(msg.sellLed10s, led)}%`, "down");
+  if (msg.buyLed10s > msg.sellLed10s) return cell(`매수 우세 ${roundPctHalfEven(msg.buyLed10s, led)}%`, "up");
+  return cell("매수·매도 반반");
+}
+
 /** 행 머리 3개(WinForms `LimitFeatureTable.RowHeaders`) — 표 `<th>` 와 툴팁 줄 머리가 같은 글자를 쓴다. */
 export const LIMIT_FEATURE_ROW_HEADERS = ["지금", "10초", "창구"] as const;
 
@@ -150,11 +165,7 @@ export function limitFeatureCells(msg: RelayLimitFeatureMsg | null): LimitFeatur
 
   // 10초 행 — 체결 우세(큰 쪽 비율 · 짝수 반올림) · 잠김 중 잔량 신규/취소, 그 밖 체결 합.
   const led = msg.sellLed10s + msg.buyLed10s;
-  let lead: LimitFeatureCell;
-  if (led === 0) lead = cell("체결 없음");
-  else if (msg.sellLed10s > msg.buyLed10s) lead = cell(`매도 우세 ${roundPctHalfEven(msg.sellLed10s, led)}%`, "down");
-  else if (msg.buyLed10s > msg.sellLed10s) lead = cell(`매수 우세 ${roundPctHalfEven(msg.buyLed10s, led)}%`, "up");
-  else lead = cell("매수·매도 반반");
+  const lead = tenSecondLead(msg);
   let ten: LimitFeatureCell[];
   if (msg.lockState === 1) {
     const n = msg.new10s > 0 ? `+${formatGroup(msg.new10s)}` : "0";
@@ -217,3 +228,164 @@ export function limitFeatureTabSuffix(msg: RelayLimitFeatureMsg | null): LimitFe
   return null;
 }
 
+
+// ── 28-09 — 관찰자 저널 kind 15 (분당 · 키당 1행) ──────────────────────────────────────────────────────
+
+/** kind 15 `message` 의 창구 원소 1개 — 회원번호 · 그 쪽 비중 bp(0~10000). 수량은 없다(R-4). */
+export type LimitFeatureMessageMember = { member: string; shareBp: number };
+
+/** `parseLimitFeatureMessage` 결과. 형식이 깨진 조각은 빠지고(지어내지 않는다) `|m=<정수>` 가 없으면 modelState null. */
+export type LimitFeatureMessage = {
+  buy: LimitFeatureMessageMember[];
+  sell: LimitFeatureMessageMember[];
+  modelState: number | null;
+};
+
+const DIGITS = /^\d+$/;
+
+/** `<회원>=<bp>` 1개 → 원소. `=` 가 정확히 하나 · 회원 비어 있지 않음 · bp 0~10000 정수만, 아니면 null. */
+function parseMessageMember(el: string): LimitFeatureMessageMember | null {
+  const parts = el.split("=");
+  if (parts.length !== 2) return null;
+  const [member, bp] = parts as [string, string];
+  if (member === "" || !DIGITS.test(bp)) return null;
+  const shareBp = Number(bp);
+  return shareBp <= 10_000 ? { member, shareBp } : null;
+}
+
+/**
+ * kind 15 `message` 파서 — `buy:<회원>=<bp>,…;sell:<회원>=<bp>,…|m=<model>`(gh-trade 인박스 261005 (B) · ASCII · 256B 경계).
+ * **total** 이다(throw 없음): `|` 앞을 `;` 로 갈래(`buy:` · `sell:` 접두만), 갈래 안을 `,` 로 원소, 원소는 `=` 로 나눈다.
+ * 256B 에서 잘린 꼬리는 버린다 — 종결자 `|` 가 없으면 마지막 갈래의 마지막 원소가 숫자 중간에서 잘렸을 수 있어
+ * (「=7407」 → 「=74」) 형식이 맞아 보여도 버리고, `|` 뒤가 `m=<정수>` 가 아니면 modelState 는 null 이다.
+ */
+export function parseLimitFeatureMessage(message: string): LimitFeatureMessage {
+  const out: LimitFeatureMessage = { buy: [], sell: [], modelState: null };
+  if (typeof message !== "string" || message === "") return out;
+  const bar = message.indexOf("|");
+  const head = bar >= 0 ? message.slice(0, bar) : message;
+  if (bar >= 0) {
+    const tail = message.slice(bar + 1);
+    if (tail.startsWith("m=") && DIGITS.test(tail.slice(2))) out.modelState = Number(tail.slice(2));
+  }
+  const segments = head.split(";");
+  segments.forEach((seg, si) => {
+    const side = seg.startsWith("buy:") ? out.buy : seg.startsWith("sell:") ? out.sell : null;
+    if (side === null) return;
+    const elements = seg.slice(seg.indexOf(":") + 1).split(",");
+    // 종결자 없이 끝난 문자열의 마지막 원소 = 잘렸을 수 있는 꼬리.
+    if (bar < 0 && si === segments.length - 1) elements.pop();
+    for (const el of elements) {
+      const m = parseMessageMember(el);
+      if (m) side.push(m);
+    }
+  });
+  return out;
+}
+
+/** 창구 원소 → 85 `MemberDelta` 모양(kind 15 에는 수량이 없다 — dQty · dValue 0, shareBp 만). */
+function toFeatureMember(m: LimitFeatureMessageMember): RelayLimitFeatureMember {
+  return { memberNo: m.member, dQty: 0, dValue: 0, shareBp: m.shareBp };
+}
+
+/**
+ * kind 15 행 → 85 `RelayLimitFeatureMsg` 모양(숫자 슬롯 매핑표 = 특징 사전 ③ 그대로). 행에 없는 값(basePx · burstUpperLimit ·
+ * memberDeltaPartial · modelSchemaVersion · pHorizonS)은 0/false 다. modelState = snap_qty 길이(원소 값은 의미 없다).
+ * 9칸 숫자 함수와 kind 15 문장이 같은 표기를 쓰게 하는 다리다 — 값을 보정하지 않는다.
+ */
+export function limitFeatureOfStrategyEvent(row: StrategyEventRow): RelayLimitFeatureMsg {
+  const members = parseLimitFeatureMessage(row.message);
+  return {
+    t: "limit.feature",
+    i: row.isin,
+    x: row.exchange as RelayExchange,
+    gwTimeMs: row.gwTimeMs,
+    featureSchema: 1,
+    upperPx: row.evPrice,
+    lastPx: row.price,
+    rateBp: row.condActual,
+    basePx: 0,
+    qQty: row.limitBidQty,
+    qKrw: row.evQtyBefore,
+    wallKrwVisible: row.evQtyAfter,
+    wallQtyHidden: row.askQtyAtLimit,
+    wallTruncated: row.openAtLimit,
+    sellLed10s: row.evTradeQty,
+    buyLed10s: row.immediateFillQty,
+    cancel10s: row.aheadQty,
+    new10s: row.baseCum,
+    auctionFill10s: row.expectedCum,
+    drainS: row.condThreshold,
+    lockState: row.entryRound,
+    lockElapsedS: row.qty,
+    burstUpperLimit: false,
+    auction: row.hasRemaining,
+    memberBuy: members.buy.map(toFeatureMember),
+    memberSell: members.sell.map(toFeatureMember),
+    memberDeltaPartial: false,
+    modelState: row.snapQty.length > 0 ? 1 : 0,
+    modelSchemaVersion: 0,
+    pBreakBp: row.resultCode,
+    pHorizonS: 0,
+  };
+}
+
+/** 창구 조각 한쪽 — 「매수 키움증권 74%」(상위 1 · share_bp ÷ 100 반올림) / 없으면 「매수 —」. */
+function memberShareText(side: "매수" | "매도", list: readonly RelayLimitFeatureMember[]): string {
+  const m = firstMember(list);
+  return m ? `${side} ${memberName(m.memberNo)} ${Math.floor((m.shareBp + 50) / 100)}%` : `${side} ${DASH}`;
+}
+
+/** kind 15 주문로그 한 줄 조각 — lead(잠김 줄만 · 표면이 `--up` 600) + 나머지 본문. */
+export type LimitFeatureLogParts = { lead: string | null; body: string };
+
+/**
+ * kind 15 행 → 주문로그 한 줄 조각(UI-SPEC ②-2 정본). 조각 구분자 「 · 」.
+ *   - lock 1: lead 「잠김 {dur}」 · 본문 「잔량 {억}」 · 「매도벽 {억}{+}」 · 「소진 {dur 또는 —}」
+ *   - lock 2: 「깨짐」 · 잔량 · 매도벽 · 소진 / 그 밖: 「미도달 ({등락률})」 · 매도벽 · 「상한가 {원 또는 —}」
+ *   - 이어서 「10초 {우세}」 → 잠김이면 「신규 +N / 취소 -N」(0 이면 「0」), 그 밖 「체결 N주」 →
+ *     「창구 매수 {회원사} NN% / 매도 …」 → 「깨짐확률 NN.N%」 / 「깨짐확률 관찰 중」
+ *   - 단일가(auction): 잠김이면 lead 앞, 그 밖 본문 맨 앞 「단일가 · 」
+ * 숫자 표기는 카드 9칸과 같은 함수다(「매도벽 0」 — R-1).
+ */
+export function limitFeatureLogParts(row: StrategyEventRow): LimitFeatureLogParts {
+  const msg = limitFeatureOfStrategyEvent(row);
+  const auction = msg.auction ? "단일가" : null;
+  const remain = `잔량 ${formatEok(msg.qKrw)}`;
+  const wall = `매도벽 ${formatEok(msg.wallKrwVisible)}${msg.wallTruncated ? "+" : ""}`;
+  const drain = `소진 ${msg.drainS < 0 ? DASH : formatDuration(msg.drainS)}`;
+  const locked = msg.lockState === 1;
+
+  let lead: string | null = null;
+  let head: Array<string | null>;
+  if (locked) {
+    lead = `${auction ? `${auction} · ` : ""}잠김 ${formatDuration(msg.lockElapsedS)}`;
+    head = [remain, wall, drain];
+  } else if (msg.lockState === 2) {
+    head = [auction, "깨짐", remain, wall, drain];
+  } else {
+    head = [
+      auction,
+      `미도달 (${formatRatePct(msg.rateBp)})`,
+      wall,
+      `상한가 ${msg.upperPx === 0 ? DASH : formatGroup(msg.upperPx)}`,
+    ];
+  }
+
+  const flow = locked
+    ? `신규 ${msg.new10s > 0 ? `+${formatGroup(msg.new10s)}` : "0"} / 취소 ${msg.cancel10s > 0 ? `-${formatGroup(msg.cancel10s)}` : "0"}`
+    : `체결 ${formatGroup(msg.sellLed10s + msg.buyLed10s)}주`;
+  const prob =
+    msg.modelState === 1 && msg.pBreakBp >= 0 ? `깨짐확률 ${formatBpPct1(msg.pBreakBp)}%` : "깨짐확률 관찰 중";
+
+  const body = [
+    ...head,
+    `10초 ${tenSecondLead(msg).text}`,
+    flow,
+    `창구 ${memberShareText("매수", msg.memberBuy)} / ${memberShareText("매도", msg.memberSell)}`,
+    prob,
+  ]
+    .filter((p): p is string => p !== null)
+    .join(" · ");
+  return { lead, body };
+}

@@ -13,8 +13,17 @@ import {
   limitFeatureCells,
   limitFeatureTabSuffix,
   limitFeatureTooltip,
+  limitFeatureLogParts,
+  limitFeatureOfStrategyEvent,
+  parseLimitFeatureMessage,
   roundPctHalfEven,
 } from "../limit-feature";
+import type { StrategyEventRow } from "../strategy-event";
+import {
+  STRATEGY_LIMIT_FEATURE_BY_NAME,
+  STRATEGY_LIMIT_FEATURE_GOLDEN,
+  STRATEGY_LIMIT_FEATURE_ROWS,
+} from "../__fixtures__/strategy-day";
 
 /** 잠김 시나리오 기본값(relay 테스트 헬퍼 `buildLimitFeatureFrame` 기본과 같은 값). */
 function feature(over: Partial<RelayLimitFeatureMsg> = {}): RelayLimitFeatureMsg {
@@ -373,5 +382,194 @@ describe("Phase 28 9칸 완성 — limitFeatureTooltip (WinForms ApplyLimitFeatu
   });
   it("폰 문구(narrow)는 툴팁에 쓰지 않는다 — 늘 넓은 밴드 문구", () => {
     expect(limitFeatureTooltip(full)).not.toContain("신규 +1.2만");
+  });
+});
+
+describe("Phase 28 kind 15 되돌림 · 문장 (28-09 · UI-SPEC ②-2)", () => {
+  const lf = (name: string, over: Partial<StrategyEventRow> = {}): StrategyEventRow => ({
+    ...STRATEGY_LIMIT_FEATURE_BY_NAME[name]!,
+    ...over,
+  });
+
+  describe("parseLimitFeatureMessage — total (지어내지 않는다)", () => {
+    it("정상 — 매수 3 · 매도 1 · model 0", () => {
+      expect(parseLimitFeatureMessage("buy:00047=7407,00046=2222,00048=370;sell:00003=10000|m=0")).toEqual({
+        buy: [
+          { member: "00047", shareBp: 7407 },
+          { member: "00046", shareBp: 2222 },
+          { member: "00048", shareBp: 370 },
+        ],
+        sell: [{ member: "00003", shareBp: 10000 }],
+        modelState: 0,
+      });
+    });
+
+    it("256B 경계에서 잘린 꼬리 원소(= 없음)는 버린다 · |m= 없음 → modelState null", () => {
+      expect(parseLimitFeatureMessage("buy:00047=7407,0004")).toEqual({
+        buy: [{ member: "00047", shareBp: 7407 }],
+        sell: [],
+        modelState: null,
+      });
+    });
+
+    it("「|m」 에 = 이 없으면 modelState null · 앞 갈래는 온전하다", () => {
+      expect(parseLimitFeatureMessage("buy:00047=7407;sell:00003=100|m")).toEqual({
+        buy: [{ member: "00047", shareBp: 7407 }],
+        sell: [{ member: "00003", shareBp: 100 }],
+        modelState: null,
+      });
+    });
+
+    it("종결자 「|」 없이 끝나면 마지막 원소는 숫자가 잘렸을 수 있어 버린다(「=74」 를 1% 로 지어내지 않는다)", () => {
+      expect(parseLimitFeatureMessage("buy:00047=7407;sell:00003=74")).toEqual({
+        buy: [{ member: "00047", shareBp: 7407 }],
+        sell: [],
+        modelState: null,
+      });
+    });
+
+    it("빈 문자열 · 쓰레기 → 빈 결과(throw 없음)", () => {
+      const empty = { buy: [], sell: [], modelState: null };
+      expect(parseLimitFeatureMessage("")).toEqual(empty);
+      expect(parseLimitFeatureMessage("xyz")).toEqual(empty);
+      expect(parseLimitFeatureMessage("|m=")).toEqual(empty);
+      expect(parseLimitFeatureMessage(";;,,==|m=x")).toEqual(empty);
+    });
+
+    it("bp 가 0~10000 정수가 아니거나 = 가 둘 이상 · 회원 없음인 원소는 버린다", () => {
+      expect(
+        parseLimitFeatureMessage("buy:00047=10001,00046=-5,00045=1.5,00044==3,=500,00043=abc,00042=0;sell:|m=1"),
+      ).toEqual({ buy: [{ member: "00042", shareBp: 0 }], sell: [], modelState: 1 });
+    });
+  });
+
+  describe("limitFeatureOfStrategyEvent — 슬롯 → 85 이름 (특징 사전 ③)", () => {
+    it("잠김 행 → RelayLimitFeatureMsg (창구는 dQty 0 · shareBp 만)", () => {
+      const row = lf("lfLocked43", { message: "buy:00050=7407;sell:00002=10000|m=0" });
+      expect(limitFeatureOfStrategyEvent(row)).toEqual({
+        t: "limit.feature",
+        i: "KR7005930003",
+        x: "KRX",
+        gwTimeMs: row.gwTimeMs,
+        featureSchema: 1,
+        upperPx: 13_000,
+        lastPx: 13_000,
+        rateBp: 3_000,
+        basePx: 0,
+        qQty: 133_077,
+        qKrw: 1_730_000_000,
+        wallKrwVisible: 0,
+        wallQtyHidden: 0,
+        wallTruncated: false,
+        sellLed10s: 3_700,
+        buyLed10s: 6_300,
+        cancel10s: 2_300,
+        new10s: 12_400,
+        auctionFill10s: 0,
+        drainS: -1,
+        lockState: 1,
+        lockElapsedS: 43,
+        burstUpperLimit: false,
+        auction: false,
+        memberBuy: [{ memberNo: "00050", dQty: 0, dValue: 0, shareBp: 7407 }],
+        memberSell: [{ memberNo: "00002", dQty: 0, dValue: 0, shareBp: 10000 }],
+        memberDeltaPartial: false,
+        modelState: 0,
+        modelSchemaVersion: 0,
+        pBreakBp: -1,
+        pHorizonS: 0,
+      });
+    });
+
+    it("modelState = snap_qty 길이(원소 값 무시) · 매도벽 잘림 · 단일가 · 단일가 빠짐", () => {
+      const m = limitFeatureOfStrategyEvent(
+        lf("lfNotReached", { snapQty: [0], openAtLimit: true, askQtyAtLimit: 15_000, hasRemaining: true, expectedCum: 900 }),
+      );
+      expect(m).toMatchObject({ modelState: 1, wallTruncated: true, wallQtyHidden: 15_000, auction: true, auctionFill10s: 900 });
+    });
+  });
+
+  describe("limitFeatureLogParts — lead · body", () => {
+    it("잠김 — UI-SPEC ②-2 예문 그대로", () => {
+      expect(limitFeatureLogParts(lf("lfLocked43", { message: "buy:00050=7407;sell:00002=10000|m=0" }))).toEqual({
+        lead: "잠김 43초",
+        body: "잔량 17.3억 · 매도벽 0 · 소진 — · 10초 매수 우세 63% · 신규 +12,400 / 취소 -2,300 · 창구 매수 키움증권 74% / 매도 신한증권 100% · 깨짐확률 관찰 중",
+      });
+    });
+
+    it("깨짐(lock 2) → lead null · 「깨짐」 이 본문 첫 조각 · 체결 합", () => {
+      const p = limitFeatureLogParts(lf("lfBroken"));
+      expect(p.lead).toBeNull();
+      expect(p.body).toBe(
+        "깨짐 · 잔량 2.1억 · 매도벽 0.9억 · 소진 1분 35초 · 10초 매도 우세 74% · 체결 19,400주 · 창구 매수 키움증권 74% / 매도 신한증권 80% · 깨짐확률 18.3%",
+      );
+    });
+
+    it("미도달(lock 0) → 「미도달 (+26.8%) · 매도벽 4.2억+ · 상한가 13,000 · … · 체결 N주」", () => {
+      const p = limitFeatureLogParts(lf("lfNotReached"));
+      expect(p.lead).toBeNull();
+      expect(p.body).toBe(
+        "미도달 (+26.8%) · 매도벽 4.2억+ · 상한가 13,000 · 10초 매수 우세 70% · 체결 4,000주 · 창구 매수 키움증권 60% / 매도 신한증권 100% · 깨짐확률 관찰 중",
+      );
+    });
+
+    it("미도달 · 상한가 0(미상) → 「상한가 —」", () => {
+      expect(limitFeatureLogParts(lf("lfNotReached", { evPrice: 0 })).body).toContain("상한가 — · ");
+    });
+
+    it("단일가 — 잠김이면 lead 앞 「단일가 · 」, 미도달이면 본문 맨 앞", () => {
+      expect(limitFeatureLogParts(lf("lfLocked43", { hasRemaining: true })).lead).toBe("단일가 · 잠김 43초");
+      expect(limitFeatureLogParts(lf("lfNotReached", { hasRemaining: true })).body).toMatch(/^단일가 · 미도달 \(\+26\.8%\) · /);
+      expect(limitFeatureLogParts(lf("lfBroken", { hasRemaining: true })).body).toMatch(/^단일가 · 깨짐 · /);
+    });
+
+    it("확률 — snap 길이 1 · result 1830 → 「깨짐확률 18.3%」, snap 0 이면 값이 있어도 「관찰 중」", () => {
+      expect(limitFeatureLogParts(lf("lfLocked43", { snapQty: [1], resultCode: 1830 })).body).toMatch(/ · 깨짐확률 18\.3%$/);
+      expect(limitFeatureLogParts(lf("lfLocked43", { snapQty: [], resultCode: 1830 })).body).toMatch(/ · 깨짐확률 관찰 중$/);
+      expect(limitFeatureLogParts(lf("lfLocked43", { snapQty: [1], resultCode: -1 })).body).toMatch(/ · 깨짐확률 관찰 중$/);
+    });
+
+    it("창구 한쪽 없음 → 「매수 —」/「매도 —」 · message 없음 → 둘 다 —", () => {
+      expect(limitFeatureLogParts(lf("lfLocked43", { message: "buy:00050=7407|m=0" })).body).toContain(
+        "창구 매수 키움증권 74% / 매도 —",
+      );
+      expect(limitFeatureLogParts(lf("lfLocked43", { message: "sell:00002=10000|m=0" })).body).toContain(
+        "창구 매수 — / 매도 신한증권 100%",
+      );
+      expect(limitFeatureLogParts(lf("lfAuctionLocked")).body).toContain("창구 매수 — / 매도 —");
+    });
+
+    it("창구 % 는 share_bp ÷ 100 반올림(.5 올림) · 매핑 없는 회원은 번호 그대로", () => {
+      expect(limitFeatureLogParts(lf("lfLocked43", { message: "buy:00050=7450;sell:99998=49|m=0" })).body).toContain(
+        "창구 매수 키움증권 75% / 매도 99998 0%",
+      );
+    });
+
+    it("잠김 · 신규/취소 0 → 「신규 0 / 취소 0」, 10초 체결 0 → 「10초 체결 없음」", () => {
+      expect(limitFeatureLogParts(lf("lfAuctionLocked")).body).toContain("10초 체결 없음 · 신규 0 / 취소 0 · ");
+    });
+
+    it("잘린 message 행 — 매수 상위 1 만 · 매도 —", () => {
+      expect(limitFeatureLogParts(lf("lfTruncatedMessage")).body).toContain("창구 매수 키움증권 74% / 매도 —");
+    });
+  });
+
+  describe("픽스처 한 벌 — STRATEGY_LIMIT_FEATURE_ROWS · GOLDEN", () => {
+    it("모든 행이 kind 15 · group 0 · 계좌 · 주문번호 없음 · 시각 오름차순 · 골든 이름과 1:1", () => {
+      expect(STRATEGY_LIMIT_FEATURE_ROWS.length).toBe(Object.keys(STRATEGY_LIMIT_FEATURE_GOLDEN).length);
+      expect(Object.keys(STRATEGY_LIMIT_FEATURE_BY_NAME).sort()).toEqual(Object.keys(STRATEGY_LIMIT_FEATURE_GOLDEN).sort());
+      for (const r of STRATEGY_LIMIT_FEATURE_ROWS) {
+        expect(r).toMatchObject({ kind: 15, group: 0, accountNo: "", orderNo: "" });
+      }
+      const times = STRATEGY_LIMIT_FEATURE_ROWS.map((r) => r.gwTimeMs);
+      expect([...times].sort((a, b) => a - b)).toEqual(times);
+    });
+
+    it("골든 문장 칸 = lead · body 를 「 · 」 로 이은 것", () => {
+      for (const [name, line] of Object.entries(STRATEGY_LIMIT_FEATURE_GOLDEN)) {
+        const { lead, body } = limitFeatureLogParts(STRATEGY_LIMIT_FEATURE_BY_NAME[name]!);
+        expect(line).toContain(` | ${lead ? `${lead} · ` : ""}${body} | `);
+      }
+    });
   });
 });
