@@ -1,19 +1,19 @@
 ---
 gsd_state_version: "1.0"
 milestone: v1.0
-current_phase: 27
-current_phase_name: 자동매도 연동 — gh-trade Phase 28 와이어 계약 반영
+current_phase: 28
+current_phase_name: 상한가 특징 연동 — gh-trade Phase 27 계약 반영
 status: executing
-stopped_at: Completed 27-07-PLAN.md
-last_updated: "2026-10-05T07:22:38.250Z"
+stopped_at: Completed 28-01-PLAN.md
+last_updated: "2026-10-05T08:30:53.788Z"
 last_activity: 2026-10-05
-last_activity_desc: Phase 27 execution started
-state_head: 1992be4fb677e865a0cd355ee9b46d76fb580aa9
+last_activity_desc: Phase 28 execution started
+state_head: 8a1b6c11f997286517bc8ed6cff2966eb4f8ef60
 progress:
   total_phases: 37
   completed_phases: 4
-  total_plans: 363
-  completed_plans: 345
+  total_plans: 377
+  completed_plans: 347
 milestone_name: milestone
 ---
 
@@ -24,15 +24,15 @@ milestone_name: milestone
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 27 — 자동매도 연동 — gh-trade Phase 28 와이어 계약 반영
+**Current focus:** Phase 28 — 상한가 특징 연동 — gh-trade Phase 27 계약 반영
 
 ## Current Position
 
-Phase: 27 (자동매도 연동 — gh-trade Phase 28 와이어 계약 반영) — EXECUTING
-Plan: 9 of 9
+Phase: 28 (상한가 특징 연동 — gh-trade Phase 27 계약 반영) — EXECUTING
+Plan: 2 of 16
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-10-05 — Phase 27 execution started
+Last activity: 2026-10-05 — Phase 28 execution started
 
 Progress: [█████████░] 93%
 
@@ -193,6 +193,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 27 P05 | 15min | 3 tasks | 12 files |
 | Phase 27 P06 | 16min | 3 tasks | 11 files |
 | Phase 27 P07 | 10min | 2 tasks | 6 files |
+| Phase 28 P01 | 25min | 3 tasks | 25 files |
 
 ## Accumulated Context
 
@@ -514,6 +515,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 27]: 27-06: /me 상따 기본설정 42 저장은 큐(1건 비행 · 행당 1건 대기열 · 84 수신 뒤 새 캐시로 재조립 · 3초 실패 재전송 없음) — D-12 재량 — 42 는 11값 전체 교체라 낡은 캐시로 보내면 앞 칸이 되돌려진다(Pitfall 8)
 - [Phase 27]: 27-06: ChoiceRow segmentAlways(/me 인라인은 늘 세그먼트) · SettingUnit = PadUnit 별칭 — 카드 992 컨테이너 규칙은 900 폭 /me 에서 늘 시트 행이 된다 · 단위 목록 두 벌은 갈라진다
 - [Phase 27]: 27-07 D-11: 새 전략 폼 기본값 정본 = 84 사용자 설정(seedFromUserSettings) · D-04 상수는 미수신·lc 범위 밖 칸별 폴백 · 재시딩은 에코가 한 번도 안 온 폼의 손대지 않은 칸만
+- [Phase 28]: 28-01: 85 LimitFeature 는 공개 시세 파생값이라 HubMarketEvent 유니온에 넣고 fanout 은 tape 와 같은 줄에서 full 소켓만 — 카드는 level full 일 때만 limitFeature 를 쓴다
+- [Phase 28]: 28-01: WinForms FormatEok/등락률의 .NET 0 에서 먼 쪽 반올림을 정수 십분위 산술로 재현(115,000,000원 = 1.2억)
 
 ### Pending Todos
 
@@ -606,8 +609,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-10-05T07:22:37.232Z
-Stopped at: Completed 27-07-PLAN.md
+Last session: 2026-10-05T08:30:52.669Z
+Stopped at: Completed 28-01-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
