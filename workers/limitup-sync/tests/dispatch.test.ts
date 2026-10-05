@@ -276,6 +276,45 @@ describe("main — 종료 코드(D-20): skip 만 0 · 같은 날짜 3연속 1 ·
   });
 });
 
+describe("dispatch — 재적재가 업로드 뒤 실패하면 그 날짜를 보고서에서 내린다(WR-B04)", () => {
+  const unpublishes = (calls: Call[]) =>
+    calls.filter((c) => c.kind === "update" && c.table === "limitup_loads" && "files_sig" in c.values);
+
+  it("이미 적재된 날짜(옛 files_sig) · commit 실패 → files_sig null 갱신 1회 · warn · 그 날짜 failed", async () => {
+    addDay(GOOD);
+    const { out, fake } = await run({
+      loads: [{ date: GOOD, files_sig: "0".repeat(64), skip_streak: 0 }],
+      rpc: { limitup_commit_day: { error: { message: "canceling statement due to statement timeout" } } },
+      recordSkip: 1,
+    });
+    expect(out.failed.map((f) => f.date)).toEqual([GOOD]);
+    expect(unpublishes(fake.calls)).toEqual([{ kind: "update", table: "limitup_loads", values: { files_sig: null }, eq: ["date", GOOD] }]);
+    // 업로드가 먼저 · 내리기는 commit 실패 뒤
+    const seq = fake.calls.map(label);
+    expect(seq.indexOf("update:limitup_loads")).toBeGreaterThan(seq.indexOf("rpc:limitup_commit_day"));
+    expect(log.calls.warn.map((w) => w.msg)).toContain("limitup day unpublished — 재적재 실패로 격자만 새 export · 다음 run 이 다시 적재");
+  });
+
+  it("처음 적재하는 날짜의 commit 실패 → 내릴 것이 없다(갱신 0)", async () => {
+    addDay(GOOD);
+    const { out, fake } = await run({ rpc: { limitup_commit_day: { error: { message: "boom" } } }, recordSkip: 1 });
+    expect(out.failed.map((f) => f.date)).toEqual([GOOD]);
+    expect(unpublishes(fake.calls)).toEqual([]);
+  });
+
+  it("내리기 갱신이 실패해도 원래 오류가 사유로 남는다 · error 로그", async () => {
+    addDay(GOOD);
+    const { out } = await run({
+      loads: [{ date: GOOD, files_sig: "0".repeat(64), skip_streak: 0 }],
+      rpc: { limitup_commit_day: { error: { message: "boom" } } },
+      update: { limitup_loads: { error: { message: "denied" } } },
+      recordSkip: 1,
+    });
+    expect(out.failed).toEqual([{ date: GOOD, error: "limitup_commit_day 20261002: boom" }]);
+    expect(log.calls.error.map((e) => e.msg)).toContain("limitup day unpublish failed — 보고서에 새 격자 + 옛 행이 섞여 보일 수 있다");
+  });
+});
+
 describe("dispatch — commit 소요 로그(WR-B02)", () => {
   it("committed 로그에 commitMs · 임계(5초) 넘으면 slow warn 1건", async () => {
     addDay(GOOD);

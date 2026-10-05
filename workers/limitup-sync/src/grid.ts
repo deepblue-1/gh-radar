@@ -6,8 +6,10 @@
  * 버킷은 마이그레이션 20261006090300 이 만든다(비공개 · 정책 0 — 업로드는 service role, 읽기는 server 서명 URL).
  *
  * 순서 계약(index.ts): 업로드는 commit **앞**이다 — 업로드가 하나라도 실패하면 commit 하지 않아 「적재됐는데 격자 없음」
- * 이 생기지 않고, commit 이 실패하면 이력이 안 바뀌어 다음 run 이 날짜를 통째로 다시 한다. 앞선 업로드가 남긴 객체는
- * 무해하다(보고서는 grid_summary 에 있는 isin 만 서명한다 · 다음 성공 run 이 upsert 로 덮는다).
+ * 이 생기지 않고, commit 이 실패하면 이력이 안 바뀌어 다음 run 이 날짜를 통째로 다시 한다. 처음 적재하는 날짜라면
+ * 앞선 업로드가 남긴 객체는 무해하다(보고서는 적재된 날짜만 보이고 다음 성공 run 이 upsert 로 덮는다). 그러나 이미 적재된
+ * 날짜의 재적재(D+1 재export)가 업로드 뒤 실패하면 같은 경로의 격자만 새 export 로 바뀌어 옛 DB 행과 섞인다 — 그래서
+ * index.ts 가 그 날짜의 `files_sig` 를 지워 보고서에서 내린다(WR-B04).
  */
 import { gunzipSync } from "node:zlib";
 import { readFileSync } from "node:fs";

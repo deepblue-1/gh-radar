@@ -165,6 +165,17 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
     await recordSkip(date, reason);
   };
 
+  /** 재적재 실패로 「새 격자 + 옛 행」 이 섞인 날짜를 보고서에서 내린다(WR-B04). 이 갱신의 실패는 로그만 — 원래 오류가 정본. */
+  const unpublish = async (date: string): Promise<void> => {
+    if (!sb) return;
+    const { error } = await sb.from("limitup_loads").update({ files_sig: null }).eq("date", date);
+    if (error) {
+      log.error({ date, error: error.message }, "limitup day unpublish failed — 보고서에 새 격자 + 옛 행이 섞여 보일 수 있다");
+      return;
+    }
+    log.warn({ date }, "limitup day unpublished — 재적재 실패로 격자만 새 export · 다음 run 이 다시 적재");
+  };
+
   /** 날짜 하나 적재 — skip 은 return, skip 이 아닌 오류는 throw(아래 루프가 그 날짜만 실패로 격리한다 · CR-B01). */
   const loadDay = async (date: string): Promise<void> => {
     const mr = readManifest(config.exportDir, date);
@@ -237,17 +248,26 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
 
     const { error: clearErr } = await sb.rpc("limitup_stage_clear", { p_date: date });
     if (clearErr) throw new Error(`limitup_stage_clear ${date}: ${clearErr.message}`);
-    result.grids += await uploadGrids(sb, date, grids);
-    await stageDay(sb, date, { ...tables, grid_summary: gridSummary, member_daily: memberDaily }, config.stageChunk);
-    const commitStart = Date.now();
-    await commitDay(sb, {
-      date,
-      manifestSha256: mr.sha256,
-      filesSig: sig,
-      schemaVersion: m.schema_version,
-      expected: counts,
-    });
-    const commitMs = Date.now() - commitStart;
+    let commitMs: number;
+    try {
+      result.grids += await uploadGrids(sb, date, grids);
+      await stageDay(sb, date, { ...tables, grid_summary: gridSummary, member_daily: memberDaily }, config.stageChunk);
+      const commitStart = Date.now();
+      await commitDay(sb, {
+        date,
+        manifestSha256: mr.sha256,
+        filesSig: sig,
+        schemaVersion: m.schema_version,
+        expected: counts,
+      });
+      commitMs = Date.now() - commitStart;
+    } catch (err) {
+      // WR-B04 — 격자는 같은 경로를 덮어쓴다(D-14). 이미 적재된 날짜의 재적재가 업로드 뒤 실패하면 DB 는 옛 export,
+      // 격자는 새 export 라 보고서가 둘을 겹쳐 그린다. 그 날짜의 files_sig 를 지워 보고서에서 내리고(「적재 안 된
+      // 날짜」 — 보고서 RPC 는 files_sig 있는 날짜만 보인다) 다음 run 이 통째로 다시 적재하게 한다.
+      if (p?.sig) await unpublish(date);
+      throw err;
+    }
     log.info(
       { date, rows: counts, commitMs, replaced: prev.has(date), sigChanged: p?.sig !== sig },
       "limitup day committed",
