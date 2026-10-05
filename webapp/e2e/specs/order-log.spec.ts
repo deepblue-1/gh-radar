@@ -1,6 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 
-import { kstDateIso, type StrategyEventRow } from '@gh-radar/shared';
+import { compareStrategyEventAsc, kstDateIso, type StrategyEventRow } from '@gh-radar/shared';
 
 import { mockStockApi } from '../fixtures/mock-api';
 import { scrollOverflowing } from '../overflow';
@@ -16,6 +16,8 @@ import {
 } from '../fixtures/relay';
 import {
   FIXTURE_TRADE_DATE,
+  STRATEGY_AUTO_SELL_GOLDEN,
+  STRATEGY_AUTO_SELL_ROWS,
   STRATEGY_BRANCH_ROWS,
   STRATEGY_DAY_BY_NAME,
   STRATEGY_DAY_ROWS,
@@ -39,6 +41,9 @@ import {
  * ④ Phase 25-10 — 카드 주문로그(P25-7) · 창 분리 페이지 `/trading/order-log`(P25-8) · 백스톱 실측(P25-9).
  *   quick-260930-lq5 — 카드 로그는 탭이 아니라 탭 줄 버튼 + 한 종목 팝업이다(P25-7 · P25-7b 1280/390 × 라이트/다크
  *   스크린샷 · P25-9 폰 밴드 탭 줄 한 줄 · 팝업 전체 화면 맨 아래 · 새 줄 따라감).
+ *
+ * ⑤ Phase 27-08 — 「자동매도」 구분 칩(P27-O1 · D-14). 자동매도 행은 `STRATEGY_AUTO_SELL_ROWS`, 줄 텍스트 기대값은
+ *   `STRATEGY_AUTO_SELL_GOLDEN` 한 벌을 읽는다(문자열 두 벌 금지 — 종목명 칸만 실제 표시 이름으로 느슨하게).
  */
 
 test.describe.configure({ mode: 'serial' });
@@ -583,5 +588,171 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
     const note = `viewport=390 sharedTabs ySpread=${ySpread.toFixed(1)} · cardBar centers spread=${cardSpread.toFixed(1)} over=${cardBarOver} · card width=${cardW0.toFixed(1)}/${cardW1.toFixed(1)} wb=${gridW} · popup scroller client=${g0.client} height=${g0.height}`;
     test.info().annotations.push({ type: 'P25-9-backstop', description: note });
     console.log(`[P25-9] ${note}`);
+  });
+
+  // ===========================================================================
+  // Phase 27-08 — 「자동매도」 구분 칩 (D-14)
+  // ===========================================================================
+
+  /** 골든 F-A 한 줄 → 정규식. 종목명 칸(픽스처 「○○전자」)만 실제 표시 이름을 받는다. */
+  const goldenLine = (name: string): RegExp => {
+    const g = STRATEGY_AUTO_SELL_GOLDEN[name];
+    if (g === undefined) throw new Error(`골든 ${name} 없음`);
+    const esc = g.logLine.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`^${esc.replace('○○전자', '.+')}$`);
+  };
+
+  /** 줄 묶음의 세로 가운데 퍼짐(한 줄 판정 · P25-9 와 같은 잣대). */
+  const centerSpread = async (loc: Locator): Promise<number> => {
+    const cs = await loc.evaluateAll((els) =>
+      els.map((e) => {
+        const r = e.getBoundingClientRect();
+        return r.top + r.height / 2;
+      }),
+    );
+    expect(cs.length).toBeGreaterThan(1);
+    return Math.max(...cs) - Math.min(...cs);
+  };
+
+  test('P27-O1 주문로그 「자동매도」 칩 — 복원 + 저널 푸시 · 카드 팝업 · 창 분리 kind=auto · 칩 줄 한 줄 (D-14)', async ({
+    page,
+  }) => {
+    test.setTimeout(150_000);
+    const PUSHED = 'asStateDone'; // kind 13 — 칩이 켜진 채 저널(80)로 온다
+    const autoRow = (name: string): StrategyEventRow => today(STRATEGY_AUTO_SELL_ROWS[name]!);
+    const autoNames = Object.keys(STRATEGY_AUTO_SELL_ROWS);
+    const restored = [
+      ...STRATEGY_DAY_ROWS.map((r) => today(r)),
+      ...autoNames.filter((n) => n !== PUSHED).map(autoRow),
+    ];
+    await mockRestore(page, restored);
+
+    /** 이름 붙은 group 9 줄 — 화면 순서(오름차순). */
+    const g9Sorted = (names: readonly string[]) =>
+      names
+        .map((n) => ({ n, r: autoRow(n) }))
+        .filter(({ r }) => r.group === 9)
+        .sort((a, b) => compareStrategyEventAsc(a.r, b.r));
+    const restoredG9 = g9Sorted(autoNames.filter((n) => n !== PUSHED));
+    expect(restoredG9.length, 'WR-05 group 5 줄 하나만 빠진다').toBe(autoNames.length - 2);
+    expect(restored.filter((r) => r.group === 9)).toHaveLength(restoredG9.length);
+
+    // ── ① 공용 패널 주문로그 탭(1280) — 「자동매도」 칩 → group 9 줄만 · 골든 문장
+    await openWorkbench(page);
+    await openOrderLogTab(page);
+    await expect(lines(page)).toHaveCount(restored.length);
+    const kind = sharedPanels(page).getByRole('combobox', { name: '구분' });
+    const kindLabels = await kind.locator('option').allTextContents();
+    expect(kindLabels.indexOf('자동매도'), '「자동매도」 는 「매도」 바로 뒤').toBe(kindLabels.indexOf('매도') + 1);
+    expect(kindLabels).toEqual(expect.arrayContaining(['수동', 'VI', '시세']));
+    await kind.selectOption({ label: '자동매도' });
+    await expect(kind).toHaveValue('auto');
+    await expect(sharedPanels(page).locator('label[data-on]')).toHaveCount(1);
+    await expect(sharedPanels(page).locator('label[data-on]')).toContainText('구분');
+    const count = sharedPanels(page).locator('[data-slot="order-log-count"]');
+    await expect(lines(page)).toHaveCount(restoredG9.length);
+    await expect(count).toHaveText(`${restoredG9.length}건`);
+    for (const [i, { n }] of restoredG9.entries()) {
+      await expect(lines(page).nth(i), n).toHaveText(goldenLine(n));
+      await expect(lines(page).nth(i), n).toHaveAttribute('data-group', '9');
+    }
+
+    // ── ② 칩이 켜진 채 관찰자 저널(80)로 kind 13 자동매도 줄 → 새 줄이 붙는다(제자리 · 오름차순)
+    await relay.pushStrategyEvents([wire(autoRow(PUSHED))]);
+    const allG9 = g9Sorted(autoNames);
+    await expect(lines(page)).toHaveCount(allG9.length, { timeout: 15_000 });
+    await expect(count).toHaveText(`${allG9.length}건`);
+    for (const [i, { n }] of allG9.entries()) await expect(lines(page).nth(i), n).toHaveText(goldenLine(n));
+    const pushedAt = allG9.findIndex(({ n }) => n === PUSHED);
+    await expect(lines(page).nth(pushedAt)).toHaveAttribute('data-kind', '13');
+    await expect(lines(page).nth(pushedAt)).toHaveAttribute('data-new', '');
+
+    // WR-05 — group 5 로 뒤바뀌어 온 자동매도 줄은 서버 group 대로 「매도」 에 있다(「자동매도」 와 겹치지 않는다)
+    await kind.selectOption({ label: '매도' });
+    await expect(lines(page).filter({ hasText: goldenLine('asWr05AutoSellInGroup5') })).toHaveCount(1);
+    await expect(sharedPanels(page).locator('li[data-slot="order-log-line"][data-group="9"]')).toHaveCount(0);
+    await kind.selectOption({ label: '자동매도' });
+
+    // 칩 줄 한 줄 — 1280 · 390 (「자동매도」 가 켜진 상태 = 가장 긴 값)
+    const filterBar = sharedPanels(page).locator('[data-slot="order-log-filters"]');
+    const filterItems = filterBar.locator(':scope > *');
+    const tabSpread1280 = await centerSpread(filterItems);
+    expect(tabSpread1280, '1280 탭 칩 줄 한 줄').toBeLessThanOrEqual(4);
+
+    await page.setViewportSize(PHONE_VIEWPORT);
+    await expect(sharedPanels(page)).toHaveAttribute('data-pinned', 'true');
+    const unfold = sharedPanels(page).getByRole('button', { name: '펼치기 ▴' });
+    if (await unfold.isVisible()) await unfold.click();
+    await openOrderLogTab(page);
+    if ((await kind.inputValue()) !== 'auto') await kind.selectOption({ label: '자동매도' });
+    await expect(lines(page)).toHaveCount(allG9.length);
+    const tabSpread390 = await centerSpread(filterItems);
+    expect(tabSpread390, '390 탭 칩 줄 한 줄').toBeLessThanOrEqual(4);
+    expect(await filterBar.evaluate((el) => el.scrollWidth - el.clientWidth), '390 탭 칩 줄 가로 넘침 0').toBeLessThanOrEqual(0);
+
+    // ── ③ 카드 주문로그 팝업(1280) — 「자동매도」 = group 9 · 「매도」 = 매도 색에서 group 9 를 뺀 것
+    await page.setViewportSize(WIDE_VIEWPORT);
+    await openFocusCard(page);
+    const cardG9 = restored.filter((r) => inCardScope(r) && r.group === 9).length;
+    expect(cardG9).toBeGreaterThan(0);
+    await openCardLog(page);
+    const seg = dialog(page).getByRole('group', { name: '구분' });
+    await expect(seg.getByRole('button')).toHaveText(['전체', '매수', '매도', '자동매도', '시세']);
+    const segSpread1280 = await centerSpread(seg.getByRole('button'));
+    expect(segSpread1280, '1280 팝업 칩 줄 한 줄').toBeLessThanOrEqual(4);
+    await seg.getByRole('button', { name: '자동매도', exact: true }).click();
+    await expect(seg.getByRole('button', { name: '자동매도', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(popupRows(page)).toHaveCount(cardG9);
+    await expect(popupRows(page).locator('td:nth-child(3)')).toHaveText(Array<string>(cardG9).fill('자동매도'));
+    await expect(dialog(page).locator('[data-slot="card-log-count"]')).toHaveText(`${cardG9}건`);
+
+    await seg.getByRole('button', { name: '매도', exact: true }).click();
+    const sellBadges = await popupRows(page).locator('td:nth-child(3)').allTextContents();
+    expect(sellBadges.length).toBeGreaterThan(0);
+    expect(sellBadges, '팝업 「매도」 에 자동매도 줄 없음').not.toContain('자동매도');
+    expect(sellBadges, 'WR-05 group 5 줄은 「매도」 에').toContain('체결매도');
+
+    // 창 분리 — 「자동매도」 → kind=auto (window.open 을 가로채 URL 만 받는다)
+    await seg.getByRole('button', { name: '자동매도', exact: true }).click();
+    await page.evaluate(() => {
+      const w = window as unknown as { __opened: string[] };
+      w.__opened = [];
+      window.open = ((url?: string | URL) => {
+        w.__opened.push(String(url));
+        return null;
+      }) as typeof window.open;
+    });
+    await dialog(page).getByRole('button', { name: '주문로그 새 창으로 열기' }).click();
+    const opened = await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened);
+    expect(opened).toHaveLength(1);
+    const popoutUrl = new URL(opened[0]!, 'http://x');
+    expect(popoutUrl.pathname).toBe('/trading/order-log');
+    expect(popoutUrl.searchParams.get('kind')).toBe('auto');
+    expect(popoutUrl.searchParams.get('stock')).toBe(E2E_ISIN);
+    expect(popoutUrl.searchParams.get('ex')).toBe('KRX');
+    await closeCardLog(page);
+
+    // ── ④ 카드 팝업(390 · 전체 화면) — 「자동매도」 칩 줄 한 줄
+    await page.setViewportSize(PHONE_VIEWPORT);
+    await openCardLog(page);
+    const segSpread390 = await centerSpread(seg.getByRole('button'));
+    expect(segSpread390, '390 팝업 칩 줄 한 줄').toBeLessThanOrEqual(4);
+    const segRow = seg.locator('xpath=..');
+    expect(await segRow.evaluate((el) => el.scrollWidth - el.clientWidth), '390 팝업 칩 줄 가로 넘침 0').toBeLessThanOrEqual(0);
+    await seg.getByRole('button', { name: '자동매도', exact: true }).click();
+    await expect(popupPhoneRows(page)).toHaveCount(cardG9);
+    await closeCardLog(page);
+
+    // ── ⑤ 창 분리 페이지 — 같은 URL 로 열면 「자동매도」 가 이어진다
+    await page.setViewportSize(WIDE_VIEWPORT);
+    await page.goto(popoutUrl.pathname + popoutUrl.search);
+    await expect(win(page)).toBeVisible({ timeout: 30_000 });
+    await expect(win(page).getByRole('combobox', { name: '구분' })).toHaveValue('auto');
+    await expect(winLines(page)).toHaveCount(cardG9, { timeout: 15_000 });
+    for (const g of await winLines(page).evaluateAll((els) => els.map((e) => e.getAttribute('data-group')))) expect(g).toBe('9');
+
+    const note = `tab spread 1280=${tabSpread1280.toFixed(1)} 390=${tabSpread390.toFixed(1)} · popup seg spread 1280=${segSpread1280.toFixed(1)} 390=${segSpread390.toFixed(1)} · tab g9=${allG9.length} card g9=${cardG9}`;
+    test.info().annotations.push({ type: 'P27-O1', description: note });
+    console.log(`[P27-O1] ${note}`);
   });
 });
