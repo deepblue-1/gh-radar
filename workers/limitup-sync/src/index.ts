@@ -45,6 +45,13 @@ export { kstYmdDaysAgo } from "./purge";
  * vitest import 시에는 main() 미실행 — CLI 진입점만 동작.
  */
 
+/**
+ * `limitup_commit_day` 소요가 이 값(ms)을 넘으면 warn(WR-B02). RPC 하나가 8표 DELETE · INSERT 를 다 하므로 상한가
+ * 종목이 많은 날 member_alloc 이 늘면 statement_timeout 에 다가간다 — 닿기 전에 로그로 보이게 한다.
+ * (함수 자체 한도는 마이그레이션 20261006090500 의 `SET statement_timeout`.)
+ */
+export const COMMIT_WARN_MS = 5_000;
+
 /** 같은 날짜가 이 횟수 이상 연속 skip 되면 run 을 실패(종료 1)로 끝낸다(D-20). */
 export const ALERT_SKIP_STREAK = 3;
 
@@ -232,6 +239,7 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
     if (clearErr) throw new Error(`limitup_stage_clear ${date}: ${clearErr.message}`);
     result.grids += await uploadGrids(sb, date, grids);
     await stageDay(sb, date, { ...tables, grid_summary: gridSummary, member_daily: memberDaily }, config.stageChunk);
+    const commitStart = Date.now();
     await commitDay(sb, {
       date,
       manifestSha256: mr.sha256,
@@ -239,7 +247,17 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
       schemaVersion: m.schema_version,
       expected: counts,
     });
-    log.info({ date, rows: counts, replaced: prev.has(date), sigChanged: p?.sig !== sig }, "limitup day committed");
+    const commitMs = Date.now() - commitStart;
+    log.info(
+      { date, rows: counts, commitMs, replaced: prev.has(date), sigChanged: p?.sig !== sig },
+      "limitup day committed",
+    );
+    if (commitMs > COMMIT_WARN_MS) {
+      log.warn(
+        { date, commitMs, warnMs: COMMIT_WARN_MS, memberAlloc: counts.member_alloc },
+        "limitup commit slow — statement_timeout 에 다가간다",
+      );
+    }
     result.loaded.push(date);
   };
 

@@ -276,6 +276,41 @@ describe("main — 종료 코드(D-20): skip 만 0 · 같은 날짜 3연속 1 ·
   });
 });
 
+describe("dispatch — commit 소요 로그(WR-B02)", () => {
+  it("committed 로그에 commitMs · 임계(5초) 넘으면 slow warn 1건", async () => {
+    addDay(GOOD);
+    let t = 1_000_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => t);
+    try {
+      const fake = makeFakeSupabase({
+        rpc: {
+          limitup_commit_day: () => {
+            t += 6_000; // commit 이 6초 걸렸다
+            return { data: null };
+          },
+        },
+      });
+      const { dispatch, COMMIT_WARN_MS } = await loadIndex(fake);
+      await dispatch({ now: NOW });
+      expect(COMMIT_WARN_MS).toBe(5_000);
+    } finally {
+      nowSpy.mockRestore();
+    }
+    const committed = log.calls.info.find((c) => c.msg === "limitup day committed");
+    expect(committed?.obj).toMatchObject({ date: GOOD, commitMs: 6_000 });
+    const slow = log.calls.warn.filter((w) => w.msg.startsWith("limitup commit slow"));
+    expect(slow).toHaveLength(1);
+    expect(slow[0].obj).toMatchObject({ date: GOOD, commitMs: 6_000, warnMs: 5_000 });
+  });
+
+  it("임계 아래면 slow warn 없음", async () => {
+    addDay(GOOD);
+    await run();
+    expect(log.calls.info.find((c) => c.msg === "limitup day committed")?.obj).toHaveProperty("commitMs");
+    expect(log.calls.warn.filter((w) => w.msg.startsWith("limitup commit slow"))).toEqual([]);
+  });
+});
+
 describe("main — 신선도(WR-B01): 최신 export 뒤 3 거래일째 새 export 가 없으면 error 로그 + 종료 1", () => {
   it("export 는 10/2 까지 · 오늘 10/8 21:20 KST(10/5 휴장 · 10/6~8 거래일 3) → stale · main 1 · 정리는 그대로", async () => {
     addDay(GOOD);
