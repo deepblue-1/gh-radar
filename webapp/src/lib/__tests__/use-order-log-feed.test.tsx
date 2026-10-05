@@ -420,10 +420,16 @@ describe('useOrderLogFeed — 상한가 특징 체크 (D-18 · D-07)', () => {
     expect(result.current.rows.map((r) => r.seq).sort()).toEqual([exposed.seq, lf43.seq].sort());
   });
 
-  it('초기값 = pref(켜짐) → 마운트에 기본 조회 1회 + lf=1 조회 1회', async () => {
+  it('초기값 = pref(켜짐) → 첫 렌더는 꺼짐(SSR 하이드레이션 일치 · WR-A03) · 마운트 뒤 켜짐 → 기본 조회 1회 + lf=1 조회 1회', async () => {
     window.localStorage.setItem(PANELS_KEY, JSON.stringify({ orderLogLimitFeature: true }));
     mockServer([exposed], [lf43]);
-    const { result } = renderHook(() => useOrderLogFeed());
+    const firstRender: boolean[] = [];
+    const { result } = renderHook(() => {
+      const feed = useOrderLogFeed();
+      firstRender.push(feed.showLimitFeature);
+      return feed;
+    });
+    expect(firstRender[0]).toBe(false); // 서버 렌더와 같은 값 — pref 는 effect 에서 읽는다
     expect(result.current.showLimitFeature).toBe(true);
     expect(result.current.status).toBe('loading');
     await flush();

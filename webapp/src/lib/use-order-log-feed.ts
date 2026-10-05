@@ -36,6 +36,7 @@
  *   조회 캐시 꼬리보다 뒤면 그 사이 구간이 목록에서 조용히 빠지므로(WR-A02), 상한에 닿은 라이브 목록의 가장 오래된
  *   그날 줄이 캐시 꼬리보다 뒤에 있으면 `?lf=1` 을 한 번 더 불러 틈을 메운다(같은 틈에는 1회 — 루프 금지).
  *   체크 값은 `writePanelsPref({ orderLogLimitFeature })` 로 기억한다 — 세 표면이 같은 출처(localStorage)를 읽는다.
+ *   저장값은 마운트 후에 읽는다(첫 렌더는 꺼짐 — SSR 하이드레이션 일치 · WR-A03).
  *
  * `useUnseenOrderLogCount` — 새 로그 배지(R2): 탭이 가려진 동안 도착한 **범위 안** 푸시 줄 수(필터 선택 미적용).
  */
@@ -119,8 +120,12 @@ export function useOrderLogFeed({ date: dateOpt }: { date?: string } = {}): Orde
   /** 이 날짜로 복원이 성공한 적이 있는가 — 새 줄 강조의 기준선(④). */
   const restoredOkRef = useRef(false);
 
-  // ⑥ 「상한가 특징」 체크 — 초기값은 pref(없으면 꺼짐).
-  const [showLimitFeature, setShowLimitFeatureState] = useState(() => readPanelsPref().orderLogLimitFeature === true);
+  // ⑥ 「상한가 특징」 체크 — 저장값(pref)은 마운트 후에 읽는다(하이드레이션 · WR-A03). `/trading/order-log` 창은 SSR 되므로
+  // 지연 초기화로 읽으면 서버(false)와 클라 첫 렌더(true)가 갈려 체크 · 칩 · 상태가 서버 HTML 과 어긋난다.
+  const [showLimitFeature, setShowLimitFeatureState] = useState(false);
+  useEffect(() => {
+    if (readPanelsPref().orderLogLimitFeature === true) setShowLimitFeatureState(true);
+  }, []);
   const setShowLimitFeature = useCallback((next: boolean) => {
     setShowLimitFeatureState(next);
     writePanelsPref({ orderLogLimitFeature: next });
