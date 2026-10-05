@@ -38,8 +38,8 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
 });
 
 import { CardBody } from '../card/card-body';
+import { ACK_TIMEOUT_MS } from '../card/constants';
 import {
-  ACK_TIMEOUT_MS,
   StrategyCard,
   strategyStatusOf,
   type StrategyCardState,

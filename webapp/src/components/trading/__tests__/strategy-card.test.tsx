@@ -10,8 +10,8 @@ import type {
 
 import { EMPTY_RELAY_VALUE, RelayContext, type RelayContextValue } from '@/lib/relay-provider';
 import { relayQuoteKey } from '@/lib/use-relay-socket';
+import { ACK_TIMEOUT_MS } from '../card/constants';
 import {
-  ACK_TIMEOUT_MS,
   StrategyCard,
   type StrategyCardProps,
   type StrategyCardState,

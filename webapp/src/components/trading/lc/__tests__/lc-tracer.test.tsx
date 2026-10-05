@@ -34,7 +34,8 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
 });
 
 import { CardBody } from '../../card/card-body';
-import { ACK_TIMEOUT_MS, StrategyCard } from '../../card/strategy-card';
+import { ACK_TIMEOUT_MS } from '../../card/constants';
+import { StrategyCard } from '../../card/strategy-card';
 import { mockPointer, restoreMatchMedia } from '@/lib/__tests__/match-media';
 import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
 import { LC_REJECT_ECHO_GRACE_MS } from '../use-lc-field-commit';

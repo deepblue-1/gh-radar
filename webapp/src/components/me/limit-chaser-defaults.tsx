@@ -43,7 +43,7 @@ import {
 } from "@gh-radar/shared";
 
 import { CARD } from "@/components/layout/page-layout";
-import { ACK_TIMEOUT_MS, LC_CONTAINER_CLASS } from "@/components/trading/card/strategy-card";
+import { ACK_TIMEOUT_MS, LC_CONTAINER_CLASS } from "@/components/trading/card/constants";
 import { InlineValueEditor } from "@/components/trading/lc/inline-value-editor";
 import { NumberPadSheet } from "@/components/trading/lc/number-pad-sheet";
 import { ChoiceRow, SettingRow } from "@/components/trading/lc/setting-group";

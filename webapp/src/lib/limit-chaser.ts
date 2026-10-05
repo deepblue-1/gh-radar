@@ -46,9 +46,11 @@ import type {
   RelayUserSettingsMsg,
   RelayUserSettingsValues,
 } from '@gh-radar/shared';
+import { AUTO_SELL_METHOD_ORDER } from '@gh-radar/shared';
 
-// lc-fields 는 이 모듈에서 **타입만** 가져간다 — 런타임 순환이 없다. 84 시딩의 칸별 범위 판정이 lc 행 범위 정본을 쓴다.
-import { lcRowOfField } from '@/components/trading/lc/lc-fields';
+// 84 시딩의 칸별 범위 판정은 lc 범위 표(`lc-ranges` — lc-fields 행과 같은 한 벌)를 읽는다. lib 는 components 를
+// 런타임 import 하지 않는다(27-REVIEW IN-05 — 계층 역전 · 초기화 순서 순환 방지).
+import { lcFieldRangeOf } from '@/lib/lc-ranges';
 
 /**
  * 폼이 실제로 편집하는 값 — 필드 목록의 정본은 아래 `Omit` 목록이다(숫자를 여기 적지 않는다 — 필드가 합류할 때
@@ -350,19 +352,18 @@ const USER_SETTINGS_SEED_MAP: readonly (readonly [keyof UserSettingsSeed, keyof 
 ];
 
 /**
- * 이 값이 그 칸의 lc 행 범위에 드는가 — 범위 정본은 `lc-fields` 행(`inputRange ?? range` · 3택은 `options`)이다.
+ * 이 값이 그 칸의 lc 행 범위에 드는가 — 범위 정본은 `lc-ranges` 표(`inputRange ?? range` — lc-fields 행이 같은 표를
+ * 펼쳐 쓴다)이고, 3택(자동매도 방법)은 옵션 값 = shared `AUTO_SELL_METHOD_ORDER`(lc-fields `choice` 행의 옵션 원천)이다.
  * 게이트를 켠 cfg 의 좁은 범위(`inputRange`)로 본다 — 시딩된 값이 사용자가 그룹을 켜는 순간 `lcRangeIssue` 에 걸리면
  * 안 된다. 범위가 없는 칸(금액 · 하한잔량)은 relay `UIntSchema` = 0 이상 정수.
  */
 function fitsLcRange(field: keyof UserSettingsSeed, v: number): boolean {
   if (!Number.isInteger(v) || v < 0) return false;
-  const hit = lcRowOfField(field);
-  if (hit === null) return true;
-  const { row } = hit;
-  if (row.kind === 'choice') return row.options.some((o) => o.value === v);
-  if (row.kind !== 'value' && row.kind !== 'checkValue') return true;
-  const range = row.inputRange ?? row.range;
-  return range === undefined || (v >= range.min && v <= range.max);
+  if (field === 'autoSellMethod') return (AUTO_SELL_METHOD_ORDER as readonly number[]).includes(v);
+  const r = lcFieldRangeOf(field);
+  if (r === undefined) return true;
+  const range = r.inputRange ?? r.range;
+  return v >= range.min && v <= range.max;
 }
 
 /**

@@ -19,6 +19,7 @@
 
 import { AUTO_SELL_METHOD_LABELS, AUTO_SELL_METHOD_ORDER, autoSellBasisLabel, type RelayLimitChaser } from '@gh-radar/shared';
 
+import { LC_FIELD_RANGES, type LcRange } from '@/lib/lc-ranges';
 import type { LimitChaserFormValues } from '@/lib/limit-chaser';
 import { rangeIssueText, type PadUnit } from '@/lib/numpad';
 
@@ -64,27 +65,10 @@ export type LcBoolField = Extract<
 export type LcUnit = PadUnit;
 
 /**
- * 필드 범위(포함) — relay `lc.set` 스키마(`relay/src/ws/protocol.ts` `RelayLcSetSchema`)가 범위를 두는
- * 필드만 적는다. **값은 relay 스키마와 같아야 한다** — relay 는 스키마 위반 프레임을 받으면 WebSocket
- * 연결을 통째로 끊는다(`fanout.ts` `#reject` → `ws.close(BAD_MESSAGE)`). 그러면 모든 카드의 시세·에코가
- * 멈추고 같은 소켓의 수동주문은 결과 모름 잠금에 걸린다(20-REVIEW CR-01).
- *   - `sellOrderRatio`    `z.number().int().min(1).max(100)`
- *   - `sellQtyTrackRatio` `z.number().int().min(1).max(90)`
- *   - `sweepMinTickCount` · `postBuyReentry` `UByteSchema` = `min(0).max(255)`
- *   - `postBuyReboundPct` `z.number().int().min(0).max(100)` + `.superRefine` 「후매수 ON 이면 1~100」
- *     (서버 §9-2 ⑤ 동형 — `lcRangeIssue` 가 같은 조건 규칙을 본다)
- *   - `extraBuyMinQty` · `extraBuyMaxQty` `UIntSchema`(0 이상) — 게이트웨이 uint32 한도를 적는다
- *   - `autoSellStartCond` `z.number().int().min(0).max(9)` (Phase 27 · 늘)
- *   - `autoSellRatioPct` · `autoSellMethod` `UByteSchema` + `.superRefine` 「자동매도 ON 이면 비율 1~50 · 방법 1~3」
- *     (서버 §9-3 동형 — `lcRangeIssue` 가 같은 조건 규칙을 본다 · Pitfall 5)
- * 나머지 값 필드(가격·수량·금액)는 `UIntSchema`(0 이상 정수) — 키패드가 음수·소수를 만들 수 없어 범위가 없다.
+ * 필드 범위 표는 `lib/lc-ranges.ts` 가 정본이다(27-REVIEW IN-05 — lib 가 이 UI 정의 모듈을 런타임 import 하지 않게).
+ * 행은 `...LC_FIELD_RANGES.{필드}` 로 펼쳐 쓴다. 타입은 기존 import 경로를 위해 다시 내보낸다.
  */
-export interface LcRange {
-  min: number;
-  max: number;
-}
-
-const UINT32: LcRange = { min: 0, max: 4_294_967_295 };
+export type { LcRange };
 
 /** 값 · 체크 값 행이 공유하는 표시 필드. */
 interface LcValueSpec {
@@ -261,7 +245,7 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
         unit: '건',
         sheetTitle: '한방 건수',
         desc: '호가가 이만큼 바뀌면 한 번에 체결해요',
-        range: { min: 0, max: 255 },
+        ...LC_FIELD_RANGES.sweepMinTickCount,
       },
       {
         kind: 'value',
@@ -300,7 +284,7 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
         unit: '주',
         sheetTitle: '추가매수 최소 잔량',
         desc: '상한가 매수잔량이 이 값 이상일 때 사요 · 0 = 1주',
-        range: UINT32,
+        ...LC_FIELD_RANGES.extraBuyMinQty,
       },
       {
         kind: 'value',
@@ -310,7 +294,7 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
         unit: '주',
         sheetTitle: '추가매수 최대 잔량',
         desc: '상한가 매수잔량이 이 값을 넘으면 포기해요 · 0 = 무제한',
-        range: UINT32,
+        ...LC_FIELD_RANGES.extraBuyMaxQty,
       },
       // ☐버스트 시 해제(quick-261003-rc4 · gh-trade 3c6e6cff 클라 배치 = 최소~최대 줄 아래) — 켜 두면 버스트 상한가
       // 판정 뒤 첫 B6 틱에 서버가 추가매수를 내린다(포기 아님). 독립 축이 아니다 — 추가매수 OFF 면 같이 흐린다(P-2).
@@ -350,7 +334,7 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
         unit: '회',
         sheetTitle: '후매수 최대 횟수',
         desc: '최초 포함 총 진입 횟수예요 · 0 = 사지 않아요 · 껐다 켜면 이 값부터 다시 세요',
-        range: { min: 0, max: 255 },
+        ...LC_FIELD_RANGES.postBuyReentry,
       },
       // 단계 3(소진)일 때만 「최대」 바로 아래 한 줄(UI-SPEC §5) — 렌더가 판정한다.
       { kind: 'note', note: 'postBuyExhausted' },
@@ -371,8 +355,7 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
         unit: '%',
         sheetTitle: '후매수 반등',
         desc: '매수잔량 최저점에서 이만큼 다시 쌓이면 사요',
-        range: { min: 0, max: 100 },
-        inputRange: { min: 1, max: 100 },
+        ...LC_FIELD_RANGES.postBuyReboundPct,
       },
       // S→C 전용 읽기 전용 — 펼침이면 단계 0 에서도 늘 그린다(「—」 · 발동 순간 행이 밀리지 않게 · UI-SPEC §6).
       { kind: 'derived', source: 'postBuyTriggerQty', label: '발동잔량' },
@@ -417,7 +400,7 @@ export const LC_SELL_GROUPS: readonly LcGroupSpec[] = [
         unit: '%',
         desc: '보유 수량 중 매도할 비율이에요',
         a11yPrefix: '매도',
-        range: { min: 1, max: 100 },
+        ...LC_FIELD_RANGES.sellOrderRatio,
       },
       {
         kind: 'value',
@@ -438,7 +421,7 @@ export const LC_SELL_GROUPS: readonly LcGroupSpec[] = [
         unit: '%',
         desc: '처음 잔량 대비 비율로 추적해요',
         a11yPrefix: '매도',
-        range: { min: 1, max: 90 },
+        ...LC_FIELD_RANGES.sellQtyTrackRatio,
       },
       {
         kind: 'checkValue',
@@ -500,7 +483,7 @@ export const LC_SELL_GROUPS: readonly LcGroupSpec[] = [
         unit: '%',
         sheetTitle: '자동매도 시작조건',
         desc: '기준가격에서 기준가 × N% 아래 체결이면 발동 · 0 = 이탈 관측 뒤 다음 체결 (0~9)',
-        range: { min: 0, max: 9 },
+        ...LC_FIELD_RANGES.autoSellStartCond,
       },
       {
         kind: 'value',
@@ -510,9 +493,7 @@ export const LC_SELL_GROUPS: readonly LcGroupSpec[] = [
         unit: '%',
         sheetTitle: '자동매도 비율',
         desc: '주기 거래량 × 비율만큼 팔아요 (1~50%)',
-        // 꺼진 옛 에코의 0 은 통과(relay UByte) — 켠 cfg 만 1~50(`lcRangeIssue` 조건 규칙 · Pitfall 5).
-        range: { min: 0, max: 255 },
-        inputRange: { min: 1, max: 50 },
+        ...LC_FIELD_RANGES.autoSellRatioPct,
       },
       {
         kind: 'choice',

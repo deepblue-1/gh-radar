@@ -132,23 +132,10 @@ import { useRelayContext, useRelaySubscription } from "@/lib/relay-provider";
 import type { RelayServerMessageEntry } from "@/lib/use-relay-socket";
 import { cn } from "@/lib/utils";
 
-/**
- * 전송 후 「미반영」 판정까지의 대기(ms).
- * WinForms `RespTimeoutMs=3000` 과 **같은 값**이다 — 두 클라이언트가 다른 시각에 다른 말을
- * 하면 사용자가 어느 쪽을 믿을지 알 수 없다.
- */
-export const ACK_TIMEOUT_MS = 3_000;
+import { ACK_TIMEOUT_MS, LC_CONTAINER_CLASS } from "./constants";
+
 /** 로그 보관 상한(브라우저 메모리). 새로고침하면 어차피 사라진다. */
 const MAX_LOG = 100;
-
-/**
- * `@container/lc` — §2.2b 4밴드를 재는 컨테이너 선언(①). **이 파일이 유일한 출처**다.
- *
- * 종목상세 호가 탭(`stock-orderbook-section.tsx`)은 카드가 아니라 탭 본문 래퍼가 이 선언을 달아야
- * 하므로 이 상수를 import 해 쓴다 — 문자열을 그 파일에 다시 적지 않는다. (옛 상따 화면도 그랬다 · 18-13 삭제)
- * ★ 문자열 리터럴 그대로 둔다 — Tailwind 가 소스를 스캔해 이 클래스를 만든다.
- */
-export const LC_CONTAINER_CLASS = "@container/lc";
 
 /**
  * 지금 시각 `HH:MM:SS` — **로케일 포맷터를 쓰지 않는다.**
@@ -1111,7 +1098,7 @@ function StrategyCardImpl({
       data-open={open ? "true" : "false"}
       data-alert={alerted ? "true" : "false"}
       aria-label={displayName}
-      /* ① — 컨테이너 선언은 `LC_CONTAINER_CLASS`(이 파일 상단) 한 곳이다. */
+      /* ① — 컨테이너 선언은 `LC_CONTAINER_CLASS`(`./constants`) 한 곳이다. */
       className={cn(
         LC_CONTAINER_CLASS,
         // 토스 B(260924-vj1) — 무테 카드 면: 테두리는 색만 투명(1px 기하 유지 — `lc` 폭 불변),
