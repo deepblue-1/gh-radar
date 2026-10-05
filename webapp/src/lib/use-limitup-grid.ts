@@ -9,6 +9,8 @@
  *   `DecompressionStream("gzip")` 로 직접 해제해 JSON 으로 읽는다(의존성 0 · Baseline 2023-05).
  * ③ 캐시는 모듈 수준(페이지 수명): 날짜 → 서명 URL 목록 Promise(**날짜당 1회** — 카드가 여럿이어도) ·
  *   (날짜, isin) → 해제한 격자. 진행 중 요청도 묶어 같은 격자를 두 번 받지 않는다.
+ *   격자 하나가 해제하면 수 MB(coarse 2,340점 + 잠김 fine 창 × 24열)라, 최근에 쓴 날짜 `MAX_GRID_DATES`(2 — 보는 날짜 +
+ *   직전에 본 날짜)만 남기고 그보다 오래된 날짜의 격자 · URL 목록은 버린다(WR-A04 — ‹ › 로 며칠을 오가도 힙이 쌓이지 않게).
  * ④ 서명 URL 이 만료되면(fetch 4xx) 그 날짜 URL 캐시를 비우고 grid-urls 를 **한 번만** 다시 받아 재시도한다.
  *   그래도 실패면 error — 자동 재시도로 두드리지 않고 사용자가 「다시 시도」(retry) 를 누른다.
  */
@@ -27,11 +29,29 @@ const inflight = new Map<string, Promise<LimitupGridFile>>();
 
 const keyOf = (date: LimitupDate, isin: string) => `${date}|${isin}`;
 
+/** 격자를 남기는 최근 날짜 수(WR-A04) — 보는 날짜 + 직전에 본 날짜. */
+export const MAX_GRID_DATES = 2;
+/** 최근에 쓴 날짜(오래된 것 → 최근). 이 목록에서 빠진 날짜의 격자 · URL 목록은 캐시에 두지 않는다. */
+const recentDates: LimitupDate[] = [];
+
+/** 날짜를 최근 쓴 것으로 올리고, 상한을 넘긴 오래된 날짜의 격자 · URL 목록을 버린다. */
+function touchDate(date: LimitupDate): void {
+  const i = recentDates.indexOf(date);
+  if (i >= 0) recentDates.splice(i, 1);
+  recentDates.push(date);
+  while (recentDates.length > MAX_GRID_DATES) {
+    const drop = recentDates.shift()!;
+    for (const k of [...gridCache.keys()]) if (k.startsWith(`${drop}|`)) gridCache.delete(k);
+    urlCache.delete(drop);
+  }
+}
+
 /** 테스트 전용 — 모듈 캐시 비우기. */
 export function __resetLimitupGridCache(): void {
   urlCache.clear();
   gridCache.clear();
   inflight.clear();
+  recentDates.length = 0;
 }
 
 function urlsOf(date: LimitupDate): Promise<LimitupGridUrlsResponse> {
@@ -73,6 +93,7 @@ async function load(date: LimitupDate, isin: string): Promise<LimitupGridFile> {
 }
 
 function loadGrid(date: LimitupDate, isin: string): Promise<LimitupGridFile> {
+  touchDate(date);
   const key = keyOf(date, isin);
   const hit = gridCache.get(key);
   if (hit) return Promise.resolve(hit);
@@ -80,7 +101,8 @@ function loadGrid(date: LimitupDate, isin: string): Promise<LimitupGridFile> {
   if (!p) {
     p = load(date, isin).then(
       (g) => {
-        gridCache.set(key, g);
+        // 받는 동안 날짜가 상한 밖으로 밀렸으면 캐시에 넣지 않는다 — 버린 날짜가 되살아나지 않게.
+        if (recentDates.includes(date)) gridCache.set(key, g);
         inflight.delete(key);
         return g;
       },
@@ -116,6 +138,7 @@ export function useLimitupGrid({
     if (!enabled) return;
     const hit = gridCache.get(key);
     if (hit) {
+      touchDate(date);
       setState({ key, status: 'ready', grid: hit });
       return;
     }

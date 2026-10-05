@@ -14,7 +14,7 @@ vi.mock('@/lib/limitup-api', () => ({
   fetchLimitupGridUrls: (d: string) => urlsMock(d),
 }));
 
-import { __resetLimitupGridCache, useLimitupGrid } from '../use-limitup-grid';
+import { MAX_GRID_DATES, __resetLimitupGridCache, useLimitupGrid } from '../use-limitup-grid';
 import { AXION, DUKWOO, EXPORT_DATE as D, gridGzOf } from '@/test-fixtures/limitup-export';
 
 const urlOf = (isin: string, v = 1) => `https://storage.test/limitup-grid/${D}/${isin}.json.gz?token=v${v}`;
@@ -117,5 +117,28 @@ describe('useLimitupGrid', () => {
     act(() => result.current.retry());
     await waitFor(() => expect(result.current.status).toBe('ready'));
     expect(urlsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it(`최근 ${MAX_GRID_DATES}개 날짜 격자만 남긴다 — 셋째 날짜를 열면 가장 오래 안 본 날짜 격자 · URL 목록을 버린다 (WR-A04)`, async () => {
+    expect(MAX_GRID_DATES).toBe(2);
+    urlsMock.mockImplementation(async (d: string) => ({ ...urlsResp(), date: d }));
+    fetchMock.mockImplementation(async (u: string) => gzResponse(u.includes(DUKWOO) ? DUKWOO : AXION));
+    const open = async (date: string) => {
+      const h = renderHook(() => useLimitupGrid({ date, isin: DUKWOO, enabled: true }));
+      await waitFor(() => expect(h.result.current.status).toBe('ready'));
+      h.unmount();
+    };
+    await open(D);
+    await open('20261001');
+    await open(D); // D 를 다시 봄 — 캐시(요청 0) · 최근으로 올라간다
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await open('20260930'); // 셋째 날짜 — 가장 오래 안 본 20261001 을 버린다
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await open(D); // 남아 있다
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await open('20261001'); // 버려졌다 — grid-urls 부터 다시
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(urlsMock.mock.calls.map((c) => c[0])).toEqual([D, '20261001', '20260930', '20261001']);
   });
 });
