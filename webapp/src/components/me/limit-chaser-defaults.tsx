@@ -167,6 +167,21 @@ export function userSettingsRangeIssue(key: UserSettingsKey, value: number, unit
   return value < r.min || value > r.max ? rangeSentence(r.min, r.max, unit) : null;
 }
 
+/**
+ * 42 본문 11칸 전부의 범위 검사 — 첫 위반 칸의 문장 · 전부 안이면 null (27-REVIEW IN-02).
+ *
+ * 42 는 84 캐시 11값 + 바뀐 1칸으로 조립한다. 바뀐 칸만 보면 캐시의 나머지 칸이 범위 밖일 때 relay zod 가
+ * close(4400)로 **앱 소켓 전체**를 끊는다(상따 카드 `lcRangeIssue` 가 cfg 전체를 보는 것과 같은 이유).
+ * 위반 칸이 바뀐 칸이 아니면 문장 앞에 그 칸 이름을 붙인다 — 실패 말풍선은 바뀐 행에 서기 때문이다.
+ */
+export function userSettingsValuesIssue(s: RelayUserSettingsValues, changed: UserSettingsKey): string | null {
+  for (const row of USER_SETTINGS_ROWS) {
+    const issue = userSettingsRangeIssue(row.key, s[row.key], row.unit ?? "");
+    if (issue !== null) return row.key === changed ? issue : `${row.label} ${issue}`;
+  }
+  return null;
+}
+
 /** 84 에서 42 본문 11값만 뽑는다(`t` · `present` 제외 — `present` 는 84 전용). */
 export function userSettingsValuesOf(s: RelayUserSettingsMsg): RelayUserSettingsValues {
   return {
@@ -198,7 +213,7 @@ const EMPTY_KEYS: ReadonlySet<UserSettingsKey> = new Set();
 type UserSettingsFailure = { text: string; value: number };
 type UserSettingsFailures = Partial<Record<UserSettingsKey, UserSettingsFailure>>;
 
-type SaveOutcome = "noop" | "sent" | "disconnected";
+type SaveOutcome = "noop" | "sent" | "disconnected" | "invalid";
 
 interface UserSettingsSave {
   /** 행 확정 1건 — 84 미수신이면 무시 · 비행 중이면 대기열 · 아니면 즉시 42. */
@@ -286,6 +301,12 @@ function useUserSettingsSave(
     (key: UserSettingsKey, value: number, base: RelayUserSettingsMsg): SaveOutcome => {
       if (base[key] === value) return "noop";
       const s: RelayUserSettingsValues = { ...userSettingsValuesOf(base), [key]: value };
+      // ★ 11칸 전부 본다(IN-02) — 하나라도 범위 밖이면 relay 가 소켓을 끊는다. 보내지 않고 이 행을 실패로 둔다.
+      const issue = userSettingsValuesIssue(s, key);
+      if (issue !== null) {
+        setFailures((f) => ({ ...f, [key]: { text: issue, value } }));
+        return "invalid";
+      }
       if (!send({ t: "user.settings.set", s })) {
         // 소켓이 받지 않았다 — 비행을 세우지 않는다(답이 올 수 없다) · 재전송 없음.
         setFailures((f) => ({ ...f, [key]: { text: USER_SETTINGS_SAVE_TEXT.disconnected, value } }));
@@ -318,6 +339,8 @@ function useUserSettingsSave(
         queueRef.current.delete(key);
         const outcome = dispatchOne(key, value, base);
         if (outcome === "sent" || outcome === "disconnected") break;
+        // 범위 밖 건은 그 행만 실패로 접고(dispatchOne 이 박았다) 다음 건을 본다 — 칸마다 판정이 다르다.
+        if (outcome === "invalid") continue;
         flash(key);
       }
       syncQueue();

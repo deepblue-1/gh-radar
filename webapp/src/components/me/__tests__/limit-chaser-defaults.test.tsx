@@ -21,7 +21,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
 let mockEditMode: 'inline' | 'sheet' = 'inline';
 vi.mock('@/lib/use-edit-mode', () => ({ useEditMode: () => mockEditMode }));
 
-import { LimitChaserDefaultsSection } from '../limit-chaser-defaults';
+import { LimitChaserDefaultsSection, userSettingsValuesIssue } from '../limit-chaser-defaults';
 
 /** 서버 내장 기본값(fbs 주석 · 목업 `BUILTIN`). */
 const BUILTIN: Omit<RelayUserSettingsMsg, 'present'> = {
@@ -354,6 +354,29 @@ describe('Phase 27 상따 기본설정 즉시 저장(42)', () => {
       vi.advanceTimersByTime(5_000);
     });
     expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('IN-02 — 84 캐시의 다른 칸이 범위 밖이면 42 를 보내지 않고 바꾼 행을 실패로 둔다 · 대기 건도 칸마다 판정', () => {
+    // 캐시의 비율 기본값 0 — 서버 범위 1~50 밖. 그대로 실어 보내면 relay zod 가 close(4400)로 소켓을 끊는다.
+    const bad = settings(true, { autoSellRatioDefaultPct: 0 });
+    mockRelay = relay(bad);
+    render(<LimitChaserDefaultsSection />);
+    inlineCommit('auto-sell-period-sec', '5');
+    expect(send).not.toHaveBeenCalled();
+    expect(rowWrap('auto-sell-period-sec')).toHaveAttribute('data-failed', 'true');
+    // 바꾼 칸이 그 위반 칸을 고치면 11칸이 모두 범위 안이라 나간다.
+    inlineCommit('auto-sell-ratio-default-pct', '15');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sentPayloads()[0]).toEqual({ t: 'user.settings.set', s: { ...VALUES_OF(bad), autoSellRatioDefaultPct: 15 } });
+  });
+
+  it('IN-02 — userSettingsValuesIssue: 11칸 전부 안이면 null · 바꾼 칸 위반은 문장만 · 다른 칸 위반은 그 칸 이름을 붙인다', () => {
+    const ok = VALUES_OF(settings(true));
+    expect(userSettingsValuesIssue(ok, 'autoSellPeriodSec')).toBeNull();
+    expect(userSettingsValuesIssue({ ...ok, autoSellPeriodSec: 61 }, 'autoSellPeriodSec')).toBe('1~60초 사이여야 해요');
+    expect(userSettingsValuesIssue({ ...ok, autoSellMethodDefault: 0 }, 'autoSellPeriodSec')).toBe(
+      '방법 기본값 1~3 사이여야 해요',
+    );
   });
 
   it('42 — 84 미수신이면 어떤 확정도 보내지 않는다', () => {
