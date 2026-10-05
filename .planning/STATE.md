@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 28
 current_phase_name: 상한가 특징 연동 — gh-trade Phase 27 계약 반영
 status: executing
-stopped_at: Completed 28-06-PLAN.md
-last_updated: "2026-10-05T09:38:15.734Z"
+stopped_at: Completed 28-07-PLAN.md
+last_updated: "2026-10-05T09:53:43.584Z"
 last_activity: 2026-10-05
 last_activity_desc: Phase 28 execution started
-state_head: 4407912a91529f7318a399972e1357dd4d71a893
+state_head: 2cf77c2d3c7c62ff071f57acd0bb967dfc0b1f40
 progress:
   total_phases: 37
   completed_phases: 4
   total_plans: 377
-  completed_plans: 353
+  completed_plans: 354
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 28 (상한가 특징 연동 — gh-trade Phase 27 계약 반영) — EXECUTING
-Plan: 8 of 16
+Plan: 9 of 16
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-10-05 — Phase 28 execution started
@@ -200,6 +200,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 28 P05 | 10min | 2 tasks | 7 files |
 | Phase 28 P16 | 4 min | 1 tasks | 4 files |
 | Phase 28 P06 | 13 min | 2 tasks | 14 files |
+| Phase 28 P07 | 13min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -535,6 +536,10 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 28]: 28-16: main(argv) 가 종료 코드를 반환하고 CLI 가드만 process.exit — record_skip 반환이 정수가 아니면 throw(알림이 조용히 사라지지 않게)
 - [Phase 28]: 28-06: 창구 비중 가중 곱셈은 실수 — gh-trade facts.member_top 의 int64 곱셈 넘침(d_value × 겹침 ns)을 따르지 않는다. 골든도 member_top_f64 보정, gh-trade 에 알릴 것
 - [Phase 28]: 28-06: 격자 업로드는 commit 앞 · run 끝 limitup_purge_old(90, 30) + Storage 폴더 + kind 15 purge(30) — 정리 실패는 적재 날짜를 남기고 종료 1
+- [Phase 28]: 28-07: MEMBER_CODES 는 C# 사전 줄을 perl 치환으로 생성 후 (키|이름|외국계) 순서 diff 로 검증 — 61개 일치
+- [Phase 28]: 28-07: 행 머리 「지금 · 10초 · 창구」 를 shared LIMIT_FEATURE_ROW_HEADERS 로 — 표 th 와 툴팁 줄 머리 한 벌
+- [Phase 28]: 28-07: 깨짐확률 · 만 단위는 정수 십분위(0 에서 먼 쪽) · 우세 % 는 짝수 반올림 · 「잔량 취소」 는 0 이어도 --down(WinForms 원문)
+- [Phase 28]: 28-07: 툴팁 시각 = gwTimeMs+9h 정수 산술(밀리초 절사) · gwTimeMs ≤ 0 이면 확률 꼬리만 별도 줄
 
 ### Pending Todos
 
@@ -627,8 +632,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-10-05T09:37:59.686Z
-Stopped at: Completed 28-06-PLAN.md
+Last session: 2026-10-05T09:53:42.507Z
+Stopped at: Completed 28-07-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
