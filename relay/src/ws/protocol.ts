@@ -6,9 +6,11 @@
  * 여기를 통과하지 않은 값은 어떤 핸들러에도 닿지 않는다.
  *
  * 결정 근거:
- *   D-11  브라우저가 보낼 수 있는 것은 아래 판별 유니온에 실린 **11종뿐**이다 — 시세 3종
- *         (`auth`/`sub`/`unsub`) + 전략 5종 + 주문 3종(신규·정정·취소 — 정정은 Phase 18 D-21). 그 외 형태는 프로토콜 위반이고
+ *   D-11  브라우저가 보낼 수 있는 것은 아래 판별 유니온에 실린 **13종뿐**이다 — 시세 3종
+ *         (`auth`/`sub`/`unsub`) + 전략 7종 + 주문 3종(신규·정정·취소 — 정정은 Phase 18 D-21). 그 외 형태는 프로토콜 위반이고
  *         close(4400) 로 끝난다 — 관대하게 무시하면 공격 표면이 늘어난다.
+ *         Phase 27 이 전략 2종을 더했다 — `autosell.cmd`(41 자동매도 바로시작/중지 · 계좌 실림) ·
+ *         `user.settings.set`(42 사용자 설정 11값 전체 교체 · 계좌 축 없음).
  *   D-01  전략 메시지(`lc.set`/`vi.set`/`vi.confirm`/`strategies.disable`)를 **이 소켓으로
  *         받는다**. relay 가 FlatBuffer 로 바꿔 그 사용자의 DMA 세션으로 보낸다.
  *   D-02  주문(`order.new`/`order.modify`/`order.cancel`)도 **이 소켓으로 받는다**. Phase 15 의
@@ -26,8 +28,13 @@
  *     이것이고, 그래서 이 파일에는 화이트리스트가 없다.
  */
 import { z } from "zod";
-import { MAX_VI_ORDER_AMOUNT_KRW } from "@gh-radar/shared";
-import type { RelayExchange, RelayLimitChaserInput, RelayOutbound } from "@gh-radar/shared";
+import { MAX_VI_ORDER_AMOUNT_KRW, USER_SETTINGS_RANGES } from "@gh-radar/shared";
+import type {
+  RelayExchange,
+  RelayLimitChaserInput,
+  RelayOutbound,
+  RelayUserSettingsValues,
+} from "@gh-radar/shared";
 import type { LcSetCfg } from "../dma/envelope.js";
 
 import { logger } from "../logger.js";
@@ -357,6 +364,50 @@ export const RelayLcArmSchema = z.object({
 });
 
 /**
+ * 자동매도 바로시작 / 중지 (`autosell.cmd` → `AutoSellCommandReq(41)` · Phase 27 — gh-trade `limit-chaser.md` §9-3).
+ *
+ * `action` 은 문자열이다 — fanout 이 `AUTO_SELL_ACTION_WIRE` 로 1/2 로 바꾼다(`lc.arm` `latch` 선례 · 브라우저는
+ * 와이어 숫자를 모른다). `isin` · `accountNo` · `exchange` 는 `lc.set` 과 **같은 스키마**를 재사용한다 — 새로 적으면
+ * 어휘가 갈린다. 계좌 소유권은 여기서 보지 않는다(`#accountAllowed` 몫 — 이 파일에 화이트리스트가 없는 이유).
+ */
+export const RelayAutoSellCmdSchema = z.object({
+  t: z.literal("autosell.cmd"),
+  isin: IsinSchema,
+  accountNo: AccountNoSchema,
+  exchange: ExchangeSchema,
+  action: z.enum(["start", "stop"]),
+});
+
+/** 사용자 설정 1칸 — 정수 · 범위는 shared `USER_SETTINGS_RANGES` 에서 읽는다(리터럴을 다시 쓰지 않는다). */
+function userSettingInt(k: keyof RelayUserSettingsValues) {
+  return z.number().int().min(USER_SETTINGS_RANGES[k].min).max(USER_SETTINGS_RANGES[k].max);
+}
+
+/**
+ * 사용자 설정 저장 (`user.settings.set` → `SetUserSettingsReq(42)` · Phase 27).
+ *
+ * 11값 **전체**가 필수다(서버 42 는 전체 교체 — 빠진 칸을 0 으로 보내면 저장값이 지워진다). 범위는 서버 42 검증
+ * 범위 그대로(fbs 주석 = `USER_SETTINGS_RANGES`)이고, 위반은 close(4400) 이라 웹이 같은 상수로 먼저 막는다.
+ * `present`(84 전용)는 스키마에 없다 — 실려 와도 zod 기본 strip 으로 버려진다(엄격 모드 금지 · T-18-07).
+ */
+export const RelayUserSettingsSetSchema = z.object({
+  t: z.literal("user.settings.set"),
+  s: z.object({
+    preBuyAmount: userSettingInt("preBuyAmount"),
+    addBuyAmount: userSettingInt("addBuyAmount"),
+    postBuyAmount: userSettingInt("postBuyAmount"),
+    postBuyMaxCount: userSettingInt("postBuyMaxCount"),
+    postBuyFloorQty: userSettingInt("postBuyFloorQty"),
+    postBuyReboundPct: userSettingInt("postBuyReboundPct"),
+    sellQtyTrackRatio: userSettingInt("sellQtyTrackRatio"),
+    autoSellPeriodSec: userSettingInt("autoSellPeriodSec"),
+    auctionSellRatioPct: userSettingInt("auctionSellRatioPct"),
+    autoSellRatioDefaultPct: userSettingInt("autoSellRatioDefaultPct"),
+    autoSellMethodDefault: userSettingInt("autoSellMethodDefault"),
+  }),
+});
+
+/**
  * 전략 일괄 비활성화 (`strategies.disable`).
  *
  * `key` 생략·`""` 는 전체다. 상한 64자는 **서버 WR-09 와 같은 값**이라 relay 에서 먼저
@@ -465,6 +516,8 @@ export const RelayInboundSchema = z.discriminatedUnion("t", [
   RelayUnsubSchema,
   RelayLcSetSchema,
   RelayLcArmSchema,
+  RelayAutoSellCmdSchema,
+  RelayUserSettingsSetSchema,
   RelayViSetSchema,
   RelayViConfirmSchema,
   RelayStrategiesDisableSchema,

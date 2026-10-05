@@ -677,6 +677,61 @@ describe("SubscriptionHub — 관찰자 전용 프레임(79 · 80)이 사용자 
   });
 });
 
+describe("Phase 27 #onReady 43 — 전략 스냅샷 요청 끝에 사용자 설정 조회", () => {
+  let hub: SubscriptionHub;
+  let session: FakeSession;
+
+  beforeEach(() => {
+    resetDroppedEnvelopeCount();
+    hub = new SubscriptionHub();
+    session = new FakeSession("user-1");
+    hub.attach(session);
+  });
+
+  afterEach(() => {
+    hub.closeAll();
+    vi.restoreAllMocks();
+  });
+
+  /** 전략 스냅샷 요청 계열(24 · 21 · 34 · 43)만 순서대로. */
+  const snapshotTypes = (): number[] =>
+    session.sent
+      .map((s) => s.msgType)
+      .filter((t) =>
+        [MSG.GetLimitChaserListReq, MSG.GetVITriggerReq, MSG.GetVIOrderListReq, MSG.GetUserSettingsReq].includes(
+          t as (typeof MSG)["GetLimitChaserListReq"],
+        ),
+      );
+
+  it("Ready 진입 시 요청 순서 끝이 …, 34, 43 이다 — 43 은 34 바로 뒤", () => {
+    session.emitReady();
+    expect(snapshotTypes()).toEqual([
+      MSG.GetLimitChaserListReq,
+      MSG.GetVITriggerReq,
+      MSG.GetVITriggerReq,
+      MSG.GetVIOrderListReq,
+      MSG.GetUserSettingsReq,
+    ]);
+    const all = session.sent.map((s) => s.msgType);
+    expect(all.indexOf(MSG.GetUserSettingsReq)).toBe(all.indexOf(MSG.GetVIOrderListReq) + 1);
+  });
+
+  it("43 은 Ready 1회당 1건 — 재진입마다 1건씩 늘고 Ready 아니면 0건", () => {
+    session.emitReady();
+    expect(session.sent.filter((s) => s.msgType === MSG.GetUserSettingsReq)).toHaveLength(1);
+    session.emitReady();
+    expect(session.sent.filter((s) => s.msgType === MSG.GetUserSettingsReq)).toHaveLength(2);
+
+    // 준비되지 않은 세션에는 스냅샷 요청 자체가 나가지 않는다(요청 생략 경고 경로).
+    vi.spyOn(logger, "warn").mockImplementation((() => undefined) as never);
+    const cold = new FakeSession("user-2");
+    cold.isReady = false;
+    hub.attach(cold);
+    hub.requestStrategySnapshot("user-2");
+    expect(cold.sent.filter((s) => s.msgType === MSG.GetUserSettingsReq)).toHaveLength(0);
+  });
+});
+
 describe("Phase 27 사용자 설정 84 — 사용자별 캐시 · Ready 게이트 · 폐기 · quote 경계 · 85 강등", () => {
   let hub: SubscriptionHub;
   let session: FakeSession;

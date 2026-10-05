@@ -90,13 +90,17 @@ import path from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
 
 import {
+  readAutoSellCommandRequest,
   readQuoteRequestKey,
   readSetLimitChaserRequest,
+  readSetUserSettingsRequest,
   readViConfirmRequest,
   readViSetRequest,
   startFakeGateway,
+  type AutoSellCommandRequest,
   type FakeGateway,
   type SetLimitChaserRequest,
+  type SetUserSettingsRequest,
   type StrategyRequest,
   type ViConfirmRequest,
   type ViSetRequest,
@@ -113,6 +117,7 @@ import type {
   FakeOrderRespInput,
   FakeQueueProgressInput,
   FakeServerMessageInput,
+  FakeUserSettingsInput,
   FakeViOrderItemInput,
   FakeViTriggerInput,
 } from '../../../relay/tests/helpers/frames.js';
@@ -134,6 +139,9 @@ export { MSG as DMA_MSG };
  */
 export { readSetLimitChaserRequest, readViConfirmRequest, readViSetRequest };
 export type { SetLimitChaserRequest, StrategyRequest, ViConfirmRequest, ViSetRequest };
+/** Phase 27 — 41 자동매도 바로시작/중지 · 42 사용자 설정 저장 페이로드 파서 + 84 주입 입력. */
+export { readAutoSellCommandRequest, readSetUserSettingsRequest };
+export type { AutoSellCommandRequest, SetUserSettingsRequest, FakeUserSettingsInput };
 
 /** 잔량진행률(83) 주입 입력 재export — spec 이 relay 테스트 헬퍼 경로를 다시 import 하지 않게 한다 (25-06). */
 export type { FakeQueueProgressInput };
@@ -239,7 +247,7 @@ export interface LocalRelay {
   /** 게이트웨이가 수신한 요청 `msg_type` 누적(송신 순서 그대로). */
   requestLog(): number[];
   /**
-   * 전략 **명령** 프레임(10·11·14·33) 전량 — 페이로드 포함(송신 순서 그대로).
+   * 전략 **명령** 프레임(10·11·14·33 · 41·42) 전량 — 페이로드 포함(송신 순서 그대로).
    *
    * `requestLog()` 는 「보냈다」만 말한다. 「무엇을 보냈는가」가 계약인 자리
    * (VI 「수정」이 `run` 을 유지하는가 · 확인 체크가 on/off 중 무엇을 보냈는가)는
@@ -294,6 +302,17 @@ export interface LocalRelay {
    * 채우지 않는다. spec 이 의도한 값을 그대로 실어 보낸다.
    */
   pushServerMessage(input?: FakeServerMessageInput): Promise<void>;
+  /**
+   * 사용자 설정(84 `UserSettingsResp`)을 지금 밀어 넣는다 (Phase 27) — 로그인 직후 84 · 42 뒤 서버 브로드캐스트를
+   * 재현한다. 사용자 세션 소켓(`pushLimitChaserEcho` 와 같은 경로)으로 보내므로 hub 캐시 · Ready 게이트를 실제
+   * 코드로 지난다. 기본값은 서버 내장 기본값 + `present: false` 다.
+   */
+  pushUserSettings(input?: FakeUserSettingsInput): Promise<void>;
+  /**
+   * 43(사용자 설정 조회) 자동 응답 84 의 내용을 심는다 (Phase 27). **기본 null = 무응답**이고 `reset()` 이 null 로
+   * 되돌린다 — 켜면 세션 Ready 마다 relay 가 보내는 43 에 84 로 답한다(새로 연 탭 · 재접속 재현).
+   */
+  seedUserSettings(input: FakeUserSettingsInput | null): void;
   /**
    * 잔량진행률(83 `QueueProgress`)을 지금 밀어 넣는다 — **진행률 B안 보조행 e2e 의 유일한 주입구**다 (25-06).
    *
@@ -852,6 +871,12 @@ export async function withLocalRelay(opts: { observer?: boolean } = {}): Promise
     async pushServerMessage(input) {
       gateway.sendFrame(await userSocket(), buildServerMessageFrame(input));
     },
+    async pushUserSettings(input) {
+      gateway.sendUserSettings(await userSocket(), input);
+    },
+    seedUserSettings(input) {
+      gateway.seedUserSettings(input);
+    },
     async pushQueueProgress(input) {
       gateway.sendFrame(
         await userSocket(),
@@ -894,6 +919,8 @@ export async function withLocalRelay(opts: { observer?: boolean } = {}): Promise
       gateway.respondLimitChaserList([]);
       gateway.respondViTrigger(null);
       gateway.respondViOrderList([]);
+      // Phase 27 — 43 자동 응답도 기본(무응답)으로. 남으면 다음 spec 이 남의 사용자 설정을 본다.
+      gateway.seedUserSettings(null);
     },
     logs() {
       return output;

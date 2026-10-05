@@ -15,7 +15,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MAX_VI_ORDER_AMOUNT_KRW } from "@gh-radar/shared";
+import { MAX_VI_ORDER_AMOUNT_KRW, USER_SETTINGS_RANGES } from "@gh-radar/shared";
 
 import {
   LC_LEGACY_SET_REJECT_TEXT,
@@ -809,5 +809,86 @@ describe("Phase 27 lc.set 자동매도 4필드 — 선택 · 켜면 범위 · �
     if (old?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
     expect(old.cfg).not.toHaveProperty("autoSellEnabled");
     expect(withNeutralBuy3(old.cfg)).not.toHaveProperty("autoSellEnabled");
+  });
+});
+
+describe("Phase 27 autosell.cmd · user.settings.set 인바운드 스키마", () => {
+  beforeEach(() => {
+    vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const cmd = (overrides: Record<string, unknown> = {}): string =>
+    JSON.stringify({ t: "autosell.cmd", isin: ISIN, accountNo: ACCOUNT_NO, exchange: "KRX", action: "start", ...overrides });
+
+  /** 서버 내장 기본값(fbs 주석 · 84 present=false 값) — 11값 모두 범위 안. */
+  const SETTINGS = {
+    preBuyAmount: 4000,
+    addBuyAmount: 4000,
+    postBuyAmount: 4000,
+    postBuyMaxCount: 3,
+    postBuyFloorQty: 100_000,
+    postBuyReboundPct: 30,
+    sellQtyTrackRatio: 55,
+    autoSellPeriodSec: 3,
+    auctionSellRatioPct: 20,
+    autoSellRatioDefaultPct: 10,
+    autoSellMethodDefault: 3,
+  };
+  const set = (s: Record<string, unknown>): string => JSON.stringify({ t: "user.settings.set", s });
+
+  it("autosell.cmd start · stop · NXT 는 통과 — 계약 모양 그대로", () => {
+    expect(parseInbound(cmd())).toEqual({
+      t: "autosell.cmd",
+      isin: ISIN,
+      accountNo: ACCOUNT_NO,
+      exchange: "KRX",
+      action: "start",
+    });
+    expect(parseInbound(cmd({ action: "stop", exchange: "NXT" }))).toMatchObject({ action: "stop", exchange: "NXT" });
+  });
+
+  it("autosell.cmd 위반 — action \"pause\" · 와이어 숫자 1 · ISIN 11자 · 빈 계좌 · 13자 계좌 · 거래소 밖", () => {
+    expect(parseInbound(cmd({ action: "pause" }))).toBeNull();
+    expect(parseInbound(cmd({ action: 1 }))).toBeNull();
+    expect(parseInbound(cmd({ isin: ISIN.slice(0, 11) }))).toBeNull();
+    expect(parseInbound(cmd({ accountNo: "" }))).toBeNull();
+    expect(parseInbound(cmd({ accountNo: "1234567890123" }))).toBeNull();
+    expect(parseInbound(cmd({ exchange: "NYSE" }))).toBeNull();
+  });
+
+  it("user.settings.set 11값 범위 안 통과 · 경계값(min · max)도 통과", () => {
+    expect(parseInbound(set(SETTINGS))).toEqual({ t: "user.settings.set", s: SETTINGS });
+    const mins = Object.fromEntries(Object.entries(USER_SETTINGS_RANGES).map(([k, r]) => [k, r.min]));
+    const maxs = Object.fromEntries(Object.entries(USER_SETTINGS_RANGES).map(([k, r]) => [k, r.max]));
+    expect(parseInbound(set(mins))).not.toBeNull();
+    expect(parseInbound(set(maxs))).not.toBeNull();
+  });
+
+  it("user.settings.set 위반 — 매도 주기 0 · 61 · 방법 4 · 동시호가 비율 0 · 소수 · 키 누락", () => {
+    expect(parseInbound(set({ ...SETTINGS, autoSellPeriodSec: 0 }))).toBeNull();
+    expect(parseInbound(set({ ...SETTINGS, autoSellPeriodSec: 61 }))).toBeNull();
+    expect(parseInbound(set({ ...SETTINGS, autoSellMethodDefault: 4 }))).toBeNull();
+    expect(parseInbound(set({ ...SETTINGS, auctionSellRatioPct: 0 }))).toBeNull();
+    expect(parseInbound(set({ ...SETTINGS, preBuyAmount: 1.5 }))).toBeNull();
+    const { postBuyFloorQty: _drop, ...missing } = SETTINGS;
+    expect(parseInbound(set(missing))).toBeNull();
+  });
+
+  it("범위 밖 하나마다 위반이다 — 11키 전부 max+1 (shared 상수가 zod 의 정본)", () => {
+    for (const [k, r] of Object.entries(USER_SETTINGS_RANGES)) {
+      expect(parseInbound(set({ ...SETTINGS, [k]: r.max + 1 }))).toBeNull();
+      expect(parseInbound(set({ ...SETTINGS, [k]: r.min - 1 }))).toBeNull();
+    }
+  });
+
+  it("모르는 키(present · 바깥 extra)는 strip — 소켓을 끊지 않는다(.strict() 금지 · T-18-07)", () => {
+    const msg = parseInbound(JSON.stringify({ t: "user.settings.set", s: { ...SETTINGS, present: true }, extra: 1 }));
+    if (msg?.t !== "user.settings.set") throw new Error("user.settings.set 으로 좁혀지지 않았습니다");
+    expect(msg.s).not.toHaveProperty("present");
+    expect(msg).not.toHaveProperty("extra");
+    expect(msg.s).toEqual(SETTINGS);
   });
 });

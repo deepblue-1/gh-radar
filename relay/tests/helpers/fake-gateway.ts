@@ -23,6 +23,12 @@
  * 테스트가 `respondXxx` 로 심은 값 그대로이고, 요청 페이로드는 보지 않는다.
  * 명령 4종(10·11·14·33)은 자동 응답 없이 `strategyRequests()` 에 기록만 한다.
  *
+ * Phase 27 — 명령 2종(41 자동매도 바로시작/중지 · 42 사용자 설정 저장)도 기록만 한다(답은 60 에코 · 84 브로드캐스트 ·
+ * 54 — 타이밍은 테스트가 정한다). 43 사용자 설정 조회는 `seedUserSettings` 로 켰을 때만 그 연결에 84 1프레임을
+ * 답한다 — **기본 null = 무응답**이다. 늘 답하면 기존 통합 테스트의 「인증 직후 프레임 목록」 단언이 새
+ * `user.settings` 프레임으로 흔들린다(RESEARCH Pitfall 10). 로그인 직후 84 자동 송신도 하지 않는다(77 과 같은 규율 —
+ * `sendUserSettings` 수동).
+ *
  * Phase 19-09 추가 — 관찰자 모드. `ObserverLoginReq(5)` 는 `observerLoginRequests()` 에 기록하고,
  * `respondObserverLogin` 으로 켰을 때만 그 연결에 `ObserverLoginResp(79)` 를 자동 송신한다(기본 꺼짐 —
  * 일반 로그인 자동 응답과 분리). 저널 배치(80)는 테스트가 `pushJournalBatch` 로 직접 민다.
@@ -55,6 +61,7 @@ import {
   buildSetVITriggerRespFrame,
   buildTradeTapeFrame,
   buildUpdateAccountNoRespFrame,
+  buildUserSettingsFrame,
   buildViOrderListFrame,
   type FakeAccount,
   type FakeJournalBatchInput,
@@ -66,6 +73,7 @@ import {
   type FakeQuoteInput,
   type FakeRateCrossInput,
   type FakeTapeInput,
+  type FakeUserSettingsInput,
   type FakeViOrderItemInput,
   type FakeViTriggerInput,
 } from "./frames.js";
@@ -86,6 +94,9 @@ const STRATEGY_COMMAND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
   STRATEGY_MSG.SetVITriggerReq,
   STRATEGY_MSG.DisableStrategiesReq,
   STRATEGY_MSG.ConfirmVIOrderReq,
+  // Phase 27 — 41 의 답은 60 에코 · 54, 42 의 답은 84 브로드캐스트 · 54 다. 위와 같은 이유로 기록만 한다.
+  MSG.AutoSellCommandReq,
+  MSG.SetUserSettingsReq,
 ]);
 
 /** 수신한 전략 명령 1건. `payload` 는 Envelope 페이로드 **사본**이다. */
@@ -209,8 +220,15 @@ export type FakeGateway = {
   sendRateCrossSnapshot(sock: net.Socket, items?: FakeRateCrossInput[]): void;
   /** 예약·장전·시간외종가 발주 창 상태 주입 (77). */
   sendQueuedWindowState(sock: net.Socket, input?: FakeQueuedWindowInput): void;
+  /** 사용자 설정 주입 (84 · Phase 27). 로그인 직후 84 · 42 뒤 브로드캐스트를 테스트가 직접 재현한다. */
+  sendUserSettings(sock: net.Socket, input?: FakeUserSettingsInput): void;
   /**
-   * 지금까지 수신한 전략 **명령** 프레임(10·11·14·33) 전량 (송신 순서 그대로).
+   * `GetUserSettingsReq(43)` 자동 응답(84)의 내용을 심는다 (Phase 27). **기본 null = 무응답** — 켜면 43 을 보낸
+   * 그 연결에 84 1프레임을 쓴다. `null` 로 다시 끈다(Pitfall 10 — 기존 프레임 개수 단언 보호).
+   */
+  seedUserSettings(input: FakeUserSettingsInput | null): void;
+  /**
+   * 지금까지 수신한 전략 **명령** 프레임(10·11·14·33 · 41·42) 전량 (송신 순서 그대로).
    *
    * 페이로드를 그대로 넘기므로 테스트가 필요한 필드만 직접 파싱한다 — 게이트웨이가
    * 요청을 해석해 주면 그 해석이 곧 프로덕션 파서의 정답지가 되어 검증이 순환한다.
@@ -626,6 +644,84 @@ export function readGetVITriggerExchange(msgType: number, payload: Buffer): stri
   return req.key() ?? "";
 }
 
+/** `AutoSellCommandReq(41)` 요청 내용 — 자동매도 바로시작(action 1) / 중지(2) 전송분 (Phase 27). */
+export type AutoSellCommandRequest = {
+  isin: string;
+  accountNo: string;
+  exchange: string;
+  action: number;
+};
+
+/**
+ * 자동매도 명령(41) 내용을 꺼낸다 (Phase 27). `readArmLatchRequest` 와 같은 이유로 여기 있다 — msg_type 만 세면
+ * 「보냈다」까지밖에 못 보고, 어느 계좌 · 어느 동작이 실렸는지는 페이로드가 유일한 증거다. `exchange` 는 와이어
+ * 원문이다(정규화하지 않는다).
+ *
+ * @returns 41 이고 요청 테이블이 있으면 내용, 그 외 `null`
+ */
+export function readAutoSellCommandRequest(payload: Buffer): AutoSellCommandRequest | null {
+  const env = rootEnvelope(payload);
+  if (env === null || env.msgType() !== MSG.AutoSellCommandReq) return null;
+  const req = env.autoSellCommandReq();
+  if (req === null) return null;
+  return {
+    isin: req.isin() ?? "",
+    accountNo: req.accountNo() ?? "",
+    exchange: req.exchange() ?? "",
+    action: req.action(),
+  };
+}
+
+/** `UserSettings.present` 의 vtable 오프셋 — 84 전용 필드(fbs 12번째 · 4 + 2×11). */
+const USER_SETTINGS_PRESENT_VT = 26;
+
+/**
+ * `SetUserSettingsReq(42)` 요청 내용 — 11값 + `present` 슬롯 부재 증거 (Phase 27).
+ *
+ * `presentSlotEmpty` 는 접근자 값이 아니라 **vtable** 로 본다 — `false` 를 실어도 FlatBuffers 는 버퍼에 쓰지 않으므로
+ * 접근자로는 「싣지 않았다」를 증명할 수 없다(`readSetLimitChaserRequest` 의 슬롯 판정과 같은 이유).
+ */
+export type SetUserSettingsRequest = {
+  preBuyAmount: number;
+  addBuyAmount: number;
+  postBuyAmount: number;
+  postBuyMaxCount: number;
+  postBuyFloorQty: number;
+  postBuyReboundPct: number;
+  sellQtyTrackRatio: number;
+  autoSellPeriodSec: number;
+  auctionSellRatioPct: number;
+  autoSellRatioDefaultPct: number;
+  autoSellMethodDefault: number;
+  presentSlotEmpty: boolean;
+};
+
+/**
+ * 사용자 설정 저장(42) 내용을 꺼낸다 (Phase 27). 42 는 84 와 Envelope 슬롯 88 을 공유하므로 msg_type 으로 가른다.
+ *
+ * @returns 42 이고 요청 테이블이 있으면 내용, 그 외 `null`
+ */
+export function readSetUserSettingsRequest(payload: Buffer): SetUserSettingsRequest | null {
+  const env = rootEnvelope(payload);
+  if (env === null || env.msgType() !== MSG.SetUserSettingsReq) return null;
+  const u = env.userSettings();
+  if (u === null || u.bb === null) return null;
+  return {
+    preBuyAmount: u.preBuyAmount(),
+    addBuyAmount: u.addBuyAmount(),
+    postBuyAmount: u.postBuyAmount(),
+    postBuyMaxCount: u.postBuyMaxCount(),
+    postBuyFloorQty: u.postBuyFloorQty(),
+    postBuyReboundPct: u.postBuyReboundPct(),
+    sellQtyTrackRatio: u.sellQtyTrackRatio(),
+    autoSellPeriodSec: u.autoSellPeriodSec(),
+    auctionSellRatioPct: u.auctionSellRatioPct(),
+    autoSellRatioDefaultPct: u.autoSellRatioDefaultPct(),
+    autoSellMethodDefault: u.autoSellMethodDefault(),
+    presentSlotEmpty: u.bb.__offset(u.bb_pos, USER_SETTINGS_PRESENT_VT) === 0,
+  };
+}
+
 /** quote 관찰자 역할 (ed2e0240). 스텁은 relay 의 `QUOTE_ROLE` 을 import 하지 않는다 — 서버 규약 쪽 값이다. */
 const QUOTE_OBSERVER_ROLE = 1;
 
@@ -661,6 +757,8 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
   let viTrigger: FakeViTriggerInput | null = null;
   let viOrders: FakeViOrderItemInput[] = [];
   const strategyReqs: StrategyRequest[] = [];
+  /** 43 자동 응답 내용 (Phase 27). **기본 null = 무응답** — 조회 3종의 「늘 답한다」와 다르다(Pitfall 10). */
+  let userSettingsSeed: FakeUserSettingsInput | null = null;
 
   // 관찰자 모드 (19-09) — 자동 응답은 기본 꺼짐.
   let observerLoginResp: FakeObserverLoginRespInput | null = opts.observerLoginResp ?? null;
@@ -735,6 +833,9 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
         }
         if (msgType === STRATEGY_MSG.GetVIOrderListReq) {
           sock.write(frame(buildViOrderListFrame(viOrders, true)));
+        }
+        if (msgType === MSG.GetUserSettingsReq && userSettingsSeed !== null) {
+          sock.write(frame(buildUserSettingsFrame(userSettingsSeed)));
         }
         // 명령 4종은 **받아 기록만** 한다. payload 는 FrameReader 내부 버퍼의 뷰라
         // 사본을 뜬다 — 뷰를 그대로 쥐면 큰 누적 버퍼가 통째로 살아남는다.
@@ -837,6 +938,14 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
 
     sendQueuedWindowState(sock, input) {
       sock.write(frame(buildQueuedWindowStateFrame(input)));
+    },
+
+    sendUserSettings(sock, input) {
+      sock.write(frame(buildUserSettingsFrame(input)));
+    },
+
+    seedUserSettings(input) {
+      userSettingsSeed = input === null ? null : { ...input };
     },
 
     strategyRequests() {

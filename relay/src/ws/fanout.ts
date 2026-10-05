@@ -85,6 +85,7 @@ import type {
   JournalOrderRow,
   OrderMarket,
   RelayExchange,
+  RelayAutoSellCmdMsg,
   RelayInbound,
   RelayLcArmMsg,
   RelayNxtSnapMsg,
@@ -107,13 +108,16 @@ import type { DmaCredentials } from "../dma/session-manager.js";
 import {
   OrderBuildError,
   buildArmLatchReq,
+  buildAutoSellCommandReq,
   buildConfirmVIOrderReq,
   buildDisableStrategiesReq,
   buildSetLimitChaserReq,
+  buildSetUserSettingsReq,
   buildSetVITriggerReq,
   maskAccountNo,
   strategyKey,
   type ArmLatchMsgType,
+  type AutoSellActionWire,
   type LcSetCfg,
 } from "../dma/envelope.js";
 import { MSG } from "../dma/msg-type.js";
@@ -188,6 +192,17 @@ const ARM_LATCH_MSG_TYPE: Record<RelayLcArmMsg["latch"], ArmLatchMsgType> = {
   sell: MSG.ArmSellLatchReq,
   cancel: MSG.ArmCancelLatchReq,
 };
+
+/**
+ * `autosell.cmd` 의 동작 → 41 `AutoSellCommandReq.action` 와이어 값 (Phase 27 — gh-trade `limit-chaser.md` §9-3 「명령 41」).
+ *
+ * `ARM_LATCH_MSG_TYPE` 과 같은 이유로 **상수 객체 하나**다 — 키 집합을 계약(`RelayAutoSellCmdMsg["action"]`)에 `Record` 로
+ * 못박아, 계약에 동작이 생기면 여기가 먼저 컴파일 에러다. 브라우저는 와이어 숫자를 모른다.
+ */
+const AUTO_SELL_ACTION_WIRE = { start: 1, stop: 2 } as const satisfies Record<
+  RelayAutoSellCmdMsg["action"],
+  AutoSellActionWire
+>;
 
 /** relay 가 받은 `lc.arm` 프레임 — `latch` 에 구 탭 관용 `"buy"` 가 남아 있다. */
 type LcArmWire = Extract<RelayInboundWire, { t: "lc.arm" }>;
@@ -721,6 +736,10 @@ export class WsFanout {
     this.#send(conn, { t: "rate.cross.snap", items: this.#hub.getRateCrossItems(userId) });
     const queuedWindow = this.#hub.getQueuedWindow(userId);
     if (queuedWindow !== undefined) this.#send(conn, queuedWindow);
+    // ⚠️ `user.settings` 도 `queued.window` 와 같다 (Phase 27) — 84 를 한 번도 못 받았으면(`undefined`) **보내지 않는다.**
+    //    모르면 보내지 않는다 — 지어낸 `present=false` 를 내리면 `/me` 가 「서버 저장값 없음」 거짓 칩을 그린다.
+    const userSettings = this.#hub.getUserSettings(userId);
+    if (userSettings !== undefined) this.#send(conn, userSettings);
     // ⚠️ `unf.progress` snap:true 는 `rate.cross.snap` 과 같다 — **비어 있어도 1프레임 보낸다** (25-06).
     //    빈 배열은 「지금 보이는 진행 중 대기 없음」의 확정 정보이고, 웹은 snap 이면 Map 을 전량 교체한다
     //    (새 탭 · 재접속 뒤 옛 진행률이 남지 않는다). 83 은 Broadcast 라 캐시에는 hub 가 세션 허용 계좌로
@@ -908,6 +927,45 @@ export class WsFanout {
       const latch = msg.latch;
       const payload = this.#buildStrategyPayload(conn, userId, msg.t, () =>
         buildArmLatchReq(ARM_LATCH_MSG_TYPE[latch], msg.key),
+      );
+      if (payload === null) return;
+      if (!session.send(payload)) this.#onStrategySendFailed(conn, userId, msg.t);
+      return;
+    }
+
+    // ★ `autosell.cmd`(41 · Phase 27)는 `lc.arm` **바로 뒤**다 — 같은 전략 표면 · 같은 ①②③ 형식.
+    //
+    //   ② 계좌 대조를 한다 — 41 은 계좌를 싣는다(IDOR · D-09). 남의 계좌면 게이트웨이 0바이트.
+    //   전제(등록 전략 · 보유 · 단일가 · 저장 설정 범위)의 정본은 서버다 — 불충족은 54 ERROR
+    //   `src="AutoSellCommand"` 한글 사유로 기존 `msg` 경로를 그대로 탄다(relay 는 54 본문을 해석하지 않는다).
+    //
+    //   **pending-key FIFO 에 넣지 않는다** (`lc.arm` 과 같은 이유) — 답이 본문에 키를 담은 60 에코이고,
+    //   실패는 isin + 계좌를 담은 54 라 귀속이 필요 없다. 넣으면 head 를 아무도 꺼내지 않아 다음 빈 응답이
+    //   옛 키로 귀속되는 회귀가 생긴다. 재전송 경로도 만들지 않는다(T-16-10).
+    if (msg.t === "autosell.cmd") {
+      const session = this.#strategySession(conn, userId, msg.t);
+      if (session === null) return;
+      if (!this.#accountAllowed(conn, session, userId, msg.t, msg.accountNo)) return;
+      const { isin, accountNo, exchange } = msg;
+      const action = AUTO_SELL_ACTION_WIRE[msg.action];
+      const payload = this.#buildStrategyPayload(conn, userId, msg.t, () =>
+        buildAutoSellCommandReq({ isin, accountNo, exchange, action }),
+      );
+      if (payload === null) return;
+      if (!session.send(payload)) this.#onStrategySendFailed(conn, userId, msg.t);
+      return;
+    }
+
+    // `user.settings.set`(42 · Phase 27) — ② 계좌 대조가 **없다**: 계좌 축이 없고 서버가 세션 신원(`GetId()`)으로
+    // 저장한다. 11값 범위는 zod 가 이미 봤다(`USER_SETTINGS_RANGES`). 성공 신호는 서버가 같은 사용자 전 세션에
+    // 브로드캐스트하는 84 다 — relay 는 84 를 받은 대로 팬아웃할 뿐 **42 에 대해 지어낸 84 를 내지 않는다.**
+    // 거부는 54 ERROR `src="SetUserSettings"` 가 기존 `msg` 경로로 간다. pending FIFO · 재전송 없음(T-16-10).
+    if (msg.t === "user.settings.set") {
+      const session = this.#strategySession(conn, userId, msg.t);
+      if (session === null) return;
+      const settings = msg.s;
+      const payload = this.#buildStrategyPayload(conn, userId, msg.t, () =>
+        buildSetUserSettingsReq(settings),
       );
       if (payload === null) return;
       if (!session.send(payload)) this.#onStrategySendFailed(conn, userId, msg.t);

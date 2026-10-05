@@ -1408,6 +1408,51 @@ describe("WsFanout", () => {
     expect(framesOf(tabB.inbox, "rate.cross.snap")[0]).toEqual({ t: "rate.cross.snap", items: [] });
   });
 
+  it("Phase 27 인증 직후 user.settings — 84 를 모르면 0프레임 · 캐시가 있으면 queued.window 바로 뒤 1프레임 · 값 그대로", async () => {
+    // (A) 84 를 한 번도 못 받은 세션 — `queued.window` 와 같은 3상태 규율. 지어낸 present=false 를 내리지 않는다.
+    //     가짜 게이트웨이의 43 자동응답은 기본 null(무응답)이라 Ready 의 43 에도 84 가 오지 않는다(Pitfall 10).
+    await authed("token-a");
+    const tabA = await open();
+    tabA.ws.sendAuth("token-a");
+    await waitFor(() => framesOf(tabA.inbox, "vi.list").length === 1, "A 새 탭 스냅샷");
+    await flushIo(20);
+    expect(h.hub.getUserSettings(USER_A)).toBeUndefined();
+    expect(framesOf(tabA.inbox, "user.settings")).toHaveLength(0);
+
+    // (B) 게이트웨이가 77 · 84 를 밀면 그 뒤 인증하는 연결은 `queued.window` 바로 뒤에 `user.settings` 1프레임을 받는다.
+    await waitFor(() => gateway.sockets.length >= 1, "게이트웨이 연결");
+    const sock = gateway.sockets[0];
+    if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+    gateway.sendFrame(sock, buildQueuedWindowStateFrame({ open: true, maxPieces: 7 }));
+    gateway.sendUserSettings(sock, { present: true, preBuyAmount: 5000, autoSellPeriodSec: 5 });
+    await waitFor(() => h.hub.getUserSettings(USER_A) !== undefined, "사용자 설정 캐시");
+
+    const tabB = await open();
+    tabB.ws.sendAuth("token-a");
+    await waitFor(() => framesOf(tabB.inbox, "vi.list").length === 1, "B 새 탭 스냅샷");
+    await flushIo(20);
+
+    expect(framesOf(tabB.inbox, "user.settings")).toEqual([
+      {
+        t: "user.settings",
+        present: true,
+        preBuyAmount: 5000,
+        addBuyAmount: 4000,
+        postBuyAmount: 4000,
+        postBuyMaxCount: 3,
+        postBuyFloorQty: 100_000,
+        postBuyReboundPct: 30,
+        sellQtyTrackRatio: 55,
+        autoSellPeriodSec: 5,
+        auctionSellRatioPct: 20,
+        autoSellRatioDefaultPct: 10,
+        autoSellMethodDefault: 3,
+      },
+    ]);
+    const order = tabB.inbox.map((m) => m.t);
+    expect(order.indexOf("user.settings")).toBe(order.indexOf("queued.window") + 1);
+  });
+
   it("⑭-2b 같은 ISIN 으로 76 KRX 뒤 76 NXT 가 오면 새 탭의 첫 rate.cross.snap 은 그 ISIN 1원소 · NXT (quick-260926-rcc)", async () => {
     // gh-trade quick-260923-cfo 결정 A — 서버 상태는 ISIN 당 1개, 뒤에 온 76 이 거래소째 덮는다.
     // 캐시 키에 거래소를 두면 인증 직후 스냅샷에 같은 종목이 두 원소로 내려간다.

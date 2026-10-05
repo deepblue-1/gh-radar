@@ -151,6 +151,7 @@ import {
   QUOTE_LEVEL,
   buildGetAccountStateReq,
   buildGetLimitChaserListReq,
+  buildGetUserSettingsReq,
   buildGetVIOrderListReq,
   buildGetVITriggerReq,
   buildSubscribeQuoteReq,
@@ -1284,7 +1285,8 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
-   * 전략 스냅샷 3종을 요청한다 (D-12) — 24(상따 목록) · 21(VI 설정) · 34(VI 주문 목록).
+   * 전략 스냅샷 3종을 요청한다 (D-12) — 24(상따 목록) · 21(VI 설정) · 34(VI 주문 목록) — 그리고 43(사용자 설정 ·
+   * Phase 27)을 끝에 덧붙인다.
    *
    * **21 만 2회다** (17-05 / D-06): VI 전략은 서버가 거래소별 1건으로 관리하므로 KRX·NXT
    * 각각을 조회해야 한다. 24·34 는 거래소 축이 없어 1회 그대로다.
@@ -1321,9 +1323,13 @@ export class SubscriptionHub extends EventEmitter {
     }
 
     session.send(buildGetVIOrderListReq());
+    // 43 사용자 설정 (Phase 27 · Pitfall 4) — 84 는 로그인 직후(계좌 선언 전 = Ready 전)에 와서 캐시만 되고
+    // 팬아웃되지 않는다. 같은 세션에 이미 붙어 있던 탭(재접속)은 이 43 의 84 로 갱신된다. 응답 귀속이 필요 없다
+    // (84 는 사용자 단위 1건) — FIFO 없음.
+    session.send(buildGetUserSettingsReq());
     logger.info(
       { userId, viExchanges: [...queue] },
-      "[HUB] Ready — 전략 스냅샷 요청 (21 은 거래소별 2회)",
+      "[HUB] Ready — 전략 스냅샷 요청 (21 은 거래소별 2회 · 43 사용자 설정)",
     );
   }
 
