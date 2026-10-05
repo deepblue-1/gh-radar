@@ -986,6 +986,11 @@ export interface ChoiceRowProps {
   flash?: boolean;
   /** 실패 말풍선 문구(흐름 밖 — 행 높이 불변). */
   failureText?: string | null;
+  /**
+   * 인라인 모드에서 폭과 무관하게 늘 세그먼트(27-06 `/me`) — 섹션 행이 세그먼트 폭(≈235px)을 늘 담는 표면 전용.
+   * 기본(false)은 상따 카드 규칙 그대로 — 카드 992 미만은 「라벨 ─ 값 ›」 행 + 시트.
+   */
+  segmentAlways?: boolean;
 }
 
 /**
@@ -1019,6 +1024,7 @@ export function ChoiceRow({
   busy = false,
   flash = false,
   failureText = null,
+  segmentAlways = false,
 }: ChoiceRowProps) {
   const mode = useEditMode();
   const groupTitleId = useContext(GroupTitleIdContext);
@@ -1048,7 +1054,7 @@ export function ChoiceRow({
       editing={false}
       hasPopup
       dim={dim}
-      className={mode === 'inline' ? '@min-[992px]/lc:hidden' : undefined}
+      className={mode === 'inline' ? (segmentAlways ? 'hidden' : '@min-[992px]/lc:hidden') : undefined}
       onActivate={(el) => {
         if (busy) return;
         rowRef.current = el;
@@ -1070,7 +1076,10 @@ export function ChoiceRow({
   const tabStop = current?.value ?? options[0]?.value;
   const segmentRow =
     mode === 'inline' ? (
-      <div data-lc-field={id} className={cn(ROW_BOX, 'hidden @min-[992px]/lc:flex', dim && DIM_SELF)}>
+      <div
+        data-lc-field={id}
+        className={cn(ROW_BOX, segmentAlways ? 'flex' : 'hidden @min-[992px]/lc:flex', dim && DIM_SELF)}
+      >
         <span className={LABEL_TEXT}>{label}</span>
         <div
           ref={segRef}

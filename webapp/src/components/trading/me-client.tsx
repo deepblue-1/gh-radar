@@ -57,6 +57,7 @@ import type { RelayAccountState } from "@gh-radar/shared";
 import { PageHeader } from "@/components/layout/page-header";
 import { PAGE_WRAP } from "@/components/layout/page-layout";
 import { AccountCard } from "@/components/me/account-card";
+import { LimitChaserDefaultsSection } from "@/components/me/limit-chaser-defaults";
 import { AccountPanel } from "@/components/orderbook/account-panel";
 import { DmaGate, useDmaGateReason } from "@/components/trading/dma-gate";
 import { StrategyStatusCard } from "@/components/trading/strategy-status-card";
@@ -295,6 +296,9 @@ export function MeClient() {
       </div>
 
       <MeStatusBar />
+
+      {/* Phase 27 D-10 — 상따 기본설정(42/84). 계정 카드 · 상태줄 아래 · 전략 현황 위. DMA 게이트 분기에는 없다. */}
+      <LimitChaserDefaultsSection />
 
       <StrategyStatusCard />
 

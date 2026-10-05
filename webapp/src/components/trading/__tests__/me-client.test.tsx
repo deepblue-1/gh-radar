@@ -251,3 +251,28 @@ describe('MeStatusBar — 시세 필 (D-01 · D-04)', () => {
     expect(bar()).not.toHaveTextContent('시세 서버 연결 중');
   });
 });
+
+describe('Phase 27 /me 상따 기본설정 배치 (D-10)', () => {
+  beforeEach(() => {
+    mockRelay = { ...EMPTY_RELAY_VALUE, status: 'ready' } as RelayContextValue;
+    mockGate = null;
+    mockFeed = [];
+  });
+
+  it('본문 순서 = 상태줄 → 상따 기본설정 → 전략 현황', () => {
+    render(<MeClient />);
+    const bar = document.querySelector('[data-slot="me-status-bar"]') as HTMLElement;
+    const defaults = document.querySelector('[data-slot="me-lc-defaults"]') as HTMLElement;
+    const status = document.querySelector('[data-slot="strategy-status-card"]') as HTMLElement;
+    expect(defaults).not.toBeNull();
+    expect(bar.compareDocumentPosition(defaults) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(defaults.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('DMA 게이트 분기에는 상따 기본설정 섹션이 없다', () => {
+    mockGate = 'unmapped';
+    render(<MeClient />);
+    expect(document.querySelector('[data-slot="dma-gate"]')).not.toBeNull();
+    expect(document.querySelector('[data-slot="me-lc-defaults"]')).toBeNull();
+  });
+});
