@@ -32,7 +32,7 @@ Phase: 28 (상한가 특징 연동 — gh-trade Phase 27 계약 반영) — EXEC
 Plan: 16 of 16
 Status: Phase complete — ready for verification
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-10-05 - Completed quick task 261005-vk1: 상한가 보고서 리스트 펼침·사건 차트 가독성(스케치 011-A) + AI 애널리스트 분석 하위 이동
+Last activity: 2026-10-06 - Completed quick task 261005-x9o: 상한가 보고서 목록 잠김 최대 잔량 + 단일가 음영
 
 Progress: [█████████░] 93%
 
@@ -579,6 +579,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 261005-x9o | **상한가 보고서 목록 「잠김 최대 잔량」(안 B)** — 목록 값을 하루 전체 q_krw 최대(gh-trade 정의, VI 단일가 누적 포함)에서 잠김 q_max 사실 최대로(덕우 36.0→27.6억 · 엑시온 22.8→6.9억, 「같은 숫자 원칙」 의도된 예외 주석) · 폰 메타·행 aria 「잠김 최대」 · 펼친 카드 잠김 구간 레인에 미잠김 단일가 회색 음영(목록 스파크라인은 grid_summary 에 auction 없음 → 범위 밖). typecheck 0 · vitest 3537/1 skip · limitup e2e 1280·390 통과. 미배포(push 대기) | 2026-10-06 | b14ec955 | [261005-x9o-lock-max-residual](./quick/261005-x9o-lock-max-residual/) |
 | 261005-vk1 | **상한가 보고서 리스트 펼침 · 사건 차트 가독성(스케치 011-A) + AI 애널리스트 분석 하위** — 상한가 미도달 종목 제외(캡션 한 줄) · KPI 4칸(상한가 도달·종가까지 유지·깨짐·어제 D+1) · 하루 격자→종목 리스트 아코디언(한 번에 하나) · 한 줄 요약 · 번호 마커↔사실 문장(호버 상호 강조) · 기준선 탐지율만(25% 제거) · 「상한가 직전 1분」/「깨짐 직전 1분」 창 음영·용어 · 직전 1분 매수 1위를 member_entry_buy 사실에서 · 사이드바 AI 애널리스트 분석 하위(트레이딩 권한자만, 레일 아이콘). typecheck 0 · vitest 3530/1 skip · e2e 3 spec 통과. 미배포(push 대기) | 2026-10-05 | e76c7d1c | [261005-vk1-011-a-ai](./quick/261005-vk1-011-a-ai/) |
 | 260928-nf6 | **discussion-sync 사전 예산 판정 과대 추정 수정** — 필요량을 104종목×백필 30페이지=3,120 으로 잡아 하루 사용량 ~1,880 이후 KST 자정까지 매 정각 skip(최근 30일 265회, 평일 오후 수집 공백). 남은 예산 < 종목 수×1 일 때만 skip, 상한은 기존 요청 단위 원자적 하드캡. 판정 근거 필드 로그. 회귀 4케이스(재현 1986 실행 · 부족 skip · 경계 · 하드캡) · 86 passed | 2026-09-28 | 80df4f59 | [260928-nf6-discussion-sync](./quick/260928-nf6-discussion-sync/) |
 | 260927-u9t | **크롤링 워커 소스 실패 알림** — theme-sync·discussion-sync 가 소스 실패에도 exit 0 이라 무음(09-11~27 네이버 테마 0개, 09-27 Bright Data 401 10시간). 로그 매치 알림 정책 2개(gh-radar-theme-sync-source-failure · gh-radar-discussion-sync-source-failure, jsonPayload.level>=50 + backoff/fatal, 시간당 1통) + pino Cloud Logging severity 매핑 + 배포 스크립트 update-or-create. 30일 로그 재생 오탐 0. 두 잡 :90060c93 배포. 선행 fix 8d88d1e0 = 네이버 테마 소스를 m.stock.naver.com JSON API 로 전환 | 2026-09-27 | 90060c93 | [260927-u9t-theme-sync-discussion-sync](./quick/260927-u9t-theme-sync-discussion-sync/) |
