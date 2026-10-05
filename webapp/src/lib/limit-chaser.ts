@@ -659,6 +659,11 @@ export function isMasterOnlyDelta(cfg: RelayLimitChaserInput, echo: RelayLimitCh
  *   "System"(기본 ServerMessageContext · i/a/kind 빈 값)으로 보낸다** — 그 통지는 이 함수가
  *   아니라 카드가 arm in-flight 창 안에서 `isLimitChaserArmRejection` 으로 받는다
  *   (quick-260926-nr2). 이 함수의 로직은 그대로다.
+ * ★ **Phase 27 결손 ③** — `"AutoSell"`(자동매도 런타임 사유 줄 · INFO) · `"AutoSellCommand"`(41 바로시작 · 중지
+ *   거부 · ERROR)도 상따 몫이다. 이 둘이 빠지면 자동매도 사유 줄과 41 거부 줄이 카드 전략 로그와 전 종목 피드
+ *   **어디에도** 그려지지 않는다(gh-trade 28 은 둘 다 i · a 를 채운다). `"SetUserSettings"` 는 넣지 않는다 —
+ *   i 가 비고 사용자 기본값(42)의 답이라 상따 카드 몫이 아니다(`/me` 가 직접 읽는다). VI 판정(`vi-alert.ts`)은
+ *   src 가 달라 영향 없다.
  * ★ **대응하는 `"VITrigger"` 를 여기에 더하지 않는다** — 그것이 Pitfall 9 그 자체다.
  *   `isViServerMessage` 는 이 함수를 재사용하므로 여기가 넓어지면 그쪽도 함께 흔들린다:
  *   `"LimitChaser"` 는 `src === "Account"` 갈래를 타지 않으므로 VI 판정은 무변경이다.
@@ -670,7 +675,14 @@ export function isLimitChaserServerMessage(msg: {
   src: string;
   i: string;
 }): boolean {
-  if (msg.src === 'SetLimitChaser' || msg.src === 'LimitChaser') return true;
+  if (
+    msg.src === 'SetLimitChaser' ||
+    msg.src === 'LimitChaser' ||
+    msg.src === 'AutoSell' ||
+    msg.src === 'AutoSellCommand'
+  ) {
+    return true;
+  }
   return msg.src === 'Account' && msg.i !== '';
 }
 
@@ -801,4 +813,105 @@ export function isLimitChaserArmRejection(
   if (msg.src === 'Relay') return msg.i === '' && (msg.a === '' || msg.a === accountNo);
   if (msg.src === 'LimitChaser') return msg.i === isin;
   return false;
+}
+
+/*
+ * ── 자동매도 바로시작 · 중지(41 `AutoSellCommandReq`) 판정 (Phase 27 D-05 ~ D-09) ──────────────
+ *
+ * 41 은 **별도 ack 프레임이 없다**. 성공은 그 키의 60 에코가 기대 전이를 실을 때(D-08), 실패는 54 ERROR
+ * 원문이다. 웹은 보유 0 · 단일가 · 설정 범위 밖을 **추정하지 않는다**(D-09 · Phase 24 D-13) — 서버 원문이 말한다.
+ * 15:40 정리 귀속(`limitChaserGateDisarmed` · `marketCloseReleaseKeysOf`)에는 자동매도를 넣지 않는다 — 서버가
+ * 15:40 에 자동매도를 내리지 않는다(gh-trade WR-07).
+ */
+
+/** 바로시작 · 중지 — 카드 상태 기계 · 버튼 렌더가 공유하는 action 어휘(relay `autosell.cmd` 의 `action`). */
+export type AutoSellAction = 'start' | 'stop';
+
+/** 41 in-flight 동안 자동매도 그룹 제목줄 칩 문구(D-08 — 점선 테두리 pend). */
+export const AUTO_SELL_PEND_TEXT = {
+  start: '바로시작 전송…',
+  stop: '중지 전송…',
+} as const satisfies Record<AutoSellAction, string>;
+
+/**
+ * 이 통지가 **내가 보낸 41(바로시작 · 중지)의 거부 답**인가 — 카드 「미반영」 해제 키(확정).
+ *
+ * `isLimitChaserArmRejection` 과 같은 구조다. 호출자가 41 을 보내 놓은 **in-flight 창 안에서만** 묻는다 —
+ * 54 에 거래소가 없어 KRX · NXT 두 카드를 가를 수 없고, 창이 그 상관을 맡는다.
+ *
+ * 인정하는 모양 셋(lv 는 ERROR 만):
+ *   - `src === "AutoSellCommand"` · i · a 일치 — 서버 41 실패 ctx 가 isin · 계좌 둘 다 채운다
+ *     (gh-trade `Gateway.cpp:3774`). 보유 0 · 등록된 상따 없음 · 범위 밖이 전부 이 갈래다.
+ *   - `src === "Account"` · i · a 일치 — 41 계좌 가드(`CheckSessionAccount`)가 41 ctx 를 그대로 싣는다.
+ *   - `src === "Relay"` · i 빈 · a 빈 또는 이 계좌 — relay 게이트웨이 전 거부(세션 · 계좌 화이트리스트).
+ *
+ * `"AutoSell"`(INFO 사유 줄)은 답이 아니다 — 41 과 무관하게도 흐른다. WARN 도 답이 아니다.
+ *
+ * ⚠️ 본문 `m` 은 읽지 않는다.
+ */
+export function isAutoSellCommandRejection(
+  msg: { src: string; i: string; a: string; lv: string },
+  isin: string,
+  accountNo: string,
+): boolean {
+  if (isin === '' || accountNo === '') return false;
+  if (msg.lv !== 'ERROR') return false;
+  if (msg.src === 'AutoSellCommand' || msg.src === 'Account') return msg.i === isin && msg.a === accountNo;
+  if (msg.src === 'Relay') return msg.i === '' && (msg.a === '' || msg.a === accountNo);
+  return false;
+}
+
+/**
+ * 바로시작 · 중지 버튼 활성(D-05 · D-09).
+ *
+ * - 에코 없음(서버에 그 키 전략이 없다) → 둘 다 비활성.
+ * - `autoSellState` 2(감시) · 3(매도중) → 중지만. 그 밖(0 · 1 · 4 · 모르는 값) → 바로시작만.
+ *   WinForms `AutoSellRunning = state 2 || 3` 동형(2026-10-05 개정 — 목업의 「3 만 중지」 대체).
+ *
+ * 렌더 활성과 카드 전송 가드가 **이 함수 하나 · 같은 `server`** 를 읽는다 — 둘이 갈리면 누를 수 있는데
+ * 안 나가거나, 못 누르는데 나간다.
+ */
+export function autoSellButtonsOf(server: RelayLimitChaser | null): { start: boolean; stop: boolean } {
+  if (server === null) return { start: false, stop: false };
+  const running = server.autoSellState === 2 || server.autoSellState === 3;
+  return { start: !running, stop: running };
+}
+
+/**
+ * 이 60 에코가 **내 41 의 기대 전이**인가(D-08) — 41 in-flight 해제 조건.
+ *
+ * - start → `autoSellState === 3 ∧ autoSellEnabled`(서버 `StartAutoSellNow` 가 매도중으로 올린다).
+ * - stop  → `!autoSellEnabled`(킬 스위치도 같은 에코를 낸다 — gh-trade CR-01 · 결과가 같으니 성공으로 읽어도 된다).
+ *
+ * 그 밖의 에코(300ms 런타임 푸시 · lc.set 에코)는 41 의 답이 아니다 — 아무 에코에나 풀면 3초 「미반영」이
+ * 조용히 사라진다.
+ */
+export function isAutoSellCommandSettled(action: AutoSellAction, echo: RelayLimitChaser): boolean {
+  if (action === 'start') return echo.autoSellState === 3 && echo.autoSellEnabled;
+  return !echo.autoSellEnabled;
+}
+
+/** 자동매도 그룹 필드 — D-07 게이트 · 41 in-flight 상호 배제가 보는 범위의 정본. */
+export const AUTO_SELL_GROUP_FIELDS = [
+  'autoSellEnabled',
+  'autoSellStartCond',
+  'autoSellRatioPct',
+  'autoSellMethod',
+] as const satisfies readonly (keyof LimitChaserFormValues)[];
+
+/**
+ * 바로시작을 막는가(D-07 · 2026-10-05 재해석).
+ *
+ * 41 은 서버 **저장값**으로 돈다. 그래서 자동매도 그룹 필드의 확정이 전송 중 · 대기열 · 실패 표시 중이면
+ * 화면 값 ≠ 서버 값일 수 있어 바로시작을 막는다. 중지는 이 판정을 보지 않는다. 다른 그룹의 확정은 무관하다.
+ */
+export function autoSellStartBlocked(s: {
+  inflightField: keyof LimitChaserFormValues | null;
+  queuedFields: readonly (keyof LimitChaserFormValues)[];
+  failures: Partial<Record<keyof LimitChaserFormValues, unknown>>;
+}): boolean {
+  const fields: readonly (keyof LimitChaserFormValues)[] = AUTO_SELL_GROUP_FIELDS;
+  if (s.inflightField !== null && fields.includes(s.inflightField)) return true;
+  if (s.queuedFields.some((f) => fields.includes(f))) return true;
+  return fields.some((f) => s.failures[f] != null);
 }

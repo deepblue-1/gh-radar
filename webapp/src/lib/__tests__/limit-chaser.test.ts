@@ -30,7 +30,14 @@ import {
   isLegacyAmountUnknown,
   isLegacyBuySchema,
   isLimitChaserArmRejection,
+  isLimitChaserServerMessage,
   isLimitChaserSetRejection,
+  isAutoSellCommandRejection,
+  isAutoSellCommandSettled,
+  autoSellButtonsOf,
+  autoSellStartBlocked,
+  AUTO_SELL_GROUP_FIELDS,
+  AUTO_SELL_PEND_TEXT,
   isMarketCloseReleaseNotice,
   isMasterOnlyDelta,
   limitChaserGateDisarmed,
@@ -1212,5 +1219,88 @@ describe("Phase 27 자동매도 — 삭제 판정 · 켜진 전략 · 폼 값", 
     expect([on.autoSellEnabled, on.autoSellStartCond, on.autoSellRatioPct, on.autoSellMethod]).toEqual([true, 2, 15, 1]);
     expect(on).not.toHaveProperty('autoSellState');
     expect(on).not.toHaveProperty('autoSellSoldQty');
+  });
+});
+
+/*
+  Phase 27 — 41(AutoSellCommandReq) 판정. 버튼 활성(D-05 · D-09) · 기대 전이(D-08) · 거부 귀속(「카드 미반영 해제 키」) ·
+  D-07 그룹 게이트 · 표시 몫 결손 ③. 거부 문구는 gh-trade 28-09 가드 원문 — 픽스처로만 쓰고 판정은 본문을 읽지 않는다.
+*/
+describe('Phase 27 41 판정', () => {
+  const m = (over: Partial<{ src: string; i: string; a: string; lv: string; m: string }>) => ({
+    src: 'AutoSellCommand',
+    i: ISIN,
+    a: ACCOUNT,
+    lv: 'ERROR',
+    m: '자동매도 바로시작 거부 — 보유수량 0',
+    ...over,
+  });
+
+  it('isAutoSellCommandRejection — ERROR AutoSellCommand · 종목 · 계좌 일치만 참', () => {
+    expect(isAutoSellCommandRejection(m({}), ISIN, ACCOUNT)).toBe(true);
+    expect(isAutoSellCommandRejection(m({ i: 'KR7000660001' }), ISIN, ACCOUNT)).toBe(false);
+    expect(isAutoSellCommandRejection(m({ a: '9999999999' }), ISIN, ACCOUNT)).toBe(false);
+    expect(isAutoSellCommandRejection(m({ lv: 'WARN' }), ISIN, ACCOUNT)).toBe(false);
+    expect(isAutoSellCommandRejection(m({ lv: 'INFO', src: 'AutoSell', m: '자동매도 감시 → 매도중 (바로시작)' }), ISIN, ACCOUNT)).toBe(false);
+  });
+
+  it('isAutoSellCommandRejection — ERROR Account(i · a 일치) 참 · Relay(i 빈 · a 빈 또는 이 계좌) 참', () => {
+    const acct = '이 세션에 등록되지 않은 계좌입니다 — 자동매도 명령 거부 (계좌 등록 후 다시 시도하세요)';
+    expect(isAutoSellCommandRejection(m({ src: 'Account', m: acct }), ISIN, ACCOUNT)).toBe(true);
+    expect(isAutoSellCommandRejection(m({ src: 'Account', i: 'KR7000660001' }), ISIN, ACCOUNT)).toBe(false);
+    expect(isAutoSellCommandRejection(m({ src: 'Relay', i: '', a: '' }), ISIN, ACCOUNT)).toBe(true);
+    expect(isAutoSellCommandRejection(m({ src: 'Relay', i: '', a: ACCOUNT }), ISIN, ACCOUNT)).toBe(true);
+    expect(isAutoSellCommandRejection(m({ src: 'Relay', i: '', a: '9999999999' }), ISIN, ACCOUNT)).toBe(false);
+    expect(isAutoSellCommandRejection(m({ src: 'Relay', i: ISIN }), ISIN, ACCOUNT)).toBe(false);
+    expect(isAutoSellCommandRejection(m({ src: 'SetLimitChaser' }), ISIN, ACCOUNT)).toBe(false);
+  });
+
+  it('isAutoSellCommandRejection — 전략 키 반쪽이면 거짓 · 본문 m 은 결과에 영향 없음', () => {
+    expect(isAutoSellCommandRejection(m({}), '', ACCOUNT)).toBe(false);
+    expect(isAutoSellCommandRejection(m({}), ISIN, '')).toBe(false);
+    expect(isAutoSellCommandRejection(m({ m: '' }), ISIN, ACCOUNT)).toBe(true);
+    expect(isAutoSellCommandRejection(m({ m: '자동매도 명령 거부 — 등록된 상따 전략이 없습니다' }), ISIN, ACCOUNT)).toBe(true);
+  });
+
+  it('autoSellButtonsOf — 에코 없음 둘 다 비활성 · 0/1/4(그 밖) 바로시작 · 2/3 중지 (WinForms state 2 || 3)', () => {
+    expect(autoSellButtonsOf(null)).toEqual({ start: false, stop: false });
+    for (const st of [0, 1, 4, 9]) {
+      expect(autoSellButtonsOf(serverEcho({ autoSellState: st }))).toEqual({ start: true, stop: false });
+    }
+    for (const st of [2, 3]) {
+      expect(autoSellButtonsOf(serverEcho({ autoSellState: st }))).toEqual({ start: false, stop: true });
+    }
+  });
+
+  it('isAutoSellCommandSettled — start 는 state 3 ∧ enabled · stop 은 !enabled 일 때만', () => {
+    expect(isAutoSellCommandSettled('start', serverEcho({ autoSellState: 3, autoSellEnabled: true }))).toBe(true);
+    expect(isAutoSellCommandSettled('start', serverEcho({ autoSellState: 2, autoSellEnabled: true }))).toBe(false);
+    expect(isAutoSellCommandSettled('start', serverEcho({ autoSellState: 3, autoSellEnabled: false }))).toBe(false);
+    expect(isAutoSellCommandSettled('stop', serverEcho({ autoSellEnabled: false, autoSellState: 0 }))).toBe(true);
+    expect(isAutoSellCommandSettled('stop', serverEcho({ autoSellEnabled: true, autoSellState: 3 }))).toBe(false);
+  });
+
+  it('autoSellStartBlocked — 자동매도 그룹 필드의 in-flight · 대기열 · 실패만 막는다(다른 그룹 무관)', () => {
+    const none = { inflightField: null, queuedFields: [], failures: {} } as const;
+    expect(autoSellStartBlocked(none)).toBe(false);
+    expect(autoSellStartBlocked({ ...none, inflightField: 'autoSellRatioPct' })).toBe(true);
+    expect(autoSellStartBlocked({ ...none, queuedFields: ['autoSellMethod'] })).toBe(true);
+    expect(autoSellStartBlocked({ ...none, failures: { autoSellEnabled: { reason: 'timeout' } } })).toBe(true);
+    expect(autoSellStartBlocked({ ...none, inflightField: 'sellOrderRatio' })).toBe(false);
+    expect(autoSellStartBlocked({ ...none, queuedFields: ['buyOrderAmount'], failures: { sellEnabled: { reason: 'rejected' } } })).toBe(false);
+    expect([...AUTO_SELL_GROUP_FIELDS]).toEqual(['autoSellEnabled', 'autoSellStartCond', 'autoSellRatioPct', 'autoSellMethod']);
+    expect(AUTO_SELL_PEND_TEXT).toEqual({ start: '바로시작 전송…', stop: '중지 전송…' });
+  });
+
+  it('isLimitChaserServerMessage — AutoSell · AutoSellCommand 는 상따 몫 · SetUserSettings 는 아니다 · 기존 결과 무변경', () => {
+    expect(isLimitChaserServerMessage({ src: 'AutoSell', i: ISIN })).toBe(true);
+    expect(isLimitChaserServerMessage({ src: 'AutoSellCommand', i: ISIN })).toBe(true);
+    expect(isLimitChaserServerMessage({ src: 'SetUserSettings', i: '' })).toBe(false);
+    expect(isLimitChaserServerMessage({ src: 'SetLimitChaser', i: ISIN })).toBe(true);
+    expect(isLimitChaserServerMessage({ src: 'LimitChaser', i: ISIN })).toBe(true);
+    expect(isLimitChaserServerMessage({ src: 'Account', i: ISIN })).toBe(true);
+    expect(isLimitChaserServerMessage({ src: 'Account', i: '' })).toBe(false);
+    expect(isLimitChaserServerMessage({ src: 'VITrigger', i: ISIN })).toBe(false);
+    expect(isLimitChaserServerMessage({ src: 'Relay', i: '' })).toBe(false);
   });
 });

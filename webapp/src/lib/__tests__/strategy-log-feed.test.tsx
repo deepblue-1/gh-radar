@@ -208,3 +208,16 @@ describe('StrategyLogFeedProvider — relay 컨텍스트에서 파생만', () =>
     expect(r.some((t) => t?.includes('통지 204'))).toBe(false);
   });
 });
+
+describe('Phase 27 자동매도 54', () => {
+  it('54 INFO AutoSell 사유 줄 · ERROR AutoSellCommand 거부 줄이 전 종목 피드에 [상따] 배지로 선다 · SetUserSettings 는 아니다', () => {
+    const reason = msg('자동매도 감시 → 매도중 (바로시작)', { src: 'AutoSell' });
+    const reject = msg('자동매도 바로시작 거부 — 보유수량 0', { lv: 'ERROR', src: 'AutoSellCommand' });
+    const settings = msg('설정 범위 밖', { lv: 'ERROR', src: 'SetUserSettings', i: '', a: '' });
+    render(view(relay({ messages: [settings, reject, reason] })));
+    expect(rows()).toEqual([
+      `${ISIN_A}|[상따] 서버가 거부했어요 — 자동매도 바로시작 거부 — 보유수량 0`,
+      `${ISIN_A}|[상따] 서버 통지 — 자동매도 감시 → 매도중 (바로시작)`,
+    ]);
+  });
+});
