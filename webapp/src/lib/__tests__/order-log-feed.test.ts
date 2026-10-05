@@ -23,6 +23,7 @@ import {
 import {
   FIXTURE_ACCOUNT_NO,
   FIXTURE_TRADE_DATE,
+  STRATEGY_AUTO_SELL_ROWS,
   STRATEGY_BRANCH_ROWS,
   STRATEGY_DAY_BY_NAME,
   STRATEGY_DAY_ROWS,
@@ -124,9 +125,9 @@ describe('matchesKind — 구분 필터 group 축 (D-08)', () => {
     for (const g of [1, 3, 6]) for (const k of ['manual', 'vi'] as const) expect(matchesKind(byGroup(g), k)).toBe(false);
   });
 
-  it('구분 옵션 라벨 = 전체 · 선매수 · 추가매수 · 후매수 · 매도 · 수동 · VI · 시세', () => {
-    expect(ORDER_LOG_KIND_FILTERS.map((o) => o.label)).toEqual(['전체', '선매수', '추가매수', '후매수', '매도', '수동', 'VI', '시세']);
-    expect(ORDER_LOG_KIND_FILTERS.map((o) => o.value)).toEqual(['all', 'pre', 'add', 'post', 'sell', 'manual', 'vi', 'market']);
+  it('구분 옵션 라벨 = 전체 · 선매수 · 추가매수 · 후매수 · 매도 · 자동매도 · 수동 · VI · 시세', () => {
+    expect(ORDER_LOG_KIND_FILTERS.map((o) => o.label)).toEqual(['전체', '선매수', '추가매수', '후매수', '매도', '자동매도', '수동', 'VI', '시세']);
+    expect(ORDER_LOG_KIND_FILTERS.map((o) => o.value)).toEqual(['all', 'pre', 'add', 'post', 'sell', 'auto', 'manual', 'vi', 'market']);
   });
 });
 
@@ -261,9 +262,9 @@ describe('카드 한 종목 팝업 헬퍼 (quick-260930-lq5)', () => {
     expect(orderNoTail('')).toBe('—');
   });
 
-  it('ORDER_LOG_SIDE_FILTERS — 전체 · 매수 · 매도 · 시세 순', () => {
-    expect(ORDER_LOG_SIDE_FILTERS.map((o) => o.label)).toEqual(['전체', '매수', '매도', '시세']);
-    expect(ORDER_LOG_SIDE_FILTERS.map((o) => o.value)).toEqual(['all', 'buy', 'sell', 'market']);
+  it('ORDER_LOG_SIDE_FILTERS — 전체 · 매수 · 매도 · 자동매도 · 시세 순', () => {
+    expect(ORDER_LOG_SIDE_FILTERS.map((o) => o.label)).toEqual(['전체', '매수', '매도', '자동매도', '시세']);
+    expect(ORDER_LOG_SIDE_FILTERS.map((o) => o.value)).toEqual(['all', 'buy', 'sell', 'auto', 'market']);
   });
 
   it('matchesSide — 배지 색(tone) 축 · 시세 = kind 1·2 · 수동 매도(group 7 · kind 6)는 매도', () => {
@@ -298,5 +299,82 @@ describe('카드 한 종목 팝업 헬퍼 (quick-260930-lq5)', () => {
     expect(orderLogSummary(rows).orders).toBeGreaterThan(0);
     expect(orderLogSummary(rows).rejects).toBe(1);
     expect(orderLogSummary([])).toEqual({ orders: 0, fills: 0, rejects: 0, cancels: 0, cum: null });
+  });
+});
+
+describe('Phase 27 자동매도 필터 (D-14 · 정보성 반영 Q5 · Q8)', () => {
+  const AS = STRATEGY_AUTO_SELL_ROWS;
+  const autoRows = Object.values(AS);
+  const g9 = AS.asAsk1!;
+  const wr05In5 = AS.asWr05AutoSellInGroup5!; // group 5 · AutoSellAsk1 토큰
+  const wr05In9 = AS.asWr05LegacyInGroup9!; // group 9 · 상따 사유
+  const sell5 = STRATEGY_DAY_BY_NAME.sell12454!;
+
+  it('구분 칩 — 「자동매도」 는 「매도」 바로 뒤 · 「수동」「VI」 유지', () => {
+    const labels = ORDER_LOG_KIND_FILTERS.map((o) => o.label);
+    expect(labels).toEqual(['전체', '선매수', '추가매수', '후매수', '매도', '자동매도', '수동', 'VI', '시세']);
+    expect(ORDER_LOG_KIND_FILTERS[labels.indexOf('자동매도')]!.value).toBe('auto');
+  });
+
+  it('matchesKind(auto) = 서버 group 9 그대로 — 토큰으로 넓히지 않는다(WR-05)', () => {
+    expect(matchesKind(g9, 'auto')).toBe(true);
+    expect(matchesKind(row(g9, { group: 5 }), 'auto')).toBe(false);
+    expect(matchesKind(g9, 'sell')).toBe(false);
+    // WR-05 — group 5 로 뒤바뀐 자동매도 줄은 「매도」 에 · group 9 로 뒤바뀐 상따 줄은 「자동매도」 에
+    expect(matchesKind(wr05In5, 'sell')).toBe(true);
+    expect(matchesKind(wr05In5, 'auto')).toBe(false);
+    expect(matchesKind(wr05In9, 'auto')).toBe(true);
+    expect(matchesKind(wr05In9, 'sell')).toBe(false);
+    // group 9 줄 전부(kind 6 · 7 · 11~14 · 모르는 값) — 「자동매도」 와 「전체」 에만
+    for (const r of autoRows.filter((x) => x.group === 9)) {
+      expect(matchesKind(r, 'auto')).toBe(true);
+      expect(matchesKind(r, 'all')).toBe(true);
+      for (const k of ['pre', 'add', 'post', 'sell', 'manual', 'vi', 'market'] as const) expect(matchesKind(r, k)).toBe(false);
+    }
+    // 다른 group · 시세 줄은 「자동매도」 에 없다
+    for (const r of STRATEGY_DAY_ROWS) expect(matchesKind(r, 'auto')).toBe(r.group === 9 && !isMarketStrategyEvent(r.kind));
+  });
+
+  it('applyOrderLogFilters(kind auto) — 하루 흐름 + 자동매도 행 중 group 9 만', () => {
+    const rows = [...STRATEGY_DAY_ROWS, ...autoRows];
+    const got = applyOrderLogFilters(rows, { ...DEFAULT_ORDER_LOG_FILTERS, kind: 'auto' });
+    expect(got.length).toBe(autoRows.filter((r) => r.group === 9).length);
+    expect(got.every((r) => r.group === 9)).toBe(true);
+  });
+
+  it('창 분리 쿼리 kind=auto — 파싱 · 정본 문자열 왕복 · 모르는 값은 종전대로 거부', () => {
+    const today = FIXTURE_TRADE_DATE;
+    const q = parseOrderLogQuery(new URLSearchParams(`account=${FIXTURE_ACCOUNT_NO}&kind=auto`), today);
+    expect(q.filters.kind).toBe('auto');
+    expect(q.corrected).toBe(false);
+    expect(orderLogQueryString(q, today)).toBe(`account=${FIXTURE_ACCOUNT_NO}&kind=auto`);
+    const bad = parseOrderLogQuery(new URLSearchParams('kind=autosell'), today);
+    expect(bad.filters.kind).toBe('all');
+    expect(bad.corrected).toBe(true);
+  });
+
+  it('팝업 칩 = 전체 · 매수 · 매도 · 자동매도 · 시세', () => {
+    expect(ORDER_LOG_SIDE_FILTERS.map((o) => o.label)).toEqual(['전체', '매수', '매도', '자동매도', '시세']);
+    expect(ORDER_LOG_SIDE_FILTERS.find((o) => o.label === '자동매도')!.value).toBe('auto');
+  });
+
+  it('matchesSide — 자동매도 = group 9 · 매도 = 매도 색에서 group 9 를 뺀 것(두 칩이 겹치지 않는다)', () => {
+    expect(matchesSide(g9, 'auto')).toBe(true);
+    expect(matchesSide(g9, 'sell')).toBe(false);
+    expect(matchesSide(sell5, 'sell')).toBe(true);
+    expect(matchesSide(sell5, 'auto')).toBe(false);
+    expect(matchesSide(wr05In5, 'sell')).toBe(true);
+    expect(matchesSide(wr05In5, 'auto')).toBe(false);
+    for (const r of autoRows.filter((x) => x.group === 9)) {
+      expect(matchesSide(r, 'auto')).toBe(true);
+      for (const s of ['buy', 'sell', 'market'] as const) expect(matchesSide(r, s)).toBe(false);
+    }
+    const rows = [...STRATEGY_DAY_ROWS, ...autoRows];
+    for (const r of rows) expect(matchesSide(r, 'sell') && matchesSide(r, 'auto')).toBe(false);
+  });
+
+  it('sideFilterKind — 자동매도 → auto · 매도 → sell', () => {
+    expect(sideFilterKind('auto')).toBe('auto');
+    expect(sideFilterKind('sell')).toBe('sell');
   });
 });

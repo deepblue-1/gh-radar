@@ -45,7 +45,7 @@ describe('OrderLogFilters', () => {
     const exOpts = within(screen.getByRole('combobox', { name: '거래소' })).getAllByRole('option');
     expect(exOpts.map((o) => o.textContent)).toEqual(['전체', 'KRX', 'NXT']);
     const kindOpts = within(screen.getByRole('combobox', { name: '구분' })).getAllByRole('option');
-    expect(kindOpts.map((o) => o.textContent)).toEqual(['전체', '선매수', '추가매수', '후매수', '매도', '수동', 'VI', '시세']);
+    expect(kindOpts.map((o) => o.textContent)).toEqual(['전체', '선매수', '추가매수', '후매수', '매도', '자동매도', '수동', 'VI', '시세']);
     expect(container.querySelector('[data-slot="order-log-count"]')?.textContent).toBe('14건');
     const pop = container.querySelector('[data-slot="order-log-popout"]')!;
     expect(pop.textContent).toBe('창 분리 ↗');
@@ -97,5 +97,26 @@ describe('OrderLogFilters', () => {
       <OrderLogFilters filters={DEFAULT_ORDER_LOG_FILTERS} onChange={vi.fn()} stockOptions={[]} count={0} onPopout={vi.fn()} />,
     );
     expect(container.querySelector('[data-slot="order-log-popout"]')).toBeNull();
+  });
+});
+
+describe('Phase 27 자동매도 필터 (D-14)', () => {
+  it('구분 칩에 「자동매도」 가 「매도」 뒤에 있고 고르면 kind auto 를 낸다 · 켜지면 data-on', async () => {
+    const onChange = vi.fn();
+    const { container, rerender } = render(
+      <OrderLogFilters filters={DEFAULT_ORDER_LOG_FILTERS} onChange={onChange} stockOptions={STOCKS} count={3} />,
+    );
+    const kind = screen.getByRole('combobox', { name: '구분' });
+    const labels = within(kind).getAllByRole('option').map((o) => o.textContent);
+    expect(labels.indexOf('자동매도')).toBe(labels.indexOf('매도') + 1);
+    await userEvent.selectOptions(kind, '자동매도');
+    expect(onChange).toHaveBeenCalledWith({ stock: 'all', ex: 'all', kind: 'auto' });
+    rerender(
+      <OrderLogFilters filters={{ ...DEFAULT_ORDER_LOG_FILTERS, kind: 'auto' }} onChange={onChange} stockOptions={STOCKS} count={3} />,
+    );
+    const on = container.querySelectorAll('[data-on]');
+    expect(on).toHaveLength(1);
+    expect(on[0]!.textContent).toContain('구분');
+    expect((screen.getByRole('combobox', { name: '구분' }) as HTMLSelectElement).value).toBe('auto');
   });
 });

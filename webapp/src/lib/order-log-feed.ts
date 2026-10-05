@@ -12,8 +12,9 @@
  *   같은 함수에 종목 · 거래소 범위를 더 싣는다(시세 이벤트에도 걸린다). 계좌가 없으면(null) 시세 이벤트만.
  *   이 범위는 **보기 선택**이다 — 받을 수 있는 행은 서버 RPC · relay fanout 이 계좌 권한으로 이미 제한했다(T-25-30).
  *
- * ③ D-08 구분 축 — group 기준 8값, kind 필터는 없다
- *   선매수 group 1 · 추가매수 2 · 후매수 3 · 매도 = 호가매도 4 · 체결매도 5 · 체결훅 6 합침 · 시세 = kind 1·2.
+ * ③ D-08 구분 축 — group 기준 9값, kind 필터는 없다
+ *   선매수 group 1 · 추가매수 2 · 후매수 3 · 매도 = 호가매도 4 · 체결매도 5 · 체결훅 6 합침 · 자동매도 9(Phase 27 D-14) ·
+ *   시세 = kind 1·2.
  *   모르는 group(0 · 계약 밖)인 주문 이벤트는 「전체」 에만 보인다 — 방향을 지어내지 않는다(D-10).
  *   수동 7 · VI 8 주문 이벤트는 「수동」·「VI」 칩(manual · vi)으로 거른다.
  *
@@ -22,9 +23,10 @@
  *   쿼리는 필터일 뿐 권한이 아니다 — 가시성은 서버가 `req.userId` 로 판정한다.
  *
  * ⑤ 카드 한 종목 팝업 (quick-260930-lq5 · D3) — 범위는 카드 그대로(`inScope`), 필터는 구분 하나
- *   「전체 · 매수 · 매도 · 시세」 = **구분 배지 색 축**(`strategyEventParts(row,'log').tone`). ③ 의 group 축에는
+ *   「전체 · 매수 · 매도 · 자동매도 · 시세」 = **구분 배지 색 축**(`strategyEventParts(row,'log').tone`). ③ 의 group 축에는
  *   「매수」 합집합 값이 없고, 수동 · VI 주문도 배지 색대로 들어가야 배지가 빨간데 「매수」 에서 빠지는 일이 없다.
- *   창 분리 URL 로는 기존 kind 값으로 옮긴다(`sideFilterKind`). 요약 줄은 kind 로만 센다.
+ *   단 「자동매도」 는 group 9 이고 「매도」 는 매도 색에서 group 9 를 뺀다 — 자동매도 줄도 매도 색이라 두 칩이 겹치지
+ *   않게(Phase 27 D-14). 창 분리 URL 로는 기존 kind 값으로 옮긴다(`sideFilterKind`). 요약 줄은 kind 로만 센다.
  */
 
 import { compareStrategyEventAsc, isMarketStrategyEvent, strategyEventKey, strategyEventParts } from '@gh-radar/shared';
@@ -32,7 +34,7 @@ import type { StrategyEventRow } from '@gh-radar/shared';
 
 /* ── 필터 타입 ─────────────────────────────────────────────────────── */
 
-export type OrderLogKindFilter = 'all' | 'pre' | 'add' | 'post' | 'sell' | 'manual' | 'vi' | 'market';
+export type OrderLogKindFilter = 'all' | 'pre' | 'add' | 'post' | 'sell' | 'auto' | 'manual' | 'vi' | 'market';
 export type OrderLogExchangeFilter = 'all' | 'KRX' | 'NXT';
 
 export interface OrderLogFilters {
@@ -44,13 +46,14 @@ export interface OrderLogFilters {
 
 export const DEFAULT_ORDER_LOG_FILTERS: OrderLogFilters = Object.freeze({ stock: 'all', ex: 'all', kind: 'all' });
 
-/** 구분 칩 옵션 — 순서 · 라벨이 UI-SPEC Copywriting 「필터 칩」 행 그대로다. */
+/** 구분 칩 옵션 — 순서 · 라벨이 UI-SPEC Copywriting 「필터 칩」 행 그대로다. 「자동매도」 는 「매도」 뒤(Phase 27 D-14). */
 export const ORDER_LOG_KIND_FILTERS: ReadonlyArray<{ value: OrderLogKindFilter; label: string }> = [
   { value: 'all', label: '전체' },
   { value: 'pre', label: '선매수' },
   { value: 'add', label: '추가매수' },
   { value: 'post', label: '후매수' },
   { value: 'sell', label: '매도' },
+  { value: 'auto', label: '자동매도' },
   { value: 'manual', label: '수동' },
   { value: 'vi', label: 'VI' },
   { value: 'market', label: '시세' },
@@ -107,6 +110,11 @@ const KIND_GROUPS: Readonly<Record<Exclude<OrderLogKindFilter, 'all' | 'market'>
   add: [2],
   post: [3],
   sell: [4, 5, 6],
+  /**
+   * 자동매도 = 서버가 말한 group 9 그대로 — reason_code 토큰으로 넓히지 않는다. WR-05 로 group 이 뒤바뀌어 온 줄
+   * (group 5 · AutoSellAsk1 토큰 / group 9 · 상따 사유)은 배지와 같이 서버 group 을 따른다(정보성 반영 Q5).
+   */
+  auto: [9],
   manual: [7],
   vi: [8],
 };
@@ -146,29 +154,38 @@ export function stockOptions(
 
 /* ── ⑤ 카드 한 종목 팝업 (quick-260930-lq5) ─────────────────────────────── */
 
-export type OrderLogSideFilter = 'all' | 'buy' | 'sell' | 'market';
+export type OrderLogSideFilter = 'all' | 'buy' | 'sell' | 'auto' | 'market';
 
-/** 팝업 구분 세그먼트 — 순서 · 라벨이 채택 목업 ②A 그대로다. */
+/** 팝업 구분 세그먼트 — 순서 · 라벨이 채택 목업 ②A 그대로다. 「자동매도」 는 「매도」 뒤(Phase 27 D-14). */
 export const ORDER_LOG_SIDE_FILTERS: ReadonlyArray<{ value: OrderLogSideFilter; label: string }> = [
   { value: 'all', label: '전체' },
   { value: 'buy', label: '매수' },
   { value: 'sell', label: '매도' },
+  { value: 'auto', label: '자동매도' },
   { value: 'market', label: '시세' },
 ];
 
-/** 배지 색 축으로 거른다 — 모르는 방향(unknown)은 「전체」 에만 보인다(방향을 지어내지 않는다 · D-10). */
+/**
+ * 배지 색 축으로 거른다 — 모르는 방향(unknown)은 「전체」 에만 보인다(방향을 지어내지 않는다 · D-10).
+ * 예외는 「자동매도」 한 칸: 주문로그 탭 `matchesKind('auto')` 와 같은 group 9 축이다(색이 아니라 서버 group).
+ * 자동매도 줄도 매도 색이라 「매도」 는 group 9 를 빼서 두 칩이 겹치지 않게 한다 — 탭의 매도/자동매도 분리와 같은 뜻.
+ */
 export function matchesSide(row: StrategyEventRow, side: OrderLogSideFilter): boolean {
   if (side === 'all') return true;
+  if (side === 'auto') return matchesKind(row, 'auto');
+  if (side === 'sell' && matchesKind(row, 'auto')) return false;
   return strategyEventParts(row, 'log').tone === side;
 }
 
 /**
- * 팝업 구분 → 창 분리 kind. 창의 「매도」 는 상따 매도 그룹(4~6)이라 가깝다. 「매수」 는 창에 대응 칩이 없어
+ * 팝업 구분 → 창 분리 kind. 「자동매도」 는 창의 「자동매도」(group 9)와 같은 값이라 그대로 넘긴다 — 창으로 옮겨도
+ * 자동매도 줄이 사라지지 않는다. 창의 「매도」 는 상따 매도 그룹(4~6)이라 가깝다. 「매수」 는 창에 대응 칩이 없어
  * (선매수 · 추가매수 · 후매수가 따로다) 좁히지 않고 전체로 연다 — 줄을 숨기지 않는 쪽이 안전하다.
  */
 export function sideFilterKind(side: OrderLogSideFilter): OrderLogKindFilter {
   if (side === 'market') return 'market';
   if (side === 'sell') return 'sell';
+  if (side === 'auto') return 'auto';
   return 'all';
 }
 
@@ -217,7 +234,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const ISIN_RE = /^[A-Z0-9]{12}$/;
 const ACCOUNT_RE = /^[0-9A-Za-z-]{1,20}$/;
 const EXCHANGES: ReadonlySet<string> = new Set(['KRX', 'NXT']);
-const KINDS: ReadonlySet<string> = new Set(['pre', 'add', 'post', 'sell', 'manual', 'vi', 'market']);
+const KINDS: ReadonlySet<string> = new Set(['pre', 'add', 'post', 'sell', 'auto', 'manual', 'vi', 'market']);
 
 /** 형식 + 실제 달력 날짜(`2026-02-30` 거부). */
 function isCalendarDate(v: string): boolean {

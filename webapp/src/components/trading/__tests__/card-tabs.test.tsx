@@ -577,7 +577,7 @@ describe('CardTabs — 주문로그 버튼 + 팝업 (quick-260930-lq5)', () => {
     );
 
     const group = within(dialog()).getByRole('group', { name: '구분' });
-    expect(within(group).getAllByRole('button').map((b) => b.textContent)).toEqual(['전체', '매수', '매도', '시세']);
+    expect(within(group).getAllByRole('button').map((b) => b.textContent)).toEqual(['전체', '매수', '매도', '자동매도', '시세']);
     await user.click(within(group).getByRole('button', { name: '매도' }));
     expect(within(group).getByRole('button', { name: '매도' })).toHaveAttribute('aria-pressed', 'true');
     expect(tableRows().map((tr) => cells(tr)[2])).toEqual(rows.filter((r) => matchesSide(r, 'sell')).map((r) => strategyEventParts(r, 'log').badge));
