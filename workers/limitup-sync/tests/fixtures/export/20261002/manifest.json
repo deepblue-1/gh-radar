@@ -1,0 +1,56 @@
+{
+ "schema_version": 1,
+ "date": "20261002",
+ "finished_at": "2026-10-05T01:04:31",
+ "files": [
+  {
+   "name": "entries.ndjson.gz",
+   "rows": 3,
+   "sha256": "b5867f9d721dee226459e3f2669bfa7f2f1f278b7322131fb878f23c93fa470a"
+  },
+  {
+   "name": "locks.ndjson.gz",
+   "rows": 2,
+   "sha256": "76ce2e74a8ac4ed9c47354982037c10c93ffd01dfc65de8845a37ab49d657f38"
+  },
+  {
+   "name": "jumps.ndjson.gz",
+   "rows": 359,
+   "sha256": "8b63d212923b6b98e1906a8e11f237228d534aabf39474437e90f15cc12fce97"
+  },
+  {
+   "name": "member_alloc.ndjson.gz",
+   "rows": 4926,
+   "sha256": "1ad9a26e871d72cc3b70fc2d47e30cd45e8b6ec3d8d0c14c3b12d351393d8799"
+  },
+  {
+   "name": "facts.ndjson.gz",
+   "rows": 24,
+   "sha256": "2870d8207f05c30efc08fbde7f5694e63ccb6d279c77fa0ceffd84a88b3102de"
+  },
+  {
+   "name": "touches.ndjson.gz",
+   "rows": 3,
+   "sha256": "719b69ec123157fdb3e977fc4b58bdc2d1bcc7782158878d7e9ee48866413729"
+  },
+  {
+   "name": "grid/KR7069920007.json.gz",
+   "rows": 16143,
+   "sha256": "ab3bb580efd12a0f7ddbdbf3aef60aeb004cd675ce781c30adf197d9198e31d6"
+  },
+  {
+   "name": "grid/KR7263600009.json.gz",
+   "rows": 3013,
+   "sha256": "2de393ad2a0452fe352eb7e0c3356698a5997f1696ab43bc4df45f1f9e525ed3"
+  },
+  {
+   "name": "grid/KR7308100007.json.gz",
+   "rows": 3241,
+   "sha256": "69a20beb82d8d4471ce68b62e655b487e7d05a09680e0ead981e6e999a0f7a1b"
+  }
+ ],
+ "detect_rate_pct": 20,
+ "label_horizon_s": 60,
+ "grid_coarse_s": 10,
+ "fine_margin_min": 5
+}
