@@ -3,6 +3,10 @@
  *
  * 지원: `from(t).insert(rows)` · `from(t).select(cols).gte(col, v)` · `rpc(name, args)` ·
  * `storage.from(bucket).upload/list/remove`(28-06 격자 업로드 · 보존 정리용 자리 — 지금은 기록만).
+ *
+ * 28-16 주입 자리(dispatch.test): `loads`(= limitup_loads select 응답 행) · `recordSkip`(= limitup_record_skip
+ * 반환 streak — 함수면 args 로 계산). 같은 이름의 `select` · `rpc` 키를 주면 그쪽이 이긴다.
+ * insert error 는 기존 `insert` 자리 그대로.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -21,11 +25,25 @@ export type FakeOptions = {
   rpc?: Record<string, Resp | ((args: Record<string, unknown>) => Resp)>;
   /** insert 응답 — 함수면 (table, rows, n번째 insert) 로 계산. 기본 성공. */
   insert?: (table: string, rows: Record<string, unknown>[], n: number) => Resp;
+  /** `limitup_loads` select 응답 행(이력). `select.limitup_loads` 가 있으면 그쪽이 이긴다. */
+  loads?: LoadRow[];
+  /** `limitup_record_skip` 반환 streak. `rpc.limitup_record_skip` 이 있으면 그쪽이 이긴다. */
+  recordSkip?: number | ((args: Record<string, unknown>) => number);
 };
+
+export type LoadRow = { date: string; files_sig: string | null; skip_streak: number };
 
 export function makeFakeSupabase(opts: FakeOptions = {}): { sb: SupabaseClient; calls: Call[] } {
   const calls: Call[] = [];
   let inserts = 0;
+  const select: Record<string, Resp> = { ...(opts.loads ? { limitup_loads: { data: opts.loads } } : {}), ...opts.select };
+  const rs = opts.recordSkip;
+  const rpcs: NonNullable<FakeOptions["rpc"]> = {
+    ...(rs === undefined
+      ? {}
+      : { limitup_record_skip: (args: Record<string, unknown>) => ({ data: typeof rs === "function" ? rs(args) : rs }) }),
+    ...opts.rpc,
+  };
   const done = (r: Resp | undefined, fallback: Resp) => Promise.resolve({ data: null, error: null, ...(r ?? fallback) });
 
   const sb = {
@@ -40,7 +58,7 @@ export function makeFakeSupabase(opts: FakeOptions = {}): { sb: SupabaseClient; 
           return {
             gte(col: string, v: unknown) {
               calls.push({ kind: "select", table, cols, gte: [col, v] });
-              return done(opts.select?.[table], { data: [], error: null });
+              return done(select[table], { data: [], error: null });
             },
           };
         },
@@ -48,7 +66,7 @@ export function makeFakeSupabase(opts: FakeOptions = {}): { sb: SupabaseClient; 
     },
     rpc(name: string, args: Record<string, unknown>) {
       calls.push({ kind: "rpc", name, args });
-      const r = opts.rpc?.[name];
+      const r = rpcs[name];
       return done(typeof r === "function" ? r(args) : r, { data: null, error: null });
     },
     storage: {

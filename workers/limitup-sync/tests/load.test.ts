@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeFakeSupabase, type Call } from "./helpers/fake-supabase";
@@ -143,21 +143,8 @@ describe("dispatch — 예외는 사유를 담아 throw(main 이 로그 + 종료
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  it("sha256 불일치 → 파일 이름을 담아 throw · stage/commit 호출 없음", async () => {
-    const p = join(dir, DATE, "touches.ndjson.gz");
-    const buf = readFileSync(p);
-    buf[buf.length - 1] ^= 0xff;
-    writeFileSync(p, buf);
-    const fake = makeFakeSupabase();
-    await expect(runDispatch(fake)).rejects.toThrow(/20261002: sha256 mismatch or missing: touches\.ndjson\.gz/);
-    expect(fake.calls.filter((c) => c.kind !== "select")).toEqual([]);
-  });
-
-  it("모르는 schema_version → throw", async () => {
-    const mp = join(dir, DATE, "manifest.json");
-    writeFileSync(mp, readFileSync(mp, "utf8").replace('"schema_version": 1', '"schema_version": 2'));
-    await expect(runDispatch(makeFakeSupabase())).rejects.toThrow(/unknown schema_version 2/);
-  });
+  // sha256 불일치 · 모르는 schema_version · 깨진 manifest 는 28-16 부터 throw 가 아니라 날짜 skip(+ limitup_record_skip)
+  // 이다 — tests/dispatch.test.ts 가 증명한다.
 
   it("stage insert 오류 → 표 · seq 범위 · 메시지를 담아 throw · commit 없음", async () => {
     const fake = makeFakeSupabase({ insert: (_t, _rows, n) => (n === 2 ? { error: { message: "boom" } } : { error: null }) });
