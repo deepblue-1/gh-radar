@@ -3,17 +3,17 @@ gsd_state_version: "1.0"
 milestone: v1.0
 current_phase: 27
 current_phase_name: 자동매도 연동 — gh-trade Phase 28 와이어 계약 반영
-status: planning
-stopped_at: Phase 27 context gathered (2026-10-05)
-last_updated: "2026-10-05T04:39:18.681Z"
-last_activity: 2026-10-03
-last_activity_desc: Phase 18·19·20 완료 처리 (재검증 R5/R3 · 19 첫 검증 · 19-13 실장 대조)
-state_head: 332696f2dcc96b9366fc3020766aa855b45f4f60
+status: executing
+stopped_at: Completed 27-01-PLAN.md
+last_updated: "2026-10-05T05:30:25.175Z"
+last_activity: 2026-10-05
+last_activity_desc: Phase 27 execution started
+state_head: 893f92a6ac135531ab43f9cc9fd91d641f60986e
 progress:
   total_phases: 37
   completed_phases: 4
   total_plans: 361
-  completed_plans: 337
+  completed_plans: 338
 milestone_name: milestone
 ---
 
@@ -24,15 +24,15 @@ milestone_name: milestone
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 26 — 시세 전용 공유 연결 — relay 종목 단위 팬아웃
+**Current focus:** Phase 27 — 자동매도 연동 — gh-trade Phase 28 와이어 계약 반영
 
 ## Current Position
 
-Phase: 27 (자동매도 연동 — gh-trade Phase 28 와이어 계약 반영) — READY TO EXECUTE
-Plan: Not started (Play Console 개발자 인증 대기)
-Status: Phase 18·19·20 완료 처리 2026-10-03 — 18 재검증 R5 passed · 19 검증 passed + 19-13 첫 거래일 대조 종결 · 20 재검증 R3 passed + UAT 6/6
+Phase: 27 (자동매도 연동 — gh-trade Phase 28 와이어 계약 반영) — EXECUTING
+Plan: 2 of 9
+Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-10-03 — Phase 18·19·20 완료 처리
+Last activity: 2026-10-05 — Phase 27 execution started
 
 Progress: [█████████░] 93%
 
@@ -185,6 +185,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 26 P12 | 10min | 3 tasks | 10 files |
 | Phase 26 P13 | 5min | 3 tasks | 1 files |
 | Phase 26 P14 | 14min | 2 tasks | 9 files |
+| Phase 27 P01 | 33 min | 3 tasks | 40 files |
 
 ## Accumulated Context
 
@@ -491,6 +492,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 26]: 재연결 중 시세 필은 마지막 quoteState 유지 · 구독 한도는 시세 필 title 만(칩 없음) · My page 점도 작업대 톤
 - [Phase 26]: 26-14: 배지 2축은 안 B 정본대로 구현 — quotePillOf · orderPillOf(lib/quote-state.ts) 단일 판정, 두 상태줄은 그리기만
 - [Phase 26]: 26-14: RELAY_STATE_LABELS.connecting = 「서버 연결 중…」(화면 「주문 서버 연결 중…」) — 소비처는 두 상태줄 · use-relay-socket 뿐
+- [Phase 27]: 27-01: buy3_schema 4 는 postBuyAuto · extraBuyBurstRelease · 자동매도 요청 4필드 모두 존재로만 파생 — 일부만 있으면 미적재 + 값 없는 warn
+- [Phase 27]: 27-01: 자동매도만 켠 등록 = 등록 — 웹 isDeleteIntent · relay #isTeardown 여섯 항(같은 커밋) · isActiveStrategy 포함
+- [Phase 27]: 27-01: 카드 헤더 4번째 LED 「자동」 — autoSellState 1·4 주황 · 2·3 초록 · 그 밖 OFF · 늘 클릭 불가 · 사이드바 점은 3개 유지
 
 ### Pending Todos
 
@@ -581,10 +585,10 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/27-auto-sell-integration/27-CONTEXT.md
+**Resume file:** None
 
-Last session: 2026-10-05T02:32:19.083Z
-Stopped at: Phase 27 context gathered (2026-10-05)
+Last session: 2026-10-05T05:30:08.085Z
+Stopped at: Completed 27-01-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
