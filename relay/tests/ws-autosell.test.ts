@@ -302,6 +302,8 @@ describe("Phase 27 autosell.cmd · user.settings.set", () => {
     // 사유는 lc.set · lc.arm 과 **같은 문구**다 — 가드가 한 벌(`#accountAllowed`)이라는 증거.
     expect(rejected?.m).toContain("이 세션에서 사용할 수 없는 계좌입니다");
     expect(rejected?.src).toBe("Relay");
+    // 출처 태그(IN-01) — relay 거부는 전략 키를 싣지 않으므로 브라우저가 「41 의 답」을 이 값으로 가른다.
+    expect(rejected?.kind).toBe("autosell.cmd");
     const logged = errSpy.mock.calls.find((call) => String(call[1] ?? "").includes("세션 계좌 목록 밖"));
     expect(logged).toBeDefined();
     expect(JSON.stringify(logged?.[0] ?? {})).not.toContain(FOREIGN_ACCOUNT_NO);

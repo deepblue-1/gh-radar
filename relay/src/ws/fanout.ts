@@ -370,9 +370,19 @@ type Conn = {
  * **조용한 거부를 만들지 않기 위한 프레임**이다 (PC-7). 전략은 서버가 거부를 응답 코드로
  * 주지 않으므로(Pitfall 8), relay 단계에서 막았다는 사실을 말해 주지 않으면 사용자에게는
  * 「눌렀는데 아무 일도 일어나지 않음」으로만 보인다.
+ *
+ * `origin` = **거부된 인바운드의 `t`**(예: `"autosell.cmd"`)를 `kind` 에 싣는다 (27-REVIEW IN-01).
+ * relay 거부는 전략 키를 싣지 않아(i 빈 · a 는 계좌 대조 거부에서만) 모양만으로는 어느 요청의 답인지
+ * 가를 수 없다 — 다른 카드의 lc.set 조립 실패가 41 대기 창 안에 오면 41 의 답으로 읽혔다. 브라우저는
+ * 이 값의 **동등 비교만** 한다. 게이트웨이 54 의 `kind`(SessionJoin · Restore · Purge)와는 `src` 로 갈린다.
  */
-function rejectFrame(reason: string, accountNo = "", isin = ""): RelayServerMsg {
-  return { t: "msg", lv: "ERROR", m: reason, i: isin, a: accountNo, src: RELAY_MSG_SOURCE, kind: "" };
+function rejectFrame(
+  reason: string,
+  accountNo: string,
+  isin: string,
+  origin: RelayInbound["t"],
+): RelayServerMsg {
+  return { t: "msg", lv: "ERROR", m: reason, i: isin, a: accountNo, src: RELAY_MSG_SOURCE, kind: origin };
 }
 
 /** 사용자 1명의 팬아웃 대상 집합. */
@@ -845,7 +855,7 @@ export class WsFanout {
             { userId, t: msg.t, isin: msg.cfg.isin },
             "[WS] 구 탭 lc.set(신필드 없음) — 거부 프레임으로 답하고 소켓 유지",
           );
-          this.#send(conn, rejectFrame(LC_LEGACY_SET_REJECT_TEXT, "", msg.cfg.isin));
+          this.#send(conn, rejectFrame(LC_LEGACY_SET_REJECT_TEXT, "", msg.cfg.isin, msg.t));
           return;
         }
         cfg = withNeutralBuy3(msg.cfg);
@@ -922,7 +932,7 @@ export class WsFanout {
           { userId, t: msg.t },
           "[WS] 구 탭 lc.arm buy — 매수 진입 래치 폐기(38 봉인), 거부 프레임으로 답하고 소켓 유지",
         );
-        this.#send(conn, rejectFrame(LC_LEGACY_ARM_REJECT_TEXT));
+        this.#send(conn, rejectFrame(LC_LEGACY_ARM_REJECT_TEXT, "", "", msg.t));
         return;
       }
       const latch = msg.latch;
@@ -1224,7 +1234,7 @@ export class WsFanout {
       { userId, t, accountNo: maskAccountNo(accountNo) },
       "[WS] 세션 계좌 목록 밖의 전략 요청 — 거부",
     );
-    this.#send(conn, rejectFrame("이 세션에서 사용할 수 없는 계좌입니다.", accountNo));
+    this.#send(conn, rejectFrame("이 세션에서 사용할 수 없는 계좌입니다.", accountNo, "", t));
     return false;
   }
 
@@ -1267,7 +1277,7 @@ export class WsFanout {
       );
       this.#send(
         conn,
-        rejectFrame("전략 키 형식이 올바르지 않아 래치 요청을 보내지 못했습니다."),
+        rejectFrame("전략 키 형식이 올바르지 않아 래치 요청을 보내지 못했습니다.", "", "", msg.t),
       );
       return null;
     }
@@ -1395,7 +1405,7 @@ export class WsFanout {
   ): OrderMarket | null {
     if (this.#symbols === null) {
       logger.error({ userId, t, isin }, "[WS] 종목맵 미결선 — 전략 요청 거부 (시장을 지어내지 않는다)");
-      this.#send(conn, rejectFrame("이 종목은 지금 전략을 등록할 수 없습니다.", "", isin));
+      this.#send(conn, rejectFrame("이 종목은 지금 전략을 등록할 수 없습니다.", "", isin, t));
       return null;
     }
     const info = this.#symbols.lookup(isin);
@@ -1404,7 +1414,7 @@ export class WsFanout {
         { userId, t, isin, known: info !== undefined },
         "[WS] ISIN → 시장 해석 실패 — 전략 요청 거부 (게이트웨이로 나가지 않았다)",
       );
-      this.#send(conn, rejectFrame("이 종목은 지금 전략을 등록할 수 없습니다.", "", isin));
+      this.#send(conn, rejectFrame("이 종목은 지금 전략을 등록할 수 없습니다.", "", isin, t));
       return null;
     }
     return info.market;
@@ -1488,6 +1498,7 @@ export class WsFanout {
         "가격이나 수량이 0 인 게이트가 있어 전략을 켤 수 없습니다. 값을 확인해 주세요.",
         "",
         cfg.isin,
+        t,
       ),
     );
     return false;
@@ -1510,7 +1521,7 @@ export class WsFanout {
       const reason =
         err instanceof OrderBuildError ? err.message : "전략 요청을 만들지 못했습니다.";
       logger.error({ err, userId, t, code }, "[WS] 전략 요청 조립 거부 — 게이트웨이로 나가지 않았다");
-      this.#send(conn, rejectFrame(reason));
+      this.#send(conn, rejectFrame(reason, "", "", t));
       return null;
     }
   }
@@ -1518,7 +1529,7 @@ export class WsFanout {
   /** ③-b 송신 실패. 전송 계층 사유는 `DmaSession.send` 가 이미 남겼고 여기는 사용자 통지다. */
   #onStrategySendFailed(conn: Conn, userId: string, t: RelayInbound["t"]): void {
     logger.error({ userId, t }, "[WS] 전략 요청 송신 실패 — 게이트웨이로 나가지 않았다");
-    this.#send(conn, rejectFrame("전략 요청을 전송하지 못했습니다. 연결 상태를 확인해 주세요."));
+    this.#send(conn, rejectFrame("전략 요청을 전송하지 못했습니다. 연결 상태를 확인해 주세요.", "", "", t));
   }
 
   /**

@@ -252,6 +252,8 @@ describe("wss 상따 래치 점등 경로 (D-04)", () => {
     const [rejected] = framesOf(inbox, "msg");
     expect(rejected?.m).toBe(LC_LEGACY_ARM_REJECT_TEXT);
     expect(rejected?.src).toBe("Relay");
+    // 출처 태그(27 IN-01) — 거부된 인바운드 `t`. 41 대기 중인 카드가 이 거부를 41 의 답으로 읽지 않는 근거다.
+    expect(rejected?.kind).toBe("lc.arm");
     // 연결 종료(`#reject`)가 아니다 — 옛 탭의 시세 · 에코 · 수동주문이 계속 돈다.
     expect(ws.closeInfo).toBeNull();
 

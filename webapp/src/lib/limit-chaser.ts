@@ -39,6 +39,7 @@
 
 import type {
   RelayExchange,
+  RelayInbound,
   RelayLcCrud,
   RelayLimitChaser,
   RelayLimitChaserInput,
@@ -949,6 +950,9 @@ export const AUTO_SELL_PEND_TEXT = {
   stop: '중지 전송…',
 } as const satisfies Record<AutoSellAction, string>;
 
+/** relay 발 41 거부의 출처 태그(`RelayServerMsg.kind`) — 거부된 인바운드 `t` 그대로다. */
+const AUTO_SELL_CMD_ORIGIN = 'autosell.cmd' satisfies RelayInbound['t'];
+
 /**
  * 이 통지가 **내가 보낸 41(바로시작 · 중지)의 거부 답**인가 — 카드 「미반영」 해제 키(확정).
  *
@@ -959,21 +963,34 @@ export const AUTO_SELL_PEND_TEXT = {
  *   - `src === "AutoSellCommand"` · i · a 일치 — 서버 41 실패 ctx 가 isin · 계좌 둘 다 채운다
  *     (gh-trade `Gateway.cpp:3774`). 보유 0 · 등록된 상따 없음 · 범위 밖이 전부 이 갈래다.
  *   - `src === "Account"` · i · a 일치 — 41 계좌 가드(`CheckSessionAccount`)가 41 ctx 를 그대로 싣는다.
- *   - `src === "Relay"` · i 빈 · a 빈 또는 이 계좌 — relay 게이트웨이 전 거부(세션 · 계좌 화이트리스트).
+ *   - `src === "Relay"` · `kind === "autosell.cmd"` · i 빈 · a 빈 또는 이 계좌 — relay 게이트웨이 전 거부
+ *     (계좌 화이트리스트 · 조립 · 송신 실패). relay 거부는 전략 키를 싣지 않으므로 **출처 태그 `kind`**
+ *     (= 거부된 인바운드의 `t`)가 「41 의 답인가」의 근거다 (27-REVIEW IN-01).
+ *
+ * relay 출처 태그의 세 경우:
+ *   - `kind === "autosell.cmd"` — 41 의 답. 모양(i 빈 · a 빈 또는 이 계좌)도 함께 본다.
+ *   - `kind` 가 **다른 비어 있지 않은 값**(`"lc.set"` · `"lc.arm"` · `"user.settings.set"` …) — 다른 요청의 답.
+ *     41 대기 창 안에 와도 41 을 풀지 않는다(예: 다른 카드 lc.set 의 조립 실패).
+ *   - `kind === ""` — **태그 이전 relay**(배포 순서 호환 폴백). 출처를 모르므로 종전 모양 규칙으로 받는다.
+ *     새 relay 는 모든 relay 거부에 출처를 싣기 때문에 이 갈래는 옛 relay 에서만 닿는다. 오판 방향은
+ *     종전과 같다 — 41 「미반영」이 일찍 거둬질 뿐이고 거짓 「미반영」은 만들지 않는다.
  *
  * `"AutoSell"`(INFO 사유 줄)은 답이 아니다 — 41 과 무관하게도 흐른다. WARN 도 답이 아니다.
  *
  * ⚠️ 본문 `m` 은 읽지 않는다.
  */
 export function isAutoSellCommandRejection(
-  msg: { src: string; i: string; a: string; lv: string },
+  msg: { src: string; i: string; a: string; lv: string; kind: string },
   isin: string,
   accountNo: string,
 ): boolean {
   if (isin === '' || accountNo === '') return false;
   if (msg.lv !== 'ERROR') return false;
   if (msg.src === 'AutoSellCommand' || msg.src === 'Account') return msg.i === isin && msg.a === accountNo;
-  if (msg.src === 'Relay') return msg.i === '' && (msg.a === '' || msg.a === accountNo);
+  if (msg.src === 'Relay') {
+    if (msg.kind !== AUTO_SELL_CMD_ORIGIN && msg.kind !== '') return false;
+    return msg.i === '' && (msg.a === '' || msg.a === accountNo);
+  }
   return false;
 }
 

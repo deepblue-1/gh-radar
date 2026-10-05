@@ -1229,12 +1229,13 @@ describe("Phase 27 자동매도 — 삭제 판정 · 켜진 전략 · 폼 값", 
   D-07 그룹 게이트 · 표시 몫 결손 ③. 거부 문구는 gh-trade 28-09 가드 원문 — 픽스처로만 쓰고 판정은 본문을 읽지 않는다.
 */
 describe('Phase 27 41 판정', () => {
-  const m = (over: Partial<{ src: string; i: string; a: string; lv: string; m: string }>) => ({
+  const m = (over: Partial<{ src: string; i: string; a: string; lv: string; m: string; kind: string }>) => ({
     src: 'AutoSellCommand',
     i: ISIN,
     a: ACCOUNT,
     lv: 'ERROR',
     m: '자동매도 바로시작 거부 — 보유수량 0',
+    kind: '',
     ...over,
   });
 
@@ -1255,6 +1256,24 @@ describe('Phase 27 41 판정', () => {
     expect(isAutoSellCommandRejection(m({ src: 'Relay', i: '', a: '9999999999' }), ISIN, ACCOUNT)).toBe(false);
     expect(isAutoSellCommandRejection(m({ src: 'Relay', i: ISIN }), ISIN, ACCOUNT)).toBe(false);
     expect(isAutoSellCommandRejection(m({ src: 'SetLimitChaser' }), ISIN, ACCOUNT)).toBe(false);
+  });
+
+  it('isAutoSellCommandRejection — Relay 출처 태그(kind): autosell.cmd 만 답 · 다른 요청 태그는 거짓 · 빈 태그는 옛 relay 폴백 (IN-01)', () => {
+    const relay = (over: Partial<{ i: string; a: string; kind: string }>) =>
+      m({ src: 'Relay', i: '', a: '', m: '전략 요청을 만들지 못했습니다.', ...over });
+    // 새 relay — 41 경로 거부는 kind "autosell.cmd". 모양 규칙(i 빈 · a 빈 또는 이 계좌)은 그대로 본다.
+    expect(isAutoSellCommandRejection(relay({ kind: 'autosell.cmd' }), ISIN, ACCOUNT)).toBe(true);
+    expect(isAutoSellCommandRejection(relay({ kind: 'autosell.cmd', a: ACCOUNT }), ISIN, ACCOUNT)).toBe(true);
+    expect(isAutoSellCommandRejection(relay({ kind: 'autosell.cmd', a: '9999999999' }), ISIN, ACCOUNT)).toBe(false);
+    expect(isAutoSellCommandRejection(relay({ kind: 'autosell.cmd', i: ISIN }), ISIN, ACCOUNT)).toBe(false);
+    // 다른 카드 lc.set 조립 실패 · lc.arm 거부 · 42 거부 — 같은 모양이어도 41 의 답이 아니다.
+    expect(isAutoSellCommandRejection(relay({ kind: 'lc.set' }), ISIN, ACCOUNT)).toBe(false);
+    expect(isAutoSellCommandRejection(relay({ kind: 'lc.arm', a: ACCOUNT }), ISIN, ACCOUNT)).toBe(false);
+    expect(isAutoSellCommandRejection(relay({ kind: 'user.settings.set' }), ISIN, ACCOUNT)).toBe(false);
+    // 옛 relay(태그 없음) — 출처를 모르므로 종전 모양 규칙으로 받는다.
+    expect(isAutoSellCommandRejection(relay({ kind: '' }), ISIN, ACCOUNT)).toBe(true);
+    // 태그는 Relay 갈래 전용이다 — 서버 41 실패(AutoSellCommand)는 kind 와 무관하다.
+    expect(isAutoSellCommandRejection(m({ kind: 'lc.set' }), ISIN, ACCOUNT)).toBe(true);
   });
 
   it('isAutoSellCommandRejection — 전략 키 반쪽이면 거짓 · 본문 m 은 결과에 영향 없음', () => {

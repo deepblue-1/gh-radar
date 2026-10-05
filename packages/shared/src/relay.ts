@@ -1167,7 +1167,15 @@ export type RelayServerMsg = {
    *    금지다 — 서버가 어휘를 늘리면 알 수 없는 값은 조용히 기본 분기로 떨어져야 한다.
    */
   src: string;
-  /** 사건 종류 "SessionJoin" / "Restore" / "Purge". 그 외 빈 값. */
+  /**
+   * 사건 종류. 갈래는 `src` 로 먼저 나뉜다:
+   * - 게이트웨이 54 — `"SessionJoin"` / `"Restore"` / `"Purge"`. 그 외 빈 값.
+   * - `src === "Relay"`(relay 발 거부) — **거부된 인바운드의 `t`**(`RelayInbound["t"]`, 예: `"autosell.cmd"` ·
+   *   `"lc.set"` · `"lc.arm"`). relay 거부는 전략 키를 싣지 않아 이 값이 「어느 요청의 답인가」의 유일한 근거다
+   *   (27-REVIEW IN-01). 이 태그 이전 relay 는 빈 값을 보낸다 — 소비처는 빈 값을 「출처 모름」으로 다룬다.
+   *
+   * ⚠️ `src` 와 같은 규율 — **동등 비교만** 한다.
+   */
   kind: string;
 };
 
