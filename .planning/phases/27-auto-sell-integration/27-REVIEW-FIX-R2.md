@@ -176,3 +176,7 @@ main checkout 에 `workers/limitup-sync/tests/helpers/fake-supabase.ts` 수정�
 _Fixed: 2026-10-05T09:16:44Z_
 _Fixer: Claude (gsd-code-fixer)_
 _Iteration: 2_
+
+## 후속 — IN-04 재판정 (WinForms 동형)
+
+6d54e068 은 LED 툴팁을 카드 「기준」 행 규칙(기준 0 → 「—」)에 맞췄으나, WinForms `ledAutoSell` 툴팁(`gh-trade/client/Forms/Trading/LimitChaserForm.cs` 「기준 낱말 = 서버 auto_sell_basis」)은 기준가격 > 0 이면 꼬리를 달고 기준 0 도 「상한가」로 읽는다. 원래 웹 LED 가 이미 그 동형이었고, 두 표면 차이는 의도(카드 행 = D-02, LED = WinForms 툴팁)였다. 두 클라가 갈리면 WinForms 가 기본이므로 LED 동작을 되돌리고, 낱말만 shared `autoSellBasisLabel` 로 일원화했다(중복 낱말 판정 제거). 검증: latch-led vitest 34 통과 · webapp tsc · eslint 통과.
