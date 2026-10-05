@@ -38,10 +38,12 @@ import type { LcGroupSpec } from '@/components/trading/lc/lc-fields';
 import { LcSheetShell } from '@/components/trading/lc/number-pad-sheet';
 import { AUTO_SELL_PEND_TEXT } from '@/lib/limit-chaser';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
+import type { PadUnit } from '@/lib/numpad';
 import { useEditMode } from '@/lib/use-edit-mode';
 import { cn } from '@/lib/utils';
 
-export type SettingUnit = '원' | '주' | '만원' | '%' | '건' | '회';
+/** 행 단위 = 키패드 단위(`lib/numpad.ts` `PadUnit` 한 벌 — 두 곳에 적으면 갈라진다 · Phase 27 「초」). */
+export type SettingUnit = PadUnit;
 
 const NUM = new Intl.NumberFormat('ko-KR');
 

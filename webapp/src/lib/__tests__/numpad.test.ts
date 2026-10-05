@@ -13,6 +13,7 @@ import {
   padValue,
   padWarning,
   priceIssueText,
+  rangeIssueText,
   stepValue,
   type PadChip,
   type PadCtx,
@@ -374,5 +375,38 @@ describe("D-15a — 호가 단위 잠금 강도(tickRule)", () => {
     expect(priceIssueText(off, "unknown")).toBe(SOFT);
     expect(priceIssueText(off, "stock")).toBe(LOCK);
     expect(priceIssueText(off)).toBe(LOCK);
+  });
+});
+
+/**
+ * Phase 27 (27-06) — `/me` 상따 기본설정의 「매도 주기」(1~60초)가 키패드 단위 「초」를 쓴다.
+ * 문장은 `rangeIssueText` 한 함수 — 단위 문자열을 그대로 붙인다.
+ */
+describe("Phase 27 키패드 단위 「초」", () => {
+  it("rangeIssueText — 하한 · 상한 · 범위 안", () => {
+    expect(rangeIssueText(0, "초", 1, 60)).toBe("1초 이상 입력해 주세요");
+    expect(rangeIssueText(61, "초", 1, 60)).toBe("최대 60초까지 입력할 수 있어요");
+    expect(rangeIssueText(5, "초", 1, 60)).toBeNull();
+  });
+
+  it("기존 단위 결과는 그대로다", () => {
+    expect(rangeIssueText(0, "%", 1, 90)).toBe("1% 이상 입력해 주세요");
+    expect(rangeIssueText(1_000_000_000, "만원", 0, 999_999_999)).toBe("최대 999,999,999만원까지 입력할 수 있어요");
+  });
+
+  it("padIssue 가 초 단위 필드 범위로 확인을 잠근다", () => {
+    const PERIOD: PadCtx = { current: 0, upper: 0, min: 1, max: 60 };
+    expect(padIssue(s("61"), "초", PERIOD)).toBe("최대 60초까지 입력할 수 있어요");
+    expect(canConfirmPad(s("61"), "초", PERIOD)).toBe(false);
+    expect(canConfirmPad(s("5"), "초", PERIOD)).toBe(true);
+  });
+
+  it("PAD_CHIPS 에 초 단위 칩 줄이 있다(범위 밖 set 칩은 비활성)", () => {
+    const chips = PAD_CHIPS["초"];
+    expect(chips.length).toBeGreaterThan(0);
+    const PERIOD: PadCtx = { current: 0, upper: 0, min: 1, max: 60 };
+    for (const c of chips) {
+      if (c.op.kind === "set") expect(padChipDisabled(c, PERIOD)).toBe(c.op.n < 1 || c.op.n > 60);
+    }
   });
 });

@@ -3224,3 +3224,49 @@ describe('unf.progress (Phase 25)', () => {
     expect(hook.result.current.queueProgress.size).toBe(0);
   });
 });
+
+describe('Phase 27 user.settings — 84 사용자 설정 3상태 (77 queuedWindow 규율)', () => {
+  const PRESENT = {
+    t: 'user.settings',
+    present: true,
+    preBuyAmount: 3000,
+    addBuyAmount: 5000,
+    postBuyAmount: 2000,
+    postBuyMaxCount: 2,
+    postBuyFloorQty: 150_000,
+    postBuyReboundPct: 25,
+    sellQtyTrackRatio: 55,
+    autoSellPeriodSec: 5,
+    auctionSellRatioPct: 20,
+    autoSellRatioDefaultPct: 15,
+    autoSellMethodDefault: 1,
+  } as const;
+
+  it('초기 undefined(모름) — 연결 · 인증만으로는 지어내지 않는다', async () => {
+    const hook = render({ enabled: true });
+    expect(hook.result.current.userSettings).toBeUndefined();
+    await connected(hook);
+    expect(hook.result.current.userSettings).toBeUndefined();
+  });
+
+  it('프레임 → 그 값 · 두 번째 프레임 → 교체 · reset(enabled false) → undefined', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+
+    await act(async () => {
+      ws.push(PRESENT);
+    });
+    expect(hook.result.current.userSettings).toEqual(PRESENT);
+
+    const NEXT = { ...PRESENT, present: false, autoSellPeriodSec: 3 };
+    await act(async () => {
+      ws.push(NEXT);
+    });
+    expect(hook.result.current.userSettings).toEqual(NEXT);
+
+    await act(async () => {
+      hook.rerender({ enabled: false });
+    });
+    expect(hook.result.current.userSettings).toBeUndefined();
+  });
+});

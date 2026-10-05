@@ -22,7 +22,8 @@ import {
   type TickRule,
 } from '@gh-radar/shared';
 
-export type PadUnit = '원' | '주' | '만원' | '%' | '건' | '회';
+/** `'초'` = `/me` 상따 기본설정 「매도 주기」(1~60초 · Phase 27). */
+export type PadUnit = '원' | '주' | '만원' | '%' | '건' | '회' | '초';
 
 /** 키패드 버퍼. `buf` 는 숫자만 담은 문자열('' = 빈 값) · `fresh` = 첫 입력 대기. */
 export interface PadState {
@@ -97,6 +98,8 @@ export const PAD_CHIPS: Record<PadUnit, readonly PadChip[]> = {
   ],
   건: [set(1), set(3), set(5), CLEAR],
   회: [set(1), set(3), set(5), set(10)],
+  // 매도 주기(1~60초 · Phase 27 `/me`) — 서버 내장 기본 3초
+  초: [set(1), set(3), set(5), set(10)],
 };
 
 function fmt(n: number): string {

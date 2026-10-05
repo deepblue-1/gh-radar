@@ -92,6 +92,7 @@ import {
   type RelayStrategiesDisabledMsg,
   type RelayQueueProgressItem,
   type RelayQueuedWindowMsg,
+  type RelayUserSettingsMsg,
   type RelayRateCrossItem,
   type RelayTapeEntry,
   type RelayUnfilled,
@@ -578,6 +579,15 @@ export interface RelayConnectionState {
    */
   queuedWindow: RelayQueuedWindowMsg | undefined;
   /**
+   * 사용자 상따 기본설정(84 `user.settings` · Phase 27) — **2상태**다(77 `queuedWindow` 규율).
+   *  - `undefined` : 서버가 84 를 아직 한 번도 안 줬다(연결 전 · 인증 전 · 세션 준비 전)
+   *  - 객체        : 서버가 말한 마지막 11값 + `present`(false = 서버 저장값 없음 · 내장 기본값)
+   *
+   * ⚠️ relay 는 84 를 모르면 아무것도 내리지 않는다 — 웹도 기본값을 지어내지 않는다. `/me` 섹션의
+   *    42 조립 기준(서버 캐시 + 바뀐 1칸)이 이 값 하나다.
+   */
+  userSettings: RelayUserSettingsMsg | undefined;
+  /**
    * NXT 거래가능 ISIN 집합 — **2상태**(quick-260923-pq2).
    *  - `null` : relay 가 `nxt.snap` 을 아직 안 줬다(연결 전 · 구 relay · relay 가 57 을 못 받음)
    *             → 화면은 KRX|NXT 둘 다 그린다
@@ -713,6 +723,7 @@ interface RelayData {
   rateCrossSnapSeq: number;
   limitChaserSnapSeq: number;
   queuedWindow: RelayQueuedWindowMsg | undefined;
+  userSettings: RelayUserSettingsMsg | undefined;
   nxtTradable: ReadonlySet<string> | null;
 }
 
@@ -756,6 +767,8 @@ const INITIAL_DATA: RelayData = {
   limitChaserSnapSeq: 0,
   // 미수신(undefined) 과 「닫힘」(open:false) 은 다른 화면이다 — 초기값은 미수신이다.
   queuedWindow: undefined,
+  // 84 미수신(undefined) 과 「저장값 없음」(present:false) 은 다른 화면이다 — 초기값은 미수신이다.
+  userSettings: undefined,
   // 아직 모른다 — 빈 Set 으로 위장하면 모든 종목의 NXT 가 사라진다(quick-260923-pq2).
   nxtTradable: null,
 };
@@ -1030,6 +1043,11 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
     case "queued.window":
       // 최신 1건 보관. 상태 보관만 하고 UI 는 만들지 않는다(Phase 18).
       return { ...state, queuedWindow: frame };
+
+    case "user.settings":
+      // 최신 1건 보관(84 · Phase 27). 재접속에서 지우지 않는다 — relay 가 인증 직후 캐시를 다시 내린다.
+      // `reset` 만 `INITIAL_DATA`(undefined) 로 되돌린다.
+      return { ...state, userSettings: frame };
 
     case "nxt.snap":
       // 전량 교체 · 재접속에서는 지우지 않는다 — relay 가 재인증마다 다시 내린다
@@ -2136,6 +2154,7 @@ export function useRelayConnection({
       rateCrossSnapSeq: data.rateCrossSnapSeq,
       limitChaserSnapSeq: data.limitChaserSnapSeq,
       queuedWindow: data.queuedWindow,
+      userSettings: data.userSettings,
       nxtTradable: data.nxtTradable,
       send,
       reconnect,
