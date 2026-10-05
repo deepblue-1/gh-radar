@@ -5,8 +5,13 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   const reqLog = (req as unknown as { log?: { warn: Function; error: Function } }).log;
 
   if (err instanceof ApiError) {
+    // cause(DB · Storage 원문 — WR-B03)는 로그에만 — 응답 본문에는 고정 문구만(T-15-07).
     reqLog?.warn(
-      { err: { code: err.code, message: err.message }, code: err.code },
+      {
+        err: { code: err.code, message: err.message },
+        code: err.code,
+        ...(err.cause !== undefined ? { cause: err.cause } : {}),
+      },
       "api error",
     );
     res.status(err.status).json({

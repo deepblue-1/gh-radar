@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import request from "supertest";
 import { createApp } from "../../src/app";
+import { ApiError } from "../../src/errors";
+import { getLimitupGridUrls, getLimitupReport } from "../../src/services/limitup-report";
 
 /**
  * `GET /api/limitup/report` · `GET /api/limitup/grid-urls` — 상한가 보고서 조회 (Phase 28 D-10 · D-11 · D-15 · D-17).
@@ -22,7 +24,7 @@ function makeSupabase(opts: {
   user?: { id: string } | null;
   /** RPC data 그대로. */
   rpcData?: unknown;
-  rpcError?: { message: string };
+  rpcError?: { message: string; code?: string };
   signError?: { message: string };
   /** createSignedUrls data 를 덮는다(기본 = 경로마다 https://signed/<path>). */
   signData?: (paths: string[]) => unknown;
@@ -264,5 +266,41 @@ describe("GET /api/limitup/grid-urls (Phase 28 D-10)", () => {
       expect(r.body.error.code).toBe("DB_ERROR");
       expect(rec.signCalls).toHaveLength(0);
     }
+  });
+});
+
+describe("상한가 서비스 — DB · Storage 원인을 cause 로 싣는다(로그 전용 · WR-B03)", () => {
+  const caught = async (p: Promise<unknown>): Promise<ApiError> => {
+    try {
+      await p;
+    } catch (e) {
+      return e as ApiError;
+    }
+    throw new Error("throw 하지 않았다");
+  };
+
+  it("RPC error → DB_ERROR + cause { code, message } · 메시지는 고정 문구", async () => {
+    const { client } = makeSupabase({ rpcError: { code: "57014", message: "canceling statement due to statement timeout" } });
+    const e = await caught(getLimitupReport(client, "u1"));
+    expect(e).toBeInstanceOf(ApiError);
+    expect(e.code).toBe("DB_ERROR");
+    expect(e.message).toBe("상한가 보고서 조회에 실패했습니다.");
+    expect(e.cause).toMatchObject({ code: "57014", message: "canceling statement due to statement timeout" });
+  });
+
+  it("응답 모양 위반 → cause 에 RPC 이름 · 타입", async () => {
+    const { client } = makeSupabase({ rpcData: [] });
+    const e = await caught(getLimitupReport(client, "u1"));
+    expect(e.cause).toEqual({ reason: "limitup_report_for_user 모양 위반", type: "array" });
+  });
+
+  it("Storage 서명 실패 → cause 에 Storage 메시지 · 경로 수", async () => {
+    const { client } = makeSupabase({
+      rpcData: { access: true, isins: ["KR7000000001", "KR7000000002"] },
+      signError: { message: "Bucket not found" },
+    });
+    const e = await caught(getLimitupGridUrls(client, "u1", "20261002"));
+    expect(e.message).toBe("상한가 격자 주소 발급에 실패했습니다.");
+    expect(e.cause).toEqual({ storage: "Bucket not found", count: 2 });
   });
 });

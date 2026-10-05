@@ -1,10 +1,15 @@
 export class ApiError extends Error {
+  /**
+   * `cause` — 운영 로그 전용 원인(예: PostgREST `{ code, message }`). 응답에는 절대 싣지 않는다(T-15-07) —
+   * errorHandler 가 warn 로그에만 남긴다(Phase 28 리뷰 WR-B03).
+   */
   constructor(
     public readonly status: number,
     public readonly code: string,
     message: string,
+    cause?: unknown,
   ) {
-    super(message);
+    super(message, cause === undefined ? undefined : { cause });
     this.name = "ApiError";
   }
 }

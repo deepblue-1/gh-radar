@@ -1,9 +1,9 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import express from "express";
 import request from "supertest";
 import { errorHandler } from "../../src/middleware/error-handler";
 import { notFoundHandler } from "../../src/middleware/not-found";
-import { StockNotFound } from "../../src/errors";
+import { ApiError, StockNotFound } from "../../src/errors";
 
 function app(env: string) {
   process.env.NODE_ENV = env;
@@ -54,6 +54,35 @@ describe("errorHandler", () => {
   it("development에서는 실 메시지 노출", async () => {
     const r = await request(app("development")).get("/boom");
     expect(r.body.error.message).toBe("sensitive internal detail");
+  });
+});
+
+describe("errorHandler — ApiError cause 는 로그에만 (Phase 28 리뷰 WR-B03)", () => {
+  it("cause 가 있으면 warn 로그에 싣고 응답에는 싣지 않는다 · 없으면 로그에 cause 키 없음", async () => {
+    const warn = vi.fn();
+    const a = express();
+    a.use((req, _res, next) => {
+      (req as unknown as { log: unknown }).log = { warn, error: vi.fn() };
+      next();
+    });
+    a.get("/db", (_req, _res, next) => {
+      next(new ApiError(500, "DB_ERROR", "상한가 보고서 조회에 실패했습니다.", { code: "57014", message: "canceling statement due to statement timeout" }));
+    });
+    a.get("/plain", (_req, _res, next) => next(StockNotFound("000000")));
+    a.use(errorHandler);
+
+    const r = await request(a).get("/db");
+    expect(r.status).toBe(500);
+    expect(r.body).toEqual({ error: { code: "DB_ERROR", message: "상한가 보고서 조회에 실패했습니다." } });
+    expect(JSON.stringify(r.body)).not.toContain("57014");
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toMatchObject({
+      code: "DB_ERROR",
+      cause: { code: "57014", message: "canceling statement due to statement timeout" },
+    });
+
+    await request(a).get("/plain");
+    expect(warn.mock.calls[1]![0]).not.toHaveProperty("cause");
   });
 });
 

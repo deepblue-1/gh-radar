@@ -50,7 +50,8 @@ import { ApiError } from "../errors.js";
  * ★ **쓰기 함수가 없다.** 저널 행은 relay 관찰자 기록기(19-05)만 `dma_journal_apply` 로 쓴다.
  */
 
-const DbError = (msg: string) => new ApiError(500, "DB_ERROR", msg);
+/** `cause` 는 로그 전용(errorHandler warn) — 응답에는 고정 문구만(T-15-07 · Phase 28 리뷰 WR-B03). */
+const DbError = (msg: string, cause?: unknown) => new ApiError(500, "DB_ERROR", msg, cause);
 
 /**
  * 하루치 주문 목록 (새로고침 후 복원). 기본값은 **KST 오늘**이다 — 저널 행의 `trade_date` 가
@@ -117,9 +118,11 @@ export async function listStrategyEvents(
     p_trade_date: tradeDate,
     p_include_limit_feature: includeLimitFeature,
   });
-  if (error) throw DbError("주문로그 조회에 실패했습니다.");
+  if (error) throw DbError("주문로그 조회에 실패했습니다.", { code: error.code, message: error.message });
   // RPC 는 늘 배열을 준다(coalesce '[]'). 배열이 아니면 계약 위반 — 빈 목록으로 감추지 않는다.
-  if (!Array.isArray(data)) throw DbError("주문로그 조회에 실패했습니다.");
+  if (!Array.isArray(data)) {
+    throw DbError("주문로그 조회에 실패했습니다.", { reason: "dma_strategy_events_for_user_json 모양 위반", type: typeof data });
+  }
   return (data as StrategyEventDbRow[]).map(toStrategyEventRow);
 }
 
