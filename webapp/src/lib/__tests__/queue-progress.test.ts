@@ -120,9 +120,10 @@ describe('progressView — D-12 클램프만 (웹 계산 없음)', () => {
     expect(progressView({ remainingVolume: 1, progressBp: -3, group: 3 }).pct).toBe(0);
   });
 
-  it('group 0 → 「매수」(플래너 가정 A-P1) · 모르는 group 9 → 원문 「9」', () => {
+  // group 9 는 Phase 27 「자동매도」 로 알려졌다 — 모르는 group 의 대표 값은 10.
+  it('group 0 → 「매수」(플래너 가정 A-P1) · 모르는 group 10 → 원문 「10」', () => {
     expect(progressView({ remainingVolume: 1, progressBp: 100, group: 0 }).groupLabel).toBe('매수');
-    expect(progressView({ remainingVolume: 1, progressBp: 100, group: 9 }).groupLabel).toBe('9');
+    expect(progressView({ remainingVolume: 1, progressBp: 100, group: 10 }).groupLabel).toBe('10');
   });
 
   it('group 7 수동 · 8 VI (gh-trade 2026-09-30 말미 추가) → 값 텍스트 종류명 「수동」 · 「VI」', () => {
@@ -172,14 +173,15 @@ describe('progressGroupLabel', () => {
     expect(progressGroupLabel(1)).toBe('선매수');
     expect(progressGroupLabel(2)).toBe('추가매수');
     expect(progressGroupLabel(3)).toBe('후매수');
-    expect(progressGroupLabel(9)).toBe('9');
+    expect(progressGroupLabel(10)).toBe('10');
   });
 
   it('7 → 수동 · 8 → VI (표시명 표 위임) · 0 은 옛 서버 호환으로 여전히 매수', () => {
     expect(progressGroupLabel(7)).toBe('수동');
     expect(progressGroupLabel(8)).toBe('VI');
     expect(progressGroupLabel(0)).toBe('매수');
-    expect(progressGroupLabel(9)).toBe('9');
+    expect(progressGroupLabel(9)).toBe('자동매도');
+    expect(progressGroupLabel(10)).toBe('10');
   });
 });
 

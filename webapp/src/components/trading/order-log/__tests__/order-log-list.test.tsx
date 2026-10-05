@@ -349,7 +349,8 @@ describe('OrderLogList — 수동 · VI 줄 (quick-260930-e73)', () => {
   };
   const viBuy = { ...manualBuy, seq: 903, group: 8 };
   const manualReject = { ...STRATEGY_DAY_BY_NAME.reject!, seq: 904, group: 7 };
-  const unknownGroup = { ...manualBuy, seq: 905, group: 9 };
+  // group 9 는 Phase 27 「자동매도」 로 알려졌다 — 모르는 group 의 대표 값은 10.
+  const unknownGroup = { ...manualBuy, seq: 905, group: 10 };
   const rows = [manualBuy, manualSell, viBuy, manualReject, unknownGroup];
 
   it('구분 칸 · 방향색 · data-group · 줄 평문이 조립기 출력과 같다', () => {
@@ -361,7 +362,7 @@ describe('OrderLogList — 수동 · VI 줄 (quick-260930-e73)', () => {
       { badge: '[수동]', tone: 'text-[var(--down)]', group: '7' },
       { badge: '[VI]', tone: 'text-[var(--up)]', group: '8' },
       { badge: '[수동]', tone: 'text-[var(--muted-fg)]', group: '7' },
-      { badge: '[9]', tone: 'text-[var(--muted-fg)]', group: '9' },
+      { badge: '[10]', tone: 'text-[var(--muted-fg)]', group: '10' },
     ];
     lines.forEach((line, i) => {
       const kind = line.querySelector('[data-slot="order-log-kind"]');

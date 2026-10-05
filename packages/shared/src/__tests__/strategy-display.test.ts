@@ -87,3 +87,23 @@ describe("serverMsgBadge (D-17 — 동등 비교만)", () => {
     expect(serverMsgBadge("NotVITriggerAtAll")).toBe("[서버]");
   });
 });
+
+describe("Phase 27 serverMsgBadge — 자동매도 54 줄은 [상따] (D-17 · WinForms NotificationHub 28-08)", () => {
+  it("54 INFO src=AutoSell 사유 줄 · 54 ERROR src=AutoSellCommand 거부 줄 모두 [상따]", () => {
+    expect(serverMsgBadge("AutoSell")).toBe("[상따]");
+    expect(serverMsgBadge("AutoSellCommand")).toBe("[상따]");
+  });
+
+  it("SetUserSettings(42 거부)는 종전대로 [서버]", () => {
+    expect(serverMsgBadge("SetUserSettings")).toBe("[서버]");
+  });
+
+  it("정확 일치만 — 대소문자 · 접두 · 꼬리가 다르면 [서버]", () => {
+    expect(serverMsgBadge("autosell")).toBe("[서버]");
+    expect(serverMsgBadge("AUTOSELL")).toBe("[서버]");
+    expect(serverMsgBadge("autosellcommand")).toBe("[서버]");
+    expect(serverMsgBadge("AutoSellX")).toBe("[서버]");
+    expect(serverMsgBadge("AutoSellCommandResp")).toBe("[서버]");
+    expect(serverMsgBadge(" AutoSell")).toBe("[서버]");
+  });
+});

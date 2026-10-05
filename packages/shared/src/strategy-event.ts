@@ -31,6 +31,19 @@ export const STRATEGY_EVENT_KIND = {
   /** 버스트 상한가 — 상한 매도잔량이 버스트 조각만으로 소진(gh-trade 3dabd6ff · 시세 이벤트 · 계좌 없음).
    *  슬롯 재사용: condActual = 조각 수 · evTradeQty = 합계 수량 · evPrice = 상한가 · cumVolume = 누적. */
   BurstLimit: 10,
+  /**
+   * 11~14 — gh-trade Phase 28 자동매도(group 9 AutoSell · HANDOFF §4-1 v0.2 칸 재해석 · 전용 필드 없음).
+   * 계좌 이벤트다(account_no 를 채워 온다 — 시세 판정에 넣지 않는다). 주문번호는 12 만 있다(원주문 번호).
+   * 15 LimitFeature(gh-trade Phase 27)는 Deferred — 키를 두지 않는다(오면 D-10 폴백 원문 숫자).
+   */
+  /** 발동 — price 발동가 · cond_threshold 시작조건 N(0~9) · cond_actual 실측 체결가 · queue_case 기준 종류 · bid1_price 기준가격 · cum T0 누적. */
+  AutoSellTriggered: 11,
+  /** 정정 — order_no 원주문 번호 · price 새 가격 · qty 정정 수량 · cond_threshold 원주문 가격 · cond_actual 원주문 잔량 · message 새 번호(숫자만). */
+  AutoSellModified: 12,
+  /** 상태 — price 기준가격 · qty 누적 매도수량 · cond_threshold/cond_actual 이전/새 상태 0~4 · queue_case 기준 종류. */
+  AutoSellState: 13,
+  /** 멈춤/재개 — cond_actual 1 VI · 2 동시호가(NXT 단일가) · 3 재개 · expected_cum 새 T0(재개). */
+  AutoSellPause: 14,
 } as const;
 
 /**
@@ -48,6 +61,8 @@ export const ORDER_GROUP = {
   SellFillHook: 6,
   Manual: 7,
   VITrigger: 8,
+  /** 자동매도(gh-trade Phase 28 D-22) — kind 6/7/8 주문 이벤트와 kind 11~14 자동매도 이벤트. 매도 전용(`strategyEventSide`). */
+  AutoSell: 9,
 } as const;
 
 /**

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
+  AUTO_SELL_BASIS_LABELS,
+  AUTO_SELL_METHOD_LABELS,
+  AUTO_SELL_METHOD_ORDER,
+  AUTO_SELL_PAUSE_LABELS,
+  AUTO_SELL_REASON_TOKENS,
+  AUTO_SELL_STATE_LABELS,
   CANCEL_REASON_LABELS,
   COND_METRIC_LABELS,
   EVIDENCE_KIND_LABELS,
@@ -8,12 +14,16 @@ import {
   ORDER_GROUP_ORIGIN_TEXTS,
   REASON_CODE_OPERATORS,
   STRATEGY_EVENT_KIND_LABELS,
+  autoSellBasisLabel,
+  autoSellStateLabel,
   cancelReasonLabel,
   condMetricLabel,
   orderConditionLabel,
   orderGroupLabel,
   orderGroupOriginText,
+  isAutoSellReason,
   reasonOperator,
+  reasonToken,
   strategyEventSide,
   strategyKindLabel,
 } from "../strategy-event-labels";
@@ -29,7 +39,7 @@ import {
  */
 
 describe("표시명 표 전수 (D-10)", () => {
-  it("StrategyEventKind 1~8 · 10(버스트 상한가 — quick-261003-rc4) · 9 는 예약이라 표에 없다", () => {
+  it("StrategyEventKind 1~8 · 10(버스트 상한가 — quick-261003-rc4) · 11~13(자동매도 — Phase 27) · 9 는 예약이라 표에 없다", () => {
     expect(STRATEGY_EVENT_KIND_LABELS).toEqual({
       1: "상한가노출",
       2: "상한가진입",
@@ -40,6 +50,9 @@ describe("표시명 표 전수 (D-10)", () => {
       7: "취소",
       8: "거부",
       10: "버스트 상한가",
+      11: "발동",
+      12: "정정",
+      13: "상태",
     });
     expect(strategyKindLabel(10)).toBe("버스트 상한가");
     expect(strategyKindLabel(9)).toBe("9");
@@ -50,7 +63,7 @@ describe("표시명 표 전수 (D-10)", () => {
     expect(strategyKindLabel(99)).toBe("99");
   });
 
-  it("OrderGroup 1~8 (7 수동 · 8 VI 말미 추가) · 0 은 null · 모르면 원문 숫자", () => {
+  it("OrderGroup 1~9 (7 수동 · 8 VI · 9 자동매도 말미 추가) · 0 은 null · 모르면 원문 숫자", () => {
     expect(ORDER_GROUP_LABELS).toEqual({
       1: "선매수",
       2: "추가매수",
@@ -60,12 +73,14 @@ describe("표시명 표 전수 (D-10)", () => {
       6: "체결훅",
       7: "수동",
       8: "VI",
+      9: "자동매도",
     });
     expect(orderGroupLabel(0)).toBeNull();
     expect(orderGroupLabel(4)).toBe("호가매도");
     expect(orderGroupLabel(7)).toBe("수동");
     expect(orderGroupLabel(8)).toBe("VI");
-    expect(orderGroupLabel(9)).toBe("9");
+    expect(orderGroupLabel(9)).toBe("자동매도");
+    expect(orderGroupLabel(10)).toBe("10");
   });
 
   it("출처 문구 — 7 수동 주문 · 8 VI 자동주문 (WinForms 문구) · 0~6 · 모르는 group 은 null", () => {
@@ -88,8 +103,10 @@ describe("표시명 표 전수 (D-10)", () => {
     expect(strategyEventSide(7, 6)).toBe("sell");
     for (const k of [3, 4, 5, 7]) expect(strategyEventSide(7, k)).toBe("buy");
     for (const k of [0, 1, 2, 8, 9]) expect(strategyEventSide(7, k)).toBeNull();
+    // 9 자동매도 — 매도 전용(Phase 27 D-14)
+    for (const k of KINDS) expect(strategyEventSide(9, k)).toBe("sell");
     // 모르는 group — 방향을 지어내지 않는다(D-10)
-    for (const k of KINDS) expect(strategyEventSide(9, k)).toBeNull();
+    for (const k of KINDS) expect(strategyEventSide(10, k)).toBeNull();
   });
 
   it("CondMetric 1~7 (6 스윕 호가변경 · 7 상승률 말미 추가) · 3 은 매도 방향이면 단건 매도체결", () => {
@@ -114,7 +131,7 @@ describe("표시명 표 전수 (D-10)", () => {
     expect(EVIDENCE_KIND_LABELS).toEqual({ 1: "호가", 2: "체결", 3: "체결통보" });
   });
 
-  it("CancelReason 1~9 (7 체결 감시 · 8 재취소 · 9 기타 말미 추가) · 모르면 원문 숫자", () => {
+  it("CancelReason 1~11 (7 체결 감시 · 8 재취소 · 9 기타 · 10/11 자동매도 말미 추가) · 모르면 원문 숫자", () => {
     expect(CANCEL_REASON_LABELS).toEqual({
       1: "수동 취소",
       2: "이탈 매도",
@@ -125,6 +142,8 @@ describe("표시명 표 전수 (D-10)", () => {
       7: "체결 감시",
       8: "재취소",
       9: "기타",
+      10: "매수 우선 취소",
+      11: "동시호가 감축",
     });
     expect(cancelReasonLabel(3)).toBe("매수1 이탈");
     expect(cancelReasonLabel(7)).toBe("체결 감시");
@@ -206,5 +225,118 @@ describe("연산자 표 (reason_code 원문 정확 일치 · D-36)", () => {
     expect(reasonOperator("")).toBeNull();
     expect(reasonOperator("constructor")).toBeNull();
     expect(reasonOperator("__proto__")).toBeNull();
+  });
+});
+
+/**
+ * Phase 27 — 자동매도(gh-trade Phase 28 · HANDOFF §4-1 v0.2) 표시명 · 토큰 판정 · 방향 (D-14 · D-15 · D-16).
+ *
+ * 잠그는 것:
+ *   ① kind 11 발동 · 12 정정 · 13 상태 — 14 는 표가 아니라 `cond_actual` 분기(AUTO_SELL_PAUSE_LABELS).
+ *   ② group 9 「자동매도」 · CancelReason 10 「매수 우선 취소」 · 11 「동시호가 감축」(인박스 Q3 · WinForms 낱말).
+ *   ③ 상태 낱말 0 「꺼짐」(서버 54 문구 · WinForms 동형 — 정보성 반영 Q6) · 기준 낱말은 2 만 매수가.
+ *   ④ reason_code 는 첫 공백까지 잘라 13종 집합과 정확 일치(`Object.hasOwn` — 프로토타입 키 방어).
+ *   ⑤ group 9 는 매도 색 — kind 무관.
+ */
+const AUTO_SELL_REASON_CODES: readonly string[] = [
+  "AutoSellAsk1 주기매도(매도1호가)",
+  "AutoSellBid1 주기매도(매수1호가)",
+  "AutoSellTrigger0 발동(기준가격 이탈 뒤 다음 체결)",
+  "AutoSellTriggerN 발동(체결가<=발동가)",
+  "AutoSellModify 정정(비싼 미체결 → 목표가)",
+  "AutoSellStateChange 상태변경",
+  "AutoSellPauseVI 멈춤(VI)",
+  "AutoSellPauseAuction 멈춤(동시호가)",
+  "AutoSellResume 재개(새 T0)",
+  "AutoSellStartCancel 발동선취소(같은 창 매수 미체결)",
+  "AutoSellBuyFirstCancel 매수우선취소(매도 미체결)",
+  "AutoSellAuctionTrimCancel 동시호가감축취소",
+  "AutoSellAuctionOrder 동시호가회차매도",
+];
+
+describe("Phase 27 자동매도 표시명 (D-15 · D-16)", () => {
+  it("kind 11 발동 · 12 정정 · 13 상태 · 14 는 표 밖(원문 숫자)", () => {
+    expect(strategyKindLabel(11)).toBe("발동");
+    expect(strategyKindLabel(12)).toBe("정정");
+    expect(strategyKindLabel(13)).toBe("상태");
+    expect(STRATEGY_EVENT_KIND_LABELS[14]).toBeUndefined();
+    expect(strategyKindLabel(14)).toBe("14");
+    // 15 LimitFeature 는 Deferred — 조립기에 넣지 않는다(원문 숫자).
+    expect(strategyKindLabel(15)).toBe("15");
+  });
+
+  it("group 9 「자동매도」 · cancel 10 「매수 우선 취소」 · 11 「동시호가 감축」", () => {
+    expect(orderGroupLabel(9)).toBe("자동매도");
+    expect(cancelReasonLabel(10)).toBe("매수 우선 취소");
+    expect(cancelReasonLabel(11)).toBe("동시호가 감축");
+    expect(cancelReasonLabel(12)).toBe("12");
+  });
+
+  it("상태 표 0 꺼짐 · 1 대기 · 2 감시 · 3 매도중 · 4 완료 · 그 밖 원문 숫자", () => {
+    expect(AUTO_SELL_STATE_LABELS).toEqual({ 0: "꺼짐", 1: "대기", 2: "감시", 3: "매도중", 4: "완료" });
+    expect([0, 1, 2, 3, 4].map(autoSellStateLabel)).toEqual(["꺼짐", "대기", "감시", "매도중", "완료"]);
+    expect(autoSellStateLabel(7)).toBe("7");
+    expect(autoSellStateLabel(-1)).toBe("-1");
+  });
+
+  it("기준 낱말 — 2 만 매수가, 그 밖(0 미정 포함)은 상한가 (WinForms)", () => {
+    expect(AUTO_SELL_BASIS_LABELS).toEqual({ 1: "상한가", 2: "매수가" });
+    expect(autoSellBasisLabel(2)).toBe("매수가");
+    expect(autoSellBasisLabel(1)).toBe("상한가");
+    expect(autoSellBasisLabel(0)).toBe("상한가");
+    expect(autoSellBasisLabel(9)).toBe("상한가");
+  });
+
+  it("방법 표 — 와이어 1 매도1호가 · 2 매수1호가 · 3 양쪽 · 콤보 순서 3 · 1 · 2", () => {
+    expect(AUTO_SELL_METHOD_LABELS).toEqual({ 1: "매도1호가", 2: "매수1호가", 3: "양쪽" });
+    expect(AUTO_SELL_METHOD_ORDER).toEqual([3, 1, 2]);
+    expect(AUTO_SELL_METHOD_ORDER.map((m) => AUTO_SELL_METHOD_LABELS[m])).toEqual(["양쪽", "매도1호가", "매수1호가"]);
+  });
+
+  it("멈춤 표 — cond_actual 1 VI 멈춤 · 2 동시호가 멈춤 · 3 재개", () => {
+    expect(AUTO_SELL_PAUSE_LABELS).toEqual({ 1: "VI 멈춤", 2: "동시호가 멈춤", 3: "재개" });
+  });
+});
+
+describe("Phase 27 자동매도 reason_code 토큰 판정 (첫 토큰 정확 일치)", () => {
+  it("reasonToken — 첫 공백 앞 · 공백 없으면 전체", () => {
+    expect(reasonToken("AutoSellAsk1 주기매도(매도1호가)")).toBe("AutoSellAsk1");
+    expect(reasonToken("AutoSellAsk1")).toBe("AutoSellAsk1");
+    expect(reasonToken("")).toBe("");
+    expect(reasonToken("PreBuy B6Buy5 가격돌파(매도1호가>감시가)")).toBe("PreBuy");
+  });
+
+  it("집합 13종 = LimitChaser.h OrderReasonName 원문 첫 토큰 · 전부 참", () => {
+    expect(Object.keys(AUTO_SELL_REASON_TOKENS)).toHaveLength(13);
+    expect(Object.keys(AUTO_SELL_REASON_TOKENS).sort()).toEqual(AUTO_SELL_REASON_CODES.map(reasonToken).sort());
+    for (const code of AUTO_SELL_REASON_CODES) expect(isAutoSellReason(code)).toBe(true);
+  });
+
+  it("집합 밖 · 대소문자 다름 · 상따 사유 · 프로토타입 키 · 빈 값은 거짓", () => {
+    expect(isAutoSellReason("AutoSellFoo x")).toBe(false);
+    expect(isAutoSellReason("AutoSell")).toBe(false);
+    expect(isAutoSellReason("autosellask1 주기매도")).toBe(false);
+    expect(isAutoSellReason(" AutoSellAsk1 주기매도(매도1호가)")).toBe(false);
+    expect(isAutoSellReason("B6Sell2 가격이탈(매수1호가<감시가)")).toBe(false);
+    expect(isAutoSellReason("toString")).toBe(false);
+    expect(isAutoSellReason("constructor")).toBe(false);
+    expect(isAutoSellReason("__proto__ x")).toBe(false);
+    expect(isAutoSellReason("")).toBe(false);
+  });
+
+  it("연산자 표(원문 전체 일치)에는 자동매도 사유를 넣지 않는다", () => {
+    for (const code of AUTO_SELL_REASON_CODES) expect(reasonOperator(code)).toBeNull();
+  });
+});
+
+describe("Phase 27 group 9 방향 (D-14 매도 색)", () => {
+  it("strategyEventSide(9, *) = sell · 기존 group 1~8 결과 무변경", () => {
+    for (const k of [0, 6, 7, 8, 11, 12, 13, 14]) expect(strategyEventSide(9, k)).toBe("sell");
+    expect(strategyEventSide(1, 3)).toBe("buy");
+    expect(strategyEventSide(5, 6)).toBe("sell");
+    expect(strategyEventSide(7, 6)).toBe("sell");
+    expect(strategyEventSide(7, 8)).toBeNull();
+    expect(strategyEventSide(8, 3)).toBe("buy");
+    expect(strategyEventSide(10, 6)).toBeNull();
   });
 });

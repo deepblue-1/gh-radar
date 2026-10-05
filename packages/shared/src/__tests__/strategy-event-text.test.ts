@@ -480,12 +480,13 @@ describe("수동 · VI 주문 (quick-260930-e73)", () => {
     }
   });
 
-  it("모르는 group 9 주문 → 구분 원문 「9」 · tone unknown · 출처 문구 없음 · 0 조각 생략 없음(D-10) · 펼침 접두 「9 · 」", () => {
-    const unknown = { ...MANUAL_BUY, group: 9 };
+  // group 9 는 Phase 27 에서 「자동매도」 로 알려졌다 — 모르는 group 의 대표 값은 10.
+  it("모르는 group 10 주문 → 구분 원문 「10」 · tone unknown · 출처 문구 없음 · 0 조각 생략 없음(D-10) · 펼침 접두 「10 · 」", () => {
+    const unknown = { ...MANUAL_BUY, group: 10 };
     const parts = strategyEventParts(unknown, "log");
-    expect(parts.badge).toBe("9");
+    expect(parts.badge).toBe("10");
     expect(parts.tone).toBe("unknown");
     expect(parts.body).toBe("상한가 매수잔량 0 · 12,350×300주 · 접수 +18ms");
-    expect(timelineStrategyText(unknown).text).toBe("9 · 상한가 매수잔량 0 · 12,350×300주 · 접수 +18ms · 누적 861,800");
+    expect(timelineStrategyText(unknown).text).toBe("10 · 상한가 매수잔량 0 · 12,350×300주 · 접수 +18ms · 누적 861,800");
   });
 });

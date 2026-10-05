@@ -27,6 +27,11 @@ export const STRATEGY_EVENT_KIND_LABELS: Readonly<Record<number, string>> = {
   8: "거부",
   // 9 — gh-radar 「상태전이」 예약(표에 없다 — 오면 원문 숫자).
   10: "버스트 상한가",
+  // 11~13 — gh-trade Phase 28 자동매도(Phase 27 D-15). 14 는 표 밖 — `cond_actual` 로 행위가 갈린다
+  // (`AUTO_SELL_PAUSE_LABELS`). 15 LimitFeature 는 Deferred(오면 원문 숫자).
+  11: "발동",
+  12: "정정",
+  13: "상태",
 };
 
 /** `OrderGroup` 표시명 — 로그 줄의 「구분」 칸. 0(None)은 표에 없다. */
@@ -39,6 +44,7 @@ export const ORDER_GROUP_LABELS: Readonly<Record<number, string>> = {
   6: "체결훅",
   7: "수동",
   8: "VI",
+  9: "자동매도",
 };
 
 /**
@@ -68,7 +74,10 @@ export const EVIDENCE_KIND_LABELS: Readonly<Record<number, string>> = {
   3: "체결통보",
 };
 
-/** `CancelReason` 표시명 (7~9 는 v0.1 밖 말미 추가 — 서버 취소 경로 1:1 · G1 ⓓ). */
+/**
+ * `CancelReason` 표시명 (7~9 는 v0.1 밖 말미 추가 — 서버 취소 경로 1:1 · G1 ⓓ). 10 · 11 은 자동매도
+ * (gh-trade Phase 28 · 인박스 Q3 답 · WinForms 같은 낱말 — Phase 27 D-16).
+ */
 export const CANCEL_REASON_LABELS: Readonly<Record<number, string>> = {
   1: "수동 취소",
   2: "이탈 매도",
@@ -79,6 +88,65 @@ export const CANCEL_REASON_LABELS: Readonly<Record<number, string>> = {
   7: "체결 감시",
   8: "재취소",
   9: "기타",
+  10: "매수 우선 취소",
+  11: "동시호가 감축",
+};
+
+/**
+ * 자동매도 상태(`auto_sell_state` 에코 · kind 13 cond_threshold/cond_actual) 표시명. 카드 칩 · 헤더 LED ·
+ * kind 13 본문 · 서버 54 문구가 **같은 낱말**이다 — 0 은 「꺼짐」(서버 54 「자동매도 꺼짐 → 대기」 · WinForms
+ * 동형 · Phase 27 정보성 반영 Q6). 표 밖 값은 원문 숫자(`autoSellStateLabel`).
+ */
+export const AUTO_SELL_STATE_LABELS: Readonly<Record<number, string>> = {
+  0: "꺼짐",
+  1: "대기",
+  2: "감시",
+  3: "매도중",
+  4: "완료",
+};
+
+/** 자동매도 기준 종류(`auto_sell_basis` · kind 11/13 queue_case). 0 = 미정 — 낱말은 `autoSellBasisLabel`. */
+export const AUTO_SELL_BASIS_LABELS: Readonly<Record<number, string>> = {
+  1: "상한가",
+  2: "매수가",
+};
+
+/** 자동매도 방법(`auto_sell_method` 와이어 값) 표시명. 화면 순서는 `AUTO_SELL_METHOD_ORDER`. */
+export const AUTO_SELL_METHOD_LABELS: Readonly<Record<number, string>> = {
+  3: "양쪽",
+  1: "매도1호가",
+  2: "매수1호가",
+};
+
+/** 방법 콤보 · 세그먼트 순서 — 「양쪽 / 매도1호가 / 매수1호가」(gh-trade 28-12 VM 검토 4차). */
+export const AUTO_SELL_METHOD_ORDER = [3, 1, 2] as const;
+
+/** kind 14 `cond_actual` → 행위 단어(멈춤 · 재개). 표 밖 값은 원문 숫자. */
+export const AUTO_SELL_PAUSE_LABELS: Readonly<Record<number, string>> = {
+  1: "VI 멈춤",
+  2: "동시호가 멈춤",
+  3: "재개",
+};
+
+/**
+ * 자동매도 `reason_code` 첫 토큰 13종 — gh-trade `server/src/trade/strategy/LimitChaser.h:388-400`
+ * `OrderReasonName` 원문의 첫 공백 앞. 판정은 `isAutoSellReason`(첫 토큰 **정확 일치** — 꼬리 문구는 읽지
+ * 않는다 · D-36 · gh-trade 교훈 24). 원문 전체 일치 표 `REASON_CODE_OPERATORS` 에는 넣지 않는다.
+ */
+export const AUTO_SELL_REASON_TOKENS: Readonly<Record<string, true>> = {
+  AutoSellAsk1: true,
+  AutoSellBid1: true,
+  AutoSellTrigger0: true,
+  AutoSellTriggerN: true,
+  AutoSellModify: true,
+  AutoSellStateChange: true,
+  AutoSellPauseVI: true,
+  AutoSellPauseAuction: true,
+  AutoSellResume: true,
+  AutoSellStartCancel: true,
+  AutoSellBuyFirstCancel: true,
+  AutoSellAuctionTrimCancel: true,
+  AutoSellAuctionOrder: true,
 };
 
 /** 매도주문 「방식」 (`order_condition` 원문 → 표시명). */
@@ -133,6 +201,7 @@ export type StrategyEventSide = "buy" | "sell";
  * 이벤트 방향 = group + kind.
  *   - 1~3 매수 · 4~6 매도 — kind 무관(상따 그룹은 그룹이 곧 방향).
  *   - 8 VI 자동주문 — 매수 전용이라 kind 무관 매수.
+ *   - 9 자동매도 — 매도 전용이라 kind 무관 매도(Phase 27 D-14 — 배지 · 줄은 매도 색).
  *   - 7 수동 — 매수 · 매도 겸용이라 kind 로 정한다: 6 매도주문 → 매도 · 3 매수주문 · 4 대기 · 5 첫체결 ·
  *     7 취소 → 매수(대기 · 체결 · 취소는 매수 흐름에서만 온다) · 그 밖(8 거부 등) null.
  *   - 그 밖 group(0 포함 · 모르는 값) null — 방향을 지어내지 않는다(D-10).
@@ -141,6 +210,7 @@ export function strategyEventSide(group: number, kind: number): StrategyEventSid
   if (group >= 1 && group <= 3) return "buy";
   if (group >= 4 && group <= 6) return "sell";
   if (group === 8) return "buy";
+  if (group === 9) return "sell";
   if (group === 7) {
     if (kind === 6) return "sell";
     if (kind === 3 || kind === 4 || kind === 5 || kind === 7) return "buy";
@@ -169,4 +239,28 @@ export function reasonOperator(reasonCode: string): string | null {
 /** 매도주문 방식 표시명. 모르면 원문 그대로(자기 키만 본다 — 원문 문자열이 프로토타입 키일 수 있다). */
 export function orderConditionLabel(code: string): string {
   return Object.hasOwn(ORDER_CONDITION_LABELS, code) ? (ORDER_CONDITION_LABELS[code] ?? code) : code;
+}
+
+/** `reason_code` 첫 토큰 — 첫 공백 앞, 공백이 없으면 전체. 자동매도 판정 전용(꼬리 문구는 읽지 않는다). */
+export function reasonToken(reasonCode: string): string {
+  const i = reasonCode.indexOf(" ");
+  return i < 0 ? reasonCode : reasonCode.slice(0, i);
+}
+
+/**
+ * 자동매도 사유인가 — 첫 토큰이 13종 집합과 **정확 일치**할 때만 참. 게이트웨이 원문이라 `"toString"` 같은
+ * 프로토타입 키가 올 수 있다 — 자기 키만 본다(`Object.hasOwn` · `reasonOperator` 와 같은 규율).
+ */
+export function isAutoSellReason(reasonCode: string): boolean {
+  return Object.hasOwn(AUTO_SELL_REASON_TOKENS, reasonToken(reasonCode));
+}
+
+/** 자동매도 상태 낱말(0 꺼짐 · 1 대기 · 2 감시 · 3 매도중 · 4 완료). 표 밖은 원문 숫자(D-10). */
+export function autoSellStateLabel(state: number): string {
+  return AUTO_SELL_STATE_LABELS[state] ?? String(state);
+}
+
+/** 자동매도 기준 낱말 — 2 만 「매수가」, 그 밖(0 미정 포함)은 「상한가」(WinForms 「기준 낱말은 basis 만 본다」). */
+export function autoSellBasisLabel(basis: number): string {
+  return basis === 2 ? "매수가" : "상한가";
 }

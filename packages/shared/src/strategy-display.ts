@@ -72,6 +72,11 @@ export function sideDisplayText(
 /**
  * 서버 통지(`ServerMessage(54)`) 출처 배지 — D-17.
  *
+ * Phase 27 D-17: 자동매도 54 INFO `"AutoSell"`(사유 줄)과 54 ERROR `"AutoSellCommand"`(41 바로시작/중지
+ * 거부 줄)도 `[상따]` 다 — WinForms `NotificationHub` 28-08 동형. 서버 본문이 「자동매도 …」 로 시작하므로
+ * `[자동매도]` 를 달면 낱말이 겹친다. 사유 줄과 거부 줄은 배지가 아니라 본문으로 구분되고, 카드 「미반영」
+ * 해제 판정(`AutoSellCommand` 분기)과는 별개 축이다. `"SetUserSettings"`(42 거부)는 `[서버]`.
+ *
  * `RelayServerMsg.src` 어휘에 상따·VI 런타임 사유 줄이 더해졌다. 그 둘만 각자의 배지를
  * 받고, 기존 어휘(`SetLimitChaser` · `SetVITrigger` · `Account` · `System`)와 빈 값·미상은
  * 전부 `[서버]` 로 떨어진다.
@@ -82,7 +87,7 @@ export function sideDisplayText(
  *    출처는 모른다고 말하는 `[서버]` 가 유일하게 안전한 방향이다.
  */
 export function serverMsgBadge(src: string): string {
-  if (src === "LimitChaser") return "[상따]";
+  if (src === "LimitChaser" || src === "AutoSell" || src === "AutoSellCommand") return "[상따]";
   if (src === "VITrigger") return "[VI]";
   return "[서버]";
 }
