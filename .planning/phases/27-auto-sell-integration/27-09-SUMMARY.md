@@ -3,9 +3,7 @@ phase: 27-auto-sell-integration
 plan: 09
 subsystem: 배포 · relay · webapp · 인박스
 tags: [deploy, relay, auto-sell, user-settings, gate, schema-sync, healthz, vercel, rollback, inbox]
-# 초안 — Task 1(준비 게이트 green) 만 끝났다. Task 2(메인 세션 배포 · checkpoint:human-action · blocking-human) 대기,
-# Task 3(인박스 done_commit) 은 Task 2 의 배포 코드 커밋 해시가 있어야 한다.
-status: in-progress
+status: complete
 
 requires:
   - phase: 27-01
@@ -28,14 +26,18 @@ provides:
   - "배포 준비 게이트 green @ 86fa3c33 — 생성물 최신(0 개) · build/typecheck 5종 · 단위 relay 985 · webapp 3325 · shared 300 · server 6 · e2e 7 spec 142 passed"
   - "Task 2 절차 · 롤백 명령(직전 태그 후보 af16e058) · /healthz 기대 본문 · 84 로그 확인 명령 · Vercel 판단"
   - "KB 120 가동본 bc36fb85 ⊇ 63aa0899 ⊇ 23d7721a(Phase 28 와이어) 확인"
+  - "프로덕션 배포 — relay:78486f1b(직전 af16e058) · smoke PASS 10/FAIL 0/SKIP 2 · /healthz ok · 84/85 warn 0 · push 465e7372..78486f1b · Vercel Ready(trade.jx1.io)"
+  - "인박스 261004-auto-sell-wire.md status: done · done_commit 78486f1b (2cdefdc9)"
 affects: [27-verification, gh-trade-phase-28]
 
-# Actuals (#2632 · #3968) — commits 는 측정값(rev-list plan_head_before..HEAD, 이 초안 docs 커밋 전).
-# 준비 게이트는 코드 변경 없음(재생성 0) — docs 전용이라 0 이 정상. tokens = 이 SUMMARY chars/4.
+# Actuals (#2632 · #3968) — commits 는 측정값: git rev-list --count plan_head_before..HEAD = 4 (이 SUMMARY 마감 커밋 전).
+# 그중 이 플랜 소유는 2건(11ed1198 초안 SUMMARY · 2cdefdc9 인박스) — 나머지 2건(78486f1b · 86cc9148)은 같은 작업 트리의
+# 동시 Phase 28 세션 커밋이다. 마감 커밋(SUMMARY · ROADMAP) 2건이 뒤에 더해진다. 코드 변경 0(배포 · 문서 전용).
+# tokens = 이 플랜이 바꾼 파일(SUMMARY + 인박스 frontmatter 2줄 + ROADMAP 2줄) chars/4.
 actuals:
-  tokens: 4680
-  tasks: 1
-  commits: 0
+  tokens: 6400
+  tasks: 3
+  commits: 4
 plan_head_before: 86fa3c33eacd3a62bbb208fa60c29c1d1d267c5a
 
 tech-stack:
@@ -46,13 +48,19 @@ tech-stack:
 key-files:
   created:
     - .planning/phases/27-auto-sell-integration/27-09-SUMMARY.md
-  modified: []
+  modified:
+    - docs/inbox/from-gh-trade/261004-auto-sell-wire.md
+    - .planning/ROADMAP.md
 
 key-decisions:
   - "생성물 --check 신규/변경 0 개 · .fbs 최신 — relay/src/generated 재생성 없음(gh-trade master fbs blob 68679e9a)"
   - "롤백 태그 후보 af16e058(16:2x KST 공개 healthz version) — 메인 세션이 배포 직전 docker inspect 로 확정"
   - "밀릴 37건 중 2건(aef4d0d1 · c659caff)은 동시 Phase 28 세션의 docs 커밋 — 27 커밋 사이에 끼어 있어 분리 불가, 코드 무영향이라 함께 push 하는 것이 현실적"
   - "Vercel: 팁은 docs 지만 ignoreCommand(scripts/vercel-ignore-build.sh)가 직전 배포 SHA..팁 범위의 webapp/ · packages/shared/ 변경을 보므로 빌드가 돌아야 한다 — 프로덕션에 그 커밋이 안 서면 수동 배포"
+  - "배포는 사용자 명시 지시(「푸시 배포 해」 17:02 KST)로 장중에 진행 — 20:00 규칙은 사용자 지시가 우선"
+  - "배포 커밋 = 78486f1b(Phase 28 docs 커밋 · 코드는 1992be4f 와 동일) — relay 태그 · healthz version · push 팁이 모두 같아 done_commit 으로 채택"
+  - "메인 체크아웃 대신 detached worktree(78486f1b)에서 relay 배포 — 동시 Phase 28 세션의 미커밋 relay/ 변경이 이미지에 섞이지 않게"
+  - "인박스 질문 Q1~Q3 답: Q1 만원 예 · Q2 이전 없이 내장값 표시 · Q3 「매수 우선 취소」 · 「동시호가 감축」 (노트 형식에 답 칸이 없어 SUMMARY 에 기록)"
 
 requirements-completed: []
 
@@ -71,36 +79,46 @@ coverage:
         status: pass
     human_judgment: false
   - id: D2
-    description: "Task 2 프로덕션 배포(relay → smoke · healthz · 84 로그 → push → Vercel) · 첫 거래일 관찰"
+    description: "Task 2 프로덕션 배포(relay → smoke · healthz · 84 로그 → push → Vercel)"
     verification:
       - kind: manual
-        ref: "메인 세션 배포 — 대기"
+        ref: "메인 세션 배포 2026-10-05 17:02~ KST — relay:78486f1b · smoke PASS 10/FAIL 0/SKIP 2 · /healthz ok(식별자 0) · 84/85 warn 0 · push 465e7372..78486f1b · Vercel Ready"
+        status: pass
+    human_judgment: true
+    rationale: "배포 · VM 접속 · push 는 메인 세션이 사용자 지시 뒤 했다(서브에이전트 배포 분류기 차단)"
+  - id: D2b
+    description: "운영 웹 화면 확인(/me 칩 · 자동매도 카드 · LED 4칩 · 주문로그 칩) · 첫 거래일 관찰 (a)~(d)"
+    verification:
+      - kind: manual
+        ref: "운영 웹 확인 — 사용자 확인 대기 · 관찰 (a)~(d) — 다음 거래일(2026-10-06)"
         status: pending
     human_judgment: true
-    rationale: "배포 · VM 접속 · push 는 메인 세션이 사용자 확인 뒤 한다(서브에이전트 배포 분류기 차단)"
+    rationale: "실계좌 버튼을 시험으로 누르지 않는다 — 사용자가 실제로 쓸 때만 관찰 가능"
   - id: D3
-    description: "Task 3 인박스 261004-auto-sell-wire.md status: done · done_commit"
+    description: "Task 3 인박스 261004-auto-sell-wire.md status: done · done_commit 78486f1b"
     verification:
       - kind: other
-        ref: "Task 2 배포 코드 커밋 해시 대기"
-        status: pending
+        ref: "2cdefdc9 — HEAD 파일 목록 = 인박스 노트 1경로 · verify 자동 명령 VERIFY_OK · 다른 두 노트 무변경"
+        status: pass
     human_judgment: false
 
-duration: 10min
-completed: (진행 중 — Task 1 2026-10-05)
+duration: 55min
+completed: 2026-10-05
 ---
 
-# Phase 27 Plan 09: 배포 — 준비 게이트 · 프로덕션 배포 · 인박스 마감 Summary (초안)
+# Phase 27 Plan 09: 배포 — 준비 게이트 · 프로덕션 배포 · 인박스 마감 Summary
 
-**HEAD `86fa3c33` 에서 생성물(0 변경) · build/typecheck · 단위(relay 985 · webapp 3325 · shared 300 · server 6) · e2e 7 spec(142 passed, 제외 없음)이 모두 green 이다. KB 120 가동본 `bc36fb85` 은 Phase 28 와이어(`63aa0899` · `23d7721a`)를 포함한다. 가동 relay 는 `af16e058`(롤백 후보)이다. 배포 · push 는 하지 않았다 — 메인 세션이 20:00 KST 이후 아래 절차로 한다.**
+**Phase 27 자동매도 연동이 프로덕션에 섰다. 준비 게이트(생성물 0 변경 · 단위 4 패키지 · e2e 142) green 뒤 메인 세션이 relay `af16e058 → 78486f1b` 를 배포했다. smoke FAIL 0 · `/healthz` ok · 84/85 warn 0 을 확인하고 `465e7372..78486f1b` 를 push 했다(Vercel Ready · trade.jx1.io). 인박스 `261004-auto-sell-wire.md` 를 `done_commit: 78486f1b` 로 닫았다. 운영 화면 확인은 사용자 몫이고, 첫 거래일 관찰은 2026-10-06 에 한다.**
 
 ## Performance
 
-- **Duration:** 10 min (Task 1 게이트)
+- **Duration:** 약 55 min (체크포인트 대기 포함)
 - **Started:** 2026-10-05T07:24:19Z (16:24 KST)
 - **Task 1 completed:** 2026-10-05T07:34:34Z (16:34 KST)
-- **Tasks:** 1 / 3 (Task 2 체크포인트 대기)
-- **Files modified:** 1 (이 SUMMARY)
+- **Task 2(메인 세션 배포):** 2026-10-05 17:02 KST 사용자 지시 「푸시 배포 해」 → 배포 · push
+- **Task 3 · 마감:** 2026-10-05T08:10Z (17:10 KST) ~
+- **Tasks:** 3 / 3
+- **Files modified:** 3 (이 SUMMARY · 인박스 노트 frontmatter · ROADMAP 2줄)
 
 ## Task 1 — 배포 준비 게이트 (배포하지 않음)
 
@@ -247,17 +265,47 @@ aef4d0d1 deepblue-1 docs(28): Phase 28 상한가 특징 연동 컨텍스트 — 
 - `keyCount` · `lastFrameAgeSec` · `sessionCount` 는 접속 사용자 수에 따라 변한다 — 판정 대상 아님. KYOBO `connecting` 은 기존 상태(127 ACL 대기) — 판정 대상 아님.
 - **실패 신호:** HTTP 503 · `status` ≠ `"ok"` · `quote.state` 가 `role_mismatch`/`rejected` · 장 밖에서 `journal` 이 1분 넘게 `live` 가 아님 → push 금지 · 7번 롤백.
 
+## Task 2 — 메인 세션 배포 기록 (2026-10-05)
+
+사용자 지시 「푸시 배포 해」(2026-10-05 17:02 KST). 사용자가 명시적으로 요청해 장중(20:00 전)에 진행했다. 메인 세션이 실행했고 executor 는 실행하지 않았다.
+
+| 단계 | 결과 |
+|---|---|
+| 0. KB 120 가동본 | `bc36fb85`(`63aa0899` · `23d7721a` 포함) 가동 — Task 1 ③ 에서 확인 |
+| 1. 작업 트리 | `git status -sb` ahead 39 · Phase 27 미커밋 변경 0. HEAD `78486f1b` 는 Phase 28 세션 docs 커밋(코드 0 — `git diff --stat 11ed1198 78486f1b -- relay packages webapp server workers` 0줄). 메인 체크아웃 대신 `git worktree add --detach <scratchpad>/relay-deploy 78486f1b` 에서 배포하고 끝난 뒤 worktree 를 제거했다 |
+| 2. 직전 relay 이미지 | `asia-northeast3-docker.pkg.dev/gh-radar/gh-radar/relay:af16e058`(APP_VERSION=af16e058) — Task 1 후보와 일치. 라이브 env SUPABASE_URL=`https://ivdbzxgaapbmrxreyuht.supabase.co` · DMA_HOST=`10.41.1.120` · DMA_KYOBO_HOST=`10.16.207.127` |
+| 3. `deploy-relay.sh` | `GCP_PROJECT_ID=gh-radar SUPABASE_URL=… NOTIFICATION_CHANNEL_ID=… bash scripts/deploy-relay.sh` **EXIT 0** — 새 태그 **`relay:78486f1b`**. DMA_HOST 출처: 실행 중 컨테이너 보존(10.41.1.120) · KYOBO 보존(10.16.207.127) — 주입 없음. uptime check · 알림 정책 · KYOBO 감시 갱신 완료. VM 내부 `/healthz` 200 version 78486f1b |
+| 4. `smoke-relay.sh` | **PASS 10 · FAIL 0 · SKIP 2**. INV-9 는 `SMOKE_AUTH_TOKEN` 미설정이라 SKIP(정상). INV-10 은 SUPABASE_URL/SERVICE_ROLE_KEY 를 셸에 넣지 않아 해석하지 못하고 SKIP — 이번 배포와 무관한 `dma_orders` 경계 점검이다 |
+| 5. 공개 `/healthz` | `{"status":"ok","version":"78486f1b","vpn":true,"dma":true,"sessionCount":1,"stalledCount":0,"journal":"live","quote":"ready","reconnects":0}` — 식별자 키 없음(INV-5a PASS). KYOBO `journalGateways` connecting 은 배포 전부터 있던 상태다(관찰자 TCP 타임아웃 재시도) |
+| 6. relay 로그(15분) | 사용자 세션 결선 → `[HUB] Ready — 전략 스냅샷 요청 (21 은 거래소별 2회 · 43 사용자 설정)` 1회. **84/85 `unknown-msg-type` · 「프레임 드롭」 warn 0줄**. 나머지 warn 은 두 가지뿐이다. 하나는 KYOBO 관찰자 재접속(전송 Down/재접속 예약 7 — generation 증가)이고, 다른 하나는 smoke INV-6 이 의도한 토큰 실패 · 인증 시간초과 각 1 이다 |
+| 7. 롤백 | 불필요 |
+| 8. push | `git push origin master` — **`465e7372..78486f1b`**(39 커밋: Phase 27 36+1 · Phase 28 docs 3 — `aef4d0d1` · `c659caff` · `78486f1b`, 셋 다 문서) |
+| 9. Vercel | 프로덕션 배포 `https://gh-radar-webapp-p7fhnpqq9-alexs-projects-eabbefc0.vercel.app` **Ready** · 별칭 `trade.jx1.io` · `gh-radar-webapp.vercel.app`. ignoreCommand 가 건너뛰지 않았다 — 수동 배포 불필요 |
+| 10. 운영 웹 화면 | `/me` 「상따 기본설정」 칩 · 상따 카드 「자동매도」 카드 · 헤더 LED 4칩 · 주문로그 「자동매도」 칩 — **사용자 확인 대기**. 열린 탭 · 앱 WebView 새로고침 안내(Pitfall 12)는 메인 세션이 사용자에게 전달한다 |
+| 11. 첫 거래일 관찰 (a)~(d) | **다음 거래일(2026-10-06) 관찰** — (a) 카드 칩 · LED = WinForms LED 색 (b) 주문로그 「자동매도」 칩에 kind 6 g9 · 11~14 문장 (c) 54 자동매도 사유 `[상따]` 배지 (d) `/me` 값 = WinForms 기본설정창 값 |
+
+**배포한 코드 커밋 = `78486f1b`** — relay 태그 · healthz version · push 팁이 같은 커밋이다. 마지막 코드 커밋은 `1992be4f` 이고, `78486f1b` 와 코드가 같다. 이 값을 인박스 `done_commit` 으로 쓴다.
+
+## Task 3 — 인박스 마감
+
+- `docs/inbox/from-gh-trade/261004-auto-sell-wire.md` frontmatter 를 `status: open  # open | done` → `status: done`, `done_commit:  # …` → `done_commit: 78486f1b` 로 바꿨다. 선례 `261005-tick-raw-archive-gcs.md` 형식을 따라 주석 꼬리를 지웠다. 본문 · 다른 키(`from_commit` · `date` 의 주석 포함)는 무변경.
+- 경로 지정 커밋 **`2cdefdc9`** `docs(inbox): 261004-auto-sell-wire done_commit 78486f1b` — `git show --name-only HEAD` = 그 1경로. verify 자동 명령 통과(VERIFY_OK). 다른 두 노트(`261005-limitup-feature-85.md` · `261005-tick-raw-archive-gcs.md`)의 변경은 0줄이다.
+- **인박스 질문 Q1~Q3 답**(노트 형식에 답 칸이 없어 여기에 적는다): **Q1 만원 예 · Q2 이전 없이 내장값 표시 · Q3 「매수 우선 취소」 · 「동시호가 감축」**.
+
 ## Task Commits
 
-1. **Task 1: 배포 준비 게이트** — 코드 커밋 없음(생성물 최신 · 재생성 0). 이 SUMMARY 초안 docs 커밋만 있다.
-2. **Task 2: 메인 세션 배포** — 대기(checkpoint:human-action · blocking-human).
-3. **Task 3: 인박스 마감** — 대기(Task 2 의 배포 코드 커밋 해시 필요).
+1. **Task 1: 배포 준비 게이트** — `11ed1198` docs(27-09) 초안 SUMMARY. 코드 커밋은 없다(생성물 최신 · 재생성 0).
+2. **Task 2: 메인 세션 배포** — 커밋 없음(배포 · push 작업). 배포 커밋 `78486f1b`.
+3. **Task 3: 인박스 마감** — `2cdefdc9` docs(inbox): 261004-auto-sell-wire done_commit 78486f1b.
+4. **마감** — 이 SUMMARY 커밋 · ROADMAP 27-09 [x] 9/9 커밋(경로 지정 · 각각 단독).
 
 ## Decisions Made
 
 - 생성물은 최신이다(`--check` 0 개). 재생성 · 와이어 변경 판단 불필요.
-- 롤백 태그 후보는 공개 `/healthz` `version` 으로 먼저 잡았다(`af16e058`). 확정은 메인 세션의 `docker inspect`.
-- 동시 Phase 28 세션의 docs 커밋 2건은 27 커밋 사이에 끼어 있어 분리할 수 없다 — 코드 무영향이므로 함께 push 를 권한다.
+- 롤백 태그 후보는 공개 `/healthz` `version` 으로 먼저 잡았다(`af16e058`). 메인 세션의 `docker inspect` 값과 일치했다.
+- 동시 Phase 28 세션의 docs 커밋 3건(`aef4d0d1` · `c659caff` · `78486f1b`)은 함께 push 했다. 셋 다 코드 무영향이다.
+- 사용자 명시 지시로 장중에 배포했다. 플랜의 「20:00 이후」 규칙보다 사용자 지시가 우선한다.
+- relay 는 detached worktree(`78486f1b`)에서 빌드했다. 같은 트리에서 동시 Phase 28 세션이 relay/ · packages/ 를 수정 중이었으므로, 그 미커밋 변경이 이미지에 섞이지 않게 하려는 것이다.
 
 ## Deviations from Plan
 
@@ -272,11 +320,27 @@ aef4d0d1 deepblue-1 docs(28): Phase 28 상한가 특징 연동 컨텍스트 — 
 **3. [기록] 작업 트리 기준 해석**
 - 플랜 기준 「`git status --porcelain --untracked-files=no` 0줄」 은 1줄이다 — 동시 Phase 28 세션이 수정 중인 `28-CONTEXT.md`. 오케스트레이터 지시대로 이 phase 소유 파일 기준으로 판정했다(Phase 27 소유 0줄). 그 파일은 건드리지 않았다.
 
-**Total deviations:** 1 보강 · 1 차단 해소 · 1 기록. **Impact:** 코드 무변경.
+**4. [기록] 장중 배포 — 사용자 명시 지시**
+- 플랜은 relay 컨테이너 교체를 20:00 KST 이후로 정했다. 사용자가 「푸시 배포 해」(17:02 KST)로 명시 요청해 메인 세션이 장중에 배포했다. 검증(smoke · healthz · 로그)은 모두 통과했고 롤백은 하지 않았다.
+
+**5. [기록] 마감 중 동시 Phase 28 세션 코드 커밋 유입 — 배포 범위 밖**
+- Task 3 직전(17:10 KST) 같은 작업 트리에서 동시 Phase 28 세션이 **`86cc9148` feat(28-01): 85 LimitFeature 중계 트레이서**(packages/shared · relay 12파일)를 커밋했다. 이 플랜의 `2cdefdc9` · 마감 커밋은 그 위에 쌓였다. 이 커밋은 **배포되지 않았다**(origin/master = `78486f1b`). 가동 relay 도 `78486f1b` 이다.
+- 이 플랜의 마감 docs 커밋을 push 하려고 `git push origin master` 를 그대로 하면 `86cc9148`(relay · shared 코드)까지 프로덕션 webapp 으로 나간다. 그러면 relay 보다 webapp 이 먼저 나가 배포 순서 계약을 어긴다. **이 docs 커밋들은 Phase 28 배포 때 함께 push 하거나, `86cc9148` 을 뺀 경로로 따로 보내야 한다.** 판단은 메인 세션 · 사용자 몫이다.
+
+**6. [기록] STATE.md · state.json 미갱신**
+- 두 파일에 동시 Phase 28 세션의 미커밋 변경이 있다(current_phase 28 · Phase 28 execution started). 그래서 27-09 완료를 반영하는 state 동사(advance-plan · record-metric · record-session)를 돌리지 않았고 커밋하지도 않았다. 남의 상태를 이 커밋에 담지 않으려는 것이다. ROADMAP 만 Phase 27 줄 2개(27-09 [x] · 9/9)를 직접 고쳐 단독 커밋했다.
+
+**Total deviations:** 1 보강 · 1 차단 해소 · 4 기록. **Impact:** 코드 무변경.
 
 ## Issues Encountered
 
-없음(위 e2e 기동 타임아웃은 알려진 캐시 · 네트워크 문제로 재실행에서 해소).
+- e2e 기동 타임아웃 — 알려진 캐시 · 네트워크 문제로, 재실행에서 해소했다.
+- 동시 세션 코드 커밋 `86cc9148` 이 이 플랜의 마감 커밋 아래에 끼었다(편차 5). push 경로에 주의해야 한다.
+
+## User Setup Required
+
+- 운영 웹 확인(`/me` 칩 · 자동매도 카드 · LED 4칩 · 주문로그 칩)과 열린 탭 · 앱 WebView 새로고침(Pitfall 12).
+- 2026-10-06 첫 거래일 관찰 (a)~(d) — 실계좌 버튼을 시험으로 누르지 않고, 실제로 쓸 때만 관찰한다.
 
 ## Acceptance (Task 1)
 
@@ -289,14 +353,16 @@ aef4d0d1 deepblue-1 docs(28): Phase 28 상한가 특징 연동 컨텍스트 — 
 
 ## Next
 
-메인 세션이 20:00 KST 이후 Task 2 절차로 배포 → 결과와 배포 코드 커밋 해시를 붙이면 continuation executor 가 Task 3(인박스 `261004-auto-sell-wire.md` done) · 이 SUMMARY 마감 · STATE/ROADMAP 갱신을 한다.
+Phase 27 의 플랜 9개가 모두 실행됐다. 다음 단계는 다음과 같다.
+- Phase 27 검증(`/gsd-verify-work 27`) — 운영 웹 확인 · 첫 거래일 관찰 결과를 함께 반영한다.
+- 이 플랜의 마감 docs 커밋 push 는 편차 5 의 경로 주의를 따른다.
 
 ---
 *Phase: 27-auto-sell-integration*
-*Task 1 completed: 2026-10-05 (초안)*
+*Completed: 2026-10-05*
 
 ## Self-Check: PASSED
 
-- 파일: `27-09-SUMMARY.md` 있음
-- 참조 커밋: `86fa3c33` · `465e7372` · `aef4d0d1` · `c659caff` · `af16e058` (gh-radar) · `bc36fb85` · `63aa0899` · `23d7721a` (gh-trade) 모두 있음
-- `relay/src/generated/**` 무변경 · Phase 27 추적 미커밋 0
+- 파일: `27-09-SUMMARY.md` · `docs/inbox/from-gh-trade/261004-auto-sell-wire.md`(status: done · done_commit: 78486f1b) 있음
+- 참조 커밋(gh-radar): `86fa3c33` · `11ed1198` · `465e7372` · `aef4d0d1` · `c659caff` · `78486f1b` · `1992be4f` · `86cc9148` · `2cdefdc9` · `af16e058` 모두 있음. gh-trade 쪽 `bc36fb85` · `63aa0899` · `23d7721a` 도 있음
+- `relay/src/generated/**` 무변경 · 이 플랜 커밋에 packages/ · relay/ · webapp/ 파일 0
