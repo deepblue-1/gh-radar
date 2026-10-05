@@ -1613,7 +1613,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(page.locator('[data-slot="alert-toast"]')).toHaveCount(0);
   });
 
-  test('11. 카드 헤더에 래치 LED 3개가 매수·매도·취소 순서로 보이고 라벨이 상태를 말한다 (옛 LC 3b · 17-11 D-22)', async ({
+  test('11. 카드 헤더에 LED 4개가 매수·매도·취소·자동 순서로 보이고 라벨이 상태를 말한다 (옛 LC 3b · 17-11 D-22 · Phase 27 D-04)', async ({
     page,
   }) => {
     relay.seedLimitChasers([{ buyEnabled: true, sellEnabled: true, cancelQtyEnabled: true }]);
@@ -1621,11 +1621,14 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await waitForReady(page);
 
     const leds = cardOf(page, E2E_ISIN).locator('[data-slot="card-header"] [data-slot="latch-led"]');
-    await expect(leds).toHaveCount(3, { timeout: 15_000 });
+    await expect(leds).toHaveCount(4, { timeout: 15_000 });
     await expect(leds.nth(0)).toHaveAttribute('data-kind', 'buy');
     await expect(leds.nth(1)).toHaveAttribute('data-kind', 'sell');
     await expect(leds.nth(2)).toHaveAttribute('data-kind', 'cancel');
-    for (const i of [0, 1, 2]) await expect(leds.nth(i)).toBeVisible();
+    await expect(leds.nth(3)).toHaveAttribute('data-kind', 'autoSell');
+    for (const i of [0, 1, 2, 3]) await expect(leds.nth(i)).toBeVisible();
+    // 자동매도 없음 에코 — 「자동」 은 회색 OFF(Phase 27 D-04).
+    await expect(leds.nth(3)).toContainText('OFF');
     // 색만이 아니라 보이는 라벨이 상태를 말한다(D-21 · WCAG 1.4.1).
     await expect(leds.nth(1)).toContainText('대기');
     await expect(leds.nth(2)).toContainText('대기');
@@ -2517,9 +2520,9 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       .filter((r): r is NonNullable<typeof r> => r !== null);
     const last = sets.at(-1)!;
     expect(last.buyWatchPrice).toBe(next);
-    // 새 웹은 lc.set 에 postBuyAuto · extraBuyBurstRelease 를 항상 싣는다 → relay 가 buy3_schema 3 으로 파생
-    // (quick-261003-rc4 · 존재로만 1/2/3). 2 는 버스트 해제 없는 탭, 1 은 자동 필드 없는 옛 탭 몫.
-    expect(last.buy3Schema).toBe(3);
+    // 새 웹은 lc.set 에 postBuyAuto · extraBuyBurstRelease · 자동매도 요청 4필드를 항상 싣는다 → relay 가 buy3_schema 4 로
+    // 파생(Phase 27 · 존재로만 1/2/3/4). 3 은 자동매도 필드 없는 탭, 2 는 버스트 해제 없는 탭, 1 은 자동 필드 없는 옛 탭 몫.
+    expect(last.buy3Schema).toBe(4);
     expect(last.postBuyEnabled).toBe(true);
     expect(last.postBuyReentry).toBe(3);
     expect(last.postBuyReboundPct).toBe(30);
@@ -2571,6 +2574,106 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     }
   });
 
+  /*
+    Phase 27 트레이서(27-01 · D-04) — 자동매도 와이어 한 경로. 값 행 하나 확정 → 게이트웨이 10 에 buy3_schema 4 ·
+    자동매도 요청 4필드(에코 값 그대로) · 에코 전용 148~154 슬롯 없음 · 버스트 해제 동반 → 60 에코 상태 전이 →
+    카드 헤더 4번째 LED 「자동」 이 초록 매도중 / 주황 대기 / 회색 OFF 로 선다. 390 · 1280 에서 LED 4칩과 ⓘ · ✕ 가
+    헤더 한 줄을 지킨다(D-04 「구현 때 실측」).
+  */
+  test('P27-1 자동매도 와이어 한 경로 — 값 확정 → 게이트웨이 10 buy3_schema=4(요청 4필드 · 에코 슬롯 없음 · 버스트 동반) → 60 에코 매도중 → 카드 헤더 「자동」 LED 초록 · 헤더 한 줄 (Phase 27 트레이서 · D-04)', async ({
+    page,
+  }) => {
+    const seed = {
+      buyEnabled: true,
+      sellEnabled: true,
+      sellEntryLatched: true,
+      cancelQtyEnabled: true,
+      extraBuyBurstRelease: true,
+      autoSellEnabled: true,
+      autoSellStartCond: 2,
+      autoSellRatioPct: 10,
+      autoSellMethod: 3,
+      autoSellState: 0,
+    };
+    relay.seedLimitChasers([seed]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    const card = cardOf(page, E2E_ISIN);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+
+    const autoLed = card.locator('[data-slot="card-header"] [data-slot="latch-led"][data-kind="autoSell"]');
+    // 상태 0 — 체크가 켜져 있어도 서버가 아직 대기로 세우지 않았으면 회색(상태가 진실).
+    await expect(autoLed).toHaveAttribute('data-tone', 'off', { timeout: 15_000 });
+    await expect(autoLed).toContainText('자동');
+
+    // ① 공통 「비교가격」 한 호가 위로 확정 → 10 한 건.
+    const watch = lcValue(page, 'lc-buy-watch-price');
+    await expect(watch).not.toHaveText('', { timeout: 15_000 });
+    const current = Number((await watch.innerText()).replace(/[^0-9]/g, ''));
+    expect(current).toBeGreaterThan(0);
+    const next = current + 100;
+    const before = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
+    await editLc(page, 'lc-buy-watch-price', String(next));
+    await waitForSetAtGateway(relay, before + 1);
+
+    // ② 게이트웨이가 받은 바이트 — schema 4 · 요청 4필드 · 에코 슬롯 없음 · 버스트 동반.
+    const sent = lcSetRequests(relay).at(-1)!;
+    expect(sent.buyWatchPrice).toBe(next);
+    expect(sent.buy3Schema).toBe(4);
+    expect([sent.autoSellEnabled, sent.autoSellStartCond, sent.autoSellRatioPct, sent.autoSellMethod]).toEqual([
+      true, 2, 10, 3,
+    ]);
+    expect(sent.autoSellEchoSlotsEmpty).toBe(true);
+    expect(sent.extraBuyBurstRelease).toBe(true);
+
+    // ③ 60 에코 매도중 → 「자동」 LED 초록 「매도중」 · 클릭 불가(span).
+    const echo = { ...seed, buyWatchPrice: next, autoSellBasis: 1, autoSellBasisPrice: 13_000, autoSellSoldQty: 6000 };
+    await relay.pushLimitChaserEcho({ ...echo, autoSellState: 3 });
+    await expect(autoLed).toHaveAttribute('data-tone', 'armed', { timeout: 15_000 });
+    await expect(autoLed).toContainText('매도중');
+    expect(await autoLed.evaluate((el) => el.tagName)).toBe('SPAN');
+
+    // ④ 에코 대기(1) → 주황 「대기」 · 에코 0 → 회색 OFF.
+    await relay.pushLimitChaserEcho({ ...echo, autoSellState: 1 });
+    await expect(autoLed).toHaveAttribute('data-tone', 'latent', { timeout: 15_000 });
+    await expect(autoLed).toContainText('대기');
+    await relay.pushLimitChaserEcho({ ...echo, autoSellState: 0 });
+    await expect(autoLed).toHaveAttribute('data-tone', 'off', { timeout: 15_000 });
+    await expect(autoLed).toContainText('OFF');
+
+    // ⑤ 헤더 한 줄 — 매도중 상태(가장 긴 라벨)로 되돌리고 390 · 1280 에서 LED 4칩 · ⓘ · ✕ 를 잰다.
+    await relay.pushLimitChaserEcho({ ...echo, autoSellState: 3 });
+    await expect(autoLed).toContainText('매도중', { timeout: 15_000 });
+    const leds = card.locator('[data-slot="card-header"] [data-slot="latch-led"]');
+    await expect(leds).toHaveCount(4);
+    for (const viewport of [PHONE_VIEWPORT, { width: 1280, height: 900 }]) {
+      await page.setViewportSize(viewport);
+      await expect(autoLed).toContainText('매도중');
+      const centerY = async (loc: Locator): Promise<number> => {
+        const b = await loc.boundingBox();
+        expect(b, `${viewport.width} 박스`).not.toBeNull();
+        return b!.y + b!.height / 2;
+      };
+      const chipYs = [
+        await centerY(leds.nth(0)),
+        await centerY(leds.nth(1)),
+        await centerY(leds.nth(2)),
+        await centerY(leds.nth(3)),
+      ];
+      const info = card.locator('[data-slot="card-header"]').getByRole('button', { name: '종목정보' });
+      const close = card.locator('[data-slot="card-close"]');
+      const infoY = await centerY(info);
+      const closeY = await centerY(close);
+      const spread = (ys: number[]) => Math.max(...ys) - Math.min(...ys);
+      expect(spread(chipYs), `${viewport.width} LED 칩 4개 한 줄`).toBeLessThanOrEqual(4);
+      expect(Math.abs(infoY - closeY), `${viewport.width} ⓘ · ✕ 한 줄`).toBeLessThanOrEqual(4);
+      const cardWidth = await card.evaluate((el) => el.clientWidth);
+      if (cardWidth >= 760) {
+        expect(spread([...chipYs, infoY, closeY]), `${viewport.width} 카드 ${cardWidth} — 여섯이 한 줄`).toBeLessThanOrEqual(4);
+      }
+    }
+  });
+
   test('vzy-1 후매수 「자동」 — 체크 → 10 buy3_schema 3 · post_buy_auto · 에코 표시 · 서버 발화 에코로 풀림 · [상따] 사유 줄 (quick-260929-vzy 트레이서)', async ({
     page,
   }) => {
@@ -2603,12 +2706,12 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(order.lastRole).toBe('switch');
     expect(order.checkIsPrevOfSwitch).toBe(true);
 
-    // ① 체크 → 10 한 건 — buy3_schema 3(버스트 해제 동반 · quick-261003-rc4) · post_buy_auto true · 후매수 스위치는 그대로(자동은 서버 몫).
+    // ① 체크 → 10 한 건 — buy3_schema 4(버스트 해제 · 자동매도 요청 4필드 동반 · Phase 27) · post_buy_auto true · 후매수 스위치는 그대로(자동은 서버 몫).
     const base = lcSetCount(relay);
     await auto.click();
     await waitForSetAtGateway(relay, base + 1);
     const sent = lcSetRequests(relay).at(-1)!;
-    expect(sent.buy3Schema).toBe(3);
+    expect(sent.buy3Schema).toBe(4);
     expect(sent.postBuyAuto).toBe(true);
     expect(sent.postBuyEnabled).toBe(false);
 
@@ -2715,8 +2818,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await waitForSetAtGateway(relay, before + 1);
 
     const sent = lcSetRequests(relay).at(-1)!;
-    // 자동 · 버스트 해제 필드 동반 → buy3_schema 3 (P24-1 주석).
-    expect(sent.buy3Schema).toBe(3);
+    // 자동 · 버스트 해제 · 자동매도 요청 4필드 동반 → buy3_schema 4 (P24-1 주석 · Phase 27).
+    expect(sent.buy3Schema).toBe(4);
     expect(sent.crud).toBe('C');
     expect(sent.preBuyEnabled).toBe(true);
     expect(sent.buyEnabled, 'D-01 — 마스터 동반').toBe(true);
@@ -3680,8 +3783,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(lcSetCount(relay), '사람 한 번 = 10 한 건').toBe(before + 1);
 
     const sent = lcSetRequests(relay).at(-1)!;
-    // 자동 · 버스트 해제 필드 동반 → buy3_schema 3 (P24-1 주석).
-    expect(sent.buy3Schema).toBe(3);
+    // 자동 · 버스트 해제 · 자동매도 요청 4필드 동반 → buy3_schema 4 (P24-1 주석 · Phase 27).
+    expect(sent.buy3Schema).toBe(4);
     expect(sent.crud).toBe('C');
     expect(sent.extraBuyEnabled).toBe(true);
     expect(sent.preBuyEnabled, '추가매수만 켰다 — 선매수는 그대로').toBe(false);

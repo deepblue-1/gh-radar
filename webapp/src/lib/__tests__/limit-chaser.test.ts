@@ -174,6 +174,7 @@ describe('isDeleteIntent / crudOf — 삭제 판정 (D-08, Pitfall 7)', () => {
         cancelQtyEnabled: false,
         cancelTradeEnabled: false,
         postBuyAuto: false,
+        autoSellEnabled: false,
       }),
     ).toBe(true);
   });
@@ -186,6 +187,7 @@ describe('isDeleteIntent / crudOf — 삭제 판정 (D-08, Pitfall 7)', () => {
         cancelQtyEnabled: true,
         cancelTradeEnabled: false,
         postBuyAuto: false,
+        autoSellEnabled: false,
       }),
     ).toBe(false);
     expect(
@@ -195,6 +197,7 @@ describe('isDeleteIntent / crudOf — 삭제 판정 (D-08, Pitfall 7)', () => {
         cancelQtyEnabled: false,
         cancelTradeEnabled: true,
         postBuyAuto: false,
+        autoSellEnabled: false,
       }),
     ).toBe(false);
   });
@@ -207,6 +210,7 @@ describe('isDeleteIntent / crudOf — 삭제 판정 (D-08, Pitfall 7)', () => {
         cancelQtyEnabled: false,
         cancelTradeEnabled: false,
         postBuyAuto: false,
+        autoSellEnabled: false,
       }),
     ).toBe(false);
   });
@@ -219,10 +223,16 @@ describe('isDeleteIntent / crudOf — 삭제 판정 (D-08, Pitfall 7)', () => {
 
 /*
   quick-260929-vzy — 후매수 ☐자동(P-1). 「자동만 켠 등록」은 삭제가 아니다 — gh-trade dcaa78b1 은 crud 가 D 가 아닌
-  이 등록을 삭제로 정규화하지 않고, WinForms `AnyArmed` 에도 ☐자동이 들어간다. relay `#isTeardown` 과 같은 다섯 항.
+  이 등록을 삭제로 정규화하지 않고, WinForms `AnyArmed` 에도 ☐자동이 들어간다. relay `#isTeardown` 과 같은 항(Phase 27 부터 여섯).
 */
 describe('후매수 자동 — 삭제 판정 · 켜진 전략 · 폼 값 (quick-260929-vzy P-1)', () => {
-  const gatesOff = { buyEnabled: false, sellEnabled: false, cancelQtyEnabled: false, cancelTradeEnabled: false };
+  const gatesOff = {
+    buyEnabled: false,
+    sellEnabled: false,
+    cancelQtyEnabled: false,
+    cancelTradeEnabled: false,
+    autoSellEnabled: false,
+  };
 
   it('① 게이트 4종 OFF + 자동 ON 은 삭제가 아니다(crud C) · 다섯 항이 다 꺼지면 D', () => {
     expect(isDeleteIntent({ ...gatesOff, postBuyAuto: true })).toBe(false);
@@ -232,12 +242,9 @@ describe('후매수 자동 — 삭제 판정 · 켜진 전략 · 폼 값 (quick-
   });
 
   it('② 자동만 켠 전략도 켜진 전략이다 — 작업대에서 걷히지 않는다', () => {
-    expect(isActiveStrategy({ buyEnabled: false, sellEnabled: false, cancelQtyEnabled: false, postBuyAuto: true })).toBe(
-      true,
-    );
-    expect(isActiveStrategy({ buyEnabled: false, sellEnabled: false, cancelQtyEnabled: false, postBuyAuto: false })).toBe(
-      false,
-    );
+    const off = { buyEnabled: false, sellEnabled: false, cancelQtyEnabled: false, autoSellEnabled: false };
+    expect(isActiveStrategy({ ...off, postBuyAuto: true })).toBe(true);
+    expect(isActiveStrategy({ ...off, postBuyAuto: false })).toBe(false);
   });
 
   it('③ 새 폼은 자동 OFF · 에코 값은 그대로 들인다', () => {
@@ -254,7 +261,13 @@ describe('후매수 자동 — 삭제 판정 · 켜진 전략 · 폼 값 (quick-
   켜진 전략 판정에 들어가지 않는다 — 버스트만 켠 상태는 여전히 삭제 의도.
 */
 describe('추가매수 버스트 시 해제 — 폼 값 · 게이트 아님 (quick-261003-rc4 B9)', () => {
-  const gatesOff = { buyEnabled: false, sellEnabled: false, cancelQtyEnabled: false, cancelTradeEnabled: false };
+  const gatesOff = {
+    buyEnabled: false,
+    sellEnabled: false,
+    cancelQtyEnabled: false,
+    cancelTradeEnabled: false,
+    autoSellEnabled: false,
+  };
 
   it('새 폼은 OFF · 에코 값을 그대로 들인다', () => {
     expect(defaultLimitChaserForm().extraBuyBurstRelease).toBe(false);
@@ -271,8 +284,15 @@ describe('추가매수 버스트 시 해제 — 폼 값 · 게이트 아님 (qui
     const burstOnly = { ...defaultLimitChaserForm(), ...gatesOff, postBuyAuto: false, extraBuyBurstRelease: true };
     expect(isDeleteIntent(burstOnly)).toBe(true);
     expect(crudOf(burstOnly)).toBe('D');
-    // 버스트 해제 필드가 실린 에코 모양을 그대로 넘겨도 판정은 다섯 항뿐이다.
-    const echoLike = { buyEnabled: false, sellEnabled: false, cancelQtyEnabled: false, postBuyAuto: false, extraBuyBurstRelease: true };
+    // 버스트 해제 필드가 실린 에코 모양을 그대로 넘겨도 판정은 게이트 항뿐이다.
+    const echoLike = {
+      buyEnabled: false,
+      sellEnabled: false,
+      cancelQtyEnabled: false,
+      postBuyAuto: false,
+      autoSellEnabled: false,
+      extraBuyBurstRelease: true,
+    };
     expect(isActiveStrategy(echoLike)).toBe(false);
   });
 });

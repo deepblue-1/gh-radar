@@ -30,6 +30,12 @@ import { cn } from "@/lib/utils";
  * ⚠️ **취소 무장에 `cancelQtyTrackEnabled` 를 넣지 않는다** (Pitfall 5). 잔량추적은 무장 축이
  *    아니라 계산 옵션이라, 넣는 순간 「취소 감시 중」이라는 거짓 초록이 뜬다.
  *
+ * ⚠️ **자동매도 LED(「자동」 · Phase 27 D-04)는 래치가 아니다.** 에코 `autoSellState` 하나만 읽는다 —
+ *    1 대기 · 4 완료 = 주황(`latent`) · 2 감시 · 3 매도중 = 초록(`armed`) · 0 · 범위 밖 = 회색 OFF. 체크
+ *    (`autoSellEnabled`)는 보지 않는다(상태가 진실 — 서버가 아직 대기로 세우지 않은 순간도 OFF).
+ *    WinForms `ledAutoSell` 동형(Gray · DarkOrange · LimeGreen — 파랑 없음 · 새 토큰 없음). 늘 **클릭 불가**다
+ *    (매수 LED 동형 — `lc.arm` 을 보내지 않는다 · `ArmableLatchKind` 가 타입으로 막는다).
+ *
  * 점 변형(`variant="dot"`)은 **접힌 카드 헤더 전용**이다(quick-260923-onn · 목업 ①A) — 칩과
  * 같은 `latchLedStateOf` 판정 결과 하나를 읽고 모양만 바꾼다(판정 지점은 여전히 하나).
  *
@@ -38,20 +44,24 @@ import { cn } from "@/lib/utils";
  * (`strategy-badge.tsx`)에 섞지 않는다 (D-23).
  */
 
-/** LED 3종. */
-export type LatchLedKind = "buy" | "sell" | "cancel";
+/** LED 4종 — 매수 · 매도 · 취소 + 자동매도(「자동」 · Phase 27 D-04). */
+export type LatchLedKind = "buy" | "sell" | "cancel" | "autoSell";
 
 /**
  * 클릭(`lc.arm`)할 수 있는 LED — 매도 · 취소 둘뿐이다. 매수 진입 래치는 Phase 24 에서 폐기(38 봉인) ·
- * 매수 LED 는 늘 비클릭(D-12)이라 `onArm` 이 `"buy"` 를 받을 수 없게 타입으로 막는다.
+ * 매수 LED 는 늘 비클릭(D-12) · 자동매도 LED 도 늘 비클릭(Phase 27 D-04 — 바로시작/중지는 41 버튼 몫)이라
+ * `onArm` 이 `"buy"` · `"autoSell"` 을 받을 수 없게 타입으로 막는다.
  */
-export type ArmableLatchKind = Exclude<LatchLedKind, "buy">;
+export type ArmableLatchKind = Exclude<LatchLedKind, "buy" | "autoSell">;
 
 /** 색 단계. `off`=무장 아님(회색) · `latent`=잠복(주황) · `armed`=래치 ON(초록). */
 export type LatchLedTone = "off" | "latent" | "armed";
 
-/** 보이는 상태 라벨 (D-21 채택안 — 목업 변형 A 칩). 「보유중」은 매수 LED 전용(Phase 24 D-12). */
-export type LatchLedLabel = "OFF" | "대기" | "감시" | "보유중";
+/**
+ * 보이는 상태 라벨 (D-21 채택안 — 목업 변형 A 칩). 「보유중」은 매수 LED 전용(Phase 24 D-12) ·
+ * 「매도중」 「완료」는 자동매도 LED 전용(Phase 27 D-04 — 대기 · 감시는 같은 낱말을 쓴다).
+ */
+export type LatchLedLabel = "OFF" | "대기" | "감시" | "보유중" | "매도중" | "완료";
 
 /**
  * 판정 결과 1건. 문구를 호출부가 짓지 않게 라벨·툴팁을 값으로 들고 다닌다.
@@ -76,6 +86,7 @@ export const LATCH_LED_NAMES: Record<LatchLedKind, string> = {
   buy: "매수",
   sell: "매도",
   cancel: "취소",
+  autoSell: "자동",
 };
 
 /**
@@ -110,6 +121,27 @@ const OFF_STATE: LatchLedState = {
   tooltip: null,
 };
 
+/** 자동매도 상태 1~4 → 색 · 라벨 (WinForms `ledAutoSell` 동형 — 1 · 4 DarkOrange · 2 · 3 LimeGreen). */
+const AUTO_SELL_LED: Record<1 | 2 | 3 | 4, { tone: LatchLedTone; label: LatchLedLabel }> = {
+  1: { tone: "latent", label: "대기" },
+  2: { tone: "armed", label: "감시" },
+  3: { tone: "armed", label: "매도중" },
+  4: { tone: "latent", label: "완료" },
+};
+
+const KRW = new Intl.NumberFormat("ko-KR");
+
+/**
+ * 자동매도 LED 툴팁 — WinForms 원문 형식 `상태 · 기준 N원`(limit-chaser.md §10 「자동매도 칸」).
+ * 기준 낱말은 에코 `autoSellBasis` 만 본다 — 2 → 「매수가」, 그 밖 → 「상한가」(클라 판정 없음). 기준가격 0(미정)이면
+ * 「 · 기준 …」 꼬리를 뺀다.
+ */
+function autoSellTooltipOf(label: LatchLedLabel, basis: number, basisPrice: number): string {
+  if (basisPrice <= 0) return `자동매도 ${label}`;
+  const word = basis === 2 ? "매수가" : "상한가";
+  return `자동매도 ${label} · 기준 ${word} ${KRW.format(basisPrice)}원`;
+}
+
 /**
  * 서버 에코 스냅샷 1건 → LED 1개의 색·클릭 가능·라벨·툴팁 (**순수 함수**).
  *
@@ -122,6 +154,21 @@ export function latchLedStateOf(
 ): LatchLedState {
   // 전략 없음 = 그릴 상태가 없다. 무장 OFF 와 같은 회색이되 툴팁도 비운다 (C# D-02).
   if (server === null) return OFF_STATE;
+
+  if (kind === "autoSell") {
+    // 상태가 진실 — 체크(`autoSellEnabled`)는 보지 않는다. 0 · 범위 밖 = 회색 OFF. 늘 클릭 불가(D-04).
+    const s = server.autoSellState;
+    if (s !== 1 && s !== 2 && s !== 3 && s !== 4) {
+      return { ...OFF_STATE, tooltip: "자동매도 꺼짐" };
+    }
+    const { tone, label } = AUTO_SELL_LED[s];
+    return {
+      tone,
+      clickable: false,
+      label,
+      tooltip: autoSellTooltipOf(label, server.autoSellBasis, server.autoSellBasisPrice),
+    };
+  }
 
   if (kind === "sell") {
     if (!server.sellEnabled) return OFF_STATE;
@@ -149,9 +196,9 @@ export function latchLedStateOf(
   return { tone: "armed", clickable: false, label: "감시", tooltip: null };
 }
 
-/** sr-only 조사 — 매수는 래치가 없어 「상태」, 매도·취소는 「래치」(UI-SPEC R12). */
+/** sr-only 조사 — 매수 · 자동매도는 래치가 없어 「상태」, 매도·취소는 「래치」(UI-SPEC R12). */
 function srNounOf(kind: LatchLedKind): string {
-  return kind === "buy" ? "상태" : "래치";
+  return kind === "buy" || kind === "autoSell" ? "상태" : "래치";
 }
 
 /** 도트 색 — CSS 토큰을 클래스로만 쓴다. 토큰 값을 JS 로 읽어 주입하지 않는다. */
@@ -224,7 +271,7 @@ export function LatchLed({ kind, server, onArm, variant = "chip", className }: L
       data-tone={state.tone}
       aria-pressed={state.tone === "armed"}
       onClick={() => {
-        if (kind !== "buy") onArm?.(kind);
+        if (kind === "sell" || kind === "cancel") onArm?.(kind);
       }}
       className={cn(
         chipBase,
@@ -308,7 +355,7 @@ function LatchLedDot({
       data-tone={state.tone}
       aria-pressed={state.tone === "armed"}
       onClick={() => {
-        if (kind !== "buy") onArm?.(kind);
+        if (kind === "sell" || kind === "cancel") onArm?.(kind);
       }}
       className={cn(base, "cursor-pointer hover:bg-[var(--muted)]")}
     >

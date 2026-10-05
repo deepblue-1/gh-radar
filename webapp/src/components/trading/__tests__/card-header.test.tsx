@@ -136,10 +136,10 @@ describe('CardHeader', () => {
     expect(px.className).toContain('text-[var(--up)]');
   });
 
-  it('E7 loading — 서버 전략이 없으면 LED 3칩이 매수·매도·취소 순서로 전부 「OFF」다', () => {
+  it('E7 loading — 서버 전략이 없으면 LED 4칩이 매수·매도·취소·자동 순서로 전부 「OFF」다 (Phase 27 D-04)', () => {
     renderHeader({ ledServer: null });
     const leds = Array.from(header().querySelectorAll('[data-slot="latch-led"]'));
-    expect(leds.map((l) => l.getAttribute('data-kind'))).toEqual(['buy', 'sell', 'cancel']);
+    expect(leds.map((l) => l.getAttribute('data-kind'))).toEqual(['buy', 'sell', 'cancel', 'autoSell']);
     for (const led of leds) {
       expect(led.getAttribute('data-tone')).toBe('off');
       expect(led.textContent).toContain('OFF');
@@ -305,7 +305,7 @@ describe('CardHeader', () => {
 describe('CardHeader — 접힌 카드 요약 (quick-260923-onn · 목업 ①A)', () => {
   const l2 = () => header().querySelector('[data-slot="card-header-l2"]') as HTMLElement;
 
-  it('접힘: l2 = 점 3개(매수·매도·취소) + 「미체결 N」 + 「잔고 N주」 · ⓘ·✕ 는 헤더에 그대로', () => {
+  it('접힘: l2 = 점 4개(매수·매도·취소·자동) + 「미체결 N」 + 「잔고 N주」 · ⓘ·✕ 는 헤더에 그대로', () => {
     renderHeader({
       open: false,
       ledServer: echo({ sellEnabled: true }),
@@ -315,7 +315,7 @@ describe('CardHeader — 접힌 카드 요약 (quick-260923-onn · 목업 ①A)'
     const groups = l2().querySelectorAll('[data-slot="latch-led-dots"]');
     expect(groups).toHaveLength(1);
     const dots = Array.from(groups[0].querySelectorAll('[data-slot="latch-led"][data-variant="dot"]'));
-    expect(dots.map((d) => d.getAttribute('data-kind'))).toEqual(['buy', 'sell', 'cancel']);
+    expect(dots.map((d) => d.getAttribute('data-kind'))).toEqual(['buy', 'sell', 'cancel', 'autoSell']);
     expect(l2().querySelector('[data-slot="card-summary-unfilled"]')?.textContent).toBe('미체결 2');
     expect(l2().querySelector('[data-slot="card-summary-holding"]')?.textContent).toBe('잔고 1,200주');
     expect(screen.getByRole('button', { name: '종목정보' })).toBeInTheDocument();
@@ -340,7 +340,7 @@ describe('CardHeader — 접힌 카드 요약 (quick-260923-onn · 목업 ①A)'
     expect(props.onToggle).not.toHaveBeenCalled();
   });
 
-  it('펼침: 칩 3개 풀 라벨 그대로 · 점·요약 칩 없음', () => {
+  it('펼침: 칩 4개 풀 라벨 그대로 · 점·요약 칩 없음', () => {
     renderHeader({
       open: true,
       ledServer: echo({ sellEnabled: true, buyEnabled: false }),
@@ -352,9 +352,10 @@ describe('CardHeader — 접힌 카드 요약 (quick-260923-onn · 목업 ①A)'
     expect(header().querySelector('[data-slot="card-summary-unfilled"]')).toBeNull();
     expect(header().querySelector('[data-slot="card-summary-holding"]')).toBeNull();
     const leds = Array.from(header().querySelectorAll('[data-slot="latch-led"]'));
-    expect(leds).toHaveLength(3);
+    expect(leds).toHaveLength(4);
     expect(leds[0].textContent).toContain('OFF');
     expect(leds[1].textContent).toContain('대기');
+    expect(leds[3].textContent).toContain('OFF');
   });
 
   it('접힘 헤더에도 뷰포트 브레이크포인트 클래스가 없다(D-28)', () => {

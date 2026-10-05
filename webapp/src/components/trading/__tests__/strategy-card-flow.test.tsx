@@ -483,16 +483,16 @@ describe('서버 통지 — 카드 인라인 경보 + 로그 (옛 ⑨ · ⑩ · 
 });
 
 describe('헤더 래치 LED → `lc.arm` 전송 규율 (옛 ⑲)', () => {
-  it('⑲-1 LED 3개가 헤더에 매수 · 매도 · 취소 순서로 있다 (D-22)', () => {
+  it('⑲-1 LED 4개가 헤더에 매수 · 매도 · 취소 · 자동 순서로 있다 (D-22 · Phase 27 D-04)', () => {
     setRelay({ limitChasers: [echo()] });
     render(<Card />);
-    expect(leds().map((el) => el.dataset.kind)).toEqual(['buy', 'sell', 'cancel']);
+    expect(leds().map((el) => el.dataset.kind)).toEqual(['buy', 'sell', 'cancel', 'autoSell']);
   });
 
-  it('⑲-3 ★ 서버 전략이 없으면 세 LED 가 전부 회색 span 이고 클릭해도 아무것도 나가지 않는다', () => {
+  it('⑲-3 ★ 서버 전략이 없으면 네 LED 가 전부 회색 span 이고 클릭해도 아무것도 나가지 않는다', () => {
     setRelay({ limitChasers: [] });
     render(<Card />);
-    expect(leds()).toHaveLength(3);
+    expect(leds()).toHaveLength(4);
     for (const el of leds()) {
       expect(el.dataset.tone).toBe('off');
       expect(el.tagName).toBe('SPAN');

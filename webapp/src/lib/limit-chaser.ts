@@ -73,10 +73,13 @@ export type LimitChaserSeedPrices = Pick<
   'buyWatchPrice' | 'buyOrderPrice' | 'sellWatchPrice' | 'sellOrderPrice' | 'sweepWatchPrice'
 >;
 
-/** 삭제 판정에 필요한 게이트 4종 + 후매수 자동 — 서버 정규화(`crud "D"`)와 같은 집합이다(quick-260929-vzy). */
+/**
+ * 삭제 판정에 필요한 게이트 4종 + 후매수 자동 + 자동매도 — 서버 정규화(`crud "D"`)와 같은 집합이다
+ * (quick-260929-vzy · Phase 27).
+ */
 export type LimitChaserGates = Pick<
   LimitChaserFormValues,
-  'buyEnabled' | 'sellEnabled' | 'cancelQtyEnabled' | 'cancelTradeEnabled' | 'postBuyAuto'
+  'buyEnabled' | 'sellEnabled' | 'cancelQtyEnabled' | 'cancelTradeEnabled' | 'postBuyAuto' | 'autoSellEnabled'
 >;
 
 /**
@@ -101,14 +104,17 @@ export function buyOrderQtyFromAmount(amountManwon: number, price: number): numb
  * 에코의 `buyEnabled`/`sellEnabled` 는 무장 상태라 발주가 나가면 false 로 온다.
  * 후매수 ☐자동(quick-260929-vzy)도 켜진 것이다 — 나중에 서버가 매수를 켜는 무장이라, 걷어 보이지 않게 하면
  * 숨은 무장이 된다(2026-09-23 「켜진 전략」 규칙의 확장 · P-1).
+ * ☐자동매도(Phase 27)도 켜진 것이다 — 서버 `IsActive()` 에 `IsAutoSellActive()` 가 들어 있고 체결이 오면 서버가
+ * 스스로 매도를 낸다(WinForms `AnyArmed` 동형 · 「켜진 전략」 기준 확장).
  */
 export function isActiveStrategy(c: {
   buyEnabled: boolean;
   sellEnabled: boolean;
   cancelQtyEnabled: boolean;
   postBuyAuto: boolean;
+  autoSellEnabled: boolean;
 }): boolean {
-  return c.buyEnabled || c.sellEnabled || c.cancelQtyEnabled || c.postBuyAuto;
+  return c.buyEnabled || c.sellEnabled || c.cancelQtyEnabled || c.postBuyAuto || c.autoSellEnabled;
 }
 
 /**
@@ -154,7 +160,9 @@ export function parseStrategyKey(
  * 매수·매도·**취소 2종**이 전부 꺼지면 서버가 `crud` 를 `"D"` 로 정규화한다. 취소 게이트가
  * 하나라도 켜져 있으면 매수·매도를 둘 다 꺼도 전략이 **남는다**.
  * 후매수 ☐자동이 켜져 있어도 남는다(quick-260929-vzy · P-1) — gh-trade dcaa78b1 은 자동만 켠 등록을 삭제로
- * 정규화하지 않고, WinForms `AnyArmed` 에도 ☐자동이 들어간다. relay `#isTeardown` 과 **같은 다섯 항**이다.
+ * 정규화하지 않고, WinForms `AnyArmed` 에도 ☐자동이 들어간다.
+ * ☐자동매도가 켜져 있어도 남는다(Phase 27) — gh-trade IsAutoSellActive · WinForms AnyArmed 동형.
+ * relay `#isTeardown` 과 **같은 여섯 항**이다(같은 커밋에서 바뀐다).
  */
 export function isDeleteIntent(gates: LimitChaserGates): boolean {
   return (
@@ -162,7 +170,8 @@ export function isDeleteIntent(gates: LimitChaserGates): boolean {
     !gates.sellEnabled &&
     !gates.cancelQtyEnabled &&
     !gates.cancelTradeEnabled &&
-    !gates.postBuyAuto
+    !gates.postBuyAuto &&
+    !gates.autoSellEnabled
   );
 }
 

@@ -63,7 +63,8 @@ import { cn } from "@/lib/utils";
 /** 세그먼트 그룹 `title` — 잠금 사유가 아니라 전환 설명(quick-260923-pgv). 테스트가 같은 상수를 읽는다. */
 export const EXCHANGE_SEGMENT_TITLE = "거래소 전환 — 이 종목의 KRX·NXT 전략을 오가며 봐요";
 
-const LED_KINDS: readonly LatchLedKind[] = ["buy", "sell", "cancel"];
+/** 매수 · 매도 · 취소(Phase 17 D-22) + 자동매도 「자동」(Phase 27 D-04 — 칩과 접힌 점이 같은 배열을 읽는다). */
+const LED_KINDS: readonly LatchLedKind[] = ["buy", "sell", "cancel", "autoSell"];
 const KRW = new Intl.NumberFormat("ko-KR");
 
 export interface CardHeaderProps {
@@ -303,7 +304,7 @@ export function CardHeader({
         className="order-last flex min-w-0 basis-full flex-wrap items-center gap-2.5 @min-[760px]/lc:order-none @min-[760px]/lc:flex-none @min-[760px]/lc:basis-auto"
       >
         {/*
-          LED 3칩 — 순서는 **매수 · 매도 · 취소**(Phase 17 D-22). 판정은 `LatchLed` 안의
+          LED 4칩 — 순서는 **매수 · 매도 · 취소**(Phase 17 D-22) · **자동**(Phase 27 D-04 · 늘 클릭 불가). 판정은 `LatchLed` 안의
           `latchLedStateOf` 규칙표 **한 곳**이다(T-18-28) — 여기서 톤·라벨을 다시 짓지 않는다.
           ★ `onArm` 의 전송 가드(클릭 가능 여부 재확인)는 호출부(`strategy-card`)의 것이다.
         */}
@@ -316,7 +317,7 @@ export function CardHeader({
         ) : (
           <>
             {/*
-              접힘 — LED 는 점 3개(목업 ①A `.dots`). 순서·판정·전파 차단은 칩과 같다. 요약 칩은
+              접힘 — LED 는 점 4개(목업 ①A `.dots` · Phase 27 자동 점). 순서·판정·전파 차단은 칩과 같다. 요약 칩은
               컨트롤이 아니다 — 누르면 헤더 토글(펼침)이 되는 것이 맞아 전파를 막지 않는다.
             */}
             <span

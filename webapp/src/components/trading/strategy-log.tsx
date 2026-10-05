@@ -55,6 +55,7 @@
  */
 
 import {
+  LIMIT_CHASER_SERVER_AUTO_SELL_FIELDS,
   LIMIT_CHASER_SERVER_COUNTER_FIELDS,
   LIMIT_CHASER_SERVER_ONLY_FIELDS,
   LIMIT_CHASER_SERVER_RUNTIME_FIELDS,
@@ -254,7 +255,7 @@ function cancelArmedOf(item: RelayLimitChaser): boolean {
  * - 매수 그룹 게이트 3종(Phase 24 — `preBuyEnabled` · `extraBuyEnabled` · `postBuyEnabled`): 에코의
  *   그룹 게이트도 무장 상태로 접혀 온다(추가매수 포기 · 후매수 소진 · 발주). 전이는 그룹 문장
  *   (「선매수 무장」 등)이 말한다(24-05).
- * - S→C 전용 12필드(shared `LIMIT_CHASER_SERVER_ONLY_FIELDS` — 이름을 여기 다시 나열하지 않는다):
+ * - S→C 전용 16필드(shared `LIMIT_CHASER_SERVER_ONLY_FIELDS` — 이름을 여기 다시 나열하지 않는다):
  *   ★ 래치 2종도 게이트 축이다 (17-11 / D-23 · T-17-39). 빠지면 **사용자가 켜지도 않은**
  *     래치 변화가 「서버 반영 완료」로 보고돼, 자기가 하지 않은 수정이 반영된 줄 안다.
  *     래치 자체는 전이 문장(래치 ON/해제)이 각자 말한다.
@@ -262,6 +263,9 @@ function cancelArmedOf(item: RelayLimitChaser): boolean {
  *     발동잔량 · 잔여 · 단계 · 후매수 잠금 해제선(quick-261002-fim))은 서버가 스스로 움직이는 값이다. 로그를 남기지 않는다(포기 전이 조각만 수량을 읽는다).
  *   ★ 카운터 3종은 서버 런타임 값이다 — 체결(`OnExecution`)이 `sellOrderQty` 를, 호가 래칫이
  *     기준선을 바꾼다. 사용자 설정의 반영이 아니다.
+ *   ★ 자동매도 에코 4종(Phase 27 — 상태 · 누적 매도 · 기준 종류 · 기준가격)은 서버 상태기계가 움직이는 값이다.
+ * - ☐자동매도(`autoSellEnabled` · Phase 27): 게이트 축이다 — 켜짐/꺼짐은 61 · 54 사유 줄이 말한다(킬 스위치 ·
+ *   단일 행 비활성화도 이 값을 내린다).
  * - `crud` · `key`: 삭제 판정·파생 키.
  * - ★ `name` · `code`: relay 가 SymbolMap 으로 채우는 파생 표시값이다 — 마스터 로딩 시점에 따라
  *   생겼다 없어질 수 있고, 사용자 설정이 아니다.
@@ -276,6 +280,8 @@ const VALUE_COMPARE_SKIP: ReadonlySet<keyof RelayLimitChaser> = new Set<keyof Re
   'cancelTradeEnabled',
   // 후매수 ☐자동 — 전이 축(「후매수 자동 체크 / 해제」)이 말한다. 서버 발화의 false 에코를 「서버 반영 완료」 로 오귀속하지 않는다.
   'postBuyAuto',
+  // ☐자동매도 — 게이트 축(Phase 27). 61 · 54 사유 줄이 말한다.
+  'autoSellEnabled',
   ...LIMIT_CHASER_SERVER_ONLY_FIELDS,
   'crud',
   'key',
@@ -284,12 +290,14 @@ const VALUE_COMPARE_SKIP: ReadonlySet<keyof RelayLimitChaser> = new Set<keyof Re
 ]);
 
 /**
- * 런타임 전용 비교에서 빼는 필드 — S→C 카운터 3종 + 런타임 7종(Phase 24 D-13 · quick-260930-fi4 · quick-261002-fim) + relay 파생 표시값.
+ * 런타임 전용 비교에서 빼는 필드 — S→C 카운터 3종 + 런타임 7종(Phase 24 D-13 · quick-260930-fi4 · quick-261002-fim)
+ * + 자동매도 에코 4종(Phase 27 — 300ms 주기 매도의 누적 · 상태 전이 에코에 「서버 반영 완료」 를 세우지 않는다) + relay 파생 표시값.
  * 래치는 **넣지 않는다**.
  */
 const RUNTIME_ONLY_SKIP: ReadonlySet<keyof RelayLimitChaser> = new Set<keyof RelayLimitChaser>([
   ...LIMIT_CHASER_SERVER_COUNTER_FIELDS,
   ...LIMIT_CHASER_SERVER_RUNTIME_FIELDS,
+  ...LIMIT_CHASER_SERVER_AUTO_SELL_FIELDS,
   'name',
   'code',
 ]);

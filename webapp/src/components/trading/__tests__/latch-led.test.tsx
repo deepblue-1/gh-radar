@@ -395,3 +395,30 @@ describe("LatchLed — 점 변형 (quick-260923-onn)", () => {
     expect(el.textContent).toContain("OFF");
   });
 });
+
+describe("Phase 27 자동 LED (D-04 — WinForms ledAutoSell 동형 · 클릭 불가)", () => {
+  it("상태 3(매도중) → 초록 armed 「매도중」 · <span> · 툴팁 「자동매도 매도중 · 기준 상한가 13,000원」", () => {
+    const server = chaser({
+      autoSellEnabled: true,
+      autoSellState: 3,
+      autoSellBasis: 1,
+      autoSellBasisPrice: 13_000,
+    });
+    expect(latchLedStateOf("autoSell", server)).toEqual({
+      tone: "armed",
+      clickable: false,
+      label: "매도중",
+      tooltip: "자동매도 매도중 · 기준 상한가 13,000원",
+    });
+
+    const onArm = vi.fn();
+    render(<LatchLed kind="autoSell" server={server} onArm={onArm} />);
+    const el = ledEl("autoSell");
+    expect(el.tagName).toBe("SPAN");
+    expect(el).not.toHaveAttribute("aria-pressed");
+    expect(el).toHaveAttribute("data-tone", "armed");
+    // 이름 「자동」 · sr-only 조사 「상태」(래치가 아니다) · 라벨 「매도중」.
+    expect(el.textContent).toContain("자동상태매도중");
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+});

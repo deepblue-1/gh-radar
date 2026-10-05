@@ -1223,12 +1223,15 @@ export class WsFanout {
    * 그대로 삭제로 온다.
    *
    * ★ 게이트 4종에 **`sweepEnabled` 는 없다** — 한방만 켠 전략도 서버가 삭제로 정규화한다.
-   *   `webapp/src/lib/limit-chaser.ts` 의 `isDeleteIntent()` 와 **같은 다섯 항**이다(그쪽이
+   *   `webapp/src/lib/limit-chaser.ts` 의 `isDeleteIntent()` 와 **같은 여섯 항**이다(그쪽이
    *   원본이고 여기가 서버측 사본이다 — 항이 갈리면 「지운 줄 알았는데 남는」 전략이 생긴다).
    * ★ 다섯째 항 = 후매수 ☐자동(quick-260929-vzy · P-1). gh-trade dcaa78b1 `ProcessSetLimitChaser` 는 게이트가
    *   전부 꺼져도 자동이 살아 있는 등록을 삭제로 정규화하지 않는다 — 나중에 서버가 스스로 매수를 켜는 무장이라
    *   계좌 가드를 지나는 **등록**이다. 그래서 엄격 시장 해석(T-16-42) · 무장 가드(T-16-43)를 적용해야 한다.
    *   옛 탭은 자동 필드가 없어(`undefined`) 판정이 종전과 같다.
+   * ★ 여섯째 항 = ☐자동매도(Phase 27 · gh-trade 2404509b). 서버 `IsActive()` 에 `IsAutoSellActive()` 가 들어 있어
+   *   자동매도만 켠 등록도 삭제로 정규화되지 않는다(WinForms `AnyArmed` 동형) — 철거가 아니라 등록이다.
+   *   웹 `isDeleteIntent` 와 **같은 커밋**에서 바뀐다. 옛 탭은 필드가 없어(`undefined`) 판정이 종전과 같다.
    *
    * ★ **부수효과 없는 순수 판정**이다. `crud` 불일치 로그는 프레임이 들어오는 지점(`lc.set`
    *   분기) 한 곳에서만 남긴다 — 이 함수는 한 프레임당 최대 두 번(`lc.set` · `#strategyArmable`)
@@ -1237,15 +1240,22 @@ export class WsFanout {
   #isTeardown(
     cfg: Pick<
       LcSetCfg,
-      "buyEnabled" | "sellEnabled" | "cancelQtyEnabled" | "cancelTradeEnabled" | "postBuyAuto"
+      | "buyEnabled"
+      | "sellEnabled"
+      | "cancelQtyEnabled"
+      | "cancelTradeEnabled"
+      | "postBuyAuto"
+      | "autoSellEnabled"
     >,
   ): boolean {
+    // 웹 `isDeleteIntent` 와 같은 여섯 항.
     return (
       !cfg.buyEnabled &&
       !cfg.sellEnabled &&
       !cfg.cancelQtyEnabled &&
       !cfg.cancelTradeEnabled &&
-      cfg.postBuyAuto !== true
+      cfg.postBuyAuto !== true &&
+      cfg.autoSellEnabled !== true
     );
   }
 
