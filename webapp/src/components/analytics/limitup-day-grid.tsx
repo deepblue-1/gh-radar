@@ -23,17 +23,19 @@ import { LimitupSparkline } from './limitup-sparkline';
  * - **같은 DOM, CSS 로만 배치 전환**(뷰포트 — R-8): < xl 2단 카드형(1줄 종목 … 결과 · 2줄 스파크 전폭 · 3줄 메타 flex-wrap ·
  *   chevron 숨김) / xl 이상 8열 표. 메타 묶음은 xl 에서 `contents` 로 풀려 각 칸이 열을 잡고, 라벨은 `xl:sr-only` 로 남는다
  *   (데스크톱 머리줄은 장식이라 `aria-hidden`).
- * - 열(스케치 011 리스트 + 한 열 예외): 종목(이름 + 「{코드} · 상한가 {N}원」) · 결과 · 첫 상한가 · 잔량 스파크 · 최대 잔량 ·
+ * - 열(스케치 011 리스트 + 한 열 예외): 종목(이름 + 「{코드} · 상한가 {N}원」) · 결과 · 첫 상한가 · 잔량 스파크 · 잠김 최대 잔량 ·
  *   +60초 매도 · 직전 1분 매수 1위(사실 `member_entry_buy` — 추정 칩) · chevron. ★ +60초 매도는 스케치 리스트에 없지만
  *   다른 곳에 안 나오는 유일한 지표라 열로 남긴다. 첫 잠김 · 잠김 수 열은 첫 상한가 열과 펼친 카드의 잠김 사실이 대신한다.
  * - 접근 이름 「{종목명} {코드} — 사건 카드」(`aria-label` · 열림 상태는 `aria-expanded` 가 말한다) · 열렸을 때만
  *   `aria-controls="ev-{isin}"`. button 의 자식은 presentational 이라 행 값을 한 문장(`rowDescription`)으로 엮은 sr-only
  *   조각을 `aria-describedby` 로 잇는다(WR-A05). 보이는 칸들을 직접 잇지 않는 까닭: 인라인 칸 글자가 띄어쓰기 없이 붙어
- *   「최대23.4억+60초 매도4%」 처럼 읽힌다.
+ *   「잠김 최대23.4억+60초 매도4%」 처럼 읽힌다.
+ * - 「잠김 최대 잔량」 = 그 종목 잠김들의 q_max 사실 최대(quick-261005-x9o — 미잠김 단일가 누적 제외 · `lockMaxKrwOf`).
+ *   머리 = 긴 이름 · 폰 메타 / 행 설명 = 짧은 이름 「잠김 최대」(폰 2줄 메타 폭).
  * - 목록 0 인 날 = 리스트 자리 빈 상태(E7 empty — 페이지는 정상).
  */
 
-const COLS_XL = 'xl:grid-cols-[minmax(0,168px)_96px_72px_minmax(0,1fr)_72px_72px_minmax(0,148px)_16px]';
+const COLS_XL = 'xl:grid-cols-[minmax(0,168px)_96px_72px_minmax(0,1fr)_88px_72px_minmax(0,148px)_16px]';
 
 const TAG_TONE: Record<LimitupResultTag, string> = {
   깨짐: 'bg-[var(--up-bg)] text-[var(--up)]',
@@ -65,13 +67,13 @@ function ResultTags({ tags, className }: { tags: readonly LimitupResultTag[]; cl
   );
 }
 
-/** 행 값 설명(WR-A05) — 「결과 깨짐, 첫 상한가 09:06:01, 최대 27.5억, +60초 매도 37%, 직전 1분 매수 1위 한국증권 54.4% (추정)」. */
+/** 행 값 설명(WR-A05) — 「결과 깨짐, 첫 상한가 09:06:01, 잠김 최대 27.6억, +60초 매도 37%, 직전 1분 매수 1위 한국증권 54.4% (추정)」. */
 export function rowDescription(r: LimitupDayRow): string {
   const top = r.entryTop === '—' ? r.entryTop : `${r.entryTop} (추정)`;
   return [
     `결과 ${r.tags.join(' · ')}`,
     `첫 상한가 ${r.firstUpper}`,
-    `최대 ${r.maxQ}`,
+    `잠김 최대 ${r.lockMaxQ}`,
     `+60초 매도 ${r.sell60}`,
     `직전 1분 매수 1위 ${top}`,
   ].join(', ');
@@ -174,7 +176,7 @@ export function LimitupDayGrid({
             <span>결과</span>
             <span>첫 상한가</span>
             <span>잔량 (09:00~15:30)</span>
-            <span>최대 잔량</span>
+            <span>잠김 최대 잔량</span>
             <span>+60초 매도</span>
             <span>직전 1분 매수 1위</span>
             <span />
@@ -225,7 +227,7 @@ export function LimitupDayGrid({
 
                     <span className="col-span-2 row-start-3 flex min-w-0 flex-wrap gap-x-3 gap-y-0.5 text-[length:var(--t-caption)] xl:contents">
                       <Meta label="첫 상한가" value={r.firstUpper} col="xl:col-start-3" />
-                      <Meta label="최대" value={r.maxQ} col="xl:col-start-5" />
+                      <Meta label="잠김 최대" value={r.lockMaxQ} col="xl:col-start-5" />
                       <Meta label="+60초 매도" value={r.sell60} col="xl:col-start-6" />
                       <Meta
                         label="직전 1분 매수"

@@ -9,6 +9,7 @@
  *   - `_result_tag` (386~395행) — 잠김 없음 · 종가 = 상한가면 유지 · 아니면 깨짐. 웹은 UI-SPEC ④-3 표대로
  *     「유지」 앞에 앞선 깨짐이 있으면 「깨짐」 을 하나 더 단다(판정 축은 같은 종가 규칙).
  *   - 어제 D+1 = 이전 적재 날짜 locks `d1_ret` 중앙값(pandas median — 짝수 개는 가운데 둘 평균) · 건수
+ *   - 예외: 목록 「잠김 최대 잔량」(`dayRowsOf` 주석 · quick-261005-x9o) — gh-trade 「최대 잔량」(하루 최대)과 다른 숫자다.
  * ★ 목록 = 첫 상한가 체결이 있는 종목만(quick-261005-vk1 D-02 · `isListedStock`). entry 가 있고 `first_upper_ms` 가
  *   null 이면 「상한가 미도달」 이라 목록 · 사건 카드에서 빼고 KPI 아래 한 줄(`excludedCaptionOf`)로만 말한다. entry 가 없는
  *   옛 잠김 행(27-07 이전 DB)은 잠김이 있으니 남는다. `stocksOf` 자체(gh-trade `_stocks` 동형)는 그대로 두고 소비처가 거른다.
@@ -262,6 +263,22 @@ export function entryBuyTopOf(facts: readonly LimitupFactRow[]): EntryBuyTop | n
   return { name, pct: s1, label: `${name} ${s1.toFixed(1)}%` };
 }
 
+/**
+ * 잠김 최대 잔량(원) — 그 종목 잠김들의 `q_max` 사실(`values.krw` · 잠김마다 1건, event_no = lock_id) 중 최대.
+ * `values.krw` 가 유한 숫자인 `q_max` 사실이 없으면 null. ★ big_new · big_cancel · burst_wall 사실도 `values.krw` 를
+ * 가지므로 template_id 로 반드시 거른다.
+ */
+export function lockMaxKrwOf(facts: readonly LimitupFactRow[]): number | null {
+  let max: number | null = null;
+  for (const f of facts) {
+    if (f.template_id !== 'q_max') continue;
+    const krw = f.values?.krw;
+    if (typeof krw !== 'number' || !Number.isFinite(krw)) continue;
+    if (max === null || krw > max) max = krw;
+  }
+  return max;
+}
+
 // ---------------------------------------------------------------------------
 // 종목 리스트 행 (D-03)
 // ---------------------------------------------------------------------------
@@ -276,7 +293,8 @@ export interface LimitupDayRow {
   tags: LimitupResultTag[];
   /** 첫 상한가 체결 「HH:MM:SS」 · 없으면 첫 잠김 시작 · 둘 다 없으면 「—」. */
   firstUpper: string;
-  maxQ: string;
+  /** 잠김 최대 잔량 — 그 종목 잠김들의 q_max 사실 krw 최대(`lockMaxKrwOf`) · 없으면 「—」. */
+  lockMaxQ: string;
   sell60: string;
   /** 상한가 직전 1분 매수 1위 「한국증권 54.4%」 · 사실 없으면 「—」. */
   entryTop: string;
@@ -300,7 +318,15 @@ export function dayRowsOf(report: { day: LimitupDay }): LimitupDayRow[] {
       const starts = s.locks.map((l) => l.start_ms).filter((v): v is number => v != null);
       const fu = s.entry?.first_upper_ms ?? (starts.length > 0 ? Math.min(...starts) : null);
       const sell = summary?.sell_share_60s;
-      const top = entryBuyTopOf(factsBy.get(s.isin) ?? []);
+      const facts = factsBy.get(s.isin) ?? [];
+      const top = entryBuyTopOf(facts);
+      // ★ gh-trade 「같은 숫자 원칙」의 **의도된 예외**(quick-261005-x9o · 옵션 B). gh-trade report 의 「최대 잔량」
+      //   (= grid_summary `q_max_krw`)은 VI 단일가를 포함한 하루 전체 q_krw 최대다. 웹 목록은 잠김 기간 최대(q_max 사실)다.
+      //   이유: 사용자는 이 열을 잠김 강도로 읽는데, 미잠김 단일가 동안 상한가 매수 주문이 쌓이면 하루 최대가 부풀어 오른다.
+      //   예(실 export 20261002): 덕우전자 하루 최대 36.0억 @09:03:50(auction=true · lock_state=0) vs 사실 「잠김 1 최대
+      //   잔량 27.6억」 · 엑시온그룹 22.8억 @12:10:40(단일가) vs 「잠김 2 최대 6.9억」. → 목록엔 27.6억 · 6.9억.
+      //   `summary.q_max_krw` 는 이제 화면 숫자가 아니라 스파크라인 y 상한(`sparkYMaxOf`)에만 쓴다.
+      const lockMax = lockMaxKrwOf(facts);
       return {
         isin: s.isin,
         label: labelOf(s),
@@ -308,7 +334,7 @@ export function dayRowsOf(report: { day: LimitupDay }): LimitupDayRow[] {
         upper: s.upperPx != null ? `${formatGroup(s.upperPx)}원` : null,
         tags: resultTagsOf(s),
         firstUpper: fu != null ? kstClock(fu) : DASH,
-        maxQ: summary?.q_max_krw != null ? formatEok(summary.q_max_krw) : DASH,
+        lockMaxQ: lockMax !== null ? formatEok(lockMax) : DASH,
         // 정수 % 표시만 — 0.5 는 위로(Math.round).
         sell60: sell != null ? `${Math.round(sell * 100)}%` : DASH,
         entryTop: top !== null ? top.label : DASH,
@@ -385,7 +411,12 @@ export function sparkWidthOf(stepS: number): number {
   return (SPARK_SEC_END - SPARK_SEC_START) / (stepS > 0 ? stepS : 10);
 }
 
-/** y 상한 = max(그 행 최대, 20억). */
+/**
+ * y 상한 = max(그 행 최대, 20억).
+ * 결정(quick-261005-x9o): `q_max_krw`(하루 최대 — 단일가 봉우리 포함)는 이제 화면 숫자가 아니라 하루 곡선을 상자 안에
+ * 담는 y 상한으로만 쓴다(목록 숫자는 잠김 최대 — `lockMaxKrwOf`). 정렬(`stocksOf`) · KPI(`kpisOf`)는 원래 이 값을 쓰지 않는다.
+ * 계산을 잠김 최대로 바꾸면 단일가 봉우리가 상자 밖으로 나가므로 그대로 둔다.
+ */
 export function sparkYMaxOf(summary: Pick<LimitupGridSummaryRow, 'q_krw' | 'q_max_krw'>): number {
   let max = summary.q_max_krw ?? 0;
   for (const v of summary.q_krw) if (v != null && v > max) max = v;

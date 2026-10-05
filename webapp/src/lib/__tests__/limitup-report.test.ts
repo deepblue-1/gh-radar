@@ -25,6 +25,7 @@ import {
   fmtYmdLabel,
   isListedStock,
   kpisOf,
+  lockMaxKrwOf,
   kstClock,
   parseYmdParam,
   resultTagsOf,
@@ -40,6 +41,22 @@ const D = '20261002';
 const A = 'KR7000001001';
 const B = 'KR7000002009';
 const C = 'KR7000003007';
+
+/** 사실 한 행 — 템플릿 · event_no · values 만 다르게. */
+function factOf(isin: string, template_id: string, event_no: number, values: Record<string, unknown>): LimitupFactRow {
+  return {
+    date: D,
+    isin,
+    event_no,
+    fact_no: 1,
+    t_ms: null,
+    template_id,
+    text: null,
+    values,
+    source: '실측',
+    schema_version: 1,
+  };
+}
 
 beforeEach(() => {
   authFetchMock.mockReset();
@@ -301,6 +318,12 @@ describe('stocksOf · dayRowsOf — gh-trade _stocks 순서 · 행 메타', () =
         broke: true,
       }),
     ],
+    // 잠김 최대 잔량 = q_max 사실 krw 최대(44.5억) — big_new 90억 · summary q_max_krw 62.7억은 쓰지 않는다
+    facts: [
+      factOf('KR0000000003', 'q_max', 1, { lock_id: 1, qty: 620_000, krw: 3_100_000_000 }),
+      factOf('KR0000000003', 'q_max', 2, { lock_id: 2, qty: 890_000, krw: 4_450_000_000 }),
+      factOf('KR0000000003', 'big_new', 2, { krw: 9_000_000_000 }),
+    ],
     summaries: [summaryRow({ isin: 'KR0000000003', q_max_krw: 6_270_000_000, sell_share_60s: 0.04 })],
   };
 
@@ -322,7 +345,7 @@ describe('stocksOf · dayRowsOf — gh-trade _stocks 순서 · 행 메타', () =
     expect(s5).toMatchObject({ reached: true, name: '잠김만', shortCode: '000005', upperPx: 3000, closePx: 2900 });
   });
 
-  it('메타 — 상한가 · 첫 상한가 · 최대 잔량 · +60초 매도 · 직전 1분 매수 1위(사실 없으면 「—」) · 결과', () => {
+  it('메타 — 상한가 · 첫 상한가 · 잠김 최대 잔량(q_max 사실 최대 · summary · 다른 템플릿 무시) · +60초 매도 · 직전 1분 매수 1위(사실 없으면 「—」) · 결과', () => {
     const rows = dayRowsOf(loadedReport({ day }));
     const r3 = rows.find((r) => r.isin === 'KR0000000003')!;
     expect(r3).toMatchObject({
@@ -330,7 +353,7 @@ describe('stocksOf · dayRowsOf — gh-trade _stocks 순서 · 행 메타', () =
       code: '000003',
       upper: '5,000원',
       firstUpper: '09:08:31',
-      maxQ: '62.7억',
+      lockMaxQ: '44.5억',
       sell60: '4%',
       entryTop: '—',
       tags: ['깨짐', '유지'],
@@ -341,7 +364,7 @@ describe('stocksOf · dayRowsOf — gh-trade _stocks 순서 · 행 메타', () =
   it('entry 없는 옛 잠김 행 — 첫 상한가 = 첫 잠김 시작 · 값 없는 칸 「—」', () => {
     const rows = dayRowsOf(loadedReport({ day }));
     const r5 = rows.find((r) => r.isin === 'KR0000000005')!;
-    expect(r5).toMatchObject({ firstUpper: '09:01:00', maxQ: '—', sell60: '—', entryTop: '—', tags: ['깨짐'] });
+    expect(r5).toMatchObject({ firstUpper: '09:01:00', lockMaxQ: '—', sell60: '—', entryTop: '—', tags: ['깨짐'] });
     const r2 = rows.find((r) => r.isin === 'KR0000000002')!;
     expect(r2).toMatchObject({ upper: null, tags: ['잠김 없음'], summary: null });
   });
@@ -353,16 +376,57 @@ describe('stocksOf · dayRowsOf — gh-trade _stocks 순서 · 행 메타', () =
     expect(rows[0]).toMatchObject({ label: 'KR0000000009', code: null, firstUpper: '—' });
   });
 
-  it('+60초 매도는 정수 % (0.5 는 위로) · 최대 잔량 0 → 「0」', () => {
+  it('+60초 매도는 정수 % (0.5 는 위로) · 잠김 최대 잔량 0 → 「0」', () => {
     const rows = dayRowsOf(
       loadedReport({
         day: {
           entries: [entryRow({ isin: A, reached: true, first_upper_ms: 1 })],
-          summaries: [summaryRow({ isin: A, q_max_krw: 0, sell_share_60s: 0.125 })],
+          facts: [factOf(A, 'q_max', 1, { lock_id: 1, qty: 0, krw: 0 })],
+          summaries: [summaryRow({ isin: A, q_max_krw: 5_000_000_000, sell_share_60s: 0.125 })],
         },
       }),
     );
-    expect(rows[0]).toMatchObject({ sell60: '13%', maxQ: '0' });
+    expect(rows[0]).toMatchObject({ sell60: '13%', lockMaxQ: '0' });
+  });
+
+  it('잠김 최대 잔량 — krw 가 문자열 · null 인 q_max 사실만 있으면 「—」 (summary q_max_krw 가 있어도)', () => {
+    const facts = [
+      factOf(A, 'q_max', 1, { lock_id: 1, qty: 1, krw: '—' }),
+      factOf(A, 'q_max', 2, { lock_id: 2, qty: 1, krw: null }),
+      factOf(A, 'big_new', 1, { krw: 1_000_000_000 }),
+    ];
+    expect(lockMaxKrwOf(facts)).toBeNull();
+    expect(lockMaxKrwOf([])).toBeNull();
+    const rows = dayRowsOf(
+      loadedReport({
+        day: {
+          entries: [entryRow({ isin: A, reached: true, first_upper_ms: 1 })],
+          facts,
+          summaries: [summaryRow({ isin: A, q_max_krw: 5_000_000_000 })],
+        },
+      }),
+    );
+    expect(rows[0]!.lockMaxQ).toBe('—');
+  });
+
+  it('실 export 20261002 — 잠김 최대 잔량 = 덕우전자 27.6억 · 엑시온그룹 6.9억 (하루 최대 36.0억 · 22.8억 아님 — 단일가 누적 제외)', () => {
+    const rows = dayRowsOf(
+      loadedReport({
+        day: {
+          entries: exportEntries(),
+          locks: exportLocks(),
+          facts: exportFacts(),
+          summaries: [
+            summaryRow({ isin: DUKWOO, q_max_krw: 3_600_000_000 }),
+            summaryRow({ isin: AXION, q_max_krw: 2_280_000_000 }),
+          ],
+        },
+      }),
+    );
+    expect(rows.map((r) => [r.label, r.lockMaxQ])).toEqual([
+      ['덕우전자', '27.6억'],
+      ['엑시온그룹', '6.9억'],
+    ]);
   });
 });
 

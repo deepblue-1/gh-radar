@@ -66,12 +66,25 @@ const report = loadedReport({
         source: '추정(분 단위)',
         schema_version: 1,
       },
+      // 잠김 1 최대 잔량 — 목록 「잠김 최대 잔량」 의 원천(summary q_max_krw 99.9억은 무시 — quick-261005-x9o)
+      {
+        date: D,
+        isin: A,
+        event_no: 1,
+        fact_no: 1,
+        t_ms: kstMs(D, '09:40:00'),
+        template_id: 'q_max',
+        text: '잠김 1 최대 잔량 23.4억',
+        values: { lock_id: 1, qty: 2_339_000, krw: 2_339_000_000 },
+        source: '실측',
+        schema_version: 1,
+      },
     ],
     summaries: [
       summaryRow({
         isin: A,
         q_krw: Array.from({ length: 2340 }, (_, i) => (i % 7 === 0 ? null : i * 1_000_000)),
-        q_max_krw: 2_339_000_000,
+        q_max_krw: 9_990_000_000,
         sell_share_60s: 0.04,
       }),
       summaryRow({ isin: B, q_krw: [0, 500_000_000, 1_500_000_000], q_max_krw: 1_500_000_000 }),
@@ -107,15 +120,15 @@ describe('LimitupDayGrid', () => {
     expect(document.querySelector('[data-isin="KR7000004005"]')).toBeNull();
   });
 
-  it('행 값은 설명(aria-describedby)으로 보조기기에 닿는다 — 결과 · 첫 상한가 · 최대 · +60초 매도 · 직전 1분 매수 1위 (WR-A05)', () => {
+  it('행 값은 설명(aria-describedby)으로 보조기기에 닿는다 — 결과 · 첫 상한가 · 잠김 최대 · +60초 매도 · 직전 1분 매수 1위 (WR-A05)', () => {
     renderGrid();
     const [, alpha, c] = rowButtons();
     expect(alpha).toHaveAccessibleName('알파 000010 — 사건 카드');
     expect(alpha).toHaveAccessibleDescription(
-      '결과 깨짐 · 유지, 첫 상한가 09:30:00, 최대 23.4억, +60초 매도 4%, 직전 1분 매수 1위 한국증권 54.4% (추정)',
+      '결과 깨짐 · 유지, 첫 상한가 09:30:00, 잠김 최대 23.4억, +60초 매도 4%, 직전 1분 매수 1위 한국증권 54.4% (추정)',
     );
     // 값 없는 칸은 「—」 그대로 · 창구가 없으면 (추정) 꼬리 없음
-    expect(c).toHaveAccessibleDescription('결과 깨짐, 첫 상한가 11:00:00, 최대 —, +60초 매도 —, 직전 1분 매수 1위 —');
+    expect(c).toHaveAccessibleDescription('결과 깨짐, 첫 상한가 11:00:00, 잠김 최대 —, +60초 매도 —, 직전 1분 매수 1위 —');
   });
 
   it('아코디언 — 기본 첫 행만 열림 · 다른 행 클릭 → 그 행만 · 같은 행 재클릭 → 전부 닫힘', () => {
@@ -178,7 +191,7 @@ describe('LimitupDayGrid', () => {
       '결과',
       '첫 상한가',
       '잔량 (09:00~15:30)',
-      '최대 잔량',
+      '잠김 최대 잔량',
       '+60초 매도',
       '직전 1분 매수 1위',
       '',
@@ -196,12 +209,16 @@ describe('LimitupDayGrid', () => {
     expect(tagOf(alpha!, '유지').className).toContain('text-[var(--down)]');
   });
 
-  it('메타 — 「{코드} · 상한가 {N}원」 · 첫 상한가 · 최대 · +60초 매도 · 직전 1분 매수 1위(말줄임 + title) + 추정 배지 · 없는 값 「—」', () => {
+  it('메타 — 「{코드} · 상한가 {N}원」 · 첫 상한가 · 잠김 최대 · +60초 매도 · 직전 1분 매수 1위(말줄임 + title) + 추정 배지 · 없는 값 「—」', () => {
     renderGrid();
     const alpha = rowButtons()[1]!;
     expect(within(alpha).getByText('000010 · 상한가 1,000원')).toBeTruthy();
     expect(alpha.textContent).toContain('09:30:00');
     expect(alpha.textContent).toContain('23.4억');
+    // 잠김 최대 = q_max 사실(23.4억) — summary q_max_krw(99.9억)가 아니다
+    expect(alpha.textContent).not.toContain('99.9억');
+    expect(within(alpha).getByText('잠김 최대')).toBeTruthy();
+    expect(within(alpha).getByText('잠김 최대').nextElementSibling?.textContent).toBe('23.4억');
     expect(alpha.textContent).toContain('4%');
     const top = within(alpha).getByText('한국증권 54.4%');
     expect(top.getAttribute('title')).toBe('한국증권 54.4%');

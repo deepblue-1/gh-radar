@@ -123,6 +123,9 @@ async function assertKpiListAndExpand(page: Page): Promise<void> {
   // 첫 행 기본 펼침 — 사건 카드가 그 행 바로 아래.
   const dukwooRow = page.getByRole('button', { name: '덕우전자 263600 — 사건 카드' });
   const axionRow = page.getByRole('button', { name: '엑시온그룹 069920 — 사건 카드' });
+  // 잠김 최대 잔량 = q_max 사실 최대 — 픽스처 summary q_max_krw(하루 최대 36.0억 · 22.8억 · 단일가 포함)가 아니다(quick-261005-x9o).
+  await expect(dukwooRow).toHaveAccessibleDescription(/잠김 최대 27\.6억/);
+  await expect(axionRow).toHaveAccessibleDescription(/잠김 최대 6\.9억/);
   await expect(dukwooRow).toHaveAttribute('aria-expanded', 'true');
   await expect(dukwooRow).toHaveAttribute('aria-controls', `ev-${DUKWOO}`);
   await expect(axionRow).toHaveAttribute('aria-expanded', 'false');
@@ -196,6 +199,13 @@ test.describe('Phase 28 Plan 13 — 상한가 보고서 (로컬 relay)', () => {
 
     // (d)(e) — 끝에 덕우전자가 다시 열려 있다.
     await assertKpiListAndExpand(page);
+
+    // (d') 열 머리 「잠김 최대 잔량」 이 자기 열 안에 들어간다(nowrap 넘침 0 — quick-261005-x9o).
+    const lockMaxHead = page
+      .locator('[data-slot="limitup-day-grid"] div[aria-hidden="true"] > span')
+      .filter({ hasText: /^잠김 최대 잔량$/ });
+    await expect(lockMaxHead).toHaveCount(1);
+    expect(await lockMaxHead.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
 
     // (f) 그 카드의 레인 2 SVG(gzip 해제) · grid-urls 는 그 날짜 1회 · 격자 파일은 연 행만(형지글로벌 없음 · 같은 격자 두 번 안 받음).
     const lockSvg = cardOf(page, DUKWOO).getByRole('img', { name: /^덕우전자 잠김 구간 잔량 — 최대 27\.5억 09:06:02, 깨짐 09:06:12$/ });
