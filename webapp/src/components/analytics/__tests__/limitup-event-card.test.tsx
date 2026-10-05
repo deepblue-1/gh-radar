@@ -4,11 +4,11 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 /**
  * Phase 28 Plan 13 Task 2 — 사건 카드 (UI-SPEC ④-4 · D-11 · D-12 · E8).
  *
- * 잠그는 것: `section#ev-{isin}` + aria-labelledby → h3(tabIndex -1) · 머리 「{코드} · 상한가 {N}」 · 잠김 태그(깨짐 up · 유지
- * down · +N title) · 결과 태그 1개(잠김 없음) · 사실 문장 순서 · 출처 배지 글자 그대로 · 창구 막대(매수 up · 매도 down ·
- * 깨진 잠김 없으면 매도 묶음 없음) · 빈 문구 · 격자 지연 로드(IntersectionObserver) · 로딩/에러/다시 시도 ·
+ * 잠그는 것: `section#ev-{isin}` + aria-labelledby → 리스트 행 버튼(quick-261005-vk1 D-03 — 외피 · h3 없음) · 사실 문장 순서 ·
+ * 출처 배지 글자 그대로 · 창구 막대(매수 up · 매도 down · 깨진 잠김 없으면 매도 묶음 없음) · 빈 문구 · 마운트 즉시 격자 로드 ·
+ * 로딩/에러/다시 시도 ·
  * **색 감사**(SVG stroke/fill 허용 집합 · 오버레이 마커 색 · 초록 상태 토큰 0 · SVG 안 글자 요소 0).
- * 입력 = 실 export 20261002(덕우전자 깨짐 · 엑시온그룹 유지 · 형지글로벌 미도달) + 실 격자 gzip.
+ * 입력 = 실 export 20261002(덕우전자 깨짐 · 엑시온그룹 유지 · 형지글로벌 미도달 = 목록 밖) + 실 격자 gzip.
  */
 
 const urlsMock = vi.fn();
@@ -20,7 +20,7 @@ import type { LimitupFactRow } from '@gh-radar/shared';
 
 import { dayRowsOf } from '@/lib/limitup-report';
 import { __resetLimitupGridCache } from '@/lib/use-limitup-grid';
-import { dayOf, lockRow } from '@/test-fixtures/limitup-report';
+import { dayOf } from '@/test-fixtures/limitup-report';
 import {
   AXION,
   DUKWOO,
@@ -81,50 +81,36 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('LimitupEventCard — 머리 · 태그', () => {
-  it('section#ev-{isin} · aria-labelledby → h3(종목명 · tabIndex -1) · 「{코드} · 상한가 {N}」 · 깨짐 태그 up', async () => {
+describe('LimitupEventCard — 외피(리스트 행 아래 펼침)', () => {
+  it('section#ev-{isin} · aria-labelledby = 리스트 행 버튼 → region 이름 · 머리(h3) · 카드 외피 없음', async () => {
     urlsOk();
-    renderCard(DUKWOO);
+    render(
+      <>
+        <button type="button" id={`limitup-row-${DUKWOO}`}>
+          덕우전자 263600 — 사건 카드
+        </button>
+        <LimitupEventCard
+          date={D}
+          row={rowOf(DUKWOO)}
+          labelledBy={`limitup-row-${DUKWOO}`}
+          entry={entries.find((e) => e.isin === DUKWOO) ?? null}
+          facts={facts.filter((f) => f.isin === DUKWOO)}
+          marks={marks.filter((m) => m.isin === DUKWOO)}
+        />
+      </>,
+    );
     const sec = card(DUKWOO);
     expect(sec.tagName).toBe('SECTION');
-    const h3 = sec.querySelector('h3')!;
-    expect(h3.textContent).toBe('덕우전자');
-    expect(h3.getAttribute('tabindex')).toBe('-1');
-    expect(sec.getAttribute('aria-labelledby')).toBe(h3.id);
-    expect(screen.getByRole('region', { name: '덕우전자' })).toBe(sec);
-    expect(within(sec).getByText('263600 · 상한가 5,730')).toBeTruthy();
-    const tag = within(sec).getByText('잠김 ① · 10초 뒤 깨짐');
-    expect(tag.getAttribute('data-tone')).toBe('up');
-    expect(tag.className).toContain('bg-[var(--up-bg)]');
-    expect(tag.className).toContain('text-[var(--up)]');
+    expect(sec.getAttribute('aria-labelledby')).toBe(`limitup-row-${DUKWOO}`);
+    expect(screen.getByRole('region', { name: '덕우전자 263600 — 사건 카드' })).toBe(sec);
+    expect(sec.querySelector('h3')).toBeNull();
+    expect(sec.className).not.toContain('bg-[var(--card)]');
     await waitFor(() => expect(sec.querySelectorAll('svg').length).toBe(2));
   });
 
-  it('유지 태그 down · 잠김 없음 → 결과 태그 1개(「미도달」) + 「잠김 구간이 없어요」', async () => {
-    urlsOk();
-    renderCard(AXION);
-    const tag = within(card(AXION)).getByText('잠김 ② · 종가 유지');
-    expect(tag.className).toContain('bg-[var(--down-bg)]');
-    renderCard(HYUNGJI);
-    const h = card(HYUNGJI);
-    expect(within(h).getByText('미도달').className).toContain('bg-[var(--muted)]');
-    expect(h.querySelectorAll('[data-slot="limitup-lock-tags"] > span')).toHaveLength(1);
-    expect(within(h).getByText('잠김 구간이 없어요')).toBeTruthy();
-    await waitFor(() => expect(h.querySelectorAll('svg').length).toBe(1)); // 레인 1 만
-  });
-
-  it('잠김 7개 이상 → 6개 + 「+N」(title 에 나머지)', () => {
-    urlsMock.mockReturnValue(new Promise(() => {}));
-    const many = Array.from({ length: 8 }, (_, i) =>
-      lockRow({ isin: 'KR7000009999', lock_id: i + 1, broke: true, dur_s: 30, start_ms: 1, end_ms: 2 }),
-    );
-    const row = { ...rowOf(DUKWOO), isin: 'KR7000009999', locks: many };
-    render(<LimitupEventCard date={D} row={row} entry={null} facts={[]} marks={[]} />);
-    const sec = card('KR7000009999');
-    const tags = sec.querySelectorAll('[data-slot="limitup-lock-tags"] > span');
-    expect(tags).toHaveLength(7);
-    const more = within(sec).getByText('+2');
-    expect(more.getAttribute('title')).toBe('잠김 ⑦ · 30초 뒤 깨짐 · 잠김 ⑧ · 30초 뒤 깨짐');
+  it('미도달 종목은 목록 행이 없다(사건 카드 대상 아님)', () => {
+    expect(rows.map((r) => r.isin)).toEqual([DUKWOO, AXION]);
+    expect(rows.some((r) => r.isin === HYUNGJI)).toBe(false);
   });
 });
 
@@ -176,27 +162,11 @@ describe('LimitupEventCard — 사실 문장 · 창구 비중', () => {
 });
 
 describe('LimitupEventCard — 격자 지연 로드 · 레인', () => {
-  it('화면 근처에 오기 전엔 요청 0 → IntersectionObserver 가 알리면 grid-urls → 격자', async () => {
-    let fire: ((e: { isIntersecting: boolean }[]) => void) | null = null;
-    let opts: IntersectionObserverInit | undefined;
-    class IO {
-      constructor(cb: (e: { isIntersecting: boolean }[]) => void, o?: IntersectionObserverInit) {
-        fire = cb;
-        opts = o;
-      }
-      observe() {}
-      disconnect() {}
-      unobserve() {}
-    }
-    vi.stubGlobal('IntersectionObserver', IO);
+  it('열리면(마운트) 바로 grid-urls → 격자 — 화면 근처 지연 로드 없음', async () => {
     urlsOk();
     renderCard(DUKWOO);
-    expect(opts?.rootMargin).toBe('400px 0px');
-    expect(urlsMock).not.toHaveBeenCalled();
-    expect(card(DUKWOO).querySelectorAll('[data-slot="limitup-lane-slot"][data-state="loading"]')).toHaveLength(2);
-    act(() => fire!([{ isIntersecting: true }]));
-    await waitFor(() => expect(card(DUKWOO).querySelectorAll('svg')).toHaveLength(2));
     expect(urlsMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(card(DUKWOO).querySelectorAll('svg')).toHaveLength(2));
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

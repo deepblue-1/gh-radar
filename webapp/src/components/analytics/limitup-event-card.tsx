@@ -1,21 +1,19 @@
 'use client';
 
-import { useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
+import { useMemo } from 'react';
 
-import { formatGroup, type LimitupDate, type LimitupEntryRow, type LimitupFactRow, type LimitupMarkRow } from '@gh-radar/shared';
+import type { LimitupDate, LimitupEntryRow, LimitupFactRow, LimitupMarkRow } from '@gh-radar/shared';
 
-import { CARD } from '@/components/layout/page-layout';
 import {
   entryWindowOf,
   factsSorted,
   laneEntryOf,
   laneLockOf,
-  lockTagsOf,
   lockWindowOf,
   memberBarsOf,
   type MemberBar,
 } from '@/lib/limitup-lanes';
-import type { LimitupDayRow, LimitupResultTag } from '@/lib/limitup-report';
+import type { LimitupDayRow } from '@/lib/limitup-report';
 import { useLimitupGrid } from '@/lib/use-limitup-grid';
 import { cn } from '@/lib/utils';
 
@@ -24,27 +22,17 @@ import { LimitupLane } from './limitup-lane';
 /**
  * 사건 카드 — 종목마다 1장 (UI-SPEC ④-4 · D-11 · D-12 · gh-trade D-20 「A 사건 카드」).
  *
- * - `<section id="ev-{isin}" aria-labelledby>` · 머리 = 종목명 `h3`(`tabIndex={-1}` — 하루 격자 행을 누르면
- *   `scrollToEventCard` 가 이 h3 로 포커스를 옮긴다) + 「{코드} · 상한가 {N}」 + 잠김 태그(6개 넘으면 「+N」 · title).
- *   잠김이 없으면 결과 태그 1개(「잠김 없음」/「미도달」).
+ * - 종목 리스트(`LimitupDayGrid`)가 열린 행 바로 아래에 이 카드를 그린다(quick-261005-vk1 D-03 — 한 번에 하나).
+ *   `<section id="ev-{isin}" aria-labelledby={행 버튼 id}>` — 외피(CARD) · 종목 머리는 리스트 행이 대신한다.
  * - 배치: < xl 한 열(레인 → 사실 문장 → 창구 비중) · xl 두 열 `2fr 1fr` · 간격 24px.
- * - 격자 파일은 카드가 화면 가까이 올 때(IntersectionObserver · rootMargin 400px · 스크롤 조상이 있으면 그 조상 기준)
- *   `useLimitupGrid` 로 받는다. 로딩 = 높이를 지킨 빈 면 + 「불러오는 중…」 · 실패 = 「곡선을 불러오지 못했어요」 +
- *   「다시 시도」. 사실 문장 · 창구 막대는 보고서 응답(서버 집계)이라 격자와 무관하게 그대로 보인다.
+ * - 카드는 열렸을 때만 마운트되므로 격자 파일을 바로 받는다(`useLimitupGrid`). 로딩 = 높이를 지킨 빈 면 + 「불러오는 중…」 ·
+ *   실패 = 「곡선을 불러오지 못했어요」 + 「다시 시도」. 사실 문장 · 창구 막대는 보고서 응답(서버 집계)이라 격자와 무관하게 보인다.
  * - 사실 문장은 `facts.text` 그대로(재조립 없음) · 출처 배지 = `facts.source` 글자 그대로.
  */
 
 const ENTRY_H = 160;
 const LOCK_H = 120;
 
-const RESULT_TONE: Record<LimitupResultTag, string> = {
-  깨짐: 'bg-[var(--up-bg)] text-[var(--up)]',
-  유지: 'bg-[var(--down-bg)] text-[var(--down)]',
-  '잠김 없음': 'bg-[var(--muted)] text-[var(--muted-fg)]',
-  미도달: 'bg-[var(--muted)] text-[var(--muted-fg)]',
-};
-
-const TAG = 'inline-flex h-5 items-center rounded-full px-2 text-[11px] font-semibold whitespace-nowrap';
 const CAPTION = 'text-[length:var(--t-caption)] text-[var(--muted-fg)]';
 const FAINT = 'text-[length:var(--t-caption)] text-[var(--faint)]';
 const SUBHEAD = 'text-[length:var(--t-sm)] font-semibold text-[var(--fg)]';
@@ -58,41 +46,6 @@ function SourceBadge({ children }: { children: string }) {
       {children}
     </span>
   );
-}
-
-/** 스크롤 조상(실제로 넘치는 overflow auto/scroll) — 없으면 null(뷰포트). */
-function scrollRootOf(el: HTMLElement): HTMLElement | null {
-  for (let p = el.parentElement; p; p = p.parentElement) {
-    const oy = getComputedStyle(p).overflowY;
-    if ((oy === 'auto' || oy === 'scroll') && p.scrollHeight > p.clientHeight + 1) return p;
-  }
-  return null;
-}
-
-/** 카드가 화면 근처(400px)에 한 번이라도 오면 true — 그 뒤로는 계속 true. IntersectionObserver 가 없으면 바로 true. */
-function useNear(ref: RefObject<HTMLElement | null>): boolean {
-  const [near, setNear] = useState(false);
-  useEffect(() => {
-    if (near) return;
-    const el = ref.current;
-    if (!el) return;
-    if (typeof IntersectionObserver === 'undefined') {
-      setNear(true);
-      return;
-    }
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          setNear(true);
-          io.disconnect();
-        }
-      },
-      { root: scrollRootOf(el), rootMargin: '400px 0px' },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [near, ref]);
-  return near;
 }
 
 function LaneSlot({
@@ -161,24 +114,23 @@ function Bars({ bars, tone }: { bars: readonly MemberBar[]; tone: 'up' | 'down' 
 export function LimitupEventCard({
   date,
   row,
+  labelledBy,
   entry,
   facts,
   marks,
 }: {
   date: LimitupDate;
   row: LimitupDayRow;
+  /** 이 카드를 연 리스트 행 버튼 id — 카드 영역의 접근 이름. */
+  labelledBy?: string;
   entry: LimitupEntryRow | null;
   facts: readonly LimitupFactRow[];
   marks: readonly LimitupMarkRow[];
 }) {
-  const ref = useRef<HTMLElement>(null);
-  const headingId = useId();
-  const near = useNear(ref);
-  const grid = useLimitupGrid({ date, isin: row.isin, enabled: near });
+  // 카드는 리스트 행이 열렸을 때만 마운트된다 — 격자 파일은 바로 받는다.
+  const grid = useLimitupGrid({ date, isin: row.isin, enabled: true });
 
   const locks = row.locks;
-  const upper = entry?.upper_px ?? locks.find((l) => l.upper_px != null)?.upper_px ?? null;
-  const tags = useMemo(() => (locks.length > 0 ? lockTagsOf(locks) : null), [locks]);
   const entryWin = useMemo(() => entryWindowOf(entry, locks), [entry, locks]);
   const lockWin = useMemo(() => lockWindowOf(locks), [locks]);
   const entryLane = useMemo(
@@ -196,62 +148,15 @@ export function LimitupEventCard({
   // 다시 시도는 첫 레인 자리에만(두 레인이 같은 격자 파일을 쓴다).
   const retryOnLock = entryWin === null;
 
-  const head = [row.code, upper != null ? `상한가 ${formatGroup(upper)}` : null].filter(Boolean).join(' · ');
-
   return (
     <section
-      ref={ref}
       id={`ev-${row.isin}`}
-      aria-labelledby={headingId}
+      aria-labelledby={labelledBy}
       data-slot="limitup-event-card"
       data-isin={row.isin}
-      className={cn(CARD, 'scroll-mt-[calc(4.5rem+var(--app-safe-top))] p-4')}
+      className="min-w-0 px-2 pt-1 pb-5"
     >
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <h3
-          id={headingId}
-          tabIndex={-1}
-          className="min-w-0 rounded-[4px] text-[length:var(--t-sm)] font-semibold break-keep text-[var(--fg)] focus:outline-none focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
-        >
-          {row.label}
-        </h3>
-        {head !== '' && <span className={cn(CAPTION, 'mono')}>{head}</span>}
-        <span data-slot="limitup-lock-tags" className="flex flex-wrap items-center gap-1">
-          {tags !== null ? (
-            <>
-              {tags.tags.map((t) => (
-                <span
-                  key={t.text}
-                  data-tone={t.tone}
-                  className={cn(
-                    TAG,
-                    t.tone === 'up' ? 'bg-[var(--up-bg)] text-[var(--up)]' : 'bg-[var(--down-bg)] text-[var(--down)]',
-                  )}
-                >
-                  {t.text}
-                </span>
-              ))}
-              {tags.more && (
-                <span
-                  data-slot="limitup-lock-more"
-                  title={tags.more.title}
-                  className={cn(TAG, 'bg-[var(--muted)] text-[var(--muted-fg)]')}
-                >
-                  {tags.more.text}
-                </span>
-              )}
-            </>
-          ) : (
-            row.tags.slice(0, 1).map((t) => (
-              <span key={t} data-tag={t} className={cn(TAG, RESULT_TONE[t])}>
-                {t}
-              </span>
-            ))
-          )}
-        </span>
-      </div>
-
-      <div className="mt-3 grid min-w-0 gap-6 xl:grid-cols-[2fr_1fr]">
+      <div className="grid min-w-0 gap-6 xl:grid-cols-[2fr_1fr]">
         {/* 왼쪽 — 레인 2개 */}
         <div className="flex min-w-0 flex-col gap-4">
           <div data-slot="limitup-lane-entry">

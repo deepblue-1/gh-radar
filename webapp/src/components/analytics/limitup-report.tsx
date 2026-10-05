@@ -17,11 +17,18 @@ import { DmaGate, useDmaGateReason, type DmaGateReason } from '@/components/trad
 import { Button } from '@/components/ui/button';
 import { ApiClientError } from '@/lib/api';
 import { fetchLimitupReport } from '@/lib/limitup-api';
-import { dateNavOf, dayRowsOf, fmtYmdShort, kpisOf, parseYmdParam } from '@/lib/limitup-report';
+import {
+  dateNavOf,
+  dayRowsOf,
+  excludedCaptionOf,
+  fmtYmdShort,
+  kpisOf,
+  parseYmdParam,
+} from '@/lib/limitup-report';
 import { cn } from '@/lib/utils';
 
 import { LimitupDateNav } from './limitup-date-nav';
-import { LimitupDayGrid } from './limitup-day-grid';
+import { LimitupDayGrid, rowButtonId } from './limitup-day-grid';
 import { LimitupEventCard } from './limitup-event-card';
 import { LimitupFingerprintTable } from './limitup-fingerprint-table';
 import { LimitupKpiStrip } from './limitup-kpi-strip';
@@ -30,7 +37,8 @@ import { LimitupYesterdayTable } from './limitup-yesterday-table';
 /**
  * 상한가 보고서 본문 (Phase 28 Plan 12 · 13 · UI-SPEC ④-0 ~ ④-6 · D-10 · D-11).
  *
- * 세로 순서(gh-trade D-20 고정): 머리 → KPI → 하루 격자 → 사건 카드(격자 행 순서대로 종목마다 1장) → 창구 지문표 → 어제 결과.
+ * 세로 순서(gh-trade D-20 · quick-261005-vk1 D-02/D-03): 머리 → KPI → (제외 한 줄) → 종목 리스트(행 아래 펼침 — 사건 카드는
+ *   열린 행 하나에만) → 창구 지문표 → 어제 결과. 제외 한 줄 = 상한가에 닿지 않은 종목이 있을 때만(`excludedCaptionOf`).
  *
  * ① URL 정본 = `?d=YYYYMMDD`. 쿼리 없음 = 최신 적재 날짜(URL 을 쓰지 않는다 — server 가 최신을 정한다).
  *   형식 오류 → `router.replace("/analytics/limitup")` 로 정본화(최신). 날짜 이동은 `router.push`(히스토리에 남는다 — 재량 행사).
@@ -109,6 +117,7 @@ export function LimitupReport() {
   const loaded = resp !== null && resp.loaded ? resp : null;
   const kpis = useMemo(() => (loaded ? kpisOf(loaded) : null), [loaded]);
   const rows = useMemo(() => (loaded ? dayRowsOf(loaded) : null), [loaded]);
+  const excluded = useMemo(() => (loaded ? excludedCaptionOf(loaded) : null), [loaded]);
   const byIsin = useMemo(() => (loaded ? groupDay(loaded.day) : null), [loaded]);
 
   const gateReason = gate ?? (phase.kind === 'gate' ? phase.reason : null);
@@ -163,19 +172,30 @@ export function LimitupReport() {
       {kpis !== null && rows !== null && (
         <>
           <LimitupKpiStrip kpis={kpis} />
-          <LimitupDayGrid rows={rows} />
-          {loaded !== null &&
-            byIsin !== null &&
-            rows.map((r) => (
-              <LimitupEventCard
-                key={`${loaded.date}-${r.isin}`}
-                date={loaded.date}
-                row={r}
-                entry={byIsin.entries.get(r.isin) ?? null}
-                facts={byIsin.facts.get(r.isin) ?? NONE_FACTS}
-                marks={byIsin.marks.get(r.isin) ?? NONE_MARKS}
-              />
-            ))}
+          {excluded !== null && (
+            <p
+              data-slot="limitup-excluded"
+              className="-mt-2 text-[length:var(--t-caption)] break-keep text-[var(--muted-fg)]"
+            >
+              {excluded}
+            </p>
+          )}
+          <LimitupDayGrid
+            key={loaded?.date ?? ''}
+            rows={rows}
+            renderDetail={(r) =>
+              loaded !== null && byIsin !== null ? (
+                <LimitupEventCard
+                  date={loaded.date}
+                  row={r}
+                  labelledBy={rowButtonId(r.isin)}
+                  entry={byIsin.entries.get(r.isin) ?? null}
+                  facts={byIsin.facts.get(r.isin) ?? NONE_FACTS}
+                  marks={byIsin.marks.get(r.isin) ?? NONE_MARKS}
+                />
+              ) : null
+            }
+          />
           {loaded !== null && <LimitupFingerprintTable rows={loaded.fingerprint} />}
           {loaded !== null && <LimitupYesterdayTable prev={loaded.prev} />}
         </>

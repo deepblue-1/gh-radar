@@ -3,19 +3,20 @@
  *
  * 화면과 떨어진 함수로 두어 숫자를 단위 테스트로 잠근다(`__tests__/limitup-report.test.ts`).
  *
- * ★ 같은 숫자 원칙(UI-SPEC P-5 「원천은 플래너가 확정」): KPI 라벨 · 표기는 UI-SPEC ④-2 표를 쓰고, **값 정의는 gh-trade
- *   보고서와 같게** 한다. 정본 = gh-trade `server/tools/analysis/tickana/report.py`:
- *   - `_section_b_grid` (444~480행) — KPI 5칸
- *       탐지 종목      = `len(_stocks(entries, locks))` = entries ∪ locks 종목 수
- *       잠김(3초↑)     = `len(locks)` 행 수
- *       종가까지 유지  = locks 를 isin 으로 묶은 첫 행의 `close_px == upper_px` 종목 수 / 잠김 있는 종목 수
- *       25%↑ 미도달    = entries `t25` 있음 ∧ `reached` 거짓(null = 거짓) 종목 수
- *       어제 D+1       = 이전 적재 날짜 locks `d1_ret` 중앙값(pandas median — 짝수 개는 가운데 둘 평균) · 건수
+ * ★ 같은 숫자 원칙(UI-SPEC P-5 「원천은 플래너가 확정」): 값 정의는 gh-trade 보고서와 같은 축을 쓴다. 정본 = gh-trade
+ *   `server/tools/analysis/tickana/report.py`:
  *   - `_stocks` (349~375행) — 행 순서 = (도달 먼저, 첫 상한 체결 시각 → 없으면 첫 잠김 시작 → 없으면 맨 뒤, isin)
- *   - `_result_tag` (386~395행) — 미도달 · 잠김 없음 · 종가 = 상한가면 유지 · 아니면 깨짐. 웹은 UI-SPEC ④-3 표대로
+ *   - `_result_tag` (386~395행) — 잠김 없음 · 종가 = 상한가면 유지 · 아니면 깨짐. 웹은 UI-SPEC ④-3 표대로
  *     「유지」 앞에 앞선 깨짐이 있으면 「깨짐」 을 하나 더 단다(판정 축은 같은 종가 규칙).
- *   - 행 메타 (495~510행) — 첫 잠김 시각 · 잠김 수 · 최대 잔량 · +60초 매도 · 진입 매수 창구
- *
+ *   - 어제 D+1 = 이전 적재 날짜 locks `d1_ret` 중앙값(pandas median — 짝수 개는 가운데 둘 평균) · 건수
+ * ★ 목록 = 첫 상한가 체결이 있는 종목만(quick-261005-vk1 D-02 · `isListedStock`). entry 가 있고 `first_upper_ms` 가
+ *   null 이면 「상한가 미도달」 이라 목록 · 사건 카드에서 빼고 KPI 아래 한 줄(`excludedCaptionOf`)로만 말한다. entry 가 없는
+ *   옛 잠김 행(27-07 이전 DB)은 잠김이 있으니 남는다. `stocksOf` 자체(gh-trade `_stocks` 동형)는 그대로 두고 소비처가 거른다.
+ * ★ KPI 4칸(D-02 — 스케치 011 채택안): 상한가 도달 = 목록 종목 수 · 종가까지 유지 = 목록 중 결과 태그에 「유지」 가 있는
+ *   종목 수 · 깨짐 = 목록 중 태그가 「깨짐」 하나뿐인 종목 수 · 어제 D+1(위). 옛 「탐지 종목 · 잠김(3초↑) · 25%↑ 미도달」 은 없다.
+ * ★ 행 「직전 1분 매수 1위」 는 사실 `member_entry_buy`(창 [anchor − 60s, anchor] — workers/limitup-sync derive.ts) 의
+ *   values 에서만 만든다(`entryBuyTopOf`). entries `entry_buy_member*`/`entry_buy_share*` 는 **다른 창**이라 「직전 1분」 이름을
+ *   달면 틀린 숫자가 된다(실 export 덕우전자 entries 1위 신한 89.6% vs 사실 한국증권 54.4%).
  * ★ 비율 단위 함정(RESEARCH Pitfall 10): export `d1_ret` · `close_ret` · `sell_share_60s` 는 **소수**다.
  *   `fmtRet` 은 퍼센트를 받으므로 × 100 해서 넣는다.
  */
@@ -27,6 +28,7 @@ import {
   type LimitupDate,
   type LimitupDay,
   type LimitupEntryRow,
+  type LimitupFactRow,
   type LimitupGridSummaryRow,
   type LimitupLockRow,
 } from '@gh-radar/shared';
@@ -130,15 +132,47 @@ export function stocksOf(day: Pick<LimitupDay, 'entries' | 'locks'>): LimitupSto
   });
 }
 
+/**
+ * 목록에 서는 종목인가(D-02) — entry 가 있으면 첫 상한가 체결(`first_upper_ms`)이 있어야 하고, entry 가 없는 옛 잠김 전용
+ * 행(27-07 이전 DB)은 잠김이 있으면 선다.
+ */
+export function isListedStock(s: Pick<LimitupStock, 'entry' | 'locks'>): boolean {
+  return s.entry !== null ? s.entry.first_upper_ms != null : s.locks.length > 0;
+}
+
+/** 종목 라벨 — 이름 → 코드 → isin(gh-trade `_label` 은 이름 → isin. 실데이터 20% 가 이름 · 코드 둘 다 null). */
+function labelOf(s: Pick<LimitupStock, 'name' | 'shortCode' | 'isin'>): string {
+  return nonEmpty(s.name) ? s.name : nonEmpty(s.shortCode) ? s.shortCode : s.isin;
+}
+
+/** 제외 캡션에 이름을 늘어놓는 최대 개수 — 넘치면 「 외 N」. */
+const EXCLUDED_NAMES_MAX = 5;
+
+/**
+ * 「상한가에 닿지 않은 N종목(이름 · 이름 …)은 목록에서 뺐어요」 — 제외가 없으면 null(줄 자체가 없다).
+ * 이름은 `stocksOf` 순서 그대로 최대 5개, 넘치면 뒤에 「 외 {나머지}」.
+ */
+export function excludedCaptionOf(report: { day: Pick<LimitupDay, 'entries' | 'locks'> }): string | null {
+  const names = stocksOf(report.day)
+    .filter((s) => !isListedStock(s))
+    .map(labelOf);
+  if (names.length === 0) return null;
+  const shown = names.slice(0, EXCLUDED_NAMES_MAX).join(' · ');
+  const rest = names.length - EXCLUDED_NAMES_MAX;
+  return `상한가에 닿지 않은 ${formatGroup(names.length)}종목(${shown}${rest > 0 ? ` 외 ${formatGroup(rest)}` : ''})은 목록에서 뺐어요`;
+}
+
 // ---------------------------------------------------------------------------
-// KPI (gh-trade `_section_b_grid`)
+// KPI 4칸 (D-02)
 // ---------------------------------------------------------------------------
 
 export interface LimitupKpis {
-  detected: string;
-  locks: string;
+  /** 상한가 도달 — 목록 종목 수. */
+  reached: string;
+  /** 종가까지 유지 — 목록 중 결과 태그에 「유지」 가 있는 종목 수. */
   held: string;
-  missed25: string;
+  /** 깨짐 — 목록 중 결과 태그가 「깨짐」 하나뿐인 종목 수. */
+  broke: string;
   /** 어제 D+1 중앙값 「+0.9%」 · 없으면 「—」. 색 없음. */
   d1: string;
   /** 「중앙값 · N건」 — 값이 없으면 null(타일 `title` 생략). */
@@ -153,32 +187,30 @@ function median(values: number[]): number | null {
   return s.length % 2 === 1 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
 }
 
+/**
+ * KPI 4칸. 종가까지 유지 = 종가 = 상한가(앞선 깨짐 뒤 재잠김 포함) · 깨짐 = 잠김이 있고 종가 ≠ 상한가.
+ * 잠김 없음 종목(첫 상한가 체결은 있으나 3초 잠김이 없던 종목)은 유지 · 깨짐 어디에도 들지 않는다.
+ */
 export function kpisOf(report: {
   day: Pick<LimitupDay, 'entries' | 'locks'>;
   prev: { date: LimitupDate; locks: LimitupLockRow[] } | null;
 }): LimitupKpis {
-  const { entries, locks } = report.day;
-
-  // locks 를 isin 으로 묶은 첫 행(RPC 정렬 = (isin, lock_id)) — gh-trade `groupby("isin").first()` 와 같다.
-  const firstByIsin = new Map<string, LimitupLockRow>();
-  for (const lk of [...locks].sort((a, b) => a.lock_id - b.lock_id)) {
-    if (!firstByIsin.has(lk.isin)) firstByIsin.set(lk.isin, lk);
+  const listed = stocksOf(report.day).filter(isListedStock);
+  let held = 0;
+  let broke = 0;
+  for (const s of listed) {
+    const tags = resultTagsOf(s);
+    if (tags.includes('유지')) held += 1;
+    else if (tags.length === 1 && tags[0] === '깨짐') broke += 1;
   }
-  const nLocked = firstByIsin.size;
-  let nClose = 0;
-  for (const lk of firstByIsin.values()) {
-    if (lk.close_px != null && lk.upper_px != null && lk.close_px === lk.upper_px) nClose += 1;
-  }
-  const nMiss = entries.filter((e) => e.t25_ms != null && e.reached !== true).length;
 
   const d1s = (report.prev?.locks ?? []).map((l) => l.d1_ret).filter((v): v is number => v != null);
   const d1 = median(d1s);
 
   return {
-    detected: formatGroup(stocksOf(report.day).length),
-    locks: formatGroup(locks.length),
-    held: `${formatGroup(nClose)} / ${formatGroup(nLocked)}`,
-    missed25: formatGroup(nMiss),
+    reached: formatGroup(listed.length),
+    held: formatGroup(held),
+    broke: formatGroup(broke),
     d1: d1 == null ? DASH : fmtRet(d1 * 100),
     d1Title: d1 == null ? null : `중앙값 · ${formatGroup(d1s.length)}건`,
   };
@@ -188,12 +220,10 @@ export function kpisOf(report: {
 // 결과 태그 (UI-SPEC ④-3 · gh-trade `_result_tag` 종가 규칙)
 // ---------------------------------------------------------------------------
 
-export type LimitupResultTag = '깨짐' | '유지' | '잠김 없음' | '미도달';
+/** 목록 종목은 첫 상한가 체결이 있으므로 「미도달」 은 나오지 않는다(D-02). */
+export type LimitupResultTag = '깨짐' | '유지' | '잠김 없음';
 
-export function resultTagsOf(
-  stock: Pick<LimitupStock, 'reached' | 'locks' | 'closePx' | 'upperPx'>,
-): LimitupResultTag[] {
-  if (!stock.reached) return ['미도달'];
+export function resultTagsOf(stock: Pick<LimitupStock, 'locks' | 'closePx' | 'upperPx'>): LimitupResultTag[] {
   if (stock.locks.length === 0) return ['잠김 없음'];
   const { closePx, upperPx } = stock;
   if (closePx != null && upperPx != null && Math.trunc(closePx) === Math.trunc(upperPx)) {
@@ -203,49 +233,89 @@ export function resultTagsOf(
 }
 
 // ---------------------------------------------------------------------------
-// 하루 격자 행
+// 직전 1분 매수 1위 (사실 member_entry_buy)
+// ---------------------------------------------------------------------------
+
+export interface EntryBuyTop {
+  name: string;
+  /** 비중 % (사실 values `s1` 그대로 — 소수 1자리 퍼센트). */
+  pct: number;
+  /** 「한국증권 54.4%」. */
+  label: string;
+}
+
+/**
+ * 상한가 직전 1분 매수 1위 — event 0 `member_entry_buy` 사실의 `m1_code`(회원사명) · 없으면 `m1` 문자열 + `s1`.
+ * `s1` 이 유한 숫자가 아니면(「—」) null. 창 = [anchor − 60s, anchor](entries `entry_buy_*` 와 다른 창 — 머리 주석).
+ */
+export function entryBuyTopOf(facts: readonly LimitupFactRow[]): EntryBuyTop | null {
+  const f = facts.find((x) => x.event_no === 0 && x.template_id === 'member_entry_buy');
+  const v = f?.values;
+  if (!v) return null;
+  const s1 = v.s1;
+  if (typeof s1 !== 'number' || !Number.isFinite(s1)) return null;
+  const code = v.m1_code;
+  const raw = v.m1;
+  const byCode = typeof code === 'string' && code !== '' ? memberName(code) : '';
+  const name = byCode !== '' ? byCode : typeof raw === 'string' && raw !== '' ? raw : null;
+  if (name === null) return null;
+  return { name, pct: s1, label: `${name} ${s1.toFixed(1)}%` };
+}
+
+// ---------------------------------------------------------------------------
+// 종목 리스트 행 (D-03)
 // ---------------------------------------------------------------------------
 
 export interface LimitupDayRow {
   isin: string;
-  /** 종목 라벨 — 이름 → 코드 → isin(gh-trade `_label` 은 이름 → isin. 실데이터 20% 가 이름 · 코드 둘 다 null). */
+  /** 종목 라벨 — 이름 → 코드 → isin. */
   label: string;
   code: string | null;
+  /** 「5,730원」 — 상한가를 모르면 null. */
+  upper: string | null;
   tags: LimitupResultTag[];
-  firstLock: string;
-  lockCount: string;
+  /** 첫 상한가 체결 「HH:MM:SS」 · 없으면 첫 잠김 시작 · 둘 다 없으면 「—」. */
+  firstUpper: string;
   maxQ: string;
   sell60: string;
-  members: string;
+  /** 상한가 직전 1분 매수 1위 「한국증권 54.4%」 · 사실 없으면 「—」. */
+  entryTop: string;
   summary: LimitupGridSummaryRow | null;
   locks: LimitupLockRow[];
 }
 
+/** 목록 종목만(D-02) · 첫 상한가 시각 순(`stocksOf` 정렬 그대로). */
 export function dayRowsOf(report: { day: LimitupDay }): LimitupDayRow[] {
   const summaries = new Map(report.day.summaries.map((s) => [s.isin, s]));
-  return stocksOf(report.day).map((s) => {
-    const summary = summaries.get(s.isin) ?? null;
-    const starts = s.locks.map((l) => l.start_ms).filter((v): v is number => v != null);
-    const sell = summary?.sell_share_60s;
-    const members = [s.entry?.entry_buy_member1, s.entry?.entry_buy_member2]
-      .filter(nonEmpty)
-      .map((m) => memberName(m))
-      .filter((n) => n !== '');
-    return {
-      isin: s.isin,
-      label: nonEmpty(s.name) ? s.name : nonEmpty(s.shortCode) ? s.shortCode : s.isin,
-      code: nonEmpty(s.shortCode) ? s.shortCode : null,
-      tags: resultTagsOf(s),
-      firstLock: starts.length > 0 ? kstClock(Math.min(...starts)) : DASH,
-      lockCount: formatGroup(s.locks.length),
-      maxQ: summary?.q_max_krw != null ? formatEok(summary.q_max_krw) : DASH,
-      // 정수 % 표시만 — 0.5 는 위로(Math.round).
-      sell60: sell != null ? `${Math.round(sell * 100)}%` : DASH,
-      members: members.length > 0 ? members.join(' · ') : DASH,
-      summary,
-      locks: s.locks,
-    };
-  });
+  const factsBy = new Map<string, LimitupFactRow[]>();
+  for (const f of report.day.facts) {
+    const list = factsBy.get(f.isin);
+    if (list) list.push(f);
+    else factsBy.set(f.isin, [f]);
+  }
+  return stocksOf(report.day)
+    .filter(isListedStock)
+    .map((s) => {
+      const summary = summaries.get(s.isin) ?? null;
+      const starts = s.locks.map((l) => l.start_ms).filter((v): v is number => v != null);
+      const fu = s.entry?.first_upper_ms ?? (starts.length > 0 ? Math.min(...starts) : null);
+      const sell = summary?.sell_share_60s;
+      const top = entryBuyTopOf(factsBy.get(s.isin) ?? []);
+      return {
+        isin: s.isin,
+        label: labelOf(s),
+        code: nonEmpty(s.shortCode) ? s.shortCode : null,
+        upper: s.upperPx != null ? `${formatGroup(s.upperPx)}원` : null,
+        tags: resultTagsOf(s),
+        firstUpper: fu != null ? kstClock(fu) : DASH,
+        maxQ: summary?.q_max_krw != null ? formatEok(summary.q_max_krw) : DASH,
+        // 정수 % 표시만 — 0.5 는 위로(Math.round).
+        sell60: sell != null ? `${Math.round(sell * 100)}%` : DASH,
+        entryTop: top !== null ? top.label : DASH,
+        summary,
+        locks: s.locks,
+      };
+    });
 }
 
 // ---------------------------------------------------------------------------

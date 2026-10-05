@@ -8,7 +8,7 @@ import type { LimitupReportResponse } from '@gh-radar/shared';
  *
  * 잠그는 것: 머리 + 날짜 알약(로딩 중에도) · 「불러오는 중…」 · 에러 + 다시 시도 → 재호출 · 401/403/useDmaGateReason → DmaGate
  * 「상한가 보고서」 · 적재 이력 0(‹ › disabled) · 없는 날짜 + 「최신 보고서 보기」 · 탐지 0 · 형식 오류 `?d` → replace ·
- * ‹ › → push(`?d=`) · 문서 제목 · KPI · 격자 행.
+ * ‹ › → push(`?d=`) · 문서 제목 · KPI 4칸(quick-261005-vk1 D-02) · 제외 한 줄 유무 · 리스트 행 · 첫 행 아래 사건 카드(D-03).
  */
 
 const replaceMock = vi.fn();
@@ -136,15 +136,33 @@ describe('LimitupReport', () => {
     expect(pushMock).toHaveBeenLastCalledWith('/analytics/limitup?d=20261001');
   });
 
-  it('탐지 0 인 날 → KPI 「0」 · 「0 / 0」 · 격자 빈 상태 「이 날은 상한가 사건이 없어요」', async () => {
+  it('목록 0 인 날 → KPI 4칸 「0」 · 제외 한 줄 없음 · 리스트 빈 상태 「이 날은 상한가 사건이 없어요」', async () => {
     await open('d=20261002', loadedReport({}));
     const kpi = (label: string) => document.querySelector(`[data-kpi="${label}"] dd`)!.textContent;
-    expect(kpi('탐지 종목')).toBe('0');
-    expect(kpi('잠김(3초↑)')).toBe('0');
-    expect(kpi('종가까지 유지')).toBe('0 / 0');
-    expect(kpi('25%↑ 미도달')).toBe('0');
+    expect([...document.querySelectorAll('[data-kpi]')].map((e) => e.getAttribute('data-kpi'))).toEqual([
+      '상한가 도달',
+      '종가까지 유지',
+      '깨짐',
+      '어제 D+1',
+    ]);
+    expect(kpi('상한가 도달')).toBe('0');
+    expect(kpi('종가까지 유지')).toBe('0');
+    expect(kpi('깨짐')).toBe('0');
     expect(kpi('어제 D+1')).toBe('—');
+    expect(document.querySelector('[data-slot="limitup-excluded"]')).toBeNull();
     expect(screen.getByText('이 날은 상한가 사건이 없어요')).toBeTruthy();
+  });
+
+  it('미도달만 있는 날 → 제외 한 줄 · 리스트 빈 상태 · 사건 카드 0', async () => {
+    await open(
+      'd=20261002',
+      loadedReport({ day: { entries: [entryRow({ isin: 'KR7000009001', name: '미도달주', reached: false })] } }),
+    );
+    expect(document.querySelector('[data-slot="limitup-excluded"]')!.textContent).toBe(
+      '상한가에 닿지 않은 1종목(미도달주)은 목록에서 뺐어요',
+    );
+    expect(screen.getByText('상한가에 닿은 종목이 없는 날이에요. ‹ 로 이전 보고서를 볼 수 있어요')).toBeTruthy();
+    expect(document.querySelectorAll('[data-slot="limitup-event-card"]')).toHaveLength(0);
   });
 
   it('형식 오류 ?d → router.replace("/analytics/limitup") · 최신으로 조회', async () => {
@@ -163,7 +181,7 @@ describe('LimitupReport', () => {
     expect(pushMock).toHaveBeenCalledWith('/analytics/limitup?d=20261001');
   });
 
-  it('정상 — KPI 값 · 어제 D+1 title · 격자 행 · 문서 제목 · 1120 폭 래퍼', async () => {
+  it('정상 — KPI 값 · 어제 D+1 title · 리스트 행 · 첫 행 아래 사건 카드 · 문서 제목 · 1120 폭 래퍼', async () => {
     const D = '20261001';
     await open(
       'd=20261001',
@@ -189,11 +207,20 @@ describe('LimitupReport', () => {
       }),
     );
     expect(document.title).toBe('상한가 보고서 · 10/01');
-    expect(document.querySelector('[data-kpi="종가까지 유지"] dd')!.textContent).toBe('1 / 1');
+    expect(document.querySelector('[data-kpi="상한가 도달"] dd')!.textContent).toBe('1');
+    expect(document.querySelector('[data-kpi="종가까지 유지"] dd')!.textContent).toBe('1');
+    expect(document.querySelector('[data-kpi="깨짐"] dd')!.textContent).toBe('0');
     const d1 = document.querySelector<HTMLElement>('[data-kpi="어제 D+1"]')!;
     expect(d1.querySelector('dd')!.textContent).toBe('+3.1%');
     expect(d1.getAttribute('title')).toBe('중앙값 · 1건');
-    expect(screen.getByRole('button', { name: '알파 000010 — 사건 카드로 이동' })).toBeTruthy();
+    const rowBtn = screen.getByRole('button', { name: '알파 000010 — 사건 카드' });
+    expect(rowBtn.getAttribute('aria-expanded')).toBe('true');
+    // 첫 행 아래 사건 카드 — 행 버튼이 영역 이름 · 격자 뒤 별도 카드 묶음 없음
+    const card = document.getElementById('ev-KR7000001001')!;
+    expect(rowBtn.nextElementSibling).toBe(card);
+    expect(card.getAttribute('aria-labelledby')).toBe(rowBtn.id);
+    expect(document.querySelectorAll('[data-slot="limitup-event-card"]')).toHaveLength(1);
+    expect(document.querySelector('[data-slot="limitup-excluded"]')).toBeNull();
     expect(document.querySelector('[data-slot="limitup-report"]')!.className).toContain('max-w-[1120px]');
     expect(prevBtn().disabled).toBe(false);
     expect(nextBtn().disabled).toBe(false);

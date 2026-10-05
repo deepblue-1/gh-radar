@@ -21,10 +21,11 @@ import { withLocalRelay, type LocalRelay } from '../fixtures/relay';
  * Phase 28 Plan 13 Task 3 — P28-R1 상한가 보고서 한 장 (D-09 ~ D-12 · UI-SPEC ④ · 「검증 훅」 보고서 · 색 감사).
  *
  * ① 무엇을 증명하는가
- *   진짜 브라우저에서 사이드바 「분석」 → `/analytics/limitup` → 날짜 알약(‹ › · `?d` 정본화) → KPI · 하루 격자 → 행 클릭 →
- *   사건 카드 상단 + h3 포커스 → 격자 파일 지연 로드(서명 URL 목록 날짜당 1회 · gzip 바이트를 브라우저가
- *   `DecompressionStream` 으로 해제 → 레인 SVG) → 창구 지문표(관찰 중 · 더 보기) → 어제 결과(D+1 「—」) · 없는 날짜 CTA ·
- *   403 게이트가 한 줄로 이어진다. 단위(RTL)는 jsdom 이라 스크롤 · IntersectionObserver · 실 gzip 해제 · 라벨 겹침을 못 본다.
+ *   진짜 브라우저에서 사이드바 「분석」 → `/analytics/limitup` → 날짜 알약(‹ › · `?d` 정본화) → KPI 4칸 · 제외 한 줄 ·
+ *   종목 리스트(첫 행 기본 펼침 → 다른 행 그 자리 펼침 · 한 번에 하나 — quick-261005-vk1) → 연 행의 격자 파일만 로드(서명 URL
+ *   목록 날짜당 1회 · gzip 바이트를 브라우저가 `DecompressionStream` 으로 해제 → 레인 SVG) → 창구 지문표(관찰 중 · 더 보기) →
+ *   어제 결과(D+1 「—」) · 없는 날짜 CTA · 403 게이트가 한 줄로 이어진다. 단위(RTL)는 jsdom 이라 스크롤 · 실 gzip 해제 ·
+ *   라벨 겹침을 못 본다.
  *
  * ② 규약(fixtures/relay.ts ⑥): 파일 내부 직렬 · beforeAll 1회 relay(DMA 매핑 사용자 — 게이트 통과 · 사이드바 「분석」 노출) ·
  *   afterAll stop · beforeEach reset. 보고서 · 서명 URL · 격자 파일은 `page.route` 목이다(server · Storage 는 이 e2e 밖).
@@ -96,39 +97,54 @@ const kpi = (page: Page, label: string) => page.locator(`[data-kpi="${label}"] d
 const gridRows = (page: Page) => page.locator('[data-slot="limitup-grid-rows"] button[data-isin]');
 const cardOf = (page: Page, isin: string) => page.locator(`#ev-${isin}`);
 
-/** 폰 · 데스크톱 공통 (d)(e) — KPI · 격자 행 순서 · 결과 태그 · 행 클릭 → 카드 상단 + h3 포커스. */
-async function assertKpiGridAndJump(page: Page): Promise<void> {
-  await expect(kpi(page, '탐지 종목')).toHaveText('3', { timeout: 30_000 });
-  await expect(kpi(page, '잠김(3초↑)')).toHaveText('2');
-  await expect(kpi(page, '종가까지 유지')).toHaveText('1 / 2');
-  await expect(kpi(page, '25%↑ 미도달')).toHaveText('0');
+/**
+ * 폰 · 데스크톱 공통 (d)(e) — KPI 4칸 · 제외 한 줄 · 리스트 행 순서(미도달 없음) · 결과 태그 · 첫 행 기본 펼침 ·
+ * 다른 행 클릭 → 그 자리 펼침(한 번에 하나) · 재클릭 닫힘 (quick-261005-vk1 D-02 · D-03).
+ */
+async function assertKpiListAndExpand(page: Page): Promise<void> {
+  await expect(kpi(page, '상한가 도달')).toHaveText('2', { timeout: 30_000 });
+  await expect(kpi(page, '종가까지 유지')).toHaveText('1');
+  await expect(kpi(page, '깨짐')).toHaveText('1');
   await expect(kpi(page, '어제 D+1')).toHaveText('+2.5%');
+  await expect(page.locator('[data-kpi]')).toHaveCount(4);
+  await expect(page.locator('[data-slot="limitup-excluded"]')).toHaveText(
+    '상한가에 닿지 않은 1종목(형지글로벌)은 목록에서 뺐어요',
+  );
 
-  await expect(gridRows(page)).toHaveCount(3);
+  await expect(gridRows(page)).toHaveCount(2);
   expect(await gridRows(page).evaluateAll((els) => els.map((e) => e.getAttribute('data-isin')))).toEqual([
     DUKWOO,
     AXION,
-    HYUNGJI,
   ]);
   await expect(gridRows(page).nth(0).locator('[data-tag="깨짐"]')).toHaveCount(1);
   await expect(gridRows(page).nth(1).locator('[data-tag="유지"]')).toHaveCount(1);
-  await expect(gridRows(page).nth(2).locator('[data-tag="미도달"]')).toHaveCount(1);
+  await expect(page.locator(`[data-isin="${HYUNGJI}"]`)).toHaveCount(0);
 
-  // (e) 깨짐 종목 행 → 사건 카드가 뷰포트 상단 근처 · 포커스가 그 카드 h3.
-  await page.getByRole('button', { name: '덕우전자 263600 — 사건 카드로 이동' }).click();
-  await expect
-    .poll(async () => (await cardOf(page, DUKWOO).boundingBox())?.y ?? 9999, { timeout: 10_000 })
-    .toBeLessThan(80 + 72);
-  const top = (await cardOf(page, DUKWOO).boundingBox())!.y;
-  expect(top).toBeGreaterThan(-80);
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const a = document.activeElement;
-        return a ? `${a.tagName}|${a.closest('section')?.id ?? ''}` : '';
-      }),
-    )
-    .toBe(`H3|ev-${DUKWOO}`);
+  // 첫 행 기본 펼침 — 사건 카드가 그 행 바로 아래.
+  const dukwooRow = page.getByRole('button', { name: '덕우전자 263600 — 사건 카드' });
+  const axionRow = page.getByRole('button', { name: '엑시온그룹 069920 — 사건 카드' });
+  await expect(dukwooRow).toHaveAttribute('aria-expanded', 'true');
+  await expect(dukwooRow).toHaveAttribute('aria-controls', `ev-${DUKWOO}`);
+  await expect(axionRow).toHaveAttribute('aria-expanded', 'false');
+  await expect(cardOf(page, DUKWOO)).toBeVisible();
+  expect(
+    await dukwooRow.evaluate((b, id) => b.nextElementSibling?.id === id, `ev-${DUKWOO}`),
+  ).toBe(true);
+  await expect(page.locator('[data-slot="limitup-event-card"]')).toHaveCount(1);
+
+  // 다른 행 → 그 행만 열림(그 자리) · 같은 행 다시 → 전부 닫힘 · 첫 행 다시 열기.
+  await axionRow.click();
+  await expect(cardOf(page, AXION)).toBeVisible();
+  await expect(cardOf(page, DUKWOO)).toHaveCount(0);
+  await expect(axionRow).toHaveAttribute('aria-expanded', 'true');
+  expect(await axionRow.evaluate((b, id) => b.nextElementSibling?.id === id, `ev-${AXION}`)).toBe(true);
+  // 위쪽 카드가 접히며 머리 위로 밀려난 행은 되돌린다 — 연 행이 화면 안(앱 머리 아래)에 있다.
+  await expect.poll(async () => (await axionRow.boundingBox())?.y ?? -1, { timeout: 5_000 }).toBeGreaterThan(40);
+  await axionRow.click();
+  await expect(page.locator('[data-slot="limitup-event-card"]')).toHaveCount(0);
+  await dukwooRow.click();
+  await expect(cardOf(page, DUKWOO)).toBeVisible();
+  await expect(dukwooRow).toBeFocused();
 }
 
 test.describe('Phase 28 Plan 13 — 상한가 보고서 (로컬 relay)', () => {
@@ -178,23 +194,20 @@ test.describe('Phase 28 Plan 13 — 상한가 보고서 (로컬 relay)', () => {
     await expect(page).toHaveURL((u) => u.pathname === '/analytics/limitup' && u.search === '');
     await expect(pill(page)).toHaveText('10/02 (금)', { timeout: 30_000 });
 
-    // (d)(e)
-    await assertKpiGridAndJump(page);
+    // (d)(e) — 끝에 덕우전자가 다시 열려 있다.
+    await assertKpiListAndExpand(page);
 
-    // (f) 그 카드의 레인 2 SVG(gzip 해제) · grid-urls 는 그 날짜 1회 · 격자 파일은 화면 근처 카드 수만큼.
+    // (f) 그 카드의 레인 2 SVG(gzip 해제) · grid-urls 는 그 날짜 1회 · 격자 파일은 연 행만(형지글로벌 없음 · 같은 격자 두 번 안 받음).
     const lockSvg = cardOf(page, DUKWOO).getByRole('img', { name: /^덕우전자 잠김 전 구간 잔량 — 최대 27\.5억 09:06:02, 깨짐 09:06:12$/ });
     await expect(lockSvg).toBeVisible({ timeout: 15_000 });
     await expect(cardOf(page, DUKWOO).getByRole('img', { name: /^덕우전자 진입 10분 / })).toBeVisible();
     expect(rec.gridUrlDs.filter((d) => d === LIMITUP_LATEST)).toHaveLength(1);
-    const loadedCards = await page
-      .locator('[data-slot="limitup-event-card"]')
-      .evaluateAll((els) => els.filter((e) => e.querySelector('svg[role="img"]')).map((e) => e.getAttribute('data-isin')));
-    expect(loadedCards).toContain(DUKWOO);
     // 앞 문서(‹ 로 연 10/01)의 늦은 요청이 섞일 수 있어 이 문서의 날짜로 거른다.
     const hits = rec.gridHits.filter((h) => h.startsWith(`${LIMITUP_LATEST}/`)).map((h) => h.slice(9));
-    expect([...hits].sort()).toEqual([...loadedCards].sort());
-    expect(new Set(hits).size).toBe(hits.length); // 같은 격자를 두 번 받지 않는다
-    expect(hits.length).toBeLessThan(3); // 화면에서 먼 카드(형지글로벌)는 아직 받지 않았다
+    expect(hits.every((h) => h === DUKWOO || h === AXION)).toBe(true); // 연 행만
+    expect(hits).not.toContain(HYUNGJI);
+    expect(new Set(hits).size).toBe(hits.length); // 같은 격자를 두 번 받지 않는다(다시 연 덕우전자 포함)
+    expect(hits).toContain(DUKWOO);
 
     // 색 감사(UI-SPEC 검증 훅) — 보고서 SVG 의 stroke/fill 허용 집합 · 초록 상태 토큰 0 · SVG 안 글자 요소 0.
     const audit = await page.locator('[data-slot="limitup-report"]').evaluate((root) => {
@@ -236,7 +249,7 @@ test.describe('Phase 28 Plan 13 — 상한가 보고서 (로컬 relay)', () => {
     await expect(page.getByText('이 날 보고서가 아직 없어요')).toBeVisible({ timeout: 30_000 });
     await page.getByRole('button', { name: '최신 보고서 보기' }).click();
     await expect(page).toHaveURL((u) => u.searchParams.get('d') === LIMITUP_LATEST);
-    await expect(kpi(page, '탐지 종목')).toHaveText('3', { timeout: 30_000 });
+    await expect(kpi(page, '상한가 도달')).toHaveText('2', { timeout: 30_000 });
 
     // (j) server 403 DMA_UNMAPPED → DmaGate 「상한가 보고서」.
     rec.mode403 = true;
@@ -247,13 +260,13 @@ test.describe('Phase 28 Plan 13 — 상한가 보고서 (로컬 relay)', () => {
     expect(rec.reportDs.length).toBeGreaterThan(0);
   });
 
-  test('P28-R1b 폰 390 — 2단 카드형 격자 · 행 → 카드 · 레인 오버레이 글자 겹침 0 (E8 overflow backstop)', async ({
+  test('P28-R1b 폰 390 — 2단 카드형 리스트 · 행 아래 펼침 · 레인 오버레이 글자 겹침 0 (E8 overflow backstop)', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await installLimitupMocks(page);
     await page.goto('/analytics/limitup');
-    await assertKpiGridAndJump(page);
+    await assertKpiListAndExpand(page);
 
     const card = cardOf(page, DUKWOO);
     await expect(card.locator('svg[role="img"]')).toHaveCount(2, { timeout: 15_000 });
