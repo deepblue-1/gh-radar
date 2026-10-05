@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  STRATEGY_EVENT_KIND,
   STRATEGY_EVENT_PUBLIC_COLUMNS,
   compareStrategyEventAsc,
   isMarketStrategyEvent,
@@ -60,10 +61,11 @@ describe("strategy-event 계약 (Phase 25 · T-25-02)", () => {
     expect(row.snapQty).toEqual([1, 2]);
   });
 
-  it("isMarketStrategyEvent 는 kind 1 · 2 · 10 만 참 (9 는 예약 — 거짓)", () => {
-    expect([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 99].map(isMarketStrategyEvent)).toEqual([
-      false, true, true, false, false, false, false, false, false, false, true, false,
-    ]);
+  it("isMarketStrategyEvent 는 kind 1 · 2 · 10 · 15 만 참 (9 는 예약 · 11~14 자동매도 — 거짓)", () => {
+    const kinds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 99];
+    expect(kinds.filter(isMarketStrategyEvent)).toEqual([1, 2, 10, 15]);
+    expect(STRATEGY_EVENT_KIND.LimitFeature).toBe(15);
+    expect(isMarketStrategyEvent(STRATEGY_EVENT_KIND.LimitFeature)).toBe(true);
   });
 
   it("strategyEventKey = gateway|journalEpoch|seq · compareStrategyEventAsc 는 gwTimeMs → gateway → seq", () => {

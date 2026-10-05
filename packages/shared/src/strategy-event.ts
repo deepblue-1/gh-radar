@@ -9,7 +9,7 @@
  *   추가 포함)도 숫자 그대로 싣고, 표시명은 `strategy-event-labels.ts` 가 모르면 원문 숫자로 그린다(D-10).
  * - T-19-08 · T-25-02: 주문자(`dma_user_id`)는 **싣지 않는다** — 적재 입력에만 있고 적용 RPC 반환 rows ·
  *   `journal.events` 프레임 · 조회 RPC 어디에도 없다.
- * - 가시성: 주문 이벤트(kind 3~8)는 그 계좌 권한 사용자에게만, 시세 이벤트(kind 1·2·10)는 자격증명이 있는
+ * - 가시성: 주문 이벤트(kind 3~8)는 그 계좌 권한 사용자에게만, 시세 이벤트(kind 1·2·10·15)는 자격증명이 있는
  *   사용자 전원에게 간다. 판정은 **kind 로만** 한다(`isMarketStrategyEvent`) — 빈 계좌번호로 판정하면 형식
  *   이상 주문 이벤트가 전 사용자에게 샌다(RESEARCH Security).
  *
@@ -34,7 +34,6 @@ export const STRATEGY_EVENT_KIND = {
   /**
    * 11~14 — gh-trade Phase 28 자동매도(group 9 AutoSell · HANDOFF §4-1 v0.2 칸 재해석 · 전용 필드 없음).
    * 계좌 이벤트다(account_no 를 채워 온다 — 시세 판정에 넣지 않는다). 주문번호는 12 만 있다(원주문 번호).
-   * 15 LimitFeature(gh-trade Phase 27)는 Deferred — 키를 두지 않는다(오면 D-10 폴백 원문 숫자).
    */
   /** 발동 — price 발동가 · cond_threshold 시작조건 N(0~9) · cond_actual 실측 체결가 · queue_case 기준 종류 · bid1_price 기준가격 · cum T0 누적. */
   AutoSellTriggered: 11,
@@ -44,6 +43,17 @@ export const STRATEGY_EVENT_KIND = {
   AutoSellState: 13,
   /** 멈춤/재개 — cond_actual 1 VI · 2 동시호가(NXT 단일가) · 3 재개 · expected_cum 새 T0(재개). */
   AutoSellPause: 14,
+  /**
+   * 상한가 특징 — gh-trade Phase 27 · 분당 1건/키 · **시세 이벤트**(계좌 없음 · account_no '' · dma_user_id '') ·
+   * 82/81 에는 없다(85 실시간 + 이 저널로만). 칸 재해석(인박스 261005-limitup-feature-85 「(B)」 매핑):
+   * price=last_px · evPrice=upper_px · limitBidQty=q_qty · evQtyBefore=q_krw · evQtyAfter=wall_krw_visible ·
+   * askQtyAtLimit=wall_qty_hidden · openAtLimit=wall_truncated · evTradeQty=sell_led_10s · immediateFillQty=buy_led_10s ·
+   * aheadQty=cancel_10s · baseCum=new_10s · expectedCum=auction_fill_10s · condThreshold=drain_s(−1=∞) ·
+   * condActual=rate_bp · entryRound=lock_state · qty=lock_elapsed_s · hasRemaining=auction · resultCode=p_break_bp ·
+   * snapQty 길이=model_state · message=`buy:<member>=<share_bp>,…;sell:<member>=<share_bp>,…|m=<model_state>`.
+   * 문장 조립은 28-09(이 키는 라벨 · 시세 집합만).
+   */
+  LimitFeature: 15,
 } as const;
 
 /**
@@ -66,18 +76,20 @@ export const ORDER_GROUP = {
 } as const;
 
 /**
- * 시세 이벤트(상한가노출 · 상한가진입 · 버스트 상한가)인가. 이 이벤트는 계좌가 없어 `account_no` 가 빈
- * 문자열이지만, 판정은 반드시 kind 로 한다 — 빈 계좌번호 비교로 공개 여부를 정하지 않는다(T-25-01).
+ * 시세 이벤트(상한가노출 · 상한가진입 · 버스트 상한가 · 상한가 특징)인가. 이 이벤트는 계좌가 없어 `account_no` 가
+ * 빈 문자열이지만, 판정은 반드시 kind 로 한다 — 빈 계좌번호 비교로 공개 여부를 정하지 않는다(T-25-01).
  * 예약 kind 9 는 시세가 아니다(계좌가 비면 아무에게도 안 보인다).
  *
- * ★ 같은 집합 {1, 2, 10} 을 조회 RPC `dma_strategy_events_for_user`(supabase 20261003120000)가 SQL 로 쓴다 —
- *   하나만 바뀌면 wss 푸시와 REST 백필이 갈린다.
+ * ★ 같은 집합 {1, 2, 10, 15} 을 조회 RPC `dma_strategy_events_for_user`
+ *   (supabase/migrations/20261006090000_dma_strategy_events_limit_feature.sql)가 SQL 로 쓴다 — 하나만 바뀌면
+ *   wss 푸시(relay `WsFanout` 이 이 함수를 import)와 REST 백필이 갈린다.
  */
 export function isMarketStrategyEvent(kind: number): boolean {
   return (
     kind === STRATEGY_EVENT_KIND.LimitExposed ||
     kind === STRATEGY_EVENT_KIND.LimitEntered ||
-    kind === STRATEGY_EVENT_KIND.BurstLimit
+    kind === STRATEGY_EVENT_KIND.BurstLimit ||
+    kind === STRATEGY_EVENT_KIND.LimitFeature
   );
 }
 

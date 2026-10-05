@@ -39,7 +39,7 @@ import {
  */
 
 describe("표시명 표 전수 (D-10)", () => {
-  it("StrategyEventKind 1~8 · 10(버스트 상한가 — quick-261003-rc4) · 11~13(자동매도 — Phase 27) · 9 는 예약이라 표에 없다", () => {
+  it("StrategyEventKind 1~8 · 10(버스트 상한가 — quick-261003-rc4) · 11~13(자동매도 — Phase 27) · 15(상한가특징 — Phase 28) · 9 는 예약이라 표에 없다", () => {
     expect(STRATEGY_EVENT_KIND_LABELS).toEqual({
       1: "상한가노출",
       2: "상한가진입",
@@ -53,8 +53,10 @@ describe("표시명 표 전수 (D-10)", () => {
       11: "발동",
       12: "정정",
       13: "상태",
+      15: "상한가특징",
     });
     expect(strategyKindLabel(10)).toBe("버스트 상한가");
+    expect(strategyKindLabel(15)).toBe("상한가특징");
     expect(strategyKindLabel(9)).toBe("9");
     expect([1, 2, 3, 4, 5, 6, 7, 8].map(strategyKindLabel)).toEqual([
       "상한가노출", "상한가진입", "주문", "대기", "체결", "주문", "취소", "거부",
@@ -261,8 +263,8 @@ describe("Phase 27 자동매도 표시명 (D-15 · D-16)", () => {
     expect(strategyKindLabel(13)).toBe("상태");
     expect(STRATEGY_EVENT_KIND_LABELS[14]).toBeUndefined();
     expect(strategyKindLabel(14)).toBe("14");
-    // 15 LimitFeature 는 Deferred — 조립기에 넣지 않는다(원문 숫자).
-    expect(strategyKindLabel(15)).toBe("15");
+    // 15 LimitFeature — Phase 28 에서 라벨 「상한가특징」(붙여 씀 · D-07 구분 칩).
+    expect(strategyKindLabel(15)).toBe("상한가특징");
   });
 
   it("group 9 「자동매도」 · cancel 10 「매수 우선 취소」 · 11 「동시호가 감축」", () => {

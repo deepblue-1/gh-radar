@@ -53,6 +53,8 @@ const USER_A1 = "5a1c2b7a-9d40-4a11-8e55-0000000000a1";
 const USER_A2 = "5a1c2b7a-9d40-4a11-8e55-0000000000a2";
 const USER_B = "5a1c2b7a-9d40-4a11-8e55-00000000000b";
 const USER_U = "5a1c2b7a-9d40-4a11-8e55-00000000000f";
+/** Phase 28 — 자격증명은 있지만 주 게이트웨이(KB) 매핑이 없고 KYOBO 신원 연결만 가진 사용자. */
+const USER_K = "5a1c2b7a-9d40-4a11-8e55-00000000000c";
 
 const ACC1 = "11112222-01";
 const ACC2 = "33334444-01";
@@ -66,6 +68,7 @@ const TOKENS = new Map<string, string>([
   ["token-a2", USER_A2],
   ["token-b", USER_B],
   ["token-u", USER_U],
+  ["token-k", USER_K],
 ]);
 
 type CredRow = { dma_user_id: string; dma_password_enc: string };
@@ -74,6 +77,7 @@ const CRED_ROWS = new Map<string, CredRow>([
   [USER_A1, { dma_user_id: "dma-shared", dma_password_enc: encryptDmaPassword("pw", USER_A1, CRED_KEY) }],
   [USER_A2, { dma_user_id: "dma-shared", dma_password_enc: encryptDmaPassword("pw", USER_A2, CRED_KEY) }],
   [USER_B, { dma_user_id: "dma-other", dma_password_enc: encryptDmaPassword("pw", USER_B, CRED_KEY) }],
+  [USER_K, { dma_user_id: "dma-kyobo-only", dma_password_enc: encryptDmaPassword("pw", USER_K, CRED_KEY) }],
 ]);
 
 /** 토큰 검증 + `dma_credentials` 조회만 흉내 내는 fanout 용 스텁. */
@@ -854,5 +858,132 @@ describe("저널 푸시 — 레코드 → 기록기 → 적용 RPC → 계좌 �
     } finally {
       kyoboAccess.close();
     }
+  });
+  describe("Phase 28 kind 15 라이브 푸시", () => {
+    /**
+     * kind 15 LimitFeature(상한가 특징 · gh-trade Phase 27) — 분당 · 키당 1행 · 계좌 없음(account_no '' · dma_user_id '').
+     * relay 코드는 바꾸지 않는다 — `WsFanout` 이 shared `isMarketStrategyEvent` 를 import 하므로 집합 {1, 2, 10, 15}
+     * 한 줄로 라이브 푸시가 REST(dma_strategy_events_for_user · 20261006090000)와 같은 판정이 된다.
+     */
+    async function limitFeatureRow(): Promise<StrategyEventRow> {
+      const { STRATEGY_DAY_BY_NAME } = await loadStrategyDayFixture();
+      const exposed = STRATEGY_DAY_BY_NAME.exposed;
+      if (exposed === undefined) throw new Error("픽스처 exposed 없음");
+      // 시세 이벤트 exposed(계좌 "")를 펼쳐 kind 15 · 슬롯 재사용(인박스 261005 「(B)」 매핑 예시)만 바꾼다.
+      return {
+        ...exposed,
+        seq: 1,
+        kind: 15,
+        group: 0,
+        entryRound: 1,
+        qty: 43,
+        evQtyBefore: 1_730_000_000,
+        resultCode: -1,
+        message: "buy:00050=7407;sell:00002=10000|m=0",
+      };
+    }
+
+    it("관찰자 80 → 적용 RPC → journal.events: 계좌 없는 KB kind 15 는 KB 매핑 사용자 A1·A2·B 전원 · KYOBO 연결만 가진 K · 미인증 U 는 0", async () => {
+      await start();
+      const lf = await limitFeatureRow();
+      expect(lf.accountNo).toBe("");
+
+      const a1 = await open("token-a1", "ready");
+      const a2 = await open("token-a2", "ready");
+      const b = await open("token-b", "ready");
+      const k = await open("token-k", "ready");
+      const u = await open("token-u", "unauthorized");
+
+      gateway.respondObserverLogin({
+        broker: GATEWAY,
+        epoch: lf.journalEpoch,
+        headSeq: 0,
+        oldestSeq: 0,
+        resync: false,
+        accounts: [
+          { dmaUserId: "dma-shared", accountNo: ACC1, name: "공유 계좌", priority: 0 },
+          { dmaUserId: "dma-other", accountNo: ACC2, name: "다른 계좌", priority: 0 },
+        ],
+        strategyHeadSeq: 0,
+        strategyOldestSeq: 0,
+        strategyResync: false,
+      });
+
+      const db = rpcSupabase(rpcCalls);
+      const orderWriter = new JournalWriter({ supabase: db, gateway: GATEWAY });
+      const strategyWriter = createStrategyWriter({ supabase: db, gateway: GATEWAY });
+      strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows));
+      const observer = new JournalObserver({
+        secret: "observer-secret-DO-NOT-LOG-p28",
+        gateway: GATEWAY,
+        host: "127.0.0.1",
+        port: gateway.port,
+        codec: createJournalCodec(),
+        writer: orderWriter,
+        strategyWriter,
+        access,
+      });
+      observer.start();
+      try {
+        const sock = await gateway.waitForObserverConnection(3_000);
+        await waitFor(() => observer.state === "live", "관찰자 live");
+
+        gateway.pushJournalBatch(sock, {
+          records: [],
+          strategyEvents: [recordOf(lf, "")],
+          strategyHeadSeq: 1,
+          strategyCaughtUp: true,
+        });
+        await waitFor(
+          () => eventFrames(a1).length === 1 && eventFrames(a2).length === 1 && eventFrames(b).length === 1,
+          "A1·A2·B journal.events (kind 15)",
+        );
+        await flushIo(8);
+
+        // 적용 RPC 로 그대로 저장된다(kind 화이트리스트 없음 · 주문자 '').
+        const applies = rpcCalls.filter((c) => c.fn === "dma_strategy_apply");
+        expect(applies).toHaveLength(1);
+        const events = applies[0]?.args.p_events as StrategyApplyEvent[];
+        expect(events.map((e) => [e.seq, e.kind, e.account_no, e.dma_user_id])).toEqual([[1, 15, "", ""]]);
+
+        // KB 에 가시 계좌가 있는 사용자 전원(같은 계정 A1·A2 · 다른 계좌 B) — 원본 행 그대로.
+        expect(eventFrames(a1)).toEqual([[lf]]);
+        expect(eventFrames(a2)).toEqual([[lf]]);
+        expect(eventFrames(b)).toEqual([[lf]]);
+        // KB 매핑이 없는 K(KYOBO 연결만) · 자격증명 없는 U 는 0.
+        expect(eventFrames(k)).toEqual([]);
+        expect(eventFrames(u)).toEqual([]);
+      } finally {
+        observer.stop();
+        orderWriter.close();
+        strategyWriter.close();
+      }
+    });
+
+    it("KYOBO kind 15 는 KYOBO 신원 연결 사용자 K 에게만 — KB 매핑만 가진 A1·A2·B 는 0", async () => {
+      await start();
+      const { a1, a2, b, u } = await authAll();
+      const k = await open("token-k", "ready");
+      /** 가짜 교보 계좌 — 실계좌가 아니다(명백한 가짜값). */
+      const K1 = "5555555513";
+      const kyoboAccess = new JournalAccess({ supabase: rpcSupabase(rpcCalls), gateway: "KYOBO", retryBaseMs: 10, retryMaxMs: 50 });
+      try {
+        kyoboAccess.replace([{ dmaUserId: "kyobo-k", accountNo: K1, name: "교보 가짜 계좌", priority: 0 }]);
+        const route = { access: kyoboAccess, identities: identityView({ [USER_K]: "kyobo-k" }) };
+        const lf: StrategyEventRow = { ...(await limitFeatureRow()), gateway: "KYOBO" };
+
+        fanout.deliverStrategyEvents([lf], route);
+        await waitFor(() => eventFrames(k).length === 1, "K KYOBO journal.events (kind 15)");
+        await flushIo(8);
+
+        expect(eventFrames(k)).toEqual([[lf]]);
+        expect(eventFrames(a1)).toEqual([]);
+        expect(eventFrames(a2)).toEqual([]);
+        expect(eventFrames(b)).toEqual([]);
+        expect(eventFrames(u)).toEqual([]);
+      } finally {
+        kyoboAccess.close();
+      }
+    });
   });
 });

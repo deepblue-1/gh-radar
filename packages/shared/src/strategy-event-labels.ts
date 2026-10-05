@@ -28,10 +28,12 @@ export const STRATEGY_EVENT_KIND_LABELS: Readonly<Record<number, string>> = {
   // 9 — gh-radar 「상태전이」 예약(표에 없다 — 오면 원문 숫자).
   10: "버스트 상한가",
   // 11~13 — gh-trade Phase 28 자동매도(Phase 27 D-15). 14 는 표 밖 — `cond_actual` 로 행위가 갈린다
-  // (`AUTO_SELL_PAUSE_LABELS`). 15 LimitFeature 는 Deferred(오면 원문 숫자).
+  // (`AUTO_SELL_PAUSE_LABELS`).
   11: "발동",
   12: "정정",
   13: "상태",
+  // 15 — 상한가 특징(gh-trade Phase 27 · 시세 이벤트). 붙여 쓴다 — 주문로그 구분 칩(D-07). 문장 조립은 28-09.
+  15: "상한가특징",
 };
 
 /** `OrderGroup` 표시명 — 로그 줄의 「구분」 칸. 0(None)은 표에 없다. */
