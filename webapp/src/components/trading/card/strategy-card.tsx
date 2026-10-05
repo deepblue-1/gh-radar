@@ -540,6 +540,20 @@ export function useStrategyCardState({
     if (pending === null || !isAutoSellCommandSettled(pending, lastLimitChaserEcho)) return;
     setAutoSellCmd(null);
   }, [lastLimitChaserEcho, key, setAutoSellCmd]);
+  /*
+    ★ 41 해제 둘째 입력 — 키별 정본 `server`(27-REVIEW WR-02). `lastLimitChaserEcho` 는 리듀서가 매 `lc` 프레임마다
+      덮어쓰는 **단일 슬롯**이라, 서버 300ms 플러시 틱에 여러 키의 에코가 한 React 배치로 들어오면 내 기대 전이
+      에코가 남의 키 에코에 가려진다(위 이펙트는 key 불일치로 return). `server` 는 `limitChasers` 에서 내 키만 뽑은
+      값이라 그 배치 뒤에도 내 최신 상태를 싣는다. 판정은 같은 `isAutoSellCommandSettled` 하나다.
+      ★ 위 이펙트를 걷지 않는다 — `crud:"D"` 철거 에코는 `server` 를 null 로 두어 여기서는 안 보이지만
+        stop 의 기대 전이(!enabled)를 실을 수 있다.
+  */
+  useEffect(() => {
+    if (server === null) return;
+    const pending = autoSellCmdRef.current;
+    if (pending === null || !isAutoSellCommandSettled(pending, server)) return;
+    setAutoSellCmd(null);
+  }, [server, setAutoSellCmd]);
 
   useEffect(() => {
     const prev = prevServerRef.current;

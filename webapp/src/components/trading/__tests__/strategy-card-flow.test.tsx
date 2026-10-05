@@ -1914,6 +1914,24 @@ describe('Phase 27 41 in-flight', () => {
     expect(asCmds()).toHaveLength(1);
   });
 
+  it('WR-02 — 내 기대 전이 에코가 같은 배치의 남의 키 에코에 가려져도 키별 server 로 풀린다 · 미반영 없음', () => {
+    const OTHER = 'KR7247540008';
+    const other = echo({ isin: OTHER, key: `${OTHER}:${ACCOUNT}:KRX`, autoSellEnabled: true, autoSellState: 1 });
+    setRelay({ limitChasers: [watching, other] });
+    const { rerender } = render(<Card />);
+    press('start');
+    // 300ms 플러시 틱 — 내 즉답(상태 3) 뒤 남의 키 에코가 같은 배치로 와 단일 슬롯을 덮었다.
+    const mine3 = echo({ ...watching, autoSellState: 3 });
+    const otherRuntime = { ...other, autoSellSoldQty: 10 };
+    setRelay({ limitChasers: [mine3, otherRuntime], lastLimitChaserEcho: otherRuntime });
+    rerender(<Card />);
+    expect(lastCard!.autoSellPending).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS * 3);
+    });
+    expect(unacked()).toBeNull();
+  });
+
   it('stop 의 기대 전이 = !enabled — enabled true 인 런타임 에코로는 풀리지 않는다', () => {
     const running = echo({ autoSellEnabled: true, autoSellState: 3 });
     setRelay({ limitChasers: [running] });
