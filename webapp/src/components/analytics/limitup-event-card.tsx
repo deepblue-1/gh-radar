@@ -205,7 +205,7 @@ export function LimitupEventCard({
       aria-labelledby={headingId}
       data-slot="limitup-event-card"
       data-isin={row.isin}
-      className={cn(CARD, 'scroll-mt-4 p-4')}
+      className={cn(CARD, 'scroll-mt-[calc(4.5rem+var(--app-safe-top))] p-4')}
     >
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <h3

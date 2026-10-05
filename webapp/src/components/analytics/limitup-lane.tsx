@@ -187,7 +187,8 @@ export function LimitupLane({
               data-label={l.id}
               style={{ left: l.left, top: l.top, width: l.width }}
               className={cn(
-                'absolute text-[11px] leading-[14px] whitespace-nowrap [text-shadow:0_0_2px_var(--card),0_0_2px_var(--card)]',
+                // 곡선 · 마커 위에서도 읽히게 반투명 카드 면을 깐다(글자 폭은 어림값이라 좌우 여유 1px).
+                'absolute rounded-[2px] bg-[color-mix(in_oklab,var(--card)_78%,transparent)] text-center text-[11px] leading-[14px] whitespace-nowrap',
                 l.tone,
               )}
             >
