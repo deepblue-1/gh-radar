@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 28
 current_phase_name: 상한가 특징 연동 — gh-trade Phase 27 계약 반영
 status: executing
-stopped_at: Completed 28-01-PLAN.md
-last_updated: "2026-10-05T08:30:53.788Z"
+stopped_at: Completed 28-02-PLAN.md
+last_updated: "2026-10-05T08:41:08.953Z"
 last_activity: 2026-10-05
 last_activity_desc: Phase 28 execution started
-state_head: 8a1b6c11f997286517bc8ed6cff2966eb4f8ef60
+state_head: 52da41a57af4d9e5acc158a43cfa7e1e97831f59
 progress:
   total_phases: 37
   completed_phases: 4
   total_plans: 377
-  completed_plans: 347
+  completed_plans: 348
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 28 (상한가 특징 연동 — gh-trade Phase 27 계약 반영) — EXECUTING
-Plan: 2 of 16
+Plan: 3 of 16
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-10-05 — Phase 28 execution started
@@ -194,6 +194,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 27 P06 | 16min | 3 tasks | 11 files |
 | Phase 27 P07 | 10min | 2 tasks | 6 files |
 | Phase 28 P01 | 25min | 3 tasks | 25 files |
+| Phase 28 P02 | 8 min | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -517,6 +518,10 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 27]: 27-07 D-11: 새 전략 폼 기본값 정본 = 84 사용자 설정(seedFromUserSettings) · D-04 상수는 미수신·lc 범위 밖 칸별 폴백 · 재시딩은 에코가 한 번도 안 온 폼의 손대지 않은 칸만
 - [Phase 28]: 28-01: 85 LimitFeature 는 공개 시세 파생값이라 HubMarketEvent 유니온에 넣고 fanout 은 tape 와 같은 줄에서 full 소켓만 — 카드는 level full 일 때만 limitFeature 를 쓴다
 - [Phase 28]: 28-01: WinForms FormatEok/등락률의 .NET 0 에서 먼 쪽 반올림을 정수 십분위 산술로 재현(115,000,000원 = 1.2억)
+- [Phase 28]: Phase 28-02: kind 15 시세 집합 {1,2,10,15} 를 RPC·shared·relay 푸시 세 곳이 같은 판정으로 공유 (D-06)
+- [Phase 28]: Phase 28-02: 주문로그 조회는 jsonb 래퍼 dma_strategy_events_for_user_json — kind 15 기본 제외, server ?lf=1 일 때만 (D-18 · max_rows 절단 방지)
+- [Phase 28]: Phase 28-02: purge RPC 는 kind 15 만 trade_date < KST 오늘 − keep 삭제, 실행은 28-06 워커 (D-08)
+- [Phase 28]: Phase 28-02: relay 재배포는 웹 kind 15 스토어 분리 뒤에 — 먼저 나가면 strategyEvents 상한 5000 을 kind 15 가 밀어낸다
 
 ### Pending Todos
 
@@ -609,8 +614,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-10-05T08:30:52.669Z
-Stopped at: Completed 28-01-PLAN.md
+Last session: 2026-10-05T08:41:07.910Z
+Stopped at: Completed 28-02-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
