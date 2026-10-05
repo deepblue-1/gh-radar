@@ -1,7 +1,9 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { mockPointer, restoreMatchMedia } from '@/lib/__tests__/match-media';
 
 /**
  * Phase 20 Plan 04 Task 1 — 토스식 상따 리스트의 **필드 스펙**과 **그룹·행 조각**.
@@ -38,6 +40,7 @@ import {
 } from '../lc-fields';
 import {
   CheckValueRow,
+  ChoiceRow,
   DerivedRow,
   formatSettingValue,
   GroupHeaderCheck,
@@ -56,9 +59,9 @@ const idOf = (r: LcRowSpec): string | null =>
   r.kind === 'value' || r.kind === 'checkValue' ? r.id : r.kind === 'check' ? r.checkId : null;
 
 describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (D-19 · D-21 · D-22 · Phase 24 ⑤ · D-09)', () => {
-  it('매수 쪽 슬롯 순서 = 매수주문 → 선매수 → 추가매수 → 후매수 · 매도 쪽 = 매도주문 → 매수취소(맨 아래) (quick-261001-gjk)', () => {
+  it('매수 쪽 슬롯 순서 = 매수주문 → 선매수 → 추가매수 → 후매수 · 매도 쪽 = 매도주문 → 매수취소 → 자동매도 (quick-261001-gjk · Phase 27 D-01)', () => {
     expect(LC_BUY_GROUPS.map((g) => g.slot)).toEqual(['buy', 'pre-buy', 'extra-buy', 'post-buy']);
-    expect(LC_SELL_GROUPS.map((g) => g.slot)).toEqual(['sell', 'cancel']);
+    expect(LC_SELL_GROUPS.map((g) => g.slot)).toEqual(['sell', 'cancel', 'auto-sell']);
   });
 
   it('매수주문 공통 카드 = 주문가격 · 비교가격 · 선매수 = 금액 · 매도잔량 · ○체결량 · ○한방 · 한방가격', () => {
@@ -121,7 +124,7 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
     const ids: Record<string, string> = {};
     for (const g of [...LC_BUY_GROUPS, ...LC_SELL_GROUPS]) {
       for (const r of g.rows) {
-        if (r.kind === 'value' || r.kind === 'checkValue') ids[r.field] = r.id;
+        if (r.kind === 'value' || r.kind === 'checkValue' || r.kind === 'choice') ids[r.field] = r.id;
         if (r.kind === 'checkValue' || r.kind === 'check') ids[r.check] = r.checkId;
       }
     }
@@ -154,6 +157,9 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
       cancelWatchQty: 'lc-cancel-watch-qty',
       cancelTradeEnabled: 'lc-cancel-trade',
       cancelQtyTrackEnabled: 'lc-cancel-qty-track',
+      autoSellStartCond: 'lc-auto-sell-start-cond',
+      autoSellRatioPct: 'lc-auto-sell-ratio',
+      autoSellMethod: 'lc-auto-sell-method',
     });
   });
 
@@ -181,7 +187,7 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
     expect(spec('lc-cancel-watch-qty').desc).toBe('매도 비교가격의 매수잔량이 이 값보다 적으면 매수 주문을 취소해요');
   });
 
-  it('스위치 이름 6개(「한방체결 켜기」 없음) · 매수취소 스위치 = cancelQtyEnabled', () => {
+  it('스위치 이름 7개(「한방체결 켜기」 없음 · Phase 27 「자동매도 켜기」) · 매수취소 스위치 = cancelQtyEnabled', () => {
     expect(LC_SWITCH_LABEL).toEqual({
       buyEnabled: '매수주문 켜기',
       preBuyEnabled: '선매수 켜기',
@@ -189,6 +195,7 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
       postBuyEnabled: '후매수 켜기',
       sellEnabled: '매도주문 켜기',
       cancelQtyEnabled: '매수취소 켜기',
+      autoSellEnabled: '자동매도 켜기',
     });
     expect(groupOf('cancel').gate).toBe('cancelQtyEnabled');
     expect(groupOf('cancel').title).toBe('매수취소');
@@ -293,9 +300,9 @@ describe('② SettingGroup — 둥근 면 · 제목줄 · 꺼진 그룹 흐림 (
     expect(section.getAttribute('title')).toBe(groupOf('buy').hint ?? null);
   });
 
-  it('모든 그룹 카드(매수 4 + 매도 2)는 제목줄이 있고 section 에 aria-label 이 없으며 상단 패딩이 pt-2.5 다 — 헤더 없는 카드 재발 방지 (quick-261001-gjk)', () => {
+  it('모든 그룹 카드(매수 4 + 매도 3)는 제목줄이 있고 section 에 aria-label 이 없으며 상단 패딩이 pt-2.5 다 — 헤더 없는 카드 재발 방지 (quick-261001-gjk · Phase 27)', () => {
     const groups = [...LC_BUY_GROUPS, ...LC_SELL_GROUPS];
-    expect(groups).toHaveLength(6);
+    expect(groups).toHaveLength(7);
     for (const g of groups) {
       const { container, unmount } = render(
         <SettingGroup spec={g}>
@@ -1102,5 +1109,172 @@ describe('⑪ 표시 문자열 · 접근성 이름 · 행 단위 흐림 · 발�
 
   it('formatSettingValue(3, 회) → 「3회」', () => {
     expect(formatSettingValue(3, '회')).toBe('3회');
+  });
+});
+
+describe('Phase 27 자동매도 — ChoiceRow · DerivedRow 표시 · 요약 hot · footer · 칩 색 (D-02 · D-03 · D-05)', () => {
+  const OPTIONS = [
+    { value: 3, label: '양쪽' },
+    { value: 1, label: '매도1호가' },
+    { value: 2, label: '매수1호가' },
+  ] as const;
+
+  describe('ChoiceRow 데스크톱(주 포인터 fine)', () => {
+    beforeEach(() => mockPointer(false));
+    afterEach(restoreMatchMedia);
+
+    it('radiogroup 「자동매도 방법」 · 3 버튼 순서 · 값만 aria-checked · 다른 버튼 클릭 = onSelect 1회 · 같은 버튼은 0', () => {
+      const onSelect = vi.fn();
+      render(<ChoiceRow id="lc-auto-sell-method" label="방법" value={3} options={OPTIONS} a11yName="자동매도 방법" onSelect={onSelect} />);
+      const group = screen.getByRole('radiogroup', { name: '자동매도 방법' });
+      const radios = within(group).getAllByRole('radio');
+      expect(radios.map((r) => r.textContent)).toEqual(['양쪽', '매도1호가', '매수1호가']);
+      expect(radios.map((r) => r.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false']);
+      fireEvent.click(radios[0]!);
+      expect(onSelect).not.toHaveBeenCalled();
+      fireEvent.click(radios[2]!);
+      expect(onSelect).toHaveBeenCalledTimes(1);
+      expect(onSelect).toHaveBeenCalledWith(2);
+      // 낙관 반영 없음 — 선택 표시는 value 만 따른다.
+      expect(radios.map((r) => r.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false']);
+    });
+
+    it('폭 백스톱 — 세그먼트 행은 카드 ≥992(데스크톱 밴드)에서만 · 그 아래는 「라벨 ─ 값 ›」 행(시트) · 새 경계 숫자 0', () => {
+      const { container } = render(
+        <ChoiceRow id="lc-auto-sell-method" label="방법" value={3} options={OPTIONS} a11yName="자동매도 방법" onSelect={() => {}} />,
+      );
+      const [rowBtn, segRow] = Array.from(container.querySelectorAll<HTMLElement>('[data-lc-field="lc-auto-sell-method"]'));
+      expect(rowBtn!.tagName).toBe('BUTTON');
+      expect(rowBtn!.className.split(/\s+/)).toContain('@min-[992px]/lc:hidden');
+      expect(rowBtn).toHaveAttribute('aria-haspopup', 'dialog');
+      expect(segRow!.className.split(/\s+/)).toEqual(expect.arrayContaining(['hidden', '@min-[992px]/lc:flex']));
+      expect(segRow!.querySelector('[role="radiogroup"]')).not.toBeNull();
+    });
+
+    it('행 상자 44px · 세그먼트 26px · 선택 면은 기존 세그먼트 토큰(--seg-on-*) · 값 0 이면 선택 없음', () => {
+      const { container } = render(
+        <ChoiceRow id="lc-auto-sell-method" label="방법" value={0} options={OPTIONS} a11yName="자동매도 방법" onSelect={() => {}} />,
+      );
+      const rowEl = container.querySelector('[data-lc-field="lc-auto-sell-method"]') as HTMLElement;
+      expect(rowEl.className).toContain('min-h-[44px]');
+      const radios = screen.getAllByRole('radio');
+      expect(radios.every((r) => r.getAttribute('aria-checked') === 'false')).toBe(true);
+      for (const r of radios) expect(r.className).toContain('h-[26px]');
+      const { container: c2 } = render(
+        <ChoiceRow id="x" label="방법" value={1} options={OPTIONS} a11yName="방법 기본값" onSelect={() => {}} />,
+      );
+      const on = within(c2).getByRole('radio', { checked: true });
+      expect(on.textContent).toBe('매도1호가');
+      expect(on.className).toContain('bg-[var(--seg-on-bg)]');
+    });
+
+    it('화살표는 포커스만 옮긴다(선택 = 전송이라 화살표로 보내지 않는다)', () => {
+      const onSelect = vi.fn();
+      render(<ChoiceRow id="m" label="방법" value={3} options={OPTIONS} a11yName="자동매도 방법" onSelect={onSelect} />);
+      const radios = screen.getAllByRole('radio');
+      radios[0]!.focus();
+      fireEvent.keyDown(radios[0]!, { key: 'ArrowRight' });
+      expect(radios[1]).toHaveFocus();
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('ChoiceRow 폰(주 포인터 coarse)', () => {
+    beforeEach(() => mockPointer(true));
+    afterEach(restoreMatchMedia);
+
+    it('「방법 ─ 양쪽」 값 행 → 시트(제목 · 설명 · 3옵션) · 고르면 onSelect 1회 + 닫힘', async () => {
+      const onSelect = vi.fn();
+      render(
+        <ChoiceRow
+          id="lc-auto-sell-method"
+          label="방법"
+          value={3}
+          options={OPTIONS}
+          a11yName="자동매도 방법"
+          sheetTitle="자동매도 방법"
+          description="주기마다 낼 매도의 호가 쪽이에요 · 다음 주기부터 적용"
+          onSelect={onSelect}
+        />,
+      );
+      const rowBtn = screen.getByRole('button', { name: '자동매도 방법 양쪽' });
+      expect(rowBtn).toHaveAttribute('aria-haspopup', 'dialog');
+      fireEvent.click(rowBtn);
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText('주기마다 낼 매도의 호가 쪽이에요 · 다음 주기부터 적용')).toBeInTheDocument();
+      const opts = within(dialog).getAllByRole('radio');
+      expect(opts.map((o) => o.textContent)).toEqual(['양쪽', '매도1호가', '매수1호가']);
+      fireEvent.click(opts[2]!);
+      expect(onSelect).toHaveBeenCalledWith(2);
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    });
+  });
+
+  it('DerivedRow display — 「기준 상한가 13,000원」 · 값 0 이면 「—」(sr 「없음」) · 누적 emphasis 는 --up', () => {
+    const { container, rerender } = render(
+      <DerivedRow label="기준" value={13_000} unit="원" display="상한가 13,000원" valueText="—" srText="없음" slot="b" />,
+    );
+    expect(container.querySelector('[data-slot="b"]')!.textContent).toBe('기준상한가 13,000원');
+    rerender(<DerivedRow label="기준" value={0} unit="원" display="—" valueText="—" srText="없음" slot="b" />);
+    expect(container.querySelector('[data-slot="b"]')!.textContent).toBe('기준—없음');
+    rerender(<DerivedRow label="누적 매도" value={6000} unit="주" emphasis valueText="—" slot="s" />);
+    const v = container.querySelector('[data-slot="s"] .text-\\[var\\(--up\\)\\]');
+    expect(v?.textContent).toBe('6,000주');
+  });
+
+  it('GroupSummary hot kv 는 값 글자만 --up', () => {
+    const { container } = render(
+      <GroupSummary
+        items={[
+          { key: '누적', value: '6,000주', off: false, hot: true },
+          { key: '기준', value: '—', off: true },
+        ]}
+      />,
+    );
+    const hot = container.querySelector('[data-hot="true"]') as HTMLElement;
+    expect(hot.textContent).toBe('6,000주');
+    expect(hot.className).toContain('text-[var(--up)]');
+  });
+
+  it('SettingGroup footer — 펼친 본문 마지막 행 뒤에만 · 접힘이면 렌더하지 않는다', () => {
+    const spec = groupOf('auto-sell');
+    const view = (expanded: boolean) => (
+      <SettingGroup
+        spec={spec}
+        fold={{ expanded, onToggle: () => {}, summary: <div>요약</div> }}
+        footer={<button type="button">바로시작</button>}
+      >
+        <div data-testid="last-row">행</div>
+      </SettingGroup>
+    );
+    const { container, rerender } = render(view(false));
+    expect(container.querySelector('[data-slot="lc-group-footer"]')).toBeNull();
+    rerender(view(true));
+    const footer = container.querySelector('[data-slot="lc-group-footer"]') as HTMLElement;
+    expect(footer).not.toBeNull();
+    expect(screen.getByTestId('last-row').nextElementSibling).toBe(footer);
+  });
+
+  it('제목줄 칩 — 「매도중」 초록 · 「완료」 주황 (D-03 개정 · 새 토큰 0)', () => {
+    const { container, rerender } = render(
+      <SettingGroup spec={groupOf('auto-sell')} statusText="매도중">
+        <div>행</div>
+      </SettingGroup>,
+    );
+    const status = () => container.querySelector('[data-slot="lc-group-status"]') as HTMLElement;
+    expect(status().className).toContain('text-[var(--led-armed)]');
+    rerender(
+      <SettingGroup spec={groupOf('auto-sell')} statusText="완료">
+        <div>행</div>
+      </SettingGroup>,
+    );
+    expect(status().className).toContain('text-[var(--led-latent)]');
+  });
+
+  it('소스 가드 — ChoiceRow 는 값 행과 같은 판정(useEditMode)을 쓰고 새 미디어 질의를 두지 않는다', () => {
+    const src = readFileSync(path.resolve(__dirname, '../setting-group.tsx'), 'utf8');
+    expect(src).toMatch(/useEditMode\(\)/);
+    expect(src).not.toMatch(/matchMedia/);
+    expect(src).toMatch(/export function ChoiceRow/);
   });
 });

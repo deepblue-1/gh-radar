@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { RelayLcSetMsg, RelayLimitChaser, RelayLimitChaserInput } from '@gh-radar/shared';
 
 /**
@@ -49,6 +49,7 @@ import { buyOrderQtyFromAmount } from '@/lib/limit-chaser';
 import { LC_COMMIT_TEXT, LC_REJECT_ECHO_GRACE_MS } from '../lc/use-lc-field-commit';
 import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
 import { POST_BUY_UNLOCK_SR_TEXT } from '../lc/lc-fields';
+import { cardGroupStatusOf } from '../card/card-body';
 
 const ISIN = 'KR7086520004';
 const ACCOUNT = '37728502101';
@@ -532,10 +533,10 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
       el.getAttribute('data-slot'),
     );
 
-  it('매수 pane = 매수주문 → 선매수 → 추가매수 → 후매수 · 매도 pane = 매도주문 → 매수취소(맨 아래) (quick-261001-gjk)', () => {
+  it('매수 pane = 매수주문 → 선매수 → 추가매수 → 후매수 · 매도 pane = 매도주문 → 매수취소 → 자동매도 (quick-261001-gjk · Phase 27 D-01)', () => {
     render(<LimitChaserForm {...props()} />);
     expect(slotsIn('buy')).toEqual(['lc-group-buy', 'lc-group-pre-buy', 'lc-group-extra-buy', 'lc-group-post-buy']);
-    expect(slotsIn('sell')).toEqual(['lc-group-sell', 'lc-group-cancel']);
+    expect(slotsIn('sell')).toEqual(['lc-group-sell', 'lc-group-cancel', 'lc-group-auto-sell']);
     expect(document.querySelector('[data-slot="lc-group-buy-price"]')).toBeNull();
     expect(document.querySelector('[data-slot="lc-group-sweep"]')).toBeNull();
   });
@@ -595,11 +596,13 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
   it('모든 리스트 행이 44px 이다 — 값 행 · 체크 행 · 기준선 행 · 발동잔량 행 · 편집 중 행 (D-20)', () => {
     render(<LimitChaserForm {...props({ server: echo({ sellEntryLatched: true }) })} />);
     const rows = document.querySelectorAll<HTMLElement>(
-      '[data-lc-field]:not([data-slot="lc-check-row"] [data-lc-field]), [data-slot="lc-check-row"], [data-slot="lc-derived"], [data-slot="lc-post-buy-trigger"]',
+      '[data-lc-field]:not([data-slot="lc-check-row"] [data-lc-field]), [data-slot="lc-check-row"], [data-slot="lc-derived"], [data-slot="lc-post-buy-trigger"], [data-slot="lc-auto-sell-sold"], [data-slot="lc-auto-sell-basis"]',
     );
-    // 값 행 17(공통 2 · 선매수 3 · 추가매수 3 · 후매수 4 · 매도주문 4 · 취소 1) + 체크 행 7(+ 추가매수 버스트 시 해제 ·
-    // quick-261003-rc4) + 기준선 1 + 발동잔량 1 = 26 (고정 스키마 — E1 zero-one-many).
-    expect(rows).toHaveLength(26);
+    // 값 행 19(공통 2 · 선매수 3 · 추가매수 3 · 후매수 4 · 매도주문 4 · 취소 1 · 자동매도 2) + 3택 행 2(자동매도 방법 —
+    // 마우스 기기는 「라벨 ─ 값 ›」 행과 카드 ≥992 세그먼트 행을 둘 다 마운트하고 컨테이너 쿼리로 하나만 보인다) +
+    // 체크 행 7(+ 추가매수 버스트 시 해제 · quick-261003-rc4) + 기준선 1 + 발동잔량 1 + 자동매도 누적 · 기준 2 = 32
+    // (고정 스키마 — E1 zero-one-many).
+    expect(rows).toHaveLength(32);
     for (const r of Array.from(rows)) expect(r.className).toContain('min-h-[44px]');
     openInline('lc-sweep-watch-price');
     const editing = document.querySelector('[data-lc-field="lc-sweep-watch-price"][data-editing="true"]') as HTMLElement;
@@ -628,7 +631,7 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
     const form = document.querySelector('[data-slot="limit-chaser-form"]') as HTMLElement;
     // 접기 버튼은 로컬 동작이라 세션과 무관하게 눌린다(E1 loading).
     const folds = Array.from(form.querySelectorAll('[data-slot="lc-group-fold"]'));
-    expect(folds).toHaveLength(3);
+    expect(folds).toHaveLength(4);
     for (const f of folds) expect(f).toBeEnabled();
     const buttons = Array.from(form.querySelectorAll('button')).filter(
       (b) => b.getAttribute('role') !== 'tab' && b.getAttribute('data-slot') !== 'lc-group-fold',
@@ -1382,7 +1385,8 @@ describe('⑮ 매수 카드 4장 · 제목줄 접기 · 요약 줄 · 자동 펼
     }
     // 켜진 그룹(선매수 ON)도 자동으로 펼치지 않는다.
     expect(fold('pre-buy')).toHaveAttribute('aria-expanded', 'false');
-    expect(document.querySelectorAll('[data-slot="lc-group-summary"]')).toHaveLength(3);
+    // 요약 줄 = 세 그룹 + 자동매도(Phase 27 D-01 — 매도 pane 접이식 카드)
+    expect(document.querySelectorAll('[data-slot="lc-group-summary"]')).toHaveLength(4);
     expect(group('buy').querySelector('[data-slot="lc-group-fold"]')).toBeNull();
     expect(rowsOf('buy').classList.contains('hidden')).toBe(false);
   });
@@ -3493,5 +3497,161 @@ describe('추가매수 「버스트 시 해제」 체크 — 양방향 설정값
     expect(burst()).toHaveAttribute('aria-checked', 'true');
     const circle = burst().querySelector('[data-slot="lc-check-circle"]') as HTMLElement;
     expect(opacityLayers(circle)).toBe(0);
+  });
+});
+
+describe('Phase 27 자동매도 카드 — 3택 행 · 누적/기준 · 칩 · 접힘 · 흐림 (D-01 · D-02 · D-03)', () => {
+  /** 자동매도가 켜진 에코 — 상태 · 기준은 테스트마다 덮는다. */
+  const autoEcho = (over: Partial<RelayLimitChaser> = {}) =>
+    echo({ autoSellEnabled: true, autoSellStartCond: 2, autoSellRatioPct: 10, autoSellMethod: 3, ...over });
+  const renderAuto = (server: RelayLimitChaser | null, over: Partial<LimitChaserFormProps> = {}) =>
+    render(
+      <LimitChaserForm
+        {...props({ tab: 'sell', hideTabs: true, server, groupStatus: cardGroupStatusOf(server), ...over })}
+      />,
+    );
+  const rerenderAuto = (rerender: (ui: React.ReactElement) => void, server: RelayLimitChaser) =>
+    rerender(
+      <LimitChaserForm {...props({ tab: 'sell', hideTabs: true, server, groupStatus: cardGroupStatusOf(server) })} />,
+    );
+  const radios = () => within(screen.getByRole('radiogroup', { name: '자동매도 방법' })).getAllByRole('radio');
+
+  it('데스크톱 — 방법 = radiogroup 「자동매도 방법」 · 양쪽 · 매도1호가 · 매수1호가 순 · 에코 값만 aria-checked', () => {
+    renderAuto(autoEcho());
+    click(fold('auto-sell'));
+    expect(radios().map((r) => r.textContent)).toEqual(['양쪽', '매도1호가', '매수1호가']);
+    expect(radios().map((r) => r.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false']);
+  });
+
+  it('데스크톱 — 다른 버튼 클릭 = lc.set 1회(autoSellMethod 2) · 낙관 반영 없음 · 에코 뒤 선택 이동', () => {
+    const { rerender } = renderAuto(autoEcho());
+    click(fold('auto-sell'));
+    click(radios()[2]!);
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().autoSellMethod).toBe(2);
+    // 에코 전까지 서버 값(양쪽) 그대로(Phase 20 D-06).
+    expect(radios().map((r) => r.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false']);
+    // 같은 옵션을 다시 눌러도 전송 0.
+    click(radios()[0]!);
+    expect(sentConfigs()).toHaveLength(1);
+    rerenderAuto(rerender, autoEcho({ autoSellMethod: 2 }));
+    expect(radios().map((r) => r.getAttribute('aria-checked'))).toEqual(['false', 'false', 'true']);
+  });
+
+  it('읽기 전용 2행 — 누적 0 「—」 · 6000 「6,000주」 빨강 · 기준 상한가/매수가 · 상태 0 「—」 · 버튼 아님', () => {
+    const { rerender } = renderAuto(autoEcho({ autoSellState: 0, autoSellBasis: 1, autoSellBasisPrice: 13_000 }));
+    click(fold('auto-sell'));
+    const sold = () => document.querySelector('[data-slot="lc-auto-sell-sold"]') as HTMLElement;
+    const basis = () => document.querySelector('[data-slot="lc-auto-sell-basis"]') as HTMLElement;
+    expect(sold().textContent).toBe('누적 매도—없음');
+    expect(basis().textContent).toBe('기준—없음');
+    rerenderAuto(
+      rerender,
+      autoEcho({ autoSellState: 3, autoSellSoldQty: 6000, autoSellBasis: 1, autoSellBasisPrice: 13_000 }),
+    );
+    expect(sold().textContent).toBe('누적 매도6,000주');
+    expect(sold().querySelector('.text-\\[var\\(--up\\)\\]')).not.toBeNull();
+    expect(basis().textContent).toBe('기준상한가 13,000원');
+    rerenderAuto(rerender, autoEcho({ autoSellState: 2, autoSellBasis: 2, autoSellBasisPrice: 12_500 }));
+    expect(basis().textContent).toBe('기준매수가 12,500원');
+    for (const el of [sold(), basis()]) {
+      expect(el.tagName).not.toBe('BUTTON');
+      expect(el.querySelector('button')).toBeNull();
+      expect(el.textContent).not.toContain('›');
+    }
+  });
+
+  it('제목줄 — 에코 state 3 → 칩 「매도중」(초록) · state 0 → 칩 없음 · 스위치 「자동매도 켜기」', () => {
+    const { rerender } = renderAuto(autoEcho({ autoSellState: 3 }));
+    const status = () => group('auto-sell').querySelector('[data-slot="lc-group-status"]');
+    expect(status()?.textContent).toBe('매도중');
+    expect(status()?.className).toContain('text-[var(--led-armed)]');
+    expect(within(group('auto-sell')).getByRole('switch', { name: '자동매도 켜기' })).toBeChecked();
+    rerenderAuto(rerender, autoEcho({ autoSellState: 1 }));
+    expect(status()?.textContent).toBe('대기');
+    expect(status()?.className).toContain('text-[var(--led-latent)]');
+    rerenderAuto(rerender, autoEcho({ autoSellState: 0 }));
+    expect(status()).toBeNull();
+  });
+
+  it('킬 스위치 에코(autoSellEnabled false · state 0) → 스위치 OFF · 칩 없음 — 웹이 따로 접지 않는다', () => {
+    renderAuto(echo({ autoSellEnabled: false, autoSellState: 0, autoSellRatioPct: 10, autoSellMethod: 3 }));
+    expect(within(group('auto-sell')).getByRole('switch', { name: '자동매도 켜기' })).not.toBeChecked();
+    expect(group('auto-sell').querySelector('[data-slot="lc-group-status"]')).toBeNull();
+  });
+
+  it('접힘 — 첫 렌더 접힘 · 요약 5조각 · 제목줄 클릭 → 본문 표시 · 요약 숨김', () => {
+    renderAuto(autoEcho({ autoSellState: 3, autoSellSoldQty: 6000, autoSellBasis: 1, autoSellBasisPrice: 13_000 }));
+    const rows = group('auto-sell').querySelector('[data-slot="lc-group-rows"]') as HTMLElement;
+    expect(fold('auto-sell')).toHaveAttribute('aria-expanded', 'false');
+    expect(rows.classList.contains('hidden')).toBe(true);
+    const summary = group('auto-sell').querySelector('[data-slot="lc-group-summary"]') as HTMLElement;
+    expect(summary.textContent).toBe('시작조건2%비율10%방법양쪽누적6,000주기준상한가 13,000원');
+    expect(summary.querySelector('[data-hot="true"]')?.textContent).toBe('6,000주');
+    click(fold('auto-sell'));
+    expect(rows.classList.contains('hidden')).toBe(false);
+    expect((summary.parentElement as HTMLElement).classList.contains('hidden')).toBe(true);
+  });
+
+  it('흐림 — 매도주문 OFF 여도 자동매도 ON 이면 입력 행이 흐리지 않는다 · 자동매도 OFF 면 입력 행만 흐린다', () => {
+    const { rerender } = renderAuto(autoEcho({ sellEnabled: false }));
+    click(fold('auto-sell'));
+    const choiceRow = () => document.querySelector('[data-lc-field="lc-auto-sell-method"]') as HTMLElement;
+    expect(opacityLayers(row('lc-auto-sell-start-cond'))).toBe(0);
+    expect(opacityLayers(choiceRow())).toBe(0);
+    rerenderAuto(rerender, autoEcho({ autoSellEnabled: false, sellEnabled: true }));
+    expect(opacityLayers(row('lc-auto-sell-start-cond'))).toBe(1);
+    expect(opacityLayers(row('lc-auto-sell-ratio'))).toBe(1);
+    expect(opacityLayers(choiceRow())).toBe(1);
+    expect(opacityLayers(document.querySelector('[data-slot="lc-auto-sell-sold"]') as HTMLElement)).toBe(0);
+  });
+
+  it('시작조건 0 = 「이탈 후 다음 체결」 · 비율 「10%」', () => {
+    renderAuto(autoEcho({ autoSellStartCond: 0 }));
+    click(fold('auto-sell'));
+    expect(rowText('lc-auto-sell-start-cond')).toBe('이탈 후 다음 체결');
+    expect(rowText('lc-auto-sell-ratio')).toBe('10%');
+  });
+
+  it('범위 가드 — 옛 에코 비율 0 · 방법 0 · 꺼짐에서 스위치 → 전송 0 · 폼 맨 위 실패 문구 (Pitfall 5)', () => {
+    renderAuto(echo({ autoSellEnabled: false, autoSellRatioPct: 0, autoSellMethod: 0 }));
+    click(within(group('auto-sell')).getByRole('switch', { name: '자동매도 켜기' }));
+    expect(sentConfigs()).toHaveLength(0);
+    expect(submitError()?.textContent).toMatch(/^비율 · /);
+  });
+
+  it('미등록 폼에서 자동매도 스위치 = 등록 전송(crud C · 비율 10 · 방법 3 기본값)', () => {
+    renderAuto(null);
+    click(within(group('auto-sell')).getByRole('switch', { name: '자동매도 켜기' }));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ crud: 'C', autoSellEnabled: true, autoSellRatioPct: 10, autoSellMethod: 3 });
+  });
+
+  describe('폰(주 포인터 coarse)', () => {
+    beforeEach(() => mockPointer(true));
+    afterEach(restoreMatchMedia);
+
+    it('방법 행 「방법 ─ 양쪽」 → 시트 3옵션(같은 순서) · 고르면 lc.set 1회 · 시트 닫힘 · 포커스 행 복귀', async () => {
+      renderAuto(autoEcho());
+      click(fold('auto-sell'));
+      const methodRow = row('lc-auto-sell-method');
+      expect(methodRow.tagName).toBe('BUTTON');
+      expect(methodRow).toHaveAttribute('aria-haspopup', 'dialog');
+      expect(rowText('lc-auto-sell-method')).toBe('양쪽');
+      expect(screen.queryByRole('radiogroup', { name: '자동매도 방법' })).toBeNull();
+      click(methodRow);
+      const sheet = document.querySelector('[data-slot="lc-choice-sheet"]') as HTMLElement;
+      expect(sheet).not.toBeNull();
+      const opts = within(sheet).getAllByRole('radio');
+      expect(opts.map((o) => o.textContent)).toEqual(['양쪽', '매도1호가', '매수1호가']);
+      expect(opts[0]).toHaveAttribute('aria-checked', 'true');
+      click(opts[1]!);
+      expect(sentConfigs()).toHaveLength(1);
+      expect(lastConfig().autoSellMethod).toBe(1);
+      await waitFor(() => expect(document.querySelector('[data-slot="lc-choice-sheet"]')).toBeNull());
+      await waitFor(() => expect(row('lc-auto-sell-method')).toHaveFocus());
+      // 낙관 반영 없음 — 행은 에코 전까지 서버 값.
+      expect(rowText('lc-auto-sell-method')).toBe('양쪽');
+    });
   });
 });

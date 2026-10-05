@@ -582,11 +582,11 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       card.locator('[data-slot="card-exchange-segment"]').getByRole('radio', { name: 'KRX' }),
     ).toBeChecked();
 
-    // 스위치 6개 전부 OFF(Phase 20 — 매수취소도 스위치 · Phase 24 — 선 · 추가 · 후매수 스위치, 「한방체결 켜기」
-    // 없음) · WinForms 기본값(선매수 금액 4,000만원 — Phase 24 D-04 · 매도잔량 10,000 — 이 테스트는 시세 응답을 껐으므로
+    // 스위치 7개 전부 OFF(Phase 20 — 매수취소도 스위치 · Phase 24 — 선 · 추가 · 후매수 스위치, 「한방체결 켜기」
+    // 없음 · Phase 27 — 자동매도 스위치) · WinForms 기본값(선매수 금액 4,000만원 — Phase 24 D-04 · 매도잔량 10,000 — 이 테스트는 시세 응답을 껐으므로
     // 상장주식수(D-17)를 받지 못해 폴백 그대로) · 더티 바 없음(D-04 — 더티 모델 자체가 없다).
-    await expect(card.getByRole('switch')).toHaveCount(6);
-    for (const name of ['매수주문 켜기', '선매수 켜기', '추가매수 켜기', '후매수 켜기', '매도주문 켜기', '매수취소 켜기']) {
+    await expect(card.getByRole('switch')).toHaveCount(7);
+    for (const name of ['매수주문 켜기', '선매수 켜기', '추가매수 켜기', '후매수 켜기', '매도주문 켜기', '매수취소 켜기', '자동매도 켜기']) {
       await expect(lcSwitch(card, name)).not.toBeChecked();
     }
     await expect(lcValue(page, 'lc-buy-order-amount')).toHaveText('4,000만원');
@@ -2674,6 +2674,107 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     }
   });
 
+  test('P27-2 자동매도 카드 — 펼침 · 스위치 등록 · 방법 세그먼트 · 칩 대기→감시 · 요약 · 폰 시트 · 범위 가드 (D-01 · D-02 · D-03 · Pitfall 5)', async ({
+    page,
+  }) => {
+    const seed = { buyEnabled: true, autoSellEnabled: false, autoSellStartCond: 2, autoSellRatioPct: 10, autoSellMethod: 3 };
+    relay.seedLimitChasers([seed]);
+    await openFocusedCard(page);
+    const card = cardOf(page, E2E_ISIN);
+    const group = card.locator('[data-slot="lc-group-auto-sell"]');
+    const fold = group.locator('[data-slot="lc-group-fold"]');
+    const chip = group.locator('[data-slot="lc-group-status"]');
+    const autoLed = card.locator('[data-slot="card-header"] [data-slot="latch-led"][data-kind="autoSell"]');
+    const methodSeg = group.getByRole('radiogroup', { name: '자동매도 방법' });
+
+    // ① 매도 pane 세 번째 카드 · 첫 렌더 접힘 · 칩 없음(상태 0) → 제목줄 클릭 = 펼침(전송 0).
+    await expect(card.locator('[data-pane="sell"] section[data-slot^="lc-group-"]')).toHaveCount(3);
+    await expect(card.locator('[data-pane="sell"] section[data-slot^="lc-group-"]').nth(2)).toHaveAttribute(
+      'data-slot',
+      'lc-group-auto-sell',
+    );
+    await expect(fold).toHaveAttribute('aria-expanded', 'false');
+    await expect(chip).toHaveCount(0);
+    const base = lcSetCount(relay);
+    await fold.click();
+    await expect(fold).toHaveAttribute('aria-expanded', 'true');
+    await expect(methodSeg).toBeVisible();
+    expect(lcSetCount(relay), '접기는 lc.set 을 보내지 않는다').toBe(base);
+
+    // ② 스위치 「자동매도 켜기」 = 10 한 건 — autoSellEnabled · buy3_schema 4.
+    await lcSwitch(group, '자동매도 켜기').click();
+    await waitForSetAtGateway(relay, base + 1);
+    const armed = lcSetRequests(relay).at(-1)!;
+    expect(armed.autoSellEnabled).toBe(true);
+    expect(armed.buy3Schema).toBe(4);
+    expect([armed.autoSellStartCond, armed.autoSellRatioPct, armed.autoSellMethod]).toEqual([2, 10, 3]);
+
+    // ③ 에코 대기(1) → 칩 「대기」 주황 · 헤더 LED 대기.
+    const on = { ...seed, autoSellEnabled: true };
+    await relay.pushLimitChaserEcho({ ...on, autoSellState: 1 });
+    await expect(chip).toHaveText('대기', { timeout: 15_000 });
+    await expect(chip).toHaveClass(/--led-latent/);
+    await expect(autoLed).toHaveAttribute('data-tone', 'latent');
+    await expect(lcSwitch(group, '자동매도 켜기')).toBeChecked();
+
+    // ④ 데스크톱 세그먼트 「매수1호가」 = 10 한 건(autoSellMethod 2) · 에코 전까지 선택은 서버 값 · 에코 뒤 이동.
+    const radio = (name: string) => methodSeg.getByRole('radio', { name, exact: true });
+    await expect(radio('양쪽')).toHaveAttribute('aria-checked', 'true');
+    await radio('매수1호가').click();
+    await waitForSetAtGateway(relay, base + 2);
+    expect(lcSetRequests(relay).at(-1)!.autoSellMethod).toBe(2);
+    await expect(radio('양쪽')).toHaveAttribute('aria-checked', 'true');
+    await relay.pushLimitChaserEcho({ ...on, autoSellMethod: 2, autoSellState: 1 });
+    await expect(radio('매수1호가')).toHaveAttribute('aria-checked', 'true', { timeout: 15_000 });
+    await expect(radio('양쪽')).toHaveAttribute('aria-checked', 'false');
+
+    // ⑤ 에코 감시(2) · 기준 상한가 13,000 · 누적 0 → 칩 「감시」 초록 · 기준 행 · 누적 「—」.
+    const watching = { ...on, autoSellMethod: 2, autoSellState: 2, autoSellBasis: 1, autoSellBasisPrice: 13_000, autoSellSoldQty: 0 };
+    await relay.pushLimitChaserEcho(watching);
+    await expect(chip).toHaveText('감시', { timeout: 15_000 });
+    await expect(chip).toHaveClass(/--led-armed/);
+    await expect(autoLed).toHaveAttribute('data-tone', 'armed');
+    await expect(group.locator('[data-slot="lc-auto-sell-basis"]')).toHaveText('기준상한가 13,000원');
+    await expect(group.locator('[data-slot="lc-auto-sell-sold"]')).toContainText('—');
+
+    // ⑥ 접기 → 요약 줄 5조각(같은 의미어).
+    await fold.click();
+    await expect(fold).toHaveAttribute('aria-expanded', 'false');
+    const summary = group.locator('[data-slot="lc-group-summary"]');
+    await expect(summary).toBeVisible();
+    await expect(summary.locator(':scope > span')).toHaveText(['시작조건2%', '비율10%', '방법매수1호가', '누적—', '기준상한가 13,000원']);
+
+    // ⑦ 폰 390 — 매도 탭 · 방법 행 「방법 ─ 매수1호가 ›」 → 시트 3옵션(양쪽 · 매도1호가 · 매수1호가) · 닫기 = 전송 0.
+    await page.setViewportSize(PHONE_VIEWPORT);
+    await card.getByRole('tablist', { name: '주문 진입' }).getByRole('tab', { name: '매도' }).click();
+    if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click();
+    const methodRow = group.locator('button[data-lc-field="lc-auto-sell-method"]');
+    await expect(methodRow).toBeVisible();
+    await expect(methodSeg).toBeHidden();
+    await expect(methodRow.locator('[data-slot="lc-row-value"]')).toHaveText('매수1호가');
+    const sentBeforeSheet = lcSetCount(relay);
+    await methodRow.click();
+    const sheet = page.locator('[data-slot="lc-choice-sheet"]');
+    await expect(sheet).toBeVisible();
+    await expect(sheet.getByRole('radio')).toHaveText(['양쪽', '매도1호가', '매수1호가']);
+    await expect(sheet.getByRole('radio', { name: '매수1호가' })).toHaveAttribute('aria-checked', 'true');
+    await sheet.getByRole('button', { name: '닫기' }).click();
+    await expect(sheet).toBeHidden();
+    await expect(methodRow).toBeFocused();
+    expect(lcSetCount(relay), '시트를 닫기만 하면 전송 0').toBe(sentBeforeSheet);
+
+    // ⑧ 범위 가드 — 옛 에코(꺼짐 · 비율 0 · 방법 0)에서 스위치 → 게이트웨이 10 이 늘지 않고 폼 맨 위 실패 문구.
+    await relay.pushLimitChaserEcho({ ...seed, autoSellEnabled: false, autoSellRatioPct: 0, autoSellMethod: 0, autoSellState: 0 });
+    await expect(lcSwitch(group, '자동매도 켜기')).not.toBeChecked({ timeout: 15_000 });
+    await expect(chip).toHaveCount(0);
+    const beforeGuard = lcSetCount(relay);
+    await lcSwitch(group, '자동매도 켜기').click();
+    await expect(card.locator('[data-slot="lc-submit-error"]')).toContainText('비율 · ');
+    await page.waitForTimeout(1_000);
+    expect(lcSetCount(relay), '범위 밖 켜기는 relay 에 닿지 않는다(close 4400 방지)').toBe(beforeGuard);
+    await expect(lcSwitch(group, '자동매도 켜기')).not.toBeChecked();
+  });
+
   test('vzy-1 후매수 「자동」 — 체크 → 10 buy3_schema 3 · post_buy_auto · 에코 표시 · 서버 발화 에코로 풀림 · [상따] 사유 줄 (quick-260929-vzy 트레이서)', async ({
     page,
   }) => {
@@ -2764,8 +2865,9 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     }
     await expect(lcRow(page, 'lc-buy-watch-qty')).toHaveCount(1);
     await expect(lcRow(page, 'lc-buy-watch-qty')).toBeHidden();
+    // 요약 줄 = 세 그룹 + 자동매도(Phase 27 D-01 — 매도 pane 세 번째 접이식 카드).
     const summaries = card.locator('[data-slot="lc-group-summary"]');
-    await expect(summaries).toHaveCount(3);
+    await expect(summaries).toHaveCount(4);
     for (const s of await summaries.all()) await expect(s).toBeVisible();
     const preSummary = card.locator('[data-slot="lc-group-pre-buy"] [data-slot="lc-group-summary"]');
     await expect(preSummary).toContainText('매도잔량');
@@ -3137,6 +3239,15 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       postBuyTriggerQty: 330_000,
       // quick-260929-vzy — 후매수 제목줄 「자동」 체크(켜짐 = 라벨 가장 진한 상태).
       postBuyAuto: true,
+      // Phase 27 — 자동매도 카드 최악값: 시작조건 의미어(가장 긴 값) · 방법 「매수1호가」 · 칩 「매도중」 · 누적 · 기준 큰 수.
+      autoSellEnabled: true,
+      autoSellStartCond: 0,
+      autoSellRatioPct: 50,
+      autoSellMethod: 2,
+      autoSellState: 3,
+      autoSellSoldQty: 177_000_000,
+      autoSellBasis: 2,
+      autoSellBasisPrice: 1_274_000,
     };
     relay.seedLimitChasers([WORST]);
     await page.goto(FOCUS_URL);
@@ -3151,10 +3262,12 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
 
     const OPTIONS_SEL = `${cardSelector(E2E_ISIN)} [data-slot="card-body-options"]`;
     const options = card.locator('[data-slot="card-body-options"]');
-    const FOLD_SLOTS = ['pre-buy', 'extra-buy', 'post-buy'] as const;
+    const FOLD_SLOTS = ['pre-buy', 'extra-buy', 'post-buy', 'auto-sell'] as const;
     const setAllFolds = async (expanded: boolean) => {
       for (const slot of FOLD_SLOTS) {
         const fold = card.locator(`[data-slot="lc-group-${slot}"] [data-slot="lc-group-fold"]`);
+        // 폰 밴드는 탭당 한 pane — 숨은 pane 의 접기 버튼은 그 탭을 열 때 맞춘다(자동매도 = 매도 pane).
+        if (!(await fold.isVisible())) continue;
         if ((await fold.getAttribute('aria-expanded')) !== String(expanded)) await fold.click();
         await expect(fold).toHaveAttribute('aria-expanded', String(expanded));
       }
@@ -3167,7 +3280,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
         const vis = (el: Element) => el.getClientRects().length > 0;
         const rows = Array.from(
           panel.querySelectorAll<HTMLElement>(
-            '[data-lc-field], [data-slot="lc-check-row"], [data-slot="lc-derived"], [data-slot="lc-post-buy-trigger"]',
+            '[data-lc-field], [data-slot="lc-check-row"], [data-slot="lc-derived"], [data-slot="lc-post-buy-trigger"], [data-slot="lc-auto-sell-sold"], [data-slot="lc-auto-sell-basis"]',
           ),
         )
           .filter(vis)
@@ -3260,10 +3373,10 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       }
       return m.rows.map((r) => r.what);
     };
-    const checkCollapsed = async (target: number, label: string) => {
+    const checkCollapsed = async (target: number, label: string, count: number) => {
       await setAllFolds(false);
       const sums = await measureSummaries();
-      expect(sums, `${label} — 접힌 요약 줄 3개`).toHaveLength(3);
+      expect(sums, `${label} — 보이는 접힌 요약 줄 ${count}개`).toHaveLength(count);
       for (const s of sums) {
         expect(s.overY, `${label} ${s.slot} — 요약 세로 넘침`).toBeLessThanOrEqual(0);
         expect(s.overX, `${label} ${s.slot} — 요약 가로 넘침`).toBeLessThanOrEqual(0);
@@ -3271,7 +3384,9 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
         expect(s.belowCard, `${label} ${s.slot} — 요약이 카드 밖`).toBeLessThanOrEqual(0);
       }
       expect(await scrollOverflowing(page, OPTIONS_SEL), `${label} — 접힘 넘침`).toEqual([]);
-      summaryLines[target] = sums.map((s) => `${s.slot.replace('lc-group-', '')} ${s.lines}줄`).join(' · ');
+      const lines = sums.map((s) => `${s.slot.replace('lc-group-', '')} ${s.lines}줄`).join(' · ');
+      // 폰 밴드는 매수 · 매도 pane 을 따로 잰다 — 덮지 않고 잇는다.
+      summaryLines[target] = summaryLines[target] === undefined ? lines : `${summaryLines[target]} · ${lines}`;
       await setAllFolds(true);
     };
 
@@ -3324,18 +3439,22 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
         const buyRows = await checkExpanded(target, `${target} 매수 pane`);
         expect(buyRows).toContain('lc-post-buy-trigger');
         await checkPostBuyHeader(target, `${target} 매수 pane`);
-        await checkCollapsed(target, `${target} 매수 pane`);
+        await checkCollapsed(target, `${target} 매수 pane`, 3);
         await tablist.getByRole('tab', { name: '매도' }).click();
         await expect(card.locator('[data-pane="sell"]')).toBeVisible();
+        await setAllFolds(true);
         const sellRows = await checkExpanded(target, `${target} 매도 pane`);
-        expect(sellRows).toContain('lc-derived');
+        expect(sellRows).toEqual(expect.arrayContaining(['lc-derived', 'lc-auto-sell-method', 'lc-auto-sell-basis']));
+        await checkCollapsed(target, `${target} 매도 pane`, 1);
         await tablist.getByRole('tab', { name: '매수' }).click();
       } else {
         await expect(card.locator('[data-pane="sell"]')).toBeVisible();
         const rows = await checkExpanded(target, `${target} 2열`);
-        expect(rows).toEqual(expect.arrayContaining(['lc-post-buy-trigger', 'lc-derived', 'lc-extra-buy-max-qty']));
+        expect(rows).toEqual(
+          expect.arrayContaining(['lc-post-buy-trigger', 'lc-derived', 'lc-extra-buy-max-qty', 'lc-auto-sell-method', 'lc-auto-sell-basis']),
+        );
         await checkPostBuyHeader(target, `${target} 2열`);
-        await checkCollapsed(target, `${target} 2열`);
+        await checkCollapsed(target, `${target} 2열`, 4);
       }
     }
     expect(lcSetCount(relay), '재는 동안 전송 0').toBe(setsBefore);

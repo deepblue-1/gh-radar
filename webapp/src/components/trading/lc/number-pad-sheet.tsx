@@ -41,7 +41,7 @@
  * 키보드가 뜨지 않는다. 물리 키(태블릿 외장 키보드)는 콘텐츠 `onKeyDown` 이 받는다.
  */
 import { useRef, useState } from 'react';
-import type { KeyboardEvent } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import { Dialog } from 'radix-ui';
 import { Delete } from 'lucide-react';
 
@@ -140,7 +140,6 @@ export function NumberPadSheet({
   onConfirm,
   onClose,
 }: NumberPadSheetProps) {
-  const contentRef = useRef<HTMLDivElement | null>(null);
   const busy = status === 'busy';
 
   const [pad, setPad] = useState<PadState>(() => padInit(initialValue));
@@ -209,6 +208,174 @@ export function NumberPadSheet({
   const fresh = pad.fresh && pad.buf !== '';
 
   return (
+    <LcSheetShell
+      open={open}
+      busy={busy}
+      slot="numpad-sheet"
+      overlaySlot="numpad-overlay"
+      title={title}
+      description={description}
+      returnFocusRef={returnFocusRef}
+      onClose={onClose}
+      onKeyDown={onKeyDown}
+    >
+      <div className="mb-[10px] flex items-baseline gap-1 rounded-[16px] bg-[var(--muted)] px-4 py-[14px]">
+        <output
+          data-slot="numpad-display"
+          aria-live="polite"
+          className="flex min-w-0 items-baseline gap-1 tabular-nums"
+        >
+          <span className="inline-flex min-h-8 items-baseline">
+            {/*
+              기준선 받침(20-07 시각 확인) — 값이 비면(수동주문 상자 첫 열림 · ⌫ 로 다 지움) 값 슬롯에 줄
+              상자가 없어 기준선이 사라지고, 단위 「원」이 캐럿 **위**로 떠올랐다. 같은 글자 크기의 폭 0
+              글자(ZWSP)를 늘 두어 기준선을 고정한다. 값 슬롯 글자는 그대로 비어 있고(검증 계약) 낭독에서 뺀다.
+            */}
+            <span aria-hidden="true" className="text-[26px] leading-8 font-bold">
+              {String.fromCharCode(0x200b)}
+            </span>
+            <span
+              data-slot="numpad-value"
+              data-fresh={fresh ? 'true' : 'false'}
+              className={cn(
+                'text-[26px] leading-8 font-bold text-[var(--fg)]',
+                fresh && 'rounded-[4px] bg-[color-mix(in_srgb,var(--primary)_32%,transparent)]',
+              )}
+            >
+              {formatPadDisplay(pad)}
+            </span>
+            <span
+              aria-hidden="true"
+              className="ml-0.5 inline-block h-[26px] w-0.5 self-center bg-[var(--primary)] motion-safe:animate-[numpad-caret_1s_steps(1)_infinite]"
+            />
+          </span>
+          <span className="text-[18px] font-semibold text-[var(--fg-2)]">{unit}</span>
+        </output>
+        {serverValue !== null && serverValue !== undefined && (
+          <span
+            data-slot="numpad-server"
+            className="ml-auto shrink-0 text-[12.5px] whitespace-nowrap text-[var(--muted-fg)] tabular-nums"
+          >
+            {serverValueText !== undefined ? `지금 ${serverValueText}` : `지금 ${fmt(serverValue)}${unit}`}
+          </span>
+        )}
+      </div>
+
+      <p
+        data-slot="numpad-status"
+        className="-mt-1 mb-2 ml-0.5 min-h-4 text-[12.5px] leading-4 break-keep"
+      >
+        {line?.tone === 'alert' && (
+          <span role="alert" className="text-[var(--destructive)]">
+            {line.text}
+          </span>
+        )}
+        {line?.tone === 'warn' && (
+          <span role="status" data-tone="warn" className="text-[var(--destructive)]">
+            {line.text}
+          </span>
+        )}
+        {line?.tone === 'status' && (
+          <span role="status" className="text-[var(--muted-fg)]">
+            {line.armed && (
+              <span
+                aria-hidden="true"
+                className="mr-1.5 inline-block size-1.5 rounded-full bg-[var(--led-armed)] align-middle"
+              />
+            )}
+            {line.text}
+          </span>
+        )}
+      </p>
+
+      <div data-slot="numpad-chips" className="mb-3 flex flex-wrap gap-1.5">
+        {PAD_CHIPS[unit].map((c) => (
+          <button
+            key={c.label}
+            type="button"
+            aria-label={c.ariaLabel}
+            disabled={busy || padChipDisabled(c, ctx)}
+            onClick={() => setPad((s) => applyPadChip(s, c, ctx))}
+            className="h-8 touch-manipulation rounded-full bg-[var(--muted)] px-3 text-[13px] font-semibold text-[var(--fg-2)] disabled:opacity-40"
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+
+      <div role="group" aria-label="숫자 키패드" className="mb-3 grid grid-cols-3 gap-0.5">
+        {KEYS.map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            aria-label={label}
+            disabled={busy}
+            onClick={() => press(key)}
+            className="flex h-14 touch-manipulation items-center justify-center rounded-[12px] bg-transparent text-[24px] font-medium text-[var(--fg)] active:bg-[var(--muted)] disabled:opacity-40"
+          >
+            {key === 'back' ? <Delete aria-hidden="true" className="size-6" /> : key}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onClose}
+          className="h-14 flex-1 rounded-[16px] bg-[var(--muted)] text-[17px] font-semibold text-[var(--fg-2)] disabled:opacity-40"
+        >
+          닫기
+        </button>
+        <button
+          type="button"
+          data-slot="numpad-confirm"
+          disabled={!canConfirm}
+          onClick={confirm}
+          // 채움 면 글자색은 `--destructive-fg`(흰색) — LOCKED 규칙(order-confirm-dialog ③)
+          className="h-14 flex-1 rounded-[16px] bg-[var(--primary)] text-[17px] font-semibold text-[var(--destructive-fg)] disabled:opacity-40"
+        >
+          {confirmText}
+        </button>
+      </div>
+    </LcSheetShell>
+  );
+}
+
+export interface LcSheetShellProps {
+  open: boolean;
+  /** 반영 중 — Esc · 바깥 누름 · 닫힘 요청을 막는다(⑤). */
+  busy?: boolean;
+  /** `data-slot` — 콘텐츠(`numpad-sheet` · `lc-choice-sheet`)와 오버레이. */
+  slot: string;
+  overlaySlot: string;
+  title: string;
+  description: string;
+  /** 닫힌 뒤 포커스를 돌려줄 요소(연 행 · ③). */
+  returnFocusRef: { current: HTMLElement | null };
+  onClose: () => void;
+  onKeyDown?: (e: KeyboardEvent<HTMLDivElement>) => void;
+  children: ReactNode;
+}
+
+/**
+ * 상따 바텀시트 껍데기 — 키패드 시트(`NumberPadSheet`)와 3택 시트(`ChoiceRow` 폰 · Phase 27 D-02)가 **같은 껍데기**를 쓴다.
+ * 조립 · 폭 · 위치 · 포커스 · 등장 동작 규칙은 파일 상단 ①~③ · ⑤ 그대로다(둘이 되면 한쪽만 고쳐진다).
+ */
+export function LcSheetShell({
+  open,
+  busy = false,
+  slot,
+  overlaySlot,
+  title,
+  description,
+  returnFocusRef,
+  onClose,
+  onKeyDown,
+  children,
+}: LcSheetShellProps) {
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  return (
     <Dialog.Root
       open={open}
       onOpenChange={(o) => {
@@ -217,7 +384,7 @@ export function NumberPadSheet({
     >
       <Dialog.Portal>
         <Dialog.Overlay
-          data-slot="numpad-overlay"
+          data-slot={overlaySlot}
           className={cn(
             'fixed inset-0 z-50 bg-[var(--dim)]',
             'data-open:animate-in data-open:fade-in-0 data-open:duration-200',
@@ -227,7 +394,7 @@ export function NumberPadSheet({
         <Dialog.Content
           ref={contentRef}
           tabIndex={-1}
-          data-slot="numpad-sheet"
+          data-slot={slot}
           // Radix 는 모달을 형제 aria-hidden 으로만 표현한다 — 접근성 계약대로 명시한다.
           aria-modal="true"
           onOpenAutoFocus={(e) => {
@@ -265,132 +432,11 @@ export function NumberPadSheet({
           {/* 앱 셸: Content 마운트 수명 = 오버레이 열림(네이티브 탭바 숨김 · back) — 브라우저 no-op */}
           {/* 키보드 대체 입력 — 탭바를 150ms 대기·페이드 없이 즉시 숨긴다(D-12a'') */}
           <NativeOverlayMarker immediate />
-          <Dialog.Title className="mb-1 text-[20px] leading-tight font-bold text-[var(--fg)]">
-            {title}
-          </Dialog.Title>
+          <Dialog.Title className="mb-1 text-[20px] leading-tight font-bold text-[var(--fg)]">{title}</Dialog.Title>
           <Dialog.Description className="mb-[14px] text-[14px] text-[var(--muted-fg)]">
             {description}
           </Dialog.Description>
-
-          <div className="mb-[10px] flex items-baseline gap-1 rounded-[16px] bg-[var(--muted)] px-4 py-[14px]">
-            <output
-              data-slot="numpad-display"
-              aria-live="polite"
-              className="flex min-w-0 items-baseline gap-1 tabular-nums"
-            >
-              <span className="inline-flex min-h-8 items-baseline">
-                {/*
-                  기준선 받침(20-07 시각 확인) — 값이 비면(수동주문 상자 첫 열림 · ⌫ 로 다 지움) 값 슬롯에 줄
-                  상자가 없어 기준선이 사라지고, 단위 「원」이 캐럿 **위**로 떠올랐다. 같은 글자 크기의 폭 0
-                  글자(ZWSP)를 늘 두어 기준선을 고정한다. 값 슬롯 글자는 그대로 비어 있고(검증 계약) 낭독에서 뺀다.
-                */}
-                <span aria-hidden="true" className="text-[26px] leading-8 font-bold">
-                  {String.fromCharCode(0x200b)}
-                </span>
-                <span
-                  data-slot="numpad-value"
-                  data-fresh={fresh ? 'true' : 'false'}
-                  className={cn(
-                    'text-[26px] leading-8 font-bold text-[var(--fg)]',
-                    fresh && 'rounded-[4px] bg-[color-mix(in_srgb,var(--primary)_32%,transparent)]',
-                  )}
-                >
-                  {formatPadDisplay(pad)}
-                </span>
-                <span
-                  aria-hidden="true"
-                  className="ml-0.5 inline-block h-[26px] w-0.5 self-center bg-[var(--primary)] motion-safe:animate-[numpad-caret_1s_steps(1)_infinite]"
-                />
-              </span>
-              <span className="text-[18px] font-semibold text-[var(--fg-2)]">{unit}</span>
-            </output>
-            {serverValue !== null && serverValue !== undefined && (
-              <span
-                data-slot="numpad-server"
-                className="ml-auto shrink-0 text-[12.5px] whitespace-nowrap text-[var(--muted-fg)] tabular-nums"
-              >
-                {serverValueText !== undefined ? `지금 ${serverValueText}` : `지금 ${fmt(serverValue)}${unit}`}
-              </span>
-            )}
-          </div>
-
-          <p
-            data-slot="numpad-status"
-            className="-mt-1 mb-2 ml-0.5 min-h-4 text-[12.5px] leading-4 break-keep"
-          >
-            {line?.tone === 'alert' && (
-              <span role="alert" className="text-[var(--destructive)]">
-                {line.text}
-              </span>
-            )}
-            {line?.tone === 'warn' && (
-              <span role="status" data-tone="warn" className="text-[var(--destructive)]">
-                {line.text}
-              </span>
-            )}
-            {line?.tone === 'status' && (
-              <span role="status" className="text-[var(--muted-fg)]">
-                {line.armed && (
-                  <span
-                    aria-hidden="true"
-                    className="mr-1.5 inline-block size-1.5 rounded-full bg-[var(--led-armed)] align-middle"
-                  />
-                )}
-                {line.text}
-              </span>
-            )}
-          </p>
-
-          <div data-slot="numpad-chips" className="mb-3 flex flex-wrap gap-1.5">
-            {PAD_CHIPS[unit].map((c) => (
-              <button
-                key={c.label}
-                type="button"
-                aria-label={c.ariaLabel}
-                disabled={busy || padChipDisabled(c, ctx)}
-                onClick={() => setPad((s) => applyPadChip(s, c, ctx))}
-                className="h-8 touch-manipulation rounded-full bg-[var(--muted)] px-3 text-[13px] font-semibold text-[var(--fg-2)] disabled:opacity-40"
-              >
-                {c.label}
-              </button>
-            ))}
-          </div>
-
-          <div role="group" aria-label="숫자 키패드" className="mb-3 grid grid-cols-3 gap-0.5">
-            {KEYS.map(({ key, label }) => (
-              <button
-                key={key}
-                type="button"
-                aria-label={label}
-                disabled={busy}
-                onClick={() => press(key)}
-                className="flex h-14 touch-manipulation items-center justify-center rounded-[12px] bg-transparent text-[24px] font-medium text-[var(--fg)] active:bg-[var(--muted)] disabled:opacity-40"
-              >
-                {key === 'back' ? <Delete aria-hidden="true" className="size-6" /> : key}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onClose}
-              className="h-14 flex-1 rounded-[16px] bg-[var(--muted)] text-[17px] font-semibold text-[var(--fg-2)] disabled:opacity-40"
-            >
-              닫기
-            </button>
-            <button
-              type="button"
-              data-slot="numpad-confirm"
-              disabled={!canConfirm}
-              onClick={confirm}
-              // 채움 면 글자색은 `--destructive-fg`(흰색) — LOCKED 규칙(order-confirm-dialog ③)
-              className="h-14 flex-1 rounded-[16px] bg-[var(--primary)] text-[17px] font-semibold text-[var(--destructive-fg)] disabled:opacity-40"
-            >
-              {confirmText}
-            </button>
-          </div>
+          {children}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

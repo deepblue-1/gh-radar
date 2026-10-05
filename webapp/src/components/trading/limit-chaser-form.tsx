@@ -6,7 +6,8 @@
  * ① 무엇을 어디에
  *   무엇을 어떤 순서로 그리는지는 **`lc/lc-fields.ts` 한 곳**이 정한다(D-19) — 매수 쪽 =
  *   매수주문 공통 카드(주문가격 · 비교가격) → 선매수 → 추가매수 → 후매수(접이식 카드 3장 · Phase 24 ⑤) ·
- *   매도 쪽 = 매도주문 카드(주문가격 · 비교가격 · 매도비율 · 매수잔량 · 잔량추적 · 체결) → 매수취소(맨 아래). 행 모양은 `lc/setting-group.tsx` 의
+ *   매도 쪽 = 매도주문 카드(주문가격 · 비교가격 · 매도비율 · 매수잔량 · 잔량추적 · 체결) → 매수취소 → 자동매도(접이식 ·
+ *   Phase 27 D-01 — 시작조건 · 비율 · 방법 3택 · 누적/기준 읽기 전용). 행 모양은 `lc/setting-group.tsx` 의
  *   조각이다(값 행 · 체크 값 행 · 읽기 전용 행 · 그룹 카드 · 그룹 스위치). 이 파일은 그 둘을 **값·전송
  *   배선**으로 잇는다. 표시 판정(의미어 · 요약 줄 · 접근성 이름 · 흐림)도 `lc-fields.ts` 순수 함수다.
  *   ★ 세 그룹 카드의 접힘은 폼 인스턴스 `useState` 하나다(R1) — 저장하지 않고, 에코 · 탭 전환 · 밴드 변화에
@@ -123,6 +124,7 @@ import {
   LC_BUY_GROUPS,
   LC_SELL_GROUPS,
   LC_SWITCH_LABEL,
+  lcAutoSellBasisText,
   lcNavigableRows,
   lcRowA11yNameOf,
   lcRowByField,
@@ -143,6 +145,7 @@ import {
 import { NumberPadSheet } from '@/components/trading/lc/number-pad-sheet';
 import {
   CheckValueRow,
+  ChoiceRow,
   DerivedRow,
   formatSettingValue,
   GroupNote,
@@ -473,9 +476,9 @@ const SEND_FAILED_TEXT = {
   gate: '연결이 끊겨 켜기/끄기를 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.',
 } as const;
 
-/** 접이식 그룹 카드 slot(Phase 24 ⑤). */
-type FoldSlot = 'pre-buy' | 'extra-buy' | 'post-buy';
-const FOLD_SLOTS: ReadonlySet<string> = new Set<FoldSlot>(['pre-buy', 'extra-buy', 'post-buy']);
+/** 접이식 그룹 카드 slot(Phase 24 ⑤ · Phase 27 D-01 자동매도). */
+type FoldSlot = 'pre-buy' | 'extra-buy' | 'post-buy' | 'auto-sell';
+const FOLD_SLOTS: ReadonlySet<string> = new Set<FoldSlot>(['pre-buy', 'extra-buy', 'post-buy', 'auto-sell']);
 const isFoldSlot = (slot: string): slot is FoldSlot => FOLD_SLOTS.has(slot);
 /** 매수 쪽 카드 — 시트 「감시 중」 안내를 게이트 에코로 판정한다(D-05 · UI-SPEC §11 끝). */
 const BUY_SIDE_SLOTS: ReadonlySet<string> = new Set(['buy', 'pre-buy', 'extra-buy', 'post-buy']);
@@ -717,13 +720,14 @@ export function LimitChaserForm({
     ★ D-17 상장주식수 시딩 — 새 전략(서버 전략 없음)에서 **폼당 1회** 수량 5칸을 채운다(WinForms `SeedListSharesDefaults`).
       ① 서버에 그 키의 전략이 있으면 시딩하지 않는다(에코가 이긴다 · 가드 소진).
       ② `listShares === 0`(모름)이면 아무것도 하지 않아 가드가 남는다 — 뒤에 오는 프레임이 채운다(그동안 폴백 유지).
-      ③ 사용자가 이 폼에서 확정한 값 칸(`touchedRef` — 인라인 · 시트 확정 경로)은 덮지 않는다.
+      ③ 사용자가 이 폼에서 확정한 값 칸(`touchedRef` — 인라인 · 시트 · 3택 확정 경로)은 덮지 않는다.
+         3택(자동매도 방법 · Phase 27)도 같은 집합에 든다 — 27-07 84 시딩이 「손대지 않은 칸만」 을 같은 집합으로 판정한다.
       ④ **제출 · 로그(`onClientLog`) · 강조를 만들지 않는다** — `setForm` 한 번뿐이고, 값은 첫 등록 cfg 에 실린다.
   */
-  const touchedRef = useRef(new Set<LcNumField>());
+  const touchedRef = useRef(new Set<LcNumField | 'autoSellMethod'>());
   const seededRef = useRef(false);
   /** 사람이 이 폼에서 값을 확정했다 — 보내지 못한 확정(막힘 · 끊김)은 값이 바뀌지 않았으므로 세지 않는다. */
-  const markTouched = useCallback((field: LcNumField, outcome: string) => {
+  const markTouched = useCallback((field: LcNumField | 'autoSellMethod', outcome: string) => {
     if (outcome !== 'blocked' && outcome !== 'disconnected') touchedRef.current.add(field);
   }, []);
   useEffect(() => {
@@ -814,6 +818,17 @@ export function LimitChaserForm({
       const outcome = commitField(field, value, 'value');
       markTouched(field, outcome);
       if (outcome === 'noop' || outcome === 'local') setSheetField(null);
+    },
+    [commitField, markTouched],
+  );
+  /**
+   * 3택 행 선택(Phase 27 D-02 — 자동매도 방법) — 값 확정과 **같은 경로**다(`commit(field, v, 'value')` = `lc.set` 1회 ·
+   * 낙관 반영 없음 · 미등록이면 로컬 반영). 폰 시트는 `ChoiceRow` 가 스스로 닫는다.
+   */
+  const handleChoiceSelect = useCallback(
+    (field: 'autoSellMethod', value: number) => {
+      const outcome = commitField(field, value, 'value');
+      markTouched(field, outcome);
     },
     [commitField, markTouched],
   );
@@ -1243,6 +1258,7 @@ export function LimitChaserForm({
     'pre-buy': false,
     'extra-buy': false,
     'post-buy': false,
+    'auto-sell': false,
   });
   const toggleFold = useCallback((slot: FoldSlot) => {
     setExpanded((prev) => ({ ...prev, [slot]: !prev[slot] }));
@@ -1418,7 +1434,64 @@ export function LimitChaserForm({
           />
         );
       }
+      case 'choice': {
+        // Phase 27 D-02 — 자동매도 방법 3택(폰 시트 · 데스크톱 세그먼트). 값은 서버 값(낙관 반영 없음).
+        const f = lc.failures[row.field];
+        return (
+          <ChoiceRow
+            key={row.id}
+            id={row.id}
+            label={row.label}
+            value={form[row.field]}
+            options={row.options}
+            a11yName={`${group.title} ${row.label}`}
+            sheetTitle={`${group.title} ${row.label}`}
+            description={row.desc}
+            disabled={disabled}
+            dim={dim}
+            busy={isBusy(row.field)}
+            flash={lc.flashField === row.field}
+            failureText={
+              f === undefined ? null : f.reason === 'rejected' || f.reason === 'timeout' ? LC_COMMIT_TEXT.failed : f.text
+            }
+            onSelect={(v) => handleChoiceSelect(row.field, v)}
+          />
+        );
+      }
       case 'derived':
+        if (row.source === 'autoSellSoldQty') {
+          // 자동매도 누적 매도 — 0 「—」(sr 「없음」) · > 0 빨강(목업 `.v.hot` = `--up`). 펼침이면 늘 그린다.
+          return (
+            <DerivedRow
+              key="auto-sell-sold"
+              slot="lc-auto-sell-sold"
+              label={row.label}
+              value={server?.autoSellSoldQty ?? 0}
+              unit="주"
+              emphasis
+              valueText="—"
+              srText="없음"
+              dim={dim}
+            />
+          );
+        }
+        if (row.source === 'autoSellBasisPrice') {
+          // 자동매도 기준 — 「{상한가|매수가} N원」 · 상태 0 · 기준 0 이면 「—」(판정은 `lcAutoSellBasisText` 하나).
+          const basis = lcAutoSellBasisText(server);
+          return (
+            <DerivedRow
+              key="auto-sell-basis"
+              slot="lc-auto-sell-basis"
+              label={row.label}
+              value={basis === '—' ? 0 : (server?.autoSellBasisPrice ?? 0)}
+              unit="원"
+              display={basis}
+              valueText="—"
+              srText="없음"
+              dim={dim}
+            />
+          );
+        }
         if (row.source === 'postBuyTriggerQty') {
           // 후매수 발동잔량 — 펼침이면 단계 0 에서도 늘 그린다(「—」 · sr-only 「없음」 · UI-SPEC §6 · E5).
           // 발동잔량 0 · 해제선 > 0 이면 해제선 회색(gh-trade 259bc869 · quick-261002-fim).
@@ -1438,7 +1511,7 @@ export function LimitChaserForm({
             />
           );
         }
-        // S→C 전용 — 서버가 매도 진입을 래치한 뒤에만 존재한다(UI Considerations E1 partial).
+        // 잔량추적 기준선 — S→C 전용 · 서버가 매도 진입을 래치한 뒤에만 존재한다(UI Considerations E1 partial).
         return server?.sellEntryLatched ? (
           <DerivedRow key="derived" label={row.label} value={server.sellQtyTrackBaseline} unit="주" dim={dim} />
         ) : null;
@@ -1564,13 +1637,14 @@ export function LimitChaserForm({
   const sheetBusy = isBusy(sheetKey);
   /*
     D-05 「감시 중 — 적용하면 바로 반영돼요」 — 매수 쪽은 그 행 카드의 게이트 **에코**가 ON 이면(공통 카드 =
-    마스터, 그룹 카드 = 그 그룹 — 「보유중」「켜짐 · 켠 매수 없음」 포함). 매도 쪽은 기존 판정(상태 문구 「감시 중」).
+    마스터, 그룹 카드 = 그 그룹 — 「보유중」「켜짐 · 켠 매수 없음」 포함). 자동매도(Phase 27)도 게이트 에코 ON 이면 —
+    칩 낱말(대기 · 감시 …)은 「감시 중」 으로 시작하지 않는다. 매도주문 · 매수취소는 기존 판정(상태 문구 「감시 중」).
   */
   const sheetGroup = sheetRow?.group;
   const sheetArmed =
     sheetGroup === undefined
       ? false
-      : BUY_SIDE_SLOTS.has(sheetGroup.slot)
+      : BUY_SIDE_SLOTS.has(sheetGroup.slot) || sheetGroup.slot === 'auto-sell'
         ? sheetGroup.dimGate !== undefined && server?.[sheetGroup.dimGate] === true
         : (statusOf(sheetGroup.statusKey) ?? '').startsWith('감시 중');
   // 시트 「지금 ○○」 — 의미어를 행과 같은 함수에서 받는다. 에코 런타임(잔여)은 싣지 않는다 = 설정값(D-11).

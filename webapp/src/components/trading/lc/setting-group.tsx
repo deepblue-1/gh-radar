@@ -6,7 +6,7 @@
  * 20-01 이 `SettingRow`(「라벨 ─ 값 ›」 44px 값 행)와 `FailureBubble`(흐름 밖 실패 말풍선)을 만들었고,
  * 20-04 가 나머지를 더했다 — `SettingGroup`(그룹 카드) · `GroupSwitch`(그룹 스위치) ·
  * `CheckValueRow`(체크 값 행) · `DerivedRow`(읽기 전용 기준선 행). (감시대상 행 조각은 Phase 24 ⑤ 로
- * 지웠다 — 새 서버는 감시대상을 읽지 않는다.)
+ * 지웠다 — 새 서버는 감시대상을 읽지 않는다.) Phase 27 이 `ChoiceRow`(3택 행 — 자동매도 방법 · `/me` 방법 기본값)를 더했다.
  * 무엇을 어떤 순서로 그리는지는 이 파일이 아니라 `lc-fields.ts` 가 정한다.
  *
  * ★ 행 높이는 **언제나 44px** 다 (D-20 · D-14a). 편집 중인 행만 요소 종류가 `<button>` → `<div>`
@@ -25,6 +25,8 @@ import {
   useEffect,
   useId,
   useRef,
+  useState,
+  type KeyboardEvent,
   type ReactNode,
   type Ref,
   type RefObject,
@@ -33,7 +35,9 @@ import { Check } from 'lucide-react';
 import { Switch as SwitchPrimitive } from 'radix-ui';
 
 import type { LcGroupSpec } from '@/components/trading/lc/lc-fields';
+import { LcSheetShell } from '@/components/trading/lc/number-pad-sheet';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
+import { useEditMode } from '@/lib/use-edit-mode';
 import { cn } from '@/lib/utils';
 
 export type SettingUnit = '원' | '주' | '만원' | '%' | '건' | '회';
@@ -346,6 +350,12 @@ export interface SettingGroupProps {
    * `dim` 에 맡긴다 — 컨테이너와 행에 겹쳐 걸면 .45 × .45 = .2 가 된다(UI-SPEC §9).
    */
   dimRows?: boolean;
+  /**
+   * 그룹 꼬리 노드(Phase 27 D-05 — 자동매도 바로시작 · 중지 버튼 행 자리) — 펼친 본문의 **마지막 행 뒤에만** 그린다.
+   * 접힌 카드에서는 렌더하지 않는다(행 영역은 CSS 로 숨기지만 꼬리는 마운트조차 안 한다 — 접힌 채 누를 수 없게 ·
+   * 오터치 방지). 접기 없는 카드는 늘 그린다.
+   */
+  footer?: ReactNode;
   children: ReactNode;
 }
 
@@ -375,6 +385,7 @@ export function SettingGroup({
   fold,
   precheckText = null,
   dimRows = true,
+  footer,
   children,
 }: SettingGroupProps) {
   const dim = spec.dimWhenOff && on === false;
@@ -465,7 +476,10 @@ export function SettingGroup({
         data-slot="lc-group-rows"
         className={cn('min-w-0', dimRows && dim && 'opacity-45', collapsed && 'hidden')}
       >
-        <GroupTitleIdContext.Provider value={describedBy}>{children}</GroupTitleIdContext.Provider>
+        <GroupTitleIdContext.Provider value={describedBy}>
+          {children}
+          {footer != null && !collapsed ? <div data-slot="lc-group-footer">{footer}</div> : null}
+        </GroupTitleIdContext.Provider>
       </div>
     </section>
   );
@@ -475,11 +489,12 @@ export function SettingGroup({
  * 접힌 카드의 요약 줄(UI-SPEC §3 · 스케치 `.sumline`) — 순수 텍스트(버튼 아님 · 접기 트리거 아님).
  * kv 는 `nowrap` 이고 **kv 사이에서만** 줄바꿈한다. 꺼진 kv 는 값 글자만 `--muted-fg` 다.
  * `sr` 이 있는 kv 만 값 앞에 sr-only 접두를 둔다(후매수 잠금 해제선 · quick-261002-fim).
+ * `hot` kv 는 값 글자만 `--up`(자동매도 누적 > 0 · Phase 27 D-02 · 목업 `.kv.hot`).
  */
 export function GroupSummary({
   items,
 }: {
-  items: readonly { key: string; value: string; off: boolean; sr?: string }[];
+  items: readonly { key: string; value: string; off: boolean; sr?: string; hot?: boolean }[];
 }) {
   return (
     <div
@@ -490,7 +505,13 @@ export function GroupSummary({
         <span key={kv.key} className="whitespace-nowrap">
           <span className="mr-[3px] text-[12px] text-[var(--muted-fg)]">{kv.key}</span>
           {kv.sr ? <span className="sr-only">{`${kv.sr} `}</span> : null}
-          <span className={cn('font-medium tabular-nums', kv.off ? 'text-[var(--muted-fg)]' : 'text-[var(--fg-2)]')}>
+          <span
+            data-hot={kv.hot ? 'true' : undefined}
+            className={cn(
+              'font-medium tabular-nums',
+              kv.hot ? 'text-[var(--up)]' : kv.off ? 'text-[var(--muted-fg)]' : 'text-[var(--fg-2)]',
+            )}
+          >
             {kv.value}
           </span>
         </span>
@@ -816,6 +837,11 @@ export interface DerivedRowProps {
   mutedValue?: number;
   /** `mutedValue` 앞에 읽힐 sr-only 접두(「잠금 해제선」). */
   mutedSrText?: string;
+  /**
+   * 값이 있을 때 보일 글자 전체 — 주면 「{값}{단위}」 대신 이 글자다(자동매도 「기준 상한가 13,000원」 · Phase 27 D-02).
+   * 판정(「—」 여부 · 기준 낱말)은 호출부가 `lc-fields.ts` 순수 함수에서 받는다. 값 0 이면 `valueText` 로 떨어진다.
+   */
+  display?: string;
   /** `data-slot` — 기본 `lc-derived`(기준선 행). 발동잔량은 `lc-post-buy-trigger`. */
   slot?: string;
   /** 흐림(⑩) — 그룹 에코 OFF. */
@@ -823,8 +849,8 @@ export interface DerivedRowProps {
 }
 
 /**
- * 읽기 전용 파생 행 — 「잔량추적 기준선」 · 「발동잔량」(S→C 전용 · 서버 계산값이 정본). 버튼이 아니고
- * 쉐브런이 없고 탭 순서 밖이다.
+ * 읽기 전용 파생 행 — 「잔량추적 기준선」 · 「발동잔량」 · 자동매도 「누적 매도」 · 「기준」(S→C 전용 · 서버 계산값이
+ * 정본). 버튼이 아니고 쉐브런이 없고 탭 순서 밖이다. 누적 매도는 발동잔량과 같은 `emphasis`(`--up` = 목업 `.v.hot`).
  */
 export function DerivedRow({
   label,
@@ -835,6 +861,7 @@ export function DerivedRow({
   srText,
   mutedValue,
   mutedSrText,
+  display,
   slot = 'lc-derived',
   dim = false,
 }: DerivedRowProps) {
@@ -864,9 +891,225 @@ export function DerivedRow({
             emphasis ? 'font-semibold text-[var(--up)]' : 'font-medium text-[var(--fg-2)]',
           )}
         >
-          {formatSettingValue(value, unit)}
+          {display ?? formatSettingValue(value, unit)}
         </span>
       )}
     </div>
+  );
+}
+
+/* ───────────────────────── Phase 27 — 3택 행 ───────────────────────── */
+
+export interface ChoiceOption {
+  value: number;
+  label: string;
+}
+
+export interface ChoiceRowProps {
+  /** 행 식별자(`data-lc-field`) — 예 `lc-auto-sell-method`. */
+  id: string;
+  /** 보이는 라벨(「방법」). */
+  label: string;
+  /** 지금 값(서버 값 — 낙관 반영 없음). 옵션 밖(0 등)이면 「—」 · 선택 없음. */
+  value: number;
+  /** 화면 순서 그대로(「양쪽 / 매도1호가 / 매수1호가」 = 3 · 1 · 2). */
+  options: readonly ChoiceOption[];
+  /** 다른 옵션을 고른 순간 1회 — 같은 옵션은 부르지 않는다. 전송 · 확정은 호출부(`commit`) 몫이다. */
+  onSelect: (value: number) => void;
+  /** 접근성 이름(「자동매도 방법」) — 데스크톱 radiogroup 이름 · 폰 행 버튼 이름 접두. */
+  a11yName: string;
+  /** 폰 시트 제목 — 없으면 `a11yName`. */
+  sheetTitle?: string;
+  /** 폰 시트 설명 한 줄. */
+  description?: string;
+  disabled?: boolean;
+  /** 행 단위 흐림(⑩) — 조작 가능은 그대로. */
+  dim?: boolean;
+  /** 반영 중 — `aria-busy` · 값 흐림. */
+  busy?: boolean;
+  /** 확정 뒤 900ms 강조. */
+  flash?: boolean;
+  /** 실패 말풍선 문구(흐름 밖 — 행 높이 불변). */
+  failureText?: string | null;
+}
+
+/**
+ * 3택 행 「라벨 ─ 값」 (Phase 27 D-02 — 자동매도 방법 · 27-06 `/me` 「방법 기본값」이 재사용한다).
+ *
+ * ★ 폰/데스크톱 갈래는 값 행과 **같은 판정**이다 — `useEditMode()`(주 포인터 coarse = 시트 · 그 밖 = 인라인 · 폭 무관 ·
+ *   `lib/use-edit-mode.ts`). 새 미디어 질의를 두지 않는다.
+ *   - 데스크톱(인라인): 행 오른쪽 인라인 세그먼트(목업 `.mseg` — 높이 26 · 간격 2 · 트랙 `--muted` · 선택 면 `--seg-on-*` =
+ *     기존 세그먼트 토큰 · 방향색 아님). `role="radiogroup"` + `role="radio"` 버튼. 화살표는 **포커스만** 옮긴다 — 선택이
+ *     곧 전송이라 화살표 한 번마다 `lc.set` 이 나가지 않게 Enter/Space(클릭)로만 고른다.
+ *     ★ 폭 백스톱 — 「라벨 + 세그먼트」(≈235px)는 데스크톱 밴드(카드 ≥992 — 호가 460 | 옵션 두 열) 행에만 들어간다.
+ *       폰 · 컴팩트 · 와이드 밴드의 옵션 열 행은 ≈176~210px 라 넘친다(P24-7 685 2열 실측 +20px 넘침). 그래서 인라인
+ *       모드도 992 미만 카드에서는 아래 「라벨 ─ 값 ›」 행 + 시트로 그린다(두 갈래를 모두 마운트하고 기존 경계 992
+ *       컨테이너 쿼리로 하나만 보인다 — 새 경계 숫자 0 · 폭 판정은 CSS 몫 · `limit-chaser-form.tsx` 탭 숨김과 같은 규율).
+ *   - 폰(시트): 「라벨 ─ 값 ›」 44px 행(`SettingRow` 그대로) → 키패드와 같은 시트 껍데기(`LcSheetShell`)에 옵션 목록 ·
+ *     고르면 `onSelect` 1회 + 시트 닫힘 · 포커스는 연 행으로 돌아간다.
+ * ★ 실패 말풍선은 두 갈래를 감싼 상자 하나에 앵커한다 — 숨은 갈래에 앵커하면 말풍선이 0,0 에 뜬다.
+ * ★ 낙관 반영이 없다 — 선택 표시는 `value`(서버 값)만 따른다(Phase 20 D-06 「보인 값 = 서버 값」).
+ */
+export function ChoiceRow({
+  id,
+  label,
+  value,
+  options,
+  onSelect,
+  a11yName,
+  sheetTitle,
+  description = '',
+  disabled = false,
+  dim = false,
+  busy = false,
+  flash = false,
+  failureText = null,
+}: ChoiceRowProps) {
+  const mode = useEditMode();
+  const groupTitleId = useContext(GroupTitleIdContext);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const rowRef = useRef<HTMLElement | null>(null);
+  const segRef = useRef<HTMLDivElement>(null);
+  const current = options.find((o) => o.value === value);
+  const text = current?.label ?? '—';
+  const failed = failureText != null && failureText !== '';
+  const pick = (v: number) => {
+    if (v !== value) onSelect(v);
+  };
+
+  // 「라벨 ─ 값 ›」 행 — 시트 모드의 유일한 갈래 · 인라인 모드의 폰 밴드 갈래.
+  const sheetRow = (
+    <SettingRow
+      id={id}
+      label={label}
+      unit="%"
+      value={value}
+      valueText={text}
+      ariaName={current === undefined ? `${a11yName} 미입력` : `${a11yName} ${text}`}
+      disabled={disabled}
+      busy={busy}
+      flash={flash}
+      failed={failed}
+      editing={false}
+      hasPopup
+      dim={dim}
+      className={mode === 'inline' ? '@min-[992px]/lc:hidden' : undefined}
+      onActivate={(el) => {
+        if (busy) return;
+        rowRef.current = el;
+        setSheetOpen(true);
+      }}
+    />
+  );
+
+  // 데스크톱 — 화살표는 포커스만 옮긴다(선택 = 전송).
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft' && e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    const buttons = Array.from(segRef.current?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? []);
+    const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    if (at < 0) return;
+    e.preventDefault();
+    const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1;
+    buttons[(at + step + buttons.length) % buttons.length]?.focus();
+  };
+  const tabStop = current?.value ?? options[0]?.value;
+  const segmentRow =
+    mode === 'inline' ? (
+      <div data-lc-field={id} className={cn(ROW_BOX, 'hidden @min-[992px]/lc:flex', dim && DIM_SELF)}>
+        <span className={LABEL_TEXT}>{label}</span>
+        <div
+          ref={segRef}
+          role="radiogroup"
+          aria-label={a11yName}
+          aria-describedby={groupTitleId}
+          aria-busy={busy ? 'true' : undefined}
+          onKeyDown={onKeyDown}
+          className={cn(
+            'inline-flex flex-none items-center gap-0.5 rounded-[9px] bg-[var(--muted)] p-0.5',
+            busy && 'opacity-60',
+            failed && 'shadow-[inset_0_0_0_1.5px_var(--destructive)]',
+          )}
+        >
+          {options.map((o) => {
+            const on = o.value === value;
+            return (
+              <button
+                key={o.value}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                data-choice-value={o.value}
+                tabIndex={o.value === tabStop ? 0 : -1}
+                disabled={disabled}
+                onClick={() => pick(o.value)}
+                className={cn(
+                  'h-[26px] whitespace-nowrap rounded-[7px] px-[9px] text-[12.5px] font-semibold disabled:opacity-50',
+                  on
+                    ? cn(
+                        'bg-[var(--seg-on-bg)] shadow-[var(--seg-on-shadow)]',
+                        // 확정 뒤 900ms 강조(D-18) — 값 행의 값 글자와 같은 자리(선택된 값)에 건다.
+                        flash ? 'text-[var(--primary)]' : 'text-[var(--seg-on-fg)]',
+                      )
+                    : 'text-[var(--muted-fg)] pointer-fine:hover:text-[var(--fg-2)]',
+                )}
+              >
+                {o.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    ) : null;
+
+  return (
+    <>
+      <FailureBubble open={failed && !sheetOpen} text={failureText ?? ''}>
+        <div data-slot="lc-choice-row" className="min-w-0">
+          {sheetRow}
+          {segmentRow}
+        </div>
+      </FailureBubble>
+      <LcSheetShell
+        open={sheetOpen}
+        slot="lc-choice-sheet"
+        overlaySlot="lc-choice-overlay"
+        title={sheetTitle ?? a11yName}
+        description={description}
+        returnFocusRef={rowRef}
+        onClose={() => setSheetOpen(false)}
+      >
+        <div role="radiogroup" aria-label={sheetTitle ?? a11yName} className="mb-3 flex flex-col gap-1.5">
+          {options.map((o) => {
+            const on = o.value === value;
+            return (
+              <button
+                key={o.value}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                data-choice-value={o.value}
+                onClick={() => {
+                  pick(o.value);
+                  setSheetOpen(false);
+                }}
+                className={cn(
+                  'flex min-h-[52px] w-full items-center rounded-[14px] bg-[var(--muted)] px-4 text-left text-[16px] font-semibold text-[var(--fg)]',
+                  on && 'shadow-[inset_0_0_0_2px_var(--primary)]',
+                )}
+              >
+                {o.label}
+              </button>
+            );
+          })}
+        </div>
+        <button
+          type="button"
+          onClick={() => setSheetOpen(false)}
+          className="h-14 w-full rounded-[16px] bg-[var(--muted)] text-[17px] font-semibold text-[var(--fg-2)]"
+        >
+          닫기
+        </button>
+      </LcSheetShell>
+    </>
   );
 }
