@@ -5,10 +5,10 @@ current_phase: 28
 current_phase_name: 상한가 특징 연동 — gh-trade Phase 27 계약 반영
 status: verifying
 stopped_at: Completed 28-13-PLAN.md
-last_updated: "2026-10-05T12:12:36.886Z"
-last_activity: 2026-10-05
+last_updated: "2026-10-05T23:05:17.029Z"
+last_activity: 2026-10-06
 last_activity_desc: Phase 28 execution started
-state_head: 7015bdf3ce4818fc4dbdda26e05bfeeb25ebecd4
+state_head: 4e8973d783d4e83b780ba4ea31f4475741228c79
 progress:
   total_phases: 37
   completed_phases: 4
@@ -646,6 +646,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 63 | 작업대 e2e 알려진 적색 정리 — 헤더 종목명 말줄임 허용(wontfix 2026-10-01) · 종목추가 14px · buy3_schema 3 (e7c95ce7 · 69/69) | 2026-10-04 | 032519fc | — |
 | 64 | gh-trade 인박스 규약 — docs/inbox/from-gh-trade README · CLAUDE.md 규칙 | 2026-10-04 | 8c183e4b | — |
 | 65 | gh-trade 인박스 261005-tick-raw-archive-gcs 처리(fast) — radar-gw 호스트 공유 운영 제약을 docs/relay-operations.md 에 기록 · 질문 답 · 노트 done(aff21940) | 2026-10-05 | 552413c2 | — |
+| 68 | 사이드바 분석 그룹 활성 표시 — 하위 상한가 보고서·AI 애널리스트가 자기 경로에서 켜짐, 제목은 레일에서만 (4e8973d7) | 2026-10-05 | 4e8973d7 | — |
 
 ## Session Continuity
 
