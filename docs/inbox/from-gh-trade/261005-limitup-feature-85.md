@@ -184,7 +184,7 @@ done_commit:
 - 실측 크기(20261002): 29파일 합계 약 2.5MB, 가장 큰 파일 약 376KB(gzip). 4일 export 전체 15MB.
 
 **`manifest.json`** — `{schema_version, date, finished_at(119 로컬 시각 ISO, 시간대 표기 없음 = KST), files:[{name, rows, sha256}], detect_rate_pct, label_horizon_s, grid_coarse_s, fine_margin_min}`.
-`rows` 는 ndjson 행 수, grid 는 점 수(coarse + fine). 탐지 종목 0 인 날도 빈 표 6개 + manifest(행 수 0)가 온다 — 「행 없는 날」 을 알 수 있다.
+`rows` 는 ndjson 행 수, grid 는 점 수(coarse + fine). 탐지 종목 0 인 날(주말 시험 송출·평일 휴장일)은 **export 디렉터리 자체가 없다**(gh-trade 1105548d, 2026-10-05 결정 — 옛 「빈 표 + manifest」 규칙 폐기). 날짜가 비면 「그날 대상 없음 또는 휴장」 으로 본다.
 실데이터 예(20261002): entries 29 · locks 12 · jumps 9,231 · member_alloc 62,209 · facts 169 · touches 31 · grid 29파일.
 
 **멱등·완료 규칙:** 119 는 `<D>.tmp/` 에 전부 쓰고 manifest 를 `.part` → rename 으로 놓은 뒤 기존 `<D>` 를 지우고 `<D>.tmp` → `<D>` 로 rename 한다.
