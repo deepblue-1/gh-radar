@@ -406,6 +406,14 @@ function useUserSettingsSave(
 
   /* ── 54 — 비행 중 SetUserSettings 거부만 ────────────────────────────── */
   // 마운트 시점의 목록은 이미 본 것으로 둔다(그 전의 거부가 다음 비행에 붙지 않게).
+  /*
+    ⚠️ 알려진 한계(27-REVIEW IN-03) — **다른 탭의 거부가 이 탭의 진행 중 행에 붙을 수 있다.**
+      54 `SetUserSettings` 는 isin · 계좌가 비어 있고 요청 상관값도 없다. relay 는 같은 사용자의 모든 탭으로
+      팬아웃하므로, 두 탭이 3초 창 안에 거의 동시에 42 를 보내면 한쪽의 거부 원문이 다른 쪽 비행 행에 선다.
+      비행 창 밖 거부는 위 `inflight === null` 가드가 막지만 창 안은 가를 근거가 와이어에 없다.
+      영향은 표시뿐이다 — 재전송이 없고, 그 행 값이 실제로 저장됐다면 다음 84 가 「시도한 값」 판정(WR-05)으로
+      행 실패를 거둔다(섹션 아래 거부 원문 줄은 다음 전송까지 남는다). 고치려면 42 에 요청 id 를 싣고 서버가 54 에 되돌려야 한다(gh-trade 계약 변경).
+  */
   const lastMsgRef = useRef<RelayServerMessageEntry | null>(messages[0] ?? null);
   useEffect(() => {
     if (messages.length === 0) return;
