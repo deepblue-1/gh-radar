@@ -30,9 +30,11 @@ import { cn } from '@/lib/utils';
  *   상한가 선 `--border-subtle` · 탐지율 선 · 기준 10억 선 `--led-latent` · 직전 1분 창 면 `--accent`(캡션 `--accent-fg` —
  *   매수/매도 관례색과 구분되는 파란 면, D-04 사용자 결정) · 마커 점 탐지 `--led-latent` · 깨짐 `--up` · 그 밖 `--fg` ·
  *   번호 원 강조 `--fg` 바탕(글자 `--card`) · 비강조 `--card` 바탕 + `--muted-fg` 테두리 · 큰 매도 ▼ `--down` · 취소 ✕ `--muted-fg` ·
- *   매도벽 소진 점 `--fg`. 초록 상태 토큰 0 · 등장 애니메이션 없음.
+ *   매도벽 소진 점 `--fg` · 미잠김 단일가 면 `--border-subtle`(캡션 `--muted-fg` — 잠김 음영 `--muted` 와 다른 중립 회색 ·
+ *   quick-261005-x9o). 초록 상태 토큰 0 · 등장 애니메이션 없음.
  * - 선 라벨: 상한가 · 기준 10억 = 오른쪽 위(선 위 · 오른쪽 정렬) · 탐지율 = 왼쪽 아래(선 아래 · 왼쪽 정렬). 창 캡션 =
- *   음영 왼쪽 아래(오른쪽 끝을 넘으면 오른쪽 정렬로 당긴다).
+ *   음영 왼쪽 아래(오른쪽 끝을 넘으면 오른쪽 정렬로 당긴다) · 단일가 캡션 = 회색 면 왼쪽 아래(창 캡션과 가로로 겹치면 왼쪽 위) —
+ *   면 px 폭이 캡션보다 좁으면 그리지 않는다(SVG 요약 aria 「단일가 …」 에는 남는다).
  */
 
 const TONE_BG: Record<LimitupEventTone, string> = {
@@ -177,6 +179,20 @@ export function LimitupLane({
     [lane, w],
   );
 
+  // 미잠김 단일가 캡션 — 회색 면 왼쪽 아래(단일가 동안 잔량이 쌓여 곡선은 위쪽에 있다) · 같은 줄의 창 캡션과 가로로
+  // 겹치면 왼쪽 위로 올린다 · 면이 캡션보다 좁으면 생략(요약 aria 에는 남는다).
+  const auctionCaptions = useMemo(() => {
+    if (lane.kind !== 'lock') return [];
+    return lane.auctions.flatMap((a, i) => {
+      const cw = estimateLabelWidth(a.caption) + 4; // px-0.5 좌우 여백
+      if ((a.w / 100) * w < cw) return [];
+      let left = (a.x / 100) * w + 3;
+      if (left + cw > w) left = Math.max(0, w - cw);
+      const clash = captions.some((c) => left < c.left + c.cw + 4 && c.left < left + cw + 4);
+      return [{ ...a, left, i, pos: clash ? ({ top: 2 } as const) : ({ bottom: 2 } as const) }];
+    });
+  }, [lane, w, captions]);
+
   const enter = (n: number) => () => onHl?.(n);
   const leave = () => onHl?.(null);
 
@@ -278,6 +294,18 @@ export function LimitupLane({
             className="absolute inset-0 block h-full w-full overflow-visible"
           >
             {lane.kind === 'lock' &&
+              lane.auctions.map((s, i) => (
+                <rect
+                  key={`a${i}`}
+                  data-slot="limitup-auction"
+                  x={s.x}
+                  y={0}
+                  width={s.w}
+                  height={100}
+                  fill="var(--border-subtle)"
+                />
+              ))}
+            {lane.kind === 'lock' &&
               lane.shades.map((s, i) => (
                 <rect key={`s${i}`} x={s.x} y={0} width={s.w} height={100} fill="var(--muted)" />
               ))}
@@ -337,6 +365,16 @@ export function LimitupLane({
                 data-label={`window-${i}`}
                 style={{ left: c.left, bottom: 2 }}
                 className="absolute rounded-[2px] bg-[color-mix(in_oklab,var(--card)_78%,transparent)] px-0.5 text-[11px] leading-[14px] whitespace-nowrap text-[var(--accent-fg)]"
+              >
+                {c.caption}
+              </span>
+            ))}
+            {auctionCaptions.map((c) => (
+              <span
+                key={`a${c.i}`}
+                data-label={`auction-${c.i}`}
+                style={{ left: c.left, ...c.pos }}
+                className="absolute rounded-[2px] bg-[color-mix(in_oklab,var(--card)_78%,transparent)] px-0.5 text-[11px] leading-[14px] whitespace-nowrap text-[var(--muted-fg)]"
               >
                 {c.caption}
               </span>

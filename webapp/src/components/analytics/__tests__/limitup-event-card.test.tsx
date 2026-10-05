@@ -240,7 +240,9 @@ describe('LimitupEventCard — 격자 로드 · 레인', () => {
     renderCard(DUKWOO);
     const c = card(DUKWOO);
     await waitFor(() => expect(c.querySelectorAll('svg')).toHaveLength(2));
-    const lock = screen.getByRole('img', { name: '덕우전자 잠김 구간 잔량 — 최대 27.5억 09:06:02, 깨짐 09:06:12' });
+    const lock = screen.getByRole('img', {
+      name: '덕우전자 잠김 구간 잔량 — 최대 27.5억 09:06:02, 깨짐 09:06:12, 단일가 09:04:01~09:06:01',
+    });
     const entry = screen.getByRole('img', {
       name: /^덕우전자 상한가 도달까지 09:00~09:07 가격 · 매도벽 — 첫 상한가 체결 09:06:01$/,
     });
@@ -263,7 +265,10 @@ describe('LimitupEventCard — 격자 로드 · 레인', () => {
 
     const lockLane = lock.closest<HTMLElement>('[data-slot="limitup-lane"]')!;
     const lockLabels = [...lockLane.querySelectorAll('[data-label]')].map((l) => l.textContent);
-    expect(lockLabels).toEqual(expect.arrayContaining(['기준 10억', '깨짐 직전 1분']));
+    expect(lockLabels).toEqual(expect.arrayContaining(['기준 10억', '깨짐 직전 1분', '단일가']));
+    // 미잠김 단일가 캡션(quick-261005-x9o) — jsdom 폴백 폭 640 에서 회색 면 ≈ 400px 라 그려진다
+    expect(lockLane.querySelector('[data-label="auction-0"]')?.textContent).toBe('단일가');
+    expect(lockLane.querySelector<HTMLElement>('[data-label="auction-0"]')!.className).toContain('text-[var(--muted-fg)]');
     const overlay = lockLane.querySelector('[data-slot="limitup-lane-overlay"]')!;
     expect(overlay.getAttribute('aria-hidden')).toBe('true');
     // ▼ · ✕ 는 글자 없이 title 만 · 번호 마커 ④~⑨
@@ -319,6 +324,8 @@ describe('LimitupEventCard — 격자 로드 · 레인', () => {
       expect(svg.querySelectorAll('text, tspan, foreignObject')).toHaveLength(0);
     }
     expect(c.querySelectorAll('rect[data-slot="limitup-window"][fill="var(--accent)"]')).toHaveLength(2);
+    // 미잠김 단일가 회색 면 — 잠김 음영(--muted)과 다른 --border-subtle · 덕우전자 레인 2 에 1개(quick-261005-x9o)
+    expect(c.querySelectorAll('rect[data-slot="limitup-auction"][fill="var(--border-subtle)"]')).toHaveLength(1);
     const pt = (n: string) => c.querySelector(`[data-slot="limitup-point"][data-event-n="${n}"]`)!.className;
     expect(pt('1')).toContain('bg-[var(--led-latent)]');
     expect(pt('9')).toContain('bg-[var(--up)]');

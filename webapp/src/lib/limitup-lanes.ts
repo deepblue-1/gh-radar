@@ -131,26 +131,66 @@ function num(v: number | boolean | null | undefined): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }
 
+/** 격자 한 칸 — 그 초가 든 표(fine 창 또는 coarse)의 열들과 행 번호. 어느 열이든 같은 칸에서 읽는다. */
+interface GridCell {
+  sec: number;
+  cols: Partial<LimitupGridFile['coarse']['cols']>;
+  i: number;
+}
+
 /**
- * 격자 열 `col` 의 [loSec, hiSec] 점들 — fine(1초) 창 안은 fine, 그 밖은 coarse(10초)로 보충한다. sec 오름차순 · null 보존
- * (곡선을 끊는 자리). gh-trade `grid_fine_of` 와 같은 우선순위.
+ * [loSec, hiSec] 칸들 — fine(1초) 창 안은 fine, 그 밖은 coarse(10초)로 보충한다. sec 오름차순.
+ * gh-trade `grid_fine_of` 와 같은 우선순위. 열 값은 원값(숫자 · boolean · null) 그대로 둔다.
  */
-export function gridSeries(grid: LimitupGridFile, loSec: number, hiSec: number, col: LimitupGridCol): GridPoint[] {
-  const out: GridPoint[] = [];
+function gridCells(grid: LimitupGridFile, loSec: number, hiSec: number): GridCell[] {
+  const out: GridCell[] = [];
   const windows = grid.fine?.windows ?? [];
   for (const w of windows) {
-    const vals = w.cols[col] ?? [];
     w.sec.forEach((s, i) => {
-      if (s >= loSec && s <= hiSec) out.push({ sec: s, v: num(vals[i]) });
+      if (s >= loSec && s <= hiSec) out.push({ sec: s, cols: w.cols, i });
     });
   }
-  const cVals = grid.coarse.cols[col] ?? [];
   grid.coarse.sec.forEach((s, i) => {
     if (s < loSec || s > hiSec) return;
     if (windows.some((w) => s >= w.from_sec && s <= w.to_sec)) return;
-    out.push({ sec: s, v: num(cVals[i]) });
+    out.push({ sec: s, cols: grid.coarse.cols, i });
   });
   return out.sort((a, b) => a.sec - b.sec);
+}
+
+/**
+ * 격자 열 `col` 의 [loSec, hiSec] 점들 — `gridCells` 걷기(fine 우선 · coarse 보충) 위에 숫자만 남긴다. sec 오름차순 ·
+ * null 보존(곡선을 끊는 자리). boolean 열(`auction`)은 null 이 되므로 `auctionSpansOf` 가 원값으로 따로 읽는다.
+ */
+export function gridSeries(grid: LimitupGridFile, loSec: number, hiSec: number, col: LimitupGridCol): GridPoint[] {
+  return gridCells(grid, loSec, hiSec).map((c) => ({ sec: c.sec, v: num(c.cols[col]?.[c.i]) }));
+}
+
+/**
+ * 미잠김 단일가 구간(초) — `auction === true` 이고 `lock_state === 0` 인 연속 칸(VI · 장 마감 단일가 포함).
+ * 잠김 중 단일가(`lock_state` 1)는 잠김 음영이 이미 덮으므로 뺀다. 칸 집합은 `gridSeries` 와 같다(fine 우선 · coarse 보충).
+ * 구간 끝 b = 구간 뒤 첫 비해당 칸의 sec(상태는 다음 표본까지 유지) · 끝까지 이어지면 hiSec. auction 이 숫자/null 이거나
+ * lock_state 가 1 · 2 · null 이면 비해당(quick-261005-x9o).
+ * ★ 목록 스파크라인에는 칠하지 않는다 — grid_summary 에 auction · lock_state 열이 없고, 행마다 격자 파일을 받으면
+ *   「격자 파일은 연 행만」 계약이 깨진다. 그래서 펼친 카드 레인 2 「잠김 구간」 에만 칠한다.
+ */
+export function auctionSpansOf(
+  grid: LimitupGridFile,
+  loSec: number,
+  hiSec: number,
+): { a: number; b: number }[] {
+  const out: { a: number; b: number }[] = [];
+  let a: number | null = null;
+  for (const c of gridCells(grid, loSec, hiSec)) {
+    const hit = c.cols.auction?.[c.i] === true && c.cols.lock_state?.[c.i] === 0;
+    if (hit && a === null) a = c.sec;
+    else if (!hit && a !== null) {
+      out.push({ a, b: c.sec });
+      a = null;
+    }
+  }
+  if (a !== null) out.push({ a, b: hiSec });
+  return out;
 }
 
 /** 그 초(없으면 직전 점)의 값 — 마커 높이(gh-trade `_y_at`). */
@@ -730,12 +770,14 @@ export interface LaneLock {
   shades: LaneShade[];
   /** 깨짐 직전 1분 파란 면. */
   windows: LaneWindowShade[];
+  /** 미잠김 단일가 회색 면(caption 「단일가」 — `auctionSpansOf`). */
+  auctions: LaneWindowShade[];
   lines: LaneLine[];
   /** ▼ 큰 매도 · ✕ 취소 맥락 글리프(title 만). */
   marks: LaneMark[];
   points: LanePoint[];
   ticks: LaneTick[];
-  /** 「최대 17.3억 13:57:47, 깨짐 14:40:07」 — SVG aria-label 의 요약 조각. */
+  /** 「최대 17.3억 13:57:47, 깨짐 14:40:07, 단일가 09:04:01~09:06:01」 — SVG aria-label 의 요약 조각. */
   summary: string;
 }
 
@@ -820,9 +862,18 @@ export function laneLockOf(
     points.push({ n: e.n, x: x(s), y: clamp(y(v ?? 0)), emph: e.emph, tone: e.tone, bandLabel: e.bandLabel });
   }
 
+  // 미잠김 단일가 — 회색 면 · 캡션은 aria-hidden/SVG 라 요약 끝 「단일가 HH:MM:SS~HH:MM:SS」 가 대체 텍스트다.
+  const spans = auctionSpansOf(grid, lo, hi);
+  const auctions: LaneWindowShade[] = spans.map(({ a, b }) => ({
+    x: x(a),
+    w: r2(Math.max(x(b) - x(a), 0.2)),
+    caption: '단일가',
+  }));
+
   const summary = [
     max !== null ? `최대 ${formatEok(max.v!)} ${clockSec(max.sec)}` : '최대 —',
     ...breakClocks.map((t) => `깨짐 ${t}`),
+    ...spans.map(({ a, b }) => `단일가 ${clockSec(a)}~${clockSec(b)}`),
   ].join(', ');
 
   return {
@@ -833,6 +884,7 @@ export function laneLockOf(
     path: pathOf(q, x, y),
     shades,
     windows,
+    auctions,
     lines: [{ kind: 'base', y: y(LANE_BASELINE_KRW), label: '기준 10억', place: 'right-above' }],
     marks: out,
     points,

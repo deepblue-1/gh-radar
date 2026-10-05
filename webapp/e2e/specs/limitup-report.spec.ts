@@ -208,8 +208,13 @@ test.describe('Phase 28 Plan 13 — 상한가 보고서 (로컬 relay)', () => {
     expect(await lockMaxHead.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
 
     // (f) 그 카드의 레인 2 SVG(gzip 해제) · grid-urls 는 그 날짜 1회 · 격자 파일은 연 행만(형지글로벌 없음 · 같은 격자 두 번 안 받음).
-    const lockSvg = cardOf(page, DUKWOO).getByRole('img', { name: /^덕우전자 잠김 구간 잔량 — 최대 27\.5억 09:06:02, 깨짐 09:06:12$/ });
+    const lockSvg = cardOf(page, DUKWOO).getByRole('img', {
+      name: /^덕우전자 잠김 구간 잔량 — 최대 27\.5억 09:06:02, 깨짐 09:06:12, 단일가 09:04:01~09:06:01$/,
+    });
     await expect(lockSvg).toBeVisible({ timeout: 15_000 });
+    // 미잠김 단일가 회색 면 1개 · 캡션 「단일가」(quick-261005-x9o)
+    await expect(cardOf(page, DUKWOO).locator('rect[data-slot="limitup-auction"]')).toHaveCount(1);
+    await expect(cardOf(page, DUKWOO).locator('[data-label="auction-0"]')).toHaveText('단일가');
     await expect(cardOf(page, DUKWOO).getByRole('img', { name: /^덕우전자 상한가 도달까지 / })).toBeVisible();
 
     // (f') 스케치 011 A — 한 줄 요약 · 레인 띠 번호 배지 ≥ 3 · 사실 문장은 시각 접두 없이 시작 · 번호 ↔ 사실 줄 호버 강조.

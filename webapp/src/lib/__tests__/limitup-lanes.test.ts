@@ -7,6 +7,8 @@ import type { LimitupFactRow, LimitupGridCol, LimitupGridFile, LimitupMarkRow } 
  *
  * 잠그는 것:
  *  - gridSeries: fine 우선 · coarse 보충 · sec 오름차순 · null 보존
+ *  - quick-261005-x9o: auctionSpansOf 미잠김 단일가 구간(auction === true ∧ lock_state === 0 · 다음 표본까지 유지) ·
+ *    laneLockOf 회색 면 · 요약 「단일가 HH:MM:SS~HH:MM:SS」
  *  - quick-261005-vk1 D-04(스케치 011 A): eventsOf 번호 · 짧은 라벨 · 창 사실 · 표시 문장(시각 접두 제거 · 창구 머리 교체) ·
  *    storyOf 한 줄 요약 · memberWindowsOf 직전 1분 창 · layoutEventBand 라벨 띠 · 서식 도우미
  *  - laneEntryOf: 창 [a − 600, a + 60] ∩ 장중 · 상한가 선 + 탐지율 선만(25% 없음) · 번호 마커 · 직전 1분 파란 면 · 매도벽 소진
@@ -17,6 +19,7 @@ import type { LimitupFactRow, LimitupGridCol, LimitupGridFile, LimitupMarkRow } 
 
 import {
   EVENT_BAND_MAX_ROWS,
+  auctionSpansOf,
   estimateLabelWidth,
   eventsOf,
   fingerprintRowsOf,
@@ -110,6 +113,66 @@ describe('gridSeries — fine 우선 · coarse 보충', () => {
   it('창 밖 점은 없다 · 요청이 fine 창과 겹치지 않으면 coarse 만', () => {
     const pts = gridSeries(synthGrid(50_000, 50_100), 34_000, 34_050, 'last_px');
     expect(pts.map((p) => p.sec)).toEqual([34_000, 34_010, 34_020, 34_030, 34_040, 34_050]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// auctionSpansOf
+// ---------------------------------------------------------------------------
+
+describe('auctionSpansOf — 미잠김 단일가 구간(auction === true ∧ lock_state === 0)', () => {
+  /** coarse · fine 의 auction(boolean) · lock_state 열을 sec → 값 함수로 덮어쓴다. */
+  function withAuction(
+    g: LimitupGridFile,
+    auction: (s: number, fine: boolean) => boolean | number | null,
+    lockState: (s: number, fine: boolean) => number | null,
+  ): LimitupGridFile {
+    g.coarse.cols.auction = g.coarse.sec.map((s) => auction(s, false));
+    g.coarse.cols.lock_state = g.coarse.sec.map((s) => lockState(s, false));
+    for (const w of g.fine.windows) {
+      w.cols.auction = w.sec.map((s) => auction(s, true));
+      w.cols.lock_state = w.sec.map((s) => lockState(s, true));
+    }
+    return g;
+  }
+
+  it('[F, T, T, T(잠김), F, T(끝)] → 구간 2개 · b = 첫 비해당 칸 sec · 끝까지 이어지면 hi', () => {
+    const pat: Record<number, [boolean, number]> = {
+      34_000: [false, 0],
+      34_010: [true, 0],
+      34_020: [true, 0],
+      34_030: [true, 1],
+      34_040: [false, 0],
+      34_050: [true, 0],
+    };
+    const g = withAuction(
+      synthGrid(50_000, 50_100),
+      (s) => pat[s]?.[0] ?? false,
+      (s) => pat[s]?.[1] ?? 0,
+    );
+    expect(auctionSpansOf(g, 34_000, 34_055)).toEqual([
+      { a: 34_010, b: 34_030 },
+      { a: 34_050, b: 34_055 },
+    ]);
+  });
+
+  it('fine 창 우선 — coarse 는 아니어도 fine 이 단일가면 구간 · 창 뒤 첫 coarse 칸에서 끝난다', () => {
+    const g = withAuction(
+      synthGrid(34_500, 34_600),
+      (_, fine) => fine,
+      () => 0,
+    );
+    expect(auctionSpansOf(g, 34_400, 34_700)).toEqual([{ a: 34_500, b: 34_610 }]);
+  });
+
+  it('auction 이 숫자/null 이거나 lock_state 가 1 · 2 · null 이면 비해당 · synthGrid 기본(숫자 채움) → 0개', () => {
+    expect(auctionSpansOf(synthGrid(34_500, 34_600), 34_000, 35_000)).toEqual([]);
+    const g = withAuction(
+      synthGrid(50_000, 50_100),
+      (s) => (s === 34_010 ? 1 : s === 34_020 ? null : true),
+      (s) => (s === 34_030 ? 2 : s === 34_040 ? null : 1),
+    );
+    expect(auctionSpansOf(g, 34_000, 34_050)).toEqual([]);
   });
 });
 
@@ -230,7 +293,7 @@ describe('laneLockOf — 잠김 구간(창 [첫 start − 120, 마지막 end + 6
     }
 
     expect(lane.windows.map((w) => w.caption)).toEqual(['깨짐 직전 1분']);
-    expect(lane.summary).toBe('최대 27.5억 09:06:02, 깨짐 09:06:12');
+    expect(lane.summary).toBe('최대 27.5억 09:06:02, 깨짐 09:06:12, 단일가 09:04:01~09:06:01');
     expect(lane.path.startsWith('M')).toBe(true);
     for (const m of [...lane.marks, ...lane.points]) expect(inRange(m.x) && inRange(m.y)).toBe(true);
   });
@@ -248,6 +311,22 @@ describe('laneLockOf — 잠김 구간(창 [첫 start − 120, 마지막 end + 6
     expect(qmax.y).toBeGreaterThan(0);
     expect(lane.windows).toHaveLength(0);
     expect(lane.summary.startsWith('최대 ')).toBe(true);
+  });
+
+  it('덕우전자 — 미잠김 단일가 회색 면 1개(창 시작에서 잘림 · 잠김 시작과 맞닿음) · 캡션 「단일가」', () => {
+    const lane = laneLockOf(gridOf(DUKWOO), locksOf(DUKWOO), marksOf(DUKWOO), evOf(DUKWOO))!;
+    expect(lane.auctions).toHaveLength(1);
+    const a = lane.auctions[0]!;
+    expect(a.caption).toBe('단일가');
+    expect(a.x).toBe(0);
+    expect(a.x + a.w).toBeCloseTo(lane.shades[0]!.x, 1);
+    expect(lane.summary.endsWith(', 단일가 09:04:01~09:06:01')).toBe(true);
+  });
+
+  it('엑시온그룹 — 회색 면 0개(15:20 종가 단일가는 잠김 중 · lock_state 1) · 요약에 「단일가」 없음', () => {
+    const lane = laneLockOf(gridOf(AXION), locksOf(AXION), marksOf(AXION), evOf(AXION))!;
+    expect(lane.auctions).toHaveLength(0);
+    expect(lane.summary).not.toContain('단일가');
   });
 
   it('y 축 상한은 q_max 사실 krw 를 포함한다', () => {
