@@ -37,15 +37,30 @@
  *         주 게이트웨이 결선 줄은 그대로다. 추가 게이트웨이가 없으면 신원 조회 자체가 없다.
  *   D-22  `RELAY_ORDER_SECRET` 은 그대로 required 다. `/healthz` 외의 모든 경로가
  *         비밀 없이는 404 조차 받지 못해야 한다 — 경로 존재 여부도 정보다.
+ *   Phase 29 D-09 (29-03)  **결선 = 서버 레지스트리 순회.** 게이트웨이 서버 목록은 `ServerRegistry` 한 원천이다(env 모드 =
+ *         config 합성 1~2행 · db 모드 = `dma_servers` — production 전용, config 게이트). 부팅은 **top-level
+ *         await 로 `registry.ready()`**(첫 적재)를 기다린다 — db 첫 적재가 성공하기 전에는 리스너 · 관찰자 · quote · 사용자
+ *         세션을 하나도 열지 않는다(fail closed — 어느 서버에 붙을지 모르는 채로 붙지 않는다. `/healthz` 가 없으니 uptime 이
+ *         울린다). 적재 뒤 `ServerPipelines.sync(registry.enabled())` 가 enabled 서버마다 관찰자 한 벌을 세우고, 레지스트리
+ *         `changed`(60초 재적재 · `reload()`)마다 다시 sync 한다 — 서버 추가 · 삭제 · 끄기 · 주소 변경이 재배포 없이 반영된다.
+ *           - 사용자 세션 = **KB 주문 서버**(`SessionManager.resolveTarget` — 세션을 만들 때마다 고른다).
+ *           - quote 연결 = **시세 주 서버**(부팅 때 고정 · 비밀은 그 증권사 `quoteSecretOf`).
+ *           - 브라우저 `journal.state` · 주 매핑 라우팅 = **부팅 때의 KB 주문 서버** 키의 파이프라인(재생성되면 새 벌로 이어진다).
+ *           - `/healthz` `journal` = KB 주문 서버 저널(503 축) · `journalGateways.<서버 키>` = 그 밖 enabled 서버(본문 전용) ·
+ *             `brokers.{KB,KYOBO}` = 증권사별 주문 서버 저널 `{ server, alerting }`(uptime 고정 JSONPath — Pitfall 3).
+ *         이 플랜이 **남긴 것**(뒤 플랜 몫): 추가 서버 푸시 신원은 지금처럼 `GatewayIdentities.viewOf(key)`(부팅 때 레지스트리
+ *         키 · 29-06 이 `AppAccess` 로 교체 — 그 사이 새로 추가된 키는 신원 없음 = 푸시 없음, fail closed) · 사용자 세션은 KB 주문
+ *         서버 하나(29-16 · 29-20 이 (유저, 서버) 로) · 런타임에 KB 주문 서버가 바뀌어도 브라우저 `journal.state` 원천은 부팅 때의
+ *         KB 주문 서버 파이프라인(29-22) · quote 는 부팅 때 시세 주 서버에 고정(29-23 이 전환).
  *
  * 종료 절차 (SC-8) — `process.exit(0)` 전에 반드시 이 순서다:
  *   1. HTTP 서버 2개 `close()`  — 새 연결을 받지 않는다
  *   2. `fanout.closeAll(1001)`  — 살아 있는 wss 에 정상 close 프레임(going away)
  *   3. `sessionManager.closeAll()` — 구독 해제 + DMA TCP 종료
- *   4. quote 연결 `stop` · 전 게이트웨이 `observer.stop()` — 관찰자 연결 종료(새 시세 프레임 · 새 배치를 받지 않는다 —
- *      Phase 19 D-13 · Phase 26). quote 연결의 로그인 타이머 · 재접속 백오프도 여기서 멈춘다.
- *   5. 전 게이트웨이 `writer` · `strategyWriter` `drain(2초)` **병렬** → 전 기록기 · `access` · `status` · quote 상태 ·
- *      신원 적재기 `close()`
+ *   4. 레지스트리 `close()`(재적재 중지) · quote 연결 `stop` · `pipelines.stopAll()` — 전 서버 관찰자 연결 종료(새 시세 프레임 ·
+ *      새 배치를 받지 않는다 — Phase 19 D-13 · Phase 26). quote 연결의 로그인 타이머 · 재접속 백오프도 여기서 멈춘다.
+ *   5. `pipelines.drainAll(2초)` — 전 서버 `writer` · `strategyWriter` drain **병렬** → `pipelines.closeAll()`(기록기 · `access` ·
+ *      `status`) · quote 상태 · 신원 적재기 `close()`
  *      — 큐에 남은 레코드를 적용 RPC 로 보낸다. 2초 안에 못 끝내도 **유실은 없다** — 커서는 적용 RPC
  *      트랜잭션 안에서만 전진하므로 다음 부팅이 남은 구간을 재생한다(D-12).
  *   6. `hub.closeAll()` · `symbols` · 종목마스터 — 배치·재적재 타이머 정리(남기면 프로세스가 안 내려간다)
@@ -63,8 +78,8 @@
 import http from "node:http";
 
 import { loadConfig } from "./config.js";
-import type { DmaServerRow } from "./registry/registry.js";
-import { createJournalPipeline, type ServerPipeline } from "./registry/pipelines.js";
+import { DMA_BROKERS, ServerRegistry } from "./registry/registry.js";
+import { ServerPipelines, type ServerPipeline } from "./registry/pipelines.js";
 import { logger } from "./logger.js";
 import { createRelaySupabase } from "./store/supabase.js";
 import { SymbolMap } from "./store/symbols.js";
@@ -74,6 +89,7 @@ import { SubscriptionHub } from "./hub/subscription-hub.js";
 import { WsFanout } from "./ws/fanout.js";
 import { createOrderApi } from "./order/order-api.js";
 import { GatewayIdentities } from "./journal/identities.js";
+import type { GatewayIdentityView, JournalAccessView } from "./journal/types.js";
 import { QuoteFeed } from "./quote/feed.js";
 import { QuoteStatus } from "./quote/status.js";
 
@@ -99,49 +115,74 @@ const config = loadConfig();
 const supabase = createRelaySupabase(config.supabaseUrl, config.supabaseServiceRoleKey);
 
 /**
- * 관찰자 기록 경로 (Phase 19) — **게이트웨이당 한 벌**(quick-260929-c8e). 게이트웨이 키는 relay 설정이 정한다
- * (주 게이트웨이 = broker, 기본 "KB" · 추가 게이트웨이 = config 의 env 표) — 커서는 로그인 **전에** 읽으므로
- * 로그인 응답의 broker 를 기다릴 수 없다(커서 테이블 PK · 적용 RPC `p_gateway` · 매핑 RPC 공통).
- *
- *   기록기(`JournalWriter`)  저널 레코드 → `dma_journal_apply` 의 유일한 경로. 적용 행은 `applied` 로 나온다.
- *   전략 기록기(Phase 25)     같은 80 프레임의 전략 이벤트 → `dma_strategy_apply`. 별도 커서 · 별도 트랜잭션.
- *   매핑(`JournalAccess`)    관찰자 로그인 스냅샷 → 메모리 라우팅 + `dma_journal_sync_access`.
- *   관찰자(`JournalObserver`) 게이트웨이 관찰자 소켓 **1개**(사용자 세션과 독립 — `SessionManager` 밖).
- *   상태(`JournalStatus`)    관찰자 상태 + 기록기 관측값 → `journal.state` 프레임 · `/healthz` 한 원천.
- *
- * 벌끼리는 아무것도 공유하지 않는다 — 커서 · epoch · 매핑 · 상태가 게이트웨이 키별로 따로다. 추가 게이트웨이의
- * 거부 · 끊김은 주 게이트웨이 관찰자 · 사용자 세션 · 503 판정에 번지지 않는다.
- *
- * 비밀은 관찰자 deps 로만 넘긴다(코덱이 로그인 페이로드에 싣는다). 로그 인자로 넘기지 않는다(T-19-03).
+ * 서버 레지스트리 (Phase 29 D-09) — 게이트웨이 서버 목록의 한 원천. env 모드는 config 합성 행(로컬 · 테스트 · e2e),
+ * db 모드는 `dma_servers`(production 전용 — config 가 그 밖 조합을 기동 거부한다).
  */
-// Phase 29-03 Task 1 — 파이프라인 생성은 `registry/pipelines.ts`(`createJournalPipeline`)로 옮겼다. 원천은 config 의 env 합성
-// 레지스트리(`envServers`)이고 비밀은 증권사별 매핑(`observerSecretOf`)이다. 레지스트리 순회 결선은 Task 2 가 한다.
-const createPipeline = (server: DmaServerRow): ServerPipeline =>
-  createJournalPipeline({ supabase, server, secret: config.observerSecretOf(server.broker) });
-
-// 0번 = 주 게이트웨이(사용자 세션과 같은 게이트웨이). 나머지 = 추가 게이트웨이(관찰자 전용).
-const [primaryServer, ...extraServers] = config.envServers;
-if (primaryServer === undefined) throw new Error("envServers 가 비었다");
-const primaryJournal = createPipeline(primaryServer);
-const extraJournals: readonly ServerPipeline[] = extraServers.map(createPipeline);
-const journalPipelines: readonly ServerPipeline[] = [primaryJournal, ...extraJournals];
-// 주 게이트웨이는 종전 이름 그대로 — 아래 fanout · orderApi · 결선 줄이 바뀌지 않는다.
-const { writer: journalWriter, access: journalAccess, status: journalStatus } = primaryJournal;
+const registry = new ServerRegistry(
+  config.dmaRegistrySource === "db" ? { source: "db", supabase } : { source: "env", rows: config.envServers },
+);
+registry.start();
+if (!registry.loaded) {
+  logger.info({ registry: registry.source }, "[registry] 서버 레지스트리 첫 적재 대기 — 그 전에는 아무 연결도 열지 않는다");
+}
+// fail closed — 첫 적재가 성공하기 전에는 리스너 · 관찰자 · quote · 사용자 세션을 열지 않는다(머리 주석 Phase 29 D-09).
+await registry.ready();
 
 /**
- * 추가 게이트웨이 신원 연결 (quick-260929-sas) — 추가 게이트웨이가 있을 때만 만든다. 없으면 null 이고 신원 조회는
- * 0건이다(오늘과 같다). 주 게이트웨이는 이 적재기를 쓰지 않는다 — 자격증명 신원 그대로다.
+ * 부팅 때의 KB 주문 서버 키 — 브라우저 `journal.state` · 주 매핑 라우팅 · 주 결선(자격증명 신원)의 원천 파이프라인이다.
+ * KB 주문 서버가 없으면(env 모드 `DMA_BROKER=KYOBO` 등) 첫 enabled 서버가 종전 「주 게이트웨이」 자리를 잇는다.
+ * 런타임에 KB 주문 서버가 바뀌어도 이 키는 그대로다(29-22 가 다룬다).
  */
-const gatewayIdentities: GatewayIdentities | null =
-  extraJournals.length > 0
-    ? new GatewayIdentities({ supabase, gateways: extraJournals.map((p) => p.server.key) })
-    : null;
+const primaryKey: string | null = (registry.orderServerOf("KB") ?? registry.enabled()[0])?.key ?? null;
 
+/**
+ * 관찰자 기록 경로 (Phase 19 → Phase 29) — **서버당 한 벌**(`ServerPipelines` · 생성은 `registry/pipelines.ts`). 게이트웨이
+ * 키 = 레지스트리 키(커서 PK · 적용 RPC `p_gateway` · 매핑 RPC 공통). 벌끼리는 아무것도 공유하지 않는다 — 한 서버의 거부 ·
+ * 끊김 · 제거는 다른 서버 관찰자 · 사용자 세션 · 503 판정에 번지지 않는다. 비밀은 증권사별(`observerSecretOf`)이고 관찰자
+ * deps 로만 넘긴다(T-19-03). 결선(`onCreated` → `wirePipeline`)은 아래 fanout 생성 뒤 첫 `sync` 에서 붙는다.
+ */
+const pipelines = new ServerPipelines({
+  supabase,
+  secretOf: config.observerSecretOf,
+  onCreated: (p) => wirePipeline(p),
+});
+
+/** 부팅 때 KB 주문 서버 키의 현재 파이프라인(재생성되면 새 벌). */
+const primaryPipeline = (): ServerPipeline | undefined => (primaryKey === null ? undefined : pipelines.get(primaryKey));
+
+/** `/healthz` `journal` 의 원천 — 지금의 KB 주문 서버 파이프라인(없으면 부팅 때의 주 파이프라인). */
+function kbOrderPipeline(): ServerPipeline | undefined {
+  const kb = registry.orderServerOf("KB");
+  return (kb !== undefined ? pipelines.get(kb.key) : undefined) ?? primaryPipeline();
+}
+
+/**
+ * 추가 서버 신원 연결 (quick-260929-sas) — 부팅 때 레지스트리의 주 서버 외 **전 키**(꺼진 서버 포함 — 켜지면 바로 쓴다)로
+ * 만든다. 그런 키가 없으면 null 이고 신원 조회는 0건이다(오늘과 같다). 주 서버는 이 적재기를 쓰지 않는다 — 자격증명 신원
+ * 그대로다. 런타임에 새로 추가된 키는 신원이 없다(푸시 없음 · fail closed) — 29-06 이 `AppAccess` 로 교체한다.
+ */
+const identityKeys = registry
+  .all()
+  .map((r) => r.key)
+  .filter((k) => k !== primaryKey);
+const gatewayIdentities: GatewayIdentities | null =
+  identityKeys.length > 0 ? new GatewayIdentities({ supabase, gateways: identityKeys }) : null;
+/** 신원 적재기가 없을 때의 빈 신원 — 아무에게도 푸시하지 않는다(fail closed). */
+const NO_IDENTITIES: GatewayIdentityView = { dmaUserIdOf: () => undefined };
+
+/**
+ * 사용자 세션 — 세션을 만들 때마다 **KB 주문 서버**로 연다(Phase 29 · D-10 — 열린 세션은 서버가 바뀌어도 그대로).
+ * 생성자 host/port/broker 는 레지스트리에 KB 주문 서버가 없을 때의 폴백이다(env 모드 값 · db 모드 127.0.0.1).
+ */
 const sessionManager = new SessionManager({
   host: config.dmaHost,
   port: config.dmaPort,
   broker: config.dmaBroker,
   graceMs: config.sessionGraceMs,
+  resolveTarget: () => {
+    const s = registry.orderServerOf("KB");
+    return s && { serverKey: s.key, host: s.host, port: s.port, broker: s.broker };
+  },
 });
 
 /**
@@ -167,16 +208,20 @@ void symbols.start();
 const hub = new SubscriptionHub({ symbols, symbolMaster: gatewaySymbols, lingerMs: config.quoteLingerMs });
 
 /**
- * 시세 업스트림 = quote 연결 하나 (Phase 26 D-12). 주 게이트웨이에 관찰자 로그인 role 1 로 붙는다 — 사용자 세션과
+ * 시세 업스트림 = quote 연결 하나 (Phase 26 D-12 · Phase 29 — 레지스트리의 **시세 주 서버**, 부팅 때 고정 · 29-23 이 전환).
+ * 시세 주 서버가 없으면 비밀 없이 만들어 disabled 로 남는다(소켓 0). 관찰자 로그인 role 1 로 붙는다 — 사용자 세션과
  * 저널 관찰자와는 별개의 TCP 다. hub 의 28/29/32 는 전부 이 연결로 나가고, 이 연결의 ready 가 전역 합집합 재구독의
  * 유일한 트리거다. 비밀은 D-17 원천(quote 키 우선 · 저널 비밀 폴백)이고 deps 로만 넘긴다(로그 인자 금지 · T-26-05).
  * 시작은 아래 관찰자 start 줄 옆 — 결선이 다 붙은 뒤다. `keyCount` 는 수신 워치독(26-REVIEW WR-01)의 「구독 키 있음」
  * 조건이다 — 구독이 없으면 무수신이 정상이라 재접속하지 않는다.
  */
+const quoteServer = registry.quotePrimary();
+/** quote 비밀(시세 주 서버 증권사 · 26 D-17 폴백 포함). 로그에는 유무만. */
+const quoteSecret = quoteServer !== undefined ? config.quoteSecretOf(quoteServer.broker) : undefined;
 const quoteFeed = new QuoteFeed({
-  secret: config.dmaQuoteObserverSecret,
-  host: config.dmaHost,
-  port: config.dmaPort,
+  secret: quoteSecret,
+  host: quoteServer?.host ?? "127.0.0.1",
+  port: quoteServer?.port ?? config.dmaPort,
   keyCount: () => hub.stats().subscriptionCount,
 });
 hub.attachFeed(quoteFeed);
@@ -201,6 +246,11 @@ const wsServer = http.createServer((_req, res) => {
   res.end(JSON.stringify({ error: { code: "NOT_FOUND", message: "Route not found" } }));
 });
 
+/** 주 서버 매핑 읽기 — 호출마다 현재 주 파이프라인을 본다(없으면 매핑 없음 = 푸시 없음). */
+const primaryAccessView: JournalAccessView = {
+  accountsOf: (dmaUserId) => primaryPipeline()?.access.accountsOf(dmaUserId),
+};
+
 const fanout = new WsFanout({
   // `server` 를 넘기지 않는다 — 이 포트의 라우팅(업그레이드 vs 평문)은 부팅 결선이 쥔다.
   supabase,
@@ -213,31 +263,37 @@ const fanout = new WsFanout({
   // NXT 거래가능 집합 → `nxt.snap`(quick-260923-pq2). 빠지면 프레임이 안 나가고 웹앱은 둘 다 그린다(조용한 퇴행) — 결선 grep 게이트가 잡는다.
   nxtTradable: gatewaySymbols,
   // 저널 계좌 매핑 — `journal.rows` 를 계좌 권한 사용자에게만 보내는 라우팅 원천(Phase 19 D-03 · T-19-02).
-  journalAccess,
+  // Phase 29 — 주 서버 파이프라인이 재생성돼도 이어지도록 호출마다 현재 벌을 본다.
+  journalAccess: primaryAccessView,
   // 기록 연결 상태 — 인증 직후 `journal.state` 스냅샷 1프레임의 출처(Phase 19 D-04 (a)).
-  journalState: journalStatus,
+  journalState: { frame: () => primaryPipeline()?.status.frame() ?? null },
   // 시세 전용 공유 연결 상태 — 인증 직후 `quote.state` 스냅샷 1프레임의 출처(Phase 26 D-01).
   quoteState: quoteStatus,
 });
 
-// 기록기가 적용한 행 → 계좌 권한 사용자별 부분집합 푸시(D-03). 상태 전이 프레임 → 인증된 전 연결(D-04 (a)).
-journalWriter.on("applied", (rows) => fanout.deliverJournalRows(rows));
-// 전략 기록기가 적용한 이벤트 → 주문 이벤트는 계좌 권한 사용자 · 시세 이벤트는 매핑 보유자 전원(Phase 25 · T-25-01).
-primaryJournal.strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows));
-journalStatus.on("frame", (frame) => fanout.deliverJournalState(frame));
 // 시세 연결 상태 전이(3초 디바운스) → 인증된 전 연결(Phase 26 D-01). `/healthz` 와 같은 원천이다.
 quoteStatus.on("frame", (frame) => fanout.deliverQuoteState(frame));
-// 추가 게이트웨이 — 적용 행은 **그 게이트웨이의 매핑 + 명시 신원 연결로만** 거른다(주 게이트웨이 매핑 · 자격증명
-// 문자열을 보지 않는다 — quick-260929-sas).
-// 상태 frame 은 어디에도 결선하지 않는다 — 브라우저 `journal.state` 는 주 게이트웨이 한 원천이다
-// (추가 게이트웨이 끊김을 webapp 이 주 게이트웨이 「기록 지연」으로 오인하지 않게).
-// 추가 게이트웨이가 있으면 신원 적재기도 있다(위 생성 조건이 같다) — 타입 좁힘만 겸한다.
-if (gatewayIdentities !== null) {
-  for (const extra of extraJournals) {
-    const route = { access: extra.access, identities: gatewayIdentities.viewOf(extra.server.key) };
-    extra.writer.on("applied", (rows) => fanout.deliverJournalRows(rows, route));
-    extra.strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows, route));
+
+/**
+ * 서버 파이프라인 결선 (`ServerPipelines.onCreated` — 생성 직후 · 관찰자 start 전). 재생성마다 새 벌에 다시 붙는다.
+ *
+ * 주 서버(부팅 때 KB 주문 서버 키): 기록기가 적용한 행 → 계좌 권한 사용자별 부분집합 푸시(D-03) · 전략 이벤트 → 주문
+ * 이벤트는 계좌 권한 사용자 · 시세 이벤트는 매핑 보유자 전원(Phase 25 · T-25-01) · 상태 전이 프레임 → 인증된 전 연결(D-04 (a)).
+ *
+ * 그 밖 서버: 적용 행은 **그 서버의 매핑 + 명시 신원 연결로만** 거른다(주 서버 매핑 · 자격증명 문자열을 보지 않는다 —
+ * quick-260929-sas). 상태 frame 은 어디에도 결선하지 않는다 — 브라우저 `journal.state` 는 주 서버 한 원천이다
+ * (추가 서버 끊김을 webapp 이 주 서버 「기록 지연」으로 오인하지 않게).
+ */
+function wirePipeline(p: ServerPipeline): void {
+  if (p.server.key === primaryKey) {
+    p.writer.on("applied", (rows) => fanout.deliverJournalRows(rows));
+    p.strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows));
+    p.status.on("frame", (frame) => fanout.deliverJournalState(frame));
+    return;
   }
+  const route = { access: p.access, identities: gatewayIdentities?.viewOf(p.server.key) ?? NO_IDENTITIES };
+  p.writer.on("applied", (rows) => fanout.deliverJournalRows(rows, route));
+  p.strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows, route));
 }
 
 wsServer.on("upgrade", (req, socket, head) => fanout.handleUpgrade(req, socket, head));
@@ -251,18 +307,30 @@ wsServer.on("upgrade", (req, socket, head) => fanout.handleUpgrade(req, socket, 
  */
 const orderApi = createOrderApi({
   relayOrderSecret: config.relayOrderSecret,
-  // `/healthz` 의 회선 판정 기준 — 이 주소와 같은 사내망 대역의 인터페이스가 있는지만 본다.
-  dmaHost: config.dmaHost,
+  // `/healthz` 의 회선 판정 기준 — 이 주소와 같은 사내망 대역의 인터페이스가 있는지만 본다. 요청마다 KB 주문 서버 host.
+  dmaHost: () => registry.orderServerOf("KB")?.host ?? "127.0.0.1",
   appVersion: config.appVersion,
   nodeEnv: config.nodeEnv,
   sessions: sessionManager,
-  // `/healthz` 의 `journal` 필드 + 장중 알림 판정(Phase 19 D-04 (b)) — 브라우저 표식과 같은 원천.
-  journal: journalStatus,
-  // 추가 게이트웨이 관찰자 — 본문 `journalGateways` 에만 싣는다(503 판정 밖 · quick-260929-c8e). 없으면 키도 없다.
-  journalGateways: extraJournals.map((p) => ({
-    gateway: p.server.key,
-    health: (nowMs: number) => p.status.health(nowMs),
-  })),
+  // `/healthz` 의 `journal` 필드 + 장중 알림 판정(Phase 19 D-04 (b)) — KB 주문 서버 저널(503 축 · Phase 29).
+  journal: { health: (nowMs: number) => kbOrderPipeline()?.status.health(nowMs) },
+  // 그 밖 enabled 서버 — 본문 `journalGateways.<서버 키>` 에만 싣는다(503 판정 밖 · quick-260929-c8e). 요청마다 현재 목록.
+  journalGateways: () => {
+    const kb = kbOrderPipeline();
+    return pipelines
+      .all()
+      .filter((p) => p !== kb)
+      .map((p) => ({ gateway: p.server.key, health: (nowMs: number) => p.status.health(nowMs) }));
+  },
+  // 증권사별 주문 서버 저널 — 고정 이름 `brokers.{KB,KYOBO}`(uptime JSONPath 가 키 개명에 흔들리지 않게 · Pitfall 3).
+  brokers: () =>
+    DMA_BROKERS.flatMap((broker) => {
+      const s = registry.orderServerOf(broker);
+      const p = s !== undefined ? pipelines.get(s.key) : undefined;
+      return s !== undefined && p !== undefined
+        ? [{ broker, server: s.key, health: (nowMs: number) => p.status.health(nowMs) }]
+        : [];
+    }),
   // `/healthz` 의 `quote` 필드 + 503 판정(Phase 26 D-02 · D-16 — 장중 60초 · 거부 즉시). 폴백이 없어 503 축이다.
   quote: quoteStatus,
 });
@@ -271,9 +339,11 @@ const orderApiServer = http.createServer(orderApi);
 // 추가 게이트웨이 신원 연결을 관찰자보다 먼저 읽기 시작한다(quick-260929-sas). 첫 적재 전 도착한 추가 게이트웨이
 // 행은 아무에게도 푸시되지 않는다(fail closed) — 브라우저 REST 새로고침이 복원한다.
 gatewayIdentities?.start();
-// 관찰자 연결을 게이트웨이마다 부팅 즉시 연다(Phase 19 D-13 — 장 시간과 무관 · 사용자 접속과 무관).
-// 결선(applied → fanout · frame → fanout)이 전부 붙은 **뒤에** 시작해야 첫 배치가 버려지지 않는다.
-for (const p of journalPipelines) p.observer.start();
+// 관찰자 연결을 enabled 서버마다 부팅 즉시 연다(Phase 19 D-13 — 장 시간과 무관 · 사용자 접속과 무관 · Phase 29 레지스트리 순회).
+// 결선(applied → fanout · frame → fanout)은 `onCreated` 가 start **전에** 붙인다 — 첫 배치가 버려지지 않는다.
+pipelines.sync(registry.enabled());
+// 레지스트리 변경(60초 재적재 · reload) → 서버 추가 · 삭제 · 끄기 · 주소 변경을 재배포 없이 반영한다.
+registry.on("changed", () => pipelines.sync(registry.enabled()));
 // 시세 전용 quote 연결도 같은 자리에서 연다(Phase 26 — 장 시간 · 사용자 접속과 무관). hub · fanout 결선이 다 붙은 뒤다.
 quoteFeed.start();
 
@@ -288,23 +358,34 @@ wsServer.listen(config.wsPort, () => {
       {
         wsPort: config.wsPort,
         orderApiPort: config.orderApiPort,
-        dmaHost: config.dmaHost,
-        dmaPort: config.dmaPort,
         env: config.nodeEnv,
         version: config.appVersion,
-        // 관찰자 기록 연결 여부만 싣는다 — 비밀·계좌는 없다(T-19-03).
-        journalObserver: config.dmaObserverSecret !== undefined ? "enabled" : "disabled",
-        // 시세 전용 quote 연결 여부만 싣는다 — 비밀은 없다(Phase 26 D-17 · T-26-05).
-        quoteFeed: config.dmaQuoteObserverSecret !== undefined ? "enabled" : "disabled",
-        // 추가 게이트웨이가 있을 때만 — 키 · 주소 · 활성 여부뿐이다(비밀 없음).
-        ...(extraJournals.length > 0
+        // Phase 29 D-09 — 레지스트리 원천과 서버 목록. 키 · 주소 · 활성 · 관찰자 여부뿐이다(비밀 없음).
+        registry: registry.source,
+        servers: registry.all().map((r) => ({
+          key: r.key,
+          host: r.host,
+          port: r.port,
+          enabled: r.enabled,
+          observer: !r.enabled ? "off" : pipelines.get(r.key)?.observerEnabled === true ? "enabled" : "disabled",
+        })),
+        // 주 서버(부팅 때 KB 주문 서버) 관찰자 기록 연결 여부만 싣는다 — 비밀·계좌는 없다(T-19-03).
+        journalObserver: primaryPipeline()?.observerEnabled === true ? "enabled" : "disabled",
+        // 시세 전용 quote 연결 여부만 싣는다 — 비밀은 없다(Phase 26 D-17 · T-26-05). 대상 = 시세 주 서버 키.
+        quoteFeed: quoteSecret !== undefined ? "enabled" : "disabled",
+        ...(quoteServer !== undefined ? { quoteServer: quoteServer.key } : {}),
+        // 주 서버 외 서버가 있을 때만 — 키 · 주소 · 활성 여부뿐이다(비밀 없음).
+        ...(pipelines.all().some((p) => p.server.key !== primaryKey)
           ? {
-              journalGateways: extraJournals.map((p) => ({
-                gateway: p.server.key,
-                host: p.server.host,
-                port: p.server.port,
-                observer: p.observerEnabled ? "enabled" : "disabled",
-              })),
+              journalGateways: pipelines
+                .all()
+                .filter((p) => p.server.key !== primaryKey)
+                .map((p) => ({
+                  gateway: p.server.key,
+                  host: p.server.host,
+                  port: p.server.port,
+                  observer: p.observerEnabled ? "enabled" : "disabled",
+                })),
             }
           : {}),
       },
@@ -344,30 +425,16 @@ async function shutdown(signal: string): Promise<void> {
     await fanout.closeAll(WS_CLOSE_GOING_AWAY);
     // 3) 구독 해제 + DMA 소켓 종료
     await sessionManager.closeAll();
-    // 4) quote 연결 · 전 게이트웨이 관찰자 연결 종료 — 이후 새 시세 프레임 · 새 배치가 들어오지 않는다
+    // 4) 레지스트리 재적재 중지 · quote 연결 · 전 서버 관찰자 연결 종료 — 이후 새 시세 프레임 · 새 배치 · 새 서버가 들어오지 않는다
+    registry.close();
     quoteFeed.stop();
-    for (const p of journalPipelines) p.observer.stop();
-    // 5) 전 기록기 drain(각 상한 2초 · 병렬 — 5초 데드맨 안) → 정리. 못 끝내도 커서가 RPC 안에서만
-    //    전진하므로 다음 부팅이 재생한다.
-    // 파이프라인마다 두 기록기(주문 · 전략)를 함께 drain 한다 — 둘 다 끝나야 그 게이트웨이가 drain 된 것이다.
-    const drained = await Promise.all(
-      journalPipelines.map(async (p) => {
-        const [journal, strategy] = await Promise.all([
-          p.writer.drain(JOURNAL_DRAIN_TIMEOUT_MS),
-          p.strategyWriter.drain(JOURNAL_DRAIN_TIMEOUT_MS),
-        ]);
-        return journal && strategy;
-      }),
-    );
-    for (const p of journalPipelines) {
-      p.writer.close();
-      p.strategyWriter.close();
-      p.access.close();
-      p.status.close();
-    }
+    pipelines.stopAll();
+    // 5) 전 서버 기록기 drain(각 상한 2초 · 병렬 — 5초 데드맨 안) → 정리. 못 끝내도 커서가 RPC 안에서만
+    //    전진하므로 다음 부팅이 재생한다. 서버마다 두 기록기(주문 · 전략)를 함께 drain 한다(pipelines.ts).
+    const undrained = await pipelines.drainAll(JOURNAL_DRAIN_TIMEOUT_MS);
+    pipelines.closeAll();
     quoteStatus.close();
     gatewayIdentities?.close();
-    const undrained = journalPipelines.filter((_, i) => !drained[i]).map((p) => p.server.key);
     if (undrained.length > 0) {
       logger.warn(
         { timeoutMs: JOURNAL_DRAIN_TIMEOUT_MS, gateways: undrained },

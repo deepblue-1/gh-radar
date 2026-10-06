@@ -71,6 +71,9 @@ export interface OrderApiSessions {
  */
 export type JournalGatewayHealth = JournalHealth & { alerting: boolean };
 
+/** 증권사별 주문 서버 저널 요약 (Phase 29 — healthz `brokers.<증권사>`). 서버 키와 알림 판정뿐이다. */
+export type BrokerJournalHealth = { server: string; alerting: boolean };
+
 export type OrderApiDeps = {
   /** `RELAY_ORDER_SECRET` — 내부 HTTP 표면의 공유 비밀 (D-22). */
   relayOrderSecret: string;
@@ -78,21 +81,31 @@ export type OrderApiDeps = {
   appVersion: string;
   nodeEnv: string;
   sessions: OrderApiSessions;
-  /** 게이트웨이 주소. `/healthz` 의 회선 판정 기준이다(패킷을 보내지 않는다). */
-  dmaHost: string;
+  /**
+   * 게이트웨이 주소. `/healthz` 의 회선 판정 기준이다(패킷을 보내지 않는다). Phase 29 — **요청마다** 부른다:
+   * index 는 레지스트리의 KB 주문 서버 host(없으면 "127.0.0.1")를 돌려준다(서버 전환이 재배포 없이 반영된다).
+   */
+  dmaHost: () => string;
   /** 인터페이스 목록 주입구 — 테스트가 VPN 유무를 흉내낸다. */
   networkInterfaces?: () => NodeJS.Dict<os.NetworkInterfaceInfo[]>;
   /**
    * 관찰자 기록 연결 요약(Phase 19 D-04 (b) — `JournalStatus`). 주면 `/healthz` 가 `journal` 필드를
    * **항상** 싣는다. 주지 않으면 필드가 없다(기존 페이로드 그대로).
    */
-  journal?: { health(nowMs: number): JournalHealth };
+  journal?: { health(nowMs: number): JournalHealth | undefined };
   /**
    * 추가 게이트웨이 관찰자 요약 (quick-260929-c8e — 주 게이트웨이 외). 주면 `/healthz` 본문에
    * `journalGateways.<키>` 로 싣는다. **503 판정에는 넣지 않는다**(아래 판정 근거 ★ 2026-09-29).
    * 주지 않거나 빈 배열이면 키 자체가 없다(KB 단독 페이로드가 바이트 단위로 같다).
+   * Phase 29 — **요청마다** 부르는 함수다(레지스트리 키 · 현재 enabled 서버 목록 — 서버 추가 · 삭제가 다음 요청부터 반영).
    */
-  journalGateways?: ReadonlyArray<{ gateway: string; health(nowMs: number): JournalHealth }>;
+  journalGateways?: () => ReadonlyArray<{ gateway: string; health(nowMs: number): JournalHealth }>;
+  /**
+   * 증권사별 주문 서버 저널 요약 (Phase 29 — RESEARCH Pitfall 3). 주면 본문 `brokers.<증권사> = { server, alerting }` 를 싣는다.
+   * uptime JSONPath 가 서버 키 개명(KYOBO → KYOBO119)에 흔들리지 않게 하는 **고정 이름** 필드다. **본문 전용**(503 판정 밖).
+   * 요청마다 부른다. 그 증권사 주문 서버 파이프라인이 없으면 그 증권사 키가 없다. 비어 있으면 `brokers` 키 자체가 없다.
+   */
+  brokers?: () => ReadonlyArray<{ broker: "KB" | "KYOBO"; server: string; health(nowMs: number): JournalHealth }>;
   /**
    * 시세 전용 공유 연결 요약(Phase 26 D-02 — `QuoteStatus`). 주면 `/healthz` 가 `quote` 필드를 **항상**(24시간) 싣고
    * `quoteAlerting` 으로 503 판정에 **합류**한다(`journalGateways` 와 달리 본문 전용이 아니다). 주지 않으면 필드가 없다.
@@ -145,6 +158,11 @@ export type HealthPayload = {
    * 추가 게이트웨이가 없으면 필드 자체가 없다.
    */
   journalGateways?: Record<string, JournalGatewayHealth>;
+  /**
+   * 증권사별 주문 서버 저널 (Phase 29 · Pitfall 3). 값은 `{ server: 서버 키, alerting }` 뿐이다 — 호스트 · 식별자 · 비밀이 없다.
+   * uptime check 의 고정 JSONPath(`$.brokers.KYOBO.alerting`) 원천. 503 판정 밖. 주문 서버가 없으면 필드 자체가 없다.
+   */
+  brokers?: Partial<Record<"KB" | "KYOBO", BrokerJournalHealth>>;
   /**
    * 시세 전용 공유 연결 상태 (Phase 26 D-02 · D-16). 키는 `state · keyCount · lingerCount · lastFrameAgeSec · reconnects ·
    * subLimitRejects · disconnectedSec` **7개 고정**이다 — 상태 · 계수 · 경과초뿐이고 **계좌·사용자 식별자 · 호스트 · 비밀이
@@ -324,6 +342,13 @@ export function createOrderApi(deps: OrderApiDeps): Express {
    *   - `disabled`(관찰자 비밀 미설정 — 개발 · 테스트 전용)는 판정 대상이 아니다.
    * 판정식의 정본은 `quote/status.ts` 의 `quoteAlerting` 한 벌이다 — 여기에 복제하지 않는다. 기존 `linkUp` · `sessionsOk`
    * · `journalOk` 의 정의는 그대로다.
+   *
+   * ★ Phase 29 — brokers 는 uptime 고정 경로용 본문 전용이다. 서버 레지스트리(D-09)로 서버 키가 `KB120` · `KYOBO119` 처럼
+   * 바뀌면 `journalGateways.<키>` 를 보는 uptime JSONPath 가 조용히 사라진다(RESEARCH Pitfall 3). 그래서 증권사별 주문 서버
+   * 저널의 `alerting` 을 고정 이름 `brokers.KB` · `brokers.KYOBO` 로 함께 싣는다(값 = `{ server, alerting }` · 같은
+   * `journalAlerting` · 같은 `now`). **503 판정식(`healthy`)은 한 글자도 바뀌지 않았다** — `journal` 은 KB 주문 서버 저널
+   * 그대로 503 축이고, `journalGateways` · `brokers` 는 본문 전용이다. `dmaHost` · `journalGateways` · `brokers` 는 요청마다
+   * 부르는 함수라 레지스트리 변경(서버 추가 · 삭제 · 전환)이 재배포 없이 다음 요청부터 보인다.
    */
   const readInterfaces = deps.networkInterfaces ?? (() => os.networkInterfaces());
 
@@ -331,7 +356,7 @@ export function createOrderApi(deps: OrderApiDeps): Express {
     const stats = deps.sessions.stats();
     // 두 신호를 **분리**한다. 회선은 접속자 수와 무관한 사실이고, 세션은 접속자가 있을
     // 때만 의미가 있다. 하나로 합치면 접속자 0명이 회선 장애를 가려 버린다.
-    const linkUp = isGatewayLinkUp(deps.dmaHost, readInterfaces());
+    const linkUp = isGatewayLinkUp(deps.dmaHost(), readInterfaces());
     // 「게이트웨이가 애초에 없는 환경」(everReadyCount 0) 은 장애가 아니다.
     // 「Ready 였다가 죽은 세션」(everReadyCount > 0, readyCount 0) 만 장애다 (16-21).
     // 단, 그 면제에는 **시간 상한**이 있다 — 재시작으로 래치가 지워진 진짜 장애가
@@ -349,13 +374,22 @@ export function createOrderApi(deps: OrderApiDeps): Express {
     const quoteOk = quote === undefined || !quoteAlerting(quote, now);
     const healthy = linkUp && sessionsOk && journalOk && quoteOk;
     // 추가 게이트웨이 — 본문에만 싣는다(판정 밖). 없으면 키도 없다.
-    const extra = deps.journalGateways ?? [];
+    const extra = deps.journalGateways?.() ?? [];
     let journalGateways: Record<string, JournalGatewayHealth> | undefined;
     if (extra.length > 0) {
       journalGateways = {};
       for (const g of extra) {
         const health = g.health(now.getTime());
         journalGateways[g.gateway] = { ...health, alerting: journalAlerting(health, now) };
+      }
+    }
+    // Phase 29 — 증권사별 주문 서버 저널(고정 이름 · 본문 전용). 없으면 키도 없다.
+    const brokerList = deps.brokers?.() ?? [];
+    let brokers: HealthPayload["brokers"];
+    if (brokerList.length > 0) {
+      brokers = {};
+      for (const b of brokerList) {
+        brokers[b.broker] = { server: b.server, alerting: journalAlerting(b.health(now.getTime()), now) };
       }
     }
 
@@ -369,6 +403,7 @@ export function createOrderApi(deps: OrderApiDeps): Express {
       stalledCount: stats.stalledCount,
       ...(journal !== undefined ? { journal } : {}),
       ...(journalGateways !== undefined ? { journalGateways } : {}),
+      ...(brokers !== undefined ? { brokers } : {}),
       ...(quote !== undefined ? { quote } : {}),
     };
 

@@ -467,7 +467,7 @@ async function fetchHealthz(journal: JournalStatus): Promise<{ status: number; t
     appVersion: "test-sha",
     nodeEnv: "test",
     sessions: { stats: () => ({ sessionCount: 0, readyCount: 0, everReadyCount: 0, stalledCount: 0 }) },
-    dmaHost: "127.0.0.1",
+    dmaHost: () => "127.0.0.1",
     networkInterfaces: () => ({
       lo: [{ address: "127.0.0.1", family: "IPv4", internal: true } as os.NetworkInterfaceInfo],
     }),

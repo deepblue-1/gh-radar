@@ -60,11 +60,31 @@ export type DmaCredentials = {
   password: string;
 };
 
-export type SessionManagerOptions = {
+/**
+ * 세션 생성 시점의 연결 대상 (Phase 29 Plan 03 — 서버 레지스트리). index 는 레지스트리의 **KB 주문 서버**를 돌려준다.
+ * 29-16 이 (유저, 서버) 세션으로 넓힌다.
+ */
+export type SessionTarget = {
+  /** 레지스트리 서버 키(로그 문맥). */
+  serverKey: string;
   host: string;
   port: number;
-  /** `LoginReq.broker`. 현재는 "KB". */
+  /** `LoginReq.broker`. */
   broker: string;
+};
+
+export type SessionManagerOptions = {
+  /** 연결 대상 폴백 — `resolveTarget` 이 없거나 undefined 를 돌려줄 때 쓴다. */
+  host: string;
+  port: number;
+  /** `LoginReq.broker`. 현재는 "KB". `resolveTarget` 폴백. */
+  broker: string;
+  /**
+   * 세션을 **만들 때마다** 연결 대상을 고른다 (Phase 29 Plan 03 — 레지스트리의 KB 주문 서버). 주문 서버가 바뀌어도 열린
+   * 세션은 그대로이고 새 세션부터 새 서버다(D-10). 주지 않으면 생성자 host/port/broker. undefined 를 돌려주면(레지스트리에
+   * KB 주문 서버 없음) 생성자 값으로 폴백하고 warn 1줄 — 29-16 이 증권사별 규칙으로 교체한다.
+   */
+  resolveTarget?: () => SessionTarget | undefined;
   /** 유예(ms). 미지정 시 `SESSION_GRACE_MS`. */
   graceMs?: number;
   /**
@@ -167,6 +187,7 @@ export class SessionManager {
   readonly #host: string;
   readonly #port: number;
   readonly #broker: string;
+  readonly #resolveTarget: (() => SessionTarget | undefined) | undefined;
   readonly #graceMs: number;
   readonly #now: () => number;
 
@@ -174,6 +195,7 @@ export class SessionManager {
     this.#host = opts.host;
     this.#port = opts.port;
     this.#broker = opts.broker;
+    this.#resolveTarget = opts.resolveTarget;
     this.#graceMs = opts.graceMs ?? SESSION_GRACE_MS;
     this.#now = opts.now ?? (() => Date.now());
   }
@@ -333,13 +355,31 @@ export class SessionManager {
     };
   }
 
+  /** 이번 세션의 연결 대상 — `resolveTarget` 우선, 없거나 undefined 면 생성자 값(Phase 29 Plan 03). */
+  #target(userId: string): { serverKey: string | null; host: string; port: number; broker: string } {
+    if (this.#resolveTarget === undefined) {
+      return { serverKey: null, host: this.#host, port: this.#port, broker: this.#broker };
+    }
+    const t = this.#resolveTarget();
+    if (t === undefined) {
+      // 29-16 이 증권사별 규칙으로 교체한다 — 그 전까지는 종전 단일 게이트웨이 값으로 연다(env 모드와 같은 동작).
+      logger.warn(
+        { userId, host: this.#host, port: this.#port },
+        "[DMA] 레지스트리에 KB 주문 서버가 없다 — 생성자 게이트웨이로 폴백",
+      );
+      return { serverKey: null, host: this.#host, port: this.#port, broker: this.#broker };
+    }
+    return { serverKey: t.serverKey, host: t.host, port: t.port, broker: t.broker };
+  }
+
   #create(userId: string, creds: DmaCredentials): DmaSession {
-    const client = new DmaClient({ host: this.#host, port: this.#port });
+    const target = this.#target(userId);
+    const client = new DmaClient({ host: target.host, port: target.port });
     const sessionCreds: DmaSessionCreds = {
       userId,
       dmaUserId: creds.dmaUserId,
       password: creds.password,
-      broker: this.#broker,
+      broker: target.broker,
     };
     const session = new DmaSession(sessionCreds, client);
     this.#sessions.set(userId, {
@@ -351,7 +391,7 @@ export class SessionManager {
 
     // 로그 인자에 dmaUserId·password 를 넣지 않는다 (D-19).
     logger.info(
-      { userId, host: this.#host, port: this.#port, sessionCount: this.#sessions.size },
+      { userId, serverKey: target.serverKey, host: target.host, port: target.port, sessionCount: this.#sessions.size },
       "[DMA] 세션 없음 — 새 DMA 세션 생성",
     );
     session.start();

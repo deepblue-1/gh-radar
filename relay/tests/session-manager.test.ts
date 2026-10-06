@@ -427,3 +427,86 @@ describe("SessionManager", () => {
     expect(manager.stats().sessionCount).toBe(2);
   });
 });
+
+describe("SessionManager — resolveTarget (Phase 29 Plan 03 · 세션 = KB 주문 서버)", () => {
+  const managers: SessionManager[] = [];
+  const gateways: FakeGateway[] = [];
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    resetDroppedEnvelopeCount();
+  });
+
+  afterEach(async () => {
+    for (const m of managers.splice(0)) await m.closeAll();
+    for (const g of gateways.splice(0)) await g.close();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  async function gw(): Promise<FakeGateway> {
+    const g = await startFakeGateway({ autoLogin: true, loginResp: { success: true } });
+    gateways.push(g);
+    return g;
+  }
+
+  it("resolveTarget 이 주면 세션 생성 시점의 대상으로 연결 · 생성 로그에 serverKey · 대상이 바뀌면 새 세션만 새 서버(열린 세션 유지)", async () => {
+    const { logger } = await import("../src/logger.js");
+    const infos: unknown[][] = [];
+    vi.spyOn(logger, "info").mockImplementation(((...args: unknown[]) => {
+      infos.push(args);
+    }) as never);
+    const fallback = await gw();
+    const kb120 = await gw();
+    const kb121 = await gw();
+    let target = { serverKey: "KB120", host: "127.0.0.1", port: kb120.port, broker: "KB" };
+    const m = new SessionManager({
+      host: "127.0.0.1",
+      port: fallback.port,
+      broker: "KB",
+      resolveTarget: () => target,
+    });
+    managers.push(m);
+
+    const a = m.acquire("user-a", CREDS);
+    await waitFor(() => a.state === "ready", "user-a ready (KB120)");
+    expect(kb120.sockets).toHaveLength(1);
+    expect(fallback.sockets).toHaveLength(0);
+    const created = infos.find((c) => typeof c[1] === "string" && c[1].includes("새 DMA 세션 생성"));
+    expect(created?.[0]).toMatchObject({ userId: "user-a", serverKey: "KB120", port: kb120.port });
+    // 비밀번호 · DMA id 는 로그 인자에 없다(D-19).
+    expect(JSON.stringify(infos)).not.toContain(CREDS.password);
+    expect(JSON.stringify(infos)).not.toContain(CREDS.dmaUserId);
+
+    // 주문 서버 전환 — 새 로그인부터 새 서버(D-10). 열린 세션은 그대로다.
+    target = { serverKey: "KB121", host: "127.0.0.1", port: kb121.port, broker: "KB" };
+    const b = m.acquire("user-b", CREDS);
+    await waitFor(() => b.state === "ready", "user-b ready (KB121)");
+    expect(kb121.sockets).toHaveLength(1);
+    expect(kb120.sockets).toHaveLength(1);
+    expect(m.acquire("user-a", CREDS)).toBe(a);
+  });
+
+  it("resolveTarget 이 undefined 면 생성자 값으로 폴백 + warn 1줄 · resolveTarget 없으면 종전 그대로", async () => {
+    const { logger } = await import("../src/logger.js");
+    const warns: unknown[][] = [];
+    vi.spyOn(logger, "warn").mockImplementation(((...args: unknown[]) => {
+      warns.push(args);
+    }) as never);
+    const fallback = await gw();
+    const m = new SessionManager({ host: "127.0.0.1", port: fallback.port, broker: "KB", resolveTarget: () => undefined });
+    managers.push(m);
+    const s = m.acquire("user-x", CREDS);
+    await waitFor(() => s.state === "ready", "폴백 세션 ready");
+    expect(fallback.sockets).toHaveLength(1);
+    const isFallbackWarn = (c: unknown[]): boolean => typeof c[1] === "string" && c[1].includes("KB 주문 서버가 없다");
+    expect(warns.filter(isFallbackWarn)).toHaveLength(1);
+
+    const plain = new SessionManager({ host: "127.0.0.1", port: fallback.port, broker: "KB" });
+    managers.push(plain);
+    const p = plain.acquire("user-y", CREDS);
+    await waitFor(() => p.state === "ready", "종전 세션 ready");
+    expect(fallback.sockets).toHaveLength(2);
+    expect(warns.filter(isFallbackWarn)).toHaveLength(1);
+  });
+});

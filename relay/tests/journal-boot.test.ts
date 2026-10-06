@@ -90,6 +90,8 @@ async function spawnRelay(opts: {
   delete env.DMA_KYOBO_HOST;
   delete env.DMA_KYOBO_PORT;
   delete env.DMA_OBSERVER_SECRET_KYOBO;
+  // Phase 29 D-09 — 레지스트리 원천도 바깥 셸에서 상속되지 않게 지운다(env 모드 = 기본).
+  delete env.DMA_REGISTRY_SOURCE;
   Object.assign(env, opts.extraEnv ?? {});
 
   const child = spawn(TSX_BIN, ["src/index.ts"], { cwd: RELAY_DIR, env, stdio: ["ignore", "pipe", "pipe"] });
@@ -452,6 +454,40 @@ describe("relay 부팅 결선 — 실 프로세스 · 관찰자 경로 (Phase 19
   );
 });
 
+describe("Phase 29 D-09 레지스트리 원천 게이트 — 실 프로세스", () => {
+  it(
+    "production + 비밀 있음 + DMA_REGISTRY_SOURCE 없음 → 비정상 종료(옛 deploy 스크립트 경로) · test + db → 비정상 종료 · 게이트웨이 접속 0",
+    async () => {
+      const { gateway, supabase } = await rig();
+      const prod = await spawnRelay({
+        gatewayPort: gateway.port,
+        supabaseUrl: supabase.url,
+        nodeEnv: "production",
+        secret: BOOT_SECRET,
+      });
+      const prodExit = await withTimeout(prod.exited, 5_000, "production + env 기동 거부", prod);
+      expect(prodExit.code, prod.output()).not.toBe(0);
+      expect(prod.output()).toContain("DMA_REGISTRY_SOURCE=db must be set in production");
+      expect(prod.output()).not.toContain(BOOT_SECRET);
+
+      const local = await spawnRelay({
+        gatewayPort: gateway.port,
+        supabaseUrl: supabase.url,
+        nodeEnv: "test",
+        secret: BOOT_SECRET,
+        extraEnv: { DMA_REGISTRY_SOURCE: "db" },
+      });
+      const localExit = await withTimeout(local.exited, 5_000, "test + db 기동 거부", local);
+      expect(localExit.code, local.output()).not.toBe(0);
+      expect(local.output()).toContain("D-09");
+      // 어느 쪽도 레지스트리 · 게이트웨이에 닿지 않았다.
+      expect(gateway.observerLoginRequests()).toEqual([]);
+      expect(supabase.requestsTo("/rest/v1/dma_servers")).toEqual([]);
+    },
+    TEST_TIMEOUT_MS,
+  );
+});
+
 // ============================================================
 // quick-260929-c8e — 관찰자 다중 업스트림 (주 게이트웨이 KB + 추가 게이트웨이 KYOBO)
 // ============================================================
@@ -506,8 +542,11 @@ describe("다중 업스트림 (quick-260929-c8e)", () => {
       );
       expect(Object.keys(h.body ?? {}).sort()).toEqual(
         // `quote` — 시세 전용 공유 연결 상태(Phase 26 D-02 · 26-12). quote 연결은 비밀이 있으면 늘 결선된다.
-        ["dma", "everReadyCount", "journal", "quote", "sessionCount", "stalledCount", "status", "version", "vpn"],
+        // `brokers` — 증권사별 주문 서버 저널(Phase 29 · uptime 고정 JSONPath). env 모드 KB 단독이면 KB 1키.
+        ["brokers", "dma", "everReadyCount", "journal", "quote", "sessionCount", "stalledCount", "status", "version", "vpn"],
       );
+      // Phase 29 — env 모드 키는 종전 그대로(KB) · 본문 전용 · 값은 서버 키와 알림 판정뿐.
+      expect(h.body?.brokers).toEqual({ KB: { server: "KB", alerting: false } });
       expect(gateway.observerLoginRequests()).toHaveLength(1);
       // 주문 · 전략 기록기 각 1회(Phase 25) — 둘 다 같은 게이트웨이 키다.
       const cursorReads = supabase.requestsTo("/rest/v1/dma_journal_cursor");
@@ -614,6 +653,8 @@ describe("다중 업스트림 (quick-260929-c8e)", () => {
       expect(h.status).toBe(200);
       expect(Object.keys(gatewaysOf(h) ?? {})).toEqual(["KYOBO"]);
       expect(gatewaysOf(h)?.KYOBO?.alerting).toBe(false);
+      // Phase 29 — 증권사별 주문 서버 저널(고정 이름). env 모드 KYOBO 행은 KYOBO 의 주문 서버다.
+      expect(h.body?.brokers).toEqual({ KB: { server: "KB", alerting: false }, KYOBO: { server: "KYOBO", alerting: false } });
       expect(supabase.unknownRequests()).toEqual([]);
 
       relay.child.kill("SIGTERM");
