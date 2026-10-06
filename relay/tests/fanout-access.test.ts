@@ -21,7 +21,8 @@ import type { AddressInfo } from "node:net";
 import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { RelayOutbound } from "@gh-radar/shared";
+import { toJournalOrderRow } from "@gh-radar/shared";
+import type { JournalOrderDbRow, JournalOrderRow, RelayOutbound, StrategyEventRow } from "@gh-radar/shared";
 
 import { WsFanout } from "../src/ws/fanout.js";
 import { SubscriptionHub } from "../src/hub/subscription-hub.js";
@@ -32,6 +33,7 @@ import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { logger } from "../src/logger.js";
 import { startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
 import { connectWs, type TestWs } from "./helpers/ws-client.js";
+import type { JournalAccessView } from "../src/journal/types.js";
 
 const WS_PATH = "/ws";
 
@@ -41,6 +43,8 @@ const USER_V = "7c1c2b7a-9d40-4a11-8e55-0000000000a3";
 const USER_N = "7c1c2b7a-9d40-4a11-8e55-0000000000a4";
 const USER_P = "7c1c2b7a-9d40-4a11-8e55-0000000000a5";
 const USER_O = "7c1c2b7a-9d40-4a11-8e55-0000000000a6";
+/** 두 서버 푸시용 두 번째 trader(dmaX — KYOBO 매핑에만 계좌가 있다). */
+const USER_X = "7c1c2b7a-9d40-4a11-8e55-0000000000a7";
 
 const CRED_KEY = randomBytes(32).toString("base64");
 
@@ -51,6 +55,7 @@ const TOKENS = new Map<string, string>([
   ["token-n", USER_N],
   ["token-p", USER_P],
   ["token-o", USER_O],
+  ["token-x", USER_X],
 ]);
 
 type AccessRow = { user_id: string; email: string; role: string; dma_user_id: string | null };
@@ -63,6 +68,7 @@ function baseAccessRows(): AccessRow[] {
     { user_id: USER_V, email: "v@example.com", role: "viewer", dma_user_id: "dmaV" },
     { user_id: USER_N, email: "n@example.com", role: "trader", dma_user_id: null },
     { user_id: USER_O, email: "o@example.com", role: "trader", dma_user_id: "dmaO" },
+    { user_id: USER_X, email: "x@example.com", role: "trader", dma_user_id: "dmaX" },
   ];
 }
 
@@ -70,6 +76,7 @@ function baseDmaUsers(): Map<string, DmaUserRow> {
   return new Map([
     ["dmaT", { dma_user_id: "dmaT", password_enc: encryptDmaPassword("pw-t", "dmaT", CRED_KEY) }],
     ["dmaV", { dma_user_id: "dmaV", password_enc: encryptDmaPassword("pw-v", "dmaV", CRED_KEY) }],
+    ["dmaX", { dma_user_id: "dmaX", password_enc: encryptDmaPassword("pw-x", "dmaX", CRED_KEY) }],
     // 옛 형식 — AAD 가 웹 user_id 다(이관 전 행). 새 경로는 복호에 실패해야 한다.
     ["dmaO", { dma_user_id: "dmaO", password_enc: encryptDmaPassword("pw-o", USER_O, CRED_KEY) }],
   ]);
@@ -125,6 +132,55 @@ function stubDb(): StubDb {
     }),
   } as unknown as SupabaseClient;
   return db;
+}
+
+/** 서버별 매핑 읽기 뷰(그 서버의 79 스냅샷 사본 대역) — dma id → 계좌 집합. */
+function accessView(map: Readonly<Record<string, readonly string[]>>): JournalAccessView {
+  return { accountsOf: (dmaUserId) => (map[dmaUserId] === undefined ? undefined : new Set(map[dmaUserId])) };
+}
+
+/** 적용 RPC 반환 공개 행 1건(계좌 · seq 만 의미 있다). */
+function journalRow(seq: number, accountNo: string): JournalOrderRow {
+  const db: JournalOrderDbRow = {
+    id: `row-${seq}`,
+    trade_date: "2026-10-07",
+    account_no: accountNo,
+    isin: "KR7005930003",
+    stock_code: "005930",
+    exchange: "KRX",
+    board: null,
+    side: "B",
+    order_type: "N",
+    org_order_no: null,
+    qty: 1,
+    price: 70_000,
+    order_no: `000${seq}`,
+    filled_qty: 0,
+    modified_qty: 0,
+    status: "accepted",
+    result_code: 0,
+    notice_type: "A",
+    message: null,
+    origin: null,
+    requester: null,
+    request_kind: "new",
+    last_seq: String(seq),
+    created_at: "2026-10-07T00:00:00.000Z",
+    updated_at: "2026-10-07T00:00:00.000Z",
+  };
+  return toJournalOrderRow(db);
+}
+
+function journalFrames(inbox: RelayOutbound[]): string[][] {
+  return inbox
+    .filter((m): m is Extract<RelayOutbound, { t: "journal.rows" }> => m.t === "journal.rows")
+    .map((m) => m.rows.map((r) => r.accountNo));
+}
+
+function eventFrames(inbox: RelayOutbound[]): string[][] {
+  return inbox
+    .filter((m): m is Extract<RelayOutbound, { t: "journal.events" }> => m.t === "journal.events")
+    .map((m) => m.rows.map((r) => `${r.kind}:${r.accountNo}`));
 }
 
 async function flushIo(turns = 4): Promise<void> {
@@ -295,5 +351,196 @@ describe("wss 역할 게이트 — 접근 맵 → dma_users(AAD dma_user_id) →
     expect(inbox[0]).toEqual(expect.objectContaining({ t: "state", s: "failed" }));
     expect(ws.closeInfo?.code).toBe(1011);
     expect(acquireSpy).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Task 2 — D-04 즉시 반영 · 푸시 신원 한 벌. 위 하네스와 같은 모양을 쓰되, 결선을 index.ts 와 같게 붙인다:
+ * `access.on("revoked", ids => ids.forEach(u => fanout.revokeUser(u, "access-revoked")))`.
+ */
+describe("D-04 즉시 반영 · 푸시 신원 = AppAccess (Phase 29)", () => {
+  let gateway: FakeGateway;
+  let server: http.Server;
+  let port: number;
+  let hub: SubscriptionHub;
+  let sessions: SessionManager;
+  let fanout: WsFanout;
+  let access: AppAccess;
+  let db: StubDb;
+  let releaseSpy: ReturnType<typeof vi.spyOn>;
+  const sockets: TestWs[] = [];
+  const extraLoaders: AppAccess[] = [];
+
+  async function start(): Promise<void> {
+    db = stubDb();
+    server = http.createServer();
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    port = (server.address() as AddressInfo).port;
+    hub = new SubscriptionHub();
+    sessions = new SessionManager({ host: "127.0.0.1", port: gateway.port, broker: "KB" });
+    releaseSpy = vi.spyOn(sessions, "release");
+    access = new AppAccess({ supabase: db.client, refreshMs: 60_000, missReloadMinMs: 0 });
+    fanout = new WsFanout({
+      server,
+      supabase: db.client,
+      sessions,
+      hub,
+      credKey: CRED_KEY,
+      path: WS_PATH,
+      credentials: createAccessCredentials({ access, supabase: db.client, credKey: CRED_KEY }),
+    });
+    // index.ts 결선과 같은 모양.
+    access.on("revoked", (ids: string[]) => ids.forEach((u) => fanout.revokeUser(u, "access-revoked")));
+    access.start();
+    await access.ready();
+  }
+
+  async function authed(token: string, until: "ready" | "unauthorized" = "ready"): Promise<{ ws: TestWs; inbox: RelayOutbound[] }> {
+    const ws = await connectWs(port, WS_PATH);
+    sockets.push(ws);
+    const inbox: RelayOutbound[] = [];
+    ws.raw.on("message", (data) => inbox.push(JSON.parse(data.toString()) as RelayOutbound));
+    ws.sendAuth(token);
+    await waitFor(() => inbox.some((m) => m.t === "state" && m.s === until), `${token} ${until}`);
+    return { ws, inbox };
+  }
+
+  beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    resetDroppedEnvelopeCount();
+    gateway = await startFakeGateway({ autoLogin: true, loginResp: { success: true } });
+    await start();
+  });
+
+  afterEach(async () => {
+    for (const ws of sockets) await ws.close();
+    sockets.length = 0;
+    for (const a of extraLoaders.splice(0)) a.close();
+    access.close();
+    await fanout.close();
+    await sessions.closeAll();
+    hub.closeAll();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await gateway.close();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("⑨ revokeUser — 그 사용자의 모든 연결에 unauthorized 1프레임 → 1008 종료 → 세션 release(유예) · 다른 사용자 무영향", async () => {
+    const t1 = await authed("token-t");
+    const t2 = await authed("token-t");
+    const a = await authed("token-a");
+    const aBefore = a.inbox.length;
+
+    fanout.revokeUser(USER_T, "access-revoked");
+    await waitFor(() => t1.ws.closeInfo !== null && t2.ws.closeInfo !== null, "T 두 탭 종료");
+
+    for (const t of [t1, t2]) {
+      expect(t.ws.closeInfo?.code).toBe(1008);
+      expect(t.inbox.at(-1)).toEqual({ t: "state", s: "unauthorized" });
+      expect(t.inbox.filter((m) => m.t === "state" && m.s === "unauthorized")).toHaveLength(1);
+    }
+    // 세션은 즉시 끊지 않는다 — release 로 종전 유예(5분)에 맡긴다. 서버 쪽 전략 · 미체결은 건드리지 않는다.
+    expect(releaseSpy.mock.calls.filter((c) => c[0] === USER_T)).toHaveLength(2);
+    expect(sessions.get(USER_T)).toBeDefined();
+    // 같은 DMA id 를 쓰는 다른 사용자(A)는 그대로다.
+    expect(a.ws.closeInfo).toBeNull();
+    expect(a.inbox.slice(aBefore).some((m) => m.t === "state" && m.s === "unauthorized")).toBe(false);
+  });
+
+  it("⑩ 재적재에서 viewer 로 강등 → revoked → 연결 1008 종료 · 재접속하면 unauthorized(연결 유지 · 새 세션 없음)", async () => {
+    const t = await authed("token-t");
+    const x = await authed("token-x");
+    const row = db.accessRows.find((r) => r.user_id === USER_T);
+    if (row === undefined) throw new Error("시드 행 없음");
+    row.role = "viewer";
+
+    const r = await access.reload();
+    expect(r.revoked).toEqual([USER_T]);
+    await waitFor(() => t.ws.closeInfo !== null, "강등 사용자 종료");
+    expect(t.ws.closeInfo?.code).toBe(1008);
+    expect(x.ws.closeInfo).toBeNull();
+
+    const again = await authed("token-t", "unauthorized");
+    expect(again.ws.closeInfo).toBeNull();
+    expect(again.inbox.some((m) => m.t === "state" && m.s === "ready")).toBe(false);
+  });
+
+  it("⑪ 재적재에서 허용 해제(행 삭제) · DMA 연결 끊김도 같은 갈래로 끊긴다", async () => {
+    const t = await authed("token-t");
+    const x = await authed("token-x");
+    db.accessRows = db.accessRows.filter((r) => r.user_id !== USER_T);
+    const xRow = db.accessRows.find((r) => r.user_id === USER_X);
+    if (xRow === undefined) throw new Error("시드 행 없음");
+    xRow.dma_user_id = null;
+
+    const r = await access.reload();
+    expect([...r.revoked].sort()).toEqual([USER_T, USER_X].sort());
+    await waitFor(() => t.ws.closeInfo !== null && x.ws.closeInfo !== null, "두 사용자 종료");
+    expect(t.ws.closeInfo?.code).toBe(1008);
+    expect(x.ws.closeInfo?.code).toBe(1008);
+  });
+
+  it("⑫ 두 서버(KB · KYOBO) 적용 행 — 각 서버 매핑 + AppAccess 신원으로만 그 사용자에게 간다", async () => {
+    const t = await authed("token-t");
+    const a = await authed("token-a");
+    const x = await authed("token-x");
+    const kb = { access: accessView({ dmaT: ["KB-ACC-T"] }), identities: access };
+    const kyobo = { access: accessView({ dmaT: ["KY-ACC-T"], dmaX: ["KY-ACC-X"] }), identities: access };
+
+    fanout.deliverJournalRows([journalRow(1, "KB-ACC-T"), journalRow(2, "KY-ACC-T")], kb);
+    fanout.deliverJournalRows([journalRow(3, "KY-ACC-T"), journalRow(4, "KY-ACC-X"), journalRow(5, "KB-ACC-T")], kyobo);
+    await waitFor(() => journalFrames(t.inbox).length === 2 && journalFrames(x.inbox).length === 1, "두 서버 푸시");
+    await flushIo(8);
+
+    // T · A(같은 DMA id 공유)는 각 서버에서 그 서버 매핑의 자기 계좌 행만.
+    expect(journalFrames(t.inbox)).toEqual([["KB-ACC-T"], ["KY-ACC-T"]]);
+    expect(journalFrames(a.inbox)).toEqual([["KB-ACC-T"], ["KY-ACC-T"]]);
+    // X 는 KB 매핑이 없어 KB 푸시 0 · KYOBO 는 자기 계좌만. 다른 서버의 같은 계좌번호 문자열(KB-ACC-T)은 새지 않는다.
+    expect(journalFrames(x.inbox)).toEqual([["KY-ACC-X"]]);
+  });
+
+  it("⑬ 전략 이벤트도 같은 경로 — 주문 이벤트는 계좌 필터 · 시세 이벤트는 그 서버 매핑 보유자만", async () => {
+    const t = await authed("token-t");
+    const x = await authed("token-x");
+    const kb = { access: accessView({ dmaT: ["KB-ACC-T"] }), identities: access };
+    const ev = (kind: number, accountNo: string): StrategyEventRow => ({ kind, accountNo }) as unknown as StrategyEventRow;
+
+    fanout.deliverStrategyEvents([ev(1, ""), ev(3, "KB-ACC-T"), ev(3, "KY-ACC-X")], kb);
+    await waitFor(() => eventFrames(t.inbox).length === 1, "T 전략 이벤트");
+    await flushIo(8);
+
+    expect(eventFrames(t.inbox)).toEqual([["1:", "3:KB-ACC-T"]]);
+    // X 는 KB 매핑이 없다 — 시세 이벤트도 받지 않는다.
+    expect(eventFrames(x.inbox)).toEqual([]);
+  });
+
+  it("⑭ AppAccess 에 없는 사용자 · 첫 적재 전 신원은 0 프레임(fail closed)", async () => {
+    vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    const t = await authed("token-t");
+    const x = await authed("token-x");
+
+    // X 만 아는 신원 사본 — T 는 이 사본에 없다.
+    const onlyX = stubDb();
+    onlyX.accessRows = onlyX.accessRows.filter((r) => r.user_id === USER_X);
+    const partial = new AppAccess({ supabase: onlyX.client });
+    extraLoaders.push(partial);
+    await partial.reload();
+    // 첫 적재 전(실패) 사본.
+    const broken = stubDb();
+    broken.failAccess = true;
+    const unloaded = new AppAccess({ supabase: broken.client });
+    extraLoaders.push(unloaded);
+    await unloaded.reload();
+    expect(unloaded.loaded).toBe(false);
+
+    const map = accessView({ dmaT: ["KY-ACC-T"], dmaX: ["KY-ACC-X"] });
+    fanout.deliverJournalRows([journalRow(1, "KY-ACC-T"), journalRow(2, "KY-ACC-X")], { access: map, identities: partial });
+    fanout.deliverJournalRows([journalRow(3, "KY-ACC-T"), journalRow(4, "KY-ACC-X")], { access: map, identities: unloaded });
+    await waitFor(() => journalFrames(x.inbox).length === 1, "X 푸시");
+    await flushIo(8);
+
+    expect(journalFrames(t.inbox)).toEqual([]);
+    expect(journalFrames(x.inbox)).toEqual([["KY-ACC-X"]]);
   });
 });

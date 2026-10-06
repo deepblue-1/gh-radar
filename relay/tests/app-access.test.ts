@@ -261,3 +261,90 @@ describe("AppAccess — 접근 맵 적재 (Phase 29 D-02 · D-04)", () => {
     expect(db.calls).toHaveLength(1);
   });
 });
+
+describe("AppAccess — 재적재 diff → revoked (Phase 29 D-04)", () => {
+  const loaders: AppAccess[] = [];
+  const U5 = "6b1c2b7a-9d40-4a11-8e55-0000000000a5";
+  const U6 = "6b1c2b7a-9d40-4a11-8e55-0000000000a6";
+
+  const BEFORE: AccessRow[] = [
+    { user_id: U1, email: "gone@example.com", role: "trader", dma_user_id: "dmaA" },
+    { user_id: U2, email: "demoted@example.com", role: "trader", dma_user_id: "dmaB" },
+    { user_id: U3, email: "unlinked@example.com", role: "admin", dma_user_id: "dmaC" },
+    { user_id: U4, email: "relinked@example.com", role: "trader", dma_user_id: "dmaD" },
+    { user_id: U5, email: "same@example.com", role: "trader", dma_user_id: "dmaE" },
+    { user_id: U6, email: "admin2trader@example.com", role: "admin", dma_user_id: "dmaF" },
+  ];
+  const AFTER: AccessRow[] = [
+    // U1 사라짐(허용 해제)
+    { user_id: U2, email: "demoted@example.com", role: "viewer", dma_user_id: "dmaB" }, // viewer 로 강등
+    { user_id: U3, email: "unlinked@example.com", role: "admin", dma_user_id: null }, // DMA 연결 끊김
+    { user_id: U4, email: "relinked@example.com", role: "trader", dma_user_id: "dmaZ" }, // 다른 DMA id 로
+    { user_id: U5, email: "same@example.com", role: "trader", dma_user_id: "dmaE" }, // 그대로
+    { user_id: U6, email: "admin2trader@example.com", role: "trader", dma_user_id: "dmaF" }, // admin → trader 는 DMA 권한 유지
+  ];
+
+  function make(db: FakeDb): AppAccess {
+    const a = new AppAccess({ supabase: db.client, refreshMs: REFRESH_MS });
+    loaders.push(a);
+    return a;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+  });
+
+  afterEach(() => {
+    for (const a of loaders.splice(0)) a.close();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("첫 적재는 revoked 를 내지 않는다", async () => {
+    const db = fakeDb();
+    db.queue(ok(BEFORE));
+    const a = make(db);
+    const events: string[][] = [];
+    a.on("revoked", (ids: string[]) => events.push(ids));
+
+    await expect(a.reload()).resolves.toEqual({ ok: true, revoked: [] });
+    expect(events).toEqual([]);
+  });
+
+  it("사라짐 · viewer 강등 · DMA 연결 끊김 · DMA id 변경 → revoked 1회(배열) · 그대로 · admin→trader 는 빠진다", async () => {
+    const db = fakeDb();
+    db.queue(ok(BEFORE));
+    db.queue(ok(AFTER));
+    const a = make(db);
+    const events: string[][] = [];
+    a.on("revoked", (ids: string[]) => events.push(ids));
+    await a.reload();
+
+    const r = await a.reload();
+    expect(r.ok).toBe(true);
+    // 순서 무관 비교 — 정렬한 id 를 한 줄로(실패 보고가 한 줄로 남게).
+    const expected = [U1, U2, U3, U4].sort().join(",");
+    expect([...r.revoked].sort().join(",")).toBe(expected);
+    expect(events).toHaveLength(1);
+    expect([...(events[0] ?? [])].sort().join(",")).toBe(expected);
+    // 교체는 이미 끝났다 — 이벤트 리스너가 새 맵을 본다.
+    expect(a.dmaUserIdOf(U2)).toBeUndefined();
+    expect(a.dmaUserIdOf(U4)).toBe("dmaZ");
+  });
+
+  it("변화 없음 · 적재 실패 → revoked 이벤트 없음", async () => {
+    vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    const db = fakeDb();
+    db.queue(ok(BEFORE));
+    db.queue(ok(BEFORE));
+    db.queue({ data: null, error: { message: "boom" } });
+    const a = make(db);
+    const events: string[][] = [];
+    a.on("revoked", (ids: string[]) => events.push(ids));
+    await a.reload();
+
+    await expect(a.reload()).resolves.toEqual({ ok: true, revoked: [] });
+    await expect(a.reload()).resolves.toEqual({ ok: false, revoked: [] });
+    expect(events).toEqual([]);
+  });
+});
