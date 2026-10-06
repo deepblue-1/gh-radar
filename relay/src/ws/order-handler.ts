@@ -85,9 +85,14 @@ export interface OrderHandlerSession {
   send(payload: Uint8Array): boolean;
 }
 
-/** `SessionManager.get` 그대로. **여기서 대신 로그인하지 않는다** (D-15). */
+/**
+ * `SessionManager` 의 조회 두 개(29-16 — 세션 = (유저, 서버)). **여기서 대신 로그인하지 않는다** (D-15).
+ *   - `forAccount` — 그 계좌가 든 세션(주문의 라우팅 축).
+ *   - `primaryOf`  — 어느 세션에도 그 계좌가 없을 때 「세션 없음」 과 「허용 계좌 아님」 을 종전 문구로 가르는 기준(KB 우선).
+ */
 export interface OrderHandlerSessions {
-  get(userId: string): OrderHandlerSession | undefined;
+  forAccount(userId: string, accountNo: string): OrderHandlerSession | undefined;
+  primaryOf(userId: string): OrderHandlerSession | undefined;
 }
 
 /**
@@ -419,7 +424,10 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
     userDupKeys.set(userId, heldDupKeys);
 
     // ① 활성 Ready 세션이 있어야 한다. **여기서 대신 로그인하지 않는다** (D-15).
-    const session = deps.sessions.get(userId);
+    //    29-16 — 주문은 **그 계좌가 든 (유저, 서버) 세션**으로 간다(`forAccount`). 어느 세션에도 그 계좌가 없으면
+    //    primary(KB 우선)로 판정을 이어 종전과 같이 갈린다: 세션 자체가 없거나 미준비면 「세션 없음」, 있으면 ② 의
+    //    「사용할 수 없는 계좌」.
+    const session = deps.sessions.forAccount(userId, msg.accountNo) ?? deps.sessions.primaryOf(userId);
     if (session === undefined || !session.isReady) {
       logger.warn({ ...logCtx, hasSession: session !== undefined }, "[WS-order] 세션 미준비 — 거부");
       release(state, keys);

@@ -101,8 +101,13 @@ export type DmaSessionCreds = {
   dmaUserId: string;
   /** 평문 비밀번호. 이 객체 밖으로 나가면 안 된다 (D-19). */
   password: string;
-  /** `LoginReq.broker`. 현재는 "KB". */
+  /** `LoginReq.broker`. "KB" · "KYOBO". */
   broker: string;
+  /**
+   * 레지스트리 서버 키(Phase 29-16 — 세션 = (유저, 서버)). 로그 문맥 · 세션 맵 키의 한 축이다.
+   * 레지스트리 없는 단위 테스트는 broker 와 같은 값("KB")을 쓴다.
+   */
+  serverKey?: string;
 };
 
 /** Ready 진입 알림 — **재구독의 유일한 트리거**다 (Pitfall 4). */
@@ -123,9 +128,13 @@ export interface DmaSession {
 export class DmaSession extends EventEmitter {
   readonly #userId: string;
   readonly #dmaUserId: string;
-  /** 평문 비밀번호 (D-19 / T-15-19). 게터를 만들지 않는다. */
-  readonly #password: string;
+  /**
+   * 평문 비밀번호 (D-19 / T-15-19). 게터를 만들지 않는다.
+   * `readonly` 가 아닌 이유는 `setPassword`(Phase 29-16 · D-08) 하나 — 비밀 교체가 다음 로그인부터 먹게 한다.
+   */
+  #password: string;
   readonly #broker: string;
+  readonly #serverKey: string;
   readonly #client: DmaClient;
 
   #state: DmaSessionState = "idle";
@@ -155,6 +164,7 @@ export class DmaSession extends EventEmitter {
     this.#dmaUserId = creds.dmaUserId;
     this.#password = creds.password;
     this.#broker = creds.broker;
+    this.#serverKey = creds.serverKey ?? creds.broker;
     this.#client = client;
 
     // TCP 가 올라오는 모든 경로가 이 한 워커를 탄다 (Pitfall 4).
@@ -174,6 +184,24 @@ export class DmaSession extends EventEmitter {
 
   get state(): DmaSessionState {
     return this.#state;
+  }
+
+  /** 레지스트리 서버 키 (Phase 29-16). 세션 맵 키 `${userId}|${serverKey}` 의 한 축 · 로그 문맥. */
+  get serverKey(): string {
+    return this.#serverKey;
+  }
+
+  /** `LoginReq.broker` (Phase 29-16). 사용자 × 증권사당 세션 1개 규칙(D-10)의 축이다. */
+  get broker(): string {
+    return this.#broker;
+  }
+
+  /**
+   * 이 세션이 그 DMA id 로 로그인하는가 (Phase 29-16). DMA id 를 게터로 내보내지 않고 **비교만** 연다 —
+   * 꺼낼 수 있으면 언젠가 로그 인자에 실린다(D-19 규율 · 이전 phase 결정 「로그에 dmaUserId 금지」).
+   */
+  isDmaUser(dmaUserId: string): boolean {
+    return this.#dmaUserId === dmaUserId;
   }
 
   /** 주문 라우트가 "지금 주문을 받을 수 있는가"를 묻는 단 하나의 질문이다 (D-15). */
@@ -282,6 +310,40 @@ export class DmaSession extends EventEmitter {
       return false;
     }
     return this.#client.send(payload);
+  }
+
+  /**
+   * 세션 비밀 교체 (Phase 29-16 · D-08 · RESEARCH Pitfall 8). **열린 세션은 끊지 않는다** — 게이트웨이 로그인은 이미
+   * 끝났고 새 비밀은 다음 `LoginReq`(회선 재접속 · 재로그인)부터 쓴다. 바꾸지 않으면 Admin 이 비번을 바꾼 뒤 첫 회선
+   * 끊김에서 옛 비밀로 재로그인해 거부(→ `session_rejected` 고착)가 된다. 로그에는 userId · serverKey 만 싣는다.
+   */
+  setPassword(password: string): void {
+    this.#password = password;
+    logger.info(
+      { userId: this.#userId, serverKey: this.#serverKey, state: this.#state },
+      "[DMA] 세션 비밀 교체 — 다음 로그인부터 적용 (열린 세션 유지)",
+    );
+  }
+
+  /**
+   * 세션을 **재접속 루프 없이** 종료 상태로 끝낸다 (Phase 29-16 · CONTEXT 「DeleteUser → unauthorized · 재접속 루프 없음」).
+   *
+   * `unauthorized` 는 D-38 규율(상태를 나중에 추가하지 않는다)로 처음부터 선언만 되어 있던 상태다 — 이 메서드가 세션이
+   * 스스로 그 상태에 들어가는 **첫 경로**다. 종료 상태(`TERMINAL_STATES`)라 이후 전송 이벤트가 상태를 옮기지 못하고,
+   * SessionManager 의 `NO_RETRY_STATES` 에 들어 있어 같은 사용자가 다시 와도 재로그인하지 않는다(KB 계정 잠금 방지 · D-16 과 같은 이유).
+   * 상태 프레임(`unauthorized` + 문구)은 붙어 있는 탭에 그대로 간다 — 브라우저는 「권한 없음」 배지를 그린다.
+   */
+  terminate(state: "unauthorized", message: string): void {
+    if (this.#state === state) return;
+    this.#clearTimers();
+    // 루프를 먼저 끊고 연결을 정리한다(`#failNoRetry` 와 같은 순서) — 반대면 destroy 가 부른 down 이 재접속을 예약한다.
+    this.#client.stopReconnect(message);
+    this.#client.destroy();
+    logger.warn(
+      { userId: this.#userId, serverKey: this.#serverKey, prev: this.#state, next: state },
+      "[DMA] 세션 강제 종료 (재접속 없음)",
+    );
+    this.#setState(state, message);
   }
 
   /** 세션 종료. 유예 만료·프로세스 종료 시 SessionManager 가 부른다. */

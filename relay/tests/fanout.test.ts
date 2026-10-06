@@ -349,7 +349,7 @@ describe("WsFanout", () => {
 
     const hub = new SubscriptionHub(hubOpts);
     const sessions = new SessionManager({ host: "127.0.0.1", port: gateway.port, broker: "KB" });
-    const acquireSpy = vi.spyOn(sessions, "acquire");
+    const acquireSpy = vi.spyOn(sessions, "acquireFor");
     const releaseSpy = vi.spyOn(sessions, "release");
 
     // 시세 업스트림 = quote 연결 하나 (Phase 26 D-12). 부팅 결선(index.ts)은 26-04 — 여기서는 테스트가 직접 붙인다.

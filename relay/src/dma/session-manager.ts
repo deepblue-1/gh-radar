@@ -15,6 +15,19 @@
  *   D-19  비밀번호는 `acquire` 인자로 한 번 들어가 `DmaSession` 의 private 필드에만 산다.
  *         이 모듈은 로그에 `userId` 만 남기고 DMA user_id·비밀번호·계좌번호는 남기지 않는다.
  *
+ * Phase 29-16 — 세션 = (유저, 서버) (ADMIN-06 · CONTEXT 「세션 (유저, 서버) 단위」):
+ *   키    맵 키는 `${userId}|${serverKey}` 다(`sessionKey`). 서버 키는 레지스트리 키(예 "KB120")이고 증권사 접두라
+ *         증권사별로 겹치지 않는다. D-13 의 「gh-radar userId 가 키」는 그대로다 — 서버 축이 하나 붙었을 뿐 DMA id 로
+ *         세션을 섞지 않는다.
+ *   D-10  **사용자 × 증권사당 세션은 최대 1개.** 그 증권사 세션이 살아 있으면(탭 · 유예 중) 레지스트리의 주문 서버가
+ *         바뀌어도 그 세션을 재사용한다 — 새 서버는 그 세션이 끝난 뒤의 다음 acquire 부터다. 증권사 안 주문 서버
+ *         선택(`resolveTarget(broker)`)은 **세션을 만들 때만** 읽는다. 색인은 `#byUserBroker`(`${userId}|${broker}` →
+ *         세션 키) 하나다 — 주문 서버가 바뀐 뒤에도 옛 서버 세션을 찾아 재사용할 수 있게 서버 키가 아니라 증권사로 찾는다.
+ *   D-18  사용자 단위 명령(VI 설정 · 사용자 설정 84 · 세션 상태 표시)의 세션은 `primaryOf` — **KB 세션 우선**, 없으면
+ *         처음 만든 세션. 계좌가 있는 명령(주문 · 상따 · 자동매도)은 `forAccount` — 그 계좌가 든 세션.
+ *   주문 서버 없음 — `resolveTarget(broker)` 가 undefined 면 세션을 열지 않는다(`acquireFor` → null). 29-03 의 「생성자
+ *         게이트웨이 폴백」은 여기서 끝냈다 — db 모드의 생성자 값은 127.0.0.1 이라 폴백은 열리지 않는 세션을 만들 뿐이다.
+ *
  * 하지 않는 것:
  *   - 자격증명을 조회·복호화하지 않는다. 호출자(15-04 wss 인증)가 이미 푼 값을 넘긴다.
  *   - 구독을 소유하지 않는다. 세션이 닫힐 때 구독도 사라지는 것은 Hub 가 `ready`/종료를
@@ -52,7 +65,7 @@ export const SESSION_GRACE_MS = 300_000;
  */
 export const STALE_SESSION_MS = 300_000;
 
-/** `acquire` 가 받는 자격증명. `userId` 는 키라서 따로 받는다. */
+/** `acquireFor` 가 받는 자격증명. `userId` 는 키라서 따로 받는다. */
 export type DmaCredentials = {
   /** DMA 게이트웨이 로그인 id. 로그에 남기지 않는다. */
   dmaUserId: string;
@@ -61,8 +74,7 @@ export type DmaCredentials = {
 };
 
 /**
- * 세션 생성 시점의 연결 대상 (Phase 29 Plan 03 — 서버 레지스트리). index 는 레지스트리의 **KB 주문 서버**를 돌려준다.
- * 29-16 이 (유저, 서버) 세션으로 넓힌다.
+ * 세션 생성 시점의 연결 대상 (Phase 29 — 서버 레지스트리). index 는 레지스트리의 **그 증권사 주문 서버**를 돌려준다(29-16).
  */
 export type SessionTarget = {
   /** 레지스트리 서버 키(로그 문맥). */
@@ -74,17 +86,20 @@ export type SessionTarget = {
 };
 
 export type SessionManagerOptions = {
-  /** 연결 대상 폴백 — `resolveTarget` 이 없거나 undefined 를 돌려줄 때 쓴다. */
+  /**
+   * `resolveTarget` 을 주지 않을 때(단위 테스트 · 단일 게이트웨이 하네스)의 유일한 대상 — 증권사 `broker` 하나만
+   * 연다(서버 키 = broker). `resolveTarget` 을 주면 쓰지 않는다.
+   */
   host: string;
   port: number;
-  /** `LoginReq.broker`. 현재는 "KB". `resolveTarget` 폴백. */
+  /** `LoginReq.broker`. 위 단일 대상의 증권사. */
   broker: string;
   /**
-   * 세션을 **만들 때마다** 연결 대상을 고른다 (Phase 29 Plan 03 — 레지스트리의 KB 주문 서버). 주문 서버가 바뀌어도 열린
-   * 세션은 그대로이고 새 세션부터 새 서버다(D-10). 주지 않으면 생성자 host/port/broker. undefined 를 돌려주면(레지스트리에
-   * KB 주문 서버 없음) 생성자 값으로 폴백하고 warn 1줄 — 29-16 이 증권사별 규칙으로 교체한다.
+   * 세션을 **만들 때마다** 그 증권사의 연결 대상을 고른다 (Phase 29 — 레지스트리의 증권사별 주문 서버). 주문 서버가 바뀌어도
+   * 열린 세션은 그대로이고 새 세션부터 새 서버다(D-10). undefined(그 증권사 주문 서버 없음)면 세션을 열지 않는다 —
+   * `acquireFor` 가 null 을 돌려주고 warn 1줄(29-16).
    */
-  resolveTarget?: () => SessionTarget | undefined;
+  resolveTarget?: (broker: string) => SessionTarget | undefined;
   /** 유예(ms). 미지정 시 `SESSION_GRACE_MS`. */
   graceMs?: number;
   /**
@@ -135,6 +150,12 @@ export type SessionStats = {
 
 type Entry = {
   session: DmaSession;
+  /** gh-radar 사용자 id (D-13). `sessionsOf` · `firstReady` 의 사용자 축. */
+  userId: string;
+  /** 레지스트리 서버 키. */
+  serverKey: string;
+  /** `LoginReq.broker` — 사용자 × 증권사당 1세션(D-10) 색인의 축. */
+  broker: string;
   /** 이 사용자의 살아 있는 wss 소켓 수. */
   refCount: number;
   /** 참조계수가 0 이 된 뒤의 소멸 예약. 재연결이 오면 취소한다. */
@@ -182,12 +203,28 @@ const NO_RETRY_STATES: ReadonlySet<string> = new Set(["session_rejected", "unaut
  */
 const RETRYABLE_DEAD_STATES: ReadonlySet<string> = new Set(["failed", "manual_required"]);
 
+/** 세션 맵 키 — `${userId}|${serverKey}` (Phase 29-16). userId 는 uuid · 서버 키는 증권사 접두 영숫자라 `|` 가 섞이지 않는다. */
+export function sessionKey(userId: string, serverKey: string): string {
+  return `${userId}|${serverKey}`;
+}
+
+/** 사용자 × 증권사 색인 키 (D-10). */
+function userBrokerKey(userId: string, broker: string): string {
+  return `${userId}|${broker}`;
+}
+
+/** primary 우선 증권사 (D-18). 사용자 단위 명령 · 세션 상태 표시가 이 증권사 세션을 먼저 본다. */
+const PRIMARY_BROKER = "KB";
+
 export class SessionManager {
+  /** `${userId}|${serverKey}` → 엔트리. 삽입 순서 = 생성 순서(`primaryOf` 의 「처음 만든 세션」 · `firstReady` 순서). */
   readonly #sessions = new Map<string, Entry>();
+  /** `${userId}|${broker}` → 세션 키. 사용자 × 증권사당 세션 1개(D-10)의 색인이다. */
+  readonly #byUserBroker = new Map<string, string>();
   readonly #host: string;
   readonly #port: number;
   readonly #broker: string;
-  readonly #resolveTarget: (() => SessionTarget | undefined) | undefined;
+  readonly #resolveTarget: ((broker: string) => SessionTarget | undefined) | undefined;
   readonly #graceMs: number;
   readonly #now: () => number;
 
@@ -201,65 +238,72 @@ export class SessionManager {
   }
 
   /**
-   * 사용자의 세션을 얻고 참조계수를 1 올린다. wss 인증 성공 직후에 부른다.
+   * 사용자의 **그 증권사** 세션을 얻고 참조계수를 1 올린다. wss 인증 성공 직후에 부른다.
    *
-   * 세션이 없으면 만들어 `start()` 까지 하고, 유예 타이머가 걸려 있으면 **취소하고 같은
-   * 세션을 재사용**한다(D-15 — 새로고침 왕복 흡수).
+   * 그 사용자 · 증권사 세션이 있으면(D-10 — 주문 서버가 그 사이 바뀌었어도) 그 세션을 종전 규율로 재사용한다: 유예
+   * 타이머가 걸려 있으면 **취소하고 같은 세션**(D-15 — 새로고침 왕복 흡수), 회선 문제로 죽은 세션은 새 접속(0 → 1)
+   * 에서만 재생성, 로그인 거부 계열(`NO_RETRY_STATES`)은 재로그인 없이 그대로 돌려준다. 없으면 그 증권사 주문 서버
+   * (`resolveTarget(broker)`)로 새로 만들어 `start()` 까지 한다.
+   *
+   * @returns 세션. 그 증권사 주문 서버가 없으면 `null`(세션을 열지 않는다 · warn 1줄)
    */
-  acquire(userId: string, creds: DmaCredentials): DmaSession {
-    const existing = this.#sessions.get(userId);
+  acquireFor(userId: string, broker: string, creds: DmaCredentials): DmaSession | null {
+    const key = this.#byUserBroker.get(userBrokerKey(userId, broker));
+    const existing = key !== undefined ? this.#sessions.get(key) : undefined;
 
-    if (existing !== undefined) {
+    if (key !== undefined && existing !== undefined) {
       const state = existing.session.state;
+      const ctx = { userId, serverKey: existing.serverKey, state };
 
       if (existing.graceTimer !== null) {
         clearTimeout(existing.graceTimer);
         existing.graceTimer = null;
-        logger.info({ userId, state }, "[DMA] 유예 중 재연결 — 소멸 예약 취소, 세션 재사용");
+        logger.info(ctx, "[DMA] 유예 중 재연결 — 소멸 예약 취소, 세션 재사용");
       }
 
       if (existing.refCount === 0 && RETRYABLE_DEAD_STATES.has(state)) {
-        // 회선 문제로 죽은 세션이고 새 사용자 접속이다 — 여기서만 다시 세운다.
-        logger.info({ userId, state }, "[DMA] 죽은 세션 폐기 후 재생성 (회선 실패 복구 경로)");
+        // 회선 문제로 죽은 세션이고 새 사용자 접속이다 — 여기서만 다시 세운다. 세션이 끝났으므로 대상도 다시 고른다(D-10).
+        logger.info(ctx, "[DMA] 죽은 세션 폐기 후 재생성 (회선 실패 복구 경로)");
         existing.session.close();
-        this.#sessions.delete(userId);
-        return this.#create(userId, creds);
+        this.#delete(key, existing);
+        return this.#create(userId, broker, creds);
       }
 
       existing.refCount += 1;
       if (NO_RETRY_STATES.has(state)) {
         logger.warn(
-          { userId, state, refCount: existing.refCount },
+          { ...ctx, refCount: existing.refCount },
           "[DMA] 로그인 거부 세션 재사용 — 재로그인하지 않는다 (자격증명 수정 필요)",
         );
       } else {
         logger.info(
-          { userId, state, refCount: existing.refCount },
+          { ...ctx, refCount: existing.refCount },
           "[DMA] 살아 있는 세션 재사용 (같은 사용자의 추가 탭)",
         );
       }
       return existing.session;
     }
 
-    return this.#create(userId, creds);
+    return this.#create(userId, broker, creds);
   }
 
   /**
-   * 참조계수를 1 내린다. wss 소켓이 닫힐 때 부른다.
+   * 참조계수를 1 내린다. wss 소켓이 닫힐 때 그 소켓이 잡은 서버 키마다 부른다.
    * 0 이 되면 소멸을 예약할 뿐 즉시 끊지 않는다 (D-15).
    */
-  release(userId: string): void {
-    const entry = this.#sessions.get(userId);
+  release(userId: string, serverKey: string): void {
+    const key = sessionKey(userId, serverKey);
+    const entry = this.#sessions.get(key);
     if (entry === undefined) {
       // 이미 사라진 세션에 대한 release 는 정상 경합이다(유예 만료 직후 소켓 close 등).
-      logger.warn({ userId }, "[DMA] 세션 없는 release — 무시");
+      logger.warn({ userId, serverKey }, "[DMA] 세션 없는 release — 무시");
       return;
     }
 
     entry.refCount = Math.max(0, entry.refCount - 1);
     if (entry.refCount > 0) {
       logger.info(
-        { userId, refCount: entry.refCount },
+        { userId, serverKey, refCount: entry.refCount },
         "[DMA] wss 소켓 1개 종료 — 남은 탭이 있어 세션 유지",
       );
       return;
@@ -269,26 +313,54 @@ export class SessionManager {
     entry.graceTimer = setTimeout(() => {
       entry.graceTimer = null;
       // 유예 중 재연결이 왔다면 타이머가 이미 취소됐다. 여기 왔다는 것은 아무도 안 왔다는 뜻이다.
-      this.#sessions.delete(userId);
+      this.#delete(key, entry);
       entry.session.close();
       logger.info(
-        { userId, graceMs: this.#graceMs, sessionCount: this.#sessions.size },
+        { userId, serverKey, graceMs: this.#graceMs, sessionCount: this.#sessions.size },
         "[DMA] 유예 만료 — DMA 세션 종료",
       );
     }, this.#graceMs);
 
     logger.info(
-      { userId, graceMs: this.#graceMs },
+      { userId, serverKey, graceMs: this.#graceMs },
       "[DMA] 마지막 wss 종료 — 유예 후 소멸 예약 (새로고침 왕복 흡수)",
     );
   }
 
-  /**
-   * 참조계수를 건드리지 않고 조회한다. 주문 라우트가 "활성 Ready 세션이 있는가"를
-   * 물을 때 쓴다 — 없으면 409 `SESSION_NOT_READY` 다 (D-15).
-   */
+  /** `primaryOf` 별칭(호환 — Phase 15~29-15 의 단일 세션 조회). 참조계수를 건드리지 않는다. */
   get(userId: string): DmaSession | undefined {
-    return this.#sessions.get(userId)?.session;
+    return this.primaryOf(userId);
+  }
+
+  /** 그 사용자의 세션 전부(생성 순서). 참조계수를 건드리지 않는다. */
+  sessionsOf(userId: string): DmaSession[] {
+    const out: DmaSession[] = [];
+    for (const entry of this.#sessions.values()) {
+      if (entry.userId === userId) out.push(entry.session);
+    }
+    return out;
+  }
+
+  /**
+   * 사용자 단위 명령 · 상태 표시의 세션 (D-18) — **KB 세션 우선**, 없으면 처음 만든 세션, 없으면 undefined.
+   * 주문 라우트가 「활성 Ready 세션이 있는가」를 물을 때의 기본 세션이기도 하다(없으면 「세션 없음」 거부 · D-15).
+   */
+  primaryOf(userId: string): DmaSession | undefined {
+    const kbKey = this.#byUserBroker.get(userBrokerKey(userId, PRIMARY_BROKER));
+    const kb = kbKey !== undefined ? this.#sessions.get(kbKey)?.session : undefined;
+    return kb ?? this.sessionsOf(userId)[0];
+  }
+
+  /**
+   * 그 계좌가 든 세션 (계좌가 있는 명령 — 주문 · 상따 · 자동매도). 근거는 `allowedAccounts`(게이트웨이 응답과 대조된
+   * 목록)뿐이다 — 인바운드 바디의 증권사 표기 같은 것을 믿지 않는다(T-16-01). 어느 세션에도 없으면 undefined.
+   */
+  forAccount(userId: string, accountNo: string): DmaSession | undefined {
+    for (const entry of this.#sessions.values()) {
+      if (entry.userId !== userId) continue;
+      if (entry.session.allowedAccounts.some((a) => a.accountNo === accountNo)) return entry.session;
+    }
+    return undefined;
   }
 
   /**
@@ -296,36 +368,39 @@ export class SessionManager {
    *
    * 용도(quick-260923-cqj D-02): 게이트웨이 종목마스터 요청(27)을 실어 보낼 **운반 세션** 선택.
    * 요청은 사용자 수와 무관한 relay 전체 1건이고, 07:30 경계 타이머와 실패 뒤 재시도 타이머가
-   * 이 함수를 부른다. 삽입 순서상 첫 Ready 세션 중 `avoidUserId` 가 아닌 것을 돌려주고(직전
-   * 실패 세션을 피한다), 그런 세션이 없으면 `avoidUserId` 세션이 Ready 일 때 그것을 돌려준다.
+   * 이 함수를 부른다. 삽입 순서상 첫 Ready 세션 중 `avoidUserId` 사용자의 것이 아닌 것을 돌려주고(직전
+   * 실패 세션을 피한다 — 회피는 **사용자 단위**다, 키 구조와 무관), 그런 세션이 없으면 `avoidUserId` 의 Ready 세션을 돌려준다.
    * 유예 중(마지막 wss 가 닫힌 뒤 5분)인 세션도 Ready 면 후보다 — 게이트웨이 로그인은 살아 있다.
    */
   firstReady(avoidUserId?: string): DmaSession | undefined {
-    for (const [userId, entry] of this.#sessions) {
-      if (userId !== avoidUserId && entry.session.isReady) return entry.session;
+    for (const entry of this.#sessions.values()) {
+      if (entry.userId !== avoidUserId && entry.session.isReady) return entry.session;
     }
     if (avoidUserId === undefined) return undefined;
-    const avoided = this.#sessions.get(avoidUserId)?.session;
-    return avoided?.isReady === true ? avoided : undefined;
+    return this.sessionsOf(avoidUserId).find((s) => s.isReady);
   }
 
   /** 프로세스 graceful shutdown 용. 15-05 의 `index.ts` 가 부른다. */
   async closeAll(): Promise<void> {
     const count = this.#sessions.size;
-    for (const [userId, entry] of this.#sessions) {
+    for (const entry of this.#sessions.values()) {
       if (entry.graceTimer !== null) {
         clearTimeout(entry.graceTimer);
         entry.graceTimer = null;
       }
       entry.session.close();
-      logger.info({ userId }, "[DMA] 종료 절차 — 세션 정리");
+      logger.info({ userId: entry.userId, serverKey: entry.serverKey }, "[DMA] 종료 절차 — 세션 정리");
     }
     this.#sessions.clear();
+    this.#byUserBroker.clear();
     logger.info({ count }, "[DMA] 전 세션 종료 완료");
     await Promise.resolve();
   }
 
-  /** `/healthz` 용 요약. 식별자(userId·DMA user_id·계좌번호)를 담지 않는다. */
+  /**
+   * `/healthz` 용 요약. 식별자(userId·DMA user_id·계좌번호)를 담지 않는다.
+   * 모든 (유저, 서버) 세션을 센다(29-16) — 판정 규율 · 503 축은 그대로다.
+   */
   stats(): SessionStats {
     let readyCount = 0;
     let everReadyCount = 0;
@@ -355,43 +430,61 @@ export class SessionManager {
     };
   }
 
-  /** 이번 세션의 연결 대상 — `resolveTarget` 우선, 없거나 undefined 면 생성자 값(Phase 29 Plan 03). */
-  #target(userId: string): { serverKey: string | null; host: string; port: number; broker: string } {
-    if (this.#resolveTarget === undefined) {
-      return { serverKey: null, host: this.#host, port: this.#port, broker: this.#broker };
-    }
-    const t = this.#resolveTarget();
-    if (t === undefined) {
-      // 29-16 이 증권사별 규칙으로 교체한다 — 그 전까지는 종전 단일 게이트웨이 값으로 연다(env 모드와 같은 동작).
-      logger.warn(
-        { userId, host: this.#host, port: this.#port },
-        "[DMA] 레지스트리에 KB 주문 서버가 없다 — 생성자 게이트웨이로 폴백",
-      );
-      return { serverKey: null, host: this.#host, port: this.#port, broker: this.#broker };
-    }
-    return { serverKey: t.serverKey, host: t.host, port: t.port, broker: t.broker };
+  /**
+   * 그 증권사의 연결 대상 — `resolveTarget(broker)` 가 있으면 그것(undefined = 주문 서버 없음), 없으면 생성자의 단일
+   * 대상(그 증권사일 때만 · 서버 키 = broker).
+   */
+  #target(broker: string): SessionTarget | undefined {
+    if (this.#resolveTarget !== undefined) return this.#resolveTarget(broker);
+    if (broker !== this.#broker) return undefined;
+    return { serverKey: this.#broker, host: this.#host, port: this.#port, broker: this.#broker };
   }
 
-  #create(userId: string, creds: DmaCredentials): DmaSession {
-    const target = this.#target(userId);
+  /** 엔트리와 사용자 × 증권사 색인을 함께 지운다. 색인이 다른 세션을 가리키면 그대로 둔다(경합 방어). */
+  #delete(key: string, entry: Entry): void {
+    if (this.#sessions.get(key) === entry) this.#sessions.delete(key);
+    const ub = userBrokerKey(entry.userId, entry.broker);
+    if (this.#byUserBroker.get(ub) === key) this.#byUserBroker.delete(ub);
+  }
+
+  #create(userId: string, broker: string, creds: DmaCredentials): DmaSession | null {
+    const target = this.#target(broker);
+    if (target === undefined) {
+      // 레지스트리에 그 증권사 주문 서버가 없다 — 열리지 않는 세션을 만들지 않는다(29-16). 서버 키 · 증권사만 남긴다.
+      logger.warn({ userId, broker }, "[DMA] 그 증권사 주문 서버가 없다 — 세션을 열지 않는다");
+      return null;
+    }
+    const key = sessionKey(userId, target.serverKey);
     const client = new DmaClient({ host: target.host, port: target.port });
     const sessionCreds: DmaSessionCreds = {
       userId,
       dmaUserId: creds.dmaUserId,
       password: creds.password,
       broker: target.broker,
+      serverKey: target.serverKey,
     };
     const session = new DmaSession(sessionCreds, client);
-    this.#sessions.set(userId, {
+    this.#sessions.set(key, {
       session,
+      userId,
+      serverKey: target.serverKey,
+      broker,
       refCount: 1,
       graceTimer: null,
       createdAt: this.#now(),
     });
+    this.#byUserBroker.set(userBrokerKey(userId, broker), key);
 
     // 로그 인자에 dmaUserId·password 를 넣지 않는다 (D-19).
     logger.info(
-      { userId, serverKey: target.serverKey, host: target.host, port: target.port, sessionCount: this.#sessions.size },
+      {
+        userId,
+        serverKey: target.serverKey,
+        broker,
+        host: target.host,
+        port: target.port,
+        sessionCount: this.#sessions.size,
+      },
       "[DMA] 세션 없음 — 새 DMA 세션 생성",
     );
     session.start();

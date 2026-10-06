@@ -51,10 +51,10 @@ describe("SessionManager", () => {
   });
 
   it("① 같은 userId 로 두 번 acquire 하면 세션 1개를 공유한다 (탭 여러 개)", async () => {
-    const first = manager.acquire("user-1", CREDS);
+    const first = manager.acquireFor("user-1", "KB", CREDS)!;
     await waitFor(() => first.state === "ready", "첫 acquire ready");
 
-    const second = manager.acquire("user-1", CREDS);
+    const second = manager.acquireFor("user-1", "KB", CREDS)!;
     await flushIo();
 
     expect(second).toBe(first);
@@ -64,8 +64,8 @@ describe("SessionManager", () => {
   });
 
   it("② 사용자가 다르면 세션이 서로 독립이다 (교차 없음)", async () => {
-    const a = manager.acquire("user-a", CREDS);
-    const b = manager.acquire("user-b", { dmaUserId: "other-id", password: "other-secret" });
+    const a = manager.acquireFor("user-a", "KB", CREDS)!;
+    const b = manager.acquireFor("user-b", "KB", { dmaUserId: "other-id", password: "other-secret" })!;
     await waitFor(() => a.state === "ready" && b.state === "ready", "두 세션 ready");
 
     expect(a).not.toBe(b);
@@ -80,7 +80,7 @@ describe("SessionManager", () => {
     await waitFor(() => gateway.sockets.length === 2, "게이트웨이 연결 2개");
 
     // 한쪽을 닫아도 다른 쪽은 살아 있다.
-    manager.release("user-a");
+    manager.release("user-a", "KB");
     vi.advanceTimersByTime(SESSION_GRACE_MS);
     await waitFor(() => manager.get("user-a") === undefined, "user-a 소멸");
     expect(manager.get("user-b")).toBe(b);
@@ -88,10 +88,10 @@ describe("SessionManager", () => {
   });
 
   it("③ 마지막 wss 가 끊겨도 5분 전에는 살아 있고, 5분이 지나면 종료된다", async () => {
-    const s = manager.acquire("user-1", CREDS);
+    const s = manager.acquireFor("user-1", "KB", CREDS)!;
     await waitFor(() => s.state === "ready", "ready 진입");
 
-    manager.release("user-1");
+    manager.release("user-1", "KB");
 
     vi.advanceTimersByTime(SESSION_GRACE_MS - 1000);
     await flushIo();
@@ -105,15 +105,15 @@ describe("SessionManager", () => {
   });
 
   it("④ 유예 중 재연결하면 타이머를 취소하고 같은 세션을 재사용한다", async () => {
-    const first = manager.acquire("user-1", CREDS);
+    const first = manager.acquireFor("user-1", "KB", CREDS)!;
     await waitFor(() => first.state === "ready", "ready 진입");
 
-    manager.release("user-1");
+    manager.release("user-1", "KB");
     vi.advanceTimersByTime(SESSION_GRACE_MS - 1000);
     await flushIo();
 
     // 새로고침 왕복이 유예 안에 들어왔다 — 재로그인이 일어나면 안 된다.
-    const second = manager.acquire("user-1", CREDS);
+    const second = manager.acquireFor("user-1", "KB", CREDS)!;
     expect(second).toBe(first);
     expect(second.state).toBe("ready");
 
@@ -125,10 +125,10 @@ describe("SessionManager", () => {
   });
 
   it("⑤ closeAll 은 모든 세션과 예약된 유예 타이머를 정리한다", async () => {
-    const a = manager.acquire("user-a", CREDS);
-    const b = manager.acquire("user-b", CREDS);
+    const a = manager.acquireFor("user-a", "KB", CREDS)!;
+    const b = manager.acquireFor("user-b", "KB", CREDS)!;
     await waitFor(() => a.state === "ready" && b.state === "ready", "두 세션 ready");
-    manager.release("user-b"); // 유예 타이머가 걸린 상태로 종료해 본다
+    manager.release("user-b", "KB"); // 유예 타이머가 걸린 상태로 종료해 본다
 
     await manager.closeAll();
     await waitFor(() => gateway.sockets.length === 0, "전 연결 종료");
@@ -149,7 +149,7 @@ describe("SessionManager", () => {
   });
 
   it("⑥ stats 는 식별자를 담지 않는다 (계좌번호·DMA user_id·userId 전부 제외)", async () => {
-    const s = manager.acquire("user-1", CREDS);
+    const s = manager.acquireFor("user-1", "KB", CREDS)!;
     await waitFor(() => s.state === "ready", "ready 진입");
 
     const stats = manager.stats();
@@ -173,12 +173,12 @@ describe("SessionManager", () => {
     });
     const mgr = new SessionManager({ host: "127.0.0.1", port: rejecting.port, broker: "KB" });
 
-    const first = mgr.acquire("user-1", CREDS);
+    const first = mgr.acquireFor("user-1", "KB", CREDS)!;
     await waitFor(() => first.state === "session_rejected", "session_rejected 확정");
     const loginFrames = rejecting.sockets.length;
 
-    mgr.release("user-1");
-    const second = mgr.acquire("user-1", CREDS);
+    mgr.release("user-1", "KB");
+    const second = mgr.acquireFor("user-1", "KB", CREDS)!;
 
     // 같은 죽은 세션을 돌려준다 — 새 TCP 로그인을 시도하지 않는다 (T-15-10).
     expect(second).toBe(first);
@@ -192,7 +192,7 @@ describe("SessionManager", () => {
   });
 
   it("⑧ 세션 없는 release 는 조용히 넘어가지 않고 경고만 남긴 뒤 무해하게 끝난다", () => {
-    expect(() => manager.release("없는-사용자")).not.toThrow();
+    expect(() => manager.release("없는-사용자", "KB")).not.toThrow();
     expect(manager.stats().sessionCount).toBe(0);
   });
 
@@ -201,7 +201,7 @@ describe("SessionManager", () => {
     //      세션은 만들어지지만 영원히 Ready 가 되지 않는다 → everReadyCount 0.
     const silent = await startFakeGateway({ autoLogin: false });
     const mgr = new SessionManager({ host: "127.0.0.1", port: silent.port, broker: "KB" });
-    const never = mgr.acquire("user-never", CREDS);
+    const never = mgr.acquireFor("user-never", "KB", CREDS)!;
     await waitFor(() => silent.sockets.length === 1, "침묵 게이트웨이 연결");
     await flushIo();
 
@@ -218,7 +218,7 @@ describe("SessionManager", () => {
     await silent.close();
 
     // (나) Ready 에 도달한 뒤 전송이 끊긴 세션 = 「게이트웨이 장애」 → everReadyCount 1.
-    const s = manager.acquire("user-1", CREDS);
+    const s = manager.acquireFor("user-1", "KB", CREDS)!;
     await waitFor(() => s.state === "ready", "ready 진입");
     expect(manager.stats()).toEqual({
       sessionCount: 1,
@@ -256,7 +256,7 @@ describe("SessionManager", () => {
       now: () => clock,
     });
     try {
-      mgr.acquire("user-never", CREDS);
+      mgr.acquireFor("user-never", "KB", CREDS)!;
       await waitFor(() => silent.sockets.length === 1, "침묵 게이트웨이 연결");
       await flushIo();
 
@@ -300,7 +300,7 @@ describe("SessionManager", () => {
       now: () => clock,
     });
     try {
-      const s = mgr.acquire("user-rejected", CREDS);
+      const s = mgr.acquireFor("user-rejected", "KB", CREDS)!;
       await waitFor(() => s.state === "session_rejected", "session_rejected 확정");
 
       // **`release` 를 부르지 않는다.** 탭이 열려 있는 상태(refCount > 0)가 이 갭의 조건이다 —
@@ -337,12 +337,12 @@ describe("SessionManager", () => {
       now: () => clock,
     });
     try {
-      const rejected = mgr.acquire("user-rejected", CREDS);
+      const rejected = mgr.acquireFor("user-rejected", "KB", CREDS)!;
       await waitFor(() => rejected.state === "session_rejected", "거부 세션 확정");
 
       // 이제부터는 LoginReq 를 받기만 하고 답하지 않는다 = 게이트웨이가 죽은 상태의 재현.
       gw.silenceLogin();
-      const stalling = mgr.acquire("user-stalling", CREDS);
+      const stalling = mgr.acquireFor("user-stalling", "KB", CREDS)!;
       await waitFor(() => stalling.state === "logging_in", "무응답 세션 로그인 대기 진입");
 
       clock += STALE_SESSION_MS * 10;
@@ -369,7 +369,7 @@ describe("SessionManager", () => {
       now: () => clock,
     });
     try {
-      const s = mgr.acquire("user-1", CREDS);
+      const s = mgr.acquireFor("user-1", "KB", CREDS)!;
       await waitFor(() => s.state === "ready", "ready 진입");
 
       clock += STALE_SESSION_MS * 10;
@@ -406,19 +406,19 @@ describe("SessionManager", () => {
     // 로그인에 답하지 않는 게이트웨이 = 세션은 있지만 Ready 가 아니다 → 후보가 아니다.
     const silent = await startFakeGateway({ autoLogin: false });
     const mgr = new SessionManager({ host: "127.0.0.1", port: silent.port, broker: "KB" });
-    mgr.acquire("user-never", CREDS);
+    mgr.acquireFor("user-never", "KB", CREDS)!;
     await waitFor(() => silent.sockets.length === 1, "침묵 게이트웨이 연결");
     expect(mgr.firstReady()).toBeUndefined();
     await mgr.closeAll();
     await silent.close();
 
-    const a = manager.acquire("user-1", CREDS);
+    const a = manager.acquireFor("user-1", "KB", CREDS)!;
     await waitFor(() => a.state === "ready", "user-1 ready");
     // user-1 만 Ready — 피하고 싶어도 그것뿐이면 그것을 돌려준다.
     expect(manager.firstReady()).toBe(a);
     expect(manager.firstReady("user-1")).toBe(a);
 
-    const b = manager.acquire("user-2", { dmaUserId: "other-id", password: "other-secret" });
+    const b = manager.acquireFor("user-2", "KB", { dmaUserId: "other-id", password: "other-secret" })!;
     await waitFor(() => b.state === "ready", "user-2 ready");
     expect(manager.firstReady()).toBe(a);
     expect(manager.firstReady("user-1")).toBe(b);
@@ -428,7 +428,7 @@ describe("SessionManager", () => {
   });
 });
 
-describe("SessionManager — resolveTarget (Phase 29 Plan 03 · 세션 = KB 주문 서버)", () => {
+describe("SessionManager — resolveTarget (Phase 29 Plan 03 · 29-16 증권사별 주문 서버)", () => {
   const managers: SessionManager[] = [];
   const gateways: FakeGateway[] = [];
 
@@ -468,7 +468,7 @@ describe("SessionManager — resolveTarget (Phase 29 Plan 03 · 세션 = KB 주�
     });
     managers.push(m);
 
-    const a = m.acquire("user-a", CREDS);
+    const a = m.acquireFor("user-a", "KB", CREDS)!;
     await waitFor(() => a.state === "ready", "user-a ready (KB120)");
     expect(kb120.sockets).toHaveLength(1);
     expect(fallback.sockets).toHaveLength(0);
@@ -480,33 +480,50 @@ describe("SessionManager — resolveTarget (Phase 29 Plan 03 · 세션 = KB 주�
 
     // 주문 서버 전환 — 새 로그인부터 새 서버(D-10). 열린 세션은 그대로다.
     target = { serverKey: "KB121", host: "127.0.0.1", port: kb121.port, broker: "KB" };
-    const b = m.acquire("user-b", CREDS);
+    const b = m.acquireFor("user-b", "KB", CREDS)!;
     await waitFor(() => b.state === "ready", "user-b ready (KB121)");
     expect(kb121.sockets).toHaveLength(1);
     expect(kb120.sockets).toHaveLength(1);
-    expect(m.acquire("user-a", CREDS)).toBe(a);
+    expect(m.acquireFor("user-a", "KB", CREDS)!).toBe(a);
   });
 
-  it("resolveTarget 이 undefined 면 생성자 값으로 폴백 + warn 1줄 · resolveTarget 없으면 종전 그대로", async () => {
+  it("resolveTarget 이 undefined 면 세션을 열지 않는다(null + warn 1줄 · 29-16 이 29-03 폴백을 대체) · resolveTarget 없으면 생성자 단일 대상(그 증권사만)", async () => {
     const { logger } = await import("../src/logger.js");
     const warns: unknown[][] = [];
     vi.spyOn(logger, "warn").mockImplementation(((...args: unknown[]) => {
       warns.push(args);
     }) as never);
     const fallback = await gw();
-    const m = new SessionManager({ host: "127.0.0.1", port: fallback.port, broker: "KB", resolveTarget: () => undefined });
+    const asked: string[] = [];
+    const m = new SessionManager({
+      host: "127.0.0.1",
+      port: fallback.port,
+      broker: "KB",
+      resolveTarget: (broker) => {
+        asked.push(broker);
+        return undefined;
+      },
+    });
     managers.push(m);
-    const s = m.acquire("user-x", CREDS);
-    await waitFor(() => s.state === "ready", "폴백 세션 ready");
-    expect(fallback.sockets).toHaveLength(1);
-    const isFallbackWarn = (c: unknown[]): boolean => typeof c[1] === "string" && c[1].includes("KB 주문 서버가 없다");
-    expect(warns.filter(isFallbackWarn)).toHaveLength(1);
+    expect(m.acquireFor("user-x", "KB", CREDS)).toBeNull();
+    await flushIo();
+    // 생성자 게이트웨이로 폴백하지 않는다 — db 모드의 생성자 값(127.0.0.1)은 열리지 않는 세션을 만들 뿐이다.
+    expect(fallback.sockets).toHaveLength(0);
+    expect(asked).toEqual(["KB"]);
+    expect(m.stats().sessionCount).toBe(0);
+    const isNoServerWarn = (c: unknown[]): boolean => typeof c[1] === "string" && c[1].includes("주문 서버가 없다");
+    expect(warns.filter(isNoServerWarn)).toHaveLength(1);
+    // 로그 인자는 사용자 · 증권사뿐(D-19).
+    expect(warns.filter(isNoServerWarn)[0]?.[0]).toEqual({ userId: "user-x", broker: "KB" });
 
     const plain = new SessionManager({ host: "127.0.0.1", port: fallback.port, broker: "KB" });
     managers.push(plain);
-    const p = plain.acquire("user-y", CREDS);
+    const p = plain.acquireFor("user-y", "KB", CREDS)!;
     await waitFor(() => p.state === "ready", "종전 세션 ready");
-    expect(fallback.sockets).toHaveLength(2);
-    expect(warns.filter(isFallbackWarn)).toHaveLength(1);
+    expect(fallback.sockets).toHaveLength(1);
+    expect(p.serverKey).toBe("KB");
+    // 단일 대상은 그 증권사 하나뿐이다 — 다른 증권사는 열지 않는다.
+    expect(plain.acquireFor("user-y", "KYOBO", CREDS)).toBeNull();
+    expect(fallback.sockets).toHaveLength(1);
   });
 });

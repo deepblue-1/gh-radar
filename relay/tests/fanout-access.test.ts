@@ -217,7 +217,7 @@ describe("wss 역할 게이트 — 접근 맵 → dma_users(AAD dma_user_id) →
     port = (server.address() as AddressInfo).port;
     hub = new SubscriptionHub();
     sessions = new SessionManager({ host: "127.0.0.1", port: gateway.port, broker: "KB" });
-    acquireSpy = vi.spyOn(sessions, "acquire");
+    acquireSpy = vi.spyOn(sessions, "acquireFor");
     access = new AppAccess({ supabase: db.client, refreshMs: 60_000, missReloadMinMs: 0 });
     fanout = new WsFanout({
       server,
@@ -269,7 +269,9 @@ describe("wss 역할 게이트 — 접근 맵 → dma_users(AAD dma_user_id) →
     expect(inbox[0]?.t).toBe("state");
     expect(acquireSpy).toHaveBeenCalledTimes(1);
     expect(acquireSpy.mock.calls[0]?.[0]).toBe(USER_T);
-    expect(acquireSpy.mock.calls[0]?.[1]).toEqual({ dmaUserId: "dmaT", password: "pw-t" });
+    // 29-16 — 인증 경로는 KB 세션만 연다(교보는 29-20).
+    expect(acquireSpy.mock.calls[0]?.[1]).toBe("KB");
+    expect(acquireSpy.mock.calls[0]?.[2]).toEqual({ dmaUserId: "dmaT", password: "pw-t" });
     expect(ws.closeInfo).toBeNull();
     // 새 원천만 읽는다 — 옛 `dma_credentials` 조회가 없다.
     expect(db.otherTables).toEqual([]);
@@ -280,7 +282,7 @@ describe("wss 역할 게이트 — 접근 맵 → dma_users(AAD dma_user_id) →
     const { inbox } = await open("token-a");
     await waitFor(() => inbox.some((m) => m.t === "state" && m.s === "ready"), "A ready");
 
-    expect(acquireSpy.mock.calls[0]?.[1]).toEqual({ dmaUserId: "dmaT", password: "pw-t" });
+    expect(acquireSpy.mock.calls[0]?.[2]).toEqual({ dmaUserId: "dmaT", password: "pw-t" });
   });
 
   it("③ viewer → unauthorized(연결 유지) · 세션 0 · 게이트웨이 연결 0 · 이후 sub 도 unauthorized", async () => {

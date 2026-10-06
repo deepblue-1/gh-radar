@@ -579,13 +579,16 @@ describe("wss 주문 경로 (D-02)", () => {
     // wss 로는 ④ 가 보였듯 스키마에서 끊긴다. 그래도 조립 단계 앞의 방어를 남겨 두는 이유는
     // 「모든 호출 경로의 마지막 관문」이어야 하기 때문이다 — 여기서 그 분기를 직접 친다.
     const sent: unknown[] = [];
+    const readySession = {
+      isReady: true,
+      allowedAccounts: [{ accountNo: SAMPLE_ACCOUNT_NO, name: "위탁종합" }],
+      send: () => true,
+    };
     const handler = createOrderHandler<object>({
       sessions: {
-        get: () => ({
-          isReady: true,
-          allowedAccounts: [{ accountNo: SAMPLE_ACCOUNT_NO, name: "위탁종합" }],
-          send: () => true,
-        }),
+        // 29-16 — 주문 라우팅은 `forAccount`(그 계좌가 든 세션) · 판정 기준은 `primaryOf`. 같은 세션 하나를 돌려준다.
+        forAccount: () => readySession,
+        primaryOf: () => readySession,
       },
       hub: { on: () => undefined },
       symbols: SYMBOLS,

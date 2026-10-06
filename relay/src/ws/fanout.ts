@@ -17,7 +17,10 @@
  *      역할 admin/trader + DMA 연결) → `dma_users` 복호(AAD = dma_user_id). viewer · 승인 대기 · DMA 연결 없음 = 위
  *      unauthorized 갈래, 접근 맵 미적재(`"not_ready"`) = 아래 「조회 실패」 갈래(failed + 1011). 주입이 없으면 종전
  *      `dma_credentials` 조회 그대로다(단위 테스트 하네스)
- *   5. 매핑 있음 → `sessions.acquire` → 현재 상태 프레임을 **즉시 1회** 전송.
+ *   5. 매핑 있음 → `sessions.acquireFor(userId, "KB")` → 현재 상태 프레임을 **즉시 1회** 전송.
+ *      Phase 29-16 — 세션은 (유저, 서버) 단위지만 **이 인증 경로는 KB 세션만 연다**(교보 세션은 hub 세션 소유 키가 선
+ *      29-20 에서 켠다 — RESEARCH Pitfall 9: 같은 userId 세션 둘이 hub 캐시를 서로 지운다). KB 주문 서버가 없으면(null)
+ *      `failed` 프레임 + close(1011) — 재접속 가치가 있는 장애다(자격증명 조회 실패와 같은 갈래)
  *      브라우저는 이 프레임을 인증 ACK 로 삼아 구독을 시작한다(15-12 `use-relay-socket`
  *      계약). 이 프레임을 빠뜨리면 브라우저는 영원히 구독하지 않는다
  *   6. 인증 직후 **계좌 스냅샷 + 전략 스냅샷 3프레임**을 그 연결로 내린다 (D-12/D-23/D-37).
@@ -30,7 +33,7 @@
  *      소켓(D-06 · `#deliverMarket`). level 정본은 gh-trade 회신 quick-260923-exo · hub 헤더 D-33 아래 level 블록
  *      구독 한도(Phase 26 D-11 전역 2000 · D-15 사용자당 200)에 닿은 새 키는 hub 가 업스트림 송신 전에 거부하고, 그 소켓에만
  *      `{t:"sub.limit", i, x, scope}` 1건을 보낸다 — `conn.keys` · `#keyConns` 에 넣지 않는다(`{t:"msg"}` 재사용 금지).
- *   8. close → authTimer 정리, **그 소켓이 잡은 키만** 해제, `sessions.release`
+ *   8. close → authTimer 정리, **그 소켓이 잡은 키만** 해제, 그 소켓이 잡은 서버 키마다 `sessions.release(userId, serverKey)`
  *   9. 권한 회수(Phase 29 D-04 · `revokeUser`) — 접근 맵 재적재가 강등 · 허용 해제 · DMA 연결 변경을 찾으면 그 사용자의
  *      **모든** 연결에 `{t:"state", s:"unauthorized"}` 1프레임 → close(1008). 세션은 8 의 `release` 로 종전 유예(5분)에
  *      맡긴다 — 서버 쪽 전략 · 미체결은 건드리지 않는다. 브라우저는 재접속하고, 인증 4 갈래(unauthorized · 연결 유지)에 선다
@@ -263,15 +266,18 @@ const PERMESSAGE_DEFLATE = {
 
 /** `SessionManager` 중 wss 가 쓰는 부분만. 테스트가 스텁을 넣을 수 있게 좁혀 둔다. */
 export interface FanoutSessions {
-  acquire(userId: string, creds: DmaCredentials): DmaSession;
-  release(userId: string): void;
+  /** 그 사용자 · 증권사 세션을 얻는다(29-16). 그 증권사 주문 서버가 없으면 null. */
+  acquireFor(userId: string, broker: string, creds: DmaCredentials): DmaSession | null;
+  release(userId: string, serverKey: string): void;
   /**
-   * 전략(그리고 16-08 의 주문) 인바운드가 쓰는 세션 조회 — `SessionManager.get` 그대로다.
+   * 전략(그리고 16-08 의 주문) 인바운드가 쓰는 세션 조회 — 계좌가 있는 명령은 `forAccount`, 사용자 단위 명령은
+   * `primaryOf`(KB 우선 · D-18).
    *
-   * `acquire` 와 갈라 두는 이유: **여기서 대신 로그인하지 않는다** (D-15). 세션이 없다는 것은
+   * `acquireFor` 와 갈라 두는 이유: **여기서 대신 로그인하지 않는다** (D-15). 세션이 없다는 것은
    * 「호가창을 아직 열지 않았다」이고, 그 상태의 전략 요청은 만들어 주는 것이 아니라 거부다.
    */
-  get(userId: string): DmaSession | undefined;
+  forAccount(userId: string, accountNo: string): DmaSession | undefined;
+  primaryOf(userId: string): DmaSession | undefined;
 }
 
 /**
@@ -367,8 +373,11 @@ type Conn = {
   unauthorized: boolean;
   /** 인증 왕복 중 도착한 추가 메시지를 무시하기 위한 표식. */
   authInFlight: boolean;
-  /** `acquire` 를 실제로 했는가 — close 에서 `release` 를 부를지 가른다. */
-  acquired: boolean;
+  /**
+   * 이 소켓이 `acquireFor` 로 잡은 서버 키(29-16). close 에서 키마다 `release(userId, key)` 를 부른다 — 빈 배열이면
+   * 반납할 것이 없다(인증 전 · 권한 없음 · 주문 서버 없음).
+   */
+  acquiredServers: string[];
   isAlive: boolean;
   authTimer: NodeJS.Timeout | null;
   /** **이 소켓이** 잡은 구독 키. 다른 탭의 구독을 끊지 않기 위한 소유권 기록이다. */
@@ -637,7 +646,7 @@ export class WsFanout {
       userId: null,
       unauthorized: false,
       authInFlight: false,
-      acquired: false,
+      acquiredServers: [],
       isAlive: true,
       authTimer: null,
       keys: new Map(),
@@ -742,8 +751,17 @@ export class WsFanout {
       return;
     }
 
-    const session = this.#sessions.acquire(userId, creds);
-    conn.acquired = true;
+    // 29-16 — KB 세션만 연다(교보는 29-20 · Pitfall 9). 증권사 안 주문 서버는 SessionManager 가 세션 생성 때 고른다(D-10).
+    const session = this.#sessions.acquireFor(userId, "KB", creds);
+    if (session === null) {
+      // 레지스트리에 KB 주문 서버가 없다 — 세션 없이 연결을 붙잡아 두면 구독 · 주문이 전부 「세션 없음」으로 막힌 채
+      // 화면이 멎는다. 자격증명 조회 실패와 같은 갈래(failed + 1011 · 재접속 가치 있는 장애)로 끝낸다.
+      logger.error({ userId, broker: "KB" }, "[WS] 주문 서버 없음 — 세션을 열지 못해 연결 종료");
+      this.#send(conn, { t: "state", s: "failed", msg: "실시간 세션이 없습니다. 주문 서버가 지정되지 않았습니다." });
+      conn.ws.close(1011, "no order server");
+      return;
+    }
+    conn.acquiredServers.push(session.serverKey);
     this.#hub.attach(session);
     this.#register(conn, userId, session, creds.dmaUserId);
 
@@ -882,7 +900,7 @@ export class WsFanout {
     // ★ 이어서 **②-2 무장 조건 검사** — 발주가·수량 0 인 게이트는 켤 수 없다 (WR-06).
     // ------------------------------------------------------------------
     if (msg.t === "lc.set") {
-      const session = this.#strategySession(conn, userId, msg.t);
+      const session = this.#strategySession(conn, userId, msg.t, msg.cfg.accountNo);
       if (session === null) return;
       if (!this.#accountAllowed(conn, session, userId, msg.t, msg.cfg.accountNo)) return;
       // ②-0 구 탭 관용 (F-4 · Pitfall 3 · 24-03). 세션 · 계좌 가드 **뒤**다 — 허용 목록 밖 계좌는
@@ -966,7 +984,9 @@ export class WsFanout {
     //   필요 없고, 넣으면 head 를 아무도 꺼내지 않아 다음 빈 응답이 옛 키로 귀속되는
     //   회귀가 생긴다 (Pitfall 3 / C# `Client.cs:779-784` 동형).
     if (msg.t === "lc.arm") {
-      const session = this.#strategySession(conn, userId, msg.t);
+      // 세션 선택용 계좌는 키의 둘째 조각을 **그대로** 쓴다(조회일 뿐이다) — 형식 관문은 아래 `#armLatchAccount` 하나다.
+      // 관문을 앞으로 당기면 판정 순서(세션 → 키 형식 → 계좌)가 바뀐다.
+      const session = this.#strategySession(conn, userId, msg.t, msg.key.split(":")[1]);
       if (session === null) return;
       const accountNo = this.#armLatchAccount(conn, userId, msg);
       if (accountNo === null) return;
@@ -1003,7 +1023,7 @@ export class WsFanout {
     //   실패는 isin + 계좌를 담은 54 라 귀속이 필요 없다. 넣으면 head 를 아무도 꺼내지 않아 다음 빈 응답이
     //   옛 키로 귀속되는 회귀가 생긴다. 재전송 경로도 만들지 않는다(T-16-10).
     if (msg.t === "autosell.cmd") {
-      const session = this.#strategySession(conn, userId, msg.t);
+      const session = this.#strategySession(conn, userId, msg.t, msg.accountNo);
       if (session === null) return;
       if (!this.#accountAllowed(conn, session, userId, msg.t, msg.accountNo)) return;
       const { isin, accountNo, exchange } = msg;
@@ -1037,6 +1057,8 @@ export class WsFanout {
       // **미지정 = KRX** (D-06 · D-18). 기존 브라우저가 싣지 않던 값이라 optional 이고,
       // 기본값을 여기서 한 번만 정한다 — 조립기에 두면 호출부마다 다른 기본값이 생긴다.
       const exchange = msg.exchange ?? "KRX";
+      // VI 설정은 **사용자 단위**(거래소별 1건)라 primary 세션(KB 우선 · D-18 · 29-16)이다 — 계좌는 실어 오지만
+      // 세션 선택 축이 아니다. 계좌 대조(②)는 그 세션의 허용 목록으로 종전 그대로 한다.
       const session = this.#strategySession(conn, userId, msg.t);
       if (session === null) return;
       if (!this.#accountAllowed(conn, session, userId, msg.t, accountNo)) return;
@@ -1242,8 +1264,18 @@ export class WsFanout {
    * 전략에서는(Pitfall 8) 사용자에게 「눌렀는데 아무 일도 일어나지 않음」으로만 보인다.
    * 그래서 반드시 로그 + 프레임 양쪽으로 드러낸다 (PC-7).
    */
-  #strategySession(conn: Conn, userId: string, t: RelayInbound["t"]): DmaSession | null {
-    const session = this.#sessions.get(userId);
+  #strategySession(
+    conn: Conn,
+    userId: string,
+    t: RelayInbound["t"],
+    accountNo?: string,
+  ): DmaSession | null {
+    // 29-16 — 계좌가 있는 명령은 그 계좌가 든 세션(`forAccount`), 없으면(또는 어느 세션에도 그 계좌가 없으면)
+    // primary(KB 우선 · D-18). 후자는 뒤의 `#accountAllowed` 가 종전 「사용할 수 없는 계좌」 거부로 끝낸다 —
+    // 판정 순서(세션 없음 → 미준비 → 계좌 밖)와 문구는 종전 그대로다.
+    const session =
+      (accountNo !== undefined ? this.#sessions.forAccount(userId, accountNo) : undefined) ??
+      this.#sessions.primaryOf(userId);
     if (session === undefined) {
       logger.warn({ userId, t }, "[WS] 세션 없음 — 전략 요청 거부");
       this.#send(conn, {
@@ -1645,7 +1677,8 @@ export class WsFanout {
       }
     }
 
-    if (conn.acquired) this.#sessions.release(userId);
+    for (const serverKey of conn.acquiredServers) this.#sessions.release(userId, serverKey);
+    conn.acquiredServers = [];
     logger.info({ userId, code }, "[WS] 연결 종료 — 구독 해제 + 세션 참조 반납");
   }
 

@@ -43,7 +43,7 @@
  *         세션을 하나도 열지 않는다(fail closed — 어느 서버에 붙을지 모르는 채로 붙지 않는다. `/healthz` 가 없으니 uptime 이
  *         울린다). 적재 뒤 `ServerPipelines.sync(registry.enabled())` 가 enabled 서버마다 관찰자 한 벌을 세우고, 레지스트리
  *         `changed`(60초 재적재 · `reload()`)마다 다시 sync 한다 — 서버 추가 · 삭제 · 끄기 · 주소 변경이 재배포 없이 반영된다.
- *           - 사용자 세션 = **KB 주문 서버**(`SessionManager.resolveTarget` — 세션을 만들 때마다 고른다).
+ *           - 사용자 세션 = **그 증권사 주문 서버**(`SessionManager.resolveTarget(broker)` — 세션을 만들 때마다 고른다 · 29-16).
  *           - quote 연결 = **시세 주 서버**(부팅 때 고정 · 비밀은 그 증권사 `quoteSecretOf`).
  *           - 브라우저 `journal.state` · 주 매핑 라우팅 = **부팅 때의 KB 주문 서버** 키의 파이프라인(재생성되면 새 벌로 이어진다).
  *           - `/healthz` `journal` = KB 주문 서버 저널(503 축) · `journalGateways.<서버 키>` = 그 밖 enabled 서버(본문 전용) ·
@@ -78,7 +78,7 @@
 import http from "node:http";
 
 import { loadConfig } from "./config.js";
-import { DMA_BROKERS, ServerRegistry } from "./registry/registry.js";
+import { DMA_BROKERS, ServerRegistry, isDmaBroker } from "./registry/registry.js";
 import { ServerPipelines, type ServerPipeline } from "./registry/pipelines.js";
 import { logger } from "./logger.js";
 import { createRelaySupabase } from "./store/supabase.js";
@@ -184,16 +184,18 @@ function kbOrderPipeline(): ServerPipeline | undefined {
 const appAccess = new AppAccess({ supabase, refreshMs: config.appAccessRefreshMs });
 
 /**
- * 사용자 세션 — 세션을 만들 때마다 **KB 주문 서버**로 연다(Phase 29 · D-10 — 열린 세션은 서버가 바뀌어도 그대로).
- * 생성자 host/port/broker 는 레지스트리에 KB 주문 서버가 없을 때의 폴백이다(env 모드 값 · db 모드 127.0.0.1).
+ * 사용자 세션 — (유저, 서버) 단위(Phase 29-16). 세션을 만들 때마다 **그 증권사의 주문 서버**로 연다(D-10 — 사용자 ×
+ * 증권사 세션이 살아 있으면 주문 서버가 바뀌어도 그 세션 재사용 · 새 서버는 다음 세션부터). 그 증권사 주문 서버가
+ * 없으면 세션을 열지 않는다(`acquireFor` → null). 생성자 host/port/broker 는 `resolveTarget` 을 주는 이 결선에서는 쓰지 않는다.
+ * 오늘 wss 인증은 KB 세션만 연다(교보 세션은 29-20).
  */
 const sessionManager = new SessionManager({
   host: config.dmaHost,
   port: config.dmaPort,
   broker: config.dmaBroker,
   graceMs: config.sessionGraceMs,
-  resolveTarget: () => {
-    const s = registry.orderServerOf("KB");
+  resolveTarget: (broker) => {
+    const s = isDmaBroker(broker) ? registry.orderServerOf(broker) : undefined;
     return s && { serverKey: s.key, host: s.host, port: s.port, broker: s.broker };
   },
 });
