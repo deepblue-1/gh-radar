@@ -54,6 +54,8 @@ type StartOptions = {
   dmaHostFn?: () => string;
   /** 시세 전용 공유 연결 요약 스텁 (Phase 26 D-02). 생략하면 quote 소스 없음. */
   quote?: QuoteHealth;
+  /** 서버별 admin 연결 요약 스텁 (Phase 29-08). 생략하면 주입하지 않는다. 요청마다 부른다. */
+  adminConns?: () => Array<{ serverKey: string; health: { state: string; usersRev: string | null } }>;
 };
 
 /** VPN 이 서 있는 VM 의 실측 인터페이스 (2026-09-06 radar-gw). */
@@ -104,6 +106,9 @@ async function start(opts: StartOptions = {}): Promise<Harness> {
         }
       : {}),
     ...(opts.quote !== undefined ? { quote: { health: () => opts.quote as QuoteHealth } } : {}),
+    ...(opts.adminConns !== undefined
+      ? { adminConns: () => (opts.adminConns?.() ?? []).map((a) => ({ serverKey: a.serverKey, health: () => a.health })) }
+      : {}),
   });
   const server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
@@ -889,5 +894,62 @@ describe("Phase 29 brokers · 동적 journalGateways (29-03 · RESEARCH Pitfall 
     h = await start({ now: IN_WINDOW });
     const app = (await get()).body;
     expect("journal" in app).toBe(false);
+  });
+});
+
+describe("Phase 29-08 adminConns — 서버별 admin 연결 (본문 전용 · 503 축 아님)", () => {
+  /** 2026-09-28(월) 10:00 KST — 장중. */
+  const IN_WINDOW = new Date("2026-09-28T10:00:00+09:00");
+
+  let h: Harness | null = null;
+
+  afterEach(async () => {
+    await h?.close();
+    h = null;
+  });
+
+  async function get(): Promise<{ status: number; body: Record<string, unknown> }> {
+    const res = await fetch((h as Harness).url("/healthz"));
+    return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+  }
+
+  it("adminConns.<서버 키> = { state, usersRev } · rejected 서버가 있어도 200 · 식별자 없음", async () => {
+    h = await start({
+      now: IN_WINDOW,
+      adminConns: () => [
+        { serverKey: "KB120", health: { state: "ready", usersRev: "3" } },
+        { serverKey: "KYOBO119", health: { state: "rejected", usersRev: null } },
+      ],
+    });
+    const { status, body } = await get();
+    expect(status).toBe(200);
+    expect(body.status).toBe("ok");
+    expect(body.adminConns).toEqual({
+      KB120: { state: "ready", usersRev: "3" },
+      KYOBO119: { state: "rejected", usersRev: null },
+    });
+    expect(JSON.stringify(body)).not.toMatch(/"(host|secret|accountNo|userId|dmaUserId)"/);
+  });
+
+  it("주입 없음 · 빈 목록 → adminConns 키 자체가 없다 · 요청마다 현재 목록", async () => {
+    h = await start({ now: IN_WINDOW });
+    expect("adminConns" in (await get()).body).toBe(false);
+    await h.close();
+    let list: Array<{ serverKey: string; health: { state: string; usersRev: string | null } }> = [];
+    h = await start({ now: IN_WINDOW, adminConns: () => list });
+    expect("adminConns" in (await get()).body).toBe(false);
+    list = [{ serverKey: "KB121", health: { state: "connecting", usersRev: null } }];
+    expect((await get()).body.adminConns).toEqual({ KB121: { state: "connecting", usersRev: null } });
+  });
+
+  it("503 판정 불변 — 회선이 내려가면 adminConns 가 ready 여도 503", async () => {
+    h = await start({
+      now: IN_WINDOW,
+      interfaces: DOWN_INTERFACES,
+      adminConns: () => [{ serverKey: "KB120", health: { state: "ready", usersRev: "1" } }],
+    });
+    const { status, body } = await get();
+    expect(status).toBe(503);
+    expect(body.adminConns).toEqual({ KB120: { state: "ready", usersRev: "1" } });
   });
 });

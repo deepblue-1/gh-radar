@@ -10,6 +10,17 @@
  *       "snapshot" 이벤트 1회 · `currentSnapshot()` = 유저 2명 · usersRev bigint
  *   A3  끊고 재접속 → 세대가 바뀌어 87 전 `currentSnapshot()` null → op 5 가 다시 나가고(2건째) 새 87 로 채워진다 —
  *       스텁 rev 를 1 로 되돌려도(재기동 흉내) 캐시가 갱신된다
+ *
+ * 잠그는 것 (Task 2 — 명령 상관 · 서버당 1건 비행):
+ *   B1  command 두 건 동시 → 스텁은 하나씩 받는다(두 번째 44 는 첫 86 뒤) · request_id 단조 · 86 의 request_id 로 각자 풀린다
+ *   B2  변경 성공(86 ok · rev 변화) → 바로 뒤 87 까지 { result, snapshot } · 무변경(code 0 · rev 같음) → 87 안 기다림 ·
+ *       BUSY(9) → code 9 · message 원문
+ *   B3  무응답 → 주입 50ms 뒤 timeout · 늦게 온 86 은 버리고 warn 1 · 다음 명령은 정상
+ *   B4  ready 아님 → offline · 비행 중 끊김 → 비행 · 대기열 전부 offline
+ *   B5  요청 없는 87 → 캐시 갱신 + snapshot 이벤트
+ *   B6  79 거부 → rejected · 짧은 재시도 · 12회 넘으면 멈춤 / role 1 응답 → role_mismatch · 소켓 닫힘 · 재시도 없음
+ *   B7  health() = { state, usersRev(문자열) } · disabled 는 usersRev null
+ *   B8  86 rev 변화 뒤 87 이 상한 안에 안 오면 op 5 를 한 번 더 보내고 결과는 snapshot 없이 풀린다
  *   공통 — 비밀은 어떤 로그 인자에도 없다(T-19-03) · admin 연결이 보낸 msg_type ⊆ {4, 5, 44}.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -185,5 +196,209 @@ describe("AdminConn 실 TCP — 가짜 게이트웨이 admin 모드 · 실 DmaCl
     await waitFor(() => snapshots.length === 2, "새 87");
     expect(c.currentSnapshot()?.usersRev).toBe(1n);
     expect(c.currentSnapshot()?.users.map((u) => u.userId)).toEqual(["alice"]);
+  });
+
+  // ----------------------------------------------------------
+  // Task 2 — 명령 상관
+  // ----------------------------------------------------------
+
+  /** 유저 2명 표 · 기본 handler 로 ready + 첫 87 까지 세운다. */
+  async function readyConn(
+    over: Partial<ConstructorParameters<typeof AdminConn>[0]> = {},
+  ): Promise<{ c: AdminConn; state: FakeAdminState }> {
+    const state = twoUsers();
+    gateway.respondAdminLogin({});
+    gateway.onAdminCommand(defaultAdminHandler(state));
+    const c = startConn(over);
+    await waitFor(() => snapshots.length === 1, "첫 87");
+    return { c, state };
+  }
+
+  /** op 5 를 뺀 명령 44 목록. */
+  const commands = () => gateway.adminCommandRequests().filter((r) => r.op !== ADMIN_OP.ListUsers);
+
+  it("B1 두 건 동시 → 스텁은 하나씩(두 번째 44 는 첫 86 뒤) · request_id 단조 · 각자 자기 86 으로 풀린다", async () => {
+    const { c } = await readyConn();
+    gateway.onAdminCommand(null);
+    const sock = await gateway.waitForAdminConnection();
+    const account = { accountNo: "3333333301", name: "위탁", branchNo: "00003", traderId: "000003", priority: 2 };
+
+    const p1 = c.command({ op: ADMIN_OP.SetAccount, userId: "alice", account });
+    const p2 = c.command({ op: ADMIN_OP.SetAccount, userId: "bob", account: { ...account, accountNo: "4444444401" } });
+    await waitFor(() => commands().length === 1, "첫 44");
+    await sleep(150);
+    // 첫 86 전에는 두 번째 44 가 나가지 않는다(서버당 1건 비행).
+    expect(commands()).toHaveLength(1);
+    const first = commands()[0];
+    expect(first?.userId).toBe("alice");
+
+    gateway.respondAdminCommand(sock, { requestId: first?.requestId, ok: true, code: 0, message: "", usersRev: 3n });
+    const o1 = await p1;
+    expect(o1).toEqual({
+      kind: "result",
+      result: { requestId: first?.requestId, ok: true, code: 0, message: "", usersRev: 3n },
+    });
+
+    await waitFor(() => commands().length === 2, "두 번째 44");
+    const second = commands()[1];
+    expect(second?.userId).toBe("bob");
+    const ids = gateway.adminCommandRequests().map((r) => r.requestId);
+    // 접속 op 5 · 명령 1 · 명령 2 — 한 줄로 단조 증가(1n, 2n, 3n).
+    expect(ids).toEqual([1n, 2n, 3n]);
+    gateway.respondAdminCommand(sock, { requestId: second?.requestId, ok: false, code: 4, message: "없는 사용자입니다", usersRev: 3n });
+    const o2 = await p2;
+    expect(o2.kind).toBe("result");
+    if (o2.kind === "result") {
+      expect(o2.result.requestId).toBe(3n);
+      expect(o2.result.code).toBe(4);
+      expect(o2.result.message).toBe("없는 사용자입니다");
+    }
+  });
+
+  it("B2 변경 성공 → 86 + 87 짝 { result, snapshot } · 무변경 → 87 기다리지 않음 · BUSY → code 9 · message 원문", async () => {
+    const { c, state } = await readyConn();
+    const added = { accountNo: "3333333301", name: "위탁2", branchNo: "00001", traderId: "000001", priority: 2 };
+
+    const changed = await c.command({ op: ADMIN_OP.SetAccount, userId: "alice", account: added });
+    expect(changed.kind).toBe("result");
+    if (changed.kind !== "result") throw new Error("unreachable");
+    expect(changed.result.ok).toBe(true);
+    expect(changed.result.usersRev).toBe(4n);
+    expect(changed.snapshot?.usersRev).toBe(4n);
+    expect(changed.snapshot?.users.find((u) => u.userId === "alice")?.accounts.map((a) => a.accountNo)).toEqual([
+      "1111111101",
+      "3333333301",
+    ]);
+    expect(c.currentSnapshot()?.usersRev).toBe(4n);
+    expect(snapshots).toHaveLength(2);
+
+    // 같은 값 다시 — 무변경(code 0 · rev 그대로 · 87 없음). 87 을 기다리지 않고 곧장 풀린다.
+    const t0 = Date.now();
+    const same = await c.command({ op: ADMIN_OP.SetAccount, userId: "alice", account: added });
+    expect(Date.now() - t0).toBeLessThan(500);
+    expect(same.kind).toBe("result");
+    if (same.kind !== "result") throw new Error("unreachable");
+    expect(same.result).toMatchObject({ ok: true, code: 0, usersRev: 4n });
+    expect("snapshot" in same).toBe(false);
+
+    // BUSY — 서버 한국어 message 그대로.
+    state.busyAccounts.add("2222222201");
+    const busy = await c.command({ op: ADMIN_OP.DeleteUser, userId: "bob" });
+    expect(busy.kind).toBe("result");
+    if (busy.kind !== "result") throw new Error("unreachable");
+    expect(busy.result).toMatchObject({ ok: false, code: 9, message: "미체결 1건 등록 — 먼저 정리", usersRev: 4n });
+    expect("snapshot" in busy).toBe(false);
+  });
+
+  it("B3 무응답 → 50ms 뒤 timeout · 늦게 온 86 은 버리고 warn 1 · 다음 명령은 정상", async () => {
+    const { c, state } = await readyConn({ commandTimeoutMs: 50 });
+    gateway.onAdminCommand(null);
+    const sock = await gateway.waitForAdminConnection();
+
+    const lost = await c.command({ op: ADMIN_OP.DeleteUser, userId: "bob" });
+    expect(lost).toEqual({ kind: "timeout" });
+    const lostId = commands()[0]?.requestId;
+
+    // 늦게 온 86 — 누구의 Promise 도 풀지 않고 warn 1 로 버린다.
+    gateway.respondAdminCommand(sock, { requestId: lostId, ok: true, code: 0, usersRev: 3n });
+    await waitFor(() => logs.some((l) => l.level === "warn" && String(l.args[1]).includes("짝 없는 86")), "늦은 86 warn");
+    expect(logs.filter((l) => l.level === "warn" && String(l.args[1]).includes("짝 없는 86"))).toHaveLength(1);
+
+    gateway.onAdminCommand(defaultAdminHandler(state));
+    const next = await c.command({ op: ADMIN_OP.DeleteUser, userId: "bob" });
+    expect(next.kind).toBe("result");
+    if (next.kind === "result") expect(next.result).toMatchObject({ ok: true, code: 0, usersRev: 4n });
+    expect(c.state).toBe("ready");
+  });
+
+  it("B4 ready 아님 → offline · 비행 중 끊김 → 비행 · 대기열 전부 offline", async () => {
+    // 로그인 응답 없음 → logging_in 에 머문다.
+    const pending = startConn();
+    await waitFor(() => gateway.adminLoginRequests().length === 1, "로그인 요청");
+    expect(pending.state).toBe("logging_in");
+    expect(await pending.command({ op: ADMIN_OP.DeleteUser, userId: "bob" })).toEqual({ kind: "offline" });
+    expect(gateway.adminCommandRequests()).toEqual([]);
+    pending.stop();
+    conn = null;
+    snapshots = [];
+
+    const { c } = await readyConn();
+    gateway.onAdminCommand(null);
+    const sock = await gateway.waitForAdminConnection();
+    const p1 = c.command({ op: ADMIN_OP.DeleteUser, userId: "alice" });
+    const p2 = c.command({ op: ADMIN_OP.DeleteUser, userId: "bob" });
+    await waitFor(() => commands().length === 1, "첫 44 비행");
+    gateway.hardClose(sock);
+    expect(await p1).toEqual({ kind: "offline" });
+    expect(await p2).toEqual({ kind: "offline" });
+    // 두 번째는 끝내 나가지 않았다.
+    expect(commands()).toHaveLength(1);
+  });
+
+  it("B5 요청 없는 87 → 캐시 갱신 + snapshot 이벤트", async () => {
+    const { c } = await readyConn();
+    const sock = await gateway.waitForAdminConnection();
+    gateway.pushAdminSnapshot(sock, { usersRev: 9n, users: [{ userId: "carol", accounts: [{ accountNo: "5555555501" }] }] });
+    await waitFor(() => snapshots.length === 2, "요청 없는 87");
+    expect(snapshots[1]?.serverKey).toBe("KB120");
+    expect(c.currentSnapshot()?.usersRev).toBe(9n);
+    expect(c.currentSnapshot()?.users.map((u) => u.userId)).toEqual(["carol"]);
+    expect(c.health()).toEqual({ state: "ready", usersRev: "9" });
+  });
+
+  it("B6a 79 거부 → rejected · 짧은 재시도 뒤 재로그인 · 12회 넘으면 멈춤", async () => {
+    gateway.respondAdminLogin({ success: false, message: "거부" });
+    const c = startConn({ rejectedRetryMs: 20 });
+    await waitFor(() => c.state === "rejected", "rejected");
+    // 첫 로그인 + 재시도 12회 = 13건에서 멈춘다.
+    await waitFor(() => gateway.adminLoginRequests().length === 13, "재시도 12회", 6000);
+    await sleep(300);
+    expect(gateway.adminLoginRequests()).toHaveLength(13);
+    expect(c.state).toBe("rejected");
+    expect(c.health()).toEqual({ state: "rejected", usersRev: null });
+    expect(await c.command({ op: ADMIN_OP.DeleteUser, userId: "bob" })).toEqual({ kind: "offline" });
+  });
+
+  it("B6b role 1 응답 → role_mismatch · 소켓 닫힘 · 재시도 없음", async () => {
+    gateway.respondAdminLogin({ success: true, role: 1 });
+    const c = startConn({ rejectedRetryMs: 20 });
+    await waitFor(() => c.state === "role_mismatch", "role_mismatch");
+    await waitFor(() => gateway.sockets.every((s) => s.destroyed), "소켓 닫힘");
+    await sleep(1_500);
+    expect(gateway.adminLoginRequests()).toHaveLength(1);
+    expect(c.state).toBe("role_mismatch");
+    expect(gateway.adminCommandRequests()).toEqual([]);
+  });
+
+  it("B7 health() — ready 는 usersRev 문자열 · disabled 는 null", async () => {
+    const { c } = await readyConn();
+    expect(c.health()).toEqual({ state: "ready", usersRev: "3" });
+    const off = new AdminConn({ serverKey: "KYOBO119", broker: "KYOBO", secret: "", host: "127.0.0.1", port: gateway.port });
+    off.start();
+    expect(off.health()).toEqual({ state: "disabled", usersRev: null });
+    off.stop();
+  });
+
+  it("B8 변경 86 뒤 87 이 상한 안에 안 오면 op 5 를 한 번 더 보내고 결과는 snapshot 없이 풀린다", async () => {
+    const { c, state } = await readyConn({ snapshotWaitMs: 50 });
+    const sock = await gateway.waitForAdminConnection();
+    // 86 만 쓰고 87 은 빼먹는 서버 흉내 — op 5 에는 정상 87.
+    const base = defaultAdminHandler(state);
+    gateway.onAdminCommand((req) => {
+      const reply = base(req);
+      if (req.op === ADMIN_OP.ListUsers || reply === null) return reply;
+      return reply.resp !== undefined ? { resp: reply.resp } : reply;
+    });
+    const out = await c.command({ op: ADMIN_OP.DeleteUser, userId: "bob" });
+    expect(out.kind).toBe("result");
+    if (out.kind !== "result") throw new Error("unreachable");
+    expect(out.result.usersRev).toBe(4n);
+    expect("snapshot" in out).toBe(false);
+    // 보정 op 5 → 87(rev 4) 가 캐시를 맞춘다.
+    await waitFor(() => c.currentSnapshot()?.usersRev === 4n, "보정 87");
+    const ops = gateway.adminCommandRequests().map((r) => r.op);
+    expect(ops).toEqual([ADMIN_OP.ListUsers, ADMIN_OP.DeleteUser, ADMIN_OP.ListUsers]);
+    expect(c.currentSnapshot()?.users.map((u) => u.userId)).toEqual(["alice"]);
+    void sock;
   });
 });

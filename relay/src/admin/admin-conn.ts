@@ -50,7 +50,7 @@ import { MSG } from "../dma/msg-type.js";
 import { LOGIN_RESP_TIMEOUT_MS } from "../dma/session.js";
 import { logger } from "../logger.js";
 import type { ObserverLoginResult, ObserverTransport } from "../journal/types.js";
-import { ADMIN_OP, ADMIN_ROLE, type AdminUsersSnapshot } from "./types.js";
+import { ADMIN_OP, ADMIN_ROLE, type AdminCommandInput, type AdminCommandResult, type AdminUsersSnapshot } from "./types.js";
 
 /** admin 관찰자 로그인의 `client` 값 — 게이트웨이 로그 `client='…'` 에서 저널(`gh-radar-relay`) · quote 연결과 가른다. */
 export const ADMIN_CLIENT_NAME = "gh-radar-relay/admin";
@@ -81,7 +81,20 @@ export type AdminConnDeps = {
   loginTimeoutMs?: number;
   /** 거부 뒤 재시도 간격(ms). 기본 `ADMIN_REJECTED_RETRY_MS`. 테스트가 짧게 주입한다. */
   rejectedRetryMs?: number;
+  /** 86 응답 대기 상한(ms). */
+  commandTimeoutMs?: number;
+  /** 변경 86 뒤 87 대기 상한(ms). */
+  snapshotWaitMs?: number;
 };
+
+/** `command()` 결과. */
+export type AdminCommandOutcome =
+  | { kind: "result"; result: AdminCommandResult; snapshot?: AdminUsersSnapshot }
+  | { kind: "timeout" }
+  | { kind: "offline" };
+
+/** healthz 본문 `adminConns.<서버 키>` — 상태와 rev 뿐(식별자 없음). */
+export type AdminConnHealth = { state: AdminConnState; usersRev: string | null };
 
 /** "snapshot" 이벤트 페이로드 — 87 을 받을 때마다(요청한 것이든 아니든) 1회. 29-14 가 DB 표에 적재한다. */
 export type AdminSnapshotEvent = { serverKey: string; snapshot: AdminUsersSnapshot };
@@ -160,6 +173,16 @@ export class AdminConn extends EventEmitter {
     if (snap === null || !this.isReady || this.#transport === null) return null;
     if (snap.generation !== this.#transport.generation) return null;
     return snap.value;
+  }
+
+  /** (RED 스텁) */
+  command(_input: Omit<AdminCommandInput, "requestId">): Promise<AdminCommandOutcome> {
+    return Promise.resolve({ kind: "offline" });
+  }
+
+  /** (RED 스텁) */
+  health(): AdminConnHealth {
+    return { state: this.#state, usersRev: null };
   }
 
   // ----------------------------------------------------------

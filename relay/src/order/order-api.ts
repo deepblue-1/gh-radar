@@ -111,6 +111,8 @@ export type OrderApiDeps = {
    * `quoteAlerting` 으로 503 판정에 **합류**한다(`journalGateways` 와 달리 본문 전용이 아니다). 주지 않으면 필드가 없다.
    */
   quote?: { health(nowMs: number): QuoteHealth };
+  /** (RED 스텁) 서버별 admin 연결 요약. */
+  adminConns?: () => ReadonlyArray<{ serverKey: string; health(): { state: string; usersRev: string | null } }>;
   /** 시각 주입구 — 테스트가 장중/장 밖을 흉내낸다. 기본 `new Date()`. */
   now?: () => Date;
 };
