@@ -245,3 +245,277 @@ describe("POST /api/admin/users + dma — 트레이서 (D-16)", () => {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task 2 — 나머지 DMA 프록시 (D-15 필드별 즉시 저장 — 각각 relay 1회)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("DMA 프록시 — relay 계약(29-11) 1:1", () => {
+  const kbAccount = kbDma().account;
+
+  it("비밀번호: POST /dma-users/:dma/password → relay 같은 경로 1회 · 바디 { password } → 200 { results }", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).post("/api/admin/dma-users/kim01/password")).send({ password: PASSWORD });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ results: OK_RESULTS });
+    expect(relay.calls).toEqual([
+      {
+        method: "POST",
+        path: "/internal/admin/dma-users/kim01/password",
+        adminEmail: ADMIN_EMAIL,
+        body: { password: PASSWORD },
+      },
+    ]);
+  });
+
+  it("경로의 DMA id 는 한 세그먼트로 다시 인코딩되어 relay 로 간다(한글 2자 = 6바이트)", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).post(`/api/admin/dma-users/${encodeURIComponent("가나")}/reconcile`));
+    expect(res.status).toBe(200);
+    expect(relay.calls[0].path).toBe(`/internal/admin/dma-users/${encodeURIComponent("가나")}/reconcile`);
+  });
+
+  it("계좌 put: PUT /dma-users/:dma/accounts → relay PUT 1회 · 교보 branch/trader 빈 값 · 200 { results }", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).put("/api/admin/dma-users/kim01/accounts")).send({
+      account: { broker: "KYOBO", accountNo: "00777", name: "교", branchNo: "x", traderId: "y", priority: 3 },
+      servers: ["KYOBO119", "KYOBO127"],
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ results: OK_RESULTS });
+    expect(relay.calls).toEqual([
+      {
+        method: "PUT",
+        path: "/internal/admin/dma-users/kim01/accounts",
+        adminEmail: ADMIN_EMAIL,
+        body: {
+          account: { broker: "KYOBO", accountNo: "00777", name: "교", branchNo: "", traderId: "", priority: 3 },
+          servers: ["KYOBO119", "KYOBO127"],
+        },
+      },
+    ]);
+  });
+
+  it("계좌 remove: DELETE /dma-users/:dma/accounts/:broker/:accountNo → relay DELETE 1회 · 200 { results }", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).delete("/api/admin/dma-users/kim01/accounts/KB/00123"));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ results: OK_RESULTS });
+    expect(relay.calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      "DELETE /internal/admin/dma-users/kim01/accounts/KB/00123",
+    ]);
+  });
+
+  it("다시 반영: POST /dma-users/:dma/reconcile → relay POST 1회 · 200 { results }", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).post("/api/admin/dma-users/kim01/reconcile"));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ results: OK_RESULTS });
+    expect(relay.calls.map((c) => `${c.method} ${c.path}`)).toEqual(["POST /internal/admin/dma-users/kim01/reconcile"]);
+  });
+
+  it("relay 409 LAST_ACCOUNT → 409 그대로(webapp 이 「유저 삭제」 확인으로 분기)", async () => {
+    const relay = makeFakeRelay(() => relayReject(409, "LAST_ACCOUNT", "마지막 계좌는 지울 수 없어요."));
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).delete("/api/admin/dma-users/kim01/accounts/KB/123"));
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: { code: "LAST_ACCOUNT", message: "마지막 계좌는 지울 수 없어요." } });
+  });
+
+  it("relay 409 NO_DMA_USER (비밀번호) · 400 VALIDATION_FAILED (계좌) 는 그대로", async () => {
+    const relay = makeFakeRelay((c) =>
+      c.path.endsWith("/password") ? relayReject(409, "NO_DMA_USER") : relayReject(400, "VALIDATION_FAILED"),
+    );
+    const { app } = makeApp({}, relay.client);
+    const a = await auth(request(app).post("/api/admin/dma-users/ghost/password")).send({ password: "x" });
+    expect(a.status).toBe(409);
+    expect(a.body.error.code).toBe("NO_DMA_USER");
+    const b = await auth(request(app).put("/api/admin/dma-users/kim01/accounts")).send({
+      account: kbAccount,
+      servers: ["KB120"],
+    });
+    expect(b.status).toBe(400);
+    expect(b.body.error.code).toBe("VALIDATION_FAILED");
+  });
+
+  it.each<[string, (app: Parameters<typeof request>[0]) => request.Test]>([
+    ["password", (app) => auth(request(app).post("/api/admin/dma-users/kim01/password")).send({ password: "p" })],
+    ["accounts put", (app) => auth(request(app).put("/api/admin/dma-users/kim01/accounts")).send({ account: kbAccount, servers: ["KB120"] })],
+    ["accounts remove", (app) => auth(request(app).delete("/api/admin/dma-users/kim01/accounts/KB/1"))],
+    ["reconcile", (app) => auth(request(app).post("/api/admin/dma-users/kim01/reconcile"))],
+  ])("%s: relay 에 닿지 못함 → 502 RELAY_FAILED · 클라이언트 없음 → 503 RELAY_UNAVAILABLE", async (_n, call) => {
+    const down = makeApp({}, makeFakeRelay(() => ({ status: 0, data: null })).client);
+    const r1 = await call(down.app);
+    expect(r1.status).toBe(502);
+    expect(r1.body.error.code).toBe("RELAY_FAILED");
+    const none = makeApp();
+    const r2 = await call(none.app);
+    expect(r2.status).toBe(503);
+    expect(r2.body.error.code).toBe("RELAY_UNAVAILABLE");
+  });
+
+  it.each<[string, (app: Parameters<typeof request>[0]) => request.Test]>([
+    ["비밀번호 빈 값", (app) => auth(request(app).post("/api/admin/dma-users/kim01/password")).send({ password: "" })],
+    ["DMA id 9바이트(경로)", (app) => auth(request(app).post("/api/admin/dma-users/abcdefghi/reconcile"))],
+    ["계좌 put 서버 증권사 불일치", (app) => auth(request(app).put("/api/admin/dma-users/kim01/accounts")).send({ account: kbAccount, servers: ["KYOBO119"] })],
+    ["계좌 put 서버 빈 배열", (app) => auth(request(app).put("/api/admin/dma-users/kim01/accounts")).send({ account: kbAccount, servers: [] })],
+    ["계좌 remove 증권사 enum 밖", (app) => auth(request(app).delete("/api/admin/dma-users/kim01/accounts/NH/1"))],
+    ["계좌 remove 계좌번호 13자", (app) => auth(request(app).delete("/api/admin/dma-users/kim01/accounts/KB/1234567890123"))],
+  ])("%s → 400 VALIDATION_FAILED · relay 0", async (_n, call) => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await call(app);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("VALIDATION_FAILED");
+    expect(relay.calls).toHaveLength(0);
+  });
+
+  it("trader 토큰 → 403 · relay 0", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await request(app)
+      .post("/api/admin/dma-users/kim01/reconcile")
+      .set("Authorization", "Bearer tok-trader");
+    expect(res.status).toBe(403);
+    expect(relay.calls).toHaveLength(0);
+  });
+});
+
+describe("POST /api/admin/users/:email/dma — 기존 사용자에 DMA 연결", () => {
+  const withT2 = () => ({ appUsers: [...baseAppUsers(), { email: "t2@gmail.com", role: "trader", dma_user_id: null }] });
+
+  it("DMA 없는 trader → relay POST /internal/admin/dma-users 1회(email 포함) → 200 { results, relayNotified }", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp(withT2(), relay.client);
+    const res = await auth(request(app).post("/api/admin/users/T2%40gmail.com/dma")).send(kbDma());
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ results: OK_RESULTS, relayNotified: true });
+    expect(relay.calls.map((c) => c.path)).toEqual([
+      "/internal/admin/dma-users",
+      "/internal/admin/access/reload",
+    ]);
+    expect(relay.calls[0].body).toEqual({ email: "t2@gmail.com", ...kbDma() });
+  });
+
+  it("이미 DMA 가 연결된 사용자 → 409 DMA_LINKED · viewer → 400 · 없는 사용자 → 404 · relay 0", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const linked = await auth(request(app).post("/api/admin/users/trader%40gmail.com/dma")).send(kbDma());
+    expect(linked.status).toBe(409);
+    expect(linked.body.error.code).toBe("DMA_LINKED");
+    const viewer = await auth(request(app).post("/api/admin/users/viewer%40gmail.com/dma")).send(kbDma());
+    expect(viewer.status).toBe(400);
+    expect(viewer.body.error.code).toBe("VALIDATION_FAILED");
+    const ghost = await auth(request(app).post("/api/admin/users/ghost%40gmail.com/dma")).send(kbDma());
+    expect(ghost.status).toBe(404);
+    expect(relay.calls).toHaveLength(0);
+  });
+
+  it("relay 409 DMA_USER_EXISTS → 409 그대로", async () => {
+    const relay = makeFakeRelay(() => relayReject(409, "DMA_USER_EXISTS"));
+    const { app } = makeApp(withT2(), relay.client);
+    const res = await auth(request(app).post("/api/admin/users/t2%40gmail.com/dma")).send(kbDma());
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("DMA_USER_EXISTS");
+  });
+});
+
+describe("DELETE /api/admin/users/:email — DMA 있는 사용자 (D-15 공유 판정)", () => {
+  it("단독 DMA → relay DELETE /internal/admin/dma-users/:dma → 전 서버 ok(deleted) → 행 삭제 → { ok, deleted: true, results }", async () => {
+    const relay = makeFakeRelay();
+    const { app, rows, rec } = makeApp({}, relay.client);
+    const res = await auth(request(app).delete("/api/admin/users/trader%40gmail.com"));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, deleted: true, results: OK_RESULTS, relayNotified: true });
+    expect(rows.has("trader@gmail.com")).toBe(false);
+    expect(relay.calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      "DELETE /internal/admin/dma-users/kim01",
+      "POST /internal/admin/access/reload",
+    ]);
+    // 공유 판정 = 같은 dma_user_id 행 수(head count) 1회.
+    const counts = rec.ops.filter((o) => o.count);
+    expect(counts).toHaveLength(1);
+    expect(counts[0].filters).toEqual([["eq", "dma_user_id", "kim01"]]);
+  });
+
+  it("한 서버 failed → relay deleted=false → 행 유지 · { ok, deleted: false, results } · 통보 0", async () => {
+    const results = [
+      { server: "KB120", outcome: "ok", usersRev: "3" },
+      { server: "KB121", outcome: "failed", code: 9, message: "다른 작업 중입니다" },
+    ];
+    const relay = makeFakeRelay((c) =>
+      c.method === "DELETE" ? { status: 200, data: { results, deleted: false } } : undefined,
+    );
+    const { app, rows } = makeApp({}, relay.client);
+    const res = await auth(request(app).delete("/api/admin/users/trader%40gmail.com"));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, deleted: false, results, relayNotified: false });
+    expect(rows.has("trader@gmail.com")).toBe(true);
+    expect(relay.calls.map((c) => c.path)).toEqual(["/internal/admin/dma-users/kim01"]);
+  });
+
+  it("공유(같은 dma_user_id 행 2개) → 이 웹 사용자 행만 삭제 · relay DMA 경로 0회(통보만)", async () => {
+    const relay = makeFakeRelay();
+    const { app, rows } = makeApp(
+      { appUsers: [...baseAppUsers(), { email: "trader2@gmail.com", role: "trader", dma_user_id: "kim01" }] },
+      relay.client,
+    );
+    const res = await auth(request(app).delete("/api/admin/users/trader%40gmail.com"));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, deleted: true, relayNotified: true });
+    expect(rows.has("trader@gmail.com")).toBe(false);
+    expect(rows.get("trader2@gmail.com")?.dma_user_id).toBe("kim01");
+    expect(relay.calls.map((c) => c.path)).toEqual(["/internal/admin/access/reload"]);
+  });
+
+  it("단독 DMA · relay 409 NO_DMA_USER → 409 그대로 · 행 유지", async () => {
+    const relay = makeFakeRelay(() => relayReject(409, "NO_DMA_USER"));
+    const { app, rows } = makeApp({}, relay.client);
+    const res = await auth(request(app).delete("/api/admin/users/trader%40gmail.com"));
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("NO_DMA_USER");
+    expect(rows.has("trader@gmail.com")).toBe(true);
+  });
+
+  it("단독 DMA · relay 클라이언트 없음 → 503 · 행 유지 / relay 못 닿음 → 502 · 행 유지", async () => {
+    const none = makeApp();
+    const a = await auth(request(none.app).delete("/api/admin/users/trader%40gmail.com"));
+    expect(a.status).toBe(503);
+    expect(none.rows.has("trader@gmail.com")).toBe(true);
+    const down = makeApp({}, makeFakeRelay(() => ({ status: 0, data: null })).client);
+    const b = await auth(request(down.app).delete("/api/admin/users/trader%40gmail.com"));
+    expect(b.status).toBe(502);
+    expect(b.body.error.code).toBe("RELAY_FAILED");
+    expect(down.rows.has("trader@gmail.com")).toBe(true);
+  });
+
+  it("공유 판정이 DMA 있는 사용자를 HAS_DMA 로 거부하지 않는다(29-10 분기 대체)", async () => {
+    const { app } = makeApp({}, makeFakeRelay().client);
+    const res = await auth(request(app).delete("/api/admin/users/trader%40gmail.com"));
+    expect(res.body.error?.code).not.toBe("HAS_DMA");
+  });
+});
+
+describe("로그 위생 — 비밀번호 변경 · DMA id 마스킹", () => {
+  let cap: ReturnType<typeof captureLogs>;
+  beforeEach(() => {
+    cap = captureLogs();
+  });
+  afterEach(() => cap.restore());
+
+  it("비밀번호 변경 성공 · 실패에서 password 원문이 없고, 감사 로그의 DMA id 는 마스킹(kim01 → ki***(5))", async () => {
+    for (const h of [() => undefined, () => ({ status: 0, data: null })] as FakeRelayHandler[]) {
+      const { app } = makeApp({}, makeFakeRelay(h).client);
+      await auth(request(app).post("/api/admin/dma-users/kim01/password")).send({ password: PASSWORD });
+    }
+    const logged = cap.text();
+    expect(logged).toContain("dma-password");
+    expect(logged).toContain("ki***(5)");
+    expect(logged).not.toContain(PASSWORD);
+  });
+});

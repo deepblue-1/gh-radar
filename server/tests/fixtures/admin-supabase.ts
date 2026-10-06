@@ -4,7 +4,10 @@
  * - `auth.getUser(token)` : `users[token]` 이 있으면 그 사용자(`{ id, email }`), 없으면 「invalid token」.
  * - `from("app_users")`   : 메모리 표(이메일 키). select · upsert · update · delete + eq · is 필터 + `.select()` 반환 행.
  *   PostgREST 의 체인 모양만 흉내 낸다 — 필터 의미는 eq(같음) · is(같음, null 비교용) 두 개뿐.
- * - `rpc(fn)`             : `admin_users_raw` → `raw`(또는 `rpcError`). 그 밖 이름은 오류.
+ * - `rpc(fn)`             : `rpc[fn]` 핸들러가 있으면 그것(29-13 레지스트리 RPC) · 없으면 `admin_users_raw` → `raw`
+ *                           (또는 `rpcError`). 그 밖 이름은 오류.
+ * - `from(<그 밖 표>)`     : `tables[표]` 메모리 배열(29-13 `dma_servers`) — select · update · delete + eq 필터.
+ * - `select(cols, { count: "exact", head: true })` : 행 없이 `count` 만(29-13 공유 판정).
  *
  * 기록(`rec`)으로 「무엇을 몇 번 불렀는지」 를 단언한다(왕복 수 · 쓰기 대상 · 필터).
  */
@@ -16,6 +19,10 @@ export type AdminSupabaseOpts = {
   appUsers?: AppUserRow[];
   raw?: unknown;
   rpcError?: { message: string; code?: string };
+  /** 이름별 RPC 핸들러(29-13) — 있으면 `raw` 보다 먼저. */
+  rpc?: Record<string, (params: unknown) => { data: unknown; error: unknown }>;
+  /** app_users 밖의 메모리 표(29-13 `dma_servers`). */
+  tables?: Record<string, Record<string, unknown>[]>;
   /** 주면 해당 종류의 app_users 질의가 이 오류를 돌려준다. */
   dbError?: Partial<Record<"select" | "upsert" | "update" | "delete", { message: string; code?: string }>>;
 };
@@ -26,6 +33,8 @@ export type AdminOp = {
   payload?: Record<string, unknown>;
   options?: Record<string, unknown>;
   filters: [op: "eq" | "is", col: string, val: unknown][];
+  /** select 의 count 옵션(`{ count: "exact", head: true }`). */
+  count?: boolean;
 };
 
 export type AdminRecorder = {
@@ -38,6 +47,9 @@ export function makeAdminSupabase(opts: AdminSupabaseOpts = {}) {
     (opts.appUsers ?? []).map((r) => [r.email, { ...r }]),
   );
   const rec: AdminRecorder = { rpcCalls: [], ops: [] };
+  const tables: Record<string, Record<string, unknown>[]> = Object.fromEntries(
+    Object.entries(opts.tables ?? {}).map(([t, rs]) => [t, rs.map((r) => ({ ...r }))]),
+  );
 
   const client = {
     auth: {
@@ -50,6 +62,8 @@ export function makeAdminSupabase(opts: AdminSupabaseOpts = {}) {
     },
     async rpc(fn: string, params?: unknown) {
       rec.rpcCalls.push({ fn, params });
+      const h = opts.rpc?.[fn];
+      if (h) return h(params);
       if (fn !== "admin_users_raw") return { data: null, error: { message: `unexpected rpc ${fn}` } };
       if (opts.rpcError) return { data: null, error: opts.rpcError };
       return { data: opts.raw ?? null, error: null };
@@ -61,17 +75,42 @@ export function makeAdminSupabase(opts: AdminSupabaseOpts = {}) {
         filters: [],
         returning: false,
       };
-      const match = (r: AppUserRow) =>
-        q.filters.every(([, col, val]) => (r as Record<string, unknown>)[col] === val);
+      const match = (r: Record<string, unknown>) => q.filters.every(([, col, val]) => r[col] === val);
 
-      const exec = (): { data: unknown; error: unknown } => {
-        rec.ops.push({ table, kind: q.kind, payload: q.payload, options: q.options, filters: q.filters });
-        const err = opts.dbError?.[q.kind];
-        if (err) return { data: null, error: err };
-        if (table !== "app_users") return { data: null, error: { message: `unexpected table ${table}` } };
-        const hits = [...rows.values()].filter(match);
+      const execOther = (): { data: unknown; error: unknown; count?: number | null } => {
+        const t = tables[table];
+        if (!t) return { data: null, error: { message: `unexpected table ${table}` } };
+        const hits = t.filter(match);
         switch (q.kind) {
           case "select":
+            return { data: hits.map((r) => ({ ...r })), error: null };
+          case "update":
+            for (const r of hits) Object.assign(r, q.payload);
+            return { data: q.returning ? hits.map((r) => ({ ...r })) : null, error: null };
+          case "delete":
+            tables[table] = t.filter((r) => !hits.includes(r));
+            return { data: q.returning ? hits.map((r) => ({ ...r })) : null, error: null };
+          default:
+            return { data: null, error: { message: `unsupported ${q.kind} on ${table}` } };
+        }
+      };
+
+      const exec = (): { data: unknown; error: unknown; count?: number | null } => {
+        rec.ops.push({
+          table,
+          kind: q.kind,
+          payload: q.payload,
+          options: q.options,
+          filters: q.filters,
+          ...(q.count ? { count: true } : {}),
+        });
+        const err = opts.dbError?.[q.kind];
+        if (err) return { data: null, error: err };
+        if (table !== "app_users") return execOther();
+        const hits = [...rows.values()].filter((r) => match(r as unknown as Record<string, unknown>));
+        switch (q.kind) {
+          case "select":
+            if (q.count) return { data: null, count: hits.length, error: null };
             return { data: hits.map((r) => ({ ...r })), error: null };
           case "upsert": {
             const p = q.payload as AppUserRow;
@@ -89,8 +128,9 @@ export function makeAdminSupabase(opts: AdminSupabaseOpts = {}) {
       };
 
       const b: any = {
-        select: () => {
+        select: (_cols?: string, o?: { count?: string; head?: boolean }) => {
           if (q.kind !== "select") q.returning = true;
+          if (o?.count) q.count = true;
           return b;
         },
         upsert: (p: Record<string, unknown>, o?: Record<string, unknown>) => {
@@ -129,7 +169,7 @@ export function makeAdminSupabase(opts: AdminSupabaseOpts = {}) {
     },
   };
 
-  return { client: client as any, rec, rows };
+  return { client: client as any, rec, rows, tables };
 }
 
 /** 토큰 3종 — admin(대문자 이메일 토큰) · trader · 승인 대기(표에 없음). */

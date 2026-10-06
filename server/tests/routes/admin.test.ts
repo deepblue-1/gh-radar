@@ -8,7 +8,11 @@ import { deriveAdminUsersOverview, type AdminUsersRaw } from "@gh-radar/shared";
 
 import { createApp } from "../../src/app";
 import { requireRelayAdmin } from "../../src/routes/admin";
-import { createRelayAdminClient, type RelayAdminClient } from "../../src/services/relay-admin-client";
+import {
+  createRelayAdminClient,
+  relayAdminClientFrom,
+  type RelayAdminClient,
+} from "../../src/services/relay-admin-client";
 import { logger, loggerOptions } from "../../src/logger";
 import { ApiError } from "../../src/errors";
 import {
@@ -77,20 +81,19 @@ function makeApp(opts: AdminSupabaseOpts = {}, relayAdmin?: RelayAdminClient) {
   return { app, ...sb };
 }
 
-/** deps 주입 가짜 relay — reloadAccess 호출(요청자 이메일)만 기록하고 정해 둔 status 를 돌려준다. */
+/**
+ * deps 주입 가짜 relay — reload 호출(요청자 이메일)만 기록하고 정해 둔 status 를 돌려준다.
+ * 29-13: 실제 `relayAdminClientFrom` 래퍼 위에 저수준 request 만 바꾼다(타입드 메서드가 늘어도 이 가짜는 그대로 맞는다).
+ */
 function fakeRelay(status = 200) {
   const calls: { op: string; adminEmail: string }[] = [];
-  const client: RelayAdminClient = {
-    request: async () => ({ status, data: null }),
-    reloadAccess: async (adminEmail) => {
-      calls.push({ op: "access", adminEmail });
-      return { status, data: status === 200 ? { ok: true, changed: true } : null };
-    },
-    reloadRegistry: async (adminEmail) => {
-      calls.push({ op: "registry", adminEmail });
-      return { status, data: status === 200 ? { ok: true, changed: false } : null };
-    },
-  };
+  const client: RelayAdminClient = relayAdminClientFrom(async <T,>(_m: string, path: string, adminEmail: string) => {
+    const reload = /\/(access|registry)\/reload$/.exec(path);
+    if (reload) calls.push({ op: reload[1], adminEmail });
+    const data =
+      status !== 200 ? null : reload ? { ok: true, changed: reload[1] === "access" } : { results: [] };
+    return { status, data: data as T | null };
+  });
   return { client, calls };
 }
 
@@ -267,7 +270,7 @@ describe("PATCH /api/admin/users/:email — 역할 변경", () => {
   });
 });
 
-describe("DELETE /api/admin/users/:email — DMA 연결 없는 사용자만", () => {
+describe("DELETE /api/admin/users/:email — DMA 연결 없는 사용자 (DMA 있는 사용자는 admin-dma.test.ts)", () => {
   it("본인 → 409 SELF_LOCKOUT (삭제 0)", async () => {
     const { app, rec } = makeApp({}, fakeRelay().client);
     const res = await auth(request(app).delete(`/api/admin/users/${encodeURIComponent(ADMIN_EMAIL)}`));
@@ -276,22 +279,12 @@ describe("DELETE /api/admin/users/:email — DMA 연결 없는 사용자만", ()
     expect(rec.ops.filter((o) => o.kind === "delete")).toHaveLength(0);
   });
 
-  it("dma_user_id 가 있는 사용자 → 409 HAS_DMA · 행 유지 · 통보 0", async () => {
-    const relay = fakeRelay();
-    const { app, rows } = makeApp({}, relay.client);
-    const res = await auth(request(app).delete("/api/admin/users/trader%40gmail.com"));
-    expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe("HAS_DMA");
-    expect(rows.has("trader@gmail.com")).toBe(true);
-    expect(relay.calls).toHaveLength(0);
-  });
-
-  it("DMA 없는 사용자 → 삭제는 「dma_user_id is null」 조건 한 문장 → 200 · 통보 1건", async () => {
+  it("DMA 없는 사용자 → 삭제는 「dma_user_id is null」 조건 한 문장 → 200 { ok, deleted: true } · 통보 1건", async () => {
     const relay = fakeRelay();
     const { app, rec, rows } = makeApp({}, relay.client);
     const res = await auth(request(app).delete("/api/admin/users/viewer%40gmail.com"));
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ ok: true, relayNotified: true });
+    expect(res.body).toEqual({ ok: true, deleted: true, relayNotified: true });
     const del = rec.ops.find((o) => o.kind === "delete")!;
     expect(del.filters).toEqual([
       ["eq", "email", "viewer@gmail.com"],

@@ -7,7 +7,16 @@ import { requireAuth } from "../middleware/require-auth.js";
 import { requireAdmin } from "../middleware/require-admin.js";
 import { ApiError, ValidationFailed } from "../errors.js";
 import { logger } from "../logger.js";
-import { AdminRolePatchBody, AdminUserUpsertBody, adminEmailParam } from "../schemas/admin.js";
+import {
+  AdminDmaInputSchema,
+  AdminPasswordSchema,
+  AdminPutAccountSchema,
+  AdminRolePatchBody,
+  AdminUserUpsertBody,
+  adminEmailParam,
+  dmaAccountParam,
+  dmaParam,
+} from "../schemas/admin.js";
 import {
   toProxyResult,
   type RelayAdminClient,
@@ -25,7 +34,16 @@ import type { AdminCommandResponse } from "@gh-radar/shared";
  *                          `dma` 가 있으면(trader/admin · D-16) upsert 뒤 relay `POST /internal/admin/dma-users` 1회 →
  *                          서버별 결과 배열을 그대로 `results` 로. viewer + dma 는 400.
  * - PATCH  /users/:email : `{ role }` — 역할 변경(D-04 강등 즉시). 없는 이메일 404.
- * - DELETE /users/:email : DMA 연결 **없는** 사용자만 행 삭제. 연결 있으면 409 `HAS_DMA` — 그 삭제는 relay 경로(29-13).
+ * - DELETE /users/:email : DMA 없음 → 행 삭제 · DMA 를 다른 웹 사용자와 공유 → 이 웹 사용자 행만 삭제(서버 무접촉) ·
+ *                          DMA 단독 → relay DMA 유저 삭제 → 전 서버 ok 일 때만 행 삭제(아니면 `deleted: false` · 행 유지).
+ *                          (29-10 의 「DMA 있으면 409」 분기는 29-13 에서 이 relay 경로로 대체됐다.)
+ * - POST   /users/:email/dma                         : 기존 사용자에 DMA 연결(`AdminDmaInput`) → `{ results }`
+ * - POST   /dma-users/:dma/password                  : `{ password }` → `{ results }`
+ * - PUT    /dma-users/:dma/accounts                  : `{ account, servers }` → `{ results }`
+ * - DELETE /dma-users/:dma/accounts/:broker/:accountNo : 계좌 제거 → `{ results }` (마지막 계좌면 relay 409 `LAST_ACCOUNT`)
+ * - POST   /dma-users/:dma/reconcile                 : 「다시 반영」 → `{ results }`
+ *   DMA 프록시는 relay 계약(29-11 표)을 1:1 로 부른다 — 409 업무 거부는 그대로, 못 닿음 · 5xx 는 502 `RELAY_FAILED`,
+ *   클라이언트 없음은 503 `RELAY_UNAVAILABLE`. 비밀번호 평문은 relay 로만 전달된다(Express 암호화 · 저장 · 로그 없음).
  *
  * 쓰기는 Express 가 DB 에 직접 하고, 성공 뒤 relay `POST /internal/admin/access/reload` 를 **best-effort** 로 부른다
  * (`relayNotified`). 통보가 실패해도 200 — relay 의 60초 주기 재적재가 따라잡는다(D-04 「즉시」 는 webapp middleware 가
@@ -50,21 +68,30 @@ export const adminRouter: RouterT = Router();
 adminRouter.use(requireAuth(), requireAdmin());
 
 /** `cause` 는 로그 전용(errorHandler warn) — 응답에는 고정 문구만. */
-const DbError = (msg: string, cause?: unknown) => new ApiError(500, "DB_ERROR", msg, cause);
+export const DbError = (msg: string, cause?: unknown) => new ApiError(500, "DB_ERROR", msg, cause);
 const SelfLockout = () =>
   new ApiError(409, "SELF_LOCKOUT", "본인의 관리자 권한은 내리거나 지울 수 없어요.");
-const HasDma = () =>
-  new ApiError(409, "HAS_DMA", "DMA 연결이 있는 사용자는 DMA 삭제 경로로 지워야 해요.");
+const DmaLinked = () => new ApiError(409, "DMA_LINKED", "이미 DMA 가 연결된 사용자예요.");
+const Conflict = () =>
+  new ApiError(409, "CONFLICT", "사용자 상태가 방금 바뀌었어요. 목록을 새로 고친 뒤 다시 시도하세요.");
 const UserNotFound = () => new ApiError(404, "NOT_FOUND", "허용 목록에 없는 사용자예요.");
 const RelayUnavailable = () =>
   new ApiError(503, "RELAY_UNAVAILABLE", "relay 연결이 설정되지 않아 처리할 수 없어요.");
+
+/** 감사 로그용 DMA id 마스킹 — relay(29-11 `maskDmaUserId`)와 같은 꼴: 앞 2자 + *** + (길이), 2자 이하는 앞자리 없음. */
+export function maskDma(dma: string): string {
+  return dma.length <= 2 ? `***(${dma.length})` : `${dma.slice(0, 2)}***(${dma.length})`;
+}
 
 /**
  * relay DMA 프록시 응답 해석 → 200 이면 `{ results }` 를 돌려주고, 아니면 `ApiError` 로 던진다(errorHandler 가 그대로 응답).
  * relay 409 업무 거부는 409 그대로(`DMA_USER_EXISTS` · `LAST_ACCOUNT` …), 못 닿음 · 5xx · 모양 위반은 502 `RELAY_FAILED`.
  * 200 인데 `results` 배열이 없으면 계약 위반 — 빈 배열로 감추지 않고 502.
  */
-function relayResults(res: RelayAdminResponse<AdminCommandResponse>, op: string): AdminCommandResponse["results"] {
+export function relayResults(
+  res: RelayAdminResponse<AdminCommandResponse>,
+  op: string,
+): AdminCommandResponse["results"] {
   const r = toProxyResult(res);
   if (r.status === 200) {
     const results = (r.body as Partial<AdminCommandResponse>).results;
@@ -77,7 +104,7 @@ function relayResults(res: RelayAdminResponse<AdminCommandResponse>, op: string)
 }
 
 /** 502 `RELAY_FAILED` — 로그(cause)에는 relay 상태코드와 작업 이름만(바디 · 비밀 없음). */
-function relayFailed(op: string, relayStatus: number): ApiError {
+export function relayFailed(op: string, relayStatus: number): ApiError {
   return new ApiError(502, "RELAY_FAILED", "relay 처리에 실패했어요. 잠시 뒤 다시 시도하세요.", {
     relay: { op, status: relayStatus },
   });
@@ -93,7 +120,7 @@ export function requireRelayAdmin(req: Request): RelayAdminClient {
   return relay;
 }
 
-function parseOrThrow<S extends z.ZodType>(schema: S, value: unknown): z.output<S> {
+export function parseOrThrow<S extends z.ZodType>(schema: S, value: unknown): z.output<S> {
   const parsed = schema.safeParse(value);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
@@ -103,7 +130,7 @@ function parseOrThrow<S extends z.ZodType>(schema: S, value: unknown): z.output<
 }
 
 /** 감사 로그 1줄 — 요청자 · 작업 · 대상 이메일 · 역할만(비밀번호 · 토큰 없음). */
-function audit(req: Request, op: string, target: string, extra: Record<string, unknown> = {}): void {
+export function audit(req: Request, op: string, target: string, extra: Record<string, unknown> = {}): void {
   logger.info(
     { audit: "admin", admin: req.adminEmail, op, target, ...extra },
     `[admin] admin=${req.adminEmail} op=${op} target=${target}`,
@@ -204,14 +231,15 @@ adminRouter.patch("/users/:email", async (req, res, next) => {
   }
 });
 
-// --- DELETE /users/:email — DMA 연결 없는 사용자만 (연결 있으면 29-13 relay 경로) ---
+// --- DELETE /users/:email — DMA 없음 · 공유 · 단독(relay 유저 삭제) (D-15) ---
 adminRouter.delete("/users/:email", async (req, res, next) => {
   try {
     const { email } = parseOrThrow(adminEmailParam, req.params);
     if (email === req.adminEmail) throw SelfLockout();
 
     const supabase = req.app.locals.supabase as SupabaseClient;
-    // 「DMA 없음」 조건을 삭제 문장 자체에 건다 — 조회와 삭제 사이에 DMA 가 연결되는 경합에도 연결된 행은 지워지지 않는다.
+    // ① DMA 없는 사용자 — 「DMA 없음」 조건을 삭제 문장 자체에 건다(조회와 삭제 사이에 DMA 가 연결되는 경합에도
+    //   연결된 행은 이 문장으로 지워지지 않는다). 흔한 경로가 왕복 1회로 끝난다.
     const { data, error } = await supabase
       .from("app_users")
       .delete()
@@ -219,20 +247,159 @@ adminRouter.delete("/users/:email", async (req, res, next) => {
       .is("dma_user_id", null)
       .select("email");
     if (error) throw DbError("사용자 삭제에 실패했습니다.", error);
-
-    if (!Array.isArray(data) || data.length === 0) {
-      // 0행 = 없는 사용자 또는 DMA 연결 있음 — 어느 쪽인지 1회 더 본다(거부 경로에서만 왕복 1회 추가).
-      const { data: row, error: e2 } = await supabase
-        .from("app_users")
-        .select("dma_user_id")
-        .eq("email", email)
-        .maybeSingle();
-      if (e2) throw DbError("사용자 삭제에 실패했습니다.", e2);
-      throw row ? HasDma() : UserNotFound();
+    if (Array.isArray(data) && data.length > 0) {
+      audit(req, "delete", email);
+      res.json({ ok: true, deleted: true, relayNotified: await notifyAccess(req, "delete") });
+      return;
     }
 
-    audit(req, "delete", email);
-    res.json({ ok: true, relayNotified: await notifyAccess(req, "delete") });
+    // 0행 = 없는 사용자 또는 DMA 연결 있음.
+    const { data: row, error: e2 } = await supabase
+      .from("app_users")
+      .select("dma_user_id")
+      .eq("email", email)
+      .maybeSingle();
+    if (e2) throw DbError("사용자 삭제에 실패했습니다.", e2);
+    if (!row) throw UserNotFound();
+    const dma = (row as { dma_user_id: string | null }).dma_user_id;
+    if (!dma) throw Conflict(); // ① 와 이 조회 사이에 연결이 풀렸다 — 다시 시도하면 ① 로 지워진다.
+
+    // ② 공유 판정 — 같은 DMA id 를 쓰는 웹 사용자 수(이 사용자 포함). 2 이상이면 서버 users.toml 은 건드리지 않는다.
+    const { count, error: e3 } = await supabase
+      .from("app_users")
+      .select("email", { count: "exact", head: true })
+      .eq("dma_user_id", dma);
+    if (e3 || typeof count !== "number") throw DbError("사용자 삭제에 실패했습니다.", e3 ?? undefined);
+
+    if (count >= 2) {
+      const { data: gone, error: e4 } = await supabase
+        .from("app_users")
+        .delete()
+        .eq("email", email)
+        .eq("dma_user_id", dma)
+        .select("email");
+      if (e4) throw DbError("사용자 삭제에 실패했습니다.", e4);
+      if (!Array.isArray(gone) || gone.length === 0) throw Conflict();
+      audit(req, "delete", email, { dma: maskDma(dma), shared: true });
+      res.json({ ok: true, deleted: true, relayNotified: await notifyAccess(req, "delete") });
+      return;
+    }
+
+    // ③ 단독 DMA — relay 가 서버마다 유저 삭제(op 2) → 전 서버 ok 일 때만 DB 의 DMA 유저를 지운다(`deleted`).
+    //   그때만 웹 사용자 행도 지운다. 일부 서버 실패면 행을 남겨 「다시 삭제」 를 같은 화면에서 할 수 있게 한다.
+    const relay = requireRelayAdmin(req);
+    const r = await relay.deleteDmaUser(dma, req.adminEmail!);
+    const results = relayResults(r, "dma-delete");
+    const relayDeleted = (r.data as { deleted?: unknown } | null)?.deleted === true;
+    audit(req, "dma-delete", email, {
+      dma: maskDma(dma),
+      deleted: relayDeleted,
+      servers: results.map((x) => `${x.server}:${x.outcome}`),
+    });
+    if (!relayDeleted) {
+      res.json({ ok: true, deleted: false, results, relayNotified: false });
+      return;
+    }
+
+    // DMA 유저 삭제로 app_users.dma_user_id 는 FK ON DELETE SET NULL 로 이미 비었다 — 이메일로 행을 지운다.
+    const { error: e5 } = await supabase.from("app_users").delete().eq("email", email);
+    if (e5) throw DbError("사용자 삭제에 실패했습니다.", e5);
+    res.json({ ok: true, deleted: true, results, relayNotified: await notifyAccess(req, "delete") });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DMA 프록시 (D-15 필드별 즉시 저장 — 각각 한 요청 · relay 계약 29-11 1:1)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// --- POST /users/:email/dma — 기존 사용자에 DMA 연결 (편집 시트 「DMA 연결」) ---
+adminRouter.post("/users/:email/dma", async (req, res, next) => {
+  try {
+    const { email } = parseOrThrow(adminEmailParam, req.params);
+    const dma = parseOrThrow(AdminDmaInputSchema, req.body ?? {});
+    const relay = requireRelayAdmin(req);
+
+    const supabase = req.app.locals.supabase as SupabaseClient;
+    const { data: row, error } = await supabase
+      .from("app_users")
+      .select("role, dma_user_id")
+      .eq("email", email)
+      .maybeSingle();
+    if (error) throw DbError("사용자 조회에 실패했습니다.", error);
+    if (!row) throw UserNotFound();
+    const cur = row as { role: string; dma_user_id: string | null };
+    if (cur.role === "viewer") throw ValidationFailed("role: viewer 는 DMA 를 연결할 수 없어요");
+    // 생성 RPC 는 app_users.dma_user_id 를 덮어쓴다 — 이미 연결된 사용자를 조용히 다른 DMA id 로 갈아 끼우지 않는다.
+    if (cur.dma_user_id) throw DmaLinked();
+
+    const results = relayResults(await relay.createDmaUser({ email, ...dma }, req.adminEmail!), "dma-link");
+    audit(req, "dma-link", email, { dma: maskDma(dma.dmaUserId), servers: results.map((x) => `${x.server}:${x.outcome}`) });
+    res.json({ results, relayNotified: await notifyAccess(req, "dma-link") });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- POST /dma-users/:dma/password — 비밀번호 변경 (D-08 · 열린 세션 무통지) ---
+adminRouter.post("/dma-users/:dma/password", async (req, res, next) => {
+  try {
+    const { dma } = parseOrThrow(dmaParam, req.params);
+    const { password } = parseOrThrow(AdminPasswordSchema, req.body ?? {});
+    const relay = requireRelayAdmin(req);
+    const results = relayResults(await relay.changePassword(dma, password, req.adminEmail!), "dma-password");
+    audit(req, "dma-password", maskDma(dma), { servers: results.map((x) => `${x.server}:${x.outcome}`) });
+    res.json({ results });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- PUT /dma-users/:dma/accounts — 계좌 추가 · 값 변경 · 등록 서버 토글 ---
+adminRouter.put("/dma-users/:dma/accounts", async (req, res, next) => {
+  try {
+    const { dma } = parseOrThrow(dmaParam, req.params);
+    const body = parseOrThrow(AdminPutAccountSchema, req.body ?? {});
+    const relay = requireRelayAdmin(req);
+    const results = relayResults(await relay.putAccount(dma, body, req.adminEmail!), "dma-account-put");
+    audit(req, "dma-account-put", maskDma(dma), {
+      broker: body.account.broker,
+      servers: results.map((x) => `${x.server}:${x.outcome}`),
+    });
+    res.json({ results });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- DELETE /dma-users/:dma/accounts/:broker/:accountNo — 계좌 제거 (마지막 계좌는 relay 409 LAST_ACCOUNT) ---
+adminRouter.delete("/dma-users/:dma/accounts/:broker/:accountNo", async (req, res, next) => {
+  try {
+    const { dma, broker, accountNo } = parseOrThrow(dmaAccountParam, req.params);
+    const relay = requireRelayAdmin(req);
+    const results = relayResults(
+      await relay.removeAccount(dma, broker, accountNo, req.adminEmail!),
+      "dma-account-remove",
+    );
+    audit(req, "dma-account-remove", maskDma(dma), {
+      broker,
+      servers: results.map((x) => `${x.server}:${x.outcome}`),
+    });
+    res.json({ results });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- POST /dma-users/:dma/reconcile — 「다시 반영」(의도 대 87 차이만) ---
+adminRouter.post("/dma-users/:dma/reconcile", async (req, res, next) => {
+  try {
+    const { dma } = parseOrThrow(dmaParam, req.params);
+    const relay = requireRelayAdmin(req);
+    const results = relayResults(await relay.reconcile(dma, req.adminEmail!), "dma-reconcile");
+    audit(req, "dma-reconcile", maskDma(dma), { servers: results.map((x) => `${x.server}:${x.outcome}`) });
+    res.json({ results });
   } catch (e) {
     next(e);
   }

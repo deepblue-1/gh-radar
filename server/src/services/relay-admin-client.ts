@@ -1,5 +1,11 @@
 import axios, { type AxiosInstance } from "axios";
-import type { AdminCommandResponse, AdminDmaInput } from "@gh-radar/shared";
+import type {
+  AdminCommandResponse,
+  AdminDmaInput,
+  AdminPutAccountBody,
+  AdminServerLiveStatus,
+  DmaBroker,
+} from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
 
@@ -43,6 +49,15 @@ export type RelayAdminRequest = <T = unknown>(
 /** `POST /internal/admin/dma-users` 바디(29-11) — 웹 사용자 이메일 + `AdminDmaInput`. */
 export type RelayCreateDmaUserBody = { email: string } & AdminDmaInput;
 
+/** `DELETE /internal/admin/dma-users/:dma` 응답 — `deleted=false` 면 일부 서버 실패로 DB 삭제 보류(29-11). */
+export type RelayDeleteDmaUserResult = AdminCommandResponse & { deleted: boolean };
+
+/** `GET /internal/admin/servers/status` 응답 — 서버 키별 상태 칩(29-11). */
+export type RelayServersStatus = { servers: Record<string, AdminServerLiveStatus> };
+
+/** `POST /internal/admin/servers/:key/quote-primary` 성공 응답(29-23). */
+export type RelayQuotePrimaryResult = { ok: boolean };
+
 export type RelayAdminClient = {
   request: RelayAdminRequest;
   /** 허용 · 역할 표 즉시 재적재(D-04) — 강등 · 허용 해제된 사용자의 wss 를 relay 가 끊는다. */
@@ -54,6 +69,39 @@ export type RelayAdminClient = {
     body: RelayCreateDmaUserBody,
     adminEmail: string,
   ): Promise<RelayAdminResponse<AdminCommandResponse>>;
+  /** 비밀번호 교체 → 87 에 그 유저가 있는 등록 서버에만 op 1(D-08). */
+  changePassword(
+    dmaUserId: string,
+    password: string,
+    adminEmail: string,
+  ): Promise<RelayAdminResponse<AdminCommandResponse>>;
+  /** 계좌 추가 · 값 변경 · 등록 서버 교체(op 3 / op 1 · op 4 / op 2). */
+  putAccount(
+    dmaUserId: string,
+    body: AdminPutAccountBody,
+    adminEmail: string,
+  ): Promise<RelayAdminResponse<AdminCommandResponse>>;
+  /** 계좌 제거(op 4) — 마지막 계좌면 relay 409 `LAST_ACCOUNT`. */
+  removeAccount(
+    dmaUserId: string,
+    broker: DmaBroker,
+    accountNo: string,
+    adminEmail: string,
+  ): Promise<RelayAdminResponse<AdminCommandResponse>>;
+  /** DMA 유저 삭제(op 2 · 87 전용 계좌가 있으면 의도 계좌 op 4) — 전 서버 ok 일 때만 DB 삭제(`deleted`). */
+  deleteDmaUser(
+    dmaUserId: string,
+    adminEmail: string,
+  ): Promise<RelayAdminResponse<RelayDeleteDmaUserResult>>;
+  /** 「다시 반영」 — 의도와 87 의 차이만 다시 보낸다(같으면 0건). */
+  reconcile(dmaUserId: string, adminEmail: string): Promise<RelayAdminResponse<AdminCommandResponse>>;
+  /** 서버 카드 상태 칩(연결 · 저널 · admin · 시세). */
+  serversStatus(adminEmail: string): Promise<RelayAdminResponse<RelayServersStatus>>;
+  /** 시세 주 서버 전환(D-11 break-then-make) — 성공하면 relay 가 DB 를 갱신한다(29-23). */
+  setQuotePrimary(
+    serverKey: string,
+    adminEmail: string,
+  ): Promise<RelayAdminResponse<RelayQuotePrimaryResult>>;
 };
 
 // ============================================================
@@ -213,6 +261,8 @@ export function createRelayAdminClient(opts: {
  * 테스트는 가짜 `request` 로 같은 래퍼를 써서 「어느 경로 · 어떤 바디」 를 실제 경로 문자열로 단언한다.
  */
 export function relayAdminClientFrom(request: RelayAdminRequest): RelayAdminClient {
+  // 경로 값(DMA id · 계좌번호 · 서버 키)은 한 세그먼트로 인코딩한다 — relay(Express 5)가 한 번 디코딩한다.
+  const user = (dma: string) => `/internal/admin/dma-users/${encodeURIComponent(dma)}`;
   return {
     request,
     reloadAccess: (adminEmail) =>
@@ -221,5 +271,27 @@ export function relayAdminClientFrom(request: RelayAdminRequest): RelayAdminClie
       request<RelayReloadResult>("POST", "/internal/admin/registry/reload", adminEmail),
     createDmaUser: (body, adminEmail) =>
       request<AdminCommandResponse>("POST", "/internal/admin/dma-users", adminEmail, body),
+    changePassword: (dma, password, adminEmail) =>
+      request<AdminCommandResponse>("POST", `${user(dma)}/password`, adminEmail, { password }),
+    putAccount: (dma, body, adminEmail) =>
+      request<AdminCommandResponse>("PUT", `${user(dma)}/accounts`, adminEmail, body),
+    removeAccount: (dma, broker, accountNo, adminEmail) =>
+      request<AdminCommandResponse>(
+        "DELETE",
+        `${user(dma)}/accounts/${encodeURIComponent(broker)}/${encodeURIComponent(accountNo)}`,
+        adminEmail,
+      ),
+    deleteDmaUser: (dma, adminEmail) =>
+      request<RelayDeleteDmaUserResult>("DELETE", user(dma), adminEmail),
+    reconcile: (dma, adminEmail) =>
+      request<AdminCommandResponse>("POST", `${user(dma)}/reconcile`, adminEmail),
+    serversStatus: (adminEmail) =>
+      request<RelayServersStatus>("GET", "/internal/admin/servers/status", adminEmail),
+    setQuotePrimary: (key, adminEmail) =>
+      request<RelayQuotePrimaryResult>(
+        "POST",
+        `/internal/admin/servers/${encodeURIComponent(key)}/quote-primary`,
+        adminEmail,
+      ),
   };
 }

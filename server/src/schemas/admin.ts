@@ -128,3 +128,84 @@ export const AdminRolePatchBody = z.object({
 export const adminEmailParam = z.object({
   email: EmailSchema,
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DMA 프록시 (D-15 필드별 즉시 저장 — 각각 한 요청)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 경로 `:dma` — Express 5 가 이미 디코딩했다(다시 풀지 않는다). */
+export const dmaParam = z.object({ dma: DmaUserIdSchema });
+
+/** 경로 `:dma/accounts/:broker/:accountNo` — 계좌번호는 relay 가 정규화한다. */
+export const dmaAccountParam = z.object({
+  dma: DmaUserIdSchema,
+  broker: DmaBrokerSchema,
+  accountNo: z.string().refine(isValidAccountNoInput, "계좌번호는 1~12자예요"),
+});
+
+/** POST /api/admin/dma-users/:dma/password — `AdminPasswordBody`. */
+export const AdminPasswordSchema = z.object({ password: DmaPasswordSchema });
+
+/** PUT /api/admin/dma-users/:dma/accounts — `AdminPutAccountBody { account, servers }`. */
+export const AdminPutAccountSchema = z
+  .object({
+    account: AdminAccountInputSchema,
+    servers: ServerListSchema,
+  })
+  .superRefine(checkServersMatchBroker);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 서버 레지스트리 (D-09 · D-17)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const IPV4_OCTET = "(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)";
+const IPV4_RE = new RegExp(`^${IPV4_OCTET}(\\.${IPV4_OCTET}){3}$`);
+/** RFC 1123 호스트명 — 라벨 1~63자(영숫자 · 가운데 하이픈) · 전체 ≤ 253. */
+const HOSTNAME_RE =
+  /^(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
+
+/**
+ * 서버 주소 — IPv4 점 표기 또는 RFC 1123 호스트명. 공백 · 스킴 · 포트 · 경로가 섞이면 거부한다
+ * (relay 가 이 값으로 TCP 를 연다 — `http://` 나 `:9100` 이 붙은 값은 조용히 실패한다).
+ * 숫자와 점만으로 된 값은 IPv4 로만 판정한다(`999.1.1.1` 이 호스트명으로 통과하지 않게).
+ */
+export const ServerHostSchema = z
+  .string()
+  .trim()
+  .min(1, "주소를 입력하세요")
+  .refine(
+    (h) => (/^[\d.]+$/.test(h) ? IPV4_RE.test(h) : HOSTNAME_RE.test(h)),
+    "주소는 IPv4(예: 10.41.1.120) 또는 호스트명이어야 해요",
+  );
+
+export const ServerPortSchema = z.number().int().min(1, "포트는 1~65535 예요").max(65535, "포트는 1~65535 예요");
+export const ServerSortOrderSchema = z.number().int().min(0).max(100000);
+
+/** 경로 `:key`. */
+export const serverKeyParam = z.object({ key: ServerKeySchema });
+
+/** POST /api/admin/servers — `AdminServerUpsertBody`. 키 접두와 증권사가 같아야 한다(`dma_servers` CHECK 와 같은 규칙). */
+export const AdminServerUpsertSchema = z
+  .object({
+    key: ServerKeySchema,
+    broker: DmaBrokerSchema,
+    host: ServerHostSchema,
+    port: ServerPortSchema,
+    sortOrder: ServerSortOrderSchema.optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (brokerOfServerKey(v.key) !== v.broker) {
+      ctx.addIssue({ code: "custom", path: ["broker"], message: "서버 키의 증권사 접두와 증권사가 달라요" });
+    }
+  });
+
+/** PATCH /api/admin/servers/:key — `AdminServerPatchBody`(필드별 즉시 저장 — 보통 한 필드). 최소 1필드. */
+export const AdminServerPatchSchema = z
+  .object({
+    broker: DmaBrokerSchema.optional(),
+    host: ServerHostSchema.optional(),
+    port: ServerPortSchema.optional(),
+    enabled: z.boolean().optional(),
+    sortOrder: ServerSortOrderSchema.optional(),
+  })
+  .refine((v) => Object.values(v).some((x) => x !== undefined), "바꿀 값이 없어요");
