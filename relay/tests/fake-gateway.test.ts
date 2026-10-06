@@ -608,6 +608,22 @@ describe("Phase 29 admin 모드", () => {
     expect(state.usersRev).toBe(1n);
   });
 
+  it("defaultAdminHandler — op 2 서버 마지막 사용자 → 12 · BUSY 여도 12 가 먼저 · 파일·rev 불변 (gh-trade 인박스 261007)", async () => {
+    gateway = await startFakeGateway();
+    client = await adminClient(gateway);
+    const state = seedState(); // kb-user 1명
+    state.busyAccounts.add(SAMPLE_ACCOUNT_NO);
+    gateway.onAdminCommand(defaultAdminHandler(state));
+
+    send(client, { requestId: 1n, op: ADMIN_OP.DeleteUser, userId: "kb-user" });
+    const resp = parseAdminCommandResp((await next(client)).env);
+    expect(resp).toMatchObject({ requestId: 1n, ok: false, code: ADMIN_CODE.LastAccount, usersRev: 1n });
+    expect(resp?.message).toBe("마지막 사용자는 삭제할 수 없습니다");
+    await expectSilence(client);
+    expect(state.users.has("kb-user")).toBe(true);
+    expect(state.usersRev).toBe(1n);
+  });
+
   it("startFakeGateway() 두 번 → 독립 인스턴스 2개 (서버 2대 fan-out 바탕)", async () => {
     gateway = await startFakeGateway();
     const second = await startFakeGateway();

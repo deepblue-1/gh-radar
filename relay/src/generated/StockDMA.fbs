@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 92cdfbff
-// synced-date:        2026-10-06
+// server-repo-commit: dc8fb50a
+// synced-date:        2026-10-07
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -1634,7 +1634,7 @@ table AdminCommandResp {         // 86 본문 — 44 응답 (요청 연결에만
                                  //   6 BAD_BRANCH_TRADER(KB 만) · 7 ACCOUNT_CONFLICT(다른 유저가 같은 계좌를 다른 branch/trader 로 보유) ·
                                  //   8 NO_SUCH_ACCOUNT · 9 BUSY(계좌에 상따·VI·미체결·예약 — 서버는 대신 정리하지 않는다) ·
                                  //   10 PERSIST_FAILED(파일 저장 실패 — 메모리도 그대로) · 11 NOT_ADMIN(사용자 세션 연결) ·
-                                 //   12 LAST_ACCOUNT(마지막 계좌 제거 — 사용자 삭제로 처리)
+                                 //   12 LAST_ACCOUNT(op 4 마지막 계좌 제거 — 사용자 삭제로 처리 · op 2 마지막 사용자 삭제 — 사용자 0명 파일은 기동 거부)
     message: string;             // 한국어 사용자 문장(Admin 화면 표시용 — 예 「미체결 2건 · 상따 1건 · VI 1건 등록 — 먼저 정리」).
                                  // 분기는 code 로 한다
     users_rev: ulong;            // 목록 리비전 — 기동 1 · 실제 변경마다 +1 (메모리 카운터, 재기동 시 1 로 복귀 —

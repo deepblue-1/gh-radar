@@ -70,7 +70,7 @@ export const ADMIN_CODE_NAME: Readonly<Record<number, string>> = {
   9: "BUSY",
   10: "PERSIST_FAILED",
   11: "NOT_ADMIN",
-  12: "LAST_ACCOUNT",
+  12: "LAST_ACCOUNT", // op 4 마지막 계좌 제거 · op 2 서버 마지막 사용자 삭제(사용자 0명 users.toml 은 기동 거부) — gh-trade 인박스 261007
 };
 
 /** `AdminAccount` 테이블 — 44 의 `account` · 87 의 `users[].accounts[]`. */

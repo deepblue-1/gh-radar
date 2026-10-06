@@ -898,7 +898,8 @@ function fullAccount(a: FakeAdminAccountInput): Required<FakeAdminAccountInput> 
  * - 실패 → 86(ok false · code · 한국어 message)만 — rev 불변 · 87 없음.
  * - op 1 신규 = 비밀번호 + 첫 계좌 필수 · 기존 = 비밀번호만(빈 값 = 유지 → 무변경). 비밀번호는 표에 저장하지 않는다
  *   (87 에 없다) — 기존 유저의 비어 있지 않은 비밀번호는 늘 「변경」으로 친다.
- * - op 4 → 없는 계좌 8 · 마지막 계좌 12 · `busyAccounts` 9. op 2 → 그 유저 계좌 중 하나라도 `busyAccounts` 면 9.
+ * - op 4 → 없는 계좌 8 · 마지막 계좌 12 · `busyAccounts` 9. op 2 → 없는 유저 4 · 서버 마지막 사용자 12 ·
+ *   그 유저 계좌 중 하나라도 `busyAccounts` 면 9. 판정 순서는 실서버와 같다(2 → 4 → 12 → 9 · gh-trade 인박스 261007).
  * - op 3 → 다른 유저 소유 계좌 7 · 같은 값 무변경 · branch/trader 변경이 BUSY 계좌면 9.
  *
  * `state` 를 제자리 갱신한다 — 테스트가 같은 객체로 rev · 표를 단언한다. 서버 2대는 state 2개로 만든다.
@@ -946,6 +947,7 @@ export function defaultAdminHandler(state: FakeAdminState): FakeAdminHandler {
       }
       case 2: {
         if (accounts === undefined) return fail(req, FAKE_ADMIN_CODE.NoSuchUser, "없는 사용자입니다");
+        if (state.users.size === 1) return fail(req, FAKE_ADMIN_CODE.LastAccount, "마지막 사용자는 삭제할 수 없습니다");
         if (accounts.some((a) => state.busyAccounts.has(a.accountNo ?? ""))) {
           return fail(req, FAKE_ADMIN_CODE.Busy, busyMessage);
         }
@@ -980,7 +982,7 @@ export function defaultAdminHandler(state: FakeAdminState): FakeAdminHandler {
         if (accountNo === "") return fail(req, FAKE_ADMIN_CODE.BadAccountNo, "계좌번호가 비어 있습니다");
         const i = accounts.findIndex((a) => a.accountNo === accountNo);
         if (i < 0) return fail(req, FAKE_ADMIN_CODE.NoSuchAccount, "없는 계좌입니다");
-        if (accounts.length === 1) return fail(req, FAKE_ADMIN_CODE.LastAccount, "마지막 계좌는 지울 수 없습니다");
+        if (accounts.length === 1) return fail(req, FAKE_ADMIN_CODE.LastAccount, "마지막 계좌는 제거할 수 없습니다 — 사용자 삭제로 처리");
         if (state.busyAccounts.has(accountNo)) return fail(req, FAKE_ADMIN_CODE.Busy, busyMessage);
         accounts.splice(i, 1);
         return changed(req);

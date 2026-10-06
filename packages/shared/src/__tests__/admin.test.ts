@@ -171,7 +171,8 @@ describe("interpretAdminResult — 86 code 해석 (D-23 ⑤)", () => {
     [1, 0, "ok"],
     [1, 3, "failed"],
     [3, 8, "failed"], // 8 은 op 4 에서만 반영됨
-    [4, 12, "failed"],
+    [4, 12, "failed"], // 12 LAST_ACCOUNT — op 4 마지막 계좌
+    [2, 12, "failed"], // 12 — op 2 서버 마지막 사용자(gh-trade 인박스 261007) · 반영됨 아님
     [5, 0, "ok"],
   ] as const)("op %i · code %i → %s", (op, code, expected) => {
     expect(interpretAdminResult(op, code)).toBe(expected);

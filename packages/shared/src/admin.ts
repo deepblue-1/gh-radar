@@ -406,6 +406,8 @@ export function diffServerAccounts(input: ServerAccountsDiffInput): ServerAccoun
  *   - op 4 의 8(NO_SUCH_ACCOUNT) = 이미 없음 → 반영됨(오류 칩 아님).
  *   - op 2 의 4(NO_SUCH_USER) = 유저 없음 → 반영됨.
  *   - 그 밖(9 BUSY · 12 LAST_ACCOUNT · 3 · 5 · 7 …)은 실패 — 칩은 서버 한국어 message 를 그대로 싣는다(D-23 ④).
+ *     12 는 op 4 의 마지막 계좌 제거와 op 2 의 서버 마지막 사용자 삭제 둘 다에 온다(gh-trade 인박스 261007) —
+ *     둘 다 서버별 실패 칩이고, relay HTTP 409 `LAST_ACCOUNT`(DB 의도 업무 거부)와는 이름만 같다.
  */
 export function interpretAdminResult(op: 1 | 2 | 3 | 4 | 5, code: number): "ok" | "failed" {
   if (code === 0) return "ok";

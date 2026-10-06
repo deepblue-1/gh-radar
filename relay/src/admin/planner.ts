@@ -99,6 +99,8 @@ export function planServerOps(input: PlanServerOpsInput): ServerPlan {
   // ② 제거 — 87 에 있는 removing 계좌만. active 가 0 이고 그 유저의 87 계좌가 전부 removing 이면
   //    op 4 는 마지막 계좌에서 12 LAST_ACCOUNT 가 되므로 op 2(유저 삭제) 한 번으로 보낸다.
   //    87 에만 있는 계좌(diff.serverOnly)가 하나라도 남으면 유저를 지우지 않는다(D-23 ⑤).
+  //    그 유저가 서버의 마지막 사용자면 op 2 도 12 로 거부된다(gh-trade 인박스 261007) — 서버별 실패 칩으로
+  //    남고 removing 행은 settle 하지 않는다(서버 실제 상태와 같다).
   if (diff.toRemove.length > 0) {
     if (active.length === 0 && diff.serverOnly.length === 0) {
       ops.push({ op: 2 });
