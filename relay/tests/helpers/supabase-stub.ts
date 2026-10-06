@@ -9,8 +9,11 @@
  *   POST /rest/v1/rpc/dma_journal_sync_access  → 행 수
  *   POST /rest/v1/rpc/dma_journal_apply        → 입력 seq 로 `{applied, skipped:0, errors:[], last_seq, rows:[]}`
  *   POST /rest/v1/rpc/dma_strategy_apply       → 같은 모양(Phase 25 — 부팅 결선 증명용 · 푸시 행은 25-01 트레이서 몫)
- *   GET  /rest/v1/dma_visibility_identities?…  → 시드한 신원 행(기본 빈 배열 · quick-260929-sas — 추가 게이트웨이 있을 때만)
- *   POST /rest/v1/rpc/dma_app_access_map       → 빈 배열(Phase 29 — relay 접근 맵 · 부팅 즉시 + 주기)
+ *   POST /rest/v1/rpc/dma_app_access_map       → 시드한 접근 맵 행(기본 빈 배열 · Phase 29 — relay `AppAccess` 부팅 즉시 + 주기)
+ *   GET  /rest/v1/dma_users?dma_user_id=eq.…   → 시드한 행 중 그 DMA id(0~1건 · Phase 29 D-19 — wss 인증 자격증명)
+ *
+ * Phase 29 (29-06) — 옛 신원 뷰 경로(`dma_visibility_identities`)는 소비자(`GatewayIdentities`)와 함께 뺐다. relay 가 다시
+ * 부르면 `unknownRequests()` 에 드러난다(journal-boot 가 0 을 단언한다).
  *
  * 모든 요청을 (method, path, query, body) 로 기록한다. 위에 없는 경로도 **빈 배열 200** 으로 받고 기록한다 —
  * 404 로 막으면 relay 쪽 증상(재시도 · 오류 로그)이 원인을 가리고, 기록이 있으면 테스트 출력에 누락 경로가
@@ -41,8 +44,11 @@ export type StubCursorRow = {
   strategy_last_seq?: number;
 };
 
-/** `dma_visibility_identities` 행 (quick-260929-sas). 스텁은 필터와 무관하게 시드한 행 전체를 돌려준다. */
-export type StubIdentityRow = { user_id: string; gateway: string; dma_user_id: string };
+/** RPC `dma_app_access_map` 행 (Phase 29). 스텁은 시드한 행 전체를 돌려준다. */
+export type StubAccessRow = { user_id: string; email: string; role: "admin" | "trader" | "viewer"; dma_user_id: string | null };
+
+/** `dma_users` 행 (Phase 29 D-19 — `password_enc` 는 AAD = dma_user_id 암호문). */
+export type StubDmaUserRow = { dma_user_id: string; password_enc: string };
 
 export type SupabaseStub = {
   readonly url: string;
@@ -54,8 +60,10 @@ export type SupabaseStub = {
   unknownRequests(): StubRequest[];
   /** 다음 커서 조회부터 돌려줄 행. null 이면 커서 없음. */
   seedCursor(row: StubCursorRow | null): void;
-  /** 다음 신원 조회(`dma_visibility_identities`)부터 돌려줄 행. 기본 빈 배열. */
-  seedIdentities(rows: readonly StubIdentityRow[]): void;
+  /** 다음 접근 맵 조회(`rpc/dma_app_access_map`)부터 돌려줄 행. 기본 빈 배열. */
+  seedAccessMap(rows: readonly StubAccessRow[]): void;
+  /** 다음 `dma_users` 조회부터 쓸 행. 기본 빈 배열. 조회는 `dma_user_id=eq.<id>` 로 거른다. */
+  seedDmaUsers(rows: readonly StubDmaUserRow[]): void;
   close(): Promise<void>;
 };
 
@@ -65,8 +73,8 @@ const KNOWN_PATHS: ReadonlySet<string> = new Set([
   "/rest/v1/rpc/dma_journal_sync_access",
   "/rest/v1/rpc/dma_journal_apply",
   "/rest/v1/rpc/dma_strategy_apply",
-  "/rest/v1/dma_visibility_identities",
   "/rest/v1/rpc/dma_app_access_map",
+  "/rest/v1/dma_users",
 ]);
 
 function parseBody(raw: string): unknown {
@@ -81,7 +89,8 @@ function parseBody(raw: string): unknown {
 export async function startSupabaseStub(): Promise<SupabaseStub> {
   const log: StubRequest[] = [];
   let cursor: StubCursorRow | null = null;
-  let identities: StubIdentityRow[] = [];
+  let accessMap: StubAccessRow[] = [];
+  let dmaUsers: StubDmaUserRow[] = [];
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -110,13 +119,16 @@ export async function startSupabaseStub(): Promise<SupabaseStub> {
         case "/rest/v1/dma_journal_cursor":
           json(200, cursor === null ? [] : [cursor]);
           return;
-        case "/rest/v1/dma_visibility_identities":
-          json(200, identities);
-          return;
         case "/rest/v1/rpc/dma_app_access_map":
-          // Phase 29 — relay 접근 맵(AppAccess). 부팅 결선 증명용 — 빈 맵.
-          json(200, []);
+          json(200, accessMap);
           return;
+        case "/rest/v1/dma_users": {
+          // `dma_user_id=eq.<id>` 에서 값만 꺼낸다(maybeSingle — 늘 배열).
+          const filter = url.searchParams.get("dma_user_id") ?? "";
+          const id = filter.startsWith("eq.") ? filter.slice(3) : "";
+          json(200, dmaUsers.filter((r) => r.dma_user_id === id));
+          return;
+        }
         case "/rest/v1/rpc/dma_journal_sync_access": {
           const rows = (body as { p_rows?: unknown[] } | null)?.p_rows;
           json(200, Array.isArray(rows) ? rows.length : 0);
@@ -156,8 +168,11 @@ export async function startSupabaseStub(): Promise<SupabaseStub> {
     seedCursor(row) {
       cursor = row;
     },
-    seedIdentities(rows) {
-      identities = rows.map((r) => ({ ...r }));
+    seedAccessMap(rows) {
+      accessMap = rows.map((r) => ({ ...r }));
+    },
+    seedDmaUsers(rows) {
+      dmaUsers = rows.map((r) => ({ ...r }));
     },
     async close() {
       server.closeAllConnections();

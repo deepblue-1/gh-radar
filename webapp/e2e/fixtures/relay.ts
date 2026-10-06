@@ -3,7 +3,7 @@
  *
  * ① 무엇을 띄우는가 (전부 127.0.0.1)
  *     ┌ 브라우저 ─ ws ─→ relay(:8090/ws) ─ TCP ─→ 스텁 DMA 게이트웨이(임의 포트)
- *     └ relay ─ HTTP ─→ 스텁 Supabase(임의 포트)  ← 토큰 검증 + dma_credentials
+ *     └ relay ─ HTTP ─→ 스텁 Supabase(임의 포트)  ← 토큰 검증 + 접근 맵 RPC + dma_users (+ 레거시 dma_credentials)
  *
  *   relay 는 **진짜 프로세스**(`tsx relay/src/index.ts`)다. wss 경로·인증 순서·구독
  *   참조계수·상태 프레임이 전부 실제 코드로 돈다 — 이 층을 가짜로 채우면 E2E 가
@@ -22,6 +22,13 @@
  *   allowlist 있음/없음 두 경로를 테스트가 결정론적으로 오갈 수 없다. 스텁이면 매핑을
  *   메모리에서 켜고 끄면 되고, E2E 가 실 DB 를 오염시킬 여지가 0 이 된다.
  *   (브라우저 쪽 Supabase 는 **실 프로젝트 그대로**다 — 로그인 세션은 진짜 토큰이다.)
+ *
+ *   Phase 29 (29-06 · D-02 · D-19 · D-20 「스텁 시드」) — relay 원천은 **접근 맵 + dma_users** 다: 접근 맵 RPC
+ *   (`POST /rest/v1/rpc/dma_app_access_map`)가 e2e 계정을 trader + DMA 연결로 보이고, `GET /rest/v1/dma_users` 가
+ *   AAD = dma_user_id 로 암호화한 비밀번호를 준다. `seedDmaCredential()` 한 번이 셋(접근 맵 행 · `dma_users` 행 · 종전
+ *   `dma_credentials` 행 — 레거시 호환으로 함께 시드)을 켜고 `clearDmaCredentials()` 가 셋 다 끈다. relay env
+ *   `APP_ACCESS_REFRESH_MS=250` 이라 켜고 끈 전환이 다음 페이지 로드 전에 반영되고, 켠 직후 인증은 relay `lookup` 의
+ *   단발 재적재가 받는다. 끈 순간 열려 있던 그 사용자 wss 는 relay 가 권한 회수(1008)로 끊는다(D-04).
  *
  * ④ 포트 (D-41 · dev.sh 규약)
  *   relay wss 는 **고정 8090** 이다. `NEXT_PUBLIC_RELAY_WS_URL` 은 빌드 시점에 번들로
@@ -241,11 +248,11 @@ export interface LocalRelay {
   /** 스텁 DMA 게이트웨이 핸들 (`hardClose` / `pushQuote` 등 15-02 API 그대로). */
   readonly gateway: FakeGateway;
   /**
-   * `dma_credentials` 매핑을 **켠다**(allowlist 포함). 암호화는 relay 런타임이 실제로
-   * 복호하는 `encryptDmaPassword` 를 그대로 쓴다 — 포맷이 어긋나면 relay 가 던진다.
+   * DMA 권한을 **켠다** — 접근 맵(trader + DMA 연결) · `dma_users` · 레거시 `dma_credentials` 셋(③ Phase 29). 암호화는
+   * relay 런타임이 실제로 복호하는 `encryptDmaPassword` 를 그대로 쓴다 — 포맷 · AAD 가 어긋나면 relay 가 던진다.
    */
   seedDmaCredential(userId?: string): void;
-  /** 매핑을 **끈다**(allowlist 미포함 → 권한 없음 게이트 경로). */
+  /** 셋 다 **끈다**(접근 맵에 없음 = 승인 대기 → 권한 없음 게이트 경로). */
   clearDmaCredentials(): void;
   /** 게이트웨이가 수신한 요청 `msg_type` 누적(송신 순서 그대로). */
   requestLog(): number[];
@@ -411,12 +418,22 @@ async function waitForRelay(port: number, deadlineMs: number): Promise<void> {
   }
 }
 
-/** 스텁 Supabase 의 `dma_credentials` 행 형태 (relay 가 select 하는 두 열). */
+/** 스텁 Supabase 의 `dma_credentials` 행 형태 (relay 가 select 하는 두 열). 레거시 호환 시드(Phase 29 — relay 는 읽지 않는다). */
 type CredRow = { dma_user_id: string; dma_password_enc: string };
+
+/** 접근 맵 RPC `dma_app_access_map` 행 (Phase 29 · 29-01 열). */
+type AccessRow = { user_id: string; email: string; role: 'admin' | 'trader' | 'viewer'; dma_user_id: string | null };
+
+/** `dma_users` 행 (Phase 29 D-19 — `password_enc` 는 AAD = dma_user_id 암호문). */
+type DmaUserRow = { dma_user_id: string; password_enc: string };
 
 interface SupabaseStub {
   url: string;
   rows: Map<string, CredRow>;
+  /** user_id → 접근 맵 행. 비면 relay 는 모든 사용자를 승인 대기(권한 없음)로 본다. */
+  accessRows: Map<string, AccessRow>;
+  /** dma_user_id → `dma_users` 행. */
+  dmaUsers: Map<string, DmaUserRow>;
   /** `POST /rest/v1/dma_orders` 로 들어온 바디 누적 (감사 기록 결손 확인용). */
   orderInserts: Record<string, unknown>[];
   close(): Promise<void>;
@@ -426,7 +443,9 @@ interface SupabaseStub {
  * 최소 Supabase 스텁 — relay 가 실제로 부르는 경로만 흉내 낸다.
  *
  *   GET   /auth/v1/user               → 토큰이 비어 있지 않으면 고정 사용자
- *   GET   /rest/v1/dma_credentials?…  → 시드된 행 배열(0 또는 1건)
+ *   POST  /rest/v1/rpc/dma_app_access_map → 시드된 접근 맵 행 배열(기본 빈 배열 — Phase 29 relay 원천)
+ *   GET   /rest/v1/dma_users?…        → 시드된 행 배열(0 또는 1건 · `dma_user_id=eq.…` — Phase 29 relay 원천)
+ *   GET   /rest/v1/dma_credentials?…  → 시드된 행 배열(0 또는 1건 · 레거시 — Phase 29 relay 는 읽지 않는다)
  *   GET   /rest/v1/stocks?…           → `SymbolMap` 이 ISIN→단축코드·시장을 푸는 1행 (D-28)
  *   POST  /rest/v1/dma_orders         → 주문 요청 행 insert, 새 `id` 반환 (D-03)
  *   PATCH /rest/v1/dma_orders?…       → 수명주기 갱신 (0행이어도 정상)
@@ -459,6 +478,8 @@ type StrategyApplyEventBody = Record<string, unknown> & { seq: number; dma_user_
 
 async function startSupabaseStub(opts: { observer?: boolean } = {}): Promise<SupabaseStub> {
   const rows = new Map<string, CredRow>();
+  const accessRows = new Map<string, AccessRow>();
+  const dmaUsers = new Map<string, DmaUserRow>();
   const orderInserts: Record<string, unknown>[] = [];
 
   const server = http.createServer((req, res) => {
@@ -498,6 +519,21 @@ async function startSupabaseStub(opts: { observer?: boolean } = {}): Promise<Sup
         user_metadata: {},
         created_at: '2026-01-01T00:00:00.000Z',
       });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/rest/v1/rpc/dma_app_access_map') {
+      // 바디(빈 인자)는 읽고 버린다 — 응답은 시드된 행 전체다(relay `AppAccess` 가 통째로 교체한다).
+      void readBody().then(() => json(200, [...accessRows.values()]));
+      return;
+    }
+
+    if (url.pathname === '/rest/v1/dma_users') {
+      // `dma_user_id=eq.<id>` 에서 값만 꺼낸다.
+      const filter = url.searchParams.get('dma_user_id') ?? '';
+      const dmaUserId = filter.startsWith('eq.') ? filter.slice(3) : '';
+      const row = dmaUsers.get(dmaUserId);
+      json(200, row === undefined ? [] : [row]);
       return;
     }
 
@@ -594,6 +630,8 @@ async function startSupabaseStub(opts: { observer?: boolean } = {}): Promise<Sup
   return {
     url: `http://127.0.0.1:${address.port}`,
     rows,
+    accessRows,
+    dmaUsers,
     orderInserts,
     async close() {
       await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -765,6 +803,8 @@ export async function withLocalRelay(opts: { observer?: boolean } = {}): Promise
         DMA_OBSERVER_SECRET: observer ? E2E_OBSERVER_SECRET : '',
         // ⑧ quote 연결 — 항상 켠다. D-17: 이 키가 있으면 저널 비밀 없이도 quote 연결만 열린다.
         DMA_QUOTE_OBSERVER_SECRET: E2E_QUOTE_SECRET,
+        // ③ Phase 29 — 접근 맵 재적재 주기. 시드를 켜고 끈 전환이 다음 페이지 로드 전에 반영되게 짧게(운영은 60000 고정).
+        APP_ACCESS_REFRESH_MS: '250',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
@@ -792,11 +832,32 @@ export async function withLocalRelay(opts: { observer?: boolean } = {}): Promise
     throw new Error(`relay 기동 실패: ${(err as Error).message}\n--- relay 로그 ---\n${output}`);
   }
 
+  /**
+   * relay 원천(③ Phase 29) 셋을 함께 켠다 — 접근 맵 행(trader + DMA 연결) · `dma_users` 행(AAD = dma id) · 종전
+   * `dma_credentials` 행(AAD = user_id · 레거시 호환). DMA id 는 관찰자 매핑 키(`E2E_GATEWAY_USER`)와 같아야 계좌 필터를 통과한다.
+   */
   const seedDmaCredential = (userId: string = E2E_DMA_USER_ID): void => {
     supabase.rows.set(userId, {
       dma_user_id: E2E_GATEWAY_USER,
       dma_password_enc: encryptDmaPassword('e2e-dma-password', userId, credKey),
     });
+    supabase.accessRows.set(userId, {
+      user_id: userId,
+      email: process.env.E2E_TEST_EMAIL ?? 'e2e@gh-radar.local',
+      role: 'trader',
+      dma_user_id: E2E_GATEWAY_USER,
+    });
+    supabase.dmaUsers.set(E2E_GATEWAY_USER, {
+      dma_user_id: E2E_GATEWAY_USER,
+      password_enc: encryptDmaPassword('e2e-dma-password', E2E_GATEWAY_USER, credKey),
+    });
+  };
+
+  /** 셋 다 끈다 — relay 는 그 사용자를 승인 대기(권한 없음)로 본다. */
+  const clearSeeds = (): void => {
+    supabase.rows.clear();
+    supabase.accessRows.clear();
+    supabase.dmaUsers.clear();
   };
 
   // 기본은 **허용**이다. 권한 없음 경로는 테스트가 `clearDmaCredentials()` 로 만든다.
@@ -849,7 +910,7 @@ export async function withLocalRelay(opts: { observer?: boolean } = {}): Promise
     gateway,
     seedDmaCredential,
     clearDmaCredentials() {
-      supabase.rows.clear();
+      clearSeeds();
     },
     requestLog() {
       return [...requests];
@@ -931,7 +992,7 @@ export async function withLocalRelay(opts: { observer?: boolean } = {}): Promise
       strategyBaseline = gateway.strategyRequests().length;
       supabase.orderInserts.length = 0;
       responding = new Set(['KRX', 'NXT']);
-      supabase.rows.clear();
+      clearSeeds();
       seedDmaCredential();
       // 전략 시드 3종도 되돌린다 — 남으면 다음 spec 이 남의 전략을 본다.
       gateway.respondLimitChaserList([]);
