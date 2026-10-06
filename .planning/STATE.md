@@ -4,14 +4,14 @@ milestone: v1.0
 current_phase: 28
 current_phase_name: 상한가 특징 연동 — gh-trade Phase 27 계약 반영
 status: verifying
-stopped_at: Completed 28-13-PLAN.md
-last_updated: "2026-10-06T11:56:39.916Z"
+stopped_at: Phase 29 context gathered
+last_updated: "2026-10-06T12:39:55.828Z"
 last_activity: 2026-10-06
 last_activity_desc: Phase 28 execution started
-state_head: ef0ef2989d8550fb7672aa18875a123aefe5a021
+state_head: cccde12afaa2d719216224e021d8f0ef5aed4a59
 progress:
-  total_phases: 37
-  completed_phases: 4
+  total_phases: 38
+  completed_phases: 24
   total_plans: 377
   completed_plans: 362
 milestone_name: milestone
@@ -657,10 +657,10 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 ## Session Continuity
 
-**Resume file:** None
+**Resume file:** .planning/phases/29-dma-multi-server-admin/29-CONTEXT.md
 
-Last session: 2026-10-05T11:32:07.309Z
-Stopped at: Completed 28-13-PLAN.md
+Last session: 2026-10-06T12:39:54.923Z
+Stopped at: Phase 29 context gathered
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
