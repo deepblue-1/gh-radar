@@ -4,8 +4,8 @@
  * LimitChaserDefaultsSection — `/me` 「상따 기본설정」 섹션 (Phase 27 D-10 · D-12 · D-13 · 인박스 Q1/Q2 ·
  * 채택 목업 `reference/mockup-user-settings.html` 변형 C).
  *
- * ① 자리(D-10): 계정 카드 → 상태줄 → **이 섹션** → 전략 현황. DMA 게이트 화면에는 그리지 않는다(84 가 올 수 없다).
- *    상따 화면에는 진입점을 두지 않는다(⚙ 진입점은 Deferred).
+ * ① 자리: /me 「설정」 탭(quick-261006-pey D-1 — 옛 D-10 「상태줄 아래 · 전략 현황 위」 를 대체) · DMA 게이트
+ *    화면에는 그리지 않는다(84 가 올 수 없다). 상따 화면에는 진입점을 두지 않는다(⚙ 진입점은 Deferred).
  *
  * ② 값의 원천은 84 캐시(`useRelayContext().userSettings`) 하나다 — 3상태(77 `queuedWindow` 규율):
  *    - `undefined` = 84 를 아직 못 받았다 → 「불러오는 중」 · 행 흐림 · 편집 불가. 기본값을 지어내지 않는다.
@@ -14,8 +14,8 @@
  *      보이고, **42 를 자동으로 보내지 않는다**(인박스 Q2 — 이전 없음). 사용자가 행을 확정할 때만 42.
  *
  * ③ 행 문법은 상따 카드와 같다 — 「라벨 ─ 값 ›」 44px `SettingRow` · 방법 기본값은 27-04 `ChoiceRow`.
- *    새 입력 컴포넌트를 만들지 않는다. 카드 행의 폭 규칙(쉐브런 · 좌우 패딩)이 `@container/lc` 를 재므로 행 목록에
- *    같은 컨테이너 선언을 단다(`LC_CONTAINER_CLASS` — 문자열 재기재 금지).
+ *    새 입력 컴포넌트를 만들지 않는다. 카드 행의 폭 규칙(쉐브런 · 좌우 패딩)이 `@container/lc` 를 재므로 **묶음 카드마다**
+ *    행 목록에 같은 컨테이너 선언을 단다(`LC_CONTAINER_CLASS` — 문자열 재기재 금지).
  *
  * ④ 문구는 목업 원문 그대로다(D-13) — 칩 3 · 안내 3 은 `USER_SETTINGS_STATUS_TEXT` 한 곳.
  *
@@ -30,6 +30,15 @@
  *    - 범위는 시트 · 인라인에서 미리 막는다 — shared `USER_SETTINGS_RANGES`(서버 42 범위 정본) · 문구 「{min}~{max}{단위}
  *      사이여야 해요」(목업). 범위 밖 42 는 relay zod 가 소켓을 닫는다(4400).
  *    - 저장 이력(로그)은 남기지 않는다(Deferred).
+ *
+ * ⑥ S1 묶음 카드 (quick-261006-pey D-2 · sketch 013 settings.html 변형 S1)
+ *    제목 · 칩 · 안내는 격자 위에 한 번이고, 묶음(`USER_SETTINGS_GROUPS`)마다 `CARD` 한 장(머리 13px/600 muted)이다.
+ *    격자는 1열이 기본이고 **섹션 본문 폭 ≥700** 에서 2열(`align-items:start`)이다. 판정은 이 섹션 루트의
+ *    `@container/me` 로 한다 — /me 본문 폭은 사이드바(240/64/없음)·앱 셸 패딩에 따라 뷰포트와 어긋나므로 뷰포트
+ *    브레이크포인트로는 「본문 ≥ ~700」 을 말할 수 없다. 700 은 목업 수치이자 작업대 `@container/wb` 700 선례
+ *    (`workbench/card-grid.tsx`)와 같다. ★ 컨테이너는 **이 섹션에만** 단다 — 페이지 루트에 달면 `container-type`
+ *    이 `position:fixed` 자손의 컨테이닝 블록이 되는 함정(globals.css §2.2b)에 /me 전체가 걸린다. 섹션 안의 fixed
+ *    요소는 `NumberPadSheet` 뿐이고 Dialog 포털로 body 에 서므로 안전하다.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -491,9 +500,10 @@ export function LimitChaserDefaultsSection() {
     <section
       data-slot="me-lc-defaults"
       aria-labelledby="me-lc-defaults-title"
-      className={cn(CARD, "flex min-w-0 flex-col px-2.5 pt-3 pb-1.5")}
+      // ⑥ — 2열 판정 컨테이너는 이 섹션이다(페이지 루트 아님). 카드 면은 묶음마다 아래로 내려갔다.
+      className="@container/me flex min-w-0 flex-col"
     >
-      <div className="flex min-h-[30px] flex-wrap items-center gap-x-2 gap-y-1 px-1.5 pb-1.5">
+      <div className="flex min-h-[30px] flex-wrap items-center gap-x-2 gap-y-1 px-1 pb-1.5">
         <h2 id="me-lc-defaults-title" className="text-[15px] font-semibold text-[var(--fg)]">
           상따 기본설정
         </h2>
@@ -510,7 +520,7 @@ export function LimitChaserDefaultsSection() {
       </div>
       <p
         data-slot="me-lc-defaults-note"
-        className="px-1.5 pt-0.5 pb-2 text-[12.5px] leading-[1.5] break-keep text-[var(--muted-fg)]"
+        className="px-1 pt-0.5 pb-3 text-[12.5px] leading-[1.5] break-keep text-[var(--muted-fg)]"
       >
         {text.note}
       </p>
@@ -519,81 +529,92 @@ export function LimitChaserDefaultsSection() {
         data-slot="me-lc-defaults-rows"
         data-dim={loading ? "true" : undefined}
         aria-busy={loading ? "true" : undefined}
-        className={cn(LC_CONTAINER_CLASS, "min-w-0", loading && "opacity-45")}
+        className={cn(
+          "grid min-w-0 grid-cols-1 items-start gap-3 @min-[700px]/me:grid-cols-2",
+          loading && "opacity-45",
+        )}
       >
         {USER_SETTINGS_GROUPS.map((group) => (
-          <div key={group} role="group" aria-label={group} className="min-w-0">
+          <div
+            key={group}
+            role="group"
+            aria-label={group}
+            data-slot="me-lc-defaults-group-card"
+            className={cn(CARD, "min-w-0 px-2.5 pt-2.5 pb-1")}
+          >
             <div
               data-slot="me-lc-defaults-group"
-              className="px-1.5 pt-2.5 pb-0.5 text-[12px] font-semibold text-[var(--muted-fg)]"
+              className="px-1.5 pb-0.5 text-[13px] font-semibold text-[var(--muted-fg)]"
             >
               {group}
             </div>
-            {USER_SETTINGS_ROWS.filter((r) => r.group === group).map((row) => {
-              const flashing = save.flashKeys.has(row.key);
-              const failure = save.failures[row.key];
-              const failed = failure !== undefined;
-              const busy = busyOf(row.key);
-              return (
-                <div
-                  key={row.key}
-                  data-slot="me-lc-defaults-row"
-                  data-label={row.label}
-                  data-field={row.id}
-                  data-flash={flashing ? "ok" : undefined}
-                  data-failed={failed ? "true" : undefined}
-                  className={cn("min-w-0", flashing && FLASH_CLASS)}
-                >
-                  {row.unit === null ? (
-                    <ChoiceRow
-                      id={row.id}
-                      label={row.label}
-                      value={userSettings?.[row.key] ?? 0}
-                      options={METHOD_OPTIONS}
-                      onSelect={(v) => save.commit(row.key, v)}
-                      a11yName={row.label}
-                      description="새 전략의 자동매도 방법 초기값이에요"
-                      disabled={loading || busy}
-                      busy={busy}
-                      failureText={failure || null}
-                      segmentAlways
-                    />
-                  ) : (
-                    <SettingRow
-                      id={row.id}
-                      label={row.label}
-                      unit={row.unit}
-                      value={userSettings?.[row.key] ?? null}
-                      disabled={loading}
-                      busy={busy}
-                      failed={failed}
-                      failureText={failure || null}
-                      editing={editingKey === row.key && userSettings !== undefined}
-                      hasPopup={editMode === "sheet"}
-                      editor={
-                        userSettings === undefined ? null : (
-                          <InlineValueEditor
-                            id={row.id}
-                            label={row.label}
-                            unit={row.unit}
-                            initialValue={userSettings[row.key]}
-                            validate={(v) => userSettingsRangeIssue(row.key, v, row.unit ?? "")}
-                            onSave={(v) => {
-                              save.commit(row.key, v);
-                              setEditingKey(null);
-                            }}
-                            onCancel={() => setEditingKey(null)}
-                            onDismiss={() => setEditingKey(null)}
-                            onNavigate={(dir) => navigate(row.key, dir)}
-                          />
-                        )
-                      }
-                      onActivate={(el) => activate(row.key, el)}
-                    />
-                  )}
-                </div>
-              );
-            })}
+            <div className={cn(LC_CONTAINER_CLASS, "min-w-0")}>
+              {USER_SETTINGS_ROWS.filter((r) => r.group === group).map((row) => {
+                const flashing = save.flashKeys.has(row.key);
+                const failure = save.failures[row.key];
+                const failed = failure !== undefined;
+                const busy = busyOf(row.key);
+                return (
+                  <div
+                    key={row.key}
+                    data-slot="me-lc-defaults-row"
+                    data-label={row.label}
+                    data-field={row.id}
+                    data-flash={flashing ? "ok" : undefined}
+                    data-failed={failed ? "true" : undefined}
+                    className={cn("min-w-0", flashing && FLASH_CLASS)}
+                  >
+                    {row.unit === null ? (
+                      <ChoiceRow
+                        id={row.id}
+                        label={row.label}
+                        value={userSettings?.[row.key] ?? 0}
+                        options={METHOD_OPTIONS}
+                        onSelect={(v) => save.commit(row.key, v)}
+                        a11yName={row.label}
+                        description="새 전략의 자동매도 방법 초기값이에요"
+                        disabled={loading || busy}
+                        busy={busy}
+                        failureText={failure || null}
+                        segmentAlways
+                      />
+                    ) : (
+                      <SettingRow
+                        id={row.id}
+                        label={row.label}
+                        unit={row.unit}
+                        value={userSettings?.[row.key] ?? null}
+                        disabled={loading}
+                        busy={busy}
+                        failed={failed}
+                        failureText={failure || null}
+                        editing={editingKey === row.key && userSettings !== undefined}
+                        hasPopup={editMode === "sheet"}
+                        editor={
+                          userSettings === undefined ? null : (
+                            <InlineValueEditor
+                              id={row.id}
+                              label={row.label}
+                              unit={row.unit}
+                              initialValue={userSettings[row.key]}
+                              validate={(v) => userSettingsRangeIssue(row.key, v, row.unit ?? "")}
+                              onSave={(v) => {
+                                save.commit(row.key, v);
+                                setEditingKey(null);
+                              }}
+                              onCancel={() => setEditingKey(null)}
+                              onDismiss={() => setEditingKey(null)}
+                              onNavigate={(dir) => navigate(row.key, dir)}
+                            />
+                          )
+                        }
+                        onActivate={(el) => activate(row.key, el)}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         ))}
       </div>
@@ -602,7 +623,7 @@ export function LimitChaserDefaultsSection() {
         <p
           data-slot="me-lc-defaults-reject"
           role="alert"
-          className="px-1.5 pt-1 pb-1.5 text-[12.5px] leading-[1.45] break-keep text-[var(--destructive)]"
+          className="px-1 pt-2 pb-1.5 text-[12.5px] leading-[1.45] break-keep text-[var(--destructive)]"
         >
           {save.rejectText}
         </p>

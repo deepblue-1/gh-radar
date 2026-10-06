@@ -390,3 +390,61 @@ describe('Phase 27 상따 기본설정 즉시 저장(42)', () => {
     expect(send).not.toHaveBeenCalled();
   });
 });
+
+describe('261006-pey 설정 탭 S1 묶음 카드 (D-2 · sketch 013 settings.html S1)', () => {
+  const rowsEl = () => section().querySelector('[data-slot="me-lc-defaults-rows"]') as HTMLElement;
+  const cards = () =>
+    Array.from(section().querySelectorAll('[data-slot="me-lc-defaults-group-card"]')) as HTMLElement[];
+
+  it('S1-1 — 묶음 카드 4장 · role=group 이름 순서 · CARD 면(radius 16 · --card) · 카드별 행 3·3·1·4', () => {
+    mockRelay = relay(settings(true));
+    render(<LimitChaserDefaultsSection />);
+    const cs = cards();
+    expect(cs).toHaveLength(4);
+    expect(cs.map((c) => c.getAttribute('role'))).toEqual(['group', 'group', 'group', 'group']);
+    expect(cs.map((c) => c.getAttribute('aria-label'))).toEqual(['매수 금액', '후매수', '매도', '자동매도']);
+    for (const c of cs) {
+      expect(c.className).toContain('rounded-[16px]');
+      expect(c.className).toContain('bg-[var(--card)]');
+    }
+    expect(cs.map((c) => c.querySelectorAll('[data-slot="me-lc-defaults-row"]').length)).toEqual([3, 3, 1, 4]);
+  });
+
+  it('S1-2 — 카드마다 행 목록에 @container/lc 하나 · 섹션 루트는 @container/me 이고 카드 면이 아니다', () => {
+    mockRelay = relay(settings(true));
+    render(<LimitChaserDefaultsSection />);
+    for (const c of cards()) {
+      const lcs = Array.from(c.querySelectorAll('*')).filter((el) =>
+        (el.getAttribute('class') ?? '').split(/\s+/).includes('@container/lc'),
+      );
+      expect(lcs).toHaveLength(1);
+      expect(lcs[0].querySelectorAll('[data-slot="me-lc-defaults-row"]').length).toBeGreaterThan(0);
+    }
+    expect(section().className.split(/\s+/)).toContain('@container/me');
+    expect(section().className).not.toContain('bg-[var(--card)]');
+  });
+
+  it('S1-3 — 격자 래퍼: 1열 · 섹션 본문 ≥700 2열 · items-start · 84 미수신이면 data-dim 유지', () => {
+    mockRelay = relay(undefined);
+    render(<LimitChaserDefaultsSection />);
+    const cls = rowsEl().className.split(/\s+/);
+    expect(cls).toContain('grid-cols-1');
+    expect(cls).toContain('@min-[700px]/me:grid-cols-2');
+    expect(cls).toContain('items-start');
+    expect(rowsEl()).toHaveAttribute('data-dim', 'true');
+  });
+
+  it('S1-4 — 제목 · 칩 · 안내는 격자 위에 한 번씩만', () => {
+    mockRelay = relay(settings(true));
+    render(<LimitChaserDefaultsSection />);
+    const heads = within(section()).getAllByRole('heading', { name: '상따 기본설정' });
+    const chips = section().querySelectorAll('[data-slot="me-lc-defaults-chip"]');
+    const notes = section().querySelectorAll('[data-slot="me-lc-defaults-note"]');
+    expect(heads).toHaveLength(1);
+    expect(chips).toHaveLength(1);
+    expect(notes).toHaveLength(1);
+    for (const el of [heads[0], chips[0], notes[0]]) {
+      expect(el.compareDocumentPosition(rowsEl()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+});
