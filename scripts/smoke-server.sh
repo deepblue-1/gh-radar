@@ -150,9 +150,10 @@ else
   if [[ -z "$ENV_NAMES" ]]; then
     skip "INV-12 relay env 잔존 없음" "서비스 조회 실패 — 배포 환경 밖"
   else
-    check "INV-12a RELAY_INTERNAL_URL 잔존 없음" bash -c "! printf '%s\n' \"\$1\" | grep -qx RELAY_INTERNAL_URL" _ "$ENV_NAMES"
+    # Phase 29 (29-24) — Admin 명령 경로로 RELAY_INTERNAL_URL · RELAY_ORDER_SECRET 을 다시 붙였다: 12a · 12c 는 「결선 있음」.
+    check "INV-12a RELAY_INTERNAL_URL 결선 있음 (Phase 29 Admin)" bash -c "printf '%s\n' \"\$1\" | grep -qx RELAY_INTERNAL_URL" _ "$ENV_NAMES"
     check "INV-12b ORDER_TIMEOUT_MS 잔존 없음" bash -c "! printf '%s\n' \"\$1\" | grep -qx ORDER_TIMEOUT_MS" _ "$ENV_NAMES"
-    check "INV-12c RELAY_ORDER_SECRET 바인딩 잔존 없음" bash -c "! printf '%s\n' \"\$1\" | grep -qx RELAY_ORDER_SECRET" _ "$ENV_NAMES"
+    check "INV-12c RELAY_ORDER_SECRET 바인딩 있음 (Phase 29 Admin)" bash -c "printf '%s\n' \"\$1\" | grep -qx RELAY_ORDER_SECRET" _ "$ENV_NAMES"
     check "INV-12d 기존 env 잔존 (SUPABASE_URL·ANTHROPIC_API_KEY·DISCUSSION_CLASSIFY_ENABLED)" bash -c "
       printf '%s\n' \"\$1\" | grep -qx SUPABASE_URL &&
       printf '%s\n' \"\$1\" | grep -qx ANTHROPIC_API_KEY &&
