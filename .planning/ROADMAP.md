@@ -1511,7 +1511,70 @@ Plans:
 **Goal:** relay 가 게이트웨이 4대(KB120 · KB121 · KYOBO119 · KYOBO127)를 서버 레지스트리로 다루고, 웹 Admin 메뉴에서 바꾼 사용자·계좌·서버 연결이 gh-trade 서버에 즉시 반영된다. **(1) 서버 레지스트리** — 키 = 증권사+IP 끝자리 `KB120`·`KB121`·`KYOBO119`·`KYOBO127`. 기존 `KB`/`KYOBO` 키는 in-place UPDATE 마이그레이션(커서 · epoch · 매핑 · 신원 보존), 모든 마이그레이션은 additive. **(2) 웹 Admin 화면**(사이드바 Admin 메뉴, 처음엔 `alex@jx1.io` 만) — 접속 허용 gmail · 역할 편집 + 웹유저↔DMA유저 연결 편집. DMA user_id 는 웹유저당 1개이며 모든 증권사·서버에 같은 문자열, 비밀번호는 Admin 이 정하고 변경(relay 가 DMA 유저당 1개 암호화 보관 → 서버마다 op1). 계좌는 (증권사, 계좌번호) 단위로 등록 서버 목록 선택 — 같은 KB 계좌를 두 KB 서버에 동시 등록 가능, 이중 전략 방지 불필요(서버가 각자 관리). 유저 생성 = 유저 + 첫 계좌 한 화면(계좌 0개 유저 불허 · 마지막 계좌 제거는 code 12 LAST_ACCOUNT → 유저 삭제로). 증권사별 「주문 서버」 1대 지정 · 시세 주 서버 1대를 증권사/서버 상관없이 즉시 전환. 다중 서버 fan-out 부분 실패 표시 · 87 에만 있는 유저는 「서버에만 있음」 표시만. **(3) relay** — 세션을 (유저, 서버) 단위로 · 관찰자(저널 · quote) 서버 순회 · 서버별 관리자 연결 = ObserverLoginReq(5) role 2(observer.toml secret 하나 — `DMA_OBSERVER_SECRET` 그대로, 새 Secret 없음 · 서버 kMaxObservers 4→6) · C→S 44 AdminCommandReq(op 1 UpsertUser / 2 DeleteUser / 3 SetAccount / 4 RemoveAccount / 5 ListUsers, request_id) · S→C 86 AdminCommandResp(code 0~12, 한국어 message, users_rev) · S→C 87 AdminUsersSnapshot(users.toml 전체, 비밀번호 없음) · 멱등 · 미체결/전략 있으면 9 BUSY · LivePing 30초 / 유휴 90초 스윕 / 5분 재접속 · 계좌 추가 후 87 → 보고 3(mode 1) 자가 선언 · 세션 합류 유지(D-17 뒤집음). 교보는 branch/trader 빈값 · 라우팅표 없음, account_no 는 서버 정규화 값으로 대조. **보존 제약:** 교보119 · KB120 운영 중(미체결 · 잔고 보유) — 기존 세션 · 관찰자 동작은 마지막 배포 단계까지 불변, 운영 상태 보존 필수. **착수 게이트:** gh-trade 계약은 확정(10-06), fbs 인박스(`docs/inbox/from-gh-trade/`) 도착 → `sync-relay-schema.sh` 생성물 커밋 뒤 relay 착수. 결정 정본은 메모리 `project_dma_admin_multi_server_261006`, 협의 상대 gh-trade 세션 `gh-trade-0d`.
 **Requirements**: TBD
 **Depends on:** Phase 28(최신 relay 생성물 · 85 캐시), Phase 27(84 사용자 설정 · 자동매도 관찰자 경로), Phase 26(quote 관찰자 연결 — 서버 순회 대상), Phase 15(relay 세션 · users 매핑 · epoch)
-**Plans:** 0 plans
+**Plans:** 26 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 29 to break down)
+**Wave 1**
+
+- [ ] 29-01-PLAN.md — (wave 1) DB 트레이서 — app_users · my_app_access · is_theme_admin 흡수 · D-20 시드 + D-05 문 확인 + 레지스트리 · DMA 의도 표
+- [ ] 29-02-PLAN.md — (wave 1) 생성물 동기화(D-22) · 44/86/87 코덱 · role 2 · 스텁 admin 모드 · 인박스 done
+- [ ] 29-03-PLAN.md — (wave 1) relay 레지스트리 트레이서 — DMA_REGISTRY_SOURCE 게이트 · ServerRegistry · ServerPipelines · healthz brokers
+- [ ] 29-04-PLAN.md — (wave 1) Admin 판정 한 벌 — 계좌번호 정규화 · diff · planner(D-23 ⑤) · 개요 칩 파생
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 29-05-PLAN.md — (wave 2) DB 의도 변경 RPC · 87 반영 표 · 최근 결과 · admin_users_raw · 입양 RPC
+- [ ] 29-06-PLAN.md — (wave 2) relay 접근 맵 · dma_users 자격증명(AAD dma_user_id) · 역할 게이트 · 강등 즉시 반영
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 29-07-PLAN.md — (wave 3) [BLOCKING] additive 마이그레이션 4개 원격 push (체크포인트)
+- [ ] 29-08-PLAN.md — (wave 3) 서버별 admin 연결 role 2 — 접속마다 op 5 · 명령 상관 · 타임아웃
+- [ ] 29-09-PLAN.md — (wave 3) 배포 창 SQL — 키 개명 · 가시성 v2 · 역개명 롤백 · 러너 --with
+- [ ] 29-10-PLAN.md — (wave 3) Express Admin 트레이서 — requireAdmin · 사용자 개요 · 허용/역할 쓰기 · relay 클라이언트
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 29-11-PLAN.md — (wave 4) relay Admin 내부 HTTP · 서버별 fan-out 디스패처 · 결과 배열
+- [ ] 29-12-PLAN.md — (wave 4) 웹 역할 게이트 — decideAccess · 승인 대기 화면 · viewer 범위
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 29-13-PLAN.md — (wave 5) Express DMA 프록시 · 유저 삭제 · 서버 레지스트리 API
+- [ ] 29-14-PLAN.md — (wave 5) 87 적재 — 서버 매핑 즉시 갱신 · DB 반영 상태
+- [ ] 29-15-PLAN.md — (wave 5) /admin/users 목록 트레이서 · 승인 대기 · 사이드바 Admin · AdminSheet
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 29-16-PLAN.md — (wave 6) (유저, 서버) 세션 키 · 증권사별 주문 서버 · 계좌 기준 라우팅
+- [ ] 29-17-PLAN.md — (wave 6) 편집 시트 — 필드별 즉시 저장 · 결과 칩 · BUSY 원문
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [ ] 29-18-PLAN.md — (wave 7) /admin/servers — 증권사 그룹 카드 · 주문/시세 라디오 · 사용 토글
+- [ ] 29-19-PLAN.md — (wave 7) 「+ 사용자」 생성 시트 · DMA 연결 폼
+- [ ] 29-20-PLAN.md — (wave 7) hub 다중 세션 병합(D-18) · 교보 웹 세션 켜기
+
+**Wave 8** *(blocked on Wave 7 completion)*
+
+- [ ] 29-21-PLAN.md — (wave 8) 87 → 열린 세션 반영 — 자가 선언 · 축소 · 유저 삭제 종료 · 비밀번호 교체
+
+**Wave 9** *(blocked on Wave 8 completion)*
+
+- [ ] 29-22-PLAN.md — (wave 9) 주문 서버 바뀜 프레임 · 작업대 배지(D-10)
+
+**Wave 10** *(blocked on Wave 9 completion)*
+
+- [ ] 29-23-PLAN.md — (wave 10) 시세 주 서버 즉시 전환(D-11) — QuoteSwitch · 실패 복귀
+
+**Wave 11** *(blocked on Wave 10 completion)*
+
+- [ ] 29-24-PLAN.md — (wave 11) 배포 준비 — deploy-relay 레지스트리 모드 · uptime 재키잉 · server 결선 · 비밀번호 이관 도구 · README
+
+**Wave 12** *(blocked on Wave 11 completion)*
+
+- [ ] 29-25-PLAN.md — (wave 12) 빅뱅 배포 ① — 준비 게이트 · go/no-go · 창(옛 relay 정지 · 개명 push · 이관 · 새 relay · 입양)
+
+**Wave 13** *(blocked on Wave 12 completion)*
+
+- [ ] 29-26-PLAN.md — (wave 13) 빅뱅 배포 ② — server · 감시 재키잉 · push · 운영 확인 · 배포 뒤 pgTAP 경로

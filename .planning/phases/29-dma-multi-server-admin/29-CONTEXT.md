@@ -52,6 +52,15 @@ relay 가 게이트웨이 4대(KB120 · KB121 · KYOBO119 · KYOBO127)를 **서�
 - **D-16: 「+ 사용자」 생성 시트 = 한 시트 · 역할 따라 DMA 섹션 펼침(목업 A).** gmail · 역할 세그먼트가 위. trader/admin 을 고르면 「DMA 연결」 그룹(DMA id · 비밀번호 · 확인 · 첫 계좌: 증권사 세그먼트 · 계좌번호 · 등록 서버 체크 — 증권사에 맞는 서버만 활성)이 펼쳐지고 **전부 필수**. viewer 는 gmail · 역할만. 버튼 1개가 허용 표 + DMA 유저 + 첫 계좌를 한 번에 만들고(DB 의도 저장 → 등록 서버마다 op1 + op3), 서버별 결과는 만들어진 유저의 편집 시트로 넘어가 칩으로 보인다. 이미 가입한 이메일이면 승인 대기에서 빠진다. — **Reversibility:** reversible.
 - **D-17: `/admin/servers` = 증권사 그룹 카드(목업 A).** 「KB」「교보」 섹션 아래 서버 카드 2장씩. 카드 = 키 · 주소 · 사용 토글 · 상태 칩(연결 · 저널 · admin 연결 · 그 서버 유저 수) · 「주문 서버」 라디오(증권사 안에서 1개) · 「시세 주 서버」 라디오(전체 1개, 초록 계열). 라디오를 누르는 즉시 전환(D-10 · D-11). 카드 탭 → 편집 시트(키 · 증권사 · host · port). 「+ 서버」 헤더 우측. 폰은 카드 1열. 사용을 끄면 그 서버의 저널 · admin 연결을 내리고 주문/시세 서버로 고를 수 없다(운영 중 서버에 유저가 있으면 끄기 전 확인). — **Reversibility:** reversible.
 
+### plan-phase 추가 결정 (2026-10-06 리서치 미결 해소 — 사용자 확인)
+- **D-18: (유저, 서버) 세션 병합 규칙 = 권고안.** 주문 · 계좌 · 상따 · 83 은 증권사 세션을 병합해 하나의 웹 사용자 뷰로. VI · 사용자 설정(84) · 돌파 집합(76/78) 은 KB(사용자의 첫 증권사) 세션만 원천. 상태 프레임은 계좌 합집합 + 어느 세션이든 ready 면 ready. 교보 세션 acquire 는 이 규칙으로 이번 phase 에서 켠다. — **Reversibility:** reversible.
+- **D-19: 비밀번호 암호화 AAD = dma_user_id (D-06 정정).** 「DMA 유저당 1개 보관」 · 가입 전 사전 등록과 양립하도록 AAD 를 웹 user_id 에서 DMA 유저 키로 바꾼다. 기존 `dma_credentials` 암호문은 relay 모듈을 통해 재암호화 이관(dual-write 기간 뒤 정리). `encryptDmaPassword`/`decryptDmaPassword` 의 AES-256-GCM 자체는 유지. — **Reversibility:** costly — 이관 뒤 되돌리려면 역이관 필요.
+- **D-20: 허용/역할 표 초기 시드.** `alex@jx1.io` · `ezmesya@gmail.com`(현 테마 운영자) = admin. `dma_credentials` 를 보유한 기존 사용자 = trader. 나머지 기존 가입자 = 승인 대기(미허용). e2e 테스트 계정 = admin — **e2e 전용 경로로만**(2026-10-06 플랜 체커 뒤 사용자 확인: Playwright 로그인은 실 자격증명 · 미들웨어는 서버측 실 Supabase 판정이라 `page.route` 스텁으로는 역할 부여 불가). 운영 마이그레이션(`supabase/migrations/*`)에 테스트 계정 admin 행을 넣지 않는다. 구체 경로는 플래너 재량: e2e 글로벌 셋업의 service-role upsert(종료 시 제거) · 기존 `webapp/scripts/seed-test-user.ts` 확장 · 비운영 환경 한정 우회 중 택1. 시드 없으면 전체 e2e 가 승인 대기에 막힌다. — **Reversibility:** reversible.
+- **D-21: viewer 는 「분석」 제외 (D-02 문구 정정).** viewer = 스캐너 · 뉴스 · 테마만. 상한가 보고서 · AI 애널리스트는 DMA 연결 사용자(trader/admin) 전용으로 유지 — server 의 `DMA_UNMAPPED` 403 게이트는 변경하지 않는다. — **Reversibility:** reversible.
+- **D-22: 착수 게이트 열림 (2026-10-06 22:20 — gh-trade 인박스 노트 `docs/inbox/from-gh-trade/261006-admin-users-role2-44-86-87.md` 도착, status: open).** 계약 커밋 `92cdfbff`(브랜치 `worktree-phase-29-admin-users`, master 미병합) · fbs blob `03fc8cbedcd8542e9febf2416fa8bd595aa5d9fd`(안정 식별자) · `fbs_sync_marker ea8d9171` 은 그 HEAD 의 조상. 생성물 동기화는 **worktree 경로에서** `cd /Users/alex/repos/gh-trade/.claude/worktrees/phase-29-admin-users/server && RELAY=/Users/alex/repos/gh-radar/relay ./scripts/sync-relay-schema.sh`(`--check` = 대조만, 8 파일 신규/변경 · 삭제 0). 생성물 커밋 뒤 노트의 `status: done` + `done_commit` 를 채워 **경로 지정** 커밋(`git add -A` 금지). gh-trade master 병합 뒤 blob 대조로 재동기화 불필요 여부를 확인한다. 와이어 확정: 테이블 `AdminAccount{account_no,name,branch_no,trader_id,priority:int}` · `AdminCommandReq{request_id:ulong,op:ubyte,user_id,password,account}` · `AdminCommandResp{request_id:ulong,ok:bool,code:ushort,message,users_rev:ulong}` · `AdminUser{user_id,accounts:[AdminAccount]}` · `AdminUsersSnapshot{users_rev:ulong,users:[AdminUser]}`, Envelope 슬롯 92/94/96, 79 role=2 · accounts 빈 벡터 · journal_epoch "". `users_rev` 는 서버 메모리 카운터(재기동 시 1) — relay 는 접속마다 op 5 로 전체 대조. op 4 는 멱등 아님(없는 계좌 → 8).
+- **D-23: gh-trade 질문 ①~⑤ 답(gh-radar 결정, 노트 회신).** ① admin 연결은 서버당 1개(journal 1 + admin 1 · quote 는 주 서버 1 → 합 ≤ 6). ② 비밀번호 변경 54 무통지로 충분(D-08 동형). ③ 교보 계좌의 빈 branch/trader 는 Admin 화면에서 「해당 없음」 으로 표시하고 입력 칸은 KB 선택 때만 노출. ④ BUSY(9) 의 한국어 message 는 결과 칩에 그대로 표시(D-15). ⑤ op 4 는 DB 등록 서버 목록에 있는 서버에만 보내고, 87 로 「서버에만 있음」 인 계좌는 지우지 않는다(표시만, D-16); 서버가 8 NO_SUCH_ACCOUNT 를 돌려주면 「이미 없음 = 반영됨」 으로 대조 처리(오류 칩 아님).
+- 리서치 Open Q4(KB121 · KYOBO127 observer.toml 비밀) · Q6(healthz 503 축) 은 Claude's Discretion — 권고(증권사별 비밀 env 재사용 · `journal` 축 = KB 주문 서버 저널)로 플랜.
+
 ### Claude's Discretion
 - 새 DB 표 이름 · 열 · RPC 형태(service_role 전용 + `REVOKE anon, authenticated` 명시 · 공개 읽기 RPC 는 `is_admin()` 게이트) · 87 적재 표 구조(서버별 users_rev 포함) · 기존 dma_credentials / dma_gateway_identities 파생 방식(뷰 vs 동기화) · 마이그레이션 순서.
 - 허용/역할 표와 `theme_admins` 통합 형태 · `is_theme_admin()` 재정의 · 승인 대기 차단 페이지의 문구 · 레이아웃(모바일 우선, 로그아웃 버튼 1개 + 안내 한 줄 권고).
@@ -123,7 +132,7 @@ relay 가 게이트웨이 4대(KB120 · KB121 · KYOBO119 · KYOBO127)를 **서�
 
 ### Established Patterns
 - 게이트웨이 키는 DB 전반 `gateway` 문자열(PK · RPC `p_gateway`) — 개명은 UPDATE 로 전 표 일괄.
-- 로그 인자에 dmaUserId · password 금지(D-19) · logger redact 에 비밀 env 추가.
+- 로그 인자에 dmaUserId · password 금지(이전 phase 결정 D-19 — 이 phase 의 D-19 AAD 결정과 무관) · logger redact 에 비밀 env 추가.
 - service_role 전용 표 = RLS 켜고 정책 0개 + `REVOKE anon, authenticated` 명시(메모리 `feedback_supabase_rpc_revoke`).
 - 배포 순서 DB → relay → webapp, push 자체가 webapp 프로덕션 배포(백엔드 막히면 push 금지). 장중(08:00~20:00) VM · relay 재배포 금지.
 - 관찰자 거부(79 success=false)면 재접속 루프 중단 + healthz 로 드러냄(Phase 19 D-13 · 26 D-16).
