@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 29
 current_phase_name: DMA 다중 서버 · 웹 Admin 유저 관리
 status: executing
-stopped_at: Completed 29-11-PLAN.md
-last_updated: "2026-10-06T16:56:04.391Z"
+stopped_at: Completed 29-12-PLAN.md
+last_updated: "2026-10-06T17:02:43.982Z"
 last_activity: 2026-10-06
 last_activity_desc: Phase 29 execution started
-state_head: 40dd92cdae4bea8784e89310f3389f8a92bd6f74
+state_head: 174ca678146aafa7e3b3fb1527ec39fbd2c29178
 progress:
   total_phases: 38
   completed_phases: 24
   total_plans: 403
-  completed_plans: 373
+  completed_plans: 374
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 29 (DMA 다중 서버 · 웹 Admin 유저 관리) — EXECUTING
-Plan: 11 of 26
+Plan: 12 of 26
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-10-06 — Phase 29 execution started
@@ -214,6 +214,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 29 P07 | 2min+checkpoint | 2 tasks | 2 files |
 | Phase 29 P10 | 7 min | 2 tasks | 14 files |
 | Phase 29 P11 | 11min | 3 tasks | 8 files |
+| Phase 29 P12 | 4min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -583,6 +584,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 29]: 29-11: 유저 삭제는 의도 계좌 전부 removing 으로 planServerOps — 87 전용 계좌가 있으면 op 2 대신 의도 계좌 op 4 만, settle(userRemoved)은 서버가 끝까지 ok 일 때만
 - [Phase 29]: 29-11: relay Admin 내부 HTTP 계약 확정 — DELETE /dma-users/:dma 응답 { results, deleted } · x-admin-email 누락 400 ADMIN_EMAIL_REQUIRED · 재적재 실패 502 RELOAD_FAILED · 감사 로그 route 는 경로 패턴 · dmaUserId 앞 2자 마스킹
 - [Phase 29]: 29-11: 비밀번호 dual-write 대상 = 옛 dma_credentials 중 접근 맵상 지금도 같은 DMA id 에 연결된 웹 사용자 행만(실패해도 요청 성공)
+- [Phase 29]: 29-12: 역할 게이트 리다이렉트는 getUser() 가 회전한 세션 쿠키를 리다이렉트 응답에 옮겨 싣는다 · 역할 조회 오류는 역할 값보다 우선해 /pending(fail closed)
 
 ### Pending Todos
 
@@ -684,8 +686,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-10-06T16:56:03.790Z
-Stopped at: Completed 29-11-PLAN.md
+Last session: 2026-10-06T17:02:43.370Z
+Stopped at: Completed 29-12-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
