@@ -17,35 +17,50 @@ set -euo pipefail
 #   NOTIFICATION_CHANNEL_ID=<채널 ID 또는 full resource name> \
 #     bash scripts/deploy-relay.sh
 #
-#   bash scripts/deploy-relay.sh --rollback <이미지 태그>   # 빌드 없이 이전 태그로 복귀
+#   bash scripts/deploy-relay.sh --registry-cutover
+#     # 29-25 배포 창의 **1회** 전환 — 옛(레거시 env 모드) relay 를 정지한 뒤 레지스트리 모드로 처음 올릴 때만.
+#     # 그 뒤로는 실행 중 값이 `DMA_REGISTRY_SOURCE=db` 라 플래그 없이 정상 배포가 열린다(아래 「전환 잠금」).
+#
+#   DMA_HOST=<KB 주소> DMA_KYOBO_HOST=<교보 주소 | off> bash scripts/deploy-relay.sh --rollback <이미지 태그>
+#     # 빌드 없이 이전(레거시 env 모드) 태그로 복귀 — 두 호스트 명시 필수(아래 「롤백」)
 #
 #   GCP_PROJECT_ID=gh-radar NOTIFICATION_CHANNEL_ID=<채널> bash scripts/deploy-relay.sh --alert-only
 #     # KB 알림 정책 + KYOBO 감시 동기화 — 빌드 · VM 배포 · KB uptime check · 컨테이너는 건드리지 않음
 #     # (SUPABASE_URL 불필요). 알림 문서(ops/alert-*.yaml)만 고쳤을 때 relay 재배포 없이 쓴다.
 #
-# KYOBO 감시 (quick-260929-sar): uptime check `gh-radar-kyobo-observer-healthz`(JSONPath
-#   `$.journalGateways.KYOBO.alerting` == false) + 정책 `gh-radar-kyobo-observer-down`(ops/alert-kyobo-observer-down.yaml).
-#   정본은 **라이브 공개 healthz 본문의 KYOBO 키 유무**다(env 추정 아님). 키가 있으면 만들거나 갱신하고, 없으면
-#   정책 → 체크 순서로 지우며, healthz 판정 불가면 손대지 않는다. 전체 배포(Section 6) · --alert-only · --rollback 이
-#   같은 함수(sync_kyobo_monitoring)로 동기화한다. KYOBO 체크 생성은 같은 실행에서 KB 정책 check_id 한정이
-#   적용된 뒤에만 한다 — check_passed 의 resource 라벨이 host 뿐이라 한정 전이면 새 체크가 KB 알림을 오염시킨다.
+#   bash scripts/deploy-relay.sh --self-test
+#     # 순수 판정 함수(kyobo_presence · registry_cutover_gate) 오프라인 단언. 네트워크 · gcloud · env 불필요.
+#
+# KYOBO 감시 (quick-260929-sar · Phase 29 RESEARCH Pitfall 3): uptime check `gh-radar-kyobo-observer-healthz`
+#   (JSONPath `$.brokers.KYOBO.alerting` == false) + 정책 `gh-radar-kyobo-observer-down`(ops/alert-kyobo-observer-down.yaml).
+#   `brokers.KYOBO` 는 healthz 의 **고정 이름** 필드(증권사별 주문 서버 저널 — 29-03)라 서버 키 개명(KYOBO → KYOBO119)에
+#   흔들리지 않는다. 옛 이미지(롤백) 본문은 `journalGateways.KYOBO` 로 알아보고 그 경로로 체크를 맞춘다.
+#   정본은 **라이브 공개 healthz 본문**이다(env 추정 아님 — 판정은 순수 함수 kyobo_presence). 있으면 만들거나 갱신하고,
+#   없으면 정책 → 체크 순서로 지우며, healthz 판정 불가면 손대지 않는다. 전체 배포(Section 6) · --alert-only · --rollback 이
+#   같은 함수(sync_kyobo_monitoring)로 동기화한다. 체크 이름 · 체크 수는 그대로다(KB 1 + KYOBO 1 — 무료 한도).
+#   KYOBO 체크 생성은 같은 실행에서 KB 정책 check_id 한정이 적용된 뒤에만 한다 — check_passed 의 resource 라벨이
+#   host 뿐이라 한정 전이면 새 체크가 KB 알림을 오염시킨다.
+#
+# Phase 29 D-09 — 정상 배포는 게이트웨이 주소를 **모른다.** 서버 목록 · 주소 · 포트는 레지스트리 `dma_servers`
+#   (Admin `/admin/servers`)가 정본이고, env-file 에는 `DMA_REGISTRY_SOURCE=db` 만 들어간다. 호스트 env 주입 · 실행 중
+#   값 보존(갭 5, 2026-09-09 의 read_live_env 보존 경로)은 없앴다 — 호환 기간 없음(D-12). 저장소에는 여전히 실주소가 없다(D-27).
+#
+# 전환 잠금 (fail closed — registry_cutover_gate): 정상 배포는 실행 중 컨테이너의 `DMA_REGISTRY_SOURCE` 가 `db`
+#   (전환 끝남)이거나 `--registry-cutover`(29-25 배포 창의 1회)일 때만 진행한다. 그 밖(레거시 env 모드 · 값 없음 ·
+#   VM/컨테이너 조회 실패)은 빌드 · AR push · VM 변경 · 알림 동기화 **전에** 사유와 함께 exit 1 이다. 원격 DB 에 키 개명 ·
+#   `dma_servers` 반영 · 비밀번호 이관이 끝나기 전의 임시 재배포가 KB120 · KYOBO119 관찰자를 DB 레지스트리로 바꾸지 못하게
+#   한다. 레거시 env-host 동작으로 폴백하지 않는다 — 그 사이 재배포가 꼭 필요하면 두 호스트를 명시한 `--rollback <현재 태그>` 뿐.
+#   `--alert-only` 는 relay 컨테이너를 건드리지 않아 잠금 대상이 아니다.
+#
+# 롤백 (--rollback · D-12): 대상은 레지스트리 이전(레거시 env 모드) 이미지다 — 주소를 스스로 모르므로 명시 주입한다.
+#   DMA_HOST        **필수.** 없으면 즉시 실패(조용히 127.0.0.1 로 내리지 않는다).
+#   DMA_KYOBO_HOST  **필수.** 교보 관찰자 주소, 또는 `off`(관찰자 해제 명시). 없으면 즉시 실패 — 실행 중 값 보존이
+#                   사라졌으므로 미주입 롤백이 KYOBO 관찰자를 조용히 떨구지 않게 한다.
+#   DMA_KYOBO_PORT  미설정 시 9100
+#   `DMA_REGISTRY_SOURCE` 는 넣지 않는다. 레지스트리 시대 태그로 되돌리는 경로가 아니다(그 태그는 이 플래그로 기동을 거부한다).
 #
 # 선택 env:
-#   DMA_HOST   우선순위: **명시 주입 > 실행 중인 컨테이너 값 보존 > 127.0.0.1 (로컬 mock)**.
-#              주입 없이 배포해도 **지금 붙어 있는 게이트웨이가 유지된다** — 배포가 프로덕션
-#              상태를 조용히 되돌리지 않는다 (갭 5, 2026-09-09).
-#              ⚠️ D-27 과 이 동작은 **다른 문장**이다. D-27 은 「실서버 주소를 **저장소에**
-#              **박제하지 않는다**」이고, 저장소에는 지금도 실주소가 기본값으로 적혀 있지
-#              않다 — 보존은 오직 런타임 `docker inspect` 조회로만 이뤄진다. 그것을
-#              「배포 때 주입하지 말라」로 읽어 배포마다 mock 으로 되돌린 것이
-#              16-26(`2cb5620`)·16-35(`c8aa7ae`) 의 프로덕션 강등이었다.
 #   LOG_LEVEL  미설정 시 info
-#   DMA_KYOBO_HOST  추가 관찰자(교보 게이트웨이 kyobo127 · 키 KYOBO — quick-260929-c8e) 주소.
-#              우선순위: **명시 주입 > 실행 중인 컨테이너 값 보존 > 없음(KYOBO 관찰자 없음)**.
-#              `off` 는 명시 해제다(보존 규칙을 끊는 유일한 방법). 보존 이유는 DMA_HOST 와 같다(갭 5,
-#              2026-09-09 — 주입 없는 배포가 프로덕션 상태를 조용히 되돌리지 않는다). 저장소에는 실주소
-#              기본값이 없다(D-27) — 첫 반영 때 배포자가 주입한다. 관찰자 전용이다(사용자 세션은 KB 단일).
-#   DMA_KYOBO_PORT  미설정 시 9100
 #
 # 비밀은 이 스크립트가 만지지 않는다 (T-15-29 · T-19-03):
 #   컨테이너 비밀 4종은 **VM 안에서** 메타데이터 토큰 → Secret Manager REST 로 읽어
@@ -58,26 +73,151 @@ set -euo pipefail
 #                                      gh-trade 게이트웨이 `config/observer.toml` 과 **같은 값**이어야 한다.
 #                                      relay 는 production 에서 이 값이 없으면 기동을 거부한다.
 #                                      값 생성·순환 절차는 infra/relay/README.md §Secret 4종 값 주입)
-#     gh-radar-dma-observer-secret-kyobo → DMA_OBSERVER_SECRET_KYOBO  (**선택** — quick-260929-c8e KYOBO 관찰자.
-#                                      없거나 ENABLED 버전 · relay SA 접근권이 없으면 KYOBO 관찰자만 생략하고
-#                                      KB 배포는 계속된다. 값은 gh-trade kyobo127 `config/observer.toml` 과 같아야 한다.
+#     gh-radar-dma-observer-secret-kyobo → DMA_OBSERVER_SECRET_KYOBO  (**비치명** — 증권사 KYOBO 비밀(RESEARCH Pitfall 11).
+#                                      정상 배포는 있으면 늘 싣는다(어느 교보 서버가 켜졌는지는 레지스트리가 안다) ·
+#                                      롤백은 교보 호스트를 줄 때만. 없거나 ENABLED 버전 · relay SA 접근권이 없으면
+#                                      ⚠ 한 줄을 남기고 빼고 배포한다 — 그때 레지스트리의 교보 서버는 관찰자 · admin 연결이
+#                                      disabled 다. 값은 교보 서버들의 gh-trade `config/observer.toml` 과 같아야 한다.
 #                                      위 「비밀 4종」 은 치명 4종을 뜻한다 — 이 비밀은 그 밖이다)
 # ═══════════════════════════════════════════════════════════════
 
 MODE=deploy
 ROLLBACK_TAG=""
+REGISTRY_CUTOVER=0
 case "${1:-}" in
   "") ;;
+  --registry-cutover)
+    MODE=deploy
+    REGISTRY_CUTOVER=1
+    ;;
   --rollback)
     MODE=rollback
     ROLLBACK_TAG="${2:-}"
     ;;
   --alert-only) MODE=alert-only ;;
+  --self-test) MODE=self-test ;;
   *)
-    echo "usage: bash scripts/deploy-relay.sh [--rollback <tag> | --alert-only]" >&2
+    echo "usage: bash scripts/deploy-relay.sh [--registry-cutover | --rollback <tag> | --alert-only | --self-test]" >&2
     exit 1
     ;;
 esac
+
+# ───────────────────────────────────────────────────────────────
+# 순수 판정 함수 — 명령을 실행하지 않고 전역을 보지 않는다(python3 만 쓴다). --self-test 가 오프라인으로 단언한다.
+# ───────────────────────────────────────────────────────────────
+
+# KYOBO 감시 판정 (Phase 29 RESEARCH Pitfall 3). 인자: <healthz 본문> → 한 줄
+#   brokers         새 이미지 — `brokers.KYOBO` 객체가 있다 → JSONPath `$.brokers.KYOBO.alerting`
+#   legacy          옛 이미지(롤백) — `journalGateways.KYOBO` 객체가 있다 → JSONPath `$.journalGateways.KYOBO.alerting`
+#   absent          JSON 객체인데 둘 다 없다 — KYOBO 가 꺼졌다(또는 레지스트리에 켜진 교보 주문 서버가 없다)
+#   unknown:<사유>  빈 본문 · 무응답 · JSON 아님 — 판정 불가(손대지 않는다)
+# 새 이미지 db 모드의 `journalGateways` 키는 서버 키(`KYOBO119` …)라 `journalGateways.KYOBO` 로는 영영 absent 다 —
+# 그래서 고정 이름 `brokers` 를 먼저 본다. 절대 실패하지 않는다(판정 실패도 unknown).
+kyobo_presence() {
+  local verdict
+  verdict="$(printf '%s' "${1-}" | python3 -c '
+import json, sys
+raw = sys.stdin.read()
+if not raw.strip():
+    print("unknown:빈 본문 또는 무응답"); sys.exit(0)
+try:
+    d = json.loads(raw)
+except Exception:
+    print("unknown:JSON 아님"); sys.exit(0)
+if not isinstance(d, dict):
+    print("unknown:JSON 객체 아님"); sys.exit(0)
+b = d.get("brokers")
+if isinstance(b, dict) and isinstance(b.get("KYOBO"), dict):
+    print("brokers"); sys.exit(0)
+g = d.get("journalGateways")
+if isinstance(g, dict) and isinstance(g.get("KYOBO"), dict):
+    print("legacy"); sys.exit(0)
+print("absent")
+' 2>/dev/null || true)"
+  [[ -n "$verdict" ]] || verdict="unknown:판정 실패"
+  printf '%s\n' "$verdict"
+}
+
+# 레지스트리 전환 잠금 (fail closed — Phase 29 D-09 · D-12). 인자: <실행 중 DMA_REGISTRY_SOURCE 값> <0|1 --registry-cutover>
+#   → `allow:<출처>` | `deny:<사유>` 한 줄. 값이 db 면 전환이 끝났다 · 플래그 1 이면 29-25 배포 창의 1회 전환이다.
+#   그 밖(빈 값 = 레거시 env 모드이거나 조회 실패 · env · 알 수 없는 값)은 전부 deny — 레거시 env-host 폴백은 없다.
+#   값 자체는 출력하지 않는다(비밀은 아니지만 판정 문구만으로 충분하다).
+registry_cutover_gate() {
+  local live="${1-}" flag="${2-0}"
+  if [[ "$live" == db ]]; then
+    echo "allow:실행 중 relay 가 이미 레지스트리 모드(DMA_REGISTRY_SOURCE=db) — 전환 끝남"
+  elif [[ "$flag" == 1 ]]; then
+    echo "allow:--registry-cutover — 29-25 배포 창의 1회 전환"
+  elif [[ -z "$live" ]]; then
+    echo "deny:실행 중 컨테이너에 DMA_REGISTRY_SOURCE 가 없다 — 레거시 env 모드이거나 VM/컨테이너 조회 실패"
+  elif [[ "$live" == env ]]; then
+    echo "deny:실행 중 relay 가 레거시 env 모드(DMA_REGISTRY_SOURCE=env)"
+  else
+    echo "deny:실행 중 DMA_REGISTRY_SOURCE 값을 알아볼 수 없다"
+  fi
+}
+
+# --self-test: 위 두 함수를 표본으로 돌려 기대값과 다르면 exit 1. 네트워크 · gcloud · env 없이 돈다
+# (infra/relay/limitup-pull/limitup-pull.sh --self-test 선례).
+self_test() {
+  local n=0 fail=0 got want label body live flag
+  # KYOBO 감시 — 새 본문 · 옛 본문 · KYOBO 없음 · 깨진 JSON
+  while IFS='|' read -r label want body; do
+    got="$(kyobo_presence "$body")"
+    if [[ "$want" == "unknown" && "$got" == unknown:* ]] || [[ "$got" == "$want" ]]; then
+      echo "ok   kyobo_presence  ${label} → ${got}"
+    else
+      echo "FAIL kyobo_presence  ${label} → ${got} (기대 ${want})" >&2
+      fail=1
+    fi
+    n=$((n + 1))
+  done <<'SAMPLES'
+새 본문(brokers.KYOBO)|brokers|{"status":"ok","version":"x","brokers":{"KB":{"server":"KB120","alerting":false},"KYOBO":{"server":"KYOBO119","alerting":false}},"journalGateways":{"KYOBO119":{"state":"live","alerting":false}},"adminConns":{"KB120":{"state":"ready","usersRev":"3"}}}
+옛 본문(journalGateways.KYOBO)|legacy|{"status":"ok","version":"y","journalGateways":{"KYOBO":{"state":"live","alerting":false}}}
+KYOBO 없음|absent|{"status":"ok","version":"x","brokers":{"KB":{"server":"KB120","alerting":false}},"journalGateways":{"KYOBO119":{"state":"live","alerting":false}}}
+깨진 JSON|unknown|{"status":"ok","brokers":
+SAMPLES
+  # 전환 잠금 — db+0 allow · 빈 값+0 deny · env+0 deny · 빈 값+1 allow
+  while IFS='|' read -r label live flag want; do
+    got="$(registry_cutover_gate "$live" "$flag")"
+    if [[ "${got%%:*}" == "$want" ]]; then
+      echo "ok   registry_cutover_gate  ${label} → ${got}"
+    else
+      echo "FAIL registry_cutover_gate  ${label} → ${got} (기대 ${want})" >&2
+      fail=1
+    fi
+    n=$((n + 1))
+  done <<'SAMPLES'
+db + 플래그 없음|db|0|allow
+값 없음 + 플래그 없음||0|deny
+env + 플래그 없음|env|0|deny
+값 없음 + --registry-cutover||1|allow
+SAMPLES
+  if [[ "$fail" != 0 ]]; then
+    echo "self-test FAIL ($n cases)" >&2
+    exit 1
+  fi
+  echo "self-test OK $n cases"
+}
+
+if [[ "$MODE" == self-test ]]; then
+  self_test
+  exit 0
+fi
+
+# 롤백은 옛(레거시 env 모드) 이미지라 주소를 명시 주입해야 한다 — gcloud · VM 에 닿기 전에 오프라인으로 거른다(D-12).
+if [[ "$MODE" == rollback ]]; then
+  if [[ -z "${DMA_HOST:-}" ]]; then
+    echo "ERROR: --rollback 은 DMA_HOST 명시 주입이 필수다 — 옛 이미지는 레지스트리를 모르고, 미주입이면 127.0.0.1(로컬 mock)로 뜬다." >&2
+    echo "  주소는 infra/relay/README.md (KB 게이트웨이 행) · 예: DMA_HOST=<KB 주소> DMA_KYOBO_HOST=<교보 주소|off> bash scripts/deploy-relay.sh --rollback <tag>" >&2
+    exit 1
+  fi
+  if [[ -z "${DMA_KYOBO_HOST:-}" ]]; then
+    echo "ERROR: --rollback 은 DMA_KYOBO_HOST 도 명시해야 한다 — 교보 관찰자 주소, 또는 관찰자 해제면 DMA_KYOBO_HOST=off." >&2
+    echo "  (실행 중 값 보존이 없어졌으므로 미주입 롤백이 KYOBO 관찰자를 조용히 떨구지 않게 막는다)" >&2
+    exit 1
+  fi
+fi
 
 # ───────────────────────────────────────────────────────────────
 # Section 1: gcloud guard
@@ -115,7 +255,9 @@ ALERT_FILE="ops/alert-relay-down.yaml"
 KYOBO_UPTIME_CHECK=gh-radar-kyobo-observer-healthz
 KYOBO_ALERT_POLICY=gh-radar-kyobo-observer-down
 KYOBO_ALERT_FILE="ops/alert-kyobo-observer-down.yaml"
-KYOBO_JSON_PATH='$.journalGateways.KYOBO.alerting'
+# JSONPath 는 kyobo_presence 판정을 따른다 — 새 이미지 = 고정 이름 brokers.KYOBO(키 개명 무관) · 옛 이미지(롤백) = journalGateways.KYOBO.
+KYOBO_JSON_PATH='$.brokers.KYOBO.alerting'
+KYOBO_JSON_PATH_LEGACY='$.journalGateways.KYOBO.alerting'
 # 실행 상태: KB 정책(check_id 한정)이 이번 실행에서 적용됐는지 · KYOBO 감시 동기화 결과(요약 줄용).
 KB_POLICY_APPLIED=0
 KYOBO_MONITOR_RESULT="미실행"
@@ -209,41 +351,33 @@ apply_alert_policy() {
 # KYOBO 관찰자 감시 동기화 (quick-260929-sar). **비치명** — 본문에 exit 가 없고 항상 return 0,
 # 결과는 KYOBO_MONITOR_RESULT 로 남긴다. 평문 호출이라 set -e 가 살아 있으므로 실패할 수 있는 명령마다
 # `|| true` 또는 `|| { KYOBO_MONITOR_RESULT="실패: …"; return 0; }` 를 붙인다.
-# 정본은 공개 healthz 본문의 journalGateways.KYOBO 키 유무다:
-#   present → 체크 create/update + 정책 적용 · absent → 정책 → 체크 삭제 · unknown → 손대지 않음.
+# 정본은 공개 healthz 본문이고 판정은 순수 함수 kyobo_presence 다:
+#   brokers | legacy → 체크 create/update(그 판정의 JSONPath) + 정책 적용 · absent → 정책 → 체크 삭제 · unknown → 손대지 않음.
 sync_kyobo_monitoring() {
-  local body verdict KYOBO_UPTIME_NAME KYOBO_POLICY_NAME rc deleted=""
-  # (a) 본문만 읽는다. -f 금지 — 장중 KB 503 본문에도 journalGateways 가 실린다.
+  local body verdict json_path KYOBO_UPTIME_NAME KYOBO_POLICY_NAME rc deleted=""
+  # (a) 본문만 읽는다. -f 금지 — 장중 KB 503 본문에도 brokers · journalGateways 가 실린다.
   body="$(curl -s --max-time 10 "https://${HEALTH_HOST}/healthz" 2>/dev/null || true)"
-  # (b) present / absent / unknown:<사유>
-  verdict="$(printf '%s' "$body" | python3 -c '
-import json, sys
-raw = sys.stdin.read()
-if not raw.strip():
-    print("unknown:빈 본문 또는 무응답"); sys.exit(0)
-try:
-    d = json.loads(raw)
-except Exception:
-    print("unknown:JSON 아님"); sys.exit(0)
-if not isinstance(d, dict):
-    print("unknown:JSON 객체 아님"); sys.exit(0)
-g = d.get("journalGateways")
-print("present" if isinstance(g, dict) and isinstance(g.get("KYOBO"), dict) else "absent")
-' 2>/dev/null || true)"
-  [[ -n "$verdict" ]] || verdict="unknown:판정 실패"
+  # (b) brokers / legacy / absent / unknown:<사유>
+  verdict="$(kyobo_presence "$body")"
 
   if [[ "$verdict" == unknown:* ]]; then
     echo "⚠ KYOBO 감시: healthz 판정 불가 (${verdict#unknown:}) — 기존 상태 유지" >&2
     KYOBO_MONITOR_RESULT="판정 불가 — 기존 상태 유지"
     return 0
   fi
+  case "$verdict" in
+    brokers) json_path="$KYOBO_JSON_PATH" ;;
+    legacy)  json_path="$KYOBO_JSON_PATH_LEGACY" ;;
+    *)       json_path="" ;;
+  esac
 
   # (c) 기존 자원(목록 조회 — describe 는 쓰지 않는다)
   KYOBO_UPTIME_NAME="$(uptime_check_name "$KYOBO_UPTIME_CHECK")"
   KYOBO_POLICY_NAME="$(gcloud alpha monitoring policies list \
     --filter="displayName=${KYOBO_ALERT_POLICY}" --format='value(name)' 2>/dev/null | head -1 || true)"
 
-  # (e) absent — KYOBO 가 꺼졌거나 옛 이미지다. 남은 JSONPath 체크는 영구 실패하므로 지운다(정책 먼저).
+  # (e) absent — KYOBO 가 꺼졌다(새 이미지 brokers.KYOBO 없음 · 옛 이미지 journalGateways.KYOBO 없음).
+  #     남은 JSONPath 체크는 영구 실패하므로 지운다(정책 먼저).
   if [[ "$verdict" == absent ]]; then
     if [[ -n "$KYOBO_POLICY_NAME" ]]; then
       echo "▶ KYOBO 감시 정책 삭제: ${KYOBO_ALERT_POLICY} ..."
@@ -265,7 +399,7 @@ print("present" if isinstance(g, dict) and isinstance(g.get("KYOBO"), dict) else
     return 0
   fi
 
-  # present
+  # brokers | legacy — 체크는 하나다(이름 무변경). JSONPath 만 판정에 맞춘다.
   if [[ -z "$KYOBO_UPTIME_NAME" ]]; then
     # (f) 생성은 KB 정책 check_id 한정이 이번 실행에서 적용된 뒤에만 (T-sar-01).
     if [[ "$KB_POLICY_APPLIED" != 1 ]]; then
@@ -285,7 +419,7 @@ print("present" if isinstance(g, dict) and isinstance(g.get("KYOBO"), dict) else
       --validate-ssl=true \
       --status-classes=2xx,5xx \
       --matcher-type=matches-json-path \
-      --json-path="$KYOBO_JSON_PATH" \
+      --json-path="$json_path" \
       --json-path-matcher-type=exact-match \
       --matcher-content=false >/dev/null \
       || { KYOBO_MONITOR_RESULT="실패: KYOBO 체크 생성"; return 0; }
@@ -300,7 +434,7 @@ print("present" if isinstance(g, dict) and isinstance(g.get("KYOBO"), dict) else
     gcloud monitoring uptime update "$KYOBO_UPTIME_NAME" \
       --period=1 --timeout=10 --validate-ssl=true --set-status-classes=2xx,5xx \
       --matcher-type=matches-json-path \
-      --json-path="$KYOBO_JSON_PATH" \
+      --json-path="$json_path" \
       --json-path-matcher-type=exact-match \
       --matcher-content=false >/dev/null \
       || { KYOBO_MONITOR_RESULT="실패: KYOBO 체크 갱신"; return 0; }
@@ -308,13 +442,13 @@ print("present" if isinstance(g, dict) and isinstance(g.get("KYOBO"), dict) else
 
   # (h) 정책
   if [[ -z "${NOTIFICATION_CHANNEL_ID:-}" ]]; then
-    KYOBO_MONITOR_RESULT="체크만 — 정책 건너뜀(NOTIFICATION_CHANNEL_ID 미설정)"
+    KYOBO_MONITOR_RESULT="체크만(${json_path}) — 정책 건너뜀(NOTIFICATION_CHANNEL_ID 미설정)"
     return 0
   fi
   rc=0
   apply_policy_file "$KYOBO_ALERT_POLICY" "$KYOBO_ALERT_FILE" "${KYOBO_UPTIME_NAME##*/}" || rc=$?
   if [[ "$rc" == 0 ]]; then
-    KYOBO_MONITOR_RESULT="켜짐 (체크 ${KYOBO_UPTIME_NAME##*/} · 정책 ${KYOBO_ALERT_POLICY})"
+    KYOBO_MONITOR_RESULT="켜짐 (체크 ${KYOBO_UPTIME_NAME##*/} · ${json_path} · 정책 ${KYOBO_ALERT_POLICY})"
   else
     KYOBO_MONITOR_RESULT="실패: 정책 적용"
   fi
@@ -360,16 +494,14 @@ IMAGE_LATEST="${REGISTRY}/relay:latest"
 LOG_LEVEL="${LOG_LEVEL:-info}"
 WS_PORT=8090
 ORDER_API_PORT=8091
-DMA_PORT=9100
-DMA_KYOBO_PORT="${DMA_KYOBO_PORT:-9100}"
-DMA_BROKER=KB
 
-# 돌고 있는 컨테이너의 env 값 하나(인자 KEY)를 되읽는다. **배포 전(기본값 결정)과 배포 후(최종 요약)가**
-# **같은 이 함수를 쓴다** — 두 벌로 적으면 언젠가 한쪽만 고쳐진다 (T-16-14). DMA_HOST · DMA_KYOBO_HOST 공용.
-# 실패(VM 접근 불가 · 컨테이너 부재 · 최초 배포)는 **정상 경로**다. 빈 문자열을 돌려주고
-# 호출부가 다음 순위로 넘어간다. `set -e` 아래이므로 호출부는 `|| true` 를 붙인다.
+# 돌고 있는 컨테이너의 env 값 하나(인자 KEY)를 되읽는다. **배포 전(전환 잠금 판정)과 배포 후(최종 요약)가**
+# **같은 이 함수를 쓴다** — 두 벌로 적으면 언젠가 한쪽만 고쳐진다 (T-16-14).
+# 실패(VM 접근 불가 · 컨테이너 부재 · 최초 배포)는 빈 문자열이다. `set -e` 아래이므로 호출부는 `|| true` 를 붙인다.
+# Phase 29 D-09 — 주소 보존 경로(배포마다 실행 중 호스트를 되읽어 다시 주입)는 없앴다. 지금 쓰는 키는
+# `DMA_REGISTRY_SOURCE`(공개 설정) 하나다.
 # ⚠️ docker inspect 의 Env 에는 비밀도 들어 있다 — **비밀 키 이름(…_SECRET* · …_KEY)으로는 부르지 않는다**
-#    (T-c8e-01). 값이 로컬 터미널에 찍힌다. 주소 · 포트 같은 공개 설정만 되읽는다.
+#    (T-c8e-01). 값이 로컬 터미널에 찍힌다. 공개 설정만 되읽는다.
 read_live_env() {
   local KEY="$1"
   # 식별자만 받는다 — sed 식에 그대로 들어가므로.
@@ -379,81 +511,32 @@ read_live_env() {
     2>/dev/null | tr -d '\r' | tail -1
 }
 
-# 종전 호출부 두 곳(배포 전 해석 · 최종 요약)이 그대로 쓰는 한 줄 래퍼.
-read_live_dma_host() { read_live_env DMA_HOST; }
-
-# KYOBO 관찰자 호스트 해석 (quick-260929-c8e). **명령을 실행하지 않고 다른 전역을 보지 않는다** —
-# 입력 전역 DMA_KYOBO_HOST_INJECTED · CURRENT_KYOBO_HOST → 출력 KYOBO_HOST · KYOBO_HOST_SOURCE(항상 비어 있지 않음).
-# 우선순위: off(명시 해제) > 명시 주입 > 실행 중 컨테이너 보존 > 미설정.
-resolve_kyobo_host() {
-  if [[ "$DMA_KYOBO_HOST_INJECTED" == "off" ]]; then
-    KYOBO_HOST=""
-    KYOBO_HOST_SOURCE="명시 해제(off)"
-  elif [[ -n "$DMA_KYOBO_HOST_INJECTED" ]]; then
-    KYOBO_HOST="$DMA_KYOBO_HOST_INJECTED"
-    KYOBO_HOST_SOURCE="명시 주입"
-  elif [[ -n "$CURRENT_KYOBO_HOST" ]]; then
-    KYOBO_HOST="$CURRENT_KYOBO_HOST"
-    KYOBO_HOST_SOURCE="실행 중 컨테이너 보존"
-  else
-    KYOBO_HOST=""
-    KYOBO_HOST_SOURCE="미설정"
+# ── 레지스트리 전환 잠금 (fail closed — Phase 29 D-09 · D-12) ─────────────
+# 정상 배포만 본다(rollback 은 옛 이미지 명시 주입 경로 · --alert-only 는 위에서 이미 끝났다).
+# **Section 3(선행 리소스 검증) · Section 4(빌드 · push) · Section 5(VM 변경) · Section 6(알림) 보다 앞이다** —
+# deny 면 아무것도 바꾸지 않고 끝난다. 레거시 env-host 모드로 폴백하지 않는다.
+if [[ "$MODE" == deploy ]]; then
+  echo "▶ 실행 중 컨테이너 DMA_REGISTRY_SOURCE 조회 (전환 잠금) ..."
+  LIVE_REGISTRY_SOURCE="$(read_live_env DMA_REGISTRY_SOURCE || true)"
+  CUTOVER_VERDICT="$(registry_cutover_gate "$LIVE_REGISTRY_SOURCE" "$REGISTRY_CUTOVER")"
+  if [[ "$CUTOVER_VERDICT" != allow:* ]]; then
+    echo "ERROR: 레지스트리 전환 잠금 — ${CUTOVER_VERDICT#deny:}" >&2
+    echo "  운영 relay 가 아직 레지스트리 전(또는 조회 불가)이다. 전환은 29-25 배포 창 런북의" >&2
+    echo "  \`bash scripts/deploy-relay.sh --registry-cutover\` 1회뿐이다(옛 relay 정지 · 키 개명 · 비밀번호 이관 뒤)." >&2
+    echo "  그 전 재배포가 꼭 필요하면 두 호스트를 명시한 롤백 경로뿐이다:" >&2
+    echo "    DMA_HOST=<KB 주소> DMA_KYOBO_HOST=<교보 주소|off> bash scripts/deploy-relay.sh --rollback <현재 태그>" >&2
+    echo "  (현재 태그: curl -s https://${HEALTH_HOST}/healthz | jq -r .version · 주소: infra/relay/README.md)" >&2
+    echo "  빌드 · AR push · VM 변경 · 알림 동기화 전 — 아무것도 바꾸지 않았다." >&2
+    exit 1
   fi
-}
-
-# D-27 / T-15-30 — 이 스크립트에는 실서버 주소가 **기본값으로 적히지 않는다.** 값은
-# 배포자의 명시 주입이거나, 지금 돌고 있는 컨테이너에서 런타임으로 읽어 온 것이다.
-#
-# 갭 5 (2026-09-09) — 종전 해석은 미주입 시 무조건 `127.0.0.1` 로 떨어져 **현재 컨테이너 값을**
-# **보존하지 않아**, 주입 없는 배포가 실 게이트웨이를 로컬 mock 으로 되돌렸다. mock 은 VM 에
-# 기동돼 있지도 않아 `connect ECONNREFUSED 127.0.0.1:9100` 이 된다. Phase 16 에서 **두 번**
-# 일어났다(16-26 `2cb5620` · 16-35 `c8aa7ae`). 두 executor 다 D-27 을 「주입하지 말라」로
-# 읽고 그 강등을 의도된 상태로 기록했다. **「저장소에 박제하지 않는다」와 「배포마다 mock 으로**
-# **되돌린다」는 다른 문장이다** — 이 오독을 되풀이하지 않도록 우선순위를 아래 한 줄에 모아 둔다.
-#
-# 우선순위: 명시 주입 > 실행 중인 컨테이너 값 > 로컬 mock
-DMA_HOST_INJECTED="${DMA_HOST:-}"
-echo "▶ 현재 컨테이너 DMA_HOST 조회 ..."
-CURRENT_DMA_HOST="$(read_live_dma_host || true)"
-DMA_HOST="${DMA_HOST_INJECTED:-${CURRENT_DMA_HOST:-127.0.0.1}}"
-if [[ -n "$DMA_HOST_INJECTED" ]]; then
-  DMA_HOST_SOURCE="명시 주입"
-elif [[ -n "$CURRENT_DMA_HOST" ]]; then
-  DMA_HOST_SOURCE="실행 중 컨테이너 보존"
-else
-  DMA_HOST_SOURCE="기본값(로컬 mock)"
+  echo "✓ 전환 잠금 통과: ${CUTOVER_VERDICT#allow:}"
 fi
 
-# 값이 바뀌는 배포는 **변경 전/후를 나란히** 찍는다. 강등(실주소 → mock)이든 승격이든
-# 배포자가 그 자리에서 본다. 같으면 조용히 한 줄만 남긴다.
-if [[ -z "$CURRENT_DMA_HOST" ]]; then
-  echo "  현재 값 확인 실패 — 기본값을 쓴다 (VM 접근 불가 · 컨테이너 부재 · 최초 배포)"
-elif [[ "$CURRENT_DMA_HOST" == "$DMA_HOST" ]]; then
-  echo "  현재 컨테이너 DMA_HOST=$CURRENT_DMA_HOST — 이번 배포로 바뀌지 않는다"
-else
-  echo "⚠ DMA_HOST 가 이번 배포로 바뀝니다:  $CURRENT_DMA_HOST  →  $DMA_HOST  (출처: $DMA_HOST_SOURCE)" >&2
-  if [[ "$DMA_HOST" == "127.0.0.1" ]]; then
-    echo "  이것은 실서버 → 로컬 mock **강등**입니다. 의도한 것이 아니면 중단하고" >&2
-    echo "  현재 값을 명시 주입해 다시 실행하세요: DMA_HOST=$CURRENT_DMA_HOST bash scripts/deploy-relay.sh" >&2
-  fi
-fi
-
-# KYOBO 관찰자 호스트 (quick-260929-c8e) — 같은 보존 규칙(명시 > 실행 중 보존 > 없음 · off = 명시 해제).
-DMA_KYOBO_HOST_INJECTED="${DMA_KYOBO_HOST:-}"
-echo "▶ 현재 컨테이너 DMA_KYOBO_HOST 조회 ..."
-CURRENT_KYOBO_HOST="$(read_live_env DMA_KYOBO_HOST || true)"
-resolve_kyobo_host
-if [[ "$CURRENT_KYOBO_HOST" == "$KYOBO_HOST" ]]; then
-  echo "  현재 컨테이너 DMA_KYOBO_HOST=${CURRENT_KYOBO_HOST:-<없음>} — 이번 배포로 바뀌지 않는다 (출처: $KYOBO_HOST_SOURCE)"
-else
-  echo "⚠ DMA_KYOBO_HOST 가 이번 배포로 바뀝니다:  ${CURRENT_KYOBO_HOST:-<없음>}  →  ${KYOBO_HOST:-<없음>}  (출처: $KYOBO_HOST_SOURCE)" >&2
-fi
-
-if [[ "$DMA_HOST" == "10.41.1.120" ]]; then
-  echo "⚠ 실서버 접속 모드 — 사용자 지시가 있었는지 확인하세요 (D-27)" >&2
-  echo "  이 phase 의 기본 검증 대상은 로컬 mock 이며, 실서버 접속 검증은 15-20 소관입니다." >&2
-fi
-
+# 정상 배포 env 와 롤백 env 는 **다른 모양**이다(Phase 29 D-09):
+#   정상 배포 — `DMA_REGISTRY_SOURCE=db` 만. 서버 목록 · 주소 · 포트 · 주문/시세 주 서버는 레지스트리 `dma_servers` 가 정한다.
+#   롤백      — 옛 이미지라 레거시 env 모드. 주소는 배포자 명시 주입뿐(위 오프라인 검사) — 실행 중 값 보존 · 기본값 없음.
+# KYOBO 증권사 비밀(DMA_OBSERVER_SECRET_KYOBO)은 정상 배포에서는 늘 싣고(어느 교보 서버가 켜졌는지는 레지스트리가 안다),
+# 롤백에서는 교보 호스트가 있을 때만 싣는다. 비치명 — 아래 Section 3 사전 점검이 실패하면 빼고 배포한다.
 if [[ "$MODE" == rollback ]]; then
   if [[ -z "$ROLLBACK_TAG" ]]; then
     echo "ERROR: --rollback 은 이미지 태그가 필요합니다. 사용 가능한 태그:" >&2
@@ -462,14 +545,28 @@ if [[ "$MODE" == rollback ]]; then
   fi
   TARGET_IMAGE="${REGISTRY}/relay:${ROLLBACK_TAG}"
   APP_VERSION="$ROLLBACK_TAG"
+  RELAY_ENV_MODE=legacy-env
+  ROLLBACK_DMA_HOST="$DMA_HOST"
+  ROLLBACK_DMA_PORT=9100
+  ROLLBACK_DMA_BROKER=KB
+  ROLLBACK_KYOBO_PORT="${DMA_KYOBO_PORT:-9100}"
+  if [[ "$DMA_KYOBO_HOST" == off ]]; then
+    ROLLBACK_KYOBO_HOST=""
+    ROLLBACK_KYOBO_NOTE="명시 해제(off)"
+  else
+    ROLLBACK_KYOBO_HOST="$DMA_KYOBO_HOST"
+    ROLLBACK_KYOBO_NOTE="명시 주입"
+  fi
+  if [[ -n "$ROLLBACK_KYOBO_HOST" ]]; then KYOBO_SECRET_WANTED=1; else KYOBO_SECRET_WANTED=0; fi
+  echo "✓ variables: mode=rollback TARGET=$TARGET_IMAGE (레거시 env 모드 — DMA_REGISTRY_SOURCE 미주입)"
+  echo "  롤백 주소 (명시 주입): KB=${ROLLBACK_DMA_HOST}:${ROLLBACK_DMA_PORT} · KYOBO=${ROLLBACK_KYOBO_HOST:-<없음>} (${ROLLBACK_KYOBO_NOTE})"
 else
   TARGET_IMAGE="$IMAGE"
   APP_VERSION="$SHA"
+  RELAY_ENV_MODE=registry
+  KYOBO_SECRET_WANTED=1
+  echo "✓ variables: mode=deploy SHA=$SHA TARGET=$TARGET_IMAGE (레지스트리 모드 — DMA_REGISTRY_SOURCE=db · 주소는 dma_servers)"
 fi
-echo "✓ variables: mode=$MODE SHA=$SHA TARGET=$TARGET_IMAGE DMA_HOST=$DMA_HOST DMA_KYOBO_HOST=${KYOBO_HOST:-<없음>}"
-# 「무슨 값이냐」만으로는 부족하다 — **어디서 왔느냐**가 강등을 알아채는 유일한 단서다.
-# rollback 경로도 위의 같은 해석을 이미 지나왔으므로 여기서 함께 찍힌다.
-echo "  DMA_HOST 출처: $DMA_HOST_SOURCE (배포 전 컨테이너 값=${CURRENT_DMA_HOST:-<확인 실패>})"
 
 # ───────────────────────────────────────────────────────────────
 # Section 3: 선행 리소스 검증
@@ -508,12 +605,13 @@ for SECRET_NAME in gh-radar-supabase-service-role gh-radar-dma-cred-key gh-radar
 done
 echo "✓ Secret 4종 존재 + ENABLED 버전 + relay SA 접근권"
 
-# KYOBO 관찰자 비밀 사전 점검 (quick-260929-c8e) — **비치명**이다. 위 치명 4종 루프 밖이고 절대 exit 하지 않는다.
-# 하나라도 실패하면 KYOBO 관찰자만 생략하고(KYOBO_HOST 비움 → env-file 에 KYOBO 3줄 없음) KB 단독으로 배포한다.
+# KYOBO 증권사 비밀 사전 점검 (quick-260929-c8e · Phase 29 Pitfall 11) — **비치명**이다. 위 치명 4종 루프 밖이고 절대 exit 하지 않는다.
+# 하나라도 실패하면 KYOBO_SECRET_WANTED=0 → env-file 에 KYOBO 비밀이 없다. 정상 배포에서는 레지스트리의 교보 서버가
+# 관찰자 · admin 연결 disabled 로 뜨고, 롤백에서는 교보 호스트도 빼서 KB 단독으로 뜬다.
 # (`set -eo pipefail` 아래라 파이프 대입에는 `|| true` 를 붙인다 — 여기서 죽으면 KB 배포까지 막힌다.)
 KYOBO_SECRET_NAME=gh-radar-dma-observer-secret-kyobo
-if [[ -z "$KYOBO_HOST" ]]; then
-  echo "  KYOBO 관찰자 없음 (${KYOBO_HOST_SOURCE}) — KB 단독"
+if [[ "$KYOBO_SECRET_WANTED" != 1 ]]; then
+  echo "  KYOBO 관찰자 없음 (롤백 · ${ROLLBACK_KYOBO_NOTE:-미설정}) — KB 단독"
 else
   KYOBO_SKIP_REASON=""
   if ! gcloud secrets describe "$KYOBO_SECRET_NAME" >/dev/null 2>&1; then
@@ -529,10 +627,15 @@ else
     fi
   fi
   if [[ -n "$KYOBO_SKIP_REASON" ]]; then
-    echo "⚠ KYOBO 관찰자 생략: ${KYOBO_SKIP_REASON} — KB 단독으로 배포한다 (infra/relay/README.md §다중 게이트웨이 관찰자)" >&2
-    KYOBO_HOST=""
+    KYOBO_SECRET_WANTED=0
+    if [[ "$MODE" == rollback ]]; then
+      echo "⚠ KYOBO 관찰자 생략: ${KYOBO_SKIP_REASON} — KB 단독으로 롤백한다 (infra/relay/README.md §다중 게이트웨이 관찰자)" >&2
+      ROLLBACK_KYOBO_HOST=""
+    else
+      echo "⚠ KYOBO 비밀 생략: ${KYOBO_SKIP_REASON} — 레지스트리의 교보 서버는 관찰자 · admin 연결이 disabled 로 뜬다 (infra/relay/README.md §관찰자 비밀)" >&2
+    fi
   else
-    echo "✓ KYOBO 관찰자 비밀 확인 ($KYOBO_SECRET_NAME · ENABLED · relay SA 접근권) — KYOBO=$KYOBO_HOST:$DMA_KYOBO_PORT"
+    echo "✓ KYOBO 비밀 확인 ($KYOBO_SECRET_NAME · ENABLED · relay SA 접근권)"
   fi
 fi
 
@@ -603,10 +706,16 @@ fi
 #   head(공개 설정) + body(리터럴) 로 나눈 이유: body 를 인용 heredoc 으로 두면
 #   원격에서 쓰는 `$VAR` 가 로컬에서 전개되지 않는다. 비밀은 head 에도 body 에도 없다.
 # ───────────────────────────────────────────────────────────────
-REMOTE_HEAD=$(printf 'PROJECT=%q\nTARGET_IMAGE=%q\nCONTAINER=%q\nAPP_VERSION=%q\nLOG_LEVEL=%q\nSUPABASE_URL=%q\nWS_PORT=%q\nORDER_API_PORT=%q\nDMA_HOST=%q\nDMA_PORT=%q\nDMA_BROKER=%q\nDMA_KYOBO_HOST=%q\nDMA_KYOBO_PORT=%q\n' \
+# 공통 head — 주소가 없다. RELAY_ENV_MODE(registry | legacy-env)가 원격 env-file 모양을 고른다.
+REMOTE_HEAD=$(printf 'PROJECT=%q\nTARGET_IMAGE=%q\nCONTAINER=%q\nAPP_VERSION=%q\nLOG_LEVEL=%q\nSUPABASE_URL=%q\nWS_PORT=%q\nORDER_API_PORT=%q\nRELAY_ENV_MODE=%q\nKYOBO_SECRET_WANTED=%q\n' \
   "$EXPECTED_PROJECT" "$TARGET_IMAGE" "$CONTAINER" "$APP_VERSION" "$LOG_LEVEL" \
-  "$SUPABASE_URL" "$WS_PORT" "$ORDER_API_PORT" "$DMA_HOST" "$DMA_PORT" "$DMA_BROKER" \
-  "$KYOBO_HOST" "$DMA_KYOBO_PORT")
+  "$SUPABASE_URL" "$WS_PORT" "$ORDER_API_PORT" "$RELAY_ENV_MODE" "$KYOBO_SECRET_WANTED")
+# 롤백 전용 head — 옛 이미지(레거시 env 모드)의 명시 주입 주소. 정상 배포에는 이 줄들이 없다.
+if [[ "$MODE" == rollback ]]; then
+  REMOTE_HEAD="${REMOTE_HEAD}
+$(printf 'RB_DMA_HOST=%q\nRB_DMA_PORT=%q\nRB_DMA_BROKER=%q\nRB_KYOBO_HOST=%q\nRB_KYOBO_PORT=%q\n' \
+  "$ROLLBACK_DMA_HOST" "$ROLLBACK_DMA_PORT" "$ROLLBACK_DMA_BROKER" "$ROLLBACK_KYOBO_HOST" "$ROLLBACK_KYOBO_PORT")"
+fi
 
 REMOTE_BODY=$(cat <<'REMOTE_BODY_EOF'
 set -euo pipefail
@@ -649,13 +758,14 @@ SB_KEY="$(fetch_secret gh-radar-supabase-service-role)"
 CRED_KEY="$(fetch_secret gh-radar-dma-cred-key)"
 ORDER_SECRET="$(fetch_secret gh-radar-relay-order-secret)"
 OBS_SECRET="$(fetch_secret gh-radar-dma-observer-secret)"
-# KYOBO 관찰자 비밀(quick-260929-c8e) — **비치명**. 호스트가 넘어온 때만 읽고, 실패하면 KYOBO 없이 기동한다.
+# KYOBO 증권사 비밀(quick-260929-c8e · Phase 29 Pitfall 11) — **비치명**. 로컬 사전 점검을 통과한 때만 읽고,
+# 실패하면 KYOBO 비밀 없이 기동한다(정상 배포 = 교보 서버 관찰자 · admin disabled · 롤백 = 교보 호스트도 뺀다).
 KYOBO_SECRET=""
-if [ -n "$DMA_KYOBO_HOST" ]; then
+if [ "$KYOBO_SECRET_WANTED" = 1 ]; then
   KYOBO_SECRET="$(fetch_secret gh-radar-dma-observer-secret-kyobo || true)"
   if [ -z "$KYOBO_SECRET" ]; then
-    log "KYOBO 비밀 획득 실패 — KYOBO 관찰자 없이 기동 (KB 무영향)"
-    DMA_KYOBO_HOST=""
+    log "KYOBO 비밀 획득 실패 — KYOBO 비밀 없이 기동 (KB 무영향)"
+    if [ "$RELAY_ENV_MODE" = legacy-env ]; then RB_KYOBO_HOST=""; fi
   fi
 fi
 # 빈 값 검사 — 값이 아니라 **어느 키가 비었는지**만 남긴다.
@@ -663,8 +773,8 @@ fi
 [ -n "$CRED_KEY" ]     || { echo "빈 비밀: dma cred key" >&2; exit 1; }
 [ -n "$ORDER_SECRET" ] || { echo "빈 비밀: relay order secret" >&2; exit 1; }
 [ -n "$OBS_SECRET" ]   || { echo "빈 비밀: dma observer secret" >&2; exit 1; }
-if [ -n "$DMA_KYOBO_HOST" ]; then KYOBO_NOTE="KYOBO 포함"; else KYOBO_NOTE="KYOBO 없음"; fi
-log "비밀 4종 획득 (값은 기록하지 않음) · ${KYOBO_NOTE}"
+if [ -n "$KYOBO_SECRET" ]; then KYOBO_NOTE="KYOBO 비밀 포함"; else KYOBO_NOTE="KYOBO 비밀 없음"; fi
+log "비밀 4종 획득 (값은 기록하지 않음) · ${KYOBO_NOTE} · env 모양=${RELAY_ENV_MODE}"
 
 {
   printf 'NODE_ENV=production\n'
@@ -673,17 +783,25 @@ log "비밀 4종 획득 (값은 기록하지 않음) · ${KYOBO_NOTE}"
   printf 'SUPABASE_URL=%s\n' "$SUPABASE_URL"
   printf 'WS_PORT=%s\n' "$WS_PORT"
   printf 'ORDER_API_PORT=%s\n' "$ORDER_API_PORT"
-  printf 'DMA_HOST=%s\n' "$DMA_HOST"
-  printf 'DMA_PORT=%s\n' "$DMA_PORT"
-  printf 'DMA_BROKER=%s\n' "$DMA_BROKER"
+  if [ "$RELAY_ENV_MODE" = registry ]; then
+    # Phase 29 D-09 — 정상 배포: 서버 목록 · 주소는 레지스트리 dma_servers. 주소 env 는 넣지 않는다.
+    printf 'DMA_REGISTRY_SOURCE=db\n'
+  else
+    # 롤백(옛 이미지 · 레거시 env 모드) — 배포자 명시 주입 주소만. 교보는 호스트와 비밀이 모두 있을 때만.
+    printf 'DMA_HOST=%s\n' "$RB_DMA_HOST"
+    printf 'DMA_PORT=%s\n' "$RB_DMA_PORT"
+    printf 'DMA_BROKER=%s\n' "$RB_DMA_BROKER"
+    if [ -n "$RB_KYOBO_HOST" ] && [ -n "$KYOBO_SECRET" ]; then
+      printf 'DMA_KYOBO_HOST=%s\n' "$RB_KYOBO_HOST"
+      printf 'DMA_KYOBO_PORT=%s\n' "$RB_KYOBO_PORT"
+    fi
+  fi
   printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$SB_KEY"
   printf 'DMA_CRED_KEY=%s\n' "$CRED_KEY"
   printf 'RELAY_ORDER_SECRET=%s\n' "$ORDER_SECRET"
   printf 'DMA_OBSERVER_SECRET=%s\n' "$OBS_SECRET"
-  # KYOBO 관찰자 — 호스트와 비밀이 모두 있을 때만 3줄. 없으면 relay 는 KB 단독(오늘과 같다).
-  if [ -n "$DMA_KYOBO_HOST" ]; then
-    printf 'DMA_KYOBO_HOST=%s\n' "$DMA_KYOBO_HOST"
-    printf 'DMA_KYOBO_PORT=%s\n' "$DMA_KYOBO_PORT"
+  # KYOBO 증권사 비밀 — 획득했을 때만. 정상 배포는 레지스트리의 교보 서버들이 이 비밀 하나를 쓴다(증권사별 매핑).
+  if [ -n "$KYOBO_SECRET" ]; then
     printf 'DMA_OBSERVER_SECRET_KYOBO=%s\n' "$KYOBO_SECRET"
   fi
 } > "$ENV_FILE"
@@ -749,6 +867,18 @@ if [ "$HEALTH_OK" -ne 1 ]; then
   exit 1
 fi
 log "/healthz 200: $(curl -s --max-time 5 "http://127.0.0.1:${ORDER_API_PORT}/healthz")"
+# 레지스트리 주문 서버 확인 (Phase 29 · 29-03 healthz brokers) — 없으면 경고만(롤백 이미지에는 brokers 가 없다).
+KB_ORDER_SERVER="$(curl -s --max-time 5 "http://127.0.0.1:${ORDER_API_PORT}/healthz" | python3 -c 'import json, sys
+try:
+    d = json.load(sys.stdin); b = d.get("brokers") or {}; k = b.get("KB") or {}
+    print(k.get("server") or "")
+except Exception:
+    print("")' 2>/dev/null || true)"
+if [ -n "$KB_ORDER_SERVER" ]; then
+  log "brokers.KB.server=${KB_ORDER_SERVER} (레지스트리 KB 주문 서버)"
+else
+  echo "  [vm] ⚠ healthz 에 brokers.KB.server 없음 — 롤백(옛) 이미지면 정상 · 새 이미지면 레지스트리에 켜진 KB 주문 서버가 없다" >&2
+fi
 
 # 메모리 실측 (Pitfall 11 — 합계 700MB 초과 시 e2-small 전환 검토)
 log "free -m: $(free -m | awk '/^Mem:/{printf "total=%s used=%s available=%s", $2, $3, $7}')"
@@ -771,8 +901,9 @@ echo "✓ VM 배포 완료"
 if [[ "$MODE" == rollback ]]; then
   echo ""
   echo "✅ Rolled back @ $TARGET_IMAGE"
-  # 옛 이미지면 healthz 에서 KYOBO 키가 사라진다 — 남은 체크가 영구 실패로 메일을 보내지 않게 같은 실행에서
-  # 동기화한다(T-sar-04). rollback 은 KB 정책을 적용하지 않으므로 생성은 보류되고 갱신·삭제만 한다.
+  # 옛 이미지는 brokers 가 없고 journalGateways.KYOBO 만 있다(legacy) — 체크 JSONPath 를 옛 경로로 되돌리고, 교보를
+  # 껐으면(off) 남은 체크가 영구 실패로 메일을 보내지 않게 지운다. 같은 실행에서 동기화한다(T-sar-04).
+  # rollback 은 KB 정책을 적용하지 않으므로 생성은 보류되고 갱신·삭제만 한다.
   # ⚠ 방금 뜬 컨테이너의 healthz 가 아직 안 올라왔으면 판정 불가로 손대지 않는다 — 그때는 --alert-only 로 맞춘다.
   sync_kyobo_monitoring
   echo "   KYOBO 감시: $KYOBO_MONITOR_RESULT"
@@ -785,8 +916,8 @@ fi
 #   Cloud Run Job 처럼 "실행 실패" 메트릭이 없다. 상시 프로세스의 가용성은
 #   외부에서 실제로 두드려 보는 uptime check 가 유일한 근거다.
 #   `--validate-ssl=true` 라 인증서 만료도 같은 알림으로 잡힌다 (T-15-13).
-#   KYOBO 감시(quick-260929-sar): KB 정책(check_id 한정) 적용 뒤 sync_kyobo_monitoring 이 공개 healthz 의
-#   KYOBO 키 유무에 맞춰 JSONPath 체크 · 정책을 만들거나 지운다(비치명 — 결과는 최종 요약 한 줄).
+#   KYOBO 감시(quick-260929-sar · Phase 29 Pitfall 3): KB 정책(check_id 한정) 적용 뒤 sync_kyobo_monitoring 이 공개
+#   healthz 의 kyobo_presence 판정(brokers.KYOBO 고정 필드)에 맞춰 JSONPath 체크 · 정책을 만들거나 지운다(비치명 — 결과는 최종 요약 한 줄).
 # ───────────────────────────────────────────────────────────────
 EXISTING_UPTIME=$(gcloud monitoring uptime list-configs \
   --filter="displayName=${UPTIME_CHECK}" --format='value(name)' 2>/dev/null | head -1)
@@ -822,28 +953,18 @@ echo "════════════════════════�
 echo "✅ Deployed @ $TARGET_IMAGE"
 echo "   VM:        $VM ($ZONE)"
 echo "   Container: $CONTAINER (재시작 정책 always · 384MB 상한)"
-# 셸 변수가 아니라 **돌고 있는 컨테이너**에서 되읽는다. "내가 넘긴 값" 이 아니라
-# "실제로 붙는 주소" 를 봐야 한다 — 인자를 빠뜨려 기본값(127.0.0.1 mock)으로 뜬 것을
-# 성공 로그만 보고 놓치는 사고를 막는다 (2026-09-06 실장애).
-LIVE_DMA_HOST="$(read_live_dma_host || true)"
-# 배포 전 실측(위 `CURRENT_DMA_HOST`) 대비 실제로 무엇이 바뀌었는지를 나란히 남긴다.
-if [[ -n "$LIVE_DMA_HOST" && -n "$CURRENT_DMA_HOST" && "$LIVE_DMA_HOST" != "$CURRENT_DMA_HOST" ]]; then
-  echo "   변경:      $CURRENT_DMA_HOST  →  $LIVE_DMA_HOST   (출처: $DMA_HOST_SOURCE)"
-fi
-LIVE_DMA_HOST="${LIVE_DMA_HOST:-(확인 실패)}"
-if [[ "$LIVE_DMA_HOST" == "127.0.0.1" ]]; then
-  echo "   DMA_HOST:  $LIVE_DMA_HOST : $DMA_PORT   ⚠️  로컬 MOCK 입니다 (실서버 아님)"
-  echo "              실서버로 붙이려면: DMA_HOST=10.41.1.120 bash scripts/deploy-relay.sh"
-else
-  echo "   DMA_HOST:  $LIVE_DMA_HOST : $DMA_PORT   ← 실제 컨테이너 값"
-fi
-# KYOBO 관찰자도 돌고 있는 컨테이너에서 되읽는다(같은 read_live_env).
-LIVE_KYOBO_HOST="$(read_live_env DMA_KYOBO_HOST || true)"
-if [[ -n "$LIVE_KYOBO_HOST" ]]; then
-  echo "   KYOBO:     $LIVE_KYOBO_HOST : $DMA_KYOBO_PORT   ← 관찰자 전용(사용자 세션 아님)"
-else
-  echo "   KYOBO:     관찰자 없음"
-fi
+# 셸 변수가 아니라 **돌고 있는 컨테이너**에서 되읽는다 — "내가 넘긴 값" 이 아니라 "실제로 뜬 모드" 를 본다
+# (2026-09-06 실장애의 교훈 그대로). Phase 29 — 주소는 레지스트리라 컨테이너 env 에 없다. 대신 레지스트리 모드 여부와
+# 공개 healthz 의 증권사별 주문 서버 키(brokers.<증권사>.server · 서버 키뿐 — 주소 · 사용자 식별자 없음)를 찍는다.
+LIVE_REGISTRY_SOURCE="$(read_live_env DMA_REGISTRY_SOURCE || true)"
+echo "   레지스트리: DMA_REGISTRY_SOURCE=${LIVE_REGISTRY_SOURCE:-(확인 실패)}   ← 실제 컨테이너 값 (주소는 dma_servers)"
+LIVE_BROKERS="$(curl -s --max-time 10 "https://${HEALTH_HOST}/healthz" 2>/dev/null | python3 -c 'import json, sys
+try:
+    b = json.load(sys.stdin).get("brokers") or {}
+    print(" · ".join("%s=%s" % (k, (v or {}).get("server", "?")) for k, v in sorted(b.items())) or "")
+except Exception:
+    print("")' 2>/dev/null || true)"
+echo "   주문 서버: ${LIVE_BROKERS:-(healthz brokers 확인 실패)}"
 echo "   KYOBO 감시: $KYOBO_MONITOR_RESULT"
 echo "   Public:    https://${HEALTH_HOST}/healthz"
 echo ""

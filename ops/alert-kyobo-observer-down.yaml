@@ -1,9 +1,9 @@
 displayName: gh-radar-kyobo-observer-down
 documentation:
   content: |
-    교보(KYOBO) 관찰자가 장중에 끊겼다. `https://dma.jx1.io/healthz` 본문의
-    `journalGateways.KYOBO.alerting` 이 `true` 다 (quick-260929-sar).
-    uptime check `gh-radar-kyobo-observer-healthz` 가 JSONPath `$.journalGateways.KYOBO.alerting` 이
+    교보(KYOBO) 주문 서버 관찰자가 장중에 끊겼다. `https://dma.jx1.io/healthz` 본문의
+    `brokers.KYOBO.alerting` 이 `true` 다 (quick-260929-sar · Phase 29 RESEARCH Pitfall 3).
+    uptime check `gh-radar-kyobo-observer-healthz` 가 JSONPath `$.brokers.KYOBO.alerting` 이
     `false` 인지 보는데, 그 성공률이 6지점 평균 **0.9 미만**이고 **싱가포르 지점도 0.9 미만**인 상태가 5분 이어졌다.
 
     `alerting` 은 장중(평일 08:00~20:00 KST · 휴장일 제외)에만 켜진다. `rejected` 는 즉시,
@@ -16,8 +16,13 @@ documentation:
     ## 먼저 볼 것
 
     ```
-    curl -s https://dma.jx1.io/healthz | jq '.journalGateways.KYOBO'
+    curl -s https://dma.jx1.io/healthz | jq '{kyobo: .brokers.KYOBO, journal: .journalGateways[.brokers.KYOBO.server]}'
     ```
+
+    `brokers.KYOBO` 는 증권사별 **고정 이름** 필드다(`{ server, alerting }` — `server` 는 교보 주문 서버 키, 예 `KYOBO119`).
+    서버 키가 바뀌어도(개명 · 교보 주문 서버 교체) 체크 경로는 그대로다. 상태(`.state`)는 그 서버 키의
+    `journalGateways.<서버 키>` 에 있다. 레지스트리 이전(옛) 이미지로 롤백하면 `deploy-relay.sh` 가 체크를 옛 경로
+    `$.journalGateways.KYOBO.alerting` 로 되돌린다(그때는 `jq '.journalGateways.KYOBO'`).
 
     **`gh-radar-relay-down` 이 함께 울렸으면 그쪽이 먼저다.** relay · Caddy 가 죽으면(무응답 · 502 빈 본문)
     이 체크도 실패한다. relay 를 살리면 이 알림도 닫힌다.
@@ -26,35 +31,36 @@ documentation:
 
     | 상태 | 뜻 | 대응 |
     |---|---|---|
-    | `rejected` | kyobo127 게이트웨이가 관찰자 로그인을 거부했다. relay 재시작 전에는 다시 시도하지 않는다 | 관찰자 비밀 불일치가 거의 전부다. Secret `gh-radar-dma-observer-secret-kyobo` 와 kyobo127 `config/observer.toml` 을 **해시 앞 12자로** 대조한다(값은 출력하지 않는다). 맞춘 뒤 relay 재시작(`sudo docker restart gh-radar-relay`) |
-    | `connecting` · `logging_in` | 게이트웨이에 닿지 못하거나 로그인이 끝나지 않는다 | VM 교보 터널 `securwayssl.service` 상태 · **데스크톱 SecuwaySSL 동시접속**(VM 터널을 끊는다 — 데스크톱을 끄면 저절로 다시 붙는다) · kyobo127 게이트웨이 프로세스 |
+    | `rejected` | 교보 주문 서버 게이트웨이가 관찰자 로그인을 거부했다. relay 재시작 전에는 다시 시도하지 않는다 | 관찰자 비밀 불일치가 거의 전부다. Secret `gh-radar-dma-observer-secret-kyobo` 와 그 교보 서버의 `config/observer.toml` 을 **해시 앞 12자로** 대조한다(값은 출력하지 않는다). 맞춘 뒤 relay 재시작(`sudo docker restart gh-radar-relay`) |
+    | `connecting` · `logging_in` | 게이트웨이에 닿지 못하거나 로그인이 끝나지 않는다 | VM 교보 터널 `securwayssl.service` 상태 · **데스크톱 SecuwaySSL 동시접속**(VM 터널을 끊는다 — 데스크톱을 끄면 저절로 다시 붙는다) · 그 교보 서버 게이트웨이 프로세스 |
     | `db_error` | 기록 적용 RPC 가 실패한다 | Supabase 상태 · 적용 RPC 오류 로그 |
-    | 키 없음(`null`) | KYOBO 관찰자가 꺼졌는데 체크가 남았다 | `deploy-relay.sh --alert-only` 가 지운다(아래) |
+    | 키 없음(`null`) | 켜진 교보 주문 서버가 없는데(레지스트리에서 꺼짐) 체크가 남았다 | `deploy-relay.sh --alert-only` 가 지운다(아래) |
 
     ## 로그
 
     relay 로그는 Cloud Logging `relay_docker` 에 30일 남는다(재배포에도 유지).
 
     ```
-    gcloud logging read 'logName="projects/gh-radar/logs/relay_docker" AND jsonPayload.gateway="KYOBO"' --project=gh-radar --freshness=30m --format='value(timestamp,severity,jsonPayload.message)'
+    gcloud logging read 'logName="projects/gh-radar/logs/relay_docker" AND jsonPayload.gateway=~"^KYOBO"' --project=gh-radar --freshness=30m --format='value(timestamp,severity,jsonPayload.message)'
     ```
 
     VM 현재 컨테이너(`docker logs`):
 
     ```
     gcloud compute ssh radar-gw --zone=asia-northeast3-a --tunnel-through-iap \
-      --command "sudo docker logs --since 30m gh-radar-relay 2>&1 | grep '\"gateway\":\"KYOBO\"' | tail -20"
+      --command "sudo docker logs --since 30m gh-radar-relay 2>&1 | grep '\"gateway\":\"KYOBO' | tail -20"
     ```
 
     ## 왜 상태 2xx · 5xx 를 둘 다 받나
 
-    KB 기록이 끊기면 장중 `/healthz` 가 503 이다. 그래도 본문은 JSON 이고 `journalGateways` 가 실린다.
+    KB 기록이 끊기면 장중 `/healthz` 가 503 이다. 그래도 본문은 JSON 이고 `brokers` 가 실린다.
     2xx 만 받으면 KB 문제가 이 KYOBO 알림으로 번진다. 5xx 도 받아 본문(JSONPath)만으로 판정한다.
 
     ## 관리
 
     이 체크 · 정책은 `scripts/deploy-relay.sh` 가 관리한다(전체 배포 · `--alert-only` · `--rollback`).
-    공개 healthz 에 KYOBO 키가 있으면 만들거나 갱신하고, 없으면 정책 → 체크 순서로 지운다.
+    공개 healthz 에 `brokers.KYOBO`(옛 이미지는 `journalGateways.KYOBO`)가 있으면 그 경로로 만들거나 갱신하고,
+    없으면 정책 → 체크 순서로 지운다. 체크 이름 · 개수는 그대로다.
     **수동으로 만들거나 지우지 않는다.** 컨테이너 무변경 동기화:
     `GCP_PROJECT_ID=gh-radar NOTIFICATION_CHANNEL_ID=<채널 ID> bash scripts/deploy-relay.sh --alert-only`
 

@@ -124,22 +124,61 @@ Phase 15 (RELAY-03) 의 IaaS 자산. gh-radar 최초의 GCE VM 이다.
 | `smoke-relay.sh` | **PASS 9 / FAIL 0 / SKIP 1** — INV-4 는 `openconnect@kb=inactive` 로 SKIP | 2026-09-06 |
 | 내부 포트 공인 노출 | `8091` · `9100` 둘 다 **차단 확인** (INV-7, `nc` 실패해야 PASS) | 2026-09-06 |
 
-**배포 / 롤백:**
+**배포 / 롤백 (Phase 29 — 레지스트리 모드):** 정본은 아래 §레지스트리 배포 · 전환 잠금 · 롤백 이다.
 
 ```bash
 GCP_PROJECT_ID=gh-radar SUPABASE_URL=https://<ref>.supabase.co \
-NOTIFICATION_CHANNEL_ID=<채널 ID> bash scripts/deploy-relay.sh
+NOTIFICATION_CHANNEL_ID=<채널 ID> bash scripts/deploy-relay.sh   # 레지스트리 전환 뒤에만 열린다(전환 잠금)
 
-bash scripts/deploy-relay.sh --rollback <이전 SHA>   # 빌드 없이 태그만 되돌린다
-bash scripts/smoke-relay.sh                           # INV-1~10
+bash scripts/smoke-relay.sh                           # INV-1~10 (+ INV-5c brokers · adminConns)
 bash scripts/smoke-relay.sh --check-tls               # 인증서만 (익일 재확인용)
+bash scripts/deploy-relay.sh --self-test              # 판정 함수 오프라인 단언 (gcloud 불필요)
 ```
 
-> 🚨 **재배포 함정 — `DMA_HOST` 를 반드시 넘겨라.**
-> `deploy-relay.sh` 는 `DMA_HOST` 미지정 시 `127.0.0.1`(로컬 mock)을 기본값으로 쓴다(스크립트 95행).
-> **현재 라이브는 실 게이트웨이로 떠 있으므로, 넘기지 않고 재배포하면 조용히 mock 으로 되돌아가
-> 라이브가 죽는다.** 배포 끝에 스크립트가 출력하는 `LIVE_DMA_HOST` 값을 매번 눈으로 확인할 것.
-> 반대로 실서버 주소를 넘기면 스크립트가 경고를 출력한다 — 그 경고는 이제 정상 경로의 일부다.
+> ⚠️ **superseded (Phase 29):** 옛 「재배포 함정 — `DMA_HOST` 를 반드시 넘겨라」 경고는 레거시 env 모드 시절 것이다.
+> 정상 배포는 이제 주소를 모른다(`DMA_REGISTRY_SOURCE=db` — 서버 목록 · 주소는 `dma_servers`). 주소를 넘기는 경로는
+> `--rollback`(옛 이미지) 하나뿐이고, 거기서는 `DMA_HOST` · `DMA_KYOBO_HOST` 가 **필수**다(없으면 즉시 실패).
+
+### 레지스트리 배포 · 전환 잠금 · 롤백 (Phase 29 D-09 · D-12)
+
+**정상 배포.** `scripts/deploy-relay.sh` 는 env-file 에 `DMA_REGISTRY_SOURCE=db` 를 넣고 `DMA_HOST` · `DMA_PORT` · `DMA_BROKER` ·
+`DMA_KYOBO_HOST` · `DMA_KYOBO_PORT` 는 넣지 않는다. 실행 중 값 보존(갭 5 의 `read_live_env` 주소 보존)도 없어졌다 — 호환 기간
+없음(D-12). 서버 목록 · 주소 · 포트 · 주문 서버 · 시세 주 서버는 레지스트리 `dma_servers` 가 정하고 웹 Admin `/admin/servers` 가
+고친다. relay 는 production 에서 `DMA_REGISTRY_SOURCE=db` 가 없으면 기동을 거부한다(29-03). 관찰자 비밀은 여전히 증권사별
+env 다(§관찰자 비밀).
+
+**전환 잠금 (fail closed).** 정상 배포는 실행 중 컨테이너의 `DMA_REGISTRY_SOURCE` 가 `db`(전환 끝남)이거나 배포자가
+`--registry-cutover` 를 줬을 때만 진행한다. 그 밖 — 레거시 env 모드 · 값 없음 · VM/컨테이너 조회 실패 — 은 **빌드 · AR push ·
+VM 변경 · 알림 동기화 전에** 사유와 함께 exit 1 이다(판정은 순수 함수 `registry_cutover_gate` · `--self-test` 가 4표본으로 증명).
+
+- **레지스트리 전환 전에는 정상 배포가 거부된다.** 원격 DB 에 키 개명(`KB`→`KB120` · `KYOBO`→`KYOBO119`) · `dma_servers` 반영 ·
+  비밀번호 이관이 아직 없는 상태에서 임시 재배포가 KB120 · KYOBO119 관찰자를 DB 레지스트리로 바꾸지 못하게 막는다.
+- **전환은 29-25 배포 창 런북의 `bash scripts/deploy-relay.sh --registry-cutover` 1회뿐이다** — 옛 relay 정지 → 개명 ·
+  가시성 v2 마이그레이션 push(`supabase/deploy-window/29/`) → 비밀번호 이관(`scripts/migrate-dma-users.ts`) 뒤. 그 1회 뒤로는
+  실행 중 값이 `db` 라 플래그 없이 정상 배포가 열린다.
+- **그 사이 재배포가 꼭 필요하면** 레거시 env-host 모드로 폴백하지 않는다 — 두 호스트를 명시한 롤백 경로뿐이다:
+  `DMA_HOST=<KB 주소> DMA_KYOBO_HOST=<교보 주소|off> bash scripts/deploy-relay.sh --rollback <현재 태그>`
+  (현재 태그 = `curl -s https://dma.jx1.io/healthz | jq -r .version`).
+- `--alert-only` 는 relay 컨테이너를 건드리지 않아 잠금 대상이 아니다.
+
+**롤백 (D-12 — 새 relay 를 옛 이미지로 되돌릴 때).** 순서가 중요하다 — 옛 relay 는 `KB` · `KYOBO` 커서를 읽으므로 역개명 없이
+올리면 커서 없는 since 0 재생이 된다.
+
+1. 새 relay 정지: `gcloud compute ssh radar-gw --zone=asia-northeast3-a --tunnel-through-iap --command "sudo docker stop gh-radar-relay"`
+2. 역개명 + 옛 가시성 뷰 복원: `supabase/rollback/29-gateway-key-rename-revert.sql` 을 Supabase SQL 편집기(서비스롤)에서 실행
+   (마이그레이션이 아니다 — `supabase/migrations/` 로 옮기지 않는다. 머리 주석의 PK 충돌 · `lock_timeout` 안내를 먼저 읽는다).
+3. 옛 이미지 재배포 — 두 호스트 **명시 필수**(없으면 스크립트가 즉시 실패한다 · 관찰자 해제는 `DMA_KYOBO_HOST=off`):
+   `DMA_HOST=<KB 주소> DMA_KYOBO_HOST=<교보 주소|off> bash scripts/deploy-relay.sh --rollback <전환 직전 태그>`
+   주소는 이 문서의 기존 행이 정본이다 — KB = §현재 운영 상태 「`DMA_HOST` 실측 분류」 행, 교보 = §교보 SecuwaySSL VPN
+   「도달 대상」 행의 운영 교보 주문 서버(2026-10-07 기준 KYOBO119 = `.119`). `DMA_REGISTRY_SOURCE` 는 넣지 않는다.
+4. 확인: `curl -s https://dma.jx1.io/healthz | jq '{version, journal: .journal.state, kyobo: .journalGateways.KYOBO.state}'` —
+   옛 버전 · `brokers` 없음. 같은 실행의 KYOBO 감시 동기화가 uptime JSONPath 를 옛 경로(`$.journalGateways.KYOBO.alerting`)로
+   되돌린다(§KYOBO 끊김 알림). `bash scripts/smoke-relay.sh` — INV-5c 는 옛 이미지라 SKIP 이 정상.
+5. server(Cloud Run) 이전 리비전 · webapp revert push 는 29-25 런북 순서를 따른다. 배포 뒤 Admin 이 서버 `users.toml` 에 쓴
+   변경은 되돌리지 못한다(D-12 one-way).
+
+`--rollback` 은 **레지스트리 이전(레거시 env 모드) 이미지 전용**이다. 레지스트리 시대 태그는 `DMA_REGISTRY_SOURCE=db` 없이
+production 기동을 거부하므로 이 경로로 되돌릴 수 없다 — 그때는 그 커밋을 체크아웃해 정상 배포한다.
 
 ### 주문 경로 결선 (15-19 재배포)
 
@@ -1140,6 +1179,14 @@ ssh <gw> "sed -n 's/^secret *= *\"\(.*\)\"\$/\1/p' <dir>/config/observer.toml | 
 rm -f "$T"
 ```
 
+**Phase 29 — 비밀은 서버별이 아니라 증권사별이다.** 레지스트리(`dma_servers`)에는 비밀이 없다(RESEARCH Pitfall 11). relay 는
+증권사 → env 고정 매핑으로 고른다 — KB 서버 전부(KB120 · KB121 …)의 관찰자(role 0) · 시세(role 1) · admin(role 2) 연결은
+`DMA_OBSERVER_SECRET`(↔ `gh-radar-dma-observer-secret`), 교보 서버 전부(KYOBO119 · KYOBO127 …)는 `DMA_OBSERVER_SECRET_KYOBO`
+(↔ `gh-radar-dma-observer-secret-kyobo`)다. 그래서 **KB121 · KYOBO127 을 켤 때는 같은 증권사 비밀을 재사용한다** — 그 서버의
+`config/observer.toml` 에 같은 값을 배치하고 위 해시 대조를 한다(Claude's Discretion 권고).
+⚠️ 한 증권사 안에서 서버마다 비밀이 **달라야 한다면** 지금 구조로는 안 된다 — 서버별 비밀 env/Secret 과 relay 매핑 확장이
+먼저 필요하다. 다른 값으로 둔 채 켜면 그 서버는 로그인 거부(`rejected`)로 굳고 Admin 명령도 그 서버에 닿지 않는다.
+
 **적용 순서 · 순환(로테이션).** 게이트웨이는 `observer.toml` 을 기동 때 읽고(핫리로드 없음), relay 는 컨테이너 기동 때
 env 로 받는다. 그리고 relay **저널** 관찰자는 **로그인 거부를 받으면 relay 재시작 전까지 다시 시도하지 않는다**(D-13 · T-19-28).
 (quote 관찰자는 5분 간격 · 최대 12회 다시 시도한다 — §quote 연결 축 · 26-REVIEW WR-03. 그래도 순서는 아래와 같다.)
@@ -1149,6 +1196,16 @@ env 로 받는다. 그리고 relay **저널** 관찰자는 **로그인 거부를
 순환 중 잠깐의 거부·끊김은 커서 덕에 유실이 없다 — relay 가 다시 붙으면 커서부터 재생한다.
 
 ### 다중 게이트웨이 관찰자 — KB + 교보(KYOBO) (quick-260929-c8e)
+
+> **Phase 29 갱신 (레지스트리 모드).** 아래 구조 · 롤아웃 · 끄기 절은 레거시 env 모드(quick-260929-c8e) 기록이며 **롤백 경로에서만**
+> 그대로 유효하다. 레지스트리 모드에서는:
+> - 서버 목록 · 주소 · 포트 · 켜기/끄기는 `dma_servers` 이고 웹 Admin **`/admin/servers`** 가 고친다(env `DMA_KYOBO_HOST` 는 없다).
+>   게이트웨이 키는 서버 키다(`KB120` · `KYOBO119` — 29-25 배포 창의 키 개명). 서버마다 기록기 · 매핑 · 관찰자 · admin 연결이 한 벌씩.
+> - 비밀은 증권사별 env 그대로다(§관찰자 비밀 「Phase 29」 단락).
+> - `/healthz` 는 `journal`(KB 주문 서버 — 503 축) · `journalGateways.<서버 키>`(그 밖 — 503 밖) · **`brokers.<증권사>` = `{ server, alerting }`**
+>   (증권사별 주문 서버 — 고정 이름) · **`adminConns.<서버 키>` = `{ state, usersRev }`** 다. 식별자 · 주소는 없다(smoke INV-5c).
+> - KYOBO 끊김 알림의 JSONPath 는 `$.brokers.KYOBO.alerting` 이다(아래 §KYOBO 끊김 알림).
+> - 서버 추가 · 활성화 절차는 §DMA 서버 추가 절차, 사용자 · 신원 연결은 아래 §신원 연결 추가 · 제거 의 Admin 경로.
 
 relay 관찰자는 **게이트웨이당 1개**다(Phase 19 D-13 확장). KB 120 과 교보 kyobo127 에 동시에 붙고, 게이트웨이마다
 기록기 · 매핑 · 관찰자 · 상태가 한 벌씩 따로 돈다. 추가 게이트웨이는 `relay/src/config.ts` 의 env 표에서만 온다(행 1개).
@@ -1209,10 +1266,21 @@ gcloud compute ssh radar-gw --zone=asia-northeast3-a --tunnel-through-iap \
   같든 다르든 상관없다. 연결 추가가 곧 승인이다.
 - KYOBO 계좌 주문은 오늘 주문 카드에 계좌번호만 있는 묶음으로 뜬다.
 
-#### 신원 연결 추가 · 제거 (quick-260929-sas)
+#### 신원 연결 추가 · 제거 (quick-260929-sas · Phase 29 Admin)
 
-Supabase 대시보드 SQL 편집기(또는 서비스롤)에서 실행한다. `dma_gateway_identities` 는 서비스롤 전용이다(RLS · 정책 0개).
-`<이메일>` · `<교보 users.toml user_id>` 만 바꾼다.
+**Phase 29 이후 정본은 웹 Admin `/admin/users` 다.** 사용자(허용 gmail) · 역할(admin · trader · viewer) · DMA 연결(DMA user_id ·
+비밀번호 — DMA 유저당 암호문 1개, AAD = dma_user_id)을 한 화면에서 고치고, relay 가 서버마다 admin 연결(role 2)로 `users.toml` 에
+반영한다. **모든 서버가 같은 DMA id 를 쓴다** — 증권사 · 서버별 신원 연결 행을 따로 넣지 않는다(서버 가시성은 허용 표 ×
+레지스트리 — 가시성 v2). 옛 `dma_credentials` 행은 29-25 배포 창에서 `scripts/migrate-dma-users.ts` 가 `dma_users` 로 옮긴다.
+
+- 추가: `/admin/users` → 「+ 사용자」(gmail · 역할 · DMA 연결) 또는 기존 사용자 시트의 「DMA 연결」.
+- 제거 · 권한 회수: 사용자 시트에서 역할을 viewer 로 내리거나 DMA 연결을 해제한다. relay 가 접근 맵을 다시 읽으면(최대 60초 ·
+  저장 직후는 즉시 reload) 그 사용자의 wss 를 끊는다.
+- ⚠️ gh-trade op 2 「서버의 마지막 사용자 삭제」 패치(dc8fb50a)가 그 서버에 배포되기 전에는 **한 서버의 마지막 사용자를 지우지 않는다.**
+
+아래 SQL 은 **레거시(레지스트리 이전) 경로 · 롤백 상태 전용**이다. 레지스트리 모드에서 `dma_gateway_identities` 는 가시성에 쓰이지
+않는다. 롤백 상태에서는 Supabase 대시보드 SQL 편집기(또는 서비스롤)에서 실행한다. `dma_gateway_identities` 는 서비스롤 전용이다
+(RLS · 정책 0개). `<이메일>` · `<교보 users.toml user_id>` 만 바꾼다.
 
 ```sql
 -- 추가 — 자격증명이 있는 사용자에게만 들어간다. 자격증명이 없으면 0행이 정상이다(먼저 자격증명 등록).
@@ -1276,7 +1344,7 @@ SELECT l.gateway, left(l.user_id::text, 8) AS user8, l.dma_user_id, l.created_at
 
 | 자원 | 설정 |
 |------|------|
-| uptime check `gh-radar-kyobo-observer-healthz` | https 443 `/healthz` · 1분 주기 · timeout 10초 · validate-ssl · 상태 **2xx,5xx** 수용 · JSONPath `$.journalGateways.KYOBO.alerting` exact-match `false` (6지점 — KB 체크와 같다) |
+| uptime check `gh-radar-kyobo-observer-healthz` | https 443 `/healthz` · 1분 주기 · timeout 10초 · validate-ssl · 상태 **2xx,5xx** 수용 · JSONPath **`$.brokers.KYOBO.alerting`** exact-match `false` (Phase 29 — 고정 이름 필드 · 옛 이미지 롤백 중에는 `$.journalGateways.KYOBO.alerting`) (6지점 — KB 체크와 같다) |
 | 알림 정책 `gh-radar-kyobo-observer-down` | `ops/alert-kyobo-observer-down.yaml` · 두 조건 AND(6지점 평균 <0.9 · `apac-singapore` <0.9) · 120초 창 ALIGN_FRACTION_TRUE · 300초 지속 · KB 와 같은 ops 메일 채널 · autoClose 30분 · 두 조건 모두 KYOBO 체크의 `check_id` 로 한정 |
 
 **타임라인.** 장중 끊김 → relay 180초 유예(`rejected` 는 즉시) → `alerting` true → 체크 실패가 5분 이어짐 → 메일.
@@ -1300,14 +1368,19 @@ KB 정책(`ops/alert-relay-down.yaml`)이 `resource.label.host` 로만 거르면
 실행은 KYOBO 체크를 만들지 않는다(「생성 보류」).
 
 **생성 · 삭제 규칙.** 전체 배포(Section 6) · `--alert-only` · `--rollback` 이 같은 함수(`sync_kyobo_monitoring`)로 동기화한다.
-정본은 **공개 healthz 본문의 `journalGateways.KYOBO` 키 유무**다(env 추정 아님 — VM 쪽 비밀 fetch 가 실패하면 호스트가 있어도
-KYOBO 없이 뜬다).
+정본은 **공개 healthz 본문**이고 판정은 순수 함수 `kyobo_presence` 다(env 추정 아님 — VM 쪽 비밀 fetch 가 실패하면 교보 서버가
+있어도 KYOBO 없이 뜬다). **Phase 29 (RESEARCH Pitfall 3):** 레지스트리 모드의 `journalGateways` 키는 서버 키(`KYOBO119`)라
+옛 판정(`journalGateways.KYOBO`)이면 개명 직후 「없음」 으로 읽혀 체크 · 정책이 조용히 지워진다. 그래서 고정 이름
+`brokers.KYOBO` 를 먼저 본다. 체크 이름 · 개수(KB 1 + KYOBO 1)는 그대로다 — 서버마다 체크를 늘리면 무료 한도를 넘는다.
 
-| healthz | 동작 |
+| healthz (`kyobo_presence`) | 동작 |
 |---------|------|
-| 키 있음 | 체크 · 정책을 만들거나 갱신한다(생성은 KB 한정 적용 뒤에만 — `--rollback` 은 KB 정책을 적용하지 않으므로 갱신만) |
-| 키 없음 | 정책 → 체크 순서로 `--quiet` 삭제. 키가 없으면 절대 만들지 않는다(영구 실패 체크 방지) |
-| 판정 불가(무응답 · 502 · 비JSON) | 손대지 않고 ⚠ 한 줄만 남긴다 |
+| `brokers` — `brokers.KYOBO` 있음(새 이미지) | JSONPath `$.brokers.KYOBO.alerting` 로 체크 · 정책을 만들거나 갱신한다(생성은 KB 한정 적용 뒤에만 — `--rollback` 은 KB 정책을 적용하지 않으므로 갱신만) |
+| `legacy` — `journalGateways.KYOBO` 있음(옛 이미지 · 롤백) | 같은 체크를 JSONPath `$.journalGateways.KYOBO.alerting` 로 갱신한다(생성 규칙 같음) |
+| `absent` — 둘 다 없음 | 정책 → 체크 순서로 `--quiet` 삭제. 없으면 절대 만들지 않는다(영구 실패 체크 방지) |
+| `unknown` — 판정 불가(무응답 · 502 · 비JSON) | 손대지 않고 ⚠ 한 줄만 남긴다 |
+
+판정 4갈래와 전환 잠금 4표본은 `bash scripts/deploy-relay.sh --self-test` 가 오프라인으로 단언한다.
 
 전체 배포에서는 비치명이다(실패해도 최종 요약까지 가고 「KYOBO 감시: <결과>」 한 줄이 찍힌다). `--alert-only` 에서는 KB 정책을
 적용하지 못하거나 KYOBO 동기화가 실패하면 비0 으로 끝난다. **체크 · 정책을 콘솔이나 gcloud 로 수동으로 만들거나 지우지 않는다.**
@@ -1338,11 +1411,15 @@ bash scripts/smoke-relay.sh   # 끝의 「참고 — KYOBO 관찰자 감시」 �
 
 #### 끄기 · 롤백
 
-- `DMA_KYOBO_HOST=off bash scripts/deploy-relay.sh` — 보존 규칙을 끊는 유일한 방법이다(KYOBO 3줄이 env-file 에서 빠진다).
+- **Phase 29 (레지스트리 모드):** 교보 서버 끄기 = `/admin/servers` 의 그 서버 카드 토글(사용 끔). 켜진 교보 주문 서버가 없으면
+  healthz 에서 `brokers.KYOBO` 가 사라지고 다음 `deploy-relay.sh`(전체 · `--alert-only`)가 KYOBO 감시를 지운다. env 로 끄는 길은 없다.
+- (레거시 · 롤백 상태) `DMA_KYOBO_HOST=off bash scripts/deploy-relay.sh --rollback <tag>` — 롤백에서 교보 관찰자를 뺀다. Phase 29 부터
+  `--rollback` 은 `DMA_KYOBO_HOST` 를 **필수**로 받는다(실행 중 값 보존이 없어졌다 — 미주입이면 즉시 실패).
 - 매핑 행은 로그인 스냅샷으로만 교체되므로 끈 뒤에도 `dma_account_access` 의 `gateway=KYOBO` 행이 남는다. 가시성까지
   거두려면 연결 행을 삭제한다(§신원 연결 추가 · 제거) — 매핑 행 삭제는 필요 없다.
 - 비밀이 없거나 relay SA 접근권이 없으면 `deploy-relay.sh` 는 「⚠ KYOBO 관찰자 생략」 한 줄만 남기고 KB 단독으로 배포를 끝낸다.
-- `DMA_KYOBO_HOST=off` 배포 · 옛 이미지 `--rollback` 은 같은 실행에서 KYOBO 감시(정책 → 체크)도 지운다(§KYOBO 끊김 알림).
+- 교보를 끈 롤백(`DMA_KYOBO_HOST=off`)은 같은 실행에서 KYOBO 감시(정책 → 체크)도 지운다 · 교보를 둔 롤백은 체크 JSONPath 를 옛 경로로
+  되돌린다(§KYOBO 끊김 알림).
 
 #### 비밀 순환
 
@@ -1532,8 +1609,48 @@ tar czf - -C infra/relay/secuway . | gcloud compute ssh radar-gw --tunnel-throug
 
 > **MAC 바인딩.** 교보 계정은 단말 MAC 에 묶인다. VM MAC(`42:01:0a:0a:00:05`)이 교보에 등록돼 있어야 접속된다 — 미등록이면 `Error: 등록된 MAC값이 일치하지 않습니다` 로 거부된다. VM 재생성으로 MAC 이 바뀌면 재등록이 필요하다.
 
-### DMA 서버 추가 절차 (quick-260928-ei9)
+### DMA 서버 추가 절차 (quick-260928-ei9 · Phase 29 Admin)
 
+**Phase 29 이후 순서: 네트워크(수동) → `/admin/servers` 「+ 서버」(사용 꺼짐) → 연결 확인 → 사용 켬.** relay 배포도 env 도
+필요 없다 — 서버 목록은 레지스트리 `dma_servers` 이고 relay 가 Admin 저장을 즉시 반영한다(29-19 · 29-21).
+
+1. **네트워크 (수동 · 아래 1~5).** 라우트(교보는 로그인 응답 · KB 는 AnyConnect) · nft `wgfwd` · `DOCKER-USER` · startup-script
+   메타데이터 · (필요하면) Mac `AllowedIPs`. IP 하드코딩이라 Admin 이 대신하지 않는다.
+2. **관찰자 비밀.** 그 서버 `config/observer.toml` 에 **같은 증권사 비밀**을 배치하고 해시 앞 12자로 대조한다(§관찰자 비밀
+   「Phase 29」 단락 — 서버별로 다르면 지금 구조로는 켤 수 없다). 게이트웨이를 재시작한다(20:00 이후).
+3. **Admin 등록.** `/admin/servers` → 「+ 서버」 — 키(예 `KYOBO127`) · 증권사 · host · port. **새 서버는 사용 꺼짐으로 생긴다**
+   (relay 가 아직 붙지 않는다).
+4. **연결 확인 (켜기 전).** VM 에서 도달성만 읽는다:
+   `gcloud compute ssh radar-gw --zone=asia-northeast3-a --tunnel-through-iap --command 'timeout 3 bash -c "</dev/tcp/<host>/<port>" && echo open'`.
+   **교보 KYOBO127 은 이 단계 뒤 아래 「KYOBO127 활성화 전 커서 시드」 를 먼저 한다.**
+5. **사용 켬.** 서버 카드 토글 → 확인 다이얼로그. 확인: `curl -s https://dma.jx1.io/healthz | jq '{adminConns, journalGateways}'` 의
+   `adminConns.<키>.state = "ready"` · `journalGateways.<키>.state = "live"`. 주문 서버 · 시세 주 서버 지정은 같은 화면의 라디오다
+   (주문 서버는 증권사당 1대 — `brokers.<증권사>.server` 가 따라간다 · uptime 체크 경로는 그대로).
+
+**KYOBO127 활성화 전 커서 시드 (RESEARCH Pitfall 2).** 29-25 키 개명은 `KYOBO` 의 127 시절(09-29~10-06) 이력까지 전부 `KYOBO119`
+로 묶는다. 127 게이트웨이가 그 시절 저널 저장소(같은 epoch)를 아직 들고 있으면, 커서 없는 `KYOBO127` 이 since 0 으로 재생해 같은
+주문이 `KYOBO127` 키로 한 번 더 투영된다(`dma_account_orders` 유니크 키에 gateway 가 들어 있어 충돌 없이 중복).
+
+1. 127 의 현재 저널 epoch 를 확인한다 — 관찰자 로그인 응답(79 `ObserverLoginResp`)의 epoch. gh-trade 세션에 묻거나 gh-trade
+   `server/scripts/uat/observer_probe.py` 로 읽는다(값은 epoch 문자열뿐 — 비밀 아님).
+2. 옛 epoch 와 비교한다(Supabase SQL 편집기 · 서비스롤):
+   ```sql
+   SELECT journal_epoch, count(*) AS n, max(seq) AS max_seq
+     FROM public.dma_journal_events WHERE gateway = 'KYOBO119'
+    GROUP BY journal_epoch ORDER BY max(applied_at);
+   ```
+3. **같은 epoch 가 있으면** 켜기 전에 커서를 시드한다 — 그 epoch 의 `max(seq)` 부터 이어 받게:
+   ```sql
+   INSERT INTO public.dma_journal_cursor (gateway, journal_epoch, last_seq)
+   SELECT 'KYOBO127', '<1 의 epoch>', max(seq)
+     FROM public.dma_journal_events
+    WHERE gateway = 'KYOBO119' AND journal_epoch = '<1 의 epoch>'
+   ON CONFLICT (gateway) DO NOTHING;
+   ```
+   **같은 epoch 가 없으면**(127 이 저장소를 새로 시작했다) 시드하지 않는다 — since 0 재생이 맞다.
+4. 그 뒤 위 5(사용 켬). 확인: `SELECT gateway, journal_epoch, last_seq FROM public.dma_journal_cursor WHERE gateway LIKE 'KYOBO%';`
+
+**아래 1~5 는 네트워크 층(quick-260928-ei9 원문)이다.**
 교보가 DMA 서버를 새로 열어 줄 때 다섯 곳을 함께 바꾼다(첫 사례 2026-09-28 `10.16.207.127`).
 radar-gw 의 nft · `DOCKER-USER` 두 층과 Mac `AllowedIPs` 는 모두 IP 를 하드코딩하므로, 한 곳이라도 빠지면 패킷이 막힌다.
 

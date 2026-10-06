@@ -118,6 +118,44 @@ health_probe() {
   echo "$body"
 }
 
+# 레지스트리 이미지 healthz 필드 판정 (Phase 29 · 29-03 brokers · 29-08 adminConns). 인자: <본문> → 한 줄
+#   ok:<요약>      `brokers` · `adminConns` 둘 다 객체이고, 값 키가 허용 목록뿐이며(brokers = server · alerting /
+#                  adminConns = state · usersRev), 두 필드 어디에도 사용자 · 계좌 식별자 키나 IPv4 주소가 없다
+#   skip:<사유>    둘 다 없다 — 레지스트리 이전(옛) 이미지(롤백)
+#   fail:<사유>    한쪽만 있다 · 모양이 다르다 · 식별자 · 주소가 보인다 · JSON 아님
+# 공개 본문이라 기존 health_probe 의 식별자 grep 규율을 이 두 필드에 넓힌 것이다(T-15-22). 요약에는 서버 키 · 상태만 싣는다.
+registry_health_verdict() {
+  printf '%s' "${1-}" | python3 -c '
+import json, re, sys
+raw = sys.stdin.read()
+try:
+    d = json.loads(raw)
+except Exception:
+    print("fail:JSON 아님"); sys.exit(0)
+if not isinstance(d, dict):
+    print("fail:JSON 객체 아님"); sys.exit(0)
+b, a = d.get("brokers"), d.get("adminConns")
+if b is None and a is None:
+    print("skip:brokers · adminConns 없음 — 레지스트리 이전(옛) 이미지(롤백)"); sys.exit(0)
+if not isinstance(b, dict) or not isinstance(a, dict):
+    print("fail:brokers · adminConns 중 하나가 없거나 객체 아님"); sys.exit(0)
+for k, v in b.items():
+    if k not in ("KB", "KYOBO") or not isinstance(v, dict) or not set(v) <= {"server", "alerting"}:
+        print("fail:brokers 모양이 다르다"); sys.exit(0)
+for k, v in a.items():
+    if not isinstance(v, dict) or not set(v) <= {"state", "usersRev"}:
+        print("fail:adminConns 모양이 다르다"); sys.exit(0)
+blob = json.dumps({"brokers": b, "adminConns": a}, ensure_ascii=False)
+if re.search(r"\b\d{1,3}(\.\d{1,3}){3}\b", blob):
+    print("fail:brokers · adminConns 에 IPv4 주소가 보인다"); sys.exit(0)
+if re.search(r"\"(accountNo|userId|account_no|user_id|dmaUserId|dma_user_id|host|email)\"", blob):
+    print("fail:brokers · adminConns 에 식별자 · 호스트 키가 보인다"); sys.exit(0)
+bs = " ".join("%s=%s" % (k, v.get("server", "?")) for k, v in sorted(b.items()))
+ac = " ".join("%s=%s" % (k, v.get("state", "?")) for k, v in sorted(a.items()))
+print("ok:brokers " + (bs or "-") + " · adminConns " + (ac or "-"))
+' 2>/dev/null || echo "fail:판정 실패"
+}
+
 # 포트가 공인망에서 **닫혀 있는가**. 닫혀 있으면 0(PASS), 열려 있으면 1(FAIL).
 #
 # `nc -z -w3` 을 그냥 부르면 안 되는 이유: 방화벽이 SYN 을 DROP(거부 응답 없음)하면
@@ -638,6 +676,14 @@ fi
 # INV-5: 공개 헬스 200 + 유효 TLS
 check "INV-5a 공개 /healthz 200 + 식별자 미포함" health_probe
 check "INV-5b TLS issuer=Let's Encrypt + notAfter 미래" tls_probe
+# INV-5c: 레지스트리 이미지 healthz — brokers · adminConns 존재 + 식별자 · 주소 없음 (Phase 29). 옛 이미지(롤백)면 SKIP.
+REG_VERDICT="$(registry_health_verdict "$(curl -s --max-time 10 "https://${HOST}/healthz" 2>/dev/null || true)")"
+case "$REG_VERDICT" in
+  ok:*)   check "INV-5c healthz brokers · adminConns + 식별자 · 주소 없음" true
+          echo "         ${REG_VERDICT#ok:}" ;;
+  skip:*) skip "INV-5c healthz brokers · adminConns" "${REG_VERDICT#skip:}" ;;
+  *)      check "INV-5c healthz brokers · adminConns (${REG_VERDICT#fail:})" false ;;
+esac
 
 # INV-6: wss 인증 왕복 — 잘못된 토큰 4401 / 5초 무전송 4401
 check "INV-6 wss 인증 왕복 (4401 × 2)" ws_auth_probe
@@ -732,8 +778,16 @@ try:
     d = json.loads(sys.stdin.read())
 except Exception:
     print("판정 불가"); sys.exit(0)
-g = d.get("journalGateways") if isinstance(d, dict) else None
-print("있음" if isinstance(g, dict) and isinstance(g.get("KYOBO"), dict) else ("없음" if isinstance(d, dict) else "판정 불가"))
+if not isinstance(d, dict):
+    print("판정 불가"); sys.exit(0)
+# deploy-relay.sh kyobo_presence 와 같은 순서 — 새 이미지 brokers.KYOBO(고정 이름) 먼저, 옛 이미지 journalGateways.KYOBO 다음.
+b, g = d.get("brokers"), d.get("journalGateways")
+if isinstance(b, dict) and isinstance(b.get("KYOBO"), dict):
+    print("있음")
+elif isinstance(g, dict) and isinstance(g.get("KYOBO"), dict):
+    print("있음")
+else:
+    print("없음")
 ' 2>/dev/null || true)"
 KY_KEY="${KY_KEY:-판정 불가}"
 KY_UPTIME="$(gcloud monitoring uptime list-configs --filter="displayName=${KYOBO_UPTIME_CHECK}" \
@@ -743,7 +797,7 @@ KY_POLICY="$(gcloud alpha monitoring policies list --filter="displayName=${KYOBO
 KB_SCOPED_N="$(gcloud alpha monitoring policies list --filter="displayName=${ALERT_POLICY}" --format=json 2>/dev/null \
   | grep -o 'metric.label.check_id' | wc -l | tr -d ' ' || true)"
 if [[ "${KB_SCOPED_N:-0}" -ge 2 ]] 2>/dev/null; then KB_SCOPED="예"; else KB_SCOPED="아니오"; fi
-echo "  healthz KYOBO 키:          $KY_KEY"
+echo "  healthz KYOBO 키:          $KY_KEY  (brokers.KYOBO · 옛 이미지는 journalGateways.KYOBO)"
 echo "  KYOBO uptime check:        $([[ -n "$KY_UPTIME" ]] && echo 있음 || echo 없음)  (${KYOBO_UPTIME_CHECK})"
 echo "  KYOBO 알림 정책:           $([[ -n "$KY_POLICY" ]] && echo 있음 || echo 없음)  (${KYOBO_ALERT_POLICY})"
 echo "  KB 정책 check_id 한정:     $KB_SCOPED"
