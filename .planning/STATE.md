@@ -653,6 +653,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 261006-pdw | relay 컨테이너 로그를 Cloud Logging 으로 (Ops Agent · json-file 유지 · kill→3초→rm) | 2026-10-06 | f5100e4c | [261006-pdw-relay-cloud-logging](./quick/261006-pdw-relay-cloud-logging/) |
 | 261006-pey | 마이페이지 리디자인 — /me 상단 4탭(현황·잔고·주문·설정) + 설정 탭 상따 기본설정 묶음 카드 4장(sketch 013 A+S1) | 2026-10-06 | dbdaa706 | [261006-pey-mypage-redesign](./quick/261006-pey-mypage-redesign/) |
 | 73 | /me 설정 탭 상따 기본설정 카드 행 쉐브런 › 상시 표시(공용 행 폰 밴드 숨김 규칙은 유지 · /me 만 되살림) | 2026-10-06 | ef0ef298 | — |
+| 74 | limitup-sync commit 느림 경고 임계 5초 → 30초(statement_timeout 120s 의 25% · gh-trade-43 요청 — 실측 5.6~10.9초로 여유 ~11배 확인) · 워커 재배포 | 2026-10-06 | ecf7c173 | — |
 
 ## Session Continuity
 
