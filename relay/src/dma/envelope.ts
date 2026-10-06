@@ -96,6 +96,9 @@ import { UserSettings } from "../generated/stock-dma/user-settings.js";
 import { JournalRecord as WireJournalRecord } from "../generated/stock-dma/journal-record.js";
 import { ObserverAccount } from "../generated/stock-dma/observer-account.js";
 import { ObserverLoginReq } from "../generated/stock-dma/observer-login-req.js";
+import { AdminAccount as WireAdminAccount } from "../generated/stock-dma/admin-account.js";
+import { AdminCommandReq } from "../generated/stock-dma/admin-command-req.js";
+import { AdminUser as WireAdminUser } from "../generated/stock-dma/admin-user.js";
 import { StrategyEvent as WireStrategyEvent } from "../generated/stock-dma/strategy-event.js";
 import type {
   JournalBatchFrame,
@@ -105,6 +108,14 @@ import type {
   StrategyContractViolation,
   StrategyEventRecord,
 } from "../journal/types.js";
+import type {
+  AdminAccount,
+  AdminCommandInput,
+  AdminCommandResult,
+  AdminSnapshotUser,
+  AdminUsersSnapshot,
+} from "../admin/types.js";
+import { ADMIN_OP } from "../admin/types.js";
 import { MIN_ENVELOPE_SIZE, logDroppedFrame } from "./codec.js";
 import { MSG, INBOUND_MSG_TYPES, OUT_OF_SCOPE_INBOUND_MSG_TYPES } from "./msg-type.js";
 
@@ -170,6 +181,10 @@ export const MAX_QUEUE_PROGRESS_ITEMS = 200;
 export const MAX_LIMIT_FEATURE_MEMBERS = 3;
 /** 관찰자 로그인 응답(79) 계좌 매핑 상한 (T-19-33). users.toml 평탄화 행 수 — 실사용은 수십 행이다. */
 export const MAX_OBSERVER_ACCOUNT_COUNT = 1024;
+/** admin 유저 스냅샷(87) 유저당 계좌 벡터 상한 (Phase 29). 실사용은 한 자릿수 — 깨진 길이로 순회 폭주만 막는다. */
+export const MAX_ADMIN_ACCOUNTS_PER_USER = 64;
+/** admin 유저 스냅샷(87) 유저 벡터 상한 (Phase 29). users.toml 전체 — 실사용은 수십 명이다. */
+export const MAX_ADMIN_USERS = 2000;
 
 /** 12자 ISIN — 앞 2자는 국가코드(영문), 나머지 10자는 영숫자. */
 const ISIN_PATTERN = /^[A-Z]{2}[A-Z0-9]{10}$/;
@@ -3084,9 +3099,10 @@ export type ObserverLoginReqInput = {
   strategySinceSeq: number;
   /**
    * 관찰자 역할 (Phase 26 · gh-trade ed2e0240 · vtable 슬롯 14). 0 = journal(기본 · 생략 시 — 필드 없는 구 relay 와
-   * 같다) · 1 = quote(시세 전용 관찰자 — 저널 없음). 그 밖 값은 서버가 79 `success=false` 로 거부하므로 여기서 먼저 막는다.
+   * 같다) · 1 = quote(시세 전용 관찰자 — 저널 없음) · 2 = admin(Phase 29 · gh-trade 92cdfbff — users.toml 관리 전용,
+   * 4 · 44 만). 그 밖 값은 서버가 79 `success=false` 로 거부하므로 여기서 먼저 막는다.
    */
-  role?: 0 | 1;
+  role?: 0 | 1 | 2;
 };
 
 /**
@@ -3094,7 +3110,7 @@ export type ObserverLoginReqInput = {
  *
  * `since_seq` 는 ulong 이라 `BigInt` 로 싣는다. 음수·비정수·안전 정수 초과는 **호출자 버그**라 throw 한다 —
  * 조용히 0 으로 접으면 게이트웨이가 보관분 전체를 재생하고, 잘라 실으면 엉뚱한 구간을 건너뛴다.
- * `role` 도 0 · 1 밖이면 호출자 버그라 throw 한다 — 서버가 거부할 로그인을 보내 재접속 루프를 돌지 않는다.
+ * `role` 도 0 · 1 · 2 밖이면 호출자 버그라 throw 한다 — 서버가 거부할 로그인을 보내 재접속 루프를 돌지 않는다.
  * 비밀은 이 함수 밖으로 나가지 않는다 — **어떤 로그에도 싣지 않는다**(T-19-03 · throw 문구에도 없다).
  */
 export function buildObserverLoginReq(input: ObserverLoginReqInput): Uint8Array {
@@ -3106,8 +3122,10 @@ export function buildObserverLoginReq(input: ObserverLoginReqInput): Uint8Array 
     throw new RangeError(`관찰자 로그인 strategy_since_seq 가 0 이상의 안전 정수가 아니다: ${String(strategySinceSeq)}`);
   }
   const role = input.role ?? 0;
-  if (role !== 0 && role !== 1) {
-    throw new RangeError(`관찰자 로그인 role 이 0(journal) · 1(quote) 이 아니다: ${String(role)}`);
+  if (role !== 0 && role !== 1 && role !== 2) {
+    throw new RangeError(
+      `관찰자 로그인 role 이 0(journal) · 1(quote) · 2(admin) 이 아니다: ${String(role)}`,
+    );
   }
   const b = new flatbuffers.Builder(256);
   // 문자열은 테이블 조립 **전에** 만든다 (FlatBuffers 중첩 제약).
@@ -3186,6 +3204,131 @@ export function parseObserverLoginResp(env: Envelope): ObserverLoginResult | nul
       // 수락한 역할 에코(Phase 26 · ed2e0240). 거부 응답 · 구 게이트웨이(필드 없음)는 0 으로 읽힌다.
       role: r.role(),
     };
+  } catch (err) {
+    return dropField("parse-throw", msgType, { error: err instanceof Error ? err.name : "unknown" });
+  }
+}
+
+// ============================================================
+// Phase 29 — admin 관리 코덱 (44 조립 · 86/87 파싱 · gh-trade 92cdfbff · blob 03fc8cbe)
+// ============================================================
+//
+// admin 연결(role 2) 전용이다. 계좌번호는 서버 정규화값 그대로 싣고 읽는다(재정규화 금지 — Pitfall 7).
+// ulong(request_id · users_rev)은 bigint 그대로 둔다 — toNum 을 거치지 않는다(정밀도 손실 금지).
+// 비밀번호 · 계좌번호는 어떤 로그 인자에도 싣지 않는다.
+
+/** `AdminAccount` 테이블 조립 — 생성 빌더(start/add/end)로만. 문자열은 테이블 조립 **전에** 만든다. */
+function buildWireAdminAccount(b: flatbuffers.Builder, a: AdminAccount): flatbuffers.Offset {
+  const accountNo = b.createString(a.accountNo);
+  const name = b.createString(a.name);
+  const branchNo = b.createString(a.branchNo);
+  const traderId = b.createString(a.traderId);
+  WireAdminAccount.startAdminAccount(b);
+  WireAdminAccount.addAccountNo(b, accountNo);
+  WireAdminAccount.addName(b, name);
+  WireAdminAccount.addBranchNo(b, branchNo);
+  WireAdminAccount.addTraderId(b, traderId);
+  WireAdminAccount.addPriority(b, a.priority);
+  return WireAdminAccount.endAdminAccount(b);
+}
+
+/**
+ * admin 관리 명령 (MsgType 44 · `admin_command_req` 슬롯 92 · C→S · Phase 29).
+ *
+ * - `password` 는 **op 1(UpsertUser) 일 때만** 싣는다. 그 밖 op 는 빈 문자열 — 호출자가 실수로 넘겨도 와이어에 나가지 않는다.
+ * - `account` 는 주어질 때만 싣는다(op 1 신규 · op 3 · op 4).
+ * - `requestId` 는 ulong 이라 0 이상 2^64 미만이어야 한다 — 벗어나면 호출자 버그라 throw 한다(값은 문구에 싣되 비밀은 없다).
+ */
+export function buildAdminCommandReq(input: AdminCommandInput): Uint8Array {
+  const { requestId } = input;
+  if (typeof requestId !== "bigint" || requestId < 0n || requestId >= 1n << 64n) {
+    throw new RangeError(`admin request_id 가 ulong 범위가 아니다: ${String(requestId)}`);
+  }
+  const b = new flatbuffers.Builder(256);
+  const userId = b.createString(input.userId);
+  const password = b.createString(input.op === ADMIN_OP.UpsertUser ? (input.password ?? "") : "");
+  const account = input.account !== undefined ? buildWireAdminAccount(b, input.account) : null;
+
+  AdminCommandReq.startAdminCommandReq(b);
+  AdminCommandReq.addRequestId(b, requestId);
+  AdminCommandReq.addOp(b, input.op);
+  AdminCommandReq.addUserId(b, userId);
+  AdminCommandReq.addPassword(b, password);
+  if (account !== null) AdminCommandReq.addAccount(b, account);
+  const table = AdminCommandReq.endAdminCommandReq(b);
+
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.AdminCommandReq);
+  Envelope.addAdminCommandReq(b, table);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+/**
+ * admin 명령 응답 (86 · `admin_command_resp` 슬롯 94). total 하다 — throw 하지 않는다.
+ * `message` 는 화면 표시용 한국어 그대로 · 분기는 `code`(D-23 ④).
+ */
+export function parseAdminCommandResp(env: Envelope): AdminCommandResult | null {
+  const msgType = MSG.AdminCommandResp;
+  try {
+    const r = env.adminCommandResp();
+    if (r === null) return dropField("slot-null", msgType, { slot: "admin_command_resp" });
+    return {
+      requestId: r.requestId(),
+      ok: r.ok(),
+      code: r.code(),
+      message: r.message() ?? "",
+      usersRev: r.usersRev(),
+    };
+  } catch (err) {
+    return dropField("parse-throw", msgType, { error: err instanceof Error ? err.name : "unknown" });
+  }
+}
+
+/**
+ * users.toml 전체 스냅샷 (87 · `admin_users_snapshot` 슬롯 96). total 하다 — throw 하지 않는다.
+ *
+ * - 유저는 파일 순, 계좌는 priority 오름차순 — 서버 순서를 그대로 보존한다(정렬하지 않는다).
+ * - 교보 계좌의 `branchNo` · `traderId` 빈 문자열은 그대로 둔다(D-23 ③).
+ * - `request_id` 가 없다 — 86 직후 같은 연결 순서로 짝짓는다(29-08).
+ * - 원소 null 은 건너뛴다(구조 이상 — 로그에는 인덱스만, 계좌번호 없음). 상한 초과는 앞 N건(`takeCount` 경고).
+ */
+export function parseAdminUsersSnapshot(env: Envelope): AdminUsersSnapshot | null {
+  const msgType = MSG.AdminUsersSnapshot;
+  try {
+    const r = env.adminUsersSnapshot();
+    if (r === null) return dropField("slot-null", msgType, { slot: "admin_users_snapshot" });
+
+    const userScratch = new WireAdminUser();
+    const accountScratch = new WireAdminAccount();
+    const nUsers = takeCount(r.usersLength(), MAX_ADMIN_USERS, "admin 유저 스냅샷 유저");
+    const users: AdminSnapshotUser[] = [];
+    for (let i = 0; i < nUsers; i += 1) {
+      const u = r.users(i, userScratch);
+      if (u === null) {
+        logger.warn({ msgType, index: i }, "[DMA] admin 유저 스냅샷 유저 항목 null — 건너뜀");
+        continue;
+      }
+      const userId = u.userId() ?? "";
+      const nAcc = takeCount(u.accountsLength(), MAX_ADMIN_ACCOUNTS_PER_USER, "admin 유저 스냅샷 계좌");
+      const accounts: AdminAccount[] = [];
+      for (let j = 0; j < nAcc; j += 1) {
+        const a = u.accounts(j, accountScratch);
+        if (a === null) {
+          logger.warn({ msgType, index: i, accountIndex: j }, "[DMA] admin 유저 스냅샷 계좌 항목 null — 건너뜀");
+          continue;
+        }
+        accounts.push({
+          accountNo: a.accountNo() ?? "",
+          name: a.name() ?? "",
+          branchNo: a.branchNo() ?? "",
+          traderId: a.traderId() ?? "",
+          priority: a.priority(),
+        });
+      }
+      users.push({ userId, accounts });
+    }
+    return { usersRev: r.usersRev(), users };
   } catch (err) {
     return dropField("parse-throw", msgType, { error: err instanceof Error ? err.name : "unknown" });
   }

@@ -1,6 +1,6 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: ea8d9171
+// server-repo-commit: 92cdfbff
 // synced-date:        2026-10-06
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
@@ -20,6 +20,7 @@ enum MsgType : byte {
     //   39:    전략 이벤트 백필 조회 (Phase 25)
     //   40:    일괄매도 (quick-261002-qvg)
     //   41~43: 자동매도 바로시작/중지 · 사용자 설정 저장/조회 (Phase 28)
+    //   44:    원격 유저·계좌 관리 명령 — admin 관찰자(role 2) 전용 (Phase 29)
     LoginReq = 1,
     DirectOrderReq = 2,
     UpdateAccountNoReq = 3,
@@ -96,6 +97,12 @@ enum MsgType : byte {
                                    // 범위 밖 값은 54 ERROR 로 거부하고 저장값은 바꾸지 않는다.
     GetUserSettingsReq = 43,       // 사용자 설정 조회 (C→S, D-20) — 요청 테이블 없음(24/27/34 선례). 응답 = 84 요청 연결 Notice
 
+    // === 이하 Phase 29 추가 (원격 유저·계좌 관리 — 29-CONTEXT D-04/D-05, gh-radar-34 합의) ===
+    AdminCommandReq = 44,          // 원격 유저·계좌 관리 명령 (C→S) — admin 관찰자(ObserverLoginReq.role 2) 연결 전용.
+                                   // op 1~5 (AdminCommandReq 테이블 주석) · Envelope.admin_command_req 슬롯 92.
+                                   // 응답 = 86 AdminCommandResp (+ 실제 변경이면 87 AdminUsersSnapshot 1회).
+                                   // 사용자 세션 연결이 보내면 86 code 11(NOT_ADMIN)
+
     // Server -> Client
     //   50~59: 기본 응답 (로그인, 주문, 체결, 메시지, 계좌)
     //   60~69: KRX 전략·계좌 상태 응답
@@ -105,6 +112,7 @@ enum MsgType : byte {
     //          81/82 전략 이벤트 백필·푸시 · 83 잔량진행률 (Phase 25)
     //   84:    사용자 설정 응답·푸시 (Phase 28)
     //   85:    실시간 상한가 특징 푸시 (Phase 27)
+    //   86~87: 원격 유저·계좌 관리 응답·전체 목록 (Phase 29 — admin 관찰자 연결 전용)
     LoginResp = 50,
     OrderResp = 51,
     OrderConfirm = 52,
@@ -172,8 +180,13 @@ enum MsgType : byte {
 
     // Phase 27 — 실시간 상한가 특징 (푸시 전용·요청 짝 없음·FULL 구독(m_subs) 편승 Broadcast, D-17/D-18).
     // 84·86·88·kind 11~14 는 Phase 28 이 먼저 고정했다 — 85 · Envelope 슬롯 90 · kind 15 는 그 뒤 append.
-    LimitFeature = 85              // 실시간 상한가 특징 (S→C, Envelope.limit_feature 슬롯 90, 키(isin, 거래소)별 1초 스로틀 Broadcast —
+    LimitFeature = 85,             // 실시간 상한가 특징 (S→C, Envelope.limit_feature 슬롯 90, 키(isin, 거래소)별 1초 스로틀 Broadcast —
                                    // 그 키를 FULL 구독한 연결에만, 75 선례). 필드 정본 docs/analysis/feature-dictionary.md 「85 필드」 열
+
+    // === 이하 Phase 29 추가 (원격 유저·계좌 관리 — 29-CONTEXT D-04~D-07, gh-radar-34 합의) ===
+    AdminCommandResp = 86,         // 44 응답 (S→C, Envelope.admin_command_resp 슬롯 94, 요청 연결에만 Notice) — code 표는 테이블 주석
+    AdminUsersSnapshot = 87        // users.toml 전체 목록 (S→C, Envelope.admin_users_snapshot 슬롯 96, 요청 연결에만 Notice) —
+                                   // op 5 응답 · 변경 op 가 실제 변경을 낸 뒤 86 다음 1회. 비밀번호 없음 (D-06/D-07)
 }
 
 // ============================================================================
@@ -1223,7 +1236,8 @@ table ObserverLoginReq {
 
     // === 이하 quick-260930-kg3 추가 (테이블 말미 append — 가운데 삽입 금지) ===
     role: ubyte;                 // 0 = journal(기본 — 필드 없는 구 relay 도 0) · 1 = quote(시세 전용 관찰자 — 저널 없음,
-                                 // 시세 요청 27/28/29/32/35 허용) · 그 밖 값은 거부 (vtable 슬롯 14)
+                                 // 시세 요청 27/28/29/32/35 허용) · 2 = admin(users.toml 원격 관리 — 4·44 만 처리,
+                                 // 관찰자 비밀 그대로, Phase 29 D-01/D-02) · 그 밖 값은 거부 (vtable 슬롯 14)
 }
 
 table ObserverAccount {      // users.toml 평탄화 1행 (D-18) — 비밀번호는 절대 싣지 않는다
@@ -1259,7 +1273,7 @@ table ObserverLoginResp {
     strategy_resync: bool;         // (vtable 슬롯 24)
 
     // === 이하 quick-260930-kg3 추가 (테이블 말미 append — 가운데 삽입 금지) ===
-    role: ubyte;                   // 성공 응답에 수락한 역할 에코(0 = journal · 1 = quote), 거부 응답은 0 (vtable 슬롯 26)
+    role: ubyte;                   // 성공 응답에 수락한 역할 에코(0 = journal · 1 = quote · 2 = admin), 거부 응답은 0 (vtable 슬롯 26)
 }
 
 table JournalRecord {        // 23 필드 — gh-radar 이벤트 JSON 키와 1:1 (인계서 §2 대응표, 이름 그대로)
@@ -1580,6 +1594,64 @@ table UserSettings {             // 42/84 공용 본문 — 사용자(dma_user_i
 }
 
 // ============================================================================
+// Phase 29 — 원격 유저·계좌 관리 admin 역할 (29-CONTEXT D-04~D-20, gh-radar-34 합의 2026-10-06)
+//
+// gh-radar 웹앱 Admin 화면이 relay 의 관리자 연결(ObserverLoginReq role 2, 관찰자 비밀 그대로 — D-01)로
+// 게이트웨이의 config/users.toml 유저·비밀번호·계좌를 원격 관리한다. 새 와이어는 셋이다.
+//   44 AdminCommandReq    (C→S) 명령 — Envelope.admin_command_req 슬롯 92. admin 연결 전용(사용자 세션 = 86 code 11)
+//   86 AdminCommandResp   (S→C) 응답 — Envelope.admin_command_resp 슬롯 94, 요청 연결에만 Notice
+//   87 AdminUsersSnapshot (S→C) 전체 목록 — Envelope.admin_users_snapshot 슬롯 96, 요청 연결에만 Notice.
+//                                op 5 응답 · 변경 op 가 실제 변경을 냈을 때만 86 다음 1회 (D-06)
+// 적용 순서는 검증 → users.toml 재작성 → 메모리 교체(저장 실패면 메모리도 그대로, code 10 — D-08).
+// 비밀번호는 86·87·로그 어디에도 싣지 않는다 (D-07).
+// 이름·번호는 gh-radar 와 합의된 one-way 계약이다 — 바꾸지 않고, 추가는 말미 append 만 한다.
+// 새 메시지·역할은 append-only 라 strategy_state.toml·account_state.toml·vi_orders.toml·예약주문 복원 경로를 건드리지 않는다 (D-19).
+// ============================================================================
+
+table AdminAccount {             // 계좌 1행 — 44 의 account · 87 의 AdminUser.accounts 공용
+    account_no: string;          // 계좌번호. 서버가 NormalizeAccountNo(앞 0 제거, ≤12자)로 정규화하고 87 에는 정규화값이 실린다
+    name: string;                // 계좌명 — 선택(빈 문자열 허용)
+    branch_no: string;           // 지점번호 — KB 는 5자 필수 · 교보는 빈 문자열 허용(검사·전문 사용 없음)
+    trader_id: string;           // 조작자 ID — KB 는 6자 필수 · 교보는 빈 문자열 허용(검사·전문 사용 없음)
+    priority: int;               // 표시 순서 — 기본 0, 작을수록 앞 (users.toml priority)
+}
+
+table AdminCommandReq {          // 44 본문 — admin 관찰자 연결 전용 명령 (D-04, D-09~D-16)
+    request_id: ulong;           // relay 가 매기는 요청 번호 — 86/87 에 그대로 에코
+    op: ubyte;                   // 1 UpsertUser · 2 DeleteUser · 3 SetAccount · 4 RemoveAccount · 5 ListUsers. 그 밖 값은 86 code 1
+    user_id: string;             // 대상 users.toml user_id (op 1~4). op 5 는 읽지 않는다
+    password: string;            // op 1 만 — 기존 유저 + 빈 문자열 = 비밀번호 유지, 신규 유저는 필수(빈 값이면 code 3)
+    account: AdminAccount;       // op 3(추가 또는 같은 account_no 갱신) · op 4(account_no 만 읽음) ·
+                                 // op 1 신규(첫 계좌 필수 — 계좌 0개 유저 불허, 없으면 code 5). op 1 기존 유저는 무시
+}
+
+table AdminCommandResp {         // 86 본문 — 44 응답 (요청 연결에만 Notice)
+    request_id: ulong;           // 44 의 request_id 에코
+    ok: bool;                    // code == 0
+    code: ushort;                // 분기용 결과 코드 (D-05):
+                                 //   0 OK · 1 BAD_OP · 2 BAD_USER_ID(빈/8B 초과) · 3 BAD_PASSWORD(신규인데 빈 값) ·
+                                 //   4 NO_SUCH_USER · 5 BAD_ACCOUNT_NO(빈/12자 초과/신규 유저에 account 없음) ·
+                                 //   6 BAD_BRANCH_TRADER(KB 만) · 7 ACCOUNT_CONFLICT(다른 유저가 같은 계좌를 다른 branch/trader 로 보유) ·
+                                 //   8 NO_SUCH_ACCOUNT · 9 BUSY(계좌에 상따·VI·미체결·예약 — 서버는 대신 정리하지 않는다) ·
+                                 //   10 PERSIST_FAILED(파일 저장 실패 — 메모리도 그대로) · 11 NOT_ADMIN(사용자 세션 연결) ·
+                                 //   12 LAST_ACCOUNT(마지막 계좌 제거 — 사용자 삭제로 처리)
+    message: string;             // 한국어 사용자 문장(Admin 화면 표시용 — 예 「미체결 2건 · 상따 1건 · VI 1건 등록 — 먼저 정리」).
+                                 // 분기는 code 로 한다
+    users_rev: ulong;            // 목록 리비전 — 기동 1 · 실제 변경마다 +1 (메모리 카운터, 재기동 시 1 로 복귀 —
+                                 // relay 는 접속마다 op 5 로 전체 대조). 멱등(무변경)은 code 0 · rev 불변 · 파일 안 씀 (D-06/D-09)
+}
+
+table AdminUser {                // 87 의 유저 1행 — 비밀번호는 어디에도 싣지 않는다 (D-07)
+    user_id: string;             // users.toml user_id
+    accounts: [AdminAccount];    // 그 유저의 계좌 — priority 오름차순(LoadUsers 정렬 그대로)
+}
+
+table AdminUsersSnapshot {       // 87 본문 — users.toml 전체 (WinForms 전용 유저 포함, D-16)
+    users_rev: ulong;            // 이 목록의 리비전 (86 의 users_rev 와 같은 카운터)
+    users: [AdminUser];          // 유저는 파일 순 · 계좌는 priority 오름차순. 유저 0명이면 빈 벡터
+}
+
+// ============================================================================
 // Envelope (메시지 래퍼)
 // ============================================================================
 
@@ -1670,6 +1742,11 @@ table Envelope {
 
     // === 이하 Phase 27 추가 (테이블 말미 append — 가운데 삽입 금지, D-24) ===
     limit_feature: LimitFeature;                 // 85 본문 — 실시간 상한가 특징 (vtable 슬롯 90)
+
+    // === 이하 Phase 29 추가 (테이블 말미 append — 가운데 삽입 금지, D-04) ===
+    admin_command_req: AdminCommandReq;          // 44 본문 — 원격 유저·계좌 관리 명령 (vtable 슬롯 92)
+    admin_command_resp: AdminCommandResp;        // 86 본문 — 명령 응답 (vtable 슬롯 94)
+    admin_users_snapshot: AdminUsersSnapshot;    // 87 본문 — users.toml 전체 목록 (vtable 슬롯 96)
 }
 
 root_type Envelope;

@@ -4,6 +4,11 @@
 
 export { AccountEntry } from './stock-dma/account-entry.js';
 export { AccountState } from './stock-dma/account-state.js';
+export { AdminAccount } from './stock-dma/admin-account.js';
+export { AdminCommandReq } from './stock-dma/admin-command-req.js';
+export { AdminCommandResp } from './stock-dma/admin-command-resp.js';
+export { AdminUser } from './stock-dma/admin-user.js';
+export { AdminUsersSnapshot } from './stock-dma/admin-users-snapshot.js';
 export { AutoSellCommandReq } from './stock-dma/auto-sell-command-req.js';
 export { CancelReason } from './stock-dma/cancel-reason.js';
 export { CondMetric } from './stock-dma/cond-metric.js';

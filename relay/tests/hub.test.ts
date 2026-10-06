@@ -65,6 +65,8 @@ import {
   buildRateCrossSnapshotFrame,
   buildUserSettingsFrame,
   buildLimitFeatureFrame,
+  buildAdminCommandRespFrame,
+  buildAdminUsersSnapshotFrame,
   SAMPLE_ACCOUNT_NO,
   type FakeTapeEntryInput,
 } from "./helpers/frames.js";
@@ -681,6 +683,63 @@ describe("SubscriptionHub — 관찰자 전용 프레임(79 · 80)이 사용자 
     expect(fanout).toEqual([]);
     expect(session.sent).toEqual([]);
     hub.closeAll();
+  });
+});
+
+describe("Phase 29 86/87 은 admin 전용 — 사용자 세션 · quote 연결로 오면 명시 warn (29-02 · PC-12)", () => {
+  let hub: SubscriptionHub;
+  let fanout: HubFanoutEvent[];
+  let market: HubMarketEvent[];
+  let warn: { mock: { calls: unknown[][] } };
+
+  const adminWarns = (needle: string): unknown[] =>
+    warn.mock.calls
+      .filter((args) => args.some((a) => typeof a === "string" && a.includes(needle)))
+      .map((args) => args[0]);
+
+  beforeEach(() => {
+    resetDroppedEnvelopeCount();
+    warn = vi.spyOn(logger, "warn").mockImplementation((() => undefined) as never);
+    hub = new SubscriptionHub();
+    fanout = [];
+    market = [];
+    hub.on("fanout", (e) => fanout.push(e));
+    hub.on("market", (e) => market.push(e));
+  });
+
+  afterEach(() => {
+    hub.closeAll();
+    vi.restoreAllMocks();
+  });
+
+  it("사용자 세션으로 온 86 · 87 → warn 각 1건 · unhandledFrameCount 불변 · 팬아웃 0", () => {
+    const session = new FakeSession("user-1");
+    hub.attach(session);
+    session.pushFrame(buildAdminCommandRespFrame({ code: 0 }));
+    session.pushFrame(buildAdminUsersSnapshotFrame());
+
+    expect(adminWarns("사용자 세션에 admin 전용 프레임")).toEqual([
+      { userId: "user-1", msgType: MSG.AdminCommandResp },
+      { userId: "user-1", msgType: MSG.AdminUsersSnapshot },
+    ]);
+    expect(hub.unhandledFrameCount()).toBe(0);
+    expect(fanout).toEqual([]);
+    expect(session.sent).toEqual([]);
+  });
+
+  it("quote 연결로 온 86 · 87 → warn 각 1건 · unhandledFrameCount 불변 · market 0", () => {
+    const feed = new FakeFeed();
+    hub.attachFeed(feed);
+    feed.pushFrame(buildAdminCommandRespFrame({ code: 9, message: "먼저 정리" }));
+    feed.pushFrame(buildAdminUsersSnapshotFrame());
+
+    expect(adminWarns("quote 연결에 admin 전용 프레임")).toEqual([
+      { msgType: MSG.AdminCommandResp },
+      { msgType: MSG.AdminUsersSnapshot },
+    ]);
+    expect(hub.unhandledFrameCount()).toBe(0);
+    expect(market).toEqual([]);
+    expect(fanout).toEqual([]);
   });
 });
 

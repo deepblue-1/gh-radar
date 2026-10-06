@@ -38,6 +38,14 @@
  * 때만 그 연결에 79(기본 role 1 · epoch "" · 계좌 빈 벡터 — 거부면 role 0) 를 쓰고, 성공이면 빈 78 `RateCrossSnapshot` 을
  * 이어 쓴다. role 0 은 종전 관찰자 경로 그대로라 `observerLoginRequests()` · `waitForObserverConnection` 은 저널 연결만
  * 본다 — 저널 테스트 · e2e 관찰자 모드가 quote 연결을 저널 연결로 오인하지 않는다.
+ *
+ * Phase 29 — admin 모드: gh-trade 92cdfbff 관문(D-02) 흉내 · role 2 로그인은 admin 목록에만. `ObserverLoginReq(5)` 의 role 이
+ * 2 면 `adminLoginRequests()` · admin 소켓에만 기록하고, `respondAdminLogin` 으로 켰을 때만 그 연결에 79(기본 role 2 · epoch "" ·
+ * 계좌 빈 벡터 — 거부면 role 0) **1프레임만** 쓴다(78/80 없음). `AdminCommandReq(44)` 는 `adminCommandRequests()` 에 기록하고,
+ * `onAdminCommand(handler)` 로 handler 를 심었을 때만 그 결과를 같은 연결에 86 → 87 순서로 쓴다 — **기본 무응답**(타임아웃 시나리오).
+ * `defaultAdminHandler(state)` 는 메모리 users 표로 op 1~5 를 흉내 낸다(op 5 = 87 만 · 실제 변경 = 86(rev+1) 뒤 87 · 무변경 = 86
+ * code 0 · rev 불변 · 87 없음 · 실패 = 86 만). 이것은 **조회 3종 자동 응답과 같은 예외**다 — 29-08 · 29-11 · 29-14 통합 테스트가
+ * 서버 2대 fan-out · BUSY · 무변경 멱등을 매번 손으로 조립하지 않게 한다. `startFakeGateway()` 를 두 번 부르면 독립 인스턴스 2개다.
  */
 import net from "node:net";
 import * as flatbuffers from "flatbuffers";
@@ -45,8 +53,11 @@ import * as flatbuffers from "flatbuffers";
 import { Envelope } from "../../src/generated/stock-dma/envelope.js";
 import { frame, FrameReader } from "../../src/dma/codec.js";
 import { MSG } from "../../src/dma/msg-type.js";
+import type { AdminAccount } from "../../src/admin/types.js";
 import {
   STRATEGY_MSG,
+  buildAdminCommandRespFrame,
+  buildAdminUsersSnapshotFrame,
   buildBareEnvelope,
   buildJournalBatchFrame,
   buildLimitChaserListRespFrame,
@@ -65,6 +76,9 @@ import {
   buildUserSettingsFrame,
   buildViOrderListFrame,
   type FakeAccount,
+  type FakeAdminAccountInput,
+  type FakeAdminCommandRespInput,
+  type FakeAdminUsersSnapshotInput,
   type FakeJournalBatchInput,
   type FakeLimitChaserInput,
   type FakeLimitFeatureInput,
@@ -129,6 +143,41 @@ export type FakeGatewayOptions = {
    * 지정한 필드 위에 `{ role: 1, accounts: [], epoch: "" }` 기본을 깐다(거부이고 role 미지정이면 role 0 — 서버 규약).
    */
   quoteLoginResp?: FakeObserverLoginRespInput;
+  /**
+   * role 2(admin) `ObserverLoginReq(5)` 자동 응답 내용 (Phase 29). **기본은 자동 응답 없음** — quote 모드와 같은 규율.
+   * 지정한 필드 위에 `{ role: 2, accounts: [], epoch: "" }` 기본을 깐다(거부이고 role 미지정이면 role 0 — 서버 규약).
+   */
+  adminLoginResp?: FakeObserverLoginRespInput;
+};
+
+/** `AdminCommandReq(44)` 1건의 내용 (게이트웨이 흉내 — 요청 대역 직접 파싱). 평문 비밀번호는 테스트 단언용으로만 보관한다. */
+export type AdminCommandRequest = {
+  requestId: bigint;
+  op: number;
+  userId: string;
+  password: string;
+  /** 슬롯 부재 = `null`. */
+  account: AdminAccount | null;
+};
+
+/** admin handler 결과 — 86 입력(생략 = 86 없음 · op 5) + 선택 87 입력. 둘 다 있으면 86 → 87 순서로 쓴다. */
+export type FakeAdminReply = {
+  resp?: FakeAdminCommandRespInput;
+  snapshot?: FakeAdminUsersSnapshotInput;
+};
+
+/** 44 1건 → 응답. `null` = 무응답(타임아웃 시나리오). */
+export type FakeAdminHandler = (req: AdminCommandRequest) => FakeAdminReply | null;
+
+/**
+ * `defaultAdminHandler` 의 메모리 users 표. 테스트가 직접 들고 있다가 단언에 쓴다(handler 가 제자리 갱신한다).
+ * `users` 순서 = 87 유저 순서(파일 순 흉내), 계좌는 87 에서 priority 오름차순으로 낸다.
+ */
+export type FakeAdminState = {
+  usersRev: bigint;
+  users: Map<string, FakeAdminAccountInput[]>;
+  /** BUSY(9) 로 판정할 계좌번호 — 서버는 계좌 상태(미체결 · 상따 · VI · 예약)로만 판정한다(D-10~D-15). */
+  busyAccounts: Set<string>;
 };
 
 /** `ObserverLoginReq(5)` 1건의 내용 (게이트웨이 흉내 — 요청 대역 직접 파싱). */
@@ -139,7 +188,7 @@ export type ObserverLoginRequest = {
   client: string;
   /** 전략 스트림 since (Phase 25 · 슬롯 12). 구 relay 는 0 으로 읽힌다. */
   strategySinceSeq: number;
-  /** 관찰자 역할 (Phase 26 · 슬롯 14). 0 = journal · 1 = quote. 구 relay 는 0 으로 읽힌다. */
+  /** 관찰자 역할 (Phase 26 · 슬롯 14). 0 = journal · 1 = quote · 2 = admin(Phase 29). 구 relay 는 0 으로 읽힌다. */
   role: number;
 };
 
@@ -273,6 +322,29 @@ export type FakeGateway = {
    * `hardClose` 로 끊긴 연결은 건너뛰므로 재접속 뒤 호출하면 새 연결이 나온다.
    */
   waitForQuoteConnection(timeoutMs?: number): Promise<net.Socket>;
+
+  // --- admin 모드 (Phase 29) ---
+
+  /**
+   * admin(role 2) 관찰자 로그인 자동 응답을 켜고 내용을 지정한다. 이후 role 2 `ObserverLoginReq(5)` 가 오면 **그 연결에만**
+   * 79 1프레임을 쓴다(78/80 없음 — gh-trade D-02). `null` 이면 끈다(무응답 재현).
+   */
+  respondAdminLogin(resp: FakeObserverLoginRespInput | null): void;
+  /** 지금까지 수신한 role 2 `ObserverLoginReq(5)` 전량 (송신 순서 그대로). */
+  adminLoginRequests(): ObserverLoginRequest[];
+  /**
+   * admin 로그인을 보낸 **살아 있는** 연결을 돌려준다. 없으면 다음 role 2 로그인이 온 연결을 기다린다 —
+   * `hardClose` 로 끊긴 연결은 건너뛰므로 재접속 뒤 호출하면 새 연결이 나온다.
+   */
+  waitForAdminConnection(timeoutMs?: number): Promise<net.Socket>;
+  /** 지금까지 수신한 `AdminCommandReq(44)` 전량 (송신 순서 그대로). */
+  adminCommandRequests(): AdminCommandRequest[];
+  /** 44 handler 를 심는다. 결과를 그 연결에 86 → 87 순서로 쓴다. `null` = 무응답(기본). */
+  onAdminCommand(handler: FakeAdminHandler | null): void;
+  /** 86 수동 송신 — 지연 · 순서 뒤집기 · 엉뚱한 requestId 를 테스트가 직접 만든다. */
+  respondAdminCommand(sock: net.Socket, input: FakeAdminCommandRespInput): void;
+  /** 87 수동 송신 — 요청 없이 민다(다른 admin 연결의 변경 뒤 87 흉내). */
+  pushAdminSnapshot(sock: net.Socket, input: FakeAdminUsersSnapshotInput): void;
 
   /** 임의 바이트 주입 — 청크 경계를 테스트가 지정한다. 길이 프레이밍을 하지 않는다. */
   sendRaw(sock: net.Socket, bytes: Uint8Array): void;
@@ -744,6 +816,181 @@ function quoteLoginRespInput(resp: FakeObserverLoginRespInput): FakeObserverLogi
   return { accounts: [], epoch: "", ...resp, role };
 }
 
+/** admin 관찰자 역할 (gh-trade 92cdfbff). 스텁은 relay 의 `ADMIN_ROLE` 을 import 하지 않는다 — 서버 규약 쪽 값이다. */
+const ADMIN_OBSERVER_ROLE = 2;
+
+/** admin 로그인 79 의 내용 — `quoteLoginRespInput` 과 같은 규율(role 2 · epoch "" · 계좌 빈 벡터 · 거부면 role 0). */
+function adminLoginRespInput(resp: FakeObserverLoginRespInput): FakeObserverLoginRespInput {
+  const role = resp.role ?? (resp.success === false ? 0 : ADMIN_OBSERVER_ROLE);
+  return { accounts: [], epoch: "", ...resp, role };
+}
+
+/**
+ * admin 명령 요청(44) 내용을 꺼낸다 (Phase 29). `readObserverLoginRequest` 와 같은 이유로 여기 있다 — 생성 코드 해석을
+ * 스텁 한 벌에 모은다. `request_id` 는 ulong 이라 bigint 그대로 둔다.
+ *
+ * @returns 44 이고 요청 테이블이 있으면 내용, 그 외 `null`
+ */
+export function readAdminCommandRequest(msgType: number, payload: Buffer): AdminCommandRequest | null {
+  if (msgType !== MSG.AdminCommandReq) return null;
+  const req = rootEnvelope(payload)?.adminCommandReq();
+  if (req === null || req === undefined) return null;
+  const a = req.account();
+  return {
+    requestId: req.requestId(),
+    op: req.op(),
+    userId: req.userId() ?? "",
+    password: req.password() ?? "",
+    account:
+      a === null
+        ? null
+        : {
+            accountNo: a.accountNo() ?? "",
+            name: a.name() ?? "",
+            branchNo: a.branchNo() ?? "",
+            traderId: a.traderId() ?? "",
+            priority: a.priority(),
+          },
+  };
+}
+
+/** 스텁 code 값 — relay `ADMIN_CODE` 를 import 하지 않는다(서버 규약 쪽 값 · `ADMIN_OBSERVER_ROLE` 과 같은 이유). */
+const FAKE_ADMIN_CODE = {
+  Ok: 0,
+  BadOp: 1,
+  BadUserId: 2,
+  BadPassword: 3,
+  NoSuchUser: 4,
+  BadAccountNo: 5,
+  AccountConflict: 7,
+  NoSuchAccount: 8,
+  Busy: 9,
+  LastAccount: 12,
+} as const;
+
+/** 87 입력 — 유저는 Map 순서(파일 순 흉내), 계좌는 priority 오름차순(안정 정렬). */
+function adminSnapshotOf(state: FakeAdminState): FakeAdminUsersSnapshotInput {
+  return {
+    usersRev: state.usersRev,
+    users: [...state.users].map(([userId, accounts]) => ({
+      userId,
+      accounts: [...accounts].sort((x, y) => (x.priority ?? 0) - (y.priority ?? 0)).map((a) => ({ ...a })),
+    })),
+  };
+}
+
+/** 계좌 입력 → 5필드 완성본 (비교용). */
+function fullAccount(a: FakeAdminAccountInput): Required<FakeAdminAccountInput> {
+  return {
+    accountNo: a.accountNo ?? "",
+    name: a.name ?? "",
+    branchNo: a.branchNo ?? "",
+    traderId: a.traderId ?? "",
+    priority: a.priority ?? 0,
+  };
+}
+
+/**
+ * 메모리 users 표로 op 1~5 를 흉내 내는 기본 handler (Phase 29 · gh-trade D-05~D-15 요약).
+ *
+ * - op 5 → 87 만.
+ * - 실제 변경 → `state.usersRev += 1` → 86(ok · 새 rev) 뒤 87. 무변경 → 86 code 0 · rev 불변 · 87 없음(D-09).
+ * - 실패 → 86(ok false · code · 한국어 message)만 — rev 불변 · 87 없음.
+ * - op 1 신규 = 비밀번호 + 첫 계좌 필수 · 기존 = 비밀번호만(빈 값 = 유지 → 무변경). 비밀번호는 표에 저장하지 않는다
+ *   (87 에 없다) — 기존 유저의 비어 있지 않은 비밀번호는 늘 「변경」으로 친다.
+ * - op 4 → 없는 계좌 8 · 마지막 계좌 12 · `busyAccounts` 9. op 2 → 그 유저 계좌 중 하나라도 `busyAccounts` 면 9.
+ * - op 3 → 다른 유저 소유 계좌 7 · 같은 값 무변경 · branch/trader 변경이 BUSY 계좌면 9.
+ *
+ * `state` 를 제자리 갱신한다 — 테스트가 같은 객체로 rev · 표를 단언한다. 서버 2대는 state 2개로 만든다.
+ */
+export function defaultAdminHandler(state: FakeAdminState): FakeAdminHandler {
+  const fail = (req: AdminCommandRequest, code: number, message: string): FakeAdminReply => ({
+    resp: { requestId: req.requestId, ok: false, code, message, usersRev: state.usersRev },
+  });
+  const unchanged = (req: AdminCommandRequest): FakeAdminReply => ({
+    resp: { requestId: req.requestId, ok: true, code: FAKE_ADMIN_CODE.Ok, message: "", usersRev: state.usersRev },
+  });
+  const changed = (req: AdminCommandRequest): FakeAdminReply => {
+    state.usersRev += 1n;
+    return {
+      resp: { requestId: req.requestId, ok: true, code: FAKE_ADMIN_CODE.Ok, message: "", usersRev: state.usersRev },
+      snapshot: adminSnapshotOf(state),
+    };
+  };
+  const ownerOf = (accountNo: string): string | null => {
+    for (const [userId, accounts] of state.users) {
+      if (accounts.some((a) => a.accountNo === accountNo)) return userId;
+    }
+    return null;
+  };
+  const busyMessage = "미체결 1건 등록 — 먼저 정리";
+
+  return (req) => {
+    if (req.op === 5) return { snapshot: adminSnapshotOf(state) };
+    if (req.op < 1 || req.op > 5) return fail(req, FAKE_ADMIN_CODE.BadOp, "알 수 없는 명령입니다");
+    if (req.userId === "") return fail(req, FAKE_ADMIN_CODE.BadUserId, "사용자 ID 가 비어 있습니다");
+    const accounts = state.users.get(req.userId);
+
+    switch (req.op) {
+      case 1: {
+        if (accounts !== undefined) return req.password === "" ? unchanged(req) : changed(req);
+        if (req.password === "") return fail(req, FAKE_ADMIN_CODE.BadPassword, "신규 사용자는 비밀번호가 필요합니다");
+        if (req.account === null || req.account.accountNo === "") {
+          return fail(req, FAKE_ADMIN_CODE.BadAccountNo, "신규 사용자는 첫 계좌가 필요합니다");
+        }
+        if (ownerOf(req.account.accountNo) !== null) {
+          return fail(req, FAKE_ADMIN_CODE.AccountConflict, "다른 사용자에게 등록된 계좌입니다");
+        }
+        state.users.set(req.userId, [{ ...req.account }]);
+        return changed(req);
+      }
+      case 2: {
+        if (accounts === undefined) return fail(req, FAKE_ADMIN_CODE.NoSuchUser, "없는 사용자입니다");
+        if (accounts.some((a) => state.busyAccounts.has(a.accountNo ?? ""))) {
+          return fail(req, FAKE_ADMIN_CODE.Busy, busyMessage);
+        }
+        state.users.delete(req.userId);
+        return changed(req);
+      }
+      case 3: {
+        if (accounts === undefined) return fail(req, FAKE_ADMIN_CODE.NoSuchUser, "없는 사용자입니다");
+        if (req.account === null || req.account.accountNo === "") {
+          return fail(req, FAKE_ADMIN_CODE.BadAccountNo, "계좌번호가 비어 있습니다");
+        }
+        const next = req.account;
+        const owner = ownerOf(next.accountNo);
+        if (owner !== null && owner !== req.userId) {
+          return fail(req, FAKE_ADMIN_CODE.AccountConflict, "다른 사용자에게 등록된 계좌입니다");
+        }
+        const i = accounts.findIndex((a) => a.accountNo === next.accountNo);
+        if (i < 0) {
+          accounts.push({ ...next });
+          return changed(req);
+        }
+        const prev = fullAccount(accounts[i]!);
+        if (JSON.stringify(prev) === JSON.stringify(fullAccount(next))) return unchanged(req);
+        const routeChanged = prev.branchNo !== next.branchNo || prev.traderId !== next.traderId;
+        if (routeChanged && state.busyAccounts.has(next.accountNo)) return fail(req, FAKE_ADMIN_CODE.Busy, busyMessage);
+        accounts[i] = { ...next };
+        return changed(req);
+      }
+      case 4: {
+        if (accounts === undefined) return fail(req, FAKE_ADMIN_CODE.NoSuchUser, "없는 사용자입니다");
+        const accountNo = req.account?.accountNo ?? "";
+        if (accountNo === "") return fail(req, FAKE_ADMIN_CODE.BadAccountNo, "계좌번호가 비어 있습니다");
+        const i = accounts.findIndex((a) => a.accountNo === accountNo);
+        if (i < 0) return fail(req, FAKE_ADMIN_CODE.NoSuchAccount, "없는 계좌입니다");
+        if (accounts.length === 1) return fail(req, FAKE_ADMIN_CODE.LastAccount, "마지막 계좌는 지울 수 없습니다");
+        if (state.busyAccounts.has(accountNo)) return fail(req, FAKE_ADMIN_CODE.Busy, busyMessage);
+        accounts.splice(i, 1);
+        return changed(req);
+      }
+      default:
+        return fail(req, FAKE_ADMIN_CODE.BadOp, "알 수 없는 명령입니다");
+    }
+  };
+}
+
 export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<FakeGateway> {
   const handlers: FrameHandler[] = [];
   const sockets: net.Socket[] = [];
@@ -782,6 +1029,14 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
   const quoteSockets: net.Socket[] = [];
   const pendingQuoteConnections: Array<(sock: net.Socket) => void> = [];
 
+  // admin 모드 (Phase 29) — 로그인 · 44 자동 응답은 기본 꺼짐. role 2 로그인은 여기에만 기록한다.
+  let adminLoginResp: FakeObserverLoginRespInput | null = opts.adminLoginResp ?? null;
+  const adminLogins: ObserverLoginRequest[] = [];
+  const adminSockets: net.Socket[] = [];
+  const pendingAdminConnections: Array<(sock: net.Socket) => void> = [];
+  const adminCommands: AdminCommandRequest[] = [];
+  let adminHandler: FakeAdminHandler | null = null;
+
   const server = net.createServer((sock) => {
     sock.on("error", () => {
       // 강제 종료 테스트에서 ECONNRESET 이 정상적으로 발생한다 — 프로세스를 죽이지 않는다.
@@ -815,6 +1070,15 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
             if (resp.success !== false) sock.write(frame(buildRateCrossSnapshotFrame([])));
           }
           const waiter = pendingQuoteConnections.shift();
+          if (waiter) waiter(sock);
+        } else if (observerReq !== null && observerReq.role === ADMIN_OBSERVER_ROLE) {
+          // admin(role 2) — admin 목록에만 기록한다. 서버 규약(D-02): 79 1프레임만 · 78/80 없음.
+          adminLogins.push(observerReq);
+          if (!adminSockets.includes(sock)) adminSockets.push(sock);
+          if (adminLoginResp !== null) {
+            sock.write(frame(buildObserverLoginRespFrame(adminLoginRespInput(adminLoginResp))));
+          }
+          const waiter = pendingAdminConnections.shift();
           if (waiter) waiter(sock);
         } else if (msgType === MSG.ObserverLoginReq) {
           if (observerReq !== null) observerLogins.push(observerReq);
@@ -851,6 +1115,18 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
         // 사본을 뜬다 — 뷰를 그대로 쥐면 큰 누적 버퍼가 통째로 살아남는다.
         if (STRATEGY_COMMAND_MSG_TYPES.has(msgType)) {
           strategyReqs.push({ msgType, payload: Buffer.from(payload) });
+        }
+        // admin 명령(44) — 기록하고, handler 가 있으면 그 결과를 같은 연결에 86 → 87 순서로 쓴다(없으면 무응답).
+        if (msgType === MSG.AdminCommandReq) {
+          const adminReq = readAdminCommandRequest(msgType, payload);
+          if (adminReq !== null) {
+            adminCommands.push(adminReq);
+            const reply = adminHandler?.(adminReq) ?? null;
+            if (reply !== null) {
+              if (reply.resp !== undefined) sock.write(frame(buildAdminCommandRespFrame(reply.resp)));
+              if (reply.snapshot !== undefined) sock.write(frame(buildAdminUsersSnapshotFrame(reply.snapshot)));
+            }
+          }
         }
         for (const h of handlers) h(msgType, payload, sock);
       }
@@ -1018,6 +1294,47 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
         }
         pendingQuoteConnections.push(onQuote);
       });
+    },
+
+    respondAdminLogin(resp) {
+      adminLoginResp = resp;
+    },
+
+    adminLoginRequests() {
+      return adminLogins.map((r) => ({ ...r }));
+    },
+
+    waitForAdminConnection(timeoutMs = 1000) {
+      const live = adminSockets.find((s) => !s.destroyed);
+      if (live !== undefined) return Promise.resolve(live);
+      return new Promise<net.Socket>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          const i = pendingAdminConnections.indexOf(onAdmin);
+          if (i >= 0) pendingAdminConnections.splice(i, 1);
+          reject(new Error(`가짜 게이트웨이 admin 연결 대기 시간 초과 (${timeoutMs}ms)`));
+        }, timeoutMs);
+        function onAdmin(sock: net.Socket): void {
+          clearTimeout(timer);
+          resolve(sock);
+        }
+        pendingAdminConnections.push(onAdmin);
+      });
+    },
+
+    adminCommandRequests() {
+      return adminCommands.map((r) => ({ ...r, account: r.account === null ? null : { ...r.account } }));
+    },
+
+    onAdminCommand(handler) {
+      adminHandler = handler;
+    },
+
+    respondAdminCommand(sock, input) {
+      sock.write(frame(buildAdminCommandRespFrame(input)));
+    },
+
+    pushAdminSnapshot(sock, input) {
+      sock.write(frame(buildAdminUsersSnapshotFrame(input)));
     },
 
     sendRaw(sock, bytes) {

@@ -107,8 +107,10 @@
  *   76/78 RateCrossAlert · Snapshot    → 무시 (돌파 원천은 사용자 세션 그대로 — RESEARCH Open Q2 RESOLVED 무시안)
  *   83    QueueProgress                → 무시 (사용자 세션 ② 경로가 계좌 필터 뒤 캐시 — Pattern 10 ① · T-25-24)
  *   54/77/80 ServerMessage · QueuedWindowState · JournalBatch → warn (quote 연결에 오지 않는 프레임)
+ *   86/87 AdminCommandResp · AdminUsersSnapshot → warn (admin 연결 전용 — 29-02 · 버린다)
  *   그 밖                              → `default:` — `unhandledFrameCount` 계수 (PC-12 게이트 공유)
  * 반대로 **사용자 세션**으로 58/59/69/71/85 가 오면 구독이 없으니 이상 신호다 — 명시 case warn 뒤 버린다.
+ * 86/87(Phase 29 admin 응답)도 사용자 세션 · quote 연결 어느 쪽으로 오든 admin 연결 전용이라 명시 case warn 뒤 버린다.
  *
  * 캐시에 담는 형태는 **이미 Number 로 좁혀진 wire JSON**(`RelayQuote`/`RelayTapeEntry`)이다.
  * 게이트웨이의 64비트 정수 변환은 `envelope.ts` 파서가 한 번만 하고, 여기서는 매 push 마다
@@ -1837,6 +1839,13 @@ export class SubscriptionHub extends EventEmitter {
         // 이 의도된 무시를 함께 세어 진짜 PC-12 위반을 가린다(17-03).
         logger.warn({ userId, msgType: e.msgType }, "[HUB] 사용자 세션에 관찰자 전용 프레임 — 무시");
         return;
+      case MSG.AdminCommandResp:
+      case MSG.AdminUsersSnapshot:
+        // **admin 연결(role 2) 전용 프레임이다**(29-02 — 화이트리스트와 같은 커밋의 명시 case · PC-12).
+        // 86 은 요청 연결에만, 87 은 admin 연결에만 오므로 사용자 세션에 올 일이 없다 — 여기 오면 이상 신호라
+        // warn 을 남기고 버린다(`unhandledFrameCount` 불변).
+        logger.warn({ userId, msgType: e.msgType }, "[HUB] 사용자 세션에 admin 전용 프레임 — 무시");
+        return;
       default:
         // 16-04 가 화이트리스트를 19종으로, 17-03 이 22종으로 넓힌 뒤에도 **여기로 조용히
         // 떨어지는 프레임은 0**이다 (PC-12 — 넓힌 만큼 명시 case 로 받는 것이 조건이었다).
@@ -2047,6 +2056,11 @@ export class SubscriptionHub extends EventEmitter {
         // 서버 규약상 quote 역할에는 오지 않는다(54 두 역할 모두 미수신 · 77 사용자 세션 · 80 journal 역할 ·
         // 84 는 `ProcessLoginReq` 경로에서만 송신 — 27-01).
         logger.warn({ msgType: e.msgType }, "[HUB] quote 연결에 오지 않는 프레임 — 무시");
+        return;
+      case MSG.AdminCommandResp:
+      case MSG.AdminUsersSnapshot:
+        // admin 연결(role 2) 전용 프레임(29-02 · PC-12 같은 커밋) — quote 역할에는 오지 않는다. 오면 이상 신호라 버린다.
+        logger.warn({ msgType: e.msgType }, "[HUB] quote 연결에 admin 전용 프레임 — 무시");
         return;
       default:
         // `#onFrame` 과 **같은 계수기**를 쓴다 — PC-12 게이트는 연결 종류와 무관하게 「받아 줄 case 없는 번호」 0 이다.

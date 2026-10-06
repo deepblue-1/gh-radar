@@ -25,11 +25,23 @@ import {
   parseQuoteState,
   resetDroppedEnvelopeCount,
   droppedEnvelopeCount,
+  buildAdminCommandReq,
+  buildObserverLoginReq,
+  parseAdminCommandResp,
+  parseAdminUsersSnapshot,
+  parseObserverLoginResp,
 } from "../src/dma/envelope.js";
-import { startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
+import { ADMIN_CODE, ADMIN_OP } from "../src/admin/types.js";
+import {
+  defaultAdminHandler,
+  startFakeGateway,
+  type FakeAdminState,
+  type FakeGateway,
+} from "./helpers/fake-gateway.js";
 import { connectWs, type TestWs } from "./helpers/ws-client.js";
 import {
   SAMPLE_ACCOUNTS,
+  SAMPLE_ACCOUNT_NO,
   SAMPLE_ISIN,
   STRATEGY_MSG,
   buildBareEnvelope,
@@ -82,11 +94,17 @@ async function connectClient(port: number): Promise<TestClient> {
       const buffered = inbox.shift();
       if (buffered !== undefined) return Promise.resolve(buffered);
       return new Promise<Buffer>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("프레임 대기 시간 초과")), timeoutMs);
-        waiters.push((f) => {
+        const waiter = (f: Buffer): void => {
           clearTimeout(timer);
           resolve(f);
-        });
+        };
+        // 시간 초과한 대기자는 빼낸다 — 남겨 두면 다음 프레임을 삼켜 이후 nextFrame 이 한 칸씩 밀린다(Phase 29 무응답 단언).
+        const timer = setTimeout(() => {
+          const i = waiters.indexOf(waiter);
+          if (i >= 0) waiters.splice(i, 1);
+          reject(new Error("프레임 대기 시간 초과"));
+        }, timeoutMs);
+        waiters.push(waiter);
       });
     },
     close() {
@@ -392,6 +410,223 @@ describe("fake-gateway 전략 표면", () => {
     const order = rootEnvelope(await client.nextFrame());
     expect(order.msgType()).toBe(MSG.OrderResp);
     expect(order.orderResp()?.orderNo()).toBe("0000012345");
+  });
+});
+
+describe("Phase 29 admin 모드", () => {
+  const OBS_BASE = { secret: "s", sinceSeq: 0, epoch: "", client: "radar-admin", strategySinceSeq: 0 };
+  const KB_ACC = { accountNo: SAMPLE_ACCOUNT_NO, name: "위탁종합", branchNo: "00000", traderId: "000000", priority: 0 };
+
+  /** 다음 프레임을 화이트리스트(수신 대역)로 읽는다 — 79 · 86 · 87 은 전부 INBOUND 다. */
+  async function next(c: TestClient): Promise<{ msgType: number; env: Envelope }> {
+    const parsed = tryParseEnvelope(await c.nextFrame());
+    if (parsed === null) throw new Error("화이트리스트 드롭");
+    return parsed;
+  }
+
+  /** 프레임이 오지 않아야 한다 — 짧게 기다려 시간 초과를 확인한다. */
+  async function expectSilence(c: TestClient, ms = 80): Promise<void> {
+    await expect(c.nextFrame(ms)).rejects.toThrow("시간 초과");
+  }
+
+  function send(c: TestClient, input: Parameters<typeof buildAdminCommandReq>[0]): void {
+    c.sock.write(frame(buildAdminCommandReq(input)));
+  }
+
+  /** 기본 상태 — 유저 1명(KB 계좌 2개) · rev 1. */
+  function seedState(): FakeAdminState {
+    return {
+      usersRev: 1n,
+      users: new Map([
+        ["kb-user", [{ ...KB_ACC }, { ...KB_ACC, accountNo: "1234567802", name: "연금", priority: 1 }]],
+      ]),
+      busyAccounts: new Set<string>(),
+    };
+  }
+
+  /** admin 로그인까지 마친 클라이언트 (79 소비). */
+  async function adminClient(gw: FakeGateway): Promise<TestClient> {
+    gw.respondAdminLogin({});
+    const c = await connectClient(gw.port);
+    c.sock.write(frame(buildObserverLoginReq({ ...OBS_BASE, role: 2 })));
+    const login = await next(c);
+    expect(login.msgType).toBe(MSG.ObserverLoginResp);
+    return c;
+  }
+
+  it("role 2 로그인은 adminLoginRequests() 에만 기록된다 — 관찰자 · quote 목록에는 없다", async () => {
+    gateway = await startFakeGateway();
+    client = await connectClient(gateway.port);
+    client.sock.write(frame(buildObserverLoginReq({ ...OBS_BASE, role: 2 })));
+    const sock = await gateway.waitForAdminConnection();
+    expect(sock).toBeDefined();
+
+    expect(gateway.adminLoginRequests().map((r) => r.role)).toEqual([2]);
+    expect(gateway.observerLoginRequests()).toEqual([]);
+    expect(gateway.quoteLoginRequests()).toEqual([]);
+    // 자동 응답은 기본 꺼짐 — 79 가 오지 않는다.
+    await expectSilence(client);
+  });
+
+  it("respondAdminLogin({}) → 79 1프레임(role 2 · accounts [] · epoch \"\") · 78/80 없음 · 거부면 role 0", async () => {
+    gateway = await startFakeGateway();
+    gateway.respondAdminLogin({});
+    client = await connectClient(gateway.port);
+    client.sock.write(frame(buildObserverLoginReq({ ...OBS_BASE, role: 2 })));
+
+    const login = await next(client);
+    expect(login.msgType).toBe(MSG.ObserverLoginResp);
+    const r = parseObserverLoginResp(login.env);
+    expect(r).toMatchObject({ success: true, role: 2, accounts: [], epoch: "" });
+    await expectSilence(client);
+
+    gateway.respondAdminLogin({ success: false, message: "관찰자 비밀 불일치" });
+    const c2 = await connectClient(gateway.port);
+    try {
+      c2.sock.write(frame(buildObserverLoginReq({ ...OBS_BASE, role: 2 })));
+      const rej = parseObserverLoginResp((await next(c2)).env);
+      expect(rej).toMatchObject({ success: false, role: 0, accounts: [] });
+    } finally {
+      c2.close();
+    }
+  });
+
+  it("44 수신은 adminCommandRequests() 에 기록된다 — handler 없으면 무응답(타임아웃 시나리오)", async () => {
+    gateway = await startFakeGateway();
+    client = await adminClient(gateway);
+    send(client, { requestId: 2n ** 63n + 5n, op: ADMIN_OP.UpsertUser, userId: "new-user", password: "pw-test", account: KB_ACC });
+    send(client, { requestId: 8n, op: ADMIN_OP.ListUsers, userId: "" });
+    await expectSilence(client);
+
+    expect(gateway.adminCommandRequests()).toEqual([
+      { requestId: 2n ** 63n + 5n, op: 1, userId: "new-user", password: "pw-test", account: KB_ACC },
+      { requestId: 8n, op: 5, userId: "", password: "", account: null },
+    ]);
+  });
+
+  it("onAdminCommand handler 결과를 86 → 87 순서로 그 연결에 쓴다 · respondAdminCommand · pushAdminSnapshot 수동 송신", async () => {
+    gateway = await startFakeGateway();
+    client = await adminClient(gateway);
+    gateway.onAdminCommand((req) => ({
+      resp: { requestId: req.requestId, code: 0, usersRev: 4n },
+      snapshot: { usersRev: 4n, users: [{ userId: "u1", accounts: [{ accountNo: SAMPLE_ACCOUNT_NO }] }] },
+    }));
+    send(client, { requestId: 11n, op: ADMIN_OP.SetAccount, userId: "u1", account: KB_ACC });
+
+    const f1 = await next(client);
+    expect(f1.msgType).toBe(MSG.AdminCommandResp);
+    expect(parseAdminCommandResp(f1.env)).toEqual({ requestId: 11n, ok: true, code: 0, message: "", usersRev: 4n });
+    const f2 = await next(client);
+    expect(f2.msgType).toBe(MSG.AdminUsersSnapshot);
+    expect(parseAdminUsersSnapshot(f2.env)?.usersRev).toBe(4n);
+
+    gateway.onAdminCommand(null);
+    const sock = await gateway.waitForAdminConnection();
+    gateway.respondAdminCommand(sock, { requestId: 12n, ok: false, code: ADMIN_CODE.PersistFailed, message: "저장 실패" });
+    gateway.pushAdminSnapshot(sock, { usersRev: 5n, users: [] });
+    expect(parseAdminCommandResp((await next(client)).env)).toMatchObject({ requestId: 12n, code: 10, message: "저장 실패" });
+    expect(parseAdminUsersSnapshot((await next(client)).env)).toEqual({ usersRev: 5n, users: [] });
+  });
+
+  it("defaultAdminHandler — op 5 는 87 만 · 변경 성공은 86(rev+1) 뒤 87 · 무변경은 86 code 0 · rev 불변 · 87 없음", async () => {
+    gateway = await startFakeGateway();
+    client = await adminClient(gateway);
+    const state = seedState();
+    gateway.onAdminCommand(defaultAdminHandler(state));
+
+    // op 5 → 87 만 (86 없음)
+    send(client, { requestId: 1n, op: ADMIN_OP.ListUsers, userId: "" });
+    const list = await next(client);
+    expect(list.msgType).toBe(MSG.AdminUsersSnapshot);
+    expect(parseAdminUsersSnapshot(list.env)).toEqual({
+      usersRev: 1n,
+      users: [
+        {
+          userId: "kb-user",
+          accounts: [KB_ACC, { ...KB_ACC, accountNo: "1234567802", name: "연금", priority: 1 }],
+        },
+      ],
+    });
+    await expectSilence(client);
+
+    // 변경(op 3 신규 계좌 · 교보형 빈 branch/trader) → 86 ok rev 2 → 87
+    send(client, {
+      requestId: 2n,
+      op: ADMIN_OP.SetAccount,
+      userId: "kb-user",
+      account: { accountNo: "1234567803", name: "교보", branchNo: "", traderId: "", priority: 2 },
+    });
+    expect(parseAdminCommandResp((await next(client)).env)).toMatchObject({ requestId: 2n, ok: true, code: 0, usersRev: 2n });
+    const snap = parseAdminUsersSnapshot((await next(client)).env);
+    expect(snap?.usersRev).toBe(2n);
+    expect(snap?.users[0]?.accounts.map((a) => a.accountNo)).toEqual([SAMPLE_ACCOUNT_NO, "1234567802", "1234567803"]);
+    expect(snap?.users[0]?.accounts[2]).toMatchObject({ branchNo: "", traderId: "" });
+    expect(state.usersRev).toBe(2n);
+
+    // 무변경(같은 값 op 3) → 86 code 0 · rev 2 그대로 · 87 없음
+    send(client, {
+      requestId: 3n,
+      op: ADMIN_OP.SetAccount,
+      userId: "kb-user",
+      account: { accountNo: "1234567803", name: "교보", branchNo: "", traderId: "", priority: 2 },
+    });
+    expect(parseAdminCommandResp((await next(client)).env)).toMatchObject({ requestId: 3n, ok: true, code: 0, usersRev: 2n });
+    await expectSilence(client);
+    expect(state.usersRev).toBe(2n);
+  });
+
+  it("defaultAdminHandler — op 4 없는 계좌 8 · 마지막 계좌 12 · BUSY 계좌 op 4/op 2 는 9 + 한국어 message", async () => {
+    gateway = await startFakeGateway();
+    client = await adminClient(gateway);
+    const state = seedState();
+    state.users.set("solo", [{ ...KB_ACC, accountNo: "1234567809" }]);
+    state.busyAccounts.add("1234567802");
+    gateway.onAdminCommand(defaultAdminHandler(state));
+
+    const ask = async (input: Parameters<typeof buildAdminCommandReq>[0]) => {
+      send(client!, input);
+      const r = parseAdminCommandResp((await next(client!)).env);
+      return r;
+    };
+
+    const missing = await ask({ requestId: 1n, op: ADMIN_OP.RemoveAccount, userId: "kb-user", account: { ...KB_ACC, accountNo: "9999999999" } });
+    expect(missing).toMatchObject({ ok: false, code: ADMIN_CODE.NoSuchAccount, usersRev: 1n });
+
+    const last = await ask({ requestId: 2n, op: ADMIN_OP.RemoveAccount, userId: "solo", account: { ...KB_ACC, accountNo: "1234567809" } });
+    expect(last).toMatchObject({ ok: false, code: ADMIN_CODE.LastAccount });
+
+    const busyRemove = await ask({ requestId: 3n, op: ADMIN_OP.RemoveAccount, userId: "kb-user", account: { ...KB_ACC, accountNo: "1234567802" } });
+    expect(busyRemove?.code).toBe(ADMIN_CODE.Busy);
+    expect(busyRemove?.message).toMatch(/먼저 정리/);
+
+    const busyDelete = await ask({ requestId: 4n, op: ADMIN_OP.DeleteUser, userId: "kb-user" });
+    expect(busyDelete?.code).toBe(ADMIN_CODE.Busy);
+    expect(busyDelete?.message).toMatch(/먼저 정리/);
+
+    // 실패는 87 을 내지 않고 rev 를 올리지 않는다.
+    await expectSilence(client);
+    expect(state.usersRev).toBe(1n);
+  });
+
+  it("startFakeGateway() 두 번 → 독립 인스턴스 2개 (서버 2대 fan-out 바탕)", async () => {
+    gateway = await startFakeGateway();
+    const second = await startFakeGateway();
+    const c2 = await adminClient(second);
+    try {
+      client = await adminClient(gateway);
+      expect(second.port).not.toBe(gateway.port);
+      send(client, { requestId: 1n, op: ADMIN_OP.ListUsers, userId: "" });
+      send(c2, { requestId: 2n, op: ADMIN_OP.ListUsers, userId: "" });
+      send(c2, { requestId: 3n, op: ADMIN_OP.ListUsers, userId: "" });
+      await expectSilence(client);
+      expect(gateway.adminCommandRequests().map((r) => r.requestId)).toEqual([1n]);
+      expect(second.adminCommandRequests().map((r) => r.requestId)).toEqual([2n, 3n]);
+      expect(gateway.adminLoginRequests()).toHaveLength(1);
+      expect(second.adminLoginRequests()).toHaveLength(1);
+    } finally {
+      c2.close();
+      await second.close();
+    }
   });
 });
 

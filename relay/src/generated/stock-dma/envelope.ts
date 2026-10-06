@@ -5,6 +5,9 @@
 import * as flatbuffers from 'flatbuffers';
 
 import { AccountState } from '../stock-dma/account-state.js';
+import { AdminCommandReq } from '../stock-dma/admin-command-req.js';
+import { AdminCommandResp } from '../stock-dma/admin-command-resp.js';
+import { AdminUsersSnapshot } from '../stock-dma/admin-users-snapshot.js';
 import { AutoSellCommandReq } from '../stock-dma/auto-sell-command-req.js';
 import { ConfirmVIOrderReq } from '../stock-dma/confirm-viorder-req.js';
 import { DirectOrderReq } from '../stock-dma/direct-order-req.js';
@@ -276,8 +279,23 @@ limitFeature(obj?:LimitFeature):LimitFeature|null {
   return offset ? (obj || new LimitFeature()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+adminCommandReq(obj?:AdminCommandReq):AdminCommandReq|null {
+  const offset = this.bb!.__offset(this.bb_pos, 92);
+  return offset ? (obj || new AdminCommandReq()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
+adminCommandResp(obj?:AdminCommandResp):AdminCommandResp|null {
+  const offset = this.bb!.__offset(this.bb_pos, 94);
+  return offset ? (obj || new AdminCommandResp()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
+adminUsersSnapshot(obj?:AdminUsersSnapshot):AdminUsersSnapshot|null {
+  const offset = this.bb!.__offset(this.bb_pos, 96);
+  return offset ? (obj || new AdminUsersSnapshot()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
 static startEnvelope(builder:flatbuffers.Builder) {
-  builder.startObject(44);
+  builder.startObject(47);
 }
 
 static addMsgType(builder:flatbuffers.Builder, msgType:MsgType) {
@@ -446,6 +464,18 @@ static addUserSettings(builder:flatbuffers.Builder, userSettingsOffset:flatbuffe
 
 static addLimitFeature(builder:flatbuffers.Builder, limitFeatureOffset:flatbuffers.Offset) {
   builder.addFieldOffset(43, limitFeatureOffset, 0);
+}
+
+static addAdminCommandReq(builder:flatbuffers.Builder, adminCommandReqOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(44, adminCommandReqOffset, 0);
+}
+
+static addAdminCommandResp(builder:flatbuffers.Builder, adminCommandRespOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(45, adminCommandRespOffset, 0);
+}
+
+static addAdminUsersSnapshot(builder:flatbuffers.Builder, adminUsersSnapshotOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(46, adminUsersSnapshotOffset, 0);
 }
 
 static endEnvelope(builder:flatbuffers.Builder):flatbuffers.Offset {
