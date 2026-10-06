@@ -17,10 +17,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { JournalOrderDbRow, RelayOutbound } from "@gh-radar/shared";
 
 import { AdminSnapshotSink, type AdminSnapshotAppliedEvent } from "../src/admin/snapshot-sink.js";
-import { ADMIN_OP } from "../src/admin/types.js";
+import { ADMIN_OP, type AdminUsersSnapshot } from "../src/admin/types.js";
 import { AppAccess } from "../src/access/app-access.js";
 import { SessionManager } from "../src/dma/session-manager.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
+import { JournalAccess } from "../src/journal/access.js";
 import { SubscriptionHub } from "../src/hub/subscription-hub.js";
 import { ServerPipelines, type ServerPipeline } from "../src/registry/pipelines.js";
 import type { DmaServerRow } from "../src/registry/registry.js";
@@ -303,5 +304,278 @@ describe("87 적재 트레이서 — 87 → JournalAccess.replace + dma_admin_ap
     // 관찰자 재로그인 없음 — 79 는 처음 1건뿐.
     expect(r.gateway.observerLoginRequests()).toHaveLength(1);
     expect(r.db.unknownRequests()).toEqual([]);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+// T2 — 적재 규율: 세대 가드 · DB 재시도(최신만) · 빈 스냅샷 · 재접속 전량 교체 · rev 1 복귀 (29-14 Task 2)
+//
+// 실 `JournalAccess` + 메모리 Supabase 스텁(rpc 만 · 함수별 실패 주입). 타이머는 가짜(setTimeout 계열만)다.
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+
+type RpcCall = { fn: string; args: Record<string, unknown> };
+
+type RpcStub = {
+  client: SupabaseClient;
+  calls: RpcCall[];
+  /** `dma_admin_apply_snapshot` 을 앞에서부터 이 횟수만큼 실패시킨다. */
+  failApply: number;
+};
+
+function rpcStub(): RpcStub {
+  const stub: RpcStub = { client: undefined as unknown as SupabaseClient, calls: [], failApply: 0 };
+  stub.client = {
+    rpc: (fn: string, args: Record<string, unknown>) => {
+      stub.calls.push({ fn, args });
+      if (fn === "dma_admin_apply_snapshot" && stub.failApply > 0) {
+        stub.failApply -= 1;
+        return Promise.resolve({ data: null, error: { code: "57P01", message: "terminating connection" } });
+      }
+      return Promise.resolve({ data: 1, error: null });
+    },
+  } as unknown as SupabaseClient;
+  return stub;
+}
+
+type LogCall = { level: string; args: unknown[] };
+
+async function spyLogs(): Promise<LogCall[]> {
+  const { logger } = await import("../src/logger.js");
+  const calls: LogCall[] = [];
+  for (const level of ["debug", "info", "warn", "error"] as const) {
+    vi.spyOn(logger, level).mockImplementation(((...args: unknown[]) => {
+      calls.push({ level, args });
+    }) as never);
+  }
+  return calls;
+}
+
+const msgOf = (c: LogCall): string => String(c.args[1] ?? "");
+
+/** 87 조립 — users: [dmaUserId, 계좌번호[]][]. 계좌는 priority = 순번. */
+function snap(rev: bigint, users: Array<[string, string[]]>): AdminUsersSnapshot {
+  return {
+    usersRev: rev,
+    users: users.map(([userId, accounts]) => ({
+      userId,
+      accounts: accounts.map((accountNo, i) => ({ accountNo, name: "위탁", branchNo: "00001", traderId: "000001", priority: i + 1 })),
+    })),
+  };
+}
+
+const applyCalls = (s: RpcStub): Array<Record<string, unknown>> => s.calls.filter((c) => c.fn === "dma_admin_apply_snapshot").map((c) => c.args);
+const appliedAccounts = (args: Record<string, unknown> | undefined): string[] =>
+  ((args?.p_users ?? []) as Array<{ accounts: Array<{ accountNo: string }> }>).flatMap((u) => u.accounts.map((a) => a.accountNo));
+
+const B1 = "5555666601";
+const B2 = "5555666602";
+const B3 = "5555666603";
+
+describe("87 적재 규율 (29-14 T2)", () => {
+  let db: RpcStub;
+  let access: JournalAccess;
+  let sink: AdminSnapshotSink;
+  let logs: LogCall[];
+
+  async function setup(opts: { retryBaseMs?: number; retryMaxMs?: number } = {}): Promise<void> {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    logs = await spyLogs();
+    db = rpcStub();
+    access = new JournalAccess({ supabase: db.client, gateway: SERVER, retryBaseMs: 1_000 });
+    sink = new AdminSnapshotSink({
+      supabase: db.client,
+      accessOf: (key) => (key === SERVER ? access : undefined),
+      retryBaseMs: opts.retryBaseMs ?? 100,
+      retryMaxMs: opts.retryMaxMs ?? 10_000,
+    });
+    cleanups.push(() => {
+      sink.close();
+      access.close();
+      vi.useRealTimers();
+    });
+  }
+
+  /** 마이크로태스크 · 대기 중 RPC Promise 를 비운다(가짜 타이머는 건드리지 않는다). */
+  const settle = async (): Promise<void> => {
+    await vi.advanceTimersByTimeAsync(0);
+  };
+
+  it("세대 가드 — 세대 2 의 87 뒤 늦게 온 세대 1 의 87 은 버린다(debug 1 · RPC 0 · 매핑 · applied 그대로)", async () => {
+    await setup();
+    const applied: AdminSnapshotAppliedEvent[] = [];
+    sink.on("applied", (e) => applied.push(e));
+
+    sink.onSnapshot(SERVER, { generation: 2, snapshot: snap(4n, [["u1", [B1, B2]]]) });
+    await settle();
+    sink.onSnapshot(SERVER, { generation: 1, snapshot: snap(9n, [["u1", [B3]]]) });
+    await settle();
+
+    expect(applyCalls(db)).toHaveLength(1);
+    expect(appliedAccounts(applyCalls(db)[0])).toEqual([B1, B2]);
+    expect([...(access.accountsOf("u1") ?? [])]).toEqual([B1, B2]);
+    expect(applied).toHaveLength(1);
+    expect(logs.filter((c) => c.level === "debug" && msgOf(c).includes("옛 세대"))).toHaveLength(1);
+  });
+
+  it("같은 세대 안의 연속 87 은 순서대로 모두 적용한다(나중 것이 이긴다)", async () => {
+    await setup();
+    sink.onSnapshot(SERVER, { generation: 3, snapshot: snap(1n, [["u1", [B1]]]) });
+    await settle();
+    sink.onSnapshot(SERVER, { generation: 3, snapshot: snap(2n, [["u1", [B1, B2]]]) });
+    await settle();
+
+    expect(applyCalls(db).map(appliedAccounts)).toEqual([[B1], [B1, B2]]);
+    expect([...(access.accountsOf("u1") ?? [])]).toEqual([B1, B2]);
+  });
+
+  it("RPC 실패 → 지수 백오프 재시도 · 재시도 사이 새 87 이 오면 그 최신 것만 보낸다 · 메모리 라우팅은 이미 유효", async () => {
+    await setup({ retryBaseMs: 100 });
+    db.failApply = 2;
+
+    sink.onSnapshot(SERVER, { generation: 1, snapshot: snap(1n, [["u1", [B1]]]) });
+    await settle();
+    expect(applyCalls(db)).toHaveLength(1); // 실패 1
+    expect(logs.filter((c) => c.level === "error" && msgOf(c).includes("dma_admin_apply_snapshot"))).toHaveLength(1);
+
+    // 백오프 중 새 87 — 즉시 보내지 않고 대기 1건을 갈아 끼운다. 메모리 매핑은 바로 새 값.
+    sink.onSnapshot(SERVER, { generation: 1, snapshot: snap(2n, [["u1", [B1, B2]]]) });
+    await settle();
+    expect(applyCalls(db)).toHaveLength(1);
+    expect([...(access.accountsOf("u1") ?? [])]).toEqual([B1, B2]);
+
+    await vi.advanceTimersByTimeAsync(99);
+    expect(applyCalls(db)).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1); // 첫 재시도 = 100ms — 최신(B1, B2)만 · 실패 2
+    expect(applyCalls(db)).toHaveLength(2);
+    expect(appliedAccounts(applyCalls(db)[1])).toEqual([B1, B2]);
+
+    await vi.advanceTimersByTimeAsync(199); // 두 번째 재시도 = 200ms(지수)
+    expect(applyCalls(db)).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(applyCalls(db)).toHaveLength(3);
+    expect(appliedAccounts(applyCalls(db)[2])).toEqual([B1, B2]);
+    // 옛 스냅샷(B1 만)은 첫 실패 뒤 다시 나가지 않았다.
+    expect(applyCalls(db).map(appliedAccounts)).toEqual([[B1], [B1, B2], [B1, B2]]);
+
+    // 복구 뒤에는 더 보내지 않는다.
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(applyCalls(db)).toHaveLength(3);
+  });
+
+  it("close() 뒤 재시도 타이머 0 · 이후 87 · 타이머 진행에도 RPC 없음", async () => {
+    await setup({ retryBaseMs: 100 });
+    db.failApply = 5;
+    sink.onSnapshot(SERVER, { generation: 1, snapshot: snap(1n, [["u1", [B1]]]) });
+    await settle();
+    access.close(); // 매핑 쪽 재시도(1초)도 정리 — 아래 타이머 수는 sink 만 본다.
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+    sink.close();
+    expect(vi.getTimerCount()).toBe(0);
+    sink.onSnapshot(SERVER, { generation: 1, snapshot: snap(2n, [["u1", [B1, B2]]]) });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(applyCalls(db)).toHaveLength(1);
+  });
+
+  it("유저 0명 87 → RPC 는 보낸다(반영 상태 = 비었다) · 매핑 교체는 거부(라우팅 유지) · warn 1", async () => {
+    await setup();
+    sink.onSnapshot(SERVER, { generation: 1, snapshot: snap(1n, [["u1", [B1]]]) });
+    await settle();
+
+    sink.onSnapshot(SERVER, { generation: 1, snapshot: snap(2n, []) });
+    await settle();
+
+    expect(applyCalls(db)).toHaveLength(2);
+    expect(applyCalls(db)[1]).toEqual({ p_server: SERVER, p_users_rev: 2, p_users: [] });
+    expect([...(access.accountsOf("u1") ?? [])]).toEqual([B1]);
+    expect(access.health().emptySnapshotsRejected).toBe(1);
+    expect(logs.filter((c) => c.level === "warn" && msgOf(c).includes("[ADMIN]"))).toHaveLength(1);
+  });
+
+  it("서버 재기동 흉내 — rev 5 → 새 연결 rev 1(계좌 하나 빠짐)도 통째 교체(rev 감소를 이유로 버리지 않는다)", async () => {
+    await setup();
+    sink.onSnapshot(SERVER, { generation: 1, snapshot: snap(5n, [["u1", [B1, B2]]]) });
+    await settle();
+    // 재접속(세대 2) · 서버 재기동으로 users_rev 는 1 로 돌아갔다 · B2 가 빠졌다.
+    sink.onSnapshot(SERVER, { generation: 2, snapshot: snap(1n, [["u1", [B1]]]) });
+    await settle();
+
+    expect([...(access.accountsOf("u1") ?? [])]).toEqual([B1]);
+    const last = applyCalls(db).at(-1);
+    expect(last?.p_users_rev).toBe(1);
+    expect(appliedAccounts(last)).toEqual([B1]);
+    // 매핑 DB 동기화도 B2 없이.
+    const sync = db.calls.filter((c) => c.fn === "dma_journal_sync_access").at(-1)?.args as { p_rows: Array<{ account_no: string }> };
+    expect(sync.p_rows.map((r) => r.account_no)).toEqual([B1]);
+  });
+
+  it("파이프라인 재생성(resetGeneration) — 새 admin 연결은 세대 1 부터 다시 센다 · 옛 세대 눈금으로 버리지 않는다", async () => {
+    await setup();
+    sink.onSnapshot(SERVER, { generation: 4, snapshot: snap(3n, [["u1", [B1]]]) });
+    await settle();
+    sink.resetGeneration(SERVER);
+    sink.onSnapshot(SERVER, { generation: 1, snapshot: snap(1n, [["u1", [B2]]]) });
+    await settle();
+
+    expect([...(access.accountsOf("u1") ?? [])]).toEqual([B2]);
+    expect(applyCalls(db).map(appliedAccounts)).toEqual([[B1], [B2]]);
+  });
+
+  it("forget — 제거된 서버의 대기 재시도를 버린다(타이머 0 · 이후 RPC 없음)", async () => {
+    await setup({ retryBaseMs: 100 });
+    db.failApply = 5;
+    sink.onSnapshot(SERVER, { generation: 1, snapshot: snap(1n, [["u1", [B1]]]) });
+    await settle();
+    access.close();
+    sink.forget(SERVER);
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(applyCalls(db)).toHaveLength(1);
+  });
+
+  it("서버별 독립 — 한 서버의 RPC 실패 · 재시도가 다른 서버 적재를 막지 않는다", async () => {
+    await setup({ retryBaseMs: 100 });
+    db.failApply = 1;
+    sink.onSnapshot(SERVER, { generation: 1, snapshot: snap(1n, [["u1", [B1]]]) });
+    await settle();
+    sink.onSnapshot("KYOBO119", { generation: 1, snapshot: snap(1n, [["u2", [B3]]]) });
+    await settle();
+
+    expect(applyCalls(db).map((a) => a.p_server)).toEqual([SERVER, "KYOBO119"]);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(applyCalls(db).map((a) => a.p_server)).toEqual([SERVER, "KYOBO119", SERVER]);
+  });
+
+  it("빈 userId · accountNo 항목은 DB 적재에서 뺀다(RPC 전체 거부 → 영구 재시도 방지) · warn 에는 계수만", async () => {
+    await setup();
+    sink.onSnapshot(SERVER, {
+      generation: 1,
+      snapshot: {
+        usersRev: 1n,
+        users: [
+          { userId: "u1", accounts: [{ accountNo: B1, name: "위탁", branchNo: "", traderId: "", priority: 1 }, { accountNo: "", name: "", branchNo: "", traderId: "", priority: 2 }] },
+          { userId: "", accounts: [{ accountNo: B2, name: "위탁", branchNo: "", traderId: "", priority: 1 }] },
+        ],
+      },
+    });
+    await settle();
+
+    expect(applyCalls(db)[0]?.p_users).toEqual([
+      { userId: "u1", accounts: [{ accountNo: B1, name: "위탁", branchNo: "", traderId: "", priority: 1 }] },
+    ]);
+    const warn = logs.find((c) => c.level === "warn" && msgOf(c).includes("[ADMIN]"));
+    expect(warn?.args[0]).toMatchObject({ serverKey: SERVER, droppedUsers: 1, droppedAccounts: 1 });
+  });
+
+  it("users_rev 가 JSON 안전 범위를 넘으면 문자열로 보낸다(PostgREST bigint) · 로그에 dmaUserId · 계좌번호 없음", async () => {
+    await setup();
+    const big = 2n ** 60n;
+    sink.onSnapshot(SERVER, { generation: 1, snapshot: snap(big, [["secret-dma-id", [B1]]]) });
+    await settle();
+
+    expect(applyCalls(db)[0]?.p_users_rev).toBe(big.toString());
+    const sinkLogs = JSON.stringify(logs.filter((c) => msgOf(c).includes("[ADMIN]")).map((c) => c.args));
+    expect(sinkLogs).not.toContain("secret-dma-id");
+    expect(sinkLogs).not.toContain(B1);
   });
 });

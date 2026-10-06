@@ -150,6 +150,10 @@ const pipelines = new ServerPipelines({
   supabase,
   secretOf: config.observerSecretOf,
   onCreated: (p) => wirePipeline(p),
+  // 레지스트리에서 빠진 서버(같은 키로 재생성된 게 아니면)의 87 적재 대기 · 재시도를 버린다(29-14).
+  onRemoved: (p) => {
+    if (pipelines.get(p.server.key) === undefined) adminSnapshotSink.forget(p.server.key);
+  },
 });
 
 /**
@@ -304,7 +308,9 @@ function wirePipeline(p: ServerPipeline): void {
   p.writer.on("applied", (rows) => fanout.deliverJournalRows(rows, { access: p.access, identities: appAccess }));
   p.strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows, { access: p.access, identities: appAccess }));
   if (p.server.key === primaryKey) p.status.on("frame", (frame) => fanout.deliverJournalState(frame));
-  // Phase 29-14 — 87 → 그 서버 매핑 즉시 교체(관찰자 재로그인 없이 새 계좌 푸시) + 반영 상태 DB.
+  // Phase 29-14 — 87 → 그 서버 매핑 즉시 교체(관찰자 재로그인 없이 새 계좌 푸시) + 반영 상태 DB. 새 벌은 새 `DmaClient` 라
+  // 연결 세대가 1 부터 다시 센다 — 옛 벌의 세대 눈금으로 첫 87 을 버리지 않게 지우고 붙인다.
+  adminSnapshotSink.resetGeneration(p.server.key);
   p.admin.on("snapshot", (e) => adminSnapshotSink.onSnapshot(p.server.key, e));
 }
 
