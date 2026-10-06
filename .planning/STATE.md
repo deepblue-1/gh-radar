@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 29
 current_phase_name: DMA 다중 서버 · 웹 Admin 유저 관리
 status: executing
-stopped_at: Completed 29-08-PLAN.md
-last_updated: "2026-10-06T16:16:23.806Z"
+stopped_at: Completed 29-09-PLAN.md
+last_updated: "2026-10-06T16:25:43.335Z"
 last_activity: 2026-10-06
 last_activity_desc: Phase 29 execution started
-state_head: a18a8ce87114c6c33b7767e8821c215a936a2dbc
+state_head: 77661705790b3d262b642dc116bbfaee5a648983
 progress:
   total_phases: 38
   completed_phases: 24
   total_plans: 403
-  completed_plans: 370
+  completed_plans: 371
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 29 (DMA 다중 서버 · 웹 Admin 유저 관리) — EXECUTING
-Plan: 7 of 26
+Plan: 8 of 26
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-10-06 — Phase 29 execution started
@@ -210,6 +210,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 29 P05 | 10min | 2 tasks | 4 files |
 | Phase 29 P06 | 20min | 3 tasks | 16 files |
 | Phase 29 P08 | 13min | 2 tasks | 9 files |
+| Phase 29 P09 | 6min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -569,6 +570,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 29]: 29-06: 권한 회수 = 재적재 diff(사라짐 · viewer 강등 · DMA 끊김/변경) → revokeUser(unauthorized 1프레임 → 1008 → 세션 유예) · 승격은 이벤트 없음
 - [Phase 29]: 29-08: admin 연결(role 2)은 서버당 1개 · 연결 세대에 묶인 87 캐시(users_rev 는 신선도 근거 아님) · command() 는 서버당 1건 비행 · ulong 단조 request_id(op 5 와 공유) · 86 5초 타임아웃 · 같은 세대 rev 가 바뀐 ok 86 만 87 을 1초 대기(넘으면 op 5 보정) · 87 대기 중 끊김은 snapshot 없는 result
 - [Phase 29]: 29-08: admin 79 broker 가 레지스트리 행 증권사와 다르면(빈 값 · MOCK 제외) rejected 영구 정지 · healthz adminConns 는 본문 전용(503 축 아님)
+- [Phase 29]: 29-09: 키 개명 · 가시성 v2 SQL 은 supabase/deploy-window/29/ 에 둔다(db push 경로 밖) — 29-25 배포 창에서 새 버전 번호로 migrations 이동 · 롤백은 supabase/rollback/29-gateway-key-rename-revert.sql 수동
+- [Phase 29]: 29-09: 가시성 v2 = dma_app_access_map() admin/trader + DMA 연결 × dma_servers 전 서버 키(꺼진 서버 포함) — 뷰 열 그대로라 dma_visible_accounts · 조회 RPC 무수정 · viewer 0
 
 ### Pending Todos
 
@@ -670,8 +673,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-10-06T16:16:16.887Z
-Stopped at: Completed 29-08-PLAN.md
+Last session: 2026-10-06T16:25:42.734Z
+Stopped at: Completed 29-09-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
