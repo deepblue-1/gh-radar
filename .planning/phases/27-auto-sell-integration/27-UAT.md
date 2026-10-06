@@ -1,18 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 27-auto-sell-integration
 source: [27-VERIFICATION.md]
 started: 2026-10-05T08:34:55Z
-updated: 2026-10-06T11:30:00Z
+updated: 2026-10-06T12:08:12.509Z
 ---
 
 ## Current Test
 
-number: 5
-name: /me 11값 = WinForms 기본설정창 값 (남은 부분만)
-expected: |
-  /me 「상따 기본설정」 11값이 WinForms 기본설정창과 같다. 41 바로시작 · 중지 부분은 로그 간접 증거로 닫았다.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -38,15 +34,15 @@ evidence: WR-04 수정(5d51b609, relay b581af31 이후 배포본)으로 카드 5
 
 ### 5. 첫 거래일 — /me 값 = WinForms 기본설정창 값 · 41 은 실사용 중에만 관찰
 expected: /me 11값이 WinForms 기본설정창과 같다. 바로시작 · 중지는 실사용 중 관찰만(시험 클릭 금지)
-result: [pending]
-evidence: 41 부분 — k13 1→3 직행(바로시작 계약) 19건 · 3→0 반복 관찰, relay 41/42 실패 경로 로그(세션 없음 · 미준비 · 계좌 불허 · 송신 실패) 0 · close 4400 0 · 프레임 드롭 0 (14:48 이후 구간 — 08:00~14:48 relay 로그는 재배포로 소실). 웹 발인지 WinForms 발인지는 구분 불가. 남은 것: /me 11값 ↔ WinForms 기본설정창 눈 비교(84 내용은 relay 가 기록하지 않음).
+result: pass
+evidence: 41 부분 — k13 1→3 직행(바로시작 계약) 19건 · 3→0 반복 관찰, relay 41/42 실패 경로 로그(세션 없음 · 미준비 · 계좌 불허 · 송신 실패) 0 · close 4400 0 · 프레임 드롭 0 (14:48 이후 구간 — 08:00~14:48 relay 로그는 재배포로 소실). 웹 발인지 WinForms 발인지는 구분 불가. /me 11값 ↔ WinForms 기본설정창 — 2026-10-06 사용자 눈 비교 일치(pass).
 
 ## Summary
 
 total: 5
-passed: 4
+passed: 5
 issues: 0
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 
