@@ -12,6 +12,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { ApiClientError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 import { ADMIN_CHIP_BASE, ADMIN_TONE_CLASS } from "./reflect-chip";
@@ -167,6 +168,35 @@ export function toDmaInput(value: DmaConnectValue, servers: AdminUsersOverview["
     },
     servers: servers.map((s) => s.key).filter((k) => value.servers.includes(k)),
   };
+}
+
+/**
+ * 제출 실패 → 화면 자리. relay 409 `DMA_USER_EXISTS` 는 DMA id 칸 아래(「이미 있는 DMA id 예요」), 그 밖(400 · 409
+ * `DMA_LINKED` · 502 `RELAY_FAILED` · 503 …)은 하단 한 줄 「<무엇> 하지 못했어요 · <서버 message>」.
+ */
+export function dmaConnectFailure(err: unknown, failed: string): { fields: DmaConnectErrors; line: string | null } {
+  if (err instanceof ApiClientError && err.code === "DMA_USER_EXISTS") {
+    return { fields: { dmaUserId: DMA_CONNECT_TEXT.dmaUserExists }, line: null };
+  }
+  const detail = err instanceof ApiClientError ? err.message : null;
+  return { fields: {}, line: detail ? `${failed} · ${detail}` : failed };
+}
+
+/** 바깥 오류는 그 칸을 고치면 사라진다 — 바뀐 칸의 바깥 오류만 지운 새 묶음. */
+export function clearChangedErrors(
+  errors: DmaConnectErrors,
+  prev: DmaConnectValue,
+  next: DmaConnectValue,
+): DmaConnectErrors {
+  let out = errors;
+  for (const f of Object.keys(errors) as DmaConnectField[]) {
+    const changed = f === "servers" ? prev.servers.join() !== next.servers.join() : prev[f] !== next[f];
+    if (changed) {
+      if (out === errors) out = { ...errors };
+      delete out[f];
+    }
+  }
+  return out;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -325,6 +325,11 @@ function applyDma(api: AdminApiMock, email: string, role: 'trader' | 'admin' | n
   );
 }
 
+/** 찍기 전 — 진행 중인 CSS 전환(세그먼트 · 체크 칸 색 · 시트 슬라이드)이 끝날 때까지. 반쯤 칠해진 상태를 결함으로 오독하지 않게. */
+async function settled(page: Page) {
+  await expect.poll(() => page.evaluate(() => document.getAnimations().filter((a) => a.playState === 'running').length)).toBe(0);
+}
+
 async function mockCreateApi(page: Page): Promise<AdminApiMock> {
   const api: AdminApiMock = await mockAdminApi(page, {
     onRequest: (req) => {
@@ -379,15 +384,12 @@ test('P29-A4 생성 시트 — trader + DMA + 첫 계좌 한 번에 → 편집 �
   await expect(submit).toBeEnabled();
   await expect(submit).toHaveText('사용자 + DMA 유저 만들기 · 서버 2대에 반영');
   await expect(group.getByRole('checkbox', { name: 'KB121' })).toHaveAttribute('data-state', 'checked');
-  // 체크 칸 색 전환(transition-colors)이 끝난 뒤 찍는다 — 반투명이면 아직 전환 중
-  await expect
-    .poll(() => group.getByRole('checkbox', { name: 'KB121' }).evaluate((el) => getComputedStyle(el).backgroundColor))
-    .toMatch(/^rgb\(/);
 
   // 잘림 — 생성 시트 본문이 패널 밖으로 밀리지 않는다
   const createBody = sheet.locator('[data-slot="admin-sheet-body"]');
   const createBox = (await createBody.boundingBox())!;
   expect(await leavesOverflowing(createBody, createBox.x + createBox.width)).toEqual([]);
+  await settled(page);
   await page.screenshot({ path: testInfo.outputPath('admin-user-create-1080.png') });
 
   await submit.click();
@@ -433,5 +435,108 @@ test('P29-A4 생성 시트 — trader + DMA + 첫 계좌 한 번에 → 편집 �
   await expect(edit.locator('[data-slot="admin-busy-line"]')).toHaveText(
     `KB121 실패 · BUSY: ${CREATE_BUSY} — 정리 뒤 「다시 반영」`,
   );
+  await settled(page);
   await page.screenshot({ path: testInfo.outputPath('admin-user-created-sheet-1080.png') });
+});
+
+test('P29-A5 viewer 생성 → trader 로 올림 → 편집 시트 DMA 연결 · 생성 시트 바텀시트 (390)', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const api = await mockCreateApi(page);
+
+  await page.goto('/admin/users');
+  const root = usersRoot(page);
+  await expect(userRows(page)).toHaveCount(4, { timeout: 30_000 });
+
+  // 생성 시트 = 폰 바텀시트(거의 전체 높이 · 폭 전체)
+  await root.getByRole('button', { name: '+ 사용자' }).click();
+  const sheet = page.getByRole('dialog', { name: '사용자 만들기' });
+  await expect(sheet).toBeVisible();
+  await expect(sheet).toHaveAttribute('data-side', 'bottom');
+  await expect.poll(async () => {
+    const b = (await sheet.boundingBox())!;
+    return Math.round(b.y + b.height);
+  }).toBe(844);
+  const box = (await sheet.boundingBox())!;
+  expect(Math.round(box.width)).toBe(390);
+  expect(box.height).toBeGreaterThanOrEqual(844 * 0.8);
+
+  // trader(기본) — DMA 그룹 · 교보로 바꾸면 지점 · 트레이더 칸 없음
+  const group = sheet.locator('[data-slot="admin-dma-connect"]');
+  await expect(group).toBeVisible();
+  await expect(group.getByLabel('지점')).toBeVisible();
+  await group.getByRole('radio', { name: '교보' }).click();
+  await expect(group.getByLabel('지점')).toHaveCount(0);
+  await expect(group.getByLabel('트레이더')).toHaveCount(0);
+  await expect(group.getByRole('checkbox')).toHaveCount(2);
+  await expect(group.getByRole('checkbox', { name: 'KB120' })).toHaveCount(0);
+  const body = sheet.locator('[data-slot="admin-sheet-body"]');
+  const bodyBox = (await body.boundingBox())!;
+  expect(await leavesOverflowing(body, bodyBox.x + bodyBox.width)).toEqual([]);
+  await settled(page);
+  await page.screenshot({ path: testInfo.outputPath('admin-user-create-390.png') });
+
+  // viewer — 그룹 없음 · 안내(D-21 「테마」) · 버튼 「사용자 만들기」
+  await sheet.getByRole('group', { name: '역할' }).getByRole('radio', { name: 'viewer' }).click();
+  await expect(group).toHaveCount(0);
+  await expect(sheet).toContainText(
+    'viewer 는 스캐너 · 뉴스 · 테마만 보고 DMA 연결이 없다. 나중에 trader 로 올리면 편집 시트에서 DMA 를 연결한다.',
+  );
+  const submit = sheet.locator('[data-slot="admin-user-create-submit"]');
+  await expect(submit).toHaveText('사용자 만들기');
+  await sheet.getByLabel(/gmail/).fill(NEW_EMAIL);
+  await settled(page);
+  await page.screenshot({ path: testInfo.outputPath('admin-user-create-viewer-390.png') });
+  await submit.click();
+
+  // POST 1건 — dma 없음 → 그 이메일 편집 시트(viewer · 연결 그룹 없음)
+  const edit = page.getByRole('dialog', { name: NEW_EMAIL });
+  await expect(edit).toBeVisible();
+  expect(writes(api)).toEqual([{ method: 'POST', path: '/users', body: { email: NEW_EMAIL, role: 'viewer' } }]);
+  await expect(edit).toContainText('DMA 연결 없음');
+  await expect(edit.locator('[data-slot="admin-dma-connect"]')).toHaveCount(0);
+
+  // trader 로 올림 → PATCH 1건 → 「DMA 연결」 그룹
+  await edit.getByRole('group', { name: '역할' }).getByRole('radio', { name: 'trader' }).click();
+  await expect.poll(() => writes(api).length).toBe(2);
+  expect(writes(api)[1]).toEqual({ method: 'PATCH', path: `/users/${encodeURIComponent(NEW_EMAIL)}`, body: { role: 'trader' } });
+  const connect = edit.locator('[data-slot="admin-dma-connect"]');
+  await expect(connect).toBeVisible();
+  const connectBtn = edit.locator('[data-slot="admin-dma-connect-submit"]');
+  await expect(connectBtn).toBeDisabled();
+
+  await connect.getByRole('radio', { name: '교보' }).click();
+  await connect.getByLabel(/DMA 사용자 id/).fill('leenew');
+  await connect.getByLabel('비밀번호', { exact: true }).fill('pw-1');
+  await connect.getByLabel('비밀번호 확인').fill('pw-1');
+  await connect.getByLabel('계좌번호').fill('0098765432');
+  await connect.getByRole('checkbox', { name: 'KYOBO119' }).click();
+  await expect(connectBtn).toHaveText('DMA 유저 + 첫 계좌 만들기 · 서버 1대에 반영');
+  await connectBtn.click();
+
+  // POST /users/:email/dma 1건 → 재조회가 DMA id 를 채워 계좌 줄 · 결과 칩
+  await expect.poll(() => writes(api).length).toBe(3);
+  expect(writes(api)[2]).toEqual({
+    method: 'POST',
+    path: `/users/${encodeURIComponent(NEW_EMAIL)}/dma`,
+    body: {
+      dmaUserId: 'leenew',
+      password: 'pw-1',
+      account: { broker: 'KYOBO', accountNo: '98765432', name: '', branchNo: '', traderId: '', priority: 0 },
+      servers: ['KYOBO119'],
+    },
+  });
+  const acct = edit.locator('[data-slot="admin-account"][data-account="98765432"]');
+  await expect(acct).toBeVisible();
+  await expect(acct).toContainText('지점 해당 없음 · 트레이더 해당 없음');
+  await expect(
+    acct.locator('[data-slot="admin-server-toggle"][data-server="KYOBO119"] [data-slot="reflect-chip"]'),
+  ).toHaveText('반영됨');
+  await expect(edit.locator('[data-slot="admin-dma-connect"]')).toHaveCount(0);
+  await expect(edit.locator('[data-slot="admin-password"]')).toContainText('leenew');
+
+  const editBody = edit.locator('[data-slot="admin-sheet-body"]');
+  const editBox = (await editBody.boundingBox())!;
+  expect(await leavesOverflowing(editBody, editBox.x + editBox.width)).toEqual([]);
+  await settled(page);
+  await page.screenshot({ path: testInfo.outputPath('admin-user-connected-390.png') });
 });

@@ -12,12 +12,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { deleteAdminUser, patchAdminRole, reconcileDmaUser } from "@/lib/admin-api";
+import { connectAdminDma, deleteAdminUser, patchAdminRole, reconcileDmaUser } from "@/lib/admin-api";
 import { ApiClientError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 import { AccountEditor, BusyLines, chipOfResult, ResultChips } from "./account-editor";
 import { AdminSheet } from "./admin-sheet";
+import {
+  clearChangedErrors,
+  dmaConnectFailure,
+  DmaConnectFields,
+  EMPTY_DMA_CONNECT,
+  toDmaInput,
+  validateDmaConnect,
+  type DmaConnectErrors,
+  type DmaConnectValue,
+} from "./dma-connect-fields";
 import { PasswordChange } from "./password-change";
 import { ADMIN_BUTTON_SECONDARY, ADMIN_CHIP_BASE } from "./reflect-chip";
 import { RoleSegment } from "./role-segment";
@@ -37,7 +47,10 @@ import { ROLE_CHIP_CLASS } from "./user-row";
  * 위험 작업은 확인 1회(D-15): 「사용자 삭제」 와 마지막 계좌 「제거」(= 사용자 삭제 — 서버 409 `LAST_ACCOUNT` 를 기다리지
  * 않고 화면이 먼저 안다). 삭제가 일부 서버에서 실패하면(`deleted: false`) 시트를 닫지 않고 서버별 칩 · BUSY 줄로 보인다.
  *
- * DMA 연결이 없는 사용자는 「DMA 연결 없음」 까지만 그린다(연결 폼은 29-19 가 같은 자리에 넣는다).
+ * DMA 연결이 없는 사용자는 「DMA 연결 없음」 을 그리고, trader/admin 이면 그 아래 「DMA 연결」 그룹(`DmaConnectFields` —
+ * 생성 시트와 같은 필드) + 버튼 「DMA 유저 + 첫 계좌 만들기 · 서버 N대에 반영」 을 둔다(29-19 · D-16 — viewer 로 만든 뒤
+ * trader 로 올린 사용자의 연결 자리). 누르면 `POST /api/admin/users/:email/dma` 1건 → 서버별 결과 칩 → 재조회(재조회가
+ * DMA id 를 채우면 계좌 줄이 같은 결과 칩으로 이어 그린다).
  */
 
 export const USER_SHEET_TEXT = {
@@ -53,6 +66,7 @@ export const USER_SHEET_TEXT = {
   confirmDescription: "되돌릴 수 없어요.",
   confirmCancel: "취소",
   confirmDelete: "삭제",
+  connectFailed: "연결하지 못했어요",
   deletePartial: "일부 서버에서 지우지 못해 사용자가 남아 있어요.",
   deleteAfter: "정리 뒤 다시 삭제",
 } as const;
@@ -65,6 +79,11 @@ export const ADMIN_BUTTON_DANGER =
   "bg-[color-mix(in_srgb,var(--destructive)_14%,transparent)] text-[12px] font-semibold text-[var(--destructive)] hover:bg-[color-mix(in_srgb,var(--destructive)_22%,transparent)]";
 
 const ERROR_LINE = "mt-2 text-[12.5px] break-keep text-[var(--destructive)]";
+
+/** 연결 버튼 문구 — 목업 B 3단계 버튼(「DMA 유저 + 첫 계좌 만들기 · 서버 N대에 반영」) · 체크 수를 그대로 말한다. */
+export function connectDmaLabel(serverCount: number): string {
+  return `DMA 유저 + 첫 계좌 만들기 · 서버 ${serverCount}대에 반영`;
+}
 
 function roleErrorText(err: unknown): string {
   if (err instanceof ApiClientError && err.code === "SELF_LOCKOUT") return USER_SHEET_TEXT.selfLockout;
@@ -204,7 +223,19 @@ export function UserSheet({ user, servers, onChanged, onClose, initialResults = 
         <section aria-label={USER_SHEET_TEXT.dmaLabel} data-slot="admin-field-dma" className={ADMIN_FIELD}>
           <div className={ADMIN_FIELD_LABEL}>{USER_SHEET_TEXT.dmaLabel}</div>
           {dma === null ? (
-            <p className="text-[15px] text-[var(--faint)]">{USER_SHEET_TEXT.noDma}</p>
+            <>
+              <p className="text-[15px] text-[var(--faint)]">{USER_SHEET_TEXT.noDma}</p>
+              {shownRole !== "viewer" && (
+                <DmaConnect
+                  email={user.email}
+                  servers={servers}
+                  onConnected={(results) => {
+                    setReconcileBatch((prev) => ({ id: (prev?.id ?? 0) + 1, results }));
+                    onChanged();
+                  }}
+                />
+              )}
+            </>
           ) : (
             <PasswordChange dmaUserId={dma} />
           )}
@@ -254,6 +285,80 @@ export function UserSheet({ user, servers, onChanged, onClose, initialResults = 
         onConfirm={() => void runDelete()}
       />
     </AdminSheet>
+  );
+}
+
+interface DmaConnectProps {
+  email: string;
+  servers: AdminUsersOverview["servers"];
+  /** 성공 — 서버별 결과(계좌 칩 초기값으로 이어진다) · 부모가 재조회. */
+  onConnected: (results: AdminServerResult[]) => void;
+}
+
+/** DMA 연결 없는 trader/admin 의 「DMA 연결」 — 생성 시트와 같은 필드 · 버튼 1개 · 요청 1건. */
+function DmaConnect({ email, servers, onConnected }: DmaConnectProps) {
+  const [value, setValue] = useState<DmaConnectValue>(EMPTY_DMA_CONNECT);
+  const [submitting, setSubmitting] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<DmaConnectErrors>({});
+  const [error, setError] = useState<string | null>(null);
+  const [results, setResults] = useState<AdminServerResult[] | null>(null);
+
+  const ready = validateDmaConnect(value, servers).valid && !submitting;
+
+  const submit = async () => {
+    if (!ready) return;
+    const body = toDmaInput(value, servers);
+    setSubmitting(true);
+    setError(null);
+    setFieldErrors({});
+    try {
+      const res = await connectAdminDma(email, body);
+      // 비밀번호를 들고 있지 않는다(D-06) — 재조회가 이 폼을 내리기 전까지 빈 폼 + 결과 칩.
+      setValue(EMPTY_DMA_CONNECT);
+      setResults(res.results);
+      onConnected(res.results);
+    } catch (err) {
+      const failure = dmaConnectFailure(err, USER_SHEET_TEXT.connectFailed);
+      setFieldErrors(failure.fields);
+      setError(failure.line);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div data-slot="admin-dma-connect-form">
+      <DmaConnectFields
+        servers={servers}
+        value={value}
+        onChange={(next) => {
+          setFieldErrors((prev) => clearChangedErrors(prev, value, next));
+          setValue(next);
+        }}
+        errors={fieldErrors}
+        disabled={submitting}
+        idPrefix="admin-user-sheet-dma"
+      />
+      <Button
+        type="button"
+        data-slot="admin-dma-connect-submit"
+        disabled={!ready}
+        onClick={() => void submit()}
+        className="mt-3 h-11 w-full rounded-[12px] text-[14px] font-semibold text-[var(--primary-fg)]"
+      >
+        {connectDmaLabel(value.servers.length)}
+      </Button>
+      {results && results.length > 0 && (
+        <div data-slot="admin-dma-connect-results" className="mt-2">
+          <ResultChips results={results} />
+        </div>
+      )}
+      {error && (
+        <p role="alert" data-slot="admin-dma-connect-error" className={ERROR_LINE}>
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 

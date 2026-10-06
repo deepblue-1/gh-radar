@@ -7,12 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { upsertAdminUser } from "@/lib/admin-api";
-import { ApiClientError } from "@/lib/api";
-import { cn } from "@/lib/utils";
 
 import { AdminSheet } from "./admin-sheet";
 import {
   ADMIN_INPUT,
+  clearChangedErrors,
+  dmaConnectFailure,
   DmaConnectFields,
   EMPTY_DMA_CONNECT,
   toDmaInput,
@@ -42,6 +42,8 @@ export const USER_CREATE_TEXT = {
   emailPlaceholder: "name@gmail.com",
   emailNote: "가입 전이면 사전 등록으로 남고, 이미 가입했으면 승인 대기에서 빠진다.",
   role: "역할",
+  // 목업 문장의 「분석」 은 D-21 로 「테마」 — viewer 는 상한가 보고서 · AI 애널리스트를 보지 않는다.
+  viewerNote: "viewer 는 스캐너 · 뉴스 · 테마만 보고 DMA 연결이 없다. 나중에 trader 로 올리면 편집 시트에서 DMA 를 연결한다.",
   submitViewer: "사용자 만들기",
   failed: "만들지 못했어요",
 } as const;
@@ -64,11 +66,6 @@ export function needsDma(role: AppRole): boolean {
   return role !== "viewer";
 }
 
-function failedText(err: unknown): string {
-  const detail = err instanceof ApiClientError ? err.message : null;
-  return detail ? `${USER_CREATE_TEXT.failed} · ${detail}` : USER_CREATE_TEXT.failed;
-}
-
 export interface UserCreateSheetProps {
   /** 서버 레지스트리(`AdminUsersOverview.servers`) — 등록 서버 후보. */
   servers: AdminUsersOverview["servers"];
@@ -85,7 +82,7 @@ export function UserCreateSheet({ servers, onCreated, onFailed, onClose }: UserC
   const [dma, setDma] = useState<DmaConnectValue>(EMPTY_DMA_CONNECT);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [fieldErrors] = useState<DmaConnectErrors>({});
+  const [fieldErrors, setFieldErrors] = useState<DmaConnectErrors>({});
 
   const withDma = needsDma(role);
   const emailOk = EMAIL_RE.test(email.trim());
@@ -105,8 +102,10 @@ export function UserCreateSheet({ servers, onCreated, onFailed, onClose }: UserC
       // 성공하면 부모가 이 시트를 내린다 — 여기서 상태를 더 만지지 않는다.
       onCreated(trimmed.toLowerCase(), res.results ?? null);
     } catch (err) {
+      const failure = dmaConnectFailure(err, USER_CREATE_TEXT.failed);
       setSubmitting(false);
-      setError(failedText(err));
+      setFieldErrors(failure.fields);
+      setError(failure.line);
       onFailed?.();
     }
   };
@@ -180,19 +179,26 @@ export function UserCreateSheet({ servers, onCreated, onFailed, onClose }: UserC
           </ToggleGroup>
         </div>
 
-        {withDma && (
+        {withDma ? (
           <DmaConnectFields
             servers={servers}
             value={dma}
-            onChange={setDma}
+            onChange={(next) => {
+              setFieldErrors((prev) => clearChangedErrors(prev, dma, next));
+              setDma(next);
+            }}
             errors={fieldErrors}
             disabled={submitting}
             idPrefix="admin-user-create-dma"
           />
+        ) : (
+          <p data-slot="admin-user-create-viewer-note" className={NOTE}>
+            {USER_CREATE_TEXT.viewerNote}
+          </p>
         )}
 
         {error && (
-          <p role="alert" data-slot="admin-user-create-error" className={cn(ERROR_LINE)}>
+          <p role="alert" data-slot="admin-user-create-error" className={ERROR_LINE}>
             {error}
           </p>
         )}

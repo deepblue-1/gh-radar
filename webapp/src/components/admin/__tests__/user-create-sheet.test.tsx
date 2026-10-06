@@ -31,6 +31,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ back: vi.fn(), push: vi.
 
 import { UsersClient } from '../users-client';
 import { UserCreateSheet } from '../user-create-sheet';
+import { UserSheet } from '../user-sheet';
 
 const SERVERS: AdminUsersOverview['servers'] = [
   { key: 'KB120', broker: 'KB', enabled: true },
@@ -261,5 +262,133 @@ describe('UsersClient 「+ 사용자」 → 생성 → 편집 시트 결과 칩'
     fetchAdminUsersMock.mockReturnValue(new Promise(() => {}));
     render(<UsersClient />);
     expect(screen.getByRole('button', { name: '+ 사용자' })).toBeDisabled();
+  });
+});
+
+describe('UserCreateSheet — viewer · 409 (D-16 · D-21)', () => {
+  it('viewer — DMA 그룹 없음 · 안내(D-21 「테마」) · 버튼 「사용자 만들기」 · 바디에 dma 없음', async () => {
+    upsertAdminUserMock.mockResolvedValue({ ok: true, relayNotified: true });
+    const props = renderSheet();
+    pick('viewer');
+    expect(sheet().querySelector('[data-slot="admin-dma-connect"]')).toBeNull();
+    expect(sheet()).toHaveTextContent(
+      'viewer 는 스캐너 · 뉴스 · 테마만 보고 DMA 연결이 없다. 나중에 trader 로 올리면 편집 시트에서 DMA 를 연결한다.',
+    );
+    expect(submitButton()).toHaveTextContent(/^사용자 만들기$/);
+    expect(submitButton()).toBeDisabled(); // gmail 없음
+    type(/gmail/, NEW_EMAIL);
+    expect(submitButton()).toBeEnabled();
+
+    fireEvent.click(submitButton());
+    expect(upsertAdminUserMock).toHaveBeenCalledTimes(1);
+    expect(upsertAdminUserMock).toHaveBeenCalledWith({ email: NEW_EMAIL, role: 'viewer' });
+    await waitFor(() => expect(props.onCreated).toHaveBeenCalledWith(NEW_EMAIL, null));
+  });
+
+  it('viewer → trader 로 되돌리면 DMA 그룹이 다시 펼쳐지고 입력은 남아 있다', () => {
+    renderSheet();
+    type(/DMA 사용자 id/, 'leenew');
+    pick('viewer');
+    pick('admin');
+    expect(within(sheet()).getByLabelText(/DMA 사용자 id/)).toHaveValue('leenew');
+    expect(submitButton()).toHaveTextContent('사용자 + DMA 유저 만들기 · 서버 0대에 반영');
+  });
+
+  it('409 DMA_USER_EXISTS → DMA id 칸 아래 「이미 있는 DMA id 예요」 · 하단 한 줄 없음 · id 를 고치면 사라진다', async () => {
+    upsertAdminUserMock.mockRejectedValue(
+      new ApiClientError({ code: 'DMA_USER_EXISTS', message: 'DMA user exists', status: 409 }),
+    );
+    const props = renderSheet();
+    fillTrader();
+    fireEvent.click(submitButton());
+
+    const idInput = within(sheet()).getByLabelText(/DMA 사용자 id/);
+    await waitFor(() => expect(idInput).toHaveAttribute('aria-invalid', 'true'));
+    const alerts = within(sheet()).getAllByRole('alert');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toHaveTextContent('이미 있는 DMA id 예요');
+    expect(sheet().querySelector('[data-slot="admin-user-create-error"]')).toBeNull();
+    expect(props.onFailed).toHaveBeenCalledTimes(1);
+
+    type(/DMA 사용자 id/, 'leenew2');
+    expect(within(sheet()).queryAllByRole('alert')).toHaveLength(0);
+    expect(submitButton()).toBeEnabled();
+  });
+});
+
+describe('UserSheet — DMA 연결 없는 trader/admin 의 「DMA 연결」 (D-16)', () => {
+  const NODMA: AdminUserView = {
+    email: 'choi.trader@example.invalid',
+    role: 'trader',
+    dmaUserId: null,
+    signedUp: true,
+    accountCount: 0,
+    servers: [],
+    accounts: [],
+  };
+
+  function renderEdit(user: AdminUserView) {
+    const props = { onChanged: vi.fn(), onClose: vi.fn() };
+    render(<UserSheet user={user} servers={SERVERS} {...props} />);
+    return props;
+  }
+  const edit = () => screen.getByRole('dialog', { name: NODMA.email });
+  const connectButton = () => within(edit()).getByRole('button', { name: /DMA 유저 \+ 첫 계좌 만들기/ });
+  const fill = () => {
+    const g = edit().querySelector('[data-slot="admin-dma-connect"]') as HTMLElement;
+    const t = (label: string | RegExp, v: string) => fireEvent.change(within(g).getByLabelText(label), { target: { value: v } });
+    fireEvent.click(within(g).getByRole('radio', { name: '교보' }));
+    t(/DMA 사용자 id/, 'choitr');
+    t('비밀번호', 'pw-1');
+    t('비밀번호 확인', 'pw-1');
+    t('계좌번호', '0098765432');
+    fireEvent.click(within(g).getByRole('checkbox', { name: 'KYOBO119' }));
+  };
+
+  it('trader · DMA 없음 → 「DMA 연결」 그룹 + 버튼(서버 수) → connectAdminDma 1회 → 결과 칩 · 재조회', async () => {
+    connectAdminDmaMock.mockResolvedValue({ results: [{ server: 'KYOBO119', outcome: 'ok' }], relayNotified: true });
+    const props = renderEdit(NODMA);
+    expect(edit()).toHaveTextContent('DMA 연결 없음');
+    expect(edit().querySelector('[data-slot="admin-dma-connect"]')).not.toBeNull();
+    expect(connectButton()).toBeDisabled();
+    expect(connectButton()).toHaveTextContent('DMA 유저 + 첫 계좌 만들기 · 서버 0대에 반영');
+
+    fill();
+    expect(connectButton()).toHaveTextContent('DMA 유저 + 첫 계좌 만들기 · 서버 1대에 반영');
+    expect(connectButton()).toBeEnabled();
+    fireEvent.click(connectButton());
+    expect(connectAdminDmaMock).toHaveBeenCalledTimes(1);
+    expect(connectAdminDmaMock).toHaveBeenCalledWith(NODMA.email, {
+      dmaUserId: 'choitr',
+      password: 'pw-1',
+      account: { broker: 'KYOBO', accountNo: '98765432', name: '', branchNo: '', traderId: '', priority: 0 },
+      servers: ['KYOBO119'],
+    });
+
+    const results = await waitFor(() => {
+      const el = edit().querySelector('[data-slot="admin-dma-connect-results"]') as HTMLElement;
+      expect(el).not.toBeNull();
+      return el;
+    });
+    expect(within(results).getByText('KYOBO119')).toHaveAttribute('data-tone', 'ok');
+    expect(props.onChanged).toHaveBeenCalledTimes(1);
+    // 비밀번호는 보낸 뒤 들고 있지 않는다(D-06)
+    expect(within(edit()).getByLabelText('비밀번호')).toHaveValue('');
+  });
+
+  it('409 DMA_USER_EXISTS → DMA id 칸 아래 한 줄 · 재조회 없음', async () => {
+    connectAdminDmaMock.mockRejectedValue(new ApiClientError({ code: 'DMA_USER_EXISTS', message: 'exists', status: 409 }));
+    const props = renderEdit(NODMA);
+    fill();
+    fireEvent.click(connectButton());
+    expect(await within(edit()).findByText('이미 있는 DMA id 예요')).toBeInTheDocument();
+    expect(props.onChanged).not.toHaveBeenCalled();
+  });
+
+  it('viewer · DMA 없음 → 연결 그룹 없음(「DMA 연결 없음」 만)', () => {
+    renderEdit({ ...NODMA, role: 'viewer' });
+    expect(edit()).toHaveTextContent('DMA 연결 없음');
+    expect(edit().querySelector('[data-slot="admin-dma-connect"]')).toBeNull();
+    expect(within(edit()).queryByRole('button', { name: /DMA 유저 \+ 첫 계좌 만들기/ })).toBeNull();
   });
 });
