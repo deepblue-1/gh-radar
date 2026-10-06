@@ -1238,7 +1238,7 @@ projectionErrors · lastProjectionErrorAgeSec · mapping · strategy` — 뒤 �
 `alerting` 이다. `alerting` 은 「KB 였다면 503 이었을 조건」
 (장중 rejected 또는 live 아님 180초 이상)이다. **503 에서 제외한 이유 셋:**
 
-1. 교보 터널은 약 4시간마다 재로그인하고 데스크톱 SecuwaySSL 과 상호배제된다 — 그 끊김이 KB relay-down 알림
+1. 교보 터널은 약 4시간마다 재로그인하고(원인: inactive 바이트 하한 — keepalive 볼륨으로 대응 중, §교보 SecuwaySSL VPN → 워치독 · 재접속 동작) 데스크톱 SecuwaySSL 과 상호배제된다 — 그 끊김이 KB relay-down 알림
    (`gh-radar-relay-healthz`)을 울리면 알림의 의미가 흐려진다.
 2. `deploy-relay.sh` 의 VM 기동 확인이 `curl -sf` 다 — 장중 KYOBO 때문에 503 이면 KB 배포가 실패한다.
 3. 롤아웃 중 거부(게이트웨이 쪽 비밀 미배치)는 KB 가용성과 무관하다.
@@ -1350,7 +1350,7 @@ SELECT l.gateway, left(l.user_id::text, 8) AS user8, l.dma_user_id, l.created_at
 **타임라인.** 장중 끊김 → relay 180초 유예(`rejected` 는 즉시) → `alerting` true → 체크 실패가 5분 이어짐 → 메일.
 합계 **약 8분 이상**이다.
 
-- 4시간 주기 교보 재로그인(수십 초)은 180초 유예 안이라 `alerting` 이 켜지지 않는다 — 울리지 않는다.
+- 4시간 주기 교보 재로그인(수십 초)(원인: inactive 바이트 하한 — keepalive 볼륨으로 대응 중, §교보 SecuwaySSL VPN → 워치독 · 재접속 동작)은 180초 유예 안이라 `alerting` 이 켜지지 않는다 — 울리지 않는다.
 - 데스크톱 SecuwaySSL 로 VM 터널이 8분 넘게 끊기면 울린다. 그동안 교보 기록이 실제로 비어 있으므로 맞는 알림이다.
 - 장 밖(평일 08:00~20:00 KST 밖 · 주말 · 휴장일)에는 `alerting` 이 항상 false 라 울리지 않는다.
 - 한계: `KRX_HOLIDAYS` seed 는 2026-12-31 까지다. 그 뒤로는 휴장일을 평일로 봐서 과민해진다(놓치지는 않는다).
@@ -1404,7 +1404,7 @@ bash scripts/smoke-relay.sh   # 끝의 「참고 — KYOBO 관찰자 감시」 �
 
 #### 교보 터널 주의
 
-- 교보 터널은 약 **4시간**마다 재로그인하며 수십 초 끊긴다. 그동안 DmaClient 가 백오프 1→30초로 재접속하고, 커서(`since_seq`)로
+- 교보 터널은 약 **4시간**마다 재로그인하며 수십 초 끊긴다(원인: inactive 바이트 하한 — keepalive 볼륨으로 대응 중, §교보 SecuwaySSL VPN → 워치독 · 재접속 동작). 그동안 DmaClient 가 백오프 1→30초로 재접속하고, 커서(`since_seq`)로
   이어받아 유실이 없다. 180초 안에 돌아오면 `alerting` 도 켜지지 않는다.
 - **데스크톱** SecuwaySSL 에 접속하면 VM 터널이 끊긴다(§교보 SecuwaySSL ⚠ 상호배제). 그동안 KYOBO 는 `connecting` 에
   머물고 KB 는 영향이 없다. 데스크톱을 끄고 VM 터널이 돌아오면 저절로 다시 붙는다.
@@ -1572,15 +1572,74 @@ KB AnyConnect(`openconnect@kb`)와 **별개의 독립 터널**이며 서로 간�
 정본은 repo `infra/relay/secuway/` (버전관리). VM 설치 경로:
 
 - `/usr/local/sbin/secuway-fetch-secret` — `ExecStartPre`. 시크릿을 `/run/secuway.cred`(0600) 로 받는다. 값은 로그에 남기지 않는다.
-- `/usr/local/sbin/secuway-connect` — `ExecStart`. cred 를 클라이언트 stdin 으로 주입.
-- `/usr/local/sbin/secuway-watchdog` — 3분 주기 keepalive + 도달성 복구.
+- `/usr/local/sbin/secuway-connect` — `ExecStart`. cred 를 클라이언트 stdin 으로 주입 · 클라이언트 `Error:` 줄에서 즉시 종료(fail-fast) · 로그인마다 벤더 `inactive` 줄 기록.
+- `/usr/local/sbin/secuway-watchdog` — 3분 주기 디바운스 탐침(4회) + keepalive ICMP 볼륨(회차당 약 295 KB) + failed 시간당 1회 회수.
 - `/etc/systemd/system/securwayssl.service` · `securwayssl-watchdog.{service,timer}`
 
-**프로세스 모델 (Type=simple 인 이유).** `SecuwaySSLU_client` 는 런처다 — 인증 후 터널 데몬 `sbin/sslvpn` 을 띄우고 스스로 종료한다. 그래서 `secuway-connect` 가 런처를 백그라운드로 돌린 뒤 `sslvpn` 을 찾아 그 PID 에 blocking 한다. 이 래퍼가 곧 `MainPID` 이고, 터널이 죽으면(약 4시간 `--inactive` 만료·서버 드롭) 래퍼가 종료돼 `Restart=always` 가 재연결한다. `KillMode=control-group` 이 중지·재시작 시 런처+sslvpn 을 함께 정리한다. (Type=forking 은 sh·sslvpn·client 3프로세스 때문에 `MainPID` 추정이 실패해 죽음 감지가 watchdog 에만 의존하게 되어 폐기했다.) 2026-09-21 `pkill -x sslvpn` 실증: `NRestarts` 0→1, 새 PID 재기동, 55초 내 도달성 복구.
+**프로세스 모델 (Type=simple 인 이유).** `SecuwaySSLU_client` 는 런처다 — 인증 후 터널 데몬 `sbin/sslvpn` 을 띄우고 스스로 종료한다. 그래서 `secuway-connect` 가 런처를 백그라운드로 돌린 뒤 `sslvpn` 을 찾아 그 PID 에 blocking 한다. 이 래퍼가 곧 `MainPID` 이고, 터널이 죽으면(서버 드롭, 또는 벤더 OpenVPN `--inactive <초> <바이트>` 의 **바이트 하한** 미달 — 야간·장전 약 4시간 주기 종료의 원인, §워치독 · 재접속 동작) 래퍼가 종료돼 `Restart=always` 가 재연결한다. `KillMode=control-group` 이 중지·재시작 시 런처+sslvpn 을 함께 정리한다. (Type=forking 은 sh·sslvpn·client 3프로세스 때문에 `MainPID` 추정이 실패해 죽음 감지가 watchdog 에만 의존하게 되어 폐기했다.) 2026-09-21 `pkill -x sslvpn` 실증: `NRestarts` 0→1, 새 PID 재기동, 55초 내 도달성 복구.
 
 ### ⚠ 데스크톱과 동시접속 금지 (상호배제)
 
 이 VM 세션과 데스크톱 클라이언트는 **교보에 등록된 단말 MAC 이 동일**하다(VM `42:01:0a:0a:00:05` 를 등록). 동시에 접속하면 교보가 한쪽 세션을 끊거나 계정을 잠글 수 있다. **VM 상시 터널을 켜 둔 동안 데스크톱 SecuwaySSL 을 띄우지 말 것**(반대도 마찬가지). VM 을 잠시 내리려면 `sudo systemctl stop securwayssl.service`.
+
+### 워치독 · 재접속 동작 (quick-261007-b9o)
+
+> **반영 상태: 적용 대기** — 워치독은 핫 교체, connect·유닛은 20:00 KST 이후(SUMMARY 대기 런북 `.planning/quick/261007-b9o-secuwayssl-vpn-watchdog-4/261007-b9o-SUMMARY.md`).
+
+정본 스크립트는 `infra/relay/secuway/secuway-watchdog` · `secuway-connect` · `securwayssl.service` 이고, 상수는 각 스크립트 맨 위에 있다.
+드라이런 테스트: `bash infra/relay/secuway/tests/watchdog.test.sh` · `bash infra/relay/secuway/tests/connect.test.sh` (macOS 에서 돈다, VM 무접촉).
+
+**① 디바운스 — 수 초 손실로는 재시작하지 않는다.** 워치독(3분 타이머)은 `10.16.207.119:22` TCP 탐침을
+`PROBE_TRIES` 4회 · `PROBE_GAP_SEC` 5초 간격 · `PROBE_TIMEOUT_SEC` 3초로 찌른다(폭 15~27초). **전부** 실패하고, 결정 시점에도
+유닛이 active 이며, active 진입 후 `GRACE_SEC` 60초가 지났을 때만 재시작한다(로그인 중인 세션을 죽여 「이미 로그인」 을 부르지 않게).
+실패한 탐침마다 `probe <i>/4 … failed`, 결정마다 `recovered on probe` · `all 4 probes failed … restarting securwayssl` · `… skip` 이 `secuway-watchdog` 태그로 남는다.
+사례: 2026-10-07 08:02 KST(23:02:03Z) 회차가 GCP 서울 엣지 주기 손실(23:02:04Z~, 수 초)과 겹쳐 탐침 **1회** 실패만으로 건강한 터널을 재시작했다 →
+새 로그인 「이미 로그인한 사용자입니다」 거부 → 약 75초 교보 단절. 새 규칙이면 2번째 탐침(약 23:02:11Z)이 성공해 재시작이 없다.
+
+**② fail-fast 와 재시도 — 이중 상한.** 클라이언트가 `Error:` 줄(예 「이미 로그인한 사용자입니다」 · 「등록된 MAC값이 일치하지 않습니다」)을 내면
+`secuway-connect` 는 30초를 기다리지 않고 즉시 exit 1(`client reported Error — failing fast`) — 오류 문구는 분류하지 않는다.
+→ `RestartSec=10` 뒤 재시도. **10초는 하한이다** — 같은 MAC 묶음 계정의 반복 로그인 잠금 정책이 미상이라 더 두드리지 않는다.
+→ `StartLimitBurst=8` / `StartLimitIntervalSec=600` (서버가 옛 세션을 약 60초 쥐는 동안 약 6회 시작이 필요해 5→8) → 소진 시 유닛 `failed`
+→ 워치독이 **시간당 1회** `reset-failed` + `start` (`/run/secuway-watchdog.last-recover` 스탬프).
+KB(§재시도 상한)와 같은 이중 상한이지만 차이가 있다: **inactive(사람이 `systemctl stop`)는 회수하지 않는다.** 교보는 데스크톱 SecuwaySSL 과
+상호배제라 stop 은 「데스크톱을 쓰려고 내렸다」 는 뜻이다. `activating (auto-restart)` 도 손대지 않는다(systemd 가 재시도 중).
+즉시 회수가 필요하면 `journalctl -u securwayssl.service -n 80` 으로 **원인을 확인한 뒤에만** `sudo systemctl reset-failed securwayssl.service` 후 `sudo systemctl start securwayssl.service`.
+
+**③ 약 4시간 주기 끊김의 원인 — 시간이 아니라 바이트 하한.** 벤더 런처가 쓰는 OpenVPN conf 에 `inactive %d %d`
+(= OpenVPN `--inactive <초> <바이트>`)가 들어간다. 창(<초>) 안 tun 트래픽이 <바이트> 미만이면 sslvpn 이 `Inactivity timeout` 으로 끝난다.
+3분마다 TCP SYN 1개로는 볼륨이 모자라 야간·장전에 끊겼다(2026-10-06 18:39:54Z · 22:40:29Z). 장중엔 DMA 트래픽이 커서 유지된다(22시간 세션 사례).
+conf(`/tmp/conf.XXXXXX`)는 sslvpn 기동 뒤 곧 삭제되고, 서버 PUSH_REPLY 에는 inactive 가 없다(ping 10 · ping-restart 60 등만).
+그래서 `secuway-connect` 가 로그인마다 conf 에서 **숫자만으로 된 `inactive` 줄 1줄만** best-effort 로 잡아 `vendor openvpn option: inactive <S> <B>` 로 저널에 남긴다
+(숫자 전용 정규식이라 인증서·키 줄은 나갈 수 없다. 못 잡으면 `inactive line not captured (best-effort)` 후 기동 계속).
+
+**④ keepalive 볼륨.** 탐침이 성공한 회차마다 워치독이 tun1 로 `.119` 에 큰 ICMP 를 보낸다(죽은 터널에는 보내지 않는다).
+
+| 항목 | 값 |
+|------|-----|
+| `KEEPALIVE_SIZE` | 1200 바이트 (+ IP/ICMP 28 = 1228, tun MTU 안) |
+| `KEEPALIVE_COUNT` · `KEEPALIVE_INTERVAL` | 120 · 0.2초 (5 pps, 약 24초, `KEEPALIVE_DEADLINE_SEC` 40) |
+| 회차당 tun1 | 120 × 2 × 1228 ≈ **295 KB** (양방향) |
+| 4시간 창 (80회) | 약 23.6 MB |
+| 인터넷 송신 | 월 약 2 GB (월 수십 센트) |
+| 벤더 바이트 하한 `B` (창 `S`초) | **실측 대기** — 배포 뒤 `vendor openvpn option: inactive <S> <B>` 줄로 채운다 |
+
+조정 공식: **회차당 바이트 ≥ 3 × B ÷ (S ÷ 180)** (3배 여유, 180 = 타이머 주기). 부족하면 `KEEPALIVE_COUNT` 를 올려 워치독만 핫 교체한다.
+응답이 COUNT 의 절반 미만이면 `keepalive ping <R>/120 replies` 진단 줄이 남는다(정상이면 조용).
+
+**⑤ 조회.**
+
+```bash
+journalctl -t secuway-watchdog --since '-1d' --no-pager                     # 탐침 실패·회복·재시작·회수·keepalive 이상
+journalctl -u securwayssl.service --no-pager | grep -E 'vendor openvpn option|failing fast|not captured'
+systemctl show -p NRestarts -p ActiveEnterTimestamp securwayssl.service      # 재시작 횟수 · 현재 세션 시작
+cat /sys/class/net/tun1/statistics/{tx,rx}_bytes                            # tun1 바이트 카운터 (회차 전후 비교)
+```
+
+**⑥ 배포 규칙.**
+
+- **워치독 단독 교체는 장중 가능** — 핫 교체다. 타이머가 다음 회차(3분 안)부터 새 파일을 실행하고 터널 재시작이 없다.
+- **`secuway-connect` · `securwayssl.service` 는 평일 20:00 KST 이후**, 21:00~21:20 limitup-pull 운반 창은 피한다. 장중(08:00~20:00 KST)에 securwayssl 을 재시작하지 않는다.
+- `install.sh` 는 파일 교체 + `daemon-reload` + `enable` 만 하고 **재시작하지 않는다** — 유닛 값은 다음 (재)접속부터 적용된다.
 
 ### 조작
 
@@ -1589,6 +1648,7 @@ KB AnyConnect(`openconnect@kb`)와 **별개의 독립 터널**이며 서로 간�
 systemctl status securwayssl.service
 systemctl list-timers securwayssl-watchdog.timer
 journalctl -u securwayssl.service -n 30
+journalctl -t secuway-watchdog --since '-1d'
 
 # 도달성 (읽기)
 gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a \
@@ -1598,8 +1658,8 @@ gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a \
 sudo systemctl stop securwayssl.service
 sudo systemctl start securwayssl.service
 
-# 재설치 (repo infra/relay/secuway/ 갱신 후, 저장소 루트에서)
-tar czf - -C infra/relay/secuway . | gcloud compute ssh radar-gw --tunnel-through-iap \
+# 재설치 (repo infra/relay/secuway/ 갱신 후, 저장소 루트에서 — COPYFILE_DISABLE=1 은 macOS tar 의 ._* 부속 파일 방지)
+COPYFILE_DISABLE=1 tar czf - -C infra/relay/secuway . | gcloud compute ssh radar-gw --tunnel-through-iap \
   --zone=asia-northeast3-a --command='mkdir -p /tmp/sd && tar xzf - -C /tmp/sd && sudo /tmp/sd/install.sh'
 
 # 비밀번호·계정 교체: 새 버전을 Secret Manager 에 넣고 재기동 (값은 화면에 출력하지 않는다)
