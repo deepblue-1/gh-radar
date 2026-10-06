@@ -2,6 +2,25 @@
 set -euo pipefail
 
 # ═══════════════════════════════════════════════════════════════
+# deploy-server.sh — server(Express) Cloud Run 배포
+#
+# 필수 env: GCP_PROJECT_ID · SUPABASE_URL · CORS_ALLOWED_ORIGINS(라이브 Cloud Run env 에서 그대로) ·
+#           RELAY_INTERNAL_URL(Phase 29 — 아래)
+#
+# Phase 29 D-07 (29-24) — relay 결선을 **다시 붙였다.** Phase 16 Plan 16(D-02)이 주문 접수를 relay wss 전용으로 옮기며
+#   server → relay 호출과 그 결선(env · secret 바인딩 · server SA accessor)을 걷어냈는데, Phase 29 의 웹 Admin 명령
+#   (사용자 · DMA 연결 · 서버 레지스트리 즉시 반영 · 주문/시세 서버 전환)은 **server 가 relay 내부 HTTP 를 부른다**
+#   (`server/src/services/relay-admin-client.ts` · `x-relay-secret` 관문). 주문은 여전히 relay wss 전용이다 — 다시 붙인 건
+#   Admin 경로뿐이다. 그래서:
+#     · env `RELAY_INTERNAL_URL` — relay VM 의 VPC 사설 주소(infra/relay/README.md §주문 경로 결선 「RELAY_INTERNAL_URL」 행 ·
+#       내부 고정 IP `gh-radar-relay-internal`). 저장소에 박제하지 않고 배포자가 넘긴다. server 는 production 에서
+#       10.10.0.0/26 밖이면 부팅을 거부하므로(assertRelayUrl) 여기서 먼저 같은 모양을 본다.
+#     · secret `RELAY_ORDER_SECRET=gh-radar-relay-order-secret:latest` 바인딩 + server 런타임 SA(default compute SA) accessor.
+#   방화벽 `relay-allow-internal-order`(tcp:8091 · 서브넷 출처)는 16-16 뒤에도 지우지 않아 그대로 있다 — 새로 열 것은 없다.
+#   둘 중 하나라도 없으면 server 는 기동은 하되 Admin 즉시 반영이 꺼지고 DMA 프록시 라우트가 503 이다(server.ts 경고).
+# ═══════════════════════════════════════════════════════════════
+
+# ═══════════════════════════════════════════════════════════════
 # Section 1: 가드 — gcloud configuration 검증 (D-36, D-39)
 # ═══════════════════════════════════════════════════════════════
 EXPECTED_PROJECT="${GCP_PROJECT_ID:-}"
@@ -44,6 +63,19 @@ IMAGE_LATEST="${REGISTRY}/server:latest"
 : "${SUPABASE_URL:?SUPABASE_URL must be set (export or .env.deploy)}"
 : "${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS must be set}"
 
+# Phase 29 D-07 — relay 내부 주소. 값은 출력하지 않는다(있다 · 모양이 맞다만 본다).
+if [[ -z "${RELAY_INTERNAL_URL:-}" ]]; then
+  echo "ERROR: RELAY_INTERNAL_URL must be set — relay VM 의 VPC 사설 주소(http://<내부 고정 IP>:8091)" >&2
+  echo "  값: infra/relay/README.md §주문 경로 결선 표의 「RELAY_INTERNAL_URL」 행 (내부 고정 IP gh-radar-relay-internal)" >&2
+  echo "  확인: gcloud compute addresses describe gh-radar-relay-internal --region=asia-northeast3 --format='value(address)'" >&2
+  exit 1
+fi
+# server 의 assertRelayUrl(production)과 같은 모양 — http(s) · 10.10.0.0/26 호스트. 어긋나면 새 리비전이 부팅을 거부한다.
+if [[ ! "$RELAY_INTERNAL_URL" =~ ^https?://10\.10\.0\.(0|[1-9][0-9]?)(:[0-9]{1,5})?/?$ ]] || (( BASH_REMATCH[1] > 63 )); then
+  echo "ERROR: RELAY_INTERNAL_URL 이 relay 사설 대역(10.10.0.0/26 · http(s)://10.10.0.N[:포트]) 모양이 아닙니다 — server 가 부팅을 거부합니다" >&2
+  exit 1
+fi
+
 echo "✓ variables: SHA=$SHA, IMAGE=$IMAGE"
 
 # ═══════════════════════════════════════════════════════════════
@@ -85,22 +117,31 @@ for SECRET in gh-radar-brightdata-api-key gh-radar-anthropic-api-key; do
 done
 echo "✓ Bright Data + Anthropic secret accessor bound for server SA (idempotent)"
 
-# Phase 16 Plan 16 (D-02) — relay 주문 공유 비밀 accessor 바인딩을 **제거했다**.
-#   주문 접수가 relay wss 전용이 되면서 server 는 relay 내부 HTTP 를 부르지 않는다.
-#   따라서 server 런타임 SA(default compute SA)가 이 secret 을 읽을 이유가 없다.
-#
-#   ⚠️ Secret Manager 의 `gh-radar-relay-order-secret` **자체는 지우지 않는다** —
-#      relay 가 `/healthz` 공유 비밀 관문에 계속 쓴다. 지우면 relay 부팅이 깨진다.
-#      relay SA 바인딩은 `setup-relay-iam.sh` 소관이며 그쪽은 손대지 않았다.
+# Phase 16 Plan 16 (D-02) — relay 주문 공유 비밀 accessor 바인딩을 제거했었다(주문 접수가 relay wss 전용).
+# Phase 29 D-07 — Admin 명령만 server → relay 를 다시 부른다. 그래서 server 런타임 SA(default compute SA)가
+#   `gh-radar-relay-order-secret` 을 다시 읽는다(`RELAY_ORDER_SECRET` 바인딩 · `x-relay-secret` 헤더). 안전망(idempotent).
+#   relay SA 바인딩은 `setup-relay-iam.sh` 소관이며 여기서 손대지 않는다.
+for SECRET in gh-radar-relay-order-secret; do
+  if gcloud secrets describe "$SECRET" >/dev/null 2>&1; then
+    gcloud secrets add-iam-policy-binding "$SECRET" \
+      --member="serviceAccount:${DEFAULT_SA}" \
+      --role=roles/secretmanager.secretAccessor >/dev/null 2>&1 || true
+  fi
+done
+echo "✓ relay order secret accessor bound for server SA (idempotent · Phase 29 D-07)"
 
 # 선행 Secret 검증 — 배포 전 필수 secret 존재 여부
-#   Phase 16 Plan 16 (D-02): relay 주문 비밀 존재 검사를 **뺐다**. server 가 그 secret 을
-#   더 이상 바인딩하지 않으므로 부재해도 `gcloud run deploy` 는 실패하지 않는다. 남겨 두면
-#   server 배포가 relay 설정에 근거 없이 묶여, relay 를 아직 안 세운 환경에서 무관한
-#   배포까지 막는다. relay 쪽 선행 검증은 `setup-relay-iam.sh`/relay 배포 경로 소관이다.
+#   Phase 29 D-07: relay 주문 비밀 존재 검사를 **다시 넣었다**(16-16 이 뺐던 것). server 가 다시 바인딩하므로
+#   부재하면 `gcloud run deploy` 가 실패한다 — 빌드 · push 전에 여기서 막는다.
 for SECRET in gh-radar-anthropic-api-key; do
   if ! gcloud secrets describe "$SECRET" >/dev/null 2>&1; then
     echo "ERROR: Secret '$SECRET' not found. Run: bash scripts/setup-discussion-sync-iam.sh" >&2
+    exit 1
+  fi
+done
+for SECRET in gh-radar-relay-order-secret; do
+  if ! gcloud secrets describe "$SECRET" >/dev/null 2>&1; then
+    echo "ERROR: Secret '$SECRET' not found. Run: GCP_PROJECT_ID=${EXPECTED_PROJECT} bash scripts/setup-relay-iam.sh" >&2
     exit 1
   fi
 done
@@ -149,21 +190,16 @@ fi
 #   `--update-secrets` 는 반대로 **병합**이지만, 여기서도 전체를 나열해 두어야
 #   "이 서비스가 읽는 secret 목록" 의 정본이 한 곳에 남는다.
 #
-# Phase 16 Plan 16 (D-02) — relay 결선 env·secret 3종을 **제거했다**:
-#   `RELAY_INTERNAL_URL` · `ORDER_TIMEOUT_MS` env 주입과 `RELAY_ORDER_SECRET` secret
-#   바인딩이 여기 있었다. 주문 접수가 relay wss 전용이 되어 server 는 relay 를 호출하지
-#   않는다 (`services/relay-client.ts` 삭제, `POST /api/orders` 제거).
+# Phase 16 Plan 16 (D-02) — relay 결선 env·secret 3종을 제거했었다(주문 접수가 relay wss 전용).
+# Phase 29 D-07 (29-24) — Admin 명령 경로로 둘을 **다시 붙였다**: env `RELAY_INTERNAL_URL` · secret
+#   `RELAY_ORDER_SECRET`. `ORDER_TIMEOUT_MS` 는 돌아오지 않는다(주문은 여전히 wss). Admin 호출 타임아웃은
+#   server 기본값(`RELAY_ADMIN_TIMEOUT_MS` 미설정 = 12000ms)을 쓴다.
 #
 # ⚠️⚠️ **스크립트 수정만으로는 실행 중인 리비전이 바뀌지 않는다** (Phase 09.1 KIS 정리
 #      선례와 동형 / 16-RESEARCH §Runtime State Inventory). `--set-env-vars` 는 전량
 #      치환이라 **새 env 는** 이 문자열대로 맞춰지지만, **secret 바인딩(`--update-secrets`)
-#      은 병합**이라 목록에서 뺐다고 사라지지 않는다. 16-17 재배포에서 아래를 함께 넘긴다:
-#
-#        --remove-env-vars=RELAY_INTERNAL_URL,ORDER_TIMEOUT_MS \
-#        --remove-secrets=RELAY_ORDER_SECRET
-#
-#      Secret Manager 의 `gh-radar-relay-order-secret` **자체는 삭제하지 않는다** —
-#      relay 가 `/healthz` 관문에 계속 쓴다.
+#      은 병합**이라 목록에서 뺐다고 사라지지 않는다. (16-17 은 `--remove-env-vars=RELAY_INTERNAL_URL,ORDER_TIMEOUT_MS`
+#      · `--remove-secrets=RELAY_ORDER_SECRET` 로 걷어냈었다 — Phase 29 는 이 스크립트 한 번으로 다시 붙는다.)
 # ───────────────────────────────────────────────────────────────
 echo "▶ gcloud run deploy (VPC: $VPC_NAME)..."
 gcloud run deploy "$SERVICE" \
@@ -181,8 +217,8 @@ gcloud run deploy "$SERVICE" \
   --network="$VPC_NAME" \
   --subnet="$SUBNET_NAME" \
   --vpc-egress=all-traffic \
-  --set-env-vars="^@^NODE_ENV=production@LOG_LEVEL=info@SUPABASE_URL=${SUPABASE_URL}@CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}@KIWOOM_BASE_URL=https://api.kiwoom.com@KIWOOM_TOKEN_TYPE=live@NAVER_BASE_URL=https://openapi.naver.com@NAVER_DAILY_BUDGET=24500@APP_VERSION=${SHA}@DISCUSSION_CLASSIFY_ENABLED=${DISCUSSION_CLASSIFY_ENABLED:-false}" \
-  --update-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,KIWOOM_APPKEY=gh-radar-kiwoom-appkey:latest,KIWOOM_SECRETKEY=gh-radar-kiwoom-secretkey:latest,NAVER_CLIENT_ID=NAVER_CLIENT_ID:latest,NAVER_CLIENT_SECRET=NAVER_CLIENT_SECRET:latest,BRIGHTDATA_API_KEY=gh-radar-brightdata-api-key:latest,ANTHROPIC_API_KEY=gh-radar-anthropic-api-key:latest"
+  --set-env-vars="^@^NODE_ENV=production@LOG_LEVEL=info@SUPABASE_URL=${SUPABASE_URL}@CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}@KIWOOM_BASE_URL=https://api.kiwoom.com@KIWOOM_TOKEN_TYPE=live@NAVER_BASE_URL=https://openapi.naver.com@NAVER_DAILY_BUDGET=24500@APP_VERSION=${SHA}@DISCUSSION_CLASSIFY_ENABLED=${DISCUSSION_CLASSIFY_ENABLED:-false}@RELAY_INTERNAL_URL=${RELAY_INTERNAL_URL}" \
+  --update-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,KIWOOM_APPKEY=gh-radar-kiwoom-appkey:latest,KIWOOM_SECRETKEY=gh-radar-kiwoom-secretkey:latest,NAVER_CLIENT_ID=NAVER_CLIENT_ID:latest,NAVER_CLIENT_SECRET=NAVER_CLIENT_SECRET:latest,BRIGHTDATA_API_KEY=gh-radar-brightdata-api-key:latest,ANTHROPIC_API_KEY=gh-radar-anthropic-api-key:latest,RELAY_ORDER_SECRET=gh-radar-relay-order-secret:latest"
 
 # ═══════════════════════════════════════════════════════════════
 # Section 5.5: 배포 후 env 대조 (T-15-55 — 전량 치환 사고 감지)
@@ -193,9 +229,8 @@ gcloud run deploy "$SERVICE" \
 #
 #   값은 출력하지 않는다 — 이름 목록만 본다.
 #
-#   Phase 16 Plan 16 (D-02): relay 결선 3종을 이 목록에서 뺐다. 이 대조는 **누락**만
-#   잡고 **잔존**은 잡지 않으므로, 기존 리비전에 남아 있는 `RELAY_INTERNAL_URL` 등은
-#   여기서 드러나지 않는다 — 16-17 의 `--remove-env-vars`/`--remove-secrets` 가 소관이다.
+#   Phase 29 D-07: relay 결선 2종(`RELAY_INTERNAL_URL` · `RELAY_ORDER_SECRET`)을 이 목록에 다시 넣었다
+#   (16-16 이 뺐던 것의 역). 빠지면 server 는 뜨지만 Admin 즉시 반영이 꺼진다 — 그래서 누락을 배포 실패로 본다.
 # ═══════════════════════════════════════════════════════════════
 REQUIRED_ENV_KEYS=(
   NODE_ENV LOG_LEVEL SUPABASE_URL CORS_ALLOWED_ORIGINS
@@ -203,6 +238,7 @@ REQUIRED_ENV_KEYS=(
   APP_VERSION DISCUSSION_CLASSIFY_ENABLED
   SUPABASE_SERVICE_ROLE_KEY KIWOOM_APPKEY KIWOOM_SECRETKEY
   NAVER_CLIENT_ID NAVER_CLIENT_SECRET BRIGHTDATA_API_KEY ANTHROPIC_API_KEY
+  RELAY_INTERNAL_URL RELAY_ORDER_SECRET
 )
 
 ENV_NAMES=$(gcloud run services describe "$SERVICE" --region="$REGION" \
@@ -221,9 +257,10 @@ if [[ ${#MISSING_KEYS[@]} -gt 0 ]]; then
   exit 1
 fi
 
-# Phase 16 Plan 16 (D-02) — relay 결선 요약 3줄을 제거했다. server 는 relay 를 부르지
-# 않으므로 출력할 결선이 없다. 주문 경로 진단의 첫 단서는 이제 relay 의 `/healthz`
-# (`scripts/smoke-relay.sh`)와 브라우저의 wss 연결 상태다.
+# Phase 29 D-07 — relay 결선 요약(값 미출력). 위 대조가 두 이름의 존재를 이미 보장했다.
+#   주문 경로 진단의 첫 단서는 여전히 relay `/healthz`(`scripts/smoke-relay.sh`)와 브라우저 wss 연결 상태이고,
+#   Admin 경로는 server 로그의 「RELAY_INTERNAL_URL/RELAY_ORDER_SECRET not set」 경고 부재로 확인한다.
+echo "✓ relay 결선: RELAY_INTERNAL_URL 설정됨(값 미출력) · RELAY_ORDER_SECRET 바인딩 (gh-radar-relay-order-secret:latest)"
 
 # ═══════════════════════════════════════════════════════════════
 # Section 6: Smoke
