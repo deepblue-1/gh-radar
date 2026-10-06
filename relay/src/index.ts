@@ -45,12 +45,14 @@
  *         `changed`(60초 재적재 · `reload()`)마다 다시 sync 한다 — 서버 추가 · 삭제 · 끄기 · 주소 변경이 재배포 없이 반영된다.
  *           - 사용자 세션 = **그 증권사 주문 서버**(`SessionManager.resolveTarget(broker)` — 세션을 만들 때마다 고른다 · 29-16).
  *           - quote 연결 = **시세 주 서버**(부팅 때 고정 · 비밀은 그 증권사 `quoteSecretOf`).
- *           - 브라우저 `journal.state` · 주 매핑 라우팅 = **부팅 때의 KB 주문 서버** 키의 파이프라인(재생성되면 새 벌로 이어진다).
- *           - `/healthz` `journal` = KB 주문 서버 저널(503 축) · `journalGateways.<서버 키>` = 그 밖 enabled 서버(본문 전용) ·
- *             `brokers.{KB,KYOBO}` = 증권사별 주문 서버 저널 `{ server, alerting }`(uptime 고정 JSONPath — Pitfall 3).
+ *           - 브라우저 `journal.state` · `/healthz` `journal`(503 축) = **지금의 KB 주문 서버** 파이프라인 — `OrderServerJournal`
+ *             한 원천(29-22 · Discretion 권고). Admin 이 KB 주문 서버를 바꾸면 다음 상태 프레임 · 다음 healthz 부터 새 서버 저널이다.
+ *             주 매핑 라우팅(경로 없는 `journal.rows`)도 같은 현재 파이프라인을 본다.
+ *           - `journalGateways.<서버 키>` = 그 밖 enabled 서버(본문 전용) · `brokers.{KB,KYOBO}` = 증권사별 주문 서버 저널
+ *             `{ server, alerting }`(uptime 고정 JSONPath — Pitfall 3).
+ *           - 주문 서버가 바뀌어도 열린 사용자 세션은 예전 서버에 그대로다(D-10) — 그 사용자에게 `order.server` 표식만 간다(29-22).
  *         이 플랜이 **남긴 것**(뒤 플랜 몫): 서버 푸시 신원은 29-06 에서 `AppAccess` 하나로 바뀌었다(런타임 추가 서버도 즉시 같은
- *         신원) · 사용자 세션은 KB 주문 서버 하나(29-16 · 29-20 이 (유저, 서버) 로) · 런타임에 KB 주문 서버가 바뀌어도 브라우저 `journal.state` 원천은 부팅 때의
- *         KB 주문 서버 파이프라인(29-22) · quote 는 부팅 때 시세 주 서버에 고정(29-23 이 전환).
+ *         신원) · 사용자 세션은 (유저, 서버) 단위(29-16 · 29-20) · quote 는 부팅 때 시세 주 서버에 고정(29-23 이 전환).
  *
  * 종료 절차 (SC-8) — `process.exit(0)` 전에 반드시 이 순서다:
  *   1. HTTP 서버 2개 `close()`  — 새 연결을 받지 않는다
@@ -80,6 +82,7 @@ import http from "node:http";
 import { loadConfig } from "./config.js";
 import { DMA_BROKERS, ServerRegistry, isDmaBroker, type DmaBroker } from "./registry/registry.js";
 import { ServerPipelines, type ServerPipeline } from "./registry/pipelines.js";
+import { OrderServerJournal } from "./registry/order-journal.js";
 import { logger } from "./logger.js";
 import { createRelaySupabase } from "./store/supabase.js";
 import { SymbolMap } from "./store/symbols.js";
@@ -135,9 +138,9 @@ if (!registry.loaded) {
 await registry.ready();
 
 /**
- * 부팅 때의 KB 주문 서버 키 — 브라우저 `journal.state` · 주 매핑 라우팅 · 주 결선(자격증명 신원)의 원천 파이프라인이다.
- * KB 주문 서버가 없으면(env 모드 `DMA_BROKER=KYOBO` 등) 첫 enabled 서버가 종전 「주 게이트웨이」 자리를 잇는다.
- * 런타임에 KB 주문 서버가 바뀌어도 이 키는 그대로다(29-22 가 다룬다).
+ * 부팅 때의 KB 주문 서버 키 — **KB 주문 서버가 없을 때의 폴백**(env 모드 `DMA_BROKER=KYOBO` 등 — 첫 enabled 서버가 종전
+ * 「주 게이트웨이」 자리를 잇는다)과 부팅 로그의 주 서버 표시에만 쓴다. 저널 상태 · 주 매핑 라우팅은 아래 `kbOrderPipeline()`
+ * (지금의 KB 주문 서버)을 본다(29-22).
  */
 const primaryKey: string | null = (registry.orderServerOf("KB") ?? registry.enabled()[0])?.key ?? null;
 
@@ -167,11 +170,24 @@ const adminSnapshotSink = new AdminSnapshotSink({ supabase, accessOf: (key) => p
 /** 부팅 때 KB 주문 서버 키의 현재 파이프라인(재생성되면 새 벌). */
 const primaryPipeline = (): ServerPipeline | undefined => (primaryKey === null ? undefined : pipelines.get(primaryKey));
 
-/** `/healthz` `journal` 의 원천 — 지금의 KB 주문 서버 파이프라인(없으면 부팅 때의 주 파이프라인). */
+/**
+ * 지금의 KB 주문 서버 파이프라인(없으면 부팅 때의 주 파이프라인) — 브라우저 `journal.state` · `/healthz` `journal`(503 축) · 주 매핑
+ * 라우팅의 원천(29-22 · Discretion 권고 — 503 축 = KB 주문 서버 저널). 호출마다 레지스트리 현재 값을 본다.
+ */
 function kbOrderPipeline(): ServerPipeline | undefined {
   const kb = registry.orderServerOf("KB");
   return (kb !== undefined ? pipelines.get(kb.key) : undefined) ?? primaryPipeline();
 }
+
+/**
+ * 「지금 KB 주문 서버」 저널 상태 한 원천 (29-22) — fanout `journalState`(인증 스냅샷) · order-api `journal`(healthz) · 상태 frame
+ * 푸시가 같은 객체를 본다. 파이프라인마다 `watch`(아래 `wirePipeline`)하고 레지스트리 변경마다 `refresh`(전환 직후 새 서버 프레임 1건).
+ * `onFrame` 의 `fanout` 은 아래에서 만든다 — frame 은 첫 `pipelines.sync`(fanout 생성 뒤) 이후에만 온다.
+ */
+const orderJournal = new OrderServerJournal({
+  current: () => kbOrderPipeline()?.status,
+  onFrame: (frame) => fanout.deliverJournalState(frame),
+});
 
 /**
  * 웹 사용자 접근 맵 (Phase 29 · D-02 · D-04 · D-19) — RPC `dma_app_access_map` 60초 사본. 세 가지의 한 원천이다:
@@ -277,9 +293,12 @@ function brokersFor(dmaUserId: string): DmaBroker[] {
   return out;
 }
 
-/** 주 서버 매핑 읽기 — 호출마다 현재 주 파이프라인을 본다(없으면 매핑 없음 = 푸시 없음). */
+/** 증권사 → 지금 그 증권사 주문 서버 키(레지스트리 현재 값). 주문 서버 바뀜 표식(D-10 · 29-22)의 원천 — 인증 스냅샷 · 재적재 알림 공통. */
+const orderServerKeyOf = (broker: DmaBroker): string | undefined => registry.orderServerOf(broker)?.key;
+
+/** 주 서버 매핑 읽기 — 호출마다 지금의 KB 주문 서버 파이프라인을 본다(없으면 매핑 없음 = 푸시 없음 · 29-22). */
 const primaryAccessView: JournalAccessView = {
-  accountsOf: (dmaUserId) => primaryPipeline()?.access.accountsOf(dmaUserId),
+  accountsOf: (dmaUserId) => kbOrderPipeline()?.access.accountsOf(dmaUserId),
 };
 
 const fanout = new WsFanout({
@@ -300,10 +319,12 @@ const fanout = new WsFanout({
   // 저널 계좌 매핑 — `journal.rows` 를 계좌 권한 사용자에게만 보내는 라우팅 원천(Phase 19 D-03 · T-19-02).
   // Phase 29 — 주 서버 파이프라인이 재생성돼도 이어지도록 호출마다 현재 벌을 본다.
   journalAccess: primaryAccessView,
-  // 기록 연결 상태 — 인증 직후 `journal.state` 스냅샷 1프레임의 출처(Phase 19 D-04 (a)).
-  journalState: { frame: () => primaryPipeline()?.status.frame() ?? null },
+  // 기록 연결 상태 — 인증 직후 `journal.state` 스냅샷 1프레임의 출처(Phase 19 D-04 (a)). 지금의 KB 주문 서버 저널(29-22).
+  journalState: orderJournal,
   // 시세 전용 공유 연결 상태 — 인증 직후 `quote.state` 스냅샷 1프레임의 출처(Phase 26 D-01).
   quoteState: quoteStatus,
+  // 주문 서버 바뀜 표식(D-10 · 29-22) — 인증 직후 재사용 세션 서버 ≠ 지금 주문 서버면 그 연결에 1건 · 같아졌으면 지우기.
+  orderServerOf: orderServerKeyOf,
 });
 
 /**
@@ -330,13 +351,13 @@ appAccess.on("revoked", (ids) => ids.forEach((u) => fanout.revokeUser(u, "access
  * 권한 사용자 · 시세 이벤트는 그 서버 매핑 보유자 전원(Phase 25 · T-25-01). 서버별 신원 표는 없다(「DMA id 는 모든 서버에
  * 같은 문자열」). 런타임에 추가된 서버도 생성 즉시 같은 신원을 쓴다.
  *
- * 상태 frame 은 부팅 때 KB 주문 서버 키만 결선한다 — 브라우저 `journal.state` 는 그 한 원천이다(29-03 그대로 · 다른 서버
- * 끊김을 webapp 이 주 서버 「기록 지연」으로 오인하지 않게).
+ * 상태 frame 은 모든 벌을 `orderJournal.watch` 에 건다 — 이벤트 시점에 **지금의 KB 주문 서버** 것일 때만 브라우저로 간다(29-22 ·
+ * 다른 서버 끊김을 webapp 이 주 서버 「기록 지연」으로 오인하지 않게 — 29-03 규율 그대로, 원천만 현재 주문 서버로).
  */
 function wirePipeline(p: ServerPipeline): void {
   p.writer.on("applied", (rows) => fanout.deliverJournalRows(rows, { access: p.access, identities: appAccess }));
   p.strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows, { access: p.access, identities: appAccess }));
-  if (p.server.key === primaryKey) p.status.on("frame", (frame) => fanout.deliverJournalState(frame));
+  orderJournal.watch(p.status);
   // Phase 29-14 — 87 → 그 서버 매핑 즉시 교체(관찰자 재로그인 없이 새 계좌 푸시) + 반영 상태 DB. 새 벌은 새 `DmaClient` 라
   // 연결 세대가 1 부터 다시 센다 — 옛 벌의 세대 눈금으로 첫 87 을 버리지 않게 지우고 붙인다.
   adminSnapshotSink.resetGeneration(p.server.key);
@@ -387,8 +408,8 @@ const orderApi = createOrderApi({
   appVersion: config.appVersion,
   nodeEnv: config.nodeEnv,
   sessions: sessionManager,
-  // `/healthz` 의 `journal` 필드 + 장중 알림 판정(Phase 19 D-04 (b)) — KB 주문 서버 저널(503 축 · Phase 29).
-  journal: { health: (nowMs: number) => kbOrderPipeline()?.status.health(nowMs) },
+  // `/healthz` 의 `journal` 필드 + 장중 알림 판정(Phase 19 D-04 (b)) — 지금의 KB 주문 서버 저널(503 축 · 29-22 한 원천).
+  journal: orderJournal,
   // 그 밖 enabled 서버 — 본문 `journalGateways.<서버 키>` 에만 싣는다(503 판정 밖 · quick-260929-c8e). 요청마다 현재 목록.
   journalGateways: () => {
     const kb = kbOrderPipeline();
@@ -421,14 +442,15 @@ appAccess.start();
 // 관찰자 연결을 enabled 서버마다 부팅 즉시 연다(Phase 19 D-13 — 장 시간과 무관 · 사용자 접속과 무관 · Phase 29 레지스트리 순회).
 // 결선(applied → fanout · frame → fanout)은 `onCreated` 가 start **전에** 붙인다 — 첫 배치가 버려지지 않는다.
 pipelines.sync(registry.enabled());
-/** 증권사 → 지금 그 증권사 주문 서버 키(레지스트리 현재 값). 주문 서버 바뀜 표식(D-10)의 「next」 원천. */
-const orderServerKeyOf = (broker: DmaBroker): string | undefined => registry.orderServerOf(broker)?.key;
+orderJournal.refresh();
 // 레지스트리 변경(60초 재적재 · reload) → 서버 추가 · 삭제 · 끄기 · 주소 변경을 재배포 없이 반영한다.
 // Phase 29 D-10 (29-22) — 그 뒤 주문 서버가 사용자의 열린 세션 서버와 갈렸으면 그 사용자에게 「주문 서버 바뀜」 1건.
 // 역할(roles) 변경뿐 아니라 서버 삭제 · 끄기도 주문 서버를 바꿀 수 있어 변경마다 부른다 — 같은 표식은 fanout 이 다시 보내지
 // 않는다. 열린 세션은 끊지도 옮기지도 않는다(새 서버는 다음 세션부터 — SessionManager.resolveTarget).
 registry.on("changed", () => {
   pipelines.sync(registry.enabled());
+  // 29-22 — 저널 원천이 새 KB 주문 서버로 바뀌었으면 그 서버의 지금 상태를 브라우저에 1건(다음 healthz 는 요청마다 현재 값).
+  orderJournal.refresh();
   fanout.notifyOrderServers(orderServerKeyOf);
 });
 // 시세 전용 quote 연결도 같은 자리에서 연다(Phase 26 — 장 시간 · 사용자 접속과 무관). hub · fanout 결선이 다 붙은 뒤다.

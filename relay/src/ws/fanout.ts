@@ -43,7 +43,10 @@
  *      맡긴다 — 서버 쪽 전략 · 미체결은 건드리지 않는다. 브라우저는 재접속하고, 인증 4 갈래(unauthorized · 연결 유지)에 선다
  *  10. 주문 서버 바뀜(Phase 29 D-10 · 29-22 · `notifyOrderServers`) — 레지스트리 재적재로 그 증권사 주문 서버가 사용자의 열린
  *      세션 서버와 갈리면 그 사용자 연결마다 `{t:"order.server", broker, current, next}` 1건(작업대 배지 「재접속하면 적용」).
- *      세션은 끊지도 옮기지도 않는다 — 열린 세션은 예전 서버에 그대로이고 새 서버는 다음 세션부터다(29-16 재사용 규칙)
+ *      세션은 끊지도 옮기지도 않는다 — 열린 세션은 예전 서버에 그대로이고 새 서버는 다음 세션부터다(29-16 재사용 규칙).
+ *      인증 직후(6)에도 같은 비교를 한다(`orderServerOf` 주입 시) — 갈려 있으면 그 연결 스냅샷에 1건. 세션이 새 서버로 바뀌었거나
+ *      주문 서버가 되돌아와 둘이 같아지면 `next: null` 1건으로 배지를 지운다. 알린 표식 기억은 사용자 단위라 탭을 다 닫았다 다시
+ *      와도(유예 만료 → 새 서버 세션) 지우기 1건이 간다
  *
  * 결정 근거:
  *   T-15-02  **사용자 데이터**(계좌 · 주문 · 전략 · 83)의 팬아웃 대상은 `Map<userId, …>` 로만 고른다(`#deliver`).
@@ -370,6 +373,12 @@ export type WsFanoutDeps = {
    * 없거나 `frame()` 이 null(quote 연결 disabled · 아직 판정 전)이면 보내지 않는다 — `journalState` 와 같은 규율이다.
    */
   quoteState?: { frame(): RelayQuoteStateMsg | null };
+  /**
+   * 증권사 → 지금 주문 서버 키 (Phase 29 D-10 · 29-22 — 레지스트리 `orderServerOf(broker)?.key`). 주면 인증 직후 · 증권사 세션
+   * 추가(`refreshUserSessions`) 때 「주문 서버 바뀜」 표식을 맞춘다(갈려 있으면 1건 · 같아졌으면 `next: null`). 주지 않으면
+   * 표식은 `notifyOrderServers` 호출로만 간다(기존 단위 테스트 하네스).
+   */
+  orderServerOf?: OrderServerKeyOf;
 };
 
 /** `/healthz` 용 요약. 식별자를 담지 않는다. */
@@ -529,6 +538,8 @@ export class WsFanout {
   readonly #journalState: { frame(): RelayJournalStateMsg | null } | null;
   /** 시세 전용 공유 연결 상태 원천 (Phase 26 D-01). 없으면 `quote.state` 스냅샷을 보내지 않는다. */
   readonly #quoteState: { frame(): RelayQuoteStateMsg | null } | null;
+  /** 주문 서버 키 원천 (Phase 29 D-10). 없으면 인증 스냅샷에 `order.server` 를 싣지 않는다. */
+  readonly #orderServerOf: OrderServerKeyOf | null;
 
   constructor(deps: WsFanoutDeps) {
     this.#server = deps.server;
@@ -545,6 +556,7 @@ export class WsFanout {
     this.#journalAccess = deps.journalAccess ?? null;
     this.#journalState = deps.journalState ?? null;
     this.#quoteState = deps.quoteState ?? null;
+    this.#orderServerOf = deps.orderServerOf ?? null;
 
     this.#wss = new WebSocketServer({
       noServer: true,
@@ -731,6 +743,8 @@ export class WsFanout {
     if (added.length === 0) return 0;
     this.#bindSessions(current, userId, added);
     this.#deliver(userId, this.#mergedStateFrame(userId));
+    // 새 증권사 세션이 지금 주문 서버와 갈려 있으면(드묾 — 유예 중 재사용) 그 표식도 맞춘다(D-10).
+    if (this.#orderServerOf !== null) this.#syncOrderServerNotices(userId, this.#orderServerOf);
     logger.info(
       { userId, added: added.map((s) => s.serverKey), conns: current.conns.size },
       "[WS] 87 반영 — 연결 중 사용자에 증권사 세션 추가 (재접속 없음)",
@@ -755,10 +769,17 @@ export class WsFanout {
   }
 
   /**
-   * 한 사용자의 증권사별 「주문 서버 바뀜」 표식을 지금 값에 맞춘다. 바뀐 표식만 그 사용자 연결 전부에 보낸다.
-   * @returns 보낸 표식 수
+   * 한 사용자의 증권사별 「주문 서버 바뀜」 표식을 지금 값에 맞춘다 (D-10).
+   *
+   *   세션 서버 ≠ 주문 서버 · 기억과 다름  → 그 사용자 연결 전부에 `{current, next}` 1건 · 기억 갱신
+   *   세션 서버 ≠ 주문 서버 · 기억과 같음  → 이미 알렸다. `fresh` 연결(방금 인증한 탭)에만 1건(스냅샷)
+   *   같음 · 세션 없음 · 주문 서버 없음     → 기억이 있으면 `{current, next: null}` 1건(배지 지우기) · 기억 삭제
+   *
+   * 기억(`#orderNotices`)은 사용자 단위이고 entry 와 수명이 다르다 — 탭을 다 닫았다 다시 와 새 서버 세션이 열리면(유예 만료)
+   * 그 인증에서 지우기 1건이 간다. 지우기 프레임의 `current` 는 지금 세션 서버(없으면 기억의 값)다.
+   * @returns 그 사용자 연결 전부에 보낸 표식 수(`fresh` 전용 스냅샷은 세지 않는다)
    */
-  #syncOrderServerNotices(userId: string, orderServerOf: OrderServerKeyOf): number {
+  #syncOrderServerNotices(userId: string, orderServerOf: OrderServerKeyOf, fresh?: Conn): number {
     const entry = this.#users.get(userId);
     if (entry === undefined) return 0;
     const memo = this.#orderNotices.get(userId) ?? new Map<DmaBroker, OrderServerNotice>();
@@ -766,16 +787,26 @@ export class WsFanout {
     for (const broker of DMA_BROKERS) {
       const current = this.#sessionServerOf(entry, broker);
       const next = current !== undefined ? orderServerOf(broker) : undefined;
-      if (current === undefined || next === undefined || next === current) continue;
       const prev = memo.get(broker);
-      if (prev !== undefined && prev.current === current && prev.next === next) continue;
+      if (current === undefined || next === undefined || next === current) {
+        if (prev === undefined) continue;
+        memo.delete(broker);
+        this.#deliver(userId, { t: "order.server", broker, current: current ?? prev.current, next: null });
+        sent += 1;
+        continue;
+      }
+      const frame: RelayOrderServerMsg = { t: "order.server", broker, current, next };
+      if (prev !== undefined && prev.current === current && prev.next === next) {
+        if (fresh !== undefined) this.#send(fresh, frame);
+        continue;
+      }
       memo.set(broker, { current, next });
-      this.#deliver(userId, { t: "order.server", broker, current, next } satisfies RelayOrderServerMsg);
+      this.#deliver(userId, frame);
       sent += 1;
     }
     if (memo.size > 0) this.#orderNotices.set(userId, memo);
     else this.#orderNotices.delete(userId);
-    if (sent > 0) logger.info({ userId, sent }, "[WS] 주문 서버 바뀜 — 열린 세션 유지 · 재접속하면 적용 (D-10)");
+    if (sent > 0) logger.info({ userId, sent }, "[WS] 주문 서버 바뀜 표식 갱신 — 열린 세션 유지 · 재접속하면 적용 (D-10)");
     return sent;
   }
 
@@ -1018,6 +1049,9 @@ export class WsFanout {
     // quote 연결 disabled · 판정 전의 「모름」 을 live/down 으로 지어내지 않는다.
     const quoteFrame = this.#quoteState?.frame() ?? null;
     if (quoteFrame !== null) this.#send(conn, quoteFrame);
+    // `order.server` 는 갈려 있을 때만 보낸다(Phase 29 D-10) — 재사용된 세션 서버 ≠ 지금 주문 서버. 같으면 0 프레임이고, 이전에
+    // 알린 표식이 이제 맞지 않으면(새 서버 세션 · 주문 서버 되돌아옴) `next: null` 로 지운다. 이미 알린 다른 탭에는 중복이 없다.
+    if (this.#orderServerOf !== null) this.#syncOrderServerNotices(userId, this.#orderServerOf, conn);
   }
 
   /** 현재 NXT 거래가능 집합 프레임. 원천이 없거나 아직 모르면 `null` (quick-260923-pq2). */

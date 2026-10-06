@@ -25,6 +25,7 @@ import { createOrderApi, type OrderApiSessions } from "../src/order/order-api.js
 import type { SessionStats } from "../src/dma/session-manager.js";
 import type { JournalHealth } from "../src/journal/types.js";
 import type { QuoteHealth } from "../src/quote/status.js";
+import { OrderServerJournal } from "../src/registry/order-journal.js";
 
 const SECRET = "test-relay-order-secret-0123456789";
 
@@ -42,6 +43,8 @@ type StartOptions = {
   interfaces?: NodeJS.Dict<os.NetworkInterfaceInfo[]>;
   /** 관찰자 기록 연결 요약 스텁 (Phase 19 D-04). 생략하면 journal 소스 없음. */
   journal?: JournalHealth;
+  /** journal 소스 객체 그대로(Phase 29-22 — `OrderServerJournal`). 주면 `journal` 보다 우선. */
+  journalSource?: { health(nowMs: number): JournalHealth | undefined };
   /** 시각 주입 — 가짜 타이머 대신 이것으로만 장중/장 밖을 흉내낸다. */
   now?: Date;
   /** 추가 게이트웨이 관찰자 요약 스텁 (quick-260929-c8e). 생략하면 주입하지 않는다. 함수면 요청마다 부른다(Phase 29). */
@@ -89,7 +92,11 @@ async function start(opts: StartOptions = {}): Promise<Harness> {
     appVersion: "test-sha",
     nodeEnv: opts.nodeEnv ?? "test",
     sessions: apiSessions,
-    ...(opts.journal !== undefined ? { journal: { health: () => opts.journal as JournalHealth } } : {}),
+    ...(opts.journalSource !== undefined
+      ? { journal: opts.journalSource }
+      : opts.journal !== undefined
+        ? { journal: { health: () => opts.journal as JournalHealth } }
+        : {}),
     ...(opts.now !== undefined ? { now: () => opts.now as Date } : {}),
     ...(opts.journalGateways !== undefined
       ? {
@@ -888,6 +895,37 @@ describe("Phase 29 brokers · 동적 journalGateways (29-03 · RESEARCH Pitfall 
     const down = await get();
     expect(down.body.vpn).toBe(false);
     expect(down.status).toBe(503);
+  });
+
+  it("29-22 KB 주문 서버 전환 → 다음 healthz 부터 journal = 새 서버 저널(503 축 이동) · brokers.KB.server = 새 키", async () => {
+    // 레지스트리 흉내 — KB 주문 서버 키 하나를 healthz `journal`(OrderServerJournal) · `brokers` 가 같이 본다(index 결선과 같은 모양).
+    const healths: Record<string, JournalHealth> = { KB120: journal("rejected", 0), KB121: journal("live", null) };
+    let kbKey = "KB120";
+    const status = (key: string) => ({
+      frame: () => null,
+      health: () => healths[key] as JournalHealth,
+      on: () => undefined,
+    });
+    const source = new OrderServerJournal({ current: () => (kbKey in healths ? status(kbKey) : undefined), onFrame: () => {} });
+    h = await start({
+      journalSource: source,
+      now: IN_WINDOW,
+      brokers: () => [{ broker: "KB", server: kbKey, health: healths[kbKey] as JournalHealth }],
+    });
+    const before = await get();
+    expect(before.status).toBe(503);
+    expect((before.body.journal as JournalHealth).state).toBe("rejected");
+    expect(before.body.brokers).toEqual({ KB: { server: "KB120", alerting: true } });
+
+    kbKey = "KB121";
+    const after = await get();
+    expect(after.status).toBe(200);
+    expect((after.body.journal as JournalHealth).state).toBe("live");
+    expect(after.body.brokers).toEqual({ KB: { server: "KB121", alerting: false } });
+
+    // 주문 서버 파이프라인이 없으면 journal 키가 없고 판정에서 빠진다(종전 규율).
+    kbKey = "KB999";
+    expect("journal" in (await get()).body).toBe(false);
   });
 
   it("journal 소스가 undefined 를 돌려주면(KB 주문 서버 파이프라인 없음) journal 키가 없고 판정에서 빠진다", async () => {
