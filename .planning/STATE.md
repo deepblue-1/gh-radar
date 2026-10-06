@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 29
 current_phase_name: DMA 다중 서버 · 웹 Admin 유저 관리
 status: executing
-stopped_at: Completed 29-20-PLAN.md
-last_updated: "2026-10-06T19:14:36.727Z"
+stopped_at: Completed 29-21-PLAN.md
+last_updated: "2026-10-06T19:27:00.571Z"
 last_activity: 2026-10-06
 last_activity_desc: Phase 29 execution started
-state_head: 50e06f363da15e3f4c9324e97ec5aed4f680b5b3
+state_head: 7a4770fd1f891cacbe1de169a7fe76e26bd2945c
 progress:
   total_phases: 38
   completed_phases: 24
   total_plans: 403
-  completed_plans: 382
+  completed_plans: 383
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 29 (DMA 다중 서버 · 웹 Admin 유저 관리) — EXECUTING
-Plan: 20 of 26
+Plan: 21 of 26
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-10-06 — Phase 29 execution started
@@ -223,6 +223,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 29 P18 | 10min | 2 tasks | 7 files |
 | Phase 29 P19 | 11min | 2 tasks | 8 files |
 | Phase 29 P20 | 19min | 2 tasks | 5 files |
+| Phase 29 P21 | 8min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -614,6 +615,10 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 29]: 생성 결과는 생성 시트가 아니라 재조회 뒤 열리는 그 사용자의 편집 시트가 계좌 칩으로 보인다(UserSheet initialResults → 다시 반영과 같은 serverResults 길)
 - [Phase 29]: DmaConnectFields 한 벌을 생성 시트와 편집 시트 DMA 연결이 같이 쓴다 — 등록 서버는 고른 증권사 서버만 · 기본 체크 없음 · 꺼진 서버 비활성 · 증권사 바꾸면 체크 해제
 - [Phase 29]: 생성 실패도 목록 재조회 — relay 409/502 는 허용 행 upsert 뒤라 「DMA 연결 없음」 행이 생길 수 있다
+- [Phase 29]: 29-21: 87 반영은 Ready 세션 자가 선언(mode 1) · 빠진 계좌는 상태 무관 즉시 제외(fail closed) · 87 에 없는 유저는 sync 가 손대지 않음(DeleteUser 는 dispatcher)
+- [Phase 29]: 29-21: DeleteUser 는 op 2 ok 서버 세션만 closeForDmaUser(serverKey) · terminate 가 허용 계좌 비움 · 병합 프레임은 남은 세션 기준
+- [Phase 29]: 29-21: changePassword 는 서버 op 1 뒤 finally 로 updatePassword(서버 실패여도) — 열린 세션 유지
+- [Phase 29]: 29-21: 87 에 처음 실린 증권사 세션은 fanout.refreshUserSessions(brokersFor 판정)로 연결 중 사용자에 acquire
 
 ### Pending Todos
 
@@ -715,8 +720,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-10-06T19:14:36.040Z
-Stopped at: Completed 29-20-PLAN.md
+Last session: 2026-10-06T19:26:59.929Z
+Stopped at: Completed 29-21-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
