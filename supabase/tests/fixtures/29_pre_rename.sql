@@ -20,6 +20,8 @@
 --   dma_strategy_events       2    0
 --   dma_credentials           1    0      gateway 생략 → 기본값 'KB'
 --   dma_gateway_identities    0    1      (KYOBO, d29ky)
+-- 대조군: dma_account_access 에 새 키 KB121 행 1개(d29kb …0021) — 개명도 역개명도 건드리지 않아야 한다
+--   (롤백은 새 키 행을 남긴다 · 개명은 옛 키만 바꾼다).
 -- ============================================================
 
 BEGIN;
@@ -67,7 +69,8 @@ INSERT INTO public.dma_gateway_identities (user_id, gateway, dma_user_id) VALUES
 -- ── 매핑 스냅샷 ─────────────────────────────────────────────────
 INSERT INTO public.dma_account_access (gateway, dma_user_id, account_no, account_name, priority) VALUES
   ('KB',    'd29kb', '2900000001', '위탁', 1),
-  ('KYOBO', 'd29ky', '2900000011', '위탁', 1);
+  ('KYOBO', 'd29ky', '2900000011', '위탁', 1),
+  ('KB121', 'd29kb', '2900000021', '위탁', 2);   -- 대조군(새 키)
 
 -- ── KB 저널 e29-kb seq 1~5 — 주문 2건(0000290001 전량 체결 · 0000290002 부분 체결) ──
 SELECT public.dma_journal_apply('KB', 'e29-kb', jsonb_build_array(

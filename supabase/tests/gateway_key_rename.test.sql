@@ -50,7 +50,7 @@ $$;
 
 CREATE TEMP TABLE t_apply (label text PRIMARY KEY, r jsonb NOT NULL);
 
-SELECT plan(19);
+SELECT plan(20);
 
 -- ── 1. 7개 표 — (KB120, KYOBO119, 옛 키 잔존) = (픽스처 KB, 픽스처 KYOBO, 0) ─────────
 SELECT is(pg_temp.counts('dma_journal_cursor'),     '(1,1,0)', '(dma_journal_cursor, KB120/KYOBO119/옛 키) = (1,1,0)');
@@ -60,6 +60,11 @@ SELECT is(pg_temp.counts('dma_account_access'),     '(1,1,0)', '(dma_account_acc
 SELECT is(pg_temp.counts('dma_strategy_events'),    '(2,0,0)', '(dma_strategy_events, KB120/KYOBO119/옛 키) = (2,0,0)');
 SELECT is(pg_temp.counts('dma_credentials'),        '(1,0,0)', '(dma_credentials, KB120/KYOBO119/옛 키) = (1,0,0)');
 SELECT is(pg_temp.counts('dma_gateway_identities'), '(0,1,0)', '(dma_gateway_identities, KB120/KYOBO119/옛 키) = (0,1,0)');
+
+SELECT is(
+  (SELECT count(*)::int FROM public.dma_account_access WHERE gateway = 'KB121'),
+  1, '(dma_account_access, KB121 대조군 …0021) = 1 — 개명은 옛 키만 바꾼다'
+);
 
 -- ── 2. 커서 보존 — epoch · last_seq · 전략 커서 열 ──────────────────
 SELECT is(
