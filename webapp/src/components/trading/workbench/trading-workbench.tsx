@@ -1380,6 +1380,7 @@ function WorkbenchSurface() {
           subLimitLabel={subLimitLabel}
           queuedWindow={queuedWindow}
           appliedAt={appliedAt}
+          orderServerNotices={relay.orderServerNotices}
           cols={cols}
           onColsChange={setCols}
           phoneBand={singleColumnOnly}

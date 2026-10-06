@@ -41,6 +41,9 @@
  *   9. 권한 회수(Phase 29 D-04 · `revokeUser`) — 접근 맵 재적재가 강등 · 허용 해제 · DMA 연결 변경을 찾으면 그 사용자의
  *      **모든** 연결에 `{t:"state", s:"unauthorized"}` 1프레임 → close(1008). 세션은 8 의 `release` 로 종전 유예(5분)에
  *      맡긴다 — 서버 쪽 전략 · 미체결은 건드리지 않는다. 브라우저는 재접속하고, 인증 4 갈래(unauthorized · 연결 유지)에 선다
+ *  10. 주문 서버 바뀜(Phase 29 D-10 · 29-22 · `notifyOrderServers`) — 레지스트리 재적재로 그 증권사 주문 서버가 사용자의 열린
+ *      세션 서버와 갈리면 그 사용자 연결마다 `{t:"order.server", broker, current, next}` 1건(작업대 배지 「재접속하면 적용」).
+ *      세션은 끊지도 옮기지도 않는다 — 열린 세션은 예전 서버에 그대로이고 새 서버는 다음 세션부터다(29-16 재사용 규칙)
  *
  * 결정 근거:
  *   T-15-02  **사용자 데이터**(계좌 · 주문 · 전략 · 83)의 팬아웃 대상은 `Map<userId, …>` 로만 고른다(`#deliver`).
@@ -109,6 +112,7 @@ import type {
   RelayNxtSnapMsg,
   RelayJournalStateMsg,
   RelayOutbound,
+  RelayOrderServerMsg,
   RelayQuoteStateMsg,
   RelayServerMsg,
   RelayStateMsg,
@@ -123,7 +127,7 @@ import { safePgError } from "../store/pg-error.js";
 import type { HubMarketEvent, SubscriptionHub } from "../hub/subscription-hub.js";
 import type { DmaSession } from "../dma/session.js";
 import type { DmaCredentials } from "../dma/session-manager.js";
-import type { DmaBroker } from "../registry/registry.js";
+import { DMA_BROKERS, type DmaBroker } from "../registry/registry.js";
 import {
   OrderBuildError,
   buildArmLatchReq,
@@ -455,6 +459,12 @@ type UserEntry = {
   dmaUserId: string;
 };
 
+/** 사용자에게 마지막으로 알린 「주문 서버 바뀜」 1건 (Phase 29 D-10) — `current` = 세션 서버 · `next` = 주문 서버. */
+type OrderServerNotice = { current: string; next: string };
+
+/** 그 증권사 주문 서버 키를 돌려주는 함수(레지스트리 `orderServerOf(broker)?.key`). 없으면 undefined. */
+export type OrderServerKeyOf = (broker: DmaBroker) => string | undefined;
+
 function keyOf(isin: string, ex: RelayExchange): string {
   return `${isin}|${ex}`;
 }
@@ -490,6 +500,11 @@ export class WsFanout {
    * `conn.keys` 와 **같은 자리**(`#indexKey` · `#unindexKey` — sub 신규 · unsub · `#onClose`)에서만 고친다. 빈 Set 은 지운다.
    */
   readonly #keyConns = new Map<string, Set<Conn>>();
+  /**
+   * userId → 증권사 → 마지막으로 보낸 「주문 서버 바뀜」 (Phase 29 D-10 · 29-22). 같은 표식을 재적재마다 다시 보내지 않게
+   * 하는 기억이다. 비어 있는 사용자는 지운다.
+   */
+  readonly #orderNotices = new Map<string, Map<DmaBroker, OrderServerNotice>>();
 
   readonly #heartbeat: NodeJS.Timeout;
   readonly #onUpgrade: (req: IncomingMessage, socket: Duplex, head: Buffer) => void;
@@ -721,6 +736,53 @@ export class WsFanout {
       "[WS] 87 반영 — 연결 중 사용자에 증권사 세션 추가 (재접속 없음)",
     );
     return added.length;
+  }
+
+  /**
+   * 주문 서버 바뀜 알림 (Phase 29 D-10 · 29-22) — 레지스트리 재적재(`changed`) 뒤 index 가 부른다. 연결 중 사용자마다 증권사별
+   * 세션 서버 키(`sessionsOf` 와 같은 entry 세션)를 지금 주문 서버 키와 견주어, 갈렸으면 그 사용자 연결 전부에
+   * `{t:"order.server", broker, current, next}` 1건을 보낸다. 같은 표식은 다시 보내지 않는다(재적재 60초마다 반복 금지).
+   *
+   * 세션은 건드리지 않는다 — 끊지도 다른 서버로 옮기지도 않는다(D-10 · 정리와 이동은 사용자 몫). 그 증권사 세션이 없는
+   * 사용자 · 그 증권사 주문 서버가 없는 경우는 0 프레임이다. 프레임에는 서버 키와 증권사뿐이다(계좌 · 식별자 없음).
+   *
+   * @returns 보낸 표식 수(사용자 × 증권사)
+   */
+  notifyOrderServers(orderServerOf: OrderServerKeyOf): number {
+    let sent = 0;
+    for (const userId of [...this.#users.keys()]) sent += this.#syncOrderServerNotices(userId, orderServerOf);
+    return sent;
+  }
+
+  /**
+   * 한 사용자의 증권사별 「주문 서버 바뀜」 표식을 지금 값에 맞춘다. 바뀐 표식만 그 사용자 연결 전부에 보낸다.
+   * @returns 보낸 표식 수
+   */
+  #syncOrderServerNotices(userId: string, orderServerOf: OrderServerKeyOf): number {
+    const entry = this.#users.get(userId);
+    if (entry === undefined) return 0;
+    const memo = this.#orderNotices.get(userId) ?? new Map<DmaBroker, OrderServerNotice>();
+    let sent = 0;
+    for (const broker of DMA_BROKERS) {
+      const current = this.#sessionServerOf(entry, broker);
+      const next = current !== undefined ? orderServerOf(broker) : undefined;
+      if (current === undefined || next === undefined || next === current) continue;
+      const prev = memo.get(broker);
+      if (prev !== undefined && prev.current === current && prev.next === next) continue;
+      memo.set(broker, { current, next });
+      this.#deliver(userId, { t: "order.server", broker, current, next } satisfies RelayOrderServerMsg);
+      sent += 1;
+    }
+    if (memo.size > 0) this.#orderNotices.set(userId, memo);
+    else this.#orderNotices.delete(userId);
+    if (sent > 0) logger.info({ userId, sent }, "[WS] 주문 서버 바뀜 — 열린 세션 유지 · 재접속하면 적용 (D-10)");
+    return sent;
+  }
+
+  /** entry 가 쥔 그 증권사 세션의 서버 키(결선 순서 첫 세션). 없으면 undefined. */
+  #sessionServerOf(entry: UserEntry, broker: DmaBroker): string | undefined {
+    for (const es of entry.sessions.values()) if (es.session.broker === broker) return es.session.serverKey;
+    return undefined;
   }
 
   /** `brokersFor` 가 열라는데 entry 가 아직 쥐지 않은 증권사. */

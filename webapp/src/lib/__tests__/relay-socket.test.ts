@@ -3320,6 +3320,108 @@ describe('unf.progress (Phase 25)', () => {
   });
 });
 
+describe('Phase 29 order.server — 주문 서버 바뀜 표식 (D-10)', () => {
+  const KB = { t: 'order.server', broker: 'KB', current: 'KB120', next: 'KB121' } as const;
+  const KYOBO = { t: 'order.server', broker: 'KYOBO', current: 'KYOBO119', next: 'KYOBO127' } as const;
+
+  it('초기값은 빈 객체 — 연결 · 인증만으로는 지어내지 않는다', async () => {
+    const hook = render({ enabled: true });
+    expect(hook.result.current.orderServerNotices).toEqual({});
+    await connected(hook);
+    expect(hook.result.current.orderServerNotices).toEqual({});
+  });
+
+  it('프레임 → 그 증권사 키 { current, next } · 증권사마다 따로 보관한다', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push(KB);
+    });
+    expect(hook.result.current.orderServerNotices).toEqual({ KB: { current: 'KB120', next: 'KB121' } });
+    await act(async () => {
+      ws.push(KYOBO);
+    });
+    expect(hook.result.current.orderServerNotices).toEqual({
+      KB: { current: 'KB120', next: 'KB121' },
+      KYOBO: { current: 'KYOBO119', next: 'KYOBO127' },
+    });
+  });
+
+  it('next: null → 그 증권사 키만 삭제 · 없는 키 삭제와 같은 표식 재수신은 상태 참조를 바꾸지 않는다', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push(KB);
+      ws.push(KYOBO);
+    });
+    await act(async () => {
+      ws.push({ t: 'order.server', broker: 'KB', current: 'KB121', next: null });
+    });
+    expect(hook.result.current.orderServerNotices).toEqual({ KYOBO: { current: 'KYOBO119', next: 'KYOBO127' } });
+
+    const before = hook.result.current;
+    await act(async () => {
+      ws.push({ t: 'order.server', broker: 'KB', current: 'KB121', next: null });
+      ws.push(KYOBO);
+    });
+    expect(hook.result.current).toBe(before);
+
+    await act(async () => {
+      ws.push({ t: 'order.server', broker: 'KYOBO', current: 'KYOBO127', next: null });
+    });
+    expect(hook.result.current.orderServerNotices).toEqual({});
+  });
+
+  it('reset(enabled false) → 빈 객체', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push(KB);
+    });
+    await act(async () => {
+      hook.rerender({ enabled: false });
+    });
+    expect(hook.result.current.orderServerNotices).toEqual({});
+  });
+
+  it('소켓 경계(재접속) → 빈 객체 — 새 소켓의 인증 직후 스냅샷이 다시 채운다(quoteState 와 같은 규율)', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push(KB);
+    });
+    await act(async () => {
+      ws.serverClose(1006);
+    });
+    expect(hook.result.current.status).toBe('reconnecting');
+    expect(hook.result.current.orderServerNotices).toEqual({});
+
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+    });
+    await settle();
+    const ws2 = FakeWebSocket.last();
+    await act(async () => {
+      ws2.accept();
+    });
+    await act(async () => {
+      ws2.push({ t: 'state', s: 'ready', accounts: [] });
+      ws2.push(KB);
+    });
+    expect(hook.result.current.orderServerNotices).toEqual({ KB: { current: 'KB120', next: 'KB121' } });
+  });
+
+  it('계약 밖 증권사 값은 무시한다', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    const before = hook.result.current;
+    await act(async () => {
+      ws.push({ t: 'order.server', broker: 'NH', current: 'NH1', next: 'NH2' });
+    });
+    expect(hook.result.current).toBe(before);
+  });
+});
+
 describe('Phase 27 user.settings — 84 사용자 설정 3상태 (77 queuedWindow 규율)', () => {
   const PRESENT = {
     t: 'user.settings',

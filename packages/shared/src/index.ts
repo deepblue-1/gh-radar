@@ -93,6 +93,9 @@ export type {
   // --- Phase 26 시세 공유 연결 상태 (D-01 · D-02) ---
   RelayQuoteState,
   RelayQuoteStateMsg,
+  // --- Phase 29 주문 서버 바뀜 (D-10) ---
+  RelayOrderServerBroker,
+  RelayOrderServerMsg,
   // --- Phase 25 전략 이벤트 푸시 · 잔량진행률 프레임 ---
   RelayJournalEventsMsg,
   RelayUnfProgressEntry,

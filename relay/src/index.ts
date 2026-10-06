@@ -421,8 +421,16 @@ appAccess.start();
 // 관찰자 연결을 enabled 서버마다 부팅 즉시 연다(Phase 19 D-13 — 장 시간과 무관 · 사용자 접속과 무관 · Phase 29 레지스트리 순회).
 // 결선(applied → fanout · frame → fanout)은 `onCreated` 가 start **전에** 붙인다 — 첫 배치가 버려지지 않는다.
 pipelines.sync(registry.enabled());
+/** 증권사 → 지금 그 증권사 주문 서버 키(레지스트리 현재 값). 주문 서버 바뀜 표식(D-10)의 「next」 원천. */
+const orderServerKeyOf = (broker: DmaBroker): string | undefined => registry.orderServerOf(broker)?.key;
 // 레지스트리 변경(60초 재적재 · reload) → 서버 추가 · 삭제 · 끄기 · 주소 변경을 재배포 없이 반영한다.
-registry.on("changed", () => pipelines.sync(registry.enabled()));
+// Phase 29 D-10 (29-22) — 그 뒤 주문 서버가 사용자의 열린 세션 서버와 갈렸으면 그 사용자에게 「주문 서버 바뀜」 1건.
+// 역할(roles) 변경뿐 아니라 서버 삭제 · 끄기도 주문 서버를 바꿀 수 있어 변경마다 부른다 — 같은 표식은 fanout 이 다시 보내지
+// 않는다. 열린 세션은 끊지도 옮기지도 않는다(새 서버는 다음 세션부터 — SessionManager.resolveTarget).
+registry.on("changed", () => {
+  pipelines.sync(registry.enabled());
+  fanout.notifyOrderServers(orderServerKeyOf);
+});
 // 시세 전용 quote 연결도 같은 자리에서 연다(Phase 26 — 장 시간 · 사용자 접속과 무관). hub · fanout 결선이 다 붙은 뒤다.
 quoteFeed.start();
 

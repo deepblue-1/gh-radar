@@ -47,6 +47,13 @@
  *     DMA 세션만 말한다. ready 면 「● 주문」 뿐, 그 밖은 `RELAY_STATE_LABELS` 문구(⑤ 규율 그대로).
  *   - 시세가 끊겨도 호가 · 체결 숫자는 흐리지도 비우지도 않는다(D-04 — 끊긴 시각은 이 필에만).
  *   - 상태 적색은 `--destructive` 다. 가격 방향 토큰(`--up`)을 상태에 쓰지 않는다.
+ *
+ * ⑦ 주문 서버 바뀜 배지 (Phase 29 D-10 · ADMIN-06) — 트레이딩 표면에 더하는 유일한 UI
+ *   Admin 이 그 증권사 주문 서버를 바꿨는데 이 사용자의 열린 세션은 예전 서버에 그대로일 때(미체결 · 전략 보존) relay 가
+ *   `{t:"order.server"}` 로 알린다. 주문 필 바로 뒤에 「주문 서버가 {next} 로 바뀜 — 재접속하면 적용」 배지 하나(증권사마다 ·
+ *   KB → 교보 순). 정리와 이동은 사용자 몫이라 버튼이 없다 — 문구가 할 일을 말한다. 접근 이름 = 문구 그대로(`role="status"`).
+ *   색은 기존 「확인할 것」 축(`--new-bg` · `--new-bd` — 예약 구간 배지 · 주문 확인 예약 줄과 같은 축)이다. 폰 폭에서
+ *   한 줄에 안 들어가면 문구를 줄이지 않고 배지 안에서 줄을 바꾼다(잘림 금지 · `max-w-full` + `break-keep`).
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -70,7 +77,7 @@ import {
 import type { IsinLabel } from "@/lib/isin-labels";
 import { queuedWindowBadgeOf } from "@/lib/queued-window";
 import { orderPillOf, quotePillOf } from "@/lib/quote-state";
-import type { RelayStatus } from "@/lib/use-relay-socket";
+import type { OrderServerNotices, RelayStatus } from "@/lib/use-relay-socket";
 import { cn } from "@/lib/utils";
 
 /** 계좌 필 `title` — 상태줄 계좌는 **신규 카드의 기본값**일 뿐이다(Q-3 채택값). */
@@ -78,6 +85,14 @@ export const ACCOUNT_PILL_TITLE =
   "새로 추가하는 카드의 기본 계좌예요 · 이미 있는 카드는 자기 계좌를 유지해요";
 
 const COLS: readonly TradingCols[] = [1, 2, 3];
+
+/** 배지 증권사 순서(⑦) — KB 먼저. */
+const ORDER_SERVER_BROKERS = ["KB", "KYOBO"] as const;
+
+/** 주문 서버 바뀜 배지 문구(⑦ · CONTEXT specifics). 서버 키가 증권사를 이미 말하므로 접두를 붙이지 않는다. */
+export function orderServerBadgeText(next: string): string {
+  return `주문 서버가 ${next} 로 바뀜 — 재접속하면 적용`;
+}
 
 export interface WorkbenchStatusBarProps {
   status: RelayStatus;
@@ -92,6 +107,8 @@ export interface WorkbenchStatusBarProps {
   queuedWindow: RelayQueuedWindowMsg | undefined;
   /** 서버 push 반영 시각 `HH:MM:SS`. `null` = 아직 없음 → 「—」. */
   appliedAt: string | null;
+  /** 주문 서버 바뀜 표식(⑦). 없거나 빈 객체면 배지 없음. */
+  orderServerNotices?: OrderServerNotices;
   cols: TradingCols;
   onColsChange: (cols: TradingCols) => void;
   /** 페이지(`wb`) 폭이 폰 밴드인가. `true` 면 세그먼트를 DOM 에서 뺀다. `null` = 아직 모름(③). */
@@ -109,6 +126,7 @@ export function WorkbenchStatusBar({
   subLimitLabel,
   queuedWindow,
   appliedAt,
+  orderServerNotices,
   cols,
   onColsChange,
   phoneBand,
@@ -190,6 +208,25 @@ export function WorkbenchStatusBar({
         )}
         {order.srDetail !== null && <span className="sr-only"> {order.srDetail}</span>}
       </span>
+
+      {ORDER_SERVER_BROKERS.map((broker) => {
+        const notice = orderServerNotices?.[broker];
+        if (notice === undefined) return null;
+        const text = orderServerBadgeText(notice.next);
+        // `status` 역할은 내용에서 이름을 얻지 않는다 — 접근 이름을 문구 그대로 명시한다(⑦).
+        return (
+          <span
+            key={broker}
+            role="status"
+            aria-label={text}
+            data-slot="order-server-badge"
+            data-broker={broker}
+            className="inline-flex min-h-[18px] max-w-full items-center rounded-[9px] border border-[var(--new-bd)] bg-[var(--new-bg)] px-[7px] py-px text-[10px] leading-tight font-bold break-keep text-[var(--fg)]"
+          >
+            {text}
+          </span>
+        );
+      })}
 
       {badge !== null && (
         <span
