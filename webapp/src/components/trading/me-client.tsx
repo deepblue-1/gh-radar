@@ -338,8 +338,18 @@ function MeTabs() {
 
   return (
     <Tabs value={tab.active} onValueChange={tab.select} className="flex-col gap-0">
-      {/* sticky 탭 바 — 클래스 정본은 공용 훅 모듈, 배경만 여기서(라이트 회색 본문면 `--surface` · P-2). */}
-      <div ref={tab.tabBarRef} className={cn(URL_TAB_BAR_CLASS, "bg-[var(--surface)]")}>
+      {/*
+        sticky 탭 바 — 클래스 정본은 공용 훅 모듈, 배경만 여기서(라이트 회색 본문면 `--surface` · P-2).
+        ★ 좌우 bleed(`-mx/px` — 본문 패딩 상쇄)는 끈다. 그 상쇄는 폭 제한 없는 종목상세용이고, /me 는 PAGE_WRAP 900
+          열 안이라 상쇄하면 기준선이 카드 가장자리보다 좌우 8~24px 삐져나간다(목업 A `.tabs4` 는 열 폭 그대로).
+      */}
+      <div
+        ref={tab.tabBarRef}
+        className={cn(
+          URL_TAB_BAR_CLASS,
+          "mx-0 px-0 md:mx-0 md:px-0 lg:mx-0 lg:px-0 bg-[var(--surface)]",
+        )}
+      >
         <TabsList variant="line" aria-label="My page 탭" className={URL_TAB_LIST_CLASS}>
           {ME_TABS.map((t) => {
             const count = countOf(t.v);

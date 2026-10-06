@@ -542,13 +542,18 @@ export function LimitChaserDefaultsSection() {
             data-slot="me-lc-defaults-group-card"
             className={cn(CARD, "min-w-0 px-2.5 pt-2.5 pb-1")}
           >
-            <div
-              data-slot="me-lc-defaults-group"
-              className="px-1.5 pb-0.5 text-[13px] font-semibold text-[var(--muted-fg)]"
-            >
-              {group}
-            </div>
             <div className={cn(LC_CONTAINER_CLASS, "min-w-0")}>
+              {/*
+                카드 머리는 행 목록 컨테이너 **안**에 둔다 — 좌우 패딩이 행(`setting-group` ROW_BOX
+                `px-0 @min-[685px]/lc:px-1`)과 같은 밴드로 갈려야 글자선이 맞는다. 카드 폭(≈440)은 좁은 밴드라
+                고정 px-1.5 면 머리만 6px 들여 써졌다.
+              */}
+              <div
+                data-slot="me-lc-defaults-group"
+                className="px-0 pb-0.5 text-[13px] font-semibold text-[var(--muted-fg)] @min-[685px]/lc:px-1"
+              >
+                {group}
+              </div>
               {USER_SETTINGS_ROWS.filter((r) => r.group === group).map((row) => {
                 const flashing = save.flashKeys.has(row.key);
                 const failure = save.failures[row.key];
