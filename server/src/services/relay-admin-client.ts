@@ -1,0 +1,163 @@
+import axios, { type AxiosInstance } from "axios";
+
+import { logger } from "../logger.js";
+
+/**
+ * Phase 29 (D-07) — relay 내부 HTTP 클라이언트 · **Admin 명령 전용**.
+ *
+ * 브라우저 → Cloud Run `/api/admin/*`(requireAdmin) → **Direct VPC Egress** → VM 내부 IP:8091 →
+ * relay `/internal/admin/*`(29-11). 16-16 에서 주문 경로와 함께 지운 `services/relay-client.ts`
+ * (이력 `b93681b6^:server/src/services/relay-client.ts`)의 **사설 대역 가드를 본문 무변경으로 복원**하고,
+ * 주문 대신 Admin 명령만 싣는다. 주문 접수는 여전히 relay wss 전용이다(16 D-02 — 그 결정은 그대로).
+ *
+ * ── 계약 (정본은 29-11 relay 내부 HTTP 표) ─────────────────────────────
+ *   헤더   `X-Relay-Secret`(공유 비밀) · `x-admin-email`(감사 로그용 요청자 이메일 — relay 는 없으면 400)
+ *   응답   `{ status, data }` — 상태코드는 호출부가 직접 분기한다(`validateStatus: () => true`). 409 업무 거부를
+ *          axios 예외로 흘리면 「relay 가 거부했다」 와 「relay 에 못 닿았다」 가 섞인다.
+ *   실패   네트워크 오류 · 타임아웃은 **throw 하지 않고** `{ status: 0, data: null }` — 허용/역할 쓰기의 즉시 반영 통보는
+ *          best-effort 이고(relay 60초 재적재가 따라잡는다), DMA 프록시(29-13)는 0 을 502 로 바꾼다.
+ *   경로   `/internal/admin/` 아래만 — 같은 공유 비밀로 다른 내부 경로를 부르는 실수를 막는다.
+ *
+ * ── 로그 위생 ──────────────────────────────────────────────────────
+ *   axios 오류 객체를 통째로 로그에 넣지 않는다 — `config.headers` 에 공유 비밀이, `config.data` 에 비밀번호가 있다.
+ *   남기는 것은 메서드 · 경로 · 오류 코드뿐이다. 바디 원문 금지.
+ */
+
+export type RelayAdminMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+/** relay 응답. `status = 0` 은 「relay 에 닿지 못함」(네트워크 오류 · 타임아웃). */
+export type RelayAdminResponse<T> = { status: number; data: T | null };
+
+/** `POST /internal/admin/{access,registry}/reload` 응답(29-11). */
+export type RelayReloadResult = { ok: boolean; changed: boolean };
+
+export type RelayAdminClient = {
+  request<T = unknown>(
+    method: RelayAdminMethod,
+    path: string,
+    adminEmail: string,
+    body?: unknown,
+  ): Promise<RelayAdminResponse<T>>;
+  /** 허용 · 역할 표 즉시 재적재(D-04) — 강등 · 허용 해제된 사용자의 wss 를 relay 가 끊는다. */
+  reloadAccess(adminEmail: string): Promise<RelayAdminResponse<RelayReloadResult>>;
+  /** 서버 레지스트리 즉시 재적재(D-09 · D-17). */
+  reloadRegistry(adminEmail: string): Promise<RelayAdminResponse<RelayReloadResult>>;
+};
+
+const ADMIN_PATH_PREFIX = "/internal/admin/";
+
+// ============================================================
+// 사설 대역 가드 (T-15-06) — 이력 relay-client.ts 95-138 본문 무변경
+// ============================================================
+
+/**
+ * Direct VPC Egress 가 나가는 서브넷 `10.10.0.0/26` = 10.10.0.0 ~ 10.10.0.63 (D-08).
+ * relay VM 은 이 안에 있다. 대역 밖 주소는 **부팅 시 throw** — 배포 실수로 공유 비밀이
+ * 인터넷으로 나가는 것보다 서버가 안 뜨는 편이 낫다.
+ */
+const SUBNET_PREFIX = "10.10.0.";
+const SUBNET_HOST_MAX = 63;
+
+function isRelaySubnetHost(host: string): boolean {
+  if (!host.startsWith(SUBNET_PREFIX)) return false;
+  const last = host.slice(SUBNET_PREFIX.length);
+  if (!/^\d{1,3}$/.test(last)) return false;
+  return Number(last) <= SUBNET_HOST_MAX;
+}
+
+/** 로컬 가짜 relay. **비프로덕션 전용** — 비밀이 이 머신 밖으로 나가지 않는다. */
+function isLoopbackHost(host: string): boolean {
+  return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+}
+
+/**
+ * `RELAY_INTERNAL_URL` 검증. 부적합하면 throw 한다(호출부는 `server.ts` 부팅 경로).
+ *
+ * 검사 순서가 중요하다 — URL 파싱 실패를 먼저 걸러야 `new URL` 이 던지는 원문이
+ * 로그에 그대로 남지 않는다(값에 비밀이 섞여 들어오는 오설정도 있을 수 있다).
+ */
+export function assertRelayUrl(rawUrl: string, nodeEnv: string): URL {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error("RELAY_INTERNAL_URL must be a valid URL");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`RELAY_INTERNAL_URL must be http/https (got: ${url.protocol})`);
+  }
+  const host = url.hostname;
+  if (isRelaySubnetHost(host)) return url;
+  if (nodeEnv !== "production" && isLoopbackHost(host)) return url;
+  throw new Error(
+    `RELAY_INTERNAL_URL host must be inside ${SUBNET_PREFIX}0/26 (got: ${host})`,
+  );
+}
+
+// ============================================================
+// 팩토리
+// ============================================================
+
+/**
+ * relay Admin 클라이언트 생성. `RELAY_INTERNAL_URL` · `RELAY_ORDER_SECRET` 둘 다 있을 때만 호출한다(`server.ts`).
+ *
+ * 타임아웃은 `RELAY_ADMIN_TIMEOUT_MS`(기본 12000) — relay 가 서버별 86 을 5초씩 기다리고 87 까지 받는 시간 + 여유.
+ * 여기서 먼저 끊으면 「relay 는 반영했는데 Express 만 모르는」 상태가 생기므로 relay 쪽 대기보다 길게 둔다.
+ */
+export function createRelayAdminClient(opts: {
+  baseUrl: string;
+  secret: string;
+  timeoutMs: number;
+  nodeEnv: string;
+}): RelayAdminClient {
+  const url = assertRelayUrl(opts.baseUrl, opts.nodeEnv);
+  const http: AxiosInstance = axios.create({
+    baseURL: url.origin,
+    timeout: opts.timeoutMs,
+    headers: {
+      "content-type": "application/json",
+      // T-15-06 — relay 관문의 공유 비밀. 상수시간 비교는 relay 쪽 소관.
+      "X-Relay-Secret": opts.secret,
+    },
+    // 상태코드 분기는 호출부가 한다 — 4xx/5xx 를 예외로 바꾸지 않는다.
+    validateStatus: () => true,
+  });
+
+  async function request<T>(
+    method: RelayAdminMethod,
+    path: string,
+    adminEmail: string,
+    body?: unknown,
+  ): Promise<RelayAdminResponse<T>> {
+    if (!path.startsWith(ADMIN_PATH_PREFIX)) {
+      throw new Error(`relay admin path must start with ${ADMIN_PATH_PREFIX}`);
+    }
+    if (!adminEmail) throw new Error("relay admin request requires adminEmail");
+    try {
+      const res = await http.request({
+        method,
+        url: path,
+        data: body,
+        headers: { "x-admin-email": adminEmail },
+      });
+      const data = res.data === "" || res.data === undefined ? null : (res.data as T);
+      return { status: res.status, data };
+    } catch (err) {
+      // 오류 객체 통째 금지(config.headers = 공유 비밀 · config.data = 비밀번호). 코드만.
+      const code = (err as { code?: unknown })?.code;
+      logger.warn(
+        { relay: { method, path, code: typeof code === "string" ? code : "UNKNOWN" } },
+        "[relay-admin] relay 에 닿지 못함 (네트워크 오류 · 타임아웃)",
+      );
+      return { status: 0, data: null };
+    }
+  }
+
+  return {
+    request,
+    reloadAccess: (adminEmail) =>
+      request<RelayReloadResult>("POST", "/internal/admin/access/reload", adminEmail),
+    reloadRegistry: (adminEmail) =>
+      request<RelayReloadResult>("POST", "/internal/admin/registry/reload", adminEmail),
+  };
+}

@@ -46,6 +46,14 @@ export type AppConfig = {
   // (required 목록은 `get()` 이 쥐고 있고 거기에는 원래 없었다).
   // ⚠️ 배포된 리비전의 env 는 스크립트 수정만으로 사라지지 않는다 —
   //    16-17 재배포에서 `--remove-env-vars` / `--remove-secrets` 로 걷어낸다.
+  // Phase 29 D-07 — **Admin 명령만** relay 를 다시 부른다(주문 접수는 여전히 relay wss 전용 · 16 D-02 유지).
+  // 둘 다 optional — 둘 중 하나라도 없으면 server.ts 가 클라이언트를 만들지 않는다(허용/역할 쓰기의 즉시 통보만
+  // 꺼지고 relay 60초 재적재가 따라잡는다 · DMA 프록시 라우트는 503 RELAY_UNAVAILABLE). 값이 있는데 사설 대역
+  // 밖이면 부팅 throw(assertRelayUrl).
+  relayInternalUrl: string | undefined;
+  relayOrderSecret: string | undefined;
+  /** relay Admin 요청 타임아웃(ms) — relay 서버별 86 대기 5초 + 87 대기 + 여유. 기본 12000. */
+  relayAdminTimeoutMs: number;
 };
 
 export function loadConfig(): AppConfig {
@@ -96,5 +104,15 @@ export function loadConfig(): AppConfig {
     chatWebSearchModel: process.env.CHAT_WEBSEARCH_MODEL ?? "claude-sonnet-5",
     chatMaxToolRounds: Number(process.env.CHAT_MAX_TOOL_ROUNDS ?? "5"),
     chatMaxHistoryMessages: Number(process.env.CHAT_MAX_HISTORY_MESSAGES ?? "30"),
+    // Phase 29 D-07 — relay Admin 내부 HTTP. 빈 문자열은 미설정으로 본다.
+    relayInternalUrl: process.env.RELAY_INTERNAL_URL || undefined,
+    relayOrderSecret: process.env.RELAY_ORDER_SECRET || undefined,
+    relayAdminTimeoutMs: positiveIntOr(process.env.RELAY_ADMIN_TIMEOUT_MS, 12_000),
   };
+}
+
+/** 양의 정수 env — 비었거나 숫자가 아니면 기본값(NaN 타임아웃이 axios 에 들어가 「무제한 대기」 가 되지 않게). */
+function positiveIntOr(raw: string | undefined, fallback: number): number {
+  const n = Number(raw);
+  return raw && Number.isInteger(n) && n > 0 ? n : fallback;
 }

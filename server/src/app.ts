@@ -4,6 +4,7 @@ import helmet from "helmet";
 import cors from "cors";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AxiosInstance } from "axios";
+import type { RelayAdminClient } from "./services/relay-admin-client.js";
 import { requestId } from "./middleware/request-id.js";
 import { apiRateLimiter } from "./middleware/rate-limit.js";
 import { httpLogger } from "./middleware/pino-http.js";
@@ -41,8 +42,10 @@ export type AppDeps = {
   brightdataClient?: AxiosInstance;
   brightdataApiKey?: string;
   brightdataZone?: string;
-  // Phase 16 Plan 16 — relay 내부 HTTP 클라이언트를 제거했다 (D-02). 주문 접수는 relay
-  // wss 전용이므로 server 는 relay 를 부르지 않는다. `/api/orders` 는 조회만 남는다.
+  // Phase 16 Plan 16 — 주문용 relay 내부 HTTP 클라이언트는 제거됐다 (D-02). 주문 접수는 relay wss 전용.
+  // Phase 29 D-07 — Admin 명령 전용 relay 클라이언트. 미주입(env 미설정 · 테스트) 시 허용/역할 쓰기는
+  // `relayNotified: false` 로 성공하고, relay 의존 라우트(29-13)는 503 RELAY_UNAVAILABLE.
+  relayAdmin?: RelayAdminClient;
 };
 
 export function createApp(deps: AppDeps): Express {
@@ -58,6 +61,7 @@ export function createApp(deps: AppDeps): Express {
   app.locals.brightdataClient = deps.brightdataClient;
   app.locals.brightdataApiKey = deps.brightdataApiKey;
   app.locals.brightdataZone = deps.brightdataZone;
+  app.locals.relayAdmin = deps.relayAdmin;
 
   // 2) request-id (pino 바인딩 위해 가장 먼저)
   app.use(requestId());

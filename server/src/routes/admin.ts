@@ -1,24 +1,38 @@
-import { Router, type Router as RouterT } from "express";
+import { Router, type Request, type Router as RouterT } from "express";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { deriveAdminUsersOverview, type AdminUsersRaw } from "@gh-radar/shared";
+import type { z } from "zod";
 
 import { requireAuth } from "../middleware/require-auth.js";
 import { requireAdmin } from "../middleware/require-admin.js";
-import { ApiError } from "../errors.js";
+import { ApiError, ValidationFailed } from "../errors.js";
+import { logger } from "../logger.js";
+import { AdminRolePatchBody, AdminUserUpsertBody, adminEmailParam } from "../schemas/admin.js";
+import type { RelayAdminClient } from "../services/relay-admin-client.js";
 
 /**
  * Phase 29 (D-07 · D-14) — 웹 Admin 의 서버 관문. 반영 경로 = webapp → **Express(admin 역할 검증)** → relay HTTP.
  * 브라우저는 Admin 표(app_users · dma_*)에 PostgREST 로 직접 쓰지 않는다 — 표는 전부 service_role 전용이다.
  *
- * - GET /users : 사용자 개요(`AdminUsersOverview`) — RPC `admin_users_raw` **1회** → shared `deriveAdminUsersOverview`.
- *   칩 판정 규칙은 shared 한 곳(relay planner 와 같은 diff)이고 server 는 파생만 부른다.
+ * - GET    /users        : 사용자 개요(`AdminUsersOverview`) — RPC `admin_users_raw` **1회** → shared `deriveAdminUsersOverview`.
+ *                          칩 판정 규칙은 shared 한 곳(relay planner 와 같은 diff)이고 server 는 파생만 부른다.
+ * - POST   /users        : `{ email, role }` — 사전 등록 · 승인 대기 승인 · viewer 생성(D-03). app_users upsert.
+ * - PATCH  /users/:email : `{ role }` — 역할 변경(D-04 강등 즉시). 없는 이메일 404.
+ * - DELETE /users/:email : DMA 연결 **없는** 사용자만 행 삭제. 연결 있으면 409 `HAS_DMA` — 그 삭제는 relay 경로(29-13).
+ *
+ * 쓰기는 Express 가 DB 에 직접 하고, 성공 뒤 relay `POST /internal/admin/access/reload` 를 **best-effort** 로 부른다
+ * (`relayNotified`). 통보가 실패해도 200 — relay 의 60초 주기 재적재가 따라잡는다(D-04 「즉시」 는 webapp middleware 가
+ * 매 요청 역할을 보는 것으로 이미 성립하고, relay 통보는 열린 wss 를 더 빨리 끊는 가속기다).
  *
  * ── 방어선 ──────────────────────────────────────────────────
  *   인증      `requireAuth()` — 미인증 · 만료 토큰 401 `UNAUTHENTICATED`
  *   역할      `requireAdmin()` — app_users role = admin 만(매 요청 DB 조회 · 강등 즉시 반영 D-04). 그 밖 403 `FORBIDDEN`
  *   권한      `admin_users_raw` · `app_users` 는 service_role 전용(anon · authenticated 명시 REVOKE) — 이 라우터가 유일한 창구
  *   오류      DB 오류는 `DB_ERROR` 고정 문구 — 원문(PostgREST code · message)은 errorHandler warn 로그에만(T-15-07)
- *   비밀      비밀번호 · 공유 비밀은 로그에 남지 않는다(logger redact)
+ *   자기 보호 요청자 본인의 admin 을 내리거나 본인을 지우면 409 `SELF_LOCKOUT` — Admin 이 스스로 잠기지 않게.
+ *            (본인은 늘 admin 으로 남으므로 「마지막 admin 삭제」 도 이 규칙 하나로 막힌다)
+ *   입력      zod — 이메일 trim · 소문자 · 형식 · ≤ 254, 역할 enum. 위반은 DB 를 두드리기 전에 400 `VALIDATION_FAILED`
+ *   비밀      비밀번호 · 공유 비밀은 로그에 남지 않는다(logger redact). 감사 로그는 요청자 · 작업 · 대상 이메일 · 역할만
  *
  * ★ Cloud Run → Supabase 왕복이 지연을 지배한다 — 개요 한 장 = 역할 조회 1회 + RPC 1회.
  */
@@ -30,6 +44,56 @@ adminRouter.use(requireAuth(), requireAdmin());
 
 /** `cause` 는 로그 전용(errorHandler warn) — 응답에는 고정 문구만. */
 const DbError = (msg: string, cause?: unknown) => new ApiError(500, "DB_ERROR", msg, cause);
+const SelfLockout = () =>
+  new ApiError(409, "SELF_LOCKOUT", "본인의 관리자 권한은 내리거나 지울 수 없어요.");
+const HasDma = () =>
+  new ApiError(409, "HAS_DMA", "DMA 연결이 있는 사용자는 DMA 삭제 경로로 지워야 해요.");
+const UserNotFound = () => new ApiError(404, "NOT_FOUND", "허용 목록에 없는 사용자예요.");
+const RelayUnavailable = () =>
+  new ApiError(503, "RELAY_UNAVAILABLE", "relay 연결이 설정되지 않아 처리할 수 없어요.");
+
+/**
+ * relay 의존 라우트(29-13 DMA 프록시)의 관문 — 클라이언트가 없으면(env 미설정) 503 `RELAY_UNAVAILABLE`.
+ * 허용/역할 쓰기는 이것을 쓰지 않는다(best-effort 통보 — `notifyAccess`).
+ */
+export function requireRelayAdmin(req: Request): RelayAdminClient {
+  const relay = req.app.locals.relayAdmin as RelayAdminClient | undefined;
+  if (!relay) throw RelayUnavailable();
+  return relay;
+}
+
+function parseOrThrow<S extends z.ZodType>(schema: S, value: unknown): z.output<S> {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    throw ValidationFailed(`${issue.path.join(".")}: ${issue.message}`);
+  }
+  return parsed.data;
+}
+
+/** 감사 로그 1줄 — 요청자 · 작업 · 대상 이메일 · 역할만(비밀번호 · 토큰 없음). */
+function audit(req: Request, op: string, target: string, extra: Record<string, unknown> = {}): void {
+  logger.info(
+    { audit: "admin", admin: req.adminEmail, op, target, ...extra },
+    `[admin] admin=${req.adminEmail} op=${op} target=${target}`,
+  );
+}
+
+/**
+ * 쓰기 성공 뒤 relay 허용 표 즉시 재적재(best-effort). 클라이언트 없음 · 비200 · 닿지 못함(0) → false + warn.
+ * 실패해도 throw 하지 않는다 — 쓰기는 이미 DB 에 들어갔고, relay 60초 재적재가 따라잡는다.
+ */
+async function notifyAccess(req: Request, op: string): Promise<boolean> {
+  const relay = req.app.locals.relayAdmin as RelayAdminClient | undefined;
+  if (!relay) return false;
+  const r = await relay.reloadAccess(req.adminEmail!);
+  if (r.status === 200) return true;
+  logger.warn(
+    { relay: { op, status: r.status } },
+    "[admin] relay access reload 실패 — relay 60초 재적재가 따라잡는다",
+  );
+  return false;
+}
 
 // --- GET /users — 사용자 개요 (D-14) ---
 adminRouter.get("/users", async (req, res, next) => {
@@ -42,6 +106,85 @@ adminRouter.get("/users", async (req, res, next) => {
       throw DbError("사용자 목록 조회에 실패했습니다.");
     }
     res.json(deriveAdminUsersOverview(data as AdminUsersRaw));
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- POST /users — 사전 등록 · 승인 대기 승인 · 생성 (D-03) ---
+adminRouter.post("/users", async (req, res, next) => {
+  try {
+    const body = parseOrThrow(AdminUserUpsertBody, req.body ?? {});
+    if (body.email === req.adminEmail && body.role !== "admin") throw SelfLockout();
+
+    const supabase = req.app.locals.supabase as SupabaseClient;
+    const { error } = await supabase
+      .from("app_users")
+      .upsert(
+        { email: body.email, role: body.role, updated_at: new Date().toISOString() },
+        { onConflict: "email" },
+      );
+    if (error) throw DbError("사용자 저장에 실패했습니다.", error);
+
+    audit(req, "upsert", body.email, { role: body.role });
+    res.json({ ok: true, relayNotified: await notifyAccess(req, "upsert") });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- PATCH /users/:email — 역할 변경 (D-04 강등 즉시) ---
+adminRouter.patch("/users/:email", async (req, res, next) => {
+  try {
+    const { email } = parseOrThrow(adminEmailParam, req.params);
+    const { role } = parseOrThrow(AdminRolePatchBody, req.body ?? {});
+    if (email === req.adminEmail && role !== "admin") throw SelfLockout();
+
+    const supabase = req.app.locals.supabase as SupabaseClient;
+    const { data, error } = await supabase
+      .from("app_users")
+      .update({ role, updated_at: new Date().toISOString() })
+      .eq("email", email)
+      .select("email");
+    if (error) throw DbError("역할 변경에 실패했습니다.", error);
+    if (!Array.isArray(data) || data.length === 0) throw UserNotFound();
+
+    audit(req, "role", email, { role });
+    res.json({ ok: true, relayNotified: await notifyAccess(req, "role") });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- DELETE /users/:email — DMA 연결 없는 사용자만 (연결 있으면 29-13 relay 경로) ---
+adminRouter.delete("/users/:email", async (req, res, next) => {
+  try {
+    const { email } = parseOrThrow(adminEmailParam, req.params);
+    if (email === req.adminEmail) throw SelfLockout();
+
+    const supabase = req.app.locals.supabase as SupabaseClient;
+    // 「DMA 없음」 조건을 삭제 문장 자체에 건다 — 조회와 삭제 사이에 DMA 가 연결되는 경합에도 연결된 행은 지워지지 않는다.
+    const { data, error } = await supabase
+      .from("app_users")
+      .delete()
+      .eq("email", email)
+      .is("dma_user_id", null)
+      .select("email");
+    if (error) throw DbError("사용자 삭제에 실패했습니다.", error);
+
+    if (!Array.isArray(data) || data.length === 0) {
+      // 0행 = 없는 사용자 또는 DMA 연결 있음 — 어느 쪽인지 1회 더 본다(거부 경로에서만 왕복 1회 추가).
+      const { data: row, error: e2 } = await supabase
+        .from("app_users")
+        .select("dma_user_id")
+        .eq("email", email)
+        .maybeSingle();
+      if (e2) throw DbError("사용자 삭제에 실패했습니다.", e2);
+      throw row ? HasDma() : UserNotFound();
+    }
+
+    audit(req, "delete", email);
+    res.json({ ok: true, relayNotified: await notifyAccess(req, "delete") });
   } catch (e) {
     next(e);
   }

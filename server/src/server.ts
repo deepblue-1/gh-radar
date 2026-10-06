@@ -4,6 +4,7 @@ import { supabase } from "./services/supabase.js";
 import { logger } from "./logger.js";
 import { loadConfig } from "./config.js";
 import { createKiwoomRuntime } from "./services/kiwoom-runtime.js";
+import { createRelayAdminClient, type RelayAdminClient } from "./services/relay-admin-client.js";
 
 const config = loadConfig();
 
@@ -62,9 +63,29 @@ if (config.brightdataApiKey) {
   );
 }
 
-// Phase 16 Plan 16 — relay 결선을 제거했다 (D-02). 주문 접수는 relay wss 전용이므로
-// server 는 relay 내부 HTTP(8091)를 부르지 않는다. `/api/orders` 는 조회만 남았고,
-// 그 경로는 Supabase 만 읽으므로 relay 가 내려가도 오늘 주문 목록은 계속 나온다.
+// Phase 16 Plan 16 — 주문 접수용 relay 결선은 제거됐다 (D-02). 주문 접수는 relay wss 전용이고
+// `/api/orders` 는 Supabase 만 읽으므로 relay 가 내려가도 오늘 주문 목록은 계속 나온다.
+//
+// Phase 29 D-07 — **Admin 명령만** relay 내부 HTTP(8091)를 다시 부른다. 두 env 가 다 있을 때만 만든다.
+// 가드(assertRelayUrl) 실패는 여기서 throw → 부팅 실패: 공유 비밀이 사설 대역 밖으로 나가는 것보다 안 뜨는 편이 낫다.
+let relayAdmin: RelayAdminClient | undefined = undefined;
+if (config.relayInternalUrl && config.relayOrderSecret) {
+  relayAdmin = createRelayAdminClient({
+    baseUrl: config.relayInternalUrl,
+    secret: config.relayOrderSecret,
+    timeoutMs: config.relayAdminTimeoutMs,
+    nodeEnv: config.nodeEnv,
+  });
+} else {
+  logger.warn(
+    {
+      relayInternalUrlSet: Boolean(config.relayInternalUrl),
+      relayOrderSecretSet: Boolean(config.relayOrderSecret),
+    },
+    "RELAY_INTERNAL_URL/RELAY_ORDER_SECRET not set — Admin 즉시 반영 통보 꺼짐 · DMA 프록시 라우트 503",
+  );
+}
+
 const app = createApp({
   supabase,
   kiwoomRuntime,
@@ -72,6 +93,7 @@ const app = createApp({
   brightdataClient,
   brightdataApiKey: config.brightdataApiKey,
   brightdataZone: config.brightdataZone,
+  relayAdmin,
 });
 
 app.listen(config.port, () => {
