@@ -19,6 +19,7 @@ import { chatRouter } from "./routes/chat.js";
 import { ordersRouter } from "./routes/orders.js";
 import { strategyEventsRouter } from "./routes/strategy-events.js";
 import { limitupRouter } from "./routes/limitup-report.js";
+import { adminRouter } from "./routes/admin.js";
 
 /**
  * server 측 키움 runtime 페어 (Phase 09.1 D-17/D-18).
@@ -100,6 +101,8 @@ export function createApp(deps: AppDeps): Express {
   app.use("/api/strategy-events", strategyEventsRouter);
   // Phase 28 D-10 — 상한가 보고서 조회 전용(DMA 매핑 사용자 · 격자는 인증 뒤 서명 URL). 적재는 workers/limitup-sync.
   app.use("/api/limitup", limitupRouter);
+  // Phase 29 D-07 — 웹 Admin(requireAuth → requireAdmin). 쓰기는 Express 가 DB 에 · 즉시 반영은 relay HTTP 로.
+  app.use("/api/admin", adminRouter);
 
   // 9) 404 fallback
   app.use(notFoundHandler);

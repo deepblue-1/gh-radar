@@ -36,6 +36,8 @@ export function requireAuth(): RequestHandler {
     }
 
     req.userId = data.user.id;
+    // Phase 29 (D-01 · D-07) — 역할 판정(requireAdmin)은 이메일 키 표(app_users)를 본다. 정규화는 소비자 몫.
+    req.userEmail = data.user.email ?? null;
     next();
   };
 }
