@@ -200,3 +200,8 @@ None - 순수 함수만 추가. 외부 서비스 설정 없음.
 ---
 *Phase: 29-dma-multi-server-admin*
 *Completed: 2026-10-06*
+
+## Self-Check: PASSED
+
+- 파일 6개 존재 확인 · 커밋 50c85fb0 · d1f778a1 · c874766a 가 이 브랜치 HEAD 의 조상 · 작업 트리 깨끗함.
+- 수용 기준 grep 전부 통과(normalizeAccountNo 1 · diffServerAccounts 1 · planner 의 diffServerAccounts 3 · planServerOps 1 · 칩 문구 4종 · interpretAdminResult 1 · planPasswordOps 1 · planner 테스트 「서버에만 있음」 3 · deriveAdminServersOverview 1 · 「먼저 정리」 2).
