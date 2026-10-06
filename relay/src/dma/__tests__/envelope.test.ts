@@ -111,6 +111,9 @@ import {
   MAX_QUEUE_PROGRESS_ITEMS,
   parseLimitFeature,
   MAX_LIMIT_FEATURE_MEMBERS,
+  buildAdminCommandReq,
+  parseAdminCommandResp,
+  parseAdminUsersSnapshot,
   type ViTriggerInput,
   type LcSetCfg,
 } from "../envelope.js";
@@ -138,7 +141,11 @@ import {
   buildUserSettingsFrame,
   buildLimitFeatureFrame,
   SAMPLE_ACCOUNT_NO,
+  buildAdminCommandRespFrame,
+  buildAdminUsersSnapshotFrame,
 } from "../../../tests/helpers/frames.js";
+import { AdminCommandReq } from "../../generated/stock-dma/admin-command-req.js";
+import { ADMIN_CODE, ADMIN_OP } from "../../admin/types.js";
 import { readObserverLoginRequest } from "../../../tests/helpers/fake-gateway.js";
 
 let warn: ReturnType<typeof vi.spyOn>;
@@ -2423,9 +2430,9 @@ describe("관찰자 로그인 role (Phase 26 · ed2e0240)", () => {
     expect(journal?.role).toBe(0);
   });
 
-  it("role 0 · 1 밖의 값은 RangeError(비밀 미포함)", () => {
+  it("role 0 · 1 · 2 밖의 값은 RangeError(비밀 미포함) — 2(admin)는 Phase 29 부터 허용", () => {
     const SECRET = "observer-secret-DO-NOT-LOG-26-01";
-    for (const role of [2, -1, 1.5, Number.NaN]) {
+    for (const role of [3, -1, 1.5, Number.NaN]) {
       let caught: unknown = null;
       try {
         buildObserverLoginReq({
@@ -2434,8 +2441,8 @@ describe("관찰자 로그인 role (Phase 26 · ed2e0240)", () => {
           epoch: "",
           client: "c",
           strategySinceSeq: 0,
-          // 타입은 0 | 1 만 받는다 — 런타임 가드를 부르려고 일부러 넓힌다.
-          role: role as 0 | 1,
+          // 타입은 0 | 1 | 2 만 받는다 — 런타임 가드를 부르려고 일부러 넓힌다.
+          role: role as 0 | 1 | 2,
         });
       } catch (err) {
         caught = err;
@@ -2450,6 +2457,118 @@ describe("관찰자 로그인 role (Phase 26 · ed2e0240)", () => {
     expect(quote?.role).toBe(1);
     const legacy = parseObserverLoginResp(envOf(buildObserverLoginRespFrame()));
     expect(legacy?.role).toBe(0);
+  });
+});
+
+describe("Phase 29 admin 코덱 (44 조립 · 86/87 파싱 · role 2)", () => {
+  /** 프레임 바이트 → Envelope. 86/87 이 수신 화이트리스트를 통과해야 한다(PC-12). */
+  function envOf(bytes: Uint8Array): Envelope {
+    const parsed = tryParseEnvelope(Buffer.from(bytes));
+    if (parsed === null) throw new Error("화이트리스트 드롭");
+    return parsed.env;
+  }
+
+  const KB_ACCOUNT = { accountNo: SAMPLE_ACCOUNT_NO, name: "위탁종합", branchNo: "00000", traderId: "000000", priority: 1 };
+
+  it("44 왕복 — op · userId · requestId(ulong 경계 bigint) · account 5필드 · op 1 은 password 를 싣는다", () => {
+    const requestId = 2n ** 63n + 5n;
+    const env = readBack(
+      buildAdminCommandReq({ requestId, op: ADMIN_OP.UpsertUser, userId: "new-user", password: "pw-test", account: KB_ACCOUNT }),
+    );
+    expect(env.msgType()).toBe(MSG.AdminCommandReq);
+    const req = env.adminCommandReq(new AdminCommandReq());
+    expect(req).not.toBeNull();
+    expect(req!.requestId()).toBe(requestId);
+    expect(req!.op()).toBe(1);
+    expect(req!.userId()).toBe("new-user");
+    expect(req!.password()).toBe("pw-test");
+    const a = req!.account();
+    expect(a).not.toBeNull();
+    expect({
+      accountNo: a!.accountNo(),
+      name: a!.name(),
+      branchNo: a!.branchNo(),
+      traderId: a!.traderId(),
+      priority: a!.priority(),
+    }).toEqual(KB_ACCOUNT);
+  });
+
+  it("44 — op ≠ 1 이면 password 는 빈 값 · account 는 주어질 때만", () => {
+    for (const op of [ADMIN_OP.DeleteUser, ADMIN_OP.SetAccount, ADMIN_OP.RemoveAccount, ADMIN_OP.ListUsers]) {
+      const env = readBack(buildAdminCommandReq({ requestId: 7n, op, userId: "u1", password: "leak-me-not" }));
+      const req = env.adminCommandReq(new AdminCommandReq());
+      expect(req!.op(), `op ${op}`).toBe(op);
+      expect(req!.password(), `op ${op}`).toBe("");
+      expect(req!.account(), `op ${op}`).toBeNull();
+    }
+  });
+
+  it("44 — requestId 가 ulong 범위 밖이면 RangeError", () => {
+    for (const requestId of [-1n, 2n ** 64n]) {
+      expect(() => buildAdminCommandReq({ requestId, op: ADMIN_OP.ListUsers, userId: "" })).toThrow(RangeError);
+    }
+  });
+
+  it("5 로그인 요청 role 2(admin) 성공 · role 3 은 RangeError", () => {
+    const base = { secret: "s", sinceSeq: 0, epoch: "", client: "c", strategySinceSeq: 0 };
+    const admin = readObserverLoginRequest(MSG.ObserverLoginReq, Buffer.from(buildObserverLoginReq({ ...base, role: 2 })));
+    expect(admin?.role).toBe(2);
+    expect(() => buildObserverLoginReq({ ...base, role: 3 as 0 | 1 | 2 })).toThrow(RangeError);
+  });
+
+  it("86 → code 9 BUSY · 한국어 message 그대로 · usersRev bigint", () => {
+    const message = "미체결 2건 · 상따 1건 · VI 1건 등록 — 먼저 정리";
+    const r = parseAdminCommandResp(
+      envOf(buildAdminCommandRespFrame({ requestId: 2n ** 63n + 5n, ok: false, code: ADMIN_CODE.Busy, message, usersRev: 2n ** 60n })),
+    );
+    expect(r).toEqual({ requestId: 2n ** 63n + 5n, ok: false, code: 9, message, usersRev: 2n ** 60n });
+    expect(typeof r!.usersRev).toBe("bigint");
+    expect(droppedEnvelopeCount()).toBe(0);
+  });
+
+  it("87 → 유저 2명 · 교보 계좌 branch/trader 빈 값 그대로 · priority 순서 보존", () => {
+    const snap = parseAdminUsersSnapshot(
+      envOf(
+        buildAdminUsersSnapshotFrame({
+          usersRev: 3n,
+          users: [
+            {
+              userId: "kb-user",
+              accounts: [
+                { accountNo: SAMPLE_ACCOUNT_NO, priority: 0 },
+                { accountNo: "1234567802", name: "연금", priority: 1 },
+              ],
+            },
+            { userId: "kyobo-user", accounts: [{ accountNo: "1234567803", branchNo: "", traderId: "", priority: 0 }] },
+          ],
+        }),
+      ),
+    );
+    expect(snap).toEqual({
+      usersRev: 3n,
+      users: [
+        {
+          userId: "kb-user",
+          accounts: [
+            { accountNo: SAMPLE_ACCOUNT_NO, name: "위탁종합", branchNo: "00000", traderId: "000000", priority: 0 },
+            { accountNo: "1234567802", name: "연금", branchNo: "00000", traderId: "000000", priority: 1 },
+          ],
+        },
+        {
+          userId: "kyobo-user",
+          accounts: [{ accountNo: "1234567803", name: "위탁종합", branchNo: "", traderId: "", priority: 0 }],
+        },
+      ],
+    });
+    expect(droppedEnvelopeCount()).toBe(0);
+  });
+
+  it("86 · 87 슬롯 null → 드롭(slot-null · 카운터 +1)", () => {
+    expect(parseAdminCommandResp(envOf(buildBareEnvelope(MSG.AdminCommandResp)))).toBeNull();
+    expect(parseAdminUsersSnapshot(envOf(buildBareEnvelope(MSG.AdminUsersSnapshot)))).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(2);
+    const slots = warn.mock.calls.map((c: unknown[]) => (c[0] as Record<string, unknown>).slot);
+    expect(slots).toEqual(["admin_command_resp", "admin_users_snapshot"]);
   });
 });
 

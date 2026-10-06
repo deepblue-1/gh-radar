@@ -47,6 +47,10 @@ import { QueueProgress } from "../../src/generated/stock-dma/queue-progress.js";
 import { QueueProgressItem } from "../../src/generated/stock-dma/queue-progress-item.js";
 import { LimitFeature } from "../../src/generated/stock-dma/limit-feature.js";
 import { MemberDelta } from "../../src/generated/stock-dma/member-delta.js";
+import { AdminAccount } from "../../src/generated/stock-dma/admin-account.js";
+import { AdminCommandResp } from "../../src/generated/stock-dma/admin-command-resp.js";
+import { AdminUser } from "../../src/generated/stock-dma/admin-user.js";
+import { AdminUsersSnapshot } from "../../src/generated/stock-dma/admin-users-snapshot.js";
 import { MSG } from "../../src/dma/msg-type.js";
 import type { JournalRecord, StrategyEventRecord } from "../../src/journal/types.js";
 
@@ -1896,6 +1900,102 @@ export function buildLimitFeatureFrame(input: FakeLimitFeatureInput = {}): Uint8
   // 생성 enum 을 쓴다 — 「85 는 INBOUND 에 있다」 단언이 이 빌더에 기대지 않게(buildQueueProgressFrame 과 같은 규율).
   Envelope.addMsgType(b, MsgType.LimitFeature);
   Envelope.addLimitFeature(b, feature);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+// ============================================================
+// admin 관리 (86 · 87) — Phase 29 · gh-trade 92cdfbff · blob 03fc8cbe
+// ============================================================
+//
+// 실계좌 · 실서버 값 리터럴 금지(D-27) — 계좌 기본값은 `SAMPLE_ACCOUNT_NO`, 지점 · 취급자는 KB 형식(5자 · 6자) 가짜 값이다.
+// 교보 서버 계좌를 흉내 내려면 `branchNo: ""` · `traderId: ""` 를 넘긴다(D-23 ③).
+
+/** `AdminAccount` 1행 입력. 생략 필드는 KB 형식 가짜 값. */
+export type FakeAdminAccountInput = {
+  accountNo?: string;
+  name?: string;
+  branchNo?: string;
+  traderId?: string;
+  priority?: number;
+};
+
+/** 86 입력. 기본 = 성공(code 0) · rev 1. */
+export type FakeAdminCommandRespInput = {
+  requestId?: bigint;
+  ok?: boolean;
+  code?: number;
+  message?: string;
+  usersRev?: bigint;
+};
+
+/** 87 유저 1명 입력. */
+export type FakeAdminUserInput = { userId?: string; accounts?: FakeAdminAccountInput[] };
+
+/** 87 입력. 기본 = rev 1 · 유저 1명(계좌 1개). */
+export type FakeAdminUsersSnapshotInput = {
+  usersRev?: bigint;
+  users?: FakeAdminUserInput[];
+};
+
+/** `AdminAccount` 테이블 조립 — 생성 빌더(start/add/end)로만. 문자열은 테이블 조립 **전에** 만든다. */
+function buildFakeAdminAccount(b: flatbuffers.Builder, a: FakeAdminAccountInput): flatbuffers.Offset {
+  const accountNo = b.createString(a.accountNo ?? SAMPLE_ACCOUNT_NO);
+  const name = b.createString(a.name ?? "위탁종합");
+  const branchNo = b.createString(a.branchNo ?? "00000");
+  const traderId = b.createString(a.traderId ?? "000000");
+  AdminAccount.startAdminAccount(b);
+  AdminAccount.addAccountNo(b, accountNo);
+  AdminAccount.addName(b, name);
+  AdminAccount.addBranchNo(b, branchNo);
+  AdminAccount.addTraderId(b, traderId);
+  AdminAccount.addPriority(b, a.priority ?? 0);
+  return AdminAccount.endAdminAccount(b);
+}
+
+/** admin 명령 응답 프레임 (86 · `admin_command_resp` 슬롯 94). */
+export function buildAdminCommandRespFrame(input: FakeAdminCommandRespInput = {}): Uint8Array {
+  const b = new flatbuffers.Builder(256);
+  const message = b.createString(input.message ?? "");
+  AdminCommandResp.startAdminCommandResp(b);
+  AdminCommandResp.addRequestId(b, input.requestId ?? 1n);
+  AdminCommandResp.addOk(b, input.ok ?? (input.code ?? 0) === 0);
+  AdminCommandResp.addCode(b, input.code ?? 0);
+  AdminCommandResp.addMessage(b, message);
+  AdminCommandResp.addUsersRev(b, input.usersRev ?? 1n);
+  const resp = AdminCommandResp.endAdminCommandResp(b);
+
+  Envelope.startEnvelope(b);
+  // 생성 enum 을 쓴다 — 「86 은 INBOUND 에 있다」 단언이 이 빌더에 기대지 않게.
+  Envelope.addMsgType(b, MsgType.AdminCommandResp);
+  Envelope.addAdminCommandResp(b, resp);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+/** users.toml 전체 스냅샷 프레임 (87 · `admin_users_snapshot` 슬롯 96). request_id 없음 · 비밀번호 없음. */
+export function buildAdminUsersSnapshotFrame(input: FakeAdminUsersSnapshotInput = {}): Uint8Array {
+  const b = new flatbuffers.Builder(512);
+  const users = input.users ?? [{}];
+  // 원소 · 벡터는 바깥 테이블 조립 **전에** 전부 만든다 (FlatBuffers 중첩 제약).
+  const userOffsets = users.map((u) => {
+    const userId = b.createString(u.userId ?? "dma-user-1");
+    const accs = (u.accounts ?? [{}]).map((a) => buildFakeAdminAccount(b, a));
+    const accounts = AdminUser.createAccountsVector(b, accs);
+    AdminUser.startAdminUser(b);
+    AdminUser.addUserId(b, userId);
+    AdminUser.addAccounts(b, accounts);
+    return AdminUser.endAdminUser(b);
+  });
+  const usersVec = AdminUsersSnapshot.createUsersVector(b, userOffsets);
+  AdminUsersSnapshot.startAdminUsersSnapshot(b);
+  AdminUsersSnapshot.addUsersRev(b, input.usersRev ?? 1n);
+  AdminUsersSnapshot.addUsers(b, usersVec);
+  const snap = AdminUsersSnapshot.endAdminUsersSnapshot(b);
+
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MsgType.AdminUsersSnapshot);
+  Envelope.addAdminUsersSnapshot(b, snap);
   b.finish(Envelope.endEnvelope(b));
   return b.asUint8Array();
 }

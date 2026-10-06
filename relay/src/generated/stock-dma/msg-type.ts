@@ -34,6 +34,7 @@ export enum MsgType {
   AutoSellCommandReq = 41,
   SetUserSettingsReq = 42,
   GetUserSettingsReq = 43,
+  AdminCommandReq = 44,
   LoginResp = 50,
   OrderResp = 51,
   OrderConfirm = 52,
@@ -67,5 +68,7 @@ export enum MsgType {
   StrategyEventPush = 82,
   QueueProgress = 83,
   UserSettingsResp = 84,
-  LimitFeature = 85
+  LimitFeature = 85,
+  AdminCommandResp = 86,
+  AdminUsersSnapshot = 87
 }

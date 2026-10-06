@@ -64,6 +64,14 @@
  *   `#onFrame` 의 **명시 warn case** 다(사용자 세션은 종목을 구독하지 않는다 — Phase 26 D-08).
  *   화이트리스트와 명시 case 는 **같은 커밋**이다(PC-12).
  *
+ *   29-02 가 admin 관리 응답 2종 **86 `AdminCommandResp`** · **87 `AdminUsersSnapshot`** 을 더한다(30종 —
+ *   gh-trade Phase 29 · fbs 92cdfbff · blob 03fc8cbe · Envelope 슬롯 94/96). 하류 책임은 **admin 연결 전용
+ *   파서**(`envelope.ts` 의 `parseAdminCommandResp`/`parseAdminUsersSnapshot`)다 — role 2 관찰자 연결(admin)
+ *   하나에만 온다(86 = 요청 연결에만 · 87 = 변경 뒤 · op 5 뒤). 사용자 세션 · quote 연결로 오면
+ *   `SubscriptionHub.#onFrame` · `#onFeedFrame` 의 **명시 warn case** 가 버린다(`unhandledFrameCount()` 불변).
+ *   요청 **44 `AdminCommandReq`** 는 C→S 라 화이트리스트에 넣지 않는다. 화이트리스트와 명시 case 는
+ *   **같은 커밋**이다(PC-12).
+ *
  *   quick-260923-cqj 가 **57 `SymbolMasterResp`** 를 더한다(23종). 당일 신규상장 종목은 Supabase
  *   `stocks` 에 아직 없어서(KRX 가 전 영업일 데이터를 다음 영업일 08:00 에 공개한다) 이름을 못
  *   풀었다. 57 은 그 미스를 채우는 **보조 이름 원천**이다. 하류 책임은 이렇다 — 파서는 `envelope.ts`
@@ -99,7 +107,7 @@
 /**
  * relay 가 사용하는 `msg_type` 값. 생성 코드 `stock-dma/msg-type.ts` 의 부분집합이다.
  *
- * 요청(C→S)은 1~43, 응답/푸시(S→C)는 50~85 대역이다.
+ * 요청(C→S)은 1~44, 응답/푸시(S→C)는 50~87 대역이다.
  */
 export const MSG = {
   // --- 요청 (relay → 게이트웨이) ---
@@ -153,6 +161,12 @@ export const MSG = {
   SetUserSettingsReq: 42,
   /** 사용자 설정 조회. **요청 테이블 없음 — 빈 Envelope** (C→S · Phase 27). 응답은 84. */
   GetUserSettingsReq: 43,
+  /**
+   * admin 유저 · 계좌 관리 명령 (`admin_command_req` 슬롯 92 · C→S · Phase 29 — gh-trade 92cdfbff).
+   * **admin 연결(role 2) 전용** — op 1 UpsertUser · 2 DeleteUser · 3 SetAccount · 4 RemoveAccount · 5 ListUsers.
+   * `request_id` 는 86 에 에코된다.
+   */
+  AdminCommandReq: 44,
 
   // --- 응답 · 푸시 (게이트웨이 → relay) ---
   /** 로그인 응답. */
@@ -234,6 +248,16 @@ export const MSG = {
    * (quote 관찰자 연결 포함). 요청 짝 없음 — 새 구독에 재송신하지 않으므로 hub 가 키별 마지막 1프레임을 캐시한다.
    */
   LimitFeature: 85,
+  /**
+   * admin 명령 응답 (`admin_command_resp` 슬롯 94 · Phase 29). **요청 연결에만** Notice ·
+   * `request_id` 에코 · 분기는 `code`(0~12), `message` 는 화면 표시용 한국어.
+   */
+  AdminCommandResp: 86,
+  /**
+   * users.toml 전체 스냅샷 (`admin_users_snapshot` 슬롯 96 · Phase 29). **비밀번호 없음** ·
+   * 실제 변경 뒤(86 다음) · op 5 뒤 1프레임. **`request_id` 없음** — 86 직후 같은 연결 순서로 짝짓는다.
+   */
+  AdminUsersSnapshot: 87,
 } as const;
 
 /** `MSG` 의 값 유니온. */
@@ -251,7 +275,8 @@ export type MsgTypeValue = (typeof MSG)[keyof typeof MSG];
  *
  * ★ 17-03 이 76·77·78 을 더해 **22종**이 됐다. quick-260923-cqj 가 57 을 더해 **23종**, 19-09 가 관찰자
  *   응답 79·80 을 더해 **25종**, 25-06 이 잔량진행률 83 을 더해 **26종**, 27-01 이 사용자 설정 84 를
- *   더해 **27종**, 28-01 이 상한가 특징 85 를 더해 **28종**이다. 이 집합은
+ *   더해 **27종**, 28-01 이 상한가 특징 85 를 더해 **28종**, 29-02 가 admin 응답 86·87 을 더해
+ *   **30종**이다. 이 집합은
  *   `SubscriptionHub.#onFrame` 의 명시 `case` 와 **한 커밋에서만** 함께 자란다 — 번호 하나를
  *   먼저 넣고 case 를 다음 커밋으로 미루면 그 사이의 빌드에서 프레임이 `default:` 로 조용히
  *   떨어져 「조용히 사라지는 프레임 0」(PC-12) 불변식이 깨진다.
@@ -285,6 +310,8 @@ export const INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
   MSG.QueueProgress,
   MSG.UserSettingsResp,
   MSG.LimitFeature,
+  MSG.AdminCommandResp,
+  MSG.AdminUsersSnapshot,
 ]);
 
 /**

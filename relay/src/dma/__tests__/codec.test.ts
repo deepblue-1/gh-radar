@@ -264,16 +264,30 @@ describe("MSG 상수", () => {
     }
   });
 
-  it("Phase 28 INBOUND_MSG_TYPES 는 응답 대역(50~85)만 담는다 — 28종", () => {
+  it("Phase 29 MSG 3종이 생성 enum 과 이름 · 값 일치 — 44 는 INBOUND 밖, 86 · 87 은 안", () => {
+    // 29-02 — 화이트리스트 · hub `#onFrame` · `#onFeedFrame` 명시 warn case 가 한 커밋이다(PC-12).
+    expect(MSG.AdminCommandReq).toBe(MsgType.AdminCommandReq);
+    expect(MSG.AdminCommandResp).toBe(MsgType.AdminCommandResp);
+    expect(MSG.AdminUsersSnapshot).toBe(MsgType.AdminUsersSnapshot);
+    expect(MSG.AdminCommandReq).toBe(44);
+    expect(MSG.AdminCommandResp).toBe(86);
+    expect(MSG.AdminUsersSnapshot).toBe(87);
+    // 44 는 C→S 라 수신 대역에 들어올 일 자체가 없다.
+    expect(INBOUND_MSG_TYPES.has(44)).toBe(false);
+    expect(INBOUND_MSG_TYPES.has(86)).toBe(true);
+    expect(INBOUND_MSG_TYPES.has(87)).toBe(true);
+  });
+
+  it("Phase 29 INBOUND_MSG_TYPES 는 응답 대역(50~87)만 담는다 — 30종", () => {
     // 15-02 의 12종 + 16-04 전략 응답 7종 + 17-03 신규 푸시 3종 + quick-260923-cqj 57
     // + 19-09 관찰자 응답 79·80 + 25-06 잔량진행률 83 = 26종 + 27-01 사용자 설정 84 = 27종
-    // + 28-01 상한가 특징 85 = 28종.
+    // + 28-01 상한가 특징 85 = 28종 + 29-02 admin 응답 86·87 = 30종.
     // 개수를 못박아 두면 화이트리스트가 의도 없이 넓어지는 순간(= 새 유입 집합이 생기는 순간)
     // 여기서 먼저 깨진다 (PC-12).
-    expect(INBOUND_MSG_TYPES.size).toBe(28);
+    expect(INBOUND_MSG_TYPES.size).toBe(30);
     for (const v of INBOUND_MSG_TYPES) {
       expect(v).toBeGreaterThanOrEqual(50);
-      expect(v).toBeLessThanOrEqual(85);
+      expect(v).toBeLessThanOrEqual(87);
     }
     // 요청 계열이 수신 경로로 들어오는 것 자체가 이상 신호다.
     expect(INBOUND_MSG_TYPES.has(MSG.LoginReq)).toBe(false);
