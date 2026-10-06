@@ -113,7 +113,7 @@ Phase 15 (RELAY-03) 의 IaaS 자산. gh-radar 최초의 GCE VM 이다.
 | 이미지 | `asia-northeast3-docker.pkg.dev/gh-radar/gh-radar/relay:e6f39e5` (+ `:latest`) | 2026-09-06 |
 | 컨테이너 | `gh-radar-relay` — **Up** · `restart=always` · `network=host` | 2026-09-06 |
 | 메모리 상한 | `--memory=384m` / `--memory-swap=768m` (`Memory=402653184`, `MemorySwap=805306368`) | 2026-09-06 |
-| 로그 | `json-file` · `max-size=10m` · `max-file=3` (2026-10-06 부터 VM Ops Agent 가 같은 파일을 tail 해 Cloud Logging `relay_docker` 로 보낸다(30일) — §relay 로그 — Cloud Logging) | 2026-09-06 · 2026-10-06(적용 대기) |
+| 로그 | `json-file` · `max-size=10m` · `max-file=3` (2026-10-06 부터 VM Ops Agent 가 같은 파일을 tail 해 Cloud Logging `relay_docker` 로 보낸다(30일) — §relay 로그 — Cloud Logging) | 2026-09-06 · 2026-10-06 |
 | 주입 env | `NODE_ENV=production` · `APP_VERSION=e6f39e5` · `WS_PORT=8090` · `ORDER_API_PORT=8091` · **`DMA_HOST=127.0.0.1`** · `DMA_PORT=9100` · `DMA_BROKER=KB` | 2026-09-06 |
 | 비밀 주입 경로 | VM 안에서 메타데이터 토큰 → Secret Manager REST → **tmpfs env-file(0600)** → `--env-file` → 즉시 삭제 (T-15-29) | 2026-09-06 |
 | 공개 `/healthz` | **200** · `{"status":"ok","vpn":true,"dma":true,"version":"e6f39e5","sessionCount":0}` · `ssl_verify_result=0` · 계좌·사용자 식별자 **미포함** | 2026-09-06 |
@@ -1828,7 +1828,8 @@ gcloud logging read 'logName="projects/gh-radar/logs/relay_docker" AND (jsonPayl
 ```
 
 실시간·현재 컨테이너는 기존대로 VM 에서 `sudo docker logs -f --since 10m gh-radar-relay` 를 쓴다.
-위 형식 문자열(`timestamp.date(tz=…)` 등)은 적용 직후 런북에서 실행 확인한다(2026-10-06 기준 미실행).
+위 예시 ①~⑦ 은 2026-10-06 20:10 KST 적용 직후 전부 실행 확인했다(⑦ 은 해당 줄이 없어 0건). 첫 적용 때 에이전트가 기존 컨테이너 파일을 처음부터 읽어
+그날 14:48 이후 줄이 함께 올라갔다 — 이런 소급분은 `--freshness` 창에 걸릴 수 있으니 과거 구간은 ④ 처럼 `timestamp` 로 자른다.
 
 ### 적용·갱신 런북
 
@@ -1902,8 +1903,8 @@ caddy 를 기동·재기동·리로드하지 않기 때문이다(2026-09-06 전�
 | openconnect | 10–20 MB |
 | relay (Node 22, 5 세션 + ws + deflate) | 120–250 MB |
 | wg-probe (python3 1 + ping 2) | **≈8 MB 실측** (2026-09-16 `MemoryCurrent` · 유닛 상한 `MemoryMax=64M`) |
-| Ops Agent (fluent-bit · otelcol · diagnostics) | 실측 대기 — 20:00 KST 이후 설치 시 MemoryCurrent 로 기입 (설계 추정 +150–250 MB) |
-| **합계** | **408–698 MB** · Ops Agent 제외 (여유 1350–1640 MB · e2-micro 1024 MB 시절 326–616 MB) |
+| Ops Agent 2.72.0 (fluent-bit · otelcol) | **≈135 MB 실측** (2026-10-06 20:10 KST `MemoryCurrent` — fluent-bit 26 MB · otelcol 107 MB · diagnostics 비활성). 메트릭 파이프라인을 꺼도 otelcol 은 상주한다 |
+| **합계** | **543–833 MB** · Ops Agent 포함 (여유 1215–1505 MB · 적용 직후 실측 `available` 1300–1358 MB) |
 
 **2026-10-06 Ops Agent 도입.** 그날 장중 재배포 2회로 08:00~14:48 KST relay 로그가 사라졌다 — `json-file` 은
 컨테이너와 함께 지워지므로(`docker rm -f`) 재배포 한 번에 사건 증거(저널 끊김·KYOBO 거부·주문 경로)를 잃는다.

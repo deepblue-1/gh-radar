@@ -126,9 +126,28 @@ relay 는 stdout 에 GCP 구조화 JSON(`severity`·`message`·`serviceContext`�
 
 그 밖에는 계획대로 실행. (KYOBO 문서의 Cloud Logging 조회는 플랜 지정 명령 그대로이며, deploy-relay.sh 의 치환은 `${NOTIFICATION_CHANNEL_ID}`·`${UPTIME_CHECK_ID}` 토큰만 sed 하므로 추가 문구와 충돌 없음을 확인.)
 
-## 대기 — 20:00 KST 이후 메인 세션 적용·검증
+## 적용·검증 결과 (2026-10-06 20:01~20:12 KST · 메인 세션)
 
-상태: 대기(pending) — 실행기 미실행
+상태: **완료** — 아래 런북을 메인 세션이 실행했다.
+
+| 항목 | 결과 |
+|---|---|
+| ①② 메타데이터 + startup 재적용 | rc=0 · `google-cloud-ops-agent 2.72.0` 설치 · 설정 배치 · 재기동. 기존 서비스(caddy·openconnect@kb·securwayssl·wg-quick@wg0·wg-probe·docker) `ActiveEnterTimestamp` 와 relay `StartedAt` **불변** |
+| §10 상태 검사 | 첫 적용에서 재기동 직후 즉시 검사가 거짓 WARN(2초 뒤 active) → 최대 30초 대기로 고침(`c7b5b2c9`). 재적용 시 「설정 동일 — 재기동하지 않는다」 · 「✓ Ops Agent 기동」 |
+| ③ 메모리 | fluent-bit 26 MB · otelcol 107 MB(메트릭 파이프라인을 꺼도 상주) ≈ **135 MB** · `available` 1477 → 1300~1358 MB |
+| ④ 생성 설정 | syslog 입력 0건 · logging-module.log 에 error·`invalid time format` 없음 |
+| ⑤ 형식 | **jsonPayload**(relay 필드 전부 펼침) · `severity` INFO/WARNING 정상 승격 · `timestamp` 가 docker 시각과 ns 단위 일치 → `time_format` `%z` 는 docker `Z` 를 받는다(대체안 불필요) · syslog logName 0건 · 라벨 `agent.googleapis.com/log_file_path` 존재. relay 의 `logging.googleapis.com/insertId` 는 jsonPayload 에 남는다(무해) |
+| 소급 수집 | Read_from_Head 로 당시 컨테이너(c83a5d07, 14:48 KST 기동)의 기존 줄이 처음부터 올라갔다 |
+| ⑥ 재배포 | `deploy-relay.sh` rc=0 · 이미지 `c7b5b2c9` · DMA_HOST·KYOBO 보존 · healthz ok · KB/KYOBO 알림 정책 갱신. **옛 컨테이너 c83a5d07 줄 4,826 건이 삭제 후에도 Cloud Logging 에 남음**(마지막 줄 11:05:00.577Z = kill 전 docker logs 마지막 줄과 동일). 새 컨테이너 78005a10 기동 줄(20:06:20 KST)이 처음부터 수집됨 |
+| docker logs | 새 컨테이너에서 `sudo docker logs` 정상 |
+| smoke-relay.sh | **PASS 12 / FAIL 0 / SKIP 1**(INV-9 — SMOKE_AUTH_TOKEN 미설정, 정상) |
+| README 조회 예시 ①~⑦ | 전부 실행 확인(⑦ 은 해당 줄 없음 0건) |
+
+참고: 첫 startup 재적용에서 `wireguard/nftables 설치 실패` WARN 이 한 번 났다. 두 패키지는 이미 설치돼 있었고(apt 시뮬레이션 no-op), 두 번째 재적용에서는 나지 않았다 — apt 잠금 경합으로 보이며 이 작업과 무관하다.
+두 번째 재배포는 하지 않았다 — 이번 재배포 자체가 「컨테이너 삭제 후에도 이전 로그 유지」 를 실증했고, 추가 재배포는 DMA 재로그인만 늘린다.
+
+### 실행한 런북 (기록)
+
 
 **메인 세션 전용.** 저장소 루트(`/Users/alex/repos/gh-radar`)에서 실행.
 
