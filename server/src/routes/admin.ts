@@ -8,7 +8,12 @@ import { requireAdmin } from "../middleware/require-admin.js";
 import { ApiError, ValidationFailed } from "../errors.js";
 import { logger } from "../logger.js";
 import { AdminRolePatchBody, AdminUserUpsertBody, adminEmailParam } from "../schemas/admin.js";
-import type { RelayAdminClient } from "../services/relay-admin-client.js";
+import {
+  toProxyResult,
+  type RelayAdminClient,
+  type RelayAdminResponse,
+} from "../services/relay-admin-client.js";
+import type { AdminCommandResponse } from "@gh-radar/shared";
 
 /**
  * Phase 29 (D-07 · D-14) — 웹 Admin 의 서버 관문. 반영 경로 = webapp → **Express(admin 역할 검증)** → relay HTTP.
@@ -16,7 +21,9 @@ import type { RelayAdminClient } from "../services/relay-admin-client.js";
  *
  * - GET    /users        : 사용자 개요(`AdminUsersOverview`) — RPC `admin_users_raw` **1회** → shared `deriveAdminUsersOverview`.
  *                          칩 판정 규칙은 shared 한 곳(relay planner 와 같은 diff)이고 server 는 파생만 부른다.
- * - POST   /users        : `{ email, role }` — 사전 등록 · 승인 대기 승인 · viewer 생성(D-03). app_users upsert.
+ * - POST   /users        : `{ email, role, dma? }` — 사전 등록 · 승인 대기 승인 · viewer 생성(D-03). app_users upsert.
+ *                          `dma` 가 있으면(trader/admin · D-16) upsert 뒤 relay `POST /internal/admin/dma-users` 1회 →
+ *                          서버별 결과 배열을 그대로 `results` 로. viewer + dma 는 400.
  * - PATCH  /users/:email : `{ role }` — 역할 변경(D-04 강등 즉시). 없는 이메일 404.
  * - DELETE /users/:email : DMA 연결 **없는** 사용자만 행 삭제. 연결 있으면 409 `HAS_DMA` — 그 삭제는 relay 경로(29-13).
  *
@@ -51,6 +58,30 @@ const HasDma = () =>
 const UserNotFound = () => new ApiError(404, "NOT_FOUND", "허용 목록에 없는 사용자예요.");
 const RelayUnavailable = () =>
   new ApiError(503, "RELAY_UNAVAILABLE", "relay 연결이 설정되지 않아 처리할 수 없어요.");
+
+/**
+ * relay DMA 프록시 응답 해석 → 200 이면 `{ results }` 를 돌려주고, 아니면 `ApiError` 로 던진다(errorHandler 가 그대로 응답).
+ * relay 409 업무 거부는 409 그대로(`DMA_USER_EXISTS` · `LAST_ACCOUNT` …), 못 닿음 · 5xx · 모양 위반은 502 `RELAY_FAILED`.
+ * 200 인데 `results` 배열이 없으면 계약 위반 — 빈 배열로 감추지 않고 502.
+ */
+function relayResults(res: RelayAdminResponse<AdminCommandResponse>, op: string): AdminCommandResponse["results"] {
+  const r = toProxyResult(res);
+  if (r.status === 200) {
+    const results = (r.body as Partial<AdminCommandResponse>).results;
+    if (Array.isArray(results)) return results;
+    throw relayFailed(op, res.status);
+  }
+  const { code, message } = (r.body as { error: { code: string; message: string } }).error;
+  if (code === "RELAY_FAILED") throw relayFailed(op, res.status);
+  throw new ApiError(r.status, code, message);
+}
+
+/** 502 `RELAY_FAILED` — 로그(cause)에는 relay 상태코드와 작업 이름만(바디 · 비밀 없음). */
+function relayFailed(op: string, relayStatus: number): ApiError {
+  return new ApiError(502, "RELAY_FAILED", "relay 처리에 실패했어요. 잠시 뒤 다시 시도하세요.", {
+    relay: { op, status: relayStatus },
+  });
+}
 
 /**
  * relay 의존 라우트(29-13 DMA 프록시)의 관문 — 클라이언트가 없으면(env 미설정) 503 `RELAY_UNAVAILABLE`.
@@ -111,11 +142,13 @@ adminRouter.get("/users", async (req, res, next) => {
   }
 });
 
-// --- POST /users — 사전 등록 · 승인 대기 승인 · 생성 (D-03) ---
+// --- POST /users — 사전 등록 · 승인 대기 승인 · 생성 (D-03) · DMA 연결 한 번에 (D-16) ---
 adminRouter.post("/users", async (req, res, next) => {
   try {
     const body = parseOrThrow(AdminUserUpsertBody, req.body ?? {});
     if (body.email === req.adminEmail && body.role !== "admin") throw SelfLockout();
+    // DMA 를 함께 만들 때는 relay 가 필수 — 설정이 없으면 **쓰기 전에** 503(허용 행만 남는 반쪽 상태를 만들지 않는다).
+    const relay = body.dma ? requireRelayAdmin(req) : undefined;
 
     const supabase = req.app.locals.supabase as SupabaseClient;
     const { error } = await supabase
@@ -126,8 +159,23 @@ adminRouter.post("/users", async (req, res, next) => {
       );
     if (error) throw DbError("사용자 저장에 실패했습니다.", error);
 
-    audit(req, "upsert", body.email, { role: body.role });
-    res.json({ ok: true, relayNotified: await notifyAccess(req, "upsert") });
+    audit(req, "upsert", body.email, { role: body.role, ...(body.dma ? { dma: true } : {}) });
+    if (!relay || !body.dma) {
+      res.json({ ok: true, relayNotified: await notifyAccess(req, "upsert") });
+      return;
+    }
+
+    // DMA 유저 + 첫 계좌 → 등록 서버마다 op 1 (relay 가 비밀번호 암호화 · 의도 저장 · 반영 · 결과 기록).
+    // 비밀번호 평문은 여기서 relay 로만 간다(VPC 내부) — Express 는 암호화 · 저장 · 로그하지 않는다(Phase 15 D-19).
+    // relay 가 거부(409) · 실패(502)하면 위 app_users 행은 남는다 — 「DMA 연결 없음」 사용자로 보이고, 편집 시트의
+    // 「DMA 연결」(POST /users/:email/dma)로 다시 시도한다(되돌리면 승인 대기 사용자의 허용까지 사라진다).
+    const results = relayResults(
+      await relay.createDmaUser({ email: body.email, ...body.dma }, req.adminEmail!),
+      "dma-create",
+    );
+    audit(req, "dma-create", body.email, { servers: results.map((r) => `${r.server}:${r.outcome}`) });
+    // 생성 RPC 가 app_users.dma_user_id 를 채웠다 — 접근 맵을 바로 다시 읽혀 새 trader 의 DMA 가 60초를 기다리지 않게.
+    res.json({ ok: true, relayNotified: await notifyAccess(req, "dma-create"), results });
   } catch (e) {
     next(e);
   }

@@ -1,4 +1,5 @@
 import axios, { type AxiosInstance } from "axios";
+import type { AdminCommandResponse, AdminDmaInput } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
 
@@ -31,18 +32,69 @@ export type RelayAdminResponse<T> = { status: number; data: T | null };
 /** `POST /internal/admin/{access,registry}/reload` 응답(29-11). */
 export type RelayReloadResult = { ok: boolean; changed: boolean };
 
+/** 저수준 요청 — 경로 · 요청자 이메일 · 바디. 타입드 메서드는 전부 이것 위의 얇은 래퍼다. */
+export type RelayAdminRequest = <T = unknown>(
+  method: RelayAdminMethod,
+  path: string,
+  adminEmail: string,
+  body?: unknown,
+) => Promise<RelayAdminResponse<T>>;
+
+/** `POST /internal/admin/dma-users` 바디(29-11) — 웹 사용자 이메일 + `AdminDmaInput`. */
+export type RelayCreateDmaUserBody = { email: string } & AdminDmaInput;
+
 export type RelayAdminClient = {
-  request<T = unknown>(
-    method: RelayAdminMethod,
-    path: string,
-    adminEmail: string,
-    body?: unknown,
-  ): Promise<RelayAdminResponse<T>>;
+  request: RelayAdminRequest;
   /** 허용 · 역할 표 즉시 재적재(D-04) — 강등 · 허용 해제된 사용자의 wss 를 relay 가 끊는다. */
   reloadAccess(adminEmail: string): Promise<RelayAdminResponse<RelayReloadResult>>;
   /** 서버 레지스트리 즉시 재적재(D-09 · D-17). */
   reloadRegistry(adminEmail: string): Promise<RelayAdminResponse<RelayReloadResult>>;
+  /** DMA 유저 + 첫 계좌 생성 → 등록 서버마다 op 1 → 서버별 결과(D-16). */
+  createDmaUser(
+    body: RelayCreateDmaUserBody,
+    adminEmail: string,
+  ): Promise<RelayAdminResponse<AdminCommandResponse>>;
 };
+
+// ============================================================
+// relay 응답 해석 — DMA 프록시(29-13) 공통
+// ============================================================
+
+/** relay 업무 오류 본문(29-11 errorHandler 한 벌). */
+export type RelayErrorBody = { error: { code: string; message: string } };
+
+/**
+ * relay 응답 → Express 가 그대로 돌려줄 결과.
+ * - 200 → `{ status: 200, body }`
+ * - 400 · 409(+ 호출부가 고른 상태) 이고 본문이 `{ error: { code, message } }` → 그 상태 · 그 오류 그대로(업무 거부 —
+ *   `LAST_ACCOUNT` · `DMA_USER_EXISTS` 등은 webapp 이 코드로 분기한다)
+ * - 그 밖(0 = 못 닿음 · 401 공유 비밀 불일치 · 5xx · 본문 모양 위반) → 502 `RELAY_FAILED`
+ *   relay 의 401 은 「Admin 이 권한이 없다」 가 아니라 배포 설정 문제다 — 브라우저에 401 을 보내면 로그인 만료로 읽힌다.
+ */
+export type RelayProxyResult<T> =
+  | { status: 200; body: T }
+  | { status: number; body: RelayErrorBody };
+
+export const RELAY_FAILED_MESSAGE = "relay 처리에 실패했어요. 잠시 뒤 다시 시도하세요.";
+
+function isRelayErrorBody(v: unknown): v is RelayErrorBody {
+  const e = (v as { error?: { code?: unknown; message?: unknown } } | null)?.error;
+  return !!e && typeof e.code === "string" && typeof e.message === "string";
+}
+
+export function toProxyResult<T>(
+  res: RelayAdminResponse<T>,
+  passthrough: readonly number[] = [400, 409],
+): RelayProxyResult<T> {
+  if (res.status === 200 && res.data !== null) return { status: 200, body: res.data };
+  if (passthrough.includes(res.status) && isRelayErrorBody(res.data)) {
+    return {
+      status: res.status,
+      body: { error: { code: res.data.error.code, message: res.data.error.message } },
+    };
+  }
+  return { status: 502, body: { error: { code: "RELAY_FAILED", message: RELAY_FAILED_MESSAGE } } };
+}
 
 const ADMIN_PATH_PREFIX = "/internal/admin/";
 
@@ -153,11 +205,21 @@ export function createRelayAdminClient(opts: {
     }
   }
 
+  return relayAdminClientFrom(request);
+}
+
+/**
+ * 저수준 `request` 위에 타입드 메서드를 얹는다 — 경로 문자열은 이 한 곳에만 있다(29-11 계약 표 1:1).
+ * 테스트는 가짜 `request` 로 같은 래퍼를 써서 「어느 경로 · 어떤 바디」 를 실제 경로 문자열로 단언한다.
+ */
+export function relayAdminClientFrom(request: RelayAdminRequest): RelayAdminClient {
   return {
     request,
     reloadAccess: (adminEmail) =>
       request<RelayReloadResult>("POST", "/internal/admin/access/reload", adminEmail),
     reloadRegistry: (adminEmail) =>
       request<RelayReloadResult>("POST", "/internal/admin/registry/reload", adminEmail),
+    createDmaUser: (body, adminEmail) =>
+      request<AdminCommandResponse>("POST", "/internal/admin/dma-users", adminEmail, body),
   };
 }
