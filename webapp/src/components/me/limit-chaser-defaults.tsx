@@ -542,7 +542,12 @@ export function LimitChaserDefaultsSection() {
             data-slot="me-lc-defaults-group-card"
             className={cn(CARD, "min-w-0 px-2.5 pt-2.5 pb-1")}
           >
-            <div className={cn(LC_CONTAINER_CLASS, "min-w-0")}>
+            {/*
+              쉐브런 상시 표시(2026-10-06 사용자 요청) — 공용 행은 폰 밴드(<685)에서 쉐브런을 숨긴다(L3 · 상따 카드의
+              「최소 잔량 | 177,000,000주 ›」 넘침 대책). 이 카드의 최장 행은 「선매수 금액 | 999,999,999만원 ›」 ≈230px 로
+              카드 폭(폰 ≈350 · 데스크톱 ≈440)에 여유가 커서 /me 에서만 되살린다. 공용 규칙은 건드리지 않는다.
+            */}
+            <div className={cn(LC_CONTAINER_CLASS, "min-w-0 [&_[data-slot=lc-row-chevron]]:inline")}>
               {/*
                 카드 머리는 행 목록 컨테이너 **안**에 둔다 — 좌우 패딩이 행(`setting-group` ROW_BOX
                 `px-0 @min-[685px]/lc:px-1`)과 같은 밴드로 갈려야 글자선이 맞는다. 카드 폭(≈440)은 좁은 밴드라
