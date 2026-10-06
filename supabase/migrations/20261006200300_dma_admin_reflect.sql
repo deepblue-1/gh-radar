@@ -13,11 +13,15 @@
 --   jsonb 키는 shared `AdminUsersRaw` 필드 이름(camelCase) 그대로 — relay · Express · webapp 이 함께 읽는 계약.
 --   Cloud Run 왕복 1회(메모리 project_cloudrun_egress_roundtrip_cost) — 개요 원자료는 RPC 한 번에 모두 싣는다.
 --
+--   D-23 ④ 최근 결과 표(dma_admin_results) — (DMA 유저, 서버) 1행 · 서버 한국어 message 그대로 = 「실패 · BUSY」 칩 원천.
+--   입양(dma_admin_adopt_server_accounts) — 배포 창(29-25)에서 87 의 기존 계좌를 의도로 들여온다. **dma_users 에 있는
+--         DMA id 만** — 웹 사용자에 연결되지 않은 DMA id 는 「서버에만 있음」 으로 남는다(D-16 · D-23 ⑤).
+--
 -- 계좌번호: 87 이 준 값을 그대로 저장한다(재정규화 없음) — 대조는 shared normalizeAccountNo 가 한다.
 -- 권한: 새 표 전부 잠금 4줄(RLS · 정책 0 · REVOKE PUBLIC · REVOKE anon, authenticated) + 새 RPC 권한 3줄 — service_role 전용.
 -- 적용: additive — 29-07 [BLOCKING] 체크포인트에서 원격 적용.
 -- 멱등: CREATE TABLE IF NOT EXISTS · CREATE OR REPLACE FUNCTION · 권한 줄은 재실행해도 같은 상태다.
--- 되돌리기(수동): 이 파일의 함수 DROP → dma_server_user_accounts · dma_server_snapshots 표 DROP.
+-- 되돌리기(수동): 이 파일의 함수 DROP → dma_admin_results · dma_server_user_accounts · dma_server_snapshots 표 DROP.
 -- ============================================================
 
 BEGIN;
@@ -53,7 +57,25 @@ REVOKE ALL ON public.dma_server_user_accounts FROM PUBLIC;
 REVOKE ALL ON public.dma_server_user_accounts FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.dma_server_user_accounts TO service_role;
 
--- ── ③ 87 적재 (relay 29-14 snapshot-sink 가 부른다) ─────────────────
+-- ── ③ (DMA 유저, 서버) 최근 반영 결과 — 화면 「실패 · BUSY」 칩 원천(D-23 ④) ─────────
+-- message 는 서버(86)의 한국어 문장 그대로. 1 (유저, 서버) = 1행 — 다음 결과가 덮어쓴다.
+-- dma_users 삭제 시 cascade — 같은 DMA id 를 다시 만들었을 때 옛 실패 칩이 되살아나지 않게.
+CREATE TABLE IF NOT EXISTS public.dma_admin_results (
+  dma_user_id text        NOT NULL REFERENCES public.dma_users(dma_user_id) ON DELETE CASCADE,
+  server_key  text        NOT NULL REFERENCES public.dma_servers(key) ON UPDATE CASCADE ON DELETE CASCADE,
+  outcome     text        NOT NULL CHECK (outcome IN ('ok','failed','timeout','offline','skipped')),
+  code        integer,
+  message     text,
+  at          timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (dma_user_id, server_key)
+);
+
+ALTER TABLE public.dma_admin_results ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.dma_admin_results FROM PUBLIC;
+REVOKE ALL ON public.dma_admin_results FROM anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.dma_admin_results TO service_role;
+
+-- ── ④ 87 적재 (relay 29-14 snapshot-sink 가 부른다) ─────────────────
 -- p_users = [{ userId, accounts: [{ accountNo, name, branchNo, traderId, priority }] }] (87 그대로 · camelCase).
 -- 그 서버 행을 통째 지우고 다시 넣는다 — 87 에서 사라진 유저 · 계좌는 이 표에서도 사라진다.
 -- 빈 userId · accountNo 가 하나라도 있으면 교체 전체를 거부한다(기존 반영 상태 보존 — 트랜잭션 롤백).
@@ -116,7 +138,41 @@ REVOKE EXECUTE ON FUNCTION public.dma_admin_apply_snapshot(text, bigint, jsonb) 
 REVOKE EXECUTE ON FUNCTION public.dma_admin_apply_snapshot(text, bigint, jsonb) FROM anon, authenticated;
 GRANT  EXECUTE ON FUNCTION public.dma_admin_apply_snapshot(text, bigint, jsonb) TO service_role;
 
--- ── ④ 사용자 개요 원자료 (Express GET /api/admin/users — shared AdminUsersRaw 7키) ────
+-- ── ⑤ 최근 결과 기록 (relay 29-11 — 명령 1건의 서버별 결과 배열) ─────────────────
+-- p_results = [{ server, outcome, code?, message? }] (shared AdminServerResult). (유저, 서버)마다 upsert · at = now().
+-- 레지스트리에 없는 서버 · 이미 삭제된 DMA id 의 결과는 버린다(유저 삭제 직후 늦게 온 기록이 FK 로 실패하지 않게).
+-- 반환 = 기록한 행 수.
+CREATE OR REPLACE FUNCTION public.dma_admin_record_results(p_dma_user_id text, p_results jsonb)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_n integer;
+BEGIN
+  IF p_results IS NULL OR jsonb_typeof(p_results) <> 'array' THEN
+    RAISE EXCEPTION 'dma_admin_record_results: p_results 는 JSON 배열이어야 한다';
+  END IF;
+
+  INSERT INTO public.dma_admin_results AS t (dma_user_id, server_key, outcome, code, message, at)
+  SELECT DISTINCT ON (r ->> 'server')
+         p_dma_user_id, r ->> 'server', r ->> 'outcome', (r ->> 'code')::integer, r ->> 'message', now()
+    FROM jsonb_array_elements(p_results) WITH ORDINALITY AS e(r, ord)
+    JOIN public.dma_servers s ON s.key = r ->> 'server'
+   WHERE EXISTS (SELECT 1 FROM public.dma_users d WHERE d.dma_user_id = p_dma_user_id)
+   ORDER BY r ->> 'server', ord DESC
+  ON CONFLICT (dma_user_id, server_key) DO UPDATE
+    SET outcome = EXCLUDED.outcome, code = EXCLUDED.code, message = EXCLUDED.message, at = EXCLUDED.at;
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  RETURN v_n;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.dma_admin_record_results(text, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.dma_admin_record_results(text, jsonb) FROM anon, authenticated;
+GRANT  EXECUTE ON FUNCTION public.dma_admin_record_results(text, jsonb) TO service_role;
+
+-- ── ⑥ 사용자 개요 원자료 (Express GET /api/admin/users — shared AdminUsersRaw 7키) ────
 --   appUsers         허용 표 전부 { email, role, dmaUserId, signedUp } — signedUp = auth.users 에 같은 이메일 존재
 --   pending          가입했지만 허용 표에 없는 이메일 { email, signedUpAt } — 가입 시각 내림차순(D-03 승인 대기)
 --   intent           의도 (계좌 × 등록 서버) 행 — AdminIntentRow 키
@@ -191,7 +247,17 @@ AS $$
              ) ORDER BY c.server_key, c.dma_user_id, c.priority, c.account_no), '[]'::jsonb)
         FROM public.dma_server_user_accounts c
     ),
-    'results', '[]'::jsonb,
+    'results', (
+      SELECT coalesce(jsonb_agg(jsonb_build_object(
+               'dmaUserId', r.dma_user_id,
+               'serverKey', r.server_key,
+               'outcome',   r.outcome,
+               'code',      r.code,
+               'message',   r.message,
+               'at',        r.at
+             ) ORDER BY r.dma_user_id, r.server_key), '[]'::jsonb)
+        FROM public.dma_admin_results r
+    ),
     'servers', (
       SELECT coalesce(jsonb_agg(jsonb_build_object(
                'key',     s.key,
@@ -205,5 +271,104 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.admin_users_raw() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.admin_users_raw() FROM anon, authenticated;
 GRANT  EXECUTE ON FUNCTION public.admin_users_raw() TO service_role;
+
+-- ── ⑦ 서버 개요 원자료 (Express GET /api/admin/servers — shared AdminServersRaw) ──────
+--   servers     dma_servers 전 열 camelCase — sort_order 순
+--   userCounts  87 을 받은 서버마다 { serverKey, users = 그 서버 87 의 서로 다른 DMA id 수 }(87 이 없는 서버는 빠짐 → 화면 0)
+--   snapshots   { serverKey, usersRev(text), receivedAt }
+CREATE OR REPLACE FUNCTION public.admin_servers_raw()
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT jsonb_build_object(
+    'servers', (
+      SELECT coalesce(jsonb_agg(jsonb_build_object(
+               'key',            s.key,
+               'broker',         s.broker,
+               'host',           s.host,
+               'port',           s.port,
+               'enabled',        s.enabled,
+               'isOrderServer',  s.is_order_server,
+               'isQuotePrimary', s.is_quote_primary,
+               'sortOrder',      s.sort_order
+             ) ORDER BY s.sort_order, s.key), '[]'::jsonb)
+        FROM public.dma_servers s
+    ),
+    'userCounts', (
+      SELECT coalesce(jsonb_agg(jsonb_build_object(
+               'serverKey', n.server_key,
+               'users',     (SELECT count(DISTINCT c.dma_user_id)::int
+                               FROM public.dma_server_user_accounts c WHERE c.server_key = n.server_key)
+             ) ORDER BY n.server_key), '[]'::jsonb)
+        FROM public.dma_server_snapshots n
+    ),
+    'snapshots', (
+      SELECT coalesce(jsonb_agg(jsonb_build_object(
+               'serverKey',  n.server_key,
+               'usersRev',   n.users_rev::text,
+               'receivedAt', n.received_at
+             ) ORDER BY n.server_key), '[]'::jsonb)
+        FROM public.dma_server_snapshots n
+    )
+  );
+$$;
+REVOKE EXECUTE ON FUNCTION public.admin_servers_raw() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.admin_servers_raw() FROM anon, authenticated;
+GRANT  EXECUTE ON FUNCTION public.admin_servers_raw() TO service_role;
+
+-- ── ⑧ 배포 창 입양 (29-25 런북 — 기존 사용자의 계좌가 「서버에만 있음」 으로 남지 않게) ─────
+-- 그 서버 87 계좌 중 **dma_users 에 있는 DMA id 의 것만** 의도로 들여온다(dma_user_accounts · broker = 서버 증권사,
+-- dma_account_servers · active). 이미 있는 계좌 · 등록 행은 건드리지 않는다(ON CONFLICT DO NOTHING — removing 이던
+-- 행도 그대로). 의도 표 CHECK(KB branch 5 · trader 6 · 교보 빈 값 · 계좌번호 ≤12)를 못 맞추는 87 행은 들여오지 않고
+-- 「서버에만 있음」 으로 남긴다.
+-- 반환 = 들여온 (계좌, 서버) 등록 행 수 — 두 번째 호출은 0(멱등).
+CREATE OR REPLACE FUNCTION public.dma_admin_adopt_server_accounts(p_server text)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_broker text;
+  v_n      integer;
+BEGIN
+  SELECT s.broker INTO v_broker FROM public.dma_servers s WHERE s.key = p_server;
+  IF v_broker IS NULL THEN
+    RAISE EXCEPTION USING ERRCODE = 'P0002', MESSAGE = 'server not found';
+  END IF;
+
+  -- 한 문장(데이터 변경 CTE) — 87 원천을 한 스냅숏으로 읽고, 계좌 FK 는 문장 끝에 확인된다.
+  WITH src AS (
+    SELECT c.dma_user_id, c.account_no, c.name, c.branch_no, c.trader_id, c.priority
+      FROM public.dma_server_user_accounts c
+      JOIN public.dma_users d ON d.dma_user_id = c.dma_user_id
+     WHERE c.server_key = p_server
+       AND length(c.account_no) BETWEEN 1 AND 12
+       AND CASE v_broker
+             WHEN 'KB'    THEN length(c.branch_no) = 5 AND length(c.trader_id) = 6
+             WHEN 'KYOBO' THEN c.branch_no = '' AND c.trader_id = ''
+             ELSE false
+           END
+  ), acc AS (
+    INSERT INTO public.dma_user_accounts (dma_user_id, broker, account_no, name, branch_no, trader_id, priority)
+    SELECT src.dma_user_id, v_broker, src.account_no, src.name, src.branch_no, src.trader_id, src.priority
+      FROM src
+    ON CONFLICT (dma_user_id, broker, account_no) DO NOTHING
+  )
+  INSERT INTO public.dma_account_servers (dma_user_id, broker, account_no, server_key, state)
+  SELECT src.dma_user_id, v_broker, src.account_no, p_server, 'active'
+    FROM src
+  ON CONFLICT (dma_user_id, broker, account_no, server_key) DO NOTHING;
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+
+  RETURN v_n;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.dma_admin_adopt_server_accounts(text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.dma_admin_adopt_server_accounts(text) FROM anon, authenticated;
+GRANT  EXECUTE ON FUNCTION public.dma_admin_adopt_server_accounts(text) TO service_role;
 
 COMMIT;

@@ -139,6 +139,187 @@ REVOKE EXECUTE ON FUNCTION public.dma_admin_create_dma_user(text, text, text, js
 REVOKE EXECUTE ON FUNCTION public.dma_admin_create_dma_user(text, text, text, jsonb, text[]) FROM anon, authenticated;
 GRANT  EXECUTE ON FUNCTION public.dma_admin_create_dma_user(text, text, text, jsonb, text[]) TO service_role;
 
+-- ── ② 비밀번호 교체 (D-08 · D-19 — 암호문 1개 · AAD = dma_user_id, 암호화는 relay) ──────
+CREATE OR REPLACE FUNCTION public.dma_admin_set_password(p_dma_user_id text, p_password_enc text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  UPDATE public.dma_users
+     SET password_enc = p_password_enc, password_set_at = now()
+   WHERE dma_user_id = p_dma_user_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'NO_DMA_USER';
+  END IF;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.dma_admin_set_password(text, text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.dma_admin_set_password(text, text) FROM anon, authenticated;
+GRANT  EXECUTE ON FUNCTION public.dma_admin_set_password(text, text) TO service_role;
+
+-- ── ③ 계좌 추가 · 값 변경 · 등록 서버 교체 (D-15 필드별 즉시 저장) ─────────────────
+-- 계좌 upsert → p_servers 의 서버는 active(removing 이던 것도 되살린다) → 목록에 없는 기존 active 행은 removing.
+-- 반환 { activated: 지금 active 인 등록 서버(= 정리한 p_servers, 키 순), removing: 이 계좌의 removing 행 서버(키 순) }.
+-- removing 행은 relay 가 op 4 성공(또는 code 8) 뒤 dma_admin_settle_server 로 지운다.
+CREATE OR REPLACE FUNCTION public.dma_admin_put_account(p_dma_user_id text, p_account jsonb, p_servers text[])
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_servers  text[] := public.dma_admin__server_list(p_servers);
+  v_broker   text := p_account ->> 'broker';
+  v_account  text := p_account ->> 'accountNo';
+  v_removing text[];
+BEGIN
+  PERFORM 1 FROM public.dma_users d WHERE d.dma_user_id = p_dma_user_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'NO_DMA_USER';
+  END IF;
+  IF cardinality(v_servers) = 0 THEN
+    RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'NO_SERVERS';
+  END IF;
+
+  INSERT INTO public.dma_user_accounts AS t
+    (dma_user_id, broker, account_no, name, branch_no, trader_id, priority, updated_at)
+  VALUES (
+    p_dma_user_id, v_broker, v_account,
+    coalesce(p_account ->> 'name', ''),
+    coalesce(p_account ->> 'branchNo', ''),
+    coalesce(p_account ->> 'traderId', ''),
+    coalesce((p_account ->> 'priority')::integer, 0),
+    now()
+  )
+  ON CONFLICT (dma_user_id, broker, account_no) DO UPDATE
+    SET name = EXCLUDED.name, branch_no = EXCLUDED.branch_no, trader_id = EXCLUDED.trader_id,
+        priority = EXCLUDED.priority, updated_at = now();
+
+  PERFORM public.dma_admin__activate_servers(p_dma_user_id, v_broker, v_account, v_servers);
+
+  UPDATE public.dma_account_servers
+     SET state = 'removing', updated_at = now()
+   WHERE dma_user_id = p_dma_user_id AND broker = v_broker AND account_no = v_account
+     AND state = 'active' AND server_key <> ALL (v_servers);
+
+  SELECT coalesce(array_agg(s.server_key ORDER BY s.server_key), ARRAY[]::text[]) INTO v_removing
+    FROM public.dma_account_servers s
+   WHERE s.dma_user_id = p_dma_user_id AND s.broker = v_broker AND s.account_no = v_account
+     AND s.state = 'removing';
+
+  RETURN jsonb_build_object('activated', to_jsonb(v_servers), 'removing', to_jsonb(v_removing));
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.dma_admin_put_account(text, jsonb, text[]) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.dma_admin_put_account(text, jsonb, text[]) FROM anon, authenticated;
+GRANT  EXECUTE ON FUNCTION public.dma_admin_put_account(text, jsonb, text[]) TO service_role;
+
+-- ── ④ 계좌 제거 (D-15 · D-23 ⑤ — 행은 지우지 않고 removing) ────────────────────
+-- 그 유저의 다른 계좌에 active 등록 서버가 하나도 없으면 LAST_ACCOUNT(마지막 계좌 제거 = 유저 삭제로 유도).
+-- 이미 전부 removing 인 계좌를 다시 제거하면 같은 상태 그대로(멱등).
+CREATE OR REPLACE FUNCTION public.dma_admin_mark_account_removed(p_dma_user_id text, p_broker text, p_account_no text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  PERFORM 1 FROM public.dma_users d WHERE d.dma_user_id = p_dma_user_id FOR UPDATE;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.dma_user_accounts a
+     WHERE a.dma_user_id = p_dma_user_id AND a.broker = p_broker AND a.account_no = p_account_no
+  ) THEN
+    RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'NO_SUCH_ACCOUNT';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.dma_account_servers s
+     WHERE s.dma_user_id = p_dma_user_id AND s.state = 'active'
+       AND (s.broker, s.account_no) IS DISTINCT FROM (p_broker, p_account_no)
+  ) THEN
+    RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'LAST_ACCOUNT';
+  END IF;
+
+  UPDATE public.dma_account_servers
+     SET state = 'removing', updated_at = now()
+   WHERE dma_user_id = p_dma_user_id AND broker = p_broker AND account_no = p_account_no
+     AND state = 'active';
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.dma_admin_mark_account_removed(text, text, text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.dma_admin_mark_account_removed(text, text, text) FROM anon, authenticated;
+GRANT  EXECUTE ON FUNCTION public.dma_admin_mark_account_removed(text, text, text) TO service_role;
+
+-- ── ⑤ 서버 반영 확인 뒤 정리 (relay 만 부른다 — D-23 ⑤) ──────────────────────
+-- p_user_removed = true  : op 2 성공(또는 code 4) — 그 유저의 그 서버 행 전부 삭제.
+-- p_user_removed = false : op 4 성공(또는 code 8) · 87 에 이미 없음 — p_removed_accounts 의 removing 행만 삭제
+--                          (계좌번호만 — 증권사는 서버의 증권사다. active 행은 지우지 않는다).
+-- 그 뒤 등록 서버가 0 이 된 그 유저의 계좌를 지운다. 반환 { deletedRows, deletedAccounts }(행 수).
+-- 유저가 없으면 0 · 0(멱등 — 재시도해도 안전).
+CREATE OR REPLACE FUNCTION public.dma_admin_settle_server(
+  p_dma_user_id text, p_server_key text, p_removed_accounts text[], p_user_removed boolean
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_rows     integer;
+  v_accounts integer;
+BEGIN
+  PERFORM 1 FROM public.dma_users d WHERE d.dma_user_id = p_dma_user_id FOR UPDATE;
+
+  IF coalesce(p_user_removed, false) THEN
+    DELETE FROM public.dma_account_servers
+     WHERE dma_user_id = p_dma_user_id AND server_key = p_server_key;
+  ELSE
+    DELETE FROM public.dma_account_servers
+     WHERE dma_user_id = p_dma_user_id AND server_key = p_server_key AND state = 'removing'
+       AND account_no = ANY (coalesce(p_removed_accounts, ARRAY[]::text[]));
+  END IF;
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+
+  DELETE FROM public.dma_user_accounts a
+   WHERE a.dma_user_id = p_dma_user_id
+     AND NOT EXISTS (
+       SELECT 1 FROM public.dma_account_servers s
+        WHERE s.dma_user_id = a.dma_user_id AND s.broker = a.broker AND s.account_no = a.account_no
+     );
+  GET DIAGNOSTICS v_accounts = ROW_COUNT;
+
+  RETURN jsonb_build_object('deletedRows', v_rows, 'deletedAccounts', v_accounts);
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.dma_admin_settle_server(text, text, text[], boolean) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.dma_admin_settle_server(text, text, text[], boolean) FROM anon, authenticated;
+GRANT  EXECUTE ON FUNCTION public.dma_admin_settle_server(text, text, text[], boolean) TO service_role;
+
+-- ── ⑥ DMA 유저 삭제 (D-15 — 전 서버 op 2 · settle 뒤에만) ─────────────────────
+-- 아직 settle 되지 않은 서버 행이 있으면 SERVERS_REMAIN. 삭제하면 계좌(행 0 인 것)는 cascade,
+-- app_users.dma_user_id 는 ON DELETE SET NULL(29-01) — 웹 사용자 행 · 역할은 남는다.
+CREATE OR REPLACE FUNCTION public.dma_admin_delete_dma_user(p_dma_user_id text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  PERFORM 1 FROM public.dma_users d WHERE d.dma_user_id = p_dma_user_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'NO_DMA_USER';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.dma_account_servers s WHERE s.dma_user_id = p_dma_user_id) THEN
+    RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'SERVERS_REMAIN';
+  END IF;
+  DELETE FROM public.dma_users WHERE dma_user_id = p_dma_user_id;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.dma_admin_delete_dma_user(text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.dma_admin_delete_dma_user(text) FROM anon, authenticated;
+GRANT  EXECUTE ON FUNCTION public.dma_admin_delete_dma_user(text) TO service_role;
+
 -- ── ⑦ 의도 조회 (relay planner 입력 — shared AdminIntentRow 키) ──────────────────
 -- (계좌 × 등록 서버) 행 배열 · priority → accountNo → serverKey 순. 유저가 없으면 빈 배열.
 CREATE OR REPLACE FUNCTION public.dma_admin_intent(p_dma_user_id text)

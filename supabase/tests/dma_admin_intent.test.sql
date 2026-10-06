@@ -6,6 +6,11 @@
 --     이메일 대소문자 · 공백 무관 · 중복 서버 키 1행 · 오류 규약 NO_APP_USER · DMA_USER_EXISTS · NO_SERVERS ·
 --     SERVER_BROKER_MISMATCH(거부 시 부분 생성 없음)
 --   - 의도 조회(dma_admin_intent): shared AdminIntentRow 키 9개 정확히 · priority → accountNo → serverKey 순
+--   - 계좌 put: 서버 빼기 → removing(행 유지) · 다시 넣기 → active · 값 갱신 · NO_SERVERS · NO_DMA_USER · 증권사 불일치
+--   - 계좌 제거: 마지막 active 계좌 LAST_ACCOUNT · 두 계좌 중 하나 → 그 계좌 서버 행 전부 removing · NO_SUCH_ACCOUNT
+--   - settle: 계좌 단위 removing 행만 삭제(active 불변) → 서버 0 된 계좌 삭제 · user_removed → 그 서버 행 전부 · 없는 유저 0
+--   - 유저 삭제: 서버 행 남으면 SERVERS_REMAIN · settle 뒤 삭제 → app_users.dma_user_id NULL · 최근 결과 cascade
+--   - 비밀번호: 암호문 교체 · password_set_at 갱신 · NO_DMA_USER
 --   - 권한: 새 RPC 전부 anon/authenticated EXECUTE 없음 · 공개 RPC 는 service_role 있음
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_admin_intent.test.sql`
@@ -24,7 +29,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(27);
+SELECT plan(69);
 
 -- ── 픽스처 ────────────────────────────────────────────────────────
 INSERT INTO auth.users (id, email) VALUES
@@ -130,12 +135,150 @@ SELECT is(
   '|', '(p5k1 교보 계좌, branch/trader 빈 문자열 그대로)'
 );
 
--- ── 권한: 공개 RPC 2종 × 3역할 = 6 · 내부 헬퍼 2종 × 2역할 = 4 ───────────
+-- ── 계좌 put: 서버 빼기 → removing · 다시 넣기 → active ──────────────────────
+SELECT is(
+  public.dma_admin_put_account('p5d1',
+    '{"broker":"KB","accountNo":"5000000001","name":"위탁","branchNo":"00001","traderId":"000001","priority":1}'::jsonb,
+    ARRAY['KB120']),
+  '{"activated":["KB120"],"removing":["KB121"]}'::jsonb,
+  '(put p5d1 …0001 서버 KB120 만, KB121 → removing)'
+);
+SELECT is(
+  (SELECT array_agg(server_key || ':' || state ORDER BY server_key)
+     FROM public.dma_account_servers WHERE dma_user_id = 'p5d1'),
+  ARRAY['KB120:active','KB121:removing'], '(p5d1 …0001, KB120 active · KB121 removing — 행은 남는다)'
+);
+SELECT is(
+  public.dma_admin_put_account('p5d1',
+    '{"broker":"KB","accountNo":"5000000001","name":"위탁-새이름","branchNo":"00001","traderId":"000001","priority":1}'::jsonb,
+    ARRAY['KB120','KB121']),
+  '{"activated":["KB120","KB121"],"removing":[]}'::jsonb,
+  '(put p5d1 …0001 KB121 다시 넣기, removing 없음)'
+);
+SELECT is(
+  (SELECT array_agg(server_key || ':' || state ORDER BY server_key)
+     FROM public.dma_account_servers WHERE dma_user_id = 'p5d1')::text
+  || (SELECT name FROM public.dma_user_accounts WHERE dma_user_id = 'p5d1' AND account_no = '5000000001'),
+  '{KB120:active,KB121:active}위탁-새이름', '(p5d1 …0001, KB121 removing → active · 이름 갱신)'
+);
+SELECT throws_ok(
+  $$SELECT public.dma_admin_put_account('p5d1',
+      '{"broker":"KB","accountNo":"5000000001","name":"","branchNo":"00001","traderId":"000001","priority":1}'::jsonb,
+      ARRAY[]::text[])$$,
+  'P0001', 'NO_SERVERS', '(put 빈 서버 목록, NO_SERVERS)'
+);
+SELECT throws_ok(
+  $$SELECT public.dma_admin_put_account('nobody',
+      '{"broker":"KB","accountNo":"5000000001","name":"","branchNo":"00001","traderId":"000001","priority":1}'::jsonb,
+      ARRAY['KB120'])$$,
+  'P0001', 'NO_DMA_USER', '(put 없는 DMA id, NO_DMA_USER)'
+);
+SELECT throws_ok(
+  $$SELECT public.dma_admin_put_account('p5d1',
+      '{"broker":"KYOBO","accountNo":"7000000009","name":"","branchNo":"","traderId":"","priority":0}'::jsonb,
+      ARRAY['KB120'])$$,
+  'P0001', 'SERVER_BROKER_MISMATCH', '(put 교보 계좌 · KB120, SERVER_BROKER_MISMATCH)'
+);
+
+-- ── 계좌 제거: 마지막 계좌 거부 · 두 계좌 중 하나 → removing ─────────────────────
+SELECT throws_ok(
+  $$SELECT public.dma_admin_mark_account_removed('p5d1', 'KB', '5000000001')$$,
+  'P0001', 'LAST_ACCOUNT', '(mark p5d1 유일 계좌 …0001, LAST_ACCOUNT)'
+);
+SELECT lives_ok(
+  $$SELECT public.dma_admin_put_account('p5d1',
+      '{"broker":"KB","accountNo":"5000000002","name":"둘째","branchNo":"00001","traderId":"000001","priority":2}'::jsonb,
+      ARRAY['KB120'])$$,
+  '(put p5d1 둘째 계좌 …0002 · KB120, 추가)'
+);
+SELECT lives_ok(
+  $$SELECT public.dma_admin_mark_account_removed('p5d1', 'KB', '5000000001')$$,
+  '(mark p5d1 …0001 — 다른 active 계좌 있음, 성공)'
+);
+SELECT is(
+  (SELECT array_agg(e ->> 'accountNo' || '@' || (e ->> 'serverKey') || ':' || (e ->> 'state'))
+     FROM jsonb_array_elements(public.dma_admin_intent('p5d1')) e),
+  ARRAY['5000000001@KB120:removing','5000000001@KB121:removing','5000000002@KB120:active'],
+  '(intent p5d1, …0001 서버 전부 removing · …0002 active — priority 순)'
+);
+SELECT throws_ok(
+  $$SELECT public.dma_admin_mark_account_removed('p5d1', 'KB', '5000000002')$$,
+  'P0001', 'LAST_ACCOUNT', '(mark p5d1 …0002 — 남은 active 마지막, LAST_ACCOUNT)'
+);
+SELECT throws_ok(
+  $$SELECT public.dma_admin_mark_account_removed('p5d1', 'KB', '5000000099')$$,
+  'P0001', 'NO_SUCH_ACCOUNT', '(mark p5d1 없는 계좌, NO_SUCH_ACCOUNT)'
+);
+
+-- ── settle: 계좌 단위 → 행 · 계좌 삭제, active 는 건드리지 않음 ────────────────────
+SELECT is(
+  public.dma_admin_settle_server('p5d1', 'KB120', ARRAY['5000000001'], false),
+  '{"deletedRows":1,"deletedAccounts":0}'::jsonb, '(settle p5d1 KB120 …0001, 행 1 · 계좌는 KB121 행이 남아 유지)'
+);
+SELECT is(
+  public.dma_admin_settle_server('p5d1', 'KB121', ARRAY['5000000001'], false),
+  '{"deletedRows":1,"deletedAccounts":1}'::jsonb, '(settle p5d1 KB121 …0001, 행 1 · 서버 0 된 계좌 삭제)'
+);
+SELECT is(
+  public.dma_admin_settle_server('p5d1', 'KB120', ARRAY['5000000002'], false),
+  '{"deletedRows":0,"deletedAccounts":0}'::jsonb, '(settle p5d1 KB120 …0002 active, 지우지 않음)'
+);
+SELECT is(
+  public.dma_admin_settle_server('nobody', 'KB120', ARRAY['5000000002'], false),
+  '{"deletedRows":0,"deletedAccounts":0}'::jsonb, '(settle 없는 DMA id, 0 · 0 멱등)'
+);
+
+-- ── 유저 삭제: 서버 남음 거부 → settle(user_removed) → 삭제 · 웹 사용자 연결 NULL ───────
+SELECT lives_ok(
+  $$SELECT public.dma_admin_record_results('p5d1', '[{"server":"KB120","outcome":"failed","code":9,"message":"처리 중"}]'::jsonb)$$,
+  '(record p5d1 KB120 failed, 삭제 cascade 확인용)'
+);
+SELECT throws_ok(
+  $$SELECT public.dma_admin_delete_dma_user('p5d1')$$,
+  'P0001', 'SERVERS_REMAIN', '(delete p5d1 — KB120 행 남음, SERVERS_REMAIN)'
+);
+SELECT is(
+  public.dma_admin_settle_server('p5d1', 'KB120', NULL, true),
+  '{"deletedRows":1,"deletedAccounts":1}'::jsonb, '(settle p5d1 KB120 user_removed, 그 서버 행 전부 · 계좌 삭제)'
+);
+SELECT lives_ok($$SELECT public.dma_admin_delete_dma_user('p5d1')$$, '(delete p5d1 — 서버 행 0, 성공)');
+SELECT is(
+  (SELECT coalesce(dma_user_id, '<null>') || ':' || role FROM public.app_users WHERE email = 'p5-a@example.invalid'),
+  '<null>:trader', '(app_users p5-a, dma_user_id NULL · 역할 trader 유지)'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.dma_users WHERE dma_user_id = 'p5d1')
+  + (SELECT count(*)::int FROM public.dma_admin_results WHERE dma_user_id = 'p5d1'),
+  0, '(p5d1 삭제 뒤, dma_users · 최근 결과 cascade 0행)'
+);
+SELECT throws_ok(
+  $$SELECT public.dma_admin_delete_dma_user('p5d1')$$,
+  'P0001', 'NO_DMA_USER', '(delete 없는 DMA id, NO_DMA_USER)'
+);
+
+-- ── 비밀번호 ─────────────────────────────────────────────────────
+SELECT throws_ok(
+  $$SELECT public.dma_admin_set_password('nobody', 'enc-x')$$,
+  'P0001', 'NO_DMA_USER', '(set_password 없는 DMA id, NO_DMA_USER)'
+);
+UPDATE public.dma_users SET password_set_at = '2026-01-01 00:00:00+00' WHERE dma_user_id = 'p5k1';
+SELECT lives_ok($$SELECT public.dma_admin_set_password('p5k1', 'enc-k1-v2')$$, '(set_password p5k1, 성공)');
+SELECT is(
+  (SELECT password_enc || ':' || (password_set_at > '2026-01-01 00:00:00+00')::text FROM public.dma_users WHERE dma_user_id = 'p5k1'),
+  'enc-k1-v2:true', '(p5k1, 암호문 교체 · password_set_at 갱신)'
+);
+
+-- ── 권한: 공개 RPC 7종 × 3역할 = 21 · 내부 헬퍼 2종 × 2역할 = 4 ───────────
 SELECT is(
   has_function_privilege(r, f, 'EXECUTE'),
   r = 'service_role', format('(%s, %s EXECUTE %s)', r, f, CASE WHEN r = 'service_role' THEN '있음' ELSE '없음' END)
 ) FROM unnest(ARRAY[
     'public.dma_admin_create_dma_user(text, text, text, jsonb, text[])',
+    'public.dma_admin_set_password(text, text)',
+    'public.dma_admin_put_account(text, jsonb, text[])',
+    'public.dma_admin_mark_account_removed(text, text, text)',
+    'public.dma_admin_settle_server(text, text, text[], boolean)',
+    'public.dma_admin_delete_dma_user(text)',
     'public.dma_admin_intent(text)'
   ]) AS f
   CROSS JOIN unnest(ARRAY['anon','authenticated','service_role']) AS r;
