@@ -367,24 +367,51 @@ export function diffServerAccounts(input: ServerAccountsDiffInput): ServerAccoun
 
   const missing: AdminAccountFields[] = [];
   const changed: AdminAccountFields[] = [];
-  const seen = new Set<string>();
+  const intentKeys = new Set<string>();
   for (const a of active) {
-    if (seen.has(a.accountNo)) continue;
-    seen.add(a.accountNo);
+    if (intentKeys.has(a.accountNo)) continue;
+    intentKeys.add(a.accountNo);
     const s = snap.get(a.accountNo);
     if (!s) missing.push(a);
     else if (!sameValues(a, s)) changed.push(a);
   }
+
+  // 같은 계좌가 active 와 removing 에 다 있으면 active 가 이긴다 — 지우는 쪽으로 기울지 않는다.
+  const toRemove: AdminAccountFields[] = [];
+  const settledRemovals: AdminAccountFields[] = [];
+  for (const a of input.removing.map(withKey)) {
+    if (intentKeys.has(a.accountNo)) continue;
+    intentKeys.add(a.accountNo);
+    if (snap.has(a.accountNo)) toRemove.push(a);
+    else settledRemovals.push(a);
+  }
+
+  // 의도 어디에도 없는 87 계좌 — 표시만, 절대 지우지 않는다(D-23 ⑤ · D-16).
+  const serverOnly = [...snap.values()].filter((s) => !intentKeys.has(s.accountNo));
 
   return {
     known: true,
     userPresent: input.snapshotUser !== null,
     missing: missing.sort(compareAccounts),
     changed: changed.sort(compareAccounts),
-    toRemove: [],
-    settledRemovals: [],
-    serverOnly: [],
+    toRemove: toRemove.sort(compareAccounts),
+    settledRemovals: settledRemovals.sort(compareAccounts),
+    serverOnly: serverOnly.sort(compareAccounts),
   };
+}
+
+/**
+ * 86 `AdminCommandResp.code` 해석 — 화면 칩과 relay settle 이 같이 쓴다(D-23 ⑤).
+ *   - 0 은 언제나 반영됨.
+ *   - op 4 의 8(NO_SUCH_ACCOUNT) = 이미 없음 → 반영됨(오류 칩 아님).
+ *   - op 2 의 4(NO_SUCH_USER) = 유저 없음 → 반영됨.
+ *   - 그 밖(9 BUSY · 12 LAST_ACCOUNT · 3 · 5 · 7 …)은 실패 — 칩은 서버 한국어 message 를 그대로 싣는다(D-23 ④).
+ */
+export function interpretAdminResult(op: 1 | 2 | 3 | 4 | 5, code: number): "ok" | "failed" {
+  if (code === 0) return "ok";
+  if (op === 4 && code === 8) return "ok";
+  if (op === 2 && code === 4) return "ok";
+  return "failed";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

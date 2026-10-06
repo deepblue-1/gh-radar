@@ -5,13 +5,23 @@
  * 이 같은 diff 를 읽으므로 「보낼 op」 와 「그릴 칩」 이 갈라지지 않는다. 와이어(44 `AdminCommandReq`) 변환 ·
  * 비밀번호 주입 · 순차 전송은 dispatcher(29-11) 몫이다.
  *
- * gh-trade 규칙(인박스 노트 261006 · StockDMA.fbs 주석):
- *   - op 1 신규 유저 = 비밀번호 + 첫 계좌 필수(계좌 0개 유저 불허).
+ * 규칙(D-23 ⑤ · gh-trade 인박스 노트 261006 · StockDMA.fbs 주석):
  *   - 87 이 없으면(`no-snapshot`) 아무것도 보내지 않는다 — 서버 상태를 모르고 쓰지 않는다.
+ *   - 유저가 서버에 없고 active 계좌가 있으면 op 1(첫 계좌 = priority → accountNo 순, 신규 = 비밀번호 + 첫 계좌
+ *     필수) + 나머지 op 3. 유저가 있으면 없는 · 값이 다른 active 계좌만 op 3(추가 또는 같은 account_no 갱신).
+ *   - `removing` 계좌는 87 에 있을 때만 op 4(op 4 는 멱등이 아니다 — 없는 계좌는 8). 87 에 없으면 즉시 settle.
+ *   - active 가 0 이고 removing 이 그 서버의 그 유저 계좌 전부면 op 4 대신 op 2(마지막 계좌 제거 = 12 회피).
+ *   - 의도에 없는 87 계좌(「서버에만 있음」)는 절대 지우지 않는다 — 하나라도 남으면 op 2 도 보내지 않는다.
+ *   - 순서는 op 1 → op 3 → op 4 — 추가가 먼저라 「제거 뒤 계좌 0개」 순간이 생기지 않는다.
  *
  * 순수 함수 — 소켓 · DB 없음.
  */
-import { diffServerAccounts, type AdminAccountFields, type AdminIntentRow } from "@gh-radar/shared";
+import {
+  compareAccounts,
+  diffServerAccounts,
+  type AdminAccountFields,
+  type AdminIntentRow,
+} from "@gh-radar/shared";
 
 /** 보낼 44 op 1개. op 1 의 비밀번호는 dispatcher 가 채운다. */
 export type PlannedOp =
@@ -61,9 +71,10 @@ export function planServerOps(input: PlanServerOpsInput): ServerPlan {
   const rows = input.intent.filter(
     (r) => r.dmaUserId === input.dmaUserId && r.serverKey === input.serverKey,
   );
+  const active = rows.filter((r) => r.state === "active").map(fieldsOf);
   const snapUser = input.snapshot.users.find((u) => u.userId === input.dmaUserId) ?? null;
   const diff = diffServerAccounts({
-    active: rows.filter((r) => r.state === "active").map(fieldsOf),
+    active,
     removing: rows.filter((r) => r.state === "removing").map(fieldsOf),
     snapshotUser: snapUser ? { accounts: snapUser.accounts } : null,
     snapshotKnown: true,
@@ -71,9 +82,51 @@ export function planServerOps(input: PlanServerOpsInput): ServerPlan {
   if (!diff.known) return { status: "no-snapshot", ops: [], settleRemoved: [] };
 
   const ops: PlannedOp[] = [];
-  if (!diff.userPresent) {
-    const [first] = diff.missing;
-    if (first) ops.push({ op: 1, account: first });
+
+  // ① 추가 · 갱신 — 유저가 없으면 첫 계좌(priority → accountNo 순)를 op 1 에 싣고 나머지는 op 3.
+  if (diff.userPresent) {
+    for (const account of [...diff.missing, ...diff.changed].sort(compareAccounts)) {
+      ops.push({ op: 3, account });
+    }
+  } else {
+    const [first, ...rest] = diff.missing;
+    if (first) {
+      ops.push({ op: 1, account: first });
+      for (const account of rest) ops.push({ op: 3, account });
+    }
   }
-  return { status: "ready", ops, settleRemoved: [] };
+
+  // ② 제거 — 87 에 있는 removing 계좌만. active 가 0 이고 그 유저의 87 계좌가 전부 removing 이면
+  //    op 4 는 마지막 계좌에서 12 LAST_ACCOUNT 가 되므로 op 2(유저 삭제) 한 번으로 보낸다.
+  //    87 에만 있는 계좌(diff.serverOnly)가 하나라도 남으면 유저를 지우지 않는다(D-23 ⑤).
+  if (diff.toRemove.length > 0) {
+    if (active.length === 0 && diff.serverOnly.length === 0) {
+      ops.push({ op: 2 });
+    } else {
+      for (const a of diff.toRemove) ops.push({ op: 4, accountNo: a.accountNo });
+    }
+  }
+
+  return {
+    status: "ready",
+    ops,
+    settleRemoved: diff.settledRemovals.map((a) => a.accountNo),
+  };
+}
+
+/**
+ * 비밀번호 변경 — 87 에 유저가 있는 서버에만 op 1(비밀번호만, account 무시). 유저가 없는 서버는 계좌 경로
+ * (`planServerOps` 의 op 1 신규)가 비밀번호와 함께 만든다.
+ */
+export function planPasswordOps(input: {
+  dmaUserId: string;
+  snapshot: AdminSnapshotView | null;
+}): ServerPlan {
+  if (!input.snapshot) return { status: "no-snapshot", ops: [], settleRemoved: [] };
+  const present = input.snapshot.users.some((u) => u.userId === input.dmaUserId);
+  return {
+    status: "ready",
+    ops: present ? [{ op: 1, passwordOnly: true }] : [],
+    settleRemoved: [],
+  };
 }

@@ -8,6 +8,7 @@ import {
   REFLECT_LABEL,
   deriveAdminUsersOverview,
   diffServerAccounts,
+  interpretAdminResult,
   isValidAccountNoInput,
   normalizeAccountNo,
   type AdminAccountFields,
@@ -116,6 +117,64 @@ describe("diffServerAccounts — 의도 대 87 (트레이서)", () => {
     expect(
       diffServerAccounts({ active: [A1], removing: [], snapshotUser: null, snapshotKnown: false }),
     ).toEqual({ known: false });
+  });
+});
+
+describe("diffServerAccounts — removing · 서버에만 있음", () => {
+  const A2: AdminAccountFields = { ...A1, accountNo: "2345678", name: "위탁2", priority: 1 };
+  const X: AdminAccountFields = { ...A1, accountNo: "9999999", name: "서버전용", priority: 5 };
+
+  it("removing ∩ 87 = toRemove · removing − 87 = settledRemovals · 87 − 의도 = serverOnly", () => {
+    expect(
+      diffServerAccounts({
+        active: [],
+        removing: [A1, A2],
+        snapshotUser: { accounts: [{ ...A1 }, { ...X }] },
+        snapshotKnown: true,
+      }),
+    ).toEqual({
+      known: true,
+      userPresent: true,
+      missing: [],
+      changed: [],
+      toRemove: [A1],
+      settledRemovals: [A2],
+      serverOnly: [X],
+    });
+  });
+
+  it("87 에 유저가 없으면 removing 은 전부 settledRemovals", () => {
+    expect(
+      diffServerAccounts({ active: [A2], removing: [A1], snapshotUser: null, snapshotKnown: true }),
+    ).toMatchObject({ missing: [A2], toRemove: [], settledRemovals: [A1], serverOnly: [] });
+  });
+
+  it("같은 계좌가 active 와 removing 에 다 있으면 active 가 이긴다(지우지 않는다)", () => {
+    expect(
+      diffServerAccounts({
+        active: [A1],
+        removing: [A1],
+        snapshotUser: { accounts: [{ ...A1 }] },
+        snapshotKnown: true,
+      }),
+    ).toMatchObject({ toRemove: [], settledRemovals: [], serverOnly: [] });
+  });
+});
+
+describe("interpretAdminResult — 86 code 해석 (D-23 ⑤)", () => {
+  it.each([
+    [4, 0, "ok"],
+    [4, 8, "ok"], // 8 NO_SUCH_ACCOUNT = 이미 없음 → 반영됨(오류 칩 아님)
+    [2, 0, "ok"],
+    [2, 4, "ok"], // 4 NO_SUCH_USER = 유저 없음 → 반영됨
+    [3, 9, "failed"], // 9 BUSY
+    [1, 0, "ok"],
+    [1, 3, "failed"],
+    [3, 8, "failed"], // 8 은 op 4 에서만 반영됨
+    [4, 12, "failed"],
+    [5, 0, "ok"],
+  ] as const)("op %i · code %i → %s", (op, code, expected) => {
+    expect(interpretAdminResult(op, code)).toBe(expected);
   });
 });
 
