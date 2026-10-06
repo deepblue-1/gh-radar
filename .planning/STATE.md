@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 29
 current_phase_name: DMA 다중 서버 · 웹 Admin 유저 관리
 status: executing
-stopped_at: Completed 29-13-PLAN.md
-last_updated: "2026-10-06T17:17:34.232Z"
+stopped_at: Completed 29-14-PLAN.md
+last_updated: "2026-10-06T17:29:33.505Z"
 last_activity: 2026-10-06
 last_activity_desc: Phase 29 execution started
-state_head: 22ea13fda249b6a28368babbb2e650d17122b470
+state_head: 03d9f336941a35c979ba2608506f3306a1e3a504
 progress:
   total_phases: 38
   completed_phases: 24
   total_plans: 403
-  completed_plans: 375
+  completed_plans: 376
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 29 (DMA 다중 서버 · 웹 Admin 유저 관리) — EXECUTING
-Plan: 13 of 26
+Plan: 14 of 26
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-10-06 — Phase 29 execution started
@@ -216,6 +216,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 29 P11 | 11min | 3 tasks | 8 files |
 | Phase 29 P12 | 4min | 2 tasks | 7 files |
 | Phase 29 P13 | 11min | 2 tasks | 10 files |
+| Phase 29 P14 | 7min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -588,6 +589,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 29]: 29-12: 역할 게이트 리다이렉트는 getUser() 가 회전한 세션 쿠키를 리다이렉트 응답에 옮겨 싣는다 · 역할 조회 오류는 역할 값보다 우선해 /pending(fail closed)
 - [Phase 29]: 29-13: 단독 DMA 유저 삭제는 relay deleted=true 일 때만 app_users 행 삭제 · 공유 DMA 는 웹 사용자 행만(서버 무접촉)
 - [Phase 29]: 29-13: 시세 주 서버 전환은 Express 가 DB 를 먼저 바꾸지 않고 relay 가 성공 뒤 갱신 · POST /servers 기존 키 409 SERVER_EXISTS · DMA 연결은 이미 연결 시 409 DMA_LINKED
+- [Phase 29]: 29-14: 87 신선도는 연결 세대로만 판정(users_rev 비교 금지) — 옛 세대 늦은 87 버림 · 같은 세대 도착 순 · 재기동 rev 감소 수용 · 파이프라인 재생성 시 resetGeneration
+- [Phase 29]: 29-14: 매핑 원천 둘(79 관찰자 로그인 · 87 admin) — JournalAccess.replace 통째 교체라 나중 것이 이긴다 · 유효 행 0 거부 규율 유지 · 0명 87 도 dma_admin_apply_snapshot 은 보낸다
+- [Phase 29]: 29-14: dma_admin_apply_snapshot 실패는 서버별 최신 1건만 지수 백오프(1s→30s) 재시도 · 빈 userId/accountNo 항목은 DB 적재에서 제외
 
 ### Pending Todos
 
@@ -689,8 +693,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-10-06T17:17:10.929Z
-Stopped at: Completed 29-13-PLAN.md
+Last session: 2026-10-06T17:29:07.823Z
+Stopped at: Completed 29-14-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
