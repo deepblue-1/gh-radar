@@ -14,6 +14,7 @@ import type { LimitupFactRow, LimitupGridCol, LimitupGridFile, LimitupMarkRow } 
  *  - laneEntryOf: 창 [a − 600, a + 60] ∩ 장중 · 상한가 선 + 탐지율 선만(25% 없음) · 번호 마커 · 직전 1분 파란 면 · 매도벽 소진
  *  - laneLockOf: 창 [첫 start − 120, 마지막 end + 60] · 음영 · 번호 마커(q_max 사실 krw · 창 끝 뒤 고정) · ▼ · ✕ title 만
  *  - memberBarsOf(+ range) · fingerprintRowsOf · yesterdayRowsOf
+ *  - quick-261006-ide(스케치 012-A): lockRiskRowsOf 잠김별 요약 칩 줄 — 누적 매도 · 취소 · 위험도 4시점, 6값 전부 null 이면 줄 없음
  * 입력은 실 export 20261002(덕우전자 깨짐 · 엑시온그룹 유지 · 형지글로벌 미도달)와 합성 행.
  */
 
@@ -28,6 +29,7 @@ import {
   gridSeries,
   laneEntryOf,
   laneLockOf,
+  lockRiskRowsOf,
   layoutEventBand,
   memberBarsOf,
   memberWindowsOf,
@@ -690,5 +692,74 @@ describe('layoutEventBand — 라벨 띠(최대 3줄 · 넘치면 점 위 번호
   it('estimateLabelWidth — 한글 11px · 숫자 6.6px 어림', () => {
     expect(estimateLabelWidth('깨짐')).toBe(24);
     expect(estimateLabelWidth('10')).toBe(16);
+  });
+});
+
+describe('lockRiskRowsOf — 잠김 구간 요약 칩 줄(스케치 012-A · quick-261006-ide)', () => {
+  const ISIN = 'KR7000000001';
+  const DUKWOO = { sell_krw: 980_000_000, cancel_krw: 920_000_000, risk_3s: 0.04, risk_10s: 0.4, risk_60s: null, risk_pre: 0.25 };
+
+  it('잠김 1개(깨짐) → 1줄 · prefix null · 「9.8억」 · 「9.2억」 · +3초 4% · +10초 40% · +60초 — · 깨짐 3초 전 25%', () => {
+    expect(lockRiskRowsOf([lockRow({ isin: ISIN, lock_id: 1, broke: true, ...DUKWOO })])).toEqual([
+      {
+        lockId: 1,
+        prefix: null,
+        sell: '9.8억',
+        cancel: '9.2억',
+        risks: [
+          { label: '+3초', value: '4%' },
+          { label: '+10초', value: '40%' },
+          { label: '+60초', value: '—' },
+          { label: '깨짐 3초 전', value: '25%' },
+        ],
+      },
+    ]);
+  });
+
+  it('깨지지 않은 잠김(broke false · null) → 마지막 라벨 「끝 3초 전」 · 1.92 → 「192%」(100% 초과 그대로)', () => {
+    for (const broke of [false, null]) {
+      const [row] = lockRiskRowsOf([lockRow({ isin: ISIN, lock_id: 1, broke, risk_pre: 1.92 })]);
+      expect(row!.risks[3]).toEqual({ label: '끝 3초 전', value: '192%' });
+    }
+  });
+
+  it('6값이 모두 null · 키가 없는 잠김 → 줄 없음 · 전부 그렇다면 []', () => {
+    const allNull = lockRow({
+      isin: ISIN,
+      lock_id: 1,
+      sell_krw: null,
+      cancel_krw: null,
+      risk_3s: null,
+      risk_10s: null,
+      risk_60s: null,
+      risk_pre: null,
+    });
+    const noKeys = lockRow({ isin: ISIN, lock_id: 2 });
+    expect(lockRiskRowsOf([allNull, noKeys])).toEqual([]);
+    expect(lockRiskRowsOf([])).toEqual([]);
+  });
+
+  it('잠김 2개 → lock_id 순 두 줄 · prefix 「잠김 1」 · 「잠김 2」', () => {
+    const rows = lockRiskRowsOf([
+      lockRow({ isin: ISIN, lock_id: 2, broke: false, sell_krw: 230_000_000 }),
+      lockRow({ isin: ISIN, lock_id: 1, broke: true, ...DUKWOO }),
+    ]);
+    expect(rows.map((r) => [r.lockId, r.prefix])).toEqual([
+      [1, '잠김 1'],
+      [2, '잠김 2'],
+    ]);
+  });
+
+  it('잠김 2개 중 하나만 값 → 그 줄 하나 · prefix 는 잠김 수 기준이라 「잠김 2」 유지', () => {
+    const rows = lockRiskRowsOf([lockRow({ isin: ISIN, lock_id: 1 }), lockRow({ isin: ISIN, lock_id: 2, risk_10s: 0.5 })]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.prefix).toBe('잠김 2');
+  });
+
+  it('금액 1억 미만은 fmtKrwShort(「7,000만」) · sell/cancel null → 「—」 · 반올림 0.355 → 「36%」', () => {
+    const [row] = lockRiskRowsOf([lockRow({ isin: ISIN, lock_id: 1, sell_krw: 70_000_000, cancel_krw: null, risk_3s: 0.355 })]);
+    expect(row!.sell).toBe('7,000만');
+    expect(row!.cancel).toBe('—');
+    expect(row!.risks[0]!.value).toBe(`${Math.round(0.355 * 100)}%`);
   });
 });

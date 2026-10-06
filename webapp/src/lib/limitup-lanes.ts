@@ -113,6 +113,50 @@ export function fmtKrwShort(krw: number): string {
   return `${formatGroup(Math.round(a / 10_000))}만`;
 }
 
+/** 잠김 1개의 요약 칩 줄(스케치 012-A) — 누적 매도 · 취소 · 위험도 4시점. 값은 표시 문자열이다. */
+export interface LockRiskRow {
+  lockId: number;
+  /** 그 종목 잠김이 2개 이상이면 「잠김 {lock_id}」, 아니면 null. */
+  prefix: string | null;
+  /** 누적 매도 금액(fmtKrwShort) · null → 「—」. */
+  sell: string;
+  /** 취소 금액(fmtKrwShort) · null → 「—」. */
+  cancel: string;
+  /** 「+3초」 · 「+10초」 · 「+60초」 · 「깨짐 3초 전」(유지면 「끝 3초 전」) — 값 「NN%」 / 「—」. */
+  risks: { label: string; value: string }[];
+}
+
+const LOCK_RISK_KEYS = ['sell_krw', 'cancel_krw', 'risk_3s', 'risk_10s', 'risk_60s', 'risk_pre'] as const;
+
+/**
+ * 보고서 「잠김 구간」 요약 칩 줄 뷰 모델 — 스케치 012-A 채택(2026-10-06 · quick-261006-ide).
+ *
+ * 출처는 gh-trade ea8d9171 locks export 새 키(sell_krw · cancel_krw · risk_3s/10s/60s · risk_pre)다. 위험도 = 그 시점까지
+ * 누적 매도 ÷ 그 시점 대기 금액(q_krw) — **판정 기준이 아닌 비율 수치**라 색 없이 정수 %(round(r × 100), 100% 초과 그대로)로만
+ * 적는다. 입력은 한 종목의 locks, lock_id 오름차순으로 돈다. 6값이 모두 null/undefined(옛 날짜 · 마이그레이션 전 응답)인
+ * 잠김은 줄을 만들지 않는다 — 전부 그렇다면 [] 이고 카드는 칩 영역 · 캡션을 그리지 않는다.
+ */
+export function lockRiskRowsOf(locks: readonly LimitupLockRow[]): LockRiskRow[] {
+  const many = locks.length >= 2;
+  const krw = (v: number | null | undefined) => (v == null ? '—' : fmtKrwShort(v));
+  const pct = (v: number | null | undefined) => (v == null ? '—' : `${Math.round(v * 100)}%`);
+  return [...locks]
+    .sort((a, b) => a.lock_id - b.lock_id)
+    .filter((l) => LOCK_RISK_KEYS.some((k) => l[k] != null))
+    .map((l) => ({
+      lockId: l.lock_id,
+      prefix: many ? `잠김 ${l.lock_id}` : null,
+      sell: krw(l.sell_krw),
+      cancel: krw(l.cancel_krw),
+      risks: [
+        { label: '+3초', value: pct(l.risk_3s) },
+        { label: '+10초', value: pct(l.risk_10s) },
+        { label: '+60초', value: pct(l.risk_60s) },
+        { label: l.broke === true ? '깨짐 3초 전' : '끝 3초 전', value: pct(l.risk_pre) },
+      ],
+    }));
+}
+
 /** 사실 문장 앞 「HH:MM:SS.mmm 」 하나만 뗀다(시각 칸과 중복 — D-04). */
 export function stripFactClock(text: string): string {
   return text.replace(/^\d{2}:\d{2}:\d{2}\.\d{3} /, '');

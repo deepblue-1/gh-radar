@@ -14,6 +14,8 @@
 --   - 보존 정리 limitup_purge_old(90, 30): 91일 전 날짜의 표 5 · 파생 2 · 이력 · stage 삭제 · 89일 전은 남김 ·
 --     member_alloc 은 31일 전 삭제 · 29일 전 남김 · 보존 일수 0 이하 예외 (28-06)
 --   - 권한: anon · authenticated 는 10표 · 4 RPC 불가, service_role 가능 · RLS 10표 활성 · 정책 0개 · facts GIN 없음
+--   - quick-261006-ide: locks 새 6열(sell_krw · cancel_krw · risk_3s/10s/60s · risk_pre — 20261006120000) — 새 키가 있는
+--     payload 는 같은 이름 열로 그대로(1 초과 위험도 · null 포함), 키가 없는 옛 payload 는 null · 열 타입 · 열 권한
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/limitup_load.test.sql`
 -- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(원격 DB 접촉 0). 전체가 한 트랜잭션 + ROLLBACK.
@@ -24,7 +26,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(145);
+SELECT plan(163);
 
 -- stage 행 1개 — payload 에 date 를 기본으로 싣는다(p_payload 가 덮을 수 있다).
 CREATE FUNCTION pg_temp.st(p_date text, p_tbl text, p_seq int, p_payload jsonb) RETURNS void
@@ -72,6 +74,10 @@ SELECT is((SELECT files_sig || '|' || manifest_sha256 || '|' || schema_version |
 SELECT is((SELECT "rows"->>'member_alloc' FROM public.limitup_loads WHERE date = '20261002'), '2',
           'A 이력 rows.member_alloc = 실제 삽입 수 2');
 SELECT is((SELECT count(*)::int FROM public.limitup_stage WHERE date = '20261002'), 0, 'A commit 뒤 그날 stage 0행');
+SELECT ok((SELECT sell_krw IS NULL FROM public.limitup_locks WHERE date = '20261002'),
+          'A 새 키 없는 옛 locks payload → sell_krw null(quick-261006-ide)');
+SELECT ok((SELECT risk_pre IS NULL FROM public.limitup_locks WHERE date = '20261002'),
+          'A 새 키 없는 옛 locks payload → risk_pre null');
 
 -- ── B. 재적재로 축소 — entries 1 · 나머지 0 → 옛 행이 남지 않는다 ──────
 SELECT pg_temp.st('20261002', 'entries', 1, '{"isin":"KR7000000002","name":"나종목-재처리","schema_version":1}');
@@ -168,6 +174,33 @@ SELECT is(pg_temp.cnt('limitup_member_alloc', pg_temp.dd('d31')), 0, 'H member_a
 SELECT is(pg_temp.cnt('limitup_member_alloc', pg_temp.dd('d29')), 1, 'H member_alloc 29일 전 남김');
 SELECT throws_like($$ SELECT public.limitup_purge_old(0, 30) $$, '%keep days must be >= 1%',
                    'H 보존 일수 0 이하 → 예외(보존 창이 사라지지 않게)');
+
+-- ── I. locks 새 6열 — gh-trade ea8d9171 export 키(quick-261006-ide · 20261006120000) ──────────
+SELECT pg_temp.st('20261005', 'locks', 1, '{"isin":"KR7000000001","lock_id":1,"broke":true,"sell_krw":980000000,"cancel_krw":920000000,"risk_3s":0.04,"risk_10s":0.40,"risk_60s":null,"risk_pre":0.25,"schema_version":2}');
+SELECT pg_temp.st('20261005', 'locks', 2, '{"isin":"KR7000000001","lock_id":2,"broke":false,"sell_krw":230000000,"cancel_krw":110000000,"risk_3s":null,"risk_10s":0.01,"risk_60s":0.06,"risk_pre":1.92,"schema_version":2}');
+SELECT lives_ok($$ SELECT public.limitup_commit_day('20261005', 'mf-sha-i', 'sig-i', 2, '{"locks":2}') $$,
+                'I 새 키 locks 2행 commit 성공(RPC 본문 무변경)');
+SELECT is((SELECT sell_krw FROM public.limitup_locks WHERE date = '20261005' AND lock_id = 1), 980000000::bigint,
+          'I sell_krw = 980000000');
+SELECT is((SELECT cancel_krw FROM public.limitup_locks WHERE date = '20261005' AND lock_id = 1), 920000000::bigint,
+          'I cancel_krw = 920000000');
+SELECT is((SELECT risk_3s FROM public.limitup_locks WHERE date = '20261005' AND lock_id = 1), 0.04::double precision,
+          'I risk_3s = 0.04(소수)');
+SELECT is((SELECT risk_10s FROM public.limitup_locks WHERE date = '20261005' AND lock_id = 1), 0.40::double precision,
+          'I risk_10s = 0.40');
+SELECT ok((SELECT risk_60s IS NULL FROM public.limitup_locks WHERE date = '20261005' AND lock_id = 1),
+          'I risk_60s JSON null → null');
+SELECT is((SELECT risk_pre FROM public.limitup_locks WHERE date = '20261005' AND lock_id = 2), 1.92::double precision,
+          'I risk_pre = 1.92(100% 초과 = 1 초과 그대로)');
+SELECT col_type_is('public', 'limitup_locks', c.col, c.typ, 'I 열 타입 ' || c.col || ' = ' || c.typ)
+  FROM (VALUES ('sell_krw', 'bigint'), ('cancel_krw', 'bigint'), ('risk_3s', 'double precision'),
+               ('risk_10s', 'double precision'), ('risk_60s', 'double precision'), ('risk_pre', 'double precision'))
+       AS c(col, typ)
+ ORDER BY c.col;
+SELECT is(has_column_privilege(r.role, 'public.limitup_locks', 'sell_krw', 'SELECT'), r.expect,
+          format('I %s SELECT limitup_locks.sell_krw = %s(표 단위 잠금이 새 열에도)', r.role, r.expect))
+  FROM (VALUES ('anon', false), ('authenticated', false), ('service_role', true)) AS r(role, expect)
+ ORDER BY r.role;
 
 -- ── F. 잠금 · 권한 ─────────────────────────────────────────────────
 CREATE TEMP TABLE t_tbls (t text PRIMARY KEY);

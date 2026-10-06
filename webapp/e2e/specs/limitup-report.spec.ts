@@ -46,7 +46,26 @@ interface Recorder {
   mode403: boolean;
 }
 
-async function installLimitupMocks(page: Page): Promise<Recorder> {
+/**
+ * quick-261006-ide(스케치 012-A) — 잠김 요약 칩 회귀용 **합성값**(실 export 아님 — 실 export 20261002 에는 새 키가 없다).
+ * 스케치 예시값 그대로: 덕우(깨짐) 9.8억 · 9.2억 · 4% · 40% · — · 25% / 엑시온(유지) 2.3억 · 1.1억 · — · 1% · 6% · 192%.
+ */
+const LOCK_RISK_SYNTH: Record<string, Record<string, number | null>> = {
+  [DUKWOO]: { sell_krw: 980_000_000, cancel_krw: 920_000_000, risk_3s: 0.04, risk_10s: 0.4, risk_60s: null, risk_pre: 0.25 },
+  [AXION]: { sell_krw: 230_000_000, cancel_krw: 110_000_000, risk_3s: null, risk_10s: 0.01, risk_60s: 0.06, risk_pre: 1.92 },
+};
+
+/** 보고서 응답 day.locks 중 덕우 · 엑시온 잠김 행 전부에 합성 6값을 덧입힌다. */
+function withLockRisk<T>(body: T): T {
+  const day = (body as { day?: { locks?: Array<Record<string, unknown>> } }).day;
+  if (!day?.locks) return body;
+  return {
+    ...body,
+    day: { ...day, locks: day.locks.map((l) => ({ ...l, ...(LOCK_RISK_SYNTH[l.isin as string] ?? {}) })) },
+  };
+}
+
+async function installLimitupMocks(page: Page, opts: { lockRisk?: boolean } = {}): Promise<Recorder> {
   const rec: Recorder = { reportDs: [], gridUrlDs: [], gridHits: [], mode403: false };
   await page.route('**/api/limitup/report*', async (route: Route) => {
     const d = new URL(route.request().url()).searchParams.get('d');
@@ -65,7 +84,11 @@ async function installLimitupMocks(page: Page): Promise<Recorder> {
         : LIMITUP_DATES.includes(d)
           ? limitupReportFixture({ date: d })
           : { access: true, dates: LIMITUP_DATES, date: d, loaded: false };
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(opts.lockRisk ? withLockRisk(body) : body),
+    });
   });
   await page.route('**/api/limitup/grid-urls*', async (route: Route) => {
     const d = new URL(route.request().url()).searchParams.get('d') ?? '';
@@ -227,6 +250,9 @@ test.describe('Phase 28 Plan 13 — 상한가 보고서 (로컬 relay)', () => {
     await dk.locator('[data-slot="limitup-facts"] li[data-event-n="3"]').hover();
     await expect(dk.locator('[data-slot="limitup-event-band"] [data-event-n="3"]')).toHaveAttribute('data-hl', 'true');
     await page.mouse.move(0, 0);
+    // quick-261006-ide — 실 export 10/02 에는 locks 새 키가 없다 → 잠김 요약 칩 · 캡션 0.
+    await expect(dk.locator('[data-slot="limitup-lock-risk"]')).toHaveCount(0);
+    await expect(dk.locator('[data-slot="limitup-lock-risk-caption"]')).toHaveCount(0);
     await page.screenshot({ path: 'test-results/limitup-report-1280.png', fullPage: true });
     expect(rec.gridUrlDs.filter((d) => d === LIMITUP_LATEST)).toHaveLength(1);
     // 앞 문서(‹ 로 연 10/01)의 늦은 요청이 섞일 수 있어 이 문서의 날짜로 거른다.
@@ -338,5 +364,77 @@ test.describe('Phase 28 Plan 13 — 상한가 보고서 (로컬 relay)', () => {
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(0);
     await page.screenshot({ path: 'test-results/limitup-report-390.png', fullPage: true });
+  });
+
+  test('P28-R1c 잠김 구간 요약 칩(스케치 012-A · quick-261006-ide) — 1280 · 390 · 덕우 깨짐 3초 전 · 엑시온 끝 3초 전 192% · 넘침 0', async ({
+    page,
+  }) => {
+    await installLimitupMocks(page, { lockRisk: true });
+    for (const vp of [
+      { width: 1280, height: 900 },
+      { width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(vp);
+      await page.goto('/analytics/limitup');
+      const dk = cardOf(page, DUKWOO);
+      await expect(dk).toBeVisible({ timeout: 30_000 });
+
+      // 덕우(깨짐 · 잠김 1개 → 줄 머리 없음).
+      const area = dk.locator('[data-slot="limitup-lock-risk"]');
+      await expect(area).toHaveCount(1);
+      await expect(area.locator('[data-slot="limitup-lock-risk-row"]')).toHaveCount(1);
+      const chip = (kind: string) => area.locator(`[data-slot="limitup-lock-risk-chip"][data-kind="${kind}"]`);
+      await expect(chip('sell')).toHaveText(/누적 매도\s*9\.8억/);
+      await expect(chip('cancel')).toHaveText(/취소\s*9\.2억/);
+      await expect(chip('risk')).toContainText('깨짐 3초 전 25%');
+      await expect(chip('risk')).toContainText('+60초 —');
+      await expect(dk.locator('[data-slot="limitup-lock-risk-caption"]')).toHaveCount(1);
+      await expect(dk.locator('[data-slot="limitup-lock-risk-caption"]')).toHaveText(
+        '위험도 = 그 시점까지 누적 매도 ÷ 그 시점 대기 금액 · 100% 를 넘을 수 있다',
+      );
+      // 칩 줄은 레인 제목 아래 · 차트(레인 또는 로딩 자리) 위.
+      const laneLock = dk.locator('[data-slot="limitup-lane-lock"]');
+      const head = (await laneLock.locator('h3').boundingBox())!;
+      const areaBox = (await area.boundingBox())!;
+      await expect(laneLock.locator('[data-slot="limitup-lane"], [data-slot="limitup-lane-slot"]').first()).toBeVisible();
+      const plot = (await laneLock.locator('[data-slot="limitup-lane"], [data-slot="limitup-lane-slot"]').first().boundingBox())!;
+      expect(areaBox.y, `${vp.width} 칩 줄이 레인 제목 아래`).toBeGreaterThanOrEqual(head.y + head.height - 1);
+      expect(areaBox.y + areaBox.height, `${vp.width} 칩 줄이 차트 위`).toBeLessThanOrEqual(plot.y + 1);
+
+      // 넘침 0 — 카드 · 칩마다 오른쪽 끝이 카드 안 · 문서 가로 넘침 없음.
+      const fit = await dk.evaluate((el) => {
+        const box = el.getBoundingClientRect();
+        const chips = [...el.querySelectorAll('[data-slot="limitup-lock-risk-chip"]')].map((c) => {
+          const r = c.getBoundingClientRect();
+          return { t: c.textContent, right: r.right };
+        });
+        return { sw: el.scrollWidth, cw: el.clientWidth, right: box.right, out: chips.filter((c) => c.right > box.right + 0.5) };
+      });
+      expect(fit.sw, `${vp.width} 카드 가로 넘침 0`).toBeLessThanOrEqual(fit.cw);
+      expect(fit.out, `${vp.width} 칩 오른쪽 끝이 카드 안`).toEqual([]);
+      const docOverflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expect(docOverflow, `${vp.width} 문서 가로 넘침 0`).toBeLessThanOrEqual(0);
+      await laneLock.screenshot({ path: test.info().outputPath(`ide-limitup-lock-risk-${vp.width}.png`) });
+
+      // 엑시온(유지 · 잠김 1개 — 실 export 픽스처 lock_id 2 하나뿐이라 「잠김 N」 머리 없음).
+      await page.getByRole('button', { name: '엑시온그룹 069920 — 사건 카드' }).click();
+      const ax = cardOf(page, AXION);
+      await expect(ax).toBeVisible();
+      const axArea = ax.locator('[data-slot="limitup-lock-risk"]');
+      await expect(axArea.locator('[data-slot="limitup-lock-risk-row"]')).toHaveCount(1);
+      await expect(axArea).toContainText('끝 3초 전 192%');
+      await expect(axArea).not.toContainText('깨짐 3초 전');
+      await expect(axArea).not.toContainText('잠김 2');
+      await expect(ax.locator('[data-slot="limitup-lock-risk-caption"]')).toHaveCount(1);
+      const axFit = await ax.evaluate((el) => el.scrollWidth - el.clientWidth);
+      expect(axFit, `${vp.width} 엑시온 카드 가로 넘침 0`).toBeLessThanOrEqual(0);
+      if (vp.width === 390) {
+        await ax.locator('[data-slot="limitup-lane-lock"]').screenshot({
+          path: test.info().outputPath('ide-limitup-lock-risk-390-axion.png'),
+        });
+      }
+    }
   });
 });

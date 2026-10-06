@@ -9,9 +9,11 @@ import {
   eventsOf,
   laneEntryOf,
   laneLockOf,
+  lockRiskRowsOf,
   lockWindowOf,
   memberBarsOf,
   storyOf,
+  type LockRiskRow,
   type MemberBar,
   type MemberBarGroup,
 } from '@/lib/limitup-lanes';
@@ -27,7 +29,8 @@ import { LimitupLane, eventBandHeight } from './limitup-lane';
  * - 종목 리스트(`LimitupDayGrid`)가 열린 행 바로 아래에 이 카드를 그린다(한 번에 하나).
  *   `<section id="ev-{isin}" aria-labelledby={행 버튼 id}>` — 외피(CARD) · 종목 머리는 리스트 행이 대신한다.
  * - 세로 순서: 한 줄 요약(`storyOf` — 「20% 도달 → 첫 상한가 → 깨짐/유지」 + 상한가 직전 1분 매수 1위) →
- *   [왼쪽] 레인 「상한가 도달까지」 · 「잠김 구간」 → 창구 막대(상한가 직전 1분 매수 · 깨짐 직전 1분 매도 — 창 range ·
+ *   [왼쪽] 레인 「상한가 도달까지」 · 「잠김 구간」 → (값이 있으면) 요약 칩 줄 · 캡션 — 스케치 012-A · quick-261006-ide →
+ *   창구 막대(상한가 직전 1분 매수 · 깨짐 직전 1분 매도 — 창 range ·
  *   1분 단위 배분이라 추정) / [오른쪽 340px] 사실 문장. < xl 한 열(레인 열 → 사실 문장).
  * - 번호 연결: `eventsOf` 한 배열이 레인 마커(라벨 띠 배지 · 점)와 사실 문장 앞 배지를 함께 만든다. 카드의 `hl` 하나를
  *   두 레인과 사실 목록이 나눠 써서, 마커/문장 어느 쪽에 마우스를 올려도 같은 번호가 함께 강조된다(데스크톱).
@@ -90,6 +93,50 @@ function LaneSlot({
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/** 요약 칩 바탕 — 한 줄 요약 상자와 같은 면(새 토큰 없음). */
+const CHIP = 'inline-flex items-baseline gap-x-1.5 rounded-full bg-[color-mix(in_oklab,var(--muted)_55%,transparent)] px-2.5 py-1 text-[12px] text-[var(--fg-2)]';
+const CHIP_LABEL = 'text-[11px] text-[var(--muted-fg)]';
+
+/**
+ * 「잠김 구간」 요약 칩 줄(스케치 012-A) — 잠김마다 한 줄: 「누적 매도 X」 · 「취소 X」(값 --down) · 「위험도 +3초 a% · … ·
+ * 깨짐/끝 3초 전 d%」(값 기본색 — 판정 기준이 아닌 비율이라 신호등 색 금지). 위험도 칩은 시점 조각 사이에서만 줄바꿈되고
+ * (조각마다 nowrap), 구분 「·」 은 앞 조각 꼬리라 둘째 줄이 「·」 로 시작하지 않는다.
+ */
+function LockRiskChips({ rows }: { rows: readonly LockRiskRow[] }) {
+  return (
+    <div data-slot="limitup-lock-risk" className="mb-2 flex min-w-0 flex-col gap-1.5">
+      {rows.map((r) => (
+        <div
+          key={r.lockId}
+          data-slot="limitup-lock-risk-row"
+          data-lock-id={r.lockId}
+          className="flex min-w-0 flex-wrap items-center gap-1.5"
+        >
+          {r.prefix !== null && <span className={cn(CAPTION, 'whitespace-nowrap')}>{r.prefix}</span>}
+          <span data-slot="limitup-lock-risk-chip" data-kind="sell" className={cn(CHIP, 'whitespace-nowrap')}>
+            <span className={CHIP_LABEL}>누적 매도</span>
+            <b className="mono font-semibold text-[var(--down)]">{r.sell}</b>
+          </span>
+          <span data-slot="limitup-lock-risk-chip" data-kind="cancel" className={cn(CHIP, 'whitespace-nowrap')}>
+            <span className={CHIP_LABEL}>취소</span>
+            <b className="mono font-semibold text-[var(--down)]">{r.cancel}</b>
+          </span>
+          <span data-slot="limitup-lock-risk-chip" data-kind="risk" className={cn(CHIP, 'min-w-0 flex-wrap')}>
+            <span className={CHIP_LABEL}>위험도</span>
+            {r.risks.map((k, i) => (
+              // 구분 「·」 은 앞 조각 꼬리에 붙인다 — 줄바꿈된 둘째 줄이 「·」 로 시작하지 않게.
+              <span key={k.label} className="whitespace-nowrap">
+                {k.label} <b className="mono font-semibold text-[var(--fg)]">{k.value}</b>
+                {i < r.risks.length - 1 && <span className="ml-1.5 text-[var(--faint)]">·</span>}
+              </span>
+            ))}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -185,6 +232,8 @@ export function LimitupEventCard({
     [grid.grid, locks, marks, events],
   );
   const bars = useMemo(() => memberBarsOf(facts, locks, entry), [facts, locks, entry]);
+  // 보고서 응답 값이라 격자 로딩 · 에러와 무관하게 보인다(스케치 012-A).
+  const lockRisk = useMemo(() => lockRiskRowsOf(locks), [locks]);
 
   const lockSpan = useMemo(() => {
     const lk = locks.filter((l) => l.start_ms != null);
@@ -267,6 +316,7 @@ export function LimitupEventCard({
                   <h3 className={cn(SUBHEAD, 'm-0')}>잠김 구간</h3>
                   <span className={CAPTION}>{lockSpan} · 상한가 매수잔량 금액 · 큰 매도 ▼ · 취소 ✕</span>
                 </div>
+                {lockRisk.length > 0 && <LockRiskChips rows={lockRisk} />}
                 {lockLane !== null ? (
                   <LimitupLane
                     lane={lockLane}
@@ -281,6 +331,11 @@ export function LimitupEventCard({
                     state={slotState}
                     onRetry={retryOnLock ? grid.retry : undefined}
                   />
+                )}
+                {lockRisk.length > 0 && (
+                  <p data-slot="limitup-lock-risk-caption" className={cn(CAPTION, 'm-0 mt-1.5 break-keep')}>
+                    위험도 = 그 시점까지 누적 매도 ÷ 그 시점 대기 금액 · 100% 를 넘을 수 있다
+                  </p>
                 )}
               </>
             )}

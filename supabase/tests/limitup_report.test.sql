@@ -9,6 +9,8 @@
 --     dates 에 없다 · p_date null = 최신 적재 날짜 · 적재 안 된 날짜는 loaded false(빈 상태의 원천)
 --   - 하루 묶음: entries(isin) · locks(isin, lock_id) · facts(isin, t_ms NULLS LAST, event_no, fact_no) · summaries ·
 --     marks(종목마다 burst_sell · cancel 을 krw 큰 순 40개 · new 제외) · rows(manifest 행 수)
+--   - quick-261006-ide: day.locks 원소에 새 6키(sell_krw · cancel_krw · risk_*) — 값이 있던 행은 값, 없던 행은 JSON null
+--     (to_jsonb(l) · RPC 본문 무변경 — 20261006120000)
 --   - 어제 결과: prev = 바로 이전 적재 날짜 + 그날 locks · 이전 날짜 없으면 null
 --   - 지문(D-17): member_daily 의 D−90일 < date ≤ D 를 창구마다 합산 · 이름 = 최신 non-null · n 내림차순 → member
 --   - 권한: anon · authenticated EXECUTE 불가 · service_role 가능
@@ -23,7 +25,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(50);
+SELECT plan(54);
 
 -- ── 픽스처: 게이트 사용자 ─────────────────────────────────────────
 INSERT INTO auth.users (id, email) VALUES
@@ -83,7 +85,8 @@ SELECT public.limitup_commit_day('20261001', 'mf-1001', 'sig-1001', 1, '{"entrie
 --   facts 4 · grid_summary 2 · jumps(종목 01: burst_sell/cancel 45 + new 10, 종목 02: cancel 2) · member_daily 3
 SELECT pg_temp.st('20261002', 'entries', 1, '{"isin":"KR7000000002","short_code":null,"name":null,"schema_version":1}');
 SELECT pg_temp.st('20261002', 'entries', 2, '{"isin":"KR7000000001","short_code":"000001","name":"가종목","schema_version":1}');
-SELECT pg_temp.st('20261002', 'locks', 1, '{"isin":"KR7000000001","lock_id":2,"outcome":"유지","schema_version":1}');
+-- lock_id 2 는 gh-trade ea8d9171 새 키 6개를 싣는다(quick-261006-ide) — lock_id 1 은 옛 payload(키 없음).
+SELECT pg_temp.st('20261002', 'locks', 1, '{"isin":"KR7000000001","lock_id":2,"outcome":"유지","sell_krw":230000000,"cancel_krw":110000000,"risk_3s":null,"risk_10s":0.01,"risk_60s":0.06,"risk_pre":1.92,"schema_version":1}');
 SELECT pg_temp.st('20261002', 'locks', 2, '{"isin":"KR7000000001","lock_id":1,"outcome":"깨짐","schema_version":1}');
 SELECT pg_temp.st('20261002', 'facts', 1, '{"isin":"KR7000000002","event_no":0,"fact_no":1,"t_ms":50,"text":"다","values":{"k":4},"source":"실측","schema_version":1}');
 SELECT pg_temp.st('20261002', 'facts', 2, '{"isin":"KR7000000001","event_no":1,"fact_no":2,"t_ms":null,"text":"라","values":{"k":3},"source":"모형","schema_version":1}');
@@ -151,6 +154,14 @@ SELECT ok((pg_temp.r('d1002')#>'{day,entries,1}') ? 'short_code'
 SELECT is((pg_temp.r('d1002')#>'{day,entries,0}')->>'date', '20261002', 'C 행 키는 export 열 이름 그대로(date 포함)');
 SELECT is((SELECT jsonb_agg(jsonb_build_array(l->>'isin', (l->>'lock_id')::int)) FROM jsonb_array_elements(pg_temp.r('d1002')#>'{day,locks}') l),
           '[["KR7000000001", 1], ["KR7000000001", 2]]'::jsonb, 'C locks (isin, lock_id) 순');
+SELECT is(pg_temp.r('d1002')#>>'{day,locks,1,sell_krw}', '230000000', 'C locks[1](lock_id 2) sell_krw 값 그대로(quick-261006-ide)');
+SELECT is(pg_temp.r('d1002')#>'{day,locks,1,risk_pre}', '1.92'::jsonb, 'C locks[1] risk_pre 1.92(1 초과 소수 그대로)');
+SELECT ok((pg_temp.r('d1002')#>'{day,locks,0}') ? 'sell_krw'
+          AND pg_temp.r('d1002')#>'{day,locks,0,sell_krw}' = 'null'::jsonb,
+          'C locks[0](옛 payload) sell_krw 키는 JSON null');
+SELECT ok((pg_temp.r('d1002')#>'{day,locks,0}') ? 'risk_pre'
+          AND pg_temp.r('d1002')#>'{day,locks,0,risk_pre}' = 'null'::jsonb,
+          'C locks[0] risk_pre 키는 JSON null');
 SELECT is((SELECT jsonb_agg(f->>'text') FROM jsonb_array_elements(pg_temp.r('d1002')#>'{day,facts}') f),
           '["가", "나", "라", "다"]'::jsonb, 'C facts (isin, t_ms NULLS LAST, event_no, fact_no) 순');
 SELECT is(pg_temp.r('d1002')#>>'{day,facts,0,values,krw}', '1730000000', 'C facts "values" 키 그대로');

@@ -51,7 +51,7 @@ export interface LimitupEntryRow {
   schema_version: number | null;
 }
 
-/** locks (22열 · export.py LOCKS_EXPORT_COLS) — 잠김 구간. PK (date, isin, lock_id). */
+/** locks (28열(ea8d9171 +6) · export.py LOCKS_EXPORT_COLS) — 잠김 구간. PK (date, isin, lock_id). */
 export interface LimitupLockRow {
   date: LimitupDate;
   isin: string;
@@ -78,6 +78,24 @@ export interface LimitupLockRow {
   /** KST 'HH:MM:SS.ffffff'. */
   data_end: string | null;
   schema_version: number | null;
+  /**
+   * 그 잠김 누적 매도 주도 상한가 체결 금액(원 정수). gh-trade ea8d9171 · 옛 날짜 null · 마이그레이션 전 응답 · 옛 픽스처에는
+   * 키가 없다(그래서 optional — quick-261006-ide).
+   */
+  sell_krw?: number | null;
+  /** 그 잠김 상한가 매수잔량 취소 금액(원, 하한). gh-trade ea8d9171 · 옛 날짜 null. */
+  cancel_krw?: number | null;
+  /**
+   * 잠김 시작 +3초 위험도 = 그 시점까지 누적 매도 ÷ 그 시점 q_krw, **소수**(0.36 = 36% — 100% 초과면 1 초과). 잠김 밖 ·
+   * q_krw 0 이면 null. gh-trade ea8d9171 · 옛 날짜 null.
+   */
+  risk_3s?: number | null;
+  /** 잠김 시작 +10초 위험도(소수 — 100% 초과면 1 초과). gh-trade ea8d9171 · 옛 날짜 null. */
+  risk_10s?: number | null;
+  /** 잠김 시작 +60초 위험도(소수 — 100% 초과면 1 초과). gh-trade ea8d9171 · 옛 날짜 null. */
+  risk_60s?: number | null;
+  /** 깨짐(유지면 끝) −3초 위험도(소수 — 100% 초과면 1 초과). gh-trade ea8d9171 · 옛 날짜 null. */
+  risk_pre?: number | null;
 }
 
 /** facts (10열) — 사실 문장 + 근거 수치. PK (date, isin, event_no, fact_no). */
@@ -191,6 +209,7 @@ export interface LimitupGridUrlsResponse {
 }
 
 /** 격자 열 24개(coarse · fine 같음). */
+// 격자 cols lock_sell_krw · lock_cancel_krw(ea8d9171)는 지금 쓰지 않는다 — 보고서는 스케치 012-A(locks 행 요약 칩)만 쓴다(quick-261006-ide).
 export type LimitupGridCol =
   | "t_ms"
   | "last_px"

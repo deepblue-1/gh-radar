@@ -9,6 +9,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
  * 상호 강조 · 창구 막대 제목 + range(매수 up · 매도 down · 깨진 잠김 없으면 매도 묶음 없음) · 25% 계열 없음 · 출처 배지 글자
  * 그대로 · 빈 문구 · 마운트 즉시 격자 로드 · 로딩/에러/다시 시도 ·
  * **색 감사**(SVG stroke/fill 허용 집합 · 오버레이 마커 색 · 초록 상태 토큰 0 · SVG 안 글자 요소 0).
+ * quick-261006-ide(스케치 012-A): 「잠김 구간」 요약 칩 줄 · 「잠김 N」 머리 · 6값 전부 null 이면 칩 · 캡션 0 · broke 별 라벨 · 192%.
  * 입력 = 실 export 20261002(덕우전자 깨짐 · 엑시온그룹 유지 · 형지글로벌 미도달 = 목록 밖) + 실 격자 gzip.
  */
 
@@ -17,7 +18,7 @@ vi.mock('@/lib/limitup-api', () => ({
   fetchLimitupGridUrls: (d: string) => urlsMock(d),
 }));
 
-import type { LimitupFactRow } from '@gh-radar/shared';
+import type { LimitupFactRow, LimitupLockRow } from '@gh-radar/shared';
 
 import { dayRowsOf } from '@/lib/limitup-report';
 import { __resetLimitupGridCache } from '@/lib/use-limitup-grid';
@@ -334,5 +335,103 @@ describe('LimitupEventCard — 격자 로드 · 레인', () => {
     expect(c.querySelector('[data-mark="cancel"]')!.className).toContain('text-[var(--muted-fg)]');
     expect(c.querySelector('[data-mark="wallClear"]')!.className).toContain('bg-[var(--fg)]');
     expect(c.innerHTML).not.toMatch(/led-armed|--success|--green/);
+  });
+});
+
+describe('LimitupEventCard — 잠김 구간 요약 칩(스케치 012-A · quick-261006-ide)', () => {
+  const RISK_DUKWOO: Partial<LimitupLockRow> = {
+    sell_krw: 980_000_000,
+    cancel_krw: 920_000_000,
+    risk_3s: 0.04,
+    risk_10s: 0.4,
+    risk_60s: null,
+    risk_pre: 0.25,
+  };
+
+  function renderWithLocks(isin: string, locksOf: (ls: readonly LimitupLockRow[]) => LimitupLockRow[]) {
+    const base = rowOf(isin);
+    return render(
+      <LimitupEventCard
+        date={D}
+        row={{ ...base, locks: locksOf(base.locks) }}
+        entry={entries.find((e) => e.isin === isin) ?? null}
+        facts={facts.filter((f) => f.isin === isin)}
+        marks={marks.filter((m) => m.isin === isin)}
+      />,
+    );
+  }
+
+  const chipsOf = (isin: string) => card(isin).querySelector('[data-slot="limitup-lock-risk"]');
+  const captionsOf = (isin: string) => card(isin).querySelectorAll('[data-slot="limitup-lock-risk-caption"]');
+
+  it('실 export 10/02(새 키 없음) → 칩 영역 · 캡션 0', () => {
+    urlsOk();
+    renderCard(DUKWOO);
+    expect(chipsOf(DUKWOO)).toBeNull();
+    expect(captionsOf(DUKWOO)).toHaveLength(0);
+  });
+
+  it('덕우(깨짐) → 「누적 매도 9.8억」 · 「취소 9.2억」(--down) · 위험도 4시점(기본색) · 「깨짐 3초 전 25%」 · 캡션 1회', () => {
+    urlsOk();
+    renderWithLocks(DUKWOO, (ls) => ls.map((l) => ({ ...l, ...RISK_DUKWOO })));
+    const area = chipsOf(DUKWOO)!;
+    expect(area).not.toBeNull();
+    const rowsEl = area.querySelectorAll('[data-slot="limitup-lock-risk-row"]');
+    expect(rowsEl).toHaveLength(1);
+    const chip = (kind: string) => area.querySelector(`[data-slot="limitup-lock-risk-chip"][data-kind="${kind}"]`)!;
+    expect(chip('sell').textContent).toBe('누적 매도9.8억');
+    expect(chip('cancel').textContent).toBe('취소9.2억');
+    expect(chip('sell').querySelector('b')!.className).toContain('text-[var(--down)]');
+    expect(chip('cancel').querySelector('b')!.className).toContain('text-[var(--down)]');
+    const risk = chip('risk');
+    expect(risk.textContent).toBe('위험도+3초 4%·+10초 40%·+60초 —·깨짐 3초 전 25%');
+    for (const b of risk.querySelectorAll('b')) {
+      expect(b.className).toContain('text-[var(--fg)]');
+      expect(b.className).not.toMatch(/--(up|down|warn|success|green)/);
+    }
+    // 잠김 1개 → 줄 머리 없음.
+    expect(rowsEl[0]!.textContent!.startsWith('누적 매도')).toBe(true);
+    expect(captionsOf(DUKWOO)).toHaveLength(1);
+    expect(captionsOf(DUKWOO)[0]!.textContent).toBe('위험도 = 그 시점까지 누적 매도 ÷ 그 시점 대기 금액 · 100% 를 넘을 수 있다');
+  });
+
+  it('엑시온(유지 · broke false) → 「끝 3초 전 192%」(100% 초과 그대로)', () => {
+    urlsOk();
+    renderWithLocks(AXION, (ls) =>
+      ls.map((l) => ({ ...l, sell_krw: 230_000_000, cancel_krw: 110_000_000, risk_3s: null, risk_10s: 0.01, risk_60s: 0.06, risk_pre: 1.92 })),
+    );
+    expect(chipsOf(AXION)!.textContent).toContain('끝 3초 전 192%');
+    expect(chipsOf(AXION)!.textContent).not.toContain('깨짐 3초 전');
+  });
+
+  it('잠김 2개 → 줄 2개 · 머리 「잠김 1」 · 「잠김 2」(lock_id 순) · 캡션은 1회', () => {
+    urlsOk();
+    renderWithLocks(DUKWOO, (ls) => [
+      { ...ls[0]!, ...RISK_DUKWOO },
+      { ...ls[0]!, lock_id: 2, broke: false, ...RISK_DUKWOO, risk_pre: 0.5 },
+    ]);
+    const rowsEl = chipsOf(DUKWOO)!.querySelectorAll('[data-slot="limitup-lock-risk-row"]');
+    expect(Array.from(rowsEl).map((r) => r.getAttribute('data-lock-id'))).toEqual(['1', '2']);
+    expect(rowsEl[0]!.textContent!.startsWith('잠김 1')).toBe(true);
+    expect(rowsEl[1]!.textContent!.startsWith('잠김 2')).toBe(true);
+    expect(rowsEl[1]!.textContent).toContain('끝 3초 전 50%');
+    expect(captionsOf(DUKWOO)).toHaveLength(1);
+  });
+
+  it('6값이 모두 null 인 잠김 → 칩 · 캡션 0', () => {
+    urlsOk();
+    renderWithLocks(DUKWOO, (ls) =>
+      ls.map((l) => ({ ...l, sell_krw: null, cancel_krw: null, risk_3s: null, risk_10s: null, risk_60s: null, risk_pre: null })),
+    );
+    expect(chipsOf(DUKWOO)).toBeNull();
+    expect(captionsOf(DUKWOO)).toHaveLength(0);
+  });
+
+  it('격자 로딩 중에도 칩은 보인다(보고서 응답 값)', () => {
+    urlsMock.mockReturnValue(new Promise(() => {}));
+    renderWithLocks(DUKWOO, (ls) => ls.map((l) => ({ ...l, ...RISK_DUKWOO })));
+    expect(card(DUKWOO).querySelector('[data-slot="limitup-lane-slot"][data-state="loading"]')).not.toBeNull();
+    expect(chipsOf(DUKWOO)).not.toBeNull();
+    expect(captionsOf(DUKWOO)).toHaveLength(1);
   });
 });
