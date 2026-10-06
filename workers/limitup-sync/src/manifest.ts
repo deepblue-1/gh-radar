@@ -11,8 +11,12 @@ import { createHash } from "node:crypto";
 import { createReadStream, existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-/** 아는 export schema_version — 다른 값이면 그 날짜를 적재하지 않는다(28-16 이 skip 으로 바꾼다). */
-export const KNOWN_SCHEMA_VERSION = 1;
+/**
+ * 아는 export schema_version — 이 밖의 값이면 그 날짜를 적재하지 않는다(skip "schema" — 28-16).
+ *   1 = Phase 28 원판, 2 = gh-trade ea8d9171 열 추가 판 올림(locks sell_krw · cancel_krw · risk_*, grid lock_sell_krw ·
+ *   lock_cancel_krw). 워커는 판에 따라 다르게 읽지 않는다(payload 원문 · 격자 파일 그대로 — quick-261006-ide).
+ */
+export const KNOWN_SCHEMA_VERSIONS: ReadonlySet<number> = new Set([1, 2]);
 
 export type ManifestFile = { name: string; rows: number; sha256: string };
 

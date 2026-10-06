@@ -4,21 +4,21 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadConfig } from "./config";
 import { logger } from "./logger";
 import { createSupabaseClient } from "./services/supabase";
-import { KNOWN_SCHEMA_VERSION, filesSig, listExportDates, readManifest, verifyFiles } from "./manifest";
+import { KNOWN_SCHEMA_VERSIONS, filesSig, listExportDates, readManifest, verifyFiles } from "./manifest";
 import { EXPORT_TABLES, commitDay, readNdjsonGz, stageDay, type ExportTbl, type Row, type StageTbl } from "./load";
 import { gridSummaryOf, memberDailyOf } from "./derive";
 import { GRID_NAME_RE, readGridGz, uploadGrids } from "./grid";
 import { kstYmdDaysAgo, purgeOld, type PurgeResult } from "./purge";
 import { freshnessOf, STALE_TRADING_DAYS, type Freshness } from "./freshness";
 
-export { KNOWN_SCHEMA_VERSION } from "./manifest";
+export { KNOWN_SCHEMA_VERSIONS } from "./manifest";
 export { kstYmdDaysAgo } from "./purge";
 
 /**
  * limitup-sync entry — gh-trade 밤 export(인박스 「(C)」)를 Supabase limitup 표에 날짜 단위로 원자 교체한다.
  *
  * 한 날짜 판정 순서(고정 — 28-16 · D-14):
- *   manifest 읽기(깨지면 skip "manifest") → `schema_version`(모르면 skip "schema" — 파일을 읽지 않는다) →
+ *   manifest 읽기(깨지면 skip "manifest") → `schema_version`(모르는 판(1 · 2 밖)이면 skip "schema" — 파일을 읽지 않는다) →
  *   `files_sig` 가 이력과 같으면 `skipped.unchanged`(verify · stage · commit · record_skip 없음) →
  *   files sha256 대조(불일치 · 없는 파일이면 skip "sha") → 6 ndjson.gz 읽기(행 수 == manifest rows) →
  *   격자 `grid/<isin>.json.gz` 읽기 → 파생 2표(`gridSummaryOf` · `memberDailyOf` — D-17, gh-trade 정의) →
@@ -184,8 +184,8 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
       return;
     }
     const m = mr.manifest;
-    if (m.schema_version !== KNOWN_SCHEMA_VERSION) {
-      await skip(date, "schema", { schema_version: m.schema_version, known: KNOWN_SCHEMA_VERSION });
+    if (!KNOWN_SCHEMA_VERSIONS.has(m.schema_version)) {
+      await skip(date, "schema", { schema_version: m.schema_version, known: [...KNOWN_SCHEMA_VERSIONS] });
       return;
     }
     const sig = filesSig(m);

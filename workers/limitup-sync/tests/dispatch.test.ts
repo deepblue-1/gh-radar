@@ -157,8 +157,20 @@ describe("dispatch — 「바뀐 날짜만」(D-14 · files_sig)", () => {
 });
 
 describe("dispatch — skip 기록(D-14 · D-20) · 한 날짜의 skip 은 다른 날짜를 막지 않는다", () => {
-  it('schema_version 2 → 파일을 읽지 않고 record_skip { p_reason: "schema" } 1회 · warn 에 원문 값 · stage/commit 0', async () => {
+  it("schema_version 2(gh-trade ea8d9171 판 올림) → skip 없이 stage · commit 1회 · p_schema_version 2 (quick-261006-ide)", async () => {
     addDay(GOOD, (m) => ({ ...m, schema_version: 2 }));
+    const { out, fake } = await run();
+    expect(rpcs(fake.calls, "limitup_record_skip")).toEqual([]);
+    expect(inserts(fake.calls).length).toBeGreaterThan(0);
+    const commits = rpcs(fake.calls, "limitup_commit_day");
+    expect(commits).toHaveLength(1);
+    expect(commits[0]!.args).toMatchObject({ p_date: GOOD, p_schema_version: 2 });
+    expect(out.skipped.schema).toEqual([]);
+    expect(out.loaded).toEqual([GOOD]);
+  });
+
+  it('schema_version 3(모르는 판) → 파일을 읽지 않고 record_skip { p_reason: "schema" } 1회 · warn 에 원문 값 · known [1, 2] · stage/commit 0', async () => {
+    addDay(GOOD, (m) => ({ ...m, schema_version: 3 }));
     rmSync(join(dir, GOOD, "touches.ndjson.gz")); // 파일을 읽었다면 sha skip 이 됐을 것
     const { out, fake } = await run({ recordSkip: 1 });
 
@@ -171,7 +183,7 @@ describe("dispatch — skip 기록(D-14 · D-20) · 한 날짜의 skip 은 다�
 
     const w = skipWarns();
     expect(w).toHaveLength(1);
-    expect(w[0].obj).toMatchObject({ date: GOOD, reason: "schema", detail: { schema_version: 2 } });
+    expect(w[0].obj).toMatchObject({ date: GOOD, reason: "schema", detail: { schema_version: 3, known: [1, 2] } });
     expect(out.alert).toBe(false);
   });
 
@@ -210,7 +222,7 @@ describe("dispatch — skip 기록(D-14 · D-20) · 한 날짜의 skip 은 다�
     delete process.env.SUPABASE_SERVICE_ROLE_KEY;
     addDay(BAD);
     corrupt(BAD, "jumps.ndjson.gz");
-    addDay(GOOD, (m) => ({ ...m, schema_version: 2 }));
+    addDay(GOOD, (m) => ({ ...m, schema_version: 3 }));
     const { out, fake, createSupabaseClient } = await run({}, { dryRun: true });
     expect(createSupabaseClient).not.toHaveBeenCalled();
     expect(fake.calls).toEqual([]);
@@ -220,7 +232,7 @@ describe("dispatch — skip 기록(D-14 · D-20) · 한 날짜의 skip 은 다�
   });
 
   it("record_skip RPC 오류 → 그 날짜 failed(날짜 · 사유 · 메시지 보존 · 무로그 fail-safe 금지) · load 기록 실패도 error 로그", async () => {
-    addDay(BAD, (m) => ({ ...m, schema_version: 2 }));
+    addDay(BAD, (m) => ({ ...m, schema_version: 3 }));
     const fake = makeFakeSupabase({ rpc: { limitup_record_skip: { error: { message: "permission denied" } } } });
     const { dispatch } = await loadIndex(fake);
     const out = await dispatch({ now: NOW });
@@ -247,7 +259,7 @@ describe("main — 종료 코드(D-20): skip 만 0 · 같은 날짜 3연속 1 ·
   });
 
   it("record_skip 이 2 이하면 alert: false · main 종료 0", async () => {
-    addDay(BAD, (m) => ({ ...m, schema_version: 2 }));
+    addDay(BAD, (m) => ({ ...m, schema_version: 3 }));
     addDay(GOOD);
     const { out, main } = await run({ recordSkip: 2 });
     expect(out.alert).toBe(false);

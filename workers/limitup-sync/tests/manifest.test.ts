@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import {
-  KNOWN_SCHEMA_VERSION,
+  KNOWN_SCHEMA_VERSIONS,
   filesSig,
   listExportDates,
   readManifest,
@@ -49,12 +49,21 @@ describe("listExportDates", () => {
   });
 });
 
+describe("KNOWN_SCHEMA_VERSIONS — 판 1 · 2 수용(quick-261006-ide)", () => {
+  it("1 · 2 는 알고 0 · 3 은 모른다", () => {
+    expect([...KNOWN_SCHEMA_VERSIONS]).toEqual([1, 2]);
+    expect(KNOWN_SCHEMA_VERSIONS.has(3)).toBe(false);
+    expect(KNOWN_SCHEMA_VERSIONS.has(0)).toBe(false);
+  });
+});
+
 describe("readManifest", () => {
   it("픽스처 manifest — ok · schema_version 1 · 파일 바이트 sha256", () => {
     const r = readManifest(dir, DATE);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.manifest.schema_version).toBe(KNOWN_SCHEMA_VERSION);
+    expect(r.manifest.schema_version).toBe(1);
+    expect(KNOWN_SCHEMA_VERSIONS.has(r.manifest.schema_version)).toBe(true);
     expect(r.manifest.files).toHaveLength(9);
     const bytes = readFileSync(join(dir, DATE, "manifest.json"));
     expect(r.sha256).toBe(createHash("sha256").update(bytes).digest("hex"));
