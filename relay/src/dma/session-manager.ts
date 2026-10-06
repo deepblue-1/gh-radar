@@ -213,6 +213,9 @@ function userBrokerKey(userId: string, broker: string): string {
   return `${userId}|${broker}`;
 }
 
+/** `closeForDmaUser` 가 세션 상태 프레임에 싣는 문구 — 브라우저 「권한 없음」 배지 옆 사유. */
+export const DMA_USER_CLOSED_MESSAGE = "DMA 계정 연결이 해제되어 실시간 세션을 종료했습니다";
+
 /** primary 우선 증권사 (D-18). 사용자 단위 명령 · 세션 상태 표시가 이 증권사 세션을 먼저 본다. */
 const PRIMARY_BROKER = "KB";
 
@@ -378,6 +381,53 @@ export class SessionManager {
     }
     if (avoidUserId === undefined) return undefined;
     return this.sessionsOf(avoidUserId).find((s) => s.isReady);
+  }
+
+  /**
+   * 그 DMA id 로 로그인하는 세션 전부의 비밀을 바꾼다 (29-16 · D-08 · RESEARCH Pitfall 8 — 결선은 29-21).
+   *
+   * **열린 세션은 끊지 않는다** — 새 비밀은 다음 `LoginReq`(회선 재접속 · 재로그인)부터다. 바꾸지 않으면 Admin 이 비번을
+   * 바꾼 뒤 첫 회선 끊김에서 옛 비밀로 재로그인해 거부로 굳는다. 대상은 사용자 · 증권사 무관 그 DMA id 의 모든 세션이다
+   * (같은 DMA id 를 쓰는 gh-radar 계정이 둘이어도 둘 다).
+   *
+   * 로그에 DMA id · 비밀번호를 싣지 않는다(D-19) — 개수와 서버 키만.
+   *
+   * @returns 바꾼 세션 수
+   */
+  updatePassword(dmaUserId: string, password: string): number {
+    const serverKeys: string[] = [];
+    for (const entry of this.#sessions.values()) {
+      if (!entry.session.isDmaUser(dmaUserId)) continue;
+      entry.session.setPassword(password);
+      serverKeys.push(entry.serverKey);
+    }
+    logger.info({ count: serverKeys.length, serverKeys }, "[DMA] DMA 유저 비밀 교체 — 열린 세션 유지, 다음 로그인부터 적용");
+    return serverKeys.length;
+  }
+
+  /**
+   * 그 DMA id 로 로그인한 세션 전부를 **재접속 루프 없이** `unauthorized` 로 끝낸다 (29-16 · CONTEXT 「DeleteUser →
+   * unauthorized · 재접속 루프 없음」 — 결선은 29-21).
+   *
+   * 엔트리는 지우지 않는다 — 탭이 열려 있는 동안 같은 사용자가 다시 와도(`acquireFor`) 그 죽은 세션을 돌려주고
+   * (`NO_RETRY_STATES` — 재로그인하지 않는다), 탭이 다 닫히면 종전 유예로 사라진다. 지우면 다음 acquire 가 지워진 DMA
+   * 계정으로 바로 재로그인해 거부를 되풀이한다. 상태 프레임(`unauthorized`)은 붙어 있는 탭에 그대로 간다.
+   *
+   * @param reason 로그용 짧은 사유(예 "deleted"). 화면 문구는 `DMA_USER_CLOSED_MESSAGE` 고정이다.
+   * @returns 끝낸 세션 수
+   */
+  closeForDmaUser(dmaUserId: string, reason: string): number {
+    const serverKeys: string[] = [];
+    for (const entry of this.#sessions.values()) {
+      if (!entry.session.isDmaUser(dmaUserId)) continue;
+      entry.session.terminate("unauthorized", DMA_USER_CLOSED_MESSAGE);
+      serverKeys.push(entry.serverKey);
+    }
+    logger.warn(
+      { count: serverKeys.length, serverKeys, reason },
+      "[DMA] DMA 유저 단위 세션 종료 — unauthorized (재접속 없음)",
+    );
+    return serverKeys.length;
   }
 
   /** 프로세스 graceful shutdown 용. 15-05 의 `index.ts` 가 부른다. */

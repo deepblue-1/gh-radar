@@ -8,12 +8,18 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import * as flatbuffers from "flatbuffers";
+
 import {
   SESSION_GRACE_MS,
   STALE_SESSION_MS,
   SessionManager,
   type DmaCredentials,
+  type SessionTarget,
 } from "../src/dma/session-manager.js";
+import { backoffDelayMs } from "../src/dma/dma-client.js";
+import { MSG } from "../src/dma/msg-type.js";
+import { Envelope } from "../src/generated/stock-dma/envelope.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
 
@@ -525,5 +531,199 @@ describe("SessionManager — resolveTarget (Phase 29 Plan 03 · 29-16 증권사�
     // 단일 대상은 그 증권사 하나뿐이다 — 다른 증권사는 열지 않는다.
     expect(plain.acquireFor("user-y", "KYOBO", CREDS)).toBeNull();
     expect(fallback.sockets).toHaveLength(1);
+  });
+});
+
+describe("SessionManager — 조회 · 비밀 교체 · DMA 유저 종료 · 주문 서버 전환 재사용 (29-16)", () => {
+  const managers: SessionManager[] = [];
+  const gateways: FakeGateway[] = [];
+  let kb120: FakeGateway;
+  let kb121: FakeGateway;
+  let kyobo: FakeGateway;
+  /** 레지스트리 흉내 — 증권사 → 지금의 주문 서버. 테스트가 바꿔 끼워 주문 서버 전환을 만든다. */
+  let targets: Map<string, SessionTarget>;
+  const KYOBO_ACCOUNT = "7777777701";
+  const OTHER: DmaCredentials = { dmaUserId: "other-dma-id", password: "other-secret" };
+
+  beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    resetDroppedEnvelopeCount();
+    kb120 = await startFakeGateway({ autoLogin: true, loginResp: { success: true } });
+    kb121 = await startFakeGateway({ autoLogin: true, loginResp: { success: true } });
+    kyobo = await startFakeGateway({
+      autoLogin: true,
+      loginResp: { success: true, accounts: [{ accountNo: KYOBO_ACCOUNT, name: "교보" }] },
+    });
+    gateways.push(kb120, kb121, kyobo);
+    targets = new Map([
+      ["KB", { serverKey: "KB120", host: "127.0.0.1", port: kb120.port, broker: "KB" }],
+      ["KYOBO", { serverKey: "KYOBO119", host: "127.0.0.1", port: kyobo.port, broker: "KYOBO" }],
+    ]);
+  });
+
+  afterEach(async () => {
+    for (const m of managers.splice(0)) await m.closeAll();
+    for (const g of gateways.splice(0)) await g.close();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  function mgr(opts: { now?: () => number } = {}): SessionManager {
+    const m = new SessionManager({
+      host: "127.0.0.1",
+      port: 1,
+      broker: "KB",
+      resolveTarget: (broker) => targets.get(broker),
+      ...opts,
+    });
+    managers.push(m);
+    return m;
+  }
+
+  it("D-10 — 그 증권사 세션이 살아 있으면(탭 · 유예 중) 주문 서버가 바뀌어도 재사용 · 세션이 끝난 뒤 acquire 부터 새 서버", async () => {
+    const m = mgr();
+    const s1 = m.acquireFor("user-1", "KB", CREDS)!;
+    await waitFor(() => s1.state === "ready", "KB120 ready");
+    expect(s1.serverKey).toBe("KB120");
+
+    // 주문 서버 전환(KB120 → KB121). 탭이 열려 있다(refCount 1) — 새 탭은 옛 서버 세션을 재사용한다.
+    targets.set("KB", { serverKey: "KB121", host: "127.0.0.1", port: kb121.port, broker: "KB" });
+    expect(m.acquireFor("user-1", "KB", CREDS)).toBe(s1);
+    await flushIo();
+    expect(kb121.sockets).toHaveLength(0);
+
+    // 탭 둘 다 닫힘 → 유예 중 재접속도 재사용(새로고침 왕복 흡수 · D-15).
+    m.release("user-1", "KB120");
+    m.release("user-1", "KB120");
+    vi.advanceTimersByTime(SESSION_GRACE_MS - 1000);
+    expect(m.acquireFor("user-1", "KB", CREDS)).toBe(s1);
+    expect(m.sessionsOf("user-1")).toHaveLength(1);
+
+    // 유예 만료로 세션이 끝난다 → 다음 acquire 부터 새 서버.
+    m.release("user-1", "KB120");
+    vi.advanceTimersByTime(SESSION_GRACE_MS);
+    await waitFor(() => m.sessionsOf("user-1").length === 0, "KB120 세션 소멸");
+    await waitFor(() => kb120.sockets.length === 0, "KB120 TCP 종료");
+
+    const s2 = m.acquireFor("user-1", "KB", CREDS)!;
+    await waitFor(() => s2.state === "ready", "KB121 ready");
+    expect(s2).not.toBe(s1);
+    expect(s2.serverKey).toBe("KB121");
+    expect(kb121.sockets).toHaveLength(1);
+    // 옛 서버 키 release 는 무해한 경합이다(이미 없는 세션).
+    expect(() => m.release("user-1", "KB120")).not.toThrow();
+    expect(m.get("user-1")).toBe(s2);
+  });
+
+  it("primaryOf — KB 세션이 있으면 그것 · 없으면 처음 만든 세션 · 없으면 undefined (D-18) · sessionsOf 는 생성 순서", async () => {
+    const m = mgr();
+    expect(m.primaryOf("user-1")).toBeUndefined();
+    expect(m.sessionsOf("user-1")).toEqual([]);
+
+    const ky = m.acquireFor("user-1", "KYOBO", CREDS)!;
+    await waitFor(() => ky.state === "ready", "교보 ready");
+    expect(m.primaryOf("user-1")).toBe(ky);
+
+    const kb = m.acquireFor("user-1", "KB", CREDS)!;
+    await waitFor(() => kb.state === "ready", "KB ready");
+    expect(m.primaryOf("user-1")).toBe(kb);
+    expect(m.get("user-1")).toBe(kb);
+    expect(m.sessionsOf("user-1")).toEqual([ky, kb]);
+    expect(m.forAccount("user-1", KYOBO_ACCOUNT)).toBe(ky);
+  });
+
+  it("firstReady(avoidUserId) 는 사용자 단위 회피 그대로다 (키 구조 무관) · stats 는 모든 (유저, 서버) 세션을 센다", async () => {
+    let clock = 1_000_000;
+    const m = mgr({ now: () => clock });
+    const aKb = m.acquireFor("user-a", "KB", CREDS)!;
+    const aKy = m.acquireFor("user-a", "KYOBO", CREDS)!;
+    const bKb = m.acquireFor("user-b", "KB", OTHER)!;
+    await waitFor(() => aKb.isReady && aKy.isReady && bKb.isReady, "세 세션 ready");
+
+    expect(m.firstReady()).toBe(aKb);
+    expect(m.firstReady("user-a")).toBe(bKb);
+    expect(m.firstReady("user-b")).toBe(aKb);
+    expect(m.stats()).toEqual({ sessionCount: 3, readyCount: 3, everReadyCount: 3, stalledCount: 0 });
+
+    // 판정 규율 그대로 — 한 번도 Ready 가 아닌 세션만 시간으로 가른다(16-30).
+    kb121.silenceLogin();
+    targets.set("KB", { serverKey: "KB121", host: "127.0.0.1", port: kb121.port, broker: "KB" });
+    const cKb = m.acquireFor("user-c", "KB", CREDS)!;
+    await waitFor(() => cKb.state === "logging_in", "무응답 세션 로그인 대기");
+    clock += STALE_SESSION_MS + 1;
+    expect(m.stats()).toEqual({ sessionCount: 4, readyCount: 3, everReadyCount: 3, stalledCount: 1 });
+  });
+
+  it("updatePassword — 그 DMA id 로 로그인한 세션 수 반환 · 상태 불변(열린 세션 유지 · D-08) · 재접속 LoginReq 부터 새 비밀 · 로그에 DMA id 없음", async () => {
+    const { logger } = await import("../src/logger.js");
+    const logged: unknown[][] = [];
+    const keep = ((...args: unknown[]) => {
+      logged.push(args);
+    }) as never;
+    vi.spyOn(logger, "info").mockImplementation(keep);
+    vi.spyOn(logger, "warn").mockImplementation(keep);
+    const passwords: string[] = [];
+    kb120.onFrame((t, payload) => {
+      if (t !== MSG.LoginReq) return;
+      const env = Envelope.getRootAsEnvelope(
+        new flatbuffers.ByteBuffer(new Uint8Array(payload.buffer, payload.byteOffset, payload.length)),
+      );
+      passwords.push(env.loginReq()?.password() ?? "");
+    });
+
+    const m = mgr();
+    const aKb = m.acquireFor("user-a", "KB", CREDS)!;
+    const aKy = m.acquireFor("user-a", "KYOBO", CREDS)!;
+    const bKb = m.acquireFor("user-b", "KB", OTHER)!;
+    await waitFor(() => aKb.isReady && aKy.isReady && bKb.isReady, "세 세션 ready");
+    await waitFor(() => passwords.length === 2, "KB120 로그인 2건");
+
+    expect(m.updatePassword(CREDS.dmaUserId, "rotated-새비밀")).toBe(2);
+    expect(m.updatePassword("없는-dma-id", "x")).toBe(0);
+    await flushIo();
+    expect([aKb.state, aKy.state, bKb.state]).toEqual(["ready", "ready", "ready"]);
+    expect(m.sessionsOf("user-a")).toEqual([aKb, aKy]);
+
+    // 회선 끊김 → 재접속 로그인에 새 비밀(RESEARCH Pitfall 8). user-b(다른 DMA id)는 옛 비밀 그대로.
+    for (const sock of [...kb120.sockets]) kb120.hardClose(sock);
+    await waitFor(() => aKb.state === "reconnecting" && bKb.state === "reconnecting", "재접속 대기");
+    vi.advanceTimersByTime(backoffDelayMs(1));
+    await waitFor(() => aKb.isReady && bKb.isReady, "재접속 ready");
+    expect(passwords.slice(2).sort()).toEqual([OTHER.password, "rotated-새비밀"].sort());
+
+    const dumped = JSON.stringify(logged);
+    expect(dumped).not.toContain(CREDS.dmaUserId);
+    expect(dumped).not.toContain("rotated-새비밀");
+    expect(dumped).not.toContain(CREDS.password);
+  });
+
+  it("closeForDmaUser — 그 DMA id 세션 전부 unauthorized(재접속 루프 없음) · 반환 개수 · 다시 acquire 해도 재로그인하지 않음 · stalled 아님", async () => {
+    let clock = 1_000_000;
+    const m = mgr({ now: () => clock });
+    const aKb = m.acquireFor("user-a", "KB", CREDS)!;
+    const aKy = m.acquireFor("user-a", "KYOBO", CREDS)!;
+    const bKb = m.acquireFor("user-b", "KB", OTHER)!;
+    await waitFor(() => aKb.isReady && aKy.isReady && bKb.isReady, "세 세션 ready");
+    const frames: string[] = [];
+    aKb.on("state", (f) => frames.push(f.s));
+
+    expect(m.closeForDmaUser(CREDS.dmaUserId, "deleted")).toBe(2);
+    expect(aKb.state).toBe("unauthorized");
+    expect(aKy.state).toBe("unauthorized");
+    expect(frames).toEqual(["unauthorized"]);
+    expect(bKb.state).toBe("ready");
+    await waitFor(() => kb120.sockets.length === 1 && kyobo.sockets.length === 0, "a 의 TCP 종료 · b 는 유지");
+
+    // 다시 와도 재로그인하지 않는다(NO_RETRY) — 같은 죽은 세션을 돌려준다.
+    expect(m.acquireFor("user-a", "KB", CREDS)).toBe(aKb);
+    vi.advanceTimersByTime(10 * 60_000);
+    await flushIo();
+    expect(kb120.sockets).toHaveLength(1);
+    expect(kyobo.sockets).toHaveLength(0);
+
+    // 사용자 원인 종료라 게이트웨이 장애 판정(stalled)에 들어가지 않는다.
+    clock += STALE_SESSION_MS * 10;
+    expect(m.stats()).toEqual({ sessionCount: 3, readyCount: 1, everReadyCount: 3, stalledCount: 0 });
+    expect(m.closeForDmaUser("없는-dma-id", "deleted")).toBe(0);
   });
 });

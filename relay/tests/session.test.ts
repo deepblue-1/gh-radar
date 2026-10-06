@@ -17,6 +17,18 @@ import { DmaSession, LOGIN_RESP_TIMEOUT_MS } from "../src/dma/session.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
 import { SAMPLE_ACCOUNTS } from "./helpers/frames.js";
+import * as flatbuffers from "flatbuffers";
+import { Envelope } from "../src/generated/stock-dma/envelope.js";
+import { MSG } from "../src/dma/msg-type.js";
+
+/** 게이트웨이가 받은 `LoginReq(1)` 의 비밀번호(요청 대역 직접 파싱 — 프로덕션 파서를 정답지로 쓰지 않는다). */
+function loginPasswordOf(msgType: number, payload: Buffer): string | null {
+  if (msgType !== MSG.LoginReq) return null;
+  const env = Envelope.getRootAsEnvelope(
+    new flatbuffers.ByteBuffer(new Uint8Array(payload.buffer, payload.byteOffset, payload.length)),
+  );
+  return env.loginReq()?.password() ?? null;
+}
 
 /** 절대 로그·상태 프레임·직렬화에 나타나면 안 되는 값. */
 const SECRET = "p@ssw0rd-절대노출금지";
@@ -274,4 +286,59 @@ describe("DmaSession", () => {
     expect(s.manualReconnect()).toBe(false);
     expect(s.state).toBe("session_rejected");
   });
+
+  it("⑩ setPassword — 열린 세션은 그대로이고 회선 재접속의 LoginReq 부터 새 비밀번호를 싣는다 (29-16 · D-08 · Pitfall 8)", async () => {
+    gateway = await startFakeGateway({ autoLogin: true, loginResp: { success: true } });
+    const passwords: string[] = [];
+    gateway.onFrame((t, payload) => {
+      const pw = loginPasswordOf(t, Buffer.from(payload));
+      if (pw !== null) passwords.push(pw);
+    });
+    const { session: s, states } = makeSession();
+    s.start();
+    await waitFor(() => s.state === "ready", "최초 ready");
+    expect(passwords).toEqual([SECRET]);
+
+    const before = states.length;
+    s.setPassword("new-비밀-2");
+    await flushIo();
+    // 교체만으로는 상태가 바뀌지 않는다 — 열린 세션 유지(D-08). 재로그인도 없다.
+    expect(s.state).toBe("ready");
+    expect(states).toHaveLength(before);
+    expect(passwords).toEqual([SECRET]);
+    // 직렬화 · inspect 에도 새 비밀이 없다(D-19).
+    expect(JSON.stringify(s)).not.toContain("new-비밀-2");
+    expect(inspect(s)).not.toContain("new-비밀-2");
+
+    gateway.hardClose(gateway.sockets[0] as net.Socket);
+    await waitFor(() => s.state === "reconnecting", "reconnecting 진입");
+    vi.advanceTimersByTime(backoffDelayMs(1));
+    await waitFor(() => s.state === "ready", "재접속 후 ready 복귀");
+    expect(passwords).toEqual([SECRET, "new-비밀-2"]);
+  });
+
+  it("⑪ terminate(unauthorized) — 재접속 루프 없이 종료 상태 · 상태 프레임 1건 · 회선 단절 뒤에도 그대로 (29-16)", async () => {
+    gateway = await startFakeGateway({ autoLogin: true, loginResp: { success: true } });
+    const { session: s, client, states } = makeSession();
+    s.start();
+    await waitFor(() => s.state === "ready", "최초 ready");
+
+    s.terminate("unauthorized", "DMA 계정이 해제되었습니다");
+    expect(s.state).toBe("unauthorized");
+    expect(s.isReady).toBe(false);
+    expect(states.at(-1)).toMatchObject({ s: "unauthorized", msg: "DMA 계정이 해제되었습니다" });
+    expect(client.autoReconnect).toBe(false);
+    await waitFor(() => gateway.sockets.length === 0, "게이트웨이 연결 종료");
+
+    // 시간이 흘러도 재접속하지 않는다(종료 상태 · KB 계정 잠금 방지).
+    vi.advanceTimersByTime(10 * 60_000);
+    await flushIo();
+    expect(gateway.sockets).toHaveLength(0);
+    expect(s.state).toBe("unauthorized");
+    // 두 번 불러도 프레임을 다시 내지 않는다.
+    const count = states.length;
+    s.terminate("unauthorized", "DMA 계정이 해제되었습니다");
+    expect(states).toHaveLength(count);
+  });
+
 });
