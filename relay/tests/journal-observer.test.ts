@@ -467,7 +467,7 @@ async function fetchHealthz(journal: JournalStatus): Promise<{ status: number; t
     appVersion: "test-sha",
     nodeEnv: "test",
     sessions: { stats: () => ({ sessionCount: 0, readyCount: 0, everReadyCount: 0, stalledCount: 0 }) },
-    dmaHost: "127.0.0.1",
+    dmaHost: () => "127.0.0.1",
     networkInterfaces: () => ({
       lo: [{ address: "127.0.0.1", family: "IPv4", internal: true } as os.NetworkInterfaceInfo],
     }),
@@ -1255,10 +1255,16 @@ describe("두 스트림 (Phase 25) — 전략 갭 · resync · 구 게이트웨�
 });
 
 describe("loadConfig — DMA_OBSERVER_SECRET (D-10 · T-19-03)", () => {
-  const saved = { NODE_ENV: process.env.NODE_ENV, DMA_OBSERVER_SECRET: process.env.DMA_OBSERVER_SECRET };
+  const saved = {
+    NODE_ENV: process.env.NODE_ENV,
+    DMA_OBSERVER_SECRET: process.env.DMA_OBSERVER_SECRET,
+    DMA_REGISTRY_SOURCE: process.env.DMA_REGISTRY_SOURCE,
+  };
 
   afterEach(() => {
     process.env.NODE_ENV = saved.NODE_ENV;
+    if (saved.DMA_REGISTRY_SOURCE === undefined) delete process.env.DMA_REGISTRY_SOURCE;
+    else process.env.DMA_REGISTRY_SOURCE = saved.DMA_REGISTRY_SOURCE;
     if (saved.DMA_OBSERVER_SECRET === undefined) delete process.env.DMA_OBSERVER_SECRET;
     else process.env.DMA_OBSERVER_SECRET = saved.DMA_OBSERVER_SECRET;
   });
@@ -1281,6 +1287,8 @@ describe("loadConfig — DMA_OBSERVER_SECRET (D-10 · T-19-03)", () => {
     }
     process.env.NODE_ENV = "production";
     process.env.DMA_OBSERVER_SECRET = SECRET;
+    // Phase 29 D-09 — production 은 레지스트리 db 원천이 필수다(이 케이스의 관심사는 비밀뿐).
+    process.env.DMA_REGISTRY_SOURCE = "db";
     expect(loadConfig().dmaObserverSecret).toBe(SECRET);
   });
 });

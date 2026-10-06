@@ -1,11 +1,12 @@
 /**
- * quick-260929-c8e — `loadConfig().journalUpstreams` (관찰자 다중 업스트림 env 표).
+ * quick-260929-c8e → Phase 29-03 — `loadConfig().envServers` (env 모드 합성 레지스트리 · 관찰자 다중 업스트림 env 표).
  *
- * 추가 관찰자는 config.ts 의 env 표에서만 온다(행 1개 — 게이트웨이 키 KYOBO). 여기서 잠그는 것:
- *   ① 추가 env 가 없으면 주 게이트웨이 1개뿐이고 기존 필드 값과 같다(오늘과 동일).
- *   ② 호스트 + 비밀 → 두 번째 원소 {KYOBO, 호스트, 9100, 비밀} · 포트 env 로 바꿀 수 있다.
- *   ③ 비밀만 있거나 호스트가 빈 문자열이면 추가 원소가 없다.
- *   ④ production 에서도 추가 게이트웨이 비밀 부재는 기동을 막지 않는다(secret undefined → disabled).
+ * 추가 관찰자는 config.ts 의 env 표에서만 온다(행 1개 — 키 KYOBO). Phase 29 에서 `journalUpstreams` 가 `envServers`
+ * (`DmaServerRow`)로 바뀌고 비밀은 증권사별 `observerSecretOf` 로 갈라졌다. 케이스 의미는 그대로다:
+ *   ① 추가 env 가 없으면 주 게이트웨이 1행뿐이고 기존 필드 값과 같다(오늘과 동일).
+ *   ② 호스트 → 두 번째 행 {KYOBO · 호스트 · 9100 · KYOBO 주문 서버} · 비밀은 observerSecretOf("KYOBO") · 포트 env 로 바꿀 수 있다.
+ *   ③ 비밀만 있거나 호스트가 빈 문자열이면 추가 행이 없다.
+ *   ④ production 에서도 추가 게이트웨이 비밀 부재는 기동을 막지 않는다(observerSecretOf undefined → disabled).
  *   ⑤ 추가 행의 키가 주 게이트웨이 키와 같으면 기동을 거부한다(커서 · epoch · 매핑 혼합 방지).
  *
  * 규율: 주소는 TEST-NET(192.0.2.x)만 쓴다(D-27). 건드린 env 는 전부 원래 값으로 되돌린다
@@ -24,12 +25,34 @@ const TOUCHED = [
   "DMA_KYOBO_HOST",
   "DMA_KYOBO_PORT",
   "DMA_OBSERVER_SECRET_KYOBO",
+  "DMA_REGISTRY_SOURCE",
 ] as const;
 
 const PRIMARY_SECRET = "primary-observer-secret-test";
 const KYOBO_SECRET = "kyobo-observer-secret-test";
 
-describe("loadConfig — journalUpstreams (quick-260929-c8e)", () => {
+const KB_ROW = {
+  key: "KB",
+  broker: "KB",
+  host: "127.0.0.1",
+  port: 9100,
+  enabled: true,
+  isOrderServer: true,
+  isQuotePrimary: true,
+  sortOrder: 0,
+};
+const KYOBO_ROW = {
+  key: "KYOBO",
+  broker: "KYOBO",
+  host: "192.0.2.10",
+  port: 9100,
+  enabled: true,
+  isOrderServer: true,
+  isQuotePrimary: false,
+  sortOrder: 1,
+};
+
+describe("loadConfig — envServers (quick-260929-c8e → Phase 29-03)", () => {
   const saved: Record<string, string | undefined> = {};
 
   beforeEach(() => {
@@ -39,6 +62,7 @@ describe("loadConfig — journalUpstreams (quick-260929-c8e)", () => {
     delete process.env.DMA_KYOBO_PORT;
     delete process.env.DMA_OBSERVER_SECRET_KYOBO;
     delete process.env.DMA_BROKER;
+    delete process.env.DMA_REGISTRY_SOURCE;
     process.env.DMA_HOST = "127.0.0.1";
     process.env.DMA_PORT = "9100";
     process.env.DMA_OBSERVER_SECRET = PRIMARY_SECRET;
@@ -51,45 +75,52 @@ describe("loadConfig — journalUpstreams (quick-260929-c8e)", () => {
     }
   });
 
-  it("① 추가 env 없음 → [{KB · host · port · secret}] 1개 · 기존 필드 값과 같다", () => {
+  it("① 추가 env 없음 → [{KB · host · port · 주문 · 시세 주}] 1행 · 기존 필드 값과 같다", () => {
     const c = loadConfig();
-    expect(c.journalUpstreams).toEqual([{ gateway: "KB", host: "127.0.0.1", port: 9100, secret: PRIMARY_SECRET }]);
-    const [primary] = c.journalUpstreams;
-    expect(primary).toEqual({ gateway: c.dmaBroker, host: c.dmaHost, port: c.dmaPort, secret: c.dmaObserverSecret });
+    expect(c.envServers).toEqual([KB_ROW]);
+    const [primary] = c.envServers;
+    expect(primary).toMatchObject({ key: c.dmaBroker, broker: c.dmaBroker, host: c.dmaHost, port: c.dmaPort });
+    expect(c.observerSecretOf("KB")).toBe(c.dmaObserverSecret);
+    expect(c.observerSecretOf("KB")).toBe(PRIMARY_SECRET);
   });
 
-  it("② 호스트 + 비밀 → journalUpstreams[1] = {KYOBO · 192.0.2.10 · 9100 · 비밀} · DMA_KYOBO_PORT 로 포트 변경", () => {
+  it("② 호스트 + 비밀 → envServers[1] = {KYOBO · 192.0.2.10 · 9100 · KYOBO 주문 서버} · 비밀은 증권사별 · DMA_KYOBO_PORT 로 포트 변경", () => {
     process.env.DMA_KYOBO_HOST = "192.0.2.10";
     process.env.DMA_OBSERVER_SECRET_KYOBO = KYOBO_SECRET;
     const c = loadConfig();
-    expect(c.journalUpstreams).toHaveLength(2);
-    expect(c.journalUpstreams[1]).toEqual({ gateway: "KYOBO", host: "192.0.2.10", port: 9100, secret: KYOBO_SECRET });
-    // 주 게이트웨이 원소는 그대로다.
-    expect(c.journalUpstreams[0]).toEqual({ gateway: "KB", host: "127.0.0.1", port: 9100, secret: PRIMARY_SECRET });
+    expect(c.envServers).toHaveLength(2);
+    expect(c.envServers[1]).toEqual(KYOBO_ROW);
+    expect(c.observerSecretOf("KYOBO")).toBe(KYOBO_SECRET);
+    // 주 게이트웨이 행 · 비밀은 그대로다.
+    expect(c.envServers[0]).toEqual(KB_ROW);
+    expect(c.observerSecretOf("KB")).toBe(PRIMARY_SECRET);
 
     process.env.DMA_KYOBO_PORT = "9105";
-    expect(loadConfig().journalUpstreams[1]?.port).toBe(9105);
+    expect(loadConfig().envServers[1]?.port).toBe(9105);
     // 빈 포트는 기본값 9100.
     process.env.DMA_KYOBO_PORT = "";
-    expect(loadConfig().journalUpstreams[1]?.port).toBe(9100);
+    expect(loadConfig().envServers[1]?.port).toBe(9100);
   });
 
   it("③ 비밀만 있거나 호스트가 빈 문자열이면 추가 원소가 없다", () => {
     process.env.DMA_OBSERVER_SECRET_KYOBO = KYOBO_SECRET;
-    expect(loadConfig().journalUpstreams).toHaveLength(1);
+    expect(loadConfig().envServers).toHaveLength(1);
     process.env.DMA_KYOBO_HOST = "";
-    expect(loadConfig().journalUpstreams).toHaveLength(1);
+    expect(loadConfig().envServers).toHaveLength(1);
   });
 
-  it("④ production + KB 비밀 있음 + KYOBO 호스트만 → throw 없이 secret undefined (disabled 로 드러난다)", () => {
+  it("④ production(db) + KB 비밀 있음 + KYOBO 호스트만 → throw 없이 observerSecretOf(KYOBO) undefined (disabled 로 드러난다)", () => {
     process.env.NODE_ENV = "production";
+    // Phase 29 D-09 — production 은 db 원천 필수(env 합성은 계산만 해 둔다).
+    process.env.DMA_REGISTRY_SOURCE = "db";
     process.env.DMA_KYOBO_HOST = "192.0.2.10";
     expect(() => loadConfig()).not.toThrow();
     const c = loadConfig();
-    expect(c.journalUpstreams[1]).toEqual({ gateway: "KYOBO", host: "192.0.2.10", port: 9100, secret: undefined });
+    expect(c.envServers[1]).toEqual(KYOBO_ROW);
+    expect(c.observerSecretOf("KYOBO")).toBeUndefined();
     // 빈 비밀도 undefined 다.
     process.env.DMA_OBSERVER_SECRET_KYOBO = "";
-    expect(loadConfig().journalUpstreams[1]?.secret).toBeUndefined();
+    expect(loadConfig().observerSecretOf("KYOBO")).toBeUndefined();
     // 주 게이트웨이 비밀의 production 필수 규칙은 그대로다.
     delete process.env.DMA_OBSERVER_SECRET;
     expect(() => loadConfig()).toThrow(/DMA_OBSERVER_SECRET must be set in production/);
@@ -102,8 +133,9 @@ describe("loadConfig — journalUpstreams (quick-260929-c8e)", () => {
     expect(() => loadConfig()).toThrow(/KYOBO/);
     // 추가 호스트가 없으면 충돌이 아니다 — 주 게이트웨이 키만 바뀐 것이다.
     delete process.env.DMA_KYOBO_HOST;
-    expect(loadConfig().journalUpstreams).toEqual([
-      { gateway: "KYOBO", host: "127.0.0.1", port: 9100, secret: PRIMARY_SECRET },
-    ]);
+    const c = loadConfig();
+    expect(c.envServers).toEqual([{ ...KB_ROW, key: "KYOBO", broker: "KYOBO" }]);
+    // 비밀은 증권사별이다 — 주 게이트웨이가 KYOBO 면 KYOBO 비밀을 쓴다(Phase 29 Pitfall 11).
+    expect(c.observerSecretOf("KYOBO")).toBe(KYOBO_SECRET);
   });
 });

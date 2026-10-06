@@ -27,6 +27,7 @@ const TOUCHED = [
   "DMA_KYOBO_PORT",
   "DMA_OBSERVER_SECRET_KYOBO",
   "QUOTE_LINGER_MS",
+  "DMA_REGISTRY_SOURCE",
 ] as const;
 
 const JOURNAL_SECRET = "journal-observer-secret-test";
@@ -43,6 +44,7 @@ describe("loadConfig — dmaQuoteObserverSecret (Phase 26 D-17)", () => {
     delete process.env.DMA_KYOBO_HOST;
     delete process.env.DMA_KYOBO_PORT;
     delete process.env.DMA_OBSERVER_SECRET_KYOBO;
+    delete process.env.DMA_REGISTRY_SOURCE;
     delete process.env.QUOTE_LINGER_MS;
     process.env.NODE_ENV = "test";
   });
@@ -60,7 +62,9 @@ describe("loadConfig — dmaQuoteObserverSecret (Phase 26 D-17)", () => {
     expect(c.dmaQuoteObserverSecret).toBe(JOURNAL_SECRET);
     expect(c.dmaObserverSecret).toBe(JOURNAL_SECRET);
     // production 도 같은 폴백이다 — Secret Manager 에는 DMA_OBSERVER_SECRET 하나뿐이다.
+    // Phase 29 D-09 — production 은 레지스트리 db 원천이 필수다(이 케이스의 관심사는 비밀 폴백뿐).
     process.env.NODE_ENV = "production";
+    process.env.DMA_REGISTRY_SOURCE = "db";
     expect(loadConfig().dmaQuoteObserverSecret).toBe(JOURNAL_SECRET);
     // quote 키가 빈 문자열이면 「없음」 — 폴백한다.
     process.env.DMA_QUOTE_OBSERVER_SECRET = "";
@@ -73,8 +77,9 @@ describe("loadConfig — dmaQuoteObserverSecret (Phase 26 D-17)", () => {
     const c = loadConfig();
     expect(c.dmaQuoteObserverSecret).toBe(QUOTE_SECRET);
     expect(c.dmaObserverSecret).toBe(JOURNAL_SECRET);
-    // 저널 업스트림(0번)의 비밀도 quote 키의 영향을 받지 않는다.
-    expect(c.journalUpstreams[0].secret).toBe(JOURNAL_SECRET);
+    // 저널 관찰자 비밀(KB)도 quote 키의 영향을 받지 않는다(Phase 29 — 증권사별 매핑).
+    expect(c.observerSecretOf("KB")).toBe(JOURNAL_SECRET);
+    expect(c.quoteSecretOf("KB")).toBe(QUOTE_SECRET);
   });
 
   it("③ NODE_ENV=test · 저널 비밀 빈 문자열 · quote 키만 → quote 는 그 값 · 저널 undefined(e2e 구성)", () => {
@@ -83,7 +88,8 @@ describe("loadConfig — dmaQuoteObserverSecret (Phase 26 D-17)", () => {
     const c = loadConfig();
     expect(c.dmaQuoteObserverSecret).toBe(QUOTE_SECRET);
     expect(c.dmaObserverSecret).toBeUndefined();
-    expect(c.journalUpstreams[0].secret).toBeUndefined();
+    expect(c.observerSecretOf("KB")).toBeUndefined();
+    expect(c.quoteSecretOf("KB")).toBe(QUOTE_SECRET);
     // 저널 비밀 키가 아예 없어도 같다.
     delete process.env.DMA_OBSERVER_SECRET;
     expect(loadConfig().dmaQuoteObserverSecret).toBe(QUOTE_SECRET);

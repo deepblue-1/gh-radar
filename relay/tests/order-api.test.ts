@@ -44,8 +44,14 @@ type StartOptions = {
   journal?: JournalHealth;
   /** 시각 주입 — 가짜 타이머 대신 이것으로만 장중/장 밖을 흉내낸다. */
   now?: Date;
-  /** 추가 게이트웨이 관찰자 요약 스텁 (quick-260929-c8e). 생략하면 주입하지 않는다. */
-  journalGateways?: Array<{ gateway: string; health: JournalHealth }>;
+  /** 추가 게이트웨이 관찰자 요약 스텁 (quick-260929-c8e). 생략하면 주입하지 않는다. 함수면 요청마다 부른다(Phase 29). */
+  journalGateways?:
+    | Array<{ gateway: string; health: JournalHealth }>
+    | (() => Array<{ gateway: string; health: JournalHealth }>);
+  /** 증권사별 주문 서버 저널 스텁 (Phase 29 — `brokers`). 생략하면 주입하지 않는다. 요청마다 부른다. */
+  brokers?: () => Array<{ broker: "KB" | "KYOBO"; server: string; health: JournalHealth }>;
+  /** 회선 판정 host 를 요청마다 부르는 함수로 줄 때(Phase 29). 주면 `dmaHost` 보다 우선. */
+  dmaHostFn?: () => string;
   /** 시세 전용 공유 연결 요약 스텁 (Phase 26 D-02). 생략하면 quote 소스 없음. */
   quote?: QuoteHealth;
 };
@@ -76,7 +82,7 @@ async function start(opts: StartOptions = {}): Promise<Harness> {
     // ★ D-27 — **실 게이트웨이 주소를 적지 않는다.** `isGatewayLinkUp` 은 /16 만 보므로
     //   `tun0`(10.41.1.124) 과 같은 대역이기만 하면 판정이 동일하다. 실주소를 테스트에
     //   박아 두면 저장소를 읽는 것만으로 사내망 호스트가 드러난다(T-16-09 grep 게이트).
-    dmaHost: opts.dmaHost ?? "10.41.0.10",
+    dmaHost: opts.dmaHostFn ?? (() => opts.dmaHost ?? "10.41.0.10"),
     networkInterfaces: () => opts.interfaces ?? UP_INTERFACES,
     appVersion: "test-sha",
     nodeEnv: opts.nodeEnv ?? "test",
@@ -84,7 +90,18 @@ async function start(opts: StartOptions = {}): Promise<Harness> {
     ...(opts.journal !== undefined ? { journal: { health: () => opts.journal as JournalHealth } } : {}),
     ...(opts.now !== undefined ? { now: () => opts.now as Date } : {}),
     ...(opts.journalGateways !== undefined
-      ? { journalGateways: opts.journalGateways.map((g) => ({ gateway: g.gateway, health: () => g.health })) }
+      ? {
+          journalGateways: () => {
+            const list = typeof opts.journalGateways === "function" ? opts.journalGateways() : (opts.journalGateways ?? []);
+            return list.map((g) => ({ gateway: g.gateway, health: () => g.health }));
+          },
+        }
+      : {}),
+    ...(opts.brokers !== undefined
+      ? {
+          brokers: () =>
+            (opts.brokers?.() ?? []).map((b) => ({ broker: b.broker, server: b.server, health: () => b.health })),
+        }
       : {}),
     ...(opts.quote !== undefined ? { quote: { health: () => opts.quote as QuoteHealth } } : {}),
   });
@@ -753,5 +770,124 @@ describe("quote 판정 (Phase 26 D-02 · D-16)", () => {
       ["disconnectedSec", "keyCount", "lastFrameAgeSec", "lingerCount", "reconnects", "state", "subLimitRejects"],
     );
     expect(JSON.stringify(body)).not.toMatch(/"(accountNo|userId|account_no|user_id)"/);
+  });
+});
+
+describe("Phase 29 brokers · 동적 journalGateways (29-03 · RESEARCH Pitfall 3)", () => {
+  /** 2026-09-28(월) 10:00 KST — 장중. */
+  const IN_WINDOW = new Date("2026-09-28T10:00:00+09:00");
+
+  function journal(state: JournalHealth["state"], disconnectedSec: number | null): JournalHealth {
+    return {
+      state,
+      lastSeq: 41,
+      headSeq: 42,
+      lagSeq: 1,
+      disconnectedSec,
+      lastAppliedAgeSec: 3,
+      seqRegressions: 0,
+      lastSeqRegressionAgeSec: null,
+      duplicatesAfterRegression: 0,
+      lastDuplicateAfterRegressionAgeSec: null,
+      projectionErrors: 0,
+      lastProjectionErrorAgeSec: null,
+      mapping: null,
+      strategy: { lastSeq: 7, headSeq: 9, lagSeq: 2, dbError: false, queueDepth: 0, paused: null, projectionErrors: 0 },
+    };
+  }
+
+  let h: Harness | null = null;
+
+  afterEach(async () => {
+    await h?.close();
+    h = null;
+  });
+
+  async function get(): Promise<{ status: number; body: Record<string, unknown> }> {
+    const res = await fetch((h as Harness).url("/healthz"));
+    return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+  }
+
+  it("brokers.KB · brokers.KYOBO = { server: 주문 서버 키, alerting } · KYOBO 거부는 200 (본문 전용) · 본문에 host 없음", async () => {
+    h = await start({
+      journal: journal("live", null),
+      now: IN_WINDOW,
+      journalGateways: [{ gateway: "KYOBO119", health: journal("rejected", 0) }],
+      brokers: () => [
+        { broker: "KB", server: "KB120", health: journal("live", null) },
+        { broker: "KYOBO", server: "KYOBO119", health: journal("rejected", 0) },
+      ],
+    });
+    const { status, body } = await get();
+    expect(status).toBe(200);
+    expect(body.status).toBe("ok");
+    expect(body.brokers).toEqual({
+      KB: { server: "KB120", alerting: false },
+      KYOBO: { server: "KYOBO119", alerting: true },
+    });
+    expect(Object.keys(body.journalGateways as object)).toEqual(["KYOBO119"]);
+    expect(JSON.stringify(body)).not.toMatch(/"(host|secret|accountNo|userId|dmaUserId)"/);
+  });
+
+  it("brokers 판정은 503 축이 아니다 — KB 주문 서버 장애는 journal(KB) 로만 503", async () => {
+    h = await start({
+      journal: journal("rejected", 0),
+      now: IN_WINDOW,
+      brokers: () => [{ broker: "KB", server: "KB120", health: journal("rejected", 0) }],
+    });
+    const { status, body } = await get();
+    expect(status).toBe(503);
+    expect(body.brokers).toEqual({ KB: { server: "KB120", alerting: true } });
+  });
+
+  it("brokers 가 빈 목록이면 키 자체가 없다 · 주문 서버가 없는 증권사는 키가 없다", async () => {
+    let list: Array<{ broker: "KB" | "KYOBO"; server: string; health: JournalHealth }> = [];
+    h = await start({ journal: journal("live", null), now: IN_WINDOW, brokers: () => list });
+    expect("brokers" in (await get()).body).toBe(false);
+    list = [{ broker: "KB", server: "KB", health: journal("live", null) }];
+    const { body } = await get();
+    expect(body.brokers).toEqual({ KB: { server: "KB", alerting: false } });
+    expect("KYOBO" in (body.brokers as object)).toBe(false);
+  });
+
+  it("레지스트리에서 서버가 추가되면 다음 요청부터 journalGateways 에 나타나고, 삭제되면 사라진다(재배포 없음)", async () => {
+    let gateways: Array<{ gateway: string; health: JournalHealth }> = [];
+    h = await start({ journal: journal("live", null), now: IN_WINDOW, journalGateways: () => gateways });
+    expect("journalGateways" in (await get()).body).toBe(false);
+
+    gateways = [{ gateway: "KB121", health: journal("live", null) }];
+    let body = (await get()).body;
+    expect(Object.keys(body.journalGateways as object)).toEqual(["KB121"]);
+
+    gateways = [
+      { gateway: "KB121", health: journal("live", null) },
+      { gateway: "KYOBO127", health: journal("connecting", 5) },
+    ];
+    body = (await get()).body;
+    expect(Object.keys(body.journalGateways as object)).toEqual(["KB121", "KYOBO127"]);
+
+    gateways = [{ gateway: "KYOBO127", health: journal("connecting", 5) }];
+    body = (await get()).body;
+    expect(Object.keys(body.journalGateways as object)).toEqual(["KYOBO127"]);
+    gateways = [];
+    expect("journalGateways" in (await get()).body).toBe(false);
+  });
+
+  it("dmaHost 는 요청마다 부른다 — KB 주문 서버 전환이 회선 판정에 바로 반영된다", async () => {
+    let host = "10.41.0.10";
+    h = await start({ journal: journal("live", null), now: IN_WINDOW, dmaHostFn: () => host });
+    const up = await get();
+    expect(up.body.vpn).toBe(true);
+    // UP_INTERFACES 의 tun0 은 10.41.x — 다른 /16 이면 회선 없음으로 판정된다.
+    host = "10.99.0.10";
+    const down = await get();
+    expect(down.body.vpn).toBe(false);
+    expect(down.status).toBe(503);
+  });
+
+  it("journal 소스가 undefined 를 돌려주면(KB 주문 서버 파이프라인 없음) journal 키가 없고 판정에서 빠진다", async () => {
+    h = await start({ now: IN_WINDOW });
+    const app = (await get()).body;
+    expect("journal" in app).toBe(false);
   });
 });

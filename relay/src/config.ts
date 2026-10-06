@@ -26,32 +26,46 @@
  *   26 D-17  시세 전용 관찰자(role 1 · quote 연결) 비밀 = `DMA_QUOTE_OBSERVER_SECRET` 우선, 없거나 빈 값이면
  *            `DMA_OBSERVER_SECRET` 폴백. 프로덕션(Secret Manager 에 `DMA_OBSERVER_SECRET` 하나)은 폴백으로 같은
  *            비밀을 쓰고 배포 스크립트는 바뀌지 않는다. production 필수 검사는 여전히 `DMA_OBSERVER_SECRET` 만 본다.
+ *   Phase 29 D-09  **서버 레지스트리 원천 게이트.** 게이트웨이 서버 목록의 원천은 `DMA_REGISTRY_SOURCE` 가 정한다:
+ *            `env`(기본) — 위 `DMA_HOST`(기본 127.0.0.1) · `DMA_PORT` · `DMA_BROKER` 와 `EXTRA_OBSERVER_ENV` 표에서 1~2행을
+ *                          합성한다(`envServers` — 키는 종전 `KB`/`KYOBO` 그대로). **로컬 · 테스트 · e2e 전용**이다.
+ *            `db`        — `dma_servers` 표(`ServerRegistry`). **`NODE_ENV=production` 에서만** 허용한다.
+ *            두 방향 모두 기동 거부로 잠근다: 비프로덕션 + db → throw(로컬 relay 가 운영 Supabase 레지스트리를 읽어 실서버에
+ *            붙지 못하게 — 개발 Mac 은 WireGuard 로 운영 게이트웨이 대역에 직결된다), production + env(또는 미설정) → throw
+ *            (운영이 env 표 · 로컬 기본값으로 조용히 떨어지지 않게). 실서버 주소는 여기에도 레지스트리 모듈에도 없다(D-27).
+ *            비밀은 **증권사별** 고정 매핑이다(RESEARCH Pitfall 11 — 레지스트리에 비밀을 두지 않는다):
+ *              `observerSecretOf("KB")` = `DMA_OBSERVER_SECRET` · `observerSecretOf("KYOBO")` = `DMA_OBSERVER_SECRET_KYOBO`
+ *              `quoteSecretOf("KB")` = `DMA_QUOTE_OBSERVER_SECRET` ‖ `DMA_OBSERVER_SECRET` · `quoteSecretOf("KYOBO")` = `DMA_OBSERVER_SECRET_KYOBO`
+ *            비밀 확인 순서: production 의 `DMA_OBSERVER_SECRET` 필수 검사를 원천 게이트보다 **먼저** 본다(사유 문구 불변).
  *
  * 하지 않는 것:
  *   - 여기서 값을 검증(길이·형식)하지 않는다. 존재 여부만 본다 — 검증은 사용처가 한다.
- *   - 시크릿을 로깅하지 않는다. logger.ts 의 redact 경로가 2차 방어다.
+ *   - 시크릿을 로깅하지 않는다. logger.ts 의 redact 경로가 2차 방어다. 비밀은 함수 필드 뒤에 있어
+ *     설정 객체를 통째로 덤프해도 값이 나가지 않는다.
  */
+import {
+  assertRegistryInvariants,
+  isDmaBroker,
+  type DmaBroker,
+  type DmaServerRow,
+} from "./registry/registry.js";
+
+/** 레지스트리 원천 (Phase 29 D-09). */
+export type DmaRegistrySource = "env" | "db";
 
 /**
- * 관찰자 업스트림 1개 (quick-260929-c8e). `gateway` 는 relay 쪽 키다 — `dma_journal_cursor` PK ·
- * `dma_journal_apply`/`dma_journal_sync_access` 의 `p_gateway`(advisory lock) · `dma_account_access` 교체 범위.
- * 게이트웨이 LoginReq 의 broker 와는 무관하다.
+ * 추가 관찰자 env 표 (quick-260929-c8e). **env 모드 합성 전용**이다(Phase 29 — db 모드는 `dma_servers` 를 읽는다).
+ * 비밀 env 이름은 증권사별 매핑(`OBSERVER_SECRET_ENV`)과 logger redact 에도 있다.
  */
-export type JournalUpstream = {
-  gateway: string;
-  host: string;
-  port: number;
-  /** 관찰자 로그인 비밀. 없으면 그 관찰자는 disabled 다. 로그 인자로 넘기지 않는다. */
-  secret: string | undefined;
-};
-
-/**
- * 추가 관찰자 env 표 (quick-260929-c8e). 게이트웨이를 더할 때 **행 하나만** 추가한다 — index.ts 는
- * `journalUpstreams` 를 순회만 하고 키 리터럴을 모른다. 비밀 env 이름은 logger redact 에도 더한다.
- */
-const EXTRA_OBSERVER_ENV: ReadonlyArray<{ gateway: string; hostEnv: string; portEnv: string; secretEnv: string }> = [
-  { gateway: "KYOBO", hostEnv: "DMA_KYOBO_HOST", portEnv: "DMA_KYOBO_PORT", secretEnv: "DMA_OBSERVER_SECRET_KYOBO" },
+const EXTRA_OBSERVER_ENV: ReadonlyArray<{ gateway: DmaBroker; hostEnv: string; portEnv: string }> = [
+  { gateway: "KYOBO", hostEnv: "DMA_KYOBO_HOST", portEnv: "DMA_KYOBO_PORT" },
 ];
+
+/** 증권사 → 관찰자 비밀 env 이름 (Phase 29 Pitfall 11). 서버 수와 무관하게 증권사당 1개다. */
+const OBSERVER_SECRET_ENV: Readonly<Record<DmaBroker, string>> = {
+  KB: "DMA_OBSERVER_SECRET",
+  KYOBO: "DMA_OBSERVER_SECRET_KYOBO",
+};
 
 /** 추가 관찰자 포트 기본값 — 게이트웨이 관찰자 포트 규약(주 게이트웨이와 같다). */
 const DEFAULT_OBSERVER_PORT = 9100;
@@ -80,12 +94,17 @@ export type RelayConfig = {
    * 실서버(KB 사내망, VPN 경유)를 기본값으로 두면 로컬에서 env 를 깜빡한 실행이 곧바로
    * 실계좌 게이트웨이에 접속한다. 실서버 주소는 **배포 env 로만** 주입한다 —
    * 안전한 쪽이 기본값이어야 한다.
+   *
+   * Phase 29 D-09 — env 모드 합성 레지스트리의 입력이다. **db 모드에서는 쓰지 않는다**(서버 목록은 `dma_servers`).
    */
   dmaHost: string;
-  /** DMA 게이트웨이 TCP 포트. 미설정 시 9100. */
+  /** DMA 게이트웨이 TCP 포트. 미설정 시 9100. env 모드 합성 입력이다 — **db 모드에서는 쓰지 않는다**(Phase 29 D-09). */
   dmaPort: number;
-  /** LoginReq 의 broker 필드. 미설정 시 "KB" — 현재 유일 지원 증권사. */
-  dmaBroker: string;
+  /**
+   * LoginReq 의 broker 필드 겸 env 모드 주 게이트웨이 키. 미설정 시 "KB". "KB" | "KYOBO" 밖이면 기동 거부(Phase 29).
+   * `dmaHost` · `dmaPort` 와 함께 env 모드 합성 입력이다 — **db 모드에서는 쓰지 않는다**(사용자 세션의 폴백 대상으로만 남는다).
+   */
+  dmaBroker: DmaBroker;
   /**
    * 마지막 wss 소켓이 끊긴 뒤 DMA 세션을 유지하는 유예(ms). 미설정 시 300000(5분).
    * 0 으로 두면 새로고침마다 DMA 재로그인이 발생한다(게이트웨이 부하 + 2~3초 지연).
@@ -99,11 +118,27 @@ export type RelayConfig = {
    */
   dmaObserverSecret: string | undefined;
   /**
-   * 관찰자 업스트림 목록 (quick-260929-c8e). **0번은 주 게이트웨이**다 — 위 4필드(dmaBroker · dmaHost ·
-   * dmaPort · dmaObserverSecret)와 같은 값이다. 1번부터는 `EXTRA_OBSERVER_ENV` 표에서 호스트가 설정된
-   * 행만 온다. 추가 env 가 없으면 길이 1 — 오늘과 같다. 게이트웨이 키는 서로 겹치지 않는다(겹치면 기동 거부).
+   * 서버 레지스트리 원천 (Phase 29 D-09 — env `DMA_REGISTRY_SOURCE`). `env`(기본) | `db`. `db` 는 production 에서만,
+   * production 은 `db` 만 허용한다(그 밖 조합은 기동 거부).
    */
-  journalUpstreams: readonly [JournalUpstream, ...JournalUpstream[]];
+  dmaRegistrySource: DmaRegistrySource;
+  /**
+   * env 모드 합성 레지스트리 (Phase 29 D-09 · quick-260929-c8e 표를 대체). **0번은 주 게이트웨이**다 — 키 · 증권사 =
+   * `DMA_BROKER`(기본 KB) · host/port = `DMA_HOST`/`DMA_PORT` · 주문 서버 + 시세 주 서버. 1번부터는 `EXTRA_OBSERVER_ENV`
+   * 표에서 호스트가 설정된 행만 온다(그 증권사의 주문 서버 · 시세 주 아님). 추가 env 가 없으면 길이 1 — 오늘과 같다.
+   * 키는 서로 겹치지 않는다(겹치면 기동 거부). **db 모드에서는 쓰지 않는다**(같은 env 로 계산만 해 둔다).
+   */
+  envServers: readonly DmaServerRow[];
+  /**
+   * 증권사 → 저널 관찰자(role 0) 비밀 (Phase 29 Pitfall 11). KB = `DMA_OBSERVER_SECRET` · KYOBO =
+   * `DMA_OBSERVER_SECRET_KYOBO`. 없거나 빈 값이면 undefined — 그 증권사 서버의 관찰자는 disabled 다. 값을 로그로 내보내지 않는다.
+   */
+  observerSecretOf: (broker: DmaBroker) => string | undefined;
+  /**
+   * 증권사 → quote 연결(role 1) 비밀 (Phase 29 · 26 D-17). KB = `DMA_QUOTE_OBSERVER_SECRET` ‖ `DMA_OBSERVER_SECRET` ·
+   * KYOBO = `DMA_OBSERVER_SECRET_KYOBO`. 값을 로그로 내보내지 않는다.
+   */
+  quoteSecretOf: (broker: DmaBroker) => string | undefined;
   /**
    * 시세 전용 관찰자(role 1 · quote 연결) 비밀 (Phase 26 D-17). `DMA_QUOTE_OBSERVER_SECRET` 이 있으면 그 값,
    * 없거나 빈 문자열이면 `DMA_OBSERVER_SECRET` 폴백. 둘 다 없으면 undefined — QuoteFeed 가 disabled 로 남고
@@ -141,14 +176,46 @@ export function loadConfig(): RelayConfig {
     throw new Error(`QUOTE_LINGER_MS must be a finite number >= 0 (ms) — got "${quoteLingerRaw}"`);
   }
 
+  // Phase 29 D-09 — 레지스트리 원천 게이트. 비밀 필수 검사(위) 뒤에 본다 — production 비밀 부재 사유 문구를 바꾸지 않는다.
+  const registryRaw = optional("DMA_REGISTRY_SOURCE");
+  const dmaRegistrySource: DmaRegistrySource =
+    registryRaw === undefined || registryRaw === "" ? "env" : (registryRaw as DmaRegistrySource);
+  if (dmaRegistrySource !== "env" && dmaRegistrySource !== "db") {
+    throw new Error(`DMA_REGISTRY_SOURCE must be "env" or "db" — got "${registryRaw}" (Phase 29 D-09)`);
+  }
+  if (dmaRegistrySource === "db" && nodeEnv !== "production") {
+    // 로컬 · 테스트 · e2e relay 가 운영 Supabase 레지스트리를 읽어 실서버에 붙는 길을 막는다.
+    throw new Error(
+      `DMA_REGISTRY_SOURCE=db is allowed only with NODE_ENV=production — got NODE_ENV=${nodeEnv} (Phase 29 D-09 · 로컬 relay 는 운영 레지스트리를 읽지 않는다)`,
+    );
+  }
+  if (nodeEnv === "production" && dmaRegistrySource !== "db") {
+    // 운영이 env 표(로컬 기본값 127.0.0.1)로 조용히 떨어지지 않게 한다.
+    throw new Error("DMA_REGISTRY_SOURCE=db must be set in production (Phase 29 D-09 · 서버 목록은 dma_servers 레지스트리)");
+  }
+
   // 기본값은 로컬 mock 이다. 실서버 주소는 배포 env 가 반드시 명시해야 한다 (D-27).
   const dmaHost = optional("DMA_HOST") ?? "127.0.0.1";
   const dmaPort = Number(optional("DMA_PORT") ?? "9100");
   const dmaBroker = optional("DMA_BROKER") ?? "KB";
+  if (!isDmaBroker(dmaBroker)) {
+    throw new Error(`DMA_BROKER must be "KB" or "KYOBO" — got "${dmaBroker}" (Phase 29 — 비밀 · 키 접두가 증권사별이다)`);
+  }
 
-  const primary: JournalUpstream = { gateway: dmaBroker, host: dmaHost, port: dmaPort, secret: dmaObserverSecret };
-  const extras: JournalUpstream[] = [];
-  const seen = new Set<string>([primary.gateway]);
+  // env 모드 합성 — 0번 = 주 게이트웨이(주문 서버 + 시세 주 서버). 키는 종전 그대로(DMA_BROKER).
+  const envServers: DmaServerRow[] = [
+    {
+      key: dmaBroker,
+      broker: dmaBroker,
+      host: dmaHost,
+      port: dmaPort,
+      enabled: true,
+      isOrderServer: true,
+      isQuotePrimary: true,
+      sortOrder: 0,
+    },
+  ];
+  const seen = new Set<string>([dmaBroker]);
   for (const row of EXTRA_OBSERVER_ENV) {
     const host = optional(row.hostEnv);
     // 호스트가 없으면 그 행은 없다 — 비밀만 있어도 무시한다(배포 스크립트는 비밀이 있을 때만 호스트를 넘긴다).
@@ -160,16 +227,26 @@ export function loadConfig(): RelayConfig {
       );
     }
     seen.add(row.gateway);
-    extras.push({
-      gateway: row.gateway,
+    envServers.push({
+      key: row.gateway,
+      broker: row.gateway,
       host,
       // 빈 문자열도 기본값으로 (`||`).
       port: Number(optional(row.portEnv) || String(DEFAULT_OBSERVER_PORT)),
-      // 추가 게이트웨이 비밀 부재는 production 에서도 기동을 막지 않는다 — KB 단독 재배포를 막지 않고,
-      // 비밀 없는 관찰자는 disabled 로 `/healthz` 본문(journalGateways)에 드러난다.
-      secret: optional(row.secretEnv) || undefined,
+      enabled: true,
+      // 그 증권사 유일 서버 = 그 증권사의 주문 서버(healthz `brokers.<증권사>` 원천). 사용자 세션은 아직 KB 만(29-16).
+      isOrderServer: true,
+      isQuotePrimary: false,
+      sortOrder: envServers.length,
     });
   }
+  assertRegistryInvariants(envServers);
+
+  // 증권사별 비밀 — 추가 게이트웨이 비밀 부재는 production 에서도 기동을 막지 않는다(그 관찰자만 disabled).
+  const observerSecretOf = (broker: DmaBroker): string | undefined =>
+    optional(OBSERVER_SECRET_ENV[broker]) || undefined;
+  const quoteSecretOf = (broker: DmaBroker): string | undefined =>
+    broker === "KB" ? dmaQuoteObserverSecret : observerSecretOf(broker);
 
   return {
     nodeEnv,
@@ -188,7 +265,10 @@ export function loadConfig(): RelayConfig {
     dmaBroker,
     sessionGraceMs: Number(optional("SESSION_GRACE_MS") ?? "300000"),
     dmaObserverSecret,
-    journalUpstreams: [primary, ...extras],
+    dmaRegistrySource,
+    envServers,
+    observerSecretOf,
+    quoteSecretOf,
     dmaQuoteObserverSecret,
     quoteLingerMs,
   };

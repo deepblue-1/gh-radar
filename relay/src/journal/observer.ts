@@ -113,7 +113,17 @@ export type JournalObserverDeps = {
   client?: string;
   /** 로그인 응답 대기 상한(ms). 기본 `LOGIN_RESP_TIMEOUT_MS`(session.ts 정본 — 값을 복제하지 않는다). */
   loginTimeoutMs?: number;
+  /**
+   * 레지스트리 행의 증권사 (Phase 29 D-09 · RESEARCH Pitfall 12). 주면 79 성공 응답의 `broker` 를 대조한다 — 비어 있지
+   * 않고 `"MOCK"`(로컬 mock 게이트웨이)이 아닌데 이 값과 다르면 주소 오설정(예: KYOBO 행이 KB 서버를 가리킴)으로 보고
+   * 거부와 같은 정지(`rejected`)로 확정한다. 79 의 broker 는 **키가 아니다** — 키는 여전히 `gateway`(레지스트리 키)다.
+   * 생략하면 대조하지 않는다(종전 동작).
+   */
+  expectedBroker?: string;
 };
+
+/** 79 broker 대조에서 통과시키는 로컬 mock 게이트웨이 값 (Phase 29 Pitfall 12). */
+const MOCK_BROKER = "MOCK";
 
 export interface JournalObserver {
   on(event: "state", listener: (state: JournalObserverState) => void): this;
@@ -422,6 +432,17 @@ export class JournalObserver extends EventEmitter {
       // 성공 응답인데 epoch 가 없다 — 게이트웨이 설정 · 계약 오류(WR-02). 받아도 적용 RPC 가 빈 epoch 를 거부하므로
       // 재접속은 같은 결과의 반복일 뿐이다. 거부와 같은 정지 경로로 확정하고(장중 즉시 503) 사유를 따로 남긴다.
       this.#halt("관찰자 로그인 epoch 없음", "[JOURNAL] 관찰자 로그인 성공 응답에 epoch 가 없다 — 게이트웨이 계약 위반 · 재접속 중단");
+      return;
+    }
+    // Phase 29 Pitfall 12 — 레지스트리 행의 증권사와 서버가 말한 증권사 대조. 주소 오설정이면 매핑 · 커서를 건드리기 **전에**
+    // 멈춘다(다른 증권사 계좌가 이 키로 투영되지 않게). 재접속해도 같은 서버라 결과가 같다 — 거부와 같은 영구 정지.
+    const expected = this.#deps.expectedBroker;
+    if (expected !== undefined && result.broker !== "" && result.broker !== MOCK_BROKER && result.broker !== expected) {
+      logger.error(
+        { gateway: this.#deps.gateway, expectedBroker: expected, receivedBroker: result.broker },
+        "[JOURNAL] 관찰자 로그인 broker 불일치 — 레지스트리 주소 오설정 의심 · 재접속 중단",
+      );
+      this.#stopLoop("관찰자 로그인 broker 불일치");
       return;
     }
     const writer = this.#deps.writer;
