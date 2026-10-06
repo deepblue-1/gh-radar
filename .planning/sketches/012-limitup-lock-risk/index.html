@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sketch 012 — 잠김 누적 매도·취소·위험도</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; transition: all .15s; }
+#nav button:hover { border-color: #555; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; }
+.f {
+  --bg: #17171c; --layer: #202027; --float: #2c2c35; --g200: #3c3c47; --g300: #4d4d59;
+  --t900: #fff; --t800: #e4e4e5; --t600: #9e9ea4; --t500: #7e7e87; --hair: #2e2e37;
+  --red: #f04251; --blue: #3485fa; --amber: #ffb13d;
+  font-family: 'Pretendard Variable', Pretendard, -apple-system, sans-serif; font-variant-numeric: tabular-nums; word-break: keep-all;
+  background: var(--bg); color: var(--t800); border-radius: 14px; box-shadow: 0 0 0 1px #2a2a30; padding: 20px 22px; display: flex; flex-direction: column; gap: 18px;
+}
+.f.desktop { width: 1060px; } .f.phone { width: 390px; padding: 16px 14px; border-radius: 28px; }
+h2 { margin: 0; font-size: 15px; color: var(--t900); }
+h2 small { font-size: 12px; color: var(--t500); font-weight: 400; margin-left: 6px; }
+.card { background: var(--layer); border-radius: 14px; padding: 14px 16px; }
+.lane-h { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.lane-h b { font-size: 14px; color: var(--t900); }
+.lane-h span { font-size: 12px; color: var(--t500); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 8px; }
+.chip { display: inline-flex; align-items: baseline; gap: 5px; background: var(--float); border-radius: 999px; padding: 4px 10px; font-size: 12.5px; color: var(--t800); white-space: nowrap; }
+.chip i { font-style: normal; color: var(--t500); font-size: 11.5px; }
+.chip.blue b { color: var(--blue); font-weight: 600; }
+.chip.risk b { color: var(--t900); font-weight: 600; }
+.chip .sep { color: var(--g300); }
+svg text { font-family: inherit; }
+table.rk { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 8px; }
+table.rk th { color: var(--t500); font-weight: 500; text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--hair); white-space: nowrap; }
+table.rk th:first-child, table.rk td:first-child { text-align: left; }
+table.rk td { text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--hair); white-space: nowrap; }
+table.rk td.blue { color: var(--blue); }
+.f.phone table.rk { font-size: 11.5px; } .f.phone table.rk th, .f.phone table.rk td { padding: 6px 4px; }
+.list { background: var(--layer); border-radius: 14px; overflow: hidden; }
+.lrow { display: grid; grid-template-columns: 170px 110px 90px 1fr 100px 110px; gap: 10px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--hair); font-size: 13.5px; }
+.lrow.h { font-size: 12px; color: var(--t500); padding: 9px 16px; }
+.lrow b { color: var(--t900); }
+.lrow .new { color: var(--amber); }
+.f.phone .lrow { grid-template-columns: 1fr auto; }
+.f.phone .lrow > :nth-child(n+3) { display: none; }
+.f.phone .lrow .ph { display: block !important; grid-column: 1 / -1; font-size: 12px; color: var(--t600); }
+.ph { display: none; }
+.tag { display: inline-block; font-size: 11.5px; font-weight: 600; border-radius: 999px; padding: 2px 8px; }
+.tag.broke { background: rgba(240,66,81,.16); color: var(--red); } .tag.hold { background: rgba(52,133,250,.16); color: var(--blue); }
+/* 실시간 카드 미리보기 (WinForms 동형) */
+.lc { background: var(--layer); border-radius: 14px; padding: 12px 14px; }
+.lc .tabs { display: flex; gap: 14px; font-size: 13px; color: var(--t500); margin-bottom: 8px; }
+.lc .tabs span.on { color: var(--t900); font-weight: 600; border-bottom: 2px solid var(--t900); padding-bottom: 4px; }
+table.lft { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12px; }
+table.lft th { width: 52px; text-align: left; font-weight: 700; color: var(--t800); background: var(--float); padding: 0 8px; height: 26px; border: 1px solid var(--hair); }
+table.lft th.el { color: var(--red); font-weight: 500; }
+table.lft td { padding: 0 8px; height: 26px; border: 1px solid var(--hair); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.up { color: var(--red); } .dn { color: var(--blue); } .mu { color: var(--t500); }
+.note { font-size: 12px; color: var(--t500); line-height: 1.6; }
+.seg { display: inline-flex; gap: 2px; background: var(--float); border-radius: 999px; padding: 3px; }
+.seg button { font: inherit; font-size: 12px; border: 0; background: none; color: var(--t600); padding: 4px 10px; border-radius: 999px; cursor: pointer; }
+.seg button.on { background: var(--g200); color: var(--t900); font-weight: 600; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">보고서 표시</span>
+    <button data-v="A" class="on">A 요약 칩 ★ 채택</button>
+    <button data-v="B">B 차트에 선</button>
+    <button data-v="C">C 위험도 표 + 목록 열</button>
+  </div>
+  <div class="g"><span class="l">폭</span>
+    <button data-w="desktop" class="on">데스크톱</button>
+    <button data-w="phone">폰 390</button>
+  </div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+<script src="data.js"></script>
+<script>
+/* 잔량 곡선 = 10/02 픽스처 실데이터. 누적 매도 · 취소 · 위험도 = 예시값(새 export 열 sell_krw · cancel_krw · risk_* 모양만). */
+const D = Object.fromEntries(window.LU_DATA.map((d) => [d.code, d]));
+const RISK = {
+  '263600': { lock: 1, sell: 9.8e8, cancel: 9.2e8, r3: 0.04, r10: 0.40, r60: null, pre: 0.25,
+    sellPts: [[0, 0], [3, 1.2e8], [7, 6.0e8], [10, 8.1e8], [10.1, 9.8e8]], cancelPts: [[0, 0], [0.1, 0.7e8], [9.6, 1.2e8], [9.6, 5.8e8], [10.1, 9.2e8]] },
+  '069920': { lock: 2, sell: 2.3e8, cancel: 1.1e8, r3: null, r10: 0.01, r60: 0.06, pre: 1.92,
+    sellPts: [[0, 0], [10, 0.06e8], [60, 0.4e8], [900, 0.9e8], [2400, 2.0e8], [2680, 2.3e8]], cancelPts: [[0, 0], [10, 0.98e8], [60, 1.0e8], [2680, 1.1e8]] },
+};
+const state = { v: 'A', w: 'desktop' };
+const pad = (n) => String(n).padStart(2, '0');
+const clock = (s) => { const t = Math.floor(s); return `${pad(Math.floor(t / 3600))}:${pad(Math.floor(t / 60) % 60)}:${pad(t % 60)}`; };
+const eok = (v) => v >= 1e8 ? (v / 1e8).toFixed(1) + '억' : Math.round(v / 1e4).toLocaleString('ko-KR') + '만';
+const pct = (r) => r == null ? '—' : Math.round(r * 100) + '%';
+const at = (pts, dt) => { for (let i = 1; i < pts.length; i++) if (dt <= pts[i][0]) { const [a, va] = pts[i - 1], [b, vb] = pts[i]; return b === a ? vb : va + (vb - va) * (dt - a) / (b - a); } return pts.at(-1)[1]; };
+
+function lockLane(d, W) {
+  const R = RISK[d.code], L = d.locks[0];
+  const [lo, hi] = d.lockWin, ser = d.lockSer;
+  const H = state.v === 'B' ? 210 : 150, top = state.v === 'B' ? 30 : 16, bot = H - 22;
+  const x = (s) => 36 + (Math.min(Math.max(s, lo), hi) - lo) / (hi - lo) * (W - 52);
+  const sellS = [], canS = [];
+  for (const p of ser) { const dt = p[0] - L.start; sellS.push([p[0], dt < 0 ? 0 : at(R.sellPts, Math.min(dt, L.dur))]); canS.push([p[0], dt < 0 ? 0 : at(R.cancelPts, Math.min(dt, L.dur))]); }
+  const ymax = Math.max(...ser.map((p) => p[1] ?? 0), ...(state.v === 'B' ? [R.sell, R.cancel] : []), 1) * 1.1;
+  const y = (v) => bot - v / ymax * (bot - top);
+  let s = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
+  s += `<rect x="${x(L.start)}" y="${top}" width="${Math.max(2, x(L.end) - x(L.start))}" height="${bot - top}" fill="rgba(158,158,164,.08)"/>`;
+  let q = `M${x(ser[0][0])},${bot}`; for (const p of ser) q += `L${x(p[0]).toFixed(1)},${y(p[1] ?? 0).toFixed(1)}`;
+  s += `<path d="${q}L${x(ser.at(-1)[0])},${bot}Z" fill="rgba(228,228,229,.10)" stroke="#e4e4e5" stroke-width="1.4"/>`;
+  s += `<text x="2" y="${top + 10}" font-size="10.5" fill="#7e7e87">잔량</text>`;
+  if (state.v === 'B') {
+    const line = (arr, col, dash) => { let p = ''; arr.forEach((a, i) => p += `${i ? 'L' : 'M'}${x(a[0]).toFixed(1)},${y(a[1]).toFixed(1)}`); return `<path d="${p}" fill="none" stroke="${col}" stroke-width="1.6" stroke-dasharray="${dash}"/>`; };
+    s += line(sellS, '#3485fa', ''); s += line(canS, '#9e9ea4', '4 3');
+    const pts = [['+3초', 3, R.r3], ['+10초', 10, R.r10], ['+60초', 60, R.r60], [L.broke ? '깨짐 3초 전' : '끝 3초 전', L.dur - 3, R.pre]];
+    let lastX = -999, row = 0;
+    for (const [lab, dt, r] of pts) {
+      if (r == null || dt > L.dur) continue;
+      const t = L.start + dt, px = x(t), py = y(at(R.sellPts, dt));
+      row = px - lastX < 110 ? row + 1 : 0; lastX = px;
+      const ly = 12 + row * 15;
+      s += `<line x1="${px}" x2="${px}" y1="${ly + 3}" y2="${py}" stroke="#3485fa" stroke-opacity=".35" stroke-dasharray="2 3"/>`;
+      s += `<circle cx="${px}" cy="${py}" r="3.5" fill="#3485fa" stroke="#17171c"/>`;
+      s += `<text x="${Math.min(px + 4, W - 110)}" y="${ly}" font-size="11" fill="#e4e4e5">${lab} 위험도 ${pct(r)}</text>`;
+    }
+    s += `<text x="${W - 14}" y="${bot - 6}" font-size="10.5" text-anchor="end" fill="#7e7e87">— 잔량  <tspan fill="#3485fa">— 누적 매도 ${eok(R.sell)}</tspan>  <tspan fill="#9e9ea4">┄ 취소 ${eok(R.cancel)}</tspan></text>`;
+  }
+  for (let i = 0; i < 4; i++) { const t = lo + (hi - lo) * i / 3; s += `<text x="${x(t)}" y="${H - 5}" font-size="10.5" fill="#7e7e87" text-anchor="${i === 0 ? 'start' : i === 3 ? 'end' : 'middle'}">${clock(t)}</text>`; }
+  return s + '</svg>';
+}
+
+function riskChips(d) {
+  const R = RISK[d.code], L = d.locks[0];
+  return `<div class="chips">
+    <span class="chip blue"><i>누적 매도</i><b>${eok(R.sell)}</b></span>
+    <span class="chip blue"><i>취소</i><b>${eok(R.cancel)}</b></span>
+    <span class="chip risk"><i>위험도</i> +3초 <b>${pct(R.r3)}</b><span class="sep">·</span>+10초 <b>${pct(R.r10)}</b><span class="sep">·</span>+60초 <b>${pct(R.r60)}</b><span class="sep">·</span>${L.broke ? '깨짐' : '끝'} 3초 전 <b>${pct(R.pre)}</b></span>
+  </div>`;
+}
+
+function riskTable(d) {
+  const R = RISK[d.code], L = d.locks[0];
+  return `<table class="rk"><thead><tr><th>잠김</th><th>누적 매도</th><th>취소</th><th>+3초</th><th>+10초</th><th>+60초</th><th>${L.broke ? '깨짐' : '끝'} 3초 전</th></tr></thead>
+    <tbody><tr><td>${R.lock} · ${L.broke ? '깨짐' : '종가 유지'}</td><td class="blue">${eok(R.sell)}</td><td class="blue">${eok(R.cancel)}</td><td>${pct(R.r3)}</td><td>${pct(R.r10)}</td><td>${pct(R.r60)}</td><td>${pct(R.pre)}</td></tr></tbody></table>
+    <div class="note" style="margin-top:4px">위험도 = 그 시점까지 누적 매도 ÷ 그 시점 대기(잔량) 금액 · 100% 를 넘을 수 있다 · 판정 기준 아님</div>`;
+}
+
+function stockBlock(code, W) {
+  const d = D[code], L = d.locks[0];
+  return `<div class="card">
+    <div class="lane-h"><b>${d.name} — 잠김 구간</b><span>${clock(L.start)}~${clock(L.end)} · 상한가 매수잔량 금액</span></div>
+    ${state.v === 'A' ? riskChips(d) : ''}
+    ${lockLane(d, W)}
+    ${state.v === 'C' ? riskTable(d) : ''}
+    ${state.v === 'A' ? '<div class="note">위험도 = 그 시점까지 누적 매도 ÷ 그 시점 대기 금액 · 100% 를 넘을 수 있다</div>' : ''}
+  </div>`;
+}
+
+function list() {
+  if (state.v !== 'C') return '';
+  return `<div><h2>목록 열 추가 (C 만)<small>위험도 = 마지막 잠김의 깨짐·끝 3초 전</small></h2></div>
+  <div class="list">
+    <div class="lrow h"><span>종목</span><span>결과</span><span>첫 상한가</span><span>잔량 곡선</span><span>잠김 최대 잔량</span><span class="new">끝 3초 전 위험도</span></div>
+    <div class="lrow"><span><b>덕우전자</b></span><span><span class="tag broke">깨짐</span></span><span>09:06:01</span><span style="color:#555">∿∿∿</span><span>27.6억</span><span>25%</span><span class="ph">첫 상한가 09:06:01 · 잠김 최대 27.6억 · 깨짐 3초 전 위험도 25%</span></div>
+    <div class="lrow"><span><b>엑시온그룹</b></span><span><span class="tag hold">유지</span></span><span>14:45:27</span><span style="color:#555">∿∿∿</span><span>6.9억</span><span>192%</span><span class="ph">첫 상한가 14:45:27 · 잠김 최대 6.9억 · 끝 3초 전 위험도 192%</span></div>
+  </div>`;
+}
+
+function card() {
+  return `<div><h2>실시간 카드 「상한가」 탭<small>WinForms 동형(gh-trade gp8 · f1j) — 확인용, 변형 없음</small></h2></div>
+  <div class="lc"><div class="tabs"><span>정보</span><span class="on">상한가</span><span>미체결</span><span>로그</span></div>
+    <table class="lft" title="잠김 7초째 · 대기 24.0억 · 소진 —&#10;누적 매도 6.0억 · 취소 4.6억 · 위험도 25%&#10;10초 매도 우세 71% · 잔량 신규 +8.0만 · 잔량 취소 -9.2만&#10;창구 매수 한국증권 +3.1만 · 매도 신한증권 +6.3만 · 깨짐확률 관찰 중&#10;09:06:08 기준">
+      <tr><th class="el">0:07</th><td class="dn">매도 6.0억</td><td class="dn">취소 4.6억</td><td>위험도 25%</td></tr>
+      <tr><th>10초</th><td class="dn">매도 우세 71%</td><td>잔량 신규 +8.0만</td><td class="dn">잔량 취소 -9.2만</td></tr>
+      <tr><th>창구</th><td class="up">매수 한국증권 +3.1만</td><td class="dn">매도 신한증권 +6.3만</td><td class="mu">깨짐확률 관찰 중</td></tr>
+    </table>
+    <div class="note" style="margin-top:6px">「지금」 행이 빠지고 「누적」 행이 맨 위(잠김 중이면 머리 = 잠김 경과 m:ss 빨강). 대기·소진·매도벽·상한가는 툴팁 첫 줄. 표에 마우스를 올려 보세요. 3행 그대로라 카드 높이 불변.</div>
+  </div>`;
+}
+
+function render() {
+  const phone = state.w === 'phone';
+  const W = phone ? 330 : 1010;
+  document.getElementById('stage').innerHTML = `<div class="f ${state.w}">
+    <div><h2>상한가 보고서 — 펼친 상세의 「잠김 구간」<small>잔량 곡선 = 10/02 실데이터 · 누적 매도/취소/위험도 = 예시값</small></h2></div>
+    ${stockBlock('263600', W - (phone ? 0 : 32))}
+    ${stockBlock('069920', W - (phone ? 0 : 32))}
+    ${list()}
+    ${card()}
+  </div>`;
+  document.getElementById('desc').innerHTML = {
+    A: '<b>A 요약 칩</b> — 잠김 구간 차트 위에 칩 한 줄: 누적 매도 · 취소(파랑) · 위험도 +3초/+10초/+60초/깨짐(끝) 3초 전. 차트는 지금 그대로.',
+    B: '<b>B 차트에 선</b> — 잠김 구간 차트에 누적 매도(파랑 실선) · 취소(회색 점선)를 잔량과 같은 금액 축으로 겹치고, +3초/+10초/+60초/3초 전 지점에 위험도 라벨.',
+    C: '<b>C 위험도 표 + 목록 열</b> — 차트 아래 잠김별 한 줄 표(누적 매도 · 취소 · 위험도 4시점), 목록에 「끝 3초 전 위험도」 열 추가(마지막 잠김 기준).',
+  }[state.v] + ' · 아래 실시간 카드는 세 변형 공통(WinForms 동형).';
+}
+document.getElementById('nav').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  b.parentElement.querySelectorAll('button').forEach((x) => x.classList.remove('on')); b.classList.add('on');
+  if (b.dataset.v) state.v = b.dataset.v; if (b.dataset.w) state.w = b.dataset.w; render();
+});
+render();
+</script>
+</body>
+</html>
