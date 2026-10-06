@@ -129,8 +129,8 @@ describe('UsersClient — 목록 (D-14 · 목업 A)', () => {
     expect(root().querySelector('[data-slot="admin-users-count"]')).toHaveTextContent('4');
     expect(root()).toHaveTextContent('사전 등록: 「+ 사용자」 로 gmail 만 먼저 넣어 두면 가입 즉시 열린다.');
     expect(root()).toHaveTextContent('「서버에만 있음」 행은 편집 불가 — 보기만.');
-    // 「+ 사용자」 는 29-19 가 잇기 전까지 비활성
-    expect(screen.getByRole('button', { name: '+ 사용자' })).toBeDisabled();
+    // 「+ 사용자」 — 목록을 읽은 뒤 활성(생성 시트는 29-19 · user-create-sheet.test.tsx)
+    expect(screen.getByRole('button', { name: '+ 사용자' })).toBeEnabled();
     expect(fetchAdminUsersMock).toHaveBeenCalledTimes(1);
   });
 

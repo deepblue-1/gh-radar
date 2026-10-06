@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AdminUsersOverview } from "@gh-radar/shared";
+import type { AdminServerResult, AdminUsersOverview } from "@gh-radar/shared";
 
 import {
   CARD,
@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { PendingSection } from "./pending-section";
 import { ADMIN_BUTTON_SECONDARY } from "./reflect-chip";
 import { ServerOnlyRow, UserRow } from "./user-row";
+import { UserCreateSheet } from "./user-create-sheet";
 import { UserSheet } from "./user-sheet";
 
 /**
@@ -32,7 +33,9 @@ import { UserSheet } from "./user-sheet";
  * - 로딩: 스켈레톤 행. 다시 읽을 때(쓰기 뒤 재조회)는 이전 목록을 그대로 두고 바꿔 끼운다 — 깜빡임 없음.
  * - 403: 「관리자만 사용할 수 있어요.」 한 줄(실제 차단은 middleware · Express 관문 — 여기는 설명뿐).
  * - 그 밖 오류: 「불러오지 못했어요」 + 다시 시도.
- * - 「+ 사용자」 는 29-19(생성 시트)가 `onCreate` 로 잇는다 — 그 전에는 비활성.
+ * - 「+ 사용자」 → 생성 시트(`UserCreateSheet` — 29-19 · D-16). 성공하면 생성 시트를 닫고 재조회한 뒤 **만들어진 사용자의
+ *   편집 시트를 열어** 생성 응답의 서버별 결과를 계좌 칩 초기값으로 넘긴다(결과 표시는 편집 시트 몫). 목록을 읽기 전에는
+ *   레지스트리(등록 서버 후보)가 없으니 버튼은 비활성이다.
  * - 행을 누르면 `selected` 가 그 이메일이 되고 편집 시트(`UserSheet` — 29-17)가 열린다. 시트의 쓰기가 성공하면
  *   `load()` 로 다시 읽고, 시트는 재조회 결과에서 같은 이메일의 사용자로 내용을 바꿔 그린다(사라졌으면 닫힌다).
  *   시트는 이메일을 key 로 둔다 — 다른 사용자로 바꿔 열면 필드 저장 상태가 새로 시작한다.
@@ -56,14 +59,12 @@ export const ADMIN_USERS_TEXT = {
   retry: "다시 시도",
 } as const;
 
-export interface UsersClientProps {
-  /** 「+ 사용자」 — 29-19 가 생성 시트로 잇는다. 없으면 버튼 비활성. */
-  onCreate?: () => void;
-}
-
-export function UsersClient({ onCreate }: UsersClientProps = {}) {
+export function UsersClient() {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [selected, setSelected] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  // 생성 응답의 서버별 결과 — 그 이메일의 편집 시트가 처음 열릴 때 칩 초기값으로 한 번 쓴다.
+  const [created, setCreated] = useState<{ email: string; results: AdminServerResult[] } | null>(null);
   // 늦게 도착한 옛 응답이 새 응답을 덮지 않게 — 마지막 요청만 반영한다.
   const seq = useRef(0);
 
@@ -111,8 +112,8 @@ export function UsersClient({ onCreate }: UsersClientProps = {}) {
             size="sm"
             variant="secondary"
             data-slot="admin-users-create"
-            disabled={onCreate === undefined}
-            onClick={onCreate}
+            disabled={state.kind !== "ready"}
+            onClick={() => setCreating(true)}
             // 라이트 본문면(--surface)은 --muted 와 같은 색이라 흰 카드면으로 띄운다(검색 입력과 같은 결).
             className={cn(ADMIN_BUTTON_SECONDARY, "bg-[var(--card)] dark:bg-[var(--muted)]")}
           >
@@ -142,13 +143,31 @@ export function UsersClient({ onCreate }: UsersClientProps = {}) {
         </div>
       )}
 
+      {state.kind === "ready" && creating && (
+        <UserCreateSheet
+          servers={state.data.servers}
+          onCreated={(email, results) => {
+            setCreating(false);
+            setCreated(results && results.length > 0 ? { email, results } : null);
+            setSelected(email);
+            void load();
+          }}
+          onFailed={() => void load()}
+          onClose={() => setCreating(false)}
+        />
+      )}
+
       {state.kind === "ready" && selectedUser && (
         <UserSheet
           key={selectedUser.email}
           user={selectedUser}
           servers={state.data.servers}
+          initialResults={created?.email === selectedUser.email ? created.results : null}
           onChanged={() => void load()}
-          onClose={() => setSelected(null)}
+          onClose={() => {
+            setSelected(null);
+            setCreated(null);
+          }}
         />
       )}
 

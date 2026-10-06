@@ -285,3 +285,153 @@ test('P29-A3 편집 시트 — 폰 바텀시트 · 역할 즉시 저장 1건 (39
 
   await page.screenshot({ path: testInfo.outputPath('admin-user-sheet-390.png') });
 });
+
+// ── P29-A4 · A5 생성 시트 · DMA 연결 (29-19 · D-16) ─────────────────────────────
+
+const NEW_EMAIL = 'lee.new@example.invalid';
+const CREATE_BUSY = '미체결 1건 — 먼저 정리';
+
+interface DmaBody {
+  dmaUserId: string;
+  account: { broker: 'KB' | 'KYOBO'; accountNo: string; name: string; branchNo: string; traderId: string; priority: number };
+  servers: string[];
+}
+
+/**
+ * relay 를 거친 DMA 생성 · 연결의 목 — 의도를 목 상태에 적고(재조회가 새 계좌 · 등록 서버를 받는다 · 87 스냅샷 전이라 미반영)
+ * KB121 만 BUSY 로 돌려준다. POST /users 는 승인 대기에서 그 이메일을 뺀다(이미 가입한 이메일 — D-16).
+ */
+function applyDma(api: AdminApiMock, email: string, role: 'trader' | 'admin' | null, dma: DmaBody) {
+  const users = api.state.users;
+  users.pending = users.pending.filter((p) => p.email !== email);
+  let user = users.users.find((u) => u.email === email);
+  if (!user) {
+    user = { email, role: role ?? 'trader', dmaUserId: null, signedUp: true, accountCount: 0, servers: [], accounts: [] };
+    users.users.push(user);
+  }
+  if (role) user.role = role;
+  user.dmaUserId = dma.dmaUserId;
+  user.accountCount = 1;
+  user.servers = dma.servers.map((s) => ({ serverKey: s, tone: 'warn' as const, message: null }));
+  user.accounts = [
+    {
+      ...dma.account,
+      servers: dma.servers.map((s) => ({ serverKey: s, tone: 'warn' as const, message: null, state: 'active' as const })),
+      serverOnlyOn: [],
+    },
+  ];
+  return dma.servers.map((s) =>
+    s === 'KB121' ? { server: s, outcome: 'failed', code: 9, message: CREATE_BUSY } : { server: s, outcome: 'ok' },
+  );
+}
+
+async function mockCreateApi(page: Page): Promise<AdminApiMock> {
+  const api: AdminApiMock = await mockAdminApi(page, {
+    onRequest: (req) => {
+      const body = req.body as { email?: string; role?: 'trader' | 'admin' | 'viewer'; dma?: DmaBody } & Partial<DmaBody>;
+      if (req.method === 'POST' && req.path === '/users' && body.dma && body.role !== 'viewer') {
+        const results = applyDma(api, String(body.email).trim().toLowerCase(), body.role ?? 'trader', body.dma);
+        return { body: { ok: true, relayNotified: true, results } };
+      }
+      const connect = /^\/users\/([^/]+)\/dma$/.exec(req.path);
+      if (req.method === 'POST' && connect) {
+        const results = applyDma(api, decodeURIComponent(connect[1]), null, body as DmaBody);
+        return { body: { results, relayNotified: true } };
+      }
+      return undefined;
+    },
+  });
+  return api;
+}
+
+test('P29-A4 생성 시트 — trader + DMA + 첫 계좌 한 번에 → 편집 시트 결과 칩 (1080)', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1080, height: 800 });
+  const api = await mockCreateApi(page);
+
+  await page.goto('/admin/users');
+  const root = usersRoot(page);
+  await expect(userRows(page)).toHaveCount(4, { timeout: 30_000 });
+  await expect(root.locator('[data-slot="admin-pending"]')).toContainText(NEW_EMAIL);
+
+  await root.getByRole('button', { name: '+ 사용자' }).click();
+  const sheet = page.getByRole('dialog', { name: '사용자 만들기' });
+  await expect(sheet).toBeVisible();
+  await expect(sheet).toHaveAttribute('data-side', 'right');
+  await expect(sheet).toContainText('가입 전이면 사전 등록으로 남고, 이미 가입했으면 승인 대기에서 빠진다.');
+
+  // trader(기본) → 「DMA 연결 · 필수」 그룹
+  const role = sheet.getByRole('group', { name: '역할' });
+  await expect(role.getByRole('radio', { name: 'trader' })).toHaveAttribute('aria-checked', 'true');
+  const group = sheet.locator('[data-slot="admin-dma-connect"]');
+  await expect(group).toBeVisible();
+  const submit = sheet.locator('[data-slot="admin-user-create-submit"]');
+  await expect(submit).toBeDisabled();
+
+  await sheet.getByLabel(/gmail/).fill(NEW_EMAIL);
+  await group.getByLabel(/DMA 사용자 id/).fill('leenew');
+  await group.getByLabel('비밀번호', { exact: true }).fill('pw-1234');
+  await group.getByLabel('비밀번호 확인').fill('pw-1234');
+  await group.getByLabel('계좌번호').fill('0012345678');
+  await group.getByLabel('지점').fill('00123');
+  await group.getByLabel('트레이더').fill('000789');
+  await group.getByRole('checkbox', { name: 'KB120' }).click();
+  await group.getByRole('checkbox', { name: 'KB121' }).click();
+  await expect(submit).toBeEnabled();
+  await expect(submit).toHaveText('사용자 + DMA 유저 만들기 · 서버 2대에 반영');
+  await expect(group.getByRole('checkbox', { name: 'KB121' })).toHaveAttribute('data-state', 'checked');
+  // 체크 칸 색 전환(transition-colors)이 끝난 뒤 찍는다 — 반투명이면 아직 전환 중
+  await expect
+    .poll(() => group.getByRole('checkbox', { name: 'KB121' }).evaluate((el) => getComputedStyle(el).backgroundColor))
+    .toMatch(/^rgb\(/);
+
+  // 잘림 — 생성 시트 본문이 패널 밖으로 밀리지 않는다
+  const createBody = sheet.locator('[data-slot="admin-sheet-body"]');
+  const createBox = (await createBody.boundingBox())!;
+  expect(await leavesOverflowing(createBody, createBox.x + createBox.width)).toEqual([]);
+  await page.screenshot({ path: testInfo.outputPath('admin-user-create-1080.png') });
+
+  await submit.click();
+
+  // POST 1건 — 정규화 계좌번호 · 레지스트리 순 서버
+  const edit = page.getByRole('dialog', { name: NEW_EMAIL });
+  await expect(edit).toBeVisible();
+  await expect(sheet).toHaveCount(0);
+  // 슬라이드 인이 끝난 뒤 잰다 · 찍는다
+  await expect.poll(async () => {
+    const b = (await edit.boundingBox())!;
+    return Math.round(b.x + b.width);
+  }).toBe(1080);
+  const posts = writes(api);
+  expect(posts).toEqual([
+    {
+      method: 'POST',
+      path: '/users',
+      body: {
+        email: NEW_EMAIL,
+        role: 'trader',
+        dma: {
+          dmaUserId: 'leenew',
+          password: 'pw-1234',
+          account: { broker: 'KB', accountNo: '12345678', name: '', branchNo: '00123', traderId: '000789', priority: 0 },
+          servers: ['KB120', 'KB121'],
+        },
+      },
+    },
+  ]);
+
+  // 재조회 — 승인 대기에서 빠지고 사용자 목록에
+  expect(api.requests.filter((r) => r.method === 'GET' && r.path === '/users')).toHaveLength(2);
+  await expect(root.locator('[data-slot="admin-pending"]')).toHaveCount(0);
+  await expect(root.locator(`[data-slot="admin-user-row"][data-email="${NEW_EMAIL}"]`)).toBeVisible();
+
+  // 편집 시트 — 서버별 결과 칩(KB120 반영됨 · KB121 실패 · BUSY 원문)
+  const acct = edit.locator('[data-slot="admin-account"][data-account="12345678"]');
+  const chip = (key: string) => acct.locator(`[data-slot="admin-server-toggle"][data-server="${key}"] [data-slot="reflect-chip"]`);
+  await expect(chip('KB120')).toHaveText('반영됨');
+  await expect(chip('KB121')).toHaveText('실패 · BUSY');
+  await expect(chip('KB121')).toHaveAttribute('title', CREATE_BUSY);
+  await expect(edit.locator('[data-slot="admin-busy-line"]')).toHaveText(
+    `KB121 실패 · BUSY: ${CREATE_BUSY} — 정리 뒤 「다시 반영」`,
+  );
+  await page.screenshot({ path: testInfo.outputPath('admin-user-created-sheet-1080.png') });
+});

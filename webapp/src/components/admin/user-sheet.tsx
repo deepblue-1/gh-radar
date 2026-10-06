@@ -85,9 +85,14 @@ export interface UserSheetProps {
   /** 쓰기 성공 뒤 목록 재조회. */
   onChanged: () => void;
   onClose: () => void;
+  /**
+   * 시트를 열 때 이미 손에 든 서버별 결과(29-19 — 「+ 사용자」 생성 응답). 계좌 칩의 초기값으로 한 번 반영한다
+   * (「다시 반영」 결과와 같은 길 — 서버 S 의 결과가 S 에 등록된 계좌 칩에 닿는다).
+   */
+  initialResults?: readonly AdminServerResult[] | null;
 }
 
-export function UserSheet({ user, servers, onChanged, onClose }: UserSheetProps) {
+export function UserSheet({ user, servers, onChanged, onClose, initialResults = null }: UserSheetProps) {
   const dma = user.dmaUserId;
 
   const role = useFieldSave<AppRole>(
@@ -99,7 +104,9 @@ export function UserSheet({ user, servers, onChanged, onClose }: UserSheetProps)
   const shownRole = role.value ?? user.role;
 
   // 「다시 반영」 — 결과는 계좌 칩으로 내려 보낸다(id 가 바뀔 때 한 번 반영).
-  const [reconcileBatch, setReconcileBatch] = useState<{ id: number; results: AdminServerResult[] } | null>(null);
+  const [reconcileBatch, setReconcileBatch] = useState<{ id: number; results: readonly AdminServerResult[] } | null>(
+    () => (initialResults && initialResults.length > 0 ? { id: 1, results: initialResults } : null),
+  );
   const reconcile = useFieldSave<true>(() => reconcileDmaUser(dma ?? ""), {
     retainValue: false,
     onSuccess: (_v, res) => {
