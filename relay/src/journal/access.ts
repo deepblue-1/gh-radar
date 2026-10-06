@@ -1,8 +1,12 @@
 /**
  * Phase 19 Plan 05 — 저널 계좌 매핑 (`JournalAccess`). DMA 사용자 → 계좌 집합.
  *
- * 원천은 **관찰자 로그인 응답 스냅샷 하나**다(D-06). users.toml 은 핫리로드가 없어 게이트웨이
- * 재시작 = 관찰자 재로그인이므로 로그인 시점 스냅샷이 정본이다. 같은 스냅샷을 두 곳에 쓴다:
+ * 원천은 **둘**이다(Phase 29 · RESEARCH Pitfall 4 — 19 D-06 의 「관찰자 로그인 스냅샷 하나」 전제는 깨졌다):
+ *   - 79 관찰자 로그인 응답(`JournalObserver` · 접속 때마다)
+ *   - 87 admin 연결 스냅샷(`AdminSnapshotSink` · 29-14 — Admin 변경 · admin 재접속 때마다)
+ * gh-trade Phase 29 에서 users.toml 이 **핫리로드**(RCU)된다 — 게이트웨이 재시작 없이 매핑이 바뀌므로 로그인 시점 스냅샷만으로는
+ * 낡는다. 둘 다 같은 users.toml 의 평탄화이고 `replace` 는 통째 교체라 **나중 것이 이긴다**. 유효 행 0 스냅샷 거부(아래 WR-04)는
+ * 원천과 무관하게 같다. 받은 스냅샷을 두 곳에 쓴다:
  *   1. 메모리 `Map<dmaUserId, Set<accountNo>>` — `WsFanout.deliverJournalRows` 의 푸시 라우팅.
  *      `replace` 가 **동기로** 교체하므로 즉시 유효하다.
  *   2. DB `dma_account_access` — `dma_journal_sync_access` RPC 로 원자 교체. REST 조회
@@ -88,7 +92,7 @@ export class JournalAccess implements JournalAccessView {
   }
 
   /**
-   * 관찰자 로그인 응답의 매핑 스냅샷으로 **전체를 교체**한다. 메모리 교체는 동기이고 DB 동기화는
+   * 매핑 스냅샷(79 관찰자 로그인 · 87 admin — Phase 29)으로 **전체를 교체**한다. 메모리 교체는 동기이고 DB 동기화는
    * 비동기로 예약한다.
    *
    * 빈 `dmaUserId`/`accountNo` 행은 버린다(warn · 행 수만) — DB RPC 는 그런 행이 하나라도 있으면

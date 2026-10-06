@@ -11,6 +11,7 @@
  *   POST /rest/v1/rpc/dma_strategy_apply       → 같은 모양(Phase 25 — 부팅 결선 증명용 · 푸시 행은 25-01 트레이서 몫)
  *   POST /rest/v1/rpc/dma_app_access_map       → 시드한 접근 맵 행(기본 빈 배열 · Phase 29 — relay `AppAccess` 부팅 즉시 + 주기)
  *   GET  /rest/v1/dma_users?dma_user_id=eq.…   → 시드한 행 중 그 DMA id(0~1건 · Phase 29 D-19 — wss 인증 자격증명)
+ *   POST /rest/v1/rpc/dma_admin_apply_snapshot → 넣은 계좌 행 수(Phase 29-14 — 87 적재 · 반영 상태)
  *
  * Phase 29 (29-06) — 옛 신원 뷰 경로(`dma_visibility_identities`)는 소비자(`GatewayIdentities`)와 함께 뺐다. relay 가 다시
  * 부르면 `unknownRequests()` 에 드러난다(journal-boot 가 0 을 단언한다).
@@ -64,6 +65,11 @@ export type SupabaseStub = {
   seedAccessMap(rows: readonly StubAccessRow[]): void;
   /** 다음 `dma_users` 조회부터 쓸 행. 기본 빈 배열. 조회는 `dma_user_id=eq.<id>` 로 거른다. */
   seedDmaUsers(rows: readonly StubDmaUserRow[]): void;
+  /**
+   * 다음 `dma_journal_apply` 응답부터 `rows` 에 실을 공개 행(DB 투영 흉내 · 29-14 트레이서). 기본 빈 배열 — 행은 그대로
+   * 돌려줄 뿐 입력 이벤트와 대조하지 않는다.
+   */
+  seedJournalApplyRows(rows: readonly unknown[]): void;
   close(): Promise<void>;
 };
 
@@ -75,6 +81,7 @@ const KNOWN_PATHS: ReadonlySet<string> = new Set([
   "/rest/v1/rpc/dma_strategy_apply",
   "/rest/v1/rpc/dma_app_access_map",
   "/rest/v1/dma_users",
+  "/rest/v1/rpc/dma_admin_apply_snapshot",
 ]);
 
 function parseBody(raw: string): unknown {
@@ -91,6 +98,7 @@ export async function startSupabaseStub(): Promise<SupabaseStub> {
   let cursor: StubCursorRow | null = null;
   let accessMap: StubAccessRow[] = [];
   let dmaUsers: StubDmaUserRow[] = [];
+  let journalApplyRows: unknown[] = [];
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -138,7 +146,13 @@ export async function startSupabaseStub(): Promise<SupabaseStub> {
         case "/rest/v1/rpc/dma_strategy_apply": {
           const events = (body as { p_events?: Array<{ seq: number }> } | null)?.p_events ?? [];
           const lastSeq = events.length > 0 ? Math.max(...events.map((e) => Number(e.seq))) : 0;
-          json(200, { applied: events.length, skipped: 0, errors: [], last_seq: lastSeq, rows: [] });
+          const rows = url.pathname === "/rest/v1/rpc/dma_journal_apply" && events.length > 0 ? journalApplyRows : [];
+          json(200, { applied: events.length, skipped: 0, errors: [], last_seq: lastSeq, rows });
+          return;
+        }
+        case "/rest/v1/rpc/dma_admin_apply_snapshot": {
+          const users = (body as { p_users?: Array<{ accounts?: unknown[] }> } | null)?.p_users ?? [];
+          json(200, users.reduce((n, u) => n + (Array.isArray(u.accounts) ? u.accounts.length : 0), 0));
           return;
         }
         default:
@@ -173,6 +187,9 @@ export async function startSupabaseStub(): Promise<SupabaseStub> {
     },
     seedDmaUsers(rows) {
       dmaUsers = rows.map((r) => ({ ...r }));
+    },
+    seedJournalApplyRows(rows) {
+      journalApplyRows = [...rows];
     },
     async close() {
       server.closeAllConnections();

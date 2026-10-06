@@ -119,8 +119,11 @@ export type AdminCommandOutcome =
 /** healthz 본문 `adminConns.<서버 키>` — 상태와 rev 뿐(식별자 없음). */
 export type AdminConnHealth = { state: AdminConnState; usersRev: string | null };
 
-/** "snapshot" 이벤트 페이로드 — 87 을 받을 때마다(요청한 것이든 아니든) 1회. 29-14 가 DB 표에 적재한다. */
-export type AdminSnapshotEvent = { serverKey: string; snapshot: AdminUsersSnapshot };
+/**
+ * "snapshot" 이벤트 페이로드 — 87 을 받을 때마다(요청한 것이든 아니든) 1회. 29-14 `AdminSnapshotSink` 가 매핑 · DB 표에 적재한다.
+ * `generation` = 받은 연결 세대 — users_rev 대신 이것이 신선도 근거다(재기동 시 rev 는 1 로 돌아간다).
+ */
+export type AdminSnapshotEvent = { serverKey: string; generation: number; snapshot: AdminUsersSnapshot };
 
 export interface AdminConn {
   on(event: "state", listener: (state: AdminConnState) => void): this;
@@ -429,7 +432,7 @@ export class AdminConn extends EventEmitter {
       { serverKey: this.#deps.serverKey, usersRev: snapshot.usersRev.toString(), userCount: snapshot.users.length },
       "[ADMIN] users.toml 스냅샷 수신(87)",
     );
-    this.emit("snapshot", { serverKey: this.#deps.serverKey, snapshot });
+    this.emit("snapshot", { serverKey: this.#deps.serverKey, generation, snapshot });
 
     const f = this.#inFlight;
     if (f === null || f.awaiting !== "snapshot") return;

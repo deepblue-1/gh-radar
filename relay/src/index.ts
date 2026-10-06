@@ -60,7 +60,7 @@
  *      새 배치를 받지 않는다 — Phase 19 D-13 · Phase 26). quote 연결의 로그인 타이머 · 재접속 백오프도 여기서 멈춘다.
  *      서버별 admin 연결(29-08 · role 2)도 `pipelines.stopAll()` 안에서 함께 stop 된다(별도 줄 없음).
  *   5. `pipelines.drainAll(2초)` — 전 서버 `writer` · `strategyWriter` drain **병렬** → `pipelines.closeAll()`(기록기 · `access` ·
- *      `status`) · quote 상태 · 접근 맵 `close()`
+ *      `status`) · 87 적재(`adminSnapshotSink` — 재시도 타이머) · quote 상태 · 접근 맵 `close()`
  *      — 큐에 남은 레코드를 적용 RPC 로 보낸다. 2초 안에 못 끝내도 **유실은 없다** — 커서는 적용 RPC
  *      트랜잭션 안에서만 전진하므로 다음 부팅이 남은 구간을 재생한다(D-12).
  *   6. `hub.closeAll()` · `symbols` · 종목마스터 — 배치·재적재 타이머 정리(남기면 프로세스가 안 내려간다)
@@ -93,6 +93,7 @@ import { createOrderApi } from "./order/order-api.js";
 import { AdminIntentStore } from "./admin/intent-store.js";
 import { AdminDispatcher } from "./admin/dispatcher.js";
 import { createAdminRouter } from "./admin/admin-api.js";
+import { AdminSnapshotSink } from "./admin/snapshot-sink.js";
 import type { JournalAccessView } from "./journal/types.js";
 import { QuoteFeed } from "./quote/feed.js";
 import { QuoteStatus } from "./quote/status.js";
@@ -150,6 +151,13 @@ const pipelines = new ServerPipelines({
   secretOf: config.observerSecretOf,
   onCreated: (p) => wirePipeline(p),
 });
+
+/**
+ * 87 적재 (Phase 29-14 · D-05 · RESEARCH Pattern 4) — 서버별 admin 연결의 87 하나를 그 서버 매핑(`JournalAccess.replace` —
+ * 푸시 라우팅 · REST 가시성)과 반영 상태 표(`dma_admin_apply_snapshot` — Admin 반영 칩 원천)에 함께 넣는다. 결선은 `wirePipeline`.
+ * `pipelines.sync` 보다 먼저 만든다(첫 sync 의 onCreated 가 이 값을 쓴다).
+ */
+const adminSnapshotSink = new AdminSnapshotSink({ supabase, accessOf: (key) => pipelines.get(key)?.access });
 
 /** 부팅 때 KB 주문 서버 키의 현재 파이프라인(재생성되면 새 벌). */
 const primaryPipeline = (): ServerPipeline | undefined => (primaryKey === null ? undefined : pipelines.get(primaryKey));
@@ -296,6 +304,8 @@ function wirePipeline(p: ServerPipeline): void {
   p.writer.on("applied", (rows) => fanout.deliverJournalRows(rows, { access: p.access, identities: appAccess }));
   p.strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows, { access: p.access, identities: appAccess }));
   if (p.server.key === primaryKey) p.status.on("frame", (frame) => fanout.deliverJournalState(frame));
+  // Phase 29-14 — 87 → 그 서버 매핑 즉시 교체(관찰자 재로그인 없이 새 계좌 푸시) + 반영 상태 DB.
+  p.admin.on("snapshot", (e) => adminSnapshotSink.onSnapshot(p.server.key, e));
 }
 
 wsServer.on("upgrade", (req, socket, head) => fanout.handleUpgrade(req, socket, head));
@@ -468,6 +478,7 @@ async function shutdown(signal: string): Promise<void> {
     //    전진하므로 다음 부팅이 재생한다. 서버마다 두 기록기(주문 · 전략)를 함께 drain 한다(pipelines.ts).
     const undrained = await pipelines.drainAll(JOURNAL_DRAIN_TIMEOUT_MS);
     pipelines.closeAll();
+    adminSnapshotSink.close();
     quoteStatus.close();
     appAccess.close();
     if (undrained.length > 0) {
