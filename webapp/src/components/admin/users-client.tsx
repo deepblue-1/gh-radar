@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { PendingSection } from "./pending-section";
 import { ADMIN_BUTTON_SECONDARY } from "./reflect-chip";
 import { ServerOnlyRow, UserRow } from "./user-row";
+import { UserSheet } from "./user-sheet";
 
 /**
  * UsersClient — `/admin/users` 본문 (Phase 29 D-14 · 목업 A · ADMIN-09).
@@ -32,7 +33,9 @@ import { ServerOnlyRow, UserRow } from "./user-row";
  * - 403: 「관리자만 사용할 수 있어요.」 한 줄(실제 차단은 middleware · Express 관문 — 여기는 설명뿐).
  * - 그 밖 오류: 「불러오지 못했어요」 + 다시 시도.
  * - 「+ 사용자」 는 29-19(생성 시트)가 `onCreate` 로 잇는다 — 그 전에는 비활성.
- * - 행을 누르면 `selected` 가 그 이메일이 된다 — 편집 시트(29-17)가 이 상태를 읽어 `AdminSheet` 를 연다.
+ * - 행을 누르면 `selected` 가 그 이메일이 되고 편집 시트(`UserSheet` — 29-17)가 열린다. 시트의 쓰기가 성공하면
+ *   `load()` 로 다시 읽고, 시트는 재조회 결과에서 같은 이메일의 사용자로 내용을 바꿔 그린다(사라졌으면 닫힌다).
+ *   시트는 이메일을 key 로 둔다 — 다른 사용자로 바꿔 열면 필드 저장 상태가 새로 시작한다.
  */
 
 type LoadState =
@@ -88,6 +91,10 @@ export function UsersClient({ onCreate }: UsersClientProps = {}) {
     };
   }, [load]);
 
+  // 재조회 뒤에도 같은 이메일의 최신 행을 시트에 준다 — 목록에서 사라졌으면(삭제) 시트를 그리지 않는다.
+  const selectedUser =
+    state.kind === "ready" && selected !== null ? (state.data.users.find((u) => u.email === selected) ?? null) : null;
+
   const retry = () => {
     setState({ kind: "loading" });
     void load();
@@ -133,6 +140,16 @@ export function UsersClient({ onCreate }: UsersClientProps = {}) {
             </>
           )}
         </div>
+      )}
+
+      {state.kind === "ready" && selectedUser && (
+        <UserSheet
+          key={selectedUser.email}
+          user={selectedUser}
+          servers={state.data.servers}
+          onChanged={() => void load()}
+          onClose={() => setSelected(null)}
+        />
       )}
 
       {state.kind === "ready" && (

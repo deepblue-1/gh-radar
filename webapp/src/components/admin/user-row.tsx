@@ -17,7 +17,7 @@ import { ADMIN_CHIP_BASE, ADMIN_TONE_CLASS, ReflectChip } from "./reflect-chip";
  */
 
 /** 역할 칩 톤 — admin 만 주색 면(목업 `.ch.admin`), trader · viewer 는 muted 면(`.ch.role`). */
-const ROLE_CHIP_CLASS: Readonly<Record<AppRole, string>> = {
+export const ROLE_CHIP_CLASS: Readonly<Record<AppRole, string>> = {
   admin: "bg-[color-mix(in_srgb,var(--primary)_14%,transparent)] text-[var(--primary)]",
   trader: "bg-[var(--muted)] text-[var(--fg-2)]",
   viewer: "bg-[var(--muted)] text-[var(--fg-2)]",
