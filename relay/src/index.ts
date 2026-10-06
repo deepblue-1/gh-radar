@@ -62,7 +62,9 @@
  */
 import http from "node:http";
 
-import { loadConfig, type JournalUpstream } from "./config.js";
+import { loadConfig } from "./config.js";
+import type { DmaServerRow } from "./registry/registry.js";
+import { createJournalPipeline, type ServerPipeline } from "./registry/pipelines.js";
 import { logger } from "./logger.js";
 import { createRelaySupabase } from "./store/supabase.js";
 import { SymbolMap } from "./store/symbols.js";
@@ -71,13 +73,7 @@ import { SessionManager } from "./dma/session-manager.js";
 import { SubscriptionHub } from "./hub/subscription-hub.js";
 import { WsFanout } from "./ws/fanout.js";
 import { createOrderApi } from "./order/order-api.js";
-import { JournalWriter } from "./journal/writer.js";
-import { createStrategyWriter } from "./journal/strategy-stream.js";
-import { JournalAccess } from "./journal/access.js";
 import { GatewayIdentities } from "./journal/identities.js";
-import { JournalObserver } from "./journal/observer.js";
-import { JournalStatus } from "./journal/status.js";
-import { createJournalCodec } from "./journal/codec.js";
 import { QuoteFeed } from "./quote/feed.js";
 import { QuoteStatus } from "./quote/status.js";
 
@@ -118,38 +114,17 @@ const supabase = createRelaySupabase(config.supabaseUrl, config.supabaseServiceR
  *
  * 비밀은 관찰자 deps 로만 넘긴다(코덱이 로그인 페이로드에 싣는다). 로그 인자로 넘기지 않는다(T-19-03).
  */
-type JournalPipeline = {
-  upstream: JournalUpstream;
-  writer: JournalWriter;
-  strategyWriter: ReturnType<typeof createStrategyWriter>;
-  access: JournalAccess;
-  observer: JournalObserver;
-  status: JournalStatus;
-};
-
-function createJournalPipeline(upstream: JournalUpstream): JournalPipeline {
-  const writer = new JournalWriter({ supabase, gateway: upstream.gateway });
-  const strategyWriter = createStrategyWriter({ supabase, gateway: upstream.gateway });
-  const access = new JournalAccess({ supabase, gateway: upstream.gateway });
-  const observer = new JournalObserver({
-    secret: upstream.secret,
-    gateway: upstream.gateway,
-    host: upstream.host,
-    port: upstream.port,
-    codec: createJournalCodec(),
-    writer,
-    strategyWriter,
-    access,
-  });
-  const status = new JournalStatus({ observer, writer, strategyWriter, access });
-  return { upstream, writer, strategyWriter, access, observer, status };
-}
+// Phase 29-03 Task 1 — 파이프라인 생성은 `registry/pipelines.ts`(`createJournalPipeline`)로 옮겼다. 원천은 config 의 env 합성
+// 레지스트리(`envServers`)이고 비밀은 증권사별 매핑(`observerSecretOf`)이다. 레지스트리 순회 결선은 Task 2 가 한다.
+const createPipeline = (server: DmaServerRow): ServerPipeline =>
+  createJournalPipeline({ supabase, server, secret: config.observerSecretOf(server.broker) });
 
 // 0번 = 주 게이트웨이(사용자 세션과 같은 게이트웨이). 나머지 = 추가 게이트웨이(관찰자 전용).
-const [primaryUpstream, ...extraUpstreams] = config.journalUpstreams;
-const primaryJournal = createJournalPipeline(primaryUpstream);
-const extraJournals: readonly JournalPipeline[] = extraUpstreams.map(createJournalPipeline);
-const journalPipelines: readonly JournalPipeline[] = [primaryJournal, ...extraJournals];
+const [primaryServer, ...extraServers] = config.envServers;
+if (primaryServer === undefined) throw new Error("envServers 가 비었다");
+const primaryJournal = createPipeline(primaryServer);
+const extraJournals: readonly ServerPipeline[] = extraServers.map(createPipeline);
+const journalPipelines: readonly ServerPipeline[] = [primaryJournal, ...extraJournals];
 // 주 게이트웨이는 종전 이름 그대로 — 아래 fanout · orderApi · 결선 줄이 바뀌지 않는다.
 const { writer: journalWriter, access: journalAccess, status: journalStatus } = primaryJournal;
 
@@ -159,7 +134,7 @@ const { writer: journalWriter, access: journalAccess, status: journalStatus } = 
  */
 const gatewayIdentities: GatewayIdentities | null =
   extraJournals.length > 0
-    ? new GatewayIdentities({ supabase, gateways: extraJournals.map((p) => p.upstream.gateway) })
+    ? new GatewayIdentities({ supabase, gateways: extraJournals.map((p) => p.server.key) })
     : null;
 
 const sessionManager = new SessionManager({
@@ -259,7 +234,7 @@ quoteStatus.on("frame", (frame) => fanout.deliverQuoteState(frame));
 // 추가 게이트웨이가 있으면 신원 적재기도 있다(위 생성 조건이 같다) — 타입 좁힘만 겸한다.
 if (gatewayIdentities !== null) {
   for (const extra of extraJournals) {
-    const route = { access: extra.access, identities: gatewayIdentities.viewOf(extra.upstream.gateway) };
+    const route = { access: extra.access, identities: gatewayIdentities.viewOf(extra.server.key) };
     extra.writer.on("applied", (rows) => fanout.deliverJournalRows(rows, route));
     extra.strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows, route));
   }
@@ -285,7 +260,7 @@ const orderApi = createOrderApi({
   journal: journalStatus,
   // 추가 게이트웨이 관찰자 — 본문 `journalGateways` 에만 싣는다(503 판정 밖 · quick-260929-c8e). 없으면 키도 없다.
   journalGateways: extraJournals.map((p) => ({
-    gateway: p.upstream.gateway,
+    gateway: p.server.key,
     health: (nowMs: number) => p.status.health(nowMs),
   })),
   // `/healthz` 의 `quote` 필드 + 503 판정(Phase 26 D-02 · D-16 — 장중 60초 · 거부 즉시). 폴백이 없어 503 축이다.
@@ -325,10 +300,10 @@ wsServer.listen(config.wsPort, () => {
         ...(extraJournals.length > 0
           ? {
               journalGateways: extraJournals.map((p) => ({
-                gateway: p.upstream.gateway,
-                host: p.upstream.host,
-                port: p.upstream.port,
-                observer: p.upstream.secret !== undefined ? "enabled" : "disabled",
+                gateway: p.server.key,
+                host: p.server.host,
+                port: p.server.port,
+                observer: p.observerEnabled ? "enabled" : "disabled",
               })),
             }
           : {}),
@@ -392,7 +367,7 @@ async function shutdown(signal: string): Promise<void> {
     }
     quoteStatus.close();
     gatewayIdentities?.close();
-    const undrained = journalPipelines.filter((_, i) => !drained[i]).map((p) => p.upstream.gateway);
+    const undrained = journalPipelines.filter((_, i) => !drained[i]).map((p) => p.server.key);
     if (undrained.length > 0) {
       logger.warn(
         { timeoutMs: JOURNAL_DRAIN_TIMEOUT_MS, gateways: undrained },
