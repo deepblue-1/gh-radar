@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 29
 current_phase_name: DMA 다중 서버 · 웹 Admin 유저 관리
 status: executing
-stopped_at: Completed 29-05-PLAN.md
-last_updated: "2026-10-06T15:23:10.853Z"
+stopped_at: Completed 29-06-PLAN.md
+last_updated: "2026-10-06T15:46:03.900Z"
 last_activity: 2026-10-06
 last_activity_desc: Phase 29 execution started
-state_head: aeaef3820bee93a27637b0d411711c0ba1de1db9
+state_head: 06e1e55e35a5729d969c1612715785493073dc5d
 progress:
   total_phases: 38
   completed_phases: 24
   total_plans: 403
-  completed_plans: 367
+  completed_plans: 368
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 29 (DMA 다중 서버 · 웹 Admin 유저 관리) — EXECUTING
-Plan: 2 of 26
+Plan: 6 of 26
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-10-06 — Phase 29 execution started
@@ -208,6 +208,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 28 P12 | 16min | 3 tasks | 16 files |
 | Phase 28 P13 | 27min | 3 tasks | 15 files |
 | Phase 29 P05 | 10min | 2 tasks | 4 files |
+| Phase 29 P06 | 20min | 3 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -562,6 +563,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 29]: 29-05: dma_admin_results 는 dma_users FK cascade · record_results 는 없는 DMA id/모르는 서버 결과를 버린다(재생성 시 옛 실패 칩 방지)
 - [Phase 29]: 29-05: 입양은 의도 표 CHECK 를 못 맞추는 87 행을 건너뛰어 「서버에만 있음」 으로 남긴다 · 반환 = 들여온 (계좌, 서버) 등록 행 수
 - [Phase 29]: 29-05: put_account 반환 { activated, removing } · settle_server 반환 { deletedRows, deletedAccounts } 정수 · LAST_ACCOUNT = 다른 계좌에 active 등록 서버 0
+- [Phase 29]: 29-06: relay 접근 맵 AppAccess(RPC dma_app_access_map 60초 · 미스 단발 재적재 최소 2초)가 wss 역할 게이트 · 모든 서버 푸시 신원의 한 원천 — GatewayIdentities 제거
+- [Phase 29]: 29-06: dma_users AAD = dma_user_id 원문(접두 없음) · 옛 getDmaCredentials 는 이관 · dual-write 용으로 유지
+- [Phase 29]: 29-06: 권한 회수 = 재적재 diff(사라짐 · viewer 강등 · DMA 끊김/변경) → revokeUser(unauthorized 1프레임 → 1008 → 세션 유예) · 승격은 이벤트 없음
 
 ### Pending Todos
 
@@ -663,8 +667,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-10-06T15:23:09.953Z
-Stopped at: Completed 29-05-PLAN.md
+Last session: 2026-10-06T15:46:03.278Z
+Stopped at: Completed 29-06-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
