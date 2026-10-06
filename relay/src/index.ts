@@ -32,9 +32,9 @@
  *   quick-260929-c8e  **브라우저 `journal.state` 는 주 게이트웨이만** 보낸다(결선 1곳). 추가 게이트웨이 상태는
  *         `/healthz` 본문 `journalGateways` 에만 싣고 503 판정에 넣지 않는다. 추가 게이트웨이 적용 행은 **그
  *         게이트웨이의 매핑으로** `journal.rows` 푸시한다. 사용자 세션(`SessionManager`)은 주 게이트웨이 단일이다.
- *   quick-260929-sas  추가 게이트웨이 푸시는 **명시 신원 연결**(`GatewayIdentities` — DB 뷰 `dma_visibility_identities`
- *         사본, 부팅 즉시 + 60초 재적재 · fail closed)로만 사용자에게 잇는다. 자격증명 문자열로 잇지 않는다.
- *         주 게이트웨이 결선 줄은 그대로다. 추가 게이트웨이가 없으면 신원 조회 자체가 없다.
+ *   quick-260929-sas → Phase 29 (29-06)  서버 푸시는 **신원 원천 하나**(`AppAccess` — RPC `dma_app_access_map` 사본, 부팅 즉시 +
+ *         60초 재적재 · fail closed)로만 사용자에게 잇는다. 옛 서버별 신원 적재기(`dma_visibility_identities` 사본)는 제거됐다 —
+ *         「DMA id 는 모든 서버에 같은 문자열」 이라 KB 주문 서버를 포함한 모든 서버가 같은 경로다.
  *   D-22  `RELAY_ORDER_SECRET` 은 그대로 required 다. `/healthz` 외의 모든 경로가
  *         비밀 없이는 404 조차 받지 못해야 한다 — 경로 존재 여부도 정보다.
  *   Phase 29 D-09 (29-03)  **결선 = 서버 레지스트리 순회.** 게이트웨이 서버 목록은 `ServerRegistry` 한 원천이다(env 모드 =
@@ -48,9 +48,8 @@
  *           - 브라우저 `journal.state` · 주 매핑 라우팅 = **부팅 때의 KB 주문 서버** 키의 파이프라인(재생성되면 새 벌로 이어진다).
  *           - `/healthz` `journal` = KB 주문 서버 저널(503 축) · `journalGateways.<서버 키>` = 그 밖 enabled 서버(본문 전용) ·
  *             `brokers.{KB,KYOBO}` = 증권사별 주문 서버 저널 `{ server, alerting }`(uptime 고정 JSONPath — Pitfall 3).
- *         이 플랜이 **남긴 것**(뒤 플랜 몫): 추가 서버 푸시 신원은 지금처럼 `GatewayIdentities.viewOf(key)`(부팅 때 레지스트리
- *         키 · 29-06 이 `AppAccess` 로 교체 — 그 사이 새로 추가된 키는 신원 없음 = 푸시 없음, fail closed) · 사용자 세션은 KB 주문
- *         서버 하나(29-16 · 29-20 이 (유저, 서버) 로) · 런타임에 KB 주문 서버가 바뀌어도 브라우저 `journal.state` 원천은 부팅 때의
+ *         이 플랜이 **남긴 것**(뒤 플랜 몫): 서버 푸시 신원은 29-06 에서 `AppAccess` 하나로 바뀌었다(런타임 추가 서버도 즉시 같은
+ *         신원) · 사용자 세션은 KB 주문 서버 하나(29-16 · 29-20 이 (유저, 서버) 로) · 런타임에 KB 주문 서버가 바뀌어도 브라우저 `journal.state` 원천은 부팅 때의
  *         KB 주문 서버 파이프라인(29-22) · quote 는 부팅 때 시세 주 서버에 고정(29-23 이 전환).
  *
  * 종료 절차 (SC-8) — `process.exit(0)` 전에 반드시 이 순서다:
@@ -60,7 +59,7 @@
  *   4. 레지스트리 `close()`(재적재 중지) · quote 연결 `stop` · `pipelines.stopAll()` — 전 서버 관찰자 연결 종료(새 시세 프레임 ·
  *      새 배치를 받지 않는다 — Phase 19 D-13 · Phase 26). quote 연결의 로그인 타이머 · 재접속 백오프도 여기서 멈춘다.
  *   5. `pipelines.drainAll(2초)` — 전 서버 `writer` · `strategyWriter` drain **병렬** → `pipelines.closeAll()`(기록기 · `access` ·
- *      `status`) · quote 상태 · 신원 적재기 `close()`
+ *      `status`) · quote 상태 · 접근 맵 `close()`
  *      — 큐에 남은 레코드를 적용 RPC 로 보낸다. 2초 안에 못 끝내도 **유실은 없다** — 커서는 적용 RPC
  *      트랜잭션 안에서만 전진하므로 다음 부팅이 남은 구간을 재생한다(D-12).
  *   6. `hub.closeAll()` · `symbols` · 종목마스터 — 배치·재적재 타이머 정리(남기면 프로세스가 안 내려간다)
@@ -90,8 +89,7 @@ import { WsFanout } from "./ws/fanout.js";
 import { AppAccess } from "./access/app-access.js";
 import { createAccessCredentials } from "./store/credentials.js";
 import { createOrderApi } from "./order/order-api.js";
-import { GatewayIdentities } from "./journal/identities.js";
-import type { GatewayIdentityView, JournalAccessView } from "./journal/types.js";
+import type { JournalAccessView } from "./journal/types.js";
 import { QuoteFeed } from "./quote/feed.js";
 import { QuoteStatus } from "./quote/status.js";
 
@@ -113,7 +111,7 @@ const config = loadConfig();
 // 결선 — config → supabase → 관찰자 기록 → 세션 → 구독 → 팬아웃 → 내부 HTTP
 // ============================================================
 
-/** 토큰 검증(`auth.getUser`)과 `dma_credentials` 조회를 겸하는 서비스롤 클라 1개 (D-02/D-19). */
+/** 토큰 검증(`auth.getUser`) · 접근 맵 RPC · `dma_users` 조회를 겸하는 서비스롤 클라 1개 (D-02/D-19 · Phase 29). */
 const supabase = createRelaySupabase(config.supabaseUrl, config.supabaseServiceRoleKey);
 
 /**
@@ -159,23 +157,13 @@ function kbOrderPipeline(): ServerPipeline | undefined {
 }
 
 /**
- * 추가 서버 신원 연결 (quick-260929-sas) — 부팅 때 레지스트리의 주 서버 외 **전 키**(꺼진 서버 포함 — 켜지면 바로 쓴다)로
- * 만든다. 그런 키가 없으면 null 이고 신원 조회는 0건이다(오늘과 같다). 주 서버는 이 적재기를 쓰지 않는다 — 자격증명 신원
- * 그대로다. 런타임에 새로 추가된 키는 신원이 없다(푸시 없음 · fail closed) — 29-06 이 `AppAccess` 로 교체한다.
- */
-const identityKeys = registry
-  .all()
-  .map((r) => r.key)
-  .filter((k) => k !== primaryKey);
-const gatewayIdentities: GatewayIdentities | null =
-  identityKeys.length > 0 ? new GatewayIdentities({ supabase, gateways: identityKeys }) : null;
-/** 신원 적재기가 없을 때의 빈 신원 — 아무에게도 푸시하지 않는다(fail closed). */
-const NO_IDENTITIES: GatewayIdentityView = { dmaUserIdOf: () => undefined };
-
-/**
- * 웹 사용자 접근 맵 (Phase 29 · D-02 · D-04 · D-19) — RPC `dma_app_access_map` 60초 사본. wss 인증의 「누가 DMA 를 쓸 수
- * 있나」(역할 admin/trader + DMA 연결) 원천이자 자격증명 조회 키(`dma_users` · AAD = dma_user_id)다. 첫 적재 전 인증은
- * 「조회 실패」(failed + 1011)로 끝난다 — 「권한 없음」 으로 위장하지 않는다. 시작은 아래 관찰자 start 앞(fail closed 순서).
+ * 웹 사용자 접근 맵 (Phase 29 · D-02 · D-04 · D-19) — RPC `dma_app_access_map` 60초 사본. 세 가지의 한 원천이다:
+ *   - wss 인증의 「누가 DMA 를 쓸 수 있나」(역할 admin/trader + DMA 연결) · 자격증명 조회 키(`dma_users` · AAD = dma_user_id).
+ *     첫 적재 전 인증은 「조회 실패」(failed + 1011)로 끝난다 — 「권한 없음」 으로 위장하지 않는다.
+ *   - **모든 서버 파이프라인의 푸시 신원**(`GatewayIdentityView` — 「DMA id 는 모든 서버에 같은 문자열」, 서버별 신원 표 없음).
+ *     첫 적재 전에는 아무에게도 푸시하지 않는다(fail closed).
+ *   - 즉시 반영(D-04) — 재적재(60초 · `reload()`)가 강등 · 허용 해제 · DMA 연결 변경을 찾으면 `revoked` → `fanout.revokeUser`.
+ * 시작은 아래 관찰자 start 앞(fail closed 순서).
  */
 const appAccess = new AppAccess({ supabase, refreshMs: config.appAccessRefreshMs });
 
@@ -285,26 +273,25 @@ const fanout = new WsFanout({
 // 시세 연결 상태 전이(3초 디바운스) → 인증된 전 연결(Phase 26 D-01). `/healthz` 와 같은 원천이다.
 quoteStatus.on("frame", (frame) => fanout.deliverQuoteState(frame));
 
+// D-04 즉시 반영 — 접근 맵 재적재(60초 · reload)가 찾은 권한 회수 사용자의 wss 를 끊는다(세션은 종전 유예로 끝난다 ·
+// 서버 쪽 전략 · 미체결 무접촉). 재접속하면 인증이 unauthorized 를 준다.
+appAccess.on("revoked", (ids) => ids.forEach((u) => fanout.revokeUser(u, "access-revoked")));
+
 /**
  * 서버 파이프라인 결선 (`ServerPipelines.onCreated` — 생성 직후 · 관찰자 start 전). 재생성마다 새 벌에 다시 붙는다.
  *
- * 주 서버(부팅 때 KB 주문 서버 키): 기록기가 적용한 행 → 계좌 권한 사용자별 부분집합 푸시(D-03) · 전략 이벤트 → 주문
- * 이벤트는 계좌 권한 사용자 · 시세 이벤트는 매핑 보유자 전원(Phase 25 · T-25-01) · 상태 전이 프레임 → 인증된 전 연결(D-04 (a)).
+ * **모든 서버(KB 주문 서버 포함) 같은 모양이다**(Phase 29): 적용 행 · 전략 이벤트는 `{ access: 그 서버 매핑, identities:
+ * AppAccess }` 하나로 거른다 — 사용자 → 접근 맵의 DMA id(admin/trader + 연결) → 그 서버 매핑의 계좌. 주문 이벤트는 계좌
+ * 권한 사용자 · 시세 이벤트는 그 서버 매핑 보유자 전원(Phase 25 · T-25-01). 서버별 신원 표는 없다(「DMA id 는 모든 서버에
+ * 같은 문자열」). 런타임에 추가된 서버도 생성 즉시 같은 신원을 쓴다.
  *
- * 그 밖 서버: 적용 행은 **그 서버의 매핑 + 명시 신원 연결로만** 거른다(주 서버 매핑 · 자격증명 문자열을 보지 않는다 —
- * quick-260929-sas). 상태 frame 은 어디에도 결선하지 않는다 — 브라우저 `journal.state` 는 주 서버 한 원천이다
- * (추가 서버 끊김을 webapp 이 주 서버 「기록 지연」으로 오인하지 않게).
+ * 상태 frame 은 부팅 때 KB 주문 서버 키만 결선한다 — 브라우저 `journal.state` 는 그 한 원천이다(29-03 그대로 · 다른 서버
+ * 끊김을 webapp 이 주 서버 「기록 지연」으로 오인하지 않게).
  */
 function wirePipeline(p: ServerPipeline): void {
-  if (p.server.key === primaryKey) {
-    p.writer.on("applied", (rows) => fanout.deliverJournalRows(rows));
-    p.strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows));
-    p.status.on("frame", (frame) => fanout.deliverJournalState(frame));
-    return;
-  }
-  const route = { access: p.access, identities: gatewayIdentities?.viewOf(p.server.key) ?? NO_IDENTITIES };
-  p.writer.on("applied", (rows) => fanout.deliverJournalRows(rows, route));
-  p.strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows, route));
+  p.writer.on("applied", (rows) => fanout.deliverJournalRows(rows, { access: p.access, identities: appAccess }));
+  p.strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows, { access: p.access, identities: appAccess }));
+  if (p.server.key === primaryKey) p.status.on("frame", (frame) => fanout.deliverJournalState(frame));
 }
 
 wsServer.on("upgrade", (req, socket, head) => fanout.handleUpgrade(req, socket, head));
@@ -348,10 +335,8 @@ const orderApi = createOrderApi({
 const orderApiServer = http.createServer(orderApi);
 
 // 접근 맵을 관찰자보다 먼저 읽기 시작한다(Phase 29 — fail closed 순서: 첫 적재 전 wss 인증은 조회 실패 · 푸시 신원 없음).
+// 첫 적재 전 도착한 적용 행은 아무에게도 푸시되지 않는다 — 브라우저 REST 새로고침이 복원한다.
 appAccess.start();
-// 추가 게이트웨이 신원 연결을 관찰자보다 먼저 읽기 시작한다(quick-260929-sas). 첫 적재 전 도착한 추가 게이트웨이
-// 행은 아무에게도 푸시되지 않는다(fail closed) — 브라우저 REST 새로고침이 복원한다.
-gatewayIdentities?.start();
 // 관찰자 연결을 enabled 서버마다 부팅 즉시 연다(Phase 19 D-13 — 장 시간과 무관 · 사용자 접속과 무관 · Phase 29 레지스트리 순회).
 // 결선(applied → fanout · frame → fanout)은 `onCreated` 가 start **전에** 붙인다 — 첫 배치가 버려지지 않는다.
 pipelines.sync(registry.enabled());
@@ -448,7 +433,6 @@ async function shutdown(signal: string): Promise<void> {
     pipelines.closeAll();
     quoteStatus.close();
     appAccess.close();
-    gatewayIdentities?.close();
     if (undrained.length > 0) {
       logger.warn(
         { timeoutMs: JOURNAL_DRAIN_TIMEOUT_MS, gateways: undrained },

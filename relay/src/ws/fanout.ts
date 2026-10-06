@@ -31,6 +31,9 @@
  *      구독 한도(Phase 26 D-11 전역 2000 · D-15 사용자당 200)에 닿은 새 키는 hub 가 업스트림 송신 전에 거부하고, 그 소켓에만
  *      `{t:"sub.limit", i, x, scope}` 1건을 보낸다 — `conn.keys` · `#keyConns` 에 넣지 않는다(`{t:"msg"}` 재사용 금지).
  *   8. close → authTimer 정리, **그 소켓이 잡은 키만** 해제, `sessions.release`
+ *   9. 권한 회수(Phase 29 D-04 · `revokeUser`) — 접근 맵 재적재가 강등 · 허용 해제 · DMA 연결 변경을 찾으면 그 사용자의
+ *      **모든** 연결에 `{t:"state", s:"unauthorized"}` 1프레임 → close(1008). 세션은 8 의 `release` 로 종전 유예(5분)에
+ *      맡긴다 — 서버 쪽 전략 · 미체결은 건드리지 않는다. 브라우저는 재접속하고, 인증 4 갈래(unauthorized · 연결 유지)에 선다
  *
  * 결정 근거:
  *   T-15-02  **사용자 데이터**(계좌 · 주문 · 전략 · 83)의 팬아웃 대상은 `Map<userId, …>` 로만 고른다(`#deliver`).
@@ -64,8 +67,10 @@
  *            순회는 하되 **사용자마다** `accountsOf(entry.dmaUserId)` 로 거른 부분집합을 `#deliver(userId)`
  *            로만 보낸다 — 걸러지지 않은 원본 배열을 보내는 경로는 없다. 같은 DMA 계정을 공유하는
  *            사용자는 모두 받고, 매핑 밖·자격증명 미등록 사용자는 0 프레임이다.
- *   sas      추가 게이트웨이(KYOBO) 행 · 전략 이벤트는 **명시 신원 연결**(`ExtraGatewayRoute.identities` — DB 뷰
- *            `dma_visibility_identities` 사본)로만 라우팅한다. 주 게이트웨이는 자격증명 신원 그대로다(quick-260929-sas).
+ *   sas      서버 경로(`ExtraGatewayRoute`) 행 · 전략 이벤트는 **경로의 신원 원천**(`ExtraGatewayRoute.identities`)으로만
+ *            라우팅한다(quick-260929-sas). Phase 29 부터 운영 결선(`index.ts`)은 **모든 서버**(KB 주문 서버 포함)를 이 경로로
+ *            보내고 신원 원천은 `AppAccess` 하나다(「DMA id 는 모든 서버에 같은 문자열」). 경로 없는 주 게이트웨이 갈래
+ *            (`entry.dmaUserId`)는 단위 테스트 하네스를 위해 남는다.
  *   P25      전략 이벤트(`journal.events`)도 같은 결로 사용자별 부분집합만 보낸다(`deliverStrategyEvents`) —
  *            주문 이벤트는 계좌 필터, 시세 이벤트(kind 1·2)는 그 게이트웨이 매핑을 가진 사용자 전원. 시세 판정은
  *            **kind 로만** 한다(빈 계좌번호로 하지 않는다 · T-25-01).
@@ -350,6 +355,9 @@ export type WsFanoutStats = {
   authedUserCount: number;
 };
 
+/** 권한 회수 close 코드 — RFC 6455 `1008 policy violation`. 브라우저는 재시도(재접속)하고 인증에서 unauthorized 를 받는다. */
+export const WS_CLOSE_ACCESS_REVOKED = 1008;
+
 /** 브라우저 소켓 1개의 상태. */
 type Conn = {
   ws: WebSocket;
@@ -592,6 +600,26 @@ export class WsFanout {
     await new Promise<void>((resolve) => {
       this.#wss.close(() => resolve());
     });
+  }
+
+  /**
+   * 권한 회수 (Phase 29 D-04) — 그 사용자의 **모든** 연결(인증 완료 · unauthorized 둘 다)에 `{t:"state", s:"unauthorized"}`
+   * 1프레임을 보내고 close(1008) 한다. 세션 반납 · 구독 해제는 close 경로(`#onClose` → `sessions.release`)가 그대로 한다 —
+   * DMA 세션은 즉시 끊지 않고 종전 유예로 끝난다(서버 쪽 전략 · 미체결 무접촉). 다른 사용자 연결은 건드리지 않는다.
+   * 연결이 없으면 아무것도 하지 않는다. 로그는 userId · reason · 연결 수만이다(dmaUserId · 이메일 없음).
+   */
+  revokeUser(userId: string, reason: string): void {
+    const targets = [...this.#conns].filter((c) => c.userId === userId);
+    if (targets.length === 0) return;
+    for (const conn of targets) {
+      // close 가 처리되기 전에 도착한 인바운드도 구독 · 전략을 만들지 못하게 먼저 막는다.
+      conn.unauthorized = true;
+      this.#send(conn, { t: "state", s: "unauthorized" });
+      if (conn.ws.readyState === WebSocket.OPEN || conn.ws.readyState === WebSocket.CONNECTING) {
+        conn.ws.close(WS_CLOSE_ACCESS_REVOKED, reason);
+      }
+    }
+    logger.warn({ userId, reason, conns: targets.length }, "[WS] 권한 회수 — 연결 종료(세션은 유예 후 종료)");
   }
 
   /** `closeAll()` 별칭(즉시 terminate). 15-04 테스트 하네스가 쓰는 이름이다. */

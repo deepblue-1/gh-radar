@@ -32,7 +32,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { logger } from "../logger.js";
 import { safePgError } from "../store/pg-error.js";
 
-/** 레지스트리 재적재 주기(ms) — identities.ts `IDENTITY_REFRESH_MS` 와 같은 눈금이다. */
+/** 레지스트리 재적재 주기(ms) — 접근 맵 `APP_ACCESS_REFRESH_MS`(옛 identities.ts 60초)와 같은 눈금이다. */
 export const REGISTRY_REFRESH_MS = 60_000;
 
 /** 지원 증권사. 키 접두 · 관찰자 비밀 env 매핑의 정본 목록이다. */

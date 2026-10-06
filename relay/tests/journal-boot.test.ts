@@ -561,7 +561,8 @@ describe("다중 업스트림 (quick-260929-c8e)", () => {
       expect(exit, relay.output()).toEqual({ code: 0, signal: null });
       expect(relay.output()).not.toContain('"journalGateways"');
       expect(relay.output()).toContain('"journalObserver":"enabled"');
-      // quick-260929-sas — 추가 게이트웨이가 없으면 신원 조회 자체가 없다(오늘과 같다).
+      // Phase 29 (29-06) — 푸시 신원 · wss 역할 게이트의 원천은 접근 맵 RPC 하나다(부팅 즉시 읽는다). 옛 서버별 신원 뷰는 읽지 않는다.
+      expect(supabase.requestsTo("/rest/v1/rpc/dma_app_access_map").length).toBeGreaterThanOrEqual(1);
       expect(supabase.requestsTo("/rest/v1/dma_visibility_identities")).toEqual([]);
     },
     TEST_TIMEOUT_MS,
@@ -633,16 +634,14 @@ describe("다중 업스트림 (quick-260929-c8e)", () => {
       expect(applyBody.p_epoch).toBe("ep-kyobo");
       expect(applyBody.p_events.map((e) => e.seq)).toEqual([1]);
 
-      // quick-260929-sas — 추가 게이트웨이 신원은 규칙 뷰에서 그 게이트웨이 키로만 읽는다(부팅 즉시).
-      const identityReads = await waitFor(
-        () => supabase.requestsTo("/rest/v1/dma_visibility_identities"),
-        (rs) => rs.some((r) => r.query.gateway === "in.(KYOBO)"),
-        "dma_visibility_identities gateway=in.(KYOBO) 조회",
+      // Phase 29 (29-06) — 서버가 둘이어도 푸시 신원은 접근 맵 RPC 한 벌이다(서버별 신원 조회 없음 · 부팅 즉시).
+      await waitFor(
+        () => supabase.requestsTo("/rest/v1/rpc/dma_app_access_map"),
+        (rs) => rs.length >= 1,
+        "dma_app_access_map 조회",
         relay,
       );
-      const identityRead = identityReads.find((r) => r.query.gateway === "in.(KYOBO)");
-      const identitySelect = (identityRead?.query.select ?? "").split(",").map((c) => c.trim());
-      expect(identitySelect).toEqual(expect.arrayContaining(["user_id", "dma_user_id"]));
+      expect(supabase.requestsTo("/rest/v1/dma_visibility_identities")).toEqual([]);
 
       const h = await waitFor(
         () => getHealthz(relay.orderApiPort),

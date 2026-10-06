@@ -74,6 +74,26 @@ export function isDmaGranted(entry: AppAccessEntry | undefined): entry is AppAcc
   return entry !== undefined && (entry.role === "admin" || entry.role === "trader") && entry.dmaUserId !== null;
 }
 
+/**
+ * 재적재 전후 비교로 「권한을 잃은」 사용자인가 (D-04). 직전 행이 있었고:
+ *   - 새 맵에서 사라졌거나(허용 해제)
+ *   - viewer 로 내려갔거나(강등)
+ *   - DMA 연결이 끊기거나 다른 DMA id 로 바뀌었다(열린 세션이 옛 자격증명을 쥐고 있다).
+ * admin ↔ trader 이동 · 승격 · 새 연결은 해당하지 않는다(relay 의 DMA 권한은 그대로이거나 늘어난다).
+ */
+function lostAccess(prev: AppAccessEntry, next: AppAccessEntry | undefined): boolean {
+  if (next === undefined) return true;
+  if (next.role === "viewer" && prev.role !== "viewer") return true;
+  return prev.dmaUserId !== null && next.dmaUserId !== prev.dmaUserId;
+}
+
+export interface AppAccess {
+  /** 재적재가 권한을 잃은 사용자를 찾았을 때 1회(배열). 첫 적재 · 무변화 · 실패에는 내지 않는다. */
+  on(event: "revoked", listener: (userIds: string[]) => void): this;
+  off(event: "revoked", listener: (userIds: string[]) => void): this;
+  emit(event: "revoked", userIds: string[]): boolean;
+}
+
 export class AppAccess extends EventEmitter implements GatewayIdentityView {
   readonly #supabase: SupabaseClient;
   readonly #refreshMs: number;
@@ -194,7 +214,7 @@ export class AppAccess extends EventEmitter implements GatewayIdentityView {
     }
   }
 
-  /** 맵을 통째로 교체한다. 권한을 잃은 userId 를 돌려준다(Task 2 — 지금은 빈 배열). */
+  /** 맵을 통째로 교체하고, 권한을 잃은 userId 를 돌려준다(있으면 교체 **뒤** `revoked` 1회 — 리스너는 새 맵을 본다). */
   #replace(rows: readonly AccessRow[]): string[] {
     const next = new Map<string, AppAccessEntry>();
     let skipped = 0;
@@ -207,11 +227,22 @@ export class AppAccess extends EventEmitter implements GatewayIdentityView {
       next.set(row.user_id, { userId: row.user_id, email: row.email, role: row.role, dmaUserId: dma });
     }
     const firstLoad = !this.#loaded;
+    const revoked: string[] = [];
+    if (!firstLoad) {
+      for (const [userId, prev] of this.#map) {
+        if (lostAccess(prev, next.get(userId))) revoked.push(userId);
+      }
+    }
     this.#map = next;
     this.#loaded = true;
     if (firstLoad) this.#resolveReady();
     this.#logSummary(next, skipped, firstLoad);
-    return [];
+    if (revoked.length > 0) {
+      // 수만 싣는다 — 사용자 id 는 fanout.revokeUser 가 연결 단위로 남긴다.
+      logger.info({ revoked: revoked.length }, "[access] 권한 회수 — 해당 사용자 relay 연결을 끊는다(D-04)");
+      this.emit("revoked", revoked);
+    }
+    return revoked;
   }
 
   /** 집계가 바뀌었거나 첫 적재 · 복구일 때만 info 1줄. 식별자는 싣지 않는다. */

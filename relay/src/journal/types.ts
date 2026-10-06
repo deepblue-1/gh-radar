@@ -256,21 +256,21 @@ export type JournalAccessView = {
 };
 
 /**
- * 추가 게이트웨이 신원 읽기 표면 (quick-260929-sas) — `GatewayIdentities.viewOf(gateway)` 가 돌려준다.
+ * 서버 푸시 신원 읽기 표면 (quick-260929-sas → Phase 29) — `AppAccess`(relay/src/access/app-access.ts)가 만족한다.
  *
- * 키는 **gh-radar user_id** 이고 값은 그 게이트웨이의 `dma_user_id`(users.toml user_id)다. 원천은 DB 뷰
- * `dma_visibility_identities` 의 명시 연결 갈래다 — 자격증명 문자열(`dma_credentials.dma_user_id`)이 아니다.
- * 게이트웨이당 사용자 신원은 1개다(연결 테이블 PK (user_id, gateway) · 뷰 구성이 보장). 모르면 undefined —
- * 그 사용자는 그 게이트웨이 푸시 대상이 아니다(fail closed).
+ * 키는 **gh-radar user_id** 이고 값은 그 사용자의 `dma_user_id`(users.toml user_id)다. Phase 29 부터 원천은 접근 맵
+ * RPC `dma_app_access_map` 하나다 — 「DMA id 는 모든 서버에 같은 문자열」 이라 서버별 신원 표가 없고, admin/trader + DMA
+ * 연결이 있을 때만 값이 있다. 모르면(맵 밖 · viewer · 연결 없음 · 첫 적재 전) undefined — 그 사용자는 푸시 대상이 아니다
+ * (fail closed).
  */
 export type GatewayIdentityView = {
   dmaUserIdOf(userId: string): string | undefined;
 };
 
 /**
- * 추가 게이트웨이 푸시 경로 (quick-260929-sas) — `WsFanout.deliverJournalRows` · `deliverStrategyEvents` 의 둘째 인자.
- * 사용자 → `identities` 로 그 게이트웨이 신원 → `access` 로 그 신원의 계좌 집합. REST 조회 RPC 의
- * `dma_visible_accounts` 와 같은 규칙이다.
+ * 서버 파이프라인 경로 — 신원 원천 = AppAccess(Phase 29). `WsFanout.deliverJournalRows` · `deliverStrategyEvents` 의 둘째 인자.
+ * 사용자 → `identities` 로 DMA id → `access`(그 서버의 79 매핑)로 그 신원의 계좌 집합. 운영 결선(`index.ts`)은 KB 주문 서버를
+ * 포함한 **모든 서버**를 이 경로로 보낸다(quick-260929-sas 의 「추가 게이트웨이 전용」 에서 넓어졌다 — 이름은 호환 유지).
  */
 export type ExtraGatewayRoute = {
   access: JournalAccessView;

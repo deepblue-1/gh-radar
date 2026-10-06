@@ -441,7 +441,7 @@ describe("D-04 즉시 반영 · 푸시 신원 = AppAccess (Phase 29)", () => {
       expect(t.inbox.filter((m) => m.t === "state" && m.s === "unauthorized")).toHaveLength(1);
     }
     // 세션은 즉시 끊지 않는다 — release 로 종전 유예(5분)에 맡긴다. 서버 쪽 전략 · 미체결은 건드리지 않는다.
-    expect(releaseSpy.mock.calls.filter((c) => c[0] === USER_T)).toHaveLength(2);
+    expect(releaseSpy.mock.calls.filter((c: unknown[]) => c[0] === USER_T)).toHaveLength(2);
     expect(sessions.get(USER_T)).toBeDefined();
     // 같은 DMA id 를 쓰는 다른 사용자(A)는 그대로다.
     expect(a.ws.closeInfo).toBeNull();
