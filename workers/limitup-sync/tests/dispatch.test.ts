@@ -328,7 +328,7 @@ describe("dispatch — 재적재가 업로드 뒤 실패하면 그 날짜를 보
 });
 
 describe("dispatch — commit 소요 로그(WR-B02)", () => {
-  it("committed 로그에 commitMs · 임계(5초) 넘으면 slow warn 1건", async () => {
+  it("committed 로그에 commitMs · 임계(30초) 넘으면 slow warn 1건", async () => {
     addDay(GOOD);
     let t = 1_000_000;
     const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => t);
@@ -336,22 +336,22 @@ describe("dispatch — commit 소요 로그(WR-B02)", () => {
       const fake = makeFakeSupabase({
         rpc: {
           limitup_commit_day: () => {
-            t += 6_000; // commit 이 6초 걸렸다
+            t += 31_000; // commit 이 31초 걸렸다
             return { data: null };
           },
         },
       });
       const { dispatch, COMMIT_WARN_MS } = await loadIndex(fake);
       await dispatch({ now: NOW });
-      expect(COMMIT_WARN_MS).toBe(5_000);
+      expect(COMMIT_WARN_MS).toBe(30_000);
     } finally {
       nowSpy.mockRestore();
     }
     const committed = log.calls.info.find((c) => c.msg === "limitup day committed");
-    expect(committed?.obj).toMatchObject({ date: GOOD, commitMs: 6_000 });
+    expect(committed?.obj).toMatchObject({ date: GOOD, commitMs: 31_000 });
     const slow = log.calls.warn.filter((w) => w.msg.startsWith("limitup commit slow"));
     expect(slow).toHaveLength(1);
-    expect(slow[0].obj).toMatchObject({ date: GOOD, commitMs: 6_000, warnMs: 5_000 });
+    expect(slow[0].obj).toMatchObject({ date: GOOD, commitMs: 31_000, warnMs: 30_000 });
   });
 
   it("임계 아래면 slow warn 없음", async () => {

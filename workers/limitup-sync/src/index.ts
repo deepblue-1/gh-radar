@@ -48,9 +48,11 @@ export { kstYmdDaysAgo } from "./purge";
 /**
  * `limitup_commit_day` 소요가 이 값(ms)을 넘으면 warn(WR-B02). RPC 하나가 8표 DELETE · INSERT 를 다 하므로 상한가
  * 종목이 많은 날 member_alloc 이 늘면 statement_timeout 에 다가간다 — 닿기 전에 로그로 보이게 한다.
- * (함수 자체 한도는 마이그레이션 20261006090500 의 `SET statement_timeout`.)
+ * (함수 자체 한도는 마이그레이션 20261006090500 의 `SET statement_timeout` 120s — 이 값은 그 25%.)
+ * 운영 실측(10/6 첫 무인 run): member_alloc 5만~9만 행 날에 5.6~10.9초 · 행 수에 비례(~0.1ms/행). 5초였을 때는 평일마다
+ * 울려 신호가 못 됐다 — 120s 에 닿으려면 하루 ~100만 행(10/6 밀도로 ~500종목)이어야 한다.
  */
-export const COMMIT_WARN_MS = 5_000;
+export const COMMIT_WARN_MS = 30_000;
 
 /** 같은 날짜가 이 횟수 이상 연속 skip 되면 run 을 실패(종료 1)로 끝낸다(D-20). */
 export const ALERT_SKIP_STREAK = 3;
