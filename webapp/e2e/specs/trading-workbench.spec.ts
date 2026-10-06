@@ -2757,7 +2757,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(await cardHeight()).toBe(before);
   });
 
-  test('P28-1b 접었다 펼친 카드 — 스냅샷 즉시 · 얼린 값 없음 (D-23 relay 스냅샷 · UI-SPEC ①-2 · D-05)', async ({ page }) => {
+  test('P28-1b 접었다 펼친 카드 — 얼린 값 없음 · 새 85 로 다시 선다 (D-23 · WR-A01 강등 시 캐시 삭제 · UI-SPEC ①-2 · D-05)', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     relay.seedLimitChasers([{ buyEnabled: true }]);
     await openFocusedCard(page);
@@ -2780,23 +2780,26 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(limitState).toHaveCount(0);
     await expect(header).not.toContainText('잠김');
 
-    // ③ 펼치기(full 승격) — 게이트웨이가 새 85 를 보내지 않아도 relay 스냅샷이 즉시 「잠김 43초」 를 다시 세운다.
-    await toggle.click();
-    await expect(card).toHaveAttribute('data-open', 'true');
-    await expect(limitTab).toHaveAccessibleName('상한가 · 잠김 43초', { timeout: 5_000 });
-
-    // ④ 얼린 값이 아니라 relay 캐시의 최신값이다 — 접힌 동안 온 85(50초)는 브라우저(price)에 오지 않지만 hub 는
-    //    캐시하고(키 구독 중), 다시 펼치면 그 값이 스냅샷으로 온다. 접힌 동안 카드에는 어떤 「잠김」 도 없다.
-    await toggle.click();
-    await expect(card).toHaveAttribute('data-open', 'false');
+    // ③ 접힌 동안 온 85(50초) — 업스트림이 PRICE 라 실서버는 보내지도 않는다(gh-trade MarketPublisher 85 = full 구독자에게만
+    //    Fanout). 목 게이트웨이가 보내더라도 hub 는 PRICE 키의 85 를 버리고, 강등 때 캐시도 지웠다(WR-A01 — 낡은
+    //    「잠김 N초째」 를 지금 값처럼 스냅샷으로 내리지 않는다). 접힌 동안 카드에는 어떤 「잠김」 도 없다.
     pushLimitFeatureFixture(relay.gateway, sock, { isin: E2E_ISIN, exchange: 'KRX', lockElapsedS: 50 });
     // 접힌 동안 흘러온 증분이 없음을 볼 여유(시장 배치 100ms 를 넉넉히 넘긴다).
     await page.waitForTimeout(500);
     await expect(limitState).toHaveCount(0);
     await expect(header).not.toContainText('잠김');
+
+    // ④ 펼치기(full 승격) — 얼린 값 없음: 새 85 가 오기 전에는 접미 없는 「상한가」 다(강등 전 43초도, 접힌 동안의 50초도 아님).
     await toggle.click();
     await expect(card).toHaveAttribute('data-open', 'true');
-    await expect(limitTab).toHaveAccessibleName('상한가 · 잠김 50초', { timeout: 5_000 });
+    await page.waitForTimeout(500);
+    await expect(limitTab).toHaveAccessibleName('상한가');
+
+    // ⑤ 게이트웨이가 새 85(52초)를 보내면 그 값이 선다 — 실서버는 잠김 중 매초 값이 바뀌어 1초 안에 온다.
+    await expect(async () => {
+      pushLimitFeatureFixture(relay.gateway, sock, { isin: E2E_ISIN, exchange: 'KRX', lockElapsedS: 52 });
+      await expect(limitTab).toHaveAccessibleName('상한가 · 잠김 52초', { timeout: 1_000 });
+    }).toPass({ timeout: 15_000 });
   });
 
   test('P28-2 9칸 폰 축약 · 높이 · 툴팁 — 카드 lc 폰 밴드 「신규 +1.2만」 · 창구 말줄임 + title · 긴 탭 제목 한 줄 / 넓은 밴드 「잔량 신규 +12,400」 (28-07 · D-02 · D-03 · D-04)', async ({
