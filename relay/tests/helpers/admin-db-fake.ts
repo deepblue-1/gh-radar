@@ -5,8 +5,8 @@
  * 옮긴다 — 업무 거부는 PostgREST 오류 `{ code: "P0001", message: "<CODE>" }`. 정본 검증은 pgTAP(29-05)이고, 이 대역은 relay
  * dispatcher · 라우터가 RPC 를 **어떤 인자 · 순서로** 부르는지를 단언하려고 있다.
  *
- * 다루는 것: rpc 9종(create · set_password · put_account · mark_account_removed · settle_server · delete_dma_user · intent ·
- * record_results + 미지 이름 기록) · `from("dma_users").select().eq().maybeSingle()` ·
+ * 다루는 것: rpc 10종(create · set_password · put_account · mark_account_removed · settle_server · delete_dma_user · intent ·
+ * record_results · set_quote_primary(29-23) + 미지 이름 기록) · `from("dma_users").select().eq().maybeSingle()` ·
  * `from("dma_credentials").select().eq()` · `from("dma_credentials").update().eq().eq()`.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -246,6 +246,13 @@ export class AdminDbFake {
         const rows = Array.isArray(args.p_results) ? (args.p_results as Array<{ server?: string }>) : [];
         if (!this.dmaUsers.has(id)) return ok(0);
         return ok(rows.filter((r) => typeof r.server === "string" && this.serverBroker.has(r.server)).length);
+      }
+      case "dma_admin_set_quote_primary": {
+        // 29-01 의미 — 없는 키 P0002(꺼짐 판정은 relay 라우트가 먼저 한다). 성공은 void.
+        if (!this.serverBroker.has(String(args.p_key ?? ""))) {
+          return { data: null, error: { code: "P0002", message: "server not found", details: null, hint: null } };
+        }
+        return ok(null);
       }
       default:
         return ok(null);

@@ -274,3 +274,191 @@ describe("QuoteSwitch 트레이서 — KB120 → KYOBO119 break-then-make · 재
     }
   });
 });
+
+/**
+ * 잠그는 것 (Task 2 — 실패 복귀 · 단일 비행 · 레지스트리 보정 · 무동작):
+ *   F1  새 서버 79 거부 → 새 연결 닫힘 → KB120 재연결 · ready · 같은 키 재구독 → QUOTE_SWITCH_FAILED「새 서버 로그인 실패 — KB120 으로
+ *       되돌림」 · 래퍼 상태에 rejected 가 비치지 않는다
+ *   F2  새 서버 role 0 응답(role_mismatch) → 같은 복귀
+ *   F3  새 서버 무응답 → 상한(주입 300ms) → 같은 복귀 · 새 스텁 소켓 닫힘
+ *   F4  진행 중 두 번째 요청 → QUOTE_SWITCH_BUSY · 첫 요청은 그대로 성공
+ *   F5  같은 서버 → { ok: true, changed: false } · 연결 · 로그인 · 요청 변화 0
+ *   F6  그 증권사 quote 비밀 없음 → 끊지 않고 즉시 실패 · 새 스텁 연결 0
+ *   R1  레지스트리 보정 — DB 시세 주 서버가 다른 경로로 KYOBO119 → 자동 전환 · 되돌리기 RPC 0
+ *   R2  보정 실패 → DB 를 지금 연결 서버(KB120)로 되돌리는 restore 1회 + error 로그
+ *   R3  admin 전환 직후 낡은 재적재(KB120 그대로)는 연결을 되돌리지 않는다 — 레지스트리 관점에서 바뀐 적이 없다
+ */
+describe("QuoteSwitch 실패 복귀 · 단일 비행 · 보정 · 무동작 (29-23 Task 2)", () => {
+  let kb: Stub;
+  let kyobo: Stub;
+  let hub: SubscriptionHub;
+  let sw: QuoteSwitch | null = null;
+  let logs: LogCall[];
+  let states: QuoteFeedState[];
+
+  beforeEach(async () => {
+    logs = await spyLogs();
+    kb = await startStub();
+    kyobo = await startStub();
+    watchPeers(kb, kyobo);
+    kb.gw.respondQuoteLogin({ success: true });
+    hub = new SubscriptionHub();
+    states = [];
+  });
+
+  afterEach(async () => {
+    sw?.stop();
+    sw = null;
+    hub.closeAll();
+    await kb.gw.close();
+    await kyobo.gw.close();
+    vi.restoreAllMocks();
+    const dumped = JSON.stringify(logs.map((c) => c.args));
+    expect(dumped).not.toContain(KB_SECRET);
+    expect(dumped).not.toContain(KYOBO_SECRET);
+  });
+
+  /** KB120 에 붙어 full 키 한 벌(3건)까지 받은 래퍼. */
+  async function readyOnKb(opts: { readyTimeoutMs?: number; secretOf?: (b: "KB" | "KYOBO") => string | undefined } = {}): Promise<QuoteSwitch> {
+    const s = new QuoteSwitch({
+      initial: server("KB120", "KB", kb.gw.port),
+      secretOf: opts.secretOf ?? ((b) => (b === "KB" ? KB_SECRET : KYOBO_SECRET)),
+      createFeed: (srv, secret) => new QuoteFeed({ secret, host: srv?.host ?? "127.0.0.1", port: srv?.port ?? 1 }),
+      ...(opts.readyTimeoutMs !== undefined ? { readyTimeoutMs: opts.readyTimeoutMs } : {}),
+    });
+    sw = s;
+    hub.attachFeed(s);
+    hub.subscribe("user-1", FULL_ISIN, "KRX");
+    s.start();
+    await waitFor(() => s.state === "ready", "KB120 ready");
+    await waitFor(() => kb.reqs.length === 3, "KB120 full 한 벌");
+    s.on("state", (st) => states.push(st));
+    return s;
+  }
+
+  const kyoboServer = (): QuoteSwitchServer => server("KYOBO119", "KYOBO", kyobo.gw.port);
+
+  /** 실패 뒤 공통 — KB120 으로 되돌아와 재로그인 · 같은 키 재구독 · 새 스텁에 살아 있는 소켓 없음. */
+  async function expectRevertedToKb(s: QuoteSwitch): Promise<void> {
+    expect(s.currentServerKey).toBe("KB120");
+    await waitFor(() => s.state === "ready", "KB120 으로 복귀 ready");
+    await waitFor(() => kb.reqs.length === 6, "KB120 재구독(두 번째 한 벌)");
+    expect(kb.gw.quoteLoginRequests()).toHaveLength(2);
+    expect(kb.gw.quoteLoginRequests().every((r) => r.secret === KB_SECRET && r.role === 1)).toBe(true);
+    expect(kyobo.reqs).toEqual([]);
+    await waitFor(() => kyobo.gw.sockets.filter((x) => !x.destroyed).length === 0, "새 서버 소켓 닫힘");
+    // 복귀 연결도 break-then-make — KB120 이 다시 로그인을 받은 순간 KYOBO119 에 살아 있는 소켓 0.
+    expect(kb.liveOnPeerAtLogin.at(-1)).toBe(0);
+    expect(states).not.toContain("rejected");
+    expect(states).not.toContain("role_mismatch");
+    expect(states.at(-1)).toBe("ready");
+  }
+
+  const FAILED = { ok: false, code: "QUOTE_SWITCH_FAILED", message: "새 서버 로그인 실패 — KB120 으로 되돌림" };
+
+  it("F1 새 서버 79 거부 → KB120 으로 되돌림 · 재구독 · 409 문구", async () => {
+    kyobo.gw.respondQuoteLogin({ success: false, message: "거부" });
+    const s = await readyOnKb();
+    const r = await s.switchTo(kyoboServer());
+    expect(r).toEqual(FAILED);
+    expect(kyobo.gw.quoteLoginRequests()).toHaveLength(1);
+    await expectRevertedToKb(s);
+    const err = logs.find((c) => c.level === "error" && c.args.some((a) => typeof a === "string" && a.includes("전환 실패")));
+    expect(err?.args[0]).toMatchObject({ from: "KB120", to: "KYOBO119", reason: "rejected" });
+  });
+
+  it("F2 새 서버 role 0 응답(role_mismatch) → 같은 복귀", async () => {
+    kyobo.gw.respondQuoteLogin({ success: true, role: 0 });
+    const s = await readyOnKb();
+    expect(await s.switchTo(kyoboServer())).toEqual(FAILED);
+    await expectRevertedToKb(s);
+  });
+
+  it("F3 새 서버 무응답 → 상한(300ms) → 같은 복귀", async () => {
+    kyobo.gw.respondQuoteLogin(null);
+    const s = await readyOnKb({ readyTimeoutMs: 300 });
+    const t0 = Date.now();
+    expect(await s.switchTo(kyoboServer())).toEqual(FAILED);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(290);
+    expect(kyobo.gw.quoteLoginRequests()).toHaveLength(1);
+    await expectRevertedToKb(s);
+  });
+
+  it("F4 진행 중 두 번째 요청 → QUOTE_SWITCH_BUSY · 첫 요청은 그대로 성공", async () => {
+    kyobo.gw.respondQuoteLogin({ success: true });
+    const s = await readyOnKb();
+    const first = s.switchTo(kyoboServer());
+    const second = await s.switchTo(server("KB120", "KB", kb.gw.port));
+    expect(second).toMatchObject({ ok: false, code: "QUOTE_SWITCH_BUSY" });
+    expect(await first).toEqual({ ok: true, changed: true });
+    expect(s.currentServerKey).toBe("KYOBO119");
+    await waitFor(() => kyobo.reqs.length === 3, "KYOBO119 재구독");
+    expect(kb.gw.quoteLoginRequests()).toHaveLength(1);
+  });
+
+  it("F5 같은 서버 → 무동작 { ok: true, changed: false } · 연결 · 요청 변화 0", async () => {
+    const s = await readyOnKb();
+    const sock = await kb.gw.waitForQuoteConnection(1000);
+    expect(await s.switchTo(server("KB120", "KB", kb.gw.port))).toEqual({ ok: true, changed: false });
+    await sleep(100);
+    expect(await kb.gw.waitForQuoteConnection(1000)).toBe(sock);
+    expect(kb.gw.quoteLoginRequests()).toHaveLength(1);
+    expect(kb.reqs).toHaveLength(3);
+    expect(states).toEqual([]);
+  });
+
+  it("F6 그 증권사 quote 비밀 없음 → 끊지 않고 즉시 실패 · 새 스텁 연결 0", async () => {
+    const s = await readyOnKb({ secretOf: (b) => (b === "KB" ? KB_SECRET : undefined) });
+    const r = await s.switchTo(kyoboServer());
+    expect(r).toMatchObject({ ok: false, code: "QUOTE_SWITCH_FAILED" });
+    await sleep(100);
+    expect(s.currentServerKey).toBe("KB120");
+    expect(s.isReady).toBe(true);
+    expect(kyobo.gw.quoteLoginRequests()).toEqual([]);
+    expect(kb.gw.quoteLoginRequests()).toHaveLength(1);
+    expect(states).toEqual([]);
+  });
+
+  it("R1 레지스트리 보정 — DB 가 다른 경로로 KYOBO119 → 자동 전환 · 되돌리기 0", async () => {
+    kyobo.gw.respondQuoteLogin({ success: true });
+    const s = await readyOnKb();
+    const restored: string[] = [];
+    const out = await s.reconcileWithRegistry({ quotePrimary: () => kyoboServer() }, (k) => {
+      restored.push(k);
+      return Promise.resolve();
+    });
+    expect(out).toBe("switched");
+    expect(s.currentServerKey).toBe("KYOBO119");
+    expect(restored).toEqual([]);
+    await waitFor(() => kyobo.reqs.length === 3, "KYOBO119 재구독");
+    // 같은 값 재적재는 무동작.
+    expect(await s.reconcileWithRegistry({ quotePrimary: () => kyoboServer() }, () => Promise.resolve())).toBe("noop");
+  });
+
+  it("R2 보정 실패 → DB 를 지금 연결 서버(KB120)로 되돌리는 restore 1회 + error 로그", async () => {
+    kyobo.gw.respondQuoteLogin({ success: false, message: "거부" });
+    const s = await readyOnKb();
+    const restored: string[] = [];
+    const out = await s.reconcileWithRegistry({ quotePrimary: () => kyoboServer() }, (k) => {
+      restored.push(k);
+      return Promise.resolve();
+    });
+    expect(out).toBe("restored");
+    expect(restored).toEqual(["KB120"]);
+    await expectRevertedToKb(s);
+    expect(
+      logs.some((c) => c.level === "error" && c.args.some((a) => typeof a === "string" && a.includes("보정 실패"))),
+    ).toBe(true);
+  });
+
+  it("R3 admin 전환 직후 낡은 재적재(KB120 그대로)는 연결을 되돌리지 않는다", async () => {
+    kyobo.gw.respondQuoteLogin({ success: true });
+    const s = await readyOnKb();
+    expect(await s.switchTo(kyoboServer())).toEqual({ ok: true, changed: true });
+    // RPC 커밋 전에 시작된 재적재 — 레지스트리는 여전히 KB120 을 시세 주 서버로 본다(부팅 때와 같은 값).
+    const out = await s.reconcileWithRegistry({ quotePrimary: () => server("KB120", "KB", kb.gw.port) }, () => Promise.resolve());
+    expect(out).toBe("noop");
+    expect(s.currentServerKey).toBe("KYOBO119");
+    expect(kb.gw.quoteLoginRequests()).toHaveLength(1);
+  });
+});

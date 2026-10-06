@@ -118,6 +118,8 @@ type HarnessOptions = {
   quote?: { serverKey: string | null; state: string };
   /** 꺼진 서버 키(레지스트리 enabled false). */
   disabled?: string[];
+  /** DB 시세 주 서버 키(레지스트리 isQuotePrimary). 기본 없음. */
+  quotePrimary?: string;
   /** 시세 주 서버 전환 대역(29-23). 기본 = 무동작 성공. */
   quoteSwitch?: {
     switchTo(server: DmaServerRow): Promise<QuoteSwitchResult>;
@@ -127,9 +129,9 @@ type HarnessOptions = {
 
 async function startHarness(opts: HarnessOptions = {}): Promise<Harness> {
   const credKey = randomBytes(32).toString("base64");
-  const rows = [serverRow("KB120", "KB", 1), serverRow("KB121", "KB", 2), serverRow("KYOBO119", "KYOBO", 3)].map((r) =>
-    opts.disabled?.includes(r.key) ? { ...r, enabled: false } : r,
-  );
+  const rows = [serverRow("KB120", "KB", 1), serverRow("KB121", "KB", 2), serverRow("KYOBO119", "KYOBO", 3)]
+    .map((r) => (opts.disabled?.includes(r.key) ? { ...r, enabled: false } : r))
+    .map((r) => (r.key === opts.quotePrimary ? { ...r, isQuotePrimary: true } : r));
   const db = new AdminDbFake(rows.map((r) => ({ key: r.key, broker: r.broker })));
   db.appUsers.add("trader@gmail.com");
 
@@ -632,5 +634,134 @@ describe("relay Admin 내부 HTTP — 운영 보조 라우트 · 감사 로그 (
     for (const secret of [PASSWORD, "new-p@ss", "trader07", "1234567801", "1234567802"]) {
       expect(dumped).not.toContain(secret);
     }
+  });
+});
+
+/**
+ * 잠그는 것 (29-23 — 시세 주 서버 전환 경로 · 전환 자체는 tests/quote-switch.test.ts 가 실 스텁으로 잠근다):
+ *   Q1  전환 실패 → 409 { error: { code: QUOTE_SWITCH_FAILED, message(화면 원문) } } · DB RPC 0 · 재적재 0 · 감사 rejected
+ *   Q2  진행 중 → 409 QUOTE_SWITCH_BUSY · DB RPC 0
+ *   Q3  없는 키 404 NO_SUCH_SERVER · 꺼진 서버 409 SERVER_DISABLED · 형식 밖 키 400 — 전환 시도 0
+ *   Q4  같은 서버 · DB 도 그 서버 → 200 { ok: true } · RPC 0 · 재적재 0 / DB 가 다른 서버면 RPC 1(갈라짐 정리)
+ *   Q5  전환 성공 뒤 DB 반영 실패 → 옛 서버로 되돌리는 switchTo 1회 · 500 QUOTE_PRIMARY_DB_FAILED(Express 는 502)
+ */
+describe("relay Admin 내부 HTTP — 시세 주 서버 전환 (29-23)", () => {
+  let h: Harness;
+  let logs: LogCall[];
+
+  beforeEach(async () => {
+    logs = await spyLogs();
+  });
+
+  afterEach(async () => {
+    await h.close();
+    vi.restoreAllMocks();
+  });
+
+  /** 기록하는 전환 대역 — 결과는 순서대로 꺼낸다(모자라면 마지막 값). */
+  function fakeSwitch(results: QuoteSwitchResult[], current = "KB120") {
+    const calls: string[] = [];
+    let currentServerKey: string | null = current;
+    return {
+      calls,
+      sw: {
+        get currentServerKey() {
+          return currentServerKey;
+        },
+        switchTo(server: DmaServerRow): Promise<QuoteSwitchResult> {
+          calls.push(server.key);
+          const r = results[Math.min(calls.length - 1, results.length - 1)]!;
+          if (r.ok && r.changed) currentServerKey = server.key;
+          return Promise.resolve(r);
+        },
+      },
+    };
+  }
+
+  const post = (key: string): Promise<Response> => call(h, "POST", `/internal/admin/servers/${key}/quote-primary`);
+
+  it("Q1 전환 실패 → 409 QUOTE_SWITCH_FAILED(화면 원문) · DB RPC 0 · 재적재 0 · 감사 rejected", async () => {
+    const message = "새 서버 로그인 실패 — KB120 으로 되돌림";
+    const f = fakeSwitch([{ ok: false, code: "QUOTE_SWITCH_FAILED", message }]);
+    let reloads = 0;
+    h = await startHarness({
+      quoteSwitch: f.sw,
+      quotePrimary: "KB120",
+      registryReload: () => {
+        reloads += 1;
+        return Promise.resolve({ ok: true, changed: false });
+      },
+    });
+    const res = await post("KYOBO119");
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: { code: "QUOTE_SWITCH_FAILED", message } });
+    expect(f.calls).toEqual(["KYOBO119"]);
+    expect(h.db.callsTo("dma_admin_set_quote_primary")).toEqual([]);
+    expect(reloads).toBe(0);
+    const audit = logs.find((c) => c.args.some((a) => typeof a === "string" && a.includes("[admin-audit]")));
+    expect(audit?.args[0]).toMatchObject({ route: "POST /servers/:key/quote-primary", server: "KYOBO119", rejected: "QUOTE_SWITCH_FAILED" });
+  });
+
+  it("Q2 진행 중 → 409 QUOTE_SWITCH_BUSY · DB RPC 0", async () => {
+    const f = fakeSwitch([{ ok: false, code: "QUOTE_SWITCH_BUSY", message: "시세 주 서버 전환이 진행 중입니다 — 잠시 뒤 다시 시도하세요" }]);
+    h = await startHarness({ quoteSwitch: f.sw, quotePrimary: "KB120" });
+    const res = await post("KYOBO119");
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("QUOTE_SWITCH_BUSY");
+    expect(h.db.callsTo("dma_admin_set_quote_primary")).toEqual([]);
+  });
+
+  it("Q3 없는 키 404 NO_SUCH_SERVER · 꺼진 서버 409 SERVER_DISABLED · 형식 밖 키 400 — 전환 시도 0", async () => {
+    const f = fakeSwitch([{ ok: true, changed: true }]);
+    h = await startHarness({ quoteSwitch: f.sw, quotePrimary: "KB120", disabled: ["KB121"] });
+    const missing = await post("KB999");
+    expect(missing.status).toBe(404);
+    expect(((await missing.json()) as { error: { code: string } }).error.code).toBe("NO_SUCH_SERVER");
+    const off = await post("KB121");
+    expect(off.status).toBe(409);
+    expect(((await off.json()) as { error: { code: string } }).error.code).toBe("SERVER_DISABLED");
+    const bad = await post("XX1");
+    expect(bad.status).toBe(400);
+    expect(f.calls).toEqual([]);
+    expect(h.db.callsTo("dma_admin_set_quote_primary")).toEqual([]);
+  });
+
+  it("Q4 같은 서버 · DB 도 그 서버 → 200 · RPC 0 · 재적재 0 / DB 가 다른 서버면 RPC 1", async () => {
+    const f = fakeSwitch([{ ok: true, changed: false }]);
+    let reloads = 0;
+    h = await startHarness({
+      quoteSwitch: f.sw,
+      quotePrimary: "KB120",
+      registryReload: () => {
+        reloads += 1;
+        return Promise.resolve({ ok: true, changed: false });
+      },
+    });
+    const same = await post("KB120");
+    expect(same.status).toBe(200);
+    expect(await same.json()).toEqual({ ok: true });
+    expect(h.db.callsTo("dma_admin_set_quote_primary")).toEqual([]);
+    expect(reloads).toBe(0);
+    await h.close();
+
+    // 연결은 KYOBO119 인데 DB 는 KB120 — 같은 서버 요청이 DB 를 연결에 맞춘다(무동작 연결 · RPC 1).
+    const g = fakeSwitch([{ ok: true, changed: false }], "KYOBO119");
+    h = await startHarness({ quoteSwitch: g.sw, quotePrimary: "KB120" });
+    const fix = await post("KYOBO119");
+    expect(fix.status).toBe(200);
+    expect(h.db.callsTo("dma_admin_set_quote_primary")).toEqual([
+      { name: "dma_admin_set_quote_primary", args: { p_key: "KYOBO119" } },
+    ]);
+  });
+
+  it("Q5 전환 성공 뒤 DB 반영 실패 → 옛 서버로 되돌리는 switchTo 1회 · 500 QUOTE_PRIMARY_DB_FAILED", async () => {
+    const f = fakeSwitch([{ ok: true, changed: true }]);
+    h = await startHarness({ quoteSwitch: f.sw, quotePrimary: "KB120" });
+    h.db.failNext.set("dma_admin_set_quote_primary", { code: "08006", message: "connection failure", details: null, hint: null });
+    const res = await post("KYOBO119");
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("QUOTE_PRIMARY_DB_FAILED");
+    expect(f.calls).toEqual(["KYOBO119", "KB120"]);
+    expect(f.sw.currentServerKey).toBe("KB120");
   });
 });

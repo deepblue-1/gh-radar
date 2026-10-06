@@ -460,8 +460,17 @@ orderJournal.refresh();
 // Phase 29 D-10 (29-22) — 그 뒤 주문 서버가 사용자의 열린 세션 서버와 갈렸으면 그 사용자에게 「주문 서버 바뀜」 1건.
 // 역할(roles) 변경뿐 아니라 서버 삭제 · 끄기도 주문 서버를 바꿀 수 있어 변경마다 부른다 — 같은 표식은 fanout 이 다시 보내지
 // 않는다. 열린 세션은 끊지도 옮기지도 않는다(새 서버는 다음 세션부터 — SessionManager.resolveTarget).
-registry.on("changed", () => {
+registry.on("changed", (change) => {
   pipelines.sync(registry.enabled());
+  // 29-23 (D-11) — DB 시세 주 서버가 다른 경로로 바뀌었으면 같은 break-then-make 로 맞춘다. 실패하면 DB 를 지금 연결 서버로
+  // 되돌린다(직전 값 유지). 판정 · 단일 비행은 QuoteSwitch 가 쥔다 — 여기서는 역할 변경일 때만 부른다.
+  if (change.roles) {
+    void quoteSwitch
+      .reconcileWithRegistry(registry, (key) => adminStore.setQuotePrimary(key))
+      .catch((err: unknown) =>
+        logger.error({ error: err instanceof Error ? err.message : String(err) }, "[QUOTE] 시세 주 서버 보정 예외"),
+      );
+  }
   // 29-22 — 저널 원천이 새 KB 주문 서버로 바뀌었으면 그 서버의 지금 상태를 브라우저에 1건(다음 healthz 는 요청마다 현재 값).
   orderJournal.refresh();
   fanout.notifyOrderServers(orderServerKeyOf);

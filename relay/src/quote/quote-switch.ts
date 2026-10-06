@@ -64,6 +64,9 @@ export type QuoteSwitchResult =
   | { ok: true; changed: boolean }
   | { ok: false; code: QuoteSwitchErrorCode; message: string };
 
+/** 레지스트리 보정 결과 — 테스트 · 로그용. */
+export type QuoteReconcileOutcome = "noop" | "switched" | "restored" | "busy";
+
 type WaitOutcome = "ready" | "rejected" | "role_mismatch" | "timeout" | "stopped";
 
 export interface QuoteSwitch {
@@ -100,12 +103,15 @@ export class QuoteSwitch extends EventEmitter {
   #everReady = false;
   /** 교체된 feed 의 마지막 프레임 시각 — 새 feed 가 아직 프레임을 받지 않았을 때 쓴다. */
   #carriedLastFrameAtMs: number | null = null;
+  /** 레지스트리에서 마지막으로 본 시세 주 서버 키(보정 판정 기준). */
+  #observedRegistryKey: string | null;
 
   constructor(deps: QuoteSwitchDeps) {
     super();
     this.#deps = deps;
     this.#readyTimeoutMs = deps.readyTimeoutMs ?? QUOTE_SWITCH_READY_TIMEOUT_MS;
     this.#server = deps.initial;
+    this.#observedRegistryKey = deps.initial?.key ?? null;
     const secret = deps.initial !== undefined ? deps.secretOf(deps.initial.broker) : undefined;
     this.#feed = deps.createFeed(deps.initial, secret);
     this.#wire(this.#feed);
@@ -222,6 +228,48 @@ export class QuoteSwitch extends EventEmitter {
       this.#switching = false;
       this.#busy = false;
     }
+  }
+
+  /**
+   * 레지스트리 재적재(`changed.roles`) 뒤 보정. DB 의 시세 주 서버가 직전에 본 값과 다르고 지금 연결 서버와도 다르면 전환한다.
+   * 전환이 실패하면 `restore(지금 연결 서버 키)` 로 DB 를 되돌린다(직전 값 유지 원칙).
+   */
+  async reconcileWithRegistry(
+    registry: { quotePrimary(): QuoteSwitchServer | undefined },
+    restore: (key: string) => Promise<void>,
+  ): Promise<QuoteReconcileOutcome> {
+    const target = registry.quotePrimary();
+    const targetKey = target?.key ?? null;
+    if (targetKey === this.#observedRegistryKey) return "noop";
+    if (this.#busy) {
+      logger.warn({ registry: targetKey, current: this.currentServerKey }, "[QUOTE] 시세 주 서버 보정 보류 — 전환 진행 중");
+      return "busy";
+    }
+    this.#observedRegistryKey = targetKey;
+    if (target === undefined || target.key === this.currentServerKey) return "noop";
+
+    logger.warn(
+      { registry: target.key, current: this.currentServerKey },
+      "[QUOTE] 레지스트리 시세 주 서버가 지금 연결과 다르다 — 같은 break-then-make 로 맞춘다",
+    );
+    const r = await this.switchTo(target);
+    if (r.ok) return "switched";
+    const current = this.currentServerKey;
+    logger.error(
+      { registry: target.key, current, code: r.code },
+      "[QUOTE] 시세 주 서버 보정 실패 — DB 를 지금 연결 서버로 되돌린다",
+    );
+    if (current !== null) {
+      try {
+        await restore(current);
+      } catch (err) {
+        logger.error(
+          { current, error: err instanceof Error ? err.message : String(err) },
+          "[QUOTE] 시세 주 서버 DB 되돌리기 실패 — 다음 재적재가 다시 보정한다",
+        );
+      }
+    }
+    return "restored";
   }
 
   // ----------------------------------------------------------
