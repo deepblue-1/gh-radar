@@ -18,3 +18,11 @@
 - **데스크톱 Admin 시트의 배경 흐림.** 공용 `SheetOverlay`(backdrop-blur) 때문에 우측 패널이 열리면 왼쪽 목록이 흐려지고 클릭하면 시트가
   닫힌다. 목업 A 의 데스크톱 `.panel` 은 스크림 없이 목록이 그대로 보이는 그림이다(D-14 「목록은 남는다」 — 행 사이 이동). 비모달
   시트(포커스 트랩 · 바깥 클릭 의미가 바뀐다)는 29-15 `AdminSheet` 골격의 결정이라 이 플랜에서 바꾸지 않았다.
+
+## 29-18 실행 중
+
+- **e2e 목 `mockAdminApi` 의 `quote-primary` 처리가 증권사 안에서만 플래그를 바꾼다.** `webapp/e2e/fixtures/admin.ts` 는
+  `order-server` 와 `quote-primary` 를 같은 분기로 처리해 `s.broker === target.broker` 인 서버만 `isQuotePrimary` 를 고친다.
+  시세 주 서버는 증권사와 무관하게 전체 1대(D-11 · D-17)라, 다른 증권사로 전환이 「성공」 하면 목 상태에 시세 주 서버가 2대가 된다.
+  29-18 플랜은 이 픽스처를 고치지 않는다고 정했고(필요한 응답은 spec 안 `onRequest` 로 덮는다), P29-S2 는 실패 경로(409)만 써서
+  영향이 없다. 성공 경로 e2e 가 필요해지면 분기를 나눠 전체 서버의 `isQuotePrimary` 를 바꾸도록 고친다.
