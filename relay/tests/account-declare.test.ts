@@ -28,8 +28,9 @@ import {
 } from "../src/dma/session.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { logger } from "../src/logger.js";
+import { frame } from "../src/dma/codec.js";
 import { startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
-import type { FakeAccount } from "./helpers/frames.js";
+import { buildUpdateAccountNoRespFrame, type FakeAccount } from "./helpers/frames.js";
 
 /** 선언 대상 2건. 뒤 4자리가 서로 달라 마스킹 검증이 우연히 통과하지 않는다. */
 const ACC_A = "1234567801";
@@ -265,5 +266,145 @@ describe("계좌 선언 시퀀스", () => {
     expect(dumped).not.toContain(ACC_A);
     expect(dumped).not.toContain(ACC_B);
     expect(dumped).toContain("123456****");
+  });
+});
+
+/**
+ * Phase 29-21 — Ready 중 선언 (RESEARCH Pitfall 10). 87 에 새 계좌가 나타나면 Ready 세션이 재로그인 없이 그 계좌만
+ * mode "1" 로 선언하고, 응답 대조 뒤 허용 목록 · `accounts` 이벤트(상태 프레임)를 갱신한다.
+ */
+describe("Phase 29 Ready 중 선언", () => {
+  let gateway: FakeGateway;
+  let session: DmaSession | null = null;
+  let logged: unknown[] = [];
+  let warns: unknown[] = [];
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    resetDroppedEnvelopeCount();
+    logged = [];
+    warns = [];
+    for (const level of ["info", "warn", "error"] as const) {
+      vi.spyOn(logger, level).mockImplementation((...args: unknown[]) => {
+        logged.push(args);
+        if (level === "warn") warns.push(args);
+        return undefined;
+      });
+    }
+  });
+
+  afterEach(async () => {
+    session?.close();
+    session = null;
+    await gateway.close();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  /** A 1건으로 Ready 인 세션. */
+  async function readyWithA(): Promise<{ s: DmaSession; accountsEvents: RelayStateMsg[] }> {
+    gateway = await startFakeGateway();
+    gateway.respondLoginWithAccounts([{ accountNo: ACC_A, name: "위탁종합" }], "로그인 성공");
+    const client = new DmaClient({ host: "127.0.0.1", port: gateway.port });
+    const s = new DmaSession({ userId: "user-1", dmaUserId: "dma-login-id", password: "pw-절대노출금지", broker: "KB" }, client);
+    session = s;
+    const accountsEvents: RelayStateMsg[] = [];
+    s.on("accounts", (f) => accountsEvents.push(f));
+    s.start();
+    await waitFor(() => s.state === "ready", "ready 진입");
+    return { s, accountsEvents };
+  }
+
+  it("ⓐ 새 계좌 B → mode 1 B 1건 · 응답 [A, B] → 허용 [A, B] · accounts 이벤트 1(ready · 문구 보존 · B 포함)", async () => {
+    const { s, accountsEvents } = await readyWithA();
+    expect(gateway.declaredAccounts()).toEqual([{ mode: "1", accountNo: ACC_A }]);
+
+    expect(s.declareAccounts([{ accountNo: ACC_A, name: "위탁종합" }, { accountNo: ACC_B, name: "연금저축" }])).toBe(1);
+    await waitFor(() => accountsEvents.length === 1, "accounts 이벤트");
+
+    expect(gateway.declaredAccounts()).toEqual([
+      { mode: "1", accountNo: ACC_A },
+      { mode: "1", accountNo: ACC_B },
+    ]);
+    expect(s.state).toBe("ready");
+    expect(s.allowedAccounts).toEqual([
+      { accountNo: ACC_A, name: "위탁종합" },
+      { accountNo: ACC_B, name: "연금저축" },
+    ]);
+    expect(accountsEvents[0]).toEqual({
+      t: "state",
+      s: "ready",
+      msg: "로그인 성공",
+      accounts: [
+        { accountNo: ACC_A, name: "위탁종합" },
+        { accountNo: ACC_B, name: "연금저축" },
+      ],
+    });
+    // 로그에는 마스킹본만.
+    expect(JSON.stringify(logged)).not.toContain(ACC_B);
+  });
+
+  it("ⓑ 같은 계좌(변화 없음) → 선언 0 · 이벤트 0", async () => {
+    const { s, accountsEvents } = await readyWithA();
+    expect(s.declareAccounts([{ accountNo: ACC_A, name: "위탁종합" }])).toBe(0);
+    await flushIo();
+    expect(gateway.declaredAccounts()).toHaveLength(1);
+    expect(accountsEvents).toHaveLength(0);
+  });
+
+  it("ⓒ 응답에 B 가 없으면(서버 거부) → 허용 목록 그대로 · warn 1(마스킹) · 세션 ready 유지", async () => {
+    const { s, accountsEvents } = await readyWithA();
+    gateway.respondUpdateAccountNo([ACC_A]);
+    const before = warns.length;
+
+    expect(s.declareAccounts([{ accountNo: ACC_B, name: "연금저축" }])).toBe(1);
+    await waitFor(() => warns.length > before, "거부 warn");
+
+    expect(s.allowedAccounts).toEqual([{ accountNo: ACC_A, name: "위탁종합" }]);
+    expect(accountsEvents).toHaveLength(0);
+    expect(s.state).toBe("ready");
+    const rejected = warns.slice(before);
+    expect(rejected).toHaveLength(1);
+    expect(JSON.stringify(rejected)).toContain("Ready 중 계좌 선언 미확인");
+    expect(JSON.stringify(rejected)).toContain("123456****");
+    expect(JSON.stringify(logged)).not.toContain(ACC_B);
+    // 타이머가 흘러도 실패로 가지 않는다 — 대기는 이미 정리됐다.
+    vi.advanceTimersByTime(ACCOUNT_RESP_TIMEOUT_MS * 2);
+    await flushIo();
+    expect(s.state).toBe("ready");
+    expect(warns.slice(before)).toHaveLength(1);
+  });
+
+  it("ⓒ' 응답이 아예 없으면 5초 뒤 같은 판정 — 허용 목록 그대로 · warn 1 · ready 유지", async () => {
+    const { s } = await readyWithA();
+    gateway.silenceAccountResp();
+    const before = warns.length;
+    s.declareAccounts([{ accountNo: ACC_B, name: "연금저축" }]);
+    await waitFor(() => gateway.declaredAccounts().length === 2, "B 선언 도착");
+    vi.advanceTimersByTime(ACCOUNT_RESP_TIMEOUT_MS);
+    await flushIo();
+    expect(warns.slice(before)).toHaveLength(1);
+    expect(s.allowedAccounts.map((a) => a.accountNo)).toEqual([ACC_A]);
+    expect(s.state).toBe("ready");
+  });
+
+  it("ⓓ Ready 아닌 세션(재접속 중) → 선언하지 않는다(다음 로그인 선언이 87 을 반영)", async () => {
+    const { s } = await readyWithA();
+    await waitFor(() => gateway.sockets.length > 0, "게이트웨이 accept");
+    gateway.hardClose(gateway.sockets[0] as net.Socket);
+    await waitFor(() => s.state === "reconnecting", "reconnecting 진입");
+
+    expect(s.declareAccounts([{ accountNo: ACC_B, name: "연금저축" }])).toBe(0);
+    await flushIo();
+    expect(gateway.declaredAccounts()).toEqual([{ mode: "1", accountNo: ACC_A }]);
+  });
+
+  it("ⓔ 대기 중 선언이 없을 때 온 UpdateAccountNoResp → 종전처럼 「예상 밖」 무시(허용 목록 · 이벤트 무변화)", async () => {
+    const { s, accountsEvents } = await readyWithA();
+    await waitFor(() => gateway.sockets.length > 0, "게이트웨이 accept");
+    gateway.sockets[0]!.write(frame(buildUpdateAccountNoRespFrame([ACC_A, ACC_B])));
+    await waitFor(() => JSON.stringify(warns).includes("예상 밖 시점의 UpdateAccountNoResp"), "예상 밖 warn");
+    expect(s.allowedAccounts.map((a) => a.accountNo)).toEqual([ACC_A]);
+    expect(accountsEvents).toHaveLength(0);
   });
 });

@@ -345,6 +345,18 @@ export class SessionManager {
   }
 
   /**
+   * 그 서버 키의 세션 전부(생성 순서 · 사용자 무관). 참조계수를 건드리지 않는다.
+   * 용도(29-21): 서버 87(users.toml 전체)을 그 서버에 로그인한 열린 세션에 반영할 대상 고르기(`AdminSessionSync`).
+   */
+  sessionsOnServer(serverKey: string): DmaSession[] {
+    const out: DmaSession[] = [];
+    for (const entry of this.#sessions.values()) {
+      if (entry.serverKey === serverKey) out.push(entry.session);
+    }
+    return out;
+  }
+
+  /**
    * 사용자 단위 명령 · 상태 표시의 세션 (D-18) — **KB 세션 우선**, 없으면 처음 만든 세션, 없으면 undefined.
    * 주문 라우트가 「활성 Ready 세션이 있는가」를 물을 때의 기본 세션이기도 하다(없으면 「세션 없음」 거부 · D-15).
    */

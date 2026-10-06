@@ -29,6 +29,17 @@
  *   (`#onTransportUp`)를 탄다. 그리고 `ready` 이벤트가 **재구독의 유일한 트리거**다.
  *   15-04 의 SubscriptionHub 는 이 이벤트만 구독한다 — 경로를 두 벌 만들지 않는다.
  *
+ * Phase 29-21 — Ready 중 계좌 자가 선언 (RESEARCH Pitfall 10 해소 · CONTEXT 「계좌 추가 후 87 → 보고 3(mode 1) 자가 선언」):
+ *   Admin 이 연결 중인 사용자에게 계좌를 더하면 그 서버 87 이 오고(`AdminSessionSync`), 이 세션은 **재로그인 없이**
+ *   `declareAccounts` 로 새 계좌만 `UpdateAccountNoReq(3)` mode "1" 로 선언한다. 종전엔 `declaring` 밖의
+ *   `UpdateAccountNoResp(55)` 를 「예상 밖」 으로 버렸다 — 이제 **대기 중 선언이 있는 Ready 세션**만 그 응답을 대조해
+ *   허용 목록에 더하고 `accounts` 이벤트(현재 상태 프레임)를 낸다. 대기 중 선언이 없으면 종전처럼 버린다.
+ *   선언 1건당 응답 1건이 오므로 보낸 수만큼 응답을 받고도 목록에 없는 계좌는 서버 거부로 보고 버린다(warn · 마스킹).
+ *   응답이 아예 안 오면 `ACCOUNT_RESP_TIMEOUT_MS` 뒤 같은 판정이다. 어느 쪽이든 **세션은 그대로다**(부트 선언과 달리
+ *   실패로 가지 않는다 — 이미 Ready 이고 기존 계좌 주문은 유효하다). Ready 가 아니면 선언하지 않는다 — 다음 로그인의
+ *   `LoginResp.accounts` 가 users.toml 을 반영한다. 반대로 87 에서 빠진 계좌는 `removeAllowedAccounts` 로 허용 목록에서
+ *   즉시 뺀다(fail closed — 서버 통보를 기다리지 않는다).
+ *
  * 하지 않는 것:
  *   - 구독 집합을 소유하지 않는다. 그것은 SubscriptionHub(15-04)의 정본이다.
  *   - 주문을 하지 않는다. 15-17 이후 plan 소관이다. 여기서 확정한 계좌 목록이
@@ -117,9 +128,15 @@ export interface DmaSession {
   on(event: "state", listener: (frame: RelayStateMsg) => void): this;
   on(event: "ready", listener: (e: SessionReadyEvent) => void): this;
   on(event: "frame", listener: (e: TransportFrameEvent) => void): this;
+  /**
+   * 상태는 그대로인 채 허용 계좌 목록만 바뀌었다 (Phase 29-21 — Ready 중 선언 · 87 축소). 페이로드는 **지금 상태 프레임**
+   * (마지막 상태 문구 포함)이라 wss 가 그대로 병합 상태 프레임 재송신에 쓴다.
+   */
+  on(event: "accounts", listener: (frame: RelayStateMsg) => void): this;
   emit(event: "state", frame: RelayStateMsg): boolean;
   emit(event: "ready", e: SessionReadyEvent): boolean;
   emit(event: "frame", e: TransportFrameEvent): boolean;
+  emit(event: "accounts", frame: RelayStateMsg): boolean;
 }
 
 /**
@@ -157,6 +174,17 @@ export class DmaSession extends EventEmitter {
   #loginMessage = "";
   #loginTimer: NodeJS.Timeout | null = null;
   #accountTimer: NodeJS.Timeout | null = null;
+  /**
+   * Ready 중 선언(29-21)의 대기 계좌 — 계좌번호 → 87 이 준 이름. 응답 목록에서 확인되면 허용 목록에 더하고 지운다.
+   * 비어 있지 않을 때만 Ready 중 `UpdateAccountNoResp` 를 처리한다(비면 종전처럼 「예상 밖」).
+   */
+  #pendingDeclare = new Map<string, RelayAccount>();
+  /** 아직 오지 않은 Ready 중 선언 응답 수 — 선언 1건당 응답 1건. 0 이 되면 남은 대기 계좌는 서버 거부다. */
+  #declareRespLeft = 0;
+  #declareTimer: NodeJS.Timeout | null = null;
+  /** 마지막 상태 전이의 화면 문구 · 회차 — `accounts` 이벤트 프레임이 상태 문구를 잃지 않게(29-21). */
+  #stateMsg: string | undefined;
+  #stateAttempt: number | undefined;
 
   constructor(creds: DmaSessionCreds, client: DmaClient) {
     super();
@@ -310,6 +338,81 @@ export class DmaSession extends EventEmitter {
       return false;
     }
     return this.#client.send(payload);
+  }
+
+  /**
+   * Ready 중 계좌 자가 선언 (Phase 29-21 · RESEARCH Pitfall 10). 87 에 새로 나타난 그 DMA 유저 계좌를 **재로그인 없이**
+   * `UpdateAccountNoReq(3)` mode "1" 로 선언하고, 응답(55) 목록에 들어 있으면 허용 목록에 더한 뒤 `accounts` 이벤트를 낸다.
+   *
+   * - **Ready 일 때만** — 아니면 아무것도 하지 않는다(다음 로그인의 `LoginResp.accounts` 가 users.toml 을 반영한다).
+   * - 이미 허용됐거나 이미 선언 대기 중인 계좌는 다시 보내지 않는다(같은 87 이 두 번 와도 선언 1회).
+   * - 응답 목록에 없는 계좌(서버 거부) · 응답 무소식은 허용 목록에 넣지 않고 warn(계좌번호 마스킹)만 — 세션은 그대로다.
+   *
+   * @param accounts 87 이 준 계좌(이름 포함 — 브라우저 계좌 선택 표시). 계좌번호는 서버 정규화값 그대로(Pitfall 7).
+   * @returns 실제로 송신한 선언 수
+   */
+  declareAccounts(accounts: readonly RelayAccount[]): number {
+    if (!this.isReady) return 0;
+    const allowed = new Set(this.#accounts.map((a) => a.accountNo));
+    const fresh: RelayAccount[] = [];
+    for (const a of accounts) {
+      if (a.accountNo === "" || allowed.has(a.accountNo) || this.#pendingDeclare.has(a.accountNo)) continue;
+      if (fresh.some((x) => x.accountNo === a.accountNo)) continue;
+      fresh.push({ accountNo: a.accountNo, name: a.name });
+    }
+    if (fresh.length === 0) return 0;
+
+    const gen = this.#client.generation;
+    let sent = 0;
+    for (const a of fresh) {
+      if (!this.#client.send(buildUpdateAccountNoReq("1", a.accountNo))) {
+        // 전송 계층이 사유를 남겼다. 회선이 끊기면 재로그인 선언이 87 을 반영한다 — 여기서 실패로 몰지 않는다.
+        logger.warn(
+          { userId: this.#userId, serverKey: this.#serverKey, account: maskAccountNo(a.accountNo) },
+          "[DMA] Ready 중 계좌 선언 송신 실패 — 다음 로그인 선언이 반영한다",
+        );
+        continue;
+      }
+      this.#pendingDeclare.set(a.accountNo, a);
+      this.#declareRespLeft += 1;
+      sent += 1;
+    }
+    if (sent === 0) return 0;
+    logger.info(
+      { userId: this.#userId, serverKey: this.#serverKey, count: sent, accounts: fresh.map((a) => maskAccountNo(a.accountNo)) },
+      "[DMA] Ready 중 계좌 자가 선언 (87 반영 · 재로그인 없음)",
+    );
+
+    // 대조 상한 — 선언 묶음마다 다시 건다(늦게 온 묶음이 앞 묶음 타이머에 잘리지 않게).
+    this.#clearDeclareTimer();
+    this.#declareTimer = setTimeout(() => {
+      this.#declareTimer = null;
+      if (gen !== this.#client.generation) return; // 구세대 — 단절 경로가 이미 대기를 비웠다
+      this.#settleDeclare("응답 없음");
+    }, ACCOUNT_RESP_TIMEOUT_MS);
+    return sent;
+  }
+
+  /**
+   * 87 에서 빠진 계좌를 허용 목록에서 즉시 뺀다 (Phase 29-21 — fail closed). 주문 · 상따 계좌 대조(`allowedAccounts`)가
+   * 곧바로 「허용 계좌 아님」 으로 거부한다. 게이트웨이에는 아무것도 보내지 않는다(서버 users.toml 이 이미 뺐다).
+   * 바뀐 것이 있으면 `accounts` 이벤트를 낸다. 대기 중 선언에서도 뺀다(늦은 응답이 되살리지 않게).
+   *
+   * @returns 실제로 뺀 계좌 수
+   */
+  removeAllowedAccounts(accountNos: readonly string[]): number {
+    const drop = new Set(accountNos);
+    for (const no of drop) this.#pendingDeclare.delete(no);
+    const before = this.#accounts.length;
+    this.#accounts = this.#accounts.filter((a) => !drop.has(a.accountNo));
+    const removed = before - this.#accounts.length;
+    if (removed === 0) return 0;
+    logger.warn(
+      { userId: this.#userId, serverKey: this.#serverKey, removed, remaining: this.#accounts.length },
+      "[DMA] 87 에서 빠진 계좌 — 허용 목록에서 즉시 제외 (fail closed)",
+    );
+    this.#emitAccounts();
+    return removed;
   }
 
   /**
@@ -472,6 +575,11 @@ export class DmaSession extends EventEmitter {
    * 한 건을 흘렸을 때 정상 부트가 조용히 실패한다.
    */
   #onAccountListResp(e: TransportFrameEvent): void {
+    // Phase 29-21 — Ready 중 선언의 응답(대기 중 선언이 있을 때만). 없으면 아래 종전 「예상 밖」 갈래다.
+    if (this.#state === "ready" && this.#pendingDeclare.size > 0) {
+      this.#onDeclareResp(e);
+      return;
+    }
     if (this.#state !== "declaring") {
       logger.warn(
         { userId: this.#userId, state: this.#state },
@@ -498,6 +606,56 @@ export class DmaSession extends EventEmitter {
 
     this.#clearAccountTimer();
     this.#onAccountsMatched(e.generation);
+  }
+
+  /**
+   * Ready 중 선언 응답 1건 (29-21). 응답은 그 시점 서버 등록 목록 전체다 — 대기 계좌 중 목록에 든 것을 허용 목록에 더한다.
+   * 보낸 선언 수만큼 응답이 다 왔는데도 남은 대기 계좌는 서버 거부다(`#settleDeclare`).
+   */
+  #onDeclareResp(e: TransportFrameEvent): void {
+    const serverList = new Set(parseUpdateAccountNoResp(e.env));
+    const added: RelayAccount[] = [];
+    for (const [no, account] of [...this.#pendingDeclare]) {
+      if (!serverList.has(no)) continue;
+      this.#pendingDeclare.delete(no);
+      if (!this.#accounts.some((a) => a.accountNo === no)) {
+        this.#accounts = [...this.#accounts, account];
+        added.push(account);
+      }
+    }
+    this.#declareRespLeft = Math.max(0, this.#declareRespLeft - 1);
+    if (added.length > 0) {
+      logger.info(
+        { userId: this.#userId, serverKey: this.#serverKey, added: added.map((a) => maskAccountNo(a.accountNo)), total: this.#accounts.length },
+        "[DMA] Ready 중 계좌 선언 확인 — 허용 목록 갱신",
+      );
+      this.#emitAccounts();
+    }
+    if (this.#pendingDeclare.size === 0) {
+      this.#clearDeclareTimer();
+      this.#declareRespLeft = 0;
+      return;
+    }
+    if (this.#declareRespLeft === 0) this.#settleDeclare("서버 목록에 없음");
+  }
+
+  /** 남은 대기 선언을 거부로 확정한다 — 허용 목록에 넣지 않고 warn 1(마스킹)만. 세션 상태는 그대로다. */
+  #settleDeclare(reason: string): void {
+    this.#clearDeclareTimer();
+    this.#declareRespLeft = 0;
+    if (this.#pendingDeclare.size === 0) return;
+    const rejected = [...this.#pendingDeclare.keys()].map(maskAccountNo);
+    this.#pendingDeclare.clear();
+    logger.warn(
+      { userId: this.#userId, serverKey: this.#serverKey, rejected, reason },
+      "[DMA] Ready 중 계좌 선언 미확인 — 허용 목록에 넣지 않는다 (세션 유지)",
+    );
+  }
+
+  /** 상태는 그대로 · 허용 계좌만 바뀌었다 — 마지막 상태 문구를 실은 지금 프레임으로 알린다(29-21). */
+  #emitAccounts(): void {
+    if (this.#state === "idle") return;
+    this.emit("accounts", this.stateFrame(this.#stateMsg, this.#stateAttempt));
   }
 
   /** ④ 운용 준비 완료. **"성공"의 기준은 TCP 접속이 아니라 여기다.** */
@@ -623,6 +781,8 @@ export class DmaSession extends EventEmitter {
     const prev = this.#state;
     if (prev === next && next !== "reconnecting") return; // reconnecting 은 회차가 바뀐다
     this.#state = next;
+    this.#stateMsg = msg;
+    this.#stateAttempt = attempt;
 
     // 로그 인자에 password·dmaUserId 를 넣지 않는다 (D-19). 계좌번호도 원문을 넣지 않는다.
     logger.info(
@@ -647,12 +807,22 @@ export class DmaSession extends EventEmitter {
     this.#accountTimer = null;
   }
 
+  #clearDeclareTimer(): void {
+    if (this.#declareTimer === null) return;
+    clearTimeout(this.#declareTimer);
+    this.#declareTimer = null;
+  }
+
   /**
    * 부트 대기 타이머 전량 정리. 단절·실패·종료 경로가 전부 이것을 쓴다 — 한쪽만 끄면
    * 남은 타이머가 5초 뒤에 **구세대 실패**를 늦게 보고한다.
+   * Ready 중 선언(29-21) 대기도 함께 비운다 — 다음 로그인의 `LoginResp.accounts` 전량 선언이 그 계좌를 반영한다.
    */
   #clearTimers(): void {
     this.#clearLoginTimer();
     this.#clearAccountTimer();
+    this.#clearDeclareTimer();
+    this.#pendingDeclare.clear();
+    this.#declareRespLeft = 0;
   }
 }

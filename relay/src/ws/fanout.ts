@@ -430,7 +430,7 @@ function rejectFrame(
 type EntrySession = {
   session: DmaSession;
   /**
-   * 이 entry 가 `session` 에 건 `"state"` 리스너의 **핸들**. entry 를 버리는 모든 경로가
+   * 이 entry 가 `session` 에 건 `"state"` · `"accounts"`(29-21) 리스너의 **핸들**(같은 함수). entry 를 버리는 모든 경로가
    * 이것으로 리스너를 뗀다 (`#register` 의 세션 교체 · 분리 갈래 · `#onClose` 의 마지막 소켓 갈래).
    *
    * 핸들을 entry 가 들고 있어야 하는 이유: `session.on("state", (f) => ...)` 처럼 익명
@@ -1715,7 +1715,7 @@ export class WsFanout {
         // 같은 세션으로 재접속한 `#register` 가 하나 더 걸어 새로고침마다 누적된다.
         // `#register` 의 세션 교체 갈래로는 이 경로를 못 막는다 — 그때는 `existing` 이
         // 이미 없기 때문이다. 증권사 세션이 여럿이면(29-20) 전부 뗀다.
-        for (const es of entry.sessions.values()) es.session.off("state", es.onState);
+        for (const es of entry.sessions.values()) this.#unlisten(es);
         this.#users.delete(userId);
       }
     }
@@ -1773,7 +1773,7 @@ export class WsFanout {
         //    그럼에도 남긴다 — 이 `if` 블록 자체가 이미 있는 갈래이고(「세션 교체」 로그),
         //    `acquire` 의 재생성 조건이 언젠가 완화되면 리스너 누수가 **조용히** 되살아난다.
         //    갈래를 두면서 정리만 빼는 것은 버그를 예약해 두는 것이다.
-        existing.session.off("state", existing.onState);
+        this.#unlisten(existing);
         logger.info({ userId, serverKey: session.serverKey, conns: entry.conns.size }, "[WS] 세션 교체 — 상태 리스너 재결선");
       }
       entry.sessions.set(session.serverKey, { session, onState: this.#stateListener(userId, session) });
@@ -1785,7 +1785,7 @@ export class WsFanout {
     for (const c of entry.conns) for (const key of c.acquiredServers) held.add(key);
     for (const [serverKey, es] of [...entry.sessions]) {
       if (held.has(serverKey)) continue;
-      es.session.off("state", es.onState);
+      this.#unlisten(es);
       entry.sessions.delete(serverKey);
       logger.info({ userId, serverKey }, "[WS] 쥔 연결이 없는 세션 — 병합 뷰에서 분리");
     }
@@ -1812,7 +1812,16 @@ export class WsFanout {
       this.#deliver(userId, this.#mergedStateFrame(userId, session, frame));
     };
     session.on("state", onState);
+    // 29-21 — 상태는 그대로 · 허용 계좌만 바뀜(Ready 중 선언 · 87 축소). 페이로드가 그 세션의 지금 상태 프레임이라 같은
+    // 리스너로 병합 상태 프레임을 다시 보낸다(재로그인 없이 브라우저 계좌 목록 갱신).
+    session.on("accounts", onState);
     return onState;
+  }
+
+  /** entry 를 버리는 모든 경로의 리스너 정리 — `state` · `accounts`(29-21) 둘 다 뗀다(R2-WR-05). */
+  #unlisten(es: EntrySession): void {
+    es.session.off("state", es.onState);
+    es.session.off("accounts", es.onState);
   }
 
   /**

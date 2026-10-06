@@ -92,6 +92,7 @@ import { createAccessCredentials } from "./store/credentials.js";
 import { createOrderApi } from "./order/order-api.js";
 import { AdminIntentStore } from "./admin/intent-store.js";
 import { AdminDispatcher } from "./admin/dispatcher.js";
+import { AdminSessionSync } from "./admin/session-sync.js";
 import { createAdminRouter } from "./admin/admin-api.js";
 import { AdminSnapshotSink } from "./admin/snapshot-sink.js";
 import type { JournalAccessView } from "./journal/types.js";
@@ -304,6 +305,14 @@ const fanout = new WsFanout({
   // 시세 전용 공유 연결 상태 — 인증 직후 `quote.state` 스냅샷 1프레임의 출처(Phase 26 D-01).
   quoteState: quoteStatus,
 });
+
+/**
+ * 87 → 열린 세션 반영 (Phase 29-21 · ADMIN-06) — sink 가 그 서버 매핑에 87 을 넣은 직후(`applied`) 그 서버에 로그인한 사용자
+ * 세션이 새 계좌를 재로그인 없이 자가 선언한다(RESEARCH Pitfall 10). 브라우저 계좌 목록은 세션 `accounts` 이벤트 → fanout
+ * 병합 상태 프레임으로 간다.
+ */
+const adminSessionSync = new AdminSessionSync({ sessions: sessionManager });
+adminSnapshotSink.on("applied", (e) => adminSessionSync.onApplied(e));
 
 // 시세 연결 상태 전이(3초 디바운스) → 인증된 전 연결(Phase 26 D-01). `/healthz` 와 같은 원천이다.
 quoteStatus.on("frame", (frame) => fanout.deliverQuoteState(frame));
