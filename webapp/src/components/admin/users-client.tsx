@@ -17,13 +17,15 @@ import { fetchAdminUsers } from "@/lib/admin-api";
 import { ApiClientError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
+import { PendingSection } from "./pending-section";
+import { ADMIN_BUTTON_SECONDARY } from "./reflect-chip";
 import { ServerOnlyRow, UserRow } from "./user-row";
 
 /**
  * UsersClient — `/admin/users` 본문 (Phase 29 D-14 · 목업 A · ADMIN-09).
  *
- * 헤더(「사용자」 · 「허용 gmail · 역할 · DMA 연결」 · 「+ 사용자」) → 「사용자 N」 카드(웹 사용자 행 + 「서버에만
- * 있음」 행) → 목업 하단 안내 문장 2개. 데이터는 마운트 시 `GET /api/admin/users` 한 번이다(브라우저는 Supabase
+ * 헤더(「사용자」 · 「허용 gmail · 역할 · DMA 연결」 · 「+ 사용자」) → 「승인 대기 N」(있을 때만 · 역할 골라 승인 →
+ * 재조회) → 「사용자 N」 카드(웹 사용자 행 + 「서버에만 있음」 행) → 목업 하단 안내 문장 2개. 데이터는 마운트 시 `GET /api/admin/users` 한 번이다(브라우저는 Supabase
  * 표를 직접 읽지 않는다 — D-07).
  *
  * - 로딩: 스켈레톤 행. 다시 읽을 때(쓰기 뒤 재조회)는 이전 목록을 그대로 두고 바꿔 끼운다 — 깜빡임 없음.
@@ -104,7 +106,8 @@ export function UsersClient({ onCreate }: UsersClientProps = {}) {
             data-slot="admin-users-create"
             disabled={onCreate === undefined}
             onClick={onCreate}
-            className="font-semibold"
+            // 라이트 본문면(--surface)은 --muted 와 같은 색이라 흰 카드면으로 띄운다(검색 입력과 같은 결).
+            className={cn(ADMIN_BUTTON_SECONDARY, "bg-[var(--card)] dark:bg-[var(--muted)]")}
           >
             {ADMIN_USERS_TEXT.create}
           </Button>
@@ -124,7 +127,7 @@ export function UsersClient({ onCreate }: UsersClientProps = {}) {
           ) : (
             <>
               <p className="text-[var(--fg)]">{ADMIN_USERS_TEXT.loadFailed}</p>
-              <Button type="button" size="sm" variant="secondary" onClick={retry}>
+              <Button type="button" size="sm" variant="secondary" onClick={retry} className={ADMIN_BUTTON_SECONDARY}>
                 {ADMIN_USERS_TEXT.retry}
               </Button>
             </>
@@ -134,6 +137,7 @@ export function UsersClient({ onCreate }: UsersClientProps = {}) {
 
       {state.kind === "ready" && (
         <>
+          <PendingSection pending={state.data.pending} onApproved={() => void load()} />
           <section aria-labelledby="admin-users-title" data-slot="admin-users-list" className="flex flex-col gap-2">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-1">
               <h2 id="admin-users-title" className={SECTION_TITLE}>

@@ -76,9 +76,24 @@ const LED_TONES: readonly (readonly string[])[] = [
  * 사이드바에서 빠지고 허브 타일로만 들어간다(quick-260926-o2u D1).
  * 전략 3건은 「트레이딩」 바로 아래에 선다(VI 미가동 — VI 줄 없음). 그 다음이 「분석」 그룹 제목 + 하위
  * 「상한가 보고서」 · 「AI 애널리스트」(Phase 28 D-09 · quick-261005-vk1 D-01 — AI 애널리스트 = 분석 하위 ·
- * 트레이딩과 같은 노출 조건), 그 뒤 My page.
+ * 트레이딩과 같은 노출 조건), 그 다음이 「Admin」 그룹 제목 + 하위 「사용자」 · 「서버」(Phase 29 D-13 — e2e 계정은
+ * admin 시드(29-07)라 보인다 · 노출은 역할만 본다), 그 뒤 My page.
  */
-const TREE_LINKS = ['홈', '검색', '트레이딩', '분석', '상한가 보고서', 'AI 애널리스트', 'My page'];
+const TREE_LINKS = [
+  '홈',
+  '검색',
+  '트레이딩',
+  '분석',
+  '상한가 보고서',
+  'AI 애널리스트',
+  'Admin',
+  '사용자',
+  '서버',
+  'My page',
+];
+
+/** Admin 하위 항목 — 역할로만 보이므로 「매핑 없음」 에서도 남는다(Phase 29 D-13). */
+const ADMIN_SUB_ITEMS = '[data-sidebar-item^="admin-"]';
 
 // ---------------------------------------------------------------------------
 // 조회구 — 트리를 반드시 좁힌다 (위 ④)
@@ -267,7 +282,9 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
 
     await expect(nav.getByText('트레이딩', { exact: true })).toHaveCount(0);
     await expect(nav.getByRole('link', { name: 'My page' })).toHaveCount(0);
-    await expect(nav.locator('[data-sidebar-item]')).toHaveCount(0);
+    // 트레이딩 쪽 하위 항목은 없다 — Admin 하위(역할로 노출 · DMA 매핑과 무관)만 남는다.
+    await expect(nav.locator(`[data-sidebar-item]:not(${ADMIN_SUB_ITEMS})`)).toHaveCount(0);
+    await expect(nav.getByRole('link', { name: 'Admin', exact: true })).toBeVisible();
     await expect(strategyItems(nav)).toHaveCount(0);
 
     // 공개 항목은 그대로다.
@@ -296,9 +313,8 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
       const gate = page.locator('[data-slot="dma-gate"]');
       await expect(gate).toBeVisible({ timeout: 30_000 });
       await expect(gate).toContainText('DMA 계정이 연결되지 않았어요');
-      await expect(gate).toContainText(
-        '연결이 필요하면 관리자에게 문의해 주세요.',
-      );
+      // Phase 29(29-15) — Admin 이 웹에서 연결하므로 「문의」 가 아니라 「연결 요청」.
+      await expect(gate).toContainText('관리자에게 연결을 요청하세요.');
       await expect(gate).toContainText('차트·뉴스·종목토론방은 그대로 이용할 수 있어요.');
       // 매핑 없음에는 행동 버튼이 없다 — 사용자가 스스로 풀 수 있는 상태가 아니다.
       await expect(gate.getByRole('button')).toHaveCount(0);
@@ -349,7 +365,7 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     const nav = drawerNav(page);
     await waitForTradingGroup(nav);
 
-    // 같은 트리다 — 링크 5개 + 전략 3건.
+    // 같은 트리다 — TREE_LINKS + 전략 3건.
     await expect(strategyItems(nav)).toHaveCount(3, { timeout: 15_000 });
     await expect(nav.getByRole('link')).toHaveCount(TREE_LINKS.length + CHASERS.length);
 

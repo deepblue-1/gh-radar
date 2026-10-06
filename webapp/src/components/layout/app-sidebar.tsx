@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ComponentType } from "react";
-import { ChartLine, Home, MessageSquare, Search, User, Zap } from "lucide-react";
+import { ChartLine, Home, MessageSquare, Search, Shield, User, Zap } from "lucide-react";
 
 import { ExchangeTag } from "@/components/trading/exchange-tag";
 import {
@@ -12,6 +12,7 @@ import {
   type LatchLedKind,
   type LatchLedTone,
 } from "@/components/trading/latch-led";
+import { useAppRole } from "@/hooks/use-app-role";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import { useAuth } from "@/lib/auth-context";
 import { useIsinLabels } from "@/lib/isin-labels";
@@ -33,6 +34,7 @@ import { UserSection } from "./user-section";
  *   · [트레이딩 = `/trading` 링크] VI(가동 거래소 태그만 · 둘 다 꺼지면 없음) / 등록된 상따 전략 N개
  *   · [분석 = `/analytics/limitup` 링크] 상한가 보고서 · AI 애널리스트 (Phase 28 D-09 · 트레이딩과 같은 노출 조건 ·
  *     「AI 애널리스트」 는 2026-10-05 사용자 결정(quick-261005-vk1 D-01)으로 분석 하위로 옮겨 트레이딩 권한자 전용)
+ *   · [Admin = `/admin/users` 링크] 사용자 · 서버 (Phase 29 D-13 · admin 역할만 · 모바일 탭바 없음)
  *   · My page(트레이딩과 같은 노출 조건)
  *   상승률 상위 · 테마 · 관심종목은 사이드바에 없다 — `/search` 허브 타일로만 들어간다(quick-260926-o2u D1).
  *
@@ -116,6 +118,18 @@ const VI_TAG_ORDER: readonly RelayExchange[] = ["KRX", "NXT"];
  */
 const NAV_ANALYTICS: NavLeaf = { href: "/analytics/limitup", label: "분석", icon: ChartLine };
 const NAV_LIMITUP_REPORT = { href: "/analytics/limitup", label: "상한가 보고서" } as const;
+
+/**
+ * 「Admin」 그룹 제목 = `/admin/users` 링크(Phase 29 D-13). 하위 = 사용자 · 서버. 위치는 「분석」 뒤 · My page 앞(목업 A
+ * 데스크톱 사이드바). 노출은 **역할만** 본다 — `useAppRole() === "admin"`(RPC `my_app_access`, relay 연결과 무관).
+ * 숨김은 권한이 아니다(위 ④) — 실제 차단은 middleware(`/admin` 접두 = admin 만)와 Express `requireAdmin` 이다.
+ * 활성은 「분석」 규율 그대로 하위 항목이 켠다(펼침에서 제목은 켜지 않음) · 레일은 `/admin` 접두 일치로 제목 아이콘.
+ * 모바일 탭바에는 넣지 않는다 — 앱/좁은 화면은 드로어 사이드바로 들어간다.
+ */
+const NAV_ADMIN: NavLeaf = { href: "/admin/users", label: "Admin", icon: Shield };
+const NAV_ADMIN_USERS = { href: "/admin/users", label: "사용자" } as const;
+const NAV_ADMIN_SERVERS = { href: "/admin/servers", label: "서버" } as const;
+const ADMIN_PREFIX = "/admin";
 
 const NAV_ME: NavLeaf = { href: "/me", label: "My page", icon: User };
 const NAV_CHAT: NavLeaf = { href: "/chat", label: "AI 애널리스트", icon: MessageSquare };
@@ -286,6 +300,38 @@ const SUB_ITEM =
   "flex items-center gap-2 rounded-[var(--r)] p-2 text-[length:var(--t-sm)] font-semibold";
 
 /**
+ * 그룹 하위 링크 1줄(「분석」 · 「Admin」) — 자기 경로에서만 켜진다(R-7: 펼친 상태에서 켜지는 줄은 하나).
+ * 레일에서는 하위 목록이 숨으므로 `aria-current` 를 내려놓는다(숨은 줄과 보이는 아이콘이 둘 다 「지금 이 페이지」 라고
+ * 말하지 않게). 활성일 때는 선택 글자색(--nav-on-fg)이 보이게 고정 --fg 를 걸지 않는다.
+ */
+function SubNavLink({
+  href,
+  label,
+  item,
+  active,
+  rail,
+}: {
+  href: string;
+  label: string;
+  /** `data-sidebar-item` 값. */
+  item: string;
+  active: boolean;
+  rail: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      data-nav-item
+      data-sidebar-item={item}
+      aria-current={active && !rail ? "page" : undefined}
+      className={cn(SUB_ITEM, active ? LINK_ACTIVE : LINK_IDLE)}
+    >
+      <span className={cn("min-w-0 flex-1 truncate", !active && "text-[var(--fg)]")}>{label}</span>
+    </Link>
+  );
+}
+
+/**
  * 3단 VI 줄 — 「VI」 한 줄 + 오른쪽에 **가동 중인 거래소의 태그만** (quick-260923-dmb · D1).
  * 누르면 작업대(VI 설정이 있는 곳)로 간다. 활성 표시는 받지 않는다(위 ②).
  *
@@ -411,11 +457,13 @@ export function AppSidebar() {
   const pathname = usePathname();
   const { limitChasers, viTriggers } = useRelayContext();
   const tradingVisible = useTradingVisible();
+  const adminVisible = useAppRole() === "admin";
   const labels = useIsinLabels();
   const rail = useSidebarCollapsed();
 
   const isActive = (href: string) => samePath(pathname, href);
   const limitupActive = pathname.startsWith(NAV_LIMITUP_REPORT.href);
+  const inAdmin = pathname === ADMIN_PREFIX || pathname.startsWith(`${ADMIN_PREFIX}/`);
   // 거래소별 진실 — 가동(run === true)인 거래소만, KRX → NXT 순.
   const viRunning = VI_TAG_ORDER.filter((ex) => viTriggers[ex]?.run === true);
   /*
@@ -494,42 +542,22 @@ export function AppSidebar() {
             <li className="rail:hidden">
               <ul className={SUB_LIST}>
                 <li>
-                  <Link
+                  <SubNavLink
                     href={NAV_LIMITUP_REPORT.href}
-                    data-nav-item
-                    data-sidebar-item="limitup-report"
-                    aria-current={limitupActive && !rail ? "page" : undefined}
-                    className={cn(SUB_ITEM, limitupActive ? LINK_ACTIVE : LINK_IDLE)}
-                  >
-                    <span
-                      className={cn(
-                        "min-w-0 flex-1 truncate",
-                        // 활성일 때는 선택 글자색(--nav-on-fg)이 보이게 고정 --fg 를 걸지 않는다.
-                        !limitupActive && "text-[var(--fg)]",
-                      )}
-                    >
-                      {NAV_LIMITUP_REPORT.label}
-                    </span>
-                  </Link>
+                    label={NAV_LIMITUP_REPORT.label}
+                    item="limitup-report"
+                    active={limitupActive}
+                    rail={rail}
+                  />
                 </li>
                 <li>
-                  <Link
+                  <SubNavLink
                     href={NAV_CHAT.href}
-                    data-nav-item
-                    data-sidebar-item="chat"
-                    aria-current={isActive(NAV_CHAT.href) && !rail ? "page" : undefined}
-                    className={cn(SUB_ITEM, isActive(NAV_CHAT.href) ? LINK_ACTIVE : LINK_IDLE)}
-                  >
-                    <span
-                      className={cn(
-                        "min-w-0 flex-1 truncate",
-                        // 활성일 때는 선택 글자색(--nav-on-fg)이 보이게 고정 --fg 를 걸지 않는다.
-                        !isActive(NAV_CHAT.href) && "text-[var(--fg)]",
-                      )}
-                    >
-                      {NAV_CHAT.label}
-                    </span>
-                  </Link>
+                    label={NAV_CHAT.label}
+                    item="chat"
+                    active={isActive(NAV_CHAT.href)}
+                    rail={rail}
+                  />
                 </li>
               </ul>
             </li>
@@ -539,6 +567,42 @@ export function AppSidebar() {
                 <NavLink item={NAV_CHAT} active={isActive(NAV_CHAT.href)} rail />
               </li>
             )}
+          </>
+        )}
+
+        {adminVisible && (
+          <>
+            {/* 「Admin」(Phase 29 D-13) — 「분석」 뒤 · My page 앞. 노출은 역할만(트레이딩 노출 조건과 무관). */}
+            <GroupHeading
+              label={NAV_ADMIN.label}
+              icon={NAV_ADMIN.icon}
+              item={NAV_ADMIN}
+              active={rail && inAdmin}
+              ariaCurrent={rail && isActive(NAV_ADMIN.href)}
+              rail={rail}
+            />
+            <li className="rail:hidden">
+              <ul className={SUB_LIST}>
+                <li>
+                  <SubNavLink
+                    href={NAV_ADMIN_USERS.href}
+                    label={NAV_ADMIN_USERS.label}
+                    item="admin-users"
+                    active={isActive(NAV_ADMIN_USERS.href)}
+                    rail={rail}
+                  />
+                </li>
+                <li>
+                  <SubNavLink
+                    href={NAV_ADMIN_SERVERS.href}
+                    label={NAV_ADMIN_SERVERS.label}
+                    item="admin-servers"
+                    active={isActive(NAV_ADMIN_SERVERS.href)}
+                    rail={rail}
+                  />
+                </li>
+              </ul>
+            </li>
           </>
         )}
 

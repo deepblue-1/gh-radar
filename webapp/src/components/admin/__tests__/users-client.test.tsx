@@ -8,13 +8,16 @@ import { ApiClientError } from '@/lib/api';
  * Phase 29 (29-15) — `/admin/users` 목록 (D-14 · 목업 A `row()` · `srvChips()`).
  *
  * 잠그는 것: 반영 칩 문구 · 톤 · BUSY message 툴팁 · 「DMA 연결 없음」 · 계좌 수 표기 · 역할 칩 ·
- * 「서버에만 있음」 행(웹 유저 없음 · aria-disabled · 편집 진입 없음) · 로딩 · 403 · 그 밖 오류 + 다시 시도.
+ * 「서버에만 있음」 행(웹 유저 없음 · aria-disabled · 편집 진입 없음) · 로딩 · 403 · 그 밖 오류 + 다시 시도 ·
+ * 승인 대기 섹션(D-03 — 역할 선택 승인 · 재조회 · 행 안 한 줄 오류).
  * API 는 `@/lib/admin-api` 목이다(Express 계약은 admin-api.test.ts 가 잠근다).
  */
 
 const fetchAdminUsersMock = vi.fn();
+const upsertAdminUserMock = vi.fn();
 vi.mock('@/lib/admin-api', () => ({
   fetchAdminUsers: () => fetchAdminUsersMock(),
+  upsertAdminUser: (body: unknown) => upsertAdminUserMock(body),
 }));
 
 // PageHeader 의 BackButton 만 router 를 쓰지만, 안전하게 navigation 을 스텁한다.
@@ -80,6 +83,7 @@ const rowOf = (email: string) => root().querySelector(`[data-email="${email}"]`)
 
 beforeEach(() => {
   fetchAdminUsersMock.mockReset();
+  upsertAdminUserMock.mockReset();
 });
 
 afterEach(() => {
@@ -216,5 +220,102 @@ describe('UsersClient — 목록 (D-14 · 목업 A)', () => {
     fireEvent.click(retry);
     await waitFor(() => expect(rows()).toHaveLength(4));
     expect(fetchAdminUsersMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('UsersClient — 승인 대기 (D-03 · 목업 A `pendRow()`)', () => {
+  const PENDING_AT = new Date().toISOString();
+  const WITH_PENDING: AdminUsersOverview = {
+    ...OVERVIEW,
+    pending: [{ email: 'lee.new@example.invalid', signedUpAt: PENDING_AT }],
+  };
+  const pendingSection = () => root().querySelector('[data-slot="admin-pending"]') as HTMLElement | null;
+  const pendingRow = () => pendingSection()!.querySelector('[data-slot="admin-pending-row"]') as HTMLElement;
+
+  it('승인 대기 0 → 섹션 없음', async () => {
+    fetchAdminUsersMock.mockResolvedValue(OVERVIEW);
+    render(<UsersClient />);
+    await waitFor(() => expect(rows()).toHaveLength(4));
+    expect(pendingSection()).toBeNull();
+  });
+
+  it('승인 대기 1 → 「승인 대기 1」 · 행 = ! · 이메일 · 「승인 대기」 칩 · 「오늘 HH:MM 가입」 · 「승인」 · 사용자 목록 위', async () => {
+    fetchAdminUsersMock.mockResolvedValue(WITH_PENDING);
+    render(<UsersClient />);
+    await waitFor(() => expect(pendingSection()).not.toBeNull());
+    expect(within(pendingSection()!).getByRole('heading', { name: '승인 대기' })).toBeInTheDocument();
+    expect(pendingSection()!.querySelector('[data-slot="admin-pending-count"]')).toHaveTextContent('1');
+    const row = pendingRow();
+    expect(row).toHaveTextContent('lee.new@example.invalid');
+    expect(row.querySelector('[data-slot="admin-pending-chip"]')).toHaveTextContent('승인 대기');
+    expect(row).toHaveTextContent(/오늘 \d{2}:\d{2} 가입/);
+    expect(within(row).getByRole('button', { name: '승인' })).toBeInTheDocument();
+    // 역할 세그먼트는 「승인」 전에는 없다
+    expect(within(row).queryByRole('group', { name: '역할' })).toBeNull();
+    // 위치 — 사용자 목록 위
+    const list = root().querySelector('[data-slot="admin-users-list"]')!;
+    expect(pendingSection()!.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('「승인」 → 세그먼트(viewer · trader · admin · 기본 선택 없음) → trader → upsert 1회 → 재조회 → 사용자 목록으로', async () => {
+    const approved: AdminUsersOverview = {
+      ...OVERVIEW,
+      users: [
+        ...OVERVIEW.users,
+        {
+          email: 'lee.new@example.invalid',
+          role: 'trader',
+          dmaUserId: null,
+          signedUp: true,
+          accountCount: 0,
+          servers: [],
+          accounts: [],
+        },
+      ],
+      pending: [],
+    };
+    fetchAdminUsersMock.mockResolvedValueOnce(WITH_PENDING).mockResolvedValueOnce(approved);
+    upsertAdminUserMock.mockResolvedValue({ ok: true, relayNotified: true });
+    render(<UsersClient />);
+    await waitFor(() => expect(pendingSection()).not.toBeNull());
+
+    fireEvent.click(within(pendingRow()).getByRole('button', { name: '승인' }));
+    const seg = within(pendingRow()).getByRole('group', { name: '역할' });
+    const items = within(seg).getAllByRole('radio');
+    expect(items.map((i) => i.textContent)).toEqual(['viewer', 'trader', 'admin']);
+    for (const i of items) expect(i).toHaveAttribute('aria-checked', 'false');
+    expect(upsertAdminUserMock).not.toHaveBeenCalled();
+
+    fireEvent.click(within(seg).getByRole('radio', { name: 'trader' }));
+    await waitFor(() => expect(pendingSection()).toBeNull());
+    expect(upsertAdminUserMock).toHaveBeenCalledTimes(1);
+    expect(upsertAdminUserMock).toHaveBeenCalledWith({ email: 'lee.new@example.invalid', role: 'trader' });
+    expect(fetchAdminUsersMock).toHaveBeenCalledTimes(2);
+    expect(rowOf('lee.new@example.invalid')).not.toBeNull();
+    expect(rows()).toHaveLength(5);
+  });
+
+  it('승인 실패 → 그 행에 한 줄 오류(토스트 아님) · 재조회 없음 · 다시 고를 수 있다', async () => {
+    fetchAdminUsersMock.mockResolvedValue(WITH_PENDING);
+    upsertAdminUserMock.mockRejectedValueOnce(
+      new ApiClientError({ code: 'DB_ERROR', message: '저장하지 못했습니다', status: 500 }),
+    );
+    render(<UsersClient />);
+    await waitFor(() => expect(pendingSection()).not.toBeNull());
+    fireEvent.click(within(pendingRow()).getByRole('button', { name: '승인' }));
+    fireEvent.click(within(pendingRow()).getByRole('radio', { name: 'viewer' }));
+    const err = await waitFor(() => {
+      const e = pendingRow().querySelector('[data-slot="admin-pending-error"]');
+      expect(e).not.toBeNull();
+      return e as HTMLElement;
+    });
+    expect(err).toHaveAttribute('role', 'alert');
+    expect(err).toHaveTextContent('승인하지 못했어요');
+    expect(err).toHaveTextContent('저장하지 못했습니다');
+    expect(fetchAdminUsersMock).toHaveBeenCalledTimes(1);
+    // 세그먼트는 그대로 — 다시 고르면 다시 보낸다
+    upsertAdminUserMock.mockResolvedValueOnce({ ok: true, relayNotified: true });
+    fireEvent.click(within(pendingRow()).getByRole('radio', { name: 'trader' }));
+    await waitFor(() => expect(upsertAdminUserMock).toHaveBeenCalledTimes(2));
   });
 });

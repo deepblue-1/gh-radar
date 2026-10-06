@@ -22,6 +22,7 @@ import type { RelayLimitChaser, RelayViTrigger } from "@gh-radar/shared";
  *  ⑧ 하단 줄에 유저 섹션과 **테마 토글**이 나란히 산다 (토글이 탑바를 떠나 여기로 왔다)
  *  ⑨ 레일(quick-260930-e30 D1) — 접힘에서만 `title` 툴팁 · 트레이딩 켜진 전략 수 배지(0 이면 없음).
  *     펼침에서는 배지·title 이 DOM 에 없다(「트레이딩」 전체 일치 이름 조회 보존)
+ *  ⑩ Admin 그룹(Phase 29 D-13) — `useAppRole() === "admin"` 일 때만 · 「분석」 뒤 · My page 앞 · 하위 사용자 · 서버
  */
 
 // ---------------------------------------------------------------------------
@@ -46,6 +47,12 @@ vi.mock("@/lib/relay-provider", async (importOriginal) => {
 
 vi.mock("@/lib/auth-context", () => ({
   useAuth: () => mockAuth,
+}));
+
+// Phase 29 D-13 — Admin 그룹 노출은 `useAppRole()`(RPC my_app_access) 하나가 정한다. 기본은 null(Admin 없음).
+let mockRole: "admin" | "trader" | "viewer" | null | undefined = null;
+vi.mock("@/hooks/use-app-role", () => ({
+  useAppRole: () => mockRole,
 }));
 
 // UserSection 은 Radix Popover + Supabase 세션 표면이라 트리 계약과 무관하다.
@@ -246,6 +253,7 @@ beforeEach(() => {
   mockPathname = "/";
   mockAuth = guest();
   mockRelay = relayState();
+  mockRole = null;
 });
 
 // ---------------------------------------------------------------------------
@@ -1011,5 +1019,117 @@ describe("AppSidebar — 「분석 › 상한가 보고서」 (Phase 28 D-09 · 
     render(<AppSidebar />);
     expect(document.querySelector("li.rail\\:block")).toBeNull();
     expect(screen.queryByRole("link", { name: "AI 애널리스트" })).toBeNull();
+  });
+});
+
+describe("AppSidebar — 「Admin › 사용자 · 서버」 (Phase 29 D-13)", () => {
+  afterEach(() => {
+    act(() => setSidebarCollapsed(false));
+    window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
+  });
+
+  const admin = () => screen.queryByRole("link", { name: "Admin" });
+  const users = () => screen.queryByRole("link", { name: "사용자" });
+  const servers = () => screen.queryByRole("link", { name: "서버" });
+
+  it("role admin → 「Admin」(/admin/users) + 하위 「사용자」 · 「서버」 — 「분석」 뒤 · My page 앞", () => {
+    mockRole = "admin";
+    setupReady();
+    render(<AppSidebar />);
+    expect(admin()).toHaveAttribute("href", "/admin/users");
+    expect(users()).toHaveAttribute("href", "/admin/users");
+    expect(servers()).toHaveAttribute("href", "/admin/servers");
+    const order = Array.from(document.querySelectorAll('nav[aria-label="주 메뉴"] a[href]')).map((a) => {
+      const item = a.getAttribute("data-sidebar-item");
+      return item === "strategy" ? "strategy" : (a.textContent ?? "").trim();
+    });
+    expect(order).toEqual([
+      "홈",
+      "검색",
+      "트레이딩",
+      "strategy",
+      "strategy",
+      "분석",
+      "상한가 보고서",
+      "AI 애널리스트",
+      "Admin",
+      "사용자",
+      "서버",
+      "My page",
+    ]);
+    // 하위는 제목 바로 다음 형제 li 안 SUB_LIST(「분석」 과 같은 문법) · 레일에서 숨김
+    const sub = admin()!.closest("li")!.nextElementSibling!;
+    expect(sub.className).toContain("rail:hidden");
+    expect(sub.querySelector("ul")!.className).toContain("border-l");
+    for (const a of [admin()!, users()!, servers()!]) expect(a.hasAttribute("data-nav-item")).toBe(true);
+  });
+
+  it("Admin 노출은 역할만 본다 — 트레이딩이 안 보이는(relay 미연결) admin 에게도 보인다", () => {
+    mockRole = "admin";
+    mockAuth = authed();
+    mockRelay = relayState({ status: "connecting" });
+    render(<AppSidebar />);
+    expect(admin()).not.toBeNull();
+    expect(screen.queryByRole("link", { name: "트레이딩" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "My page" })).toBeNull();
+  });
+
+  it("role trader · viewer · null · 모름(undefined) → Admin 미렌더", () => {
+    for (const role of ["trader", "viewer", null, undefined] as const) {
+      mockRole = role;
+      setupReady();
+      const r = render(<AppSidebar />);
+      expect(admin()).toBeNull();
+      expect(users()).toBeNull();
+      expect(servers()).toBeNull();
+      expect(screen.queryByText("Admin")).toBeNull();
+      r.unmount();
+    }
+  });
+
+  it("/admin/users → 「사용자」 만 활성 · /admin/servers → 「서버」 만 활성 · 「Admin」 제목은 꺼짐", () => {
+    mockRole = "admin";
+    mockPathname = "/admin/users";
+    setupReady();
+    const a = render(<AppSidebar />);
+    expect(users()).toHaveAttribute("aria-current", "page");
+    expect(users()!.className).toContain("bg-[var(--nav-on-bg)]");
+    expect(servers()).not.toHaveAttribute("aria-current");
+    expect(admin()).not.toHaveAttribute("aria-current");
+    expect(admin()!.className).not.toContain("bg-[var(--nav-on-bg)]");
+    expect(document.querySelectorAll('nav [aria-current="page"]')).toHaveLength(1);
+    a.unmount();
+
+    mockPathname = "/admin/servers";
+    render(<AppSidebar />);
+    expect(servers()).toHaveAttribute("aria-current", "page");
+    expect(servers()!.className).toContain("bg-[var(--nav-on-bg)]");
+    expect(users()).not.toHaveAttribute("aria-current");
+    expect(users()!.className).not.toContain("bg-[var(--nav-on-bg)]");
+    expect(admin()!.className).not.toContain("bg-[var(--nav-on-bg)]");
+    expect(document.querySelectorAll('nav [aria-current="page"]')).toHaveLength(1);
+  });
+
+  it("레일 → 「Admin」 아이콘(title) · 하위 숨김 · /admin/* 접두 일치로 아이콘 활성", () => {
+    mockRole = "admin";
+    setSidebarCollapsed(true);
+    mockPathname = "/admin/servers";
+    setupReady();
+    render(<AppSidebar />);
+    expect(admin()).toHaveAttribute("title", "Admin");
+    expect(admin()!.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    expect(admin()!.className).toContain("bg-[var(--nav-on-bg)]");
+    expect(servers()!.closest("li.rail\\:hidden")).not.toBeNull();
+  });
+
+  it("다른 경로 → Admin 쪽은 아무것도 활성이 아니다", () => {
+    mockRole = "admin";
+    mockPathname = "/trading";
+    setupReady();
+    render(<AppSidebar />);
+    for (const a of [admin()!, users()!, servers()!]) {
+      expect(a).not.toHaveAttribute("aria-current");
+      expect(a.className).not.toContain("bg-[var(--nav-on-bg)]");
+    }
   });
 });

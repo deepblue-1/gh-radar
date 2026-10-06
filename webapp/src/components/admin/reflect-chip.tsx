@@ -17,6 +17,13 @@ import { cn } from "@/lib/utils";
 export const ADMIN_CHIP_BASE =
   "inline-block rounded-[5px] px-1.5 py-0.5 text-[11px] leading-[1.4] font-semibold whitespace-nowrap";
 
+/**
+ * Admin 작은 버튼 글자(목업 `.btn.sm` 12px/600). ★ `Button size="sm"` 의 `text-[var(--t-caption)]` 은 tailwind-merge 가
+ * 색으로 읽어 변형 글자색(`--primary-fg` · `--secondary-fg`)을 지우고 크기도 주지 못한다 — 그래서 크기 · 색을 여기서 다시 준다.
+ */
+export const ADMIN_BUTTON_PRIMARY = "text-[12px] font-semibold text-[var(--primary-fg)]";
+export const ADMIN_BUTTON_SECONDARY = "text-[12px] font-semibold text-[var(--secondary-fg)]";
+
 /** 톤 → 면 · 글자색(목업 `.ch.ok/.warn/.err/.dim`). */
 export const ADMIN_TONE_CLASS: Readonly<Record<ReflectTone, string>> = {
   ok: "bg-[color-mix(in_srgb,var(--led-armed)_16%,transparent)] text-[var(--led-armed)]",

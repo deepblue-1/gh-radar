@@ -13,6 +13,10 @@ import { leavesOverflowing } from '../overflow';
  *
  * ② 두 폭(390 · 1080)을 다 본다
  *   칩이 많은 행(서버 4대)이 폰 폭에서 줄바꿈으로 들어가는지 — 잎 좌표가 카드 오른쪽을 넘지 않는지까지 잰다.
+ *
+ * ③ 승인(P29-A2)은 「요청 1건 + 재조회 결과」 로 본다
+ *   목 API 가 메모리 상태를 바꾸므로, 화면이 재조회로 받은 목록에서 승인 대기 행이 사용자 목록으로 옮겨졌는지가
+ *   곧 「POST → 재조회」 왕복의 증거다. 사이드바 Admin 그룹은 e2e 계정이 admin 시드(29-07)라 실 RPC 로 보인다.
  */
 
 const VIEWPORTS = [
@@ -72,3 +76,47 @@ for (const vp of VIEWPORTS) {
     await page.screenshot({ path: testInfo.outputPath(`admin-users-${vp.name}.png`), fullPage: true });
   });
 }
+
+test('P29-A2 승인 대기 → 역할 선택 승인 → 사용자 목록으로 · 사이드바 Admin 그룹 (1080)', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1080, height: 800 });
+  const api = await mockAdminApi(page);
+
+  await page.goto('/admin/users');
+  const root = usersRoot(page);
+  const pending = root.locator('[data-slot="admin-pending"]');
+  await expect(pending).toBeVisible({ timeout: 30_000 });
+  await expect(pending.getByRole('heading', { name: '승인 대기' })).toBeVisible();
+  await expect(pending.locator('[data-slot="admin-pending-count"]')).toHaveText('1');
+
+  const row = pending.locator('[data-slot="admin-pending-row"]');
+  await expect(row).toContainText('lee.new@example.invalid');
+  await expect(row.locator('[data-slot="admin-pending-chip"]')).toHaveText('승인 대기');
+  await expect(row).toContainText(/오늘 \d{2}:\d{2} 가입/);
+
+  // 사이드바 — Admin 제목 + 사용자(활성) · 서버 (데스크톱 aside)
+  const nav = page.locator('aside nav[aria-label="주 메뉴"]');
+  await expect(nav.getByRole('link', { name: 'Admin', exact: true })).toHaveAttribute('href', '/admin/users');
+  await expect(nav.getByRole('link', { name: '사용자', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(nav.getByRole('link', { name: '서버', exact: true })).toHaveAttribute('href', '/admin/servers');
+
+  await page.screenshot({ path: testInfo.outputPath('admin-users-pending-1080.png'), fullPage: true });
+
+  // 「승인」 → 역할 세그먼트(기본 선택 없음) → trader
+  await row.getByRole('button', { name: '승인' }).click();
+  const seg = row.getByRole('group', { name: '역할' });
+  await expect(seg.getByRole('radio')).toHaveText(['viewer', 'trader', 'admin']);
+  await expect(seg.getByRole('radio', { checked: true })).toHaveCount(0);
+  expect(api.requests.filter((r) => r.method === 'POST')).toHaveLength(0);
+  await seg.getByRole('radio', { name: 'trader' }).click();
+
+  // POST 1건 · 재조회 → 그 이메일이 사용자 목록에 · 승인 대기 섹션 사라짐
+  await expect(root.locator('[data-email="lee.new@example.invalid"][data-slot="admin-user-row"]')).toBeVisible();
+  await expect(pending).toHaveCount(0);
+  const posts = api.requests.filter((r) => r.method === 'POST');
+  expect(posts).toEqual([{ method: 'POST', path: '/users', body: { email: 'lee.new@example.invalid', role: 'trader' } }]);
+  expect(api.requests.filter((r) => r.method === 'GET' && r.path === '/users')).toHaveLength(2);
+  await expect(userRows(page)).toHaveCount(5);
+  await expect(
+    root.locator('[data-email="lee.new@example.invalid"] [data-slot="admin-role-chip"]'),
+  ).toHaveText('trader');
+});
