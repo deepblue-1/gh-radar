@@ -28,8 +28,8 @@ import { IntentError, type AdminIntentStore } from "./intent-store.js";
 // ============================================================
 
 export type AdminApiDeps = {
-  store: Pick<AdminIntentStore, "createDmaUser">;
-  dispatcher: Pick<AdminDispatcher, "reconcileUser">;
+  store: Pick<AdminIntentStore, "createDmaUser" | "putAccount" | "markAccountRemoved">;
+  dispatcher: Pick<AdminDispatcher, "reconcileUser" | "changePassword" | "deleteUser">;
   registry: { all(): DmaServerRow[] };
   /** `DMA_CRED_KEY` — relay 에만 있다(D-19). */
   credKey: string;
@@ -90,6 +90,23 @@ const CreateDmaUserBody = z.object({
   password: PasswordSchema,
   account: AccountSchema,
   servers: ServersSchema,
+});
+
+const PasswordBody = z.object({ password: PasswordSchema });
+
+const PutAccountBody = z.object({ account: AccountSchema, servers: ServersSchema });
+
+/** 경로 `:dma` — 바디의 dmaUserId 와 같은 규칙(Express 5 가 퍼센트 디코딩을 이미 했다 — 다시 풀지 않는다). */
+const DmaParam = z.object({ dma: DmaUserIdSchema });
+
+/** 경로 `:broker` · `:accountNo` — 계좌번호는 입력과 같은 검사 뒤 정규화(DB 의도 키). */
+const AccountParam = z.object({
+  dma: DmaUserIdSchema,
+  broker: z.enum(["KB", "KYOBO"]),
+  accountNo: z
+    .string()
+    .refine(isValidAccountNoInput, "계좌번호는 1~12자여야 합니다")
+    .transform((a) => normalizeAccountNo(a.trim())),
 });
 
 // ============================================================
@@ -166,6 +183,46 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
       servers: body.servers,
     });
     const results = await deps.dispatcher.reconcileUser(body.dmaUserId, { password: body.password, adminEmail });
+    respond(res, results);
+  });
+
+  // ── 비밀번호 변경 (D-08 · D-19 — 암호문 교체 + 87 에 유저 있는 서버 op 1 + 옛 표 dual-write) ─────────
+  router.post("/dma-users/:dma/password", async (req, res) => {
+    const { dma } = DmaParam.parse(req.params);
+    const { password } = PasswordBody.parse(req.body);
+    const results = await deps.dispatcher.changePassword(dma, password, res.locals.adminEmail as string);
+    respond(res, results);
+  });
+
+  // ── 계좌 upsert · 등록 서버 집합 교체 + 반영 (빠진 서버 = removing → op 4 → settle) ────────────────
+  router.put("/dma-users/:dma/accounts", async (req, res) => {
+    const { dma } = DmaParam.parse(req.params);
+    const body = PutAccountBody.parse(req.body);
+    assertKnownServers(body.servers);
+    await deps.store.putAccount(dma, body.account, body.servers);
+    const results = await deps.dispatcher.reconcileUser(dma, { adminEmail: res.locals.adminEmail as string });
+    respond(res, results);
+  });
+
+  // ── 계좌 제거 (removing 표시 + 반영 · 마지막 계좌는 409 LAST_ACCOUNT → 화면은 유저 삭제로 — D-15) ─────
+  router.delete("/dma-users/:dma/accounts/:broker/:accountNo", async (req, res) => {
+    const { dma, broker, accountNo } = AccountParam.parse(req.params);
+    await deps.store.markAccountRemoved(dma, broker, accountNo);
+    const results = await deps.dispatcher.reconcileUser(dma, { adminEmail: res.locals.adminEmail as string });
+    respond(res, results);
+  });
+
+  // ── 유저 삭제 (D-15 — 서버마다 op 2(87 전용 계좌가 있으면 의도 계좌 op 4) · 전 서버 ok 일 때만 DB 삭제) ──
+  router.delete("/dma-users/:dma", async (req, res) => {
+    const { dma } = DmaParam.parse(req.params);
+    const { results, deleted } = await deps.dispatcher.deleteUser(dma, res.locals.adminEmail as string);
+    res.status(200).json({ results, deleted });
+  });
+
+  // ── 「다시 반영」 — 의도 전체를 서버에 다시 맞춘다(의도 = 87 이면 44 0건) ───────────────────────────
+  router.post("/dma-users/:dma/reconcile", async (req, res) => {
+    const { dma } = DmaParam.parse(req.params);
+    const results = await deps.dispatcher.reconcileUser(dma, { adminEmail: res.locals.adminEmail as string });
     respond(res, results);
   });
 

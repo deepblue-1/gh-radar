@@ -25,10 +25,11 @@ import {
 
 import { logger } from "../logger.js";
 import type { DmaServerRow } from "../registry/registry.js";
-import { decryptDmaPassword } from "../store/credentials.js";
+import { decryptDmaPassword, encryptDmaPassword } from "../store/credentials.js";
 import type { AdminConn } from "./admin-conn.js";
 import type { AdminIntentStore } from "./intent-store.js";
-import { planServerOps, type AdminSnapshotView, type PlannedOp, type ServerPlan } from "./planner.js";
+import { IntentError } from "./intent-store.js";
+import { planPasswordOps, planServerOps, type AdminSnapshotView, type PlannedOp, type ServerPlan } from "./planner.js";
 
 /** dispatcher 가 쓰는 admin 연결 표면 — 테스트가 대역을 넣을 수 있게 좁힌다. */
 export type AdminConnLike = Pick<AdminConn, "currentSnapshot" | "command">;
@@ -53,6 +54,11 @@ export type AdminDispatcherDeps = {
   registry: { get(key: string): DmaServerRow | undefined; all(): DmaServerRow[] };
   /** `DMA_CRED_KEY` — relay 에만 있다(D-19). */
   credKey: string;
+  /**
+   * 접근 맵(`AppAccess.entryOf`) — 비밀번호 변경 dual-write 대상(그 DMA id 에 **지금** 연결된 웹 사용자)을 가른다. 주지 않으면
+   * dual-write 를 하지 않는다.
+   */
+  access?: { entryOf(userId: string): { dmaUserId: string | null } | undefined };
 };
 
 /** op 1 비밀번호 공급자 — 필요할 때 한 번만 꺼낸다(인자 평문 또는 `dma_users` 복호). */
@@ -87,18 +93,78 @@ export class AdminDispatcher {
     });
   }
 
+  /**
+   * 비밀번호 변경(D-08 · D-19) — 암호문 교체(AAD = dmaUserId) → 옛 표 dual-write → 87 에 그 유저가 있는 **DB 등록 서버**마다
+   * op 1(비밀번호만 · account 없음). 87 에 유저가 없는 서버는 보낼 것이 없다(계좌 경로의 op 1 신규가 새 비밀번호를 쓴다).
+   * 열린 사용자 세션은 그대로다(다음 로그인부터 새 비밀 — 열린 세션 비밀 교체는 29-21).
+   */
+  changePassword(dmaUserId: string, plain: string, adminEmail: string): Promise<AdminServerResult[]> {
+    void adminEmail;
+    return this.#serial(dmaUserId, async () => {
+      await this.#deps.store.setPassword(dmaUserId, encryptDmaPassword(plain, dmaUserId, this.#deps.credKey));
+      await this.#dualWrite(dmaUserId, plain);
+      const intent = await this.#deps.store.intent(dmaUserId);
+      const password = this.#passwordSource(dmaUserId, plain);
+      const results = await this.#fanOut(this.#serverKeysOf(intent), (serverKey) =>
+        this.#applyServer(dmaUserId, serverKey, (snapshot) => planPasswordOps({ dmaUserId, snapshot }), password),
+      );
+      await this.#record(dmaUserId, results);
+      return results;
+    });
+  }
+
+  /**
+   * 유저 삭제(D-15) — DB 등록 서버마다 그 유저의 의도 계좌를 **전부 제거 중으로 보고** 계획한다: 그 서버에 87 전용 계좌가 없으면
+   * op 2(0 · 4 = 반영됨 → 그 서버 행 settle), 있으면 의도 계좌만 op 4(87 전용 계좌 · 유저는 남긴다 — D-23 ⑤). 전 서버 ok 일 때만
+   * `dma_admin_delete_dma_user` — 일부 실패(BUSY · 12 마지막 사용자 · 무응답)면 남은 서버 의도는 그대로 두고 결과 칩이 보여 준다.
+   */
+  deleteUser(dmaUserId: string, adminEmail: string): Promise<{ results: AdminServerResult[]; deleted: boolean }> {
+    void adminEmail;
+    return this.#serial(dmaUserId, async () => {
+      const intent = (await this.#deps.store.intent(dmaUserId)).map((r) => ({ ...r, state: "removing" as const }));
+      const password = this.#passwordSource(dmaUserId, undefined);
+      const results = await this.#fanOut(this.#serverKeysOf(intent), (serverKey) =>
+        this.#applyServer(
+          dmaUserId,
+          serverKey,
+          (snapshot) => planServerOps({ dmaUserId, serverKey, intent, snapshot }),
+          password,
+          { settleUserOnOk: true },
+        ),
+      );
+      await this.#record(dmaUserId, results);
+      if (!results.every((r) => r.outcome === "ok")) return { results, deleted: false };
+      try {
+        await this.#deps.store.deleteDmaUser(dmaUserId);
+        return { results, deleted: true };
+      } catch (err) {
+        // settle 실패로 등록 행이 남았다 — 다음 삭제 요청이 87 대조로 다시 settle 한다. 그 밖 오류는 위로.
+        if (err instanceof IntentError && err.code === "SERVERS_REMAIN") {
+          logger.warn({ servers: results.length }, "[admin] 유저 삭제 보류 — settle 되지 않은 등록 행이 남았다");
+          return { results, deleted: false };
+        }
+        throw err;
+      }
+    });
+  }
+
   // ----------------------------------------------------------
   // 서버 1대
   // ----------------------------------------------------------
 
   /**
    * 서버 1대에 계획을 보내고 결과 1개를 만든다. op 는 순서대로 · 첫 실패에서 멈춘다. 이미 반영된 제거는 실패가 나도 settle 한다.
+   *
+   * `settleUserOnOk`(유저 삭제) — DB 의 등록 행은 active 그대로라 「removing 행만 지우는」 settle 이 닿지 않는다. 그래서 그 서버가
+   * **끝까지 ok** 일 때만 그 서버 행 전부를 settle 한다(op 2 든 의도 계좌 op 4 든 서버에서 그 유저의 의도 계좌가 다 빠졌다).
+   * 중간 실패면 아무것도 지우지 않는다 — 다음 삭제 요청이 87 대조로 남은 것만 다시 보낸다.
    */
   async #applyServer(
     dmaUserId: string,
     serverKey: string,
     plan: (snapshot: AdminSnapshotView) => ServerPlan,
     password: PasswordSource,
+    opts: { settleUserOnOk?: boolean } = {},
   ): Promise<AdminServerResult> {
     const row = this.#deps.registry.get(serverKey);
     if (row === undefined || !row.enabled) return { server: serverKey, outcome: "skipped" };
@@ -140,7 +206,11 @@ export class AdminDispatcher {
       if (op.op === 2) userRemoved = true;
     }
 
-    if (removed.length > 0 || userRemoved) await this.#settle(dmaUserId, serverKey, removed, userRemoved);
+    if (opts.settleUserOnOk === true) {
+      if (failure === null) await this.#settle(dmaUserId, serverKey, [], true);
+    } else if (removed.length > 0 || userRemoved) {
+      await this.#settle(dmaUserId, serverKey, removed, userRemoved);
+    }
     return failure ?? { server: serverKey, outcome: "ok", usersRev };
   }
 
@@ -175,6 +245,31 @@ export class AdminDispatcher {
   // ----------------------------------------------------------
   // 공통
   // ----------------------------------------------------------
+
+  /**
+   * D-19 dual-write — 롤백 시 옛 relay 가 읽는다 · 이관 기간 뒤 정리(29-24). 옛 `dma_credentials` 에서 이 DMA id 를 가진 행 중
+   * 접근 맵에서 **지금도 이 DMA id 에 연결된** 웹 사용자 행만 그 user_id 를 AAD 로 다시 암호화해 갈아 끼운다. 행이 없으면 건너뛴다.
+   * 실패해도 요청은 성공이다(새 표는 이미 갱신됐다) — 사유만 로그에 남긴다.
+   */
+  async #dualWrite(dmaUserId: string, plain: string): Promise<void> {
+    const access = this.#deps.access;
+    if (access === undefined) return;
+    try {
+      const userIds = await this.#deps.store.legacyCredentialUserIds(dmaUserId);
+      let updated = 0;
+      for (const userId of userIds) {
+        if (access.entryOf(userId)?.dmaUserId !== dmaUserId) continue;
+        await this.#deps.store.updateLegacyCredential(userId, dmaUserId, encryptDmaPassword(plain, userId, this.#deps.credKey));
+        updated += 1;
+      }
+      if (updated > 0) logger.info({ updated }, "[admin] 비밀번호 dual-write — 옛 dma_credentials 행 갱신(D-19)");
+    } catch (err) {
+      logger.error(
+        { reason: err instanceof Error ? err.name : "unknown" },
+        "[admin] 비밀번호 dual-write 실패 — 새 표는 갱신됨 · 롤백하면 옛 relay 는 옛 비밀번호를 쓴다",
+      );
+    }
+  }
 
   /** 서버마다 병렬 — 결과는 레지스트리 순(없는 키는 뒤 · 키 순). */
   async #fanOut(

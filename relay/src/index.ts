@@ -317,6 +317,8 @@ const adminDispatcher = new AdminDispatcher({
   pipelines,
   registry,
   credKey: config.dmaCredKey,
+  // 비밀번호 변경 dual-write 대상(그 DMA id 에 지금 연결된 웹 사용자) — D-19 롤백 대비.
+  access: appAccess,
 });
 const adminRouter = createAdminRouter({
   store: adminStore,

@@ -11,6 +11,14 @@
  *   T3  정상 — 두 스텁이 각자 op 1(userId · 평문 비밀번호 · 계좌 5필드) 1건 → 86 ok → 200 서버별 결과 배열 · record 1회 ·
  *       RPC 의 p_password_enc 는 평문이 아니고 AAD = dmaUserId 로만 복호된다
  *   T4  DMA_USER_EXISTS → 409 { error: { code } } · 44 0건
+ *
+ * 잠그는 것 (Task 2 — 경로별 1케이스 · 스텁 게이트웨이):
+ *   P1  POST /dma-users/:dma/password → 87 에 유저 있는 서버마다 op 1(password 만 · account 없음)
+ *   P2  PUT /dma-users/:dma/accounts → 새 계좌 op 3 · 서버 교체로 빠진 서버의 마지막 계좌 = op 2 → settle
+ *   P3  DELETE /dma-users/:dma/accounts/:broker/:accountNo → 마지막 계좌 409 LAST_ACCOUNT(44 0건) · 아니면 op 4
+ *   P4  DELETE /dma-users/:dma → 서버마다 op 2 → { results, deleted: true }
+ *   P5  POST /dma-users/:dma/reconcile → 의도 = 87 이면 44 0건 · 전 서버 ok
+ *   P6  경로 검증 — :dma 9바이트 · :broker 밖 값 → 400
  */
 import { randomBytes } from "node:crypto";
 import http from "node:http";
@@ -304,5 +312,117 @@ describe("relay Admin 내부 HTTP — 트레이서: 유저 생성 → 서버별 
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe("DMA_USER_EXISTS");
     expect(h.commands("KB120")).toEqual([]);
     expect(h.commands("KB121")).toEqual([]);
+  });
+});
+
+describe("relay Admin 내부 HTTP — 변경 경로 (29-11 Task 2)", () => {
+  let h: Harness;
+  let logs: LogCall[];
+
+  beforeEach(async () => {
+    logs = await spyLogs();
+    h = await startHarness();
+    const created = await call(h, "POST", "/internal/admin/dma-users", createBody());
+    expect(created.status).toBe(200);
+  });
+
+  afterEach(async () => {
+    await h.close();
+    vi.restoreAllMocks();
+    const dumped = stringify(logs.map((c) => c.args));
+    expect(dumped).not.toContain(PASSWORD);
+    expect(dumped).not.toContain("new-p@ss");
+  });
+
+  it("P1 비밀번호 변경 → 서버마다 op 1(password 만) · 결과 배열", async () => {
+    const res = await call(h, "POST", "/internal/admin/dma-users/tr01/password", { password: "new-p@ss" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      results: [
+        { server: "KB120", outcome: "ok", usersRev: "3" },
+        { server: "KB121", outcome: "ok", usersRev: "3" },
+      ],
+    });
+    for (const key of ["KB120", "KB121"]) {
+      const last = h.commands(key).at(-1)!;
+      expect(last).toMatchObject({ op: 1, userId: "tr01", password: "new-p@ss", account: null });
+    }
+    const enc = h.db.callsTo("dma_admin_set_password")[0]!.args.p_password_enc as string;
+    expect(decryptDmaPassword(enc, "tr01", h.credKey)).toBe("new-p@ss");
+  });
+
+  it("P2 계좌 put — 새 계좌 op 3 · 서버 교체로 빠진 서버의 마지막 계좌는 op 2 → settle", async () => {
+    const B = { ...KB_ACCOUNT, accountNo: "1234567802", priority: 2 };
+    const add = await call(h, "PUT", "/internal/admin/dma-users/tr01/accounts", { account: B, servers: ["KB121"] });
+    expect(add.status).toBe(200);
+    expect(((await add.json()) as { results: { outcome: string }[] }).results.map((r) => r.outcome)).toEqual(["ok", "ok"]);
+    expect(h.commands("KB121").at(-1)).toMatchObject({ op: 3, account: { accountNo: "1234567802" } });
+    expect(h.commands("KB120")).toHaveLength(1); // 생성 op 1 뿐
+
+    // 첫 계좌를 KB121 로만 — KB120 은 그 유저의 마지막 계좌라 op 2(유저 제거) 한 번.
+    const swap = await call(h, "PUT", "/internal/admin/dma-users/tr01/accounts", { account: KB_ACCOUNT, servers: ["KB121"] });
+    expect(swap.status).toBe(200);
+    expect(((await swap.json()) as { results: { outcome: string }[] }).results.map((r) => r.outcome)).toEqual(["ok", "ok"]);
+    expect(h.commands("KB120").at(-1)).toMatchObject({ op: 2, userId: "tr01" });
+    expect(h.states.KB120!.users.has("tr01")).toBe(false);
+    expect(h.db.intentOf("tr01").map((r) => r.serverKey)).toEqual(["KB121", "KB121"]);
+  });
+
+  it("P3 계좌 제거 — 마지막 계좌 409 LAST_ACCOUNT(44 0건) · 아니면 op 4", async () => {
+    const before = h.commands("KB120").length + h.commands("KB121").length;
+    const last = await call(h, "DELETE", "/internal/admin/dma-users/tr01/accounts/KB/1234567801");
+    expect(last.status).toBe(409);
+    expect(((await last.json()) as { error: { code: string } }).error.code).toBe("LAST_ACCOUNT");
+    expect(h.commands("KB120").length + h.commands("KB121").length).toBe(before);
+
+    const B = { ...KB_ACCOUNT, accountNo: "1234567802", priority: 2 };
+    await call(h, "PUT", "/internal/admin/dma-users/tr01/accounts", { account: B, servers: ["KB120", "KB121"] });
+    // 경로의 계좌번호도 정규화된다("001234567802" → "1234567802").
+    const res = await call(h, "DELETE", "/internal/admin/dma-users/tr01/accounts/KB/001234567802");
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { results: { outcome: string }[] }).results.map((r) => r.outcome)).toEqual(["ok", "ok"]);
+    for (const key of ["KB120", "KB121"]) {
+      expect(h.commands(key).at(-1)).toMatchObject({ op: 4, account: { accountNo: "1234567802" } });
+    }
+    expect(h.db.intentOf("tr01").map((r) => r.accountNo)).toEqual(["1234567801", "1234567801"]);
+  });
+
+  it("P4 유저 삭제 → 서버마다 op 2 → { results, deleted: true }", async () => {
+    const res = await call(h, "DELETE", "/internal/admin/dma-users/tr01");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      results: [
+        { server: "KB120", outcome: "ok", usersRev: "3" },
+        { server: "KB121", outcome: "ok", usersRev: "3" },
+      ],
+      deleted: true,
+    });
+    for (const key of ["KB120", "KB121"]) expect(h.commands(key).at(-1)).toMatchObject({ op: 2, userId: "tr01" });
+    expect(h.db.callsTo("dma_admin_delete_dma_user")).toHaveLength(1);
+  });
+
+  it("P5 다시 반영 — 의도 = 87 이면 44 0건 · 전 서버 ok", async () => {
+    const before = [h.commands("KB120").length, h.commands("KB121").length];
+    const res = await call(h, "POST", "/internal/admin/dma-users/tr01/reconcile");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      results: [
+        { server: "KB120", outcome: "ok", usersRev: "2" },
+        { server: "KB121", outcome: "ok", usersRev: "2" },
+      ],
+    });
+    expect([h.commands("KB120").length, h.commands("KB121").length]).toEqual(before);
+  });
+
+  it("P6 경로 검증 — :dma 9바이트 · :broker 밖 값 → 400 VALIDATION_FAILED", async () => {
+    for (const [method, path] of [
+      ["POST", "/internal/admin/dma-users/abcdefghi/reconcile"],
+      ["DELETE", "/internal/admin/dma-users/tr01/accounts/NH/123"],
+      ["DELETE", "/internal/admin/dma-users/tr01/accounts/KB/1234567890123"],
+    ] as const) {
+      const res = await call(h, method, path);
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe("VALIDATION_FAILED");
+    }
   });
 });
