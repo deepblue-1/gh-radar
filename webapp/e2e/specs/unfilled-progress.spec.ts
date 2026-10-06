@@ -117,7 +117,7 @@ test.describe('Phase 25-09 — 미체결 진행률 B안 (로컬 relay · 가짜 
   /** 마이페이지 진입 → 계좌 카드 → 미체결 2건 · 진행률 1건 주입. */
   async function openMe(page: Page, viewport: { width: number; height: number }, unfilled: FakeUnfilled[] = [UNF_WAIT, UNF_PLAIN]) {
     await page.setViewportSize(viewport);
-    await page.goto('/me');
+    await page.goto('/me?tab=accounts');
     await expect(accountCard(page)).toHaveCount(1, { timeout: 30_000 });
     await relay.pushAccountState({ unfilled });
     await relay.pushQueueProgress({ isin: E2E_ISIN, exchange: 'KRX', items: [progressItem()] });

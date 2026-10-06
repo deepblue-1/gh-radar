@@ -420,6 +420,35 @@ async function waitForAccounts(page: Page, count: number): Promise<void> {
   await expect(accountCards(page)).toHaveCount(count, { timeout: 30_000 });
 }
 
+/*
+  quick-261006-pey D-1 — /me 는 계정 카드 아래 4탭(현황 · 잔고 · 주문 · 설정)이다. 표면이 탭 안으로 옮겨졌으므로
+  계좌 카드 · 오늘 주문 · 상따 기본설정 단언은 **그 탭을 연 뒤**에 한다. 숨은 패널(한 번 연 탭 · display:none)은
+  박스가 없으므로 boxOf · leavesOverflowing · 스크린샷은 그 표면의 탭이 활성일 때만 쓴다.
+*/
+const meTabList = (page: Page) => page.getByRole('tablist', { name: 'My page 탭' });
+/** 라벨 뒤에 숫자(잔고 N · 주문 N)가 붙으므로 접두 정규식으로 찾는다. */
+const meTab = (page: Page, label: string) =>
+  meTabList(page).getByRole('tab', { name: new RegExp(`^${label}`) });
+/** 탭 라벨 숫자(0 이거나 미방문이면 없다). */
+const meTabCount = (page: Page, label: string) => meTab(page, label).locator('[data-slot="me-tab-count"]');
+
+/** 탭을 누르고 URL(`?tab=`) · 선택 상태가 바뀔 때까지 기다린다. */
+async function openMeTab(page: Page, label: string, value: string): Promise<void> {
+  await meTab(page, label).click();
+  await expect(page).toHaveURL(new RegExp(`[?&]tab=${value}(&|$)`));
+  await expect(meTab(page, label)).toHaveAttribute('aria-selected', 'true');
+}
+
+/**
+ * relay 준비 동기점 — 상태줄 ready + 「계좌 n개」. 상태줄은 현황 탭 안이라 **현황 탭에서만** 쓴다.
+ * (옛 `waitForAccounts` 가 맡던 「relay 준비」 역할 — 계좌 카드는 이제 잔고 탭에 있다.)
+ */
+async function waitForReady(page: Page, count: number): Promise<void> {
+  const bar = page.locator('[data-slot="me-status-bar"]');
+  await expect(bar).toHaveAttribute('data-status', 'ready', { timeout: 30_000 });
+  await expect(bar).toContainText(`계좌 ${count}개`, { timeout: 30_000 });
+}
+
 /** 요소의 실측 박스. 없으면 실패시킨다 — null 을 0 으로 뭉개면 단언이 헛돈다. */
 async function boxOf(
   locator: Locator,
@@ -481,7 +510,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
   }) => {
     await page.goto('/me');
     await waitForStrategies(page, 3);
-    await waitForAccounts(page, 2);
+    await waitForReady(page, 2);
 
     // 계좌 상태는 **계좌마다 한 프레임씩** 온다.
     await relay.pushAccountState(ACCOUNT_A_STATE);
@@ -513,7 +542,9 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await expect(statusBar).toContainText('계좌 2개');
     await expect(statusBar).toContainText('VI 가동');
 
-    // --- 계좌 카드 (C5 · D-21) ---
+    // --- 계좌 카드 (C5 · D-21) — 잔고 탭 ---
+    await openMeTab(page, '잔고', 'accounts');
+    await waitForAccounts(page, 2);
     const cardA = accountCard(page, E2E_ACCOUNT_NO);
     const cardB = accountCard(page, ACCOUNT_B);
     await expect(cardA).toContainText('위탁종합');
@@ -530,13 +561,16 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
 
     // ★ 계좌 선택 UI 가 없다 (D-21) — 세로 반복이 계좌 구분이다.
     await expect(page$(page).locator('select')).toHaveCount(0);
+    // 잔고 탭 안 세로 반복 — 계좌 A 가 B 위(relay 계좌 목록 순).
+    expect((await boxOf(cardA)).y).toBeLessThan((await boxOf(cardB)).y);
 
     /*
       ★ 오늘 주문 카드 (RELAY-02 / D-24) — **D-20 의 v1 유예를 명시적으로 되돌렸다.**
         이 자리에 있던 「주문 이력 표는 v1 미포함」 부재 단언을 존재 단언으로 바꿨다
         (quick-260910-jce). me-client 헤더 ⑤ 도 같은 커밋에서 다시 썼다 — 파일과 spec 이
-        서로 다른 말을 하는 상태를 남기지 않는다.
+        서로 다른 말을 하는 상태를 남기지 않는다. 주문 탭(quick-261006-pey D-1).
     */
+    await openMeTab(page, '주문', 'orders');
     const ordersCard = todayOrdersCard(page);
     await expect(ordersCard).toBeVisible();
     await expect(todayOrderRows(page)).toHaveCount(TODAY_ORDER_LINES, { timeout: 15_000 });
@@ -559,16 +593,14 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     expect(ordersRequestMethods.length).toBeGreaterThan(0);
     expect([...new Set(ordersRequestMethods)]).toEqual(['GET']);
 
-    // 세로 순서 고정 (D-20 + jce): 상태줄 → 전략 현황 → 계좌 A → 계좌 B → 오늘 주문.
-    const ys = await Promise.all(
-      [statusBar, strategyCard(page), cardA, cardB, ordersCard].map(
-        async (l) => (await boxOf(l)).y,
-      ),
+    /*
+      세로 순서 → 탭 순서 승계(quick-261006-pey D-1): 옛 「상태줄 → 전략 현황 → 계좌 A → 계좌 B → 오늘 주문」 은
+      탭 순서 현황(상태줄 · 전략) → 잔고(계좌 A → B · 위에서 단언) → 주문 → 설정으로 잇는다.
+    */
+    const tabNames = (await meTabList(page).getByRole('tab').allTextContents()).map((t) =>
+      t.replace(/\d+$/, ''),
     );
-    expect(ys[0]).toBeLessThan(ys[1]);
-    expect(ys[1]).toBeLessThan(ys[2]);
-    expect(ys[2]).toBeLessThan(ys[3]);
-    expect(ys[3]).toBeLessThan(ys[4]);
+    expect(tabNames).toEqual(['현황', '잔고', '주문', '설정']);
   });
 
   test('2. 전략 행 클릭 → 인코딩된 키로 /trading?focus= 로 이동하고 그 카드가 펼쳐진다 (Phase 18 D-02)', async ({
@@ -611,7 +643,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     relay.seedViTrigger(null);
 
     await page.goto('/me');
-    await waitForAccounts(page, 2);
+    await waitForReady(page, 2);
 
     await expect(strategyCard(page)).toContainText('켜진 상따 전략이 없어요', {
       timeout: 30_000,
@@ -629,7 +661,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
   }) => {
     await page.goto('/me');
     await waitForStrategies(page, 3);
-    await waitForAccounts(page, 2);
+    await waitForReady(page, 2);
 
     /*
       사이드바 3단 매수 LED 가 켜져 있는 상태에서 출발한다.
@@ -703,6 +735,8 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     // 본문이 **대체**된다 — 전략 카드·계좌 카드가 같이 보이지 않는다.
     await expect(page$(page)).toHaveCount(0);
     await expect(accountCards(page)).toHaveCount(0);
+    // 게이트 분기에는 탭이 없다(quick-261006-pey D-1).
+    await expect(meTabList(page)).toHaveCount(0);
   });
 
   test('6. 비로그인은 middleware 가 막고, 로그인 사용자의 첫 페인트에는 로그인 게이트가 없다', async ({
@@ -735,9 +769,11 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     page,
   }) => {
     await page.goto('/me');
-    await waitForAccounts(page, 2);
+    await waitForReady(page, 2);
     // 스트레스 데이터가 실린 계좌 B 가 잘림의 시험대다.
     await relay.pushAccountState(ACCOUNT_B_STATE);
+    await openMeTab(page, '잔고', 'accounts');
+    await waitForAccounts(page, 2);
 
     const card = accountCard(page, ACCOUNT_B);
     const unfilled = card.getByTestId('account-unfilled');
@@ -789,17 +825,10 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await page.setViewportSize(MOBILE_VIEWPORT);
     await page.goto('/me');
     await waitForStrategies(page, 3);
-    await waitForAccounts(page, 2);
+    await waitForReady(page, 2);
     await relay.pushAccountState(ACCOUNT_B_STATE);
 
-    const card = accountCard(page, ACCOUNT_B);
-    await expect(card.locator('[data-slot="account-unfilled-row"]')).toHaveCount(1, {
-      timeout: 15_000,
-    });
-    await expect(card.locator('[data-slot="account-holding-row"]')).toHaveCount(1);
-    // 표는 이 폭에서 보이지 않는다 — 콘텐츠 최소폭이 가용폭을 넘기 때문이다.
-    await expect(card.getByTestId('account-unfilled').locator('[data-slot="table"]')).toBeHidden();
-
+    // quick-261006-pey D-1 — 탭 순서대로 잰다: 현황(전략 행) → 잔고(계좌 카드) → 주문(오늘 주문).
     /*
       전략 행은 **2줄 flex-col** 이다(C2 · 260911-w5h). r1 = 종목명 + 상태 배지 + 화살표,
       r2(`strategy-row-meta`) = `{코드} · {거래소} · {계좌번호}`. 계좌번호가 첫 줄에 남으면
@@ -831,6 +860,16 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     // 그 줄이 행 폭의 대부분을 차지한다.
     expect(metaBox.width).toBeGreaterThan(rowBox.width * 0.8);
 
+    await openMeTab(page, '잔고', 'accounts');
+    await waitForAccounts(page, 2);
+    const card = accountCard(page, ACCOUNT_B);
+    await expect(card.locator('[data-slot="account-unfilled-row"]')).toHaveCount(1, {
+      timeout: 15_000,
+    });
+    await expect(card.locator('[data-slot="account-holding-row"]')).toHaveCount(1);
+    // 표는 이 폭에서 보이지 않는다 — 콘텐츠 최소폭이 가용폭을 넘기 때문이다.
+    await expect(card.getByTestId('account-unfilled').locator('[data-slot="table"]')).toBeHidden();
+
     // `.rlist` 행의 잎 요소가 목록 밖으로 밀려나지 않는다 (16-10 실측 규율).
     const list = card.locator('[data-slot="account-unfilled-list"]');
     const listRight = (await boxOf(list)).right;
@@ -857,6 +896,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
       (위 헤더 ④): 행은 `overflow-hidden` 이라 폭·`scrollWidth` 가 조용하다.
       대상 행은 주문번호로 좁힌다 — `nth(0)` 은 정렬이 바뀌면 애먼 행을 잰다.
     */
+    await openMeTab(page, '주문', 'orders');
     const longOrderRow = todayOrderRows(page).filter({ hasText: '0000900002' });
     // B′(19-08) 부터 목록이 계좌마다 한 벌이다 — 그 행이 든 목록으로 좁힌다.
     const orderList = page
@@ -889,7 +929,8 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
   test('9. B′ — 데스크톱 1280: 계좌 순 묶음 · 출처 열 · NXT 태그', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/me');
-    await waitForAccounts(page, 2);
+    await waitForReady(page, 2);
+    await openMeTab(page, '주문', 'orders');
 
     const card = todayOrdersCard(page);
     const groups = card.locator('[data-slot="today-orders-group"]');
@@ -967,10 +1008,11 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
   test('10. B′ — 폰 390: 묶인 행 ②줄 줄바꿈 · 주문번호 비잘림', async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
     await page.goto('/me');
-    await waitForAccounts(page, 2);
+    await waitForReady(page, 2);
     // 종목명을 실어 ①줄도 실제 길이로 만든다(삼성전자 · 긴 종목명).
     await relay.pushAccountState(ACCOUNT_A_STATE);
     await relay.pushAccountState(ACCOUNT_B_STATE);
+    await openMeTab(page, '주문', 'orders');
 
     const card = todayOrdersCard(page);
     await expect(card.locator('[data-slot="today-orders-group"]')).toHaveCount(2, {
@@ -1018,8 +1060,10 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await page.setViewportSize(MOBILE_VIEWPORT);
     await page.goto('/me');
     await waitForStrategies(page, 3);
-    await waitForAccounts(page, 2);
+    await waitForReady(page, 2);
     await relay.pushAccountState(ACCOUNT_A_STATE);
+    await openMeTab(page, '잔고', 'accounts');
+    await waitForAccounts(page, 2);
 
     const card = accountCard(page, E2E_ACCOUNT_NO);
     const unfilledRow = card.locator('[data-slot="account-unfilled-row"]').first();
@@ -1099,7 +1143,8 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
   async function openP25(page: Page, viewport: { width: number; height: number }): Promise<void> {
     await page.setViewportSize(viewport);
     await page.goto('/me');
-    await waitForAccounts(page, 2);
+    await waitForReady(page, 2);
+    await openMeTab(page, '주문', 'orders');
     await expect(todayOrdersCard(page).locator('h2 + span')).toHaveText(`${P25_ORDERS.length}건`, {
       timeout: 15_000,
     });
@@ -1372,23 +1417,38 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     autoSellMethodDefault: 3,
   } as const;
 
-  test('P27-M1 상따 기본설정 — 84 표시 → 행 확정 42(캐시 + 1칸) → 84 플래시 · 거부 원문 (D-10 · D-12 · D-13)', async ({
+  test('P27-M1 상따 기본설정 — 84 표시 → 행 확정 42(캐시 + 1칸) → 84 플래시 · 거부 원문 (D-12 · D-13 · 261006-pey D-2)', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/me');
-    await waitForAccounts(page, 2);
+    await waitForReady(page, 2);
+    await openMeTab(page, '설정', 'settings');
 
     // 84 를 아직 못 받았다 — 지어낸 기본값 없이 「불러오는 중」 · 행 흐림.
     await expect(lcDefaultsChip(page)).toHaveText('불러오는 중');
     await expect(lcDefaults(page).locator('[data-slot="me-lc-defaults-rows"]')).toHaveAttribute('data-dim', 'true');
 
-    // D-10 — 상태줄 아래 · 전략 현황 위.
-    const barBox = await boxOf(page.locator('[data-slot="me-status-bar"]'));
-    const secBox = await boxOf(lcDefaults(page));
-    const stratBox = await boxOf(strategyCard(page));
-    expect(barBox.y).toBeLessThan(secBox.y);
-    expect(secBox.y).toBeLessThan(stratBox.y);
+    /*
+      quick-261006-pey D-2 — 옛 D-10 위치(상태줄 아래 · 전략 현황 위)는 「설정」 탭으로 대체됐다. 여기서는 S1 격자를
+      잰다: 설정 탭에서 상태줄은 보이지 않고, 묶음 카드 4장이 본문 900(≥700)에서 2열이다.
+    */
+    await expect(page.locator('[data-slot="me-status-bar"]')).toBeHidden();
+    const groupCards = lcDefaults(page).locator('[data-slot="me-lc-defaults-group-card"]');
+    await expect(groupCards).toHaveCount(4);
+    const [buyBox, postBox, sellBox] = [
+      await boxOf(groupCards.nth(0)),
+      await boxOf(groupCards.nth(1)),
+      await boxOf(groupCards.nth(2)),
+    ];
+    // 매수 금액 · 후매수 = 같은 줄 두 칸 · 매도는 다음 줄.
+    expect(Math.abs(buyBox.y - postBox.y)).toBeLessThanOrEqual(2);
+    expect(Math.abs(buyBox.x - postBox.x)).toBeGreaterThan(1);
+    expect(sellBox.y).toBeGreaterThan(buyBox.y);
+    for (let i = 0; i < 4; i++) {
+      const groupCard = groupCards.nth(i);
+      expect(await leavesOverflowing(groupCard, (await boxOf(groupCard)).right)).toEqual([]);
+    }
 
     await relay.pushUserSettings({ present: true, autoSellPeriodSec: 3 });
     await expect(lcDefaultsChip(page)).toHaveText('서버 저장값', { timeout: 15_000 });
@@ -1435,6 +1495,8 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
 
     // 1280 — 섹션 안 잎 요소가 카드 오른쪽 밖으로 밀리지 않는다.
     expect(await leavesOverflowing(lcDefaults(page), (await boxOf(lcDefaults(page))).right)).toEqual([]);
+    // 사람 확인용(목업 S1 대조) — 1280 설정 탭 2열 카드.
+    await page.screenshot({ path: 'test-results/me-settings-1280.png', fullPage: true });
   });
 
   test.describe('P27-M1 폰 390 — 터치 키패드 시트', () => {
@@ -1442,7 +1504,8 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
 
     test('P27-M1 폰 390 — 시트 61 → 적용 비활성 · 「1~60초 사이여야 해요」 · 전송 0 · 잘림 없음', async ({ page }) => {
       await page.goto('/me');
-      await waitForAccounts(page, 2);
+      await waitForReady(page, 2);
+      await openMeTab(page, '설정', 'settings');
       await relay.pushUserSettings({ present: false });
       await expect(lcDefaultsChip(page)).toHaveText('서버 저장값 없음 · 내장 기본값', { timeout: 15_000 });
       await expect(lcDefaults(page).locator('[data-slot="me-lc-defaults-note"]')).toHaveText(
@@ -1450,6 +1513,15 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
       );
       // 390 — 섹션 잎 요소 잘림 0.
       expect(await leavesOverflowing(lcDefaults(page), (await boxOf(lcDefaults(page))).right)).toEqual([]);
+      // 261006-pey D-2 — 폰은 1열: 카드 4장이 같은 왼쪽 선에서 아래로 쌓인다.
+      const groupCards = lcDefaults(page).locator('[data-slot="me-lc-defaults-group-card"]');
+      await expect(groupCards).toHaveCount(4);
+      const boxes = [];
+      for (let i = 0; i < 4; i++) boxes.push(await boxOf(groupCards.nth(i)));
+      for (let i = 1; i < 4; i++) {
+        expect(Math.abs(boxes[i].x - boxes[0].x)).toBeLessThanOrEqual(1);
+        expect(boxes[i].y).toBeGreaterThan(boxes[i - 1].y);
+      }
 
       await lcDefaultsRow(page, 'auto-sell-period-sec').locator('button[data-lc-field]').first().click();
       const sheet = page.locator('[data-slot="numpad-sheet"]');
@@ -1464,5 +1536,131 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
       await page.waitForTimeout(300);
       expect(setUserSettingsRequests()).toHaveLength(0);
     });
+  });
+
+  /* ───────────────────────── quick-261006-pey D-1 — /me 4탭 메커니즘(실브라우저) ───────────────────────── */
+
+  test('PEY-1 기본은 현황 — 열지 않은 탭은 마운트되지 않고 오늘 주문 조회도 0회다', async ({ page }) => {
+    await page.goto('/me');
+    await waitForReady(page, 2);
+
+    const names = (await meTabList(page).getByRole('tab').allTextContents()).map((t) => t.replace(/\d+$/, ''));
+    expect(names).toEqual(['현황', '잔고', '주문', '설정']);
+    await expect(meTab(page, '현황')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('[data-slot="me-status-bar"]')).toBeVisible();
+    await expect(strategyCard(page)).toBeVisible();
+
+    // 미방문 탭의 표면은 DOM 에 없다(숨김이 아니라 비마운트).
+    await expect(accountCards(page)).toHaveCount(0);
+    await expect(todayOrdersCard(page)).toHaveCount(0);
+    await expect(page.locator('[data-slot="me-lc-defaults"]')).toHaveCount(0);
+
+    // 주문 탭을 열지 않았으니 GET /api/orders 도 없다(T-16-02 — 조회 횟수 무증가).
+    await page.waitForTimeout(500);
+    expect(ordersRequestMethods).toHaveLength(0);
+    await expect(meTabCount(page, '주문')).toHaveCount(0);
+  });
+
+  test('PEY-2 전환 · 라벨 숫자 — 잔고 = 미체결 합 · 주문 = 헤더 「N건」 · 재방문은 다시 조회하지 않는다', async ({
+    page,
+  }) => {
+    await page.goto('/me');
+    await waitForReady(page, 2);
+    await relay.pushAccountState(ACCOUNT_A_STATE);
+    await relay.pushAccountState(ACCOUNT_B_STATE);
+
+    // 잔고 라벨 숫자는 relay 컨텍스트에서 온다 — 탭을 열기 전에도 선다.
+    const unfilledTotal = ACCOUNT_A_STATE.unfilled.length + ACCOUNT_B_STATE.unfilled.length;
+    await expect(meTabCount(page, '잔고')).toHaveText(String(unfilledTotal), { timeout: 15_000 });
+
+    await openMeTab(page, '잔고', 'accounts');
+    await expect(accountCards(page)).toHaveCount(2);
+
+    await openMeTab(page, '주문', 'orders');
+    const header = todayOrdersCard(page).locator('h2 + span');
+    await expect(header).toHaveText(`${TODAY_ORDERS.length}건`, { timeout: 15_000 });
+    await expect(meTabCount(page, '주문')).toHaveText(String(TODAY_ORDERS.length));
+    expect(ordersRequestMethods.length).toBeGreaterThan(0);
+    const n = ordersRequestMethods.length;
+
+    // 한 번 연 탭은 숨김으로 유지된다 — 다시 열어도 마운트 조회가 다시 나가지 않는다.
+    await openMeTab(page, '현황', 'status');
+    await openMeTab(page, '주문', 'orders');
+    await expect(header).toBeVisible();
+    await page.waitForTimeout(500);
+    expect(ordersRequestMethods).toHaveLength(n);
+  });
+
+  test('PEY-3 딥링크 — ?tab=settings 는 설정으로 바로 · 화이트리스트 밖은 현황 · ?tab=orders 는 주문', async ({
+    page,
+  }) => {
+    await page.goto('/me?tab=settings');
+    await expect(meTab(page, '설정')).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
+    await expect(page.locator('[data-slot="me-lc-defaults"]')).toBeVisible();
+    // 현황 탭은 열지 않았다 — 상태줄은 마운트조차 되지 않는다.
+    await expect(page.locator('[data-slot="me-status-bar"]')).toHaveCount(0);
+
+    await page.goto('/me?tab=zzz');
+    await expect(meTab(page, '현황')).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
+    await expect(page.locator('[data-slot="me-status-bar"]')).toBeVisible();
+
+    await page.goto('/me?tab=orders');
+    await expect(meTab(page, '주문')).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
+    await expect(todayOrdersCard(page)).toBeVisible();
+  });
+
+  test('PEY-4 뒤로가기 — 한 번에 이전 탭 하나씩(클릭당 기록 1개)', async ({ page }) => {
+    await page.goto('/me');
+    await waitForReady(page, 2);
+    await openMeTab(page, '잔고', 'accounts');
+    await openMeTab(page, '주문', 'orders');
+
+    await page.goBack();
+    await expect(page).toHaveURL(/[?&]tab=accounts(&|$)/);
+    await expect(meTab(page, '잔고')).toHaveAttribute('aria-selected', 'true');
+    await expect(accountCards(page).first()).toBeVisible();
+
+    await page.goBack();
+    await expect(page).toHaveURL((url) => url.pathname === '/me' && !url.searchParams.has('tab'));
+    await expect(meTab(page, '현황')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  test('PEY-5 폰 390 스크린샷 + K-1 sticky 관찰(단언 없음)', async ({ page }) => {
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await page.goto('/me');
+    await waitForReady(page, 2);
+    await relay.pushAccountState(ACCOUNT_A_STATE);
+    await relay.pushAccountState(ACCOUNT_B_STATE);
+    await expect(meTabCount(page, '잔고')).toBeVisible({ timeout: 15_000 });
+    // 주문 라벨 숫자도 보이게 한 번 열었다가 현황으로 돌아온다(한 번 연 탭은 유지 — 숫자가 남는다).
+    await openMeTab(page, '주문', 'orders');
+    await expect(meTabCount(page, '주문')).toBeVisible({ timeout: 15_000 });
+    await openMeTab(page, '현황', 'status');
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    await page.screenshot({ path: 'test-results/me-tabs-390.png', fullPage: true });
+
+    /*
+      K-1 — AppShell `<main>` 이 overflow-auto 인데 실제 스크롤 주체는 창이라 sticky 가 실효 없을 수 있다.
+      값은 기록만 한다(고칠지는 사용자 결정). sticky 가 먹으면 top ≈ 0(앱 셸 상단 바 아래), 안 먹으면 음수.
+    */
+    await openMeTab(page, '설정', 'settings');
+    const top = await page.evaluate(() => {
+      const bar = () =>
+        document.querySelector('[role="tablist"][aria-label="My page 탭"]')?.parentElement?.getBoundingClientRect().top ??
+        null;
+      window.scrollTo({ top: 0, behavior: 'instant' });
+      const atTop = bar();
+      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' });
+      return {
+        atTop,
+        atEnd: bar(),
+        scrollY: window.scrollY,
+        mainScrollTop: document.querySelector('main')?.scrollTop ?? null,
+      };
+    });
+    // sticky 가 먹으면 atEnd ≈ 앱 셸 상단 바 아래로 고정, 안 먹으면 atEnd ≈ atTop − scrollY(같이 스크롤됨).
+    const note = `[PEY-K1] tabbar top=${top.atEnd} (scroll 0 에서 ${top.atTop}) scrollY=${top.scrollY} main.scrollTop=${top.mainScrollTop}`;
+    test.info().annotations.push({ type: 'PEY-K1', description: note });
+    console.log(note);
   });
 });

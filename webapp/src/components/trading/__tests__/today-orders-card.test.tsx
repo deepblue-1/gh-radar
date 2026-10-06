@@ -208,6 +208,24 @@ describe("TodayOrdersCard", () => {
     expect(screen.queryByTestId("today-orders-loading")).not.toBeInTheDocument();
   });
 
+  it("⑭ onCountChange — 헤더 「N건」 과 같은 수를 올린다(복원 3건 → 3 · 0건 → 0) · /me 주문 탭 라벨용", async () => {
+    const onCountChange = vi.fn();
+    fetchTodayOrdersMock.mockResolvedValue(THREE_ORDERS);
+    const view = render(<TodayOrdersCard onCountChange={onCountChange} />);
+
+    await waitFor(() => expect(onCountChange).toHaveBeenLastCalledWith(3));
+    const header = document.querySelector('[data-slot="today-orders-card"] h2 + span');
+    expect(header?.textContent).toBe("3건");
+    view.unmount();
+
+    clearQueryCache();
+    const onEmpty = vi.fn();
+    fetchTodayOrdersMock.mockResolvedValue([]);
+    render(<TodayOrdersCard onCountChange={onEmpty} />);
+    await waitFor(() => expect(screen.getByTestId("today-orders-empty")).toBeInTheDocument());
+    expect(onEmpty).toHaveBeenLastCalledWith(0);
+  });
+
   // --- ⑤ 종목 칸 3단 폴백 (quick-260910-kql) --------------------------------
 
   it("relay 가 이름을 아는 종목은 종목명과 단축코드를 **함께** 보여준다", async () => {

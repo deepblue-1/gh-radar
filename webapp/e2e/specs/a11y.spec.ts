@@ -921,6 +921,8 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
         await expect(page.locator('[data-slot="me-status-bar"]')).toHaveAttribute('data-status', 'ready', {
           timeout: 30_000,
         });
+        // quick-261006-pey D-1 — 오늘 주문은 「주문」 탭 안이다.
+        await page.getByRole('tablist', { name: 'My page 탭' }).getByRole('tab', { name: /^주문/ }).click();
         const meWidth = await sizeBodyTo('[data-slot="me-page"]', target);
         widths.push(`${tag} me=${meWidth}`);
         const expand = page.locator('[data-slot="today-orders-card"] button[data-slot="today-order-expand"]:visible').first();
@@ -955,17 +957,33 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
       { timeout: 30_000 },
     );
     await expect(page.locator('[data-slot="strategy-row"]')).toHaveCount(2, { timeout: 15_000 });
+
+    /*
+      quick-261006-pey D-1 — 표면이 4탭으로 나뉘었으므로 탭마다 스캔한다: 현황(전략 행) → 잔고(계좌 카드) → 설정.
+      숨은 패널은 axe 대상이 아니므로 각 탭이 활성일 때 잰다.
+    */
+    const meTab = (label: string) =>
+      page.getByRole('tablist', { name: 'My page 탭' }).getByRole('tab', { name: new RegExp(`^${label}`) });
+    const expectNoBlocking = async (surface: string) => {
+      const blocking = await scanSurface(page);
+      expect(
+        blocking,
+        `${surface} — critical/serious 위반 ${blocking.length}건\n${JSON.stringify(blocking, null, 2)}`,
+      ).toEqual([]);
+    };
+    await expectNoBlocking('현황');
+
+    await meTab('잔고').click();
     // 계좌 카드 본문(미체결·잔고)이 서야 검사 대상이 실제 화면이 된다.
     await relay.pushAccountState(A11Y_ACCOUNT_STATE);
     await expect(page.locator('[data-slot="me-account-card"]')).toHaveCount(1, {
       timeout: 15_000,
     });
+    await expectNoBlocking('잔고');
 
-    const blocking = await scanSurface(page);
-    expect(
-      blocking,
-      `critical/serious 위반 ${blocking.length}건\n${JSON.stringify(blocking, null, 2)}`,
-    ).toEqual([]);
+    await meTab('설정').click();
+    await expect(page.locator('[data-slot="me-lc-defaults"]')).toBeVisible();
+    await expectNoBlocking('설정');
 
     // 사이드바 활성 항목은 My page 하나뿐이다.
     const current = navTree(page).locator('[data-nav-item][aria-current="page"]');
