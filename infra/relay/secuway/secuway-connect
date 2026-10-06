@@ -5,26 +5,132 @@
 # then returns. To give systemd a deterministic main process, this wrapper
 # backgrounds the launcher, waits for sslvpn to appear, then BLOCKS on it — so
 # this script stays alive exactly as long as the tunnel does. When sslvpn dies
-# (e.g. the ~4h --inactive timeout, or a server drop), the wrapper exits non-
-# zero and systemd's Restart=always reconnects. KillMode=control-group tears
-# the whole group (launcher + sslvpn) down on stop/restart.
+# (server drop, or the vendor `--inactive` byte floor — see below), the wrapper
+# exits non-zero and systemd's Restart=always reconnects. KillMode=control-group
+# tears the whole group (launcher + sslvpn + the output reader) down on
+# stop/restart.
 # cwd MUST be /opt/SecurwaySSL: the client reads conf/client.info relative to
 # cwd and spawns sbin/sslvpn from there.
+#
+# quick-261007-b9o 수정:
+#   - fail-fast: 클라이언트 출력은 forward_client_output 리더를 거쳐 그대로 저널로
+#     가고, `Error:` 줄은 ERRF 표식 파일에도 남는다. 표식이 생기면 30초를 기다리지
+#     않고 즉시 exit 1. 10-07 사례: 「Error: 이미 로그인한 사용자입니다.」 뒤 30초
+#     폴링 + RestartSec 30 → 엣지 손실 약 5초가 약 75초 교보 단절이 됐다.
+#     오류 문구는 분류하지 않는다(P-4) — 모든 `Error:` 가 같은 exit 1 이다.
+#     재시도는 systemd(RestartSec=10 + StartLimitBurst=8/600초)가 하고, 상한 소진
+#     뒤 failed 는 secuway-watchdog 가 시간당 1회 회수한다.
+#   - inactive 줄 기록: 벤더 런처가 쓰는 OpenVPN conf(/tmp/conf.XXXXXX, sslvpn
+#     기동 뒤 곧 삭제)에 `inactive <초> <바이트>` 가 있다. 창 안 tun 트래픽이
+#     <바이트> 미만이면 sslvpn 이 끝난다 — 예전 「~4h --inactive timeout」 의
+#     실제 원인은 시간 만료가 아니라 이 바이트 하한이다. 실측 값으로 워치독
+#     keepalive 볼륨을 조정하려고, 로그인마다 숫자만으로 된 inactive 줄 1줄을
+#     best-effort 로 저널에 남긴다. 숫자 전용 정규식이라 conf 의 다른 줄(인증서·
+#     키)은 구조적으로 나갈 수 없다. 못 잡아도 기동은 계속한다.
+#   - 자격증명은 지금처럼 CRED 파일을 클라이언트 stdin 으로만 준다 — 이 래퍼는
+#     CRED 내용을 읽거나 출력하지 않는다.
+#   - sslvpn 의 stdout 도 리더 파이프를 거친다(리더는 같은 cgroup 이라 함께 정리).
+#
+# 테스트: infra/relay/secuway/tests/connect.test.sh 가 이 파일을 source 해
+#   가짜 클라이언트로 드라이런한다(맨 끝 main 가드 — source 시 main 미실행).
+
+# cwd 필수 (위 참조)
+SECUWAY_HOME=/opt/SecurwaySSL
+CLIENT=./SecuwaySSLU_client
+# secuway-fetch-secret 이 만든 자격증명 (ExecStopPost 가 지운다)
 CRED=/run/secuway.cred
-cd /opt/SecurwaySSL || exit 1
-[ -r "$CRED" ] || { echo "secuway-connect: missing $CRED" >&2; exit 1; }
-./SecuwaySSLU_client < "$CRED" &
-pid=""
-for i in $(seq 1 30); do
-  pid=$(pgrep -x sslvpn | head -1)
-  if [ -n "$pid" ]; then break; fi
-  sleep 1
-done
-if [ -z "$pid" ]; then
-  echo "secuway-connect: sslvpn did not come up within 30s" >&2
-  exit 1
+# 클라이언트 `Error:` 줄 표식 (0600, ExecStopPost 가 지운다)
+ERRF=/run/secuway-connect.err
+# 벤더 런처의 임시 OpenVPN conf — 사용할 때 비인용 전개
+CONF_GLOB='/tmp/conf.*'
+# sslvpn 기동 대기 상한(초). 폴링 횟수 = STARTUP_TIMEOUT_SEC × 5
+STARTUP_TIMEOUT_SEC=30
+# 폴링 간격(초당 5회) — conf 가 곧 지워지므로 짧게 본다
+POLL_SEC=0.2
+# sslvpn 발견 뒤 inactive 줄을 더 찾는 횟수(× POLL_SEC ≈ 2초)
+CAPTURE_TAIL_STEPS=10
+# sslvpn 생존 확인 간격(초)
+TRACK_INTERVAL=5
+
+INACTIVE_RE='^[[:space:]]*inactive[[:space:]]+[0-9]+([[:space:]]+[0-9]+)?[[:space:]]*$'
+
+# 클라이언트(와 sslvpn) 출력을 줄 단위로 그대로 stderr(=저널)에 전달하고,
+# `Error:` 를 포함한 줄만 ERRF 에 덧붙인다. 마지막 개행 없는 줄도 처리한다.
+forward_client_output() {
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    printf '%s\n' "$line" >&2
+    if [[ "$line" == *Error:* ]]; then
+      printf '%s\n' "$line" >> "$ERRF"
+    fi
+  done
+}
+
+# CONF_GLOB 의 일반 파일에서 숫자 전용 inactive 줄 1줄만 찾아 기록한다.
+# 찾으면 0, 없으면 1. 파일의 다른 내용은 어디에도 출력하지 않는다.
+capture_inactive() {
+  local f line
+  local -a parts
+  for f in $CONF_GLOB; do
+    [[ -f "$f" ]] || continue
+    line=$(grep -m1 -E "$INACTIVE_RE" "$f" 2>/dev/null | tr -d '\r')
+    [[ -n "$line" ]] || continue
+    read -r -a parts <<< "$line"
+    echo "secuway-connect: vendor openvpn option: ${parts[*]} (from $f)" >&2
+    return 0
+  done
+  return 1
+}
+
+main() {
+  local pid="" captured=0 i steps
+  umask 077
+  cd "$SECUWAY_HOME" || return 1
+  [ -r "$CRED" ] || { echo "secuway-connect: missing $CRED" >&2; return 1; }
+  rm -f "$ERRF"
+  : > "$ERRF" || { echo "secuway-connect: cannot create $ERRF" >&2; return 1; }
+
+  "$CLIENT" < "$CRED" > >(forward_client_output) 2>&1 &
+
+  steps=$(( STARTUP_TIMEOUT_SEC * 5 ))
+  for (( i = 1; i <= steps; i++ )); do
+    if (( ! captured )) && capture_inactive; then
+      captured=1
+    fi
+    pid=$(pgrep -x sslvpn | head -1)
+    if [ -n "$pid" ]; then break; fi
+    if [ -s "$ERRF" ]; then
+      echo "secuway-connect: client reported Error — failing fast (systemd retries after RestartSec)" >&2
+      return 1
+    fi
+    sleep "$POLL_SEC"
+  done
+  if [ -z "$pid" ]; then
+    echo "secuway-connect: sslvpn did not come up within ${STARTUP_TIMEOUT_SEC}s" >&2
+    return 1
+  fi
+
+  if (( ! captured )); then
+    for (( i = 1; i <= CAPTURE_TAIL_STEPS; i++ )); do
+      if capture_inactive; then
+        captured=1
+        break
+      fi
+      sleep "$POLL_SEC"
+    done
+    if (( ! captured )); then
+      echo "secuway-connect: inactive line not captured (best-effort) — continuing" >&2
+    fi
+  fi
+
+  echo "secuway-connect: tunnel up, tracking sslvpn pid $pid" >&2
+  while kill -0 "$pid" 2>/dev/null; do sleep "$TRACK_INTERVAL"; done
+  echo "secuway-connect: sslvpn ($pid) exited — exiting so systemd restarts" >&2
+  return 1
+}
+
+# 직접 실행될 때만 main (source 시 미실행 — 테스트용)
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+  exit $?
 fi
-echo "secuway-connect: tunnel up, tracking sslvpn pid $pid" >&2
-while kill -0 "$pid" 2>/dev/null; do sleep 5; done
-echo "secuway-connect: sslvpn ($pid) exited — exiting so systemd restarts" >&2
-exit 1

@@ -12,6 +12,23 @@
 # long as the tunnel — sslvpn death exits ExecStart and Restart=always
 # reconnects. KillMode=control-group tears down launcher + sslvpn on stop.
 #
+# RETRY POLICY (quick-261007-b9o): secuway-connect fails fast (exit 1) as soon
+# as the client prints an `Error:` line (e.g. 「이미 로그인한 사용자입니다」), so
+# systemd retries after RestartSec=10. 10s is a FLOOR — the account shares a
+# registered MAC with the desktop client and the lockout policy for repeated
+# logins is unknown, so never hammer below it. StartLimitBurst=8 per 600s: the
+# server can hold the previous session ~60s (10-07: rejected 23:02:11Z, accepted
+# 23:03:11Z), which needs ~6 starts at a ~14-17s cycle (RestartSec 10 +
+# fetch-secret + login); 5 would drop to failed inside that window. Once the
+# limit is exhausted the unit is `failed`; secuway-watchdog recovers it at most
+# once per hour (reset-failed + start). It NEVER starts an `inactive` unit — a
+# human `systemctl stop` means the desktop client is in use (mutual exclusion).
+#
+# DEPLOY: changing this unit needs only daemon-reload — it takes effect on the
+# next (re)connect. Do NOT restart securwayssl during market hours
+# (08:00~20:00 KST); deploy after 20:00 and avoid the 21:00~21:20 limitup-pull
+# transfer window. See infra/relay/README.md (§교보 SecuwaySSL VPN).
+#
 # ⚠ Same registered device MAC as the desktop client. Do NOT run both at once —
 # Kyobo may drop one session or lock the account. See infra/relay/README.md.
 [Unit]
@@ -20,15 +37,15 @@ Documentation=file:///opt/SecurwaySSL
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=600
-StartLimitBurst=5
+StartLimitBurst=8
 
 [Service]
 Type=simple
 ExecStartPre=/usr/local/sbin/secuway-fetch-secret
 ExecStart=/usr/local/sbin/secuway-connect
-ExecStopPost=-/bin/rm -f /run/secuway.cred
+ExecStopPost=-/bin/rm -f /run/secuway.cred /run/secuway-connect.err
 Restart=always
-RestartSec=30
+RestartSec=10
 KillMode=control-group
 TimeoutStopSec=15
 
