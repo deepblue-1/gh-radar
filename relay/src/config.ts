@@ -37,12 +37,16 @@
  *              `observerSecretOf("KB")` = `DMA_OBSERVER_SECRET` · `observerSecretOf("KYOBO")` = `DMA_OBSERVER_SECRET_KYOBO`
  *              `quoteSecretOf("KB")` = `DMA_QUOTE_OBSERVER_SECRET` ‖ `DMA_OBSERVER_SECRET` · `quoteSecretOf("KYOBO")` = `DMA_OBSERVER_SECRET_KYOBO`
  *            비밀 확인 순서: production 의 `DMA_OBSERVER_SECRET` 필수 검사를 원천 게이트보다 **먼저** 본다(사유 문구 불변).
+ *   Phase 29 D-04 (29-06)  `APP_ACCESS_REFRESH_MS` = 접근 맵(`AppAccess`) 재적재 주기. 기본 60000. **production 은 env 를
+ *            무시하고 60000** 이다(운영 RPC 부하를 env 실수로 키우지 않게 — 즉시 반영은 `reload()` 몫). e2e 는 짧게 준다
+ *            (시드를 켜고 끈 전환이 다음 페이지 로드 전에 반영되게). 빈 문자열 · 음수 · 0 · 비숫자는 기동 거부(`QUOTE_LINGER_MS` 규율).
  *
  * 하지 않는 것:
  *   - 여기서 값을 검증(길이·형식)하지 않는다. 존재 여부만 본다 — 검증은 사용처가 한다.
  *   - 시크릿을 로깅하지 않는다. logger.ts 의 redact 경로가 2차 방어다. 비밀은 함수 필드 뒤에 있어
  *     설정 객체를 통째로 덤프해도 값이 나가지 않는다.
  */
+import { APP_ACCESS_REFRESH_MS } from "./access/app-access.js";
 import {
   assertRegistryInvariants,
   isDmaBroker,
@@ -152,6 +156,11 @@ export type RelayConfig = {
    * 음수 · 비숫자는 기동을 거부한다(T-26-13 — 잘못된 값으로 캐시가 무한히 남거나 뜻밖에 즉시 풀리지 않게).
    */
   quoteLingerMs: number;
+  /**
+   * 접근 맵(`AppAccess`) 재적재 주기(ms · Phase 29 D-04). 미설정 시 60000. production 은 env 와 무관하게 60000 이다.
+   * 빈 문자열 · 0 이하 · 비숫자는 기동을 거부한다.
+   */
+  appAccessRefreshMs: number;
 };
 
 export function loadConfig(): RelayConfig {
@@ -174,6 +183,16 @@ export function loadConfig(): RelayConfig {
   const quoteLingerMs = quoteLingerRaw.trim() === "" ? Number.NaN : Number(quoteLingerRaw);
   if (!Number.isFinite(quoteLingerMs) || quoteLingerMs < 0) {
     throw new Error(`QUOTE_LINGER_MS must be a finite number >= 0 (ms) — got "${quoteLingerRaw}"`);
+  }
+
+  // Phase 29 D-04 — 접근 맵 재적재 주기. production 은 env 를 보지 않는다(값 검증도 하지 않는다 — 무시하는 키다).
+  let appAccessRefreshMs = APP_ACCESS_REFRESH_MS;
+  const appAccessRaw = optional("APP_ACCESS_REFRESH_MS");
+  if (nodeEnv !== "production" && appAccessRaw !== undefined) {
+    appAccessRefreshMs = appAccessRaw.trim() === "" ? Number.NaN : Number(appAccessRaw);
+    if (!Number.isFinite(appAccessRefreshMs) || appAccessRefreshMs <= 0) {
+      throw new Error(`APP_ACCESS_REFRESH_MS must be a finite number > 0 (ms) — got "${appAccessRaw}"`);
+    }
   }
 
   // Phase 29 D-09 — 레지스트리 원천 게이트. 비밀 필수 검사(위) 뒤에 본다 — production 비밀 부재 사유 문구를 바꾸지 않는다.
@@ -271,5 +290,6 @@ export function loadConfig(): RelayConfig {
     quoteSecretOf,
     dmaQuoteObserverSecret,
     quoteLingerMs,
+    appAccessRefreshMs,
   };
 }

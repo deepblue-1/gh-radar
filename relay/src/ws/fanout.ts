@@ -13,6 +13,10 @@
  *   4. `dma_credentials` 매핑 없음 → **연결은 유지**하고 `{t:"state", s:"unauthorized"}`
  *      1건 전송. 이후 sub 은 구독을 만들지 않고 같은 상태 프레임을 되돌린다 (D-12) —
  *      호가창이 "권한 없음"을 표시해야 하므로 끊지 않는다
+ *      Phase 29 (D-02 · D-19) — 운영 원천은 `credentials` 주입구(`createAccessCredentials`)다: 접근 맵(`AppAccess` ·
+ *      역할 admin/trader + DMA 연결) → `dma_users` 복호(AAD = dma_user_id). viewer · 승인 대기 · DMA 연결 없음 = 위
+ *      unauthorized 갈래, 접근 맵 미적재(`"not_ready"`) = 아래 「조회 실패」 갈래(failed + 1011). 주입이 없으면 종전
+ *      `dma_credentials` 조회 그대로다(단위 테스트 하네스)
  *   5. 매핑 있음 → `sessions.acquire` → 현재 상태 프레임을 **즉시 1회** 전송.
  *      브라우저는 이 프레임을 인증 ACK 로 삼아 구독을 시작한다(15-12 `use-relay-socket`
  *      계약). 이 프레임을 빠뜨리면 브라우저는 영원히 구독하지 않는다
@@ -294,6 +298,13 @@ export type WsFanoutDeps = {
   hub: SubscriptionHub;
   /** base64 32B AES-256-GCM 키 (`DMA_CRED_KEY`). */
   credKey: string;
+  /**
+   * 자격증명 공급자 (Phase 29 · D-02 · D-19 — `createAccessCredentials`). 주면 wss 인증이 이것만 쓴다:
+   * `null` = 권한 없음(unauthorized · 연결 유지) · `"not_ready"` = 접근 맵 미적재(조회 실패 갈래 — failed + 1011) ·
+   * throw = 조회 · 복호 실패(같은 갈래). **주지 않으면 종전 `dma_credentials` 조회**(`getDmaCredentials` · AAD = user_id)다 —
+   * 기존 단위 테스트 하네스가 그 스텁에 기대고 있어 기본값을 바꾸지 않는다. 운영 결선(`index.ts`)은 늘 주입한다.
+   */
+  credentials?: (userId: string) => Promise<DmaCredentials | null | "not_ready">;
   /** 업그레이드 경로. 기본 `/ws`. */
   path?: string;
   /** 첫 메시지 대기 상한(ms). 기본 `AUTH_TIMEOUT_MS`. */
@@ -423,6 +434,8 @@ export class WsFanout {
   readonly #sessions: FanoutSessions;
   readonly #hub: SubscriptionHub;
   readonly #credKey: string;
+  /** 자격증명 공급자 (Phase 29). 없으면 종전 `dma_credentials` 조회. */
+  readonly #credentials: ((userId: string) => Promise<DmaCredentials | null | "not_ready">) | null;
   readonly #path: string;
   readonly #authTimeoutMs: number;
   readonly #backpressureLimit: number;
@@ -467,6 +480,7 @@ export class WsFanout {
     this.#sessions = deps.sessions;
     this.#hub = deps.hub;
     this.#credKey = deps.credKey;
+    this.#credentials = deps.credentials ?? null;
     this.#path = deps.path ?? DEFAULT_WS_PATH;
     this.#authTimeoutMs = deps.authTimeoutMs ?? AUTH_TIMEOUT_MS;
     this.#backpressureLimit = deps.backpressureLimitBytes ?? BACKPRESSURE_LIMIT_BYTES;
@@ -669,7 +683,7 @@ export class WsFanout {
       return;
     }
 
-    let creds: DmaCredentials | null;
+    let creds: DmaCredentials | null | "not_ready";
     try {
       creds = await this.#lookupCredentials(userId);
     } catch (err) {
@@ -681,6 +695,13 @@ export class WsFanout {
       conn.ws.close(1011, "credential lookup failed");
       return;
     }
+    if (creds === "not_ready") {
+      // 접근 맵 첫 적재 전 · 적재 실패 지속(Phase 29) — 위 조회 실패와 같은 장애다. 「권한 없음」 으로 위장하지 않는다.
+      logger.error({ userId }, "[WS] 접근 맵 미적재 — 연결 종료(재접속 가치 있는 장애)");
+      this.#send(conn, { t: "state", s: "failed", msg: "자격증명 확인에 실패했습니다" });
+      conn.ws.close(1011, "credential lookup failed");
+      return;
+    }
     if (conn.ws.readyState !== WebSocket.OPEN) return;
 
     conn.userId = userId;
@@ -688,7 +709,7 @@ export class WsFanout {
     if (creds === null) {
       // 연결을 끊지 않는다 — 호가창이 "권한 없음" 배지를 그려야 한다 (D-12).
       conn.unauthorized = true;
-      logger.warn({ userId }, "[WS] dma_credentials 미등록 — 연결 유지, 구독 거부");
+      logger.warn({ userId }, "[WS] DMA 권한 없음(자격증명 미등록 · viewer · 승인 대기 · DMA 연결 없음) — 연결 유지, 구독 거부");
       this.#send(conn, { t: "state", s: "unauthorized" });
       return;
     }
@@ -1903,7 +1924,9 @@ export class WsFanout {
     }
   }
 
-  async #lookupCredentials(userId: string): Promise<DmaCredentials | null> {
+  async #lookupCredentials(userId: string): Promise<DmaCredentials | null | "not_ready"> {
+    // Phase 29 — 주입된 공급자(접근 맵 + dma_users)가 있으면 그것이 정본이다.
+    if (this.#credentials !== null) return this.#credentials(userId);
     const record = await getDmaCredentials(this.#supabase, userId, this.#credKey);
     if (record === null) return null;
     // 평문은 여기서 세션으로만 넘어간다. 로그·상태 프레임에 싣지 않는다 (D-19).

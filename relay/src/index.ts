@@ -87,6 +87,8 @@ import { GatewaySymbolMaster } from "./store/gateway-symbols.js";
 import { SessionManager } from "./dma/session-manager.js";
 import { SubscriptionHub } from "./hub/subscription-hub.js";
 import { WsFanout } from "./ws/fanout.js";
+import { AppAccess } from "./access/app-access.js";
+import { createAccessCredentials } from "./store/credentials.js";
 import { createOrderApi } from "./order/order-api.js";
 import { GatewayIdentities } from "./journal/identities.js";
 import type { GatewayIdentityView, JournalAccessView } from "./journal/types.js";
@@ -169,6 +171,13 @@ const gatewayIdentities: GatewayIdentities | null =
   identityKeys.length > 0 ? new GatewayIdentities({ supabase, gateways: identityKeys }) : null;
 /** 신원 적재기가 없을 때의 빈 신원 — 아무에게도 푸시하지 않는다(fail closed). */
 const NO_IDENTITIES: GatewayIdentityView = { dmaUserIdOf: () => undefined };
+
+/**
+ * 웹 사용자 접근 맵 (Phase 29 · D-02 · D-04 · D-19) — RPC `dma_app_access_map` 60초 사본. wss 인증의 「누가 DMA 를 쓸 수
+ * 있나」(역할 admin/trader + DMA 연결) 원천이자 자격증명 조회 키(`dma_users` · AAD = dma_user_id)다. 첫 적재 전 인증은
+ * 「조회 실패」(failed + 1011)로 끝난다 — 「권한 없음」 으로 위장하지 않는다. 시작은 아래 관찰자 start 앞(fail closed 순서).
+ */
+const appAccess = new AppAccess({ supabase, refreshMs: config.appAccessRefreshMs });
 
 /**
  * 사용자 세션 — 세션을 만들 때마다 **KB 주문 서버**로 연다(Phase 29 · D-10 — 열린 세션은 서버가 바뀌어도 그대로).
@@ -257,6 +266,8 @@ const fanout = new WsFanout({
   sessions: sessionManager,
   hub,
   credKey: config.dmaCredKey,
+  // Phase 29 D-19 — 자격증명 원천 = 접근 맵(역할 · DMA 연결) + `dma_users`(AAD = dma_user_id). 옛 `dma_credentials` 를 읽지 않는다.
+  credentials: createAccessCredentials({ access: appAccess, supabase, credKey: config.dmaCredKey }),
   // 주문 3종(`order.new`/`order.modify`/`order.cancel`)을 wss 로 받기 위한 결선이다 (D-02).
   // 종목맵 하나로 주문 분기가 열린다 — 기록 창구는 없다 (Phase 19 D-01).
   symbols,
@@ -336,6 +347,8 @@ const orderApi = createOrderApi({
 });
 const orderApiServer = http.createServer(orderApi);
 
+// 접근 맵을 관찰자보다 먼저 읽기 시작한다(Phase 29 — fail closed 순서: 첫 적재 전 wss 인증은 조회 실패 · 푸시 신원 없음).
+appAccess.start();
 // 추가 게이트웨이 신원 연결을 관찰자보다 먼저 읽기 시작한다(quick-260929-sas). 첫 적재 전 도착한 추가 게이트웨이
 // 행은 아무에게도 푸시되지 않는다(fail closed) — 브라우저 REST 새로고침이 복원한다.
 gatewayIdentities?.start();
@@ -434,6 +447,7 @@ async function shutdown(signal: string): Promise<void> {
     const undrained = await pipelines.drainAll(JOURNAL_DRAIN_TIMEOUT_MS);
     pipelines.closeAll();
     quoteStatus.close();
+    appAccess.close();
     gatewayIdentities?.close();
     if (undrained.length > 0) {
       logger.warn(

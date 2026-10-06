@@ -10,6 +10,7 @@
  *   POST /rest/v1/rpc/dma_journal_apply        → 입력 seq 로 `{applied, skipped:0, errors:[], last_seq, rows:[]}`
  *   POST /rest/v1/rpc/dma_strategy_apply       → 같은 모양(Phase 25 — 부팅 결선 증명용 · 푸시 행은 25-01 트레이서 몫)
  *   GET  /rest/v1/dma_visibility_identities?…  → 시드한 신원 행(기본 빈 배열 · quick-260929-sas — 추가 게이트웨이 있을 때만)
+ *   POST /rest/v1/rpc/dma_app_access_map       → 빈 배열(Phase 29 — relay 접근 맵 · 부팅 즉시 + 주기)
  *
  * 모든 요청을 (method, path, query, body) 로 기록한다. 위에 없는 경로도 **빈 배열 200** 으로 받고 기록한다 —
  * 404 로 막으면 relay 쪽 증상(재시도 · 오류 로그)이 원인을 가리고, 기록이 있으면 테스트 출력에 누락 경로가
@@ -65,6 +66,7 @@ const KNOWN_PATHS: ReadonlySet<string> = new Set([
   "/rest/v1/rpc/dma_journal_apply",
   "/rest/v1/rpc/dma_strategy_apply",
   "/rest/v1/dma_visibility_identities",
+  "/rest/v1/rpc/dma_app_access_map",
 ]);
 
 function parseBody(raw: string): unknown {
@@ -110,6 +112,10 @@ export async function startSupabaseStub(): Promise<SupabaseStub> {
           return;
         case "/rest/v1/dma_visibility_identities":
           json(200, identities);
+          return;
+        case "/rest/v1/rpc/dma_app_access_map":
+          // Phase 29 — relay 접근 맵(AppAccess). 부팅 결선 증명용 — 빈 맵.
+          json(200, []);
           return;
         case "/rest/v1/rpc/dma_journal_sync_access": {
           const rows = (body as { p_rows?: unknown[] } | null)?.p_rows;

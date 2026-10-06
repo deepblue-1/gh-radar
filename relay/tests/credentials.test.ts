@@ -13,10 +13,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
+  createAccessCredentials,
   decryptDmaPassword,
   encryptDmaPassword,
   getDmaCredentials,
+  getDmaCredentialsByDmaUser,
+  type AccessLookup,
 } from "../src/store/credentials.js";
+import type { AppAccessEntry } from "../src/access/app-access.js";
 import { verifyToken } from "../src/auth/verify-token.js";
 import { logger } from "../src/logger.js";
 
@@ -158,6 +162,132 @@ describe("getDmaCredentials", () => {
     });
 
     await expect(getDmaCredentials(client, USER_ID, key)).rejects.toThrow();
+  });
+});
+
+/** `from(table).select(cols).eq(col, val).maybeSingle()` 를 기록하는 스텁 — 새 표 조회 모양을 잠근다. */
+function recordingDbClient(result: { data: unknown; error: unknown }): {
+  client: SupabaseClient;
+  calls: Array<{ table: string; select: string; column: string; value: string }>;
+} {
+  const calls: Array<{ table: string; select: string; column: string; value: string }> = [];
+  const client = {
+    from: (table: string) => ({
+      select: (select: string) => ({
+        eq: (column: string, value: string) => ({
+          maybeSingle: () => {
+            calls.push({ table, select, column, value });
+            return Promise.resolve(result);
+          },
+        }),
+      }),
+    }),
+  } as unknown as SupabaseClient;
+  return { client, calls };
+}
+
+describe("Phase 29 AAD = dma_user_id (D-19)", () => {
+  const DMA_ID = "dmaA";
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("⑯ AAD = dmaUserId 로 암호화한 dma_users 행 → 평문 · 조회는 dma_users.dma_user_id 한 줄", async () => {
+    const key = newKey();
+    const { client, calls } = recordingDbClient({
+      data: { dma_user_id: DMA_ID, password_enc: encryptDmaPassword(PASSWORD, DMA_ID, key) },
+      error: null,
+    });
+
+    await expect(getDmaCredentialsByDmaUser(client, DMA_ID, key)).resolves.toEqual({ dmaUserId: DMA_ID, password: PASSWORD });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.table).toBe("dma_users");
+    expect(calls[0]?.select.split(",").map((c) => c.trim()).sort()).toEqual(["dma_user_id", "password_enc"]);
+    expect(calls[0]?.column).toBe("dma_user_id");
+    expect(calls[0]?.value).toBe(DMA_ID);
+  });
+
+  it("⑰ 옛 형식(AAD = 웹 user_id)으로 암호화된 행은 복호 실패로 throw 한다(이관 없이 섞이지 않는다)", async () => {
+    const key = newKey();
+    const { client } = recordingDbClient({
+      data: { dma_user_id: DMA_ID, password_enc: encryptDmaPassword(PASSWORD, USER_ID, key) },
+      error: null,
+    });
+
+    await expect(getDmaCredentialsByDmaUser(client, DMA_ID, key)).rejects.toThrow();
+  });
+
+  it("⑱ 행 없음 → null · 조회 실패 → throw + error 로그(dmaUserId · 원문 details 없음)", async () => {
+    const { client: empty } = recordingDbClient({ data: null, error: null });
+    await expect(getDmaCredentialsByDmaUser(empty, DMA_ID, newKey())).resolves.toBeNull();
+
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    const dbError = { code: "57P01", message: "terminating", details: `Key (dma_user_id)=(${DMA_ID}) password_enc` };
+    const { client: failing } = recordingDbClient({ data: null, error: dbError });
+    await expect(getDmaCredentialsByDmaUser(failing, DMA_ID, newKey())).rejects.toBe(dbError);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    const logged = JSON.stringify(errorSpy.mock.calls[0]);
+    expect(logged).toContain("57P01");
+    expect(logged).not.toContain(DMA_ID);
+  });
+
+  it("⑲ 같은 DMA id 를 공유하는 두 웹 사용자는 같은 암호문 한 벌을 복호한다(DMA 유저당 1개 보관)", () => {
+    const key = newKey();
+    const enc = encryptDmaPassword(PASSWORD, DMA_ID, key);
+    expect(decryptDmaPassword(enc, DMA_ID, key)).toBe(PASSWORD);
+    expect(() => decryptDmaPassword(enc, "dmaB", key)).toThrow();
+  });
+});
+
+describe("createAccessCredentials (Phase 29 D-02)", () => {
+  const DMA_ID = "dmaA";
+
+  function access(entries: Record<string, AppAccessEntry>, loaded = true): AccessLookup {
+    return { loaded, lookup: (u) => Promise.resolve(entries[u]) };
+  }
+  function entry(role: AppAccessEntry["role"], dmaUserId: string | null): AppAccessEntry {
+    return { userId: USER_ID, email: "u@example.com", role, dmaUserId };
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(logger, "info").mockImplementation(() => undefined);
+  });
+
+  it("⑳ 접근 맵 미적재 → \"not_ready\"(권한 없음으로 위장하지 않는다) · DB 조회 없음", async () => {
+    const { client, calls } = recordingDbClient({ data: null, error: null });
+    const creds = createAccessCredentials({ access: access({}, false), supabase: client, credKey: newKey() });
+    await expect(creds(USER_ID)).resolves.toBe("not_ready");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("㉑ viewer · 맵에 없음 · DMA 연결 없음 → null(DB 조회 없음)", async () => {
+    const { client, calls } = recordingDbClient({ data: null, error: null });
+    const key = newKey();
+    await expect(
+      createAccessCredentials({ access: access({ [USER_ID]: entry("viewer", DMA_ID) }), supabase: client, credKey: key })(USER_ID),
+    ).resolves.toBeNull();
+    await expect(createAccessCredentials({ access: access({}), supabase: client, credKey: key })(USER_ID)).resolves.toBeNull();
+    await expect(
+      createAccessCredentials({ access: access({ [USER_ID]: entry("trader", null) }), supabase: client, credKey: key })(USER_ID),
+    ).resolves.toBeNull();
+    expect(calls).toHaveLength(0);
+  });
+
+  it("㉒ trader · admin + DMA 연결 → dma_users 복호(AAD = dma id) · 행 없음이면 null", async () => {
+    const key = newKey();
+    const { client } = recordingDbClient({
+      data: { dma_user_id: DMA_ID, password_enc: encryptDmaPassword(PASSWORD, DMA_ID, key) },
+      error: null,
+    });
+    for (const role of ["trader", "admin"] as const) {
+      const creds = createAccessCredentials({ access: access({ [USER_ID]: entry(role, DMA_ID) }), supabase: client, credKey: key });
+      await expect(creds(USER_ID)).resolves.toEqual({ dmaUserId: DMA_ID, password: PASSWORD });
+    }
+    const { client: empty } = recordingDbClient({ data: null, error: null });
+    const none = createAccessCredentials({ access: access({ [USER_ID]: entry("trader", DMA_ID) }), supabase: empty, credKey: key });
+    await expect(none(USER_ID)).resolves.toBeNull();
   });
 });
 
