@@ -139,6 +139,10 @@ VM_METADATA_FILES="${VM_METADATA_FILES},caddyfile=${RELAY_ASSET_DIR}/Caddyfile"
 # 자산 부재로 측정기가 조용히 사라진다 — 양쪽을 함께 고칠 것.
 VM_METADATA_FILES="${VM_METADATA_FILES},wg-probe=${RELAY_ASSET_DIR}/wg-probe.py"
 VM_METADATA_FILES="${VM_METADATA_FILES},wg-probe-service=${RELAY_ASSET_DIR}/wg-probe.service"
+# Ops Agent 설정 — relay 컨테이너 로그 → Cloud Logging relay_docker (quick-261006-pdw).
+# startup.sh §10 이 이 키를 읽어 /etc/google-cloud-ops-agent/config.yaml 로 배치한다.
+# 키 이름이 어긋나면 재부팅 때 에이전트 설정이 조용히 빠진다 — 양쪽을 함께 고칠 것.
+VM_METADATA_FILES="${VM_METADATA_FILES},ops-agent-config=${RELAY_ASSET_DIR}/ops-agent.yaml"
 
 # ───────────────────────────────────────────────────────────────
 # Section 2: API enable (멱등)
@@ -340,13 +344,13 @@ echo "✓ firewall guard passed (VM 생성 전 4규칙 확인)"
 
 # 6.2 VM 자산 존재 확인 (메타데이터로 실어 보낼 파일 전부)
 for ASSET in startup.sh kbvpn-fetch-secret.sh kbvpn-connect.sh kbvpn-vpnc-wrapper.sh \
-             "openconnect@.service" Caddyfile wg-probe.py wg-probe.service; do
+             "openconnect@.service" Caddyfile wg-probe.py wg-probe.service ops-agent.yaml; do
   if [[ ! -f "${RELAY_ASSET_DIR}/${ASSET}" ]]; then
     echo "ERROR: VM 자산이 없다: infra/relay/${ASSET}" >&2
     exit 1
   fi
 done
-echo "✓ VM 자산 8종 확인 (startup-script 포함)"
+echo "✓ VM 자산 9종 확인 (startup-script 포함)"
 
 # 6.3 VM 생성 (멱등)
 # IP forwarding 옵션은 의도적으로 붙이지 않는다: tun 인터페이스로의 로컬 라우팅에는

@@ -689,6 +689,16 @@ log "비밀 4종 획득 (값은 기록하지 않음) · ${KYOBO_NOTE}"
 } > "$ENV_FILE"
 
 # ── 컨테이너 교체 ──────────────────────────────────────────────
+# kill → 3초 → rm (quick-261006-pdw):
+#   rm -f 는 json 로그 파일을 즉시 지운다. VM 의 Ops Agent 가 옛 파일의 마지막
+#   줄까지 읽어 Cloud Logging(relay_docker)에 싣도록 3초를 준다.
+#   · kill 기본 신호는 rm -f 와 같은 SIGKILL 이라 relay 종료 의미는 그대로다.
+#   · kill 은 수동 정지로 표시돼 restart=always 가 되살리지 않는다.
+#   · 첫 배포(컨테이너 없음)는 대기 없이 지나간다. 대가는 교체 중단 +3초.
+if docker inspect "$CONTAINER" >/dev/null 2>&1; then
+  docker kill "$CONTAINER" >/dev/null 2>&1 || true
+  sleep 3
+fi
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 
 # --network=host 인 이유(D-05/D-07):
@@ -701,6 +711,9 @@ docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 #   e2-micro 는 1GB 다. 상한이 없으면 relay 가 새어도 OOM killer 가 호스트 전체
 #   (Caddy·openconnect·sshd 포함)에서 희생자를 고른다. 상한을 걸면 컨테이너만 죽고
 #   재시작 정책이 되살린다. swap 포함 상한은 그 2배로 둔다.
+# 로그 드라이버는 json-file 유지 — `docker logs` 와 Ops Agent tail 의 공통 원천.
+#   gcplogs 는 Cloud Logging 장애가 컨테이너 기동 실패로 번져 쓰지 않는다
+#   (infra/relay/README.md §메모리 예산).
 docker run -d \
   --name "$CONTAINER" \
   --restart=always \

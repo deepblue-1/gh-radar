@@ -1,0 +1,89 @@
+# ═══════════════════════════════════════════════════════════════
+# ops-agent.yaml — radar-gw Google Cloud Ops Agent 설정 (quick-261006-pdw)
+#
+# ① 목적
+#    relay 컨테이너 로그를 Cloud Logging 으로 보내, 재배포(`docker rm -f`)·
+#    json-file 로테이션과 무관하게 _Default 버킷 30일 동안 조회되게 한다.
+#    계기: 2026-10-06 장중 재배포 2회로 08:00~14:48 KST relay 로그가
+#    컨테이너와 함께 사라졌다 (json-file 은 컨테이너 삭제 시 함께 지워진다).
+#    `sudo docker logs gh-radar-relay` 는 그대로다 — 로그 드라이버는 json-file
+#    유지이고, 에이전트는 같은 파일을 옆에서 tail 만 한다.
+#
+# ② 전달 경로 (VM 에서 직접 고치지 말 것)
+#    저장소 정본(이 파일) → 인스턴스 메타데이터 키 `ops-agent-config`
+#    (scripts/setup-relay-iam.sh 또는 add-metadata) → startup.sh §10 →
+#    /etc/google-cloud-ops-agent/config.yaml. VM 쪽 파일을 손으로 고치면
+#    다음 startup.sh 재실행이 메타데이터 내용으로 되덮는다.
+#
+# ③ receiver id 가 곧 logName 이다
+#    receiver `relay_docker` → logName `projects/gh-radar/logs/relay_docker`.
+#    이 이름을 바꾸면 infra/relay/README.md · docs/relay-operations.md ·
+#    ops/alert-kyobo-observer-down.yaml 의 조회 예시가 전부 깨진다.
+#
+# ⑨ 장애 격리
+#    files receiver 는 fluent-bit tail(DB 오프셋 · 디스크 버퍼)이다.
+#    Cloud Logging·Google 엣지가 끊겨도 디스크에 쌓았다가 나중에 보내며,
+#    relay 프로세스·컨테이너 수명과 결합이 없다. gcplogs 로그 드라이버를
+#    쓰지 않는 이유(Cloud Logging 장애가 컨테이너 기동 실패로 번짐 ·
+#    줄 전체가 문자열 하나로 뭉개짐)는 infra/relay/README.md §메모리 예산.
+# ═══════════════════════════════════════════════════════════════
+logging:
+  receivers:
+    # ④ docker json-file 전체를 와일드카드로 tail 한다.
+    #    재배포마다 컨테이너 ID(= 디렉터리·파일명)가 바뀌므로, 새 파일을 빨리
+    #    찾도록 와일드카드 재스캔을 5초로 줄인다(기본 60초).
+    #    record_log_file_path 는 라벨 `agent.googleapis.com/log_file_path` 에
+    #    파일 경로(= 컨테이너 ID)를 남겨, 재배포 전후 컨테이너를 구분하게 한다.
+    relay_docker:
+      type: files
+      include_paths:
+        - /var/lib/docker/containers/*/*-json.log
+      record_log_file_path: true
+      wildcard_refresh_interval: 5s
+  processors:
+    # ⑤ 처리 3단
+    #    docker json-file 한 줄 = {"log":"<relay JSON>\n","stream":"stdout","time":"…Z"}.
+    #    files receiver 는 줄을 jsonPayload.message 에 담는다.
+    #
+    #    1단 docker_json — jsonPayload.message 를 log·stream·time 으로 펼치고,
+    #        time 을 LogEntry timestamp 로 쓴다.
+    #        ⑥ time_format 의 %z 가 docker 의 `Z` 를 받는지는 **적용 후 실측 대기**다.
+    #           실패 신호: logging-module.log 의 `invalid time format`, 또는
+    #           timestamp 가 docker 시각과 어긋남. 대체안: 아래 time_key·time_format
+    #           두 줄을 **함께** 지운다(두 키는 서로 required_with).
+    docker_json:
+      type: parse_json
+      time_key: time
+      time_format: "%Y-%m-%dT%H:%M:%S.%L%z"
+    #    2단 relay_json — jsonPayload.log(relay 의 GCP 구조화 JSON)를 펼친다.
+    #        relay 의 message 가 jsonPayload.message 가 되고 serviceContext 등이
+    #        필드로 남아 필터할 수 있다.
+    #        ⑦ 비JSON 줄(크래시 스택 stderr 등)은 파싱이 실패해 jsonPayload.log
+    #           원문 + jsonPayload.stream 으로 남고 severity 는 DEFAULT 다.
+    relay_json:
+      type: parse_json
+      field: jsonPayload.log
+    #    3단 relay_severity — 맨 jsonPayload.severity 를 LogEntry severity 로 옮긴다.
+    #        Ops Agent 는 맨 `severity` 키를 자동 승격하지 않는다(자동 승격 키는
+    #        `logging.googleapis.com/severity`). 옮기지 않으면 전부 DEFAULT 다.
+    relay_severity:
+      type: modify_fields
+      fields:
+        severity:
+          move_from: jsonPayload.severity
+  service:
+    pipelines:
+      # ⑧ 로깅 기본 파이프라인(syslog)을 끈다 — syslog 에는 wg-probe 의 journald
+      #    출력이 실려, 켜 두면 측정기 기록이 매초 Cloud Logging 으로 나간다.
+      default_pipeline:
+        receivers: []
+      relay:
+        receivers: [relay_docker]
+        processors: [docker_json, relay_json, relay_severity]
+metrics:
+  service:
+    pipelines:
+      # ⑧ 호스트 메트릭 기본 파이프라인도 끈다 — 이 설정은 로그 전용 범위다.
+      #    메모리(otelcol 수집 부하)·Monitoring 비용을 최소로 둔다.
+      default_pipeline:
+        receivers: []

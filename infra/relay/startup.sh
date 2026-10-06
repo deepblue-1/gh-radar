@@ -753,5 +753,105 @@ install_wg_probe() {
 }
 install_wg_probe || true
 
+# ───────────────────────────────────────────────────────────────
+# 10. Ops Agent — relay 컨테이너 로그 → Cloud Logging (quick-261006-pdw)
+#
+#    왜: 2026-10-06 장중 재배포 2회로 08:00~14:48 KST relay 로그가 컨테이너와
+#    함께 사라졌다. json-file 은 `docker rm` 때 파일째 지워지므로 재배포 한 번에
+#    사건 증거(저널 끊김·KYOBO 거부·주문 경로)를 잃는다.
+#
+#    무엇: Ops Agent(files receiver)가 /var/lib/docker/containers/*/*-json.log 를
+#    tail 해 Cloud Logging logName `relay_docker` 로 보낸다(_Default 30일).
+#    로그 드라이버는 json-file 그대로라 `sudo docker logs gh-radar-relay` 는 불변.
+#    설정 정본은 저장소 infra/relay/ops-agent.yaml → 메타데이터 키 `ops-agent-config`.
+#
+#    왜 gcplogs 드라이버가 아닌가: Cloud Logging 에 닿지 못하면 컨테이너 시작이
+#    실패해 relay 가 영구 정지할 수 있다 — infra/relay/README.md §메모리 예산.
+#
+#    ⚠️ 이 섹션이 하지 않는 것: caddy·wg-probe·openconnect·securwayssl·wg-quick·
+#       docker 유닛과 /etc/docker/daemon.json(§3)을 건드리지 않는다. 에이전트
+#       재기동은 relay 컨테이너와 무관하다(파일을 읽기만 한다).
+#
+#    ⚠️ 메타데이터 키가 없으면 설치도 설정도 건너뛴다(기본 설정은 syslog 를 보낸다
+#       — wg-probe 출력이 매초 나간다). 이미 설치돼 있어도 손대지 않는다(롤백 상태 보존).
+#       설치·재기동이 실패해도 WARN 만 남기고 **부팅을 실패시키지 않는다.**
+#
+#    ⚠️ 장중 재적용 금지 — README §장 마감 후 재부팅 생존 반영 런북과 같다
+#       (첫 회는 apt 저장소 추가·설치, 설정이 바뀌면 에이전트 재기동).
+# ───────────────────────────────────────────────────────────────
+log "▶ Ops Agent (relay 로그 → Cloud Logging) 배치..."
+
+OPS_AGENT_CONF=/etc/google-cloud-ops-agent/config.yaml
+OPS_AGENT_REPO_SCRIPT_URL=https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh
+
+install_ops_agent() {
+  local cfg_tmp dl_dir
+  # `|| true` 문맥이라 errexit 가 꺼진다 — 단계마다 실패를 명시적으로 검사한다.
+  cfg_tmp="$(mktemp)" || { log "WARN: mktemp 실패 — Ops Agent 를 건너뛴다"; return 1; }
+
+  # 1) 메타데이터 키 — 없으면 설치·설정 모두 건너뛴다
+  if ! md_attr ops-agent-config >"$cfg_tmp" || [[ ! -s "$cfg_tmp" ]]; then
+    rm -f "$cfg_tmp"
+    log "WARN: 메타데이터 키 'ops-agent-config' 없음 — 설치·설정을 건너뛴다 (setup-relay-iam.sh 또는 add-metadata 필요)"
+    return 1
+  fi
+
+  # 2) 패키지 — 미설치일 때만 major 2 고정 설치
+  if ! dpkg-query -W -f='${Status}' google-cloud-ops-agent 2>/dev/null | grep -q 'install ok installed'; then
+    log "· google-cloud-ops-agent 미설치 — major 2 설치"
+    if ! dl_dir="$(mktemp -d)"; then
+      rm -f "$cfg_tmp"
+      log "WARN: mktemp -d 실패 — Ops Agent 설치를 건너뛴다"
+      return 1
+    fi
+    if ! curl -sSfL --max-time 60 -o "${dl_dir}/add-google-cloud-ops-agent-repo.sh" "$OPS_AGENT_REPO_SCRIPT_URL"; then
+      rm -rf "$dl_dir"; rm -f "$cfg_tmp"
+      log "WARN: Ops Agent 설치 스크립트 다운로드 실패 — 다음 부팅/재적용에서 재시도"
+      return 1
+    fi
+    if ! bash "${dl_dir}/add-google-cloud-ops-agent-repo.sh" --also-install --version='2.*.*'; then
+      rm -rf "$dl_dir"; rm -f "$cfg_tmp"
+      log "WARN: Ops Agent 설치 실패 — 'journalctl -u google-cloud-ops-agent*' · apt 로그 확인 필요"
+      return 1
+    fi
+    rm -rf "$dl_dir"
+    log "✓ google-cloud-ops-agent 설치 (major 2)"
+    # 설치 직후 기본 설정으로 잠깐 기동하는 것은 허용한다 — 바로 아래에서 덮고 재기동한다.
+  fi
+
+  # 3) 설정 — 내용이 다를 때만 덮고 재기동
+  if ! mkdir -p /etc/google-cloud-ops-agent; then
+    rm -f "$cfg_tmp"
+    log "WARN: /etc/google-cloud-ops-agent 생성 실패"
+    return 1
+  fi
+  if cmp -s "$cfg_tmp" "$OPS_AGENT_CONF"; then
+    log "· Ops Agent 설정 동일 — 재기동하지 않는다"
+  else
+    if ! install -m 0644 -o root -g root "$cfg_tmp" "$OPS_AGENT_CONF"; then
+      rm -f "$cfg_tmp"
+      log "WARN: ${OPS_AGENT_CONF} 배치 실패"
+      return 1
+    fi
+    log "✓ 배치: ${OPS_AGENT_CONF} (0644)"
+    if ! systemctl restart google-cloud-ops-agent; then
+      rm -f "$cfg_tmp"
+      log "WARN: google-cloud-ops-agent 재기동 실패 — \"journalctl -u 'google-cloud-ops-agent*'\" 확인 필요"
+      return 1
+    fi
+    log "· google-cloud-ops-agent 재기동 (설정 변경 반영)"
+  fi
+  rm -f "$cfg_tmp"
+
+  # 4) 상태 — 로그 하위 에이전트(fluent-bit) 기동 확인
+  if systemctl is-active --quiet google-cloud-ops-agent-fluent-bit; then
+    log "✓ Ops Agent 기동 — relay 로그 → Cloud Logging relay_docker"
+  else
+    log "WARN: google-cloud-ops-agent-fluent-bit 비활성 — /var/log/google-cloud-ops-agent/subagents/logging-module.log 확인 필요"
+    return 1
+  fi
+}
+install_ops_agent || true
+
 log "═══ startup.sh 완료 ═══"
 log "다음: ① D-06 DNS A 레코드 → caddy 기동  ② D-03 VPN 선검증(수동 ≤3회)"
