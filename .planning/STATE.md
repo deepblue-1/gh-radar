@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 29
 current_phase_name: DMA 다중 서버 · 웹 Admin 유저 관리
 status: executing
-stopped_at: Completed 29-18-PLAN.md
-last_updated: "2026-10-06T18:38:30.429Z"
+stopped_at: Completed 29-19-PLAN.md
+last_updated: "2026-10-06T18:53:15.926Z"
 last_activity: 2026-10-06
 last_activity_desc: Phase 29 execution started
-state_head: 198be27cac79d5d3f27443b7241f0678380b915a
+state_head: fa563e3841fbd00f7674b29ac5c541f6c9607874
 progress:
   total_phases: 38
   completed_phases: 24
   total_plans: 403
-  completed_plans: 380
+  completed_plans: 381
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 29 (DMA 다중 서버 · 웹 Admin 유저 관리) — EXECUTING
-Plan: 18 of 26
+Plan: 19 of 26
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-10-06 — Phase 29 execution started
@@ -221,6 +221,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 29 P16 | 9min | 2 tasks | 11 files |
 | Phase 29 P17 | 18min | 3 tasks | 12 files |
 | Phase 29 P18 | 10min | 2 tasks | 7 files |
+| Phase 29 P19 | 11min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -609,6 +610,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 29]: 29-18: 시세 주 서버 전환은 대기열 없이 비행 중 모든 시세 라디오를 잠근다(relay break-then-make 가 겹치면 안 된다) — 주문 서버는 useFieldSave 대기열 그대로
 - [Phase 29]: 29-18: relay 상태 null 은 「상태 모름」 한 칩 — 모르는 것을 「끊김」 으로 그리지 않는다
 - [Phase 29]: 29-18: 서버 편집 시트는 폼 단위 제출(host · port 한 쌍) · 추가는 enabled 를 보내지 않아 DB 기본 꺼짐 · 유저 1명 이상 서버 끄기만 확인 다이얼로그
+- [Phase 29]: 생성 결과는 생성 시트가 아니라 재조회 뒤 열리는 그 사용자의 편집 시트가 계좌 칩으로 보인다(UserSheet initialResults → 다시 반영과 같은 serverResults 길)
+- [Phase 29]: DmaConnectFields 한 벌을 생성 시트와 편집 시트 DMA 연결이 같이 쓴다 — 등록 서버는 고른 증권사 서버만 · 기본 체크 없음 · 꺼진 서버 비활성 · 증권사 바꾸면 체크 해제
+- [Phase 29]: 생성 실패도 목록 재조회 — relay 409/502 는 허용 행 upsert 뒤라 「DMA 연결 없음」 행이 생길 수 있다
 
 ### Pending Todos
 
@@ -710,8 +714,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-10-06T18:38:07.008Z
-Stopped at: Completed 29-18-PLAN.md
+Last session: 2026-10-06T18:53:15.264Z
+Stopped at: Completed 29-19-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
