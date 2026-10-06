@@ -183,6 +183,11 @@ pnpm --filter @gh-radar/webapp exec tsx scripts/seed-test-user.ts
 > 스크립트는 `createUser` (admin API) 로 유저를 생성하고 이메일 확인을 자동 승인하여
 > Playwright setup project 가 로그인에 사용할 수 있게 한다.
 
+Phase 29 부터 이 스크립트는 e2e 계정을 `app_users` admin 으로도 upsert 한다(D-20 — e2e 전용 경로.
+운영 마이그레이션에는 테스트 신원이 없다). Phase 29 마이그레이션이 원격에 적용된 뒤 실행하고 출력의
+`app_users: … = admin` 줄을 확인한다. 이 행이 없으면 middleware 역할 게이트가 e2e 를 `/pending` 으로 보낸다.
+되돌리기는 `app_users` 에서 그 이메일 행 삭제.
+
 ### 5.3 Playwright 실행
 
 ```bash
