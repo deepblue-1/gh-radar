@@ -103,6 +103,11 @@
  *   상태 칸은 대표 행이 아니라 묶음 상태(`MergedOrderNotice.status` — 구성원으로부터 계산)를 그린다(WR-08). 주문번호 없는 행(거부 · 접수 불명)은 ▶ 자리만
  *   남기고(visibility hidden) 버튼 · 클릭 · hover 가 없다. 표 ↔ 카드 행은 CSS 로 둘 다 DOM 에 있으므로 펼침
  *   본문(= 조회)은 **보이는 배치 한 곳에만** 마운트한다(`useTableLayout`) — 클릭 1회 = 조회 1회.
+ *
+ * ⑭ 건수 콜백 (quick-261006-pey D-1)
+ *   선택 prop `onCountChange` 는 /me 「주문」 탭 라벨 숫자용이다. 헤더 「N건」 과 같은 값(`rows.length` — 묶기
+ *   전 전체 행)이 바뀔 때 effect 로 **수만** 올린다. 조회 경로를 늘리지 않는다 — 위 ② 의 「페이지당 1회」 는
+ *   그대로이고, /me 에서는 주문 탭이 처음 마운트될 때 1회다(열지 않으면 0회).
  */
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -248,7 +253,12 @@ interface RowExpand {
   active: boolean;
 }
 
-export function TodayOrdersCard() {
+export interface TodayOrdersCardProps {
+  /** 헤더 「N건」 과 같은 수(`rows.length`)가 바뀔 때 알린다 — /me 주문 탭 라벨용(위 ⑭). */
+  onCountChange?: (count: number) => void;
+}
+
+export function TodayOrdersCard({ onCountChange }: TodayOrdersCardProps = {}) {
   const { accounts, journalRows, journalState, status } = useRelayContext();
   /* 종목명의 원천(위 ⑥). 이미 받은 프레임만 읽는다 — 새 조회 경로가 아니다. */
   const labels = useIsinLabels();
@@ -387,6 +397,11 @@ export function TodayOrdersCard() {
     () => mergeJournalRows(restored ?? [], journalRows, kstDateIso()),
     [restored, journalRows],
   );
+
+  /* 위 ⑭ — 헤더 「N건」 과 같은 값만 올린다. 조회 · 렌더는 이 effect 와 무관하다. */
+  useEffect(() => {
+    onCountChange?.(rows.length);
+  }, [rows.length, onCountChange]);
 
   /*
     ★ 계좌별로 나눈 **뒤** 묶음마다 통보를 접는다 (위 ⑨ · 17-10 / D-16) — 병합 → 계좌 나누기 →

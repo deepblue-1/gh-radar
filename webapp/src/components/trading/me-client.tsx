@@ -3,12 +3,12 @@
 /**
  * MeClient — My page (`/me`) 본문 (MYPAGE-01 · 16-UI-SPEC C1~C7 · D-19/D-20/D-21).
  *
- * ① 세로 순서가 계약이다 (D-20)
- *   상태줄 → 전략 현황 → 계좌 A(미체결, 잔고) → 계좌 B(…) → … → **오늘 주문** 으로
- *   **고정**이다. 데스크톱에서도 이 순서를 바꾸지 않는다 — 전략이 지금 어떤 상태인지가
- *   먼저이고, 계좌별 주문·잔고는 그 결과이며, 오늘의 주문 이력은 그 뒤에 붙는 기록이다
- *   (quick-260910-jce 가 마지막 칸을 더했다). 제목 바로 아래 계정 카드(`AccountCard` ·
- *   Phase 21 D-08)는 이 순서 **위**에 얹힌 것이라 순서 자체를 바꾸지 않는다.
+ * ① 세로 순서 계약은 **탭 순서**로 승계됐다 (D-20 → quick-261006-pey D-1)
+ *   옛 계약은 한 세로 열 「상태줄 → 전략 현황 → 계좌 A(미체결, 잔고) → 계좌 B(…) → … → **오늘 주문**」
+ *   이었다. 지금은 계정 카드 아래 4탭이 그 순서를 잇는다 — 현황(상태줄 → 전략) → 잔고(계좌 A → B …) →
+ *   주문 → 설정. 전략이 지금 어떤 상태인지가 먼저이고, 계좌별 주문·잔고는 그 결과이며, 오늘의 주문
+ *   이력은 그 뒤에 붙는 기록이다. 제목 바로 아래 계정 카드(`AccountCard` · Phase 21 D-08)는 탭 **위**
+ *   공통이라 순서 자체를 바꾸지 않는다.
  *   ★ 전 종목 전략 로그(D-25a · G-21-R3-2 · 스케치 008 ① B)는 **새 칸이 아니다** — 전략 현황 칸 안의
  *     「현황 | 로그」 전환(기본 = 현황)이라 이 순서도 /me 세로 길이도 그대로다. 앱은 /trading 하단 공용
  *     패널을 숨기므로 전략 로그를 여기서 본다(`strategy-status-card.tsx` ⑧ · `lib/strategy-log-feed.tsx`).
@@ -43,23 +43,40 @@
  *      여기서는 계좌마다 한 벌씩 렌더되므로, 그 안에 넣으면 계좌 축이 없는 같은 응답을
  *      계좌 수만큼 부르게 된다. T-16-02 의 취지(표면마다 조회 경로를 늘리지 않는다)는
  *      유지된다 — 늘어난 조회 표면은 **하나**이고, 그 라우트는 `user_id` 로만 거른다.
+ *      주문 탭을 처음 열 때 1회 — 열지 않으면 0회(아래 ⑦ · 한 번 연 탭은 마운트 유지라 재방문 재조회 없음).
  *   ⓒ 미체결로는 이 요구를 담을 수 없다. **취소된 주문은 정의상 미체결 목록에 없다** —
  *      「오늘 낸 주문 전체」는 취소·거부까지 남는 별도 표면이어야 한다.
  *
  * ⑥ 직접 URL 진입은 게이트가 받는다 (D-19 / C6)
  *   사이드바에서 숨겨져 있어도 주소창으로는 들어올 수 있다. 비로그인·매핑 없음은
  *   `<DmaGate>` 가 본문을 **대체**한다. 다만 게이트는 권한 장치가 아니다 — 실제 차단은
- *   relay `unauthorized` 와 middleware 로그인 벽이다(T-16-04).
+ *   relay `unauthorized` 와 middleware 로그인 벽이다(T-16-04). 게이트 분기에는 탭이 없다.
+ *
+ * ⑦ 4탭 셸 (quick-261006-pey D-1 · sketch 013 변형 A)
+ *   ⓐ 메커니즘 정본은 `lib/use-url-tab.ts` — 종목상세 3탭과 **같은 훅**이다(`?tab=` 단일 진실 · pushState ·
+ *      화이트리스트 밖은 기본 탭(현황) · 한 번 연 탭 마운트 유지 · 열지 않은 탭은 마운트 0). 이 파일에서
+ *      pushState 를 직접 부르지 않는다.
+ *   ⓑ 라벨 숫자 — 잔고 = 잔고 탭에 그리는 계좌들의 미체결 합(`unfilledCountOf` · relay 컨텍스트만 읽으므로
+ *      조회가 아니다 · 미방문이어도 선다) · 주문 = 오늘 주문 카드 헤더 「N건」 과 같은 수(`onCountChange` —
+ *      미방문이면 카드가 없으니 숫자도 없다). 0 이면 숫자를 생략한다.
+ *   ⓒ Suspense 경계는 탭 영역(`MeTabs`)만 감싼다 — `/me` 는 정적 라우트라 `useSearchParams` 에 경계가 필요하다
+ *      (Next 15 · `/trading` 관례). 제목 · 계정 카드는 경계 밖이라 서버 HTML 에 그대로 남는다(me.spec
+ *      「서버 응답에 me-page」 계약). 폴백은 null — 스켈레톤으로 위장하지 않는다.
+ *   ⓓ 패널 글자 크기 — shadcn `TabsContent` 기본 `text-sm` 이 옮겨 넣은 표면의 상속 글자 크기를 바꾸지 않도록
+ *      패널에 `--t-base`(body 와 같은 값)를 둔다(내부 무변경 원칙).
+ *   ⓔ 상태줄은 현황 탭 **안**이다(전 탭 공통 아님 — D-1 · 목업 A).
  */
 
+import { Suspense, useState } from "react";
 import type { RelayAccountState } from "@gh-radar/shared";
 
 import { PageHeader } from "@/components/layout/page-header";
-import { PAGE_WRAP } from "@/components/layout/page-layout";
+import { PAGE_WRAP, SECTION_COUNT } from "@/components/layout/page-layout";
 import { AccountCard } from "@/components/me/account-card";
 import { LimitChaserDefaultsSection } from "@/components/me/limit-chaser-defaults";
 import { AccountPanel } from "@/components/orderbook/account-panel";
 import { DmaGate, useDmaGateReason } from "@/components/trading/dma-gate";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StrategyStatusCard } from "@/components/trading/strategy-status-card";
 import { TodayOrdersCard } from "@/components/trading/today-orders-card";
 import { stockCodeOf } from "@/components/trading/vi-order-list";
@@ -69,6 +86,12 @@ import { useNativeRefresh } from "@/lib/native/use-native-refresh";
 import { useRelayContext } from "@/lib/relay-provider";
 import { orderPillOf, quotePillOf } from "@/lib/quote-state";
 import { viAnyRunning } from "@/lib/use-relay-socket";
+import {
+  URL_TAB_BAR_CLASS,
+  URL_TAB_LIST_CLASS,
+  URL_TAB_TRIGGER_CLASS,
+  useUrlTab,
+} from "@/lib/use-url-tab";
 import { cn } from "@/lib/utils";
 
 /**
@@ -267,15 +290,164 @@ function tradingCardHref(isin: string): string | null {
   return code === null ? null : `/trading?code=${code}`;
 }
 
+/** D-1 — 탭 순서 · 값 · 라벨 확정값(위 ①). */
+const ME_TABS = [
+  { v: "status", label: "현황" },
+  { v: "accounts", label: "잔고" },
+  { v: "orders", label: "주문" },
+  { v: "settings", label: "설정" },
+] as const;
+
+type MeTabValue = (typeof ME_TABS)[number]["v"];
+
+/** 화이트리스트(T-15-37) — 모듈 상수여야 한다(공용 훅 계약). */
+const ME_TAB_VALUES: readonly MeTabValue[] = ME_TABS.map((t) => t.v);
+
+/**
+ * 패널 — 간격 12 는 D-08a 리듬 · 한 번 연 탭은 숨김으로 유지(T8) · 글자 크기는 body 값(위 ⑦ ⓓ).
+ */
+const ME_PANEL =
+  "flex flex-col gap-[var(--s-3)] pt-[var(--s-3)] text-[length:var(--t-base)] data-[state=inactive]:hidden";
+
+/**
+ * 잔고 탭 라벨 숫자(위 ⑦ ⓑ) — 잔고 탭에 그리는 계좌마다 미체결 수의 합. 각 계좌 패널 「미체결 (N)」 의 합과
+ * 같다(`account-panel` 의 미체결 = `account.unf` 1:1). 목록 밖 계좌의 상태는 세지 않는다 — 그리지 않는 것을 세면
+ * 라벨과 화면이 어긋난다.
+ */
+export function unfilledCountOf(
+  accounts: readonly { accountNo: string }[],
+  accountStates: ReadonlyMap<string, RelayAccountState>,
+): number {
+  let total = 0;
+  for (const acct of accounts) total += accountStates.get(acct.accountNo)?.unf.length ?? 0;
+  return total;
+}
+
+/** 4탭 셸(위 ⑦). `useSearchParams` 를 읽으므로 Suspense 경계 안에서만 렌더한다. */
+function MeTabs() {
+  const { accounts, accountStates, status } = useRelayContext();
+  const tab = useUrlTab(ME_TAB_VALUES, "status");
+  /* null = 주문 탭 미방문(카드 없음) — 숫자를 그리지 않는다. */
+  const [ordersCount, setOrdersCount] = useState<number | null>(null);
+
+  const countOf = (v: MeTabValue): number | null => {
+    if (v === "accounts") return unfilledCountOf(accounts, accountStates);
+    if (v === "orders") return ordersCount;
+    return null;
+  };
+
+  return (
+    <Tabs value={tab.active} onValueChange={tab.select} className="flex-col gap-0">
+      {/* sticky 탭 바 — 클래스 정본은 공용 훅 모듈, 배경만 여기서(라이트 회색 본문면 `--surface` · P-2). */}
+      <div ref={tab.tabBarRef} className={cn(URL_TAB_BAR_CLASS, "bg-[var(--surface)]")}>
+        <TabsList variant="line" aria-label="My page 탭" className={URL_TAB_LIST_CLASS}>
+          {ME_TABS.map((t) => {
+            const count = countOf(t.v);
+            return (
+              <TabsTrigger key={t.v} value={t.v} className={URL_TAB_TRIGGER_CLASS}>
+                {t.label}
+                {count !== null && count > 0 && (
+                  <span data-slot="me-tab-count" className={SECTION_COUNT}>
+                    {count}
+                  </span>
+                )}
+              </TabsTrigger>
+            );
+          })}
+        </TabsList>
+      </div>
+
+      <TabsContent
+        value="status"
+        data-testid="me-tab-panel-status"
+        forceMount={tab.keepMounted("status")}
+        className={ME_PANEL}
+      >
+        <MeStatusBar />
+        <StrategyStatusCard />
+      </TabsContent>
+
+      <TabsContent
+        value="accounts"
+        data-testid="me-tab-panel-accounts"
+        forceMount={tab.keepMounted("accounts")}
+        className={ME_PANEL}
+      >
+        {accounts.length === 0 ? (
+          /*
+            `ready` 이전에는 빈 계좌 목록이 정상이다(`RelayAccount` 주의). 「계좌 없음」이
+            아니라 「아직 모른다」이므로 빈 상태가 아니라 로딩으로 말한다.
+          */
+          <p
+            data-slot="me-accounts-loading"
+            aria-busy="true"
+            className="rounded-[var(--r-lg)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-5)] text-center text-[length:var(--t-sm)] text-[var(--muted-fg)]"
+          >
+            계좌 정보를 불러오는 중이에요…
+          </p>
+        ) : (
+          accounts.map((acct) => (
+            <section
+              key={acct.accountNo}
+              data-slot="me-account-card"
+              data-account-no={acct.accountNo}
+              className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)]"
+            >
+              {/*
+                계좌 전용 모드(`code` 미전달)는 셀렉터·탭이 없고 헤더에 계좌번호를 전체
+                표시한다 — 그 헤더가 곧 C5 의 카드 머리다. 여기서 헤더를 한 벌 더 그리면
+                같은 계좌번호가 두 번 나온다.
+                `stack` — 900 폭 카드에서 ≥1280 2열이면 칸마다 표 영역이 약 419px 로 미체결 439 ·
+                잔고 444 최소폭보다 좁아 두 표가 가로 스크롤된다. 좁은 컨테이너를 호출부가 알려 주는
+                account-panel 의 기존 장치다(위 ④ · quick-260926-o2u).
+              */}
+              <AccountPanel
+                selectedAccountNo={acct.accountNo}
+                accountName={acct.name}
+                account={accountStates.get(acct.accountNo) ?? null}
+                status={status}
+                stack
+                stockHref={tradingCardHref}
+              />
+            </section>
+          ))
+        )}
+      </TabsContent>
+
+      <TabsContent
+        value="orders"
+        data-testid="me-tab-panel-orders"
+        forceMount={tab.keepMounted("orders")}
+        className={ME_PANEL}
+      >
+        {/*
+          계좌 축이 없는 「오늘 낸 주문 전체」(위 ⑤ ⓑ·ⓒ). 이 탭을 처음 열 때 마운트 = 조회 1회.
+        */}
+        <TodayOrdersCard onCountChange={setOrdersCount} />
+      </TabsContent>
+
+      <TabsContent
+        value="settings"
+        data-testid="me-tab-panel-settings"
+        forceMount={tab.keepMounted("settings")}
+        className={ME_PANEL}
+      >
+        {/* Phase 27 D-10 — 상따 기본설정(42/84). DMA 게이트 분기에는 없다. */}
+        <LimitChaserDefaultsSection />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
 export function MeClient() {
   const gateReason = useDmaGateReason();
-  const { accounts, accountStates, status, probeNow } = useRelayContext();
+  const { probeNow } = useRelayContext();
   // D-16 — relay 재탐침. 계좌·잔고·미체결은 relay 푸시라 죽은 소켓만 다시 연다.
   useNativeRefresh(probeNow);
 
   if (gateReason !== null) {
     // D-08 — 계정 카드는 DMA 게이트 화면에서도 보인다. 미매핑 사용자도 로그아웃·테마 전환을
-    // 사이드바 없이(앱 「마이」 탭) 할 수 있어야 한다.
+    // 사이드바 없이(앱 「마이」 탭) 할 수 있어야 한다. 탭은 없다(D-1).
     return (
       <div className={PAGE_WRAP}>
         <AccountCard />
@@ -290,63 +462,15 @@ export function MeClient() {
       {/* 탭 루트라 뒤로가기 없음(quick-260926-o2u D2). */}
       <PageHeader title="My page" description="전략 현황 · 미체결 · 잔고" />
 
-      {/* D-08a — 계정 카드 아래 16 여백 = 컨테이너 gap 12 + mb-1 4. 아래 세로 순서(①)는 불변이다. */}
+      {/* D-08a — 계정 카드 아래 16 여백 = 컨테이너 gap 12 + mb-1 4. 계정 카드는 탭 위 공통(위 ①). */}
       <div className="mb-1">
         <AccountCard />
       </div>
 
-      <MeStatusBar />
-
-      {/* Phase 27 D-10 — 상따 기본설정(42/84). 계정 카드 · 상태줄 아래 · 전략 현황 위. DMA 게이트 분기에는 없다. */}
-      <LimitChaserDefaultsSection />
-
-      <StrategyStatusCard />
-
-      {accounts.length === 0 ? (
-        /*
-          `ready` 이전에는 빈 계좌 목록이 정상이다(`RelayAccount` 주의). 「계좌 없음」이
-          아니라 「아직 모른다」이므로 빈 상태가 아니라 로딩으로 말한다.
-        */
-        <p
-          data-slot="me-accounts-loading"
-          aria-busy="true"
-          className="rounded-[var(--r-lg)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-5)] text-center text-[length:var(--t-sm)] text-[var(--muted-fg)]"
-        >
-          계좌 정보를 불러오는 중이에요…
-        </p>
-      ) : (
-        accounts.map((acct) => (
-          <section
-            key={acct.accountNo}
-            data-slot="me-account-card"
-            data-account-no={acct.accountNo}
-            className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)]"
-          >
-            {/*
-              계좌 전용 모드(`code` 미전달)는 셀렉터·탭이 없고 헤더에 계좌번호를 전체
-              표시한다 — 그 헤더가 곧 C5 의 카드 머리다. 여기서 헤더를 한 벌 더 그리면
-              같은 계좌번호가 두 번 나온다.
-              `stack` — 900 폭 카드에서 ≥1280 2열이면 칸마다 표 영역이 약 419px 로 미체결 439 ·
-              잔고 444 최소폭보다 좁아 두 표가 가로 스크롤된다. 좁은 컨테이너를 호출부가 알려 주는
-              account-panel 의 기존 장치다(위 ④ · quick-260926-o2u).
-            */}
-            <AccountPanel
-              selectedAccountNo={acct.accountNo}
-              accountName={acct.name}
-              account={accountStates.get(acct.accountNo) ?? null}
-              status={status}
-              stack
-              stockHref={tradingCardHref}
-            />
-          </section>
-        ))
-      )}
-
-      {/*
-        세로 순서 계약의 **마지막 칸**(위 ①). 계좌 카드 뒤에 오는 이유는 위 ⑤ ⓑ·ⓒ 에 있다 —
-        계좌 축이 없는 「오늘 낸 주문 전체」라 계좌 카드 안에 들어갈 수 없다.
-      */}
-      <TodayOrdersCard />
+      {/* 위 ⑦ ⓒ — 경계는 탭 영역만. 제목 · 계정 카드는 서버 HTML 에 남는다. 폴백 null(스켈레톤 위장 금지). */}
+      <Suspense fallback={null}>
+        <MeTabs />
+      </Suspense>
     </div>
   );
 }

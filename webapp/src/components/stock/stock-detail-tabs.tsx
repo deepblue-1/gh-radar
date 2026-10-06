@@ -1,10 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  URL_TAB_BAR_CLASS,
+  URL_TAB_LIST_CLASS,
+  URL_TAB_TRIGGER_CLASS,
+  useUrlTab,
+} from '@/lib/use-url-tab';
 import { cn } from '@/lib/utils';
 import { exitNewsView, toNewsView } from './news-view';
 
@@ -23,7 +29,9 @@ import { exitNewsView, toNewsView } from './news-view';
  *      라우터 내비게이션은 RSC 서버 왕복이 끝나야 `?tab=` 이 바뀌어 탭 전환이 지연됐다. Next 15 가
  *      네이티브 pushState 를 검색 파라미터 훅과 동기화하므로 서버 요청 없이 즉시 전환된다.
  *      한 클릭 = 기록 1개는 핸들러의 실시간 URL 가드가 보장한다 (260913-v2e)
+ *      메커니즘 정본은 `lib/use-url-tab.ts`(quick-261006-pey — /me 4탭과 공유)
  *   T4 탭 바 sticky
+ *      메커니즘 정본은 `lib/use-url-tab.ts`(quick-261006-pey — /me 4탭과 공유)
  *   T5 shadcn 공식 `tabs`(Radix) — ←/→ · Home/End 키보드는 Radix 기본 동작 상속
  *   T6 D-31 호가주문 탭 제거 — 주문은 /trading(작업대 카드 · 시간외종가 주문유형 포함 · 21-33). 3탭 모두
  *      `max-w-4xl`. 옛 딥링크 `?tab=orderbook` 은 한 번만 처리한다 — 매매 가능 종목은
@@ -38,6 +46,7 @@ import { exitNewsView, toNewsView } from './news-view';
  *      Radix 기본은 비활성 패널을 언마운트해 재방문마다 섹션이 다시 마운트·재조회되고 스켈레톤이 떴다.
  *      열지 않은 탭은 여전히 마운트하지 않는다(첫 진입 비용 그대로). (옛 `호가주문` 언마운트 예외는 D-31 로
  *      탭과 함께 사라졌다.)
+ *      메커니즘 정본은 `lib/use-url-tab.ts`(quick-261006-pey — /me 4탭과 공유)
  *
  * 하지 않는 것:
  *   - 탭 라벨에 연결 상태 점·배지를 붙이지 않는다 (T4 — 실시간 연결 상태는 /trading 작업대 상태줄이
@@ -58,12 +67,10 @@ type TabValue = (typeof TABS)[number]['v'];
 const DEFAULT_TAB: TabValue = 'chart';
 
 /**
- * T-15-37 (Tampering) — `?tab=` 은 사용자 제어 입력이다.
- * 화이트리스트 밖의 임의 문자열은 렌더 경로에 들어가지 못하고 전부 기본 탭으로 떨어진다.
+ * T-15-37 화이트리스트 — `useUrlTab` 이 이 목록 밖 값을 기본 탭으로 떨어뜨린다. 모듈 상수여야 한다
+ * (매 렌더 새 배열이면 훅의 parse · select 가 매번 바뀐다).
  */
-function toTabValue(raw: string | null): TabValue {
-  return TABS.some((t) => t.v === raw) ? (raw as TabValue) : DEFAULT_TAB;
-}
+const STOCK_TAB_VALUES: readonly TabValue[] = TABS.map((t) => t.v);
 
 /** D-31 · T6 옛 딥링크 값 — 허용 목록 밖(렌더는 차트)이고, 진입 때 한 번 /trading 또는 차트로 옮긴다. */
 const LEGACY_ORDERBOOK_TAB = 'orderbook';
@@ -96,18 +103,8 @@ export function StockDetailTabs({
 }: StockDetailTabsProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const tabBarRef = useRef<HTMLDivElement>(null);
-
-  // 딥링크 진입도 이 한 줄로 처리된다 — URL 이 단일 진실이라 별도 초기 state 가 없다.
-  const active = toTabValue(searchParams.get('tab'));
-
-  // T8 — 한 번이라도 활성이었던 탭. 클릭·뒤로가기·딥링크 어느 경로로 바뀌어도 `active` 에서
-  // 파생되므로 렌더 중에 갱신한다(이전 렌더 값에서 파생되는 state — effect 로 한 박자 늦추지 않음).
-  const [visited, setVisited] = useState<ReadonlySet<TabValue>>(
-    () => new Set([active]),
-  );
-  if (!visited.has(active)) setVisited(new Set(visited).add(active));
-  const keepMounted = (v: TabValue): true | undefined => (visited.has(v) ? true : undefined);
+  // T3 · T8 · T-15-37 — `?tab=` 파싱 · 방문 유지 · 가드 + pushState + 탭 바 스크롤은 공용 훅이 소유한다.
+  const tab = useUrlTab(STOCK_TAB_VALUES, DEFAULT_TAB);
 
   // D-31 · T6 — 옛 호가주문 딥링크(`?tab=orderbook` — 북마크 · 외부 링크)를 한 번만 옮긴다. ref 가드라 StrictMode
   // 이중 실행에도 한 번이다. 매매 가능 = 그 종목 카드 착지(replace — 뒤로가기가 없는 탭으로 돌아오지 않게),
@@ -124,36 +121,23 @@ export function StockDetailTabs({
     }
   }, [legacyOrderbook, tradable, code, router]);
 
+  const { parse, select } = tab;
   const handleValueChange = useCallback(
     (next: string) => {
-      const value = toTabValue(next);
       const live = new URLSearchParams(window.location.search);
-      // T9 — 전체목록을 보는 중 활성 뉴스토론 탭 재클릭 = 요약(가드로 버리지 않는다).
+      // T9 — 전체목록을 보는 중 활성 뉴스토론 탭 재클릭 = 요약(가드로 버리지 않는다). 이 판정은 공용 훅의
+      // 같은 탭 가드보다 **먼저** 와야 한다 — 가드가 먼저면 재클릭이 no-op 으로 삼켜진다.
       if (
-        value === 'news' &&
-        toTabValue(live.get('tab')) === 'news' &&
+        parse(next) === 'news' &&
+        parse(live.get('tab')) === 'news' &&
         toNewsView(live.get('view')) !== null
       ) {
         exitNewsView(code);
         return;
       }
-      // 한 클릭 = 기록 1개 가드. Radix TabsTrigger 는 mousedown 과 focus(자동 활성화) 두 곳에서
-      // onValueChange 를 부른다(Chrome·안드로이드는 mousedown 에 포커스한다). 종전 라우터
-      // 내비게이션은 Next 가 같은 URL 푸시를 합쳐 줬지만 네이티브 pushState 는 기록을 2개 남겨
-      // 뒤로가기를 두 번 눌러야 이전 탭으로 간다(T3 위반). 렌더 클로저의 `active` 는 Next 의
-      // transition 반영 전이라 낡아 있으므로, 동기로 바뀌는 실시간 URL 로 거른다 (260913-v2e).
-      if (toTabValue(live.get('tab')) === value) {
-        return;
-      }
-      // T3 — `replace` 가 아니라 push 계열. 브라우저 뒤로가기가 이전 탭으로 돌아가야 한다.
-      // 라우터 내비게이션은 RSC 서버 왕복이 끝나야 `?tab=` 이 바뀌어 탭 전환이 지연됐다.
-      // Next 15 는 네이티브 pushState 를 검색 파라미터 훅과 동기화하므로 서버 요청 없이
-      // 즉시 전환된다. 쿼리만 쓰는 상대 URL 이라 pathname 은 유지된다 (260913-v2e).
-      window.history.pushState(null, '', `?tab=${value}`);
-      // 탭 바 바로 아래가 보이도록 스크롤(히어로는 지나간 상태). 탭별 스크롤 복원은 없다.
-      tabBarRef.current?.scrollIntoView({ block: 'start' });
+      select(next);
     },
-    [code],
+    [code, parse, select],
   );
 
   // B · D-30 — 폰 하단 고정 「트레이딩」 CTA 는 매매 가능 종목에서만 그린다(모든 탭 공통 — D-31 로 CTA 를
@@ -163,7 +147,7 @@ export function StockDetailTabs({
 
   return (
     <Tabs
-      value={active}
+      value={tab.active}
       onValueChange={handleValueChange}
       data-stock-code={code}
       data-order-cta={showOrderCta ? 'true' : undefined}
@@ -175,16 +159,14 @@ export function StockDetailTabs({
         (8px · 768↑ 16px · 1024↑ 24px)을 가로질러 바가 스크롤 폭을 꽉 채우게 한다 — 없으면 스크롤된
         콘텐츠가 바 좌우로 비쳐 보인다. ★ 상쇄 값이 본문 패딩과 **같은 브레이크포인트로 갈려야**
         한다. 한쪽만 고치면 바가 좌우로 삐져나가거나 덜 퍼진다(260924-vj1 전에는 md 단계가 빠져
-        768~1023 에서 바가 8px 덜 퍼졌다).
+        768~1023 에서 바가 8px 덜 퍼졌다). 클래스 정본은 `lib/use-url-tab.ts` `URL_TAB_BAR_CLASS` — 배경만 여기서
+        붙인다(P-2 · plain 면 `--bg`).
       */}
-      <div
-        ref={tabBarRef}
-        className="sticky top-0 z-20 -mx-2 border-b border-[var(--border-subtle)] bg-[var(--bg)] px-2 md:-mx-4 md:px-4 lg:-mx-6 lg:px-6"
-      >
+      <div ref={tab.tabBarRef} className={cn(URL_TAB_BAR_CLASS, 'bg-[var(--bg)]')}>
         <TabsList
           variant="line"
           aria-label="종목 정보 탭"
-          className="mx-auto h-auto w-full max-w-4xl justify-start gap-0 overflow-x-auto rounded-none bg-transparent p-0 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className={cn('mx-auto max-w-4xl', URL_TAB_LIST_CLASS)}
         >
           {TABS.map((t) => (
             <TabsTrigger
@@ -193,7 +175,7 @@ export function StockDetailTabs({
               // T9 — 활성 탭 재클릭은 Radix 가 삼킨다. 같은 핸들러로 넘겨 가드·재클릭 규칙을 한곳에 둔다
               // (다른 탭 클릭은 mousedown 이 이미 전환했으므로 여기서는 실시간 URL 가드에 걸려 no-op).
               onClick={() => handleValueChange(t.v)}
-              className="h-[50px] flex-none rounded-none border-b-2 border-transparent px-3 text-[17px] font-semibold text-[var(--muted-fg)] shadow-none after:hidden hover:text-[var(--fg)] data-[state=active]:border-b-[var(--nav-on-line)] data-[state=active]:bg-transparent data-[state=active]:text-[var(--nav-on-fg)] data-[state=active]:shadow-none"
+              className={URL_TAB_TRIGGER_CLASS}
             >
               {t.label}
             </TabsTrigger>
@@ -204,7 +186,7 @@ export function StockDetailTabs({
       <TabsContent
         value="chart"
         data-testid="stock-tab-panel-chart"
-        forceMount={keepMounted('chart')}
+        forceMount={tab.keepMounted('chart')}
         className={NARROW_PANEL}
       >
         {chart}
@@ -213,7 +195,7 @@ export function StockDetailTabs({
       <TabsContent
         value="info"
         data-testid="stock-tab-panel-info"
-        forceMount={keepMounted('info')}
+        forceMount={tab.keepMounted('info')}
         className={NARROW_PANEL}
       >
         {info}
@@ -222,7 +204,7 @@ export function StockDetailTabs({
       <TabsContent
         value="news"
         data-testid="stock-tab-panel-news"
-        forceMount={keepMounted('news')}
+        forceMount={tab.keepMounted('news')}
         className={NARROW_PANEL}
       >
         {news}

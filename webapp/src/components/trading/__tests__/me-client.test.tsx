@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { RelayAccountState } from '@gh-radar/shared';
@@ -7,7 +7,7 @@ import type { StrategyLogEntry } from '@/components/trading/strategy-log';
 import { EMPTY_RELAY_VALUE, type RelayContextValue } from '@/lib/relay-provider';
 import { makeLimitChaser } from '@/test-fixtures/limit-chaser';
 
-import { formatServerTime, latestAccountTime, MeClient } from '../me-client';
+import { formatServerTime, latestAccountTime, MeClient, unfilledCountOf } from '../me-client';
 
 /*
   Phase 21 Plan 32 Task 3 — /me 전 종목 전략 로그 (D-25a · 스케치 008 ① B) 렌더 테스트용 스텁.
@@ -17,10 +17,16 @@ import { formatServerTime, latestAccountTime, MeClient } from '../me-client';
 let mockRelay: RelayContextValue;
 let mockGate: 'unauthenticated' | 'unmapped' | null;
 let mockFeed: readonly StrategyLogEntry[];
+/* quick-261006-pey D-1 — `?tab=` 은 공용 훅이 읽는다. 목은 URL 을 따라가지 않으므로 활성값 변화는 rerender 로 흉내 낸다. */
+let mockSearchParams = new URLSearchParams();
+/* 오늘 주문 목 — 마운트 횟수(조회 1회 = 마운트 1회)와 건수 콜백으로 올릴 값. */
+let mockOrdersMounts = 0;
+let mockOrdersCount = 0;
 
 vi.mock('next/navigation', () => ({
   usePathname: () => '/me',
   useRouter: () => ({ back: vi.fn(), push: vi.fn() }),
+  useSearchParams: () => mockSearchParams,
 }));
 vi.mock('@/lib/relay-provider', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/relay-provider')>();
@@ -33,7 +39,20 @@ vi.mock('@/components/trading/dma-gate', () => ({
 vi.mock('@/lib/strategy-log-feed', () => ({ useStrategyLogFeed: () => mockFeed }));
 vi.mock('@/lib/native/use-native-refresh', () => ({ useNativeRefresh: () => {} }));
 vi.mock('@/components/me/account-card', () => ({ AccountCard: () => null }));
-vi.mock('@/components/trading/today-orders-card', () => ({ TodayOrdersCard: () => null }));
+vi.mock('@/components/trading/today-orders-card', async () => {
+  const { useEffect } = await import('react');
+  return {
+    TodayOrdersCard: ({ onCountChange }: { onCountChange?: (count: number) => void }) => {
+      useEffect(() => {
+        mockOrdersMounts += 1;
+        onCountChange?.(mockOrdersCount);
+        // 마운트 1회만 — 실물도 조회는 마운트 시 1회다.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, []);
+      return <div data-slot="today-orders-card" />;
+    },
+  };
+});
 vi.mock('@/components/orderbook/account-panel', () => ({ AccountPanel: () => null }));
 
 /**
@@ -56,6 +75,13 @@ function acct(accountNo: string, st: string): RelayAccountState {
 function states(...entries: readonly RelayAccountState[]): ReadonlyMap<string, RelayAccountState> {
   return new Map(entries.map((e) => [e.a, e]));
 }
+
+beforeEach(() => {
+  mockSearchParams = new URLSearchParams();
+  mockOrdersMounts = 0;
+  mockOrdersCount = 0;
+  window.history.replaceState(null, '', '/me');
+});
 
 describe('formatServerTime — 표시 정규화 (변경 없음)', () => {
   it('두 포맷을 `HH:MM:SS` 로 읽고, 모르는 모양은 지어내지 않는다', () => {
@@ -252,27 +278,152 @@ describe('MeStatusBar — 시세 필 (D-01 · D-04)', () => {
   });
 });
 
-describe('Phase 27 /me 상따 기본설정 배치 (D-10)', () => {
+describe('261006-pey /me 4탭 (D-1)', () => {
   beforeEach(() => {
     mockRelay = { ...EMPTY_RELAY_VALUE, status: 'ready' } as RelayContextValue;
     mockGate = null;
     mockFeed = [];
   });
-
-  it('본문 순서 = 상태줄 → 상따 기본설정 → 전략 현황', () => {
-    render(<MeClient />);
-    const bar = document.querySelector('[data-slot="me-status-bar"]') as HTMLElement;
-    const defaults = document.querySelector('[data-slot="me-lc-defaults"]') as HTMLElement;
-    const status = document.querySelector('[data-slot="strategy-status-card"]') as HTMLElement;
-    expect(defaults).not.toBeNull();
-    expect(bar.compareDocumentPosition(defaults) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(defaults.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
-  it('DMA 게이트 분기에는 상따 기본설정 섹션이 없다', () => {
+  const slot = (name: string) => document.querySelector(`[data-slot="${name}"]`);
+  const slots = (name: string) => document.querySelectorAll(`[data-slot="${name}"]`);
+  const meTabList = () => screen.getByRole('tablist', { name: 'My page 탭' });
+  const meTab = (label: string) => within(meTabList()).getByRole('tab', { name: new RegExp(`^${label}`) });
+  const countOf = (label: string) => meTab(label).querySelector('[data-slot="me-tab-count"]');
+
+  function unfAcct(accountNo: string, n: number): RelayAccountState {
+    return {
+      t: 'acct',
+      a: accountNo,
+      snap: true,
+      hold: [],
+      unf: Array.from({ length: n }, () => ({})) as RelayAccountState['unf'],
+      rm: [],
+      st: '',
+    };
+  }
+
+  it('B1 — 기본 렌더: 탭 순서 현황·잔고·주문·설정 · 현황 선택 · 미방문 패널 비마운트 · 오늘 주문 마운트 0', () => {
+    render(<MeClient />);
+    const names = within(meTabList()).getAllByRole('tab').map((t) => t.textContent);
+    expect(names).toEqual(['현황', '잔고', '주문', '설정']);
+    expect(meTab('현황')).toHaveAttribute('aria-selected', 'true');
+
+    const statusPanel = screen.getByTestId('me-tab-panel-status');
+    expect(statusPanel.querySelector('[data-slot="me-status-bar"]')).not.toBeNull();
+    expect(statusPanel.querySelector('[data-slot="strategy-status-card"]')).not.toBeNull();
+
+    expect(slot('me-account-card')).toBeNull();
+    expect(slot('me-accounts-loading')).toBeNull();
+    expect(slot('today-orders-card')).toBeNull();
+    expect(slot('me-lc-defaults')).toBeNull();
+    expect(mockOrdersMounts).toBe(0);
+  });
+
+  it('B2 — `?tab=settings` 딥링크 = 설정 · 화이트리스트 밖(`?tab=zzz`) = 현황', () => {
+    mockSearchParams = new URLSearchParams('tab=settings');
+    const view = render(<MeClient />);
+    expect(meTab('설정')).toHaveAttribute('aria-selected', 'true');
+    expect(slot('me-lc-defaults')).not.toBeNull();
+    expect(slot('me-status-bar')).toBeNull();
+    view.unmount();
+
+    mockSearchParams = new URLSearchParams('tab=zzz');
+    render(<MeClient />);
+    expect(meTab('현황')).toHaveAttribute('aria-selected', 'true');
+    expect(slot('me-status-bar')).not.toBeNull();
+  });
+
+  it('B3 — 잔고 탭 클릭 = pushState 정확히 1회(?tab=accounts) · 같은 탭 재클릭은 추가 0회', async () => {
+    const pushSpy = vi.spyOn(window.history, 'pushState');
+    const user = userEvent.setup();
+    render(<MeClient />);
+
+    await user.click(meTab('잔고'));
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+    expect(pushSpy).toHaveBeenCalledWith(null, '', '?tab=accounts');
+    expect(window.location.pathname).toBe('/me');
+
+    await user.click(meTab('잔고'));
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('B4 — 잔고 탭: 계좌 순서대로 카드 · 라벨 숫자 = 미체결 합 / 계좌 0개 = 로딩 문구 / 합 0 = 숫자 없음', () => {
+    mockSearchParams = new URLSearchParams('tab=accounts');
+    mockRelay = {
+      ...EMPTY_RELAY_VALUE,
+      status: 'ready',
+      accounts: [
+        { accountNo: '1111111101', name: 'A' },
+        { accountNo: '2222222201', name: 'B' },
+      ],
+      accountStates: new Map([
+        ['1111111101', unfAcct('1111111101', 2)],
+        ['2222222201', unfAcct('2222222201', 1)],
+      ]),
+    } as unknown as RelayContextValue;
+    const view = render(<MeClient />);
+    const cards = Array.from(slots('me-account-card')).map((c) => c.getAttribute('data-account-no'));
+    expect(cards).toEqual(['1111111101', '2222222201']);
+    expect(countOf('잔고')).toHaveTextContent('3');
+    view.unmount();
+
+    mockRelay = { ...EMPTY_RELAY_VALUE, status: 'ready' } as RelayContextValue;
+    const empty = render(<MeClient />);
+    expect(slot('me-accounts-loading')).toHaveTextContent('계좌 정보를 불러오는 중이에요…');
+    expect(countOf('잔고')).toBeNull();
+    empty.unmount();
+
+    mockRelay = {
+      ...EMPTY_RELAY_VALUE,
+      status: 'ready',
+      accounts: [{ accountNo: '1111111101', name: 'A' }],
+      accountStates: new Map([['1111111101', unfAcct('1111111101', 0)]]),
+    } as unknown as RelayContextValue;
+    render(<MeClient />);
+    expect(countOf('잔고')).toBeNull();
+
+    // 목록 밖 계좌의 상태는 세지 않는다(그리지 않는 것을 세면 라벨과 화면이 어긋난다).
+    expect(
+      unfilledCountOf(
+        [{ accountNo: 'A' }],
+        new Map([
+          ['A', unfAcct('A', 2)],
+          ['Z', unfAcct('Z', 5)],
+        ]),
+      ),
+    ).toBe(2);
+    expect(unfilledCountOf([{ accountNo: 'A' }, { accountNo: 'B' }], new Map([['A', unfAcct('A', 1)]]))).toBe(1);
+  });
+
+  it('B5 — 주문 탭: 미방문 숫자 없음 · 열면 카드 「N건」 수 · 마운트 1회 · 다른 탭으로 가도 숨김으로 유지', () => {
+    const first = render(<MeClient />);
+    expect(countOf('주문')).toBeNull();
+    first.unmount();
+
+    mockOrdersCount = 7;
+    mockSearchParams = new URLSearchParams('tab=orders');
+    const view = render(<MeClient />);
+    expect(countOf('주문')).toHaveTextContent('7');
+    expect(mockOrdersMounts).toBe(1);
+
+    mockSearchParams = new URLSearchParams('tab=status');
+    view.rerender(<MeClient />);
+    expect(meTab('현황')).toHaveAttribute('aria-selected', 'true');
+    expect(slot('today-orders-card')).not.toBeNull();
+    expect(screen.getByTestId('me-tab-panel-orders')).toHaveAttribute('data-state', 'inactive');
+    expect(mockOrdersMounts).toBe(1);
+    expect(countOf('주문')).toHaveTextContent('7');
+  });
+
+  it('B6 — DMA 게이트(미매핑) 분기에는 탭도 상따 기본설정도 없다', () => {
     mockGate = 'unmapped';
     render(<MeClient />);
-    expect(document.querySelector('[data-slot="dma-gate"]')).not.toBeNull();
-    expect(document.querySelector('[data-slot="me-lc-defaults"]')).toBeNull();
+    expect(slot('dma-gate')).not.toBeNull();
+    expect(screen.queryByRole('tablist', { name: 'My page 탭' })).toBeNull();
+    expect(slot('me-lc-defaults')).toBeNull();
   });
 });
