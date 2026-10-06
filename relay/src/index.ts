@@ -7,7 +7,7 @@
  * 포트 2개 (D-05):
  *   :8090 `WS_PORT`        평문 ws. TLS 는 **Caddy 가 종단**하고 여기로 평문을 넘긴다 —
  *                          이 프로세스는 인증서를 다루지 않는다. 경로는 `/ws`(15-04 계약).
- *   :8091 `ORDER_API_PORT` 내부 HTTP. **`/healthz` 하나뿐**이다 (16-16). 방화벽
+ *   :8091 `ORDER_API_PORT` 내부 HTTP. **`/healthz` + Admin 내부 경로(`/internal/admin/*` · Phase 29-11)** 다 (16-16 · D-07). 방화벽
  *                          source-range + `X-Relay-Secret` 이중 방어를 유지한다 (D-19/D-22).
  *
  * 결정 근거:
@@ -90,6 +90,9 @@ import { WsFanout } from "./ws/fanout.js";
 import { AppAccess } from "./access/app-access.js";
 import { createAccessCredentials } from "./store/credentials.js";
 import { createOrderApi } from "./order/order-api.js";
+import { AdminIntentStore } from "./admin/intent-store.js";
+import { AdminDispatcher } from "./admin/dispatcher.js";
+import { createAdminRouter } from "./admin/admin-api.js";
 import type { JournalAccessView } from "./journal/types.js";
 import { QuoteFeed } from "./quote/feed.js";
 import { QuoteStatus } from "./quote/status.js";
@@ -298,12 +301,30 @@ function wirePipeline(p: ServerPipeline): void {
 wsServer.on("upgrade", (req, socket, head) => fanout.handleUpgrade(req, socket, head));
 
 /**
- * 내부 HTTP 표면 — **`/healthz` + 공유 비밀 관문뿐**이다 (D-02).
+ * 내부 HTTP 표면 — **`/healthz` + 공유 비밀 관문 + Admin 내부 경로(Phase 29-11)** 다 (D-02 · D-07).
  *
  * REST 주문 라우트는 16-16 에서 제거했다. 주문 접수는 위 `WsFanout` 의 wss 분기 하나로
  * 나간다 — 여기에 주문 의존성을 다시 넘기면 지운 경로가 되살아난다.
  * `relayOrderSecret` 은 관문이 계속 쓰므로 required 그대로다 (CONTEXT deferred).
  */
+/**
+ * Admin 반영 경로 (Phase 29-11 · D-07) — Express 가 `/internal/admin/*` 로 부른다. 의도 RPC(`AdminIntentStore`) → 서버별
+ * admin 연결(`pipelines.get(key).admin`) → 서버별 결과 배열. 비밀번호 암호화(AAD = dma_user_id · D-19)는 relay 안에서만.
+ */
+const adminStore = new AdminIntentStore({ supabase });
+const adminDispatcher = new AdminDispatcher({
+  store: adminStore,
+  pipelines,
+  registry,
+  credKey: config.dmaCredKey,
+});
+const adminRouter = createAdminRouter({
+  store: adminStore,
+  dispatcher: adminDispatcher,
+  registry,
+  credKey: config.dmaCredKey,
+});
+
 const orderApi = createOrderApi({
   relayOrderSecret: config.relayOrderSecret,
   // `/healthz` 의 회선 판정 기준 — 이 주소와 같은 사내망 대역의 인터페이스가 있는지만 본다. 요청마다 KB 주문 서버 host.
@@ -334,6 +355,8 @@ const orderApi = createOrderApi({
   quote: quoteStatus,
   // Phase 29-08 — 서버별 admin 연결(role 2) 상태 · users_rev. 본문 전용(503 판정 밖) · 요청마다 현재 enabled 서버 목록.
   adminConns: () => pipelines.all().map((p) => ({ serverKey: p.server.key, health: () => p.admin.health() })),
+  // Phase 29-11 — Admin 내부 HTTP(관문 뒤 · 404 앞). Express 만 부른다(D-07).
+  admin: { router: adminRouter },
 });
 const orderApiServer = http.createServer(orderApi);
 

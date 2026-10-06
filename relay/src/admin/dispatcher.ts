@@ -1,0 +1,247 @@
+/**
+ * Phase 29 Plan 11 — ADMIN-05 · D-07. Admin 반영 디스패처 (`AdminDispatcher`) — 의도 → 서버별 op → 86 → 서버별 결과.
+ *
+ * 흐름(유저 1명 · 「다시 반영」 과 생성 · 계좌 변경이 같은 길):
+ *   의도(`dma_admin_intent`) → 등록 서버 키 집합 → **서버마다 병렬로**
+ *     레지스트리에서 꺼진 · 없는 서버 → `skipped`
+ *     admin 연결 없음 · 87 미수신(`currentSnapshot()` null) → `offline`(서버 상태를 모르고 쓰지 않는다)
+ *     `planServerOps`(29-04 · shared `diffServerAccounts` 한 벌) → op 를 **순서대로** `command()` → `interpretAdminResult`
+ *       첫 실패(failed · timeout · offline)에서 그 서버만 멈춘다 — 다른 서버 결과에 번지지 않는다(D-07 · D-23 ④)
+ *     settle(D-23 ⑤) — op 4 가 ok(0 · 8 = 이미 없음)인 계좌 · 87 에 이미 없는 removing 계좌 · op 2 ok(0 · 4)면 그 서버 행 전부
+ *   → 서버별 결과 배열(레지스트리 순) → `dma_admin_record_results`
+ *
+ * 하지 않는 것:
+ *   - **87 에만 있는 계좌 · 유저를 지우는 op 를 만들지 않는다**(D-23 ⑤ · D-16) — op 는 전부 planner 가 의도 행에서만 만든다.
+ *     DB 등록 서버가 아닌 서버에는 아무것도 보내지 않는다.
+ *   - 평문 비밀번호를 저장 · 로그 · 응답에 남기지 않는다. op 1 직전에만 인자 평문 또는 `dma_users` 암호문 복호(AAD = dmaUserId,
+ *     D-19)로 꺼내 44 에 싣는다. dmaUserId · 계좌번호도 로그 인자에 없다(서버 키 · op · code 까지만).
+ *   - 같은 DMA 유저의 반영은 relay 안에서 줄 세운다(`#serial`) — 두 Admin 요청의 op 가 한 서버에서 섞이지 않게.
+ */
+import {
+  interpretAdminResult,
+  type AdminIntentRow,
+  type AdminServerResult,
+} from "@gh-radar/shared";
+
+import { logger } from "../logger.js";
+import type { DmaServerRow } from "../registry/registry.js";
+import { decryptDmaPassword } from "../store/credentials.js";
+import type { AdminConn } from "./admin-conn.js";
+import type { AdminIntentStore } from "./intent-store.js";
+import { planServerOps, type AdminSnapshotView, type PlannedOp, type ServerPlan } from "./planner.js";
+
+/** dispatcher 가 쓰는 admin 연결 표면 — 테스트가 대역을 넣을 수 있게 좁힌다. */
+export type AdminConnLike = Pick<AdminConn, "currentSnapshot" | "command">;
+
+/** 44 입력(요청 id 는 연결이 붙인다). */
+type CommandInput = Parameters<AdminConn["command"]>[0];
+
+export type AdminDispatcherDeps = {
+  store: Pick<
+    AdminIntentStore,
+    | "intent"
+    | "recordResults"
+    | "settleServer"
+    | "passwordEncOf"
+    | "setPassword"
+    | "deleteDmaUser"
+    | "legacyCredentialUserIds"
+    | "updateLegacyCredential"
+  >;
+  /** 서버 키 → 그 서버 파이프라인의 admin 연결(`ServerPipelines.get`). */
+  pipelines: { get(key: string): { admin: AdminConnLike } | undefined };
+  registry: { get(key: string): DmaServerRow | undefined; all(): DmaServerRow[] };
+  /** `DMA_CRED_KEY` — relay 에만 있다(D-19). */
+  credKey: string;
+};
+
+/** op 1 비밀번호 공급자 — 필요할 때 한 번만 꺼낸다(인자 평문 또는 `dma_users` 복호). */
+type PasswordSource = () => Promise<string>;
+
+/** 비밀번호를 꺼내지 못했다 — 그 서버 op 1 은 보내지 않고 실패 칩으로 남긴다. */
+const PASSWORD_UNAVAILABLE = "저장된 비밀번호를 읽지 못했습니다 — 비밀번호를 다시 설정하세요";
+
+export class AdminDispatcher {
+  readonly #deps: AdminDispatcherDeps;
+  /** DMA 유저별 진행 꼬리 — 같은 유저의 반영을 줄 세운다. */
+  readonly #chains = new Map<string, Promise<unknown>>();
+
+  constructor(deps: AdminDispatcherDeps) {
+    this.#deps = deps;
+  }
+
+  /**
+   * 의도 전체를 서버에 맞춘다 — 생성 · 계좌 put/remove · 「다시 반영」 공통. 의도와 87 이 같으면 44 0건 · 전 서버 ok.
+   * `password` 를 주면(생성 직후) op 1 에 그 평문을 쓰고, 없으면 `dma_users` 암호문을 복호한다.
+   * `adminEmail` 은 감사 문맥 — 감사 로그 1줄은 라우터가 남긴다.
+   */
+  reconcileUser(dmaUserId: string, opts: { password?: string; adminEmail: string }): Promise<AdminServerResult[]> {
+    return this.#serial(dmaUserId, async () => {
+      const intent = await this.#deps.store.intent(dmaUserId);
+      const password = this.#passwordSource(dmaUserId, opts.password);
+      const results = await this.#fanOut(this.#serverKeysOf(intent), (serverKey) =>
+        this.#applyServer(dmaUserId, serverKey, (snapshot) => planServerOps({ dmaUserId, serverKey, intent, snapshot }), password),
+      );
+      await this.#record(dmaUserId, results);
+      return results;
+    });
+  }
+
+  // ----------------------------------------------------------
+  // 서버 1대
+  // ----------------------------------------------------------
+
+  /**
+   * 서버 1대에 계획을 보내고 결과 1개를 만든다. op 는 순서대로 · 첫 실패에서 멈춘다. 이미 반영된 제거는 실패가 나도 settle 한다.
+   */
+  async #applyServer(
+    dmaUserId: string,
+    serverKey: string,
+    plan: (snapshot: AdminSnapshotView) => ServerPlan,
+    password: PasswordSource,
+  ): Promise<AdminServerResult> {
+    const row = this.#deps.registry.get(serverKey);
+    if (row === undefined || !row.enabled) return { server: serverKey, outcome: "skipped" };
+    const admin = this.#deps.pipelines.get(serverKey)?.admin;
+    const snapshot = admin?.currentSnapshot() ?? null;
+    if (admin === undefined || snapshot === null) return { server: serverKey, outcome: "offline" };
+    const p = plan(snapshot);
+    if (p.status === "no-snapshot") return { server: serverKey, outcome: "offline" };
+
+    let usersRev = snapshot.usersRev.toString();
+    const removed = [...p.settleRemoved];
+    let userRemoved = false;
+    let failure: AdminServerResult | null = null;
+
+    for (const op of p.ops) {
+      let input: CommandInput;
+      try {
+        input = await this.#toCommand(dmaUserId, op, password);
+      } catch (err) {
+        logger.error(
+          { server: serverKey, op: op.op, reason: err instanceof Error ? err.name : "unknown" },
+          "[admin] op 1 비밀번호를 꺼내지 못했다 — 그 서버는 실패로 남긴다",
+        );
+        failure = { server: serverKey, outcome: "failed", message: PASSWORD_UNAVAILABLE };
+        break;
+      }
+      const outcome = await admin.command(input);
+      if (outcome.kind !== "result") {
+        failure = { server: serverKey, outcome: outcome.kind };
+        break;
+      }
+      const r = outcome.result;
+      usersRev = r.usersRev.toString();
+      if (interpretAdminResult(op.op, r.code) === "failed") {
+        failure = { server: serverKey, outcome: "failed", code: r.code, message: r.message, usersRev };
+        break;
+      }
+      if (op.op === 4) removed.push(op.accountNo);
+      if (op.op === 2) userRemoved = true;
+    }
+
+    if (removed.length > 0 || userRemoved) await this.#settle(dmaUserId, serverKey, removed, userRemoved);
+    return failure ?? { server: serverKey, outcome: "ok", usersRev };
+  }
+
+  /** settle 실패는 응답을 실패로 바꾸지 않는다 — 서버는 이미 반영됐고, 다음 「다시 반영」 이 87 에 없음을 보고 다시 settle 한다. */
+  async #settle(dmaUserId: string, serverKey: string, removed: string[], userRemoved: boolean): Promise<void> {
+    try {
+      await this.#deps.store.settleServer(dmaUserId, serverKey, removed, userRemoved);
+    } catch (err) {
+      logger.error(
+        { server: serverKey, removed: removed.length, userRemoved, reason: err instanceof Error ? err.name : "unknown" },
+        "[admin] settle 실패 — 의도 행이 removing 으로 남는다(다음 다시 반영이 정리)",
+      );
+    }
+  }
+
+  async #toCommand(dmaUserId: string, op: PlannedOp, password: PasswordSource): Promise<CommandInput> {
+    switch (op.op) {
+      case 1:
+        return "passwordOnly" in op
+          ? { op: 1, userId: dmaUserId, password: await password() }
+          : { op: 1, userId: dmaUserId, password: await password(), account: { ...op.account } };
+      case 2:
+        return { op: 2, userId: dmaUserId };
+      case 3:
+        return { op: 3, userId: dmaUserId, account: { ...op.account } };
+      case 4:
+        // op 4 는 account_no 만 본다(StockDMA.fbs) — 나머지 칸은 빈 값.
+        return { op: 4, userId: dmaUserId, account: { accountNo: op.accountNo, name: "", branchNo: "", traderId: "", priority: 0 } };
+    }
+  }
+
+  // ----------------------------------------------------------
+  // 공통
+  // ----------------------------------------------------------
+
+  /** 서버마다 병렬 — 결과는 레지스트리 순(없는 키는 뒤 · 키 순). */
+  async #fanOut(
+    serverKeys: string[],
+    run: (serverKey: string) => Promise<AdminServerResult>,
+  ): Promise<AdminServerResult[]> {
+    const results = await Promise.all(serverKeys.map((k) => run(k)));
+    const order = new Map(this.#deps.registry.all().map((r, i) => [r.key, i] as const));
+    const rank = (k: string): number => order.get(k) ?? Number.MAX_SAFE_INTEGER;
+    return results.sort((a, b) => rank(a.server) - rank(b.server) || (a.server < b.server ? -1 : a.server > b.server ? 1 : 0));
+  }
+
+  /** 의도 행의 등록 서버 키(중복 없음). DB 등록 서버만 — 87 에만 그 유저가 있는 서버는 대상이 아니다(D-23 ⑤). */
+  #serverKeysOf(intent: readonly AdminIntentRow[]): string[] {
+    return [...new Set(intent.map((r) => r.serverKey))];
+  }
+
+  #passwordSource(dmaUserId: string, plain: string | undefined): PasswordSource {
+    let cached: Promise<string> | null = null;
+    return () => {
+      if (cached === null) {
+        cached =
+          plain !== undefined
+            ? Promise.resolve(plain)
+            : this.#deps.store.passwordEncOf(dmaUserId).then((enc) => {
+                if (enc === null) throw new Error("dma_users 행 없음");
+                // AAD = dmaUserId(D-19). 옛 형식 · 변조면 여기서 throw — 틀린 비밀번호를 서버에 싣지 않는다.
+                return decryptDmaPassword(enc, dmaUserId, this.#deps.credKey);
+              });
+      }
+      return cached;
+    };
+  }
+
+  /** 결과 기록 실패는 응답을 막지 않는다 — 칩은 다음 기록 · 87 대조로 맞춰진다. */
+  async #record(dmaUserId: string, results: readonly AdminServerResult[]): Promise<void> {
+    if (results.length === 0) return;
+    try {
+      await this.#deps.store.recordResults(
+        dmaUserId,
+        results.map((r) => ({
+          server: r.server,
+          outcome: r.outcome,
+          ...(r.code !== undefined ? { code: r.code } : {}),
+          ...(r.message !== undefined ? { message: r.message } : {}),
+        })),
+      );
+    } catch (err) {
+      logger.error(
+        { servers: results.length, reason: err instanceof Error ? err.name : "unknown" },
+        "[admin] 결과 기록 실패 — 응답은 그대로 돌려준다",
+      );
+    }
+  }
+
+  /** 같은 DMA 유저의 작업을 앞 작업 뒤로 줄 세운다(앞 작업의 실패와 무관). */
+  #serial<T>(dmaUserId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.#chains.get(dmaUserId) ?? Promise.resolve();
+    const run = prev.then(fn, fn);
+    const tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.#chains.set(dmaUserId, tail);
+    void tail.then(() => {
+      if (this.#chains.get(dmaUserId) === tail) this.#chains.delete(dmaUserId);
+    });
+    return run;
+  }
+}

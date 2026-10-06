@@ -1,6 +1,6 @@
 /**
  * Phase 15 Plan 05 → Phase 16 Plan 16 — relay 내부 HTTP 표면.
- * **`/healthz` + 공유 비밀 관문, 그 둘뿐이다.**
+ * **`/healthz` + 공유 비밀 관문 + Phase 29 Admin 내부 경로(`/internal/admin/*` — 29-11), 그것뿐이다.**
  *
  * 이 포트(8091)는 **Cloud Run 만 부른다**. 방화벽이 서브넷 출발지로 이미 좁혀 두었고
  * (15-06/15-07), 여기서는 그 절반인 애플리케이션 측 방어 — `X-Relay-Secret` 헤더 —
@@ -21,8 +21,9 @@
  *   1. `express.json({limit:"16kb"})`
  *   2. **공유 비밀 관문** — `/healthz` 만 예외
  *   3. `/healthz`
- *   4. 404
- *   5. errorHandler (반드시 마지막)
+ *   4. `/internal/admin/*` (Phase 29-11 — `deps.admin` 을 줄 때만 · 관문 **뒤**라 비밀 없이는 404 조차 받지 못한다)
+ *   5. 404
+ *   6. errorHandler (반드시 마지막)
  *
  * 두지 않는 것과 그 이유:
  *   - 교차 출처 허용 설정(CORS): 브라우저가 이 포트를 부르지 않는다. 시세도 주문도
@@ -44,7 +45,7 @@
  */
 import { timingSafeEqual } from "node:crypto";
 import os from "node:os";
-import express, { type Express, type ErrorRequestHandler, type RequestHandler } from "express";
+import express, { type Express, type ErrorRequestHandler, type RequestHandler, type Router } from "express";
 
 import { logger } from "../logger.js";
 import { isGatewayLinkUp } from "../dma/link-health.js";
@@ -121,6 +122,11 @@ export type OrderApiDeps = {
   adminConns?: () => ReadonlyArray<{ serverKey: string; health(): AdminConnHealthBody }>;
   /** 시각 주입구 — 테스트가 장중/장 밖을 흉내낸다. 기본 `new Date()`. */
   now?: () => Date;
+  /**
+   * Phase 29-11 — Admin 내부 HTTP(`createAdminRouter`). 주면 관문 뒤 · 404 앞에 `/internal/admin` 으로 마운트한다.
+   * Express(29-10 · 29-13)만 부른다 — 브라우저 경로가 아니다(D-07).
+   */
+  admin?: { router: Router };
 };
 
 /**
@@ -434,6 +440,9 @@ export function createOrderApi(deps: OrderApiDeps): Express {
 
     res.status(healthy ? 200 : 503).json(payload);
   });
+
+  // Phase 29-11 — Admin 내부 경로. 관문을 통과한 요청만 닿는다(관문은 이 라우터 앞에 있다).
+  if (deps.admin !== undefined) app.use("/internal/admin", deps.admin.router);
 
   // 404 — 관문을 통과한 요청이 갈 곳이 없는 경우. 주문 경로도 여기로 떨어진다 (D-02).
   app.use((_req, _res, next) => {
