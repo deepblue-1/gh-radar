@@ -844,6 +844,13 @@ install_ops_agent() {
   rm -f "$cfg_tmp"
 
   # 4) 상태 — 로그 하위 에이전트(fluent-bit) 기동 확인
+  #    재기동 직후엔 설정 생성 단계라 몇 초 inactive 다 — 최대 30초 기다린다
+  #    (2026-10-06 첫 적용에서 즉시 검사가 WARN 을 냈고 2초 뒤 active 였다).
+  local _
+  for _ in $(seq 1 30); do
+    systemctl is-active --quiet google-cloud-ops-agent-fluent-bit && break
+    sleep 1
+  done
   if systemctl is-active --quiet google-cloud-ops-agent-fluent-bit; then
     log "✓ Ops Agent 기동 — relay 로그 → Cloud Logging relay_docker"
   else
