@@ -19,12 +19,20 @@
  *   P4  DELETE /dma-users/:dma → 서버마다 op 2 → { results, deleted: true }
  *   P5  POST /dma-users/:dma/reconcile → 의도 = 87 이면 44 0건 · 전 서버 ok
  *   P6  경로 검증 — :dma 9바이트 · :broker 밖 값 → 400
+ *
+ * 잠그는 것 (Task 3 — 운영 보조 라우트 · 감사 로그):
+ *   S1  POST /registry/reload → reload 1회 → { ok: true, changed } · 실패 → 502 RELOAD_FAILED
+ *   S2  POST /access/reload → 실 AppAccess 재적재 → 회수 사용자가 있으면 revoked 이벤트(fanout 결선 그대로) → { ok, changed }
+ *   S3  GET /servers/status → 레지스트리 전 서버 { conn, journal, admin, quote } · 꺼진 서버 off · 시세 주 서버만 quote
+ *   S4  감사 로그 — 변경 라우트마다 info 1줄 { admin, route, dma(마스킹), servers: [{ server, outcome, code }] } ·
+ *       비밀번호 · 계좌번호 원문 · dmaUserId 원문 없음 · 유저 삭제 뒤 접근 맵 재적재(D-04)
  */
 import { randomBytes } from "node:crypto";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AppAccess } from "../src/access/app-access.js";
 import { AdminConn } from "../src/admin/admin-conn.js";
 import { createAdminRouter } from "../src/admin/admin-api.js";
 import { AdminDispatcher } from "../src/admin/dispatcher.js";
@@ -94,9 +102,28 @@ type Harness = {
   close: () => Promise<void>;
 };
 
-async function startHarness(opts: { commandTimeoutMs?: number } = {}): Promise<Harness> {
+type HarnessOptions = {
+  commandTimeoutMs?: number;
+  /** 레지스트리 재적재 대역. 기본 { ok: true, changed: false }. */
+  registryReload?: () => Promise<{ ok: boolean; changed: boolean }>;
+  /** 접근 맵 대역. 기본 = 재적재 성공 · 회수 없음 · 아무도 없음. */
+  access?: {
+    reload(): Promise<{ ok: boolean; revoked: string[] }>;
+    entryOf(userId: string): { dmaUserId: string | null } | undefined;
+  };
+  /** 서버별 저널 상태(기본 live). */
+  journalStates?: Record<string, string>;
+  /** 시세 주 서버 키 · 상태. */
+  quote?: { serverKey: string | null; state: string };
+  /** 꺼진 서버 키(레지스트리 enabled false). */
+  disabled?: string[];
+};
+
+async function startHarness(opts: HarnessOptions = {}): Promise<Harness> {
   const credKey = randomBytes(32).toString("base64");
-  const rows = [serverRow("KB120", "KB", 1), serverRow("KB121", "KB", 2), serverRow("KYOBO119", "KYOBO", 3)];
+  const rows = [serverRow("KB120", "KB", 1), serverRow("KB121", "KB", 2), serverRow("KYOBO119", "KYOBO", 3)].map((r) =>
+    opts.disabled?.includes(r.key) ? { ...r, enabled: false } : r,
+  );
   const db = new AdminDbFake(rows.map((r) => ({ key: r.key, broker: r.broker })));
   db.appUsers.add("trader@gmail.com");
 
@@ -124,10 +151,34 @@ async function startHarness(opts: { commandTimeoutMs?: number } = {}): Promise<H
   await waitFor(() => Object.values(conns).every((c) => c.currentSnapshot() !== null), "두 서버 87 수신");
 
   const store = new AdminIntentStore({ supabase: db.client });
-  const registry = { all: () => rows.map((r) => ({ ...r })), get: (k: string) => rows.find((r) => r.key === k) };
-  const pipelines = { get: (k: string) => (conns[k] ? { admin: conns[k]! } : undefined) };
-  const dispatcher = new AdminDispatcher({ store, pipelines, registry, credKey });
-  const router = createAdminRouter({ store, dispatcher, registry, credKey });
+  const registry = {
+    all: () => rows.map((r) => ({ ...r })),
+    get: (k: string) => rows.find((r) => r.key === k),
+    reload: opts.registryReload ?? (() => Promise.resolve({ ok: true, changed: false })),
+  };
+  const pipelines = {
+    get: (k: string) =>
+      conns[k]
+        ? { admin: conns[k]!, status: { health: () => ({ state: opts.journalStates?.[k] ?? "live" }) } }
+        : undefined,
+  };
+  const access = opts.access ?? {
+    reload: () => Promise.resolve({ ok: true, revoked: [] as string[] }),
+    entryOf: () => undefined,
+  };
+  const dispatcher = new AdminDispatcher({ store, pipelines, registry, credKey, access });
+  const router = createAdminRouter({
+    store,
+    dispatcher,
+    registry,
+    access,
+    pipelines,
+    credKey,
+    quoteStatus: {
+      serverKey: () => opts.quote?.serverKey ?? null,
+      health: () => ({ state: opts.quote?.state ?? "ready" }),
+    },
+  });
 
   const app = createOrderApi({
     relayOrderSecret: SECRET,
@@ -423,6 +474,155 @@ describe("relay Admin 내부 HTTP — 변경 경로 (29-11 Task 2)", () => {
       const res = await call(h, method, path);
       expect(res.status).toBe(400);
       expect(((await res.json()) as { error: { code: string } }).error.code).toBe("VALIDATION_FAILED");
+    }
+  });
+});
+
+describe("relay Admin 내부 HTTP — 운영 보조 라우트 · 감사 로그 (29-11 Task 3)", () => {
+  let h: Harness | null = null;
+  let logs: LogCall[];
+
+  beforeEach(async () => {
+    logs = await spyLogs();
+  });
+
+  afterEach(async () => {
+    await h?.close();
+    h = null;
+    vi.restoreAllMocks();
+  });
+
+  it("S1 레지스트리 재적재 — reload 1회 → { ok, changed } · 실패 → 502 RELOAD_FAILED", async () => {
+    let calls = 0;
+    let next = { ok: true, changed: true };
+    h = await startHarness({
+      registryReload: () => {
+        calls += 1;
+        return Promise.resolve(next);
+      },
+    });
+    const res = await call(h, "POST", "/internal/admin/registry/reload");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, changed: true });
+    expect(calls).toBe(1);
+
+    next = { ok: false, changed: false };
+    const bad = await call(h, "POST", "/internal/admin/registry/reload");
+    expect(bad.status).toBe(502);
+    expect(((await bad.json()) as { error: { code: string } }).error.code).toBe("RELOAD_FAILED");
+
+    const noEmail = await call(h, "POST", "/internal/admin/registry/reload", undefined, { "x-admin-email": "" });
+    expect(noEmail.status).toBe(400);
+  });
+
+  it("S2 접근 맵 재적재 — 실 AppAccess · 회수 사용자 → revoked 이벤트 · { ok, changed }", async () => {
+    let rowsNow: unknown[] = [
+      { user_id: "web-1", email: "a@gmail.com", role: "trader", dma_user_id: "tr01" },
+      { user_id: "web-2", email: "b@gmail.com", role: "trader", dma_user_id: "tr02" },
+    ];
+    const supabase = { rpc: () => Promise.resolve({ data: rowsNow, error: null }) };
+    const access = new AppAccess({ supabase: supabase as never });
+    await access.reload();
+    const revoked: string[][] = [];
+    access.on("revoked", (ids) => revoked.push(ids));
+    h = await startHarness({ access });
+
+    const same = await call(h, "POST", "/internal/admin/access/reload");
+    expect(await same.json()).toEqual({ ok: true, changed: false });
+
+    rowsNow = [{ user_id: "web-1", email: "a@gmail.com", role: "viewer", dma_user_id: "tr01" }];
+    const res = await call(h, "POST", "/internal/admin/access/reload");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, changed: true });
+    expect(revoked).toEqual([["web-1", "web-2"]]);
+    access.close();
+  });
+
+  it("S2 접근 맵 재적재 실패 → 502 RELOAD_FAILED", async () => {
+    h = await startHarness({
+      access: { reload: () => Promise.resolve({ ok: false, revoked: [] }), entryOf: () => undefined },
+    });
+    const res = await call(h, "POST", "/internal/admin/access/reload");
+    expect(res.status).toBe(502);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("RELOAD_FAILED");
+  });
+
+  it("S3 서버 상태 — 전 서버 { conn, journal, admin, quote } · 꺼진 서버 off · 시세 주 서버만 quote", async () => {
+    h = await startHarness({
+      journalStates: { KB121: "connecting" },
+      quote: { serverKey: "KB120", state: "ready" },
+    });
+    // KB121 admin 연결을 끊는다 → 재접속 중.
+    h.gateways.KB121!.sockets.forEach((sock) => sock.destroy());
+    await waitFor(() => h!.conns.KB121!.state !== "ready", "KB121 재접속 중");
+
+    const res = await call(h, "GET", "/internal/admin/servers/status");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      servers: {
+        KB120: { conn: "ok", journal: "ok", admin: "ok", quote: "live" },
+        KB121: { conn: "down", journal: "down", admin: "connecting", quote: null },
+        // 레지스트리엔 켜져 있지만 파이프라인이 없다(교보 비밀 미배치 등).
+        KYOBO119: { conn: "down", journal: "down", admin: "down", quote: null },
+      },
+    });
+  });
+
+  it("S3 서버 상태 — 레지스트리에서 꺼진 서버는 전부 off", async () => {
+    h = await startHarness({ disabled: ["KYOBO119"], quote: { serverKey: "KB121", state: "connecting" } });
+    const body = (await (await call(h, "GET", "/internal/admin/servers/status")).json()) as {
+      servers: Record<string, unknown>;
+    };
+    expect(body.servers.KYOBO119).toEqual({ conn: "off", journal: "off", admin: "off", quote: null });
+    expect(body.servers.KB121).toMatchObject({ quote: "connecting" });
+    expect(body.servers.KB120).toMatchObject({ quote: null });
+  });
+
+  it("S4 감사 로그 — 변경 라우트마다 info 1줄 · 비밀번호 · 계좌번호 · dmaUserId 원문 없음 · 삭제 뒤 접근 맵 재적재", async () => {
+    let reloads = 0;
+    h = await startHarness({
+      access: {
+        reload: () => {
+          reloads += 1;
+          return Promise.resolve({ ok: true, revoked: [] });
+        },
+        entryOf: () => undefined,
+      },
+    });
+    const B = { ...KB_ACCOUNT, accountNo: "1234567802", priority: 2 };
+    expect((await call(h, "POST", "/internal/admin/dma-users", createBody({ dmaUserId: "trader07" }))).status).toBe(200);
+    expect((await call(h, "POST", "/internal/admin/dma-users/trader07/password", { password: "new-p@ss" })).status).toBe(200);
+    expect((await call(h, "PUT", "/internal/admin/dma-users/trader07/accounts", { account: B, servers: ["KB120"] })).status).toBe(200);
+    expect((await call(h, "DELETE", "/internal/admin/dma-users/trader07/accounts/KB/1234567802")).status).toBe(200);
+    expect((await call(h, "POST", "/internal/admin/dma-users/trader07/reconcile")).status).toBe(200);
+    expect((await call(h, "DELETE", "/internal/admin/dma-users/trader07/accounts/KB/1234567801")).status).toBe(409);
+    expect((await call(h, "DELETE", "/internal/admin/dma-users/trader07")).status).toBe(200);
+    expect(reloads).toBe(1);
+
+    const audits = logs.filter((c) => c.level === "info" && String(c.args[1] ?? "").startsWith("[admin-audit]"));
+    expect(audits.map((c) => (c.args[0] as { route: string }).route)).toEqual([
+      "POST /dma-users",
+      "POST /dma-users/:dma/password",
+      "PUT /dma-users/:dma/accounts",
+      "DELETE /dma-users/:dma/accounts/:broker/:accountNo",
+      "POST /dma-users/:dma/reconcile",
+      "DELETE /dma-users/:dma/accounts/:broker/:accountNo",
+      "DELETE /dma-users/:dma",
+    ]);
+    expect(audits[0]!.args[0]).toEqual({
+      admin: ADMIN,
+      route: "POST /dma-users",
+      dma: "tr***(8)",
+      servers: [
+        { server: "KB120", outcome: "ok" },
+        { server: "KB121", outcome: "ok" },
+      ],
+    });
+    expect(audits[5]!.args[0]).toMatchObject({ rejected: "LAST_ACCOUNT", dma: "tr***(8)" });
+
+    const dumped = stringify(logs.map((c) => c.args));
+    for (const secret of [PASSWORD, "new-p@ss", "trader07", "1234567801", "1234567802"]) {
+      expect(dumped).not.toContain(secret);
     }
   });
 });

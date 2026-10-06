@@ -15,8 +15,15 @@
  */
 import { Router, type ErrorRequestHandler, type RequestHandler } from "express";
 import { z, ZodError } from "zod";
-import { isValidAccountNoInput, normalizeAccountNo, SERVER_KEY_RE, type AdminServerResult } from "@gh-radar/shared";
+import {
+  isValidAccountNoInput,
+  normalizeAccountNo,
+  SERVER_KEY_RE,
+  type AdminServerLiveStatus,
+  type AdminServerResult,
+} from "@gh-radar/shared";
 
+import { logger } from "../logger.js";
 import { RelayApiError } from "../order/order-api.js";
 import { encryptDmaPassword } from "../store/credentials.js";
 import type { DmaServerRow } from "../registry/registry.js";
@@ -30,9 +37,20 @@ import { IntentError, type AdminIntentStore } from "./intent-store.js";
 export type AdminApiDeps = {
   store: Pick<AdminIntentStore, "createDmaUser" | "putAccount" | "markAccountRemoved">;
   dispatcher: Pick<AdminDispatcher, "reconcileUser" | "changePassword" | "deleteUser">;
-  registry: { all(): DmaServerRow[] };
+  /** 서버 레지스트리 — 전 행(상태 · 키 검사) · 즉시 재적재(D-09 · D-17). `ServerRegistry` 가 만족한다. */
+  registry: { all(): DmaServerRow[]; reload(): Promise<{ ok: boolean; changed: boolean }> };
+  /** 웹 사용자 접근 맵 즉시 재적재(D-04 — 회수 사용자는 `revoked` 이벤트 → fanout 결선이 끊는다). `AppAccess` 가 만족한다. */
+  access: { reload(): Promise<{ ok: boolean; revoked: string[] }> };
+  /** 서버 키 → 파이프라인(admin 연결 · 저널 상태). `ServerPipelines` 가 만족한다. */
+  pipelines: {
+    get(key: string): { admin: { health(): { state: string } }; status: { health(nowMs: number): { state: string } } } | undefined;
+  };
   /** `DMA_CRED_KEY` — relay 에만 있다(D-19). */
   credKey: string;
+  /** 시세 전용 공유 연결 — 붙어 있는 서버 키(부팅 때 고정 · 29-23 이 전환) · 상태. */
+  quoteStatus: { serverKey(): string | null; health(nowMs: number): { state: string } };
+  /** 시각 주입구(ms). 기본 `Date.now`. */
+  now?: () => number;
 };
 
 // ============================================================
@@ -139,6 +157,67 @@ function toRelayError(err: unknown): unknown {
 }
 
 // ============================================================
+// 서버 상태 (Admin 서버 카드 칩 — D-17)
+// ============================================================
+
+/** 저널 관찰자 파생 상태 → 칩. 재생 중(replaying)은 연결된 상태다. */
+function journalChip(state: string): AdminServerLiveStatus["journal"] {
+  if (state === "live" || state === "replaying") return "ok";
+  if (state === "disabled") return "off";
+  return "down";
+}
+
+/** admin 연결 상태 → 칩. 재접속 · 로그인 중은 connecting, 거부 · 역할 불일치는 down. */
+function adminChip(state: string): AdminServerLiveStatus["admin"] {
+  if (state === "ready") return "ok";
+  if (state === "connecting" || state === "logging_in") return "connecting";
+  if (state === "disabled") return "off";
+  return "down";
+}
+
+/** quote 연결 상태 → 칩(시세 주 서버만). */
+function quoteChip(state: string): NonNullable<AdminServerLiveStatus["quote"]> {
+  if (state === "ready") return "live";
+  if (state === "connecting" || state === "logging_in") return "connecting";
+  return "down";
+}
+
+// ============================================================
+// 감사 로그
+// ============================================================
+
+/**
+ * dmaUserId 마스킹 — `앞 2자 + *** + (길이)`. 이전 phase 「dmaUserId 로그 금지」 규율 — 2자 이하는 앞자리도 싣지 않는다.
+ */
+export function maskDmaUserId(id: string): string {
+  const chars = [...id];
+  return `${chars.length > 2 ? chars.slice(0, 2).join("") : ""}***(${chars.length})`;
+}
+
+/**
+ * 감사 1줄 — 누가(요청자 이메일) · 어느 라우트(**경로 패턴** — 실제 경로에는 dmaUserId · 계좌번호가 있다) · 서버별 결과(code 까지).
+ * 비밀번호 · 계좌번호 원문 · dmaUserId 원문 · 서버 message 는 싣지 않는다.
+ */
+function audit(
+  adminEmail: string,
+  route: string,
+  dma: string | null,
+  outcome: { results: readonly AdminServerResult[] } | { rejected: string } | { ok: boolean; changed: boolean },
+): void {
+  const base: Record<string, unknown> = { admin: adminEmail, route };
+  if (dma !== null) base.dma = maskDmaUserId(dma);
+  if ("results" in outcome) {
+    base.servers = outcome.results.map((r) => ({ server: r.server, outcome: r.outcome, ...(r.code !== undefined ? { code: r.code } : {}) }));
+  } else if ("rejected" in outcome) {
+    base.rejected = outcome.rejected;
+  } else {
+    base.ok = outcome.ok;
+    base.changed = outcome.changed;
+  }
+  logger.info(base, "[admin-audit] Admin 변경 요청");
+}
+
+// ============================================================
 // 라우터
 // ============================================================
 
@@ -168,6 +247,27 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
     res.status(200).json({ results });
   };
 
+  /**
+   * 변경 라우트 공통 — 핸들러가 낸 서버별 결과로 감사 1줄. 업무 거부(409)도 거부 코드로 1줄 남기고 오류는 그대로 넘긴다.
+   * `dma` 는 검증을 통과한 값만 받는다(검증 실패 400 은 감사 대상이 아니다 — 아무것도 바꾸지 않았다).
+   */
+  const audited = async <T extends { results: AdminServerResult[] }>(
+    res: Parameters<RequestHandler>[1],
+    route: string,
+    dma: string,
+    run: () => Promise<T>,
+  ): Promise<T> => {
+    const adminEmail = res.locals.adminEmail as string;
+    try {
+      const out = await run();
+      audit(adminEmail, route, dma, out);
+      return out;
+    } catch (err) {
+      if (err instanceof IntentError) audit(adminEmail, route, dma, { rejected: err.code });
+      throw err;
+    }
+  };
+
   // ── 생성 + 반영 (D-16 트레이서) ─────────────────────────────────────────
   router.post("/dma-users", async (req, res) => {
     const body = CreateDmaUserBody.parse(req.body);
@@ -175,14 +275,16 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
     const adminEmail = res.locals.adminEmail as string;
     // AAD = dmaUserId(D-19) — 웹 user_id 없이도(가입 전 사전 등록) 암호화할 수 있다.
     const passwordEnc = encryptDmaPassword(body.password, body.dmaUserId, deps.credKey);
-    await deps.store.createDmaUser({
-      email: body.email,
-      dmaUserId: body.dmaUserId,
-      passwordEnc,
-      account: body.account,
-      servers: body.servers,
+    const { results } = await audited(res, "POST /dma-users", body.dmaUserId, async () => {
+      await deps.store.createDmaUser({
+        email: body.email,
+        dmaUserId: body.dmaUserId,
+        passwordEnc,
+        account: body.account,
+        servers: body.servers,
+      });
+      return { results: await deps.dispatcher.reconcileUser(body.dmaUserId, { password: body.password, adminEmail }) };
     });
-    const results = await deps.dispatcher.reconcileUser(body.dmaUserId, { password: body.password, adminEmail });
     respond(res, results);
   });
 
@@ -190,7 +292,9 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
   router.post("/dma-users/:dma/password", async (req, res) => {
     const { dma } = DmaParam.parse(req.params);
     const { password } = PasswordBody.parse(req.body);
-    const results = await deps.dispatcher.changePassword(dma, password, res.locals.adminEmail as string);
+    const { results } = await audited(res, "POST /dma-users/:dma/password", dma, async () => ({
+      results: await deps.dispatcher.changePassword(dma, password, res.locals.adminEmail as string),
+    }));
     respond(res, results);
   });
 
@@ -199,31 +303,87 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
     const { dma } = DmaParam.parse(req.params);
     const body = PutAccountBody.parse(req.body);
     assertKnownServers(body.servers);
-    await deps.store.putAccount(dma, body.account, body.servers);
-    const results = await deps.dispatcher.reconcileUser(dma, { adminEmail: res.locals.adminEmail as string });
+    const { results } = await audited(res, "PUT /dma-users/:dma/accounts", dma, async () => {
+      await deps.store.putAccount(dma, body.account, body.servers);
+      return { results: await deps.dispatcher.reconcileUser(dma, { adminEmail: res.locals.adminEmail as string }) };
+    });
     respond(res, results);
   });
 
   // ── 계좌 제거 (removing 표시 + 반영 · 마지막 계좌는 409 LAST_ACCOUNT → 화면은 유저 삭제로 — D-15) ─────
   router.delete("/dma-users/:dma/accounts/:broker/:accountNo", async (req, res) => {
     const { dma, broker, accountNo } = AccountParam.parse(req.params);
-    await deps.store.markAccountRemoved(dma, broker, accountNo);
-    const results = await deps.dispatcher.reconcileUser(dma, { adminEmail: res.locals.adminEmail as string });
+    const { results } = await audited(res, "DELETE /dma-users/:dma/accounts/:broker/:accountNo", dma, async () => {
+      await deps.store.markAccountRemoved(dma, broker, accountNo);
+      return { results: await deps.dispatcher.reconcileUser(dma, { adminEmail: res.locals.adminEmail as string }) };
+    });
     respond(res, results);
   });
 
   // ── 유저 삭제 (D-15 — 서버마다 op 2(87 전용 계좌가 있으면 의도 계좌 op 4) · 전 서버 ok 일 때만 DB 삭제) ──
   router.delete("/dma-users/:dma", async (req, res) => {
     const { dma } = DmaParam.parse(req.params);
-    const { results, deleted } = await deps.dispatcher.deleteUser(dma, res.locals.adminEmail as string);
+    const { results, deleted } = await audited(res, "DELETE /dma-users/:dma", dma, () =>
+      deps.dispatcher.deleteUser(dma, res.locals.adminEmail as string),
+    );
+    // D-04 즉시 반영 — DMA 연결이 사라진 웹 사용자의 wss 를 끊는다(접근 맵 revoked → fanout 결선). 실패해도 60초 주기가 잡는다.
+    if (deleted) await deps.access.reload();
     res.status(200).json({ results, deleted });
   });
 
   // ── 「다시 반영」 — 의도 전체를 서버에 다시 맞춘다(의도 = 87 이면 44 0건) ───────────────────────────
   router.post("/dma-users/:dma/reconcile", async (req, res) => {
     const { dma } = DmaParam.parse(req.params);
-    const results = await deps.dispatcher.reconcileUser(dma, { adminEmail: res.locals.adminEmail as string });
+    const { results } = await audited(res, "POST /dma-users/:dma/reconcile", dma, async () => ({
+      results: await deps.dispatcher.reconcileUser(dma, { adminEmail: res.locals.adminEmail as string }),
+    }));
     respond(res, results);
+  });
+
+  // ── 레지스트리 즉시 재적재 (D-09 · D-17 — Express 가 서버 편집 직후 부른다) ───────────────────────────
+  router.post("/registry/reload", async (_req, res) => {
+    const r = await deps.registry.reload();
+    audit(res.locals.adminEmail as string, "POST /registry/reload", null, r);
+    if (!r.ok) throw new RelayApiError(502, "RELOAD_FAILED", "registry reload failed — 직전 레지스트리 유지");
+    res.status(200).json({ ok: true, changed: r.changed });
+  });
+
+  // ── 접근 맵 즉시 재적재 (D-04 — 역할 변경 · 허용 해제 직후. 회수 사용자는 revoked → fanout 이 끊는다) ─────
+  router.post("/access/reload", async (_req, res) => {
+    const r = await deps.access.reload();
+    const changed = r.revoked.length > 0;
+    audit(res.locals.adminEmail as string, "POST /access/reload", null, { ok: r.ok, changed });
+    if (!r.ok) throw new RelayApiError(502, "RELOAD_FAILED", "access reload failed — 직전 접근 맵 유지");
+    res.status(200).json({ ok: true, changed });
+  });
+
+  // ── 서버별 상태 (Admin 서버 카드 칩 — conn · journal · admin · quote) ───────────────────────────────
+  router.get("/servers/status", (_req, res) => {
+    const nowMs = deps.now?.() ?? Date.now();
+    const quoteKey = deps.quoteStatus.serverKey();
+    const servers: Record<string, AdminServerLiveStatus> = {};
+    for (const row of deps.registry.all()) {
+      if (!row.enabled) {
+        servers[row.key] = { conn: "off", journal: "off", admin: "off", quote: null };
+        continue;
+      }
+      const quote = quoteKey === row.key ? quoteChip(deps.quoteStatus.health(nowMs).state) : null;
+      const p = deps.pipelines.get(row.key);
+      if (p === undefined) {
+        servers[row.key] = { conn: "down", journal: "down", admin: "down", quote };
+        continue;
+      }
+      const journalState = p.status.health(nowMs).state;
+      const adminState = p.admin.health().state;
+      const journal = journalChip(journalState);
+      const admin = adminChip(adminState);
+      // 연결 = relay 가 그 서버와 TCP 를 맺고 있는가(저널 · admin 어느 쪽이든). 둘 다 꺼져 있으면(비밀 없음) off.
+      const linked =
+        ["logging_in", "replaying", "live", "db_error"].includes(journalState) || ["logging_in", "ready"].includes(adminState);
+      const conn = journal === "off" && admin === "off" ? "off" : linked ? "ok" : "down";
+      servers[row.key] = { conn, journal, admin, quote };
+    }
+    res.status(200).json({ servers });
   });
 
   // IntentError · ZodError → RelayApiError. 나머지는 order-api errorHandler 가 500 으로 끝낸다(S-1).

@@ -323,8 +323,14 @@ const adminDispatcher = new AdminDispatcher({
 const adminRouter = createAdminRouter({
   store: adminStore,
   dispatcher: adminDispatcher,
+  // 서버 편집 · 역할 변경 직후 Express 가 즉시 재적재를 건다(D-04 · D-09 · D-17) — 60초 주기를 기다리지 않는다.
   registry,
+  access: appAccess,
+  // Admin 서버 카드 칩(conn · journal · admin) 원천 — 서버별 파이프라인.
+  pipelines,
   credKey: config.dmaCredKey,
+  // 시세 주 서버 칩 — quote 연결은 부팅 때 시세 주 서버에 고정이다(29-23 이 전환).
+  quoteStatus: { serverKey: () => quoteServer?.key ?? null, health: (nowMs) => quoteStatus.health(nowMs) },
 });
 
 const orderApi = createOrderApi({
