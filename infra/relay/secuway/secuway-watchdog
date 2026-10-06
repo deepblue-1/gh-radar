@@ -1,18 +1,179 @@
 #!/bin/bash
-# Periodic keepalive + liveness probe for securwayssl.service.
-#   keepalive : a TCP touch to a Kyobo DMA host resets the tunnel's ~4h
-#               --inactive timer so an idle gateway does not silently drop.
-#   liveness  : if the DMA host is unreachable while systemd still thinks the
-#               service is active (client alive but tunnel died), restart it.
+# Periodic keepalive + liveness probe for securwayssl.service
+# (run by securwayssl-watchdog.timer every 3 min, Type=oneshot).
+#
+# 두 역할:
+#   keepalive : 터널이 살아 있는 회차마다 tun1 로 10.16.207.119 에 큰 ICMP 를
+#               흘려 벤더 OpenVPN 의 inactive 바이트 하한을 채운다.
+#   liveness  : systemd 는 active 인데 터널이 죽은 경우(런처/sslvpn 생존,
+#               경로 사망)를 잡아 securwayssl 을 재시작한다.
+#
+# 수정 이력 (quick-261007-b9o):
+#   ① 디바운스 — 2026-10-07 08:02 KST(23:02:03Z) 타이머 회차가 GCP 서울 엣지
+#      주기 손실(23:02:04Z~, 수 초)과 겹쳐 `timeout 3` 탐침 1회 실패만으로
+#      건강한 터널을 재시작했다. 재시작 뒤 새 로그인은 「이미 로그인한
+#      사용자입니다」 로 거부돼 약 75초 교보 단절이 됐다. 이제 탐침을
+#      PROBE_TRIES 회(PROBE_GAP_SEC 간격, 폭 15~27초) 찔러 **전부** 실패하고,
+#      결정 시점에도 active 이며 active 진입 후 GRACE_SEC 가 지났을 때만
+#      재시작한다. 실패 탐침마다와 최종 결정은 이 태그로 저널에 남는다.
+#   ② keepalive 볼륨 — 약 4시간 주기 종료의 원인: 벤더 런처가 OpenVPN conf
+#      에 `inactive %d %d` (= `--inactive <초> <바이트>`) 를 준다. 창 안 tun
+#      트래픽이 <바이트> 미만이면 sslvpn 이 끝난다(10-06 18:39:54Z ·
+#      22:40:29Z 사례 — 야간·장전). 3분마다 TCP SYN 1개로는 볼륨이 모자랐다.
+#      이제 매 성공 회차가 약 295 KB(양방향)를 흘린다 — 아래 KEEPALIVE_* 참조.
+#
+# 규칙:
+#   - inactive(사람이 `systemctl stop`)는 **절대 켜지 않는다**. 교보 계정은
+#     데스크톱 SecuwaySSL 과 같은 MAC 묶음이라 상호배제다 — stop 은 「데스크톱을
+#     쓰려고 내렸다」 는 뜻이다. activating(auto-restart)도 손대지 않는다(systemd
+#     가 이미 재시도 중).
+#   - failed 회수는 이중 상한이다: 유닛 StartLimitBurst=8 / 600초 + 이 스크립트
+#     시간당 1회(RECOVER_STAMP). KB kbvpn-watchdog 와 같은 구조, 차이는 inactive
+#     무접촉.
+#
+# 배포: 이 파일은 핫 교체 가능하다 — 타이머가 다음 회차부터 새 파일을 실행하고
+#   터널 재시작이 필요 없다(장중 교체 가능). securwayssl.service · secuway-connect
+#   는 그렇지 않다(장중 재시작 금지 — infra/relay/README.md 참조).
+#
+# 테스트: infra/relay/secuway/tests/watchdog.test.sh 가 이 파일을 source 해
+#   스텁으로 드라이런한다(맨 끝 main 가드 — source 시 main 미실행).
 set -uo pipefail
-# 2026-10-03: .112 was dropped from the Kyobo ACL — probing it restarted the
-# tunnel every 3 min. Probe .119 (kyobo119, DMA + nightly report host).
+
+# 대상 유닛
+UNIT=securwayssl.service
+# 탐침·keepalive 대상. 2026-10-03: .112 was dropped from the Kyobo ACL —
+# probing it restarted the tunnel every 3 min. Probe .119 (kyobo119, DMA +
+# nightly report host).
 HOST=10.16.207.119
 PORT=22
-if timeout 3 bash -c "</dev/tcp/$HOST/$PORT" 2>/dev/null; then
-  exit 0
-fi
-if systemctl is-active --quiet securwayssl.service; then
-  logger -t secuway-watchdog "DMA $HOST:$PORT unreachable while service active — restarting securwayssl"
-  systemctl restart securwayssl.service
+# 디바운스 (P-1): 전부 즉시 실패면 폭 15초, 전부 타임아웃이면 4×3+3×5=27초.
+# 관측된 엣지 손실(수 초, 최대 약 8초)을 넉넉히 덮는다.
+PROBE_TRIES=4
+PROBE_GAP_SEC=5
+PROBE_TIMEOUT_SEC=3
+# 유예 (P-2): Type=simple 이라 로그인 중(최대 30초)에도 active 다. active 진입 후
+# 이 시간 미만이면 탐침이 다 실패해도 재시작하지 않는다(다음 회차가 판단).
+GRACE_SEC=60
+# keepalive 볼륨 (P-6): 회차당 tun1 ≈ COUNT × 2(왕복) × (SIZE + 28) =
+#   120 × 2 × 1228 ≈ 295 KB, 약 24초(5 pps). 4시간 창(80회) ≈ 23.6 MB.
+# 조정 공식 — 벤더 inactive 값 `inactive S B` 실측 뒤(secuway-connect 가 저널에
+#   `vendor openvpn option: inactive S B` 로 남긴다):
+#   회차당 바이트 ≥ 3 × B ÷ (S ÷ 180)   (3배 여유, 180 = 타이머 주기 초)
+# SIZE 1200 + IP/ICMP 28 = 1228 바이트 — tun MTU 안이라 단편화 없음.
+KEEPALIVE_SIZE=1200
+KEEPALIVE_COUNT=120
+KEEPALIVE_INTERVAL=0.2
+KEEPALIVE_DEADLINE_SEC=40
+# failed 회수 시간당 1회 스탬프 (P-3, /run = 재부팅 시 초기화)
+RECOVER_STAMP=/run/secuway-watchdog.last-recover
+RECOVER_MIN_SEC=3600
+
+log() {
+  logger -t secuway-watchdog "$*"
+}
+
+# TCP 1회 — 성공 0
+probe() {
+  timeout "$PROBE_TIMEOUT_SEC" bash -c "</dev/tcp/$HOST/$PORT" 2>/dev/null
+}
+
+# 큰 ICMP 로 tun1 볼륨을 만든다. 응답이 절반 미만이거나 요약을 못 읽으면 진단
+# 로그 1줄(볼륨 미달 가능성). 항상 0.
+keepalive() {
+  local out r=""
+  out=$(timeout "$KEEPALIVE_DEADLINE_SEC" ping -q -n -c "$KEEPALIVE_COUNT" \
+    -s "$KEEPALIVE_SIZE" -i "$KEEPALIVE_INTERVAL" -W 1 "$HOST" 2>&1)
+  if [[ "$out" =~ ([0-9]+)\ packets\ transmitted,\ ([0-9]+)\ (packets\ )?received ]]; then
+    r=${BASH_REMATCH[2]}
+  fi
+  if [[ -z "$r" ]]; then
+    log "keepalive ping ?/$KEEPALIVE_COUNT replies (no ping summary) — tun1 volume may be short of the vendor inactive floor"
+  elif (( r * 2 < KEEPALIVE_COUNT )); then
+    log "keepalive ping $r/$KEEPALIVE_COUNT replies — tun1 volume may be short of the vendor inactive floor"
+  fi
+  return 0
+}
+
+# active 진입 후 경과 초. 우선 monotonic(시계 변경·타임존 무관), 안 되면
+# ActiveEnterTimestamp 를 date -d 로 변환. 비었거나 변환 실패면 아주 큰 값 —
+# 파싱 실패가 재시작을 막지 않게 한다.
+active_age_sec() {
+  local mono up ts enter now
+  mono=$(systemctl show -p ActiveEnterTimestampMonotonic --value "$UNIT" 2>/dev/null)
+  up=$(cut -d. -f1 /proc/uptime 2>/dev/null)
+  if [[ "$mono" =~ ^[0-9]+$ ]] && (( mono > 0 )) && [[ "$up" =~ ^[0-9]+$ ]]; then
+    echo $(( up - mono / 1000000 ))
+    return 0
+  fi
+  ts=$(systemctl show -p ActiveEnterTimestamp --value "$UNIT" 2>/dev/null)
+  if [[ -n "$ts" ]] && enter=$(date -d "$ts" +%s 2>/dev/null) && [[ "$enter" =~ ^[0-9]+$ ]]; then
+    now=$(date +%s)
+    echo $(( now - enter ))
+    return 0
+  fi
+  echo 999999999
+}
+
+# failed 유닛을 시간당 최대 1회 회수한다.
+recover_failed() {
+  local now last result
+  now=$(date +%s)
+  last=0
+  [[ -r "$RECOVER_STAMP" ]] && last=$(cat "$RECOVER_STAMP" 2>/dev/null)
+  [[ "$last" =~ ^[0-9]+$ ]] || last=0
+  if (( now - last < RECOVER_MIN_SEC )); then
+    log "securwayssl failed — last recovery $(( now - last ))s ago (< ${RECOVER_MIN_SEC}s), wait"
+    return 0
+  fi
+  echo "$now" > "$RECOVER_STAMP"
+  result=$(systemctl show -p Result --value "$UNIT" 2>/dev/null)
+  log "securwayssl failed (Result=${result:-unknown}) — reset-failed + start (at most once per ${RECOVER_MIN_SEC}s)"
+  systemctl reset-failed "$UNIT" || true
+  systemctl start "$UNIT" || log "start $UNIT failed — needs a human"
+  return 0
+}
+
+main() {
+  local i age
+  if ! systemctl is-active --quiet "$UNIT"; then
+    # failed 만 회수. inactive(사람이 stop · 데스크톱 상호배제)와
+    # activating(systemd 재시도 중)은 손대지 않는다.
+    if systemctl is-failed --quiet "$UNIT"; then
+      recover_failed
+    fi
+    return 0
+  fi
+
+  for (( i = 1; i <= PROBE_TRIES; i++ )); do
+    if probe; then
+      if (( i > 1 )); then
+        log "DMA $HOST:$PORT recovered on probe $i/$PROBE_TRIES — no restart"
+      fi
+      keepalive
+      return 0
+    fi
+    log "probe $i/$PROBE_TRIES $HOST:$PORT failed"
+    if (( i < PROBE_TRIES )); then
+      sleep "$PROBE_GAP_SEC"
+    fi
+  done
+
+  if ! systemctl is-active --quiet "$UNIT"; then
+    log "all $PROBE_TRIES probes failed but $UNIT is no longer active — skip (systemd is handling it)"
+    return 0
+  fi
+  age=$(active_age_sec)
+  if (( age < GRACE_SEC )); then
+    log "all $PROBE_TRIES probes failed but $UNIT active for ${age}s (< grace ${GRACE_SEC}s) — skip"
+    return 0
+  fi
+  log "all $PROBE_TRIES probes failed ($HOST:$PORT unreachable, active ${age}s) — restarting securwayssl"
+  systemctl restart "$UNIT" || log "restart $UNIT failed"
+  return 0
+}
+
+# 직접 실행될 때만 main (source 시 미실행 — 테스트용)
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+  exit $?
 fi
