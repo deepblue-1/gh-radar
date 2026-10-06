@@ -362,8 +362,24 @@ describe("Phase 28 parseLimitFeature (85 · limit_feature 슬롯 90)", () => {
       modelSchemaVersion: 0,
       pBreakBp: -1,
       pHorizonS: 0,
+      lockSellKrw: 600_000_000,
+      lockCancelKrw: 460_000_000,
     });
     expect(droppedEnvelopeCount()).toBe(0);
+  });
+
+  it("구 gh-trade 서버 프레임(ea8d9171 이전 — 말미 2필드 부재) → lockSellKrw · lockCancelKrw 0 (FlatBuffers 기본값)", () => {
+    // 0n 은 add* 가 기본값이라 쓰지 않는다 → 필드 부재 = 구 서버 바이트와 같다.
+    const msg = parse(buildLimitFeatureFrame({ lockSellKrw: 0n, lockCancelKrw: 0n }));
+    expect(msg?.lockSellKrw).toBe(0);
+    expect(msg?.lockCancelKrw).toBe(0);
+    expect(droppedEnvelopeCount()).toBe(0);
+  });
+
+  it("누적 매도 · 취소 2^53 초과 → toNum 클램프(MAX_SAFE_INTEGER)", () => {
+    const msg = parse(buildLimitFeatureFrame({ lockSellKrw: 2n ** 60n, lockCancelKrw: 2n ** 60n }));
+    expect(msg?.lockSellKrw).toBe(Number.MAX_SAFE_INTEGER);
+    expect(msg?.lockCancelKrw).toBe(Number.MAX_SAFE_INTEGER);
   });
 
   it("bigint 경계 — 2^53 초과 금액은 MAX_SAFE_INTEGER 로 클램프 · 음수 증분 수량은 그대로", () => {

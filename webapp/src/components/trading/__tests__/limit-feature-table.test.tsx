@@ -13,6 +13,8 @@ import { LimitFeatureTable } from '../card/limit-feature-table';
  *   - 표 title = shared `limitFeatureTooltip` 그대로(웹은 문구를 만들지 않는다)
  *   - isStale → data-stale + opacity .55 · 값 유지
  *   - 칸 tone → --up · --down · --muted-fg · --faint
+ *   - quick-261006-ide — 행 누적 · 10초 · 창구, 잠김 중 누적 머리 = 경과 「m:ss」(--up · 보통 굵기 · data-elapsed),
+ *     상태 줄은 title 첫 줄, 칸은 모두 보통 굵기(WinForms gp8 · f1j)
  */
 
 function lf(over: Partial<RelayLimitFeatureMsg> = {}): RelayLimitFeatureMsg {
@@ -48,6 +50,8 @@ function lf(over: Partial<RelayLimitFeatureMsg> = {}): RelayLimitFeatureMsg {
     modelSchemaVersion: 1,
     pBreakBp: 1830,
     pHorizonS: 60,
+    lockSellKrw: 600_000_000,
+    lockCancelKrw: 460_000_000,
     ...over,
   };
 }
@@ -56,7 +60,8 @@ function setup(feature: RelayLimitFeatureMsg | null, isStale?: boolean) {
   const utils = render(<LimitFeatureTable feature={feature} isStale={isStale} />);
   const table = utils.container.querySelector('[data-slot="lc-limit-feature"]') as HTMLTableElement;
   const cells = () => Array.from(table.querySelectorAll<HTMLTableCellElement>('[data-slot="lc-limit-feature-cell"]'));
-  return { ...utils, table, cells };
+  const heads = () => Array.from(table.querySelectorAll<HTMLTableCellElement>('[data-slot="lc-limit-feature-head"]'));
+  return { ...utils, table, cells, heads };
 }
 
 describe('Phase 28 LimitFeatureTable — 9칸 표 (28-07)', () => {
@@ -123,7 +128,7 @@ describe('Phase 28 LimitFeatureTable — 9칸 표 (28-07)', () => {
     const { table, cells } = setup(lf(), true);
     expect(table.getAttribute('data-stale')).toBe('true');
     expect(table.className).toContain('opacity-[.55]');
-    expect(cells()[0]!.textContent).toBe('잠김 43초째');
+    expect(cells()[0]!.textContent).toBe('매도 6.0억');
     expect(table.getAttribute('title')).not.toBe('');
   });
 
@@ -140,11 +145,64 @@ describe('Phase 28 LimitFeatureTable — 9칸 표 (28-07)', () => {
     const titleBefore = table.getAttribute('title');
     const untouched = cells()[6]!;
     rerender(<LimitFeatureTable feature={{ ...msg, lockElapsedS: 44 }} />);
-    expect(cells()[0]!.textContent).toBe('잠김 44초째');
+    expect(table.querySelector('[data-slot="lc-limit-feature-head"]')!.textContent).toBe('0:44');
     // 값이 그대로인 창구 칸은 같은 DOM 노드 · 같은 글자다.
     expect(cells()[6]).toBe(untouched);
-    expect(table.getAttribute('title')).not.toBe(titleBefore); // 지금 행 문구가 바뀌었으니 title 도 바뀐다
+    expect(table.getAttribute('title')).not.toBe(titleBefore); // 상태 줄 문구가 바뀌었으니 title 도 바뀐다
     rerender(<LimitFeatureTable feature={{ ...msg, lockElapsedS: 44 }} />);
     expect(table.getAttribute('title')).toContain('잠김 44초째');
+  });
+
+  it('누적 행(quick-261006-ide) — 「매도 6.0억」·「취소 4.6억」(--down) · 「위험도 35%」(기본색) · 모든 칸 보통 굵기', () => {
+    const { cells } = setup(lf());
+    const [sell, cancel, risk] = cells().slice(0, 3);
+    expect([sell!.textContent, cancel!.textContent, risk!.textContent]).toEqual(['매도 6.0억', '취소 4.6억', '위험도 35%']);
+    expect(sell!.className).toContain('text-[var(--down)]');
+    expect(cancel!.className).toContain('text-[var(--down)]');
+    expect(risk!.className).not.toMatch(/text-\[var\(--(up|down|muted-fg|faint)\)\]/);
+    for (const c of cells()) {
+      expect(c.className).toContain('font-normal');
+      expect(c.className).not.toContain('font-semibold');
+    }
+  });
+
+  it('잠김 중 누적 머리 = 경과 「0:43」(--up · font-normal · data-elapsed) · 나머지 머리 기본(600 · --muted-fg)', () => {
+    const { heads } = setup(lf());
+    expect(heads().map((h) => h.textContent)).toEqual(['0:43', '10초', '창구']);
+    expect(heads()[0]!.getAttribute('data-elapsed')).toBe('true');
+    expect(heads()[0]!.className).toContain('text-[var(--up)]');
+    expect(heads()[0]!.className).toContain('font-normal');
+    expect(heads()[0]!.className).not.toContain('font-semibold');
+    expect(heads()[1]!.hasAttribute('data-elapsed')).toBe(false);
+    expect(heads()[1]!.className).toContain('font-semibold');
+    expect(heads()[1]!.className).toContain('text-[var(--muted-fg)]');
+  });
+
+  it('1시간 넘는 잠김 → 머리 「1:05:20」', () => {
+    const { heads } = setup(lf({ lockElapsedS: 3920 }));
+    expect(heads()[0]!.textContent).toBe('1:05:20');
+  });
+
+  it('lock 2 · lock 0 · null → 누적 머리 「누적」(기본 머리 · data-elapsed 없음)', () => {
+    for (const f of [lf({ lockState: 2, lockElapsedS: 0 }), lf({ lockState: 0, lockElapsedS: 0 }), null]) {
+      const { heads, unmount } = setup(f);
+      expect(heads().map((h) => h.textContent)).toEqual(['누적', '10초', '창구']);
+      expect(heads()[0]!.hasAttribute('data-elapsed')).toBe(false);
+      unmount();
+    }
+  });
+
+  it('lock 0 → 누적 칸 「—」 ×3 · title 첫 줄 = 상태 줄 「미도달 …」', () => {
+    const msg = lf({ lockState: 0, lockElapsedS: 0, rateBp: 2680 });
+    const { cells, table } = setup(msg);
+    expect(cells().slice(0, 3).map((c) => c.textContent)).toEqual(['—', '—', '—']);
+    expect(table.getAttribute('title')!.split('\n')[0]).toBe('미도달 (+26.8%) · 매도벽 0 · 상한가 13,000');
+  });
+
+  it('title 첫 줄 = 상태 줄(옛 지금 행) · 둘째 줄 = 「누적 …」(머리는 경과가 아닌 기본 머리)', () => {
+    const { table } = setup(lf());
+    const lines = table.getAttribute('title')!.split('\n');
+    expect(lines[0]).toBe('잠김 43초째 · 대기 17.3억 · 소진 —');
+    expect(lines[1]).toBe('누적 매도 6.0억 · 취소 4.6억 · 위험도 35%');
   });
 });

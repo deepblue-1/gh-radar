@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 2404509b
-// synced-date:        2026-10-05
+// server-repo-commit: ea8d9171
+// synced-date:        2026-10-06
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -1486,6 +1486,7 @@ table QueueProgress {            // 83 본문 — 종목·거래소별 대기·�
 // 1:1 이다. 소수 값은 bp(1% = 100), 초는 정수다. 라벨(break_within_n 등 미래값)은 싣지 않는다(누출 금지).
 // 출처: 대부분 실측, member_* 는 추정(분 단위), p_*·team_sim 은 모형 — 클라 표시는 이 출처를 따른다.
 // 정의 변경은 feature_schema 를 올린다(사전 「판 번호 규칙」). 이름·번호는 gh-radar 와의 one-way 계약 — 추가는 말미 append 만.
+// lock_sell_krw·lock_cancel_krw 는 2026-10-06 말미 append(quick-261006-f1j) — 저널 kind 15 슬롯에는 싣지 않는다(슬롯 매핑 무변경).
 // ============================================================================
 
 table MemberDelta {              // 이 분 B9 증분 창구 1건 (상위 3, 금액 가중)
@@ -1533,6 +1534,9 @@ table LimitFeature {             // 85 본문 — 실시간 상한가 특징 1�
     p_break_bp: int;             // N초 안 깨짐 확률 bp — −1 = 없음(model_state 0)
     p_horizon_s: int;            // 확률의 창 N(초) — model_state 0 이면 0
     team_sim: [TeamSim];         // 팀 유사도 (모형 — 승격 전 빈 벡터)
+    // === 이하 quick-261006-f1j 추가 (테이블 말미 append — 기존 필드 순서 불변, 저널 kind 15 슬롯에는 싣지 않는다) ===
+    lock_sell_krw: ulong;        // 이번 잠김 누적 매도 주도 상한가 체결 금액(원) — AtLimit run 시작부터(첫 3초 포함), 30틱 확정 전 run 은 싣지 않음, 잠김이 끝나면 마지막 값 유지, 오늘 잠김 없으면 0 (quick-261006-f1j)
+    lock_cancel_krw: ulong;      // 같은 창의 상한가 매수잔량 취소 금액(원, 하한) — cancel_10s 와 같은 접속매매 음수 순유입 × upper_px (quick-261006-f1j)
 }
 
 // ============================================================================

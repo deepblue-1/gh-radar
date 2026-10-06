@@ -205,8 +205,18 @@ teamSimLength():number {
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
+lockSellKrw():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 68);
+  return offset ? this.bb!.readUint64(this.bb_pos + offset) : BigInt('0');
+}
+
+lockCancelKrw():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 70);
+  return offset ? this.bb!.readUint64(this.bb_pos + offset) : BigInt('0');
+}
+
 static startLimitFeature(builder:flatbuffers.Builder) {
-  builder.startObject(32);
+  builder.startObject(34);
 }
 
 static addIsin(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset) {
@@ -373,12 +383,20 @@ static startTeamSimVector(builder:flatbuffers.Builder, numElems:number) {
   builder.startVector(4, numElems, 4);
 }
 
+static addLockSellKrw(builder:flatbuffers.Builder, lockSellKrw:bigint) {
+  builder.addFieldInt64(32, lockSellKrw, BigInt('0'));
+}
+
+static addLockCancelKrw(builder:flatbuffers.Builder, lockCancelKrw:bigint) {
+  builder.addFieldInt64(33, lockCancelKrw, BigInt('0'));
+}
+
 static endLimitFeature(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createLimitFeature(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset, gwTimeMs:bigint, featureSchema:number, upperPx:number, lastPx:number, rateBp:number, basePx:number, listShares:bigint, qQty:bigint, qKrw:bigint, wallKrwVisible:bigint, wallQtyHidden:bigint, wallTruncated:boolean, sellLed10s:bigint, buyLed10s:bigint, cancel10s:bigint, new10s:bigint, auctionFill10s:bigint, drainS:number, lockState:number, lockElapsedS:number, burstUpperLimit:boolean, auction:boolean, memberBuyOffset:flatbuffers.Offset, memberSellOffset:flatbuffers.Offset, memberDeltaPartial:boolean, modelState:number, modelSchemaVersion:number, pBreakBp:number, pHorizonS:number, teamSimOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createLimitFeature(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset, gwTimeMs:bigint, featureSchema:number, upperPx:number, lastPx:number, rateBp:number, basePx:number, listShares:bigint, qQty:bigint, qKrw:bigint, wallKrwVisible:bigint, wallQtyHidden:bigint, wallTruncated:boolean, sellLed10s:bigint, buyLed10s:bigint, cancel10s:bigint, new10s:bigint, auctionFill10s:bigint, drainS:number, lockState:number, lockElapsedS:number, burstUpperLimit:boolean, auction:boolean, memberBuyOffset:flatbuffers.Offset, memberSellOffset:flatbuffers.Offset, memberDeltaPartial:boolean, modelState:number, modelSchemaVersion:number, pBreakBp:number, pHorizonS:number, teamSimOffset:flatbuffers.Offset, lockSellKrw:bigint, lockCancelKrw:bigint):flatbuffers.Offset {
   LimitFeature.startLimitFeature(builder);
   LimitFeature.addIsin(builder, isinOffset);
   LimitFeature.addExchange(builder, exchangeOffset);
@@ -412,6 +430,8 @@ static createLimitFeature(builder:flatbuffers.Builder, isinOffset:flatbuffers.Of
   LimitFeature.addPBreakBp(builder, pBreakBp);
   LimitFeature.addPHorizonS(builder, pHorizonS);
   LimitFeature.addTeamSim(builder, teamSimOffset);
+  LimitFeature.addLockSellKrw(builder, lockSellKrw);
+  LimitFeature.addLockCancelKrw(builder, lockCancelKrw);
   return LimitFeature.endLimitFeature(builder);
 }
 }

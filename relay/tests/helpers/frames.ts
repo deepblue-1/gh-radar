@@ -1779,9 +1779,10 @@ export type FakeLimitFeatureMemberInput = {
 };
 
 /**
- * 85 `LimitFeature` 입력(32필드 선택). 기본값 = **잠김 시나리오**(lock 1 · 43초째 · 대기 17.3억 · 소진 ∞ ·
- * 매수 창구 00050 · 매도 창구 00002) — e2e P28-1 이 「상한가 · 잠김 43초」 · 「잠김 43초째 | 대기 17.3억 | 소진 —」 을
- * 단언하는 근거다. 실서버 값이 아니다.
+ * 85 `LimitFeature` 입력(34필드 선택). 기본값 = **잠김 시나리오**(lock 1 · 43초째 · 대기 17.3억 · 소진 ∞ ·
+ * 누적 매도 6.0억 · 취소 4.6억(위험도 35%) · 매수 창구 00050 · 매도 창구 00002) — e2e P28-1 이 「상한가 · 잠김 43초」 ·
+ * 누적 행 「매도 6.0억 | 취소 4.6억 | 위험도 35%」 · title 첫 줄 「잠김 43초째 · 대기 17.3억 · 소진 —」 을 단언하는 근거다.
+ * 실서버 값이 아니다. `lockSellKrw` · `lockCancelKrw` 에 0n 을 주면 구 서버 프레임(필드 부재 → 기본값 0)과 같다.
  */
 export type FakeLimitFeatureInput = {
   isin?: string;
@@ -1815,6 +1816,10 @@ export type FakeLimitFeatureInput = {
   modelSchemaVersion?: number;
   pBreakBp?: number;
   pHorizonS?: number;
+  /** fbs ea8d9171 말미 append — 이번 잠김 누적 매도 주도 상한가 체결 금액(원). */
+  lockSellKrw?: bigint;
+  /** fbs ea8d9171 말미 append — 같은 창 상한가 매수잔량 취소 금액(원, 하한). */
+  lockCancelKrw?: bigint;
 };
 
 /** 기본 매수 창구(잠김 시나리오). */
@@ -1883,6 +1888,8 @@ export function buildLimitFeatureFrame(input: FakeLimitFeatureInput = {}): Uint8
   LimitFeature.addModelSchemaVersion(b, input.modelSchemaVersion ?? 0);
   LimitFeature.addPBreakBp(b, input.pBreakBp ?? -1);
   LimitFeature.addPHorizonS(b, input.pHorizonS ?? 0);
+  LimitFeature.addLockSellKrw(b, input.lockSellKrw ?? 600_000_000n);
+  LimitFeature.addLockCancelKrw(b, input.lockCancelKrw ?? 460_000_000n);
   const feature = LimitFeature.endLimitFeature(b);
 
   Envelope.startEnvelope(b);

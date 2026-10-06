@@ -11,6 +11,8 @@
  * kind 15 문장(28-09)과 보고서(28-12/13)가 다시 쓴다 — shared 순수 함수 1벌.
  * 28-09 — 관찰자 저널 kind 15 행(StrategyEvent 칸에 85 필드를 실은 것)을 85 이름으로 되돌리는 `limitFeatureOfStrategyEvent` ·
  * 창구 `message` 파서(total) · 주문로그 한 줄 조각 `limitFeatureLogParts`(UI-SPEC ②-2 정본 — WinForms 에 kind 15 분기 없음).
+ * quick-261006-ide — gh-trade gp8 · f1j 동형: 지금 행 → 툴팁 첫 줄(상태 줄), 누적 행(이번 잠김 매도 · 취소 · 위험도) ·
+ * 잠김 경과 머리(`limitFeatureRowHeads` — 누적 행 머리를 「m:ss」 로 덮는다).
  */
 
 import { memberName } from "./member-codes";
@@ -20,12 +22,10 @@ import type { StrategyEventRow } from "./strategy-event";
 /** 칸 색 축 — `--up` · `--down` · `--fg` · `--muted-fg` · `--faint`. */
 export type LimitFeatureTone = "up" | "down" | "fg" | "muted" | "faint";
 
-/** 9칸 표의 칸 1개. */
+/** 9칸 표의 칸 1개. 굵기는 늘 보통이다(WinForms 표는 칸을 모두 보통 굵기로 그린다 — quick-261006-ide). */
 export type LimitFeatureCell = {
   text: string;
   tone: LimitFeatureTone;
-  /** 600 굵기 — 지금 행 「잠김 N초째」 만. */
-  strong: boolean;
   /** 폰 밴드 문구(카드 `lc` < 첫 경계) — 잠김 중 10초 행 칸 2 · 3 만. null = 모든 밴드에서 `text`. */
   narrow: string | null;
 };
@@ -56,6 +56,17 @@ export function formatEok(krw: number): string {
 /** 초 → 60초 이상이면 「M분 S초」, 아니면 「S초」 (잠김 경과 · 소진 공용 — WinForms `FormatDuration`). */
 export function formatDuration(s: number): string {
   return s >= 60 ? `${Math.trunc(s / 60)}분 ${s % 60}초` : `${s}초`;
+}
+
+/**
+ * 초 → 누적 행 머리용 짧은 시계 「m:ss」, 1시간 이상이면 「h:mm:ss」(잠김 경과 — WinForms `FormatClock` 동형).
+ * 음수는 0 으로 본다.
+ */
+export function formatClock(s: number): string {
+  const v = s < 0 ? 0 : Math.trunc(s);
+  const p2 = (n: number) => String(n).padStart(2, "0");
+  if (v >= 3600) return `${Math.trunc(v / 3600)}:${p2(Math.trunc((v % 3600) / 60))}:${p2(v % 60)}`;
+  return `${Math.trunc(v / 60)}:${p2(v % 60)}`;
 }
 
 /**
@@ -122,46 +133,71 @@ function tenSecondLead(msg: Pick<RelayLimitFeatureMsg, "sellLed10s" | "buyLed10s
   return cell("매수·매도 반반");
 }
 
-/** 행 머리 3개(WinForms `LimitFeatureTable.RowHeaders`) — 표 `<th>` 와 툴팁 줄 머리가 같은 글자를 쓴다. */
-export const LIMIT_FEATURE_ROW_HEADERS = ["지금", "10초", "창구"] as const;
+/**
+ * 행 머리 3개(WinForms `LimitFeatureTable.RowHeaders` — quick-261006-gp8 이후 누적 · 10초 · 창구). 툴팁 줄 머리는 늘 이 기본
+ * 머리다(잠김 경과로 덮은 머리가 아니다 — WinForms `GetRowHeader`).
+ */
+export const LIMIT_FEATURE_ROW_HEADERS = ["누적", "10초", "창구"] as const;
 
-function cell(text: string, tone: LimitFeatureTone = "fg", strong = false): LimitFeatureCell {
-  return { text, tone, strong, narrow: null };
+/** 표 행 머리 1개 — `elapsed` = 잠김 경과로 덮은 누적 행 머리(`--up` · 보통 굵기). */
+export type LimitFeatureRowHead = { text: string; elapsed: boolean };
+
+function cell(text: string, tone: LimitFeatureTone = "fg"): LimitFeatureCell {
+  return { text, tone, narrow: null };
 }
 
-const EMPTY_CELL: LimitFeatureCell = { text: DASH, tone: "faint", strong: false, narrow: null };
+const EMPTY_CELL: LimitFeatureCell = { text: DASH, tone: "faint", narrow: null };
 
 /**
- * 9칸(행 우선 — `row * 3 + col`: 지금 · 10초 · 창구). null(85 없음 · 아직 안 옴 · 구 서버 · 대상 밖 키 · 접힌 카드)이면
- * 9칸 모두 「—」(faint).
- *
- * 지금 행(WinForms 원문 갈래):
- *   - lock 1: 「잠김 {dur}째」(up · 600) · 「대기 {억}」 · 「소진 {dur}」(drain −1 → 「소진 —」)
+ * 상태 줄 세 칸(옛 「지금」 행 — 표에는 그리지 않고 툴팁 첫 줄로만 간다, WinForms `BuildLimitFeatureCells` [0..2]).
+ *   - lock 1: 「잠김 {dur}째」 · 「대기 {억}」 · 「소진 {dur}」(drain −1 → 「소진 —」)
  *   - lock 2: 「깨짐」 · 「대기 {억}」 · 「매도벽 {억}」(잘림 「+」)
  *   - 그 밖 : 「미도달 ({등락률})」 · 「매도벽 {억}」 · 「상한가 {원}」(upper 0 → 「상한가 —」)
- *   - 단일가: 칸 1 앞에 「단일가 · 」(같은 색 · 같은 굵기)
+ *   - 단일가: 칸 1 앞에 「단일가 · 」
+ */
+function limitFeatureStatus(msg: RelayLimitFeatureMsg): [string, string, string] {
+  const wall = `매도벽 ${formatEok(msg.wallKrwVisible)}${msg.wallTruncated ? "+" : ""}`;
+  let now: [string, string, string];
+  if (msg.lockState === 1) {
+    now = [
+      `잠김 ${formatDuration(msg.lockElapsedS)}째`,
+      `대기 ${formatEok(msg.qKrw)}`,
+      `소진 ${msg.drainS < 0 ? DASH : formatDuration(msg.drainS)}`,
+    ];
+  } else if (msg.lockState === 2) {
+    now = ["깨짐", `대기 ${formatEok(msg.qKrw)}`, wall];
+  } else {
+    now = [
+      `미도달 (${formatRatePct(msg.rateBp)})`,
+      wall,
+      `상한가 ${msg.upperPx === 0 ? DASH : formatGroup(msg.upperPx)}`,
+    ];
+  }
+  if (msg.auction) now[0] = `단일가 · ${now[0]}`;
+  return now;
+}
+
+/**
+ * 9칸(행 우선 — `row * 3 + col`: 누적 · 10초 · 창구). null(85 없음 · 아직 안 옴 · 구 서버 · 대상 밖 키 · 접힌 카드)이면
+ * 9칸 모두 「—」(faint).
+ *
+ * 누적 행(WinForms quick-261006-f1j 원문 갈래 — 이번 잠김 누적 매도 · 취소 금액은 서버 값, 위험도는 두 서버 값의 비율):
+ *   - 잠김 없음(lock 0, 또는 lock 2 이고 두 금액 모두 0): 「—」 ×3(fg)
+ *   - 그 밖: 「매도 {억}」(down) · 「취소 {억}」(down) · 「위험도 NN%」(fg — lockSellKrw ÷ qKrw × 100 짝수 반올림,
+ *     100% 초과 가능) / qKrw 0 → 「위험도 —」. lock 1 은 두 금액이 0 이어도 「매도 0」.
  */
 export function limitFeatureCells(msg: RelayLimitFeatureMsg | null): LimitFeatureCell[] {
   if (msg === null) return Array.from({ length: 9 }, () => ({ ...EMPTY_CELL }));
 
-  const wall = `매도벽 ${formatEok(msg.wallKrwVisible)}${msg.wallTruncated ? "+" : ""}`;
-  let now: LimitFeatureCell[];
-  if (msg.lockState === 1) {
-    now = [
-      cell(`잠김 ${formatDuration(msg.lockElapsedS)}째`, "up", true),
-      cell(`대기 ${formatEok(msg.qKrw)}`),
-      cell(`소진 ${msg.drainS < 0 ? DASH : formatDuration(msg.drainS)}`),
-    ];
-  } else if (msg.lockState === 2) {
-    now = [cell("깨짐"), cell(`대기 ${formatEok(msg.qKrw)}`), cell(wall)];
-  } else {
-    now = [
-      cell(`미도달 (${formatRatePct(msg.rateBp)})`),
-      cell(wall),
-      cell(`상한가 ${msg.upperPx === 0 ? DASH : formatGroup(msg.upperPx)}`),
-    ];
-  }
-  if (msg.auction) now[0] = { ...now[0]!, text: `단일가 · ${now[0]!.text}` };
+  const noLock =
+    msg.lockState === 0 || (msg.lockState === 2 && msg.lockSellKrw === 0 && msg.lockCancelKrw === 0);
+  const cum: LimitFeatureCell[] = noLock
+    ? [cell(DASH), cell(DASH), cell(DASH)]
+    : [
+        cell(`매도 ${formatEok(msg.lockSellKrw)}`, "down"),
+        cell(`취소 ${formatEok(msg.lockCancelKrw)}`, "down"),
+        cell(msg.qKrw === 0 ? `위험도 ${DASH}` : `위험도 ${roundPctHalfEven(msg.lockSellKrw, msg.qKrw)}%`),
+      ];
 
   // 10초 행 — 체결 우세(큰 쪽 비율 · 짝수 반올림) · 잠김 중 잔량 신규/취소, 그 밖 체결 합.
   const led = msg.sellLed10s + msg.buyLed10s;
@@ -189,7 +225,17 @@ export function limitFeatureCells(msg: RelayLimitFeatureMsg | null): LimitFeatur
       ? cell(`깨짐확률 ${formatBpPct1(msg.pBreakBp)}%`)
       : cell("깨짐확률 관찰 중", "muted"),
   ];
-  return [...now, ...ten, ...win];
+  return [...cum, ...ten, ...win];
+}
+
+/**
+ * 표 행 머리 3개 — lock 1 이면 누적 행 머리를 잠김 경과 「m:ss」(`formatClock`, `elapsed: true`)로 덮는다(WinForms
+ * `SetRowHeaderOverride(0, FormatClock(LockElapsedS), PriceUp)`). 그 밖 · null 은 기본 머리.
+ */
+export function limitFeatureRowHeads(msg: RelayLimitFeatureMsg | null): LimitFeatureRowHead[] {
+  const heads = LIMIT_FEATURE_ROW_HEADERS.map((text) => ({ text: text as string, elapsed: false }));
+  if (msg !== null && msg.lockState === 1) heads[0] = { text: formatClock(msg.lockElapsedS), elapsed: true };
+  return heads;
 }
 
 /** epoch ms → KST 「HH:mm:ss」(밀리초는 잘라낸다 — WinForms `FormatTimeKst(...).Substring(0, 8)`). 0 이하 → 「」. */
@@ -201,16 +247,20 @@ function formatTimeKstHms(epochMs: number): string {
 }
 
 /**
- * 표 툴팁(WinForms `ApplyLimitFeatureTable` 동형). 줄 3개 「{행 머리} {칸1} · {칸2} · {칸3}」(늘 **넓은 밴드 문구**) +
- * 4번째 줄 「HH:mm:ss 기준」(gwTimeMs KST) · 확률 적용 중(modelState 1 · pBreakBp ≥ 0 · pHorizonS > 0)이면
+ * 표 툴팁(WinForms `ApplyLimitFeatureTable` 동형). 첫 줄 = 상태 줄(옛 지금 행 세 칸 「 · 」 연결) · 이어 줄 3개
+ * 「{기본 행 머리} {칸1} · {칸2} · {칸3}」(늘 **넓은 밴드 문구** · 머리는 경과로 덮지 않은 누적/10초/창구) +
+ * 마지막 줄 「HH:mm:ss 기준」(gwTimeMs KST) · 확률 적용 중(modelState 1 · pBreakBp ≥ 0 · pHorizonS > 0)이면
  * 「 · 깨짐확률은 N초 안」. 시각이 없으면 확률 꼬리만 「깨짐확률은 N초 안」 줄로. null(85 없음) → 「」.
  */
 export function limitFeatureTooltip(msg: RelayLimitFeatureMsg | null): string {
   if (msg === null) return "";
   const cells = limitFeatureCells(msg);
-  const lines = LIMIT_FEATURE_ROW_HEADERS.map(
-    (h, r) => `${h} ${cells[r * 3]!.text} · ${cells[r * 3 + 1]!.text} · ${cells[r * 3 + 2]!.text}`,
-  );
+  const lines = [
+    limitFeatureStatus(msg).join(" · "),
+    ...LIMIT_FEATURE_ROW_HEADERS.map(
+      (h, r) => `${h} ${cells[r * 3]!.text} · ${cells[r * 3 + 1]!.text} · ${cells[r * 3 + 2]!.text}`,
+    ),
+  ];
   const time = formatTimeKstHms(msg.gwTimeMs);
   const horizon = msg.modelState === 1 && msg.pBreakBp >= 0 && msg.pHorizonS > 0;
   if (time) lines.push(`${time} 기준${horizon ? ` · 깨짐확률은 ${msg.pHorizonS}초 안` : ""}`);
@@ -290,7 +340,8 @@ function toFeatureMember(m: LimitFeatureMessageMember): RelayLimitFeatureMember 
 
 /**
  * kind 15 행 → 85 `RelayLimitFeatureMsg` 모양(숫자 슬롯 매핑표 = 특징 사전 ③ 그대로). 행에 없는 값(basePx · burstUpperLimit ·
- * memberDeltaPartial · modelSchemaVersion · pHorizonS)은 0/false 다. modelState = snap_qty 길이(원소 값은 의미 없다).
+ * memberDeltaPartial · modelSchemaVersion · pHorizonS · lockSellKrw · lockCancelKrw)은 0/false 다 — 누적 매도 · 취소는
+ * kind 15 슬롯에 싣지 않는다(gh-trade 2026-10-06 결정, 슬롯 매핑 무변경). modelState = snap_qty 길이(원소 값은 의미 없다).
  * 9칸 숫자 함수와 kind 15 문장이 같은 표기를 쓰게 하는 다리다 — 값을 보정하지 않는다.
  */
 export function limitFeatureOfStrategyEvent(row: StrategyEventRow): RelayLimitFeatureMsg {
@@ -327,6 +378,8 @@ export function limitFeatureOfStrategyEvent(row: StrategyEventRow): RelayLimitFe
     modelSchemaVersion: 0,
     pBreakBp: row.resultCode,
     pHorizonS: 0,
+    lockSellKrw: 0,
+    lockCancelKrw: 0,
   };
 }
 

@@ -1591,7 +1591,8 @@ export type RelayLimitFeatureMember = {
 };
 
 /**
- * 상한가 특징 (85 `LimitFeature` · gh-trade Phase 27 · fbs 2404509b · Envelope 슬롯 90 · Phase 28 28-01).
+ * 상한가 특징 (85 `LimitFeature` · gh-trade Phase 27 · fbs 2404509b · ea8d9171 말미 append 2필드 · Envelope 슬롯 90 ·
+ * Phase 28 28-01 · quick-261006-ide).
  *
  * S→C **Broadcast** · (isin, 거래소) 키당 **1초 스로틀** · 값이 바뀐 키만 · 그 키를 **FULL 구독**한
  * 연결에만 온다. relay 는 키별 마지막 1프레임을 캐시하고 그 키를 FULL 로 잡은 브라우저 소켓에만
@@ -1661,6 +1662,16 @@ export type RelayLimitFeatureMsg = {
   pBreakBp: number;
   /** 확률의 창 N(초). modelState 0 이면 0. */
   pHorizonS: number;
+  /**
+   * 이번 잠김 누적 매도 주도 **상한가** 체결 금액(원 · fbs ea8d9171 `lock_sell_krw`). 잠김이 끝나면 마지막 값 유지(lockState 2),
+   * 오늘 잠김이 없으면 0, 06:00 리셋에 0, 구 서버(필드 없음)도 0.
+   */
+  lockSellKrw: number;
+  /**
+   * 같은 창의 상한가 매수잔량 취소 금액(원, 하한 · fbs ea8d9171 `lock_cancel_krw` — cancel10s 와 같은 접속매매 음수 순유입 ×
+   * upperPx). 유지 · 0 규칙은 `lockSellKrw` 와 같다.
+   */
+  lockCancelKrw: number;
 };
 
 /** relay 가 브라우저로 보내는 모든 메시지. `t` 로 분기한다. */

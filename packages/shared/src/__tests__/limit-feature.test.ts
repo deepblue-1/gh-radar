@@ -5,12 +5,14 @@
 import { describe, expect, it } from "vitest";
 import type { RelayLimitFeatureMsg } from "../relay";
 import {
+  formatClock,
   formatDuration,
   formatEok,
   formatGroup,
   formatRatePct,
   formatManQty,
   limitFeatureCells,
+  limitFeatureRowHeads,
   limitFeatureTabSuffix,
   limitFeatureTooltip,
   limitFeatureLogParts,
@@ -59,11 +61,15 @@ function feature(over: Partial<RelayLimitFeatureMsg> = {}): RelayLimitFeatureMsg
     modelSchemaVersion: 0,
     pBreakBp: -1,
     pHorizonS: 0,
+    lockSellKrw: 600_000_000,
+    lockCancelKrw: 460_000_000,
     ...over,
   };
 }
 
-const nowRow = (msg: RelayLimitFeatureMsg | null) => limitFeatureCells(msg).slice(0, 3).map((c) => c.text);
+/** 툴팁 첫 줄 = 상태 줄(옛 지금 행 세 칸 — quick-261006-ide). */
+const statusLine = (msg: RelayLimitFeatureMsg) => limitFeatureTooltip(msg).split("\n")[0];
+const cumRow = (msg: RelayLimitFeatureMsg | null) => limitFeatureCells(msg).slice(0, 3);
 
 describe("Phase 28 formatEok — .NET N1 + 「억」, 0 에서 먼 쪽 반올림", () => {
   it("0 → 「0」", () => {
@@ -108,60 +114,119 @@ describe("Phase 28 formatGroup", () => {
   });
 });
 
-describe("Phase 28 limitFeatureCells — 지금 행 (WinForms BuildLimitFeatureCells 동형)", () => {
-  it("lock 1 · 43초 · 대기 17.3억 · drain −1 → 「잠김 43초째」(up · strong) · 「대기 17.3억」 · 「소진 —」", () => {
-    const cells = limitFeatureCells(feature());
-    expect(cells).toHaveLength(9);
-    expect(cells.slice(0, 3)).toEqual([
-      { text: "잠김 43초째", tone: "up", strong: true, narrow: null },
-      { text: "대기 17.3억", tone: "fg", strong: false, narrow: null },
-      { text: "소진 —", tone: "fg", strong: false, narrow: null },
-    ]);
+describe("quick-261006-ide 상태 줄(툴팁 첫 줄 — 옛 지금 행, WinForms gp8)", () => {
+  it("lock 1 · 43초 · 대기 17.3억 · drain −1 → 「잠김 43초째 · 대기 17.3억 · 소진 —」", () => {
+    expect(statusLine(feature())).toBe("잠김 43초째 · 대기 17.3억 · 소진 —");
   });
 
-  it("lock 1 · 경과 63초 · drain 95 → 「잠김 1분 3초째」 · 「소진 1분 35초」", () => {
-    expect(nowRow(feature({ lockElapsedS: 63, drainS: 95 }))).toEqual(["잠김 1분 3초째", "대기 17.3억", "소진 1분 35초"]);
+  it("lock 1 · 경과 63초 · drain 95 → 「잠김 1분 3초째 · 대기 17.3억 · 소진 1분 35초」", () => {
+    expect(statusLine(feature({ lockElapsedS: 63, drainS: 95 }))).toBe("잠김 1분 3초째 · 대기 17.3억 · 소진 1분 35초");
   });
 
-  it("lock 2 · 대기 2.1억 · 매도벽 0.9억 잘림 → 「깨짐」 · 「대기 2.1억」 · 「매도벽 0.9억+」", () => {
+  it("lock 2 · 대기 2.1억 · 매도벽 0.9억 잘림 → 「깨짐 · 대기 2.1억 · 매도벽 0.9억+」", () => {
     const msg = feature({ lockState: 2, lockElapsedS: 0, qKrw: 210_000_000, wallKrwVisible: 90_000_000, wallTruncated: true });
-    expect(nowRow(msg)).toEqual(["깨짐", "대기 2.1억", "매도벽 0.9억+"]);
-    expect(limitFeatureCells(msg)[0]).toEqual({ text: "깨짐", tone: "fg", strong: false, narrow: null });
+    expect(statusLine(msg)).toBe("깨짐 · 대기 2.1억 · 매도벽 0.9억+");
   });
 
-  it("lock 0 · +26.8% · 매도벽 4.2억 잘림 · 상한가 13000 → 「미도달 (+26.8%)」 · 「매도벽 4.2억+」 · 「상한가 13,000」", () => {
+  it("lock 0 · +26.8% · 매도벽 4.2억 잘림 · 상한가 13000 → 「미도달 (+26.8%) · 매도벽 4.2억+ · 상한가 13,000」", () => {
     const msg = feature({ lockState: 0, lockElapsedS: 0, rateBp: 2680, wallKrwVisible: 420_000_000, wallTruncated: true });
-    expect(nowRow(msg)).toEqual(["미도달 (+26.8%)", "매도벽 4.2억+", "상한가 13,000"]);
+    expect(statusLine(msg)).toBe("미도달 (+26.8%) · 매도벽 4.2억+ · 상한가 13,000");
   });
 
   it("lock 0 · upper 0 → 「상한가 —」 · wall 0 → 「매도벽 0」", () => {
     const msg = feature({ lockState: 0, rateBp: 2680, upperPx: 0, wallKrwVisible: 0, wallTruncated: false });
-    expect(nowRow(msg)).toEqual(["미도달 (+26.8%)", "매도벽 0", "상한가 —"]);
+    expect(statusLine(msg)).toBe("미도달 (+26.8%) · 매도벽 0 · 상한가 —");
   });
 
-  it("단일가 + lock 1 → 칸 1 「단일가 · 잠김 43초째」(up · strong)", () => {
-    expect(limitFeatureCells(feature({ auction: true }))[0]).toEqual({
-      text: "단일가 · 잠김 43초째",
-      tone: "up",
-      strong: true,
-      narrow: null,
-    });
+  it("단일가 + lock 1 → 「단일가 · 잠김 43초째 · …」 · 단일가 + lock 0 → 「단일가 · 미도달 (+26.8%) · …」", () => {
+    expect(statusLine(feature({ auction: true }))).toBe("단일가 · 잠김 43초째 · 대기 17.3억 · 소진 —");
+    expect(statusLine(feature({ auction: true, lockState: 0, rateBp: 2680 }))).toMatch(/^단일가 · 미도달 \(\+26\.8%\) · /);
   });
 
-  it("단일가 + lock 0 → 「단일가 · 미도달 (+26.8%)」", () => {
-    expect(nowRow(feature({ auction: true, lockState: 0, rateBp: 2680 }))[0]).toBe("단일가 · 미도달 (+26.8%)");
+  it("상태는 표 칸에 없다 — 9칸 어디에도 「잠김 43초째」 · 「대기」 가 없다", () => {
+    const texts = limitFeatureCells(feature()).map((c) => c.text);
+    expect(texts).not.toContain("잠김 43초째");
+    expect(texts.some((t) => t.startsWith("대기 "))).toBe(false);
   });
 
+  it("null(85 없음) → 9칸 모두 { text: 「—」, tone: faint } · 굵기 필드 없음", () => {
+    const cells = limitFeatureCells(null);
+    expect(cells).toHaveLength(9);
+    for (const c of cells) expect(c).toEqual({ text: "—", tone: "faint", narrow: null });
+  });
+});
+
+describe("quick-261006-ide limitFeatureCells — 누적 행 (WinForms f1j 동형)", () => {
+  it("lock 1 · 매도 6.0억 · 취소 4.6억 · 대기 17.3억 → 「매도 6.0억」(down) · 「취소 4.6억」(down) · 「위험도 35%」(fg)", () => {
+    expect(cumRow(feature())).toEqual([
+      { text: "매도 6.0억", tone: "down", narrow: null },
+      { text: "취소 4.6억", tone: "down", narrow: null },
+      { text: "위험도 35%", tone: "fg", narrow: null },
+    ]);
+  });
+  it("lock 1 · 두 금액 0 → 「매도 0」 · 「취소 0」 · 「위험도 0%」(잠김 중은 0 이어도 숫자)", () => {
+    expect(cumRow(feature({ lockSellKrw: 0, lockCancelKrw: 0 })).map((c) => c.text)).toEqual(["매도 0", "취소 0", "위험도 0%"]);
+  });
+  it("lock 1 · qKrw 0 → 「위험도 —」", () => {
+    expect(cumRow(feature({ qKrw: 0 }))[2]).toEqual({ text: "위험도 —", tone: "fg", narrow: null });
+  });
+  it("lock 2 · qKrw 2.1억 → 「위험도 286%」(100% 초과 그대로)", () => {
+    expect(cumRow(feature({ lockState: 2, lockElapsedS: 0, qKrw: 210_000_000 })).map((c) => c.text)).toEqual([
+      "매도 6.0억",
+      "취소 4.6억",
+      "위험도 286%",
+    ]);
+  });
+  it("lock 2 · 두 금액 0 → 「—」 ×3(fg) · lock 0 → 「—」 ×3", () => {
+    const dash = { text: "—", tone: "fg", narrow: null };
+    expect(cumRow(feature({ lockState: 2, lockSellKrw: 0, lockCancelKrw: 0 }))).toEqual([dash, dash, dash]);
+    expect(cumRow(feature({ lockState: 0 }))).toEqual([dash, dash, dash]);
+  });
+  it("lock 2 · 한쪽만 0 이면 숫자 — 매도 0 · 취소 4.6억", () => {
+    expect(cumRow(feature({ lockState: 2, lockSellKrw: 0 })).map((c) => c.text)).toEqual(["매도 0", "취소 4.6억", "위험도 0%"]);
+  });
+  it("위험도는 짝수 반올림 — 125/1000 → 12% · 135/1000 → 14%", () => {
+    expect(cumRow(feature({ lockSellKrw: 125, qKrw: 1000 }))[2]!.text).toBe("위험도 12%");
+    expect(cumRow(feature({ lockSellKrw: 135, qKrw: 1000 }))[2]!.text).toBe("위험도 14%");
+  });
   it("85 가 있으면 10초 · 창구 행 6칸도 채운다(28-07) — 「—」 자리표시가 남지 않는다", () => {
     const rest = limitFeatureCells(feature()).slice(3);
     expect(rest).toHaveLength(6);
     expect(rest.map((c) => c.text)).not.toContain("—");
   });
+});
 
-  it("null(85 없음) → 9칸 모두 { text: 「—」, tone: faint }", () => {
-    const cells = limitFeatureCells(null);
-    expect(cells).toHaveLength(9);
-    for (const c of cells) expect(c).toEqual({ text: "—", tone: "faint", strong: false, narrow: null });
+describe("quick-261006-ide formatClock — WinForms FormatClock(누적 행 머리 경과)", () => {
+  it("0 → 「0:00」 · 43 → 「0:43」 · 63 → 「1:03」 · 3920 → 「1:05:20」 · -5 → 「0:00」", () => {
+    expect(formatClock(0)).toBe("0:00");
+    expect(formatClock(43)).toBe("0:43");
+    expect(formatClock(63)).toBe("1:03");
+    expect(formatClock(3920)).toBe("1:05:20");
+    expect(formatClock(-5)).toBe("0:00");
+  });
+  it("3600 → 「1:00:00」 · 3599 → 「59:59」", () => {
+    expect(formatClock(3600)).toBe("1:00:00");
+    expect(formatClock(3599)).toBe("59:59");
+  });
+});
+
+describe("quick-261006-ide limitFeatureRowHeads — 누적 행 머리 경과 덮어쓰기", () => {
+  it("lock 1 · 43 → [「0:43」 elapsed, 「10초」, 「창구」]", () => {
+    expect(limitFeatureRowHeads(feature())).toEqual([
+      { text: "0:43", elapsed: true },
+      { text: "10초", elapsed: false },
+      { text: "창구", elapsed: false },
+    ]);
+  });
+  it("lock 2 · lock 0 · null → 기본 머리 「누적」", () => {
+    const base = [
+      { text: "누적", elapsed: false },
+      { text: "10초", elapsed: false },
+      { text: "창구", elapsed: false },
+    ];
+    expect(limitFeatureRowHeads(feature({ lockState: 2, lockElapsedS: 0 }))).toEqual(base);
+    expect(limitFeatureRowHeads(feature({ lockState: 0 }))).toEqual(base);
+    expect(limitFeatureRowHeads(null)).toEqual(base);
   });
 });
 
@@ -224,13 +289,12 @@ describe("Phase 28 9칸 완성 — 10초 행", () => {
   const row10 = (over: Partial<RelayLimitFeatureMsg>) => limitFeatureCells(feature(over)).slice(3, 6);
 
   it("sell 3,700 · buy 6,300 → 「매수 우세 63%」(up)", () => {
-    expect(row10({})[0]).toEqual({ text: "매수 우세 63%", tone: "up", strong: false, narrow: null });
+    expect(row10({})[0]).toEqual({ text: "매수 우세 63%", tone: "up", narrow: null });
   });
   it("sell 8,200 · buy 3,000 → 「매도 우세 73%」(down)", () => {
     expect(row10({ sellLed10s: 8200, buyLed10s: 3000 })[0]).toEqual({
       text: "매도 우세 73%",
       tone: "down",
-      strong: false,
       narrow: null,
     });
   });
@@ -242,21 +306,20 @@ describe("Phase 28 9칸 완성 — 10초 행", () => {
     expect(row10({ sellLed10s: 500, buyLed10s: 500 })[0]).toEqual({
       text: "매수·매도 반반",
       tone: "fg",
-      strong: false,
       narrow: null,
     });
-    expect(row10({ sellLed10s: 0, buyLed10s: 0 })[0]).toEqual({ text: "체결 없음", tone: "fg", strong: false, narrow: null });
+    expect(row10({ sellLed10s: 0, buyLed10s: 0 })[0]).toEqual({ text: "체결 없음", tone: "fg", narrow: null });
   });
 
   it("lock 1 → 「잔량 신규 +12,400」 / 폰 「신규 +1.2만」 · 「잔량 취소 -2,300」(down) / 폰 「취소 -2,300」", () => {
     const [, n, c] = row10({});
-    expect(n).toEqual({ text: "잔량 신규 +12,400", tone: "fg", strong: false, narrow: "신규 +1.2만" });
-    expect(c).toEqual({ text: "잔량 취소 -2,300", tone: "down", strong: false, narrow: "취소 -2,300" });
+    expect(n).toEqual({ text: "잔량 신규 +12,400", tone: "fg", narrow: "신규 +1.2만" });
+    expect(c).toEqual({ text: "잔량 취소 -2,300", tone: "down", narrow: "취소 -2,300" });
   });
   it("lock 1 · new 0 · cancel 0 → 「잔량 신규 0」 / 「신규 0」 · 「잔량 취소 0」(down) / 「취소 0」", () => {
     const [, n, c] = row10({ new10s: 0, cancel10s: 0 });
-    expect(n).toEqual({ text: "잔량 신규 0", tone: "fg", strong: false, narrow: "신규 0" });
-    expect(c).toEqual({ text: "잔량 취소 0", tone: "down", strong: false, narrow: "취소 0" });
+    expect(n).toEqual({ text: "잔량 신규 0", tone: "fg", narrow: "신규 0" });
+    expect(c).toEqual({ text: "잔량 취소 0", tone: "down", narrow: "취소 0" });
   });
   it("lock 1 · 취소 큰 수 → 폰 「취소 -1.5만」", () => {
     expect(row10({ cancel10s: 15000 })[2]!.narrow).toBe("취소 -1.5만");
@@ -265,8 +328,8 @@ describe("Phase 28 9칸 완성 — 10초 행", () => {
   it("lock 0 · lock 2 → 「체결 19,400주」(narrow null) · 「—」(fg)", () => {
     for (const lockState of [0, 2]) {
       const [, n, c] = row10({ lockState, lockElapsedS: 0, sellLed10s: 8200, buyLed10s: 11200 });
-      expect(n).toEqual({ text: "체결 19,400주", tone: "fg", strong: false, narrow: null });
-      expect(c).toEqual({ text: "—", tone: "fg", strong: false, narrow: null });
+      expect(n).toEqual({ text: "체결 19,400주", tone: "fg", narrow: null });
+      expect(c).toEqual({ text: "—", tone: "fg", narrow: null });
     }
   });
   it("lock 0 · 체결 0 → 「체결 없음」 · 「체결 0주」", () => {
@@ -279,18 +342,17 @@ describe("Phase 28 9칸 완성 — 창구 행", () => {
 
   it("FirstMember — 회원번호 빈 원소를 건너뛴다 · 회원사명 전체 이름 · up", () => {
     const [b] = rowM({ memberBuy: [member("", 99000), member("00050", 52000)] });
-    expect(b).toEqual({ text: "매수 키움증권 +5.2만", tone: "up", strong: false, narrow: null });
+    expect(b).toEqual({ text: "매수 키움증권 +5.2만", tone: "up", narrow: null });
   });
   it("빈 배열 · 전부 빈 회원번호 → 「매수 —」 · 「매도 —」(fg)", () => {
     const [b, s] = rowM({ memberBuy: [], memberSell: [member("", 1000)] });
-    expect(b).toEqual({ text: "매수 —", tone: "fg", strong: false, narrow: null });
-    expect(s).toEqual({ text: "매도 —", tone: "fg", strong: false, narrow: null });
+    expect(b).toEqual({ text: "매수 —", tone: "fg", narrow: null });
+    expect(s).toEqual({ text: "매도 —", tone: "fg", narrow: null });
   });
   it("매도 신한증권 +1.8만(down) · 6자리 회원번호 · 미매핑 번호 · 1만 미만", () => {
     expect(rowM({ memberSell: [member("00002", 18000)] })[1]).toEqual({
       text: "매도 신한증권 +1.8만",
       tone: "down",
-      strong: false,
       narrow: null,
     });
     expect(rowM({ memberBuy: [member("000500", 3200)] })[0]!.text).toBe("매수 키움증권 +3,200");
@@ -301,14 +363,13 @@ describe("Phase 28 9칸 완성 — 창구 행", () => {
     expect(rowM({ modelState: 1, pBreakBp: 1830, pHorizonS: 60 })[2]).toEqual({
       text: "깨짐확률 18.3%",
       tone: "fg",
-      strong: false,
       narrow: null,
     });
     expect(rowM({ modelState: 1, pBreakBp: 0, pHorizonS: 60 })[2]!.text).toBe("깨짐확률 0.0%");
     expect(rowM({ modelState: 1, pBreakBp: 10000, pHorizonS: 60 })[2]!.text).toBe("깨짐확률 100.0%");
   });
   it("model 1 · pBreak −1 · model 0 → 「깨짐확률 관찰 중」(muted)", () => {
-    const watching = { text: "깨짐확률 관찰 중", tone: "muted", strong: false, narrow: null };
+    const watching = { text: "깨짐확률 관찰 중", tone: "muted", narrow: null };
     expect(rowM({ modelState: 1, pBreakBp: -1 })[2]).toEqual(watching);
     expect(rowM({ modelState: 0, pBreakBp: 1830 })[2]).toEqual(watching);
   });
@@ -326,9 +387,9 @@ describe("Phase 28 9칸 완성 — 갈래 전체 (WinForms BuildLimitFeatureCell
       buyLed10s: 400,
     });
     expect(limitFeatureCells(msg).map((c) => c.text)).toEqual([
-      "단일가 · 깨짐",
-      "대기 0",
-      "매도벽 0",
+      "매도 6.0억",
+      "취소 4.6억",
+      "위험도 —",
       "매도 우세 75%",
       "체결 1,600주",
       "—",
@@ -349,9 +410,10 @@ describe("Phase 28 9칸 완성 — limitFeatureTooltip (WinForms ApplyLimitFeatu
     pHorizonS: 60,
   });
 
-  it("lock 1 · 확률 적용 → 넓은 밴드 문구 3줄 + 「09:46:00 기준 · 깨짐확률은 60초 안」", () => {
+  it("lock 1 · 확률 적용 → 상태 줄 + 넓은 밴드 문구 3줄 + 「09:46:00 기준 · 깨짐확률은 60초 안」", () => {
     expect(limitFeatureTooltip(full)).toBe(
-      "지금 잠김 43초째 · 대기 17.3억 · 소진 —\n" +
+      "잠김 43초째 · 대기 17.3억 · 소진 —\n" +
+        "누적 매도 6.0억 · 취소 4.6억 · 위험도 35%\n" +
         "10초 매수 우세 63% · 잔량 신규 +12,400 · 잔량 취소 -2,300\n" +
         "창구 매수 키움증권 +5.2만 · 매도 신한증권 +1.8만 · 깨짐확률 18.3%\n" +
         "09:46:00 기준 · 깨짐확률은 60초 안",
@@ -359,7 +421,7 @@ describe("Phase 28 9칸 완성 — limitFeatureTooltip (WinForms ApplyLimitFeatu
   });
   it("model 0 → 마지막 줄 「09:46:00 기준」 만 · 밀리초는 잘라낸다", () => {
     const tip = limitFeatureTooltip({ ...full, modelState: 0, pBreakBp: -1, pHorizonS: 0, gwTimeMs: GW_0946_KST + 999 });
-    expect(tip.split("\n")).toHaveLength(4);
+    expect(tip.split("\n")).toHaveLength(5);
     expect(tip.endsWith("\n09:46:00 기준")).toBe(true);
     expect(tip).toContain("창구 매수 키움증권 +5.2만 · 매도 신한증권 +1.8만 · 깨짐확률 관찰 중");
   });
@@ -367,18 +429,23 @@ describe("Phase 28 9칸 완성 — limitFeatureTooltip (WinForms ApplyLimitFeatu
     const tip = limitFeatureTooltip(
       feature({ lockState: 0, rateBp: 2680, wallKrwVisible: 0, gwTimeMs: Date.UTC(2026, 9, 5, 15, 0, 5) }),
     );
-    expect(tip.split("\n")[0]).toBe("지금 미도달 (+26.8%) · 매도벽 0 · 상한가 13,000");
+    expect(tip.split("\n")[0]).toBe("미도달 (+26.8%) · 매도벽 0 · 상한가 13,000");
+    expect(tip.split("\n")[1]).toBe("누적 — · — · —");
     expect(tip.endsWith("\n00:00:05 기준")).toBe(true);
   });
   it("gwTimeMs 0 → 시각 줄 없음 · 확률 적용이면 「깨짐확률은 60초 안」 줄만", () => {
-    expect(limitFeatureTooltip({ ...full, gwTimeMs: 0 }).split("\n")[3]).toBe("깨짐확률은 60초 안");
-    expect(limitFeatureTooltip({ ...full, gwTimeMs: 0, modelState: 0 }).split("\n")).toHaveLength(3);
+    expect(limitFeatureTooltip({ ...full, gwTimeMs: 0 }).split("\n")[4]).toBe("깨짐확률은 60초 안");
+    expect(limitFeatureTooltip({ ...full, gwTimeMs: 0, modelState: 0 }).split("\n")).toHaveLength(4);
   });
   it("pHorizonS 0 이면 확률이 있어도 꼬리 없음", () => {
     expect(limitFeatureTooltip({ ...full, pHorizonS: 0 }).endsWith("\n09:46:00 기준")).toBe(true);
   });
   it("85 없음(null) → 「」", () => {
     expect(limitFeatureTooltip(null)).toBe("");
+  });
+  it("툴팁 줄 머리는 늘 기본 머리 — 잠김 중에도 「누적」(경과 「0:43」 아님)", () => {
+    expect(limitFeatureTooltip(full).split("\n")[1]).toMatch(/^누적 /);
+    expect(limitFeatureTooltip(full)).not.toContain("0:43");
   });
   it("폰 문구(narrow)는 툴팁에 쓰지 않는다 — 늘 넓은 밴드 문구", () => {
     expect(limitFeatureTooltip(full)).not.toContain("신규 +1.2만");
@@ -478,6 +545,8 @@ describe("Phase 28 kind 15 되돌림 · 문장 (28-09 · UI-SPEC ②-2)", () => 
         modelSchemaVersion: 0,
         pBreakBp: -1,
         pHorizonS: 0,
+        lockSellKrw: 0,
+        lockCancelKrw: 0,
       });
     });
 

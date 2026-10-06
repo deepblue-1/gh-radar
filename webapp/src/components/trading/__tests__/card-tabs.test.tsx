@@ -732,6 +732,8 @@ describe('Phase 28 상한가 탭 (D-01~D-04 · UI-SPEC ①)', () => {
       modelSchemaVersion: 0,
       pBreakBp: -1,
       pHorizonS: 0,
+      lockSellKrw: 600_000_000,
+      lockCancelKrw: 460_000_000,
       ...over,
     };
   }
@@ -760,7 +762,7 @@ describe('Phase 28 상한가 탭 (D-01~D-04 · UI-SPEC ①)', () => {
     expect(tabs()[3]!.querySelector('[data-slot="card-tab-limit-state"]')).toBeNull();
   });
 
-  it('「상한가」 클릭 → 9칸 WinForms 문구(지금 · 10초 폰/넓은 두 span · 창구) · 첫 칸 --up 600 (28-07)', async () => {
+  it('「상한가」 클릭 → 9칸 WinForms 문구(누적 · 10초 폰/넓은 두 span · 창구) · 누적 머리 경과 「0:43」 --up 보통 굵기 (28-07 · quick-261006-ide)', async () => {
     const user = userEvent.setup();
     render(<CardTabs {...props({ limitFeature: lf() })} />);
     await user.click(tabNamed('상한가'));
@@ -768,15 +770,15 @@ describe('Phase 28 상한가 탭 (D-01~D-04 · UI-SPEC ①)', () => {
     expect(table()).not.toBeNull();
     expect(table()!.getAttribute('aria-label')).toBe('상한가 특징');
     expect(Array.from(table()!.querySelectorAll('th[scope="row"]')).map((th) => th.textContent)).toEqual([
-      '지금',
+      '0:43',
       '10초',
       '창구',
     ]);
     // 잠김 중 10초 칸 2 · 3 은 폰 span + 넓은 span 이 같은 칸에 있다(CSS 컨테이너 쿼리로만 가른다).
     expect(cellTexts()).toEqual([
-      '잠김 43초째',
-      '대기 17.3억',
-      '소진 —',
+      '매도 6.0억',
+      '취소 4.6억',
+      '위험도 35%',
       '매수 우세 63%',
       '신규 +1.2만잔량 신규 +12,400',
       '취소 -2,300잔량 취소 -2,300',
@@ -784,9 +786,11 @@ describe('Phase 28 상한가 탭 (D-01~D-04 · UI-SPEC ①)', () => {
       '매도 —',
       '깨짐확률 관찰 중',
     ]);
-    const first = table()!.querySelector('[data-slot="lc-limit-feature-cell"]')!;
-    expect(first.className).toContain('text-[var(--up)]');
-    expect(first.className).toContain('font-semibold');
+    const head = table()!.querySelector('[data-slot="lc-limit-feature-head"]')!;
+    expect(head.getAttribute('data-elapsed')).toBe('true');
+    expect(head.className).toContain('text-[var(--up)]');
+    expect(head.className).toContain('font-normal');
+    expect(table()!.getAttribute('title')!.split('\n')[0]).toBe('잠김 43초째 · 대기 17.3억 · 소진 —');
   });
 
   it('feature null 이면 9칸 모두 「—」(--faint)', async () => {
@@ -830,7 +834,7 @@ describe('Phase 28 상한가 탭 (D-01~D-04 · UI-SPEC ①)', () => {
     await user.click(tabNamed('상한가'));
     expect(table()!.getAttribute('data-stale')).toBe('true');
     expect(table()!.className).toContain('opacity-[.55]');
-    expect(cellTexts()[0]).toBe('잠김 43초째');
+    expect(cellTexts()[0]).toBe('매도 6.0억');
     rerender(<CardTabs {...props({ limitFeature: lf(), isStale: false })} />);
     expect(table()!.hasAttribute('data-stale')).toBe(false);
     expect(tabs()[3]!.querySelector('[data-slot="card-tab-limit-state"]')!.hasAttribute('data-stale')).toBe(false);

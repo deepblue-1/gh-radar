@@ -173,6 +173,7 @@ export {
 export {
   formatEok,
   formatDuration,
+  formatClock,
   formatRatePct,
   formatGroup,
   formatManQty,
@@ -180,6 +181,7 @@ export {
   limitFeatureCells,
   limitFeatureTabSuffix,
   limitFeatureTooltip,
+  limitFeatureRowHeads,
   LIMIT_FEATURE_ROW_HEADERS,
   parseLimitFeatureMessage,
   limitFeatureOfStrategyEvent,
@@ -187,6 +189,7 @@ export {
 } from "./limit-feature";
 export type {
   LimitFeatureCell,
+  LimitFeatureRowHead,
   LimitFeatureTone,
   LimitFeatureTabSuffix,
   LimitFeatureMessage,

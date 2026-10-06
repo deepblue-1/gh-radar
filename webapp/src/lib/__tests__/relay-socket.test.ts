@@ -3400,6 +3400,8 @@ describe('Phase 28 limit.feature (85 상한가 특징 — 시장 배치 · 키�
       modelSchemaVersion: 0,
       pBreakBp: -1,
       pHorizonS: 0,
+      lockSellKrw: 600_000_000,
+      lockCancelKrw: 460_000_000,
       ...over,
     };
   }

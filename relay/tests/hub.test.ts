@@ -854,7 +854,7 @@ describe("Phase 28 85 LimitFeature — quote 연결 수신 · 키 캐시 · full
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ key: `${SAMPLE_ISIN}|KRX`, full: true, price: false });
     const msg = events[0]!.msg as RelayLimitFeatureMsg;
-    expect(msg).toMatchObject({ t: "limit.feature", i: SAMPLE_ISIN, x: "KRX", lockState: 1, lockElapsedS: 43 });
+    expect(msg).toMatchObject({ t: "limit.feature", i: SAMPLE_ISIN, x: "KRX", lockState: 1, lockElapsedS: 43, lockSellKrw: 600_000_000, lockCancelKrw: 460_000_000 });
     expect(hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toEqual(msg);
     // 공개 시세 경로다 — 사용자 팬아웃(`"fanout"`)으로는 한 건도 나가지 않는다(T-26-01).
     expect(fanout.filter((e) => e.msg.t === "limit.feature")).toEqual([]);

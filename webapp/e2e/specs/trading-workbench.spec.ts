@@ -2676,7 +2676,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     }
   });
 
-  test('P28-1 상한가 특징 한 경로 — 85 → relay → 카드 탭 「상한가 · 잠김 43초」 · 지금 행 · 카드 높이 불변 · 자동 전환 없음 (Phase 28 트레이서 · D-01~D-04)', async ({
+  test('P28-1 상한가 특징 한 경로 — 85 → relay → 카드 탭 「상한가 · 잠김 43초」 · 누적 행 · 카드 높이 불변 · 자동 전환 없음 (Phase 28 트레이서 · D-01~D-04)', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -2705,7 +2705,9 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     // 「잠김 43초」 조각은 --up(선택 알약 밖에서도 · 안에서도 같은 색).
     await expect(limitTab.locator('[data-slot="card-tab-limit-state"] .mono')).toHaveText('잠김 43초');
 
-    // (b) 카드 높이 기록 → 「상한가」 클릭 → 지금 행 3칸 → 카드 높이 전후 같다(D-02) · 탭 본문 스크롤 없음.
+    // (b) 카드 높이 기록 → 「상한가」 클릭 → 누적 행 3칸 → 카드 높이 전후 같다(D-02) · 탭 본문 스크롤 없음.
+    //     quick-261006-ide(WinForms gp8 · f1j) — 누적 행 「매도 6.0억 · 취소 4.6억 · 위험도 35%」(기본 프레임 6.0억/17.3억),
+    //     누적 머리 = 잠김 경과 「0:43」(data-elapsed), 상태 줄은 표 title 첫 줄.
     const cardHeight = () => card.evaluate((el) => el.getBoundingClientRect().height);
     const before = await cardHeight();
     await limitTab.click();
@@ -2714,9 +2716,13 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(table).toBeVisible();
     const cells = table.locator('[data-slot="lc-limit-feature-cell"]');
     await expect(cells).toHaveCount(9);
-    await expect(cells.nth(0)).toHaveText('잠김 43초째');
-    await expect(cells.nth(1)).toHaveText('대기 17.3억');
-    await expect(cells.nth(2)).toHaveText('소진 —');
+    await expect(cells.nth(0)).toHaveText('매도 6.0억');
+    await expect(cells.nth(1)).toHaveText('취소 4.6억');
+    await expect(cells.nth(2)).toHaveText('위험도 35%');
+    const heads = table.locator('[data-slot="lc-limit-feature-head"]');
+    await expect(heads).toHaveText(['0:43', '10초', '창구']);
+    await expect(heads.nth(0)).toHaveAttribute('data-elapsed', 'true');
+    expect(((await table.getAttribute('title')) ?? '').split('\n')[0]).toBe('잠김 43초째 · 대기 17.3억 · 소진 —');
     // 10초 · 창구 행(28-07) — 기본 프레임 sell 3,700 · buy 6,300 → 「매수 우세 63%」 · 창구 00050 → 「매수 키움증권 +5.2만」.
     await expect(cells.nth(3)).toHaveText('매수 우세 63%');
     await expect(cells.nth(6)).toHaveText('매수 키움증권 +5.2만');
@@ -2728,8 +2734,10 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       clientHeight: el.clientHeight,
     }));
     expect(scrollHeight, '탭 본문 스크롤 없음 — 3행이 공통 고정 높이를 정확히 채운다').toBe(clientHeight);
+    await card.screenshot({ path: test.info().outputPath('ide-lc-limit-feature-1280.png') });
 
-    // (c) lock_state 2 프레임 → 트리거 이름 「상한가 · 깨짐」 · 지금 행 첫 칸 「깨짐」.
+    // (c) lock_state 2 프레임 → 트리거 이름 「상한가 · 깨짐」 · 누적 머리 「누적」 · 누적 행은 마지막 잠김 값 ·
+    //     위험도 = 6.0억 ÷ 2.1억 = 286%(100% 초과 그대로) · title 첫 줄 「깨짐 · 대기 2.1억 · 매도벽 0.9억+」.
     pushLimitFeatureFixture(relay.gateway, sock, {
       isin: E2E_ISIN,
       exchange: 'KRX',
@@ -2740,8 +2748,12 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       wallTruncated: true,
     });
     await expect(limitTab).toHaveAccessibleName('상한가 · 깨짐', { timeout: 15_000 });
-    await expect(cells.nth(0)).toHaveText('깨짐');
-    await expect(cells.nth(2)).toHaveText('매도벽 0.9억+');
+    await expect(heads).toHaveText(['누적', '10초', '창구']);
+    await expect(heads.nth(0)).not.toHaveAttribute('data-elapsed', 'true');
+    await expect(cells.nth(0)).toHaveText('매도 6.0억');
+    await expect(cells.nth(1)).toHaveText('취소 4.6억');
+    await expect(cells.nth(2)).toHaveText('위험도 286%');
+    expect(((await table.getAttribute('title')) ?? '').split('\n')[0]).toBe('깨짐 · 대기 2.1억 · 매도벽 0.9억+');
     expect(await cardHeight()).toBe(before);
   });
 
@@ -2839,7 +2851,21 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
 
     // (b) 카드 높이 기록 → 「상한가」 클릭 → 높이 같고 탭 본문 스크롤 없음(D-02).
     const cardHeight = () => card.evaluate((el) => el.getBoundingClientRect().height);
-    const before = await cardHeight();
+    // 390 첫 렌더 직후 카드 높이가 한 번 더 정착한다(실측 787.5 → 730.5 — 기준 HEAD 에서도 즉시 측정은 실패했다).
+    // 같은 값이 250ms 간격 두 번 연속 나올 때까지 기다린 값을 기준으로 삼는다(quick-261006-ide).
+    let prevHeight = -1;
+    await expect
+      .poll(
+        async () => {
+          const h = await cardHeight();
+          const settled = h === prevHeight;
+          prevHeight = h;
+          return settled;
+        },
+        { intervals: [250], timeout: 5_000 },
+      )
+      .toBe(true);
+    const before = prevHeight;
     await limitTab.click();
     await expect(limitTab).toHaveAttribute('aria-selected', 'true');
     const table = card.locator('[data-slot="lc-limit-feature"]');
@@ -2856,6 +2882,21 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(cells.nth(4).locator('[data-band="wide"]')).toBeHidden();
     await expect(cells.nth(4).locator('[data-band="narrow"]')).toBeVisible();
 
+    // (c2) quick-261006-ide — 누적 머리 = 경과 「1:03」 · 머리와 누적 3칸이 칸 안에서 잘리지 않는다(390).
+    const heads = table.locator('[data-slot="lc-limit-feature-head"]');
+    await expect(heads.nth(0)).toHaveText('1:03');
+    await expect(cells.nth(0)).toHaveText('매도 6.0억');
+    await expect(cells.nth(1)).toHaveText('취소 4.6억');
+    await expect(cells.nth(2)).toHaveText('위험도 35%');
+    const unclipped = async (what: string) => {
+      for (const el of [heads.nth(0), cells.nth(0), cells.nth(1), cells.nth(2)]) {
+        const g = await el.evaluate((e) => ({ sw: e.scrollWidth, cw: e.clientWidth, text: e.textContent }));
+        expect(g.sw, `${what} — 「${g.text}」 이 칸 안에서 잘리지 않는다(390)`).toBeLessThanOrEqual(g.cw);
+      }
+    };
+    await unclipped('잠김 1:03');
+    await card.screenshot({ path: test.info().outputPath('ide-lc-limit-feature-390.png') });
+
     // (d) 창구 칸 1 은 칸 안에서 말줄임(UI E1 overflow) — 전체 문장은 표 title 이 받는다(늘 넓은 밴드 문구).
     await expect(cells.nth(6)).toHaveText('매수 미래에셋증권 +12.3만');
     const clip = await cells.nth(6).evaluate((el) => ({
@@ -2870,6 +2911,13 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(title).toContain('잔량 신규 +12,400 · 잔량 취소 -2,300');
     expect(title).toMatch(/\n\d{2}:\d{2}:\d{2} 기준 · 깨짐확률은 60초 안$/);
     expect(await cardHeight(), '말줄임 칸이 있어도 카드 높이 그대로').toBe(before);
+
+    // (d2) 1시간 넘는 잠김(3920초) → 누적 머리 「1:05:20」 도 머리 칸에서 잘리지 않는다.
+    pushLimitFeatureFixture(relay.gateway, sock, { ...frame, lockElapsedS: 3920 });
+    await expect(heads.nth(0)).toHaveText('1:05:20', { timeout: 5_000 });
+    await unclipped('잠김 1:05:20');
+    expect(await cardHeight(), '1시간 경과 머리에도 카드 높이 그대로').toBe(before);
+    await card.screenshot({ path: test.info().outputPath('ide-lc-limit-feature-390-1h.png') });
 
     // (e) 넓은 밴드(1280) — 같은 칸이 전체 숫자 「잔량 신규 +12,400」 · 「잔량 취소 -2,300」.
     await page.setViewportSize({ width: 1280, height: 900 });

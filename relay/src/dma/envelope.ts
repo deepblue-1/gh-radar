@@ -889,6 +889,7 @@ export function parseQueueProgress(env: Envelope): QueueProgressFrame | null {
  * - 64비트 칸은 전부 `toNum` 경계를 지난다(D-34). 값은 **계산하지 않는다** — 서버 진실 원본(D-19).
  * - 공개 시세 파생값이라 계좌 · 주문자 필드가 없다 — 계좌 스킵 로깅이 필요 없다.
  * - `list_shares` · `team_sim` 은 싣지 않는다(표시 자리 없음 — shared `RelayLimitFeatureMsg` JSDoc).
+ * - fbs ea8d9171 — 85 말미 append 2필드(`lock_sell_krw` · `lock_cancel_krw`, 원), 구 서버 프레임은 FlatBuffers 기본값 0(quick-261006-ide).
  */
 export function parseLimitFeature(env: Envelope): RelayLimitFeatureMsg | null {
   const msgType = MSG.LimitFeature;
@@ -953,6 +954,8 @@ export function parseLimitFeature(env: Envelope): RelayLimitFeatureMsg | null {
     modelSchemaVersion: lf.modelSchemaVersion(),
     pBreakBp: lf.pBreakBp(),
     pHorizonS: lf.pHorizonS(),
+    lockSellKrw: toNum(lf.lockSellKrw(), "limit_feature.lock_sell_krw"),
+    lockCancelKrw: toNum(lf.lockCancelKrw(), "limit_feature.lock_cancel_krw"),
   };
 }
 
