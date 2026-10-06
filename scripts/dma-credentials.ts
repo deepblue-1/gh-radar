@@ -1,5 +1,14 @@
 #!/usr/bin/env tsx
 /**
+ * ⚠ Phase 29 이후 레거시 — 등록은 Admin(`/admin/users`), 이 스크립트는 롤백 · 이관 확인용.
+ *   Phase 29 D-19 부터 relay wss 인증의 원천은 `dma_users`(DMA 유저당 암호문 1개 · AAD = dma_user_id)이고, 사용자 ·
+ *   역할 · DMA 연결은 웹 Admin 이 고친다. 이 스크립트가 쓰는 옛 `dma_credentials`(AAD = 웹 user_id)는 새 relay 가 읽지
+ *   않는다 — 이 스크립트로 등록해도 새 relay 에서는 권한이 생기지 않는다. 쓰임은 둘뿐이다:
+ *     · 롤백(옛 relay 이미지) 상태에서의 등록 · 확인
+ *     · 29-25 이관(`scripts/migrate-dma-users.ts`) 전후의 옛 표 현황 확인(`--list`)
+ *   아래 D-17(「gh-radar 용 DMA user_id 는 WinForms 와 달라야 한다」)은 **gh-trade 세션 합류 결정으로 뒤집혔다** —
+ *   Phase 29 는 모든 서버 · 클라가 같은 DMA id 를 쓰고 게이트웨이 세션 합류를 전제로 한다. 아래 원문은 이력으로 둔다.
+ *
  * DMA 자격증명 관리자 수기 등록 스크립트 (Phase 15 Plan 05, D-18).
  *
  * gh-radar 계정 ↔ DMA 게이트웨이 로그인(user_id + 비밀번호) 매핑을 `dma_credentials`
