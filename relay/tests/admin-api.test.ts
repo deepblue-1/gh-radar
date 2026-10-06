@@ -38,6 +38,7 @@ import { createAdminRouter } from "../src/admin/admin-api.js";
 import { AdminDispatcher } from "../src/admin/dispatcher.js";
 import { AdminIntentStore } from "../src/admin/intent-store.js";
 import { createOrderApi } from "../src/order/order-api.js";
+import type { QuoteSwitchResult } from "../src/quote/quote-switch.js";
 import type { DmaServerRow } from "../src/registry/registry.js";
 import { decryptDmaPassword } from "../src/store/credentials.js";
 import { AdminDbFake } from "./helpers/admin-db-fake.js";
@@ -117,6 +118,11 @@ type HarnessOptions = {
   quote?: { serverKey: string | null; state: string };
   /** 꺼진 서버 키(레지스트리 enabled false). */
   disabled?: string[];
+  /** 시세 주 서버 전환 대역(29-23). 기본 = 무동작 성공. */
+  quoteSwitch?: {
+    switchTo(server: DmaServerRow): Promise<QuoteSwitchResult>;
+    readonly currentServerKey: string | null;
+  };
 };
 
 async function startHarness(opts: HarnessOptions = {}): Promise<Harness> {
@@ -178,6 +184,8 @@ async function startHarness(opts: HarnessOptions = {}): Promise<Harness> {
       serverKey: () => opts.quote?.serverKey ?? null,
       health: () => ({ state: opts.quote?.state ?? "ready" }),
     },
+    // 시세 주 서버 전환(29-23) — 이 파일의 다른 경로는 부르지 않는다. 결과는 대역이 정한다.
+    quoteSwitch: opts.quoteSwitch ?? { switchTo: () => Promise.resolve({ ok: true, changed: false }), currentServerKey: null },
   });
 
   const app = createOrderApi({

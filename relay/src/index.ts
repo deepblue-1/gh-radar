@@ -44,7 +44,8 @@
  *         울린다). 적재 뒤 `ServerPipelines.sync(registry.enabled())` 가 enabled 서버마다 관찰자 한 벌을 세우고, 레지스트리
  *         `changed`(60초 재적재 · `reload()`)마다 다시 sync 한다 — 서버 추가 · 삭제 · 끄기 · 주소 변경이 재배포 없이 반영된다.
  *           - 사용자 세션 = **그 증권사 주문 서버**(`SessionManager.resolveTarget(broker)` — 세션을 만들 때마다 고른다 · 29-16).
- *           - quote 연결 = **시세 주 서버**(부팅 때 고정 · 비밀은 그 증권사 `quoteSecretOf`).
+ *           - quote 연결 = **시세 주 서버**(부팅 때 레지스트리 값 · 비밀은 그 증권사 `quoteSecretOf`). Admin 전환 · 레지스트리 보정은
+ *             `QuoteSwitch` 가 break-then-make 로 옮긴다(29-23 · D-11).
  *           - 브라우저 `journal.state` · `/healthz` `journal`(503 축) = **지금의 KB 주문 서버** 파이프라인 — `OrderServerJournal`
  *             한 원천(29-22 · Discretion 권고). Admin 이 KB 주문 서버를 바꾸면 다음 상태 프레임 · 다음 healthz 부터 새 서버 저널이다.
  *             주 매핑 라우팅(경로 없는 `journal.rows`)도 같은 현재 파이프라인을 본다.
@@ -52,7 +53,7 @@
  *             `{ server, alerting }`(uptime 고정 JSONPath — Pitfall 3).
  *           - 주문 서버가 바뀌어도 열린 사용자 세션은 예전 서버에 그대로다(D-10) — 그 사용자에게 `order.server` 표식만 간다(29-22).
  *         이 플랜이 **남긴 것**(뒤 플랜 몫): 서버 푸시 신원은 29-06 에서 `AppAccess` 하나로 바뀌었다(런타임 추가 서버도 즉시 같은
- *         신원) · 사용자 세션은 (유저, 서버) 단위(29-16 · 29-20) · quote 는 부팅 때 시세 주 서버에 고정(29-23 이 전환).
+ *         신원) · 사용자 세션은 (유저, 서버) 단위(29-16 · 29-20) · quote 전환은 29-23 `QuoteSwitch`.
  *
  * 종료 절차 (SC-8) — `process.exit(0)` 전에 반드시 이 순서다:
  *   1. HTTP 서버 2개 `close()`  — 새 연결을 받지 않는다
@@ -100,6 +101,7 @@ import { createAdminRouter } from "./admin/admin-api.js";
 import { AdminSnapshotSink } from "./admin/snapshot-sink.js";
 import type { JournalAccessView } from "./journal/types.js";
 import { QuoteFeed } from "./quote/feed.js";
+import { QuoteSwitch } from "./quote/quote-switch.js";
 import { QuoteStatus } from "./quote/status.js";
 
 /** 종료 절차 상한(ms). 이 시간을 넘기면 정리를 포기하고 강제로 내려간다. */
@@ -240,7 +242,7 @@ void symbols.start();
 const hub = new SubscriptionHub({ symbols, symbolMaster: gatewaySymbols, lingerMs: config.quoteLingerMs });
 
 /**
- * 시세 업스트림 = quote 연결 하나 (Phase 26 D-12 · Phase 29 — 레지스트리의 **시세 주 서버**, 부팅 때 고정 · 29-23 이 전환).
+ * 시세 업스트림 = quote 연결 하나 (Phase 26 D-12 · Phase 29 — 레지스트리의 **시세 주 서버** · 29-23 `QuoteSwitch` 가 전환).
  * 시세 주 서버가 없으면 비밀 없이 만들어 disabled 로 남는다(소켓 0). 관찰자 로그인 role 1 로 붙는다 — 사용자 세션과
  * 저널 관찰자와는 별개의 TCP 다. hub 의 28/29/32 는 전부 이 연결로 나가고, 이 연결의 ready 가 전역 합집합 재구독의
  * 유일한 트리거다. 비밀은 D-17 원천(quote 키 우선 · 저널 비밀 폴백)이고 deps 로만 넘긴다(로그 인자 금지 · T-26-05).
@@ -250,18 +252,27 @@ const hub = new SubscriptionHub({ symbols, symbolMaster: gatewaySymbols, lingerM
 const quoteServer = registry.quotePrimary();
 /** quote 비밀(시세 주 서버 증권사 · 26 D-17 폴백 포함). 로그에는 유무만. */
 const quoteSecret = quoteServer !== undefined ? config.quoteSecretOf(quoteServer.broker) : undefined;
-const quoteFeed = new QuoteFeed({
-  secret: quoteSecret,
-  host: quoteServer?.host ?? "127.0.0.1",
-  port: quoteServer?.port ?? config.dmaPort,
-  keyCount: () => hub.stats().subscriptionCount,
+/**
+ * Phase 29-23 (D-11) — quote 연결은 안정 래퍼 `QuoteSwitch` 뒤에 있다. hub · QuoteStatus 는 이 래퍼에 한 번 결선되고, 시세 주
+ * 서버 전환(Admin · 레지스트리 보정)은 안쪽 `QuoteFeed` 만 break-then-make 로 바꾼다 — 재결선 없음 · 연결은 언제나 1개.
+ */
+const quoteSwitch = new QuoteSwitch({
+  initial: quoteServer,
+  secretOf: (broker) => config.quoteSecretOf(broker),
+  createFeed: (server, secret) =>
+    new QuoteFeed({
+      secret,
+      host: server?.host ?? "127.0.0.1",
+      port: server?.port ?? config.dmaPort,
+      keyCount: () => hub.stats().subscriptionCount,
+    }),
 });
-hub.attachFeed(quoteFeed);
+hub.attachFeed(quoteSwitch);
 /**
  * quote 연결 상태 요약 (Phase 26 D-02 · D-16) — 브라우저 `quote.state` 프레임과 `/healthz` `quote` 필드의 **한 원천**이다
  * (`JournalStatus` 동형). 둘이 같은 객체를 읽으므로 배지와 운영 알림이 어긋나지 않는다. fanout 생성 전에 둔다.
  */
-const quoteStatus = new QuoteStatus({ feed: quoteFeed, hubStats: () => hub.stats() });
+const quoteStatus = new QuoteStatus({ feed: quoteSwitch, hubStats: () => hub.stats() });
 // 첫 Ready 에서 66/64/72 가 57 조립보다 먼저 와 이름 없이 캐시·팬아웃되므로, 교체 뒤 풀린 행만 재방송한다 (D-08).
 gatewaySymbols.on("updated", () => hub.refreshNames());
 
@@ -397,8 +408,10 @@ const adminRouter = createAdminRouter({
   // Admin 서버 카드 칩(conn · journal · admin) 원천 — 서버별 파이프라인.
   pipelines,
   credKey: config.dmaCredKey,
-  // 시세 주 서버 칩 — quote 연결은 부팅 때 시세 주 서버에 고정이다(29-23 이 전환).
-  quoteStatus: { serverKey: () => quoteServer?.key ?? null, health: (nowMs) => quoteStatus.health(nowMs) },
+  // 시세 주 서버 칩 — 지금 quote 연결 대상(29-23 전환 창 동안은 새 서버 · 실패하면 옛 서버).
+  quoteStatus: { serverKey: () => quoteSwitch.currentServerKey, health: (nowMs) => quoteStatus.health(nowMs) },
+  // 시세 주 서버 즉시 전환(29-23 · D-11) — break-then-make · 실패 복귀 · 단일 비행.
+  quoteSwitch,
 });
 
 const orderApi = createOrderApi({
@@ -454,7 +467,7 @@ registry.on("changed", () => {
   fanout.notifyOrderServers(orderServerKeyOf);
 });
 // 시세 전용 quote 연결도 같은 자리에서 연다(Phase 26 — 장 시간 · 사용자 접속과 무관). hub · fanout 결선이 다 붙은 뒤다.
-quoteFeed.start();
+quoteSwitch.start();
 
 // ============================================================
 // listen
@@ -539,7 +552,7 @@ async function shutdown(signal: string): Promise<void> {
     // 4) 레지스트리 재적재 중지 · quote 연결 · 전 서버 관찰자 연결 종료 — 이후 새 시세 프레임 · 새 배치 · 새 서버가 들어오지 않는다
     //    (서버별 admin 연결도 `pipelines.stopAll()` 안에서 stop — 비행 중 admin 명령은 offline 으로 풀린다)
     registry.close();
-    quoteFeed.stop();
+    quoteSwitch.stop();
     pipelines.stopAll();
     // 5) 전 서버 기록기 drain(각 상한 2초 · 병렬 — 5초 데드맨 안) → 정리. 못 끝내도 커서가 RPC 안에서만
     //    전진하므로 다음 부팅이 재생한다. 서버마다 두 기록기(주문 · 전략)를 함께 drain 한다(pipelines.ts).

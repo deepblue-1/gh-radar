@@ -175,6 +175,15 @@ export class AdminIntentStore {
     }
   }
 
+  /**
+   * 시세 주 서버 지정(D-11 · 29-23) — relay 가 break-then-make 전환에 **성공한 뒤에만** 부른다(Express 는 DB 를 먼저 바꾸지
+   * 않는다). 레지스트리 보정 실패 때는 지금 연결 서버로 되돌리는 데도 쓴다. 없는 키(P0002) · 꺼진 서버(P0001 `server disabled`)는
+   * 던진다 — 호출자가 연결을 되돌린다.
+   */
+  async setQuotePrimary(key: string): Promise<void> {
+    await this.#rpc("dma_admin_set_quote_primary", { p_key: key });
+  }
+
   async #rpc(name: string, args: Record<string, unknown>): Promise<unknown> {
     const { data, error } = await this.#supabase.rpc(name, args);
     if (error) {

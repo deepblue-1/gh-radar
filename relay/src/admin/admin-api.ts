@@ -9,6 +9,9 @@
  *   - 바디 16kb(order-api `express.json`) · zod. 검증 실패 400 `VALIDATION_FAILED`.
  *   - 응답 `AdminCommandResponse = { results: AdminServerResult[] }`(shared). 업무 거부 409 `{ error: { code, message } }`
  *     (`DMA_USER_EXISTS` · `NO_APP_USER` · `NO_DMA_USER` · `NO_SUCH_ACCOUNT` · `LAST_ACCOUNT` · `SERVER_BROKER_MISMATCH` · `NO_SERVERS`).
+ *   - 시세 주 서버 전환(29-23 · D-11) `POST /servers/:key/quote-primary` → 200 `{ ok: true }` · 404 `NO_SUCH_SERVER` · 409
+ *     `SERVER_DISABLED` · `QUOTE_SWITCH_FAILED`(옛 서버로 되돌림 · DB 무변경) · `QUOTE_SWITCH_BUSY`(진행 중). message 는 화면이 그대로
+ *     보이는 한국어 문장이다(29-18).
  *
  * 비밀번호(D-19 · Phase 15 D-19): 평문은 이 요청 메모리 안에서만 산다 — `encryptDmaPassword(plain, dmaUserId, credKey)` 로
  * 암호화한 값만 RPC 로 가고, op 1 은 같은 요청의 평문을 44 에 싣는다. 응답 · 로그에는 어디에도 없다.
@@ -27,6 +30,7 @@ import { logger } from "../logger.js";
 import { RelayApiError } from "../order/order-api.js";
 import { encryptDmaPassword } from "../store/credentials.js";
 import type { DmaServerRow } from "../registry/registry.js";
+import type { QuoteSwitchResult } from "../quote/quote-switch.js";
 import type { AdminDispatcher } from "./dispatcher.js";
 import { IntentError, type AdminIntentStore } from "./intent-store.js";
 
@@ -35,7 +39,7 @@ import { IntentError, type AdminIntentStore } from "./intent-store.js";
 // ============================================================
 
 export type AdminApiDeps = {
-  store: Pick<AdminIntentStore, "createDmaUser" | "putAccount" | "markAccountRemoved">;
+  store: Pick<AdminIntentStore, "createDmaUser" | "putAccount" | "markAccountRemoved" | "setQuotePrimary">;
   dispatcher: Pick<AdminDispatcher, "reconcileUser" | "changePassword" | "deleteUser">;
   /** 서버 레지스트리 — 전 행(상태 · 키 검사) · 즉시 재적재(D-09 · D-17). `ServerRegistry` 가 만족한다. */
   registry: { all(): DmaServerRow[]; reload(): Promise<{ ok: boolean; changed: boolean }> };
@@ -47,8 +51,16 @@ export type AdminApiDeps = {
   };
   /** `DMA_CRED_KEY` — relay 에만 있다(D-19). */
   credKey: string;
-  /** 시세 전용 공유 연결 — 붙어 있는 서버 키(부팅 때 고정 · 29-23 이 전환) · 상태. */
+  /** 시세 전용 공유 연결 — 붙어 있는 서버 키(29-23 `QuoteSwitch.currentServerKey`) · 상태. */
   quoteStatus: { serverKey(): string | null; health(nowMs: number): { state: string } };
+  /**
+   * 시세 주 서버 즉시 전환(D-11 · 29-23) — `QuoteSwitch` 가 만족한다. break-then-make · 실패 복귀 · 단일 비행은 그쪽이 쥐고,
+   * 라우트는 레지스트리 확인 · 성공 뒤 DB 반영 · 감사만 한다.
+   */
+  quoteSwitch: {
+    switchTo(server: DmaServerRow): Promise<QuoteSwitchResult>;
+    readonly currentServerKey: string | null;
+  };
   /** 시각 주입구(ms). 기본 `Date.now`. */
   now?: () => number;
 };
@@ -113,6 +125,9 @@ const CreateDmaUserBody = z.object({
 const PasswordBody = z.object({ password: PasswordSchema });
 
 const PutAccountBody = z.object({ account: AccountSchema, servers: ServersSchema });
+
+/** 경로 `:key` — 레지스트리 서버 키 형식(있는지는 라우트가 레지스트리로 본다). */
+const ServerKeyParam = z.object({ key: z.string().regex(SERVER_KEY_RE) });
 
 /** 경로 `:dma` — 바디의 dmaUserId 와 같은 규칙(Express 5 가 퍼센트 디코딩을 이미 했다 — 다시 풀지 않는다). */
 const DmaParam = z.object({ dma: DmaUserIdSchema });
@@ -203,8 +218,9 @@ function audit(
   route: string,
   dma: string | null,
   outcome: { results: readonly AdminServerResult[] } | { rejected: string } | { ok: boolean; changed: boolean },
+  extra: Record<string, unknown> = {},
 ): void {
-  const base: Record<string, unknown> = { admin: adminEmail, route };
+  const base: Record<string, unknown> = { admin: adminEmail, route, ...extra };
   if (dma !== null) base.dma = maskDmaUserId(dma);
   if ("results" in outcome) {
     base.servers = outcome.results.map((r) => ({ server: r.server, outcome: r.outcome, ...(r.code !== undefined ? { code: r.code } : {}) }));
@@ -355,6 +371,49 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
     audit(res.locals.adminEmail as string, "POST /access/reload", null, { ok: r.ok, changed });
     if (!r.ok) throw new RelayApiError(502, "RELOAD_FAILED", "access reload failed — 직전 접근 맵 유지");
     res.status(200).json({ ok: true, changed });
+  });
+
+  // ── 시세 주 서버 즉시 전환 (D-11 — break-then-make · 성공 뒤에만 DB · 실패는 옛 서버로 되돌린 뒤 409) ──────────
+  router.post("/servers/:key/quote-primary", async (req, res) => {
+    const { key } = ServerKeyParam.parse(req.params);
+    const adminEmail = res.locals.adminEmail as string;
+    const route = "POST /servers/:key/quote-primary";
+    const rejected = (status: number, code: string, message: string): RelayApiError => {
+      audit(adminEmail, route, null, { rejected: code }, { server: key });
+      return new RelayApiError(status, code, message);
+    };
+    const rows = deps.registry.all();
+    const row = rows.find((r) => r.key === key);
+    if (row === undefined) throw rejected(404, "NO_SUCH_SERVER", "레지스트리에 없는 서버입니다");
+    if (!row.enabled) throw rejected(409, "SERVER_DISABLED", "꺼진 서버는 시세 주 서버로 고를 수 없습니다");
+
+    const prevKey = deps.quoteSwitch.currentServerKey;
+    const r = await deps.quoteSwitch.switchTo(row);
+    if (!r.ok) throw rejected(409, r.code, r.message);
+    const changed = r.changed;
+
+    // 같은 서버(무동작)라도 DB 가 다른 서버를 가리키면 맞춘다 — 화면 라디오가 연결과 갈라진 채 남지 않게.
+    const dbKey = rows.find((x) => x.isQuotePrimary)?.key ?? null;
+    if (changed || dbKey !== key) {
+      try {
+        await deps.store.setQuotePrimary(key);
+      } catch (err) {
+        logger.error(
+          { server: key, error: err instanceof Error ? err.message : String(err) },
+          "[admin] 시세 주 서버 DB 반영 실패 — quote 연결을 옛 서버로 되돌린다",
+        );
+        // DB 는 옛 값 그대로다 — 연결만 새 서버에 남으면 다음 재적재 보정과 화면이 갈라진다.
+        const prevRow = prevKey !== null ? rows.find((x) => x.key === prevKey) : undefined;
+        if (changed && prevRow !== undefined) await deps.quoteSwitch.switchTo(prevRow);
+        throw rejected(500, "QUOTE_PRIMARY_DB_FAILED", "시세 주 서버를 기록하지 못해 되돌렸습니다");
+      }
+      // 레지스트리를 바로 맞춘다(서버 카드 · 보정 기준) — 60초 주기를 기다리지 않는다. 실패해도 응답은 성공이다.
+      void deps.registry.reload().catch((err: unknown) =>
+        logger.warn({ error: err instanceof Error ? err.message : String(err) }, "[admin] 시세 전환 뒤 레지스트리 재적재 실패"),
+      );
+    }
+    audit(adminEmail, route, null, { ok: true, changed }, { server: key });
+    res.status(200).json({ ok: true });
   });
 
   // ── 서버별 상태 (Admin 서버 카드 칩 — conn · journal · admin · quote) ───────────────────────────────
