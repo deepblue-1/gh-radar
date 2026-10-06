@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sketch 013 — /me 마이페이지 정보 구조 A/B/C</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; transition: all .15s; }
+#nav button:hover { border-color: #555; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; align-items: flex-start; gap: 28px; padding: 20px 12px 60px; flex-wrap: wrap; }
+.f {
+  --bg: #0a0a0a; --card: #151515; --muted: #2d2d2d; --raised2: #3d3d3d; --hair: #3d3d3d;
+  --fg: #fff; --fg2: #e4e4e4; --mfg: #9e9e9e; --faint: #636363;
+  --up: #f04251; --down: #3485fa; --armed: #2fca73; --latent: #ffb13d; --primary: #3485fa;
+  font-variant-numeric: tabular-nums; word-break: keep-all;
+  background: var(--bg); color: var(--fg2); border-radius: 14px; box-shadow: 0 0 0 1px #2a2a30; padding: 16px 20px 28px; display: flex; flex-direction: column; gap: 12px; position: relative;
+}
+.f.desktop { width: 940px; } .f.phone { width: 390px; padding: 14px 14px 28px; border-radius: 28px; }
+.f .cap { position: absolute; top: -22px; left: 4px; font-size: 11.5px; color: #777; }
+.mono { font-variant-numeric: tabular-nums; }
+.ph-title { font-size: 20px; font-weight: 700; color: var(--fg); margin: 4px 0 0; }
+.ph-sub { font-size: 12.5px; color: var(--mfg); margin: 2px 0 6px; }
+.card { background: var(--card); border-radius: 16px; padding: 12px 14px; min-width: 0; }
+.acct { display: flex; align-items: center; gap: 12px; min-height: 72px; padding: 14px 16px; }
+.acct .av { width: 44px; height: 44px; border-radius: 50%; background: var(--raised2); display: grid; place-items: center; font-weight: 700; font-size: 17px; color: var(--fg); }
+.acct .nm { font-size: 16px; font-weight: 700; color: var(--fg); }
+.acct .em { font-size: 12.5px; color: var(--mfg); }
+.acct .ic { margin-left: auto; display: flex; gap: 6px; }
+.acct .ic span { width: 40px; height: 40px; border-radius: 12px; background: var(--muted); display: grid; place-items: center; font-size: 15px; }
+.acct .ic span.out { color: var(--up); }
+.sbar { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; background: var(--muted); border-radius: 16px; padding: 8px 12px; font-size: 12px; color: var(--mfg); }
+.sbar b { color: var(--fg); font-weight: 600; }
+.sbar .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--armed); margin-right: 5px; vertical-align: 1px; }
+.sbar .t { margin-left: auto; }
+h2 { margin: 0; font-size: 14px; font-weight: 600; color: var(--fg); }
+.ch { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.ch small { font-size: 12px; color: var(--mfg); font-weight: 400; }
+.seg { margin-left: auto; display: inline-flex; gap: 2px; background: var(--muted); border-radius: 999px; padding: 2px; }
+.seg span { font-size: 12px; font-weight: 600; color: var(--mfg); padding: 4px 12px; border-radius: 999px; height: 26px; line-height: 18px; }
+.seg span.on { background: var(--raised2); color: var(--fg); }
+.chip { display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 7px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.chip.ok { background: rgba(47,202,115,.16); color: var(--armed); }
+.chip.warn { background: rgba(255,177,61,.18); color: var(--latent); }
+.chip.gray { background: var(--muted); color: var(--mfg); }
+.chip.blue { background: rgba(52,133,250,.16); color: #8ab8ff; }
+.chip.red { background: rgba(240,66,81,.16); color: var(--up); }
+.sum { font-size: 12px; color: var(--mfg); margin: -2px 0 4px; padding: 0 8px; }
+.srow { display: flex; flex-direction: column; gap: 2px; min-height: 44px; padding: 8px; border-top: 1px solid var(--hair); }
+.srow:first-child { border-top: 0; }
+.srow .r1 { display: flex; align-items: center; gap: 8px; }
+.srow .r1 b { font-size: 14px; color: var(--fg); font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srow .r1 .ar { margin-left: auto; color: var(--mfg); font-size: 12px; }
+.srow .r2 { font-size: 11px; color: var(--mfg); }
+.vi { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 8px; border-top: 1px solid var(--hair); margin-top: 4px; }
+.vi b { font-size: 14px; color: var(--fg); font-weight: 600; }
+.vi small { font-size: 11px; color: var(--mfg); }
+.vi .ar { margin-left: auto; color: var(--mfg); font-size: 12px; }
+.kill { display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--hair); margin-top: 12px; padding-top: 12px; }
+.kill span { flex: 1; min-width: 140px; font-size: 11px; color: var(--mfg); }
+.kill button { font: inherit; font-size: 13px; font-weight: 600; background: transparent; border: 1px solid var(--up); color: var(--up); border-radius: 10px; padding: 7px 12px; }
+.lrow { display: flex; flex-direction: column; gap: 3px; padding: 10px 0; border-top: 1px solid var(--hair); }
+.lrow:first-child { border-top: 0; }
+.lrow .l1 { display: flex; align-items: center; gap: 6px; }
+.lrow .l1 b { font-size: 14px; color: var(--fg); font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lrow .l1 .v { margin-left: auto; font-size: 14px; font-weight: 600; color: var(--fg); flex: none; }
+.lrow .l2 { display: flex; gap: 6px; font-size: 11px; color: var(--mfg); }
+.lrow .l2 .v { margin-left: auto; flex: none; }
+.lrow .l2 .cancel { margin-left: auto; border: 1px solid var(--up); color: var(--up); border-radius: 7px; padding: 1px 8px; font-size: 11px; font-weight: 600; }
+.sec { margin-top: 8px; font-size: 12px; color: var(--mfg); font-weight: 600; display: flex; gap: 6px; align-items: baseline; }
+.sec i { font-style: normal; color: var(--faint); font-size: 12px; }
+.acch { display: flex; align-items: baseline; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--hair); }
+.acch b { font-size: 14px; color: var(--fg); }
+.acch span { font-size: 12px; color: var(--mfg); }
+.acch .r { margin-left: auto; font-size: 12px; color: var(--mfg); }
+.tabs4 { display: flex; gap: 0; border-bottom: 1px solid var(--hair); }
+.tabs4 span { font-size: 15px; font-weight: 600; color: var(--mfg); padding: 10px 4px 9px; margin-right: 18px; }
+.tabs4 span.on { color: var(--fg); border-bottom: 2px solid var(--fg); margin-bottom: -1px; }
+.tabs4 span i { font-style: normal; font-size: 12px; color: var(--faint); margin-left: 3px; font-weight: 600; }
+/* 설정 */
+.set-note { font-size: 12.5px; color: var(--mfg); line-height: 1.5; margin: 0 0 10px; }
+.sg { background: var(--card); border-radius: 16px; padding: 10px 14px 4px; min-width: 0; }
+.sg h3 { margin: 0 0 2px; font-size: 13px; color: var(--mfg); font-weight: 600; }
+.sg .row { display: flex; align-items: center; min-height: 44px; gap: 6px; }
+.sg .row .lb { font-size: 14px; color: var(--mfg); white-space: nowrap; }
+.sg .row .vl { margin-left: auto; font-size: 15px; font-weight: 600; color: var(--fg); white-space: nowrap; }
+.sg .row .ar { color: var(--faint); font-size: 13px; }
+.sg .row .cseg { margin-left: auto; display: inline-flex; gap: 2px; background: var(--muted); border-radius: 999px; padding: 2px; }
+.sg .row .cseg span { font-size: 12px; font-weight: 600; color: var(--mfg); padding: 3px 10px; border-radius: 999px; }
+.sg .row .cseg span.on { background: var(--raised2); color: var(--fg); }
+.sgrid { display: grid; gap: 12px; align-items: start; }
+.f.desktop .sgrid { grid-template-columns: 1fr 1fr; }
+/* 접힘 */
+.fold { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; }
+.fold h2 { margin-right: 2px; white-space: nowrap; }
+.fold .s { font-size: 12.5px; color: var(--mfg); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fold .s b { color: var(--fg); font-weight: 600; }
+.fold .cv { margin-left: auto; color: var(--mfg); font-size: 13px; flex: none; }
+/* 타일 */
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.f.phone .tiles { grid-template-columns: 1fr 1fr; }
+.tile { background: var(--card); border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tile .k { font-size: 12px; color: var(--mfg); }
+.tile .n { font-size: 22px; font-weight: 700; color: var(--fg); line-height: 1.1; }
+.tile .n small { font-size: 13px; font-weight: 600; color: var(--mfg); margin-left: 2px; }
+.tile .d { font-size: 11.5px; color: var(--mfg); }
+.tile .d.up { color: var(--up); }
+.cols { display: grid; gap: 12px; }
+.f.desktop .cols { grid-template-columns: 1fr 1fr; align-items: start; }
+.col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.menu { background: var(--card); border-radius: 16px; padding: 4px 14px; }
+.menu .mi { display: flex; align-items: center; gap: 10px; min-height: 52px; border-top: 1px solid var(--hair); }
+.menu .mi:first-child { border-top: 0; }
+.menu .mi b { font-size: 15px; font-weight: 600; color: var(--fg); }
+.menu .mi .s { font-size: 12.5px; color: var(--mfg); margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu .mi .ar { color: var(--faint); font-size: 14px; flex: none; }
+.menu .mi.out b { color: var(--up); }
+.sub { position: relative; }
+.sub .bk { font-size: 13px; color: var(--mfg); margin-bottom: 4px; }
+.note { font-size: 12px; color: #7e7e87; line-height: 1.6; }
+.hint { border: 1px dashed #3a3a44; border-radius: 12px; padding: 8px 12px; font-size: 12px; color: #8a8a94; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.tbl th { color: var(--mfg); font-weight: 500; text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--hair); white-space: nowrap; }
+.tbl td { text-align: right; padding: 8px 8px; border-bottom: 1px solid var(--hair); white-space: nowrap; }
+.tbl th:first-child, .tbl td:first-child { text-align: left; }
+.tbl td b { color: var(--fg); font-weight: 600; }
+.tbl td.c { text-align: center; }
+.tbl .cancel { border: 1px solid var(--up); color: var(--up); border-radius: 7px; padding: 1px 8px; font-size: 11px; font-weight: 600; }
+.up { color: var(--up); } .dn { color: var(--down); } .mu { color: var(--mfg); }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">정보 구조</span>
+    <button data-v="A" class="on">A 상단 4탭</button>
+    <button data-v="B">B 접힘 요약 세로</button>
+    <button data-v="C">C 요약 타일 + 설정 분리</button>
+  </div>
+  <div class="g"><span class="l">폭</span>
+    <button data-w="phone" class="on">폰 390</button>
+    <button data-w="desktop">데스크톱 900</button>
+  </div>
+  <div class="g"><span class="l">상태</span>
+    <button data-s="main" class="on">첫 화면</button>
+    <button data-s="settings">매매조건(상따 기본설정) 열었을 때</button>
+  </div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+<script>
+const state = { v: 'A', w: 'phone', s: 'main' };
+const DESC = {
+  A: '<b>A 상단 4탭</b> — 계정 카드 아래 「현황 · 잔고 · 주문 · 설정」 탭(종목상세 4탭과 같은 문법). 한 번에 한 표면만 보이고 세로 길이가 짧다. 매매조건은 「설정」 탭 — 묶음 4개가 카드로 갈라지고 데스크톱은 2열. 탭 라벨에 건수(미체결 2 · 주문 7)가 붙어 다른 탭의 변화를 안 놓친다.',
+  B: '<b>B 접힘 요약 세로</b> — 세로 순서(상태줄 → 전략 → 계좌 → 오늘 주문 → 설정)는 지키되 카드마다 <b>한 줄 요약 머리</b>를 두고 접는다. 기본: 전략·계좌 펼침, 오늘 주문·매매조건 접힘. 매매조건은 접힌 채 「선 100만 · 추 50만 · 후 30만 · 매도 5초」 요약만 보이고 열면 그 자리에서 편집.',
+  C: '<b>C 요약 타일 + 설정 분리</b> — 맨 위 KPI 타일 4개(켜진 전략 · 미체결 · 보유 · 오늘 주문)로 상태를 1초에 읽고, 데스크톱은 2열(왼쪽 전략·오늘 주문 / 오른쪽 계좌). 매매조건은 /me 에서 빠져 하단 「설정」 메뉴 행 → <b>별도 페이지 /me/settings</b>(테마·로그아웃도 그 메뉴로).',
+};
+const CH = [
+  { nm: '삼성전자', code: '005930', ex: 'KRX', acct: '12345678-01', st: '무장', tone: 'ok' },
+  { nm: '에코프로', code: '086520', ex: 'NXT', acct: '12345678-01', st: '대기', tone: 'warn' },
+  { nm: '한화오션', code: '042660', ex: 'KRX', acct: '98765432-02', st: '후매수 대기', tone: 'gray' },
+];
+const UNF = [
+  { nm: '삼성전자', side: '매수', px: '71,200', q: '10/10' },
+  { nm: '에코프로', side: '매수', px: '112,500', q: '3/5' },
+];
+const HOLD = [
+  { nm: '한화오션', amt: '1,240,000', qty: '20', sell: '20', avg: '62,000' },
+  { nm: 'SK하이닉스', amt: '3,870,000', qty: '15', sell: '15', avg: '258,000' },
+  { nm: '두산에너빌리티', amt: '1,044,000', qty: '24', sell: '20', avg: '43,500' },
+];
+const ORD = [
+  { t: '13:58:02', nm: '에코프로', side: '매수', px: '112,500', q: '5', st: '접수 · 미체결 3', o: '상따' },
+  { t: '13:40:11', nm: '삼성전자', side: '매수', px: '71,200', q: '10', st: '접수', o: '상따' },
+  { t: '11:02:45', nm: '한화오션', side: '매수', px: '62,000', q: '20', st: '체결', o: 'VI' },
+  { t: '10:31:09', nm: '두산에너빌리티', side: '매도', px: '44,100', q: '4', st: '체결', o: '수동' },
+  { t: '09:05:30', nm: 'SK하이닉스', side: '매수', px: '258,000', q: '15', st: '체결', o: '수동' },
+  { t: '09:01:12', nm: '카카오', side: '매수', px: '58,900', q: '10', st: '취소', o: '상따' },
+  { t: '09:00:40', nm: '카카오', side: '매수', px: '58,700', q: '10', st: '거부', o: '상따' },
+];
+const SET = [
+  ['매수 금액', [['선매수 금액', '100만원'], ['추가매수 금액', '50만원'], ['후매수 금액', '30만원']]],
+  ['후매수', [['후매수 최대', '3회'], ['후매수 하한잔량', '5,000주'], ['후매수 반등', '1.5%']]],
+  ['매도', [['매도 잔량추적', '30%']]],
+  ['자동매도', [['매도 주기', '5초'], ['동시호가 매도비율', '50%'], ['비율 기본값', '100%'], ['방법 기본값', null]]],
+];
+const D = () => state.w === 'desktop';
+
+const header = () => `<div class="ph-title">My page</div><div class="ph-sub">전략 현황 · 미체결 · 잔고</div>`;
+const acct = (icons = true) => `<div class="card acct"><div class="av">E</div><div><div class="nm">알렉스</div><div class="em">ezmesya@gmail.com</div></div>${icons ? '<div class="ic"><span>☾</span><span class="out">⎋</span></div>' : ''}</div>`;
+const sbar = () => `<div class="sbar"><span><i class="dot"></i>시세 <b>실시간</b></span><span><i class="dot"></i>주문 <b>연결됨</b></span><span>상따 <b>3건</b></span><span>VI <b>가동</b></span><span>계좌 <b>2개</b></span><span class="t mono">반영 14:02:31</span></div>`;
+
+function strategyBody() {
+  return `<div class="sum mono">상따 3 · VI 가동</div>
+  <div>${CH.map((c) => `<div class="srow"><div class="r1"><b>${c.nm}</b><span class="chip ${c.tone}">${c.st}</span><span class="ar">›</span></div><div class="r2 mono">${c.code} · ${c.ex} · ${c.acct}</div></div>`).join('')}</div>
+  <div class="vi"><b>VI 자동매수</b><span class="chip ok">가동</span><small class="mono">KRX 300만원 · 5.0% 이상</small><span class="ar">›</span></div>
+  <div class="kill"><span>모든 상따 전략과 VI 자동매수를 한 번에 끕니다. 이미 나간 주문은 취소되지 않아요.</span><button>전체 비활성화</button></div>`;
+}
+const strategyCard = () => `<div class="card"><div class="ch"><h2>전략 현황</h2><div class="seg"><span class="on">현황</span><span>로그</span></div></div>${strategyBody()}</div>`;
+
+function unfList(rows) {
+  if (!rows.length) return `<div class="note" style="padding:8px 0">미체결 없음</div>`;
+  if (D()) return `<table class="tbl"><tr><th>종목</th><th>구분</th><th>주문가</th><th>주문/미체결</th><th>주문No</th><th></th></tr>${rows.map((r, i) => `<tr><td><b>${r.nm}</b></td><td class="c up">${r.side}</td><td><b>${r.px}</b></td><td>${r.q}주</td><td class="mu">0000${12 + i}</td><td><span class="cancel">취소</span></td></tr>`).join('')}</table>`;
+  return rows.map((r) => `<div class="lrow"><div class="l1"><b>${r.nm}</b><span class="chip red">${r.side}</span><span class="v mono">${r.px}</span></div><div class="l2"><span>미체결 <b class="mono" style="color:var(--fg2)">${r.q}</b>주</span><span class="cancel">취소</span></div></div>`).join('');
+}
+function holdList(rows) {
+  if (D()) return `<table class="tbl"><tr><th>종목</th><th>수량</th><th>매도가능</th><th>평단가</th><th>매입금액</th><th>평가손익</th><th>손익률</th></tr>${rows.map((r) => `<tr><td><b>${r.nm}</b></td><td>${r.qty}</td><td>${r.sell}</td><td>${r.avg}</td><td><b>${r.amt}</b></td><td class="mu">—</td><td class="mu">—</td></tr>`).join('')}</table>`;
+  return rows.map((r) => `<div class="lrow"><div class="l1"><b>${r.nm}</b><span class="v mono">${r.amt}</span></div><div class="l2"><span><b class="mono" style="color:var(--fg2)">${r.qty}</b>주 · 매도가능 ${r.sell}주</span><span class="v mono">평단 ${r.avg}</span></div></div>`).join('');
+}
+function accountCards() {
+  return `<div class="card"><div class="acch"><b>위탁종합</b><span class="mono">12345678-01</span><span class="r">미체결 2 · 보유 2</span></div>
+    <div class="sec">미체결 <i>2</i></div>${unfList(UNF)}
+    <div class="sec">잔고 <i>2</i></div>${holdList(HOLD.slice(0, 2))}</div>
+  <div class="card"><div class="acch"><b>CMA</b><span class="mono">98765432-02</span><span class="r">미체결 0 · 보유 1</span></div>
+    <div class="sec">미체결 <i>0</i></div>${unfList([])}
+    <div class="sec">잔고 <i>1</i></div>${holdList(HOLD.slice(2))}</div>`;
+}
+function ordersBody(n = ORD.length) {
+  const rows = ORD.slice(0, n);
+  const stTone = (s) => s.startsWith('체결') ? 'ok' : s.startsWith('취소') ? 'gray' : s.startsWith('거부') ? 'red' : 'blue';
+  if (D()) return `<table class="tbl"><tr><th>시각</th><th>종목</th><th>구분</th><th>주문가</th><th>수량</th><th>상태</th><th>출처</th></tr>${rows.map((r) => `<tr><td class="mono mu">${r.t}</td><td><b>${r.nm}</b></td><td class="${r.side === '매수' ? 'up' : 'dn'}">${r.side}</td><td><b>${r.px}</b></td><td>${r.q}</td><td><span class="chip ${stTone(r.st)}">${r.st}</span></td><td class="mu">${r.o}</td></tr>`).join('')}</table>`;
+  return rows.map((r) => `<div class="lrow"><div class="l1"><b>${r.nm}</b><span class="chip ${r.side === '매수' ? 'red' : 'blue'}">${r.side}</span><span class="v mono">${r.px}</span></div><div class="l2"><span class="mono">${r.t} · ${r.q}주 · ${r.o}</span><span class="v"><span class="chip ${stTone(r.st)}">${r.st}</span></span></div></div>`).join('');
+}
+const ordersCard = (title = '오늘 주문') => `<div class="card"><div class="ch"><h2>${title}</h2><small>7건</small></div><div class="sec" style="margin-top:0">위탁종합 <i>12345678-01 · 6건</i></div>${ordersBody(6)}<div class="sec">CMA <i>98765432-02 · 1건</i></div>${ordersBody(7).split('<div class="lrow">').slice(-1).map((x) => (D() ? '' : '<div class="lrow">' + x)).join('')}${D() ? `<table class="tbl"><tr><td class="mono mu">09:00:40</td><td><b>카카오</b></td><td class="up">매수</td><td><b>58,700</b></td><td>10</td><td><span class="chip red">거부</span></td><td class="mu">상따</td></tr></table>` : ''}</div>`;
+
+function settingsGroups() {
+  return `<div class="sgrid">${SET.map(([g, rows]) => `<div class="sg"><h3>${g}</h3>${rows.map(([lb, vl]) => vl === null
+    ? `<div class="row"><span class="lb">${lb}</span><span class="cseg"><span class="on">시장가</span><span>지정가</span><span>조건부</span></span></div>`
+    : `<div class="row"><span class="lb">${lb}</span><span class="vl mono">${vl}</span><span class="ar">›</span></div>`).join('')}</div>`).join('')}</div>`;
+}
+const settingsHead = () => `<div class="ch" style="margin-bottom:4px"><h2>상따 기본설정</h2><span class="chip ok">서버 저장값</span></div><p class="set-note">새 전략 폼의 기본값이에요 · 매도 주기 · 동시호가 비율은 서버가 다음 주기부터 바로 써요</p>`;
+const settingsSummary = '선 <b>100만</b> · 추 <b>50만</b> · 후 <b>30만</b> · 매도 <b>5초</b> · 시장가';
+
+/* ───────── A: 상단 4탭 ───────── */
+function A() {
+  const tab = state.s === 'settings' ? 3 : 0;
+  const tabs = ['현황', '잔고<i>2</i>', '주문<i>7</i>', '설정'];
+  let body;
+  if (tab === 0) body = `${sbar()}${strategyCard()}<div class="hint">「잔고」 탭에 계좌 2개 · 미체결 2 · 「주문」 탭에 오늘 7건. 현황 탭은 전략만 — 세로가 끝난다.</div>`;
+  else body = `${settingsHead()}${settingsGroups()}`;
+  return `${header()}${acct()}<div class="tabs4">${tabs.map((t, i) => `<span class="${i === tab ? 'on' : ''}">${t}</span>`).join('')}</div>${body}`;
+}
+
+/* ───────── B: 접힘 요약 세로 ───────── */
+function B() {
+  const open = state.s === 'settings';
+  const fold = (title, summary, openNow, body) => `<div class="card"><div class="fold"><h2>${title}</h2><span class="s">${summary}</span><span class="cv">${openNow ? '⌃' : '⌄'}</span></div>${openNow ? `<div style="margin-top:6px">${body}</div>` : ''}</div>`;
+  return `${header()}${acct()}${sbar()}
+  ${fold('전략 현황', '상따 <b>3</b> · VI <b>가동</b>', !open, strategyBody())}
+  ${open ? '' : accountCards()}
+  ${open ? fold('계좌 2', '미체결 <b>2</b> · 보유 <b>3</b> · 매입 <b>615만</b>', false, '') : ''}
+  ${fold('오늘 주문', '<b>7</b>건 · 체결 3 · 미체결 2 · 취소 1 · 거부 1', false, '')}
+  ${fold('상따 기본설정', settingsSummary, open, `<p class="set-note" style="margin-top:0"><span class="chip ok" style="margin-right:6px">서버 저장값</span>새 전략 폼의 기본값이에요</p>${settingsGroups()}`)}`;
+}
+
+/* ───────── C: 요약 타일 + 설정 분리 ───────── */
+function C() {
+  if (state.s === 'settings') {
+    return `<div class="sub"><div class="bk">‹ My page</div><div class="ph-title">상따 기본설정</div><div class="ph-sub">/me/settings · 새 전략 폼의 기본값</div></div>
+    <div class="card" style="display:flex;gap:8px;align-items:center;padding:10px 14px"><span class="chip ok">서버 저장값</span><span class="note">매도 주기 · 동시호가 비율은 서버가 다음 주기부터 바로 써요</span></div>
+    ${settingsGroups()}`;
+  }
+  const tiles = `<div class="tiles">
+    <div class="tile"><span class="k">켜진 전략</span><span class="n">3<small>건</small></span><span class="d">VI 가동 · 무장 1</span></div>
+    <div class="tile"><span class="k">미체결</span><span class="n">2<small>건</small></span><span class="d up">삼성전자 10 · 에코프로 3</span></div>
+    <div class="tile"><span class="k">보유</span><span class="n">3<small>종목</small></span><span class="d">매입 615만 · 계좌 2</span></div>
+    <div class="tile"><span class="k">오늘 주문</span><span class="n">7<small>건</small></span><span class="d">체결 3 · 취소 1 · 거부 1</span></div>
+  </div>`;
+  const menu = `<div class="menu">
+    <div class="mi"><b>상따 기본설정</b><span class="s">${settingsSummary.replace(/<\/?b>/g, '')}</span><span class="ar">›</span></div>
+    <div class="mi"><b>테마</b><span class="s">다크</span><span class="ar">›</span></div>
+    <div class="mi out"><b>로그아웃</b></div>
+  </div>`;
+  const left = `${strategyCard()}${ordersCard()}`;
+  const right = accountCards();
+  return `${header()}${acct(false)}${sbar()}${tiles}<div class="cols"><div class="col">${left}</div><div class="col">${right}</div></div>${menu}`;
+}
+
+function render() {
+  document.querySelectorAll('#nav button').forEach((b) => {
+    const k = b.dataset.v ? 'v' : b.dataset.w ? 'w' : 's';
+    b.classList.toggle('on', b.dataset[k] === state[k]);
+  });
+  document.getElementById('desc').innerHTML = DESC[state.v];
+  const f = document.createElement('div');
+  f.className = `f ${state.w}`;
+  f.innerHTML = `<span class="cap">${state.v} · ${state.w === 'phone' ? '폰 390' : '데스크톱 900(본문)'} · ${state.s === 'main' ? '첫 화면' : '매매조건 열었을 때'}</span>` + ({ A, B, C })[state.v]();
+  const st = document.getElementById('stage');
+  st.innerHTML = '';
+  st.appendChild(f);
+}
+document.querySelectorAll('#nav button').forEach((b) => b.addEventListener('click', () => {
+  if (b.dataset.v) state.v = b.dataset.v; else if (b.dataset.w) state.w = b.dataset.w; else state.s = b.dataset.s;
+  render();
+}));
+render();
+</script>
+</body>
+</html>

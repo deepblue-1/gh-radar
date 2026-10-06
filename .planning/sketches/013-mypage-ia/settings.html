@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sketch 013-2 — /me 「설정」 탭 매매조건 행 모양 S1/S2/S3</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; align-items: flex-start; gap: 28px; padding: 20px 12px 60px; flex-wrap: wrap; }
+.f { --bg: #0a0a0a; --card: #151515; --muted: #2d2d2d; --raised2: #3d3d3d; --hair: #3d3d3d; --fg: #fff; --fg2: #e4e4e4; --mfg: #9e9e9e; --faint: #636363; --up: #f04251; --armed: #2fca73; --latent: #ffb13d; --primary: #3485fa;
+  font-variant-numeric: tabular-nums; word-break: keep-all; background: var(--bg); color: var(--fg2); border-radius: 14px; box-shadow: 0 0 0 1px #2a2a30; padding: 16px 20px 28px; display: flex; flex-direction: column; gap: 12px; }
+.f.desktop { width: 940px; } .f.phone { width: 390px; padding: 14px 14px 28px; border-radius: 28px; }
+.mono { font-variant-numeric: tabular-nums; }
+.card { background: var(--card); border-radius: 16px; padding: 12px 14px; min-width: 0; }
+.acct { display: flex; align-items: center; gap: 12px; min-height: 72px; padding: 14px 16px; }
+.acct .av { width: 44px; height: 44px; border-radius: 50%; background: var(--raised2); display: grid; place-items: center; font-weight: 700; font-size: 17px; color: var(--fg); }
+.acct .nm { font-size: 16px; font-weight: 700; color: var(--fg); } .acct .em { font-size: 12.5px; color: var(--mfg); }
+.tabs4 { display: flex; border-bottom: 1px solid var(--hair); }
+.tabs4 span { font-size: 15px; font-weight: 600; color: var(--mfg); padding: 10px 4px 9px; margin-right: 18px; }
+.tabs4 span.on { color: var(--fg); border-bottom: 2px solid var(--fg); margin-bottom: -1px; }
+.tabs4 span i { font-style: normal; font-size: 12px; color: var(--faint); margin-left: 3px; }
+h2 { margin: 0; font-size: 14px; font-weight: 600; color: var(--fg); }
+.ch { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 7px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.chip.ok { background: rgba(47,202,115,.16); color: var(--armed); }
+.set-note { font-size: 12.5px; color: var(--mfg); line-height: 1.5; margin: 0 0 6px; }
+.gh { font-size: 13px; color: var(--mfg); font-weight: 600; }
+.row { display: flex; align-items: center; min-height: 44px; gap: 6px; }
+.row .lb { font-size: 14px; color: var(--mfg); white-space: nowrap; }
+.row .vl { margin-left: auto; font-size: 15px; font-weight: 500; color: var(--fg2); white-space: nowrap; }
+.row .vl.b { font-weight: 600; color: var(--fg); }
+.row .ar { color: var(--faint); font-size: 13px; }
+.cseg { margin-left: auto; display: inline-flex; gap: 2px; background: var(--muted); border-radius: 999px; padding: 2px; }
+.cseg span { font-size: 12px; font-weight: 600; color: var(--mfg); padding: 3px 10px; border-radius: 999px; }
+.cseg span.on { background: var(--raised2); color: var(--fg); }
+.cseg.wide { margin-left: 0; width: 100%; } .cseg.wide span { flex: 1; text-align: center; }
+/* S1 묶음 카드 */
+.sgrid { display: grid; gap: 12px; align-items: start; }
+.f.desktop .sgrid { grid-template-columns: 1fr 1fr; }
+.sg { background: var(--card); border-radius: 16px; padding: 10px 14px 4px; }
+.sg .gh { margin-bottom: 2px; }
+/* S2 한 장 */
+.one .gh { padding: 12px 0 2px; }
+.one .row + .row { border-top: 1px solid var(--hair); }
+/* S3 타일 */
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 6px; }
+.f.desktop .tiles { grid-template-columns: repeat(3, 1fr); }
+.tile { background: var(--muted); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tile .k { font-size: 11.5px; color: var(--mfg); line-height: 1.3; min-height: 30px; }
+.tile .n { font-size: 17px; font-weight: 700; color: var(--fg); white-space: nowrap; }
+.tile .n small { font-size: 12px; font-weight: 600; color: var(--mfg); margin-left: 1px; }
+.tile.m { grid-column: span 3; } .f.desktop .tile.m { grid-column: span 3; }
+.tile.m .cseg { margin: 4px 0 0; width: 100%; } .tile.m .cseg span { flex: 1; text-align: center; }
+.note { font-size: 12px; color: #7e7e87; line-height: 1.6; }
+.hint { border: 1px dashed #3a3a44; border-radius: 12px; padding: 8px 12px; font-size: 12px; color: #8a8a94; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">행 모양</span>
+    <button data-v="S1" class="on">S1 묶음 카드 4장</button>
+    <button data-v="S2">S2 한 장 + 묶음 머리</button>
+    <button data-v="S3">S3 값 타일</button>
+  </div>
+  <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390</button><button data-w="desktop">데스크톱 900</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+<script>
+const state = { v: 'S1', w: 'phone' };
+const DESC = {
+  S1: '<b>S1 묶음 카드 4장</b> — 묶음(매수 금액 · 후매수 · 매도 · 자동매도)마다 카드 한 장. 행은 지금 그대로 「라벨 ─ 값 ›」 44px(SettingRow · ChoiceRow 재사용, 저장은 행 확정 즉시). 데스크톱 2열이라 세로가 절반. 구현 비용 가장 낮음.',
+  S2: '<b>S2 한 장 + 묶음 머리</b> — 현행 구조(카드 한 장 · 묶음 제목 · 행 목록)를 「설정」 탭 안으로만 옮기고 행 사이 hairline 을 더해 정돈. 데스크톱도 한 열(폭 900). 변경 최소, 세로 가장 길다.',
+  S3: '<b>S3 값 타일</b> — 묶음마다 카드, 안은 「라벨(작게) / 값(크게)」 타일 격자(폰 3열 · 데스크톱 6열). 한눈에 11값이 다 보이고 세로가 가장 짧다. 타일 탭 → 같은 키패드 시트 / 인라인 편집. 새 타일 컴포넌트가 필요(SettingRow 미재사용) — 구현 비용 가장 높음.',
+};
+const SET = [
+  ['매수 금액', [['선매수 금액', '100', '만원'], ['추가매수 금액', '50', '만원'], ['후매수 금액', '30', '만원']]],
+  ['후매수', [['후매수 최대', '3', '회'], ['후매수 하한잔량', '5,000', '주'], ['후매수 반등', '1.5', '%']]],
+  ['매도', [['매도 잔량추적', '30', '%']]],
+  ['자동매도', [['매도 주기', '5', '초'], ['동시호가 매도비율', '50', '%'], ['비율 기본값', '100', '%'], ['방법 기본값', null, null]]],
+];
+const D = () => state.w === 'desktop';
+const head = () => `<div class="card acct"><div class="av">E</div><div><div class="nm">알렉스</div><div class="em">ezmesya@gmail.com</div></div></div>
+<div class="tabs4"><span>현황</span><span>잔고<i>2</i></span><span>주문<i>7</i></span><span class="on">설정</span></div>
+<div class="ch"><h2>상따 기본설정</h2><span class="chip ok">서버 저장값</span></div><p class="set-note">새 전략 폼의 기본값이에요 · 매도 주기 · 동시호가 비율은 서버가 다음 주기부터 바로 써요</p>`;
+const seg = (cls = '') => `<span class="cseg ${cls}"><span class="on">시장가</span><span>지정가</span><span>조건부</span></span>`;
+const row = (lb, v, u, bold) => v === null
+  ? `<div class="row"><span class="lb">${lb}</span>${seg()}</div>`
+  : `<div class="row"><span class="lb">${lb}</span><span class="vl mono ${bold ? 'b' : ''}">${v}${u}</span><span class="ar">›</span></div>`;
+function S1() { return head() + `<div class="sgrid">${SET.map(([g, rows]) => `<div class="sg"><div class="gh">${g}</div>${rows.map(([lb, v, u]) => row(lb, v, u, true)).join('')}</div>`).join('')}</div>`; }
+function S2() { return head() + `<div class="card one" style="padding-top:2px">${SET.map(([g, rows]) => `<div class="gh">${g}</div>${rows.map(([lb, v, u]) => row(lb, v, u, false)).join('')}`).join('')}</div>`; }
+function S3() { return head() + `<div class="sgrid">${SET.map(([g, rows]) => `<div class="sg" style="padding-bottom:12px"><div class="gh">${g}</div><div class="tiles">${rows.map(([lb, v, u]) => v === null
+  ? `<div class="tile m"><span class="k">${lb}</span>${seg()}</div>`
+  : `<div class="tile"><span class="k">${lb}</span><span class="n mono">${v}<small>${u}</small></span></div>`).join('')}</div></div>`).join('')}</div>`; }
+function render() {
+  document.querySelectorAll('#nav button').forEach((b) => { const k = b.dataset.v ? 'v' : 'w'; b.classList.toggle('on', b.dataset[k] === state[k]); });
+  document.getElementById('desc').innerHTML = DESC[state.v];
+  const f = document.createElement('div'); f.className = `f ${state.w}`; f.innerHTML = ({ S1, S2, S3 })[state.v]();
+  const st = document.getElementById('stage'); st.innerHTML = ''; st.appendChild(f);
+}
+document.querySelectorAll('#nav button').forEach((b) => b.addEventListener('click', () => { if (b.dataset.v) state.v = b.dataset.v; else state.w = b.dataset.w; render(); }));
+render();
+</script>
+</body>
+</html>
