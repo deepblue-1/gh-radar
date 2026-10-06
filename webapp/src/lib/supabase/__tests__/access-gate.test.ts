@@ -37,3 +37,67 @@ describe('decideAccess — 트레이서', () => {
     });
   });
 });
+
+const next = { kind: 'next' } as const;
+const toPending = { kind: 'redirect', to: '/pending' } as const;
+const toHome = { kind: 'redirect', to: '/' } as const;
+
+describe('decideAccess — 역할 없음 · 조회 오류 (D-01 fail closed)', () => {
+  it.each(['/', '/trading', '/admin/users', '/me'])('역할 없음 %j → /pending', (pathname) => {
+    expect(decideAccess({ pathname, role: null, roleError: false })).toEqual(toPending);
+  });
+
+  it('조회 오류는 역할보다 우선한다 — admin 이라도 /pending', () => {
+    expect(decideAccess({ pathname: '/scanner', role: 'admin', roleError: true })).toEqual(
+      toPending,
+    );
+  });
+});
+
+describe('decideAccess — admin', () => {
+  it.each(['/admin', '/admin/users', '/admin/servers', '/trading', '/me'])(
+    'admin 은 %j 를 통과한다',
+    (pathname) => {
+      expect(decideAccess({ pathname, role: 'admin', roleError: false })).toEqual(next);
+    },
+  );
+
+  it('경계 밖 /administrator 는 Admin 접두가 아니다 — trader 도 통과', () => {
+    expect(decideAccess({ pathname: '/administrator', role: 'trader', roleError: false })).toEqual(
+      next,
+    );
+  });
+});
+
+describe('decideAccess — trader (D-02)', () => {
+  it.each(['/admin', '/admin/users'])('trader 는 %j 에서 / 로', (pathname) => {
+    expect(decideAccess({ pathname, role: 'trader', roleError: false })).toEqual(toHome);
+  });
+
+  it.each(['/', '/trading', '/analytics/limitup', '/chat', '/me', '/scanner'])(
+    'trader 는 %j 를 통과한다',
+    (pathname) => {
+      expect(decideAccess({ pathname, role: 'trader', roleError: false })).toEqual(next);
+    },
+  );
+});
+
+describe('decideAccess — viewer (D-21 스캐너 · 뉴스 · 테마만)', () => {
+  it.each(['/trading', '/trading/order-log', '/analytics/limitup', '/chat', '/me', '/admin/users'])(
+    'viewer 는 %j 에서 / 로',
+    (pathname) => {
+      expect(decideAccess({ pathname, role: 'viewer', roleError: false })).toEqual(toHome);
+    },
+  );
+
+  it.each(['/', '/scanner', '/search', '/stocks/005930', '/themes', '/watchlist'])(
+    'viewer 는 %j 를 통과한다',
+    (pathname) => {
+      expect(decideAccess({ pathname, role: 'viewer', roleError: false })).toEqual(next);
+    },
+  );
+
+  it('경계 밖 /mentor 는 /me 접두가 아니다 — viewer 도 통과', () => {
+    expect(decideAccess({ pathname: '/mentor', role: 'viewer', roleError: false })).toEqual(next);
+  });
+});

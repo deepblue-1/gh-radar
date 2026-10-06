@@ -16,7 +16,7 @@ import { isSafeInternalPath } from "@/lib/safe-path";
  * - `//attacker.com` 같은 protocol-relative URL 차단 · 역슬래시·제어문자 차단(`lib/safe-path.ts` — WR-01)
  * - fallback: `/` (홈 — 홈이 인증 표면이라 로그인 직후 착지점이다)
  *
- * [Phase 06.2 변경사항] whitelist/role 체크 없음 (D-04).
+ * [Phase 29 D-01] 역할 판정은 콜백이 아니라 middleware 가 매 요청 한다 — 콜백은 세션만 만든다(승인 대기 사용자도 로그인은 된다).
  */
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
