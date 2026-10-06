@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 29 목업 — /admin/servers (A 증권사 그룹 카드 / B 표 / C 역할 띠 + 서버 목록)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; gap: 24px; padding: 20px 12px 60px; overflow-x: auto; }
+.f { --bg: #ffffff; --surface: #f2f4f6; --fg: #191f28; --fg2: #333d4b; --muted: #f2f4f6; --mfg: #6b7684; --faint: #b0b8c1; --hair: #e5e8eb; --up: #f04452; --down: #3182f6; --upbg: #ffeeee; --dnbg: #e8f3ff; --okbg: #e6f7ee; --ok: #1c8f4e; --warnbg: #fff4e0; --warn: #b26a00; --pill-bg: #ffffff; --pill-fg: #191f28; --sheet: #ffffff; --scrim: rgba(0,0,0,.35); --inp: #f2f4f6;
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif; }
+.f.dark { --bg: #17171c; --surface: #0f0f12; --fg: #ffffff; --fg2: #e4e4e4; --muted: #2a2a31; --mfg: #9e9e9e; --faint: #636363; --hair: #33333a; --up: #f04251; --down: #3485fa; --upbg: rgba(240,66,81,.16); --dnbg: rgba(52,133,250,.16); --okbg: rgba(46,184,106,.18); --ok: #4cd38a; --warnbg: rgba(255,170,0,.16); --warn: #ffbf47; --pill-bg: #4e4e4e; --pill-fg: #ffffff; --sheet: #202026; --scrim: rgba(0,0,0,.55); --inp: #2a2a31; }
+.f { position: relative; flex: none; overflow: hidden; background: var(--bg); color: var(--fg2); font-family: var(--font); -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 1px #2a2a31; display: flex; flex-direction: column; }
+.f.phone { width: 390px; height: 844px; border-radius: 30px; }
+.f.desktop { width: 1080px; height: 720px; border-radius: 16px; flex-direction: row; }
+.side { width: 200px; border-right: 1px solid var(--hair); padding: 18px 12px; font-size: 14px; color: var(--mfg); background: var(--surface); }
+.side .it { padding: 8px 10px; border-radius: 8px; }
+.side .it.on { background: var(--muted); color: var(--fg); font-weight: 600; }
+.side .sub { padding: 6px 10px 6px 26px; font-size: 13px; }
+.side .sub.on { color: var(--fg); font-weight: 600; }
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
+.hd { padding: 16px 20px 0; display: flex; align-items: center; gap: 10px; }
+.f.phone .hd { padding: 14px 16px 0; }
+.hd .nm { font-size: 20px; font-weight: 700; color: var(--fg); }
+.hd .ex { font-size: 12.5px; color: var(--mfg); }
+.hd .sp { flex: 1; }
+.btn { font: inherit; font-size: 13px; font-weight: 600; padding: 8px 12px; border-radius: 9px; border: 0; cursor: pointer; background: var(--muted); color: var(--fg); }
+.btn.pri { background: var(--down); color: #fff; }
+.btn.sm { font-size: 12px; padding: 5px 9px; }
+.scroll { flex: 1; overflow-y: auto; padding-bottom: 80px; }
+.sec { padding: 16px 20px 6px; font-size: 12.5px; font-weight: 600; color: var(--mfg); display: flex; align-items: center; gap: 8px; }
+.f.phone .sec { padding: 16px 16px 6px; }
+.sec .sp { flex: 1; }
+.ch { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 5px; white-space: nowrap; line-height: 1.4; }
+.ch.ok { background: var(--okbg); color: var(--ok); } .ch.warn { background: var(--warnbg); color: var(--warn); } .ch.err { background: var(--upbg); color: var(--up); } .ch.dim { background: var(--muted); color: var(--mfg); }
+.ch.role { background: var(--dnbg); color: var(--down); }
+.ch.quote { background: var(--okbg); color: var(--ok); }
+/* A 카드 */
+.cards { padding: 0 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.f.phone .cards { padding: 0 16px; grid-template-columns: 1fr; }
+.card { border: 1px solid var(--hair); border-radius: 14px; padding: 12px 14px; }
+.card .t { display: flex; align-items: center; gap: 8px; }
+.card .t .k { font-size: 16px; font-weight: 700; color: var(--fg); }
+.card .t .sp { flex: 1; }
+.card .addr { font-size: 12.5px; color: var(--mfg); margin-top: 2px; }
+.card .st { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; }
+.card .roles { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.rad { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--hair); color: var(--fg2); cursor: pointer; }
+.rad i { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--faint); display: grid; place-items: center; }
+.rad.on { border-color: var(--down); } .rad.on i { border-color: var(--down); } .rad.on i::after { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--down); }
+.rad.q.on { border-color: var(--ok); } .rad.q.on i { border-color: var(--ok); } .rad.q.on i::after { background: var(--ok); }
+.tog { width: 36px; height: 20px; border-radius: 10px; background: var(--faint); position: relative; }
+.tog::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; }
+.tog.on { background: var(--down); } .tog.on::after { left: 18px; }
+/* B 표 */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead th { font-weight: 500; color: var(--mfg); font-size: 12px; text-align: left; padding: 6px 8px; border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair); }
+thead th:first-child { padding-left: 20px; }
+tbody td { padding: 10px 8px; border-bottom: 1px solid var(--hair); vertical-align: middle; color: var(--fg2); }
+tbody td:first-child { padding-left: 20px; font-weight: 700; color: var(--fg); }
+td .addr { color: var(--mfg); font-size: 12px; }
+/* C 띠 */
+.band { margin: 10px 20px 0; border-radius: 14px; background: var(--surface); padding: 12px 14px; }
+.f.phone .band { margin: 10px 16px 0; }
+.band .bt { font-size: 12px; color: var(--mfg); margin-bottom: 6px; }
+.band .line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; color: var(--fg); }
+.band .line b { font-weight: 700; }
+.band .line .sel { background: var(--inp); border-radius: 8px; padding: 4px 10px; font-size: 13px; color: var(--fg); }
+.row { display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-bottom: 1px solid var(--hair); }
+.f.phone .row { padding: 12px 16px; }
+.row .c1 { flex: 1; min-width: 0; }
+.row .k { font-size: 15px; font-weight: 700; color: var(--fg); display: flex; gap: 6px; align-items: center; }
+.row .m { font-size: 12.5px; color: var(--mfg); margin-top: 2px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.note { font-size: 12px; color: var(--mfg); line-height: 1.5; padding: 10px 20px; }
+.f.phone .note { padding: 10px 16px; }
+.tabbar { position: absolute; left: 50%; transform: translateX(-50%); bottom: 14px; display: flex; gap: 22px; padding: 10px 22px; border-radius: 999px; background: var(--fg); color: var(--bg); font-size: 16px; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">서버 페이지</span><button data-v="A" class="on">A 증권사 그룹 카드 · 카드 안 역할 라디오</button><button data-v="B">B 표 한 장 · 열에 라디오</button><button data-v="C">C 상단 역할 띠 + 서버 목록</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390</button><button data-w="desktop">데스크톱 1080</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+<script>
+const DESC = {
+  A: '<b>A · 증권사 그룹 카드(권장)</b> — 「KB」「교보」 섹션 아래 서버 카드 2장씩. 카드 = 키 · 주소 · 사용 토글 · 상태 칩(연결 · 저널 · admin · 유저 수) · 「주문 서버」 라디오(증권사 안에서 1개) · 「시세 주 서버」 라디오(전체 1개, 초록). 라디오를 누르는 즉시 전환되고 칩이 바뀐다. 카드 탭 → 편집 시트(키 · 증권사 · 주소 · 포트). 폰은 카드 1열.',
+  B: '<b>B · 표 한 장</b> — 행=서버 4대, 열 = 키 · 증권사 · 주소 · 상태 · 사용 · 주문 서버 ○ · 시세 ○. 데스크톱에서 한눈에 비교되지만 폰은 가로 스크롤 또는 열 접기가 필요하다. 주소 편집은 행 탭 시트.',
+  C: '<b>C · 상단 역할 띠 + 서버 목록</b> — 페이지 맨 위 띠 2줄 「KB 주문 서버 [KB120 ▾] · 교보 주문 서버 [KYOBO119 ▾] · 시세 주 서버 [KB120 ▾]」(드롭다운, 바꾸면 즉시). 아래는 서버 목록 행(키 · 주소 · 상태 칩 · 사용 토글). 역할이 한 곳에 모여 「지금 어디로 가나」 가 가장 빨리 읽히고, 목록은 상태만 본다.',
+};
+let S = { v: 'A', w: 'phone', t: 'dark' };
+const SRV = [
+  { k: 'KB120', bk: 'KB', host: '10.41.1.120:9100', on: true, order: true, quote: true, st: { conn: 'ok', journal: 'ok', admin: 'ok', users: 3 } },
+  { k: 'KB121', bk: 'KB', host: '10.41.1.121:9100', on: true, order: false, quote: false, st: { conn: 'ok', journal: 'ok', admin: 'warn', users: 2 } },
+  { k: 'KYOBO119', bk: '교보', host: '10.16.207.119:9100', on: true, order: true, quote: false, st: { conn: 'ok', journal: 'ok', admin: 'ok', users: 2 } },
+  { k: 'KYOBO127', bk: '교보', host: '10.16.207.127:9100', on: false, order: false, quote: false, st: { conn: 'err', journal: 'dim', admin: 'dim', users: 1 } },
+];
+const STL = { ok: '', warn: '', err: '', dim: '' };
+const chips = s => `<span class="ch ${s.st.conn}">연결${s.st.conn==='err'?' 끊김':''}</span><span class="ch ${s.st.journal}">저널${s.st.journal==='dim'?' 꺼짐':''}</span><span class="ch ${s.st.admin}">admin${s.st.admin==='warn'?' 재접속 중':s.st.admin==='dim'?' 꺼짐':''}</span><span class="ch dim">유저 ${s.st.users}</span>`;
+const roleChips = s => `${s.order?'<span class="ch role">주문 서버</span>':''}${s.quote?'<span class="ch quote">시세 주 서버</span>':''}`;
+function cardsA() {
+  const grp = bk => `<div class="sec">${bk}<span class="sp"></span><span style="font-weight:500">주문 서버는 증권사 안에서 1대</span></div><div class="cards">${SRV.filter(s=>s.bk===bk).map(s => `
+    <div class="card"><div class="t"><span class="k">${s.k}</span>${roleChips(s)}<span class="sp"></span><span class="tog ${s.on?'on':''}"></span></div>
+      <div class="addr">${s.host}</div><div class="st">${chips(s)}</div>
+      <div class="roles"><span class="rad ${s.order?'on':''}"><i></i>주문 서버</span><span class="rad q ${s.quote?'on':''}"><i></i>시세 주 서버</span></div></div>`).join('')}</div>`;
+  return grp('KB') + grp('교보') + `<div class="note">시세 주 서버는 증권사와 무관하게 전체 1대. 바꾸면 relay 가 예전 연결을 닫고 새 서버에 붙는다(전환 중 시세 배지 적색). 주문 서버를 바꾸면 열린 세션은 그대로, 새 로그인부터 적용.</div>`;
+}
+function tableB(phone) {
+  if (phone) return `<div class="note">폰에서는 표가 좁아 열을 접는다 — 아래는 접힌 모양.</div>` + SRV.map(s => `<div class="row"><div class="c1"><div class="k">${s.k} ${roleChips(s)}</div><div class="m">${s.bk} · ${s.host}</div><div class="m">${chips(s)}</div><div class="m" style="margin-top:6px"><span class="rad ${s.order?'on':''}"><i></i>주문</span><span class="rad q ${s.quote?'on':''}"><i></i>시세</span><span class="tog ${s.on?'on':''}" style="margin-left:auto"></span></div></div></div>`).join('');
+  return `<table><thead><tr><th>서버</th><th>증권사</th><th>주소</th><th>상태</th><th>사용</th><th>주문 서버</th><th>시세 주 서버</th></tr></thead><tbody>${SRV.map(s => `<tr><td>${s.k}</td><td>${s.bk}</td><td><span class="addr">${s.host}</span></td><td>${chips(s)}</td><td><span class="tog ${s.on?'on':''}"></span></td><td><span class="rad ${s.order?'on':''}"><i></i>${s.bk}</span></td><td><span class="rad q ${s.quote?'on':''}"><i></i>전체</span></td></tr>`).join('')}</tbody></table>`;
+}
+function bandC() {
+  return `<div class="band"><div class="bt">지금 어디로 가나</div>
+    <div class="line"><b>KB 주문</b> <span class="sel">KB120 ▾</span> <b>교보 주문</b> <span class="sel">KYOBO119 ▾</span></div>
+    <div class="line" style="margin-top:8px"><b>시세 주 서버</b> <span class="sel">KB120 ▾</span> <span class="ch quote">live · 37키</span></div></div>
+    <div class="sec">서버 <span class="sp"></span><span style="font-weight:500">탭 → 주소 편집</span></div>` +
+    SRV.map(s => `<div class="row"><div class="c1"><div class="k">${s.k} ${roleChips(s)}</div><div class="m">${s.bk} · ${s.host}</div><div class="m">${chips(s)}</div></div><span class="tog ${s.on?'on':''}"></span></div>`).join('') +
+    `<div class="note">드롭다운을 바꾸면 즉시 전환. 사용을 끄면 그 서버의 저널 · admin 연결을 내리고 주문/시세 서버로 고를 수 없다(운영 중 서버는 끄기 전에 유저 확인).</div>`;
+}
+function frame(w) {
+  const phone = w === 'phone';
+  const cls = `f ${w} ${S.t}`;
+  const hd = `<div class="hd"><span class="nm">서버</span><span class="ex">레지스트리 4대 · 주문/시세 서버</span><span class="sp"></span><button class="btn sm">+ 서버</button></div>`;
+  const body = S.v === 'A' ? cardsA() : S.v === 'B' ? tableB(phone) : bandC();
+  let main = `${hd}<div class="scroll">${body}</div>` + (phone ? `<div class="tabbar">⌂ ⚡ ◔ ✦ ☰</div>` : '');
+  if (phone) return `<div class="${cls}"><div class="main">${main}</div></div>`;
+  const side = `<div class="side"><div class="it">트레이딩</div><div class="it">분석</div><div class="sub">상한가 보고서</div><div class="it on">Admin</div><div class="sub">사용자</div><div class="sub on">서버</div><div class="it">My page</div><div class="it">AI 애널리스트</div></div>`;
+  return `<div class="${cls}">${side}<div class="main">${main}</div></div>`;
+}
+function render() {
+  document.getElementById('desc').innerHTML = DESC[S.v];
+  document.getElementById('stage').innerHTML = frame(S.w);
+  document.querySelectorAll('#nav button').forEach(b => { const k = Object.keys(b.dataset)[0]; b.classList.toggle('on', String(S[k]) === b.dataset[k]); });
+}
+document.getElementById('nav').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; const k = Object.keys(b.dataset)[0]; S[k] = b.dataset[k]; render(); });
+render();
+</script>
+</body>
+</html>

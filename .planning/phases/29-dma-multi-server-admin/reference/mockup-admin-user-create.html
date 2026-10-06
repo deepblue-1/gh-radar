@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 29 목업 — 「+ 사용자」 생성 시트 (A 역할 따라 펼침 / B 2단계 / C 항상 전체 폼)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; gap: 24px; padding: 20px 12px 60px; overflow-x: auto; }
+.f { --bg: #ffffff; --surface: #f2f4f6; --fg: #191f28; --fg2: #333d4b; --muted: #f2f4f6; --mfg: #6b7684; --faint: #b0b8c1; --hair: #e5e8eb; --up: #f04452; --down: #3182f6; --upbg: #ffeeee; --dnbg: #e8f3ff; --okbg: #e6f7ee; --ok: #1c8f4e; --warnbg: #fff4e0; --warn: #b26a00; --pill-bg: #ffffff; --pill-fg: #191f28; --sheet: #ffffff; --scrim: rgba(0,0,0,.35); --inp: #f2f4f6;
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif; }
+.f.dark { --bg: #17171c; --surface: #0f0f12; --fg: #ffffff; --fg2: #e4e4e4; --muted: #2a2a31; --mfg: #9e9e9e; --faint: #636363; --hair: #33333a; --up: #f04251; --down: #3485fa; --upbg: rgba(240,66,81,.16); --dnbg: rgba(52,133,250,.16); --okbg: rgba(46,184,106,.18); --ok: #4cd38a; --warnbg: rgba(255,170,0,.16); --warn: #ffbf47; --pill-bg: #4e4e4e; --pill-fg: #ffffff; --sheet: #202026; --scrim: rgba(0,0,0,.55); --inp: #2a2a31; }
+.f { position: relative; flex: none; overflow: hidden; background: var(--bg); color: var(--fg2); font-family: var(--font); -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 1px #2a2a31; display: flex; flex-direction: column; }
+.f.phone { width: 390px; height: 844px; border-radius: 30px; }
+.f.desktop { width: 1080px; height: 720px; border-radius: 16px; flex-direction: row; }
+.side { width: 200px; border-right: 1px solid var(--hair); padding: 18px 12px; font-size: 14px; color: var(--mfg); background: var(--surface); }
+.side .it { padding: 8px 10px; border-radius: 8px; }
+.side .it.on { background: var(--muted); color: var(--fg); font-weight: 600; }
+.side .sub { padding: 6px 10px 6px 26px; font-size: 13px; }
+.side .sub.on { color: var(--fg); font-weight: 600; }
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
+.hd { padding: 16px 20px 0; display: flex; align-items: center; gap: 10px; }
+.f.phone .hd { padding: 14px 16px 0; }
+.hd .nm { font-size: 20px; font-weight: 700; color: var(--fg); }
+.hd .ex { font-size: 12.5px; color: var(--mfg); }
+.hd .sp { flex: 1; }
+.btn { font: inherit; font-size: 13px; font-weight: 600; padding: 8px 12px; border-radius: 9px; border: 0; cursor: pointer; background: var(--muted); color: var(--fg); }
+.btn.pri { background: var(--down); color: #fff; }
+.btn.big { width: 100%; padding: 14px; font-size: 15px; border-radius: 12px; }
+.btn.sm { font-size: 12px; padding: 5px 9px; }
+.btn.dis { opacity: .4; }
+.scroll { flex: 1; overflow-y: auto; }
+.sec { padding: 14px 20px 6px; font-size: 12.5px; font-weight: 600; color: var(--mfg); display: flex; align-items: center; gap: 8px; }
+.f.phone .sec { padding: 14px 16px 6px; }
+.row { display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-bottom: 1px solid var(--hair); }
+.f.phone .row { padding: 12px 16px; }
+.row .av { width: 36px; height: 36px; border-radius: 50%; background: var(--muted); display: grid; place-items: center; font-weight: 700; color: var(--fg); font-size: 14px; flex: none; }
+.row .c1 { flex: 1; min-width: 0; }
+.row .em { font-size: 14px; font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .m { font-size: 12.5px; color: var(--mfg); margin-top: 2px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.ch { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 5px; white-space: nowrap; line-height: 1.4; }
+.ch.role { background: var(--muted); color: var(--fg2); }
+.ch.ok { background: var(--okbg); color: var(--ok); } .ch.warn { background: var(--warnbg); color: var(--warn); } .ch.dim { background: transparent; color: var(--faint); border: 1px dashed var(--hair); }
+/* 시트 */
+.scrim { position: absolute; inset: 0; background: var(--scrim); z-index: 5; }
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; top: 56px; background: var(--sheet); border-radius: 22px 22px 0 0; z-index: 6; display: flex; flex-direction: column; overflow: hidden; }
+.sheet .grab { width: 40px; height: 4px; border-radius: 2px; background: var(--faint); margin: 10px auto 0; }
+.panel { position: absolute; top: 0; bottom: 0; right: 0; width: 440px; background: var(--sheet); border-left: 1px solid var(--hair); z-index: 6; display: flex; flex-direction: column; overflow: hidden; box-shadow: -8px 0 24px rgba(0,0,0,.08); }
+.ed { padding: 0 20px 24px; }
+.f.phone .ed { padding: 0 16px 24px; }
+.ed .ttl { display: flex; align-items: center; gap: 10px; padding: 16px 0 6px; }
+.ed .ttl .em { font-size: 17px; font-weight: 700; color: var(--fg); }
+.ed .ttl .x { margin-left: auto; color: var(--mfg); font-size: 20px; cursor: pointer; }
+.ed .ttl .step { font-size: 12px; color: var(--mfg); }
+.fld { padding: 12px 0; border-bottom: 1px solid var(--hair); }
+.fld.nb { border-bottom: 0; }
+.fld .lb { font-size: 12px; color: var(--mfg); margin-bottom: 6px; display: flex; gap: 6px; align-items: center; }
+.fld .lb .req { color: var(--up); }
+.fld .lb .opt { color: var(--faint); font-weight: 500; }
+.inp { width: 100%; font: inherit; font-size: 15px; padding: 11px 12px; border-radius: 10px; border: 0; background: var(--inp); color: var(--fg); }
+.inp.ph { color: var(--faint); }
+.two { display: flex; gap: 8px; }
+.two > * { flex: 1; }
+.seg { display: inline-flex; background: var(--muted); border-radius: 10px; padding: 2px; gap: 2px; }
+.seg span { font-size: 13px; font-weight: 500; color: var(--mfg); padding: 6px 14px; border-radius: 8px; cursor: pointer; }
+.seg span.on { background: var(--pill-bg); color: var(--pill-fg); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+.grp { margin-top: 14px; border: 1px solid var(--hair); border-radius: 14px; padding: 4px 14px 14px; }
+.grp.dim { opacity: .45; }
+.grp .gt { font-size: 13px; font-weight: 700; color: var(--fg); padding: 10px 0 2px; display: flex; align-items: center; gap: 8px; }
+.grp .gt .ch { font-weight: 600; }
+.srvs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.sv { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--hair); color: var(--fg2); }
+.sv i { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid var(--faint); display: grid; place-items: center; font-size: 10px; color: #fff; }
+.sv.on i { background: var(--down); border-color: var(--down); } .sv.on i::after { content: '✓'; }
+.sv.off { opacity: .4; }
+.note { font-size: 12px; color: var(--mfg); line-height: 1.5; margin-top: 6px; }
+.foot { padding-top: 16px; }
+.tabbar { position: absolute; left: 50%; transform: translateX(-50%); bottom: 14px; display: flex; gap: 22px; padding: 10px 22px; border-radius: 999px; background: var(--fg); color: var(--bg); font-size: 16px; }
+.toast { position: absolute; top: 14px; right: 14px; left: 14px; z-index: 9; background: var(--fg); color: var(--bg); border-radius: 12px; padding: 10px 14px; font-size: 13px; font-weight: 600; }
+.f.desktop .toast { left: auto; width: 360px; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">생성 시트</span><button data-v="A" class="on">A 한 시트 · 역할 따라 DMA 섹션 펼침</button><button data-v="B">B 2단계 · 웹 유저 먼저 → DMA 연결</button><button data-v="C">C 항상 전체 폼 · viewer 만 DMA 선택</button></div>
+  <div class="g"><span class="l">역할 선택</span><button data-r="trader" class="on">trader</button><button data-r="viewer">viewer</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390</button><button data-w="desktop">데스크톱 1080</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
+  <div class="g" id="stepg" style="display:none"><span class="l">B 단계</span><button data-s="1" class="on">1 웹 유저</button><button data-s="2">2 생성 뒤 편집 시트</button><button data-s="3">3 DMA 연결 시트</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+<script>
+const DESC = {
+  A: '<b>A · 한 시트 · 역할 따라 DMA 섹션 펼침(권장)</b> — gmail · 역할 세그먼트가 위. trader/admin 을 고르면 아래 「DMA 연결」 그룹(id · 비밀번호 · 확인 · 첫 계좌: 증권사 · 계좌번호 · 등록 서버 체크)이 펼쳐지고 전부 필수. viewer 면 그 그룹이 없다. 「사용자 만들기」 1번이 허용 표 + DMA 유저 + 첫 계좌를 한 번에 만들고, 서버별 결과는 만들어진 유저의 편집 시트로 넘어가 칩으로 보인다.',
+  B: '<b>B · 2단계 · 웹 유저 먼저</b> — 생성 시트는 gmail · 역할만. 만들면 바로 그 유저의 편집 시트가 열리고(2단계), trader 인데 DMA 연결이 없으면 시트 상단에 「DMA 연결 필요」 띠 + 「DMA 연결」 버튼. 누르면 id · 비밀번호 · 첫 계좌 한 화면(3단계). DMA 없는 trader 가 잠깐 존재한다(트레이딩 표면은 dma-gate 가 막는다).',
+  C: '<b>C · 항상 전체 폼</b> — 역할과 무관하게 모든 필드를 늘 보여 준다. viewer 를 고르면 DMA 그룹이 흐려지고 선택(비워도 됨). 시트가 늘 길어 폰에서 스크롤이 길다.',
+};
+let S = { v: 'A', r: 'trader', w: 'phone', t: 'dark', s: 1 };
+const SRV = ['KB120','KB121','KYOBO119','KYOBO127'];
+const USERS = [
+  { em: 'alex@jx1.io', role: 'admin', dma: 'alexjx', st: {KB120:'ok',KB121:'ok',KYOBO119:'ok',KYOBO127:'warn'} },
+  { em: 'kim.trader@gmail.com', role: 'trader', dma: 'kimtr', st: {KB120:'ok',KYOBO119:'ok'} },
+  { em: 'park.view@gmail.com', role: 'viewer', dma: null, st: {} },
+];
+function row(u) {
+  return `<div class="row"><div class="av">${u.em[0].toUpperCase()}</div><div class="c1"><div class="em">${u.em}</div><div class="m"><span class="ch role">${u.role}</span><span>${u.dma?'DMA <b style="color:var(--fg)">'+u.dma+'</b>':'<span style="color:var(--faint)">DMA 연결 없음</span>'}</span>${Object.entries(u.st).map(([k,v])=>`<span class="ch ${v}">${k}${v==='ok'?'':' · 미반영'}</span>`).join('')}</div></div></div>`;
+}
+function list() { return `<div class="sec">사용자 <span class="n">3</span></div>${USERS.map(row).join('')}`; }
+const inp = (ph, val) => `<div class="inp ${val?'':'ph'}">${val||ph}</div>`;
+function dmaGroup(dim) {
+  return `<div class="grp ${dim?'dim':''}"><div class="gt">DMA 연결 ${dim?'<span class="ch dim">선택</span>':'<span class="ch warn">필수</span>'}</div>
+    <div class="fld"><div class="lb">DMA 사용자 id <span class="opt">· 모든 서버 공통</span></div>${inp('예: kimtr', '')}</div>
+    <div class="fld"><div class="lb">비밀번호 <span class="opt">· 저장 뒤 다시 볼 수 없음</span></div><div class="two">${inp('비밀번호')}${inp('확인')}</div></div>
+    <div class="fld nb"><div class="lb">첫 계좌</div>
+      <div class="two"><span class="seg"><span class="on">KB</span><span>교보</span></span>${inp('계좌번호', '')}</div>
+      <div class="lb" style="margin-top:10px">등록 서버</div>
+      <div class="srvs">${SRV.map(s => `<span class="sv ${s.startsWith('KB')?(s==='KB120'?'on':''):'off'}"><i></i>${s}</span>`).join('')}</div>
+      <div class="note">증권사에 맞는 서버만 고를 수 있다. 같은 KB 계좌를 두 KB 서버에 동시에 등록해도 된다. 교보 계좌는 지점·트레이더 값이 없다.</div></div>
+  </div>`;
+}
+function createSheet(closeIcon) {
+  const viewer = S.r === 'viewer';
+  let body = `<div class="ttl"><span class="em">사용자 만들기</span>${closeIcon?'<span class="x">×</span>':''}</div>
+    <div class="fld"><div class="lb">gmail <span class="req">*</span></div>${inp('name@gmail.com', 'lee.new@gmail.com')}<div class="note">가입 전이면 사전 등록으로 남고, 이미 가입했으면 승인 대기에서 빠진다.</div></div>
+    <div class="fld nb"><div class="lb">역할</div><span class="seg"><span class="${viewer?'on':''}">viewer</span><span class="${S.r==='trader'?'on':''}">trader</span><span>admin</span></span></div>`;
+  if (S.v === 'A') body += viewer ? `<div class="note" style="margin-top:4px">viewer 는 스캐너 · 뉴스 · 분석만 보고 DMA 연결이 없다. 나중에 trader 로 올리면 편집 시트에서 DMA 를 연결한다.</div>` : dmaGroup(false);
+  if (S.v === 'C') body += dmaGroup(viewer);
+  if (S.v === 'B') body += `<div class="note" style="margin-top:4px">DMA 연결(id · 비밀번호 · 첫 계좌)은 만든 뒤 편집 시트에서.</div>`;
+  const label = S.v === 'A' && !viewer ? '사용자 + DMA 유저 만들기 · 서버 2대에 반영' : '사용자 만들기';
+  body += `<div class="foot"><button class="btn pri big">${label}</button></div>`;
+  return `<div class="ed">${body}</div>`;
+}
+function editSheetB(step, closeIcon) {
+  if (step === 2) return `<div class="ed"><div class="ttl"><span class="em">lee.new@gmail.com</span><span class="ch role">trader</span>${closeIcon?'<span class="x">×</span>':''}</div>
+    <div class="grp" style="border-color:var(--warn);margin-top:10px"><div class="gt">DMA 연결 필요 <span class="ch warn">트레이딩 표면 잠김</span></div><div class="note">trader 는 DMA 유저와 첫 계좌가 있어야 상따 · 주문 · 잔고가 열린다.</div><div class="foot" style="padding-top:10px"><button class="btn pri">DMA 연결</button></div></div>
+    <div class="fld"><div class="lb">역할</div><span class="seg"><span>viewer</span><span class="on">trader</span><span>admin</span></span></div>
+    <div class="fld nb"><div class="lb">계좌 · 등록 서버</div><div class="note">DMA 연결 뒤 여기에 계좌가 나온다.</div></div></div>`;
+  return `<div class="ed"><div class="ttl"><span class="em">DMA 연결</span><span class="step">lee.new@gmail.com</span>${closeIcon?'<span class="x">×</span>':''}</div>${dmaGroup(false).replace('<div class="grp ', '<div class="grp" style="border:0;padding:0;margin:0" ')}<div class="foot"><button class="btn pri big">DMA 유저 + 첫 계좌 만들기 · 서버 2대에 반영</button></div></div>`;
+}
+function frame(w) {
+  const phone = w === 'phone';
+  const cls = `f ${w} ${S.t}`;
+  const hd = `<div class="hd"><span class="nm">사용자</span><span class="ex">허용 gmail · 역할 · DMA 연결</span><span class="sp"></span><button class="btn sm pri">+ 사용자</button></div>`;
+  let sheetBody = S.v === 'B' && S.s > 1 ? editSheetB(S.s, true) : createSheet(true);
+  let toast = S.v === 'B' && S.s === 2 ? `<div class="toast">lee.new@gmail.com 을 만들었어요 · trader</div>` : '';
+  let body = `${hd}<div class="scroll">${list()}</div>${toast}` + (phone
+    ? `<div class="scrim"></div><div class="sheet"><div class="grab"></div><div class="scroll">${sheetBody}</div></div>`
+    : `<div class="panel"><div class="scroll">${sheetBody}</div></div>`);
+  if (phone) return `<div class="${cls}"><div class="main">${body}</div></div>`;
+  const side = `<div class="side"><div class="it">트레이딩</div><div class="it">분석</div><div class="sub">상한가 보고서</div><div class="it on">Admin</div><div class="sub on">사용자</div><div class="sub">서버</div><div class="it">My page</div><div class="it">AI 애널리스트</div></div>`;
+  return `<div class="${cls}">${side}<div class="main">${body}</div></div>`;
+}
+function render() {
+  document.getElementById('desc').innerHTML = DESC[S.v];
+  document.getElementById('stepg').style.display = S.v === 'B' ? '' : 'none';
+  document.getElementById('stage').innerHTML = frame(S.w);
+  document.querySelectorAll('#nav button').forEach(b => { const k = Object.keys(b.dataset)[0]; b.classList.toggle('on', String(S[k]) === b.dataset[k]); });
+}
+document.getElementById('nav').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const k = Object.keys(b.dataset)[0]; let v = b.dataset[k]; if (k === 's') v = Number(v);
+  S[k] = v; if (k === 'v' && v !== 'B') S.s = 1; render();
+});
+render();
+</script>
+</body>
+</html>
