@@ -15,8 +15,12 @@ set -euo pipefail
 #                                                                     # 그 버전 **이하**만 재생 (수정 전 = RED 재현)
 #   bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_orders_modified.test.sql
 #                                                                     # 다른 회귀 파일 (기본 = dma_orders_price_check.test.sql)
+#   bash scripts/verify-dma-orders-price-check.sh --with supabase/tests/fixtures/29_pre_rename.sql --with supabase/deploy-window/29/01_gateway_key_rename.sql --test supabase/tests/gateway_key_rename.test.sql
+#                                                                     # --with <sql> (반복 가능): 마이그레이션 재생 뒤 · 테스트 전에 주어진 순서대로 적용
+#                                                                     # (Phase 29 Plan 09 — 배포 창 SQL · 픽스처. 상대 경로는 저장소 루트 기준)
 #
 # 종료 코드: TAP 에 `not ok` 가 1줄이라도 있거나 psql 이 실패하면 non-zero.
+#   (인자 오류 · 없는 파일 = 2, --with 적용 실패 = 5 — 마이그레이션 재생 실패와 같은 코드)
 #
 # 안전 경계:
 #   - 공유·원격 DB 접촉 0 — 이 스크립트는 원격 접속 정보·환경변수를 읽지 않는다.
@@ -33,6 +37,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MIG_DIR="$ROOT/supabase/migrations"
 TEST_FILE="$ROOT/supabase/tests/dma_orders_price_check.test.sql"
 UNTIL=""
+WITH_FILES=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -46,8 +51,15 @@ while [ $# -gt 0 ]; do
         *)  TEST_FILE="$ROOT/$2" ;;
       esac
       shift 2 ;;
+    --with)
+      [ $# -ge 2 ] || { echo "ERROR: --with 에 SQL 파일 경로가 필요합니다" >&2; exit 2; }
+      case "$2" in
+        /*) WITH_FILES+=("$2") ;;
+        *)  WITH_FILES+=("$ROOT/$2") ;;
+      esac
+      shift 2 ;;
     -h|--help)
-      sed -n '4,27p' "$0"; exit 0 ;;
+      sed -n '4,32p' "$0"; exit 0 ;;
     *)
       echo "ERROR: 알 수 없는 인자: $1" >&2; exit 2 ;;
   esac
@@ -57,6 +69,13 @@ if [ ! -f "$TEST_FILE" ]; then
   echo "ERROR: 회귀 파일이 없습니다: $TEST_FILE" >&2
   exit 2
 fi
+
+for wf in ${WITH_FILES[@]+"${WITH_FILES[@]}"}; do
+  if [ ! -f "$wf" ]; then
+    echo "ERROR: --with 파일이 없습니다: $wf" >&2
+    exit 2
+  fi
+done
 
 if [ -n "$UNTIL" ] && ! [[ "$UNTIL" =~ ^[0-9]{14}$ ]]; then
   echo "ERROR: --until 은 14자리 버전이어야 합니다: $UNTIL" >&2
@@ -110,6 +129,16 @@ for f in "$MIG_DIR"/*.sql; do
   applied=$((applied + 1))
 done
 echo "# replayed $applied migrations${UNTIL:+ (until $UNTIL)}"
+
+# --with: 재생 뒤 · 테스트 전, 주어진 순서대로 (배포 창 SQL · 커밋되는 픽스처).
+for wf in ${WITH_FILES[@]+"${WITH_FILES[@]}"}; do
+  if ! psql_c -v ON_ERROR_STOP=1 >/dev/null 2>"$ERR_FILE" < "$wf"; then
+    echo "ERROR: --with 적용 실패: ${wf#"$ROOT"/}" >&2
+    cat "$ERR_FILE" >&2
+    exit 5
+  fi
+  echo "# with ${wf#"$ROOT"/}"
+done
 
 set +e
 out="$(psql_c -v ON_ERROR_STOP=1 -tA < "$TEST_FILE" 2>&1)"
