@@ -9,6 +9,10 @@
  *   ④ 비밀 없는 증권사 → 그 파이프라인 observer disabled(소켓 0) · 다른 서버는 영향 없음
  *   ⑤ 79 broker 불일치(KYOBO 행에 "KB" 응답) → 그 관찰자만 rejected · error 로그 1(키 · 기대 · 받은 broker) · 재로그인 없음
  *      · "MOCK" · 빈 broker 는 통과
+ *   ⑥ (29-08) 서버당 admin 연결(role 2) 정확히 1개 · 저널 관찰자와 별개 소켓 · 증권사별 비밀 · 접속마다 op 5 → 87 캐시 ·
+ *      서버를 끄면 admin 연결도 stop · 비밀 없는 증권사는 admin 도 disabled
+ *
+ * 29-08 부터 서버마다 소켓이 2개다(저널 관찰자 1 + admin 1) — 아래 「살아 있는 소켓 수」 단언은 둘을 합친 값이다.
  *
  * 규율: 주소는 127.0.0.1 만(D-27). 비밀은 테스트 더미이고 로그에 실리지 않는다(T-19-03).
  */
@@ -18,7 +22,7 @@ import { logger } from "../src/logger.js";
 import { ServerPipelines, type ServerPipeline } from "../src/registry/pipelines.js";
 import type { DmaBroker, DmaServerRow } from "../src/registry/registry.js";
 import { createRelaySupabase } from "../src/store/supabase.js";
-import { startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
+import { defaultAdminHandler, startFakeGateway, type FakeAdminState, type FakeGateway } from "./helpers/fake-gateway.js";
 import { startSupabaseStub, type SupabaseStub } from "./helpers/supabase-stub.js";
 
 const KB_SECRET = "pipelines-kb-secret-DO-NOT-LOG";
@@ -43,9 +47,21 @@ async function waitFor(predicate: () => boolean, label: string, timeoutMs = WAIT
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** 스텁별 admin users 표(29-08) — 유저 1명. */
+function adminState(userId: string): FakeAdminState {
+  return {
+    usersRev: 1n,
+    users: new Map([[userId, [{ accountNo: "1111111101", name: "위탁", priority: 1 }]]]),
+    busyAccounts: new Set(),
+  };
+}
+
 async function gatewayFor(broker: string): Promise<FakeGateway> {
   const gw = await startFakeGateway({ autoLogin: false, autoAccount: false });
   gw.respondObserverLogin({ broker, epoch: `ep-${broker}`, headSeq: 0, oldestSeq: 0, resync: true });
+  // 29-08 — 같은 서버의 admin 연결(role 2)에도 답한다(같은 broker · 유저 1명 표).
+  gw.respondAdminLogin({ broker });
+  gw.onAdminCommand(defaultAdminHandler(adminState(`user-${broker}`)));
   cleanups.push(() => gw.close());
   return gw;
 }
@@ -120,7 +136,8 @@ describe("ServerPipelines — 레지스트리 행 → 서버별 관찰자 (Phase
     const kyobo = await gatewayFor("KYOBO");
     const { pipelines, removed } = await rig();
     pipelines.sync([row("KB", "KB", kb.port), row("KYOBO", "KYOBO", kyobo.port)]);
-    await waitFor(() => liveSockets(kb) === 1 && liveSockets(kyobo) === 1, "두 연결");
+    // 서버마다 저널 관찰자 1 + admin 1(29-08).
+    await waitFor(() => liveSockets(kb) === 2 && liveSockets(kyobo) === 2, "두 서버 × (저널 + admin)");
     await waitFor(() => pipelines.get("KYOBO")?.observer.state === "live", "KYOBO live");
     const kbPipeline = pipelines.get("KB");
 
@@ -134,8 +151,9 @@ describe("ServerPipelines — 레지스트리 행 → 서버별 관찰자 (Phase
     await sleep(300);
     expect(pipelines.get("KB")).toBe(kbPipeline);
     expect(kb.observerLoginRequests()).toHaveLength(1);
-    expect(liveSockets(kb)).toBe(1);
+    expect(liveSockets(kb)).toBe(2);
     expect(kyobo.observerLoginRequests()).toHaveLength(1);
+    expect(kb.adminLoginRequests()).toHaveLength(1);
   });
 
   it("③ 주소(port) 변경 sync → 옛 연결 닫힘 + 새 주소로 재로그인(같은 키 · 같은 비밀)", async () => {
@@ -204,5 +222,59 @@ describe("ServerPipelines — 레지스트리 행 → 서버별 관찰자 (Phase
     // 로컬 mock 게이트웨이("MOCK")는 대조를 통과한다.
     pipelines.sync([row("KB", "KB", kb.port), row("KYOBO", "KYOBO", mock.port)]);
     await waitFor(() => pipelines.get("KYOBO")?.observer.state === "live", "MOCK 응답 live");
+  });
+
+  it("⑥ (29-08) 서버당 admin 연결 정확히 1개 · 저널과 별개 소켓 · op 5 → 87 캐시 · 끄면 admin 도 stop", async () => {
+    const kb = await gatewayFor("KB");
+    const kyobo = await gatewayFor("KYOBO");
+    const { pipelines } = await rig();
+    pipelines.sync([row("KB120", "KB", kb.port), row("KYOBO119", "KYOBO", kyobo.port)]);
+
+    await waitFor(
+      () => pipelines.get("KB120")?.admin.state === "ready" && pipelines.get("KYOBO119")?.admin.state === "ready",
+      "두 admin ready",
+    );
+    await waitFor(
+      () => pipelines.get("KB120")?.admin.currentSnapshot() !== null && pipelines.get("KYOBO119")?.admin.currentSnapshot() !== null,
+      "두 서버 스냅샷",
+    );
+    // 서버마다 admin 로그인 정확히 1건(D-23 ①) · 증권사별 비밀 · role 2 · admin client.
+    expect(kb.adminLoginRequests()).toHaveLength(1);
+    expect(kyobo.adminLoginRequests()).toHaveLength(1);
+    expect(kb.adminLoginRequests()[0]).toMatchObject({ secret: KB_SECRET, role: 2, client: "gh-radar-relay/admin" });
+    expect(kyobo.adminLoginRequests()[0]).toMatchObject({ secret: KYOBO_SECRET, role: 2, client: "gh-radar-relay/admin" });
+    // 저널 관찰자 로그인과는 다른 소켓이다 — 저널 로그인도 각 1건, 살아 있는 소켓은 서버마다 2개.
+    expect(kb.observerLoginRequests()).toHaveLength(1);
+    const kbAdminSock = await kb.waitForAdminConnection();
+    const kbJournalSock = await kb.waitForObserverConnection();
+    expect(kbAdminSock).not.toBe(kbJournalSock);
+    await waitFor(() => liveSockets(kb) === 2 && liveSockets(kyobo) === 2, "서버마다 소켓 2");
+    // 서버별 캐시 — 섞이지 않는다.
+    expect(pipelines.get("KB120")?.admin.currentSnapshot()?.users.map((u) => u.userId)).toEqual(["user-KB"]);
+    expect(pipelines.get("KYOBO119")?.admin.currentSnapshot()?.users.map((u) => u.userId)).toEqual(["user-KYOBO"]);
+    expect(pipelines.get("KB120")?.admin.serverKey).toBe("KB120");
+
+    // KYOBO119 를 끄면 admin 연결도 stop — 두 소켓 다 닫힌다. KB120 admin 은 그대로(재로그인 없음).
+    const kyoboAdmin = pipelines.get("KYOBO119")?.admin;
+    pipelines.sync([row("KB120", "KB", kb.port), row("KYOBO119", "KYOBO", kyobo.port, { enabled: false })]);
+    await waitFor(() => liveSockets(kyobo) === 0, "KYOBO 소켓 전부 닫힘");
+    expect(kyoboAdmin?.currentSnapshot()).toBeNull();
+    await sleep(300);
+    expect(kyobo.adminLoginRequests()).toHaveLength(1);
+    expect(kb.adminLoginRequests()).toHaveLength(1);
+    expect(pipelines.get("KB120")?.admin.state).toBe("ready");
+  });
+
+  it("⑦ (29-08) 비밀 없는 증권사 → admin 연결도 disabled · 소켓 0", async () => {
+    const kb = await gatewayFor("KB");
+    const kyobo = await gatewayFor("KYOBO");
+    const { pipelines } = await rig({ KB: KB_SECRET });
+    pipelines.sync([row("KB", "KB", kb.port), row("KYOBO", "KYOBO", kyobo.port)]);
+    await waitFor(() => kb.adminLoginRequests().length === 1, "KB admin 로그인");
+    expect(pipelines.get("KYOBO")?.admin.state).toBe("disabled");
+    expect(pipelines.get("KYOBO")?.admin.enabled).toBe(false);
+    await sleep(300);
+    expect(kyobo.sockets).toHaveLength(0);
+    expect(kyobo.adminLoginRequests()).toEqual([]);
   });
 });

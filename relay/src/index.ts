@@ -58,6 +58,7 @@
  *   3. `sessionManager.closeAll()` — 구독 해제 + DMA TCP 종료
  *   4. 레지스트리 `close()`(재적재 중지) · quote 연결 `stop` · `pipelines.stopAll()` — 전 서버 관찰자 연결 종료(새 시세 프레임 ·
  *      새 배치를 받지 않는다 — Phase 19 D-13 · Phase 26). quote 연결의 로그인 타이머 · 재접속 백오프도 여기서 멈춘다.
+ *      서버별 admin 연결(29-08 · role 2)도 `pipelines.stopAll()` 안에서 함께 stop 된다(별도 줄 없음).
  *   5. `pipelines.drainAll(2초)` — 전 서버 `writer` · `strategyWriter` drain **병렬** → `pipelines.closeAll()`(기록기 · `access` ·
  *      `status`) · quote 상태 · 접근 맵 `close()`
  *      — 큐에 남은 레코드를 적용 RPC 로 보낸다. 2초 안에 못 끝내도 **유실은 없다** — 커서는 적용 RPC
@@ -366,6 +367,8 @@ wsServer.listen(config.wsPort, () => {
           port: r.port,
           enabled: r.enabled,
           observer: !r.enabled ? "off" : pipelines.get(r.key)?.observerEnabled === true ? "enabled" : "disabled",
+          // Phase 29-08 — 서버별 admin 연결(role 2) 여부(비밀 없음).
+          admin: !r.enabled ? "off" : pipelines.get(r.key)?.admin.enabled === true ? "enabled" : "disabled",
         })),
         // 주 서버(부팅 때 KB 주문 서버) 관찰자 기록 연결 여부만 싣는다 — 비밀·계좌는 없다(T-19-03).
         journalObserver: primaryPipeline()?.observerEnabled === true ? "enabled" : "disabled",
@@ -424,6 +427,7 @@ async function shutdown(signal: string): Promise<void> {
     // 3) 구독 해제 + DMA 소켓 종료
     await sessionManager.closeAll();
     // 4) 레지스트리 재적재 중지 · quote 연결 · 전 서버 관찰자 연결 종료 — 이후 새 시세 프레임 · 새 배치 · 새 서버가 들어오지 않는다
+    //    (서버별 admin 연결도 `pipelines.stopAll()` 안에서 stop — 비행 중 admin 명령은 offline 으로 풀린다)
     registry.close();
     quoteFeed.stop();
     pipelines.stopAll();

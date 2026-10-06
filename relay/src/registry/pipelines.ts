@@ -15,6 +15,8 @@
  *   - 비밀은 **증권사별** 고정 매핑(`secretOf(broker)` — config `observerSecretOf`)에서만 온다. 레지스트리 행에 비밀이
  *     없다(RESEARCH Pitfall 11). 비밀이 없는 증권사의 서버는 그 관찰자만 disabled(소켓 0)다.
  *   - 관찰자에 `expectedBroker` = 행의 증권사를 넘긴다 — 79 broker 가 다르면 주소 오설정으로 정지(Pitfall 12).
+ *   - Phase 29-08 — 같은 벌에 **admin 연결(role 2) 하나**(`AdminConn` · D-23 ①)가 저널 관찰자와 같은 생성 · 정지 수명으로 선다.
+ *     비밀도 같은 `secretOf(broker)` 다(새 Secret 없음). 저널 관찰자와는 별개 소켓이고, 서로의 상태 · 거부에 엮이지 않는다.
  *   - 재생성 중 같은 키의 옛 기록기가 drain 하는 동안 새 관찰자가 커서를 읽을 수 있다. 커서는 적용 RPC 트랜잭션
  *     안에서만 전진하고 DB PK 가 겹친 재생을 흡수하므로 유실 · 중복 투영은 없다(Phase 19 D-12) — 최악은 재생 몇 건이다.
  *
@@ -24,6 +26,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { AdminConn } from "../admin/admin-conn.js";
 import { logger } from "../logger.js";
 import { JournalAccess } from "../journal/access.js";
 import { createJournalCodec } from "../journal/codec.js";
@@ -44,6 +47,7 @@ export const PIPELINE_DRAIN_TIMEOUT_MS = 2_000;
  *   매핑(`JournalAccess`)    관찰자 로그인 스냅샷 → 메모리 라우팅 + `dma_journal_sync_access`.
  *   관찰자(`JournalObserver`) 게이트웨이 관찰자 소켓 **1개**(사용자 세션과 독립).
  *   상태(`JournalStatus`)    관찰자 상태 + 기록기 관측값 → `journal.state` 프레임 · `/healthz` 한 원천.
+ *   admin(`AdminConn`)       users.toml 관리 연결 **1개**(role 2 · 29-08). 접속마다 op 5 → 87 스냅샷 캐시 · `command()`.
  */
 export type ServerPipeline = {
   /** 이 벌을 만든 레지스트리 행(사본). 게이트웨이 키 = `server.key`. */
@@ -53,6 +57,8 @@ export type ServerPipeline = {
   access: JournalAccess;
   observer: JournalObserver;
   status: JournalStatus;
+  /** 서버당 admin 관리 연결 하나(D-23 ①). 저널 관찰자와 같이 시작 · 정지한다. 86/87 은 Express HTTP 경로로만 나간다(D-07). */
+  admin: AdminConn;
   /** 관찰자 비밀이 있었는가(부팅 로그 · healthz 의 enabled 표기용 — 값 자체는 없다). */
   observerEnabled: boolean;
 };
@@ -85,8 +91,10 @@ export function createJournalPipeline(deps: {
     expectedBroker: server.broker,
   });
   const status = new JournalStatus({ observer, writer, strategyWriter, access });
+  // admin 연결 — 같은 증권사 관찰자 비밀 · 같은 주소. 비밀이 없으면 disabled(소켓 0).
+  const admin = new AdminConn({ serverKey: gateway, broker: server.broker, secret: deps.secret, host: server.host, port: server.port });
   const observerEnabled = deps.secret !== undefined && deps.secret !== "";
-  return { server, writer, strategyWriter, access, observer, status, observerEnabled };
+  return { server, writer, strategyWriter, access, observer, status, admin, observerEnabled };
 }
 
 export type ServerPipelinesDeps = {
@@ -148,8 +156,16 @@ export class ServerPipelines {
       this.#pipelines.set(key, p);
       this.#deps.onCreated?.(p);
       p.observer.start();
+      p.admin.start();
       logger.info(
-        { gateway: key, broker: row.broker, host: row.host, port: row.port, observer: p.observerEnabled ? "enabled" : "disabled" },
+        {
+          gateway: key,
+          broker: row.broker,
+          host: row.host,
+          port: row.port,
+          observer: p.observerEnabled ? "enabled" : "disabled",
+          admin: p.admin.enabled ? "enabled" : "disabled",
+        },
         "[registry] 서버 관찰자 파이프라인 시작",
       );
       created.push(key);
@@ -166,10 +182,13 @@ export class ServerPipelines {
     return [...this.#pipelines.values()];
   }
 
-  /** 종료 절차 ④ — 전 관찰자 정지(새 배치를 받지 않는다). 이후 sync 는 아무것도 하지 않는다. */
+  /** 종료 절차 ④ — 전 관찰자 · admin 연결 정지(새 배치를 받지 않는다). 이후 sync 는 아무것도 하지 않는다. */
   stopAll(): void {
     this.#closed = true;
-    for (const p of this.#pipelines.values()) p.observer.stop();
+    for (const p of this.#pipelines.values()) {
+      p.observer.stop();
+      p.admin.stop();
+    }
   }
 
   /**
@@ -196,6 +215,7 @@ export class ServerPipelines {
     const key = p.server.key;
     this.#pipelines.delete(key);
     p.observer.stop();
+    p.admin.stop();
     logger.info({ gateway: key, reason }, "[registry] 서버 관찰자 파이프라인 정지");
     const done = drainPipeline(p, this.#drainTimeoutMs).then((ok) => {
       if (!ok) {
@@ -220,6 +240,8 @@ async function drainPipeline(p: ServerPipeline, timeoutMs: number): Promise<bool
 }
 
 function closePipeline(p: ServerPipeline): void {
+  // admin 연결은 정지 경로(stopAll · #retire)에서 이미 닫혔다 — 여기서 한 번 더 불러도 멱등이다(closeAll 단독 호출 대비).
+  p.admin.stop();
   p.writer.close();
   p.strategyWriter.close();
   p.access.close();
