@@ -236,3 +236,193 @@ describe('ServersClient — 증권사 그룹 카드 (D-17 · 목업 A)', () => {
     await waitFor(() => expect(root().querySelectorAll('[data-slot="server-card"]')).toHaveLength(4));
   });
 });
+
+// ── Task 2 — 시세 주 서버 전환 · 사용 토글 · 편집 시트 진입 ─────────────────────────
+
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+const quoteRadio = (key: string) => screen.getByRole('radio', { name: `${key} 시세 주 서버` }) as HTMLInputElement;
+const toggle = (key: string) => screen.getByRole('switch', { name: `${key} 사용` });
+const cardError = (key: string) => card(key).querySelector('[data-slot="server-card-error"]');
+
+/** KYOBO119 가 시세 주 서버가 된 재조회 응답. */
+function afterQuoteSwitch(): AdminServersOverview {
+  const o = overview();
+  for (const g of o.groups) for (const s of g.servers) s.isQuotePrimary = s.key === 'KYOBO119';
+  return o;
+}
+
+describe('ServersClient — 시세 주 서버 전환 (D-11)', () => {
+  it('KYOBO119 시세 라디오 → setQuotePrimary 1회 · 응답 전 그 카드 「전환 중」 · 시세 라디오 전부 비활성 → 성공 → 재조회 · 칩 이동', async () => {
+    fetchAdminServersMock.mockResolvedValueOnce(overview()).mockResolvedValueOnce(afterQuoteSwitch());
+    const d = deferred<unknown>();
+    setQuotePrimaryMock.mockReturnValue(d.promise);
+    await renderReady();
+
+    fireEvent.click(quoteRadio('KYOBO119'));
+    expect(setQuotePrimaryMock).toHaveBeenCalledTimes(1);
+    expect(setQuotePrimaryMock).toHaveBeenCalledWith('KYOBO119');
+    expect(card('KYOBO119').querySelector('[data-slot="server-switching"]')).toHaveTextContent('전환 중');
+    expect(card('KYOBO119')).toHaveAttribute('aria-busy', 'true');
+    expect(card('KB120').querySelector('[data-slot="server-switching"]')).toBeNull();
+    for (const key of ['KB120', 'KB121', 'KYOBO119', 'KYOBO127']) expect(quoteRadio(key)).toBeDisabled();
+    // 주문 라디오는 시세 전환과 무관하다
+    expect(orderRadio('KB121')).toBeEnabled();
+
+    d.resolve({ ok: true });
+    await waitFor(() => expect(roleChips('KYOBO119')).toEqual(['주문 서버', '시세 주 서버']));
+    expect(roleChips('KB120')).toEqual(['주문 서버']);
+    expect(quoteRadio('KYOBO119')).toBeChecked();
+    expect(quoteRadio('KB121')).toBeEnabled();
+    expect(root().querySelector('[data-slot="server-switching"]')).toBeNull();
+    expect(fetchAdminServersMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('409(새 서버 로그인 실패) → 라디오는 KB120 그대로 · KYOBO119 카드 한 줄에 relay message 원문 · 토스트 없음', async () => {
+    fetchAdminServersMock.mockResolvedValue(overview());
+    setQuotePrimaryMock.mockRejectedValue(
+      new ApiClientError({ code: 'HTTP_409', message: '새 서버 로그인 실패 — KB120 으로 되돌림', status: 409 }),
+    );
+    await renderReady();
+
+    fireEvent.click(quoteRadio('KYOBO119'));
+    await waitFor(() => expect(cardError('KYOBO119')).not.toBeNull());
+    expect(cardError('KYOBO119')).toHaveTextContent('새 서버 로그인 실패 — KB120 으로 되돌림');
+    expect(quoteRadio('KB120')).toBeChecked();
+    expect(quoteRadio('KYOBO119')).not.toBeChecked();
+    expect(quoteRadio('KYOBO119')).toBeEnabled();
+    expect(root().querySelector('[data-slot="server-switching"]')).toBeNull();
+    expect(roleChips('KB120')).toEqual(['주문 서버', '시세 주 서버']);
+    expect(fetchAdminServersMock).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[data-sonner-toast]')).toBeNull();
+  });
+});
+
+describe('ServersClient — 사용 토글 (D-17)', () => {
+  it('주문/시세 서버(KB120 · KYOBO119) 토글은 비활성 · 그 밖은 활성', async () => {
+    fetchAdminServersMock.mockResolvedValue(overview());
+    await renderReady();
+
+    expect(toggle('KB120')).toBeDisabled();
+    expect(toggle('KYOBO119')).toBeDisabled();
+    expect(toggle('KB121')).toBeEnabled();
+    expect(toggle('KYOBO127')).toBeEnabled();
+    expect(toggle('KB121')).toHaveAttribute('aria-checked', 'true');
+    expect(toggle('KYOBO127')).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('유저 0 인 서버 끄기 → 확인 없이 PATCH { enabled: false } 1회 → 재조회', async () => {
+    const o = overview();
+    o.groups[0].servers[1].userCount = 0;
+    fetchAdminServersMock.mockResolvedValue(o);
+    patchAdminServerMock.mockResolvedValue({ ok: true, relayNotified: true });
+    await renderReady();
+
+    fireEvent.click(toggle('KB121'));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(patchAdminServerMock).toHaveBeenCalledTimes(1);
+    expect(patchAdminServerMock).toHaveBeenCalledWith('KB121', { enabled: false });
+    await waitFor(() => expect(fetchAdminServersMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('꺼진 서버 켜기 → 확인 없이 PATCH { enabled: true } 1회', async () => {
+    fetchAdminServersMock.mockResolvedValue(overview());
+    patchAdminServerMock.mockResolvedValue({ ok: true, relayNotified: true });
+    await renderReady();
+
+    fireEvent.click(toggle('KYOBO127'));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(patchAdminServerMock).toHaveBeenCalledWith('KYOBO127', { enabled: true });
+    await waitFor(() => expect(fetchAdminServersMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('유저 2 인 서버 끄기 → 확인 다이얼로그 「운영 중 서버에 유저 2명 — 끄면 저널 · admin 연결을 내린다」 · 취소 0회 · 확인 1회', async () => {
+    fetchAdminServersMock.mockResolvedValue(overview());
+    patchAdminServerMock.mockResolvedValue({ ok: true, relayNotified: true });
+    await renderReady();
+
+    fireEvent.click(toggle('KB121'));
+    const dlg = screen.getByRole('alertdialog');
+    expect(dlg).toHaveTextContent('운영 중 서버에 유저 2명 — 끄면 저널 · admin 연결을 내린다');
+    fireEvent.click(within(dlg).getByRole('button', { name: '취소' }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    expect(patchAdminServerMock).not.toHaveBeenCalled();
+    expect(toggle('KB121')).toHaveAttribute('aria-checked', 'true');
+    // 다이얼로그 조작이 카드 탭(편집 시트)으로 새지 않는다
+    expect(document.querySelector('[data-slot="server-sheet"]')).toBeNull();
+
+    fireEvent.click(toggle('KB121'));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '끄기' }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    expect(patchAdminServerMock).toHaveBeenCalledTimes(1);
+    expect(patchAdminServerMock).toHaveBeenCalledWith('KB121', { enabled: false });
+    expect(document.querySelector('[data-slot="server-sheet"]')).toBeNull();
+  });
+
+  it('409 SERVER_IN_USE → 토글 원복 + 카드 한 줄(서버 message)', async () => {
+    const o = overview();
+    o.groups[0].servers[1].userCount = 0;
+    fetchAdminServersMock.mockResolvedValue(o);
+    patchAdminServerMock.mockRejectedValue(
+      new ApiClientError({ code: 'SERVER_IN_USE', message: '주문 서버 · 시세 주 서버는 끌 수 없어요', status: 409 }),
+    );
+    await renderReady();
+
+    fireEvent.click(toggle('KB121'));
+    await waitFor(() => expect(cardError('KB121')).not.toBeNull());
+    expect(cardError('KB121')).toHaveTextContent('주문 서버 · 시세 주 서버는 끌 수 없어요');
+    expect(toggle('KB121')).toHaveAttribute('aria-checked', 'true');
+  });
+});
+
+describe('ServersClient — 편집 · 추가 시트 진입', () => {
+  it('카드 탭(라디오 · 토글 밖) → 편집 시트 · 라디오/토글 탭은 시트를 열지 않음 · host 수정 → 「저장」 → PATCH { host, port } 1회 → 닫힘 · 재조회', async () => {
+    fetchAdminServersMock.mockResolvedValue(overview());
+    patchAdminServerMock.mockResolvedValue({ ok: true, relayNotified: true });
+    setOrderServerMock.mockReturnValue(new Promise(() => {}));
+    await renderReady();
+
+    fireEvent.click(card('KB121').querySelector('[data-slot="server-order-radio"]')!);
+    expect(document.querySelector('[data-slot="server-sheet"]')).toBeNull();
+
+    fireEvent.click(card('KB121').querySelector('[data-slot="server-addr"]')!);
+    const sheet = await waitFor(() => {
+      const el = document.querySelector('[data-slot="server-sheet"]');
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    const dialog = sheet.closest('[role="dialog"]') as HTMLElement;
+    expect(within(dialog).getByRole('heading', { name: 'KB121' })).toBeInTheDocument();
+    const host = within(dialog).getByRole('textbox', { name: '주소' });
+    fireEvent.change(host, { target: { value: '192.0.2.221' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '저장' }));
+
+    await waitFor(() => expect(document.querySelector('[data-slot="server-sheet"]')).toBeNull());
+    expect(patchAdminServerMock).toHaveBeenCalledTimes(1);
+    expect(patchAdminServerMock).toHaveBeenCalledWith('KB121', { host: '192.0.2.221', port: 9100 });
+    await waitFor(() => expect(fetchAdminServersMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('「+ 서버」 → 생성 시트(제목 「서버 추가」)', async () => {
+    fetchAdminServersMock.mockResolvedValue(overview());
+    await renderReady();
+
+    const create = screen.getByRole('button', { name: '+ 서버' });
+    expect(create).toBeEnabled();
+    fireEvent.click(create);
+    const sheet = await waitFor(() => {
+      const el = document.querySelector('[data-slot="server-sheet"][data-mode="create"]');
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(within(sheet.closest('[role="dialog"]') as HTMLElement).getByRole('heading', { name: '서버 추가' })).toBeInTheDocument();
+  });
+});

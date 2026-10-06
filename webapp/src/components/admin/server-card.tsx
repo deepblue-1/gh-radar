@@ -1,11 +1,24 @@
 "use client";
 
+import { useState } from "react";
 import type { AdminServerLiveStatus, AdminServerView } from "@gh-radar/shared";
 
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import { patchAdminServer } from "@/lib/admin-api";
+import { ApiClientError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 import { ADMIN_CHIP_BASE, ADMIN_TONE_CLASS } from "./reflect-chip";
+import { useFieldSave } from "./use-field-save";
 
 /**
  * ServerCard — `/admin/servers` 서버 1대 카드 (Phase 29 D-17 · 목업 A `cardsA()` · `chips()` · `roleChips()`).
@@ -17,6 +30,9 @@ import { ADMIN_CHIP_BASE, ADMIN_TONE_CLASS } from "./reflect-chip";
  *   `quote`). 카드가 흩어져 있어도 브라우저가 한 그룹으로 다룬다. 이미 켜진 라디오는 다시 눌러도 change 가 없다.
  * - 라디오가 그리는 값은 부모가 준 「의도」 다(비행 중이면 누른 값 · 실패면 서버 값) — 역할 칩은 서버 값(재조회)이다.
  * - 꺼진 서버는 주문/시세 라디오를 고를 수 없다(D-17).
+ * - 사용 토글 = `PATCH { enabled }` 1건(useFieldSave). 주문/시세 서버는 끌 수 없다(토글 비활성 — 서버도 409
+ *   `SERVER_IN_USE` 로 막고, 그 문구도 같은 한 줄로 보인다). 그 서버 87 에 유저가 1명 이상이면 끄기 전에 확인 1회 —
+ *   끄면 relay 가 그 서버의 저널 · admin 연결을 내린다. 켜기와 유저 0 서버 끄기는 확인 없이 바로 보낸다.
  * - 카드 빈 곳을 누르면 편집 시트(`onEdit`)다 — 라디오 · 토글은 그 탭을 먹는다. 키뼈대 버튼이 키보드 진입점이다.
  * - 오류는 카드 안 한 줄(토스트 없음 — relay · 서버 message 원문).
  *
@@ -40,6 +56,12 @@ export const SERVER_CARD_TEXT = {
   switching: "전환 중",
   unknown: "상태 모름",
   enabled: "사용",
+  inUse: "주문 서버 · 시세 주 서버는 끌 수 없어요",
+  confirmTitle: (key: string) => `${key} 사용을 끌까요?`,
+  confirmBody: (users: number) => `운영 중 서버에 유저 ${users}명 — 끄면 저널 · admin 연결을 내린다`,
+  confirmCancel: "취소",
+  confirmOff: "끄기",
+  toggleFailed: "바꾸지 못했어요",
 } as const;
 
 /** 칩 톤 → 면 · 글자색. dim = 목업 `.ch.dim`(muted 면 · 흐린 글자). */
@@ -150,6 +172,8 @@ export interface ServerCardProps {
   onQuote?: (key: string) => void;
   /** 카드 탭 → 편집 시트. */
   onEdit?: (key: string) => void;
+  /** 사용 토글 저장 성공 → 재조회. 없으면 토글 비활성. */
+  onChanged?: () => void;
 }
 
 export function ServerCard({
@@ -163,11 +187,36 @@ export function ServerCard({
   onOrder,
   onQuote,
   onEdit,
+  onChanged,
 }: ServerCardProps) {
   const chips = serverStatusChips(server.status, server.userCount);
-  const off = !server.enabled;
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const toggle = useFieldSave<boolean>(
+    async (enabled) => {
+      await patchAdminServer(server.key, { enabled });
+    },
+    {
+      onSuccess: () => onChanged?.(),
+      describeError: (err) =>
+        err instanceof ApiClientError && err.message ? err.message : SERVER_CARD_TEXT.toggleFailed,
+    },
+  );
+  const enabled = toggle.value ?? server.enabled;
+  // 라디오는 서버가 켜졌다고 확인한 뒤에만 — 켜기 비행 중 주문 서버로 고르면 서버가 SERVER_DISABLED 로 거부한다.
+  const off = !server.enabled || !enabled;
+  // 주문/시세 서버(서버 값이든 누른 의도든)는 끌 수 없다.
+  const inUse = server.isOrderServer || server.isQuotePrimary || orderChecked || quoteChecked;
+
+  const onToggle = (next: boolean) => {
+    if (!next && server.userCount > 0) {
+      setConfirmOpen(true);
+      return;
+    }
+    toggle.run(next);
+  };
 
   return (
+    <>
     <div
       data-slot="server-card"
       data-key={server.key}
@@ -213,8 +262,10 @@ export function ServerCard({
           <Switch
             data-slot="server-enabled"
             aria-label={`${server.key} ${SERVER_CARD_TEXT.enabled}`}
-            checked={server.enabled}
-            disabled
+            title={inUse ? SERVER_CARD_TEXT.inUse : undefined}
+            checked={enabled}
+            disabled={inUse || onChanged === undefined}
+            onCheckedChange={onToggle}
           />
         </span>
       </div>
@@ -257,15 +308,40 @@ export function ServerCard({
         />
       </div>
 
-      {error && (
+      {(error ?? toggle.error) && (
         <p
           data-slot="server-card-error"
           role="alert"
           className="mt-2 text-[12.5px] leading-[1.45] break-keep text-[var(--destructive)]"
         >
-          {error}
+          {error ?? toggle.error}
         </p>
       )}
     </div>
+    {/* 카드 div 밖 — 포털이어도 React 이벤트는 트리를 따라 올라가므로, 안에 두면 다이얼로그 탭이 카드 탭(편집 시트)이 된다. */}
+    <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      <DialogContent role="alertdialog" showCloseButton={false} data-slot="server-off-confirm" className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{SERVER_CARD_TEXT.confirmTitle(server.key)}</DialogTitle>
+          <DialogDescription>{SERVER_CARD_TEXT.confirmBody(server.userCount)}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)}>
+            {SERVER_CARD_TEXT.confirmCancel}
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={() => {
+              setConfirmOpen(false);
+              toggle.run(false);
+            }}
+          >
+            {SERVER_CARD_TEXT.confirmOff}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

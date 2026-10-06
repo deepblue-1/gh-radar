@@ -7,13 +7,14 @@ import { CARD, PAGE_WRAP, SECTION_TITLE } from "@/components/layout/page-layout"
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fetchAdminServers, setOrderServer } from "@/lib/admin-api";
+import { fetchAdminServers, setOrderServer, setQuotePrimary } from "@/lib/admin-api";
 import { ApiClientError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 import { ADMIN_BUTTON_SECONDARY } from "./reflect-chip";
 import { ServerCard } from "./server-card";
-import { useFieldSave } from "./use-field-save";
+import { ServerSheet } from "./server-sheet";
+import { useFieldSave, type FieldSave } from "./use-field-save";
 
 /**
  * ServersClient — `/admin/servers` 본문 (Phase 29 D-09 · D-10 · D-17 · 목업 A · ADMIN-10).
@@ -25,8 +26,16 @@ import { useFieldSave } from "./use-field-save";
  * - 「주문 서버」 라디오 = 증권사마다 `useFieldSave` 1개(29-17 결) — 누르는 즉시 `PUT …/order-server` 1건, 비행 중 다시
  *   누르면 마지막 값만 대기. 성공 → 재조회(역할 칩이 옮겨 간다). 실패 → 라디오가 서버 값으로 돌아가고 누른 카드에
  *   한 줄(서버 message 원문 — 토스트 없음). 주문 서버를 바꿔도 열린 세션은 그대로다(D-10 — relay 몫).
+ * - 「시세 주 서버」 라디오 = 전체 1개(`useFieldSave` 1개) — `PUT …/quote-primary` 1건. relay 가 break-then-make 로
+ *   실행하고 DB 도 relay 가 바꾼다(D-11 · 29-23). 응답 전에는 누른 카드가 「전환 중」 이고 모든 시세 라디오가 잠긴다
+ *   (대기열 없음 — 전환은 겹치면 안 된다). 실패(relay 409 — 새 서버 로그인 실패 · 되돌림)면 라디오가 원래 서버로 돌아가고
+ *   누른 카드에 relay message 원문 한 줄.
+ * - 사용 토글 · 확인 다이얼로그는 카드 몫(`ServerCard`). 카드 탭 → 편집 시트, 「+ 서버」 → 추가 시트(`ServerSheet`).
+ *   시트는 재조회 결과에서 같은 키의 서버를 다시 받는다(사라졌으면 닫힌다).
  * - 재조회 실패는 보이던 카드를 지우지 않는다 — 첫 조회 실패만 오류 화면.
  */
+
+type SheetState = { mode: "create" } | { mode: "edit"; key: string } | null;
 
 type LoadState =
   | { kind: "loading" }
@@ -57,6 +66,7 @@ export function rawErrorText(err: unknown, fallback: string = ADMIN_SERVERS_TEXT
 
 export function ServersClient() {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
+  const [sheet, setSheet] = useState<SheetState>(null);
   // 늦게 도착한 옛 응답이 새 응답을 덮지 않게 — 마지막 요청만 반영한다.
   const seq = useRef(0);
 
@@ -83,6 +93,33 @@ export function ServersClient() {
 
   const reload = useCallback(() => void load(), [load]);
 
+  // 시세 주 서버 — 전체 1개. 누른 카드는 실패 한 줄 · 「전환 중」 의 자리다.
+  const [quoteTarget, setQuoteTarget] = useState<string | null>(null);
+  const quote = useFieldSave<string>(
+    async (key) => {
+      await setQuotePrimary(key);
+    },
+    {
+      onSuccess: () => reload(),
+      describeError: (err) => rawErrorText(err),
+    },
+  );
+  const quoteServerKey =
+    state.kind === "ready"
+      ? (state.data.groups.flatMap((g) => g.servers).find((s) => s.isQuotePrimary)?.key ?? null)
+      : null;
+  const quoteKey = quote.value ?? quoteServerKey;
+  const onQuote = (key: string) => {
+    if (quote.state === "saving") return;
+    setQuoteTarget(key);
+    quote.run(key);
+  };
+
+  const editServer =
+    state.kind === "ready" && sheet?.mode === "edit"
+      ? (state.data.groups.flatMap((g) => g.servers).find((s) => s.key === sheet.key) ?? null)
+      : null;
+
   const retry = () => {
     setState({ kind: "loading" });
     void load();
@@ -101,7 +138,8 @@ export function ServersClient() {
             size="sm"
             variant="secondary"
             data-slot="admin-servers-create"
-            disabled
+            disabled={state.kind !== "ready"}
+            onClick={() => setSheet({ mode: "create" })}
             className={cn(ADMIN_BUTTON_SECONDARY, "bg-[var(--card)] dark:bg-[var(--muted)]")}
           >
             {ADMIN_SERVERS_TEXT.create}
@@ -133,7 +171,17 @@ export function ServersClient() {
       {state.kind === "ready" && (
         <>
           {state.data.groups.map((group) => (
-            <BrokerSection key={group.broker} broker={group.broker} servers={group.servers} onChanged={reload} />
+            <BrokerSection
+              key={group.broker}
+              broker={group.broker}
+              servers={group.servers}
+              quote={quote}
+              quoteKey={quoteKey}
+              quoteTarget={quoteTarget}
+              onQuote={onQuote}
+              onEdit={(key) => setSheet({ mode: "edit", key })}
+              onChanged={reload}
+            />
           ))}
           <p
             data-slot="admin-servers-note"
@@ -143,6 +191,11 @@ export function ServersClient() {
           </p>
         </>
       )}
+
+      {sheet?.mode === "create" && <ServerSheet mode="create" onSaved={reload} onClose={() => setSheet(null)} />}
+      {editServer && (
+        <ServerSheet key={editServer.key} mode="edit" server={editServer} onSaved={reload} onClose={() => setSheet(null)} />
+      )}
     </div>
   );
 }
@@ -150,11 +203,19 @@ export function ServersClient() {
 interface BrokerSectionProps {
   broker: DmaBroker;
   servers: AdminServerView[];
+  /** 시세 주 서버 필드(전체 1개 — ServersClient 소유). */
+  quote: FieldSave<string>;
+  /** 화면이 그릴 시세 주 서버(의도). */
+  quoteKey: string | null;
+  /** 마지막으로 누른 시세 카드. */
+  quoteTarget: string | null;
+  onQuote: (key: string) => void;
+  onEdit: (key: string) => void;
   onChanged: () => void;
 }
 
 /** 증권사 섹션 1개 — 그 증권사의 「주문 서버」 필드(useFieldSave 1개)를 가진다. */
-function BrokerSection({ broker, servers, onChanged }: BrokerSectionProps) {
+function BrokerSection({ broker, servers, quote, quoteKey, quoteTarget, onQuote, onEdit, onChanged }: BrokerSectionProps) {
   // 누른 카드 — 실패 한 줄을 그 카드에 단다(useFieldSave 는 실패 시 값을 비운다).
   const [orderTarget, setOrderTarget] = useState<string | null>(null);
   const order = useFieldSave<string>(
@@ -183,13 +244,21 @@ function BrokerSection({ broker, servers, onChanged }: BrokerSectionProps) {
             key={server.key}
             server={server}
             orderChecked={orderKey === server.key}
-            quoteChecked={server.isQuotePrimary}
+            quoteChecked={quoteKey === server.key}
             orderFlash={order.state === "flash"}
-            error={order.state === "error" && orderTarget === server.key ? order.error : null}
+            quoteSwitching={quote.state === "saving" && quoteTarget === server.key}
+            quoteLocked={quote.state === "saving"}
+            error={
+              (order.state === "error" && orderTarget === server.key ? order.error : null) ??
+              (quote.state === "error" && quoteTarget === server.key ? quote.error : null)
+            }
             onOrder={(key) => {
               setOrderTarget(key);
               order.run(key);
             }}
+            onQuote={onQuote}
+            onEdit={onEdit}
+            onChanged={onChanged}
           />
         ))}
       </div>
