@@ -72,8 +72,14 @@ export function AdminSheet({
         showCloseButton={false}
         data-admin-sheet=""
         className={cn(
-          "gap-0 p-0",
-          desktop ? "w-full sm:max-w-[440px]" : "max-h-[92dvh] rounded-t-[22px] border-x-0",
+          // 다크의 --popover 는 --muted 와 같은 색(#2d2d2d)이라 시트 안 muted 면(버튼 · 세그먼트 · 입력 · 배지)이 사라진다 —
+          // 다크만 카드 면으로 한 단 낮춰 목업(.sheet 보다 밝은 .btn/.seg 면) 대비를 되살린다(29-17 스크린샷).
+          "gap-0 p-0 dark:bg-[var(--card)]",
+          // ★ 기본 Sheet 의 `data-[side=right]:w-3/4 · sm:max-w-sm` 는 속성 선택자라 맨 유틸리티(`w-full` · `sm:max-w-[440px]`)보다
+          //   우선한다 — 같은 변형 접두를 달아야 tailwind-merge 가 기본값을 갈아 끼운다(29-17 e2e 실측: 접두 없이는 384px).
+          desktop
+            ? "data-[side=right]:w-full data-[side=right]:sm:max-w-[440px]"
+            : "max-h-[92dvh] rounded-t-[22px] border-x-0",
         )}
       >
         {!desktop && (

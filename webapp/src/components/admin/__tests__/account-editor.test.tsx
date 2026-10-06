@@ -181,7 +181,9 @@ describe('AccountEditor — 계좌 줄', () => {
     setup();
     expect(toggle('12345678901', 'KB120')).toBeDisabled();
     expect(toggle('12345678901', 'KB121')).not.toBeDisabled();
-    expect(acctRow('12345678901')).toHaveTextContent('계좌는 서버 1대 이상');
+    expect(pill('12345678901', 'KB120')).toHaveAttribute('title', '계좌는 서버 1대 이상');
+    expect(pill('12345678901', 'KB121')).not.toHaveAttribute('title');
+    expect(document.querySelector('[data-slot="admin-accounts-note"]')).toHaveTextContent('계좌는 서버 1대 이상');
     fireEvent.click(toggle('12345678901', 'KB120'));
     expect(putDmaAccountMock).not.toHaveBeenCalled();
   });

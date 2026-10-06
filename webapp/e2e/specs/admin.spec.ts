@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
+import type { AdminUsersOverview } from '@gh-radar/shared';
 
-import { ADMIN_BUSY_MESSAGE, mockAdminApi } from '../fixtures/admin';
+import { ADMIN_BUSY_MESSAGE, ADMIN_USERS_FIXTURE, mockAdminApi, type AdminApiMock } from '../fixtures/admin';
 import { leavesOverflowing } from '../overflow';
 
 /**
@@ -17,6 +18,10 @@ import { leavesOverflowing } from '../overflow';
  * ③ 승인(P29-A2)은 「요청 1건 + 재조회 결과」 로 본다
  *   목 API 가 메모리 상태를 바꾸므로, 화면이 재조회로 받은 목록에서 승인 대기 행이 사용자 목록으로 옮겨졌는지가
  *   곧 「POST → 재조회」 왕복의 증거다. 사이드바 Admin 그룹은 e2e 계정이 admin 시드(29-07)라 실 RPC 로 보인다.
+ *
+ * ④ 편집 시트(P29-A3)는 「필드 1개 = 요청 1건」 을 요청 기록으로 센다(D-15)
+ *   역할 · 등록 서버 토글 · 다시 반영이 각각 정확히 1건이고, 응답의 서버별 결과(BUSY message 원문)가 그 자리 칩 · 한 줄로
+ *   그려지는지 본다. 「저장」 버튼은 없다.
  */
 
 const VIEWPORTS = [
@@ -119,4 +124,164 @@ test('P29-A2 승인 대기 → 역할 선택 승인 → 사용자 목록으로 �
   await expect(
     root.locator('[data-email="lee.new@example.invalid"] [data-slot="admin-role-chip"]'),
   ).toHaveText('trader');
+});
+
+// ── P29-A3 편집 시트 ────────────────────────────────────────────────────────────
+
+const KIM = 'kim.trader@example.invalid';
+const KIM_KB = '12345678901';
+const SHEET_BUSY = '미체결 2건 — 먼저 정리';
+
+/** kim 의 KB 계좌를 KB120 만 켠 상태로 — KB121 을 「켜는」 조작을 보기 위해. */
+function editFixture(): AdminUsersOverview {
+  const users = JSON.parse(JSON.stringify(ADMIN_USERS_FIXTURE)) as AdminUsersOverview;
+  const kim = users.users.find((u) => u.email === KIM)!;
+  kim.servers = kim.servers.filter((c) => c.serverKey !== 'KB121');
+  const kb = kim.accounts.find((a) => a.accountNo === KIM_KB)!;
+  kb.servers = kb.servers.filter((c) => c.serverKey !== 'KB121');
+  return users;
+}
+
+/**
+ * PUT 계좌 = 의도 저장(D-05) + 서버별 결과 — 목 상태에 의도를 적고(재조회가 켜진 토글을 받는다) KB121 은 BUSY 로 돌려준다.
+ * 「다시 반영」 은 기본 처리(그 사용자 서버 전부 ok)로 간다.
+ */
+async function mockEditApi(page: Page): Promise<AdminApiMock> {
+  // onRequest 는 요청 때(=이 줄이 끝난 뒤) 불린다 — 그때 `api` 는 이미 있다.
+  const api: AdminApiMock = await mockAdminApi(page, {
+    users: editFixture(),
+    onRequest: (req) => {
+      if (req.method !== 'PUT' || req.path !== '/dma-users/kimtr/accounts') return undefined;
+      const body = req.body as { account: { accountNo: string }; servers: string[] };
+      const kim = api.state.users.users.find((u) => u.email === KIM)!;
+      const acct = kim.accounts.find((a) => a.accountNo === body.account.accountNo)!;
+      acct.servers = body.servers.map(
+        (s) => acct.servers.find((c) => c.serverKey === s) ?? { serverKey: s, tone: 'warn', message: null, state: 'active' },
+      );
+      for (const s of body.servers) {
+        if (!kim.servers.some((c) => c.serverKey === s)) kim.servers.push({ serverKey: s, tone: 'warn', message: null });
+      }
+      return {
+        body: {
+          results: body.servers.map((s) =>
+            s === 'KB121' ? { server: s, outcome: 'failed', code: 9, message: SHEET_BUSY } : { server: s, outcome: 'ok' },
+          ),
+        },
+      };
+    },
+  });
+  return api;
+}
+
+const writes = (api: AdminApiMock) => api.requests.filter((r) => r.method !== 'GET');
+
+test('P29-A3 편집 시트 — 필드별 즉시 저장 · 결과 칩 (1080 우측 패널)', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1080, height: 800 });
+  const api = await mockEditApi(page);
+
+  await page.goto('/admin/users');
+  const row = usersRoot(page).locator(`[data-slot="admin-user-row"][data-email="${KIM}"]`);
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  await row.click();
+
+  // 우측 패널 440 · 목록은 왼쪽에 남는다
+  const sheet = page.getByRole('dialog', { name: KIM });
+  await expect(sheet).toBeVisible();
+  await expect(sheet).toHaveAttribute('data-side', 'right');
+  // 슬라이드 인이 끝난 뒤 잰다
+  await expect.poll(async () => {
+    const b = (await sheet.boundingBox())!;
+    return Math.round(b.x + b.width);
+  }).toBe(1080);
+  const panel = (await sheet.boundingBox())!;
+  expect(Math.round(panel.width)).toBe(440);
+  expect(Math.round(panel.x + panel.width)).toBe(1080);
+  const rowBox = (await row.boundingBox())!;
+  expect(rowBox.x).toBeLessThan(panel.x);
+  await expect(row).toHaveAttribute('data-selected', 'true');
+
+  // 「저장」 버튼 없음 — 하단은 둘뿐
+  await expect(sheet.getByRole('button', { name: '저장', exact: true })).toHaveCount(0);
+  await expect(sheet.locator('[data-slot="admin-sheet-footer"] button')).toHaveText(['사용자 삭제', '다시 반영']);
+
+  // ① 역할 viewer → PATCH 1건 · 플래시 · 칩
+  await sheet.getByRole('group', { name: '역할' }).getByRole('radio', { name: 'viewer' }).click();
+  await expect(sheet.locator('[data-slot="admin-role-chip"]')).toHaveText('viewer');
+  await expect.poll(() => writes(api).length).toBe(1);
+  expect(writes(api)[0]).toEqual({ method: 'PATCH', path: `/users/${encodeURIComponent(KIM)}`, body: { role: 'viewer' } });
+  await expect(sheet.locator('[data-slot="admin-field-role"]')).toHaveAttribute('data-state', 'idle');
+
+  // ② KB121 켬 → PUT 1건(계좌 + 서버 집합) → 「KB121 · 실패 · BUSY」 칩 · message 원문 title · 한 줄
+  const kb = sheet.locator(`[data-slot="admin-account"][data-account="${KIM_KB}"]`);
+  await kb.getByRole('checkbox', { name: 'KB121' }).click();
+  await expect.poll(() => writes(api).length).toBe(2);
+  expect(writes(api)[1]).toMatchObject({
+    method: 'PUT',
+    path: '/dma-users/kimtr/accounts',
+    body: { account: { broker: 'KB', accountNo: KIM_KB }, servers: ['KB120', 'KB121'] },
+  });
+  const pill = kb.locator('[data-slot="admin-server-toggle"][data-server="KB121"]');
+  const busy = pill.locator('[data-slot="reflect-chip"]');
+  await expect(busy).toHaveText('실패 · BUSY');
+  await expect(busy).toHaveAttribute('data-tone', 'err');
+  await expect(busy).toHaveAttribute('title', SHEET_BUSY);
+  await expect(pill).toHaveText(/KB121\s*실패 · BUSY/);
+  await expect(sheet.locator('[data-slot="admin-busy-line"]')).toHaveText(
+    `KB121 실패 · BUSY: ${SHEET_BUSY} — 정리 뒤 「다시 반영」`,
+  );
+  // 의도는 저장됐다 — 재조회 뒤에도 토글은 켜진 채(D-05)
+  await expect.poll(() => api.requests.filter((r) => r.method === 'GET' && r.path === '/users').length).toBe(3);
+  await expect(kb.getByRole('checkbox', { name: 'KB121' })).toHaveAttribute('aria-checked', 'true');
+
+  await page.screenshot({ path: testInfo.outputPath('admin-user-sheet-1080.png') });
+
+  // ③ 「다시 반영」 → POST 1건 → KB121 반영됨 · BUSY 줄 사라짐
+  await sheet.getByRole('button', { name: '다시 반영' }).click();
+  await expect.poll(() => writes(api).length).toBe(3);
+  expect(writes(api)[2]).toEqual({ method: 'POST', path: '/dma-users/kimtr/reconcile', body: null });
+  await expect(busy).toHaveText('반영됨');
+  await expect(sheet.locator('[data-slot="admin-busy-line"]')).toHaveCount(0);
+
+  // 잘림 — 계좌 줄(알약 · 칩)이 패널 밖으로 밀리지 않는다
+  const body = sheet.locator('[data-slot="admin-sheet-body"]');
+  const bodyBox = (await body.boundingBox())!;
+  expect(await leavesOverflowing(body, bodyBox.x + bodyBox.width)).toEqual([]);
+});
+
+test('P29-A3 편집 시트 — 폰 바텀시트 · 역할 즉시 저장 1건 (390)', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const api = await mockEditApi(page);
+
+  await page.goto('/admin/users');
+  const row = usersRoot(page).locator(`[data-slot="admin-user-row"][data-email="${KIM}"]`);
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  await row.click();
+
+  const sheet = page.getByRole('dialog', { name: KIM });
+  await expect(sheet).toBeVisible();
+  await expect(sheet).toHaveAttribute('data-side', 'bottom');
+  // 슬라이드 인이 끝난 뒤 잰다
+  await expect.poll(async () => {
+    const b = (await sheet.boundingBox())!;
+    return Math.round(b.y + b.height);
+  }).toBe(844);
+  const box = (await sheet.boundingBox())!;
+  expect(box.height).toBeGreaterThanOrEqual(844 * 0.8);
+  expect(Math.round(box.width)).toBe(390);
+  // 목록은 시트 아래로 가려진다 — 행이 시트 영역 안에 있다
+  const rowBox = (await row.boundingBox())!;
+  expect(rowBox.y).toBeGreaterThanOrEqual(box.y - rowBox.height);
+
+  await sheet.getByRole('group', { name: '역할' }).getByRole('radio', { name: 'admin' }).click();
+  await expect(sheet.locator('[data-slot="admin-role-chip"]')).toHaveText('admin');
+  await expect.poll(() => writes(api).length).toBe(1);
+  expect(writes(api)[0]).toEqual({ method: 'PATCH', path: `/users/${encodeURIComponent(KIM)}`, body: { role: 'admin' } });
+  await expect(sheet.getByRole('button', { name: '저장', exact: true })).toHaveCount(0);
+  await expect(sheet.locator('[data-slot="admin-field-role"]')).toHaveAttribute('data-state', 'idle');
+
+  const body = sheet.locator('[data-slot="admin-sheet-body"]');
+  const bodyBox = (await body.boundingBox())!;
+  expect(await leavesOverflowing(body, bodyBox.x + bodyBox.width)).toEqual([]);
+
+  await page.screenshot({ path: testInfo.outputPath('admin-user-sheet-390.png') });
 });

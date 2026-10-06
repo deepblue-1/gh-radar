@@ -40,7 +40,8 @@ import { useFieldSave } from "./use-field-save";
  * 「<서버> 실패 · BUSY: <message 원문> — 정리 뒤 「다시 반영」」 한 줄을 세운다(D-23 ④ — 토스트 없음).
  *
  * 마지막 계좌 「제거」 는 서버 409 `LAST_ACCOUNT` 를 기다리지 않고 화면이 먼저 안다 — `onRemoveLast`(시트가 확인 1회 뒤
- * 사용자 삭제). 켜진 서버가 1대인 계좌는 그 토글을 끌 수 없다(「계좌는 서버 1대 이상」).
+ * 사용자 삭제). 켜진 서버가 1대인 계좌는 그 토글을 끌 수 없다 — 비활성 + `title` 「계좌는 서버 1대 이상」, 안내 문장은
+ * 계좌마다 되풀이하지 않고 영역 아래 한 번(목업 하단 note 자리).
  */
 
 export const ACCOUNT_EDITOR_TEXT = {
@@ -306,7 +307,6 @@ function AccountRow({ account, dmaUserId, candidates, overlay, last, onResults, 
     return null;
   };
 
-  const lockOne = intent.length === 1 && shown.length > 1;
   const error = toggle.error ?? remove.error;
 
   return (
@@ -365,7 +365,6 @@ function AccountRow({ account, dmaUserId, candidates, overlay, last, onResults, 
           );
         })}
       </div>
-      {lockOne && <p className={NOTE}>{ACCOUNT_EDITOR_TEXT.minOneServer}</p>}
       {error && (
         <p role="alert" data-slot="admin-account-error" className={ERROR_LINE}>
           {error}
@@ -665,7 +664,9 @@ export function AccountEditor({
       )}
 
       <BusyLines chips={shownChips} />
-      <p className={NOTE}>{ACCOUNT_EDITOR_TEXT.lastAccountNote}</p>
+      <p data-slot="admin-accounts-note" className={NOTE}>
+        {ACCOUNT_EDITOR_TEXT.minOneServer} — 마지막 서버는 끌 수 없다. {ACCOUNT_EDITOR_TEXT.lastAccountNote}
+      </p>
     </div>
   );
 }
