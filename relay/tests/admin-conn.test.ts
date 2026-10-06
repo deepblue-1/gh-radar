@@ -21,6 +21,7 @@
  *   B6  79 거부 → rejected · 짧은 재시도 · 12회 넘으면 멈춤 / role 1 응답 → role_mismatch · 소켓 닫힘 · 재시도 없음
  *   B7  health() = { state, usersRev(문자열) } · disabled 는 usersRev null
  *   B8  86 rev 변화 뒤 87 이 상한 안에 안 오면 op 5 를 한 번 더 보내고 결과는 snapshot 없이 풀린다
+ *   B9  command(op 5) → 86 없이 87 이 응답 — 합성 result(code 0 · 87 rev) + snapshot
  *   공통 — 비밀은 어떤 로그 인자에도 없다(T-19-03) · admin 연결이 보낸 msg_type ⊆ {4, 5, 44}.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -400,5 +401,16 @@ describe("AdminConn 실 TCP — 가짜 게이트웨이 admin 모드 · 실 DmaCl
     expect(ops).toEqual([ADMIN_OP.ListUsers, ADMIN_OP.DeleteUser, ADMIN_OP.ListUsers]);
     expect(c.currentSnapshot()?.users.map((u) => u.userId)).toEqual(["alice"]);
     void sock;
+  });
+
+  it("B9 command(op 5) → 86 없이 87 이 응답 — 합성 result(code 0 · 87 rev) + snapshot", async () => {
+    const { c } = await readyConn();
+    const out = await c.command({ op: ADMIN_OP.ListUsers, userId: "" });
+    expect(out.kind).toBe("result");
+    if (out.kind !== "result") throw new Error("unreachable");
+    expect(out.result).toMatchObject({ ok: true, code: 0, message: "", usersRev: 3n });
+    expect(out.result.requestId).toBe(gateway.adminCommandRequests()[1]?.requestId);
+    expect(out.snapshot?.users.map((u) => u.userId)).toEqual(["alice", "bob"]);
+    expect(snapshots).toHaveLength(2);
   });
 });

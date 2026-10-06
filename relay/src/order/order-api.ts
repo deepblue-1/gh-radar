@@ -71,6 +71,9 @@ export interface OrderApiSessions {
  */
 export type JournalGatewayHealth = JournalHealth & { alerting: boolean };
 
+/** 서버별 admin 연결 요약 (Phase 29-08 — healthz `adminConns.<서버 키>`). 상태와 users_rev(문자열)뿐 — 식별자 없음. */
+export type AdminConnHealthBody = { state: string; usersRev: string | null };
+
 /** 증권사별 주문 서버 저널 요약 (Phase 29 — healthz `brokers.<증권사>`). 서버 키와 알림 판정뿐이다. */
 export type BrokerJournalHealth = { server: string; alerting: boolean };
 
@@ -111,8 +114,11 @@ export type OrderApiDeps = {
    * `quoteAlerting` 으로 503 판정에 **합류**한다(`journalGateways` 와 달리 본문 전용이 아니다). 주지 않으면 필드가 없다.
    */
   quote?: { health(nowMs: number): QuoteHealth };
-  /** (RED 스텁) 서버별 admin 연결 요약. */
-  adminConns?: () => ReadonlyArray<{ serverKey: string; health(): { state: string; usersRev: string | null } }>;
+  /**
+   * 서버별 admin 관리 연결 요약 (Phase 29-08 — `AdminConn.health()`). 주면 본문 `adminConns.<서버 키> = { state, usersRev }` 를
+   * 싣는다. **본문 전용**(503 판정 밖 — admin 연결이 죽어도 시세 · 주문 · 저널은 멀쩡하다). 요청마다 부른다. 비어 있으면 키가 없다.
+   */
+  adminConns?: () => ReadonlyArray<{ serverKey: string; health(): AdminConnHealthBody }>;
   /** 시각 주입구 — 테스트가 장중/장 밖을 흉내낸다. 기본 `new Date()`. */
   now?: () => Date;
 };
@@ -172,6 +178,11 @@ export type HealthPayload = {
    * quote 소스가 없으면 필드 자체가 없다.
    */
   quote?: QuoteHealth;
+  /**
+   * 서버별 admin 관리 연결 (Phase 29-08). 값은 `{ state, usersRev }` 뿐이다 — 유저 · 계좌 · 호스트 · 비밀이 없다.
+   * 503 판정 밖(본문 전용). admin 연결 소스가 없거나 비어 있으면 필드 자체가 없다.
+   */
+  adminConns?: Record<string, AdminConnHealthBody>;
 };
 
 // ============================================================
@@ -395,6 +406,17 @@ export function createOrderApi(deps: OrderApiDeps): Express {
       }
     }
 
+    // Phase 29-08 — 서버별 admin 연결(본문 전용 · 판정 밖). 없으면 키도 없다.
+    const adminList = deps.adminConns?.() ?? [];
+    let adminConns: HealthPayload["adminConns"];
+    if (adminList.length > 0) {
+      adminConns = {};
+      for (const a of adminList) {
+        const h = a.health();
+        adminConns[a.serverKey] = { state: h.state, usersRev: h.usersRev };
+      }
+    }
+
     const payload: HealthPayload = {
       status: healthy ? "ok" : "degraded",
       vpn: linkUp,
@@ -407,6 +429,7 @@ export function createOrderApi(deps: OrderApiDeps): Express {
       ...(journalGateways !== undefined ? { journalGateways } : {}),
       ...(brokers !== undefined ? { brokers } : {}),
       ...(quote !== undefined ? { quote } : {}),
+      ...(adminConns !== undefined ? { adminConns } : {}),
     };
 
     res.status(healthy ? 200 : 503).json(payload);

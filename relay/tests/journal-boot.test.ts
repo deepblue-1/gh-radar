@@ -543,8 +543,24 @@ describe("다중 업스트림 (quick-260929-c8e)", () => {
       expect(Object.keys(h.body ?? {}).sort()).toEqual(
         // `quote` — 시세 전용 공유 연결 상태(Phase 26 D-02 · 26-12). quote 연결은 비밀이 있으면 늘 결선된다.
         // `brokers` — 증권사별 주문 서버 저널(Phase 29 · uptime 고정 JSONPath). env 모드 KB 단독이면 KB 1키.
-        ["brokers", "dma", "everReadyCount", "journal", "quote", "sessionCount", "stalledCount", "status", "version", "vpn"],
+        // `adminConns` — 서버별 admin 연결(Phase 29-08 · 본문 전용). enabled 서버가 있으면 늘 결선된다.
+        [
+          "adminConns",
+          "brokers",
+          "dma",
+          "everReadyCount",
+          "journal",
+          "quote",
+          "sessionCount",
+          "stalledCount",
+          "status",
+          "version",
+          "vpn",
+        ],
       );
+      // 값은 상태와 rev 뿐(식별자 없음) — 이 스텁은 role 2 로그인에 답하지 않으므로 ready 전이다.
+      expect(Object.keys((h.body?.adminConns as Record<string, object> | undefined) ?? {})).toEqual(["KB"]);
+      expect(Object.keys((h.body?.adminConns as Record<string, object>).KB).sort()).toEqual(["state", "usersRev"]);
       // Phase 29 — env 모드 키는 종전 그대로(KB) · 본문 전용 · 값은 서버 키와 알림 판정뿐.
       expect(h.body?.brokers).toEqual({ KB: { server: "KB", alerting: false } });
       expect(gateway.observerLoginRequests()).toHaveLength(1);

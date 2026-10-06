@@ -332,6 +332,8 @@ const orderApi = createOrderApi({
     }),
   // `/healthz` 의 `quote` 필드 + 503 판정(Phase 26 D-02 · D-16 — 장중 60초 · 거부 즉시). 폴백이 없어 503 축이다.
   quote: quoteStatus,
+  // Phase 29-08 — 서버별 admin 연결(role 2) 상태 · users_rev. 본문 전용(503 판정 밖) · 요청마다 현재 enabled 서버 목록.
+  adminConns: () => pipelines.all().map((p) => ({ serverKey: p.server.key, health: () => p.admin.health() })),
 });
 const orderApiServer = http.createServer(orderApi);
 
