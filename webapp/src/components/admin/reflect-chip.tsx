@@ -42,10 +42,15 @@ export interface ReflectChipProps {
   tone: ReflectTone;
   /** err 일 때 서버 message 원문 — 그 밖은 null. */
   message?: string | null;
+  /**
+   * 글자 덮어쓰기 — 서버 키가 이미 옆에 있는 자리(편집 시트 계좌 줄의 서버 토글 · 목업 `.sv .st`)는 상태 낱말만,
+   * 응답 결과 중 「응답 없음」 · 「서버 연결 안 됨」 처럼 `REFLECT_LABEL` 밖 낱말이 필요할 때(29-17).
+   */
+  text?: string;
   className?: string;
 }
 
-export function ReflectChip({ serverKey, tone, message = null, className }: ReflectChipProps) {
+export function ReflectChip({ serverKey, tone, message = null, text, className }: ReflectChipProps) {
   return (
     <span
       data-slot="reflect-chip"
@@ -54,7 +59,7 @@ export function ReflectChip({ serverKey, tone, message = null, className }: Refl
       title={message ?? undefined}
       className={cn(ADMIN_CHIP_BASE, ADMIN_TONE_CLASS[tone], className)}
     >
-      {reflectChipText(serverKey, tone)}
+      {text ?? reflectChipText(serverKey, tone)}
     </span>
   );
 }

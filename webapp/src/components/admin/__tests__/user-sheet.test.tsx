@@ -250,3 +250,151 @@ describe('UserSheet — 역할 즉시 저장 (D-15)', () => {
     expect(screen.getByRole('dialog', { name: park.email })).toHaveTextContent('DMA 연결 없음');
   });
 });
+
+describe('UserSheet — 비밀번호 변경 (D-06 · D-08)', () => {
+  const open = () => fireEvent.click(screen.getByRole('button', { name: '비밀번호 변경' }));
+  const pw = () => screen.getByLabelText('새 비밀번호') as HTMLInputElement;
+  const confirm = () => screen.getByLabelText('비밀번호 확인') as HTMLInputElement;
+  const submit = () => within(document.querySelector('[data-slot="admin-password"]') as HTMLElement).getByRole('button', { name: '변경' });
+
+  it('안내 문장 · 입력 2칸(new-password) · 다르면 비활성 · 같으면 POST 1건 → 두 칸 비움 · 서버별 칩', async () => {
+    changeDmaPasswordMock.mockResolvedValue({
+      results: [
+        { server: 'KB120', outcome: 'ok' },
+        { server: 'KYOBO119', outcome: 'offline' },
+      ],
+    });
+    render(<UserSheet user={KIM} servers={SERVERS} onChanged={() => {}} onClose={() => {}} />);
+    expect(screen.getByRole('dialog', { name: KIM.email })).toHaveTextContent(
+      '비밀번호는 저장 뒤 다시 볼 수 없다. 변경해도 열린 세션은 유지되고 다음 로그인부터 적용.',
+    );
+    open();
+    expect(pw()).toHaveAttribute('type', 'password');
+    expect(pw()).toHaveAttribute('autocomplete', 'new-password');
+    expect(confirm()).toHaveAttribute('autocomplete', 'new-password');
+
+    fireEvent.change(pw(), { target: { value: 'abc123' } });
+    fireEvent.change(confirm(), { target: { value: 'abc124' } });
+    expect(submit()).toBeDisabled();
+    fireEvent.change(confirm(), { target: { value: 'abc123' } });
+    expect(submit()).not.toBeDisabled();
+    fireEvent.click(submit());
+    expect(changeDmaPasswordMock).toHaveBeenCalledTimes(1);
+    expect(changeDmaPasswordMock).toHaveBeenCalledWith('kimtr', 'abc123');
+    // 전송 직후 비운다 — 값을 상태에 들고 있지 않는다
+    expect(pw().value).toBe('');
+    expect(confirm().value).toBe('');
+
+    const box = document.querySelector('[data-slot="admin-password"]') as HTMLElement;
+    await waitFor(() => expect(box.querySelectorAll('[data-slot="reflect-chip"]')).toHaveLength(2));
+    const chips = Array.from(box.querySelectorAll('[data-slot="reflect-chip"]'));
+    expect(chips.map((c) => c.textContent)).toEqual(['KB120', 'KYOBO119 · 서버 연결 안 됨']);
+    expect(box).not.toHaveTextContent('abc123');
+  });
+});
+
+describe('UserSheet — 다시 반영 · 사용자 삭제 · 마지막 계좌', () => {
+  const footerBtn = (name: string) =>
+    within(document.querySelector('[data-slot="admin-sheet-footer"]') as HTMLElement).getByRole('button', { name });
+
+  it('「다시 반영」 → POST 1건 → 그 서버 계좌 칩 갱신 · BUSY 한 줄 · 재조회', async () => {
+    reconcileDmaUserMock.mockResolvedValue({
+      results: [
+        { server: 'KB120', outcome: 'failed', code: 9, message: '미체결 2건 — 먼저 정리' },
+        { server: 'KYOBO119', outcome: 'ok' },
+      ],
+    });
+    const warnKim: AdminUserView = {
+      ...KIM,
+      accounts: KIM.accounts.map((a) =>
+        a.broker === 'KB' ? { ...a, servers: [{ serverKey: 'KB120', tone: 'warn', message: null, state: 'active' }] } : a,
+      ),
+    };
+    const onChanged = vi.fn();
+    render(<UserSheet user={warnKim} servers={SERVERS} onChanged={onChanged} onClose={() => {}} />);
+    fireEvent.click(footerBtn('다시 반영'));
+    expect(reconcileDmaUserMock).toHaveBeenCalledTimes(1);
+    expect(reconcileDmaUserMock).toHaveBeenCalledWith('kimtr');
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    const chip = document.querySelector(
+      '[data-account="12345678901"] [data-slot="admin-server-toggle"][data-server="KB120"] [data-slot="reflect-chip"]',
+    ) as HTMLElement;
+    expect(chip).toHaveAttribute('data-tone', 'err');
+    expect(chip).toHaveAttribute('title', '미체결 2건 — 먼저 정리');
+    expect(document.querySelector('[data-slot="admin-busy-line"]')).toHaveTextContent(
+      'KB120 실패 · BUSY: 미체결 2건 — 먼저 정리 — 정리 뒤 「다시 반영」',
+    );
+  });
+
+  it('「사용자 삭제」 → 확인 1회 → DELETE 1건 → deleted: true → 시트 닫힘 · 재조회', async () => {
+    deleteAdminUserMock.mockResolvedValue({ ok: true, deleted: true, relayNotified: true, results: [] });
+    const onChanged = vi.fn();
+    const onClose = vi.fn();
+    render(<UserSheet user={KIM} servers={SERVERS} onChanged={onChanged} onClose={onClose} />);
+    fireEvent.click(footerBtn('사용자 삭제'));
+    expect(deleteAdminUserMock).not.toHaveBeenCalled();
+    const dlg = screen.getByRole('alertdialog', { name: '사용자를 삭제할까요?' });
+    fireEvent.click(within(dlg).getByRole('button', { name: '삭제' }));
+    expect(deleteAdminUserMock).toHaveBeenCalledTimes(1);
+    expect(deleteAdminUserMock).toHaveBeenCalledWith(KIM.email);
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('삭제가 일부 서버에서 실패(deleted: false) → 시트 유지 · 서버별 칩(title = message)', async () => {
+    deleteAdminUserMock.mockResolvedValue({
+      ok: true,
+      deleted: false,
+      relayNotified: true,
+      results: [
+        { server: 'KB120', outcome: 'ok' },
+        { server: 'KYOBO119', outcome: 'failed', code: 12, message: '마지막 사용자는 삭제할 수 없습니다' },
+      ],
+    });
+    const onClose = vi.fn();
+    render(<UserSheet user={KIM} servers={SERVERS} onChanged={() => {}} onClose={onClose} />);
+    fireEvent.click(footerBtn('사용자 삭제'));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '삭제' }));
+    const box = await waitFor(() => {
+      const b = document.querySelector('[data-slot="admin-delete-results"]') as HTMLElement;
+      if (!b) throw new Error('no results');
+      return b;
+    });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: KIM.email })).toBeInTheDocument();
+    const failed = box.querySelector('[data-slot="reflect-chip"][data-server="KYOBO119"]') as HTMLElement;
+    expect(failed).toHaveTextContent('KYOBO119 · 실패 · BUSY');
+    expect(failed).toHaveAttribute('title', '마지막 사용자는 삭제할 수 없습니다');
+    expect(box).toHaveTextContent('KYOBO119 실패 · BUSY: 마지막 사용자는 삭제할 수 없습니다');
+  });
+
+  it('마지막 계좌 「제거」 → 확인 「마지막 계좌를 지우면 사용자가 삭제돼요」 → DELETE 사용자 1건(계좌 DELETE 없음)', async () => {
+    deleteAdminUserMock.mockResolvedValue({ ok: true, deleted: true, relayNotified: true });
+    const one: AdminUserView = { ...KIM, accountCount: 1, accounts: [KIM.accounts[0]] };
+    const onClose = vi.fn();
+    render(<UserSheet user={one} servers={SERVERS} onChanged={() => {}} onClose={onClose} />);
+    fireEvent.click(within(document.querySelector('[data-account="12345678901"]') as HTMLElement).getByRole('button', { name: /제거/ }));
+    const dlg = screen.getByRole('alertdialog', { name: '마지막 계좌를 지우면 사용자가 삭제돼요' });
+    expect(deleteAdminUserMock).not.toHaveBeenCalled();
+    fireEvent.click(within(dlg).getByRole('button', { name: '삭제' }));
+    expect(deleteAdminUserMock).toHaveBeenCalledTimes(1);
+    expect(removeDmaAccountMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it('확인 다이얼로그 「취소」 → 요청 없음', () => {
+    render(<UserSheet user={KIM} servers={SERVERS} onChanged={() => {}} onClose={() => {}} />);
+    fireEvent.click(footerBtn('사용자 삭제'));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '취소' }));
+    expect(deleteAdminUserMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('DMA 연결 없는 사용자 → 「다시 반영」 비활성 · 계좌 영역 없음', () => {
+    const park: AdminUserView = { ...KIM, email: 'park@example.invalid', role: 'viewer', dmaUserId: null, accountCount: 0, servers: [], accounts: [] };
+    render(<UserSheet user={park} servers={SERVERS} onChanged={() => {}} onClose={() => {}} />);
+    expect(footerBtn('다시 반영')).toBeDisabled();
+    expect(footerBtn('사용자 삭제')).not.toBeDisabled();
+    expect(document.querySelector('[data-slot="admin-accounts"]')).toBeNull();
+  });
+});
