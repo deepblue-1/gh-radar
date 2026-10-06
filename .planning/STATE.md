@@ -5,10 +5,10 @@ current_phase: 29
 current_phase_name: DMA 다중 서버 · 웹 Admin 유저 관리
 status: executing
 stopped_at: Completed 29-25-PLAN.md
-last_updated: "2026-10-06T21:06:13.809Z"
+last_updated: "2026-10-06T23:34:09.034Z"
 last_activity: 2026-10-06
 last_activity_desc: Phase 29 execution started
-state_head: e2a12c347e3967a4e0dd535210ecff7ef7329a59
+state_head: 570118f935c820e57f53e2d171888728e238de11
 progress:
   total_phases: 38
   completed_phases: 24
@@ -731,6 +731,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 261006-pey | 마이페이지 리디자인 — /me 상단 4탭(현황·잔고·주문·설정) + 설정 탭 상따 기본설정 묶음 카드 4장(sketch 013 A+S1) | 2026-10-06 | dbdaa706 | [261006-pey-mypage-redesign](./quick/261006-pey-mypage-redesign/) |
 | 73 | /me 설정 탭 상따 기본설정 카드 행 쉐브런 › 상시 표시(공용 행 폰 밴드 숨김 규칙은 유지 · /me 만 되살림) | 2026-10-06 | ef0ef298 | — |
 | 74 | limitup-sync commit 느림 경고 임계 5초 → 30초(statement_timeout 120s 의 25% · gh-trade-43 요청 — 실측 5.6~10.9초로 여유 ~11배 확인) · 워커 재배포 | 2026-10-06 | ecf7c173 | — |
+| 261007-b9o | 교보 SecuwaySSL VPN 안정화 — watchdog 디바운스·keepalive 볼륨(4h inactive 원인)·connect fail-fast·RestartSec 10 (워치독 핫 배포 완료, connect·유닛은 20:00 후) | 2026-10-07 | 570118f9 | [261007-b9o-secuwayssl-vpn-watchdog-4](./quick/261007-b9o-secuwayssl-vpn-watchdog-4/) |
 
 ## Session Continuity
 
