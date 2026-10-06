@@ -161,6 +161,8 @@ docker build --platform=linux/amd64 --build-arg GIT_SHA=$(git rev-parse --short 
   재시작이 VPN 터널을 흔들지 않는다 (D-07).
 - 종료 시 wss 를 `1001`(going away)로 닫고 DMA 세션을 정리한다 — 재시작마다 게이트웨이에
   고아 세션이 쌓이지 않게 하는 것이 목적이다.
+- 로그는 stdout GCP 구조화 JSON 이다. VM 에서 `sudo docker logs gh-radar-relay`(현재 컨테이너) +
+  Cloud Logging `relay_docker`(30일, 재배포 후에도 유지) — 조회법은 `infra/relay/README.md` §relay 로그 — Cloud Logging.
 
 ---
 

@@ -113,7 +113,7 @@ Phase 15 (RELAY-03) 의 IaaS 자산. gh-radar 최초의 GCE VM 이다.
 | 이미지 | `asia-northeast3-docker.pkg.dev/gh-radar/gh-radar/relay:e6f39e5` (+ `:latest`) | 2026-09-06 |
 | 컨테이너 | `gh-radar-relay` — **Up** · `restart=always` · `network=host` | 2026-09-06 |
 | 메모리 상한 | `--memory=384m` / `--memory-swap=768m` (`Memory=402653184`, `MemorySwap=805306368`) | 2026-09-06 |
-| 로그 | `json-file` · `max-size=10m` · `max-file=3` (Ops Agent 미설치 — Pitfall 11) | 2026-09-06 |
+| 로그 | `json-file` · `max-size=10m` · `max-file=3` (2026-10-06 부터 VM Ops Agent 가 같은 파일을 tail 해 Cloud Logging `relay_docker` 로 보낸다(30일) — §relay 로그 — Cloud Logging) | 2026-09-06 · 2026-10-06(적용 대기) |
 | 주입 env | `NODE_ENV=production` · `APP_VERSION=e6f39e5` · `WS_PORT=8090` · `ORDER_API_PORT=8091` · **`DMA_HOST=127.0.0.1`** · `DMA_PORT=9100` · `DMA_BROKER=KB` | 2026-09-06 |
 | 비밀 주입 경로 | VM 안에서 메타데이터 토큰 → Secret Manager REST → **tmpfs env-file(0600)** → `--env-file` → 즉시 삭제 (T-15-29) | 2026-09-06 |
 | 공개 `/healthz` | **200** · `{"status":"ok","vpn":true,"dma":true,"version":"e6f39e5","sessionCount":0}` · `ssl_verify_result=0` · 계좌·사용자 식별자 **미포함** | 2026-09-06 |
@@ -861,6 +861,7 @@ gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a \
 3. §4 `Caddyfile` 재배치
 4. §7 180초 뒤 `kbvpn-route-guard` 1회 발화 — 기본 경로가 `tun*` 면 **openconnect 를 정지시킨다**
 5. §8 `wgfwd.nft`·`wg0.conf` 재작성
+6. §10 Ops Agent — 미설치면 apt 저장소 추가·설치(첫 회만), 설정이 바뀌었으면 에이전트 재기동(relay 컨테이너 무관)
 
 ①·③ 은 장중에도 안전하다(① 은 메타데이터만 바꾸고 VM 을 건드리지 않으며, ③ 은 읽기뿐이다).
 **막는 것은 ② 하나다.**
@@ -1758,6 +1759,117 @@ sudo -u caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
 ---
 
+## relay 로그 — Cloud Logging (Ops Agent)
+
+> quick-261006-pdw (2026-10-06). 결정 근거는 §메모리 예산 의 「2026-10-06 Ops Agent 도입」.
+> 설정 정본은 `infra/relay/ops-agent.yaml` — VM 의 `/etc/google-cloud-ops-agent/config.yaml` 을 직접 고치지 않는다.
+
+### 구조
+
+```
+relay stdout (GCP 구조화 JSON 한 줄)
+  → docker json-file  /var/lib/docker/containers/<id>/<id>-json.log   ← `sudo docker logs` 의 원천 (그대로)
+  → Ops Agent (fluent-bit tail · 디스크 버퍼)
+  → Cloud Logging  logName projects/gh-radar/logs/relay_docker · resource gce_instance
+```
+
+- 처리 3단: `docker_json`(docker 줄 → log·stream·time, time 을 timestamp 로) → `relay_json`(relay JSON 을 펼쳐 `jsonPayload.message`·
+  `jsonPayload.serviceContext.version`·`jsonPayload.gateway` 등이 필드가 된다) → `relay_severity`(`jsonPayload.severity` → LogEntry `severity`).
+  비JSON 줄(크래시 스택 등)은 `jsonPayload.log` 원문 + `jsonPayload.stream` 으로 남고 severity 는 DEFAULT 다.
+- 컨테이너 구분: 라벨 `agent.googleapis.com/log_file_path` 에 파일 경로(= 컨테이너 ID)가 남는다.
+- syslog(wg-probe journald 출력 포함)와 호스트 메트릭은 보내지 않는다 — 두 기본 파이프라인을 껐다.
+
+**재배포 교체가 kill → 3초 → rm 인 이유.** `docker rm -f` 는 json 로그 파일을 즉시 지운다. 그 순간 에이전트가 아직 읽지 못한
+마지막 줄들(대개 사건 직전의 가장 중요한 줄)이 Cloud Logging 에 실리지 못하고 사라진다. 그래서 `scripts/deploy-relay.sh` 는
+`docker kill`(기본 SIGKILL — rm -f 와 같은 종료 의미, 수동 정지로 표시돼 `restart=always` 가 되살리지 않는다) → 3초 대기 → `docker rm -f`
+순서로 교체한다. 대가는 교체 중단 +3초다. 첫 배포(컨테이너 없음)는 대기 없이 지나간다.
+
+**보존·볼륨.** `_Default` 버킷 30일. 볼륨 추정 ≤ 하루 20 MB → 월 ≲ 1 GiB (프로젝트 무료 할당 50 GiB/월 안).
+
+### 조회
+
+모든 예시는 개발기에서 `--project=gh-radar` 로 돈다. VM·docker 시각은 UTC 다 — 시각 창은 `+09:00` 을 명시해 KST 로 쓴다.
+`--format=json` 을 붙이면 전체 필드(labels·jsonPayload 전부)를 본다.
+
+```bash
+# ① 최근 30분 전체 (KST 표기)
+gcloud logging read 'logName="projects/gh-radar/logs/relay_docker"' --project=gh-radar \
+  --freshness=30m --order=asc \
+  --format='value(timestamp.date(tz=Asia/Seoul),severity,jsonPayload.message)'
+
+# ② WARNING 이상, 최근 1일
+gcloud logging read 'logName="projects/gh-radar/logs/relay_docker" AND severity>=WARNING' --project=gh-radar \
+  --freshness=1d --format='value(timestamp.date(tz=Asia/Seoul),severity,jsonPayload.message)'
+
+# ③ 텍스트 — `:` 는 부분일치·대소문자 무시라 [journal] 도 잡힌다 (구분하려면 =~ "\\[JOURNAL\\]")
+gcloud logging read 'logName="projects/gh-radar/logs/relay_docker" AND jsonPayload.message:"[JOURNAL]"' --project=gh-radar \
+  --freshness=1h --format='value(timestamp.date(tz=Asia/Seoul),jsonPayload.message)'
+
+# ④ KST 시각 창 — 지난 재배포 이전 구간도 여기서 찾는다
+gcloud logging read 'logName="projects/gh-radar/logs/relay_docker" AND timestamp>="2026-10-06T08:00:00+09:00" AND timestamp<"2026-10-06T09:00:00+09:00"' \
+  --project=gh-radar --order=asc --format='value(timestamp.date(tz=Asia/Seoul),severity,jsonPayload.message)'
+
+# ⑤ 특정 배포 · 과거 컨테이너
+gcloud logging read 'logName="projects/gh-radar/logs/relay_docker" AND jsonPayload.serviceContext.version="<sha>"' \
+  --project=gh-radar --freshness=1d --format='value(timestamp.date(tz=Asia/Seoul),jsonPayload.message)'
+gcloud logging read 'logName="projects/gh-radar/logs/relay_docker" AND labels."agent.googleapis.com/log_file_path":"<컨테이너 ID 앞 12자>"' \
+  --project=gh-radar --freshness=1d --format='value(timestamp.date(tz=Asia/Seoul),jsonPayload.message)'
+#    어떤 컨테이너(파일)들이 있었나 — 경로 목록
+gcloud logging read 'logName="projects/gh-radar/logs/relay_docker"' --project=gh-radar --freshness=1d \
+  --format='value(labels."agent.googleapis.com/log_file_path")' | sort | uniq -c
+
+# ⑥ KYOBO 관찰자
+gcloud logging read 'logName="projects/gh-radar/logs/relay_docker" AND jsonPayload.gateway="KYOBO"' --project=gh-radar \
+  --freshness=30m --format='value(timestamp.date(tz=Asia/Seoul),severity,jsonPayload.message)'
+
+# ⑦ 비JSON 줄 (크래시 스택 등)
+gcloud logging read 'logName="projects/gh-radar/logs/relay_docker" AND (jsonPayload.log:* OR jsonPayload.stream="stderr")' \
+  --project=gh-radar --freshness=1d --format='value(timestamp.date(tz=Asia/Seoul),jsonPayload.log)'
+```
+
+실시간·현재 컨테이너는 기존대로 VM 에서 `sudo docker logs -f --since 10m gh-radar-relay` 를 쓴다.
+위 형식 문자열(`timestamp.date(tz=…)` 등)은 적용 직후 런북에서 실행 확인한다(2026-10-06 기준 미실행).
+
+### 적용·갱신 런북
+
+저장소 루트에서:
+
+```bash
+# ① 메타데이터 — 장중 안전 (VM 을 건드리지 않는다). setup-relay-iam.sh 전체 재실행도 같은 키를 싣는다.
+gcloud compute instances add-metadata radar-gw --zone=asia-northeast3-a --project=gh-radar \
+  --metadata-from-file=ops-agent-config=infra/relay/ops-agent.yaml,startup-script=infra/relay/startup.sh
+
+# ② startup.sh 재적용 — 장 마감(20:00 KST) 이후에만 (§장 마감 후 재부팅 생존 반영 런북 「② 가 장중 금지인 이유」)
+gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a \
+  --command='sudo google_metadata_script_runner startup'
+
+# ③ 확인 (읽기만)
+gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a --command='
+  systemctl is-active google-cloud-ops-agent-fluent-bit google-cloud-ops-agent-opentelemetry-collector google-cloud-ops-agent-diagnostics
+  systemctl show -p Id -p MemoryCurrent google-cloud-ops-agent-fluent-bit google-cloud-ops-agent-opentelemetry-collector google-cloud-ops-agent-diagnostics
+  sudo grep -c relay_docker /run/google-cloud-ops-agent-fluent-bit/fluent_bit_main.conf
+  sudo grep -c /var/log/syslog /run/google-cloud-ops-agent-fluent-bit/fluent_bit_main.conf || true
+  sudo grep -iE "error|invalid time format" /var/log/google-cloud-ops-agent/subagents/logging-module.log | tail -20 || true'
+```
+
+기대: 하위 유닛 3종 active · 생성 설정에 relay_docker 입력이 있고 `/var/log/syslog` 입력이 0건 · logging-module.log 에 오류 없음 ·
+위 조회 ① 에 줄이 나오고 severity 가 DEFAULT 가 아님.
+
+`ops-agent.yaml` 만 바꾼 경우에도 ①② 가 같다 — §10 은 설정 내용이 다를 때만 에이전트를 재기동하며 relay 컨테이너는 건드리지 않는다.
+
+### 끄기·롤백
+
+```bash
+gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a \
+  --command='sudo systemctl disable --now google-cloud-ops-agent'
+gcloud compute instances remove-metadata radar-gw --zone=asia-northeast3-a --project=gh-radar --keys=ops-agent-config
+```
+
+키가 없으면 `startup.sh` §10 이 설치·설정을 건너뛰므로 재부팅해도 다시 켜지지 않는다. relay 는 영향이 없다.
+재배포의 kill → 3초 → rm 은 그대로 둬도 무해하다. 이미 Cloud Logging 에 실린 줄은 30일 동안 남는다.
+
+---
+
 ## 자산 갱신 절차
 
 `infra/relay/` 의 파일이 단일 정본이다. VM 에는 사본을 두지 않는다.
@@ -1790,10 +1902,22 @@ caddy 를 기동·재기동·리로드하지 않기 때문이다(2026-09-06 전�
 | openconnect | 10–20 MB |
 | relay (Node 22, 5 세션 + ws + deflate) | 120–250 MB |
 | wg-probe (python3 1 + ping 2) | **≈8 MB 실측** (2026-09-16 `MemoryCurrent` · 유닛 상한 `MemoryMax=64M`) |
-| **합계** | **408–698 MB** (여유 1350–1640 MB · e2-micro 1024 MB 시절 326–616 MB) |
+| Ops Agent (fluent-bit · otelcol · diagnostics) | 실측 대기 — 20:00 KST 이후 설치 시 MemoryCurrent 로 기입 (설계 추정 +150–250 MB) |
+| **합계** | **408–698 MB** · Ops Agent 제외 (여유 1350–1640 MB · e2-micro 1024 MB 시절 326–616 MB) |
 
-Ops Agent 는 설치하지 않는다(+150–250 MB 로 위험 구간 진입). 대신 Docker `json-file`
-로그 로테이션 + Cloud Monitoring uptime check 로 관측한다.
+**2026-10-06 Ops Agent 도입.** 그날 장중 재배포 2회로 08:00~14:48 KST relay 로그가 사라졌다 — `json-file` 은
+컨테이너와 함께 지워지므로(`docker rm -f`) 재배포 한 번에 사건 증거(저널 끊김·KYOBO 거부·주문 경로)를 잃는다.
+Phase 15 에서 Ops Agent 를 거절한 근거는 메모리(+150–250 MB, e2-micro 1024 MB 에서 위험 구간)였는데,
+e2-small 전환(여유 1350–1640 MB)으로 해소됐다. 그래서 VM 에 Ops Agent 를 깔아 `json-file` 을 옆에서 tail 해
+Cloud Logging `relay_docker` 로 보낸다(§relay 로그 — Cloud Logging).
+
+**왜 docker `gcplogs` 로그 드라이버가 아닌가.** 두 가지다.
+① `gcplogs` 는 컨테이너를 시작할 때 Cloud Logging 에 닿지 못하면 **컨테이너 시작 자체가 실패**한다. docker 의 자동 재시작은
+시작 실패를 다시 시도하지 않으므로, GCP 서울 엣지의 주기적 끊김(§외부 경로 단절 판정 — netcut)과 relay 크래시가 겹치면 **relay 가 정지한 채로 남는다**
+(부팅 때도 같다). 로그 수집 장애가 호가·주문 경로 정지로 번지는 구조다.
+② `gcplogs` 는 줄 전체를 `jsonPayload.message` 문자열 하나로 보낸다 — relay 가 찍는 severity·insertId·serviceContext 가 사라지고
+전부 DEFAULT 가 된다. Ops Agent 는 파일을 읽기만 하고 디스크 버퍼를 쓰므로 Cloud Logging 이 끊겨도 relay 와 무관하다.
+`json-file` 로그 로테이션(`docker logs` 원천)과 Cloud Monitoring uptime check 는 그대로 유지한다.
 
 **2026-09-26 e2-small 전환.** 2026-09-26(토) 08:11 KST 사용자 요청으로 e2-micro → e2-small 로 올렸다.
 메모리 압박이 아니라 CPU 여유 때문이다 — 5명 × 30종목 풀구독 시 추정 피크 0.22코어가 e2-micro 보장 0.25코어의 약 90% 였다(e2-small 보장 0.5코어).
@@ -1825,6 +1949,7 @@ gcloud compute instances start radar-gw --zone=asia-northeast3-a
 | `Caddyfile` | `/etc/caddy/Caddyfile` | 0644 |
 | `wg-probe.py` | `/usr/local/sbin/wg-probe` | 0700 |
 | `wg-probe.service` | `/etc/systemd/system/wg-probe.service` | 0644 |
+| `ops-agent.yaml` | `/etc/google-cloud-ops-agent/config.yaml` (메타데이터 `ops-agent-config`) | 0644 |
 | `netcut-probe.sh` | `/usr/local/sbin/netcut-probe-260917` | 0700 |
 | `netcut-daily.sh` | `/usr/local/sbin/netcut-daily` | 0700 |
 | `netcut-daily.service` | `/etc/systemd/system/netcut-daily.service` | 0644 |
@@ -1863,3 +1988,6 @@ gcloud compute instances start radar-gw --zone=asia-northeast3-a
 > 메타데이터 키가 없어 인스턴스 메타데이터에 실리지 않기 때문이다. 이 표의 다른 모든 행과 다르다.
 > 그래서 **재부팅은 생존하지만 VM 재생성에는 사라진다.** 저장소가 정본인 것은 같지만 배치는
 > 사람이 해야 하고, 그 절차는 §외부 경로 단절 판정 — netcut 의 §운영 한계 ⓑ 에 있다.
+>
+> **Ops Agent 패키지.** `google-cloud-ops-agent`(major 2) 패키지 자체는 `startup.sh` §10 이 **설치돼 있지 않을 때만** 설치한다
+> (메타데이터 `ops-agent-config` 가 없으면 설치도 하지 않는다). 설정 파일만 매 실행 내용 비교 후 다를 때 덮고 에이전트를 재기동한다.

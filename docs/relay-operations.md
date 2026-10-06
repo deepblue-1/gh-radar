@@ -46,7 +46,9 @@ DB 에 쓰지 않는다(D-01). 결선은 `relay/src/index.ts`, 모듈은 `relay/
 - **알림.** 장중(평일 08:00~20:00 KST · 휴장일 제외)에 `rejected` 는 즉시, 그 밖의 비-live 는 180초 뒤 `/healthz` 503 → 기존 uptime
   `gh-radar-relay-healthz` · 정책 `gh-radar-relay-down`(≈ 3분 + 5분 창). 장 밖에서는 200 이고 본문 `journal` 에만 드러난다 — 밤사이
   끊김은 알림이 아니라 아침 확인 대상이다. 끊겨도 호가·주문 자체는 영향이 없고, 주문 기록만 DB 에 들어오지 않는다.
-  relay 로그는 Cloud Logging 에 없다 — `sudo docker logs gh-radar-relay 2>&1 | grep -E '\[JOURNAL\]|\[journal\]' | tail -50`.
+  relay 로그는 Cloud Logging `relay_docker` 에 30일 남는다(재배포에도 유지) —
+  `gcloud logging read 'logName="projects/gh-radar/logs/relay_docker" AND jsonPayload.message:"[JOURNAL]"' --project=gh-radar --freshness=1h --format='value(timestamp,jsonPayload.message)'`
+  (`:` 는 대소문자 무시라 `[journal]` 도 함께 잡힌다). VM 에서 실시간은 `sudo docker logs gh-radar-relay 2>&1 | grep -E '\[JOURNAL\]|\[journal\]' | tail -50`.
   `[JOURNAL]` 은 관찰자(연결·로그인·상태 전이), `[journal]` 은 기록기(적용 RPC·커서·재동기화)다.
 - **알림 문서는 요약만 둔다.** `ops/alert-relay-down.yaml` 의 documentation 은 GCP 상한이 **10,240 바이트**다. 넘으면
   `deploy-relay.sh` 가 컨테이너를 새로 띄운 뒤 정책 갱신 단계에서 exit 1 로 끝난다(19-12 에서 10,834 바이트로 실제 발생).
