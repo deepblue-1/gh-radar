@@ -85,6 +85,22 @@
  *         사용자당 DMA 세션이 1개이므로 「그 사용자의 전략이 지금 무엇인가」를 아는 객체도
  *         하나여야 한다. 캐시가 있어야 새 탭이 붙자마자 **종목 구독 없이** 전략을 본다 —
  *         계좌 캐시(D-23/D-37)와 같은 이유이고 같은 4점 세트(맵 · 프리페치 · case · 폐기)다.
+ *   Phase 29-20 D-18  **(유저, 서버) 다중 세션 병합.** 한 사용자가 증권사 세션을 여럿(KB 주문 서버 · 교보 주문 서버) 가진다.
+ *         결선 · 캐시 소유 단위는 **세션 소유 키** `ownerKey(userId, serverKey)` 다(RESEARCH Pitfall 9 — 옛 「같은 userId
+ *         다른 세션 = 교체 → 캐시 폐기」 를 소유 키 단위로 바꿨다). primary = KB 세션 우선 · 없으면 처음 결선된 세션.
+ *           프레임                                   규칙           캐시 키 · 교체 범위
+ *           51 주문 · 54 메시지 · 65 집계             병합(통과)      캐시 없음 — 어느 세션이든 그대로 팬아웃
+ *           66/67 계좌                               병합           `${ownerKey}|계좌` — 그 세션 계좌만
+ *           64/60 상따                               병합           `${ownerKey}|전략키` — 64 는 그 세션 몫 전량 교체 ·
+ *                                                                   `lc.snap` 은 사용자 합집합 · 「64 받았음」 은 세션별
+ *           83 잔량진행률                             병합           `${ownerKey}|isin|ex` — 그 세션 허용 계좌로만 거름 ·
+ *                                                                   팬아웃 · 스냅샷은 (isin, ex) 합집합
+ *           61 VI 설정 · 72/73 VI 추적 · 56 VI 통보    primary 전용   사용자 단위 키 그대로 — 다른 세션 프레임은 debug 드롭
+ *           84 사용자 설정 · 76/78 돌파 · 77 예약 창    primary 전용   〃
+ *         요청: 25(계좌) · 24(상따)는 세션마다 Ready 에서, 21 · 34 · 43 은 primary 세션만(비 primary 의 21 은 FIFO 를 어지럽힌다).
+ *         세션 교체(같은 소유 키 다른 객체) · 분리(`retainSessions`) · 같은 증권사 다른 서버 대체(D-10)는 **그 세션 몫**만
+ *         버리고, 그 세션이 primary 였으면 primary 전용 캐시도 버린다. primary 가 바뀌면 옛 primary 몫을 버리고 새 primary 가
+ *         Ready 면 21 · 34 · 43 을 그 세션으로 요청한다. 단일 세션 사용자는 「세션 1개짜리 병합」 — 종전과 같다.
  *   D-13  전략 재조회는 **재접속(`ready`) 시에만** 일어난다. 주기 타이머·수동 새로고침
  *         진입점을 만들지 않는다 — 사용자 조작에 대한 60/61 에코는 Notice(유실 없음)라
  *         재조회로 메울 것이 없고, 폴링은 게이트웨이 왕복을 사용자 수에 비례시킨다.
@@ -495,11 +511,12 @@ function marketKey(isin: string, exchange: RelayExchange): string {
 }
 
 /**
- * 잔량진행률(83) 캐시 키 (25-06) — `${userId}|${isin}|${exchange}` 3단 형식. **83 `#queueProgress` 전용**이다.
- * 사용자별인 이유는 항목이 그 사용자 세션의 허용 계좌로 걸러진 부분집합이기 때문이다(T-25-24) — 공유하면 남의 계좌가 샌다.
+ * 잔량진행률(83) 캐시 키 (25-06 · 29-20) — `${ownerKey}|${isin}|${exchange}` = `${userId}|${serverKey}|${isin}|${exchange}`
+ * 4단 형식. **83 `#queueProgress` 전용**이다. 세션별인 이유는 항목이 **그 세션**의 허용 계좌로 걸러진 부분집합이기
+ * 때문이다(T-25-24 — 공유하면 남의 계좌가 샌다 · D-18 — 한 세션의 83 전량 교체가 다른 증권사 세션 항목을 지우지 않는다).
  */
-function progressKey(userId: string, isin: string, exchange: RelayExchange): string {
-  return `${userId}|${isin}|${exchange}`;
+function progressKey(owner: string, isin: string, exchange: RelayExchange): string {
+  return `${owner}|${isin}|${exchange}`;
 }
 
 /** 키 접두어. 특정 사용자의 키만 훑을 때 쓴다. */
@@ -543,8 +560,9 @@ function serverKeyOf(session: HubSession): string {
  * 여기서 다시 만들면 12자 절단·거래소 정규화 중 한쪽만 반영돼 키가 갈리고, 갈린 키는
  * 「에코가 영원히 매칭되지 않는다」라는 조용한 실패가 된다.
  */
-function lcKey(userId: string, item: RelayLimitChaser): string {
-  return `${userId}|${item.key}`;
+function lcKey(owner: string, item: RelayLimitChaser): string {
+  // 앞은 세션 소유 키다(29-20 · D-18) — 한 세션의 64 전량 교체가 다른 증권사 세션 몫을 지우지 않는다.
+  return `${owner}|${item.key}`;
 }
 
 /**
@@ -737,7 +755,7 @@ export class SubscriptionHub extends EventEmitter {
    */
   readonly #limitChasers = new Map<string, RelayLimitChaser>();
   /**
-   * `userId` 집합 — **게이트웨이 64(목록 전량)를 이 세션에서 받았는가** (18-26 / GC-IN-02).
+   * 세션 소유 키 집합(29-20 — 옛 단위는 userId) — **게이트웨이 64(목록 전량)를 이 세션에서 받았는가** (18-26 / GC-IN-02).
    *
    * `#viTriggers` 의 3상태와 같은 규율이다. 캐시가 비어 있다는 것만으로는 「등록 전략 없음」
    * (64 가 빈 목록으로 왔다)과 「아직 모름」(콜드 세션 · 세션 교체 직후 64 전)을 가를 수
@@ -1546,7 +1564,11 @@ export class SubscriptionHub extends EventEmitter {
    * `lc.snap` 을 보내지 않는다. `getViTrigger` 의 `undefined` 와 같은 자리다.
    */
   hasLimitChaserList(userId: string): boolean {
-    return this.#limitChaserKnown.has(userId);
+    // 29-20 (D-18) — 어느 증권사 세션이든 64 를 받았으면 확정이다(그 세션 몫은 확정 · 아직 못 받은 세션 몫은 곧 오는 64 가
+    // 합집합 `lc.snap` 으로 채운다). 기록 단위는 세션 소유 키다.
+    const prefix = userPrefix(userId);
+    for (const owner of this.#limitChaserKnown) if (owner.startsWith(prefix)) return true;
+    return false;
   }
 
   /**
@@ -1616,14 +1638,18 @@ export class SubscriptionHub extends EventEmitter {
    */
   getQueueProgressEntries(userId: string): RelayUnfProgressEntry[] {
     const prefix = userPrefix(userId);
-    const out: RelayUnfProgressEntry[] = [];
+    // 29-20 (D-18) — 키가 세션 몫이라 같은 (isin, exchange) 를 세션 합집합 1항목으로 접는다(브라우저 키 = (i, x)).
+    const byKey = new Map<string, RelayUnfProgressEntry>();
     for (const [key, items] of this.#queueProgress) {
       if (!key.startsWith(prefix) || items.length === 0) continue;
       const parsed = this.#splitProgressKey(key);
       if (parsed === null) continue;
-      out.push({ i: parsed.isin, x: parsed.exchange, items: [...items] });
+      const mk = marketKey(parsed.isin, parsed.exchange);
+      const entry = byKey.get(mk);
+      if (entry === undefined) byKey.set(mk, { i: parsed.isin, x: parsed.exchange, items: [...items] });
+      else entry.items.push(...items);
     }
-    return out;
+    return [...byKey.values()];
   }
 
   /**
@@ -1888,16 +1914,18 @@ export class SubscriptionHub extends EventEmitter {
       }
       case MSG.SetLimitChaserResp: {
         const item = parseLimitChaserEcho(e.env);
-        if (item !== null) this.#onLimitChaserEcho(userId, item);
+        if (item !== null) this.#onLimitChaserEcho(userId, owner, item);
         return;
       }
       case MSG.GetLimitChaserListResp: {
         // `[]` 는 정상이다(등록 0건) — `null` 만 파싱 실패다.
         const items = parseLimitChaserList(e.env);
-        if (items !== null) this.#onLimitChaserList(userId, items);
+        if (items !== null) this.#onLimitChaserList(userId, owner, items);
         return;
       }
       case MSG.SetVITriggerResp: {
+        // VI 는 primary 세션만 원천이다(D-18 · 29-20).
+        if (!this.#fromPrimary(userId, owner, e.msgType)) return;
         // `null` 은 파싱 실패, `{ok:true, cfg:null}` 은 **미등록**이다 — 뭉개지 않는다.
         const parsed = parseViTrigger(e.env);
         if (parsed !== null) this.#onViTrigger(userId, parsed.cfg);
@@ -1905,6 +1933,8 @@ export class SubscriptionHub extends EventEmitter {
       }
       case MSG.GetVIOrderListResp:
       case MSG.VIOrderListPush: {
+        // VI 주문 추적도 VI 원천(primary)만이다(D-18 · 29-20) — VI 설정과 추적 목록이 다른 세션에서 오면 화면이 갈린다.
+        if (!this.#fromPrimary(userId, owner, e.msgType)) return;
         // 72/73 은 슬롯 하나를 공유하고 스냅샷 구분은 msg_type 이 정본이다 (D-33).
         const list = parseViOrderList(e.env, e.msgType === MSG.GetVIOrderListResp);
         if (list !== null) this.#onViOrderList(userId, list.snap, list.items);
@@ -1926,26 +1956,31 @@ export class SubscriptionHub extends EventEmitter {
       }
       case MSG.RateCrossAlert: {
         // 화이트리스트를 넓힌 것과 **같은 커밋**에 있는 명시 case 다 (PC-12 — Pitfall 1).
-        // 76 은 요청 짝이 없는 Broadcast 라 **로그인 전 연결에도** 온다.
+        // 76 은 요청 짝이 없는 Broadcast 라 **로그인 전 연결에도** 온다. 돌파 집합은 primary 원천(D-18 · 29-20).
+        if (!this.#fromPrimary(userId, owner, e.msgType)) return;
         const item = parseRateCrossAlert(e.env);
         if (item !== null) this.#onRateCrossAlert(userId, session, item);
         return;
       }
       case MSG.RateCrossSnapshot: {
         // `[]` 는 정상이다(돌파 없음) — `null` 만 파싱 실패다. 둘을 뭉개면 「돌파 없음」이라는
-        // 확정 정보가 사라지고 브라우저가 옛 집합을 계속 그린다.
+        // 확정 정보가 사라지고 브라우저가 옛 집합을 계속 그린다. 돌파 집합은 primary 원천(D-18 · 29-20).
+        if (!this.#fromPrimary(userId, owner, e.msgType)) return;
         const items = parseRateCrossSnapshot(e.env);
         if (items !== null) this.#onRateCrossSnapshot(userId, session, items);
         return;
       }
       case MSG.QueuedWindowState: {
+        // 예약 창은 사용자 단위 1건 — primary 원천(D-18 · 29-20).
+        if (!this.#fromPrimary(userId, owner, e.msgType)) return;
         const state = parseQueuedWindowState(e.env);
         if (state !== null) this.#onQueuedWindow(userId, session, state);
         return;
       }
       case MSG.UserSettingsResp: {
         // 화이트리스트와 **같은 커밋**의 명시 case 다(PC-12 · 27-01). 84 는 LoginResp → 77 → 84 순으로 계좌 선언 전
-        // (Ready 전)에 온다 — 캐시는 늘, 팬아웃은 Ready 뒤(RESEARCH Pitfall 4).
+        // (Ready 전)에 온다 — 캐시는 늘, 팬아웃은 Ready 뒤(RESEARCH Pitfall 4). 사용자 설정은 primary 원천(D-18 · 29-20).
+        if (!this.#fromPrimary(userId, owner, e.msgType)) return;
         const settings = parseUserSettings(e.env);
         if (settings !== null) this.#onUserSettings(userId, session, settings);
         return;
@@ -1954,12 +1989,13 @@ export class SubscriptionHub extends EventEmitter {
         // 화이트리스트와 **같은 커밋**의 명시 case 다(PC-12 · 25-06). 83 은 Broadcast 라 시세만 구독한
         // 세션에도 **남의 계좌 항목**을 싣는다(gh-trade D-19) — 계좌 필터는 아래 핸들러가 캐시 전에 한다.
         const frame = parseQueueProgress(e.env);
-        if (frame !== null) this.#onQueueProgress(userId, session, frame);
+        if (frame !== null) this.#onQueueProgress(userId, owner, session, frame);
         return;
       }
       case MSG.VIOrderNotice: {
         // 「주문이 이미 나갔다」는 알림이다. 캐시에 넣지 않는다 — 추적 목록의 정본은 72/73 이고,
-        // 이 통보에는 주문번호·상태가 없어 같은 행을 만들 수 없다.
+        // 이 통보에는 주문번호·상태가 없어 같은 행을 만들 수 없다. VI 원천(primary)만이다(D-18 · 29-20).
+        if (!this.#fromPrimary(userId, owner, e.msgType)) return;
         const notice = parseViOrderNotice(e.env);
         if (notice !== null) this.#fanout(userId, this.#enrichViNotice(notice));
         return;
@@ -2005,6 +2041,19 @@ export class SubscriptionHub extends EventEmitter {
         );
         return;
     }
+  }
+
+  /**
+   * primary 세션 전용 프레임의 원천 판정 (D-18 · 29-20). primary 가 아닌 세션의 프레임이면 debug 1줄 뒤 false —
+   * 캐시 0 · 팬아웃 0 이다. 의도된 무시라 `unhandledFrameCount`(PC-12 게이트)는 올리지 않는다.
+   */
+  #fromPrimary(userId: string, owner: string, msgType: number): boolean {
+    if (this.#primaryOwner(userId) === owner) return true;
+    logger.debug(
+      { userId, msgType, serverKey: owner.slice(userPrefix(userId).length) },
+      "[HUB] primary 아닌 세션의 사용자 단위 프레임 — 버림 (D-18)",
+    );
+    return false;
   }
 
   /**
@@ -2113,7 +2162,7 @@ export class SubscriptionHub extends EventEmitter {
    * 같은 세션이 계좌 선언과 시세 구독을 함께 하면 같은 83 이 두 번 올 수 있다 — 전량 교체라 결과가
    * 같다(멱등). 중복 제거는 하지 않는다.
    */
-  #onQueueProgress(userId: string, session: HubSession, frame: QueueProgressFrame): void {
+  #onQueueProgress(userId: string, owner: string, session: HubSession, frame: QueueProgressFrame): void {
     const allowed = new Set((session.allowedAccounts ?? []).map((a) => a.accountNo));
     const items: RelayQueueProgressItem[] = [];
     for (const it of frame.items) {
@@ -2131,7 +2180,9 @@ export class SubscriptionHub extends EventEmitter {
         firstFilled: it.firstFilled,
       });
     }
-    const key = progressKey(userId, frame.isin, frame.exchange);
+    // 29-20 (D-18) — 키는 세션 소유 키 몫이다. 이 세션의 전량 교체는 다른 증권사 세션의 같은 (isin, exchange) 항목을
+    // 지우지 않는다. 빈→빈 억제도 이 세션 몫으로 판정한다(이 세션 몫이 안 바뀌었으면 합집합도 안 바뀌었다).
+    const key = progressKey(owner, frame.isin, frame.exchange);
     const prev = this.#queueProgress.get(key);
     if ((prev === undefined || prev.length === 0) && items.length === 0) return;
     if (items.length === 0) this.#queueProgress.delete(key);
@@ -2141,7 +2192,26 @@ export class SubscriptionHub extends EventEmitter {
       this.#progressUnsynced.add(userId);
       return;
     }
-    this.#fanout(userId, { t: "unf.progress", snap: false, i: frame.isin, x: frame.exchange, items: [...items] });
+    // 브라우저는 (i, x) 키 전량 교체라 그 키의 **사용자 합집합**을 보낸다 — 이 세션 몫만 보내면 다른 세션 항목이 사라진다.
+    this.#fanout(userId, {
+      t: "unf.progress",
+      snap: false,
+      i: frame.isin,
+      x: frame.exchange,
+      items: this.#progressItemsOf(userId, frame.isin, frame.exchange),
+    });
+  }
+
+  /** 그 사용자의 (isin, exchange) 진행률 합집합(세션 결선 순서) — 사본이다. */
+  #progressItemsOf(userId: string, isin: string, exchange: RelayExchange): RelayQueueProgressItem[] {
+    const prefix = userPrefix(userId);
+    const out: RelayQueueProgressItem[] = [];
+    for (const owner of this.#sessions.keys()) {
+      if (!owner.startsWith(prefix)) continue;
+      const items = this.#queueProgress.get(progressKey(owner, isin, exchange));
+      if (items !== undefined) out.push(...items);
+    }
+    return out;
   }
 
   /**
@@ -2430,7 +2500,7 @@ export class SubscriptionHub extends EventEmitter {
    * **삭제도 프레임으로 내린다.** 캐시에서만 지우고 침묵하면 이미 열려 있는 탭의 목록에
    * 사라진 전략이 그대로 남고, 사용자가 그것을 보고 「아직 살아 있다」로 읽는다.
    */
-  #onLimitChaserEcho(userId: string, raw: RelayLimitChaser): void {
+  #onLimitChaserEcho(userId: string, owner: string, raw: RelayLimitChaser): void {
     // 보강은 **캐시에 넣기 전**이다. 캐시가 곧 `getLimitChasers` → `lc.snap`(재접속 복원)
     // 의 원천이므로, 여기서 붙이지 않으면 「지금 화면」과 「새로 연 탭」의 이름이 갈린다.
     //
@@ -2438,7 +2508,7 @@ export class SubscriptionHub extends EventEmitter {
     // (아래 규율), 이름이 있어야 UI 가 「무엇이 사라졌는지」를 말할 수 있다. 붙이는 비용은
     // 맵 조회 1회이고 분기를 하나 줄인다(`#enrichNames` 의 톰스톤 행과 같은 판단).
     const item = this.#enrichLimitChaser(raw);
-    const key = lcKey(userId, item);
+    const key = lcKey(owner, item);
     if (item.crud === "D") this.#limitChasers.delete(key);
     else this.#limitChasers.set(key, item);
     logger.info(
@@ -2470,20 +2540,22 @@ export class SubscriptionHub extends EventEmitter {
    * 그 사용자의 엔트리를 전부 지우고 새로 넣는다. 병합(upsert)으로 처리하면 게이트웨이에서
    * 사라진 전략이 캐시에 영원히 남는다 — 다른 클라이언트(WinForms)가 지운 전략이 그것이다.
    */
-  #onLimitChaserList(userId: string, raw: RelayLimitChaser[]): void {
-    // 전량 교체 규율은 그대로다 — 보강만 앞에 얹는다. 캐시와 팬아웃이 **같은 배열**을
-    // 쓰므로 두 경로의 이름이 갈릴 수 없다.
+  #onLimitChaserList(userId: string, owner: string, raw: RelayLimitChaser[]): void {
+    // 전량 교체 규율은 그대로다 — 보강만 앞에 얹는다. 캐시와 팬아웃이 **같은 캐시**에서
+    // 나오므로 두 경로의 이름이 갈릴 수 없다.
     const items = raw.map((item) => this.#enrichLimitChaser(item));
-    const prefix = userPrefix(userId);
+    // 29-20 (D-18) — 교체 범위는 **그 세션 몫**이다. 교보 세션의 빈 64 가 KB 전략을 지우지 않는다.
+    const own = ownerPrefix(owner);
     for (const key of [...this.#limitChasers.keys()]) {
-      if (key.startsWith(prefix)) this.#limitChasers.delete(key);
+      if (key.startsWith(own)) this.#limitChasers.delete(key);
     }
-    for (const item of items) this.#limitChasers.set(lcKey(userId, item), item);
+    for (const item of items) this.#limitChasers.set(lcKey(owner, item), item);
     // 「받았음」 은 캐시 교체와 **같은 자리**에서, 팬아웃 **전에** 기록한다 — 팬아웃 도중
     // 인증하는 연결이 「모름」 을 보고 스냅샷을 빠뜨리는 틈을 두지 않는다 (18-26).
-    this.#limitChaserKnown.add(userId);
+    this.#limitChaserKnown.add(owner);
     logger.info({ userId, count: items.length }, "[HUB] 상따 목록 스냅샷 수신 — 전량 교체");
-    this.#fanout(userId, { t: "lc.snap", items });
+    // 팬아웃은 사용자 **합집합**이다 — 브라우저 `lc.snap` 은 목록 전량 교체라 한 세션 몫만 보내면 다른 세션 전략이 사라진다.
+    this.#fanout(userId, { t: "lc.snap", items: this.getLimitChasers(userId) });
   }
 
   /**
@@ -2796,7 +2868,6 @@ export class SubscriptionHub extends EventEmitter {
    * @param wasPrimary 그 세션이 primary 였는가 — 그렇다면 사용자 단위 원천(VI · 84 · 76/78 · 77)도 그 세션 몫이라 함께 버린다.
    */
   #clearCaches(userId: string, owner: string, wasPrimary: boolean): void {
-    const prefix = userPrefix(userId);
     const own = ownerPrefix(owner);
     // 본 키 기억(Pattern 10) 중 참조 0 인 것을 지운다 — 새 세션은 83 캐시가 비어 있으니 그 키로 돌아오면 다시 넛지해야 한다.
     // 참조 > 0 은 탭이 아직 쥐고 있으므로 남긴다(새 세션의 `ready` 가 그 키들을 넛지한다).
@@ -2812,11 +2883,11 @@ export class SubscriptionHub extends EventEmitter {
     // 전략 3맵도 **반드시** 여기서 버린다 (D-12). 빠뜨리면 재로그인·세션 교체 후에도 옛
     // 전략이 캐시에 남아, 인증 직후 스냅샷 팬아웃이 이미 사라진 전략을 화면에 그린다.
     for (const key of [...this.#limitChasers.keys()]) {
-      if (key.startsWith(prefix)) this.#limitChasers.delete(key);
+      if (key.startsWith(own)) this.#limitChasers.delete(key);
     }
     // 「64 받았음」 도 같이 지운다 (18-26) — 남기면 새 세션의 64 가 오기 전 인증한 연결이
-    // 방금 비운 캐시를 확정 목록(`lc.snap []`)으로 받는다. 이 사용자 것만 지운다(T-18-110).
-    this.#limitChaserKnown.delete(userId);
+    // 방금 비운 캐시를 확정 목록(`lc.snap []`)으로 받는다. 이 세션 것만 지운다(T-18-110 · 29-20).
+    this.#limitChaserKnown.delete(owner);
     // 사용자 단위 원천(VI · 84 · 76/78 · 77)은 primary 세션 몫이다(D-18) — primary 가 아닌 세션의 교체 · 분리는 건드리지 않는다.
     if (wasPrimary) this.#clearPrimaryCaches(userId);
     // 잔량진행률도 버린다 — 77 · 78 이 여기 있는 것과 같은 이유다(RESEARCH Pitfall 6 · T-25-26). 남기면
@@ -2830,7 +2901,8 @@ export class SubscriptionHub extends EventEmitter {
     //    끝내 브라우저에 가지 않는다.
     // 2. 키마다 snap:false 를 보내지 않고 snap:true 1프레임을 보낸다. 지운 것이 그 사용자 키 **전부**이고,
     //    인증 직후 스냅(`fanout.ts`)과 같은 모양이라 기존 탭과 지금 새로 붙는 탭이 같은 상태로 수렴한다.
-    //    `entries` 는 캐시 getter 가 아니라 빈 리터럴이다 — 순서가 바뀌어도 옛 값을 다시 내보내지 않는다.
+    //    29-20 (D-18) — 지우는 것은 **이 세션 몫**이고, `entries` 는 지운 **뒤의** 캐시 getter(남은 다른 세션 몫 합집합)다.
+    //    단일 세션이면 지운 뒤 캐시가 비어 종전의 빈 리터럴과 같다 — 옛 값을 다시 내보내지 않는다.
     // 3. 하나도 안 지웠고 어긋남 표시(`#progressUnsynced`)도 없으면 보내지 않는다. 사본은 캐시를 거쳐
     //    팬아웃된 값뿐이라, 이 둘이 모두 없으면 사본도 비어 있다(교체 소음 0 · T-25-55). 표시가 있으면 캐시가
     //    비었어도 사본에는 Ready 이전에 캐시에서 지워진 옛 값이 남아 있을 수 있어 보낸다(R2-WR-01).
@@ -2841,12 +2913,14 @@ export class SubscriptionHub extends EventEmitter {
     //    않고 캐시 값을 그대로 다시 보낸다. 대상은 `#fanout` 규율대로 이 userId 하나다(T-15-02).
     let clearedProgress = 0;
     for (const key of [...this.#queueProgress.keys()]) {
-      if (!key.startsWith(prefix)) continue;
+      if (!key.startsWith(own)) continue;
       this.#queueProgress.delete(key);
       clearedProgress += 1;
     }
     const unsynced = this.#progressUnsynced.delete(userId);
-    if (clearedProgress > 0 || unsynced) this.#fanout(userId, { t: "unf.progress", snap: true, entries: [] });
+    if (clearedProgress > 0 || unsynced) {
+      this.#fanout(userId, { t: "unf.progress", snap: true, entries: this.getQueueProgressEntries(userId) });
+    }
   }
 
   /**
@@ -2880,16 +2954,16 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
-   * 83 진행률 키(`progressKey` 3단)를 되돌려 읽는다. userId(Supabase uuid)·ISIN(12자 영숫자)·거래소 어디에도
-   * `|` 가 들어갈 수 없으므로 분해가 모호하지 않다.
+   * 83 진행률 키(`progressKey` 4단 — 29-20)를 되돌려 읽는다. userId(Supabase uuid)·서버 키·ISIN(12자 영숫자)·거래소
+   * 어디에도 `|` 가 들어갈 수 없으므로 분해가 모호하지 않다.
    */
   #splitProgressKey(key: string): { isin: string; exchange: RelayExchange } | null {
     const parts = key.split("|");
-    if (parts.length !== 3) {
+    if (parts.length !== 4) {
       logger.warn({ segments: parts.length }, "[HUB] 진행률 키 분해 실패 — 무시");
       return null;
     }
-    return this.#exchangeOf(parts[1] ?? "", parts[2] ?? "");
+    return this.#exchangeOf(parts[2] ?? "", parts[3] ?? "");
   }
 
   /** 시세 키(`marketKey` 2단)를 되돌려 읽는다. */
