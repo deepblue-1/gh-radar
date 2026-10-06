@@ -17,10 +17,13 @@
  *      역할 admin/trader + DMA 연결) → `dma_users` 복호(AAD = dma_user_id). viewer · 승인 대기 · DMA 연결 없음 = 위
  *      unauthorized 갈래, 접근 맵 미적재(`"not_ready"`) = 아래 「조회 실패」 갈래(failed + 1011). 주입이 없으면 종전
  *      `dma_credentials` 조회 그대로다(단위 테스트 하네스)
- *   5. 매핑 있음 → `sessions.acquireFor(userId, "KB")` → 현재 상태 프레임을 **즉시 1회** 전송.
- *      Phase 29-16 — 세션은 (유저, 서버) 단위지만 **이 인증 경로는 KB 세션만 연다**(교보 세션은 hub 세션 소유 키가 선
- *      29-20 에서 켠다 — RESEARCH Pitfall 9: 같은 userId 세션 둘이 hub 캐시를 서로 지운다). KB 주문 서버가 없으면(null)
- *      `failed` 프레임 + close(1011) — 재접속 가치가 있는 장애다(자격증명 조회 실패와 같은 갈래)
+ *   5. 매핑 있음 → `brokersFor(dmaUserId)` 의 증권사마다 `sessions.acquireFor(userId, broker)` → hub 결선 → **병합 상태
+ *      프레임**을 **즉시 1회** 전송. Phase 29-20 (D-18) — 세션은 (유저, 서버) 단위이고 hub 는 세션 소유 키로 결선한다
+ *      (RESEARCH Pitfall 9 해소 — 교보 세션 결선이 KB 캐시를 지우지 않는다). `brokersFor` 미주입(단위 테스트)은 `["KB"]`
+ *      — 종전 그대로. KB 주문 서버가 없으면(null) `failed` 프레임 + close(1011) — 재접속 가치가 있는 장애다(자격증명 조회
+ *      실패와 같은 갈래). KB 밖 증권사 세션이 null 이면 warn 뒤 그 증권사만 건너뛴다(KB 화면은 그대로 선다)
+ *      병합 상태 프레임 = 세션 전부의 허용 계좌 합집합 + 어느 세션이든 ready 면 ready(아니면 primary 상태 · `#mergedStateFrame`).
+ *      세션 1개면 그 세션 프레임 그대로다(「세션 1개짜리 병합」 — 단일 세션 사용자 화면 무변경)
  *      브라우저는 이 프레임을 인증 ACK 로 삼아 구독을 시작한다(15-12 `use-relay-socket`
  *      계약). 이 프레임을 빠뜨리면 브라우저는 영원히 구독하지 않는다
  *   6. 인증 직후 **계좌 스냅샷 + 전략 스냅샷 3프레임**을 그 연결로 내린다 (D-12/D-23/D-37).
@@ -34,6 +37,7 @@
  *      구독 한도(Phase 26 D-11 전역 2000 · D-15 사용자당 200)에 닿은 새 키는 hub 가 업스트림 송신 전에 거부하고, 그 소켓에만
  *      `{t:"sub.limit", i, x, scope}` 1건을 보낸다 — `conn.keys` · `#keyConns` 에 넣지 않는다(`{t:"msg"}` 재사용 금지).
  *   8. close → authTimer 정리, **그 소켓이 잡은 키만** 해제, 그 소켓이 잡은 서버 키마다 `sessions.release(userId, serverKey)`
+ *      (증권사 세션 전부 — 각자 종전 유예)
  *   9. 권한 회수(Phase 29 D-04 · `revokeUser`) — 접근 맵 재적재가 강등 · 허용 해제 · DMA 연결 변경을 찾으면 그 사용자의
  *      **모든** 연결에 `{t:"state", s:"unauthorized"}` 1프레임 → close(1008). 세션은 8 의 `release` 로 종전 유예(5분)에
  *      맡긴다 — 서버 쪽 전략 · 미체결은 건드리지 않는다. 브라우저는 재접속하고, 인증 4 갈래(unauthorized · 연결 유지)에 선다
@@ -98,6 +102,7 @@ import type {
   JournalOrderRow,
   OrderMarket,
   RelayExchange,
+  RelayAccount,
   RelayAutoSellCmdMsg,
   RelayInbound,
   RelayLcArmMsg,
@@ -118,6 +123,7 @@ import { safePgError } from "../store/pg-error.js";
 import type { HubMarketEvent, SubscriptionHub } from "../hub/subscription-hub.js";
 import type { DmaSession } from "../dma/session.js";
 import type { DmaCredentials } from "../dma/session-manager.js";
+import type { DmaBroker } from "../registry/registry.js";
 import {
   OrderBuildError,
   buildArmLatchReq,
@@ -316,6 +322,13 @@ export type WsFanoutDeps = {
    * 기존 단위 테스트 하네스가 그 스텁에 기대고 있어 기본값을 바꾸지 않는다. 운영 결선(`index.ts`)은 늘 주입한다.
    */
   credentials?: (userId: string) => Promise<DmaCredentials | null | "not_ready">;
+  /**
+   * 그 DMA id 로 세션을 열 증권사 목록 (Phase 29-20 · D-18). 인증마다 부른다 — 증권사마다 `acquireFor` 후 hub 에 결선한다.
+   * **주지 않으면 `["KB"]`**(종전 단일 세션 · 기존 단위 테스트 하네스). 운영 결선(`index.ts`)은 KB 늘 + 교보 주문 서버 저널
+   * 매핑에 그 DMA id 계좌가 있을 때만 교보(RESEARCH Pattern 5 — 서버에 없는 유저로 로그인 거부 루프를 만들지 않는다).
+   * 인자 DMA id 는 로그에 싣지 않는다(D-19).
+   */
+  brokersFor?: (dmaUserId: string) => readonly DmaBroker[];
   /** 업그레이드 경로. 기본 `/ws`. */
   path?: string;
   /** 첫 메시지 대기 상한(ms). 기본 `AUTH_TIMEOUT_MS`. */
@@ -413,19 +426,28 @@ function rejectFrame(
   return { t: "msg", lv: "ERROR", m: reason, i: isin, a: accountNo, src: RELAY_MSG_SOURCE, kind: origin };
 }
 
-/** 사용자 1명의 팬아웃 대상 집합. */
-type UserEntry = {
+/** 사용자 1명의 증권사 세션 1개와 그 세션에 건 상태 리스너 (Phase 29-20). */
+type EntrySession = {
   session: DmaSession;
-  conns: Set<Conn>;
   /**
    * 이 entry 가 `session` 에 건 `"state"` 리스너의 **핸들**. entry 를 버리는 모든 경로가
-   * 이것으로 리스너를 뗀다 (`#register` 의 세션 교체 갈래 · `#onClose` 의 마지막 소켓 갈래).
+   * 이것으로 리스너를 뗀다 (`#register` 의 세션 교체 · 분리 갈래 · `#onClose` 의 마지막 소켓 갈래).
    *
    * 핸들을 entry 가 들고 있어야 하는 이유: `session.on("state", (f) => ...)` 처럼 익명
    * 함수를 인라인으로 넘기면 **참조가 남지 않아 영원히 뗄 수 없다**. 리스너를 만든 주체가
    * 그 수명을 소유한다.
    */
   onState: (frame: RelayStateMsg) => void;
+};
+
+/** 사용자 1명의 팬아웃 대상 집합. */
+type UserEntry = {
+  /**
+   * 서버 키 → 증권사 세션 (Phase 29-20 · D-18 — 옛 단일 `session`). 상태 프레임은 이 세션들의 병합이다(`#mergedStateFrame`).
+   * 삽입 순서 = 결선 순서 — primary(KB 우선 · 없으면 첫 세션) 판정 근거다(hub `#primaryOwner` 와 같은 규칙).
+   */
+  sessions: Map<string, EntrySession>;
+  conns: Set<Conn>;
   /**
    * 이 사용자의 `dma_credentials.dma_user_id` — 저널 행 계좌 권한 라우팅 키 (Phase 19 D-03).
    * 인증마다 다시 조회한 값으로 덮는다. **로그·프레임에 싣지 않는다**(T-19-14 · T-19-08).
@@ -453,6 +475,8 @@ export class WsFanout {
   readonly #credKey: string;
   /** 자격증명 공급자 (Phase 29). 없으면 종전 `dma_credentials` 조회. */
   readonly #credentials: ((userId: string) => Promise<DmaCredentials | null | "not_ready">) | null;
+  /** 세션을 열 증권사 목록 (Phase 29-20). 미주입 = `["KB"]`. */
+  readonly #brokersFor: (dmaUserId: string) => readonly DmaBroker[];
   readonly #path: string;
   readonly #authTimeoutMs: number;
   readonly #backpressureLimit: number;
@@ -498,6 +522,7 @@ export class WsFanout {
     this.#hub = deps.hub;
     this.#credKey = deps.credKey;
     this.#credentials = deps.credentials ?? null;
+    this.#brokersFor = deps.brokersFor ?? (() => ["KB"]);
     this.#path = deps.path ?? DEFAULT_WS_PATH;
     this.#authTimeoutMs = deps.authTimeoutMs ?? AUTH_TIMEOUT_MS;
     this.#backpressureLimit = deps.backpressureLimitBytes ?? BACKPRESSURE_LIMIT_BYTES;
@@ -751,23 +776,41 @@ export class WsFanout {
       return;
     }
 
-    // 29-16 — KB 세션만 연다(교보는 29-20 · Pitfall 9). 증권사 안 주문 서버는 SessionManager 가 세션 생성 때 고른다(D-10).
-    const session = this.#sessions.acquireFor(userId, "KB", creds);
-    if (session === null) {
-      // 레지스트리에 KB 주문 서버가 없다 — 세션 없이 연결을 붙잡아 두면 구독 · 주문이 전부 「세션 없음」으로 막힌 채
-      // 화면이 멎는다. 자격증명 조회 실패와 같은 갈래(failed + 1011 · 재접속 가치 있는 장애)로 끝낸다.
-      logger.error({ userId, broker: "KB" }, "[WS] 주문 서버 없음 — 세션을 열지 못해 연결 종료");
+    // 29-20 (D-18) — 증권사마다 세션을 연다(`brokersFor` · 미주입 = KB 만). 증권사 안 주문 서버는 SessionManager 가 세션
+    // 생성 때 고른다(D-10). 열린 세션은 바로 `conn.acquiredServers` 에 적는다 — 중간에 끝나도 close 가 전부 반납한다.
+    const sessions: DmaSession[] = [];
+    for (const broker of this.#brokersFor(creds.dmaUserId)) {
+      const session = this.#sessions.acquireFor(userId, broker, creds);
+      if (session === null) {
+        if (broker !== "KB") {
+          // 그 증권사 주문 서버가 그 사이 빠졌다 — 그 증권사만 건너뛴다(KB 화면은 그대로 선다).
+          logger.warn({ userId, broker }, "[WS] 주문 서버 없음 — 그 증권사 세션만 건너뜀");
+          continue;
+        }
+        // 레지스트리에 KB 주문 서버가 없다 — 세션 없이 연결을 붙잡아 두면 구독 · 주문이 전부 「세션 없음」으로 막힌 채
+        // 화면이 멎는다. 자격증명 조회 실패와 같은 갈래(failed + 1011 · 재접속 가치 있는 장애)로 끝낸다.
+        logger.error({ userId, broker: "KB" }, "[WS] 주문 서버 없음 — 세션을 열지 못해 연결 종료");
+        this.#send(conn, { t: "state", s: "failed", msg: "실시간 세션이 없습니다. 주문 서버가 지정되지 않았습니다." });
+        conn.ws.close(1011, "no order server");
+        return;
+      }
+      conn.acquiredServers.push(session.serverKey);
+      sessions.push(session);
+    }
+    if (sessions.length === 0) {
+      // `brokersFor` 가 빈 목록을 줬다(계약 위반 — 운영 결선은 KB 를 늘 넣는다). 「세션 없음」 화면으로 멎지 않게 같은 갈래.
+      logger.error({ userId }, "[WS] 열 증권사 세션 없음 — 연결 종료");
       this.#send(conn, { t: "state", s: "failed", msg: "실시간 세션이 없습니다. 주문 서버가 지정되지 않았습니다." });
       conn.ws.close(1011, "no order server");
       return;
     }
-    conn.acquiredServers.push(session.serverKey);
-    this.#hub.attach(session);
-    this.#register(conn, userId, session, creds.dmaUserId);
+    for (const session of sessions) this.#hub.attach(session);
+    this.#register(conn, userId, sessions, creds.dmaUserId);
 
     // 인증 ACK 겸 배지 초기값. **브라우저는 이 프레임을 받은 뒤에야 구독을 보낸다**
     // (15-12 `use-relay-socket` 계약) — 빠뜨리면 화면이 영원히 비어 있다.
-    this.#send(conn, session.stateFrame());
+    // 증권사 세션이 여럿이면 병합 프레임이다(계좌 합집합 · 어느 세션이든 ready 면 ready — D-18).
+    this.#send(conn, this.#mergedStateFrame(userId));
 
     // 잔고·미체결 캐시가 있으면 즉시 내린다 (D-23/D-37). 계좌 데이터는 종목 구독과
     // 무관하므로 `sub` 을 기다리지 않는다 — 기다리면 아무 종목도 열지 않은 탭이
@@ -1671,8 +1714,8 @@ export class WsFanout {
         // `DmaSession` 이 유예 5분 동안 살아 있으므로(D-15) 리스너만 세션에 남고,
         // 같은 세션으로 재접속한 `#register` 가 하나 더 걸어 새로고침마다 누적된다.
         // `#register` 의 세션 교체 갈래로는 이 경로를 못 막는다 — 그때는 `existing` 이
-        // 이미 없기 때문이다.
-        entry.session.off("state", entry.onState);
+        // 이미 없기 때문이다. 증권사 세션이 여럿이면(29-20) 전부 뗀다.
+        for (const es of entry.sessions.values()) es.session.off("state", es.onState);
         this.#users.delete(userId);
       }
     }
@@ -1704,52 +1747,106 @@ export class WsFanout {
    *   반환이 실제로 걸리기 때문이다. 여기 `#users` 는 지워지므로 조기 반환만으로는
    *   부족하고, **entry 를 버리는 경로가 리스너도 함께 버려야** 한다.
    */
-  #register(conn: Conn, userId: string, session: DmaSession, dmaUserId: string): void {
-    const existing = this.#users.get(userId);
-    if (existing !== undefined && existing.session === session) {
-      existing.conns.add(conn);
-      // 인증마다 다시 조회한 값이 정본이다 — 등록 변경이 저널 라우팅에 즉시 반영돼야 한다.
-      existing.dmaUserId = dmaUserId;
-      return;
+  #register(conn: Conn, userId: string, sessions: readonly DmaSession[], dmaUserId: string): void {
+    let entry = this.#users.get(userId);
+    if (entry === undefined) {
+      entry = { sessions: new Map(), conns: new Set(), dmaUserId };
+      this.#users.set(userId, entry);
+    }
+    entry.conns.add(conn);
+    // 인증마다 다시 조회한 값이 정본이다 — 등록 변경이 저널 라우팅에 즉시 반영돼야 한다.
+    entry.dmaUserId = dmaUserId;
+
+    for (const session of sessions) {
+      const existing = entry.sessions.get(session.serverKey);
+      if (existing !== undefined && existing.session === session) continue;
+      if (existing !== undefined) {
+        // 세션이 재생성됐다 — 기존 소켓들도 새 세션의 상태를 받아야 한다.
+        // 버려질 세션의 리스너를 **여기서 뗀다.** 옛 세션이 살아 있는 동안(유예·재접속
+        // 경합) 죽은 entry 의 리스너가 그 세션에 남아 있으면 그것이 곧 누수다.
+        //
+        // ⚠️ 정직하게 적는다: **이 갈래는 오늘의 코드로는 도달하지 않는다.** `SessionManager`
+        //    가 세션을 새로 세우는 유일한 조건이 `refCount === 0` 인데(`acquire` 의 죽은 세션
+        //    폐기 갈래), 여기 `existing` 이 있다는 것은 그 사용자의 소켓이 아직 살아 있다는
+        //    뜻이라 `refCount >= 1` 이다. 그래서 16-44 의 회귀 실증에서 이 줄만 지웠을 때는
+        //    빨개지는 테스트가 **0건**이었다(㉓㉔ 를 깨는 것은 `#onClose` 쪽이다).
+        //    그럼에도 남긴다 — 이 `if` 블록 자체가 이미 있는 갈래이고(「세션 교체」 로그),
+        //    `acquire` 의 재생성 조건이 언젠가 완화되면 리스너 누수가 **조용히** 되살아난다.
+        //    갈래를 두면서 정리만 빼는 것은 버그를 예약해 두는 것이다.
+        existing.session.off("state", existing.onState);
+        logger.info({ userId, serverKey: session.serverKey, conns: entry.conns.size }, "[WS] 세션 교체 — 상태 리스너 재결선");
+      }
+      entry.sessions.set(session.serverKey, { session, onState: this.#stateListener(userId, session) });
     }
 
-    const conns = new Set<Conn>([conn]);
-    if (existing !== undefined) {
-      // 세션이 재생성됐다 — 기존 소켓들도 새 세션의 상태를 받아야 한다.
-      for (const c of existing.conns) conns.add(c);
-      // 버려질 entry 의 리스너를 **여기서 뗀다.** 옛 세션이 살아 있는 동안(유예·재접속
-      // 경합) 죽은 entry 의 리스너가 그 세션에 남아 있으면 그것이 곧 누수다.
-      //
-      // ⚠️ 정직하게 적는다: **이 갈래는 오늘의 코드로는 도달하지 않는다.** `SessionManager`
-      //    가 세션을 새로 세우는 유일한 조건이 `refCount === 0` 인데(`acquire` 의 죽은 세션
-      //    폐기 갈래), 여기 `existing` 이 있다는 것은 그 사용자의 소켓이 아직 살아 있다는
-      //    뜻이라 `refCount >= 1` 이다. 그래서 16-44 의 회귀 실증에서 이 줄만 지웠을 때는
-      //    빨개지는 테스트가 **0건**이었다(㉓㉔ 를 깨는 것은 `#onClose` 쪽이다).
-      //    그럼에도 남긴다 — 이 `if` 블록 자체가 이미 있는 갈래이고(「세션 교체」 로그),
-      //    `acquire` 의 재생성 조건이 언젠가 완화되면 리스너 누수가 **조용히** 되살아난다.
-      //    갈래를 두면서 정리만 빼는 것은 버그를 예약해 두는 것이다.
-      existing.session.off("state", existing.onState);
-      logger.info({ userId, conns: conns.size }, "[WS] 세션 교체 — 상태 리스너 재결선");
+    // 29-20 — 이 사용자의 살아 있는 연결 누구도 쥐지 않은 세션(증권사 매핑에서 빠졌거나 유예 · 종료)은 병합 뷰에서
+    // 뗀다. hub 도 같은 집합으로 맞춘다(그 세션 몫 계좌 · 전략이 합집합에 남지 않게). 세션 수명은 SessionManager 몫이다.
+    const held = new Set<string>();
+    for (const c of entry.conns) for (const key of c.acquiredServers) held.add(key);
+    for (const [serverKey, es] of [...entry.sessions]) {
+      if (held.has(serverKey)) continue;
+      es.session.off("state", es.onState);
+      entry.sessions.delete(serverKey);
+      logger.info({ userId, serverKey }, "[WS] 쥔 연결이 없는 세션 — 병합 뷰에서 분리");
     }
+    this.#hub.retainSessions(userId, held);
+  }
 
-    // 핸들을 지역 변수로 먼저 만든다 — 인라인 익명 함수는 참조가 남지 않아 뗄 수 없다.
+  /**
+   * 세션 하나에 거는 상태 리스너 — 그 세션 상태가 바뀌면 사용자 소켓 전부에 **병합 상태 프레임**을 보낸다(D-18).
+   * 핸들을 반환해 entry 가 수명을 소유한다(뗄 수 있어야 한다 · R2-WR-05).
+   */
+  #stateListener(userId: string, session: DmaSession): (frame: RelayStateMsg) => void {
     const onState = (frame: RelayStateMsg): void => {
       // 정본이 바뀌었으면 옛 리스너는 침묵한다 (15-03 generation 규율 동형).
       //
-      // ★ 위·아래의 `off` 가 있어도 **이 가드를 지우면 안 된다.** 둘은 서로 다른 시점의
+      // ★ `#register` · `#onClose` 의 `off` 가 있어도 **이 가드를 지우면 안 된다.** 둘은 서로 다른 시점의
       //   방어다: `off` 는 「entry 를 버리는 순간」에 걸고, 이 가드는 「이벤트가 발행되는
       //   순간」에 건다. `DmaSession.emit` 은 리스너 배열의 **사본**을 순회하므로, 어떤
       //   리스너가 실행되는 도중에 `off` 가 걸려도 같은 emit 안의 나머지 리스너는 그대로
       //   호출된다 — 그 창에서 정본 대조가 없으면 이미 버려진 entry 가 프레임을 흘린다.
       //   반대로 가드만 있고 `off` 가 없으면(= R2-WR-05 이전 상태) **같은 세션**으로
-      //   재접속했을 때 `current.session === session` 이라 가드가 통과해 버린다.
+      //   재접속했을 때 정본이 같은 세션이라 가드가 통과해 버린다.
       const current = this.#users.get(userId);
-      if (current === undefined || current.session !== session) return;
-      this.#deliver(userId, frame);
+      if (current === undefined || current.sessions.get(session.serverKey)?.session !== session) return;
+      this.#deliver(userId, this.#mergedStateFrame(userId, session, frame));
     };
-
-    this.#users.set(userId, { session, conns, onState, dmaUserId });
     session.on("state", onState);
+    return onState;
+  }
+
+  /**
+   * 사용자의 **병합 상태 프레임** (Phase 29-20 · D-18).
+   *
+   * - 세션 1개: 그 세션 프레임 그대로(이벤트로 온 프레임이면 그것 — `msg` · `attempt` 보존). 단일 세션 사용자 화면 무변경.
+   * - 여럿: `accounts` = 세션 전부의 허용 계좌 합집합(primary 먼저 · 계좌번호 중복 제거), `s` = 어느 세션이든 ready 면
+   *   ready(문구는 primary 가 ready 면 primary 의 것, 아니면 첫 ready 세션의 것), 아니면 primary 상태(문구 · 시도 횟수 포함).
+   *   primary = KB 세션 우선 · 없으면 처음 결선된 세션(hub `#primaryOwner` 와 같은 규칙).
+   *
+   * 같은 계좌번호 문자열이 두 증권사에 동시에 있는 경우는 다루지 않는다(29-20 가정) — 중복 제거가 primary 쪽 항목을 남긴다.
+   *
+   * @param trigger 상태 이벤트를 낸 세션과 그 프레임(있으면 그 세션 몫은 이 프레임을 쓴다).
+   */
+  #mergedStateFrame(userId: string, trigger?: DmaSession, frame?: RelayStateMsg): RelayStateMsg {
+    const entry = this.#users.get(userId);
+    const sessions = entry === undefined ? (trigger === undefined ? [] : [trigger]) : [...entry.sessions.values()].map((e) => e.session);
+    const frameOf = (s: DmaSession): RelayStateMsg => (s === trigger && frame !== undefined ? frame : s.stateFrame());
+    const primary = sessions.find((s) => s.broker === "KB") ?? sessions[0];
+    if (primary === undefined) return { t: "state", s: "connecting" };
+    if (sessions.length === 1) return frameOf(primary);
+
+    const ready = primary.isReady ? primary : sessions.find((s) => s.isReady);
+    const base = frameOf(ready ?? primary);
+    const seen = new Set<string>();
+    const accounts: RelayAccount[] = [];
+    for (const s of [primary, ...sessions.filter((x) => x !== primary)]) {
+      for (const a of s.allowedAccounts) {
+        if (seen.has(a.accountNo)) continue;
+        seen.add(a.accountNo);
+        accounts.push(a);
+      }
+    }
+    return { ...base, accounts };
   }
 
   /**

@@ -299,6 +299,13 @@ export function samePriceSection(a: RelayQuote, b: RelayQuote): boolean {
 export interface HubSession {
   /** gh-radar 사용자 id. 팬아웃 대상 선택의 유일한 기준이다 (T-15-02). */
   readonly userId: string;
+  /**
+   * 레지스트리 서버 키 (Phase 29-20 — 세션 소유 키 `ownerKey(userId, serverKey)` 의 한 축). `DmaSession` 이 만족한다.
+   * 없으면(단위 테스트 가짜 세션) `broker` → `"KB"` 로 접는다 — 단일 세션은 「세션 1개짜리 병합」 이다.
+   */
+  readonly serverKey?: string;
+  /** `LoginReq.broker` (Phase 29-20 — primary 판정 축 · 사용자 × 증권사 세션 1개 · D-10). 없으면 `"KB"`. */
+  readonly broker?: string;
   /** 운용 준비 여부. false 면 계좌 · 전략 요청을 보내지 않는다(종목 구독은 Phase 26 부터 quote 연결 몫). */
   readonly isReady: boolean;
   /**
@@ -501,6 +508,35 @@ function userPrefix(userId: string): string {
 }
 
 /**
+ * 세션 소유 키 (Phase 29-20 · D-18) — `${userId}|${serverKey}`. `SessionManager` 의 `sessionKey` 와 같은 모양이다.
+ *
+ * 사용자 1명이 증권사 세션을 여럿(KB 주문 서버 · 교보 주문 서버) 가질 수 있으므로 hub 는 세션을 이 키로 결선하고,
+ * 세션이 채우는 캐시도 이 키를 앞에 붙여 **그 세션 몫**을 가른다. 사용자 단위 조회는 `userPrefix` 로 소유 키 전부를
+ * 훑어 합집합을 만든다. userId(uuid) · 서버 키(증권사 접두 영숫자) 어디에도 `|` 가 없어 분해가 모호하지 않다.
+ */
+export function ownerKey(userId: string, serverKey: string): string {
+  return `${userId}|${serverKey}`;
+}
+
+/** 소유 키 접두어. 그 세션 몫 키만 훑을 때 쓴다 — `u|KB1|` 이 `u|KB120|` 에 걸리지 않게 끝에 `|` 를 붙인다. */
+function ownerPrefix(owner: string): string {
+  return `${owner}|`;
+}
+
+/** primary 우선 증권사 (D-18 — `SessionManager.primaryOf` 와 같은 규칙). */
+const PRIMARY_BROKER = "KB";
+
+/** 세션의 증권사. 미기재(단위 테스트 가짜 세션)는 KB. */
+function brokerOf(session: HubSession): string {
+  return session.broker ?? PRIMARY_BROKER;
+}
+
+/** 세션의 서버 키. 미기재면 증권사 이름(레지스트리 없는 단위 테스트 — `DmaSession` 의 `serverKey ?? broker` 와 같다). */
+function serverKeyOf(session: HubSession): string {
+  return session.serverKey ?? brokerOf(session);
+}
+
+/**
  * 상따 캐시 키. **`item.key` 를 그대로 쓴다** — 재조립하지 않는다.
  *
  * 전략 키(`ISIN:계좌:거래소`)의 조립 지점은 `envelope.ts` 의 `strategyKey()` 하나뿐이다.
@@ -616,8 +652,16 @@ function fillMissingName<T extends { isin: string; name?: string; code?: string 
  * (그 userId 의 소켓 집합에만).
  */
 export class SubscriptionHub extends EventEmitter {
-  /** userId → 세션. 세션이 교체되면 여기가 정본이고 옛 리스너는 침묵한다. */
+  /**
+   * 세션 소유 키(`ownerKey(userId, serverKey)`) → 세션 (Phase 29-20 — 옛 키는 userId). 세션이 교체되면 여기가 정본이고
+   * 옛 리스너는 침묵한다. 삽입 순서 = 결선 순서 — `#primaryOwner` 의 「KB 없으면 처음 결선된 세션」 근거다.
+   */
   readonly #sessions = new Map<string, HubSession>();
+  /**
+   * 리스너를 이미 건 세션 객체 (Phase 29-20). `retainSessions` 로 떼어 낸 세션이 다시 `attach` 돼도 리스너를 두 벌 걸지
+   * 않는다 — 옛 리스너는 `#sessions` 정본 대조로 침묵하다가, 같은 객체가 정본으로 돌아오면 다시 말한다.
+   */
+  readonly #wired = new WeakSet<HubSession>();
   /**
    * 시세 업스트림 송신자 (Phase 26 D-12) — quote 연결 하나. 없으면(부팅 결선 전 · 비밀 없음) 참조계수만 기록한다.
    * 교체되면 여기가 정본이고 옛 feed 의 리스너는 정본 대조로 침묵한다(세션 규율 동형).
@@ -674,7 +718,8 @@ export class SubscriptionHub extends EventEmitter {
   /** 전역 배치 타이머 **1개** (키 · 사용자 단위로 만들지 않는다 — D-35). */
   #tapeFlushTimer: NodeJS.Timeout | null = null;
   /**
-   * `${userId}|${accountNo}` → **누적 반영된 전량 스냅샷** (D-23/D-37).
+   * `${ownerKey}|${accountNo}` → **누적 반영된 전량 스냅샷** (D-23/D-37 · Phase 29-20 — 키 앞이 세션 소유 키라 한 세션의
+   * 교체 · 폐기가 다른 증권사 세션의 계좌를 지우지 않는다. 사용자 단위 조회는 `userPrefix` 합집합).
    *
    * 델타(67)를 받아도 여기에는 항상 `snap:true` 인 전량 뷰를 둔다 — 새 탭이 붙었을 때
    * 그대로 1프레임으로 내려보낼 수 있어야 하기 때문이다. 와이어로 나가는 델타는
@@ -830,23 +875,105 @@ export class SubscriptionHub extends EventEmitter {
    * 세션 **객체가 바뀐 경우**(회선 실패 후 재생성)에는 옛 캐시를 버린다. 옛 세션의
    * 업스트림 구독은 그 TCP 와 함께 사라졌고, 참조계수는 "브라우저가 여전히 보고 있다"는
    * 사실이므로 남긴다 — 새 세션의 `ready` 가 전량 재구독으로 복원한다 (Pitfall 4).
+   *
+   * Phase 29-20 (RESEARCH Pitfall 9 해소) — 결선 단위가 **세션 소유 키**(`ownerKey(userId, serverKey)`)다. 「교체」 는
+   * 같은 소유 키의 다른 객체일 때뿐이고, 버리는 캐시도 **그 세션 몫**이다 — 같은 사용자의 교보 세션 결선이 KB 세션의
+   * 캐시를 지우지 않는다. 같은 증권사의 다른 서버 키 세션(D-10 주문 서버 전환 뒤 새 세션)은 옛 서버 세션을 대체한다 —
+   * 사용자 × 증권사 세션은 1개다(`SessionManager` 규칙).
    */
   attach(session: HubSession): void {
     const userId = session.userId;
-    const prev = this.#sessions.get(userId);
+    const serverKey = serverKeyOf(session);
+    const owner = ownerKey(userId, serverKey);
+    const prev = this.#sessions.get(owner);
     if (prev === session) return;
 
+    const primaryBefore = this.#primaryOwner(userId);
     if (prev !== undefined) {
-      // 시세 구독 · 캐시는 전역이라 사용자 세션 교체와 무관하다 (Phase 26 D-08) — 사용자 캐시만 버린다.
-      logger.info({ userId }, "[HUB] 세션 교체 — 사용자 캐시 폐기 (계좌 · 전략은 ready 에서 재요청)");
-      this.#clearCaches(userId);
+      // 시세 구독 · 캐시는 전역이라 사용자 세션 교체와 무관하다 (Phase 26 D-08) — 그 세션 몫 사용자 캐시만 버린다.
+      logger.info({ userId, serverKey }, "[HUB] 세션 교체 — 사용자 캐시 폐기 (계좌 · 전략은 ready 에서 재요청)");
+      this.#clearCaches(userId, owner, primaryBefore === owner);
+    }
+    // D-10 — 같은 증권사 · 다른 서버 키의 옛 세션은 이 세션이 대체한다(주문 서버 전환 뒤 새 세션).
+    const prefix = userPrefix(userId);
+    for (const [other, s] of [...this.#sessions]) {
+      if (other === owner || !other.startsWith(prefix) || brokerOf(s) !== brokerOf(session)) continue;
+      logger.info(
+        { userId, serverKey, replaced: serverKeyOf(s) },
+        "[HUB] 같은 증권사 다른 서버 세션 대체 — 옛 세션 몫 캐시 폐기 (D-10)",
+      );
+      this.#dropOwner(userId, other, primaryBefore === other);
     }
 
-    this.#sessions.set(userId, session);
-    // 옛 세션의 리스너는 떼지 않고 **정본 대조로 침묵시킨다** (15-03 generation 규율 동형).
-    session.on("frame", (e) => this.#onFrame(userId, session, e));
-    session.on("ready", () => this.#onReady(userId, session));
-    logger.info({ userId }, "[HUB] 세션 결선");
+    this.#sessions.set(owner, session);
+    const rewired = this.#wired.has(session);
+    if (!rewired) {
+      this.#wired.add(session);
+      // 옛 세션의 리스너는 떼지 않고 **정본 대조로 침묵시킨다** (15-03 generation 규율 동형).
+      session.on("frame", (e) => this.#onFrame(userId, owner, session, e));
+      session.on("ready", () => this.#onReady(userId, owner, session));
+    }
+    logger.info({ userId, serverKey }, "[HUB] 세션 결선");
+    this.#afterPrimaryChange(userId, primaryBefore);
+    // 떼어 냈던(`retainSessions`) 세션이 Ready 인 채 돌아왔다 — 그 사이 비운 몫은 지나간 `ready` 를 기다리면 영영
+    // 채워지지 않는다. 같은 자리(`#onReady`)로 다시 요청한다. 새 세션(처음 결선)은 곧 오는 `ready` 가 한다.
+    if (rewired && session.isReady) this.#onReady(userId, owner, session);
+  }
+
+  /**
+   * 그 사용자의 세션 중 `serverKeys` 에 없는 것을 떼어 내고 그 세션 몫 캐시를 버린다 (Phase 29-20).
+   *
+   * wss 인증이 부른다 — 인자는 그 사용자의 살아 있는 연결이 지금 쥔(acquire 한) 서버 키 합집합이다. 증권사 매핑에서
+   * 빠진 세션(유예 중이거나 이미 끝났다)의 계좌 · 전략이 합집합 뷰에 영원히 남지 않게 한다. 세션 객체 자체는 끊지
+   * 않는다 — 수명은 `SessionManager` 몫이다. 떼어 낸 세션의 늦은 프레임은 정본 대조로 침묵한다.
+   */
+  retainSessions(userId: string, serverKeys: ReadonlySet<string>): void {
+    const prefix = userPrefix(userId);
+    const primaryBefore = this.#primaryOwner(userId);
+    let dropped = 0;
+    for (const [owner, s] of [...this.#sessions]) {
+      if (!owner.startsWith(prefix) || serverKeys.has(serverKeyOf(s))) continue;
+      logger.info({ userId, serverKey: serverKeyOf(s) }, "[HUB] 쥔 연결이 없는 세션 분리 — 그 세션 몫 캐시 폐기");
+      this.#dropOwner(userId, owner, primaryBefore === owner);
+      dropped += 1;
+    }
+    if (dropped > 0) this.#afterPrimaryChange(userId, primaryBefore);
+  }
+
+  /**
+   * 그 사용자의 primary 세션 소유 키 (D-18) — **KB 세션 우선**, 없으면 처음 결선된 세션, 세션이 없으면 undefined.
+   * 사용자 단위 원천(VI · 84 · 76/78 · 77)과 사용자 단위 요청(21 · 34 · 43)이 이 세션만 본다.
+   */
+  #primaryOwner(userId: string): string | undefined {
+    const prefix = userPrefix(userId);
+    let first: string | undefined;
+    for (const [owner, s] of this.#sessions) {
+      if (!owner.startsWith(prefix)) continue;
+      if (brokerOf(s) === PRIMARY_BROKER) return owner;
+      first ??= owner;
+    }
+    return first;
+  }
+
+  /** 세션 하나를 떼어 낸다 — 그 세션 몫 캐시 폐기 + 결선 해제. 리스너는 정본 대조로 침묵한다. */
+  #dropOwner(userId: string, owner: string, wasPrimary: boolean): void {
+    this.#clearCaches(userId, owner, wasPrimary);
+    this.#sessions.delete(owner);
+  }
+
+  /**
+   * primary 가 바뀌었으면(D-18) — 아직 붙어 있는 옛 primary 몫 사용자 단위 캐시를 버리고, 새 primary 가 이미 Ready 면
+   * 사용자 단위 스냅샷(21 · 34 · 43)을 그 세션으로 요청한다. 처음 결선(이전 primary 없음)은 곧 오는 `ready` 몫이다.
+   */
+  #afterPrimaryChange(userId: string, primaryBefore: string | undefined): void {
+    const after = this.#primaryOwner(userId);
+    if (after === primaryBefore || primaryBefore === undefined) return;
+    // 옛 primary 가 떼어졌으면 `#dropOwner` 가 이미 비웠다. 남아 있으면(강등) 여기서 비운다.
+    if (this.#sessions.has(primaryBefore)) this.#clearPrimaryCaches(userId);
+    const session = after === undefined ? undefined : this.#sessions.get(after);
+    if (session === undefined) return;
+    logger.info({ userId, serverKey: serverKeyOf(session) }, "[HUB] primary 세션 변경 — 사용자 단위 원천 교체 (D-18)");
+    if (session.isReady) this.#requestPrimarySnapshot(userId, session);
   }
 
   /**
@@ -1296,9 +1423,11 @@ export class SubscriptionHub extends EventEmitter {
    * 트리거는 `ready` **하나뿐**이다(재구독과 같은 자리 — Pitfall 4). 브라우저가 탭을
    * 열 때마다 다시 요청하지 않는 이유는 캐시가 즉시 응답하기 때문이고, 그 편이
    * 게이트웨이 왕복을 사용자 수에 비례시키지 않는다.
+   *
+   * @param owner 세션 소유 키(Phase 29-20 — 증권사 세션마다 자기 계좌를 요청한다). 생략 = primary 세션.
    */
-  requestAccountState(userId: string): void {
-    const session = this.#sessions.get(userId);
+  requestAccountState(userId: string, owner: string | undefined = this.#primaryOwner(userId)): void {
+    const session = owner === undefined ? undefined : this.#sessions.get(owner);
     if (session === undefined || !session.isReady) {
       logger.warn(
         { userId, hasSession: session !== undefined },
@@ -1307,7 +1436,7 @@ export class SubscriptionHub extends EventEmitter {
       return;
     }
     session.send(buildGetAccountStateReq(""));
-    logger.info({ userId }, "[HUB] Ready — 전 계좌 상태 스냅샷 요청");
+    logger.info({ userId, serverKey: serverKeyOf(session) }, "[HUB] Ready — 전 계좌 상태 스냅샷 요청");
   }
 
   /**
@@ -1327,9 +1456,14 @@ export class SubscriptionHub extends EventEmitter {
    * D-13 에 따라 주기 재조회 타이머도, 브라우저가 부를 수 있는 수동 재조회 진입점도
    * 만들지 않는다 — 사용자 조작에 대한 60/61 에코는 Notice 라 유실되지 않으므로 메울 것이
    * 없고, 폴링은 게이트웨이 왕복을 탭 수에 비례시킨다.
+   *
+   * Phase 29-20 (D-18) — 24(상따 목록)는 **증권사 세션마다**(상따는 병합), 21 · 34 · 43 은 **primary 세션만**(VI · 사용자
+   * 설정은 primary 원천)이다. 비 primary 세션이 21 을 보내면 그 응답은 버려지고, 사용자 단위 FIFO(`#pendingViGets`)만 어지럽힌다.
+   *
+   * @param owner 세션 소유 키. 생략 = primary 세션.
    */
-  requestStrategySnapshot(userId: string): void {
-    const session = this.#sessions.get(userId);
+  requestStrategySnapshot(userId: string, owner: string | undefined = this.#primaryOwner(userId)): void {
+    const session = owner === undefined ? undefined : this.#sessions.get(owner);
     if (session === undefined || !session.isReady) {
       logger.warn(
         { userId, hasSession: session !== undefined },
@@ -1338,7 +1472,18 @@ export class SubscriptionHub extends EventEmitter {
       return;
     }
     session.send(buildGetLimitChaserListReq());
+    if (owner !== this.#primaryOwner(userId)) {
+      logger.info(
+        { userId, serverKey: serverKeyOf(session) },
+        "[HUB] Ready — 상따 목록 요청 (primary 아닌 세션 — 21 · 34 · 43 은 primary 몫 · D-18)",
+      );
+      return;
+    }
+    this.#requestPrimarySnapshot(userId, session);
+  }
 
+  /** primary 세션 몫 사용자 단위 스냅샷 요청 — 21(거래소별 2회) · 34 · 43 (D-18). 24 는 부르는 쪽이 이미 보냈다. */
+  #requestPrimarySnapshot(userId: string, session: HubSession): void {
     // 옛 큐는 여기서 끝난다 — 이 Ready 이전에 보낸 21 의 응답은 이제 오지 않는다.
     const queue: RelayExchange[] = [];
     this.#pendingViGets.set(userId, queue);
@@ -1693,9 +1838,9 @@ export class SubscriptionHub extends EventEmitter {
   // 내부 — 프레임 수신
   // ----------------------------------------------------------
 
-  #onFrame(userId: string, session: HubSession, e: TransportFrameEvent): void {
-    // 세션이 교체됐다면 옛 리스너는 아무것도 보고하지 않는다 (15-03 generation 규율 동형).
-    if (this.#sessions.get(userId) !== session) return;
+  #onFrame(userId: string, owner: string, session: HubSession, e: TransportFrameEvent): void {
+    // 세션이 교체(또는 분리)됐다면 옛 리스너는 아무것도 보고하지 않는다 (15-03 generation 규율 동형).
+    if (this.#sessions.get(owner) !== session) return;
 
     switch (e.msgType) {
       case MSG.GetQuoteResp:
@@ -1727,7 +1872,7 @@ export class SubscriptionHub extends EventEmitter {
       case MSG.GetAccountStateResp:
       case MSG.AccountStateDelta: {
         const state = parseAccountState(e.env, e.msgType === MSG.GetAccountStateResp);
-        if (state !== null) this.#onAccountState(userId, state);
+        if (state !== null) this.#onAccountState(userId, owner, state);
         return;
       }
       case MSG.ServerMessage: {
@@ -2254,12 +2399,13 @@ export class SubscriptionHub extends EventEmitter {
    * 보내면 프레임이 커지기만 하고 얻는 것이 없다. 삭제(0 행)를 여기서 걸러 버리지 않는
    * 것도 같은 이유다 — 그 신호가 사라지면 브라우저가 사라진 종목을 계속 그린다.
    */
-  #onAccountState(userId: string, rawState: RelayAccountState): void {
+  #onAccountState(userId: string, owner: string, rawState: RelayAccountState): void {
     // 이름 보강은 **캐시와 와이어 이전**에 한 번만 한다. 캐시만 채우면 라이브 프레임에
     // 이름이 없고, 와이어만 채우면 재접속 캐시 재생에 이름이 없다 — 둘이 갈리면
     // "새로고침하면 이름이 사라진다" 가 된다.
     const state = this.#enrichNames(rawState);
-    const key = `${userId}|${state.a}`;
+    // 키 앞은 세션 소유 키다(29-20 · D-18 병합) — 계좌별 항목이라 한 세션의 66 은 그 세션 계좌만 바꾼다.
+    const key = `${ownerPrefix(owner)}${state.a}`;
     this.#accountStates.set(key, this.#mergeAccountState(key, state));
     logger.info(
       {
@@ -2607,16 +2753,17 @@ export class SubscriptionHub extends EventEmitter {
     );
   }
 
-  #onReady(userId: string, session: HubSession): void {
-    if (this.#sessions.get(userId) !== session) return;
+  #onReady(userId: string, owner: string, session: HubSession): void {
+    if (this.#sessions.get(owner) !== session) return;
     // 계좌 재요청·전략 재요청은 **같은 트리거 한 자리**에서만 일어난다 (Pitfall 4).
     // 경로를 두 벌 만들면 "재접속 후 잔고만 안 나온다"·"재접속 후 전략만 안 나온다"가 생긴다.
     // D-13: 이 줄들 말고 사용자별 재조회를 거는 곳은 없다 — 주기 타이머도, 브라우저가 부를 수
     // 있는 수동 새로고침 진입점도 만들지 않는다.
     // 시세 재구독은 여기서 하지 않는다 — **quote 연결 ready 하나다**(Phase 26 D-03 · D-08 · Pitfall 4 재정의).
     // 사용자 세션으로 종목을 되걸면 per-user 경로가 폴백으로 되살아난다.
-    this.requestAccountState(userId);
-    this.requestStrategySnapshot(userId);
+    // 증권사 세션마다 제 계좌 · 상따를 요청한다 — 사용자 단위(21 · 34 · 43)는 primary 세션만(D-18 · 29-20).
+    this.requestAccountState(userId, owner);
+    this.requestStrategySnapshot(userId, owner);
     // 잔량진행률 재동기화 (R2-WR-01) — 게이트웨이 재요청이 **아니다**(83 은 재요청 경로가 없다). Ready 이전
     // 구간(같은 세션 재접속 · 계좌 선언 중)의 83 은 캐시만 바꾸고 팬아웃하지 않았으므로, 그런 83 이 있었을
     // 때만 이미 연결된 탭의 사본을 **현재 캐시 그대로** 맞춘다. 값은 캐시 그대로라 한 세션 안의 D-13
@@ -2642,8 +2789,15 @@ export class SubscriptionHub extends EventEmitter {
     this.emit("fanout", { userId, msg });
   }
 
-  #clearCaches(userId: string): void {
+  /**
+   * 세션 하나 몫의 사용자 캐시를 버린다 (세션 교체 · 분리 — Phase 29-20 부터 **세션 소유 키 단위**).
+   *
+   * @param owner 버릴 세션의 소유 키 — 계좌 등 병합 캐시는 이 키 몫만 지운다(같은 사용자의 다른 증권사 세션 몫 보존).
+   * @param wasPrimary 그 세션이 primary 였는가 — 그렇다면 사용자 단위 원천(VI · 84 · 76/78 · 77)도 그 세션 몫이라 함께 버린다.
+   */
+  #clearCaches(userId: string, owner: string, wasPrimary: boolean): void {
     const prefix = userPrefix(userId);
+    const own = ownerPrefix(owner);
     // 본 키 기억(Pattern 10) 중 참조 0 인 것을 지운다 — 새 세션은 83 캐시가 비어 있으니 그 키로 돌아오면 다시 넛지해야 한다.
     // 참조 > 0 은 탭이 아직 쥐고 있으므로 남긴다(새 세션의 `ready` 가 그 키들을 넛지한다).
     const user = this.#userRefs.get(userId);
@@ -2653,7 +2807,7 @@ export class SubscriptionHub extends EventEmitter {
     }
     // 시세 캐시(`#quotes` · `#tapes`)는 전역이라 여기서 건드리지 않는다 (Phase 26 D-12) — 사용자 세션 교체와 무관하다.
     for (const key of [...this.#accountStates.keys()]) {
-      if (key.startsWith(prefix)) this.#accountStates.delete(key);
+      if (key.startsWith(own)) this.#accountStates.delete(key);
     }
     // 전략 3맵도 **반드시** 여기서 버린다 (D-12). 빠뜨리면 재로그인·세션 교체 후에도 옛
     // 전략이 캐시에 남아, 인증 직후 스냅샷 팬아웃이 이미 사라진 전략을 화면에 그린다.
@@ -2663,28 +2817,8 @@ export class SubscriptionHub extends EventEmitter {
     // 「64 받았음」 도 같이 지운다 (18-26) — 남기면 새 세션의 64 가 오기 전 인증한 연결이
     // 방금 비운 캐시를 확정 목록(`lc.snap []`)으로 받는다. 이 사용자 것만 지운다(T-18-110).
     this.#limitChaserKnown.delete(userId);
-    // VI 설정은 **거래소별**이라 두 칸을 다 지운다 (17-05 / D-06) — 지우면 `getViTrigger` 가
-    // 다시 `undefined`(모름)가 되고, 새 세션의 61 이 도착할 때까지 아무 프레임도 내리지 않는다.
-    for (const key of [...this.#viTriggers.keys()]) {
-      if (key.startsWith(prefix)) this.#viTriggers.delete(key);
-    }
-    // 21 요청 FIFO 도 **반드시** 비운다 (규칙 (d) — C# `Client.cs:3038` 동형). 끊기면 아직
-    // 답을 못 받은 조회는 영영 오지 않는다. 남겨 두면 다음 세션의 빈 61 이 옛 거래소로
-    // 귀속돼 엉뚱한 칸이 「미등록」으로 내려간다.
-    this.#pendingViGets.delete(userId);
-    for (const key of [...this.#viOrders.keys()]) {
-      if (key.startsWith(prefix)) this.#viOrders.delete(key);
-    }
-    // above 집합도 버린다. 서버가 재로그인마다 78 전량을 다시 주므로 옛 집합을 남길 이유가
-    // 없고, 남기면 이미 이탈한 종목이 새 세션의 첫 스냅샷에 섞인다.
-    for (const key of [...this.#rateCrossItems.keys()]) {
-      if (key.startsWith(prefix)) this.#rateCrossItems.delete(key);
-    }
-    // 예약창도 버린다 — 키가 userId 자체이므로 지우면 `getQueuedWindow` 가 다시
-    // `undefined`(모름)가 되고, 새 세션의 77 이 올 때까지 아무 프레임도 내리지 않는다.
-    this.#queuedWindows.delete(userId);
-    // 사용자 설정도 버린다(27-01) — 77 과 같은 이유. 새 세션의 84 가 다시 채울 때까지 「모름」으로 둔다.
-    this.#userSettings.delete(userId);
+    // 사용자 단위 원천(VI · 84 · 76/78 · 77)은 primary 세션 몫이다(D-18) — primary 가 아닌 세션의 교체 · 분리는 건드리지 않는다.
+    if (wasPrimary) this.#clearPrimaryCaches(userId);
     // 잔량진행률도 버린다 — 77 · 78 이 여기 있는 것과 같은 이유다(RESEARCH Pitfall 6 · T-25-26). 남기면
     // 세션 교체 뒤 인증 직후 스냅이 이미 사라진 대기 주문의 진행률을 그린다. 새 세션의 83 이 다시 채운다.
     //
@@ -2713,6 +2847,36 @@ export class SubscriptionHub extends EventEmitter {
     }
     const unsynced = this.#progressUnsynced.delete(userId);
     if (clearedProgress > 0 || unsynced) this.#fanout(userId, { t: "unf.progress", snap: true, entries: [] });
+  }
+
+  /**
+   * primary 세션 몫 사용자 단위 캐시(D-18 — VI 설정 · 21 FIFO · VI 주문 추적 · 돌파 집합 · 예약 창 · 사용자 설정)를 버린다.
+   * primary 세션의 교체 · 분리, 또는 primary 가 다른 세션으로 바뀔 때(`#afterPrimaryChange`) 부른다.
+   */
+  #clearPrimaryCaches(userId: string): void {
+    const prefix = userPrefix(userId);
+    // VI 설정은 **거래소별**이라 두 칸을 다 지운다 (17-05 / D-06) — 지우면 `getViTrigger` 가
+    // 다시 `undefined`(모름)가 되고, 새 세션의 61 이 도착할 때까지 아무 프레임도 내리지 않는다.
+    for (const key of [...this.#viTriggers.keys()]) {
+      if (key.startsWith(prefix)) this.#viTriggers.delete(key);
+    }
+    // 21 요청 FIFO 도 **반드시** 비운다 (규칙 (d) — C# `Client.cs:3038` 동형). 끊기면 아직
+    // 답을 못 받은 조회는 영영 오지 않는다. 남겨 두면 다음 세션의 빈 61 이 옛 거래소로
+    // 귀속돼 엉뚱한 칸이 「미등록」으로 내려간다.
+    this.#pendingViGets.delete(userId);
+    for (const key of [...this.#viOrders.keys()]) {
+      if (key.startsWith(prefix)) this.#viOrders.delete(key);
+    }
+    // above 집합도 버린다. 서버가 재로그인마다 78 전량을 다시 주므로 옛 집합을 남길 이유가
+    // 없고, 남기면 이미 이탈한 종목이 새 세션의 첫 스냅샷에 섞인다.
+    for (const key of [...this.#rateCrossItems.keys()]) {
+      if (key.startsWith(prefix)) this.#rateCrossItems.delete(key);
+    }
+    // 예약창도 버린다 — 키가 userId 자체이므로 지우면 `getQueuedWindow` 가 다시
+    // `undefined`(모름)가 되고, 새 세션의 77 이 올 때까지 아무 프레임도 내리지 않는다.
+    this.#queuedWindows.delete(userId);
+    // 사용자 설정도 버린다(27-01) — 77 과 같은 이유. 새 세션의 84 가 다시 채울 때까지 「모름」으로 둔다.
+    this.#userSettings.delete(userId);
   }
 
   /**

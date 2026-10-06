@@ -78,7 +78,7 @@
 import http from "node:http";
 
 import { loadConfig } from "./config.js";
-import { DMA_BROKERS, ServerRegistry, isDmaBroker } from "./registry/registry.js";
+import { DMA_BROKERS, ServerRegistry, isDmaBroker, type DmaBroker } from "./registry/registry.js";
 import { ServerPipelines, type ServerPipeline } from "./registry/pipelines.js";
 import { logger } from "./logger.js";
 import { createRelaySupabase } from "./store/supabase.js";
@@ -187,7 +187,7 @@ const appAccess = new AppAccess({ supabase, refreshMs: config.appAccessRefreshMs
  * 사용자 세션 — (유저, 서버) 단위(Phase 29-16). 세션을 만들 때마다 **그 증권사의 주문 서버**로 연다(D-10 — 사용자 ×
  * 증권사 세션이 살아 있으면 주문 서버가 바뀌어도 그 세션 재사용 · 새 서버는 다음 세션부터). 그 증권사 주문 서버가
  * 없으면 세션을 열지 않는다(`acquireFor` → null). 생성자 host/port/broker 는 `resolveTarget` 을 주는 이 결선에서는 쓰지 않는다.
- * 오늘 wss 인증은 KB 세션만 연다(교보 세션은 29-20).
+ * wss 인증이 어느 증권사 세션을 여는지는 아래 `brokersFor` 가 정한다(29-20 · D-18).
  */
 const sessionManager = new SessionManager({
   host: config.dmaHost,
@@ -261,6 +261,21 @@ const wsServer = http.createServer((_req, res) => {
   res.end(JSON.stringify({ error: { code: "NOT_FOUND", message: "Route not found" } }));
 });
 
+/**
+ * wss 인증이 세션을 열 증권사 (Phase 29-20 · D-18 — 교보 웹 주문 열기).
+ *   - **KB 는 늘 연다** — 종전 동작 그대로다. KB 주문 서버 매핑에 그 DMA id 가 없으면 게이트웨이 로그인 거부가 사유를
+ *     말한다(브라우저 「세션 거부」 배지). 매핑 적재 여부에 기대지 않는다 — KB 관찰자가 늦어도 KB 화면은 선다.
+ *   - **교보는 교보 주문 서버 저널 매핑(79/87)에 그 DMA id 계좌가 있을 때만** 연다(RESEARCH Pattern 5) — 서버에 없는 유저로
+ *     로그인해 거부 루프를 만들지 않는다. 매핑이 아직 없으면(관찰자 적재 전) 열지 않는다(보수 — 다음 인증부터 열린다).
+ * 호출마다 레지스트리 · 파이프라인 현재 값을 본다(주문 서버 전환 · 파이프라인 재생성 추종). DMA id 를 로그에 싣지 않는다.
+ */
+function brokersFor(dmaUserId: string): DmaBroker[] {
+  const out: DmaBroker[] = ["KB"];
+  const kyobo = registry.orderServerOf("KYOBO");
+  if (kyobo !== undefined && (pipelines.get(kyobo.key)?.access.accountsOf(dmaUserId)?.size ?? 0) > 0) out.push("KYOBO");
+  return out;
+}
+
 /** 주 서버 매핑 읽기 — 호출마다 현재 주 파이프라인을 본다(없으면 매핑 없음 = 푸시 없음). */
 const primaryAccessView: JournalAccessView = {
   accountsOf: (dmaUserId) => primaryPipeline()?.access.accountsOf(dmaUserId),
@@ -274,6 +289,8 @@ const fanout = new WsFanout({
   credKey: config.dmaCredKey,
   // Phase 29 D-19 — 자격증명 원천 = 접근 맵(역할 · DMA 연결) + `dma_users`(AAD = dma_user_id). 옛 `dma_credentials` 를 읽지 않는다.
   credentials: createAccessCredentials({ access: appAccess, supabase, credKey: config.dmaCredKey }),
+  // Phase 29-20 (D-18) — 증권사별 세션(KB 늘 · 교보는 교보 매핑에 있을 때만). hub 가 세션 소유 키로 병합한다.
+  brokersFor,
   // 주문 3종(`order.new`/`order.modify`/`order.cancel`)을 wss 로 받기 위한 결선이다 (D-02).
   // 종목맵 하나로 주문 분기가 열린다 — 기록 창구는 없다 (Phase 19 D-01).
   symbols,
