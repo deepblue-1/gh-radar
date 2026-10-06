@@ -13,6 +13,11 @@
  *   ① (트레이서) Admin 이 op 3 으로 d1 에 A2 를 더함 → KB120 87 → d1 KB 세션이 mode "1" A2 1건 선언 → 응답 [A1, A2] →
  *      `allowedAccounts` [A1, A2] → 브라우저 상태 프레임 accounts 에 A2 · 재로그인 0(LoginReq 1 그대로)
  *   ② 같은 87(변화 없음 · op 5) → 선언 0
+ *   ③ op 4 로 A2 제외 → 87 → 그 세션 allowedAccounts 에서 A2 즉시 제외(fail closed) · 상태 프레임 갱신 · A2 `order.new` → 「허용 계좌 아님」
+ *   ④ KB 만 쓰던 d1 에 교보 주문 서버 87 이 d1 계좌를 처음 실음 → `refreshUserSessions` → 교보 세션 acquire · hub 결선 ·
+ *      상태 프레임에 교보 계좌(교보 LoginReq 1)
+ *   ⑤ `closeForDmaUser(d1, { serverKey: KB120 })` → KB120 세션만 unauthorized · 재로그인 0 · 브라우저는 남은 교보 세션 기준
+ *      (ready · 교보 계좌만) → 교보도 닫으면 `unauthorized` 프레임
  */
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -101,6 +106,19 @@ function supabaseStub(): SupabaseClient {
   } as unknown as SupabaseClient;
 }
 
+function orderNew(accountNo: string, rid: string) {
+  return {
+    t: "order.new" as const,
+    rid,
+    isin: SAMPLE_ISIN,
+    exchange: "KRX" as const,
+    side: "B" as const,
+    qty: 10,
+    price: 70_000,
+    accountNo,
+  };
+}
+
 type Rig = {
   kb: FakeGateway;
   kyobo: FakeGateway;
@@ -116,18 +134,19 @@ type Rig = {
  * KB120: d1 → A1 · d9 → 다른 계좌(op 2 가 「마지막 사용자」 로 막히지 않게). KYOBO119: d9 만(d1 없음 — 교보 세션 안 열림).
  * 저널 매핑은 sink 가 87 로 갈아 끼운다(첫 87 = admin 로그인 직후 op 5).
  */
-async function rig(): Promise<Rig> {
+async function rig(opts: { d1Kb?: string[] } = {}): Promise<Rig> {
+  const d1Kb = opts.d1Kb ?? [A1];
   resetDroppedEnvelopeCount();
   for (const level of ["debug", "info"] as const) vi.spyOn(logger, level).mockImplementation((() => undefined) as never);
 
   const kb = await startFakeGateway({ autoLogin: true });
   cleanups.push(() => kb.close());
-  kb.respondLoginWithAccounts([{ accountNo: A1, name: "위탁" }]);
+  kb.respondLoginWithAccounts(d1Kb.map((accountNo) => ({ accountNo, name: "위탁" })));
   kb.respondAdminLogin({ broker: "KB" });
   const kbState: FakeAdminState = {
     usersRev: 1n,
     users: new Map([
-      ["d1", [kbAccount(A1)]],
+      ["d1", d1Kb.map((a, i) => kbAccount(a, i + 1))],
       ["d9", [kbAccount("9999000001")]],
     ]),
     busyAccounts: new Set(),
@@ -191,7 +210,7 @@ async function rig(): Promise<Rig> {
 
   const sink = new AdminSnapshotSink({ supabase: supabaseStub(), accessOf });
   cleanups.push(() => sink.close());
-  const sync = new AdminSessionSync({ sessions: manager });
+  const sync = new AdminSessionSync({ sessions: manager, fanout });
   sink.on("applied", (e) => sync.onApplied(e));
 
   const kbAdmin = new AdminConn({ serverKey: "KB120", broker: "KB", secret: SECRET, host: "127.0.0.1", port: kb.port });
@@ -260,5 +279,81 @@ describe("AdminSessionSync — 87 → 열린 세션 반영 (29-21)", () => {
     await sleep(100);
     expect(r.kb.declaredAccounts()).toHaveLength(1);
     expect(statesOf(inbox)).toHaveLength(frames);
+  });
+
+  it("③ op 4 A2 → 87 → allowedAccounts 에서 A2 즉시 제외 · 상태 프레임 갱신 · A2 order.new → 「허용 계좌 아님」", async () => {
+    const r = await rig({ d1Kb: [A1, A2] });
+    const { ws, inbox } = await r.open();
+    await waitFor(() => accountNosOf(lastState(inbox)).length === 2, "A1 · A2 ready");
+    const session = r.manager.sessionsOf(USER_D1)[0]!;
+
+    const outcome = await r.kbAdmin.command({ op: 4, userId: "d1", account: kbAccount(A2) });
+    expect(outcome.kind).toBe("result");
+
+    await waitFor(() => !accountNosOf(lastState(inbox)).includes(A2), "상태 프레임에서 A2 제외");
+    expect(session.allowedAccounts.map((a) => a.accountNo)).toEqual([A1]);
+    expect(lastState(inbox)).toMatchObject({ s: "ready" });
+
+    ws.sendRaw(orderNew(A2, "rid-a2"));
+    await waitFor(() => inbox.some((m) => m.t === "order.result" && m.rid === "rid-a2"), "A2 주문 거부");
+    expect(inbox.find((m) => m.t === "order.result" && m.rid === "rid-a2")).toMatchObject({
+      status: "rejected",
+      message: "이 세션에서 사용할 수 없는 계좌입니다.",
+    });
+  });
+
+  it("④ 교보 주문 서버 87 에 d1 계좌가 처음 나타남 → 교보 세션 acquire · hub 결선 · 상태 프레임에 교보 계좌", async () => {
+    const r = await rig();
+    const kyoboTypes: number[] = [];
+    r.kyobo.onFrame((t) => kyoboTypes.push(t));
+    const { inbox } = await r.open();
+    expect(r.manager.sessionsOf(USER_D1).map((x) => x.serverKey)).toEqual(["KB120"]);
+    expect(loginCount(kyoboTypes)).toBe(0);
+
+    const outcome = await r.kyoboAdmin.command({
+      op: 1,
+      userId: "d1",
+      password: CREDS.password,
+      account: { accountNo: B1, name: "교보 위탁", branchNo: "", traderId: "", priority: 1 },
+    });
+    expect(outcome.kind).toBe("result");
+
+    await waitFor(() => accountNosOf(lastState(inbox)).includes(B1), "상태 프레임에 교보 계좌");
+    expect(r.manager.sessionsOf(USER_D1).map((x) => x.serverKey)).toEqual(["KB120", "KYOBO119"]);
+    expect(loginCount(kyoboTypes)).toBe(1);
+    expect(accountNosOf(lastState(inbox))).toEqual([A1, B1]);
+    expect(lastState(inbox)).toMatchObject({ s: "ready" });
+
+    // 같은 87 이 또 와도 세션을 더 열지 않는다.
+    await r.kyoboAdmin.command({ op: 5, userId: "" });
+    await sleep(100);
+    expect(loginCount(kyoboTypes)).toBe(1);
+    expect(r.manager.sessionsOf(USER_D1)).toHaveLength(2);
+  });
+
+  it("⑤ closeForDmaUser(KB120) → KB 세션만 unauthorized · 재로그인 0 · 브라우저는 교보 기준 → 교보도 닫으면 unauthorized 프레임", async () => {
+    const r = await rig();
+    r.kyoboState.users.set("d1", [{ accountNo: B1, name: "교보 위탁", branchNo: "", traderId: "", priority: 1 }]);
+    await r.kyoboAdmin.command({ op: 5, userId: "" });
+    await sleep(50);
+    const kbTypes: number[] = [];
+    r.kb.onFrame((t) => kbTypes.push(t));
+    const { inbox } = await r.open();
+    await waitFor(() => accountNosOf(lastState(inbox)).length === 2, "KB · 교보 ready");
+    const [kbSession, kyoboSession] = r.manager.sessionsOf(USER_D1);
+
+    expect(r.manager.closeForDmaUser("d1", "deleted", { serverKey: "KB120" })).toBe(1);
+    expect(kbSession!.state).toBe("unauthorized");
+    expect(kbSession!.allowedAccounts).toEqual([]);
+    expect(kyoboSession!.state).toBe("ready");
+    await waitFor(() => accountNosOf(lastState(inbox)).join() === B1, "남은 교보 세션 기준 프레임");
+    expect(lastState(inbox)).toMatchObject({ s: "ready" });
+
+    await sleep(200);
+    expect(loginCount(kbTypes)).toBe(1); // 인증 때 1건뿐 — 재접속 루프 없음
+
+    expect(r.manager.closeForDmaUser("d1", "deleted", { serverKey: "KYOBO119" })).toBe(1);
+    await waitFor(() => lastState(inbox)?.s === "unauthorized", "전부 닫힘 → unauthorized");
+    expect(accountNosOf(lastState(inbox))).toEqual([]);
   });
 });

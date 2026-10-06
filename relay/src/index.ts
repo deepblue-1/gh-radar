@@ -308,10 +308,11 @@ const fanout = new WsFanout({
 
 /**
  * 87 → 열린 세션 반영 (Phase 29-21 · ADMIN-06) — sink 가 그 서버 매핑에 87 을 넣은 직후(`applied`) 그 서버에 로그인한 사용자
- * 세션이 새 계좌를 재로그인 없이 자가 선언한다(RESEARCH Pitfall 10). 브라우저 계좌 목록은 세션 `accounts` 이벤트 → fanout
- * 병합 상태 프레임으로 간다.
+ * 세션이 새 계좌를 재로그인 없이 자가 선언하고(RESEARCH Pitfall 10) 빠진 계좌는 허용 목록에서 즉시 뺀다(fail closed). 그 87 이
+ * 연결 중 사용자의 계좌를 처음 실은 증권사 주문 서버면 `fanout.refreshUserSessions` 가 그 증권사 세션을 연다(위 `brokersFor` 가
+ * 갓 교체된 매핑을 본다). 브라우저 계좌 목록은 세션 `accounts` 이벤트 → fanout 병합 상태 프레임으로 간다.
  */
-const adminSessionSync = new AdminSessionSync({ sessions: sessionManager });
+const adminSessionSync = new AdminSessionSync({ sessions: sessionManager, fanout });
 adminSnapshotSink.on("applied", (e) => adminSessionSync.onApplied(e));
 
 // 시세 연결 상태 전이(3초 디바운스) → 인증된 전 연결(Phase 26 D-01). `/healthz` 와 같은 원천이다.
@@ -363,6 +364,8 @@ const adminDispatcher = new AdminDispatcher({
   credKey: config.dmaCredKey,
   // 비밀번호 변경 dual-write 대상(그 DMA id 에 지금 연결된 웹 사용자) — D-19 롤백 대비.
   access: appAccess,
+  // 열린 세션 반영(29-21) — op 2 ok 서버 → 그 서버 세션 unauthorized 종료 · 비밀번호 변경 → 열린 세션 비밀 교체(D-08).
+  sessions: sessionManager,
 });
 const adminRouter = createAdminRouter({
   store: adminStore,

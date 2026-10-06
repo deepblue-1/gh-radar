@@ -435,10 +435,13 @@ export class DmaSession extends EventEmitter {
    * 스스로 그 상태에 들어가는 **첫 경로**다. 종료 상태(`TERMINAL_STATES`)라 이후 전송 이벤트가 상태를 옮기지 못하고,
    * SessionManager 의 `NO_RETRY_STATES` 에 들어 있어 같은 사용자가 다시 와도 재로그인하지 않는다(KB 계정 잠금 방지 · D-16 과 같은 이유).
    * 상태 프레임(`unauthorized` + 문구)은 붙어 있는 탭에 그대로 간다 — 브라우저는 「권한 없음」 배지를 그린다.
+   * 허용 계좌는 비운다(29-21) — 같은 사용자의 다른 증권사 세션이 남아 있으면 wss 병합 프레임은 남은 세션 기준이다.
    */
   terminate(state: "unauthorized", message: string): void {
     if (this.#state === state) return;
     this.#clearTimers();
+    // 허용 계좌도 비운다(29-21 · fail closed) — 지워진 유저 세션이 `forAccount` 라우팅 · 병합 상태 프레임 계좌 합집합에 남지 않게.
+    this.#accounts = [];
     // 루프를 먼저 끊고 연결을 정리한다(`#failNoRetry` 와 같은 순서) — 반대면 destroy 가 부른 down 이 재접속을 예약한다.
     this.#client.stopReconnect(message);
     this.#client.destroy();

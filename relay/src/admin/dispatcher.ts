@@ -59,6 +59,16 @@ export type AdminDispatcherDeps = {
    * dual-write 를 하지 않는다.
    */
   access?: { entryOf(userId: string): { dmaUserId: string | null } | undefined };
+  /**
+   * 열린 사용자 세션 훅(Phase 29-21 · `SessionManager`). 주지 않으면 세션을 건드리지 않는다(단위 테스트 · 종전).
+   *   - op 2 가 ok(0 · 4)인 서버 → `closeForDmaUser(dmaUserId, "deleted", { serverKey })` — 그 서버의 그 DMA 유저 세션만
+   *     `unauthorized` 로 끝낸다(재접속 루프 없음 · gh-trade-0d 통보 · CONTEXT 확정).
+   *   - 비밀번호 변경 → `updatePassword(dmaUserId, 새 값)` — 열린 세션 유지 · 회선 재접속 로그인부터 새 비밀(D-08 · Pitfall 8).
+   */
+  sessions?: {
+    closeForDmaUser(dmaUserId: string, reason: string, opts?: { serverKey?: string }): number;
+    updatePassword(dmaUserId: string, password: string): number;
+  };
 };
 
 /** op 1 비밀번호 공급자 — 필요할 때 한 번만 꺼낸다(인자 평문 또는 `dma_users` 복호). */
@@ -96,20 +106,27 @@ export class AdminDispatcher {
   /**
    * 비밀번호 변경(D-08 · D-19) — 암호문 교체(AAD = dmaUserId) → 옛 표 dual-write → 87 에 그 유저가 있는 **DB 등록 서버**마다
    * op 1(비밀번호만 · account 없음). 87 에 유저가 없는 서버는 보낼 것이 없다(계좌 경로의 op 1 신규가 새 비밀번호를 쓴다).
-   * 열린 사용자 세션은 그대로다(다음 로그인부터 새 비밀 — 열린 세션 비밀 교체는 29-21).
+   * 열린 사용자 세션은 끊지 않는다 — 서버 반영 뒤 `sessions.updatePassword` 로 그 세션들의 비밀만 갈아 끼운다(29-21 · D-08 ·
+   * Pitfall 8). 서버 반영이 전부 실패해도 부른다 — DB 암호문은 이미 새 값이고 다음 로그인(새 탭 · 재로그인)도 DB 값을 쓰므로
+   * 회선 재접속 로그인도 같은 값이어야 한다. 서버에 아직 옛 비밀이 남은 동안의 재접속 거부는 「다시 반영」 이 op 1 로 맞춘다.
    */
   changePassword(dmaUserId: string, plain: string, adminEmail: string): Promise<AdminServerResult[]> {
     void adminEmail;
     return this.#serial(dmaUserId, async () => {
       await this.#deps.store.setPassword(dmaUserId, encryptDmaPassword(plain, dmaUserId, this.#deps.credKey));
-      await this.#dualWrite(dmaUserId, plain);
-      const intent = await this.#deps.store.intent(dmaUserId);
-      const password = this.#passwordSource(dmaUserId, plain);
-      const results = await this.#fanOut(this.#serverKeysOf(intent), (serverKey) =>
-        this.#applyServer(dmaUserId, serverKey, (snapshot) => planPasswordOps({ dmaUserId, snapshot }), password),
-      );
-      await this.#record(dmaUserId, results);
-      return results;
+      try {
+        await this.#dualWrite(dmaUserId, plain);
+        const intent = await this.#deps.store.intent(dmaUserId);
+        const password = this.#passwordSource(dmaUserId, plain);
+        const results = await this.#fanOut(this.#serverKeysOf(intent), (serverKey) =>
+          this.#applyServer(dmaUserId, serverKey, (snapshot) => planPasswordOps({ dmaUserId, snapshot }), password),
+        );
+        await this.#record(dmaUserId, results);
+        return results;
+      } finally {
+        // 서버 op 1 이 끝난 뒤(성공 · 실패 무관) — 그동안 열린 세션은 서버와 같은 옛 비밀을 쥔다(재접속 거부 창을 줄인다).
+        this.#deps.sessions?.updatePassword(dmaUserId, plain);
+      }
     });
   }
 
@@ -203,7 +220,12 @@ export class AdminDispatcher {
         break;
       }
       if (op.op === 4) removed.push(op.accountNo);
-      if (op.op === 2) userRemoved = true;
+      if (op.op === 2) {
+        userRemoved = true;
+        // 29-21 — 그 서버에서 그 유저가 사라졌다(0 · 4). 그 서버의 그 DMA 유저 세션만 재접속 루프 없이 끝낸다 — 서버는 54 뒤
+        // 연결을 끊고 재로그인을 거부하므로 두면 거부 루프 · 「회선 끊김」 오표시가 된다. 다른 서버 세션은 그대로다.
+        this.#deps.sessions?.closeForDmaUser(dmaUserId, "deleted", { serverKey });
+      }
     }
 
     if (opts.settleUserOnOk === true) {

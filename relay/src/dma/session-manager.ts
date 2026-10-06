@@ -426,12 +426,15 @@ export class SessionManager {
    * 계정으로 바로 재로그인해 거부를 되풀이한다. 상태 프레임(`unauthorized`)은 붙어 있는 탭에 그대로 간다.
    *
    * @param reason 로그용 짧은 사유(예 "deleted"). 화면 문구는 `DMA_USER_CLOSED_MESSAGE` 고정이다.
+   * @param opts.serverKey 주면 **그 서버 키 세션만** 끝낸다(29-21 — DeleteUser 는 op 2 가 ok 인 서버만 그 유저가 사라진다. 다른
+   *   서버 · 다른 증권사 세션은 그 서버에 유저가 남아 있으므로 그대로 둔다). 생략 = 그 DMA id 세션 전부(29-16 종전).
    * @returns 끝낸 세션 수
    */
-  closeForDmaUser(dmaUserId: string, reason: string): number {
+  closeForDmaUser(dmaUserId: string, reason: string, opts: { serverKey?: string } = {}): number {
     const serverKeys: string[] = [];
     for (const entry of this.#sessions.values()) {
       if (!entry.session.isDmaUser(dmaUserId)) continue;
+      if (opts.serverKey !== undefined && entry.serverKey !== opts.serverKey) continue;
       entry.session.terminate("unauthorized", DMA_USER_CLOSED_MESSAGE);
       serverKeys.push(entry.serverKey);
     }

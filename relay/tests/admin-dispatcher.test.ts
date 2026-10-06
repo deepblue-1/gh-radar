@@ -128,6 +128,8 @@ type Env = {
   conns: Record<string, FakeConn>;
   rows: DmaServerRow[];
   access: Map<string, string | null>;
+  /** 열린 세션 훅 기록(29-21) — op 2 ok → closeForDmaUser · 비밀번호 → updatePassword. */
+  sessionCalls: Array<{ fn: "closeForDmaUser" | "updatePassword"; dmaUserId: string; serverKey?: string; password?: string }>;
   dispatcher: AdminDispatcher;
 };
 
@@ -137,14 +139,25 @@ function setup(states: Record<string, FakeAdminState>, rows: DmaServerRow[] = [r
   const conns: Record<string, FakeConn> = {};
   for (const [k, s] of Object.entries(states)) conns[k] = new FakeConn(s);
   const access = new Map<string, string | null>();
+  const sessionCalls: Env["sessionCalls"] = [];
   const dispatcher = new AdminDispatcher({
     store,
     pipelines: { get: (k) => (conns[k] ? { admin: conns[k]! } : undefined) },
     registry: { all: () => rows.map((r) => ({ ...r })), get: (k) => rows.find((r) => r.key === k) },
     credKey: KEY,
     access: { entryOf: (u) => (access.has(u) ? { dmaUserId: access.get(u) ?? null } : undefined) },
+    sessions: {
+      closeForDmaUser: (dmaUserId, _reason, opts) => {
+        sessionCalls.push({ fn: "closeForDmaUser", dmaUserId, ...(opts?.serverKey !== undefined ? { serverKey: opts.serverKey } : {}) });
+        return 1;
+      },
+      updatePassword: (dmaUserId, password) => {
+        sessionCalls.push({ fn: "updatePassword", dmaUserId, password });
+        return 1;
+      },
+    },
   });
-  return { db, store, conns, rows, access, dispatcher };
+  return { db, store, conns, rows, access, sessionCalls, dispatcher };
 }
 
 function seedU1(env: Env, accounts: Parameters<AdminDbFake["seedUser"]>[0]["accounts"]): void {
@@ -408,5 +421,38 @@ describe("AdminDispatcher — 변경 경로 (29-11 Task 2)", () => {
       { server: "KB123", outcome: "offline" },
     ]);
     expect(env.conns.KB121!.sent).toEqual([]);
+  });
+
+  it("D8 유저 삭제 — op 2 ok 서버(KB120)만 closeForDmaUser(serverKey) · BUSY 서버(KB121)는 세션 유지", async () => {
+    const env = setup({ KB120: state({ u1: [kb("A")] }), KB121: state({ u1: [kb("A")] }, ["A"]) });
+    seedU1(env, [{ accountNo: "A", servers: ["KB120", "KB121"] }]);
+
+    await env.dispatcher.deleteUser("u1", "boss@gmail.com");
+    expect(env.sessionCalls).toEqual([{ fn: "closeForDmaUser", dmaUserId: "u1", serverKey: "KB120" }]);
+  });
+
+  it("D8 유저 삭제 — 87 전용 계좌가 있어 op 4 만 간 서버는 유저가 남으므로 세션을 닫지 않는다", async () => {
+    const env = setup({ KB120: state({ u1: [kb("A"), kb("X", 9)] }) }, [row("KB120")]);
+    seedU1(env, [{ accountNo: "A", servers: ["KB120"] }]);
+
+    await env.dispatcher.deleteUser("u1", "boss@gmail.com");
+    expect(env.sessionCalls).toEqual([]);
+  });
+
+  it("D9 비밀번호 — 성공 뒤 updatePassword(u1, 새 값) 1회(열린 세션 유지) · 모든 서버 실패여도 호출 · 없는 DMA id 는 0회", async () => {
+    const env = setup({ KB120: state({ u1: [kb("A")] }) }, [row("KB120")]);
+    seedU1(env, [{ accountNo: "A", servers: ["KB120"] }]);
+
+    await env.dispatcher.changePassword("u1", "n1-절대노출금지", "boss@gmail.com");
+    expect(env.sessionCalls).toEqual([{ fn: "updatePassword", dmaUserId: "u1", password: "n1-절대노출금지" }]);
+
+    env.conns.KB120!.mode = "offline";
+    const results = await env.dispatcher.changePassword("u1", "n2-절대노출금지", "boss@gmail.com");
+    expect(results.map((r) => r.outcome)).toEqual(["offline"]);
+    expect(env.sessionCalls.at(-1)).toEqual({ fn: "updatePassword", dmaUserId: "u1", password: "n2-절대노출금지" });
+    expect(env.sessionCalls).toHaveLength(2);
+
+    await expect(env.dispatcher.changePassword("nope", "n3", "boss@gmail.com")).rejects.toMatchObject({ code: "NO_DMA_USER" });
+    expect(env.sessionCalls).toHaveLength(2);
   });
 });

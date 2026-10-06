@@ -656,6 +656,79 @@ export class WsFanout {
     logger.warn({ userId, reason, conns: targets.length }, "[WS] 권한 회수 — 연결 종료(세션은 유예 후 종료)");
   }
 
+  /**
+   * 연결 중(인증 완료 · DMA 세션 보유) 사용자 요약 (Phase 29-21). `AdminSessionSync` 가 87 에 그 DMA 유저 계좌가 처음 실린 서버를
+   * 쥐지 않은 사용자를 고를 때 쓴다. **내부 결선 전용** — dmaUserId 를 로그 · 프레임에 싣지 않는다(D-19 · T-19-14).
+   */
+  connectedUsers(): Array<{ userId: string; dmaUserId: string; serverKeys: string[] }> {
+    return [...this.#users].map(([userId, entry]) => ({
+      userId,
+      dmaUserId: entry.dmaUserId,
+      serverKeys: [...entry.sessions.keys()],
+    }));
+  }
+
+  /**
+   * 연결 중 사용자의 증권사 세션을 지금 `brokersFor` 에 맞춰 **더한다** (Phase 29-21 · CONTEXT 「87 에 처음 나타난 증권사 →
+   * 연결 중 사용자에게 그 증권사 세션 acquire」). 인증 경로(5)와 같은 규율이다: 그 사용자의 살아 있는 연결마다 `acquireFor`
+   * (참조계수 · `conn.acquiredServers` — close 가 반납) → `hub.attach` → entry 결선 → 병합 상태 프레임 재송신.
+   *
+   * - 빠진 증권사가 없으면 아무것도 하지 않는다(자격증명 조회도 없다). 세션을 닫지 않는다 — 증권사 매핑에서 빠진 세션은 다음
+   *   인증의 `retainSessions` 몫이다(세션 수명은 SessionManager).
+   * - 자격증명을 다시 조회한다(비밀번호는 fanout 에 남기지 않는다 · D-19). 권한 없음 · 미적재 · 조회 실패 · DMA 연결이 그 사이
+   *   바뀜이면 건너뛴다(권한 회수는 `revokeUser` 경로 몫).
+   * - 그 증권사 주문 서버가 없으면(acquire null) warn 뒤 그 증권사만 건너뛴다.
+   *
+   * @returns 새로 결선한 세션 수
+   */
+  async refreshUserSessions(userId: string): Promise<number> {
+    const entry = this.#users.get(userId);
+    if (entry === undefined) return 0;
+    if (this.#missingBrokers(entry).length === 0) return 0;
+
+    let creds: DmaCredentials | null | "not_ready";
+    try {
+      creds = await this.#lookupCredentials(userId);
+    } catch (err) {
+      logger.error({ pgError: safePgError(err), userId }, "[WS] 세션 갱신 — 자격증명 조회 실패, 건너뜀");
+      return 0;
+    }
+    // await 사이에 연결이 다 닫혔거나(entry 교체) DMA 연결이 바뀌었으면 손대지 않는다.
+    const current = this.#users.get(userId);
+    if (creds === null || creds === "not_ready" || current === undefined || current.dmaUserId !== creds.dmaUserId) return 0;
+
+    const added: DmaSession[] = [];
+    for (const broker of this.#missingBrokers(current)) {
+      let session: DmaSession | null = null;
+      for (const conn of current.conns) {
+        const s = this.#sessions.acquireFor(userId, broker, creds);
+        if (s === null) break;
+        conn.acquiredServers.push(s.serverKey);
+        session = s;
+      }
+      if (session === null) {
+        logger.warn({ userId, broker }, "[WS] 세션 갱신 — 주문 서버 없음, 그 증권사만 건너뜀");
+        continue;
+      }
+      this.#hub.attach(session);
+      added.push(session);
+    }
+    if (added.length === 0) return 0;
+    this.#bindSessions(current, userId, added);
+    this.#deliver(userId, this.#mergedStateFrame(userId));
+    logger.info(
+      { userId, added: added.map((s) => s.serverKey), conns: current.conns.size },
+      "[WS] 87 반영 — 연결 중 사용자에 증권사 세션 추가 (재접속 없음)",
+    );
+    return added.length;
+  }
+
+  /** `brokersFor` 가 열라는데 entry 가 아직 쥐지 않은 증권사. */
+  #missingBrokers(entry: UserEntry): DmaBroker[] {
+    const have = new Set([...entry.sessions.values()].map((es) => es.session.broker));
+    return this.#brokersFor(entry.dmaUserId).filter((b) => !have.has(b));
+  }
+
   /** `closeAll()` 별칭(즉시 terminate). 15-04 테스트 하네스가 쓰는 이름이다. */
   async close(): Promise<void> {
     await this.closeAll();
@@ -1757,6 +1830,14 @@ export class WsFanout {
     // 인증마다 다시 조회한 값이 정본이다 — 등록 변경이 저널 라우팅에 즉시 반영돼야 한다.
     entry.dmaUserId = dmaUserId;
 
+    this.#bindSessions(entry, userId, sessions);
+  }
+
+  /**
+   * 세션들을 사용자 entry 에 결선하고(상태 · 계좌 리스너) 살아 있는 연결 누구도 쥐지 않은 세션은 뗀다(hub 도 같은 집합으로).
+   * `#register`(인증) · `refreshUserSessions`(29-21 — 87 로 새 증권사가 열림) 공통.
+   */
+  #bindSessions(entry: UserEntry, userId: string, sessions: readonly DmaSession[]): void {
     for (const session of sessions) {
       const existing = entry.sessions.get(session.serverKey);
       if (existing !== undefined && existing.session === session) continue;
@@ -1833,12 +1914,17 @@ export class WsFanout {
    *   primary = KB 세션 우선 · 없으면 처음 결선된 세션(hub `#primaryOwner` 와 같은 규칙).
    *
    * 같은 계좌번호 문자열이 두 증권사에 동시에 있는 경우는 다루지 않는다(29-20 가정) — 중복 제거가 primary 쪽 항목을 남긴다.
+   * `unauthorized`(DeleteUser · 29-21) 세션은 다른 세션이 남아 있으면 병합에서 뺀다 — 화면은 남은 세션 기준이다.
    *
    * @param trigger 상태 이벤트를 낸 세션과 그 프레임(있으면 그 세션 몫은 이 프레임을 쓴다).
    */
   #mergedStateFrame(userId: string, trigger?: DmaSession, frame?: RelayStateMsg): RelayStateMsg {
     const entry = this.#users.get(userId);
-    const sessions = entry === undefined ? (trigger === undefined ? [] : [trigger]) : [...entry.sessions.values()].map((e) => e.session);
+    const all = entry === undefined ? (trigger === undefined ? [] : [trigger]) : [...entry.sessions.values()].map((e) => e.session);
+    // 29-21 — DeleteUser 로 끝난(`unauthorized`) 세션은 남은 세션이 있으면 병합에서 뺀다(그 서버에서 지워진 유저의 계좌 · 상태가
+    // 화면을 덮지 않게). 전부 끝났으면 그대로 두어 primary 의 `unauthorized` 프레임이 간다.
+    const live = all.filter((s) => s.state !== "unauthorized");
+    const sessions = live.length > 0 ? live : all;
     const frameOf = (s: DmaSession): RelayStateMsg => (s === trigger && frame !== undefined ? frame : s.stateFrame());
     const primary = sessions.find((s) => s.broker === "KB") ?? sessions[0];
     if (primary === undefined) return { t: "state", s: "connecting" };
