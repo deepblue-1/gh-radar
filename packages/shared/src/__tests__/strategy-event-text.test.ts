@@ -643,6 +643,11 @@ describe("Phase 27 자동매도 조립기", () => {
     expect(strategyEventParts(row("asCancelAuctionTrim"), "log").body).toBe("동시호가 감축");
   });
 
+  it("kind 7 — 취소 사유 12 「버스트 상한가」 (gh-trade 인박스 261007)", () => {
+    const burst = { ...row("asCancelBuyFirst"), group: 2, cancelReason: 12 };
+    expect(strategyEventParts(burst, "log").body.startsWith("버스트 상한가")).toBe(true);
+  });
+
   it("kind 11 · 13 · 14 의 빈 주문번호 → F-A 줄 `[—]`", () => {
     for (const name of ["asTriggerN", "asStateOn", "asPauseVI"]) {
       expect(row(name).orderNo).toBe("");

@@ -134,7 +134,7 @@ describe("표시명 표 전수 (D-10)", () => {
     expect(EVIDENCE_KIND_LABELS).toEqual({ 1: "호가", 2: "체결", 3: "체결통보" });
   });
 
-  it("CancelReason 1~11 (7 체결 감시 · 8 재취소 · 9 기타 · 10/11 자동매도 말미 추가) · 모르면 원문 숫자", () => {
+  it("CancelReason 1~12 (7 체결 감시 · 8 재취소 · 9 기타 · 10/11 자동매도 · 12 버스트 상한가 말미 추가) · 모르면 원문 숫자", () => {
     expect(CANCEL_REASON_LABELS).toEqual({
       1: "수동 취소",
       2: "이탈 매도",
@@ -147,8 +147,10 @@ describe("표시명 표 전수 (D-10)", () => {
       9: "기타",
       10: "매수 우선 취소",
       11: "동시호가 감축",
+      12: "버스트 상한가",
     });
     expect(cancelReasonLabel(3)).toBe("매수1 이탈");
+    expect(cancelReasonLabel(12)).toBe("버스트 상한가");
     expect(cancelReasonLabel(7)).toBe("체결 감시");
     expect(cancelReasonLabel(8)).toBe("재취소");
     expect(cancelReasonLabel(9)).toBe("기타");
@@ -272,7 +274,8 @@ describe("Phase 27 자동매도 표시명 (D-15 · D-16)", () => {
     expect(orderGroupLabel(9)).toBe("자동매도");
     expect(cancelReasonLabel(10)).toBe("매수 우선 취소");
     expect(cancelReasonLabel(11)).toBe("동시호가 감축");
-    expect(cancelReasonLabel(12)).toBe("12");
+    // 12 가 알려진 값이 됐다(gh-trade 인박스 261007 「버스트 상한가」) — 모르는 대표값은 13.
+    expect(cancelReasonLabel(13)).toBe("13");
   });
 
   it("상태 표 0 꺼짐 · 1 대기 · 2 감시 · 3 매도중 · 4 완료 · 그 밖 원문 숫자", () => {

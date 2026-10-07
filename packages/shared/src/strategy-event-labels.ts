@@ -78,7 +78,9 @@ export const EVIDENCE_KIND_LABELS: Readonly<Record<number, string>> = {
 
 /**
  * `CancelReason` 표시명 (7~9 는 v0.1 밖 말미 추가 — 서버 취소 경로 1:1 · G1 ⓓ). 10 · 11 은 자동매도
- * (gh-trade Phase 28 · 인박스 Q3 답 · WinForms 같은 낱말 — Phase 27 D-16).
+ * (gh-trade Phase 28 · 인박스 Q3 답 · WinForms 같은 낱말 — Phase 27 D-16). 12 는 추가매수 「버스트 시 해제」 —
+ * 버스트 상한가 판정으로 이번 진입 구간 추가매수 잔량을 서버가 취소한 것(gh-trade quick-261007-edj/gwv · 인박스
+ * 261007). 종전에는 9 「기타」로 나갔다. 낱말은 kind 10 표시명 「버스트 상한가」와 같다.
  */
 export const CANCEL_REASON_LABELS: Readonly<Record<number, string>> = {
   1: "수동 취소",
@@ -92,6 +94,7 @@ export const CANCEL_REASON_LABELS: Readonly<Record<number, string>> = {
   9: "기타",
   10: "매수 우선 취소",
   11: "동시호가 감축",
+  12: "버스트 상한가",
 };
 
 /**

@@ -14,5 +14,6 @@ export enum CancelReason {
   RejectResell = 8,
   Other = 9,
   AutoSellBuyFirst = 10,
-  AutoSellAuctionTrim = 11
+  AutoSellAuctionTrim = 11,
+  BurstLimit = 12
 }
