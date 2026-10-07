@@ -7,18 +7,20 @@
  *   - 「본 등록 전략 키」(`seen`) — 사용자가 ✕ 로 닫은 등록 전략 카드가 돌아왔을 때 다시 생기지 않게 한다.
  *     등록 전략 목록을 확정으로 안 뒤(64 스냅샷)에는 지금 등록된 키만 남겨 무한히 자라지 않는다.
  *   - 패널 펼침 — VI · 돌파 스트립 · 하단 공용 패널 탭/접힘.
+ *   - 계좌칸(제목 옆 AccountPill) — 사용자가 **직접 고른** 계좌 하나(quick-261007-h76). 자동 선택은 싣지 않는다.
  *
  * ② 어디에
  *   localStorage. 카드 목록은 **사용자별 키**다(`…:{userId}`) — 같은 기기에서 다른 계정이 로그인하면
  *   남의 카드가 보이면 안 된다. 계좌번호가 들어가지만 이 기기 브라우저 밖으로 나가지 않는다.
- *   패널 펼침은 화면 취향이라 기기 공용 키 하나다.
+ *   패널 펼침은 화면 취향이라 기기 공용 키 하나다. 계좌칸은 카드 목록과 따로 둔 사용자별 키다
+ *   (`gh-radar:trading-account:{userId}`).
  *
  * ③ 안전
  *   읽기·쓰기 전부 `typeof window` 가드 + try/catch — 저장소가 막히거나 JSON 이 깨지면 「기억 없음」이다.
  *   읽기는 반드시 **마운트 후**에 한다(SSR HTML 과 첫 클라 렌더가 갈리면 하이드레이션이 깨진다).
  */
 
-import type { RelayExchange } from "@gh-radar/shared";
+import type { RelayAccount, RelayExchange } from "@gh-radar/shared";
 
 /* ── 카드 목록 ───────────────────────────────────────────────────────── */
 
@@ -111,6 +113,67 @@ export function writeTradingLayout(userId: string, layout: SavedLayout): void {
   } catch {
     // 저장 실패는 다음 방문의 「기억 없음」일 뿐이다.
   }
+}
+
+/* ── 계좌칸 (quick-261007-h76) ───────────────────────────────────────── */
+
+/**
+ * 계좌칸 선택 키 — 사용자별(`…:{userId}`). 카드 배치 키와 **따로** 둔다: 배치 저장은 카드가 바뀔 때만
+ * 돌고, 계좌칸 자동 선택(accounts[0])이 사용자가 고른 저장값을 덮으면 안 되기 때문이다.
+ * 사용자 증상: 「트레이딩에서 계좌를 고르고 다른 페이지에 갔다 오면 자꾸 다른 계좌로 바뀌어 있다」.
+ */
+export const TRADING_ACCOUNT_KEY_PREFIX = "gh-radar:trading-account:";
+
+const MAX_ACCOUNT_NO_LEN = 32;
+
+function accountKey(userId: string): string {
+  return `${TRADING_ACCOUNT_KEY_PREFIX}${userId}`;
+}
+
+/** 저장된 계좌칸 계좌. 없거나 깨졌으면 `null`(= 기억 없음 — 종전 동작 accounts[0]). */
+export function readTradingAccount(userId: string): string | null {
+  if (typeof window === "undefined" || userId === "") return null;
+  try {
+    const raw = window.localStorage.getItem(accountKey(userId));
+    if (raw === null) return null;
+    const parsed = JSON.parse(raw) as { v?: unknown; accountNo?: unknown } | null;
+    if (parsed === null || typeof parsed !== "object" || parsed.v !== 1) return null;
+    const a = parsed.accountNo;
+    if (typeof a !== "string" || a.length === 0 || a.length > MAX_ACCOUNT_NO_LEN) return null;
+    return a;
+  } catch {
+    return null;
+  }
+}
+
+/** 사용자가 **직접 고른** 계좌만 쓴다(자동 선택은 부르지 않는다). */
+export function writeTradingAccount(userId: string, accountNo: string): void {
+  if (typeof window === "undefined" || userId === "" || accountNo === "") return;
+  try {
+    window.localStorage.setItem(accountKey(userId), JSON.stringify({ v: 1, accountNo }));
+  } catch {
+    // 저장 실패는 다음 방문의 「기억 없음」일 뿐이다.
+  }
+}
+
+/**
+ * 계좌칸이 가리킬 계좌(순수). 규칙 순서:
+ *   1. accounts 가 비면 current 그대로(아직 relay 계좌를 모른다).
+ *   2. saved 가 accounts 에 있으면 saved — relay 병합 프레임은 KB 세션 계좌를 **먼저** 넣으므로 저장 계좌
+ *      (예: 교보)가 나중 프레임에 도착할 수 있다. 그때 저장 계좌로 올린다(KB 로 덮여 고정되지 않는다).
+ *   3. current 가 "" 이면 accounts[0](종전 자동 선택).
+ *   4. 그 밖은 current — 이미 고른 계좌는 accounts[0] 이 바뀌어도 덮지 않는다(종전 규칙 유지).
+ * 이번 마운트에서 사용자가 직접 고르면 호출부가 saved 도 그 값으로 바꾸므로 2 가 사용자 선택을 덮지 않는다.
+ */
+export function pillAccountOf(
+  current: string,
+  accounts: readonly Pick<RelayAccount, "accountNo">[],
+  saved: string | null,
+): string {
+  if (accounts.length === 0) return current;
+  if (saved !== null && accounts.some((a) => a.accountNo === saved)) return saved;
+  if (current === "") return accounts[0].accountNo;
+  return current;
 }
 
 /* ── 패널 펼침 ───────────────────────────────────────────────────────── */

@@ -194,7 +194,10 @@ import { alertTabFor, type TradingAlert } from "@/lib/trading-alerts";
 import { useTradingFocusRequest } from "@/lib/trading-focus";
 import {
   WB_PHONE_BAND_BELOW,
+  pillAccountOf,
+  readTradingAccount,
   readTradingLayout,
+  writeTradingAccount,
   writeTradingLayout,
   type SavedLayout,
 } from "@/lib/trading-layout";
@@ -604,11 +607,20 @@ function WorkbenchSurface() {
 
   /* ── 상태줄 계좌 (Q-2 · Q-3) ─────────────────────────────────────── */
   const [accountNo, setAccountNo] = useState("");
-  // 계좌가 도착하면 **미선택일 때만** 첫 계좌를 고른다. 이미 고른 계좌를 덮지 않는다.
+  /**
+   * 사용자별로 기억한 계좌칸 계좌(quick-261007-h76) — 마운트 후 배치 복원 효과가 읽는다(하이드레이션 규약).
+   * 이번 마운트에서 사용자가 직접 고르면 `pickAccount` 가 이 값도 바꾼다.
+   */
+  const [savedAccount, setSavedAccount] = useState<string | null>(null);
+  /*
+    계좌칸 결정(`pillAccountOf`) — 저장 계좌 우선 · 없으면 첫 계좌 · 이미 고른 계좌는 덮지 않음.
+    자동 선택은 저장하지 않는다(저장은 `pickAccount` 만). relay 병합 프레임이 KB 세션 계좌를 먼저 보내도
+    저장 계좌가 나중 프레임에 도착하면 그쪽으로 바뀐다 — KB 로 덮여 고정되지 않는다.
+  */
   useEffect(() => {
-    if (accountNo !== "" || accounts.length === 0) return;
-    setAccountNo(accounts[0].accountNo);
-  }, [accountNo, accounts]);
+    const next = pillAccountOf(accountNo, accounts, savedAccount);
+    if (next !== accountNo) setAccountNo(next);
+  }, [accountNo, accounts, savedAccount]);
 
   /* ── 카드 집합 (②) ────────────────────────────────────────────────── */
   const [cards, setCards] = useState<WorkbenchCard[]>([]);
@@ -661,8 +673,18 @@ function WorkbenchSurface() {
       const ids = saved.cards.map(() => nextCardId());
       setCards((prev) => restoreSavedCards(prev, saved, ids));
     }
+    setSavedAccount(readTradingAccount(userId));
     setLayoutRestored(true);
   }, [userId, nextCardId]);
+  /** 계좌칸에서 사용자가 **직접** 고른 계좌 — 화면 · 이번 마운트 기억 · 사용자별 저장 셋을 같이 바꾼다. */
+  const pickAccount = useCallback(
+    (next: string) => {
+      setAccountNo(next);
+      setSavedAccount(next);
+      writeTradingAccount(userId, next);
+    },
+    [userId],
+  );
   /*
     꺼진 등록 전략 카드 걷기 — 배치 복원 뒤 등록 목록을 확정으로 처음 알 때 **한 번**(`pruneInactiveCards`).
     걷은 키는 seen 에서도 빼 그 전략이 다시 켜지면 새 카드로 뜨게 한다.
@@ -1368,7 +1390,7 @@ function WorkbenchSurface() {
           <h1 className="m-0 text-[length:var(--t-h3)] leading-[var(--lh-tight)] font-bold text-[var(--fg)]">
             트레이딩
           </h1>
-          <AccountPill accounts={accounts} accountNo={accountNo} onChange={setAccountNo} />
+          <AccountPill accounts={accounts} accountNo={accountNo} onChange={pickAccount} />
         </div>
 
         <WorkbenchStatusBar

@@ -2268,6 +2268,93 @@ describe('TradingWorkbench — 배치 기억 (quick-260923-lyt)', () => {
   });
 });
 
+describe('TradingWorkbench — 계좌칸 기억 — 다른 페이지 다녀와도 유지 (quick-261007-h76)', () => {
+  const A = ACCOUNT;
+  const B = '99999999901';
+  const KEY = 'gh-radar:trading-account:u1';
+  const pill = () => slot('workbench-account') as HTMLSelectElement;
+  const accA = { accountNo: A, name: '위탁종합' };
+  const accB = { accountNo: B, name: '교보위탁' };
+  const storedAccount = () => {
+    const raw = window.localStorage.getItem(KEY);
+    return raw === null ? null : (JSON.parse(raw) as { accountNo: string }).accountNo;
+  };
+
+  it('W1 사용자 증상 「다른 페이지 다녀오면 다른 계좌로 바뀜」 — 고른 계좌가 재마운트 뒤에도 그대로 · 새 카드도 그 계좌', () => {
+    mockRelay = relay({ accounts: [accA, accB], rateCrossItems: [rc()] });
+    const first = render(<TradingWorkbench />);
+    expect(pill().value).toBe(A);
+    fireEvent.change(pill(), { target: { value: B } });
+    expect(pill().value).toBe(B);
+    first.unmount(); // 다른 페이지
+
+    render(<TradingWorkbench />);
+    expect(pill().value).toBe(B);
+    fireEvent.click(slot('breakout-chip')!);
+    expect(cardsInDom()[0].getAttribute('data-key')).toContain(`:${B}:`);
+  });
+
+  it('W2 「KB 먼저 도착」 회귀 — 저장 계좌가 나중 프레임에 와도 계좌칸이 저장 계좌로 바뀐다 · 자동 선택은 저장값을 덮지 않는다', () => {
+    mockRelay = relay({ accounts: [accA, accB] });
+    const first = render(<TradingWorkbench />);
+    fireEvent.change(pill(), { target: { value: B } });
+    first.unmount();
+
+    mockRelay = relay({ accounts: [accA] }); // KB 세션 계좌만 먼저
+    const second = render(<TradingWorkbench />);
+    expect(pill().value).toBe(A); // 임시
+    mockRelay = relay({ accounts: [accA, accB] }); // 저장 계좌(교보) 도착
+    second.rerender(<TradingWorkbench />);
+    expect(pill().value).toBe(B);
+    expect(storedAccount()).toBe(B);
+  });
+
+  it('W3 저장 계좌가 현재 accounts 에 끝내 없으면 첫 계좌', () => {
+    window.localStorage.setItem(KEY, JSON.stringify({ v: 1, accountNo: 'ZZZ' }));
+    mockRelay = relay({ accounts: [accA, accB] });
+    render(<TradingWorkbench />);
+    expect(pill().value).toBe(A);
+  });
+
+  it('W4 이번 마운트에서 직접 고른 계좌는 나중에 도착한 저장 계좌가 덮지 않는다', () => {
+    window.localStorage.setItem(KEY, JSON.stringify({ v: 1, accountNo: B }));
+    // 첫 계좌가 다른 계좌(C)여야 A 고르기가 실제 change 다(같은 값이면 React onChange 가 돌지 않는다).
+    const accC = { accountNo: '11111111101', name: '기타' };
+    mockRelay = relay({ accounts: [accC, accA] });
+    const view = render(<TradingWorkbench />);
+    expect(pill().value).toBe(accC.accountNo);
+    fireEvent.change(pill(), { target: { value: A } });
+    expect(pill().value).toBe(A);
+    mockRelay = relay({ accounts: [accC, accA, accB] });
+    view.rerender(<TradingWorkbench />);
+    expect(pill().value).toBe(A);
+    expect(storedAccount()).toBe(A);
+  });
+
+  it('W5 고르지 않고 자동 선택만 일어나면 저장 키가 생기지 않는다', () => {
+    mockRelay = relay({ accounts: [accA, accB] });
+    render(<TradingWorkbench />);
+    expect(pill().value).toBe(A);
+    expect(window.localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it('W6 다른 사용자로 들어오면 앞 사용자의 계좌칸 기억을 받지 않는다', () => {
+    mockRelay = relay({ accounts: [accA, accB] });
+    const first = render(<TradingWorkbench />);
+    fireEvent.change(pill(), { target: { value: B } });
+    first.unmount();
+
+    const prevUser = authState.user;
+    authState.user = { id: 'other-user' };
+    try {
+      render(<TradingWorkbench />);
+      expect(pill().value).toBe(A);
+    } finally {
+      authState.user = prevUser;
+    }
+  });
+});
+
 describe('restoreSavedCards (quick-260923-lyt)', () => {
   const card = (isin: string, over: Partial<WorkbenchCard> = {}): WorkbenchCard => ({
     id: `c-${isin}`,
