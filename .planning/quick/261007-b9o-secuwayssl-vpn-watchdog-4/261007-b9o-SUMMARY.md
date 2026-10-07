@@ -124,10 +124,13 @@ TASK3 ALL OK
 
 ## 대기 — 메인 세션 배포·검증
 
-상태: **1단계 완료(2026-10-07 08:33~08:36 KST, 메인 세션)** · 2·3단계 대기(pending)
+상태: **1·2단계 완료(2026-10-07, 메인 세션)** · 3단계 대기(pending)
 
 - 1단계 결과: ⓪ VM 3파일 해시 = 923eec8f(드리프트 없음) · ① 백업 `/var/backups/secuway-261007/secuway-watchdog` 후 설치(sha256 a04bb8ced445a57e… = 저장소) · ② 수동 1회 실행 24초, tun1 delta tx=148176 rx=147869(≥140000 충족), Result=success, NRestarts=1·ActiveEnterTimestamp 23:03:12Z 불변(재시작 없음), 저널 무기록(정상), healthz KYOBO119 live.
-- 남은 것: 2단계(connect·유닛, 평일 20:00 KST 이후 · 21:00~21:20 회피) · 3단계(다음 날 08:00 전 밤샘 무종료 확인).
+- **2단계 완료(2026-10-07 20:07~20:12 KST, 메인 세션):** ⓪ VM 6파일 해시 = 923eec8f(워치독은 1단계 a04bb8ce…) 드리프트 없음 · 장중(08:03~20:07) securwayssl 재시작 0회(NRestarts=1 그대로, ActiveEnter 23:03:12Z) — 1단계 디바운스가 09:03 등 슬롯을 넘김. ③ 백업 `/var/backups/secuway-261007/{secuway-connect cfe1aba4…, securwayssl.service cf2ad296…}` 후 install.sh(daemon-reload·enable 만) → 설치 해시 connect 3ae3d939… · unit 980071c0… (= 저장소). ④ RestartUSec=10s · StartLimitBurst=8 · StartLimitIntervalUSec=10min · ExecStopPost 에 secuway-connect.err, 재시작 없음. ⑤ 통제된 재시작 11:11:32Z → 11:11:34Z 「이미 로그인한 사용자입니다」 → **fail-fast** → RestartSec 10s 뒤 재시도 → 11:11:48Z tunnel up · .119:22 open **18초**(이전 동일 상황 75초) · relay KYOBO119 관찰자 20:11:50 KST 재로그인 · healthz live(lastSeq 474 불변).
+  - 주의: 스트림으로 `tar | gcloud compute ssh` 하던 런북 ③ 은 IAP 경유에서 stdin 이 안 넘어가 원격 tar 가 멈췄다(`gzip: unexpected end of file`, set -e 로 아무것도 안 바뀐 채 종료). **tgz 를 `gcloud compute scp` 로 올린 뒤 원격에서 풀어 install.sh** 로 대신했다 — 런북 갱신 대상.
+- **inactive 값: 미확보** — `inactive line not captured (best-effort)`. ⑥-b(client.log grep)에도 값은 없고 `Inactivity timeout` 이력만 있다. 따라서 KEEPALIVE 조정 공식(3×B÷(S÷180))은 지금 판정 불가. 현 keepalive 는 회당 tx·rx 각 ≈148 KB(1단계 실측) → 4시간 창 ≈80회 × ≈296 KB ≈ 23.7 MB(양방향 합). 실효 판정은 **3단계(10/8 08:00 전 — 밤새 `Inactivity timeout` 없음·ActiveEnterTimestamp 11:11:45Z 불변)** 로 한다. 캡처 실패 원인(conf 수명이 폴링 간격보다 짧은지 등)은 후속 과제.
+- 남은 것: 3단계(다음 날 08:00 전 밤샘 무종료 확인) · inactive 캡처 개선(선택).
 
 ` 전체 · Task 1·2 커밋 해시(`git log 923eec8f..HEAD --oneline -- infra/relay`)
   </read_first>
