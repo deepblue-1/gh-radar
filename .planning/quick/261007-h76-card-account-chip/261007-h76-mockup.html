@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>카드 계좌 표시 목업</title>
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+/* 토큰 — webapp/src/styles/globals.css 사본 (기존 목업과 동일) */
+:root {
+  --bg:#FFFFFF; --fg:oklch(0.18 0 0); --fg-2:oklch(0.30 0 0); --faint:oklch(0.70 0 0); --muted:oklch(0.96 0 0); --muted-fg:oklch(0.50 0 0);
+  --border:oklch(0.92 0 0); --border-subtle:oklch(0.18 0 0 / 0.06);
+  --card:#FFFFFF; --primary:oklch(0.63 0.18 250); --accent:oklch(0.95 0.03 250); --accent-fg:oklch(0.35 0.12 250);
+  --up:oklch(0.66 0.20 22); --down:oklch(0.63 0.18 250); --flat:oklch(0.55 0 0);
+  --pill-on-bg:oklch(0.18 0 0); --pill-on-fg:#fff;
+  --led-latent:oklch(0.74 0.17 62); --led-armed:oklch(0.68 0.19 150);
+  --hl:oklch(0.86 0.14 92);
+  --r-sm:4px; --r:6px; --r-lg:12px;
+  --font-sans:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',system-ui,sans-serif;
+  --font-mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg:oklch(0.08 0 0); --fg:oklch(0.96 0 0); --fg-2:oklch(0.85 0 0); --faint:oklch(0.45 0 0); --muted:oklch(0.18 0 0); --muted-fg:oklch(0.65 0 0);
+  --border:oklch(0.24 0 0); --border-subtle:oklch(1 0 0 / 0.06); --card:oklch(0.12 0 0); --primary:oklch(0.72 0.16 250);
+  --accent:oklch(0.22 0.05 250); --accent-fg:oklch(0.85 0.10 250); --up:oklch(0.72 0.19 22); --down:oklch(0.72 0.16 250); --flat:oklch(0.65 0 0);
+  --pill-on-bg:oklch(0.96 0 0); --pill-on-fg:oklch(0.10 0 0); --hl:oklch(0.45 0.10 92); } }
+:root[data-theme="dark"] {
+  --bg:oklch(0.08 0 0); --fg:oklch(0.96 0 0); --fg-2:oklch(0.85 0 0); --faint:oklch(0.45 0 0); --muted:oklch(0.18 0 0); --muted-fg:oklch(0.65 0 0);
+  --border:oklch(0.24 0 0); --border-subtle:oklch(1 0 0 / 0.06); --card:oklch(0.12 0 0); --primary:oklch(0.72 0.16 250);
+  --accent:oklch(0.22 0.05 250); --accent-fg:oklch(0.85 0.10 250); --up:oklch(0.72 0.19 22); --down:oklch(0.72 0.16 250); --flat:oklch(0.65 0 0);
+  --pill-on-bg:oklch(0.96 0 0); --pill-on-fg:oklch(0.10 0 0); --hl:oklch(0.45 0.10 92); }
+
+* { box-sizing:border-box; }
+html, body { margin:0; background:var(--bg); color:var(--fg); font-family:var(--font-sans); font-size:14px; line-height:1.5; }
+button, select { font:inherit; color:inherit; }
+.mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; letter-spacing:-0.01em; }
+.up { color:var(--up); }
+
+.ctl { position:sticky; top:0; z-index:5; display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:8px 16px; background:color-mix(in oklch, var(--bg) 92%, transparent); backdrop-filter:blur(8px); border-bottom:1px solid var(--border); font-size:12px; }
+.ctl button { height:26px; padding:0 10px; border:1px solid var(--border); background:var(--card); border-radius:var(--r); font-size:11px; font-weight:600; cursor:pointer; }
+.ctl button[aria-pressed="true"] { background:var(--accent); color:var(--accent-fg); border-color:transparent; }
+.wrap { max-width:1100px; margin:0 auto; padding:20px 16px 100px; }
+h1 { font-size:18px; margin:0 0 6px; }
+h2 { font-size:16px; margin:36px 0 4px; padding-top:18px; border-top:1px solid var(--border); display:flex; gap:8px; align-items:center; }
+h2 .rec { font-size:10px; font-weight:700; padding:1px 7px; border-radius:999px; background:var(--led-armed); color:#fff; }
+h3 { font-size:12px; color:var(--muted-fg); font-weight:600; margin:16px 0 6px; }
+p.note { margin:0 0 8px; color:var(--muted-fg); font-size:12.5px; }
+p.note b { color:var(--fg); }
+.frame { width:min(100%, var(--w)); }
+.pair { display:grid; gap:10px; }
+
+/* 카드 — card-header.tsx 클래스를 CSS 로 옮김 */
+.card { container:lc / inline-size; border:1px solid var(--border); border-radius:var(--r-lg); background:var(--card); overflow:clip; }
+header.ch { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; padding:12px 10px; }
+.l1 { display:flex; min-width:0; flex:1 1 0%; align-items:center; gap:8px; }
+.tg { display:flex; min-width:0; align-items:center; gap:8px; }
+.caret { width:18px; flex:none; text-align:center; font-size:11px; color:var(--muted-fg); }
+.open .caret { transform:rotate(90deg); }
+.nm { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:15px; font-weight:700; }
+.info { height:26px; flex:none; padding:0 6px; display:inline-flex; align-items:center; font-size:13px; font-weight:600; color:var(--muted-fg); }
+.seg { display:inline-flex; height:20px; flex:none; border-radius:999px; background:var(--muted); overflow:hidden; }
+.seg span { height:20px; padding:0 6px; display:inline-flex; align-items:center; border-radius:999px; font-size:10px; font-weight:700; color:var(--muted-fg); }
+.seg span.on { background:var(--pill-on-bg); color:var(--pill-on-fg); }
+.px { margin-left:auto; display:flex; flex:none; align-items:baseline; gap:6px; white-space:nowrap; }
+.px b { font-size:15px; } .px span { font-size:12px; font-weight:600; }
+.x { position:relative; width:32px; height:32px; margin:-3px 0; flex:none; display:inline-flex; align-items:center; justify-content:center; color:var(--muted-fg); font-size:15px; }
+.l2 { order:99; display:flex; min-width:0; flex-basis:100%; flex-wrap:wrap; align-items:center; gap:10px; }
+@container lc (min-width:760px) { .x { order:100; } .l2 { order:0; flex:none; flex-basis:auto; } }
+.leds { display:flex; flex-wrap:wrap; gap:6px; }
+.led { display:inline-flex; align-items:center; gap:5px; height:24px; padding:0 8px 0 6px; border:1px dashed var(--border); border-radius:999px; font-size:11px; }
+.led i { width:9px; height:9px; border-radius:999px; border:1.5px solid var(--muted-fg); }
+.led .k { color:var(--muted-fg); } .led .v { color:var(--muted-fg); }
+.led.armed { border-style:solid; } .led.armed i { border:0; background:var(--led-armed); } .led.armed .v { color:var(--fg); font-weight:700; }
+.dots { display:inline-flex; height:24px; align-items:center; gap:2px; padding:0 2px; border-radius:999px; background:var(--muted); }
+.dots i { width:24px; height:24px; display:inline-flex; align-items:center; justify-content:center; }
+.dots i::after { content:''; width:10px; height:10px; border-radius:999px; border:1.5px solid var(--muted-fg); box-sizing:border-box; }
+.dots i.armed::after { border:0; background:var(--led-armed); }
+.sum { display:inline-flex; height:22px; align-items:center; gap:4px; padding:0 8px; border-radius:999px; background:var(--muted); font-size:11px; font-weight:600; white-space:nowrap; }
+
+/* ★ 새 요소: 계좌 칩 (AccountPill 문법: mono · muted · 11px) */
+.acct { display:inline-flex; height:22px; align-items:center; gap:4px; padding:0 8px; border-radius:999px; background:var(--muted); font-size:11px; white-space:nowrap; color:var(--fg); flex:none; }
+.acct .k { color:var(--muted-fg); font-family:var(--font-sans); }
+.new { outline:2px dashed var(--hl); outline-offset:2px; }
+/* A — 펼친 카드 l3 (992 미만에서만 별도 줄) */
+.l3 { order:101; flex-basis:100%; display:flex; min-width:0; }
+.acct.wide { display:none; }
+@container lc (min-width:992px) { .l3 { display:none; } .acct.wide { display:inline-flex; } }
+/* A — 접힌 카드: 992 미만 번호만 */
+.acct .nmx { display:none; }
+@container lc (min-width:992px) { .acct .nmx { display:inline; } }
+
+/* 본문 — 수동주문 폼 조각 */
+.body { border-top:1px solid var(--border-subtle); padding:12px 12px 14px; display:flex; flex-direction:column; gap:8px; max-width:420px; }
+.box { height:52px; border-radius:12px; background:var(--muted); display:flex; align-items:center; padding:0 14px; font-size:17px; font-weight:600; color:var(--muted-fg); }
+.row { min-height:44px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.row .k { font-size:14px; color:var(--muted-fg); white-space:nowrap; }
+.row .v { font-size:14px; font-weight:500; color:var(--fg-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.btns { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:2px; }
+.btns span { height:44px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:15px; }
+.btns .b { background:var(--up); color:#fff; } .btns .s { background:var(--down); color:#fff; }
+.btns .m { background:var(--muted); color:var(--muted-fg); }
+</style>
+</head>
+<body>
+<div class="ctl">
+  <span>테마</span>
+  <button data-t="" aria-pressed="true">시스템</button>
+  <button data-t="light" aria-pressed="false">라이트</button>
+  <button data-t="dark" aria-pressed="false">다크</button>
+</div>
+<div class="wrap">
+  <h1>카드 계좌 표시 — 어디에 둘까</h1>
+  <p class="note">점선 노란 테두리 = <b>새로 생기는 것</b>. 계좌 글자는 제목 옆 계좌칸 옵션과 같은 「번호 · 이름」. 예시값: 교보 <span class="mono">71234567-01</span> · 교보위탁. 폭은 카드 폭(lc) 기준 — 폰 360 · 760 · 1000.</p>
+
+  <!-- ========================== A ========================== -->
+  <h2>A. 카드 헤더에 칩 <span class="rec">설계안</span></h2>
+  <p class="note">접힌 카드는 둘째 줄 끝에 붙어 줄 수 그대로(992 미만은 번호만). 펼친 카드는 992 이상이면 LED 옆 같은 줄, <b>992 미만이면 헤더 아래 한 줄(약 +28px)이 생김</b>. 접힌 상태에서도 계좌가 보이는 것이 장점.</p>
+
+  <template id="hdrA-open">
+    <article class="card open"><header class="ch">
+      <div class="l1"><span class="tg"><span class="caret">▶</span><b class="nm">에이치브이엠</b></span><span class="info">ⓘ</span><span class="seg"><span class="on">KRX</span><span>NXT</span></span><span class="px up"><b class="mono">23,450</b><span class="mono">+29.92%</span></span></div>
+      <span class="x">✕</span>
+      <div class="l2"><span class="leds"><span class="led armed"><i></i><span class="k">매수</span><span class="v">감시</span></span><span class="led"><i></i><span class="k">매도</span><span class="v">OFF</span></span><span class="led"><i></i><span class="k">취소</span><span class="v">OFF</span></span><span class="led"><i></i><span class="k">자동</span><span class="v">OFF</span></span></span><span class="acct wide new mono">71234567-01 · 교보위탁</span></div>
+      <div class="l3"><span class="acct new mono">71234567-01 · 교보위탁</span></div>
+    </header></article>
+  </template>
+  <template id="hdrA-closed">
+    <article class="card"><header class="ch">
+      <div class="l1"><span class="tg"><span class="caret">▶</span><b class="nm">에이치브이엠</b></span><span class="info">ⓘ</span><span class="seg"><span class="on">KRX</span><span>NXT</span></span><span class="px up"><b class="mono">23,450</b><span class="mono">+29.92%</span></span></div>
+      <span class="x">✕</span>
+      <div class="l2"><span class="dots"><i class="armed"></i><i></i><i></i><i></i></span><span class="sum">미체결 <span class="mono">1</span></span><span class="acct new mono">71234567-01<span class="nmx"> · 교보위탁</span></span></div>
+    </header></article>
+  </template>
+
+  <h3>펼친 카드</h3>
+  <div class="pair" data-fill="hdrA-open"></div>
+  <h3>접힌 카드</h3>
+  <div class="pair" data-fill="hdrA-closed"></div>
+
+  <!-- ========================== B ========================== -->
+  <h2>B. 수동주문 폼 안에 한 줄</h2>
+  <p class="note">헤더는 지금 그대로. 주문 폼의 「주문유형」 「주문금액」 행과 같은 모양으로 <b>「주문계좌」 행</b>을 하나 더함 — 주문 버튼 바로 위라 누르기 직전에 눈에 들어옴. 대신 <b>접힌 카드에서는 계좌가 안 보임</b>.</p>
+
+  <template id="bodyB">
+    <article class="card open"><header class="ch">
+      <div class="l1"><span class="tg"><span class="caret">▶</span><b class="nm">에이치브이엠</b></span><span class="info">ⓘ</span><span class="seg"><span class="on">KRX</span><span>NXT</span></span><span class="px up"><b class="mono">23,450</b><span class="mono">+29.92%</span></span></div>
+      <span class="x">✕</span>
+      <div class="l2"><span class="leds"><span class="led armed"><i></i><span class="k">매수</span><span class="v">감시</span></span><span class="led"><i></i><span class="k">매도</span><span class="v">OFF</span></span><span class="led"><i></i><span class="k">취소</span><span class="v">OFF</span></span><span class="led"><i></i><span class="k">자동</span><span class="v">OFF</span></span></span></div>
+    </header>
+    <div class="body">
+      <div class="box">가격</div>
+      <div class="box">수량</div>
+      <div class="row"><span class="k">주문유형</span><span class="v">지정가 <span style="color:var(--faint)">›</span></span></div>
+      <div class="row"><span class="k">주문금액</span><span class="v mono">0원</span></div>
+      <div class="row new"><span class="k">주문계좌</span><span class="v"><span class="mono">71234567-01</span> · 교보위탁</span></div>
+      <div class="btns"><span class="b">매수</span><span class="s">매도</span><span class="m">정정</span><span class="m">취소</span></div>
+    </div></article>
+  </template>
+  <div class="pair" data-fill="bodyB" data-widths="360,1000"></div>
+</div>
+<script>
+  document.querySelectorAll('[data-fill]').forEach(function (host) {
+    var tpl = document.getElementById(host.dataset.fill);
+    (host.dataset.widths || '360,760,1000').split(',').forEach(function (w) {
+      var h = document.createElement('h3'); h.textContent = '카드 폭 ' + w + 'px';
+      var f = document.createElement('div'); f.className = 'frame'; f.style.setProperty('--w', (+w + 2) + 'px'); /* +2 = 카드 테두리 — lc 는 내용 폭 */
+      f.appendChild(tpl.content.cloneNode(true));
+      host.appendChild(h); host.appendChild(f);
+    });
+  });
+  document.querySelectorAll('.ctl button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var t = b.dataset.t;
+      if (t) document.documentElement.setAttribute('data-theme', t); else document.documentElement.removeAttribute('data-theme');
+      document.querySelectorAll('.ctl button').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+    });
+  });
+</script>
+</body>
+</html>
