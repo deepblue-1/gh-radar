@@ -12,8 +12,10 @@
  *   선택 불가(NXT · 창 닫힘)면 행 아래 캡션 안내. 판정 · 창 닫힘 복귀 · 닫힌 창 전송 차단 · 가격 잠김은
  *   옛 호가 탭과 같은 한 벌(`affordanceOf` · ④)이다. 표면 구분(`variant`)과 호가 탭 전용 각주는 21-34 가 지웠다.
  *
- *   **빠진 것(D-20):** 계좌 행(계좌는 전략 키의 일부라 카드/상태줄이 정한다) · 가격 ± 버튼 ·
+ *   **빠진 것(D-20):** 계좌 **선택** 행(계좌는 전략 키의 일부라 카드가 정한다) · 가격 ± 버튼 ·
  *   보유 비율 버튼 · 「호가창의 행을 클릭하면…」 안내. 매수 비율 버튼이 원래 없던 것은 그대로다.
+ *   대신 **표시 전용 「주문계좌」 행**이 주문금액 아래 · 4버튼 위에 있다(quick-261007-h76 · 사용자 결정 B) —
+ *   카드 계좌가 화면 어디에도 없어 교보로 고른 줄 알았던 카드가 KB 로 주문된 일이 계기다.
  *   Phase 20(D-08)에서 조각 수 −/+ 스테퍼도 뺐다 — 입력은 상자 타이핑 · ↑↓ · 키패드 시트 칩이다.
  *
  * ② ★ 오조작 방지 규율 — **살아남는 것**과 **뒤집힌 것**
@@ -112,6 +114,7 @@ import {
 import { DISABLED_LABEL, type PriceSelection } from '@/components/orderbook/order-panel';
 import { strategyKey } from '@/lib/limit-chaser';
 import { priceIssueText, stepValue, type PadUnit } from '@/lib/numpad';
+import { accountLabelOf } from '@/lib/account-label';
 import { affordanceOf } from '@/lib/queued-window';
 import {
   useRelayContext,
@@ -301,7 +304,7 @@ export interface ManualOrderFormProps {
   code: string;
   /** 종목명 — 확인 다이얼로그 요약. */
   name: string;
-  /** 주문 계좌 — 카드의 전략 키 / 호가 탭 상태줄이 정한다(폼에 계좌 행이 없다, D-20). */
+  /** 주문 계좌 — 카드의 전략 키가 정한다(폼에 계좌 **선택** 행은 없다 · D-20; 표시 전용 「주문계좌」 행만 있다 · quick-261007-h76). */
   accountNo: string;
   /** 주문 거래소 — 카드 헤더 / 호가 탭 상태줄 값. */
   exchange: RelayExchange;
@@ -382,7 +385,9 @@ export function ManualOrderForm({
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<OrderResult | null>(null);
   const [validation, setValidation] = useState<string | null>(null);
-  const { sendOrder, orderLocks } = useRelayContext();
+  const { sendOrder, orderLocks, accounts } = useRelayContext();
+  /** 「주문계좌」 행의 이름 — relay accounts 에서 폼 계좌로 찾는다. 못 찾으면 번호만(quick-261007-h76). */
+  const accountName = accounts.find((a) => a.accountNo === accountNo)?.name ?? '';
   /** D-12 — 터치(주 포인터 coarse) = 상자 버튼 + 키패드 시트 · 그 밖 = 상자 안 직접 타이핑. */
   const editMode = useEditMode();
   /** 열린 시트(D-10). `field` 는 닫히는 동안에도 제목이 바뀌지 않도록 남겨 둔다. */
@@ -989,6 +994,42 @@ export function ManualOrderForm({
           {offHours ? '종가 확정 후' : `${KRW.format(price * qty)}원`}
         </b>
       </div>
+
+      {/*
+        5b 주문계좌 — 표시 전용 44px 행(quick-261007-h76 · 사용자 결정 B · 목업 261007-h76-mockup.html).
+        주문 버튼 바로 위라 누르기 직전에 눈에 들어온다. 계좌를 바꾸는 select · 버튼은 없다(잘못 만든
+        카드는 닫고 새로 만든다). 글자 = accountLabelOf — 계좌칸(AccountPill) 옵션과 같은 문자열.
+        - 번호는 `flex-none` 이라 절대 줄지 않고, 좁으면 이름 쪽만 줄어든다(결정 B 「truncate 대신 이름 쪽만」).
+        - 이름 span 은 flex 항목이라 맨 앞 공백(「 · 」의 앞)이 줄 시작 공백으로 사라진다 → `whitespace-pre`
+          로 지킨다. `truncate` 유틸은 `white-space: nowrap` 을 함께 넣어 충돌하므로 개별 유틸
+          (`overflow-hidden text-ellipsis`)을 쓴다.
+        - 계좌가 없으면("") 행 자체를 그리지 않는다.
+      */}
+      {accountNo !== '' && (
+        <div
+          data-slot="mo-account"
+          className="flex min-h-[44px] min-w-0 items-center justify-between gap-2"
+        >
+          <span className="whitespace-nowrap text-[14px] text-[var(--muted-fg)]">주문계좌</span>
+          <b
+            data-slot="mo-account-value"
+            title={accountLabelOf(accountNo, accountName)}
+            className="flex min-w-0 items-baseline text-[14px] font-medium text-[var(--fg-2)]"
+          >
+            <span data-part="account-no" className="mono flex-none whitespace-nowrap">
+              {accountNo}
+            </span>
+            {accountName !== '' && (
+              <span
+                data-part="account-name"
+                className="min-w-0 overflow-hidden text-ellipsis whitespace-pre"
+              >
+                {` · ${accountName}`}
+              </span>
+            )}
+          </b>
+        </div>
+      )}
 
       {/*
         6·7 버튼 두 줄 — D-20 이 단일 제출 버튼 규율을 뒤집은 자리(②). 윗줄 매수 | 매도 48px,

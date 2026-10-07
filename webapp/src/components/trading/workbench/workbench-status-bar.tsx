@@ -66,6 +66,7 @@ import type {
 } from "@gh-radar/shared";
 
 import { Button } from "@/components/ui/button";
+import { accountLabelOf } from "@/lib/account-label";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { isTonePlaybackBlocked, resumeToneContext } from "@/lib/alert-tone";
 import {
@@ -361,6 +362,7 @@ export interface AccountPillProps {
  *
  * ★ 옛 상따 계좌 칩과 같은 네이티브 `<select>` 다(`appearance-none` 금지 — OS 선택 UI 를 잃는다).
  * ★ 계좌번호는 마스킹하지 않는다(D2 · S-5).
+ * ★ 옵션 글자 = `accountLabelOf` — 수동주문 「주문계좌」 행과 같은 문자열(quick-261007-h76).
  */
 export function AccountPill({ accounts, accountNo, onChange }: AccountPillProps) {
   return (
@@ -378,7 +380,7 @@ export function AccountPill({ accounts, accountNo, onChange }: AccountPillProps)
       ) : (
         accounts.map((a) => (
           <option key={a.accountNo} value={a.accountNo}>
-            {a.accountNo} · {a.name}
+            {accountLabelOf(a.accountNo, a.name)}
           </option>
         ))
       )}

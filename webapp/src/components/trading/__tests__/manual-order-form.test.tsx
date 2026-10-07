@@ -28,6 +28,8 @@ const sendOrderMock = vi.fn();
 */
 const lockMock = vi.hoisted(() => ({
   locks: null as null | ReadonlyMap<string, import('@/lib/relay-provider').OrderLockKind>,
+  /** quick-261007-h76 — 「주문계좌」 행 이름 원천. null = `EMPTY_RELAY_VALUE.accounts`([]). */
+  accounts: null as null | readonly import('@gh-radar/shared').RelayAccount[],
 }));
 vi.mock('@/lib/relay-provider', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/relay-provider')>();
@@ -52,6 +54,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
       ...actual.EMPTY_RELAY_VALUE,
       sendOrder: providerSend,
       orderLocks: lockMock.locks ?? actual.EMPTY_RELAY_VALUE.orderLocks,
+      accounts: lockMock.accounts ?? actual.EMPTY_RELAY_VALUE.accounts,
     }),
   };
 });
@@ -76,6 +79,7 @@ vi.mock('@/lib/queued-window', async (importOriginal) => {
 });
 
 import { OFFHOURS_PRICE_LABEL } from '@/components/orderbook/order-confirm-dialog';
+import { accountLabelOf } from '@/lib/account-label';
 import { mockPointer, restoreMatchMedia } from '@/lib/__tests__/match-media';
 import {
   ManualOrderEntry,
@@ -154,6 +158,7 @@ beforeEach(() => {
   sendOrderMock.mockResolvedValue(accepted());
   affMock.override = null;
   lockMock.locks = null;
+  lockMock.accounts = null;
 });
 
 const FOOTNOTE = '정정·취소는 미체결 행을 선택하면 활성화돼요';
@@ -1604,5 +1609,69 @@ describe('D-10 시트 입력(터치) — 값만 채운다 (D-10 · D-15 · D-17 
     );
     expect(btn('매수')).toBeEnabled();
     expectNoOrder();
+  });
+});
+
+describe('주문계좌 행 (quick-261007-h76 · 결정 B)', () => {
+  const accountRow = () => document.querySelector<HTMLElement>('[data-slot="mo-account"]');
+  const accountValue = () =>
+    document.querySelector<HTMLElement>('[data-slot="mo-account-value"]');
+
+  it('M1: relay accounts 에서 이름을 찾아 「번호 · 이름」 — 글자 · title 이 accountLabelOf 와 같다', () => {
+    lockMock.accounts = [{ accountNo: '12345678-01', name: '교보위탁' }];
+    renderForm();
+    const rowEl = accountRow();
+    expect(rowEl).not.toBeNull();
+    expect(rowEl!.querySelector('span')!.textContent).toBe('주문계좌');
+    const expected = accountLabelOf('12345678-01', '교보위탁');
+    expect(expected).toBe('12345678-01 · 교보위탁');
+    expect(accountValue()!.textContent).toBe(expected);
+    expect(accountValue()!.getAttribute('title')).toBe(expected);
+  });
+
+  it('M2: 위치 — 4버튼 바로 위 · 「주문금액」 행 바로 아래', () => {
+    lockMock.accounts = [{ accountNo: '12345678-01', name: '교보위탁' }];
+    renderForm();
+    const prev = screen.getByTestId('manual-order-buttons').previousElementSibling as HTMLElement;
+    expect(prev).toBe(accountRow());
+    const amountRow = prev.previousElementSibling as HTMLElement;
+    expect(amountRow.textContent).toContain('주문금액');
+  });
+
+  it('M3: relay accounts 에 폼 계좌가 없으면 번호만 · 이름 칸 없음', () => {
+    renderForm();
+    expect(accountValue()!.textContent).toBe('12345678-01');
+    expect(accountValue()!.getAttribute('title')).toBe('12345678-01');
+    expect(accountRow()!.querySelector('[data-part="account-name"]')).toBeNull();
+  });
+
+  it('M4: 폼 accountNo 가 "" 이면 행 자체가 없다', () => {
+    renderForm({ accountNo: '' });
+    expect(accountRow()).toBeNull();
+  });
+
+  it('M5: 모양(주문금액 행과 같음) · 번호는 줄지 않고 이름만 줄어든다 · 표시 전용', () => {
+    lockMock.accounts = [{ accountNo: '12345678-01', name: '교보위탁' }];
+    renderForm();
+    const rowEl = accountRow()!;
+    for (const c of ['min-h-[44px]', 'min-w-0', 'justify-between']) {
+      expect(rowEl.className).toContain(c);
+    }
+    const label = rowEl.querySelector('span')!;
+    for (const c of ['text-[14px]', 'text-[var(--muted-fg)]', 'whitespace-nowrap']) {
+      expect(label.className).toContain(c);
+    }
+    const value = accountValue()!;
+    for (const c of ['min-w-0', 'text-[14px]', 'text-[var(--fg-2)]']) {
+      expect(value.className).toContain(c);
+    }
+    const no = rowEl.querySelector<HTMLElement>('[data-part="account-no"]')!;
+    for (const c of ['mono', 'flex-none']) expect(no.classList).toContain(c);
+    const nm = rowEl.querySelector<HTMLElement>('[data-part="account-name"]')!;
+    for (const c of ['min-w-0', 'overflow-hidden', 'text-ellipsis', 'whitespace-pre']) {
+      expect(nm.classList).toContain(c);
+    }
+    expect(within(rowEl).queryAllByRole('button')).toHaveLength(0);
+    expect(within(rowEl).queryAllByRole('combobox')).toHaveLength(0);
   });
 });

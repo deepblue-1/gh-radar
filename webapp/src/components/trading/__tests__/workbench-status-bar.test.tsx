@@ -26,6 +26,7 @@ vi.mock('@/lib/alert-tone', () => ({
 }));
 
 import { isTonePlaybackBlocked, resumeToneContext } from '@/lib/alert-tone';
+import { accountLabelOf } from '@/lib/account-label';
 import { BREAKOUT_TONE_KEY, TRADING_COLS_KEY } from '@/lib/breakout-list';
 import {
   AccountPill,
@@ -357,5 +358,26 @@ describe('AccountPill — 신규 카드의 기본 계좌 (Q-3)', () => {
     expect(select.getAttribute('title')).toContain('이미 있는 카드는 자기 계좌를 유지');
     fireEvent.change(select, { target: { value: '1234567802' } });
     expect(onChange).toHaveBeenCalledWith('1234567802');
+  });
+  it('P1: 옵션 글자 = accountLabelOf — 수동주문 「주문계좌」 행과 같은 문자열 (quick-261007-h76)', () => {
+    const accounts = [
+      { accountNo: '1234567801', name: '위탁종합' },
+      { accountNo: '1234567802', name: 'ISA' },
+    ];
+    render(<AccountPill accounts={accounts} accountNo="1234567801" onChange={vi.fn()} />);
+    const texts = screen.getAllByRole('option').map((o) => o.textContent);
+    expect(texts).toEqual(['1234567801 · 위탁종합', '1234567802 · ISA']);
+    expect(texts).toEqual(accounts.map((a) => accountLabelOf(a.accountNo, a.name)));
+  });
+
+  it('P2: 이름이 빈 계좌는 번호만 — 「번호 · 」 꼬리 없음', () => {
+    render(
+      <AccountPill
+        accounts={[{ accountNo: '1234567801', name: '' }]}
+        accountNo="1234567801"
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['1234567801']);
   });
 });
