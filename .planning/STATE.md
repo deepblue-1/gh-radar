@@ -5,10 +5,10 @@ current_phase: 29
 current_phase_name: DMA 다중 서버 · 웹 Admin 유저 관리
 status: executing
 stopped_at: Completed 29-25-PLAN.md
-last_updated: "2026-10-07T03:59:49.220Z"
-last_activity: 2026-10-06
+last_updated: "2026-10-08T06:48:43.140Z"
+last_activity: 2026-10-07
 last_activity_desc: Phase 29 execution started
-state_head: c7a764b3664539e30ec65cf922b31f5fad13c0ec
+state_head: 1a844bd3cecc8399669bc637eb0f9d78c700f31c
 progress:
   total_phases: 38
   completed_phases: 24
@@ -733,6 +733,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 74 | limitup-sync commit 느림 경고 임계 5초 → 30초(statement_timeout 120s 의 25% · gh-trade-43 요청 — 실측 5.6~10.9초로 여유 ~11배 확인) · 워커 재배포 | 2026-10-06 | ecf7c173 | — |
 | 261007-b9o | 교보 SecuwaySSL VPN 안정화 — watchdog 디바운스·keepalive 볼륨(4h inactive 원인)·connect fail-fast·RestartSec 10 (워치독 핫 배포 완료, connect·유닛은 20:00 후) | 2026-10-07 | 570118f9 | [261007-b9o-secuwayssl-vpn-watchdog-4](./quick/261007-b9o-secuwayssl-vpn-watchdog-4/) |
 | 261007-h76 | 수동주문 폼 「주문계좌」 행 · 계좌칸 선택 기억 · gh-trade 인박스 CancelReason 12 「버스트 상한가」 | 2026-10-07 | c7a764b3 | [261007-h76-card-account-chip](./quick/261007-h76-card-account-chip/) |
+| 77 | gh-trade 인박스 261008 — 상따 추가매수 체크 라벨 「버스트 해제」 · 취소 사유 12 수동·VI 행 확대 확인(웹 라벨 변경 불요) | 2026-10-08 | 1a844bd3 | — |
 
 ## Session Continuity
 
