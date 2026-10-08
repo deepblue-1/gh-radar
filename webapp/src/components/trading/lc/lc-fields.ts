@@ -296,9 +296,11 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
         desc: '상한가 매수잔량이 이 값을 넘으면 포기해요 · 0 = 무제한',
         ...LC_FIELD_RANGES.extraBuyMaxQty,
       },
-      // ☐버스트 시 해제(quick-261003-rc4 · gh-trade 3c6e6cff 클라 배치 = 최소~최대 줄 아래) — 켜 두면 버스트 상한가
+      // ☐버스트 해제(quick-261003-rc4 · gh-trade 3c6e6cff 클라 배치 = 최소~최대 줄 아래) — 켜 두면 버스트 상한가
       // 판정 뒤 첫 B6 틱에 서버가 추가매수를 내린다(포기 아님). 독립 축이 아니다 — 추가매수 OFF 면 같이 흐린다(P-2).
-      { kind: 'check', check: 'extraBuyBurstRelease', checkId: 'lc-extra-buy-burst-release', label: '버스트 시 해제' },
+      // gh-trade 261008-ks9: 라벨 「버스트 시 해제」→「버스트 해제」. 취소 범위가 그 계좌·종목·거래소 매수 미체결 전부
+      // (상따 1·2·3 + 인수한 수동 7 · VI 8)로 넓어졌다 — 취소 사유 12 「버스트 상한가」. 해제 범위(추가매수)는 그대로.
+      { kind: 'check', check: 'extraBuyBurstRelease', checkId: 'lc-extra-buy-burst-release', label: '버스트 해제' },
     ],
   },
   {
@@ -701,8 +703,8 @@ export function lcSummaryOf(
         amountItem('extraBuyOrderAmount', values, false),
         { key: '최소', value: text('extraBuyMinQty', '주'), off: false },
         { key: '최대', value: text('extraBuyMaxQty', '주'), off: false },
-        // ☐버스트 시 해제 — ON 일 때만 덧붙인다(OFF 기본 사용자에게 요약은 종전 그대로 · P-3).
-        ...(values.extraBuyBurstRelease ? [{ key: '버스트 시 해제', value: '켬', off: false }] : []),
+        // ☐버스트 해제 — ON 일 때만 덧붙인다(OFF 기본 사용자에게 요약은 종전 그대로 · P-3).
+        ...(values.extraBuyBurstRelease ? [{ key: '버스트 해제', value: '켬', off: false }] : []),
       ];
     case 'post-buy': {
       const trigger = server?.postBuyTriggerQty ?? 0;

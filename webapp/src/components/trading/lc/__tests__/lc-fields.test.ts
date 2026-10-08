@@ -155,21 +155,21 @@ describe('③ lcSummaryOf — 요약 항목 · 순서 · 꺼진 kv (UI-SPEC §3 
     });
   });
 
-  it('추가매수 버스트 시 해제(quick-261003-rc4 P-3) — OFF 면 종전 3항목 그대로 · ON 이면 4번째 kv 「버스트 시 해제 · 켬」', () => {
+  it('추가매수 버스트 해제(quick-261003-rc4 P-3) — OFF 면 종전 3항목 그대로 · ON 이면 4번째 kv 「버스트 해제 · 켬」', () => {
     expect(lcSummaryOf('extra-buy', values({ extraBuyBurstRelease: false }), srv())).toHaveLength(3);
     const on = lcSummaryOf('extra-buy', values({ extraBuyBurstRelease: true }), srv());
     expect(on).toHaveLength(4);
     expect(on.slice(0, 3)).toEqual(lcSummaryOf('extra-buy', values(), srv()));
-    expect(on[3]).toEqual({ key: '버스트 시 해제', value: '켬', off: false });
+    expect(on[3]).toEqual({ key: '버스트 해제', value: '켬', off: false });
   });
 
-  it('추가매수 카드 마지막 행 = 체크 「버스트 시 해제」 · id lc-extra-buy-burst-release · 독립 축 아님(P-2)', () => {
+  it('추가매수 카드 마지막 행 = 체크 「버스트 해제」 · id lc-extra-buy-burst-release · 독립 축 아님(P-2)', () => {
     const g = LC_BUY_GROUPS.find((x) => x.slot === 'extra-buy')!;
     expect(g.rows.at(-1)).toEqual({
       kind: 'check',
       check: 'extraBuyBurstRelease',
       checkId: 'lc-extra-buy-burst-release',
-      label: '버스트 시 해제',
+      label: '버스트 해제',
     });
   });
 

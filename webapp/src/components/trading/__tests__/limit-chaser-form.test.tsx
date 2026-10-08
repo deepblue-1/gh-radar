@@ -3446,8 +3446,8 @@ describe('후매수 자동 — 마스터 OFF 동반 끔 · 켜기 사전 검증 
   });
 });
 
-describe('추가매수 「버스트 시 해제」 체크 — 양방향 설정값 · 게이트 아님 (quick-261003-rc4 B10)', () => {
-  const burst = () => chk('추가매수 버스트 시 해제');
+describe('추가매수 「버스트 해제」 체크 — 양방향 설정값 · 게이트 아님 (quick-261003-rc4 B10)', () => {
+  const burst = () => chk('추가매수 버스트 해제');
 
   it('추가매수 카드 마지막 행 · id lc-extra-buy-burst-release · 기본 OFF', () => {
     render(<LimitChaserForm {...props()} />);
@@ -3495,7 +3495,7 @@ describe('추가매수 「버스트 시 해제」 체크 — 양방향 설정값
 
   it('추가매수 스위치 OFF 면 라벨이 흐려진다(값 유지) · 원형 체크는 흐리지 않는다', () => {
     render(<LimitChaserForm {...props({ server: echo({ extraBuyEnabled: false, extraBuyBurstRelease: true }) })} />);
-    const label = within(burst()).getByText('버스트 시 해제');
+    const label = within(burst()).getByText('버스트 해제');
     expect(opacityLayers(label)).toBe(1);
     expect(burst()).toHaveAttribute('aria-checked', 'true');
     const circle = burst().querySelector('[data-slot="lc-check-circle"]') as HTMLElement;
