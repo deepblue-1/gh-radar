@@ -163,6 +163,8 @@ test.describe('Phase 21 — 브라우저 모드 회귀', () => {
 
   test('390 종목상세 — chat-fab 보임 · 「AI 분석」 숨김', async ({ page }) => {
     await mockStockApi(page, { detailByCode: { [STOCK.code]: STOCK } });
+    // quick-261009-c43 D-03 — FAB · 「AI 분석」 은 접근 탐침 ok 일 때만 렌더된다(탐침 가로채기 — 없으면 실서버로 나가 숨는다).
+    await mockChatApi(page);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`/stocks/${STOCK.code}`);
 

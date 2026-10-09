@@ -13,13 +13,14 @@ import {
  *
  * baseURL=http://localhost:3100 (playwright.config, dev.sh PORT=3100 규약).
  *
- * VALIDATION (4 시나리오):
+ * VALIDATION (6 시나리오):
  *   1. 비로그인 `/stocks/{code}` → `/login?next=…` 로그인 벽 (260912-ok2 가 다시 썼다 —
- *      아래 케이스 주석 참조. D-01 게이트 자체는 `chat-fab.test.tsx` Test 1 이 잠근다).
+ *      아래 케이스 주석 참조. FAB 의 판정 게이트(ok 아니면 비렌더)는 `chat-fab.test.tsx` Test 1 이 잠근다).
  *   2. 로그인 후 FAB → 시트 open → 질문 전송 → SSE text 스트리밍(assistant 답변).
  *   3. 종목상세(/stocks/000660) FAB 라벨에 종목명 컨텍스트("SK하이닉스 분석") 표시(D-03).
  *   4. /chat 페이지 대화목록 렌더 + 삭제 다이얼로그 open/취소(T-14-11).
  *   5. /chat DMA 미매핑 → DmaGate(quick-261009-c43 D-02) — 대화목록 · 입력창 없음.
+ *   6. 종목상세 DMA 미매핑 → FAB 없음(quick-261009-c43 D-03) — ChatSheet 를 여는 경로가 없다.
  *
  * ★ quick-260912-mvo Q-01 — FAB 은 더 이상 전역이 아니다. 종목상세 본문(`/stocks/{code}`)
  *   에서만 렌더되므로 1·2 도 시나리오 3 과 **같은 라우트·같은 mock**(`mockStockApi` +
@@ -55,11 +56,11 @@ test.describe('Phase 14 — 챗 비로그인 게이트 (D-01)', () => {
     `/trading/*`·`/me` 를 잠그고 있지만 **`/stocks/{code}` 는 아무도 잠그지 않았다** —
     챗 FAB 이 사는 바로 그 표면이다. 죽은 시나리오가 새 커버리지가 된다.
 
-    ★ **D-01 커버리지는 소실되지 않았다.** 「비로그인 클릭 → 로그인 필요 상태 + `openChat`
-      미호출」은 `src/components/chat/__tests__/chat-fab.test.tsx` 의 **Test 1** 이 그대로
-      잠그고 있다. 게이트 자체는 컴포넌트 계약이라 브라우저 왕복이 필요하지 않고, 브라우저가
-      증명해야 하는 것(그 표면에 비로그인으로 닿을 수 있는가)은 이제 **닿지 못한다**는
-      사실이다. 이 케이스가 그 사실을 본다.
+    ★ quick-261009-c43 D-03 — 옛 「비로그인 클릭 → 로그인 필요 다이얼로그」 는 없앴다. FAB 은 이제
+      서버 접근 탐침이 ok 일 때만 렌더되므로(판정 전 · 미매핑 · 비로그인 · 오류 → 비렌더) 비로그인
+      사용자에게는 누를 버튼 자체가 없다. 그 게이트는 `src/components/chat/__tests__/chat-fab.test.tsx`
+      의 **Test 1** 이 잠근다. 브라우저가 증명해야 하는 것(그 표면에 비로그인으로 닿을 수 있는가)은
+      **닿지 못한다**는 사실이고, 이 케이스가 그 사실을 본다.
   */
   test('비로그인 /stocks/{code} → /login?next 로 막힌다 (챗 FAB 표면의 로그인 벽)', async ({
     page,
@@ -126,6 +127,8 @@ test.describe('Phase 14 — 챗 로그인 플로우 (CHAT-01)', () => {
     await mockStockApi(page, {
       detailByCode: { '000660': FIXTURE_SK_HYNIX },
     });
+    // quick-261009-c43 D-03 — FAB 은 접근 탐침 ok 일 때만 렌더된다(탐침 가로채기).
+    await mockChatApi(page);
     await page.goto('/stocks/000660');
 
     // 종목 상세 로드 → setStockContext 발행 → FAB 라벨이 종목명 컨텍스트를 반영.
@@ -186,5 +189,19 @@ test.describe('Phase 14 — 챗 로그인 플로우 (CHAT-01)', () => {
     await expect(page.getByLabel('메시지 입력')).toHaveCount(0);
     await expect(page.getByText(CHAT_CONVERSATIONS[0]!.title!)).toHaveCount(0);
     await expect(page.getByText(CHAT_CONVERSATIONS[1]!.title!)).toHaveCount(0);
+  });
+
+  test('종목상세 DMA 미매핑 → FAB 없음 (quick-261009-c43 D-03)', async ({ page }) => {
+    await mockStockApi(page, {
+      detailByCode: { '000660': FIXTURE_SK_HYNIX },
+    });
+    await mockChatApi(page, { access: 'unmapped' });
+    await page.goto('/stocks/000660');
+
+    await expect(
+      page.getByRole('heading', { level: 1, name: FIXTURE_SK_HYNIX.name }),
+    ).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('[data-slot="chat-fab"]')).toHaveCount(0);
+    await expect(page.locator('[data-slot="stock-ai-button"]')).toHaveCount(0);
   });
 });

@@ -33,7 +33,8 @@ import { UserSection } from "./user-section";
  *   홈 · 검색(`/search`, Phase 21 D-07)
  *   · [트레이딩 = `/trading` 링크] VI(가동 거래소 태그만 · 둘 다 꺼지면 없음) / 등록된 상따 전략 N개
  *   · [분석 = `/analytics/limitup` 링크] 상한가 보고서 · AI 애널리스트 (Phase 28 D-09 · 트레이딩과 같은 노출 조건 ·
- *     「AI 애널리스트」 는 2026-10-05 사용자 결정(quick-261005-vk1 D-01)으로 분석 하위로 옮겨 트레이딩 권한자 전용)
+ *     「AI 애널리스트」 는 2026-10-05 사용자 결정(quick-261005-vk1 D-01)으로 분석 하위로 옮겨 트레이딩 권한자 전용 ·
+ *     실제 차단은 server — 상한가 보고서 = 라우트 + RPC, AI 애널리스트 = `requireDmaMapped`(quick-261009-c43))
  *   · [Admin = `/admin/users` 링크] 사용자 · 서버 (Phase 29 D-13 · admin 역할만 · 모바일 탭바 없음)
  *   · My page(트레이딩과 같은 노출 조건)
  *   상승률 상위 · 테마 · 관심종목은 사이드바에 없다 — `/search` 허브 타일로만 들어간다(quick-260926-o2u D1).
@@ -60,6 +61,7 @@ import { UserSection } from "./user-section";
  * ④ 조건부 숨김 (N4 / D-19) — **UI 숨김은 권한이 아니다**
  *    숨김은 오진입을 줄이는 편의일 뿐이고 실제 차단은 relay 의 `unauthorized` 와 각 라우트의
  *    `<DmaGate>` 가 한다(T-16-04). 직접 URL 로는 여전히 들어올 수 있다.
+ *    분석 하위(상한가 보고서 · AI 애널리스트)의 실제 차단 위치는 아래 NAV_ANALYTICS 주석.
  *
  * ⑤ 깜빡임 규율 — 숨긴 채로 시작하고, 한 번 뜬 뒤에는 재접속으로 사라지지 않는다
  *    「연결 중」에 미리 보여줬다 감추면 사용자는 메뉴가 사라지는 것을 본다. 그래서 판정 전에는
@@ -111,6 +113,9 @@ const VI_TAG_ORDER: readonly RelayExchange[] = ["KRX", "NXT"];
  * 「분석」 그룹 제목 = `/analytics/limitup` 링크(Phase 28 D-09 — 레일에서도 아이콘으로 상한가 보고서에 들어간다).
  * 하위 = 상한가 보고서 · AI 애널리스트(`/chat` — 2026-10-05 사용자 결정 quick-261005-vk1 D-01: 트레이딩 권한자 전용 ·
  * 레일은 전용 아이콘). 노출은 트레이딩과 같은 `tradingVisible`(D-10 · DMA 연결 사용자만 — 숨김은 권한이 아니다, 위 ④).
+ * 실제 차단(quick-261009-c43): 상한가 보고서 = server 라우트 + RPC 게이트(403 `DMA_UNMAPPED`) · AI 애널리스트 =
+ * server `requireDmaMapped`(챗 라우트 전부 403 `DMA_UNMAPPED`) + `/chat` 의 DmaGate 표시(접근 탐침 `useChatAccess`).
+ * 둘 다 판정 원천은 `dma_visible_accounts(p_user_id)` 하나다.
  * 활성 = **하위 항목**이 켠다 — `/analytics/limitup` 은 「상한가 보고서」, `/chat` 은 「AI 애널리스트」(2026-10-06 사용자 요청 —
  * 하위가 둘이 되어 제목만 켜면 어느 화면인지 안 보인다). 한 줄만 켜는 R-7(위 ②)은 그대로라 펼친 상태에서 제목은 켜지 않는다.
  * 레일은 하위 목록이 숨으므로 제목 아이콘이 `/analytics` 접두 일치로 켜진다(`rail` 값 기준 — 배지와 같은 한 박자 지연 수용).
