@@ -21,6 +21,8 @@ import type {
  *  - POST /api/chat                     → SSE 스트림
  *  - GET  /api/chat/conversations       → 목록(배열)
  *  - GET  /api/chat/conversations/:id   → 상세({ conversation, messages })
+ *  - GET  /api/chat/access              → 접근 탐침(quick-261009-c43 D-02 — 기본 200 { access: true },
+ *                                          `access: "unmapped"` 면 403 DMA_UNMAPPED)
  */
 
 /** SSE event/data 쌍 목록을 `event: <name>\ndata: <json>\n\n` 문자열로 직렬화. */
@@ -96,6 +98,12 @@ export interface MockChatApiOptions {
   sseEvents?: Array<[ChatSSEEventType, ChatSSEEventMap[ChatSSEEventType]]>;
   /** 대화 목록 override. 미지정 시 CHAT_CONVERSATIONS. */
   conversations?: ConversationRow[];
+  /**
+   * 접근 탐침 결과(quick-261009-c43). 기본 "ok" = DMA 매핑 사용자. "unmapped" 면 탐침이 403 DMA_UNMAPPED.
+   * ★ /chat · 종목상세 FAB · 앱 「AI 분석」 은 탐침이 ok 일 때만 본문 · 버튼을 그린다 — 그 표면을 보는
+   *   시나리오는 page.goto 전에 mockChatApi 를 불러야 한다(없으면 실서버로 나가 숨는다).
+   */
+  access?: 'ok' | 'unmapped';
 }
 
 /**
@@ -108,6 +116,28 @@ export async function mockChatApi(
 ): Promise<void> {
   const sseEvents = opts.sseEvents ?? CHAT_SSE_EVENTS;
   const conversations = opts.conversations ?? CHAT_CONVERSATIONS;
+  const access = opts.access ?? 'ok';
+
+  // GET /api/chat/access — 접근 탐침(quick-261009-c43 D-02).
+  await page.route(/\/api\/chat\/access(?:\?[^/]*)?$/, async (route: Route) => {
+    if (access === 'unmapped') {
+      await route.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        headers: { 'x-request-id': 'test-req-id' },
+        body: JSON.stringify({
+          error: { code: 'DMA_UNMAPPED', message: 'DMA 계정이 연결되지 않았습니다.' },
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: { 'x-request-id': 'test-req-id' },
+      body: JSON.stringify({ access: true }),
+    });
+  });
 
   // GET /api/chat/conversations/:id — 상세({ conversation, messages }).
   await page.route(

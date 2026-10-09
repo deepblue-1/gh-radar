@@ -44,4 +44,13 @@ export function deleteConversation(id: string): Promise<void> {
   });
 }
 
+/**
+ * AI 애널리스트 접근 탐침 — server `GET /api/chat/access`(requireAuth → requireDmaMapped).
+ * 통과 200 `{ access: true }` · DMA 미매핑 403 `DMA_UNMAPPED` · 세션 없음 401 은 `ApiClientError.status` 로 온다.
+ * 소비처는 `hooks/use-chat-access.ts` 하나(quick-261009-c43 D-02).
+ */
+export function checkChatAccess(): Promise<{ access: true }> {
+  return authFetch<{ access: true }>("/api/chat/access");
+}
+
 export type { ConversationRow, MessageRow };

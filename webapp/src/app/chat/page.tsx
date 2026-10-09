@@ -16,10 +16,15 @@
  * 상태 소유 주체(시트=useChat provider, 페이지=로컬)라 각자 소유한다 — chat-sheet 를
  * 수정하지 않고(wave 격리) 렌더 컴포넌트만 재사용해 중복을 최소화.
  *
- * ## 인증
+ * ## 인증 · DMA 게이트 (quick-261009-c43 D-01 · D-02 · D-04)
  * middleware(supabase/middleware) 가 whitelist 기반 기본 차단으로 `/chat` 를 이미 보호
- * (비로그인 → /login?next=/chat 302). 이 페이지는 로그인 상태에서만 도달하나, 방어적으로
- * user 부재 시 로그인 필요 상태(D-01)를 렌더한다.
+ * (비로그인 → /login?next=/chat 302). DMA 미매핑 사용자는 server `requireDmaMapped` 가 챗 API
+ * 전부를 403 `DMA_UNMAPPED` 로 막는다(실제 차단). 이 페이지는 접근 탐침(`useChatAccess` →
+ * `GET /api/chat/access`) 결과로 표시만 한다 — 웹 사이드바 · 네이티브 앱 AI 탭 · 직접 주소 공통:
+ *   - 판정 전 → 본문 비움(대화 화면이 떴다가 게이트로 바뀌는 깜빡임 없음 — 상한가 보고서 Suspense 폴백 null 규율)
+ *   - 미매핑 · 비로그인 → `<DmaGate surface="AI 애널리스트">`(대화목록 · 입력창 없음)
+ *   - 탐침 실패 → ChatErrorState + 다시 시도
+ *   - 세션 중 DMA 연결 해제(스트림 · 대화 열기 403) → markUnmapped 로 DmaGate 전환
  */
 
 import { useCallback, useRef, useState } from "react";
@@ -30,9 +35,11 @@ import type {
   SpecialistId,
 } from "@gh-radar/shared";
 
-import { useAuth } from "@/lib/auth-context";
+import { useChatAccess } from "@/hooks/use-chat-access";
+import { ApiClientError } from "@/lib/api";
 import { getConversation } from "@/lib/chat-api";
-import { streamChat } from "@/lib/chat-sse";
+import { ChatStreamError, streamChat } from "@/lib/chat-sse";
+import { DmaGate } from "@/components/trading/dma-gate";
 import { AppShell } from "@/components/layout/app-shell";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 
@@ -42,11 +49,7 @@ import {
   ChatThread,
   type ChatThreadMessage,
 } from "@/components/chat/chat-thread";
-import {
-  EmptyState,
-  LoginRequiredState,
-  ChatErrorState,
-} from "@/components/chat/chat-states";
+import { EmptyState, ChatErrorState } from "@/components/chat/chat-states";
 import {
   AgentProgress,
   type AgentStepStatus,
@@ -69,7 +72,7 @@ function toChatMessage(row: MessageRow): ChatThreadMessage {
 }
 
 export default function ChatPage() {
-  const { user } = useAuth();
+  const { access, retry, markUnmapped } = useChatAccess();
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatThreadMessage[]>([]);
@@ -95,11 +98,16 @@ export default function ChatPage() {
     try {
       const detail = await getConversation(id);
       setMessages(detail.messages.map(toChatMessage));
-    } catch {
+    } catch (err) {
+      // 세션 중 DMA 연결 해제 — 오류 상자가 아니라 게이트로(D-02).
+      if (err instanceof ApiClientError && err.status === 403) {
+        markUnmapped();
+        return;
+      }
       setMessages([]);
       setHasError(true);
     }
-  }, []);
+  }, [markUnmapped]);
 
   // ── ＋ 새 대화 ─────────────────────────────────────────────────────
   const startNew = useCallback(() => {
@@ -205,7 +213,10 @@ export default function ChatPage() {
           controller.signal,
         );
       } catch (err) {
-        if (!(err instanceof DOMException && err.name === "AbortError")) {
+        if (err instanceof ChatStreamError && err.code === "DMA_UNMAPPED") {
+          // 세션 중 DMA 연결 해제 — server 403(D-01)을 게이트로 바꾼다(D-02).
+          markUnmapped();
+        } else if (!(err instanceof DOMException && err.name === "AbortError")) {
           setHasError(true);
         }
       } finally {
@@ -214,7 +225,7 @@ export default function ChatPage() {
         if (abortRef.current === controller) setIsStreaming(false);
       }
     },
-    [activeId],
+    [activeId, markUnmapped],
   );
 
   const stop = useCallback(() => {
@@ -232,12 +243,28 @@ export default function ChatPage() {
   const showEmpty =
     !hasError && messages.length === 0 && !isStreaming && !streamingText;
 
-  // 비로그인 방어(D-01) — 통상 middleware 가 선차단.
-  if (!user) {
+  // 판정 전 — 본문 비움(스켈레톤 없음). 대화 화면이 떴다가 게이트로 바뀌지 않게(D-02).
+  if (access === "pending") {
+    return <AppShell sidebar={<AppSidebar />}>{null}</AppShell>;
+  }
+
+  // 미매핑 · 비로그인 — 표시만. 실제 차단은 server requireDmaMapped(D-01).
+  if (access === "unmapped" || access === "unauthenticated") {
+    return (
+      <AppShell sidebar={<AppSidebar />}>
+        <div className="flex h-full items-center justify-center p-[var(--s-4)]">
+          <DmaGate reason={access} surface="AI 애널리스트" />
+        </div>
+      </AppShell>
+    );
+  }
+
+  // 탐침 실패(500 · 네트워크) — 권한 없음으로 위장하지 않고 다시 시도를 준다.
+  if (access === "error") {
     return (
       <AppShell sidebar={<AppSidebar />}>
         <div className="flex h-full items-center justify-center">
-          <LoginRequiredState />
+          <ChatErrorState onRetry={retry} />
         </div>
       </AppShell>
     );

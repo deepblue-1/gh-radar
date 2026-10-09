@@ -19,6 +19,7 @@ import {
  *   2. 로그인 후 FAB → 시트 open → 질문 전송 → SSE text 스트리밍(assistant 답변).
  *   3. 종목상세(/stocks/000660) FAB 라벨에 종목명 컨텍스트("SK하이닉스 분석") 표시(D-03).
  *   4. /chat 페이지 대화목록 렌더 + 삭제 다이얼로그 open/취소(T-14-11).
+ *   5. /chat DMA 미매핑 → DmaGate(quick-261009-c43 D-02) — 대화목록 · 입력창 없음.
  *
  * ★ quick-260912-mvo Q-01 — FAB 은 더 이상 전역이 아니다. 종목상세 본문(`/stocks/{code}`)
  *   에서만 렌더되므로 1·2 도 시나리오 3 과 **같은 라우트·같은 mock**(`mockStockApi` +
@@ -170,5 +171,20 @@ test.describe('Phase 14 — 챗 로그인 플로우 (CHAT-01)', () => {
     await dialog.getByRole('button', { name: '취소' }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByText(CHAT_CONVERSATIONS[0]!.title!)).toBeVisible();
+  });
+
+  test('/chat DMA 미매핑 → DmaGate, 대화목록 · 입력창 없음 (quick-261009-c43 D-02)', async ({
+    page,
+  }) => {
+    await mockChatApi(page, { access: 'unmapped' });
+    await page.goto('/chat');
+
+    await expect(page.getByText('DMA 계정이 연결되지 않았어요')).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByText(/AI 애널리스트는 증권사 계정이 연결된 사용자만 이용할 수 있어요\./),
+    ).toBeVisible();
+    await expect(page.getByLabel('메시지 입력')).toHaveCount(0);
+    await expect(page.getByText(CHAT_CONVERSATIONS[0]!.title!)).toHaveCount(0);
+    await expect(page.getByText(CHAT_CONVERSATIONS[1]!.title!)).toHaveCount(0);
   });
 });

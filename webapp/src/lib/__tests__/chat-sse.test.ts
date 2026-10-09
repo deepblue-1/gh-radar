@@ -172,4 +172,18 @@ describe('streamChat', () => {
     const onEvent = vi.fn() as unknown as ChatSSEEventHandler;
     await expect(streamChat({ message: 'x' }, onEvent)).rejects.toThrow();
   });
+
+  it('403 응답은 DMA 미매핑 에러로 throw 한다 (quick-261009-c43 D-02)', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 403,
+      body: null,
+    })) as unknown as typeof fetch;
+    vi.stubGlobal('fetch', fetchMock);
+    const onEvent = vi.fn() as unknown as ChatSSEEventHandler;
+    await expect(streamChat({ message: 'x' }, onEvent)).rejects.toMatchObject({
+      name: 'ChatStreamError',
+      code: 'DMA_UNMAPPED',
+    });
+  });
 });

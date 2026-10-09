@@ -77,3 +77,8 @@ export const ProxyUnavailable = () =>
 // 메우는 구멍은 「오늘 주문 이력 표」뿐이고 그 표는 D-20 이 v1 범위 밖(deferred)에 두었다.
 // 표를 만들 때 클라이언트를 함께 만든다. 그때까지 조회 라우트에 클라이언트 사본을 미리 두지 않는다.
 // ============================================================
+
+// quick-261009-c43 — DMA 매핑 게이트 오류 정본. 소비처 둘: 상한가 보고서 서비스(Phase 28 D-10 · RPC 안 판정)와
+// 챗 라우트 관문 `middleware/require-dma-mapped.ts`(D-01). 문구를 한 곳에 둬 두 표면이 갈리지 않게 한다.
+export const DmaUnmapped = () =>
+  new ApiError(403, "DMA_UNMAPPED", "DMA 계정이 연결되지 않았습니다.");

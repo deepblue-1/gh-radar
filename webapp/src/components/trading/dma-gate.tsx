@@ -34,7 +34,9 @@ export type DmaGateSurface =
   | "전략·잔고·미체결"
   | "트레이딩"
   // Phase 28 D-10 — 「서」 받침 없음 → 「상한가 보고서는」(topicParticle).
-  | "상한가 보고서";
+  | "상한가 보고서"
+  // quick-261009-c43 — 「트」 받침 없음 → 「AI 애널리스트는」(topicParticle).
+  | "AI 애널리스트";
 
 export interface DmaGateProps {
   reason: DmaGateReason;

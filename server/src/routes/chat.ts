@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ConversationRow } from "@gh-radar/shared";
 import { requireAuth } from "../middleware/require-auth.js";
+import { requireDmaMapped } from "../middleware/require-dma-mapped.js";
 import { ChatPostBody, ConversationListQuery } from "../schemas/chat.js";
 import { ValidationFailed } from "../errors.js";
 import { loadConfig } from "../config.js";
@@ -22,10 +23,16 @@ import {
  * - GET  /conversations       : 사용자 대화 목록 (종목 필터 D-13).
  * - GET  /conversations/:id   : 대화 + 메시지 로드 (소유권 검증, 미소유 404 T-14-01).
  * - DELETE /conversations/:id : 대화 삭제 (소유권 검증).
+ * - GET  /access              : 접근 탐침 — 통과하면 200 { access: true }(웹 /chat · 진입 버튼 표시 판정용).
  *
  * 모든 라우트 requireAuth() — SSE 헤더 쓰기 전 401(Pattern 3, T-14-02). SSE 는
  * X-Accel-Buffering:no + 15s keepalive(Cloud Run Pitfall 2) + close→abort + done 보장.
  * CHAT_DISABLED kill-switch 503(헤더 전, T-14-04). 에러는 next(e)/generic — error.message 미노출(V7).
+ *
+ * quick-261009-c43 D-01 — 모든 라우트 requireAuth() **바로 뒤** requireDmaMapped(): DMA 미매핑 사용자는
+ * 403 DMA_UNMAPPED(zod 검증 · CHAT_DISABLED 503 · SSE 헤더보다 앞 — Sonnet 호출 0). 판정 원천은 상한가 보고서
+ * RPC 게이트와 같은 dma_visible_accounts(p_user_id). 웹 DmaGate · 사이드바 숨김은 표시 장치일 뿐 차단은 여기다.
+ * POST 순서: chatRateLimit → requireAuth() → requireDmaMapped() (레이트리밋 맨 앞 유지).
  */
 
 /** 라우트 전용 rate-limit — /api(200/60s) 위에 챗 POST 만 추가 강화(T-14-04 비용 방어). */
@@ -48,7 +55,7 @@ const ConversationIdParam = z.object({ id: z.string().uuid() });
 export const chatRouter: RouterT = Router();
 
 // --- POST / — SSE 스트리밍 챗 ---
-chatRouter.post("/", chatRateLimit, requireAuth(), async (req, res, next) => {
+chatRouter.post("/", chatRateLimit, requireAuth(), requireDmaMapped(), async (req, res, next) => {
   const parsed = ChatPostBody.safeParse(req.body);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
@@ -111,7 +118,7 @@ chatRouter.post("/", chatRateLimit, requireAuth(), async (req, res, next) => {
 });
 
 // --- GET /conversations — 사용자 대화 목록 (종목 필터 D-13) ---
-chatRouter.get("/conversations", requireAuth(), async (req, res, next) => {
+chatRouter.get("/conversations", requireAuth(), requireDmaMapped(), async (req, res, next) => {
   try {
     const parsed = ConversationListQuery.safeParse(req.query);
     if (!parsed.success) {
@@ -134,7 +141,7 @@ chatRouter.get("/conversations", requireAuth(), async (req, res, next) => {
 });
 
 // --- GET /conversations/:id — 대화 + 메시지 로드 (소유권 검증) ---
-chatRouter.get("/conversations/:id", requireAuth(), async (req, res, next) => {
+chatRouter.get("/conversations/:id", requireAuth(), requireDmaMapped(), async (req, res, next) => {
   try {
     const idParsed = ConversationIdParam.safeParse(req.params);
     if (!idParsed.success) throw ValidationFailed("id: invalid conversation id");
@@ -151,7 +158,7 @@ chatRouter.get("/conversations/:id", requireAuth(), async (req, res, next) => {
 });
 
 // --- DELETE /conversations/:id — 대화 삭제 (소유권 검증) ---
-chatRouter.delete("/conversations/:id", requireAuth(), async (req, res, next) => {
+chatRouter.delete("/conversations/:id", requireAuth(), requireDmaMapped(), async (req, res, next) => {
   try {
     const idParsed = ConversationIdParam.safeParse(req.params);
     if (!idParsed.success) throw ValidationFailed("id: invalid conversation id");
@@ -161,4 +168,10 @@ chatRouter.delete("/conversations/:id", requireAuth(), async (req, res, next) =>
   } catch (e) {
     next(e);
   }
+});
+
+// --- GET /access — 접근 탐침 (quick-261009-c43 D-01 · D-02) ---
+// 관문을 통과하면 200 JSON. 204 금지 — webapp apiFetch 가 성공 응답을 항상 JSON 파싱해 빈 본문이면 터진다.
+chatRouter.get("/access", requireAuth(), requireDmaMapped(), (_req, res) => {
+  res.json({ access: true });
 });

@@ -34,10 +34,28 @@ function conv(id: string, userId: string, stockCode: string | null = null) {
   };
 }
 
-/** auth.getUser + conversations 테이블을 지원하는 최소 supabase mock. */
-function makeSupabase(opts: { user?: { id: string } | null; conversations?: any[] }) {
+/**
+ * auth.getUser + conversations 테이블 + rpc("dma_visible_accounts") 를 지원하는 최소 supabase mock.
+ * quick-261009-c43 D-01 — mapped 기본 true(계좌 1행) 라 기존 테스트는 매핑 사용자로 그대로 돈다.
+ */
+function makeSupabase(opts: {
+  user?: { id: string } | null;
+  conversations?: any[];
+  mapped?: boolean;
+  rpcError?: { code: string; message: string };
+}) {
   const conversations = opts.conversations ?? [];
+  const rpcCalls: Array<[string, unknown]> = [];
+  const deletes: string[] = [];
   return {
+    rpcCalls,
+    deletes,
+    rpc: (fn: string, args: unknown) => {
+      rpcCalls.push([fn, args]);
+      if (opts.rpcError) return Promise.resolve({ data: null, error: opts.rpcError });
+      if (opts.mapped === false) return Promise.resolve({ data: [], error: null });
+      return Promise.resolve({ data: [{ gateway: "kb120", account_no: "12345678" }], error: null });
+    },
     auth: {
       getUser: async (_token: string) =>
         opts.user
@@ -54,7 +72,10 @@ function makeSupabase(opts: { user?: { id: string } | null; conversations?: any[
         },
         order: () => builder,
         maybeSingle: async () => ({ data: rows[0] ?? null, error: null }),
-        delete: () => builder,
+        delete: () => {
+          deletes.push(table);
+          return builder;
+        },
         insert: () => builder,
         update: () => builder,
         then: (resolve: any) => resolve({ data: rows, error: null }),
@@ -161,5 +182,85 @@ describe("DELETE /api/chat/conversations/:id", () => {
       .set("Authorization", "Bearer tok");
     expect(r.status).toBe(404);
     expect(r.body.error.code).toBe("CONVERSATION_NOT_FOUND");
+  });
+});
+
+describe("D-01 DMA 매핑 게이트 (quick-261009-c43)", () => {
+  it("미매핑: POST /api/chat → 403 DMA_UNMAPPED, SSE 헤더 전 · handleChatStream 0회", async () => {
+    const r = await request(app(makeSupabase({ user: USER, mapped: false })))
+      .post("/api/chat")
+      .set("Authorization", "Bearer tok")
+      .send({ message: "삼성전자 어때?" });
+    expect(r.status).toBe(403);
+    expect(r.body.error.code).toBe("DMA_UNMAPPED");
+    expect(r.headers["content-type"]).not.toMatch(/text\/event-stream/);
+    expect(handleChatStreamMock).not.toHaveBeenCalled();
+  });
+
+  it("미매핑: GET /conversations → 403 DMA_UNMAPPED", async () => {
+    const r = await request(app(makeSupabase({ user: USER, mapped: false, conversations: [conv(TID, "user-1")] })))
+      .get("/api/chat/conversations")
+      .set("Authorization", "Bearer tok");
+    expect(r.status).toBe(403);
+    expect(r.body.error.code).toBe("DMA_UNMAPPED");
+  });
+
+  it("미매핑: GET /conversations/:id → 403 DMA_UNMAPPED", async () => {
+    const r = await request(app(makeSupabase({ user: USER, mapped: false, conversations: [conv(TID, "user-1")] })))
+      .get(`/api/chat/conversations/${TID}`)
+      .set("Authorization", "Bearer tok");
+    expect(r.status).toBe(403);
+    expect(r.body.error.code).toBe("DMA_UNMAPPED");
+  });
+
+  it("미매핑: DELETE /conversations/:id → 403 DMA_UNMAPPED, 삭제 미수행", async () => {
+    const sb = makeSupabase({ user: USER, mapped: false, conversations: [conv(TID, "user-1")] });
+    const r = await request(app(sb))
+      .delete(`/api/chat/conversations/${TID}`)
+      .set("Authorization", "Bearer tok");
+    expect(r.status).toBe(403);
+    expect(r.body.error.code).toBe("DMA_UNMAPPED");
+    expect(sb.deletes).toHaveLength(0);
+  });
+
+  it("미매핑: GET /access → 403 DMA_UNMAPPED", async () => {
+    const r = await request(app(makeSupabase({ user: USER, mapped: false })))
+      .get("/api/chat/access")
+      .set("Authorization", "Bearer tok");
+    expect(r.status).toBe(403);
+    expect(r.body.error.code).toBe("DMA_UNMAPPED");
+  });
+
+  it("매핑: GET /access → 200 { access: true }", async () => {
+    const r = await request(app(makeSupabase({ user: USER })))
+      .get("/api/chat/access")
+      .set("Authorization", "Bearer tok");
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ access: true });
+  });
+
+  it("무토큰: 401 이고 rpc 0회(인증 전 판정 없음)", async () => {
+    const sb = makeSupabase({ user: USER });
+    const r = await request(app(sb)).get("/api/chat/access");
+    expect(r.status).toBe(401);
+    expect(sb.rpcCalls).toHaveLength(0);
+  });
+
+  it("rpc 인자 = dma_visible_accounts · p_user_id = req.userId", async () => {
+    const sb = makeSupabase({ user: USER });
+    await request(app(sb)).get("/api/chat/access").set("Authorization", "Bearer tok");
+    expect(sb.rpcCalls).toEqual([["dma_visible_accounts", { p_user_id: "user-1" }]]);
+  });
+
+  it("rpc 오류: 500 DB_ERROR — 권한 없음으로 위장하지 않는다", async () => {
+    const r = await request(
+      app(makeSupabase({ user: USER, rpcError: { code: "57014", message: "canceling statement" } })),
+    )
+      .get("/api/chat/access")
+      .set("Authorization", "Bearer tok");
+    expect(r.status).toBe(500);
+    expect(r.body.error.code).toBe("DB_ERROR");
+    expect(r.body.error.code).not.toBe("DMA_UNMAPPED");
+    expect(JSON.stringify(r.body)).not.toContain("canceling statement");
   });
 });

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { LimitupGridUrlsResponse, LimitupReportResponse } from "@gh-radar/shared";
 
-import { ApiError } from "../errors.js";
+import { ApiError, DmaUnmapped } from "../errors.js";
 
 /**
  * Phase 28 Plan 10 — 상한가 보고서 **조회 전용** 서비스 (D-10 · D-11 · D-15 · D-17).
@@ -34,7 +34,7 @@ const shapeCause = (what: string, v: unknown) => ({
   reason: `${what} 모양 위반`,
   type: Array.isArray(v) ? "array" : v === null ? "null" : typeof v,
 });
-const DmaUnmapped = () => new ApiError(403, "DMA_UNMAPPED", "DMA 계정이 연결되지 않았습니다.");
+// DmaUnmapped(403 DMA_UNMAPPED) 는 errors.ts 정본 — 챗 관문(quick-261009-c43 D-01)과 같은 생성자를 쓴다.
 
 /** 비공개 버킷 · 객체 경로 `grid/<D>/<isin>.json.gz`(28-06 적재 워커가 올린다). */
 export const LIMITUP_GRID_BUCKET = "limitup-grid";

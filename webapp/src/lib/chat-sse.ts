@@ -28,6 +28,8 @@ export type ChatStreamErrorCode =
   | "LOGIN_REQUIRED"
   | "SESSION_EXPIRED"
   | "CHAT_DISABLED"
+  // quick-261009-c43 D-01 — server requireDmaMapped 403. UI 는 DmaGate 로 바꾼다(/chat · markUnmapped).
+  | "DMA_UNMAPPED"
   | "STREAM_ERROR";
 
 /** 챗 스트림 실패를 표현하는 통합 에러. `code` 로 UI 분기(D-01 로그인 게이트 등). */
@@ -111,7 +113,7 @@ export interface StreamChatParams {
  * @param params - message/conversationId/stockCode
  * @param onEvent - SSE 이벤트 콜백 (text/agent_start/stock_card/done ...)
  * @param signal - 중단 신호 (D-06 사용자 취소)
- * @throws ChatStreamError - 세션 없음/만료(401)/비활성(503)/기타 non-ok
+ * @throws ChatStreamError - 세션 없음/만료(401)/DMA 미매핑(403)/비활성(503)/기타 non-ok
  */
 export async function streamChat(
   params: StreamChatParams,
@@ -139,6 +141,9 @@ export async function streamChat(
 
   if (resp.status === 401) {
     throw new ChatStreamError("SESSION_EXPIRED", "세션이 만료되었습니다. 다시 로그인해 주세요.");
+  }
+  if (resp.status === 403) {
+    throw new ChatStreamError("DMA_UNMAPPED", "DMA 계정이 연결되지 않았습니다.");
   }
   if (resp.status === 503) {
     throw new ChatStreamError("CHAT_DISABLED", "챗 기능이 일시적으로 비활성화되어 있습니다.");
