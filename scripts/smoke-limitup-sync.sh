@@ -17,6 +17,7 @@ set +x  # 비밀(service_role 키)이 trace 로 새지 않게 — 키는 변수 
 #
 # INV-1: Job execute --wait exit 0
 # INV-2: 로그 "limitup-sync complete" 1건 이상 (방금 실행 — jsonPayload.msg)
+#        Job 완료 직후 Cloud Logging 수집 지연(수십 초)을 10초 간격 최대 9회(≈90초) 재조회로 흡수(quick-261009-c43)
 # INV-3: 로그 "limitup-sync failed" 0건
 # INV-4: 대상 날짜 6표 count == GCS export/<D>/manifest.json 의 files[<tbl>.ndjson.gz].rows
 #        (인박스 「확인 방법」 — limitup_member_alloc 은 D 가 KST 오늘 − 30일 안일 때만 · 다른 5표는 − 90일 안)
@@ -144,12 +145,26 @@ log_filter() {
   printf '%s' "$f"
 }
 
+# Job 완료 직후에는 Cloud Logging 수집이 아직 따라오지 못해 0건이 나올 수 있다(오탐 FAIL).
+# smoke-home-sync.sh · smoke-theme-sync.sh 의 「N회 × sleep 재시도로 ingestion lag 흡수」 관례 — 10초 간격 최대 9회(≈90초).
+# 시간 기반 마감(SECONDS · date)이 아니라 횟수 고정이라 결정적이다. 첫 성공에서 바로 멈춘다.
 inv2_complete_log() {
-  local n
-  n=$(gcloud logging read "$(log_filter 'limitup-sync complete')" --freshness=40m --limit=5 --format='value(timestamp)' 2>/dev/null | grep -c .)
-  DETAIL="complete=$n"
-  [ "$n" -ge 1 ]
+  local n i tries=9
+  for ((i = 1; i <= tries; i++)); do
+    n=$(gcloud logging read "$(log_filter 'limitup-sync complete')" --freshness=40m --limit=5 --format='value(timestamp)' 2>/dev/null | grep -c .)
+    if [ "$n" -ge 1 ]; then
+      DETAIL="complete=$n try=$i/$tries"
+      return 0
+    fi
+    if [ "$i" -lt "$tries" ]; then
+      sleep 10
+    fi
+  done
+  DETAIL="complete=0 tries=$tries (10s 간격 · 약 $((tries * 10))초)"
+  return 1
 }
+
+# INV-3 은 INV-2 폴링 뒤에 돈다 — 같은 실행의 로그 수집이 이미 따라잡은 상태라 단발 조회로 충분하다.
 
 inv3_no_failed_log() {
   local n
