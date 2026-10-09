@@ -5,10 +5,10 @@ current_phase: 29
 current_phase_name: DMA 다중 서버 · 웹 Admin 유저 관리
 status: executing
 stopped_at: Completed 29-25-PLAN.md
-last_updated: "2026-10-08T06:48:43.140Z"
+last_updated: "2026-10-09T00:05:41.123Z"
 last_activity: 2026-10-07
 last_activity_desc: Phase 29 execution started
-state_head: 1a844bd3cecc8399669bc637eb0f9d78c700f31c
+state_head: a0b61c917fc829774dfb8f783c10a4ed638d5d6c
 progress:
   total_phases: 38
   completed_phases: 24
@@ -32,7 +32,7 @@ Phase: 29 (DMA 다중 서버 · 웹 Admin 유저 관리) — EXECUTING
 Plan: 25 of 26
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-10-07 - Completed quick task 261007-h76: 수동주문 폼 「주문계좌」 행 · 계좌칸 선택 기억 · CancelReason 12 (relay 재배포는 20:00 이후 대기)
+Last activity: 2026-10-09 - Completed quick task 261009-c43: AI 애널리스트 DMA 매핑 권한자 전용 실차단 + smoke-limitup-sync INV-2 로그 폴링
 
 Progress: [█████████░] 93%
 
@@ -734,6 +734,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 261007-b9o | 교보 SecuwaySSL VPN 안정화 — watchdog 디바운스·keepalive 볼륨(4h inactive 원인)·connect fail-fast·RestartSec 10 (워치독 핫 배포 완료, connect·유닛은 20:00 후) | 2026-10-07 | 570118f9 | [261007-b9o-secuwayssl-vpn-watchdog-4](./quick/261007-b9o-secuwayssl-vpn-watchdog-4/) |
 | 261007-h76 | 수동주문 폼 「주문계좌」 행 · 계좌칸 선택 기억 · gh-trade 인박스 CancelReason 12 「버스트 상한가」 | 2026-10-07 | c7a764b3 | [261007-h76-card-account-chip](./quick/261007-h76-card-account-chip/) |
 | 77 | gh-trade 인박스 261008 — 상따 추가매수 체크 라벨 「버스트 해제」 · 취소 사유 12 수동·VI 행 확대 확인(웹 라벨 변경 불요) | 2026-10-08 | 1a844bd3 | — |
+| 261009-c43 | AI 애널리스트 DMA 매핑 권한자 전용 실차단(서버 403 · /chat DmaGate · FAB/AI 분석 숨김) + smoke-limitup-sync INV-2 로그 폴링 | 2026-10-09 | a0b61c91 | [261009-c43-ai-dma-limitup-smoke](./quick/261009-c43-ai-dma-limitup-smoke/) |
 
 ## Session Continuity
 
