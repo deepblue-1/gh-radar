@@ -587,6 +587,9 @@ describe("SubscriptionHub — primary 선호 서버 (29-35)", () => {
   });
 
   it("생성 순서와 무관하게 primary = KB 기본 주문 서버 세션 — KB121 먼저 결선해도 21 · 34 · 43 은 KB120 으로만 · VI 61 은 KB120 것만", () => {
+    // 결선 시점에는 둘 다 아직 Ready 전이다(처음 결선 — Ready 프리페치는 곧 오는 `ready` 가 한다).
+    kb121.isReady = false;
+    kb120.isReady = false;
     hub.attach(kb121);
     hub.attach(kb120);
     kb121.emitReady();

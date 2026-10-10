@@ -224,10 +224,17 @@ const effectiveOrderServer = orderServerRouting.effectiveOrderServer;
 const serversFor = orderServerRouting.serversFor;
 
 /**
- * 사용자 세션 — (유저, 서버) 단위(Phase 29-16). 세션을 만들 때마다 **그 증권사의 주문 서버**로 연다(D-10 — 사용자 ×
- * 증권사 세션이 살아 있으면 주문 서버가 바뀌어도 그 세션 재사용 · 새 서버는 다음 세션부터). 그 증권사 주문 서버가
- * 없으면 세션을 열지 않는다(`acquireFor` → null). 생성자 host/port/broker 는 `resolveTarget` 을 주는 이 결선에서는 쓰지 않는다.
- * wss 인증이 어느 증권사 세션을 여는지는 아래 `brokersFor` 가 정한다(29-20 · D-18).
+ * primary 선호 서버 키 (Phase 29-35) — KB 기본 주문 서버. SessionManager(사용자 단위 명령 세션) · hub(사용자 단위 원천 · 21/34/43)
+ * · fanout(병합 상태 프레임 — `sessions.primaryOf`)이 **이 한 함수**로 같은 primary 를 고른다(생성 · 결선 순서와 무관). 그 서버
+ * 세션이 없으면(계좌가 전부 다른 KB 서버 지정) 첫 KB 세션 → 첫 세션. 기본 서버가 바뀌면 다음 판정 · 결선부터 새 값이다.
+ */
+const preferredPrimaryServerKey = (): string | undefined => registry.orderServerOf("KB")?.key;
+
+/**
+ * 사용자 세션 — (유저, 서버) 단위(Phase 29-16 · G-1 29-42). 운영 결선(wss 인증 · `refreshUserSessions`)은 아래 `serversFor` 가
+ * 고른 (유저, 서버) 대상마다 `acquireOn` 으로 연다 — 세션 키는 (유저, 서버) 하나뿐이고 같은 증권사 세션이 여럿일 수 있다(계좌별
+ * 주문 서버). `resolveTarget` 은 증권사 경로(`acquireFor`)의 그 증권사 기본 주문 서버이고, 없으면 세션을 열지 않는다(null).
+ * 생성자 host/port/broker 는 `resolveTarget` 을 주는 이 결선에서는 쓰지 않는다.
  */
 const sessionManager = new SessionManager({
   host: config.dmaHost,
@@ -237,6 +244,8 @@ const sessionManager = new SessionManager({
   // 29-33 (G-1) — 운영 경로(`acquireOn`) 세션은 유효 주문 서버가 자기 서버인 계좌만 소유한다(주문 · 83 · 계좌 프레임 거름 원천).
   ownerOf: (dmaUserId, broker, accountNo) =>
     isDmaBroker(broker) ? effectiveOrderServer(dmaUserId, broker, accountNo) : undefined,
+  // 29-35 — primary = KB 기본 주문 서버 세션(hub 와 같은 주입).
+  preferredPrimaryServerKey,
   resolveTarget: (broker) => {
     const s = isDmaBroker(broker) ? registry.orderServerOf(broker) : undefined;
     return s && { serverKey: s.key, host: s.host, port: s.port, broker: s.broker };
@@ -263,7 +272,13 @@ const symbols = new SymbolMap(supabase, { fallback: gatewaySymbols });
 void symbols.start();
 
 // D-10 linger — 기본 15초 · e2e 는 QUOTE_LINGER_MS=0 (테스트 간 전역 시세 캐시 격리).
-const hub = new SubscriptionHub({ symbols, symbolMaster: gatewaySymbols, lingerMs: config.quoteLingerMs });
+// 29-35 — primary 선호 = KB 기본 주문 서버(SessionManager 와 같은 주입). 같은 증권사 두 서버 세션이 공존하고 계좌 프레임은 소유 서버 세션만.
+const hub = new SubscriptionHub({
+  symbols,
+  symbolMaster: gatewaySymbols,
+  lingerMs: config.quoteLingerMs,
+  preferredPrimaryServerKey,
+});
 
 /**
  * 시세 업스트림 = quote 연결 하나 (Phase 26 D-12 · Phase 29 — 레지스트리의 **시세 주 서버** · 29-23 `QuoteSwitch` 가 전환).

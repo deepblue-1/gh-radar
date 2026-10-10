@@ -290,7 +290,7 @@ export interface FanoutSessions {
   release(userId: string, serverKey: string): void;
   /**
    * 전략(그리고 16-08 의 주문) 인바운드가 쓰는 세션 조회 — 계좌가 있는 명령은 `forAccount`, 사용자 단위 명령은
-   * `primaryOf`(KB 우선 · D-18).
+   * `primaryOf`(선호 서버(KB 기본 주문 서버) → 첫 KB → 첫 세션 · D-18 · 29-35).
    *
    * `acquireFor` 와 갈라 두는 이유: **여기서 대신 로그인하지 않는다** (D-15). 세션이 없다는 것은
    * 「호가창을 아직 열지 않았다」이고, 그 상태의 전략 요청은 만들어 주는 것이 아니라 거부다.
@@ -463,7 +463,8 @@ type EntrySession = {
 type UserEntry = {
   /**
    * 서버 키 → 증권사 세션 (Phase 29-20 · D-18 — 옛 단일 `session`). 상태 프레임은 이 세션들의 병합이다(`#mergedStateFrame`).
-   * 삽입 순서 = 결선 순서 — primary(KB 우선 · 없으면 첫 세션) 판정 근거다(hub `#primaryOwner` 와 같은 규칙).
+   * 삽입 순서 = 결선 순서 — primary 는 `sessions.primaryOf`(선호 서버 → 첫 KB → 첫 세션 · 29-35)가 정하고, 그 세션이 이 맵에 없을
+   * 때만 이 순서로 첫 KB → 첫 세션을 고른다(`#mergedStateFrame`).
    */
   sessions: Map<string, EntrySession>;
   conns: Set<Conn>;
@@ -1986,7 +1987,11 @@ export class WsFanout {
    * - 세션 1개: 그 세션 프레임 그대로(이벤트로 온 프레임이면 그것 — `msg` · `attempt` 보존). 단일 세션 사용자 화면 무변경.
    * - 여럿: `accounts` = 세션 전부의 허용 계좌 합집합(primary 먼저 · 계좌번호 중복 제거), `s` = 어느 세션이든 ready 면
    *   ready(문구는 primary 가 ready 면 primary 의 것, 아니면 첫 ready 세션의 것), 아니면 primary 상태(문구 · 시도 횟수 포함).
-   *   primary = KB 세션 우선 · 없으면 처음 결선된 세션(hub `#primaryOwner` 와 같은 규칙).
+   *   primary = `sessions.primaryOf(userId)`(29-35 — 선호 서버(KB 기본 주문 서버) → 첫 KB → 첫 세션 · hub `#primaryOwner` 와 같은
+   *   주입). 그 세션이 병합 대상에 없으면 대상 안에서 첫 KB → 첫 세션.
+   * - G-1 소유 0 세션(29-35): 계좌를 선언했지만 소유한 계좌가 0 인 세션(계좌가 전부 다른 서버로 지정됨)은 any-ready 판정과
+   *   `accounts` 에 기여하지 않는다 — 그 세션이 ready 라고 화면이 「연결됨」 이 되면 실제 계좌 서버 상태를 가린다. 남는 세션이 하나면
+   *   그 세션 프레임 그대로, 전부 소유 0 이면 종전 병합 그대로다. 지정 없는 사용자는 소유 뷰 = 원본이라 결과가 종전과 같다.
    *
    * 같은 계좌번호 문자열이 두 증권사에 동시에 있는 경우는 다루지 않는다(29-20 가정) — 중복 제거가 primary 쪽 항목을 남긴다.
    * `unauthorized`(DeleteUser · 29-21) 세션은 다른 세션이 남아 있으면 병합에서 뺀다 — 화면은 남은 세션 기준이다.
@@ -1999,9 +2004,16 @@ export class WsFanout {
     // 29-21 — DeleteUser 로 끝난(`unauthorized`) 세션은 남은 세션이 있으면 병합에서 뺀다(그 서버에서 지워진 유저의 계좌 · 상태가
     // 화면을 덮지 않게). 전부 끝났으면 그대로 두어 primary 의 `unauthorized` 프레임이 간다.
     const live = all.filter((s) => s.state !== "unauthorized");
-    const sessions = live.length > 0 ? live : all;
+    const alive = live.length > 0 ? live : all;
+    // 29-35 (G-1) — 선언 계좌는 있는데 소유 계좌가 0 인 세션은 병합에서 뺀다(전부 그렇다면 종전 그대로).
+    const owning = alive.filter((s) => !(s.allowedAccounts.length === 0 && s.declaredAccounts.length > 0));
+    const sessions = owning.length > 0 ? owning : alive;
     const frameOf = (s: DmaSession): RelayStateMsg => (s === trigger && frame !== undefined ? frame : s.stateFrame());
-    const primary = sessions.find((s) => s.broker === "KB") ?? sessions[0];
+    const preferred = this.#sessions.primaryOf(userId);
+    const primary =
+      (preferred !== undefined && sessions.includes(preferred) ? preferred : undefined) ??
+      sessions.find((s) => s.broker === "KB") ??
+      sessions[0];
     if (primary === undefined) return { t: "state", s: "connecting" };
     if (sessions.length === 1) return frameOf(primary);
 

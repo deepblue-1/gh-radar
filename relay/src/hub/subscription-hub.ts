@@ -551,7 +551,7 @@ function ownerPrefix(owner: string): string {
   return `${owner}|`;
 }
 
-/** primary 우선 증권사 (D-18 — `SessionManager.primaryOf` 와 같은 규칙). */
+/** primary 우선 증권사 (D-18 — `SessionManager.primaryOf` 와 같은 규칙 · 선호 서버 키 다음 순위). */
 const PRIMARY_BROKER = "KB";
 
 /** 세션의 증권사. 미기재(단위 테스트 가짜 세션)는 KB. */
@@ -684,6 +684,20 @@ function fillMissingName<T extends { isin: string; name?: string; code?: string 
   return withCode ? { ...row, name: info.name, code: info.code } : { ...row, name: info.name };
 }
 
+/** `SubscriptionHub` 생성 선택지. */
+export type SubscriptionHubOptions = {
+  symbols?: SymbolLookup;
+  symbolMaster?: HubSymbolMasterFeed;
+  lingerMs?: number;
+  limits?: { global?: number; user?: number };
+  /**
+   * primary 선호 서버 키 (Phase 29-35 — 운영은 `registry.orderServerOf("KB")?.key`). primary = 그 키 세션 → 처음 결선된 KB 세션 →
+   * 처음 결선된 세션. `SessionManager` 의 같은 이름 선택지와 **같은 함수**를 주입한다(사용자 단위 명령이 가는 세션과 사용자 단위
+   * 원천을 받는 세션이 갈리지 않게). 없으면 종전(첫 KB → 첫 세션).
+   */
+  preferredPrimaryServerKey?: () => string | undefined;
+};
+
 /**
  * 구독 참조계수 + 스냅샷 캐시의 단일 정본.
  *
@@ -702,6 +716,16 @@ export class SubscriptionHub extends EventEmitter {
    * 않는다 — 옛 리스너는 `#sessions` 정본 대조로 침묵하다가, 같은 객체가 정본으로 돌아오면 다시 말한다.
    */
   readonly #wired = new WeakSet<HubSession>();
+  /**
+   * primary 선호 서버 키 (29-35 — 운영은 KB 기본 주문 서버 · `SessionManager` 와 같은 주입). 없으면 종전(첫 KB → 첫 세션).
+   */
+  readonly #preferredPrimaryServerKey: (() => string | undefined) | undefined;
+  /**
+   * userId → 마지막으로 정리를 마친 primary 소유 키 (29-35). 결선 · 분리 직전의 「옛 primary」 정본이다 — primary 판정은 선호 주입을
+   * 그때그때 묻기 때문에(기본 서버가 바뀌면 판정이 먼저 바뀐다) 직전 값을 지금 다시 계산하면 바뀐 것을 영영 못 본다. 다음 결선
+   * (`attach` · `retainSessions`)이 이 값과 지금 판정을 비교해 옛 primary 몫을 버리고 새 primary 로 21 · 34 · 43 을 요청한다.
+   */
+  readonly #lastPrimary = new Map<string, string>();
   /**
    * 시세 업스트림 송신자 (Phase 26 D-12) — quote 연결 하나. 없으면(부팅 결선 전 · 비밀 없음) 참조계수만 기록한다.
    * 교체되면 여기가 정본이고 옛 feed 의 리스너는 정본 대조로 침묵한다(세션 규율 동형).
@@ -884,13 +908,9 @@ export class SubscriptionHub extends EventEmitter {
    * @param opts.lingerMs 1→0 뒤 구독 · 캐시 유지 시간(ms · D-10). 생략 = `LINGER_MS`(15초) · 0 이하 = 즉시 해제.
    * @param opts.limits 구독 한도(D-11 · D-15) — 생략 = `QUOTE_SUB_LIMIT`(2000) · `USER_SUB_LIMIT`(200). 테스트 주입용.
    */
-  constructor(opts?: {
-    symbols?: SymbolLookup;
-    symbolMaster?: HubSymbolMasterFeed;
-    lingerMs?: number;
-    limits?: { global?: number; user?: number };
-  }) {
+  constructor(opts?: SubscriptionHubOptions) {
     super();
+    this.#preferredPrimaryServerKey = opts?.preferredPrimaryServerKey;
     this.#symbols = opts?.symbols;
     this.#symbolMaster = opts?.symbolMaster;
     this.#lingerMs = opts?.lingerMs ?? LINGER_MS;
@@ -931,7 +951,7 @@ export class SubscriptionHub extends EventEmitter {
     const prev = this.#sessions.get(owner);
     if (prev === session) return;
 
-    const primaryBefore = this.#primaryOwner(userId);
+    const primaryBefore = this.#primaryBefore(userId);
     if (prev !== undefined) {
       // 시세 구독 · 캐시는 전역이라 사용자 세션 교체와 무관하다 (Phase 26 D-08) — 그 세션 몫 사용자 캐시만 버린다.
       logger.info({ userId, serverKey }, "[HUB] 세션 교체 — 사용자 캐시 폐기 (계좌 · 전략은 ready 에서 재요청)");
@@ -961,30 +981,39 @@ export class SubscriptionHub extends EventEmitter {
    */
   retainSessions(userId: string, serverKeys: ReadonlySet<string>): void {
     const prefix = userPrefix(userId);
-    const primaryBefore = this.#primaryOwner(userId);
-    let dropped = 0;
+    const primaryBefore = this.#primaryBefore(userId);
     for (const [owner, s] of [...this.#sessions]) {
       if (!owner.startsWith(prefix) || serverKeys.has(serverKeyOf(s))) continue;
       logger.info({ userId, serverKey: serverKeyOf(s) }, "[HUB] 쥔 연결이 없는 세션 분리 — 그 세션 몫 캐시 폐기");
       this.#dropOwner(userId, owner, primaryBefore === owner);
-      dropped += 1;
     }
-    if (dropped > 0) this.#afterPrimaryChange(userId, primaryBefore);
+    // 뗀 세션이 없어도 부른다(29-35) — 기본 주문 서버가 바뀌어 선호 판정만 달라졌으면 여기가 「다음 결선」 이다.
+    this.#afterPrimaryChange(userId, primaryBefore);
   }
 
   /**
-   * 그 사용자의 primary 세션 소유 키 (D-18) — **KB 세션 우선**, 없으면 처음 결선된 세션, 세션이 없으면 undefined.
-   * 사용자 단위 원천(VI · 84 · 76/78 · 77)과 사용자 단위 요청(21 · 34 · 43)이 이 세션만 본다.
+   * 그 사용자의 primary 세션 소유 키 (D-18 · 29-35) — **선호 서버 키 세션**(`preferredPrimaryServerKey` — 운영은 KB 기본 주문
+   * 서버), 없으면 처음 결선된 KB 세션, 없으면 처음 결선된 세션, 세션이 없으면 undefined. `SessionManager.primaryOf` 와 같은
+   * 규칙 · 같은 주입이라 결선 순서와 무관하게 같은 답이다. 사용자 단위 원천(VI · 84 · 76/78 · 77)과 사용자 단위 요청(21 · 34 ·
+   * 43)이 이 세션만 본다.
    */
   #primaryOwner(userId: string): string | undefined {
     const prefix = userPrefix(userId);
+    const preferred = this.#preferredPrimaryServerKey?.();
+    let firstKb: string | undefined;
     let first: string | undefined;
     for (const [owner, s] of this.#sessions) {
       if (!owner.startsWith(prefix)) continue;
-      if (brokerOf(s) === PRIMARY_BROKER) return owner;
+      if (preferred !== undefined && serverKeyOf(s) === preferred) return owner;
+      if (brokerOf(s) === PRIMARY_BROKER) firstKb ??= owner;
       first ??= owner;
     }
-    return first;
+    return firstKb ?? first;
+  }
+
+  /** 결선 · 분리 직전의 primary — 마지막으로 정리를 마친 값(`#lastPrimary` · 29-35). */
+  #primaryBefore(userId: string): string | undefined {
+    return this.#lastPrimary.get(userId);
   }
 
   /** 세션 하나를 떼어 낸다 — 그 세션 몫 캐시 폐기 + 결선 해제. 리스너는 정본 대조로 침묵한다. */
@@ -999,6 +1028,8 @@ export class SubscriptionHub extends EventEmitter {
    */
   #afterPrimaryChange(userId: string, primaryBefore: string | undefined): void {
     const after = this.#primaryOwner(userId);
+    if (after === undefined) this.#lastPrimary.delete(userId);
+    else this.#lastPrimary.set(userId, after);
     if (after === primaryBefore || primaryBefore === undefined) return;
     // 옛 primary 가 떼어졌으면 `#dropOwner` 가 이미 비웠다. 남아 있으면(강등) 여기서 비운다.
     if (this.#sessions.has(primaryBefore)) this.#clearPrimaryCaches(userId);
@@ -1862,6 +1893,7 @@ export class SubscriptionHub extends EventEmitter {
     // 옛 feed 의 늦은 프레임 · ready 는 정본 대조(`#feed`)로 침묵한다.
     this.#feed = null;
     this.#sessions.clear();
+    this.#lastPrimary.clear();
     this.#refs.clear();
     this.#quotes.clear();
     this.#tapes.clear();

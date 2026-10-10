@@ -572,7 +572,7 @@ describe("SessionManager — 조회 · 비밀 교체 · DMA 유저 종료 · 주
     vi.restoreAllMocks();
   });
 
-  function mgr(opts: { now?: () => number } = {}): SessionManager {
+  function mgr(opts: { now?: () => number; preferredPrimaryServerKey?: () => string | undefined } = {}): SessionManager {
     const m = new SessionManager({
       host: "127.0.0.1",
       port: 1,

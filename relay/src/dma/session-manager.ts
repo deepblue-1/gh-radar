@@ -23,9 +23,10 @@
  *         사용자 × 증권사 색인은 없다. 증권사 기본 주문 서버가 바뀌면 다음 acquire 는 (유예 중 옛 서버 세션이 있어도) 새 서버
  *         세션을 연다 — 옛 세션은 종전 유예로 끝난다. 영향 사용자 세션의 즉시 재수립은 29-36 몫이다(사용자 확정 2026-10-10
  *         「즉시 재접속」 · 29-29 G-1 운영 규칙).
- *   D-18  사용자 단위 명령(VI 설정 · 사용자 설정 84 · 세션 상태 표시)의 세션은 `primaryOf` — 그 사용자 세션 중 **처음 만든 KB
- *         세션**, 없으면 처음 만든 세션(선호 규칙은 29-35). 계좌가 있는 명령(주문 · 상따 · 자동매도)은 `forAccount` — 그 계좌가
- *         든 세션.
+ *   D-18  사용자 단위 명령(VI 설정 · 사용자 설정 84 · 세션 상태 표시)의 세션은 `primaryOf` — 그 사용자 세션 중 **선호 서버 키
+ *         (`preferredPrimaryServerKey` — 운영은 KB 기본 주문 서버) 세션**, 없으면 처음 만든 KB 세션, 없으면 처음 만든 세션(29-35 —
+ *         생성 순서와 무관하게 결정적 · hub `#primaryOwner` · fanout 병합 상태 프레임과 같은 규칙 · 같은 주입). 계좌가 있는 명령(주문 ·
+ *         상따 · 자동매도)은 `forAccount` — 그 계좌가 든 세션.
  *   주문 서버 없음 — `resolveTarget(broker)` 가 undefined 면 세션을 열지 않는다(`acquireFor` → null). 29-03 의 「생성자
  *         게이트웨이 폴백」은 여기서 끝냈다 — db 모드의 생성자 값은 127.0.0.1 이라 폴백은 열리지 않는 세션을 만들 뿐이다.
  *
@@ -114,6 +115,12 @@ export type SessionManagerOptions = {
    * 서버」 인 계좌만 소유한다(`DmaSession` `owns`). 주지 않으면 소유 술어 없음(원본 전부 · 종전). 인자 DMA id 를 로그에 싣지 않는다.
    */
   ownerOf?: (dmaUserId: string, broker: string, accountNo: string) => string | undefined;
+  /**
+   * primary 선호 서버 키 (Phase 29-35 — 운영은 `registry.orderServerOf("KB")?.key`). `primaryOf` 가 부를 때마다 묻는다 — 그 키
+   * 세션이 있으면 그것, 없으면 처음 만든 KB 세션 → 처음 만든 세션. 주지 않으면 종전(처음 만든 KB → 처음 만든 세션). hub ·
+   * fanout 과 **같은 함수**를 주입한다.
+   */
+  preferredPrimaryServerKey?: () => string | undefined;
   /** 유예(ms). 미지정 시 `SESSION_GRACE_MS`. */
   graceMs?: number;
   /**
@@ -236,6 +243,7 @@ export class SessionManager {
   readonly #broker: string;
   readonly #resolveTarget: ((broker: string) => SessionTarget | undefined) | undefined;
   readonly #ownerOf: ((dmaUserId: string, broker: string, accountNo: string) => string | undefined) | undefined;
+  readonly #preferredPrimaryServerKey: (() => string | undefined) | undefined;
   readonly #graceMs: number;
   readonly #now: () => number;
 
@@ -245,6 +253,7 @@ export class SessionManager {
     this.#broker = opts.broker;
     this.#resolveTarget = opts.resolveTarget;
     this.#ownerOf = opts.ownerOf;
+    this.#preferredPrimaryServerKey = opts.preferredPrimaryServerKey;
     this.#graceMs = opts.graceMs ?? SESSION_GRACE_MS;
     this.#now = opts.now ?? (() => Date.now());
   }
@@ -373,18 +382,22 @@ export class SessionManager {
   }
 
   /**
-   * 사용자 단위 명령 · 상태 표시의 세션 (D-18) — 그 사용자 세션 중 **처음 만든 KB 세션**, 없으면 처음 만든 세션, 없으면
-   * undefined (29-42 — 삽입 순서 = 생성 순서 · 선호 규칙은 29-35). 주문 라우트가 「활성 Ready 세션이 있는가」를 물을 때의 기본
+   * 사용자 단위 명령 · 상태 표시의 세션 (D-18) — 그 사용자 세션 중 **선호 서버 키 세션**(`preferredPrimaryServerKey` · 29-35), 없으면
+   * 처음 만든 KB 세션, 없으면 처음 만든 세션, 없으면 undefined (삽입 순서 = 생성 순서). 선호가 있으면 생성 순서와 무관하게 같은
+   * 답이다(KB121 을 먼저 만들어도 KB 기본 주문 서버 KB120). 주문 라우트가 「활성 Ready 세션이 있는가」를 물을 때의 기본
    * 세션이기도 하다(없으면 「세션 없음」 거부 · D-15).
    */
   primaryOf(userId: string): DmaSession | undefined {
+    const preferred = this.#preferredPrimaryServerKey?.();
+    let firstKb: DmaSession | undefined;
     let first: DmaSession | undefined;
     for (const entry of this.#sessions.values()) {
       if (entry.userId !== userId) continue;
-      if (entry.broker === PRIMARY_BROKER) return entry.session;
+      if (preferred !== undefined && entry.serverKey === preferred) return entry.session;
+      if (entry.broker === PRIMARY_BROKER) firstKb ??= entry.session;
       first ??= entry.session;
     }
-    return first;
+    return firstKb ?? first;
   }
 
   /**
