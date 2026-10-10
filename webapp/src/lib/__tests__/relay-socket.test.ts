@@ -385,6 +385,35 @@ describe('useRelayConnection — 상태 프레임 (D-36)', () => {
     expect(hook.result.current.statusLabel).toBe(RELAY_STATE_LABELS.ready);
     expect(hook.result.current.statusMessage).toBe('세션 준비됨');
   });
+
+  it('29-39 G-1 — 계좌 항목의 serverKey · movedFrom · staleStrategies 를 그대로 보관한다 · 세 필드 없는 옛 프레임도 그대로', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    // 29-36 이 붙인 필드 — 표시 전용(상태줄 · 계좌 필이 읽는다).
+    const accounts = [
+      { accountNo: '1', name: '홍길동', serverKey: 'KB120' },
+      {
+        accountNo: '2',
+        name: '단기',
+        serverKey: 'KB121',
+        movedFrom: 'KB120',
+        staleStrategies: { serverKey: 'KB120', count: 2 },
+      },
+    ];
+    await act(async () => {
+      ws.push({ t: 'state', s: 'ready', accounts });
+    });
+    expect(hook.result.current.accounts).toEqual(accounts);
+
+    // 다음 프레임에서 relay 가 끄기를 확인하면 필드가 빠진다 — 옛 값을 남기지 않는다.
+    await act(async () => {
+      ws.push({ t: 'state', s: 'ready', accounts: [{ accountNo: '1', name: '홍길동' }, { accountNo: '2', name: '단기' }] });
+    });
+    expect(hook.result.current.accounts).toEqual([
+      { accountNo: '1', name: '홍길동' },
+      { accountNo: '2', name: '단기' },
+    ]);
+  });
 });
 
 describe('useRelayConnection — 시세 키별 보관 (D-33 / D-37)', () => {

@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useState } from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import type { RelayQueuedWindowMsg, RelayQuoteStateMsg, RelaySubLimitMsg } from '@gh-radar/shared';
+import type {
+  RelayAccount,
+  RelayQueuedWindowMsg,
+  RelayQuoteStateMsg,
+  RelaySubLimitMsg,
+} from '@gh-radar/shared';
 
 /**
  * Phase 18 Plan 11 Task 1 — 작업대 상태줄 (D-04 · D-05 · D-17 · D-22 · E1, TRADE-09).
@@ -30,6 +36,7 @@ import { accountLabelOf } from '@/lib/account-label';
 import { BREAKOUT_TONE_KEY, TRADING_COLS_KEY } from '@/lib/breakout-list';
 import {
   AccountPill,
+  WORKBENCH_STATUS_TEXT,
   WorkbenchStatusBar,
   type WorkbenchStatusBarProps,
 } from '../workbench/workbench-status-bar';
@@ -379,5 +386,174 @@ describe('AccountPill — 신규 카드의 기본 계좌 (Q-3)', () => {
       />,
     );
     expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['1234567801']);
+  });
+});
+
+/*
+ * Phase 29-39 G-1 — 작업대 계좌별 주문 서버 표시(29-30 채택 workbench-display A) ·
+ * gh-trade-84 ②(가) 끄기 미확인 경고 · ② 추가 되돌아옴 「클라(OCX) 대사」 안내.
+ * 원천은 relay 상태 프레임 계좌 항목의 `serverKey` · `staleStrategies` · `movedFrom`(29-36) — 표시 전용.
+ */
+const G1_ACCOUNTS: RelayAccount[] = [
+  { accountNo: '1', name: '홍길동', serverKey: 'KB120' },
+  {
+    accountNo: '2',
+    name: '단기',
+    serverKey: 'KB121',
+    movedFrom: 'KB120',
+    staleStrategies: { serverKey: 'KB120', count: 2 },
+  },
+];
+
+/** 작업대와 같은 배선 — 계좌 필이 고른 계좌를 상태줄 `account` 로 넘긴다. */
+function G1Harness({ accounts = G1_ACCOUNTS }: { accounts?: RelayAccount[] }) {
+  const [accountNo, setAccountNo] = useState(accounts[0]?.accountNo ?? '');
+  return (
+    <>
+      <AccountPill accounts={accounts} accountNo={accountNo} onChange={setAccountNo} />
+      <WorkbenchStatusBar {...props({ account: accounts.find((a) => a.accountNo === accountNo) ?? null })} />
+    </>
+  );
+}
+
+const pickAccount = (no: string) =>
+  fireEvent.change(screen.getByRole('combobox', { name: '계좌' }), { target: { value: no } });
+const all = (name: string) => [...document.querySelectorAll(`[data-slot="${name}"]`)];
+
+describe('AccountPill — 계좌별 주문 서버 (29-39 · 채택 A)', () => {
+  it('옵션 글자 = accountLabelOf + 「 · 서버키」 꼬리표 · 고른 계좌의 서버 키 칩 1개(title 「이 계좌의 주문 서버」)', () => {
+    render(<G1Harness />);
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
+      '1 · 홍길동 · KB120',
+      '2 · 단기 · KB121',
+    ]);
+    const chips = all('workbench-account-server');
+    expect(chips).toHaveLength(1);
+    expect(chips[0]!.textContent).toBe('KB120');
+    expect(chips[0]).toHaveAttribute('title', '이 계좌의 주문 서버');
+    // 목업 A `.srvkey` — mono 10px bold · h18 · r5 · --muted 바탕 · --fg-2 글자.
+    for (const cls of ['mono', 'text-[10px]', 'font-bold', 'h-[18px]', 'rounded-[5px]', 'bg-[var(--muted)]', 'text-[var(--fg-2)]']) {
+      expect(chips[0]!.className).toContain(cls);
+    }
+    // 칩은 필 바로 옆이다.
+    expect(chips[0]!.previousElementSibling).toBe(screen.getByRole('combobox', { name: '계좌' }));
+  });
+
+  it('계좌 2 를 고르면 칩이 「KB121」 로 바뀐다', () => {
+    render(<G1Harness />);
+    pickAccount('2');
+    expect(all('workbench-account-server').map((c) => c.textContent)).toEqual(['KB121']);
+  });
+
+  it('serverKey 없는 계좌는 옵션 꼬리표 · 칩 없음 — 필 기존 동작(title · 비마스킹) 그대로', () => {
+    render(
+      <G1Harness
+        accounts={[
+          { accountNo: '1234567801', name: '위탁종합' },
+          { accountNo: '1234567802', name: 'ISA', serverKey: 'KB121' },
+        ]}
+      />,
+    );
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
+      '1234567801 · 위탁종합',
+      '1234567802 · ISA · KB121',
+    ]);
+    expect(all('workbench-account-server')).toHaveLength(0);
+    expect(screen.getByRole('combobox', { name: '계좌' }).getAttribute('title')).toContain(
+      '이미 있는 카드는 자기 계좌를 유지',
+    );
+    pickAccount('1234567802');
+    expect(all('workbench-account-server').map((c) => c.textContent)).toEqual(['KB121']);
+  });
+});
+
+describe('WorkbenchStatusBar — 끄기 미확인 경고 (29-39 · gh-trade-84 ②(가))', () => {
+  const STALE = '옛 서버 KB120 활성 전략 2건 — 끄지 못했어요 · 클라(OCX)에서 끄세요';
+
+  it('문구 상수 — 수 · null(몇 건인지 모름)', () => {
+    expect(WORKBENCH_STATUS_TEXT.staleStrategies('KB120', 2)).toBe(STALE);
+    expect(WORKBENCH_STATUS_TEXT.staleStrategies('KB120', null)).toBe(
+      '옛 서버 KB120 활성 전략 몇 건인지 모름 — 끄지 못했어요 · 클라(OCX)에서 끄세요',
+    );
+  });
+
+  it('고른 계좌 기준 — 계좌 1 은 0개 · 계좌 2 는 1개 · role status · 닫기 버튼 없음', () => {
+    render(<G1Harness />);
+    expect(all('workbench-stale-strategies')).toHaveLength(0);
+    pickAccount('2');
+    const lines = all('workbench-stale-strategies');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.textContent).toBe(STALE);
+    expect(lines[0]).toHaveAttribute('role', 'status');
+    expect(within(lines[0] as HTMLElement).queryByRole('button')).toBeNull();
+    // 상태줄 안의 한 줄이다.
+    expect(slot('workbench-status-bar')!.contains(lines[0]!)).toBe(true);
+  });
+
+  it('count null → 「몇 건인지 모름」', () => {
+    render(
+      <WorkbenchStatusBar
+        {...props({ account: { accountNo: '9', name: 'x', serverKey: 'KB121', staleStrategies: { serverKey: 'KB120', count: null } } })}
+      />,
+    );
+    expect(all('workbench-stale-strategies').map((l) => l.textContent)).toEqual([
+      '옛 서버 KB120 활성 전략 몇 건인지 모름 — 끄지 못했어요 · 클라(OCX)에서 끄세요',
+    ]);
+  });
+
+  it('다음 상태 프레임에 필드가 없으면(relay 확인) 사라진다', () => {
+    const acc = G1_ACCOUNTS[1]!;
+    const { rerender } = render(<WorkbenchStatusBar {...props({ account: acc })} />);
+    expect(all('workbench-stale-strategies')).toHaveLength(1);
+    const { staleStrategies: _gone, ...confirmed } = acc;
+    rerender(<WorkbenchStatusBar {...props({ account: confirmed })} />);
+    expect(all('workbench-stale-strategies')).toHaveLength(0);
+  });
+});
+
+describe('WorkbenchStatusBar — 되돌아옴 「클라 대사」 안내 (29-39 · gh-trade-84 ② 추가)', () => {
+  const MOVED = '주문 서버 KB120 → KB121 — 옛 서버 잔고 · 미체결은 클라(OCX) 대사로 맞추세요';
+
+  it('문구 상수', () => {
+    expect(WORKBENCH_STATUS_TEXT.movedFrom('KB120', 'KB121')).toBe(MOVED);
+  });
+
+  it('계좌 1 에는 없음 · 계좌 2 를 고르면 1개', () => {
+    render(<G1Harness />);
+    expect(all('workbench-moved-from')).toHaveLength(0);
+    pickAccount('2');
+    const lines = all('workbench-moved-from');
+    expect(lines).toHaveLength(1);
+    expect(visibleText(lines[0]!).replace(/×$/, '').trim()).toBe(MOVED);
+    expect(slot('workbench-status-bar')!.contains(lines[0]!)).toBe(true);
+  });
+
+  it('× 를 누르면 사라지고 같은 (2, KB120) 프레임이 다시 와도 안 보인다 · movedFrom 이 KB119 로 바뀌면 다시 보인다', () => {
+    const acc = G1_ACCOUNTS[1]!;
+    const { rerender } = render(<WorkbenchStatusBar {...props({ account: acc })} />);
+    fireEvent.click(screen.getByRole('button', { name: '안내 닫기' }));
+    expect(all('workbench-moved-from')).toHaveLength(0);
+    // 같은 조합의 새 프레임(새 객체).
+    rerender(<WorkbenchStatusBar {...props({ account: { ...acc } })} />);
+    expect(all('workbench-moved-from')).toHaveLength(0);
+    // 끄기 미확인 경고는 닫기와 무관하게 그대로다.
+    expect(all('workbench-stale-strategies')).toHaveLength(1);
+    rerender(<WorkbenchStatusBar {...props({ account: { ...acc, movedFrom: 'KB119' } })} />);
+    const lines = all('workbench-moved-from');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.textContent).toContain('주문 서버 KB119 → KB121');
+  });
+});
+
+describe('WorkbenchStatusBar — 필드 없는 계좌는 줄 수 종전 (29-39)', () => {
+  it('serverKey 만 있거나 계좌가 없으면 경고 · 안내 요소 0 · 상태줄 자식 수가 계좌 미지정과 같다', () => {
+    const { rerender } = render(<WorkbenchStatusBar {...props()} />);
+    const base = slot('workbench-status-bar')!.childElementCount;
+    rerender(<WorkbenchStatusBar {...props({ account: G1_ACCOUNTS[0]! })} />);
+    expect(slot('workbench-status-bar')!.childElementCount).toBe(base);
+    rerender(<WorkbenchStatusBar {...props({ account: null })} />);
+    expect(slot('workbench-status-bar')!.childElementCount).toBe(base);
+    expect(all('workbench-stale-strategies')).toHaveLength(0);
+    expect(all('workbench-moved-from')).toHaveLength(0);
   });
 });
