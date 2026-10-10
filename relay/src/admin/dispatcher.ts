@@ -10,6 +10,14 @@
  *     settle(D-23 ⑤) — op 4 가 ok(0 · 8 = 이미 없음)인 계좌 · 87 에 이미 없는 removing 계좌 · op 2 ok(0 · 4)면 그 서버 행 전부
  *   → 서버별 결과 배열(레지스트리 순) → `dma_admin_record_results`
  *
+ * 요청 마감(29-32 WR-07): 세 공개 메서드는 선택 `deadlineAt`(epoch ms — 라우트 도착 + `ADMIN_REQUEST_DEADLINE_MS`)을 받는다.
+ *   서버당 op 는 순차라(op 1개 = 86 5초 + 87 1초) 계좌가 여럿이거나 느린 서버가 있으면 Express 상한을 넘는다. 그래서 마감까지
+ *   끝나지 않은 서버는 응답 배열에서 `timeout`(`ADMIN_DEADLINE_MESSAGE`)으로 접어 **먼저 응답**하고 그 결과를 기록한다. 서버
+ *   반영은 취소하지 않는다(진행 중 44 · 서버 FIFO 그대로) — 끝까지 가서 실제 결과로 `dma_admin_record_results` 를 한 번 더 부른다.
+ *   같은 유저 줄(`#serial`)은 실제 완료에 묶인다 — 응답이 먼저 나가도 다음 요청은 앞 반영이 끝난 뒤에 op 를 보내고, 그 대기
+ *   시간도 다음 요청의 마감에 들어간다(줄에서 마감을 맞으면 의도의 등록 서버 전부 `timeout`). 유저 삭제가 마감에 걸리면
+ *   `deleted: false` 로 응답하고, 늦게 끝나도 DB 의 DMA 유저를 지우지 않는다 — 다음 삭제 요청이 87 대조로 마저 처리한다.
+ *
  * 하지 않는 것:
  *   - **87 에만 있는 계좌 · 유저를 지우는 op 를 만들지 않는다**(D-23 ⑤ · D-16) — op 는 전부 planner 가 의도 행에서만 만든다.
  *     DB 등록 서버가 아닌 서버에는 아무것도 보내지 않는다.
@@ -77,6 +85,27 @@ type PasswordSource = () => Promise<string>;
 /** 비밀번호를 꺼내지 못했다 — 그 서버 op 1 은 보내지 않고 실패 칩으로 남긴다. */
 const PASSWORD_UNAVAILABLE = "저장된 비밀번호를 읽지 못했습니다 — 비밀번호를 다시 설정하세요";
 
+/**
+ * Admin 변경 요청 1건의 응답 마감(ms · 29-32 WR-07) — 라우트 도착부터. Express `RELAY_ADMIN_TIMEOUT_MS`(15초)보다 짧아야
+ * 「relay 는 반영했는데 Express 는 502」 가 생기지 않는다.
+ */
+export const ADMIN_REQUEST_DEADLINE_MS = 10_000;
+
+/** 마감까지 끝나지 않은 서버의 결과 칩 문구 — 반영은 뒤에서 계속되고 실제 결과가 다시 기록된다. */
+export const ADMIN_DEADLINE_MESSAGE = "10초 안에 끝나지 않아 먼저 응답했어요 — 서버 반영은 계속돼요";
+
+/** 요청 1건의 진행 — 마감 시각에 응답 배열을 접는 데 쓴다. */
+type Progress = {
+  /** 의도에서 읽은 등록 서버 키 — 줄에서 아직 시작하지 못했으면 null. */
+  keys: string[] | null;
+  /** 끝난 서버의 실제 결과. */
+  done: Map<string, AdminServerResult>;
+  /** 전 서버 반영이 끝났다(이후로는 접지 않는다). */
+  finished: boolean;
+  /** 마감에 접어 먼저 응답했다면 그 기록 Promise — 뒤의 실제 기록이 그 뒤에 쓰도록 기다린다. */
+  folded: Promise<void> | null;
+};
+
 export class AdminDispatcher {
   readonly #deps: AdminDispatcherDeps;
   /** DMA 유저별 진행 꼬리 — 같은 유저의 반영을 줄 세운다. */
@@ -91,16 +120,21 @@ export class AdminDispatcher {
    * `password` 를 주면(생성 직후) op 1 에 그 평문을 쓰고, 없으면 `dma_users` 암호문을 복호한다.
    * `adminEmail` 은 감사 문맥 — 감사 로그 1줄은 라우터가 남긴다.
    */
-  reconcileUser(dmaUserId: string, opts: { password?: string; adminEmail: string }): Promise<AdminServerResult[]> {
-    return this.#serial(dmaUserId, async () => {
+  reconcileUser(
+    dmaUserId: string,
+    opts: { password?: string; adminEmail: string; deadlineAt?: number },
+  ): Promise<AdminServerResult[]> {
+    const progress = newProgress();
+    const full = this.#serial(dmaUserId, async () => {
       const intent = await this.#deps.store.intent(dmaUserId);
       const password = this.#passwordSource(dmaUserId, opts.password);
-      const results = await this.#fanOut(this.#serverKeysOf(intent), (serverKey) =>
+      const results = await this.#fanOut(progress, this.#serverKeysOf(intent), (serverKey) =>
         this.#applyServer(dmaUserId, serverKey, (snapshot) => planServerOps({ dmaUserId, serverKey, intent, snapshot }), password),
       );
-      await this.#record(dmaUserId, results);
+      await this.#recordFinal(dmaUserId, progress, results);
       return results;
     });
+    return this.#answerBy(dmaUserId, opts.deadlineAt, progress, full, (results) => results);
   }
 
   /**
@@ -110,37 +144,51 @@ export class AdminDispatcher {
    * Pitfall 8). 서버 반영이 전부 실패해도 부른다 — DB 암호문은 이미 새 값이고 다음 로그인(새 탭 · 재로그인)도 DB 값을 쓰므로
    * 회선 재접속 로그인도 같은 값이어야 한다. 서버에 아직 옛 비밀이 남은 동안의 재접속 거부는 「다시 반영」 이 op 1 로 맞춘다.
    */
-  changePassword(dmaUserId: string, plain: string, adminEmail: string): Promise<AdminServerResult[]> {
+  changePassword(
+    dmaUserId: string,
+    plain: string,
+    adminEmail: string,
+    opts: { deadlineAt?: number } = {},
+  ): Promise<AdminServerResult[]> {
     void adminEmail;
-    return this.#serial(dmaUserId, async () => {
+    const progress = newProgress();
+    const full = this.#serial(dmaUserId, async () => {
       await this.#deps.store.setPassword(dmaUserId, encryptDmaPassword(plain, dmaUserId, this.#deps.credKey));
       try {
         await this.#dualWrite(dmaUserId, plain);
         const intent = await this.#deps.store.intent(dmaUserId);
         const password = this.#passwordSource(dmaUserId, plain);
-        const results = await this.#fanOut(this.#serverKeysOf(intent), (serverKey) =>
+        const results = await this.#fanOut(progress, this.#serverKeysOf(intent), (serverKey) =>
           this.#applyServer(dmaUserId, serverKey, (snapshot) => planPasswordOps({ dmaUserId, snapshot }), password),
         );
-        await this.#record(dmaUserId, results);
+        await this.#recordFinal(dmaUserId, progress, results);
         return results;
       } finally {
-        // 서버 op 1 이 끝난 뒤(성공 · 실패 무관) — 그동안 열린 세션은 서버와 같은 옛 비밀을 쥔다(재접속 거부 창을 줄인다).
+        // 서버 op 1 이 끝난 뒤(성공 · 실패 무관 · 마감 뒤 늦은 완료여도) — 그동안 열린 세션은 서버와 같은 옛 비밀을 쥔다
+        // (재접속 거부 창을 줄인다).
         this.#deps.sessions?.updatePassword(dmaUserId, plain);
       }
     });
+    return this.#answerBy(dmaUserId, opts.deadlineAt, progress, full, (results) => results);
   }
 
   /**
    * 유저 삭제(D-15) — DB 등록 서버마다 그 유저의 의도 계좌를 **전부 제거 중으로 보고** 계획한다: 그 서버에 87 전용 계좌가 없으면
    * op 2(0 · 4 = 반영됨 → 그 서버 행 settle), 있으면 의도 계좌만 op 4(87 전용 계좌 · 유저는 남긴다 — D-23 ⑤). 전 서버 ok 일 때만
    * `dma_admin_delete_dma_user` — 일부 실패(BUSY · 12 마지막 사용자 · 무응답)면 남은 서버 의도는 그대로 두고 결과 칩이 보여 준다.
+   * 마감(29-32)에 걸리면 `deleted: false` 로 먼저 응답하고, 늦게 전 서버 ok 로 끝나도 DB 삭제는 부르지 않는다(화면 · DB 일치).
    */
-  deleteUser(dmaUserId: string, adminEmail: string): Promise<{ results: AdminServerResult[]; deleted: boolean }> {
+  deleteUser(
+    dmaUserId: string,
+    adminEmail: string,
+    opts: { deadlineAt?: number } = {},
+  ): Promise<{ results: AdminServerResult[]; deleted: boolean }> {
     void adminEmail;
-    return this.#serial(dmaUserId, async () => {
+    const progress = newProgress();
+    const full = this.#serial(dmaUserId, async () => {
       const intent = (await this.#deps.store.intent(dmaUserId)).map((r) => ({ ...r, state: "removing" as const }));
       const password = this.#passwordSource(dmaUserId, undefined);
-      const results = await this.#fanOut(this.#serverKeysOf(intent), (serverKey) =>
+      const results = await this.#fanOut(progress, this.#serverKeysOf(intent), (serverKey) =>
         this.#applyServer(
           dmaUserId,
           serverKey,
@@ -149,7 +197,12 @@ export class AdminDispatcher {
           { settleUserOnOk: true },
         ),
       );
-      await this.#record(dmaUserId, results);
+      await this.#recordFinal(dmaUserId, progress, results);
+      if (progress.folded !== null) {
+        // 응답은 이미 deleted false 로 나갔다 — 여기서 지우면 화면과 DB 가 갈라진다. 다음 삭제 요청이 87 대조로 마저 처리한다.
+        logger.info({ servers: results.length }, "[admin] 유저 삭제 — 마감 뒤 완료 · DB 삭제는 다음 요청");
+        return { results, deleted: false };
+      }
       if (!results.every((r) => r.outcome === "ok")) return { results, deleted: false };
       try {
         await this.#deps.store.deleteDmaUser(dmaUserId);
@@ -163,6 +216,7 @@ export class AdminDispatcher {
         throw err;
       }
     });
+    return this.#answerBy(dmaUserId, opts.deadlineAt, progress, full, (results) => ({ results, deleted: false }));
   }
 
   // ----------------------------------------------------------
@@ -293,15 +347,93 @@ export class AdminDispatcher {
     }
   }
 
-  /** 서버마다 병렬 — 결과는 레지스트리 순(없는 키는 뒤 · 키 순). */
+  /**
+   * 서버마다 병렬 — 결과는 레지스트리 순(없는 키는 뒤 · 키 순). 끝난 서버 결과를 `progress` 에 적어 마감 접기(`#answerBy`)가
+   * 읽게 한다 — 전 서버가 끝나면 `finished`(이후로는 접지 않는다).
+   */
   async #fanOut(
+    progress: Progress,
     serverKeys: string[],
     run: (serverKey: string) => Promise<AdminServerResult>,
   ): Promise<AdminServerResult[]> {
-    const results = await Promise.all(serverKeys.map((k) => run(k)));
+    progress.keys = serverKeys;
+    const results = await Promise.all(
+      serverKeys.map((k) =>
+        run(k).then((r) => {
+          progress.done.set(k, r);
+          return r;
+        }),
+      ),
+    );
+    progress.finished = true;
+    return this.#sorted(results);
+  }
+
+  #sorted(results: AdminServerResult[]): AdminServerResult[] {
     const order = new Map(this.#deps.registry.all().map((r, i) => [r.key, i] as const));
     const rank = (k: string): number => order.get(k) ?? Number.MAX_SAFE_INTEGER;
     return results.sort((a, b) => rank(a.server) - rank(b.server) || (a.server < b.server ? -1 : a.server > b.server ? 1 : 0));
+  }
+
+  /**
+   * 요청 마감(29-32 WR-07) — `full`(줄 · 반영 · 기록 전부)이 `deadlineAt` 전에 끝나면 그 값, 아니면 마감 시각에 끝난 서버는
+   * 실제 결과 · 나머지는 `timeout`(`ADMIN_DEADLINE_MESSAGE`)으로 접어 기록하고 `fold` 로 응답한다. `full` 은 취소하지 않는다 —
+   * 줄 꼬리도 `full` 에 묶여 있어 다음 요청은 이 반영이 실제로 끝난 뒤에 시작한다. 줄에서 아직 시작하지 못했으면(`keys` null)
+   * 의도를 따로 읽어 등록 서버 전부를 접는다.
+   */
+  #answerBy<T>(
+    dmaUserId: string,
+    deadlineAt: number | undefined,
+    progress: Progress,
+    full: Promise<T>,
+    fold: (results: AdminServerResult[]) => T,
+  ): Promise<T> {
+    if (deadlineAt === undefined) return full;
+    return new Promise<T>((resolve, reject) => {
+      let answered = false;
+      const timer = setTimeout(() => {
+        void (async () => {
+          if (progress.finished) return;
+          const keys = progress.keys ?? this.#serverKeysOf(await this.#deps.store.intent(dmaUserId));
+          // 의도를 읽는 사이 반영이 끝났거나 응답이 나갔으면 실제 결과가 이긴다.
+          if (answered || progress.finished) return;
+          const results = this.#sorted(
+            keys.map((k) => progress.done.get(k) ?? { server: k, outcome: "timeout", message: ADMIN_DEADLINE_MESSAGE }),
+          );
+          progress.folded = this.#record(dmaUserId, results);
+          answered = true;
+          logger.warn(
+            { servers: results.filter((r) => r.message === ADMIN_DEADLINE_MESSAGE).map((r) => r.server) },
+            "[admin] 요청 마감 — 끝나지 않은 서버는 timeout 으로 먼저 응답 · 반영은 계속",
+          );
+          resolve(fold(results));
+        })().catch((err: unknown) => {
+          if (answered) return;
+          answered = true;
+          reject(err);
+        });
+      }, Math.max(0, deadlineAt - Date.now()));
+      full.then(
+        (value) => {
+          clearTimeout(timer);
+          if (answered) return;
+          answered = true;
+          resolve(value);
+        },
+        (err: unknown) => {
+          clearTimeout(timer);
+          if (!answered) {
+            answered = true;
+            reject(err);
+            return;
+          }
+          logger.error(
+            { reason: err instanceof Error ? err.name : "unknown" },
+            "[admin] 마감 뒤 반영 실패 — 응답은 이미 나갔다(다음 다시 반영이 87 대조로 맞춘다)",
+          );
+        },
+      );
+    });
   }
 
   /** 의도 행의 등록 서버 키(중복 없음). DB 등록 서버만 — 87 에만 그 유저가 있는 서버는 대상이 아니다(D-23 ⑤). */
@@ -324,6 +456,12 @@ export class AdminDispatcher {
       }
       return cached;
     };
+  }
+
+  /** 실제 결과 기록 — 마감에 접어 먼저 기록했다면 그 기록이 끝난 뒤에 쓴다(늦은 접힌 기록이 실제 결과를 덮지 않게). */
+  async #recordFinal(dmaUserId: string, progress: Progress, results: readonly AdminServerResult[]): Promise<void> {
+    if (progress.folded !== null) await progress.folded;
+    await this.#record(dmaUserId, results);
   }
 
   /** 결과 기록 실패는 응답을 막지 않는다 — 칩은 다음 기록 · 87 대조로 맞춰진다. */
@@ -361,4 +499,8 @@ export class AdminDispatcher {
     });
     return run;
   }
+}
+
+function newProgress(): Progress {
+  return { keys: null, done: new Map(), finished: false, folded: null };
 }

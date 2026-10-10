@@ -52,7 +52,10 @@ export type AppConfig = {
   // 밖이면 부팅 throw(assertRelayUrl).
   relayInternalUrl: string | undefined;
   relayOrderSecret: string | undefined;
-  /** relay Admin 요청 타임아웃(ms) — relay 서버별 86 대기 5초 + 87 대기 + 여유. 기본 12000. */
+  /**
+   * relay Admin 요청 타임아웃(ms) — 기본 15000 = relay 요청 마감 10초(`ADMIN_REQUEST_DEADLINE_MS` · 29-32 WR-07) + 시세 전환
+   * DB RPC · 네트워크 여유. 브라우저 상한(webapp `RELAY_TIMEOUT_MS` 20초)보다 작다.
+   */
   relayAdminTimeoutMs: number;
 };
 
@@ -107,7 +110,7 @@ export function loadConfig(): AppConfig {
     // Phase 29 D-07 — relay Admin 내부 HTTP. 빈 문자열은 미설정으로 본다.
     relayInternalUrl: process.env.RELAY_INTERNAL_URL || undefined,
     relayOrderSecret: process.env.RELAY_ORDER_SECRET || undefined,
-    relayAdminTimeoutMs: positiveIntOr(process.env.RELAY_ADMIN_TIMEOUT_MS, 12_000),
+    relayAdminTimeoutMs: positiveIntOr(process.env.RELAY_ADMIN_TIMEOUT_MS, 15_000),
   };
 }
 

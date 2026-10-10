@@ -14,6 +14,12 @@
  *     `SERVER_DISABLED` · `QUOTE_SWITCH_FAILED`(옛 서버로 되돌림 · DB 무변경) · `QUOTE_SWITCH_BUSY`(진행 중). message 는 화면이 그대로
  *     보이는 한국어 문장이다(29-18).
  *
+ * 요청 마감(29-32 WR-07): 변경 라우트 6개(생성 · 비밀번호 · 계좌 put · 계좌 delete · 유저 delete · reconcile)는 요청 도착 시각 +
+ * `ADMIN_REQUEST_DEADLINE_MS`(10초)를 `deadlineAt` 으로 dispatcher 에 넘긴다(생성은 RPC 뒤 reconcile 에). 그때까지 끝나지 않은
+ * 서버는 결과 배열에 `timeout`(「10초 안에 끝나지 않아 먼저 응답했어요 …」)으로 접혀 **200** 으로 나가고, 서버 반영은 뒤에서
+ * 계속돼 실제 결과가 `dma_admin_results` 에 다시 기록된다(다음 재조회 칩). Express 상한(`RELAY_ADMIN_TIMEOUT_MS` 15초)이
+ * 이 마감보다 길어 「relay 는 반영했는데 Express 는 502」(생성 재시도 → `DMA_USER_EXISTS`)가 생기지 않는다.
+ *
  * 비밀번호(D-19 · Phase 15 D-19): 평문은 이 요청 메모리 안에서만 산다 — `encryptDmaPassword(plain, dmaUserId, credKey)` 로
  * 암호화한 값만 RPC 로 가고, op 1 은 같은 요청의 평문을 44 에 싣는다. 응답 · 로그에는 어디에도 없다.
  */
@@ -32,7 +38,7 @@ import { RelayApiError } from "../order/order-api.js";
 import { encryptDmaPassword } from "../store/credentials.js";
 import type { DmaServerRow } from "../registry/registry.js";
 import type { QuoteSwitchResult } from "../quote/quote-switch.js";
-import type { AdminDispatcher } from "./dispatcher.js";
+import { ADMIN_REQUEST_DEADLINE_MS, type AdminDispatcher } from "./dispatcher.js";
 import { IntentError, type AdminIntentStore } from "./intent-store.js";
 
 // ============================================================
@@ -64,6 +70,8 @@ export type AdminApiDeps = {
   };
   /** 시각 주입구(ms). 기본 `Date.now`. */
   now?: () => number;
+  /** 변경 요청 마감(ms · 29-32). 기본 `ADMIN_REQUEST_DEADLINE_MS` — 실 소켓 테스트만 줄인다. */
+  adminDeadlineMs?: number;
 };
 
 // ============================================================
@@ -261,6 +269,9 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
     if (unknown.length > 0) throw new RelayApiError(400, "VALIDATION_FAILED", `servers: 레지스트리에 없는 서버 ${unknown.join(", ")}`);
   };
 
+  /** 요청 도착 시각 + 마감 — 핸들러 첫 줄에서 잰다(이후 RPC · 줄 대기도 마감 안). */
+  const deadlineOf = (): number => (deps.now?.() ?? Date.now()) + (deps.adminDeadlineMs ?? ADMIN_REQUEST_DEADLINE_MS);
+
   const respond = (res: Parameters<RequestHandler>[1], results: AdminServerResult[]): void => {
     res.status(200).json({ results });
   };
@@ -288,6 +299,7 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
 
   // ── 생성 + 반영 (D-16 트레이서) ─────────────────────────────────────────
   router.post("/dma-users", async (req, res) => {
+    const deadlineAt = deadlineOf();
     const body = CreateDmaUserBody.parse(req.body);
     assertKnownServers(body.servers);
     const adminEmail = res.locals.adminEmail as string;
@@ -301,48 +313,52 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
         account: body.account,
         servers: body.servers,
       });
-      return { results: await deps.dispatcher.reconcileUser(body.dmaUserId, { password: body.password, adminEmail }) };
+      return { results: await deps.dispatcher.reconcileUser(body.dmaUserId, { password: body.password, adminEmail, deadlineAt }) };
     });
     respond(res, results);
   });
 
   // ── 비밀번호 변경 (D-08 · D-19 — 암호문 교체 + 87 에 유저 있는 서버 op 1 + 옛 표 dual-write) ─────────
   router.post("/dma-users/:dma/password", async (req, res) => {
+    const deadlineAt = deadlineOf();
     const { dma } = DmaParam.parse(req.params);
     const { password } = PasswordBody.parse(req.body);
     const { results } = await audited(res, "POST /dma-users/:dma/password", dma, async () => ({
-      results: await deps.dispatcher.changePassword(dma, password, res.locals.adminEmail as string),
+      results: await deps.dispatcher.changePassword(dma, password, res.locals.adminEmail as string, { deadlineAt }),
     }));
     respond(res, results);
   });
 
   // ── 계좌 upsert · 등록 서버 집합 교체 + 반영 (빠진 서버 = removing → op 4 → settle) ────────────────
   router.put("/dma-users/:dma/accounts", async (req, res) => {
+    const deadlineAt = deadlineOf();
     const { dma } = DmaParam.parse(req.params);
     const body = PutAccountBody.parse(req.body);
     assertKnownServers(body.servers);
     const { results } = await audited(res, "PUT /dma-users/:dma/accounts", dma, async () => {
       await deps.store.putAccount(dma, body.account, body.servers);
-      return { results: await deps.dispatcher.reconcileUser(dma, { adminEmail: res.locals.adminEmail as string }) };
+      return { results: await deps.dispatcher.reconcileUser(dma, { adminEmail: res.locals.adminEmail as string, deadlineAt }) };
     });
     respond(res, results);
   });
 
   // ── 계좌 제거 (removing 표시 + 반영 · 마지막 계좌는 409 LAST_ACCOUNT → 화면은 유저 삭제로 — D-15) ─────
   router.delete("/dma-users/:dma/accounts/:broker/:accountNo", async (req, res) => {
+    const deadlineAt = deadlineOf();
     const { dma, broker, accountNo } = AccountParam.parse(req.params);
     const { results } = await audited(res, "DELETE /dma-users/:dma/accounts/:broker/:accountNo", dma, async () => {
       await deps.store.markAccountRemoved(dma, broker, accountNo);
-      return { results: await deps.dispatcher.reconcileUser(dma, { adminEmail: res.locals.adminEmail as string }) };
+      return { results: await deps.dispatcher.reconcileUser(dma, { adminEmail: res.locals.adminEmail as string, deadlineAt }) };
     });
     respond(res, results);
   });
 
   // ── 유저 삭제 (D-15 — 서버마다 op 2(87 전용 계좌가 있으면 의도 계좌 op 4) · 전 서버 ok 일 때만 DB 삭제) ──
   router.delete("/dma-users/:dma", async (req, res) => {
+    const deadlineAt = deadlineOf();
     const { dma } = DmaParam.parse(req.params);
     const { results, deleted } = await audited(res, "DELETE /dma-users/:dma", dma, () =>
-      deps.dispatcher.deleteUser(dma, res.locals.adminEmail as string),
+      deps.dispatcher.deleteUser(dma, res.locals.adminEmail as string, { deadlineAt }),
     );
     // D-04 즉시 반영 — DMA 연결이 사라진 웹 사용자의 wss 를 끊는다(접근 맵 revoked → fanout 결선). 실패해도 60초 주기가 잡는다.
     if (deleted) await deps.access.reload();
@@ -351,9 +367,10 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
 
   // ── 「다시 반영」 — 의도 전체를 서버에 다시 맞춘다(의도 = 87 이면 44 0건) ───────────────────────────
   router.post("/dma-users/:dma/reconcile", async (req, res) => {
+    const deadlineAt = deadlineOf();
     const { dma } = DmaParam.parse(req.params);
     const { results } = await audited(res, "POST /dma-users/:dma/reconcile", dma, async () => ({
-      results: await deps.dispatcher.reconcileUser(dma, { adminEmail: res.locals.adminEmail as string }),
+      results: await deps.dispatcher.reconcileUser(dma, { adminEmail: res.locals.adminEmail as string, deadlineAt }),
     }));
     respond(res, results);
   });

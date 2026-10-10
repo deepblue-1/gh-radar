@@ -15,7 +15,7 @@
  *   하므로(29-10 결정) 여기서 한 번만 인코딩한다.
  *
  * ④ relay 를 거치는 쓰기는 타임아웃을 늘린다
- *   Express → relay 왕복 상한이 12초(`RELAY_ADMIN_TIMEOUT_MS` 기본)라 `apiFetch` 기본 8초로는 서버가 아직
+ *   Express → relay 왕복 상한이 15초(`RELAY_ADMIN_TIMEOUT_MS` 기본 · relay 요청 마감 10초 + 여유)라 `apiFetch` 기본 8초로는 서버가 아직
  *   결과를 모으는 중에 브라우저가 먼저 끊는다 — 그러면 반영은 됐는데 화면은 「실패」 를 말한다.
  *   relay 를 부를 수 있는 경로는 `RELAY_TIMEOUT_MS`(20초)를 쓴다.
  *
@@ -40,7 +40,7 @@ import type {
 import type { ApiFetchInit } from "./api";
 import { authFetch } from "./auth-fetch";
 
-/** relay 를 거칠 수 있는 요청의 브라우저 타임아웃 — 서버의 relay 상한(12초)보다 길게(위 ④). */
+/** relay 를 거칠 수 있는 요청의 브라우저 타임아웃 — 서버의 relay 상한(15초)보다 길게(위 ④). */
 export const RELAY_TIMEOUT_MS = 20_000;
 
 /** 허용 · 역할 쓰기 응답 — relay access reload 통보 결과(best-effort, 실패해도 200). */

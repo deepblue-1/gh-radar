@@ -201,8 +201,9 @@ export function assertRelayUrl(rawUrl: string, nodeEnv: string): URL {
 /**
  * relay Admin 클라이언트 생성. `RELAY_INTERNAL_URL` · `RELAY_ORDER_SECRET` 둘 다 있을 때만 호출한다(`server.ts`).
  *
- * 타임아웃은 `RELAY_ADMIN_TIMEOUT_MS`(기본 12000) — relay 가 서버별 86 을 5초씩 기다리고 87 까지 받는 시간 + 여유.
- * 여기서 먼저 끊으면 「relay 는 반영했는데 Express 만 모르는」 상태가 생기므로 relay 쪽 대기보다 길게 둔다.
+ * 타임아웃은 `RELAY_ADMIN_TIMEOUT_MS`(기본 15초) — 15초 = relay 요청 마감 10초(29-32 WR-07 · 그때까지 끝나지 않은 서버는
+ * `timeout` 으로 접혀 200 으로 온다) + 시세 전환 DB RPC · 네트워크 여유 · 브라우저 20초(webapp `RELAY_TIMEOUT_MS`) 안.
+ * 여기서 먼저 끊으면 「relay 는 반영했는데 Express 만 모르는」 상태(생성 재시도 → DMA_USER_EXISTS)가 생기므로 relay 마감보다 길게 둔다.
  */
 export function createRelayAdminClient(opts: {
   baseUrl: string;
