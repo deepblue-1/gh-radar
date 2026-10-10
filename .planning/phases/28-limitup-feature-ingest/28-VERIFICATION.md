@@ -2,8 +2,8 @@
 phase: 28-limitup-feature-ingest
 verified: 2026-10-10T01:29:00Z
 round: 2
-status: human_needed
-score: 12/13 must-haves verified
+status: passed
+score: 12/12 must-haves verified (truth 13 은 ROADMAP 정정으로 Deferred — UAT 7)
 covered_files:
   - .planning/phases/28-limitup-feature-ingest/28-01-PLAN.md
   - .planning/phases/28-limitup-feature-ingest/28-01-SUMMARY.md
@@ -82,13 +82,11 @@ re_verification:
   gaps_remaining: []
   regressions: []
 gaps: []
-deferred: []
+deferred:
+  - truth: "truth 13 — limit_up_events(code,date) 와 short_code+date 조인"
+    to: "CONTEXT Deferred (종목상세 링크 · 상한가 다음날 이력)"
+    decided: "2026-10-10 UAT 7 사용자 결정 (b) — ROADMAP Phase 28 Goal 문구 정정"
 warnings:
-  - id: R2-W-1
-    severity: medium
-    item: "truth 13 — ROADMAP Goal 의 「limit_up_events(code,date) 와 short_code+date 조인」 이 코드 어디에도 없고, 구현 안 함을 수용한 기록(override · ROADMAP 정정)도 없다"
-    where: "supabase/migrations/20261006090400_limitup_report_rpcs.sql · server/src/services/limitup-report.ts · webapp/src/lib/limitup-*.ts — phase 가 만든 소스에 `limit_up_events` 참조 0 (grep 확인)"
-    status: "1라운드 W-3 승계 — 5일간 변화 없음. 기능 결손이 아니라 문구 불일치로 판단하나 판정은 사람 몫"
   - id: R2-W-2
     severity: low
     item: "WR-R2-01 — 주문로그 틈 메우기 가드가 「가장 오래된 라이브 줄」 키라서 비정상 상태(서버 기록 지연 · REST 0건)에서 상한 5,000 도달 뒤 새 kind 15 마다 ?lf=1 을 다시 부를 수 있다"
@@ -99,10 +97,7 @@ warnings:
     item: "WR-R2-02 — 보존 정리가 throw 하면 dispatch 가 result 를 못 돌려 `limitup-sync stale` 로그가 사라진다"
     where: "workers/limitup-sync/src/index.ts:311-327, 332-357 (코드에서 확인)"
     status: "advisory — 종료 코드는 1 이라 알림 정책은 울린다. 가려지는 것은 원인 로그 한 줄"
-human_verification:
-  - test: "ROADMAP Goal 의 `limit_up_events` 조인을 이 phase 에서 구현하지 않은 것을 수용할지 결정 (R2-W-1)"
-    expected: "둘 중 하나 — (a) 아래 override 를 28-VERIFICATION.md frontmatter 에 승계해 수용, 또는 (b) ROADMAP Phase 28 Goal 문구에서 조인 구절을 CONTEXT Deferred(종목상세 링크 · 상한가 다음날 이력)로 정정"
-    why_human: "구현 부재가 관찰 가능한 사실이고, 의도적 축소인지는 코드로 알 수 없다. override 수용은 verifier 가 대신할 수 없다(accepted_by 가 사람이어야 함)"
+human_verification: []
 ---
 
 > **정본 frontmatter 는 2라운드(28-VERIFICATION-R2.md, 2026-10-10)로 승계됨.** 아래 본문은 1라운드(2026-10-05) 기록 그대로다.
