@@ -3,7 +3,7 @@ phase: 27-auto-sell-integration
 review: 27-REVIEW-R3.md
 round: 3
 updated: 2026-10-10
-open: 4
+open: 0
 total: 4
 ---
 
@@ -14,7 +14,7 @@ total: 4
 
 | ID | Severity | Disposition | Source |
 |----|----------|-------------|--------|
-| WR-R3-01 | warning | open | - |
-| WR-R3-02 | warning | open | - |
-| IN-R3-01 | info | open | - |
-| IN-R3-02 | info | open | - |
+| WR-R3-01 | warning | fixed | 28857466 — quick-261010-jix (relay 출처만 무응답 뒤 LC_ORPHAN_WAIT_MS 로 묶음 · 키 출처는 늦은 창 내내) |
+| WR-R3-02 | warning | fixed | af93ea10 — quick-261010-jix (켜짐 → 꺼짐은 start 대기만 끊음 — stop 은 settleAutoSell 이 먼저 풂) |
+| IN-R3-01 | info | fixed | 28857466 — quick-261010-jix |
+| IN-R3-02 | info | fixed | af93ea10 — quick-261010-jix |
