@@ -51,7 +51,8 @@
  *             주 매핑 라우팅(경로 없는 `journal.rows`)도 같은 현재 파이프라인을 본다.
  *           - `journalGateways.<서버 키>` = 그 밖 enabled 서버(본문 전용) · `brokers.{KB,KYOBO}` = 증권사별 주문 서버 저널
  *             `{ server, alerting }`(uptime 고정 JSONPath — Pitfall 3).
- *           - 주문 서버가 바뀌어도 열린 사용자 세션은 예전 서버에 그대로다(D-10) — 그 사용자에게 `order.server` 표식만 간다(29-22).
+ *           - 주문 서버 변경(계좌 지정 · 증권사 기본)은 29-36 의 즉시 재수립이 맡는다(G-1 · 사용자 확정 2026-10-10 「즉시 재접속」).
+ *             D-10 의 「주문 서버 바뀜」 `order.server` 표식(29-22)은 29-42 가 없앴다.
  *         이 플랜이 **남긴 것**(뒤 플랜 몫): 서버 푸시 신원은 29-06 에서 `AppAccess` 하나로 바뀌었다(런타임 추가 서버도 즉시 같은
  *         신원) · 사용자 세션은 (유저, 서버) 단위(29-16 · 29-20) · quote 전환은 29-23 `QuoteSwitch`.
  *
@@ -327,9 +328,6 @@ function brokersFor(dmaUserId: string): DmaBroker[] {
   return out;
 }
 
-/** 증권사 → 지금 그 증권사 주문 서버 키(레지스트리 현재 값). 주문 서버 바뀜 표식(D-10 · 29-22)의 원천 — 인증 스냅샷 · 재적재 알림 공통. */
-const orderServerKeyOf = (broker: DmaBroker): string | undefined => registry.orderServerOf(broker)?.key;
-
 /** 주 서버 매핑 읽기 — 호출마다 지금의 KB 주문 서버 파이프라인을 본다(없으면 매핑 없음 = 푸시 없음 · 29-22). */
 const primaryAccessView: JournalAccessView = {
   accountsOf: (dmaUserId) => kbOrderPipeline()?.access.accountsOf(dmaUserId),
@@ -360,15 +358,14 @@ const fanout = new WsFanout({
   journalState: orderJournal,
   // 시세 전용 공유 연결 상태 — 인증 직후 `quote.state` 스냅샷 1프레임의 출처(Phase 26 D-01).
   quoteState: quoteStatus,
-  // 주문 서버 바뀜 표식(D-10 · 29-22) — 인증 직후 재사용 세션 서버 ≠ 지금 주문 서버면 그 연결에 1건 · 같아졌으면 지우기.
-  orderServerOf: orderServerKeyOf,
 });
 
 /**
  * 87 → 열린 세션 반영 (Phase 29-21 · ADMIN-06) — sink 가 그 서버 매핑에 87 을 넣은 직후(`applied`) 그 서버에 로그인한 사용자
- * 세션이 새 계좌를 재로그인 없이 자가 선언하고(RESEARCH Pitfall 10) 빠진 계좌는 허용 목록에서 즉시 뺀다(fail closed). 그 87 이
- * 연결 중 사용자의 계좌를 처음 실은 증권사 주문 서버면 `fanout.refreshUserSessions` 가 그 증권사 세션을 연다(위 `brokersFor` 가
- * 갓 교체된 매핑을 본다). 브라우저 계좌 목록은 세션 `accounts` 이벤트 → fanout 병합 상태 프레임으로 간다.
+ * 세션이 새 계좌를 재로그인 없이 자가 선언하고(RESEARCH Pitfall 10) 빠진 계좌는 세션 원본에서 즉시 뺀다(fail closed · 29-42). 그
+ * 87 이 연결 중 사용자 계좌의 유효 주문 서버(G-1)이고 그 계좌를 처음 실었으면 `fanout.refreshUserSessions` 가 빠진 서버 세션을
+ * 연다(위 `serversFor` 가 갓 교체된 매핑을 본다 · 전략 끄기 없음). 브라우저 계좌 목록은 세션 `accounts` 이벤트 → fanout 병합
+ * 상태 프레임으로 간다.
  */
 const adminSessionSync = new AdminSessionSync({ sessions: sessionManager, fanout });
 adminSnapshotSink.on("applied", (e) => adminSessionSync.onApplied(e));
@@ -485,9 +482,8 @@ accountOrderServers.start();
 pipelines.sync(registry.enabled());
 orderJournal.refresh();
 // 레지스트리 변경(60초 재적재 · reload) → 서버 추가 · 삭제 · 끄기 · 주소 변경을 재배포 없이 반영한다.
-// Phase 29 D-10 (29-22) — 그 뒤 주문 서버가 사용자의 열린 세션 서버와 갈렸으면 그 사용자에게 「주문 서버 바뀜」 1건.
-// 역할(roles) 변경뿐 아니라 서버 삭제 · 끄기도 주문 서버를 바꿀 수 있어 변경마다 부른다 — 같은 표식은 fanout 이 다시 보내지
-// 않는다. 열린 세션은 끊지도 옮기지도 않는다(새 서버는 다음 세션부터 — SessionManager.resolveTarget).
+// G-1 (29-42) — 주문 서버가 바뀌어도 여기서 「주문 서버 바뀜」 표식을 보내지 않는다(D-10 배지 폐지). 영향 사용자 세션의 즉시
+// 재수립은 29-36 몫이다.
 registry.on("changed", (change) => {
   pipelines.sync(registry.enabled());
   // 29-23 (D-11) — DB 시세 주 서버가 다른 경로로 바뀌었으면 같은 break-then-make 로 맞춘다. 실패하면 DB 를 지금 연결 서버로
@@ -504,7 +500,6 @@ registry.on("changed", (change) => {
   }
   // 29-22 — 저널 원천이 새 KB 주문 서버로 바뀌었으면 그 서버의 지금 상태를 브라우저에 1건(다음 healthz 는 요청마다 현재 값).
   orderJournal.refresh();
-  fanout.notifyOrderServers(orderServerKeyOf);
 });
 // 시세 전용 quote 연결도 같은 자리에서 연다(Phase 26 — 장 시간 · 사용자 접속과 무관). hub · fanout 결선이 다 붙은 뒤다.
 quoteSwitch.start();
