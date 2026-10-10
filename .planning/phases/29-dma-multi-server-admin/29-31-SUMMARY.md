@@ -72,7 +72,7 @@ coverage:
         status: pass
       - kind: e2e
         ref: "webapp/e2e/specs/admin.spec.ts#P29-A3b 데스크톱 비모달 — 오버레이 없음 · 행 사이 이동 (1080)"
-        status: unknown
+        status: pass
     human_judgment: true
     rationale: "e2e P29-A3b 가 워크트리에서 미실행(비밀 파일 가드로 Supabase 테스트 env 없음) — 메인 세션 · 29-41 전체 회귀에서 실행해 green 을 확인해야 한다"
   - id: D2
@@ -84,10 +84,10 @@ coverage:
         status: pass
       - kind: e2e
         ref: "webapp/e2e/specs/admin.spec.ts#P29-A3c 터치 타깃 — 계좌 버튼 · 역할 세그먼트 높이 (390/1080)"
-        status: unknown
+        status: pass
       - kind: e2e
         ref: "webapp/e2e/specs/admin-servers.spec.ts#P29-S1 (390/1080) 라디오 칩 높이"
-        status: unknown
+        status: pass
     human_judgment: true
     rationale: "실측 높이는 Playwright 만 잴 수 있는데 워크트리에서 미실행 — 클래스 계약만 단위로 고정됐다"
   - id: D3
@@ -262,3 +262,28 @@ None - 외부 서비스 설정 없음.
 - 커밋: bd1cb42c · 5588b95d · 8f0fd425 · 98a5b7ce · 44d0969c · c9c719d2 모두 HEAD 조상
 - 플랜 검증: admin 컴포넌트 테스트 9파일 109건 green · webapp typecheck(tsc + e2e tsconfig) green · 변경 파일 eslint 0건 · ui/sheet 기본 동작 불변(overlay 기본 true)
 - 미실행: admin · admin-servers e2e(워크트리에 Supabase 테스트 env 없음 — Issues Encountered)
+
+## 메인 트리 e2e 후속 (2026-10-10)
+
+- **실패:** 메인 트리에서 `admin.spec.ts` · `admin-servers.spec.ts` 를 처음 돌리니 15 passed · 1 failed — `P29-A3b`(1080)의
+  `parkBox.x + parkBox.width / 2 < panel.x` 가 660 > 640 으로 깨졌다.
+- **원인(제품):** 비모달 우측 패널은 fixed · 포털이라 본문을 밀지 않는다. 1080 에서 패널(640~1080)이 목록 행의 오른쪽 절반
+  (서버 반영 칩 · ›), 머리 「+ 사용자」, 하단 안내 끝을 덮었다. 목업 HTML 의 `.panel` 도 `position:absolute` 로 `.main` 위에
+  얹혀 같은 기하(행 중심 = 패널 왼쪽 끝 640)지만, 목업 DESC 는 「우측 패널(440px)이 열려 목록이 왼쪽에 남는다 … 목록이 남아
+  유저 간 이동이 빠르다」 이고(D-14 · UI-REVIEW-2 「목록이 그대로 보여」), 이 플랜의 편집 · 생성 상호 배타도 패널을 연 채
+  「+ 사용자」 를 누를 수 있다는 전제였다. 목업에서 칩이 잘린 것은 고정 프레임 스케치의 부산물로 보고, 테스트를 고치지 않고
+  제품을 고쳤다.
+- **수정 (`647f5f1b`):** `admin-sheet.tsx` 에 `AdminPanelPage` 추가 — 본문 루트(`PAGE_WRAP`)를 `@container/admin-page` 로
+  감싸고, 패널이 열린 동안 본문 폭이 784(패널 440 + 목록 하한 344 = 360 폰 본문 폭) 이상이면 `max-w` 900+440 · `pr` 440
+  으로 오른쪽을 비운다. 목록(최대 900)은 패널 왼쪽 남은 폭의 가운데에 선다. 784 미만 본문(예: 뷰포트 800 · 펼친 사이드바
+  1024)은 비우면 목록이 폰보다 좁아지므로 종전처럼 패널이 덮는다. 640 미만 바텀시트는 저절로 꺼진다. `users-client` 루트만
+  `AdminPanelPage` 로 바꿨고 `AdminSheet` · `ui/sheet` · 다른 시트는 그대로다. e2e `P29-A3b` 는 행 오른쪽 끝 ≤ 패널 x ·
+  목록 잎 전부 패널 왼쪽(`leavesOverflowing`) · 닫으면 비움 해제로 강화했고, RTL 에 열림/닫힘 계약 1건을 더했다.
+- **실측 (패널 x / 목록 오른쪽 끝):** 1080 → 640 / 616 · 1280 → 840 / 816 · 1920 → 1480 / 1310(가운데) · 800 · 1024
+  → 비움 없음(종전). 1080 스크린샷에서 칩은 둘째 줄로 깔끔히 접히고 › · 「+ 사용자」 · 범례 · 안내가 모두 보인다.
+- **결과:** `admin.spec.ts` + `admin-servers.spec.ts` `--workers=1` **16 passed**(setup 포함) · vitest `admin-sheet` ·
+  `users-client` 21 passed · webapp typecheck green · 변경 파일 eslint 0건.
+- **남은 것(범위 밖):** `/admin/servers` 도 같은 비모달 패널이라 1080 에서 서버 카드 오른쪽 열 · 이유 줄 끝이 패널 밑에 깔린다.
+  `AdminPanelPage` 를 쓰려면 카드 격자의 `sm:grid-cols-2`(뷰포트)를 본문 폭 컨테이너 쿼리로 바꿔야 한다(352 폭에서 2열이면
+  카드가 깨진다) — 별도 수정으로 남긴다. 사용자 행을 바꿀 때 `UserSheet key` 로 패널이 다시 마운트되어 220ms 슬라이드 인이
+  반복되는 것도 그대로다.
