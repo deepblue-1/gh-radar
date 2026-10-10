@@ -231,6 +231,31 @@ describe('UsersClient — 목록 (D-14 · 목업 A)', () => {
     vi.restoreAllMocks();
   });
 
+  // 29-31 메인 트리 e2e 후속 — 비모달 패널이 목록을 덮지 않게 시트가 열린 동안 본문이 패널 폭을 비운다(목업 A 「목록이
+  // 왼쪽에 남는다」). 실제 폭 판정(본문 784 이상 · 컨테이너 쿼리)은 e2e P29-A3b 가 잰다 — 여기는 켜고 끄는 계약만.
+  it('시트(편집 · 생성)가 열린 동안 본문이 패널 폭을 비운다 · 닫으면 되돌린다', async () => {
+    const RESERVE = '@min-[784px]/admin-page:pr-[440px]';
+    fetchAdminUsersMock.mockResolvedValue(OVERVIEW);
+    render(<UsersClient />);
+    await waitFor(() => expect(rows()).toHaveLength(4));
+    expect(root().parentElement!.className).toContain('@container/admin-page');
+    expect(root()).not.toHaveAttribute('data-panel-open');
+    expect(root().className).not.toContain(RESERVE);
+
+    fireEvent.click(rowOf('kim.trader@example.invalid'));
+    expect(root()).toHaveAttribute('data-panel-open', 'true');
+    expect(root().className).toContain(RESERVE);
+
+    fireEvent.click(screen.getByRole('button', { name: '닫기' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(root()).not.toHaveAttribute('data-panel-open');
+    expect(root().className).not.toContain(RESERVE);
+
+    fireEvent.click(screen.getByRole('button', { name: '+ 사용자' }));
+    expect(root()).toHaveAttribute('data-panel-open', 'true');
+    expect(root().className).toContain(RESERVE);
+  });
+
   it('로딩 중 스켈레톤', async () => {
     let resolve!: (v: AdminUsersOverview) => void;
     fetchAdminUsersMock.mockReturnValue(new Promise((r) => (resolve = r)));

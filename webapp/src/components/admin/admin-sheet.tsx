@@ -1,8 +1,9 @@
 "use client";
 
-import { useSyncExternalStore, type ReactNode } from "react";
+import { useSyncExternalStore, type ComponentProps, type ReactNode } from "react";
 import { XIcon } from "lucide-react";
 
+import { PAGE_WRAP } from "@/components/layout/page-layout";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +16,7 @@ import { cn } from "@/lib/utils";
  *   포커스 트랩 · 바깥 aria-hidden 이 없으며(`modal={false}`), 목록 행 클릭 · 바깥 포커스로 닫히지 않는다 — 다른 행을 누르면
  *   시트가 닫혔다 다시 열리는 깜빡임 없이 그 사용자로 바뀐다(선택은 호출자 상태). 닫기는 × · Esc 뿐.
  *   (deferred-items 29-17 「데스크톱 Admin 시트의 배경 흐림」 이 여기서 닫힌다.) 폰 바텀시트는 종전 모달 + 스크림.
+ *   목록이 패널 밑에 깔리지 않게 본문이 패널 폭을 비우는 것은 본문 루트 몫이다(아래 `AdminPanelPage`).
  * - side 는 **뷰포트** 기준이다 — 시트는 앱 셸 레벨 오버레이라 본문 폭 컨테이너 쿼리 대상이 아니다
  *   (CLAUDE.md Conventions: 앱 셸 · 사이드바는 뷰포트 브레이크포인트). SSR 첫 렌더는 데스크톱(right).
  * - 머리(제목 = 접근 이름 · 닫기 ×) · 스크롤 본문 · 고정 footer(29-17 의 「사용자 삭제 · 다시 반영」 자리).
@@ -116,5 +118,45 @@ export function AdminSheet({
         )}
       </SheetContent>
     </Sheet>
+  );
+}
+
+/**
+ * 패널이 열린 동안 본문이 비우는 폭 — 본문 폭(`@container/admin-page`) 784 이상에서만.
+ * 784 = 패널 440 + 목록 하한 344(뷰포트 360 폰의 본문 폭 — 목록 행이 서는 가장 좁은 폭). `max-w` 900+440 · `pr` 440 은
+ * `PAGE_WRAP` 의 900 상한 · `mx-auto` 를 그대로 두고 목록(최대 900)을 패널 왼쪽 남은 폭의 가운데에 세운다.
+ * 900 은 `page-layout.ts` `PAGE_WRAP` 과, 440 은 위 `AdminSheet` 패널 폭(`sm:max-w-[440px]`)과 같아야 한다.
+ */
+const PANEL_RESERVE = "@min-[784px]/admin-page:max-w-[calc(900px+440px)] @min-[784px]/admin-page:pr-[440px]";
+
+export interface AdminPanelPageProps extends ComponentProps<"div"> {
+  /** 이 화면의 `AdminSheet` 가 열려 있다(데스크톱이면 우측 패널). */
+  panelOpen: boolean;
+}
+
+/**
+ * AdminPanelPage — `AdminSheet` 를 여는 Admin 화면의 본문 루트(`PAGE_WRAP`).
+ *
+ * 목업 A DESC 「우측 패널(440px)이 열려 목록이 왼쪽에 남는다」 · D-14. 패널은 뷰포트 오른쪽에 고정(포털)이라 본문을
+ * 밀지 않는다 — 그대로 두면 1080 에서 목록 행의 오른쪽 절반(서버 반영 칩 · ›)과 머리 「+ 사용자」 가 패널 밑에 깔린다
+ * (29-31 메인 트리 e2e P29-A3b 실측: 행 중심 660 > 패널 640). 그래서 패널이 열린 동안 본문이 오른쪽 440 을 비운다.
+ *
+ * - 판정은 **본문 폭** 컨테이너 쿼리다 — 본문 폭은 사이드바(240/64/없음) · 앱 셸 여백에 따라 뷰포트와 어긋난다(/me 선례).
+ *   784 보다 좁은 본문은 비우면 목록이 폰보다 좁아지므로 비우지 않고 패널이 목록 오른쪽을 덮는다(목업 `.panel` 의 그림).
+ *   640 미만(바텀시트 · 모달)은 본문이 784 를 넘을 수 없어 저절로 꺼진다.
+ * - 바깥 `div` 가 컨테이너다(자기 자신은 못 잰다). 컨테이너는 `position:fixed` 자손의 컨테이닝 블록이 되지만
+ *   (globals.css §2.2b) Admin 본문 안의 fixed 는 Radix 포털(시트 · 확인 다이얼로그)뿐이라 body 에 선다.
+ */
+export function AdminPanelPage({ panelOpen, className, children, ...props }: AdminPanelPageProps) {
+  return (
+    <div className="@container/admin-page">
+      <div
+        {...props}
+        data-panel-open={panelOpen ? "true" : undefined}
+        className={cn(PAGE_WRAP, panelOpen && PANEL_RESERVE, className)}
+      >
+        {children}
+      </div>
+    </div>
   );
 }

@@ -270,8 +270,12 @@ test('P29-A3b 데스크톱 비모달 — 오버레이 없음 · 행 사이 이�
   // 스크림 · blur 없음 — 목록은 시트 왼쪽에 흐리지 않게 남는다
   await expect(page.locator('[data-slot="sheet-overlay"]')).toHaveCount(0);
   const panel = (await sheet.boundingBox())!;
+  // 목록은 패널 밑에 깔리지 않는다 — 시트가 열린 동안 본문이 패널 폭을 비워(AdminPanelPage) 행 전체 · 반영 칩 · 머리
+  // 「+ 사용자」 가 다 패널 왼쪽이다(목업 A 「목록이 왼쪽에 남는다」 · 메인 트리 첫 실행에서 행 중심 660 > 패널 640 이었다).
+  await expect(usersRoot(page)).toHaveAttribute('data-panel-open', 'true');
   const parkBox = (await parkRow.boundingBox())!;
-  expect(parkBox.x + parkBox.width / 2).toBeLessThan(panel.x);
+  expect(parkBox.x + parkBox.width).toBeLessThanOrEqual(panel.x);
+  expect(await leavesOverflowing(usersRoot(page), panel.x)).toEqual([]);
 
   // 다른 행 클릭 → 시트는 열린 채 제목만 그 사용자로 · 선택 표시가 옮겨 간다
   await parkRow.click();
@@ -284,9 +288,10 @@ test('P29-A3b 데스크톱 비모달 — 오버레이 없음 · 행 사이 이�
 
   await page.screenshot({ path: testInfo.outputPath('admin-user-sheet-nonmodal-1080.png') });
 
-  // 닫기는 Esc · ×
+  // 닫기는 Esc · × — 닫히면 본문이 비운 폭을 돌려받는다
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(usersRoot(page)).not.toHaveAttribute('data-panel-open', 'true');
   await parkRow.click();
   await page.getByRole('dialog', { name: PARK }).getByRole('button', { name: '닫기' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);

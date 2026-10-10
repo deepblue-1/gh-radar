@@ -3,13 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AdminServerResult, AdminUsersOverview } from "@gh-radar/shared";
 
-import {
-  CARD,
-  PAGE_WRAP,
-  ROW_DIVIDER,
-  SECTION_COUNT,
-  SECTION_TITLE,
-} from "@/components/layout/page-layout";
+import { CARD, ROW_DIVIDER, SECTION_COUNT, SECTION_TITLE } from "@/components/layout/page-layout";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -17,6 +11,7 @@ import { fetchAdminUsers } from "@/lib/admin-api";
 import { ApiClientError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
+import { AdminPanelPage } from "./admin-sheet";
 import { PendingSection } from "./pending-section";
 import { ADMIN_BUTTON_SECONDARY } from "./reflect-chip";
 import { ServerOnlyRow, UserRow } from "./user-row";
@@ -40,7 +35,8 @@ import { UserSheet } from "./user-sheet";
  *   `load()` 로 다시 읽고, 시트는 재조회 결과에서 같은 이메일의 사용자로 내용을 바꿔 그린다(사라졌으면 닫힌다).
  *   시트는 이메일을 key 로 둔다 — 다른 사용자로 바꿔 열면 필드 저장 상태가 새로 시작한다.
  * - 데스크톱 시트는 비모달(29-31 · UI-REVIEW-2) — 시트를 연 채 다른 행을 누르면 그 사용자로 바뀐다. 편집 · 생성 시트는
- *   한 번에 하나만 연다(겹치지 않게 서로를 닫는다).
+ *   한 번에 하나만 연다(겹치지 않게 서로를 닫는다). 시트가 열린 동안 본문은 패널 폭을 비워(`AdminPanelPage` — 본문 폭
+ *   784 이상) 목록 · 머리 「+ 사용자」 가 패널 왼쪽에 다 보인다(목업 A 「목록이 왼쪽에 남는다」).
  */
 
 type LoadState =
@@ -109,8 +105,11 @@ export function UsersClient() {
     void load();
   };
 
+  // 편집 · 생성 시트 중 하나가 열려 있다 — 데스크톱이면 우측 패널이 본문 오른쪽 440 을 차지한다.
+  const panelOpen = state.kind === "ready" && (creating || selectedUser !== null);
+
   return (
-    <div data-slot="admin-users" className={PAGE_WRAP}>
+    <AdminPanelPage data-slot="admin-users" panelOpen={panelOpen}>
       <PageHeader
         title={ADMIN_USERS_TEXT.title}
         description={ADMIN_USERS_TEXT.description}
@@ -217,7 +216,7 @@ export function UsersClient() {
           </p>
         </>
       )}
-    </div>
+    </AdminPanelPage>
   );
 }
 
