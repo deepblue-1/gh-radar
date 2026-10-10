@@ -702,6 +702,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 261010-h22 | Phase 28 남은 권고 수정 — WR-R2-01 주문로그 틈 메우기 가드 · WR-R2-02 정리 실패 stale 로그 · IN-R2-02 캘린더 seed 만료 warn · UI 감사 상위 3건(chevron 전 폭 · 타이포 척도 · UI-SPEC 사후 기록) | 2026-10-10 | c25950fd | [261010-h22-phase-28-wr-r2-01-wr-r2-02-in-r2-02-ui-3](./quick/261010-h22-phase-28-wr-r2-01-wr-r2-02-in-r2-02-ui-3/) |
 | 261010-jix | Phase 27 3라운드 리뷰 4건 수정 — WR-R3-01 늦은 relay 41 거부를 무응답 뒤 LC_ORPHAN_WAIT_MS 수평선으로 묶음(키 싣는 출처는 늦은 창 내내) · WR-R3-02 전략 삭제 · 자동매도 꺼짐 전이에서 대기 중 41 타이머도 끔 · IN-R3-01 isAutoSellCommandRejection 계약 주석 · IN-R3-02 켜진 채 런타임 에코 음성 테스트. 대상 2파일 215 passed | 2026-10-10 | ec1afc32 | [261010-jix-phase-27-wr-r3-01-wr-r3-02-in-r3-01-in-r](./quick/261010-jix-phase-27-wr-r3-01-wr-r3-02-in-r3-01-in-r/) |
 | 13 | gh-trade 인박스 261010-trade-inbox 처리 — gh-radar → gh-trade 작업 요청 인박스 gh-radar 쪽 짝 설치(scripts/trade-handoff.sh · docs/inbox/trade-handoff-template.md · CLAUDE.md 불릿). 자가 시험 0/1/64 통과, 와이어·relay·DB 무변경. 3a0870ee | 2026-10-10 | 3a0870ee | — |
+| 261011-0yb | gh-trade 인박스 261010-addbuy-auto 적용 — 상따 추가매수 자동 재진입(extra_buy_auto, buy3_schema 5) | 2026-10-11 | 18cf2ed5 | [261011-0yb-gh-trade-261010-addbuy-auto-extra-buy-au](./quick/261011-0yb-gh-trade-261010-addbuy-auto-extra-buy-au/) |
 
 ## Session Continuity
 
