@@ -83,6 +83,11 @@ export interface AdminIntentRow extends AdminAccountFields {
   broker: DmaBroker;
   serverKey: string;
   state: "active" | "removing";
+  /**
+   * 이 등록 서버가 그 계좌의 주문 서버 지정인가(29-29 G-1 · `dma_account_servers.is_order`). active 행만 참이다(DB CHECK).
+   * 옛 RPC 본문 · 옛 픽스처는 키가 없다 — 없으면 지정 없음.
+   */
+  isOrder?: boolean;
 }
 
 /** 서버별 87 반영 상태 1행(`dma_server_user_accounts`). */
@@ -112,8 +117,11 @@ export interface AdminUsersRaw {
   snapshots: { serverKey: string; usersRev: string; receivedAt: string }[];
   snapshotAccounts: AdminSnapshotAccountRow[];
   results: AdminResultRow[];
-  /** 레지스트리 순(sort_order). */
-  servers: { key: string; broker: DmaBroker; enabled: boolean }[];
+  /**
+   * 레지스트리 순(sort_order). `isOrderServer` = 그 증권사 기본 주문 서버(`dma_servers.is_order_server` · 29-29) — 화면 「기본(KB120)」
+   * 원천. 옛 RPC 본문은 키가 없다.
+   */
+  servers: { key: string; broker: DmaBroker; enabled: boolean; isOrderServer?: boolean }[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -149,6 +157,13 @@ export interface AdminAccountView {
   servers: (AdminReflectChip & { state: "active" | "removing" })[];
   /** 의도에는 없는데 87 에 이 계좌가 있는 서버(지우지 않는다 — 보기만). */
   serverOnlyOn: string[];
+  /**
+   * 계좌 주문 서버 지정(29-37 G-1 ⑥) — active 등록 행 중 `isOrder` 인 서버 키 · 없으면 null(= 증권사 기본값). 87 전용 계좌는 null.
+   * 선택 필드(기존 픽스처 호환) — `deriveAdminUsersOverview` 는 늘 채운다.
+   */
+  orderServer?: string | null;
+  /** 그 계좌 증권사의 기본 주문 서버 키(`servers[].isOrderServer`) · 없으면 null. 87 전용 계좌는 null. 파생은 늘 채운다. */
+  defaultOrderServer?: string | null;
 }
 
 export interface AdminUserView {
@@ -285,6 +300,20 @@ export interface AdminPasswordBody {
 export interface AdminPutAccountBody {
   account: AdminAccountInput;
   servers: string[];
+}
+
+/**
+ * PUT /api/admin/dma-users/:dma/accounts/:broker/:accountNo/order-server 바디(29-37 G-1 ⑥) — 계좌 주문 서버 지정.
+ * null = 증권사 기본 주문 서버로 되돌림. 그 계좌의 active 등록 서버만(아니면 409 `ORDER_SERVER_NOT_REGISTERED`).
+ */
+export interface AdminOrderServerBody {
+  serverKey: string | null;
+}
+
+/** 위 요청의 200 응답 — 저장된 지정(null = 기본값). relay 가 지정 적재기를 재적재한 뒤에 온다. */
+export interface AdminOrderServerResponse {
+  ok: true;
+  orderServer: string | null;
 }
 
 export interface AdminServerUpsertBody {
@@ -458,6 +487,8 @@ interface RawIndex {
   intentByUser: Map<string, AdminIntentRow[]>;
   resultByPair: Map<string, AdminResultRow>;
   serverOrder: Map<string, number>;
+  /** 증권사 → 기본 주문 서버 키(`servers[].isOrderServer` 첫 행 · 29-37). 없는 증권사는 키 없음. */
+  defaultOrderServer: Map<DmaBroker, string>;
 }
 
 function indexRaw(raw: AdminUsersRaw): RawIndex {
@@ -471,6 +502,10 @@ function indexRaw(raw: AdminUsersRaw): RawIndex {
   }
   const intentByUser = new Map<string, AdminIntentRow[]>();
   for (const r of raw.intent) pushTo(intentByUser, r.dmaUserId, r);
+  const defaultOrderServer = new Map<DmaBroker, string>();
+  for (const s of raw.servers) {
+    if (s.isOrderServer === true && !defaultOrderServer.has(s.broker)) defaultOrderServer.set(s.broker, s.key);
+  }
   // (dma_user_id, server_key) PK 라 1행이지만, 섞여 오면 가장 최근 것.
   const resultByPair = new Map<string, AdminResultRow>();
   for (const r of raw.results) {
@@ -485,6 +520,7 @@ function indexRaw(raw: AdminUsersRaw): RawIndex {
     intentByUser,
     resultByPair,
     serverOrder: new Map(raw.servers.map((s, i) => [s.key, i])),
+    defaultOrderServer,
   };
 }
 
@@ -552,6 +588,10 @@ interface AccountDraft {
   broker: DmaBroker;
   fields: AdminAccountFields;
   hasActive: boolean;
+  /** 의도 행이 있는 계좌인가 — 87 전용 계좌는 주문 서버 두 필드가 null. */
+  hasIntent: boolean;
+  /** active 행의 `isOrder` 서버(removing 행의 isOrder 는 비정상 — 보지 않는다). */
+  orderServer: string | null;
   servers: AdminAccountView["servers"];
   serverOnlyOn: string[];
 }
@@ -571,13 +611,14 @@ function userAccounts(
       const k = keyOf(r.broker, r.accountNo);
       let d = drafts.get(k);
       if (!d) {
-        d = { broker: r.broker, fields, hasActive: false, servers: [], serverOnlyOn: [] };
+        d = { broker: r.broker, fields, hasActive: false, hasIntent: true, orderServer: null, servers: [], serverOnlyOn: [] };
         drafts.set(k, d);
       }
       if (r.state === "active" && !d.hasActive) {
         d.fields = fields; // 값은 active 행이 정본
         d.hasActive = true;
       }
+      if (r.state === "active" && r.isOrder === true) d.orderServer = r.serverKey;
       const reflected = j.diff.known && !j.pendingKeys.has(fields.accountNo);
       const chip = reflected
         ? { tone: "ok" as const, message: null }
@@ -595,7 +636,17 @@ function userAccounts(
       const k = keyOf(broker, a.accountNo);
       const d = drafts.get(k);
       if (d) d.serverOnlyOn.push(j.serverKey);
-      else drafts.set(k, { broker, fields: a, hasActive: false, servers: [], serverOnlyOn: [j.serverKey] });
+      else {
+        drafts.set(k, {
+          broker,
+          fields: a,
+          hasActive: false,
+          hasIntent: false,
+          orderServer: null,
+          servers: [],
+          serverOnlyOn: [j.serverKey],
+        });
+      }
     }
   }
 
@@ -609,6 +660,8 @@ function userAccounts(
       ...d.fields,
       servers: d.servers.sort((a, b) => bySrv(a.serverKey, b.serverKey)),
       serverOnlyOn: d.serverOnlyOn.sort(bySrv),
+      orderServer: d.hasIntent ? d.orderServer : null,
+      defaultOrderServer: d.hasIntent ? (idx.defaultOrderServer.get(d.broker) ?? null) : null,
     })),
     accountCount: list.filter((d) => d.hasActive).length,
   };
