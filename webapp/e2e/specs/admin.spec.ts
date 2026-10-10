@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import type { AdminUsersOverview } from '@gh-radar/shared';
 
 import { ADMIN_BUSY_MESSAGE, ADMIN_USERS_FIXTURE, mockAdminApi, type AdminApiMock } from '../fixtures/admin';
@@ -329,6 +329,45 @@ test('P29-A3 편집 시트 — 폰 바텀시트 · 역할 즉시 저장 1건 (39
 
   await page.screenshot({ path: testInfo.outputPath('admin-user-sheet-390.png') });
 });
+
+// UI-REVIEW-3 — 폰(640 미만)은 계좌 버튼 · 역할 세그먼트 칸이 36px 이상(오탭 방지) · 데스크톱은 종전 28px 그대로.
+for (const vp of [
+  { name: '390', width: 390, height: 844, phone: true },
+  { name: '1080', width: 1080, height: 800, phone: false },
+] as const) {
+  test(`P29-A3c 터치 타깃 — 계좌 버튼 · 역할 세그먼트 높이 (${vp.name})`, async ({ page }) => {
+    await page.setViewportSize({ width: vp.width, height: vp.height });
+    await mockEditApi(page);
+
+    await page.goto('/admin/users');
+    const row = usersRoot(page).locator(`[data-slot="admin-user-row"][data-email="${KIM}"]`);
+    await expect(row).toBeVisible({ timeout: 30_000 });
+    await row.click();
+    const sheet = page.getByRole('dialog', { name: KIM });
+    await expect(sheet).toBeVisible();
+
+    const height = async (loc: Locator) => Math.round((await loc.boundingBox())!.height);
+    const check = async (loc: Locator, desktop: number) => {
+      const h = await height(loc);
+      if (vp.phone) expect(h).toBeGreaterThanOrEqual(36);
+      else expect(h).toBe(desktop);
+    };
+
+    // 역할 세그먼트 칸 3개
+    for (const r of ['viewer', 'trader', 'admin']) {
+      await check(sheet.getByRole('group', { name: '역할' }).getByRole('radio', { name: r }), 28);
+    }
+    // 계좌 「제거」 · 「+ 계좌 추가」
+    const kb = sheet.locator(`[data-slot="admin-account"][data-account="${KIM_KB}"]`);
+    await check(kb.getByRole('button', { name: /제거$/ }), 28);
+    const add = sheet.getByRole('button', { name: '+ 계좌 추가' });
+    await check(add, 28);
+    // 추가 폼 「취소」 · 「추가」
+    await add.click();
+    await check(sheet.getByRole('button', { name: '취소', exact: true }), 28);
+    await check(sheet.getByRole('button', { name: '추가', exact: true }), 28);
+  });
+}
 
 // ── P29-A4 · A5 생성 시트 · DMA 연결 (29-19 · D-16) ─────────────────────────────
 
