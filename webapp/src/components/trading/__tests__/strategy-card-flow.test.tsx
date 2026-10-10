@@ -2347,4 +2347,73 @@ describe('Phase 27 41 in-flight', () => {
     expect(unacked()?.textContent).toContain('미반영');
     expect(lastCard!.autoSellUnacked).toBe(true);
   });
+
+  /*
+    27-REVIEW-R3 WR-R3-02 — 「41 이 더는 의미 없음」 수평선(전략 삭제 · 자동매도 켜짐 → 꺼짐)은 **대기 중**(3초 안) 41 도 끝낸다.
+    안 끄면 살아 있는 41 타이머가 3초에 「미반영」 · 「서버 응답 없음」을 다시 세우고, 그 뒤로는 거둘 전이가 오지 않는다.
+    IN-R3-02 — 무응답 뒤 켜진 채인 런타임 에코(autoSellSoldQty 만)는 「미반영」을 거두지 않는다(WR-03 음성 규칙).
+  */
+  it('WR-R3-02 — 바로시작 대기 3초 안에 전략 삭제(server null)가 오면 41 타이머도 끝난다 — 뒤늦은 「미반영」 · 「서버 응답 없음」 없음', async () => {
+    setRelay({ limitChasers: [watching] });
+    const { rerender } = render(<Card />);
+    press('start');
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(lastCard!.autoSellPending).toBe('start');
+
+    // 철거 에코 — start 의 기대 전이(상태 3 ∧ enabled)를 싣지 않는다.
+    const del = echo({ ...watching, crud: 'D' });
+    setRelay({ limitChasers: [], lastLimitChaserEcho: del });
+    rerender(<Card />);
+    expect(lastCard!.server).toBeNull();
+    expect(lastCard!.autoSellPending).toBeNull();
+    await act(async () => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS + 1_000);
+    });
+    expect(unacked()).toBeNull();
+    expect(lastCard!.autoSellUnacked).toBe(false);
+    expect(hasText('자동매도 바로시작 — 서버 응답 없음')).toBe(false);
+    expect(asCmds()).toHaveLength(1);
+  });
+
+  it('WR-R3-02 — 바로시작 대기 3초 안에 자동매도 켜짐 → 꺼짐 에코가 오면 41 대기가 끝난다', async () => {
+    setRelay({ limitChasers: [watching] });
+    const { rerender } = render(<Card />);
+    press('start');
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(lastCard!.autoSellPending).toBe('start');
+
+    // 다른 단말 · 서버 킬 스위치가 자동매도를 끔 — start 의 기대 전이는 이제 오지 않는다.
+    const off = echo({ ...watching, autoSellEnabled: false });
+    setRelay({ limitChasers: [off], lastLimitChaserEcho: off });
+    rerender(<Card />);
+    expect(lastCard!.autoSellPending).toBeNull();
+    await act(async () => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS + 1_000);
+    });
+    expect(unacked()).toBeNull();
+    expect(lastCard!.autoSellUnacked).toBe(false);
+    expect(hasText('자동매도 바로시작 — 서버 응답 없음')).toBe(false);
+    expect(asCmds()).toHaveLength(1);
+  });
+
+  it('IN-R3-02 — 무응답 뒤 켜진 채인 런타임 에코(autoSellSoldQty 만)는 「미반영」을 거두지 않는다(WR-03)', () => {
+    setRelay({ limitChasers: [watching] });
+    const { rerender } = render(<Card />);
+    press('start');
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+    });
+    expect(unacked()?.textContent).toContain('미반영');
+
+    // 300ms 런타임 푸시 — 자동매도는 켜진 채(true → true), 체결 카운터만 바뀐다.
+    const runtime = echo({ ...watching, autoSellSoldQty: 10 });
+    setRelay({ limitChasers: [runtime], lastLimitChaserEcho: runtime });
+    rerender(<Card />);
+    expect(unacked()?.textContent).toContain('미반영');
+    expect(lastCard!.autoSellUnacked).toBe(true);
+  });
 });
