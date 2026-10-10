@@ -54,10 +54,21 @@
  *   KB → 교보 순). 정리와 이동은 사용자 몫이라 버튼이 없다 — 문구가 할 일을 말한다. 접근 이름 = 문구 그대로(`role="status"`).
  *   색은 기존 「확인할 것」 축(`--new-bg` · `--new-bd` — 예약 구간 배지 · 주문 확인 예약 줄과 같은 축)이다. 폰 폭에서
  *   한 줄에 안 들어가면 문구를 줄이지 않고 배지 안에서 줄을 바꾼다(잘림 금지 · `max-w-full` + `break-keep`).
+ *
+ * ⑧ 계좌별 주문 서버 (Phase 29-39 G-1 · 29-30 채택 workbench-display A · `mockup-g1-workbench-order-server.html` 변형 A)
+ *   원천은 relay 상태 프레임 계좌 항목의 `serverKey` · `staleStrategies` · `movedFrom`(29-36) — **표시 전용**이다. 주문 허용 ·
+ *   계좌 대조 · 전략 등록 판정에 쓰지 않는다(relay allowedAccounts 가 정본).
+ *   - 계좌 필(`AccountPill`) 옵션 글자 끝에 「 · 서버키」 꼬리표 · 필 바로 옆에 고른 계좌의 서버 키 칩 1개. `serverKey` 가 없는
+ *     계좌는 둘 다 없다. 닫힌 필에서 서버 키가 꼬리표 · 칩으로 두 번 보이는 것은 채택 그대로다(29-30 「렌더 확인」).
+ *   - 끄기 미확인 경고(gh-trade-84 ②(가)) — 고른 계좌에 `staleStrategies` 가 있으면 상태줄 끝에 경고색 한 줄. 닫기가 없다 —
+ *     사라지는 조건은 relay 의 다음 상태 프레임(필드 없음)뿐이다.
+ *   - 되돌아옴 안내(gh-trade-84 ② 추가) — 고른 계좌에 `movedFrom` 이 있으면 「클라(OCX) 대사」 안내 한 줄 · × 로 그 (계좌,
+ *     movedFrom) 조합을 이 탭 안에서 닫는다(로컬 상태 · 저장 안 함).
+ *   - 두 줄은 목업 뒤에 생긴 요구라 목업에 없다. 해당 필드가 없으면 요소 0 — 상태줄 줄 수는 종전 그대로다.
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Volume2, VolumeX } from "lucide-react";
+import { Volume2, VolumeX, X } from "lucide-react";
 import type {
   RelayAccount,
   RelayQueuedWindowMsg,
@@ -87,6 +98,19 @@ export const ACCOUNT_PILL_TITLE =
 
 const COLS: readonly TradingCols[] = [1, 2, 3];
 
+/** 상태줄 보조 줄 문구(⑧ · 해요체). */
+export const WORKBENCH_STATUS_TEXT = {
+  /** 끄기 미확인 경고 — `count` null = 몇 건인지 모름. */
+  staleStrategies: (serverKey: string, count: number | null) =>
+    `옛 서버 ${serverKey} 활성 전략 ${count === null ? "몇 건인지 모름" : `${count}건`} — 끄지 못했어요 · 클라(OCX)에서 끄세요`,
+  /** 되돌아옴 안내 — 옛 서버 → 지금 주문 서버. */
+  movedFrom: (from: string, to: string) =>
+    `주문 서버 ${from} → ${to} — 옛 서버 잔고 · 미체결은 클라(OCX) 대사로 맞추세요`,
+} as const;
+
+/** 상태줄 보조 줄 양식(⑧) — 경고색 한 줄 · 줄 전체 폭(flex-wrap 의 새 줄) · 잘림 대신 줄바꿈. */
+const AUX_LINE = "m-0 min-w-0 basis-full text-[11px] leading-[1.45] break-keep text-[var(--led-latent)]";
+
 /** 배지 증권사 순서(⑦) — KB 먼저. */
 const ORDER_SERVER_BROKERS = ["KB", "KYOBO"] as const;
 
@@ -108,6 +132,11 @@ export interface WorkbenchStatusBarProps {
   queuedWindow: RelayQueuedWindowMsg | undefined;
   /** 서버 push 반영 시각 `HH:MM:SS`. `null` = 아직 없음 → 「—」. */
   appliedAt: string | null;
+  /**
+   * 계좌 필이 고른 계좌(⑧). `staleStrategies` · `movedFrom` 이 있으면 경고 · 안내 줄을 그린다. 없거나 null 이면 그 줄 없음.
+   * 표시 전용 — 판정 근거가 아니다.
+   */
+  account?: RelayAccount | null;
   /** 주문 서버 바뀜 표식(⑦). 없거나 빈 객체면 배지 없음. */
   orderServerNotices?: OrderServerNotices;
   cols: TradingCols;
@@ -127,6 +156,7 @@ export function WorkbenchStatusBar({
   subLimitLabel,
   queuedWindow,
   appliedAt,
+  account,
   orderServerNotices,
   cols,
   onColsChange,
@@ -137,6 +167,17 @@ export function WorkbenchStatusBar({
   const quote = quotePillOf(quoteState, subLimit, subLimitLabel);
   const order = orderPillOf(status, statusLabel);
   const badge = queuedWindowBadgeOf(queuedWindow);
+  // 되돌아옴 안내를 닫은 (계좌, movedFrom) 조합 — 이 탭 로컬 · 저장 안 함(⑧).
+  const [dismissedMoves, setDismissedMoves] = useState<ReadonlySet<string>>(() => new Set());
+  const stale = account?.staleStrategies;
+  // 안내는 옛 서버 · 지금 서버를 둘 다 알 때만 — relay 는 movedFrom 을 실을 때 serverKey 도 싣는다(29-36).
+  const move =
+    account?.movedFrom !== undefined && account.serverKey !== undefined
+      ? {
+          key: `${account.accountNo}|${account.movedFrom}`,
+          text: WORKBENCH_STATUS_TEXT.movedFrom(account.movedFrom, account.serverKey),
+        }
+      : null;
 
   const pickCols = (value: string) => {
     const next = value === "2" ? 2 : value === "3" ? 3 : value === "1" ? 1 : null;
@@ -283,6 +324,29 @@ export function WorkbenchStatusBar({
           </ToggleGroup>
         )}
       </span>
+
+      {stale !== undefined && (
+        <p role="status" data-slot="workbench-stale-strategies" className={AUX_LINE}>
+          {WORKBENCH_STATUS_TEXT.staleStrategies(stale.serverKey, stale.count)}
+        </p>
+      )}
+
+      {move !== null && !dismissedMoves.has(move.key) && (
+        <p data-slot="workbench-moved-from" className={cn(AUX_LINE, "inline-flex items-start gap-1")}>
+          <span className="min-w-0">
+            {move.text}
+          </span>
+          <button
+            type="button"
+            aria-label="안내 닫기"
+            title="안내 닫기"
+            onClick={() => setDismissedMoves((prev) => new Set(prev).add(move.key))}
+            className="-my-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-[var(--r)] text-[var(--muted-fg)] hover:bg-[var(--muted)] hover:text-[var(--fg)]"
+          >
+            <X aria-hidden="true" className="size-3" />
+          </button>
+        </p>
+      )}
     </div>
   );
 }
@@ -362,28 +426,41 @@ export interface AccountPillProps {
  *
  * ★ 옛 상따 계좌 칩과 같은 네이티브 `<select>` 다(`appearance-none` 금지 — OS 선택 UI 를 잃는다).
  * ★ 계좌번호는 마스킹하지 않는다(D2 · S-5).
- * ★ 옵션 글자 = `accountLabelOf` — 수동주문 「주문계좌」 행과 같은 문자열(quick-261007-h76).
+ * ★ 옵션 글자 = `accountLabelOf` — 수동주문 「주문계좌」 행과 같은 문자열(quick-261007-h76). 그 계좌에 `serverKey` 가
+ *   있으면 끝에 「 · 서버키」 꼬리표가 붙고, 필 바로 옆에 고른 계좌의 서버 키 칩이 선다(⑧ · 채택 A — 목업 `.srvkey`).
  */
 export function AccountPill({ accounts, accountNo, onChange }: AccountPillProps) {
+  const serverKey = accounts.find((a) => a.accountNo === accountNo)?.serverKey;
   return (
-    <select
-      data-slot="workbench-account"
-      aria-label="계좌"
-      title={ACCOUNT_PILL_TITLE}
-      value={accountNo}
-      onChange={(e) => onChange(e.target.value)}
-      disabled={accounts.length === 0}
-      className="mono h-[26px] max-w-full min-w-0 rounded-full border border-transparent bg-[var(--muted)] px-2 text-[11px] text-[var(--fg)] disabled:opacity-50"
-    >
-      {accounts.length === 0 ? (
-        <option value="">계좌 확인 중…</option>
-      ) : (
-        accounts.map((a) => (
-          <option key={a.accountNo} value={a.accountNo}>
-            {accountLabelOf(a.accountNo, a.name)}
-          </option>
-        ))
+    <>
+      <select
+        data-slot="workbench-account"
+        aria-label="계좌"
+        title={ACCOUNT_PILL_TITLE}
+        value={accountNo}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={accounts.length === 0}
+        className="mono h-[26px] max-w-full min-w-0 rounded-full border border-transparent bg-[var(--muted)] px-2 text-[11px] text-[var(--fg)] disabled:opacity-50"
+      >
+        {accounts.length === 0 ? (
+          <option value="">계좌 확인 중…</option>
+        ) : (
+          accounts.map((a) => (
+            <option key={a.accountNo} value={a.accountNo}>
+              {accountLabelOf(a.accountNo, a.name) + (a.serverKey !== undefined ? ` · ${a.serverKey}` : "")}
+            </option>
+          ))
+        )}
+      </select>
+      {serverKey !== undefined && (
+        <span
+          data-slot="workbench-account-server"
+          title="이 계좌의 주문 서버"
+          className="mono inline-flex h-[18px] shrink-0 items-center rounded-[5px] bg-[var(--muted)] px-1.5 text-[10px] font-bold whitespace-nowrap text-[var(--fg-2)]"
+        >
+          {serverKey}
+        </span>
       )}
-    </select>
+    </>
   );
 }
