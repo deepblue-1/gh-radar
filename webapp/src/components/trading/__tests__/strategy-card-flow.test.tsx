@@ -2143,4 +2143,76 @@ describe('Phase 27 41 in-flight', () => {
     await waitFor(() => expect(hasText('[상따] 서버 통지 — 자동매도 대기 → 매도중 (바로시작)')).toBe(true));
     expect(lastCard!.autoSellPending).toBe('start');
   });
+
+  /*
+    27-REVIEW-R2 WR-R2-01 — 3초 무응답 뒤에 늦게 온 41 거부도 서버의 답이다. 「미반영」을 거두고 거부 원문만 세운다
+    (상태줄이 「응답을 기다리고 있어요」와 「이래서 거부됐습니다」를 동시에 말하지 않는다). 재전송 없음.
+  */
+  it('WR-R2-01 — 3초 뒤 늦은 54 ERROR AutoSellCommand → 「미반영」 해제 · 거부 원문만 선다 · 재전송 없음', async () => {
+    setRelay({ limitChasers: [watching] });
+    const { rerender } = render(<Card />);
+    press('start');
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+    });
+    expect(lastCard!.autoSellPending).toBeNull();
+    expect(unacked()?.textContent).toContain('미반영');
+
+    setRelay({
+      limitChasers: [watching],
+      messages: [msg({ lv: 'ERROR', src: 'AutoSellCommand', i: ISIN, a: ACCOUNT, m: REJECT_HOLD })],
+    });
+    rerender(<Card />);
+    await waitFor(() => expect(serverError()?.textContent).toContain(REJECT_HOLD));
+    expect(unacked()).toBeNull();
+    expect(lastCard!.autoSellUnacked).toBe(false);
+    expect(hasText(`[상따] 서버가 거부했어요 — ${REJECT_HOLD}`)).toBe(true);
+    // 41 은 lc.set · lc.arm 응답 채널을 건드리지 않는다(WR-01) — 늦은 거부도 같다.
+    expect(lastCard!.unacked).toBe(false);
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(unacked()).toBeNull();
+    expect(asCmds()).toHaveLength(1);
+  });
+
+  it('WR-R2-01 — 3초 뒤 늦은 relay 41 거부(kind autosell.cmd · i 빈) → 원문 로그 · 상태줄 · 「미반영」 해제', async () => {
+    const RELAY_REJECT = '전략 세션이 준비되지 않았어요';
+    setRelay({ limitChasers: [watching] });
+    const { rerender } = render(<Card />);
+    press('start');
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+    });
+    expect(unacked()?.textContent).toContain('미반영');
+
+    setRelay({
+      limitChasers: [watching],
+      messages: [msg({ lv: 'ERROR', src: 'Relay', kind: 'autosell.cmd', i: '', a: ACCOUNT, m: RELAY_REJECT })],
+    });
+    rerender(<Card />);
+    await waitFor(() => expect(hasText(RELAY_REJECT)).toBe(true));
+    expect(serverError()?.textContent).toContain(RELAY_REJECT);
+    expect(unacked()).toBeNull();
+    expect(asCmds()).toHaveLength(1);
+  });
+
+  it('WR-R2-01 — 3초 뒤라도 다른 요청의 relay 거부(kind lc.set)는 41 「미반영」을 거두지 않는다', async () => {
+    setRelay({ limitChasers: [watching] });
+    const { rerender } = render(<Card />);
+    press('start');
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+    });
+    setRelay({
+      limitChasers: [watching],
+      messages: [msg({ lv: 'ERROR', src: 'Relay', kind: 'lc.set', i: '', a: '', m: '전략 조립 실패' })],
+    });
+    rerender(<Card />);
+    await act(async () => {
+      vi.advanceTimersByTime(50);
+    });
+    expect(unacked()?.textContent).toContain('미반영');
+    expect(lastCard!.autoSellUnacked).toBe(true);
+  });
 });
