@@ -253,6 +253,8 @@ describe("87 적재 트레이서 — 87 → JournalAccess.replace + dma_admin_ap
     await waitFor(() => p.observer.state === "live" && r.applied.length === 1, "관찰자 live · 첫 87 적재");
     await waitFor(() => r.db.requestsTo(ADMIN_APPLY).length === 1, "첫 반영 상태 RPC");
     expect([...(p.access.accountsOf("d1") ?? [])]).toEqual([A1]);
+    // 첫 87 의 매핑 DB 동기화(비동기)가 도착한 뒤에야 기준선을 잡는다 — 늦게 오면 두 번째 동기화로 오인된다.
+    await waitFor(() => r.db.requestsTo(SYNC_ACCESS).length >= 1, "첫 매핑 DB 동기화");
     const syncBefore = r.db.requestsTo(SYNC_ACCESS).length;
 
     // Admin 변경 — op 3 SetAccount(d1 · A2). 서버는 86 → 87(d1: A1, A2).
@@ -263,14 +265,21 @@ describe("87 적재 트레이서 — 87 → JournalAccess.replace + dma_admin_ap
     });
     expect(outcome.kind).toBe("result");
 
-    // (a) 메모리 라우팅은 87 수신과 동시에(동기) 갱신된다.
+    // (a) 메모리 라우팅은 87 수신과 동시에(동기) 갱신된다. 서버는 86(응답) 뒤 87 을 보내므로 응답이 먼저 올 수 있다 —
+    //     87 이 도착해 적재될 때까지 기다린 뒤 같은 정확한 값을 단언한다.
+    await waitFor(() => r.applied.length === 2, "두 번째 87 적재");
     expect([...(p.access.accountsOf("d1") ?? [])].sort()).toEqual([A1, A2]);
     expect(r.applied).toHaveLength(2);
     expect(r.applied[1]?.serverKey).toBe(SERVER);
     expect(r.applied[1]?.snapshot.users.map((u) => u.userId)).toEqual(["d1", "d2"]);
 
     // (a) REST 가시성 — dma_journal_sync_access 1회 더(p_gateway = 서버 키 · d1 의 두 계좌 포함).
-    await waitFor(() => r.db.requestsTo(SYNC_ACCESS).length === syncBefore + 1, "매핑 DB 동기화");
+    //     첫 87 적재 직전의 동기화가 늦게 끼어들 수 있어, 개수만이 아니라 "d1 에 A2 가 담긴 동기화" 가 도착하길 기다린다.
+    await waitFor(() => {
+      const reqs = r.db.requestsTo(SYNC_ACCESS);
+      const last = reqs.at(-1)?.body as { p_rows?: Array<{ dma_user_id: string; account_no: string }> } | undefined;
+      return reqs.length > syncBefore && (last?.p_rows ?? []).some((x) => x.dma_user_id === "d1" && x.account_no === A2);
+    }, "매핑 DB 동기화");
     const sync = r.db.requestsTo(SYNC_ACCESS).at(-1)!.body as { p_gateway: string; p_rows: Array<{ dma_user_id: string; account_no: string }> };
     expect(sync.p_gateway).toBe(SERVER);
     expect(sync.p_rows.filter((x) => x.dma_user_id === "d1").map((x) => x.account_no).sort()).toEqual([A1, A2]);
