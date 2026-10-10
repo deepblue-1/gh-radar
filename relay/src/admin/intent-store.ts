@@ -32,6 +32,8 @@ export const INTENT_ERROR_CODES = [
   "SERVERS_REMAIN",
   // 29-27 CR-01 — 이미 DMA 가 연결된 웹 사용자(app_users.dma_user_id)로 다시 생성. 정본 가드 = DB(20261010200000).
   "DMA_LINKED",
+  // 29-29 G-1 — 계좌 주문 서버 지정 대상이 그 계좌의 active 등록 서버가 아니다(등록 안 됨 · removing · 다른 증권사).
+  "ORDER_SERVER_NOT_REGISTERED",
 ] as const;
 
 export type IntentErrorCode = (typeof INTENT_ERROR_CODES)[number] | "INTERNAL";
@@ -101,6 +103,26 @@ export class AdminIntentStore {
       p_broker: broker,
       p_account_no: accountNo,
     });
+  }
+
+  /**
+   * 계좌 주문 서버 지정(29-29 G-1 · 29-37) — `serverKey` null = 증권사 기본 주문 서버로 되돌림. 반환 = 저장된 지정(null = 없음).
+   * 서버(44)에는 아무것도 보내지 않는다 — gh-trade 는 지정을 모른다. 라우팅 반영은 호출자가 지정 적재기를 재적재해서 한다.
+   */
+  async setAccountOrderServer(
+    dmaUserId: string,
+    broker: DmaBroker,
+    accountNo: string,
+    serverKey: string | null,
+  ): Promise<string | null> {
+    const data = (await this.#rpc("dma_admin_set_account_order_server", {
+      p_dma_user_id: dmaUserId,
+      p_broker: broker,
+      p_account_no: accountNo,
+      p_server_key: serverKey,
+    })) as { orderServer?: unknown } | null;
+    const saved = data?.orderServer;
+    return typeof saved === "string" && saved !== "" ? saved : null;
   }
 
   /** 서버 반영 확인 뒤 정리 — op 4 ok(0 · 8) 계좌 · 87 에 이미 없는 removing 계좌, 또는 op 2 ok(0 · 4)면 그 서버 행 전부. */

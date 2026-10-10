@@ -523,11 +523,14 @@ describe("PUT /api/admin/dma-users/:dma/accounts/:broker/:accountNo/order-server
         serverKey: "KB121",
       });
       expect(res.status).toBe(200);
-      const text = cap.text();
-      expect(text).toContain('"op":"dma-order-server"');
-      expect(text).toContain("ki***(5)");
-      expect(text).toContain('"orderServer":"KB121"');
-      expect(text).not.toContain("1234567801");
+      // 감사 줄만 본다 — pino-http 접근 로그의 요청 URL 은 이 라우트 밖의 규율이다(계좌 제거 라우트와 같은 모양).
+      const lines = cap.text().split("\n").filter((l) => l.includes('"audit":"admin"'));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain('"op":"dma-order-server"');
+      expect(lines[0]).toContain("ki***(5)");
+      expect(lines[0]).toContain('"orderServer":"KB121"');
+      expect(lines[0]).not.toContain("1234567801");
+      expect(lines[0]).not.toContain("kim01");
     } finally {
       cap.restore();
     }

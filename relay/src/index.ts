@@ -493,6 +493,9 @@ const adminRouter = createAdminRouter({
   quoteSwitch,
   // Phase 29-36 (G-1 (가)) — 서버 카드 「끄지 못한 전략 N 계좌」(servers/status staleAccounts · 29-43 본문) 원천.
   staleStrategies: () => staleStrategies.byServer(),
+  // Phase 29-37 (G-1 ⑥) — Admin 이 계좌 주문 서버를 고르거나(order-server) 등록 해제 · 계좌 제거 · 유저 삭제로 DB 가 지정을
+  // 지우면 지정 적재기를 즉시 재적재한다(꼬리) → changed → 29-36 재수립(옛 서버 전략 끄기 → 세션 drop → wss 1012).
+  orderServers: accountOrderServers,
 });
 
 const orderApi = createOrderApi({

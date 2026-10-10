@@ -143,6 +143,13 @@ export const dmaAccountParam = z.object({
   accountNo: z.string().refine(isValidAccountNoInput, "계좌번호는 1~12자예요"),
 });
 
+/**
+ * PUT /api/admin/dma-users/:dma/accounts/:broker/:accountNo/order-server — 계좌 주문 서버 지정(29-37 G-1 ⑥).
+ * `serverKey` = 레지스트리 키 형식 또는 null(증권사 기본 주문 서버로). 키 누락은 거부 — 실수로 해제되지 않게.
+ * 키의 증권사 접두는 경로 `:broker` 와 같아야 한다(라우트가 본다). 등록 여부 · 레지스트리 존재는 relay · DB 가 본다.
+ */
+export const AdminOrderServerSchema = z.object({ serverKey: ServerKeySchema.nullable() });
+
 /** POST /api/admin/dma-users/:dma/password — `AdminPasswordBody`. */
 export const AdminPasswordSchema = z.object({ password: DmaPasswordSchema });
 

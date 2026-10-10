@@ -1,6 +1,6 @@
 import { Router, type Request, type Router as RouterT } from "express";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { deriveAdminUsersOverview, type AdminUsersRaw } from "@gh-radar/shared";
+import { brokerOfServerKey, deriveAdminUsersOverview, type AdminUsersRaw } from "@gh-radar/shared";
 import type { z } from "zod";
 
 import { requireAuth } from "../middleware/require-auth.js";
@@ -9,6 +9,7 @@ import { ApiError, ValidationFailed } from "../errors.js";
 import { logger } from "../logger.js";
 import {
   AdminDmaInputSchema,
+  AdminOrderServerSchema,
   AdminPasswordSchema,
   AdminPutAccountSchema,
   AdminRolePatchBody,
@@ -21,6 +22,7 @@ import {
   toProxyResult,
   type RelayAdminClient,
   type RelayAdminResponse,
+  type RelayOrderServerResult,
 } from "../services/relay-admin-client.js";
 import type { AdminCommandResponse } from "@gh-radar/shared";
 
@@ -45,6 +47,8 @@ import type { AdminCommandResponse } from "@gh-radar/shared";
  * - PUT    /dma-users/:dma/accounts                  : `{ account, servers }` → `{ results }`
  * - DELETE /dma-users/:dma/accounts/:broker/:accountNo : 계좌 제거 → `{ results }` (마지막 계좌면 relay 409 `LAST_ACCOUNT`)
  * - POST   /dma-users/:dma/reconcile                 : 「다시 반영」 → `{ results }`
+ * - PUT    /dma-users/:dma/accounts/:broker/:accountNo/order-server : `{ serverKey | null }` → `{ ok, orderServer }` (29-37 G-1 ⑥ —
+ *          계좌 주문 서버 지정. relay 가 RPC 저장 · 지정 적재기 즉시 재적재 · 29-36 재수립. Express 는 DB 에 직접 쓰지 않는다)
  *   DMA 프록시는 relay 계약(29-11 표)을 1:1 로 부른다 — 409 업무 거부는 그대로, 못 닿음 · 5xx 는 502 `RELAY_FAILED`,
  *   클라이언트 없음은 503 `RELAY_UNAVAILABLE`. 비밀번호 평문은 relay 로만 전달된다(Express 암호화 · 저장 · 로그 없음).
  *
@@ -99,6 +103,26 @@ export function relayResults(
   if (r.status === 200) {
     const results = (r.body as Partial<AdminCommandResponse>).results;
     if (Array.isArray(results)) return results;
+    throw relayFailed(op, res.status);
+  }
+  const { code, message } = (r.body as { error: { code: string; message: string } }).error;
+  if (code === "RELAY_FAILED") throw relayFailed(op, res.status);
+  throw new ApiError(r.status, code, message);
+}
+
+/**
+ * relay 계좌 주문 서버 지정 응답 해석(29-37) — 결과 배열이 아니라 `{ ok, orderServer }` 라 `relayResults` 와 따로 둔다.
+ * 상태 매핑은 같다: 400 · 409 업무 거부는 그대로, 못 닿음 · 5xx · 200 인데 모양 위반은 502 `RELAY_FAILED`.
+ */
+export function relayOrderServer(
+  res: RelayAdminResponse<RelayOrderServerResult>,
+  op: string,
+): { orderServer: string | null } {
+  const r = toProxyResult(res);
+  if (r.status === 200) {
+    const body = r.body as Partial<RelayOrderServerResult>;
+    const orderServer = body.orderServer;
+    if (body.ok === true && (orderServer === null || typeof orderServer === "string")) return { orderServer };
     throw relayFailed(op, res.status);
   }
   const { code, message } = (r.body as { error: { code: string; message: string } }).error;
@@ -405,6 +429,33 @@ adminRouter.delete("/dma-users/:dma/accounts/:broker/:accountNo", async (req, re
       servers: results.map((x) => `${x.server}:${x.outcome}`),
     });
     res.json({ results });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- PUT /dma-users/:dma/accounts/:broker/:accountNo/order-server — 계좌 주문 서버 지정 (29-37 G-1 ⑥) ---
+//   쓰기는 relay → RPC 한 길(D-07) — 지정 적재기 즉시 재적재가 같은 relay 프로세스에서 일어나야 라우팅 · 재수립이 곧바로 따른다.
+adminRouter.put("/dma-users/:dma/accounts/:broker/:accountNo/order-server", async (req, res, next) => {
+  try {
+    const { dma, broker, accountNo } = parseOrThrow(dmaAccountParam, req.params);
+    const { serverKey } = parseOrThrow(AdminOrderServerSchema, req.body ?? {});
+    if (serverKey !== null && brokerOfServerKey(serverKey) !== broker) {
+      throw ValidationFailed(`serverKey: ${serverKey} 는 ${broker} 계좌의 서버가 아니에요`);
+    }
+    const relay = requireRelayAdmin(req);
+    const r = await relay.setAccountOrderServer(dma, broker, accountNo, serverKey, req.adminEmail!);
+    let orderServer: string | null;
+    try {
+      ({ orderServer } = relayOrderServer(r, "dma-order-server"));
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        audit(req, "dma-order-server", maskDma(dma), { broker, rejected: e.code });
+      }
+      throw e;
+    }
+    audit(req, "dma-order-server", maskDma(dma), { broker, orderServer });
+    res.json({ ok: true, orderServer });
   } catch (e) {
     next(e);
   }

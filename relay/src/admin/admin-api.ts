@@ -14,6 +14,13 @@
  *     `SERVER_DISABLED` · `QUOTE_SWITCH_FAILED`(옛 서버로 되돌림 · DB 무변경) · `QUOTE_SWITCH_BUSY`(진행 중). message 는 화면이 그대로
  *     보이는 한국어 문장이다(29-18).
  *
+ * 계좌 주문 서버 지정(29-37 G-1 ⑥) `PUT /dma-users/:dma/accounts/:broker/:accountNo/order-server` body `{ serverKey: <키> | null }` →
+ * RPC `dma_admin_set_account_order_server` → 지정 적재기 즉시 재적재(꼬리 — 커밋 뒤 시작한 읽기 · `changed` → 29-36 재수립) →
+ * 200 `{ ok: true, orderServer }`. null = 증권사 기본 주문 서버로. 레지스트리에 없는 키 · 형식 밖은 400, 그 계좌의 active 등록
+ * 서버가 아니면(등록 안 됨 · removing · 다른 증권사) 409 `ORDER_SERVER_NOT_REGISTERED` · `NO_SUCH_ACCOUNT` · `NO_DMA_USER`.
+ * 44 는 보내지 않는다 — gh-trade 는 지정을 모른다(와이어 무변경). 재적재 실패는 응답을 바꾸지 않는다(warn · 60초 주기가 잡는다).
+ * 계좌 put · 계좌 제거 · 유저 삭제(deleted)도 끝에 같은 재적재를 건다 — DB 가 removing 전환과 함께 지정을 지운 것을 곧바로 라우팅에.
+ *
  * 서버 상태 `GET /servers/status`(29-11) — 서버마다 `{ conn, journal, admin, quote, staleAccounts }`. `staleAccounts`(29-43 G-1 (가))는
  * 그 서버에 남아 끄지 못한 전략이 있는 계좌 수(deps `staleStrategies` 없으면 0 · 꺼진 서버에도 싣는다 — Admin 서버 카드 한 줄 · 29-38).
  *
@@ -42,6 +49,7 @@ import {
 
 import { logger } from "../logger.js";
 import { RelayApiError } from "../order/order-api.js";
+import { maskAccountNo } from "../dma/envelope.js";
 import { encryptDmaPassword } from "../store/credentials.js";
 import type { DmaServerRow } from "../registry/registry.js";
 import type { QuoteSwitchResult } from "../quote/quote-switch.js";
@@ -53,7 +61,10 @@ import { IntentError, type AdminIntentStore } from "./intent-store.js";
 // ============================================================
 
 export type AdminApiDeps = {
-  store: Pick<AdminIntentStore, "createDmaUser" | "putAccount" | "markAccountRemoved" | "setQuotePrimary">;
+  store: Pick<
+    AdminIntentStore,
+    "createDmaUser" | "putAccount" | "markAccountRemoved" | "setQuotePrimary" | "setAccountOrderServer"
+  >;
   dispatcher: Pick<AdminDispatcher, "reconcileUser" | "changePassword" | "deleteUser">;
   /** 서버 레지스트리 — 전 행(상태 · 키 검사) · 즉시 재적재(D-09 · D-17). `ServerRegistry` 가 만족한다. */
   registry: { all(): DmaServerRow[]; reload(): Promise<{ ok: boolean; changed: boolean }> };
@@ -84,6 +95,11 @@ export type AdminApiDeps = {
    * `staleAccounts` 원천. 주지 않으면 전부 0. 결선은 29-36.
    */
   staleStrategies?: () => ReadonlyMap<string, number>;
+  /**
+   * 계좌 주문 서버 지정 적재기 즉시 재적재(29-37 · `AccountOrderServers.reload` — 꼬리 의미). 지정이 바뀌는 라우트(지정 ·
+   * 계좌 put · 계좌 제거 · 유저 삭제) 끝에서 기다린다. 실패는 warn 만. 주지 않으면 60초 주기에 맡긴다.
+   */
+  orderServers?: { reload(): Promise<{ ok: boolean }> };
 };
 
 // ============================================================
@@ -147,6 +163,9 @@ const PasswordBody = z.object({ password: PasswordSchema });
 
 const PutAccountBody = z.object({ account: AccountSchema, servers: ServersSchema });
 
+/** 계좌 주문 서버 지정 — 레지스트리 키 형식 또는 null(증권사 기본값으로). 키 누락은 거부(실수로 해제되지 않게). */
+const OrderServerBody = z.object({ serverKey: z.string().regex(SERVER_KEY_RE).nullable() });
+
 /** 경로 `:key` — 레지스트리 서버 키 형식(있는지는 라우트가 레지스트리로 본다). */
 const ServerKeyParam = z.object({ key: z.string().regex(SERVER_KEY_RE) });
 
@@ -178,6 +197,7 @@ const INTENT_MESSAGE: Record<string, string> = {
   NO_SERVERS: "등록 서버가 없습니다",
   SERVERS_REMAIN: "아직 반영되지 않은 서버가 남았습니다",
   DMA_LINKED: "이미 DMA 가 연결된 웹 사용자입니다",
+  ORDER_SERVER_NOT_REGISTERED: "그 계좌의 등록 서버가 아닙니다",
 };
 
 function toRelayError(err: unknown): unknown {
@@ -239,12 +259,18 @@ function audit(
   adminEmail: string,
   route: string,
   dma: string | null,
-  outcome: { results: readonly AdminServerResult[] } | { rejected: string } | { ok: boolean; changed: boolean },
+  outcome:
+    | { results: readonly AdminServerResult[] }
+    | { rejected: string }
+    | { ok: boolean; changed: boolean }
+    | { orderServer: string | null },
   extra: Record<string, unknown> = {},
 ): void {
   const base: Record<string, unknown> = { admin: adminEmail, route, ...extra };
   if (dma !== null) base.dma = maskDmaUserId(dma);
-  if ("results" in outcome) {
+  if ("orderServer" in outcome) {
+    base.orderServer = outcome.orderServer;
+  } else if ("results" in outcome) {
     base.servers = outcome.results.map((r) => ({ server: r.server, outcome: r.outcome, ...(r.code !== undefined ? { code: r.code } : {}) }));
   } else if ("rejected" in outcome) {
     base.rejected = outcome.rejected;
@@ -275,14 +301,31 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
   router.use(requireAdminEmail);
 
   /** 등록 서버가 레지스트리에 있는가 — 없는 키는 FK 500 이 되기 전에 400 으로. */
-  const assertKnownServers = (servers: readonly string[]): void => {
+  const assertKnownServers = (servers: readonly string[], field = "servers"): void => {
     const known = new Set(deps.registry.all().map((r) => r.key));
     const unknown = servers.filter((s) => !known.has(s));
-    if (unknown.length > 0) throw new RelayApiError(400, "VALIDATION_FAILED", `servers: 레지스트리에 없는 서버 ${unknown.join(", ")}`);
+    if (unknown.length > 0) throw new RelayApiError(400, "VALIDATION_FAILED", `${field}: 레지스트리에 없는 서버 ${unknown.join(", ")}`);
   };
 
   /** 요청 도착 시각 + 마감 — 핸들러 첫 줄에서 잰다(이후 RPC · 줄 대기도 마감 안). */
   const deadlineOf = (): number => (deps.now?.() ?? Date.now()) + (deps.adminDeadlineMs ?? ADMIN_REQUEST_DEADLINE_MS);
+
+  /**
+   * 지정 적재기 즉시 재적재(29-37) — 지정이 바뀌었을 수 있는 라우트 끝에서 기다린다(응답 뒤 첫 주문이 새 지정으로 가게).
+   * 실패는 응답을 바꾸지 않는다 — DB 는 이미 커밋됐고 60초 주기가 따라잡는다(warn · 식별자 없음).
+   */
+  const reloadOrderServers = async (route: string): Promise<void> => {
+    if (deps.orderServers === undefined) return;
+    try {
+      const r = await deps.orderServers.reload();
+      if (!r.ok) logger.warn({ route }, "[admin] 계좌 주문 서버 지정 재적재 실패 — 60초 주기가 따라잡는다");
+    } catch (err) {
+      logger.warn(
+        { route, error: err instanceof Error ? err.message : String(err) },
+        "[admin] 계좌 주문 서버 지정 재적재 실패 — 60초 주기가 따라잡는다",
+      );
+    }
+  };
 
   const respond = (res: Parameters<RequestHandler>[1], results: AdminServerResult[]): void => {
     res.status(200).json({ results });
@@ -364,6 +407,26 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
       return { results: await deps.dispatcher.reconcileUser(dma, { adminEmail: res.locals.adminEmail as string, deadlineAt }) };
     });
     respond(res, results);
+  });
+
+  // ── 계좌 주문 서버 지정 (29-37 G-1 ⑥ — RPC → 지정 재적재 → 29-36 재수립. 44 없음) ──────────────────────
+  router.put("/dma-users/:dma/accounts/:broker/:accountNo/order-server", async (req, res) => {
+    const { dma, broker, accountNo } = AccountParam.parse(req.params);
+    const { serverKey } = OrderServerBody.parse(req.body);
+    if (serverKey !== null) assertKnownServers([serverKey], "serverKey");
+    const adminEmail = res.locals.adminEmail as string;
+    const route = "PUT /dma-users/:dma/accounts/:broker/:accountNo/order-server";
+    const extra = { broker, account: maskAccountNo(accountNo) };
+    let orderServer: string | null;
+    try {
+      orderServer = await deps.store.setAccountOrderServer(dma, broker, accountNo, serverKey);
+    } catch (err) {
+      if (err instanceof IntentError) audit(adminEmail, route, dma, { rejected: err.code }, extra);
+      throw err;
+    }
+    await reloadOrderServers(route);
+    audit(adminEmail, route, dma, { orderServer }, extra);
+    res.status(200).json({ ok: true, orderServer });
   });
 
   // ── 유저 삭제 (D-15 — 서버마다 op 2(87 전용 계좌가 있으면 의도 계좌 op 4) · 전 서버 ok 일 때만 DB 삭제) ──

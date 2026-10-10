@@ -58,6 +58,9 @@ export type RelayServersStatus = { servers: Record<string, AdminServerLiveStatus
 /** `POST /internal/admin/servers/:key/quote-primary` 성공 응답(29-23). */
 export type RelayQuotePrimaryResult = { ok: boolean };
 
+/** `PUT /internal/admin/dma-users/:dma/accounts/:broker/:accountNo/order-server` 성공 응답(29-37) — 저장된 지정(null = 기본값). */
+export type RelayOrderServerResult = { ok: boolean; orderServer: string | null };
+
 export type RelayAdminClient = {
   request: RelayAdminRequest;
   /** 허용 · 역할 표 즉시 재적재(D-04) — 강등 · 허용 해제된 사용자의 wss 를 relay 가 끊는다. */
@@ -101,6 +104,17 @@ export type RelayAdminClient = {
   reconcile(dmaUserId: string, adminEmail: string): Promise<RelayAdminResponse<AdminCommandResponse>>;
   /** 서버 카드 상태 칩(연결 · 저널 · admin · 시세). */
   serversStatus(adminEmail: string): Promise<RelayAdminResponse<RelayServersStatus>>;
+  /**
+   * 계좌 주문 서버 지정(29-37 G-1 ⑥) — relay 가 RPC 로 저장하고 지정 적재기를 즉시 재적재한다(29-36 재수립까지).
+   * `serverKey` null = 증권사 기본 주문 서버로. 거부는 relay 409(`ORDER_SERVER_NOT_REGISTERED` · `NO_SUCH_ACCOUNT` · `NO_DMA_USER`).
+   */
+  setAccountOrderServer(
+    dmaUserId: string,
+    broker: DmaBroker,
+    accountNo: string,
+    serverKey: string | null,
+    adminEmail: string,
+  ): Promise<RelayAdminResponse<RelayOrderServerResult>>;
   /** 시세 주 서버 전환(D-11 break-then-make) — 성공하면 relay 가 DB 를 갱신한다(29-23). */
   setQuotePrimary(
     serverKey: string,
@@ -268,6 +282,8 @@ export function createRelayAdminClient(opts: {
 export function relayAdminClientFrom(request: RelayAdminRequest): RelayAdminClient {
   // 경로 값(DMA id · 계좌번호 · 서버 키)은 한 세그먼트로 인코딩한다 — relay(Express 5)가 한 번 디코딩한다.
   const user = (dma: string) => `/internal/admin/dma-users/${encodeURIComponent(dma)}`;
+  const account = (dma: string, broker: DmaBroker, accountNo: string) =>
+    `${user(dma)}/accounts/${encodeURIComponent(broker)}/${encodeURIComponent(accountNo)}`;
   return {
     request,
     reloadAccess: (adminEmail) =>
@@ -281,11 +297,11 @@ export function relayAdminClientFrom(request: RelayAdminRequest): RelayAdminClie
     putAccount: (dma, body, adminEmail) =>
       request<AdminCommandResponse>("PUT", `${user(dma)}/accounts`, adminEmail, body),
     removeAccount: (dma, broker, accountNo, adminEmail) =>
-      request<AdminCommandResponse>(
-        "DELETE",
-        `${user(dma)}/accounts/${encodeURIComponent(broker)}/${encodeURIComponent(accountNo)}`,
-        adminEmail,
-      ),
+      request<AdminCommandResponse>("DELETE", account(dma, broker, accountNo), adminEmail),
+    setAccountOrderServer: (dma, broker, accountNo, serverKey, adminEmail) =>
+      request<RelayOrderServerResult>("PUT", `${account(dma, broker, accountNo)}/order-server`, adminEmail, {
+        serverKey,
+      }),
     deleteDmaUser: (dma, adminEmail, opts) =>
       request<RelayDeleteDmaUserResult>(
         "DELETE",
