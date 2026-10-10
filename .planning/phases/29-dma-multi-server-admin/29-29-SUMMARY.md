@@ -3,7 +3,7 @@ phase: 29-dma-multi-server-admin
 plan: 29
 subsystem: database
 tags: [g-1, account-order-server, supabase, pgtap, rpc, migration, gap-closure]
-status: halted
+status: complete
 
 requires:
   - phase: 29-26
@@ -69,14 +69,14 @@ coverage:
     description: "gh-trade-0d 확인 질문 전달(와이어 무변경 · 두 서버 동시 세션 · 다른 서버 전략 독립 · 재로그인 빈도)"
     verification: []
     human_judgment: true
-    rationale: "사용자가 gh-trade 세션에 직접 전달하는 외부 행위 — executor 는 gh-trade 저장소 · 세션에 쓰지 않는다. 답은 29-41 go/no-go 에서 확인"
+    rationale: "외부 세션 전달 — 2026-10-10 20:54 KST 오케스트레이터가 gh-trade-84 에 원문 전송, 수신 세션 보류 · 답 미수신. 답은 29-41 go/no-go 에서 확인"
 
 actuals:
   tokens: 9650
-  tasks: 2
-  commits: 2
+  tasks: 3
+  commits: 4
 plan_head_before: f45d11cebad2244f836fed94978572243caced3f
-plan_head_after: 2cee6c0065151cf0c89f54f26c57a095ddeb3d9e
+plan_head_after: 48afae4e6e8f27ef982bc5ca8c47cbd27b267782
 
 duration: 20min
 completed: 2026-10-10
@@ -89,8 +89,8 @@ completed: 2026-10-10
 ## Performance
 
 - **Duration:** 약 20분
-- **Completed:** 2026-10-10T08:37Z (Task 2 커밋 기준 — Task 3 전달 대기)
-- **Tasks:** 2/3 (Task 1 결정 기록 · Task 2 실행) — Task 3 전달 대기
+- **Completed:** 2026-10-10 20:54 KST (Task 3 전송 기준 — Task 2 커밋은 08:37Z)
+- **Tasks:** 3/3 (Task 1 결정 기록 · Task 2 실행 · Task 3 질문 전송 — 답은 29-41)
 - **Files modified:** 4 (신규 2 · 수정 2)
 
 ## Task 1 — DB 저장 위치 결정 (checkpoint:decision · blocking-human)
@@ -143,7 +143,7 @@ completed: 2026-10-10
 
 ## Task 3 — gh-trade-0d 확인 질문 (checkpoint:human-action · blocking-human)
 
-**상태: 전달 대기**(사용자가 gh-trade 세션 `gh-trade-0d` 에 전달한다. executor 는 gh-trade 저장소 · 세션에 쓰지 않는다.)
+**상태: 전송함(수신 세션 보류 · 답 미수신)** — gh-radar 쪽 질문 전달은 끝났다. 답 확인은 29-41 몫이다. executor 는 gh-trade 저장소 · 세션에 쓰지 않았다.
 
 전달할 질문 원문(그대로 복사):
 
@@ -155,7 +155,10 @@ completed: 2026-10-10
 >
 > 답은 인박스 노트(`docs/inbox/from-gh-trade/`) 또는 세션 메시지로 받는다. 답이 오면 29-41 의 go/no-go 에서 확인한다 — 반대 답(예: ① 이 안 됨)이면 29-41 에서 배포를 멈추고 재계획한다.
 
-전달 기록: _(전달 대기 — 사용자 「보냄」(시각) 또는 답 요지를 받으면 이 줄을 갱신한다)_
+전달 기록: 2026-10-10 20:54 KST 사용자 지시로 오케스트레이터(gh-radar-06)가 gh-trade-84 세션에 원문 전송 — 수신 세션에서 승인 대기(보류) 상태로 기록, 답 미수신. 29-41 go/no-go 에서 인박스/세션 답 확인.
+
+- 수신 세션은 플랜 원문의 `gh-trade-0d` 가 아니라 **`gh-trade-84`** 다(사용자 지시 — `gh-trade-0d` 는 더 이상 없다).
+- 전달 · 열람은 확인되지 않았다. 전송 시점에 수신 세션이 사용자 승인 전까지 메시지를 보류했다.
 
 ## Files Created/Modified
 
@@ -207,7 +210,7 @@ completed: 2026-10-10
 ## Next Phase Readiness
 
 - 29-33(relay 적재기) · 29-37(Admin 경로)이 위 RPC 계약 위에 설 수 있다.
-- Task 3 질문 전달과 gh-trade 답은 29-41 go/no-go 의 전제다.
+- Task 3 질문은 gh-trade-84 에 전송됐지만 수신 세션에서 보류 중이고 답은 아직 없다. 답 확인(인박스 노트 또는 세션 메시지)은 29-41 go/no-go 의 전제다.
 
 ## Self-Check: PASSED
 
@@ -216,4 +219,4 @@ completed: 2026-10-10
 
 ---
 *Phase: 29-dma-multi-server-admin*
-*Status: Task 3 전달 대기 (2026-10-10)*
+*Completed: 2026-10-10 (Task 3 답 확인은 29-41)*
