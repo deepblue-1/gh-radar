@@ -484,13 +484,17 @@ describe("SessionManager — resolveTarget (Phase 29 Plan 03 · 29-16 증권사�
     expect(JSON.stringify(infos)).not.toContain(CREDS.password);
     expect(JSON.stringify(infos)).not.toContain(CREDS.dmaUserId);
 
-    // 주문 서버 전환 — 새 로그인부터 새 서버(D-10). 열린 세션은 그대로다.
+    // 주문 서버 전환 — 새 로그인부터 새 서버. 열린 세션은 그대로다.
     target = { serverKey: "KB121", host: "127.0.0.1", port: kb121.port, broker: "KB" };
     const b = m.acquireFor("user-b", "KB", CREDS)!;
     await waitFor(() => b.state === "ready", "user-b ready (KB121)");
     expect(kb121.sockets).toHaveLength(1);
     expect(kb120.sockets).toHaveLength(1);
-    expect(m.acquireFor("user-a", "KB", CREDS)!).toBe(a);
+    // G-1 (29-42 — D-10 대체) — 같은 사용자의 새 acquire 도 새 서버다(살아 있는 KB120 세션을 증권사로 찾아 재사용하지 않는다).
+    const a2 = m.acquireFor("user-a", "KB", CREDS)!;
+    expect(a2).not.toBe(a);
+    expect(a2.serverKey).toBe("KB121");
+    expect(a.state).toBe("ready");
   });
 
   it("resolveTarget 이 undefined 면 세션을 열지 않는다(null + warn 1줄 · 29-16 이 29-03 폴백을 대체) · resolveTarget 없으면 생성자 단일 대상(그 증권사만)", async () => {
@@ -534,7 +538,7 @@ describe("SessionManager — resolveTarget (Phase 29 Plan 03 · 29-16 증권사�
   });
 });
 
-describe("SessionManager — 조회 · 비밀 교체 · DMA 유저 종료 · 주문 서버 전환 재사용 (29-16)", () => {
+describe("SessionManager — 조회 · 비밀 교체 · DMA 유저 종료 · 주문 서버 전환 (29-16 · 29-42 G-1)", () => {
   const managers: SessionManager[] = [];
   const gateways: FakeGateway[] = [];
   let kb120: FakeGateway;
@@ -580,39 +584,39 @@ describe("SessionManager — 조회 · 비밀 교체 · DMA 유저 종료 · 주
     return m;
   }
 
-  it("D-10 — 그 증권사 세션이 살아 있으면(탭 · 유예 중) 주문 서버가 바뀌어도 재사용 · 세션이 끝난 뒤 acquire 부터 새 서버", async () => {
+  it("G-1 — D-10 대체: 기본 주문 서버 KB120 → KB121 뒤 같은 사용자의 새 acquireFor 는 유예 중 KB120 세션이 있어도 KB121 세션을 새로 만든다 · KB120 은 종전 유예로 소멸 · 같은 증권사 세션 재사용 없음", async () => {
     const m = mgr();
     const s1 = m.acquireFor("user-1", "KB", CREDS)!;
     await waitFor(() => s1.state === "ready", "KB120 ready");
     expect(s1.serverKey).toBe("KB120");
-
-    // 주문 서버 전환(KB120 → KB121). 탭이 열려 있다(refCount 1) — 새 탭은 옛 서버 세션을 재사용한다.
-    targets.set("KB", { serverKey: "KB121", host: "127.0.0.1", port: kb121.port, broker: "KB" });
+    // 대상이 바뀌지 않은 재호출은 같은 세션(참조계수 2 — 종전).
     expect(m.acquireFor("user-1", "KB", CREDS)).toBe(s1);
-    await flushIo();
-    expect(kb121.sockets).toHaveLength(0);
 
-    // 탭 둘 다 닫힘 → 유예 중 재접속도 재사용(새로고침 왕복 흡수 · D-15).
+    // 탭 둘 다 닫힘 → KB120 유예 중.
     m.release("user-1", "KB120");
     m.release("user-1", "KB120");
     vi.advanceTimersByTime(SESSION_GRACE_MS - 1000);
-    expect(m.acquireFor("user-1", "KB", CREDS)).toBe(s1);
-    expect(m.sessionsOf("user-1")).toHaveLength(1);
+    expect(m.sessionsOf("user-1")).toEqual([s1]);
 
-    // 유예 만료로 세션이 끝난다 → 다음 acquire 부터 새 서버.
-    m.release("user-1", "KB120");
-    vi.advanceTimersByTime(SESSION_GRACE_MS);
-    await waitFor(() => m.sessionsOf("user-1").length === 0, "KB120 세션 소멸");
-    await waitFor(() => kb120.sockets.length === 0, "KB120 TCP 종료");
-
+    // 기본 주문 서버 전환(KB120 → KB121) — 새 acquire 는 유예 중 KB120 을 재사용하지 않고 KB121 을 연다.
+    targets.set("KB", { serverKey: "KB121", host: "127.0.0.1", port: kb121.port, broker: "KB" });
     const s2 = m.acquireFor("user-1", "KB", CREDS)!;
-    await waitFor(() => s2.state === "ready", "KB121 ready");
     expect(s2).not.toBe(s1);
     expect(s2.serverKey).toBe("KB121");
+    await waitFor(() => s2.state === "ready", "KB121 ready");
     expect(kb121.sockets).toHaveLength(1);
+    expect(m.sessionsOf("user-1")).toEqual([s1, s2]);
+    // 같은 대상의 다음 탭은 KB121 세션 재사용.
+    expect(m.acquireFor("user-1", "KB", CREDS)).toBe(s2);
+
+    // KB120 은 종전 유예 만료로 끝난다(전환이 유예를 취소하지 않는다).
+    vi.advanceTimersByTime(1000);
+    await waitFor(() => m.sessionsOf("user-1").length === 1, "KB120 세션 소멸");
+    await waitFor(() => kb120.sockets.length === 0, "KB120 TCP 종료");
+    expect(m.sessionsOf("user-1")).toEqual([s2]);
+    expect(m.get("user-1")).toBe(s2);
     // 옛 서버 키 release 는 무해한 경합이다(이미 없는 세션).
     expect(() => m.release("user-1", "KB120")).not.toThrow();
-    expect(m.get("user-1")).toBe(s2);
   });
 
   it("primaryOf — KB 세션이 있으면 그것 · 없으면 처음 만든 세션 · 없으면 undefined (D-18) · sessionsOf 는 생성 순서", async () => {
@@ -630,6 +634,25 @@ describe("SessionManager — 조회 · 비밀 교체 · DMA 유저 종료 · 주
     expect(m.get("user-1")).toBe(kb);
     expect(m.sessionsOf("user-1")).toEqual([ky, kb]);
     expect(m.forAccount("user-1", KYOBO_ACCOUNT)).toBe(ky);
+  });
+
+  it("primaryOf (29-42 G-1) — KB 세션이 둘이면 먼저 만든 KB 세션 · KB 가 없으면 첫 세션 · 먼저 만든 KB 가 끝나면 남은 KB", async () => {
+    const m = mgr();
+    const ky = m.acquireOn("user-1", targets.get("KYOBO")!, CREDS);
+    await waitFor(() => ky.state === "ready", "교보 ready");
+    expect(m.primaryOf("user-1")).toBe(ky);
+
+    const k120 = m.acquireOn("user-1", targets.get("KB")!, CREDS);
+    const k121 = m.acquireOn("user-1", { serverKey: "KB121", host: "127.0.0.1", port: kb121.port, broker: "KB" }, CREDS);
+    await waitFor(() => k120.isReady && k121.isReady, "KB120 · KB121 ready");
+    expect(m.sessionsOf("user-1")).toEqual([ky, k120, k121]);
+    expect(m.primaryOf("user-1")).toBe(k120);
+    expect(m.get("user-1")).toBe(k120);
+
+    m.release("user-1", "KB120");
+    vi.advanceTimersByTime(SESSION_GRACE_MS);
+    await waitFor(() => m.sessionsOf("user-1").length === 2, "KB120 유예 만료");
+    expect(m.primaryOf("user-1")).toBe(k121);
   });
 
   it("firstReady(avoidUserId) 는 사용자 단위 회피 그대로다 (키 구조 무관) · stats 는 모든 (유저, 서버) 세션을 센다", async () => {
