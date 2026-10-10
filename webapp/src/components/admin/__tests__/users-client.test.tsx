@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { AdminUsersOverview } from '@gh-radar/shared';
 
 import { ApiClientError } from '@/lib/api';
@@ -186,6 +186,49 @@ describe('UsersClient — 목록 (D-14 · 목업 A)', () => {
     fireEvent.click(rowOf('kim.trader@example.invalid'));
     expect(rowOf('kim.trader@example.invalid')).toHaveAttribute('data-selected', 'true');
     expect(root().querySelectorAll('[data-selected="true"]')).toHaveLength(1);
+  });
+
+  // 29-31 UI-REVIEW-2 — 데스크톱 시트는 비모달 패널(목업 A `.panel`): 시트를 연 채 다른 행을 누르면 그 사용자로 바뀐다.
+  it('데스크톱 — 시트를 연 채 다른 행을 누르면 시트가 그 사용자로 바뀐다 · 오버레이 없음 · 생성 시트와 겹치지 않는다', async () => {
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (q: string) =>
+        ({
+          matches: q === '(min-width: 640px)',
+          media: q,
+          onchange: null,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          addListener: () => {},
+          removeListener: () => {},
+          dispatchEvent: () => false,
+        }) as unknown as MediaQueryList,
+    );
+    fetchAdminUsersMock.mockResolvedValue(OVERVIEW);
+    render(<UsersClient />);
+    await waitFor(() => expect(rows()).toHaveLength(4));
+
+    fireEvent.click(rowOf('kim.trader@example.invalid'));
+    expect(screen.getByRole('dialog', { name: 'kim.trader@example.invalid' })).toBeInTheDocument();
+    expect(document.querySelectorAll('[data-slot="sheet-overlay"]')).toHaveLength(0);
+    // Radix 바깥 pointerdown 리스너가 붙은 뒤(다음 틱) 목록의 다른 행을 누른다 — 바깥 상호작용이 시트를 닫지 않는다.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    fireEvent.pointerDown(rowOf('park.view@example.invalid'));
+    fireEvent.click(rowOf('park.view@example.invalid'));
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(screen.getByRole('dialog', { name: 'park.view@example.invalid' })).toBeInTheDocument();
+    expect(rowOf('park.view@example.invalid')).toHaveAttribute('data-selected', 'true');
+    expect(root().querySelectorAll('[data-selected="true"]')).toHaveLength(1);
+
+    // 편집 시트를 연 채 「+ 사용자」 → 생성 시트 하나만(겹치지 않는다) · 다시 행 → 편집 시트 하나만
+    fireEvent.click(screen.getByRole('button', { name: '+ 사용자' }));
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(screen.queryByRole('dialog', { name: 'park.view@example.invalid' })).toBeNull();
+    fireEvent.click(rowOf('kim.trader@example.invalid'));
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(screen.getByRole('dialog', { name: 'kim.trader@example.invalid' })).toBeInTheDocument();
+    vi.restoreAllMocks();
   });
 
   it('로딩 중 스켈레톤', async () => {
