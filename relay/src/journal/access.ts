@@ -87,6 +87,14 @@ export class JournalAccess implements JournalAccessView {
     return this.#map.get(dmaUserId);
   }
 
+  /**
+   * 지금 매핑에 있는 DMA 유저 id (사본 · Phase 29-44 `EffectiveOwnerTracker` 열거 — 연결 유무와 무관하게 유효 주문 서버를 계산할
+   * 대상). 로그 · 프레임에 싣지 않는다(T-19-14).
+   */
+  dmaUserIds(): string[] {
+    return [...this.#map.keys()];
+  }
+
   health(): JournalAccessHealth {
     return { rows: this.#rows, skipped: this.#lastSkipped, emptySnapshotsRejected: this.#emptySnapshotsRejected };
   }

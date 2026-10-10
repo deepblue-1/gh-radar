@@ -24,7 +24,8 @@ import type { RelayAccount, RelayOutbound, RelayStateMsg } from "@gh-radar/share
 
 import { SESSION_GRACE_MS, SessionManager, type DmaCredentials, type SessionTarget } from "../src/dma/session-manager.js";
 import { AccountOrderServers, createOrderServerRouting } from "../src/access/account-order-servers.js";
-import { StaleStrategyRegister, StrategySweeper } from "../src/dma/strategy-sweeper.js";
+import { StaleStrategyRegister, StrategySweeper, type StrategySweepResult } from "../src/dma/strategy-sweeper.js";
+import { EffectiveOwnerTracker } from "../src/dma/effective-owner-tracker.js";
 import type { DmaServerRow } from "../src/registry/registry.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { MSG } from "../src/dma/msg-type.js";
@@ -153,6 +154,8 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
   let chosenRows: Array<{ dma_user_id: string; broker: string; account_no: string; server_key: string }>;
   /** userId → 자격증명 공급자가 돌려줄 갈래. */
   let credMode: Map<string, "ok" | "null" | "not_ready" | "throw">;
+  /** DMA id → 웹 user id (29-44 `AppAccess.userIdOf` 대역). */
+  let dmaToUser: Map<string, string>;
 
   const supabase = {
     auth: {
@@ -231,6 +234,11 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     ]);
     chosenRows = [];
     credMode = new Map();
+    dmaToUser = new Map([
+      [D1, U1],
+      [D2, U2],
+      [D3, U3],
+    ]);
   });
 
   afterEach(async () => {
@@ -243,7 +251,16 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
   });
 
   /** 지정 적재기 · 라우팅 · 세션 관리자 · 실 sweeper · 레지스터 · fanout(운영 결선 모양) · 적재기 changed → resync. */
-  async function harness(opts: { wrapSweeper?: (real: StrategySweeper) => Pick<StrategySweeper, "sweep"> } = {}) {
+  async function harness(
+    opts: {
+      wrapSweeper?: (real: StrategySweeper) => Pick<StrategySweeper, "sweep">;
+      /**
+       * 29-44 — 운영 index 와 같은 결선: `EffectiveOwnerTracker`(전 사용자 유효 주문 서버) · `userIdOf` · 적재기 changed 에서
+       * `resyncChangedUsers` **뒤** `tracker.refresh()` → `sweepMoved`.
+       */
+      tracker?: boolean;
+    } = {},
+  ) {
     const loader = new AccountOrderServers({ supabase });
     loaders.push(loader);
     loader.start();
@@ -262,6 +279,20 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     };
     const real = new StrategySweeper({ sessions: m, targetOf });
     const register = new StaleStrategyRegister();
+    const tracker = opts.tracker
+      ? new EffectiveOwnerTracker({
+          ready: () => loader.loaded,
+          dmaUserIds: () => {
+            const out = new Set<string>();
+            for (const byDma of mappings.values()) for (const d of byDma.keys()) out.add(d);
+            return out;
+          },
+          accountsOf: (serverKey, dma) => mappings.get(serverKey)?.get(dma),
+          servers: () => registry.enabled().map((r) => ({ key: r.key, broker: r.broker })),
+          effectiveOrderServer: routing.effectiveOrderServer,
+        })
+      : undefined;
+    tracker?.refresh();
 
     const server = http.createServer();
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
@@ -285,9 +316,12 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
       },
       sweeper: opts.wrapSweeper?.(real) ?? real,
       staleStrategies: register,
+      ...(tracker !== undefined ? { owners: tracker, userIdOf: (dma: string) => dmaToUser.get(dma) } : {}),
     });
     loader.on("changed", () => {
       void fanout.resyncChangedUsers("account-order-server");
+      const moves = tracker?.refresh() ?? [];
+      if (moves.length > 0) void fanout.sweepMoved(moves, "account-order-server");
     });
     const sockets: TestWs[] = [];
     async function open(token: string): Promise<Tab> {
@@ -304,7 +338,7 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
       hub.closeAll();
       await new Promise<void>((r) => server.close(() => r()));
     });
-    return { loader, routing, m, fanout, register, open };
+    return { loader, routing, m, fanout, register, open, tracker };
   }
 
   function mark(key: string): number {
@@ -732,5 +766,155 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
       { accountNo: A, name: "계좌A", serverKey: "KB120" },
       { accountNo: B, name: "계좌B", serverKey: "KB120" },
     ]);
+  });
+  // ============================================================
+  // 29-44 — (가) 보강: 연결 없는 사용자 · 트래커 diff · 임시 세션
+  // ============================================================
+
+  /** sweep 결과를 모으는 래퍼(실 sweeper 그대로). */
+  function recording(results: StrategySweepResult[], targets: string[]) {
+    return (real: StrategySweeper): Pick<StrategySweeper, "sweep"> => ({
+      sweep: async (target, creds) => {
+        targets.push(`${target.serverKey}:${target.accountNos.join(",")}`);
+        const res = await real.sweep(target, creds);
+        results.push(res);
+        return res;
+      },
+    });
+  }
+
+  it("⑨ 트레이서(29-44) — 브라우저 0 · 세션 0 인 u1 의 A 를 KB121 로 지정 → 트래커 move → KB120 임시 세션(LoginReq 1)으로 A 만 끄기(24 · 21 · 21 · 14 · 재조회) → 확인 · release(유예) · KB121 LoginReq 0 · u2 무영향", async () => {
+    await captureLogs();
+    kb120.respondLimitChaserList([on(SAMPLE_ISIN, A), on(ISIN2, B), on(ISIN3, D)]);
+    const results: StrategySweepResult[] = [];
+    const targets: string[] = [];
+    const h = await harness({ tracker: true, wrapSweeper: recording(results, targets) });
+    const other = await h.open("token-2");
+    await readyTab(h, other, U2, 1, "u2 ready(D)");
+    expect(h.m.sessionsOf(U1)).toEqual([]);
+    const drop = traceDrop(h.m);
+    const from120 = mark("KB120");
+    const fromEvents = events.length;
+
+    chosenRows = [{ dma_user_id: D1, broker: "KB", account_no: A, server_key: "KB121" }];
+    await h.loader.reload();
+    await waitFor(() => results.length === 1, "연결 없는 u1 의 KB120 sweep 완료");
+    await flushIo(10);
+
+    expect(results[0]).toEqual(expect.objectContaining({ ok: true, sessionCreated: true }));
+    expect(targets).toEqual([`KB120:${A}`]);
+    // 옛 서버에만 임시 로그인 1 — 새 주문 서버(KB121)에는 연결 없는 사용자 세션을 미리 열지 않는다.
+    expect(count("KB120", MSG.LoginReq, from120)).toBe(1);
+    expect(count("KB121", MSG.LoginReq)).toBe(0);
+    expect(kb121.sockets).toHaveLength(0);
+    const t = (n: number) => `KB120:${n}`;
+    expect(events.slice(fromEvents).filter((e) => e.startsWith("KB120:") && SWEEP_TYPES.has(Number(e.slice(6))))).toEqual([
+      t(MSG.GetLimitChaserListReq),
+      t(MSG.GetVITriggerReq),
+      t(MSG.GetVITriggerReq),
+      t(MSG.DisableStrategiesReq),
+      t(MSG.GetLimitChaserListReq),
+      t(MSG.GetVITriggerReq),
+      t(MSG.GetVITriggerReq),
+    ]);
+    expect(disabledKeys("KB120", from120)).toEqual([keyOf(SAMPLE_ISIN, A)]);
+    expect(kb120.limitChaserSeed().filter((c) => c.buyEnabled).map((c) => c.accountNo)).toEqual([B, D]);
+    expect(orderAccounts("KB120", from120)).toEqual([]);
+    expect(h.register.all()).toEqual([]);
+    // release 1 — 임시 세션은 종전 유예로 끝난다(즉시 drop 아님 · 연결 중 경로가 아니다).
+    expect(drop).not.toHaveBeenCalled();
+    expect(h.m.sessionsOf(U1).map((s) => s.serverKey)).toEqual(["KB120"]);
+    vi.advanceTimersByTime(SESSION_GRACE_MS);
+    await waitFor(() => h.m.sessionsOf(U1).length === 0, "임시 세션 유예 만료");
+    // u2 는 아무 일 없음.
+    expect(other.ws.closeInfo).toBeNull();
+    expect(h.m.sessionsOf(U2).map((s) => s.serverKey)).toEqual(["KB120"]);
+
+    // 같은 지정 재적재 → move 0 · sweep 0.
+    await h.loader.reload();
+    await flushIo(10);
+    expect(results).toHaveLength(1);
+  });
+
+  it("⑩ 연결 0 사용자 · 자격증명 null(비밀 없음) → sweep 0 · 레지스터 no-session(count null) · warn 1줄(계좌 · DMA id 없음) · 다음 로그인 상태 프레임 A 에 staleStrategies", async () => {
+    const logs = await captureLogs();
+    kb120.respondLimitChaserList([on(SAMPLE_ISIN, A)]);
+    const results: StrategySweepResult[] = [];
+    const targets: string[] = [];
+    const h = await harness({ tracker: true, wrapSweeper: recording(results, targets) });
+    const from120 = mark("KB120");
+    credMode.set(U1, "null");
+
+    chosenRows = [{ dma_user_id: D1, broker: "KB", account_no: A, server_key: "KB121" }];
+    await h.loader.reload();
+    await waitFor(() => h.register.all().length === 1, "레지스터 no-session");
+    await flushIo(10);
+    expect(targets).toEqual([]);
+    expect(count("KB120", MSG.LoginReq, from120)).toBe(0);
+    expect(h.register.all()).toEqual([
+      expect.objectContaining({ userId: U1, dmaUserId: D1, serverKey: "KB120", accountNo: A, remaining: null, reason: "no-session" }),
+    ]);
+    const stale = logs.warns.filter((c) => msgOf(c).includes("옛 서버 KB120 활성 전략") && msgOf(c).includes("끄지 못함"));
+    expect(stale).toHaveLength(1);
+    for (const secret of [A, D1]) expect(JSON.stringify(stale)).not.toContain(secret);
+
+    credMode.set(U1, "ok");
+    const tab = await h.open("token-1");
+    await readyTab(h, tab, U1, 2, "로그인 ready");
+    const first = tab.inbox.find(
+      (f): f is RelayStateMsg => f.t === "state" && (f.accounts?.some((a) => a.accountNo === A) ?? false),
+    );
+    expect(first?.accounts?.find((a) => a.accountNo === A)?.staleStrategies).toEqual({ serverKey: "KB120", count: null });
+  });
+
+  it("⑪ 연결 0 DMA 유저인데 웹 사용자(접근 맵)에 없음 → sweep 0 · 레지스터 0 · warn 1줄(수만 — DMA id 없음)", async () => {
+    const logs = await captureLogs();
+    kb120.respondLimitChaserList([on(SAMPLE_ISIN, A)]);
+    const results: StrategySweepResult[] = [];
+    const targets: string[] = [];
+    const h = await harness({ tracker: true, wrapSweeper: recording(results, targets) });
+    dmaToUser.delete(D1);
+    const from120 = mark("KB120");
+
+    chosenRows = [{ dma_user_id: D1, broker: "KB", account_no: A, server_key: "KB121" }];
+    await h.loader.reload();
+    await waitFor(() => logs.warns.some((c) => msgOf(c).includes("웹 사용자 없음")), "warn");
+    await flushIo(10);
+    expect(targets).toEqual([]);
+    expect(count("KB120", MSG.LoginReq, from120)).toBe(0);
+    expect(h.register.all()).toEqual([]);
+    const lines = logs.warns.filter((c) => msgOf(c).includes("웹 사용자 없음"));
+    expect(lines).toHaveLength(1);
+    expect(JSON.stringify(lines)).not.toContain(D1);
+    expect(JSON.stringify(lines)).not.toContain(A);
+  });
+
+  it("⑫ 연결 0 사용자 · 끄기 미확인(65 안 옴) → 레지스터 { u1, KB120, A, timeout, remaining 1 } · release · 뒤에 인증하면 첫 상태 프레임 A 에 staleStrategies { KB120, 1 }", async () => {
+    await captureLogs();
+    kb120.respondLimitChaserList([on(SAMPLE_ISIN, A)]);
+    kb120.handleDisableStrategies({ respond65: false });
+    const results: StrategySweepResult[] = [];
+    const targets: string[] = [];
+    const h = await harness({ tracker: true, wrapSweeper: recording(results, targets) });
+    const from120 = mark("KB120");
+
+    chosenRows = [{ dma_user_id: D1, broker: "KB", account_no: A, server_key: "KB121" }];
+    await h.loader.reload();
+    await waitFor(() => disabledKeys("KB120", from120).length === 1, "14 송신");
+    await flushIo(10);
+    vi.advanceTimersByTime(5_000);
+    await waitFor(() => results.length === 1, "sweep 시한");
+    expect(results[0]).toEqual(expect.objectContaining({ ok: false, reason: "timeout" }));
+    expect(h.register.all()).toEqual([
+      expect.objectContaining({ userId: U1, dmaUserId: D1, serverKey: "KB120", accountNo: A, remaining: 1, reason: "timeout" }),
+    ]);
+
+    const tab = await h.open("token-1");
+    await readyTab(h, tab, U1, 2, "로그인 ready");
+    const first = tab.inbox.find(
+      (f): f is RelayStateMsg => f.t === "state" && (f.accounts?.some((a) => a.accountNo === A) ?? false),
+    );
+    expect(first?.accounts?.find((a) => a.accountNo === A)?.staleStrategies).toEqual({ serverKey: "KB120", count: 1 });
+    expect(acctOf(readyAccounts(tab.inbox), B)?.staleStrategies).toBeUndefined();
   });
 });

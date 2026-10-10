@@ -143,6 +143,7 @@ import type { HubMarketEvent, SubscriptionHub } from "../hub/subscription-hub.js
 import type { DmaSession } from "../dma/session.js";
 import type { DmaCredentials, SessionTarget } from "../dma/session-manager.js";
 import type { StaleStrategyRegister, StrategySweepFailReason, StrategySweeper } from "../dma/strategy-sweeper.js";
+import type { EffectiveOwnerTracker, OwnerMove } from "../dma/effective-owner-tracker.js";
 import type { DmaBroker } from "../registry/registry.js";
 import {
   OrderBuildError,
@@ -409,6 +410,10 @@ export type WsFanoutDeps = {
   sweeper?: Pick<StrategySweeper, "sweep">;
   /** 끄지 못한(미확인) 계좌 레지스터 (Phase 29-36 · 29-43). 상태 프레임 계좌 `staleStrategies` 의 원천이기도 하다. */
   staleStrategies?: StaleStrategyRegister;
+  /** (RED 골격 — 29-44.) */
+  userIdOf?: (dmaUserId: string) => string | undefined;
+  /** (RED 골격 — 29-44.) */
+  owners?: Pick<EffectiveOwnerTracker, "snapshotOf">;
 };
 
 /** `/healthz` 용 요약. 식별자를 담지 않는다. */
@@ -767,6 +772,11 @@ export class WsFanout {
     );
     const done = await Promise.all(runs);
     return done.filter(Boolean).length;
+  }
+
+  /** (RED 골격 — 29-44.) */
+  async sweepMoved(_moves: readonly OwnerMove[], _reason: string): Promise<number> {
+    return 0;
   }
 
   /**

@@ -143,6 +143,27 @@ describe("AppAccess — 접근 맵 적재 (Phase 29 D-02 · D-04)", () => {
     expect(a.dmaUserIdOf("unknown")).toBeUndefined();
   });
 
+  it("userIdOf(29-44 역방향 색인) — DMA id → 웹 user id · DMA 권한(admin/trader) 행이 먼저 · 연결만 있는 viewer 도 찾는다 · 없는 id · 첫 적재 전 undefined · 재적재로 연결이 바뀌면 옛 키는 사라진다", async () => {
+    const db = fakeDb();
+    db.queue(ok(ROWS));
+    db.queue(
+      ok([
+        { user_id: U1, email: "trader@example.com", role: "trader", dma_user_id: "dmaZ" },
+        { user_id: U2, email: "viewer@example.com", role: "viewer", dma_user_id: "dmaB" },
+      ]),
+    );
+    const a = make(db);
+    expect(a.userIdOf("dmaA")).toBeUndefined(); // 첫 적재 전
+    await a.reload();
+    // ROWS — dmaA 는 U1(trader) · U4(admin) 둘 다 쥔다(DB 는 1:1 이지만 행 순서상 첫 DMA 권한 행).
+    expect(a.userIdOf("dmaA")).toBe(U1);
+    expect(a.userIdOf("dmaB")).toBe(U2); // viewer — 연결은 있으니 찾는다(자격증명 공급자가 null 로 가른다)
+    expect(a.userIdOf("dma-none")).toBeUndefined();
+    await a.reload();
+    expect(a.userIdOf("dmaA")).toBeUndefined(); // U1 이 dmaZ 로 옮겼다 — 옛 키는 사라진다
+    expect(a.userIdOf("dmaZ")).toBe(U1);
+  });
+
   it("행 가드 — 역할 밖 · 빈 user_id · 비문자 이메일은 건너뛰고, 빈 dma id 는 null", async () => {
     const db = fakeDb();
     db.queue(

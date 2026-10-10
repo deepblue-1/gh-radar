@@ -182,6 +182,11 @@ export class AppAccess extends EventEmitter implements GatewayIdentityView {
     return isDmaGranted(e) ? e.dmaUserId : undefined;
   }
 
+  /** (RED 골격 — 29-44 역방향 색인.) */
+  userIdOf(_dmaUserId: string): string | undefined {
+    return undefined;
+  }
+
   /**
    * wss 인증용 조회. 맵에 있으면 바로, 없으면 단발 재적재 1회(최소 간격 `missReloadMinMs` · 진행 중이면 그것을 기다린다)
    * 뒤 다시 본다. 첫 적재 전이면 진행 중 적재를 기다린다 — 그래도 미적재면 undefined(호출자가 `loaded` 로 가른다).
