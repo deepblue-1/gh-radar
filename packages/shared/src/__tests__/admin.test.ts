@@ -10,6 +10,7 @@ import {
   diffServerAccounts,
   interpretAdminResult,
   isValidAccountNoInput,
+  maskDmaUserId,
   normalizeAccountNo,
   type AdminAccountFields,
   type AdminIntentRow,
@@ -216,5 +217,31 @@ describe("deriveAdminUsersOverview — 서버 칩 ok/warn (트레이서)", () =>
       }),
     );
     expect(overview.users[0].servers[0].tone).toBe("warn");
+  });
+});
+
+describe("maskDmaUserId — 로그 전용 DMA id 마스킹 한 벌 (IN-01 · 29-40)", () => {
+  it("kim01 → ki***(5) (앞 2자)", () => {
+    expect(maskDmaUserId("kim01")).toBe("ki***(5)");
+  });
+
+  it("abc → a***(3) (절반 이하만)", () => {
+    expect(maskDmaUserId("abc")).toBe("a***(3)");
+  });
+
+  it("ab → a***(2)", () => {
+    expect(maskDmaUserId("ab")).toBe("a***(2)");
+  });
+
+  it("a → ***(1) (한 자는 통째로 가린다)", () => {
+    expect(maskDmaUserId("a")).toBe("***(1)");
+  });
+
+  it("한글 2자(6바이트) 김철 → 김***(2) (코드포인트 기준)", () => {
+    expect(maskDmaUserId("김철")).toBe("김***(2)");
+  });
+
+  it("빈 문자열 → ***(0)", () => {
+    expect(maskDmaUserId("")).toBe("***(0)");
   });
 });

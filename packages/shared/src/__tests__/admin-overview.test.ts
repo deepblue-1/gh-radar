@@ -125,6 +125,22 @@ describe("유저 칩 — ok · warn · err(BUSY message 그대로)", () => {
     expect(u.servers[1]).toEqual({ serverKey: "KB121", tone: "ok", message: null });
   });
 
+  it("차이 있음 · 최근 결과 timeout → err 「응답 없음」(시트 응답 칩과 같은 색 · 문구 — IN-02)", () => {
+    const u = kimtr({
+      ...base,
+      results: [result("kimtr", "KB121", { outcome: "timeout", code: null, message: null })],
+    });
+    expect(u.servers[1]).toEqual({ serverKey: "KB121", tone: "err", message: "응답 없음" });
+  });
+
+  it("차이 있음 · 최근 결과 offline → warn(종전 그대로)", () => {
+    const u = kimtr({
+      ...base,
+      results: [result("kimtr", "KB121", { outcome: "offline", code: null, message: null })],
+    });
+    expect(u.servers[1]).toEqual({ serverKey: "KB121", tone: "warn", message: null });
+  });
+
   it("그 서버 87 을 아직 못 받았으면 warn(실패 결과가 있으면 err)", () => {
     const only120 = KNOWN_ALL.filter((s) => s.serverKey !== "KB121");
     expect(kimtr({ ...base, snapshots: only120 }).servers[1].tone).toBe("warn");

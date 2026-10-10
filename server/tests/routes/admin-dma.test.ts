@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, it, expect } from "vitest";
 import pino from "pino";
 import request from "supertest";
+import { maskDmaUserId } from "@gh-radar/shared";
 
 import { createApp } from "../../src/app";
 import { logger } from "../../src/logger";
@@ -726,5 +727,15 @@ describe("로그 위생 — 비밀번호 변경 · DMA id 마스킹", () => {
     expect(logged).toContain("dma-password");
     expect(logged).toContain("ki***(5)");
     expect(logged).not.toContain(PASSWORD);
+  });
+
+  it("감사 로그 DMA id 마스킹 = shared maskDmaUserId 한 벌(IN-01 · 29-40) — 3자 id 는 앞 1자만(abc → a***(3))", async () => {
+    const { app } = makeApp({}, makeFakeRelay(() => undefined).client);
+    await auth(request(app).post("/api/admin/dma-users/abc/password")).send({ password: PASSWORD });
+    const lines = cap.text().split("\n").filter((l) => l.includes('"audit":"admin"'));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("a***(3)");
+    expect(lines[0]).toContain(`"${maskDmaUserId("abc")}"`);
+    expect(lines[0]).not.toContain("ab***");
   });
 });

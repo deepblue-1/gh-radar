@@ -46,6 +46,7 @@ import { randomBytes } from "node:crypto";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { maskDmaUserId } from "@gh-radar/shared";
 
 import { AppAccess } from "../src/access/app-access.js";
 import { AdminConn } from "../src/admin/admin-conn.js";
@@ -892,6 +893,15 @@ describe("relay Admin 내부 HTTP — 운영 보조 라우트 · 감사 로그 (
     for (const secret of [PASSWORD, "new-p@ss", "trader07", "1234567801", "1234567802"]) {
       expect(dumped).not.toContain(secret);
     }
+  });
+
+  it("S5 감사 로그 DMA id 마스킹 = shared maskDmaUserId 한 벌(IN-01 · 29-40) — 3자 id 는 앞 1자만(abc → a***(3))", async () => {
+    h = await startHarness();
+    expect((await call(h, "POST", "/internal/admin/dma-users", createBody({ dmaUserId: "abc" }))).status).toBe(200);
+    const audits = logs.filter((c) => c.level === "info" && String(c.args[1] ?? "").startsWith("[admin-audit]"));
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.args[0]).toMatchObject({ route: "POST /dma-users", dma: "a***(3)" });
+    expect((audits[0]!.args[0] as { dma: string }).dma).toBe(maskDmaUserId("abc"));
   });
 });
 
