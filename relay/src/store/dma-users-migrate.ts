@@ -27,6 +27,8 @@
  * 출력 위생: 계획에는 **새 암호문**과 이메일 · DMA id(쓰기용)만 있다 — 평문 · 옛 암호문 · 키는 없다. 충돌 · 건너뜀은
  * 마스킹 id 만 싣는다(스크립트가 그대로 출력한다). 평문은 `reencrypt` 스코프를 벗어나지 않는다.
  */
+import { maskDmaUserId } from "@gh-radar/shared";
+
 import { decryptDmaPassword, encryptDmaPassword } from "./credentials.js";
 
 /** AES-256 키 길이(byte) — `credentials.ts` 와 같다. 계획 전에 한 번 확인해 행마다 같은 실패를 쌓지 않는다. */
@@ -90,13 +92,8 @@ const SKIP_SEVERITY: Readonly<Record<MigrationConflictReason, "skipped" | "warni
   EMAIL_MISSING: "warning",
 };
 
-/**
- * DMA id 마스킹 — 앞 최대 2자(길이의 절반 이하) + `***` + `(길이)`. 짧은 id 가 통째로 보이지 않게 절반을 넘기지 않는다.
- */
-export function maskDmaUserId(id: string): string {
-  const shown = Math.min(2, Math.floor(id.length / 2));
-  return `${id.slice(0, shown)}***(${id.length})`;
-}
+/** DMA id 마스킹 — shared 한 벌(29-40 IN-01 · relay admin-api · Express 감사와 같은 꼴). 기존 import 경로 호환 재수출. */
+export { maskDmaUserId };
 
 /** 이메일 마스킹 — 로컬 부분 앞 2자 + `***`. 도메인도 싣지 않는다. */
 export function maskEmail(email: string): string {

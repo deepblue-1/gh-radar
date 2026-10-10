@@ -1,6 +1,6 @@
 import { Router, type Request, type Router as RouterT } from "express";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { brokerOfServerKey, deriveAdminUsersOverview, type AdminUsersRaw } from "@gh-radar/shared";
+import { brokerOfServerKey, deriveAdminUsersOverview, maskDmaUserId, type AdminUsersRaw } from "@gh-radar/shared";
 import type { z } from "zod";
 
 import { requireAuth } from "../middleware/require-auth.js";
@@ -84,11 +84,6 @@ const Conflict = () =>
 const UserNotFound = () => new ApiError(404, "NOT_FOUND", "허용 목록에 없는 사용자예요.");
 const RelayUnavailable = () =>
   new ApiError(503, "RELAY_UNAVAILABLE", "relay 연결이 설정되지 않아 처리할 수 없어요.");
-
-/** 감사 로그용 DMA id 마스킹 — relay(29-11 `maskDmaUserId`)와 같은 꼴: 앞 2자 + *** + (길이), 2자 이하는 앞자리 없음. */
-export function maskDma(dma: string): string {
-  return dma.length <= 2 ? `***(${dma.length})` : `${dma.slice(0, 2)}***(${dma.length})`;
-}
 
 /**
  * relay DMA 프록시 응답 해석 → 200 이면 `{ results }` 를 돌려주고, 아니면 `ApiError` 로 던진다(errorHandler 가 그대로 응답).
@@ -319,7 +314,7 @@ adminRouter.delete("/users/:email", async (req, res, next) => {
         .select("email");
       if (e4) throw DbError("사용자 삭제에 실패했습니다.", e4);
       if (!Array.isArray(gone) || gone.length === 0) throw Conflict();
-      audit(req, "delete", email, { dma: maskDma(dma), shared: true });
+      audit(req, "delete", email, { dma: maskDmaUserId(dma), shared: true });
       res.json({ ok: true, deleted: true, relayNotified: await notifyAccess(req, "delete") });
       return;
     }
@@ -333,7 +328,7 @@ adminRouter.delete("/users/:email", async (req, res, next) => {
     const results = relayResults(r, "dma-delete");
     const relayDeleted = (r.data as { deleted?: unknown } | null)?.deleted === true;
     audit(req, "dma-delete", email, {
-      dma: maskDma(dma),
+      dma: maskDmaUserId(dma),
       deleted: relayDeleted,
       ...(skipDisabled ? { skipDisabled: true } : {}),
       servers: results.map((x) => `${x.server}:${x.outcome}`),
@@ -377,7 +372,7 @@ adminRouter.post("/users/:email/dma", async (req, res, next) => {
     if (cur.dma_user_id) throw DmaLinked();
 
     const results = relayResults(await relay.createDmaUser({ email, ...dma }, req.adminEmail!), "dma-link");
-    audit(req, "dma-link", email, { dma: maskDma(dma.dmaUserId), servers: results.map((x) => `${x.server}:${x.outcome}`) });
+    audit(req, "dma-link", email, { dma: maskDmaUserId(dma.dmaUserId), servers: results.map((x) => `${x.server}:${x.outcome}`) });
     res.json({ results, relayNotified: await notifyAccess(req, "dma-link") });
   } catch (e) {
     next(e);
@@ -391,7 +386,7 @@ adminRouter.post("/dma-users/:dma/password", async (req, res, next) => {
     const { password } = parseOrThrow(AdminPasswordSchema, req.body ?? {});
     const relay = requireRelayAdmin(req);
     const results = relayResults(await relay.changePassword(dma, password, req.adminEmail!), "dma-password");
-    audit(req, "dma-password", maskDma(dma), { servers: results.map((x) => `${x.server}:${x.outcome}`) });
+    audit(req, "dma-password", maskDmaUserId(dma), { servers: results.map((x) => `${x.server}:${x.outcome}`) });
     res.json({ results });
   } catch (e) {
     next(e);
@@ -405,7 +400,7 @@ adminRouter.put("/dma-users/:dma/accounts", async (req, res, next) => {
     const body = parseOrThrow(AdminPutAccountSchema, req.body ?? {});
     const relay = requireRelayAdmin(req);
     const results = relayResults(await relay.putAccount(dma, body, req.adminEmail!), "dma-account-put");
-    audit(req, "dma-account-put", maskDma(dma), {
+    audit(req, "dma-account-put", maskDmaUserId(dma), {
       broker: body.account.broker,
       servers: results.map((x) => `${x.server}:${x.outcome}`),
     });
@@ -424,7 +419,7 @@ adminRouter.delete("/dma-users/:dma/accounts/:broker/:accountNo", async (req, re
       await relay.removeAccount(dma, broker, accountNo, req.adminEmail!),
       "dma-account-remove",
     );
-    audit(req, "dma-account-remove", maskDma(dma), {
+    audit(req, "dma-account-remove", maskDmaUserId(dma), {
       broker,
       servers: results.map((x) => `${x.server}:${x.outcome}`),
     });
@@ -450,11 +445,11 @@ adminRouter.put("/dma-users/:dma/accounts/:broker/:accountNo/order-server", asyn
       ({ orderServer } = relayOrderServer(r, "dma-order-server"));
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
-        audit(req, "dma-order-server", maskDma(dma), { broker, rejected: e.code });
+        audit(req, "dma-order-server", maskDmaUserId(dma), { broker, rejected: e.code });
       }
       throw e;
     }
-    audit(req, "dma-order-server", maskDma(dma), { broker, orderServer });
+    audit(req, "dma-order-server", maskDmaUserId(dma), { broker, orderServer });
     res.json({ ok: true, orderServer });
   } catch (e) {
     next(e);
@@ -467,7 +462,7 @@ adminRouter.post("/dma-users/:dma/reconcile", async (req, res, next) => {
     const { dma } = parseOrThrow(dmaParam, req.params);
     const relay = requireRelayAdmin(req);
     const results = relayResults(await relay.reconcile(dma, req.adminEmail!), "dma-reconcile");
-    audit(req, "dma-reconcile", maskDma(dma), { servers: results.map((x) => `${x.server}:${x.outcome}`) });
+    audit(req, "dma-reconcile", maskDmaUserId(dma), { servers: results.map((x) => `${x.server}:${x.outcome}`) });
     res.json({ results });
   } catch (e) {
     next(e);

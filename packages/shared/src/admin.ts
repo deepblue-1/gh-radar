@@ -35,9 +35,18 @@ export function brokerOfServerKey(key: string): DmaBroker | null {
 // 로그 마스킹 — DMA id
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** RED 스켈레톤(29-40) — GREEN 에서 규칙을 채운다. */
-export function maskDmaUserId(_id: string): string {
-  return "";
+/**
+ * DMA id 마스킹 — **로그 전용 한 벌**(29-40 IN-01). relay admin-api 감사 · relay 이관 도구(`dma-users-migrate`) ·
+ * Express Admin 감사 로그가 모두 이것을 써서 같은 id 가 세 로그에서 같게 가려진다.
+ *
+ * 규칙: 코드포인트 기준 앞 `min(2, floor(길이/2))` 자 + `***` + `(길이)`. 절반을 넘겨 보이지 않으므로 짧은 id 가
+ * 통째로 드러나지 않는다(`kim01` → `ki***(5)` · `abc` → `a***(3)` · `ab` → `a***(2)` · `a` → `***(1)`).
+ * 한글처럼 UTF-16 2단위가 아닌 문자도 글자 단위로 센다(`김철` → `김***(2)`).
+ */
+export function maskDmaUserId(id: string): string {
+  const chars = [...id];
+  const shown = Math.min(2, Math.floor(chars.length / 2));
+  return `${chars.slice(0, shown).join("")}***(${chars.length})`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -549,10 +558,15 @@ function hasPendingWork(diff: ServerAccountsDiff): boolean {
   return diff.missing.length > 0 || diff.changed.length > 0 || diff.toRemove.length > 0;
 }
 
-/** 할 일이 남은 칩 — 최근 결과가 failed 면 err(서버 한국어 message 그대로, D-23 ④), 아니면 warn. */
+/**
+ * 할 일이 남은 칩 — 최근 결과가 failed 면 err(서버 한국어 message 그대로, D-23 ④) · timeout 이면 err 「응답 없음」
+ * (시트 응답 칩과 같은 색 · 문구 — 29-40 IN-02) · 그 밖은 warn.
+ */
 function pendingTone(idx: RawIndex, dmaUserId: string, serverKey: string): Omit<AdminReflectChip, "serverKey"> {
   const r = idx.resultByPair.get(pairKey(dmaUserId, serverKey));
-  return r?.outcome === "failed" ? { tone: "err", message: r.message } : { tone: "warn", message: null };
+  if (r?.outcome === "failed") return { tone: "err", message: r.message };
+  if (r?.outcome === "timeout") return { tone: "err", message: "응답 없음" };
+  return { tone: "warn", message: null };
 }
 
 /** (유저, 서버) 1개의 판정 — planner 와 같은 diffServerAccounts 입력 구성. */

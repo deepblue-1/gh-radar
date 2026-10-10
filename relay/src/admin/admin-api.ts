@@ -42,6 +42,7 @@ import { Router, type ErrorRequestHandler, type RequestHandler } from "express";
 import { z, ZodError } from "zod";
 import {
   isValidAccountNoInput,
+  maskDmaUserId,
   normalizeAccountNo,
   SERVER_KEY_RE,
   type AdminServerLiveStatus,
@@ -245,15 +246,7 @@ function quoteChip(state: string): NonNullable<AdminServerLiveStatus["quote"]> {
 // ============================================================
 
 /**
- * dmaUserId 마스킹 — `앞 2자 + *** + (길이)`. 이전 phase 「dmaUserId 로그 금지」 규율 — 2자 이하는 앞자리도 싣지 않는다.
- */
-export function maskDmaUserId(id: string): string {
-  const chars = [...id];
-  return `${chars.length > 2 ? chars.slice(0, 2).join("") : ""}***(${chars.length})`;
-}
-
-/**
- * 감사 1줄 — 누가(요청자 이메일) · 어느 라우트(**경로 패턴** — 실제 경로에는 dmaUserId · 계좌번호가 있다) · 서버별 결과(code 까지).
+ * 감사 1줄 — dmaUserId 는 shared `maskDmaUserId` 한 벌로 가린다(29-40 IN-01 — 이관 도구 · Express 감사와 같은 꼴). 누가(요청자 이메일) · 어느 라우트(**경로 패턴** — 실제 경로에는 dmaUserId · 계좌번호가 있다) · 서버별 결과(code 까지).
  * 비밀번호 · 계좌번호 원문 · dmaUserId 원문 · 서버 message 는 싣지 않는다.
  */
 function audit(
