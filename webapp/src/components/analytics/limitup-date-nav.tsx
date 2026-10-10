@@ -20,7 +20,7 @@ export interface LimitupDateNavProps {
 }
 
 const ARROW =
-  'grid size-8 place-items-center rounded-full text-[16px] text-[var(--muted-fg)] hover:bg-[var(--raised-2)] disabled:text-[var(--faint)] disabled:hover:bg-transparent';
+  'grid size-8 place-items-center rounded-full text-[length:var(--t-sm)] text-[var(--muted-fg)] hover:bg-[var(--raised-2)] disabled:text-[var(--faint)] disabled:hover:bg-transparent';
 
 export function LimitupDateNav({ date, prev, next, onGo }: LimitupDateNavProps) {
   return (

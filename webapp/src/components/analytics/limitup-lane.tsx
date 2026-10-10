@@ -103,7 +103,7 @@ function NumberDisc({ n, emph }: { n: number; emph: boolean }) {
   return (
     <span
       className={cn(
-        'mono ml-[2px] inline-flex size-[14px] shrink-0 items-center justify-center rounded-full text-[10px] leading-none font-bold',
+        'mono ml-px inline-flex size-4 shrink-0 items-center justify-center rounded-full text-[11px] leading-none font-semibold',
         // 비강조 = 카드 바탕 + --muted-fg 테두리 — 두 테마 모두 글자 대비를 지킨다(회색 위 어두운 글자 금지).
         emph
           ? 'bg-[var(--fg)] text-[var(--card)]'
@@ -232,9 +232,9 @@ export function LimitupLane({
         {placed && placed.row < 0 && (
           <span
             data-slot="limitup-point-n"
-            style={{ left: xPx, top: yPx - 15 }}
+            style={{ left: xPx, top: yPx - 16 }}
             className={cn(
-              'mono absolute -translate-x-1/2 rounded-[3px] bg-[color-mix(in_oklab,var(--card)_78%,transparent)] px-0.5 text-[10px] leading-none font-bold',
+              'mono absolute -translate-x-1/2 rounded-[3px] bg-[color-mix(in_oklab,var(--card)_78%,transparent)] px-0.5 text-[11px] leading-none font-semibold',
               TONE_TEXT[p.tone],
             )}
           >

@@ -21,7 +21,7 @@ import { LimitupSparkline } from './limitup-sparkline';
  * - 위쪽 열린 카드가 접히며 새로 연 행이 앱 머리 위로 밀려 올라가면(점프) 그 행을 `scrollIntoView({block:'start'})` 로
  *   되돌린다(reduced-motion 이면 즉시). 포커스는 행 버튼에 그대로 둔다.
  * - **같은 DOM, CSS 로만 배치 전환**(뷰포트 — R-8): < xl 2단 카드형(1줄 종목 … 결과 · 2줄 스파크 전폭 · 3줄 메타 flex-wrap ·
- *   chevron 숨김) / xl 이상 8열 표. 메타 묶음은 xl 에서 `contents` 로 풀려 각 칸이 열을 잡고, 라벨은 `xl:sr-only` 로 남는다
+ *   chevron 1줄 오른쪽 끝(전 폭 — quick-261010-h22 UI 감사)) / xl 이상 8열 표. 메타 묶음은 xl 에서 `contents` 로 풀려 각 칸이 열을 잡고, 라벨은 `xl:sr-only` 로 남는다
  *   (데스크톱 머리줄은 장식이라 `aria-hidden`).
  * - 열(스케치 011 리스트 + 한 열 예외): 종목(이름 + 「{코드} · 상한가 {N}원」) · 결과 · 첫 상한가 · 잔량 스파크 · 잠김 최대 잔량 ·
  *   +60초 매도 · 직전 1분 매수 1위(사실 `member_entry_buy` — 추정 칩) · chevron. ★ +60초 매도는 스케치 리스트에 없지만
@@ -196,7 +196,7 @@ export function LimitupDayGrid({
                     aria-controls={open ? `ev-${r.isin}` : undefined}
                     onClick={() => toggle(r.isin)}
                     className={cn(
-                      'grid min-h-11 w-full scroll-mt-[calc(4.5rem+var(--app-safe-top))] grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 rounded-[var(--r)] px-2 py-3 text-left',
+                      'grid min-h-11 w-full scroll-mt-[calc(4.5rem+var(--app-safe-top))] grid-cols-[minmax(0,1fr)_auto_16px] items-center gap-x-3 gap-y-1.5 rounded-[var(--r)] px-2 py-3 text-left',
                       'hover:bg-[color-mix(in_oklab,var(--muted)_60%,transparent)]',
                       open && 'bg-[color-mix(in_oklab,var(--muted)_60%,transparent)]',
                       COLS_XL,
@@ -221,11 +221,11 @@ export function LimitupDayGrid({
                       className="col-start-2 row-start-1 justify-self-end xl:col-start-2 xl:justify-self-start"
                     />
 
-                    <span className="col-span-2 row-start-2 block min-w-0 xl:col-span-1 xl:col-start-4 xl:row-start-1">
+                    <span className="col-span-3 row-start-2 block min-w-0 xl:col-span-1 xl:col-start-4 xl:row-start-1">
                       <LimitupSparkline summary={r.summary} locks={r.locks} />
                     </span>
 
-                    <span className="col-span-2 row-start-3 flex min-w-0 flex-wrap gap-x-3 gap-y-0.5 text-[length:var(--t-caption)] xl:contents">
+                    <span className="col-span-3 row-start-3 flex min-w-0 flex-wrap gap-x-3 gap-y-0.5 text-[length:var(--t-caption)] xl:contents">
                       <Meta label="첫 상한가" value={r.firstUpper} col="xl:col-start-3" />
                       <Meta label="잠김 최대" value={r.lockMaxQ} col="xl:col-start-5" />
                       <Meta label="+60초 매도" value={r.sell60} col="xl:col-start-6" />
@@ -249,8 +249,9 @@ export function LimitupDayGrid({
 
                     <ChevronDown
                       aria-hidden="true"
+                      data-slot="limitup-row-chevron"
                       className={cn(
-                        'hidden size-4 text-[var(--muted-fg)] transition-transform duration-200 motion-reduce:transition-none xl:col-start-8 xl:row-start-1 xl:block',
+                        'col-start-3 row-start-1 size-4 shrink-0 justify-self-end text-[var(--muted-fg)] transition-transform duration-200 motion-reduce:transition-none xl:col-start-8 xl:row-start-1',
                         open && 'rotate-180',
                       )}
                     />

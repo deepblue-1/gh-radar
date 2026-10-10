@@ -157,6 +157,10 @@ async function assertKpiListAndExpand(page: Page): Promise<void> {
     await dukwooRow.evaluate((b, id) => b.nextElementSibling?.id === id, `ev-${DUKWOO}`),
   ).toBe(true);
   await expect(page.locator('[data-slot="limitup-event-card"]')).toHaveCount(1);
+  // 행 펼침 표시 — 폰 · 데스크톱 모두 chevron 이 보인다(quick-261010-h22 UI 감사 Top 1) · 첫 행은 펼침.
+  await expect(dukwooRow.locator('[data-slot="limitup-row-chevron"]')).toBeVisible();
+  await expect(axionRow.locator('[data-slot="limitup-row-chevron"]')).toBeVisible();
+  await expect(dukwooRow).toHaveAttribute('aria-expanded', 'true');
 
   // 다른 행 → 그 행만 열림(그 자리) · 같은 행 다시 → 전부 닫힘 · 첫 행 다시 열기.
   await axionRow.click();
@@ -359,6 +363,21 @@ test.describe('Phase 28 Plan 13 — 상한가 보고서 (로컬 relay)', () => {
       expect(r.n).toBeGreaterThan(0);
       expect(r.hits).toEqual([]);
       expect(r.outside).toEqual([]);
+    }
+    // 행 펼침 chevron — 1줄 오른쪽 끝 · 행 버튼 안 · 결과 태그와 겹침 0(quick-261010-h22).
+    const chevrons = await gridRows(page).evaluateAll((rows) =>
+      rows.map((row) => {
+        const btn = row.getBoundingClientRect();
+        const chev = row.querySelector('[data-slot="limitup-row-chevron"]')!.getBoundingClientRect();
+        const tagRight = Math.max(...[...row.querySelectorAll('[data-tag]')].map((t) => t.getBoundingClientRect().right));
+        return { isin: row.getAttribute('data-isin'), chevL: chev.left, chevR: chev.right, chevW: chev.width, btnR: btn.right, tagRight };
+      }),
+    );
+    expect(chevrons).toHaveLength(2);
+    for (const c of chevrons) {
+      expect(c.chevW, c.isin ?? '').toBeGreaterThan(0);
+      expect(c.chevR, c.isin ?? '').toBeLessThanOrEqual(c.btnR + 0.5);
+      expect(c.chevL, c.isin ?? '').toBeGreaterThanOrEqual(c.tagRight - 0.5);
     }
     // 페이지 자체는 가로로 넘치지 않는다(표 래퍼만 가로 스크롤).
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

@@ -23,6 +23,7 @@ created: "2026-10-05"
 >
 > §2.2b 밴드 경계의 정본은 `webapp/src/styles/globals.css` 상단 주석이다. 이 문서는 표를 복사하지 않고 **밴드 이름**(폰 · 컴팩트 이상)과 **재는 컨테이너 이름**(`lc`)만 가리킨다. 카드 탭 축약 경계 = §2.2b 첫 경계(`LC_COMPACT_MIN_PX`, 코드 리터럴 `@min-[685px]/lc`).
 > **새 색 토큰 0 · 새 컨테이너 경계 숫자 0 · 새 뷰포트 브레이크포인트 숫자 0**(보고서 페이지는 Tailwind 기본 `md`·`xl` 만 쓴다) · **새 shadcn 컴포넌트 0** · 새 아이콘 1(`ChartLine` — 사이드바 「분석」).
+> **사후 변경:** 2026-10-05 승인 뒤 사용자 승인으로 바뀐 곳은 문서 끝 「계약 이후 승인된 변경 (사후 기록)」 절이 본문을 덮는다.
 
 ---
 
@@ -612,6 +613,24 @@ Applicable state considerations resolved: 74 applicable — 55 resolved (explici
 - `docs/inbox/from-gh-trade/261005-limitup-feature-85.md` — 85 32필드 · kind 15 슬롯 매핑 · export 표 열.
 - gh-trade `.planning/phases/27-limitup-lock-report/27-CONTEXT.md` D-11 · D-20 — 지문표 규칙 · 보고서 구성.
 - 코드: `webapp/src/styles/globals.css`(토큰 · §2.2b) · `card-tabs.tsx` · `card-header.tsx` · `quote-grid-10.tsx` · `order-log-filters.tsx` · `order-log-list.tsx` · `order-log-window.tsx` · `app-sidebar.tsx` · `app-shell.tsx` · `page-header.tsx` · `page-layout.ts` · `dma-gate.tsx` · `strategy-card.tsx`(접힘 price 구독) · `relay/src/ws/fanout.ts`(level 참조계수) · `lib/limit-up-format.ts` · `.planning/phases/25-order-log-progress/25-UI-SPEC.md`(문서 문법).
+
+---
+
+## 계약 이후 승인된 변경 (사후 기록)
+
+승인본 이후 사용자 결정으로 바뀐 곳. 감사 · e2e 는 이 표를 본문보다 우선한다. 근거: 28-UI-REVIEW.md 「계약 이후 의도된 이탈」.
+
+| 항목 | 계약 본문(원안 · 절) | 현재 구현 | 출처 |
+|---|---|---|---|
+| KPI 띠 | 5칸(탐지 종목 · 잠김(3초↑) · 종가까지 유지 · 25%↑ 미도달 · 어제 D+1) · 폰 3열 / md 5열 (④-2) | 4칸(상한가 도달 · 종가까지 유지 · 깨짐 · 어제 D+1) · 폰 2열 / md 4열 | quick-261005-vk1 D-02 |
+| 하루 격자 | 「하루 격자」 + 행 클릭 시 사건 카드로 스크롤 (④-3 · ④-4) | 섹션 「상한가 종목」 · 부제 「첫 상한가 시각 순 · 잔량 곡선 09:00~15:30」 · 행 아래 사건 카드 아코디언(한 번에 하나 · 첫 행 기본 펼침) · 미도달 종목은 KPI 아래 한 줄 | quick-261005-vk1 D-03 · 스케치 011 채택안 A |
+| 행 펼침 표시 | 없음 | chevron 전 폭(폰 1줄 오른쪽 끝 · xl 8번째 열) | quick-261010-h22 (UI 감사 Top 1) |
+| 카드 탭 「상한가」 9칸 행 머리 | 「지금 · 10초 · 창구」 (①-2) | 첫 행 머리 = 잠김 경과(「0:43」) | quick-261006-ide |
+| 레인 직전 1분 창 면 | Accent 전용 자리 5곳 밖 (Color) | 면 `var(--accent)` + 캡션 `--accent-fg` | quick-261005-vk1 D-04 |
+| 레인 「잠김 구간」 요약 칩 줄 | 없음 (④-4) | 잠김마다 누적 매도 · 취소 · 위험도 칩 줄 | 스케치 012-A · quick-261006-ide |
+| 사이드바 | 그룹 제목만 켜짐 (③ · R-7) | 하위 「상한가 보고서」 · 「AI 애널리스트」, 활성은 하위 항목 | quick-261005-vk1 D-01 · 2026-10-06 사용자 요청 |
+
+**계약으로 되돌린 것(quick-261010-h22):** 레인 번호 원 16px · 글자 11px/600, 점 위 번호 11px/600, 사실 문장 번호 600, 날짜 화살표 14px(`--t-sm`). Typography 선언 척도(20/14/12/11 · 400/600)는 그대로이고, 구현이 척도로 돌아왔다는 기록이다.
 
 ---
 

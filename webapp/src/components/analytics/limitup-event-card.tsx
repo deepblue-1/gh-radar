@@ -376,7 +376,7 @@ export function LimitupEventCard({
                         <span
                           data-slot="limitup-fact-n"
                           className={cn(
-                            'mono inline-flex size-5 items-center justify-center rounded-full text-[11px] leading-none font-bold',
+                            'mono inline-flex size-5 items-center justify-center rounded-full text-[11px] leading-none font-semibold',
                             e.emph ? 'bg-[var(--fg)] text-[var(--card)]' : 'bg-[var(--muted)] text-[var(--fg)]',
                           )}
                         >
