@@ -1,14 +1,18 @@
 ---
-status: complete
+status: testing
 phase: 28-limitup-feature-ingest
-source: [28-VERIFICATION.md]
+source: [28-VERIFICATION.md, 28-VERIFICATION-R2.md]
 started: 2026-10-05T12:32:12Z
-updated: 2026-10-10T00:53:25.381Z
+updated: 2026-10-10T01:31:15Z
 ---
 
 ## Current Test
 
-[testing complete]
+number: 7
+name: ROADMAP Goal 의 limit_up_events 조인 미구현 수용 여부 결정 (2라운드 재검증 R2-W-1 · truth 13)
+expected: |
+  (a) override 수용 — 보고서는 export 열(name · short_code · d1_open · d1_ret)로 자립, 조인 소비처(종목상세 링크 · 상한가 다음날 이력)는 CONTEXT Deferred 로 이월 → 28-VERIFICATION.md frontmatter 에 overrides 추가, 또는 (b) ROADMAP Phase 28 Goal 에서 조인 구절을 Deferred 로 정정. 어느 쪽이든 코드 변경 없음, status passed.
+awaiting: user response
 
 ## Tests
 
@@ -42,12 +46,16 @@ expected: plan backstop 7건(28-07 overflow·long-text, 28-11 overflow·long-tex
 why_human: verification: backstop 진술은 존재만으로 VERIFIED 로 못 올린다. e2e(P28-2 · P28-R1b · P28-O1)가 일부를 덮는다고 SUMMARY 가 주장하나 verifier 는 e2e 를 재실행하지 않았다
 result: pass (2026-10-10 사용자 확인 — 「1,2,3 통과야」)
 
+### 7. ROADMAP Goal 의 limit_up_events 조인 미구현 수용 여부 결정 (2라운드 재검증 R2-W-1 · truth 13)
+expected: (a) override 수용 — 보고서는 export 열(name · short_code · d1_open · d1_ret)로 자립, 조인 소비처(종목상세 링크 · 상한가 다음날 이력)는 CONTEXT Deferred 로 이월 → 28-VERIFICATION.md frontmatter 에 overrides 추가, 또는 (b) ROADMAP Phase 28 Goal 에서 조인 구절을 Deferred 로 정정. 어느 쪽이든 코드 변경 없음, status passed.
+result: [pending]
+
 ## Summary
 
-total: 6
+total: 7
 passed: 6
 issues: 0
-pending: 0
+pending: 1
 skipped: 0
 blocked: 0
 

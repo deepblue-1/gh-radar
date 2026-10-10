@@ -1,8 +1,9 @@
 ---
 phase: 28-limitup-feature-ingest
-verified: 2026-10-05T12:40:00Z
+verified: 2026-10-10T01:29:00Z
+round: 2
 status: human_needed
-score: 11/13 must-haves verified
+score: 12/13 must-haves verified
 covered_files:
   - .planning/phases/28-limitup-feature-ingest/28-01-PLAN.md
   - .planning/phases/28-limitup-feature-ingest/28-01-SUMMARY.md
@@ -36,8 +37,8 @@ covered_files:
   - .planning/phases/28-limitup-feature-ingest/28-15-SUMMARY.md
   - .planning/phases/28-limitup-feature-ingest/28-16-PLAN.md
   - .planning/phases/28-limitup-feature-ingest/28-16-SUMMARY.md
-  - .planning/phases/28-limitup-feature-ingest/28-CONTEXT.md
   - infra/relay/limitup-pull/limitup-pull.sh
+  - ops/alert-limitup-sync-failure.yaml
   - packages/shared/src/limit-feature.ts
   - packages/shared/src/strategy-event-text.ts
   - packages/shared/src/strategy-event.ts
@@ -53,50 +54,58 @@ covered_files:
   - supabase/migrations/20261006090200_limitup_load_rpcs.sql
   - supabase/migrations/20261006090300_limitup_retention_storage.sql
   - supabase/migrations/20261006090400_limitup_report_rpcs.sql
+  - supabase/migrations/20261006090500_limitup_commit_day_timeout.sql
+  - supabase/migrations/20261006120000_limitup_locks_lock_risk.sql
+  - webapp/src/components/analytics/limitup-day-grid.tsx
   - webapp/src/components/analytics/limitup-report.tsx
   - webapp/src/components/trading/card/card-tabs.tsx
+  - webapp/src/lib/use-limitup-grid.ts
+  - webapp/src/lib/use-order-log-feed.ts
+  - webapp/src/lib/use-relay-socket.ts
+  - workers/limitup-sync/src/config.ts
+  - workers/limitup-sync/src/freshness.ts
+  - workers/limitup-sync/src/grid.ts
   - workers/limitup-sync/src/index.ts
-covered_digest: "v1:sha256:10165acc660c87ab5d549bc3206bfb8dfeab9c30764c9950d6e053328c3f746a"
+  - workers/limitup-sync/src/purge.ts
+covered_digest: "v3:sha256:171bb19b0bf492fbe86dd012c2370dd40c8b0bf15a1f9ee874b8bd55082f11b0"
 behavior_unverified: 0
 overrides_applied: 0
+re_verification:
+  previous_status: human_needed
+  previous_score: 11/13
+  previous_report: 28-VERIFICATION.md (2026-10-05, 낡음 — 덮어쓰지 않음)
+  gaps_closed:
+    - "W-1 (CR-B01) 워커 날짜 격리 · purge 도달 — b38987b8 · 6be91f1f 로 닫힘"
+    - "W-2 (WR-A01) relay 85 캐시 강등 삭제 — ef2ec49c 로 닫힘"
+    - "truth 12 배포 순서 · 인박스 done — 노트 status done · done_commit 6cc4d55c · 타이머 enable (UAT 1·2·5)"
+    - "human 6건 — UAT 6/6 pass (3a042a53)"
+  gaps_remaining: []
+  regressions: []
 gaps: []
 deferred: []
 warnings:
-  - id: W-1
-    severity: high
-    item: "CR-B01 — 워커가 날짜 하나의 영구 예외로 그 뒤 모든 날짜 적재와 run 끝 보존 정리(kind 15 purge 포함)를 막는다"
-    where: "workers/limitup-sync/src/index.ts:136-236 (throw 174·177·188·205-215, derive.ts, load.ts)"
-    status: "코드에서 재확인됨 — 날짜 루프에 try/catch 없음, purge 는 루프 뒤 222-236 에만 있음"
-  - id: W-2
+  - id: R2-W-1
     severity: medium
-    item: "WR-A01 — relay 85 키 캐시가 FULL→PRICE 강등 · quote 재접속 뒤에도 남아 다시 펼친 카드에 낡은 스냅샷을 준다"
-    where: "relay/src/hub/subscription-hub.ts:1095-1127 (강등 경로에 #limitFeatures.delete 없음 — #releaseKey 1163 · closeAll 1667 에서만 지움)"
-    status: "코드에서 재확인됨"
-  - id: W-3
-    severity: medium
-    item: "ROADMAP Goal 의 「`limit_up_events(code,date)` 와 `short_code`+`date` 조인」 을 어느 플랜도 구현·기각 기록하지 않음"
-    where: "supabase/migrations/20261006090400_limitup_report_rpcs.sql · server/src/services/limitup-report.ts · webapp/src/lib/limitup-*.ts 어디에도 limit_up_events 참조 0"
-    status: "보고서는 export 열(d1_open · d1_ret · name)만으로 자립 — 기능 결손은 아니나 로드맵 문구와 어긋남"
+    item: "truth 13 — ROADMAP Goal 의 「limit_up_events(code,date) 와 short_code+date 조인」 이 코드 어디에도 없고, 구현 안 함을 수용한 기록(override · ROADMAP 정정)도 없다"
+    where: "supabase/migrations/20261006090400_limitup_report_rpcs.sql · server/src/services/limitup-report.ts · webapp/src/lib/limitup-*.ts — phase 가 만든 소스에 `limit_up_events` 참조 0 (grep 확인)"
+    status: "1라운드 W-3 승계 — 5일간 변화 없음. 기능 결손이 아니라 문구 불일치로 판단하나 판정은 사람 몫"
+  - id: R2-W-2
+    severity: low
+    item: "WR-R2-01 — 주문로그 틈 메우기 가드가 「가장 오래된 라이브 줄」 키라서 비정상 상태(서버 기록 지연 · REST 0건)에서 상한 5,000 도달 뒤 새 kind 15 마다 ?lf=1 을 다시 부를 수 있다"
+    where: "webapp/src/lib/use-order-log-feed.ts:182-193 (코드에서 확인)"
+    status: "advisory — 「상한가 특징」 체크 켠 사용자 · 라이브 5,000줄 도달 · 서버 꼬리 정체 세 조건이 겹쳐야 한다. 목표(주문로그 노출) 자체는 달성"
+  - id: R2-W-3
+    severity: low
+    item: "WR-R2-02 — 보존 정리가 throw 하면 dispatch 가 result 를 못 돌려 `limitup-sync stale` 로그가 사라진다"
+    where: "workers/limitup-sync/src/index.ts:311-327, 332-357 (코드에서 확인)"
+    status: "advisory — 종료 코드는 1 이라 알림 정책은 울린다. 가려지는 것은 원인 로그 한 줄"
 human_verification:
-  - test: "119 에 radar-gw-pull 공개키 등록 후 radar-gw 에서 --check → 타이머 enable → 첫 운반"
-    expected: "`--check` 119 접속 OK · `systemctl enable --now limitup-pull.timer` · `journalctl -u limitup-pull` 에 `rsync=ok upload=ok`"
-    why_human: "119 authorized_keys 등록은 gh-trade 사용자 몫 — 지금 radar-gw --check 는 Permission denied(publickey)"
-  - test: "타이머 첫 운반 후 인박스 노트 261005-limitup-feature-85.md 를 status: done + done_commit 으로 마감"
-    expected: "frontmatter status done · done_commit 8자 · 경로 지정 커밋(README 규약)"
-    why_human: "ROADMAP Goal 의 「인박스 노트 done」 은 119 등록에 막혀 있다 — 현재 open + 「119 등록 대기」 한 줄(28-15 플랜이 허용한 의도된 상태)"
-  - test: "gh-trade 서버가 85 를 보내는 다음 거래일 장중에 FULL 카드 「상한가」 탭 관찰"
-    expected: "탭 제목 「상한가 · 잠김 N초」 1초 갱신 · 9칸 값 · 접었다 펼치면 즉시 복원 · relay 로그 85 미처리 warn 0"
-    why_human: "운영에서 85 는 gh-trade 서버 Phase 27 배포 뒤 장중에만 온다 — 오늘(2026-10-05 장 마감 뒤) 관찰 불가. 코드·단위·e2e 는 통과"
-  - test: "같은 거래일 장중 dma_strategy_events 의 kind 15 행과 주문로그 「상한가 특징」 체크"
-    expected: "분당·키당 1행 적재 · 체크 켜면 「전체」·「시세」 에 회색 줄 · 기본 숨김 · 라이브 푸시 같은 판정"
-    why_human: "kind 15 는 85 와 같이 장중에만 생긴다 · relay 라이브 푸시 경로는 실데이터 미관찰"
-  - test: "119 키 등록 뒤 첫 밤(평일 21:00 운반 → 21:20 워커) 자동 적재와 member_top 재export 재적재"
-    expected: "새 날짜 manifest 행 수 == 표 행 수(smoke-limitup-sync.sh) · 20261002 등 옛 export 날짜가 files_sig 변경으로 날짜 단위 교체 재적재(inbox 261005-member-top-int64.md)"
-    why_human: "지금 GCS 는 수동 시드(pre-fix export)이고 운반기 → 워커 자동 경로는 실제로 한 번도 돌지 않았다. 재적재는 W-1 이 발화할 수 있는 첫 실제 트리거이므로 그 전에 W-1 수정을 권장"
-  - test: "보고서 시각 확인 — 폰 390px(격자 2단 카드 · 레인 오버레이 라벨 겹침 0) · 데스크톱 8열 · 카드 「상한가」 탭 폰 밴드 말줄임·탭 제목 한 줄"
-    expected: "plan backstop 7건(28-07 overflow·long-text, 28-11 overflow·long-text, 28-12 E7 overflow, 28-13 E8 overflow·long-text)이 눈으로 맞다"
-    why_human: "verification: backstop 진술은 존재만으로 VERIFIED 로 못 올린다. e2e(P28-2 · P28-R1b · P28-O1)가 일부를 덮는다고 SUMMARY 가 주장하나 verifier 는 e2e 를 재실행하지 않았다"
+  - test: "ROADMAP Goal 의 `limit_up_events` 조인을 이 phase 에서 구현하지 않은 것을 수용할지 결정 (R2-W-1)"
+    expected: "둘 중 하나 — (a) 아래 override 를 28-VERIFICATION.md frontmatter 에 승계해 수용, 또는 (b) ROADMAP Phase 28 Goal 문구에서 조인 구절을 CONTEXT Deferred(종목상세 링크 · 상한가 다음날 이력)로 정정"
+    why_human: "구현 부재가 관찰 가능한 사실이고, 의도적 축소인지는 코드로 알 수 없다. override 수용은 verifier 가 대신할 수 없다(accepted_by 가 사람이어야 함)"
 ---
+
+> **정본 frontmatter 는 2라운드(28-VERIFICATION-R2.md, 2026-10-10)로 승계됨.** 아래 본문은 1라운드(2026-10-05) 기록 그대로다.
 
 # Phase 28: 상한가 특징 연동 — gh-trade Phase 27 계약 반영 검증 보고서
 
