@@ -15,6 +15,8 @@
  *         + `safePgError` 로그.
  *   fail closed — 첫 적재 성공 전에는 `loaded=false` 이고 `serversFor` 가 null 이다. wss 인증은 「조회 실패」(failed + 1011)로
  *         끝난다 — 지정을 모른 채 기본 서버로 보내면 KB121 로 지정한 계좌의 주문이 KB120 으로 샌다.
+ *   변경 이벤트 — 재적재가 DMA 유저별 지정을 바꾸면(추가 · 이동 · 해제) 교체 **뒤** `changed(dmaUserIds)` 1회. 첫 적재 · 무변화 ·
+ *         실패에는 내지 않는다. 소비자(29-36 — 영향 사용자 세션 즉시 재수립)가 DMA 유저 단위로 고른다.
  *   지정 서버 미반영 — 지정 서버 매핑(79/87)에 그 계좌가 아직 없으면 그 계좌는 어느 세션도 소유하지 않는다(주문은 「허용 계좌
  *         아님」 거부 · 다른 서버로 새지 않는다). `serversFor` 는 그 서버 세션을 열지 않는다 — 87 이 반영하면
  *         `refreshUserSessions` 가 빠진 서버 세션을 연다.
@@ -64,12 +66,29 @@ function acctKey(broker: string, accountNo: string): string {
   return `${broker}|${accountNo}`;
 }
 
+/** 두 계좌 → 서버 사본이 같은가(DMA 유저 1명 몫). */
+function sameChoices(a: ReadonlyMap<string, string> | undefined, b: ReadonlyMap<string, string> | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  if (a.size !== b.size) return false;
+  for (const [k, v] of a) if (b.get(k) !== v) return false;
+  return true;
+}
+
+export interface AccountOrderServers {
+  /** 재적재가 지정을 바꾼 DMA 유저 id 들(교체 뒤 1회). 첫 적재 · 무변화 · 실패에는 내지 않는다. 로그 금지(D-19). */
+  on(event: "changed", listener: (dmaUserIds: string[]) => void): this;
+  off(event: "changed", listener: (dmaUserIds: string[]) => void): this;
+  emit(event: "changed", dmaUserIds: string[]): boolean;
+}
+
 export class AccountOrderServers extends EventEmitter {
   readonly #supabase: SupabaseClient;
   readonly #refreshMs: number;
 
   /** dmaUserId → `${broker}|${accountNo}` → 지정 서버 키. 성공한 적재마다 통째로 교체한다. */
   #map = new Map<string, Map<string, string>>();
+  /** 지정 행 사본(적재 순서) — `entries()` 원천. */
+  #entries: AccountOrderServerEntry[] = [];
   #loaded = false;
   /** 주기 = `shared()` · 즉시 = `now()`(29-28 꼬리). */
   readonly #reloader = new TailReload<AccountOrderServersReloadResult>(() => this.#load());
@@ -135,6 +154,11 @@ export class AccountOrderServers extends EventEmitter {
     return this.#map.get(dmaUserId)?.get(acctKey(broker, accountNo));
   }
 
+  /** 지금 사본의 지정 행 전부(사본 · 29-36 healthz 용). 첫 적재 전이면 빈 배열. 로그 · 프레임에 그대로 싣지 않는다. */
+  entries(): AccountOrderServerEntry[] {
+    return this.#entries.map((e) => ({ ...e }));
+  }
+
   async #load(): Promise<AccountOrderServersReloadResult> {
     try {
       const { data, error } = await this.#supabase.rpc("dma_account_order_servers");
@@ -158,7 +182,7 @@ export class AccountOrderServers extends EventEmitter {
   /** 사본을 통째로 교체한다. 형식이 어긋난 행은 건너뛰고 수만 센다. */
   #replace(rows: readonly ChosenRow[]): void {
     const next = new Map<string, Map<string, string>>();
-    let count = 0;
+    const entries: AccountOrderServerEntry[] = [];
     let skipped = 0;
     for (const row of rows) {
       const { dma_user_id: dma, broker, account_no: acct, server_key: key } = row;
@@ -179,14 +203,32 @@ export class AccountOrderServers extends EventEmitter {
         byAcct = new Map();
         next.set(dma, byAcct);
       }
-      byAcct.set(acctKey(broker, acct), key);
-      count += 1;
+      const k = acctKey(broker, acct);
+      if (byAcct.has(k)) {
+        // 같은 계좌 중복 행(DB PK 상 불가) — 첫 행만 쓴다.
+        skipped += 1;
+        continue;
+      }
+      byAcct.set(k, key);
+      entries.push({ dmaUserId: dma, broker, accountNo: acct, serverKey: key });
     }
     const firstLoad = !this.#loaded;
+    const changed: string[] = [];
+    if (!firstLoad) {
+      for (const dma of new Set([...this.#map.keys(), ...next.keys()])) {
+        if (!sameChoices(this.#map.get(dma), next.get(dma))) changed.push(dma);
+      }
+    }
     this.#map = next;
+    this.#entries = entries;
     this.#loaded = true;
     if (firstLoad) this.#resolveReady();
-    this.#logSummary({ users: next.size, accounts: count, skipped }, firstLoad);
+    this.#logSummary({ users: next.size, accounts: entries.length, skipped }, firstLoad);
+    if (changed.length > 0) {
+      // 수만 싣는다 — DMA id 는 로그 금지(D-19).
+      logger.info({ users: changed.length }, "[order-servers] 계좌별 주문 서버 지정 변경 — 영향 DMA 유저 알림");
+      this.emit("changed", changed);
+    }
   }
 
   /** 집계가 바뀌었거나 첫 적재 · 복구일 때만 info 1줄. 식별자는 싣지 않는다. */
