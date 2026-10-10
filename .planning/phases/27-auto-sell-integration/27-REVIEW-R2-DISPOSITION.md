@@ -3,7 +3,7 @@ phase: 27-auto-sell-integration
 review: 27-REVIEW-R2.md
 round: 2
 updated: 2026-10-10
-open: 6
+open: 4
 total: 6
 ---
 
@@ -14,8 +14,8 @@ total: 6
 
 | ID | Severity | Disposition | Source |
 |----|----------|-------------|--------|
-| WR-R2-01 | warning | open | - |
-| WR-R2-02 | warning | open | - |
+| WR-R2-01 | warning | fixed | b9e03bed — 27-REVIEW-R2-FIX.md |
+| WR-R2-02 | warning | fixed | 0948efe5 — 27-REVIEW-R2-FIX.md (옛 서버 켜진 채 무응답은 의도적으로 유지 — 서버 무응답을 조용히 지우지 않음) |
 | IN-R2-01 | info | open | - |
 | IN-R2-02 | info | open | - |
 | IN-R2-03 | info | open | - |
