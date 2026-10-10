@@ -771,4 +771,41 @@ describe("SessionManager — 조회 · 비밀 교체 · DMA 유저 종료 · 주
     expect(m.stats()).toEqual({ sessionCount: 3, readyCount: 1, everReadyCount: 3, stalledCount: 0 });
     expect(m.closeForDmaUser("없는-dma-id", "deleted")).toBe(0);
   });
+
+  it("dropUser (29-36 G-1) — 그 사용자 세션 전부 유예 없이 닫고 지운다(유예 중 세션 포함) · 반환 개수 · 다른 사용자 무영향 · 다음 acquire 는 새 로그인 · 로그에 DMA id 없음", async () => {
+    const { logger } = await import("../src/logger.js");
+    const infos: unknown[][] = [];
+    vi.spyOn(logger, "info").mockImplementation(((...args: unknown[]) => {
+      infos.push(args);
+    }) as never);
+    const m = mgr();
+    const aKb = m.acquireFor("user-a", "KB", CREDS)!;
+    const aKy = m.acquireFor("user-a", "KYOBO", CREDS)!;
+    const bKb = m.acquireFor("user-b", "KB", OTHER)!;
+    await waitFor(() => aKb.isReady && aKy.isReady && bKb.isReady, "세 세션 ready");
+    // 교보 세션은 마지막 탭이 닫혀 유예 중이다 — dropUser 는 유예도 기다리지 않는다.
+    m.release("user-a", "KYOBO119");
+
+    expect(m.dropUser("user-a", "order-server-changed")).toBe(2);
+    expect(m.sessionsOf("user-a")).toEqual([]);
+    expect(m.sessionsOf("user-b")).toEqual([bKb]);
+    await waitFor(() => kb120.sockets.length === 1 && kyobo.sockets.length === 0, "a 의 TCP 즉시 종료 · b 는 유지");
+    const dropped = infos.filter((c) => typeof c[1] === "string" && c[1].includes("유예 없이"));
+    expect(dropped).toHaveLength(1);
+    expect(dropped[0]?.[0]).toEqual(
+      expect.objectContaining({ userId: "user-a", count: 2, serverKeys: ["KB120", "KYOBO119"], reason: "order-server-changed" }),
+    );
+    expect(JSON.stringify(infos)).not.toContain(CREDS.dmaUserId);
+
+    // 지운 뒤의 release(닫힌 탭의 close 경로)는 무해하다 · 유예 타이머가 남아 있지 않다.
+    vi.advanceTimersByTime(SESSION_GRACE_MS * 2);
+    await flushIo();
+    expect(m.stats().sessionCount).toBe(1);
+
+    // 다음 acquire 는 새 세션(새 로그인).
+    const again = m.acquireFor("user-a", "KB", CREDS)!;
+    expect(again).not.toBe(aKb);
+    await waitFor(() => again.isReady, "새 KB120 ready");
+    expect(m.dropUser("없는-사용자", "x")).toBe(0);
+  });
 });

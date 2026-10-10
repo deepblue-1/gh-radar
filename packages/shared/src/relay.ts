@@ -886,6 +886,13 @@ export type RelayInbound =
 export type RelayAccount = {
   accountNo: string;
   name: string;
+  /**
+   * Phase 29-36 G-1 (가) — 주문 서버를 바꿀 때 옛 서버에 남은 이 계좌의 활성 전략(상따 · VI · 자동매도)을 끄지 못했다(확인 안 됨).
+   * 작업대가 「옛 서버 KB120 활성 전략 N건 — 끄지 못했어요 · 클라(OCX)에서 끄세요」 를 보이는 원천이다(29-39). `count` null = 수를
+   * 모른다(조회 전 실패 · 자격증명 없음 · 여러 계좌를 한 번에 끄다 실패). 끄기가 확인될 때까지(29-44 재시도) 남는다. 선택 필드 —
+   * 없으면 미확인 항목 없음.
+   */
+  staleStrategies?: { serverKey: string; count: number | null };
 };
 
 /** 상태 프레임 — 배지·상태 문구·계좌 목록의 원천 (D-36). */

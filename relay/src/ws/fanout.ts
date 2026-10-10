@@ -131,6 +131,7 @@ import { safePgError } from "../store/pg-error.js";
 import type { HubMarketEvent, SubscriptionHub } from "../hub/subscription-hub.js";
 import type { DmaSession } from "../dma/session.js";
 import type { DmaCredentials, SessionTarget } from "../dma/session-manager.js";
+import type { StaleStrategyRegister, StrategySweeper } from "../dma/strategy-sweeper.js";
 import type { DmaBroker } from "../registry/registry.js";
 import {
   OrderBuildError,
@@ -385,6 +386,13 @@ export type WsFanoutDeps = {
    * 없거나 `frame()` 이 null(quote 연결 disabled · 아직 판정 전)이면 보내지 않는다 — `journalState` 와 같은 규율이다.
    */
   quoteState?: { frame(): RelayQuoteStateMsg | null };
+  /**
+   * 옛 주문 서버 전략 끄기 (Phase 29-36 G-1 (가) · 29-43 `StrategySweeper`). 주문 서버 변경 재수립(`resyncChangedUsers`)이 세션을
+   * 닫기 **전에** 옮겨지는 계좌의 옛 서버 세션에서 부른다. 미주입 = 끄기 생략(단위 하네스 종전 규율) — 운영 index 는 반드시 주입한다.
+   */
+  sweeper?: Pick<StrategySweeper, "sweep">;
+  /** 끄지 못한(미확인) 계좌 레지스터 (Phase 29-36 · 29-43). 상태 프레임 계좌 `staleStrategies` 의 원천이기도 하다. */
+  staleStrategies?: StaleStrategyRegister;
 };
 
 /** `/healthz` 용 요약. 식별자를 담지 않는다. */
@@ -395,6 +403,12 @@ export type WsFanoutStats = {
 
 /** 권한 회수 close 코드 — RFC 6455 `1008 policy violation`. 브라우저는 재시도(재접속)하고 인증에서 unauthorized 를 받는다. */
 export const WS_CLOSE_ACCESS_REVOKED = 1008;
+
+/**
+ * 주문 서버 변경 재수립 close 코드 — RFC 6455 `1012 service restart` (Phase 29-36 G-1). 브라우저는 1~3초 안에 재접속하고 재인증이
+ * 새 규칙(계좌별 유효 주문 서버)으로 세션을 다시 연다.
+ */
+export const WS_CLOSE_ORDER_SERVER_CHANGED = 1012;
 
 /** 브라우저 소켓 1개의 상태. */
 type Conn = {
@@ -686,6 +700,14 @@ export class WsFanout {
     }
     logger.warn({ userId, reason, conns: targets.length }, "[WS] 권한 회수 — 연결 종료(세션은 유예 후 종료)");
   }
+
+  /** RED 골격 (29-36). */
+  async resyncChangedUsers(_reason: string): Promise<number> {
+    return 0;
+  }
+
+  /** RED 골격 (29-36). */
+  resyncUser(_userId: string, _reason: string): void {}
 
   /**
    * 연결 중(인증 완료 · DMA 세션 보유) 사용자 요약 (Phase 29-21). `AdminSessionSync` 가 87 에 그 DMA 유저 계좌가 처음 실린 서버를

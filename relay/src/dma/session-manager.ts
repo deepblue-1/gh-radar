@@ -479,6 +479,15 @@ export class SessionManager {
     return serverKeys.length;
   }
 
+  /**
+   * 그 사용자의 세션 전부를 **유예 없이** 닫고 지운다 (29-36 G-1 — 주문 서버 변경 즉시 재수립). RED 골격.
+   *
+   * @returns 닫은 세션 수
+   */
+  dropUser(_userId: string, _reason: string): number {
+    return 0;
+  }
+
   /** 프로세스 graceful shutdown 용. 15-05 의 `index.ts` 가 부른다. */
   async closeAll(): Promise<void> {
     const count = this.#sessions.size;
