@@ -374,6 +374,72 @@ for (const vp of [
   });
 }
 
+// ── P29-G1 계좌 주문 서버(29-38 G-1 ⑦ · 29-30 채택 admin-control A) ──────────────────────────
+// 계좌 줄 「주문 서버」 세그먼트에서 KB121 → PUT 1건 → 재조회 값이 정본 · 폰은 칸 36px 이상(29-31) · 데스크톱 종전 28px.
+for (const vp of [
+  { name: '390', width: 390, height: 844, phone: true },
+  { name: '1080', width: 1080, height: 800, phone: false },
+] as const) {
+  test(`P29-G1 계좌 주문 서버 고르기 — PUT 1건 · 재조회 값 · 터치 타깃 (${vp.name})`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: vp.width, height: vp.height });
+    const api = await mockAdminApi(page);
+
+    await page.goto('/admin/users');
+    const row = usersRoot(page).locator(`[data-slot="admin-user-row"][data-email="${KIM}"]`);
+    await expect(row).toBeVisible({ timeout: 30_000 });
+    await row.click();
+    const sheet = page.getByRole('dialog', { name: KIM });
+    await expect(sheet).toBeVisible();
+    await expect(sheet).toHaveAttribute('data-side', vp.phone ? 'bottom' : 'right');
+
+    const kb = sheet.locator(`[data-slot="admin-account"][data-account="${KIM_KB}"]`);
+    const seg = kb.getByRole('group', { name: `KB ${KIM_KB} 주문 서버` });
+    await expect(seg.getByRole('radio')).toHaveText(['기본 · KB120', 'KB120', 'KB121']);
+    await expect(seg.getByRole('radio', { name: '기본 · KB120', exact: true })).toHaveAttribute('aria-checked', 'true');
+    // 교보 계좌는 등록 서버 1대 — 세그먼트 없이 글자만
+    const ky = sheet.locator('[data-slot="admin-account"][data-account="9876543201"]');
+    await expect(ky.locator('[data-slot="admin-order-server"]')).toHaveText('주문 서버 KYOBO119(기본)');
+    await expect(ky.getByRole('group', { name: /주문 서버/ })).toHaveCount(0);
+
+    // 터치 타깃 — 폰 36px 이상 · 데스크톱 28px
+    for (const name of ['기본 · KB120', 'KB120', 'KB121']) {
+      const h = Math.round((await seg.getByRole('radio', { name, exact: true }).boundingBox())!.height);
+      if (vp.phone) expect(h).toBeGreaterThanOrEqual(36);
+      else expect(h).toBe(28);
+    }
+
+    const getsBefore = api.requests.filter((r) => r.method === 'GET' && r.path === '/users').length;
+    await seg.getByRole('radio', { name: 'KB121', exact: true }).click();
+    await expect.poll(() => writes(api).length).toBe(1);
+    expect(writes(api)[0]).toEqual({
+      method: 'PUT',
+      path: `/dma-users/kimtr/accounts/KB/${KIM_KB}/order-server`,
+      body: { serverKey: 'KB121' },
+    });
+    // 저장 뒤 재조회 — 컨트롤 값은 재조회 값(KB121)
+    await expect
+      .poll(() => api.requests.filter((r) => r.method === 'GET' && r.path === '/users').length)
+      .toBeGreaterThan(getsBefore);
+    await expect(seg.getByRole('radio', { name: 'KB121', exact: true })).toHaveAttribute('aria-checked', 'true');
+    await expect(seg.getByRole('radio', { name: '기본 · KB120', exact: true })).toHaveAttribute('aria-checked', 'false');
+    await expect(kb.locator('[data-slot="admin-order-server"]')).toHaveAttribute('data-state', 'idle');
+    expect(writes(api)).toHaveLength(1);
+
+    // (가) 안내 문장 — relay 가 옛 서버 활성 전략을 끈다 · 되돌릴 때 클라(OCX) 대사
+    await expect(sheet.locator('[data-slot="admin-accounts-note"]')).toContainText('활성 전략(상따 · VI · 자동매도)을 끄고');
+    await expect(sheet.locator('[data-slot="admin-accounts-note"]')).toContainText('클라(OCX) 대사');
+
+    // 잘림 — 세그먼트가 시트 밖으로 밀리지 않는다
+    const body = sheet.locator('[data-slot="admin-sheet-body"]');
+    const bodyBox = (await body.boundingBox())!;
+    expect(await leavesOverflowing(body, bodyBox.x + bodyBox.width)).toEqual([]);
+
+    await kb.scrollIntoViewIfNeeded();
+    await settled(page);
+    await page.screenshot({ path: testInfo.outputPath(`admin-order-server-${vp.name}.png`) });
+  });
+}
+
 // ── P29-A4 · A5 생성 시트 · DMA 연결 (29-19 · D-16) ─────────────────────────────
 
 const NEW_EMAIL = 'lee.new@example.invalid';

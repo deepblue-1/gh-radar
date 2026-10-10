@@ -25,6 +25,10 @@ import type {
  * ③ 값은 목업 A 와 같은 모양
  *   `reference/mockup-admin-users.html` 의 USERS 4행(웹 3 + 서버에만 1) + PENDING 1행. 이메일은 실주소 대신
  *   `*@example.invalid`, 서버 주소는 TEST-NET(RFC 5737) 이다.
+ *
+ * ④ 계좌 주문 서버(29-38 G-1 ⑦) — 의도 계좌는 `orderServer: null`(지정 없음) · `defaultOrderServer` = 그 증권사 기본 주문 서버
+ *   (`ADMIN_SERVERS_FIXTURE` 의 `isOrderServer` 와 같은 KB120 · KYOBO119). `PUT …/accounts/:broker/:accountNo/order-server` 는
+ *   그 계좌의 active 등록 서버만 받고(아니면 409 `ORDER_SERVER_NOT_REGISTERED`) 상태의 `orderServer` 를 바꾼다.
  */
 
 export const ADMIN_SERVER_KEYS = ['KB120', 'KB121', 'KYOBO119', 'KYOBO127'] as const;
@@ -66,6 +70,8 @@ export const ADMIN_USERS_FIXTURE: AdminUsersOverview = {
             { serverKey: 'KB121', tone: 'ok', message: null, state: 'active' },
           ],
           serverOnlyOn: [],
+          orderServer: null,
+          defaultOrderServer: 'KB120',
         },
         {
           broker: 'KYOBO',
@@ -79,6 +85,8 @@ export const ADMIN_USERS_FIXTURE: AdminUsersOverview = {
             { serverKey: 'KYOBO127', tone: 'warn', message: null, state: 'active' },
           ],
           serverOnlyOn: [],
+          orderServer: null,
+          defaultOrderServer: 'KYOBO119',
         },
       ],
     },
@@ -106,6 +114,8 @@ export const ADMIN_USERS_FIXTURE: AdminUsersOverview = {
             { serverKey: 'KB121', tone: 'err', message: ADMIN_BUSY_MESSAGE, state: 'active' },
           ],
           serverOnlyOn: [],
+          orderServer: null,
+          defaultOrderServer: 'KB120',
         },
         {
           broker: 'KYOBO',
@@ -116,6 +126,8 @@ export const ADMIN_USERS_FIXTURE: AdminUsersOverview = {
           priority: 2,
           servers: [{ serverKey: 'KYOBO119', tone: 'ok', message: null, state: 'active' }],
           serverOnlyOn: [],
+          orderServer: null,
+          defaultOrderServer: 'KYOBO119',
         },
       ],
     },
@@ -306,6 +318,20 @@ export async function mockAdminApi(page: Page, opts: MockAdminApiOptions = {}): 
     if (seg[0] === 'dma-users' && seg.length >= 3) {
       const owner = users.users.find((u) => u.dmaUserId === seg[1]);
       const keys = owner?.servers.map((c) => c.serverKey) ?? [];
+      // 계좌 주문 서버 지정(29-38) — `accounts` PUT 보다 먼저(경로가 더 길다).
+      if (seg[2] === 'accounts' && seg.length === 6 && seg[5] === 'order-server' && req.method === 'PUT') {
+        const acct = owner?.accounts.find((a) => a.broker === seg[3] && a.accountNo === seg[4]);
+        if (!acct) return notFound();
+        const key = (body.serverKey ?? null) as string | null;
+        if (key !== null && !acct.servers.some((c) => c.serverKey === key && c.state === 'active')) {
+          return {
+            status: 409,
+            body: { error: { code: 'ORDER_SERVER_NOT_REGISTERED', message: '그 계좌에 등록된 서버가 아니에요' } },
+          };
+        }
+        acct.orderServer = key;
+        return { body: { ok: true, orderServer: key } };
+      }
       if (seg[2] === 'accounts' && req.method === 'PUT') {
         return { body: { results: okResults((body.servers as string[] | undefined) ?? []) } };
       }
