@@ -209,6 +209,11 @@ completed: 2026-10-10
 - 29-33(relay 적재기) · 29-37(Admin 경로)이 위 RPC 계약 위에 설 수 있다.
 - Task 3 질문 전달과 gh-trade 답은 29-41 go/no-go 의 전제다.
 
+## Self-Check: PASSED
+
+- FOUND: supabase/migrations/20261010200100_dma_account_order_server.sql · supabase/tests/dma_account_order_server.test.sql · 29-29-SUMMARY.md
+- FOUND: `412552f8`(RED) · `2cee6c00`(GREEN) — `git log f45d11ce..HEAD`
+
 ---
 *Phase: 29-dma-multi-server-admin*
 *Status: Task 3 전달 대기 (2026-10-10)*
