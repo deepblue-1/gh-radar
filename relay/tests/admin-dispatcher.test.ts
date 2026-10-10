@@ -15,6 +15,8 @@
  *   D10 요청 마감(29-32 WR-07) — 마감에 진 서버는 timeout(ADMIN_DEADLINE_MESSAGE)으로 접어 먼저 응답 · 뒤 반영이 끝나면 실제
  *       결과로 record 2회째 · 마감 전 완료면 종전 그대로(record 1회) · 삭제가 마감에 걸리면 deleted false · 늦은 완료에도
  *       deleteDmaUser 0 · 같은 유저 줄은 실제 완료까지 유지(대기 시간도 마감에 포함)
+ *   D11 reconcile op 2 settle = 계획 때 removing 이던 행만(29-32 WR-01) — op 2 진행 중 다른 계좌에 그 서버가 active 로 체크돼도
+ *       남고(settle 인자 userRemoved=false) · 줄 서 있던 다음 반영이 그 서버에 op 1 로 다시 올린다
  */
 import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -227,9 +229,11 @@ describe("AdminDispatcher — 변경 경로 (29-11 Task 2)", () => {
     expect(results.map((r) => r.outcome)).toEqual(["ok", "ok"]);
     expect(env.conns.KB121!.sent).toEqual([{ op: 1, userId: "u1", password: PASSWORD, account: kb("A") }]);
     expect(env.conns.KB120!.sent).toEqual([{ op: 2, userId: "u1" }]);
+    // 29-32 WR-01 — reconcile 의 op 2 settle 은 계획 때 removing 이던 행만(전 행 삭제는 유저 삭제 경로 전용).
     expect(env.db.callsTo("dma_admin_settle_server").map((c) => c.args)).toEqual([
-      { p_dma_user_id: "u1", p_server_key: "KB120", p_removed_accounts: [], p_user_removed: true },
+      { p_dma_user_id: "u1", p_server_key: "KB120", p_removed_accounts: ["A"], p_user_removed: false },
     ]);
+    expect(env.db.intentOf("u1").map((r) => `${r.accountNo}@${r.serverKey}:${r.state}`)).toEqual(["A@KB121:active"]);
     expect(env.conns.KB120!.state.users.has("u1")).toBe(false);
   });
 
@@ -616,5 +620,49 @@ describe("AdminDispatcher — 변경 경로 (29-11 Task 2)", () => {
         { server: "KB121", outcome: "ok" },
       ]);
     });
+  });
+
+  it("D11 (29-32 WR-01) op 2 진행 중 다른 계좌에 그 서버 active 체크 → settle 뒤에도 남음 · userRemoved=false · 다음 반영이 op 1 로 다시 올린다", async () => {
+    vi.useFakeTimers();
+    try {
+      const env = setup({ KB120: state({ u1: [kb("A", 1), kb("B", 2)] }), KB121: state({ u1: [kb("A", 1)] }) });
+      seedU1(env, [
+        { accountNo: "A", priority: 1, servers: ["KB120", { key: "KB121", state: "removing" }] },
+        { accountNo: "B", priority: 2, servers: ["KB120"] },
+      ]);
+      env.conns.KB121!.delayMs = 1_000;
+
+      // ① 계좌 A 의 KB121 해제 반영 — KB121 active 0 · removing [A] → op 2 진행 중.
+      const first = env.dispatcher.reconcileUser("u1", { adminEmail: "boss@gmail.com" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(ops(env.conns.KB121!)).toEqual([2]);
+
+      // ② 그 사이 계좌 B 에 KB121 체크 — B/KB121 active 행이 바로 커밋되고 반영은 같은 유저 줄에 선다.
+      await env.store.putAccount("u1", { broker: "KB", ...kb("B", 2) }, ["KB120", "KB121"]);
+      const second = env.dispatcher.reconcileUser("u1", { adminEmail: "boss@gmail.com" });
+
+      // ③ op 2 ok → settle 은 계획 때 removing 이던 A/KB121 만 지운다 — B/KB121 active 는 남는다.
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect((await first).map((r) => r.outcome)).toEqual(["ok", "ok"]);
+      expect(env.db.callsTo("dma_admin_settle_server").map((c) => c.args)).toEqual([
+        { p_dma_user_id: "u1", p_server_key: "KB121", p_removed_accounts: ["A"], p_user_removed: false },
+      ]);
+      expect(env.db.intentOf("u1").map((r) => `${r.accountNo}@${r.serverKey}:${r.state}`)).toEqual([
+        "A@KB120:active",
+        "B@KB120:active",
+        "B@KB121:active",
+      ]);
+
+      // ④ 줄 서 있던 반영 — KB121 에 유저가 없으니 op 1(B 계좌) 1건.
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect((await second).map((r) => r.outcome)).toEqual(["ok", "ok"]);
+      expect(env.conns.KB121!.sent).toEqual([
+        { op: 2, userId: "u1" },
+        { op: 1, userId: "u1", password: PASSWORD, account: kb("B", 2) },
+      ]);
+      expect(env.conns.KB121!.state.users.get("u1")?.map((a) => a.accountNo)).toEqual(["B"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

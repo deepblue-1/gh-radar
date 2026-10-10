@@ -168,18 +168,18 @@ describe("planServerOps — removing op 4 · settle · 마지막 계좌 op 2", (
     });
   });
 
-  it("active [] · removing [A1] · 87 [A1] → op 2 (op 4 는 12 LAST_ACCOUNT)", () => {
+  it("active [] · removing [A1] · 87 [A1] → op 2 (op 4 는 12 LAST_ACCOUNT) · op 2 는 계획 때 removing 계좌를 싣는다(29-32 WR-01)", () => {
     expect(plan([], [A1], [{ ...A1 }])).toEqual({
       status: "ready",
-      ops: [{ op: 2 }],
+      ops: [{ op: 2, accountNos: [A1.accountNo] }],
       settleRemoved: [],
     });
   });
 
-  it("active [] · removing [A1, A2] · 87 [A1] → op 2 · A2 는 settle", () => {
+  it("active [] · removing [A1, A2] · 87 [A1] → op 2(A1) · A2 는 settle", () => {
     expect(plan([], [A1, A2], [{ ...A1 }])).toEqual({
       status: "ready",
-      ops: [{ op: 2 }],
+      ops: [{ op: 2, accountNos: [A1.accountNo] }],
       settleRemoved: [A2.accountNo],
     });
   });
