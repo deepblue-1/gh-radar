@@ -1,7 +1,7 @@
 ---
 phase: 27-auto-sell-integration
-verified: 2026-10-10T03:10:00Z
-round: 2
+verified: 2026-10-10T05:00:00Z
+round: 3
 status: passed
 score: 12/12 must-haves verified
 covered_files:
@@ -37,6 +37,7 @@ covered_files:
   - relay/src/ws/fanout.ts
   - relay/src/ws/protocol.ts
   - webapp/src/components/me/limit-chaser-defaults.tsx
+  - webapp/src/components/trading/__tests__/strategy-card-flow.test.tsx
   - webapp/src/components/trading/card/card-body.tsx
   - webapp/src/components/trading/card/card-header.tsx
   - webapp/src/components/trading/card/constants.ts
@@ -52,7 +53,7 @@ covered_files:
   - webapp/src/lib/order-log-feed.ts
   - webapp/src/lib/relay-provider.tsx
   - webapp/src/lib/use-relay-socket.ts
-covered_digest: "v3:sha256:4baeb13cf52afbf98b976c9a0489e83f611e684ae2a306b8e4dc54a38d584b74"
+covered_digest: "v3:sha256:9bfc8195d030a9541ffacd076a38f72a0447991ab005d10959f3b1edfc6638ab"
 behavior_unverified: 0
 overrides_applied: 1
 overrides:
@@ -61,38 +62,37 @@ overrides:
     accepted_by: "user (명시 지시 — 1라운드 보고서에서 승계)"
     accepted_at: "2026-10-05T08:02:00Z"
 re_verification:
-  previous_status: human_needed
+  previous_status: passed
   previous_score: 12/12
-  previous_report: 27-VERIFICATION.md (2026-10-05, 낡음 — 덮어쓰지 않음)
+  previous_report: 27-VERIFICATION-R2.md
   gaps_closed:
-    - "human 5건 — 27-UAT.md 5/5 pass (2026-10-06 첫 거래일, ca216f15). 운영 화면 · WinForms LED 색 · 저널 924행 조립기 전수 924/924 · 54 i/a 축 · /me 11값 사용자 눈 대조"
-    - "리뷰 WR-01~05 — 5/5 닫힘 (def26175 · 1b08002a · 5fd3b29a · 5d51b609 · a901b8c5). 1라운드가 「후속 수정 권고」로 남겼던 41 전용 상태 분리 · 키별 server 해제 · isin 필터가 그대로 구현됨"
-    - "리뷰 IN-01~06 — 6/6 닫힘 (cf6323ed · 22312908 · 2d21c033 · 6d54e068/4f0d1c86 · 44d2c28e · a652152b). 27-REVIEW-R2.md 가 diff 단위로 재판정"
+    - "WR-R2-01 — 3초 뒤 늦은 41 거부가 「미반영」을 거두고 거부 원문만 세운다 (b9e03bed). 테스트 2건(AutoSellCommand 늦은 거부 · relay kind autosell.cmd 늦은 거부) + 음성 1건(kind lc.set 은 안 거둠)"
+    - "WR-R2-02 — 전략 삭제 · 자동매도 켜짐→꺼짐 전이에서 이미 서 있는 「미반영」을 거둔다 (0948efe5). 테스트 3건(삭제 · 끄기 양성 + 꺼진 채 에코 음성, WR-03 유지)"
   gaps_remaining: []
   regressions: []
 gaps: []
 deferred: []
 warnings:
-  - id: WR-R2-01
+  - id: WR-R3-01
     severity: low
-    item: "3초 무응답 뒤 늦게 도착한 41 거부가 「미반영」을 거두지 않는다 — 거부 원문과 「서버 응답을 기다리고 있어요」가 동시에 선다 (WR-03 수정이 만든 회귀)"
-    where: "webapp/src/components/trading/card/strategy-card.tsx:696-697 · 709-715 · 832-842 (코드에서 확인)"
-    status: "advisory — 표시 모순 한 줄. 주문 경로 · 데이터 손실 없음, fail-visible 방향, 서버 state 가 start 가능이면 바로시작 버튼이 열려 있어 다시 누르면 거둬진다. 목표 truth 5 의 대기 중 거부 · 기대 전이 해제 · 3초 미반영은 그대로 성립"
-  - id: WR-R2-02
+    item: "늦은 41 거부를 받는 창(autoSellTimedOutRef !== null)에 기한이 없다 — 키를 싣지 않는 relay 거부(i 빈 값)가 무응답 카드의 로그 · 상태줄에 원문으로 선다"
+    where: "webapp/src/components/trading/card/strategy-card.tsx:729-757 (코드에서 확인), webapp/src/lib/limit-chaser.ts:991-994"
+    status: "advisory — 선행 조건이 겹쳐야 한다: 같은 탭의 다른 카드 41 이 3초 넘게 무응답(41 을 모르는 옛 서버 또는 41 유실)이어야 하고, 그 뒤 relay 가 다른 요청의 조립 · 송신 실패를 i 빈 값으로 보내야 한다. 표시 오염(남의 거부 원문 한 줄 + 「미반영」 조기 해제)이며 fail-visible 방향, 주문 경로 · 데이터 손실 없음. 목표 truth 5 의 대기 중 거부 · 기대 전이 · 3초 미반영과 WR-04 의 키 기반 축(AutoSellCommand · Account 의 i · a 일치)은 그대로 성립"
+  - id: WR-R3-02
     severity: low
-    item: "무응답 41 「미반영」이 전략 삭제(server null) · 자동매도 끄기 뒤에도 키 변경 전까지 남는다. 삭제 뒤에는 두 버튼이 모두 잠겨 사용자가 걷을 수도 없다 (WR-03 수정이 만든 회귀)"
-    where: "webapp/src/components/trading/card/strategy-card.tsx:537-548 · 570-582 · 484-497, webapp/src/lib/limit-chaser.ts:1008-1012 (코드에서 확인)"
-    status: "advisory — 무응답 41 이 먼저 있어야 하고(UAT 기간 relay 41 실패 경로 로그 0), 그 뒤 삭제/끄기를 해야 한다. 상태줄 한 줄이 낡을 뿐 주문 경로에 영향 없음. 실패 사실은 error 로그 줄로 이미 영속"
-  - id: IN-R2-01..04
+    item: "41 대기 3초 안에 전략 삭제 · 자동매도 꺼짐 전이가 오면 살아 있는 41 타이머가 뒤에 「미반영」을 다시 세운다 (WR-R2-02 의 타이밍만 바꾼 잔여)"
+    where: "webapp/src/components/trading/card/strategy-card.tsx:587-595 · 610 · 866-876 (코드에서 확인)"
+    status: "advisory — 41 이 무응답이어야 하고(UAT 기간 실패 경로 0) 삭제 · 끄기가 그 3초 창 안에 와야 한다. 타이머 콜백이 server 를 보지 않는 것이 원인. 삭제 뒤 잔존은 복구 동선이 없으나(두 버튼 잠금) 키 변경 · 재마운트로 풀리고 실패 사실은 error 로그 줄이 이미 영속한다. 주문 경로 영향 없음"
+  - id: IN-R3-01..02
     severity: info
-    item: "isLimitChaserArmRejection 이 relay kind 태그를 안 봄 · /me 42 다중 위반 칸 교착 · lc-ranges.ts 머리 주석 · IN-05 fix 보고서의 계층 불변식 문장 부정확"
-    where: "27-REVIEW-R2.md"
-    status: "info — 처분은 27-REVIEW-R2-DISPOSITION.md 에서 관리(6건 open)"
-  - id: UI-REVIEW
+    item: "isAutoSellCommandRejection 계약 주석이 「in-flight 창 안에서만」으로 남음 · WR-R2-02 양성 테스트의 경로 폭이 좁음(대기 중 경로 · 켜진 채 런타임 푸시 음성 미고정)"
+    where: "27-REVIEW-R3.md"
+    status: "info — 처분은 27-REVIEW-R3-DISPOSITION.md 에서 관리(4건 open)"
+  - id: WR-R2-IN-UI
     severity: info
-    item: "27-UI-REVIEW.md 17/24 — 바로시작 · 중지 비활성 사유 비노출(D-05 의도), 글자 크기 척도 난립, 바로시작 상승색 채움"
-    where: "27-UI-REVIEW.md"
-    status: "advisory — 시각 위계 권고. 네 표면은 UAT 1 에서 사용자 눈으로 pass"
+    item: "2라운드에서 승계: IN-R2-01..04(처분은 27-REVIEW-R2-DISPOSITION.md) · UI-REVIEW 17/24"
+    where: "27-REVIEW-R2.md · 27-UI-REVIEW.md"
+    status: "advisory — 변동 없음"
 human_verification: []
 ---
 
