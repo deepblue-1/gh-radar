@@ -655,6 +655,28 @@ describe("SessionManager — 조회 · 비밀 교체 · DMA 유저 종료 · 주
     expect(m.primaryOf("user-1")).toBe(k121);
   });
 
+  it("primaryOf (29-35) — 생성 순서와 무관하게 primary = KB 기본 주문 서버 세션(preferredPrimaryServerKey) · 그 세션이 없으면 첫 KB · 주입이 바뀌면 다음 판정부터", async () => {
+    let preferred: string | undefined = "KB120";
+    const m = mgr({ preferredPrimaryServerKey: () => preferred });
+    const k121 = m.acquireOn("user-1", { serverKey: "KB121", host: "127.0.0.1", port: kb121.port, broker: "KB" }, CREDS);
+    await waitFor(() => k121.isReady, "KB121 ready");
+    // KB 기본(KB120) 세션이 없다 → 첫 KB 세션.
+    expect(m.primaryOf("user-1")).toBe(k121);
+
+    const k120 = m.acquireOn("user-1", targets.get("KB")!, CREDS);
+    await waitFor(() => k120.isReady, "KB120 ready");
+    expect(m.sessionsOf("user-1")).toEqual([k121, k120]);
+    expect(m.primaryOf("user-1")).toBe(k120);
+    expect(m.get("user-1")).toBe(k120);
+
+    // 기본 주문 서버가 KB121 로 바뀌면 다음 판정부터 KB121.
+    preferred = "KB121";
+    expect(m.primaryOf("user-1")).toBe(k121);
+    // 선호 키가 다른 증권사 서버여도 KB 세션 · 첫 세션 규칙으로 접힌다.
+    preferred = "KYOBO119";
+    expect(m.primaryOf("user-1")).toBe(k121);
+  });
+
   it("firstReady(avoidUserId) 는 사용자 단위 회피 그대로다 (키 구조 무관) · stats 는 모든 (유저, 서버) 세션을 센다", async () => {
     let clock = 1_000_000;
     const m = mgr({ now: () => clock });

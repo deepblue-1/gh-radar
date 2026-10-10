@@ -25,7 +25,13 @@ import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as flatbuffers from "flatbuffers";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { RelayAccountState, RelayLimitChaserSnapMsg, RelayOutbound, RelayStateMsg } from "@gh-radar/shared";
+import type {
+  RelayAccountState,
+  RelayLimitChaserSnapMsg,
+  RelayOutbound,
+  RelayStateMsg,
+  RelayViTriggerMsg,
+} from "@gh-radar/shared";
 
 import { SESSION_GRACE_MS, SessionManager, type DmaCredentials, type SessionTarget } from "../src/dma/session-manager.js";
 import { createOrderServerRouting } from "../src/access/account-order-servers.js";
@@ -43,6 +49,7 @@ import {
   SAMPLE_ISIN,
   buildAccountStateFrame,
   buildLimitChaserListRespFrame,
+  buildSetVITriggerRespFrame,
 } from "./helpers/frames.js";
 
 const USER_A = "3f1c2b7a-9d40-4a11-8e55-0000000020a1";
@@ -346,6 +353,8 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
   let manager: SessionManager;
   let fanout: WsFanout;
   let rows: DmaServerRow[];
+  /** 계좌 → 지정 서버 키(가변 — 지정 변경 시나리오). 기본: A → KB121. */
+  let chosen: Map<string, string>;
   const sockets: TestWs[] = [];
 
   function row(key: string, gwPort: number, isOrderServer: boolean, sortOrder: number): DmaServerRow {
@@ -370,6 +379,7 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
     kb120.onFrame((_t, payload) => p120.push(Buffer.from(payload)));
     kb121.onFrame((_t, payload) => p121.push(Buffer.from(payload)));
     rows = [row("KB120", kb120.port, true, 1), row("KB121", kb121.port, false, 2)];
+    chosen = new Map([[A, "KB121"]]);
     const registry = {
       get: (key: string) => rows.find((r) => r.key === key),
       enabled: () => rows.filter((r) => r.enabled),
@@ -377,13 +387,21 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
     };
     const routing = createOrderServerRouting({
       loaded: () => true,
-      chosenOf: (_dma, _broker, acct) => (acct === A ? "KB121" : undefined),
+      chosenOf: (_dma, _broker, acct) => chosen.get(acct),
       registry,
       accountsOf: (serverKey, dma) =>
         dma === CREDS.dmaUserId && (serverKey === "KB120" || serverKey === "KB121") ? new Set([A, B]) : undefined,
     });
-    manager = new SessionManager({ host: "127.0.0.1", port: 1, broker: "KB", ownerOf: routing.ownerOf });
-    hub = new SubscriptionHub();
+    // 29-35 — primary 선호 = KB 기본 주문 서버(운영 index 와 같은 주입을 SessionManager · hub 둘 다에).
+    const preferredPrimaryServerKey = (): string | undefined => registry.orderServerOf("KB")?.key;
+    manager = new SessionManager({
+      host: "127.0.0.1",
+      port: 1,
+      broker: "KB",
+      ownerOf: routing.ownerOf,
+      preferredPrimaryServerKey,
+    });
+    hub = new SubscriptionHub({ preferredPrimaryServerKey });
     server = http.createServer();
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
     port = (server.address() as AddressInfo).port;
@@ -476,5 +494,64 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
       [B, 1],
     ]);
     expect(hub.getLimitChasers(USER_A).map((i) => i.accountNo)).toEqual([B]);
+  });
+
+  it("생성 순서와 무관하게 primary = KB 기본 주문 서버 세션 — KB121 을 먼저 만들어도 SessionManager · hub · 병합 상태 프레임이 모두 KB120", async () => {
+    // KB121 세션을 먼저 만든다(SessionManager 생성 순서 KB121 → KB120).
+    const pre = manager.acquireOn(
+      USER_A,
+      { serverKey: "KB121", host: "127.0.0.1", port: kb121.port, broker: "KB" },
+      CREDS,
+    );
+    await waitFor(() => pre.isReady, "KB121 선행 세션 ready");
+    const { inbox } = await tab();
+    await bothReady();
+    expect(manager.sessionsOf(USER_A).map((s) => s.serverKey)).toEqual(["KB121", "KB120"]);
+
+    // ① SessionManager — 사용자 단위 명령 세션.
+    expect(manager.primaryOf(USER_A)?.serverKey).toBe("KB120");
+    // ② hub — 21 · 34 · 43 은 KB120 으로만.
+    await waitFor(() => countOf(p120, MSG.GetUserSettingsReq) === 1, "KB120 사용자 단위 프리페치");
+    await flushIo(10);
+    expect(countOf(p120, MSG.GetVITriggerReq)).toBe(2);
+    expect(countOf(p121, MSG.GetVITriggerReq)).toBe(0);
+    expect(countOf(p121, MSG.GetVIOrderListReq)).toBe(0);
+    expect(countOf(p121, MSG.GetUserSettingsReq)).toBe(0);
+    // ③ 병합 상태 프레임 — primary(KB120) 소유 계좌(B)가 먼저.
+    const merged = statesOf(inbox).filter((f) => f.s === "ready" && (f.accounts ?? []).length === 2).at(-1);
+    expect(merged?.accounts?.map((a) => a.accountNo)).toEqual([B, A]);
+
+    // VI 61 은 KB120 것만 브라우저로.
+    const s120 = kb120.sockets[0];
+    const s121 = kb121.sockets[0];
+    if (s120 === undefined || s121 === undefined) throw new Error("스텁 소켓 없음");
+    const from = inbox.length;
+    kb121.sendFrame(s121, buildSetVITriggerRespFrame({ accountNo: A, exchange: "NXT" }));
+    kb120.sendFrame(s120, buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX" }));
+    await waitFor(() => inbox.slice(from).some((m) => m.t === "vi"), "KB120 61");
+    await flushIo(10);
+    const vis = inbox.slice(from).filter((m): m is RelayViTriggerMsg => m.t === "vi");
+    expect(vis.map((m) => m.x)).toEqual(["KRX"]);
+  });
+
+  it("소유 계좌 0 세션은 병합 상태 프레임의 any-ready · accounts 에 기여하지 않는다 — KB120 이 ready 여도 계좌가 전부 KB121 이면 s 는 KB121 상태", async () => {
+    const { inbox } = await tab();
+    await bothReady();
+    // B 도 KB121 로 지정 — KB120 은 두 계좌를 선언했지만 소유 0 이 된다(재로그인 없이 소유 뷰가 따라간다).
+    chosen.set(B, "KB121");
+    const k120 = manager.sessionsOf(USER_A).find((s) => s.serverKey === "KB120");
+    expect(k120?.allowedAccounts).toEqual([]);
+    expect(k120?.isReady).toBe(true);
+
+    // KB121 회선이 끊긴다 → 그 세션 상태 이벤트가 병합 상태 프레임을 보낸다.
+    const from = inbox.length;
+    const s121 = kb121.sockets[0];
+    if (s121 === undefined) throw new Error("KB121 소켓 없음");
+    s121.destroy();
+    await waitFor(() => statesOf(inbox.slice(from)).length > 0, "KB121 끊김 상태 프레임");
+    const last = statesOf(inbox.slice(from)).at(-1);
+    // 소유 0 인 KB120 의 ready 가 화면을 「연결됨」 으로 덮지 않는다.
+    expect(last?.s).toBe("reconnecting");
+    expect(last?.accounts?.map((a) => a.accountNo).sort()).toEqual([A, B].sort());
   });
 });

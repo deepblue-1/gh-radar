@@ -558,3 +558,90 @@ describe("SubscriptionHub — G-1 같은 증권사 두 서버 · 계좌 소유 �
     expect(hub.getLimitChasers(U).map((i) => i.accountNo)).toEqual([B, A]);
   });
 });
+
+/**
+ * Phase 29-35 Task 2 — primary = 주입된 선호 서버(운영 = KB 기본 주문 서버) 세션 → 첫 KB → 첫 세션. SessionManager · fanout 과 같은 주입.
+ */
+describe("SubscriptionHub — primary 선호 서버 (29-35)", () => {
+  const A = "1234567801";
+  const B = "1234567802";
+  let preferred: string | undefined;
+  let hub: SubscriptionHub;
+  let fanned: HubFanoutEvent[];
+  let kb120: FakeBrokerSession;
+  let kb121: FakeBrokerSession;
+
+  beforeEach(() => {
+    resetDroppedEnvelopeCount();
+    preferred = "KB120";
+    hub = new SubscriptionHub({ preferredPrimaryServerKey: () => preferred });
+    fanned = [];
+    hub.on("fanout", (e: HubFanoutEvent) => fanned.push(e));
+    kb120 = new FakeBrokerSession(U, "KB120", "KB", [{ accountNo: B, name: "계좌B" }]);
+    kb121 = new FakeBrokerSession(U, "KB121", "KB", [{ accountNo: A, name: "계좌A" }]);
+  });
+
+  afterEach(() => {
+    hub.closeAll();
+    vi.restoreAllMocks();
+  });
+
+  it("생성 순서와 무관하게 primary = KB 기본 주문 서버 세션 — KB121 먼저 결선해도 21 · 34 · 43 은 KB120 으로만 · VI 61 은 KB120 것만", () => {
+    hub.attach(kb121);
+    hub.attach(kb120);
+    kb121.emitReady();
+    kb120.emitReady();
+    expect(kb120.sentTypes).toEqual([
+      MSG.GetAccountStateReq,
+      MSG.GetLimitChaserListReq,
+      MSG.GetVITriggerReq,
+      MSG.GetVITriggerReq,
+      MSG.GetVIOrderListReq,
+      MSG.GetUserSettingsReq,
+    ]);
+    expect(kb121.sentTypes).toEqual([MSG.GetAccountStateReq, MSG.GetLimitChaserListReq]);
+
+    kb121.pushFrame(buildSetVITriggerRespFrame({ accountNo: A, exchange: "NXT" }));
+    kb120.pushFrame(buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX" }));
+    expect(hub.getViTrigger(U, "NXT")).toBeUndefined();
+    expect(hub.getViTrigger(U, "KRX")).not.toBeUndefined();
+    expect(fanned.filter((e) => e.msg.t === "vi")).toHaveLength(1);
+  });
+
+  it("KB 기본 서버 세션이 없으면(계좌 전부 KB121 지정) primary = KB121", () => {
+    hub.attach(kb121);
+    kb121.pushFrame(buildUserSettingsFrame({ present: true }));
+    expect(hub.getUserSettings(U)).toMatchObject({ present: true });
+  });
+
+  it("선호 주입이 없으면 종전 — 처음 결선된 KB 세션(KB121)", () => {
+    const plain = new SubscriptionHub();
+    plain.attach(kb121);
+    plain.attach(kb120);
+    kb121.pushFrame(buildUserSettingsFrame({ present: true }));
+    kb120.pushFrame(buildUserSettingsFrame({ present: false }));
+    expect(plain.getUserSettings(U)).toMatchObject({ present: true });
+    plain.closeAll();
+  });
+
+  it("기본 서버가 바뀌면 다음 결선(retainSessions)에서 primary 교체 — 옛 primary 몫 사용자 단위 캐시 정리 · 새 primary 로 21 · 34 · 43", () => {
+    hub.attach(kb120);
+    hub.attach(kb121);
+    kb120.pushFrame(buildUserSettingsFrame({ present: true }));
+    expect(hub.getUserSettings(U)).toMatchObject({ present: true });
+    kb121.sentTypes.length = 0;
+
+    preferred = "KB121";
+    hub.retainSessions(U, new Set(["KB120", "KB121"]));
+    expect(hub.stats().sessionCount).toBe(2);
+    expect(hub.getUserSettings(U)).toBeUndefined();
+    expect(kb121.sentTypes).toEqual([
+      MSG.GetVITriggerReq,
+      MSG.GetVITriggerReq,
+      MSG.GetVIOrderListReq,
+      MSG.GetUserSettingsReq,
+    ]);
+    kb121.pushFrame(buildUserSettingsFrame({ present: true }));
+    expect(hub.getUserSettings(U)).toMatchObject({ present: true });
+  });
+});
