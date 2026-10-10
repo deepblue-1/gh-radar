@@ -22,7 +22,7 @@ import * as flatbuffers from "flatbuffers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { RelayAccount, RelayOutbound, RelayStateMsg } from "@gh-radar/shared";
 
-import { SessionManager, type DmaCredentials, type SessionTarget } from "../src/dma/session-manager.js";
+import { SESSION_GRACE_MS, SessionManager, type DmaCredentials, type SessionTarget } from "../src/dma/session-manager.js";
 import { AccountOrderServers, createOrderServerRouting } from "../src/access/account-order-servers.js";
 import { StaleStrategyRegister, StrategySweeper } from "../src/dma/strategy-sweeper.js";
 import type { DmaServerRow } from "../src/registry/registry.js";
@@ -44,18 +44,22 @@ import { connectWs, type TestWs } from "./helpers/ws-client.js";
 
 const D1 = "kb-resync-d1";
 const D2 = "kb-resync-d2";
+const D3 = "kb-resync-d3";
 const U1 = "3f1c2b7a-9d40-4a11-8e55-0000000036a1";
 const U2 = "3f1c2b7a-9d40-4a11-8e55-0000000036b2";
-const TOKENS: Record<string, string> = { "token-1": U1, "token-2": U2 };
+const U3 = "3f1c2b7a-9d40-4a11-8e55-0000000036c3";
+const TOKENS: Record<string, string> = { "token-1": U1, "token-2": U2, "token-3": U3 };
 const CREDS: Record<string, DmaCredentials> = {
   [U1]: { dmaUserId: D1, password: "pw-1-절대노출금지" },
   [U2]: { dmaUserId: D2, password: "pw-2-절대노출금지" },
+  [U3]: { dmaUserId: D3, password: "pw-3-절대노출금지" },
 };
 
 const A = "1234567801";
 const B = "1234567802";
 const C = "1234567803";
 const D = "2234567801";
+const E = "3234567801";
 const ISIN2 = "KR7000660001";
 const ISIN3 = "KR7035420009";
 
@@ -185,6 +189,9 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     gw.onFrame((msgType, payload, sock) => {
       rx.get(key)?.push({ msgType, payload: Buffer.from(payload) });
       events.push(`${key}:${msgType}`);
+      if (msgType === MSG.DisableStrategiesReq) {
+        events.push(`dk:${key}:${readDisableStrategiesKey(msgType, Buffer.from(payload)) ?? ""}`);
+      }
       if (msgType === MSG.LoginReq) {
         const id = envOf(Buffer.from(payload)).loginReq()?.userId() ?? "";
         userOf.set(sock, id);
@@ -212,14 +219,15 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     loginAccounts = new Map([
       [D1, [{ accountNo: A, name: "계좌A" }, { accountNo: B, name: "계좌B" }]],
       [D2, [{ accountNo: D, name: "계좌D" }]],
+      [D3, [{ accountNo: E, name: "계좌E" }]],
     ]);
     kb120 = await stub("KB120");
     kb121 = await stub("KB121");
     rows = [row("KB120", kb120.port, true, 1), row("KB121", kb121.port, false, 2)];
-    // 두 서버 users.toml 모두에 d1 의 A · B 가 있다(gh-trade-84 ④). d2 는 KB120 에만.
+    // 두 서버 users.toml 모두에 d1 의 A · B · d3 의 E 가 있다(gh-trade-84 ④). d2 는 KB120 에만.
     mappings = new Map([
-      ["KB120", new Map([[D1, new Set([A, B])], [D2, new Set([D])]])],
-      ["KB121", new Map([[D1, new Set([A, B])]])],
+      ["KB120", new Map([[D1, new Set([A, B])], [D2, new Set([D])], [D3, new Set([E])]])],
+      ["KB121", new Map([[D1, new Set([A, B])], [D3, new Set([E])]])],
     ]);
     chosenRows = [];
     credMode = new Map();
@@ -610,4 +618,117 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
       expect(acctOf(readyAccounts(again.inbox), B)?.staleStrategies).toBeUndefined();
     },
   );
+
+  it("⑥ 증권사 기본 주문 서버 KB120 → KB121 — 지정 없는 u1 · u2 는 각자 계좌 전략만 KB120 에서 끈 뒤 1012 · 전부 KB121 지정인 u3 은 0 · 재접속 뒤 u1 = KB121 세션 · ready → 25 → 66", async () => {
+    await captureLogs();
+    chosenRows = [{ dma_user_id: D3, broker: "KB", account_no: E, server_key: "KB121" }];
+    kb120.respondLimitChaserList([on(SAMPLE_ISIN, A), on(ISIN3, D)]);
+    const h = await harness();
+    const t1 = await h.open("token-1");
+    const t2 = await h.open("token-2");
+    const t3 = await h.open("token-3");
+    await readyTab(h, t1, U1, 2, "u1 ready");
+    await readyTab(h, t2, U2, 1, "u2 ready");
+    await readyTab(h, t3, U3, 1, "u3 ready");
+    expect(h.m.sessionsOf(U3).map((s) => s.serverKey)).toEqual(["KB121"]);
+    const drop = traceDrop(h.m);
+    const fromEvents = events.length;
+    const from120 = mark("KB120");
+
+    // /admin/servers 에서 KB 기본 주문 서버를 KB121 로(레지스트리 changed → resyncChangedUsers("registry")).
+    rows = rows.map((r) => ({ ...r, isOrderServer: r.key === "KB121" }));
+    expect(await h.fanout.resyncChangedUsers("registry")).toBe(2);
+    await waitFor(() => t1.ws.closeInfo !== null && t2.ws.closeInfo !== null, "u1 · u2 1012");
+    expect(t1.ws.closeInfo?.code).toBe(1012);
+    expect(t2.ws.closeInfo?.code).toBe(1012);
+    expect(t3.ws.closeInfo).toBeNull();
+    expect(drop).toHaveBeenCalledTimes(2);
+    // 각자 계좌 키만 · 각자의 끄기가 각자의 drop 보다 먼저.
+    expect(disabledKeys("KB120", from120).sort()).toEqual([keyOf(SAMPLE_ISIN, A), keyOf(ISIN3, D)].sort());
+    const ev = events.slice(fromEvents);
+    expect(ev.indexOf(`dk:KB120:${keyOf(SAMPLE_ISIN, A)}`)).toBeGreaterThanOrEqual(0);
+    expect(ev.indexOf(`dk:KB120:${keyOf(SAMPLE_ISIN, A)}`)).toBeLessThan(ev.indexOf(`drop:${U1}`));
+    expect(ev.indexOf(`dk:KB120:${keyOf(ISIN3, D)}`)).toBeGreaterThanOrEqual(0);
+    expect(ev.indexOf(`dk:KB120:${keyOf(ISIN3, D)}`)).toBeLessThan(ev.indexOf(`drop:${U2}`));
+    expect(h.register.all()).toEqual([]);
+    expect(h.m.sessionsOf(U3).map((s) => s.serverKey)).toEqual(["KB121"]);
+
+    const r121 = mark("KB121");
+    const again = await h.open("token-1");
+    await readyTab(h, again, U1, 2, "재접속 ready");
+    expect(h.m.sessionsOf(U1).map((s) => s.serverKey)).toEqual(["KB121"]);
+    await waitFor(() => again.inbox.some((f) => f.t === "acct" && f.a === A), "66 스냅샷(A)");
+    expect(count("KB121", MSG.GetAccountStateReq, r121)).toBe(1);
+    expect(readyAccounts(again.inbox).map((a) => a.serverKey)).toEqual(["KB121", "KB121"]);
+  });
+
+  it("⑦ 레지스트리 변경이 주소 · 안 쓰는 서버 끄기뿐이면 서명이 같다 — 재수립 0 · sweep 0", async () => {
+    await captureLogs();
+    kb120.respondLimitChaserList([on(SAMPLE_ISIN, A)]);
+    const h = await harness();
+    const tab = await h.open("token-1");
+    await readyTab(h, tab, U1, 2, "u1 ready");
+    const from120 = mark("KB120");
+
+    rows = rows.map((r) => (r.key === "KB120" ? { ...r, host: "127.0.0.1", sortOrder: 9 } : { ...r, enabled: false }));
+    expect(await h.fanout.resyncChangedUsers("registry")).toBe(0);
+    await flushIo(10);
+    expect(count("KB120", MSG.GetLimitChaserListReq, from120)).toBe(0);
+    expect(tab.ws.closeInfo).toBeNull();
+  });
+
+  it("⑧ 상태 프레임 계좌 serverKey · movedFrom — 옮겨진 A 만 movedFrom · 단일 세션 사용자도 serverKey · 탭을 닫고 다시 열어도(세션 재사용) 유지 · 다음 재수립이 교체 · 세션 전부 소멸하면 사라짐", async () => {
+    await captureLogs();
+    const h = await harness();
+    const tab = await h.open("token-1");
+    const other = await h.open("token-2");
+    await readyTab(h, tab, U1, 2, "u1 ready");
+    await readyTab(h, other, U2, 1, "u2 ready");
+    // 재수립 전 — 단일 세션도 계좌마다 그 세션 서버 키 · movedFrom 없음.
+    expect(readyAccounts(tab.inbox)).toEqual([
+      { accountNo: A, name: "계좌A", serverKey: "KB120" },
+      { accountNo: B, name: "계좌B", serverKey: "KB120" },
+    ]);
+    expect(readyAccounts(other.inbox)).toEqual([{ accountNo: D, name: "계좌D", serverKey: "KB120" }]);
+
+    chosenRows = [{ dma_user_id: D1, broker: "KB", account_no: A, server_key: "KB121" }];
+    await h.loader.reload();
+    await waitFor(() => tab.ws.closeInfo !== null, "1012");
+    const again = await h.open("token-1");
+    await readyTab(h, again, U1, 2, "재접속 ready");
+    const moved = [
+      { accountNo: B, name: "계좌B", serverKey: "KB120" },
+      { accountNo: A, name: "계좌A", serverKey: "KB121", movedFrom: "KB120" },
+    ];
+    expect(readyAccounts(again.inbox)).toEqual(moved);
+
+    // 탭을 닫고 유예 안에 다시 연다(같은 세션 재사용) — movedFrom 유지.
+    await again.ws.close();
+    await waitFor(() => h.m.sessionsOf(U1).length === 2, "유예 중");
+    const reopened = await h.open("token-1");
+    await readyTab(h, reopened, U1, 2, "다시 열기 ready");
+    expect(readyAccounts(reopened.inbox)).toEqual(moved);
+
+    // 다음 재수립(A 지정 해제 → 기본 KB120)이 교체한다 — 이번에 옮겨진 A 는 KB121 에서 왔다.
+    chosenRows = [];
+    await h.loader.reload();
+    await waitFor(() => reopened.ws.closeInfo !== null, "두 번째 1012");
+    const third = await h.open("token-1");
+    await readyTab(h, third, U1, 2, "셋째 ready");
+    expect(readyAccounts(third.inbox)).toEqual([
+      { accountNo: A, name: "계좌A", serverKey: "KB120", movedFrom: "KB121" },
+      { accountNo: B, name: "계좌B", serverKey: "KB120" },
+    ]);
+
+    // 탭을 닫고 유예가 끝나 세션이 전부 소멸하면 movedFrom 도 사라진다.
+    await third.ws.close();
+    vi.advanceTimersByTime(SESSION_GRACE_MS);
+    await waitFor(() => h.m.sessionsOf(U1).length === 0, "유예 만료 — 세션 소멸");
+    const fresh = await h.open("token-1");
+    await readyTab(h, fresh, U1, 2, "새 세션 ready");
+    expect(readyAccounts(fresh.inbox)).toEqual([
+      { accountNo: A, name: "계좌A", serverKey: "KB120" },
+      { accountNo: B, name: "계좌B", serverKey: "KB120" },
+    ]);
+  });
 });
