@@ -1511,7 +1511,7 @@ Plans:
 **Goal:** relay 가 게이트웨이 4대(KB120 · KB121 · KYOBO119 · KYOBO127)를 서버 레지스트리로 다루고, 웹 Admin 메뉴에서 바꾼 사용자·계좌·서버 연결이 gh-trade 서버에 즉시 반영된다. **(1) 서버 레지스트리** — 키 = 증권사+IP 끝자리 `KB120`·`KB121`·`KYOBO119`·`KYOBO127`. 기존 `KB`/`KYOBO` 키는 in-place UPDATE 마이그레이션(커서 · epoch · 매핑 · 신원 보존), 모든 마이그레이션은 additive. **(2) 웹 Admin 화면**(사이드바 Admin 메뉴, 처음엔 `alex@jx1.io` 만) — 접속 허용 gmail · 역할 편집 + 웹유저↔DMA유저 연결 편집. DMA user_id 는 웹유저당 1개이며 모든 증권사·서버에 같은 문자열, 비밀번호는 Admin 이 정하고 변경(relay 가 DMA 유저당 1개 암호화 보관 → 서버마다 op1). 계좌는 (증권사, 계좌번호) 단위로 등록 서버 목록 선택 — 같은 KB 계좌를 두 KB 서버에 동시 등록 가능, 이중 전략 방지 불필요(서버가 각자 관리). 유저 생성 = 유저 + 첫 계좌 한 화면(계좌 0개 유저 불허 · 마지막 계좌 제거는 code 12 LAST_ACCOUNT → 유저 삭제로). 증권사별 「주문 서버」 1대 지정 · 시세 주 서버 1대를 증권사/서버 상관없이 즉시 전환. 다중 서버 fan-out 부분 실패 표시 · 87 에만 있는 유저는 「서버에만 있음」 표시만. **(3) relay** — 세션을 (유저, 서버) 단위로 · 관찰자(저널 · quote) 서버 순회 · 서버별 관리자 연결 = ObserverLoginReq(5) role 2(observer.toml secret 하나 — `DMA_OBSERVER_SECRET` 그대로, 새 Secret 없음 · 서버 kMaxObservers 4→6) · C→S 44 AdminCommandReq(op 1 UpsertUser / 2 DeleteUser / 3 SetAccount / 4 RemoveAccount / 5 ListUsers, request_id) · S→C 86 AdminCommandResp(code 0~12, 한국어 message, users_rev) · S→C 87 AdminUsersSnapshot(users.toml 전체, 비밀번호 없음) · 멱등 · 미체결/전략 있으면 9 BUSY · LivePing 30초 / 유휴 90초 스윕 / 5분 재접속 · 계좌 추가 후 87 → 보고 3(mode 1) 자가 선언 · 세션 합류 유지(D-17 뒤집음). 교보는 branch/trader 빈값 · 라우팅표 없음, account_no 는 서버 정규화 값으로 대조. **보존 제약:** 교보119 · KB120 운영 중(미체결 · 잔고 보유) — 기존 세션 · 관찰자 동작은 마지막 배포 단계까지 불변, 운영 상태 보존 필수. **착수 게이트:** gh-trade 계약은 확정(10-06), fbs 인박스(`docs/inbox/from-gh-trade/`) 도착 → `sync-relay-schema.sh` 생성물 커밋 뒤 relay 착수. 결정 정본은 메모리 `project_dma_admin_multi_server_261006`, 협의 상대 gh-trade 세션 `gh-trade-0d`.
 **Requirements**: ADMIN-01, ADMIN-02, ADMIN-03, ADMIN-04, ADMIN-05, ADMIN-06, ADMIN-07, ADMIN-08, ADMIN-09, ADMIN-10, ADMIN-11, ADMIN-12 (정의 정본 29-RESEARCH §Phase Requirements · REQUIREMENTS.md 등록은 29-40)
 **Depends on:** Phase 28(최신 relay 생성물 · 85 캐시), Phase 27(84 사용자 설정 · 자동매도 관찰자 경로), Phase 26(quote 관찰자 연결 — 서버 순회 대상), Phase 15(relay 세션 · users 매핑 · epoch)
-**Plans:** 34/44 plans executed (29-27~29-44 갭 클로징 — 29-VERIFICATION gaps_found 9/16 · 29-42 는 29-33 분할분으로 wave 16 · 29-43/29-44 는 gh-trade-84 답 ②(가)(나) 재계획(2026-10-10)에서 29-36 분할분으로 wave 17/20 에서 실행)
+**Plans:** 35/44 plans executed (29-27~29-44 갭 클로징 — 29-VERIFICATION gaps_found 9/16 · 29-42 는 29-33 분할분으로 wave 16 · 29-43/29-44 는 gh-trade-84 답 ②(가)(나) 재계획(2026-10-10)에서 29-36 분할분으로 wave 17/20 에서 실행)
 
 Plans:
 **Wave 1**
@@ -1595,7 +1595,7 @@ Plans:
 **Wave 16** *(blocked on Wave 15 completion)*
 
 - [x] 29-34-PLAN.md — (wave 16) [WR-04 · IN-03] 꺼진 서버 skipped 사유 · 확인 뒤 DB 등록만 지우고 삭제(skipDisabled) · 역할 releaseOn
-- [ ] 29-42-PLAN.md — (wave 16) [G-1 ③b · WR-05] 87 서버 단위 반영(원본 계좌 대조 · 전략 무접촉) · 「주문 서버 바뀜」 표식 제거(journal 원천 단언 보존 · 머리 문단에 (가) 순서) · D-10 증권사 세션 재사용 제거 — 29-33 분할분
+- [x] 29-42-PLAN.md — (wave 16) [G-1 ③b · WR-05] 87 서버 단위 반영(원본 계좌 대조 · 전략 무접촉) · 「주문 서버 바뀜」 표식 제거(journal 원천 단언 보존 · 머리 문단에 (가) 순서) · D-10 증권사 세션 재사용 제거 — 29-33 분할분
 
 **Wave 17** *(blocked on Wave 16 completion)*
 

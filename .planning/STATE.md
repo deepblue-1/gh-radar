@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 29
 current_phase_name: DMA 다중 서버 · 웹 Admin 유저 관리
 status: executing
-stopped_at: Completed 29-34-PLAN.md
-last_updated: "2026-10-10T14:54:19.204Z"
+stopped_at: Completed 29-42-PLAN.md
+last_updated: "2026-10-10T15:06:50.021Z"
 last_activity: 2026-10-10
 last_activity_desc: Phase 29 execution started
-state_head: 991bc5f4bf2c3b6bb2a0bf0b96bc40d18fa58272
+state_head: b2f0581e571cce76e54ae11c03f74a1a0f06b844
 progress:
   total_phases: 38
   completed_phases: 24
   total_plans: 421
-  completed_plans: 396
+  completed_plans: 397
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 29 (DMA 다중 서버 · 웹 Admin 유저 관리) — EXECUTING
-Plan: 4 of 44
+Plan: 5 of 44
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-10-10 — Phase 29 execution started
@@ -231,6 +231,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 29 P32 | 10 min | 3 tasks | 13 files |
 | Phase 29 P33 | 10 min | 2 tasks | 10 files |
 | Phase 29 P34 | 10 min | 3 tasks | 18 files |
+| Phase 29 P42 | 9 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -648,6 +649,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 29]: 29-34 WR-04: 꺼진 등록 서버 skipped 에 맥락별 사유(유저 삭제 · 그 밖 반영) — 화면 칩 title · 「<서버> 미반영: <사유>」 줄(warn)
 - [Phase 29]: 29-34 WR-04: 유저 삭제 ?skipDisabled=1(값 1 만 참) — Admin 확인 뒤 꺼진 서버는 op 없이 의도만 settle, deleted = 켜진 서버 전부 ok + 꺼진 서버 settle 성공 · 켜진 서버 실패면 DMA 유저 행 유지
 - [Phase 29]: 29-34 IN-03: 역할 세그먼트 useFieldSave releaseOn = user — 성공 뒤 첫 재조회 role 이 정본
+- [Phase 29]: 29-42: 87 대조(빠진 계좌 제외)는 세션 원본 declaredAccounts 기준 — 소유 뷰로 고르면 다른 서버에 넘긴 계좌가 users.toml 에서 빠져도 원본에 남는다. 87 반영 경로는 빠진 서버 세션을 열기만 하고 전략 끄기 · VI 는 보내지 않는다(29-36 · 29-44 몫)
+- [Phase 29]: 29-42: 「주문 서버 바뀜」 order.server 송신을 relay 에서 전부 제거 — 주문 서버 변경은 29-36 즉시 재수립(옛 서버 전략 끄기 → 재수립 → 25→66 재동기). shared 타입 정의 삭제는 29-39
+- [Phase 29]: 29-42: SessionManager 사용자 × 증권사 색인 제거 — acquireFor 는 #target(broker) → acquireOn 위임, primaryOf = 처음 만든 KB 세션 → 첫 세션(선호 규칙 29-35)
 
 ### Pending Todos
 
@@ -688,8 +692,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-10-10T14:54:02.296Z
-Stopped at: Completed 29-34-PLAN.md
+Last session: 2026-10-10T15:06:29.614Z
+Stopped at: Completed 29-42-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
