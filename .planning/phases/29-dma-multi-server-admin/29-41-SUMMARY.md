@@ -447,7 +447,7 @@ git push
 ## Next Phase Readiness
 
 - **29 갭 클로징 44/44 플랜 완료 · 운영 반영 끝.** 다음은 재검증(`/gsd-verify-work 29` 또는 verifier) — 이 SUMMARY 의 coverage D4 · D8 · D9 · D10 이 사람 확인으로 라우팅된다.
-- REQUIREMENTS: ADMIN-12 · ADMIN-06 · ADMIN-03 은 `requirements.ready-ids` 게이트가 3/3 ready 라 Complete 로 표시했다(이 플랜 requirements). ADMIN-01~02 · 04~05 · 07~11 은 이 플랜이 다루지 않으므로 그대로 — 재검증이 판정.
+- REQUIREMENTS: `requirements.ready-ids` 게이트는 ADMIN-12 · ADMIN-06 · ADMIN-03 을 3/3 ready 로 냈으나 `requirements.mark-complete` 가 **쓰지 않았다**(not_found) — Traceability 상태 칸이 맨 `Pending` 이 아니라 「Pending — 29 갭 클로징(29-27~29-44) 재검증 대기」 라 행 갱신이 거부되고, 체크박스도 표와 어긋나지 않게 함께 그대로 둔다(#2788). 29-40 이 등록한 「재검증이 판정」 규칙과 같은 결론이라 손으로 고치지 않았다 — **ADMIN-01~12 전부 Pending 유지, Complete 판정은 재검증 몫.** frontmatter `requirements-completed` 는 이 플랜 requirements 를 그대로 옮긴 것(템플릿 규칙 · 29-40 선례).
 - 후속 후보(블로커 아님): `deploy-server.sh` 196행 낡은 주석(12000ms → 15000ms) · `relay/src/quote/feed.ts:19` 관찰자 정원 주석 4 → 6 · 인박스 `261010-kb-order-ip-mac.md`(order_ip/mac 코덱 · Admin 입력칸) · 51 `OrderResp.account_no` 요청 여부(gh-trade-84 ④ 와 충돌 — 사용자 판단).
 
 ## Self-Check: PASSED
