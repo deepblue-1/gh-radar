@@ -110,6 +110,15 @@ describe('admin-api — 사용자', () => {
     expect(JSON.parse(call(2).init.body as string)).toEqual(dma);
   });
 
+  it('(29-34 WR-04) deleteAdminUser(email, { skipDisabled: true }) → ?skipDisabled=1 · false · 생략은 쿼리 없음', async () => {
+    await deleteAdminUser('a+b@example.invalid', { skipDisabled: true });
+    expect(call(0).path).toBe('/api/admin/users/a%2Bb%40example.invalid?skipDisabled=1');
+    expect(call(0).init.method).toBe('DELETE');
+    expect(call(0).init.timeoutMs).toBe(RELAY_TIMEOUT_MS);
+    await deleteAdminUser('a+b@example.invalid', { skipDisabled: false });
+    expect(call(1).path).toBe('/api/admin/users/a%2Bb%40example.invalid');
+  });
+
   it('세션이 없으면 서버 왕복 없이 UNAUTHENTICATED', async () => {
     getSessionMock.mockResolvedValueOnce({ data: { session: null } });
     await expect(fetchAdminUsers()).rejects.toBeInstanceOf(ApiClientError);

@@ -27,7 +27,7 @@ vi.mock('@/lib/admin-api', () => ({
   removeDmaAccount: (dma: string, broker: string, no: string) => removeDmaAccountMock(dma, broker, no),
   changeDmaPassword: (dma: string, pw: string) => changeDmaPasswordMock(dma, pw),
   reconcileDmaUser: (dma: string) => reconcileDmaUserMock(dma),
-  deleteAdminUser: (email: string) => deleteAdminUserMock(email),
+  deleteAdminUser: (...args: unknown[]) => deleteAdminUserMock(...args),
 }));
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ back: vi.fn(), push: vi.fn() }) }));
@@ -393,6 +393,47 @@ describe('UserSheet — 다시 반영 · 사용자 삭제 · 마지막 계좌', 
     expect(skipped).toHaveAttribute('title', reason);
     const lines = [...box.querySelectorAll('[data-slot="admin-busy-line"]')];
     expect(lines.map((l) => l.textContent)).toEqual([`KB121 미반영: ${reason}`]);
+  });
+
+  it('(29-34 WR-04) 꺼진 서버(KB121)에 등록된 사용자 → 확인 설명에 「DB 에서만 지워요」 안내 · 확인 → skipDisabled 요청', async () => {
+    deleteAdminUserMock.mockResolvedValue({ ok: true, deleted: true, relayNotified: true, results: [] });
+    const servers: AdminUsersOverview['servers'] = SERVERS.map((s) => (s.key === 'KB121' ? { ...s, enabled: false } : s));
+    const both: AdminUserView = {
+      ...KIM,
+      accounts: KIM.accounts.map((a) =>
+        a.broker === 'KB'
+          ? {
+              ...a,
+              servers: [
+                { serverKey: 'KB120', tone: 'ok', message: null, state: 'active' },
+                { serverKey: 'KB121', tone: 'warn', message: null, state: 'active' },
+              ],
+            }
+          : a,
+      ),
+    };
+    const onClose = vi.fn();
+    render(<UserSheet user={both} servers={servers} onChanged={() => {}} onClose={onClose} />);
+    fireEvent.click(footerBtn('사용자 삭제'));
+    const dlg = screen.getByRole('alertdialog', { name: '사용자를 삭제할까요?' });
+    expect(dlg).toHaveTextContent('꺼진 서버(KB121)의 등록은 DB 에서만 지워요 — 서버를 켜면 「서버에만 있음」 으로 보여요');
+    fireEvent.click(within(dlg).getByRole('button', { name: '삭제' }));
+    expect(deleteAdminUserMock).toHaveBeenCalledTimes(1);
+    expect(deleteAdminUserMock).toHaveBeenCalledWith(KIM.email, { skipDisabled: true });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it('(29-34 WR-04) 꺼진 등록 서버가 없으면 확인 문구 · 요청 종전(skipDisabled 없음) — 꺼진 서버가 레지스트리에 있어도 등록이 없으면 무관', () => {
+    deleteAdminUserMock.mockResolvedValue({ ok: true, deleted: true, relayNotified: true, results: [] });
+    const servers: AdminUsersOverview['servers'] = SERVERS.map((s) => (s.key === 'KYOBO127' ? { ...s, enabled: false } : s));
+    render(<UserSheet user={KIM} servers={servers} onChanged={() => {}} onClose={() => {}} />);
+    fireEvent.click(footerBtn('사용자 삭제'));
+    const dlg = screen.getByRole('alertdialog', { name: '사용자를 삭제할까요?' });
+    expect(dlg).not.toHaveTextContent('꺼진 서버');
+    expect(dlg).toHaveTextContent(`${KIM.email} — 되돌릴 수 없어요.`);
+    fireEvent.click(within(dlg).getByRole('button', { name: '삭제' }));
+    expect(deleteAdminUserMock).toHaveBeenCalledWith(KIM.email);
+    expect(deleteAdminUserMock.mock.calls[0]).toHaveLength(1);
   });
 
   it('마지막 계좌 「제거」 → 확인 「마지막 계좌를 지우면 사용자가 삭제돼요」 → DELETE 사용자 1건(계좌 DELETE 없음)', async () => {

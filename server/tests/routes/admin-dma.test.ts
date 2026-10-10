@@ -475,6 +475,33 @@ describe("DELETE /api/admin/users/:email — DMA 있는 사용자 (D-15 공유 �
     expect(counts[0].filters).toEqual([["eq", "dma_user_id", "kim01"]]);
   });
 
+  it("(29-34 WR-04) ?skipDisabled=1 → relay DELETE …/dma-users/kim01?skipDisabled=1 그대로 → deleted → 행 삭제 · 그 밖 값은 쿼리 없이", async () => {
+    const results = [
+      { server: "KB120", outcome: "ok", usersRev: "3" },
+      { server: "KB121", outcome: "skipped", message: "사용이 꺼진 서버 — DB 등록만 지웠어요(켜면 「서버에만 있음」)" },
+    ];
+    const relay = makeFakeRelay((c) =>
+      c.method === "DELETE" ? { status: 200, data: { results, deleted: true } } : undefined,
+    );
+    const { app, rows } = makeApp({}, relay.client);
+    const res = await auth(request(app).delete("/api/admin/users/trader%40gmail.com?skipDisabled=1"));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, deleted: true, results, relayNotified: true });
+    expect(rows.has("trader@gmail.com")).toBe(false);
+    expect(relay.calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      "DELETE /internal/admin/dma-users/kim01?skipDisabled=1",
+      "POST /internal/admin/access/reload",
+    ]);
+
+    // 1 이 아닌 값은 거짓 — relay 에 쿼리를 붙이지 않는다(종전 요청).
+    const relay2 = makeFakeRelay((c) =>
+      c.method === "DELETE" ? { status: 200, data: { results, deleted: false } } : undefined,
+    );
+    const second = makeApp({}, relay2.client);
+    await auth(request(second.app).delete("/api/admin/users/trader%40gmail.com?skipDisabled=true"));
+    expect(relay2.calls.map((c) => c.path)).toEqual(["/internal/admin/dma-users/kim01"]);
+  });
+
   it("한 서버 failed → relay deleted=false → 행 유지 · { ok, deleted: false, results } · 통보 0", async () => {
     const results = [
       { server: "KB120", outcome: "ok", usersRev: "3" },

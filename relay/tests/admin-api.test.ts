@@ -24,6 +24,9 @@
  *   S1  POST /registry/reload → reload 1회 → { ok: true, changed } · 실패 → 502 RELOAD_FAILED
  *   S2  POST /access/reload → 실 AppAccess 재적재 → 회수 사용자가 있으면 revoked 이벤트(fanout 결선 그대로) → { ok, changed }
  *   S3  GET /servers/status → 레지스트리 전 서버 { conn, journal, admin, quote } · 꺼진 서버 off · 시세 주 서버만 quote
+ *   K1  (29-34 WR-04) DELETE /dma-users/:dma?skipDisabled=1 — 꺼진 KB121 에 44 0건 · 그 서버 의도만 settle · 켜진 KB120 ok →
+ *       deleted true · 감사 줄에 skipDisabled / 쿼리 없으면 종전(deleted false · 꺼진 서버 사유)
+ *   K2  쿼리 해석 — `skipDisabled=1` 만 참 · `true` · `0` · 없음은 거짓(dispatcher 옵션에 키 없음)
  *   S4  감사 로그 — 변경 라우트마다 info 1줄 { admin, route, dma(마스킹), servers: [{ server, outcome, code }] } ·
  *       비밀번호 · 계좌번호 원문 · dmaUserId 원문 없음 · 유저 삭제 뒤 접근 맵 재적재(D-04)
  */
@@ -923,5 +926,64 @@ describe("relay Admin 내부 HTTP — 요청 마감 (29-32 WR-07)", () => {
         { server: "KB121", outcome: "timeout", message: DEADLINE_MESSAGE },
       ],
     });
+  });
+});
+
+describe("relay Admin 내부 HTTP — DB 등록만 지우고 삭제 (29-34 WR-04)", () => {
+  const SKIPPED_DELETE = "사용이 꺼진 서버 — 켜고 다시 삭제하거나, DB 등록만 지우고 삭제";
+  const SKIPPED_SETTLED = "사용이 꺼진 서버 — DB 등록만 지웠어요(켜면 「서버에만 있음」)";
+  let h: Harness;
+  let logs: LogCall[];
+
+  beforeEach(async () => {
+    logs = await spyLogs();
+  });
+
+  afterEach(async () => {
+    await h.close();
+    vi.restoreAllMocks();
+  });
+
+  it("K1 꺼진 KB121 등록 사용자 — 쿼리 없으면 deleted false + 사유 · ?skipDisabled=1 이면 KB121 44 0건 · settle · deleted true · 감사 skipDisabled", async () => {
+    h = await startHarness({ disabled: ["KB121"] });
+    expect((await call(h, "POST", "/internal/admin/dma-users", createBody())).status).toBe(200);
+
+    const plain = await call(h, "DELETE", "/internal/admin/dma-users/tr01");
+    expect(plain.status).toBe(200);
+    const plainBody = (await plain.json()) as { results: Array<{ server: string; outcome: string; message?: string }>; deleted: boolean };
+    expect(plainBody.deleted).toBe(false);
+    expect(plainBody.results.find((r) => r.server === "KB121")).toEqual({ server: "KB121", outcome: "skipped", message: SKIPPED_DELETE });
+    expect(h.db.callsTo("dma_admin_delete_dma_user")).toEqual([]);
+
+    const res = await call(h, "DELETE", "/internal/admin/dma-users/tr01?skipDisabled=1");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      results: [{ server: "KB121", outcome: "skipped", message: SKIPPED_SETTLED }],
+      deleted: true,
+    });
+    expect(h.commands("KB121")).toEqual([]);
+    expect(h.db.callsTo("dma_admin_delete_dma_user")).toHaveLength(1);
+    expect(h.db.dmaUsers.has("tr01")).toBe(false);
+
+    const deletes = logs.filter(
+      (c) => c.level === "info" && String(c.args[1] ?? "").startsWith("[admin-audit]") && (c.args[0] as { route: string }).route === "DELETE /dma-users/:dma",
+    );
+    expect(deletes.map((c) => (c.args[0] as { skipDisabled?: boolean }).skipDisabled)).toEqual([undefined, true]);
+  });
+
+  it("K2 쿼리 해석 — skipDisabled=1 만 참 · true · 0 · 없음은 dispatcher 옵션에 skipDisabled 키가 없다", async () => {
+    const NOW = 1_800_000_000_000;
+    h = await startHarness({ now: () => NOW });
+    const remove = vi.spyOn(AdminDispatcher.prototype, "deleteUser").mockResolvedValue({ results: [], deleted: false });
+    for (const q of ["?skipDisabled=1", "?skipDisabled=true", "?skipDisabled=0", ""]) {
+      expect((await call(h, "DELETE", `/internal/admin/dma-users/tr01${q}`)).status).toBe(200);
+    }
+    const deadlineAt = NOW + 10_000;
+    expect(remove.mock.calls.map((c) => c[2])).toEqual([
+      { deadlineAt, skipDisabled: true },
+      { deadlineAt },
+      { deadlineAt },
+      { deadlineAt },
+    ]);
   });
 });
