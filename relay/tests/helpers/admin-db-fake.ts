@@ -1,8 +1,9 @@
 /**
  * Phase 29 Plan 11 — Admin 의도 RPC 의 **메모리 대역**(`SupabaseClient` 모양). 운영 무접촉.
  *
- * 29-05 마이그레이션(`20261006200200_dma_admin_intent_rpcs.sql` · `20261006200300_dma_admin_reflect.sql`)의 의미를 그대로
- * 옮긴다 — 업무 거부는 PostgREST 오류 `{ code: "P0001", message: "<CODE>" }`. 정본 검증은 pgTAP(29-05)이고, 이 대역은 relay
+ * 29-05 마이그레이션(`20261006200200_dma_admin_intent_rpcs.sql` · `20261006200300_dma_admin_reflect.sql`) · 29-27 생성 가드
+ * (`20261010200000_dma_admin_create_dma_linked.sql` — 연결된 이메일 DMA_LINKED)의 의미를 그대로 옮긴다 — 업무 거부는
+ * PostgREST 오류 `{ code: "P0001", message: "<CODE>" }`. 정본 검증은 pgTAP(29-05 · 29-27)이고, 이 대역은 relay
  * dispatcher · 라우터가 RPC 를 **어떤 인자 · 순서로** 부르는지를 단언하려고 있다.
  *
  * 다루는 것: rpc 10종(create · set_password · put_account · mark_account_removed · settle_server · delete_dma_user · intent ·
@@ -42,6 +43,8 @@ export type SeedAccount = Partial<Omit<AccountRow, "dmaUserId" | "accountNo">> &
 
 export class AdminDbFake {
   readonly appUsers = new Set<string>();
+  /** app_users.dma_user_id — 이메일 → 연결된 DMA id(29-27 CR-01: 연결된 이메일 재생성은 DMA_LINKED). */
+  readonly appUserDma = new Map<string, string>();
   /** 레지스트리 서버 키 → 증권사(FK · SERVER_BROKER_MISMATCH 판정용). */
   readonly serverBroker = new Map<string, DmaBroker>();
   readonly dmaUsers = new Map<string, string>();
@@ -67,7 +70,10 @@ export class AdminDbFake {
 
   /** 유저 + 계좌 + 등록 행을 바로 심는다(RPC 기록 없이). */
   seedUser(input: { email?: string; dmaUserId: string; passwordEnc: string; accounts: SeedAccount[] }): void {
-    if (input.email !== undefined) this.appUsers.add(input.email);
+    if (input.email !== undefined) {
+      this.appUsers.add(input.email);
+      this.appUserDma.set(input.email, input.dmaUserId);
+    }
     this.dmaUsers.set(input.dmaUserId, input.passwordEnc);
     for (const a of input.accounts) {
       const broker = a.broker ?? "KB";
@@ -148,12 +154,15 @@ export class AdminDbFake {
         const email = String(args.p_email ?? "").trim().toLowerCase();
         const account = args.p_account as Record<string, unknown>;
         const servers = this.#serverList(args.p_servers);
+        // 20261010200000 과 같은 순서: NO_APP_USER → DMA_LINKED → DMA_USER_EXISTS → NO_SERVERS.
         if (!this.appUsers.has(email)) return reject("NO_APP_USER");
+        if (this.appUserDma.has(email)) return reject("DMA_LINKED");
         if (this.dmaUsers.has(id)) return reject("DMA_USER_EXISTS");
         if (servers.length === 0) return reject("NO_SERVERS");
         const broker = account.broker as DmaBroker;
         if (this.#mismatch(broker, servers)) return reject("SERVER_BROKER_MISMATCH");
         this.dmaUsers.set(id, String(args.p_password_enc));
+        this.appUserDma.set(email, id);
         this.accounts.push({
           dmaUserId: id,
           broker,
@@ -238,6 +247,8 @@ export class AdminDbFake {
         if (this.serverRows.some((s) => s.dmaUserId === id)) return reject("SERVERS_REMAIN");
         this.dmaUsers.delete(id);
         this.accounts = this.accounts.filter((a) => a.dmaUserId !== id);
+        // app_users.dma_user_id 는 ON DELETE SET NULL(29-01) — 웹 사용자 행은 남고 연결만 풀린다.
+        for (const [email, dma] of this.appUserDma) if (dma === id) this.appUserDma.delete(email);
         return ok(null);
       }
       case "dma_admin_intent":
