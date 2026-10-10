@@ -596,7 +596,9 @@ pipelines.get(serverKey)?.access.replace(rows);
 | A6 | Express → relay 평문 http(VPC) 로 비밀번호 전송이 기존 주문 경로와 같은 수준으로 수용됨 | Pattern 3 | 보안 판단 필요 시 TLS · 별도 암호화 |
 | A7 | 교보 웹 주문(교보 사용자 세션)이 이번 phase 범위다 | Pattern 5 · Open Q1 | 범위가 크게 달라짐 |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> 해소처: Q1 → 29-CONTEXT D-18(G-1 소유 필터 · primary 보정은 29-35) · Q2 → D-19 · Q3 → D-20 · Q4 → 29-CONTEXT Claude's Discretion(증권사별 비밀 env 재사용) · Q5 → D-21 · Q6 → 29-CONTEXT Claude's Discretion(`journal` 축 = KB 주문 서버 저널) + G-1 재검토 29-36 Task 3(journal/brokers = 증권사 기본 주문 서버 · 계좌 지정 서버는 healthz 본문 `accountOrderServers`).
 
 1. **(유저, 서버) 세션 병합 규칙 — 특히 교보 세션의 VI · 사용자 설정(84) · 상태 프레임**
    - What we know: 지금 사용자 세션은 KB 1개이고 hub 의 VI 캐시 키는 `viTriggerKey(userId, exchange)`, 84 · 77 · 76/78 도 userId 단위다. 「트레이딩 표면 UI 변경 없음(배지 1개 제외)」 이 범위 제약이다.
