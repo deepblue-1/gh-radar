@@ -418,6 +418,122 @@ describe("DMA 프록시 — relay 계약(29-11) 1:1", () => {
   });
 });
 
+describe("PUT /api/admin/dma-users/:dma/accounts/:broker/:accountNo/order-server — 계좌 주문 서버 지정 (29-37 G-1 ⑥)", () => {
+  const PATH = "/api/admin/dma-users/kim01/accounts/KB/00123/order-server";
+  const okOrderServer = (c: { body?: unknown }) => ({
+    status: 200,
+    data: { ok: true, orderServer: (c.body as { serverKey: string | null }).serverKey },
+  });
+
+  it("admin → relay 같은 경로 PUT 1회(세그먼트 인코딩 · 바디 그대로) → 200 { ok, orderServer } 그대로", async () => {
+    const relay = makeFakeRelay(okOrderServer);
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).put(PATH)).send({ serverKey: "KB121" });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, orderServer: "KB121" });
+    expect(relay.calls).toEqual([
+      {
+        method: "PUT",
+        path: "/internal/admin/dma-users/kim01/accounts/KB/00123/order-server",
+        adminEmail: ADMIN_EMAIL,
+        body: { serverKey: "KB121" },
+      },
+    ]);
+
+    const enc = await auth(request(app).put(`/api/admin/dma-users/${encodeURIComponent("가나")}/accounts/KB/1/order-server`)).send({
+      serverKey: "KB121",
+    });
+    expect(enc.status).toBe(200);
+    expect(relay.calls[1].path).toBe(`/internal/admin/dma-users/${encodeURIComponent("가나")}/accounts/KB/1/order-server`);
+  });
+
+  it("serverKey null → relay 바디 { serverKey: null } · 200 { ok, orderServer: null }", async () => {
+    const relay = makeFakeRelay(okOrderServer);
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).put(PATH)).send({ serverKey: null });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, orderServer: null });
+    expect(relay.calls[0].body).toEqual({ serverKey: null });
+  });
+
+  it.each(["ORDER_SERVER_NOT_REGISTERED", "NO_SUCH_ACCOUNT", "NO_DMA_USER"])("relay 409 %s → 409 그대로(코드 · 문구)", async (code) => {
+    const relay = makeFakeRelay(() => relayReject(409, code, `${code} 문구`));
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).put(PATH)).send({ serverKey: "KB121" });
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: { code, message: `${code} 문구` } });
+  });
+
+  it("relay 400 VALIDATION_FAILED(레지스트리에 없는 키) → 400 그대로", async () => {
+    const relay = makeFakeRelay(() => relayReject(400, "VALIDATION_FAILED", "serverKey: 레지스트리에 없는 서버 KB999"));
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).put(PATH)).send({ serverKey: "KB999" });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("VALIDATION_FAILED");
+  });
+
+  it("relay 못 닿음 · 5xx · 200 인데 모양 위반 → 502 RELAY_FAILED / 클라이언트 없음 → 503 RELAY_UNAVAILABLE", async () => {
+    for (const reply of [
+      { status: 0, data: null },
+      { status: 500, data: { error: { code: "INTERNAL_ERROR", message: "x" } } },
+      { status: 200, data: { results: [] } },
+    ]) {
+      const { app } = makeApp({}, makeFakeRelay(() => reply).client);
+      const r = await auth(request(app).put(PATH)).send({ serverKey: "KB121" });
+      expect(r.status).toBe(502);
+      expect(r.body.error.code).toBe("RELAY_FAILED");
+    }
+    const none = makeApp();
+    const r2 = await auth(request(none.app).put(PATH)).send({ serverKey: "KB121" });
+    expect(r2.status).toBe(503);
+    expect(r2.body.error.code).toBe("RELAY_UNAVAILABLE");
+  });
+
+  it.each<[string, string, unknown]>([
+    ["serverKey 누락", PATH, {}],
+    ["serverKey 형식 밖", PATH, { serverKey: "kb121" }],
+    ["serverKey 빈 문자열", PATH, { serverKey: "" }],
+    ["serverKey 가 계좌 증권사 서버가 아님", PATH, { serverKey: "KYOBO119" }],
+    ["증권사 enum 밖", "/api/admin/dma-users/kim01/accounts/NH/1/order-server", { serverKey: null }],
+    ["계좌번호 13자", "/api/admin/dma-users/kim01/accounts/KB/1234567890123/order-server", { serverKey: null }],
+    ["DMA id 9바이트", "/api/admin/dma-users/abcdefghi/accounts/KB/1/order-server", { serverKey: null }],
+  ])("%s → 400 VALIDATION_FAILED · relay 0", async (_n, path, body) => {
+    const relay = makeFakeRelay(okOrderServer);
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).put(path)).send(body as object);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("VALIDATION_FAILED");
+    expect(relay.calls).toHaveLength(0);
+  });
+
+  it("trader 토큰 → 403 · relay 0", async () => {
+    const relay = makeFakeRelay(okOrderServer);
+    const { app } = makeApp({}, relay.client);
+    const res = await request(app).put(PATH).set("Authorization", "Bearer tok-trader").send({ serverKey: "KB121" });
+    expect(res.status).toBe(403);
+    expect(relay.calls).toHaveLength(0);
+  });
+
+  it("감사 1줄 — DMA id 마스킹 · 계좌번호 원문 없음 · 지정 키", async () => {
+    const cap = captureLogs();
+    try {
+      const relay = makeFakeRelay(okOrderServer);
+      const { app } = makeApp({}, relay.client);
+      const res = await auth(request(app).put("/api/admin/dma-users/kim01/accounts/KB/1234567801/order-server")).send({
+        serverKey: "KB121",
+      });
+      expect(res.status).toBe(200);
+      const text = cap.text();
+      expect(text).toContain('"op":"dma-order-server"');
+      expect(text).toContain("ki***(5)");
+      expect(text).toContain('"orderServer":"KB121"');
+      expect(text).not.toContain("1234567801");
+    } finally {
+      cap.restore();
+    }
+  });
+});
+
 describe("POST /api/admin/users/:email/dma — 기존 사용자에 DMA 연결", () => {
   const withT2 = () => ({ appUsers: [...baseAppUsers(), { email: "t2@gmail.com", role: "trader", dma_user_id: null }] });
 

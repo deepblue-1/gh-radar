@@ -6,8 +6,8 @@
  * PostgREST 오류 `{ code: "P0001", message: "<CODE>" }`. 정본 검증은 pgTAP(29-05 · 29-27)이고, 이 대역은 relay
  * dispatcher · 라우터가 RPC 를 **어떤 인자 · 순서로** 부르는지를 단언하려고 있다.
  *
- * 다루는 것: rpc 10종(create · set_password · put_account · mark_account_removed · settle_server · delete_dma_user · intent ·
- * record_results · set_quote_primary(29-23) + 미지 이름 기록) · `from("dma_users").select().eq().maybeSingle()` ·
+ * 다루는 것: rpc 11종(create · set_password · put_account · mark_account_removed · settle_server · delete_dma_user · intent ·
+ * record_results · set_quote_primary(29-23) · set_account_order_server(29-29 · 29-37) + 미지 이름 기록) · `from("dma_users").select().eq().maybeSingle()` ·
  * `from("dma_credentials").select().eq()` · `from("dma_credentials").update().eq().eq()`.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -25,7 +25,18 @@ type AccountRow = {
   priority: number;
 };
 
-type ServerRow = { dmaUserId: string; broker: DmaBroker; accountNo: string; serverKey: string; state: "active" | "removing" };
+/**
+ * `isOrder` = 계좌 주문 서버 지정(20261010200100 안 A — `dma_account_servers.is_order`). CHECK 와 같이 active 행만 참이고
+ * removing 으로 바뀌는 같은 갱신이 지운다(put_account · mark_account_removed).
+ */
+type ServerRow = {
+  dmaUserId: string;
+  broker: DmaBroker;
+  accountNo: string;
+  serverKey: string;
+  state: "active" | "removing";
+  isOrder?: boolean;
+};
 
 type LegacyRow = { user_id: string; dma_user_id: string; dma_password_enc: string };
 
@@ -118,6 +129,14 @@ export class AdminDbFake {
       );
   }
 
+  /** 그 계좌의 주문 서버 지정(없으면 null = 증권사 기본값). */
+  orderServerOf(dmaUserId: string, broker: DmaBroker, accountNo: string): string | null {
+    const row = this.serverRows.find(
+      (s) => s.dmaUserId === dmaUserId && s.broker === broker && s.accountNo === accountNo && s.isOrder === true,
+    );
+    return row?.serverKey ?? null;
+  }
+
   #account(dmaUserId: string, broker: DmaBroker, accountNo: string): AccountRow | undefined {
     return this.accounts.find((a) => a.dmaUserId === dmaUserId && a.broker === broker && a.accountNo === accountNo);
   }
@@ -201,7 +220,9 @@ export class AdminDbFake {
         else this.accounts.push({ dmaUserId: id, broker, accountNo, ...fields });
         for (const row of this.serverRows) {
           if (row.dmaUserId === id && row.broker === broker && row.accountNo === accountNo && !servers.includes(row.serverKey)) {
+            // 20261010200100 — removing 으로 바꾸는 같은 UPDATE 가 지정도 지운다.
             row.state = "removing";
+            row.isOrder = false;
           }
         }
         for (const s of servers) {
@@ -226,7 +247,10 @@ export class AdminDbFake {
         );
         if (!otherActive) return reject("LAST_ACCOUNT");
         for (const s of this.serverRows) {
-          if (s.dmaUserId === id && s.broker === broker && s.accountNo === accountNo && s.state === "active") s.state = "removing";
+          if (s.dmaUserId === id && s.broker === broker && s.accountNo === accountNo && s.state === "active") {
+            s.state = "removing";
+            s.isOrder = false;
+          }
         }
         return ok(null);
       }
@@ -264,6 +288,22 @@ export class AdminDbFake {
           return { data: null, error: { code: "P0002", message: "server not found", details: null, hint: null } };
         }
         return ok(null);
+      }
+      case "dma_admin_set_account_order_server": {
+        // 20261010200100 ② 와 같은 순서: NO_DMA_USER → NO_SUCH_ACCOUNT → ORDER_SERVER_NOT_REGISTERED(active 등록 행 아님) →
+        // 내리고 세운다. 빈 키 · null = 지정 해제. 반환 { orderServer }.
+        const broker = args.p_broker as DmaBroker;
+        const accountNo = String(args.p_account_no);
+        const raw = args.p_server_key;
+        const key = typeof raw === "string" && raw.trim() !== "" ? raw.trim() : null;
+        if (!this.dmaUsers.has(id)) return reject("NO_DMA_USER");
+        if (!this.#account(id, broker, accountNo)) return reject("NO_SUCH_ACCOUNT");
+        const mine = this.serverRows.filter((s) => s.dmaUserId === id && s.broker === broker && s.accountNo === accountNo);
+        if (key !== null && !mine.some((s) => s.serverKey === key && s.state === "active")) {
+          return reject("ORDER_SERVER_NOT_REGISTERED");
+        }
+        for (const s of mine) s.isOrder = s.serverKey === key;
+        return ok({ orderServer: key });
       }
       default:
         return ok(null);

@@ -29,11 +29,19 @@
  *   K2  쿼리 해석 — `skipDisabled=1` 만 참 · `true` · `0` · 없음은 거짓(dispatcher 옵션에 키 없음)
  *   S4  감사 로그 — 변경 라우트마다 info 1줄 { admin, route, dma(마스킹), servers: [{ server, outcome, code }] } ·
  *       비밀번호 · 계좌번호 원문 · dmaUserId 원문 없음 · 유저 삭제 뒤 접근 맵 재적재(D-04)
+ *
+ * 잠그는 것 (29-37 G-1 ⑥ — 계좌 주문 서버 지정):
+ *   O1  PUT /dma-users/:dma/accounts/:broker/:accountNo/order-server { serverKey: "KB121" } → RPC 1회 → 지정 재적재 1회 →
+ *       200 { ok: true, orderServer: "KB121" } · 44 0건(지정은 gh-trade 와이어 무변경) · 감사 1줄(DMA id · 계좌 마스킹)
+ *   O2  { serverKey: null } → 지정 해제 → 200 { ok: true, orderServer: null }
+ *   O3  레지스트리에 없는 키 · 형식 밖 키 · serverKey 누락 → 400 VALIDATION_FAILED · RPC 0 · 재적재 0
+ *   O4  다른 증권사 서버 → 409 ORDER_SERVER_NOT_REGISTERED · 없는 계좌 → 409 NO_SUCH_ACCOUNT · 없는 유저 → 409 NO_DMA_USER
+ *   O5  재적재 실패(ok false · throw)는 응답을 바꾸지 않는다(200 · warn)
  */
 import { randomBytes } from "node:crypto";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import { AppAccess } from "../src/access/app-access.js";
 import { AdminConn } from "../src/admin/admin-conn.js";
@@ -103,6 +111,8 @@ type Harness = {
   credKey: string;
   /** op 5(접속 · 보정) 를 뺀 44. */
   commands: (key: string) => AdminCommandRequest[];
+  /** 계좌 주문 서버 지정 즉시 재적재 대역(29-37) — 호출 횟수 단언용. */
+  orderServersReload: Mock<() => Promise<{ ok: boolean }>>;
   close: () => Promise<void>;
 };
 
@@ -134,6 +144,8 @@ type HarnessOptions = {
   adminDeadlineMs?: number;
   /** 끄지 못한 전략 서버별 계좌 수(29-43 G-1 (가)). 기본 주입 없음. */
   staleStrategies?: () => ReadonlyMap<string, number>;
+  /** 계좌 주문 서버 지정 재적재 결과(29-37). 기본 = 성공 `{ ok: true }`. */
+  orderServersReload?: () => Promise<{ ok: boolean }>;
 };
 
 async function startHarness(opts: HarnessOptions = {}): Promise<Harness> {
@@ -184,6 +196,7 @@ async function startHarness(opts: HarnessOptions = {}): Promise<Harness> {
     entryOf: () => undefined,
   };
   const dispatcher = new AdminDispatcher({ store, pipelines, registry, credKey, access });
+  const orderServersReload = vi.fn<() => Promise<{ ok: boolean }>>(opts.orderServersReload ?? (() => Promise.resolve({ ok: true })));
   const router = createAdminRouter({
     store,
     dispatcher,
@@ -200,6 +213,7 @@ async function startHarness(opts: HarnessOptions = {}): Promise<Harness> {
     ...(opts.now !== undefined ? { now: opts.now } : {}),
     ...(opts.adminDeadlineMs !== undefined ? { adminDeadlineMs: opts.adminDeadlineMs } : {}),
     ...(opts.staleStrategies !== undefined ? { staleStrategies: opts.staleStrategies } : {}),
+    orderServers: { reload: orderServersReload },
   });
 
   const app = createOrderApi({
@@ -224,6 +238,7 @@ async function startHarness(opts: HarnessOptions = {}): Promise<Harness> {
     rows,
     credKey,
     commands: (key) => gateways[key]!.adminCommandRequests().filter((r) => r.op !== 5),
+    orderServersReload,
     close: async () => {
       for (const c of Object.values(conns)) c.stop();
       for (const g of Object.values(gateways)) await g.close();
@@ -521,6 +536,118 @@ describe("relay Admin 내부 HTTP — 변경 경로 (29-11 Task 2)", () => {
       expect(res.status).toBe(400);
       expect(((await res.json()) as { error: { code: string } }).error.code).toBe("VALIDATION_FAILED");
     }
+  });
+});
+
+describe("relay Admin 내부 HTTP — 계좌 주문 서버 지정 (29-37 G-1 ⑥)", () => {
+  let h: Harness;
+  let logs: LogCall[];
+  const PATH = "/internal/admin/dma-users/tr01/accounts/KB/1234567801/order-server";
+
+  beforeEach(async () => {
+    logs = await spyLogs();
+    h = await startHarness();
+    const created = await call(h, "POST", "/internal/admin/dma-users", createBody());
+    expect(created.status).toBe(200);
+    logs.length = 0;
+  });
+
+  afterEach(async () => {
+    await h.close();
+    vi.restoreAllMocks();
+  });
+
+  const auditLines = () =>
+    logs.filter((c) => c.level === "info" && c.args[1] === "[admin-audit] Admin 변경 요청").map((c) => c.args[0] as Record<string, unknown>);
+
+  it("O1 지정 KB121 → RPC 1회 · 지정 재적재 1회 · 200 { ok, orderServer } · 44 0건 · 감사 1줄(마스킹)", async () => {
+    const before = [h.commands("KB120").length, h.commands("KB121").length];
+    // 경로의 계좌번호도 정규화된다("001234567801" → "1234567801").
+    const res = await call(h, "PUT", "/internal/admin/dma-users/tr01/accounts/KB/001234567801/order-server", { serverKey: "KB121" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, orderServer: "KB121" });
+    expect(h.db.callsTo("dma_admin_set_account_order_server").map((c) => c.args)).toEqual([
+      { p_dma_user_id: "tr01", p_broker: "KB", p_account_no: "1234567801", p_server_key: "KB121" },
+    ]);
+    expect(h.db.orderServerOf("tr01", "KB", "1234567801")).toBe("KB121");
+    expect(h.orderServersReload).toHaveBeenCalledTimes(1);
+    expect([h.commands("KB120").length, h.commands("KB121").length]).toEqual(before);
+
+    const lines = auditLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      admin: ADMIN,
+      route: "PUT /dma-users/:dma/accounts/:broker/:accountNo/order-server",
+      dma: "tr***(4)",
+      broker: "KB",
+      account: "123456****",
+      orderServer: "KB121",
+    });
+    const dumped = stringify(logs.map((c) => c.args));
+    expect(dumped).not.toContain("1234567801");
+    expect(dumped).not.toContain('"tr01"');
+  });
+
+  it("O2 serverKey null → 지정 해제 · 200 { ok, orderServer: null } · 재적재 1회", async () => {
+    expect((await call(h, "PUT", PATH, { serverKey: "KB121" })).status).toBe(200);
+    const res = await call(h, "PUT", PATH, { serverKey: null });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, orderServer: null });
+    expect(h.db.orderServerOf("tr01", "KB", "1234567801")).toBeNull();
+    expect(h.db.callsTo("dma_admin_set_account_order_server").at(-1)!.args.p_server_key).toBeNull();
+    expect(h.orderServersReload).toHaveBeenCalledTimes(2);
+  });
+
+  it("O3 레지스트리에 없는 키 · 형식 밖 키 · serverKey 누락 → 400 VALIDATION_FAILED · RPC 0 · 재적재 0", async () => {
+    for (const body of [{ serverKey: "KB999" }, { serverKey: "kb121" }, { serverKey: "" }, {}, { serverKey: 121 }]) {
+      const res = await call(h, "PUT", PATH, body);
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe("VALIDATION_FAILED");
+    }
+    expect(h.db.callsTo("dma_admin_set_account_order_server")).toHaveLength(0);
+    expect(h.orderServersReload).not.toHaveBeenCalled();
+  });
+
+  it("O4 다른 증권사 서버 409 ORDER_SERVER_NOT_REGISTERED · 없는 계좌 409 NO_SUCH_ACCOUNT · 없는 유저 409 NO_DMA_USER · 재적재 0 · 감사 rejected", async () => {
+    const cases: Array<[string, unknown, string]> = [
+      [PATH, { serverKey: "KYOBO119" }, "ORDER_SERVER_NOT_REGISTERED"],
+      ["/internal/admin/dma-users/tr01/accounts/KB/999/order-server", { serverKey: "KB121" }, "NO_SUCH_ACCOUNT"],
+      ["/internal/admin/dma-users/ghost/accounts/KB/1234567801/order-server", { serverKey: null }, "NO_DMA_USER"],
+    ];
+    for (const [path, body, code] of cases) {
+      const res = await call(h, "PUT", path, body);
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe(code);
+    }
+    expect(h.db.orderServerOf("tr01", "KB", "1234567801")).toBeNull();
+    expect(h.orderServersReload).not.toHaveBeenCalled();
+    expect(auditLines().map((l) => l.rejected)).toEqual(["ORDER_SERVER_NOT_REGISTERED", "NO_SUCH_ACCOUNT", "NO_DMA_USER"]);
+  });
+
+  it("O4 removing 등록 서버로의 지정도 409 ORDER_SERVER_NOT_REGISTERED", async () => {
+    // KB120 을 빼서 removing — settle 전이라도 지정 대상이 아니다.
+    h.db.serverRows.find((r) => r.dmaUserId === "tr01" && r.serverKey === "KB120")!.state = "removing";
+    const res = await call(h, "PUT", PATH, { serverKey: "KB120" });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("ORDER_SERVER_NOT_REGISTERED");
+  });
+
+  it("O5 지정 재적재 실패(ok false · throw)는 응답을 바꾸지 않는다 — 200 · warn 1줄씩", async () => {
+    await h.close();
+    vi.restoreAllMocks();
+    logs = await spyLogs();
+    let n = 0;
+    h = await startHarness({
+      orderServersReload: () => (n++ === 0 ? Promise.resolve({ ok: false }) : Promise.reject(new Error("boom"))),
+    });
+    expect((await call(h, "POST", "/internal/admin/dma-users", createBody())).status).toBe(200);
+    for (const serverKey of ["KB121", null]) {
+      const res = await call(h, "PUT", PATH, { serverKey });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, orderServer: serverKey });
+    }
+    expect(h.orderServersReload).toHaveBeenCalledTimes(2);
+    expect(logs.filter((c) => c.level === "warn" && String(c.args[1]).includes("지정 재적재"))).toHaveLength(2);
   });
 });
 
