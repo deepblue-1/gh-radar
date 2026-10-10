@@ -15,6 +15,8 @@
  *   D10 요청 마감(29-32 WR-07) — 마감에 진 서버는 timeout(ADMIN_DEADLINE_MESSAGE)으로 접어 먼저 응답 · 뒤 반영이 끝나면 실제
  *       결과로 record 2회째 · 마감 전 완료면 종전 그대로(record 1회) · 삭제가 마감에 걸리면 deleted false · 늦은 완료에도
  *       deleteDmaUser 0 · 같은 유저 줄은 실제 완료까지 유지(대기 시간도 마감에 포함)
+ *   D12 꺼진 서버 skipped 사유(29-34 WR-04) — 레지스트리에서 꺼진 · 없는 등록 서버의 skipped 에 맥락별 문구(유저 삭제 ·
+ *       그 밖 반영) · 다른 서버 결과 무변화 · 꺼진 서버에는 44 0건
  *   D11 reconcile op 2 settle = 계획 때 removing 이던 행만(29-32 WR-01) — op 2 진행 중 다른 계좌에 그 서버가 active 로 체크돼도
  *       남고(settle 인자 userRemoved=false) · 줄 서 있던 다음 반영이 그 서버에 op 1 로 다시 올린다
  */
@@ -39,6 +41,9 @@ const DEADLINE_MS = 10_000;
 const DEADLINE_MESSAGE = "10초 안에 끝나지 않아 먼저 응답했어요 — 서버 반영은 계속돼요";
 const KEY = randomBytes(32).toString("base64");
 const BUSY_MESSAGE = "미체결 1건 등록 — 먼저 정리";
+/** 꺼진 · 없는 등록 서버의 skipped 사유(29-34 WR-04) — dispatcher 상수와 같은 문구(D12 가 상수 자체도 잠근다). */
+const SKIPPED_DELETE = "사용이 꺼진 서버 — 켜고 다시 삭제하거나, DB 등록만 지우고 삭제";
+const SKIPPED_RECONCILE = "사용이 꺼진 서버 — 켜면 「다시 반영」 으로 맞춰요";
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -431,7 +436,7 @@ describe("AdminDispatcher — 변경 경로 (29-11 Task 2)", () => {
     expect(results).toEqual([
       { server: "KB120", outcome: "ok", usersRev: "6" },
       { server: "KB121", outcome: "offline" },
-      { server: "KB122", outcome: "skipped" },
+      { server: "KB122", outcome: "skipped", message: SKIPPED_RECONCILE },
       { server: "KB123", outcome: "offline" },
     ]);
     expect(env.conns.KB121!.sent).toEqual([]);
@@ -664,5 +669,41 @@ describe("AdminDispatcher — 변경 경로 (29-11 Task 2)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe("D12 꺼진 서버 skipped 사유 (29-34 WR-04)", () => {
+    it("상수 — 유저 삭제 · 그 밖 반영 사유 문구", () => {
+      expect(dispatcherModule.SKIPPED_DISABLED_DELETE_MESSAGE).toBe(SKIPPED_DELETE);
+      expect(dispatcherModule.SKIPPED_DISABLED_RECONCILE_MESSAGE).toBe(SKIPPED_RECONCILE);
+    });
+
+    it("다시 반영 — 꺼진 KB121 은 skipped + 「켜면 다시 반영」 사유 · 켜진 KB120 은 ok 그대로 · KB121 44 0건", async () => {
+      const env = setup({ KB120: state({ u1: [kb("A")] }), KB121: state({ u1: [kb("A")] }) }, [row("KB120"), row("KB121", false)]);
+      seedU1(env, [{ accountNo: "A", servers: ["KB120", "KB121"] }]);
+
+      const results = await env.dispatcher.reconcileUser("u1", { adminEmail: "boss@gmail.com" });
+      expect(results).toEqual([
+        { server: "KB120", outcome: "ok", usersRev: "5" },
+        { server: "KB121", outcome: "skipped", message: SKIPPED_RECONCILE },
+      ]);
+      expect(env.conns.KB121!.sent).toEqual([]);
+    });
+
+    it("유저 삭제 — 꺼진 KB121 은 skipped + 「켜고 다시 삭제하거나, DB 등록만 지우고 삭제」 사유 · KB120 op 2 ok · deleted false", async () => {
+      const env = setup({ KB120: state({ u1: [kb("A")] }), KB121: state({ u1: [kb("A")] }) }, [row("KB120"), row("KB121", false)]);
+      seedU1(env, [{ accountNo: "A", servers: ["KB120", "KB121"] }]);
+
+      const out = await env.dispatcher.deleteUser("u1", "boss@gmail.com");
+      expect(out).toEqual({
+        results: [
+          { server: "KB120", outcome: "ok", usersRev: "6" },
+          { server: "KB121", outcome: "skipped", message: SKIPPED_DELETE },
+        ],
+        deleted: false,
+      });
+      expect(env.conns.KB121!.sent).toEqual([]);
+      expect(env.db.callsTo("dma_admin_delete_dma_user")).toEqual([]);
+      expect(env.db.intentOf("u1").map((r) => `${r.serverKey}:${r.state}`)).toEqual(["KB121:active"]);
+    });
   });
 });

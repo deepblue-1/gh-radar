@@ -30,6 +30,8 @@ const SERVERS: AdminUsersOverview['servers'] = [
 ];
 
 const BUSY = '미체결 2건 — 먼저 정리';
+/** 꺼진 서버 skipped 사유(29-34 WR-04 — relay `SKIPPED_DISABLED_RECONCILE_MESSAGE` 와 같은 문구). */
+const SKIPPED_REASON = '사용이 꺼진 서버 — 켜면 「다시 반영」 으로 맞춰요';
 
 const KB_ACCT: AdminAccountView = {
   broker: 'KB',
@@ -165,6 +167,32 @@ describe('AccountEditor — 계좌 줄', () => {
     const o = pill('9876543201', 'KYOBO127').querySelector('[data-slot="reflect-chip"]') as HTMLElement;
     expect([t.textContent, t.getAttribute('data-tone')]).toEqual(['응답 없음', 'err']);
     expect([o.textContent, o.getAttribute('data-tone')]).toEqual(['서버 연결 안 됨', 'warn']);
+  });
+
+  it('(29-34 WR-04) skipped + 사유 → warn 칩 「미반영」 title = 사유 · 계좌 영역 아래 「KB121 미반영: <사유>」 한 줄 · 사유 없는 skipped 는 줄 없음', async () => {
+    putDmaAccountMock.mockResolvedValue({
+      results: [
+        { server: 'KB120', outcome: 'skipped' },
+        { server: 'KB121', outcome: 'skipped', message: SKIPPED_REASON },
+      ],
+    });
+    setup();
+    fireEvent.click(toggle('12345678901', 'KB121'));
+    const chip = await waitFor(() => {
+      const c = pill('12345678901', 'KB121').querySelector('[data-slot="reflect-chip"]') as HTMLElement;
+      if (!c) throw new Error('no chip');
+      return c;
+    });
+    expect(chip).toHaveTextContent('미반영');
+    expect(chip).toHaveAttribute('data-tone', 'warn');
+    expect(chip).toHaveAttribute('title', SKIPPED_REASON);
+    const lines = [...document.querySelectorAll('[data-slot="admin-busy-line"]')];
+    expect(lines.map((l) => l.textContent)).toEqual([`KB121 미반영: ${SKIPPED_REASON}`]);
+    expect(lines[0]).toHaveAttribute('data-tone', 'warn');
+    // 사유 없는 skipped — 종전(칩만 · title 없음)
+    const plain = pill('12345678901', 'KB120').querySelector('[data-slot="reflect-chip"]') as HTMLElement;
+    expect(plain).toHaveAttribute('data-tone', 'warn');
+    expect(plain).not.toHaveAttribute('title');
   });
 
   it('PUT 실패(502) → 토글이 원래 값으로 · 계좌 안 한 줄', async () => {

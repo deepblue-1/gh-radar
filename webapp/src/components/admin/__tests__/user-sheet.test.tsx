@@ -368,6 +368,33 @@ describe('UserSheet — 다시 반영 · 사용자 삭제 · 마지막 계좌', 
     expect(box).toHaveTextContent('KYOBO119 실패 · BUSY: 마지막 사용자는 삭제할 수 없습니다');
   });
 
+  it('(29-34 WR-04) 삭제 결과의 꺼진 서버 skipped + 사유 → warn 칩(title = 사유) · 「KB121 미반영: <사유>」 줄', async () => {
+    const reason = '사용이 꺼진 서버 — 켜고 다시 삭제하거나, DB 등록만 지우고 삭제';
+    deleteAdminUserMock.mockResolvedValue({
+      ok: true,
+      deleted: false,
+      relayNotified: false,
+      results: [
+        { server: 'KB120', outcome: 'ok' },
+        { server: 'KB121', outcome: 'skipped', message: reason },
+      ],
+    });
+    render(<UserSheet user={KIM} servers={SERVERS} onChanged={() => {}} onClose={() => {}} />);
+    fireEvent.click(footerBtn('사용자 삭제'));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '삭제' }));
+    const box = await waitFor(() => {
+      const b = document.querySelector('[data-slot="admin-delete-results"]') as HTMLElement;
+      if (!b) throw new Error('no results');
+      return b;
+    });
+    const skipped = box.querySelector('[data-slot="reflect-chip"][data-server="KB121"]') as HTMLElement;
+    expect(skipped).toHaveTextContent('KB121 · 미반영');
+    expect(skipped).toHaveAttribute('data-tone', 'warn');
+    expect(skipped).toHaveAttribute('title', reason);
+    const lines = [...box.querySelectorAll('[data-slot="admin-busy-line"]')];
+    expect(lines.map((l) => l.textContent)).toEqual([`KB121 미반영: ${reason}`]);
+  });
+
   it('마지막 계좌 「제거」 → 확인 「마지막 계좌를 지우면 사용자가 삭제돼요」 → DELETE 사용자 1건(계좌 DELETE 없음)', async () => {
     deleteAdminUserMock.mockResolvedValue({ ok: true, deleted: true, relayNotified: true });
     const one: AdminUserView = { ...KIM, accountCount: 1, accounts: [KIM.accounts[0]] };
