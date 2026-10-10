@@ -85,6 +85,7 @@ import {
   LC_POST_BUY_AUTO_BUY3_SCHEMA,
   LC_BURST_RELEASE_BUY3_SCHEMA,
   LC_AUTO_SELL_BUY3_SCHEMA,
+  LC_EXTRA_BUY_AUTO_BUY3_SCHEMA,
   lcBuy3SchemaOf,
   parseUserSettings,
   buildAutoSellCommandReq,
@@ -1834,12 +1835,14 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
 
     // 입력에 없던 양방향 extraBuyBurstRelease 는 실리지 않았으므로 false.
     expect(item!.extraBuyBurstRelease).toBe(false);
+    // 입력에 없던 양방향 extraBuyAuto 도 실리지 않았으므로 false(quick-261011-0yb).
+    expect(item!.extraBuyAuto).toBe(false);
 
     // 활성 59 + 파생 key = 60. (39 − 1(매수 진입 래치 봉인) + 17(Phase 24) + 1(postBuyAuto · quick-260929-vzy)
     // + 1(extraBuyAbandonQty · quick-260930-fi4) + 1(postBuyUnlockQty · quick-261002-fim)
-    // + 1(extraBuyBurstRelease · quick-261003-rc4) + 8(자동매도 · Phase 27) = 67 + key).
+    // + 1(extraBuyBurstRelease · quick-261003-rc4) + 8(자동매도 · Phase 27) + 1(extraBuyAuto · quick-261011-0yb) = 68 + key).
     // 필드를 하나라도 빠뜨리면 여기서 잡힌다.
-    expect(Object.keys(item!)).toHaveLength(68);
+    expect(Object.keys(item!)).toHaveLength(69);
     expect(item!.key).toBe(strategyKey(SAMPLE_ISIN, SAMPLE_ACCOUNT_NO, "KRX"));
   });
 
@@ -1957,8 +1960,8 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     // 새 서버 에코에는 감시대상 슬롯이 없다 → "0".
     expect(single!.buyWatchSide).toBe("0");
     expect(list![0]!.buyWatchSide).toBe("0");
-    expect(Object.keys(single!)).toHaveLength(68);
-    expect(Object.keys(list![0]!)).toHaveLength(68);
+    expect(Object.keys(single!)).toHaveLength(69);
+    expect(Object.keys(list![0]!)).toHaveLength(69);
 
     // postBuyEnabled 는 서버 값 그대로 — false 로 접혀 온 에코는 false(phase 와 무관하게).
     const folded = parseLimitChaserEcho(
@@ -1979,7 +1982,7 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     expect(list![0]!.postBuyAuto).toBe(true);
     const plain = parseLimitChaserEcho(inbound(buildSetLimitChaserRespFrame({})).env);
     expect(plain!.postBuyAuto).toBe(false);
-    expect(Object.keys(plain!)).toHaveLength(68);
+    expect(Object.keys(plain!)).toHaveLength(69);
   });
 
   it("⑤-abandon-qty 60 · 64 의 extraBuyAbandonQty 를 디코드한다 — 기본 프레임 0 · 포기 에코는 645842 (quick-260930-fi4)", () => {
@@ -1995,7 +1998,7 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
     expect(single).toMatchObject(echo);
     expect(list![0]).toMatchObject(echo);
-    expect(Object.keys(single!)).toHaveLength(68);
+    expect(Object.keys(single!)).toHaveLength(69);
   });
 
   it("⑤-unlock-qty 60 · 64 의 postBuyUnlockQty 를 디코드한다 — 기본 프레임 0 · 잠금 에코는 264000 (quick-261002-fim)", () => {
@@ -2010,8 +2013,23 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
     expect(single).toMatchObject(echo);
     expect(list![0]).toMatchObject(echo);
-    expect(Object.keys(single!)).toHaveLength(68);
-    expect(Object.keys(list![0]!)).toHaveLength(68);
+    expect(Object.keys(single!)).toHaveLength(69);
+    expect(Object.keys(list![0]!)).toHaveLength(69);
+  });
+
+  it("⑤-extra-auto 60 · 64 의 extraBuyAuto 를 디코드한다 — 슬롯 부재 false · true 에코는 true (quick-261011-0yb)", () => {
+    const plain = parseLimitChaserEcho(inbound(buildSetLimitChaserRespFrame({})).env);
+    const plainList = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([{}])).env);
+    expect(plain!.extraBuyAuto).toBe(false);
+    expect(plainList![0]!.extraBuyAuto).toBe(false);
+
+    const echo = { extraBuyEnabled: false, extraBuyAuto: true, postBuyReentryLeft: 2 };
+    const single = parseLimitChaserEcho(inbound(buildSetLimitChaserRespFrame(echo)).env);
+    const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
+    expect(single).toMatchObject(echo);
+    expect(list![0]).toMatchObject(echo);
+    expect(Object.keys(single!)).toHaveLength(69);
+    expect(Object.keys(list![0]!)).toHaveLength(69);
   });
 
   it("⑤-burst 60 · 64 의 extraBuyBurstRelease 를 디코드한다 — 슬롯 부재 false · true 에코는 true (quick-261003-rc4 B6)", () => {
@@ -2025,8 +2043,8 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
     expect(single).toMatchObject(echo);
     expect(list![0]).toMatchObject(echo);
-    expect(Object.keys(single!)).toHaveLength(68);
-    expect(Object.keys(list![0]!)).toHaveLength(68);
+    expect(Object.keys(single!)).toHaveLength(69);
+    expect(Object.keys(list![0]!)).toHaveLength(69);
   });
 
   it("⑤-3 S→C 전용 래치 2필드는 요청 조립기가 **싣지 않는다** (Pitfall 6 / T-17-03)", () => {
@@ -2761,6 +2779,11 @@ describe("Phase 27 자동매도 와이어 — schema 1~4 파생 · 에코 슬롯
       expect(lcBuy3SchemaOf({ postBuyAuto: true, extraBuyBurstRelease: true, ...partial }), missing).toBe(3);
     }
     expect(lcBuy3SchemaOf({ ...AUTO_SELL_REQ })).toBe(1);
+    // quick-261011-0yb — 일곱 모두 → 5 · extraBuyAuto 만 → 1 (값 무관 · 존재로만).
+    expect(
+      lcBuy3SchemaOf({ postBuyAuto: false, extraBuyBurstRelease: false, ...AUTO_SELL_REQ, extraBuyAuto: false }),
+    ).toBe(5);
+    expect(lcBuy3SchemaOf({ extraBuyAuto: true })).toBe(1);
   });
 
   it("4필드만 있고 자동 없음 → schema 1 · 자동매도 슬롯 0 · warn 1회 · throw 없음 (P-1 단조성)", () => {
@@ -2882,6 +2905,90 @@ describe("Phase 27 자동매도 와이어 — schema 1~4 파생 · 에코 슬롯
     expect(droppedEnvelopeCount()).toBe(1);
     const [fields] = warn.mock.calls.at(-1) as [Record<string, unknown>];
     expect(fields.reason).toBe("slot-null");
+  });
+});
+
+/*
+  ③-extra-auto — 추가매수 ☐자동(gh-trade 8c7d4c5c · quick-261010-ub8 · vtable 156). buy3_schema 5 는 postBuyAuto ·
+  extraBuyBurstRelease · 자동매도 4필드 · extraBuyAuto 가 **모두** 있을 때만 파생된다 — 서버는 5 이상에서 앞 여섯도
+  읽으므로 하나라도 빠진 채 5 를 보내면 그 필드가 부재 기본값으로 지워진다(P-1 단조성).
+*/
+describe("③-extra-auto extra_buy_auto · buy3_schema 5 파생 (quick-261011-0yb)", () => {
+  const AUTO_VT = 132;
+  const BURST_VT = 138;
+  const EXTRA_AUTO_VT = 156;
+  const AUTO_REQ_VT = [140, 142, 144, 146] as const;
+  const AUTO_SELL_REQ = {
+    autoSellEnabled: true,
+    autoSellStartCond: 2,
+    autoSellRatioPct: 10,
+    autoSellMethod: 3,
+  } as const;
+  const FULL = { postBuyAuto: true, extraBuyBurstRelease: true, ...AUTO_SELL_REQ } as const;
+
+  function readLc(cfg: LcBuildInput): SetLimitChaser {
+    const env = readBack(buildSetLimitChaserReq(cfg));
+    const t = env.setLimitChaser(new SetLimitChaser());
+    expect(t).not.toBeNull();
+    return t!;
+  }
+
+  it("① 자동 · 버스트 · 자동매도 4필드 + extraBuyAuto true → schema 5 · 156 슬롯 true · 4슬롯 · 138 동반 · warn 0", () => {
+    expect(LC_EXTRA_BUY_AUTO_BUY3_SCHEMA).toBe(5);
+    warn.mockClear();
+    const t = readLc(lcInput({ ...FULL, extraBuyAuto: true }));
+    expect(t.buy3Schema()).toBe(5);
+    expect(presentSlots(t, [EXTRA_AUTO_VT])).toEqual([EXTRA_AUTO_VT]);
+    expect(t.extraBuyAuto()).toBe(true);
+    expect(presentSlots(t, AUTO_REQ_VT)).toEqual([...AUTO_REQ_VT]);
+    expect(presentSlots(t, [AUTO_VT, BURST_VT])).toEqual([AUTO_VT, BURST_VT]);
+    expect(t.postBuyAuto()).toBe(true);
+    expect(t.extraBuyBurstRelease()).toBe(true);
+    // 자동매도 경고가 `<` 라 schema 5 에서 거짓 경고가 없다.
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("② 같은 조건 + extraBuyAuto false → schema 5 · false (기본값이라 슬롯 없어도 서버는 schema 5 에서 부재 = false)", () => {
+    const t = readLc(lcInput({ ...FULL, extraBuyAuto: false }));
+    expect(t.buy3Schema()).toBe(5);
+    expect(t.extraBuyAuto()).toBe(false);
+  });
+
+  it("③ extraBuyAuto 없음 → schema 4 · 156 슬롯 없음 (서버 저장값 유지)", () => {
+    const t = readLc(lcInput({ ...FULL }));
+    expect(t.buy3Schema()).toBe(LC_AUTO_SELL_BUY3_SCHEMA);
+    expect(presentSlots(t, [EXTRA_AUTO_VT])).toEqual([]);
+  });
+
+  it("④ extraBuyAuto 만(나머지 없음) → schema 1 · 156 없음 · warn 1회 · throw 없음 · 경고 필드는 [buy3Schema, isin] (P-1)", () => {
+    warn.mockClear();
+    const t = readLc(lcInput({ extraBuyAuto: true }));
+    expect(t.buy3Schema()).toBe(LC_FIXED_BUY3_SCHEMA);
+    expect(presentSlots(t, [EXTRA_AUTO_VT])).toEqual([]);
+    expect(t.extraBuyAuto()).toBe(false);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const [fields] = warn.mock.calls[0] as [Record<string, unknown>];
+    expect(Object.keys(fields).sort()).toEqual(["buy3Schema", "isin"]);
+  });
+
+  it("⑤ 자동매도 4필드 하나 빠짐 + extraBuyAuto → schema 3 · 156 없음", () => {
+    for (const missing of Object.keys(AUTO_SELL_REQ) as (keyof typeof AUTO_SELL_REQ)[]) {
+      const partial: Partial<typeof AUTO_SELL_REQ> = { ...AUTO_SELL_REQ };
+      delete partial[missing];
+      const t = readLc(lcInput({ postBuyAuto: true, extraBuyBurstRelease: true, ...partial, extraBuyAuto: true }));
+      expect(t.buy3Schema(), missing).toBe(LC_BURST_RELEASE_BUY3_SCHEMA);
+      expect(presentSlots(t, [EXTRA_AUTO_VT]), missing).toEqual([]);
+    }
+  });
+
+  it("⑥ 입력에 초과 속성 buy3Schema 0 · 5 를 끼워도 파생값만 나간다 (브라우저는 스키마를 고를 수 없다)", () => {
+    for (const forged of [0, 5]) {
+      expect(readLc({ ...lcInput(), buy3Schema: forged } as LcBuildInput).buy3Schema()).toBe(1);
+      expect(readLc({ ...lcInput({ ...FULL }), buy3Schema: forged } as LcBuildInput).buy3Schema()).toBe(4);
+      expect(
+        readLc({ ...lcInput({ ...FULL, extraBuyAuto: true }), buy3Schema: forged } as LcBuildInput).buy3Schema(),
+      ).toBe(5);
+    }
   });
 });
 

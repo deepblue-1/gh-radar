@@ -265,6 +265,9 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
     // 추가매수 ☐버스트 시 해제(quick-261003-rc4) — 새 폼은 OFF(gh-trade 클라 기본 해제 · 종목 전환 초기화 동형).
     // 게이트가 아니다 — 삭제 판정 · 켜진 전략 판정에 들어가지 않는다(P-4).
     extraBuyBurstRelease: false,
+    // 추가매수 ☐자동(quick-261011-0yb) — 새 폼은 OFF(WinForms 종목 전환 · 전략 없음 리셋 동형).
+    // 게이트가 아니다 — 삭제 판정 · 켜진 전략 판정에 들어가지 않는다(C# AnyArmed 제외).
+    extraBuyAuto: false,
     postBuyEnabled: false,
     // 후매수 ☐자동(quick-260929-vzy) — 새 폼은 자동 OFF(WinForms 종목 전환 초기화 동형).
     postBuyAuto: false,
@@ -698,6 +701,9 @@ export function formFromServer(
     extraBuyOrderAmount: server.extraBuyOrderAmount,
     // 에코 그대로 — 설정값(서버는 버스트 해제 때 이 값이 아니라 extraBuyEnabled 를 내린다 · quick-261003-rc4).
     extraBuyBurstRelease: server.extraBuyBurstRelease,
+    // 에코 그대로 — 설정값(서버는 재체크 때 이 값이 아니라 extraBuyEnabled 를 올린다 · quick-261011-0yb). 이 값이 모든
+    // 재제출에 되실려 relay 가 schema 5 로 보낸다 — 웹은 C# 이 켠 ☐자동을 지우지 않는다.
+    extraBuyAuto: server.extraBuyAuto,
     postBuyEnabled: server.postBuyEnabled,
     // 에코 그대로 — 서버가 자동을 발화하면 false 로 온다(quick-260929-vzy).
     postBuyAuto: server.postBuyAuto,

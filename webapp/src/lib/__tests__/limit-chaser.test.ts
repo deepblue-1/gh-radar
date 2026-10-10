@@ -307,6 +307,34 @@ describe('추가매수 버스트 시 해제 — 폼 값 · 게이트 아님 (qui
   });
 });
 
+/*
+  quick-261011-0yb — 추가매수 ☐자동도 게이트가 아니다. 에코 값을 prev 와 무관하게 그대로 들이고(모든 재제출에 되실린다),
+  자동만 켠 상태는 삭제 의도다(서버 삭제 정규화 · C# AnyArmed 동형).
+*/
+describe('extraBuyAuto — 추가매수 ☐자동 (quick-261011-0yb)', () => {
+  const gatesOff = {
+    buyEnabled: false,
+    sellEnabled: false,
+    cancelQtyEnabled: false,
+    cancelTradeEnabled: false,
+    autoSellEnabled: false,
+  };
+
+  it('새 폼은 OFF · 에코 true/false 를 prev 와 무관하게 그대로 들인다', () => {
+    expect(defaultLimitChaserForm().extraBuyAuto).toBe(false);
+    expect(formFromServer(serverEcho({ extraBuyAuto: true }), defaultLimitChaserForm()).extraBuyAuto).toBe(true);
+    expect(
+      formFromServer(serverEcho({ extraBuyAuto: false }), { ...defaultLimitChaserForm(), extraBuyAuto: true }).extraBuyAuto,
+    ).toBe(false);
+  });
+
+  it('게이트 4종 OFF + extraBuyAuto true 는 삭제 의도 · crud D', () => {
+    const autoOnly = { ...defaultLimitChaserForm(), ...gatesOff, postBuyAuto: false, extraBuyAuto: true };
+    expect(isDeleteIntent(autoOnly)).toBe(true);
+    expect(crudOf(autoOnly)).toBe('D');
+  });
+});
+
 describe('seedFromUpperLimit — 상한가 5칸 시딩', () => {
   it('매수감시가·매수가격·매도감시가·매도가격·한방가격 5칸을 상한가로 채운다', () => {
     expect(seedFromUpperLimit(130_000)).toEqual({

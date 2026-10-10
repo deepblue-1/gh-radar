@@ -388,8 +388,8 @@ describe('④ 동시에 나가 있는 전송은 1건이다 (UI-SPEC §6 직렬�
     rerender(<LimitChaserForm {...props({ server: next, serverAnswerSeq: 0 })} />);
     rerender(<LimitChaserForm {...props({ server: next, serverAnswerSeq: 1 })} />);
     expect(lastConfig().buyOrderPrice).toBe(150_000);
-    // 44 + extraBuyBurstRelease(quick-261003-rc4) = 45 + 자동매도 요청 4(Phase 27) = 49.
-    expect(Object.keys(lastConfig())).toHaveLength(49);
+    // 44 + extraBuyBurstRelease(quick-261003-rc4) = 45 + 자동매도 요청 4(Phase 27) = 49 + extraBuyAuto(quick-261011-0yb) = 50.
+    expect(Object.keys(lastConfig())).toHaveLength(50);
   });
 });
 
@@ -496,10 +496,12 @@ describe('⑥ S→C 전용 필드를 보내지 않는다 · cfg 49키 (Pitfall 6
     'autoSellStartCond',
     'autoSellRatioPct',
     'autoSellMethod',
+    // + extraBuyAuto(quick-261011-0yb — relay 가 존재로 buy3_schema 5 를 파생한다) = 50.
+    'extraBuyAuto',
   ];
   function expectCleanCfg(cfg: RelayLimitChaserInput): void {
     const keys = Object.keys(cfg);
-    expect(keys).toHaveLength(49);
+    expect(keys).toHaveLength(50);
     expect(keys.sort()).toEqual([...EXPECTED_KEYS].sort());
     for (const f of FORBIDDEN) expect(keys).not.toContain(f);
     expect(keys).not.toContain('key');
@@ -3462,12 +3464,13 @@ describe('추가매수 「버스트 해제」 체크 — 양방향 설정값 · 
     expect(ids.indexOf('lc-extra-buy-max-qty')).toBeLessThan(ids.indexOf('lc-extra-buy-burst-release'));
   });
 
-  it('등록된 전략에서 누르면 lc.set 1건 · cfg 49키 · extraBuyBurstRelease true', () => {
+  it('등록된 전략에서 누르면 lc.set 1건 · cfg 50키 · extraBuyBurstRelease true', () => {
     render(<LimitChaserForm {...props()} />);
     click(burst());
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig().extraBuyBurstRelease).toBe(true);
-    expect(Object.keys(lastConfig())).toHaveLength(49);
+    // 49 + extraBuyAuto(quick-261011-0yb) = 50.
+    expect(Object.keys(lastConfig())).toHaveLength(50);
     expect(burst()).toHaveAttribute('aria-checked', 'true');
   });
 
@@ -3484,6 +3487,14 @@ describe('추가매수 「버스트 해제」 체크 — 양방향 설정값 · 
   it('에코 true 를 따른다(종목 진입 · 다른 단말이 켠 값)', () => {
     render(<LimitChaserForm {...props({ server: echo({ extraBuyBurstRelease: true }) })} />);
     expect(burst()).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('에코 extraBuyAuto true(C# 이 켠 자동)인 전략에서 다른 체크(버스트 해제)를 누르면 lc.set 1건의 cfg.extraBuyAuto 가 true 다 — 웹 재제출이 자동을 지우지 않는다 (quick-261011-0yb 트레이서)', () => {
+    render(<LimitChaserForm {...props({ server: echo({ extraBuyAuto: true }) })} />);
+    click(burst());
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().extraBuyBurstRelease).toBe(true);
+    expect(lastConfig().extraBuyAuto).toBe(true);
   });
 
   it('미등록 전략이면 로컬만 · 전송 0', () => {

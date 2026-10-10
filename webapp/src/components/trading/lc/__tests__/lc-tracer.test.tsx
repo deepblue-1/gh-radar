@@ -245,7 +245,7 @@ describe('트레이서 — 「호가변경」 한 행 (20-01 · D-04 · D-14 · 
     const cfg = lcSets()[0]!.cfg!;
     expect(cfg.sweepMinTickCount).toBe(5);
     expect(cfg.sellOrderRatio).toBe(100);
-    expect(Object.keys(cfg)).toHaveLength(49); // 31 + Phase 24 C→S 12 + postBuyAuto(quick-260929-vzy) + extraBuyBurstRelease(quick-261003-rc4) + 자동매도 요청 4(Phase 27) (감시대상은 Phase 24 ⑤ 로 빠졌다)
+    expect(Object.keys(cfg)).toHaveLength(50); // 31 + Phase 24 C→S 12 + postBuyAuto(quick-260929-vzy) + extraBuyBurstRelease(quick-261003-rc4) + 자동매도 요청 4(Phase 27) + extraBuyAuto(quick-261011-0yb) (감시대상은 Phase 24 ⑤ 로 빠졌다)
 
     // 반영 중 — 입력칸 잠김(에코 전).
     expect(editor()!.readOnly).toBe(true);
@@ -451,7 +451,8 @@ describe("Phase 27 자동매도 요청 4필드 — 값 확정 1회의 lc.set 이
     for (const k of ['autoSellState', 'autoSellSoldQty', 'autoSellBasis', 'autoSellBasisPrice']) {
       expect(Object.keys(cfg), k).not.toContain(k);
     }
-    expect(Object.keys(cfg)).toHaveLength(49);
+    // 49 + extraBuyAuto(quick-261011-0yb) = 50.
+    expect(Object.keys(cfg)).toHaveLength(50);
   });
 });
 

@@ -2009,8 +2009,8 @@ describe("WsFanout", () => {
     expect(item.postBuyReentryLeft).toBe(2);
     expect(item.buyWatchSide).toBe("0");
     // 활성 59(+ postBuyAuto · quick-260929-vzy · extraBuyAbandonQty · quick-260930-fi4 · postBuyUnlockQty · quick-261002-fim
-    // · extraBuyBurstRelease · quick-261003-rc4 · 자동매도 8 · Phase 27) + key — 봉인된 매수 진입 래치는 없다.
-    expect(Object.keys(item)).toHaveLength(68);
+    // · extraBuyBurstRelease · quick-261003-rc4 · 자동매도 8 · Phase 27 · extraBuyAuto · quick-261011-0yb) + key — 봉인된 매수 진입 래치는 없다.
+    expect(Object.keys(item)).toHaveLength(69);
   });
 
   /*
@@ -2419,7 +2419,56 @@ describe("WsFanout", () => {
     await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
     const item = framesOf(a.inbox, "lc").at(-1)!.item;
     expect(item.extraBuyBurstRelease).toBe(true);
-    expect(Object.keys(item)).toHaveLength(68);
+    expect(Object.keys(item)).toHaveLength(69);
+  });
+
+  /*
+    quick-261011-0yb — 추가매수 ☐자동. cfg 에 postBuyAuto · extraBuyBurstRelease · 자동매도 4필드 · extraBuyAuto 가 모두
+    있으면 10 의 buy3_schema 5 · vtable 156. extraBuyAuto 가 없으면 종전 4(서버 저장값 유지).
+  */
+  it("⑰-extra-auto lc.set 일곱 모두 → 10 buy3Schema 5 · extraBuyAuto true / extraBuyAuto 뺀 같은 cfg → 4 · false · 60 에코 → ws lc item", async () => {
+    const a = await authed("token-a");
+    const base: Partial<LcSetCfg> = {
+      postBuyAuto: false,
+      extraBuyBurstRelease: false,
+      autoSellEnabled: false,
+      autoSellStartCond: 2,
+      autoSellRatioPct: 10,
+      autoSellMethod: 3,
+    };
+    const cases: { over: Partial<LcSetCfg>; schema: number; auto: boolean }[] = [
+      { over: { ...base, extraBuyAuto: true }, schema: 5, auto: true },
+      { over: { ...base }, schema: 4, auto: false },
+    ];
+    for (const [i, c] of cases.entries()) {
+      a.ws.sendRaw({ t: "lc.set", cfg: lcInput(c.over) });
+      await waitFor(
+        () =>
+          gateway.strategyRequests().filter((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq).length ===
+          i + 1,
+        `10 수신 ${i + 1}`,
+      );
+    }
+    const reqs = gateway
+      .strategyRequests()
+      .filter((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq)
+      .map((r) => readSetLimitChaserRequest(r.msgType, r.payload)!);
+    expect(reqs.map((r) => [r.buy3Schema, r.extraBuyAuto])).toEqual(cases.map((c) => [c.schema, c.auto]));
+
+    // 에코 → ws lc item 에 실린다.
+    const sock = gateway.sockets[0];
+    if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+    gateway.pushLimitChaserEcho(sock, {
+      isin: SAMPLE_ISIN,
+      accountNo: SAMPLE_ACCOUNT_NO,
+      buyEnabled: true,
+      extraBuyEnabled: false,
+      extraBuyAuto: true,
+    });
+    await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
+    const item = framesOf(a.inbox, "lc").at(-1)!.item;
+    expect(item.extraBuyAuto).toBe(true);
+    expect(Object.keys(item)).toHaveLength(69);
   });
 
   it("⑰-burst-b 게이트 4종 OFF + postBuyAuto false + extraBuyBurstRelease true(crud C)는 철거다 — 모르는 ISIN 이어도 10 으로 나간다 (#isTeardown 무변경)", async () => {
@@ -2560,7 +2609,7 @@ describe("WsFanout", () => {
       autoSellBasis: 1,
       autoSellBasisPrice: 13_000,
     });
-    expect(Object.keys(item)).toHaveLength(68);
+    expect(Object.keys(item)).toHaveLength(69);
   });
 
   it("⑰-auto-c 60 에코 postBuyAuto true → ws lc 프레임 item.postBuyAuto true · 68키 (D-01)", async () => {
@@ -2581,7 +2630,7 @@ describe("WsFanout", () => {
     await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
     const item = framesOf(a.inbox, "lc").at(-1)!.item;
     expect(item.postBuyAuto).toBe(true);
-    expect(Object.keys(item)).toHaveLength(68);
+    expect(Object.keys(item)).toHaveLength(69);
   });
 
   it("⑰-unlock 60 에코 postBuyUnlockQty 264000 → ws lc 프레임 item 그대로 · 68키 (quick-261002-fim)", async () => {
@@ -2606,7 +2655,7 @@ describe("WsFanout", () => {
     const item = framesOf(a.inbox, "lc").at(-1)!.item;
     expect(item.postBuyUnlockQty).toBe(264_000);
     expect(item.postBuyTriggerQty).toBe(0);
-    expect(Object.keys(item)).toHaveLength(68);
+    expect(Object.keys(item)).toHaveLength(69);
   });
 
   it("⑰-e2 삭제의 시장은 **에코 캐시가 1순위**다 — 종목맵이 못 풀어도 폴백까지 가지 않는다", async () => {

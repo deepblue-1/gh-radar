@@ -136,8 +136,8 @@ export function isRelayExchange(value: string): value is RelayExchange {
  *    `cancelQtyTrackBaseline`·`cancelEntryLatched` · Phase 24 의 `buy3Schema`·`extraBuyAbandoned`·
  *    `postBuyTriggerQty`·`postBuyReentryLeft`·`postBuyPhase` · quick-260930-fi4 의 `extraBuyAbandonQty` · quick-261002-fim 의 `postBuyUnlockQty` ·
  *    Phase 27 자동매도 에코 `autoSellState`·`autoSellSoldQty`·`autoSellBasis`·`autoSellBasisPrice`)를 두지 않는다** — `buy3Schema` 는
- *    relay 가 `postBuyAuto` · `extraBuyBurstRelease` · 자동매도 요청 4필드 존재로만 1 · 2 · 3 · 4 를 파생한다(브라우저가 0 을
- *    보내 구 클라 경로를 열 수 없다 · `lcBuy3SchemaOf`).
+ *    relay 가 `postBuyAuto` · `extraBuyBurstRelease` · 자동매도 요청 4필드 · `extraBuyAuto` 존재로만 1 · 2 · 3 · 4 · 5 를
+ *    파생한다(브라우저가 0 을 보내 구 클라 경로를 열 수 없다 · `lcBuy3SchemaOf`).
  *    나머지는 서버가 계산해 에코로만 주는 값이라, 받으면
  *    "값이 왕복한다"는 착각이 생기고 에코-폼 비교가 오염된다 (Pitfall 6). `z.object` 가 미지
  *    키를 떨어뜨리므로 실려 와도 통과하지 못한다.
@@ -246,6 +246,12 @@ export const RelayLcSetSchema = z.object({
     autoSellRatioPct: UByteSchema.optional(),
     /** 방법 — 1 매도1호가 · 2 매수1호가 · 3 양쪽. 「켜면 1~3」 은 아래 `superRefine` 이 본다. */
     autoSellMethod: UByteSchema.optional(),
+    // === 추가매수 ☐자동(양방향 · gh-trade 8c7d4c5c vtable 156 · quick-261011-0yb) — postBuyAuto 와 같이 12필드 블록 **밖**이다.
+    //   - 12필드 존재 판정(`buy3CfgOf`)에 들어가지 않는다.
+    //   - 부재는 relay 가 종전 schema(1~4)로 싣는다(서버 값 유지 — 옛 탭이 C# 에서 켠 ☐자동을 지우지 않는다).
+    //     postBuyAuto · extraBuyBurstRelease · 자동매도 4필드와 모두 있을 때만 buy3_schema 5(조립기 `lcBuy3SchemaOf`).
+    //   - superRefine 완결성 검사를 넣지 않는다 — 아무것도 즉시 무장하지 않는 설정값이다.
+    extraBuyAuto: z.boolean().optional(),
   }).superRefine((cfg, ctx) => {
     // 서버 §9-2 ⑤ 반등률 1~100 과 동형 — 켜는 쪽만 본다(끄는 쪽 0 은 통과).
     // 값이 **있을 때만** 본다 — 부재(구 탭)는 fanout 이 거부 프레임으로 답한다.
@@ -583,8 +589,8 @@ function hasAllBuy3(cfg: RelayInboundWireLcSetCfg): cfg is LcSetCfgWithBuy3 {
 /**
  * 새 클라 cfg 인가 — 신필드 12개가 **전부** 있으면 `LcSetCfg` 로 좁혀 돌려주고,
  * 하나라도 없으면 `null`(구 탭). 부재 판정의 **유일한** 자리다 — fanout `lc.set` 분기가 부른다.
- * `postBuyAuto` · `extraBuyBurstRelease` · 자동매도 4필드는 판정에 들어가지 않는다(선택 · 존재 여부는 조립기의 buy3_schema
- * 파생만 가른다).
+ * `postBuyAuto` · `extraBuyBurstRelease` · 자동매도 4필드 · `extraBuyAuto` 는 판정에 들어가지 않는다(선택 · 존재 여부는
+ * 조립기의 buy3_schema 파생만 가른다).
  */
 export function buy3CfgOf(cfg: RelayInboundWireLcSetCfg): LcSetCfg | null {
   return hasAllBuy3(cfg) ? cfg : null;
@@ -598,6 +604,7 @@ export function buy3CfgOf(cfg: RelayInboundWireLcSetCfg): LcSetCfg | null {
  *    풀 수 없게 된다(T-16-44 「끄기는 언제나 허용」).
  * `postBuyAuto` 는 채우지도 지우지도 않는다 — 입력에 있으면 그대로, 없으면 없는 채(buy3_schema 1).
  * `extraBuyBurstRelease` 도 채우지도 지우지도 않는다(quick-261003-rc4) — 파생 스키마는 조립기가 정한다.
+ * `extraBuyAuto` 도 채우지도 지우지도 않는다(quick-261011-0yb).
  */
 export function withNeutralBuy3(cfg: RelayInboundWireLcSetCfg): LcSetCfg {
   return { ...cfg, ...LC_BUY3_NEUTRAL };

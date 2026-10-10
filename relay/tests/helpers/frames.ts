@@ -557,9 +557,9 @@ export const STRATEGY_MSG = {
 } as const;
 
 /**
- * 상따 전략 1건. **활성 67 필드 전부** override 가능하다(Phase 24: 39 − 1 + 17 · quick-260929-vzy +1 `postBuyAuto` ·
+ * 상따 전략 1건. **활성 68 필드 전부** override 가능하다(Phase 24: 39 − 1 + 17 · quick-260929-vzy +1 `postBuyAuto` ·
  * quick-260930-fi4 +1 `extraBuyAbandonQty` · quick-261002-fim +1 `postBuyUnlockQty` ·
- * quick-261003-rc4 +1 `extraBuyBurstRelease` · Phase 27 +8 자동매도).
+ * quick-261003-rc4 +1 `extraBuyBurstRelease` · Phase 27 +8 자동매도 · quick-261011-0yb +1 `extraBuyAuto`).
  * (37 → 39: 17-01 재동기화로 `cancel_entry_latched` · `buy_entry_latched` 가 합류했다.)
  *
  * deprecated 8종(`client_key` · `sell_min_cum_volume` · `sell_cum_volume_enabled` ·
@@ -674,6 +674,8 @@ export type FakeLimitChaserInput = {
   autoSellBasis?: number;
   /** **S→C 전용** — 기준가격(원, vtable 154). */
   autoSellBasisPrice?: number;
+  /** 추가매수 ☐자동 — 양방향(vtable 156 · quick-261011-0yb). 서버 에코는 설정값(부재 기본 false). */
+  extraBuyAuto?: boolean;
 };
 
 /**
@@ -810,6 +812,7 @@ function emitSetLimitChaser(
   SetLimitChaser.addAutoSellSoldQty(b, input.autoSellSoldQty ?? 0);
   SetLimitChaser.addAutoSellBasis(b, input.autoSellBasis ?? 0);
   SetLimitChaser.addAutoSellBasisPrice(b, input.autoSellBasisPrice ?? 0);
+  SetLimitChaser.addExtraBuyAuto(b, input.extraBuyAuto ?? false);
   return SetLimitChaser.endSetLimitChaser(b);
 }
 

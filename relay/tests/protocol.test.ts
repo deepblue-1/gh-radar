@@ -810,6 +810,34 @@ describe("Phase 27 lc.set 자동매도 4필드 — 선택 · 켜면 범위 · �
     expect(old.cfg).not.toHaveProperty("autoSellEnabled");
     expect(withNeutralBuy3(old.cfg)).not.toHaveProperty("autoSellEnabled");
   });
+
+  /*
+    quick-261011-0yb — 추가매수 ☐자동(vtable 156). `extraBuyAuto` 도 선택이고 12필드 존재 판정 밖이다.
+    buy3_schema 5 는 조립기가 필드 존재로만 파생한다.
+  */
+  it("①-extra-auto 5개 선택 필드 + extraBuyAuto 는 통과하고 50키 · 없어도 통과(키 안 만듦) · buy3Schema 는 떨어진다", () => {
+    const full = parseInbound(
+      lcSet({ postBuyAuto: false, extraBuyBurstRelease: false, ...AUTO, autoSellEnabled: false, extraBuyAuto: true, buy3Schema: 5 }),
+    );
+    if (full?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(full.cfg.extraBuyAuto).toBe(true);
+    expect(Object.keys(full.cfg)).toHaveLength(50);
+    expect(full.cfg).not.toHaveProperty("buy3Schema");
+    expect(buy3CfgOf(full.cfg)).not.toBeNull();
+
+    // 구 탭 — extraBuyAuto 없음도 통과 · 키를 만들지 않는다.
+    const old = parseInbound(lcSet({ postBuyAuto: false, extraBuyBurstRelease: false, ...AUTO, autoSellEnabled: false }));
+    if (old?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(old.cfg).not.toHaveProperty("extraBuyAuto");
+    expect(Object.keys(old.cfg)).toHaveLength(49);
+
+    // withNeutralBuy3 는 extraBuyAuto 를 채우지도 지우지도 않는다.
+    expect(withNeutralBuy3(old.cfg)).not.toHaveProperty("extraBuyAuto");
+    expect(withNeutralBuy3(full.cfg).extraBuyAuto).toBe(true);
+
+    // 형식 위반은 스키마 위반이다.
+    expect(parseInbound(lcSet({ extraBuyAuto: "true" }))).toBeNull();
+  });
 });
 
 describe("Phase 27 autosell.cmd · user.settings.set 인바운드 스키마", () => {

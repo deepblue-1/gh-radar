@@ -2522,9 +2522,10 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       .filter((r): r is NonNullable<typeof r> => r !== null);
     const last = sets.at(-1)!;
     expect(last.buyWatchPrice).toBe(next);
-    // 새 웹은 lc.set 에 postBuyAuto · extraBuyBurstRelease · 자동매도 요청 4필드를 항상 싣는다 → relay 가 buy3_schema 4 로
-    // 파생(Phase 27 · 존재로만 1/2/3/4). 3 은 자동매도 필드 없는 탭, 2 는 버스트 해제 없는 탭, 1 은 자동 필드 없는 옛 탭 몫.
-    expect(last.buy3Schema).toBe(4);
+    // 새 웹은 lc.set 에 postBuyAuto · extraBuyBurstRelease · 자동매도 요청 4필드 + extraBuyAuto 를 항상 싣는다 → relay 가
+    // buy3_schema 5 로 파생(quick-261011-0yb · 존재로만 1/2/3/4/5). 4 는 extraBuyAuto 없는 탭, 3 은 자동매도 필드 없는 탭,
+    // 2 는 버스트 해제 없는 탭, 1 은 자동 필드 없는 옛 탭 몫.
+    expect(last.buy3Schema).toBe(5);
     expect(last.postBuyEnabled).toBe(true);
     expect(last.postBuyReentry).toBe(3);
     expect(last.postBuyReboundPct).toBe(30);
@@ -2577,7 +2578,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
   });
 
   /*
-    Phase 27 트레이서(27-01 · D-04) — 자동매도 와이어 한 경로. 값 행 하나 확정 → 게이트웨이 10 에 buy3_schema 4 ·
+    Phase 27 트레이서(27-01 · D-04) — 자동매도 와이어 한 경로. 값 행 하나 확정 → 게이트웨이 10 에 buy3_schema 4(quick-261011-0yb 부터 5) ·
     자동매도 요청 4필드(에코 값 그대로) · 에코 전용 148~154 슬롯 없음 · 버스트 해제 동반 → 60 에코 상태 전이 →
     카드 헤더 4번째 LED 「자동」 이 초록 매도중 / 주황 대기 / 회색 OFF 로 선다. 390 · 1280 에서 LED 4칩과 ⓘ · ✕ 가
     헤더 한 줄을 지킨다(D-04 「구현 때 실측」).
@@ -2618,10 +2619,10 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await editLc(page, 'lc-buy-watch-price', String(next));
     await waitForSetAtGateway(relay, before + 1);
 
-    // ② 게이트웨이가 받은 바이트 — schema 4 · 요청 4필드 · 에코 슬롯 없음 · 버스트 동반.
+    // ② 게이트웨이가 받은 바이트 — schema 5(+ extraBuyAuto · quick-261011-0yb) · 요청 4필드 · 에코 슬롯 없음 · 버스트 동반.
     const sent = lcSetRequests(relay).at(-1)!;
     expect(sent.buyWatchPrice).toBe(next);
-    expect(sent.buy3Schema).toBe(4);
+    expect(sent.buy3Schema).toBe(5);
     expect([sent.autoSellEnabled, sent.autoSellStartCond, sent.autoSellRatioPct, sent.autoSellMethod]).toEqual([
       true, 2, 10, 3,
     ]);
@@ -2958,12 +2959,12 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(methodSeg).toBeVisible();
     expect(lcSetCount(relay), '접기는 lc.set 을 보내지 않는다').toBe(base);
 
-    // ② 스위치 「자동매도 켜기」 = 10 한 건 — autoSellEnabled · buy3_schema 4.
+    // ② 스위치 「자동매도 켜기」 = 10 한 건 — autoSellEnabled · buy3_schema 5(+ extraBuyAuto 동반 · quick-261011-0yb).
     await lcSwitch(group, '자동매도 켜기').click();
     await waitForSetAtGateway(relay, base + 1);
     const armed = lcSetRequests(relay).at(-1)!;
     expect(armed.autoSellEnabled).toBe(true);
-    expect(armed.buy3Schema).toBe(4);
+    expect(armed.buy3Schema).toBe(5);
     expect([armed.autoSellStartCond, armed.autoSellRatioPct, armed.autoSellMethod]).toEqual([2, 10, 3]);
 
     // ③ 에코 대기(1) → 칩 「대기」 주황 · 헤더 LED 대기.
@@ -3181,12 +3182,12 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(order.lastRole).toBe('switch');
     expect(order.checkIsPrevOfSwitch).toBe(true);
 
-    // ① 체크 → 10 한 건 — buy3_schema 4(버스트 해제 · 자동매도 요청 4필드 동반 · Phase 27) · post_buy_auto true · 후매수 스위치는 그대로(자동은 서버 몫).
+    // ① 체크 → 10 한 건 — buy3_schema 5(버스트 해제 · 자동매도 요청 4필드 · extraBuyAuto 동반 · Phase 27 · quick-261011-0yb) · post_buy_auto true · 후매수 스위치는 그대로(자동은 서버 몫).
     const base = lcSetCount(relay);
     await auto.click();
     await waitForSetAtGateway(relay, base + 1);
     const sent = lcSetRequests(relay).at(-1)!;
-    expect(sent.buy3Schema).toBe(4);
+    expect(sent.buy3Schema).toBe(5);
     expect(sent.postBuyAuto).toBe(true);
     expect(sent.postBuyEnabled).toBe(false);
 
@@ -3294,8 +3295,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await waitForSetAtGateway(relay, before + 1);
 
     const sent = lcSetRequests(relay).at(-1)!;
-    // 자동 · 버스트 해제 · 자동매도 요청 4필드 동반 → buy3_schema 4 (P24-1 주석 · Phase 27).
-    expect(sent.buy3Schema).toBe(4);
+    // 자동 · 버스트 해제 · 자동매도 요청 4필드 + extraBuyAuto 동반 → buy3_schema 5 (P24-1 주석 · quick-261011-0yb).
+    expect(sent.buy3Schema).toBe(5);
     expect(sent.crud).toBe('C');
     expect(sent.preBuyEnabled).toBe(true);
     expect(sent.buyEnabled, 'D-01 — 마스터 동반').toBe(true);
@@ -4276,8 +4277,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(lcSetCount(relay), '사람 한 번 = 10 한 건').toBe(before + 1);
 
     const sent = lcSetRequests(relay).at(-1)!;
-    // 자동 · 버스트 해제 · 자동매도 요청 4필드 동반 → buy3_schema 4 (P24-1 주석 · Phase 27).
-    expect(sent.buy3Schema).toBe(4);
+    // 자동 · 버스트 해제 · 자동매도 요청 4필드 + extraBuyAuto 동반 → buy3_schema 5 (P24-1 주석 · quick-261011-0yb).
+    expect(sent.buy3Schema).toBe(5);
     expect(sent.crud).toBe('C');
     expect(sent.extraBuyEnabled).toBe(true);
     expect(sent.preBuyEnabled, '추가매수만 켰다 — 선매수는 그대로').toBe(false);

@@ -1420,22 +1420,31 @@ export const LC_BURST_RELEASE_BUY3_SCHEMA = 3;
  * 파생된다(P-1 단조성).
  */
 export const LC_AUTO_SELL_BUY3_SCHEMA = 4;
+/**
+ * `extra_buy_auto`(추가매수 ☐자동 · vtable 156)를 싣는 클라 — `buy3_schema` 5 (gh-trade 8c7d4c5c · quick-261010-ub8 ·
+ * quick-261011-0yb). 서버는 5 이상일 때만 `extra_buy_auto` 를 읽고, 그 미만은 그 키의 저장값을 유지한다(구 탭 · 구 클라
+ * 재제출이 C# 에서 켠 ☐자동을 지우지 않는다). 5 는 `post_buy_auto`(≥ 2) · `extra_buy_burst_release`(≥ 3) · 자동매도
+ * 4필드(≥ 4)도 읽히는 값이라 **그 모두와 `extraBuyAuto` 가 있을 때만** 파생된다(P-1 단조성 — 하나라도 빠진 채 5 를
+ * 보내면 서버가 그 필드를 부재 기본값으로 읽어 사람이 켠 설정을 지운다).
+ */
+export const LC_EXTRA_BUY_AUTO_BUY3_SCHEMA = 5;
 
 /** 자동매도 요청 4필드 — relay `LcSetCfg` 에서는 선택(구 탭 관용), shared 입력 계약에서는 필수. */
 type LcAutoSellReqKey = "autoSellEnabled" | "autoSellStartCond" | "autoSellRatioPct" | "autoSellMethod";
 
 /**
- * relay 가 조립하는 cfg — `postBuyAuto` · `extraBuyBurstRelease` · 자동매도 4필드만 선택(구 탭 관용 ·
- * quick-260929-vzy · quick-261003-rc4 · Phase 27). 존재 여부가 `buy3_schema`(1 | 2 | 3 | 4)를 정한다. shared 계약
+ * relay 가 조립하는 cfg — `postBuyAuto` · `extraBuyBurstRelease` · 자동매도 4필드(구 탭 관용 ·
+ * quick-260929-vzy · quick-261003-rc4 · Phase 27) · `extraBuyAuto`(quick-261011-0yb)만 선택. 존재 여부가 `buy3_schema`(1~5)를 정한다. shared 계약
  * `RelayLimitChaserInput` 에서는 전부 필수다(새 탭이 빠뜨리면 컴파일이 막는다) — 「shared 는 새 클라 계약, relay
  * 와이어는 구 탭 관용」 규약.
  */
 export type LcSetCfg = Omit<
   RelayLimitChaserInput,
-  "postBuyAuto" | "extraBuyBurstRelease" | LcAutoSellReqKey
+  "postBuyAuto" | "extraBuyBurstRelease" | LcAutoSellReqKey | "extraBuyAuto"
 > & {
   postBuyAuto?: boolean;
   extraBuyBurstRelease?: boolean;
+  extraBuyAuto?: boolean;
   autoSellEnabled?: boolean;
   autoSellStartCond?: number;
   autoSellRatioPct?: number;
@@ -1447,15 +1456,17 @@ export type LcSetCfg = Omit<
  *   - `postBuyAuto` 없음 → 1 (`extraBuyBurstRelease` · 자동매도 4필드만 있어도 1 — 단조성 P-1 · 조립기가 경고를 남긴다)
  *   - `postBuyAuto` 있음 · `extraBuyBurstRelease` 없음 → 2
  *   - 둘 다 있음 · 자동매도 4필드 중 하나라도 없음 → 3
- *   - 둘 다 있음 · 자동매도 4필드 모두 있음 → 4
+ *   - 둘 다 있음 · 자동매도 4필드 모두 있음 · `extraBuyAuto` 없음 → 4
+ *   - 위 여섯 모두 + `extraBuyAuto` 있음 → 5 (`extraBuyAuto` 만 있고 앞 조건 미달이면 낮은 schema · 조립기 경고)
  */
 export function lcBuy3SchemaOf(
-  cfg: Pick<LcSetCfg, "postBuyAuto" | "extraBuyBurstRelease" | LcAutoSellReqKey>,
+  cfg: Pick<LcSetCfg, "postBuyAuto" | "extraBuyBurstRelease" | LcAutoSellReqKey | "extraBuyAuto">,
 ): number {
   if (cfg.postBuyAuto === undefined) return LC_FIXED_BUY3_SCHEMA;
   if (cfg.extraBuyBurstRelease === undefined) return LC_POST_BUY_AUTO_BUY3_SCHEMA;
   if (!hasAllAutoSellReqFields(cfg)) return LC_BURST_RELEASE_BUY3_SCHEMA;
-  return LC_AUTO_SELL_BUY3_SCHEMA;
+  if (cfg.extraBuyAuto === undefined) return LC_AUTO_SELL_BUY3_SCHEMA;
+  return LC_EXTRA_BUY_AUTO_BUY3_SCHEMA;
 }
 
 function hasAllAutoSellReqFields(cfg: Pick<LcSetCfg, LcAutoSellReqKey>): boolean {
@@ -1500,9 +1511,11 @@ function hasAnyAutoSellReqField(cfg: Pick<LcSetCfg, LcAutoSellReqKey>): boolean 
  *   - **deprecated 8슬롯** — flatc 가 접근자를 만들지 않는다. 존재 자체를 모른 채로 둔다.
  *
  * `buy3_schema` 는 입력 타입에 아예 없다. 1(`LC_FIXED_BUY3_SCHEMA`) · 2(`LC_POST_BUY_AUTO_BUY3_SCHEMA`) ·
- * 3(`LC_BURST_RELEASE_BUY3_SCHEMA`) · 4(`LC_AUTO_SELL_BUY3_SCHEMA`)이고 **`postBuyAuto` · `extraBuyBurstRelease` ·
- * 자동매도 4필드 존재로만 파생**된다(3 은 앞 둘 · 4 는 여섯 모두 · `lcBuy3SchemaOf` · gh-trade D-24 · dcaa78b1 ·
- * 26b3493e · 2404509b · quick-260929-vzy · quick-261003-rc4 · Phase 27).
+ * 3(`LC_BURST_RELEASE_BUY3_SCHEMA`) · 4(`LC_AUTO_SELL_BUY3_SCHEMA`) · 5(`LC_EXTRA_BUY_AUTO_BUY3_SCHEMA`)이고
+ * **`postBuyAuto` · `extraBuyBurstRelease` · 자동매도 4필드 · `extraBuyAuto` 존재로만 파생**된다(3 은 앞 둘 · 4 는 여섯
+ * 모두 · 5 는 일곱 모두 · `lcBuy3SchemaOf` · gh-trade D-24 · dcaa78b1 · 26b3493e · 2404509b · 8c7d4c5c ·
+ * quick-260929-vzy · quick-261003-rc4 · Phase 27 · quick-261011-0yb).
+ * `extraBuyAuto` 가 있는데 schema 가 5 미만이면 그 필드를 싣지 않고(서버 값 유지) 경고를 남긴다.
  * `extraBuyBurstRelease` 만 있고 `postBuyAuto` 가 없으면 1 로 내리고 그 필드를 싣지 않으며 경고를 남긴다(PC-7).
  * 자동매도 4필드가 (일부라도) 있는데 schema 가 4 가 아니면 그 4필드를 싣지 않고(서버 값 유지) 경고를 남긴다.
  *
@@ -1563,12 +1576,22 @@ export function buildSetLimitChaserReq(
       "[DMA] extraBuyBurstRelease 가 postBuyAuto 없이 왔다 — buy3_schema 1 로 내리고 미적재",
     );
   }
-  if (hasAnyAutoSellReqField(cfg) && buy3Schema !== LC_AUTO_SELL_BUY3_SCHEMA) {
+  // `<` — schema 5(☐추가매수 자동 동반)도 자동매도 4필드를 싣는다. `!==` 로 두면 schema 5 마다 거짓 경고가 남는다
+  // (버스트 경고가 27-01 Task 3 에서 `<` 가 된 것과 같은 이유 · quick-261011-0yb).
+  if (hasAnyAutoSellReqField(cfg) && buy3Schema < LC_AUTO_SELL_BUY3_SCHEMA) {
     // P-1 — 4 는 postBuyAuto · extraBuyBurstRelease 동반 + 4필드 모두일 때만. 하나라도 빠지면 낮은 schema 로 내리고
     // 자동매도 4필드는 싣지 않는다(서버가 저장값 유지). 값 · 계좌는 남기지 않는다 — 결손의 모양만.
     logger.warn(
       { isin, buy3Schema },
       "[DMA] 자동매도 요청 필드가 schema 4 조건을 못 채움 — 낮은 buy3_schema 로 내리고 자동매도 4필드 미적재",
+    );
+  }
+  if (cfg.extraBuyAuto !== undefined && buy3Schema < LC_EXTRA_BUY_AUTO_BUY3_SCHEMA) {
+    // P-1 — 5 는 postBuyAuto · extraBuyBurstRelease · 자동매도 4필드 동반일 때만. 하나라도 빠지면 낮은 schema 로 내리고
+    // extra_buy_auto 는 싣지 않는다(서버가 저장값 유지). 값 · 계좌는 남기지 않는다 — 결손의 모양만.
+    logger.warn(
+      { isin, buy3Schema },
+      "[DMA] extraBuyAuto 가 schema 5 조건을 못 채움 — 낮은 buy3_schema 로 내리고 extra_buy_auto 미적재",
     );
   }
 
@@ -1621,8 +1644,8 @@ export function buildSetLimitChaserReq(
   // cancel_entry_latched — S→C 전용.
   // buy_entry_latched — (deprecated) Phase 24 D-25 로 봉인. 접근자·빌더 없음.
   // === Phase 24 매수 3종 (gh-trade D-17 · D-24) ===
-  // buy3_schema — 브라우저가 고를 수 없다(T-24-01 확장). `postBuyAuto` · `extraBuyBurstRelease` · 자동매도 4필드 존재로만
-  // 1/2/3/4 를 파생한다.
+  // buy3_schema — 브라우저가 고를 수 없다(T-24-01 확장). `postBuyAuto` · `extraBuyBurstRelease` · 자동매도 4필드 ·
+  // `extraBuyAuto` 존재로만 1/2/3/4/5 를 파생한다.
   SetLimitChaser.addBuy3Schema(b, buy3Schema);
   SetLimitChaser.addPreBuyEnabled(b, cfg.preBuyEnabled);
   SetLimitChaser.addExtraBuyEnabled(b, cfg.extraBuyEnabled);
@@ -1669,6 +1692,11 @@ export function buildSetLimitChaserReq(
     SetLimitChaser.addAutoSellMethod(b, toWireUByte(autoSellMethod, "autoSellMethod"));
   }
   // auto_sell_state · auto_sell_sold_qty · auto_sell_basis · auto_sell_basis_price — S→C 전용(vtable 148~154). 싣지 않는다.
+  // extra_buy_auto — 양방향(추가매수 ☐자동 · vtable 156 · quick-261011-0yb). schema 5 일 때만 싣는다. false 는 기본값이라
+  // 버퍼에 쓰이지 않지만 서버는 schema 5 에서 부재를 false 로 읽으므로 그걸로 된다.
+  if (buy3Schema >= LC_EXTRA_BUY_AUTO_BUY3_SCHEMA && cfg.extraBuyAuto !== undefined) {
+    SetLimitChaser.addExtraBuyAuto(b, cfg.extraBuyAuto);
+  }
   const table = SetLimitChaser.endSetLimitChaser(b);
 
   Envelope.startEnvelope(b);
@@ -2489,11 +2517,11 @@ type ReadResult<T> = { ok: true; value: T } | { ok: false; reason: string; detai
  * 60 단건 에코와 64 목록 원소는 **같은 바이트**라 파서도 하나여야 한다 — 두 벌이면 한쪽만
  * 고쳐져 목록과 에코가 갈린다.
  *
- * **활성 67필드(59 + 자동매도 8 · Phase 27)를 전부 읽는다.** S→C 전용 16(`sellOrderQty` ·
+ * **활성 68필드(59 + 자동매도 8 · Phase 27 + extraBuyAuto · quick-261011-0yb)를 전부 읽는다.** S→C 전용 16(`sellOrderQty` ·
  * `sellQtyTrackBaseline` · `sellEntryLatched` · `cancelQtyTrackBaseline` · `cancelEntryLatched` · `buy3Schema` ·
  * `extraBuyAbandoned` · `extraBuyAbandonQty` · `postBuyTriggerQty` · `postBuyReentryLeft` · `postBuyPhase` ·
  * `postBuyUnlockQty` · `autoSellState` · `autoSellSoldQty` · `autoSellBasis` · `autoSellBasisPrice`)는
- * 보내지 않지만 읽어서 표시한다 — (`buy3Schema` 는 relay 가 1 · 2 · 3 · 4 로 보내지만 에코 값은 서버 것을 읽는다)
+ * 보내지 않지만 읽어서 표시한다 — (`buy3Schema` 는 relay 가 1~5 로 보내지만 에코 값은 서버 것을 읽는다)
  * 「보내지 않는 것」과 「읽지 않는 것」은 다른 문제다 (Pitfall 6).
  *
  * 실패 사유만 돌려주고 로그는 남기지 않는다. 단건은 프레임 드롭, 목록은 항목 스킵으로
@@ -2607,6 +2635,8 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       postBuyUnlockQty: t.postBuyUnlockQty(),
       // 양방향 — 추가매수 ☐버스트 시 해제(vtable 138 · quick-261003-rc4). 에코는 설정값. 슬롯 부재(구서버) = false.
       extraBuyBurstRelease: t.extraBuyBurstRelease(),
+      // 양방향 — 추가매수 ☐자동(vtable 156 · quick-261011-0yb). 에코는 설정값. 슬롯 부재(구서버) = false.
+      extraBuyAuto: t.extraBuyAuto(),
       // 자동매도 8필드(Phase 27 · vtable 140~154). 슬롯 부재(구서버) = false/0 — 계산하지 않는다.
       // 양방향 — ☐자동매도 · 시작조건 · 비율 · 방법.
       autoSellEnabled: t.autoSellEnabled(),
