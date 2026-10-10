@@ -19,13 +19,15 @@ import { useFieldSave, type FieldSave } from "./use-field-save";
 /**
  * ServersClient — `/admin/servers` 본문 (Phase 29 D-09 · D-10 · D-17 · 목업 A · ADMIN-10).
  *
- * 헤더(「서버」 · 「레지스트리 N대 · 주문/시세 서버」 · 「+ 서버」) → 증권사 섹션(「KB」 · 「교보」 순 · 우측 「주문 서버는
+ * 헤더(「서버」 · 「레지스트리 N대 · 주문/시세 서버」 · 「+ 서버」) → 증권사 섹션(「KB」 · 「교보」 순 · 우측 「기본 주문 서버는
  * 증권사 안에서 1대」) → 서버 카드(폰 1열 · 640 이상 2열 — 앱 셸 레벨 뷰포트 브레이크포인트) → 목업 하단 안내 문장.
  * 데이터는 마운트 시 `GET /api/admin/servers` 한 번이다(브라우저는 Supabase 표를 직접 읽지 않는다 — D-07).
  *
- * - 「주문 서버」 라디오 = 증권사마다 `useFieldSave` 1개(29-17 결) — 누르는 즉시 `PUT …/order-server` 1건, 비행 중 다시
+ * - 「기본 주문 서버」 라디오 = 증권사마다 `useFieldSave` 1개(29-17 결) — 누르는 즉시 `PUT …/order-server` 1건, 비행 중 다시
  *   누르면 마지막 값만 대기. 성공 → 재조회(역할 칩이 옮겨 간다). 실패 → 라디오가 서버 값으로 돌아가고 누른 카드에
- *   한 줄(서버 message 원문 — 토스트 없음). 주문 서버를 바꿔도 열린 세션은 그대로다(D-10 — relay 몫).
+ *   한 줄(서버 message 원문 — 토스트 없음). 「기본」 = 계좌 지정(편집 시트 계좌 줄 「주문 서버」 · 29-38)이 없을 때 쓰는 서버.
+ *   기본 주문 서버 전환 = relay 가 옛 서버의 활성 전략을 끄고 → 지정 없는 사용자를 새 서버로 즉시 재접속(G-1 · 사용자 확정
+ *   2026-10-10 · gh-trade-84 ②(가) · relay 29-36) — 하단 안내 둘째 문장이 그것을 말한다.
  * - 「시세 주 서버」 라디오 = 전체 1개(`useFieldSave` 1개) — `PUT …/quote-primary` 1건. relay 가 break-then-make 로
  *   실행하고 DB 도 relay 가 바꾼다(D-11 · 29-23). 응답 전에는 누른 카드가 「전환 중」 이고 모든 시세 라디오가 잠긴다
  *   (대기열 없음 — 전환은 겹치면 안 된다). 실패(relay 409 — 새 서버 로그인 실패 · 되돌림)면 라디오가 원래 서버로 돌아가고
@@ -46,10 +48,10 @@ export const ADMIN_SERVERS_TEXT = {
   title: "서버",
   description: (count: number) => `레지스트리 ${count}대 · 주문/시세 서버`,
   create: "+ 서버",
-  groupNote: "주문 서버는 증권사 안에서 1대",
+  groupNote: "기본 주문 서버는 증권사 안에서 1대",
   note:
     "시세 주 서버는 증권사와 무관하게 전체 1대. 바꾸면 relay 가 예전 연결을 닫고 새 서버에 붙는다(전환 중 시세 배지 적색). " +
-    "주문 서버를 바꾸면 열린 세션은 그대로, 새 로그인부터 적용.",
+    "기본 주문 서버를 바꾸면 그 증권사에서 계좌 지정이 없는 사용자는 relay 가 옛 서버의 활성 전략을 끄고 바로 새 서버로 재접속(1~3초) — 옛 서버의 미체결은 그 서버에서 정리.",
   forbidden: "관리자만 사용할 수 있어요.",
   loadFailed: "불러오지 못했어요",
   retry: "다시 시도",
@@ -216,7 +218,7 @@ interface BrokerSectionProps {
   onChanged: () => void;
 }
 
-/** 증권사 섹션 1개 — 그 증권사의 「주문 서버」 필드(useFieldSave 1개)를 가진다. */
+/** 증권사 섹션 1개 — 그 증권사의 「기본 주문 서버」 필드(useFieldSave 1개)를 가진다. */
 function BrokerSection({ broker, servers, quote, quoteKey, quoteTarget, onQuote, onEdit, onChanged }: BrokerSectionProps) {
   // 누른 카드 — 실패 한 줄을 그 카드에 단다(useFieldSave 는 실패 시 값을 비운다).
   const [orderTarget, setOrderTarget] = useState<string | null>(null);

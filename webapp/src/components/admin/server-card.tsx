@@ -23,8 +23,9 @@ import { useFieldSave } from "./use-field-save";
 /**
  * ServerCard — `/admin/servers` 서버 1대 카드 (Phase 29 D-17 · 목업 A `cardsA()` · `chips()` · `roleChips()`).
  *
- * 구조(목업 `.card`): 머리 줄(키 · 역할 칩 「주문 서버」 · 「시세 주 서버」 · 사용 토글) → `host:port` → 상태 칩
- * (연결 · 저널 · admin · 유저 N) → 라디오 2종(「주문 서버」 증권사 안 1개 · 「시세 주 서버」 전체 1개 · 초록).
+ * 구조(목업 `.card`): 머리 줄(키 · 역할 칩 「기본 주문 서버」 · 「시세 주 서버」 · 사용 토글) → `host:port` → 상태 칩
+ * (연결 · 저널 · admin · 유저 N) → 라디오 2종(「기본 주문 서버」 증권사 안 1개 · 계좌 지정이 없을 때 쓰는 서버 — 계좌 줄
+ * 「주문 서버」(29-38)와 이름으로 갈린다 / 「시세 주 서버」 전체 1개 · 초록).
  *
  * - 라디오는 네이티브 `<input type="radio">` 다 — 같은 `name` 이 곧 배타 범위다(주문 = `order-<증권사>` · 시세 =
  *   `quote`). 카드가 흩어져 있어도 브라우저가 한 그룹으로 다룬다. 이미 켜진 라디오는 다시 눌러도 change 가 없다.
@@ -37,6 +38,9 @@ import { useFieldSave } from "./use-field-save";
  *   끄면 relay 가 그 서버의 저널 · admin 연결을 내린다. 켜기와 유저 0 서버 끄기는 확인 없이 바로 보낸다.
  * - 카드 빈 곳을 누르면 편집 시트(`onEdit`)다 — 라디오 · 토글은 그 탭을 먹는다. 키뼈대 버튼이 키보드 진입점이다.
  * - 오류는 카드 안 한 줄(토스트 없음 — relay · 서버 message 원문).
+ * - G-1 (가) 끄기 미확인(29-38 · relay `servers/status` 의 `staleAccounts` — 29-43): 이 서버(옛 주문 서버)에 relay 가 끄지 못한
+ *   전략이 남은 계좌가 1개 이상이면 사용 중 한 줄 아래 같은 양식의 경고색 한 줄 — 꺼진 서버에도 보인다.
+ *   0 · 필드 없음(옛 relay) · 상태 없음이면 줄이 없다(카드 높이 종전).
  *
  * 색은 기존 토큰만: 주문 = `--primary`(목업 `.ch.role` · `.rad.on`) · 시세 = `--led-armed`(목업 `.ch.quote` · `.rad.q.on`).
  */
@@ -51,14 +55,15 @@ export interface ServerStatusChip {
 }
 
 export const SERVER_CARD_TEXT = {
-  orderRadio: "주문 서버",
+  orderRadio: "기본 주문 서버",
   quoteRadio: "시세 주 서버",
-  orderChip: "주문 서버",
+  orderChip: "기본 주문 서버",
   quoteChip: "시세 주 서버",
   switching: "전환 중",
   unknown: "상태 모름",
   enabled: "사용",
-  inUse: "주문 서버 · 시세 주 서버는 끌 수 없어요",
+  inUse: "기본 주문 서버 · 시세 주 서버는 끌 수 없어요",
+  staleNote: (accounts: number) => `옛 주문 서버에 남아 끄지 못한 전략 — 계좌 ${accounts}개 · 클라(OCX)에서 끄세요`,
   confirmTitle: (key: string) => `${key} 사용을 끌까요?`,
   confirmBody: (users: number) => `운영 중 서버에 유저 ${users}명 — 끄면 저널 · admin 연결을 내린다`,
   confirmCancel: "취소",
@@ -160,11 +165,11 @@ function RoleRadio({ kind, name, serverKey, checked, disabled, flash = false, on
 
 export interface ServerCardProps {
   server: AdminServerView;
-  /** 화면이 그릴 「주문 서버」 라디오 — 부모의 의도 값(비행 중이면 누른 값). */
+  /** 화면이 그릴 「기본 주문 서버」 라디오 — 부모의 의도 값(비행 중이면 누른 값). */
   orderChecked: boolean;
   /** 화면이 그릴 「시세 주 서버」 라디오. */
   quoteChecked: boolean;
-  /** 주문 서버 저장 성공 플래시(0.7초). */
+  /** 기본 주문 서버 저장 성공 플래시(0.7초). */
   orderFlash?: boolean;
   /** 이 카드로 시세 주 서버를 바꾸는 중 — 「전환 중」 칩 · aria-busy. */
   quoteSwitching?: boolean;
@@ -212,6 +217,7 @@ export function ServerCard({
   // 주문/시세 서버(서버 값이든 누른 의도든)는 끌 수 없다.
   const inUse = server.isOrderServer || server.isQuotePrimary || orderChecked || quoteChecked;
   const inUseNoteId = useId();
+  const staleAccounts = server.status?.staleAccounts ?? 0;
 
   const onToggle = (next: boolean) => {
     if (!next && server.userCount > 0) {
@@ -285,6 +291,14 @@ export function ServerCard({
           className="mt-0.5 text-right text-[12px] leading-[1.45] break-keep text-[var(--muted-fg)]"
         >
           {SERVER_CARD_TEXT.inUse}
+        </p>
+      )}
+      {staleAccounts >= 1 && (
+        <p
+          data-slot="server-stale-note"
+          className="mt-0.5 text-right text-[12px] leading-[1.45] break-keep text-[var(--led-latent)]"
+        >
+          {SERVER_CARD_TEXT.staleNote(staleAccounts)}
         </p>
       )}
 

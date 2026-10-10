@@ -24,12 +24,15 @@ import { DbError, audit, parseOrThrow, relayFailed, requireRelayAdmin } from "./
  *
  * - GET  /servers                     : RPC `admin_servers_raw` 1회 + relay `servers/status` 1회(병렬) → shared
  *                                       `deriveAdminServersOverview`. relay 가 없거나 실패하면 상태만 null(200 유지 —
- *                                       레지스트리 편집은 relay 없이도 된다).
+ *                                       레지스트리 편집은 relay 없이도 된다). relay 상태 객체는 그대로 통과한다
+ *                                       (`staleAccounts` 29-43 포함 — 서버 카드 끄기 미확인 한 줄 · 29-38).
  * - POST /servers                     : 서버 추가 → `dma_admin_upsert_server` → relay 레지스트리 재적재(best-effort).
  *                                       이미 있는 키는 409 `SERVER_EXISTS`(주소 변경은 PATCH — 「+ 서버」 가 기존 서버를 덮지 않게).
  * - PATCH /servers/:key               : `{ host?, port?, enabled?, sortOrder?, broker? }` — 필드별 즉시 저장(D-15 동형).
  *                                       주소 = upsert RPC(증권사 고정) · 사용 = `dma_admin_set_server_enabled` · 정렬 = 표 직접.
- * - PUT  /servers/:key/order-server   : 증권사 주문 서버 교체 RPC(한 트랜잭션) → 재적재. 열린 세션은 예전 서버 유지(D-10).
+ * - PUT  /servers/:key/order-server   : 증권사 기본 주문 서버 교체 RPC(한 트랜잭션) → relay 재적재 → 옛 서버의 활성 전략
+ *                                       끄기 → 계좌 지정이 없는 영향 사용자 즉시 재수립(G-1 · 사용자 확정 2026-10-10 ·
+ *                                       gh-trade-84 ②(가) · relay 29-36/29-43). 「기본」 = 계좌 지정(29-37)이 없을 때 쓰는 서버.
  * - PUT  /servers/:key/quote-primary  : relay `POST /internal/admin/servers/:key/quote-primary`(break-then-make 실행 ·
  *                                       성공 시 relay 가 DB 를 갱신 — 29-23). Express 는 DB 를 먼저 바꾸지 않는다 —
  *                                       relay 전환이 실패해 되돌린 경우 DB 만 새 서버를 가리키는 갈라짐이 생기므로.
@@ -56,7 +59,7 @@ function registryError(error: PgError, fallback: string): ApiError {
     return new ApiError(
       409,
       "SERVER_IN_USE",
-      "주문 서버 · 시세 주 서버는 끌 수 없어요. 먼저 다른 서버로 옮기세요.",
+      "기본 주문 서버 · 시세 주 서버는 끌 수 없어요. 먼저 다른 서버로 옮기세요.",
     );
   }
   if (msg === "server disabled") {
@@ -211,7 +214,7 @@ adminServersRouter.patch("/servers/:key", async (req, res, next) => {
   }
 });
 
-// --- PUT /servers/:key/order-server — 증권사 주문 서버 교체 (D-10 새 로그인부터) ---
+// --- PUT /servers/:key/order-server — 증권사 기본 주문 서버 교체 (G-1 — 재적재 → 옛 서버 전략 끄기 → 영향 사용자 즉시 재수립) ---
 adminServersRouter.put("/servers/:key/order-server", async (req, res, next) => {
   try {
     const { key } = parseOrThrow(serverKeyParam, req.params);
