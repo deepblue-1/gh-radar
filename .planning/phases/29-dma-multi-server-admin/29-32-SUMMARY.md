@@ -279,3 +279,10 @@ None - no external service configuration required.
 ---
 *Phase: 29-dma-multi-server-admin*
 *Completed: 2026-10-10*
+
+## Self-Check: PASSED
+
+- 커밋 7개(6cc3ef80 · 30e2d679 · 10c43e13 · b6b4421f · 2d9cb259 · f5bb359d · cf63d6eb) HEAD 조상 확인
+- SUMMARY · RED 증거 3파일 존재 확인
+- acceptance: `ADMIN_REQUEST_DEADLINE_MS = 10_000` 1 · admin-api `deadlineAt` 13 · config `15_000` 1 · 「기본 12000」 0 · `#settle(…, true)` 는 settleUserOnOk 갈래 하나
+- 플랜 verification: relay admin-dispatcher · admin-api · admin-planner · quote-switch · relay admin-* 6파일(103/103) · server relay-admin-client · admin-dma(84/84) green

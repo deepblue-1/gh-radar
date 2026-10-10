@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 29
 current_phase_name: DMA 다중 서버 · 웹 Admin 유저 관리
 status: executing
-stopped_at: Completed 29-25-PLAN.md
-last_updated: "2026-10-10T12:16:55.896Z"
+stopped_at: Completed 29-32-PLAN.md
+last_updated: "2026-10-10T14:19:40.772Z"
 last_activity: 2026-10-10
 last_activity_desc: Phase 29 execution started
-state_head: 3a0870ee8edd866749711181fb0f1b773869c7be
+state_head: cf63d6ebe085a6f54cbd0d663d41176340207538
 progress:
   total_phases: 38
   completed_phases: 24
-  total_plans: 419
-  completed_plans: 388
+  total_plans: 421
+  completed_plans: 394
 milestone_name: milestone
 ---
 
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 29 (DMA 다중 서버 · 웹 Admin 유저 관리) — READY TO EXECUTE
-Plan: 26 of 26
+Phase: 29 (DMA 다중 서버 · 웹 Admin 유저 관리) — EXECUTING
+Plan: 2 of 44
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-10-10 - Completed quick task 261010-jix: Phase 27 WR-R3-01·WR-R3-02·IN-R3-01·IN-R3-02 수정 (27-REVIEW-R3.md)
+Last activity: 2026-10-10 — Phase 29 execution started
 
 Progress: [█████████░] 93%
 
@@ -228,6 +228,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 29 P23 | 8min | 2 tasks | 7 files |
 | Phase 29 P24 | 16 min | 3 tasks | 9 files |
 | Phase 29 P25 | 50min | 3 tasks | 3 files |
+| Phase 29 P32 | 10 min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -635,6 +636,11 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 29]: 29-25: 빅뱅 배포 창을 장 시작 전(05:49~06:02 KST)에 실행 — 사용자 go, 20:00 이후 대신
 - [Phase 29]: 29-25: 운영 relay e2a12c34 레지스트리 모드 전환 완료 — 이후 정상 배포는 --registry-cutover 불필요
 - [Phase 29]: 29-25: gh-trade dc8fb50a 재배포 전까지 Admin 에서 서버의 마지막 사용자 삭제 금지
+- [Phase 29]: Admin 변경 요청 마감 10초(ADMIN_REQUEST_DEADLINE_MS) — 끝나지 않은 서버는 timeout(ADMIN_DEADLINE_MESSAGE)으로 접어 200 먼저 응답 · 반영은 취소 없이 계속 · 실제 결과로 record 한 번 더 · 같은 유저 줄은 실제 완료에 묶임(줄 대기도 마감 포함)
+- [Phase 29]: 유저 삭제 마감 → deleted false · 늦은 완료에도 DB 삭제 안 함(다음 삭제 요청이 마저)
+- [Phase 29]: Express relayAdminTimeoutMs 기본 15000(relay 마감 10초 + 여유 · 브라우저 20초 안) — Cloud Run env 가 12000 을 명시했으면 29-41 에서 확인
+- [Phase 29]: quote-primary DB 실패 되돌리기는 응답 뒤 비동기 · message 「옛 서버로 되돌리는 중」
+- [Phase 29]: WR-01: planner op 2 가 계획 때 removing 계좌번호(accountNos)를 싣고 reconcile op 2 settle 은 그 행만(p_user_removed=false) — 전 행 settle 은 유저 삭제 경로 전용
 
 ### Pending Todos
 
@@ -675,8 +681,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-10-06T21:06:13.128Z
-Stopped at: Completed 29-25-PLAN.md
+Last session: 2026-10-10T14:19:39.891Z
+Stopped at: Completed 29-32-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
