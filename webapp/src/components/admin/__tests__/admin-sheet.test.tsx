@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 /**
  * Phase 29 (29-15) — `AdminSheet` 반응형 시트 골격 (D-14 · 목업 A).
@@ -27,6 +27,26 @@ function mockViewport(desktop: boolean) {
 }
 
 const content = () => document.querySelector('[data-slot="sheet-content"]') as HTMLElement;
+const overlays = () => document.querySelectorAll('[data-slot="sheet-overlay"]');
+
+/** Radix DismissableLayer 는 바깥 pointerdown 리스너를 다음 틱에 단다 — 한 틱 기다린 뒤 누른다. */
+async function nextTick() {
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 0));
+  });
+}
+
+/** 목록 자리(시트 바깥)의 행 버튼 + 시트. */
+function renderWithList(onOpenChange: (open: boolean) => void) {
+  return render(
+    <>
+      <button type="button">목록 행 B</button>
+      <AdminSheet open onOpenChange={onOpenChange} title="kim.trader@example.invalid">
+        <p>본문</p>
+      </AdminSheet>
+    </>,
+  );
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -91,5 +111,35 @@ describe('AdminSheet', () => {
       </AdminSheet>,
     );
     expect(content()).toBeNull();
+  });
+
+  // UI-REVIEW-2 · 목업 A `.panel` · D-14 「목록은 남는다」 — 데스크톱은 비모달 패널: 스크림 없음 · 바깥 상호작용으로 닫히지 않는다.
+  it('데스크톱(≥640) → 비모달 패널 · 오버레이 0개 · 목록(바깥) pointerdown · focus 로 닫히지 않는다 · Esc 는 닫는다', async () => {
+    mockViewport(true);
+    const onOpenChange = vi.fn();
+    renderWithList(onOpenChange);
+    await nextTick();
+
+    expect(overlays()).toHaveLength(0);
+    expect(screen.getByRole('dialog', { name: 'kim.trader@example.invalid' })).toBeInTheDocument();
+
+    const outside = screen.getByRole('button', { name: '목록 행 B' });
+    fireEvent.pointerDown(outside);
+    fireEvent.focusIn(outside);
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(content(), { key: 'Escape' });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('폰(<640) → 모달 바텀시트 · 오버레이 1개 · 바깥 pointerdown 이 닫는다(종전)', async () => {
+    mockViewport(false);
+    const onOpenChange = vi.fn();
+    renderWithList(onOpenChange);
+    await nextTick();
+
+    expect(overlays()).toHaveLength(1);
+    fireEvent.pointerDown(overlays()[0]);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

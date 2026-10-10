@@ -248,6 +248,50 @@ test('P29-A3 편집 시트 — 필드별 즉시 저장 · 결과 칩 (1080 우�
   expect(await leavesOverflowing(body, bodyBox.x + bodyBox.width)).toEqual([]);
 });
 
+// UI-REVIEW-2 · 목업 A `.panel` · D-14 「목록은 남는다」 — 데스크톱 시트는 비모달 패널(스크림 없음). 목록의 다른 행을
+// 누르면 시트가 닫히지 않고 그 사용자로 바뀐다(모달일 때는 바깥 클릭이 시트를 먼저 닫았다).
+test('P29-A3b 데스크톱 비모달 — 오버레이 없음 · 행 사이 이동 (1080)', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1080, height: 800 });
+  await mockEditApi(page);
+  const PARK = 'park.view@example.invalid';
+
+  await page.goto('/admin/users');
+  const kimRow = usersRoot(page).locator(`[data-slot="admin-user-row"][data-email="${KIM}"]`);
+  const parkRow = usersRoot(page).locator(`[data-slot="admin-user-row"][data-email="${PARK}"]`);
+  await expect(kimRow).toBeVisible({ timeout: 30_000 });
+  await kimRow.click();
+
+  const sheet = page.getByRole('dialog', { name: KIM });
+  await expect(sheet).toBeVisible();
+  await expect.poll(async () => {
+    const b = (await sheet.boundingBox())!;
+    return Math.round(b.x + b.width);
+  }).toBe(1080);
+  // 스크림 · blur 없음 — 목록은 시트 왼쪽에 흐리지 않게 남는다
+  await expect(page.locator('[data-slot="sheet-overlay"]')).toHaveCount(0);
+  const panel = (await sheet.boundingBox())!;
+  const parkBox = (await parkRow.boundingBox())!;
+  expect(parkBox.x + parkBox.width / 2).toBeLessThan(panel.x);
+
+  // 다른 행 클릭 → 시트는 열린 채 제목만 그 사용자로 · 선택 표시가 옮겨 간다
+  await parkRow.click();
+  await expect(page.getByRole('dialog', { name: PARK })).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(1);
+  await expect(page.getByRole('dialog', { name: KIM })).toHaveCount(0);
+  await expect(parkRow).toHaveAttribute('data-selected', 'true');
+  await expect(kimRow).not.toHaveAttribute('data-selected', 'true');
+  await expect(page.locator('[data-slot="sheet-overlay"]')).toHaveCount(0);
+
+  await page.screenshot({ path: testInfo.outputPath('admin-user-sheet-nonmodal-1080.png') });
+
+  // 닫기는 Esc · ×
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await parkRow.click();
+  await page.getByRole('dialog', { name: PARK }).getByRole('button', { name: '닫기' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
 test('P29-A3 편집 시트 — 폰 바텀시트 · 역할 즉시 저장 1건 (390)', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const api = await mockEditApi(page);
