@@ -85,22 +85,29 @@
  *         사용자당 DMA 세션이 1개이므로 「그 사용자의 전략이 지금 무엇인가」를 아는 객체도
  *         하나여야 한다. 캐시가 있어야 새 탭이 붙자마자 **종목 구독 없이** 전략을 본다 —
  *         계좌 캐시(D-23/D-37)와 같은 이유이고 같은 4점 세트(맵 · 프리페치 · case · 폐기)다.
- *   Phase 29-20 D-18  **(유저, 서버) 다중 세션 병합.** 한 사용자가 증권사 세션을 여럿(KB 주문 서버 · 교보 주문 서버) 가진다.
- *         결선 · 캐시 소유 단위는 **세션 소유 키** `ownerKey(userId, serverKey)` 다(RESEARCH Pitfall 9 — 옛 「같은 userId
- *         다른 세션 = 교체 → 캐시 폐기」 를 소유 키 단위로 바꿨다). primary = KB 세션 우선 · 없으면 처음 결선된 세션.
- *           프레임                                   규칙           캐시 키 · 교체 범위
- *           51 주문 · 54 메시지 · 65 집계             병합(통과)      캐시 없음 — 어느 세션이든 그대로 팬아웃
- *           66/67 계좌                               병합           `${ownerKey}|계좌` — 그 세션 계좌만
- *           64/60 상따                               병합           `${ownerKey}|전략키` — 64 는 그 세션 몫 전량 교체 ·
- *                                                                   `lc.snap` 은 사용자 합집합 · 「64 받았음」 은 세션별
- *           83 잔량진행률                             병합           `${ownerKey}|isin|ex` — 그 세션 허용 계좌로만 거름 ·
+ *   Phase 29-20 D-18  **(유저, 서버) 다중 세션 병합.** 한 사용자가 서버 세션을 여럿(KB 주문 서버 · 교보 주문 서버 · G-1 로는
+ *         같은 증권사의 서로 다른 서버 — KB120 · KB121) 가진다. 결선 · 캐시 소유 단위는 **세션 소유 키** `ownerKey(userId, serverKey)`
+ *         다(RESEARCH Pitfall 9 — 옛 「같은 userId 다른 세션 = 교체 → 캐시 폐기」 를 소유 키 단위로 바꿨다).
+ *         primary = 주입된 선호 서버 키(`preferredPrimaryServerKey` — 운영은 KB 기본 주문 서버) 세션 → 없으면 첫 KB 세션 → 없으면
+ *         처음 결선된 세션(29-35 — `SessionManager.primaryOf` · fanout 병합 상태 프레임과 같은 규칙 · 같은 주입).
+ *           프레임                                   규칙           캐시 키 · 교체 범위                          G-1 소유 필터(29-35)
+ *           51 주문 · 54 메시지 · 65 집계             병합(통과)      캐시 없음 — 어느 세션이든 그대로 팬아웃      없음(51 은 와이어에 계좌 칸 없음)
+ *           66/67 계좌                               병합           `${ownerKey}|계좌` — 그 세션 계좌만             프레임 계좌 ∉ 소유 뷰 → 버림
+ *           64/60 상따                               병합           `${ownerKey}|전략키` — 64 는 그 세션 몫 전량 교체 · 항목 계좌 ∉ 소유 뷰 → 그 항목 버림
+ *                                                                   `lc.snap` 은 사용자 합집합(세션 결선 순) · 「64 받았음」 은 세션별
+ *           83 잔량진행률                             병합           `${ownerKey}|isin|ex` — 그 세션 소유 계좌로만 거름 ·  항목 단위(종전 25-06 거름 · fail-closed)
  *                                                                   팬아웃 · 스냅샷은 (isin, ex) 합집합
- *           61 VI 설정 · 72/73 VI 추적 · 56 VI 통보    primary 전용   사용자 단위 키 그대로 — 다른 세션 프레임은 debug 드롭
- *           84 사용자 설정 · 76/78 돌파 · 77 예약 창    primary 전용   〃
+ *           61 VI 설정 · 72/73 VI 추적 · 56 VI 통보    primary 전용   사용자 단위 키 그대로 — 다른 세션 프레임은 debug 드롭  없음
+ *           84 사용자 설정 · 76/78 돌파 · 77 예약 창    primary 전용   〃                                            없음
  *         요청: 25(계좌) · 24(상따)는 세션마다 Ready 에서, 21 · 34 · 43 은 primary 세션만(비 primary 의 21 은 FIFO 를 어지럽힌다).
- *         세션 교체(같은 소유 키 다른 객체) · 분리(`retainSessions`) · 같은 증권사 다른 서버 대체(D-10)는 **그 세션 몫**만
- *         버리고, 그 세션이 primary 였으면 primary 전용 캐시도 버린다. primary 가 바뀌면 옛 primary 몫을 버리고 새 primary 가
- *         Ready 면 21 · 34 · 43 을 그 세션으로 요청한다. 단일 세션 사용자는 「세션 1개짜리 병합」 — 종전과 같다.
+ *         세션 교체(같은 소유 키 다른 객체) · 분리(`retainSessions`)는 **그 세션 몫**만 버리고, 그 세션이 primary 였으면 primary
+ *         전용 캐시도 버린다. primary 가 바뀌면 옛 primary 몫을 버리고 새 primary 가 Ready 면 21 · 34 · 43 을 그 세션으로 요청한다.
+ *         단일 세션 사용자는 「세션 1개짜리 병합」 — 종전과 같다.
+ *   Phase 29-35 G-1 소유 필터  같은 계좌가 두 서버 users.toml 에 모두 있어도 그 계좌는 **유효 주문 서버 세션 하나에서만 보인다**
+ *         (29-29 운영 규칙 · gh-trade-84 ② 확정 — A 서버 주문의 체결 통보는 B 서버로 가지 않으므로 다른 서버의 잔고 · 미체결은 낡는다).
+ *         위 표의 「병합」 프레임 중 계좌가 실린 것(66/67 · 60/64 · 83)은 그 세션 소유 뷰(`allowedAccounts` — 29-33 `DmaSession`)에 없는
+ *         계좌면 **캐시에 넣지 않고 팬아웃하지 않는다**(debug 1줄 · 계좌 마스킹). 판정 함수는 `ownedAccountsOf` 하나다. 「같은 증권사
+ *         다른 서버 세션 = 대체」(옛 D-10) 규칙은 없다 — 사용자 × 증권사 세션이 여럿일 수 있고, 떼어 낼 세션은 `retainSessions` 가 고른다.
  *   D-13  전략 재조회는 **재접속(`ready`) 시에만** 일어난다. 주기 타이머·수동 새로고침
  *         진입점을 만들지 않는다 — 사용자 조작에 대한 60/61 에코는 Notice(유실 없음)라
  *         재조회로 메울 것이 없고, 폴링은 게이트웨이 왕복을 사용자 수에 비례시킨다.
@@ -320,7 +327,7 @@ export interface HubSession {
    * 없으면(단위 테스트 가짜 세션) `broker` → `"KB"` 로 접는다 — 단일 세션은 「세션 1개짜리 병합」 이다.
    */
   readonly serverKey?: string;
-  /** `LoginReq.broker` (Phase 29-20 — primary 판정 축 · 사용자 × 증권사 세션 1개 · D-10). 없으면 `"KB"`. */
+  /** `LoginReq.broker` (Phase 29-20 — primary 판정 축의 하나 · 29-35 G-1 로 같은 증권사 세션이 여럿일 수 있다). 없으면 `"KB"`. */
   readonly broker?: string;
   /** 운용 준비 여부. false 면 계좌 · 전략 요청을 보내지 않는다(종목 구독은 Phase 26 부터 quote 연결 몫). */
   readonly isReady: boolean;
@@ -331,6 +338,10 @@ export interface HubSession {
    * 잔량진행률(83)은 Broadcast 라 시세만 구독한 세션에도 **남의 계좌 항목**이 실린다(gh-trade D-19).
    * hub 는 이 목록으로 항목을 거른 뒤에만 캐시 · 팬아웃한다. **없으면 진행률 항목을 전부 거른다**
    * (fail-closed · T-19-02 동형 · T-25-24).
+   *
+   * Phase 29-35 (G-1) — 이 목록은 **소유 뷰**다(`DmaSession` 29-33 — 유효 주문 서버가 이 세션 서버인 계좌만). 66/67 · 60/64 도
+   * 이 목록에 없는 계좌면 캐시 · 팬아웃하지 않는다. 그 갈래는 목록이 **없으면**(단위 테스트 가짜 세션) 종전처럼 통과다 — 83 만
+   * fail-closed 다(`ownedAccountsOf`).
    */
   readonly allowedAccounts?: readonly RelayAccount[];
   /** 게이트웨이 요청 프레임 송신. */
@@ -551,6 +562,17 @@ function brokerOf(session: HubSession): string {
 /** 세션의 서버 키. 미기재면 증권사 이름(레지스트리 없는 단위 테스트 — `DmaSession` 의 `serverKey ?? broker` 와 같다). */
 function serverKeyOf(session: HubSession): string {
   return session.serverKey ?? brokerOf(session);
+}
+
+/**
+ * G-1 소유 필터 판정 원천 (29-35) — 세션 소유 뷰(`allowedAccounts`) 계좌번호 집합. 목록이 없는 세션(단위 테스트 가짜)은 null.
+ *
+ * 병합 프레임 갈래(66/67 · 60/64 · 83)가 전부 이 함수 하나로 거른다. null 의 뜻은 갈래가 정한다 — 83 은 fail-closed(전부 거름 ·
+ * T-25-24 — Broadcast 라 남의 계좌가 실린다), 66/67 · 60/64 는 종전처럼 통과(그 세션 요청의 응답이라 남의 계좌가 오지 않는다).
+ */
+function ownedAccountsOf(session: HubSession): ReadonlySet<string> | null {
+  const list = session.allowedAccounts;
+  return list === undefined ? null : new Set(list.map((a) => a.accountNo));
 }
 
 /**
@@ -896,8 +918,11 @@ export class SubscriptionHub extends EventEmitter {
    *
    * Phase 29-20 (RESEARCH Pitfall 9 해소) — 결선 단위가 **세션 소유 키**(`ownerKey(userId, serverKey)`)다. 「교체」 는
    * 같은 소유 키의 다른 객체일 때뿐이고, 버리는 캐시도 **그 세션 몫**이다 — 같은 사용자의 교보 세션 결선이 KB 세션의
-   * 캐시를 지우지 않는다. 같은 증권사의 다른 서버 키 세션(D-10 주문 서버 전환 뒤 새 세션)은 옛 서버 세션을 대체한다 —
-   * 사용자 × 증권사 세션은 1개다(`SessionManager` 규칙).
+   * 캐시를 지우지 않는다.
+   *
+   * Phase 29-35 (G-1) — 같은 증권사의 다른 서버 키 세션(KB120 · KB121)도 **공존**한다. 옛 D-10 「같은 증권사 다른 서버 =
+   * 대체」 는 지웠다 — 계좌들이 서로 다른 주문 서버를 쓰면 사용자 × 증권사 세션이 여럿이다(29-33 `serversFor`). 떼어 낼
+   * 세션은 쥔 연결 기준 `retainSessions` 가 고른다. 각 세션 몫 계좌 프레임은 그 세션 소유 뷰로 거른다(`ownedAccountsOf`).
    */
   attach(session: HubSession): void {
     const userId = session.userId;
@@ -912,17 +937,6 @@ export class SubscriptionHub extends EventEmitter {
       logger.info({ userId, serverKey }, "[HUB] 세션 교체 — 사용자 캐시 폐기 (계좌 · 전략은 ready 에서 재요청)");
       this.#clearCaches(userId, owner, primaryBefore === owner);
     }
-    // D-10 — 같은 증권사 · 다른 서버 키의 옛 세션은 이 세션이 대체한다(주문 서버 전환 뒤 새 세션).
-    const prefix = userPrefix(userId);
-    for (const [other, s] of [...this.#sessions]) {
-      if (other === owner || !other.startsWith(prefix) || brokerOf(s) !== brokerOf(session)) continue;
-      logger.info(
-        { userId, serverKey, replaced: serverKeyOf(s) },
-        "[HUB] 같은 증권사 다른 서버 세션 대체 — 옛 세션 몫 캐시 폐기 (D-10)",
-      );
-      this.#dropOwner(userId, other, primaryBefore === other);
-    }
-
     this.#sessions.set(owner, session);
     const rewired = this.#wired.has(session);
     if (!rewired) {
@@ -1548,10 +1562,15 @@ export class SubscriptionHub extends EventEmitter {
    * 게이트웨이 왕복도, 종목 구독도 필요 없다.
    */
   getLimitChasers(userId: string): RelayLimitChaser[] {
-    const prefix = userPrefix(userId);
+    // 29-35 (G-1) — 세션 결선 순으로 묶는다(한 세션의 64 전량 교체가 그 세션 몫의 자리를 맨 뒤로 밀지 않게). 세션 안 순서는
+    // 캐시 삽입 순이다. 단일 세션은 종전과 같다.
     const out: RelayLimitChaser[] = [];
-    for (const [key, item] of this.#limitChasers) {
-      if (key.startsWith(prefix)) out.push(item);
+    for (const owner of this.#sessions.keys()) {
+      if (!owner.startsWith(userPrefix(userId))) continue;
+      const own = ownerPrefix(owner);
+      for (const [key, item] of this.#limitChasers) {
+        if (key.startsWith(own)) out.push(item);
+      }
     }
     return out;
   }
@@ -1898,7 +1917,7 @@ export class SubscriptionHub extends EventEmitter {
       case MSG.GetAccountStateResp:
       case MSG.AccountStateDelta: {
         const state = parseAccountState(e.env, e.msgType === MSG.GetAccountStateResp);
-        if (state !== null) this.#onAccountState(userId, owner, state);
+        if (state !== null) this.#onAccountState(userId, owner, session, e.msgType, state);
         return;
       }
       case MSG.ServerMessage: {
@@ -1914,13 +1933,13 @@ export class SubscriptionHub extends EventEmitter {
       }
       case MSG.SetLimitChaserResp: {
         const item = parseLimitChaserEcho(e.env);
-        if (item !== null) this.#onLimitChaserEcho(userId, owner, item);
+        if (item !== null) this.#onLimitChaserEcho(userId, owner, session, item);
         return;
       }
       case MSG.GetLimitChaserListResp: {
         // `[]` 는 정상이다(등록 0건) — `null` 만 파싱 실패다.
         const items = parseLimitChaserList(e.env);
-        if (items !== null) this.#onLimitChaserList(userId, owner, items);
+        if (items !== null) this.#onLimitChaserList(userId, owner, session, items);
         return;
       }
       case MSG.SetVITriggerResp: {
@@ -2057,6 +2076,22 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
+   * G-1 소유 필터로 버린 계좌 프레임 · 항목 (29-35) — debug 1줄(계좌는 마스킹). 의도된 무시라 `unhandledFrameCount` 를 올리지 않는다.
+   */
+  #logForeign(userId: string, owner: string, msgType: number, accounts: readonly string[]): void {
+    logger.debug(
+      {
+        userId,
+        msgType,
+        serverKey: owner.slice(userPrefix(userId).length),
+        accounts: [...new Set(accounts)].map(maskAccountNo),
+        count: accounts.length,
+      },
+      "[HUB] 이 세션 소유 아닌 계좌 프레임 — 버림 (G-1 · 그 계좌의 주문 서버 세션만)",
+    );
+  }
+
+  /**
    * 등락률 돌파 알림 1건 (76) — above 집합 **upsert** 다.
    *
    * ⚠️ **캐시가 먼저이고 팬아웃이 나중이다.** 76 은 요청 짝 없는 Broadcast 라 로그인 전
@@ -2163,7 +2198,9 @@ export class SubscriptionHub extends EventEmitter {
    * 같다(멱등). 중복 제거는 하지 않는다.
    */
   #onQueueProgress(userId: string, owner: string, session: HubSession, frame: QueueProgressFrame): void {
-    const allowed = new Set((session.allowedAccounts ?? []).map((a) => a.accountNo));
+    // 29-35 (G-1 · gh-trade-84 (나)) — **항목 단위**로 그 세션 소유 뷰만 남긴다(프레임 단위가 아니다). 소유 목록이 없으면
+    // 전부 거른다(fail-closed · T-25-24).
+    const allowed = ownedAccountsOf(session) ?? new Set<string>();
     const items: RelayQueueProgressItem[] = [];
     for (const it of frame.items) {
       if (!allowed.has(it.accountNo)) continue;
@@ -2469,7 +2506,20 @@ export class SubscriptionHub extends EventEmitter {
    * 보내면 프레임이 커지기만 하고 얻는 것이 없다. 삭제(0 행)를 여기서 걸러 버리지 않는
    * 것도 같은 이유다 — 그 신호가 사라지면 브라우저가 사라진 종목을 계속 그린다.
    */
-  #onAccountState(userId: string, owner: string, rawState: RelayAccountState): void {
+  #onAccountState(
+    userId: string,
+    owner: string,
+    session: HubSession,
+    msgType: number,
+    rawState: RelayAccountState,
+  ): void {
+    // 29-35 (G-1) — 그 계좌의 주문 서버 세션이 아니면 캐시 · 팬아웃 0 (다른 서버 잔고 · 미체결은 낡은 원본이다 — gh-trade-84 ②).
+    // 계좌 칸이 빈 프레임은 판정할 계좌가 없어 종전 그대로다.
+    const owned = ownedAccountsOf(session);
+    if (owned !== null && rawState.a !== "" && !owned.has(rawState.a)) {
+      this.#logForeign(userId, owner, msgType, [rawState.a]);
+      return;
+    }
     // 이름 보강은 **캐시와 와이어 이전**에 한 번만 한다. 캐시만 채우면 라이브 프레임에
     // 이름이 없고, 와이어만 채우면 재접속 캐시 재생에 이름이 없다 — 둘이 갈리면
     // "새로고침하면 이름이 사라진다" 가 된다.
@@ -2500,7 +2550,13 @@ export class SubscriptionHub extends EventEmitter {
    * **삭제도 프레임으로 내린다.** 캐시에서만 지우고 침묵하면 이미 열려 있는 탭의 목록에
    * 사라진 전략이 그대로 남고, 사용자가 그것을 보고 「아직 살아 있다」로 읽는다.
    */
-  #onLimitChaserEcho(userId: string, owner: string, raw: RelayLimitChaser): void {
+  #onLimitChaserEcho(userId: string, owner: string, session: HubSession, raw: RelayLimitChaser): void {
+    // 29-35 (G-1) — 소유 계좌가 아닌 전략 에코는 캐시 · 팬아웃 0 (옛 서버에 남은 그 계좌 전략은 화면 원천이 아니다).
+    const owned = ownedAccountsOf(session);
+    if (owned !== null && !owned.has(raw.accountNo)) {
+      this.#logForeign(userId, owner, MSG.SetLimitChaserResp, [raw.accountNo]);
+      return;
+    }
     // 보강은 **캐시에 넣기 전**이다. 캐시가 곧 `getLimitChasers` → `lc.snap`(재접속 복원)
     // 의 원천이므로, 여기서 붙이지 않으면 「지금 화면」과 「새로 연 탭」의 이름이 갈린다.
     //
@@ -2540,10 +2596,23 @@ export class SubscriptionHub extends EventEmitter {
    * 그 사용자의 엔트리를 전부 지우고 새로 넣는다. 병합(upsert)으로 처리하면 게이트웨이에서
    * 사라진 전략이 캐시에 영원히 남는다 — 다른 클라이언트(WinForms)가 지운 전략이 그것이다.
    */
-  #onLimitChaserList(userId: string, owner: string, raw: RelayLimitChaser[]): void {
+  #onLimitChaserList(userId: string, owner: string, session: HubSession, raw: RelayLimitChaser[]): void {
+    // 29-35 (G-1) — 항목 단위로 소유 계좌만 남긴다(64 는 그 세션의 전수 열거라 남의 계좌 전략이 섞일 수 있다). 거른 뒤의
+    // 목록이 이 세션 몫 전량이다 — 남은 항목이 0 이어도 이 세션 몫만 비우고 다른 서버 몫은 그대로다(gh-trade-84 (나)).
+    const owned = ownedAccountsOf(session);
+    const foreign = owned === null ? [] : raw.filter((item) => !owned.has(item.accountNo));
+    if (foreign.length > 0) {
+      this.#logForeign(
+        userId,
+        owner,
+        MSG.GetLimitChaserListResp,
+        foreign.map((item) => item.accountNo),
+      );
+    }
+    const mine = foreign.length === 0 ? raw : raw.filter((item) => owned?.has(item.accountNo) === true);
     // 전량 교체 규율은 그대로다 — 보강만 앞에 얹는다. 캐시와 팬아웃이 **같은 캐시**에서
     // 나오므로 두 경로의 이름이 갈릴 수 없다.
-    const items = raw.map((item) => this.#enrichLimitChaser(item));
+    const items = mine.map((item) => this.#enrichLimitChaser(item));
     // 29-20 (D-18) — 교체 범위는 **그 세션 몫**이다. 교보 세션의 빈 64 가 KB 전략을 지우지 않는다.
     const own = ownerPrefix(owner);
     for (const key of [...this.#limitChasers.keys()]) {

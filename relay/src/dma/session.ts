@@ -229,7 +229,10 @@ export class DmaSession extends EventEmitter {
     return this.#serverKey;
   }
 
-  /** `LoginReq.broker` (Phase 29-16). 사용자 × 증권사당 세션 1개 규칙(D-10)의 축이다. */
+  /**
+   * `LoginReq.broker` (Phase 29-16). 세션 키는 (유저, 서버)이고(G-1 · 29-42) 같은 증권사 세션이 여럿일 수 있다(29-35) — 이 값은
+   * primary 판정(선호 서버 → 첫 KB → 첫 세션)과 소유 술어(`ownerOf(dma, broker, acct)`)의 증권사 축이다.
+   */
   get broker(): string {
     return this.#broker;
   }
