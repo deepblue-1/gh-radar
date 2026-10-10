@@ -537,6 +537,37 @@ describe("PUT /api/admin/dma-users/:dma/accounts/:broker/:accountNo/order-server
   });
 });
 
+describe("GET /api/admin/users — 계좌 뷰의 주문 서버 지정 · 기본값 (29-37 G-1 ⑥)", () => {
+  it("raw intent[].isOrder · servers[].isOrderServer → 계좌 뷰 orderServer · defaultOrderServer 가 응답에 실린다", async () => {
+    const acct = { accountNo: "1234567", name: "위탁", branchNo: "00123", traderId: "T00001", priority: 0 };
+    const row = (serverKey: string, isOrder: boolean) => ({
+      dmaUserId: "kim01",
+      broker: "KB",
+      ...acct,
+      serverKey,
+      state: "active",
+      isOrder,
+    });
+    const raw = {
+      appUsers: [{ email: "kim@gmail.com", role: "trader", dmaUserId: "kim01", signedUp: true }],
+      pending: [],
+      intent: [row("KB120", false), row("KB121", true)],
+      snapshots: [],
+      snapshotAccounts: [],
+      results: [],
+      servers: [
+        { key: "KB120", broker: "KB", enabled: true, isOrderServer: true },
+        { key: "KB121", broker: "KB", enabled: true, isOrderServer: false },
+      ],
+    };
+    const { app } = makeApp({ raw });
+    const res = await auth(request(app).get("/api/admin/users"));
+    expect(res.status).toBe(200);
+    const kim = res.body.users.find((u: { dmaUserId: string | null }) => u.dmaUserId === "kim01");
+    expect(kim.accounts[0]).toMatchObject({ accountNo: "1234567", orderServer: "KB121", defaultOrderServer: "KB120" });
+  });
+});
+
 describe("POST /api/admin/users/:email/dma — 기존 사용자에 DMA 연결", () => {
   const withT2 = () => ({ appUsers: [...baseAppUsers(), { email: "t2@gmail.com", role: "trader", dma_user_id: null }] });
 

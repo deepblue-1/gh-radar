@@ -150,6 +150,9 @@ describe("계좌별 칩 · removing · serverOnlyOn", () => {
           { serverKey: "KB121", tone: "err", message: BUSY_MESSAGE, state: "active" },
         ],
         serverOnlyOn: [],
+        // 옛 raw(isOrder · isOrderServer 키 없음) — 파생은 두 필드를 늘 null 로 채운다(29-37).
+        orderServer: null,
+        defaultOrderServer: null,
       },
       {
         broker: "KYOBO",
@@ -158,6 +161,8 @@ describe("계좌별 칩 · removing · serverOnlyOn", () => {
         traderId: "",
         servers: [{ serverKey: "KYOBO119", tone: "ok", message: null, state: "active" }],
         serverOnlyOn: [],
+        orderServer: null,
+        defaultOrderServer: null,
       },
     ]);
     expect(u.accountCount).toBe(2);
@@ -213,9 +218,67 @@ describe("계좌별 칩 · removing · serverOnlyOn", () => {
       intent: [intent("kimtr", A1, "KB120")],
       snapshotAccounts: [snap("kimtr", A1, "KB120"), snap("kimtr", A2, "KB120")],
     });
-    expect(u.accounts[1]).toEqual({ broker: "KB", ...A2, servers: [], serverOnlyOn: ["KB120"] });
+    expect(u.accounts[1]).toEqual({
+      broker: "KB",
+      ...A2,
+      servers: [],
+      serverOnlyOn: ["KB120"],
+      orderServer: null,
+      defaultOrderServer: null,
+    });
     expect(u.accountCount).toBe(1);
     expect(u.servers).toEqual([{ serverKey: "KB120", tone: "ok", message: null }]);
+  });
+});
+
+describe("계좌 주문 서버 — 지정(orderServer) · 증권사 기본(defaultOrderServer) (29-37 G-1 ⑥)", () => {
+  /** 증권사 기본 주문 서버 = KB120 · KYOBO 는 없음(29-29 servers[].isOrderServer). */
+  const SERVERS_WITH_DEFAULT: AdminUsersRaw["servers"] = SERVERS.map((s) => ({ ...s, isOrderServer: s.key === "KB120" }));
+  const ordered = (row: AdminIntentRow, isOrder: boolean): AdminIntentRow => ({ ...row, isOrder });
+
+  it("지정 KB121(active · isOrder) → orderServer KB121 · defaultOrderServer KB120", () => {
+    const u = kimtr({
+      intent: [ordered(intent("kimtr", A1, "KB120"), false), ordered(intent("kimtr", A1, "KB121"), true)],
+      servers: SERVERS_WITH_DEFAULT,
+    });
+    expect(u.accounts[0]).toMatchObject({ accountNo: A1.accountNo, orderServer: "KB121", defaultOrderServer: "KB120" });
+  });
+
+  it("지정 없음 → orderServer null · defaultOrderServer KB120 / 그 증권사 기본 서버가 없으면 null(교보)", () => {
+    const u = kimtr({
+      intent: [ordered(intent("kimtr", A1, "KB120"), false), ordered(intent("kimtr", K1, "KYOBO119"), false)],
+      servers: SERVERS_WITH_DEFAULT,
+    });
+    expect(u.accounts.map((a) => [a.broker, a.orderServer, a.defaultOrderServer])).toEqual([
+      ["KB", null, "KB120"],
+      ["KYOBO", null, null],
+    ]);
+  });
+
+  it("removing 행에 isOrder 가 와도(비정상) 지정으로 보지 않는다", () => {
+    const u = kimtr({
+      intent: [ordered(intent("kimtr", A1, "KB120"), false), ordered(intent("kimtr", A1, "KB121", "removing"), true)],
+      servers: SERVERS_WITH_DEFAULT,
+    });
+    expect(u.accounts[0]).toMatchObject({ orderServer: null, defaultOrderServer: "KB120" });
+  });
+
+  it("87 에만 있는 계좌(의도 없음) → 두 필드 null", () => {
+    const u = kimtr({
+      intent: [ordered(intent("kimtr", A1, "KB120"), true)],
+      snapshotAccounts: [snap("kimtr", A1, "KB120"), snap("kimtr", A2, "KB120")],
+      servers: SERVERS_WITH_DEFAULT,
+    });
+    expect(u.accounts.map((a) => [a.accountNo, a.orderServer, a.defaultOrderServer])).toEqual([
+      [A1.accountNo, "KB120", "KB120"],
+      [A2.accountNo, null, null],
+    ]);
+  });
+
+  it("isOrder · isOrderServer 키가 없는 옛 raw → 두 필드 null(호환)", () => {
+    const u = kimtr({ intent: [intent("kimtr", A1, "KB120"), intent("kimtr", A1, "KB121")] });
+    expect(u.accounts[0]).toMatchObject({ orderServer: null, defaultOrderServer: null });
+    expect(Object.keys(u.accounts[0])).toEqual(expect.arrayContaining(["orderServer", "defaultOrderServer"]));
   });
 });
 
