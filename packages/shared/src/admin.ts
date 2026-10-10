@@ -209,6 +209,11 @@ export interface AdminServerLiveStatus {
   journal: "ok" | "down" | "off";
   admin: "ok" | "connecting" | "down" | "off";
   quote: "live" | "connecting" | "down" | null;
+  /**
+   * G-1 (가) — 이 서버(옛 주문 서버)에 남아 끄지 못한 전략이 있는 계좌 수(29-43 · relay `StaleStrategyRegister`). 옛 relay 는
+   * 싣지 않아 선택 필드다. 소비(서버 카드 한 줄)는 29-38.
+   */
+  staleAccounts?: number;
 }
 
 export interface AdminServerView {

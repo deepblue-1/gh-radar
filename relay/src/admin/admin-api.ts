@@ -14,6 +14,9 @@
  *     `SERVER_DISABLED` · `QUOTE_SWITCH_FAILED`(옛 서버로 되돌림 · DB 무변경) · `QUOTE_SWITCH_BUSY`(진행 중). message 는 화면이 그대로
  *     보이는 한국어 문장이다(29-18).
  *
+ * 서버 상태 `GET /servers/status`(29-11) — 서버마다 `{ conn, journal, admin, quote, staleAccounts }`. `staleAccounts`(29-43 G-1 (가))는
+ * 그 서버에 남아 끄지 못한 전략이 있는 계좌 수(deps `staleStrategies` 없으면 0 · 꺼진 서버에도 싣는다 — Admin 서버 카드 한 줄 · 29-38).
+ *
  * 유저 삭제 `DELETE /dma-users/:dma?skipDisabled=1`(29-34 WR-04) — Admin 이 「꺼진 서버의 등록은 DB 에서만 지워요」 확인을 거친
  * 요청. 꺼진 · 없는 등록 서버에는 op 를 보내지 않고 그 서버 의도 행만 settle 한 결과(`skipped` + 사유)를 싣고, 켜진 서버가 전부
  * ok 면 `deleted: true`. 쿼리 값 `1` 만 참. 감사 줄에 `skipDisabled: true`.
@@ -76,6 +79,11 @@ export type AdminApiDeps = {
   now?: () => number;
   /** 변경 요청 마감(ms · 29-32). 기본 `ADMIN_REQUEST_DEADLINE_MS` — 실 소켓 테스트만 줄인다. */
   adminDeadlineMs?: number;
+  /**
+   * 끄지 못한 전략 — 서버 키 → 계좌 수 (29-43 G-1 (가) · `StaleStrategyRegister.byServer()`). `servers/status` 의 서버별
+   * `staleAccounts` 원천. 주지 않으면 전부 0. 결선은 29-36.
+   */
+  staleStrategies?: () => ReadonlyMap<string, number>;
 };
 
 // ============================================================
@@ -466,16 +474,19 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
   router.get("/servers/status", (_req, res) => {
     const nowMs = deps.now?.() ?? Date.now();
     const quoteKey = deps.quoteStatus.serverKey();
+    // 29-43 G-1 (가) — 그 서버에 남아 끄지 못한 전략이 있는 계좌 수. 꺼진 서버에도 남아 있을 수 있어 off 행에도 싣는다.
+    const stale = deps.staleStrategies?.() ?? new Map<string, number>();
     const servers: Record<string, AdminServerLiveStatus> = {};
     for (const row of deps.registry.all()) {
+      const staleAccounts = stale.get(row.key) ?? 0;
       if (!row.enabled) {
-        servers[row.key] = { conn: "off", journal: "off", admin: "off", quote: null };
+        servers[row.key] = { conn: "off", journal: "off", admin: "off", quote: null, staleAccounts };
         continue;
       }
       const quote = quoteKey === row.key ? quoteChip(deps.quoteStatus.health(nowMs).state) : null;
       const p = deps.pipelines.get(row.key);
       if (p === undefined) {
-        servers[row.key] = { conn: "down", journal: "down", admin: "down", quote };
+        servers[row.key] = { conn: "down", journal: "down", admin: "down", quote, staleAccounts };
         continue;
       }
       const journalState = p.status.health(nowMs).state;
@@ -486,7 +497,7 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
       const linked =
         ["logging_in", "replaying", "live", "db_error"].includes(journalState) || ["logging_in", "ready"].includes(adminState);
       const conn = journal === "off" && admin === "off" ? "off" : linked ? "ok" : "down";
-      servers[row.key] = { conn, journal, admin, quote };
+      servers[row.key] = { conn, journal, admin, quote, staleAccounts };
     }
     res.status(200).json({ servers });
   });

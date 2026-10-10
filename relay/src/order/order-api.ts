@@ -42,6 +42,9 @@
  *            (RESEARCH Open Question 4 결론).
  *   S-1      에러는 `{error:{code,message}}` 단일 형식이다. 프로덕션에서 `err.message`
  *            는 노출하지 않는다.
+ *   G-1      (Phase 29-43 관측 재검토) 503 축 `journal` 과 uptime 고정 경로 `brokers.{KB,KYOBO}` 는 **증권사 기본 주문 서버**
+ *            저널 그대로다. 계좌별 지정 서버의 저널과 옛 서버에 남아 끄지 못한 전략은 본문 전용 `accountOrderServers.<키>`
+ *            (`{ accounts, alerting, staleAccounts }` — 수뿐 · 없으면 키 생략)로만 드러낸다. 근거는 healthz 판정 근거 주석.
  */
 import { timingSafeEqual } from "node:crypto";
 import os from "node:os";
@@ -77,6 +80,13 @@ export type AdminConnHealthBody = { state: string; usersRev: string | null };
 
 /** 증권사별 주문 서버 저널 요약 (Phase 29 — healthz `brokers.<증권사>`). 서버 키와 알림 판정뿐이다. */
 export type BrokerJournalHealth = { server: string; alerting: boolean };
+
+/**
+ * 계좌 지정 주문 서버 요약 (Phase 29-43 G-1 — healthz `accountOrderServers.<서버 키>`). 수와 알림 판정뿐 — 계좌 · 사용자 식별자 없음.
+ * `accounts` = 그 서버를 주문 서버로 지정한 계좌 수, `alerting` = 그 서버 저널이 「주 게이트웨이였다면 503」 인가(파이프라인이 없으면
+ * true), `staleAccounts` = 그 서버에 남아 끄지 못한 전략이 있는 계좌 수(G-1 (가)).
+ */
+export type AccountOrderServerHealth = { accounts: number; alerting: boolean; staleAccounts: number };
 
 export type OrderApiDeps = {
   /** `RELAY_ORDER_SECRET` — 내부 HTTP 표면의 공유 비밀 (D-22). */
@@ -120,6 +130,19 @@ export type OrderApiDeps = {
    * 싣는다. **본문 전용**(503 판정 밖 — admin 연결이 죽어도 시세 · 주문 · 저널은 멀쩡하다). 요청마다 부른다. 비어 있으면 키가 없다.
    */
   adminConns?: () => ReadonlyArray<{ serverKey: string; health(): AdminConnHealthBody }>;
+  /**
+   * 계좌 지정 주문 서버 (Phase 29-43 G-1). 서버마다 지정 계좌 수와 그 서버 저널 요약(파이프라인이 없으면 undefined → alerting true).
+   * 주면 본문 `accountOrderServers.<서버 키>` 의 원천이다. **본문 전용**(503 판정 밖). 요청마다 부른다(결선은 29-36).
+   */
+  accountOrderServers?: () => ReadonlyArray<{
+    serverKey: string;
+    accounts: number;
+    health(nowMs: number): JournalHealth | undefined;
+  }>;
+  /**
+   * 끄지 못한 전략 — 서버 키 → 계좌 수 (Phase 29-43 G-1 (가) · `StaleStrategyRegister.byServer()`). 본문 전용. 요청마다 부른다.
+   */
+  staleStrategies?: () => ReadonlyMap<string, number>;
   /** 시각 주입구 — 테스트가 장중/장 밖을 흉내낸다. 기본 `new Date()`. */
   now?: () => Date;
   /**
@@ -189,6 +212,12 @@ export type HealthPayload = {
    * 503 판정 밖(본문 전용). admin 연결 소스가 없거나 비어 있으면 필드 자체가 없다.
    */
   adminConns?: Record<string, AdminConnHealthBody>;
+  /**
+   * 계좌 지정 주문 서버 · 끄지 못한 전략 (Phase 29-43 G-1). 값은 `{ accounts, alerting, staleAccounts }` 뿐이다 — 계좌 · 사용자
+   * 식별자 · 호스트가 없다. 지정 1건 이상이거나 끄지 못한 계좌가 있는 서버만 싣고, **그런 서버가 하나도 없으면 필드 자체가
+   * 없다**(`{}` 를 싣지 않는다 — 종전 본문과 같다 · 29-41 운영 확인 `jq .accountOrderServers` = null). 503 판정 밖.
+   */
+  accountOrderServers?: Record<string, AccountOrderServerHealth>;
 };
 
 // ============================================================
@@ -368,6 +397,14 @@ export function createOrderApi(deps: OrderApiDeps): Express {
    * `journalAlerting` · 같은 `now`). **503 판정식(`healthy`)은 한 글자도 바뀌지 않았다** — `journal` 은 KB 주문 서버 저널
    * 그대로 503 축이고, `journalGateways` · `brokers` 는 본문 전용이다. `dmaHost` · `journalGateways` · `brokers` 는 요청마다
    * 부르는 함수라 레지스트리 변경(서버 추가 · 삭제 · 전환)이 재배포 없이 다음 요청부터 보인다.
+   *
+   * ★ Phase 29-43 — G-1 계좌 지정 서버 · (가) 끄지 못한 전략도 **본문 전용**이다(추가 서버 규율 그대로 · 503 축 불변).
+   * 계좌마다 주문 서버를 고를 수 있게 되면(G-1) 「KB 주문 서버 저널」 하나로는 지정 서버들의 저널을 다 못 본다. 그렇다고 지정
+   * 서버를 503 축에 넣으면 위 `journalGateways` 를 본문 전용으로 둔 세 이유(교보 터널 재로그인 · `deploy-relay.sh` 의 `curl -sf`
+   * · 롤아웃 거부)가 그대로 되살아난다. 그래서 `journal`(503 축) · `brokers.{KB,KYOBO}`(uptime 고정 경로)는 **증권사 기본 주문
+   * 서버** 저널 그대로 두고, 지정 서버마다 `{ accounts, alerting, staleAccounts }` 를 `accountOrderServers.<키>` 로 싣는다
+   * (같은 `journalAlerting` · 같은 `now` · 파이프라인 없음 = alerting). 옛 서버에 남아 끄지 못한 전략(gh-trade-84 ② (가) —
+   * 낡은 잔고로 실주문을 낼 수 있다)은 그 서버 항목의 `staleAccounts` 로 보인다. 둘 다 없으면 키 자체를 생략한다.
    */
   const readInterfaces = deps.networkInterfaces ?? (() => os.networkInterfaces());
 
@@ -423,6 +460,13 @@ export function createOrderApi(deps: OrderApiDeps): Express {
       }
     }
 
+    // Phase 29-43 — 계좌 지정 주문 서버 · 끄지 못한 전략(본문 전용 · 판정 밖). 두 원천의 서버 키 합집합이 비면 키도 없다.
+    const accountOrderServers = buildAccountOrderServers(
+      deps.accountOrderServers?.() ?? [],
+      deps.staleStrategies?.(),
+      now,
+    );
+
     const payload: HealthPayload = {
       status: healthy ? "ok" : "degraded",
       vpn: linkUp,
@@ -436,6 +480,7 @@ export function createOrderApi(deps: OrderApiDeps): Express {
       ...(brokers !== undefined ? { brokers } : {}),
       ...(quote !== undefined ? { quote } : {}),
       ...(adminConns !== undefined ? { adminConns } : {}),
+      ...(accountOrderServers !== undefined ? { accountOrderServers } : {}),
     };
 
     res.status(healthy ? 200 : 503).json(payload);
@@ -467,4 +512,32 @@ export function createOrderApi(deps: OrderApiDeps): Express {
   app.use(errorHandler);
 
   return app;
+}
+
+/**
+ * healthz `accountOrderServers` 조립 (Phase 29-43). 지정 계좌가 1건 이상인 서버와 끄지 못한 계좌가 있는 서버의 합집합 — 지정만
+ * 있으면 `staleAccounts` 0, 끄지 못한 계좌만 있으면 `accounts` 0 · `alerting` false(지정이 없어 그 서버 저널을 볼 이유가 없다).
+ * 합집합이 비면 `undefined` — 키 자체를 싣지 않는다(`{}` 금지).
+ */
+function buildAccountOrderServers(
+  designated: ReadonlyArray<{ serverKey: string; accounts: number; health(nowMs: number): JournalHealth | undefined }>,
+  stale: ReadonlyMap<string, number> | undefined,
+  now: Date,
+): Record<string, AccountOrderServerHealth> | undefined {
+  const out: Record<string, AccountOrderServerHealth> = {};
+  for (const d of designated) {
+    if (d.accounts <= 0) continue;
+    const health = d.health(now.getTime());
+    out[d.serverKey] = {
+      accounts: d.accounts,
+      alerting: health === undefined || journalAlerting(health, now),
+      staleAccounts: 0,
+    };
+  }
+  for (const [serverKey, n] of stale ?? []) {
+    if (n <= 0) continue;
+    const prev = out[serverKey];
+    out[serverKey] = prev === undefined ? { accounts: 0, alerting: false, staleAccounts: n } : { ...prev, staleAccounts: n };
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
