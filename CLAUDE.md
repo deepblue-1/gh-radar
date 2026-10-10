@@ -182,6 +182,7 @@
 ## gh-trade 인박스
 
 - **세션·작업을 시작하면 `docs/inbox/from-gh-trade/` 의 `status: open` 노트부터 읽는다.** gh-trade 가 넘긴 계약(StockDMA.fbs · relay) 변경이다. 처리하면 노트의 `status: done` 과 `done_commit` 을 채워 경로를 지정해 커밋한다. 형식은 그 디렉터리 `README.md` 가 정본이다.
+- **gh-trade 에 일을 요청할 때**(서버 동작 · StockDMA.fbs 필드 · 주문로그 · 배포): `scripts/trade-handoff.sh <slug>` 가 `<gh-trade>/docs/inbox/from-gh-radar/YYMMDD-<slug>.md` 를 만든다 → 본문 TODO 를 채운다 → ListAgents 로 찾은 gh-trade 세션에 경로를 SendMessage(보조 — 파일이 정본). 노트 커밋은 처리하는 gh-trade 세션이 한다. 형식 정본은 gh-trade `docs/inbox/from-gh-radar/README.md`, 전문은 gh-trade `docs/ops/workflow.md` ⑦.
 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
 ## Architecture
