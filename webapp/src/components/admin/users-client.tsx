@@ -39,6 +39,8 @@ import { UserSheet } from "./user-sheet";
  * - 행을 누르면 `selected` 가 그 이메일이 되고 편집 시트(`UserSheet` — 29-17)가 열린다. 시트의 쓰기가 성공하면
  *   `load()` 로 다시 읽고, 시트는 재조회 결과에서 같은 이메일의 사용자로 내용을 바꿔 그린다(사라졌으면 닫힌다).
  *   시트는 이메일을 key 로 둔다 — 다른 사용자로 바꿔 열면 필드 저장 상태가 새로 시작한다.
+ * - 데스크톱 시트는 비모달(29-31 · UI-REVIEW-2) — 시트를 연 채 다른 행을 누르면 그 사용자로 바뀐다. 편집 · 생성 시트는
+ *   한 번에 하나만 연다(겹치지 않게 서로를 닫는다).
  */
 
 type LoadState =
@@ -96,6 +98,12 @@ export function UsersClient() {
   const selectedUser =
     state.kind === "ready" && selected !== null ? (state.data.users.find((u) => u.email === selected) ?? null) : null;
 
+  // 데스크톱 시트는 비모달이라 시트를 연 채 다른 행을 누를 수 있다 — 생성 시트가 열려 있었으면 닫고 그 사용자로 바꾼다.
+  const openUser = (email: string) => {
+    setCreating(false);
+    setSelected(email);
+  };
+
   const retry = () => {
     setState({ kind: "loading" });
     void load();
@@ -113,7 +121,11 @@ export function UsersClient() {
             variant="secondary"
             data-slot="admin-users-create"
             disabled={state.kind !== "ready"}
-            onClick={() => setCreating(true)}
+            onClick={() => {
+              // 데스크톱 시트는 비모달(목록 · 머리가 눌린다) — 편집 시트 위에 생성 시트가 겹치지 않게 하나만 연다.
+              setSelected(null);
+              setCreating(true);
+            }}
             // 라이트 본문면(--surface)은 --muted 와 같은 색이라 흰 카드면으로 띄운다(검색 입력과 같은 결).
             className={cn(ADMIN_BUTTON_SECONDARY, "bg-[var(--card)] dark:bg-[var(--muted)]")}
           >
@@ -187,7 +199,7 @@ export function UsersClient() {
             <ul className={cn(CARD, "m-0 list-none overflow-hidden p-0")}>
               {state.data.users.map((user) => (
                 <li key={user.email} className={ROW_DIVIDER}>
-                  <UserRow user={user} selected={selected === user.email} onOpen={setSelected} />
+                  <UserRow user={user} selected={selected === user.email} onOpen={openUser} />
                 </li>
               ))}
               {state.data.serverOnly.map((entry) => (

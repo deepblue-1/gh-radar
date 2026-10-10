@@ -82,6 +82,22 @@ for (const vp of VIEWPORTS) {
       expect(await leavesOverflowing(card(page, key), box!.x + box!.width)).toEqual([]);
     }
 
+    // UI-REVIEW-3 — 주문/시세 라디오 칩: 폰 36px 이상 · 데스크톱 종전 32px
+    for (const slot of ['server-order-radio', 'server-quote-radio']) {
+      const h = Math.round((await card(page, 'KB121').locator(`[data-slot="${slot}"]`).boundingBox())!.height);
+      if (vp.columns === 1) expect(h).toBeGreaterThanOrEqual(36);
+      else expect(h).toBe(32);
+    }
+    // UI-REVIEW-6 — 끌 수 없는 서버(KB120 주문 · 시세)는 이유 한 줄이 늘 보이고 토글은 켜진 모양(흐림 없음)
+    const note = card(page, 'KB120').locator('[data-slot="server-in-use-note"]');
+    await expect(note).toBeVisible();
+    await expect(note).toHaveText('주문 서버 · 시세 주 서버는 끌 수 없어요');
+    const sw = page.getByRole('switch', { name: 'KB120 사용' });
+    await expect(sw).toHaveAttribute('aria-describedby', (await note.getAttribute('id'))!);
+    await expect(sw).toHaveAttribute('data-state', 'checked');
+    await expect(sw).toHaveCSS('opacity', '1');
+    await expect(card(page, 'KB121').locator('[data-slot="server-in-use-note"]')).toHaveCount(0);
+
     await page.screenshot({ path: testInfo.outputPath(`admin-servers-${vp.name}.png`), fullPage: true });
 
     // KB121 「주문 서버」 라디오 → PUT 1건 → 재조회 → 칩이 KB121 로 · 교보는 그대로

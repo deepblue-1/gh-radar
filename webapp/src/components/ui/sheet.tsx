@@ -13,6 +13,7 @@ import { NativeOverlayMarker } from "@/lib/native/native-overlay-marker"
  * - scrim: oklch(0 0 0 / 0.55) + backdrop-blur-[4px]
  * - 진입: 220ms ease-out, 이탈: 160ms ease-in
  * - ESC / scrim 클릭으로 닫힘 (Radix Dialog 기본)
+ * - `SheetContent overlay={false}` — 스크림을 그리지 않는다(Admin 데스크톱 비모달 패널 · Phase 29 UI-REVIEW-2). 기본 true = 종전.
  */
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />
@@ -59,14 +60,17 @@ function SheetContent({
   children,
   side = "right",
   showCloseButton = true,
+  overlay = true,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left"
   showCloseButton?: boolean
+  /** 스크림(blur) 오버레이를 그리는가 — 기본 true. 비모달 패널만 false 로 끈다. */
+  overlay?: boolean
 }) {
   return (
     <SheetPortal>
-      <SheetOverlay />
+      {overlay && <SheetOverlay />}
       <SheetPrimitive.Content
         data-slot="sheet-content"
         data-side={side}

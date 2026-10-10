@@ -11,6 +11,10 @@ import { cn } from "@/lib/utils";
  *
  * - 폰(뷰포트 640 미만): 바텀시트가 거의 전체 높이(92dvh 상한)로 올라온다(목업 `.sheet` · 손잡이 막대).
  * - 데스크톱: 우측 패널 440px — 목록은 왼쪽에 남는다(목업 `.panel` · `chat-sheet` 와 같은 폭).
+ *   **비모달 패널**(목업 A `.panel` · D-14 「목록은 남는다」 · UI-REVIEW-2): 스크림 · blur 가 없고(`overlay={false}`),
+ *   포커스 트랩 · 바깥 aria-hidden 이 없으며(`modal={false}`), 목록 행 클릭 · 바깥 포커스로 닫히지 않는다 — 다른 행을 누르면
+ *   시트가 닫혔다 다시 열리는 깜빡임 없이 그 사용자로 바뀐다(선택은 호출자 상태). 닫기는 × · Esc 뿐.
+ *   (deferred-items 29-17 「데스크톱 Admin 시트의 배경 흐림」 이 여기서 닫힌다.) 폰 바텀시트는 종전 모달 + 스크림.
  * - side 는 **뷰포트** 기준이다 — 시트는 앱 셸 레벨 오버레이라 본문 폭 컨테이너 쿼리 대상이 아니다
  *   (CLAUDE.md Conventions: 앱 셸 · 사이드바는 뷰포트 브레이크포인트). SSR 첫 렌더는 데스크톱(right).
  * - 머리(제목 = 접근 이름 · 닫기 ×) · 스크롤 본문 · 고정 footer(29-17 의 「사용자 삭제 · 다시 반영」 자리).
@@ -66,10 +70,13 @@ export function AdminSheet({
   const desktop = useIsDesktopViewport();
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={onOpenChange} modal={!desktop}>
       <SheetContent
         side={desktop ? "right" : "bottom"}
         showCloseButton={false}
+        overlay={!desktop}
+        // 데스크톱 비모달: 바깥 pointerdown · focus 로 닫지 않는다(목록 행 클릭 = 선택 전환). Esc · × 는 그대로 닫는다.
+        onInteractOutside={desktop ? (e) => e.preventDefault() : undefined}
         data-admin-sheet=""
         className={cn(
           // 다크의 --popover 는 --muted 와 같은 색(#2d2d2d)이라 시트 안 muted 면(버튼 · 세그먼트 · 입력 · 배지)이 사라진다 —

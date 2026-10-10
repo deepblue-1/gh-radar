@@ -55,6 +55,7 @@ export const ACCOUNT_EDITOR_TEXT = {
   traderInvalid: "KB 트레이더 id 는 6자예요",
   submit: "추가",
   cancel: "취소",
+  duplicate: "이미 있는 계좌 — 위 계좌 줄에서 서버를 고르세요",
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -215,9 +216,14 @@ function accountInputOf(a: AdminAccountView): AdminAccountInput {
 const ACCOUNT_CARD = "mt-2.5 rounded-[12px] border border-[var(--border-subtle)] px-3.5 py-3";
 /** 증권사 배지 — 목업 `.acct .t .bk`. */
 const BROKER_BADGE = "rounded-[5px] bg-[var(--muted)] px-1.5 py-0.5 text-[11px] font-semibold text-[var(--fg-2)]";
-/** 서버 토글 알약 — 목업 `.sv`(12.5px · 5px 9px · 둥근 알약 · hairline). */
+/**
+ * 계좌 버튼(「제거」 · 「+ 계좌 추가」 · 추가 폼 「취소」 · 「추가」) 높이 — 폰(640 미만) 36px 터치 타깃 · 데스크톱 종전 28px
+ * (29-31 UI-REVIEW-3).
+ */
+const ACCOUNT_BUTTON = "h-9 px-2.5 sm:h-7";
+/** 서버 토글 알약 — 목업 `.sv`(12.5px · 5px 9px · 둥근 알약 · hairline). 폰은 최소 36px(29-31 · 데스크톱 종전 높이). */
 const SERVER_PILL =
-  "inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-[var(--border-subtle)] px-2 py-1 text-[12.5px] text-[var(--fg-2)] has-disabled:cursor-default";
+  "inline-flex min-h-9 sm:min-h-0 cursor-pointer items-center gap-1.5 rounded-full border border-[var(--border-subtle)] px-2 py-1 text-[12.5px] text-[var(--fg-2)] has-disabled:cursor-default";
 /** 상태 칩(알약 안) — 목업 `.sv .st`(10.5px · 1px 5px · r4). */
 const PILL_CHIP = "rounded-[4px] px-[5px] py-px text-[10.5px]";
 const NOTE = "mt-1.5 text-[12px] leading-[1.5] break-keep text-[var(--muted-fg)]";
@@ -325,7 +331,7 @@ function AccountRow({ account, dmaUserId, candidates, overlay, last, onResults, 
           aria-label={`${account.broker} ${account.accountNo} ${ACCOUNT_EDITOR_TEXT.remove}`}
           disabled={remove.state === "saving"}
           onClick={() => (last ? onRemoveLast() : remove.run(true))}
-          className={cn(ADMIN_BUTTON_SECONDARY, "h-7 px-2.5")}
+          className={cn(ADMIN_BUTTON_SECONDARY, ACCOUNT_BUTTON)}
         >
           {ACCOUNT_EDITOR_TEXT.remove}
         </Button>
@@ -402,6 +408,12 @@ const BROKERS: readonly DmaBroker[] = ["KB", "KYOBO"];
 
 interface AccountAddFormProps {
   dmaUserId: string;
+  /**
+   * 이미 있는 의도 계좌의 키(`accountKeyOf`) — 「추가」 는 PUT upsert 1건이라 같은 키를 넣으면 그 계좌의 이름 · 지점 · 등록 서버를
+   * 조용히 덮는다(WR-06). 이 집합에 있으면 막고 계좌 줄로 안내한다. 87 에만 있는 계좌(의도 없음)는 넣지 않는다 — 막지 않는다.
+   * 서버 쪽 create-only 플래그는 두지 않는다: Admin 1명 운영이라 동시 추가 경합이 없고, RPC 시그니처를 바꾸면 오버로드가 생긴다.
+   */
+  existingKeys: ReadonlySet<string>;
   serverKeysOf: (broker: DmaBroker) => string[];
   nextPriority: number;
   onResults: (accountKey: string, results: readonly AdminServerResult[]) => void;
@@ -409,7 +421,15 @@ interface AccountAddFormProps {
   onClose: () => void;
 }
 
-function AccountAddForm({ dmaUserId, serverKeysOf, nextPriority, onResults, onChanged, onClose }: AccountAddFormProps) {
+function AccountAddForm({
+  dmaUserId,
+  existingKeys,
+  serverKeysOf,
+  nextPriority,
+  onResults,
+  onChanged,
+  onClose,
+}: AccountAddFormProps) {
   const [broker, setBroker] = useState<DmaBroker>("KB");
   const [accountNo, setAccountNo] = useState("");
   const [name, setName] = useState("");
@@ -431,8 +451,11 @@ function AccountAddForm({ dmaUserId, serverKeysOf, nextPriority, onResults, onCh
   const noInvalid = accountNo.trim() !== "" && !isValidAccountNoInput(accountNo);
   const branchInvalid = kb && branchNo !== "" && branchNo.length !== 5;
   const traderInvalid = kb && traderId !== "" && traderId.length !== 6;
+  // 정규화(공백 · 앞 0)한 같은 키의 의도 계좌가 있으면 막는다 — 입력 안내 한 줄(오류 경보 아님).
+  const duplicate = isValidAccountNoInput(accountNo) && existingKeys.has(accountKeyOf(broker, accountNo));
   const ready =
     isValidAccountNoInput(accountNo) &&
+    !duplicate &&
     servers.length > 0 &&
     (!kb || (branchNo.length === 5 && traderId.length === 6)) &&
     save.state !== "saving";
@@ -528,6 +551,11 @@ function AccountAddForm({ dmaUserId, serverKeysOf, nextPriority, onResults, onCh
         )}
       </div>
       {noInvalid && <p className={ERROR_LINE}>{ACCOUNT_EDITOR_TEXT.accountNoInvalid}</p>}
+      {duplicate && (
+        <p data-slot="admin-account-dup" className={ERROR_LINE}>
+          {ACCOUNT_EDITOR_TEXT.duplicate}
+        </p>
+      )}
       {branchInvalid && <p className={ERROR_LINE}>{ACCOUNT_EDITOR_TEXT.branchInvalid}</p>}
       {traderInvalid && <p className={ERROR_LINE}>{ACCOUNT_EDITOR_TEXT.traderInvalid}</p>}
 
@@ -552,10 +580,10 @@ function AccountAddForm({ dmaUserId, serverKeysOf, nextPriority, onResults, onCh
         </p>
       )}
       <div className="flex justify-end gap-1.5">
-        <Button type="button" size="sm" variant="secondary" onClick={onClose} className={cn(ADMIN_BUTTON_SECONDARY, "h-7 px-2.5")}>
+        <Button type="button" size="sm" variant="secondary" onClick={onClose} className={cn(ADMIN_BUTTON_SECONDARY, ACCOUNT_BUTTON)}>
           {ACCOUNT_EDITOR_TEXT.cancel}
         </Button>
-        <Button type="submit" size="sm" disabled={!ready} className={cn(ADMIN_BUTTON_PRIMARY, "h-7 px-2.5")}>
+        <Button type="submit" size="sm" disabled={!ready} className={cn(ADMIN_BUTTON_PRIMARY, ACCOUNT_BUTTON)}>
           {ACCOUNT_EDITOR_TEXT.submit}
         </Button>
       </div>
@@ -643,6 +671,7 @@ export function AccountEditor({
       {adding ? (
         <AccountAddForm
           dmaUserId={dmaUserId}
+          existingKeys={new Set(editable.map((a) => accountKeyOf(a.broker, a.accountNo)))}
           serverKeysOf={serverKeysOf}
           nextPriority={nextPriority}
           onResults={onResults}
@@ -656,7 +685,7 @@ export function AccountEditor({
             size="sm"
             variant="secondary"
             onClick={() => setAdding(true)}
-            className={cn(ADMIN_BUTTON_SECONDARY, "h-7 px-2.5")}
+            className={cn(ADMIN_BUTTON_SECONDARY, ACCOUNT_BUTTON)}
           >
             {ACCOUNT_EDITOR_TEXT.add}
           </Button>

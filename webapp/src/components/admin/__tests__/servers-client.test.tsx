@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { AdminServersOverview, AdminServerView } from '@gh-radar/shared';
 
 import { ApiClientError } from '@/lib/api';
@@ -303,6 +303,48 @@ describe('ServersClient — 시세 주 서버 전환 (D-11)', () => {
     expect(roleChips('KB120')).toEqual(['주문 서버', '시세 주 서버']);
     expect(fetchAdminServersMock).toHaveBeenCalledTimes(1);
     expect(document.querySelector('[data-sonner-toast]')).toBeNull();
+  });
+});
+
+// IN-03 — 즉시 저장 필드는 성공 뒤 다음 재조회 결과가 오면 누른 값을 놓는다. relay 보정(시세 주 서버 restore) · 다른 Admin
+// 변경이 화면에 보인다. 재조회 전(성공 직후)에는 누른 값을 유지한다(깜빡임 없음).
+describe('ServersClient — 성공 뒤 재조회 값이 정본 (IN-03 · releaseOn)', () => {
+  it('시세 주 서버 KB120 → KYOBO119 성공 · 재조회 전엔 KYOBO119 유지 · 재조회가 KB120(relay 되돌림)이면 KB120', async () => {
+    const reloadD = deferred<AdminServersOverview>();
+    fetchAdminServersMock.mockResolvedValueOnce(overview()).mockReturnValueOnce(reloadD.promise);
+    setQuotePrimaryMock.mockResolvedValue({ ok: true });
+    await renderReady();
+
+    fireEvent.click(quoteRadio('KYOBO119'));
+    await waitFor(() => expect(fetchAdminServersMock).toHaveBeenCalledTimes(2));
+    // 성공 직후 · 재조회 전 — 누른 값 유지(깜빡임 없음)
+    expect(quoteRadio('KYOBO119')).toBeChecked();
+    expect(quoteRadio('KB120')).not.toBeChecked();
+
+    // 재조회 = relay 가 KB120 으로 되돌린 상태
+    await act(async () => {
+      reloadD.resolve(overview());
+    });
+    await waitFor(() => expect(quoteRadio('KB120')).toBeChecked());
+    expect(quoteRadio('KYOBO119')).not.toBeChecked();
+    expect(roleChips('KB120')).toEqual(['주문 서버', '시세 주 서버']);
+  });
+
+  it('주문 서버 KB120 → KB121 성공 · 재조회가 KB120(다른 Admin 이 되돌림)이면 라디오가 KB120', async () => {
+    const reloadD = deferred<AdminServersOverview>();
+    fetchAdminServersMock.mockResolvedValueOnce(overview()).mockReturnValueOnce(reloadD.promise);
+    setOrderServerMock.mockResolvedValue({ ok: true });
+    await renderReady();
+
+    fireEvent.click(orderRadio('KB121'));
+    await waitFor(() => expect(fetchAdminServersMock).toHaveBeenCalledTimes(2));
+    expect(orderRadio('KB121')).toBeChecked();
+
+    await act(async () => {
+      reloadD.resolve(overview());
+    });
+    await waitFor(() => expect(orderRadio('KB120')).toBeChecked());
+    expect(orderRadio('KB121')).not.toBeChecked();
   });
 });
 

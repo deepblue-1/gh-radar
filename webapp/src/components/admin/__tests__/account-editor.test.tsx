@@ -273,4 +273,43 @@ describe('AccountEditor — 「+ 계좌 추가」', () => {
     });
     await act(async () => {});
   });
+
+  // WR-06 — 「추가」 는 PUT upsert 1건이라 기존 계좌번호를 넣으면 그 계좌의 이름 · 지점 · 등록 서버를 조용히 덮는다. 막는다.
+  it('이미 있는 의도 계좌(정규화 같은 키) → 「이미 있는 계좌」 한 줄 · 「추가」 비활성 · 제출해도 PUT 0건 · 증권사를 바꾸면 줄이 사라진다', async () => {
+    const KB_123: AdminAccountView = { ...KB_ACCT, accountNo: '123' };
+    setup([KB_123, KYOBO_ACCT, ONLY_ACCT]);
+    fireEvent.click(screen.getByRole('button', { name: '+ 계좌 추가' }));
+    const add = () => within(form()).getByRole('button', { name: '추가' });
+    const dup = () => form().querySelector('[data-slot="admin-account-dup"]');
+
+    fireEvent.change(field('계좌번호'), { target: { value: ' 00123' } });
+    fireEvent.change(field('지점'), { target: { value: '00777' } });
+    fireEvent.change(field('트레이더'), { target: { value: '000111' } });
+    fireEvent.click(within(form()).getByRole('checkbox', { name: 'KB121' }));
+
+    expect(dup()).not.toBeNull();
+    expect(dup()).toHaveTextContent('이미 있는 계좌 — 위 계좌 줄에서 서버를 고르세요');
+    expect(dup()).not.toHaveAttribute('role', 'alert');
+    expect(add()).toBeDisabled();
+    fireEvent.submit(form());
+    expect(putDmaAccountMock).not.toHaveBeenCalled();
+
+    // 증권사 교보 → 다른 키(KYOBO:123) — 줄이 사라진다
+    fireEvent.click(within(within(form()).getByRole('group', { name: '증권사' })).getByRole('radio', { name: 'KYOBO' }));
+    expect(dup()).toBeNull();
+  });
+
+  it('87 에만 있는 계좌(의도 없음)와 같은 번호는 막지 않는다 — 의도 계좌로 새로 올린다', async () => {
+    putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KYOBO127', outcome: 'ok' }] });
+    setup();
+    fireEvent.click(screen.getByRole('button', { name: '+ 계좌 추가' }));
+    fireEvent.click(within(within(form()).getByRole('group', { name: '증권사' })).getByRole('radio', { name: 'KYOBO' }));
+    fireEvent.change(field('계좌번호'), { target: { value: ONLY_ACCT.accountNo } });
+    fireEvent.click(within(form()).getByRole('checkbox', { name: 'KYOBO127' }));
+    expect(form().querySelector('[data-slot="admin-account-dup"]')).toBeNull();
+    fireEvent.click(within(form()).getByRole('button', { name: '추가' }));
+    expect(putDmaAccountMock).toHaveBeenCalledTimes(1);
+    await act(async () => {});
+  });
 });
+

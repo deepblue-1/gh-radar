@@ -22,10 +22,13 @@ export const ROLE_SEGMENT_TEXT = {
   warning: "viewer 로 내리면 열린 트레이딩 화면이 다음 요청부터 막히고 relay 연결이 끊긴다.",
 } as const;
 
-/** 세그먼트 틀 — 목업 `.seg`(muted 면 · r10 · 2px) / 칸 `.seg span`(13px · 5px 12px · r8 · 선택 = pill 면). */
+/**
+ * 세그먼트 틀 — 목업 `.seg`(muted 면 · r10 · 2px) / 칸 `.seg span`(13px · 5px 12px · r8 · 선택 = pill 면).
+ * 칸 높이: 폰(640 미만) 36px 터치 타깃 · 데스크톱 종전 28px(29-31 UI-REVIEW-3).
+ */
 export const ADMIN_SEGMENT_ROOT = "gap-0.5 rounded-[10px] bg-[var(--muted)] p-0.5";
 export const ADMIN_SEGMENT_ITEM =
-  "h-7 rounded-[8px]! border-0 px-3 text-[13px] font-medium text-[var(--muted-fg)] hover:text-[var(--fg)] data-[state=on]:font-semibold";
+  "h-9 sm:h-7 rounded-[8px]! border-0 px-3 text-[13px] font-medium text-[var(--muted-fg)] hover:text-[var(--fg)] data-[state=on]:font-semibold";
 
 /** 성공 플래시 — 선택된 칸 글자만 `--led-armed`(움직임 없음). */
 export const ADMIN_FLASH_CLASS = "[&_[data-state=on]]:text-[var(--led-armed)]!";

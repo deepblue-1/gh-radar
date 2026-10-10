@@ -102,6 +102,8 @@ export function ServersClient() {
     {
       onSuccess: () => reload(),
       describeError: (err) => rawErrorText(err),
+      // IN-03 — 성공 뒤 재조회가 오면 누른 값을 놓는다(relay 보정 · 다른 Admin 변경이 라디오에 보인다).
+      releaseOn: state.kind === "ready" ? state.data : null,
     },
   );
   const quoteServerKey =
@@ -225,6 +227,8 @@ function BrokerSection({ broker, servers, quote, quoteKey, quoteTarget, onQuote,
     {
       onSuccess: () => onChanged(),
       describeError: (err) => rawErrorText(err),
+      // IN-03 — 재조회마다 새 배열(그 증권사 서버 목록). 성공 뒤 첫 재조회가 정본.
+      releaseOn: servers,
     },
   );
   const orderKey = order.value ?? servers.find((s) => s.isOrderServer)?.key ?? null;
