@@ -18,6 +18,9 @@
  *      상태 프레임에 교보 계좌(교보 LoginReq 1)
  *   ⑤ `closeForDmaUser(d1, { serverKey: KB120 })` → KB120 세션만 unauthorized · 재로그인 0 · 브라우저는 남은 교보 세션 기준
  *      (ready · 교보 계좌만) → 교보도 닫으면 `unauthorized` 프레임
+ *   ⑥ (29-42 G-1) 87 대조 = 세션 원본(`declaredAccounts`) — A1 을 KB121 에 넘긴 KB120 세션(소유 뷰 [A2] · 원본 [A1, A2])에
+ *      KB120 87 이 A1 을 빼면 원본에서도 A1 제외 1회(소유 뷰로 고르면 남는다)
+ *   ⑦ (29-42 G-1) 같은 세션에 87 이 그대로([A1, A2])면 제외 0 · 선언 0(넘긴 계좌를 다시 선언하지 않는다)
  */
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -134,7 +137,9 @@ type Rig = {
  * KB120: d1 → A1 · d9 → 다른 계좌(op 2 가 「마지막 사용자」 로 막히지 않게). KYOBO119: d9 만(d1 없음 — 교보 세션 안 열림).
  * 저널 매핑은 sink 가 87 로 갈아 끼운다(첫 87 = admin 로그인 직후 op 5).
  */
-async function rig(opts: { d1Kb?: string[] } = {}): Promise<Rig> {
+async function rig(
+  opts: { d1Kb?: string[]; ownerOf?: (dmaUserId: string, broker: string, accountNo: string) => string | undefined } = {},
+): Promise<Rig> {
   const d1Kb = opts.d1Kb ?? [A1];
   resetDroppedEnvelopeCount();
   for (const level of ["debug", "info"] as const) vi.spyOn(logger, level).mockImplementation((() => undefined) as never);
@@ -168,7 +173,13 @@ async function rig(opts: { d1Kb?: string[] } = {}): Promise<Rig> {
     ["KB", { serverKey: "KB120", host: "127.0.0.1", port: kb.port, broker: "KB" }],
     ["KYOBO", { serverKey: "KYOBO119", host: "127.0.0.1", port: kyobo.port, broker: "KYOBO" }],
   ]);
-  const manager = new SessionManager({ host: "127.0.0.1", port: 1, broker: "KB", resolveTarget: (b) => orderServers.get(b) });
+  const manager = new SessionManager({
+    host: "127.0.0.1",
+    port: 1,
+    broker: "KB",
+    resolveTarget: (b) => orderServers.get(b),
+    ...(opts.ownerOf !== undefined ? { ownerOf: opts.ownerOf } : {}),
+  });
   cleanups.push(() => manager.closeAll());
   const hub = new SubscriptionHub();
   cleanups.push(() => hub.closeAll());
@@ -355,5 +366,63 @@ describe("AdminSessionSync — 87 → 열린 세션 반영 (29-21)", () => {
     expect(r.manager.closeForDmaUser("d1", "deleted", { serverKey: "KYOBO119" })).toBe(1);
     await waitFor(() => lastState(inbox)?.s === "unauthorized", "전부 닫힘 → unauthorized");
     expect(accountNosOf(lastState(inbox))).toEqual([]);
+  });
+});
+
+/**
+ * Phase 29-42 — G-1 87 대조는 세션 원본 계좌로 (`declaredAccounts`).
+ *
+ * KB120 세션을 `acquireOn` 으로 직접 연다(소유 술어 = A1 은 KB121 · A2 는 KB120). 두 서버 users.toml 모두 A1 · A2 가 있으니
+ * 로그인 대조 원본은 [A1, A2] 이고 소유 뷰는 [A2] 다. wss 연결은 열지 않는다 — session-sync 의 87 대조 경로만 본다.
+ */
+describe("AdminSessionSync — 87 대조 = 원본 계좌 (29-42 G-1)", () => {
+  /** A1 → KB121(다른 서버에 넘김) · 나머지 → KB120. */
+  const ownerOf = (_dma: string, _broker: string, accountNo: string): string => (accountNo === A1 ? "KB121" : "KB120");
+
+  async function kb120Session(r: Rig) {
+    const session = r.manager.acquireOn(
+      USER_D1,
+      { serverKey: "KB120", host: "127.0.0.1", port: r.kb.port, broker: "KB" },
+      CREDS,
+    );
+    await waitFor(() => session.isReady, "KB120 세션 ready");
+    expect(session.allowedAccounts.map((a) => a.accountNo)).toEqual([A2]);
+    expect(session.declaredAccounts.map((a) => a.accountNo)).toEqual([A1, A2]);
+    return session;
+  }
+
+  it("⑥ 넘긴 계좌(A1)도 KB120 87 에서 빠지면 원본에서 제외 1회 — 소유 뷰 [A2] 그대로 · 원본 [A2]", async () => {
+    const r = await rig({ d1Kb: [A1, A2], ownerOf });
+    const session = await kb120Session(r);
+    const removeSpy = vi.spyOn(session, "removeAllowedAccounts");
+    const declareSpy = vi.spyOn(session, "declareAccounts");
+
+    const outcome = await r.kbAdmin.command({ op: 4, userId: "d1", account: kbAccount(A1) });
+    expect(outcome.kind).toBe("result");
+
+    // 대조는 제외(있으면) → 선언 순서다 — 선언 호출이 보이면 그 87 의 대조가 끝났다.
+    await waitFor(() => declareSpy.mock.calls.length > 0, "87 대조 실행");
+    expect(removeSpy.mock.calls).toEqual([[[A1]]]);
+    expect(removeSpy.mock.results[0]?.value).toBe(1);
+    expect(session.declaredAccounts.map((a) => a.accountNo)).toEqual([A2]);
+    expect(session.allowedAccounts.map((a) => a.accountNo)).toEqual([A2]);
+  });
+
+  it("⑦ 87 이 그대로([A1, A2])면 제외 0 · 선언 0 — 넘긴 계좌 A1 을 다시 선언하지 않는다", async () => {
+    const r = await rig({ d1Kb: [A1, A2], ownerOf });
+    const session = await kb120Session(r);
+    const declaredBefore = r.kb.declaredAccounts().length;
+    const removeSpy = vi.spyOn(session, "removeAllowedAccounts");
+    const declareSpy = vi.spyOn(session, "declareAccounts");
+
+    await r.kbAdmin.command({ op: 5, userId: "" });
+    await waitFor(() => declareSpy.mock.calls.length > 0, "87 대조 실행");
+    await sleep(100);
+
+    expect(removeSpy).not.toHaveBeenCalled();
+    expect(declareSpy.mock.results.map((x) => x.value)).toEqual([0]);
+    expect(r.kb.declaredAccounts()).toHaveLength(declaredBefore);
+    expect(session.declaredAccounts.map((a) => a.accountNo)).toEqual([A1, A2]);
+    expect(session.allowedAccounts.map((a) => a.accountNo)).toEqual([A2]);
   });
 });

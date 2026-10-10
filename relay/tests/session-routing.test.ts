@@ -21,6 +21,7 @@ import type { RelayOrderResultMsg, RelayOutbound } from "@gh-radar/shared";
 
 import { SESSION_GRACE_MS, SessionManager, type DmaCredentials, type SessionTarget } from "../src/dma/session-manager.js";
 import { AccountOrderServers, createOrderServerRouting } from "../src/access/account-order-servers.js";
+import { AdminSessionSync } from "../src/admin/session-sync.js";
 import type { DmaServerRow } from "../src/registry/registry.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { MSG } from "../src/dma/msg-type.js";
@@ -291,6 +292,8 @@ describe("SessionManager — (유저, 서버) 세션 라우팅 (29-16 트레이�
  *
  * 레지스트리 KB120(KB 기본) · KB121(enabled) 두 스텁 · 두 서버 매핑(79/87 흉내)에 DMA 유저 d1 의 계좌 A · B. 지정 RPC
  * (`dma_account_order_servers`)는 테스트가 바꾼다. 인증은 ⑤ 와 같은 `dma_credentials` 하네스(DMA id = d1)다.
+ * ⑫ (29-42 트레이서)는 87 반영 경로(`AdminSessionSync.onApplied`)를 붙여 「지정 서버의 87 이 계좌를 처음 실음 → 빠진 서버 세션」
+ * 한 길을 끝에서 끝으로 본다.
  */
 describe("G-1 계좌별 주문 서버 — (유저, 서버) 세션 · 소유 계좌 라우팅 (29-33 트레이서)", () => {
   const D1 = "kb-a";
@@ -632,6 +635,63 @@ describe("G-1 계좌별 주문 서버 — (유저, 서버) 세션 · 소유 계�
       expect(routing.effectiveOrderServer(D1, "KB", ACCT_A.accountNo)).toBe("KB120");
       expect(routing.serversFor(D1)?.map((t) => t.serverKey)).toEqual(["KB120"]);
       expect(owned("KB120")).toEqual([ACCT_A.accountNo, ACCT_B.accountNo]);
+    } finally {
+      await w.close();
+    }
+  });
+
+  it("⑫ 트레이서 (29-42) — KB121 87 이 지정 계좌 A 를 처음 실음 → AdminSessionSync → 빠진 서버 KB121 세션 LoginReq 1 · A 는 KB121 소유 · A 주문은 KB121 에만 · KB120 재로그인 0", async () => {
+    mappings.get("KB121")?.set(D1, new Set());
+    const { m, routing } = await harness();
+    const w = await wss(m, routing.serversFor);
+    try {
+      const { ws, inbox } = await w.open();
+      await waitFor(() => inbox.some((f) => f.t === "state" && f.s === "ready"), "ready 상태 프레임");
+      // 지정 서버(KB121)가 아직 A 를 모른다 — KB120 세션 하나 · A 거부(29-33 fail closed).
+      expect(m.sessionsOf(USER_A).map((s) => s.serverKey)).toEqual(["KB120"]);
+      expect(kb121.sockets).toHaveLength(0);
+      expect(loginCount(p120)).toBe(1);
+
+      // KB121 87 이 A 를 처음 실음 — sink 가 매핑을 바꾼 **뒤** applied 를 낸다(운영 순서 그대로).
+      mappings.get("KB121")?.set(D1, new Set([ACCT_A.accountNo, ACCT_B.accountNo]));
+      const sync = new AdminSessionSync({ sessions: m, fanout: w.fanout });
+      const account = (a: { accountNo: string; name: string }, priority: number) => ({
+        ...a,
+        branchNo: "00001",
+        traderId: "000001",
+        priority,
+      });
+      sync.onApplied({
+        serverKey: "KB121",
+        snapshot: { usersRev: 2n, users: [{ userId: D1, accounts: [account(ACCT_A, 1), account(ACCT_B, 2)] }] },
+      });
+
+      await waitFor(
+        () => m.sessionsOf(USER_A).length === 2 && m.sessionsOf(USER_A).every((s) => s.isReady),
+        "KB121 세션 ready (87 → 빠진 서버 세션)",
+      );
+      const byServer = new Map(m.sessionsOf(USER_A).map((s) => [s.serverKey, s]));
+      expect([...byServer.keys()]).toEqual(["KB120", "KB121"]);
+      expect(loginCount(p121)).toBe(1);
+      expect(byServer.get("KB121")?.allowedAccounts.map((a) => a.accountNo)).toEqual([ACCT_A.accountNo]);
+      expect(byServer.get("KB120")?.allowedAccounts.map((a) => a.accountNo)).toEqual([ACCT_B.accountNo]);
+      expect(m.forAccount(USER_A, ACCT_A.accountNo)).toBe(byServer.get("KB121"));
+
+      ws.sendRaw(orderNew(ACCT_A.accountNo, "rid-a"));
+      await waitFor(() => orderAccountsOf(p121).length === 1, "KB121 스텁 DirectOrderReq(A)");
+      expect(orderAccountsOf(p121)).toEqual([ACCT_A.accountNo]);
+      expect(orderAccountsOf(p120)).toEqual([]);
+      // KB120 세션은 그대로 — 재로그인 0.
+      expect(loginCount(p120)).toBe(1);
+
+      // 같은 87 이 또 와도 세션을 더 열지 않는다(이미 KB121 키를 쥔 연결).
+      sync.onApplied({
+        serverKey: "KB121",
+        snapshot: { usersRev: 3n, users: [{ userId: D1, accounts: [account(ACCT_A, 1), account(ACCT_B, 2)] }] },
+      });
+      await flushIo(8);
+      expect(loginCount(p121)).toBe(1);
+      expect(m.sessionsOf(USER_A)).toHaveLength(2);
     } finally {
       await w.close();
     }
