@@ -5,7 +5,7 @@
 --   - 생성(dma_admin_create_dma_user): 허용 유저 연결 + DMA 유저 + 첫 계좌 + 등록 서버(active) 한 트랜잭션 ·
 --     이메일 대소문자 · 공백 무관 · 중복 서버 키 1행 · 오류 규약 NO_APP_USER · DMA_USER_EXISTS · NO_SERVERS ·
 --     SERVER_BROKER_MISMATCH(거부 시 부분 생성 없음)
---   - 의도 조회(dma_admin_intent): shared AdminIntentRow 키 9개 정확히 · priority → accountNo → serverKey 순
+--   - 의도 조회(dma_admin_intent): shared AdminIntentRow 키 10개 정확히(29-29 isOrder 추가) · priority → accountNo → serverKey 순
 --   - 계좌 put: 서버 빼기 → removing(행 유지) · 다시 넣기 → active · 값 갱신 · NO_SERVERS · NO_DMA_USER · 증권사 불일치
 --   - 계좌 제거: 마지막 active 계좌 LAST_ACCOUNT · 두 계좌 중 하나 → 그 계좌 서버 행 전부 removing · NO_SUCH_ACCOUNT
 --   - settle: 계좌 단위 removing 행만 삭제(active 불변) → 서버 0 된 계좌 삭제 · user_removed → 그 서버 행 전부 · 없는 유저 0
@@ -71,13 +71,13 @@ SELECT is(
 );
 SELECT is(
   (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(public.dma_admin_intent('p5d1') -> 0) AS k),
-  ARRAY['accountNo','branchNo','broker','dmaUserId','name','priority','serverKey','state','traderId'],
-  '(intent 행, 키 = AdminIntentRow 9개 정확히)'
+  ARRAY['accountNo','branchNo','broker','dmaUserId','isOrder','name','priority','serverKey','state','traderId'],
+  '(intent 행, 키 = AdminIntentRow 10개 정확히 — isOrder 포함)'
 );
 SELECT is(
   public.dma_admin_intent('p5d1') -> 0,
-  '{"dmaUserId":"p5d1","broker":"KB","accountNo":"5000000001","name":"위탁","branchNo":"00001","traderId":"000001","priority":1,"serverKey":"KB120","state":"active"}'::jsonb,
-  '(intent 첫 행, KB120 · 값 그대로 · priority 숫자)'
+  '{"dmaUserId":"p5d1","broker":"KB","accountNo":"5000000001","name":"위탁","branchNo":"00001","traderId":"000001","priority":1,"serverKey":"KB120","state":"active","isOrder":false}'::jsonb,
+  '(intent 첫 행, KB120 · 값 그대로 · priority 숫자 · 지정 없음 isOrder false)'
 );
 SELECT is(
   public.dma_admin_intent('nobody'),

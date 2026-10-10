@@ -54,8 +54,8 @@ INSERT INTO t_raw VALUES ('before', public.admin_users_raw());
 SELECT is(
   (SELECT jsonb_agg(e) FROM jsonb_array_elements((SELECT r FROM t_raw WHERE label = 'before') -> 'intent') e
     WHERE e ->> 'dmaUserId' = 'r5d1'),
-  '[{"dmaUserId":"r5d1","broker":"KB","accountNo":"5100000001","name":"위탁","branchNo":"00001","traderId":"000001","priority":1,"serverKey":"KB120","state":"active"}]'::jsonb,
-  '(tracer raw.intent, r5d1 의 KB120 active 1행)'
+  '[{"dmaUserId":"r5d1","broker":"KB","accountNo":"5100000001","name":"위탁","branchNo":"00001","traderId":"000001","priority":1,"serverKey":"KB120","state":"active","isOrder":false}]'::jsonb,
+  '(tracer raw.intent, r5d1 의 KB120 active 1행 · isOrder false)'
 );
 SELECT is(
   (SELECT r -> 'snapshotAccounts' FROM t_raw WHERE label = 'before'),
@@ -175,9 +175,9 @@ SELECT is(
 );
 SELECT is(
   (SELECT r -> 'servers' FROM t_raw WHERE label = 'shape'),
-  '[{"key":"KB120","broker":"KB","enabled":true},{"key":"KB121","broker":"KB","enabled":false},
-    {"key":"KYOBO119","broker":"KYOBO","enabled":true},{"key":"KYOBO127","broker":"KYOBO","enabled":false}]'::jsonb,
-  '(raw.servers, 레지스트리 sort_order 순 · key · broker · enabled)'
+  '[{"key":"KB120","broker":"KB","enabled":true,"isOrderServer":true},{"key":"KB121","broker":"KB","enabled":false,"isOrderServer":false},
+    {"key":"KYOBO119","broker":"KYOBO","enabled":true,"isOrderServer":true},{"key":"KYOBO127","broker":"KYOBO","enabled":false,"isOrderServer":false}]'::jsonb,
+  '(raw.servers, 레지스트리 sort_order 순 · key · broker · enabled · isOrderServer)'
 );
 
 -- ── 최근 결과: upsert(같은 키 두 번 → 1행 최신) · 같은 호출 안 중복은 뒤가 이김 · 모르는 서버/유저 버림 ──
