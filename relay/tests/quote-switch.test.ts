@@ -462,3 +462,147 @@ describe("QuoteSwitch 실패 복귀 · 단일 비행 · 보정 · 무동작 (29-
     expect(kb.gw.quoteLoginRequests()).toHaveLength(1);
   });
 });
+
+/**
+ * 잠그는 것 (29-28 Task 3 — WR-03 시세 주 서버 주소 추종):
+ *   A1  레지스트리 재적재가 같은 키 KB120 을 다른 포트(스텁 B)로 → 스텁 A 소켓 닫힘 → 스텁 B 에 role 1 로그인(같은 KB 비밀) →
+ *       ready → 구독 키 재구독 1회 · 두 소켓이 동시에 살아 있는 순간 없음 · restore 0 · 같은 값 재적재는 무동작
+ *   A2  같은 키 · 같은 주소 재적재(다른 서버 행만 바뀜) → 무동작(소켓 · 로그인 · 요청 변화 0)
+ *   A3  `switchTo(같은 키 · 다른 주소)` 직접 호출도 같은 break-then-make(종전엔 무동작이었다)
+ *   A4  새 주소 로그인 실패 → 옛 주소로 되돌림 · restore 0(같은 키라 되돌릴 DB 값이 없다) · error 로그 1줄 · 같은 관측 값이
+ *       다시 와도 재시도하지 않는다(직전 값 유지 — 다음 Admin 저장이 다시 시도)
+ */
+describe("QuoteSwitch 시세 주 서버 주소 추종 — 같은 키 break-then-make (29-28 WR-03)", () => {
+  /** 스텁 A = 지금 KB120 주소 · 스텁 B = 고친 KB120 주소(같은 키 · 다른 포트). */
+  let a: Stub;
+  let b: Stub;
+  let hub: SubscriptionHub;
+  let sw: QuoteSwitch | null = null;
+  let logs: LogCall[];
+  let states: QuoteFeedState[];
+
+  beforeEach(async () => {
+    logs = await spyLogs();
+    a = await startStub();
+    b = await startStub();
+    watchPeers(a, b);
+    a.gw.respondQuoteLogin({ success: true });
+    hub = new SubscriptionHub();
+    states = [];
+  });
+
+  afterEach(async () => {
+    sw?.stop();
+    sw = null;
+    hub.closeAll();
+    await a.gw.close();
+    await b.gw.close();
+    vi.restoreAllMocks();
+    const dumped = JSON.stringify(logs.map((c) => c.args));
+    expect(dumped).not.toContain(KB_SECRET);
+    expect(dumped).not.toContain(KYOBO_SECRET);
+  });
+
+  const atA = (): QuoteSwitchServer => server("KB120", "KB", a.gw.port);
+  const atB = (): QuoteSwitchServer => server("KB120", "KB", b.gw.port);
+
+  /** KB120@스텁A 에 붙어 full 키 한 벌(3건)까지 받은 래퍼. */
+  async function readyOnA(): Promise<QuoteSwitch> {
+    const s = makeSwitch(atA());
+    sw = s;
+    hub.attachFeed(s);
+    hub.subscribe("user-1", FULL_ISIN, "KRX");
+    s.start();
+    await waitFor(() => s.state === "ready", "KB120@A ready");
+    await waitFor(() => a.reqs.length === 3, "KB120@A full 한 벌");
+    s.on("state", (st) => states.push(st));
+    return s;
+  }
+
+  it("A1 레지스트리 재적재가 같은 키의 포트를 바꿈 → 옛 주소 닫고 새 주소 role 1 로그인 · 재구독 1회 · restore 0", async () => {
+    b.gw.respondQuoteLogin({ success: true });
+    const s = await readyOnA();
+    const restored: string[] = [];
+    const out = await s.reconcileWithRegistry({ quotePrimary: () => atB() }, (k) => {
+      restored.push(k);
+      return Promise.resolve();
+    });
+    expect(out).toBe("switched");
+    expect(s.currentServerKey).toBe("KB120");
+    expect(s.isReady).toBe(true);
+    expect(restored).toEqual([]);
+
+    await waitFor(() => b.reqs.length === 3, "KB120@B 재구독");
+    await sleep(150); // 중복 재구독 · 옛 주소 새 요청이 없는지 볼 여유
+    expect(b.reqs.map((r) => r.msgType)).toEqual([MSG.GetQuoteReq, MSG.SubscribeQuoteReq, MSG.GetTradeTapeReq]);
+    expect(a.reqs).toHaveLength(3);
+    expect(b.gw.quoteLoginRequests()).toEqual([
+      { secret: KB_SECRET, sinceSeq: 0, epoch: "", client: QUOTE_CLIENT_NAME, strategySinceSeq: 0, role: 1 },
+    ]);
+    expect(a.gw.quoteLoginRequests()).toHaveLength(1);
+    // break-then-make — 새 주소가 로그인을 받은 순간 옛 주소에 살아 있는 quote 소켓은 없다(D-11 · 관찰자 정원).
+    expect(b.liveOnPeerAtLogin).toEqual([0]);
+    expect(a.gw.sockets.filter((x) => !x.destroyed)).toHaveLength(0);
+    expect(states[0]).toBe("connecting");
+    expect(states.at(-1)).toBe("ready");
+
+    // 같은 값 재적재는 무동작.
+    expect(await s.reconcileWithRegistry({ quotePrimary: () => atB() }, () => Promise.resolve())).toBe("noop");
+    expect(b.gw.quoteLoginRequests()).toHaveLength(1);
+  });
+
+  it("A2 같은 키 · 같은 주소 재적재(다른 서버 행만 바뀜) → 무동작 · 소켓 · 로그인 · 요청 변화 0", async () => {
+    const s = await readyOnA();
+    const sock = await a.gw.waitForQuoteConnection(1000);
+    expect(await s.reconcileWithRegistry({ quotePrimary: () => atA() }, () => Promise.resolve())).toBe("noop");
+    expect(await s.switchTo(atA())).toEqual({ ok: true, changed: false });
+    await sleep(100);
+    expect(await a.gw.waitForQuoteConnection(1000)).toBe(sock);
+    expect(a.gw.quoteLoginRequests()).toHaveLength(1);
+    expect(a.reqs).toHaveLength(3);
+    expect(b.gw.quoteLoginRequests()).toEqual([]);
+    expect(states).toEqual([]);
+  });
+
+  it("A3 switchTo(같은 키 · 다른 주소) 직접 호출 → 같은 break-then-make (종전 무동작 아님)", async () => {
+    b.gw.respondQuoteLogin({ success: true });
+    const s = await readyOnA();
+    expect(await s.switchTo(atB())).toEqual({ ok: true, changed: true });
+    expect(s.currentServerKey).toBe("KB120");
+    await waitFor(() => b.reqs.length === 3, "KB120@B 재구독");
+    expect(b.liveOnPeerAtLogin).toEqual([0]);
+    expect(a.gw.sockets.filter((x) => !x.destroyed)).toHaveLength(0);
+  });
+
+  it("A4 새 주소 로그인 실패 → 옛 주소로 되돌림 · restore 0 · error 로그 1줄 · 같은 관측 값 재적재는 재시도하지 않는다", async () => {
+    b.gw.respondQuoteLogin({ success: false, message: "거부" });
+    const s = await readyOnA();
+    const restored: string[] = [];
+    const restore = (k: string): Promise<void> => {
+      restored.push(k);
+      return Promise.resolve();
+    };
+    const out = await s.reconcileWithRegistry({ quotePrimary: () => atB() }, restore);
+    expect(out).toBe("failed");
+    expect(restored).toEqual([]); // 같은 키 — DB 시세 주 서버는 되돌릴 것이 없다
+    expect(s.currentServerKey).toBe("KB120");
+    await waitFor(() => s.state === "ready", "옛 주소로 복귀 ready");
+    await waitFor(() => a.reqs.length === 6, "옛 주소 재구독(두 번째 한 벌)");
+    expect(a.gw.quoteLoginRequests()).toHaveLength(2);
+    expect(b.gw.quoteLoginRequests()).toHaveLength(1);
+    await waitFor(() => b.gw.sockets.filter((x) => !x.destroyed).length === 0, "새 주소 소켓 닫힘");
+    expect(a.liveOnPeerAtLogin.at(-1)).toBe(0);
+    expect(states).not.toContain("rejected");
+    const addrErrors = logs.filter(
+      (c) => c.level === "error" && c.args.some((x) => typeof x === "string" && x.includes("주소 변경 실패")),
+    );
+    expect(addrErrors).toHaveLength(1);
+    expect(addrErrors[0]?.args[0]).toMatchObject({ server: "KB120" });
+
+    // 같은 관측 값이 다시 와도 재시도하지 않는다 — 다음 Admin 저장(주소가 다시 바뀜)이 다시 시도한다.
+    expect(await s.reconcileWithRegistry({ quotePrimary: () => atB() }, restore)).toBe("noop");
+    await sleep(100);
+    expect(b.gw.quoteLoginRequests()).toHaveLength(1);
+    expect(restored).toEqual([]);
+  });
+});

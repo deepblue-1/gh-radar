@@ -12,9 +12,10 @@
  *   D-09  안전 기본값 — 개발 Mac 은 WireGuard 로 운영 게이트웨이 대역에 직결된다(RESEARCH Pattern 1). 로컬 · 테스트
  *         relay 가 운영 Supabase 의 레지스트리를 읽으면 실서버 관찰자 정원을 먹고 실계좌 서버에 붙는다. 그래서 db 원천은
  *         production 전용이고, 이 모듈에는 실서버 주소 리터럴이 없다(D-27).
- *   identities.ts 규율 복제 — 부팅 즉시 1회 + `REGISTRY_REFRESH_MS`(60초) 주기 재적재 · 겹침 금지(진행 중이면 같은
- *         Promise 를 공유) · 실패 · 불변식 위반이면 **직전 값 유지** + 사유 로그 · 첫 성공 전에는 `ready()` 가 풀리지
- *         않는다(fail closed — index 가 관찰자 · 세션 · quote 를 열지 않는다). 오류는 `safePgError` 로만 남긴다.
+ *   identities.ts 규율 복제 — 부팅 즉시 1회 + `REGISTRY_REFRESH_MS`(60초) 주기 재적재 · 주기 = 공유 · 즉시 = 꼬리(WR-02 —
+ *         `util/tail-reload.ts`: 주기 틱은 진행 중 적재를 공유하고, `reload()` 는 진행 중 적재가 커밋 전 행을 읽었을 수
+ *         있으므로 그 뒤 한 번 더 읽는다) · 실패 · 불변식 위반이면 **직전 값 유지** + 사유 로그 · 첫 성공 전에는 `ready()` 가
+ *         풀리지 않는다(fail closed — index 가 관찰자 · 세션 · quote 를 열지 않는다). 오류는 `safePgError` 로만 남긴다.
  *   불변식 — 증권사당 주문 서버 ≤ 1 · 시세 주 서버 ≤ 1 · 주문/시세 서버는 enabled · 키 중복 없음 · 키는 증권사 접두.
  *         DB 에도 같은 제약(부분 유니크 · CHECK)이 있지만 relay 는 그것을 믿지 않고 다시 본다 — 위반 스냅샷을 받으면
  *         세션 · quote 대상이 둘이 되는 순간이 생긴다.
@@ -31,6 +32,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { logger } from "../logger.js";
 import { safePgError } from "../store/pg-error.js";
+import { TailReload } from "../util/tail-reload.js";
 
 /** 레지스트리 재적재 주기(ms) — 접근 맵 `APP_ACCESS_REFRESH_MS`(옛 identities.ts 60초)와 같은 눈금이다. */
 export const REGISTRY_REFRESH_MS = 60_000;
@@ -187,7 +189,8 @@ export class ServerRegistry extends EventEmitter {
   #rows: DmaServerRow[] = [];
   #byKey = new Map<string, DmaServerRow>();
   #loaded = false;
-  #inFlight: Promise<{ ok: boolean; changed: boolean }> | null = null;
+  /** db 원천 적재 조정기 — 주기 = `shared()` · 즉시 = `now()`(WR-02 꼬리). env 원천은 null. */
+  readonly #reloader: TailReload<{ ok: boolean; changed: boolean }> | null;
   #timer: NodeJS.Timeout | null = null;
   #started = false;
   #closed = false;
@@ -200,6 +203,7 @@ export class ServerRegistry extends EventEmitter {
     super();
     this.#opts = opts;
     this.#refreshMs = opts.source === "db" ? (opts.refreshMs ?? REGISTRY_REFRESH_MS) : REGISTRY_REFRESH_MS;
+    this.#reloader = opts.source === "db" ? new TailReload(() => this.#loadDb(opts.supabase)) : null;
     this.#ready = new Promise<void>((resolve) => {
       this.#resolveReady = resolve;
     });
@@ -228,8 +232,10 @@ export class ServerRegistry extends EventEmitter {
       this.#apply(rows);
       return;
     }
-    void this.reload();
-    this.#timer = setInterval(() => void this.reload(), this.#refreshMs);
+    const reloader = this.#reloader;
+    if (reloader === null) return;
+    void reloader.shared();
+    this.#timer = setInterval(() => void reloader.shared(), this.#refreshMs);
     this.#timer.unref?.();
   }
 
@@ -239,23 +245,21 @@ export class ServerRegistry extends EventEmitter {
   }
 
   /**
-   * 지금 다시 읽는다(db). 진행 중이면 그 Promise 를 공유한다(겹침 금지 — select 는 한 번). env 는 바뀌는 것이 없다.
+   * 지금 다시 읽는다(db · 즉시 재적재 — 29-11 `/internal/admin/registry/reload`). 진행 중 적재가 있으면 그것이 끝난 **뒤
+   * 한 번 더** 읽은 꼬리의 결과를 돌려준다(WR-02) — 그 적재가 서버 편집 커밋 전에 시작돼 옛 행을 읽고 있어도 결과는 커밋
+   * 뒤 값이다. 꼬리 시작 전에 겹친 호출들은 같은 꼬리를 공유한다(동시 select 는 진행 1 + 대기 1). env 는 바뀌는 것이 없다.
    * `ok` = 이번 적재가 성공했는가 · `changed` = 행이 바뀌어 `changed` 이벤트를 냈는가.
    */
   reload(): Promise<{ ok: boolean; changed: boolean }> {
     if (this.#closed) return Promise.resolve({ ok: false, changed: false });
-    if (this.#opts.source === "env") return Promise.resolve({ ok: this.#loaded, changed: false });
-    if (this.#inFlight !== null) return this.#inFlight;
-    const p = this.#loadDb(this.#opts.supabase).finally(() => {
-      this.#inFlight = null;
-    });
-    this.#inFlight = p;
-    return p;
+    if (this.#reloader === null) return Promise.resolve({ ok: this.#loaded, changed: false });
+    return this.#reloader.now();
   }
 
   /** 타이머를 해제한다. 진행 중 조회는 끝까지 가지만 결과를 쓰지 않는다. */
   close(): void {
     this.#closed = true;
+    this.#reloader?.close();
     if (this.#timer !== null) {
       clearInterval(this.#timer);
       this.#timer = null;
