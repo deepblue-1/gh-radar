@@ -410,9 +410,15 @@ export type WsFanoutDeps = {
   sweeper?: Pick<StrategySweeper, "sweep">;
   /** 끄지 못한(미확인) 계좌 레지스터 (Phase 29-36 · 29-43). 상태 프레임 계좌 `staleStrategies` 의 원천이기도 하다. */
   staleStrategies?: StaleStrategyRegister;
-  /** (RED 골격 — 29-44.) */
+  /**
+   * DMA id → 웹 user id (Phase 29-44 · `AppAccess.userIdOf`). 연결 없는 사용자의 옛 서버 전략 끄기(`sweepMoved`)가 자격증명 ·
+   * 레지스터 키를 찾는 원천. 미주입 = `sweepMoved` 는 아무 사용자도 찾지 못한다(warn).
+   */
   userIdOf?: (dmaUserId: string) => string | undefined;
-  /** (RED 골격 — 29-44.) */
+  /**
+   * 전 사용자 유효 주문 서버의 지금 값 (Phase 29-44 · `EffectiveOwnerTracker.snapshotOf`). `sweepMoved` 가 「지금 주문 서버인 서버는
+   * 끄지 않는다」 를 다시 확인하는 원천. 미주입 = 그 재확인 없음(단위 하네스).
+   */
   owners?: Pick<EffectiveOwnerTracker, "snapshotOf">;
 };
 
@@ -602,6 +608,10 @@ export class WsFanout {
   readonly #sweeper: Pick<StrategySweeper, "sweep"> | null;
   /** 끄지 못한 계좌 레지스터 (29-36 · 29-43). 상태 프레임 계좌 `staleStrategies` 원천. */
   readonly #stale: StaleStrategyRegister | null;
+  /** DMA id → 웹 user id (29-44). 없으면 `sweepMoved` 가 사용자를 찾지 못한다. */
+  readonly #userIdOf: ((dmaUserId: string) => string | undefined) | null;
+  /** 전 사용자 유효 주문 서버 지금 값 (29-44). */
+  readonly #owners: Pick<EffectiveOwnerTracker, "snapshotOf"> | null;
   /** userId → 마지막 동기화 서명 (29-36). 인증 · 세션 추가 · 세션 상태 이벤트가 쌓고, 재수립 · 연결 소멸이 지운다. */
   readonly #syncedSig = new Map<string, UserSignature>();
   /**
@@ -633,6 +643,8 @@ export class WsFanout {
     this.#quoteState = deps.quoteState ?? null;
     this.#sweeper = deps.sweeper ?? null;
     this.#stale = deps.staleStrategies ?? null;
+    this.#userIdOf = deps.userIdOf ?? null;
+    this.#owners = deps.owners ?? null;
 
     this.#wss = new WebSocketServer({
       noServer: true,
@@ -774,9 +786,85 @@ export class WsFanout {
     return done.filter(Boolean).length;
   }
 
-  /** (RED 골격 — 29-44.) */
-  async sweepMoved(_moves: readonly OwnerMove[], _reason: string): Promise<number> {
-    return 0;
+  /**
+   * 유효 주문 서버가 바뀐 계좌의 옛 서버 전략 끄기 — **연결 유무와 무관** (Phase 29-44 · 머리 11 · gh-trade-84 ②(가)). 운영 index 가
+   * 지정 적재기 · 레지스트리 `changed` · 87 `applied` 뒤 `EffectiveOwnerTracker.refresh()` 의 move 로 부른다(29-36
+   * `resyncChangedUsers` 호출 **뒤**).
+   *
+   * move 마다 `from` 이 있고 `from !== to` 이며 `from` 이 지금 그 계좌의 유효 서버가 아닐 때(되돌아온 서버는 끄지 않는다) 대상이다.
+   * DMA id → 웹 user id(`userIdOf`) → 자격증명(`credentials(userId)`) → 같은 사용자 · 같은 옛 서버의 계좌를 묶어 `sweeper.sweep`
+   * 1회(세션이 없으면 sweeper 가 임시 로그인 → 끝나면 release — 새 주문 서버 세션은 열지 않는다). 결과는 29-36 과 같은 자리로 간다:
+   * ok = 레지스터 확인, 아니면 레지스터 · warn 1줄 · (연결 중이면) 상태 프레임 `staleStrategies`. 자격증명이 없으면(null ·
+   * not_ready · throw) 그 계좌들을 `no-session` 으로 남긴다(다음 로그인 상태 프레임에 보인다). 웹 사용자를 못 찾는 DMA 유저는 레지스터
+   * 키가 없어 warn 1줄(수만)로 끝난다. 사용자끼리는 병렬 · 사용자 안 서버는 순차. 거부하지 않는다.
+   *
+   * @returns sweep 을 시도한 계좌 수
+   */
+  async sweepMoved(moves: readonly OwnerMove[], reason: string): Promise<number> {
+    if (this.#sweeper === null || moves.length === 0) return 0;
+    const byDma = new Map<string, OwnerMove[]>();
+    for (const m of moves) {
+      if (m.from === undefined || m.from === m.to) continue;
+      const list = byDma.get(m.dmaUserId) ?? [];
+      list.push(m);
+      byDma.set(m.dmaUserId, list);
+    }
+    let unknownUsers = 0;
+    const runs: Array<Promise<number>> = [];
+    for (const [dmaUserId, list] of byDma) {
+      const userId = this.#userIdOf?.(dmaUserId);
+      if (userId === undefined) {
+        unknownUsers += 1;
+        continue;
+      }
+      runs.push(this.#sweepMovedUser(userId, dmaUserId, list));
+    }
+    if (unknownUsers > 0) {
+      logger.warn(
+        { users: unknownUsers, reason },
+        "[WS] 주문 서버가 바뀐 계좌의 웹 사용자 없음 — 옛 서버 전략을 끄지 못함(클라(OCX)에서 꺼야 한다)",
+      );
+    }
+    const counts = await Promise.all(runs);
+    return counts.reduce((a, b) => a + b, 0);
+  }
+
+  /** 한 사용자 몫 `sweepMoved` (29-44). 옛 서버마다 계좌를 묶어 순차로 끈다. */
+  async #sweepMovedUser(userId: string, dmaUserId: string, moves: readonly OwnerMove[]): Promise<number> {
+    const now = this.#owners?.snapshotOf(dmaUserId);
+    const groups = new Map<string, { broker: string; accountNos: string[] }>();
+    for (const m of moves) {
+      const from = m.from;
+      if (from === undefined) continue;
+      // 되돌아옴 경합 — 지금 그 계좌의 유효 서버가 옛 서버 자신이면 끄지 않는다(그 서버가 주문 서버다).
+      if (now?.get(`${m.broker}|${m.accountNo}`)?.effective === from) continue;
+      const g = groups.get(from) ?? { broker: m.broker, accountNos: [] };
+      if (!g.accountNos.includes(m.accountNo)) g.accountNos.push(m.accountNo);
+      groups.set(from, g);
+    }
+    if (groups.size === 0) return 0;
+    let creds: DmaCredentials | null | "not_ready";
+    let credFailure: string | null = null;
+    try {
+      creds = await this.#lookupCredentials(userId);
+    } catch (err) {
+      logger.error({ pgError: safePgError(err), userId }, "[WS] 옛 서버 전략 끄기(연결 무관) — 자격증명 조회 실패");
+      creds = null;
+      credFailure = "lookup-failed";
+    }
+    let attempted = 0;
+    if (creds === null || creds === "not_ready" || creds.dmaUserId !== dmaUserId) {
+      const why = credFailure ?? (creds === "not_ready" ? "not_ready" : creds === null ? "unauthorized" : "dma-changed");
+      for (const [serverKey, g] of groups) this.#markStale(userId, dmaUserId, serverKey, g.accountNos, "no-session", null, why);
+    } else {
+      for (const [serverKey, g] of groups) {
+        await this.#sweepServer(userId, creds, serverKey, g.broker, g.accountNos);
+        attempted += g.accountNos.length;
+      }
+    }
+    // 연결 중이면 상태 프레임을 다시 — 계좌 `staleStrategies` 가 레지스터를 따른다.
+    if (this.#users.has(userId)) this.#deliver(userId, this.#mergedStateFrame(userId));
+    return attempted;
   }
 
   /**

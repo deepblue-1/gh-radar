@@ -99,6 +99,7 @@ import { SymbolMap } from "./store/symbols.js";
 import { GatewaySymbolMaster } from "./store/gateway-symbols.js";
 import { SessionManager, type SessionTarget } from "./dma/session-manager.js";
 import { StaleStrategyRegister, StrategySweeper } from "./dma/strategy-sweeper.js";
+import { EffectiveOwnerTracker } from "./dma/effective-owner-tracker.js";
 import { SubscriptionHub } from "./hub/subscription-hub.js";
 import { WsFanout } from "./ws/fanout.js";
 import { AppAccess } from "./access/app-access.js";
@@ -370,6 +371,25 @@ const strategySweeper = new StrategySweeper({
 /** 끄지 못한(미확인) 계좌 레지스터 (29-36 · 29-43) — 재시도 · 백스톱은 29-44. */
 const staleStrategies = new StaleStrategyRegister();
 
+/**
+ * 전 DMA 유저 × 계좌의 유효 주문 서버 스냅샷 (Phase 29-44 · G-1 ⑤c (가) 보강) — **연결 유무와 무관**. 지정 적재기 · 레지스트리
+ * `changed` · 87 `applied` 마다 `refresh()` 가 소유 서버가 바뀐 계좌(move)를 내고 `fanout.sweepMoved` 가 옛 서버 임시 세션으로
+ * 그 계좌 전략을 끈다(브라우저를 닫아 둔 트레이더 포함 — 29-36 연결 중 경로가 못 보는 사용자). 유효 서버 계산은 29-33
+ * `effectiveOrderServer` 그대로(두 벌 금지). 대상 = 지금 파이프라인 매핑(레지스트리 enabled 서버)의 DMA 유저 합집합. 지정 첫 적재
+ * 전에는 기준선을 잡지 않는다(부팅마다 「지정 계좌 전부 옮겨짐」 오판 방지 — 기준선은 적재 직후 1회).
+ */
+const ownerTracker = new EffectiveOwnerTracker({
+  ready: () => accountOrderServers.loaded,
+  dmaUserIds: () => {
+    const out = new Set<string>();
+    for (const p of pipelines.all()) for (const dma of p.access.dmaUserIds()) out.add(dma);
+    return out;
+  },
+  accountsOf: (serverKey, dmaUserId) => pipelines.get(serverKey)?.access.accountsOf(dmaUserId),
+  servers: () => pipelines.all().map((p) => ({ key: p.server.key, broker: p.server.broker })),
+  effectiveOrderServer,
+});
+
 /** 주 서버 매핑 읽기 — 호출마다 지금의 KB 주문 서버 파이프라인을 본다(없으면 매핑 없음 = 푸시 없음 · 29-22). */
 const primaryAccessView: JournalAccessView = {
   accountsOf: (dmaUserId) => kbOrderPipeline()?.access.accountsOf(dmaUserId),
@@ -403,7 +423,24 @@ const fanout = new WsFanout({
   // Phase 29-36 (G-1 (가)) — 주문 서버 변경 재수립 전 옛 서버 전략 끄기 · 끄지 못한 계좌 레지스터(상태 프레임 staleStrategies).
   sweeper: strategySweeper,
   staleStrategies,
+  // Phase 29-44 — 연결 없는 사용자 · 로그인 백스톱 · 재시도: DMA id → 웹 user id · 전 사용자 유효 주문 서버 지금 값.
+  userIdOf: (dmaUserId) => appAccess.userIdOf(dmaUserId),
+  owners: ownerTracker,
 });
+
+/**
+ * 트래커 diff → 옛 서버 전략 끄기 (Phase 29-44). 29-36 `resyncChangedUsers` 호출 **뒤**에 부른다(연결 중 사용자 경로가 먼저 ·
+ * 같은 (사용자, 서버, 계좌)의 동시 sweep 은 fanout 이 막는다). 거부하지 않지만 결선 쪽에서도 끝까지 잡는다.
+ */
+function sweepOwnerMoves(reason: string): void {
+  const moves = ownerTracker.refresh();
+  if (moves.length === 0) return;
+  void fanout
+    .sweepMoved(moves, reason)
+    .catch((err: unknown) =>
+      logger.error({ error: err instanceof Error ? err.message : String(err) }, "[WS] 주문 서버 변경 옛 서버 끄기 예외"),
+    );
+}
 
 /**
  * 87 → 열린 세션 반영 (Phase 29-21 · ADMIN-06) — sink 가 그 서버 매핑에 87 을 넣은 직후(`applied`) 그 서버에 로그인한 사용자
@@ -413,7 +450,11 @@ const fanout = new WsFanout({
  * 상태 프레임으로 간다.
  */
 const adminSessionSync = new AdminSessionSync({ sessions: sessionManager, fanout });
-adminSnapshotSink.on("applied", (e) => adminSessionSync.onApplied(e));
+adminSnapshotSink.on("applied", (e) => {
+  adminSessionSync.onApplied(e);
+  // 29-44 — 87 이 매핑을 바꿔 계좌의 소유 서버가 바뀌었으면(지정 서버가 계좌를 새로 싣거나 뺌) 옛 서버 전략을 끈다.
+  sweepOwnerMoves("admin-snapshot");
+});
 
 // 시세 연결 상태 전이(3초 디바운스) → 인증된 전 연결(Phase 26 D-01). `/healthz` 와 같은 원천이다.
 quoteStatus.on("frame", (frame) => fanout.deliverQuoteState(frame));
@@ -431,6 +472,8 @@ accountOrderServers.on("changed", () => {
     .catch((err: unknown) =>
       logger.error({ error: err instanceof Error ? err.message : String(err) }, "[WS] 계좌 주문 서버 변경 재수립 예외"),
     );
+  // 29-44 — 연결 유무와 무관하게 옮겨진 계좌의 옛 서버 전략을 끈다(연결 중 경로 뒤).
+  sweepOwnerMoves("account-order-server");
 });
 
 /**
@@ -551,6 +594,8 @@ const orderApiServer = http.createServer(orderApi);
 appAccess.start();
 // 계좌별 주문 서버 지정도 같은 자리(29-33 — 관찰자보다 먼저 · 첫 적재 전 wss 인증은 조회 실패).
 accountOrderServers.start();
+// 29-44 — 지정 첫 적재 직후 트래커 기준선(첫 적재는 changed 를 내지 않는다 · 그 뒤 변경만 move 가 된다).
+void accountOrderServers.ready().then(() => ownerTracker.refresh());
 // 관찰자 연결을 enabled 서버마다 부팅 즉시 연다(Phase 19 D-13 — 장 시간과 무관 · 사용자 접속과 무관 · Phase 29 레지스트리 순회).
 // 결선(applied → fanout · frame → fanout)은 `onCreated` 가 start **전에** 붙인다 — 첫 배치가 버려지지 않는다.
 pipelines.sync(registry.enabled());
@@ -581,6 +626,8 @@ registry.on("changed", (change) => {
     .catch((err: unknown) =>
       logger.error({ error: err instanceof Error ? err.message : String(err) }, "[WS] 레지스트리 변경 재수립 예외"),
     );
+  // 29-44 — 기본 서버 변경 · 지정 서버 끄기/켜기로 소유 서버가 바뀐 계좌(연결 무관)의 옛 서버 전략 끄기.
+  sweepOwnerMoves("registry");
 });
 // 시세 전용 quote 연결도 같은 자리에서 연다(Phase 26 — 장 시간 · 사용자 접속과 무관). hub · fanout 결선이 다 붙은 뒤다.
 quoteSwitch.start();

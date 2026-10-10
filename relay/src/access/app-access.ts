@@ -76,6 +76,14 @@ export function isDmaGranted(entry: AppAccessEntry | undefined): entry is AppAcc
   return entry !== undefined && (entry.role === "admin" || entry.role === "trader") && entry.dmaUserId !== null;
 }
 
+/** DMA id → 웹 user id (29-44) — DMA 권한 행이 먼저, 그다음 행 순서 첫 행. */
+function reverseIndex(map: ReadonlyMap<string, AppAccessEntry>): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const e of map.values()) if (isDmaGranted(e) && !out.has(e.dmaUserId)) out.set(e.dmaUserId, e.userId);
+  for (const e of map.values()) if (e.dmaUserId !== null && !out.has(e.dmaUserId)) out.set(e.dmaUserId, e.userId);
+  return out;
+}
+
 /**
  * 재적재 전후 비교로 「권한을 잃은」 사용자인가 (D-04). 직전 행이 있었고:
  *   - 새 맵에서 사라졌거나(허용 해제)
@@ -103,6 +111,8 @@ export class AppAccess extends EventEmitter implements GatewayIdentityView {
 
   /** userId → 행. 성공한 적재마다 통째로 교체한다. */
   #map = new Map<string, AppAccessEntry>();
+  /** DMA id → 웹 user id (29-44 `userIdOf` 역방향 색인 · `#replace` 가 맵과 함께 교체). */
+  #byDma = new Map<string, string>();
   #loaded = false;
   /** 주기 = `shared()` · 즉시 = `now()`(WR-02 꼬리). */
   readonly #reloader = new TailReload<AppAccessReloadResult>(() => this.#load());
@@ -182,9 +192,14 @@ export class AppAccess extends EventEmitter implements GatewayIdentityView {
     return isDmaGranted(e) ? e.dmaUserId : undefined;
   }
 
-  /** (RED 골격 — 29-44 역방향 색인.) */
-  userIdOf(_dmaUserId: string): string | undefined {
-    return undefined;
+  /**
+   * 역방향 색인 — DMA id → 웹 user id (Phase 29-44 · 연결 없는 사용자의 옛 서버 전략 끄기 · 백스톱 · 재시도가 자격증명 공급자
+   * (`credentials(userId)`)와 레지스터 키를 찾는 원천). DMA 연결은 웹 사용자당 1개(CR-01)이고, 행이 겹치면 DMA 권한(admin ·
+   * trader) 행이 먼저 · 그다음 행 순서 첫 행이다. viewer 처럼 권한 없는 연결도 찾는다 — 자격증명 공급자가 null 로 가르고 그 계좌는
+   * 레지스터 `no-session` 으로 보인다(조용히 건너뛰지 않는다). 첫 적재 전 · 연결 없음은 undefined. 로그에 싣지 않는다.
+   */
+  userIdOf(dmaUserId: string): string | undefined {
+    return this.#byDma.get(dmaUserId);
   }
 
   /**
@@ -242,6 +257,7 @@ export class AppAccess extends EventEmitter implements GatewayIdentityView {
       }
     }
     this.#map = next;
+    this.#byDma = reverseIndex(next);
     this.#loaded = true;
     if (firstLoad) this.#resolveReady();
     this.#logSummary(next, skipped, firstLoad);
