@@ -2215,4 +2215,66 @@ describe('Phase 27 41 in-flight', () => {
     expect(unacked()?.textContent).toContain('미반영');
     expect(lastCard!.autoSellUnacked).toBe(true);
   });
+
+  /*
+    27-REVIEW-R2 WR-R2-02 — 41 이 더는 의미 없어지는 전이(전략 삭제 · 자동매도 켜짐 → 꺼짐)에서도 41 「미반영」을 거둔다.
+    삭제되면 버튼이 잠겨 다시 눌러 걷어낼 수도 없다. 단, 꺼진 채인 에코(전이 아님)로는 거두지 않는다(WR-03 유지).
+  */
+  it('WR-R2-02 — 무응답 바로시작 뒤 전략 삭제(server null) → 「미반영」 해제 · 재전송 없음', () => {
+    setRelay({ limitChasers: [watching] });
+    const { rerender } = render(<Card />);
+    press('start');
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+    });
+    expect(unacked()?.textContent).toContain('미반영');
+
+    // 철거 에코 — 기대 전이(상태 3 ∧ enabled)를 싣지 않는다.
+    const del = echo({ ...watching, crud: 'D' });
+    setRelay({ limitChasers: [], lastLimitChaserEcho: del });
+    rerender(<Card />);
+    expect(lastCard!.server).toBeNull();
+    expect(unacked()).toBeNull();
+    expect(lastCard!.autoSellUnacked).toBe(false);
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(unacked()).toBeNull();
+    expect(asCmds()).toHaveLength(1);
+  });
+
+  it('WR-R2-02 — 무응답 바로시작 뒤 자동매도 끄기(autoSellEnabled:false 에코) → 「미반영」 해제', () => {
+    setRelay({ limitChasers: [watching] });
+    const { rerender } = render(<Card />);
+    press('start');
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+    });
+    expect(unacked()?.textContent).toContain('미반영');
+
+    const off = echo({ ...watching, autoSellEnabled: false });
+    setRelay({ limitChasers: [off], lastLimitChaserEcho: off });
+    rerender(<Card />);
+    expect(unacked()).toBeNull();
+    expect(lastCard!.autoSellUnacked).toBe(false);
+    expect(asCmds()).toHaveLength(1);
+  });
+
+  it('WR-R2-02 — 꺼진 채 누른 바로시작의 무응답은 꺼진 채인 다음 에코로 거두지 않는다(전이만 · WR-03 유지)', () => {
+    const idle = echo({ ...watching, autoSellEnabled: false, autoSellState: 0 });
+    setRelay({ limitChasers: [idle] });
+    const { rerender } = render(<Card />);
+    press('start');
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+    });
+    expect(unacked()?.textContent).toContain('미반영');
+
+    // 다른 그룹 lc.set 에코 — 자동매도는 여전히 꺼짐(켜짐 → 꺼짐 전이 아님).
+    const other = echo({ ...idle, sellEnabled: false });
+    setRelay({ limitChasers: [other], lastLimitChaserEcho: other });
+    rerender(<Card />);
+    expect(unacked()?.textContent).toContain('미반영');
+    expect(lastCard!.autoSellUnacked).toBe(true);
+  });
 });

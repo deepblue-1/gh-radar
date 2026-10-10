@@ -67,8 +67,9 @@
  *     다른 그룹에서 진행 중이던 lc.set 이 거짓 「반영 안 됨」 · 타임아웃으로 떨어진다. 41 무응답은 전용
  *     `autoSellUnacked` 로만 서고, 상태줄은 `unacked || autoSellUnacked` 로 그린다.
  *   ★ 41 「미반영」은 그 키의 아무 에코로 거두지 않는다(WR-03) — 무응답으로 끝난 action 의 기대 전이가 늦게 보일 때,
- *     그 41 의 거부가 3초 뒤에 늦게 올 때(27-REVIEW-R2 WR-R2-01 — 대기 중 거부와 같은 표시 경로), 다음 41 전송,
- *     키 변경에서만 거둔다(`clearAutoSellUnacked` 한 곳). 무응답에는 전략 로그 error 한 줄(「자동매도 바로시작 —
+ *     그 41 의 거부가 3초 뒤에 늦게 올 때(27-REVIEW-R2 WR-R2-01 — 대기 중 거부와 같은 표시 경로), 41 이 더는 의미
+ *     없어질 때(전략 삭제 · 자동매도 켜짐 → 꺼짐 전이 — WR-R2-02), 다음 41 전송, 키 변경에서만 거둔다
+ *     (`clearAutoSellUnacked` 한 곳). 무응답에는 전략 로그 error 한 줄(「자동매도 바로시작 —
  *     서버 응답 없음」)을 남긴다.
  *   재전송은 없다(T-16-10 · T-17-40). 버튼 렌더 활성과 전송 가드는 같은 `server` 로 `autoSellButtonsOf` 를 읽는다.
  */
@@ -419,8 +420,9 @@ export function useStrategyCardState({
   const [autoSellUnacked, setAutoSellUnacked] = useState(false);
   /**
    * 3초 무응답으로 끝난 41 의 action — `autoSellUnacked` 의 근거다(27-REVIEW WR-03). 「미반영」은 이 action 의
-   * **기대 전이**가 늦게라도 보일 때(`settleAutoSell`), 이 41 의 **늦은 거부**가 올 때(WR-R2-01), 다음 41 전송,
-   * 키 변경에서만 거둔다 — 그 키의 아무 에코(300ms 런타임 푸시 · lc.set 에코)로는 거두지 않는다.
+   * **기대 전이**가 늦게라도 보일 때(`settleAutoSell`), 이 41 의 **늦은 거부**가 올 때(WR-R2-01), 41 이 더는 의미
+   * 없어질 때(전략 삭제 · 자동매도 켜짐 → 꺼짐 전이 — WR-R2-02), 다음 41 전송, 키 변경에서만 거둔다 — 그 키의 아무
+   * 에코(300ms 런타임 푸시 · lc.set 에코)로는 거두지 않는다.
    * 거두는 자리는 `clearAutoSellUnacked` 하나다.
    */
   const autoSellTimedOutRef = useRef<AutoSellAction | null>(null);
@@ -583,6 +585,8 @@ export function useStrategyCardState({
         pendingRef.current = null;
         pendingCauseRef.current = null;
         acceptAnswer();
+        // 41 도 더는 의미가 없다 — 지운 전략에 바로시작 · 중지의 답이 올 리 없고 버튼도 잠긴다(WR-R2-02).
+        clearAutoSellUnacked();
         setResetSeq((n) => n + 1);
         pushLog(
           strategyLogLine(prev, { ...prev, crud: "D" }) ?? "전략이 삭제됐어요",
@@ -592,6 +596,18 @@ export function useStrategyCardState({
     }
 
     if (prev === server) return;
+
+    /*
+      ★ 41 「미반영」의 「더는 의미 없음」 수평선(27-REVIEW-R2 WR-R2-02) — 자동매도가 **켜짐 → 꺼짐**으로 바뀐 에코.
+        그 뒤로 서버는 41 에 대해 말할 것이 없다(바로시작의 기대 전이 「상태 3 ∧ enabled」는 오지 않고, 중지는 이미 그
+        결과다). 지금 상태는 에코가 말하므로 「응답을 기다리고 있어요」는 거짓이 된다.
+        · **상태가 아니라 전이**로 묻는다 — 꺼진 채로 바로시작을 눌러 무응답이 된 경우, 꺼진 채인 다음 에코(런타임 푸시 ·
+          lc.set 에코)로 거두면 WR-03 의 「아무 에코로나 지워짐」이 되살아난다.
+        · 41 을 모르는 서버에서 켜진 채 무응답인 바로시작은 여기서도 남는다 — 시간으로 거두지 않는다(서버가 말하지 않은
+          것을 조용히 지우지 않는다 · 실패 사실은 error 로그 줄이 영속으로 남긴다). 다시 누르면 거둬진다.
+        이 판정은 `prev` 를 소유한 이 이펙트에서만 한다 — 아래 런타임 전용 조기 반환보다 먼저.
+    */
+    if (prev !== null && prev.autoSellEnabled && !server.autoSellEnabled) clearAutoSellUnacked();
 
     /*
       ★ 내용상 새로 말할 것이 없는 에코 — 무동작 (quick-260926-nr2). 판정은 `isRuntimeOnlyEcho`
@@ -659,7 +675,7 @@ export function useStrategyCardState({
     // 15:40 해제는 원인 1줄을 더 남긴다 — 사용자가 끄지 않은 해제의 이유를 로그가 말한다.
     if (cause === "marketClose") pushLog(marketCloseDisabledLogLine());
     // `limitChaserDisableEchoes` 로 재실행돼도 위 동일성 조기 반환이 무해하게 만든다.
-  }, [server, key, limitChaserDisableEchoes, pushLog, acceptAnswer]);
+  }, [server, key, limitChaserDisableEchoes, pushLog, acceptAnswer, clearAutoSellUnacked]);
 
   useEffect(
     () => () => {
