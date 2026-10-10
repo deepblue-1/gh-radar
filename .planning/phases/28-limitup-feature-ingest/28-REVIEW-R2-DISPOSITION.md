@@ -3,7 +3,7 @@ phase: 28-limitup-feature-ingest
 review: 28-REVIEW-R2.md
 round: 2
 updated: 2026-10-10
-open: 7
+open: 6
 total: 9
 ---
 
@@ -14,7 +14,7 @@ total: 9
 
 | ID | Severity | Disposition | Source |
 |----|----------|-------------|--------|
-| WR-R2-01 | warning | open | - |
+| WR-R2-01 | warning | fixed | quick-261010-h22 — 가드 = 직전 재조회 꼬리 이동 + 최소 간격 60초 · 회귀 테스트(상한 뒤 축출 연속) |
 | WR-R2-02 | warning | fixed | quick-261010-h22 — purgeOld 실패를 result.purgeError 로 · main 판정(stale 로그 보존) |
 | IN-R2-01 | info | open | - |
 | IN-R2-02 | info | fixed | quick-261010-h22 — Freshness.calendarStale + `limitup-sync calendar stale` warn |

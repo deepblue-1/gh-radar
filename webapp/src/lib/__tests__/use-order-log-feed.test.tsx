@@ -34,7 +34,7 @@ const authFetchMock = vi.fn();
 vi.mock('@/lib/auth-fetch', () => ({ authFetch: (path: string) => authFetchMock(path) }));
 
 import { EMPTY_RELAY_VALUE } from '@/lib/relay-provider';
-import { NEW_LINE_HIGHLIGHT_MS, useOrderLogFeed, useUnseenOrderLogCount } from '../use-order-log-feed';
+import { LF_GAP_MIN_INTERVAL_MS, NEW_LINE_HIGHLIGHT_MS, useOrderLogFeed, useUnseenOrderLogCount } from '../use-order-log-feed';
 import { MAX_LIMIT_FEATURE_EVENTS } from '../use-relay-socket';
 import { readPanelsPref } from '../trading-layout';
 import {
@@ -508,6 +508,68 @@ describe('useOrderLogFeed — 상한가 특징 체크 (D-18 · D-07)', () => {
     await flush();
     expect(lfCalls()).toBe(2); // 응답이 틈을 못 메워도 같은 틈으로는 다시 부르지 않는다
     expect(result.current.status).toBe('ready');
+  });
+
+  /** WR-A02 흐름으로 상한 도달 → 틈 재조회 1회(lfCalls 2)까지. 두 번째 응답은 `secondFeatures`. */
+  async function reachGapRefetch(secondFeatures: StrategyEventRow[]) {
+    mockServer([], [lf43, lf103]);
+    window.localStorage.setItem(PANELS_KEY, JSON.stringify({ orderLogLimitFeature: true }));
+    const hook = renderHook(() => useOrderLogFeed());
+    await flush();
+    expect(lfCalls()).toBe(1);
+    const base = lf103.gwTimeMs + 1_000;
+    const live = Array.from({ length: MAX_LIMIT_FEATURE_EVENTS - 1 }, (_, i) => ({ ...lf103, seq: 900_000 + i, gwTimeMs: base + i }));
+    mockRelay = { ...mockRelay, limitFeatureEvents: [lf103, ...live] };
+    hook.rerender();
+    await flush();
+    expect(lfCalls()).toBe(1);
+
+    mockServer([], secondFeatures);
+    mockRelay = { ...mockRelay, limitFeatureEvents: [...live.slice(1), { ...lf103, seq: 990_000, gwTimeMs: base + 10_000 }, { ...lf103, seq: 990_001, gwTimeMs: base + 10_001 }] };
+    hook.rerender();
+    await flush();
+    expect(lfCalls()).toBe(2);
+
+    // 상한에 붙은 채 새 kind 15 1줄 도착 = 앞 1줄 축출(가장 오래된 라이브 줄이 매번 바뀐다).
+    let nextSeq = 990_100;
+    const evict = async () => {
+      const cur = mockRelay.limitFeatureEvents;
+      const last = cur.at(-1)!;
+      mockRelay = { ...mockRelay, limitFeatureEvents: [...cur.slice(1), { ...lf103, seq: nextSeq++, gwTimeMs: last.gwTimeMs + 1 }] };
+      hook.rerender();
+      await flush();
+      expect(mockRelay.limitFeatureEvents).toHaveLength(MAX_LIMIT_FEATURE_EVENTS);
+    };
+    return { ...hook, evict };
+  }
+
+  it('상한 도달 뒤 틈 재조회가 캐시 꼬리를 못 옮겼으면 축출이 이어져도 · 60초가 지나도 lf=1 을 다시 부르지 않는다 (WR-R2-01)', async () => {
+    // 서버 응답이 그대로(꼬리 lf103) — 서버가 아직 틈 구간을 모른다(Supabase 기록 지연 · 장애).
+    const { result, evict } = await reachGapRefetch([lf43, lf103]);
+    for (let i = 0; i < 3; i++) {
+      await evict();
+      expect(lfCalls()).toBe(2);
+    }
+    act(() => {
+      vi.advanceTimersByTime(LF_GAP_MIN_INTERVAL_MS + 1);
+    });
+    await evict();
+    expect(lfCalls()).toBe(2); // 꼬리가 안 움직였으면 시간이 지나도 멈춘다(ready 전이 · retry 가 새로 받을 때까지)
+    expect(result.current.status).toBe('ready');
+  });
+
+  it('틈 재조회가 꼬리를 옮겼지만 틈이 남으면 직전 재조회로부터 60초 안에는 다시 부르지 않고 60초 뒤 다음 축출에서 1회 (WR-R2-01)', async () => {
+    // lfMid — lf103 보다 뒤 · 가장 오래된 라이브 줄(lf103 + 1초 뒤)보다 앞: 꼬리는 옮겨졌지만 틈은 남는다.
+    const lfMid = { ...lf103, seq: 950_000, gwTimeMs: lf103.gwTimeMs + 500 };
+    const { evict } = await reachGapRefetch([lf43, lf103, lfMid]);
+    await evict();
+    expect(lfCalls()).toBe(2);
+    act(() => {
+      vi.advanceTimersByTime(LF_GAP_MIN_INTERVAL_MS);
+    });
+    await evict();
+    expect(lfCalls()).toBe(3);
+    expect(LF_GAP_MIN_INTERVAL_MS).toBe(60_000);
   });
 
   it('과거일 — 켜면 (date, lf) 조회 · 복원 둘을 합친다 · 라이브 kind 15 무시', async () => {

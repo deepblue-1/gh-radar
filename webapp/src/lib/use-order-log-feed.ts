@@ -34,7 +34,8 @@
  *   kind 15 만 싣는다 — 꺼짐이면 분마다 오르는 소음 금지. 켜는 순간 이미 스토어에 있던 줄은 새 줄이 아니다(기준선 유지).
  *   라이브 목록은 `MAX_LIMIT_FEATURE_EVENTS`(5,000) 상한이라 켜 둔 채 몇 시간이면 오래된 줄부터 버린다. 그때 버려진 줄이
  *   조회 캐시 꼬리보다 뒤면 그 사이 구간이 목록에서 조용히 빠지므로(WR-A02), 상한에 닿은 라이브 목록의 가장 오래된
- *   그날 줄이 캐시 꼬리보다 뒤에 있으면 `?lf=1` 을 한 번 더 불러 틈을 메운다(같은 틈에는 1회 — 루프 금지).
+ *   그날 줄이 캐시 꼬리보다 뒤에 있으면 `?lf=1` 을 한 번 더 불러 틈을 메운다(직전 재조회가 꼬리를 못 옮기면 멈춤 ·
+ *   재조회 사이 최소 60초 — WR-R2-01).
  *   체크 값은 `writePanelsPref({ orderLogLimitFeature })` 로 기억한다 — 세 표면이 같은 출처(localStorage)를 읽는다.
  *   저장값은 마운트 후에 읽는다(첫 렌더는 꺼짐 — SSR 하이드레이션 일치 · WR-A03).
  *
@@ -53,6 +54,9 @@ import { inScope, mergeStrategyEvents, type OrderLogScope } from './order-log-fe
 
 /** 새로 도착한 줄 강조 유지 시간(ms) — R10. */
 export const NEW_LINE_HIGHLIGHT_MS = 3_000;
+
+/** 틈 메우기 재조회 사이 최소 간격(ms) — 장애 중 축출마다 하루치 kind 15 를 다시 받지 않게(WR-R2-01). */
+export const LF_GAP_MIN_INTERVAL_MS = 60_000;
 
 export type OrderLogFeedStatus = 'loading' | 'ready' | 'error';
 
@@ -177,18 +181,23 @@ export function useOrderLogFeed({ date: dateOpt }: { date?: string } = {}): Orde
   }, [showLimitFeature, lfCached, loadLf]);
 
   // ⑥ 라이브 kind 15 축출로 생긴 틈 메우기(WR-A02). 라이브 목록(오름차순)이 상한에 닿았고 그 가장 오래된 그날 줄이 조회
-  // 캐시 꼬리보다 뒤면, 그 사이 줄은 캐시에도 라이브에도 없다 → lf=1 재조회. 같은 「가장 오래된 줄」 에는 한 번만 부른다
-  // (응답이 여전히 틈을 못 메워도 다음 축출 전까지 다시 부르지 않는다). 진행 중 · 실패 상태면 건너뛴다(실패 = retry).
+  // 캐시 꼬리보다 뒤면, 그 사이 줄은 캐시에도 라이브에도 없다 → lf=1 재조회. 진행 중 · 실패 상태면 건너뛴다(실패 = retry).
+  // 가드 둘(WR-R2-01) — 상한에 닿으면 새 줄마다 가장 오래된 줄이 바뀌어, 「가장 오래된 줄」 키 가드는 몇 초마다 다시
+  // 열렸다(장애 중 종일 하루치 재조회). (a) 직전 재조회가 캐시 꼬리를 못 옮겼으면 멈춘다 — 서버가 아직 그 구간을 모른다.
+  // ready 전이 · retry 가 새로 받아 꼬리가 바뀔 때까지 기다린다. (b) 꼬리가 옮겨졌어도 직전 재조회로부터
+  // `LF_GAP_MIN_INTERVAL_MS` 안이면 멈춘다. 새 타이머 · 폴링은 없다 — 라이브 목록 · 캐시가 바뀔 때만 다시 본다.
   const lfTail = restoredLf !== null && restoredLf.date === date ? restoredLf.rows.at(-1) : undefined;
   const oldestLive = limitFeatureEvents.length >= MAX_LIMIT_FEATURE_EVENTS ? limitFeatureEvents[0] : undefined;
-  const lfGapRef = useRef<string | null>(null);
+  const lfGapRef = useRef<{ tail: string | null; at: number } | null>(null);
   useEffect(() => {
     if (!showLimitFeature || !isToday || !lfCached || lfStatus !== 'ready') return;
     if (oldestLive === undefined || oldestLive.tradeDate !== date) return;
     if (lfTail !== undefined && compareStrategyEventAsc(lfTail, oldestLive) >= 0) return;
-    const gapKey = strategyEventKey(oldestLive);
-    if (lfGapRef.current === gapKey) return;
-    lfGapRef.current = gapKey;
+    const tail = lfTail !== undefined ? strategyEventKey(lfTail) : null;
+    const prevGap = lfGapRef.current;
+    if (prevGap !== null && prevGap.tail === tail) return;
+    if (prevGap !== null && Date.now() - prevGap.at < LF_GAP_MIN_INTERVAL_MS) return;
+    lfGapRef.current = { tail, at: Date.now() };
     void loadLf();
   }, [showLimitFeature, isToday, lfCached, lfStatus, oldestLive, lfTail, date, loadLf]);
 
