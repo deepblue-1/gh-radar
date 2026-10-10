@@ -5,10 +5,10 @@ current_phase: 29
 current_phase_name: DMA 다중 서버 · 웹 Admin 유저 관리
 status: executing
 stopped_at: Completed 29-25-PLAN.md
-last_updated: "2026-10-10T07:46:41.949Z"
+last_updated: "2026-10-10T12:16:55.896Z"
 last_activity: 2026-10-10
 last_activity_desc: Phase 29 execution started
-state_head: 0ceff0f7ef2f17f85fbee2d3df4d75ea8c2ccae4
+state_head: 3a0870ee8edd866749711181fb0f1b773869c7be
 progress:
   total_phases: 38
   completed_phases: 24
@@ -669,6 +669,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 261010-ftq | **자동 로드 파일 다이어트** — tasks/lessons.md 66048→10226B(교훈 49건 한 줄씩 · 서사는 tasks/lessons-archive.md 로 바이트 그대로 이관, 메인 체크아웃 미커밋 2026-10-06 교훈 2건 포함) · 루트 CLAUDE.md 17824B 는 GSD 블록 밖이 362B 뿐이라 무편집(목표 20KB 이미 충족) · STATE Quick 표 69행 STATE-ARCHIVE 이동. 문서만, 배포 없음 | 2026-10-10 | c9478b60 | [261010-ftq-tasks-lessons-md-lessons-archive-md-clau](./quick/261010-ftq-tasks-lessons-md-lessons-archive-md-clau/) |
 | 261010-h22 | Phase 28 남은 권고 수정 — WR-R2-01 주문로그 틈 메우기 가드 · WR-R2-02 정리 실패 stale 로그 · IN-R2-02 캘린더 seed 만료 warn · UI 감사 상위 3건(chevron 전 폭 · 타이포 척도 · UI-SPEC 사후 기록) | 2026-10-10 | c25950fd | [261010-h22-phase-28-wr-r2-01-wr-r2-02-in-r2-02-ui-3](./quick/261010-h22-phase-28-wr-r2-01-wr-r2-02-in-r2-02-ui-3/) |
 | 261010-jix | Phase 27 3라운드 리뷰 4건 수정 — WR-R3-01 늦은 relay 41 거부를 무응답 뒤 LC_ORPHAN_WAIT_MS 수평선으로 묶음(키 싣는 출처는 늦은 창 내내) · WR-R3-02 전략 삭제 · 자동매도 꺼짐 전이에서 대기 중 41 타이머도 끔 · IN-R3-01 isAutoSellCommandRejection 계약 주석 · IN-R3-02 켜진 채 런타임 에코 음성 테스트. 대상 2파일 215 passed | 2026-10-10 | ec1afc32 | [261010-jix-phase-27-wr-r3-01-wr-r3-02-in-r3-01-in-r](./quick/261010-jix-phase-27-wr-r3-01-wr-r3-02-in-r3-01-in-r/) |
+| 13 | gh-trade 인박스 261010-trade-inbox 처리 — gh-radar → gh-trade 작업 요청 인박스 gh-radar 쪽 짝 설치(scripts/trade-handoff.sh · docs/inbox/trade-handoff-template.md · CLAUDE.md 불릿). 자가 시험 0/1/64 통과, 와이어·relay·DB 무변경. 3a0870ee | 2026-10-10 | 3a0870ee | — |
 
 ## Session Continuity
 
