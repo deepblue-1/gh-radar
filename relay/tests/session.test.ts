@@ -341,4 +341,56 @@ describe("DmaSession", () => {
     expect(states).toHaveLength(count);
   });
 
+  describe("소유 뷰 (29-33 G-1 — 계좌별 주문 서버)", () => {
+    const ACCT_A = { accountNo: "1234567801", name: "계좌A" };
+    const ACCT_B = { accountNo: "1234567802", name: "계좌B" };
+
+    it("⑫ owns 가 있으면 KB120 세션의 allowedAccounts = [B] · A 는 원본 declaredAccounts 에만 · 상태 프레임 · ready 도 소유분", async () => {
+      gateway = await startFakeGateway({ autoLogin: true, loginResp: { success: true, accounts: [ACCT_A, ACCT_B] } });
+      const client = new DmaClient({ host: "127.0.0.1", port: gateway.port });
+      // 유효 주문 서버가 KB120 인 계좌만 소유한다 — A 는 KB121 로 지정된 계좌라 여기 몫이 아니다.
+      const owner = new Map([
+        [ACCT_A.accountNo, "KB121"],
+        [ACCT_B.accountNo, "KB120"],
+      ]);
+      const s = new DmaSession(
+        {
+          userId: "user-1",
+          dmaUserId: DMA_USER,
+          password: SECRET,
+          broker: "KB",
+          serverKey: "KB120",
+          owns: (accountNo: string) => owner.get(accountNo) === "KB120",
+        },
+        client,
+      );
+      session = s;
+      const states: RelayStateMsg[] = [];
+      s.on("state", (frame) => states.push(frame));
+      const readies: string[][] = [];
+      s.on("ready", (e) => readies.push(e.accounts.map((a) => a.accountNo)));
+
+      s.start();
+      await waitFor(() => s.state === "ready", "ready 진입");
+
+      expect(s.allowedAccounts.map((a) => a.accountNo)).toEqual([ACCT_B.accountNo]);
+      expect(s.declaredAccounts.map((a) => a.accountNo)).toEqual([ACCT_A.accountNo, ACCT_B.accountNo]);
+      expect(states.at(-1)?.accounts?.map((a) => a.accountNo)).toEqual([ACCT_B.accountNo]);
+      expect(readies).toEqual([[ACCT_B.accountNo]]);
+
+      // 술어는 매번 다시 묻는다 — 지정이 KB120 으로 돌아오면 재로그인 없이 소유 뷰에 들어온다.
+      owner.set(ACCT_A.accountNo, "KB120");
+      expect(s.allowedAccounts.map((a) => a.accountNo)).toEqual([ACCT_A.accountNo, ACCT_B.accountNo]);
+    });
+
+    it("⑬ owns 가 없으면 종전과 같다 — allowedAccounts = declaredAccounts = 서버 목록 전부", async () => {
+      gateway = await startFakeGateway({ autoLogin: true, loginResp: { success: true, accounts: [ACCT_A, ACCT_B] } });
+      const { session: s } = makeSession();
+      s.start();
+      await waitFor(() => s.state === "ready", "ready 진입");
+
+      expect(s.allowedAccounts).toEqual([ACCT_A, ACCT_B]);
+      expect(s.declaredAccounts).toEqual([ACCT_A, ACCT_B]);
+    });
+  });
 });
