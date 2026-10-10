@@ -244,7 +244,13 @@ describe("ServerPipelines — 레지스트리 행 → 서버별 관찰자 (Phase
     expect(kb.adminLoginRequests()[0]).toMatchObject({ secret: KB_SECRET, role: 2, client: "gh-radar-relay/admin" });
     expect(kyobo.adminLoginRequests()[0]).toMatchObject({ secret: KYOBO_SECRET, role: 2, client: "gh-radar-relay/admin" });
     // 저널 관찰자 로그인과는 다른 소켓이다 — 저널 로그인도 각 1건, 살아 있는 소켓은 서버마다 2개.
+    // 저널 로그인은 admin 과 독립으로 도착한다 — 병렬 부하에서 늦을 수 있어 도착을 기다린 뒤 "정확히 1건" 을 단언한다.
+    await waitFor(
+      () => kb.observerLoginRequests().length >= 1 && kyobo.observerLoginRequests().length >= 1,
+      "두 서버 저널 로그인 도착",
+    );
     expect(kb.observerLoginRequests()).toHaveLength(1);
+    expect(kyobo.observerLoginRequests()).toHaveLength(1);
     const kbAdminSock = await kb.waitForAdminConnection();
     const kbJournalSock = await kb.waitForObserverConnection();
     expect(kbAdminSock).not.toBe(kbJournalSock);
