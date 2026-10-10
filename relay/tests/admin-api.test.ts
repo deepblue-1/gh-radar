@@ -37,6 +37,10 @@
  *   O3  레지스트리에 없는 키 · 형식 밖 키 · serverKey 누락 → 400 VALIDATION_FAILED · RPC 0 · 재적재 0
  *   O4  다른 증권사 서버 → 409 ORDER_SERVER_NOT_REGISTERED · 없는 계좌 → 409 NO_SUCH_ACCOUNT · 없는 유저 → 409 NO_DMA_USER
  *   O5  재적재 실패(ok false · throw)는 응답을 바꾸지 않는다(200 · warn)
+ *   R1  계좌 put 으로 지정 서버가 빠지면(대역 DB 가 지정 해제) 응답 전에 지정 재적재 1회 · 실패는 응답 무변경(warn)
+ *   R2  계좌 제거 뒤 재적재 1회 · 409 거부(LAST_ACCOUNT)는 0회
+ *   R3  유저 삭제 뒤 재적재 1회(서버 settle 이 지정 행을 지운다)
+ *   R4  생성 · 비밀번호 · reconcile 은 재적재하지 않는다(지정이 바뀌지 않는다)
  */
 import { randomBytes } from "node:crypto";
 import http from "node:http";
@@ -648,6 +652,80 @@ describe("relay Admin 내부 HTTP — 계좌 주문 서버 지정 (29-37 G-1 ⑥
     }
     expect(h.orderServersReload).toHaveBeenCalledTimes(2);
     expect(logs.filter((c) => c.level === "warn" && String(c.args[1]).includes("지정 재적재"))).toHaveLength(2);
+  });
+});
+
+describe("relay Admin 내부 HTTP — 등록 해제 · 계좌 제거 · 유저 삭제 뒤 지정 재적재 (29-37 Task 3)", () => {
+  let h: Harness;
+  let logs: LogCall[];
+  const ORDER_PATH = "/internal/admin/dma-users/tr01/accounts/KB/1234567801/order-server";
+  const B = { ...KB_ACCOUNT, accountNo: "1234567802", priority: 2 };
+
+  beforeEach(async () => {
+    logs = await spyLogs();
+    h = await startHarness();
+    expect((await call(h, "POST", "/internal/admin/dma-users", createBody())).status).toBe(200);
+    expect((await call(h, "PUT", ORDER_PATH, { serverKey: "KB121" })).status).toBe(200);
+    expect(h.db.orderServerOf("tr01", "KB", "1234567801")).toBe("KB121");
+    h.orderServersReload.mockClear();
+  });
+
+  afterEach(async () => {
+    await h.close();
+    vi.restoreAllMocks();
+  });
+
+  it("R1 계좌 put 으로 지정 서버 KB121 이 빠지면 DB 가 지정을 지우고 → 응답 전에 지정 재적재 1회", async () => {
+    let reloadedBeforeResponse = false;
+    h.orderServersReload.mockImplementation(() => {
+      reloadedBeforeResponse = h.db.orderServerOf("tr01", "KB", "1234567801") === null;
+      return Promise.resolve({ ok: true });
+    });
+    const res = await call(h, "PUT", "/internal/admin/dma-users/tr01/accounts", { account: KB_ACCOUNT, servers: ["KB120"] });
+    expect(res.status).toBe(200);
+    expect(h.orderServersReload).toHaveBeenCalledTimes(1);
+    expect(reloadedBeforeResponse).toBe(true);
+    expect(h.db.orderServerOf("tr01", "KB", "1234567801")).toBeNull();
+  });
+
+  it("R1 재적재 실패(ok false · throw)는 계좌 put 응답을 바꾸지 않는다 — 200 · warn", async () => {
+    h.orderServersReload.mockResolvedValueOnce({ ok: false }).mockRejectedValueOnce(new Error("boom"));
+    for (const servers of [["KB120"], ["KB120", "KB121"]]) {
+      const res = await call(h, "PUT", "/internal/admin/dma-users/tr01/accounts", { account: KB_ACCOUNT, servers });
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { results: unknown[] }).results).toHaveLength(2);
+    }
+    expect(h.orderServersReload).toHaveBeenCalledTimes(2);
+    expect(logs.filter((c) => c.level === "warn" && String(c.args[1]).includes("지정 재적재"))).toHaveLength(2);
+  });
+
+  it("R2 계좌 제거 뒤 재적재 1회 · 마지막 계좌 409 LAST_ACCOUNT 는 0회", async () => {
+    const last = await call(h, "DELETE", "/internal/admin/dma-users/tr01/accounts/KB/1234567801");
+    expect(last.status).toBe(409);
+    expect(h.orderServersReload).not.toHaveBeenCalled();
+
+    expect((await call(h, "PUT", "/internal/admin/dma-users/tr01/accounts", { account: B, servers: ["KB120", "KB121"] })).status).toBe(200);
+    h.orderServersReload.mockClear();
+    const res = await call(h, "DELETE", "/internal/admin/dma-users/tr01/accounts/KB/1234567801");
+    expect(res.status).toBe(200);
+    expect(h.orderServersReload).toHaveBeenCalledTimes(1);
+    expect(h.db.orderServerOf("tr01", "KB", "1234567801")).toBeNull();
+  });
+
+  it("R3 유저 삭제(deleted true) 뒤 재적재 1회", async () => {
+    const res = await call(h, "DELETE", "/internal/admin/dma-users/tr01");
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { deleted: boolean }).deleted).toBe(true);
+    expect(h.orderServersReload).toHaveBeenCalledTimes(1);
+  });
+
+  it("R4 생성 · 비밀번호 · reconcile 은 재적재 0회", async () => {
+    h.db.appUsers.add("other@gmail.com");
+    const created = await call(h, "POST", "/internal/admin/dma-users", createBody({ email: "other@gmail.com", dmaUserId: "tr02" }));
+    expect(created.status).toBe(200);
+    expect((await call(h, "POST", "/internal/admin/dma-users/tr01/password", { password: "new-p@ss" })).status).toBe(200);
+    expect((await call(h, "POST", "/internal/admin/dma-users/tr01/reconcile")).status).toBe(200);
+    expect(h.orderServersReload).not.toHaveBeenCalled();
   });
 });
 
