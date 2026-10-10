@@ -137,7 +137,8 @@ export function UserSheet({ user, servers, onChanged, onClose, initialResults = 
     async (next) => {
       await patchAdminRole(user.email, next);
     },
-    { onSuccess: () => onChanged(), describeError: roleErrorText },
+    // IN-03(29-34) — 성공 뒤 첫 재조회(새 user 객체)부터는 재조회 role 이 정본(다른 Admin 의 변경 · 서버 보정을 따른다).
+    { onSuccess: () => onChanged(), describeError: roleErrorText, releaseOn: user },
   );
   const shownRole = role.value ?? user.role;
 
