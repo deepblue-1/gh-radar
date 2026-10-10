@@ -33,6 +33,7 @@ import {
   putDmaAccount,
   reconcileDmaUser,
   removeDmaAccount,
+  setAccountOrderServer,
   setOrderServer,
   setQuotePrimary,
   upsertAdminServer,
@@ -178,5 +179,25 @@ describe('admin-api — 서버 레지스트리', () => {
     expect(call(4).path).toBe('/api/admin/servers/KB121/quote-primary');
     expect(call(4).init.method).toBe('PUT');
     expect(call(4).init.timeoutMs).toBe(RELAY_TIMEOUT_MS);
+  });
+});
+
+describe('admin-api — 계좌 주문 서버 지정 (29-38 G-1 ⑦)', () => {
+  it('setAccountOrderServer — PUT …/accounts/:broker/:accountNo/order-server { serverKey } · 경로 인코딩 · 긴 타임아웃 · 응답 그대로', async () => {
+    const res = { ok: true, orderServer: 'KB121' };
+    apiFetchMock.mockResolvedValueOnce(res);
+    await expect(setAccountOrderServer('kim/tr', 'KB', '123-45 67', 'KB121')).resolves.toBe(res);
+    const { path, init } = call(0);
+    expect(path).toBe('/api/admin/dma-users/kim%2Ftr/accounts/KB/123-45%2067/order-server');
+    expect(init.method).toBe('PUT');
+    expect(init.headers['Content-Type']).toBe('application/json');
+    expect(JSON.parse(init.body as string)).toEqual({ serverKey: 'KB121' });
+    expect(init.timeoutMs).toBe(RELAY_TIMEOUT_MS);
+  });
+
+  it('setAccountOrderServer(null) — 기본값으로 되돌림은 { serverKey: null }', async () => {
+    await setAccountOrderServer('kimtr', 'KYOBO', '98765432', null);
+    expect(call(0).path).toBe('/api/admin/dma-users/kimtr/accounts/KYOBO/98765432/order-server');
+    expect(JSON.parse(call(0).init.body as string)).toEqual({ serverKey: null });
   });
 });

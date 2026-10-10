@@ -15,9 +15,12 @@ import { ApiClientError } from '@/lib/api';
 
 const putDmaAccountMock = vi.fn();
 const removeDmaAccountMock = vi.fn();
+const setAccountOrderServerMock = vi.fn();
 vi.mock('@/lib/admin-api', () => ({
   putDmaAccount: (dma: string, body: unknown) => putDmaAccountMock(dma, body),
   removeDmaAccount: (dma: string, broker: string, no: string) => removeDmaAccountMock(dma, broker, no),
+  setAccountOrderServer: (dma: string, broker: string, no: string, key: string | null) =>
+    setAccountOrderServerMock(dma, broker, no, key),
 }));
 
 import { AccountEditor } from '../account-editor';
@@ -90,6 +93,7 @@ function setup(accounts: AdminAccountView[] = [KB_ACCT, KYOBO_ACCT, ONLY_ACCT]) 
 beforeEach(() => {
   putDmaAccountMock.mockReset();
   removeDmaAccountMock.mockReset();
+  setAccountOrderServerMock.mockReset();
 });
 
 afterEach(() => {
@@ -341,3 +345,159 @@ describe('AccountEditor — 「+ 계좌 추가」', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 29-38 G-1 ⑦ — 계좌 줄 「주문 서버」 세그먼트(29-30 채택 admin-control A · mockup-g1-account-order-server.html 변형 A)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('AccountEditor — 계좌 주문 서버(29-38 채택 A)', () => {
+  /** KB 계좌 123 — 등록 KB120 · KB121(active) · 기본 KB120 · 지정 없음. */
+  const KB2: AdminAccountView = {
+    ...KB_ACCT,
+    accountNo: '123',
+    servers: [
+      { serverKey: 'KB120', tone: 'ok', message: null, state: 'active' },
+      { serverKey: 'KB121', tone: 'ok', message: null, state: 'active' },
+    ],
+    orderServer: null,
+    defaultOrderServer: 'KB120',
+  };
+  const SERVERS_KB121_OFF: AdminUsersOverview['servers'] = SERVERS.map((s) =>
+    s.key === 'KB121' ? { ...s, enabled: false } : s,
+  );
+
+  const seg = (no: string) => acctRow(no).querySelector('[data-slot="admin-order-server"]') as HTMLElement | null;
+  const cells = (no: string) => within(seg(no) as HTMLElement).getAllByRole('radio');
+  const cell = (no: string, name: string) => within(seg(no) as HTMLElement).getByRole('radio', { name });
+  const offLine = (no: string) => acctRow(no).querySelector('[data-slot="admin-order-server-off"]') as HTMLElement | null;
+
+  function mount(accounts: AdminAccountView[], servers: AdminUsersOverview['servers'] = SERVERS) {
+    const onChanged = vi.fn();
+    const view = (a: AdminAccountView[], s = servers) => (
+      <AccountEditor dmaUserId="kimtr" accounts={a} servers={s} onChanged={onChanged} onRemoveLast={vi.fn()} />
+    );
+    const r = render(view(accounts));
+    return { onChanged, rerender: (a: AdminAccountView[], s = servers) => r.rerender(view(a, s)) };
+  }
+
+  it('서버 칩 줄 아래 「주문 서버」 세그먼트 — 칸 = 「기본 · KB120」 · KB120 · KB121(이 순서) · 지금 값 = 기본 칸 · 접근 이름 「KB 123 주문 서버」', () => {
+    mount([KB2, KYOBO_ACCT]);
+    const s = seg('123');
+    expect(s).not.toBeNull();
+    expect(s).toHaveTextContent('주문 서버');
+    expect(within(acctRow('123')).getByRole('group', { name: 'KB 123 주문 서버' })).toBeInTheDocument();
+    expect(cells('123').map((c) => c.textContent)).toEqual(['기본 · KB120', 'KB120', 'KB121']);
+    expect(cell('123', '기본 · KB120')).toHaveAttribute('aria-checked', 'true');
+    expect(cell('123', 'KB120')).toHaveAttribute('aria-checked', 'false');
+    expect(cell('123', 'KB121')).toHaveAttribute('aria-checked', 'false');
+    // 세그먼트는 서버 칩 줄 아래(DOM 순서)
+    const toggles = acctRow('123').querySelector('[data-slot="admin-server-toggle"]') as HTMLElement;
+    expect(toggles.compareDocumentPosition(s as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(offLine('123')).toBeNull();
+  });
+
+  it('KB121 칸 → PUT 1건(serverKey KB121) · 플래시 · 재조회 KB121 → 그 칸 · 재조회 null(다른 경로로 되돌림) → 기본 칸', async () => {
+    setAccountOrderServerMock.mockResolvedValue({ ok: true, orderServer: 'KB121' });
+    const { onChanged, rerender } = mount([KB2, KYOBO_ACCT]);
+    fireEvent.click(cell('123', 'KB121'));
+    expect(setAccountOrderServerMock).toHaveBeenCalledTimes(1);
+    expect(setAccountOrderServerMock).toHaveBeenCalledWith('kimtr', 'KB', '123', 'KB121');
+    expect(cell('123', 'KB121')).toHaveAttribute('aria-checked', 'true');
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    expect(seg('123')).toHaveAttribute('data-state', 'flash');
+
+    rerender([{ ...KB2, orderServer: 'KB121' }, KYOBO_ACCT]);
+    expect(cell('123', 'KB121')).toHaveAttribute('aria-checked', 'true');
+    rerender([{ ...KB2, orderServer: null }, KYOBO_ACCT]);
+    expect(cell('123', '기본 · KB120')).toHaveAttribute('aria-checked', 'true');
+    expect(cell('123', 'KB121')).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('기본 칸 → { serverKey: null }', async () => {
+    setAccountOrderServerMock.mockResolvedValue({ ok: true, orderServer: null });
+    mount([{ ...KB2, orderServer: 'KB121' }, KYOBO_ACCT]);
+    expect(cell('123', 'KB121')).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(cell('123', '기본 · KB120'));
+    expect(setAccountOrderServerMock).toHaveBeenCalledWith('kimtr', 'KB', '123', null);
+    await act(async () => {});
+  });
+
+  it('비행 중 연타 → 1건만 비행 · 응답 뒤 2건째는 마지막 값만(사이 값 KB120 은 가지 않는다)', async () => {
+    let resolveFirst: (v: unknown) => void = () => {};
+    setAccountOrderServerMock
+      .mockImplementationOnce(() => new Promise((r) => (resolveFirst = r)))
+      .mockResolvedValue({ ok: true, orderServer: 'KB121' });
+    mount([KB2, KYOBO_ACCT]);
+    fireEvent.click(cell('123', 'KB121'));
+    fireEvent.click(cell('123', 'KB120'));
+    fireEvent.click(cell('123', 'KB121'));
+    expect(setAccountOrderServerMock).toHaveBeenCalledTimes(1);
+    await act(async () => resolveFirst({ ok: true, orderServer: 'KB121' }));
+    await waitFor(() => expect(setAccountOrderServerMock).toHaveBeenCalledTimes(2));
+    expect(setAccountOrderServerMock.mock.calls.map((c) => c[3])).toEqual(['KB121', 'KB121']);
+  });
+
+  it('409 ORDER_SERVER_NOT_REGISTERED → 그 계좌 줄 오류 한 줄(서버 문구) · 값은 재조회(개요) 값으로', async () => {
+    setAccountOrderServerMock.mockRejectedValue(
+      new ApiClientError({ code: 'ORDER_SERVER_NOT_REGISTERED', message: '그 계좌에 등록된 서버가 아니에요', status: 409 }),
+    );
+    const { onChanged } = mount([KB2, KYOBO_ACCT]);
+    fireEvent.click(cell('123', 'KB121'));
+    const alert = await within(acctRow('123')).findByRole('alert');
+    expect(alert).toHaveTextContent('그 계좌에 등록된 서버가 아니에요');
+    expect(cell('123', 'KB121')).toHaveAttribute('aria-checked', 'false');
+    expect(cell('123', '기본 · KB120')).toHaveAttribute('aria-checked', 'true');
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it('등록 서버가 1대인 계좌 → 세그먼트 없이 글자 「주문 서버 KB120(기본)」 만', () => {
+    mount([{ ...KB_ACCT, orderServer: null, defaultOrderServer: 'KB120' }, KYOBO_ACCT]);
+    const s = seg('12345678901');
+    expect(s).not.toBeNull();
+    expect(within(s as HTMLElement).queryAllByRole('radio')).toHaveLength(0);
+    expect(s).toHaveTextContent('주문 서버 KB120(기본)');
+  });
+
+  it('꺼진 서버 칸 → 취소선 · 누를 수 없음(클릭해도 PUT 0건) · 지정이 없으면 경고 줄 없음', () => {
+    mount([KB2, KYOBO_ACCT], SERVERS_KB121_OFF);
+    const off = cell('123', 'KB121');
+    expect(off).toBeDisabled();
+    expect(off).toHaveAttribute('data-off', 'true');
+    expect(off.className).toContain('line-through');
+    fireEvent.click(off);
+    expect(setAccountOrderServerMock).not.toHaveBeenCalled();
+    expect(cell('123', 'KB120')).not.toBeDisabled();
+    expect(offLine('123')).toBeNull();
+  });
+
+  it('꺼진 서버가 지정돼 있으면 그 칸이 켜진 채 경고색 · 계좌 카드에 「KB121 꺼짐 — 기본 KB120 으로」 한 줄', () => {
+    mount([{ ...KB2, orderServer: 'KB121' }, KYOBO_ACCT], SERVERS_KB121_OFF);
+    const off = cell('123', 'KB121');
+    expect(off).toHaveAttribute('aria-checked', 'true');
+    expect(off).toHaveAttribute('data-off', 'true');
+    expect(off.className).toContain('text-[var(--led-latent)]');
+    const line = offLine('123');
+    expect(line).not.toBeNull();
+    expect(line).toHaveTextContent('KB121 꺼짐 — 기본 KB120 으로');
+    expect(line?.className).toContain('text-[var(--led-latent)]');
+  });
+
+  it('removing 서버 · 다른 증권사 서버는 칸에 없다 · 87 에만 있는 계좌 줄에는 세그먼트가 없다', () => {
+    const withRemoving: AdminAccountView = {
+      ...KB2,
+      servers: [...KB2.servers, { serverKey: 'KB122', tone: 'warn', message: null, state: 'removing' }],
+    };
+    mount([withRemoving, KYOBO_ACCT, ONLY_ACCT]);
+    expect(cells('123').map((c) => c.textContent)).toEqual(['기본 · KB120', 'KB120', 'KB121']);
+    expect(seg('5550001')).toBeNull();
+  });
+
+  it('하단 안내 — gh-trade-84 ②(가) 뒤 문장(relay 가 옛 서버 활성 전략을 끈다 · 클라(OCX) 대사) · 답 이전 목업 문장은 없다', () => {
+    mount([KB2, KYOBO_ACCT]);
+    const note = document.querySelector('[data-slot="admin-accounts-note"]') as HTMLElement;
+    expect(note).toHaveTextContent(
+      '주문 서버를 바꾸면 relay 가 옛 서버에 남은 그 계좌의 활성 전략(상따 · VI · 자동매도)을 끄고 새 서버로 바로 재접속해요 — 옛 서버의 미체결은 그 서버(클라)에서 정리하고, 옛 서버로 되돌릴 때는 클라(OCX) 대사로 잔고를 맞추세요.',
+    );
+    expect(note).not.toHaveTextContent('그 서버에서 정리하세요');
+    expect(note).toHaveTextContent('계좌는 서버 1대 이상');
+  });
+});

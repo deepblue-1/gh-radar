@@ -27,6 +27,7 @@ import type {
   AdminCommandResponse,
   AdminCreateUserBody,
   AdminDmaInput,
+  AdminOrderServerResponse,
   AdminPutAccountBody,
   AdminServerPatchBody,
   AdminServerResult,
@@ -159,6 +160,16 @@ export function removeDmaAccount(
     `${dmaPath(dmaUserId)}/accounts/${enc(broker)}/${enc(accountNo)}`,
     { method: "DELETE", timeoutMs: RELAY_TIMEOUT_MS },
   );
+}
+
+/** 계좌 주문 서버 지정(29-38 G-1 ⑦) — 구현 전 골격(RED). */
+export function setAccountOrderServer(
+  _dmaUserId: string,
+  _broker: DmaBroker,
+  _accountNo: string,
+  _serverKey: string | null,
+): Promise<AdminOrderServerResponse> {
+  return Promise.reject(new Error("not implemented"));
 }
 
 /** 「다시 반영」 — DB 의도와 87 의 차이를 다시 보낸다. */
