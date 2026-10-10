@@ -167,6 +167,8 @@ VM 변경 · 알림 동기화 전에** 사유와 함께 exit 1 이다(판정은 
 1. 새 relay 정지: `gcloud compute ssh radar-gw --zone=asia-northeast3-a --tunnel-through-iap --command "sudo docker stop gh-radar-relay"`
 2. 역개명 + 옛 가시성 뷰 복원: `supabase/rollback/29-gateway-key-rename-revert.sql` 을 Supabase SQL 편집기(서비스롤)에서 실행
    (마이그레이션이 아니다 — `supabase/migrations/` 로 옮기지 않는다. 머리 주석의 PK 충돌 · `lock_timeout` 안내를 먼저 읽는다).
+   짝 마이그레이션 `20261007200000_gateway_key_rename.sql` 머리 주석이 말하는 `supabase/deploy-window/29/` 는 29-26 이전 위치다 —
+   원격 적용 파일이라 고치지 않고 롤백 파일 머리의 정정 노트에 적었다(29-40).
 3. 옛 이미지 재배포 — 두 호스트 **명시 필수**(없으면 스크립트가 즉시 실패한다 · 관찰자 해제는 `DMA_KYOBO_HOST=off`):
    `DMA_HOST=<KB 주소> DMA_KYOBO_HOST=<교보 주소|off> bash scripts/deploy-relay.sh --rollback <전환 직전 태그>`
    주소는 이 문서의 기존 행이 정본이다 — KB = §현재 운영 상태 「`DMA_HOST` 실측 분류」 행, 교보 = §교보 SecuwaySSL VPN
@@ -676,7 +678,7 @@ sudo docker logs --since <t> gh-radar-relay 2>&1 | grep -E '\[QUOTE\]|\[HUB\] (q
 
 | 원인 (`.quote.state`) | 뜻 | 조치 |
 |---|---|---|
-| `rejected` | 서버가 관찰자 로그인을 거부 — 관찰자 비밀 불일치(§관찰자 비밀) **또는 관찰자 정원 초과**(`kMaxObservers` 4 · journal+quote 합산 — 옛 half-open 관찰자 · 배포 겹침 · 개발 PC relay). 거부 문구는 사유를 가르지 않는다 | relay 가 **5분 간격 · 최대 12회(1시간)** 스스로 다시 붙는다(26-REVIEW WR-03 · 로그 `거부 뒤 재시도`). 정원 초과면 그 안에 풀린다. 계속 거부면 게이트웨이 `observer.toml` 과 relay Secret 을 대조 → 맞춘 뒤 다음 재시도를 기다리거나 **relay 재시작**(12회를 다 쓰면 재시작 전 복구 없음) |
+| `rejected` | 서버가 관찰자 로그인을 거부 — 관찰자 비밀 불일치(§관찰자 비밀) **또는 관찰자 정원 초과**(`kMaxObservers` 6 · journal+admin+quote 합산 — relay 는 서버당 journal 1 + admin 1, quote 는 시세 주 서버 1 · 옛 half-open 관찰자 · 배포 겹침 · 개발 PC relay). 거부 문구는 사유를 가르지 않는다 | relay 가 **5분 간격 · 최대 12회(1시간)** 스스로 다시 붙는다(26-REVIEW WR-03 · 로그 `거부 뒤 재시도`). 정원 초과면 그 안에 풀린다. 계속 거부면 게이트웨이 `observer.toml` 과 relay Secret 을 대조 → 맞춘 뒤 다음 재시도를 기다리거나 **relay 재시작**(12회를 다 쓰면 재시작 전 복구 없음) |
 | `role_mismatch` | 게이트웨이가 quote 역할(role 1)을 모른다 — 구 서버 | gh-trade 서버 가동본이 **`ed2e0240` 을 포함**하는지 확인(gh-trade STATE.md 의 실서버 배포 커밋) → 포함본 가동 후 **relay 재시작** |
 | `connecting` · `logging_in` 60초+ (장중) | 연결은 시도 중인데 ready 가 안 선다 | 터널 쪽이다 — §터널 정지 판정 절차 — wg-probe 와 §3자 대조 로 간다. relay 사용자 세션도 같이 끊겼으면 VM · openconnect 쪽 |
 
@@ -1684,8 +1686,9 @@ COPYFILE_DISABLE=1 tar czf - -C infra/relay/secuway . | gcloud compute ssh radar
    `gcloud compute ssh radar-gw --zone=asia-northeast3-a --tunnel-through-iap --command 'timeout 3 bash -c "</dev/tcp/<host>/<port>" && echo open'`.
    **교보 KYOBO127 은 이 단계 뒤 아래 「KYOBO127 활성화 전 커서 시드」 를 먼저 한다.**
 5. **사용 켬.** 서버 카드 토글 → 확인 다이얼로그. 확인: `curl -s https://dma.jx1.io/healthz | jq '{adminConns, journalGateways}'` 의
-   `adminConns.<키>.state = "ready"` · `journalGateways.<키>.state = "live"`. 주문 서버 · 시세 주 서버 지정은 같은 화면의 라디오다
-   (주문 서버는 증권사당 1대 — `brokers.<증권사>.server` 가 따라간다 · uptime 체크 경로는 그대로).
+   `adminConns.<키>.state = "ready"` · `journalGateways.<키>.state = "live"`. 기본 주문 서버 · 시세 주 서버 지정은 같은 화면의 라디오다
+   (기본 주문 서버는 증권사당 1대 — `brokers.<증권사>.server` 가 따라간다 · uptime 체크 경로는 그대로 · 계좌별 지정은 아래
+   §계좌별 주문 서버).
 
 **KYOBO127 활성화 전 커서 시드 (RESEARCH Pitfall 2).** 29-25 키 개명은 `KYOBO` 의 127 시절(09-29~10-06) 이력까지 전부 `KYOBO119`
 로 묶는다. 127 게이트웨이가 그 시절 저널 저장소(같은 epoch)를 아직 들고 있으면, 커서 없는 `KYOBO127` 이 since 0 으로 재생해 같은
@@ -1731,6 +1734,37 @@ radar-gw 의 nft · `DOCKER-USER` 두 층과 Mac `AllowedIPs` 는 모두 IP 를 
    재연결한다. 메뉴바 헬퍼 `sudo -n /usr/local/sbin/kbdma-disconnect` · `kbdma-connect` 가 같은 일을 한다.
    `wg syncconf` 는 피어 설정만 바꾸고 OS 라우트를 깔지 않으므로 대신 쓰지 않는다.
    `install-vpn-menubar.sh` 를 다시 돌려도 `10.16.207.x/32` 항목은 보존된다.
+
+### 계좌별 주문 서버 (G-1 · Phase 29 갭 클로징)
+
+> 사용자 확정 2026-10-10(29-29 「G-1 운영 규칙」) — 29-CONTEXT D-10 「열린 세션은 옛 서버 유지 · 새 로그인부터」 와 D-17 「주문 서버
+> 라디오」 의 뜻을 대체한다. 구현 29-29 · 29-33 · 29-35 · 29-36 · 29-37 · 29-38 · 29-39 · 29-42 · 29-43 · 29-44.
+
+**유효 주문 서버.** 계좌 a(증권사 b)의 주문 서버 = a 의 **지정 서버**(레지스트리에서 enabled 이고 증권사가 b 일 때) → 아니면 b 의
+**기본 주문 서버**(`dma_servers.is_order_server` — `/admin/servers` 화면 이름 「기본 주문 서버」). 지정 서버가 꺼지면 기본값으로
+가고 지정은 지우지 않는다(다시 켜면 돌아온다). 그 계좌의 주문 · 상따 · 자동매도 명령과 계좌 · 주문 · 상따 · 83 프레임은 유효 주문
+서버 세션 하나에서만 오가고 보인다 — 같은 사용자의 같은 증권사 두 서버 세션은 계좌들이 실제로 다른 서버를 고른 경우에만 함께 연다.
+
+- **지정은 Admin `/admin/users` 편집 시트의 계좌 줄** 「주문 서버」 세그먼트(기본 · `<키>` + 그 계좌의 active 등록 서버 — 등록
+  서버만 고를 수 있다 · 꺼진 칸 잠금). 저장은 Express `PUT …/accounts/:broker/:accountNo/order-server` → relay → RPC
+  `dma_admin_set_account_order_server`(NULL = 기본값 · 미등록 서버는 `ORDER_SERVER_NOT_REGISTERED`) → relay `AccountOrderServers`
+  즉시 재적재(평소 60초 주기 사본 · fail closed). 등록 해제 · 계좌 제거 · 사용자 삭제로 등록에서 빠지면 지정은 기본값으로 돌아간다.
+- **변경은 즉시 재수립.** 계좌 지정이 바뀌거나 `/admin/servers` 에서 증권사 기본 주문 서버가 바뀌면, relay 는 영향받는 사용자마다
+  (가) **옛 서버에 남은 그 계좌의 활성 전략(상따 · VI · 자동매도)을 먼저 끈다**(29-43 `StrategySweeper` · 29-36 결선 — 연결 없는
+  사용자도 29-44 가 임시 세션으로 끈다 · 로그인 백스톱 · 60초 재시도) → 그 사용자 wss 1012 → 브라우저 1~3초 재접속 → 새 서버
+  세션 ready → 25 → 66 재동기. 끄지 못하면 healthz `accountOrderServers.<키>.staleAccounts` · `/admin/servers` 카드 경고 한 줄 ·
+  작업대 상태줄 안내로 보인다. 「재접속하면 적용」 배지는 없다(29-39 에서 걷어냄).
+- **미체결은 건드리지 않는다.** 옛 서버의 미체결 정리와, 계좌가 되돌아올 때의 잔고 대사는 사용자가 클라(OCX) 대사로 한다(작업대
+  「되돌아옴」 안내).
+- **`/healthz`.** `accountOrderServers.<서버 키>` = `{ accounts, alerting, staleAccounts }` 는 **본문 전용**(503 축 아님) — 지정
+  1건 이상 또는 끄지 못한 계좌가 있는 서버만 싣고, 합집합이 비면 키째 없다. `journal`(503 축) · `brokers.<증권사>`(uptime 고정
+  경로)는 **증권사 기본 주문 서버** 그대로다.
+- **고아 점검.** 배포 창 읽기 전용 쿼리 `supabase/ops/29-orphan-dma-users.sql`(29-27 — 「+ 사용자」 가 기존 DMA 연결을 덮어써 생긴
+  옛 DMA 유저 확인).
+- **사용자 삭제와 꺼진 서버.** 꺼진 등록 서버가 있으면 삭제 확인 다이얼로그가 그 서버를 알리고 `?skipDisabled=1` 로 보낸다 — relay 는
+  꺼진 서버에 op 없이 그 서버 의도만 settle 하고, 켜진 서버가 전부 ok 면 삭제를 끝낸다(29-34).
+- **Admin 요청 마감.** relay 10초(느린 서버는 `timeout` 으로 접어 200 으로 먼저 응답 · 실제 결과는 뒤에 기록) · Express → relay
+  15초 · 브라우저 20초(29-32).
 
 ### 사건 기록 — 2026-09-26 재부팅 시 wg0 기동 실패
 

@@ -35,3 +35,11 @@
   감사 줄(`audit`)은 마스킹되지만 pino-http 의 `req.url` 은 그대로다(29-37 감사 테스트가 이 때문에 감사 줄만 단언한다). 이 플랜 이전부터
   있던 모양이고 이 플랜 범위(지정 API)가 아니라 고치지 않았다 — 고치려면 server `logger` 의 pino-http `req` serializer 에서
   `/api/admin/dma-users/` 아래 경로 세그먼트를 마스킹한다(전 Admin 라우트 공통이라 별도 quick).
+
+## 29-40 실행 중
+
+- **relay 소스 머리 주석의 관찰자 정원이 아직 4 다.** `relay/src/quote/feed.ts` 19행 「관찰자 정원(kMaxObservers 4 · journal+quote 합산)」.
+  status: open
+  29-40 은 README(`infra/relay/README.md` 503 원인 표)를 6(journal + admin + quote 합산 · 서버당 journal 1 + admin 1, quote 는 시세 주
+  서버 1)으로 고쳤고 `relay/src/admin/admin-conn.ts` 머리 주석은 이미 6 이다. feed.ts 는 이 플랜 파일 범위 밖이라 주석을 고치지 않았다
+  — 동작 영향 없음(주석뿐). 다음에 feed.ts 를 만지는 플랜이 한 줄 고친다.
