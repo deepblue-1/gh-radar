@@ -216,6 +216,25 @@ describe('UserSheet — 역할 즉시 저장 (D-15)', () => {
     expect(document.querySelector('[data-slot="admin-user-sheet"]')?.closest('[role="dialog"]')?.querySelector('[data-slot="admin-role-chip"]')).toHaveTextContent('admin');
   });
 
+  it('(29-34 IN-03) 저장 성공 뒤 재조회 값이 정본 — trader → viewer 성공 · 재조회 전 viewer 유지 · 재조회 role admin(다른 Admin) → admin', async () => {
+    patchAdminRoleMock.mockResolvedValue({ ok: true, relayNotified: true });
+    const onChanged = vi.fn();
+    const { rerender } = render(<UserSheet user={KIM} servers={SERVERS} onChanged={onChanged} onClose={() => {}} />);
+    const radio = (name: string) => within(roleGroup()).getByRole('radio', { name });
+
+    fireEvent.click(radio('viewer'));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    // 재조회 전(같은 user 객체) — 누른 값 유지(깜빡임 없음)
+    rerender(<UserSheet user={KIM} servers={SERVERS} onChanged={onChanged} onClose={() => {}} />);
+    expect(radio('viewer')).toHaveAttribute('aria-checked', 'true');
+
+    // 재조회 도착 — 그 사이 다른 Admin 이 admin 으로 바꿨다 → 재조회 값이 이긴다
+    rerender(<UserSheet user={{ ...KIM, role: 'admin' }} servers={SERVERS} onChanged={onChanged} onClose={() => {}} />);
+    expect(radio('admin')).toHaveAttribute('aria-checked', 'true');
+    expect(radio('viewer')).toHaveAttribute('aria-checked', 'false');
+    expect(document.querySelector('[data-slot="admin-role-chip"]')).toHaveAttribute('data-role', 'admin');
+  });
+
   it('409 SELF_LOCKOUT → 세그먼트가 원래 값으로 · 한 줄 「본인 관리자 권한은 내릴 수 없어요」 · 재조회 없음', async () => {
     patchAdminRoleMock.mockRejectedValue(
       new ApiClientError({ code: 'SELF_LOCKOUT', message: '본인의 관리자 권한은 내리거나 지울 수 없어요.', status: 409 }),
