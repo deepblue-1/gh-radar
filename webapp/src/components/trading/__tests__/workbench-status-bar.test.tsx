@@ -298,53 +298,12 @@ describe('WorkbenchStatusBar — 시세 필 (D-01 · D-04)', () => {
   });
 });
 
-describe('WorkbenchStatusBar — 주문 서버 바뀜 배지 (Phase 29 D-10)', () => {
-  it('표식이 없으면(미지정 · 빈 객체) 배지가 DOM 에 없다', () => {
-    const { rerender } = render(<WorkbenchStatusBar {...props()} />);
-    expect(document.querySelectorAll('[data-slot="order-server-badge"]')).toHaveLength(0);
-    rerender(<WorkbenchStatusBar {...props({ orderServerNotices: {} })} />);
-    expect(document.querySelectorAll('[data-slot="order-server-badge"]')).toHaveLength(0);
-  });
-
-  it('KB 표식 → 「주문 서버가 KB121 로 바뀜 — 재접속하면 적용」 · role status · 접근 이름 = 문구 · 주문 필 바로 뒤', () => {
-    render(
-      <WorkbenchStatusBar
-        {...props({ orderServerNotices: { KB: { current: 'KB120', next: 'KB121' } } })}
-      />,
-    );
-    const badges = document.querySelectorAll('[data-slot="order-server-badge"]');
-    expect(badges).toHaveLength(1);
-    const badge = badges[0]!;
-    expect(badge.textContent).toBe('주문 서버가 KB121 로 바뀜 — 재접속하면 적용');
-    expect(screen.getByRole('status', { name: '주문 서버가 KB121 로 바뀜 — 재접속하면 적용' })).toBe(badge);
-    expect(badge.previousElementSibling).toBe(slot('workbench-dma'));
-    // 기존 「확인할 것」 축 토큰 · 잘림 대신 줄바꿈(⑦).
-    expect(badge.className).toContain('--new-bg');
-    expect(badge.className).toContain('--new-bd');
-    expect(badge.className).toContain('max-w-full');
-    expect(badge.className).not.toContain('whitespace-nowrap');
-    expect(badge.className).not.toContain('truncate');
-    // 버튼 없음 — 정리와 이동은 사용자 몫이다(D-10).
-    expect(within(badge as HTMLElement).queryByRole('button')).toBeNull();
-  });
-
-  it('KB · 교보 둘 다 → 배지 2개(증권사 순 KB → 교보)', () => {
-    render(
-      <WorkbenchStatusBar
-        {...props({
-          orderServerNotices: {
-            KYOBO: { current: 'KYOBO119', next: 'KYOBO127' },
-            KB: { current: 'KB120', next: 'KB121' },
-          },
-        })}
-      />,
-    );
-    const badges = [...document.querySelectorAll('[data-slot="order-server-badge"]')];
-    expect(badges.map((b) => b.getAttribute('data-broker'))).toEqual(['KB', 'KYOBO']);
-    expect(badges.map((b) => b.textContent)).toEqual([
-      '주문 서버가 KB121 로 바뀜 — 재접속하면 적용',
-      '주문 서버가 KYOBO127 로 바뀜 — 재접속하면 적용',
-    ]);
+describe('WorkbenchStatusBar — 옛 「재접속하면 적용」 배지 없음 (29-39 · G-1 즉시 재수립)', () => {
+  it('배지 문구 함수가 모듈에 없고 상태줄 어디에도 「재접속하면 적용」 이 없다', async () => {
+    const mod = await import('../workbench/workbench-status-bar');
+    expect('orderServerBadgeText' in mod).toBe(false);
+    render(<WorkbenchStatusBar {...props({ account: G1_ACCOUNTS[1]! })} />);
+    expect((slot('workbench-status-bar') as HTMLElement).textContent).not.toContain('재접속하면 적용');
   });
 });
 
