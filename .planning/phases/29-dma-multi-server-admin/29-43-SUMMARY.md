@@ -233,3 +233,9 @@ None - no external service configuration required.
 ---
 *Phase: 29-dma-multi-server-admin*
 *Completed: 2026-10-11*
+
+## Self-Check: PASSED
+
+- 파일: strategy-sweeper.ts · strategy-sweeper.test.ts 존재
+- 커밋 6개(c08f78ca · 02cef0ff · 4a035e57 · 7e27010e · 0eb4b717 · fa4198c6) HEAD 조상 · evaluation-scope resolved
+- 태스크 acceptance grep 전부 통과 · 플랜 verification(6 테스트 파일 · webapp typecheck) · 전체 relay 1355 green
