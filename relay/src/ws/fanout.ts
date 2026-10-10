@@ -459,6 +459,9 @@ export const WS_CLOSE_ACCESS_REVOKED = 1008;
  */
 export const WS_CLOSE_ORDER_SERVER_CHANGED = 1012;
 
+/** (RED 골격 — 29-44 재시도 주기.) */
+export const STALE_STRATEGY_RETRY_MS = 60_000;
+
 /** 브라우저 소켓 1개의 상태. */
 type Conn = {
   ws: WebSocket;
@@ -828,6 +831,9 @@ export class WsFanout {
     const counts = await Promise.all(runs);
     return counts.reduce((a, b) => a + b, 0);
   }
+
+  /** (RED 골격 — 29-44 재시도.) */
+  startStaleRetry(_intervalMs: number = STALE_STRATEGY_RETRY_MS): void {}
 
   /** 한 사용자 몫 `sweepMoved` (29-44). 옛 서버마다 계좌를 묶어 순차로 끈다. */
   async #sweepMovedUser(userId: string, dmaUserId: string, moves: readonly OwnerMove[]): Promise<number> {

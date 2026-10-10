@@ -30,7 +30,7 @@ import type { DmaServerRow } from "../src/registry/registry.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { MSG } from "../src/dma/msg-type.js";
 import { Envelope } from "../src/generated/stock-dma/envelope.js";
-import { WS_CLOSE_ORDER_SERVER_CHANGED, WsFanout } from "../src/ws/fanout.js";
+import { STALE_STRATEGY_RETRY_MS, WS_CLOSE_ORDER_SERVER_CHANGED, WsFanout } from "../src/ws/fanout.js";
 import { SubscriptionHub } from "../src/hub/subscription-hub.js";
 import type { SymbolInfo, SymbolLookup } from "../src/store/symbols.js";
 import { readDisableStrategiesKey, startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
@@ -259,6 +259,8 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
        * `resyncChangedUsers` **뒤** `tracker.refresh()` → `sweepMoved`.
        */
       tracker?: boolean;
+      /** 29-44 — 운영 index 처럼 `fanout.startStaleRetry()`(60초 · 가짜 타이머). */
+      staleRetry?: boolean;
     } = {},
   ) {
     const loader = new AccountOrderServers({ supabase });
@@ -318,6 +320,7 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
       staleStrategies: register,
       ...(tracker !== undefined ? { owners: tracker, userIdOf: (dma: string) => dmaToUser.get(dma) } : {}),
     });
+    if (opts.staleRetry === true) fanout.startStaleRetry();
     loader.on("changed", () => {
       void fanout.resyncChangedUsers("account-order-server");
       const moves = tracker?.refresh() ?? [];
@@ -916,5 +919,163 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     );
     expect(first?.accounts?.find((a) => a.accountNo === A)?.staleStrategies).toEqual({ serverKey: "KB120", count: 1 });
     expect(acctOf(readyAccounts(tab.inbox), B)?.staleStrategies).toBeUndefined();
+  });
+  // ============================================================
+  // 29-44 Task 2 — 로그인 백스톱 · 60초 재시도 · 되돌아오면 해제 · 동시 sweep 방지
+  // ============================================================
+
+  it("⑬ 로그인 백스톱 — A 지정 KB121 · B 기본 KB120 · 확인 기록 없음 → 인증이 KB120(B) · KB121(A) 를 여는 것과 병행해 KB120 에서 A 만 끄기 1회(세션 재사용 · LoginReq 추가 0) → 새 탭 인증 0회 → 유효 서버가 바뀐 뒤 인증 → 다시 1회", async () => {
+    await captureLogs();
+    mappings.get("KB121")?.set(D1, new Set([A]));
+    chosenRows = [{ dma_user_id: D1, broker: "KB", account_no: A, server_key: "KB121" }];
+    kb120.respondLimitChaserList([on(SAMPLE_ISIN, A), on(ISIN2, B)]);
+    const results: StrategySweepResult[] = [];
+    const targets: string[] = [];
+    const h = await harness({ tracker: true, wrapSweeper: recording(results, targets) });
+
+    const tab = await h.open("token-1");
+    await readyTab(h, tab, U1, 2, "u1 ready(A · B)");
+    await waitFor(() => results.length === 1, "백스톱 sweep 1");
+    await flushIo(10);
+    expect(targets).toEqual([`KB120:${A}`]);
+    expect(results[0]).toEqual(expect.objectContaining({ ok: true, sessionCreated: false }));
+    expect(count("KB120", MSG.LoginReq)).toBe(1); // 인증의 로그인 하나 — 백스톱은 그 세션을 쓴다
+    expect(count("KB121", MSG.LoginReq)).toBe(1);
+    expect(disabledKeys("KB120", 0)).toEqual([keyOf(SAMPLE_ISIN, A)]);
+    expect(kb120.limitChaserSeed().filter((c) => c.buyEnabled).map((c) => c.accountNo)).toEqual([B]);
+    expect(h.register.all()).toEqual([]);
+    expect(tab.ws.closeInfo).toBeNull();
+
+    // 같은 사용자 새 탭 — 확인 기록이 있고 유효 서버가 그대로면 0회.
+    const tab2 = await h.open("token-1");
+    await readyTab(h, tab2, U1, 2, "새 탭 ready");
+    await flushIo(20);
+    expect(targets).toHaveLength(1);
+
+    // 확인 뒤 A 의 소유 서버가 바뀌었다(KB121 매핑에서 빠짐 → 소유자 없음) — 다음 인증은 다시 1회.
+    mappings.get("KB121")?.set(D1, new Set());
+    const tab3 = await h.open("token-1");
+    await waitFor(() => targets.length === 2, "유효 서버 변경 뒤 백스톱 다시 1");
+    expect(targets[1]).toBe(`KB120:${A}`);
+    await waitFor(() => results.length === 2, "두 번째 백스톱 완료");
+    expect(tab3.ws.closeInfo).toBeNull();
+  });
+
+  it("⑭ 60초 재시도 — 연결 0 사용자 끄기 미확인(timeout) → 60초 → 다시 sweep → 실패면 attempts 2 → u1 로그인(미확인 항목은 백스톱이 아니라 재시도 몫) → 고친 서버로 60초 → 성공 · 레지스터 확인 · 연결 중 상태 프레임 재송신(A staleStrategies 사라짐)", async () => {
+    await captureLogs();
+    kb120.respondLimitChaserList([on(SAMPLE_ISIN, A)]);
+    kb120.handleDisableStrategies({ apply: false, respond65: false });
+    const results: StrategySweepResult[] = [];
+    const targets: string[] = [];
+    const h = await harness({ tracker: true, staleRetry: true, wrapSweeper: recording(results, targets) });
+    expect(STALE_STRATEGY_RETRY_MS).toBe(60_000);
+
+    chosenRows = [{ dma_user_id: D1, broker: "KB", account_no: A, server_key: "KB121" }];
+    await h.loader.reload();
+    await waitFor(() => count("KB120", MSG.DisableStrategiesReq) === 1, "첫 14");
+    await flushIo(10);
+    vi.advanceTimersByTime(5_000);
+    await waitFor(() => results.length === 1, "첫 sweep 시한");
+    expect(h.register.all()).toEqual([expect.objectContaining({ userId: U1, serverKey: "KB120", accountNo: A, attempts: 1 })]);
+
+    // 60초 — 재시도(유예 중 임시 세션 재사용 · 로그인 추가 0) → 또 65 없음 → attempts 2.
+    const logins = count("KB120", MSG.LoginReq);
+    vi.advanceTimersByTime(STALE_STRATEGY_RETRY_MS);
+    await waitFor(() => count("KB120", MSG.DisableStrategiesReq) === 2, "재시도 14");
+    await flushIo(10);
+    vi.advanceTimersByTime(5_000);
+    await waitFor(() => results.length === 2, "재시도 시한");
+    expect(targets).toEqual([`KB120:${A}`, `KB120:${A}`]);
+    expect(count("KB120", MSG.LoginReq)).toBe(logins);
+    expect(h.register.all()).toEqual([
+      expect.objectContaining({ userId: U1, serverKey: "KB120", accountNo: A, attempts: 2, reason: "timeout" }),
+    ]);
+
+    // u1 로그인 — 첫 상태 프레임 A 에 staleStrategies. 미확인 항목은 백스톱이 다시 두드리지 않는다(재시도 몫).
+    kb120.handleDisableStrategies({});
+    const tab = await h.open("token-1");
+    await readyTab(h, tab, U1, 2, "u1 ready");
+    await flushIo(20);
+    expect(targets.filter((t) => t === `KB120:${A}`)).toHaveLength(2);
+    expect(acctOf(readyAccounts(tab.inbox), A)?.staleStrategies).toEqual({ serverKey: "KB120", count: 1 });
+
+    // 다음 60초 — 고친 서버에서 성공 → 확인 · 상태 프레임 재송신.
+    vi.advanceTimersByTime(STALE_STRATEGY_RETRY_MS);
+    await waitFor(() => h.register.all().length === 0, "재시도 성공 → 확인");
+    await waitFor(() => acctOf(readyAccounts(tab.inbox), A)?.staleStrategies === undefined, "상태 프레임 재송신");
+    expect(kb120.limitChaserSeed().filter((c) => c.buyEnabled)).toEqual([]);
+    expect(tab.ws.closeInfo).toBeNull();
+  });
+
+  it("⑮ 되돌아옴 — KB120 미확인 항목이 남은 채 A 지정 해제(기본 KB120) → 레지스터 항목 해제 · KB120 sweep 0 · 이제 옛 서버인 KB121 의 A 전략은 끈다", async () => {
+    await captureLogs();
+    kb120.respondLimitChaserList([on(SAMPLE_ISIN, A)]);
+    kb120.handleDisableStrategies({ apply: false, respond65: false });
+    kb121.respondLimitChaserList([on(SAMPLE_ISIN, A)]);
+    const results: StrategySweepResult[] = [];
+    const targets: string[] = [];
+    const h = await harness({ tracker: true, wrapSweeper: recording(results, targets) });
+
+    chosenRows = [{ dma_user_id: D1, broker: "KB", account_no: A, server_key: "KB121" }];
+    await h.loader.reload();
+    await waitFor(() => count("KB120", MSG.DisableStrategiesReq) === 1, "KB120 14");
+    await flushIo(10);
+    vi.advanceTimersByTime(5_000);
+    await waitFor(() => h.register.all().length === 1, "KB120 미확인");
+
+    const from120 = mark("KB120");
+    chosenRows = [];
+    await h.loader.reload();
+    await waitFor(() => results.length === 2, "KB121 sweep");
+    await flushIo(10);
+    expect(targets).toEqual([`KB120:${A}`, `KB121:${A}`]);
+    expect(results[1]).toEqual(expect.objectContaining({ ok: true }));
+    expect(h.register.all()).toEqual([]);
+    expect(count("KB120", MSG.GetLimitChaserListReq, from120)).toBe(0);
+    expect(count("KB120", MSG.DisableStrategiesReq, from120)).toBe(0);
+    expect(kb120.limitChaserSeed().filter((c) => c.buyEnabled).map((c) => c.accountNo)).toEqual([A]);
+    expect(disabledKeys("KB121", 0)).toEqual([keyOf(SAMPLE_ISIN, A)]);
+  });
+
+  it("⑯ 동시 — 연결 중 u1 의 지정 변경을 29-36 경로(서명 diff)와 sweepMoved 가 같은 틱에 만나도 (u1, KB120, A) sweep 은 1회 · 그 뒤 1012", async () => {
+    await captureLogs();
+    kb120.respondLimitChaserList([on(SAMPLE_ISIN, A), on(ISIN2, B)]);
+    const results: StrategySweepResult[] = [];
+    const targets: string[] = [];
+    const h = await harness({ tracker: true, wrapSweeper: recording(results, targets) });
+    const tab = await h.open("token-1");
+    await readyTab(h, tab, U1, 2, "u1 ready");
+    await flushIo(20);
+    const before = targets.length; // 로그인 백스톱 몫(KB121 의 B 등)은 빼고 센다
+    const from120 = mark("KB120");
+
+    chosenRows = [{ dma_user_id: D1, broker: "KB", account_no: A, server_key: "KB121" }];
+    await h.loader.reload();
+    await waitFor(() => tab.ws.closeInfo !== null, "1012");
+    await flushIo(20);
+    expect(tab.ws.closeInfo?.code).toBe(1012);
+    expect(targets.slice(before).filter((t) => t === `KB120:${A}`)).toHaveLength(1);
+    expect(count("KB120", MSG.DisableStrategiesReq, from120)).toBe(1);
+    expect(count("KB120", MSG.GetLimitChaserListReq, from120)).toBe(2); // 조회 + 재조회 한 벌
+    expect(h.register.all()).toEqual([]);
+  });
+
+  it("⑰ 종료(close) 뒤에는 재시도 타이머가 없다 — 미확인 항목이 남아도 60초가 지나도 sweep 0", async () => {
+    await captureLogs();
+    kb120.respondLimitChaserList([on(SAMPLE_ISIN, A)]);
+    const results: StrategySweepResult[] = [];
+    const targets: string[] = [];
+    const h = await harness({ tracker: true, staleRetry: true, wrapSweeper: recording(results, targets) });
+    credMode.set(U1, "null");
+    chosenRows = [{ dma_user_id: D1, broker: "KB", account_no: A, server_key: "KB121" }];
+    await h.loader.reload();
+    await waitFor(() => h.register.all().length === 1, "no-session 미확인");
+    credMode.set(U1, "ok");
+
+    await h.fanout.close();
+    vi.advanceTimersByTime(STALE_STRATEGY_RETRY_MS * 2);
+    await flushIo(20);
+    expect(targets).toEqual([]);
+    expect(h.register.all()).toEqual([expect.objectContaining({ attempts: 1, reason: "no-session" })]);
   });
 });
