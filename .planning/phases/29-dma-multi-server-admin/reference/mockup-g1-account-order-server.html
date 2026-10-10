@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 29 G-1 목업 ① — Admin 계좌 줄 「주문 서버」 고르기 (A 세그먼트 / B 칩 라디오 / C 제목줄 select)</title>
+<!-- standalone — 외부 폰트·스크립트 없음. 토큰 · 계좌 줄 · 시트/패널 틀은 채택 목업 A(mockup-admin-users.html) 그대로. -->
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; gap: 24px; padding: 20px 12px 60px; overflow-x: auto; }
+.f { --bg: #ffffff; --surface: #f2f4f6; --fg: #191f28; --fg2: #333d4b; --muted: #f2f4f6; --mfg: #6b7684; --faint: #b0b8c1; --hair: #e5e8eb; --up: #f04452; --down: #3182f6; --upbg: #ffeeee; --dnbg: #e8f3ff; --okbg: #e6f7ee; --ok: #1c8f4e; --warnbg: #fff4e0; --warn: #b26a00; --pill-bg: #ffffff; --pill-fg: #191f28; --sheet: #ffffff; --scrim: rgba(0,0,0,.35);
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif; }
+.f.dark { --bg: #17171c; --surface: #0f0f12; --fg: #ffffff; --fg2: #e4e4e4; --muted: #2a2a31; --mfg: #9e9e9e; --faint: #636363; --hair: #33333a; --up: #f04251; --down: #3485fa; --upbg: rgba(240,66,81,.16); --dnbg: rgba(52,133,250,.16); --okbg: rgba(46,184,106,.18); --ok: #4cd38a; --warnbg: rgba(255,170,0,.16); --warn: #ffbf47; --pill-bg: #4e4e4e; --pill-fg: #ffffff; --sheet: #202026; --scrim: rgba(0,0,0,.55); }
+.f { position: relative; flex: none; overflow: hidden; background: var(--bg); color: var(--fg2); font-family: var(--font); -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 1px #2a2a31; display: flex; flex-direction: column; }
+.f.phone { width: 390px; height: 844px; border-radius: 30px; }
+.f.desktop { width: 1080px; height: 720px; border-radius: 16px; flex-direction: row; }
+.side { width: 200px; border-right: 1px solid var(--hair); padding: 18px 12px; font-size: 14px; color: var(--mfg); background: var(--surface); }
+.side .it { padding: 8px 10px; border-radius: 8px; }
+.side .it.on { background: var(--muted); color: var(--fg); font-weight: 600; }
+.side .sub { padding: 6px 10px 6px 26px; font-size: 13px; }
+.side .sub.on { color: var(--fg); font-weight: 600; }
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
+.hd { padding: 16px 20px 0; display: flex; align-items: center; gap: 10px; }
+.f.phone .hd { padding: 14px 16px 0; }
+.hd .nm { font-size: 20px; font-weight: 700; color: var(--fg); }
+.hd .ex { font-size: 12.5px; color: var(--mfg); }
+.hd .sp { flex: 1; }
+.btn { font: inherit; font-size: 13px; font-weight: 600; padding: 8px 12px; border-radius: 9px; border: 0; cursor: pointer; background: var(--muted); color: var(--fg); }
+.btn.sm { font-size: 12px; padding: 5px 9px; }
+.scroll { flex: 1; overflow-y: auto; }
+.sec { padding: 14px 20px 6px; font-size: 12.5px; font-weight: 600; color: var(--mfg); display: flex; align-items: center; gap: 8px; }
+.f.phone .sec { padding: 14px 16px 6px; }
+.sec .n { background: var(--muted); border-radius: 999px; padding: 1px 7px; font-size: 11px; }
+.row { display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-bottom: 1px solid var(--hair); }
+.f.phone .row { padding: 12px 16px; }
+.row.sel { background: var(--surface); box-shadow: inset 3px 0 0 var(--down); }
+.row .av { width: 36px; height: 36px; border-radius: 50%; background: var(--muted); display: grid; place-items: center; font-weight: 700; color: var(--fg); font-size: 14px; flex: none; }
+.row .c1 { flex: 1; min-width: 0; }
+.row .em { font-size: 14px; font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .m { font-size: 12.5px; color: var(--mfg); margin-top: 2px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.row .chev { color: var(--faint); font-size: 18px; }
+.ch { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 5px; white-space: nowrap; line-height: 1.4; }
+.ch.role { background: var(--muted); color: var(--fg2); }
+.ch.ok { background: var(--okbg); color: var(--ok); }
+.ch.warn { background: var(--warnbg); color: var(--warn); }
+.ch.err { background: var(--upbg); color: var(--up); }
+.srv { display: inline-flex; gap: 4px; }
+/* 편집 본문 */
+.ed { padding: 0 20px 24px; }
+.f.phone .ed { padding: 0 16px 24px; }
+.ed .ttl { display: flex; align-items: center; gap: 10px; padding: 16px 0 6px; }
+.ed .ttl .em { font-size: 17px; font-weight: 700; color: var(--fg); }
+.ed .ttl .x { margin-left: auto; color: var(--mfg); font-size: 20px; }
+.fld { padding: 12px 0; border-bottom: 1px solid var(--hair); }
+.fld .lb { font-size: 12px; color: var(--mfg); margin-bottom: 6px; }
+.seg { display: inline-flex; background: var(--muted); border-radius: 10px; padding: 2px; gap: 2px; }
+.seg span { font-size: 13px; font-weight: 500; color: var(--mfg); padding: 5px 12px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+.seg span.on { background: var(--pill-bg); color: var(--pill-fg); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+.acct { border: 1px solid var(--hair); border-radius: 12px; padding: 12px 14px; margin-top: 10px; }
+.acct .t { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--fg); min-width: 0; }
+.acct .t .bk { font-size: 11px; background: var(--muted); padding: 2px 6px; border-radius: 5px; color: var(--fg2); font-weight: 600; flex: none; }
+.acct .t .no { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.acct .t .nm2 { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--mfg); font-weight: 500; }
+.acct .t .sp { flex: 1; }
+.acct .t .btn { flex: none; }
+.acct .br { margin-top: 4px; font-size: 12px; color: var(--mfg); }
+.acct .srvs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.sv { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 5px 9px; border-radius: 999px; border: 1px solid var(--hair); color: var(--fg2); }
+.sv i { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid var(--faint); display: grid; place-items: center; font-size: 10px; color: #fff; font-style: normal; }
+.sv.on i { background: var(--down); border-color: var(--down); } .sv.on i::after { content: '✓'; }
+.sv .st { font-size: 10.5px; font-weight: 600; padding: 1px 5px; border-radius: 4px; }
+.sv .st.ok { background: var(--okbg); color: var(--ok); } .sv .st.warn { background: var(--warnbg); color: var(--warn); } .sv .st.off { background: transparent; color: var(--faint); border: 1px dashed var(--hair); }
+.note { font-size: 12px; color: var(--mfg); line-height: 1.5; margin-top: 6px; }
+.wline { font-size: 12px; color: var(--warn); line-height: 1.5; margin-top: 6px; }
+/* A — 서버 칩 줄 아래 「주문 서버」 세그먼트 */
+.ord { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.ord .ol { font-size: 12px; color: var(--mfg); }
+.ord .seg span { font-size: 12.5px; padding: 4px 10px; }
+.ord .seg span.off { color: var(--faint); text-decoration: line-through; cursor: default; }
+.ord .seg span.on.off { color: var(--warn); }
+.ord .tx { font-size: 12.5px; color: var(--mfg); }
+.ord .tx b { color: var(--fg); font-weight: 600; }
+/* B — 서버 칩마다 「주문」 라디오 점 */
+.sv .od { display: inline-flex; align-items: center; gap: 4px; margin-left: 2px; padding-left: 7px; border-left: 1px solid var(--hair); font-size: 11px; color: var(--mfg); cursor: pointer; }
+.sv .od u { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--faint); display: inline-block; }
+.sv .od.on { color: var(--fg); font-weight: 600; }
+.sv .od.on u { border-color: var(--down); background: var(--down); box-shadow: inset 0 0 0 2px var(--sheet); }
+.sv .od.on.off { color: var(--warn); }
+.sv .od.on.off u { border-color: var(--faint); background: var(--faint); }
+.sv .dflt { font-size: 11px; color: var(--faint); margin-left: 2px; padding-left: 7px; border-left: 1px solid var(--hair); }
+/* C — 계좌 제목줄 오른쪽 select */
+.osel { flex: none; display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 4px 0 9px; border-radius: 8px; background: var(--muted); font-size: 12px; font-weight: 500; color: var(--mfg); }
+.osel select { font: inherit; font-weight: 600; color: var(--fg); background: transparent; border: 0; padding: 0 2px; max-width: 120px; }
+.osel.warn select { color: var(--warn); }
+/* 시트 / 패널 */
+.scrim { position: absolute; inset: 0; background: var(--scrim); z-index: 5; }
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; top: 56px; background: var(--sheet); border-radius: 22px 22px 0 0; z-index: 6; display: flex; flex-direction: column; overflow: hidden; }
+.sheet .grab { width: 40px; height: 4px; border-radius: 2px; background: var(--faint); margin: 10px auto 0; }
+.sheet .scroll { padding-bottom: 20px; }
+.panel { position: absolute; top: 0; bottom: 0; right: 0; width: 440px; background: var(--sheet); border-left: 1px solid var(--hair); z-index: 6; display: flex; flex-direction: column; overflow: hidden; box-shadow: -8px 0 24px rgba(0,0,0,.08); }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">주문 서버 컨트롤</span><button data-variant="A" class="on">A 칩 줄 아래 「주문 서버」 세그먼트</button><button data-variant="B">B 서버 칩마다 「주문」 라디오 점</button><button data-variant="C">C 계좌 제목줄 select 「주문 ▾」</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390 (바텀시트)</button><button data-w="desktop">데스크톱 (440 패널)</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
+  <div class="g"><span class="l">상황</span><button data-s="on" class="on">KB121 켜짐</button><button data-s="off">KB121 꺼짐 (지정한 서버가 꺼짐)</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+<script>
+/*
+ * 화면 = Admin 편집 시트 안 「계좌 · 등록 서버」 영역 하나.
+ * 유효 주문 서버 = 계좌 지정 ?? 증권사 기본 주문 서버(/admin/servers). 지정 변경은 즉시 저장 · 즉시 적용.
+ * 증권사 기본 주문 서버: KB → KB120 · KYOBO → KYOBO119.
+ * 계좌 줄 안의 프레임 클릭(세그먼트 칸 · 라디오 점 · select)은 실제로 지정을 바꾼다 — 모양 비교용.
+ */
+const DESC = {
+  A: '<b>A · 서버 칩 줄 아래 「주문 서버」 세그먼트(플래너 권고)</b> — 등록(체크 칩)과 주문 지정(세그먼트)이 줄로 갈린다. 세그먼트 칸 = 「기본 · KB120」(증권사 기본을 따름) + 그 계좌의 등록 서버. 등록 서버가 1대인 계좌는 세그먼트 대신 「주문 서버 KB120(기본)」 글자만. 계좌 줄이 한 줄 길어진다.',
+  B: '<b>B · 서버 칩마다 「주문」 라디오 점</b> — 체크된(등록) 칩 끝에 라디오 점. 하나만 켜진다. 지정이 없으면 기본 서버 칩에 흐린 「기본」 표식. 켜진 점을 다시 누르면 기본으로 돌아간다. 줄은 안 늘지만 체크(등록)와 점(주문)이 한 칩에 겹친다.',
+  C: '<b>C · 계좌 제목줄 오른쪽 select</b> — 「주문 KB121 ▾」 네이티브 select(옵션 = 기본(KB120) + 등록 서버). 가장 작지만 지금 값이 접혀 보이고 제목줄이 붐빈다(폰에서 계좌명이 잘린다).',
+};
+const DEFAULT = { KB: 'KB120', KYOBO: 'KYOBO119' };
+const REG = ['KB120', 'KB121', 'KYOBO119', 'KYOBO127'];
+const ACCTS = [
+  { id: 'a1', bk: 'KB', no: '123-45-678901', name: '위탁', branch: '01234', trader: 'KTR001', reg: ['KB120', 'KB121'] },
+  { id: 'a2', bk: 'KB', no: '234-56-789012', name: '단기매매', branch: '01234', trader: 'KTR001', reg: ['KB120'] },
+  { id: 'a3', bk: 'KYOBO', no: '98765432-01', name: '위탁', branch: null, trader: null, reg: ['KYOBO119'] },
+];
+let S = { variant: 'A', w: 'phone', t: 'dark', s: 'on' };
+const D = { a1: 'KB121', a2: null, a3: null }; // 계좌별 주문 서버 지정(null = 기본)
+
+const enabled = (k) => !(k === 'KB121' && S.s === 'off');
+const candidates = (a) => { const c = REG.filter(k => k.startsWith(a.bk) && enabled(k)); return [...c, ...a.reg.filter(k => !c.includes(k))]; };
+const effective = (a) => { const d = D[a.id]; return d && a.reg.includes(d) && enabled(d) ? d : DEFAULT[a.bk]; };
+const offLine = (a) => { const d = D[a.id]; return d && !enabled(d) ? `<div class="wline">${d} 꺼짐 — 기본 ${DEFAULT[a.bk]} 으로</div>` : ''; };
+
+function chipStatus(k) { return enabled(k) ? '<span class="st ok">반영됨</span>' : '<span class="st off">꺼짐</span>'; }
+
+function serverChips(a, withRadio) {
+  return `<div class="srvs">${candidates(a).map(k => {
+    const on = a.reg.includes(k);
+    let tail = '';
+    if (withRadio && on) {
+      const d = D[a.id];
+      if (d === k) tail = `<span class="od on${enabled(k) ? '' : ' off'}" data-a="${a.id}" data-k="${k}"><u></u>주문</span>`;
+      else if (!d && k === DEFAULT[a.bk]) tail = `<span class="od" data-a="${a.id}" data-k="${k}"><u></u>주문</span><span class="dflt">기본</span>`;
+      else tail = `<span class="od" data-a="${a.id}" data-k="${k}"><u></u>주문</span>`;
+    }
+    return `<span class="sv ${on ? 'on' : ''}"><i></i>${k}${on ? ' ' + chipStatus(k) : ''}${tail}</span>`;
+  }).join('')}</div>`;
+}
+
+function orderSegment(a) {
+  const d = D[a.id];
+  if (a.reg.length === 1) return `<div class="ord"><span class="tx">주문 서버 <b>${effective(a)}</b>(기본)</span></div>`;
+  const items = [`<span class="${!d ? 'on' : ''}" data-a="${a.id}" data-k="">기본 · ${DEFAULT[a.bk]}</span>`]
+    .concat(a.reg.map(k => `<span class="${d === k ? 'on' : ''}${enabled(k) ? '' : ' off'}" data-a="${a.id}" data-k="${enabled(k) ? k : ''}"${enabled(k) ? '' : ' data-lock="1"'}>${k}</span>`));
+  return `<div class="ord"><span class="ol">주문 서버</span><span class="seg">${items.join('')}</span></div>`;
+}
+
+function orderSelect(a) {
+  const d = D[a.id];
+  const opts = [`<option value=""${!d ? ' selected' : ''}>기본(${DEFAULT[a.bk]})</option>`]
+    .concat(a.reg.map(k => `<option value="${k}"${d === k ? ' selected' : ''}${!enabled(k) && d !== k ? ' disabled' : ''}>${k}${enabled(k) ? '' : ' · 꺼짐'}</option>`));
+  return `<label class="osel${d && !enabled(d) ? ' warn' : ''}">주문<select data-a="${a.id}" aria-label="${a.bk} ${a.no} 주문 서버">${opts.join('')}</select></label>`;
+}
+
+function acct(a) {
+  const v = S.variant;
+  const br = a.bk === 'KB' ? `지점 ${a.branch} · 트레이더 ${a.trader}` : '지점 해당 없음 · 트레이더 해당 없음';
+  return `<div class="acct"><div class="t"><span class="bk">${a.bk}</span><span class="no">${a.no}</span><span class="nm2">${a.name}</span><span class="sp"></span>${v === 'C' ? orderSelect(a) : ''}<button class="btn sm">제거</button></div>
+    <div class="br">${br}</div>
+    ${serverChips(a, v === 'B')}
+    ${v === 'A' ? orderSegment(a) : ''}
+    ${offLine(a)}</div>`;
+}
+
+function editor() {
+  return `<div class="ed">
+    <div class="ttl"><span class="em">kim.trader@gmail.com</span><span class="ch role">trader</span><span class="x">×</span></div>
+    <div class="fld"><div class="lb">계좌 · 등록 서버</div>
+      ${ACCTS.map(acct).join('')}
+      <div style="margin-top:10px"><button class="btn sm">+ 계좌 추가</button></div>
+      <div class="note">계좌는 서버 1대 이상 — 마지막 서버는 끌 수 없다. 마지막 계좌 제거는 유저 삭제로 이어진다. 주문 서버를 바꾸면 그 계좌의 새 주문 · 전략은 바로 새 서버로 가요 — 옛 서버의 미체결 · 전략은 그 서버에서 정리하세요</div>
+    </div>
+  </div>`;
+}
+
+const USERS = [
+  { em: 'alex@jx1.io', role: 'admin', dma: 'alexjx', st: { KB120: 'ok', KB121: 'ok', KYOBO119: 'ok' }, n: 2 },
+  { em: 'kim.trader@gmail.com', role: 'trader', dma: 'kimtr', st: { KB120: 'ok', KB121: 'ok', KYOBO119: 'ok' }, n: 3, sel: true },
+  { em: 'park.view@gmail.com', role: 'viewer', dma: null, st: {}, n: 0 },
+];
+function row(u) {
+  const chips = `<span class="srv">${Object.keys(u.st).filter(enabled).map(k => `<span class="ch ok">${k}</span>`).join('')}</span>`;
+  const dma = u.dma ? `DMA <b style="color:var(--fg)">${u.dma}</b>` : '<span style="color:var(--faint)">DMA 연결 없음</span>';
+  return `<div class="row${u.sel ? ' sel' : ''}"><div class="av">${u.em[0].toUpperCase()}</div><div class="c1"><div class="em">${u.em}</div><div class="m"><span class="ch role">${u.role}</span> <span>${dma}</span> ${u.n ? `<span>· 계좌 ${u.n}</span>` : ''} ${chips}</div></div><span class="chev">›</span></div>`;
+}
+function list() {
+  return `<div class="sec">사용자 <span class="n">${USERS.length}</span></div>${USERS.map(row).join('')}`;
+}
+
+function frame() {
+  const phone = S.w === 'phone';
+  const hd = `<div class="hd"><span class="nm">사용자</span><span class="ex">허용 gmail · 역할 · DMA 연결</span><span class="sp"></span><button class="btn sm">+ 사용자</button></div>`;
+  let body = `${hd}<div class="scroll">${list()}</div>`;
+  body += phone
+    ? `<div class="scrim"></div><div class="sheet"><div class="grab"></div><div class="scroll">${editor()}</div></div>`
+    : `<div class="panel"><div class="scroll">${editor()}</div></div>`;
+  if (phone) return `<div class="f phone ${S.t}"><div class="main">${body}</div></div>`;
+  const side = `<div class="side"><div class="it">트레이딩</div><div class="it">분석</div><div class="it on">Admin</div><div class="sub on">사용자</div><div class="sub">서버</div><div class="it">My page</div><div class="it">AI 애널리스트</div></div>`;
+  return `<div class="f desktop ${S.t}">${side}<div class="main">${body}</div></div>`;
+}
+
+function render() {
+  document.getElementById('desc').innerHTML = DESC[S.variant];
+  const keep = document.querySelector('#stage .scroll .ed');
+  const top = keep ? keep.closest('.scroll').scrollTop : 0;
+  document.getElementById('stage').innerHTML = frame();
+  const ed = document.querySelector('#stage .ed'); if (ed) ed.closest('.scroll').scrollTop = top;
+  document.querySelectorAll('#nav button').forEach(b => {
+    const k = Object.keys(b.dataset)[0];
+    b.classList.toggle('on', String(S[k]) === b.dataset[k]);
+  });
+}
+document.getElementById('nav').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const k = Object.keys(b.dataset)[0]; S[k] = b.dataset[k]; render();
+});
+const stage = document.getElementById('stage');
+stage.addEventListener('click', e => {
+  const seg = e.target.closest('.ord .seg span[data-a]');
+  if (seg) { if (seg.dataset.lock) return; D[seg.dataset.a] = seg.dataset.k || null; render(); return; }
+  const od = e.target.closest('.od[data-a]');
+  if (od) { const a = od.dataset.a, k = od.dataset.k; D[a] = D[a] === k ? null : k; render(); }
+});
+stage.addEventListener('change', e => {
+  const sel = e.target.closest('select[data-a]');
+  if (sel) { D[sel.dataset.a] = sel.value || null; render(); }
+});
+render();
+</script>
+</body>
+</html>

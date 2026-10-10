@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 29 G-1 목업 ② — 작업대 계좌별 주문 서버 표시 (A 계좌 필 꼬리표 / B 요약 칩 / C 표시 없음)</title>
+<!-- standalone — 외부 폰트·스크립트 없음. 토큰 = webapp/src/styles/globals.css :root / .dark 값.
+     제목줄 · 계좌 필 · 상태줄 = workbench-status-bar.tsx(AccountPill · WorkbenchStatusBar) 클래스 그대로 옮김. -->
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; gap: 24px; padding: 20px 12px 60px; overflow-x: auto; }
+/* 토큰 — globals.css :root(라이트) / .dark */
+.f { --bg: #ffffff; --surface: #f2f4f6; --fg: #191f28; --fg-2: #333d4b; --muted: #f2f4f6; --muted-fg: #6b7684; --raised-2: #e5e8eb; --border: #f2f4f6; --border-subtle: #e5e8eb; --card: #ffffff; --primary: #3182f6; --flat: #6b7684; --led-armed: #03b26c; --destructive: #f04452; --pill-on-bg: #e8f3ff; --pill-on-fg: #1b64da; --new-bg: #fff6d9; --new-bd: #ffd257; --r-md: 8px; --r: 6px; --t-caption: 12px; --t-h3: 20px;
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace; }
+.f.dark { --bg: #0a0a0a; --surface: #0a0a0a; --fg: #ffffff; --fg-2: #e4e4e4; --muted: #2d2d2d; --muted-fg: #9e9e9e; --raised-2: #3d3d3d; --border: rgba(255,255,255,.06); --border-subtle: #3d3d3d; --card: #151515; --primary: #3485fa; --flat: #9e9e9e; --led-armed: #2fca73; --destructive: #f04251; --pill-on-bg: #4e4e4e; --pill-on-fg: #ffffff; --new-bg: #3a3014; --new-bd: #6d5a1d; }
+.f { position: relative; flex: none; overflow: hidden; background: var(--surface); color: var(--fg); font-family: var(--font); -webkit-font-smoothing: antialiased; word-break: keep-all; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 1px #2a2a31; display: flex; }
+.f.phone { width: 390px; height: 844px; border-radius: 30px; flex-direction: column; }
+.f.desktop { width: 1080px; height: 720px; border-radius: 16px; flex-direction: row; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums slashed-zero; letter-spacing: -0.01em; }
+.side { width: 200px; flex: none; border-right: 1px solid var(--border-subtle); padding: 18px 12px; font-size: 14px; color: var(--muted-fg); background: var(--bg); }
+.side .it { padding: 8px 10px; border-radius: 8px; }
+.side .it.on { background: var(--muted); color: var(--fg); font-weight: 600; }
+.main { flex: 1; min-width: 0; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 12px; }
+.f.phone .main { padding: 8px; } /* app-shell <main> p-2 (폰) · lg:p-6 */
+/* 제목줄 — <h1> 트레이딩 + AccountPill */
+.ttl { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ttl h1 { margin: 0; font-size: var(--t-h3); line-height: 1.2; font-weight: 700; color: var(--fg); }
+.acctpill { height: 26px; max-width: 100%; min-width: 0; border-radius: 999px; border: 1px solid transparent; background: var(--muted); padding: 0 8px; font-size: 11px; color: var(--fg); }
+/* A — 고른 계좌의 서버 키 작은 칩 */
+.srvkey { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 5px; background: var(--muted); color: var(--fg-2); font-size: 10px; font-weight: 700; white-space: nowrap; }
+/* 상태줄 — WorkbenchStatusBar */
+.stat { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 4px; border-radius: var(--r-md); border: 1px solid transparent; background: var(--card); padding: 10px 16px; font-size: var(--t-caption); color: var(--muted-fg); }
+.stat .si { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.stat .dot { display: block; width: 7px; height: 7px; border-radius: 999px; background: var(--led-armed); flex: none; }
+.badge { display: inline-flex; height: 18px; align-items: center; border-radius: 999px; border: 1px solid transparent; padding: 0 7px; font-size: 10px; font-weight: 700; white-space: nowrap; background: var(--muted); color: var(--fg); }
+.badge.sum { cursor: help; }
+.stat .right { margin-left: auto; display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 8px; }
+.iconbtn { display: inline-flex; height: 24px; min-width: 26px; align-items: center; justify-content: center; border-radius: var(--r); background: var(--muted); color: var(--muted-fg); padding: 0 6px; }
+.iconbtn svg { width: 14px; height: 14px; }
+.applied { font-family: var(--font-mono); white-space: nowrap; }
+.colseg { display: inline-flex; height: 24px; overflow: hidden; border-radius: 999px; background: var(--muted); }
+.colseg span { display: inline-flex; align-items: center; height: 24px; padding: 0 9px; border-radius: 999px; font-size: 11px; font-weight: 600; color: var(--muted-fg); }
+.colseg span.on { background: var(--pill-on-bg); color: var(--pill-on-fg); }
+/* 카드 자리(빈 껍데기 — 이 결정과 무관한 영역) */
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.f.phone .grid { grid-template-columns: 1fr; }
+.shell { height: 240px; border-radius: 16px; background: var(--card); opacity: .55; }
+.tabbar { position: absolute; left: 50%; transform: translateX(-50%); bottom: 14px; display: flex; gap: 22px; padding: 10px 22px; border-radius: 999px; background: var(--fg); color: var(--bg); font-size: 16px; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">계좌별 주문 서버 표시</span><button data-variant="A" class="on">A 계좌 필 옵션 꼬리표 + 서버 칩</button><button data-variant="B">B 요약 칩 「주문 KB120 · KB121」(갈릴 때만)</button><button data-variant="C">C 표시 없음 (Admin 에서만)</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390</button><button data-w="desktop">데스크톱 1080</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
+  <div class="g"><span class="l">상황</span><button data-s="split" class="on">KB 계좌가 두 서버로 갈림</button><button data-s="one">KB 계좌 모두 KB120</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+<script>
+/*
+ * 화면 = /trading 작업대 제목줄(트레이딩 + 계좌 필) + 상태줄. 옛 「주문 서버가 … 로 바뀜 — 재접속하면 적용」 배지는 G-1 에서 없어진다
+ * (지정 변경은 즉시 적용). 여기서 정하는 것은 「지금 이 계좌의 주문이 어느 서버로 나가나」 표시뿐.
+ * 계좌 필은 실제처럼 네이티브 select — 바꿔 보면 A 의 서버 칩이 따라 바뀐다.
+ */
+const DESC = {
+  A: '<b>A · 계좌 필 옵션 꼬리표 + 고른 계좌 서버 칩(플래너 권고)</b> — 계좌 필(select) 옵션 글자 끝에 서버 키(「1234-56 · 홍길동 · KB120」), 필 옆에 고른 계좌의 서버 키 칩. 주문 계좌를 고르는 바로 그 자리에서 서버가 보인다. 닫힌 필 글자에도 꼬리표가 있어 칩과 서버 키가 두 번 보인다.',
+  B: '<b>B · 옛 배지 자리에 요약 칩(갈릴 때만)</b> — 같은 증권사 계좌가 두 서버로 갈릴 때만 「주문 KB120 · KB121」 칩 1개. 마우스 올림/탭 title 에 계좌 → 서버 목록. 평소(한 서버)엔 아무것도 없다 — 「상황」 토글로 확인.',
+  C: '<b>C · 표시 없음</b> — 옛 배지만 사라진 상태줄. 계좌의 주문 서버는 Admin 에서만 보인다.',
+};
+let S = { variant: 'A', w: 'phone', t: 'dark', s: 'split' };
+const ACCTS = () => [
+  { no: '1234-56', name: '홍길동', srv: 'KB120', bk: 'KB' },
+  { no: '7890-12', name: '단기', srv: S.s === 'split' ? 'KB121' : 'KB120', bk: 'KB' },
+  { no: '3456-78', name: '교보', srv: 'KYOBO119', bk: 'KYOBO' },
+];
+let sel = '1234-56';
+
+function pill() {
+  const tail = S.variant === 'A';
+  return `<select class="acctpill mono" aria-label="계좌" title="새로 추가하는 카드의 기본 계좌예요 · 이미 있는 카드는 자기 계좌를 유지해요">${ACCTS().map(a =>
+    `<option value="${a.no}"${a.no === sel ? ' selected' : ''}>${a.no} · ${a.name}${tail ? ' · ' + a.srv : ''}</option>`).join('')}</select>`;
+}
+
+function summaryChip() {
+  const list = ACCTS();
+  const byBk = {};
+  list.forEach(a => { (byBk[a.bk] = byBk[a.bk] || new Set()).add(a.srv); });
+  const split = Object.values(byBk).filter(s => s.size > 1).map(s => [...s].join(' · '));
+  if (split.length === 0) return '';
+  const title = list.map(a => `${a.no} → ${a.srv}`).join('\n');
+  return split.map(t => `<span class="badge sum" role="status" title="${title}">주문 ${t}</span>`).join('');
+}
+
+const VOL_X = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4.7 6.6 8.3A1 1 0 0 1 6 8.5H3a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h3a1 1 0 0 1 .6.2L11 19.3V4.7Z"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/></svg>';
+
+function statusBar(phone) {
+  return `<div class="stat">
+    <span class="si"><span class="dot"></span>시세</span>
+    <span class="si"><span class="dot"></span>주문</span>
+    ${S.variant === 'B' ? summaryChip() : ''}
+    <span class="badge">정규</span>
+    <span class="right">
+      <span class="iconbtn" title="돌파 알림음 켜기 (이 기기만)">${VOL_X}</span>
+      <span class="applied" title="서버 반영 시각">09:41:52</span>
+      ${phone ? '' : '<span class="colseg"><span>1단</span><span class="on">2단</span><span>3단</span></span>'}
+    </span>
+  </div>`;
+}
+
+function page(phone) {
+  const cur = ACCTS().find(a => a.no === sel);
+  return `<div class="ttl"><h1>트레이딩</h1>${pill()}${S.variant === 'A' ? `<span class="srvkey mono" title="이 계좌의 주문 서버">${cur.srv}</span>` : ''}</div>
+    ${statusBar(phone)}
+    <div class="grid"><div class="shell"></div><div class="shell"></div>${phone ? '' : '<div class="shell"></div><div class="shell"></div>'}</div>`;
+}
+
+function frame() {
+  const phone = S.w === 'phone';
+  if (phone) return `<div class="f phone ${S.t}"><div class="main">${page(true)}</div><div class="tabbar">⌂ ⚡ ◔ ✦ ☰</div></div>`;
+  const side = `<div class="side"><div class="it on">트레이딩</div><div class="it">분석</div><div class="it">Admin</div><div class="it">My page</div><div class="it">AI 애널리스트</div></div>`;
+  return `<div class="f desktop ${S.t}">${side}<div class="main">${page(false)}</div></div>`;
+}
+
+function render() {
+  document.getElementById('desc').innerHTML = DESC[S.variant];
+  document.getElementById('stage').innerHTML = frame();
+  document.querySelectorAll('#nav button').forEach(b => {
+    const k = Object.keys(b.dataset)[0];
+    b.classList.toggle('on', String(S[k]) === b.dataset[k]);
+  });
+}
+document.getElementById('nav').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const k = Object.keys(b.dataset)[0]; S[k] = b.dataset[k]; render();
+});
+document.getElementById('stage').addEventListener('change', e => {
+  if (e.target.matches('select.acctpill')) { sel = e.target.value; render(); }
+});
+render();
+</script>
+</body>
+</html>
