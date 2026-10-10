@@ -92,6 +92,7 @@ import { SessionManager } from "./dma/session-manager.js";
 import { SubscriptionHub } from "./hub/subscription-hub.js";
 import { WsFanout } from "./ws/fanout.js";
 import { AppAccess } from "./access/app-access.js";
+import { AccountOrderServers, createOrderServerRouting } from "./access/account-order-servers.js";
 import { createAccessCredentials } from "./store/credentials.js";
 import { createOrderApi } from "./order/order-api.js";
 import { AdminIntentStore } from "./admin/intent-store.js";
@@ -203,6 +204,25 @@ const orderJournal = new OrderServerJournal({
 const appAccess = new AppAccess({ supabase, refreshMs: config.appAccessRefreshMs });
 
 /**
+ * 계좌별 주문 서버 지정 (Phase 29-33 · G-1 — D-10 「증권사당 주문 서버 1대」 대체) — RPC `dma_account_order_servers` 60초 사본 ·
+ * 즉시 재적재는 꼬리(`reload()`). 유효 주문 서버 = 지정(레지스트리 enabled · 같은 증권사) ?? 증권사 기본 주문 서버
+ * (`effectiveOrderServer`). 세션 소유(`ownerOf`) · wss 인증이 열 (유저, 서버) 대상(`serversFor`)의 원천이다. 첫 적재 전
+ * `serversFor` 는 null — wss 인증은 「조회 실패」(failed + 1011)로 끝난다(fail closed). 시작은 접근 맵 옆(관찰자보다 먼저).
+ */
+const accountOrderServers = new AccountOrderServers({ supabase, refreshMs: config.appAccessRefreshMs });
+const orderServerRouting = createOrderServerRouting({
+  loaded: () => accountOrderServers.loaded,
+  chosenOf: (dmaUserId, broker, accountNo) => accountOrderServers.chosenOf(dmaUserId, broker, accountNo),
+  registry,
+  // 그 서버 매핑(79/87) = 그 서버 users.toml 에 등록된 계좌. 호출마다 지금 파이프라인을 본다(재생성 추종).
+  accountsOf: (serverKey, dmaUserId) => pipelines.get(serverKey)?.access.accountsOf(dmaUserId),
+});
+/** 계좌의 유효 주문 서버 키(G-1) — 세션 소유 판정 원천. DMA id · 계좌번호를 로그에 싣지 않는다. */
+const effectiveOrderServer = orderServerRouting.effectiveOrderServer;
+/** wss 인증 · 세션 추가가 열 (유저, 서버) 대상(G-1) — KB 먼저 · 증권사 안 기본 서버 먼저 · 지정 첫 적재 전 null. */
+const serversFor = orderServerRouting.serversFor;
+
+/**
  * 사용자 세션 — (유저, 서버) 단위(Phase 29-16). 세션을 만들 때마다 **그 증권사의 주문 서버**로 연다(D-10 — 사용자 ×
  * 증권사 세션이 살아 있으면 주문 서버가 바뀌어도 그 세션 재사용 · 새 서버는 다음 세션부터). 그 증권사 주문 서버가
  * 없으면 세션을 열지 않는다(`acquireFor` → null). 생성자 host/port/broker 는 `resolveTarget` 을 주는 이 결선에서는 쓰지 않는다.
@@ -213,6 +233,9 @@ const sessionManager = new SessionManager({
   port: config.dmaPort,
   broker: config.dmaBroker,
   graceMs: config.sessionGraceMs,
+  // 29-33 (G-1) — 운영 경로(`acquireOn`) 세션은 유효 주문 서버가 자기 서버인 계좌만 소유한다(주문 · 83 · 계좌 프레임 거름 원천).
+  ownerOf: (dmaUserId, broker, accountNo) =>
+    isDmaBroker(broker) ? effectiveOrderServer(dmaUserId, broker, accountNo) : undefined,
   resolveTarget: (broker) => {
     const s = isDmaBroker(broker) ? registry.orderServerOf(broker) : undefined;
     return s && { serverKey: s.key, host: s.host, port: s.port, broker: s.broker };
@@ -321,7 +344,10 @@ const fanout = new WsFanout({
   // Phase 29 D-19 — 자격증명 원천 = 접근 맵(역할 · DMA 연결) + `dma_users`(AAD = dma_user_id). 옛 `dma_credentials` 를 읽지 않는다.
   credentials: createAccessCredentials({ access: appAccess, supabase, credKey: config.dmaCredKey }),
   // Phase 29-20 (D-18) — 증권사별 세션(KB 늘 · 교보는 교보 매핑에 있을 때만). hub 가 세션 소유 키로 병합한다.
+  // 29-33 (G-1) — 운영 경로는 아래 `serversFor` 다(주입되면 brokersFor 대신 쓴다). brokersFor 는 29-42 가 함께 걷어낸다.
   brokersFor,
+  // Phase 29-33 (G-1) — 계좌별 주문 서버: (유저, 서버) 대상마다 acquireOn(증권사 색인 미사용 — 기본 서버가 바뀌면 새 인증은 새 서버).
+  serversFor,
   // 주문 3종(`order.new`/`order.modify`/`order.cancel`)을 wss 로 받기 위한 결선이다 (D-02).
   // 종목맵 하나로 주문 분기가 열린다 — 기록 창구는 없다 (Phase 19 D-01).
   symbols,
@@ -452,6 +478,8 @@ const orderApiServer = http.createServer(orderApi);
 // 접근 맵을 관찰자보다 먼저 읽기 시작한다(Phase 29 — fail closed 순서: 첫 적재 전 wss 인증은 조회 실패 · 푸시 신원 없음).
 // 첫 적재 전 도착한 적용 행은 아무에게도 푸시되지 않는다 — 브라우저 REST 새로고침이 복원한다.
 appAccess.start();
+// 계좌별 주문 서버 지정도 같은 자리(29-33 — 관찰자보다 먼저 · 첫 적재 전 wss 인증은 조회 실패).
+accountOrderServers.start();
 // 관찰자 연결을 enabled 서버마다 부팅 즉시 연다(Phase 19 D-13 — 장 시간과 무관 · 사용자 접속과 무관 · Phase 29 레지스트리 순회).
 // 결선(applied → fanout · frame → fanout)은 `onCreated` 가 start **전에** 붙인다 — 첫 배치가 버려지지 않는다.
 pipelines.sync(registry.enabled());
@@ -573,6 +601,7 @@ async function shutdown(signal: string): Promise<void> {
     adminSnapshotSink.close();
     quoteStatus.close();
     appAccess.close();
+    accountOrderServers.close();
     if (undrained.length > 0) {
       logger.warn(
         { timeoutMs: JOURNAL_DRAIN_TIMEOUT_MS, gateways: undrained },

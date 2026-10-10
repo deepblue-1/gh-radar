@@ -119,6 +119,13 @@ export type DmaSessionCreds = {
    * 레지스트리 없는 단위 테스트는 broker 와 같은 값("KB")을 쓴다.
    */
   serverKey?: string;
+  /**
+   * 이 세션이 그 계좌를 **소유**하는가 (Phase 29-33 G-1 — 계좌별 주문 서버). 계좌의 유효 주문 서버가 이 세션 서버일 때만
+   * true 여야 한다(SessionManager.acquireOn 이 `ownerOf` 로 만든다). 주면 `allowedAccounts`(주문 · 전략 · 83 · 상태 프레임의
+   * 대조 원천)가 소유분만이고, 원본은 `declaredAccounts` 다. 호출마다 다시 묻는다 — 지정 · 레지스트리가 바뀌면 재로그인 없이
+   * 소유 뷰가 따라간다. 생략 = 종전(원본 전부).
+   */
+  owns?: (accountNo: string) => boolean;
 };
 
 /** Ready 진입 알림 — **재구독의 유일한 트리거**다 (Pitfall 4). */
@@ -153,6 +160,8 @@ export class DmaSession extends EventEmitter {
   readonly #broker: string;
   readonly #serverKey: string;
   readonly #client: DmaClient;
+  /** 소유 술어 (29-33 G-1). null = 원본 전부(종전). */
+  readonly #owns: ((accountNo: string) => boolean) | null;
 
   #state: DmaSessionState = "idle";
   /**
@@ -162,12 +171,12 @@ export class DmaSession extends EventEmitter {
   #bootPhase = true;
   #hasBeenReady = false;
   /**
-   * 서버가 허용하고 **선언까지 대조된** 계좌 목록. `ready` 에서는 비지 않는다.
-   * 15-17 의 주문 계좌 검증이 이 목록을 원천으로 삼는다 (T-15-01).
+   * 서버가 허용하고 **선언까지 대조된** 계좌 목록(원본). `ready` 에서는 비지 않는다.
+   * 15-17 의 주문 계좌 검증은 이 목록의 소유 뷰(`allowedAccounts` — 29-33)를 원천으로 삼는다 (T-15-01).
    */
   #accounts: RelayAccount[] = [];
   /** 이번 부트에서 선언한 계좌번호 전체. 서버 목록의 "여분" 판정 기준이다 (17 D-13). */
-  #declaredAccounts: ReadonlySet<string> = new Set<string>();
+  #bootDeclared: ReadonlySet<string> = new Set<string>();
   /** 아직 서버 목록에서 확인되지 않은 계좌번호. 비면 대조 성공이다. */
   #pendingAccounts = new Set<string>();
   /** 로그인 응답 원문. 대조를 통과한 뒤 `ready` 상태 문구로 쓴다. */
@@ -193,6 +202,7 @@ export class DmaSession extends EventEmitter {
     this.#password = creds.password;
     this.#broker = creds.broker;
     this.#serverKey = creds.serverKey ?? creds.broker;
+    this.#owns = creds.owns ?? null;
     this.#client = client;
 
     // TCP 가 올라오는 모든 경로가 이 한 워커를 탄다 (Pitfall 4).
@@ -250,10 +260,21 @@ export class DmaSession extends EventEmitter {
   }
 
   /**
-   * 대조를 통과한 계좌 목록의 복사본. 이름이 `accounts` 가 아닌 이유는 생성 코드의
-   * 계좌 접근자와 이름이 겹쳐 D-25 게이트 검사(grep)를 흐리기 때문이다.
+   * 대조를 통과한 계좌 중 **이 세션이 소유한** 계좌의 복사본 (Phase 29-33 G-1 — 소유 술어가 없으면 원본 전부 · 종전).
+   * 주문 · 전략 계좌 대조 · `forAccount` 라우팅 · hub 83/66/64 필터 · 상태 프레임이 전부 이 뷰를 본다 — 같은 계좌가 두 서버
+   * users.toml 에 모두 있어도 그 계좌는 유효 주문 서버 세션 하나에서만 보이고 오간다(gh-trade-84 (나) 의 거름 원천).
+   * 이름이 `accounts` 가 아닌 이유는 생성 코드의 계좌 접근자와 이름이 겹쳐 D-25 게이트 검사(grep)를 흐리기 때문이다.
    */
   get allowedAccounts(): RelayAccount[] {
+    const owns = this.#owns;
+    return owns === null ? [...this.#accounts] : this.#accounts.filter((a) => owns(a.accountNo));
+  }
+
+  /**
+   * 서버가 허용하고 선언까지 대조된 계좌 **원본** 의 복사본 (Phase 29-33). 소유 여부와 무관하다 — 87 반영 · 진단용이다.
+   * 주문 · 83 · 계좌 프레임을 이 목록으로 거르지 않는다(거름 원천은 `allowedAccounts` 하나).
+   */
+  get declaredAccounts(): RelayAccount[] {
     return [...this.#accounts];
   }
 
@@ -544,7 +565,7 @@ export class DmaSession extends EventEmitter {
     this.#loginMessage = message;
     this.#accounts = accounts;
     const declared = accounts.map((a) => a.accountNo);
-    this.#declaredAccounts = new Set(declared);
+    this.#bootDeclared = new Set(declared);
     this.#pendingAccounts = new Set(declared);
 
     if (!this.#trySetState(gen, "declaring", `계좌 ${accounts.length}건 선언 중`)) return;
@@ -596,7 +617,7 @@ export class DmaSession extends EventEmitter {
     // 우리가 선언하지 않았는데 서버 목록에 있는 계좌 — **warn 만 하고 진행한다** (17 D-13).
     // 게이트웨이는 user_id+broker 로 세션을 합류시키므로(D-17) 같은 user_id 를 쓰는 다른
     // 클라이언트가 남긴 계좌일 수 있다. 우리 세션의 주문 대상은 어디까지나 선언 목록이다.
-    const extra = serverList.filter((a) => !this.#declaredAccounts.has(a));
+    const extra = serverList.filter((a) => !this.#bootDeclared.has(a));
     if (extra.length > 0) {
       logger.warn(
         { userId: this.#userId, extra: extra.map(maskAccountNo) },

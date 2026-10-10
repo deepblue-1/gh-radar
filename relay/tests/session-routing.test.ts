@@ -422,7 +422,7 @@ describe("G-1 계좌별 주문 서버 — (유저, 서버) 세션 · 소유 계�
       hub.closeAll();
       await new Promise<void>((r) => server.close(() => r()));
     }
-    return { open, close };
+    return { open, close, fanout };
   }
 
   function results(inbox: RelayOutbound[], rid: string): RelayOrderResultMsg[] {
@@ -513,7 +513,7 @@ describe("G-1 계좌별 주문 서버 — (유저, 서버) 세션 · 소유 계�
     }
   });
 
-  it("⑨ 지정 서버(KB121)가 아직 A 를 모르면 — KB121 세션 없음 · A 는 KB120 에서도 허용 아님 · 주문 거부 · 주문 프레임 0", async () => {
+  it("⑨ 지정 서버(KB121)가 아직 A 를 모르면 — KB121 세션 없음 · A 는 KB120 에서도 허용 아님 · 주문 거부 · 주문 프레임 0 · 87 반영 뒤 refreshUserSessions 가 KB121 을 연다", async () => {
     mappings.get("KB121")?.set(D1, new Set());
     const { m, routing } = await harness();
     const w = await wss(m, routing.serversFor);
@@ -533,6 +533,18 @@ describe("G-1 계좌별 주문 서버 — (유저, 서버) 세션 · 소유 계�
       ]);
       expect(orderAccountsOf(p120)).toEqual([]);
       expect(orderAccountsOf(p121)).toEqual([]);
+
+      // KB121 87 이 A 를 반영 → 연결 중 사용자에 빠진 서버 세션 추가(재접속 없음 · AdminSessionSync 경로).
+      mappings.get("KB121")?.set(D1, new Set([ACCT_A.accountNo, ACCT_B.accountNo]));
+      expect(await w.fanout.refreshUserSessions(USER_A)).toBe(1);
+      await waitFor(() => m.sessionsOf(USER_A).length === 2 && m.sessionsOf(USER_A).every((s) => s.isReady), "KB121 세션 ready");
+      expect(loginCount(p121)).toBe(1);
+      expect(m.forAccount(USER_A, ACCT_A.accountNo)?.serverKey).toBe("KB121");
+      ws.sendRaw(orderNew(ACCT_A.accountNo, "rid-a2"));
+      await waitFor(() => orderAccountsOf(p121).length === 1, "KB121 스텁 DirectOrderReq(A)");
+      expect(orderAccountsOf(p120)).toEqual([]);
+      // 이미 쥔 서버뿐이면 다시 열지 않는다.
+      expect(await w.fanout.refreshUserSessions(USER_A)).toBe(0);
     } finally {
       await w.close();
     }

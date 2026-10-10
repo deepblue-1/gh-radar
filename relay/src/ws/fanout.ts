@@ -22,6 +22,10 @@
  *      (RESEARCH Pitfall 9 해소 — 교보 세션 결선이 KB 캐시를 지우지 않는다). `brokersFor` 미주입(단위 테스트)은 `["KB"]`
  *      — 종전 그대로. KB 주문 서버가 없으면(null) `failed` 프레임 + close(1011) — 재접속 가치가 있는 장애다(자격증명 조회
  *      실패와 같은 갈래). KB 밖 증권사 세션이 null 이면 warn 뒤 그 증권사만 건너뛴다(KB 화면은 그대로 선다)
+ *      Phase 29-33 (G-1 계좌별 주문 서버) — 운영 결선은 `serversFor(dmaUserId)` 의 (유저, 서버) 대상마다 `sessions.acquireOn` 이다
+ *      (증권사 색인 미사용 — 기본 주문 서버가 바뀐 뒤 새 인증은 새 서버). `serversFor` 가 null(지정 첫 적재 전)이면 자격증명 조회
+ *      실패와 같은 갈래(failed + 1011 — 지정을 모른 채 기본 서버로 보내지 않는다). KB 대상이 없으면 위 「KB 주문 서버 없음」 갈래.
+ *      미주입(단위 하네스)은 종전 `brokersFor` + `acquireFor` 다
  *      병합 상태 프레임 = 세션 전부의 허용 계좌 합집합 + 어느 세션이든 ready 면 ready(아니면 primary 상태 · `#mergedStateFrame`).
  *      세션 1개면 그 세션 프레임 그대로다(「세션 1개짜리 병합」 — 단일 세션 사용자 화면 무변경)
  *      브라우저는 이 프레임을 인증 ACK 로 삼아 구독을 시작한다(15-12 `use-relay-socket`
@@ -129,7 +133,7 @@ import { getDmaCredentials } from "../store/credentials.js";
 import { safePgError } from "../store/pg-error.js";
 import type { HubMarketEvent, SubscriptionHub } from "../hub/subscription-hub.js";
 import type { DmaSession } from "../dma/session.js";
-import type { DmaCredentials } from "../dma/session-manager.js";
+import type { DmaCredentials, SessionTarget } from "../dma/session-manager.js";
 import { DMA_BROKERS, type DmaBroker } from "../registry/registry.js";
 import {
   OrderBuildError,
@@ -281,6 +285,11 @@ const PERMESSAGE_DEFLATE = {
 export interface FanoutSessions {
   /** 그 사용자 · 증권사 세션을 얻는다(29-16). 그 증권사 주문 서버가 없으면 null. */
   acquireFor(userId: string, broker: string, creds: DmaCredentials): DmaSession | null;
+  /**
+   * 그 사용자 · **그 서버** 세션을 얻는다(29-33 G-1 — (유저, 서버) 키만). `serversFor` 와 함께 운영 결선이 쓴다. 선택이다 —
+   * 기존 단위 하네스 스텁은 `acquireFor` 만 둔다(그때는 종전 경로).
+   */
+  acquireOn?(userId: string, target: SessionTarget, creds: DmaCredentials): DmaSession;
   release(userId: string, serverKey: string): void;
   /**
    * 전략(그리고 16-08 의 주문) 인바운드가 쓰는 세션 조회 — 계좌가 있는 명령은 `forAccount`, 사용자 단위 명령은
@@ -336,6 +345,12 @@ export type WsFanoutDeps = {
    * 인자 DMA id 는 로그에 싣지 않는다(D-19).
    */
   brokersFor?: (dmaUserId: string) => readonly DmaBroker[];
+  /**
+   * 그 DMA id 로 열 (유저, 서버) 세션 대상 (Phase 29-33 G-1 — 계좌별 주문 서버). 주면(그리고 `sessions.acquireOn` 이 있으면)
+   * 인증 · `refreshUserSessions` 가 `brokersFor` 대신 이 대상마다 `acquireOn` 한다. null = 지정 첫 적재 전 — 인증은 자격증명
+   * 조회 실패와 같은 갈래(failed + 1011). 운영 결선(`index.ts`)은 늘 주입한다. 인자 DMA id 는 로그에 싣지 않는다(D-19).
+   */
+  serversFor?: (dmaUserId: string) => readonly SessionTarget[] | null;
   /** 업그레이드 경로. 기본 `/ws`. */
   path?: string;
   /** 첫 메시지 대기 상한(ms). 기본 `AUTH_TIMEOUT_MS`. */
@@ -468,6 +483,11 @@ type UserEntry = {
   dmaUserId: string;
 };
 
+/**
+ * 인증 · 세션 추가가 열 세션 1건 (29-33). `target` 이 있으면 (유저, 서버) 경로(`acquireOn`), 없으면 종전 증권사 경로(`acquireFor`).
+ */
+type SessionPlanItem = { broker: string; target?: SessionTarget };
+
 /** 사용자에게 마지막으로 알린 「주문 서버 바뀜」 1건 (Phase 29 D-10) — `current` = 세션 서버 · `next` = 주문 서버. */
 type OrderServerNotice = { current: string; next: string };
 
@@ -496,6 +516,8 @@ export class WsFanout {
   readonly #credentials: ((userId: string) => Promise<DmaCredentials | null | "not_ready">) | null;
   /** 세션을 열 증권사 목록 (Phase 29-20). 미주입 = `["KB"]`. */
   readonly #brokersFor: (dmaUserId: string) => readonly DmaBroker[];
+  /** (유저, 서버) 대상 (Phase 29-33). null = 종전 `brokersFor` 경로(미주입 · `acquireOn` 없는 스텁). */
+  readonly #serversFor: ((dmaUserId: string) => readonly SessionTarget[] | null) | null;
   readonly #path: string;
   readonly #authTimeoutMs: number;
   readonly #backpressureLimit: number;
@@ -549,6 +571,10 @@ export class WsFanout {
     this.#credKey = deps.credKey;
     this.#credentials = deps.credentials ?? null;
     this.#brokersFor = deps.brokersFor ?? (() => ["KB"]);
+    this.#serversFor = deps.serversFor !== undefined && deps.sessions.acquireOn !== undefined ? deps.serversFor : null;
+    if (deps.serversFor !== undefined && this.#serversFor === null) {
+      logger.warn({}, "[WS] serversFor 주입됐지만 sessions.acquireOn 이 없다 — 종전 증권사 경로로 연다");
+    }
     this.#path = deps.path ?? DEFAULT_WS_PATH;
     this.#authTimeoutMs = deps.authTimeoutMs ?? AUTH_TIMEOUT_MS;
     this.#backpressureLimit = deps.backpressureLimitBytes ?? BACKPRESSURE_LIMIT_BYTES;
@@ -711,7 +737,7 @@ export class WsFanout {
   async refreshUserSessions(userId: string): Promise<number> {
     const entry = this.#users.get(userId);
     if (entry === undefined) return 0;
-    if (this.#missingBrokers(entry).length === 0) return 0;
+    if (this.#missingSessions(entry).length === 0) return 0;
 
     let creds: DmaCredentials | null | "not_ready";
     try {
@@ -725,16 +751,19 @@ export class WsFanout {
     if (creds === null || creds === "not_ready" || current === undefined || current.dmaUserId !== creds.dmaUserId) return 0;
 
     const added: DmaSession[] = [];
-    for (const broker of this.#missingBrokers(current)) {
+    for (const item of this.#missingSessions(current)) {
       let session: DmaSession | null = null;
       for (const conn of current.conns) {
-        const s = this.#sessions.acquireFor(userId, broker, creds);
+        const s = this.#acquireItem(userId, item, creds);
         if (s === null) break;
         conn.acquiredServers.push(s.serverKey);
         session = s;
       }
       if (session === null) {
-        logger.warn({ userId, broker }, "[WS] 세션 갱신 — 주문 서버 없음, 그 증권사만 건너뜀");
+        logger.warn(
+          { userId, broker: item.broker, ...(item.target !== undefined ? { serverKey: item.target.serverKey } : {}) },
+          "[WS] 세션 갱신 — 주문 서버 없음, 그 증권사만 건너뜀",
+        );
         continue;
       }
       this.#hub.attach(session);
@@ -816,10 +845,34 @@ export class WsFanout {
     return undefined;
   }
 
-  /** `brokersFor` 가 열라는데 entry 가 아직 쥐지 않은 증권사. */
-  #missingBrokers(entry: UserEntry): DmaBroker[] {
+  /**
+   * 열 세션 목록 (29-33). `serversFor` 경로면 (유저, 서버) 대상(null = 지정 첫 적재 전), 아니면 종전 `brokersFor` 증권사 목록.
+   */
+  #sessionPlan(dmaUserId: string): SessionPlanItem[] | null {
+    if (this.#serversFor === null) return this.#brokersFor(dmaUserId).map((broker) => ({ broker }));
+    const targets = this.#serversFor(dmaUserId);
+    return targets === null ? null : targets.map((target) => ({ broker: target.broker, target }));
+  }
+
+  /** 열 세션 1건을 얻는다 — 대상이 있으면 `acquireOn`, 없으면 종전 `acquireFor`(그 증권사 주문 서버 없음 = null). */
+  #acquireItem(userId: string, item: SessionPlanItem, creds: DmaCredentials): DmaSession | null {
+    if (item.target !== undefined && this.#sessions.acquireOn !== undefined) {
+      return this.#sessions.acquireOn(userId, item.target, creds);
+    }
+    return this.#sessions.acquireFor(userId, item.broker, creds);
+  }
+
+  /**
+   * 열라는데 entry 가 아직 쥐지 않은 세션 — `serversFor` 경로는 빠진 **서버 키**(대상 키 − 쥔 키 · 29-33), 종전 경로는 빠진 증권사.
+   * 지정 첫 적재 전(null)이면 없다.
+   */
+  #missingSessions(entry: UserEntry): SessionPlanItem[] {
+    const plan = this.#sessionPlan(entry.dmaUserId) ?? [];
+    if (this.#serversFor !== null) {
+      return plan.filter((i) => i.target !== undefined && !entry.sessions.has(i.target.serverKey));
+    }
     const have = new Set([...entry.sessions.values()].map((es) => es.session.broker));
-    return this.#brokersFor(entry.dmaUserId).filter((b) => !have.has(b));
+    return plan.filter((i) => !have.has(i.broker));
   }
 
   /** `closeAll()` 별칭(즉시 terminate). 15-04 테스트 하네스가 쓰는 이름이다. */
@@ -943,21 +996,39 @@ export class WsFanout {
     }
 
     // 29-20 (D-18) — 증권사마다 세션을 연다(`brokersFor` · 미주입 = KB 만). 증권사 안 주문 서버는 SessionManager 가 세션
-    // 생성 때 고른다(D-10). 열린 세션은 바로 `conn.acquiredServers` 에 적는다 — 중간에 끝나도 close 가 전부 반납한다.
+    // 생성 때 고른다(D-10). 29-33 (G-1) — `serversFor` 결선이면 (유저, 서버) 대상마다 `acquireOn` 이다(계좌별 주문 서버).
+    // 열린 세션은 바로 `conn.acquiredServers` 에 적는다 — 중간에 끝나도 close 가 전부 반납한다.
+    const plan = this.#sessionPlan(creds.dmaUserId);
+    if (plan === null) {
+      // 계좌별 주문 서버 지정 첫 적재 전(29-33) — 지정을 모른 채 기본 서버로 열면 다른 서버로 지정한 계좌 주문이 샌다.
+      // 접근 맵 미적재와 같은 장애 갈래다(「권한 없음」 으로 위장하지 않는다 · 재접속 가치 있음).
+      logger.error({ userId }, "[WS] 계좌별 주문 서버 미적재 — 연결 종료(재접속 가치 있는 장애)");
+      this.#send(conn, { t: "state", s: "failed", msg: "자격증명 확인에 실패했습니다" });
+      conn.ws.close(1011, "credential lookup failed");
+      return;
+    }
+    const failNoKbOrderServer = (): void => {
+      // 레지스트리에 KB 주문 서버가 없다 — 세션 없이 연결을 붙잡아 두면 구독 · 주문이 전부 「세션 없음」으로 막힌 채
+      // 화면이 멎는다. 자격증명 조회 실패와 같은 갈래(failed + 1011 · 재접속 가치 있는 장애)로 끝낸다.
+      logger.error({ userId, broker: "KB" }, "[WS] 주문 서버 없음 — 세션을 열지 못해 연결 종료");
+      this.#send(conn, { t: "state", s: "failed", msg: "실시간 세션이 없습니다. 주문 서버가 지정되지 않았습니다." });
+      conn.ws.close(1011, "no order server");
+    };
+    // 29-33 — (유저, 서버) 대상에 KB 가 없다 = KB 기본 주문 서버도 없다(serversFor 는 KB 를 늘 넣는다). 종전 KB null 갈래.
+    if (this.#serversFor !== null && !plan.some((i) => i.broker === "KB")) {
+      failNoKbOrderServer();
+      return;
+    }
     const sessions: DmaSession[] = [];
-    for (const broker of this.#brokersFor(creds.dmaUserId)) {
-      const session = this.#sessions.acquireFor(userId, broker, creds);
+    for (const item of plan) {
+      const session = this.#acquireItem(userId, item, creds);
       if (session === null) {
-        if (broker !== "KB") {
+        if (item.broker !== "KB") {
           // 그 증권사 주문 서버가 그 사이 빠졌다 — 그 증권사만 건너뛴다(KB 화면은 그대로 선다).
-          logger.warn({ userId, broker }, "[WS] 주문 서버 없음 — 그 증권사 세션만 건너뜀");
+          logger.warn({ userId, broker: item.broker }, "[WS] 주문 서버 없음 — 그 증권사 세션만 건너뜀");
           continue;
         }
-        // 레지스트리에 KB 주문 서버가 없다 — 세션 없이 연결을 붙잡아 두면 구독 · 주문이 전부 「세션 없음」으로 막힌 채
-        // 화면이 멎는다. 자격증명 조회 실패와 같은 갈래(failed + 1011 · 재접속 가치 있는 장애)로 끝낸다.
-        logger.error({ userId, broker: "KB" }, "[WS] 주문 서버 없음 — 세션을 열지 못해 연결 종료");
-        this.#send(conn, { t: "state", s: "failed", msg: "실시간 세션이 없습니다. 주문 서버가 지정되지 않았습니다." });
-        conn.ws.close(1011, "no order server");
+        failNoKbOrderServer();
         return;
       }
       conn.acquiredServers.push(session.serverKey);

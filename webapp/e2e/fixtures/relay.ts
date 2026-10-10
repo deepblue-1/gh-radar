@@ -444,6 +444,7 @@ interface SupabaseStub {
  *
  *   GET   /auth/v1/user               → 토큰이 비어 있지 않으면 고정 사용자
  *   POST  /rest/v1/rpc/dma_app_access_map → 시드된 접근 맵 행 배열(기본 빈 배열 — Phase 29 relay 원천)
+ *   POST  /rest/v1/rpc/dma_account_order_servers → 빈 배열(계좌별 주문 서버 지정 없음 — Phase 29-33 relay 원천)
  *   GET   /rest/v1/dma_users?…        → 시드된 행 배열(0 또는 1건 · `dma_user_id=eq.…` — Phase 29 relay 원천)
  *   GET   /rest/v1/dma_credentials?…  → 시드된 행 배열(0 또는 1건 · 레거시 — Phase 29 relay 는 읽지 않는다)
  *   GET   /rest/v1/stocks?…           → `SymbolMap` 이 ISIN→단축코드·시장을 푸는 1행 (D-28)
@@ -519,6 +520,13 @@ async function startSupabaseStub(opts: { observer?: boolean } = {}): Promise<Sup
         user_metadata: {},
         created_at: '2026-01-01T00:00:00.000Z',
       });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/rest/v1/rpc/dma_account_order_servers') {
+      // Phase 29-33 (G-1) — relay `AccountOrderServers` 부팅 즉시 + 주기. 지정 없음(빈 배열) = 종전 라우팅. 404 를 주면 첫 적재가
+      // 실패해 wss 인증이 전부 「조회 실패」(1011)로 끝난다(fail closed).
+      void readBody().then(() => json(200, []));
       return;
     }
 

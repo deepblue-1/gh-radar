@@ -12,6 +12,8 @@
  *   POST /rest/v1/rpc/dma_app_access_map       → 시드한 접근 맵 행(기본 빈 배열 · Phase 29 — relay `AppAccess` 부팅 즉시 + 주기)
  *   GET  /rest/v1/dma_users?dma_user_id=eq.…   → 시드한 행 중 그 DMA id(0~1건 · Phase 29 D-19 — wss 인증 자격증명)
  *   POST /rest/v1/rpc/dma_admin_apply_snapshot → 넣은 계좌 행 수(Phase 29-14 — 87 적재 · 반영 상태)
+ *   POST /rest/v1/rpc/dma_account_order_servers → 시드한 계좌별 주문 서버 지정 행(기본 빈 배열 · Phase 29-33 — relay
+ *                                                `AccountOrderServers` 부팅 즉시 + 주기. 빈 배열 = 지정 없음 = 종전 라우팅)
  *
  * Phase 29 (29-06) — 옛 신원 뷰 경로(`dma_visibility_identities`)는 소비자(`GatewayIdentities`)와 함께 뺐다. relay 가 다시
  * 부르면 `unknownRequests()` 에 드러난다(journal-boot 가 0 을 단언한다).
@@ -48,6 +50,9 @@ export type StubCursorRow = {
 /** RPC `dma_app_access_map` 행 (Phase 29). 스텁은 시드한 행 전체를 돌려준다. */
 export type StubAccessRow = { user_id: string; email: string; role: "admin" | "trader" | "viewer"; dma_user_id: string | null };
 
+/** RPC `dma_account_order_servers` 행 (Phase 29-33 G-1 — 지정된 계좌만). */
+export type StubAccountOrderServerRow = { dma_user_id: string; broker: string; account_no: string; server_key: string };
+
 /** `dma_users` 행 (Phase 29 D-19 — `password_enc` 는 AAD = dma_user_id 암호문). */
 export type StubDmaUserRow = { dma_user_id: string; password_enc: string };
 
@@ -63,6 +68,8 @@ export type SupabaseStub = {
   seedCursor(row: StubCursorRow | null): void;
   /** 다음 접근 맵 조회(`rpc/dma_app_access_map`)부터 돌려줄 행. 기본 빈 배열. */
   seedAccessMap(rows: readonly StubAccessRow[]): void;
+  /** 다음 지정 조회(`rpc/dma_account_order_servers`)부터 돌려줄 행. 기본 빈 배열(지정 없음). */
+  seedAccountOrderServers(rows: readonly StubAccountOrderServerRow[]): void;
   /** 다음 `dma_users` 조회부터 쓸 행. 기본 빈 배열. 조회는 `dma_user_id=eq.<id>` 로 거른다. */
   seedDmaUsers(rows: readonly StubDmaUserRow[]): void;
   /**
@@ -82,6 +89,7 @@ const KNOWN_PATHS: ReadonlySet<string> = new Set([
   "/rest/v1/rpc/dma_app_access_map",
   "/rest/v1/dma_users",
   "/rest/v1/rpc/dma_admin_apply_snapshot",
+  "/rest/v1/rpc/dma_account_order_servers",
 ]);
 
 function parseBody(raw: string): unknown {
@@ -97,6 +105,7 @@ export async function startSupabaseStub(): Promise<SupabaseStub> {
   const log: StubRequest[] = [];
   let cursor: StubCursorRow | null = null;
   let accessMap: StubAccessRow[] = [];
+  let accountOrderServers: StubAccountOrderServerRow[] = [];
   let dmaUsers: StubDmaUserRow[] = [];
   let journalApplyRows: unknown[] = [];
 
@@ -129,6 +138,9 @@ export async function startSupabaseStub(): Promise<SupabaseStub> {
           return;
         case "/rest/v1/rpc/dma_app_access_map":
           json(200, accessMap);
+          return;
+        case "/rest/v1/rpc/dma_account_order_servers":
+          json(200, accountOrderServers);
           return;
         case "/rest/v1/dma_users": {
           // `dma_user_id=eq.<id>` 에서 값만 꺼낸다(maybeSingle — 늘 배열).
@@ -184,6 +196,9 @@ export async function startSupabaseStub(): Promise<SupabaseStub> {
     },
     seedAccessMap(rows) {
       accessMap = rows.map((r) => ({ ...r }));
+    },
+    seedAccountOrderServers(rows) {
+      accountOrderServers = rows.map((r) => ({ ...r }));
     },
     seedDmaUsers(rows) {
       dmaUsers = rows.map((r) => ({ ...r }));

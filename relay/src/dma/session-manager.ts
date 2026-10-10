@@ -28,6 +28,16 @@
  *   주문 서버 없음 — `resolveTarget(broker)` 가 undefined 면 세션을 열지 않는다(`acquireFor` → null). 29-03 의 「생성자
  *         게이트웨이 폴백」은 여기서 끝냈다 — db 모드의 생성자 값은 127.0.0.1 이라 폴백은 열리지 않는 세션을 만들 뿐이다.
  *
+ * Phase 29-33 — G-1 계좌별 주문 서버 (운영 경로 = `acquireOn`):
+ *   운영 결선(wss 인증 · `refreshUserSessions`)은 `serversFor` 가 고른 대상마다 `acquireOn(userId, target, creds)` 를 부른다.
+ *   `acquireOn` 은 세션을 **(유저, 서버) 키로만** 찾는다 — 사용자 × 증권사 색인(`#byUserBroker`)을 읽지도 쓰지도 않는다. 그래서
+ *   증권사 기본 주문 서버가 바뀐 뒤의 새 인증은 유예 중인 옛 서버 세션을 재사용하지 않고 새 서버 세션을 연다(WR-05 의
+ *   「따라 해도 적용 안 됨」 해소 · 옛 세션은 종전 유예로 끝난다). 영향 사용자 세션의 즉시 재수립은 29-36 몫이다(사용자 확정
+ *   2026-10-10 「즉시 재접속」). 세션은 `ownerOf` 로 만든 소유 술어를 받아 **유효 주문 서버가 자기 서버인 계좌만** 허용한다
+ *   (`DmaSession.allowedAccounts` — 같은 계좌가 두 서버에 등록돼 있어도 주문 · 프레임은 한 세션에서만). 위 D-10 의 옛 경로
+ *   (`acquireFor` · 색인 · `primaryOf` 의 KB 색인 조회)는 단위 하네스를 위해 그대로 두고 29-42 가 걷어낸다 — 운영 경로만 쓰면
+ *   색인은 비어 `primaryOf` 는 「처음 만든 세션」 이 된다(`serversFor` 가 KB 대상을 먼저 내므로 KB 세션 · 선호 규칙은 29-35).
+ *
  * 하지 않는 것:
  *   - 자격증명을 조회·복호화하지 않는다. 호출자(15-04 wss 인증)가 이미 푼 값을 넘긴다.
  *   - 구독을 소유하지 않는다. 세션이 닫힐 때 구독도 사라지는 것은 Hub 가 `ready`/종료를
@@ -100,6 +110,11 @@ export type SessionManagerOptions = {
    * `acquireFor` 가 null 을 돌려주고 warn 1줄(29-16).
    */
   resolveTarget?: (broker: string) => SessionTarget | undefined;
+  /**
+   * 계좌의 유효 주문 서버 키 (Phase 29-33 G-1 — 지정 ?? 증권사 기본). 주면 `acquireOn` 이 만드는 세션이 「유효 주문 서버 = 그 세션
+   * 서버」 인 계좌만 소유한다(`DmaSession` `owns`). 주지 않으면 소유 술어 없음(원본 전부 · 종전). 인자 DMA id 를 로그에 싣지 않는다.
+   */
+  ownerOf?: (dmaUserId: string, broker: string, accountNo: string) => string | undefined;
   /** 유예(ms). 미지정 시 `SESSION_GRACE_MS`. */
   graceMs?: number;
   /**
@@ -228,6 +243,7 @@ export class SessionManager {
   readonly #port: number;
   readonly #broker: string;
   readonly #resolveTarget: ((broker: string) => SessionTarget | undefined) | undefined;
+  readonly #ownerOf: ((dmaUserId: string, broker: string, accountNo: string) => string | undefined) | undefined;
   readonly #graceMs: number;
   readonly #now: () => number;
 
@@ -236,6 +252,7 @@ export class SessionManager {
     this.#port = opts.port;
     this.#broker = opts.broker;
     this.#resolveTarget = opts.resolveTarget;
+    this.#ownerOf = opts.ownerOf;
     this.#graceMs = opts.graceMs ?? SESSION_GRACE_MS;
     this.#now = opts.now ?? (() => Date.now());
   }
@@ -288,6 +305,45 @@ export class SessionManager {
     }
 
     return this.#create(userId, broker, creds);
+  }
+
+  /**
+   * 사용자의 **그 서버** 세션을 얻고 참조계수를 1 올린다 (Phase 29-33 G-1 — 운영 경로). 키는 (userId, target.serverKey) 뿐이다 —
+   * 사용자 × 증권사 색인을 읽지도 쓰지도 않는다. 그래서 증권사 기본 주문 서버가 바뀐 뒤의 인증은 유예 중인 옛 서버 세션을 재사용하지
+   * 않고 새 서버로 연다.
+   *
+   * 같은 (유저, 서버) 세션이 있으면 `acquireFor` 와 같은 재사용 규율이다: 유예 타이머가 걸려 있으면 **취소하고 같은 세션**(D-15),
+   * 회선 문제로 죽은 세션은 새 접속(0 → 1)에서만 재생성, 로그인 거부 계열(`NO_RETRY_STATES`)은 재로그인 없이 그대로 돌려준다.
+   * 없으면 그 대상으로 새로 만들어 `start()` 까지 한다 — `ownerOf` 를 주입했으면 소유 술어를 단다.
+   */
+  acquireOn(userId: string, target: SessionTarget, creds: DmaCredentials): DmaSession {
+    const key = sessionKey(userId, target.serverKey);
+    const existing = this.#sessions.get(key);
+    if (existing === undefined) return this.#open(userId, target, creds);
+
+    const state = existing.session.state;
+    const ctx = { userId, serverKey: existing.serverKey, state };
+    if (existing.graceTimer !== null) {
+      clearTimeout(existing.graceTimer);
+      existing.graceTimer = null;
+      logger.info(ctx, "[DMA] 유예 중 재연결 — 소멸 예약 취소, 세션 재사용");
+    }
+    if (existing.refCount === 0 && RETRYABLE_DEAD_STATES.has(state)) {
+      logger.info(ctx, "[DMA] 죽은 세션 폐기 후 재생성 (회선 실패 복구 경로)");
+      existing.session.close();
+      this.#delete(key, existing);
+      return this.#open(userId, target, creds);
+    }
+    existing.refCount += 1;
+    if (NO_RETRY_STATES.has(state)) {
+      logger.warn(
+        { ...ctx, refCount: existing.refCount },
+        "[DMA] 로그인 거부 세션 재사용 — 재로그인하지 않는다 (자격증명 수정 필요)",
+      );
+    } else {
+      logger.info({ ...ctx, refCount: existing.refCount }, "[DMA] 살아 있는 세션 재사용 (같은 사용자의 추가 탭)");
+    }
+    return existing.session;
   }
 
   /**
@@ -512,6 +568,7 @@ export class SessionManager {
     if (this.#byUserBroker.get(ub) === key) this.#byUserBroker.delete(ub);
   }
 
+  /** 옛 경로(`acquireFor` — D-10) 생성: 그 증권사 주문 서버로 열고 사용자 × 증권사 색인을 갱신한다. */
   #create(userId: string, broker: string, creds: DmaCredentials): DmaSession | null {
     const target = this.#target(broker);
     if (target === undefined) {
@@ -519,33 +576,47 @@ export class SessionManager {
       logger.warn({ userId, broker }, "[DMA] 그 증권사 주문 서버가 없다 — 세션을 열지 않는다");
       return null;
     }
+    const session = this.#open(userId, target, creds, { owns: false });
+    this.#byUserBroker.set(userBrokerKey(userId, broker), sessionKey(userId, target.serverKey));
+    return session;
+  }
+
+  /**
+   * 그 대상으로 세션을 만들어 맵에 넣고 `start()` 한다. 사용자 × 증권사 색인은 건드리지 않는다(색인 갱신은 옛 `#create` 만).
+   * `owns: false` 면 소유 술어를 달지 않는다(옛 경로 — 종전 원본 전부). 기본은 `ownerOf` 주입 시 술어를 단다(29-33 G-1).
+   */
+  #open(userId: string, target: SessionTarget, creds: DmaCredentials, opts: { owns?: boolean } = {}): DmaSession {
     const key = sessionKey(userId, target.serverKey);
     const client = new DmaClient({ host: target.host, port: target.port });
+    const ownerOf = opts.owns === false ? undefined : this.#ownerOf;
+    const dmaUserId = creds.dmaUserId;
     const sessionCreds: DmaSessionCreds = {
       userId,
-      dmaUserId: creds.dmaUserId,
+      dmaUserId,
       password: creds.password,
       broker: target.broker,
       serverKey: target.serverKey,
+      ...(ownerOf !== undefined
+        ? { owns: (accountNo: string) => ownerOf(dmaUserId, target.broker, accountNo) === target.serverKey }
+        : {}),
     };
     const session = new DmaSession(sessionCreds, client);
     this.#sessions.set(key, {
       session,
       userId,
       serverKey: target.serverKey,
-      broker,
+      broker: target.broker,
       refCount: 1,
       graceTimer: null,
       createdAt: this.#now(),
     });
-    this.#byUserBroker.set(userBrokerKey(userId, broker), key);
 
     // 로그 인자에 dmaUserId·password 를 넣지 않는다 (D-19).
     logger.info(
       {
         userId,
         serverKey: target.serverKey,
-        broker,
+        broker: target.broker,
         host: target.host,
         port: target.port,
         sessionCount: this.#sessions.size,
