@@ -14,8 +14,9 @@
  *   「DMA id 는 모든 서버에 같은 문자열」(CONTEXT 확정) — 그래서 서버별 신원 표가 필요 없다. 이 객체 자체가
  *         `GatewayIdentityView`(`dmaUserIdOf`)를 만족해 **모든 서버 파이프라인의 푸시 신원**이 된다.
  *   identities.ts 규율 복제(29-03 registry 와 같다) — 부팅 즉시 1회 + `APP_ACCESS_REFRESH_MS`(60초) 주기 재적재 ·
- *         겹침 금지(진행 중이면 같은 Promise 를 공유) · 실패하면 **직전 맵 유지** + `safePgError` 로그 · 첫 성공 전에는
- *         빈 맵이고 `loaded=false`(fail closed — wss 인증은 「권한 없음」 이 아니라 「조회 실패」 로 끝난다).
+ *         주기 = 공유 · 즉시 = 꼬리(WR-02 — `util/tail-reload.ts`: 주기 틱은 진행 중 적재를 공유하고, `reload()` 는 진행 중
+ *         적재가 커밋 전 행을 읽었을 수 있으므로 그 뒤 한 번 더 읽는다) · 실패하면 **직전 맵 유지** + `safePgError` 로그 ·
+ *         첫 성공 전에는 빈 맵이고 `loaded=false`(fail closed — wss 인증은 「권한 없음」 이 아니라 「조회 실패」 로 끝난다).
  *   미스 단발 재적재 — `lookup(userId)` 는 맵에 없는 사용자를 만나면 `reload()` 를 1회 걸고(최소 간격
  *         `APP_ACCESS_MISS_RELOAD_MIN_MS`) 다시 본다. 방금 승인된 사용자 · e2e 시드 직후 인증이 60초를 기다리지 않게 한다.
  *         간격 안의 미스는 재적재 없이 「없음」 이다 — 승인 대기 사용자의 재접속 폭주가 RPC 폭주가 되지 않게.
@@ -32,6 +33,7 @@ import type { AppRole } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
 import { safePgError } from "../store/pg-error.js";
+import { TailReload } from "../util/tail-reload.js";
 import type { GatewayIdentityView } from "../journal/types.js";
 
 /** 접근 맵 재적재 주기(ms) — identities · registry 와 같은 눈금. config `APP_ACCESS_REFRESH_MS` 가 비프로덕션에서만 바꾼다. */
@@ -102,7 +104,8 @@ export class AppAccess extends EventEmitter implements GatewayIdentityView {
   /** userId → 행. 성공한 적재마다 통째로 교체한다. */
   #map = new Map<string, AppAccessEntry>();
   #loaded = false;
-  #inFlight: Promise<AppAccessReloadResult> | null = null;
+  /** 주기 = `shared()` · 즉시 = `now()`(WR-02 꼬리). */
+  readonly #reloader = new TailReload<AppAccessReloadResult>(() => this.#load());
   #timer: NodeJS.Timeout | null = null;
   #started = false;
   #closed = false;
@@ -134,8 +137,8 @@ export class AppAccess extends EventEmitter implements GatewayIdentityView {
   start(): void {
     if (this.#closed || this.#started) return;
     this.#started = true;
-    void this.reload();
-    this.#timer = setInterval(() => void this.reload(), this.#refreshMs);
+    void this.#reloader.shared();
+    this.#timer = setInterval(() => void this.#reloader.shared(), this.#refreshMs);
     this.#timer.unref?.();
   }
 
@@ -144,20 +147,20 @@ export class AppAccess extends EventEmitter implements GatewayIdentityView {
     return this.#ready;
   }
 
-  /** 지금 다시 읽는다. 진행 중이면 그 Promise 를 공유한다(겹침 금지 — RPC 는 한 번). */
+  /**
+   * 지금 다시 읽는다(즉시 재적재 — 29-11 `/internal/admin/access/reload`). 진행 중 적재가 있으면 그것이 끝난 **뒤 한 번 더**
+   * 읽은 꼬리의 결과를 돌려준다(WR-02) — 그 적재가 강등 커밋 전에 시작돼 옛 행을 읽고 있어도 `revoked` 는 커밋 뒤 값이다.
+   * 꼬리 시작 전에 겹친 호출들은 같은 꼬리를 공유한다(동시 RPC 는 진행 1 + 대기 1).
+   */
   reload(): Promise<AppAccessReloadResult> {
     if (this.#closed) return Promise.resolve({ ok: false, revoked: [] });
-    if (this.#inFlight !== null) return this.#inFlight;
-    const p = this.#load().finally(() => {
-      this.#inFlight = null;
-    });
-    this.#inFlight = p;
-    return p;
+    return this.#reloader.now();
   }
 
   /** 타이머를 해제한다. 진행 중 조회는 끝까지 가지만 결과를 쓰지 않고, 이후 적재는 없다. */
   close(): void {
     this.#closed = true;
+    this.#reloader.close();
     if (this.#timer !== null) {
       clearInterval(this.#timer);
       this.#timer = null;
@@ -186,8 +189,8 @@ export class AppAccess extends EventEmitter implements GatewayIdentityView {
   async lookup(userId: string): Promise<AppAccessEntry | undefined> {
     const hit = this.entryOf(userId);
     if (hit !== undefined || this.#closed) return hit;
-    if (this.#inFlight !== null) {
-      await this.#inFlight;
+    if (this.#reloader.inFlight) {
+      await this.#reloader.shared();
     } else if (Date.now() - this.#lastMissReloadAt >= this.#missReloadMinMs) {
       this.#lastMissReloadAt = Date.now();
       await this.reload();

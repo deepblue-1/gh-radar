@@ -7,7 +7,8 @@
  *   - 적재 뒤 RPC 행 그대로(camelCase) · 행 가드(역할 밖 · 빈 user_id 건너뜀 · 빈 dma id = null)
  *   - `dmaUserIdOf` = admin/trader + DMA 연결일 때만(푸시 신원 · GatewayIdentityView)
  *   - 실패 시 직전 맵 유지 + error 로그(사유 `safePgError` — 이메일 · dmaUserId 없음)
- *   - 겹친 reload 는 RPC 1회 · close 뒤 조회 없음
+ *   - 겹친 reload 는 진행 1 + 꼬리 1(WR-02) · 주기 틱만 겹치면 RPC 1회 · close 뒤 조회 없음
+ *   - WR-02 경합: 주기 재적재가 옛 행을 읽는 중 강등 커밋 → 즉시 reload 가 꼬리로 강등을 반영
  *   - `lookup` 미스 → 단발 재적재(최소 간격) · 진행 중 적재 대기
  *
  * 가짜 supabase 는 `rpc(fn, args)` 만 흉내 내고 결과를 큐에서 차례로 돌려준다.
@@ -199,21 +200,38 @@ describe("AppAccess — 접근 맵 적재 (Phase 29 D-02 · D-04)", () => {
     expect(readyResolved).toBe(true);
   });
 
-  it("겹친 reload 는 RPC 1회(같은 Promise 공유) · close 뒤 조회 없음", async () => {
+  it("겹친 reload 는 꼬리 1개를 공유(WR-02 — 진행 1 + 꼬리 1 = RPC 2회) · close 뒤 조회 없음", async () => {
     const db = fakeDb();
     let release: (r: Result) => void = () => undefined;
     db.queue(new Promise<Result>((resolve) => (release = resolve)));
     const a = make(db);
     const p1 = a.reload();
     const p2 = a.reload();
-    expect(p1).toBe(p2);
+    const p3 = a.reload();
+    expect(p2).not.toBe(p1); // 진행 중 즉시 재적재는 꼬리다
+    expect(p3).toBe(p2); // 꼬리 시작 전에 겹친 요청은 같은 꼬리
     release(ok(ROWS));
     await p1;
-    expect(db.calls).toHaveLength(1);
+    await p2;
+    expect(db.calls).toHaveLength(2);
 
     a.close();
     await expect(a.reload()).resolves.toEqual({ ok: false, revoked: [] });
     await vi.advanceTimersByTimeAsync(REFRESH_MS * 3);
+    expect(db.calls).toHaveLength(2);
+  });
+
+  it("주기 타이머만 겹치면(즉시 요청 없음) RPC 1회 — 꼬리를 만들지 않는다(종전 부하 그대로)", async () => {
+    const db = fakeDb();
+    let release: (r: Result) => void = () => undefined;
+    db.queue(new Promise<Result>((resolve) => (release = resolve)));
+    const a = make(db);
+    a.start(); // 부팅 즉시 적재가 멈춰 있다
+    await flush();
+    await vi.advanceTimersByTimeAsync(REFRESH_MS * 3); // 주기 틱 3번 — 전부 진행 중 적재를 공유
+    expect(db.calls).toHaveLength(1);
+    release(ok(ROWS));
+    await flush();
     expect(db.calls).toHaveLength(1);
   });
 
@@ -330,6 +348,35 @@ describe("AppAccess — 재적재 diff → revoked (Phase 29 D-04)", () => {
     // 교체는 이미 끝났다 — 이벤트 리스너가 새 맵을 본다.
     expect(a.dmaUserIdOf(U2)).toBeUndefined();
     expect(a.dmaUserIdOf(U4)).toBe("dmaZ");
+  });
+
+  it("WR-02 — 주기 재적재가 옛 행을 읽는 중 강등 커밋 → 즉시 reload() 는 꼬리로 강등을 반영(revoked 에 u1 · 이벤트 1회 · RPC 2회)", async () => {
+    const db = fakeDb();
+    const TRADER: AccessRow[] = [{ user_id: U1, email: "demoted@example.com", role: "trader", dma_user_id: "dmaA" }];
+    const VIEWER: AccessRow[] = [{ user_id: U1, email: "demoted@example.com", role: "viewer", dma_user_id: "dmaA" }];
+    db.queue(ok(TRADER)); // 부팅 적재
+    let releasePeriodic: (r: Result) => void = () => undefined;
+    db.queue(new Promise<Result>((resolve) => (releasePeriodic = resolve))); // 주기 재적재 — 강등 커밋 전에 시작
+    db.queue(ok(VIEWER)); // 커밋 뒤 읽기
+    const a = make(db);
+    const events: string[][] = [];
+    a.on("revoked", (ids: string[]) => events.push(ids));
+    a.start();
+    await flush();
+    expect(a.dmaUserIdOf(U1)).toBe("dmaA");
+    const baseline = db.calls.length;
+
+    await vi.advanceTimersByTimeAsync(REFRESH_MS); // 주기 재적재 시작(RPC 응답 멈춤)
+    expect(db.calls.length - baseline).toBe(1);
+
+    // DB 가 u1 을 viewer 로 바꾼 직후 Express 가 /internal/admin/access/reload 를 부른다.
+    const immediate = a.reload();
+    releasePeriodic(ok(TRADER)); // 진행 중 주기 적재는 커밋 전 행(trader)을 돌려준다
+    await expect(immediate).resolves.toEqual({ ok: true, revoked: [U1] });
+    expect(events).toEqual([[U1]]);
+    expect(a.dmaUserIdOf(U1)).toBeUndefined();
+    // 경합 구간 RPC = 주기 1 + 꼬리 1.
+    expect(db.calls.length - baseline).toBe(2);
   });
 
   it("변화 없음 · 적재 실패 → revoked 이벤트 없음", async () => {
