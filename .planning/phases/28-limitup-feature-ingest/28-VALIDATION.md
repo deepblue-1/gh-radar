@@ -3,9 +3,9 @@ phase: "28"
 slug: "limitup-feature-ingest"
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: "2026-10-05"
 ---
 
@@ -32,7 +32,7 @@ created: "2026-10-05"
 
 - **After every task commit:** Run 해당 표면 quick 명령 (위 표)
 - **After every plan wave:** Run full suite command + e2e `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/trading-workbench.spec.ts e2e/specs/order-log.spec.ts e2e/specs/sidebar-tree.spec.ts e2e/specs/limitup-report.spec.ts`
-- **Before `/gsd-verify-work`:** Full suite + e2e 4 spec + 워커 로컬 실데이터 dry-run(`LIMITUP_EXPORT_DIR=~/ticks/research/export` 4일 행 수 == manifest: entries 99 · locks 39 · jumps 40,626 · member_alloc 253,247 · facts 542 · touches 216) must be green
+- **Before `/gsd-verify-work`:** Full suite + e2e 4 spec + `dispatch-dryrun-totals.test.ts`(dry-run 합계 == 선택 날짜 manifest 행 합계 — 실데이터 리터럴 합계는 export 재생성·누적으로 낡아 폐기, 2026-10-10) must be green
 - **Max feedback latency:** 90 seconds (quick)
 
 ---
@@ -41,57 +41,57 @@ created: "2026-10-05"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 28-01-T1 | 01 | 1 | D-01 · D-05 · D-23 | — | 공개 시세 경로 타입 제약(사용자 데이터 불가) · full 소켓만 | unit · integration | relay typecheck + `vitest run codec · envelope · hub · fanout -t "Phase 28"` + relay 전체 | ✅ (헬퍼 `buildLimitFeatureFrame` W0) | ⬜ pending |
-| 28-01-T2 | 01 | 1 | D-02 · D-03 · D-04 · D-05 | — | — | unit(골든) · component | shared `limit-feature.test.ts` + webapp `relay-socket` · `card-tabs` | ❌ W0 `limit-feature.test.ts` | ⬜ pending |
-| 28-01-T3 | 01 | 1 | D-01 · D-02 · D-04 | — | — | e2e | `playwright trading-workbench -g "P28-1"` | ✅ (픽스처 `pushLimitFeatureFixture` W0) | ⬜ pending |
-| 28-02-T1 | 02 | 1 | D-06 · D-08 · D-18 | — | RPC service_role 전용 · `p_user_id = req.userId` | pgTAP · integration | `verify-dma-orders-price-check.sh --test dma_strategy_limit_feature` · `dma_strategy_read` + server `strategy-events.test.ts` | ❌ W0 pgTAP | ⬜ pending |
-| 28-02-T2 | 02 | 1 | D-06 | — | — | unit · integration | shared `strategy-event-text` · `strategy-event-labels` + relay `journal-push.test.ts` | ✅ | ⬜ pending |
-| 28-03-T1 | 03 | 1 | D-14 · D-15 · D-17 | — | 표 RLS + 정책 0 · RPC 잠금 | pgTAP · unit · dry-run | `--test limitup_load` + `limitup-sync vitest` + 실 export dry-run(합계 = 인박스) | ❌ W0 워커 전체 · 픽스처 | ⬜ pending |
-| 28-04-T1 | 04 | 1 | D-13 · D-16 | — | GCS 삭제 동기화 금지 | bash self-test | `limitup-pull.sh --self-test` + 유닛 줄 grep | ❌ W0 | ⬜ pending |
-| 28-04-T2 | 04 | 1 | D-13 · D-21 | — | 호스트키 지문 대조 · 키는 없을 때만 | static | `bash -n install.sh` + grep(`-C radar-gw-pull` · 문서) | ❌ W0 | ⬜ pending |
-| 28-05-T1 | 05 | 2 | D-23 | — | price 소켓 85 0 | integration | relay `fanout · hub -t "Phase 28"` + relay 전체 | ✅ | ⬜ pending |
-| 28-05-T2 | 05 | 2 | D-05 · D-23 | — | — | unit · e2e | webapp `relay-socket` · `strategy-card` + `playwright -g "P28-1"`(P28-1b) | ✅ | ⬜ pending |
-| 28-06-T1 | 06 | 3 | D-17 | — | — | unit(골든) | `limitup-sync vitest derive.test.ts` + 골든 JSON 존재 | ❌ W0 `make-golden.py` | ⬜ pending |
-| 28-06-T2 | 06 | 3 | D-08 · D-14 · D-16 · D-19 | — | 버킷 비공개 · 정리 RPC 잠금 | pgTAP · unit · dry-run | `--test limitup_load` + `limitup-sync vitest` + dry-run(grid_summary 99) | ❌ W0 | ⬜ pending |
-| 28-07-T1 | 07 | 3 | D-03 | — | — | unit | shared `member-codes.test.ts` + 키 목록 대조 | ❌ W0 | ⬜ pending |
-| 28-07-T2 | 07 | 3 | D-03 · D-04 | — | — | unit(골든) | shared `limit-feature.test.ts` · `member-codes.test.ts` | ✅(28-01) | ⬜ pending |
-| 28-07-T3 | 07 | 3 | D-02 · D-03 · D-04 · D-05 | — | — | component · e2e | webapp `limit-feature-table` · `card-tabs` · `trading-alerts` + `playwright -g "P28-"` | ❌ W0 `limit-feature-table.test.tsx` | ⬜ pending |
-| 28-08-T1 | 08 | 4 | D-14 · D-20 | — | Secret 은 Secret Manager 참조 · 비root 이미지 | static · build | `bash -n` + grep(볼륨 · cron · 이름 함정) + `docker build --platform linux/amd64` | ❌ W0 | ⬜ pending |
-| 28-08-T2 | 08 | 4 | D-13 · D-16 | — | 버킷 단위 최소 권한 · 공개 접근 방지 | static | `bash -n` + grep(objectUser · objectViewer · PAP · manifest 대조) | ❌ W0 | ⬜ pending |
-| 28-09-T1 | 09 | 4 | D-07 | — | message 파서 total(지어내지 않음) | unit(골든) | shared `limit-feature.test.ts` | ✅ | ⬜ pending |
-| 28-09-T2 | 09 | 4 | D-06 · D-07 | — | — | unit · component | shared `strategy-event-text` + webapp `order-log-list` + 전체 | ✅ | ⬜ pending |
-| 28-10-T1 | 10 | 4 | D-10 · D-11 · D-17 | — | DMA 게이트 RPC · service_role 전용 | pgTAP | `--test limitup_report` | ❌ W0 | ⬜ pending |
-| 28-10-T2 | 10 | 4 | D-10 · D-15 | — | requireAuth · `p_user_id = req.userId` · 403 DMA_UNMAPPED · 서명 URL 600초 | integration | server `limitup-report.test.ts` + server 전체 | ❌ W0 | ⬜ pending |
-| 28-11-T1 | 11 | 5 | D-18 | — | — | unit | webapp `relay-socket` · `use-order-log-feed` · `order-log-feed` | ✅ | ⬜ pending |
-| 28-11-T2 | 11 | 5 | D-07 | — | — | component | webapp `order-log/__tests__` + 전체 | ✅ | ⬜ pending |
-| 28-11-T3 | 11 | 5 | D-07 · D-18 | — | — | e2e | `playwright order-log -g "P28-O1"` + order-log 전체 | ✅ | ⬜ pending |
-| 28-12-T1 | 12 | 5 | D-11 | — | — | unit | webapp `limitup-report.test.ts` | ❌ W0 | ⬜ pending |
-| 28-12-T2 | 12 | 5 | D-10 · D-11 · D-12 | — | 웹 게이트는 표시 장치(권한은 server) | component | webapp `components/analytics/__tests__` | ❌ W0 | ⬜ pending |
-| 28-12-T3 | 12 | 5 | D-09 · D-10 | — | — | component · e2e | webapp `app-sidebar.test.tsx` + `playwright sidebar-tree` | ✅ | ⬜ pending |
-| 28-13-T1 | 13 | 6 | D-11 | — | — | unit | webapp `limitup-lanes` · `use-limitup-grid` | ❌ W0 | ⬜ pending |
-| 28-13-T2 | 13 | 6 | D-11 · D-12 | — | — | component(색 감사) | webapp `components/analytics/__tests__` + grep(글자 요소 · 차트 라이브러리 0) | ❌ W0 | ⬜ pending |
-| 28-13-T3 | 13 | 6 | D-09~D-12 | — | — | e2e | `playwright limitup-report · sidebar-tree` | ❌ W0 `limitup-report.spec.ts` | ⬜ pending |
-| 28-14-T1 | 14 | 7 | D-22 | — | — | 전체 게이트 | full suite + pgTAP 4 + e2e 6 spec + dry-run | ✅ | ⬜ pending |
-| 28-14-T2 | 14 | 7 | D-06 · D-15 · D-22 | — | anon EXECUTE 거부 smoke | manual [BLOCKING] | `supabase db push` + RPC smoke a~e | — | ⬜ pending |
-| 28-14-T3 | 14 | 7 | D-13 · D-14 · D-21 | — | 비밀 비출력 | manual | setup-iam → deploy → seed → `smoke-limitup-sync.sh` → radar-gw install | — | ⬜ pending |
-| 28-15-T1 | 15 | 8 | D-21 | — | 공개키만(개인키 호스트 밖 금지) | static | grep 등록 줄 + HEAD 파일 = 노트 1개 | ✅ | ⬜ pending |
-| 28-15-T2 | 15 | 8 | D-13 · D-22 | — | — | manual | (119 등록 확인됨이면 timer 먼저 — D-22) → relay → smoke → server → smoke → push → Vercel → (아니면 등록 확인 즉시 timer) | — | ⬜ pending |
-| 28-15-T3 | 15 | 8 | D-22 | — | — | static | frontmatter done/open 판정 + 경로 지정 커밋 | ✅ | ⬜ pending |
-| 28-16-T1 | 16 | 2 | D-14 · D-20 | — | — | unit | `limitup-sync vitest dispatch · load · manifest` | ❌ W0 `dispatch.test.ts` | ⬜ pending |
+| 28-01-T1 | 01 | 1 | D-01 · D-05 · D-23 | — | 공개 시세 경로 타입 제약(사용자 데이터 불가) · full 소켓만 | unit · integration | relay typecheck + `vitest run codec · envelope · hub · fanout -t "Phase 28"` + relay 전체 | ✅ (헬퍼 `buildLimitFeatureFrame` W0) | ✅ green |
+| 28-01-T2 | 01 | 1 | D-02 · D-03 · D-04 · D-05 | — | — | unit(골든) · component | shared `limit-feature.test.ts` + webapp `relay-socket` · `card-tabs` | ✅ | ✅ green |
+| 28-01-T3 | 01 | 1 | D-01 · D-02 · D-04 | — | — | e2e | `playwright trading-workbench -g "P28-1"` | ✅ (픽스처 `pushLimitFeatureFixture` W0) | ✅ green |
+| 28-02-T1 | 02 | 1 | D-06 · D-08 · D-18 | — | RPC service_role 전용 · `p_user_id = req.userId` | pgTAP · integration | `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_strategy_limit_feature.test.sql` (24) · `dma_strategy_read.test.sql` (28) + server `strategy-events.test.ts` | ✅ | ✅ green |
+| 28-02-T2 | 02 | 1 | D-06 | — | — | unit · integration | shared `strategy-event-text` · `strategy-event-labels` + relay `journal-push.test.ts` | ✅ | ✅ green |
+| 28-03-T1 | 03 | 1 | D-14 · D-15 · D-17 | — | 표 RLS + 정책 0 · RPC 잠금 | pgTAP · unit · dry-run | `--test supabase/tests/limitup_load.test.sql` (163) + `limitup-sync vitest` + `tests/dispatch-dryrun-totals.test.ts`(dry-run 합계 = 고정 픽스처 manifest 행 합계) | ✅ | ✅ green |
+| 28-04-T1 | 04 | 1 | D-13 · D-16 | — | GCS 삭제 동기화 금지 | bash self-test | `limitup-pull.sh --self-test` + 유닛 줄 grep | ✅ | ✅ green |
+| 28-04-T2 | 04 | 1 | D-13 · D-21 | — | 호스트키 지문 대조 · 키는 없을 때만 | static | `bash -n install.sh` + grep(`-C radar-gw-pull` · 문서) | ✅ | ✅ green |
+| 28-05-T1 | 05 | 2 | D-23 | — | price 소켓 85 0 | integration | relay `fanout · hub -t "Phase 28"` + relay 전체 | ✅ | ✅ green |
+| 28-05-T2 | 05 | 2 | D-05 · D-23 | — | — | unit · e2e | webapp `relay-socket` · `strategy-card` + `playwright -g "P28-1"`(P28-1b) | ✅ | ✅ green |
+| 28-06-T1 | 06 | 3 | D-17 | — | — | unit(골든) | `limitup-sync vitest derive.test.ts` + 골든 JSON 존재 | ✅ | ✅ green |
+| 28-06-T2 | 06 | 3 | D-08 · D-14 · D-16 · D-19 | — | 버킷 비공개 · 정리 RPC 잠금 | pgTAP · unit · dry-run | `--test limitup_load` + `limitup-sync vitest dispatch-dryrun-totals · dispatch` | ✅ | ✅ green |
+| 28-07-T1 | 07 | 3 | D-03 | — | — | unit | shared `member-codes.test.ts` + 키 목록 대조 | ✅ | ✅ green |
+| 28-07-T2 | 07 | 3 | D-03 · D-04 | — | — | unit(골든) | shared `limit-feature.test.ts` · `member-codes.test.ts` | ✅(28-01) | ✅ green |
+| 28-07-T3 | 07 | 3 | D-02 · D-03 · D-04 · D-05 | — | — | component · e2e | webapp `limit-feature-table` · `card-tabs` · `trading-alerts` + `playwright -g "P28-"` | ✅ | ✅ green |
+| 28-08-T1 | 08 | 4 | D-14 · D-20 | — | Secret 은 Secret Manager 참조 · 비root 이미지 | static · build | `bash -n` + grep(볼륨 · cron · 이름 함정) + `docker build --platform linux/amd64` | ✅ | ✅ green |
+| 28-08-T2 | 08 | 4 | D-13 · D-16 | — | 버킷 단위 최소 권한 · 공개 접근 방지 | static | `bash -n` + grep(objectUser · objectViewer · PAP · manifest 대조) | ✅ | ✅ green |
+| 28-09-T1 | 09 | 4 | D-07 | — | message 파서 total(지어내지 않음) | unit(골든) | shared `limit-feature.test.ts` | ✅ | ✅ green |
+| 28-09-T2 | 09 | 4 | D-06 · D-07 | — | — | unit · component | shared `strategy-event-text` + webapp `order-log-list` + 전체 | ✅ | ✅ green |
+| 28-10-T1 | 10 | 4 | D-10 · D-11 · D-17 | — | DMA 게이트 RPC · service_role 전용 | pgTAP | `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/limitup_report.test.sql` (54) | ✅ | ✅ green |
+| 28-10-T2 | 10 | 4 | D-10 · D-15 | — | requireAuth · `p_user_id = req.userId` · 403 DMA_UNMAPPED · 서명 URL 600초 | integration | server `limitup-report.test.ts` + server 전체 | ✅ | ✅ green |
+| 28-11-T1 | 11 | 5 | D-18 | — | — | unit | webapp `relay-socket` · `use-order-log-feed` · `order-log-feed` | ✅ | ✅ green |
+| 28-11-T2 | 11 | 5 | D-07 | — | — | component | webapp `order-log/__tests__` + 전체 | ✅ | ✅ green |
+| 28-11-T3 | 11 | 5 | D-07 · D-18 | — | — | e2e | `playwright order-log -g "P28-O1"` + order-log 전체 | ✅ | ✅ green |
+| 28-12-T1 | 12 | 5 | D-11 | — | — | unit | webapp `limitup-report.test.ts` | ✅ | ✅ green |
+| 28-12-T2 | 12 | 5 | D-10 · D-11 · D-12 | — | 웹 게이트는 표시 장치(권한은 server) | component | webapp `components/analytics/__tests__` | ✅ | ✅ green |
+| 28-12-T3 | 12 | 5 | D-09 · D-10 | — | — | component · e2e | webapp `app-sidebar.test.tsx` + `playwright sidebar-tree` | ✅ | ✅ green |
+| 28-13-T1 | 13 | 6 | D-11 | — | — | unit | webapp `limitup-lanes` · `use-limitup-grid` | ✅ | ✅ green |
+| 28-13-T2 | 13 | 6 | D-11 · D-12 | — | — | component(색 감사) | webapp `components/analytics/__tests__` + grep(글자 요소 · 차트 라이브러리 0) | ✅ | ✅ green |
+| 28-13-T3 | 13 | 6 | D-09~D-12 | — | — | e2e | `playwright limitup-report · sidebar-tree` | ✅ | ✅ green |
+| 28-14-T1 | 14 | 7 | D-22 | — | — | 전체 게이트 | full suite + pgTAP 4(limitup_load 163 · dma_strategy_limit_feature 24 · dma_strategy_read 28 · limitup_report 54) + e2e 6 spec + `dispatch-dryrun-totals` | ✅ | ✅ green |
+| 28-14-T2 | 14 | 7 | D-06 · D-15 · D-22 | — | anon EXECUTE 거부 smoke | manual [BLOCKING] | `supabase db push` + RPC smoke a~e | — | 📋 manual |
+| 28-14-T3 | 14 | 7 | D-13 · D-14 · D-21 | — | 비밀 비출력 | manual | setup-iam → deploy → seed → `smoke-limitup-sync.sh` → radar-gw install | — | 📋 manual |
+| 28-15-T1 | 15 | 8 | D-21 | — | 공개키만(개인키 호스트 밖 금지) | static | grep 등록 줄 + HEAD 파일 = 노트 1개 | ✅ | ✅ green |
+| 28-15-T2 | 15 | 8 | D-13 · D-22 | — | — | manual | (119 등록 확인됨이면 timer 먼저 — D-22) → relay → smoke → server → smoke → push → Vercel → (아니면 등록 확인 즉시 timer) | — | 📋 manual |
+| 28-15-T3 | 15 | 8 | D-22 | — | — | static | frontmatter done/open 판정 + 경로 지정 커밋 | ✅ | ✅ green |
+| 28-16-T1 | 16 | 2 | D-14 · D-20 | — | — | unit | `limitup-sync vitest dispatch · load · manifest` | ✅ | ✅ green |
 
-*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky · 📋 manual(Manual-Only 표)*
 
 ---
 
 ## Wave 0 Requirements
 
-- [ ] `packages/shared/src/__tests__/limit-feature.test.ts` · `member-codes.test.ts` — 9칸 문구 · .NET 동형 숫자 골든
-- [ ] `relay/tests/helpers/frames.ts` — `buildLimitFeatureFrame`(32필드 · 벡터) · fake-gateway quote 관찰자 경로 85 송신
-- [ ] `webapp/e2e/fixtures/relay.ts` — `pushLimitFeatureFixture`
-- [ ] `workers/limitup-sync/` 전체 + `tests/fixtures/` (실 export 1일 축소본: 종목 2~3개 · 잠김 깨짐/유지 각 1)
-- [ ] `server/tests/routes/limitup-report.test.ts`
-- [ ] `webapp/src/components/analytics/__tests__/` · `webapp/e2e/specs/limitup-report.spec.ts`
-- [ ] `infra/relay/limitup-pull/limitup-pull.sh --self-test`
+- [x] `packages/shared/src/__tests__/limit-feature.test.ts` · `member-codes.test.ts` — 9칸 문구 · .NET 동형 숫자 골든
+- [x] `relay/tests/helpers/frames.ts` — `buildLimitFeatureFrame`(32필드 · 벡터) · fake-gateway quote 관찰자 경로 85 송신
+- [x] `webapp/e2e/fixtures/relay.ts` — `pushLimitFeatureFixture`
+- [x] `workers/limitup-sync/` 전체 + `tests/fixtures/` (실 export 1일 축소본: 종목 2~3개 · 잠김 깨짐/유지 각 1)
+- [x] `server/tests/routes/limitup-report.test.ts`
+- [x] `webapp/src/components/analytics/__tests__/` · `webapp/e2e/specs/limitup-report.spec.ts`
+- [x] `infra/relay/limitup-pull/limitup-pull.sh --self-test`
 
 ---
 
@@ -109,11 +109,19 @@ created: "2026-10-05"
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags (shared `test` 는 watch — `exec vitest run` 사용)
-- [ ] Feedback latency < 90s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags (shared `test` 는 watch — `exec vitest run` 사용)
+- [x] Feedback latency < 90s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved 2026-10-10 (validate-phase 감사 — pgTAP 픽스처 Phase 29 키·v2 레지스트리 재기반 · dry-run 합계 불변식 vitest 화)
+
+## Validation Audit 2026-10-10
+
+| Metric | Count |
+|---|---|
+| Gaps found | 2 |
+| Resolved | 2 |
+| Escalated | 0 |
