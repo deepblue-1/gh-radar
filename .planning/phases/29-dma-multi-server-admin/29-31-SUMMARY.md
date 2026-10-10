@@ -255,3 +255,10 @@ None - 외부 서비스 설정 없음.
 ---
 *Phase: 29-dma-multi-server-admin*
 *Completed: 2026-10-10*
+
+## Self-Check: PASSED
+
+- 파일: server-card.test.tsx · 29-31-SUMMARY.md 존재
+- 커밋: bd1cb42c · 5588b95d · 8f0fd425 · 98a5b7ce · 44d0969c · c9c719d2 모두 HEAD 조상
+- 플랜 검증: admin 컴포넌트 테스트 9파일 109건 green · webapp typecheck(tsc + e2e tsconfig) green · 변경 파일 eslint 0건 · ui/sheet 기본 동작 불변(overlay 기본 true)
+- 미실행: admin · admin-servers e2e(워크트리에 Supabase 테스트 env 없음 — Issues Encountered)
