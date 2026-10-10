@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 29
 current_phase_name: DMA 다중 서버 · 웹 Admin 유저 관리
 status: executing
-stopped_at: Completed 29-36-PLAN.md
-last_updated: "2026-10-10T16:05:09.161Z"
+stopped_at: Completed 29-37-PLAN.md
+last_updated: "2026-10-10T16:21:21.901Z"
 last_activity: 2026-10-10
 last_activity_desc: Phase 29 execution started
-state_head: ca83b4642b9a85b70d5beb88f2e2b824f661bd48
+state_head: d6c2c4c5b026cf0e5df91fc3eb813e90ade50d69
 progress:
   total_phases: 38
   completed_phases: 24
   total_plans: 421
-  completed_plans: 400
+  completed_plans: 401
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 29 (DMA 다중 서버 · 웹 Admin 유저 관리) — EXECUTING
-Plan: 8 of 44
+Plan: 9 of 44
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-10-10 — Phase 29 execution started
@@ -235,6 +235,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 29 P35 | 9min | 2 tasks | 8 files |
 | Phase 29 P43 | 14 min | 3 tasks | 9 files |
 | Phase 29 P36 | 17min | 2 tasks | 6 files |
+| Phase 29 P37 | 9 min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -663,6 +664,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 29]: 29-36: 주문 서버 변경(계좌 지정 · 증권사 기본) = 옛 서버 전략 끄기(StrategySweeper) → dropUser · wss 1012 → 재접속 25→66 · 판정은 사용자별 서명(원하는 서버 키 · 계좌 소유 서버, 소유는 처음 본 값만 기록) · 사용자별 직렬 체인
 - [Phase 29]: 29-36: 끄기 미확인 · 자격증명 없음은 레지스터 · warn 1줄 · 상태 프레임 staleStrategies 로 남기고 재수립은 진행(fail closed) · remaining 은 서버별 대상 1계좌일 때만
 - [Phase 29]: 29-36: StrategySweeper.targetOf 는 꺼진 서버도 대상(꺼짐은 라우팅 결정일 뿐 그 서버 전략은 계속 돈다) · 상태 프레임 계좌 serverKey(단일 세션 포함) · movedFrom(다음 재수립 교체 · 세션 소멸 시 삭제)
+- [Phase 29]: 29-37: AdminApiDeps.orderServers 는 선택 deps — 지정 · 계좌 put · 계좌 제거 · 유저 삭제 뒤 AccountOrderServers.reload(꼬리)를 기다리고 실패는 warn
+- [Phase 29]: 29-37: 유저 삭제는 deleted 결과와 무관하게 지정 재적재 — 부분 settle 도 지정 행을 지운다
+- [Phase 29]: 29-37: 계좌 뷰 defaultOrderServer = servers[].isOrderServer 첫 행 · 87 전용 계좌는 두 필드 null · removing 행 isOrder 무시
 
 ### Pending Todos
 
@@ -703,8 +707,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-10-10T16:05:00.975Z
-Stopped at: Completed 29-36-PLAN.md
+Last session: 2026-10-10T16:21:21.055Z
+Stopped at: Completed 29-37-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
