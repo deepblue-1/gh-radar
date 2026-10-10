@@ -374,6 +374,30 @@ describe("relay Admin 내부 HTTP — 트레이서: 유저 생성 → 서버별 
     expect(h.commands("KB120")).toEqual([]);
     expect(h.commands("KB121")).toEqual([]);
   });
+
+  it("T5 (29-27 CR-01) 이미 DMA 가 연결된 이메일 → 409 DMA_LINKED 그대로 · 44 0건 · 의도 표 불변 · 감사 rejected", async () => {
+    h.db.seedUser({
+      email: "trader@gmail.com",
+      dmaUserId: "old01",
+      passwordEnc: "enc-old01",
+      accounts: [{ accountNo: "1234567809", servers: ["KB120"] }],
+    });
+    const before = structuredClone({ users: [...h.db.dmaUsers], accounts: h.db.accounts, rows: h.db.serverRows });
+
+    const res = await call(h, "POST", "/internal/admin/dma-users", createBody({ dmaUserId: "new02" }));
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("DMA_LINKED");
+
+    expect(h.commands("KB120")).toEqual([]);
+    expect(h.commands("KB121")).toEqual([]);
+    expect(h.db.callsTo("dma_admin_record_results")).toEqual([]);
+    expect({ users: [...h.db.dmaUsers], accounts: h.db.accounts, rows: h.db.serverRows }).toEqual(before);
+    expect(h.db.appUserDma.get("trader@gmail.com")).toBe("old01");
+
+    const audits = logs.filter((c) => c.level === "info" && String(c.args[1] ?? "").startsWith("[admin-audit]"));
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.args[0]).toMatchObject({ route: "POST /dma-users", rejected: "DMA_LINKED" });
+  });
 });
 
 describe("relay Admin 내부 HTTP — 변경 경로 (29-11 Task 2)", () => {

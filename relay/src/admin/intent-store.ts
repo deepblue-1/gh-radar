@@ -20,7 +20,7 @@ import type { AdminAccountInput, AdminIntentRow, AdminOutcome, DmaBroker } from 
 import { logger } from "../logger.js";
 import { safePgError } from "../store/pg-error.js";
 
-/** 29-05 RPC 가 내는 업무 거부 코드(MESSAGE) + 허용 목록 밖 P0001 을 접은 `INTERNAL`. */
+/** 29-05 · 29-27 RPC 가 내는 업무 거부 코드(MESSAGE) + 허용 목록 밖 P0001 을 접은 `INTERNAL`. */
 export const INTENT_ERROR_CODES = [
   "NO_APP_USER",
   "DMA_USER_EXISTS",
@@ -30,6 +30,8 @@ export const INTENT_ERROR_CODES = [
   "SERVER_BROKER_MISMATCH",
   "NO_SERVERS",
   "SERVERS_REMAIN",
+  // 29-27 CR-01 — 이미 DMA 가 연결된 웹 사용자(app_users.dma_user_id)로 다시 생성. 정본 가드 = DB(20261010200000).
+  "DMA_LINKED",
 ] as const;
 
 export type IntentErrorCode = (typeof INTENT_ERROR_CODES)[number] | "INTERNAL";

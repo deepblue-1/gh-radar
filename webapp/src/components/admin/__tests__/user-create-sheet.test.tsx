@@ -314,6 +314,26 @@ describe('UserCreateSheet — viewer · 409 (D-16 · D-21)', () => {
     expect(within(sheet()).queryAllByRole('alert')).toHaveLength(0);
     expect(submitButton()).toBeEnabled();
   });
+
+  it('(29-27 CR-01) 409 DMA_LINKED → 하단 한 줄(서버 문구) · DMA id 칸 오류 없음 · 시트가 남는다', async () => {
+    upsertAdminUserMock.mockRejectedValue(
+      new ApiClientError({ code: 'DMA_LINKED', message: '이미 DMA 가 연결된 사용자예요.', status: 409 }),
+    );
+    const props = renderSheet();
+    fillTrader();
+    fireEvent.click(submitButton());
+
+    const line = await within(sheet()).findByRole('alert');
+    expect(line).toHaveAttribute('data-slot', 'admin-user-create-error');
+    expect(line).toHaveTextContent('만들지 못했어요 · 이미 DMA 가 연결된 사용자예요.');
+    expect(within(sheet()).getAllByRole('alert')).toHaveLength(1);
+    expect(within(sheet()).getByLabelText(/DMA 사용자 id/)).not.toHaveAttribute('aria-invalid', 'true');
+    expect(within(sheet()).queryByText('이미 있는 DMA id 예요')).toBeNull();
+    expect(props.onCreated).not.toHaveBeenCalled();
+    expect(props.onFailed).toHaveBeenCalledTimes(1);
+    expect(sheet()).toBeInTheDocument();
+    expect(submitButton()).toBeEnabled();
+  });
 });
 
 describe('UserSheet — DMA 연결 없는 trader/admin 의 「DMA 연결」 (D-16)', () => {

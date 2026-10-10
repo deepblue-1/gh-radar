@@ -8,7 +8,8 @@
  *   - 요청자 이메일 헤더 `x-admin-email`(감사용) — 없으면 400 `ADMIN_EMAIL_REQUIRED`.
  *   - 바디 16kb(order-api `express.json`) · zod. 검증 실패 400 `VALIDATION_FAILED`.
  *   - 응답 `AdminCommandResponse = { results: AdminServerResult[] }`(shared). 업무 거부 409 `{ error: { code, message } }`
- *     (`DMA_USER_EXISTS` · `NO_APP_USER` · `NO_DMA_USER` · `NO_SUCH_ACCOUNT` · `LAST_ACCOUNT` · `SERVER_BROKER_MISMATCH` · `NO_SERVERS`).
+ *     (`DMA_USER_EXISTS` · `NO_APP_USER` · `NO_DMA_USER` · `NO_SUCH_ACCOUNT` · `LAST_ACCOUNT` · `SERVER_BROKER_MISMATCH` · `NO_SERVERS` ·
+ *     `DMA_LINKED` — 29-27 CR-01: 이미 DMA 가 연결된 웹 사용자로 생성. DB 가드가 정본이라 Express 사전 확인과의 경합에서도 같은 코드).
  *   - 시세 주 서버 전환(29-23 · D-11) `POST /servers/:key/quote-primary` → 200 `{ ok: true }` · 404 `NO_SUCH_SERVER` · 409
  *     `SERVER_DISABLED` · `QUOTE_SWITCH_FAILED`(옛 서버로 되돌림 · DB 무변경) · `QUOTE_SWITCH_BUSY`(진행 중). message 는 화면이 그대로
  *     보이는 한국어 문장이다(29-18).
@@ -156,6 +157,7 @@ const INTENT_MESSAGE: Record<string, string> = {
   SERVER_BROKER_MISMATCH: "계좌 증권사와 다른 서버입니다",
   NO_SERVERS: "등록 서버가 없습니다",
   SERVERS_REMAIN: "아직 반영되지 않은 서버가 남았습니다",
+  DMA_LINKED: "이미 DMA 가 연결된 웹 사용자입니다",
 };
 
 function toRelayError(err: unknown): unknown {

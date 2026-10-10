@@ -167,6 +167,38 @@ describe("POST /api/admin/users + dma — 트레이서 (D-16)", () => {
     expect(relay.calls).toHaveLength(0);
   });
 
+  it("(29-27 CR-01) 이미 DMA 가 연결된 이메일 + dma → 409 DMA_LINKED · app_users upsert 0 · 역할 그대로 · relay 0 · 통보 0", async () => {
+    const relay = makeFakeRelay();
+    const { app, rec, rows } = makeApp({}, relay.client);
+    // trader@gmail.com 은 baseAppUsers 에서 kim01 로 연결돼 있다. 대문자 · 공백도 같은 이메일로 본다.
+    const res = await auth(request(app).post("/api/admin/users")).send({
+      email: " Trader@Gmail.com ",
+      role: "admin",
+      dma: kbDma(),
+    });
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: { code: "DMA_LINKED", message: "이미 DMA 가 연결된 사용자예요." } });
+    expect(rec.ops.filter((o) => o.kind !== "select")).toHaveLength(0);
+    // 사전 확인은 그 이메일의 dma_user_id 한 번(쓰기보다 앞선다).
+    expect(
+      rec.ops.filter((o) => o.table === "app_users" && o.filters.some(([, c, v]) => c === "email" && v === "trader@gmail.com")),
+    ).toEqual([expect.objectContaining({ kind: "select" })]);
+    expect(rows.get("trader@gmail.com")).toMatchObject({ role: "trader", dma_user_id: "kim01" });
+    expect(relay.calls).toHaveLength(0);
+  });
+
+  it("(29-27) 연결 없는 기존 사용자 + dma → 종전 경로(upsert 1 · relay 생성 1 · 통보 1)", async () => {
+    const relay = makeFakeRelay();
+    const { app, rec } = makeApp(
+      { appUsers: [...baseAppUsers(), { email: "t2@gmail.com", role: "viewer", dma_user_id: null }] },
+      relay.client,
+    );
+    const res = await auth(request(app).post("/api/admin/users")).send({ email: "t2@gmail.com", role: "trader", dma: kbDma() });
+    expect(res.status).toBe(200);
+    expect(rec.ops.filter((o) => o.kind === "upsert")).toHaveLength(1);
+    expect(relay.calls.map((c) => c.path)).toEqual(["/internal/admin/dma-users", "/internal/admin/access/reload"]);
+  });
+
   it("relay 409 DMA_USER_EXISTS → 409 그대로(코드 · 문구) · app_users 행은 남는다 · 통보 0", async () => {
     const relay = makeFakeRelay((c) =>
       c.path === "/internal/admin/dma-users" ? relayReject(409, "DMA_USER_EXISTS", "이미 있는 DMA id 예요.") : undefined,

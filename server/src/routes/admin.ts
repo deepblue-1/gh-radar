@@ -32,7 +32,8 @@ import type { AdminCommandResponse } from "@gh-radar/shared";
  *                          칩 판정 규칙은 shared 한 곳(relay planner 와 같은 diff)이고 server 는 파생만 부른다.
  * - POST   /users        : `{ email, role, dma? }` — 사전 등록 · 승인 대기 승인 · viewer 생성(D-03). app_users upsert.
  *                          `dma` 가 있으면(trader/admin · D-16) upsert 뒤 relay `POST /internal/admin/dma-users` 1회 →
- *                          서버별 결과 배열을 그대로 `results` 로. viewer + dma 는 400.
+ *                          서버별 결과 배열을 그대로 `results` 로. viewer + dma 는 400. 이미 DMA 가 연결된 이메일 + dma 는
+ *                          upsert 전에 409 `DMA_LINKED`(29-27 CR-01 — 정본 가드는 DB 생성 RPC).
  * - PATCH  /users/:email : `{ role }` — 역할 변경(D-04 강등 즉시). 없는 이메일 404.
  * - DELETE /users/:email : DMA 없음 → 행 삭제 · DMA 를 다른 웹 사용자와 공유 → 이 웹 사용자 행만 삭제(서버 무접촉) ·
  *                          DMA 단독 → relay DMA 유저 삭제 → 전 서버 ok 일 때만 행 삭제(아니면 `deleted: false` · 행 유지).
@@ -170,6 +171,7 @@ adminRouter.get("/users", async (req, res, next) => {
 });
 
 // --- POST /users — 사전 등록 · 승인 대기 승인 · 생성 (D-03) · DMA 연결 한 번에 (D-16) ---
+// DMA 덮어쓰기 금지(29-27 CR-01): 정본 가드는 DB(20261010200000 — 생성 RPC 의 DMA_LINKED). 여기는 쓰기 전에 거르는 앞단이다.
 adminRouter.post("/users", async (req, res, next) => {
   try {
     const body = parseOrThrow(AdminUserUpsertBody, req.body ?? {});
@@ -178,6 +180,17 @@ adminRouter.post("/users", async (req, res, next) => {
     const relay = body.dma ? requireRelayAdmin(req) : undefined;
 
     const supabase = req.app.locals.supabase as SupabaseClient;
+    if (body.dma) {
+      // 이미 DMA 가 연결된 사용자면 upsert(역할 변경) · relay 호출 전에 409 — 아무것도 바꾸지 않는다.
+      const { data: cur, error: curError } = await supabase
+        .from("app_users")
+        .select("dma_user_id")
+        .eq("email", body.email)
+        .maybeSingle();
+      if (curError) throw DbError("사용자 조회에 실패했습니다.", curError);
+      if ((cur as { dma_user_id: string | null } | null)?.dma_user_id) throw DmaLinked();
+    }
+
     const { error } = await supabase
       .from("app_users")
       .upsert(
@@ -331,7 +344,7 @@ adminRouter.post("/users/:email/dma", async (req, res, next) => {
     if (!row) throw UserNotFound();
     const cur = row as { role: string; dma_user_id: string | null };
     if (cur.role === "viewer") throw ValidationFailed("role: viewer 는 DMA 를 연결할 수 없어요");
-    // 생성 RPC 는 app_users.dma_user_id 를 덮어쓴다 — 이미 연결된 사용자를 조용히 다른 DMA id 로 갈아 끼우지 않는다.
+    // 이미 연결된 사용자를 다른 DMA id 로 갈아 끼우지 않는다 — 정본 가드는 DB(생성 RPC 의 DMA_LINKED · 29-27), 여기는 앞단.
     if (cur.dma_user_id) throw DmaLinked();
 
     const results = relayResults(await relay.createDmaUser({ email, ...dma }, req.adminEmail!), "dma-link");
