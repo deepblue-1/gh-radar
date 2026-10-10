@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 88fc746d
-// synced-date:        2026-10-07
+// server-repo-commit: 55470a4b
+// synced-date:        2026-10-10
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -1616,6 +1616,9 @@ table AdminAccount {             // 계좌 1행 — 44 의 account · 87 의 Adm
     branch_no: string;           // 지점번호 — KB 는 5자 필수 · 교보는 빈 문자열 허용(검사·전문 사용 없음)
     trader_id: string;           // 조작자 ID — KB 는 6자 필수 · 교보는 빈 문자열 허용(검사·전문 사용 없음)
     priority: int;               // 표시 순서 — 기본 0, 작을수록 앞 (users.toml priority)
+    order_ip: string;            // 주문자식별정보(KB TCHODR1000 orderInfo) — 12자리 숫자 또는 a.b.c.d 입력, 서버가 12자리로 정규화해 87 에 싣는다.
+                                 // 빈 문자열 = 미설정(서버가 주문 소켓 NIC 값을 쓴다). order_mac 과 함께 적거나 함께 비운다 (quick-261010-vfn)
+    order_mac: string;           // MAC주소 — 12자리 16진(구분자 :·- 허용), 서버가 대문자 12자리로 정규화. 빈 문자열 = 미설정. 교보는 둘 다 빈 문자열
 }
 
 table AdminCommandReq {          // 44 본문 — admin 관찰자 연결 전용 명령 (D-04, D-09~D-16)
@@ -1636,8 +1639,9 @@ table AdminCommandResp {         // 86 본문 — 44 응답 (요청 연결에만
                                  //   6 BAD_BRANCH_TRADER(KB 만) · 7 ACCOUNT_CONFLICT(다른 유저가 같은 계좌를 다른 branch/trader 로 보유) ·
                                  //   8 NO_SUCH_ACCOUNT · 9 BUSY(계좌에 상따·VI·미체결·예약 — 서버는 대신 정리하지 않는다) ·
                                  //   10 PERSIST_FAILED(파일 저장 실패 — 메모리도 그대로) · 11 NOT_ADMIN(사용자 세션 연결) ·
-                                 //   12 LAST_ACCOUNT(마지막 계좌 제거 — 사용자 삭제로 처리)
-    message: string;             // 한국어 사용자 문장(Admin 화면 표시용 — 예 「미체결 2건 · 상따 1건 · VI 1건 등록 — 먼저 정리」).
+                                 //   12 LAST_ACCOUNT(op 4 마지막 계좌 제거 — 사용자 삭제로 처리 · op 2 마지막 사용자 삭제 — 사용자 0명 파일은 기동 거부) ·
+                                 //   13 BAD_ORDER_ENDPOINT(order_ip/order_mac 형식 오류 또는 둘 중 하나만 — KB 만, quick-261010-vfn)
+    message: string;            // 한국어 사용자 문장(Admin 화면 표시용 — 예 「미체결 2건 · 상따 1건 · VI 1건 등록 — 먼저 정리」).
                                  // 분기는 code 로 한다
     users_rev: ulong;            // 목록 리비전 — 기동 1 · 실제 변경마다 +1 (메모리 카운터, 재기동 시 1 로 복귀 —
                                  // relay 는 접속마다 op 5 로 전체 대조). 멱등(무변경)은 code 0 · rev 불변 · 파일 안 씀 (D-06/D-09)

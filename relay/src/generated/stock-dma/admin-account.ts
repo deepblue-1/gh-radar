@@ -55,8 +55,22 @@ priority():number {
   return offset ? this.bb!.readInt32(this.bb_pos + offset) : 0;
 }
 
+orderIp():string|null
+orderIp(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+orderIp(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 14);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
+orderMac():string|null
+orderMac(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+orderMac(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 16);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
 static startAdminAccount(builder:flatbuffers.Builder) {
-  builder.startObject(5);
+  builder.startObject(7);
 }
 
 static addAccountNo(builder:flatbuffers.Builder, accountNoOffset:flatbuffers.Offset) {
@@ -79,18 +93,28 @@ static addPriority(builder:flatbuffers.Builder, priority:number) {
   builder.addFieldInt32(4, priority, 0);
 }
 
+static addOrderIp(builder:flatbuffers.Builder, orderIpOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(5, orderIpOffset, 0);
+}
+
+static addOrderMac(builder:flatbuffers.Builder, orderMacOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(6, orderMacOffset, 0);
+}
+
 static endAdminAccount(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createAdminAccount(builder:flatbuffers.Builder, accountNoOffset:flatbuffers.Offset, nameOffset:flatbuffers.Offset, branchNoOffset:flatbuffers.Offset, traderIdOffset:flatbuffers.Offset, priority:number):flatbuffers.Offset {
+static createAdminAccount(builder:flatbuffers.Builder, accountNoOffset:flatbuffers.Offset, nameOffset:flatbuffers.Offset, branchNoOffset:flatbuffers.Offset, traderIdOffset:flatbuffers.Offset, priority:number, orderIpOffset:flatbuffers.Offset, orderMacOffset:flatbuffers.Offset):flatbuffers.Offset {
   AdminAccount.startAdminAccount(builder);
   AdminAccount.addAccountNo(builder, accountNoOffset);
   AdminAccount.addName(builder, nameOffset);
   AdminAccount.addBranchNo(builder, branchNoOffset);
   AdminAccount.addTraderId(builder, traderIdOffset);
   AdminAccount.addPriority(builder, priority);
+  AdminAccount.addOrderIp(builder, orderIpOffset);
+  AdminAccount.addOrderMac(builder, orderMacOffset);
   return AdminAccount.endAdminAccount(builder);
 }
 }
