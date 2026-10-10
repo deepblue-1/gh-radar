@@ -674,6 +674,7 @@ describe("relay Admin 내부 HTTP — 운영 보조 라우트 · 감사 로그 (
  *   Q3  없는 키 404 NO_SUCH_SERVER · 꺼진 서버 409 SERVER_DISABLED · 형식 밖 키 400 — 전환 시도 0
  *   Q4  같은 서버 · DB 도 그 서버 → 200 { ok: true } · RPC 0 · 재적재 0 / DB 가 다른 서버면 RPC 1(갈라짐 정리)
  *   Q5  전환 성공 뒤 DB 반영 실패 → 옛 서버로 되돌리는 switchTo 1회 · 500 QUOTE_PRIMARY_DB_FAILED(Express 는 502)
+ *   Q6  (29-32 WR-07) 되돌리기는 응답 뒤 비동기 — 되돌리기 switchTo 가 끝나지 않아도 500 이 바로 온다 · 되돌리기 실패는 error 로그 1줄
  */
 describe("relay Admin 내부 HTTP — 시세 주 서버 전환 (29-23)", () => {
   let h: Harness;
@@ -793,6 +794,48 @@ describe("relay Admin 내부 HTTP — 시세 주 서버 전환 (29-23)", () => {
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe("QUOTE_PRIMARY_DB_FAILED");
     expect(f.calls).toEqual(["KYOBO119", "KB120"]);
     expect(f.sw.currentServerKey).toBe("KB120");
+  });
+
+  it("Q6 (29-32) DB 반영 실패 — 되돌리기 switchTo 가 끝나지 않아도 500 이 바로 온다 · 되돌리기 1회 시작", async () => {
+    const calls: string[] = [];
+    const sw = {
+      currentServerKey: "KB120" as string | null,
+      switchTo(server: DmaServerRow): Promise<QuoteSwitchResult> {
+        calls.push(server.key);
+        // 새 서버 전환은 성공 · 옛 서버로의 되돌리기는 영원히 끝나지 않는다(전환 상한 10초 흉내).
+        return calls.length === 1 ? Promise.resolve({ ok: true, changed: true }) : new Promise<QuoteSwitchResult>(() => {});
+      },
+    };
+    h = await startHarness({ quoteSwitch: sw, quotePrimary: "KB120" });
+    h.db.failNext.set("dma_admin_set_quote_primary", { code: "08006", message: "connection failure", details: null, hint: null });
+    const res = await Promise.race([
+      post("KYOBO119"),
+      new Promise<"hang">((resolve) => setTimeout(() => resolve("hang"), 1_500)),
+    ]);
+    expect(res).not.toBe("hang");
+    expect((res as Response).status).toBe(500);
+    expect(((await (res as Response).json()) as { error: { code: string } }).error.code).toBe("QUOTE_PRIMARY_DB_FAILED");
+    expect(calls).toEqual(["KYOBO119", "KB120"]);
+  });
+
+  it("Q6 (29-32) 되돌리기 실패 → error 로그 1줄(다음 재적재 보정이 맞춘다) · 응답은 500 그대로", async () => {
+    const calls: string[] = [];
+    const sw = {
+      currentServerKey: "KB120" as string | null,
+      switchTo(server: DmaServerRow): Promise<QuoteSwitchResult> {
+        calls.push(server.key);
+        return calls.length === 1 ? Promise.resolve({ ok: true, changed: true }) : Promise.reject(new Error("rollback boom"));
+      },
+    };
+    h = await startHarness({ quoteSwitch: sw, quotePrimary: "KB120" });
+    h.db.failNext.set("dma_admin_set_quote_primary", { code: "08006", message: "connection failure", details: null, hint: null });
+    const res = await post("KYOBO119");
+    expect(res.status).toBe(500);
+    await waitFor(
+      () => logs.some((c) => c.level === "error" && c.args.some((a) => typeof a === "string" && a.includes("되돌리기 실패"))),
+      "되돌리기 실패 로그",
+    );
+    expect(logs.filter((c) => c.level === "error" && c.args.some((a) => typeof a === "string" && a.includes("되돌리기 실패")))).toHaveLength(1);
   });
 });
 
