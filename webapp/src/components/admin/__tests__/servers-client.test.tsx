@@ -8,7 +8,7 @@ import { ApiClientError } from '@/lib/api';
  * Phase 29 (29-18) — `/admin/servers` 증권사 그룹 카드 (D-17 · 목업 A `cardsA()` · `chips()` · `roleChips()`).
  *
  * 잠그는 것: 섹션 순(KB → 교보) · 섹션 문장 · 카드 순 · 상태 칩(상태 모름 · 연결 끊김 · 저널 꺼짐 · admin 재접속 중 ·
- * 유저 N) · 역할 칩 · 「주문 서버」 라디오 배타 범위(증권사 안) · 꺼진 서버 라디오 비활성 · 주문 서버 즉시 전환
+ * 유저 N) · 역할 칩 · 「기본 주문 서버」 라디오 배타 범위(증권사 안) · 꺼진 서버 라디오 비활성 · 주문 서버 즉시 전환
  * (PUT 1건 → 재조회 → 칩 이동) · 실패 되돌림 + 카드 한 줄 · 목업 하단 안내.
  * API 는 `@/lib/admin-api` 목이다(Express 계약은 admin-api.test.ts 가 잠근다). 주소는 TEST-NET(D-27).
  */
@@ -95,7 +95,7 @@ const chipTexts = (key: string) =>
   Array.from(card(key).querySelectorAll('[data-slot="server-status-chip"]')).map((c) => c.textContent);
 const roleChips = (key: string) =>
   Array.from(card(key).querySelectorAll('[data-slot="server-role-chip"]')).map((c) => c.textContent);
-const orderRadio = (key: string) => screen.getByRole('radio', { name: `${key} 주문 서버` }) as HTMLInputElement;
+const orderRadio = (key: string) => screen.getByRole('radio', { name: `${key} 기본 주문 서버` }) as HTMLInputElement;
 
 async function renderReady() {
   render(<ServersClient />);
@@ -125,7 +125,7 @@ describe('ServersClient — 증권사 그룹 카드 (D-17 · 목업 A)', () => {
 
     const sections = Array.from(root().querySelectorAll('[data-slot="admin-servers-group"]')) as HTMLElement[];
     expect(sections.map((s) => within(s).getByRole('heading', { level: 2 }).textContent)).toEqual(['KB', '교보']);
-    for (const s of sections) expect(s).toHaveTextContent('주문 서버는 증권사 안에서 1대');
+    for (const s of sections) expect(s).toHaveTextContent('기본 주문 서버는 증권사 안에서 1대');
     expect(
       sections.map((s) => Array.from(s.querySelectorAll('[data-slot="server-card"]')).map((c) => c.getAttribute('data-key'))),
     ).toEqual([
@@ -137,7 +137,11 @@ describe('ServersClient — 증권사 그룹 카드 (D-17 · 목업 A)', () => {
     expect(root()).toHaveTextContent(
       '시세 주 서버는 증권사와 무관하게 전체 1대. 바꾸면 relay 가 예전 연결을 닫고 새 서버에 붙는다(전환 중 시세 배지 적색).',
     );
-    expect(root()).toHaveTextContent('주문 서버를 바꾸면 열린 세션은 그대로, 새 로그인부터 적용.');
+    // 둘째 문장 — 기본 주문 서버 전환 = relay 가 옛 서버 활성 전략을 끄고 즉시 재접속(G-1 · gh-trade-84 ②(가) · 29-38)
+    expect(root()).toHaveTextContent(
+      '기본 주문 서버를 바꾸면 그 증권사에서 계좌 지정이 없는 사용자는 relay 가 옛 서버의 활성 전략을 끄고 바로 새 서버로 재접속(1~3초) — 옛 서버의 미체결은 그 서버에서 정리.',
+    );
+    expect(root()).not.toHaveTextContent('새 로그인부터');
   });
 
   it('상태 칩 — 정상 · admin 재접속 중 · relay 미응답 「상태 모름」 한 칩 · 연결 끊김 · 저널/admin 꺼짐 · 유저 N', async () => {
@@ -158,13 +162,13 @@ describe('ServersClient — 증권사 그룹 카드 (D-17 · 목업 A)', () => {
     expect(tone('KYOBO119', 'unknown')).toBe('dim');
   });
 
-  it('역할 칩 · 「주문 서버」 라디오는 증권사 안에서만 배타 · 꺼진 서버(KYOBO127) 라디오 비활성', async () => {
+  it('역할 칩 · 「기본 주문 서버」 라디오는 증권사 안에서만 배타 · 꺼진 서버(KYOBO127) 라디오 비활성', async () => {
     fetchAdminServersMock.mockResolvedValue(overview());
     await renderReady();
 
-    expect(roleChips('KB120')).toEqual(['주문 서버', '시세 주 서버']);
+    expect(roleChips('KB120')).toEqual(['기본 주문 서버', '시세 주 서버']);
     expect(roleChips('KB121')).toEqual([]);
-    expect(roleChips('KYOBO119')).toEqual(['주문 서버']);
+    expect(roleChips('KYOBO119')).toEqual(['기본 주문 서버']);
 
     // 주문 라디오 — 증권사마다 하나씩 켜져 있다(KB120 · KYOBO119 동시)
     expect(orderRadio('KB120')).toBeChecked();
@@ -183,7 +187,7 @@ describe('ServersClient — 증권사 그룹 카드 (D-17 · 목업 A)', () => {
     expect(orderRadio('KB121')).toBeEnabled();
   });
 
-  it('KB121 주문 라디오 → setOrderServer("KB121") 1회 → 재조회 → 「주문 서버」 칩이 KB121 로', async () => {
+  it('KB121 주문 라디오 → setOrderServer("KB121") 1회 → 재조회 → 「기본 주문 서버」 칩이 KB121 로', async () => {
     fetchAdminServersMock.mockResolvedValueOnce(overview()).mockResolvedValueOnce(afterOrderSwitch());
     setOrderServerMock.mockResolvedValue({ ok: true, relayNotified: true });
     await renderReady();
@@ -194,7 +198,7 @@ describe('ServersClient — 증권사 그룹 카드 (D-17 · 목업 A)', () => {
     expect(orderRadio('KB120')).not.toBeChecked();
     expect(orderRadio('KYOBO119')).toBeChecked();
 
-    await waitFor(() => expect(roleChips('KB121')).toEqual(['주문 서버']));
+    await waitFor(() => expect(roleChips('KB121')).toEqual(['기본 주문 서버']));
     expect(roleChips('KB120')).toEqual(['시세 주 서버']);
     expect(setOrderServerMock).toHaveBeenCalledTimes(1);
     expect(setOrderServerMock).toHaveBeenCalledWith('KB121');
@@ -202,7 +206,7 @@ describe('ServersClient — 증권사 그룹 카드 (D-17 · 목업 A)', () => {
     expect(root().querySelector('[data-slot="server-card-error"]')).toBeNull();
   });
 
-  it('주문 서버 전환 실패 → 라디오는 원래 KB120 · 누른 카드에 한 줄(서버 message 원문) · 재조회 없음', async () => {
+  it('기본 주문 서버 전환 실패 → 라디오는 원래 KB120 · 누른 카드에 한 줄(서버 message 원문) · 재조회 없음', async () => {
     fetchAdminServersMock.mockResolvedValue(overview());
     setOrderServerMock.mockRejectedValue(
       new ApiClientError({ code: 'SERVER_DISABLED', message: '꺼진 서버는 주문 서버로 고를 수 없어요', status: 409 }),
@@ -278,8 +282,8 @@ describe('ServersClient — 시세 주 서버 전환 (D-11)', () => {
     expect(orderRadio('KB121')).toBeEnabled();
 
     d.resolve({ ok: true });
-    await waitFor(() => expect(roleChips('KYOBO119')).toEqual(['주문 서버', '시세 주 서버']));
-    expect(roleChips('KB120')).toEqual(['주문 서버']);
+    await waitFor(() => expect(roleChips('KYOBO119')).toEqual(['기본 주문 서버', '시세 주 서버']));
+    expect(roleChips('KB120')).toEqual(['기본 주문 서버']);
     expect(quoteRadio('KYOBO119')).toBeChecked();
     expect(quoteRadio('KB121')).toBeEnabled();
     expect(root().querySelector('[data-slot="server-switching"]')).toBeNull();
@@ -300,7 +304,7 @@ describe('ServersClient — 시세 주 서버 전환 (D-11)', () => {
     expect(quoteRadio('KYOBO119')).not.toBeChecked();
     expect(quoteRadio('KYOBO119')).toBeEnabled();
     expect(root().querySelector('[data-slot="server-switching"]')).toBeNull();
-    expect(roleChips('KB120')).toEqual(['주문 서버', '시세 주 서버']);
+    expect(roleChips('KB120')).toEqual(['기본 주문 서버', '시세 주 서버']);
     expect(fetchAdminServersMock).toHaveBeenCalledTimes(1);
     expect(document.querySelector('[data-sonner-toast]')).toBeNull();
   });
@@ -327,10 +331,10 @@ describe('ServersClient — 성공 뒤 재조회 값이 정본 (IN-03 · release
     });
     await waitFor(() => expect(quoteRadio('KB120')).toBeChecked());
     expect(quoteRadio('KYOBO119')).not.toBeChecked();
-    expect(roleChips('KB120')).toEqual(['주문 서버', '시세 주 서버']);
+    expect(roleChips('KB120')).toEqual(['기본 주문 서버', '시세 주 서버']);
   });
 
-  it('주문 서버 KB120 → KB121 성공 · 재조회가 KB120(다른 Admin 이 되돌림)이면 라디오가 KB120', async () => {
+  it('기본 주문 서버 KB120 → KB121 성공 · 재조회가 KB120(다른 Admin 이 되돌림)이면 라디오가 KB120', async () => {
     const reloadD = deferred<AdminServersOverview>();
     fetchAdminServersMock.mockResolvedValueOnce(overview()).mockReturnValueOnce(reloadD.promise);
     setOrderServerMock.mockResolvedValue({ ok: true });
@@ -414,13 +418,13 @@ describe('ServersClient — 사용 토글 (D-17)', () => {
     o.groups[0].servers[1].userCount = 0;
     fetchAdminServersMock.mockResolvedValue(o);
     patchAdminServerMock.mockRejectedValue(
-      new ApiClientError({ code: 'SERVER_IN_USE', message: '주문 서버 · 시세 주 서버는 끌 수 없어요', status: 409 }),
+      new ApiClientError({ code: 'SERVER_IN_USE', message: '기본 주문 서버 · 시세 주 서버는 끌 수 없어요', status: 409 }),
     );
     await renderReady();
 
     fireEvent.click(toggle('KB121'));
     await waitFor(() => expect(cardError('KB121')).not.toBeNull());
-    expect(cardError('KB121')).toHaveTextContent('주문 서버 · 시세 주 서버는 끌 수 없어요');
+    expect(cardError('KB121')).toHaveTextContent('기본 주문 서버 · 시세 주 서버는 끌 수 없어요');
     expect(toggle('KB121')).toHaveAttribute('aria-checked', 'true');
   });
 });

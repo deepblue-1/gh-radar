@@ -12,8 +12,8 @@ import { leavesOverflowing } from '../overflow';
  *   (page.route 목 · 29-15)다. 이 spec 은 픽스처 파일을 고치지 않고, 필요한 응답만 `onRequest` 로 덮는다.
  *
  * ② 라디오 1번 = 요청 1건(P29-S1)
- *   「주문 서버」 라디오를 누르면 `PUT /servers/:key/order-server` 가 정확히 1건이고, 목 상태가 바뀐 재조회가
- *   「주문 서버」 칩을 그 카드로 옮긴다 — 이것이 「PUT → 재조회」 왕복의 증거다.
+ *   「기본 주문 서버」 라디오를 누르면 `PUT /servers/:key/order-server` 가 정확히 1건이고, 목 상태가 바뀐 재조회가
+ *   「기본 주문 서버」 칩을 그 카드로 옮긴다 — 이것이 「PUT → 재조회」 왕복의 증거다.
  *
  * ③ 폭 — 폰 390 은 카드 1열, 데스크톱 1080 은 2열(앱 셸 레벨 뷰포트 브레이크포인트). 칩이 카드 밖으로 밀리지 않는다.
  *
@@ -36,7 +36,7 @@ async function settled(loc: Locator): Promise<void> {
 }
 
 for (const vp of VIEWPORTS) {
-  test(`P29-S1 주문 서버 즉시 전환 — 증권사 그룹 카드 · PUT 1건 · 칩 이동 (${vp.name})`, async ({ page }, testInfo) => {
+  test(`P29-S1 기본 주문 서버 즉시 전환 — 증권사 그룹 카드 · PUT 1건 · 칩 이동 (${vp.name})`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: vp.width, height: vp.height });
     const api = await mockAdminApi(page);
 
@@ -52,14 +52,14 @@ for (const vp of VIEWPORTS) {
     // 섹션 순 · 섹션 문장
     const groups = root.locator('[data-slot="admin-servers-group"]');
     await expect(groups.locator('h2')).toHaveText(['KB', '교보']);
-    await expect(groups.nth(0)).toContainText('주문 서버는 증권사 안에서 1대');
+    await expect(groups.nth(0)).toContainText('기본 주문 서버는 증권사 안에서 1대');
 
     // 상태 칩 — KYOBO127 은 픽스처상 끊김
     await expect(card(page, 'KYOBO127').locator('[data-axis="conn"]')).toHaveText('연결 끊김');
     await expect(card(page, 'KB120').locator('[data-axis="users"]')).toHaveText('유저 3');
 
     // 역할 칩 — KB120(주문 · 시세) · KYOBO119(주문)
-    await expect(roleChip(page, 'KB120', 'order')).toHaveText('주문 서버');
+    await expect(roleChip(page, 'KB120', 'order')).toHaveText('기본 주문 서버');
     await expect(roleChip(page, 'KB120', 'quote')).toHaveText('시세 주 서버');
     await expect(roleChip(page, 'KYOBO119', 'order')).toBeVisible();
     await expect(roleChip(page, 'KB121', 'order')).toHaveCount(0);
@@ -91,23 +91,32 @@ for (const vp of VIEWPORTS) {
     // UI-REVIEW-6 — 끌 수 없는 서버(KB120 주문 · 시세)는 이유 한 줄이 늘 보이고 토글은 켜진 모양(흐림 없음)
     const note = card(page, 'KB120').locator('[data-slot="server-in-use-note"]');
     await expect(note).toBeVisible();
-    await expect(note).toHaveText('주문 서버 · 시세 주 서버는 끌 수 없어요');
+    await expect(note).toHaveText('기본 주문 서버 · 시세 주 서버는 끌 수 없어요');
     const sw = page.getByRole('switch', { name: 'KB120 사용' });
     await expect(sw).toHaveAttribute('aria-describedby', (await note.getAttribute('id'))!);
     await expect(sw).toHaveAttribute('data-state', 'checked');
     await expect(sw).toHaveCSS('opacity', '1');
     await expect(card(page, 'KB121').locator('[data-slot="server-in-use-note"]')).toHaveCount(0);
+    // 29-38 — 옛 주문 서버에 끄지 못한 전략(목 staleAccounts 2) → KB121 카드 경고 한 줄 · 0/없음인 카드는 줄 없음
+    const stale = card(page, 'KB121').locator('[data-slot="server-stale-note"]');
+    await expect(stale).toHaveText('옛 주문 서버에 남아 끄지 못한 전략 — 계좌 2개 · 클라(OCX)에서 끄세요');
+    await expect(stale).toBeVisible();
+    await expect(card(page, 'KB120').locator('[data-slot="server-stale-note"]')).toHaveCount(0);
+    // 하단 안내 둘째 문장 — 끄고 즉시 재접속(G-1 · gh-trade-84 ②(가))
+    await expect(root.locator('[data-slot="admin-servers-note"]')).toContainText(
+      '기본 주문 서버를 바꾸면 그 증권사에서 계좌 지정이 없는 사용자는 relay 가 옛 서버의 활성 전략을 끄고 바로 새 서버로 재접속(1~3초)',
+    );
 
     await page.screenshot({ path: testInfo.outputPath(`admin-servers-${vp.name}.png`), fullPage: true });
 
-    // KB121 「주문 서버」 라디오 → PUT 1건 → 재조회 → 칩이 KB121 로 · 교보는 그대로
+    // KB121 「기본 주문 서버」 라디오 → PUT 1건 → 재조회 → 칩이 KB121 로 · 교보는 그대로
     await card(page, 'KB121').locator('[data-slot="server-order-radio"]').click();
-    await expect(roleChip(page, 'KB121', 'order')).toHaveText('주문 서버');
+    await expect(roleChip(page, 'KB121', 'order')).toHaveText('기본 주문 서버');
     await expect(roleChip(page, 'KB120', 'order')).toHaveCount(0);
     await expect(roleChip(page, 'KB120', 'quote')).toBeVisible();
     await expect(roleChip(page, 'KYOBO119', 'order')).toBeVisible();
-    await expect(page.getByRole('radio', { name: 'KB121 주문 서버' })).toBeChecked();
-    await expect(page.getByRole('radio', { name: 'KB120 주문 서버' })).not.toBeChecked();
+    await expect(page.getByRole('radio', { name: 'KB121 기본 주문 서버' })).toBeChecked();
+    await expect(page.getByRole('radio', { name: 'KB120 기본 주문 서버' })).not.toBeChecked();
 
     const puts = api.requests.filter((r) => r.method === 'PUT');
     expect(puts).toEqual([{ method: 'PUT', path: '/servers/KB121/order-server', body: null }]);
@@ -183,7 +192,7 @@ test('P29-S2 시세 주 서버 전환 실패 복귀 · 사용 토글 확인 (108
   await kb121.click();
   await page.getByRole('alertdialog').getByRole('button', { name: '끄기' }).click();
   await expect(kb121).not.toBeChecked();
-  await expect(page.getByRole('radio', { name: 'KB121 주문 서버' })).toBeDisabled();
+  await expect(page.getByRole('radio', { name: 'KB121 기본 주문 서버' })).toBeDisabled();
   await expect(page.getByRole('radio', { name: 'KB121 시세 주 서버' })).toBeDisabled();
   expect(api.requests.filter((r) => r.method === 'PATCH')).toEqual([
     { method: 'PATCH', path: '/servers/KB121', body: { enabled: false } },
@@ -242,6 +251,6 @@ for (const vp of VIEWPORTS) {
     await expect(root).toContainText('레지스트리 5대 · 주문/시세 서버');
     await expect(page.getByRole('switch', { name: 'KB122 사용' })).not.toBeChecked();
     await expect(card(page, 'KB122').locator('[data-axis="unknown"]')).toHaveText('상태 모름');
-    await expect(page.getByRole('radio', { name: 'KB122 주문 서버' })).toBeDisabled();
+    await expect(page.getByRole('radio', { name: 'KB122 기본 주문 서버' })).toBeDisabled();
   });
 }

@@ -90,6 +90,18 @@ describe("GET /api/admin/servers — 레지스트리 개요 (D-17)", () => {
     expect(res.body.groups[0].servers[0]).toMatchObject({ key: "KB120", userCount: 4, status: live.KB120 });
   });
 
+  it("(29-38) relay 상태의 staleAccounts(29-43 — 옛 주문 서버에 남은 전략 계좌 수)를 그대로 통과시킨다 · 없는 서버는 필드 없음", async () => {
+    const withStale = { ...live, KB120: { ...live.KB120, staleAccounts: 2 } };
+    const relay = makeFakeRelay((c) =>
+      c.path === "/internal/admin/servers/status" ? { status: 200, data: { servers: withStale } } : undefined,
+    );
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).get("/api/admin/servers"));
+    expect(res.status).toBe(200);
+    expect(res.body.groups[0].servers[0]).toMatchObject({ key: "KB120", status: { staleAccounts: 2 } });
+    expect(res.body.groups[1].servers[0].status).not.toHaveProperty("staleAccounts");
+  });
+
   it("relay 실패(status 0) · relay 500 · 클라이언트 없음 → 같은 응답에 status: null · 200", async () => {
     for (const relay of [
       makeFakeRelay(() => ({ status: 0, data: null })).client,
@@ -223,6 +235,8 @@ describe("PATCH /api/admin/servers/:key — 주소 · 사용 토글 · 정렬", 
     const res = await auth(request(app).patch("/api/admin/servers/KB120")).send({ enabled: false });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe("SERVER_IN_USE");
+    // 29-38 — 증권사 단위는 「기본 주문 서버」(계좌 줄 「주문 서버」와 이름으로 갈린다)
+    expect(res.body.error.message).toBe("기본 주문 서버 · 시세 주 서버는 끌 수 없어요. 먼저 다른 서버로 옮기세요.");
     expect(rec.rpcCalls).toEqual([{ fn: "dma_admin_set_server_enabled", params: { p_key: "KB120", p_enabled: false } }]);
     expect(relay.calls).toHaveLength(0);
   });
@@ -296,7 +310,7 @@ describe("PATCH /api/admin/servers/:key — 주소 · 사용 토글 · 정렬", 
   });
 });
 
-describe("PUT /api/admin/servers/:key/order-server — 주문 서버 교체 (D-10)", () => {
+describe("PUT /api/admin/servers/:key/order-server — 기본 주문 서버 교체 (G-1 즉시 재수립)", () => {
   it("RPC dma_admin_set_order_server 1회 → 재적재 → { ok, relayNotified }", async () => {
     const relay = makeFakeRelay();
     const { app, rec } = makeApp({}, relay.client);

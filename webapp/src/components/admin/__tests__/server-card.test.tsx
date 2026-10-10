@@ -49,11 +49,11 @@ function renderCard(server: AdminServerView, checked: { order?: boolean; quote?:
 const note = () => document.querySelector('[data-slot="server-in-use-note"]') as HTMLElement | null;
 
 describe('ServerCard — 끌 수 없는 이유 상시 한 줄 (UI-REVIEW-6)', () => {
-  it('주문 서버 → 이유 한 줄이 보이고 · 토글이 aria-describedby 로 가리키며 · 켜진 모양(흐림 없음)', () => {
+  it('기본 주문 서버 → 이유 한 줄이 보이고 · 토글이 aria-describedby 로 가리키며 · 켜진 모양(흐림 없음)', () => {
     renderCard(srv({ isOrderServer: true }));
     const line = note();
     expect(line).not.toBeNull();
-    expect(line).toHaveTextContent('주문 서버 · 시세 주 서버는 끌 수 없어요');
+    expect(line).toHaveTextContent('기본 주문 서버 · 시세 주 서버는 끌 수 없어요');
     expect(line).toHaveTextContent(SERVER_CARD_TEXT.inUse);
     expect(line!.id).not.toBe('');
 
@@ -99,5 +99,46 @@ describe('ServerCard — 라디오 칩 터치 타깃 (UI-REVIEW-3)', () => {
       expect(pill.className.split(/\s+/)).toEqual(expect.arrayContaining(['h-9', 'sm:h-8']));
       expect(pill.className.split(/\s+/)).not.toContain('h-8');
     }
+  });
+});
+
+// 29-38 — G-1 (가) 끄기 미확인 보조 경고: relay servers/status 의 staleAccounts(29-43)가 1 이상이면 카드 한 줄.
+describe('ServerCard — 옛 주문 서버에 남은 전략 한 줄 (29-38 · staleAccounts)', () => {
+  const stale = () => document.querySelector('[data-slot="server-stale-note"]') as HTMLElement | null;
+  const st = (staleAccounts?: number): AdminServerView['status'] => ({
+    conn: 'ok',
+    journal: 'ok',
+    admin: 'ok',
+    quote: null,
+    ...(staleAccounts === undefined ? {} : { staleAccounts }),
+  });
+
+  it('staleAccounts 2 → 경고색 한 줄 「옛 주문 서버에 남아 끄지 못한 전략 — 계좌 2개 · 클라(OCX)에서 끄세요」', () => {
+    renderCard(srv({ key: 'KB121', status: st(2) }));
+    const line = stale();
+    expect(line).not.toBeNull();
+    expect(line).toHaveTextContent('옛 주문 서버에 남아 끄지 못한 전략 — 계좌 2개 · 클라(OCX)에서 끄세요');
+    expect(line!.className).toContain('text-[var(--led-latent)]');
+  });
+
+  it('staleAccounts 0 · 필드 없음(옛 relay) · 상태 없음 → 줄 없음', () => {
+    const { unmount } = renderCard(srv({ key: 'KB121', status: st(0) }));
+    expect(stale()).toBeNull();
+    unmount();
+    const b = renderCard(srv({ key: 'KB121', status: st() }));
+    expect(stale()).toBeNull();
+    b.unmount();
+    renderCard(srv({ key: 'KB121', status: null }));
+    expect(stale()).toBeNull();
+  });
+
+  it('꺼진(off) 서버 카드에도 1 이상이면 보인다 · 사용 중 한 줄 아래', () => {
+    renderCard(srv({ key: 'KB121', enabled: false, status: { ...st(1)!, conn: 'off', journal: 'off', admin: 'off' } }));
+    expect(stale()).toHaveTextContent('계좌 1개');
+    const inUse = renderCard(srv({ key: 'KB120', isOrderServer: true, status: st(3) }));
+    const cardEl = inUse.container.querySelector('[data-slot="server-card"]') as HTMLElement;
+    const n = cardEl.querySelector('[data-slot="server-in-use-note"]') as HTMLElement;
+    const s2 = cardEl.querySelector('[data-slot="server-stale-note"]') as HTMLElement;
+    expect(n.compareDocumentPosition(s2) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

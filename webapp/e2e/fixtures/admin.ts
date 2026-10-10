@@ -179,7 +179,12 @@ export const ADMIN_SERVERS_FIXTURE: AdminServersOverview = {
           userCount: 3,
           status: { conn: 'ok', journal: 'ok', admin: 'ok', quote: 'live' },
         }),
-        server('KB121', 'KB', '192.0.2.121', { sortOrder: 2, userCount: 2 }),
+        // 29-38 — 옛 주문 서버에 relay 가 끄지 못한 전략이 남은 계좌 2개(relay servers/status staleAccounts · 29-43)
+        server('KB121', 'KB', '192.0.2.121', {
+          sortOrder: 2,
+          userCount: 2,
+          status: { conn: 'ok', journal: 'ok', admin: 'ok', quote: null, staleAccounts: 2 },
+        }),
       ],
     },
     {
