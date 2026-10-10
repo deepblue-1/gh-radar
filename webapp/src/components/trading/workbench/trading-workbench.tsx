@@ -1403,7 +1403,6 @@ function WorkbenchSurface() {
           queuedWindow={queuedWindow}
           appliedAt={appliedAt}
           account={accounts.find((a) => a.accountNo === accountNo) ?? null}
-          orderServerNotices={relay.orderServerNotices}
           cols={cols}
           onColsChange={setCols}
           phoneBand={singleColumnOnly}

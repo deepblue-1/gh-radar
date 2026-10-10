@@ -84,8 +84,6 @@ import {
   type RelayOrderResultMsg,
   type RelayOutbound,
   type RelayQuote,
-  type RelayOrderServerBroker,
-  type RelayOrderServerMsg,
   type RelayQuoteStateMsg,
   type RelayServerMsg,
   type RelaySessionState,
@@ -368,17 +366,6 @@ const EMPTY_DISABLE_ECHOES: ReadonlyMap<string, LimitChaserDisableEcho> = new Ma
 /** 빈 15:40 대기 키 집합 — 모듈 상수 하나. */
 const EMPTY_KEYS: ReadonlySet<string> = new Set();
 
-/**
- * 증권사 → 「주문 서버 바뀜」 표식 (Phase 29 D-10 · `{t:"order.server"}`). 키가 있으면 배지 「주문 서버가 {next} 로 바뀜 —
- * 재접속하면 적용」 을 그린다. `current` = 열린 세션 서버 · `next` = 바뀐 주문 서버.
- */
-export type OrderServerNotices = Readonly<
-  Partial<Record<RelayOrderServerBroker, { readonly current: string; readonly next: string }>>
->;
-
-/** 빈 표식의 고정 참조 — 소켓 경계 · reset 이 이 값으로 되돌린다(상태줄 memo 가 헛돌지 않게). */
-const EMPTY_ORDER_SERVER_NOTICES: OrderServerNotices = Object.freeze({});
-
 export interface RelayConnectionState {
   /** 세션 상태. 배지·주문 버튼 활성 여부의 정본. */
   status: RelayStatus;
@@ -459,13 +446,6 @@ export interface RelayConnectionState {
    * 오지 않는데 옛 소켓의 live 를 그리지 않는다. 새 소켓의 인증 직후 스냅샷이 다시 채운다(relay 가 모르면 계속 null).
    */
   quoteState: RelayQuoteStateMsg | null;
-  /**
-   * 주문 서버 바뀜 표식 (`{t:"order.server"}` · Phase 29 D-10) — 증권사별 1건. 작업대 상태줄 배지의 원천이다.
-   * relay 가 「열린 세션 서버 ≠ 지금 주문 서버」 일 때 보내고, 같아지면 `next: null` 로 지운다(키 삭제). 열린 세션은
-   * 예전 서버에 그대로이고 새 서버는 재접속(다음 세션)부터다. 소켓 경계(`local-status`)와 `reset` 이 비운다 — 새 소켓의
-   * 인증 직후 스냅샷이 아직 갈려 있으면 다시 채운다(`quoteState` 와 같은 규율 · relay 재기동 뒤 옛 배지를 남기지 않는다).
-   */
-  orderServerNotices: OrderServerNotices;
   /**
    * 가장 최근의 구독 한도 거부 1건 (`{t:"sub.limit"}` · Phase 26 D-11 · D-15). 거부된 그 소켓에만 온다.
    * 아직 없으면 null. 표시는 소비자(배지 · 26-14)가 정한다.
@@ -752,7 +732,6 @@ interface RelayData {
   journalRows: JournalOrderRow[];
   journalState: RelayJournalStateMsg | null;
   quoteState: RelayQuoteStateMsg | null;
-  orderServerNotices: OrderServerNotices;
   subLimit: RelaySubLimitMsg | null;
   strategyEvents: StrategyEventRow[];
   strategyEventsBatch: { seq: number; rows: StrategyEventRow[] };
@@ -800,8 +779,6 @@ const INITIAL_DATA: RelayData = {
   journalState: null,
   // 로그아웃(reset) 이 null 로 되돌린다 — relay 가 모르면 배지를 그리지 않는다(Phase 26 D-01).
   quoteState: null,
-  // 주문 서버 바뀜 표식 없음(Phase 29 D-10) — reset · 소켓 경계가 이 고정 참조로 되돌린다.
-  orderServerNotices: EMPTY_ORDER_SERVER_NOTICES,
   subLimit: null,
   // 로그아웃(reset) 이 비운다 — 다음 사용자가 이전 사용자의 주문 이벤트를 보지 않는다(Phase 25).
   strategyEvents: [],
@@ -900,8 +877,6 @@ function relayReducer(state: RelayData, action: RelayAction): RelayData {
         // 시세 상태도 그 소켓 몫이다 — 소켓이 없는 동안은 「모름」이다. live 로 위장하지 않는다(quote-state.ts ② · WR-05).
         // 새 소켓의 인증 직후 `quote.state` 스냅샷이 다시 채운다 — relay 가 재기동 직후라 모르면 보내지 않아 null 로 남는다.
         quoteState: null,
-        // 주문 서버 바뀜 표식도 그 소켓 몫이다(Phase 29 D-10) — 새 소켓의 인증 직후 스냅샷이 아직 갈려 있으면 다시 채운다.
-        orderServerNotices: EMPTY_ORDER_SERVER_NOTICES,
       };
 
     case "sub-limit-clear": {
@@ -995,9 +970,6 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
       // 마지막 캐시 그대로 두고, 재접속 뒤 28 스냅샷이 오면 자연히 갱신된다. 브라우저 소켓 단절은 `local-status` 가
       // null 로 되돌린다(WR-05).
       return { ...state, quoteState: frame };
-
-    case "order.server":
-      return applyOrderServer(state, frame);
 
     case "sub.limit":
       // 최신 1건 보관 — 구독 한도 거부(D-11 · D-15). 전략 카드 오류(`{t:"msg"}`)와 섞지 않는다.
@@ -2247,7 +2219,6 @@ export function useRelayConnection({
       journalRows: data.journalRows,
       journalState: data.journalState,
       quoteState: data.quoteState,
-      orderServerNotices: data.orderServerNotices,
       subLimit: data.subLimit,
       strategyEvents: data.strategyEvents,
       strategyEventsBatch: data.strategyEventsBatch,
@@ -2278,34 +2249,6 @@ export function useRelayConnection({
     }),
     [data, statusLabel, send, reconnect, probeNow, subscribe, unsubscribe, sendOrder],
   );
-}
-
-/**
- * 주문 서버 바뀜 표식 1건 적용 (Phase 29 D-10) — `next` 가 있으면 그 증권사 키 교체, `null` 이면 키 삭제. 바뀐 게 없으면 같은
- * state 참조를 돌린다(상태줄 memo 가 헛돌지 않게). 모르는 증권사 값은 무시한다(계약 밖 프레임).
- */
-function applyOrderServer(state: RelayData, frame: RelayOrderServerMsg): RelayData {
-  if (frame.broker !== "KB" && frame.broker !== "KYOBO") return state;
-  const prev = state.orderServerNotices[frame.broker];
-  if (frame.next === null) {
-    if (prev === undefined) return state;
-    const rest: Partial<Record<RelayOrderServerBroker, { current: string; next: string }>> = {
-      ...state.orderServerNotices,
-    };
-    delete rest[frame.broker];
-    return {
-      ...state,
-      orderServerNotices: Object.keys(rest).length === 0 ? EMPTY_ORDER_SERVER_NOTICES : rest,
-    };
-  }
-  if (prev !== undefined && prev.current === frame.current && prev.next === frame.next) return state;
-  return {
-    ...state,
-    orderServerNotices: {
-      ...state.orderServerNotices,
-      [frame.broker]: { current: frame.current, next: frame.next },
-    },
-  };
 }
 
 /** JSON 프레임 파싱. 실패·비객체·`t` 없음은 전부 null(스킵). */

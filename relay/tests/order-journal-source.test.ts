@@ -55,9 +55,9 @@ function statesOf(inbox: RelayOutbound[]): RelayStateMsg[] {
   return inbox.filter((m): m is RelayStateMsg => m.t === "state");
 }
 
-/** 폐지된 「주문 서버 바뀜」 프레임 — 공유 타입 정의는 webapp 소비자와 함께 29-39 가 지운다. 여기서는 `t` 로만 센다. */
+/** 폐지된 「주문 서버 바뀜」 프레임 — 공유 타입은 29-39 가 지웠다(`RelayOutbound` 밖). 여기서는 `t` 글자로만 센다. */
 function orderServerFramesOf(inbox: RelayOutbound[]): RelayOutbound[] {
-  return inbox.filter((m) => m.t === "order.server");
+  return inbox.filter((m) => (m.t as string) === "order.server");
 }
 
 function supabaseStub(): SupabaseClient {

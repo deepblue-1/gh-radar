@@ -28,8 +28,7 @@
  * 변경 이력(최근):
  *   Phase 28 (28-01) — 상한가 특징 85 `{t:"limit.feature"}` (`RelayLimitFeatureMsg`) 를 `RelayOutbound` 에 더한다.
  *         공개 시세 파생값 — FULL 구독 소켓에만 간다.
- *   Phase 29 (29-22 · D-10) — 주문 서버 바뀜 `{t:"order.server"}` (`RelayOrderServerMsg`) 를 `RelayOutbound` 에 더한다.
- *         사용자 상태 프레임 — 그 사용자의 열린 세션 서버 ≠ 현재 주문 서버일 때 1건 · 같아지면 `next: null` 로 지운다.
+ *   Phase 29 (29-22 · D-10) 의 주문 서버 바뀜 프레임은 G-1 에서 없어짐 — 29-36 즉시 재수립 · 29-39 가 타입을 지웠다.
  *
  * DB 는 snake_case (`dma_credentials` · `dma_orders`), 게이트웨이 필드도 snake_case 다.
  * row/프레임 → 아래 타입 변환 책임은 **server·relay 의 순수함수**에 있다 (chat.ts 규약).
@@ -1558,29 +1557,6 @@ export type RelayQuoteStateMsg = {
   since?: string;
 };
 
-/** 주문 서버를 고르는 증권사 (Phase 29 — 레지스트리 `broker`). */
-export type RelayOrderServerBroker = "KB" | "KYOBO";
-
-/**
- * 주문 서버 바뀜 표식 (Phase 29 D-10 · ADMIN-06) — 작업대 상태줄 배지 「주문 서버가 {next} 로 바뀜 — 재접속하면 적용」 의 원천.
- *
- * D-10: Admin 이 그 증권사 주문 서버를 바꿔도 **열린 세션은 예전 서버에 그대로**다(미체결 · 전략 보존). 새 서버는 그 세션이
- * 끝난 뒤 다음 로그인부터다. relay 는 그 사실을 사용자에게만 알린다 — 세션을 끊거나 옮기지 않는다(정리와 이동은 사용자 몫).
- *
- * - `current` = 이 사용자의 그 증권사 세션이 붙은 서버 키 · `next` = 지금 레지스트리의 그 증권사 주문 서버 키.
- * - 보내는 때: 레지스트리 재적재로 둘이 갈리면 그 사용자 연결마다 1건 · 인증 직후 스냅샷(갈려 있을 때만) ·
- *   세션이 새 서버로 바뀌거나 주문 서버가 되돌아와 둘이 같아지면 `next: null` 1건(배지 지우기).
- * - 서버 키와 증권사뿐이다 — 계좌 · 주문자 · 사용자 식별자를 싣지 않는다.
- * - 모르는 `t` 는 옛 webapp 리듀서가 무시한다.
- */
-export type RelayOrderServerMsg = {
-  t: "order.server";
-  broker: RelayOrderServerBroker;
-  current: string;
-  /** 바뀐 주문 서버 키. `null` = 배지 지우기(세션 서버 = 주문 서버). */
-  next: string | null;
-};
-
 /**
  * relay 구독 한도 거부 (Phase 26 D-11 · D-15). 브라우저의 `sub` 이 한도에 닿아 구독이 **만들어지지 않았음**을 알린다.
  *
@@ -1757,8 +1733,7 @@ export type RelayOutbound =
   | RelaySubLimitMsg
   | RelayJournalEventsMsg
   | RelayUnfProgressMsg
-  | RelayLimitFeatureMsg
-  | RelayOrderServerMsg;
+  | RelayLimitFeatureMsg;
 
 // ============================================================
 // 주문 DTO (webapp → server → relay)
