@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 55470a4b
-// synced-date:        2026-10-10
+// server-repo-commit: c6753edc
+// synced-date:        2026-10-11
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -638,7 +638,8 @@ table SetLimitChaser {
                                      // post_buy_auto 를 읽는다) · 3 = extra_buy_burst_release 를 싣는 클라(quick-261003-phd 후속 —
                                      // 서버는 3 이상일 때만 읽는다). 서버 에코는 1 그대로 (D-24 판정 정본). vtable 98
                                      // 4 = 자동매도 4필드를 싣는 클라(Phase 28 D-18) — 서버는 >= 4 일 때만 읽는다
-    pre_buy_enabled: bool;           // 선매수 체크 (양방향) — 에코는 무장과 접힌다(D-03). vtable 100
+                                     // 5 = extra_buy_auto 를 싣는 클라(quick-261010-ub8) — 서버는 >= 5 일 때만 읽는다
+    pre_buy_enabled: bool;          // 선매수 체크 (양방향) — 에코는 무장과 접힌다(D-03). vtable 100
     // ★ 아래 6필드의 와이어 이름은 extra_buy_* 다 (Phase 24 D-29 — C# 생성물의 buy_* 빌더 메서드와 이름 충돌
     //   회피로 add_→extra_). 선언 위치·형·순서·vtable 슬롯(102~112)은 그대로라 와이어 바이트가 같다.
     //   서버 내부 식별자(addBuy*)·상태 파일 키(add_buy_*)·OrderReason::AddBuy* 는 그대로다.
@@ -688,6 +689,12 @@ table SetLimitChaser {
     auto_sell_sold_qty: uint;        // **S→C 전용** 누적 매도수량(주). vtable 150
     auto_sell_basis: ubyte;          // **S→C 전용** 기준 종류 1 상한가 · 2 매수가 (0 미정). vtable 152
     auto_sell_basis_price: uint;     // **S→C 전용** 기준가격(원 — 상한가 또는 매수가). vtable 154
+    // === 이하 quick-261010-ub8 추가 (말미 append) ===
+    extra_buy_auto: bool;            // 추가매수 ☐자동(양방향, 와이어 이름 extra_buy_* 규약 D-29) — ON 이면 추가매수 체크가 풀린 뒤
+                                     // (발주·거부·최대 초과 포기·버스트 해제) 상한가 이탈 ∧ 그 계좌·종목 보유 0 ∧ 재진입 잔여 > 0 인
+                                     // 첫 B6 에 서버가 추가매수를 다시 켠다(docs/strategy/limit-chaser.md §5-2-1). 재진입 칸은
+                                     // post_buy_reentry 를 공유한다. 서버는 buy3_schema >= 5 일 때만 읽는다 — 그 미만(C# 구 클라 ·
+                                     // gh-radar relay)은 서버 값 유지. 에코는 설정값. vtable 156
 }
 
 // VITrigger (VI 발동) 전략 설정
