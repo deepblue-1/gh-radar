@@ -1,18 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 28-limitup-feature-ingest
 source: [28-VERIFICATION.md]
 started: 2026-10-05T12:32:12Z
-updated: 2026-10-05T12:32:12Z
+updated: 2026-10-10T00:53:25.381Z
 ---
 
 ## Current Test
 
-number: 3
-name: gh-trade 서버가 85 를 보내는 다음 거래일 장중에 FULL 카드 「상한가」 탭 관찰
-expected: |
-  탭 제목 「상한가 · 잠김 N초」 1초 갱신 · 9칸 값 · 접었다 펼치면 즉시 복원 · relay 로그 85 미처리 warn 0
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -29,12 +25,12 @@ result: pass (2026-10-05 21:38~21:50 KST — 메인 세션: 119 등록 · timer 
 ### 3. gh-trade 서버가 85 를 보내는 다음 거래일 장중에 FULL 카드 「상한가」 탭 관찰
 expected: 탭 제목 「상한가 · 잠김 N초」 1초 갱신 · 9칸 값 · 접었다 펼치면 즉시 복원 · relay 로그 85 미처리 warn 0
 why_human: 운영에서 85 는 gh-trade 서버 Phase 27 배포 뒤 장중에만 온다 — 오늘(2026-10-05 장 마감 뒤) 관찰 불가. 코드·단위·e2e 는 통과
-result: [pending]
+result: pass (2026-10-10 사용자 확인 — 「1,2,3 통과야」)
 
 ### 4. 같은 거래일 장중 dma_strategy_events 의 kind 15 행과 주문로그 「상한가 특징」 체크
 expected: 분당·키당 1행 적재 · 체크 켜면 「전체」·「시세」 에 회색 줄 · 기본 숨김 · 라이브 푸시 같은 판정
 why_human: kind 15 는 85 와 같이 장중에만 생긴다 · relay 라이브 푸시 경로는 실데이터 미관찰
-result: [pending]
+result: pass (2026-10-10 사용자 확인 — 「1,2,3 통과야」)
 
 ### 5. 119 키 등록 뒤 첫 밤(평일 21:00 운반 → 21:20 워커) 자동 적재와 member_top 재export 재적재
 expected: 새 날짜 manifest 행 수 == 표 행 수(smoke-limitup-sync.sh) · 20261002 등 옛 export 날짜가 files_sig 변경으로 날짜 단위 교체 재적재(inbox 261005-member-top-int64.md)
@@ -44,14 +40,14 @@ result: pass (2026-10-05 21:38~21:50 KST — 메인 세션: 119 등록 · timer 
 ### 6. 보고서 시각 확인 — 폰 390px(격자 2단 카드 · 레인 오버레이 라벨 겹침 0) · 데스크톱 8열 · 카드 「상한가」 탭 폰 밴드 말줄임·탭 제목 한 줄
 expected: plan backstop 7건(28-07 overflow·long-text, 28-11 overflow·long-text, 28-12 E7 overflow, 28-13 E8 overflow·long-text)이 눈으로 맞다
 why_human: verification: backstop 진술은 존재만으로 VERIFIED 로 못 올린다. e2e(P28-2 · P28-R1b · P28-O1)가 일부를 덮는다고 SUMMARY 가 주장하나 verifier 는 e2e 를 재실행하지 않았다
-result: [pending]
+result: pass (2026-10-10 사용자 확인 — 「1,2,3 통과야」)
 
 ## Summary
 
 total: 6
-passed: 3
+passed: 6
 issues: 0
-pending: 3
+pending: 0
 skipped: 0
 blocked: 0
 
