@@ -463,8 +463,11 @@ orderJournal.refresh();
 registry.on("changed", (change) => {
   pipelines.sync(registry.enabled());
   // 29-23 (D-11) — DB 시세 주 서버가 다른 경로로 바뀌었으면 같은 break-then-make 로 맞춘다. 실패하면 DB 를 지금 연결 서버로
-  // 되돌린다(직전 값 유지). 판정 · 단일 비행은 QuoteSwitch 가 쥔다 — 여기서는 역할 변경일 때만 부른다.
-  if (change.roles) {
+  // 되돌린다(직전 값 유지). 29-28 (WR-03) — 지금 quote 서버 키의 host · port 가 바뀐 것(`change.changed`)도 같은 키
+  // break-then-make 로 새 주소를 따라간다(실패하면 옛 주소 · DB 되돌림 없음). 판정(키 · host · port 서명) · 단일 비행은
+  // QuoteSwitch 가 쥔다 — 여기서는 역할 변경이거나 지금 quote 서버 키의 주소 변경일 때만 부른다.
+  const quoteKey = quoteSwitch.currentServerKey;
+  if (change.roles || (quoteKey !== null && change.changed.includes(quoteKey))) {
     void quoteSwitch
       .reconcileWithRegistry(registry, (key) => adminStore.setQuotePrimary(key))
       .catch((err: unknown) =>

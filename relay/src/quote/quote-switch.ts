@@ -22,7 +22,7 @@
  *               QuoteStatus 의 3초 디바운스 그대로 적색이 되고, 호가창은 마지막 캐시(Phase 26 D-01)다.
  *   isReady     전환 창 동안 false — hub 는 참조계수만 기록하고, 새 연결 ready 의 합집합 재구독이 메운다(Pitfall 4).
  *   단일 비행   진행 중이면 두 번째 요청은 `QUOTE_SWITCH_BUSY` — 첫 요청의 결과에 손대지 않는다.
- *   무동작     지금 연결 서버와 같은 서버 요청은 연결 변화 없이 `{ ok: true, changed: false }`.
+ *   무동작     지금 연결 서버와 같은 서버(키 · host · port 셋 다 같음) 요청은 연결 변화 없이 `{ ok: true, changed: false }`.
  *   비밀 없음   새 서버 증권사의 quote 비밀이 없으면 끊지 않고 바로 실패 — 비밀 없는 feed 는 disabled 로 남아 10초를 헛되이 쓴다.
  *   복귀 비대기 실패 응답은 옛 서버 재연결을 **시작한 뒤** 바로 돌려준다(옛 서버 ready 를 기다리지 않는다). Express 의 relay
  *               호출 상한(`RELAY_ADMIN_TIMEOUT_MS` 12초) 안에 ready 상한 10초 + 복귀가 들어가야 하기 때문이다.
@@ -33,6 +33,14 @@
  * 다르고** 지금 연결 서버와도 다르면) 같은 break-then-make 로 맞춘다. 실패하면 DB 를 지금 연결 서버로 되돌리는 RPC 1회 +
  * error 로그(직전 값 유지 원칙). 「직전에 본 값」 과 비교하는 이유: admin 전환 직후 그 RPC 커밋 전에 시작된 재적재가 낡은
  * 값을 들고 와도(역할 변경이 겹친 경우) 연결을 되돌리지 않게 한다 — 레지스트리 관점에서 그 값은 바뀐 적이 없다.
+ *
+ * 주소 추종(29-28 WR-03): 무동작 판정과 「직전에 본 값」 은 키만이 아니라 **키 · host · port 서명**이다. Admin 이 시세 주 서버
+ * 카드에서 주소를 고치면 키는 그대로라 종전 판정으로는 무동작이었고, quote 는 relay 재시작 전까지 옛 주소로 재접속만 되풀이했다
+ * (healthz `quote` 는 503 축). 주소를 고치는 이유는 보통 옛 주소가 죽었기 때문이므로 같은 키라도 **같은 break-then-make**(옛 연결
+ * 닫기 → 새 주소 role 1 로그인 → 합집합 재구독 1회)로 옮긴다 — quote 연결은 여전히 언제나 1개다. 새 주소 로그인이 실패하면 옛
+ * 주소로 되돌리고, 같은 키라 DB 시세 주 서버는 되돌릴 것이 없다(restore 없음 · error 로그만). 같은 관측 값이 다시 와도 재시도하지
+ * 않는다(직전 값 유지 — 다음 Admin 저장이 다시 시도한다). index 의 레지스트리 변경 처리기가 역할 변경뿐 아니라 지금 quote 서버
+ * 키의 주소 변경(`change.changed`)에서도 보정을 부른다.
  */
 import { EventEmitter } from "node:events";
 
@@ -64,8 +72,21 @@ export type QuoteSwitchResult =
   | { ok: true; changed: boolean }
   | { ok: false; code: QuoteSwitchErrorCode; message: string };
 
-/** 레지스트리 보정 결과 — 테스트 · 로그용. */
-export type QuoteReconcileOutcome = "noop" | "switched" | "restored" | "busy";
+/**
+ * 레지스트리 보정 결과 — 테스트 · 로그용. `restored` = 다른 키 전환 실패 → DB 를 지금 연결 서버로 되돌림 ·
+ * `failed` = 같은 키 주소 변경 실패 → 옛 주소로 되돌림(DB 는 되돌릴 것이 없다 — WR-03).
+ */
+export type QuoteReconcileOutcome = "noop" | "switched" | "restored" | "failed" | "busy";
+
+/** 같은 연결 대상인가 — 키 · host · port 셋 다 같다(WR-03). */
+function sameEndpoint(a: QuoteSwitchServer | undefined, b: QuoteSwitchServer): boolean {
+  return a !== undefined && a.key === b.key && a.host === b.host && a.port === b.port;
+}
+
+/** 「직전에 본 레지스트리 값」 서명 — 키 · host · port. 시세 주 서버가 없으면 null. */
+function endpointSignature(s: QuoteSwitchServer | undefined): string | null {
+  return s === undefined ? null : `${s.key}|${s.host}|${s.port}`;
+}
 
 type WaitOutcome = "ready" | "rejected" | "role_mismatch" | "timeout" | "stopped";
 
@@ -103,15 +124,15 @@ export class QuoteSwitch extends EventEmitter {
   #everReady = false;
   /** 교체된 feed 의 마지막 프레임 시각 — 새 feed 가 아직 프레임을 받지 않았을 때 쓴다. */
   #carriedLastFrameAtMs: number | null = null;
-  /** 레지스트리에서 마지막으로 본 시세 주 서버 키(보정 판정 기준). */
-  #observedRegistryKey: string | null;
+  /** 레지스트리에서 마지막으로 본 시세 주 서버의 키 · host · port 서명(보정 판정 기준 — WR-03). */
+  #observedRegistry: string | null;
 
   constructor(deps: QuoteSwitchDeps) {
     super();
     this.#deps = deps;
     this.#readyTimeoutMs = deps.readyTimeoutMs ?? QUOTE_SWITCH_READY_TIMEOUT_MS;
     this.#server = deps.initial;
-    this.#observedRegistryKey = deps.initial?.key ?? null;
+    this.#observedRegistry = endpointSignature(deps.initial);
     const secret = deps.initial !== undefined ? deps.secretOf(deps.initial.broker) : undefined;
     this.#feed = deps.createFeed(deps.initial, secret);
     this.#wire(this.#feed);
@@ -180,7 +201,7 @@ export class QuoteSwitch extends EventEmitter {
     if (this.#stopped) {
       return { ok: false, code: "QUOTE_SWITCH_FAILED", message: "relay 종료 중이라 전환하지 않았습니다" };
     }
-    if (this.#server?.key === server.key) return { ok: true, changed: false };
+    if (sameEndpoint(this.#server, server)) return { ok: true, changed: false };
     const secret = this.#deps.secretOf(server.broker);
     if (secret === undefined || secret === "") {
       logger.error({ to: server.key, broker: server.broker }, "[QUOTE] 시세 주 서버 전환 거절 — 그 증권사 quote 비밀 없음");
@@ -193,6 +214,8 @@ export class QuoteSwitch extends EventEmitter {
 
     const prev = this.#server;
     const prevLabel = prev?.key ?? "시세 연결 없음";
+    // 같은 키 주소 변경(WR-03) — 로그 문맥은 키뿐이라(T-26-05 · host 금지) 주소 변경임을 따로 표시한다.
+    const addressOnly = prev?.key === server.key;
     if (!this.#started) {
       // 부팅 결선 전(start 전) — 연결이 없으니 대상만 바꾼다. start() 가 새 대상으로 연다.
       this.#replace(server, secret);
@@ -202,7 +225,12 @@ export class QuoteSwitch extends EventEmitter {
     this.#busy = true;
     const startedAt = Date.now();
     try {
-      logger.info({ from: prev?.key ?? null, to: server.key }, "[QUOTE] 시세 주 서버 전환 시작 — 옛 연결을 닫고 새 서버에 로그인");
+      logger.info(
+        { from: prev?.key ?? null, to: server.key, addressOnly },
+        addressOnly
+          ? "[QUOTE] 시세 주 서버 주소 변경 — 옛 주소 연결을 닫고 새 주소에 로그인"
+          : "[QUOTE] 시세 주 서버 전환 시작 — 옛 연결을 닫고 새 서버에 로그인",
+      );
       this.#switching = true;
       this.#emitState();
       const wait = this.#waitOutcome();
@@ -210,7 +238,7 @@ export class QuoteSwitch extends EventEmitter {
       const outcome = await wait;
       const elapsedMs = Date.now() - startedAt;
       if (outcome === "ready") {
-        logger.info({ from: prev?.key ?? null, to: server.key, elapsedMs }, "[QUOTE] 시세 주 서버 전환 완료 — 합집합 재구독");
+        logger.info({ from: prev?.key ?? null, to: server.key, addressOnly, elapsedMs }, "[QUOTE] 시세 주 서버 전환 완료 — 합집합 재구독");
         return { ok: true, changed: true };
       }
       this.#switching = false;
@@ -218,12 +246,18 @@ export class QuoteSwitch extends EventEmitter {
         return { ok: false, code: "QUOTE_SWITCH_FAILED", message: "relay 종료 중이라 전환을 멈췄습니다" };
       }
       logger.error(
-        { from: prev?.key ?? null, to: server.key, reason: outcome, elapsedMs },
+        { from: prev?.key ?? null, to: server.key, addressOnly, reason: outcome, elapsedMs },
         "[QUOTE] 시세 주 서버 전환 실패 — 옛 서버로 되돌림",
       );
       this.#replace(prev, prev !== undefined ? this.#deps.secretOf(prev.broker) : undefined);
       this.#emitState();
-      return { ok: false, code: "QUOTE_SWITCH_FAILED", message: `새 서버 로그인 실패 — ${prevLabel} 으로 되돌림` };
+      return {
+        ok: false,
+        code: "QUOTE_SWITCH_FAILED",
+        message: addressOnly
+          ? `새 주소 로그인 실패 — ${prevLabel} 옛 주소로 되돌림`
+          : `새 서버 로그인 실패 — ${prevLabel} 으로 되돌림`,
+      };
     } finally {
       this.#switching = false;
       this.#busy = false;
@@ -231,8 +265,9 @@ export class QuoteSwitch extends EventEmitter {
   }
 
   /**
-   * 레지스트리 재적재(`changed.roles`) 뒤 보정. DB 의 시세 주 서버가 직전에 본 값과 다르고 지금 연결 서버와도 다르면 전환한다.
-   * 전환이 실패하면 `restore(지금 연결 서버 키)` 로 DB 를 되돌린다(직전 값 유지 원칙).
+   * 레지스트리 재적재(역할 변경 · 지금 quote 서버 키의 주소 변경) 뒤 보정. DB 의 시세 주 서버(키 · host · port)가 직전에 본 값과
+   * 다르고 지금 연결과도 다르면 전환한다. 다른 키 전환이 실패하면 `restore(지금 연결 서버 키)` 로 DB 를 되돌린다(직전 값 유지
+   * 원칙). 같은 키 주소 변경이 실패하면 옛 주소로 돌아오고 DB 는 되돌리지 않는다 — 되돌릴 다른 키가 없다(WR-03).
    */
   async reconcileWithRegistry(
     registry: { quotePrimary(): QuoteSwitchServer | undefined },
@@ -240,20 +275,32 @@ export class QuoteSwitch extends EventEmitter {
   ): Promise<QuoteReconcileOutcome> {
     const target = registry.quotePrimary();
     const targetKey = target?.key ?? null;
-    if (targetKey === this.#observedRegistryKey) return "noop";
+    const signature = endpointSignature(target);
+    if (signature === this.#observedRegistry) return "noop";
     if (this.#busy) {
       logger.warn({ registry: targetKey, current: this.currentServerKey }, "[QUOTE] 시세 주 서버 보정 보류 — 전환 진행 중");
       return "busy";
     }
-    this.#observedRegistryKey = targetKey;
-    if (target === undefined || target.key === this.currentServerKey) return "noop";
+    this.#observedRegistry = signature;
+    if (target === undefined || sameEndpoint(this.#server, target)) return "noop";
 
+    const addressOnly = target.key === this.currentServerKey;
     logger.warn(
-      { registry: target.key, current: this.currentServerKey },
-      "[QUOTE] 레지스트리 시세 주 서버가 지금 연결과 다르다 — 같은 break-then-make 로 맞춘다",
+      { registry: target.key, current: this.currentServerKey, addressOnly },
+      addressOnly
+        ? "[QUOTE] 레지스트리 시세 주 서버 주소가 지금 연결과 다르다 — 같은 키 break-then-make 로 옮긴다"
+        : "[QUOTE] 레지스트리 시세 주 서버가 지금 연결과 다르다 — 같은 break-then-make 로 맞춘다",
     );
     const r = await this.switchTo(target);
     if (r.ok) return "switched";
+    if (addressOnly) {
+      // 같은 키 — DB 시세 주 서버를 다른 키로 바꾸지 않는다(되돌릴 값이 없다). 다음 Admin 저장이 다시 시도한다.
+      logger.error(
+        { server: target.key, code: r.code },
+        "[QUOTE] 시세 주 서버 주소 변경 실패 — 옛 주소로 되돌림(DB 되돌릴 것 없음 · 다음 저장이 다시 시도)",
+      );
+      return "failed";
+    }
     const current = this.currentServerKey;
     logger.error(
       { registry: target.key, current, code: r.code },
