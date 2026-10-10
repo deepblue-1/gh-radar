@@ -5,10 +5,10 @@ current_phase: 29
 current_phase_name: DMA 다중 서버 · 웹 Admin 유저 관리
 status: executing
 stopped_at: Completed 29-25-PLAN.md
-last_updated: "2026-10-10T02:38:04.026Z"
+last_updated: "2026-10-10T05:02:13.323Z"
 last_activity: 2026-10-09
 last_activity_desc: Phase 29 execution started
-state_head: d2cc949b193cb31263730e35ef352485e22c637c
+state_head: 6a1f9c2422cdeabc04a2792f2d284a0df8f32af9
 progress:
   total_phases: 38
   completed_phases: 24
@@ -32,7 +32,7 @@ Phase: 29 (DMA 다중 서버 · 웹 Admin 유저 관리) — EXECUTING
 Plan: 26 of 26
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-10-09 - Completed quick task 261009-c43: AI 애널리스트 DMA 매핑 권한자 전용 실차단 + smoke-limitup-sync INV-2 로그 폴링
+Last activity: 2026-10-10 - Completed quick task 261010-h22: Phase 28 남은 권고 수정 (WR-R2-01 · WR-R2-02 · IN-R2-02 · UI 감사 상위 3건)
 
 Progress: [█████████░] 93%
 
@@ -735,6 +735,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 | 261007-h76 | 수동주문 폼 「주문계좌」 행 · 계좌칸 선택 기억 · gh-trade 인박스 CancelReason 12 「버스트 상한가」 | 2026-10-07 | c7a764b3 | [261007-h76-card-account-chip](./quick/261007-h76-card-account-chip/) |
 | 77 | gh-trade 인박스 261008 — 상따 추가매수 체크 라벨 「버스트 해제」 · 취소 사유 12 수동·VI 행 확대 확인(웹 라벨 변경 불요) | 2026-10-08 | 1a844bd3 | — |
 | 261009-c43 | AI 애널리스트 DMA 매핑 권한자 전용 실차단(서버 403 · /chat DmaGate · FAB/AI 분석 숨김) + smoke-limitup-sync INV-2 로그 폴링 | 2026-10-09 | a0b61c91 | [261009-c43-ai-dma-limitup-smoke](./quick/261009-c43-ai-dma-limitup-smoke/) |
+| 261010-h22 | Phase 28 남은 권고 수정 — WR-R2-01 주문로그 틈 메우기 가드 · WR-R2-02 정리 실패 stale 로그 · IN-R2-02 캘린더 seed 만료 warn · UI 감사 상위 3건(chevron 전 폭 · 타이포 척도 · UI-SPEC 사후 기록) | 2026-10-10 | c25950fd | [261010-h22-phase-28-wr-r2-01-wr-r2-02-in-r2-02-ui-3](./quick/261010-h22-phase-28-wr-r2-01-wr-r2-02-in-r2-02-ui-3/) |
 
 ## Session Continuity
 
