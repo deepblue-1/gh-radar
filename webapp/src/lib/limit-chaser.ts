@@ -957,8 +957,11 @@ const AUTO_SELL_CMD_ORIGIN = 'autosell.cmd' satisfies RelayInbound['t'];
 /**
  * 이 통지가 **내가 보낸 41(바로시작 · 중지)의 거부 답**인가 — 카드 「미반영」 해제 키(확정).
  *
- * `isLimitChaserArmRejection` 과 같은 구조다. 호출자가 41 을 보내 놓은 **in-flight 창 안에서만** 묻는다 —
- * 54 에 거래소가 없어 KRX · NXT 두 카드를 가를 수 없고, 창이 그 상관을 맡는다.
+ * `isLimitChaserArmRejection` 과 같은 구조다. 호출자는 41 의 **결과 모름 수평선 안에서만** 묻는다 — 대기 창(3초)
+ * 또는 무응답 뒤 늦은 창이다. 늦은 창에서 relay 출처(`isKeyedAutoSellRejection` 거짓)는 키가 없으므로 **시간으로
+ * 묶는다** — 무응답 뒤 `LC_ORPHAN_WAIT_MS`, 송신부터 `ACK_TIMEOUT_MS + LC_ORPHAN_WAIT_MS`(lc.set 결과 모름 수평선과
+ * 같은 모양 · 27-REVIEW-R3 WR-R3-01 · IN-R3-01). 54 에 거래소가 없어 KRX · NXT 두 카드를 가를 수 없고, 창이 그 상관을
+ * 맡는다.
  *
  * 인정하는 모양 셋(lv 는 ERROR 만):
  *   - `src === "AutoSellCommand"` · i · a 일치 — 서버 41 실패 ctx 가 isin · 계좌 둘 다 채운다
@@ -974,7 +977,9 @@ const AUTO_SELL_CMD_ORIGIN = 'autosell.cmd' satisfies RelayInbound['t'];
  *     41 대기 창 안에 와도 41 을 풀지 않는다(예: 다른 카드 lc.set 의 조립 실패).
  *   - `kind === ""` — **태그 이전 relay**(배포 순서 호환 폴백). 출처를 모르므로 종전 모양 규칙으로 받는다.
  *     새 relay 는 모든 relay 거부에 출처를 싣기 때문에 이 갈래는 옛 relay 에서만 닿는다. 오판 방향은
- *     종전과 같다 — 41 「미반영」이 일찍 거둬질 뿐이고 거짓 「미반영」은 만들지 않는다.
+ *     종전과 같다 — 41 「미반영」이 일찍 거둬질 뿐이고 거짓 「미반영」은 만들지 않는다. ★ 단, 이 말은 호출자가
+ *     창을 **시간으로 묶을 때만** 맞다 — 묶지 않으면 다른 요청의 relay 거부 원문이 이 카드 로그 · 상태줄에
+ *     선다(27-REVIEW-R3 WR-R3-01).
  *
  * `"AutoSell"`(INFO 사유 줄)은 답이 아니다 — 41 과 무관하게도 흐른다. WARN 도 답이 아니다.
  *
@@ -993,6 +998,21 @@ export function isAutoSellCommandRejection(
     return msg.i === '' && (msg.a === '' || msg.a === accountNo);
   }
   return false;
+}
+
+/**
+ * 이 41 거부가 **키(i · a)를 싣는 출처**인가 — 늦은 창에서 relay 출처만 시간으로 묶기 위한 판정(27-REVIEW-R3 WR-R3-01).
+ *
+ * - `isAutoSellCommandRejection` 이 참인 줄에만 묻는다.
+ * - 참(`AutoSellCommand` · `Account`)이면 i · a 일치로 이 전략에 묶인 거부다(서버 41 실패 · 41 계좌 가드). 이 출처는
+ *   이미 카드 표시 몫(`isLimitChaserServerMessage` ∧ `isServerMessageForStrategy`)이라, 늦은 창 내내 받아도 표시가
+ *   넓어지지 않고 「미반영」 해제만 더해진다.
+ * - 거짓이면 키 없는 relay 거부(i "")다 — 상관의 근거가 시간 창뿐이다. 호출자가 결과 모름 수평선으로 묶는다.
+ *
+ * 카드는 `src` 를 직접 비교하지 않는다 — 출처 구분은 이 함수 한 곳이다.
+ */
+export function isKeyedAutoSellRejection(msg: { src: string }): boolean {
+  return msg.src === 'AutoSellCommand' || msg.src === 'Account';
 }
 
 /**

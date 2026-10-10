@@ -67,8 +67,9 @@
  *     다른 그룹에서 진행 중이던 lc.set 이 거짓 「반영 안 됨」 · 타임아웃으로 떨어진다. 41 무응답은 전용
  *     `autoSellUnacked` 로만 서고, 상태줄은 `unacked || autoSellUnacked` 로 그린다.
  *   ★ 41 「미반영」은 그 키의 아무 에코로 거두지 않는다(WR-03) — 무응답으로 끝난 action 의 기대 전이가 늦게 보일 때,
- *     그 41 의 거부가 3초 뒤에 늦게 올 때(27-REVIEW-R2 WR-R2-01 — 대기 중 거부와 같은 표시 경로), 41 이 더는 의미
- *     없어질 때(전략 삭제 · 자동매도 켜짐 → 꺼짐 전이 — WR-R2-02), 다음 41 전송, 키 변경에서만 거둔다
+ *     그 41 의 거부가 3초 뒤에 늦게 올 때(27-REVIEW-R2 WR-R2-01 — 대기 중 거부와 같은 표시 경로 · relay 출처는 무응답 뒤
+ *     `LC_ORPHAN_WAIT_MS` 안에서만 — WR-R3-01), 41 이 더는 의미 없어질 때(전략 삭제 · 자동매도 켜짐 → 꺼짐 전이 —
+ *     WR-R2-02), 다음 41 전송, 키 변경에서만 거둔다
  *     (`clearAutoSellUnacked` 한 곳). 무응답에는 전략 로그 error 한 줄(「자동매도 바로시작 —
  *     서버 응답 없음」)을 남긴다.
  *   재전송은 없다(T-16-10 · T-17-40). 버튼 렌더 활성과 전송 가드는 같은 `server` 로 `autoSellButtonsOf` 를 읽는다.
@@ -123,6 +124,7 @@ import {
   autoSellButtonsOf,
   isAutoSellCommandRejection,
   isAutoSellCommandSettled,
+  isKeyedAutoSellRejection,
   isLimitChaserArmRejection,
   isLimitChaserServerMessage,
   isLimitChaserSetRejection,
@@ -420,12 +422,21 @@ export function useStrategyCardState({
   const [autoSellUnacked, setAutoSellUnacked] = useState(false);
   /**
    * 3초 무응답으로 끝난 41 의 action — `autoSellUnacked` 의 근거다(27-REVIEW WR-03). 「미반영」은 이 action 의
-   * **기대 전이**가 늦게라도 보일 때(`settleAutoSell`), 이 41 의 **늦은 거부**가 올 때(WR-R2-01), 41 이 더는 의미
-   * 없어질 때(전략 삭제 · 자동매도 켜짐 → 꺼짐 전이 — WR-R2-02), 다음 41 전송, 키 변경에서만 거둔다 — 그 키의 아무
+   * **기대 전이**가 늦게라도 보일 때(`settleAutoSell`), 이 41 의 **늦은 거부**가 올 때(WR-R2-01 — relay 출처는
+   * `autoSellLateRelayUntilRef` 수평선 안에서만 · WR-R3-01), 41 이 더는 의미 없어질 때(전략 삭제 · 자동매도 켜짐 →
+   * 꺼짐 전이 — WR-R2-02), 다음 41 전송, 키 변경에서만 거둔다 — 그 키의 아무
    * 에코(300ms 런타임 푸시 · lc.set 에코)로는 거두지 않는다.
    * 거두는 자리는 `clearAutoSellUnacked` 하나다.
    */
   const autoSellTimedOutRef = useRef<AutoSellAction | null>(null);
+  /**
+   * 늦은 41 거부 중 **relay 출처**(키 없음 — `isKeyedAutoSellRejection` 거짓)를 받는 마감 시각(epoch ms) · 0 이면 닫힘
+   * (27-REVIEW-R3 WR-R3-01). 세우는 곳은 41 타이머 콜백 하나, 내리는 곳은 `clearAutoSellUnacked` 하나다.
+   * ★ `Date.now()` 마감인 이유 — 이 값은 54 가 올 때만 읽는다. 그래서 lc.set 수평선(`pendingExpiryTimer`)처럼 타이머를
+   *   따로 걸 필요가 없고 언마운트 · 키 변경 정리 대상도 늘지 않는다. 수평선 길이는 그 타이머와 같다
+   *   (송신부터 `ACK_TIMEOUT_MS + LC_ORPHAN_WAIT_MS`).
+   */
+  const autoSellLateRelayUntilRef = useRef(0);
   /** 41 **전용** 3초 타이머 — 공용 `ackTimer` 와 분리(⑥ — 키 일치 이펙트가 아무 에코에나 공용 타이머를 지운다). */
   const autoSellCmdTimer = useRef<number | null>(null);
   /** 41 대기를 끝낸다(또는 연다) — ref · state · 41 타이머를 함께. 「미반영」 표시는 호출자가 정한다. */
@@ -436,13 +447,15 @@ export function useStrategyCardState({
     setAutoSellPending(action);
   }, []);
   /**
-   * 41 「미반영」을 거둔다 — 근거(`autoSellTimedOutRef`)와 표시(`autoSellUnacked`)를 함께. 41 「미반영」을 내리는
+   * 41 「미반영」을 거둔다 — 근거(`autoSellTimedOutRef`)와 표시(`autoSellUnacked`)를 함께 · relay 수평선
+   * (`autoSellLateRelayUntilRef`)도 함께 닫는다(WR-R3-01). 41 「미반영」을 내리는
    * **유일한 함수**다(27-REVIEW-R2 WR-R2-01 · WR-R2-02). 부르는 곳은 「서버가 41 에 답했다」(기대 전이 · 거부 —
    * 3초 안이든 뒤든)와 「41 이 더는 의미 없다」(키 변경 · 전략 삭제 · 자동매도 꺼짐 전이 · 다음 41 전송)뿐이다.
    * 그 키의 아무 에코(300ms 런타임 푸시 · lc.set 에코)로는 부르지 않는다(WR-03).
    */
   const clearAutoSellUnacked = useCallback(() => {
     autoSellTimedOutRef.current = null;
+    autoSellLateRelayUntilRef.current = 0;
     setAutoSellUnacked(false);
   }, []);
 
@@ -725,11 +738,16 @@ export function useStrategyCardState({
           닫혔어도 「미반영」(`autoSellTimedOutRef`)이 서 있는 동안은 같은 판정으로 받는다. 안 받으면 상태줄이 거부
           원문과 「응답을 기다리고 있어요」를 동시에 말하고(아래 「거부도 답이다」 금지 그대로), relay 거부(i "")는
           원문 줄조차 서지 않는다. 대기 중 거부와 같은 표시 경로를 탄다 — 다시 보내지 않는다(T-16-10).
+        ★ 늦은 창의 **끝**(27-REVIEW-R3 WR-R3-01) — 키를 싣는 출처(AutoSellCommand · Account, i · a 일치)는 늦은 창
+          내내 받는다. relay 출처(i 빈)는 무응답 뒤 `LC_ORPHAN_WAIT_MS` 안에서만 받는다. 기한이 없으면 같은 탭 다른
+          카드의 relay 조립 · 송신 실패(i · a 빈), 그리고 옛 relay 의 kind "" 폴백에서는 lc.set · lc.arm 등 모든 relay
+          거부가 이 카드 로그 · 상태줄에 빨갛게 선다(WR-04 카드 간 표시 격리 재발).
       */
       const lateAutoSellAnswer =
         autoSellCmdRef.current === null &&
         autoSellTimedOutRef.current !== null &&
-        isAutoSellCommandRejection(msg, isin, accountNo);
+        isAutoSellCommandRejection(msg, isin, accountNo) &&
+        (isKeyedAutoSellRejection(msg) || Date.now() <= autoSellLateRelayUntilRef.current);
       const autoSellReply = autoSellAnswer || lateAutoSellAnswer;
       // VI 몫·무관한 System 통지는 여기서 그리지 않는다(표시 몫 불변 — 41 · arm 의 답이 아니면 종전 그대로).
       // ★ 상따 몫이어도 남의 종목(·계좌) 통지는 이 카드에 세우지 않는다(27-REVIEW WR-04 — `isServerMessageForStrategy`).
@@ -870,6 +888,8 @@ export function useStrategyCardState({
         autoSellCmdTimer.current = null;
         autoSellCmdRef.current = null;
         autoSellTimedOutRef.current = action;
+        // relay 거부는 키가 없어 시간 창만 상관의 근거다 — 송신부터 ACK_TIMEOUT_MS + LC_ORPHAN_WAIT_MS(lc.set 결과 모름 수평선과 같은 모양).
+        autoSellLateRelayUntilRef.current = Date.now() + LC_ORPHAN_WAIT_MS;
         setAutoSellPending(null);
         setAutoSellUnacked(true);
         pushLog(`자동매도 ${action === "start" ? "바로시작" : "중지"} — 서버 응답 없음`, "error");
