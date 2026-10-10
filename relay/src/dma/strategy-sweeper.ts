@@ -38,7 +38,7 @@
  *
  * 로그 — 수 · 서버 키 · 소요 ms 만. DMA id · 계좌번호 · 전략 키(계좌번호가 들어 있다)는 싣지 않는다(D-19 · T-16-09).
  */
-import type { RelayExchange, RelayLimitChaser, RelayViTrigger } from "@gh-radar/shared";
+import type { RelayExchange, RelayLimitChaser, RelayStateMsg, RelayViTrigger } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
 import type { TransportFrameEvent } from "./dma-client.js";
@@ -132,23 +132,27 @@ class SweepFailure extends Error {
   }
 }
 
-type FrameWaiter = {
-  pick: (e: TransportFrameEvent) => boolean;
-  resolve: () => void;
+/** Ready 를 포기하는 세션 상태 — 이 상태가 되면 기다려도 Ready 가 오지 않는다(`DmaSession` 종료 상태). */
+const NOT_READY_STATES: ReadonlySet<string> = new Set(["failed", "session_rejected", "unauthorized"]);
+
+type Pending = {
   reject: (err: SweepFailure) => void;
-  timer: ReturnType<typeof setTimeout>;
+  cleanup: () => void;
 };
 
-/** 세션 프레임을 직접 듣는 대기 창구 — 기다림마다 단계 시한을 건다. */
+/**
+ * 세션 프레임을 직접 듣는 대기 창구 — 기다림마다 단계 시한을 걸고, 전체 시한(`abort`)이 오면 걸린 기다림을 전부 그 reason 으로
+ * 끝낸다. 이후 기다림은 즉시 실패한다.
+ */
 class FrameTap {
   readonly #session: DmaSession;
   readonly #stepMs: number;
-  readonly #waiters = new Set<FrameWaiter>();
+  readonly #pending = new Set<Pending>();
+  readonly #frameWaiters = new Set<{ pick: (e: TransportFrameEvent) => boolean; done: () => void }>();
+  #aborted: SweepFailure | null = null;
   readonly #onFrame = (e: TransportFrameEvent): void => {
-    for (const w of [...this.#waiters]) {
-      if (!w.pick(e)) continue;
-      this.#settle(w);
-      w.resolve();
+    for (const w of [...this.#frameWaiters]) {
+      if (w.pick(e)) w.done();
     }
   };
 
@@ -160,47 +164,93 @@ class FrameTap {
 
   /** `pick` 이 true 인 첫 프레임을 기다린다. 등록은 송신 **전에** 한다(응답이 송신 직후 와도 놓치지 않는다). */
   wait(pick: (e: TransportFrameEvent) => boolean): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      const w: FrameWaiter = {
-        pick,
-        resolve,
-        reject,
-        timer: setTimeout(() => {
-          this.#settle(w);
-          reject(new SweepFailure("timeout"));
-        }, this.#stepMs),
-      };
-      this.#waiters.add(w);
+    return this.#arm("timeout", (resolve) => {
+      const w = { pick, done: resolve };
+      this.#frameWaiters.add(w);
+      return () => this.#frameWaiters.delete(w);
     });
   }
 
-  /** Ready 를 기다린다(이미 Ready 면 즉시). */
+  /** Ready 를 기다린다(이미 Ready 면 즉시). 종료 상태로 가거나 단계 시한이 지나면 `not-ready`. */
   ready(): Promise<void> {
+    if (this.#aborted !== null) return Promise.reject(this.#aborted);
     if (this.#session.isReady) return Promise.resolve();
-    return new Promise<void>((resolve, reject) => {
-      const done = (): void => {
-        clearTimeout(timer);
-        this.#session.off("ready", done);
-        resolve();
+    if (NOT_READY_STATES.has(this.#session.state)) return Promise.reject(new SweepFailure("not-ready"));
+    return this.#arm("not-ready", (resolve, fail) => {
+      const onReady = (): void => resolve();
+      const onState = (frame: RelayStateMsg): void => {
+        if (NOT_READY_STATES.has(frame.s)) fail(new SweepFailure("not-ready"));
       };
-      const timer = setTimeout(() => {
-        this.#session.off("ready", done);
-        reject(new SweepFailure("timeout"));
-      }, this.#stepMs);
-      this.#session.on("ready", done);
+      this.#session.on("ready", onReady);
+      this.#session.on("state", onState);
+      return () => {
+        this.#session.off("ready", onReady);
+        this.#session.off("state", onState);
+      };
     });
+  }
+
+  /** 전체 시한 — 걸린 기다림을 전부 그 reason 으로 끝내고 이후 기다림을 막는다. */
+  abort(err: SweepFailure): void {
+    if (this.#aborted !== null) return;
+    this.#aborted = err;
+    for (const p of [...this.#pending]) p.reject(err);
   }
 
   dispose(): void {
     this.#session.off("frame", this.#onFrame);
-    for (const w of this.#waiters) clearTimeout(w.timer);
-    this.#waiters.clear();
+    for (const p of [...this.#pending]) p.cleanup();
+    this.#pending.clear();
+    this.#frameWaiters.clear();
   }
 
-  #settle(w: FrameWaiter): void {
-    clearTimeout(w.timer);
-    this.#waiters.delete(w);
+  /**
+   * 시한 하나를 건 기다림. `subscribe` 가 성공 · 실패 콜백을 받아 구독하고 해제 함수를 돌려준다. 성공 · 실패 · 시한 · 해제 중
+   * 무엇이 먼저 오든 구독과 타이머를 한 번만 정리한다.
+   */
+  #arm(
+    timeoutReason: StrategySweepFailReason,
+    subscribe: (resolve: () => void, fail: (err: SweepFailure) => void) => () => void,
+  ): Promise<void> {
+    if (this.#aborted !== null) return Promise.reject(this.#aborted);
+    return new Promise<void>((resolve, reject) => {
+      let unsubscribe: () => void = () => undefined;
+      const p: Pending = {
+        cleanup: () => {
+          clearTimeout(timer);
+          unsubscribe();
+          this.#pending.delete(p);
+        },
+        reject: (err) => {
+          p.cleanup();
+          reject(err);
+        },
+      };
+      const timer = setTimeout(() => p.reject(new SweepFailure(timeoutReason)), this.#stepMs);
+      this.#pending.add(p);
+      unsubscribe = subscribe(
+        () => {
+          p.cleanup();
+          resolve();
+        },
+        (err) => p.reject(err),
+      );
+    });
   }
+}
+
+/**
+ * 조립 · 송신. 조립 예외(서버가 준 값이 조립 상한 밖 등)와 `send` false(Ready 를 잃음)는 둘 다 `send-failed` 다 — 보내지 못한
+ * 요청의 응답을 시한까지 기다리지 않는다.
+ */
+function send(session: DmaSession, build: () => Uint8Array): void {
+  let payload: Uint8Array;
+  try {
+    payload = build();
+  } catch {
+    throw new SweepFailure("send-failed");
+  }
+  if (!session.send(payload)) throw new SweepFailure("send-failed");
 }
 
 /** 한 번 읽은 대상 계좌의 켜진 전략. */
@@ -213,12 +263,14 @@ export class StrategySweeper {
   readonly #sessions: SweeperSessions;
   readonly #targetOf: (serverKey: string) => SessionTarget | undefined;
   readonly #stepMs: number;
+  readonly #totalMs: number;
   readonly #now: () => number;
 
   constructor(opts: StrategySweeperOptions) {
     this.#sessions = opts.sessions;
     this.#targetOf = opts.targetOf;
     this.#stepMs = opts.stepTimeoutMs ?? SWEEP_STEP_TIMEOUT_MS;
+    this.#totalMs = opts.totalTimeoutMs ?? SWEEP_TOTAL_TIMEOUT_MS;
     this.#now = opts.now ?? Date.now;
   }
 
@@ -242,6 +294,8 @@ export class StrategySweeper {
     if (session === null) return this.#fail(target, "no-session", null, 0, 0);
 
     const tap = new FrameTap(session, this.#stepMs);
+    // 전체 시한 — 그 시점에 걸린 기다림을 timeout 으로 끝낸다(remaining 은 그때까지 마지막으로 읽은 값).
+    const total = setTimeout(() => tap.abort(new SweepFailure("timeout")), this.#totalMs);
     try {
       await tap.ready();
 
@@ -252,7 +306,7 @@ export class StrategySweeper {
         const done = tap.wait(
           (e) => e.msgType === MSG.DisableStrategiesResp && parseDisableStrategiesResp(e.env) !== null,
         );
-        session.send(buildDisableStrategiesReq(item.key));
+        send(session, () => buildDisableStrategiesReq(item.key));
         await done;
         disabledLimitChasers += 1;
       }
@@ -263,7 +317,7 @@ export class StrategySweeper {
           const echo = parseViTrigger(e.env)?.cfg ?? null;
           return echo !== null && echo.exchange === cfg.exchange && echo.accountNo === cfg.accountNo && !echo.run;
         });
-        session.send(
+        send(session, () =>
           buildSetVITriggerReq({
             accountNo: cfg.accountNo,
             exchange: cfg.exchange,
@@ -300,6 +354,7 @@ export class StrategySweeper {
       }
       throw err;
     } finally {
+      clearTimeout(total);
       tap.dispose();
       this.#sessions.release(target.userId, target.serverKey);
     }
@@ -315,7 +370,7 @@ export class StrategySweeper {
       got.list = list;
       return true;
     });
-    session.send(buildGetLimitChaserListReq());
+    send(session, buildGetLimitChaserListReq);
     await listed;
     const chasers = got.list.filter((c) => accounts.has(c.accountNo) && isActiveLimitChaser(c));
 
@@ -331,7 +386,7 @@ export class StrategySweeper {
         slot.cfg = parsed.cfg;
         return true;
       });
-      session.send(buildGetVITriggerReq(ex));
+      send(session, () => buildGetVITriggerReq(ex));
       await answered;
       const cfg = slot.cfg;
       if (cfg !== null && accounts.has(cfg.accountNo) && cfg.run) vis.push(cfg);
@@ -352,4 +407,72 @@ export class StrategySweeper {
     );
     return { ok: false, reason, remaining, disabledLimitChasers, viDisabled };
   }
+}
+
+/** 끄지 못한(미확인) 계좌 1건 — (userId, serverKey, accountNo) 마다 하나. */
+export type StaleStrategyEntry = {
+  userId: string;
+  /** 재시도 때 로그인할 DMA id. 메모리에만 있고 로그 · 응답에 싣지 않는다. */
+  dmaUserId: string;
+  serverKey: string;
+  accountNo: string;
+  /** 마지막 시도에서 남은 켜진 수(모르면 null). */
+  remaining: number | null;
+  reason: StrategySweepFailReason;
+  /** 처음 끄지 못한 시각(ms) — 다시 실패해도 유지한다. */
+  since: number;
+  attempts: number;
+  lastAttemptAt: number;
+};
+
+/** `StaleStrategyRegister.set` 입력 — 이번 시도의 결과와 시각. */
+export type StaleStrategyInput = Omit<StaleStrategyEntry, "since" | "attempts" | "lastAttemptAt"> & { at: number };
+
+/**
+ * 끄지 못한 계좌 레지스터 (G-1 (가)). 순수 자료다 — 타이머 · 재시도 · 상태 프레임 송신을 갖지 않는다(결선은 29-36 · 재시도는
+ * 29-44). healthz `accountOrderServers.<키>.staleAccounts` 와 Admin `servers/status` 의 `staleAccounts` 가 `byServer()` 를 읽는다.
+ */
+export class StaleStrategyRegister {
+  readonly #entries = new Map<string, StaleStrategyEntry>();
+
+  /** 미확인 1건을 기록한다. 같은 (userId, serverKey, accountNo) 면 `attempts` +1 · `since` 유지 · 나머지는 이번 값. */
+  set(input: StaleStrategyInput): StaleStrategyEntry {
+    const key = registerKey(input.userId, input.serverKey, input.accountNo);
+    const prev = this.#entries.get(key);
+    const { at, ...rest } = input;
+    const next: StaleStrategyEntry = {
+      ...rest,
+      since: prev?.since ?? at,
+      attempts: (prev?.attempts ?? 0) + 1,
+      lastAttemptAt: at,
+    };
+    this.#entries.set(key, next);
+    return { ...next };
+  }
+
+  /** 끄기가 확인됐다 — 그 항목을 지운다. 있었으면 true. */
+  confirm(userId: string, serverKey: string, accountNo: string): boolean {
+    return this.#entries.delete(registerKey(userId, serverKey, accountNo));
+  }
+
+  /** 그 사용자의 미확인 항목(사본). */
+  pendingFor(userId: string): StaleStrategyEntry[] {
+    return this.all().filter((e) => e.userId === userId);
+  }
+
+  /** 서버 키 → 끄지 못한 계좌 수. 0 인 서버는 싣지 않는다. */
+  byServer(): Map<string, number> {
+    const out = new Map<string, number>();
+    for (const e of this.#entries.values()) out.set(e.serverKey, (out.get(e.serverKey) ?? 0) + 1);
+    return out;
+  }
+
+  /** 전부(사본 · 기록 순서). */
+  all(): StaleStrategyEntry[] {
+    return [...this.#entries.values()].map((e) => ({ ...e }));
+  }
+}
+
+function registerKey(userId: string, serverKey: string, accountNo: string): string {
+  return `${userId}|${serverKey}|${accountNo}`;
 }
