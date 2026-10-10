@@ -595,4 +595,45 @@ describe("G-1 계좌별 주문 서버 — (유저, 서버) 세션 · 소유 계�
       await w.close();
     }
   });
+
+  it("⑪ 지정 서버가 꺼지면 기본 서버(KB120)가 소유 · 다시 켜면 KB121 · 다른 증권사 키(KYOBO119) 지정 행은 무시하고 기본값", async () => {
+    const { m, routing, loader } = await harness();
+    const w = await wss(m, routing.serversFor);
+    try {
+      const { ws } = await w.open();
+      await waitFor(() => m.sessionsOf(USER_A).length === 2 && m.sessionsOf(USER_A).every((s) => s.isReady), "두 서버 세션 ready");
+      const byServer = new Map(m.sessionsOf(USER_A).map((s) => [s.serverKey, s]));
+      const owned = (key: string): string[] => byServer.get(key)?.allowedAccounts.map((a) => a.accountNo) ?? [];
+      expect(routing.ownerOf(D1, "KB", ACCT_A.accountNo)).toBe("KB121");
+      expect(owned("KB120")).toEqual([ACCT_B.accountNo]);
+
+      // /admin/servers 에서 KB121 끄기 — 지정은 그대로 두고 유효 주문 서버만 기본값으로(재로그인 없이 소유 뷰가 따라간다).
+      rows = rows.map((r) => (r.key === "KB121" ? { ...r, enabled: false } : r));
+      expect(routing.ownerOf(D1, "KB", ACCT_A.accountNo)).toBe("KB120");
+      expect(routing.serversFor(D1)?.map((t) => t.serverKey)).toEqual(["KB120"]);
+      expect(owned("KB120")).toEqual([ACCT_A.accountNo, ACCT_B.accountNo]);
+      expect(owned("KB121")).toEqual([]);
+      expect(m.forAccount(USER_A, ACCT_A.accountNo)).toBe(byServer.get("KB120"));
+      ws.sendRaw(orderNew(ACCT_A.accountNo, "rid-a-off"));
+      await waitFor(() => orderAccountsOf(p120).length === 1, "KB120 스텁 DirectOrderReq(A — 꺼진 지정 서버 대신 기본)");
+      expect(orderAccountsOf(p121)).toEqual([]);
+
+      // 다시 켜면 지정이 돌아온다.
+      rows = rows.map((r) => (r.key === "KB121" ? { ...r, enabled: true } : r));
+      expect(routing.ownerOf(D1, "KB", ACCT_A.accountNo)).toBe("KB121");
+      expect(routing.serversFor(D1)?.map((t) => t.serverKey)).toEqual(["KB120", "KB121"]);
+      expect(owned("KB120")).toEqual([ACCT_B.accountNo]);
+      expect(owned("KB121")).toEqual([ACCT_A.accountNo]);
+
+      // 비정상 행 — KB 계좌에 교보 서버 키가 지정돼 있으면 무시하고 기본값.
+      chosenRows = [{ dma_user_id: D1, broker: "KB", account_no: ACCT_A.accountNo, server_key: "KYOBO119" }];
+      await loader.reload();
+      expect(loader.chosenOf(D1, "KB", ACCT_A.accountNo)).toBe("KYOBO119");
+      expect(routing.effectiveOrderServer(D1, "KB", ACCT_A.accountNo)).toBe("KB120");
+      expect(routing.serversFor(D1)?.map((t) => t.serverKey)).toEqual(["KB120"]);
+      expect(owned("KB120")).toEqual([ACCT_A.accountNo, ACCT_B.accountNo]);
+    } finally {
+      await w.close();
+    }
+  });
 });
