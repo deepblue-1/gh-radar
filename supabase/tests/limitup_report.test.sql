@@ -17,7 +17,7 @@
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/limitup_report.test.sql`
 -- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(원격 DB 접촉 0). 전체가 한 트랜잭션 + ROLLBACK.
--- 사용자: U1 dma-lu1 → KB …7811(가시 계좌 있음) · U3 dma-lu3(자격증명만 · 계좌 매핑 없음).
+-- 사용자: U1 dma-lu1 → KB120 …7811(가시 계좌 있음) · U3 dma-lu3(자격증명만 · 계좌 매핑 없음).
 -- ============================================================
 
 BEGIN;
@@ -31,10 +31,14 @@ SELECT plan(54);
 INSERT INTO auth.users (id, email) VALUES
   ('00000000-0000-4000-8000-000000002801', 'lu-u1@example.invalid'),
   ('00000000-0000-4000-8000-000000002803', 'lu-u3@example.invalid');
-INSERT INTO public.dma_credentials (user_id, dma_user_id, dma_password_enc) VALUES
-  ('00000000-0000-4000-8000-000000002801', 'dma-lu1', 'test-enc-lu1'),
-  ('00000000-0000-4000-8000-000000002803', 'dma-lu3', 'test-enc-lu3');
-SELECT public.dma_journal_sync_access('KB', '[
+-- Phase 29 v2 레지스트리: 가시성 = app_users(admin/trader)+DMA 연결 × dma_servers 전 서버 키. 키는 KB120 · KYOBO119.
+INSERT INTO public.dma_users (dma_user_id, password_enc)
+SELECT d, 'test-enc' FROM unnest(ARRAY['dma-lu1','dma-lu3']) d;
+INSERT INTO public.app_users (email, role, dma_user_id) VALUES
+  ('lu-u1@example.invalid','trader','dma-lu1'),
+  ('lu-u3@example.invalid','trader','dma-lu3');
+
+SELECT public.dma_journal_sync_access('KB120', '[
   {"dma_user_id":"dma-lu1","account_no":"1234567811","name":"위탁","priority":1}
 ]'::jsonb);
 

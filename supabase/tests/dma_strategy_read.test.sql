@@ -21,7 +21,7 @@
 -- 전체가 한 트랜잭션이고 끝에서 ROLLBACK 한다.
 --
 -- 단언 설명에는 (사용자, 게이트웨이, 계좌 말미, 기대) 튜플을 적는다 — `not ok` 줄만 보고도 어느 경우인지 알 수 있어야 한다.
--- 사용자: U1 dma-shared → KB …7801 · U2 dma-other → KB …7802 · U3 매핑 없음 · U4 dma-kyobo(KYOBO 연결) → KYOBO …7803.
+-- 사용자: U1 dma-shr → KB …7801 · U2 dma-oth → KB …7802 · U3 매핑 없음 · U4 dma-kyb(KYOBO 연결) → KYOBO …7803.
 -- ============================================================
 
 BEGIN;
@@ -36,25 +36,26 @@ INSERT INTO auth.users (id, email) VALUES
   ('00000000-0000-4000-8000-000000002503', 'read-u3@example.invalid'),
   ('00000000-0000-4000-8000-000000002504', 'read-u4@example.invalid');
 
-INSERT INTO public.dma_credentials (user_id, dma_user_id, dma_password_enc) VALUES
-  ('00000000-0000-4000-8000-000000002501', 'dma-shared', 'test-enc-u1'),
-  ('00000000-0000-4000-8000-000000002502', 'dma-other',  'test-enc-u2'),
-  ('00000000-0000-4000-8000-000000002503', 'dma-none',   'test-enc-u3'),
-  ('00000000-0000-4000-8000-000000002504', 'dma-kyobo',  'test-enc-u4');
--- quick-260929-sas — 추가 게이트웨이 가시성은 명시 연결로만.
-INSERT INTO public.dma_gateway_identities (user_id, gateway, dma_user_id) VALUES ('00000000-0000-4000-8000-000000002504', 'KYOBO', 'dma-kyobo');
+-- Phase 29 v2 레지스트리: 가시성 = app_users(admin/trader)+DMA 연결 × dma_servers 전 서버 키. 키는 KB120 · KYOBO119.
+INSERT INTO public.dma_users (dma_user_id, password_enc)
+SELECT d, 'test-enc' FROM unnest(ARRAY['dma-shr','dma-oth','dma-non','dma-kyb']) d;
+INSERT INTO public.app_users (email, role, dma_user_id) VALUES
+  ('read-u1@example.invalid','trader','dma-shr'),
+  ('read-u2@example.invalid','trader','dma-oth'),
+  ('read-u3@example.invalid','trader','dma-non'),
+  ('read-u4@example.invalid','trader','dma-kyb');
 
 INSERT INTO public.stocks (code, name, market, isin)
 VALUES ('005930', '삼성전자', 'KOSPI', 'KR7005930003');
 
 CREATE TEMP TABLE t_setup (label text PRIMARY KEY, r jsonb);
 
-INSERT INTO t_setup SELECT 'access_kb', to_jsonb(public.dma_journal_sync_access('KB', '[
-  {"dma_user_id":"dma-shared","account_no":"1234567801","name":"위탁","priority":1},
-  {"dma_user_id":"dma-other","account_no":"1234567802","name":"위탁","priority":1}
+INSERT INTO t_setup SELECT 'access_kb', to_jsonb(public.dma_journal_sync_access('KB120', '[
+  {"dma_user_id":"dma-shr","account_no":"1234567801","name":"위탁","priority":1},
+  {"dma_user_id":"dma-oth","account_no":"1234567802","name":"위탁","priority":1}
 ]'::jsonb));
-INSERT INTO t_setup SELECT 'access_kyobo', to_jsonb(public.dma_journal_sync_access('KYOBO', '[
-  {"dma_user_id":"dma-kyobo","account_no":"1234567803","name":"위탁","priority":1}
+INSERT INTO t_setup SELECT 'access_kyobo', to_jsonb(public.dma_journal_sync_access('KYOBO119', '[
+  {"dma_user_id":"dma-kyb","account_no":"1234567803","name":"위탁","priority":1}
 ]'::jsonb));
 
 -- 전략 이벤트 1건 — relay STRATEGY_APPLY_KEYS 43키(없는 값은 0 / "" / false / [] — 와이어 규약) 위에 p_over 를 덮는다.
@@ -93,7 +94,7 @@ CREATE FUNCTION pg_temp.jev(
 $$;
 
 -- KB 전략 이벤트 (seq 1~6 · epoch ep-25).
-INSERT INTO t_setup SELECT 'strategy_kb', public.dma_strategy_apply('KB', 'ep-25', jsonb_build_array(
+INSERT INTO t_setup SELECT 'strategy_kb', public.dma_strategy_apply('KB120', 'ep-25', jsonb_build_array(
   pg_temp.sev(1, 1, 0, '', '', '09:42:13.215', '{"ask_qty_at_limit":185400}'::jsonb),            -- 시세 LimitExposed
   pg_temp.sev(2, 3, 1, '1234567801', '12451', '09:45:02.861', '{"price":12350,"qty":300}'::jsonb), -- …7801 BuyOrder
   pg_temp.sev(3, 4, 1, '1234567802', '22001', '09:46:00.000'),                                    -- …7802 Queued
@@ -106,14 +107,14 @@ INSERT INTO t_setup SELECT 'strategy_kb', public.dma_strategy_apply('KB', 'ep-25
   pg_temp.sev(8, 9, 0, '', '', '10:00:01.000', '{}'::jsonb, '2026-09-30')                        -- 예약 kind 9(계좌 '') 대조군
 ));
 -- KYOBO 시세 이벤트 1건.
-INSERT INTO t_setup SELECT 'strategy_kyobo', public.dma_strategy_apply('KYOBO', 'ep-k', jsonb_build_array(
+INSERT INTO t_setup SELECT 'strategy_kyobo', public.dma_strategy_apply('KYOBO119', 'ep-k', jsonb_build_array(
   pg_temp.sev(1, 1, 0, '', '', '09:50:00.000')
 ));
 
 -- KB 통보 (주문 저널 seq 11~15 · epoch ep-25 — 전략과 별도 seq 공간).
 -- 통보 A 의 seq(11)를 같은 ms 전략 BuyOrder 의 seq(2)보다 크게 둔다 — seq 만으로 정렬하면 전략이 먼저 나와
 -- 「같은 ms 는 통보 먼저」 규칙이 실제로 판별된다.
-INSERT INTO t_setup SELECT 'journal_kb', public.dma_journal_apply('KB', 'ep-25', jsonb_build_array(
+INSERT INTO t_setup SELECT 'journal_kb', public.dma_journal_apply('KB120', 'ep-25', jsonb_build_array(
   pg_temp.jev(11, '1234567801', '12451', '09:45:02.861'),                                          -- A — BuyOrder 와 같은 ms
   pg_temp.jev(12, '1234567801', '12451', '09:45:03.000',
     '{"notice_type":"E","exec_price":12350,"exec_qty":100,"message":"체결"}'::jsonb),              -- E 100주
@@ -127,14 +128,14 @@ INSERT INTO t_setup SELECT 'journal_kb', public.dma_journal_apply('KB', 'ep-25',
 -- …7801 12451 투영 행 id.
 CREATE FUNCTION pg_temp.oid12451() RETURNS uuid LANGUAGE sql AS $$
   SELECT id FROM public.dma_account_orders
-   WHERE gateway = 'KB' AND trade_date = '2026-09-29' AND account_no = '1234567801' AND order_no = '12451'
+   WHERE gateway = 'KB120' AND trade_date = '2026-09-29' AND account_no = '1234567801' AND order_no = '12451'
 $$;
 
 SELECT plan(28);
 
 -- ── 0. 픽스처 전제 ─────────────────────────────────────────────
 SELECT isnt(
-  (SELECT apply_error FROM public.dma_journal_events WHERE gateway = 'KB' AND journal_epoch = 'ep-25' AND seq = 14),
+  (SELECT apply_error FROM public.dma_journal_events WHERE gateway = 'KB120' AND journal_epoch = 'ep-25' AND seq = 14),
   NULL, '(픽스처, KB, …7801, 통보 seq 14 정정 12470 · org 12451 · isin 11자) 포이즌 — apply_error 가 남았다'
 );
 
@@ -142,13 +143,13 @@ SELECT isnt(
 SELECT results_eq(
   $$SELECT r->>'gateway', (r->>'seq')::int, (r->>'kind')::int, r->>'account_no'
       FROM public.dma_strategy_events_for_user('00000000-0000-4000-8000-000000002501', '2026-09-29') r$$,
-  $$VALUES ('KB', 1, 1, ''), ('KB', 2, 3, '1234567801'), ('KB', 6, 4, '1234567801')$$,
+  $$VALUES ('KB120', 1, 1, ''), ('KB120', 2, 3, '1234567801'), ('KB120', 6, 4, '1234567801')$$,
   '(U1, KB, …7801, 오늘) 시세 seq 1 + 자기 계좌 BuyOrder seq 2 · Queued seq 6 — gw_time_ms 오름차순'
 );
 SELECT results_eq(
   $$SELECT r->>'gateway', (r->>'seq')::int, (r->>'kind')::int, r->>'account_no'
       FROM public.dma_strategy_events_for_user('00000000-0000-4000-8000-000000002502', '2026-09-29') r$$,
-  $$VALUES ('KB', 1, 1, ''), ('KB', 3, 4, '1234567802')$$,
+  $$VALUES ('KB120', 1, 1, ''), ('KB120', 3, 4, '1234567802')$$,
   '(U2, KB, …7802, 오늘) 시세 seq 1 + 자기 계좌 Queued seq 3'
 );
 SELECT is_empty(
@@ -158,7 +159,7 @@ SELECT is_empty(
 SELECT results_eq(
   $$SELECT r->>'gateway', (r->>'seq')::int, (r->>'kind')::int, r->>'account_no'
       FROM public.dma_strategy_events_for_user('00000000-0000-4000-8000-000000002504', '2026-09-29') r$$,
-  $$VALUES ('KYOBO', 1, 1, '')$$,
+  $$VALUES ('KYOBO119', 1, 1, '')$$,
   '(U4, KYOBO, …7803, 오늘) KYOBO 시세만 — KB 시세 비공개'
 );
 SELECT is(
@@ -167,7 +168,7 @@ SELECT is(
      UNION ALL SELECT r FROM public.dma_strategy_events_for_user('00000000-0000-4000-8000-000000002502', '2026-09-29') r
      UNION ALL SELECT r FROM public.dma_strategy_events_for_user('00000000-0000-4000-8000-000000002503', '2026-09-29') r
      UNION ALL SELECT r FROM public.dma_strategy_events_for_user('00000000-0000-4000-8000-000000002504', '2026-09-29') r
-   ) x WHERE x.r->>'gateway' = 'KB' AND (x.r->>'seq')::int = 4),
+   ) x WHERE x.r->>'gateway' = 'KB120' AND (x.r->>'seq')::int = 4),
   0, '(U1~U4, KB, 계좌 '''', 형식 이상 주문 이벤트 seq 4) 누구에게도 보이지 않는다'
 );
 SELECT results_eq(
@@ -181,13 +182,13 @@ SELECT results_eq(
 SELECT results_eq(
   $$SELECT r->>'gateway', (r->>'seq')::int, (r->>'kind')::int, r->>'account_no'
       FROM public.dma_strategy_events_for_user('00000000-0000-4000-8000-000000002501', '2026-09-30') r$$,
-  $$VALUES ('KB', 7, 10, '')$$,
+  $$VALUES ('KB120', 7, 10, '')$$,
   '(U1, KB, …7801, 2026-09-30) 시세 BurstLimit seq 7 한 행 — 예약 kind 9 seq 8 은 보이지 않는다'
 );
 SELECT results_eq(
   $$SELECT r->>'gateway', (r->>'seq')::int, (r->>'kind')::int, r->>'account_no'
       FROM public.dma_strategy_events_for_user('00000000-0000-4000-8000-000000002502', '2026-09-30') r$$,
-  $$VALUES ('KB', 7, 10, '')$$,
+  $$VALUES ('KB120', 7, 10, '')$$,
   '(U2, KB, …7802, 2026-09-30) 다른 계좌 사용자에게도 시세 BurstLimit seq 7 한 행'
 );
 SELECT is_empty(

@@ -37,25 +37,25 @@ INSERT INTO auth.users (id, email) VALUES
   ('00000000-0000-4000-8000-000000002803', 'lf-u3@example.invalid'),
   ('00000000-0000-4000-8000-000000002804', 'lf-u4@example.invalid');
 
-INSERT INTO public.dma_credentials (user_id, dma_user_id, dma_password_enc) VALUES
-  ('00000000-0000-4000-8000-000000002801', 'dma-lf-a',    'test-enc-u1'),
-  ('00000000-0000-4000-8000-000000002802', 'dma-lf-b',    'test-enc-u2'),
-  ('00000000-0000-4000-8000-000000002803', 'dma-lf-none', 'test-enc-u3'),
-  ('00000000-0000-4000-8000-000000002804', 'dma-lf-k',    'test-enc-u4');
--- quick-260929-sas — 추가 게이트웨이 가시성은 명시 연결로만.
-INSERT INTO public.dma_gateway_identities (user_id, gateway, dma_user_id)
-VALUES ('00000000-0000-4000-8000-000000002804', 'KYOBO', 'dma-lf-k');
+-- Phase 29 v2 레지스트리: 가시성 = app_users(admin/trader)+DMA 연결 × dma_servers 전 서버 키. 키는 KB120 · KYOBO119.
+INSERT INTO public.dma_users (dma_user_id, password_enc)
+SELECT d, 'test-enc' FROM unnest(ARRAY['dma-lf-a','dma-lf-b','dma-lf-n','dma-lf-k']) d;
+INSERT INTO public.app_users (email, role, dma_user_id) VALUES
+  ('lf-u1@example.invalid','trader','dma-lf-a'),
+  ('lf-u2@example.invalid','trader','dma-lf-b'),
+  ('lf-u3@example.invalid','trader','dma-lf-n'),
+  ('lf-u4@example.invalid','trader','dma-lf-k');
 
 INSERT INTO public.stocks (code, name, market, isin)
 VALUES ('005930', '삼성전자', 'KOSPI', 'KR7005930003');
 
 CREATE TEMP TABLE t_setup (label text PRIMARY KEY, r jsonb);
 
-INSERT INTO t_setup SELECT 'access_kb', to_jsonb(public.dma_journal_sync_access('KB', '[
+INSERT INTO t_setup SELECT 'access_kb', to_jsonb(public.dma_journal_sync_access('KB120', '[
   {"dma_user_id":"dma-lf-a","account_no":"1234567801","name":"위탁","priority":1},
   {"dma_user_id":"dma-lf-b","account_no":"1234567802","name":"위탁","priority":1}
 ]'::jsonb));
-INSERT INTO t_setup SELECT 'access_kyobo', to_jsonb(public.dma_journal_sync_access('KYOBO', '[
+INSERT INTO t_setup SELECT 'access_kyobo', to_jsonb(public.dma_journal_sync_access('KYOBO119', '[
   {"dma_user_id":"dma-lf-k","account_no":"1234567803","name":"위탁","priority":1}
 ]'::jsonb));
 
@@ -90,7 +90,7 @@ CREATE FUNCTION pg_temp.lf() RETURNS jsonb LANGUAGE sql AS $$
 $$;
 
 -- KB 전략 이벤트 (epoch ep-28).
-INSERT INTO t_setup SELECT 'strategy_kb', public.dma_strategy_apply('KB', 'ep-28', jsonb_build_array(
+INSERT INTO t_setup SELECT 'strategy_kb', public.dma_strategy_apply('KB120', 'ep-28', jsonb_build_array(
   -- 오늘 (가시성 · 래퍼)
   pg_temp.sev(1, 1, 0, '', '', '09:42:00.000', '{"ask_qty_at_limit":185400}'::jsonb),          -- 시세 LimitExposed
   pg_temp.sev(2, 3, 1, '1234567801', '12451', '09:45:00.000', '{"price":12350,"qty":300}'::jsonb), -- …7801 BuyOrder
@@ -110,7 +110,7 @@ INSERT INTO t_setup SELECT 'strategy_kb', public.dma_strategy_apply('KB', 'ep-28
   pg_temp.sev(16, 3, 1, '1234567801', '30002', '10:00:01.000', '{}'::jsonb, pg_temp.kd(1))
 ));
 -- KYOBO 상한가 특징 1건 (오늘).
-INSERT INTO t_setup SELECT 'strategy_kyobo', public.dma_strategy_apply('KYOBO', 'ep-28k', jsonb_build_array(
+INSERT INTO t_setup SELECT 'strategy_kyobo', public.dma_strategy_apply('KYOBO119', 'ep-28k', jsonb_build_array(
   pg_temp.sev(1, 15, 0, '', '', '09:46:30.000', pg_temp.lf())
 ));
 
@@ -133,15 +133,15 @@ SELECT is(
 SELECT results_eq(
   $$SELECT r->>'gateway', (r->>'seq')::int, (r->>'kind')::int, r->>'account_no'
       FROM public.dma_strategy_events_for_user('00000000-0000-4000-8000-000000002801', pg_temp.kd(0)::date) r$$,
-  $$VALUES ('KB', 1, 1, ''), ('KB', 2, 3, '1234567801'), ('KB', 3, 15, ''), ('KB', 4, 10, ''),
-           ('KB', 5, 15, ''), ('KB', 7, 2, '')$$,
+  $$VALUES ('KB120', 1, 1, ''), ('KB120', 2, 3, '1234567801'), ('KB120', 3, 15, ''), ('KB120', 4, 10, ''),
+           ('KB120', 5, 15, ''), ('KB120', 7, 2, '')$$,
   '(U1, KB, kind 15 계좌 '''', 오늘) 상한가 특징 seq 3 · 5 가 시세 1/2/10 · 자기 주문과 함께 gw_time_ms 순으로 보인다'
 );
 SELECT results_eq(
   $$SELECT r->>'gateway', (r->>'seq')::int, (r->>'kind')::int, r->>'account_no'
       FROM public.dma_strategy_events_for_user('00000000-0000-4000-8000-000000002802', pg_temp.kd(0)::date) r$$,
-  $$VALUES ('KB', 1, 1, ''), ('KB', 3, 15, ''), ('KB', 4, 10, ''), ('KB', 5, 15, ''),
-           ('KB', 6, 4, '1234567802'), ('KB', 7, 2, '')$$,
+  $$VALUES ('KB120', 1, 1, ''), ('KB120', 3, 15, ''), ('KB120', 4, 10, ''), ('KB120', 5, 15, ''),
+           ('KB120', 6, 4, '1234567802'), ('KB120', 7, 2, '')$$,
   '(U2, KB, kind 15 계좌 '''', 오늘) 다른 계좌 사용자에게도 상한가 특징 seq 3 · 5 — 남의 주문 seq 2 는 없다'
 );
 SELECT is_empty(
@@ -151,7 +151,7 @@ SELECT is_empty(
 SELECT results_eq(
   $$SELECT r->>'gateway', (r->>'seq')::int, (r->>'kind')::int, r->>'account_no'
       FROM public.dma_strategy_events_for_user('00000000-0000-4000-8000-000000002804', pg_temp.kd(0)::date) r$$,
-  $$VALUES ('KYOBO', 1, 15, '')$$,
+  $$VALUES ('KYOBO119', 1, 15, '')$$,
   '(U4, KYOBO, kind 15, 오늘) KYOBO 상한가 특징만 — KB kind 15 비공개'
 );
 
@@ -164,7 +164,7 @@ SELECT results_eq(
   $$SELECT x->>'gateway', (x->>'seq')::int, (x->>'kind')::int, x->>'account_no'
       FROM jsonb_array_elements(public.dma_strategy_events_for_user_json(
         '00000000-0000-4000-8000-000000002801', pg_temp.kd(0)::date)) x$$,
-  $$VALUES ('KB', 1, 1, ''), ('KB', 2, 3, '1234567801'), ('KB', 4, 10, ''), ('KB', 7, 2, '')$$,
+  $$VALUES ('KB120', 1, 1, ''), ('KB120', 2, 3, '1234567801'), ('KB120', 4, 10, ''), ('KB120', 7, 2, '')$$,
   '(U1, KB, kind 15 제외, 오늘 · 인자 2개) 기본은 kind 15 를 빼고 시세 1/10/2 · 주문 이벤트를 gw_time_ms 순으로'
 );
 SELECT results_eq(
@@ -176,8 +176,8 @@ SELECT results_eq(
 );
 SELECT results_eq(
   $$SELECT gateway, seq, kind, account_no FROM pg_temp.json_rows('00000000-0000-4000-8000-000000002801', pg_temp.kd(0)::date, true) ORDER BY ord$$,
-  $$VALUES ('KB', 1, 1, ''), ('KB', 2, 3, '1234567801'), ('KB', 3, 15, ''), ('KB', 4, 10, ''),
-           ('KB', 5, 15, ''), ('KB', 7, 2, '')$$,
+  $$VALUES ('KB120', 1, 1, ''), ('KB120', 2, 3, '1234567801'), ('KB120', 3, 15, ''), ('KB120', 4, 10, ''),
+           ('KB120', 5, 15, ''), ('KB120', 7, 2, '')$$,
   '(U1, KB, kind 15 포함, 오늘 · true) 상한가 특징 seq 3 · 5 가 실린다 — SETOF 와 같은 순서'
 );
 SELECT results_eq(
@@ -188,7 +188,7 @@ SELECT results_eq(
 );
 SELECT results_eq(
   $$SELECT gateway, seq, kind FROM pg_temp.json_rows('00000000-0000-4000-8000-000000002804', pg_temp.kd(0)::date, true) ORDER BY ord$$,
-  $$VALUES ('KYOBO', 1, 15)$$,
+  $$VALUES ('KYOBO119', 1, 15)$$,
   '(U4, KYOBO, kind 15 포함, 오늘) KYOBO 상한가 특징 한 행'
 );
 SELECT is(
@@ -211,13 +211,13 @@ SELECT is(
 );
 SELECT results_eq(
   $$SELECT gateway, seq::int, trade_date FROM public.dma_strategy_events WHERE kind = 15 ORDER BY gateway, seq$$,
-  $$VALUES ('KB', 3, pg_temp.kd(0)::date), ('KB', 5, pg_temp.kd(0)::date), ('KB', 14, pg_temp.kd(30)::date),
-           ('KB', 15, pg_temp.kd(1)::date), ('KYOBO', 1, pg_temp.kd(0)::date)$$,
+  $$VALUES ('KB120', 3, pg_temp.kd(0)::date), ('KB120', 5, pg_temp.kd(0)::date), ('KB120', 14, pg_temp.kd(30)::date),
+           ('KB120', 15, pg_temp.kd(1)::date), ('KYOBO119', 1, pg_temp.kd(0)::date)$$,
   '(—, KB+KYOBO, kind 15, 오늘 · −30 경계 · −1) 남는다 — −31 seq 11 만 사라졌다'
 );
 SELECT results_eq(
   $$SELECT seq::int, kind::int FROM public.dma_strategy_events
-     WHERE gateway = 'KB' AND trade_date = pg_temp.kd(31)::date ORDER BY seq$$,
+     WHERE gateway = 'KB120' AND trade_date = pg_temp.kd(31)::date ORDER BY seq$$,
   $$VALUES (12, 1), (13, 3)$$,
   '(—, KB, kind 1 · 3, KST 오늘 − 31일) 같은 옛날짜 시세 · 주문 이벤트는 감사 기록이라 남는다'
 );
