@@ -59,6 +59,10 @@ type StartOptions = {
   quote?: QuoteHealth;
   /** 서버별 admin 연결 요약 스텁 (Phase 29-08). 생략하면 주입하지 않는다. 요청마다 부른다. */
   adminConns?: () => Array<{ serverKey: string; health: { state: string; usersRev: string | null } }>;
+  /** 계좌 지정 주문 서버 스텁 (Phase 29-43 G-1). health undefined = 그 서버 파이프라인 없음. 요청마다 부른다. */
+  accountOrderServers?: () => Array<{ serverKey: string; accounts: number; health: JournalHealth | undefined }>;
+  /** 끄지 못한 전략 서버별 계좌 수 스텁 (Phase 29-43 (가)). 요청마다 부른다. */
+  staleStrategies?: () => ReadonlyMap<string, number>;
 };
 
 /** VPN 이 서 있는 VM 의 실측 인터페이스 (2026-09-06 radar-gw). */
@@ -116,6 +120,17 @@ async function start(opts: StartOptions = {}): Promise<Harness> {
     ...(opts.adminConns !== undefined
       ? { adminConns: () => (opts.adminConns?.() ?? []).map((a) => ({ serverKey: a.serverKey, health: () => a.health })) }
       : {}),
+    ...(opts.accountOrderServers !== undefined
+      ? {
+          accountOrderServers: () =>
+            (opts.accountOrderServers?.() ?? []).map((a) => ({
+              serverKey: a.serverKey,
+              accounts: a.accounts,
+              health: () => a.health,
+            })),
+        }
+      : {}),
+    ...(opts.staleStrategies !== undefined ? { staleStrategies: opts.staleStrategies } : {}),
   });
   const server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
@@ -989,5 +1004,104 @@ describe("Phase 29-08 adminConns — 서버별 admin 연결 (본문 전용 · 50
     const { status, body } = await get();
     expect(status).toBe(503);
     expect(body.adminConns).toEqual({ KB120: { state: "ready", usersRev: "1" } });
+  });
+});
+
+describe("Phase 29-43 accountOrderServers — 계좌 지정 서버 · 끄지 못한 전략 (본문 전용 · 503 축 아님)", () => {
+  /** 2026-09-28(월) 10:00 KST — 장중. */
+  const IN_WINDOW = new Date("2026-09-28T10:00:00+09:00");
+
+  function journal(state: JournalHealth["state"], disconnectedSec: number | null): JournalHealth {
+    return {
+      state,
+      lastSeq: 41,
+      headSeq: 42,
+      lagSeq: 1,
+      disconnectedSec,
+      lastAppliedAgeSec: 3,
+      seqRegressions: 0,
+      lastSeqRegressionAgeSec: null,
+      duplicatesAfterRegression: 0,
+      lastDuplicateAfterRegressionAgeSec: null,
+      projectionErrors: 0,
+      lastProjectionErrorAgeSec: null,
+      mapping: null,
+      strategy: { lastSeq: 7, headSeq: 9, lagSeq: 2, dbError: false, queueDepth: 0, paused: null, projectionErrors: 0 },
+    };
+  }
+
+  let h: Harness | null = null;
+
+  afterEach(async () => {
+    await h?.close();
+    h = null;
+  });
+
+  async function get(): Promise<{ status: number; body: Record<string, unknown> }> {
+    const res = await fetch((h as Harness).url("/healthz"));
+    return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+  }
+
+  it("accountOrderServers.<키> = { accounts, alerting, staleAccounts } · 지정 서버 거부여도 200 · 파이프라인 없으면 alerting true · 식별자 없음 · journal · brokers 그대로", async () => {
+    h = await start({
+      journal: journal("live", null),
+      now: IN_WINDOW,
+      brokers: () => [{ broker: "KB", server: "KB120", health: journal("live", null) }],
+      accountOrderServers: () => [
+        { serverKey: "KB121", accounts: 2, health: journal("rejected", 0) },
+        { serverKey: "KYOBO127", accounts: 1, health: undefined },
+      ],
+      staleStrategies: () => new Map([["KB120", 1]]),
+    });
+    const { status, body } = await get();
+    expect(status).toBe(200);
+    expect(body.status).toBe("ok");
+    expect(body.accountOrderServers).toEqual({
+      KB121: { accounts: 2, alerting: true, staleAccounts: 0 },
+      KYOBO127: { accounts: 1, alerting: true, staleAccounts: 0 },
+      KB120: { accounts: 0, alerting: false, staleAccounts: 1 },
+    });
+    expect(body.brokers).toEqual({ KB: { server: "KB120", alerting: false } });
+    expect((body.journal as JournalHealth).state).toBe("live");
+    expect(JSON.stringify(body)).not.toMatch(/"(host|secret|accountNo|userId|dmaUserId)"/);
+  });
+
+  it("지정 서버 저널 live 면 alerting false · 같은 서버에 지정 · 끄지 못한 계좌가 함께 있으면 한 항목", async () => {
+    h = await start({
+      journal: journal("live", null),
+      now: IN_WINDOW,
+      accountOrderServers: () => [{ serverKey: "KB121", accounts: 3, health: journal("live", null) }],
+      staleStrategies: () => new Map([["KB121", 2]]),
+    });
+    const { status, body } = await get();
+    expect(status).toBe(200);
+    expect(body.accountOrderServers).toEqual({ KB121: { accounts: 3, alerting: false, staleAccounts: 2 } });
+  });
+
+  it("deps 를 주입했어도 지정 0 · 레지스터 빈 → accountOrderServers 키 자체가 없다({} 아님) · deps 없으면 당연히 없다", async () => {
+    h = await start({
+      journal: journal("live", null),
+      now: IN_WINDOW,
+      accountOrderServers: () => [{ serverKey: "KB121", accounts: 0, health: journal("live", null) }],
+      staleStrategies: () => new Map(),
+    });
+    const injected = await get();
+    expect(injected.status).toBe(200);
+    expect("accountOrderServers" in injected.body).toBe(false);
+    await h.close();
+    h = await start({ journal: journal("live", null), now: IN_WINDOW });
+    expect("accountOrderServers" in (await get()).body).toBe(false);
+  });
+
+  it("503 판정 불변 — 회선이 내려가면 accountOrderServers 가 정상이어도 503", async () => {
+    h = await start({
+      journal: journal("live", null),
+      now: IN_WINDOW,
+      interfaces: DOWN_INTERFACES,
+      accountOrderServers: () => [{ serverKey: "KB121", accounts: 1, health: journal("live", null) }],
+    });
+    const { status, body } = await get();
+    expect(status).toBe(503);
+    expect(body.accountOrderServers).toEqual({ KB121: { accounts: 1, alerting: false, staleAccounts: 0 } });
   });
 });

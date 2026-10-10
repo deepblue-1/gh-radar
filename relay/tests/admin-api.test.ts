@@ -132,6 +132,8 @@ type HarnessOptions = {
   now?: () => number;
   /** 요청 마감(ms) 주입(29-32 — 실 소켓 테스트를 10초 기다리지 않게). 기본 ADMIN_REQUEST_DEADLINE_MS. */
   adminDeadlineMs?: number;
+  /** 끄지 못한 전략 서버별 계좌 수(29-43 G-1 (가)). 기본 주입 없음. */
+  staleStrategies?: () => ReadonlyMap<string, number>;
 };
 
 async function startHarness(opts: HarnessOptions = {}): Promise<Harness> {
@@ -197,6 +199,7 @@ async function startHarness(opts: HarnessOptions = {}): Promise<Harness> {
     quoteSwitch: opts.quoteSwitch ?? { switchTo: () => Promise.resolve({ ok: true, changed: false }), currentServerKey: null },
     ...(opts.now !== undefined ? { now: opts.now } : {}),
     ...(opts.adminDeadlineMs !== undefined ? { adminDeadlineMs: opts.adminDeadlineMs } : {}),
+    ...(opts.staleStrategies !== undefined ? { staleStrategies: opts.staleStrategies } : {}),
   });
 
   const app = createOrderApi({
@@ -603,10 +606,10 @@ describe("relay Admin 내부 HTTP — 운영 보조 라우트 · 감사 로그 (
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       servers: {
-        KB120: { conn: "ok", journal: "ok", admin: "ok", quote: "live" },
-        KB121: { conn: "down", journal: "down", admin: "connecting", quote: null },
+        KB120: { conn: "ok", journal: "ok", admin: "ok", quote: "live", staleAccounts: 0 },
+        KB121: { conn: "down", journal: "down", admin: "connecting", quote: null, staleAccounts: 0 },
         // 레지스트리엔 켜져 있지만 파이프라인이 없다(교보 비밀 미배치 등).
-        KYOBO119: { conn: "down", journal: "down", admin: "down", quote: null },
+        KYOBO119: { conn: "down", journal: "down", admin: "down", quote: null, staleAccounts: 0 },
       },
     });
   });
@@ -616,9 +619,26 @@ describe("relay Admin 내부 HTTP — 운영 보조 라우트 · 감사 로그 (
     const body = (await (await call(h, "GET", "/internal/admin/servers/status")).json()) as {
       servers: Record<string, unknown>;
     };
-    expect(body.servers.KYOBO119).toEqual({ conn: "off", journal: "off", admin: "off", quote: null });
+    expect(body.servers.KYOBO119).toEqual({ conn: "off", journal: "off", admin: "off", quote: null, staleAccounts: 0 });
     expect(body.servers.KB121).toMatchObject({ quote: "connecting" });
     expect(body.servers.KB120).toMatchObject({ quote: null });
+  });
+
+  it("S3 서버 상태 — staleAccounts = 그 서버에 남아 끄지 못한 계좌 수(29-43) · 다른 서버 0 · 꺼진 서버도 싣는다", async () => {
+    h = await startHarness({
+      disabled: ["KYOBO119"],
+      staleStrategies: () =>
+        new Map([
+          ["KB120", 2],
+          ["KYOBO119", 1],
+        ]),
+    });
+    const body = (await (await call(h, "GET", "/internal/admin/servers/status")).json()) as {
+      servers: Record<string, { staleAccounts?: number }>;
+    };
+    expect(body.servers.KB120?.staleAccounts).toBe(2);
+    expect(body.servers.KB121?.staleAccounts).toBe(0);
+    expect(body.servers.KYOBO119).toEqual({ conn: "off", journal: "off", admin: "off", quote: null, staleAccounts: 1 });
   });
 
   it("S4 감사 로그 — 변경 라우트마다 info 1줄 · 비밀번호 · 계좌번호 · dmaUserId 원문 없음 · 삭제 뒤 접근 맵 재적재", async () => {
