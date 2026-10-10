@@ -82,8 +82,13 @@ present():boolean {
   return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
 }
 
+postBuyFloorAmount():number {
+  const offset = this.bb!.__offset(this.bb_pos, 28);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
 static startUserSettings(builder:flatbuffers.Builder) {
-  builder.startObject(12);
+  builder.startObject(13);
 }
 
 static addPreBuyAmount(builder:flatbuffers.Builder, preBuyAmount:number) {
@@ -134,12 +139,16 @@ static addPresent(builder:flatbuffers.Builder, present:boolean) {
   builder.addFieldInt8(11, +present, +false);
 }
 
+static addPostBuyFloorAmount(builder:flatbuffers.Builder, postBuyFloorAmount:number) {
+  builder.addFieldInt32(12, postBuyFloorAmount, 0);
+}
+
 static endUserSettings(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createUserSettings(builder:flatbuffers.Builder, preBuyAmount:number, addBuyAmount:number, postBuyAmount:number, postBuyMaxCount:number, postBuyFloorQty:number, postBuyReboundPct:number, sellQtyTrackRatio:number, autoSellPeriodSec:number, auctionSellRatioPct:number, autoSellRatioDefaultPct:number, autoSellMethodDefault:number, present:boolean):flatbuffers.Offset {
+static createUserSettings(builder:flatbuffers.Builder, preBuyAmount:number, addBuyAmount:number, postBuyAmount:number, postBuyMaxCount:number, postBuyFloorQty:number, postBuyReboundPct:number, sellQtyTrackRatio:number, autoSellPeriodSec:number, auctionSellRatioPct:number, autoSellRatioDefaultPct:number, autoSellMethodDefault:number, present:boolean, postBuyFloorAmount:number):flatbuffers.Offset {
   UserSettings.startUserSettings(builder);
   UserSettings.addPreBuyAmount(builder, preBuyAmount);
   UserSettings.addAddBuyAmount(builder, addBuyAmount);
@@ -153,6 +162,7 @@ static createUserSettings(builder:flatbuffers.Builder, preBuyAmount:number, addB
   UserSettings.addAutoSellRatioDefaultPct(builder, autoSellRatioDefaultPct);
   UserSettings.addAutoSellMethodDefault(builder, autoSellMethodDefault);
   UserSettings.addPresent(builder, present);
+  UserSettings.addPostBuyFloorAmount(builder, postBuyFloorAmount);
   return UserSettings.endUserSettings(builder);
 }
 }

@@ -1,6 +1,6 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: c6753edc
+// server-repo-commit: e5b4fbca
 // synced-date:        2026-10-11
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
@@ -451,7 +451,7 @@ table SetLimitChaser {
     //     - ask1Price == buyWatchPrice && ask1Qty <= buyWatchQty → 주문
     //     - bid1Price == buyWatchPrice → 주문 (매수호가가 감시가에 도달)
     //     - ask1Price > buyWatchPrice → 주문 (가격 상승)
-    //   Phase 24: 매수 3종(선매수 = 종전 side '0' 갈래 / 추가매수 / 후매수) — docs/strategy/limit-chaser.md §5
+    //   Phase 24: 매수 3종(선매수 = 종전 side '0' 갈래 / 줄매수 / 후매수) — docs/strategy/limit-chaser.md §5
     buy_order_price: uint;       // 매수 주문가격 (원, 보통 상한가)
     buy_order_qty: uint;         // 매수 주문수량 (주)
     buy_watch_price: uint;       // 매수 감시가격 (원, 보통 상한가)
@@ -460,7 +460,7 @@ table SetLimitChaser {
     buy_watch_side: string (deprecated);   // (봉인) 구 호가비교 위치("0" 매도잔량 / "1" 매수잔량) — Phase 24 D-24/D-28 ③,
                                  // quick-260930-1s8 로 슬롯 24 봉인. 서버는 읽지 않는다(구 클라 매수 ON 은 값과 무관하게 거부)
     buy_trade_qty_enabled: bool; // 체결수량 조건 활성화
-    buy_enabled: bool;           // 매수 감시 활성화 — Phase 24 부터 세 매수의 마스터(D-01). 에코는 cfg ∧ 마스터 무장: 그룹 하나의 발주로는 접히지 않고, 선·추가·후매수가 모두 접히면(발주·포기·소진) 서버가 내려 OFF 로 온다(D-34)
+    buy_enabled: bool;           // 매수 감시 활성화 — Phase 24 부터 세 매수의 마스터(D-01). 에코는 cfg ∧ 마스터 무장: 그룹 하나의 발주로는 접히지 않고, 선·줄·후매수가 모두 접히면(발주·포기·소진) 서버가 내려 OFF 로 온다(D-34)
 
     // === 매도 조건 ===
     // 호가(B6) 기반 매도 조건:
@@ -628,7 +628,7 @@ table SetLimitChaser {
     // FlatBuffers 는 선언 순서로 field id 를 매긴다. 가운데 삽입/삭제는 wire 를 깨서
     // 미업그레이드 클라이언트가 엉뚱한 필드를 읽는다. 신규 필드는 반드시 여기 아래에만 붙인다.
     //
-    // 매수 3종 분리 — 선매수·추가매수·후매수 (docs/strategy/limit-chaser.md §5).
+    // 매수 3종 분리 — 선매수·줄매수·후매수 (docs/strategy/limit-chaser.md §5).
     // - buy_enabled 는 세 매수의 **마스터**다(D-01). buy_watch_price·buy_order_price 는 세 매수 공통(D-20).
     // - 기존 buy_order_qty·buy_order_amount·buy_watch_qty·buy_trade_qty_enabled·buy_min_trade_qty·
     //   sweep_* 는 **선매수의 값**으로 재해석한다(D-17).
@@ -643,13 +643,13 @@ table SetLimitChaser {
     // ★ 아래 6필드의 와이어 이름은 extra_buy_* 다 (Phase 24 D-29 — C# 생성물의 buy_* 빌더 메서드와 이름 충돌
     //   회피로 add_→extra_). 선언 위치·형·순서·vtable 슬롯(102~112)은 그대로라 와이어 바이트가 같다.
     //   서버 내부 식별자(addBuy*)·상태 파일 키(add_buy_*)·OrderReason::AddBuy* 는 그대로다.
-    extra_buy_enabled: bool;           // 추가매수 체크 (양방향) — 에코는 cfg && 무장 && !포기 (D-03/D-08). vtable 102
-    extra_buy_min_qty: uint;           // 추가매수 최소 매수잔량(주, C→S). 0 = 1주 (D-08) · 클라 기본값 = 상장주식수 × 0.3% 내림 (D-33). vtable 104
-    extra_buy_max_qty: uint;           // 추가매수 최대 매수잔량(주, C→S). 0 = 무제한 (D-08) · 클라 기본값 = 상장주식수 × 3% 내림 (D-33). vtable 106
-    extra_buy_order_amount: uint;      // 추가매수 주문금액(만원) — buy_order_amount 규약(보관·에코만). vtable 108
-    extra_buy_order_qty: uint;         // 추가매수 주문수량(주, C→S) — 발주 정본. vtable 110
-    extra_buy_abandoned: bool;         // **S→C 전용** 추가매수 포기 — 최대 초과(D-08)·상한가 이탈 최소 미달(D-33) 둘 다 이 한 bool, 어느 쪽인지는 INFO 사유 줄. 요청값은 서버가 읽지 않는다. vtable 112
-    post_buy_enabled: bool;          // 후매수 체크(양방향) — 에코는 cfg ∧ 마스터 무장 ∧ 단계 ≠ 소진: 마스터 OFF 면 OFF(D-32, 선·추가매수와 같은 모양), 「소진」이면 OFF 로 접는다(D-31). 자기 게이트와는 접지 않는다 — 무장 여부는 post_buy_phase. vtable 114
+    extra_buy_enabled: bool;           // 줄매수 체크 (양방향) — 에코는 cfg && 무장 && !포기 (D-03/D-08). vtable 102
+    extra_buy_min_qty: uint;           // 줄매수 최소 매수잔량(주, C→S). 0 = 1주 (D-08) · 클라 기본값 = 상장주식수 × 0.3% 내림 (D-33). vtable 104
+    extra_buy_max_qty: uint;           // 줄매수 최대 매수잔량(주, C→S). 0 = 무제한 (D-08) · 클라 기본값 = 상장주식수 × 3% 내림 (D-33). vtable 106
+    extra_buy_order_amount: uint;      // 줄매수 주문금액(만원) — buy_order_amount 규약(보관·에코만). vtable 108
+    extra_buy_order_qty: uint;         // 줄매수 주문수량(주, C→S) — 발주 정본. vtable 110
+    extra_buy_abandoned: bool;         // **S→C 전용** 줄매수 포기 — 최대 초과(D-08)·상한가 이탈 최소 미달(D-33) 둘 다 이 한 bool, 어느 쪽인지는 INFO 사유 줄. 요청값은 서버가 읽지 않는다. vtable 112
+    post_buy_enabled: bool;          // 후매수 체크(양방향) — 에코는 cfg ∧ 마스터 무장 ∧ 단계 ≠ 소진: 마스터 OFF 면 OFF(D-32, 선·줄매수와 같은 모양), 「소진」이면 OFF 로 접는다(D-31). 자기 게이트와는 접지 않는다 — 무장 여부는 post_buy_phase. vtable 114
     post_buy_rebound_pct: ubyte;     // 후매수 반등률 % (C→S, 1~100). vtable 116
     post_buy_floor_qty: uint;        // 후매수 하한잔량(주, C→S). vtable 118
     post_buy_reentry: ubyte;         // 후매수 최대 횟수(최초 포함, D-30) — C→S 「최대」 칸. OFF→ON 재무장은 잔여를 이 값으로 다시 싣는다(D-31). vtable 120
@@ -659,13 +659,13 @@ table SetLimitChaser {
     post_buy_reentry_left: ubyte;    // **S→C 전용** 재진입 잔여(회). 요청값은 서버가 읽지 않는다. vtable 128
     post_buy_phase: ubyte;           // **S→C 전용** 0 꺼짐 / 1 감시 / 2 보유중 / 3 소진. 요청값은 서버가 읽지 않는다. vtable 130
     // === 이하 quick-260929-ucy 추가 (말미 append) ===
-    post_buy_auto: bool;             // ☐자동(양방향) — ON 이면 선매수·추가매수가 상따 취소 옵션으로 무체결 전량취소되거나 보유 0 전이 때 서버가 후매수를 1회 켜고
+    post_buy_auto: bool;             // ☐자동(양방향) — ON 이면 선매수·줄매수가 상따 취소 옵션으로 무체결 전량취소되거나 보유 0 전이 때 서버가 후매수를 1회 켜고
                                      // 이 값을 false 로 에코한다(꺼져 있던 마스터도 올린다 — docs/strategy/limit-chaser.md §5-3-1).
                                      // 서버는 buy3_schema >= 2 일 때만 읽는다(1 이하는 서버 값 유지 — 구 클라·gh-radar relay).
                                      // 에코는 서버 런타임 값. vtable 132
     // === 이하 quick-260930-e5o 추가 (말미 append) ===
-    extra_buy_abandon_qty: uint;     // **S→C 전용** 추가매수 포기가 성립한 틱의 매수1잔량(주) — 포기 아님 = 0. 클라 상태 줄
-                                     // 「추가매수 포기(최대 초과 N — …)」 의 N. 재기동에도 유지된다(상태 파일 add_buy_abandon_qty).
+    extra_buy_abandon_qty: uint;     // **S→C 전용** 줄매수 포기가 성립한 틱의 매수1잔량(주) — 포기 아님 = 0. 클라 상태 줄
+                                     // 「줄매수 포기(최대 초과 N — …)」 의 N. 재기동에도 유지된다(상태 파일 add_buy_abandon_qty).
                                      // 요청값은 서버가 읽지 않는다. vtable 134
     // === 이하 quick-261002-dra 추가 (말미 append) ===
     post_buy_unlock_qty: uint;       // **S→C 전용** 후매수 잠금 해제선(주) — 잠금 중(☐후매수 유효 · 단계 감시 · 해제 전 · peak > 0)이면
@@ -673,8 +673,8 @@ table SetLimitChaser {
                                      // 클라 「발동」 칸 회색 표시. post_buy_trigger_qty 의 의미는 그대로(잠금 중 0).
                                      // 요청값은 서버가 읽지 않는다. vtable 136
     // === 이하 quick-261003-phd 추가 (말미 append) ===
-    extra_buy_burst_release: bool;   // 추가매수 ☐버스트 시 해제(양방향, 와이어 이름 extra_buy_* 규약 D-29) — ON 이면 버스트 상한가가
-                                     // 판정된 뒤 처음 만나는 B6 틱에 켜져 있던 추가매수를 서버가 내린다(포기 아님 — extra_buy_abandoned
+    extra_buy_burst_release: bool;   // 줄매수 ☐버스트 시 해제(양방향, 와이어 이름 extra_buy_* 규약 D-29) — ON 이면 버스트 상한가가
+                                     // 판정된 뒤 처음 만나는 B6 틱에 켜져 있던 줄매수를 서버가 내린다(포기 아님 — extra_buy_abandoned
                                      // 무접촉, 사용자가 다시 켤 수 있다). 판정당 1회. 서버는 buy3_schema >= 3 일 때만 읽는다 — 그 미만
                                      // (C# 구 클라 · 웹 lc.set 재제출을 중계하는 gh-radar relay)은 서버 값 유지(2026-10-03 gh-radar 합의,
                                      // post_buy_auto 와 같은 규약). 에코는 설정값. vtable 138
@@ -690,11 +690,33 @@ table SetLimitChaser {
     auto_sell_basis: ubyte;          // **S→C 전용** 기준 종류 1 상한가 · 2 매수가 (0 미정). vtable 152
     auto_sell_basis_price: uint;     // **S→C 전용** 기준가격(원 — 상한가 또는 매수가). vtable 154
     // === 이하 quick-261010-ub8 추가 (말미 append) ===
-    extra_buy_auto: bool;            // 추가매수 ☐자동(양방향, 와이어 이름 extra_buy_* 규약 D-29) — ON 이면 추가매수 체크가 풀린 뒤
+    extra_buy_auto: bool;            // 줄매수 ☐자동(양방향, 와이어 이름 extra_buy_* 규약 D-29) — ON 이면 줄매수 체크가 풀린 뒤
                                      // (발주·거부·최대 초과 포기·버스트 해제) 상한가 이탈 ∧ 그 계좌·종목 보유 0 ∧ 재진입 잔여 > 0 인
-                                     // 첫 B6 에 서버가 추가매수를 다시 켠다(docs/strategy/limit-chaser.md §5-2-1). 재진입 칸은
+                                     // 첫 B6 에 서버가 줄매수를 다시 켠다(docs/strategy/limit-chaser.md §5-2-1). 재진입 칸은
                                      // post_buy_reentry 를 공유한다. 서버는 buy3_schema >= 5 일 때만 읽는다 — 그 미만(C# 구 클라 ·
                                      // gh-radar relay)은 서버 값 유지. 에코는 설정값. vtable 156
+    // === 이하 Phase 32 추가 (말미 append) ===
+    // 수량 옵션의 금액(만원) 원값 — 클라가 입력한 만원 값을 서버가 보관했다가 에코·상태파일로 되돌린다.
+    // 판정·발주는 종전 주 필드(비교 정본)만 본다. 클라는 제출 때 「주 = floor(만원 × 10000 ÷ 그룹 비교가격)」 으로 환산해
+    // 주 필드에 함께 싣는다(32-CONTEXT D-02/D-04). buy3_schema 게이트 없음 — 구 클라·relay 는 0 을 싣고 서버는 0 을 저장한다(D-06).
+    buy_watch_amount: uint;          // 선매수 매도잔량 임계(만원) — buy_order_amount 규약(보관·에코·상태파일만, 평가 무접촉). C→S.
+                                     // 게이트 없음 — 0 = 클라가 주(buy_watch_qty)에서 역산 표시. vtable 158
+    buy_min_trade_amount: uint;      // 선매수 최소 체결수량(만원) — buy_order_amount 규약(보관·에코·상태파일만, 평가 무접촉). C→S.
+                                     // 게이트 없음 — 0 = 클라가 주(buy_min_trade_qty)에서 역산 표시. vtable 160
+    extra_buy_min_amount: uint;      // 줄매수 최소 매수잔량(만원) — buy_order_amount 규약(보관·에코·상태파일만, 평가 무접촉). C→S.
+                                     // 와이어 이름 extra_buy_* 규약(D-29) — 서버 내부 addBuyMinAmount · 상태 키 extra_buy_min_amount.
+                                     // 게이트 없음 — 0 = 클라가 주(extra_buy_min_qty)에서 역산 표시. vtable 162
+    extra_buy_max_amount: uint;      // 줄매수 최대 매수잔량(만원) — buy_order_amount 규약(보관·에코·상태파일만, 평가 무접촉). C→S.
+                                     // 와이어 이름 extra_buy_* 규약(D-29) — 서버 내부 addBuyMaxAmount · 상태 키 extra_buy_max_amount.
+                                     // 게이트 없음 — 0 = 클라가 주(extra_buy_max_qty)에서 역산 표시. vtable 164
+    post_buy_floor_amount: uint;     // 후매수 하한잔량(만원) — buy_order_amount 규약(보관·에코·상태파일만, 평가 무접촉). C→S.
+                                     // 게이트 없음 — 0 = 클라가 주(post_buy_floor_qty)에서 역산 표시. vtable 166
+    sell_watch_amount: uint;         // 매도 매수잔량 임계(만원) — buy_order_amount 규약(보관·에코·상태파일만, 평가 무접촉). C→S.
+                                     // 게이트 없음 — 0 = 클라가 주(sell_watch_qty)에서 역산 표시. vtable 168
+    sell_min_trade_amount: uint;     // 매도·취소 최소 체결수량(만원) — buy_order_amount 규약(보관·에코·상태파일만, 평가 무접촉). C→S.
+                                     // 게이트 없음 — 0 = 클라가 주(sell_min_trade_qty)에서 역산 표시. vtable 170
+    cancel_watch_amount: uint;       // 취소 매수잔량 임계(만원) — buy_order_amount 규약(보관·에코·상태파일만, 평가 무접촉). C→S.
+                                     // 게이트 없음 — 0 = 클라가 주(cancel_watch_qty)에서 역산 표시. vtable 172
 }
 
 // VITrigger (VI 발동) 전략 설정
@@ -1330,7 +1352,7 @@ table JournalBatch {
 // (`log/journal/strategy/`, 주문 저널과 같은 epoch·별도 seq 공간)에 쓰고 관찰자(gh-radar relay)에는 80 JournalBatch
 // 말미 `strategy_events` 로, 클라에는 81(백필)/82(푸시)로 보낸다. 잔량진행률(83)은 종목·거래소별 대기 주문 전체
 // 스냅샷 Broadcast 다. 필드 이름·enum 번호는 HANDOFF v0.1 로 gh-radar 와 합의된 **one-way 계약**이다 (D-03) —
-// 바꾸지 않고, 추가는 말미 append 만 한다. 표시 이름(선매수·추가매수·호가매도 …)은 클라 매핑이다 (D-02).
+// 바꾸지 않고, 추가는 말미 append 만 한다. 표시 이름(선매수·줄매수·호가매도 …)은 클라 매핑이다 (D-02).
 //
 //   39 GetStrategyEventsReq (C→S) 오늘분 백필 — get_quote_req 슬롯 재사용
 //   81 StrategyEventsResp   (S→C) 백필 응답 (is_snapshot=true, 요청 연결에만 Notice)
@@ -1373,7 +1395,7 @@ enum StrategyEventKind : ubyte {
 enum OrderGroup : ubyte {
     None = 0,
     PreBuy = 1,          // 선매수
-    AddBuy = 2,          // 추가매수 (코드 주석 "줄서기": 매수잔량 ≥ 구간 진입)
+    AddBuy = 2,          // 줄매수 (코드 주석 "줄서기": 매수잔량 ≥ 구간 진입)
     PostBuy = 3,         // 후매수 (코드 주석 "반등": 발동잔량 ≤ 하향 래칫)
     SellQuote = 4,       // 호가매도 (ShouldSellOnQuote, B6)
     SellTrade = 5,       // 체결매도 (ShouldSellOnTrade, A3)
@@ -1426,7 +1448,7 @@ enum CancelReason : ubyte {
     AutoSellBuyFirst = 10,    // 자동매도 매수 우선 — 같은 창 매수 조건 성립 시 그 계좌·종목 매도 미체결(거래소 불문) 취소 (D-09/D-31)
     AutoSellAuctionTrim = 11, // 자동매도 장전 동시호가 회차 감축 — 목표 수량이 줄어 나중 주문부터 취소 (D-29)
     // 12 는 quick-261007-gwv 신규 값
-    BurstLimit = 12           // 추가매수 ☐버스트 시 해제 — 버스트 상한가 판정 시 이번 진입 구간 추가매수 잔량 취소 (quick-261007-edj)
+    BurstLimit = 12           // 줄매수 ☐버스트 시 해제 — 버스트 상한가 판정 시 이번 진입 구간 줄매수 잔량 취소 (quick-261007-edj)
 }
 
 table StrategyEvent {            // 43 필드 — HANDOFF v0.1 표 순서·이름 그대로 (없는 값은 0/"")
@@ -1584,13 +1606,13 @@ table AutoSellCommandReq {       // 41 본문 — 자동매도 바로시작/중�
                                  // 그 밖 값은 54 ERROR
 }
 
-table UserSettings {             // 42/84 공용 본문 — 사용자(dma_user_id)별 상따 기본설정 11개 + present (D-20)
+table UserSettings {             // 42/84 공용 본문 — 사용자(dma_user_id)별 상따 기본설정 12개 + present (D-20 · Phase 32 D-08)
     // 기존 클라 settings.ini [LimitChaserDefaults] 7키 — 금액 3칸 단위는 **만원**(클라 LimitChaserDefaults 와 같다)
     pre_buy_amount: uint;        // 선매수 주문금액(만원) 0~999999999
-    add_buy_amount: uint;        // 추가매수 주문금액(만원) 0~999999999
+    add_buy_amount: uint;        // 줄매수 주문금액(만원) 0~999999999
     post_buy_amount: uint;       // 후매수 주문금액(만원) 0~999999999
     post_buy_max_count: ubyte;   // 후매수 최대 횟수(최초 포함) 0~255
-    post_buy_floor_qty: uint;    // 후매수 하한잔량(주) 0~99999999
+    post_buy_floor_qty: uint;    // 후매수 하한잔량(주) 0~99999999 (봉인 — Phase 32 D-08, 신 클라는 0 을 싣고 읽지 않는다)
     post_buy_rebound_pct: ubyte; // 후매수 반등률 % 0~100
     sell_qty_track_ratio: ubyte; // 매도잔량 추적 비율 % 0~90
     // 신규 4 (Phase 28)
@@ -1600,6 +1622,8 @@ table UserSettings {             // 42/84 공용 본문 — 사용자(dma_user_i
     auto_sell_method_default: ubyte;     // 상따창 자동매도 방법 기본값 1 매도1호가 · 2 매수1호가 · 3 절반절반, 기본 3
     present: bool;               // **84 전용** — true = 서버 저장값 있음 · false = 저장값 없음(내장 기본값을 싣는다 —
                                  // 클라는 false 면 ini 값으로 42 를 1회 보내 이전한다, D-20). 42 요청값은 서버가 읽지 않는다
+    // === 이하 Phase 32 추가 (말미 append — present 뒤가 참 말미다. present 앞에 끼우면 present 슬롯이 밀린다) ===
+    post_buy_floor_amount: uint;   // 후매수 하한금액(만원) 0~999999999 — Phase 32 D-08. 신 클라의 「후매수 최소」 기본값. present 뒤 말미 append. vtable 28
 }
 
 // ============================================================================
