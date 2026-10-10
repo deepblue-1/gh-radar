@@ -722,6 +722,8 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
 
     // 탭을 닫고 유예가 끝나 세션이 전부 소멸하면 movedFrom 도 사라진다.
     await third.ws.close();
+    // 서버 쪽 close 경로(release → 유예 예약)가 돈 뒤에 시계를 민다.
+    await waitFor(() => !h.fanout.connectedUsers().some((u) => u.userId === U1), "u1 연결 소멸(release)");
     vi.advanceTimersByTime(SESSION_GRACE_MS);
     await waitFor(() => h.m.sessionsOf(U1).length === 0, "유예 만료 — 세션 소멸");
     const fresh = await h.open("token-1");

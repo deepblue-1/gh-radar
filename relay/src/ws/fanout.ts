@@ -430,6 +430,12 @@ type UserSignature = { servers: string; owners: Map<string, AccountOwner> };
 /** 지금 서명 — 계좌를 선언한 세션이 있는지(`known`)도 함께. 선언 목록에서 빠진 계좌는 옮겨짐이 아니다. */
 type CurrentSignature = UserSignature & { known: Set<string> };
 
+/**
+ * 이번 재수립으로 서버가 바뀐 계좌 → 옛 서버 키 (29-36 · 상태 프레임 계좌 `movedFrom`). `sessions` = 재수립 뒤 처음 결선된 그 사용자
+ * 세션들(첫 결선 전 null) — 결선 때 그중 하나도 남아 있지 않으면(유예 만료로 전부 소멸 → 새 로그인) 지운다.
+ */
+type MovedFrom = { accounts: Map<string, string>; sessions: WeakSet<DmaSession> | null };
+
 /** 소유 서버가 바뀐 계좌 1건 (29-36). `to` undefined = 지금 그 계좌를 소유한 세션이 없다(새 서버 세션 전 · 지정 서버 매핑 미반영). */
 type OrderServerMove = { accountNo: string; broker: string; from: string; to: string | undefined };
 
@@ -598,8 +604,8 @@ export class WsFanout {
    * 재수립이 끝난 뒤 **그때의** 서명으로 다시 판정한다(진행 중 sweep 의 세션을 뒤 변경의 dropUser 가 닫지 않는다).
    */
   readonly #resyncChain = new Map<string, Promise<void>>();
-  /** userId → 이번 재수립으로 서버가 바뀐 계좌 → 옛 서버 키 (29-36). 다음 재수립이 교체한다. */
-  readonly #movedFrom = new Map<string, Map<string, string>>();
+  /** userId → 이번 재수립으로 서버가 바뀐 계좌 → 옛 서버 키 (29-36). 다음 재수립이 교체하고, 세션 전부 소멸이면 지운다. */
+  readonly #movedFrom = new Map<string, MovedFrom>();
 
   constructor(deps: WsFanoutDeps) {
     this.#server = deps.server;
@@ -921,7 +927,8 @@ export class WsFanout {
         }
       }
     }
-    this.#movedFrom.set(userId, new Map(moves.map((m) => [m.accountNo, m.from])));
+    // 상태 프레임 계좌 `movedFrom` — 이번 재수립의 옮겨짐으로 교체한다(옮겨지지 않은 계좌는 지운다).
+    this.#movedFrom.set(userId, { accounts: new Map(moves.map((m) => [m.accountNo, m.from])), sessions: null });
     this.resyncUser(userId, reason);
   }
 
@@ -2245,6 +2252,23 @@ export class WsFanout {
     this.#hub.retainSessions(userId, held);
     // 29-36 — 세션을 실제로 연 자리라 원하는 서버 집합까지 기록한다(소유 계좌는 처음 본 것만).
     this.#recordSignature(userId, { servers: true });
+    this.#bindMovedFrom(entry, userId);
+  }
+
+  /**
+   * `movedFrom` 의 수명 (29-36) — 재수립 뒤 첫 결선의 세션들을 기억하고, 뒤 결선에서 그 세션이 하나라도 남아 있으면(탭 다시 열기 ·
+   * 세션 재사용 · 세션 추가) 유지, 하나도 없으면(유예 만료로 전부 소멸 → 새 로그인) 지운다.
+   */
+  #bindMovedFrom(entry: UserEntry, userId: string): void {
+    const moved = this.#movedFrom.get(userId);
+    if (moved === undefined) return;
+    const live = [...entry.sessions.values()].map((es) => es.session);
+    if (moved.sessions !== null && !live.some((s) => moved.sessions?.has(s) === true)) {
+      this.#movedFrom.delete(userId);
+      return;
+    }
+    moved.sessions ??= new WeakSet();
+    for (const s of live) moved.sessions.add(s);
   }
 
   /**
@@ -2315,39 +2339,53 @@ export class WsFanout {
       sessions.find((s) => s.broker === "KB") ??
       sessions[0];
     if (primary === undefined) return { t: "state", s: "connecting" };
-    if (sessions.length === 1) return this.#withAccountExtras(userId, frameOf(primary));
+    if (sessions.length === 1) return this.#withAccountExtras(userId, frameOf(primary), () => primary.serverKey);
 
     const ready = primary.isReady ? primary : sessions.find((s) => s.isReady);
     const base = frameOf(ready ?? primary);
-    const seen = new Set<string>();
+    const ownerOf = new Map<string, string>();
     const accounts: RelayAccount[] = [];
     for (const s of [primary, ...sessions.filter((x) => x !== primary)]) {
       for (const a of s.allowedAccounts) {
-        if (seen.has(a.accountNo)) continue;
-        seen.add(a.accountNo);
+        if (ownerOf.has(a.accountNo)) continue;
+        ownerOf.set(a.accountNo, s.serverKey);
         accounts.push(a);
       }
     }
-    return this.#withAccountExtras(userId, { ...base, accounts });
+    return this.#withAccountExtras(userId, { ...base, accounts }, (accountNo) => ownerOf.get(accountNo));
   }
 
   /**
-   * 상태 프레임 계좌 항목에 G-1 부가 정보를 붙인 **사본** (29-36) — 세션 프레임 객체를 바꾸지 않는다. 끄지 못한 전략(레지스터
-   * `pendingFor`)이 있는 계좌에 `staleStrategies: { serverKey, count }`. 붙일 것이 없으면 그 프레임 그대로.
+   * 상태 프레임 계좌 항목에 G-1 부가 정보를 붙인 **사본** (29-36) — 세션 프레임 객체를 바꾸지 않는다(계좌 항목도 새 객체).
+   *   - `serverKey` — 그 계좌를 소유한 세션의 서버 키(그 계좌 주문이 나가는 서버 · 표시용).
+   *   - `movedFrom` — 이번 재수립으로 서버가 바뀐 계좌의 옛 서버 키(「옛 서버 잔고 · 미체결은 클라(OCX) 대사로」 안내 원천).
+   *   - `staleStrategies` — 끄지 못한 전략(레지스터 `pendingFor`)이 있는 계좌의 `{ serverKey, count }`.
+   * 계좌가 없으면(ready 전 · 실패) 그 프레임 그대로.
    */
-  #withAccountExtras(userId: string, frame: RelayStateMsg): RelayStateMsg {
+  #withAccountExtras(
+    userId: string,
+    frame: RelayStateMsg,
+    serverKeyOf: (accountNo: string) => string | undefined,
+  ): RelayStateMsg {
     const accounts = frame.accounts;
     if (accounts === undefined || accounts.length === 0) return frame;
+    const moved = this.#movedFrom.get(userId)?.accounts;
     const stale = new Map<string, { serverKey: string; count: number | null }>();
     for (const e of this.#stale?.pendingFor(userId) ?? []) {
       if (!stale.has(e.accountNo)) stale.set(e.accountNo, { serverKey: e.serverKey, count: e.remaining });
     }
-    if (stale.size === 0) return frame;
     return {
       ...frame,
       accounts: accounts.map((a) => {
+        const serverKey = serverKeyOf(a.accountNo);
+        const movedFrom = moved?.get(a.accountNo);
         const st = stale.get(a.accountNo);
-        return st === undefined ? a : { ...a, staleStrategies: st };
+        return {
+          ...a,
+          ...(serverKey !== undefined ? { serverKey } : {}),
+          ...(movedFrom !== undefined ? { movedFrom } : {}),
+          ...(st !== undefined ? { staleStrategies: st } : {}),
+        };
       }),
     };
   }

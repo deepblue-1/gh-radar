@@ -43,7 +43,8 @@
  *         세션을 하나도 열지 않는다(fail closed — 어느 서버에 붙을지 모르는 채로 붙지 않는다. `/healthz` 가 없으니 uptime 이
  *         울린다). 적재 뒤 `ServerPipelines.sync(registry.enabled())` 가 enabled 서버마다 관찰자 한 벌을 세우고, 레지스트리
  *         `changed`(60초 재적재 · `reload()`)마다 다시 sync 한다 — 서버 추가 · 삭제 · 끄기 · 주소 변경이 재배포 없이 반영된다.
- *           - 사용자 세션 = **그 증권사 주문 서버**(`SessionManager.resolveTarget(broker)` — 세션을 만들 때마다 고른다 · 29-16).
+ *           - 사용자 세션 = **계좌의 유효 주문 서버**(G-1 · 29-33 — 지정 ?? 증권사 기본 주문 서버 · `serversFor` 대상마다 `acquireOn`).
+ *             D-10 「증권사당 주문 서버 1대 · 열린 세션은 예전 서버 유지」 는 G-1 로 대체됐다.
  *           - quote 연결 = **시세 주 서버**(부팅 때 레지스트리 값 · 비밀은 그 증권사 `quoteSecretOf`). Admin 전환 · 레지스트리 보정은
  *             `QuoteSwitch` 가 break-then-make 로 옮긴다(29-23 · D-11).
  *           - 브라우저 `journal.state` · `/healthz` `journal`(503 축) = **지금의 KB 주문 서버** 파이프라인 — `OrderServerJournal`
@@ -51,8 +52,15 @@
  *             주 매핑 라우팅(경로 없는 `journal.rows`)도 같은 현재 파이프라인을 본다.
  *           - `journalGateways.<서버 키>` = 그 밖 enabled 서버(본문 전용) · `brokers.{KB,KYOBO}` = 증권사별 주문 서버 저널
  *             `{ server, alerting }`(uptime 고정 JSONPath — Pitfall 3).
- *           - 주문 서버 변경(계좌 지정 · 증권사 기본)은 29-36 의 즉시 재수립이 맡는다(G-1 · 사용자 확정 2026-10-10 「즉시 재접속」).
- *             D-10 의 「주문 서버 바뀜」 `order.server` 표식(29-22)은 29-42 가 없앴다.
+ *             G-1 재검토(29-43 · 29-36) — journal(503 축) · brokers 는 **증권사 기본 주문 서버** 저널 그대로다(503 축 · uptime 고정
+ *             경로 보존). 계좌 지정 서버의 저널과 옛 서버에 끄지 못한 전략은 본문 전용 `accountOrderServers.<키>`(지정 계좌 수 · 그
+ *             서버 저널 alerting · staleAccounts)와 Admin `servers/status` 의 `staleAccounts` 에만 싣는다(503 판정 밖).
+ *           - 주문 서버 변경(계좌 지정 · 증권사 기본)은 **옛 서버 전략 끄기 → 즉시 재수립 → 25→66 재동기**다(G-1 · 29-36 · 사용자 확정
+ *             2026-10-10 「즉시 재접속」 · gh-trade-84 ② 추가 확정): 지정 적재기 `changed` 와 레지스트리 `changed` 가 둘 다
+ *             `fanout.resyncChangedUsers` 를 부른다 — 영향 연결 중 사용자마다 옮겨지는 계좌의 옛 서버 세션에서 활성 전략을 끄고
+ *             (`StrategySweeper` · 끄지 못하면 `StaleStrategyRegister` · warn · 상태 프레임 `staleStrategies`) 세션 drop · wss 1012 →
+ *             재접속이 새 서버 세션을 열고 ready → 25 → 66 으로 계좌 상태를 다시 맞춘다. D-10 의 「주문 서버 바뀜」 `order.server`
+ *             표식(29-22)은 29-42 가 없앴다.
  *         이 플랜이 **남긴 것**(뒤 플랜 몫): 서버 푸시 신원은 29-06 에서 `AppAccess` 하나로 바뀌었다(런타임 추가 서버도 즉시 같은
  *         신원) · 사용자 세션은 (유저, 서버) 단위(29-16 · 29-20) · quote 전환은 29-23 `QuoteSwitch`.
  *
@@ -483,6 +491,8 @@ const adminRouter = createAdminRouter({
   quoteStatus: { serverKey: () => quoteSwitch.currentServerKey, health: (nowMs) => quoteStatus.health(nowMs) },
   // 시세 주 서버 즉시 전환(29-23 · D-11) — break-then-make · 실패 복귀 · 단일 비행.
   quoteSwitch,
+  // Phase 29-36 (G-1 (가)) — 서버 카드 「끄지 못한 전략 N 계좌」(servers/status staleAccounts · 29-43 본문) 원천.
+  staleStrategies: () => staleStrategies.byServer(),
 });
 
 const orderApi = createOrderApi({
@@ -515,6 +525,19 @@ const orderApi = createOrderApi({
   quote: quoteStatus,
   // Phase 29-08 — 서버별 admin 연결(role 2) 상태 · users_rev. 본문 전용(503 판정 밖) · 요청마다 현재 enabled 서버 목록.
   adminConns: () => pipelines.all().map((p) => ({ serverKey: p.server.key, health: () => p.admin.health() })),
+  // Phase 29-36 (G-1 · 29-43 본문) — 계좌 지정 주문 서버: 지정 적재기 사본을 서버 키별 계수로 접고 그 서버 파이프라인 저널 health
+  // (파이프라인 없음 = undefined → alerting). 본문 전용 `accountOrderServers.<키>` — 503 판정 밖. 요청마다 현재 값.
+  accountOrderServers: () => {
+    const counts = new Map<string, number>();
+    for (const e of accountOrderServers.entries()) counts.set(e.serverKey, (counts.get(e.serverKey) ?? 0) + 1);
+    return [...counts].map(([serverKey, accounts]) => ({
+      serverKey,
+      accounts,
+      health: (nowMs: number) => pipelines.get(serverKey)?.status.health(nowMs),
+    }));
+  },
+  // 옛 서버에 끄지 못한 전략 — 서버 키 → 계좌 수(`StaleStrategyRegister.byServer`). 본문 `accountOrderServers.<키>.staleAccounts`.
+  staleStrategies: () => staleStrategies.byServer(),
   // Phase 29-11 — Admin 내부 HTTP(관문 뒤 · 404 앞). Express 만 부른다(D-07).
   admin: { router: adminRouter },
 });
@@ -530,8 +553,8 @@ accountOrderServers.start();
 pipelines.sync(registry.enabled());
 orderJournal.refresh();
 // 레지스트리 변경(60초 재적재 · reload) → 서버 추가 · 삭제 · 끄기 · 주소 변경을 재배포 없이 반영한다.
-// G-1 (29-42) — 주문 서버가 바뀌어도 여기서 「주문 서버 바뀜」 표식을 보내지 않는다(D-10 배지 폐지). 영향 사용자 세션의 즉시
-// 재수립은 29-36 몫이다.
+// G-1 (29-42) — 주문 서버가 바뀌어도 여기서 「주문 서버 바뀜」 표식을 보내지 않는다(D-10 배지 폐지). 29-36 — 맨 끝에서 영향
+// 사용자 세션을 옛 서버 전략 끄기 → 즉시 재수립으로 옮긴다(파이프라인 sync · 저널 원천 refresh 뒤 — 재접속 인증이 새 매핑을 본다).
 registry.on("changed", (change) => {
   pipelines.sync(registry.enabled());
   // 29-23 (D-11) — DB 시세 주 서버가 다른 경로로 바뀌었으면 같은 break-then-make 로 맞춘다. 실패하면 DB 를 지금 연결 서버로
@@ -548,6 +571,13 @@ registry.on("changed", (change) => {
   }
   // 29-22 — 저널 원천이 새 KB 주문 서버로 바뀌었으면 그 서버의 지금 상태를 브라우저에 1건(다음 healthz 는 요청마다 현재 값).
   orderJournal.refresh();
+  // 29-36 (G-1) — 증권사 기본 주문 서버 변경 · 지정 서버 끄기/켜기로 계좌의 유효 주문 서버가 바뀐 연결 중 사용자만 재수립한다
+  // (주소 · 무관 서버 변경은 서명이 같아 0). 끄기(옛 서버 전략) → 세션 drop · wss 1012 → 재접속 · 25→66.
+  void fanout
+    .resyncChangedUsers("registry")
+    .catch((err: unknown) =>
+      logger.error({ error: err instanceof Error ? err.message : String(err) }, "[WS] 레지스트리 변경 재수립 예외"),
+    );
 });
 // 시세 전용 quote 연결도 같은 자리에서 연다(Phase 26 — 장 시간 · 사용자 접속과 무관). hub · fanout 결선이 다 붙은 뒤다.
 quoteSwitch.start();
