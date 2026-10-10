@@ -471,11 +471,11 @@ describe('⑰ 취소 래치 전이 2종 + skip 집합 (17-11 Task 2 · Phase 24 
     );
   });
 
-  it('⑰-6 ★ 두 표가 29종 닫힌 집합으로 동형이다 — 문구/전이가 한쪽만 늘지 않는다 (Phase 24: −buyFired +그룹 6 +동반 6 +서버 접힘 1 · quick-260929-vzy +자동 2 · quick-260930-fi4 +포기 1)', () => {
-    expect(TRANSITION_ORDER).toHaveLength(29);
-    expect(Object.keys(TRANSITION_TEXT)).toHaveLength(29);
+  it('⑰-6 ★ 두 표가 31종 닫힌 집합으로 동형이다 — 문구/전이가 한쪽만 늘지 않는다 (Phase 24: −buyFired +그룹 6 +동반 6 +서버 접힘 1 · quick-260929-vzy +자동 2 · quick-260930-fi4 +포기 1 · quick-261011-0yb +추가매수 자동 2)', () => {
+    expect(TRANSITION_ORDER).toHaveLength(31);
+    expect(Object.keys(TRANSITION_TEXT)).toHaveLength(31);
     // 중복 없음 + 두 표의 원소 집합이 정확히 같다.
-    expect(new Set(TRANSITION_ORDER).size).toBe(29);
+    expect(new Set(TRANSITION_ORDER).size).toBe(31);
     expect([...TRANSITION_ORDER].sort()).toEqual(Object.keys(TRANSITION_TEXT).sort());
   });
 
@@ -779,6 +779,34 @@ describe('후매수 자동 — 로그 전이 · 54 사유 줄 (quick-260929-vzy 
     const out = serverMessageLogLine(reason);
     expect(out.text).toBe(`[상따] 서버 통지 — ${m}`);
     expect(out.level).toBe('info');
+  });
+});
+
+/*
+  quick-261011-0yb — 추가매수 ☐자동. 에코 전이는 「추가매수 자동 체크 / 해제」 로만 말하고 「서버 반영 완료」 로
+  겹쳐 말하지 않는다(VALUE_COMPARE_SKIP). 서버 재체크 사유는 54 원문 줄이 말한다.
+*/
+describe('추가매수 자동 — 로그 전이 (quick-261011-0yb)', () => {
+  it('false → true = 「추가매수 자동 체크」 · true → false = 「추가매수 자동 해제」 · extraBuyAuto 만 바뀐 에코에 「서버 반영 완료」 없음', () => {
+    expect(TRANSITION_TEXT.extraBuyAutoOn).toBe('추가매수 자동 체크');
+    expect(TRANSITION_TEXT.extraBuyAutoOff).toBe('추가매수 자동 해제');
+    const off = at({ buyEnabled: true });
+    const on = at({ buyEnabled: true, extraBuyAuto: true });
+    expect(strategyLogLine(off, on)).toBe('추가매수 자동 체크');
+    expect(strategyLogLine(on, off)).toBe('추가매수 자동 해제');
+    expect(strategyLogLine(off, on)).not.toContain('서버 반영 완료');
+  });
+
+  it('첫 스냅샷에 extraBuyAuto 가 켜져 있으면 등록 줄에 「추가매수 자동 체크」 가 붙는다', () => {
+    expect(strategyLogLine(null, at({ buyEnabled: true, extraBuyAuto: true }))).toBe(
+      '전략이 등록됐어요 · 매수주문 무장 · 추가매수 자동 체크',
+    );
+  });
+
+  it('사람이 추가매수를 끄며 자동도 동반 해제한 에코 — 「추가매수 무장 해제 · 추가매수 자동 해제」 순서', () => {
+    const before = at({ buyEnabled: true, preBuyEnabled: true, extraBuyEnabled: true, extraBuyAuto: true });
+    const after = at({ buyEnabled: true, preBuyEnabled: true, extraBuyEnabled: false, extraBuyAuto: false });
+    expect(strategyLogLine(before, after)).toBe('추가매수 무장 해제 · 추가매수 자동 해제');
   });
 });
 

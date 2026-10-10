@@ -61,7 +61,7 @@ export type LcBoolField = Extract<
   | 'cancelQtyTrackEnabled'
   | 'extraBuyBurstRelease'
 >;
-/** 상따 행 단위 — 키패드 단위 전부(후매수 「최대」가 「회」를 쓴다 · 0 허용 — D-30). */
+/** 상따 행 단위 — 키패드 단위 전부(후매수 「재진입」이 「회」를 쓴다 · 0 허용 — D-30). */
 export type LcUnit = PadUnit;
 
 /**
@@ -158,10 +158,17 @@ export interface LcGroupSpec {
   /** 제목줄 접기(Phase 24 ⑤ — 선매수 · 추가매수 · 후매수 · Phase 27 D-01 자동매도). */
   collapsible: boolean;
   /**
-   * 제목줄 체크(quick-260929-vzy — 후매수 ☐자동). 그룹 스위치와 같은 지위다 — 어느 행에도 속하지 않고
-   * 게이트가 꺼져도 흐리지 않는다(WinForms ☐자동 동형). 제목줄에서 스위치 바로 앞에 선다.
+   * 제목줄 체크(후매수 ☐자동 quick-260929-vzy · 추가매수 ☐자동 quick-261011-0yb) — 그룹 스위치와 같은 지위 · 게이트가
+   * 꺼져도 흐리지 않는다(WinForms chkAddBuyAuto 는 OptionDimGroup 밖). 어느 행에도 속하지 않고 제목줄에서 스위치 바로
+   * 앞에 선다.
    */
-  headerCheck?: { field: 'postBuyAuto'; checkId: string; label: string; ariaLabel: string; hint: string };
+  headerCheck?: {
+    field: 'postBuyAuto' | 'extraBuyAuto';
+    checkId: string;
+    label: string;
+    ariaLabel: string;
+    hint: string;
+  };
   rows: readonly LcRowSpec[];
 }
 
@@ -266,6 +273,14 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
     dimGate: 'extraBuyEnabled',
     dimWhenOff: true,
     collapsible: true,
+    // ☐자동(quick-261011-0yb · 사용자 결정 U-1) — C# 처럼 ☐추가매수 줄(= 제목줄)에 둔다. 재진입 횟수는 후매수 칸을 공유한다.
+    headerCheck: {
+      field: 'extraBuyAuto',
+      checkId: 'lc-extra-buy-auto',
+      label: '자동',
+      ariaLabel: '추가매수 자동',
+      hint: '추가매수가 풀린 뒤(발주 · 포기 · 버스트 해제) 상한가를 벗어나고 잔고가 0 이면 서버가 추가매수를 다시 켜요 — 횟수는 후매수 「재진입」 칸을 같이 써요',
+    },
     rows: [
       {
         kind: 'value',
@@ -332,13 +347,13 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
         kind: 'value',
         field: 'postBuyReentry',
         id: 'lc-post-buy-reentry',
-        label: '최대',
+        label: '재진입',
         unit: '회',
-        sheetTitle: '후매수 최대 횟수',
-        desc: '최초 포함 총 진입 횟수예요 · 0 = 사지 않아요 · 껐다 켜면 이 값부터 다시 세요',
+        sheetTitle: '재진입 횟수',
+        desc: '최초 포함 총 진입 횟수예요 · 후매수와 추가매수 자동이 같이 써요 · 0 = 사지 않아요 · 껐다 켜면 이 값부터 다시 세요',
         ...LC_FIELD_RANGES.postBuyReentry,
       },
-      // 단계 3(소진)일 때만 「최대」 바로 아래 한 줄(UI-SPEC §5) — 렌더가 판정한다.
+      // 단계 3(소진)일 때만 「재진입」 바로 아래 한 줄(UI-SPEC §5) — 렌더가 판정한다.
       { kind: 'note', note: 'postBuyExhausted' },
       {
         kind: 'value',
@@ -594,7 +609,8 @@ const fmt = (n: number, unit: string): string => `${NUM.format(n)}${unit}`;
  *   - 추가매수 최대 0 → 「무제한」 · 최소 0 → 「1주」 · 후매수 최소 잔량 0 → 「없음」(D-10)
  *   - 금액 0 → 「—」(추가 · 후매수 D-03 · 선매수 금액 0). 서버가 선매수 금액을 모르는 레거시(D-04a)는 폼의
  *     `amountRequired` 경로가 그대로 맡는다.
- *   - 후매수 최대(D-11) — 단계 0(또는 에코 없음) 「{설정}회」 · 그 밖 「{설정}회 · 남은 {잔여}회」.
+ *   - 후매수 재진입(D-11) — 단계 0(또는 에코 없음) 「{설정}회」 · 그 밖 「{설정}회 · 남은 {잔여}회」.
+ *     C# 동형: 단계 0 이어도 에코 ☐추가매수 자동이면 잔여를 보인다(재진입 칸 공유 · quick-261011-0yb).
  *     시트 「지금」 참고값은 설정값이라 호출부가 `server` 를 `null` 로 넘긴다.
  */
 export function lcValueTextOf(
@@ -615,8 +631,8 @@ export function lcValueTextOf(
     case 'postBuyOrderAmount':
       return v === 0 ? '—' : null;
     case 'postBuyReentry': {
-      const phase = server?.postBuyPhase ?? 0;
-      return phase === 0 ? fmt(v, '회') : `${fmt(v, '회')} · 남은 ${fmt(server?.postBuyReentryLeft ?? 0, '회')}`;
+      const showLeft = (server?.postBuyPhase ?? 0) !== 0 || server?.extraBuyAuto === true;
+      return showLeft ? `${fmt(v, '회')} · 남은 ${fmt(server?.postBuyReentryLeft ?? 0, '회')}` : fmt(v, '회');
     }
     case 'autoSellStartCond':
       // Phase 27 D-02 — 0 = 이탈 관측 뒤 다음 체결(gh-trade §6-6). 그 밖은 기본 「N%」.
@@ -711,7 +727,7 @@ export function lcSummaryOf(
       const unlock = server?.postBuyUnlockQty ?? 0;
       return [
         amountItem('postBuyOrderAmount', values, false),
-        { key: '최대', value: text('postBuyReentry', '회'), off: false },
+        { key: '재진입', value: text('postBuyReentry', '회'), off: false },
         { key: '최소', value: text('postBuyFloorQty', '주'), off: false },
         { key: '반등', value: fmt(values.postBuyReboundPct, '%'), off: false },
         trigger > 0

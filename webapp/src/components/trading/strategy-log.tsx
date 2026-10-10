@@ -50,6 +50,8 @@
  *     (`POST_BUY_OVERRIDE_FIELDS`)은 서버 귀속이다 — 「서버 반영 완료」도 「다른 단말」 배너도 아니다.
  *   - **후매수 ☐자동(quick-260929-vzy D-07).** 서버 발화 사유는 54 원문 줄(`[상따] 서버 통지 — 후매수 자동 켬 — …`)이
  *     말하고, 에코는 자동 체크 · 해제(「후매수 자동 체크」 · 「후매수 자동 해제」)로만 말한다 — 「서버 반영 완료」 가 아니다.
+ *   - **추가매수 ☐자동(quick-261011-0yb).** 같은 규율 — 서버 재체크 사유는 54 원문 줄(`[상따] 서버 통지 — 추가매수 — …`)이
+ *     말하고, 에코는 「추가매수 자동 체크」 · 「추가매수 자동 해제」로만 말한다.
  *   - **Pitfall 11 — 마스터는 발주로 접히지 않는다.** 마스터 OFF 에코를 「발주」로 읽지 않는다
  *     (옛 `buyFired`/`hadOrder` 은퇴). 발주 사실은 서버 사유 줄 `[상따] … 매수 N주 @…` 가 말한다.
  */
@@ -103,6 +105,8 @@ export type StrategyTransition =
   | 'extraBuyArmed'
   | 'extraBuyDisarmed'
   | 'extraBuyAbandoned'
+  | 'extraBuyAutoOn'
+  | 'extraBuyAutoOff'
   | 'postBuyArmed'
   | 'postBuyDisarmed'
   | 'postBuyAutoOn'
@@ -146,6 +150,10 @@ export const TRANSITION_TEXT: Record<StrategyTransition, string> = {
   extraBuyDisarmed: '추가매수 무장 해제',
   // quick-260930-fi4 — 포기 성립 에코에서 「추가매수 무장 해제」 를 대신한다. 수량(> 0)은 조각을 이을 때 붙는다.
   extraBuyAbandoned: '추가매수 포기',
+  // 추가매수 ☐자동(quick-261011-0yb · C# groupParts 「추가매수 자동 ON/OFF」 대응) — 54 사유 줄 「추가매수 — …」 과
+  //   겹치지 않게 체크 · 해제 어휘를 쓴다.
+  extraBuyAutoOn: '추가매수 자동 체크',
+  extraBuyAutoOff: '추가매수 자동 해제',
   postBuyArmed: '후매수 무장',
   postBuyDisarmed: '후매수 무장 해제',
   // 후매수 ☐자동(quick-260929-vzy D-07) — 서버 사유 줄 「후매수 자동 켬 — …」 과 겹치지 않게 체크 · 해제 어휘를 쓴다.
@@ -188,6 +196,8 @@ export const TRANSITION_ORDER: readonly StrategyTransition[] = [
   'extraBuyArmed',
   'extraBuyDisarmed',
   'extraBuyAbandoned',
+  'extraBuyAutoOn',
+  'extraBuyAutoOff',
   'postBuyArmed',
   'postBuyDisarmed',
   'postBuyAutoOn',
@@ -280,6 +290,8 @@ const VALUE_COMPARE_SKIP: ReadonlySet<keyof RelayLimitChaser> = new Set<keyof Re
   'cancelTradeEnabled',
   // 후매수 ☐자동 — 전이 축(「후매수 자동 체크 / 해제」)이 말한다. 서버 발화의 false 에코를 「서버 반영 완료」 로 오귀속하지 않는다.
   'postBuyAuto',
+  // 추가매수 ☐자동 — 전이 축(「추가매수 자동 체크 / 해제」)이 말한다. 「서버 반영 완료」 로 겹쳐 말하지 않는다(quick-261011-0yb).
+  'extraBuyAuto',
   // ☐자동매도 — 게이트 축(Phase 27). 61 · 54 사유 줄이 말한다.
   'autoSellEnabled',
   ...LIMIT_CHASER_SERVER_ONLY_FIELDS,
@@ -442,6 +454,7 @@ export function strategyLogLine(
     if (next.buyEnabled) hit.add('buyArmed');
     for (const g of BUY_GROUPS) if (next[g.gate]) hit.add(g.armed);
     if (next.postBuyAuto) hit.add('postBuyAutoOn');
+    if (next.extraBuyAuto) hit.add('extraBuyAutoOn');
     if (next.sellEntryLatched) hit.add('sellLatched');
     else if (next.sellEnabled) hit.add('sellArmed');
     if (next.cancelEntryLatched) hit.add('cancelLatched');
@@ -484,6 +497,8 @@ export function strategyLogLine(
     }
     if (!prev.postBuyAuto && next.postBuyAuto) hit.add('postBuyAutoOn');
     if (prev.postBuyAuto && !next.postBuyAuto) hit.add('postBuyAutoOff');
+    if (!prev.extraBuyAuto && next.extraBuyAuto) hit.add('extraBuyAutoOn');
+    if (prev.extraBuyAuto && !next.extraBuyAuto) hit.add('extraBuyAutoOff');
     if (!prev.sellEnabled && next.sellEnabled) hit.add('sellArmed');
     if (prev.sellEnabled && !next.sellEnabled) hit.add('sellDisarmed');
     if (!prev.sellEntryLatched && next.sellEntryLatched) hit.add('sellLatched');

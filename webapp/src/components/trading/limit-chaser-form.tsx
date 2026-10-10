@@ -187,6 +187,22 @@ const BUY_GROUP_GATES: readonly BuyGroupGate[] = ['preBuyEnabled', 'extraBuyEnab
 const isBuyGroupGate = (gate: string): gate is BuyGroupGate => (BUY_GROUP_GATES as readonly string[]).includes(gate);
 
 /**
+ * 매수 그룹이 **열려 있는가** — D-02 전반 · 후반의 「마지막 그룹」 판정이 모두 이 한 곳에서 읽는다(quick-261011-0yb).
+ *
+ * gh-trade D-34 「닫힘」 개정(limit-chaser.md §5) — ☐자동 대기 중인 추가매수는 열린 그룹이고, 서버는 대기 중 마스터를
+ * 내리지 않는다. 웹은 서버 전용 「재체크 대기 · 잔여」 상태를 모르므로 ☐자동 ON 을 열린 것으로 본다 — 잔여 0 으로
+ * 닫히면 서버가 D-34 로 마스터를 직접 내린다. 추가매수만 `extraBuyEnabled ∨ extraBuyAuto`, 그 밖은 그 게이트 값이다.
+ * WinForms `DropMasterAfterServerFold` · `AnyBuyGroupChecked` 는 아직 ☐자동을 보지 않는다(인박스 답으로 확인 요청).
+ * 폼 값 · 에코(`RelayLimitChaser`) 둘 다 받는다.
+ */
+export function buyGroupOpenOf(
+  values: Pick<RelayLimitChaser, 'preBuyEnabled' | 'extraBuyEnabled' | 'postBuyEnabled' | 'extraBuyAuto'>,
+  gate: BuyGroupGate,
+): boolean {
+  return gate === 'extraBuyEnabled' ? values.extraBuyEnabled || values.extraBuyAuto : values[gate];
+}
+
+/**
  * 그룹 → 그 그룹 금액 필드. 수량은 **공통 주문가격**으로 `buyOrderQtyFromAmount` 가 산출한다(역산 금지 ·
  * `buildCfg` 의 금액→수량 3벌과 같은 호출).
  */
@@ -399,16 +415,17 @@ const SELL_COLUMN_LEGACY_NAMES: readonly string[] = [
  * 구서버 에코(`isLegacyBuySchema` · 전환 에코 포함)는 하강 전이로 읽지 않는다 — 직전 · 이번 에코가 모두 buy3 일 때만
  * true 일 수 있다. buy3 → 구서버 전환 에코는 신필드 부재로 세 그룹이 0 이 되지만 서버가 접은 것이 아니고, 구서버에
  * 마스터 OFF 는 실제 매수 감시 해제다(GC-IN-01). relay 세션 `ready` 소실에 기대지 않고 여기서 거른다.
+ *
+ * 그룹의 ON/OFF 는 `buyGroupOpenOf` 로 읽는다 — ☐자동이 켜진 추가매수는 체크가 풀려도 열린 그룹이다(gh-trade D-34
+ * 「닫힘」 개정 · quick-261011-0yb). 그래서 추가매수 발주로 그룹이 접혀도 ☐자동 대기 중이면 하강 전이가 아니다.
  */
 export function isServerFoldEdge(prev: RelayLimitChaser | null, next: RelayLimitChaser | null): boolean {
   if (prev === null || next === null) return false;
   // GC-IN-01 — 직전 · 이번 에코 중 하나라도 구서버면 하강 전이가 아니다(전환 에코 포함).
   if (isLegacyBuySchema(prev)) return false;
   if (isLegacyBuySchema(next)) return false;
-  const hadBuyGroup = prev.preBuyEnabled || prev.extraBuyEnabled || prev.postBuyEnabled;
-  return (
-    hadBuyGroup && !next.preBuyEnabled && !next.extraBuyEnabled && !next.postBuyEnabled && next.buyEnabled
-  );
+  const hadBuyGroup = BUY_GROUP_GATES.some((g) => buyGroupOpenOf(prev, g));
+  return hadBuyGroup && BUY_GROUP_GATES.every((g) => !buyGroupOpenOf(next, g)) && next.buyEnabled;
 }
 
 /**
@@ -1040,7 +1057,10 @@ export function LimitChaserForm({
    *   「마지막」은 두 단계다(GC-WR-03) — 사람이 **본** 마지막(누른 순간 화면 · 낙관 표시 포함) ∧ 판정 시점(즉시 ·
    *   대기열에서 꺼내는 순간) 서버 값에서도 여전히 마지막. 대기 중 다른 단말이 켠 그룹을 조용히 해제하지 않는다
    *   (WR-03 과 같은 꺼낼 때 계산). 매도 · 취소 게이트까지 전부 꺼져 있으면 그 제출이 곧 삭제다(`crudOf` = `D` ·
-   *   기존 규약 · 확인창 없음). 다른 그룹이 켜져 있으면 그 그룹만 끈다.
+   *   기존 규약 · 확인창 없음). 다른 그룹이 켜져 있으면 그 그룹만 끈다. 「켜져 있음」은 `buyGroupOpenOf` 다 —
+   *   ☐자동이 켜진 추가매수는 열린 그룹이라 마스터를 동반해 끄지 않는다(D-34 개정).
+   * - 사람이 **추가매수**를 끄면 누른 순간 화면의 ☐자동이 켜져 있을 때 같은 `lc.set` 에 `extraBuyAuto: false` 를
+   *   동반한다(WinForms `HandleArmToggle` addAutoOff 동형 · S7 「사람의 추가매수 OFF 는 자동의 종료」). 실패 되돌림은 훅 ⑪.
    * ★ 에코 경로(서버 에코 · 재접속 · 다른 단말)는 이 함수를 부르지 않는다 — 에코로 생기는 제출은 D-02 후반
    *   `dropMasterAfterServerFold` 한 곳뿐이다.
    */
@@ -1113,11 +1133,18 @@ export function LimitChaserForm({
         다른 단말 · WinForms 가 켠 그룹을 사람 손 없이 해제하지 않는다(WR-03 과 같은 꺼낼 때 계산). 즉시 경로에는
         in-flight 가 없어 낙관 표시 = 서버 값이라 ② 가 ① 과 같은 답이다(종전 결과 불변).
       */
-      const pressedLast = f.buyEnabled && BUY_GROUP_GATES.every((g) => g === gate || !f[g]);
+      // 추가매수 끄기 = ☐자동의 종료(addAutoOff 동형) — 누른 순간 화면에서 자동이 켜져 있으면 같은 제출에 끈다.
+      const autoOff: Partial<LimitChaserFormValues> =
+        gate === 'extraBuyEnabled' && f.extraBuyAuto ? { extraBuyAuto: false } : {};
+      const pressedLast = f.buyEnabled && BUY_GROUP_GATES.every((g) => g === gate || !buyGroupOpenOf(f, g));
       if (pressedLast) {
         commitField(gate, false, 'toggle', (base) =>
-          base.buyEnabled && BUY_GROUP_GATES.every((g) => g === gate || !base[g]) ? { buyEnabled: false } : {},
+          base.buyEnabled && BUY_GROUP_GATES.every((g) => g === gate || !buyGroupOpenOf(base, g))
+            ? { ...autoOff, buyEnabled: false }
+            : autoOff,
         );
+      } else if (autoOff.extraBuyAuto === false) {
+        commitField(gate, false, 'toggle', autoOff);
       } else {
         commitField(gate, false, 'toggle');
       }
@@ -1134,6 +1161,8 @@ export function LimitChaserForm({
    * - 켜는 방향: 종전 그대로(자동을 건드리지 않는다).
    * ★ 사람 스위치에서만 동작한다. D-02 전반(`commitGroupSwitch` 마지막 그룹 끄기의 마스터 동반) · D-02 후반
    *   (`dropMasterAfterServerFold`)은 자동을 건드리지 않는다(WinForms 동형 — 그 경로의 마스터 끔은 사람의 매수주문 끄기가 아니다).
+   * ★ 추가매수 ☐자동(`extraBuyAuto`)은 끄기 동반에 넣지 않는다(quick-261011-0yb) — ☐매수주문 OFF 는 서버에서 휴지(재진입
+   *   대기 유지)이고 ☐자동은 설정값으로 남는다(C# 원문 주석 동형).
    */
   const commitMasterSwitch = useCallback(
     (on: boolean) => {
@@ -1266,7 +1295,8 @@ export function LimitChaserForm({
   const dropMasterAfterServerFold = useCallback(() => {
     const s = serverRef.current;
     // ② 최신 에코로 재확인 — 마스터 OFF 이거나 그룹이 다시 켜졌으면 할 일이 없다.
-    if (s == null || !s.buyEnabled || s.preBuyEnabled || s.extraBuyEnabled || s.postBuyEnabled) {
+    //    ☐자동 대기 중인 추가매수도 열린 그룹이다(`buyGroupOpenOf` · D-34 개정).
+    if (s == null || !s.buyEnabled || BUY_GROUP_GATES.some((g) => buyGroupOpenOf(s, g))) {
       foldPendingRef.current = false;
       return;
     }
@@ -1434,6 +1464,41 @@ export function LimitChaserForm({
     const valueText = shown === null ? undefined : (lcValueTextOf(row.field, form, server) ?? undefined);
     const text = valueText ?? (shown === null ? '—' : formatSettingValue(shown, row.unit));
     return { valueText, ariaName: lcRowA11yNameOf(group, row, text) };
+  }
+
+  /**
+   * 제목줄 체크 — 후매수 ☐자동 · 추가매수 ☐자동(quick-261011-0yb). checked · busy · flash · 실패 말풍선은 모두 그 필드다.
+   * - 후매수: 켜기는 후매수 스위치와 같은 정적 판정(세션 · 구서버 WR-02 · 시세 미수신) + 사전 검증(`commitPostBuyAuto`).
+   * - 추가매수: 켜기는 세션 · 구서버만 본다(구서버 에코는 켜는 방향을 막는다 — 훅 가드와 같은 결). 사전 검증은 두지
+   *   않는다(C# 동형 — 자동은 사람이 이미 켰던 추가매수가 풀린 뒤에만 동작하고, 그 켜기가 사전 검증을 지났다).
+   *   게이트가 아니라 미등록이면 훅 ⑥ 이 로컬 반영한다(등록 cfg 에 실린다).
+   * 끄기는 둘 다 세션만 본다(T-16-44).
+   */
+  function renderHeaderCheck(spec: NonNullable<LcGroupSpec['headerCheck']>): ReactNode {
+    const field = spec.field;
+    const checked = form[field];
+    const disabledNow =
+      field === 'postBuyAuto'
+        ? checked
+          ? disabled
+          : gateBlocked('postBuyEnabled', true)
+        : checked
+          ? disabled
+          : disabled || legacy;
+    return (
+      <GroupHeaderCheck
+        id={spec.checkId}
+        label={spec.label}
+        ariaLabel={spec.ariaLabel}
+        hint={spec.hint}
+        checked={checked}
+        busy={isBusy(field)}
+        flash={lc.flashField === field}
+        failureText={toggleFailureTextOf(field)}
+        disabled={disabledNow}
+        onToggle={() => (field === 'postBuyAuto' ? commitPostBuyAuto(!checked) : commitToggle('extraBuyAuto', !checked))}
+      />
+    );
   }
 
   function renderRow(group: LcGroupSpec, row: LcRowSpec): ReactNode {
@@ -1637,24 +1702,8 @@ export function LimitChaserForm({
             />
           ) : undefined
         }
-        // 제목줄 체크(quick-260929-vzy 후매수 ☐자동) — 스위치 바로 앞 · 에코 값을 그대로 보인다.
-        headerCheck={
-          spec.headerCheck ? (
-            <GroupHeaderCheck
-              id={spec.headerCheck.checkId}
-              label={spec.headerCheck.label}
-              ariaLabel={spec.headerCheck.ariaLabel}
-              hint={spec.headerCheck.hint}
-              checked={form.postBuyAuto}
-              busy={isBusy('postBuyAuto')}
-              flash={lc.flashField === 'postBuyAuto'}
-              failureText={toggleFailureTextOf('postBuyAuto')}
-              // 끄기는 세션만 본다(T-16-44). 켜기는 후매수 스위치와 같은 정적 판정(세션 · 구서버 WR-02 · 시세 미수신).
-              disabled={form.postBuyAuto ? disabled : gateBlocked('postBuyEnabled', true)}
-              onToggle={() => commitPostBuyAuto(!form.postBuyAuto)}
-            />
-          ) : undefined
-        }
+        // 제목줄 체크(quick-260929-vzy 후매수 ☐자동 · quick-261011-0yb 추가매수 ☐자동) — 스위치 바로 앞 · 에코 값을 그대로 보인다.
+        headerCheck={spec.headerCheck ? renderHeaderCheck(spec.headerCheck) : undefined}
       >
         {spec.rows.map((row) => renderRow(spec, row))}
       </SettingGroup>

@@ -175,7 +175,9 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
     expect(spec('lc-buy-watch-qty').desc).toBe('비교가격의 매도잔량이 이 값 이하로 줄면 선매수를 넣어요');
     expect(spec('lc-sweep-tick').desc).toBe('호가가 이만큼 바뀌면 한 번에 체결해요');
     expect(spec('lc-extra-buy-max-qty').desc).toBe('상한가 매수잔량이 이 값을 넘으면 포기해요 · 0 = 무제한');
-    expect(spec('lc-post-buy-reentry').desc).toBe('최초 포함 총 진입 횟수예요 · 0 = 사지 않아요 · 껐다 켜면 이 값부터 다시 세요');
+    expect(spec('lc-post-buy-reentry').desc).toBe(
+      '최초 포함 총 진입 횟수예요 · 후매수와 추가매수 자동이 같이 써요 · 0 = 사지 않아요 · 껐다 켜면 이 값부터 다시 세요',
+    );
     expect([spec('lc-post-buy-reentry').unit, spec('lc-post-buy-rebound').unit]).toEqual(['회', '%']);
     expect([spec('lc-sell-order-ratio').unit, spec('lc-sell-order-ratio').desc]).toEqual([
       '%',
@@ -239,14 +241,22 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
 });
 
 describe('②-auto GroupHeaderCheck · 제목줄 체크 슬롯 (quick-260929-vzy D-05)', () => {
-  it('후매수 스펙이 제목줄 체크 「자동」 을 싣는다 — 다른 그룹은 없다', () => {
+  it('후매수 · 추가매수 스펙이 제목줄 체크 「자동」 을 싣는다 — 다른 그룹은 없다 (quick-261011-0yb 추가매수 합류)', () => {
     expect(groupOf('post-buy').headerCheck).toMatchObject({
       field: 'postBuyAuto',
       checkId: 'lc-post-buy-auto',
       label: '자동',
       ariaLabel: '후매수 자동',
     });
-    for (const g of [...LC_BUY_GROUPS, ...LC_SELL_GROUPS]) if (g.slot !== 'post-buy') expect(g.headerCheck).toBeUndefined();
+    expect(groupOf('extra-buy').headerCheck).toMatchObject({
+      field: 'extraBuyAuto',
+      checkId: 'lc-extra-buy-auto',
+      label: '자동',
+      ariaLabel: '추가매수 자동',
+    });
+    for (const g of [...LC_BUY_GROUPS, ...LC_SELL_GROUPS]) {
+      if (g.slot !== 'post-buy' && g.slot !== 'extra-buy') expect(g.headerCheck).toBeUndefined();
+    }
   });
 
   it('role checkbox · aria-checked · 이름 「후매수 자동」 · 누르면 onToggle · disabled 면 부르지 않는다', () => {

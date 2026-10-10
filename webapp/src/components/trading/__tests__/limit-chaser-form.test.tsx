@@ -1445,7 +1445,7 @@ describe('⑮ 매수 카드 4장 · 제목줄 접기 · 요약 줄 · 자동 펼
       Array.from(group(slot).querySelectorAll('[data-slot="lc-group-summary"] > span')).map((el) => el.textContent);
     expect(kvs('pre-buy')).toEqual(['금액4,000만원', '매도잔량10,000주', '체결량꺼짐', '한방꺼짐']);
     expect(kvs('extra-buy')).toEqual(['금액4,000만원', '최소50,000주', '최대무제한']);
-    expect(kvs('post-buy')).toEqual(['금액4,000만원', '최대3회 · 남은 2회', '최소100,000주', '반등30%', '발동잔량—']);
+    expect(kvs('post-buy')).toEqual(['금액4,000만원', '재진입3회 · 남은 2회', '최소100,000주', '반등30%', '발동잔량—']);
   });
 
   it('T-24-19 — 접힌 카드 안 행 확정이 거부되면 그 카드가 자동으로 펼쳐진다', () => {
@@ -1620,7 +1620,7 @@ describe('⑯ 라벨 개명 · 시트 제목 · 접근성 이름 접두 · 의�
 
     it.each([
       ['lc-buy-order-amount', '선매수 금액'],
-      ['lc-post-buy-reentry', '후매수 최대 횟수'],
+      ['lc-post-buy-reentry', '재진입 횟수'],
       ['lc-sweep-tick', '한방 건수'],
       ['lc-sell-watch-qty', '매수잔량'],
       ['lc-cancel-watch-qty', '매수잔량'],
@@ -1631,7 +1631,7 @@ describe('⑯ 라벨 개명 · 시트 제목 · 접근성 이름 접두 · 의�
       expect(document.querySelector('[data-slot="numpad-confirm"]')!.textContent).toBe(`${title} 적용`);
     });
 
-    it('시트 「지금 ○○」 — 의미어 「지금 무제한」 · 후매수 최대는 잔여가 아니라 설정값 「지금 3회」', () => {
+    it('시트 「지금 ○○」 — 의미어 「지금 무제한」 · 재진입은 잔여가 아니라 설정값 「지금 3회」', () => {
       const { unmount } = render(<LimitChaserForm {...props({ server: echo({ extraBuyMaxQty: 0 }) })} />);
       click(row('lc-extra-buy-max-qty'));
       expect(document.querySelector('[data-slot="numpad-server"]')!.textContent).toBe('지금 무제한');
@@ -1645,7 +1645,7 @@ describe('⑯ 라벨 개명 · 시트 제목 · 접근성 이름 접두 · 의�
       expect(document.querySelector('[data-slot="numpad-server"]')!.textContent).toBe('지금 3회');
     });
 
-    it('후매수 최대는 0 을 받는다(0 = 사지 않음) · 반등 시트는 1~100(0 잠금)', () => {
+    it('재진입은 0 을 받는다(0 = 사지 않음) · 반등 시트는 1~100(0 잠금)', () => {
       const { unmount } = render(<LimitChaserForm {...props()} />);
       click(row('lc-post-buy-reentry'));
       const pad = within(within(sheetEl()!).getByRole('group', { name: '숫자 키패드' }));
@@ -3329,6 +3329,135 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 선매
   WinForms `HandleArmToggle`: ☐매수주문을 **사람이** 끌 때만 ☐자동을 같은 제출에서 끈다. 마지막 그룹 끄기의 마스터 동반
   끔 · 서버 접힘 뒤 자동 끔은 자동을 건드리지 않는다. 자동 켜기는 후매수 켜기와 같은 사전 검증을 지난다.
 */
+/*
+  quick-261011-0yb — 추가매수 ☐자동(U-1 · 추가매수 카드 제목줄). 게이트가 아니고 사전 검증이 없다. 사람이 추가매수를
+  끄면 같은 제출에 ☐자동도 끈다(addAutoOff). ☐자동 ON 인 추가매수는 열린 그룹이다(D-34 개정 — D-02 전반 · 후반).
+*/
+describe('추가매수 자동 — 제목줄 체크 · 동반 해제 · 열린 그룹 (quick-261011-0yb)', () => {
+  const auto = (): HTMLElement => chk('추가매수 자동');
+
+  it('제목줄에 「추가매수 자동」 체크가 스위치 바로 앞 형제로 선다 · 추가매수 OFF 여도 disabled 아님 · 흐리지 않는다', () => {
+    render(<LimitChaserForm {...props({ server: echo({ extraBuyEnabled: false }) })} />);
+    const header = group('extra-buy').querySelector('[data-slot="lc-group-header"]') as HTMLElement;
+    const switchSlot = header.lastElementChild as HTMLElement;
+    expect(switchSlot.contains(sw('추가매수 켜기'))).toBe(true);
+    expect((switchSlot.previousElementSibling as HTMLElement).contains(auto())).toBe(true);
+    expect(auto().id).toBe('lc-extra-buy-auto');
+    expect(auto()).toBeEnabled();
+    expect(opacityLayers(auto())).toBe(0);
+    expect(auto()).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('등록된 전략에서 누르면 lc.set 1건 · cfg.extraBuyAuto true · 다른 값은 에코 그대로', () => {
+    render(<LimitChaserForm {...props({ server: echo({ sellEnabled: true, extraBuyOrderAmount: 50 }) })} />);
+    click(auto());
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({
+      extraBuyAuto: true,
+      extraBuyEnabled: false,
+      buyEnabled: true,
+      sellEnabled: true,
+      extraBuyOrderAmount: 50,
+      crud: 'C',
+    });
+    expect(auto()).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('미등록이면 전송 0 · 체크 표시 ON(로컬) — 등록 때 실린다', () => {
+    render(<LimitChaserForm {...props({ server: null, upperLimit: 30_000 })} />);
+    click(auto());
+    expect(sentConfigs()).toHaveLength(0);
+    expect(auto()).toHaveAttribute('aria-checked', 'true');
+    click(sw('매수주문 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ buyEnabled: true, extraBuyAuto: true });
+  });
+
+  it('추가매수 ON ∧ ☐자동 ON 에서 사람이 추가매수 끔 → lc.set 1건에 extraBuyEnabled false · extraBuyAuto false 동반(다른 그룹 ON 이면 마스터 유지)', () => {
+    render(
+      <LimitChaserForm
+        {...props({
+          server: echo({ preBuyEnabled: true, extraBuyEnabled: true, extraBuyAuto: true, sellEnabled: true, extraBuyOrderAmount: 50 }),
+        })}
+      />,
+    );
+    click(sw('추가매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ extraBuyEnabled: false, extraBuyAuto: false, buyEnabled: true });
+    expect(auto()).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('마지막 그룹(추가매수) ∧ ☐자동 ON 에서 추가매수 끔 → 같은 제출에 extraBuyAuto false · buyEnabled false', () => {
+    render(
+      <LimitChaserForm
+        {...props({ server: echo({ extraBuyEnabled: true, extraBuyAuto: true, sellEnabled: true, extraBuyOrderAmount: 50 }) })}
+      />,
+    );
+    click(sw('추가매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ extraBuyEnabled: false, extraBuyAuto: false, buyEnabled: false, crud: 'C' });
+  });
+
+  it('☐자동 OFF 에서 추가매수 끔 → extraBuyAuto 는 false 그대로(동반 없음과 같은 결과)', () => {
+    render(
+      <LimitChaserForm
+        {...props({ server: echo({ preBuyEnabled: true, extraBuyEnabled: true, sellEnabled: true, extraBuyOrderAmount: 50 }) })}
+      />,
+    );
+    click(sw('추가매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ extraBuyEnabled: false, extraBuyAuto: false, buyEnabled: true });
+  });
+
+  it('매수주문(마스터) 끄기 → cfg.postBuyAuto false · cfg.extraBuyAuto 는 에코값(true) 그대로', () => {
+    render(<LimitChaserForm {...props({ server: echo({ sellEnabled: true, extraBuyAuto: true, postBuyAuto: true }) })} />);
+    click(sw('매수주문 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ buyEnabled: false, postBuyAuto: false, extraBuyAuto: true });
+    expect(auto()).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('D-02 전반 — 마스터 ON · 선매수 ON · 추가매수 OFF · ☐자동 ON 에서 선매수 끔 → buyEnabled true(마지막 그룹 아님)', () => {
+    render(<LimitChaserForm {...props({ server: echo({ preBuyEnabled: true, extraBuyAuto: true, sellEnabled: true }) })} />);
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ preBuyEnabled: false, buyEnabled: true, extraBuyAuto: true });
+  });
+
+  it('isServerFoldEdge — 추가매수 ON → 세 그룹 OFF · 마스터 ON · ☐자동 ON 은 false · ☐자동 OFF 면 종전대로 true', () => {
+    const prev = echo({ extraBuyEnabled: true, extraBuyAuto: true, sellEnabled: true });
+    expect(isServerFoldEdge(prev, echo({ extraBuyAuto: true, sellEnabled: true }))).toBe(false);
+    const prevOff = echo({ extraBuyEnabled: true, sellEnabled: true });
+    expect(isServerFoldEdge(prevOff, echo({ sellEnabled: true }))).toBe(true);
+  });
+
+  it('D-02 후반 — 추가매수 발주로 접힌 에코(☐자동 ON)는 타이머를 흘려도 자동 lc.set 0건', () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    try {
+      const base = { sellEnabled: true, buyOrderQty: 3, extraBuyOrderAmount: 50, extraBuyAuto: true };
+      const { rerender } = render(<LimitChaserForm {...props({ server: echo({ ...base, extraBuyEnabled: true }) })} />);
+      rerender(<LimitChaserForm {...props({ server: echo({ ...base, extraBuyEnabled: false }) })} />);
+      act(() => {
+        vi.advanceTimersByTime(LC_FOLD_HIDDEN_DEFER_MS * 2);
+      });
+      expect(sentConfigs()).toHaveLength(0);
+      expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'true');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('후매수 「재진입」 행 — 단계 0 · 에코 ☐추가매수 자동 · 잔여 2 → 「3회 · 남은 2회」', () => {
+    render(
+      <LimitChaserForm
+        {...props({ server: echo({ postBuyPhase: 0, postBuyReentry: 3, postBuyReentryLeft: 2, extraBuyAuto: true }) })}
+      />,
+    );
+    click(fold('post-buy'));
+    expect(rowText('lc-post-buy-reentry')).toBe('3회 · 남은 2회');
+  });
+});
+
 describe('후매수 자동 — 마스터 OFF 동반 끔 · 켜기 사전 검증 · 비활성 · 발화 에코 (quick-260929-vzy)', () => {
   const auto = (): HTMLElement => chk('후매수 자동');
   const precheckIn = (slot: string) => group(slot).querySelector('[data-slot="lc-group-precheck"]');
