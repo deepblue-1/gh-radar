@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { AdminServerLiveStatus, AdminServerView } from "@gh-radar/shared";
 
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,9 @@ import { useFieldSave } from "./use-field-save";
  * - 라디오가 그리는 값은 부모가 준 「의도」 다(비행 중이면 누른 값 · 실패면 서버 값) — 역할 칩은 서버 값(재조회)이다.
  * - 꺼진 서버는 주문/시세 라디오를 고를 수 없다(D-17).
  * - 사용 토글 = `PATCH { enabled }` 1건(useFieldSave). 주문/시세 서버는 끌 수 없다(토글 비활성 — 서버도 409
- *   `SERVER_IN_USE` 로 막고, 그 문구도 같은 한 줄로 보인다). 그 서버 87 에 유저가 1명 이상이면 끄기 전에 확인 1회 —
+ *   `SERVER_IN_USE` 로 막고, 그 문구도 같은 한 줄로 보인다). 그 이유는 토글 아래 보조 한 줄(`server-in-use-note`)로
+ *   늘 보이고 토글이 `aria-describedby` 로 가리킨다 — `title` 은 터치 · 키보드 사용자가 못 본다. 그때 토글은 켜진 모양을
+ *   그대로 둔다(흐리면 「꺼짐 · 고장」 으로 읽힌다 — 29-31 UI-REVIEW-6). 커서만 not-allowed. 그 서버 87 에 유저가 1명 이상이면 끄기 전에 확인 1회 —
  *   끄면 relay 가 그 서버의 저널 · admin 연결을 내린다. 켜기와 유저 0 서버 끄기는 확인 없이 바로 보낸다.
  * - 카드 빈 곳을 누르면 편집 시트(`onEdit`)다 — 라디오 · 토글은 그 탭을 먹는다. 키뼈대 버튼이 키보드 진입점이다.
  * - 오류는 카드 안 한 줄(토스트 없음 — relay · 서버 message 원문).
@@ -107,9 +109,12 @@ export function serverStatusChips(status: AdminServerLiveStatus | null, userCoun
   ];
 }
 
-/** 목업 `.rad` — 알약 + 원. 켜짐은 테두리 · 원 · 점이 주문 = primary / 시세 = led-armed. */
+/**
+ * 목업 `.rad` — 알약 + 원. 켜짐은 테두리 · 원 · 점이 주문 = primary / 시세 = led-armed.
+ * 높이: 폰(640 미만) 36px 터치 타깃 · 데스크톱 종전 32px(29-31 UI-REVIEW-3 — 시트 · 앱 셸과 같은 뷰포트 경계).
+ */
 const RADIO_PILL =
-  "relative inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-[var(--border-subtle)] px-2.5 text-[12.5px] text-[var(--fg-2)] select-none transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--ring)] has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-45";
+  "relative inline-flex h-9 sm:h-8 cursor-pointer items-center gap-1.5 rounded-full border border-[var(--border-subtle)] px-2.5 text-[12.5px] text-[var(--fg-2)] select-none transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--ring)] has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-45";
 const RADIO_DOT = "grid size-3.5 flex-none place-items-center rounded-full border-[1.5px] border-[var(--faint)]";
 
 interface RoleRadioProps {
@@ -206,6 +211,7 @@ export function ServerCard({
   const off = !server.enabled || !enabled;
   // 주문/시세 서버(서버 값이든 누른 의도든)는 끌 수 없다.
   const inUse = server.isOrderServer || server.isQuotePrimary || orderChecked || quoteChecked;
+  const inUseNoteId = useId();
 
   const onToggle = (next: boolean) => {
     if (!next && server.userCount > 0) {
@@ -263,12 +269,24 @@ export function ServerCard({
             data-slot="server-enabled"
             aria-label={`${server.key} ${SERVER_CARD_TEXT.enabled}`}
             title={inUse ? SERVER_CARD_TEXT.inUse : undefined}
+            aria-describedby={inUse ? inUseNoteId : undefined}
             checked={enabled}
             disabled={inUse || onChanged === undefined}
             onCheckedChange={onToggle}
+            // 끌 수 없는 이유가 아래 줄에 있다 — 켜진 모양을 흐리지 않는다(다른 비활성 이유는 종전 흐림).
+            className={inUse ? "disabled:opacity-100" : undefined}
           />
         </span>
       </div>
+      {inUse && (
+        <p
+          id={inUseNoteId}
+          data-slot="server-in-use-note"
+          className="mt-0.5 text-right text-[12px] leading-[1.45] break-keep text-[var(--muted-fg)]"
+        >
+          {SERVER_CARD_TEXT.inUse}
+        </p>
+      )}
 
       <div data-slot="server-addr" className="mt-0.5 truncate text-[12.5px] text-[var(--muted-fg)] tabular-nums">
         {server.host}:{server.port}

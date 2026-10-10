@@ -215,9 +215,14 @@ function accountInputOf(a: AdminAccountView): AdminAccountInput {
 const ACCOUNT_CARD = "mt-2.5 rounded-[12px] border border-[var(--border-subtle)] px-3.5 py-3";
 /** 증권사 배지 — 목업 `.acct .t .bk`. */
 const BROKER_BADGE = "rounded-[5px] bg-[var(--muted)] px-1.5 py-0.5 text-[11px] font-semibold text-[var(--fg-2)]";
-/** 서버 토글 알약 — 목업 `.sv`(12.5px · 5px 9px · 둥근 알약 · hairline). */
+/**
+ * 계좌 버튼(「제거」 · 「+ 계좌 추가」 · 추가 폼 「취소」 · 「추가」) 높이 — 폰(640 미만) 36px 터치 타깃 · 데스크톱 종전 28px
+ * (29-31 UI-REVIEW-3).
+ */
+const ACCOUNT_BUTTON = "h-9 px-2.5 sm:h-7";
+/** 서버 토글 알약 — 목업 `.sv`(12.5px · 5px 9px · 둥근 알약 · hairline). 폰은 최소 36px(29-31 · 데스크톱 종전 높이). */
 const SERVER_PILL =
-  "inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-[var(--border-subtle)] px-2 py-1 text-[12.5px] text-[var(--fg-2)] has-disabled:cursor-default";
+  "inline-flex min-h-9 sm:min-h-0 cursor-pointer items-center gap-1.5 rounded-full border border-[var(--border-subtle)] px-2 py-1 text-[12.5px] text-[var(--fg-2)] has-disabled:cursor-default";
 /** 상태 칩(알약 안) — 목업 `.sv .st`(10.5px · 1px 5px · r4). */
 const PILL_CHIP = "rounded-[4px] px-[5px] py-px text-[10.5px]";
 const NOTE = "mt-1.5 text-[12px] leading-[1.5] break-keep text-[var(--muted-fg)]";
@@ -325,7 +330,7 @@ function AccountRow({ account, dmaUserId, candidates, overlay, last, onResults, 
           aria-label={`${account.broker} ${account.accountNo} ${ACCOUNT_EDITOR_TEXT.remove}`}
           disabled={remove.state === "saving"}
           onClick={() => (last ? onRemoveLast() : remove.run(true))}
-          className={cn(ADMIN_BUTTON_SECONDARY, "h-7 px-2.5")}
+          className={cn(ADMIN_BUTTON_SECONDARY, ACCOUNT_BUTTON)}
         >
           {ACCOUNT_EDITOR_TEXT.remove}
         </Button>
@@ -552,10 +557,10 @@ function AccountAddForm({ dmaUserId, serverKeysOf, nextPriority, onResults, onCh
         </p>
       )}
       <div className="flex justify-end gap-1.5">
-        <Button type="button" size="sm" variant="secondary" onClick={onClose} className={cn(ADMIN_BUTTON_SECONDARY, "h-7 px-2.5")}>
+        <Button type="button" size="sm" variant="secondary" onClick={onClose} className={cn(ADMIN_BUTTON_SECONDARY, ACCOUNT_BUTTON)}>
           {ACCOUNT_EDITOR_TEXT.cancel}
         </Button>
-        <Button type="submit" size="sm" disabled={!ready} className={cn(ADMIN_BUTTON_PRIMARY, "h-7 px-2.5")}>
+        <Button type="submit" size="sm" disabled={!ready} className={cn(ADMIN_BUTTON_PRIMARY, ACCOUNT_BUTTON)}>
           {ACCOUNT_EDITOR_TEXT.submit}
         </Button>
       </div>
@@ -656,7 +661,7 @@ export function AccountEditor({
             size="sm"
             variant="secondary"
             onClick={() => setAdding(true)}
-            className={cn(ADMIN_BUTTON_SECONDARY, "h-7 px-2.5")}
+            className={cn(ADMIN_BUTTON_SECONDARY, ACCOUNT_BUTTON)}
           >
             {ACCOUNT_EDITOR_TEXT.add}
           </Button>
