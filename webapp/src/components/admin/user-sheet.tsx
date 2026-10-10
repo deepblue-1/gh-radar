@@ -46,6 +46,8 @@ import { ROLE_CHIP_CLASS } from "./user-row";
  *
  * 위험 작업은 확인 1회(D-15): 「사용자 삭제」 와 마지막 계좌 「제거」(= 사용자 삭제 — 서버 409 `LAST_ACCOUNT` 를 기다리지
  * 않고 화면이 먼저 안다). 삭제가 일부 서버에서 실패하면(`deleted: false`) 시트를 닫지 않고 서버별 칩 · BUSY 줄로 보인다.
+ * 등록 서버 중 꺼진 서버가 있으면(29-34 WR-04) 같은 확인 설명에 「꺼진 서버(KB121)의 등록은 DB 에서만 지워요 — 서버를 켜면
+ * 「서버에만 있음」 으로 보여요」 를 더하고, 확인하면 `skipDisabled` 로 보낸다(꺼진 서버에는 op 없이 DB 의도만 지운다).
  *
  * DMA 연결이 없는 사용자는 「DMA 연결 없음」 을 그리고, trader/admin 이면 그 아래 「DMA 연결」 그룹(`DmaConnectFields` —
  * 생성 시트와 같은 필드) + 버튼 「DMA 유저 + 첫 계좌 만들기 · 서버 N대에 반영」 을 둔다(29-19 · D-16 — viewer 로 만든 뒤
@@ -69,7 +71,24 @@ export const USER_SHEET_TEXT = {
   connectFailed: "연결하지 못했어요",
   deletePartial: "일부 서버에서 지우지 못해 사용자가 남아 있어요.",
   deleteAfter: "정리 뒤 다시 삭제",
+  /** 꺼진 등록 서버가 있을 때 확인 설명에 더하는 문장(29-34 WR-04 — 새 다이얼로그 없이 기존 확인 1회에). */
+  disabledServersNote: (keys: readonly string[]) =>
+    `꺼진 서버(${keys.join(" · ")})의 등록은 DB 에서만 지워요 — 서버를 켜면 「서버에만 있음」 으로 보여요`,
 } as const;
+
+/**
+ * 사용자의 등록 서버(의도 계좌 servers) 중 레지스트리에서 꺼진 · 없는 서버 키(레지스트리 순 · 없는 키는 뒤 · 중복 없음).
+ * 있으면 삭제 확인이 안내 문장을 보이고 요청이 `skipDisabled` 로 간다(29-34 WR-04 — relay 가 꺼진 서버에는 op 를 보내지 않고
+ * DB 의도만 지운다).
+ */
+export function disabledServerKeysOf(user: AdminUserView, servers: AdminUsersOverview["servers"]): string[] {
+  const enabled = new Map(servers.map((s) => [s.key, s.enabled] as const));
+  const order = new Map(servers.map((s, i) => [s.key, i] as const));
+  const keys = new Set<string>();
+  for (const a of user.accounts) for (const s of a.servers) if (enabled.get(s.serverKey) !== true) keys.add(s.serverKey);
+  const rank = (k: string) => order.get(k) ?? Number.MAX_SAFE_INTEGER;
+  return [...keys].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+}
 
 /** 필드 틀 — 목업 `.fld`(12px 0 · hairline) · `.lb`(12px muted · 아래 6px). */
 export const ADMIN_FIELD = "border-b border-[var(--border-subtle)] py-3 last:border-b-0";
@@ -140,12 +159,22 @@ export function UserSheet({ user, servers, onChanged, onClose, initialResults = 
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteResults, setDeleteResults] = useState<AdminServerResult[] | null>(null);
 
+  // 꺼진 등록 서버 — 확인 설명에 안내를 더하고 그때만 「DB 등록만 지우고 삭제」(skipDisabled). 없으면 문구 · 요청 종전.
+  const disabledKeys = disabledServerKeysOf(user, servers);
+  const confirmDescription =
+    disabledKeys.length > 0
+      ? `${user.email} — ${USER_SHEET_TEXT.confirmDescription} ${USER_SHEET_TEXT.disabledServersNote(disabledKeys)}`
+      : `${user.email} — ${USER_SHEET_TEXT.confirmDescription}`;
+
   const runDelete = async () => {
     if (deleting) return;
     setDeleting(true);
     setDeleteError(null);
     try {
-      const res = await deleteAdminUser(user.email);
+      const res =
+        disabledKeys.length > 0
+          ? await deleteAdminUser(user.email, { skipDisabled: true })
+          : await deleteAdminUser(user.email);
       setConfirm(null);
       onChanged();
       if (res.deleted) {
@@ -278,7 +307,7 @@ export function UserSheet({ user, servers, onChanged, onClose, initialResults = 
       <ConfirmDialog
         open={confirm !== null}
         title={confirm === "last-account" ? USER_SHEET_TEXT.confirmLastTitle : USER_SHEET_TEXT.confirmUserTitle}
-        description={`${user.email} — ${USER_SHEET_TEXT.confirmDescription}`}
+        description={confirmDescription}
         busy={deleting}
         error={deleteError}
         onCancel={() => setConfirm(null)}

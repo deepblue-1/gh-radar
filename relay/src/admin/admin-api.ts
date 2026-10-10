@@ -14,6 +14,10 @@
  *     `SERVER_DISABLED` · `QUOTE_SWITCH_FAILED`(옛 서버로 되돌림 · DB 무변경) · `QUOTE_SWITCH_BUSY`(진행 중). message 는 화면이 그대로
  *     보이는 한국어 문장이다(29-18).
  *
+ * 유저 삭제 `DELETE /dma-users/:dma?skipDisabled=1`(29-34 WR-04) — Admin 이 「꺼진 서버의 등록은 DB 에서만 지워요」 확인을 거친
+ * 요청. 꺼진 · 없는 등록 서버에는 op 를 보내지 않고 그 서버 의도 행만 settle 한 결과(`skipped` + 사유)를 싣고, 켜진 서버가 전부
+ * ok 면 `deleted: true`. 쿼리 값 `1` 만 참. 감사 줄에 `skipDisabled: true`.
+ *
  * 요청 마감(29-32 WR-07): 변경 라우트 6개(생성 · 비밀번호 · 계좌 put · 계좌 delete · 유저 delete · reconcile)는 요청 도착 시각 +
  * `ADMIN_REQUEST_DEADLINE_MS`(10초)를 `deadlineAt` 으로 dispatcher 에 넘긴다(생성은 RPC 뒤 reconcile 에). 그때까지 끝나지 않은
  * 서버는 결과 배열에 `timeout`(「10초 안에 끝나지 않아 먼저 응답했어요 …」)으로 접혀 **200** 으로 나가고, 서버 반영은 뒤에서
@@ -285,14 +289,15 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
     route: string,
     dma: string,
     run: () => Promise<T>,
+    extra: Record<string, unknown> = {},
   ): Promise<T> => {
     const adminEmail = res.locals.adminEmail as string;
     try {
       const out = await run();
-      audit(adminEmail, route, dma, out);
+      audit(adminEmail, route, dma, out, extra);
       return out;
     } catch (err) {
-      if (err instanceof IntentError) audit(adminEmail, route, dma, { rejected: err.code });
+      if (err instanceof IntentError) audit(adminEmail, route, dma, { rejected: err.code }, extra);
       throw err;
     }
   };
@@ -354,11 +359,22 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
   });
 
   // ── 유저 삭제 (D-15 — 서버마다 op 2(87 전용 계좌가 있으면 의도 계좌 op 4) · 전 서버 ok 일 때만 DB 삭제) ──
+  //   `?skipDisabled=1`(29-34 WR-04 — Admin 확인 뒤): 꺼진 등록 서버는 op 없이 DB 의도만 settle · deleted 판정에서 ok 와 같게.
+  //   `1` 만 참이다(`true` · `0` · 없음은 거짓 — 확인 없이 꺼진 서버 의도를 지우지 않는다).
   router.delete("/dma-users/:dma", async (req, res) => {
     const deadlineAt = deadlineOf();
     const { dma } = DmaParam.parse(req.params);
-    const { results, deleted } = await audited(res, "DELETE /dma-users/:dma", dma, () =>
-      deps.dispatcher.deleteUser(dma, res.locals.adminEmail as string, { deadlineAt }),
+    const skipDisabled = req.query.skipDisabled === "1";
+    const { results, deleted } = await audited(
+      res,
+      "DELETE /dma-users/:dma",
+      dma,
+      () =>
+        deps.dispatcher.deleteUser(dma, res.locals.adminEmail as string, {
+          deadlineAt,
+          ...(skipDisabled ? { skipDisabled: true } : {}),
+        }),
+      skipDisabled ? { skipDisabled: true } : {},
     );
     // D-04 즉시 반영 — DMA 연결이 사라진 웹 사용자의 wss 를 끊는다(접근 맵 revoked → fanout 결선). 실패해도 60초 주기가 잡는다.
     if (deleted) await deps.access.reload();

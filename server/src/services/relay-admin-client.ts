@@ -88,10 +88,14 @@ export type RelayAdminClient = {
     accountNo: string,
     adminEmail: string,
   ): Promise<RelayAdminResponse<AdminCommandResponse>>;
-  /** DMA 유저 삭제(op 2 · 87 전용 계좌가 있으면 의도 계좌 op 4) — 전 서버 ok 일 때만 DB 삭제(`deleted`). */
+  /**
+   * DMA 유저 삭제(op 2 · 87 전용 계좌가 있으면 의도 계좌 op 4) — 전 서버 ok 일 때만 DB 삭제(`deleted`).
+   * `skipDisabled`(29-34 WR-04 — Admin 확인 뒤) → `?skipDisabled=1`: 꺼진 등록 서버는 op 없이 DB 의도만 지운다.
+   */
   deleteDmaUser(
     dmaUserId: string,
     adminEmail: string,
+    opts?: { skipDisabled?: boolean },
   ): Promise<RelayAdminResponse<RelayDeleteDmaUserResult>>;
   /** 「다시 반영」 — 의도와 87 의 차이만 다시 보낸다(같으면 0건). */
   reconcile(dmaUserId: string, adminEmail: string): Promise<RelayAdminResponse<AdminCommandResponse>>;
@@ -282,8 +286,12 @@ export function relayAdminClientFrom(request: RelayAdminRequest): RelayAdminClie
         `${user(dma)}/accounts/${encodeURIComponent(broker)}/${encodeURIComponent(accountNo)}`,
         adminEmail,
       ),
-    deleteDmaUser: (dma, adminEmail) =>
-      request<RelayDeleteDmaUserResult>("DELETE", user(dma), adminEmail),
+    deleteDmaUser: (dma, adminEmail, opts) =>
+      request<RelayDeleteDmaUserResult>(
+        "DELETE",
+        opts?.skipDisabled === true ? `${user(dma)}?skipDisabled=1` : user(dma),
+        adminEmail,
+      ),
     reconcile: (dma, adminEmail) =>
       request<AdminCommandResponse>("POST", `${user(dma)}/reconcile`, adminEmail),
     serversStatus: (adminEmail) =>

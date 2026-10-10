@@ -107,8 +107,16 @@ export function patchAdminRole(email: string, role: AppRole): Promise<AdminWrite
   return authFetch<AdminWriteResponse>(userPath(email), jsonInit("PATCH", { role }));
 }
 
-export function deleteAdminUser(email: string): Promise<AdminDeleteUserResponse> {
-  return authFetch<AdminDeleteUserResponse>(userPath(email), {
+/**
+ * 사용자 삭제. `skipDisabled`(29-34 WR-04) — 꺼진 서버에 등록된 사용자를 확인 다이얼로그가 「꺼진 서버의 등록은 DB 에서만
+ * 지워요」 로 알린 뒤에만 켠다(`?skipDisabled=1` — relay 가 꺼진 서버에는 op 없이 DB 의도만 지운다).
+ */
+export function deleteAdminUser(
+  email: string,
+  opts: { skipDisabled?: boolean } = {},
+): Promise<AdminDeleteUserResponse> {
+  const path = opts.skipDisabled === true ? `${userPath(email)}?skipDisabled=1` : userPath(email);
+  return authFetch<AdminDeleteUserResponse>(path, {
     method: "DELETE",
     timeoutMs: RELAY_TIMEOUT_MS,
   });

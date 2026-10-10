@@ -37,6 +37,8 @@ import type { AdminCommandResponse } from "@gh-radar/shared";
  * - PATCH  /users/:email : `{ role }` — 역할 변경(D-04 강등 즉시). 없는 이메일 404.
  * - DELETE /users/:email : DMA 없음 → 행 삭제 · DMA 를 다른 웹 사용자와 공유 → 이 웹 사용자 행만 삭제(서버 무접촉) ·
  *                          DMA 단독 → relay DMA 유저 삭제 → 전 서버 ok 일 때만 행 삭제(아니면 `deleted: false` · 행 유지).
+ *                          `?skipDisabled=1`(29-34 WR-04 — webapp 확인 다이얼로그가 꺼진 등록 서버를 알린 뒤) → relay 같은 쿼리:
+ *                          꺼진 서버는 op 없이 DB 의도만 지우고 deleted 판정에서 ok 와 같게. `1` 만 참.
  *                          (29-10 의 「DMA 있으면 409」 분기는 29-13 에서 이 relay 경로로 대체됐다.)
  * - POST   /users/:email/dma                         : 기존 사용자에 DMA 연결(`AdminDmaInput`) → `{ results }`
  * - POST   /dma-users/:dma/password                  : `{ password }` → `{ results }`
@@ -300,13 +302,16 @@ adminRouter.delete("/users/:email", async (req, res, next) => {
 
     // ③ 단독 DMA — relay 가 서버마다 유저 삭제(op 2) → 전 서버 ok 일 때만 DB 의 DMA 유저를 지운다(`deleted`).
     //   그때만 웹 사용자 행도 지운다. 일부 서버 실패면 행을 남겨 「다시 삭제」 를 같은 화면에서 할 수 있게 한다.
+    //   `?skipDisabled=1`(29-34) — 꺼진 등록 서버는 DB 의도만 지운다(Admin 이 확인 다이얼로그에서 안내를 보고 확인했다).
+    const skipDisabled = req.query.skipDisabled === "1";
     const relay = requireRelayAdmin(req);
-    const r = await relay.deleteDmaUser(dma, req.adminEmail!);
+    const r = await relay.deleteDmaUser(dma, req.adminEmail!, skipDisabled ? { skipDisabled: true } : {});
     const results = relayResults(r, "dma-delete");
     const relayDeleted = (r.data as { deleted?: unknown } | null)?.deleted === true;
     audit(req, "dma-delete", email, {
       dma: maskDma(dma),
       deleted: relayDeleted,
+      ...(skipDisabled ? { skipDisabled: true } : {}),
       servers: results.map((x) => `${x.server}:${x.outcome}`),
     });
     if (!relayDeleted) {

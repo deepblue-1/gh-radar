@@ -11,6 +11,8 @@
  *       이던 그 서버 행만**(29-32 WR-01 — op 2 진행 중 다른 계좌에 그 서버가 active 로 막 체크된 행은 남아 다음 반영이 op 1 로
  *       다시 올린다). 그 서버 행 **전부**는 유저 삭제 경로(`settleUserOnOk`)에서만 지운다
  *   → 서버별 결과 배열(레지스트리 순) → `dma_admin_record_results`
+ *   유저 삭제 + `skipDisabled`(29-34 WR-04 — Admin 확인 뒤): 꺼진 · 없는 등록 서버는 op 없이 그 서버 의도 행만 settle(전 행) →
+ *     `skipped`(`SKIPPED_SETTLED_MESSAGE`) — 켜진 서버 전부 ok 면 DB 삭제. 서버가 켜지면 87 대조가 「서버에만 있음」 으로 보인다
  *
  * 요청 마감(29-32 WR-07): 세 공개 메서드는 선택 `deadlineAt`(epoch ms — 라우트 도착 + `ADMIN_REQUEST_DEADLINE_MS`)을 받는다.
  *   서버당 op 는 순차라(op 1개 = 86 5초 + 87 1초) 계좌가 여럿이거나 느린 서버가 있으면 Express 상한을 넘는다. 그래서 마감까지
@@ -105,6 +107,12 @@ export const SKIPPED_DISABLED_DELETE_MESSAGE = "사용이 꺼진 서버 — 켜�
 /** 유저 삭제 밖의 반영(생성 · 계좌 · 비밀번호 · 다시 반영)에서 꺼진 서버의 `skipped` 사유. */
 export const SKIPPED_DISABLED_RECONCILE_MESSAGE = "사용이 꺼진 서버 — 켜면 「다시 반영」 으로 맞춰요";
 
+/**
+ * 「DB 등록만 지우고 삭제」(`deleteUser({ skipDisabled })` · 29-34 WR-04) — 꺼진 서버에는 op 를 보내지 않고 그 서버 의도 행만
+ * 지웠다. 서버의 실제 users.toml 은 그대로라 켜지면 87 대조가 「서버에만 있음」 으로 보인다(표시만 — D-23 ⑤).
+ */
+export const SKIPPED_SETTLED_MESSAGE = "사용이 꺼진 서버 — DB 등록만 지웠어요(켜면 「서버에만 있음」)";
+
 /** 요청 1건의 진행 — 마감 시각에 응답 배열을 접는 데 쓴다. */
 type Progress = {
   /** 의도에서 읽은 등록 서버 키 — 줄에서 아직 시작하지 못했으면 null. */
@@ -188,33 +196,48 @@ export class AdminDispatcher {
    * op 2(0 · 4 = 반영됨 → 그 서버 행 settle), 있으면 의도 계좌만 op 4(87 전용 계좌 · 유저는 남긴다 — D-23 ⑤). 전 서버 ok 일 때만
    * `dma_admin_delete_dma_user` — 일부 실패(BUSY · 12 마지막 사용자 · 무응답)면 남은 서버 의도는 그대로 두고 결과 칩이 보여 준다.
    * 마감(29-32)에 걸리면 `deleted: false` 로 먼저 응답하고, 늦게 전 서버 ok 로 끝나도 DB 삭제는 부르지 않는다(화면 · DB 일치).
+   *
+   * `skipDisabled`(29-34 WR-04 — Admin 이 확인 다이얼로그의 「꺼진 서버의 등록은 DB 에서만 지워요」 를 보고 확인했다): 레지스트리에서
+   * 꺼진 · 없는 등록 서버에는 **op 를 보내지 않고**(꺼진 서버 = 관찰자 · admin 연결 없음) 그 서버 의도 행만 전부 settle 한다 —
+   * 결과 `skipped` + `SKIPPED_SETTLED_MESSAGE`. deleted 판정 = 켜진 서버 전부 ok + 꺼진 서버 전부 settle 성공(settle 이 실패한
+   * 꺼진 서버는 종전 사유 그대로). 켜진 서버가 실패하면 꺼진 서버 settle 은 했어도 DMA 유저 행은 남는다(다음 삭제가 켜진 서버만).
+   * 옵션이 없으면 꺼진 서버는 종전처럼 `skipped` 사유로 남고 deleted false.
    */
   deleteUser(
     dmaUserId: string,
     adminEmail: string,
-    opts: { deadlineAt?: number } = {},
+    opts: { deadlineAt?: number; skipDisabled?: boolean } = {},
   ): Promise<{ results: AdminServerResult[]; deleted: boolean }> {
     void adminEmail;
     const progress = newProgress();
     const full = this.#serial(dmaUserId, async () => {
       const intent = (await this.#deps.store.intent(dmaUserId)).map((r) => ({ ...r, state: "removing" as const }));
       const password = this.#passwordSource(dmaUserId, undefined);
-      const results = await this.#fanOut(progress, this.#serverKeysOf(intent), (serverKey) =>
-        this.#applyServer(
+      // DB 등록만 지운 꺼진 서버 — deleted 판정에서 ok 와 같게 센다.
+      const settledDisabled = new Set<string>();
+      const results = await this.#fanOut(progress, this.#serverKeysOf(intent), async (serverKey) => {
+        if (opts.skipDisabled === true && !this.#isEnabled(serverKey)) {
+          if (!(await this.#settle(dmaUserId, serverKey, [], true))) {
+            return { server: serverKey, outcome: "skipped", message: SKIPPED_DISABLED_DELETE_MESSAGE };
+          }
+          settledDisabled.add(serverKey);
+          return { server: serverKey, outcome: "skipped", message: SKIPPED_SETTLED_MESSAGE };
+        }
+        return this.#applyServer(
           dmaUserId,
           serverKey,
           (snapshot) => planServerOps({ dmaUserId, serverKey, intent, snapshot }),
           password,
           { settleUserOnOk: true },
-        ),
-      );
+        );
+      });
       await this.#recordFinal(dmaUserId, progress, results);
       if (progress.folded !== null) {
         // 응답은 이미 deleted false 로 나갔다 — 여기서 지우면 화면과 DB 가 갈라진다. 다음 삭제 요청이 87 대조로 마저 처리한다.
         logger.info({ servers: results.length }, "[admin] 유저 삭제 — 마감 뒤 완료 · DB 삭제는 다음 요청");
         return { results, deleted: false };
       }
-      if (!results.every((r) => r.outcome === "ok")) return { results, deleted: false };
+      if (!results.every((r) => r.outcome === "ok" || settledDisabled.has(r.server))) return { results, deleted: false };
       try {
         await this.#deps.store.deleteDmaUser(dmaUserId);
         return { results, deleted: true };
@@ -248,8 +271,7 @@ export class AdminDispatcher {
     password: PasswordSource,
     opts: { settleUserOnOk?: boolean } = {},
   ): Promise<AdminServerResult> {
-    const row = this.#deps.registry.get(serverKey);
-    if (row === undefined || !row.enabled) {
+    if (!this.#isEnabled(serverKey)) {
       // 꺼진 서버 = 관찰자 · admin 연결 없음 — 44 를 보내지 않는다. 사유는 맥락별(29-34 WR-04).
       const message = opts.settleUserOnOk === true ? SKIPPED_DISABLED_DELETE_MESSAGE : SKIPPED_DISABLED_RECONCILE_MESSAGE;
       return { server: serverKey, outcome: "skipped", message };
@@ -305,15 +327,25 @@ export class AdminDispatcher {
     return failure ?? { server: serverKey, outcome: "ok", usersRev };
   }
 
-  /** settle 실패는 응답을 실패로 바꾸지 않는다 — 서버는 이미 반영됐고, 다음 「다시 반영」 이 87 에 없음을 보고 다시 settle 한다. */
-  async #settle(dmaUserId: string, serverKey: string, removed: string[], userRemoved: boolean): Promise<void> {
+  /** 레지스트리에 있고 켜진 서버인가 — 아니면(꺼짐 · 없음) op 를 보내지 않는다. */
+  #isEnabled(serverKey: string): boolean {
+    return this.#deps.registry.get(serverKey)?.enabled === true;
+  }
+
+  /**
+   * settle 실패는 응답을 실패로 바꾸지 않는다 — 서버는 이미 반영됐고, 다음 「다시 반영」 이 87 에 없음을 보고 다시 settle 한다.
+   * 성공 여부를 돌려준다(꺼진 서버 「DB 등록만 지우고 삭제」 의 deleted 판정 · 29-34).
+   */
+  async #settle(dmaUserId: string, serverKey: string, removed: string[], userRemoved: boolean): Promise<boolean> {
     try {
       await this.#deps.store.settleServer(dmaUserId, serverKey, removed, userRemoved);
+      return true;
     } catch (err) {
       logger.error(
         { server: serverKey, removed: removed.length, userRemoved, reason: err instanceof Error ? err.name : "unknown" },
         "[admin] settle 실패 — 의도 행이 removing 으로 남는다(다음 다시 반영이 정리)",
       );
+      return false;
     }
   }
 
