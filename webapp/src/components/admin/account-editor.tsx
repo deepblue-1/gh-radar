@@ -55,6 +55,7 @@ export const ACCOUNT_EDITOR_TEXT = {
   traderInvalid: "KB 트레이더 id 는 6자예요",
   submit: "추가",
   cancel: "취소",
+  duplicate: "이미 있는 계좌 — 위 계좌 줄에서 서버를 고르세요",
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -407,6 +408,12 @@ const BROKERS: readonly DmaBroker[] = ["KB", "KYOBO"];
 
 interface AccountAddFormProps {
   dmaUserId: string;
+  /**
+   * 이미 있는 의도 계좌의 키(`accountKeyOf`) — 「추가」 는 PUT upsert 1건이라 같은 키를 넣으면 그 계좌의 이름 · 지점 · 등록 서버를
+   * 조용히 덮는다(WR-06). 이 집합에 있으면 막고 계좌 줄로 안내한다. 87 에만 있는 계좌(의도 없음)는 넣지 않는다 — 막지 않는다.
+   * 서버 쪽 create-only 플래그는 두지 않는다: Admin 1명 운영이라 동시 추가 경합이 없고, RPC 시그니처를 바꾸면 오버로드가 생긴다.
+   */
+  existingKeys: ReadonlySet<string>;
   serverKeysOf: (broker: DmaBroker) => string[];
   nextPriority: number;
   onResults: (accountKey: string, results: readonly AdminServerResult[]) => void;
@@ -414,7 +421,15 @@ interface AccountAddFormProps {
   onClose: () => void;
 }
 
-function AccountAddForm({ dmaUserId, serverKeysOf, nextPriority, onResults, onChanged, onClose }: AccountAddFormProps) {
+function AccountAddForm({
+  dmaUserId,
+  existingKeys,
+  serverKeysOf,
+  nextPriority,
+  onResults,
+  onChanged,
+  onClose,
+}: AccountAddFormProps) {
   const [broker, setBroker] = useState<DmaBroker>("KB");
   const [accountNo, setAccountNo] = useState("");
   const [name, setName] = useState("");
@@ -436,8 +451,11 @@ function AccountAddForm({ dmaUserId, serverKeysOf, nextPriority, onResults, onCh
   const noInvalid = accountNo.trim() !== "" && !isValidAccountNoInput(accountNo);
   const branchInvalid = kb && branchNo !== "" && branchNo.length !== 5;
   const traderInvalid = kb && traderId !== "" && traderId.length !== 6;
+  // 정규화(공백 · 앞 0)한 같은 키의 의도 계좌가 있으면 막는다 — 입력 안내 한 줄(오류 경보 아님).
+  const duplicate = isValidAccountNoInput(accountNo) && existingKeys.has(accountKeyOf(broker, accountNo));
   const ready =
     isValidAccountNoInput(accountNo) &&
+    !duplicate &&
     servers.length > 0 &&
     (!kb || (branchNo.length === 5 && traderId.length === 6)) &&
     save.state !== "saving";
@@ -533,6 +551,11 @@ function AccountAddForm({ dmaUserId, serverKeysOf, nextPriority, onResults, onCh
         )}
       </div>
       {noInvalid && <p className={ERROR_LINE}>{ACCOUNT_EDITOR_TEXT.accountNoInvalid}</p>}
+      {duplicate && (
+        <p data-slot="admin-account-dup" className={ERROR_LINE}>
+          {ACCOUNT_EDITOR_TEXT.duplicate}
+        </p>
+      )}
       {branchInvalid && <p className={ERROR_LINE}>{ACCOUNT_EDITOR_TEXT.branchInvalid}</p>}
       {traderInvalid && <p className={ERROR_LINE}>{ACCOUNT_EDITOR_TEXT.traderInvalid}</p>}
 
@@ -648,6 +671,7 @@ export function AccountEditor({
       {adding ? (
         <AccountAddForm
           dmaUserId={dmaUserId}
+          existingKeys={new Set(editable.map((a) => accountKeyOf(a.broker, a.accountNo)))}
           serverKeysOf={serverKeysOf}
           nextPriority={nextPriority}
           onResults={onResults}

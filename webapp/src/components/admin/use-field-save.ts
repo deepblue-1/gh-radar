@@ -24,6 +24,12 @@ import { ApiClientError } from "@/lib/api";
  * `value` 는 화면이 그릴 「의도 값」 이다 — 비행 · 대기 중이면 마지막으로 누른 값, 성공 뒤에는 마지막으로 저장된 값,
  * 실패 · 아직 조작 전이면 `undefined`(부모가 서버 값을 그린다). 비밀번호처럼 값을 들고 있으면 안 되는 필드는
  * `retainValue: false` 로 끈다(D-06 — 상태에 남기지 않는다).
+ *
+ * **IN-03 — `releaseOn`(선택).** 성공 뒤에도 누른 값을 쥐고 있으면 서버 쪽 이후 변경(relay 레지스트리 보정이 시세 주 서버를
+ * 되돌림 · 다른 Admin 이 바꿈)이 재조회로 와도 화면이 옛 의도를 가린다. 호출자가 최신 재조회 데이터 객체를 `releaseOn` 으로
+ * 넘기면, 성공한 뒤 그 객체의 **동일성이 바뀌는 순간**(= 성공 뒤 첫 재조회 도착) `value` 를 놓아 재조회 값이 정본이 된다.
+ * 성공 직후 · 재조회 전에는 누른 값을 유지한다(깜빡임 없음). 비행 · 대기 중에는 놓지 않는다(새 조작이 해제 대기를 지운다).
+ * 주지 않은 호출자는 종전 동작(성공 뒤 마지막 저장 값 유지)이다.
  */
 
 /** 성공 플래시 시간 — `USER_SETTINGS_FLASH_MS`(Phase 27 D-12 「~0.7초」)와 같은 값. */
@@ -38,6 +44,11 @@ export interface UseFieldSaveOptions<T> {
   describeError?: (err: unknown) => string;
   /** 값을 상태에 남길지(기본 true). 비밀번호는 false. */
   retainValue?: boolean;
+  /**
+   * 호출자의 최신 재조회 데이터(재조회마다 새 객체). 주면 성공 뒤 이 동일성이 바뀔 때 `value` 를 놓는다(IN-03 · 위 주석).
+   * 키를 아예 두지 않으면 종전 동작.
+   */
+  releaseOn?: unknown;
 }
 
 export interface FieldSave<T> {
@@ -71,6 +82,9 @@ export function useFieldSave<T>(
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [value, setValue] = useState<T | undefined>(undefined);
+  // 성공 시점의 `releaseOn` — 렌더의 `releaseOn` 이 이것과 달라지면(재조회 도착) 누른 값을 놓는다. null = 해제 대기 없음.
+  const [heldSince, setHeldSince] = useState<{ on: unknown } | null>(null);
+  const releasable = "releaseOn" in options;
 
   // 최신 save · 옵션 — 대기 건을 보낼 때도 마지막 렌더의 함수를 쓴다.
   const saveRef = useRef(save);
@@ -115,6 +129,8 @@ export function useFieldSave<T>(
           }
           inflight.current = false;
           setResults(res && Array.isArray(res.results) ? res.results : null);
+          // 해제 대기 — 성공 시점의 재조회 데이터를 기억한다(이후 새 객체가 오면 놓는다).
+          if ("releaseOn" in optsRef.current) setHeldSince({ on: optsRef.current.releaseOn });
           setState("flash");
           flashTimer.current = setTimeout(() => {
             flashTimer.current = null;
@@ -127,6 +143,7 @@ export function useFieldSave<T>(
           inflight.current = false;
           queued.current = NONE;
           setValue(undefined);
+          setHeldSince(null);
           setState("error");
           setErrorCode(err instanceof ApiClientError ? err.code : null);
           setError((optsRef.current.describeError ?? defaultSaveErrorText)(err));
@@ -139,6 +156,8 @@ export function useFieldSave<T>(
   const run = useCallback(
     (v: T) => {
       if (retain) setValue(v);
+      // 새 조작 — 이전 성공의 해제 대기를 지운다(비행 · 대기 중에는 누른 값을 놓지 않는다).
+      setHeldSince(null);
       if (inflight.current) {
         queued.current = v;
         return;
@@ -148,5 +167,7 @@ export function useFieldSave<T>(
     [dispatch, retain],
   );
 
-  return { state, run, results, error, errorCode, value };
+  // 성공 뒤 재조회가 도착했으면(동일성 변화) 누른 값을 놓는다 — 렌더 중 파생(효과 없이 · 깜빡임 없이).
+  const released = releasable && heldSince !== null && !Object.is(heldSince.on, options.releaseOn);
+  return { state, run, results, error, errorCode, value: released ? undefined : value };
 }
