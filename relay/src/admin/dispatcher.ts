@@ -3,7 +3,7 @@
  *
  * 흐름(유저 1명 · 「다시 반영」 과 생성 · 계좌 변경이 같은 길):
  *   의도(`dma_admin_intent`) → 등록 서버 키 집합 → **서버마다 병렬로**
- *     레지스트리에서 꺼진 · 없는 서버 → `skipped`
+ *     레지스트리에서 꺼진 · 없는 서버 → `skipped` + 사유 문구(29-34 WR-04 — 유저 삭제 · 그 밖 반영 맥락별)
  *     admin 연결 없음 · 87 미수신(`currentSnapshot()` null) → `offline`(서버 상태를 모르고 쓰지 않는다)
  *     `planServerOps`(29-04 · shared `diffServerAccounts` 한 벌) → op 를 **순서대로** `command()` → `interpretAdminResult`
  *       첫 실패(failed · timeout · offline)에서 그 서버만 멈춘다 — 다른 서버 결과에 번지지 않는다(D-07 · D-23 ④)
@@ -95,6 +95,15 @@ export const ADMIN_REQUEST_DEADLINE_MS = 10_000;
 
 /** 마감까지 끝나지 않은 서버의 결과 칩 문구 — 반영은 뒤에서 계속되고 실제 결과가 다시 기록된다. */
 export const ADMIN_DEADLINE_MESSAGE = "10초 안에 끝나지 않아 먼저 응답했어요 — 서버 반영은 계속돼요";
+
+/**
+ * 레지스트리에서 꺼진 · 없는 등록 서버의 `skipped` 사유(29-34 WR-04) — 화면 칩 `title` · 「<서버> 미반영: <사유>」 줄이 그대로
+ * 보인다. 유저 삭제는 「켜고 다시 삭제」 또는 Admin 확인 뒤 「DB 등록만 지우고 삭제」(`skipDisabled`)로 끝낼 수 있다.
+ */
+export const SKIPPED_DISABLED_DELETE_MESSAGE = "사용이 꺼진 서버 — 켜고 다시 삭제하거나, DB 등록만 지우고 삭제";
+
+/** 유저 삭제 밖의 반영(생성 · 계좌 · 비밀번호 · 다시 반영)에서 꺼진 서버의 `skipped` 사유. */
+export const SKIPPED_DISABLED_RECONCILE_MESSAGE = "사용이 꺼진 서버 — 켜면 「다시 반영」 으로 맞춰요";
 
 /** 요청 1건의 진행 — 마감 시각에 응답 배열을 접는 데 쓴다. */
 type Progress = {
@@ -240,7 +249,11 @@ export class AdminDispatcher {
     opts: { settleUserOnOk?: boolean } = {},
   ): Promise<AdminServerResult> {
     const row = this.#deps.registry.get(serverKey);
-    if (row === undefined || !row.enabled) return { server: serverKey, outcome: "skipped" };
+    if (row === undefined || !row.enabled) {
+      // 꺼진 서버 = 관찰자 · admin 연결 없음 — 44 를 보내지 않는다. 사유는 맥락별(29-34 WR-04).
+      const message = opts.settleUserOnOk === true ? SKIPPED_DISABLED_DELETE_MESSAGE : SKIPPED_DISABLED_RECONCILE_MESSAGE;
+      return { server: serverKey, outcome: "skipped", message };
+    }
     const admin = this.#deps.pipelines.get(serverKey)?.admin;
     const snapshot = admin?.currentSnapshot() ?? null;
     if (admin === undefined || snapshot === null) return { server: serverKey, outcome: "offline" };

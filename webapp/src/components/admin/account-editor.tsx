@@ -37,7 +37,8 @@ import { useFieldSave } from "./use-field-save";
  *
  * 응답의 서버별 결과 배열 → **그 계좌 · 그 서버 칩**(`chipOfResult` — 아래 표). 결과 칩은 이 시트가 열려 있는 동안
  * 개요 칩보다 앞선다(응답이 87 스냅샷보다 새 소식이다). 실패 칩은 서버 한국어 message 를 `title` 로 싣고, 줄 아래
- * 「<서버> 실패 · BUSY: <message 원문> — 정리 뒤 「다시 반영」」 한 줄을 세운다(D-23 ④ — 토스트 없음).
+ * 「<서버> 실패 · BUSY: <message 원문> — 정리 뒤 「다시 반영」」 한 줄을 세운다(D-23 ④ — 토스트 없음). 꺼진 등록 서버의
+ * 미반영(warn)도 relay 가 사유를 실으면 같은 자리에 「<서버> 미반영: <사유>」 한 줄(29-34 WR-04 — 톤만 warn).
  *
  * 마지막 계좌 「제거」 는 서버 409 `LAST_ACCOUNT` 를 기다리지 않고 화면이 먼저 안다 — `onRemoveLast`(시트가 확인 1회 뒤
  * 사용자 삭제). 켜진 서버가 1대인 계좌는 그 토글을 끌 수 없다 — 비활성 + `title` 「계좌는 서버 1대 이상」, 안내 문장은
@@ -62,7 +63,7 @@ export const ACCOUNT_EDITOR_TEXT = {
 // 결과 → 칩
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** 칩 1개의 그림 — 톤 · 서버 message(err) · `REFLECT_LABEL` 밖 낱말(있으면). */
+/** 칩 1개의 그림 — 톤 · 서버 message(err · 사유 있는 warn) · `REFLECT_LABEL` 밖 낱말(있으면). */
 export interface ChipView {
   tone: ReflectTone;
   message: string | null;
@@ -71,7 +72,7 @@ export interface ChipView {
 
 /**
  * 응답 outcome → 칩. ok 반영됨 · failed 실패 · BUSY(message 원문) · timeout 응답 없음(err) · offline 서버 연결 안 됨(warn) ·
- * skipped 미반영(warn).
+ * skipped 미반영(warn). warn 도 서버가 사유 message 를 실었으면(29-34 WR-04 — 꺼진 등록 서버) 칩 `title` · 아래 줄에 싣는다.
  */
 export const RESULT_CHIP: Readonly<Record<AdminServerResult["outcome"], Omit<ChipView, "message">>> = {
   ok: { tone: "ok", label: null },
@@ -83,7 +84,7 @@ export const RESULT_CHIP: Readonly<Record<AdminServerResult["outcome"], Omit<Chi
 
 export function chipOfResult(r: AdminServerResult): ChipView {
   const base = RESULT_CHIP[r.outcome] ?? RESULT_CHIP.failed;
-  return { ...base, message: base.tone === "err" ? (r.message ?? null) : null };
+  return { ...base, message: base.tone === "ok" ? null : (r.message ?? null) };
 }
 
 /** 상태 낱말만(서버 키가 옆에 있는 자리). */
@@ -123,6 +124,16 @@ export function busyLineText(serverKey: string, message: string, after = "정리
   return `${serverKey} 실패 · BUSY: ${message} — ${after}`;
 }
 
+/** 미반영 사유 한 줄(29-34 WR-04) — 「KB121 미반영: <사유>」. 사유 문장이 할 일을 이미 말하므로 뒤 안내를 붙이지 않는다. */
+export function skippedLineText(serverKey: string, message: string): string {
+  return `${serverKey} ${REFLECT_LABEL.warn}: ${message}`;
+}
+
+const LINE_TONE_CLASS: Readonly<Record<"err" | "warn", string>> = {
+  err: "text-[var(--destructive)]",
+  warn: "text-[var(--led-latent)]",
+};
+
 export function BusyLines({
   chips,
   after,
@@ -131,19 +142,25 @@ export function BusyLines({
   after?: string;
 }) {
   const seen = new Set<string>();
-  const lines: { key: string; text: string }[] = [];
+  const lines: { key: string; tone: "err" | "warn"; text: string }[] = [];
   for (const c of chips) {
-    if (c.tone !== "err" || !c.message) continue;
+    if ((c.tone !== "err" && c.tone !== "warn") || !c.message) continue;
     const k = `${c.serverKey}\u0000${c.message}`;
     if (seen.has(k)) continue;
     seen.add(k);
-    lines.push({ key: k, text: busyLineText(c.serverKey, c.message, after) });
+    const text = c.tone === "err" ? busyLineText(c.serverKey, c.message, after) : skippedLineText(c.serverKey, c.message);
+    lines.push({ key: k, tone: c.tone, text });
   }
   if (lines.length === 0) return null;
   return (
     <>
       {lines.map((l) => (
-        <p key={l.key} data-slot="admin-busy-line" className="mt-1.5 text-[12px] leading-[1.5] break-keep text-[var(--destructive)]">
+        <p
+          key={l.key}
+          data-slot="admin-busy-line"
+          data-tone={l.tone}
+          className={cn("mt-1.5 text-[12px] leading-[1.5] break-keep", LINE_TONE_CLASS[l.tone])}
+        >
           {l.text}
         </p>
       ))}
