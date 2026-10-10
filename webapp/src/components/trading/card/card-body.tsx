@@ -294,11 +294,7 @@ export function CardBody({
       currentPrice={quote !== null && quote.p > 0 ? quote.p : 0}
       tickRule={tickRule}
       onSent={handleSent}
-      // D-36 판정 입력 — 호가 매수1호가. 호가 미수신 · 0 이면 0(허용 — 상한가로 치환하지 않는다).
-      bestBid={quote !== null && quote.bp[0] > 0 ? quote.bp[0] : 0}
-      // D-36 판정 입력 — 호가 매수1잔량. 미수신 · 0 이면 0(허용).
-      bestBidQty={quote !== null && quote.bq[0] > 0 ? quote.bq[0] : 0}
-      // 클라 합성 로그 통로(D-36) — 카드 전략 로그로 흐른다.
+      // 클라 합성 로그 통로(자동 체크 요약 등) — 카드 전략 로그로 흐른다.
       onClientLog={pushClientLog}
       tab={optionsTab}
       hideTabs

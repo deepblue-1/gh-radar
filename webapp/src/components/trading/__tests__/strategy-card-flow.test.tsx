@@ -1146,27 +1146,24 @@ describe('24-05 카드 귀속 — 보낸 cfg · 보낸 사유 · override (Phase
   });
 });
 
-describe('24-06 — 클라 로그 통로 pushClientLog (D-36 · 순서)', () => {
+describe('24-06 — 클라 로그 통로 pushClientLog (순서)', () => {
   const texts = () =>
     Array.from(logRows()).map((r) => r.querySelectorAll('span')[1]?.textContent ?? '');
-  // 카드 흐름 quote() 의 매수1잔량 = 100 · 시드 추가매수 최소 0 → 하한 1.
-  const D36 =
-    '추가매수는 상한가 도달 전 또는 매수1잔량이 최소 미만일 때만 켤 수 있습니다 — 매수1호가 == 비교가격, 매수1잔량 100 ≥ 최소 1';
 
   beforeEach(() => {
     lastCard = null;
   });
 
-  it('D-36 — 매수1호가 == 비교가격 ∧ 매수1잔량 100 ≥ 최소 1 에서 추가매수 켜기 → 카드 전략 로그 최상단에 원문 그대로(error) · 전송 0', async () => {
+  it('D-33 ① 폐기 — 매수1호가 == 비교가격 ∧ 매수1잔량 100 ≥ 최소 1 에서 추가매수 켜기 → 전송 1 · 카드 로그에 차단 줄(error) 0 (quick-261011-0yb)', async () => {
     const e = echo({ extraBuyOrderAmount: 50 });
     setRelay({ limitChasers: [e], quote: quote() });
     render(<Card />);
     await act(async () => {
       fireEvent.click(screen.getByRole('switch', { name: '추가매수 켜기' }));
     });
-    await waitFor(() => expect(texts()[0]).toBe(D36));
-    expect(logRows()[0]!.getAttribute('data-level')).toBe('error');
-    expect(lcSets()).toHaveLength(0);
+    await waitFor(() => expect(lcSets()).toHaveLength(1));
+    expect(lcSets()[0]!.cfg!.extraBuyEnabled).toBe(true);
+    expect(Array.from(logRows()).filter((r) => r.getAttribute('data-level') === 'error')).toHaveLength(0);
   });
 
   /**
@@ -1749,7 +1746,7 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 in-fli
   });
 
   it('선매수 켬(in-flight) · 추가매수 켬(대기) → 매도만 눕힌 ERROR 먼저 → 실패 0 · 스위치 유지 → 같은 제출 에코(선매수 ON · 매도 OFF) → 추가매수 1건 전송 · 「선매수 자동 체크 — 」 한 줄', async () => {
-    // 매수1호가 ≠ 비교가격 — D-36 추가매수 상한가 차단이 걸리지 않는다.
+    // 매수1호가 ≠ 비교가격(상한가 중 켜기 클라 차단은 D-33 ① 폐기로 없다 — 호가 모양은 종전 그대로 둔다).
     const q = quote({ bp: Array.from({ length: 10 }, (_, i) => 129_500 - i * 500) });
     // GC-WR-04 폼 테스트의 idle 모양 — 마스터 OFF · 세 그룹 OFF · 매도 가격 0(자동 체크가 상한가로 채움) · 두 그룹 금액 > 0.
     const before = echo({

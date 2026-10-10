@@ -2038,15 +2038,13 @@ describe('⑰-b D-02 후반 · D-19 — WinForms 동형 서버 접힘 뒤 마스
   });
 });
 
-describe('⑱ 그룹 켜기 사전 검증 줄 · D-36 · D-11 재제출 (24-06 · 24-22 · UI-SPEC §7 · R7 · R8)', () => {
+describe('⑱ 그룹 켜기 사전 검증 줄 · D-33 ① 폐기 · D-11 재제출 (24-06 · 24-22 · UI-SPEC §7 · R7 · R8 · quick-261011-0yb)', () => {
   const precheckIn = (slot: string) => group(slot).querySelector('[data-slot="lc-group-precheck"]');
   const AMOUNT_FIRST = '주문금액을 먼저 입력해 주세요';
   const QTY_ZERO = '금액이 주문가격보다 작아 주문수량이 0주예요 — 금액을 올려 주세요';
   const MIN_OVER_MAX = '최소 잔량이 최대 잔량보다 커요 — 최대를 0(무제한)으로 하거나 최소를 낮춰 주세요';
   const REBOUND = '반등을 1~100%로 입력해 주세요';
   const SELL_RATIO = '후매수는 매도비율이 있어야 켤 수 있어요 — 매도비율을 1~100%로 입력해 주세요';
-  const D36 =
-    '추가매수는 상한가 도달 전 또는 매수1잔량이 최소 미만일 때만 켤 수 있습니다 — 매수1호가 == 비교가격, 매수1잔량 200 ≥ 최소 1';
 
   it('D-03 — 추가매수 금액 0 에서 켜기 → 전송 0 · 스위치 OFF 그대로 · 그 카드 사전 검증 줄 · 스위치는 disabled 가 아니다', () => {
     render(<LimitChaserForm {...props()} />);
@@ -2207,87 +2205,14 @@ describe('⑱ 그룹 켜기 사전 검증 줄 · D-36 · D-11 재제출 (24-06 �
     expect(cls).toContain('text-[12.5px]');
   });
 
-  it('D-36 — 매수1호가 == 비교가격(둘 다 > 0) ∧ 매수1잔량 200 ≥ 최소(0 → 1)이면 제출 없이 스위치 그대로 · 사전 검증 줄 없음 · 로그 원문 한 줄(error)', () => {
+  it('D-33 ① 폐기 — 상한가 두꺼운 벽(매수1호가 == 비교가격 ∧ 매수1잔량 ≥ 최소)이어도 추가매수 켜기 = lc.set 1건 · 클라 로그 0 (서버가 첫 상한가 B6 에서 구간 판정 · quick-261011-0yb)', () => {
     const onClientLog = vi.fn();
-    render(
-      <LimitChaserForm
-        {...props({ server: echo({ extraBuyOrderAmount: 50 }), bestBid: 130_000, bestBidQty: 200, onClientLog })}
-      />,
-    );
+    // 폼은 더 이상 호가를 받지 않는다 — 판정 입력이 없으니 어떤 호가에서도 같은 결과다.
+    render(<LimitChaserForm {...props({ server: echo({ extraBuyOrderAmount: 50 }), onClientLog })} />);
     click(sw('추가매수 켜기'));
-    expect(sentConfigs()).toHaveLength(0);
-    expect(sw('추가매수 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ extraBuyEnabled: true });
     expect(precheckIn('extra-buy')).toBeNull();
-    expect(submitError()).toBeNull();
-    expect(onClientLog).toHaveBeenCalledTimes(1);
-    expect(onClientLog).toHaveBeenCalledWith(D36, 'error');
-    expect(screen.queryByRole('dialog')).toBeNull();
-  });
-
-  it('D-36 얇은 벽 — 매수1호가 == 비교가격이라도 매수1잔량 200 < 최소 500 이면 켠다(전송 1 · 로그 0)', () => {
-    const onClientLog = vi.fn();
-    render(
-      <LimitChaserForm
-        {...props({
-          server: echo({ extraBuyOrderAmount: 50, extraBuyMinQty: 500 }),
-          bestBid: 130_000,
-          bestBidQty: 200,
-          onClientLog,
-        })}
-      />,
-    );
-    click(sw('추가매수 켜기'));
-    expect(sentConfigs()).toHaveLength(1);
-    expect(lastConfig()).toMatchObject({ extraBuyEnabled: true, extraBuyMinQty: 500 });
-    expect(onClientLog).not.toHaveBeenCalled();
-  });
-
-  it('D-36 잔량 모름 — 매수1잔량 0 은 하한(1) 미만이라 허용(전송 1 · 로그 0 — 서버 「모름」 규칙이 백스톱)', () => {
-    const onClientLog = vi.fn();
-    render(
-      <LimitChaserForm
-        {...props({ server: echo({ extraBuyOrderAmount: 50 }), bestBid: 130_000, bestBidQty: 0, onClientLog })}
-      />,
-    );
-    click(sw('추가매수 켜기'));
-    expect(sentConfigs()).toHaveLength(1);
-    expect(onClientLog).not.toHaveBeenCalled();
-  });
-
-  it('D-36 — 매수1호가 0(호가 미수신)이면 허용 · 상한가로 치환하지 않는다 · 호가가 다르면 허용', () => {
-    const onClientLog = vi.fn();
-    const a = render(
-      <LimitChaserForm
-        {...props({ server: echo({ extraBuyOrderAmount: 50 }), bestBid: 0, bestBidQty: 200, upperLimit: 130_000, onClientLog })}
-      />,
-    );
-    click(sw('추가매수 켜기'));
-    expect(sentConfigs()).toHaveLength(1);
-    a.unmount();
-    render(
-      <LimitChaserForm
-        {...props({ server: echo({ extraBuyOrderAmount: 50 }), bestBid: 129_500, bestBidQty: 200, onClientLog })}
-      />,
-    );
-    click(sw('추가매수 켜기'));
-    expect(sentConfigs()).toHaveLength(2);
-    expect(onClientLog).not.toHaveBeenCalled();
-  });
-
-  it('D-36 은 추가매수만 — 선매수 · 후매수는 매수1호가 == 비교가격 ∧ 두꺼운 벽이어도 켠다', () => {
-    const onClientLog = vi.fn();
-    render(
-      <LimitChaserForm
-        {...props({
-          server: echo({ postBuyOrderAmount: 50, postBuyReboundPct: 30 }),
-          bestBid: 130_000,
-          bestBidQty: 200,
-          onClientLog,
-        })}
-      />,
-    );
-    click(sw('선매수 켜기'));
-    expect(sentConfigs()).toHaveLength(1);
     expect(onClientLog).not.toHaveBeenCalled();
   });
 
@@ -2708,7 +2633,7 @@ describe('GC-WR-03 — 마지막 그룹 끄기의 마스터 동반은 꺼내는 
 describe('D-35 — 추가매수 켬도 선매수처럼 매도 · 취소 6체크를 같은 제출에 (2026-09-28 사용자 지시)', () => {
   /**
    * ⑲ 과 같은 출발점 + 추가매수 금액 50(만원) — 마스터 OFF · 매도/취소 전부 OFF · 매도 가격 0 · 매도 매수잔량 10 ·
-   * 매수1호가 0(호가 미수신 = D-36 허용).
+   * (폼은 호가를 받지 않는다 — 상한가 중 켜기 클라 차단은 D-33 ① 폐기로 없다 · quick-261011-0yb).
    */
   const idle = (over: Partial<RelayLimitChaser> = {}) =>
     echo({ buyEnabled: false, sellOrderPrice: 0, sellWatchPrice: 0, sellWatchQty: 10, extraBuyOrderAmount: 50, ...over });
@@ -2730,8 +2655,6 @@ describe('D-35 — 추가매수 켬도 선매수처럼 매도 · 취소 6체크�
   } as const;
   const FULL_LINE =
     '추가매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 150,800원';
-  const D36 =
-    '추가매수는 상한가 도달 전 또는 매수1잔량이 최소 미만일 때만 켤 수 있습니다 — 매수1호가 == 비교가격, 매수1잔량 200 ≥ 최소 1';
   /** 「켬: a · b · …」 조각의 항목 목록. */
   const turnedOnOf = (text: string): string[] => {
     const m = /켬: ([^/]+)/.exec(text);
@@ -2767,28 +2690,21 @@ describe('D-35 — 추가매수 켬도 선매수처럼 매도 · 취소 6체크�
     expect(onClientLog).toHaveBeenCalledTimes(1);
   });
 
-  it('D-36 이 먼저 — 매수1호가 == 비교가격 ∧ 매수1잔량 ≥ 최소면 전송 0 · 로그는 D-36 원문 한 줄뿐 · 자동 체크 줄 0 · 매도 · 취소 스위치 OFF 그대로', () => {
+  it('상한가 두꺼운 벽에서도 추가매수 · 마스터 · 6체크가 한 제출에 실린다 — 클라 차단 줄 0 (D-33 ① 폐기 · quick-261011-0yb)', () => {
     const onClientLog = vi.fn();
-    render(
-      <LimitChaserForm
-        {...props({ server: idle(), upperLimit: 150_800, bestBid: 130_000, bestBidQty: 200, onClientLog })}
-      />,
-    );
+    render(<LimitChaserForm {...props({ server: idle({ buyWatchPrice: 150_800 }), upperLimit: 150_800, onClientLog })} />);
     click(sw('추가매수 켜기'));
-    expect(sentConfigs()).toHaveLength(0);
-    expect(onClientLog).toHaveBeenCalledTimes(1);
-    expect(onClientLog).toHaveBeenCalledWith(D36, 'error');
-    expect(sw('추가매수 켜기')).toHaveAttribute('aria-checked', 'false');
-    expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'false');
-    expect(sw('매수취소 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ extraBuyEnabled: true, buyEnabled: true, ...SIX });
+    expect(onClientLog).not.toHaveBeenCalled();
+    expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'true');
+    expect(sw('매수취소 켜기')).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('D-36 얇은 벽 — 상한가라도 매수1잔량 < 최소면 추가매수 · 마스터 · 6체크가 한 제출에 실리고 성공 뒤 「추가매수 자동 체크 — 켬: …」 한 줄', () => {
+  it('최소 잔량 500 도 그대로 — 추가매수 · 마스터 · 6체크가 한 제출에 실리고 성공 뒤 「추가매수 자동 체크 — 켬: …」 한 줄', () => {
     const onClientLog = vi.fn();
     const s = idle({ extraBuyMinQty: 500 });
-    const { rerender } = render(
-      <LimitChaserForm {...props({ server: s, upperLimit: 150_800, bestBid: 130_000, bestBidQty: 200, onClientLog })} />,
-    );
+    const { rerender } = render(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog })} />);
     click(sw('추가매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig()).toMatchObject({
@@ -2803,7 +2719,7 @@ describe('D-35 — 추가매수 켬도 선매수처럼 매도 · 취소 6체크�
     const ok = { ...s, buyEnabled: true, extraBuyEnabled: true, ...SIX, sellOrderPrice: 150_800, sellWatchPrice: 150_800 };
     rerender(
       <LimitChaserForm
-        {...props({ server: ok, upperLimit: 150_800, bestBid: 130_000, bestBidQty: 200, onClientLog, serverAnswerSeq: 1 })}
+        {...props({ server: ok, upperLimit: 150_800, onClientLog, serverAnswerSeq: 1 })}
       />,
     );
     expect(onClientLog).toHaveBeenCalledTimes(1);

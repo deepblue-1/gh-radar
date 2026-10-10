@@ -3402,7 +3402,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(lcSwitch(card, '매수주문 켜기')).toBeChecked();
   });
 
-  test('P24-5 사전 검증 · D-36(매수1잔량 ≥ 최소) — 신필드 0(buy3) 에코에서 추가매수 켜기 = 전송 0 + 「주문금액을 먼저 입력해 주세요」 · 매수1호가 == 비교가격 ∧ 매수1잔량 ≥ 최소면 전송 0 + 로그 원문 · 다르면 10 한 건', async ({
+  test('P24-5 사전 검증 — 신필드 0(buy3) 에코에서 추가매수 켜기 = 전송 0 + 「주문금액을 먼저 입력해 주세요」 · 상한가 두꺼운 벽이어도 켜기 = 10 한 건(D-33 ① 폐기)', async ({
     page,
   }) => {
     // (a) 신필드 0(buy3) 에코 — buy3 서버의 신필드 전부 0 전략(UI-SPEC E1 partial 「레거시 에코」 · `buy3Schema` 는 픽스처 기본 1).
@@ -3435,38 +3435,27 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(lcValue(page, 'lc-extra-buy-amount')).toHaveText('500만원', { timeout: 15_000 });
     await expect(precheck).toHaveCount(0);
 
-    // (b) D-36 — 비교가격 = 스텁 호가 매수1호가(97,900) · 스텁 매수1잔량 10 ≥ 시드 최소 0(→ 하한 1) = 두꺼운 벽.
-    //     추가매수 켜기 = 전송 0 · 사전 검증 줄 없음 · 로그 원문 한 줄(N · M 포함).
+    // (b) D-33 ① 폐기(gh-trade quick-261010-ub8 · quick-261011-0yb) — 비교가격 = 스텁 호가 매수1호가(97,900) · 스텁
+    //     매수1잔량 10 ≥ 시드 최소 0(→ 하한 1) = 두꺼운 벽이어도 추가매수 켜기 = 10 한 건 · 차단 로그 줄 0. 서버가 첫
+    //     상한가 B6 에서 구간 판정한다.
     const atUpper = { buyEnabled: true, buyWatchPrice: 97_900, extraBuyOrderAmount: 500 };
     relay.seedLimitChasers([atUpper]);
     await page.goto(FOCUS_URL);
     await waitForReady(page);
     await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
     await expect(lcValue(page, 'lc-buy-watch-price')).toHaveText('97,900원', { timeout: 15_000 });
-    // 호가(매수1호가 · 매수1잔량)가 들어와야 D-36 판정 입력이 선다 — 사다리에 97,900 이 보일 때까지.
+    // 호가가 들어온 뒤에 누른다 — 사다리에 97,900 이 보일 때까지(두꺼운 벽 조건이 실제로 선 상태).
     await expect(card.locator('[data-slot="orderbook-ladder"]').first()).toContainText('97,900', { timeout: 15_000 });
-    const beforeD36 = lcSetCount(relay);
+    const beforeUpper = lcSetCount(relay);
     await extraSwitch.click();
-    const rows = await logRows(page);
-    await expect(rows.first()).toContainText(
-      '추가매수는 상한가 도달 전 또는 매수1잔량이 최소 미만일 때만 켤 수 있습니다 — 매수1호가 == 비교가격, 매수1잔량 10 ≥ 최소 1',
-      { timeout: 15_000 },
-    );
-    await expect(precheck).toHaveCount(0);
-    await expect(extraSwitch).toHaveAttribute('aria-checked', 'false');
-
-    // (c) 허용 경로 — 비교가격이 매수1호가와 다르면 같은 클릭이 10 한 건. 그 10 이 보인 순간 누적 = D-36 기준 + 1
-    //     (D-36 클릭은 아무것도 보내지 않았다 — 같은 소켓 · 송신 순서라 보냈다면 먼저 도착해 있다).
-    await relay.pushLimitChaserEcho({ ...atUpper, buyWatchPrice: 98_000 });
-    await expect(lcValue(page, 'lc-buy-watch-price')).toHaveText('98,000원', { timeout: 15_000 });
-    await extraSwitch.click();
-    await expect
-      .poll(() => lcSetRequests(relay).filter((r) => r.extraBuyEnabled === true).length, { timeout: 15_000 })
-      .toBe(1);
-    expect(lcSetCount(relay), 'D-36 — 전송 0 · 허용 클릭 = 10 한 건').toBe(beforeD36 + 1);
+    await waitForSetAtGateway(relay, beforeUpper + 1);
+    expect(lcSetCount(relay), '두꺼운 벽이어도 켜기 = 10 한 건').toBe(beforeUpper + 1);
     const allowed = lcSetRequests(relay).at(-1)!;
     expect(allowed.extraBuyEnabled).toBe(true);
-    expect(allowed.buyWatchPrice).toBe(98_000);
+    expect(allowed.buyWatchPrice).toBe(97_900);
+    await expect(precheck).toHaveCount(0);
+    const rows = await logRows(page);
+    await expect(rows.filter({ hasText: '매수1잔량이 최소 미만일 때만' })).toHaveCount(0);
   });
 
   test('P24-6 후매수 단계 · 발동 override 무배너 — 단계 1 감시 중 → 2 보유중(매수 LED 주황 · 매도 · 취소 「… · 후매수 발동」 · 배너 · 「서버 반영 완료」 없음) → 3 소진(요약 「3회 · 남은 0회」 · 펼치면 안내 원문) (D-11 · D-12 · D-15 · Pitfall 8) (D-38 80%)', async ({
@@ -3614,6 +3603,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       postBuyTriggerQty: 330_000,
       // quick-260929-vzy — 후매수 제목줄 「자동」 체크(켜짐 = 라벨 가장 진한 상태).
       postBuyAuto: true,
+      // quick-261011-0yb — 추가매수 제목줄 「자동」 체크도 켜짐(두 제목줄을 같은 단언으로 잰다).
+      extraBuyAuto: true,
       // Phase 27 — 자동매도 카드 최악값: 시작조건 의미어(가장 긴 값) · 방법 「매수1호가」 · 칩 「매도중」 · 누적 · 기준 큰 수.
       autoSellEnabled: true,
       autoSellStartCond: 0,
@@ -3766,18 +3757,19 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     };
 
     /**
-     * 후매수 제목줄(quick-260929-vzy D-05) — 넘침 0 · 「자동」 라벨 잘림 0 · 체크 높이 ≥ 32 · 스위치가 마지막 자식이고 오른쪽 끝.
-     * 넘치면 `GroupHeaderCheck` 쪽(간격 · 패딩 · 라벨)만 고친다 — 스위치 크기 · 위치는 오터치 방어다(Phase 16 D-05).
+     * 제목줄 「자동」(후매수 quick-260929-vzy D-05 · 추가매수 quick-261011-0yb) — 넘침 0 · 「자동」 라벨 잘림 0 · 체크 높이 ≥ 32 ·
+     * 스위치가 마지막 자식이고 오른쪽 끝. 넘치면 `GroupHeaderCheck` 쪽(간격 · 패딩 · 라벨)만 고친다 — 스위치 크기 · 위치는
+     * 오터치 방어다(Phase 16 D-05).
      */
-    const headerChecks: Record<number, string> = {};
-    const checkPostBuyHeader = async (target: number, label: string) => {
-      const h = await page.evaluate((sel) => {
-        const header = document.querySelector<HTMLElement>(`${sel} [data-slot="lc-group-post-buy"] [data-slot="lc-group-header"]`)!;
+    const headerChecks: Record<string, string> = {};
+    const checkHeaderCheck = async (slot: 'post-buy' | 'extra-buy', word: string, target: number, label: string) => {
+      const h = await page.evaluate(([sel, s, w]) => {
+        const header = document.querySelector<HTMLElement>(`${sel} [data-slot="lc-group-${s}"] [data-slot="lc-group-header"]`)!;
         const check = header.querySelector<HTMLElement>('[data-slot="lc-group-header-check"]')!;
         const last = header.lastElementChild as HTMLElement;
         const cr = check.getBoundingClientRect();
         const sr = last.getBoundingClientRect();
-        const title = Array.from(header.querySelectorAll<HTMLElement>('span')).find((e) => e.textContent === '후매수');
+        const title = Array.from(header.querySelectorAll<HTMLElement>('span')).find((e) => e.textContent === w);
         return {
           titleRects: title?.getClientRects().length ?? -1,
           headerOver: header.scrollWidth - header.clientWidth,
@@ -3789,16 +3781,16 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
           checkRight: cr.right,
           headerRight: header.getBoundingClientRect().right,
         };
-      }, OPTIONS_SEL);
-      expect(h.headerOver, `${label} — 후매수 제목줄 넘침 0`).toBeLessThanOrEqual(0);
+      }, [OPTIONS_SEL, slot, word] as const);
+      expect(h.headerOver, `${label} — ${word} 제목줄 넘침 0`).toBeLessThanOrEqual(0);
       // 제목 낱말이 갈리지 않는다(「후매 / 수」 — 체크가 흐름 폭을 먹으면 break-word 가 낱말 안에서 끊는다).
-      expect(h.titleRects, `${label} — 「후매수」 한 덩어리`).toBe(1);
+      expect(h.titleRects, `${label} — 「${word}」 한 덩어리`).toBe(1);
       expect(h.checkOver, `${label} — 「자동」 라벨 잘림 0`).toBeLessThanOrEqual(0);
       expect(h.checkH, `${label} — 「자동」 체크 높이 ≥ 32`).toBeGreaterThanOrEqual(32);
       expect(h.lastRole, `${label} — 스위치가 제목줄 마지막 자식`).toBe('switch');
       expect(h.switchRight, `${label} — 스위치가 체크보다 오른쪽`).toBeGreaterThanOrEqual(h.checkRight);
       expect(h.switchRight, `${label} — 스위치가 제목줄 오른쪽 끝 안`).toBeLessThanOrEqual(h.headerRight + 0.5);
-      headerChecks[target] = `체크 ${h.checkW}×${h.checkH}`;
+      headerChecks[`${target} ${word}`] = `체크 ${h.checkW}×${h.checkH}`;
     };
 
     const setsBefore = lcSetCount(relay);
@@ -3813,7 +3805,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
         await expect(card.locator('[data-pane="buy"]')).toBeVisible();
         const buyRows = await checkExpanded(target, `${target} 매수 pane`);
         expect(buyRows).toContain('lc-post-buy-trigger');
-        await checkPostBuyHeader(target, `${target} 매수 pane`);
+        await checkHeaderCheck('post-buy', '후매수', target, `${target} 매수 pane`);
+        await checkHeaderCheck('extra-buy', '추가매수', target, `${target} 매수 pane`);
         await checkCollapsed(target, `${target} 매수 pane`, 3);
         await tablist.getByRole('tab', { name: '매도' }).click();
         await expect(card.locator('[data-pane="sell"]')).toBeVisible();
@@ -3828,7 +3821,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
         expect(rows).toEqual(
           expect.arrayContaining(['lc-post-buy-trigger', 'lc-derived', 'lc-extra-buy-max-qty', 'lc-auto-sell-method', 'lc-auto-sell-basis']),
         );
-        await checkPostBuyHeader(target, `${target} 2열`);
+        await checkHeaderCheck('post-buy', '후매수', target, `${target} 2열`);
+        await checkHeaderCheck('extra-buy', '추가매수', target, `${target} 2열`);
         await checkCollapsed(target, `${target} 2열`, 4);
       }
     }
@@ -3840,7 +3834,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
         .join(' · '),
     });
     test.info().annotations.push({
-      type: 'P24-7 후매수 제목줄 「자동」',
+      type: 'P24-7 제목줄 「자동」(후매수 · 추가매수)',
       description: Object.entries(headerChecks)
         .map(([k, v]) => `${k}: ${v}`)
         .join(' · '),
@@ -4251,7 +4245,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     page,
   }) => {
     // P24-3 과 같은 출발점 + 추가매수 금액 500(만원) — 스텁 주문가격 71,000 기준 수량 > 0 이라 사전 검증을 지난다.
-    // 픽스처 비교가격(71,100) ≠ 스텁 매수1호가(97,900) 라 D-36 도 허용이다. 매도 · 취소 게이트는 꺼져 있고 매도 매수잔량 ·
+    // 픽스처 비교가격(71,100) ≠ 스텁 매수1호가(97,900)(상한가 중 켜기 클라 차단은 D-33 ① 폐기로 없다). 매도 · 취소 게이트는 꺼져 있고 매도 매수잔량 ·
     // 취소 매수잔량 · 매도비율은 0 이 아니다(스텁 기본값) — 자동 체크 6종이 전부 켜질 수 있는 전략이다.
     const seed = { buyEnabled: false, extraBuyOrderAmount: 500 };
     relay.seedLimitChasers([seed]);
@@ -4302,7 +4296,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(lcSetCount(relay), '에코 뒤 추가 전송 0').toBe(before + 1);
   });
 
-  test('P24-13 D-36 — 매수1호가 == 비교가격이라도 매수1잔량(10) < 최소(11)면 「추가매수 켜기」 = 10 한 건 · D-36 로그 없음 (2026-09-28 · gh-trade k3u 동형)', async ({
+  test('P24-13 D-33 ① 폐기 뒤에도 얇은 벽 = 10 한 건 — 매수1호가 == 비교가격 · 매수1잔량(10) < 최소(11)에서 「추가매수 켜기」 = 10 한 건 · 차단 로그 없음 (2026-09-28 · gh-trade k3u · quick-261011-0yb)', async ({
     page,
   }) => {
     // 비교가격 = 스텁 매수1호가(97,900) — 상한가에 붙은 모양. 스텁 매수1잔량 10 < 추가매수 최소 11 = 얇은 벽이라 켜기가 나간다
@@ -4315,7 +4309,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const card = cardOf(page, E2E_ISIN);
     await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
     await expect(lcValue(page, 'lc-buy-watch-price')).toHaveText('97,900원', { timeout: 15_000 });
-    // 호가(매수1호가 · 매수1잔량)가 들어와야 D-36 판정 입력이 선다 — 사다리에 97,900 이 보일 때까지.
+    // 호가가 들어온 뒤에 누른다 — 사다리에 97,900 이 보일 때까지(D-33 ① 폐기 뒤에도 같은 조건을 재현한다).
     await expect(card.locator('[data-slot="orderbook-ladder"]').first()).toContainText('97,900', { timeout: 15_000 });
 
     const before = lcSetCount(relay);

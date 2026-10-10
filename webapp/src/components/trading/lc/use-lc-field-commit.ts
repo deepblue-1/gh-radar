@@ -280,34 +280,6 @@ export function lcGroupAmountBlockOf(values: LimitChaserFormValues, field: LcFie
   return values[amountField] === 0 ? LC_COMMIT_TEXT.amountRequired : null;
 }
 
-/**
- * D-36 — 추가매수 상한가 차단 전략 로그 한 줄 원문(WinForms `LimitChaserForm.HandleArmToggle` 화면 로그 그대로 ·
- * 합니다체 · 사전 검증 줄에는 쓰지 않는다). N = 매수1잔량, M = 적용된 최소(0 이면 1) — 둘 다 `ko-KR` 천 단위 쉼표
- * (WinForms `{0:N0}` 동형) · 부등호는 U+2265. 문구 원천은 이 함수 하나다 — 다른 곳에서 다시 적지 않는다.
- */
-export function lcExtraBuyAtUpperLimitText(bidQty: number, floor: number): string {
-  return `추가매수는 상한가 도달 전 또는 매수1잔량이 최소 미만일 때만 켤 수 있습니다 — 매수1호가 == 비교가격, 매수1잔량 ${bidQty.toLocaleString('ko-KR')} ≥ 최소 ${floor.toLocaleString('ko-KR')}`;
-}
-
-/**
- * D-36(D-16 개정 · gh-trade k3u · WinForms HandleArmToggle 동형) — 사람이 추가매수를 켜는 순간의 클라 차단 **판정 지점
- * 하나**. 두꺼운 벽(매수1잔량 ≥ 최소)에 붙어 켜는 것만 막는다: 매수1호가 > 0 ∧ 비교가격 > 0 ∧ 매수1호가 == 비교가격
- * ∧ 매수1잔량 ≥ 최소(0 이면 1). 막으면 문구(`lcExtraBuyAtUpperLimitText`), 아니면 null.
- * 매수1잔량을 모르면(0) 하한 미만이라 허용 — 서버 「모름」 단계 규칙이 백스톱. 0 을 상한가로 치환하지 않는다(D-20).
- * 판정 입력 = 누른 순간의 호가(`bestBid` · `bestBidQty`)와 폼 판정 기준값(에코가 있으면 에코값).
- */
-export function lcExtraBuyUpperLimitBlockOf(
-  bestBid: number,
-  bestBidQty: number,
-  values: Pick<LimitChaserFormValues, 'buyWatchPrice' | 'extraBuyMinQty'>,
-): string | null {
-  const floor = values.extraBuyMinQty === 0 ? 1 : values.extraBuyMinQty;
-  if (bestBid > 0 && values.buyWatchPrice > 0 && bestBid === values.buyWatchPrice && bestBidQty >= floor) {
-    return lcExtraBuyAtUpperLimitText(bestBidQty, floor);
-  }
-  return null;
-}
-
 export interface UseLcFieldCommitOptions {
   /** 서버 에코 1건. `null` 이면 미등록 전략(⑥). */
   server: RelayLimitChaser | null;

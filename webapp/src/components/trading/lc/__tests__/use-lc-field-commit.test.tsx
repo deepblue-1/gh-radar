@@ -17,8 +17,6 @@ import {
   LC_GATE_FIELDS,
   LC_ORPHAN_WAIT_MS,
   LC_REJECT_ECHO_GRACE_MS,
-  lcExtraBuyAtUpperLimitText,
-  lcExtraBuyUpperLimitBlockOf,
   lcGroupAmountBlockOf,
   lcLegacyBlockOf,
   useLcFieldCommit,
@@ -1897,7 +1895,7 @@ describe('게이트 필드 (Phase 24 — 세 그룹 스위치가 등록할 수 �
     expect(out).toBe('sent');
   });
 
-  it('사전 검증 · D-36 문구 원천 — UI-SPEC · WinForms 원문 그대로', () => {
+  it('사전 검증 문구 원천 — UI-SPEC · WinForms 원문 그대로', () => {
     expect(LC_COMMIT_TEXT.qtyZero).toBe('금액이 주문가격보다 작아 주문수량이 0주예요 — 금액을 올려 주세요');
     expect(LC_COMMIT_TEXT.minOverMax).toBe(
       '최소 잔량이 최대 잔량보다 커요 — 최대를 0(무제한)으로 하거나 최소를 낮춰 주세요',
@@ -1906,41 +1904,6 @@ describe('게이트 필드 (Phase 24 — 세 그룹 스위치가 등록할 수 �
     expect(LC_COMMIT_TEXT.sellRatioRequired).toBe(
       '후매수는 매도비율이 있어야 켤 수 있어요 — 매도비율을 1~100%로 입력해 주세요',
     );
-    // D-36 문구 원천 — lcExtraBuyAtUpperLimitText 하나(N · M 은 ko-KR 쉼표 = WinForms {0:N0} · 부등호 U+2265).
-    expect(lcExtraBuyAtUpperLimitText(520_000, 500_000)).toBe(
-      '추가매수는 상한가 도달 전 또는 매수1잔량이 최소 미만일 때만 켤 수 있습니다 — 매수1호가 == 비교가격, 매수1잔량 520,000 ≥ 최소 500,000',
-    );
-    expect(lcExtraBuyAtUpperLimitText(520_000, 500_000)).toContain('\u2265');
-  });
-});
-
-describe('D-36 — 추가매수 상한가 차단은 매수1잔량 ≥ 최소일 때만 (lcExtraBuyUpperLimitBlockOf)', () => {
-  const at = { buyWatchPrice: 130_000, extraBuyMinQty: 500_000 };
-
-  it('두꺼운 벽 — 매수1호가 == 비교가격 ∧ 매수1잔량 520,000 ≥ 최소 500,000 → 문구', () => {
-    expect(lcExtraBuyUpperLimitBlockOf(130_000, 520_000, at)).toBe(lcExtraBuyAtUpperLimitText(520_000, 500_000));
-    expect(lcExtraBuyUpperLimitBlockOf(130_000, 520_000, at)?.endsWith('매수1잔량 520,000 ≥ 최소 500,000')).toBe(true);
-  });
-
-  it('얇은 벽 — 매수1잔량 499,999 < 최소 500,000 → null(허용)', () => {
-    expect(lcExtraBuyUpperLimitBlockOf(130_000, 499_999, at)).toBeNull();
-  });
-
-  it('매수1호가 모름(0) → null — 0 을 상한가로 치환하지 않는다(D-20)', () => {
-    expect(lcExtraBuyUpperLimitBlockOf(0, 999, at)).toBeNull();
-  });
-
-  it('비교가격 0 → null (D-20)', () => {
-    expect(lcExtraBuyUpperLimitBlockOf(130_000, 999, { buyWatchPrice: 0, extraBuyMinQty: 500_000 })).toBeNull();
-  });
-
-  it('최소 0 은 하한 1 — 매수1잔량 1 ≥ 최소 1 → 문구', () => {
-    const minZero = { buyWatchPrice: 130_000, extraBuyMinQty: 0 };
-    expect(lcExtraBuyUpperLimitBlockOf(130_000, 1, minZero)?.endsWith('매수1잔량 1 ≥ 최소 1')).toBe(true);
-  });
-
-  it('매수1잔량 모름(0) → 하한 1 미만이라 null(서버 「모름」 규칙이 백스톱)', () => {
-    expect(lcExtraBuyUpperLimitBlockOf(130_000, 0, { buyWatchPrice: 130_000, extraBuyMinQty: 0 })).toBeNull();
   });
 });
 

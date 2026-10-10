@@ -6,6 +6,8 @@ import {
   LIMIT_CHASER_SERVER_LATCH_FIELDS,
   LIMIT_CHASER_SERVER_ONLY_FIELDS,
   LIMIT_CHASER_SERVER_RUNTIME_FIELDS,
+  isAutoSellReason,
+  reasonOperator,
 } from '@gh-radar/shared';
 import type { RelayLimitChaser, RelayLimitChaserInput, RelayServerMsg } from '@gh-radar/shared';
 
@@ -176,6 +178,29 @@ describe('serverMessageLogLine / strategiesDisabledLogLine', () => {
       '전부 정지가 반영됐어요 · 서버가 모든 전략을 비활성화했어요',
     );
     expect(strategiesDisabledLogLine()).not.toContain('장 마감');
+  });
+
+  /*
+    quick-261011-0yb — gh-trade quick-261010-ub8 54 사유 줄 「추가매수 —」 신규 5종. 웹 · relay · shared 어디에도 54 문구
+    분류가 없다 — 원문 그대로 「[상따] 서버 통지 — {원문}」 이 선다(D-13 · 문구를 다시 쓰지 않는다).
+  */
+  it.each([
+    '추가매수 — 이탈 확인 → 자동 재체크 | 남은 재진입 2',
+    '추가매수 — 이탈 확인 | 잔고 120주 있음 → 켜지 않음 (잔고 0 되면 켬)',
+    '추가매수 — 매도 값 조정 | 500,000 × 0.8 = 400,000',
+    '추가매수 — 재진입 0 → 자동 재체크 안 함',
+    '추가매수 구간 안 → 매수 12주 @15,200 | 재진입 발주 | 재진입 3→2',
+  ])('⑪-addbuy-auto 54 INFO(src LimitChaser) 「%s」 → 「[상따] 서버 통지 — {원문}」 그대로 · info (quick-261011-0yb)', (m) => {
+    const reason = msg({ lv: 'INFO', src: 'LimitChaser', i: 'KR7005930003', a: '1234567801', kind: '', m });
+    expect(isLimitChaserServerMessage(reason)).toBe(true);
+    const out = serverMessageLogLine(reason);
+    expect(out.text).toBe(`[상따] 서버 통지 — ${m}`);
+    expect(out.level).toBe('info');
+  });
+
+  it('⑪-addbuy-auto 새 서버 조건 토큰 「AddBuy …」 은 자동매도 토큰 · 연산자 표 밖이다 — 원문 표시로 떨어진다', () => {
+    expect(isAutoSellReason('AddBuy 자동재체크(이탈 ∧ 보유0 ∧ 잔여>0)')).toBe(false);
+    expect(reasonOperator('AddBuy 자동재체크(이탈 ∧ 보유0 ∧ 잔여>0)')).toBeNull();
   });
 
   it('⑫b 15:40 KRX 자동 해제 문구는 KRX 로 좁힌 장 마감 규칙이다 (quick-260926-nr2)', () => {
