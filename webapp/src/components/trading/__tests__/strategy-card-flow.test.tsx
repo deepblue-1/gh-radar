@@ -2277,4 +2277,74 @@ describe('Phase 27 41 in-flight', () => {
     expect(unacked()?.textContent).toContain('미반영');
     expect(lastCard!.autoSellUnacked).toBe(true);
   });
+
+  /*
+    27-REVIEW-R3 WR-R3-01 — 무응답 뒤 늦은 창은 키를 싣는 출처(AutoSellCommand · Account)만 기한 없이 받는다. 키가 없는
+    relay 거부(i 빈)는 무응답 뒤 LC_ORPHAN_WAIT_MS 안에서만 받는다 — 밖이면 다른 카드 요청의 거부일 수 있다(WR-04 재발 방지).
+  */
+  it('WR-R3-01 — 무응답 뒤 relay 수평선이 지난 relay 41 거부(kind autosell.cmd · i · a 빈)는 이 카드에 서지 않는다 · 키를 싣는 거부는 여전히 받는다', async () => {
+    const RELAY_REJECT = '전략 요청을 보내지 못했어요';
+    setRelay({ limitChasers: [watching] });
+    const { rerender } = render(<Card />);
+    press('start');
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+    });
+    expect(unacked()?.textContent).toContain('미반영');
+    await act(async () => {
+      vi.advanceTimersByTime(LC_ORPHAN_WAIT_MS + 1);
+    });
+    const before = logRows().length;
+
+    // 다른 카드 41 의 relay 조립 · 송신 실패 — 키가 없어 이 카드의 답인지 가를 근거가 시간 창뿐이다.
+    const relayLate = msg({ lv: 'ERROR', src: 'Relay', kind: 'autosell.cmd', i: '', a: '', m: RELAY_REJECT });
+    setRelay({ limitChasers: [watching], messages: [relayLate] });
+    rerender(<Card />);
+    await act(async () => {
+      vi.advanceTimersByTime(50);
+    });
+    expect(logRows().length).toBe(before);
+    expect(serverError()).toBeNull();
+    expect(unacked()?.textContent).toContain('미반영');
+    expect(lastCard!.autoSellUnacked).toBe(true);
+
+    // 키를 싣는 41 거부(i · a 일치)는 늦은 창 내내 받는다 — 같은 relay 객체를 그대로 두어 다시 읽히지 않게 한다.
+    const keyed = msg({ lv: 'ERROR', src: 'AutoSellCommand', i: ISIN, a: ACCOUNT, m: REJECT_HOLD });
+    setRelay({ limitChasers: [watching], messages: [keyed, relayLate] });
+    rerender(<Card />);
+    await waitFor(() => expect(serverError()?.textContent).toContain(REJECT_HOLD));
+    expect(unacked()).toBeNull();
+    expect(lastCard!.autoSellUnacked).toBe(false);
+    // 늦은 경로도 lc.set · lc.arm 응답 채널을 건드리지 않는다(WR-01).
+    expect(lastCard!.unacked).toBe(false);
+    expect(hasText(RELAY_REJECT)).toBe(false);
+    expect(asCmds()).toHaveLength(1);
+  });
+
+  it('WR-R3-01 — 무응답 뒤 relay 수평선이 지난 옛 relay(kind \'\') 거부도 그리지 않는다', async () => {
+    setRelay({ limitChasers: [watching] });
+    const { rerender } = render(<Card />);
+    press('start');
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(LC_ORPHAN_WAIT_MS + 1);
+    });
+    const before = logRows().length;
+
+    // 태그 이전 relay — lc.set · lc.arm 등 모든 relay 거부가 kind "" 로 온다.
+    setRelay({
+      limitChasers: [watching],
+      messages: [msg({ lv: 'ERROR', src: 'Relay', i: '', a: '', m: '전략 조립 실패' })],
+    });
+    rerender(<Card />);
+    await act(async () => {
+      vi.advanceTimersByTime(50);
+    });
+    expect(logRows().length).toBe(before);
+    expect(serverError()).toBeNull();
+    expect(unacked()?.textContent).toContain('미반영');
+    expect(lastCard!.autoSellUnacked).toBe(true);
+  });
 });

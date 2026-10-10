@@ -35,6 +35,7 @@ import {
   isLimitChaserSetRejection,
   isAutoSellCommandRejection,
   isAutoSellCommandSettled,
+  isKeyedAutoSellRejection,
   autoSellButtonsOf,
   autoSellStartBlocked,
   AUTO_SELL_GROUP_FIELDS,
@@ -1281,6 +1282,16 @@ describe('Phase 27 41 판정', () => {
     expect(isAutoSellCommandRejection(m({}), ISIN, '')).toBe(false);
     expect(isAutoSellCommandRejection(m({ m: '' }), ISIN, ACCOUNT)).toBe(true);
     expect(isAutoSellCommandRejection(m({ m: '자동매도 명령 거부 — 등록된 상따 전략이 없습니다' }), ISIN, ACCOUNT)).toBe(true);
+  });
+
+  it('isKeyedAutoSellRejection — AutoSellCommand · Account 참 · Relay(kind 무관) · 그 밖 거짓 (WR-R3-01)', () => {
+    // 키(i · a)를 싣는 출처 — 늦은 창 내내 받아도 다른 카드 거부가 섞이지 않는다.
+    expect(isKeyedAutoSellRejection(m({}))).toBe(true);
+    expect(isKeyedAutoSellRejection(m({ src: 'Account' }))).toBe(true);
+    // relay 거부는 키가 없다 — 상관의 근거는 시간 창뿐이다(kind 와 무관).
+    expect(isKeyedAutoSellRejection(m({ src: 'Relay', i: '', a: '', kind: 'autosell.cmd' }))).toBe(false);
+    expect(isKeyedAutoSellRejection(m({ src: 'Relay', i: '', a: '', kind: '' }))).toBe(false);
+    expect(isKeyedAutoSellRejection(m({ src: 'System' }))).toBe(false);
   });
 
   it('autoSellButtonsOf — 에코 없음 둘 다 비활성 · 0/1/4(그 밖) 바로시작 · 2/3 중지 (WinForms state 2 || 3)', () => {
