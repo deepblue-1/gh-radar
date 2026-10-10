@@ -15,6 +15,9 @@
  *   ④ 잔고 66 — 두 스텁의 계좌를 브라우저가 둘 다 받고, 교보 세션 결선 뒤에도 KB 계좌 캐시가 남는다(재접속 탭 스냅샷에 둘 다)
  *   ⑤ `order.new` — 교보 계좌는 교보 스텁으로만, KB 계좌는 KB 스텁으로만
  *   ⑥ 탭 닫힘 → 두 세션 모두 release(유예) → 유예 만료 뒤 세션 0
+ *
+ * Phase 29-35 (G-1 ④) — 같은 증권사 두 서버(KB120 · KB121) 스텁 · 운영 결선(`serversFor` · `acquireOn` · `ownerOf`)으로 아래
+ * `describe` 가 「같은 사용자의 두 서버 세션이 hub 에 함께 결선되고, 계좌 프레임은 그 계좌 주문 서버 세션 것만 브라우저로 간다」 를 본다.
  */
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -22,19 +25,25 @@ import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as flatbuffers from "flatbuffers";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { RelayAccountState, RelayOutbound, RelayStateMsg } from "@gh-radar/shared";
+import type { RelayAccountState, RelayLimitChaserSnapMsg, RelayOutbound, RelayStateMsg } from "@gh-radar/shared";
 
 import { SESSION_GRACE_MS, SessionManager, type DmaCredentials, type SessionTarget } from "../src/dma/session-manager.js";
+import { createOrderServerRouting } from "../src/access/account-order-servers.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { MSG } from "../src/dma/msg-type.js";
 import { Envelope } from "../src/generated/stock-dma/envelope.js";
 import { WsFanout } from "../src/ws/fanout.js";
 import { SubscriptionHub } from "../src/hub/subscription-hub.js";
-import type { DmaBroker } from "../src/registry/registry.js";
+import type { DmaBroker, DmaServerRow } from "../src/registry/registry.js";
 import type { SymbolInfo, SymbolLookup } from "../src/store/symbols.js";
 import { startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
 import { connectWs, type TestWs } from "./helpers/ws-client.js";
-import { SAMPLE_ACCOUNT_NO, SAMPLE_ISIN, buildAccountStateFrame } from "./helpers/frames.js";
+import {
+  SAMPLE_ACCOUNT_NO,
+  SAMPLE_ISIN,
+  buildAccountStateFrame,
+  buildLimitChaserListRespFrame,
+} from "./helpers/frames.js";
 
 const USER_A = "3f1c2b7a-9d40-4a11-8e55-0000000020a1";
 const CREDS: DmaCredentials = { dmaUserId: "dma-d1", password: "pw-절대노출금지" };
@@ -315,5 +324,157 @@ describe("WsFanout — 증권사별 세션 · hub 세션 소유 키 · 병합 �
     vi.advanceTimersByTime(SESSION_GRACE_MS + 1);
     await flushIo();
     expect(manager.sessionsOf(USER_A)).toHaveLength(0);
+  });
+});
+
+/**
+ * Phase 29-35 (G-1 ④) — 같은 증권사 두 서버 세션 hub 공존 · 계좌 소유 필터.
+ *
+ * 레지스트리 KB120(KB 기본) · KB121(enabled) 두 스텁. 두 서버 users.toml(매핑) 모두에 계좌 A · B 가 있고 A 는 KB121 로 지정(B 는
+ * 기본 KB120). 운영 결선 모양 그대로 — `createOrderServerRouting` 의 `serversFor` · `ownerOf` 를 `WsFanout` · `SessionManager` 에 준다.
+ */
+describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 소유 서버 세션에서만 (29-35)", () => {
+  const A = "1234567801";
+  const B = "1234567802";
+  let kb120: FakeGateway;
+  let kb121: FakeGateway;
+  let p120: Buffer[];
+  let p121: Buffer[];
+  let server: http.Server;
+  let port: number;
+  let hub: SubscriptionHub;
+  let manager: SessionManager;
+  let fanout: WsFanout;
+  let rows: DmaServerRow[];
+  const sockets: TestWs[] = [];
+
+  function row(key: string, gwPort: number, isOrderServer: boolean, sortOrder: number): DmaServerRow {
+    return { key, broker: "KB", host: "127.0.0.1", port: gwPort, enabled: true, isOrderServer, isQuotePrimary: false, sortOrder };
+  }
+
+  function lcSnapsOf(inbox: RelayOutbound[]): RelayLimitChaserSnapMsg[] {
+    return inbox.filter((m): m is RelayLimitChaserSnapMsg => m.t === "lc.snap");
+  }
+
+  beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    resetDroppedEnvelopeCount();
+    const accounts = [
+      { accountNo: A, name: "계좌A" },
+      { accountNo: B, name: "계좌B" },
+    ];
+    kb120 = await startFakeGateway({ autoLogin: true, loginResp: { success: true, accounts } });
+    kb121 = await startFakeGateway({ autoLogin: true, loginResp: { success: true, accounts } });
+    p120 = [];
+    p121 = [];
+    kb120.onFrame((_t, payload) => p120.push(Buffer.from(payload)));
+    kb121.onFrame((_t, payload) => p121.push(Buffer.from(payload)));
+    rows = [row("KB120", kb120.port, true, 1), row("KB121", kb121.port, false, 2)];
+    const registry = {
+      get: (key: string) => rows.find((r) => r.key === key),
+      enabled: () => rows.filter((r) => r.enabled),
+      orderServerOf: (broker: string) => rows.find((r) => r.broker === broker && r.isOrderServer && r.enabled),
+    };
+    const routing = createOrderServerRouting({
+      loaded: () => true,
+      chosenOf: (_dma, _broker, acct) => (acct === A ? "KB121" : undefined),
+      registry,
+      accountsOf: (serverKey, dma) =>
+        dma === CREDS.dmaUserId && (serverKey === "KB120" || serverKey === "KB121") ? new Set([A, B]) : undefined,
+    });
+    manager = new SessionManager({ host: "127.0.0.1", port: 1, broker: "KB", ownerOf: routing.ownerOf });
+    hub = new SubscriptionHub();
+    server = http.createServer();
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    port = (server.address() as AddressInfo).port;
+    fanout = new WsFanout({
+      server,
+      supabase: supabaseStub(),
+      sessions: manager,
+      hub,
+      credKey: randomBytes(32).toString("base64"),
+      credentials: (userId) => Promise.resolve(userId === USER_A ? CREDS : null),
+      serversFor: routing.serversFor,
+      path: "/ws",
+      symbols: SYMBOLS,
+    });
+  });
+
+  afterEach(async () => {
+    for (const ws of sockets.splice(0)) await ws.close();
+    await fanout?.close();
+    await manager?.closeAll();
+    hub?.closeAll();
+    await new Promise<void>((r) => server.close(() => r()));
+    await kb120.close();
+    await kb121.close();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  async function tab(): Promise<{ ws: TestWs; inbox: RelayOutbound[] }> {
+    const ws = await connectWs(port, "/ws");
+    sockets.push(ws);
+    const inbox: RelayOutbound[] = [];
+    ws.raw.on("message", (data) => inbox.push(JSON.parse(data.toString()) as RelayOutbound));
+    ws.sendAuth("token-a");
+    await waitFor(() => statesOf(inbox).length > 0, "인증 상태 프레임");
+    return { ws, inbox };
+  }
+
+  async function bothReady(): Promise<void> {
+    await waitFor(
+      () => manager.sessionsOf(USER_A).length === 2 && manager.sessionsOf(USER_A).every((s) => s.isReady),
+      "KB120 · KB121 세션 ready",
+    );
+    await flushIo(10);
+  }
+
+  it("같은 증권사 두 서버 · A 프레임은 KB121 것만 브라우저로 — KB120 의 A 66 · 64 항목은 0 · B 는 KB120 것만", async () => {
+    const { inbox } = await tab();
+    await bothReady();
+    // hub 에 두 세션이 함께 결선돼 있다(옛 D-10 대체 규칙이면 KB121 이 KB120 을 떼어 냈다).
+    expect(hub.stats().sessionCount).toBe(2);
+    const s120 = kb120.sockets[0];
+    const s121 = kb121.sockets[0];
+    if (s120 === undefined || s121 === undefined) throw new Error("스텁 소켓 없음");
+    const from = inbox.length;
+    const sinceAuth = (): RelayOutbound[] => inbox.slice(from);
+
+    // KB120(A 의 주문 서버 아님)이 A 잔고 · A/B 섞인 64 를 보낸 뒤 B 잔고(표지)를 보낸다.
+    kb120.sendFrame(s120, buildAccountStateFrame({ accountNo: A, holdings: [{ isin: SAMPLE_ISIN, stockQty: 99 }] }));
+    kb120.sendFrame(
+      s120,
+      buildLimitChaserListRespFrame([
+        { isin: SAMPLE_ISIN, accountNo: A },
+        { isin: SAMPLE_ISIN, accountNo: B },
+      ]),
+    );
+    kb120.sendFrame(s120, buildAccountStateFrame({ accountNo: B, holdings: [{ isin: SAMPLE_ISIN, stockQty: 1 }] }));
+    await waitFor(() => acctsOf(sinceAuth()).some((a) => a.a === B), "KB120 66 B");
+    expect(acctsOf(sinceAuth()).map((a) => [a.a, a.hold[0]?.qty])).toEqual([[B, 1]]);
+    expect(lcSnapsOf(sinceAuth()).at(-1)?.items.map((i) => i.accountNo)).toEqual([B]);
+
+    // KB121(A 의 주문 서버)의 A 는 가고, KB121 의 B 는 버린다.
+    kb121.sendFrame(s121, buildAccountStateFrame({ accountNo: B, holdings: [{ isin: SAMPLE_ISIN, stockQty: 77 }] }));
+    kb121.sendFrame(s121, buildAccountStateFrame({ accountNo: A, holdings: [{ isin: SAMPLE_ISIN, stockQty: 5 }] }));
+    await waitFor(() => acctsOf(sinceAuth()).some((a) => a.a === A), "KB121 66 A");
+    expect(acctsOf(sinceAuth()).map((a) => [a.a, a.hold[0]?.qty])).toEqual([
+      [B, 1],
+      [A, 5],
+    ]);
+
+    // 캐시도 소유 서버 몫만 — 새 탭 스냅샷에 A=5(KB121) · B=1(KB120) 각 1건.
+    const second = await tab();
+    await waitFor(() => acctsOf(second.inbox).length >= 2, "재접속 스냅샷");
+    expect(
+      acctsOf(second.inbox)
+        .map((a) => [a.a, a.hold[0]?.qty])
+        .sort(),
+    ).toEqual([
+      [A, 5],
+      [B, 1],
+    ]);
+    expect(hub.getLimitChasers(USER_A).map((i) => i.accountNo)).toEqual([B]);
   });
 });

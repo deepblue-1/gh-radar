@@ -10,6 +10,9 @@
  *
  * 세션은 `hub.test.ts` 와 같은 가짜 객체다(프레임은 수신 화이트리스트 파서를 거친다). 단일 세션 규칙은 `hub.test.ts` ·
  * `strategy-hub.test.ts` 가 그대로 지킨다 — 단일 세션은 「세션 1개짜리 병합」 이다.
+ *
+ * Phase 29-35 (G-1) — 같은 증권사 두 서버(KB120 · KB121) 세션이 함께 결선되고(옛 D-10 「같은 증권사 다른 서버 = 대체」 삭제),
+ * 병합 프레임(66/67 · 60/64 · 83)은 그 세션 소유 뷰(`allowedAccounts`) 계좌만 캐시 · 팬아웃한다(gh-trade-84 ② · (나)).
  */
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,6 +28,7 @@ import {
   SAMPLE_ISIN,
   buildAccountStateFrame,
   buildLimitChaserListRespFrame,
+  buildOrderRespFrame,
   buildQueueProgressFrame,
   buildQueuedWindowStateFrame,
   buildRateCrossAlertFrame,
@@ -373,5 +377,184 @@ describe("SubscriptionHub — D-18 다중 세션 병합 규칙 (29-20)", () => {
       expect(solo.getUserSettings("solo-user")).toMatchObject({ present: true });
       solo.closeAll();
     });
+  });
+});
+
+/**
+ * Phase 29-35 (G-1 ④) — 같은 사용자의 KB120 · KB121 세션. 두 서버 users.toml 모두에 A · B 가 있지만 소유는 갈린다:
+ * A → KB121(지정) · B → KB120(기본). 가짜 세션의 `allowedAccounts` 가 곧 소유 뷰다(`DmaSession` 29-33 과 같은 모양).
+ */
+describe("SubscriptionHub — G-1 같은 증권사 두 서버 · 계좌 소유 필터 (29-35)", () => {
+  const A = "1234567801";
+  const B = "1234567802";
+  const ISIN2 = "KR7000660001";
+  let hub: SubscriptionHub;
+  let fanned: HubFanoutEvent[];
+  let kb120: FakeBrokerSession;
+  let kb121: FakeBrokerSession;
+
+  function framesOf<T extends RelayOutbound["t"]>(t: T): Extract<RelayOutbound, { t: T }>[] {
+    return fanned
+      .filter((e) => e.userId === U && e.msg.t === t)
+      .map((e) => e.msg as Extract<RelayOutbound, { t: T }>);
+  }
+
+  beforeEach(() => {
+    resetDroppedEnvelopeCount();
+    hub = new SubscriptionHub();
+    fanned = [];
+    hub.on("fanout", (e: HubFanoutEvent) => fanned.push(e));
+    kb120 = new FakeBrokerSession(U, "KB120", "KB", [{ accountNo: B, name: "계좌B" }]);
+    kb121 = new FakeBrokerSession(U, "KB121", "KB", [{ accountNo: A, name: "계좌A" }]);
+  });
+
+  afterEach(() => {
+    hub.closeAll();
+    vi.restoreAllMocks();
+  });
+
+  it("같은 증권사 두 세션 결선 공존 — KB121 결선이 KB120 을 대체하지 않는다 · retainSessions 로 뗀 서버 몫만 빈다", () => {
+    hub.attach(kb120);
+    kb120.pushFrame(buildAccountStateFrame({ accountNo: B, holdings: [{ isin: SAMPLE_ISIN, stockQty: 2 }] }));
+    hub.attach(kb121);
+    expect(hub.stats().sessionCount).toBe(2);
+    // KB120 몫 캐시가 남는다(옛 「같은 증권사 다른 서버 대체」 였다면 여기서 비었다).
+    expect(hub.getAccountStates(U).map((s) => s.a)).toEqual([B]);
+
+    kb121.pushFrame(buildAccountStateFrame({ accountNo: A, holdings: [{ isin: SAMPLE_ISIN, stockQty: 5 }] }));
+    // KB120 의 늦은 프레임도 침묵하지 않는다(결선 유지).
+    kb120.pushFrame(buildAccountStateFrame({ accountNo: B, snapshot: false, holdings: [{ isin: SAMPLE_ISIN, stockQty: 3 }] }));
+    expect(
+      hub
+        .getAccountStates(U)
+        .map((s) => s.a)
+        .sort(),
+    ).toEqual([A, B]);
+    expect(hub.getAccountStates(U).find((s) => s.a === B)?.hold[0]?.qty).toBe(3);
+
+    hub.retainSessions(U, new Set(["KB121"]));
+    expect(hub.stats().sessionCount).toBe(1);
+    expect(hub.getAccountStates(U).map((s) => s.a)).toEqual([A]);
+  });
+
+  it("소유 필터 — KB120 이 보낸 A 의 66/67 · 60 · 64 항목은 캐시 0 · 브라우저 0, KB121 것만 간다 · B 는 반대", () => {
+    hub.attach(kb120);
+    hub.attach(kb121);
+
+    // KB120(A 의 주문 서버 아님)이 A 프레임을 보낸다 — 전부 버린다.
+    kb120.pushFrame(buildAccountStateFrame({ accountNo: A, holdings: [{ isin: SAMPLE_ISIN, stockQty: 99 }] }));
+    kb120.pushFrame(buildAccountStateFrame({ accountNo: A, snapshot: false, holdings: [{ isin: SAMPLE_ISIN, stockQty: 98 }] }));
+    kb120.pushFrame(buildSetLimitChaserRespFrame({ isin: SAMPLE_ISIN, accountNo: A }));
+    expect(hub.getAccountStates(U)).toEqual([]);
+    expect(hub.getLimitChasers(U)).toEqual([]);
+    expect(framesOf("acct")).toEqual([]);
+    expect(framesOf("lc")).toEqual([]);
+
+    // KB121(A 의 주문 서버)의 A 는 간다.
+    kb121.pushFrame(buildAccountStateFrame({ accountNo: A, holdings: [{ isin: SAMPLE_ISIN, stockQty: 5 }] }));
+    kb121.pushFrame(buildSetLimitChaserRespFrame({ isin: SAMPLE_ISIN, accountNo: A }));
+    expect(framesOf("acct").map((m) => [m.a, m.hold[0]?.qty])).toEqual([[A, 5]]);
+    expect(framesOf("lc").map((m) => m.item.accountNo)).toEqual([A]);
+
+    // B 는 반대 — KB121 의 B 는 버리고 KB120 의 B 는 간다.
+    kb121.pushFrame(buildAccountStateFrame({ accountNo: B, holdings: [{ isin: SAMPLE_ISIN, stockQty: 77 }] }));
+    kb121.pushFrame(buildSetLimitChaserRespFrame({ isin: ISIN2, accountNo: B }));
+    kb120.pushFrame(buildAccountStateFrame({ accountNo: B, holdings: [{ isin: SAMPLE_ISIN, stockQty: 1 }] }));
+    expect(framesOf("acct").map((m) => [m.a, m.hold[0]?.qty])).toEqual([
+      [A, 5],
+      [B, 1],
+    ]);
+    expect(framesOf("lc").map((m) => m.item.accountNo)).toEqual([A]);
+    expect(hub.getAccountStates(U).find((s) => s.a === A)?.hold[0]?.qty).toBe(5);
+    expect(hub.getAccountStates(U).find((s) => s.a === B)?.hold[0]?.qty).toBe(1);
+    expect(hub.unhandledFrameCount()).toBe(0);
+  });
+
+  it("소유 필터 — 64 가 A · B 항목을 섞어 오면 그 세션 소유 항목만 그 세션 몫으로 교체된다", () => {
+    hub.attach(kb120);
+    hub.attach(kb121);
+    kb120.pushFrame(
+      buildLimitChaserListRespFrame([
+        { isin: SAMPLE_ISIN, accountNo: B },
+        { isin: ISIN2, accountNo: A },
+      ]),
+    );
+    expect(hub.getLimitChasers(U).map((i) => i.accountNo)).toEqual([B]);
+    expect(framesOf("lc.snap").at(-1)?.items.map((i) => i.accountNo)).toEqual([B]);
+  });
+
+  it("51 주문 통보는 와이어에 계좌 칸이 없어 소유 필터 밖 — 종전 「병합(통과)」 그대로", () => {
+    hub.attach(kb120);
+    hub.attach(kb121);
+    kb120.pushFrame(buildOrderRespFrame({ orderNo: "N-120" }));
+    kb121.pushFrame(buildOrderRespFrame({ orderNo: "N-121" }));
+    expect(framesOf("order").map((m) => m.no)).toEqual(["N-120", "N-121"]);
+  });
+
+  it("(나) 83 item 단위 — 섞인 83 에서 소유 항목만 (프레임을 버리지 않고 항목을 거른다)", () => {
+    hub.attach(kb120);
+    hub.attach(kb121);
+    kb120.pushFrame(
+      buildQueueProgressFrame({
+        exchange: "KRX",
+        items: [
+          { orderNo: "A-x", accountNo: A },
+          { orderNo: "B-1", accountNo: B },
+        ],
+      }),
+    );
+    expect(hub.getQueueProgressEntries(U).map((e) => e.items.map((i) => i.orderNo))).toEqual([["B-1"]]);
+    const live = framesOf("unf.progress").at(-1);
+    expect(live?.snap === false ? live.items.map((i) => i.orderNo) : null).toEqual(["B-1"]);
+  });
+
+  it("(나) 빈 83 — 다른 서버 몫 항목 유지 · unf.progress 합집합", () => {
+    hub.attach(kb120);
+    hub.attach(kb121);
+    kb121.pushFrame(buildQueueProgressFrame({ exchange: "KRX", items: [{ orderNo: "A-1", accountNo: A }] }));
+    kb120.pushFrame(buildQueueProgressFrame({ exchange: "KRX", items: [{ orderNo: "B-1", accountNo: B }] }));
+    expect(hub.getQueueProgressEntries(U)[0]?.items.map((i) => i.orderNo).sort()).toEqual(["A-1", "B-1"]);
+
+    // KB120 의 빈 83(X, KRX) — KB120 몫(B-1)만 지운다. 브라우저 unf.progress 는 남은 합집합(KB121 몫 A-1).
+    kb120.pushFrame(buildQueueProgressFrame({ exchange: "KRX", items: [] }));
+    expect(hub.getQueueProgressEntries(U)[0]?.items.map((i) => i.orderNo)).toEqual(["A-1"]);
+    const afterKb120 = framesOf("unf.progress").at(-1);
+    expect(afterKb120?.snap === false ? [afterKb120.i, afterKb120.items.map((i) => i.orderNo)] : null).toEqual([
+      SAMPLE_ISIN,
+      ["A-1"],
+    ]);
+
+    // 반대 — KB120 몫을 다시 채우고 KB121 의 빈 83 → KB121 몫(A-1)만 지워진다.
+    kb120.pushFrame(buildQueueProgressFrame({ exchange: "KRX", items: [{ orderNo: "B-1", accountNo: B }] }));
+    kb121.pushFrame(buildQueueProgressFrame({ exchange: "KRX", items: [] }));
+    expect(hub.getQueueProgressEntries(U)[0]?.items.map((i) => i.orderNo)).toEqual(["B-1"]);
+    const afterKb121 = framesOf("unf.progress").at(-1);
+    expect(afterKb121?.snap === false ? afterKb121.items.map((i) => i.orderNo) : null).toEqual(["B-1"]);
+  });
+
+  it("(나) 64 서버별 합침 — 한 서버 교체가 다른 서버 몫을 지우지 않음 · lc.snap 합집합", () => {
+    hub.attach(kb120);
+    hub.attach(kb121);
+    kb120.pushFrame(
+      buildLimitChaserListRespFrame([
+        { isin: SAMPLE_ISIN, accountNo: B },
+        { isin: ISIN2, accountNo: B },
+      ]),
+    );
+    kb121.pushFrame(buildLimitChaserListRespFrame([{ isin: SAMPLE_ISIN, accountNo: A }]));
+    // lc.snap = 두 서버 몫 합집합(소유 필터 뒤) · 순서는 세션 결선 순(KB120 몫 → KB121 몫).
+    expect(framesOf("lc.snap").at(-1)?.items.map((i) => [i.accountNo, i.isin])).toEqual([
+      [B, SAMPLE_ISIN],
+      [B, ISIN2],
+      [A, SAMPLE_ISIN],
+    ]);
+
+    // KB120 의 다음 64 = [B1] — KB120 몫만 교체된다. KB121 몫 A1 은 그대로.
+    kb120.pushFrame(buildLimitChaserListRespFrame([{ isin: SAMPLE_ISIN, accountNo: B }]));
+    expect(framesOf("lc.snap").at(-1)?.items.map((i) => [i.accountNo, i.isin])).toEqual([
+      [B, SAMPLE_ISIN],
+      [A, SAMPLE_ISIN],
+    ]);
+    expect(hub.getLimitChasers(U).map((i) => i.accountNo)).toEqual([B, A]);
   });
 });
