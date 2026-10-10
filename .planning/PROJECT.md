@@ -62,6 +62,7 @@
 | 모바일 = Capacitor Remote-URL 셸 + 네이티브 탭바/로그인 (Phase 21) | 웹 한 벌을 운영 URL 로 그대로 쓰고(middleware 인증·OAuth callback 때문에 static export 불가), Google 이 WebView OAuth 를 막아 네이티브 Sign-In 이 필수 | ✓ Good — UAT 4차 30/30 (2026-09-26) |
 | 시세는 relay 공유 연결 1개로 팬아웃 (Phase 26) | 유저별 DMA 세션 구독이면 같은 시세가 VPN 구간에 N 벌 흐르고 주문 통보가 시세 뒤에 줄을 섬 → 관찰자 로그인 quote 역할(주문 권한 0) 연결 1개 · 참조계수 `isin\|ex` 전역화 · 캐시 공유 · PRICE 필터 relay 이관. 폴백 없음이라 `/healthz` 503 축으로 감시 | ✓ Good — 첫 거래일 UAT (a)~(e) pass (2026-10-01) |
 | 주문로그·잔량진행률은 gh-trade 서버 StrategyEvent(80 별도 seq)·QueueProgress(83)를 진실 원본으로 relay 가 적재·팬아웃 (Phase 25) | 웹이 문구를 파싱하거나 진행률을 재계산하면 클라(WinForms)와 갈라짐 → 값은 서버가 정하고 웹은 표시만. 계약 변경(수동/VI group 7·8 · first_filled · 추가매수 포기 수량)은 gh-radar relay·웹 먼저 배포 → 서버 나중 | ✓ Good — UAT 7/7 pass · Nyquist validated (2026-10-03) |
+| 자동매도는 gh-trade 서버(Phase 28)가 진실 원본 — gh-radar 는 relay 중계(41 바로시작/중지 · 42/43/84 사용자 설정 · schema 4 요청 4필드 · 에코 4필드)와 웹 표시·조작만 (Phase 27) | 상태 전이·매도 판단은 서버가 하고 웹은 에코(`auto_sell_state` 등)·저널 kind 11~14 를 그대로 보여 준다. 「미반영」은 낙관 반영 없이 기대 전이로만 해제. /me 기본설정은 84 캐시 + 1칸 전체 교체(42), present=false 면 내장 기본값 표시만 | ✓ Good — 첫 거래일 UAT 5/5 pass · 재검증 R2 passed 12/12 · Nyquist validated (2026-10-10). R2 Warning 2(「미반영」 잔존 표시) 미처리 |
 | 상한가 특징은 gh-trade 가 진실 원본 — 장중 85 LimitFeature 는 relay 가 FULL 구독에만 1초 중계, 밤 보고서는 119 export 를 radar-gw 21:00 pull → GCS → limitup-sync 21:20 날짜 단위 교체 적재 (Phase 28) | 웹이 특징을 재계산하면 WinForms 와 갈라짐 → 값·문장(`facts.text`)은 서버가 정하고 웹은 표시만. 119 는 외부에서 못 들어가 radar-gw 가 읽기 전용 rrsync 키로 당겨 옴. 보고서는 export 열로 자립하고 `limit_up_events` 조인은 종목상세 링크·다음날 이력과 함께 Deferred | ✓ Good — UAT 7/7 pass · 재검증 R2 passed 12/12 · Nyquist validated (2026-10-10) |
 
 ## Evolution
@@ -82,4 +83,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-10 after Phase 28 (상한가 특징 연동)*
+*Last updated: 2026-10-10 after Phase 27 (자동매도 연동)*
