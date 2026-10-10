@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 
 import { assertRelayUrl, createRelayAdminClient } from "../../src/services/relay-admin-client";
 import { logger } from "../../src/logger";
+import { loadConfig } from "../../src/config";
 
 /**
  * Phase 29 (29-10) — relay 내부 HTTP 클라이언트(Admin 명령용). 16-16 에서 지운 `relay-client.ts` 의 사설 대역 가드를
@@ -150,5 +151,23 @@ describe("createRelayAdminClient — 요청 계약", () => {
   it("요청자 이메일이 비면 보내지 않는다(relay 감사 헤더 필수)", async () => {
     await expect(client().reloadAccess("")).rejects.toThrow(/adminEmail/);
     expect(seen).toHaveLength(0);
+  });
+});
+
+describe("relayAdminTimeoutMs — Express 상한 (29-32 WR-07)", () => {
+  afterEach(() => {
+    delete process.env.RELAY_ADMIN_TIMEOUT_MS;
+  });
+
+  it("기본 15000 — relay 요청 마감 10초 + 시세 전환 DB RPC · 네트워크 여유 · 브라우저 20초 안", () => {
+    delete process.env.RELAY_ADMIN_TIMEOUT_MS;
+    expect(loadConfig().relayAdminTimeoutMs).toBe(15_000);
+  });
+
+  it("env RELAY_ADMIN_TIMEOUT_MS 가 덮는다 · 숫자가 아니면 기본값", () => {
+    process.env.RELAY_ADMIN_TIMEOUT_MS = "18000";
+    expect(loadConfig().relayAdminTimeoutMs).toBe(18_000);
+    process.env.RELAY_ADMIN_TIMEOUT_MS = "abc";
+    expect(loadConfig().relayAdminTimeoutMs).toBe(15_000);
   });
 });

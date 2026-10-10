@@ -125,6 +125,10 @@ type HarnessOptions = {
     switchTo(server: DmaServerRow): Promise<QuoteSwitchResult>;
     readonly currentServerKey: string | null;
   };
+  /** 라우터 시각 주입구(29-32 — deadlineAt = 도착 시각 + 마감). 기본 Date.now. */
+  now?: () => number;
+  /** 요청 마감(ms) 주입(29-32 — 실 소켓 테스트를 10초 기다리지 않게). 기본 ADMIN_REQUEST_DEADLINE_MS. */
+  adminDeadlineMs?: number;
 };
 
 async function startHarness(opts: HarnessOptions = {}): Promise<Harness> {
@@ -188,6 +192,8 @@ async function startHarness(opts: HarnessOptions = {}): Promise<Harness> {
     },
     // 시세 주 서버 전환(29-23) — 이 파일의 다른 경로는 부르지 않는다. 결과는 대역이 정한다.
     quoteSwitch: opts.quoteSwitch ?? { switchTo: () => Promise.resolve({ ok: true, changed: false }), currentServerKey: null },
+    ...(opts.now !== undefined ? { now: opts.now } : {}),
+    ...(opts.adminDeadlineMs !== undefined ? { adminDeadlineMs: opts.adminDeadlineMs } : {}),
   });
 
   const app = createOrderApi({
@@ -787,5 +793,92 @@ describe("relay Admin 내부 HTTP — 시세 주 서버 전환 (29-23)", () => {
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe("QUOTE_PRIMARY_DB_FAILED");
     expect(f.calls).toEqual(["KYOBO119", "KB120"]);
     expect(f.sw.currentServerKey).toBe("KB120");
+  });
+});
+
+/**
+ * 잠그는 것 (29-32 WR-07 — 요청 마감):
+ *   M1  변경 라우트 6개(생성 · 비밀번호 · 계좌 put · 계좌 delete · 유저 delete · reconcile)가 deadlineAt = 도착 시각 + 10_000 을 넘긴다
+ *   M2  생성 경로 — 느린 서버(KB121 무응답)는 마감에 timeout(ADMIN_DEADLINE_MESSAGE)으로 접혀 200 + 결과 배열(502 아님) ·
+ *       뒤 반영이 끝나면 실제 결과가 한 번 더 기록 · reconcile 도 마감에 200 + 접힌 결과
+ */
+describe("relay Admin 내부 HTTP — 요청 마감 (29-32 WR-07)", () => {
+  const DEADLINE_MESSAGE = "10초 안에 끝나지 않아 먼저 응답했어요 — 서버 반영은 계속돼요";
+  let h: Harness;
+
+  beforeEach(async () => {
+    await spyLogs();
+  });
+
+  afterEach(async () => {
+    await h.close();
+    vi.restoreAllMocks();
+  });
+
+  it("M1 변경 라우트 6개 — deadlineAt = 도착 시각 + 10_000 을 dispatcher 에 넘긴다", async () => {
+    const NOW = 1_800_000_000_000;
+    h = await startHarness({ now: () => NOW });
+    const reconcile = vi.spyOn(AdminDispatcher.prototype, "reconcileUser").mockResolvedValue([]);
+    const password = vi.spyOn(AdminDispatcher.prototype, "changePassword").mockResolvedValue([]);
+    const remove = vi.spyOn(AdminDispatcher.prototype, "deleteUser").mockResolvedValue({ results: [], deleted: false });
+
+    const B = { ...KB_ACCOUNT, accountNo: "1234567802", priority: 2 };
+    for (const [method, path, body] of [
+      ["POST", "/internal/admin/dma-users", createBody()],
+      ["POST", "/internal/admin/dma-users/tr01/password", { password: "new-p@ss" }],
+      ["PUT", "/internal/admin/dma-users/tr01/accounts", { account: B, servers: ["KB120"] }],
+      ["DELETE", "/internal/admin/dma-users/tr01/accounts/KB/1234567802", undefined],
+      ["DELETE", "/internal/admin/dma-users/tr01", undefined],
+      ["POST", "/internal/admin/dma-users/tr01/reconcile", undefined],
+    ] as const) {
+      const res = await call(h, method, path, body);
+      expect(res.status, `${method} ${path}`).toBe(200);
+    }
+
+    const deadlineAt = NOW + 10_000;
+    expect(reconcile.mock.calls.map((c) => c[1])).toEqual([
+      { password: PASSWORD, adminEmail: ADMIN, deadlineAt },
+      { adminEmail: ADMIN, deadlineAt },
+      { adminEmail: ADMIN, deadlineAt },
+      { adminEmail: ADMIN, deadlineAt },
+    ]);
+    expect(password.mock.calls.map((c) => c[3])).toEqual([{ deadlineAt }]);
+    expect(remove.mock.calls.map((c) => c[2])).toEqual([{ deadlineAt }]);
+  });
+
+  it("M2 생성 — 무응답 서버는 마감에 timeout 으로 접혀 200(502 아님) · 뒤 반영이 끝나면 실제 결과 기록 · reconcile 도 200 + 접힌 결과", async () => {
+    h = await startHarness({ commandTimeoutMs: 800, adminDeadlineMs: 300 });
+    h.gateways.KB121!.onAdminCommand(null); // KB121 은 86 을 보내지 않는다(느린 · 멈춘 서버)
+
+    const t0 = Date.now();
+    const res = await call(h, "POST", "/internal/admin/dma-users", createBody());
+    const elapsed = Date.now() - t0;
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      results: [
+        { server: "KB120", outcome: "ok", usersRev: "2" },
+        { server: "KB121", outcome: "timeout", message: DEADLINE_MESSAGE },
+      ],
+    });
+    // 86 대기 상한(800ms)보다 먼저 — 마감(300ms)에 응답했다.
+    expect(elapsed).toBeLessThan(700);
+    expect(h.db.callsTo("dma_admin_record_results")).toHaveLength(1);
+
+    // 뒤 반영(KB121 86 타임아웃)이 끝나면 실제 결과로 한 번 더 기록한다.
+    await waitFor(() => h.db.callsTo("dma_admin_record_results").length === 2, "뒤 반영 기록");
+    expect(h.db.callsTo("dma_admin_record_results")[1]!.args.p_results).toEqual([
+      { server: "KB120", outcome: "ok" },
+      { server: "KB121", outcome: "timeout" },
+    ]);
+
+    // 「다시 반영」 — KB121 은 여전히 무응답 → 마감에 200 + 접힌 결과.
+    const again = await call(h, "POST", "/internal/admin/dma-users/tr01/reconcile");
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({
+      results: [
+        { server: "KB120", outcome: "ok", usersRev: "2" },
+        { server: "KB121", outcome: "timeout", message: DEADLINE_MESSAGE },
+      ],
+    });
   });
 });

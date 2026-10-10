@@ -12,11 +12,15 @@
  *   D5  비밀번호 — 암호문 AAD = dmaUserId · 87 에 유저 있는 서버만 op 1(password 만) · dual-write(연결된 웹 사용자 행만)
  *   D6  다시 반영 — 의도 = 87 이면 44 0건 · 전 서버 ok
  *   D7  부분 실패 — 무응답 timeout · offline · skipped 는 그 서버만 · 응답 시간 상한
+ *   D10 요청 마감(29-32 WR-07) — 마감에 진 서버는 timeout(ADMIN_DEADLINE_MESSAGE)으로 접어 먼저 응답 · 뒤 반영이 끝나면 실제
+ *       결과로 record 2회째 · 마감 전 완료면 종전 그대로(record 1회) · 삭제가 마감에 걸리면 deleted false · 늦은 완료에도
+ *       deleteDmaUser 0 · 같은 유저 줄은 실제 완료까지 유지(대기 시간도 마감에 포함)
  */
 import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AdminCommandOutcome } from "../src/admin/admin-conn.js";
+import * as dispatcherModule from "../src/admin/dispatcher.js";
 import { AdminDispatcher, type AdminConnLike } from "../src/admin/dispatcher.js";
 import { AdminIntentStore, IntentError } from "../src/admin/intent-store.js";
 import type { AdminUsersSnapshot } from "../src/admin/types.js";
@@ -28,6 +32,9 @@ import { defaultAdminHandler, type FakeAdminHandler, type FakeAdminState } from 
 type CommandInput = Parameters<AdminConnLike["command"]>[0];
 
 const PASSWORD = "stored-p@ss-절대노출금지";
+/** 요청 마감(29-32 WR-07) — dispatcher 상수와 같은 값 · 같은 문구(아래 D10 이 상수 자체도 잠근다). */
+const DEADLINE_MS = 10_000;
+const DEADLINE_MESSAGE = "10초 안에 끝나지 않아 먼저 응답했어요 — 서버 반영은 계속돼요";
 const KEY = randomBytes(32).toString("base64");
 const BUSY_MESSAGE = "미체결 1건 등록 — 먼저 정리";
 
@@ -62,6 +69,8 @@ class FakeConn implements AdminConnLike {
   readonly sent: CommandInput[] = [];
   mode: "normal" | "timeout" | "offline" = "normal";
   timeoutMs = 80;
+  /** normal 모드 op 1개의 처리 지연(ms) — 느린 서버 흉내(29-32 마감 테스트 · 가짜 타이머). */
+  delayMs = 0;
   #snapshot: AdminUsersSnapshot | null;
   #requestId = 10n;
   readonly #handler: FakeAdminHandler;
@@ -87,6 +96,7 @@ class FakeConn implements AdminConnLike {
       await sleep(this.timeoutMs);
       return { kind: "timeout" };
     }
+    if (this.delayMs > 0) await sleep(this.delayMs);
     this.#requestId += 1n;
     const reply = this.#handler({
       requestId: this.#requestId,
@@ -454,5 +464,157 @@ describe("AdminDispatcher — 변경 경로 (29-11 Task 2)", () => {
 
     await expect(env.dispatcher.changePassword("nope", "n3", "boss@gmail.com")).rejects.toMatchObject({ code: "NO_DMA_USER" });
     expect(env.sessionCalls).toHaveLength(2);
+  });
+
+  describe("D10 요청 마감 10초 (29-32 WR-07)", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const recorded = (env: Env): unknown[] => env.db.callsTo("dma_admin_record_results").map((c) => c.args.p_results);
+
+    it("상수 — ADMIN_REQUEST_DEADLINE_MS 10_000 · ADMIN_DEADLINE_MESSAGE 화면 문구", () => {
+      expect(dispatcherModule.ADMIN_REQUEST_DEADLINE_MS).toBe(DEADLINE_MS);
+      expect(dispatcherModule.ADMIN_DEADLINE_MESSAGE).toBe(DEADLINE_MESSAGE);
+    });
+
+    it("마감 접기 — KB120(op 7초 × 2)은 10초에 timeout 으로 접고 KB121 ok 로 먼저 응답 · 뒤 반영이 끝나면 실제 결과로 기록 2회째", async () => {
+      const env = setup({ KB120: state({}), KB121: state({}) });
+      seedU1(env, [
+        { accountNo: "A", priority: 1, servers: ["KB120", "KB121"] },
+        { accountNo: "B", priority: 2, servers: ["KB120"] },
+      ]);
+      env.conns.KB120!.delayMs = 7_000;
+
+      let answered: unknown = null;
+      void env.dispatcher
+        .reconcileUser("u1", { adminEmail: "boss@gmail.com", deadlineAt: Date.now() + DEADLINE_MS })
+        .then((r) => {
+          answered = r;
+        });
+
+      await vi.advanceTimersByTimeAsync(DEADLINE_MS - 1);
+      expect(answered).toBeNull();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(answered).toEqual([
+        { server: "KB120", outcome: "timeout", message: DEADLINE_MESSAGE },
+        { server: "KB121", outcome: "ok", usersRev: "6" },
+      ]);
+      expect(recorded(env)).toEqual([
+        [
+          { server: "KB120", outcome: "timeout", message: DEADLINE_MESSAGE },
+          { server: "KB121", outcome: "ok" },
+        ],
+      ]);
+      // 마감에 걸린 서버의 반영은 취소되지 않는다 — 두 번째 op(op 3 B)가 7초에 이미 나가 진행 중이다.
+      expect(ops(env.conns.KB120!)).toEqual([1, 3]);
+
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(recorded(env)).toHaveLength(2);
+      expect(recorded(env)[1]).toEqual([
+        { server: "KB120", outcome: "ok" },
+        { server: "KB121", outcome: "ok" },
+      ]);
+      expect(env.conns.KB120!.state.users.get("u1")?.map((a) => a.accountNo)).toEqual(["A", "B"]);
+    });
+
+    it("마감 전에 모두 끝나면 종전과 같은 결과 · record 1회(늦은 기록 없음)", async () => {
+      const env = setup({ KB120: state({}), KB121: state({}) });
+      seedU1(env, [{ accountNo: "A", servers: ["KB120", "KB121"] }]);
+      env.conns.KB120!.delayMs = 3_000;
+
+      const p = env.dispatcher.reconcileUser("u1", { adminEmail: "boss@gmail.com", deadlineAt: Date.now() + DEADLINE_MS });
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(await p).toEqual([
+        { server: "KB120", outcome: "ok", usersRev: "6" },
+        { server: "KB121", outcome: "ok", usersRev: "6" },
+      ]);
+      await vi.advanceTimersByTimeAsync(DEADLINE_MS * 2);
+      expect(recorded(env)).toHaveLength(1);
+    });
+
+    it("삭제 마감 → { deleted: false } 응답 · 뒤에서 전 서버 ok 로 끝나도 deleteDmaUser 0 · 다음 삭제 요청이 마저 처리", async () => {
+      const env = setup({ KB120: state({ u1: [kb("A")] }), KB121: state({ u1: [kb("A")] }) });
+      seedU1(env, [{ accountNo: "A", servers: ["KB120", "KB121"] }]);
+      env.conns.KB120!.delayMs = 12_000;
+
+      let answered: unknown = null;
+      void env.dispatcher.deleteUser("u1", "boss@gmail.com", { deadlineAt: Date.now() + DEADLINE_MS }).then((r) => {
+        answered = r;
+      });
+      await vi.advanceTimersByTimeAsync(DEADLINE_MS);
+      expect(answered).toEqual({
+        results: [
+          { server: "KB120", outcome: "timeout", message: DEADLINE_MESSAGE },
+          { server: "KB121", outcome: "ok", usersRev: "6" },
+        ],
+        deleted: false,
+      });
+
+      // 뒤 반영 완료 — 두 서버 다 op 2 ok · settle 은 되지만 DB 유저 삭제는 부르지 않는다(응답은 이미 deleted false 였다).
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(recorded(env)).toHaveLength(2);
+      expect(recorded(env)[1]).toEqual([
+        { server: "KB120", outcome: "ok" },
+        { server: "KB121", outcome: "ok" },
+      ]);
+      expect(env.db.callsTo("dma_admin_delete_dma_user")).toEqual([]);
+      expect(env.db.dmaUsers.has("u1")).toBe(true);
+      expect(env.db.intentOf("u1")).toEqual([]);
+
+      // 다음 삭제 요청 — 남은 등록 행이 없으니 44 0건 · DB 삭제로 마저 끝난다.
+      const again = await env.dispatcher.deleteUser("u1", "boss@gmail.com", { deadlineAt: Date.now() + DEADLINE_MS });
+      expect(again).toEqual({ results: [], deleted: true });
+      expect(env.db.callsTo("dma_admin_delete_dma_user")).toHaveLength(1);
+    });
+
+    it("같은 유저 줄 — 다음 요청은 앞 요청의 뒤 반영이 끝난 뒤에 op 를 보낸다 · 그 대기 시간도 다음 요청의 마감에 포함", async () => {
+      const env = setup({ KB120: state({}), KB121: state({}) });
+      seedU1(env, [
+        { accountNo: "A", priority: 1, servers: ["KB120", "KB121"] },
+        { accountNo: "B", priority: 2, servers: ["KB120"] },
+      ]);
+      env.conns.KB120!.delayMs = 7_000;
+
+      let first: unknown = null;
+      void env.dispatcher.reconcileUser("u1", { adminEmail: "boss@gmail.com", deadlineAt: Date.now() + DEADLINE_MS }).then((r) => {
+        first = r;
+      });
+      await vi.advanceTimersByTimeAsync(0); // 첫 요청이 의도를 읽고 op 를 보냈다
+      expect(ops(env.conns.KB120!)).toEqual([1]);
+
+      // 첫 요청 진행 중에 계좌 C 를 KB120 에 등록 → 두 번째 요청(같은 유저)은 줄을 선다.
+      await env.store.putAccount("u1", { broker: "KB", ...kb("C", 3) }, ["KB120"]);
+      let second: unknown = null;
+      void env.dispatcher.reconcileUser("u1", { adminEmail: "boss@gmail.com", deadlineAt: Date.now() + DEADLINE_MS }).then((r) => {
+        second = r;
+      });
+
+      await vi.advanceTimersByTimeAsync(DEADLINE_MS);
+      expect(first).toEqual([
+        { server: "KB120", outcome: "timeout", message: DEADLINE_MESSAGE },
+        { server: "KB121", outcome: "ok", usersRev: "6" },
+      ]);
+      // 두 번째 요청은 마감까지 줄에서 기다렸다 — 아무 서버도 시작하지 못했으니 전부 timeout 으로 접는다.
+      expect(second).toEqual([
+        { server: "KB120", outcome: "timeout", message: DEADLINE_MESSAGE },
+        { server: "KB121", outcome: "timeout", message: DEADLINE_MESSAGE },
+      ]);
+      // 줄은 응답과 함께 풀리지 않는다 — 첫 요청의 뒤 반영(14초)이 끝나기 전에는 C 를 보내지 않는다.
+      await vi.advanceTimersByTimeAsync(3_999);
+      expect(env.conns.KB120!.sent.map((s) => s.account?.accountNo)).toEqual(["A", "B"]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(env.conns.KB120!.sent.map((s) => s.account?.accountNo)).toEqual(["A", "B", "C"]);
+
+      // 두 번째 요청의 뒤 반영이 끝나면 실제 결과로 기록된다.
+      await vi.advanceTimersByTimeAsync(7_000);
+      expect(recorded(env).at(-1)).toEqual([
+        { server: "KB120", outcome: "ok" },
+        { server: "KB121", outcome: "ok" },
+      ]);
+    });
   });
 });
