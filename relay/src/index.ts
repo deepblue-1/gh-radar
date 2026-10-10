@@ -89,7 +89,8 @@ import { logger } from "./logger.js";
 import { createRelaySupabase } from "./store/supabase.js";
 import { SymbolMap } from "./store/symbols.js";
 import { GatewaySymbolMaster } from "./store/gateway-symbols.js";
-import { SessionManager } from "./dma/session-manager.js";
+import { SessionManager, type SessionTarget } from "./dma/session-manager.js";
+import { StaleStrategyRegister, StrategySweeper } from "./dma/strategy-sweeper.js";
 import { SubscriptionHub } from "./hub/subscription-hub.js";
 import { WsFanout } from "./ws/fanout.js";
 import { AppAccess } from "./access/app-access.js";
@@ -343,6 +344,24 @@ function brokersFor(dmaUserId: string): DmaBroker[] {
   return out;
 }
 
+/**
+ * 옛 주문 서버 전략 끄기 (Phase 29-36 G-1 (가) · 29-43 모듈) — 주문 서버 변경 재수립(`fanout.resyncChangedUsers`)이 세션을 닫기
+ * **전에** 옮겨지는 계좌의 옛 서버 세션에서 그 계좌의 활성 전략(상따 · VI · 자동매도)을 끈다(gh-trade-84 ② 추가 확정 — 경고로는
+ * 부족). 대상 = 레지스트리의 그 서버 키 행(없는 키면 `no-session` 으로 미확인). **꺼진(enabled false) 서버도 대상이다** — Admin 이 서버를
+ * 꺼도 그 서버 프로세스의 전략은 계속 돌고(꺼짐은 relay 라우팅 결정일 뿐), 재수립 대상 사용자는 그 서버 세션을 아직 쥐고 있어
+ * `acquireOn` 이 새 로그인 없이 그 세션을 재사용한다. 끄지 못한 계좌는 레지스터에 남아 healthz `accountOrderServers.<키>.staleAccounts`
+ * · Admin `servers/status` · 브라우저 상태 프레임 계좌 `staleStrategies` 로 보인다.
+ */
+const strategySweeper = new StrategySweeper({
+  sessions: sessionManager,
+  targetOf: (key): SessionTarget | undefined => {
+    const s = registry.get(key);
+    return s === undefined ? undefined : { serverKey: s.key, host: s.host, port: s.port, broker: s.broker };
+  },
+});
+/** 끄지 못한(미확인) 계좌 레지스터 (29-36 · 29-43) — 재시도 · 백스톱은 29-44. */
+const staleStrategies = new StaleStrategyRegister();
+
 /** 주 서버 매핑 읽기 — 호출마다 지금의 KB 주문 서버 파이프라인을 본다(없으면 매핑 없음 = 푸시 없음 · 29-22). */
 const primaryAccessView: JournalAccessView = {
   accountsOf: (dmaUserId) => kbOrderPipeline()?.access.accountsOf(dmaUserId),
@@ -373,6 +392,9 @@ const fanout = new WsFanout({
   journalState: orderJournal,
   // 시세 전용 공유 연결 상태 — 인증 직후 `quote.state` 스냅샷 1프레임의 출처(Phase 26 D-01).
   quoteState: quoteStatus,
+  // Phase 29-36 (G-1 (가)) — 주문 서버 변경 재수립 전 옛 서버 전략 끄기 · 끄지 못한 계좌 레지스터(상태 프레임 staleStrategies).
+  sweeper: strategySweeper,
+  staleStrategies,
 });
 
 /**
@@ -391,6 +413,17 @@ quoteStatus.on("frame", (frame) => fanout.deliverQuoteState(frame));
 // D-04 즉시 반영 — 접근 맵 재적재(60초 · reload)가 찾은 권한 회수 사용자의 wss 를 끊는다(세션은 종전 유예로 끝난다 ·
 // 서버 쪽 전략 · 미체결 무접촉). 재접속하면 인증이 unauthorized 를 준다.
 appAccess.on("revoked", (ids) => ids.forEach((u) => fanout.revokeUser(u, "access-revoked")));
+
+// Phase 29-36 (G-1) — 계좌 주문 서버 지정 변경(60초 재적재 · Admin 즉시 reload) → 영향 연결 중 사용자마다 옛 서버 전략 끄기 → 세션
+// drop · wss 1012 → 재접속이 새 서버 세션 · 25→66 재동기(사용자 확정 2026-10-10 「즉시 재접속」). 판정은 사용자별 서명이라 다른
+// 사용자 · 무변화 재적재에는 0 이다. 거부하지 않지만 결선 쪽에서도 끝까지 잡는다.
+accountOrderServers.on("changed", () => {
+  void fanout
+    .resyncChangedUsers("account-order-server")
+    .catch((err: unknown) =>
+      logger.error({ error: err instanceof Error ? err.message : String(err) }, "[WS] 계좌 주문 서버 변경 재수립 예외"),
+    );
+});
 
 /**
  * 서버 파이프라인 결선 (`ServerPipelines.onCreated` — 생성 직후 · 관찰자 start 전). 재생성마다 새 벌에 다시 붙는다.

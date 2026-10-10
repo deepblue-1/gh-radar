@@ -45,10 +45,21 @@
  *   9. 권한 회수(Phase 29 D-04 · `revokeUser`) — 접근 맵 재적재가 강등 · 허용 해제 · DMA 연결 변경을 찾으면 그 사용자의
  *      **모든** 연결에 `{t:"state", s:"unauthorized"}` 1프레임 → close(1008). 세션은 8 의 `release` 로 종전 유예(5분)에
  *      맡긴다 — 서버 쪽 전략 · 미체결은 건드리지 않는다. 브라우저는 재접속하고, 인증 4 갈래(unauthorized · 연결 유지)에 선다
- *  10. G-1 — 주문 서버 변경(계좌 지정 · 증권사 기본)은 29-36 의 즉시 재수립이 맡는다(사용자 확정 2026-10-10 「즉시 재접속」 ·
- *      D-10 「재접속하면 적용」 배지 폐지 — 29-42 가 「주문 서버 바뀜」 `order.server` 송신을 지웠다). 순서는 옛 서버의 그 계좌
- *      활성 전략 끄기(gh-trade-84 ②(가) · 29-43) → 세션 재수립 → 25→66 재동기(③). fanout 은 어떤 경로(인증 직후 · 레지스트리
- *      변경)로도 그 프레임을 보내지 않는다
+ *  10. G-1 주문 서버 변경 즉시 재수립 (Phase 29-36 · `resyncChangedUsers` — 사용자 확정 2026-10-10 「즉시 재접속」 이 D-10 「열린
+ *      세션은 예전 서버 유지 · 재접속하면 적용 배지」 를 대체 · 29-42 가 `order.server` 송신을 지웠다). 계좌 지정 변경(적재기
+ *      `changed`)과 증권사 기본 주문 서버 변경(레지스트리 `changed`) 둘 다 같은 길이다. 연결 중 사용자마다 (원하는 서버 키 집합
+ *      = `serversFor` · 계좌 → 소유 세션 서버)를 마지막 동기화 서명과 견주어 달라졌을 때만, 이 순서로 간다(gh-trade-84 ② 추가 확정):
+ *        (1) 옮겨지는 계좌(소유 서버가 바뀐 계좌 — 소유자 없음으로 바뀌어도)의 **옛 서버 세션에서** 그 계좌의 활성 전략(상따 ·
+ *            VI · 자동매도)을 끈다 — 29-43 `StrategySweeper.sweep`(14 키별 · 11 run:false · 24/21 재조회 확인 · 전체 20초). 확인되지
+ *            않으면(timeout · remaining · no-session · not-ready · send-failed · 자격증명 없음) 조용히 넘기지 않는다 — 레지스터
+ *            (`StaleStrategyRegister`) · warn 1줄 · 상태 프레임 계좌 `staleStrategies` 셋 다 남기고 (2) 로 간다(라우팅은 이미 DB 지정을
+ *            따르므로 되돌릴 수 없고, 재수립을 막으면 「DB 는 KB121 · relay 는 KB120」 으로 더 위험하다).
+ *        (2) 그 사용자 DMA 세션을 유예 없이 닫고(`sessions.dropUser`) 그 사용자 wss 를 1012 로 닫는다(`resyncUser`).
+ *        (3) 브라우저 자동 재접속(1~3초) · 인증이 새 규칙으로 세션을 다시 열고, 새 세션마다 hub `ready` → 25(account_no "") → 66
+ *            스냅샷으로 계좌 상태를 다시 맞춘다(gh-trade-84 ③ — 공백 동안의 51 · 67 은 저널 seq 재생으로 회수).
+ *      같은 사용자의 변경이 연달아 오면 사용자별 직렬 체인(`#resyncChain`)이 뒤 변경을 앞 재수립이 끝난 뒤 그때의 서명으로 다시
+ *      판정한다 — 진행 중 sweep 의 세션을 뒤 변경이 닫지 않는다. 미체결은 건드리지 않는다(정리는 사용자 몫 — gh-trade-84 ② 추가).
+ *      어떤 경로로도 「주문 서버 바뀜」 표식 프레임을 보내지 않는다
  *
  * 결정 근거:
  *   T-15-02  **사용자 데이터**(계좌 · 주문 · 전략 · 83)의 팬아웃 대상은 `Map<userId, …>` 로만 고른다(`#deliver`).
@@ -131,7 +142,7 @@ import { safePgError } from "../store/pg-error.js";
 import type { HubMarketEvent, SubscriptionHub } from "../hub/subscription-hub.js";
 import type { DmaSession } from "../dma/session.js";
 import type { DmaCredentials, SessionTarget } from "../dma/session-manager.js";
-import type { StaleStrategyRegister, StrategySweeper } from "../dma/strategy-sweeper.js";
+import type { StaleStrategyRegister, StrategySweepFailReason, StrategySweeper } from "../dma/strategy-sweeper.js";
 import type { DmaBroker } from "../registry/registry.js";
 import {
   OrderBuildError,
@@ -298,6 +309,11 @@ export interface FanoutSessions {
    */
   forAccount(userId: string, accountNo: string): DmaSession | undefined;
   primaryOf(userId: string): DmaSession | undefined;
+  /**
+   * 그 사용자 세션 전부를 유예 없이 닫고 지운다 (Phase 29-36 — 주문 서버 변경 재수립). 선택이다 — 기존 단위 하네스 스텁은 두지
+   * 않는다(그때 재수립은 연결 close 뒤 종전 release · 유예).
+   */
+  dropUser?(userId: string, reason: string): number;
 }
 
 /**
@@ -400,6 +416,22 @@ export type WsFanoutStats = {
   connectionCount: number;
   authedUserCount: number;
 };
+
+/** 계좌의 소유 세션 서버 (29-36 서명 원소). */
+type AccountOwner = { serverKey: string; broker: string };
+
+/**
+ * 사용자의 마지막 동기화 서명 (Phase 29-36). `servers` = 그때 연 (유저, 서버) 대상 키(정렬 · 쉼표) · `owners` = 계좌 → 소유 세션
+ * 서버. 소유 계좌는 **처음 본 값만** 기록한다(재수립 · 연결 소멸 때만 지운다) — 지정 변경이 이벤트보다 먼저 사본에 반영돼도 옮겨짐을
+ * 삼키지 않게.
+ */
+type UserSignature = { servers: string; owners: Map<string, AccountOwner> };
+
+/** 지금 서명 — 계좌를 선언한 세션이 있는지(`known`)도 함께. 선언 목록에서 빠진 계좌는 옮겨짐이 아니다. */
+type CurrentSignature = UserSignature & { known: Set<string> };
+
+/** 소유 서버가 바뀐 계좌 1건 (29-36). `to` undefined = 지금 그 계좌를 소유한 세션이 없다(새 서버 세션 전 · 지정 서버 매핑 미반영). */
+type OrderServerMove = { accountNo: string; broker: string; from: string; to: string | undefined };
 
 /** 권한 회수 close 코드 — RFC 6455 `1008 policy violation`. 브라우저는 재시도(재접속)하고 인증에서 unauthorized 를 받는다. */
 export const WS_CLOSE_ACCESS_REVOKED = 1008;
@@ -555,6 +587,19 @@ export class WsFanout {
   readonly #journalState: { frame(): RelayJournalStateMsg | null } | null;
   /** 시세 전용 공유 연결 상태 원천 (Phase 26 D-01). 없으면 `quote.state` 스냅샷을 보내지 않는다. */
   readonly #quoteState: { frame(): RelayQuoteStateMsg | null } | null;
+  /** 옛 주문 서버 전략 끄기 (29-36 · 29-43). 없으면 재수립 때 끄기를 생략한다(단위 하네스). */
+  readonly #sweeper: Pick<StrategySweeper, "sweep"> | null;
+  /** 끄지 못한 계좌 레지스터 (29-36 · 29-43). 상태 프레임 계좌 `staleStrategies` 원천. */
+  readonly #stale: StaleStrategyRegister | null;
+  /** userId → 마지막 동기화 서명 (29-36). 인증 · 세션 추가 · 세션 상태 이벤트가 쌓고, 재수립 · 연결 소멸이 지운다. */
+  readonly #syncedSig = new Map<string, UserSignature>();
+  /**
+   * userId → 그 사용자 재수립 직렬 체인의 꼬리 (29-36 · 체커 W3). 같은 사용자의 판정 · 끄기 · 재수립은 한 번에 하나다 — 뒤 변경은 앞
+   * 재수립이 끝난 뒤 **그때의** 서명으로 다시 판정한다(진행 중 sweep 의 세션을 뒤 변경의 dropUser 가 닫지 않는다).
+   */
+  readonly #resyncChain = new Map<string, Promise<void>>();
+  /** userId → 이번 재수립으로 서버가 바뀐 계좌 → 옛 서버 키 (29-36). 다음 재수립이 교체한다. */
+  readonly #movedFrom = new Map<string, Map<string, string>>();
 
   constructor(deps: WsFanoutDeps) {
     this.#server = deps.server;
@@ -575,6 +620,8 @@ export class WsFanout {
     this.#journalAccess = deps.journalAccess ?? null;
     this.#journalState = deps.journalState ?? null;
     this.#quoteState = deps.quoteState ?? null;
+    this.#sweeper = deps.sweeper ?? null;
+    this.#stale = deps.staleStrategies ?? null;
 
     this.#wss = new WebSocketServer({
       noServer: true,
@@ -701,13 +748,239 @@ export class WsFanout {
     logger.warn({ userId, reason, conns: targets.length }, "[WS] 권한 회수 — 연결 종료(세션은 유예 후 종료)");
   }
 
-  /** RED 골격 (29-36). */
-  async resyncChangedUsers(_reason: string): Promise<number> {
-    return 0;
+  /**
+   * 주문 서버 변경 즉시 재수립 (Phase 29-36 G-1 · 머리 10). 연결 중 사용자마다 사용자별 직렬 체인에 판정을 넣고, 서명이 달라진
+   * 사용자만 「옛 서버 전략 끄기 → 세션 drop · wss 1012」 로 간다. 무변화 재적재 · 다른 사용자 지정 변경에는 0 이다.
+   * 거부하지 않는다(실패는 체인 안에서 error 1줄로 끝난다). 호출자(index)는 `void` 로 둔다.
+   *
+   * @returns 재수립한 사용자 수
+   */
+  async resyncChangedUsers(reason: string): Promise<number> {
+    const runs = [...this.#users.keys()].map((userId) =>
+      this.#enqueueResync(userId, () => this.#resyncIfChanged(userId, reason)),
+    );
+    const done = await Promise.all(runs);
+    return done.filter(Boolean).length;
   }
 
-  /** RED 골격 (29-36). */
-  resyncUser(_userId: string, _reason: string): void {}
+  /**
+   * 그 사용자를 재수립한다 (29-36 (2)) — 그 사용자 연결들의 쥔 서버 목록을 비우고(close 경로가 지운 세션을 release 하지 않게) ·
+   * entry · 서명 · hub 결선을 버리고 · DMA 세션을 유예 없이 닫은 뒤(`sessions.dropUser`) · 연결마다 close(1012). 브라우저는 재접속하고
+   * 인증이 새 규칙(계좌별 유효 주문 서버)으로 세션을 연다. 옛 서버 전략 끄기는 이 호출 **전에** 끝나 있어야 한다(`#sweepThenResync`).
+   */
+  resyncUser(userId: string, reason: string): void {
+    const conns = [...this.#conns].filter((c) => c.userId === userId);
+    for (const conn of conns) conn.acquiredServers = [];
+    const entry = this.#users.get(userId);
+    if (entry !== undefined) {
+      for (const es of entry.sessions.values()) this.#unlisten(es);
+      this.#users.delete(userId);
+    }
+    this.#syncedSig.delete(userId);
+    // 그 사용자 몫 hub 결선 · 캐시를 버린다 — 재접속 뒤 새 세션 ready → 25 → 66 이 다시 채운다(옛 서버 몫 캐시가 새 탭 스냅샷으로
+    // 새지 않게).
+    this.#hub.retainSessions(userId, new Set());
+    const dropped = this.#sessions.dropUser?.(userId, reason) ?? 0;
+    for (const conn of conns) {
+      if (conn.ws.readyState === WebSocket.OPEN || conn.ws.readyState === WebSocket.CONNECTING) {
+        conn.ws.close(WS_CLOSE_ORDER_SERVER_CHANGED, "order server changed");
+      }
+    }
+    logger.info(
+      { userId, reason, conns: conns.length, sessions: dropped },
+      "[WS] 주문 서버 변경 — 세션 재수립(wss 1012 · 재접속이 새 서버 세션을 연다)",
+    );
+  }
+
+  /** 사용자별 직렬 체인 뒤에 판정 1건을 붙인다(체커 W3). 끝나면 같은 꼬리일 때만 지운다. 거부하지 않는다(false). */
+  #enqueueResync(userId: string, run: () => Promise<boolean>): Promise<boolean> {
+    const prev = this.#resyncChain.get(userId) ?? Promise.resolve();
+    const result = prev.then(run, run);
+    const tail = result.then(
+      () => undefined,
+      (err: unknown) => {
+        logger.error(
+          { userId, error: err instanceof Error ? err.message : String(err) },
+          "[WS] 주문 서버 변경 재수립 예외 — 이 사용자 판정 건너뜀",
+        );
+      },
+    );
+    this.#resyncChain.set(userId, tail);
+    void tail.then(() => {
+      if (this.#resyncChain.get(userId) === tail) this.#resyncChain.delete(userId);
+    });
+    return result.catch(() => false);
+  }
+
+  /**
+   * 실행 시점의 서명으로 판정한다 (29-36). 기록이 없으면(인증 진행 중 · 첫 판정) 지금 값을 기록만 한다. 옮겨진 계좌가 있거나 원하는
+   * 서버 집합이 바뀌었으면 끄기 → 재수립, 아니면 새로 본 계좌만 기록에 더한다.
+   */
+  async #resyncIfChanged(userId: string, reason: string): Promise<boolean> {
+    const now = this.#currentSignature(userId);
+    if (now === null) return false;
+    const synced = this.#syncedSig.get(userId);
+    if (synced === undefined) {
+      this.#recordSignature(userId, { servers: true });
+      return false;
+    }
+    const moves = this.#movesOf(synced, now);
+    if (moves.length === 0 && synced.servers === now.servers) {
+      this.#recordSignature(userId, { servers: false });
+      return false;
+    }
+    await this.#sweepThenResync(userId, moves, reason);
+    return true;
+  }
+
+  /**
+   * 지금 서명 (29-36) — 원하는 서버 키 집합(`#sessionPlan` · 지정 첫 적재 전이면 null) · 계좌 → 소유 세션 서버(`allowedAccounts` —
+   * 호출마다 소유 술어를 다시 묻는다) · 선언 계좌(`declaredAccounts`). 연결 중이 아니면 null.
+   */
+  #currentSignature(userId: string): CurrentSignature | null {
+    const entry = this.#users.get(userId);
+    if (entry === undefined) return null;
+    const plan = this.#sessionPlan(entry.dmaUserId);
+    if (plan === null) return null;
+    const servers = [...new Set(plan.map((i) => i.target?.serverKey ?? i.broker))].sort().join(",");
+    const owners = new Map<string, AccountOwner>();
+    const known = new Set<string>();
+    for (const es of entry.sessions.values()) {
+      const s = es.session;
+      for (const a of s.declaredAccounts) known.add(a.accountNo);
+      for (const a of s.allowedAccounts) {
+        known.add(a.accountNo);
+        if (!owners.has(a.accountNo)) owners.set(a.accountNo, { serverKey: s.serverKey, broker: s.broker });
+      }
+    }
+    return { servers, owners, known };
+  }
+
+  /**
+   * 서명을 기록한다 (29-36). 계좌 소유는 **처음 본 계좌만** 더한다(이미 기록된 계좌의 옮겨짐을 덮지 않는다). `servers` 는 세션을 실제로
+   * 연 자리(인증 · 세션 추가)에서만 갱신한다 — 세션 상태 이벤트가 바꾸면 「원하는 서버가 늘었는데 세션은 그대로」 를 삼킨다.
+   */
+  #recordSignature(userId: string, opts: { servers: boolean }): void {
+    const now = this.#currentSignature(userId);
+    if (now === null) return;
+    const synced = this.#syncedSig.get(userId);
+    if (synced === undefined) {
+      this.#syncedSig.set(userId, { servers: now.servers, owners: now.owners });
+      return;
+    }
+    if (opts.servers) synced.servers = now.servers;
+    for (const [accountNo, owner] of now.owners) {
+      if (!synced.owners.has(accountNo)) synced.owners.set(accountNo, owner);
+    }
+  }
+
+  /** 기록 ↔ 지금에서 소유 서버가 바뀐 계좌 (29-36). 지금 어느 세션도 선언하지 않는 계좌는 옮겨짐이 아니다(87 축소 등). */
+  #movesOf(synced: UserSignature, now: CurrentSignature): OrderServerMove[] {
+    const moves: OrderServerMove[] = [];
+    for (const [accountNo, owner] of synced.owners) {
+      if (!now.known.has(accountNo)) continue;
+      const to = now.owners.get(accountNo)?.serverKey;
+      if (to === owner.serverKey) continue;
+      moves.push({ accountNo, broker: owner.broker, from: owner.serverKey, to });
+    }
+    return moves;
+  }
+
+  /**
+   * (1) 옛 서버 전략 끄기 → (2) 재수립 (29-36 · gh-trade-84 ②(가)). 옮겨지는 계좌를 옛 서버 키로 묶어 서버마다 `sweeper.sweep` —
+   * ok 면 레지스터에서 지우고, 아니면 레지스터 · warn 1줄(수 · 서버 키 · 사유 — 계좌 · DMA id 없음)로 남긴다. 자격증명을 얻지 못하면
+   * (null · "not_ready" · throw) sweep 을 부를 수 없으므로 그 계좌들을 `no-session`(remaining null)으로 남긴다 — 조용히 건너뛰지
+   * 않는다. 어느 경우든 재수립(2)은 진행한다.
+   */
+  async #sweepThenResync(userId: string, moves: readonly OrderServerMove[], reason: string): Promise<void> {
+    const dmaUserIdBefore = this.#users.get(userId)?.dmaUserId ?? "";
+    if (moves.length > 0 && this.#sweeper !== null) {
+      const groups = new Map<string, { broker: string; accountNos: string[] }>();
+      for (const m of moves) {
+        const g = groups.get(m.from) ?? { broker: m.broker, accountNos: [] };
+        g.accountNos.push(m.accountNo);
+        groups.set(m.from, g);
+      }
+      let creds: DmaCredentials | null | "not_ready";
+      let credFailure: string | null = null;
+      try {
+        creds = await this.#lookupCredentials(userId);
+      } catch (err) {
+        logger.error({ pgError: safePgError(err), userId }, "[WS] 옛 서버 전략 끄기 — 자격증명 조회 실패");
+        creds = null;
+        credFailure = "lookup-failed";
+      }
+      if (creds === null || creds === "not_ready") {
+        const why = credFailure ?? (creds === "not_ready" ? "not_ready" : "unauthorized");
+        for (const [serverKey, g] of groups) {
+          this.#markStale(userId, dmaUserIdBefore, serverKey, g.accountNos, "no-session", null, why);
+        }
+      } else {
+        for (const [serverKey, g] of groups) {
+          await this.#sweepServer(userId, creds, serverKey, g.broker, g.accountNos);
+        }
+      }
+    }
+    this.#movedFrom.set(userId, new Map(moves.map((m) => [m.accountNo, m.from])));
+    this.resyncUser(userId, reason);
+  }
+
+  /** 서버 하나에서 끄기 (29-36). 결과를 레지스터에 반영한다 — 예외도 미확인(send-failed · 수 모름)으로 접는다. */
+  async #sweepServer(
+    userId: string,
+    creds: DmaCredentials,
+    serverKey: string,
+    broker: string,
+    accountNos: readonly string[],
+  ): Promise<void> {
+    const sweeper = this.#sweeper;
+    if (sweeper === null) return;
+    try {
+      const res = await sweeper.sweep({ userId, serverKey, broker, accountNos }, creds);
+      if (res.ok) {
+        for (const accountNo of accountNos) this.#stale?.confirm(userId, serverKey, accountNo);
+        return;
+      }
+      this.#markStale(userId, creds.dmaUserId, serverKey, accountNos, res.reason, res.remaining, res.reason);
+    } catch (err) {
+      logger.error(
+        { userId, serverKey, error: err instanceof Error ? err.message : String(err) },
+        "[WS] 옛 서버 전략 끄기 예외",
+      );
+      this.#markStale(userId, creds.dmaUserId, serverKey, accountNos, "send-failed", null, "exception");
+    }
+  }
+
+  /**
+   * 끄지 못한 계좌를 레지스터에 남기고 warn 1줄 (29-36 fail closed). `remaining` 은 그 서버 대상 계좌 전체의 켜진 수라 계좌별로는
+   * 대상이 1개일 때만 그대로 싣고, 여럿이면 null(계좌별 수를 모른다)이다. 로그는 userId · 서버 키 · 수 · 사유만(계좌 · DMA id 없음).
+   */
+  #markStale(
+    userId: string,
+    dmaUserId: string,
+    serverKey: string,
+    accountNos: readonly string[],
+    reason: StrategySweepFailReason,
+    remaining: number | null,
+    detail: string,
+  ): void {
+    const at = Date.now();
+    for (const accountNo of accountNos) {
+      this.#stale?.set({
+        userId,
+        dmaUserId,
+        serverKey,
+        accountNo,
+        remaining: accountNos.length === 1 ? remaining : null,
+        reason,
+        at,
+      });
+    }
+    logger.warn(
+      { userId, serverKey, count: remaining, accounts: accountNos.length, reason, detail },
+      `[WS] 옛 서버 ${serverKey} 활성 전략 ${remaining ?? "?"}건 — 끄지 못함 (재수립은 진행 · 클라(OCX)에서 꺼야 한다)`,
+    );
+  }
 
   /**
    * 연결 중(인증 완료 · DMA 세션 보유) 사용자 요약 (Phase 29-21). `AdminSessionSync` 가 87 에 그 DMA 유저 계좌가 처음 실린 서버를
@@ -1888,6 +2161,7 @@ export class WsFanout {
         // 이미 없기 때문이다. 증권사 세션이 여럿이면(29-20) 전부 뗀다.
         for (const es of entry.sessions.values()) this.#unlisten(es);
         this.#users.delete(userId);
+        this.#syncedSig.delete(userId);
       }
     }
 
@@ -1969,6 +2243,8 @@ export class WsFanout {
       logger.info({ userId, serverKey }, "[WS] 쥔 연결이 없는 세션 — 병합 뷰에서 분리");
     }
     this.#hub.retainSessions(userId, held);
+    // 29-36 — 세션을 실제로 연 자리라 원하는 서버 집합까지 기록한다(소유 계좌는 처음 본 것만).
+    this.#recordSignature(userId, { servers: true });
   }
 
   /**
@@ -1989,6 +2265,8 @@ export class WsFanout {
       const current = this.#users.get(userId);
       if (current === undefined || current.sessions.get(session.serverKey)?.session !== session) return;
       this.#deliver(userId, this.#mergedStateFrame(userId, session, frame));
+      // 29-36 — Ready · 계좌 갱신으로 새로 보인 소유 계좌를 서명에 더한다(인증 시점엔 세션이 아직 계좌를 모른다).
+      this.#recordSignature(userId, { servers: false });
     };
     session.on("state", onState);
     // 29-21 — 상태는 그대로 · 허용 계좌만 바뀜(Ready 중 선언 · 87 축소). 페이로드가 그 세션의 지금 상태 프레임이라 같은
@@ -2037,7 +2315,7 @@ export class WsFanout {
       sessions.find((s) => s.broker === "KB") ??
       sessions[0];
     if (primary === undefined) return { t: "state", s: "connecting" };
-    if (sessions.length === 1) return frameOf(primary);
+    if (sessions.length === 1) return this.#withAccountExtras(userId, frameOf(primary));
 
     const ready = primary.isReady ? primary : sessions.find((s) => s.isReady);
     const base = frameOf(ready ?? primary);
@@ -2050,7 +2328,28 @@ export class WsFanout {
         accounts.push(a);
       }
     }
-    return { ...base, accounts };
+    return this.#withAccountExtras(userId, { ...base, accounts });
+  }
+
+  /**
+   * 상태 프레임 계좌 항목에 G-1 부가 정보를 붙인 **사본** (29-36) — 세션 프레임 객체를 바꾸지 않는다. 끄지 못한 전략(레지스터
+   * `pendingFor`)이 있는 계좌에 `staleStrategies: { serverKey, count }`. 붙일 것이 없으면 그 프레임 그대로.
+   */
+  #withAccountExtras(userId: string, frame: RelayStateMsg): RelayStateMsg {
+    const accounts = frame.accounts;
+    if (accounts === undefined || accounts.length === 0) return frame;
+    const stale = new Map<string, { serverKey: string; count: number | null }>();
+    for (const e of this.#stale?.pendingFor(userId) ?? []) {
+      if (!stale.has(e.accountNo)) stale.set(e.accountNo, { serverKey: e.serverKey, count: e.remaining });
+    }
+    if (stale.size === 0) return frame;
+    return {
+      ...frame,
+      accounts: accounts.map((a) => {
+        const st = stale.get(a.accountNo);
+        return st === undefined ? a : { ...a, staleStrategies: st };
+      }),
+    };
   }
 
   /**

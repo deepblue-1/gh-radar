@@ -480,12 +480,37 @@ export class SessionManager {
   }
 
   /**
-   * 그 사용자의 세션 전부를 **유예 없이** 닫고 지운다 (29-36 G-1 — 주문 서버 변경 즉시 재수립). RED 골격.
+   * 그 사용자의 세션 전부를 **유예 없이** 닫고 지운다 (Phase 29-36 G-1 — 주문 서버 변경 즉시 재수립 · 사용자 확정 2026-10-10
+   * 「즉시 재접속」). 유예 중인 세션도 포함이다 — 유예 타이머를 해제하고 TCP 를 닫는다.
+   *
+   * `closeForDmaUser` 와 달리 **엔트리를 남기지 않는다** — 다음 acquire(브라우저 1012 재접속의 재인증)가 새 규칙(계좌별 유효 주문
+   * 서버)으로 새로 로그인해야 하기 때문이다. 옛 서버 세션을 남기면 그 세션이 지정이 바뀐 계좌의 낡은 상태를 계속 쥔다. 옛 서버의
+   * 그 계좌 전략은 이 호출 **전에** 끈다(fanout `#sweepThenResync` → `StrategySweeper` — 세션이 사라지면 읽을 수 없다).
+   * 닫힌 wss 의 close 경로가 지운 세션을 release 하지 않도록 fanout 이 먼저 그 연결의 쥔 서버 목록을 비운다.
+   *
+   * 로그는 userId · 수 · 서버 키 · reason 만(DMA id · 계좌번호 없음 — D-19).
    *
    * @returns 닫은 세션 수
    */
-  dropUser(_userId: string, _reason: string): number {
-    return 0;
+  dropUser(userId: string, reason: string): number {
+    const serverKeys: string[] = [];
+    for (const [key, entry] of [...this.#sessions]) {
+      if (entry.userId !== userId) continue;
+      if (entry.graceTimer !== null) {
+        clearTimeout(entry.graceTimer);
+        entry.graceTimer = null;
+      }
+      this.#delete(key, entry);
+      entry.session.close();
+      serverKeys.push(entry.serverKey);
+    }
+    if (serverKeys.length > 0) {
+      logger.info(
+        { userId, count: serverKeys.length, serverKeys, reason, sessionCount: this.#sessions.size },
+        "[DMA] 사용자 세션 유예 없이 종료 — 다음 인증이 새 주문 서버로 연다",
+      );
+    }
+    return serverKeys.length;
   }
 
   /** 프로세스 graceful shutdown 용. 15-05 의 `index.ts` 가 부른다. */
