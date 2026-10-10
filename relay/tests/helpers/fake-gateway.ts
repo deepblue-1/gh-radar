@@ -59,6 +59,7 @@ import {
   buildAdminCommandRespFrame,
   buildAdminUsersSnapshotFrame,
   buildBareEnvelope,
+  buildDisableStrategiesRespFrame,
   buildJournalBatchFrame,
   buildLimitChaserListRespFrame,
   buildLimitFeatureFrame,
@@ -92,6 +93,8 @@ import {
   type FakeUserSettingsInput,
   type FakeViOrderItemInput,
   type FakeViTriggerInput,
+  SAMPLE_ACCOUNT_NO,
+  SAMPLE_ISIN,
 } from "./frames.js";
 
 /** 스키마에 없는 `msg_type`. 수신 화이트리스트 드롭 경로를 태우는 데 쓴다. */
@@ -246,6 +249,33 @@ export type FakeGateway = {
    * `null` 이면 테이블 없는 빈 61 = **미등록**. 지정 전 기본값도 미등록이다.
    */
   respondViTrigger(cfg: FakeViTriggerInput | null): void;
+  /**
+   * **거래소별** VI 응답 모드를 켜고 그 거래소 슬롯을 지정한다 (Phase 29-43 — 옵트인 · 종전 `respondViTrigger` 무변경).
+   *
+   * 실서버는 VI 를 세션당 **거래소별 1건**으로 관리하고 21 의 `key` 로 슬롯을 고른다(빈 키 · 미상 = KRX). 한 번이라도 부르면
+   * 그 뒤 21 은 `readGetVITriggerExchange` 로 요청 거래소를 읽어 그 슬롯을 돌려주고(`null` = 빈 61 미등록 · `"silent"` = 답하지
+   * 않음), 11 은 그 cfg 의 거래소 슬롯에 저장한 뒤 61 에코를 쓴다(서버 Set 에코 흉내). 부르지 않으면 21 은 종전처럼 거래소를
+   * 보지 않고 `respondViTrigger` 한 벌을 돌려주고 11 은 기록만 한다.
+   */
+  respondViTriggerFor(exchange: "KRX" | "NXT", cfg: FakeViTriggerInput | null | "silent"): void;
+  /** 거래소별 모드의 지금 슬롯 값(테스트 단언용 사본). 모드가 꺼져 있으면 `undefined`. */
+  viTriggerSlot(exchange: "KRX" | "NXT"): FakeViTriggerInput | null | "silent" | undefined;
+  /**
+   * `DisableStrategiesReq(14)` 처리를 켠다 (Phase 29-43 — 옵트인 · 기본 null = 종전처럼 기록만).
+   *
+   * 켜면 14 의 키와 같은 전략 키(`isin:accountNo:exchange`)의 상따마다 — `apply`(기본 true)면 5스위치(매수 · 매도 · 취소잔량 ·
+   * 후매수 자동 · 자동매도)와 `autoSellState` 를 false/0 으로 내려 저장하고(서버 `Deactivate()` 흉내 — 다음 24 에 반영) — 60 에코를
+   * 쓰고, `respond65`(기본 true)면 65 `{ disabledCount: 맞은 수, viDisabled: false }` 를 쓴다. 빈 키는 상따 전부다.
+   * `apply: false` 는 「받았지만 스위치를 내리지 않는 서버」, `respond65: false` 는 「65 를 보내지 않는 서버」다.
+   */
+  handleDisableStrategies(opts: { apply?: boolean; respond65?: boolean } | null): void;
+  /** 지금 상따 시드(14 처리로 내려간 값 포함) 사본. */
+  limitChaserSeed(): FakeLimitChaserInput[];
+  /**
+   * 그 조회 msg_type(24 · 21 · 34)에 **답하지 않는다** (Phase 29-43 — 시한 경로 재현). 「무응답 금지」 규약을 일부러 깨는 손잡이라
+   * 시한 테스트만 켠다. `false` 로 되돌린다.
+   */
+  silenceQuery(msgType: number, on?: boolean): void;
   /**
    * `GetVIOrderListReq(34)` 자동 응답(72 스냅샷)의 **목록 내용**을 지정한다.
    * 지정 전 기본값은 0건이다.
@@ -726,6 +756,17 @@ export function readGetVITriggerExchange(msgType: number, payload: Buffer): stri
   return req.key() ?? "";
 }
 
+/**
+ * `DisableStrategiesReq(14)` 의 `key` 를 꺼낸다 (Phase 29-43). 빈 문자열 = 세션의 상따 전부 + VI(빈 키 14 금지 단언에 쓴다).
+ * @returns 14 이고 테이블이 있으면 그 키, 아니면 `null`
+ */
+export function readDisableStrategiesKey(msgType: number, payload: Buffer): string | null {
+  if (msgType !== STRATEGY_MSG.DisableStrategiesReq) return null;
+  const req = rootEnvelope(payload)?.disableStrategiesReq();
+  if (req === null || req === undefined) return null;
+  return req.key() ?? "";
+}
+
 /** `AutoSellCommandReq(41)` 요청 내용 — 자동매도 바로시작(action 1) / 중지(2) 전송분 (Phase 27). */
 export type AutoSellCommandRequest = {
   isin: string;
@@ -993,6 +1034,17 @@ export function defaultAdminHandler(state: FakeAdminState): FakeAdminHandler {
   };
 }
 
+/** 거래소별 VI 슬롯 이름 (Phase 29-43) — 빈 키 · 테이블 없음(`null`) · 미상 값은 서버처럼 KRX 로 접는다. */
+function viSlotOf(exchange: string | null): "KRX" | "NXT" {
+  return exchange === "NXT" ? "NXT" : "KRX";
+}
+
+/** 시드 상따의 전략 키 — relay `strategyKey`(게이트웨이 `LimitChaser::MakeKey`) 와 같은 `isin:accountNo:exchange` (Phase 29-43). */
+function fakeStrategyKey(item: FakeLimitChaserInput): string {
+  const exchange = item.exchange === "NXT" ? "NXT" : "KRX";
+  return `${item.isin ?? SAMPLE_ISIN}:${item.accountNo ?? SAMPLE_ACCOUNT_NO}:${exchange}`;
+}
+
 export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<FakeGateway> {
   const handlers: FrameHandler[] = [];
   const sockets: net.Socket[] = [];
@@ -1014,6 +1066,12 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
   */
   let limitChasers: FakeLimitChaserInput[] = [];
   let viTrigger: FakeViTriggerInput | null = null;
+  /** 거래소별 VI 슬롯 (Phase 29-43 옵트인). null 이면 종전 「거래소 무시 · 한 벌」 모드. */
+  let viByExchange: Map<string, FakeViTriggerInput | null | "silent"> | null = null;
+  /** 14 처리 (Phase 29-43 옵트인). null 이면 종전 「기록만」. */
+  let disableHandling: { apply: boolean; respond65: boolean } | null = null;
+  /** 답하지 않을 조회 msg_type (Phase 29-43 — 시한 경로). */
+  const silencedQueries = new Set<number>();
   let viOrders: FakeViOrderItemInput[] = [];
   const strategyReqs: StrategyRequest[] = [];
   /** 43 자동 응답 내용 (Phase 27). **기본 null = 무응답** — 조회 3종의 「늘 답한다」와 다르다(Pitfall 10). */
@@ -1101,13 +1159,63 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
         }
         // 전략 조회 3종은 늘 답한다 (무응답 금지 규약). 업무 로직은 흉내 내지 않는다 —
         // 요청 내용을 보지 않고 테스트가 미리 심어 둔 목록을 그대로 돌려줄 뿐이다.
-        if (msgType === STRATEGY_MSG.GetLimitChaserListReq) {
+        if (msgType === STRATEGY_MSG.GetLimitChaserListReq && !silencedQueries.has(msgType)) {
           sock.write(frame(buildLimitChaserListRespFrame(limitChasers)));
         }
-        if (msgType === STRATEGY_MSG.GetVITriggerReq) {
-          sock.write(frame(buildSetVITriggerRespFrame(viTrigger)));
+        if (msgType === STRATEGY_MSG.GetVITriggerReq && !silencedQueries.has(msgType)) {
+          if (viByExchange === null) {
+            sock.write(frame(buildSetVITriggerRespFrame(viTrigger)));
+          } else {
+            // 거래소별 모드 — 요청 key 가 슬롯을 고른다(빈 키 · 테이블 없음 = KRX — 서버 `ProcessGetVITrigger` 접기).
+            const slot = viSlotOf(readGetVITriggerExchange(msgType, payload));
+            const v = viByExchange.get(slot) ?? null;
+            if (v !== "silent") sock.write(frame(buildSetVITriggerRespFrame(v)));
+          }
         }
-        if (msgType === STRATEGY_MSG.GetVIOrderListReq) {
+        if (viByExchange !== null && msgType === STRATEGY_MSG.SetVITriggerReq) {
+          // 거래소별 모드의 11 — 그 거래소 슬롯에 저장하고 61 에코(서버 Set 에코 흉내). 기록은 아래 명령 기록이 따로 한다.
+          const req = readViSetRequest(msgType, payload);
+          if (req !== null) {
+            const slot = viSlotOf(req.exchange);
+            const saved: FakeViTriggerInput = {
+              accountNo: req.accountNo,
+              orderAmountKrw: BigInt(req.orderAmountKrw),
+              checkRate: req.checkRate,
+              priceType: req.priceType,
+              run: req.run,
+              exchange: slot,
+            };
+            viByExchange.set(slot, saved);
+            sock.write(frame(buildSetVITriggerRespFrame(saved)));
+          }
+        }
+        if (disableHandling !== null && msgType === STRATEGY_MSG.DisableStrategiesReq) {
+          const key = readDisableStrategiesKey(msgType, payload) ?? "";
+          let matched = 0;
+          const echoes: FakeLimitChaserInput[] = [];
+          limitChasers = limitChasers.map((item) => {
+            if (key !== "" && fakeStrategyKey(item) !== key) return item;
+            matched += 1;
+            const next: FakeLimitChaserInput = disableHandling?.apply
+              ? {
+                  ...item,
+                  buyEnabled: false,
+                  sellEnabled: false,
+                  cancelQtyEnabled: false,
+                  postBuyAuto: false,
+                  autoSellEnabled: false,
+                  autoSellState: 0,
+                }
+              : item;
+            echoes.push(next);
+            return next;
+          });
+          for (const e of echoes) sock.write(frame(buildSetLimitChaserRespFrame(e)));
+          if (disableHandling.respond65) {
+            sock.write(frame(buildDisableStrategiesRespFrame({ disabledCount: matched, viDisabled: false })));
+          }
+        }
+        if (msgType === STRATEGY_MSG.GetVIOrderListReq && !silencedQueries.has(msgType)) {
           sock.write(frame(buildViOrderListFrame(viOrders, true)));
         }
         if (msgType === MSG.GetUserSettingsReq && userSettingsSeed !== null) {
@@ -1198,6 +1306,30 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
 
     respondViTrigger(cfg) {
       viTrigger = cfg;
+    },
+
+    respondViTriggerFor(exchange, cfg) {
+      if (viByExchange === null) viByExchange = new Map();
+      viByExchange.set(exchange, cfg === null || cfg === "silent" ? cfg : { ...cfg, exchange: cfg.exchange ?? exchange });
+    },
+
+    viTriggerSlot(exchange) {
+      if (viByExchange === null) return undefined;
+      const v = viByExchange.get(exchange) ?? null;
+      return v === null || v === "silent" ? v : { ...v };
+    },
+
+    handleDisableStrategies(opts) {
+      disableHandling = opts === null ? null : { apply: opts.apply ?? true, respond65: opts.respond65 ?? true };
+    },
+
+    limitChaserSeed() {
+      return limitChasers.map((c) => ({ ...c }));
+    },
+
+    silenceQuery(msgType, on = true) {
+      if (on) silencedQueries.add(msgType);
+      else silencedQueries.delete(msgType);
     },
 
     respondViOrderList(items) {
