@@ -421,10 +421,21 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
           { server: key, error: err instanceof Error ? err.message : String(err) },
           "[admin] 시세 주 서버 DB 반영 실패 — quote 연결을 옛 서버로 되돌린다",
         );
-        // DB 는 옛 값 그대로다 — 연결만 새 서버에 남으면 다음 재적재 보정과 화면이 갈라진다.
+        // DB 는 옛 값 그대로다 — 연결만 새 서버에 남으면 다음 재적재 보정과 화면이 갈라진다. 되돌리기는 **응답 뒤 비동기**
+        // (29-32 WR-07) — 전환 상한(10초)이 두 번 응답 경로에 들어가면 Express 상한(15초)을 넘어 화면이 502 를 본다.
+        // 실패해도 다음 재적재 보정(registry 의 isQuotePrimary 기준)이 연결을 DB 쪽으로 맞춘다.
         const prevRow = prevKey !== null ? rows.find((x) => x.key === prevKey) : undefined;
-        if (changed && prevRow !== undefined) await deps.quoteSwitch.switchTo(prevRow);
-        throw rejected(500, "QUOTE_PRIMARY_DB_FAILED", "시세 주 서버를 기록하지 못해 되돌렸습니다");
+        if (changed && prevRow !== undefined) {
+          const rollbackFailed = (reason: string): void =>
+            logger.error({ server: prevRow.key, reason }, "[admin] 시세 주 서버 되돌리기 실패 — 다음 재적재 보정이 맞춘다");
+          void deps.quoteSwitch.switchTo(prevRow).then(
+            (back) => {
+              if (!back.ok) rollbackFailed(back.code);
+            },
+            (err: unknown) => rollbackFailed(err instanceof Error ? err.message : String(err)),
+          );
+        }
+        throw rejected(500, "QUOTE_PRIMARY_DB_FAILED", "시세 주 서버를 기록하지 못해 옛 서버로 되돌리는 중입니다");
       }
       // 레지스트리를 바로 맞춘다(서버 카드 · 보정 기준) — 60초 주기를 기다리지 않는다. 실패해도 응답은 성공이다.
       void deps.registry.reload().catch((err: unknown) =>
