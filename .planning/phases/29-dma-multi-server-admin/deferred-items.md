@@ -26,3 +26,12 @@
   시세 주 서버는 증권사와 무관하게 전체 1대(D-11 · D-17)라, 다른 증권사로 전환이 「성공」 하면 목 상태에 시세 주 서버가 2대가 된다.
   29-18 플랜은 이 픽스처를 고치지 않는다고 정했고(필요한 응답은 spec 안 `onRequest` 로 덮는다), P29-S2 는 실패 경로(409)만 써서
   영향이 없다. 성공 경로 e2e 가 필요해지면 분기를 나눠 전체 서버의 `isQuotePrimary` 를 바꾸도록 고친다.
+
+## 29-37 실행 중
+
+- **Express pino-http 접근 로그가 요청 URL 원문을 남겨 경로의 계좌번호 · DMA id 가 로그에 실린다.**
+  status: open
+  `DELETE /api/admin/dma-users/:dma/accounts/:broker/:accountNo`(29-13)와 29-37 의 `PUT …/order-server` 모두 경로에 계좌번호가 있다.
+  감사 줄(`audit`)은 마스킹되지만 pino-http 의 `req.url` 은 그대로다(29-37 감사 테스트가 이 때문에 감사 줄만 단언한다). 이 플랜 이전부터
+  있던 모양이고 이 플랜 범위(지정 API)가 아니라 고치지 않았다 — 고치려면 server `logger` 의 pino-http `req` serializer 에서
+  `/api/admin/dma-users/` 아래 경로 세그먼트를 마스킹한다(전 Admin 라우트 공통이라 별도 quick).
