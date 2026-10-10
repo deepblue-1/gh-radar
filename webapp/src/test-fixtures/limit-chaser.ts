@@ -11,8 +11,8 @@
 import type { RelayLimitChaser } from '@gh-radar/shared';
 
 /**
- * Phase 24 신필드 17개 + 후매수 자동 1(quick-260929-vzy) + 추가매수 포기 수량 1(quick-260930-fi4)
- * + 후매수 잠금 해제선 1(quick-261002-fim) + 추가매수 버스트 시 해제 1(quick-261003-rc4) + 추가매수 자동 1(quick-261011-0yb) = 22개
+ * Phase 24 신필드 17개 + 후매수 자동 1(quick-260929-vzy) + 줄매수 포기 수량 1(quick-260930-fi4)
+ * + 후매수 잠금 해제선 1(quick-261002-fim) + 줄매수 버스트 시 해제 1(quick-261003-rc4) + 줄매수 자동 1(quick-261011-0yb) = 22개
  * + Phase 27 자동매도 8필드(요청 4 · 에코 전용 4) = 30개.
  */
 type Buy3EchoFields = Pick<

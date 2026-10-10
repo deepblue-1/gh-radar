@@ -197,7 +197,7 @@ describe('① Tab / Shift+Tab — 같은 그룹 안 값 행만 (D-14 · A5)', ()
     ]);
   });
 
-  it('R4 선매수 카드: 금액 → 매도잔량 → 체결량 값 → 한방 건수 → 한방가격 → Tab = 편집 종료(추가매수 카드로 넘어가지 않는다)', async () => {
+  it('R4 선매수 카드: 금액 → 매도잔량 → 체결량 값 → 한방 건수 → 한방가격 → Tab = 편집 종료(줄매수 카드로 넘어가지 않는다)', async () => {
     const user = userEvent.setup();
     render(<LimitChaserForm {...props()} />);
     await user.click(document.querySelector('[data-slot="lc-group-pre-buy"] [data-slot="lc-group-fold"]') as HTMLElement);

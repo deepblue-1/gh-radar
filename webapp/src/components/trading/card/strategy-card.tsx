@@ -643,7 +643,7 @@ export function useStrategyCardState({
         (ii) **`pendingRef`(와 `pendingCauseRef`)를 소비하지 않는다.** gh-trade 는 lc.set/lc.arm 에 즉답
              에코를 주고 `MarkEchoDirty` 가 300ms 플러시 동일 사본을 또 민다 — 여기서 소비하면 사본이 내
              진짜 에코보다 먼저 온 순간 내 변경이 「다른 단말」로 읽히고 동반 · 서버 접힘 문장이 사라진다.
-             Phase 24 런타임 에코(후매수 단계 · 잔여 · 발동잔량 · 추가매수 포기)도 같다(D-13).
+             Phase 24 런타임 에코(후매수 단계 · 잔여 · 발동잔량 · 줄매수 포기)도 같다(D-13).
         (iii) 남는 비용: 정규화로 prev 와 같은 답이면 귀속은 결과 모름 창 만료까지 남는다 — 그 사이 무관
              에코는 `echoAnswersSent` 가 거르므로 배너를 삼키지 않는다(GC-WR-01). (ii) 의 오귀속보다 싸다.
         (iv) 게이트/래치 런타임 푸시가 내 에코보다 먼저 와도 내 요청 변화를 싣지 않으면 pendingRef 를

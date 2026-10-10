@@ -804,7 +804,7 @@ describe('sentSuccessSeq — 보낸 프레임의 답일 때만 오른다 (GC-IN-
       t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
       t.hook.result.current.commit('extraBuyEnabled', true, 'toggle');
     });
-    // 앞 건 에코 + 다른 단말이 켠 추가매수 — 앞 건 성공(보낸 프레임의 답)은 보낸 성공 신호를 올린다.
+    // 앞 건 에코 + 다른 단말이 켠 줄매수 — 앞 건 성공(보낸 프레임의 답)은 보낸 성공 신호를 올린다.
     t.update({ server: echo({ sweepMinTickCount: 5, extraBuyEnabled: true }) });
     expect(t.hook.result.current.lastSuccessField).toBe('sweepMinTickCount');
     expect(t.hook.result.current.sentSuccessSeq).toBe(1);
@@ -909,7 +909,7 @@ describe('R3-WR-02 — 보낸 프레임의 답 신호는 같은 판정 실행의
  * ★ 모든 케이스가 전송 수를 센다 — 유예 타이머는 실패 표시만 한다(T-16-10).
  */
 describe('R3-WR-01 — 거부 통지 답은 같은 제출의 에코를 LC_REJECT_ECHO_GRACE_MS 기다린다 (24-REVIEW-R3)', () => {
-  /** 선매수 켬(마스터 · 매도 동반) 전송 → 추가매수 켬 대기 — 리뷰어 스크래치 재현과 같은 출발점. */
+  /** 선매수 켬(마스터 · 매도 동반) 전송 → 줄매수 켬 대기 — 리뷰어 스크래치 재현과 같은 출발점. */
   function prepPreBuyWithQueuedExtra() {
     const t = setup({ server: echo({ buyEnabled: false }) });
     let first: string | undefined;
@@ -926,7 +926,7 @@ describe('R3-WR-01 — 거부 통지 답은 같은 제출의 에코를 LC_REJECT
     return t;
   }
 
-  it('H1 리뷰어 재현 — 거부 신호 먼저 → 실패 0 · 낙관 유지 → 같은 제출 에코(선매수 ON · 매도 OFF) → 보낸 성공 = 선매수 → 다음 답 신호에 대기 추가매수 1건', () => {
+  it('H1 리뷰어 재현 — 거부 신호 먼저 → 실패 0 · 낙관 유지 → 같은 제출 에코(선매수 ON · 매도 OFF) → 보낸 성공 = 선매수 → 다음 답 신호에 대기 줄매수 1건', () => {
     const t = prepPreBuyWithQueuedExtra();
 
     t.update({ serverAnswerSeq: 1, serverRejectSeq: 1 });
@@ -953,7 +953,7 @@ describe('R3-WR-01 — 거부 통지 답은 같은 제출의 에코를 LC_REJECT
     expect(r.failures.extraBuyEnabled).toBeUndefined();
   });
 
-  it('H2 전면 거부 경계 — 에코가 없으면 유예 1ms 전까지 실패 0 · 유예 끝에 선매수 · 대기 추가매수 모두 rejected · 서버 값으로 되돌림 · 재전송 0', () => {
+  it('H2 전면 거부 경계 — 에코가 없으면 유예 1ms 전까지 실패 0 · 유예 끝에 선매수 · 대기 줄매수 모두 rejected · 서버 값으로 되돌림 · 재전송 0', () => {
     // 경계 1ms 를 재므로 실시간이 가짜 시계를 밀지 않게 다시 설치한다.
     vi.useFakeTimers({ shouldAdvanceTime: false });
     const t = prepPreBuyWithQueuedExtra();
@@ -1037,7 +1037,7 @@ describe('R3-G1 — 서버가 눕힌 동반은 같은 흐름의 대기 동반 �
     return { fn, seen };
   }
 
-  /** H1 과 같은 출발점 — 선매수 켬(정적 동반 마스터 · 매도) in-flight → 추가매수 켬(함수 동반) 대기 → 거부 신호. */
+  /** H1 과 같은 출발점 — 선매수 켬(정적 동반 마스터 · 매도) in-flight → 줄매수 켬(함수 동반) 대기 → 거부 신호. */
   function prep() {
     const t = setup({ server: echo({ buyEnabled: false }) });
     const c = recordingCompanion();
@@ -1096,7 +1096,7 @@ describe('R3-G1 — 서버가 눕힌 동반은 같은 흐름의 대기 동반 �
     expect(t.send).toHaveBeenCalledTimes(2);
     expect(c.seen[c.seen.length - 1]).toEqual(['sellEnabled']);
 
-    // 추가매수 성공 에코 → 답 신호 증가까지 보내야 답 대기 장벽(popAfterSeq)이 풀린다.
+    // 줄매수 성공 에코 → 답 신호 증가까지 보내야 답 대기 장벽(popAfterSeq)이 풀린다.
     t.update({ server: echo({ buyEnabled: true, preBuyEnabled: true, extraBuyEnabled: true, sellEnabled: false }) });
     t.update({ serverAnswerSeq: 4 });
     const r = t.hook.result.current;
@@ -1117,7 +1117,7 @@ describe('R3-G1 — 서버가 눕힌 동반은 같은 흐름의 대기 동반 �
   /** 부분 거부 에코 — 마스터 · 선매수는 섰고 매도주문은 무장으로 서지 않았다. */
   const partial = () => echo({ buyEnabled: true, preBuyEnabled: true, sellEnabled: false });
 
-  /** prep → 부분 거부 에코 → 답 신호 → 대기 추가매수가 in-flight(전송 2 · laid = [sellEnabled]). */
+  /** prep → 부분 거부 에코 → 답 신호 → 대기 줄매수가 in-flight(전송 2 · laid = [sellEnabled]). */
   function toExtraInflight() {
     const { t, c } = prep();
     t.update({ server: partial() });
@@ -1156,7 +1156,7 @@ describe('R3-G1 — 서버가 눕힌 동반은 같은 흐름의 대기 동반 �
 
   it('R5-WR-01 결과 모름 장벽 안의 새 확정은 laid 를 비우지 않는다 — 꺼낸 cfg sweepEnabled true · sellEnabled false', () => {
     const { t } = toExtraInflight();
-    // 추가매수 무응답 타임아웃 → 결과 모름 장벽(orphan)만 남는다(in-flight · 대기 · 답 대기 장벽 없음).
+    // 줄매수 무응답 타임아웃 → 결과 모름 장벽(orphan)만 남는다(in-flight · 대기 · 답 대기 장벽 없음).
     t.update({ unacked: true });
     expect(t.hook.result.current.inflightField).toBeNull();
     expect(t.hook.result.current.queuedFields).toEqual([]);
@@ -1185,7 +1185,7 @@ describe('R3-G1 — 서버가 눕힌 동반은 같은 흐름의 대기 동반 �
     });
     expect(t.send).toHaveBeenCalledTimes(2);
 
-    // 추가매수 성공 에코(매도주문은 여전히 서지 않음) → 답 신호 증가에 꺼낸다.
+    // 줄매수 성공 에코(매도주문은 여전히 서지 않음) → 답 신호 증가에 꺼낸다.
     t.update({ server: echo({ buyEnabled: true, preBuyEnabled: true, extraBuyEnabled: true, sellEnabled: false }) });
     expect(t.send).toHaveBeenCalledTimes(2);
     t.update({ serverAnswerSeq: 4 });
@@ -1848,7 +1848,7 @@ describe('companions — 한 확정 = 한 lc.set 에 동반 필드 (Phase 24 D-0
 });
 
 describe('게이트 필드 (Phase 24 — 세 그룹 스위치가 등록할 수 있다 · 한방은 체크가 됐다)', () => {
-  it('LC_GATE_FIELDS = 마스터 · 선 · 추가 · 후매수 · 매도 · 취소잔량 · 후매수 자동 · 자동매도 — 한방 없음', () => {
+  it('LC_GATE_FIELDS = 마스터 · 선 · 줄 · 후매수 · 매도 · 취소잔량 · 후매수 자동 · 자동매도 — 한방 없음', () => {
     expect([...LC_GATE_FIELDS]).toEqual([
       'buyEnabled',
       'preBuyEnabled',
@@ -1907,7 +1907,7 @@ describe('게이트 필드 (Phase 24 — 세 그룹 스위치가 등록할 수 �
   });
 });
 
-describe('D-03 — 선매수 · 추가매수 · 후매수 금액 0 이면 그 그룹 스위치만 막힌다(lcGroupAmountBlockOf · IN-04)', () => {
+describe('D-03 — 선매수 · 줄매수 · 후매수 금액 0 이면 그 그룹 스위치만 막힌다(lcGroupAmountBlockOf · IN-04)', () => {
   const values = (over: Partial<LimitChaserFormValues> = {}): LimitChaserFormValues => ({
     ...formFromServer(echo(), defaultLimitChaserForm()),
     extraBuyOrderAmount: 10,
@@ -1915,7 +1915,7 @@ describe('D-03 — 선매수 · 추가매수 · 후매수 금액 0 이면 그 �
     ...over,
   });
 
-  it('추가매수 금액 0 에서 켜는 방향 → 「주문금액을 먼저 입력해 주세요」', () => {
+  it('줄매수 금액 0 에서 켜는 방향 → 「주문금액을 먼저 입력해 주세요」', () => {
     expect(lcGroupAmountBlockOf(values({ extraBuyOrderAmount: 0 }), 'extraBuyEnabled', true)).toBe(
       LC_COMMIT_TEXT.amountRequired,
     );

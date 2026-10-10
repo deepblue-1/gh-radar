@@ -269,39 +269,39 @@ export type RelayLimitChaser = {
   buy3Schema: number;
   /** 선매수 체크(양방향). 에코는 무장과 접힌 값이다(gh-trade D-03). */
   preBuyEnabled: boolean;
-  /** 추가매수 체크(양방향). 에코는 `cfg ∧ 무장 ∧ !포기` 로 접힌 값이다(gh-trade D-03 · D-08). */
+  /** 줄매수 체크(양방향). 에코는 `cfg ∧ 무장 ∧ !포기` 로 접힌 값이다(gh-trade D-03 · D-08). */
   extraBuyEnabled: boolean;
-  /** 추가매수 최소 매수잔량(주, C→S). `0` = 1주(gh-trade D-08). */
+  /** 줄매수 최소 매수잔량(주, C→S). `0` = 1주(gh-trade D-08). */
   extraBuyMinQty: number;
-  /** 추가매수 최대 매수잔량(주, C→S). `0` = 무제한(gh-trade D-08). */
+  /** 줄매수 최대 매수잔량(주, C→S). `0` = 무제한(gh-trade D-08). */
   extraBuyMaxQty: number;
-  /** 추가매수 주문금액 — **단위 만원**. 서버는 보관·에코만 한다(`buyOrderAmount` 규약). */
+  /** 줄매수 주문금액 — **단위 만원**. 서버는 보관·에코만 한다(`buyOrderAmount` 규약). */
   extraBuyOrderAmount: number;
-  /** 추가매수 주문수량(주, C→S) — **발주 정본**. */
+  /** 줄매수 주문수량(주, C→S) — **발주 정본**. */
   extraBuyOrderQty: number;
   /**
-   * 추가매수 포기 — **S→C 전용**(런타임). **최대 초과(gh-trade D-08) 1종**이다 — 최소 미달인 채
+   * 줄매수 포기 — **S→C 전용**(런타임). **최대 초과(gh-trade D-08) 1종**이다 — 최소 미달인 채
    * 벗어나면 포기하던 규칙은 gh-trade lrx(2026-09-28)로 폐기됐다(D-37). 수치는 INFO 사유 줄이 말한다.
    */
   extraBuyAbandoned: boolean;
   /**
-   * 추가매수 포기 수량 — **S→C 전용**(런타임 · gh-trade d303fe9f vtable 134). 추가매수 포기가 성립한 틱의
+   * 줄매수 포기 수량 — **S→C 전용**(런타임 · gh-trade d303fe9f vtable 134). 줄매수 포기가 성립한 틱의
    * 매수1잔량(주). `0` = 포기 아님 또는 옛 서버. 재무장 시 서버가 0 으로 되돌린다. `extraBuyAbandoned`
    * 가 true 일 때만 의미가 있다.
    */
   extraBuyAbandonQty: number;
   /**
-   * 추가매수 ☐버스트 시 해제(양방향 · gh-trade 3dabd6ff vtable 138 · quick-261003-rc4). ON 이면 버스트 상한가
-   * 판정 뒤 처음 만나는 B6 틱에 켜져 있던 추가매수를 서버가 내린다 — 판정당 1회 · **포기 아님**
+   * 줄매수 ☐버스트 시 해제(양방향 · gh-trade 3dabd6ff vtable 138 · quick-261003-rc4). ON 이면 버스트 상한가
+   * 판정 뒤 처음 만나는 B6 틱에 켜져 있던 줄매수를 서버가 내린다 — 판정당 1회 · **포기 아님**
    * (`extraBuyAbandoned` 무접촉 · 사용자가 다시 켤 수 있다). 해제는 `extraBuyEnabled` OFF 에코 + 54 INFO 사유 줄로
    * 드러나고, 이 값의 에코는 **설정값 그대로**다. 구서버 에코(슬롯 부재) = false. 요청에는 relay 가
    * `buy3_schema` 3 과 함께 싣는다(서버는 3 이상에서만 읽는다 — 그 미만은 서버 값 유지).
    */
   extraBuyBurstRelease: boolean;
   /**
-   * 추가매수 ☐자동(양방향 · gh-trade 8c7d4c5c vtable 156 · quick-261011-0yb). ON 이면 추가매수 체크가 풀린 뒤
+   * 줄매수 ☐자동(양방향 · gh-trade 8c7d4c5c vtable 156 · quick-261011-0yb). ON 이면 줄매수 체크가 풀린 뒤
    * (발주 · 거부 · 최대 초과 포기 · 버스트 해제) 상한가 이탈 ∧ 그 계좌 · 종목 보유 0 ∧ 재진입 잔여 > 0 인 첫 B6 에
-   * 서버가 추가매수를 다시 켠다(에코 `extraBuyEnabled` 가 ON 으로 돌아온다). 재진입 칸은 후매수
+   * 서버가 줄매수를 다시 켠다(에코 `extraBuyEnabled` 가 ON 으로 돌아온다). 재진입 칸은 후매수
    * `postBuyReentry` / `postBuyReentryLeft` 를 공유한다. 이 값의 에코는 **설정값 그대로**다. 구서버 에코(슬롯 부재) = false.
    * 요청에는 relay 가 `buy3_schema` 5 와 함께 싣는다(서버는 5 이상에서만 읽고 4 이하는 저장값 유지).
    * **게이트가 아니다** — 삭제 판정 · 켜진 전략 판정에 들어가지 않는다(C# AnyArmed · 서버 삭제 정규화 동형).
@@ -421,7 +421,7 @@ export const LIMIT_CHASER_SERVER_LATCH_FIELDS = [
 
 /**
  * S→C 전용 **런타임 에코** 7필드(Phase 24 5 + quick-260930-fi4 `extraBuyAbandonQty` + quick-261002-fim
- * `postBuyUnlockQty`) — 서버가 스스로 움직이는 런타임 에코다. D-13 로그 없음(추가매수 포기 전이 줄만 수량을 읽는다 — webapp strategy-log).
+ * `postBuyUnlockQty`) — 서버가 스스로 움직이는 런타임 에코다. D-13 로그 없음(줄매수 포기 전이 줄만 수량을 읽는다 — webapp strategy-log).
  * ★ 에코에서 이것만 바뀌었으면 「서버 반영 완료」도 「다른 단말」도 아니다(카운터와 같은 규율).
  */
 export const LIMIT_CHASER_SERVER_RUNTIME_FIELDS = [
@@ -1390,7 +1390,7 @@ export type RelayQueuedWindowMsg = {
 export type RelayUserSettingsValues = {
   /** 선매수 주문금액 — **만원** · 0~999999999. */
   preBuyAmount: number;
-  /** 추가매수 주문금액 — **만원** · 0~999999999. */
+  /** 줄매수 주문금액 — **만원** · 0~999999999. */
   addBuyAmount: number;
   /** 후매수 주문금액 — **만원** · 0~999999999. */
   postBuyAmount: number;

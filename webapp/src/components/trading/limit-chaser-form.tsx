@@ -5,7 +5,7 @@
  *
  * ① 무엇을 어디에
  *   무엇을 어떤 순서로 그리는지는 **`lc/lc-fields.ts` 한 곳**이 정한다(D-19) — 매수 쪽 =
- *   매수주문 공통 카드(주문가격 · 비교가격) → 선매수 → 추가매수 → 후매수(접이식 카드 3장 · Phase 24 ⑤) ·
+ *   매수주문 공통 카드(주문가격 · 비교가격) → 선매수 → 줄매수 → 후매수(접이식 카드 3장 · Phase 24 ⑤) ·
  *   매도 쪽 = 매도주문 카드(주문가격 · 비교가격 · 매도비율 · 매수잔량 · 잔량추적 · 체결) → 매수취소 → 자동매도(접이식 ·
  *   Phase 27 D-01 — 시작조건 · 비율 · 방법 3택 · 누적/기준 읽기 전용). 행 모양은 `lc/setting-group.tsx` 의
  *   조각이다(값 행 · 체크 값 행 · 읽기 전용 행 · 그룹 카드 · 그룹 스위치). 이 파일은 그 둘을 **값·전송
@@ -174,7 +174,7 @@ import { useEditMode } from '@/lib/use-edit-mode';
 
 /**
  * 무장 판정을 지나는 게이트 5종. **순서가 곧 사유 표시 우선순위**다 — 화면의 위→아래
- * (매수주문 → 선매수 → 추가매수 → 후매수 → 매도)와 같게 두어야 사유 패널이 짚어 준 곳과 사용자가 보는 곳이 일치한다.
+ * (매수주문 → 선매수 → 줄매수 → 후매수 → 매도)와 같게 두어야 사유 패널이 짚어 준 곳과 사용자가 보는 곳이 일치한다.
  * 한방은 선매수 안 **체크**가 됐다(Phase 24) — 게이트가 아니고, 그 무장 판정은 `armBlockOf` 끝 한 줄이다.
  */
 const GATE_KEYS = ['buyEnabled', 'preBuyEnabled', 'extraBuyEnabled', 'postBuyEnabled', 'sellEnabled'] as const;
@@ -188,9 +188,9 @@ const isBuyGroupGate = (gate: string): gate is BuyGroupGate => (BUY_GROUP_GATES 
 /**
  * 매수 그룹이 **열려 있는가** — D-02 전반 · 후반의 「마지막 그룹」 판정이 모두 이 한 곳에서 읽는다(quick-261011-0yb).
  *
- * gh-trade D-34 「닫힘」 개정(limit-chaser.md §5) — ☐자동 대기 중인 추가매수는 열린 그룹이고, 서버는 대기 중 마스터를
+ * gh-trade D-34 「닫힘」 개정(limit-chaser.md §5) — ☐자동 대기 중인 줄매수는 열린 그룹이고, 서버는 대기 중 마스터를
  * 내리지 않는다. 웹은 서버 전용 「재체크 대기 · 잔여」 상태를 모르므로 ☐자동 ON 을 열린 것으로 본다 — 잔여 0 으로
- * 닫히면 서버가 D-34 로 마스터를 직접 내린다. 추가매수만 `extraBuyEnabled ∨ extraBuyAuto`, 그 밖은 그 게이트 값이다.
+ * 닫히면 서버가 D-34 로 마스터를 직접 내린다. 줄매수만 `extraBuyEnabled ∨ extraBuyAuto`, 그 밖은 그 게이트 값이다.
  * WinForms `DropMasterAfterServerFold` · `AnyBuyGroupChecked` 는 아직 ☐자동을 보지 않는다(인박스 답으로 확인 요청).
  * 폼 값 · 에코(`RelayLimitChaser`) 둘 다 받는다.
  */
@@ -240,7 +240,7 @@ const ARM_BLOCKED_TEXT = {
 const GATE_LABEL: Record<GateKey, string> = {
   buyEnabled: '매수주문',
   preBuyEnabled: '선매수',
-  extraBuyEnabled: '추가매수',
+  extraBuyEnabled: '줄매수',
   postBuyEnabled: '후매수',
   sellEnabled: '매도주문',
 };
@@ -284,8 +284,8 @@ export interface ArmBlockedGroup {
 /**
  * 「켤 수 없는 이유」 목록 산출 — **순수 함수 하나**.
  *
- * `GATE_KEYS` 순서(매수주문 → 선 · 추가 · 후매수 → 매도 = 화면 위→아래)로 막힌 게이트를 고른 뒤
- * `armBlockedTextOf` 결과가 **같은 문자열인 것끼리 묶는다**(「매수주문 · 선매수 · 추가매수 · 후매수 · {사유}」).
+ * `GATE_KEYS` 순서(매수주문 → 선 · 줄 · 후매수 → 매도 = 화면 위→아래)로 막힌 게이트를 고른 뒤
+ * `armBlockedTextOf` 결과가 **같은 문자열인 것끼리 묶는다**(「매수주문 · 선매수 · 줄매수 · 후매수 · {사유}」).
  * 첫 등장 순서를 유지한다 — 그래야 카드 위에서 본 순서와 사유 순서가 같다.
  * `canArm` 은 **정적 판정**(`canArmStaticOf` — 가격 0 · 매도 매수잔량 0)이다. 그룹 수량 0 은 여기 없다(R7).
  *
@@ -328,7 +328,7 @@ const ARM_BLOCKED_SEP = ' · ';
  * (Pitfall 5 · GC-WR-05 — 첫 관문이 마지막 관문과 같거나 더 엄격해야 한다).
  *
  *   - `buyEnabled`(마스터) = 주문가격 > 0 ∧ 비교가격 > 0 — 서버가 마스터를 눕히는 값. 마스터는 수량을 보지 않는다.
- *   - 선 · 추가 · 후매수 = 마스터 무장 가능 ∧ 그 그룹 수량(`buyOrderQtyFromAmount(그룹 금액, 주문가격)`) > 0.
+ *   - 선 · 줄 · 후매수 = 마스터 무장 가능 ∧ 그 그룹 수량(`buyOrderQtyFromAmount(그룹 금액, 주문가격)`) > 0.
  *     옛 식(마스터 = 선매수 수량 > 0)은 선매수 금액이 빈 정상 후매수 전략을 막았다.
  *
  * `mergeMasterAndQuote` 는 `stock_quotes` 행이 없으면 `upperLimit: 0`·`price: 0` 을 돌려주고,
@@ -404,7 +404,7 @@ const SELL_COLUMN_LEGACY_NAMES: readonly string[] = [
 /**
  * D-02 후반 · D-19 — **서버 접힘 하강 전이**인가(WinForms `b066e135` `DropMasterAfterServerFold` 의 `hadBuyGroup` 동형).
  *
- * 직전 **렌더된** 에코에서는 선 · 추가 · 후매수 중 하나라도 ON 이었는데(hadBuyGroup) 이 에코에서 세 그룹 OFF ∧
+ * 직전 **렌더된** 에코에서는 선 · 줄 · 후매수 중 하나라도 ON 이었는데(hadBuyGroup) 이 에코에서 세 그룹 OFF ∧
  * 마스터 ON 이 된 경우만 true 다. 이미 세 그룹 OFF 로 시작하는 에코(같은 상태 재수신 · 재접속 뒤 첫 `lc.snap` ·
  * 첫 스냅샷 · 사람이 마지막 그룹을 꺼 마스터까지 꺼진 자기 에코)는 트리거가 아니다(핑퐁 0).
  *
@@ -415,8 +415,8 @@ const SELL_COLUMN_LEGACY_NAMES: readonly string[] = [
  * true 일 수 있다. buy3 → 구서버 전환 에코는 신필드 부재로 세 그룹이 0 이 되지만 서버가 접은 것이 아니고, 구서버에
  * 마스터 OFF 는 실제 매수 감시 해제다(GC-IN-01). relay 세션 `ready` 소실에 기대지 않고 여기서 거른다.
  *
- * 그룹의 ON/OFF 는 `buyGroupOpenOf` 로 읽는다 — ☐자동이 켜진 추가매수는 체크가 풀려도 열린 그룹이다(gh-trade D-34
- * 「닫힘」 개정 · quick-261011-0yb). 그래서 추가매수 발주로 그룹이 접혀도 ☐자동 대기 중이면 하강 전이가 아니다.
+ * 그룹의 ON/OFF 는 `buyGroupOpenOf` 로 읽는다 — ☐자동이 켜진 줄매수는 체크가 풀려도 열린 그룹이다(gh-trade D-34
+ * 「닫힘」 개정 · quick-261011-0yb). 그래서 줄매수 발주로 그룹이 접혀도 ☐자동 대기 중이면 하강 전이가 아니다.
  */
 export function isServerFoldEdge(prev: RelayLimitChaser | null, next: RelayLimitChaser | null): boolean {
   if (prev === null || next === null) return false;
@@ -460,7 +460,7 @@ type PrecheckSlot = (typeof GROUP_SLOT)[BuyGroupGate];
  *     금액이 실패하면 수량은 보지 않는다(같은 원인을 두 번 말하지 않는다).
  *   - 수량: `buyOrderQtyFromAmount(그룹 금액, 공통 주문가격) === 0` — 웹 `canArmOf` · relay `…OrderQty === 0` 과 같은 식.
  *   - 선매수: 한방 체크 ON ∧ 한방가격 0 → `ARM_BLOCKED_TEXT.sweepPrice`(IN-03 — 폼 맨 위가 아니라 선매수 카드 한 줄).
- *   - 추가매수: D-10 최대 ≠ 0 ∧ 최소 > 최대.
+ *   - 줄매수: D-10 최대 ≠ 0 ∧ 최소 > 최대.
  *   - 후매수: 반등 1~100 밖(D-20 · 레거시 0) → 매도비율 0(D-27 · 레거시).
  * `values` = 이 확정이 실을 기준값(서버 동기값 — 훅과 같은 `lcBaseValues`).
  */
@@ -682,7 +682,7 @@ export function LimitChaserForm({
       crud: crudOf(values),
       // 발주 정본. **역산 금지** — 산출식은 `lib/limit-chaser.ts` 한 곳뿐이다.
       buyOrderQty: buyOrderQtyFromAmount(values.buyOrderAmount, values.buyOrderPrice),
-      // Phase 24 — 추가매수 · 후매수도 같은 함수 · 같은 공통 매수가격(금액→수량 3벌 = 호출 3곳).
+      // Phase 24 — 줄매수 · 후매수도 같은 함수 · 같은 공통 매수가격(금액→수량 3벌 = 호출 3곳).
       extraBuyOrderQty: buyOrderQtyFromAmount(values.extraBuyOrderAmount, values.buyOrderPrice),
       postBuyOrderQty: buyOrderQtyFromAmount(values.postBuyOrderAmount, values.buyOrderPrice),
       // 클라 고정 3 — 폼에 노출하지 않는다(파일 상단 ⑤).
@@ -1014,7 +1014,7 @@ export function LimitChaserForm({
   /**
    * 자동 체크(D-06 · D-35) **마지막 계산 결과** — 켜는 확정이 넘긴 동반 함수가 판정 시점마다 다시 적는다(WR-03).
    * 대기열에서 꺼내는 순간의 계산이 마지막이므로 로그 한 줄은 실제로 나간 cfg 와 같은 판정을 말한다.
-   * ★ 그룹별 슬롯 — 한 그룹의 핸들러는 자기 슬롯만 만진다(GC-WR-04). 선매수 켬이 in-flight 인 동안 추가매수 ·
+   * ★ 그룹별 슬롯 — 한 그룹의 핸들러는 자기 슬롯만 만진다(GC-WR-04). 선매수 켬이 in-flight 인 동안 줄매수 ·
    *   후매수를 켜도 선매수 슬롯은 그대로다.
    */
   const autoCheckRef = useRef<Partial<Record<AutoCheckGate, GroupAutoCheckResult>>>({});
@@ -1035,7 +1035,7 @@ export function LimitChaserForm({
   }, [server, form]);
 
   /**
-   * 그룹 스위치(선 · 추가 · 후매수) — **사람의 스위치 핸들러에서만** 부른다(D-01 · D-02 전반 · UI-SPEC 상호작용 계약).
+   * 그룹 스위치(선 · 줄 · 후매수) — **사람의 스위치 핸들러에서만** 부른다(D-01 · D-02 전반 · UI-SPEC 상호작용 계약).
    *
    * - 켜는 방향: 마스터가 꺼져 있으면 같은 `lc.set` 에 마스터도 켠다(D-01 — 추가 확인창 없음). 실패하면 훅이
    *   두 스위치를 함께 서버 값으로 되돌린다.
@@ -1044,9 +1044,9 @@ export function LimitChaserForm({
    *   대기열에서 꺼내는 순간) 서버 값에서도 여전히 마지막. 대기 중 다른 단말이 켠 그룹을 조용히 해제하지 않는다
    *   (WR-03 과 같은 꺼낼 때 계산). 매도 · 취소 게이트까지 전부 꺼져 있으면 그 제출이 곧 삭제다(`crudOf` = `D` ·
    *   기존 규약 · 확인창 없음). 다른 그룹이 켜져 있으면 그 그룹만 끈다. 「켜져 있음」은 `buyGroupOpenOf` 다 —
-   *   ☐자동이 켜진 추가매수는 열린 그룹이라 마스터를 동반해 끄지 않는다(D-34 개정).
-   * - 사람이 **추가매수**를 끄면 누른 순간 화면의 ☐자동이 켜져 있을 때 같은 `lc.set` 에 `extraBuyAuto: false` 를
-   *   동반한다(WinForms `HandleArmToggle` addAutoOff 동형 · S7 「사람의 추가매수 OFF 는 자동의 종료」). 실패 되돌림은 훅 ⑪.
+   *   ☐자동이 켜진 줄매수는 열린 그룹이라 마스터를 동반해 끄지 않는다(D-34 개정).
+   * - 사람이 **줄매수**를 끄면 누른 순간 화면의 ☐자동이 켜져 있을 때 같은 `lc.set` 에 `extraBuyAuto: false` 를
+   *   동반한다(WinForms `HandleArmToggle` addAutoOff 동형 · S7 「사람의 줄매수 OFF 는 자동의 종료」). 실패 되돌림은 훅 ⑪.
    * ★ 에코 경로(서버 에코 · 재접속 · 다른 단말)는 이 함수를 부르지 않는다 — 에코로 생기는 제출은 D-02 후반
    *   `dropMasterAfterServerFold` 한 곳뿐이다.
    */
@@ -1067,7 +1067,7 @@ export function LimitChaserForm({
         // D-33 ① 클라 차단 폐기(gh-trade quick-261010-ub8 · 인박스 261010-addbuy-auto) — 상한가 중 켜면 서버가 첫 상한가
         //   B6 에서 구간 판정한다(구간 안 발주 · 최소 미만 대기 · 최대 초과 포기).
         /*
-          D-06 · D-07 · D-08 · D-35 — **사람이** 선매수 · 추가매수를 켜는 이 자리에서만 매도 · 취소 6체크를 같은 `lc.set`
+          D-06 · D-07 · D-08 · D-35 — **사람이** 선매수 · 줄매수를 켜는 이 자리에서만 매도 · 취소 6체크를 같은 `lc.set`
           에 동반으로 싣는다(확인창 · 토스트 · 매도 탭 이동 · 링크 없음 · 후매수는 대상 아님 — 마스터 동반만). 에코 · 재접속 ·
           다른 단말 변경으로 그 그룹이 ON 이 되는 경로(서버 값 이펙트 · D-02 후반 `dropMasterAfterServerFold`)에서는
           `groupAutoChecksOf` 를 부르지 않는다 — 계산은 이 핸들러가 넘긴 함수 안에서만 돈다. 사전 검증 줄은 위에서 먼저
@@ -1110,7 +1110,7 @@ export function LimitChaserForm({
         다른 단말 · WinForms 가 켠 그룹을 사람 손 없이 해제하지 않는다(WR-03 과 같은 꺼낼 때 계산). 즉시 경로에는
         in-flight 가 없어 낙관 표시 = 서버 값이라 ② 가 ① 과 같은 답이다(종전 결과 불변).
       */
-      // 추가매수 끄기 = ☐자동의 종료(addAutoOff 동형) — 누른 순간 화면에서 자동이 켜져 있으면 같은 제출에 끈다.
+      // 줄매수 끄기 = ☐자동의 종료(addAutoOff 동형) — 누른 순간 화면에서 자동이 켜져 있으면 같은 제출에 끈다.
       const autoOff: Partial<LimitChaserFormValues> =
         gate === 'extraBuyEnabled' && f.extraBuyAuto ? { extraBuyAuto: false } : {};
       const pressedLast = f.buyEnabled && BUY_GROUP_GATES.every((g) => g === gate || !buyGroupOpenOf(f, g));
@@ -1138,7 +1138,7 @@ export function LimitChaserForm({
    * - 켜는 방향: 종전 그대로(자동을 건드리지 않는다).
    * ★ 사람 스위치에서만 동작한다. D-02 전반(`commitGroupSwitch` 마지막 그룹 끄기의 마스터 동반) · D-02 후반
    *   (`dropMasterAfterServerFold`)은 자동을 건드리지 않는다(WinForms 동형 — 그 경로의 마스터 끔은 사람의 매수주문 끄기가 아니다).
-   * ★ 추가매수 ☐자동(`extraBuyAuto`)은 끄기 동반에 넣지 않는다(quick-261011-0yb) — ☐매수주문 OFF 는 서버에서 휴지(재진입
+   * ★ 줄매수 ☐자동(`extraBuyAuto`)은 끄기 동반에 넣지 않는다(quick-261011-0yb) — ☐매수주문 OFF 는 서버에서 휴지(재진입
    *   대기 유지)이고 ☐자동은 설정값으로 남는다(C# 원문 주석 동형).
    */
   const commitMasterSwitch = useCallback(
@@ -1173,7 +1173,7 @@ export function LimitChaserForm({
   );
 
   /*
-    그룹 켬 자동 체크 로그(D-06 · D-35) — 그 제출이 **성공한 뒤** 한 줄(「{선매수|추가매수} 자동 체크 — …」). 성공 필드 ·
+    그룹 켬 자동 체크 로그(D-06 · D-35) — 그 제출이 **성공한 뒤** 한 줄(「{선매수|줄매수} 자동 체크 — …」). 성공 필드 ·
     서버 ON 재확인은 **슬롯 키(켠 그룹)** 로 본다. 카드 `pushClientLog` 가 한 박자 늦게 쌓으므로 같은 에코의 D-01 줄
     (「{그룹} 체크 — 매수주문도 켬」) 다음에 온다. 실패(거부 · 무응답 · 끊김 · 대기 폐기)면 그 그룹 슬롯만 버린다.
     ★ 슬롯은 그룹별 — 선매수 in-flight 중 다른 그룹을 켜도 선매수 줄이 사라지지 않는다(GC-WR-04). 이 성공은 성공한
@@ -1181,9 +1181,9 @@ export function LimitChaserForm({
     ★ 성공 신호는 둘이다(24-REVIEW-R3 R3-WR-02). 훅의 해소 이펙트는 한 실행 안에서 성공을 둘 낼 수 있고(in-flight 성공
       직후 같은 실행의 늦은 에코 성공) 일반 신호는 한 칸이라 뒤엣것이 덮는다. 그래서 소비 규칙은 셋이다:
       (a) 실패한 그룹 슬롯은 버린다.
-      (b) **보낸 성공**(`sentSuccessSeq` 가 바뀐 실행 · 한 번만)의 필드가 선매수 · 추가매수면 그 슬롯을 소비하고 줄을 쓴다
+      (b) **보낸 성공**(`sentSuccessSeq` 가 바뀐 실행 · 한 번만)의 필드가 선매수 · 줄매수면 그 슬롯을 소비하고 줄을 쓴다
           — 보낸 성공은 한 실행에 최대 1건이라 덮이지 않는다.
-      (c) 일반 성공의 필드가 선매수 · 추가매수이고 그 슬롯이 아직 남아 있으면 **줄 없이 슬롯만 비운다** — 보내지 않은
+      (c) 일반 성공의 필드가 선매수 · 줄매수이고 그 슬롯이 아직 남아 있으면 **줄 없이 슬롯만 비운다** — 보내지 않은
           no-op · 대기 접기 성공이다(D-08 · GC-IN-03). (b) 가 소비한 슬롯은 이미 없으므로 겹치지 않는다.
     ★ (b) 의 줄 **내용은 성공 에코로 확정**한다(R3-G1 · 24-REVIEW-R4 R4-WR-01 · R5-WR-02). 슬롯의 계산은 예측이고, 요청 항목
       일부가 에코에 무장으로 서지 않을 수 있다(부분 거부 · 무장 직후 발주 소진) — `confirmAutoChecks(예측, 에코)` 가 에코에
@@ -1272,7 +1272,7 @@ export function LimitChaserForm({
   const dropMasterAfterServerFold = useCallback(() => {
     const s = serverRef.current;
     // ② 최신 에코로 재확인 — 마스터 OFF 이거나 그룹이 다시 켜졌으면 할 일이 없다.
-    //    ☐자동 대기 중인 추가매수도 열린 그룹이다(`buyGroupOpenOf` · D-34 개정).
+    //    ☐자동 대기 중인 줄매수도 열린 그룹이다(`buyGroupOpenOf` · D-34 개정).
     if (s == null || !s.buyEnabled || BUY_GROUP_GATES.some((g) => buyGroupOpenOf(s, g))) {
       foldPendingRef.current = false;
       return;
@@ -1444,10 +1444,10 @@ export function LimitChaserForm({
   }
 
   /**
-   * 제목줄 체크 — 후매수 ☐자동 · 추가매수 ☐자동(quick-261011-0yb). checked · busy · flash · 실패 말풍선은 모두 그 필드다.
+   * 제목줄 체크 — 후매수 ☐자동 · 줄매수 ☐자동(quick-261011-0yb). checked · busy · flash · 실패 말풍선은 모두 그 필드다.
    * - 후매수: 켜기는 후매수 스위치와 같은 정적 판정(세션 · 구서버 WR-02 · 시세 미수신) + 사전 검증(`commitPostBuyAuto`).
-   * - 추가매수: 켜기는 세션 · 구서버만 본다(구서버 에코는 켜는 방향을 막는다 — 훅 가드와 같은 결). 사전 검증은 두지
-   *   않는다(C# 동형 — 자동은 사람이 이미 켰던 추가매수가 풀린 뒤에만 동작하고, 그 켜기가 사전 검증을 지났다).
+   * - 줄매수: 켜기는 세션 · 구서버만 본다(구서버 에코는 켜는 방향을 막는다 — 훅 가드와 같은 결). 사전 검증은 두지
+   *   않는다(C# 동형 — 자동은 사람이 이미 켰던 줄매수가 풀린 뒤에만 동작하고, 그 켜기가 사전 검증을 지났다).
    *   게이트가 아니라 미등록이면 훅 ⑥ 이 로컬 반영한다(등록 cfg 에 실린다).
    * 끄기는 둘 다 세션만 본다(T-16-44).
    */
@@ -1679,7 +1679,7 @@ export function LimitChaserForm({
             />
           ) : undefined
         }
-        // 제목줄 체크(quick-260929-vzy 후매수 ☐자동 · quick-261011-0yb 추가매수 ☐자동) — 스위치 바로 앞 · 에코 값을 그대로 보인다.
+        // 제목줄 체크(quick-260929-vzy 후매수 ☐자동 · quick-261011-0yb 줄매수 ☐자동) — 스위치 바로 앞 · 에코 값을 그대로 보인다.
         headerCheck={spec.headerCheck ? renderHeaderCheck(spec.headerCheck) : undefined}
       >
         {spec.rows.map((row) => renderRow(spec, row))}

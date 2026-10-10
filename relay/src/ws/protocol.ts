@@ -197,9 +197,9 @@ export const RelayLcSetSchema = z.object({
     //     fanout `buy3CfgOf` 가 판정한다 — 기본값을 여기서 채우지 않는다.
     preBuyEnabled: z.boolean().optional(),
     extraBuyEnabled: z.boolean().optional(),
-    /** 추가매수 최소 매수잔량(주). 0 = 1주. 최소>최대는 여기서 막지 않는다 — 서버가 그 그룹만 눕힌다. */
+    /** 줄매수 최소 매수잔량(주). 0 = 1주. 최소>최대는 여기서 막지 않는다 — 서버가 그 그룹만 눕힌다. */
     extraBuyMinQty: UIntSchema.optional(),
-    /** 추가매수 최대 매수잔량(주). 0 = 무제한. */
+    /** 줄매수 최대 매수잔량(주). 0 = 무제한. */
     extraBuyMaxQty: UIntSchema.optional(),
     /** 단위 만원. */
     extraBuyOrderAmount: UIntSchema.optional(),
@@ -222,7 +222,7 @@ export const RelayLcSetSchema = z.object({
     //   - superRefine 에 자동 완결성(수량 · 반등 · 매도비율) 검사를 넣지 않는다 — zod 위반은 소켓 종료이고,
     //     서버가 불완전한 자동을 ERROR 로 눕히는 백스톱이다. 웹이 켜기 전에 사전 검증한다(P-2).
     postBuyAuto: z.boolean().optional(),
-    // === 추가매수 ☐버스트 시 해제(양방향 · gh-trade 3dabd6ff · quick-261003-rc4) — postBuyAuto 와 같이 12필드 블록 **밖**이다.
+    // === 줄매수 ☐버스트 시 해제(양방향 · gh-trade 3dabd6ff · quick-261003-rc4) — postBuyAuto 와 같이 12필드 블록 **밖**이다.
     //   - 12필드 존재 판정(`buy3CfgOf`)에 들어가지 않는다.
     //   - 부재는 relay 가 종전 schema(1/2)로 싣는다(서버 값 유지 — 옛 탭이 체크를 지우지 않는다). postBuyAuto 와 둘 다
     //     있을 때만 buy3_schema 3 이다(조립기 `lcBuy3SchemaOf`).
@@ -246,7 +246,7 @@ export const RelayLcSetSchema = z.object({
     autoSellRatioPct: UByteSchema.optional(),
     /** 방법 — 1 매도1호가 · 2 매수1호가 · 3 양쪽. 「켜면 1~3」 은 아래 `superRefine` 이 본다. */
     autoSellMethod: UByteSchema.optional(),
-    // === 추가매수 ☐자동(양방향 · gh-trade 8c7d4c5c vtable 156 · quick-261011-0yb) — postBuyAuto 와 같이 12필드 블록 **밖**이다.
+    // === 줄매수 ☐자동(양방향 · gh-trade 8c7d4c5c vtable 156 · quick-261011-0yb) — postBuyAuto 와 같이 12필드 블록 **밖**이다.
     //   - 12필드 존재 판정(`buy3CfgOf`)에 들어가지 않는다.
     //   - 부재는 relay 가 종전 schema(1~4)로 싣는다(서버 값 유지 — 옛 탭이 C# 에서 켠 ☐자동을 지우지 않는다).
     //     postBuyAuto · extraBuyBurstRelease · 자동매도 4필드와 모두 있을 때만 buy3_schema 5(조립기 `lcBuy3SchemaOf`).

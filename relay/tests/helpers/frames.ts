@@ -634,7 +634,7 @@ export type FakeLimitChaserInput = {
   /** 단위 만원. */
   extraBuyOrderAmount?: number;
   extraBuyOrderQty?: number;
-  /** **S→C 전용** — 추가매수 포기. */
+  /** **S→C 전용** — 줄매수 포기. */
   extraBuyAbandoned?: boolean;
   postBuyEnabled?: boolean;
   postBuyReboundPct?: number;
@@ -651,11 +651,11 @@ export type FakeLimitChaserInput = {
   postBuyPhase?: number;
   /** 후매수 ☐자동 — 양방향(quick-260929-vzy). 서버 에코는 늘 싣는다(부재 기본 false). */
   postBuyAuto?: boolean;
-  /** **S→C 전용** — 추가매수 포기 성립 틱의 매수1잔량(주, vtable 134). 기본 0 = 포기 아님 · 옛 서버. */
+  /** **S→C 전용** — 줄매수 포기 성립 틱의 매수1잔량(주, vtable 134). 기본 0 = 포기 아님 · 옛 서버. */
   extraBuyAbandonQty?: number;
   /** **S→C 전용** — 후매수 잠금 해제선(주, vtable 136). 기본 0 = 잠금 아님 · 미배포 서버. */
   postBuyUnlockQty?: number;
-  /** 추가매수 ☐버스트 시 해제 — 양방향(vtable 138 · quick-261003-rc4). 서버 에코는 설정값(부재 기본 false). */
+  /** 줄매수 ☐버스트 시 해제 — 양방향(vtable 138 · quick-261003-rc4). 서버 에코는 설정값(부재 기본 false). */
   extraBuyBurstRelease?: boolean;
   // === Phase 27 자동매도 8필드 (gh-trade 2404509b · vtable 140~154) ===
   /** ☐자동매도 — 양방향(vtable 140). 부재 기본 false. */
@@ -674,7 +674,7 @@ export type FakeLimitChaserInput = {
   autoSellBasis?: number;
   /** **S→C 전용** — 기준가격(원, vtable 154). */
   autoSellBasisPrice?: number;
-  /** 추가매수 ☐자동 — 양방향(vtable 156 · quick-261011-0yb). 서버 에코는 설정값(부재 기본 false). */
+  /** 줄매수 ☐자동 — 양방향(vtable 156 · quick-261011-0yb). 서버 에코는 설정값(부재 기본 false). */
   extraBuyAuto?: boolean;
 };
 

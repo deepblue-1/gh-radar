@@ -363,7 +363,7 @@ describe("조립기 — 주문 이벤트 갈래 (Phase 25-04 Task 2)", () => {
 
   it("펼침 그룹 접두는 주문 줄(kind 3 · 6)만 — 대기 · 첫 체결 · 취소 · 거부에는 없다(R9)", () => {
     expect(timelineStrategyText(STRATEGY_DAY_BY_NAME.sell12455!).text.startsWith("체결매도 · ")).toBe(true);
-    expect(timelineStrategyText(STRATEGY_DAY_BY_NAME.queued12452!).text.startsWith("추가매수")).toBe(false);
+    expect(timelineStrategyText(STRATEGY_DAY_BY_NAME.queued12452!).text.startsWith("줄매수")).toBe(false);
     expect(timelineStrategyText(STRATEGY_DAY_BY_NAME.cancel12453!).text.startsWith("후매수")).toBe(false);
   });
 

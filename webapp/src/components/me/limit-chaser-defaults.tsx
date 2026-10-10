@@ -86,7 +86,7 @@ export const USER_SETTINGS_GROUPS: readonly UserSettingsGroup[] = ["매수 금�
  */
 export const USER_SETTINGS_ROWS: readonly UserSettingsRowSpec[] = [
   { key: "preBuyAmount", label: "선매수 금액", unit: "만원", group: "매수 금액", id: "me-lc-pre-buy-amount" },
-  { key: "addBuyAmount", label: "추가매수 금액", unit: "만원", group: "매수 금액", id: "me-lc-add-buy-amount" },
+  { key: "addBuyAmount", label: "줄매수 금액", unit: "만원", group: "매수 금액", id: "me-lc-add-buy-amount" },
   { key: "postBuyAmount", label: "후매수 금액", unit: "만원", group: "매수 금액", id: "me-lc-post-buy-amount" },
   { key: "postBuyMaxCount", label: "후매수 최대", unit: "회", group: "후매수", id: "me-lc-post-buy-max-count" },
   { key: "postBuyFloorQty", label: "후매수 하한잔량", unit: "주", group: "후매수", id: "me-lc-post-buy-floor-qty" },

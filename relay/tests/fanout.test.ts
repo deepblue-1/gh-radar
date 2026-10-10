@@ -2379,7 +2379,7 @@ describe("WsFanout", () => {
   });
 
   /*
-    quick-261003-rc4 — 추가매수 ☐버스트 시 해제. cfg 에 postBuyAuto · extraBuyBurstRelease 가 둘 다 있으면 10 의
+    quick-261003-rc4 — 줄매수 ☐버스트 시 해제. cfg 에 postBuyAuto · extraBuyBurstRelease 가 둘 다 있으면 10 의
     buy3_schema 3(D-01). 버스트 해제는 아무것도 무장하지 않는다 — 게이트 4종 OFF 면 종전 철거(#isTeardown 무변경).
   */
   it("⑰-burst lc.set 둘 다 → 10 buy3Schema 3 · burst true / 자동만 → 2 / 둘 다 없음 → 1 · 60 에코 burst → ws lc item (B8)", async () => {
@@ -2423,7 +2423,7 @@ describe("WsFanout", () => {
   });
 
   /*
-    quick-261011-0yb — 추가매수 ☐자동. cfg 에 postBuyAuto · extraBuyBurstRelease · 자동매도 4필드 · extraBuyAuto 가 모두
+    quick-261011-0yb — 줄매수 ☐자동. cfg 에 postBuyAuto · extraBuyBurstRelease · 자동매도 4필드 · extraBuyAuto 가 모두
     있으면 10 의 buy3_schema 5 · vtable 156. extraBuyAuto 가 없으면 종전 4(서버 저장값 유지).
   */
   it("⑰-extra-auto lc.set 일곱 모두 → 10 buy3Schema 5 · extraBuyAuto true / extraBuyAuto 뺀 같은 cfg → 4 · false · 60 에코 → ws lc item", async () => {
@@ -2936,7 +2936,7 @@ describe("WsFanout", () => {
     );
   });
 
-  it("⑰-i2 마스터 ON + 추가매수 ON + extraBuyOrderQty 0 → 거부 · gate extraBuy", async () => {
+  it("⑰-i2 마스터 ON + 줄매수 ON + extraBuyOrderQty 0 → 거부 · gate extraBuy", async () => {
     await expectArmReject(lcInput({ extraBuyEnabled: true, extraBuyOrderQty: 0 }), "extraBuy");
   });
 
@@ -2955,7 +2955,7 @@ describe("WsFanout", () => {
     );
   });
 
-  it("⑰-i6 마스터 OFF + 추가매수 ON + 수량 0 → 통과 (서버가 D-32 로 그룹을 접는다 · 매도 ON 이라 철거 아님)", async () => {
+  it("⑰-i6 마스터 OFF + 줄매수 ON + 수량 0 → 통과 (서버가 D-32 로 그룹을 접는다 · 매도 ON 이라 철거 아님)", async () => {
     await expectArmPass(
       lcInput({ buyEnabled: false, sellEnabled: true, extraBuyEnabled: true, extraBuyOrderQty: 0 }),
     );

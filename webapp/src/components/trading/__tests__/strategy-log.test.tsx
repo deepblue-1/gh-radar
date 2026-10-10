@@ -181,15 +181,15 @@ describe('serverMessageLogLine / strategiesDisabledLogLine', () => {
   });
 
   /*
-    quick-261011-0yb — gh-trade quick-261010-ub8 54 사유 줄 「추가매수 —」 신규 5종. 웹 · relay · shared 어디에도 54 문구
+    quick-261011-0yb — gh-trade quick-261010-ub8 54 사유 줄 「줄매수 —」 신규 5종. 웹 · relay · shared 어디에도 54 문구
     분류가 없다 — 원문 그대로 「[상따] 서버 통지 — {원문}」 이 선다(D-13 · 문구를 다시 쓰지 않는다).
   */
   it.each([
-    '추가매수 — 이탈 확인 → 자동 재체크 | 남은 재진입 2',
-    '추가매수 — 이탈 확인 | 잔고 120주 있음 → 켜지 않음 (잔고 0 되면 켬)',
-    '추가매수 — 매도 값 조정 | 500,000 × 0.8 = 400,000',
-    '추가매수 — 재진입 0 → 자동 재체크 안 함',
-    '추가매수 구간 안 → 매수 12주 @15,200 | 재진입 발주 | 재진입 3→2',
+    '줄매수 — 이탈 확인 → 자동 재체크 | 남은 재진입 2',
+    '줄매수 — 이탈 확인 | 잔고 120주 있음 → 켜지 않음 (잔고 0 되면 켬)',
+    '줄매수 — 매도 값 조정 | 500,000 × 0.8 = 400,000',
+    '줄매수 — 재진입 0 → 자동 재체크 안 함',
+    '줄매수 구간 안 → 매수 12주 @15,200 | 재진입 발주 | 재진입 3→2',
   ])('⑪-addbuy-auto 54 INFO(src LimitChaser) 「%s」 → 「[상따] 서버 통지 — {원문}」 그대로 · info (quick-261011-0yb)', (m) => {
     const reason = msg({ lv: 'INFO', src: 'LimitChaser', i: 'KR7005930003', a: '1234567801', kind: '', m });
     expect(isLimitChaserServerMessage(reason)).toBe(true);
@@ -496,7 +496,7 @@ describe('⑰ 취소 래치 전이 2종 + skip 집합 (17-11 Task 2 · Phase 24 
     );
   });
 
-  it('⑰-6 ★ 두 표가 31종 닫힌 집합으로 동형이다 — 문구/전이가 한쪽만 늘지 않는다 (Phase 24: −buyFired +그룹 6 +동반 6 +서버 접힘 1 · quick-260929-vzy +자동 2 · quick-260930-fi4 +포기 1 · quick-261011-0yb +추가매수 자동 2)', () => {
+  it('⑰-6 ★ 두 표가 31종 닫힌 집합으로 동형이다 — 문구/전이가 한쪽만 늘지 않는다 (Phase 24: −buyFired +그룹 6 +동반 6 +서버 접힘 1 · quick-260929-vzy +자동 2 · quick-260930-fi4 +포기 1 · quick-261011-0yb +줄매수 자동 2)', () => {
     expect(TRANSITION_ORDER).toHaveLength(31);
     expect(Object.keys(TRANSITION_TEXT)).toHaveLength(31);
     // 중복 없음 + 두 표의 원소 집합이 정확히 같다.
@@ -569,8 +569,8 @@ describe('Phase 24 ⑨ — 그룹 전이 · 동반 문구 · override 귀속 (24
   it('G-1 그룹 게이트 3종 × 무장 / 무장 해제 = 6문장', () => {
     expect(strategyLogLine(ON, { ...ON, preBuyEnabled: true })).toBe('선매수 무장');
     expect(strategyLogLine({ ...ON, preBuyEnabled: true }, ON)).toBe('선매수 무장 해제');
-    expect(strategyLogLine(ON, { ...ON, extraBuyEnabled: true })).toBe('추가매수 무장');
-    expect(strategyLogLine({ ...ON, extraBuyEnabled: true }, ON)).toBe('추가매수 무장 해제');
+    expect(strategyLogLine(ON, { ...ON, extraBuyEnabled: true })).toBe('줄매수 무장');
+    expect(strategyLogLine({ ...ON, extraBuyEnabled: true }, ON)).toBe('줄매수 무장 해제');
     expect(strategyLogLine(ON, { ...ON, postBuyEnabled: true })).toBe('후매수 무장');
     expect(strategyLogLine({ ...ON, postBuyEnabled: true }, ON)).toBe('후매수 무장 해제');
   });
@@ -581,7 +581,7 @@ describe('Phase 24 ⑨ — 그룹 전이 · 동반 문구 · override 귀속 (24
     );
   });
 
-  it('G-3 순서: 매수주문 → 선매수 → 추가매수 → 후매수 → 매도 → 취소 → 서버 반영 완료', () => {
+  it('G-3 순서: 매수주문 → 선매수 → 줄매수 → 후매수 → 매도 → 취소 → 서버 반영 완료', () => {
     expect(
       strategyLogLine(OFF, at({ buyEnabled: true, preBuyEnabled: true, sellEnabled: true })),
     ).toBe('매수주문 무장 · 선매수 무장 · 매도 무장 — 대기 (지지벽 미관측)');
@@ -596,7 +596,7 @@ describe('Phase 24 ⑨ — 그룹 전이 · 동반 문구 · override 귀속 (24
           buyWatchQty: 8_000,
         }),
       ),
-    ).toBe('매수주문 무장 · 추가매수 무장 · 후매수 무장 · 매수 미체결 자동취소 무장 · 서버 반영 완료');
+    ).toBe('매수주문 무장 · 줄매수 무장 · 후매수 무장 · 매수 미체결 자동취소 무장 · 서버 반영 완료');
   });
 
   it('D-01 내가 마스터 + 그룹을 함께 켜 보냈고 에코가 둘 다 ON → 「선매수 체크 — 매수주문도 켬」 한 줄', () => {
@@ -608,7 +608,7 @@ describe('Phase 24 ⑨ — 그룹 전이 · 동반 문구 · override 귀속 (24
       strategyLogLine(OFF, at({ buyEnabled: true, extraBuyEnabled: true }), {
         sent: sentOf({ buyEnabled: true, extraBuyEnabled: true }),
       }),
-    ).toBe('추가매수 체크 — 매수주문도 켬');
+    ).toBe('줄매수 체크 — 매수주문도 켬');
     expect(
       strategyLogLine(OFF, at({ buyEnabled: true, postBuyEnabled: true }), {
         sent: sentOf({ buyEnabled: true, postBuyEnabled: true }),
@@ -649,7 +649,7 @@ describe('Phase 24 ⑨ — 그룹 전이 · 동반 문구 · override 귀속 (24
       strategyLogLine(at({ buyEnabled: true, extraBuyEnabled: true }), OFF, {
         sent: sentOf({ buyEnabled: false, extraBuyEnabled: false }),
       }),
-    ).toBe('추가매수 해제 — 매수주문도 끔');
+    ).toBe('줄매수 해제 — 매수주문도 끔');
     // 보내지 않은 같은 에코는 종전 전이 문장 둘이다.
     expect(strategyLogLine(prev, next, { sent: null })).toBe('매수주문 무장 해제 · 후매수 무장 해제');
   });
@@ -753,7 +753,7 @@ describe('Phase 24 ⑨ — 그룹 전이 · 동반 문구 · override 귀속 (24
   it('D-13 · D-18 · D-37 서버 사유 줄은 원문 그대로 배지 `[상따]` — 클라가 다시 쓰지 않는다', () => {
     for (const m of [
       '매수 10주 @13,000 — 후매수 — 매수1잔량 340,000 > 발동잔량 330,000',
-      '추가매수 포기 — 매수1잔량 520000 > 최대 500000',
+      '줄매수 포기 — 매수1잔량 520000 > 최대 500000',
       '후매수 재진입 — 잔여 2회, 발동잔량 재계산',
       '후매수 소진 — 잔여 0회',
     ]) {
@@ -764,7 +764,7 @@ describe('Phase 24 ⑨ — 그룹 전이 · 동반 문구 · override 귀속 (24
   });
 
   it('D-18 SetLimitChaser 거부는 `[서버] 서버가 거부했어요 (SetLimitChaser) — ` + 원문', () => {
-    const m = '추가매수 설정이 불완전합니다(최소 > 최대) — 추가매수를 켜지 않았습니다';
+    const m = '줄매수 설정이 불완전합니다(최소 > 최대) — 줄매수를 켜지 않았습니다';
     const out = serverMessageLogLine(msg({ lv: 'ERROR', src: 'SetLimitChaser', m }));
     expect(out.text).toBe(`[서버] 서버가 거부했어요 (SetLimitChaser) — ${m}`);
     expect(out.level).toBe('error');
@@ -808,53 +808,53 @@ describe('후매수 자동 — 로그 전이 · 54 사유 줄 (quick-260929-vzy 
 });
 
 /*
-  quick-261011-0yb — 추가매수 ☐자동. 에코 전이는 「추가매수 자동 체크 / 해제」 로만 말하고 「서버 반영 완료」 로
+  quick-261011-0yb — 줄매수 ☐자동. 에코 전이는 「줄매수 자동 체크 / 해제」 로만 말하고 「서버 반영 완료」 로
   겹쳐 말하지 않는다(VALUE_COMPARE_SKIP). 서버 재체크 사유는 54 원문 줄이 말한다.
 */
-describe('추가매수 자동 — 로그 전이 (quick-261011-0yb)', () => {
-  it('false → true = 「추가매수 자동 체크」 · true → false = 「추가매수 자동 해제」 · extraBuyAuto 만 바뀐 에코에 「서버 반영 완료」 없음', () => {
-    expect(TRANSITION_TEXT.extraBuyAutoOn).toBe('추가매수 자동 체크');
-    expect(TRANSITION_TEXT.extraBuyAutoOff).toBe('추가매수 자동 해제');
+describe('줄매수 자동 — 로그 전이 (quick-261011-0yb)', () => {
+  it('false → true = 「줄매수 자동 체크」 · true → false = 「줄매수 자동 해제」 · extraBuyAuto 만 바뀐 에코에 「서버 반영 완료」 없음', () => {
+    expect(TRANSITION_TEXT.extraBuyAutoOn).toBe('줄매수 자동 체크');
+    expect(TRANSITION_TEXT.extraBuyAutoOff).toBe('줄매수 자동 해제');
     const off = at({ buyEnabled: true });
     const on = at({ buyEnabled: true, extraBuyAuto: true });
-    expect(strategyLogLine(off, on)).toBe('추가매수 자동 체크');
-    expect(strategyLogLine(on, off)).toBe('추가매수 자동 해제');
+    expect(strategyLogLine(off, on)).toBe('줄매수 자동 체크');
+    expect(strategyLogLine(on, off)).toBe('줄매수 자동 해제');
     expect(strategyLogLine(off, on)).not.toContain('서버 반영 완료');
   });
 
-  it('첫 스냅샷에 extraBuyAuto 가 켜져 있으면 등록 줄에 「추가매수 자동 체크」 가 붙는다', () => {
+  it('첫 스냅샷에 extraBuyAuto 가 켜져 있으면 등록 줄에 「줄매수 자동 체크」 가 붙는다', () => {
     expect(strategyLogLine(null, at({ buyEnabled: true, extraBuyAuto: true }))).toBe(
-      '전략이 등록됐어요 · 매수주문 무장 · 추가매수 자동 체크',
+      '전략이 등록됐어요 · 매수주문 무장 · 줄매수 자동 체크',
     );
   });
 
-  it('사람이 추가매수를 끄며 자동도 동반 해제한 에코 — 「추가매수 무장 해제 · 추가매수 자동 해제」 순서', () => {
+  it('사람이 줄매수를 끄며 자동도 동반 해제한 에코 — 「줄매수 무장 해제 · 줄매수 자동 해제」 순서', () => {
     const before = at({ buyEnabled: true, preBuyEnabled: true, extraBuyEnabled: true, extraBuyAuto: true });
     const after = at({ buyEnabled: true, preBuyEnabled: true, extraBuyEnabled: false, extraBuyAuto: false });
-    expect(strategyLogLine(before, after)).toBe('추가매수 무장 해제 · 추가매수 자동 해제');
+    expect(strategyLogLine(before, after)).toBe('줄매수 무장 해제 · 줄매수 자동 해제');
   });
 });
 
 /*
-  quick-260930-fi4 — 추가매수 포기 수량(gh-trade extra_buy_abandon_qty · S→C 런타임). 포기가 성립한 에코
-  (추가매수 게이트 접힘 + extraBuyAbandoned false→true)는 「추가매수 무장 해제」 대신 「추가매수 포기 · 최대 초과 N」
+  quick-260930-fi4 — 줄매수 포기 수량(gh-trade extra_buy_abandon_qty · S→C 런타임). 포기가 성립한 에코
+  (줄매수 게이트 접힘 + extraBuyAbandoned false→true)는 「줄매수 무장 해제」 대신 「줄매수 포기 · 최대 초과 N」
   한 조각(P-4 · WinForms 상태 줄 정렬). 게이트 변화 없는 런타임 에코는 여전히 0줄(D-13).
 */
-describe('추가매수 포기 수량 — 로그 전이 (quick-260930-fi4)', () => {
+describe('줄매수 포기 수량 — 로그 전이 (quick-260930-fi4)', () => {
   const armed = at({ buyEnabled: true, extraBuyEnabled: true, extraBuyAbandoned: false, extraBuyAbandonQty: 0 });
 
-  it('포기 성립 에코 → 「추가매수 포기 · 최대 초과 645,842」 (N0 콤마 · 「주」 없음)', () => {
+  it('포기 성립 에코 → 「줄매수 포기 · 최대 초과 645,842」 (N0 콤마 · 「주」 없음)', () => {
     const abandoned = { ...armed, extraBuyEnabled: false, extraBuyAbandoned: true, extraBuyAbandonQty: 645_842 };
-    expect(strategyLogLine(armed, abandoned)).toBe('추가매수 포기 · 최대 초과 645,842');
+    expect(strategyLogLine(armed, abandoned)).toBe('줄매수 포기 · 최대 초과 645,842');
   });
 
-  it('같은 전이에 수량 0(옛 서버) → 「추가매수 포기」 만', () => {
+  it('같은 전이에 수량 0(옛 서버) → 「줄매수 포기」 만', () => {
     const abandoned = { ...armed, extraBuyEnabled: false, extraBuyAbandoned: true, extraBuyAbandonQty: 0 };
-    expect(strategyLogLine(armed, abandoned)).toBe('추가매수 포기');
+    expect(strategyLogLine(armed, abandoned)).toBe('줄매수 포기');
   });
 
-  it('포기 없이 게이트만 꺼짐 → 「추가매수 무장 해제」 (기존)', () => {
-    expect(strategyLogLine(armed, { ...armed, extraBuyEnabled: false })).toBe('추가매수 무장 해제');
+  it('포기 없이 게이트만 꺼짐 → 「줄매수 무장 해제」 (기존)', () => {
+    expect(strategyLogLine(armed, { ...armed, extraBuyEnabled: false })).toBe('줄매수 무장 해제');
   });
 
   it('포기 유지 중 수량만 645,842 → 700,000 → 런타임 전용 · 0줄 · 서버 반영 완료 없음', () => {
@@ -865,10 +865,10 @@ describe('추가매수 포기 수량 — 로그 전이 (quick-260930-fi4)', () =
     expect(strategyLogLine(a, b)).toBeNull();
   });
 
-  it('재무장(포기 true → false · 수량 → 0 · 게이트 켜짐) → 「추가매수 무장」', () => {
+  it('재무장(포기 true → false · 수량 → 0 · 게이트 켜짐) → 「줄매수 무장」', () => {
     const a = { ...armed, extraBuyEnabled: false, extraBuyAbandoned: true, extraBuyAbandonQty: 645_842 };
     const b = { ...armed, extraBuyEnabled: true, extraBuyAbandoned: false, extraBuyAbandonQty: 0 };
-    expect(strategyLogLine(a, b)).toBe('추가매수 무장');
+    expect(strategyLogLine(a, b)).toBe('줄매수 무장');
   });
 
   it('게이트 변화 없이 포기 플래그 · 수량만 바뀐 에코 → 기존대로 런타임 전용 · 0줄', () => {
@@ -973,11 +973,11 @@ describe('StrategyLog embed — 빈 문구 override (quick-260923-onn)', () => {
 });
 
 /*
-  quick-261003-rc4 P-5 — 추가매수 ☐버스트 시 해제(양방향 설정값). VALUE_COMPARE_SKIP 에 넣지 않는다 — 서버는 이 값을
+  quick-261003-rc4 P-5 — 줄매수 ☐버스트 시 해제(양방향 설정값). VALUE_COMPARE_SKIP 에 넣지 않는다 — 서버는 이 값을
   스스로 뒤집지 않으므로(에코 = 설정값) 사용자가 바꾼 에코는 종전 일반 경로다. 서버의 버스트 해제는
-  extraBuyEnabled OFF 에코(「추가매수 무장 해제」) + 54 INFO 사유 줄로 드러난다 — 새 전이 문구 없음(특성 테스트).
+  extraBuyEnabled OFF 에코(「줄매수 무장 해제」) + 54 INFO 사유 줄로 드러난다 — 새 전이 문구 없음(특성 테스트).
 */
-describe('추가매수 버스트 시 해제 — 로그 전이 특성 (quick-261003-rc4 B12)', () => {
+describe('줄매수 버스트 시 해제 — 로그 전이 특성 (quick-261003-rc4 B12)', () => {
   const armed = at({ buyEnabled: true, extraBuyEnabled: true, extraBuyBurstRelease: false });
 
   it('extraBuyBurstRelease 만 바뀐 내 요청의 에코 → 「서버 반영 완료」 (켬 · 끔 둘 다)', () => {
@@ -986,16 +986,16 @@ describe('추가매수 버스트 시 해제 — 로그 전이 특성 (quick-2610
     expect(strategyLogLine(on, armed)).toBe('서버 반영 완료');
   });
 
-  it('서버 버스트 해제 모양 에코(extraBuyEnabled true → false · 포기 아님 · burst true 유지) → 「추가매수 무장 해제」', () => {
+  it('서버 버스트 해제 모양 에코(extraBuyEnabled true → false · 포기 아님 · burst true 유지) → 「줄매수 무장 해제」', () => {
     const before = { ...armed, extraBuyBurstRelease: true };
     const released = { ...before, extraBuyEnabled: false, extraBuyAbandoned: false };
     const line = strategyLogLine(before, released) ?? '';
-    expect(line).toBe('추가매수 무장 해제');
+    expect(line).toBe('줄매수 무장 해제');
     expect(line).not.toContain('포기');
   });
 
-  it('54 INFO 사유 줄(서버 원문) — 상따 몫 · 「[상따] 서버 통지 — 추가매수 해제 — 버스트 상한가(…)」', () => {
-    const m = '추가매수 해제 — 버스트 상한가(조각 3 · 합계 123,456주)';
+  it('54 INFO 사유 줄(서버 원문) — 상따 몫 · 「[상따] 서버 통지 — 줄매수 해제 — 버스트 상한가(…)」', () => {
+    const m = '줄매수 해제 — 버스트 상한가(조각 3 · 합계 123,456주)';
     const reason = msg({ lv: 'INFO', src: 'LimitChaser', i: 'KR7005930003', a: '1234567801', kind: '', m });
     expect(isLimitChaserServerMessage(reason)).toBe(true);
     expect(serverMessageLogLine(reason).text).toBe(`[상따] 서버 통지 — ${m}`);

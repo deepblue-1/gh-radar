@@ -13,7 +13,7 @@
  *   이 범위는 **보기 선택**이다 — 받을 수 있는 행은 서버 RPC · relay fanout 이 계좌 권한으로 이미 제한했다(T-25-30).
  *
  * ③ D-08 구분 축 — group 기준 9값, kind 필터는 없다
- *   선매수 group 1 · 추가매수 2 · 후매수 3 · 매도 = 호가매도 4 · 체결매도 5 · 체결훅 6 합침 · 자동매도 9(Phase 27 D-14) ·
+ *   선매수 group 1 · 줄매수 2 · 후매수 3 · 매도 = 호가매도 4 · 체결매도 5 · 체결훅 6 합침 · 자동매도 9(Phase 27 D-14) ·
  *   시세 = kind 1·2.
  *   모르는 group(0 · 계약 밖)인 주문 이벤트는 「전체」 에만 보인다 — 방향을 지어내지 않는다(D-10).
  *   수동 7 · VI 8 주문 이벤트는 「수동」·「VI」 칩(manual · vi)으로 거른다.
@@ -51,7 +51,7 @@ export const DEFAULT_ORDER_LOG_FILTERS: OrderLogFilters = Object.freeze({ stock:
 export const ORDER_LOG_KIND_FILTERS: ReadonlyArray<{ value: OrderLogKindFilter; label: string }> = [
   { value: 'all', label: '전체' },
   { value: 'pre', label: '선매수' },
-  { value: 'add', label: '추가매수' },
+  { value: 'add', label: '줄매수' },
   { value: 'post', label: '후매수' },
   { value: 'sell', label: '매도' },
   { value: 'auto', label: '자동매도' },
@@ -184,7 +184,7 @@ export function matchesSide(row: StrategyEventRow, side: OrderLogSideFilter): bo
 /**
  * 팝업 구분 → 창 분리 kind. 「자동매도」 는 창의 「자동매도」(group 9)와 같은 값이라 그대로 넘긴다 — 창으로 옮겨도
  * 자동매도 줄이 사라지지 않는다. 창의 「매도」 는 상따 매도 그룹(4~6)이라 가깝다. 「매수」 는 창에 대응 칩이 없어
- * (선매수 · 추가매수 · 후매수가 따로다) 좁히지 않고 전체로 연다 — 줄을 숨기지 않는 쪽이 안전하다.
+ * (선매수 · 줄매수 · 후매수가 따로다) 좁히지 않고 전체로 연다 — 줄을 숨기지 않는 쪽이 안전하다.
  */
 export function sideFilterKind(side: OrderLogSideFilter): OrderLogKindFilter {
   if (side === 'market') return 'market';

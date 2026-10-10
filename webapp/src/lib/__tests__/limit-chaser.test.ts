@@ -267,10 +267,10 @@ describe('후매수 자동 — 삭제 판정 · 켜진 전략 · 폼 값 (quick-
 });
 
 /*
-  quick-261003-rc4 P-4 — 추가매수 ☐버스트 시 해제는 게이트가 아니다(아무것도 무장하지 않는다). 삭제 판정 · crud ·
+  quick-261003-rc4 P-4 — 줄매수 ☐버스트 시 해제는 게이트가 아니다(아무것도 무장하지 않는다). 삭제 판정 · crud ·
   켜진 전략 판정에 들어가지 않는다 — 버스트만 켠 상태는 여전히 삭제 의도.
 */
-describe('추가매수 버스트 시 해제 — 폼 값 · 게이트 아님 (quick-261003-rc4 B9)', () => {
+describe('줄매수 버스트 시 해제 — 폼 값 · 게이트 아님 (quick-261003-rc4 B9)', () => {
   const gatesOff = {
     buyEnabled: false,
     sellEnabled: false,
@@ -308,10 +308,10 @@ describe('추가매수 버스트 시 해제 — 폼 값 · 게이트 아님 (qui
 });
 
 /*
-  quick-261011-0yb — 추가매수 ☐자동도 게이트가 아니다. 에코 값을 prev 와 무관하게 그대로 들이고(모든 재제출에 되실린다),
+  quick-261011-0yb — 줄매수 ☐자동도 게이트가 아니다. 에코 값을 prev 와 무관하게 그대로 들이고(모든 재제출에 되실린다),
   자동만 켠 상태는 삭제 의도다(서버 삭제 정규화 · C# AnyArmed 동형).
 */
-describe('extraBuyAuto — 추가매수 ☐자동 (quick-261011-0yb)', () => {
+describe('extraBuyAuto — 줄매수 ☐자동 (quick-261011-0yb)', () => {
   const gatesOff = {
     buyEnabled: false,
     sellEnabled: false,
@@ -449,7 +449,7 @@ describe('formFromServer — 에코 → 폼 (D-11 서버값 우선)', () => {
     expect(formFromServer(serverEcho({ buy3Schema: 1, buyOrderAmount: 20 }), prev).buyOrderAmount).toBe(20);
   });
 
-  it('Phase 24 D-03 — 추가매수 · 후매수 금액 0 은 0 그대로 들어온다(이전 폼 값으로 메우지 않는다)', () => {
+  it('Phase 24 D-03 — 줄매수 · 후매수 금액 0 은 0 그대로 들어온다(이전 폼 값으로 메우지 않는다)', () => {
     const prev: LimitChaserFormValues = {
       ...defaultLimitChaserForm(),
       extraBuyOrderAmount: 4000,
@@ -830,10 +830,10 @@ describe('groupAutoCheckLogLine — 자동 체크 로그 한 줄 문법 (UI-SPEC
 });
 
 /**
- * 24-17 — D-35(2026-09-28 사용자 지시): 추가매수 켬도 선매수와 같은 판정 · 로그는 그룹 이름으로 일반화.
- * 판정은 그룹 인자 한 벌이다 — 같은 입력이면 선매수 · 추가매수가 `groupLabel` 말고는 같다.
+ * 24-17 — D-35(2026-09-28 사용자 지시): 줄매수 켬도 선매수와 같은 판정 · 로그는 그룹 이름으로 일반화.
+ * 판정은 그룹 인자 한 벌이다 — 같은 입력이면 선매수 · 줄매수가 `groupLabel` 말고는 같다.
  */
-describe('D-35 — groupAutoChecksOf · groupAutoCheckLogLine 은 그룹 인자 한 벌 (추가매수 켬 자동 체크)', () => {
+describe('D-35 — groupAutoChecksOf · groupAutoCheckLogLine 은 그룹 인자 한 벌 (줄매수 켬 자동 체크)', () => {
   const base = (over: Partial<LimitChaserFormValues> = {}): LimitChaserFormValues => ({
     ...defaultLimitChaserForm(),
     sellEnabled: false,
@@ -861,32 +861,32 @@ describe('D-35 — groupAutoChecksOf · groupAutoCheckLogLine 은 그룹 인자 
     ['매도주문 · 취소 이미 켜짐', { sellEnabled: true, cancelQtyEnabled: true }, 150_800],
   ];
 
-  it.each(CASES)('%s — 추가매수 판정 = 선매수 판정(companions · turnedOn · skipped · priceFilled) · groupLabel 만 다르다', (_, over, upper) => {
+  it.each(CASES)('%s — 줄매수 판정 = 선매수 판정(companions · turnedOn · skipped · priceFilled) · groupLabel 만 다르다', (_, over, upper) => {
     const pre = groupAutoChecksOf('preBuyEnabled', base(over), upper);
     const extra = groupAutoChecksOf('extraBuyEnabled', base(over), upper);
     expect(pre.groupLabel).toBe('선매수');
-    expect(extra.groupLabel).toBe('추가매수');
+    expect(extra.groupLabel).toBe('줄매수');
     expect(extra.companions).toEqual(pre.companions);
     expect(extra.turnedOn).toEqual(pre.turnedOn);
     expect(extra.skipped).toEqual(pre.skipped);
     expect(extra.priceFilled).toBe(pre.priceFilled);
   });
 
-  it('추가매수 로그 — 생략 없음 → info · 「추가매수 자동 체크 — 켬: … / 매도 주문가격·비교가격 = 상한가 150,800원」', () => {
+  it('줄매수 로그 — 생략 없음 → info · 「줄매수 자동 체크 — 켬: … / 매도 주문가격·비교가격 = 상한가 150,800원」', () => {
     expect(groupAutoCheckLogLine(groupAutoChecksOf('extraBuyEnabled', base(), 150_800))).toEqual({
       level: 'info',
-      text: '추가매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 150,800원',
+      text: '줄매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 150,800원',
     });
   });
 
-  it('추가매수 로그 — 생략이 있으면 error · 사유 어휘는 선매수와 같다(D-07 매도 매수잔량 0)', () => {
+  it('줄매수 로그 — 생략이 있으면 error · 사유 어휘는 선매수와 같다(D-07 매도 매수잔량 0)', () => {
     expect(groupAutoCheckLogLine(groupAutoChecksOf('extraBuyEnabled', base({ sellWatchQty: 0 }), 150_800))).toEqual({
       level: 'error',
-      text: '추가매수 자동 체크 — 켬: 취소 · 취소>체결 · 취소>잔량추적 / 켜지 않음: 매도주문(매도 매수잔량 0) · 매도>잔량추적(매도 매수잔량 0) · 매도>체결(매도 매수잔량 0) / 매도 주문가격·비교가격 = 상한가 150,800원',
+      text: '줄매수 자동 체크 — 켬: 취소 · 취소>체결 · 취소>잔량추적 / 켜지 않음: 매도주문(매도 매수잔량 0) · 매도>잔량추적(매도 매수잔량 0) · 매도>체결(매도 매수잔량 0) / 매도 주문가격·비교가격 = 상한가 150,800원',
     });
   });
 
-  it('추가매수 로그 — 켤 것도 생략도 없으면 null', () => {
+  it('줄매수 로그 — 켤 것도 생략도 없으면 null', () => {
     const on = base({
       sellEnabled: true,
       sellQtyTrackEnabled: true,
@@ -910,7 +910,7 @@ describe('D-35 — groupAutoChecksOf · groupAutoCheckLogLine 은 그룹 인자 
       }
       expect(pre.text.startsWith('선매수 자동 체크 — ')).toBe(true);
       expect(extra?.level).toBe(pre.level);
-      expect(extra?.text).toBe(pre.text.replace(/^선매수 /, '추가매수 '));
+      expect(extra?.text).toBe(pre.text.replace(/^선매수 /, '줄매수 '));
     }
   });
 });
@@ -1037,7 +1037,7 @@ describe('groupAutoChecksOf laid — 이 흐름에서 무장되지 않은 동반
     expect(r.companions).not.toHaveProperty('sellEnabled');
     expect(groupAutoCheckLogLine(r)).toEqual({
       level: 'error',
-      text: '추가매수 자동 체크 — 켬: 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 켜지 않음: 매도주문(무장 안 됨) / 매도 주문가격·비교가격 = 상한가 150,800원',
+      text: '줄매수 자동 체크 — 켬: 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 켜지 않음: 매도주문(무장 안 됨) / 매도 주문가격·비교가격 = 상한가 150,800원',
     });
   });
 
@@ -1073,7 +1073,7 @@ describe('groupAutoChecksOf laid — 이 흐름에서 무장되지 않은 동반
 });
 
 describe('D-04 새 전략 기본값 — WinForms 기본값 표 그대로 (24-07)', () => {
-  it('선매수 · 추가매수 · 후매수 금액 각 4,000만원 · 반등 30% · 최소 100,000주 · 최대 3회 · 매도 매수잔량 10 · 잔량추적 55% · 취소 매수잔량 10 · 폴백 5칸 · 스위치 전부 OFF', () => {
+  it('선매수 · 줄매수 · 후매수 금액 각 4,000만원 · 반등 30% · 최소 100,000주 · 최대 3회 · 매도 매수잔량 10 · 잔량추적 55% · 취소 매수잔량 10 · 폴백 5칸 · 스위치 전부 OFF', () => {
     expect(defaultLimitChaserForm()).toMatchObject({
       buyOrderAmount: 4000,
       extraBuyOrderAmount: 4000,
@@ -1120,7 +1120,7 @@ describe('seedListSharesDefaults — 상장주식수 5칸 시딩 (D-17 · WinFor
     for (const v of Object.values(r)) expect(Number.isInteger(v)).toBe(true);
   });
 
-  it('추가매수 최소 · 최대는 uint32 상한(4,294,967,295)에서 멈춘다', () => {
+  it('줄매수 최소 · 최대는 uint32 상한(4,294,967,295)에서 멈춘다', () => {
     const r = seedListSharesDefaults(200_000_000_000)!;
     expect(r.extraBuyMaxQty).toBe(4_294_967_295);
     expect(r.extraBuyMinQty).toBe(600_000_000);
@@ -1175,7 +1175,7 @@ describe('isMasterOnlyDelta — D-02 후반 자동 끔은 buyEnabled 한 필드�
     ['웹이 보낸 전략의 에코 — buyEnabled 만 다르다', {}, true],
     ['선매수 수량이 웹 산출과 다르다(다른 클라가 둔 7주)', { buyOrderQty: 7 }, false],
     ['후매수 수량이 웹 산출과 다르다', { postBuyOrderAmount: 4000, postBuyOrderQty: 300 }, false],
-    ['추가매수 수량이 웹 산출과 다르다', { extraBuyOrderAmount: 100, extraBuyOrderQty: 1 }, false],
+    ['줄매수 수량이 웹 산출과 다르다', { extraBuyOrderAmount: 100, extraBuyOrderQty: 1 }, false],
     ['클라 고정 sweepMinCount 5 ≠ 0', { sweepMinCount: 5 }, false],
     ['클라 고정 sweepRecalcEnabled false ≠ true', { sweepRecalcEnabled: false }, false],
     ['클라 고정 sweepMinRate 2950 ≠ 0', { sweepMinRate: 2_950 }, false],

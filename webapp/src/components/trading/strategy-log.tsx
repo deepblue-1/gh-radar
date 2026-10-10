@@ -38,8 +38,8 @@
  *     (`source="LimitChaser"`, 배지 `[상따]`)이 원문으로 말한다 — 여기서 다시 쓰지 않는다. 런타임
  *     필드(`postBuyPhase` · `postBuyTriggerQty` · `postBuyReentryLeft` · `extraBuyAbandoned` · `postBuyUnlockQty`)만 바뀐
  *     에코는 0줄이다(`isRuntimeOnlyEcho`).
- *     예외 하나 — **추가매수 포기**는 게이트 접힘 에코(gh-trade 에코 = cfg ∧ 무장 ∧ !포기)에서 「추가매수
- *     무장 해제」 대신 수량과 함께 한 줄(「추가매수 포기 · 최대 초과 N」)로 쓴다(사용자 결정 2026-09-30 ·
+ *     예외 하나 — **줄매수 포기**는 게이트 접힘 에코(gh-trade 에코 = cfg ∧ 무장 ∧ !포기)에서 「줄매수
+ *     무장 해제」 대신 수량과 함께 한 줄(「줄매수 포기 · 최대 초과 N」)로 쓴다(사용자 결정 2026-09-30 ·
  *     WinForms 상태 줄 정렬 · quick-260930-fi4). 게이트 변화 없는 런타임 에코는 여전히 0줄이다.
  *   - **D-01/D-02 동반 문구는 보낸 cfg(`sent`)로만 판정한다.** 마스터와 그룹을 함께 실어 보낸
  *     제출의 에코는 두 전이 문장 대신 한 줄(「{그룹} 체크 — 매수주문도 켬」 · 「{그룹} 해제 —
@@ -50,8 +50,8 @@
  *     (`POST_BUY_OVERRIDE_FIELDS`)은 서버 귀속이다 — 「서버 반영 완료」도 「다른 단말」 배너도 아니다.
  *   - **후매수 ☐자동(quick-260929-vzy D-07).** 서버 발화 사유는 54 원문 줄(`[상따] 서버 통지 — 후매수 자동 켬 — …`)이
  *     말하고, 에코는 자동 체크 · 해제(「후매수 자동 체크」 · 「후매수 자동 해제」)로만 말한다 — 「서버 반영 완료」 가 아니다.
- *   - **추가매수 ☐자동(quick-261011-0yb).** 같은 규율 — 서버 재체크 사유는 54 원문 줄(`[상따] 서버 통지 — 추가매수 — …`)이
- *     말하고, 에코는 「추가매수 자동 체크」 · 「추가매수 자동 해제」로만 말한다.
+ *   - **줄매수 ☐자동(quick-261011-0yb).** 같은 규율 — 서버 재체크 사유는 54 원문 줄(`[상따] 서버 통지 — 줄매수 — …`)이
+ *     말하고, 에코는 「줄매수 자동 체크」 · 「줄매수 자동 해제」로만 말한다.
  *   - **Pitfall 11 — 마스터는 발주로 접히지 않는다.** 마스터 OFF 에코를 「발주」로 읽지 않는다
  *     (옛 `buyFired`/`hadOrder` 은퇴). 발주 사실은 서버 사유 줄 `[상따] … 매수 N주 @…` 가 말한다.
  */
@@ -138,22 +138,22 @@ export const TRANSITION_TEXT: Record<StrategyTransition, string> = {
   masterOffAfterServerFold: '서버가 매수 그룹 해제 — 매수 그룹이 모두 꺼져 매수주문도 끔',
   // D-01 / D-02 전반 — 내가 마스터와 그룹을 함께 실어 보낸 제출의 에코(마스터 · 그룹 두 문장을 대신한다).
   preBuyWithMasterOn: '선매수 체크 — 매수주문도 켬',
-  extraBuyWithMasterOn: '추가매수 체크 — 매수주문도 켬',
+  extraBuyWithMasterOn: '줄매수 체크 — 매수주문도 켬',
   postBuyWithMasterOn: '후매수 체크 — 매수주문도 켬',
   preBuyWithMasterOff: '선매수 해제 — 매수주문도 끔',
-  extraBuyWithMasterOff: '추가매수 해제 — 매수주문도 끔',
+  extraBuyWithMasterOff: '줄매수 해제 — 매수주문도 끔',
   postBuyWithMasterOff: '후매수 해제 — 매수주문도 끔',
   // 매수 그룹 게이트 3종(Phase 24 D-13 — 클라 합성은 게이트 전이만).
   preBuyArmed: '선매수 무장',
   preBuyDisarmed: '선매수 무장 해제',
-  extraBuyArmed: '추가매수 무장',
-  extraBuyDisarmed: '추가매수 무장 해제',
-  // quick-260930-fi4 — 포기 성립 에코에서 「추가매수 무장 해제」 를 대신한다. 수량(> 0)은 조각을 이을 때 붙는다.
-  extraBuyAbandoned: '추가매수 포기',
-  // 추가매수 ☐자동(quick-261011-0yb · C# groupParts 「추가매수 자동 ON/OFF」 대응) — 54 사유 줄 「추가매수 — …」 과
+  extraBuyArmed: '줄매수 무장',
+  extraBuyDisarmed: '줄매수 무장 해제',
+  // quick-260930-fi4 — 포기 성립 에코에서 「줄매수 무장 해제」 를 대신한다. 수량(> 0)은 조각을 이을 때 붙는다.
+  extraBuyAbandoned: '줄매수 포기',
+  // 줄매수 ☐자동(quick-261011-0yb · C# groupParts 「줄매수 자동 ON/OFF」 대응) — 54 사유 줄 「줄매수 — …」 과
   //   겹치지 않게 체크 · 해제 어휘를 쓴다.
-  extraBuyAutoOn: '추가매수 자동 체크',
-  extraBuyAutoOff: '추가매수 자동 해제',
+  extraBuyAutoOn: '줄매수 자동 체크',
+  extraBuyAutoOff: '줄매수 자동 해제',
   postBuyArmed: '후매수 무장',
   postBuyDisarmed: '후매수 무장 해제',
   // 후매수 ☐자동(quick-260929-vzy D-07) — 서버 사유 줄 「후매수 자동 켬 — …」 과 겹치지 않게 체크 · 해제 어휘를 쓴다.
@@ -172,7 +172,7 @@ export const TRANSITION_TEXT: Record<StrategyTransition, string> = {
 };
 
 /**
- * 한 줄 안에서의 조각 순서 — 등록/삭제 → 매수주문 → 선매수 → 추가매수 → 후매수 → 매도 → 취소 →
+ * 한 줄 안에서의 조각 순서 — 등록/삭제 → 매수주문 → 선매수 → 줄매수 → 후매수 → 매도 → 취소 →
  * 서버 반영 완료(Phase 24 UI-SPEC 「전략 로그 매핑」). 배지 순서와 같은 축이다. 동반 문장 6종과
  * 서버 접힘 문장은 **마스터 자리**에 선다 — 마스터 전이 문장을 대신하기 때문이다.
  *
@@ -263,13 +263,13 @@ function cancelArmedOf(item: RelayLimitChaser): boolean {
  *
  * - 게이트 4종: 에코의 게이트는 설정값이 아니라 무장 상태다. 전이는 각 축의 문장이 말한다.
  * - 매수 그룹 게이트 3종(Phase 24 — `preBuyEnabled` · `extraBuyEnabled` · `postBuyEnabled`): 에코의
- *   그룹 게이트도 무장 상태로 접혀 온다(추가매수 포기 · 후매수 소진 · 발주). 전이는 그룹 문장
+ *   그룹 게이트도 무장 상태로 접혀 온다(줄매수 포기 · 후매수 소진 · 발주). 전이는 그룹 문장
  *   (「선매수 무장」 등)이 말한다(24-05).
  * - S→C 전용 16필드(shared `LIMIT_CHASER_SERVER_ONLY_FIELDS` — 이름을 여기 다시 나열하지 않는다):
  *   ★ 래치 2종도 게이트 축이다 (17-11 / D-23 · T-17-39). 빠지면 **사용자가 켜지도 않은**
  *     래치 변화가 「서버 반영 완료」로 보고돼, 자기가 하지 않은 수정이 반영된 줄 안다.
  *     래치 자체는 전이 문장(래치 ON/해제)이 각자 말한다.
- *   ★ 런타임 7종(Phase 24 D-13 — `buy3Schema` · 추가매수 포기 · 포기 수량(quick-260930-fi4) · 후매수
+ *   ★ 런타임 7종(Phase 24 D-13 — `buy3Schema` · 줄매수 포기 · 포기 수량(quick-260930-fi4) · 후매수
  *     발동잔량 · 잔여 · 단계 · 후매수 잠금 해제선(quick-261002-fim))은 서버가 스스로 움직이는 값이다. 로그를 남기지 않는다(포기 전이 조각만 수량을 읽는다).
  *   ★ 카운터 3종은 서버 런타임 값이다 — 체결(`OnExecution`)이 `sellOrderQty` 를, 호가 래칫이
  *     기준선을 바꾼다. 사용자 설정의 반영이 아니다.
@@ -290,7 +290,7 @@ const VALUE_COMPARE_SKIP: ReadonlySet<keyof RelayLimitChaser> = new Set<keyof Re
   'cancelTradeEnabled',
   // 후매수 ☐자동 — 전이 축(「후매수 자동 체크 / 해제」)이 말한다. 서버 발화의 false 에코를 「서버 반영 완료」 로 오귀속하지 않는다.
   'postBuyAuto',
-  // 추가매수 ☐자동 — 전이 축(「추가매수 자동 체크 / 해제」)이 말한다. 「서버 반영 완료」 로 겹쳐 말하지 않는다(quick-261011-0yb).
+  // 줄매수 ☐자동 — 전이 축(「줄매수 자동 체크 / 해제」)이 말한다. 「서버 반영 완료」 로 겹쳐 말하지 않는다(quick-261011-0yb).
   'extraBuyAuto',
   // ☐자동매도 — 게이트 축(Phase 27). 61 · 54 사유 줄이 말한다.
   'autoSellEnabled',
@@ -481,7 +481,7 @@ export function strategyLogLine(
       } else if (on) {
         hit.add(g.armed);
       } else if (off) {
-        // P-4 — 추가매수 포기가 성립한 에코는 「무장 해제」 대신 포기 한 조각(같은 사건을 두 조각으로 쓰지 않는다).
+        // P-4 — 줄매수 포기가 성립한 에코는 「무장 해제」 대신 포기 한 조각(같은 사건을 두 조각으로 쓰지 않는다).
         const abandoned =
           g.gate === 'extraBuyEnabled' && !prev.extraBuyAbandoned && next.extraBuyAbandoned;
         hit.add(abandoned ? 'extraBuyAbandoned' : g.disarmed);
@@ -519,8 +519,8 @@ export function strategyLogLine(
 const NUMBER_FORMAT = new Intl.NumberFormat('ko-KR');
 
 /**
- * 추가매수 포기 조각 — 수량(서버 에코 원값)이 있으면 「 · 최대 초과 N」 을 붙인다(「주」 없음 · WinForms 정렬).
- * 0 · 부재(옛 relay · 옛 서버)면 수량 없이 「추가매수 포기」 만(P-5 — `> 0` 판정).
+ * 줄매수 포기 조각 — 수량(서버 에코 원값)이 있으면 「 · 최대 초과 N」 을 붙인다(「주」 없음 · WinForms 정렬).
+ * 0 · 부재(옛 relay · 옛 서버)면 수량 없이 「줄매수 포기」 만(P-5 — `> 0` 판정).
  */
 function abandonedText(next: RelayLimitChaser): string {
   const qty = next.extraBuyAbandonQty;

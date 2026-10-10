@@ -6,7 +6,7 @@
  * `data-lc-field` · 요약 줄 · 접근성 이름이 모두 여기서 온다. 같은 목록을 다른 곳에 다시 적지 않는다 — 둘이
  * 되면 갈라진다.
  *
- * ★ 매수 쪽 = 「매수주문」 공통 카드(주문가격 · 비교가격 · 마스터 스위치, 접기 없음) → 선매수 → 추가매수 →
+ * ★ 매수 쪽 = 「매수주문」 공통 카드(주문가격 · 비교가격 · 마스터 스위치, 접기 없음) → 선매수 → 줄매수 →
  *   후매수(접이식 카드 3장 · 스케치 009 D). 매도 쪽 = 「매도주문」 카드(주문가격 · 비교가격 · 매도비율 ·
  *   매수잔량 · ○잔량추적 · ○체결 · 접기 없음 — quick-261001-gjk 로 한 카드) → 매수취소(맨 아래).
  * ★ 매수취소 그룹 스위치 = `cancelQtyEnabled`(D-21). 스위치가 꺼져도 체결 · 잔량추적 체크는 켤 수 있다
@@ -61,7 +61,7 @@ export type LcBoolField = Extract<
   | 'cancelQtyTrackEnabled'
   | 'extraBuyBurstRelease'
 >;
-/** 상따 행 단위 — 키패드 단위 전부(후매수 「재진입」이 「회」를 쓴다 · 0 허용 — D-30). */
+/** 상따 행 단위 — 키패드 단위 전부(후매수 「최대」가 「회」를 쓴다 · 0 허용 — D-30). */
 export type LcUnit = PadUnit;
 
 /**
@@ -142,7 +142,7 @@ export interface LcGroupSpec {
    * 카드 제목 — 제목줄 · 값 버튼 설명(aria-describedby) · 체크 접근성 이름 접두가 쓴다.
    * 모든 카드가 제목줄을 갖는다(quick-261001-gjk).
    */
-  title: '매수주문' | '선매수' | '추가매수' | '후매수' | '매도주문' | '매수취소' | '자동매도';
+  title: '매수주문' | '선매수' | '줄매수' | '후매수' | '매도주문' | '매수취소' | '자동매도';
   /** 그룹 툴팁(`<section title>`) — 화면에는 그리지 않는다. */
   hint?: string;
   gate?: LcGate;
@@ -155,10 +155,10 @@ export interface LcGroupSpec {
   dimGate?: LcGate;
   /** 옛 컨테이너 흐림 경로(`SettingGroup` 기본 `dimRows`) · 접힌 요약 줄 흐림 — 편집은 막지 않는다(D-01). */
   dimWhenOff: boolean;
-  /** 제목줄 접기(Phase 24 ⑤ — 선매수 · 추가매수 · 후매수 · Phase 27 D-01 자동매도). */
+  /** 제목줄 접기(Phase 24 ⑤ — 선매수 · 줄매수 · 후매수 · Phase 27 D-01 자동매도). */
   collapsible: boolean;
   /**
-   * 제목줄 체크(후매수 ☐자동 quick-260929-vzy · 추가매수 ☐자동 quick-261011-0yb) — 그룹 스위치와 같은 지위 · 게이트가
+   * 제목줄 체크(후매수 ☐자동 quick-260929-vzy · 줄매수 ☐자동 quick-261011-0yb) — 그룹 스위치와 같은 지위 · 게이트가
    * 꺼져도 흐리지 않는다(WinForms chkAddBuyAuto 는 OptionDimGroup 밖). 어느 행에도 속하지 않고 제목줄에서 스위치 바로
    * 앞에 선다.
    */
@@ -179,7 +179,7 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
     gate: 'buyEnabled',
     statusKey: 'buy',
     dimGate: 'buyEnabled',
-    hint: '선매수 · 추가매수 · 후매수가 같이 쓰는 주문가격 · 비교가격',
+    hint: '선매수 · 줄매수 · 후매수가 같이 쓰는 주문가격 · 비교가격',
     dimWhenOff: true,
     collapsible: false,
     rows: [
@@ -267,19 +267,19 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
   },
   {
     slot: 'extra-buy',
-    title: '추가매수',
+    title: '줄매수',
     gate: 'extraBuyEnabled',
     statusKey: 'extraBuy',
     dimGate: 'extraBuyEnabled',
     dimWhenOff: true,
     collapsible: true,
-    // ☐자동(quick-261011-0yb · 사용자 결정 U-1) — C# 처럼 ☐추가매수 줄(= 제목줄)에 둔다. 재진입 횟수는 후매수 칸을 공유한다.
+    // ☐자동(quick-261011-0yb · 사용자 결정 U-1) — C# 처럼 ☐줄매수 줄(= 제목줄)에 둔다. 재진입 횟수는 후매수 「최대」 칸을 공유한다.
     headerCheck: {
       field: 'extraBuyAuto',
       checkId: 'lc-extra-buy-auto',
       label: '자동',
-      ariaLabel: '추가매수 자동',
-      hint: '추가매수가 풀린 뒤(발주 · 포기 · 버스트 해제) 상한가를 벗어나고 잔고가 0 이면 서버가 추가매수를 다시 켜요 — 횟수는 후매수 「재진입」 칸을 같이 써요',
+      ariaLabel: '줄매수 자동',
+      hint: '줄매수가 풀린 뒤(발주 · 포기 · 버스트 해제) 상한가를 벗어나고 잔고가 0 이면 서버가 줄매수를 다시 켜요 — 횟수는 후매수 「최대」 칸을 같이 써요',
     },
     rows: [
       {
@@ -288,8 +288,8 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
         id: 'lc-extra-buy-amount',
         label: '금액',
         unit: '만원',
-        sheetTitle: '추가매수 금액',
-        desc: '추가매수 한 번에 넣을 금액이에요',
+        sheetTitle: '줄매수 금액',
+        desc: '줄매수 한 번에 넣을 금액이에요',
       },
       {
         kind: 'value',
@@ -297,7 +297,7 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
         id: 'lc-extra-buy-min-qty',
         label: '최소 잔량',
         unit: '주',
-        sheetTitle: '추가매수 최소 잔량',
+        sheetTitle: '줄매수 최소 잔량',
         desc: '상한가 매수잔량이 이 값 이상일 때 사요 · 0 = 1주',
         ...LC_FIELD_RANGES.extraBuyMinQty,
       },
@@ -307,14 +307,14 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
         id: 'lc-extra-buy-max-qty',
         label: '최대 잔량',
         unit: '주',
-        sheetTitle: '추가매수 최대 잔량',
+        sheetTitle: '줄매수 최대 잔량',
         desc: '상한가 매수잔량이 이 값을 넘으면 포기해요 · 0 = 무제한',
         ...LC_FIELD_RANGES.extraBuyMaxQty,
       },
       // ☐버스트 해제(quick-261003-rc4 · gh-trade 3c6e6cff 클라 배치 = 최소~최대 줄 아래) — 켜 두면 버스트 상한가
-      // 판정 뒤 첫 B6 틱에 서버가 추가매수를 내린다(포기 아님). 독립 축이 아니다 — 추가매수 OFF 면 같이 흐린다(P-2).
+      // 판정 뒤 첫 B6 틱에 서버가 줄매수를 내린다(포기 아님). 독립 축이 아니다 — 줄매수 OFF 면 같이 흐린다(P-2).
       // gh-trade 261008-ks9: 라벨 「버스트 시 해제」→「버스트 해제」. 취소 범위가 그 계좌·종목·거래소 매수 미체결 전부
-      // (상따 1·2·3 + 인수한 수동 7 · VI 8)로 넓어졌다 — 취소 사유 12 「버스트 상한가」. 해제 범위(추가매수)는 그대로.
+      // (상따 1·2·3 + 인수한 수동 7 · VI 8)로 넓어졌다 — 취소 사유 12 「버스트 상한가」. 해제 범위(줄매수)는 그대로.
       { kind: 'check', check: 'extraBuyBurstRelease', checkId: 'lc-extra-buy-burst-release', label: '버스트 해제' },
     ],
   },
@@ -347,13 +347,13 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
         kind: 'value',
         field: 'postBuyReentry',
         id: 'lc-post-buy-reentry',
-        label: '재진입',
+        label: '최대',
         unit: '회',
-        sheetTitle: '재진입 횟수',
-        desc: '최초 포함 총 진입 횟수예요 · 후매수와 추가매수 자동이 같이 써요 · 0 = 사지 않아요 · 껐다 켜면 이 값부터 다시 세요',
+        sheetTitle: '후매수 최대 횟수',
+        desc: '최초 포함 총 진입 횟수예요 · 후매수와 줄매수 자동이 같이 써요 · 0 = 사지 않아요 · 껐다 켜면 이 값부터 다시 세요',
         ...LC_FIELD_RANGES.postBuyReentry,
       },
-      // 단계 3(소진)일 때만 「재진입」 바로 아래 한 줄(UI-SPEC §5) — 렌더가 판정한다.
+      // 단계 3(소진)일 때만 「최대」 바로 아래 한 줄(UI-SPEC §5) — 렌더가 판정한다.
       { kind: 'note', note: 'postBuyExhausted' },
       {
         kind: 'value',
@@ -531,7 +531,7 @@ export const LC_SELL_GROUPS: readonly LcGroupSpec[] = [
 export const LC_SWITCH_LABEL: Record<LcGate, string> = {
   buyEnabled: '매수주문 켜기',
   preBuyEnabled: '선매수 켜기',
-  extraBuyEnabled: '추가매수 켜기',
+  extraBuyEnabled: '줄매수 켜기',
   postBuyEnabled: '후매수 켜기',
   sellEnabled: '매도주문 켜기',
   cancelQtyEnabled: '매수취소 켜기',
@@ -606,11 +606,11 @@ const fmt = (n: number, unit: string): string => `${NUM.format(n)}${unit}`;
  * 표시 문자열 — 행 · 요약 · 시트 「지금 ○○」 · 접근성 이름이 **이 한 함수**에서 받는다(UI-SPEC §4).
  * `null` = 의미어가 없다(호출부가 「{값}{단위}」 기본 포맷을 쓴다). 편집은 늘 숫자(0 포함)로 한다(D-10).
  *
- *   - 추가매수 최대 0 → 「무제한」 · 최소 0 → 「1주」 · 후매수 최소 잔량 0 → 「없음」(D-10)
+ *   - 줄매수 최대 0 → 「무제한」 · 최소 0 → 「1주」 · 후매수 최소 잔량 0 → 「없음」(D-10)
  *   - 금액 0 → 「—」(추가 · 후매수 D-03 · 선매수 금액 0). 서버가 선매수 금액을 모르는 레거시(D-04a)는 폼의
  *     `amountRequired` 경로가 그대로 맡는다.
  *   - 후매수 재진입(D-11) — 단계 0(또는 에코 없음) 「{설정}회」 · 그 밖 「{설정}회 · 남은 {잔여}회」.
- *     C# 동형: 단계 0 이어도 에코 ☐추가매수 자동이면 잔여를 보인다(재진입 칸 공유 · quick-261011-0yb).
+ *     C# 동형: 단계 0 이어도 에코 ☐줄매수 자동이면 잔여를 보인다(재진입 칸 공유 · quick-261011-0yb).
  *     시트 「지금」 참고값은 설정값이라 호출부가 `server` 를 `null` 로 넘긴다.
  */
 export function lcValueTextOf(
@@ -727,7 +727,7 @@ export function lcSummaryOf(
       const unlock = server?.postBuyUnlockQty ?? 0;
       return [
         amountItem('postBuyOrderAmount', values, false),
-        { key: '재진입', value: text('postBuyReentry', '회'), off: false },
+        { key: '최대', value: text('postBuyReentry', '회'), off: false },
         { key: '최소', value: text('postBuyFloorQty', '주'), off: false },
         { key: '반등', value: fmt(values.postBuyReboundPct, '%'), off: false },
         trigger > 0
@@ -757,7 +757,7 @@ export function lcSummaryOf(
 
 /**
  * 값 버튼 접근성 이름(UI-SPEC 「접근성 이름 접두」 표 · D-09) — 「{접두} {라벨} {값}」.
- * 접두 = 행의 `a11yPrefix`(매수 공통 「매수」 · 매도 「매도」 · 취소 「취소」) 또는 카드 제목(선 · 추가 · 후매수).
+ * 접두 = 행의 `a11yPrefix`(매수 공통 「매수」 · 매도 「매도」 · 취소 「취소」) 또는 카드 제목(선 · 줄 · 후매수).
  * 값 「—」 은 「{접두} {라벨} 미입력」 — 스크린리더가 「대시」로 읽지 않게 한다.
  */
 export function lcRowA11yNameOf(

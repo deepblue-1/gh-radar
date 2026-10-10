@@ -1421,7 +1421,7 @@ export const LC_BURST_RELEASE_BUY3_SCHEMA = 3;
  */
 export const LC_AUTO_SELL_BUY3_SCHEMA = 4;
 /**
- * `extra_buy_auto`(추가매수 ☐자동 · vtable 156)를 싣는 클라 — `buy3_schema` 5 (gh-trade 8c7d4c5c · quick-261010-ub8 ·
+ * `extra_buy_auto`(줄매수 ☐자동 · vtable 156)를 싣는 클라 — `buy3_schema` 5 (gh-trade 8c7d4c5c · quick-261010-ub8 ·
  * quick-261011-0yb). 서버는 5 이상일 때만 `extra_buy_auto` 를 읽고, 그 미만은 그 키의 저장값을 유지한다(구 탭 · 구 클라
  * 재제출이 C# 에서 켠 ☐자동을 지우지 않는다). 5 는 `post_buy_auto`(≥ 2) · `extra_buy_burst_release`(≥ 3) · 자동매도
  * 4필드(≥ 4)도 읽히는 값이라 **그 모두와 `extraBuyAuto` 가 있을 때만** 파생된다(P-1 단조성 — 하나라도 빠진 채 5 를
@@ -1576,7 +1576,7 @@ export function buildSetLimitChaserReq(
       "[DMA] extraBuyBurstRelease 가 postBuyAuto 없이 왔다 — buy3_schema 1 로 내리고 미적재",
     );
   }
-  // `<` — schema 5(☐추가매수 자동 동반)도 자동매도 4필드를 싣는다. `!==` 로 두면 schema 5 마다 거짓 경고가 남는다
+  // `<` — schema 5(☐줄매수 자동 동반)도 자동매도 4필드를 싣는다. `!==` 로 두면 schema 5 마다 거짓 경고가 남는다
   // (버스트 경고가 27-01 Task 3 에서 `<` 가 된 것과 같은 이유 · quick-261011-0yb).
   if (hasAnyAutoSellReqField(cfg) && buy3Schema < LC_AUTO_SELL_BUY3_SCHEMA) {
     // P-1 — 4 는 postBuyAuto · extraBuyBurstRelease 동반 + 4필드 모두일 때만. 하나라도 빠지면 낮은 schema 로 내리고
@@ -1692,7 +1692,7 @@ export function buildSetLimitChaserReq(
     SetLimitChaser.addAutoSellMethod(b, toWireUByte(autoSellMethod, "autoSellMethod"));
   }
   // auto_sell_state · auto_sell_sold_qty · auto_sell_basis · auto_sell_basis_price — S→C 전용(vtable 148~154). 싣지 않는다.
-  // extra_buy_auto — 양방향(추가매수 ☐자동 · vtable 156 · quick-261011-0yb). schema 5 일 때만 싣는다. false 는 기본값이라
+  // extra_buy_auto — 양방향(줄매수 ☐자동 · vtable 156 · quick-261011-0yb). schema 5 일 때만 싣는다. false 는 기본값이라
   // 버퍼에 쓰이지 않지만 서버는 schema 5 에서 부재를 false 로 읽으므로 그걸로 된다.
   if (buy3Schema >= LC_EXTRA_BUY_AUTO_BUY3_SCHEMA && cfg.extraBuyAuto !== undefined) {
     SetLimitChaser.addExtraBuyAuto(b, cfg.extraBuyAuto);
@@ -2610,7 +2610,7 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       extraBuyMaxQty: t.extraBuyMaxQty(),
       extraBuyOrderAmount: t.extraBuyOrderAmount(),
       extraBuyOrderQty: t.extraBuyOrderQty(),
-      // S→C 전용 — 추가매수 포기(최대 초과 · 상한가 이탈 최소 미달).
+      // S→C 전용 — 줄매수 포기(최대 초과 · 상한가 이탈 최소 미달).
       extraBuyAbandoned: t.extraBuyAbandoned(),
       // S→C 전용 — 포기 성립 틱의 매수1잔량(주, uint32 · quick-260930-fi4). 슬롯 부재(옛 서버) = 0.
       extraBuyAbandonQty: t.extraBuyAbandonQty(),
@@ -2633,9 +2633,9 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       postBuyAuto: t.postBuyAuto(),
       // S→C 전용 — 후매수 잠금 해제선(주, uint32 · quick-261002-fim). 슬롯 부재(미배포 서버) = 0. 계산하지 않는다.
       postBuyUnlockQty: t.postBuyUnlockQty(),
-      // 양방향 — 추가매수 ☐버스트 시 해제(vtable 138 · quick-261003-rc4). 에코는 설정값. 슬롯 부재(구서버) = false.
+      // 양방향 — 줄매수 ☐버스트 시 해제(vtable 138 · quick-261003-rc4). 에코는 설정값. 슬롯 부재(구서버) = false.
       extraBuyBurstRelease: t.extraBuyBurstRelease(),
-      // 양방향 — 추가매수 ☐자동(vtable 156 · quick-261011-0yb). 에코는 설정값. 슬롯 부재(구서버) = false.
+      // 양방향 — 줄매수 ☐자동(vtable 156 · quick-261011-0yb). 에코는 설정값. 슬롯 부재(구서버) = false.
       extraBuyAuto: t.extraBuyAuto(),
       // 자동매도 8필드(Phase 27 · vtable 140~154). 슬롯 부재(구서버) = false/0 — 계산하지 않는다.
       // 양방향 — ☐자동매도 · 시작조건 · 비율 · 방법.

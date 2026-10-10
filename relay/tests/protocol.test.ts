@@ -339,7 +339,7 @@ describe("parseInbound — 전략·주문 인바운드 6종", () => {
   });
 
   /*
-    quick-261003-rc4 — 추가매수 ☐버스트 시 해제. `extraBuyBurstRelease` 도 선택이고 12필드 존재 판정 밖이다.
+    quick-261003-rc4 — 줄매수 ☐버스트 시 해제. `extraBuyBurstRelease` 도 선택이고 12필드 존재 판정 밖이다.
     buy3_schema 3 은 조립기가 필드 존재로만 파생한다(D-01 · T-rc4-01).
   */
   it("①-burst 새 탭 cfg(12 + postBuyAuto + extraBuyBurstRelease)는 통과하고 45키 · 없어도 통과(구 탭) · buy3Schema 는 떨어진다 (B7)", () => {
@@ -812,7 +812,7 @@ describe("Phase 27 lc.set 자동매도 4필드 — 선택 · 켜면 범위 · �
   });
 
   /*
-    quick-261011-0yb — 추가매수 ☐자동(vtable 156). `extraBuyAuto` 도 선택이고 12필드 존재 판정 밖이다.
+    quick-261011-0yb — 줄매수 ☐자동(vtable 156). `extraBuyAuto` 도 선택이고 12필드 존재 판정 밖이다.
     buy3_schema 5 는 조립기가 필드 존재로만 파생한다.
   */
   it("①-extra-auto 5개 선택 필드 + extraBuyAuto 는 통과하고 50키 · 없어도 통과(키 안 만듦) · buy3Schema 는 떨어진다", () => {

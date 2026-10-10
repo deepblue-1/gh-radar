@@ -7,7 +7,7 @@ import type { RelayLimitChaser, RelayQuote, RelayQueuedWindowMsg } from '@gh-rad
  *
  * 잠그는 것:
  *   ① 좌 호가(+체결) | 우 옵션 4그룹 — 세로 스택이 없고 섹션 라벨이 없다(D-12)
- *   ② 그룹 제목줄 스위치 6개(Phase 24 — 선 · 추가 · 후매수 포함) · 그룹 상태 문구 표(UI-SPEC §11 · D-15 꼬리)
+ *   ② 그룹 제목줄 스위치 6개(Phase 24 — 선 · 줄 · 후매수 포함) · 그룹 상태 문구 표(UI-SPEC §11 · D-15 꼬리)
  *   ③ 시세 없음 → 10단 행은 그리되 가격 「—」(E9 empty) · 값 없는 셀 클릭은 no-op(T-18-47)
  *   ④ 밴드는 **카드 폭**(`@min-[Npx]/lc:`) — 뷰포트 브레이크포인트 0건(D-28)
  *   ⑤ 주문유형 콤보는 카드에 있다(D-23 → D-31 · G-21-R3-10 — 카드 한 표면 · 옛 호가 탭 variant 는 21-34 가 지웠다)
@@ -253,7 +253,7 @@ describe('① 좌 호가 | 우 옵션 4그룹 (D-12)', () => {
 
   it('그룹 제목줄 스위치 6개(`role="switch"`)의 접근성 이름이 계약 원문이다 — 「한방체결 켜기」 없음(Phase 24)', () => {
     render(<CardBody {...props()} />);
-    for (const name of ['매수주문 켜기', '선매수 켜기', '추가매수 켜기', '후매수 켜기', '매도주문 켜기', '매수취소 켜기']) {
+    for (const name of ['매수주문 켜기', '선매수 켜기', '줄매수 켜기', '후매수 켜기', '매도주문 켜기', '매수취소 켜기']) {
       expect(screen.getByRole('switch', { name })).toBeInTheDocument();
     }
     expect(screen.queryByRole('switch', { name: '한방체결 켜기' })).toBeNull();
@@ -281,7 +281,7 @@ describe('② 그룹 상태 문구 표 (UI-SPEC §11 · D-02 · D-12 · D-15 —
     ['마스터 ON · 후매수 보유중(단계 2)', { buyEnabled: true, postBuyEnabled: true, postBuyPhase: 2 }, '보유중'],
     ['마스터 ON · 세 그룹 OFF(D-02 중립)', { buyEnabled: true }, '켜짐 · 켠 매수 없음'],
     ['마스터 ON · 선매수 ON', { buyEnabled: true, preBuyEnabled: true }, '감시 중'],
-    ['마스터 ON · 추가매수 ON', { buyEnabled: true, extraBuyEnabled: true }, '감시 중'],
+    ['마스터 ON · 줄매수 ON', { buyEnabled: true, extraBuyEnabled: true }, '감시 중'],
     ['마스터 ON · 후매수 ON(단계 1)', { buyEnabled: true, postBuyEnabled: true, postBuyPhase: 1 }, '감시 중'],
   ])('매수주문 — %s → 「%s」', (_name, over, text) => {
     expect(cardGroupStatusOf(server(over)).buy).toBe(text);
@@ -290,9 +290,9 @@ describe('② 그룹 상태 문구 표 (UI-SPEC §11 · D-02 · D-12 · D-15 —
   it.each<[string, Partial<RelayLimitChaser>, 'preBuy' | 'extraBuy' | 'postBuy', string]>([
     ['선매수 ON', { buyEnabled: true, preBuyEnabled: true }, 'preBuy', '감시 중'],
     ['선매수 OFF', { buyEnabled: true }, 'preBuy', '꺼짐'],
-    ['추가매수 포기', { buyEnabled: true, extraBuyAbandoned: true, extraBuyEnabled: false }, 'extraBuy', '포기'],
-    ['추가매수 ON', { buyEnabled: true, extraBuyEnabled: true }, 'extraBuy', '감시 중'],
-    ['추가매수 OFF', { buyEnabled: true }, 'extraBuy', '꺼짐'],
+    ['줄매수 포기', { buyEnabled: true, extraBuyAbandoned: true, extraBuyEnabled: false }, 'extraBuy', '포기'],
+    ['줄매수 ON', { buyEnabled: true, extraBuyEnabled: true }, 'extraBuy', '감시 중'],
+    ['줄매수 OFF', { buyEnabled: true }, 'extraBuy', '꺼짐'],
     ['후매수 소진(단계 3)', { buyEnabled: true, postBuyEnabled: false, postBuyPhase: 3 }, 'postBuy', '소진'],
     ['후매수 보유중(단계 2)', { buyEnabled: true, postBuyEnabled: true, postBuyPhase: 2 }, 'postBuy', '보유중'],
     ['후매수 감시(단계 1)', { buyEnabled: true, postBuyEnabled: true, postBuyPhase: 1 }, 'postBuy', '감시 중'],
@@ -674,7 +674,7 @@ describe('⑦ D-15a — 종목 분류가 두 폼의 호가 단위 잠금을 가�
   });
 });
 
-describe('상한가 두꺼운 벽이어도 추가매수 켜기 = 전송 1 (D-33 ① 폐기)', () => {
+describe('상한가 두꺼운 벽이어도 줄매수 켜기 = 전송 1 (D-33 ① 폐기)', () => {
   // gh-trade quick-261010-ub8 — 상한가 중 켜면 서버가 첫 상한가 B6 에서 구간 판정한다. 카드는 호가로 막지 않는다.
   const BP = Array.from({ length: 10 }, (_, i) => 130_000 - i * 100);
   const lcSets = () =>
@@ -682,7 +682,7 @@ describe('상한가 두꺼운 벽이어도 추가매수 켜기 = 전송 1 (D-33 
       .map(([m]) => m as { t?: string; cfg?: Record<string, unknown> })
       .filter((m) => m?.t === 'lc.set');
 
-  it('매수1호가 == 비교가격 ∧ 매수1잔량 200 ≥ 최소(0 → 1)에서 추가매수 켜기 → 전송 1(extraBuyEnabled true) · pushClientLog 차단 줄 0', () => {
+  it('매수1호가 == 비교가격 ∧ 매수1잔량 200 ≥ 최소(0 → 1)에서 줄매수 켜기 → 전송 1(extraBuyEnabled true) · pushClientLog 차단 줄 0', () => {
     const bq = BP.map((_, i) => (i === 0 ? 200 : 300));
     const pushClientLog = vi.fn();
     render(
@@ -697,7 +697,7 @@ describe('상한가 두꺼운 벽이어도 추가매수 켜기 = 전송 1 (D-33 
       />,
     );
     act(() => {
-      fireEvent.click(screen.getByRole('switch', { name: '추가매수 켜기' }));
+      fireEvent.click(screen.getByRole('switch', { name: '줄매수 켜기' }));
     });
     expect(lcSets()).toHaveLength(1);
     expect(lcSets()[0]!.cfg!.extraBuyEnabled).toBe(true);
@@ -709,7 +709,7 @@ describe('24-07 — 폼에 상장주식수(listShares = quote.ls) 를 넘긴다 
   const maxRow = () =>
     document.querySelector('[data-lc-field="lc-extra-buy-max-qty"] [data-slot="lc-row-value"]')?.textContent ?? null;
 
-  it('새 전략 · quote.ls > 0 → 폼이 그 값으로 5칸을 시딩한다(추가매수 최대 = 3%) · 전송 0', () => {
+  it('새 전략 · quote.ls > 0 → 폼이 그 값으로 5칸을 시딩한다(줄매수 최대 = 3%) · 전송 0', () => {
     render(<CardBody {...props({ card: cardState({ server: null, quote: quote({ ls: 10_000_000 }) }) })} />);
     expect(maxRow()).toBe('300,000주');
     expect(sendMock).not.toHaveBeenCalled();

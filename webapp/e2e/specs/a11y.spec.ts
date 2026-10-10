@@ -323,7 +323,7 @@ async function sizeOpenCardTo(page: Page, target: number): Promise<void> {
 }
 
 /**
- * 선매수 · 추가매수 · 후매수 · 자동매도(Phase 27) 네 카드를 모두 접거나 모두 펼친다(접기는 로컬 동작 — 전송 0).
+ * 선매수 · 줄매수 · 후매수 · 자동매도(Phase 27) 네 카드를 모두 접거나 모두 펼친다(접기는 로컬 동작 — 전송 0).
  * 폰 밴드는 탭당 한 pane 이라 숨은 pane 의 접기 버튼은 건너뛴다.
  */
 async function setLcFolds(page: Page, expanded: boolean): Promise<void> {
@@ -395,7 +395,7 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
     const openCard = page.locator('[data-slot="strategy-card"][data-open="true"]');
     await expect(openCard).toHaveCount(1, { timeout: 15_000 });
 
-    // Phase 24 ⑤ — 선매수 · 추가매수 · 후매수 카드는 기본 접힘이다(Phase 27 자동매도 카드도). 접힌 상태를 먼저 스캔한다.
+    // Phase 24 ⑤ — 선매수 · 줄매수 · 후매수 카드는 기본 접힘이다(Phase 27 자동매도 카드도). 접힌 상태를 먼저 스캔한다.
     const folds = openCard.locator('[data-slot="lc-group-fold"]');
     await expect(folds).toHaveCount(4);
     for (const f of await folds.all()) await expect(f).toHaveAttribute('aria-expanded', 'false');
@@ -438,10 +438,10 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
     expect(second).not.toBe(label);
 
     // ③ 그룹 스위치 7종 — Phase 20 부터 `role="switch"`(Radix Switch) · 매수취소도 스위치다(D-21) · Phase 24 로
-    //    선 · 추가 · 후매수 스위치가 서고 한방은 선매수 카드 안 체크가 됐다 · Phase 27 자동매도 스위치. 시각 라벨이 없으므로
+    //    선 · 줄 · 후매수 스위치가 서고 한방은 선매수 카드 안 체크가 됐다 · Phase 27 자동매도 스위치. 시각 라벨이 없으므로
     //    `aria-label` 이 유일한 이름이다(펼친 카드 1장).
     await expect(openCard.getByRole('switch')).toHaveCount(7);
-    for (const name of ['매수주문 켜기', '선매수 켜기', '추가매수 켜기', '후매수 켜기', '매도주문 켜기', '매수취소 켜기', '자동매도 켜기']) {
+    for (const name of ['매수주문 켜기', '선매수 켜기', '줄매수 켜기', '후매수 켜기', '매도주문 켜기', '매수취소 켜기', '자동매도 켜기']) {
       await expect(openCard.getByRole('switch', { name, exact: true })).toHaveCount(1);
     }
     // ③-b 같은 라벨 두 벌(D-09) — 「비교가격」 값 버튼은 이름 접두(매수 · 매도)로 갈리고, 설명은 카드 제목 +
@@ -488,7 +488,7 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
   // ─────────────────────────────────────────────────────────────────────────
   /*
     ★ Phase 24 (24-08) — 상따 매수 카드 axe 매트릭스(UI-SPEC 검증 훅): 본문 344 · 992 × 라이트 · 다크 × 세 카드
-      접힘 · 펼침 = 8 스캔. 시드는 흐린 그룹(추가매수 OFF) · 「보유중」(후매수 단계 2) · 「… · 후매수 발동」 꼬리가
+      접힘 · 펼침 = 8 스캔. 시드는 흐린 그룹(줄매수 OFF) · 「보유중」(후매수 단계 2) · 「… · 후매수 발동」 꼬리가
       한 카드에 함께 서게 짠다. 판정은 파일 공통(`blockingViolations` — 알려진 대비 예외 `color-contrast` 는 기존
       목록 규칙 그대로). 스캔 범위는 펼친 카드 한 장이다(상따 카드 표면 · 사이드바는 위 케이스가 본다).
       본문 폭은 뷰포트가 아니라 카드 컨테이너 폭으로 맞춘다(§2.2b — 경계 숫자는 globals.css 가 정본).

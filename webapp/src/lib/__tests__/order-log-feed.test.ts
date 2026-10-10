@@ -126,8 +126,8 @@ describe('matchesKind — 구분 필터 group 축 (D-08)', () => {
     for (const g of [1, 3, 6]) for (const k of ['manual', 'vi'] as const) expect(matchesKind(byGroup(g), k)).toBe(false);
   });
 
-  it('구분 옵션 라벨 = 전체 · 선매수 · 추가매수 · 후매수 · 매도 · 자동매도 · 수동 · VI · 시세', () => {
-    expect(ORDER_LOG_KIND_FILTERS.map((o) => o.label)).toEqual(['전체', '선매수', '추가매수', '후매수', '매도', '자동매도', '수동', 'VI', '시세']);
+  it('구분 옵션 라벨 = 전체 · 선매수 · 줄매수 · 후매수 · 매도 · 자동매도 · 수동 · VI · 시세', () => {
+    expect(ORDER_LOG_KIND_FILTERS.map((o) => o.label)).toEqual(['전체', '선매수', '줄매수', '후매수', '매도', '자동매도', '수동', 'VI', '시세']);
     expect(ORDER_LOG_KIND_FILTERS.map((o) => o.value)).toEqual(['all', 'pre', 'add', 'post', 'sell', 'auto', 'manual', 'vi', 'market']);
   });
 });
@@ -313,7 +313,7 @@ describe('Phase 27 자동매도 필터 (D-14 · 정보성 반영 Q5 · Q8)', () 
 
   it('구분 칩 — 「자동매도」 는 「매도」 바로 뒤 · 「수동」「VI」 유지', () => {
     const labels = ORDER_LOG_KIND_FILTERS.map((o) => o.label);
-    expect(labels).toEqual(['전체', '선매수', '추가매수', '후매수', '매도', '자동매도', '수동', 'VI', '시세']);
+    expect(labels).toEqual(['전체', '선매수', '줄매수', '후매수', '매도', '자동매도', '수동', 'VI', '시세']);
     expect(ORDER_LOG_KIND_FILTERS[labels.indexOf('자동매도')]!.value).toBe('auto');
   });
 

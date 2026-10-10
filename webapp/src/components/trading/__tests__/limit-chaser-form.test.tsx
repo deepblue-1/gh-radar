@@ -538,7 +538,7 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
       el.getAttribute('data-slot'),
     );
 
-  it('매수 pane = 매수주문 → 선매수 → 추가매수 → 후매수 · 매도 pane = 매도주문 → 매수취소 → 자동매도 (quick-261001-gjk · Phase 27 D-01)', () => {
+  it('매수 pane = 매수주문 → 선매수 → 줄매수 → 후매수 · 매도 pane = 매도주문 → 매수취소 → 자동매도 (quick-261001-gjk · Phase 27 D-01)', () => {
     render(<LimitChaserForm {...props()} />);
     expect(slotsIn('buy')).toEqual(['lc-group-buy', 'lc-group-pre-buy', 'lc-group-extra-buy', 'lc-group-post-buy']);
     expect(slotsIn('sell')).toEqual(['lc-group-sell', 'lc-group-cancel', 'lc-group-auto-sell']);
@@ -603,9 +603,9 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
     const rows = document.querySelectorAll<HTMLElement>(
       '[data-lc-field]:not([data-slot="lc-check-row"] [data-lc-field]), [data-slot="lc-check-row"], [data-slot="lc-derived"], [data-slot="lc-post-buy-trigger"], [data-slot="lc-auto-sell-sold"], [data-slot="lc-auto-sell-basis"]',
     );
-    // 값 행 19(공통 2 · 선매수 3 · 추가매수 3 · 후매수 4 · 매도주문 4 · 취소 1 · 자동매도 2) + 3택 행 2(자동매도 방법 —
+    // 값 행 19(공통 2 · 선매수 3 · 줄매수 3 · 후매수 4 · 매도주문 4 · 취소 1 · 자동매도 2) + 3택 행 2(자동매도 방법 —
     // 마우스 기기는 「라벨 ─ 값 ›」 행과 카드 ≥992 세그먼트 행을 둘 다 마운트하고 컨테이너 쿼리로 하나만 보인다) +
-    // 체크 행 7(+ 추가매수 버스트 시 해제 · quick-261003-rc4) + 기준선 1 + 발동잔량 1 + 자동매도 누적 · 기준 2 = 32
+    // 체크 행 7(+ 줄매수 버스트 시 해제 · quick-261003-rc4) + 기준선 1 + 발동잔량 1 + 자동매도 누적 · 기준 2 = 32
     // (고정 스키마 — E1 zero-one-many).
     expect(rows).toHaveLength(32);
     for (const r of Array.from(rows)) expect(r.className).toContain('min-h-[44px]');
@@ -729,12 +729,12 @@ describe('⑩ 발주할 수 없는 전략은 무장되지 않는다 (WR-06 · GC
 
   it('시세를 못 받은 종목(가격 전부 0)은 마스터 · 세 그룹 스위치가 비활성이고 사유 한 줄(게이트 이름 병합)이 매수 열 **맨 아래**에 선다', () => {
     render(<LimitChaserForm {...props({ server: null })} />);
-    for (const name of ['매수주문 켜기', '선매수 켜기', '추가매수 켜기', '후매수 켜기']) expect(sw(name)).toBeDisabled();
+    for (const name of ['매수주문 켜기', '선매수 켜기', '줄매수 켜기', '후매수 켜기']) expect(sw(name)).toBeDisabled();
     const panel = panelIn('buy') as HTMLElement;
     expect(panel).not.toBeNull();
     expect(pane('buy').lastElementChild).toBe(panel);
     expect(reasons('buy')).toEqual([
-      '매수주문 · 선매수 · 추가매수 · 후매수 · 시세를 받지 못해 주문가격이 0 이에요. 주문가격을 입력하면 켤 수 있어요.',
+      '매수주문 · 선매수 · 줄매수 · 후매수 · 시세를 받지 못해 주문가격이 0 이에요. 주문가격을 입력하면 켤 수 있어요.',
     ]);
   });
 
@@ -742,7 +742,7 @@ describe('⑩ 발주할 수 없는 전략은 무장되지 않는다 (WR-06 · GC
     render(<LimitChaserForm {...props({ server: echo({ buyEnabled: false, buyWatchPrice: 0, sellEnabled: true }) })} />);
     expect(sw('매수주문 켜기')).toBeDisabled();
     expect(reasons('buy')).toEqual([
-      '매수주문 · 선매수 · 추가매수 · 후매수 · 시세를 받지 못해 비교가격이 0 이에요. 비교가격을 입력하면 켤 수 있어요.',
+      '매수주문 · 선매수 · 줄매수 · 후매수 · 시세를 받지 못해 비교가격이 0 이에요. 비교가격을 입력하면 켤 수 있어요.',
     ]);
   });
 
@@ -1255,7 +1255,7 @@ describe('WR-02 · D-04a 잔여 — 구서버 에코(buy3Schema 0)', () => {
 });
 
 describe('WR-02 — 구서버 에코 화면: 켜는 방향 disabled · 열 패널 한 줄 (24-13)', () => {
-  /** 구서버 에코 — 마스터 ON · 매도 ON · 선 · 추가 · 후매수 · 매수취소 OFF(24-13 e2e 시드와 같은 모양). */
+  /** 구서버 에코 — 마스터 ON · 매도 ON · 선 · 줄 · 후매수 · 매수취소 OFF(24-13 e2e 시드와 같은 모양). */
   const legacy = (over: Partial<RelayLimitChaser> = {}) =>
     echo({ buy3Schema: 0, buyEnabled: true, sellEnabled: true, ...over });
   const LEGACY_READ_ONLY = '구서버 전략이라 끄기만 할 수 있어요 — 서버를 확인해 주세요';
@@ -1265,15 +1265,15 @@ describe('WR-02 — 구서버 에코 화면: 켜는 방향 disabled · 열 패�
       text: li.querySelector('[data-slot="lc-arm-blocked-text"]')?.textContent,
     }));
 
-  it('꺼진 스위치(선매수 · 추가매수 · 후매수 · 매수취소)는 `disabled` · 켜진 스위치(매수주문 · 매도주문)는 끌 수 있다(T-16-44)', () => {
+  it('꺼진 스위치(선매수 · 줄매수 · 후매수 · 매수취소)는 `disabled` · 켜진 스위치(매수주문 · 매도주문)는 끌 수 있다(T-16-44)', () => {
     render(<LimitChaserForm {...props({ server: legacy() })} />);
-    for (const name of ['선매수 켜기', '추가매수 켜기', '후매수 켜기', '매수취소 켜기']) expect(sw(name)).toBeDisabled();
+    for (const name of ['선매수 켜기', '줄매수 켜기', '후매수 켜기', '매수취소 켜기']) expect(sw(name)).toBeDisabled();
     for (const name of ['매수주문 켜기', '매도주문 켜기']) expect(sw(name)).toBeEnabled();
   });
 
-  it('매수 열 패널 한 줄 = 「매수주문 · 선매수 · 추가매수 · 후매수」 + legacyReadOnly · 매도 열 한 줄 = 「매도주문 · 매수취소」 + legacyReadOnly', () => {
+  it('매수 열 패널 한 줄 = 「매수주문 · 선매수 · 줄매수 · 후매수」 + legacyReadOnly · 매도 열 한 줄 = 「매도주문 · 매수취소」 + legacyReadOnly', () => {
     render(<LimitChaserForm {...props({ server: legacy() })} />);
-    expect(lines('buy')).toEqual([{ gates: '매수주문 · 선매수 · 추가매수 · 후매수', text: LEGACY_READ_ONLY }]);
+    expect(lines('buy')).toEqual([{ gates: '매수주문 · 선매수 · 줄매수 · 후매수', text: LEGACY_READ_ONLY }]);
     expect(lines('sell')).toEqual([{ gates: '매도주문 · 매수취소', text: LEGACY_READ_ONLY }]);
     expect(pane('buy').lastElementChild).toBe(pane('buy').querySelector('[data-slot="lc-arm-blocked-panel"]'));
   });
@@ -1284,13 +1284,13 @@ describe('WR-02 — 구서버 에코 화면: 켜는 방향 disabled · 열 패�
         {...props({ server: legacy({ buyEnabled: false, buyOrderPrice: 0, sellEnabled: false, sellWatchQty: 0 }) })}
       />,
     );
-    expect(lines('buy')).toEqual([{ gates: '매수주문 · 선매수 · 추가매수 · 후매수', text: LEGACY_READ_ONLY }]);
+    expect(lines('buy')).toEqual([{ gates: '매수주문 · 선매수 · 줄매수 · 후매수', text: LEGACY_READ_ONLY }]);
     expect(lines('sell')).toEqual([{ gates: '매도주문 · 매수취소', text: LEGACY_READ_ONLY }]);
   });
 
   it('켜진 매수주문을 끄면 전송 1(24-12 규칙) · 꺼진 스위치는 눌러도 전송 0(disabled)', () => {
     render(<LimitChaserForm {...props({ server: legacy() })} />);
-    for (const name of ['선매수 켜기', '추가매수 켜기', '후매수 켜기', '매수취소 켜기']) click(sw(name));
+    for (const name of ['선매수 켜기', '줄매수 켜기', '후매수 켜기', '매수취소 켜기']) click(sw(name));
     expect(sentConfigs()).toHaveLength(0);
     click(sw('매수주문 켜기'));
     expect(sentConfigs()).toHaveLength(1);
@@ -1307,7 +1307,7 @@ describe('WR-02 — 구서버 에코 화면: 켜는 방향 disabled · 열 패�
     render(<LimitChaserForm {...props({ server: legacy({ buy3Schema: 1 }) })} />);
     expect(pane('buy').querySelector('[data-slot="lc-arm-blocked-panel"]')).toBeNull();
     expect(pane('sell').querySelector('[data-slot="lc-arm-blocked-panel"]')).toBeNull();
-    for (const name of ['매수주문 켜기', '선매수 켜기', '추가매수 켜기', '후매수 켜기', '매도주문 켜기', '매수취소 켜기']) {
+    for (const name of ['매수주문 켜기', '선매수 켜기', '줄매수 켜기', '후매수 켜기', '매도주문 켜기', '매수취소 켜기']) {
       expect(sw(name)).toBeEnabled();
     }
   });
@@ -1421,7 +1421,7 @@ describe('⑮ 매수 카드 4장 · 제목줄 접기 · 요약 줄 · 자동 펼
     expect(fold('post-buy')).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('요약 줄 — 선매수 「금액 · 매도잔량 · 체결량 · 한방」 · 추가매수 「금액 · 최소 · 최대」 · 후매수 5항목', () => {
+  it('요약 줄 — 선매수 「금액 · 매도잔량 · 체결량 · 한방」 · 줄매수 「금액 · 최소 · 최대」 · 후매수 5항목', () => {
     render(
       <LimitChaserForm
         {...props({
@@ -1445,7 +1445,7 @@ describe('⑮ 매수 카드 4장 · 제목줄 접기 · 요약 줄 · 자동 펼
       Array.from(group(slot).querySelectorAll('[data-slot="lc-group-summary"] > span')).map((el) => el.textContent);
     expect(kvs('pre-buy')).toEqual(['금액4,000만원', '매도잔량10,000주', '체결량꺼짐', '한방꺼짐']);
     expect(kvs('extra-buy')).toEqual(['금액4,000만원', '최소50,000주', '최대무제한']);
-    expect(kvs('post-buy')).toEqual(['금액4,000만원', '재진입3회 · 남은 2회', '최소100,000주', '반등30%', '발동잔량—']);
+    expect(kvs('post-buy')).toEqual(['금액4,000만원', '최대3회 · 남은 2회', '최소100,000주', '반등30%', '발동잔량—']);
   });
 
   it('T-24-19 — 접힌 카드 안 행 확정이 거부되면 그 카드가 자동으로 펼쳐진다', () => {
@@ -1597,14 +1597,14 @@ describe('⑯ 라벨 개명 · 시트 제목 · 접근성 이름 접두 · 의�
     }
   });
 
-  it('D-10 의미어 — 추가매수 최대 0 「무제한」 · 최소 0 「1주」 · 후매수 최소 잔량 0 「없음」(행 · 접근성 이름)', () => {
+  it('D-10 의미어 — 줄매수 최대 0 「무제한」 · 최소 0 「1주」 · 후매수 최소 잔량 0 「없음」(행 · 접근성 이름)', () => {
     render(<LimitChaserForm {...props({ server: echo({ extraBuyMaxQty: 0, extraBuyMinQty: 0, postBuyFloorQty: 0, extraBuyOrderAmount: 0 }) })} />);
     expect(rowText('lc-extra-buy-max-qty')).toBe('무제한');
-    expect(row('lc-extra-buy-max-qty')).toHaveAccessibleName('추가매수 최대 잔량 무제한');
+    expect(row('lc-extra-buy-max-qty')).toHaveAccessibleName('줄매수 최대 잔량 무제한');
     expect(rowText('lc-extra-buy-min-qty')).toBe('1주');
     expect(rowText('lc-post-buy-floor-qty')).toBe('없음');
     expect(rowText('lc-extra-buy-amount')).toBe('—');
-    expect(row('lc-extra-buy-amount')).toHaveAccessibleName('추가매수 금액 미입력');
+    expect(row('lc-extra-buy-amount')).toHaveAccessibleName('줄매수 금액 미입력');
   });
 
   it('의미어 행을 열면 숫자 0 으로 편집한다(D-10)', () => {
@@ -1620,7 +1620,7 @@ describe('⑯ 라벨 개명 · 시트 제목 · 접근성 이름 접두 · 의�
 
     it.each([
       ['lc-buy-order-amount', '선매수 금액'],
-      ['lc-post-buy-reentry', '재진입 횟수'],
+      ['lc-post-buy-reentry', '후매수 최대 횟수'],
       ['lc-sweep-tick', '한방 건수'],
       ['lc-sell-watch-qty', '매수잔량'],
       ['lc-cancel-watch-qty', '매수잔량'],
@@ -1680,7 +1680,7 @@ describe('⑰ 그룹 스위치 D-01 · D-02 전반 — 마스터가 같은 제�
     expect(sentConfigs()).toHaveLength(1);
   });
 
-  it('D-01 — 추가매수 · 후매수도 같다(마스터 OFF → 동반 ON)', () => {
+  it('D-01 — 줄매수 · 후매수도 같다(마스터 OFF → 동반 ON)', () => {
     render(
       <LimitChaserForm
         {...props({
@@ -1688,7 +1688,7 @@ describe('⑰ 그룹 스위치 D-01 · D-02 전반 — 마스터가 같은 제�
         })}
       />,
     );
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(lastConfig()).toMatchObject({ extraBuyEnabled: true, buyEnabled: true });
   });
 
@@ -2046,12 +2046,12 @@ describe('⑱ 그룹 켜기 사전 검증 줄 · D-33 ① 폐기 · D-11 재제�
   const REBOUND = '반등을 1~100%로 입력해 주세요';
   const SELL_RATIO = '후매수는 매도비율이 있어야 켤 수 있어요 — 매도비율을 1~100%로 입력해 주세요';
 
-  it('D-03 — 추가매수 금액 0 에서 켜기 → 전송 0 · 스위치 OFF 그대로 · 그 카드 사전 검증 줄 · 스위치는 disabled 가 아니다', () => {
+  it('D-03 — 줄매수 금액 0 에서 켜기 → 전송 0 · 스위치 OFF 그대로 · 그 카드 사전 검증 줄 · 스위치는 disabled 가 아니다', () => {
     render(<LimitChaserForm {...props()} />);
-    expect(sw('추가매수 켜기')).toBeEnabled();
-    click(sw('추가매수 켜기'));
+    expect(sw('줄매수 켜기')).toBeEnabled();
+    click(sw('줄매수 켜기'));
     expect(sentConfigs()).toHaveLength(0);
-    expect(sw('추가매수 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(sw('줄매수 켜기')).toHaveAttribute('aria-checked', 'false');
     const line = precheckIn('extra-buy') as HTMLElement;
     expect(line).not.toBeNull();
     expect(line).toHaveAttribute('role', 'alert');
@@ -2061,32 +2061,32 @@ describe('⑱ 그룹 켜기 사전 검증 줄 · D-33 ① 폐기 · D-11 재제�
     expect(fold('extra-buy')).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('D-03 — 그 상태에서도 다른 행(추가매수 최소 잔량) 확정은 전송된다', () => {
+  it('D-03 — 그 상태에서도 다른 행(줄매수 최소 잔량) 확정은 전송된다', () => {
     render(<LimitChaserForm {...props()} />);
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     click(fold('extra-buy'));
     editInline('lc-extra-buy-min-qty', '5000');
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig().extraBuyMinQty).toBe(5_000);
   });
 
-  it('수량 0 — 추가매수 금액 1(만원) · 주문가격 130,000 → 「금액이 주문가격보다 작아 …」', () => {
+  it('수량 0 — 줄매수 금액 1(만원) · 주문가격 130,000 → 「금액이 주문가격보다 작아 …」', () => {
     render(<LimitChaserForm {...props({ server: echo({ extraBuyOrderAmount: 1 }) })} />);
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(sentConfigs()).toHaveLength(0);
     expect(precheckIn('extra-buy')?.textContent).toBe(QTY_ZERO);
   });
 
-  it('D-10 — 추가매수 최소 > 최대(≠0) → 최소/최대 문구 · 최대 0(무제한)이면 통과해 전송', () => {
+  it('D-10 — 줄매수 최소 > 최대(≠0) → 최소/최대 문구 · 최대 0(무제한)이면 통과해 전송', () => {
     const { unmount } = render(
       <LimitChaserForm {...props({ server: echo({ extraBuyOrderAmount: 50, extraBuyMinQty: 50_000, extraBuyMaxQty: 10_000 }) })} />,
     );
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(sentConfigs()).toHaveLength(0);
     expect(precheckIn('extra-buy')?.textContent).toBe(MIN_OVER_MAX);
     unmount();
     render(<LimitChaserForm {...props({ server: echo({ extraBuyOrderAmount: 50, extraBuyMinQty: 50_000, extraBuyMaxQty: 0 }) })} />);
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig().extraBuyEnabled).toBe(true);
   });
@@ -2149,9 +2149,9 @@ describe('⑱ 그룹 켜기 사전 검증 줄 · D-33 ① 폐기 · D-11 재제�
     expect(sentConfigs()).toHaveLength(0);
   });
 
-  it('사라지는 때 ① — 원인 값(추가매수 금액)이 고쳐진 에코 뒤 같은 검증이 통과하면 사라진다', () => {
+  it('사라지는 때 ① — 원인 값(줄매수 금액)이 고쳐진 에코 뒤 같은 검증이 통과하면 사라진다', () => {
     const { rerender } = render(<LimitChaserForm {...props()} />);
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(precheckIn('extra-buy')).not.toBeNull();
     click(fold('extra-buy'));
     editInline('lc-extra-buy-amount', '50');
@@ -2166,7 +2166,7 @@ describe('⑱ 그룹 켜기 사전 검증 줄 · D-33 ① 폐기 · D-11 재제�
 
   it('사라지는 때 ② — 그 그룹이 켜진 에코(다른 단말)가 오면 사라진다', () => {
     const { rerender } = render(<LimitChaserForm {...props()} />);
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(precheckIn('extra-buy')).not.toBeNull();
     rerender(<LimitChaserForm {...props({ server: echo({ extraBuyEnabled: true }) })} />);
     expect(precheckIn('extra-buy')).toBeNull();
@@ -2175,19 +2175,19 @@ describe('⑱ 그룹 켜기 사전 검증 줄 · D-33 ① 폐기 · D-11 재제�
 
   it('사라지는 때 ③ — 다른 사유로 다시 누르면 그 문구로 교체되고 줄은 늘 하나다', () => {
     const { rerender } = render(<LimitChaserForm {...props()} />);
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(precheckIn('extra-buy')?.textContent).toBe(AMOUNT_FIRST);
     rerender(
       <LimitChaserForm {...props({ server: echo({ extraBuyOrderAmount: 50, extraBuyMinQty: 50_000, extraBuyMaxQty: 10_000 }) })} />,
     );
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(precheckIn('extra-buy')?.textContent).toBe(MIN_OVER_MAX);
     expect(document.querySelectorAll('[data-slot="lc-group-precheck"]')).toHaveLength(1);
   });
 
-  it('끄는 방향은 어떤 검증도 없다(T-16-44) — 금액 0 인 켜진 추가매수도 끈다', () => {
+  it('끄는 방향은 어떤 검증도 없다(T-16-44) — 금액 0 인 켜진 줄매수도 끈다', () => {
     render(<LimitChaserForm {...props({ server: echo({ extraBuyEnabled: true, sellEnabled: true }) })} />);
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig().extraBuyEnabled).toBe(false);
     expect(precheckIn('extra-buy')).toBeNull();
@@ -2205,11 +2205,11 @@ describe('⑱ 그룹 켜기 사전 검증 줄 · D-33 ① 폐기 · D-11 재제�
     expect(cls).toContain('text-[12.5px]');
   });
 
-  it('D-33 ① 폐기 — 상한가 두꺼운 벽(매수1호가 == 비교가격 ∧ 매수1잔량 ≥ 최소)이어도 추가매수 켜기 = lc.set 1건 · 클라 로그 0 (서버가 첫 상한가 B6 에서 구간 판정 · quick-261011-0yb)', () => {
+  it('D-33 ① 폐기 — 상한가 두꺼운 벽(매수1호가 == 비교가격 ∧ 매수1잔량 ≥ 최소)이어도 줄매수 켜기 = lc.set 1건 · 클라 로그 0 (서버가 첫 상한가 B6 에서 구간 판정 · quick-261011-0yb)', () => {
     const onClientLog = vi.fn();
     // 폼은 더 이상 호가를 받지 않는다 — 판정 입력이 없으니 어떤 호가에서도 같은 결과다.
     render(<LimitChaserForm {...props({ server: echo({ extraBuyOrderAmount: 50 }), onClientLog })} />);
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig()).toMatchObject({ extraBuyEnabled: true });
     expect(precheckIn('extra-buy')).toBeNull();
@@ -2410,7 +2410,7 @@ describe('⑲ 선매수 자동 체크 D-06 · D-07 · D-08 — 사람의 선매�
     expect(onClientLog).not.toHaveBeenCalled();
   });
 
-  it('후매수 켜기에는 자동 체크가 없다(D-35 — 추가매수는 대상 · 후매수는 대상 아님)', () => {
+  it('후매수 켜기에는 자동 체크가 없다(D-35 — 줄매수는 대상 · 후매수는 대상 아님)', () => {
     render(
       <LimitChaserForm {...props({ server: idle({ extraBuyOrderAmount: 50, postBuyOrderAmount: 50, postBuyReboundPct: 30 }), upperLimit: 150_800 })} />,
     );
@@ -2630,9 +2630,9 @@ describe('GC-WR-03 — 마지막 그룹 끄기의 마스터 동반은 꺼내는 
   });
 });
 
-describe('D-35 — 추가매수 켬도 선매수처럼 매도 · 취소 6체크를 같은 제출에 (2026-09-28 사용자 지시)', () => {
+describe('D-35 — 줄매수 켬도 선매수처럼 매도 · 취소 6체크를 같은 제출에 (2026-09-28 사용자 지시)', () => {
   /**
-   * ⑲ 과 같은 출발점 + 추가매수 금액 50(만원) — 마스터 OFF · 매도/취소 전부 OFF · 매도 가격 0 · 매도 매수잔량 10 ·
+   * ⑲ 과 같은 출발점 + 줄매수 금액 50(만원) — 마스터 OFF · 매도/취소 전부 OFF · 매도 가격 0 · 매도 매수잔량 10 ·
    * (폼은 호가를 받지 않는다 — 상한가 중 켜기 클라 차단은 D-33 ① 폐기로 없다 · quick-261011-0yb).
    */
   const idle = (over: Partial<RelayLimitChaser> = {}) =>
@@ -2654,17 +2654,17 @@ describe('D-35 — 추가매수 켬도 선매수처럼 매도 · 취소 6체크�
     cancelQtyTrackEnabled: false,
   } as const;
   const FULL_LINE =
-    '추가매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 150,800원';
+    '줄매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 150,800원';
   /** 「켬: a · b · …」 조각의 항목 목록. */
   const turnedOnOf = (text: string): string[] => {
     const m = /켬: ([^/]+)/.exec(text);
     return m === null ? [] : m[1]!.trim().split(' · ');
   };
 
-  it('마스터 OFF 에서 추가매수 클릭 → lc.set 1회 · cfg 에 추가매수 · 마스터 · 6체크 · 상한가로 채운 매도 가격 · 확인창 없음 → 성공 에코 뒤 「추가매수 자동 체크 — 켬: …」(info) 한 줄', () => {
+  it('마스터 OFF 에서 줄매수 클릭 → lc.set 1회 · cfg 에 줄매수 · 마스터 · 6체크 · 상한가로 채운 매도 가격 · 확인창 없음 → 성공 에코 뒤 「줄매수 자동 체크 — 켬: …」(info) 한 줄', () => {
     const onClientLog = vi.fn();
     const { rerender } = render(<LimitChaserForm {...props({ server: idle(), upperLimit: 150_800, onClientLog })} />);
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig()).toMatchObject({
       extraBuyEnabled: true,
@@ -2690,10 +2690,10 @@ describe('D-35 — 추가매수 켬도 선매수처럼 매도 · 취소 6체크�
     expect(onClientLog).toHaveBeenCalledTimes(1);
   });
 
-  it('상한가 두꺼운 벽에서도 추가매수 · 마스터 · 6체크가 한 제출에 실린다 — 클라 차단 줄 0 (D-33 ① 폐기 · quick-261011-0yb)', () => {
+  it('상한가 두꺼운 벽에서도 줄매수 · 마스터 · 6체크가 한 제출에 실린다 — 클라 차단 줄 0 (D-33 ① 폐기 · quick-261011-0yb)', () => {
     const onClientLog = vi.fn();
     render(<LimitChaserForm {...props({ server: idle({ buyWatchPrice: 150_800 }), upperLimit: 150_800, onClientLog })} />);
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig()).toMatchObject({ extraBuyEnabled: true, buyEnabled: true, ...SIX });
     expect(onClientLog).not.toHaveBeenCalled();
@@ -2701,11 +2701,11 @@ describe('D-35 — 추가매수 켬도 선매수처럼 매도 · 취소 6체크�
     expect(sw('매수취소 켜기')).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('최소 잔량 500 도 그대로 — 추가매수 · 마스터 · 6체크가 한 제출에 실리고 성공 뒤 「추가매수 자동 체크 — 켬: …」 한 줄', () => {
+  it('최소 잔량 500 도 그대로 — 줄매수 · 마스터 · 6체크가 한 제출에 실리고 성공 뒤 「줄매수 자동 체크 — 켬: …」 한 줄', () => {
     const onClientLog = vi.fn();
     const s = idle({ extraBuyMinQty: 500 });
     const { rerender } = render(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog })} />);
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig()).toMatchObject({
       extraBuyEnabled: true,
@@ -2726,10 +2726,10 @@ describe('D-35 — 추가매수 켬도 선매수처럼 매도 · 취소 6체크�
     expect(onClientLog).toHaveBeenCalledWith(FULL_LINE, 'info');
   });
 
-  it('사전 검증이 먼저 — 추가매수 금액 0 → 「주문금액을 먼저 입력해 주세요」 · 전송 0 · 자동 체크 0', () => {
+  it('사전 검증이 먼저 — 줄매수 금액 0 → 「주문금액을 먼저 입력해 주세요」 · 전송 0 · 자동 체크 0', () => {
     const onClientLog = vi.fn();
     render(<LimitChaserForm {...props({ server: idle({ extraBuyOrderAmount: 0 }), upperLimit: 150_800, onClientLog })} />);
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(sentConfigs()).toHaveLength(0);
     expect(group('extra-buy').querySelector('[data-slot="lc-group-precheck"]')?.textContent).toBe(
       '주문금액을 먼저 입력해 주세요',
@@ -2739,11 +2739,11 @@ describe('D-35 — 추가매수 켬도 선매수처럼 매도 · 취소 6체크�
     expect(sw('매수취소 켜기')).toHaveAttribute('aria-checked', 'false');
   });
 
-  it('이미 켜진 체크는 건드리지 않는다 — 매도주문 · 취소 ON 에코에서 추가매수 켬 → 그 둘은 「켬:」 에 없고 나머지 넷만', () => {
+  it('이미 켜진 체크는 건드리지 않는다 — 매도주문 · 취소 ON 에코에서 줄매수 켬 → 그 둘은 「켬:」 에 없고 나머지 넷만', () => {
     const onClientLog = vi.fn();
     const s = idle({ sellEnabled: true, cancelQtyEnabled: true, sellOrderPrice: 150_800, sellWatchPrice: 150_800 });
     const { rerender } = render(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog })} />);
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig()).toMatchObject({ extraBuyEnabled: true, buyEnabled: true, ...SIX });
     const ok = { ...s, buyEnabled: true, extraBuyEnabled: true, ...SIX };
@@ -2751,43 +2751,43 @@ describe('D-35 — 추가매수 켬도 선매수처럼 매도 · 취소 6체크�
     expect(onClientLog).toHaveBeenCalledTimes(1);
     const [text, level] = onClientLog.mock.calls[0]!;
     expect(level).toBe('info');
-    expect(text).toBe('추가매수 자동 체크 — 켬: 매도>잔량추적 · 매도>체결 · 취소>체결 · 취소>잔량추적');
+    expect(text).toBe('줄매수 자동 체크 — 켬: 매도>잔량추적 · 매도>체결 · 취소>체결 · 취소>잔량추적');
     expect(turnedOnOf(text)).not.toContain('매도주문');
     expect(turnedOnOf(text)).not.toContain('취소');
   });
 
-  it('추가매수를 다시 꺼도 자동으로 켜진 매도 · 취소 6체크는 유지된다(끄는 cfg 의 6체크 = true)', () => {
+  it('줄매수를 다시 꺼도 자동으로 켜진 매도 · 취소 6체크는 유지된다(끄는 cfg 의 6체크 = true)', () => {
     const { rerender } = render(<LimitChaserForm {...props({ server: idle(), upperLimit: 150_800 })} />);
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     const ok = idle({ buyEnabled: true, extraBuyEnabled: true, ...SIX, sellOrderPrice: 150_800, sellWatchPrice: 150_800 });
     rerender(<LimitChaserForm {...props({ server: ok, upperLimit: 150_800, serverAnswerSeq: 1 })} />);
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     // 성공 뒤 답 신호 대기(직렬화 장벽) — 다음 답 신호에 대기 건이 나간다(WR-03 describe 와 같은 흉내).
     rerender(<LimitChaserForm {...props({ server: ok, upperLimit: 150_800, serverAnswerSeq: 2 })} />);
     expect(sentConfigs()).toHaveLength(2);
     expect(lastConfig()).toMatchObject({ extraBuyEnabled: false, ...SIX, sellOrderPrice: 150_800, sellWatchPrice: 150_800 });
   });
 
-  it('거부(답만 증가) → 추가매수 · 마스터 · 매도 · 취소 스위치가 전부 서버 값으로 · 자동 체크 로그 0', () => {
+  it('거부(답만 증가) → 줄매수 · 마스터 · 매도 · 취소 스위치가 전부 서버 값으로 · 자동 체크 로그 0', () => {
     const onClientLog = vi.fn();
     const s = idle();
     const { rerender } = render(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog })} />);
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(lastConfig()).toMatchObject({ extraBuyEnabled: true, buyEnabled: true, ...SIX });
     rerender(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog, serverAnswerSeq: 1 })} />);
-    expect(sw('추가매수 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(sw('줄매수 켜기')).toHaveAttribute('aria-checked', 'false');
     expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'false');
     expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'false');
     expect(sw('매수취소 켜기')).toHaveAttribute('aria-checked', 'false');
     expect(onClientLog).not.toHaveBeenCalled();
   });
 
-  it('대기열 — 매도 주문가격 120,000 확정(in-flight) → 추가매수 켜기(대기) → 나간 cfg 는 꺼내는 순간 서버 값으로 계산(120,000 유지 · 비교가격만 상한가) · 로그도 그 판정', () => {
+  it('대기열 — 매도 주문가격 120,000 확정(in-flight) → 줄매수 켜기(대기) → 나간 cfg 는 꺼내는 순간 서버 값으로 계산(120,000 유지 · 비교가격만 상한가) · 로그도 그 판정', () => {
     const onClientLog = vi.fn();
     const { rerender } = render(<LimitChaserForm {...props({ server: idle(), upperLimit: 150_800, onClientLog })} />);
     editInline('lc-sell-order-price', '120000');
     expect(sentConfigs()).toHaveLength(1);
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
 
     const priced = idle({ sellOrderPrice: 120_000 });
@@ -2808,12 +2808,12 @@ describe('D-35 — 추가매수 켬도 선매수처럼 매도 · 취소 6체크�
     expect(onClientLog).toHaveBeenCalledTimes(1);
     const [text, level] = onClientLog.mock.calls[0]!;
     expect(level).toBe('info');
-    expect(text.startsWith('추가매수 자동 체크 — 켬: ')).toBe(true);
+    expect(text.startsWith('줄매수 자동 체크 — 켬: ')).toBe(true);
     expect(text).toContain('매도 비교가격 = 상한가 150,800원');
     expect(text).not.toContain('매도 주문가격·비교가격');
   });
 
-  it('대상 아님 — 후매수 켬은 6체크를 싣지 않고 로그 0 · 에코로 추가매수가 ON 이 돼도 전송 0 · 로그 0(D-08)', () => {
+  it('대상 아님 — 후매수 켬은 6체크를 싣지 않고 로그 0 · 에코로 줄매수가 ON 이 돼도 전송 0 · 로그 0(D-08)', () => {
     const onClientLog = vi.fn();
     const s = idle({ postBuyOrderAmount: 50, postBuyReboundPct: 30 });
     const { rerender } = render(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog })} />);
@@ -2822,7 +2822,7 @@ describe('D-35 — 추가매수 켬도 선매수처럼 매도 · 취소 6체크�
     expect(lastConfig()).toMatchObject({ postBuyEnabled: true, buyEnabled: true, ...SIX_OFF, sellOrderPrice: 0 });
     const ok = { ...s, buyEnabled: true, postBuyEnabled: true };
     rerender(<LimitChaserForm {...props({ server: ok, upperLimit: 150_800, onClientLog, serverAnswerSeq: 1 })} />);
-    // 다른 단말이 추가매수를 켰다 — 에코만 온다.
+    // 다른 단말이 줄매수를 켰다 — 에코만 온다.
     rerender(
       <LimitChaserForm {...props({ server: { ...ok, extraBuyEnabled: true }, upperLimit: 150_800, onClientLog, serverAnswerSeq: 1 })} />,
     );
@@ -2833,7 +2833,7 @@ describe('D-35 — 추가매수 켬도 선매수처럼 매도 · 취소 6체크�
 });
 
 describe('GC-WR-04 — 자동 체크 로그는 그룹별이다 (24-VERIFICATION-R2 갭 4)', () => {
-  /** D-35 describe 와 같은 출발점 — 마스터 OFF · 매도/취소 전부 OFF · 매도 가격 0 · 매도 매수잔량 10 · 추가매수 금액 50. */
+  /** D-35 describe 와 같은 출발점 — 마스터 OFF · 매도/취소 전부 OFF · 매도 가격 0 · 매도 매수잔량 10 · 줄매수 금액 50. */
   const idle = (over: Partial<RelayLimitChaser> = {}) =>
     echo({ buyEnabled: false, sellOrderPrice: 0, sellWatchPrice: 0, sellWatchQty: 10, extraBuyOrderAmount: 50, ...over });
   const SIX = {
@@ -2851,27 +2851,27 @@ describe('GC-WR-04 — 자동 체크 로그는 그룹별이다 (24-VERIFICATION-
   const autoLines = (log: ReturnType<typeof vi.fn>): [string, string][] =>
     (log.mock.calls as [string, string][]).filter(([text]) => text.includes('자동 체크'));
 
-  it('선매수 켬(in-flight) → 추가매수 켬(대기) → 선매수 성공 에코 → 「선매수 자동 체크 — 켬: …」 한 줄 · 추가매수(꺼낼 때 계산 — 켤 것 없음)는 줄 0 · 합계 1', () => {
+  it('선매수 켬(in-flight) → 줄매수 켬(대기) → 선매수 성공 에코 → 「선매수 자동 체크 — 켬: …」 한 줄 · 줄매수(꺼낼 때 계산 — 켤 것 없음)는 줄 0 · 합계 1', () => {
     const onClientLog = vi.fn();
     const { rerender } = render(<LimitChaserForm {...props({ server: idle(), upperLimit: 150_800, onClientLog })} />);
     click(sw('선매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
-    click(sw('추가매수 켜기'));
-    // 선매수가 나가 있다 — 추가매수 켜기는 대기열에 선다(D-35 트리거 둘째).
+    click(sw('줄매수 켜기'));
+    // 선매수가 나가 있다 — 줄매수 켜기는 대기열에 선다(D-35 트리거 둘째).
     expect(sentConfigs()).toHaveLength(1);
 
     const pre = idle({ buyEnabled: true, preBuyEnabled: true, ...SIX, sellOrderPrice: 150_800, sellWatchPrice: 150_800 });
     rerender(<LimitChaserForm {...props({ server: pre, upperLimit: 150_800, onClientLog, serverAnswerSeq: 1 })} />);
     expect(autoLines(onClientLog)).toEqual([[PRE_FULL_LINE, 'info']]);
 
-    // 다음 답 신호에 추가매수가 나간다 — 꺼낼 때 계산: 6체크 · 매도 가격 · 마스터가 이미 서 있어 동반 없음.
+    // 다음 답 신호에 줄매수가 나간다 — 꺼낼 때 계산: 6체크 · 매도 가격 · 마스터가 이미 서 있어 동반 없음.
     rerender(<LimitChaserForm {...props({ server: pre, upperLimit: 150_800, onClientLog, serverAnswerSeq: 2 })} />);
     expect(sentConfigs()).toHaveLength(2);
     expect(lastConfig()).toMatchObject({ extraBuyEnabled: true, preBuyEnabled: true, buyEnabled: true, ...SIX });
 
     const both = { ...pre, extraBuyEnabled: true };
     rerender(<LimitChaserForm {...props({ server: both, upperLimit: 150_800, onClientLog, serverAnswerSeq: 3 })} />);
-    // 켤 것도 생략도 없는 추가매수 결과는 줄이 없다 — 선매수 줄 하나만 남는다.
+    // 켤 것도 생략도 없는 줄매수 결과는 줄이 없다 — 선매수 줄 하나만 남는다.
     expect(autoLines(onClientLog)).toEqual([[PRE_FULL_LINE, 'info']]);
   });
 
@@ -2898,14 +2898,14 @@ describe('GC-WR-04 — 자동 체크 로그는 그룹별이다 (24-VERIFICATION-
     expect(autoLines(onClientLog)).toEqual([[PRE_FULL_LINE, 'info']]);
   });
 
-  it('생략 사유도 그룹별 — 매도 매수잔량 0: 선매수 성공 → 「선매수 자동 체크 — … 켜지 않음: 매도주문(매도 매수잔량 0) …」 · 추가매수 성공 → 「추가매수 자동 체크 — 켜지 않음: …」 두 줄 모두(error)', () => {
+  it('생략 사유도 그룹별 — 매도 매수잔량 0: 선매수 성공 → 「선매수 자동 체크 — … 켜지 않음: 매도주문(매도 매수잔량 0) …」 · 줄매수 성공 → 「줄매수 자동 체크 — 켜지 않음: …」 두 줄 모두(error)', () => {
     const onClientLog = vi.fn();
     const s = idle({ sellWatchQty: 0, sellOrderPrice: 150_800, sellWatchPrice: 150_800 });
     const { rerender } = render(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog })} />);
     click(sw('선매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig()).toMatchObject({ preBuyEnabled: true, sellEnabled: false, ...CANCEL_THREE });
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
 
     const pre = { ...s, buyEnabled: true, preBuyEnabled: true, ...CANCEL_THREE };
@@ -2924,18 +2924,18 @@ describe('GC-WR-04 — 자동 체크 로그는 그룹별이다 (24-VERIFICATION-
     );
     lines = autoLines(onClientLog);
     expect(lines).toHaveLength(2);
-    expect(lines[1]![0].startsWith('추가매수 자동 체크 — 켜지 않음: ')).toBe(true);
+    expect(lines[1]![0].startsWith('줄매수 자동 체크 — 켜지 않음: ')).toBe(true);
     expect(lines[1]![0]).toContain('매도주문(매도 매수잔량 0)');
     expect(lines[1]![1]).toBe('error');
   });
 
-  it('막힘은 자기 슬롯만 — 선매수 켬(in-flight) → 추가매수 켬이 사전 검증(금액 0)으로 막힘 → 선매수 성공 뒤 선매수 줄 존재', () => {
+  it('막힘은 자기 슬롯만 — 선매수 켬(in-flight) → 줄매수 켬이 사전 검증(금액 0)으로 막힘 → 선매수 성공 뒤 선매수 줄 존재', () => {
     const onClientLog = vi.fn();
     const s = idle({ extraBuyOrderAmount: 0 });
     const { rerender } = render(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog })} />);
     click(sw('선매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(group('extra-buy').querySelector('[data-slot="lc-group-precheck"]')?.textContent).toBe(
       '주문금액을 먼저 입력해 주세요',
     );
@@ -2946,24 +2946,24 @@ describe('GC-WR-04 — 자동 체크 로그는 그룹별이다 (24-VERIFICATION-
     expect(sentConfigs()).toHaveLength(1);
   });
 
-  it('GC-IN-03 — 대기 추가매수 켬을 꺼낼 때 서버가 이미 추가매수 ON(다른 단말)이면 전송 0 no-op 성공 · 「추가매수 자동 체크」 줄 0 (D-08)', () => {
+  it('GC-IN-03 — 대기 줄매수 켬을 꺼낼 때 서버가 이미 줄매수 ON(다른 단말)이면 전송 0 no-op 성공 · 「줄매수 자동 체크」 줄 0 (D-08)', () => {
     const onClientLog = vi.fn();
-    // 마스터 ON · 추가매수 OFF · 매도 매수잔량 0(매도 세 체크 생략 사유) · 취소 세 체크 이미 ON · 매도 가격 이미 채움
-    //   → 꺼낼 때 계산한 동반이 빈 객체라, 서버가 추가매수 ON 이면 no-op 이다.
+    // 마스터 ON · 줄매수 OFF · 매도 매수잔량 0(매도 세 체크 생략 사유) · 취소 세 체크 이미 ON · 매도 가격 이미 채움
+    //   → 꺼낼 때 계산한 동반이 빈 객체라, 서버가 줄매수 ON 이면 no-op 이다.
     const s = idle({ buyEnabled: true, sellWatchQty: 0, sellOrderPrice: 150_800, sellWatchPrice: 150_800, ...CANCEL_THREE });
     const { rerender } = render(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog })} />);
     editInline('lc-sell-order-price', '140000');
     expect(sentConfigs()).toHaveLength(1);
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
 
-    // 값 확정 에코 + 다른 단말이 켠 추가매수.
+    // 값 확정 에코 + 다른 단말이 켠 줄매수.
     const other = { ...s, sellOrderPrice: 140_000, extraBuyEnabled: true };
     rerender(<LimitChaserForm {...props({ server: other, upperLimit: 150_800, onClientLog, serverAnswerSeq: 1 })} />);
     rerender(<LimitChaserForm {...props({ server: other, upperLimit: 150_800, onClientLog, serverAnswerSeq: 2 })} />);
     // 꺼낼 때 no-op — 보낼 것이 없다(성공 처리 · 전송 누적 1).
     expect(sentConfigs()).toHaveLength(1);
-    expect(sw('추가매수 켜기')).toHaveAttribute('aria-checked', 'true');
+    expect(sw('줄매수 켜기')).toHaveAttribute('aria-checked', 'true');
     // 이 폼은 아무것도 보내지 않았다 — 켠 주체는 다른 단말이라 자동 체크 줄이 없다.
     expect(autoLines(onClientLog)).toEqual([]);
   });
@@ -2986,7 +2986,7 @@ describe('⑳ 새 전략 기본값(D-04) · 상장주식수 시딩(D-17) — 폼
     expect(rowText('lc-buy-order-amount')).toBe('4,000만원');
     expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'false');
     expect(sw('선매수 켜기')).toHaveAttribute('aria-checked', 'false');
-    expect(sw('추가매수 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(sw('줄매수 켜기')).toHaveAttribute('aria-checked', 'false');
     expect(sw('후매수 켜기')).toHaveAttribute('aria-checked', 'false');
   });
 
@@ -3133,10 +3133,10 @@ describe('R3-WR-02 — 성공 신호가 한 실행에 겹쳐도 자동 체크 �
 
 /**
  * 24-REVIEW-R3 R3-WR-01 — 부분 거부는 ERROR(답 신호 + 거부 신호)가 같은 제출의 에코보다 먼저 온다. 폼은 거부 신호가 오른
- * 답을 에코까지 유예하는 훅 판정을 그대로 쓴다 — 선매수 자동 체크 줄과 대기 추가매수(D-35)가 사라지지 않는다.
+ * 답을 에코까지 유예하는 훅 판정을 그대로 쓴다 — 선매수 자동 체크 줄과 대기 줄매수(D-35)가 사라지지 않는다.
  * 전면 거부(에코 없음)는 유예 뒤 종전대로 되돌린다. waitFor 를 쓰지 않으므로 가짜 시계는 실시간과 분리한다.
  */
-describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 선매수 자동 체크 줄 · 대기 추가매수가 선다 (24-REVIEW-R3)', () => {
+describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 선매수 자동 체크 줄 · 대기 줄매수가 선다 (24-REVIEW-R3)', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: false });
   });
@@ -3144,7 +3144,7 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 선매
     vi.useRealTimers();
   });
 
-  /** GC-WR-04 와 같은 출발점 — 마스터 OFF · 매도/취소 전부 OFF · 매도 가격 0 · 매도 매수잔량 10 · 추가매수 금액 50. */
+  /** GC-WR-04 와 같은 출발점 — 마스터 OFF · 매도/취소 전부 OFF · 매도 가격 0 · 매도 매수잔량 10 · 줄매수 금액 50. */
   const idle = (over: Partial<RelayLimitChaser> = {}) =>
     echo({ buyEnabled: false, sellOrderPrice: 0, sellWatchPrice: 0, sellWatchQty: 10, extraBuyOrderAmount: 50, ...over });
   const FIVE_WITHOUT_SELL = {
@@ -3161,26 +3161,26 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 선매
     (log.mock.calls as [string, string][]).filter(([text]) => text.includes('자동 체크'));
   const failedShown = () => (document.body.textContent ?? '').includes('반영하지 못했어요');
 
-  /** 선매수 켬(in-flight) → 추가매수 켬(대기) → 거부 신호(답 1 · 거부 1). */
+  /** 선매수 켬(in-flight) → 줄매수 켬(대기) → 거부 신호(답 1 · 거부 1). */
   function startAndReject(onClientLog: ReturnType<typeof vi.fn>) {
     const s = idle();
     const view = render(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog })} />);
     click(sw('선매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
     view.rerender(
       <LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog, serverAnswerSeq: 1, serverRejectSeq: 1 })} />,
     );
     expect(sw('선매수 켜기')).toHaveAttribute('aria-checked', 'true');
-    expect(sw('추가매수 켜기')).toHaveAttribute('aria-checked', 'true');
+    expect(sw('줄매수 켜기')).toHaveAttribute('aria-checked', 'true');
     expect(failedShown()).toBe(false);
     expect(autoLines(onClientLog)).toEqual([]);
     expect(sentConfigs()).toHaveLength(1);
     return view;
   }
 
-  it('F1 부분 거부 — 거부 신호 먼저 → 같은 제출 에코(매도만 눕힘) → 「선매수 자동 체크 … 켜지 않음: 매도주문(무장 안 됨)」 error 한 줄 → 다음 답 신호에 대기 추가매수 1건', () => {
+  it('F1 부분 거부 — 거부 신호 먼저 → 같은 제출 에코(매도만 눕힘) → 「선매수 자동 체크 … 켜지 않음: 매도주문(무장 안 됨)」 error 한 줄 → 다음 답 신호에 대기 줄매수 1건', () => {
     const onClientLog = vi.fn();
     const { rerender } = startAndReject(onClientLog);
 
@@ -3204,13 +3204,13 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 선매
     );
     expect(sentConfigs()).toHaveLength(2);
     expect(lastConfig().extraBuyEnabled).toBe(true);
-    // R4-WR-01 — 같은 흐름의 대기 추가매수는 방금 서버가 눕힌 매도주문을 다시 싣지 않는다(훅 ⑬ 눕힌 동반).
+    // R4-WR-01 — 같은 흐름의 대기 줄매수는 방금 서버가 눕힌 매도주문을 다시 싣지 않는다(훅 ⑬ 눕힌 동반).
     expect(lastConfig().sellEnabled).toBe(false);
-    expect(sw('추가매수 켜기')).toHaveAttribute('aria-checked', 'true');
+    expect(sw('줄매수 켜기')).toHaveAttribute('aria-checked', 'true');
     expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'false');
     expect(failedShown()).toBe(false);
 
-    // 추가매수 성공 에코 → 그 줄은 매도주문을 「켜지 않음(무장 안 됨)」 으로 사실대로 적는다(error · 원인은 단정하지 않는다).
+    // 줄매수 성공 에코 → 그 줄은 매도주문을 「켜지 않음(무장 안 됨)」 으로 사실대로 적는다(error · 원인은 단정하지 않는다).
     rerender(
       <LimitChaserForm
         {...props({ server: { ...pre, extraBuyEnabled: true }, upperLimit: 150_800, onClientLog, serverAnswerSeq: 3, serverRejectSeq: 1 })}
@@ -3218,13 +3218,13 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 선매
     );
     expect(autoLines(onClientLog)).toEqual([
       [PRE_PARTIAL_LINE, 'error'],
-      ['추가매수 자동 체크 — 켜지 않음: 매도주문(무장 안 됨)', 'error'],
+      ['줄매수 자동 체크 — 켜지 않음: 매도주문(무장 안 됨)', 'error'],
     ]);
     expect(sentConfigs()).toHaveLength(2);
     expect(failedShown()).toBe(false);
   });
 
-  it('F2 전면 거부 — 에코 없이 유예가 끝나면 선매수 · 추가매수 · 매도(동반) 스위치가 서버 값으로 되돌아가고 자동 체크 줄 0 · 재전송 0', () => {
+  it('F2 전면 거부 — 에코 없이 유예가 끝나면 선매수 · 줄매수 · 매도(동반) 스위치가 서버 값으로 되돌아가고 자동 체크 줄 0 · 재전송 0', () => {
     const onClientLog = vi.fn();
     startAndReject(onClientLog);
 
@@ -3232,7 +3232,7 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 선매
       vi.advanceTimersByTime(LC_REJECT_ECHO_GRACE_MS);
     });
     expect(sw('선매수 켜기')).toHaveAttribute('aria-checked', 'false');
-    expect(sw('추가매수 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(sw('줄매수 켜기')).toHaveAttribute('aria-checked', 'false');
     expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'false');
     expect(failedShown()).toBe(true);
     expect(autoLines(onClientLog)).toEqual([]);
@@ -3246,17 +3246,17 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 선매
   끔 · 서버 접힘 뒤 자동 끔은 자동을 건드리지 않는다. 자동 켜기는 후매수 켜기와 같은 사전 검증을 지난다.
 */
 /*
-  quick-261011-0yb — 추가매수 ☐자동(U-1 · 추가매수 카드 제목줄). 게이트가 아니고 사전 검증이 없다. 사람이 추가매수를
-  끄면 같은 제출에 ☐자동도 끈다(addAutoOff). ☐자동 ON 인 추가매수는 열린 그룹이다(D-34 개정 — D-02 전반 · 후반).
+  quick-261011-0yb — 줄매수 ☐자동(U-1 · 줄매수 카드 제목줄). 게이트가 아니고 사전 검증이 없다. 사람이 줄매수를
+  끄면 같은 제출에 ☐자동도 끈다(addAutoOff). ☐자동 ON 인 줄매수는 열린 그룹이다(D-34 개정 — D-02 전반 · 후반).
 */
-describe('추가매수 자동 — 제목줄 체크 · 동반 해제 · 열린 그룹 (quick-261011-0yb)', () => {
-  const auto = (): HTMLElement => chk('추가매수 자동');
+describe('줄매수 자동 — 제목줄 체크 · 동반 해제 · 열린 그룹 (quick-261011-0yb)', () => {
+  const auto = (): HTMLElement => chk('줄매수 자동');
 
-  it('제목줄에 「추가매수 자동」 체크가 스위치 바로 앞 형제로 선다 · 추가매수 OFF 여도 disabled 아님 · 흐리지 않는다', () => {
+  it('제목줄에 「줄매수 자동」 체크가 스위치 바로 앞 형제로 선다 · 줄매수 OFF 여도 disabled 아님 · 흐리지 않는다', () => {
     render(<LimitChaserForm {...props({ server: echo({ extraBuyEnabled: false }) })} />);
     const header = group('extra-buy').querySelector('[data-slot="lc-group-header"]') as HTMLElement;
     const switchSlot = header.lastElementChild as HTMLElement;
-    expect(switchSlot.contains(sw('추가매수 켜기'))).toBe(true);
+    expect(switchSlot.contains(sw('줄매수 켜기'))).toBe(true);
     expect((switchSlot.previousElementSibling as HTMLElement).contains(auto())).toBe(true);
     expect(auto().id).toBe('lc-extra-buy-auto');
     expect(auto()).toBeEnabled();
@@ -3289,7 +3289,7 @@ describe('추가매수 자동 — 제목줄 체크 · 동반 해제 · 열린 �
     expect(lastConfig()).toMatchObject({ buyEnabled: true, extraBuyAuto: true });
   });
 
-  it('추가매수 ON ∧ ☐자동 ON 에서 사람이 추가매수 끔 → lc.set 1건에 extraBuyEnabled false · extraBuyAuto false 동반(다른 그룹 ON 이면 마스터 유지)', () => {
+  it('줄매수 ON ∧ ☐자동 ON 에서 사람이 줄매수 끔 → lc.set 1건에 extraBuyEnabled false · extraBuyAuto false 동반(다른 그룹 ON 이면 마스터 유지)', () => {
     render(
       <LimitChaserForm
         {...props({
@@ -3297,30 +3297,30 @@ describe('추가매수 자동 — 제목줄 체크 · 동반 해제 · 열린 �
         })}
       />,
     );
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig()).toMatchObject({ extraBuyEnabled: false, extraBuyAuto: false, buyEnabled: true });
     expect(auto()).toHaveAttribute('aria-checked', 'false');
   });
 
-  it('마지막 그룹(추가매수) ∧ ☐자동 ON 에서 추가매수 끔 → 같은 제출에 extraBuyAuto false · buyEnabled false', () => {
+  it('마지막 그룹(줄매수) ∧ ☐자동 ON 에서 줄매수 끔 → 같은 제출에 extraBuyAuto false · buyEnabled false', () => {
     render(
       <LimitChaserForm
         {...props({ server: echo({ extraBuyEnabled: true, extraBuyAuto: true, sellEnabled: true, extraBuyOrderAmount: 50 }) })}
       />,
     );
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig()).toMatchObject({ extraBuyEnabled: false, extraBuyAuto: false, buyEnabled: false, crud: 'C' });
   });
 
-  it('☐자동 OFF 에서 추가매수 끔 → extraBuyAuto 는 false 그대로(동반 없음과 같은 결과)', () => {
+  it('☐자동 OFF 에서 줄매수 끔 → extraBuyAuto 는 false 그대로(동반 없음과 같은 결과)', () => {
     render(
       <LimitChaserForm
         {...props({ server: echo({ preBuyEnabled: true, extraBuyEnabled: true, sellEnabled: true, extraBuyOrderAmount: 50 }) })}
       />,
     );
-    click(sw('추가매수 켜기'));
+    click(sw('줄매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig()).toMatchObject({ extraBuyEnabled: false, extraBuyAuto: false, buyEnabled: true });
   });
@@ -3333,21 +3333,21 @@ describe('추가매수 자동 — 제목줄 체크 · 동반 해제 · 열린 �
     expect(auto()).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('D-02 전반 — 마스터 ON · 선매수 ON · 추가매수 OFF · ☐자동 ON 에서 선매수 끔 → buyEnabled true(마지막 그룹 아님)', () => {
+  it('D-02 전반 — 마스터 ON · 선매수 ON · 줄매수 OFF · ☐자동 ON 에서 선매수 끔 → buyEnabled true(마지막 그룹 아님)', () => {
     render(<LimitChaserForm {...props({ server: echo({ preBuyEnabled: true, extraBuyAuto: true, sellEnabled: true }) })} />);
     click(sw('선매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig()).toMatchObject({ preBuyEnabled: false, buyEnabled: true, extraBuyAuto: true });
   });
 
-  it('isServerFoldEdge — 추가매수 ON → 세 그룹 OFF · 마스터 ON · ☐자동 ON 은 false · ☐자동 OFF 면 종전대로 true', () => {
+  it('isServerFoldEdge — 줄매수 ON → 세 그룹 OFF · 마스터 ON · ☐자동 ON 은 false · ☐자동 OFF 면 종전대로 true', () => {
     const prev = echo({ extraBuyEnabled: true, extraBuyAuto: true, sellEnabled: true });
     expect(isServerFoldEdge(prev, echo({ extraBuyAuto: true, sellEnabled: true }))).toBe(false);
     const prevOff = echo({ extraBuyEnabled: true, sellEnabled: true });
     expect(isServerFoldEdge(prevOff, echo({ sellEnabled: true }))).toBe(true);
   });
 
-  it('D-02 후반 — 추가매수 발주로 접힌 에코(☐자동 ON)는 타이머를 흘려도 자동 lc.set 0건', () => {
+  it('D-02 후반 — 줄매수 발주로 접힌 에코(☐자동 ON)는 타이머를 흘려도 자동 lc.set 0건', () => {
     vi.useFakeTimers({ shouldAdvanceTime: false });
     try {
       const base = { sellEnabled: true, buyOrderQty: 3, extraBuyOrderAmount: 50, extraBuyAuto: true };
@@ -3363,7 +3363,7 @@ describe('추가매수 자동 — 제목줄 체크 · 동반 해제 · 열린 �
     }
   });
 
-  it('후매수 「재진입」 행 — 단계 0 · 에코 ☐추가매수 자동 · 잔여 2 → 「3회 · 남은 2회」', () => {
+  it('후매수 「최대」 행 — 단계 0 · 에코 ☐줄매수 자동 · 잔여 2 → 「3회 · 남은 2회」', () => {
     render(
       <LimitChaserForm
         {...props({ server: echo({ postBuyPhase: 0, postBuyReentry: 3, postBuyReentryLeft: 2, extraBuyAuto: true }) })}
@@ -3493,16 +3493,16 @@ describe('후매수 자동 — 마스터 OFF 동반 끔 · 켜기 사전 검증 
   });
 });
 
-describe('추가매수 「버스트 해제」 체크 — 양방향 설정값 · 게이트 아님 (quick-261003-rc4 B10)', () => {
-  const burst = () => chk('추가매수 버스트 해제');
+describe('줄매수 「버스트 해제」 체크 — 양방향 설정값 · 게이트 아님 (quick-261003-rc4 B10)', () => {
+  const burst = () => chk('줄매수 버스트 해제');
 
-  it('추가매수 카드 마지막 행 · id lc-extra-buy-burst-release · 기본 OFF', () => {
+  it('줄매수 카드 마지막 행 · id lc-extra-buy-burst-release · 기본 OFF', () => {
     render(<LimitChaserForm {...props()} />);
     const btn = document.getElementById('lc-extra-buy-burst-release') as HTMLElement;
     expect(btn).toBe(burst());
     expect(btn.getAttribute('role')).toBe('checkbox');
     expect(btn).toHaveAttribute('aria-checked', 'false');
-    // 추가매수 그룹 행 영역의 마지막 행이다(최소 · 최대 잔량 행 밑).
+    // 줄매수 그룹 행 영역의 마지막 행이다(최소 · 최대 잔량 행 밑).
     const rowsEl = group('extra-buy');
     const ids = [...rowsEl.querySelectorAll('[id^="lc-extra-buy"]')].map((el) => el.id);
     expect(ids.at(-1)).toBe('lc-extra-buy-burst-release');
@@ -3549,7 +3549,7 @@ describe('추가매수 「버스트 해제」 체크 — 양방향 설정값 · 
     expect(burst()).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('추가매수 스위치 OFF 면 라벨이 흐려진다(값 유지) · 원형 체크는 흐리지 않는다', () => {
+  it('줄매수 스위치 OFF 면 라벨이 흐려진다(값 유지) · 원형 체크는 흐리지 않는다', () => {
     render(<LimitChaserForm {...props({ server: echo({ extraBuyEnabled: false, extraBuyBurstRelease: true }) })} />);
     const label = within(burst()).getByText('버스트 해제');
     expect(opacityLayers(label)).toBe(1);

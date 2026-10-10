@@ -551,7 +551,7 @@ export interface SetLimitChaserRequest {
   /** relay 파생값 — 1(자동 미적재 · `LC_FIXED_BUY3_SCHEMA`) · 2(자동 적재 · `LC_POST_BUY_AUTO_BUY3_SCHEMA`) ·
    *  3(자동 + 버스트 시 해제 적재 · `LC_BURST_RELEASE_BUY3_SCHEMA` · quick-261003-rc4) ·
    *  4(+ 자동매도 요청 4필드 적재 · `LC_AUTO_SELL_BUY3_SCHEMA` · Phase 27) ·
-   *  5(+ 추가매수 ☐자동 적재 · `LC_EXTRA_BUY_AUTO_BUY3_SCHEMA` · quick-261011-0yb). */
+   *  5(+ 줄매수 ☐자동 적재 · `LC_EXTRA_BUY_AUTO_BUY3_SCHEMA` · quick-261011-0yb). */
   buy3Schema: number;
   /** 슬롯 부재 = `null`. buy3 요청은 이 슬롯이 없어야 한다. */
   buyWatchSide: string | null;
@@ -569,9 +569,9 @@ export interface SetLimitChaserRequest {
   postBuyOrderQty: number;
   /** 후매수 ☐자동(quick-260929-vzy) — 슬롯 부재(buy3_schema 1 · 또는 false 기본값) = false. */
   postBuyAuto: boolean;
-  /** 추가매수 ☐버스트 시 해제(quick-261003-rc4 · vtable 138) — 슬롯 부재(buy3_schema 1/2 · 또는 false 기본값) = false. */
+  /** 줄매수 ☐버스트 시 해제(quick-261003-rc4 · vtable 138) — 슬롯 부재(buy3_schema 1/2 · 또는 false 기본값) = false. */
   extraBuyBurstRelease: boolean;
-  /** 추가매수 ☐자동(quick-261011-0yb · vtable 156) — 슬롯 부재(buy3_schema ≤ 4 · 또는 false 기본값) = false. */
+  /** 줄매수 ☐자동(quick-261011-0yb · vtable 156) — 슬롯 부재(buy3_schema ≤ 4 · 또는 false 기본값) = false. */
   extraBuyAuto: boolean;
   /** ☐자동매도(Phase 27 · vtable 140) — 슬롯 부재(buy3_schema ≤ 3 · 또는 false 기본값) = false. */
   autoSellEnabled: boolean;

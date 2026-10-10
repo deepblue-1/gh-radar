@@ -59,7 +59,7 @@ const idOf = (r: LcRowSpec): string | null =>
   r.kind === 'value' || r.kind === 'checkValue' ? r.id : r.kind === 'check' ? r.checkId : null;
 
 describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (D-19 · D-21 · D-22 · Phase 24 ⑤ · D-09)', () => {
-  it('매수 쪽 슬롯 순서 = 매수주문 → 선매수 → 추가매수 → 후매수 · 매도 쪽 = 매도주문 → 매수취소 → 자동매도 (quick-261001-gjk · Phase 27 D-01)', () => {
+  it('매수 쪽 슬롯 순서 = 매수주문 → 선매수 → 줄매수 → 후매수 · 매도 쪽 = 매도주문 → 매수취소 → 자동매도 (quick-261001-gjk · Phase 27 D-01)', () => {
     expect(LC_BUY_GROUPS.map((g) => g.slot)).toEqual(['buy', 'pre-buy', 'extra-buy', 'post-buy']);
     expect(LC_SELL_GROUPS.map((g) => g.slot)).toEqual(['sell', 'cancel', 'auto-sell']);
   });
@@ -176,7 +176,7 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
     expect(spec('lc-sweep-tick').desc).toBe('호가가 이만큼 바뀌면 한 번에 체결해요');
     expect(spec('lc-extra-buy-max-qty').desc).toBe('상한가 매수잔량이 이 값을 넘으면 포기해요 · 0 = 무제한');
     expect(spec('lc-post-buy-reentry').desc).toBe(
-      '최초 포함 총 진입 횟수예요 · 후매수와 추가매수 자동이 같이 써요 · 0 = 사지 않아요 · 껐다 켜면 이 값부터 다시 세요',
+      '최초 포함 총 진입 횟수예요 · 후매수와 줄매수 자동이 같이 써요 · 0 = 사지 않아요 · 껐다 켜면 이 값부터 다시 세요',
     );
     expect([spec('lc-post-buy-reentry').unit, spec('lc-post-buy-rebound').unit]).toEqual(['회', '%']);
     expect([spec('lc-sell-order-ratio').unit, spec('lc-sell-order-ratio').desc]).toEqual([
@@ -193,7 +193,7 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
     expect(LC_SWITCH_LABEL).toEqual({
       buyEnabled: '매수주문 켜기',
       preBuyEnabled: '선매수 켜기',
-      extraBuyEnabled: '추가매수 켜기',
+      extraBuyEnabled: '줄매수 켜기',
       postBuyEnabled: '후매수 켜기',
       sellEnabled: '매도주문 켜기',
       cancelQtyEnabled: '매수취소 켜기',
@@ -241,7 +241,7 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
 });
 
 describe('②-auto GroupHeaderCheck · 제목줄 체크 슬롯 (quick-260929-vzy D-05)', () => {
-  it('후매수 · 추가매수 스펙이 제목줄 체크 「자동」 을 싣는다 — 다른 그룹은 없다 (quick-261011-0yb 추가매수 합류)', () => {
+  it('후매수 · 줄매수 스펙이 제목줄 체크 「자동」 을 싣는다 — 다른 그룹은 없다 (quick-261011-0yb 줄매수 합류)', () => {
     expect(groupOf('post-buy').headerCheck).toMatchObject({
       field: 'postBuyAuto',
       checkId: 'lc-post-buy-auto',
@@ -252,7 +252,7 @@ describe('②-auto GroupHeaderCheck · 제목줄 체크 슬롯 (quick-260929-vzy
       field: 'extraBuyAuto',
       checkId: 'lc-extra-buy-auto',
       label: '자동',
-      ariaLabel: '추가매수 자동',
+      ariaLabel: '줄매수 자동',
     });
     for (const g of [...LC_BUY_GROUPS, ...LC_SELL_GROUPS]) {
       if (g.slot !== 'post-buy' && g.slot !== 'extra-buy') expect(g.headerCheck).toBeUndefined();
@@ -950,13 +950,13 @@ describe('⑪ 표시 문자열 · 접근성 이름 · 행 단위 흐림 · 발�
         unit="주"
         value={0}
         valueText="무제한"
-        ariaName="추가매수 최대 잔량 무제한"
+        ariaName="줄매수 최대 잔량 무제한"
         editing={false}
         onActivate={() => {}}
       />,
     );
     expect(container.querySelector('[data-slot="lc-row-value"]')!.textContent).toBe('무제한');
-    expect(screen.getByRole('button', { name: '추가매수 최대 잔량 무제한' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '줄매수 최대 잔량 무제한' })).toBeInTheDocument();
   });
 
   it('valueText 만 주면 기본 접근성 이름도 그 문자열을 쓴다', () => {

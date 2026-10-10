@@ -1154,12 +1154,12 @@ describe('24-06 — 클라 로그 통로 pushClientLog (순서)', () => {
     lastCard = null;
   });
 
-  it('D-33 ① 폐기 — 매수1호가 == 비교가격 ∧ 매수1잔량 100 ≥ 최소 1 에서 추가매수 켜기 → 전송 1 · 카드 로그에 차단 줄(error) 0 (quick-261011-0yb)', async () => {
+  it('D-33 ① 폐기 — 매수1호가 == 비교가격 ∧ 매수1잔량 100 ≥ 최소 1 에서 줄매수 켜기 → 전송 1 · 카드 로그에 차단 줄(error) 0 (quick-261011-0yb)', async () => {
     const e = echo({ extraBuyOrderAmount: 50 });
     setRelay({ limitChasers: [e], quote: quote() });
     render(<Card />);
     await act(async () => {
-      fireEvent.click(screen.getByRole('switch', { name: '추가매수 켜기' }));
+      fireEvent.click(screen.getByRole('switch', { name: '줄매수 켜기' }));
     });
     await waitFor(() => expect(lcSets()).toHaveLength(1));
     expect(lcSets()[0]!.cfg!.extraBuyEnabled).toBe(true);
@@ -1745,7 +1745,7 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 in-fli
     lastCard = null;
   });
 
-  it('선매수 켬(in-flight) · 추가매수 켬(대기) → 매도만 눕힌 ERROR 먼저 → 실패 0 · 스위치 유지 → 같은 제출 에코(선매수 ON · 매도 OFF) → 추가매수 1건 전송 · 「선매수 자동 체크 — 」 한 줄', async () => {
+  it('선매수 켬(in-flight) · 줄매수 켬(대기) → 매도만 눕힌 ERROR 먼저 → 실패 0 · 스위치 유지 → 같은 제출 에코(선매수 ON · 매도 OFF) → 줄매수 1건 전송 · 「선매수 자동 체크 — 」 한 줄', async () => {
     // 매수1호가 ≠ 비교가격(상한가 중 켜기 클라 차단은 D-33 ① 폐기로 없다 — 호가 모양은 종전 그대로 둔다).
     const q = quote({ bp: Array.from({ length: 10 }, (_, i) => 129_500 - i * 500) });
     // GC-WR-04 폼 테스트의 idle 모양 — 마스터 OFF · 세 그룹 OFF · 매도 가격 0(자동 체크가 상한가로 채움) · 두 그룹 금액 > 0.
@@ -1766,9 +1766,9 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 in-fli
     expect(lcSets()).toHaveLength(1);
     expect(lcSets()[0]!.cfg).toMatchObject({ preBuyEnabled: true, buyEnabled: true, sellEnabled: true, sellOrderPrice: 150_800 });
     await act(async () => {
-      fireEvent.click(screen.getByRole('switch', { name: '추가매수 켜기' }));
+      fireEvent.click(screen.getByRole('switch', { name: '줄매수 켜기' }));
     });
-    // 선매수가 나가 있다 — 추가매수 켜기는 대기열에 선다(D-35).
+    // 선매수가 나가 있다 — 줄매수 켜기는 대기열에 선다(D-35).
     expect(lcSets()).toHaveLength(1);
 
     // gh-trade 가 매도만 눕히고 ERROR 를 먼저 보낸다 — 이 렌더에 서버 값은 아직 그대로다.
@@ -1787,7 +1787,7 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 in-fli
     });
     expect(failedShown()).toBe(false);
     expect(screen.getByRole('switch', { name: '선매수 켜기' })).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByRole('switch', { name: '추가매수 켜기' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('switch', { name: '줄매수 켜기' })).toHaveAttribute('aria-checked', 'true');
     expect(lcSets()).toHaveLength(1);
 
     // 저장 뒤 같은 제출의 에코 — 매도는 눕혀진 채(OFF) 마스터 · 선매수 · 나머지 체크 · 상한가 채움은 섰다.
@@ -1809,7 +1809,7 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 in-fli
     rerender(<Card />);
 
     await waitFor(() => expect(lcSets()).toHaveLength(2));
-    // R4-WR-01 — 대기 추가매수는 방금 서버가 눕힌 매도주문을 다시 싣지 않는다(훅 ⑬ 눕힌 동반).
+    // R4-WR-01 — 대기 줄매수는 방금 서버가 눕힌 매도주문을 다시 싣지 않는다(훅 ⑬ 눕힌 동반).
     expect(lcSets()[1]!.cfg).toMatchObject({ extraBuyEnabled: true, preBuyEnabled: true, sellEnabled: false });
     await waitFor(() => expect(autoPre()).toHaveLength(1));
     // R3-G1 · R5-WR-02 — 줄은 에코에 선 항목만 「켬」 · 무장으로 서지 않은 매도주문은 「켜지 않음(무장 안 됨)」 · error.
@@ -1819,7 +1819,7 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 in-fli
     expect(lcSets()).toHaveLength(2);
     expect(failedShown()).toBe(false);
     expect(screen.getByRole('switch', { name: '선매수 켜기' })).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByRole('switch', { name: '추가매수 켜기' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('switch', { name: '줄매수 켜기' })).toHaveAttribute('aria-checked', 'true');
   });
 });
 

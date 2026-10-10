@@ -1543,7 +1543,7 @@ describe("전략 요청 조립 (16-04 / T-16-05·T-16-06)", () => {
   });
 
   /*
-    ③-burst — 추가매수 ☐버스트 시 해제(quick-261003-rc4 · gh-trade 3dabd6ff · 합의 2026-10-03). buy3_schema 3 은
+    ③-burst — 줄매수 ☐버스트 시 해제(quick-261003-rc4 · gh-trade 3dabd6ff · 합의 2026-10-03). buy3_schema 3 은
     `postBuyAuto` · `extraBuyBurstRelease` **둘 다** 있을 때만 파생된다 — 서버는 3 이상에서 post_buy_auto 도 읽으므로
     자동 없이 3 을 보내면 자동이 부재=false 로 지워진다(P-1 단조성). vtable 138.
   */
@@ -2909,7 +2909,7 @@ describe("Phase 27 자동매도 와이어 — schema 1~4 파생 · 에코 슬롯
 });
 
 /*
-  ③-extra-auto — 추가매수 ☐자동(gh-trade 8c7d4c5c · quick-261010-ub8 · vtable 156). buy3_schema 5 는 postBuyAuto ·
+  ③-extra-auto — 줄매수 ☐자동(gh-trade 8c7d4c5c · quick-261010-ub8 · vtable 156). buy3_schema 5 는 postBuyAuto ·
   extraBuyBurstRelease · 자동매도 4필드 · extraBuyAuto 가 **모두** 있을 때만 파생된다 — 서버는 5 이상에서 앞 여섯도
   읽으므로 하나라도 빠진 채 5 를 보내면 그 필드가 부재 기본값으로 지워진다(P-1 단조성).
 */

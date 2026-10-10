@@ -171,7 +171,7 @@ describe('progressGroupLabel', () => {
   it('0 → 매수 · 1~3 표시명 · 모르는 값 원문', () => {
     expect(progressGroupLabel(0)).toBe('매수');
     expect(progressGroupLabel(1)).toBe('선매수');
-    expect(progressGroupLabel(2)).toBe('추가매수');
+    expect(progressGroupLabel(2)).toBe('줄매수');
     expect(progressGroupLabel(3)).toBe('후매수');
     expect(progressGroupLabel(10)).toBe('10');
   });

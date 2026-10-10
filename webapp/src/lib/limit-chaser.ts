@@ -218,7 +218,7 @@ export function seedFromUpperLimit(upperLimit: number): LimitChaserSeedPrices {
  * 신규 폼 기본값 `[VERIFIED: LimitChaserForm.cs:129~178]` · Phase 24 D-04(WinForms 「기본값 (D-33)」 표).
  *
  * 매수 금액 3벌 각 4,000만원 · 반등 30% · 최소 100,000주 · 최대 3회 · 매도 매수잔량 10주 · 잔량추적 55% · 취소 매수잔량 10주.
- * 상장주식수 비율 5칸(선매수 매도잔량 · 체결량 · 추가매수 최소/최대 · 매도 체결)은 여기 값이 **폴백**이고, 상장주식수를
+ * 상장주식수 비율 5칸(선매수 매도잔량 · 체결량 · 줄매수 최소/최대 · 매도 체결)은 여기 값이 **폴백**이고, 상장주식수를
  * 알면 `seedListSharesDefaults` 가 폼당 1회 덮는다(D-17). 가격 5칸은 `seedFromUpperLimit` 이 채운다.
  *
  * ★ 매 호출 **새 객체**를 돌려준다. 모듈 상수를 공유하면 한 폼의 편집이 다음 신규 폼으로 샌다.
@@ -258,14 +258,14 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
     // 그룹 스위치는 전부 OFF 로 시작한다(D-05).
     preBuyEnabled: false,
     extraBuyEnabled: false,
-    // 추가매수 최소·최대 매수잔량(주) — 폴백 0 = 1주 · 무제한. 상장주식수를 알면 `seedListSharesDefaults`(D-17)가 채운다.
+    // 줄매수 최소·최대 매수잔량(주) — 폴백 0 = 1주 · 무제한. 상장주식수를 알면 `seedListSharesDefaults`(D-17)가 채운다.
     extraBuyMinQty: 0,
     extraBuyMaxQty: 0,
     extraBuyOrderAmount: 4000, // DEFAULT_EXTRA_BUY_ORDER_AMOUNT (만원) — D-04
-    // 추가매수 ☐버스트 시 해제(quick-261003-rc4) — 새 폼은 OFF(gh-trade 클라 기본 해제 · 종목 전환 초기화 동형).
+    // 줄매수 ☐버스트 시 해제(quick-261003-rc4) — 새 폼은 OFF(gh-trade 클라 기본 해제 · 종목 전환 초기화 동형).
     // 게이트가 아니다 — 삭제 판정 · 켜진 전략 판정에 들어가지 않는다(P-4).
     extraBuyBurstRelease: false,
-    // 추가매수 ☐자동(quick-261011-0yb) — 새 폼은 OFF(WinForms 종목 전환 · 전략 없음 리셋 동형).
+    // 줄매수 ☐자동(quick-261011-0yb) — 새 폼은 OFF(WinForms 종목 전환 · 전략 없음 리셋 동형).
     // 게이트가 아니다 — 삭제 판정 · 켜진 전략 판정에 들어가지 않는다(C# AnyArmed 제외).
     extraBuyAuto: false,
     postBuyEnabled: false,
@@ -291,7 +291,7 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
 export const LIST_SHARES_SEED_PERMILLE = 3;
 /** 상장주식수 × 3% — 백분율 3. */
 export const LIST_SHARES_SEED_PERCENT = 3;
-/** relay 스키마 · 서버 cfg 의 추가매수 최소 · 최대 잔량 상한(uint32). */
+/** relay 스키마 · 서버 cfg 의 줄매수 최소 · 최대 잔량 상한(uint32). */
 export const UINT32_MAX = 4_294_967_295;
 
 /** 상장주식수 시딩이 채우는 5칸. */
@@ -303,8 +303,8 @@ export type ListSharesSeed = Pick<
 /**
  * 상장주식수 5칸 시딩 — WinForms `SeedListSharesDefaults`(LimitChaserForm.cs) 동형 · 순수 함수.
  *
- * 선매수 매도잔량 · 체결량 · 추가매수 최소 · 매도 체결 = 상장주식수 × 0.3% · 추가매수 최대 = × 3%. 전부 정수 내림이고
- * 추가매수 최소 · 최대는 uint32 상한에서 멈춘다. 상장주식수를 모르면(≤ 0) null — 호출자는 가드를 소진하지 않는다.
+ * 선매수 매도잔량 · 체결량 · 줄매수 최소 · 매도 체결 = 상장주식수 × 0.3% · 줄매수 최대 = × 3%. 전부 정수 내림이고
+ * 줄매수 최소 · 최대는 uint32 상한에서 멈춘다. 상장주식수를 모르면(≤ 0) null — 호출자는 가드를 소진하지 않는다.
  * 적용 규칙(D-17 ①~④)은 호출자(폼) 몫이다:
  *   ① 서버에 그 키의 전략이 있으면 시딩하지 않는다(에코가 이긴다).
  *   ② 0(모름)이면 가드를 남겨 뒤에 오는 호가 프레임이 채운다 — 그동안 `defaultLimitChaserForm` 폴백이 남는다.
@@ -410,7 +410,7 @@ export function seedFromUserSettings(us: RelayUserSettingsMsg | undefined): Part
 /* ── 그룹 켬 자동 체크 (Phase 24 · 24-07 · 24-17 · D-06 · D-07 · D-08 · D-20 · D-35) ─────────────────── */
 
 /**
- * 자동 체크를 부르는 그룹 — 사람이 켜는 선매수 · 추가매수 스위치(D-06 · D-35). 후매수는 대상이 아니라 타입에서 빠진다.
+ * 자동 체크를 부르는 그룹 — 사람이 켜는 선매수 · 줄매수 스위치(D-06 · D-35). 후매수는 대상이 아니라 타입에서 빠진다.
  */
 export type AutoCheckGate = 'preBuyEnabled' | 'extraBuyEnabled';
 /** 자동 체크 항목(개명 D-09 반영) — 순서가 곧 로그 순서다. */
@@ -427,7 +427,7 @@ export type AutoCheckReason = '매도 매수잔량 0' | '취소 매수잔량 0' 
 
 export interface GroupAutoCheckResult {
   /** 로그 첫머리 그룹 이름 — `lc-fields.ts` 카드 제목과 같은 문자열(D-35). */
-  groupLabel: '선매수' | '추가매수';
+  groupLabel: '선매수' | '줄매수';
   /** 그룹 켬 제출에 동반으로 실을 필드 — 새로 켤 체크 + 상한가로 채운 매도 가격. 이미 켜진 것은 없다. */
   companions: Partial<LimitChaserFormValues>;
   turnedOn: readonly AutoCheckItem[];
@@ -439,7 +439,7 @@ export interface GroupAutoCheckResult {
 /** 그룹 ↔ 표시 이름(`lc-fields.ts` 카드 제목). */
 const AUTO_CHECK_GROUP_LABEL = {
   preBuyEnabled: '선매수',
-  extraBuyEnabled: '추가매수',
+  extraBuyEnabled: '줄매수',
 } as const satisfies Record<AutoCheckGate, GroupAutoCheckResult['groupLabel']>;
 
 /** 항목 ↔ 폼 필드. */
@@ -459,10 +459,10 @@ const AUTO_CHECK_ORDER = Object.keys(AUTO_CHECK_FIELD) as AutoCheckItem[];
 const NO_LAID: ReadonlySet<keyof LimitChaserFormValues> = new Set();
 
 /**
- * 선매수 · 추가매수 켬 → 매도 · 취소 6체크 자동 켬 — **판정 지점 하나**(순수 함수 · 그룹 인자 한 벌 · D-35).
+ * 선매수 · 줄매수 켬 → 매도 · 취소 6체크 자동 켬 — **판정 지점 하나**(순수 함수 · 그룹 인자 한 벌 · D-35).
  *
  * WinForms `AutoCheckExitForPreBuy`(LimitChaserForm.cs) 동형이다. 판정 규칙은 그룹과 무관하다 — `gate` 는 결과의
- * `groupLabel`(로그 첫머리)만 정한다. 선매수 · 추가매수가 판정을 복제하지 않는다. 켜면 서버(또는 relay 무장 가드)가 **조용히 눕힐**
+ * `groupLabel`(로그 첫머리)만 정한다. 선매수 · 줄매수가 판정을 복제하지 않는다. 켜면 서버(또는 relay 무장 가드)가 **조용히 눕힐**
  * 조합은 미리 켜지 않고 사유를 돌려준다(D-07 — 조용한 실패를 미리 피함). 이미 켜진 체크는 건드리지 않는다.
  *
  *   ① 빈 가격 채움(D-20): 매도 주문가격 · 비교가격이 각각 0 이고 상한가를 알면(> 0) 상한가를 **명시 값**으로 싣는다.
@@ -481,8 +481,8 @@ const NO_LAID: ReadonlySet<keyof LimitChaserFormValues> = new Set();
  *   조용히 꺼진다(24-07 planner 해석).
  * ★ 웹 D-07 추가: 매도 매수잔량 0 → 매도 3체크 생략. relay `#strategyArmable` sell 갈래가 `sellEnabled ∧ sellWatchQty 0`
  *   프레임 **전체**를 거부하므로(선매수 켬까지 함께 막힌다), 매도>잔량추적 · 매도>체결도 같은 사유로 켜지 않는다.
- * ★ 호출 자리는 **사람의 선매수 · 추가매수 스위치 핸들러 하나**다(D-08 · D-35) — 에코 · 재접속 · 다른 단말 변경 ·
- *   후매수 켜기에서 부르지 않는다. 추가매수 고유 사전 거부(사전 검증 줄 · D-16)는 이 함수보다 앞에서 돈다.
+ * ★ 호출 자리는 **사람의 선매수 · 줄매수 스위치 핸들러 하나**다(D-08 · D-35) — 에코 · 재접속 · 다른 단말 변경 ·
+ *   후매수 켜기에서 부르지 않는다. 줄매수 고유 사전 거부(사전 검증 줄 · D-16)는 이 함수보다 앞에서 돈다.
  * ★ `laid`(R3-G1 · 24-REVIEW-R4 R4-WR-01 선택지 (ii) · R5-WR-02) = **이 흐름에서 요청했는데 무장되지 않은 내 동반 필드**다
  *   (원인은 가리지 않는다 — 부분 거부 · 발주 소진). 호출자는 훅 `useLcFieldCommit` 의 ⑬ 을 넘긴다. 판정 순서는
  *   ① 이미 켜짐 → 목록 밖 ② 예측 첫 실패 사유 ③ laid → 「무장 안 됨」 ④ 켬 — 같은 흐름에서 무장되지 않은 항목을 사람
@@ -596,10 +596,10 @@ export function confirmAutoChecks(r: GroupAutoCheckResult, server: AutoCheckEcho
 }
 
 /**
- * 자동 체크 로그 한 줄(UI-SPEC 「선매수 자동 체크 로그 문법」 · 부록 「D-35 추가매수 켬 자동 체크」) — 6체크를 **한 줄**로
+ * 자동 체크 로그 한 줄(UI-SPEC 「선매수 자동 체크 로그 문법」 · 부록 「D-35 줄매수 켬 자동 체크」) — 6체크를 **한 줄**로
  * 합친다(D-06 · 6줄 폭증 금지). 첫머리만 그룹 이름이다(D-35) — 나머지 문법 · 사유 어휘는 그룹과 무관하다.
  *
- * `{선매수|추가매수} 자동 체크 — 켬: {항목 · …}[ / 켜지 않음: {항목(사유) · …}][ / 매도 주문가격·비교가격 = 상한가 {상한가}원]`
+ * `{선매수|줄매수} 자동 체크 — 켬: {항목 · …}[ / 켜지 않음: {항목(사유) · …}][ / 매도 주문가격·비교가격 = 상한가 {상한가}원]`
  * 켤 것이 없으면 「켬」 조각을 빼고, 가격은 실제로 채운 칸만 이름을 댄다. 켤 것도 생략도 없으면(전부 이미 켜짐) null.
  * 생략이 하나라도 있으면 `error`(빨강 — 조용한 실패 예고), 없으면 `info`.
  */

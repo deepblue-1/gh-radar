@@ -6,7 +6,7 @@ import type { RelayLimitChaser } from '@gh-radar/shared';
  *
  * 잠그는 것:
  *   ① 매수 카드 4장 순서(스케치 009 D) · 모든 값 행 id 유일
- *   ② `lcValueTextOf` — 의미어 「무제한」「1주」「없음」 · 금액 0 「—」 · 후매수 「재진입」 D-11 문구
+ *   ② `lcValueTextOf` — 의미어 「무제한」「1주」「없음」 · 금액 0 「—」 · 후매수 「최대」 D-11 문구
  *   ③ `lcSummaryOf` — 요약 항목 · 순서 · 꺼진 kv(UI-SPEC §3 · R5)
  *   ④ `lcRowA11yNameOf` — 접근성 이름 접두(UI-SPEC 「접근성 이름 접두」 표 · D-09)
  *   ⑤ `lcRangeIssue` — 반등 0~100 + 「후매수 ON 이면 1~100」(relay zod `.superRefine` 동형 · T-24-17)
@@ -85,8 +85,8 @@ describe('① 매수 카드 4장 스펙 (스케치 009 D · ROADMAP ⑤)', () =>
   });
 });
 
-describe('② lcValueTextOf — 의미어 · 「—」 · 후매수 「재진입」 (D-03 · D-10 · D-11)', () => {
-  it('추가매수 최대 0 → 「무제한」 · 최소 0 → 「1주」 · 후매수 최소 잔량 0 → 「없음」', () => {
+describe('② lcValueTextOf — 의미어 · 「—」 · 후매수 「최대」 (D-03 · D-10 · D-11)', () => {
+  it('줄매수 최대 0 → 「무제한」 · 최소 0 → 「1주」 · 후매수 최소 잔량 0 → 「없음」', () => {
     expect(lcValueTextOf('extraBuyMaxQty', values({ extraBuyMaxQty: 0 }), null)).toBe('무제한');
     expect(lcValueTextOf('extraBuyMinQty', values({ extraBuyMinQty: 0 }), null)).toBe('1주');
     expect(lcValueTextOf('postBuyFloorQty', values({ postBuyFloorQty: 0 }), null)).toBe('없음');
@@ -98,7 +98,7 @@ describe('② lcValueTextOf — 의미어 · 「—」 · 후매수 「재진입
     expect(lcValueTextOf('postBuyFloorQty', values({ postBuyFloorQty: 100_000 }), null)).toBeNull();
   });
 
-  it('추가매수 · 후매수 금액 0 → 「—」(D-03)', () => {
+  it('줄매수 · 후매수 금액 0 → 「—」(D-03)', () => {
     expect(lcValueTextOf('extraBuyOrderAmount', values({ extraBuyOrderAmount: 0 }), null)).toBe('—');
     expect(lcValueTextOf('postBuyOrderAmount', values({ postBuyOrderAmount: 0 }), null)).toBe('—');
     expect(lcValueTextOf('extraBuyOrderAmount', values(), null)).toBeNull();
@@ -115,7 +115,7 @@ describe('② lcValueTextOf — 의미어 · 「—」 · 후매수 「재진입
     expect(lcValueTextOf('postBuyReentry', values(), null)).toBe('3회');
   });
 
-  it('재진입 — 단계 0 이어도 에코 ☐추가매수 자동이면 잔여를 보인다 (C# 「단계 ≠ 0 ∨ ☐추가매수 자동」 동형 · quick-261011-0yb)', () => {
+  it('재진입 — 단계 0 이어도 에코 ☐줄매수 자동이면 잔여를 보인다 (C# 「단계 ≠ 0 ∨ ☐줄매수 자동」 동형 · quick-261011-0yb)', () => {
     expect(
       lcValueTextOf('postBuyReentry', values(), srv({ postBuyPhase: 0, extraBuyAuto: false, postBuyReentryLeft: 2 })),
     ).toBe('3회');
@@ -156,7 +156,7 @@ describe('③ lcSummaryOf — 요약 항목 · 순서 · 꺼진 kv (UI-SPEC §3 
     expect(lcSummaryOf('pre-buy', values(), srv(), true)[0]).toEqual({ key: '금액', value: '—', off: true });
   });
 
-  it('추가매수 = 금액 → 최소 → 최대 — 의미어는 꺼진 kv 가 아니다', () => {
+  it('줄매수 = 금액 → 최소 → 최대 — 의미어는 꺼진 kv 가 아니다', () => {
     expect(lcSummaryOf('extra-buy', values({ extraBuyMinQty: 0 }), srv())).toEqual([
       { key: '금액', value: '4,000만원', off: false },
       { key: '최소', value: '1주', off: false },
@@ -169,7 +169,7 @@ describe('③ lcSummaryOf — 요약 항목 · 순서 · 꺼진 kv (UI-SPEC §3 
     });
   });
 
-  it('추가매수 버스트 해제(quick-261003-rc4 P-3) — OFF 면 종전 3항목 그대로 · ON 이면 4번째 kv 「버스트 해제 · 켬」', () => {
+  it('줄매수 버스트 해제(quick-261003-rc4 P-3) — OFF 면 종전 3항목 그대로 · ON 이면 4번째 kv 「버스트 해제 · 켬」', () => {
     expect(lcSummaryOf('extra-buy', values({ extraBuyBurstRelease: false }), srv())).toHaveLength(3);
     const on = lcSummaryOf('extra-buy', values({ extraBuyBurstRelease: true }), srv());
     expect(on).toHaveLength(4);
@@ -177,13 +177,13 @@ describe('③ lcSummaryOf — 요약 항목 · 순서 · 꺼진 kv (UI-SPEC §3 
     expect(on[3]).toEqual({ key: '버스트 해제', value: '켬', off: false });
   });
 
-  it('추가매수 제목줄 체크 「자동」 — id lc-extra-buy-auto · 접근성 이름 「추가매수 자동」 · 요약 kv 없음 (U-1 · quick-261011-0yb)', () => {
+  it('줄매수 제목줄 체크 「자동」 — id lc-extra-buy-auto · 접근성 이름 「줄매수 자동」 · 요약 kv 없음 (U-1 · quick-261011-0yb)', () => {
     const g = LC_BUY_GROUPS.find((x) => x.slot === 'extra-buy')!;
     expect(g.headerCheck).toMatchObject({
       field: 'extraBuyAuto',
       checkId: 'lc-extra-buy-auto',
       label: '자동',
-      ariaLabel: '추가매수 자동',
+      ariaLabel: '줄매수 자동',
     });
     // 제목줄 체크는 접혀도 보인다 — 요약에 ☐자동 kv 를 넣지 않는다(후매수 ☐자동과 같은 취급).
     expect(lcSummaryOf('extra-buy', values({ extraBuyAuto: true }), srv())).toEqual(
@@ -191,7 +191,7 @@ describe('③ lcSummaryOf — 요약 항목 · 순서 · 꺼진 kv (UI-SPEC §3 
     );
   });
 
-  it('추가매수 카드 마지막 행 = 체크 「버스트 해제」 · id lc-extra-buy-burst-release · 독립 축 아님(P-2)', () => {
+  it('줄매수 카드 마지막 행 = 체크 「버스트 해제」 · id lc-extra-buy-burst-release · 독립 축 아님(P-2)', () => {
     const g = LC_BUY_GROUPS.find((x) => x.slot === 'extra-buy')!;
     expect(g.rows.at(-1)).toEqual({
       kind: 'check',
@@ -201,10 +201,10 @@ describe('③ lcSummaryOf — 요약 항목 · 순서 · 꺼진 kv (UI-SPEC §3 
     });
   });
 
-  it('후매수 = 금액 → 재진입 → 최소 → 반등 → 발동잔량(0 「—」 꺼짐 · 값 있으면 정상)', () => {
+  it('후매수 = 금액 → 최대 → 최소 → 반등 → 발동잔량(0 「—」 꺼짐 · 값 있으면 정상)', () => {
     expect(lcSummaryOf('post-buy', values(), srv({ postBuyPhase: 1, postBuyReentryLeft: 2 }))).toEqual([
       { key: '금액', value: '4,000만원', off: false },
-      { key: '재진입', value: '3회 · 남은 2회', off: false },
+      { key: '최대', value: '3회 · 남은 2회', off: false },
       { key: '최소', value: '100,000주', off: false },
       { key: '반등', value: '30%', off: false },
       { key: '발동잔량', value: '—', off: true },
@@ -245,8 +245,8 @@ describe('④ lcRowA11yNameOf — 접근성 이름 접두 (D-09 · UI-SPEC 접�
     ['lc-sell-watch-qty', '10주', '매도 매수잔량 10주'],
     ['lc-cancel-watch-qty', '10주', '취소 매수잔량 10주'],
     ['lc-buy-order-amount', '4,000만원', '선매수 금액 4,000만원'],
-    ['lc-extra-buy-max-qty', '무제한', '추가매수 최대 잔량 무제한'],
-    ['lc-post-buy-reentry', '3회 · 남은 2회', '후매수 재진입 3회 · 남은 2회'],
+    ['lc-extra-buy-max-qty', '무제한', '줄매수 최대 잔량 무제한'],
+    ['lc-post-buy-reentry', '3회 · 남은 2회', '후매수 최대 3회 · 남은 2회'],
     ['lc-sweep-tick', '3건', '선매수 한방 3건'],
   ])('%s + 「%s」 → 「%s」', (id, text, name) => {
     const { group, row } = valueRow(id);
@@ -255,7 +255,7 @@ describe('④ lcRowA11yNameOf — 접근성 이름 접두 (D-09 · UI-SPEC 접�
 
   it('금액 「—」 → 「{그룹} 금액 미입력」', () => {
     const { group, row } = valueRow('lc-extra-buy-amount');
-    expect(lcRowA11yNameOf(group, row, '—')).toBe('추가매수 금액 미입력');
+    expect(lcRowA11yNameOf(group, row, '—')).toBe('줄매수 금액 미입력');
   });
 });
 
@@ -268,8 +268,8 @@ describe('⑤ 라벨 개명 · 시트 제목 (D-09 · R14 · UI-SPEC 시트 제�
     ['lc-buy-min-trade-qty', '체결량', '선매수 체결량'],
     ['lc-sweep-tick', '한방', '한방 건수'],
     ['lc-sweep-watch-price', '한방가격', '한방가격'],
-    ['lc-extra-buy-min-qty', '최소 잔량', '추가매수 최소 잔량'],
-    ['lc-post-buy-reentry', '재진입', '재진입 횟수'],
+    ['lc-extra-buy-min-qty', '최소 잔량', '줄매수 최소 잔량'],
+    ['lc-post-buy-reentry', '최대', '후매수 최대 횟수'],
     ['lc-post-buy-rebound', '반등', '후매수 반등'],
     ['lc-sell-order-price', '주문가격', '주문가격'],
     ['lc-sell-watch-qty', '매수잔량', '매수잔량'],
@@ -290,9 +290,9 @@ describe('⑥ lcRangeIssue — 반등 0~100 + 「후매수 ON 이면 1~100」 (T
     expect(lcRangeIssue(values({ postBuyReboundPct: 0, postBuyEnabled: true }))).toMatch(/^반등 · /);
   });
 
-  it('반등 101 → 「반등 · …」 · 재진입 256 → 「재진입 · …」 · 한방 256 → 「한방 · …」', () => {
+  it('반등 101 → 「반등 · …」 · 최대 256 → 「최대 · …」 · 한방 256 → 「한방 · …」', () => {
     expect(lcRangeIssue(values({ postBuyReboundPct: 101 }))).toMatch(/^반등 · /);
-    expect(lcRangeIssue(values({ postBuyReentry: 256 }))).toMatch(/^재진입 · /);
+    expect(lcRangeIssue(values({ postBuyReentry: 256 }))).toMatch(/^최대 · /);
     expect(lcRangeIssue(values({ sweepMinTickCount: 256 }))).toBe('한방 · 최대 255건까지 입력할 수 있어요');
   });
 
