@@ -1,7 +1,8 @@
 ---
 phase: 27-auto-sell-integration
-verified: 2026-10-05T08:32:38Z
-status: human_needed
+verified: 2026-10-10T03:10:00Z
+round: 2
+status: passed
 score: 12/12 must-haves verified
 covered_files:
   - .planning/phases/27-auto-sell-integration/27-01-PLAN.md
@@ -22,8 +23,6 @@ covered_files:
   - .planning/phases/27-auto-sell-integration/27-08-SUMMARY.md
   - .planning/phases/27-auto-sell-integration/27-09-PLAN.md
   - .planning/phases/27-auto-sell-integration/27-09-SUMMARY.md
-  - .planning/phases/27-auto-sell-integration/27-CONTEXT.md
-  - .planning/phases/27-auto-sell-integration/27-REVIEW.md
   - docs/inbox/from-gh-trade/261004-auto-sell-wire.md
   - packages/shared/src/index.ts
   - packages/shared/src/relay.ts
@@ -34,63 +33,70 @@ covered_files:
   - relay/src/dma/envelope.ts
   - relay/src/dma/msg-type.ts
   - relay/src/generated/StockDMA.fbs
-  - relay/src/generated/stock-dma.ts
-  - relay/src/generated/stock-dma/auto-sell-command-req.ts
-  - relay/src/generated/stock-dma/cancel-reason.ts
-  - relay/src/generated/stock-dma/envelope.ts
-  - relay/src/generated/stock-dma/limit-feature.ts
-  - relay/src/generated/stock-dma/member-delta.ts
-  - relay/src/generated/stock-dma/msg-type.ts
-  - relay/src/generated/stock-dma/order-group.ts
-  - relay/src/generated/stock-dma/set-limit-chaser.ts
-  - relay/src/generated/stock-dma/strategy-event-kind.ts
-  - relay/src/generated/stock-dma/team-sim.ts
-  - relay/src/generated/stock-dma/user-settings.ts
   - relay/src/hub/subscription-hub.ts
   - relay/src/ws/fanout.ts
   - relay/src/ws/protocol.ts
   - webapp/src/components/me/limit-chaser-defaults.tsx
   - webapp/src/components/trading/card/card-body.tsx
   - webapp/src/components/trading/card/card-header.tsx
+  - webapp/src/components/trading/card/constants.ts
   - webapp/src/components/trading/card/strategy-card.tsx
   - webapp/src/components/trading/latch-led.tsx
   - webapp/src/components/trading/lc/lc-fields.ts
-  - webapp/src/components/trading/lc/number-pad-sheet.tsx
   - webapp/src/components/trading/lc/setting-group.tsx
-  - webapp/src/components/trading/lc/use-lc-field-commit.ts
   - webapp/src/components/trading/limit-chaser-form.tsx
   - webapp/src/components/trading/me-client.tsx
   - webapp/src/components/trading/strategy-log.tsx
+  - webapp/src/lib/lc-ranges.ts
   - webapp/src/lib/limit-chaser.ts
-  - webapp/src/lib/numpad.ts
   - webapp/src/lib/order-log-feed.ts
   - webapp/src/lib/relay-provider.tsx
   - webapp/src/lib/use-relay-socket.ts
-covered_digest: "v1:sha256:0177603d6b0a17cf6e9de082335085934fa2960ae2a7790c3ff0b598ecb1eb94"
+covered_digest: "v3:sha256:4baeb13cf52afbf98b976c9a0489e83f611e684ae2a306b8e4dc54a38d584b74"
 behavior_unverified: 0
 overrides_applied: 1
 overrides:
   - must_have: "20:00 KST 전에 relay 컨테이너를 바꾸지 않는다 (27-09 prohibition)"
     reason: "사용자가 「푸시 배포 해」(2026-10-05 17:02 KST)로 장중 배포를 명시 지시했다. 27-09-SUMMARY Deviation 4 가 기록하며, 배포 뒤 smoke · healthz · 로그 검증을 모두 통과했고 롤백은 없었다."
-    accepted_by: "user (명시 지시 — 27-09-SUMMARY 기준, 검증자가 SUMMARY 에서 옮겨 적음)"
+    accepted_by: "user (명시 지시 — 1라운드 보고서에서 승계)"
     accepted_at: "2026-10-05T08:02:00Z"
-human_verification:
-  - test: "운영 웹(trade.jx1.io)에서 /me 「상따 기본설정」 칩, 상따 카드 매도 탭 「자동매도」 카드, 카드 헤더 LED 4칩(매수·매도·취소·자동), 주문로그 「자동매도」 칩을 눈으로 확인한다. 배포 전부터 열려 있던 탭과 앱 WebView 는 새로고침한다."
-    expected: "/me 칩이 「서버 저장값」 또는 「서버 저장값 없음 · 내장 기본값」 이고 「불러오는 중」에 머물지 않는다. 자동매도 카드가 매도 pane 세 번째에 서고 LED 4칩과 ⓘ · ✕ 가 390px · 1280px 에서 헤더 한 줄을 지킨다. 주문로그 칩 줄이 한 줄이다."
-    why_human: "시각 배치와 실제 프로덕션 번들은 grep · 단위 테스트로 보증되지 않는다(Playwright 는 로컬 가짜 게이트웨이 대상). 27-09-SUMMARY D2b 가 「사용자 확인 대기」 로 남겼다."
-  - test: "2026-10-06 첫 거래일: WinForms 에서 자동매도를 켠 종목의 웹 카드 칩과 헤더 「자동」 LED 색을 WinForms LED 와 비교한다."
-    expected: "대기 · 완료 = 주황, 감시 · 매도중 = 초록, 꺼짐 = 회색. 칩 낱말(꺼짐 · 대기 · 감시 · 매도중 · 완료)이 WinForms 와 같다."
-    why_human: "실서버(KB 120) 가 내는 auto_sell_state 값의 시간 흐름은 가짜 게이트웨이 테스트로 재현할 수 없다."
-  - test: "2026-10-06 첫 거래일: 주문로그 「자동매도」 칩을 눌러 실제 120 저널의 kind 6 group 9 줄과 kind 11~14 줄이 문장으로 그려지는지 본다."
-    expected: "원문 숫자가 아니라 「발동 · 정정 · 상태 · VI 멈춤 · 동시호가 멈춤 · 재개」 와 주기 매도 · 동시호가 회차 문장이 선다. 모르는 사유 토큰은 원문 숫자 폴백이다."
-    why_human: "조립기 골든은 gh-trade 소스를 보고 만든 합성 행이다. 실제 저널 행의 칸 재해석(cond_actual · queue_case · ev_qty_before/after) 일치는 실행 중인 서버로만 확인된다."
-  - test: "2026-10-06 첫 거래일: 자동매도 사유 54 INFO 줄(src AutoSell)이 카드 전략 로그와 전 종목 피드에 [상따] 배지로 서는지 본다. 작업대에 카드가 여러 장일 때 다른 종목 카드에 섞여 보이는지도 함께 본다(WR-04)."
-    expected: "[상따] 배지, 원문 사유 그대로. 다른 종목 카드의 로그 · 상태줄에 남의 종목 줄이 서지 않거나, 선다면 사용자가 허용한 동작이다."
-    why_human: "실제 54 줄 빈도와 카드 N장 동시 표시는 로컬 e2e 가 재현하지 않는다. 판정은 사용자 몫이다."
-  - test: "2026-10-06 첫 거래일: /me 「상따 기본설정」 값이 WinForms 기본설정창 값과 같은지 비교한다. 사용자가 실제로 쓸 때 바로시작 · 중지(41)가 칩 전이와 거부 원문으로 반응하는지 관찰한다."
-    expected: "/me 11값 = WinForms 값(만원 단위 변환 포함). 바로시작은 칩이 「바로시작 전송…」 → 「매도중」 으로 바뀌거나 서버 원문 거부 줄이 선다."
-    why_human: "실계좌 버튼을 시험 목적으로 누르지 않는다(27-09 prohibition). 관찰은 실사용 중에만 가능하다."
+re_verification:
+  previous_status: human_needed
+  previous_score: 12/12
+  previous_report: 27-VERIFICATION.md (2026-10-05, 낡음 — 덮어쓰지 않음)
+  gaps_closed:
+    - "human 5건 — 27-UAT.md 5/5 pass (2026-10-06 첫 거래일, ca216f15). 운영 화면 · WinForms LED 색 · 저널 924행 조립기 전수 924/924 · 54 i/a 축 · /me 11값 사용자 눈 대조"
+    - "리뷰 WR-01~05 — 5/5 닫힘 (def26175 · 1b08002a · 5fd3b29a · 5d51b609 · a901b8c5). 1라운드가 「후속 수정 권고」로 남겼던 41 전용 상태 분리 · 키별 server 해제 · isin 필터가 그대로 구현됨"
+    - "리뷰 IN-01~06 — 6/6 닫힘 (cf6323ed · 22312908 · 2d21c033 · 6d54e068/4f0d1c86 · 44d2c28e · a652152b). 27-REVIEW-R2.md 가 diff 단위로 재판정"
+  gaps_remaining: []
+  regressions: []
+gaps: []
+deferred: []
+warnings:
+  - id: WR-R2-01
+    severity: low
+    item: "3초 무응답 뒤 늦게 도착한 41 거부가 「미반영」을 거두지 않는다 — 거부 원문과 「서버 응답을 기다리고 있어요」가 동시에 선다 (WR-03 수정이 만든 회귀)"
+    where: "webapp/src/components/trading/card/strategy-card.tsx:696-697 · 709-715 · 832-842 (코드에서 확인)"
+    status: "advisory — 표시 모순 한 줄. 주문 경로 · 데이터 손실 없음, fail-visible 방향, 서버 state 가 start 가능이면 바로시작 버튼이 열려 있어 다시 누르면 거둬진다. 목표 truth 5 의 대기 중 거부 · 기대 전이 해제 · 3초 미반영은 그대로 성립"
+  - id: WR-R2-02
+    severity: low
+    item: "무응답 41 「미반영」이 전략 삭제(server null) · 자동매도 끄기 뒤에도 키 변경 전까지 남는다. 삭제 뒤에는 두 버튼이 모두 잠겨 사용자가 걷을 수도 없다 (WR-03 수정이 만든 회귀)"
+    where: "webapp/src/components/trading/card/strategy-card.tsx:537-548 · 570-582 · 484-497, webapp/src/lib/limit-chaser.ts:1008-1012 (코드에서 확인)"
+    status: "advisory — 무응답 41 이 먼저 있어야 하고(UAT 기간 relay 41 실패 경로 로그 0), 그 뒤 삭제/끄기를 해야 한다. 상태줄 한 줄이 낡을 뿐 주문 경로에 영향 없음. 실패 사실은 error 로그 줄로 이미 영속"
+  - id: IN-R2-01..04
+    severity: info
+    item: "isLimitChaserArmRejection 이 relay kind 태그를 안 봄 · /me 42 다중 위반 칸 교착 · lc-ranges.ts 머리 주석 · IN-05 fix 보고서의 계층 불변식 문장 부정확"
+    where: "27-REVIEW-R2.md"
+    status: "info — 처분은 27-REVIEW-R2-DISPOSITION.md 에서 관리(6건 open)"
+  - id: UI-REVIEW
+    severity: info
+    item: "27-UI-REVIEW.md 17/24 — 바로시작 · 중지 비활성 사유 비노출(D-05 의도), 글자 크기 척도 난립, 바로시작 상승색 채움"
+    where: "27-UI-REVIEW.md"
+    status: "advisory — 시각 위계 권고. 네 표면은 UAT 1 에서 사용자 눈으로 pass"
+human_verification: []
 ---
+
+> **정본 frontmatter 는 2라운드(27-VERIFICATION-R2.md, 2026-10-10)로 승계됨.** 아래 본문은 1라운드(2026-10-05) 기록 그대로다.
 
 # Phase 27: 자동매도 연동 — gh-trade Phase 28 와이어 계약 반영 Verification Report
 
