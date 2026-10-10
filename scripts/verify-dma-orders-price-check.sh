@@ -15,9 +15,9 @@ set -euo pipefail
 #                                                                     # 그 버전 **이하**만 재생 (수정 전 = RED 재현)
 #   bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_orders_modified.test.sql
 #                                                                     # 다른 회귀 파일 (기본 = dma_orders_price_check.test.sql)
-#   bash scripts/verify-dma-orders-price-check.sh --with supabase/tests/fixtures/29_pre_rename.sql --with supabase/deploy-window/29/01_gateway_key_rename.sql --test supabase/tests/gateway_key_rename.test.sql
+#   bash scripts/verify-dma-orders-price-check.sh --until 20261006200300 --with supabase/tests/fixtures/29_pre_rename.sql --with supabase/migrations/20261007200000_gateway_key_rename.sql --test supabase/tests/gateway_key_rename.test.sql
 #                                                                     # --with <sql> (반복 가능): 마이그레이션 재생 뒤 · 테스트 전에 주어진 순서대로 적용
-#                                                                     # (Phase 29 Plan 09 — 배포 창 SQL · 픽스처. 상대 경로는 저장소 루트 기준)
+#                                                                     # (Phase 29 Plan 09 · 29-26 — 픽스처 · 마이그레이션/롤백 SQL. 상대 경로는 저장소 루트 기준)
 #
 # 종료 코드: TAP 에 `not ok` 가 1줄이라도 있거나 psql 이 실패하면 non-zero.
 #   (인자 오류 · 없는 파일 = 2, --with 적용 실패 = 5 — 마이그레이션 재생 실패와 같은 코드)

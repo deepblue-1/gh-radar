@@ -1,10 +1,8 @@
 -- ============================================================
 -- Phase 29 Plan 09 Task 2 — 가시성 뷰 v2 매트릭스 pgTAP (D-05 · D-21 · ADMIN-03).
 --
--- 실행(개명 불필요 — 픽스처는 새 키로 직접 만든다):
---   bash scripts/verify-dma-orders-price-check.sh \
---     --with supabase/deploy-window/29/02_dma_visibility_v2.sql \
---     --test supabase/tests/dma_visibility_v2.test.sql
+-- 실행(픽스처는 새 키로 직접 만든다 · 29-26 배포 뒤 v2 는 migrations 에 있어 옵션 없이 전 재생):
+--   bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_visibility_v2.test.sql
 -- — 일회용 로컬 컨테이너에서만 돈다(공유 · 원격 DB 접촉 0). 전체가 한 트랜잭션이고 끝에서 ROLLBACK 한다.
 --
 -- 잠그는 것:

@@ -1,13 +1,14 @@
 -- ============================================================
 -- Phase 29 Plan 09 Task 2 — 개명 ↔ 역개명 왕복 pgTAP (D-12 롤백 · ADMIN-01).
 --
--- 실행(순서 그대로 — 옛 키 픽스처 → 개명 → 가시성 v2 → 롤백 역개명 → 이 테스트):
---   bash scripts/verify-dma-orders-price-check.sh \
+-- 실행(순서 그대로 — 개명 직전 버전까지 재생 → 옛 키 픽스처 → 개명 → 가시성 v2 → 롤백 역개명 → 이 테스트):
+--   bash scripts/verify-dma-orders-price-check.sh --until 20261006200300 \
 --     --with supabase/tests/fixtures/29_pre_rename.sql \
---     --with supabase/deploy-window/29/01_gateway_key_rename.sql \
---     --with supabase/deploy-window/29/02_dma_visibility_v2.sql \
+--     --with supabase/migrations/20261007200000_gateway_key_rename.sql \
+--     --with supabase/migrations/20261007200100_dma_visibility_v2.sql \
 --     --with supabase/rollback/29-gateway-key-rename-revert.sql \
 --     --test supabase/tests/gateway_key_rename_revert.test.sql
+-- (29-26 배포 뒤: 개명 · v2 는 migrations 에 있다 — --until 로 끊고 같은 파일을 --with 로 순서대로 건다.)
 -- — 일회용 로컬 컨테이너에서만 돈다(공유 · 원격 DB 접촉 0). 전체가 한 트랜잭션이고 끝에서 ROLLBACK 한다.
 --
 -- 잠그는 것(왕복 = 픽스처 상태와 같다):

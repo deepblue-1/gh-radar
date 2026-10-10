@@ -154,7 +154,7 @@ VM 변경 · 알림 동기화 전에** 사유와 함께 exit 1 이다(판정은 
 - **레지스트리 전환 전에는 정상 배포가 거부된다.** 원격 DB 에 키 개명(`KB`→`KB120` · `KYOBO`→`KYOBO119`) · `dma_servers` 반영 ·
   비밀번호 이관이 아직 없는 상태에서 임시 재배포가 KB120 · KYOBO119 관찰자를 DB 레지스트리로 바꾸지 못하게 막는다.
 - **전환은 29-25 배포 창 런북의 `bash scripts/deploy-relay.sh --registry-cutover` 1회뿐이다** — 옛 relay 정지 → 개명 ·
-  가시성 v2 마이그레이션 push(`supabase/deploy-window/29/`) → 비밀번호 이관(`scripts/migrate-dma-users.ts`) 뒤. 그 1회 뒤로는
+  가시성 v2 마이그레이션 push(현 `supabase/migrations/20261007200000_gateway_key_rename.sql` · `20261007200100_dma_visibility_v2.sql`) → 비밀번호 이관(`scripts/migrate-dma-users.ts`) 뒤. 그 1회 뒤로는
   실행 중 값이 `db` 라 플래그 없이 정상 배포가 열린다.
 - **그 사이 재배포가 꼭 필요하면** 레거시 env-host 모드로 폴백하지 않는다 — 두 호스트를 명시한 롤백 경로뿐이다:
   `DMA_HOST=<KB 주소> DMA_KYOBO_HOST=<교보 주소|off> bash scripts/deploy-relay.sh --rollback <현재 태그>`

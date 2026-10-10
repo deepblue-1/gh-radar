@@ -3,9 +3,9 @@
 --
 -- 러너 `--with` 로만 쓴다(마이그레이션 재생 뒤 · 테스트 전). 테스트와 달리 COMMIT 한다 — 다음 `--with`
 -- (배포 창 개명 SQL)가 이 행들 위에서 돌아야 하기 때문이다. 컨테이너는 러너가 지우므로 남지 않는다.
---   bash scripts/verify-dma-orders-price-check.sh \
+--   bash scripts/verify-dma-orders-price-check.sh --until 20261006200300 \
 --     --with supabase/tests/fixtures/29_pre_rename.sql \
---     --with supabase/deploy-window/29/01_gateway_key_rename.sql \
+--     --with supabase/migrations/20261007200000_gateway_key_rename.sql \
 --     --test supabase/tests/gateway_key_rename.test.sql
 --
 -- 계좌 · id · 주문번호는 전부 가짜 값이다. 이벤트 JSON 모양은 dma_journal_apply.test.sql 의 pg_temp.ev 와 같다

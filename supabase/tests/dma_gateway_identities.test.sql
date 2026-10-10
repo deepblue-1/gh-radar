@@ -14,7 +14,9 @@
 --     주문 이벤트는 그 계좌 가시 사용자만 · 주문 1건 이벤트는 행이 보이는 사용자만 · 권한 재명시
 --   - 수명: 자격증명 삭제 → 연결 행이 남아도 가시 집합 0 · 사용자 삭제 → 연결 cascade
 --
--- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_gateway_identities.test.sql`
+-- 실행: `bash scripts/verify-dma-orders-price-check.sh --until 20261006200300 --test supabase/tests/dma_gateway_identities.test.sql`
+-- — 옛 키('KB' · 기본값 'KB') · 옛 뷰 회귀라 Phase 29 키 개명(20261007200000) 직전 버전까지만 재생한다(29-26).
+--   개명 · 가시성 v2 뒤 의미는 gateway_key_rename · dma_visibility_v2 테스트가 잠근다.
 -- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(공유 · 원격 DB 접촉 0).
 -- 전체가 한 트랜잭션이고 끝에서 ROLLBACK 한다.
 --

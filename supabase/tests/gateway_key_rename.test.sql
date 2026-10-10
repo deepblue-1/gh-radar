@@ -1,11 +1,12 @@
 -- ============================================================
 -- Phase 29 Plan 09 Task 1 — 게이트웨이 키 in-place 개명 트레이서 pgTAP (D-12 · ADMIN-01 · RESEARCH Pitfall 1).
 --
--- 실행(순서 그대로 — 옛 키 픽스처 → 배포 창 개명 SQL → 이 테스트):
---   bash scripts/verify-dma-orders-price-check.sh \
+-- 실행(순서 그대로 — 개명 직전 버전까지 재생 → 옛 키 픽스처 → 개명 마이그레이션 → 이 테스트):
+--   bash scripts/verify-dma-orders-price-check.sh --until 20261006200300 \
 --     --with supabase/tests/fixtures/29_pre_rename.sql \
---     --with supabase/deploy-window/29/01_gateway_key_rename.sql \
+--     --with supabase/migrations/20261007200000_gateway_key_rename.sql \
 --     --test supabase/tests/gateway_key_rename.test.sql
+-- (29-26 배포 뒤: 개명은 migrations 로 들어갔다 — 전 재생이면 픽스처가 개명 뒤에 들어가 의미가 없으므로 --until 로 끊는다.)
 -- — 일회용 로컬 컨테이너에서만 돈다(공유 · 원격 DB 접촉 0). 전체가 한 트랜잭션이고 끝에서 ROLLBACK 한다.
 --
 -- 잠그는 것:
