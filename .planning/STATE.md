@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 29
 current_phase_name: DMA 다중 서버 · 웹 Admin 유저 관리
 status: executing
-stopped_at: Completed 29-39-PLAN.md
-last_updated: "2026-10-10T16:53:17.790Z"
+stopped_at: Completed 29-44-PLAN.md
+last_updated: "2026-10-10T17:16:12.374Z"
 last_activity: 2026-10-10
 last_activity_desc: Phase 29 execution started
-state_head: 188e614969e78690d9f64b8496f431a72bc3f1ea
+state_head: ac83aa89818136713520f88c3e1862a7ec5200e4
 progress:
   total_phases: 38
   completed_phases: 24
   total_plans: 421
-  completed_plans: 403
+  completed_plans: 404
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 29 (DMA 다중 서버 · 웹 Admin 유저 관리) — EXECUTING
-Plan: 11 of 44
+Plan: 12 of 44
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-10-10 — Phase 29 execution started
@@ -238,6 +238,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 29 P37 | 9 min | 3 tasks | 11 files |
 | Phase 29 P38 | 13min | 3 tasks | 13 files |
 | Phase 29 P39 | 11 min | 2 tasks | 9 files |
+| Phase 29 P44 | 17 min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -672,6 +673,10 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 29]: 29-38: 계좌 줄 주문 서버 칸은 개요 active 등록 서버(레지스트리 순)로만 · 증권사 단위 이름은 「기본 주문 서버」 · 계좌 안내 문장은 gh-trade-84 ②(가) 뒤 문장(목업 A 대비 유일한 이탈)
 - [Phase 29]: 29-39: 작업대 계좌 필 옵션 「 · 서버키」 꼬리표 + 고른 계좌 서버 키 칩(채택 A) · 상태줄 끝 끄기 미확인 경고(닫기 없음)와 되돌아옴 클라 대사 안내(× 탭 로컬) — relay 계좌 필드는 표시 전용
 - [Phase 29]: 29-39: order.server 프레임 · orderServerNotices · RelayOrderServerMsg/Broker 제거 — 그 프레임은 모르는 t 로 무시
+- [Phase 29]: 29-44: 트래커 기준선은 지정 첫 적재 뒤에만(index 는 accountOrderServers.ready() 직후 1회) — 미적재 사본 기준선은 부팅마다 대량 sweep
+- [Phase 29]: 29-44: 옛 서버 끄기 네 갈래(29-36 연결 중 · sweepMoved · 로그인 백스톱 · 60초 재시도)는 지금 유효 서버(effective)를 끄지 않고 진행 중 집합(#sweepInFlight) 하나를 공유한다
+- [Phase 29]: 29-44: 확인 기록(#confirmedOwner · 확인 당시 소유 서버)과 clearIfOwner 는 fanout 에 둔다 · 백스톱은 레지스터 미확인 키를 건너뛴다(60초 재시도 몫)
+- [Phase 29]: 29-44: userIdOf 를 못 찾는 DMA 유저는 warn 1줄(수만) · userIdOf 는 DMA 권한 행 먼저, viewer 연결도 찾아 no-session 으로 보이게
 
 ### Pending Todos
 
@@ -713,8 +718,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-10-10T16:53:16.884Z
-Stopped at: Completed 29-39-PLAN.md
+Last session: 2026-10-10T17:15:52.567Z
+Stopped at: Completed 29-44-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
