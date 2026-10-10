@@ -254,3 +254,9 @@ None - no external service configuration required.
 ---
 *Phase: 29-dma-multi-server-admin*
 *Completed: 2026-10-11*
+
+## Self-Check: PASSED
+
+- 파일: effective-owner-tracker.ts · effective-owner-tracker.test.ts · RED 증거 2 · SUMMARY 존재
+- 커밋 4개(03ea6d4a · 4704c0a4 · 78e7406a · 4a1bfdeb) HEAD 조상 · evaluation-scope resolved(plan-subjects)
+- 태스크 acceptance grep 전부 통과(EffectiveOwnerTracker 1 · userIdOf 2 · dmaUserIds 1 · sweepMoved fanout 8/index 2 · STALE_STRATEGY_RETRY_MS 3 · startStaleRetry index 2 · clearIfOwner 4) · 플랜 verify 두 번(Task 1 49 · Task 2 54) · 신규 파일 3회 반복 green · 전체 relay 57 files · 1402 green
