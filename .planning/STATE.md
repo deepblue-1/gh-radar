@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 29
 current_phase_name: DMA 다중 서버 · 웹 Admin 유저 관리
 status: executing
-stopped_at: Completed 29-32-PLAN.md
-last_updated: "2026-10-10T14:19:40.772Z"
+stopped_at: Completed 29-33-PLAN.md
+last_updated: "2026-10-10T14:35:49.588Z"
 last_activity: 2026-10-10
 last_activity_desc: Phase 29 execution started
-state_head: cf63d6ebe085a6f54cbd0d663d41176340207538
+state_head: 4389f85f5f760ad0ca20bad0a2400b3c5a58cdae
 progress:
   total_phases: 38
   completed_phases: 24
   total_plans: 421
-  completed_plans: 394
+  completed_plans: 395
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 29 (DMA 다중 서버 · 웹 Admin 유저 관리) — EXECUTING
-Plan: 2 of 44
+Plan: 3 of 44
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-10-10 — Phase 29 execution started
@@ -229,6 +229,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 29 P24 | 16 min | 3 tasks | 9 files |
 | Phase 29 P25 | 50min | 3 tasks | 3 files |
 | Phase 29 P32 | 10 min | 3 tasks | 13 files |
+| Phase 29 P33 | 10 min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -641,6 +642,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 29]: Express relayAdminTimeoutMs 기본 15000(relay 마감 10초 + 여유 · 브라우저 20초 안) — Cloud Run env 가 12000 을 명시했으면 29-41 에서 확인
 - [Phase 29]: quote-primary DB 실패 되돌리기는 응답 뒤 비동기 · message 「옛 서버로 되돌리는 중」
 - [Phase 29]: WR-01: planner op 2 가 계획 때 removing 계좌번호(accountNos)를 싣고 reconcile op 2 settle 은 그 행만(p_user_removed=false) — 전 행 settle 은 유저 삭제 경로 전용
+- [Phase 29]: 29-33 G-1 relay 라우팅: 운영 경로는 (유저, 서버) 키 acquireOn 만 쓰고 세션 allowedAccounts 는 유효 주문 서버 소유 뷰(declaredAccounts = 원본) — 지정 적재 첫 성공 전 wss 인증은 failed + 1011, 지정 서버 미반영 계좌는 어느 세션도 소유하지 않는다
+- [Phase 29]: 29-33 라우팅 계산(effectiveOrderServer · serversFor)은 relay/src/access/account-order-servers.ts createOrderServerRouting 순수 함수 — index 는 결선만, 테스트가 같은 함수를 검증
 
 ### Pending Todos
 
@@ -681,8 +684,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-10-10T14:19:39.891Z
-Stopped at: Completed 29-32-PLAN.md
+Last session: 2026-10-10T14:35:42.106Z
+Stopped at: Completed 29-33-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
