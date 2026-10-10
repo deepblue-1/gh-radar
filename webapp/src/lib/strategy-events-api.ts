@@ -11,7 +11,7 @@
  * ③ 응답은 bare array 다 (`orders-api.ts` ④ 규약) — envelope 을 언랩하지 않는다. 행은 shared
  *   `toStrategyEventRow` 를 지난 공개 camelCase 45키(`StrategyEventRow`)이고 `gw_time_ms, gateway, seq` 오름차순이다.
  *
- * ④ D-18 — `lf=1` 일 때만 kind 15(상한가 특징 · 분당 · 키당 1행)가 실린다. 기본 조회는 서버가 kind 15 를 뺀다(28-02).
+ * ④ D-18 — `lf=1` 일 때만 kind 15(상한가 특징 · 키당 분당 최대 1행 — 값이 바뀐 분만)가 실린다. 기본 조회는 서버가 kind 15 를 뺀다(28-02).
  *   주문로그 「상한가 특징」 체크가 켜질 때만 `{ limitFeature: true }` 로 한 번 더 부른다(`use-order-log-feed.ts` ⑥).
  *   쿼리 순서는 `date` → `lf` 다.
  */

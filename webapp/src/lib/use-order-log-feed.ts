@@ -26,7 +26,7 @@
  * ⑤ 실패는 `status: "error"` 로 수렴한다(사유를 풀어 쓰지 않는다 — 할 일은 「다시 시도」 하나). 복원이 실패해도
  *   푸시로 온 줄은 rows 에 그대로 있다.
  *
- * ⑥ Phase 28 D-18 · D-07 — 「상한가 특징」 체크(`showLimitFeature`). kind 15(분당 · 키당 1행)는 기본 조회에서 빠지고
+ * ⑥ Phase 28 D-18 · D-07 — 「상한가 특징」 체크(`showLimitFeature`). kind 15(키당 분당 최대 1행 · 값이 바뀐 분만)는 기본 조회에서 빠지고
  *   (서버 기본 = kind 15 제외) relay 스토어도 별도 목록(`limitFeatureEvents`)이라, 꺼져 있으면 이 피드의 rows · latestPush
  *   어디에도 없다. 켜면 그 날짜의 `?lf=1` 을 **날짜별 1회** 더 불러 kind 15 행만 보관하고(같은 날짜 재켜기는 캐시),
  *   오늘이면 라이브 `limitFeatureEvents` 와 합친다. 끄면 rows 에서 뺀다. relay ready 전이 때 켜져 있으면 함께 재조회하고,
