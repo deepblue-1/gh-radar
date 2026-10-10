@@ -12,7 +12,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SessionManager, type DmaCredentials, type SessionTarget } from "../src/dma/session-manager.js";
-import { StrategySweeper, isActiveLimitChaser, type StrategySweepResult } from "../src/dma/strategy-sweeper.js";
+import {
+  StaleStrategyRegister,
+  StrategySweeper,
+  isActiveLimitChaser,
+  type StrategySweepResult,
+} from "../src/dma/strategy-sweeper.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { MSG } from "../src/dma/msg-type.js";
 import {
@@ -108,8 +113,8 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
     vi.restoreAllMocks();
   });
 
-  function sweeper(): StrategySweeper {
-    return new StrategySweeper({ sessions: m, targetOf: (k) => (k === "KB120" ? target : undefined) });
+  function sweeper(opts: { stepTimeoutMs?: number; totalTimeoutMs?: number } = {}): StrategySweeper {
+    return new StrategySweeper({ sessions: m, targetOf: (k) => (k === "KB120" ? target : undefined), ...opts });
   }
 
   /** u1 의 KB120 세션을 미리 쥐고 Ready 까지 기다린다(브라우저가 쥔 세션 역할). */
@@ -339,6 +344,150 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
     }
   });
 
+  // ── Task 2 — 미확인 다섯 갈래 · 전체 시한 ────────────────────────────────────────────
+
+  it("⑩ no-session — targetOf 에 없는 서버 키 · acquireOn null → remaining null · 송신 0 · release 0", async () => {
+    const releaseSpy = vi.spyOn(m, "release");
+    const r1 = await sweeper().sweep({ userId: U1, serverKey: "KB999", broker: "KB", accountNos: [A] }, CREDS);
+    expect(r1).toEqual({ ok: false, reason: "no-session", remaining: null, disabledLimitChasers: 0, viDisabled: 0 });
+
+    const nullSessions = new StrategySweeper({
+      sessions: { acquireOn: () => null, release: () => undefined, sessionsOf: () => [] },
+      targetOf: () => target,
+    });
+    const r2 = await nullSessions.sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS);
+    expect(r2).toEqual({ ok: false, reason: "no-session", remaining: null, disabledLimitChasers: 0, viDisabled: 0 });
+    expect(sweepTypes()).toHaveLength(0);
+    expect(releaseSpy).not.toHaveBeenCalled();
+  });
+
+  it("⑪ not-ready — 스텁이 LoginReq 에 답하지 않으면 단계 시한 뒤 not-ready · release 1 · 조회 0", async () => {
+    gw.silenceLogin();
+    const releaseSpy = vi.spyOn(m, "release");
+
+    const result = await sweeper({ stepTimeoutMs: 200 }).sweep(
+      { userId: U2, serverKey: "KB120", broker: "KB", accountNos: [A] },
+      CREDS,
+    );
+
+    expect(result).toEqual({ ok: false, reason: "not-ready", remaining: null, disabledLimitChasers: 0, viDisabled: 0 });
+    expect(releaseSpy).toHaveBeenCalledTimes(1);
+    expect(sweepTypes()).toHaveLength(0);
+  });
+
+  it("⑫ timeout — 65 가 오지 않으면(60 에코만) 그 14 뒤 단계 시한 → timeout · remaining = 마지막으로 읽은 켜진 수", async () => {
+    await readySessionOf(U1);
+    gw.handleDisableStrategies({ respond65: false });
+    gw.respondLimitChaserList([on(ISIN1, A), on(ISIN2, A)]);
+
+    const result = await sweeper({ stepTimeoutMs: 200 }).sweep(
+      { userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] },
+      CREDS,
+    );
+
+    expect(result).toEqual({ ok: false, reason: "timeout", remaining: 2, disabledLimitChasers: 0, viDisabled: 0 });
+    expect(disabledKeys()).toHaveLength(1);
+  });
+
+  it("⑬ timeout — 21(NXT) 에 답하지 않으면(KRX 61 은 옴) 조회 미완 → remaining null · 14 · 11 0건", async () => {
+    await readySessionOf(U1);
+    gw.respondLimitChaserList([on(ISIN1, A)]);
+    gw.respondViTriggerFor("KRX", { accountNo: A, run: true, orderAmountKrw: 1_000_000n, checkRate: 25 });
+    gw.respondViTriggerFor("NXT", "silent");
+
+    const result = await sweeper({ stepTimeoutMs: 200 }).sweep(
+      { userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] },
+      CREDS,
+    );
+
+    expect(result).toEqual({ ok: false, reason: "timeout", remaining: null, disabledLimitChasers: 0, viDisabled: 0 });
+    expect(viGetExchanges()).toEqual(["KRX", "NXT"]);
+    expect(disabledKeys()).toHaveLength(0);
+    expect(viSets()).toHaveLength(0);
+  });
+
+  it("⑭ 21 은 한 번에 하나 — 21(KRX) 가 답을 못 받으면 21(NXT) 를 보내지 않는다", async () => {
+    await readySessionOf(U1);
+    gw.respondViTriggerFor("KRX", "silent");
+
+    const result = await sweeper({ stepTimeoutMs: 200 }).sweep(
+      { userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] },
+      CREDS,
+    );
+
+    expect(result).toMatchObject({ ok: false, reason: "timeout", remaining: null });
+    expect(viGetExchanges()).toEqual(["KRX"]);
+  });
+
+  it("⑮ remaining — 14 를 받아도 스위치를 내리지 않는 서버 → 65 뒤 재조회에 켜진 2 → remaining 2", async () => {
+    await readySessionOf(U1);
+    gw.handleDisableStrategies({ apply: false });
+    gw.respondLimitChaserList([on(ISIN1, A), on(ISIN2, A)]);
+
+    const result = await sweeper().sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS);
+
+    expect(result).toEqual({ ok: false, reason: "remaining", remaining: 2, disabledLimitChasers: 2, viDisabled: 0 });
+  });
+
+  it("⑯ send-failed — 세션이 도중에 Ready 를 잃어 send 가 false → send-failed · 기다리지 않는다", async () => {
+    const s = await readySessionOf(U1);
+    gw.respondLimitChaserList([on(ISIN1, A)]);
+    vi.spyOn(s, "send").mockReturnValue(false);
+
+    const result = await sweeper({ stepTimeoutMs: 5_000 }).sweep(
+      { userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] },
+      CREDS,
+    );
+
+    expect(result).toEqual({ ok: false, reason: "send-failed", remaining: null, disabledLimitChasers: 0, viDisabled: 0 });
+  });
+
+  it("⑰ 전체 시한(가짜 타이머 20초) 초과 → timeout · 프레임 리스너 해제 · release 1", async () => {
+    const s = await readySessionOf(U1);
+    const baseline = s.listenerCount("frame");
+    gw.silenceQuery(MSG.GetLimitChaserListReq);
+    const releaseSpy = vi.spyOn(m, "release");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+
+    const pending = sweeper({ stepTimeoutMs: 60_000 }).sweep(
+      { userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] },
+      CREDS,
+    );
+    await waitFor(() => sweepTypes().length === 1, "24 송신");
+    await vi.advanceTimersByTimeAsync(19_999);
+    let settled = false;
+    void pending.then(() => {
+      settled = true;
+    });
+    await flushIo();
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    const result = await pending;
+
+    expect(result).toEqual({ ok: false, reason: "timeout", remaining: null, disabledLimitChasers: 0, viDisabled: 0 });
+    expect(s.listenerCount("frame")).toBe(baseline);
+    expect(releaseSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("⑱ 실패 로그는 warn 1줄 — reason · remaining · 서버 키만", async () => {
+    const { logger } = await import("../src/logger.js");
+    const warns: unknown[][] = [];
+    vi.spyOn(logger, "warn").mockImplementation(((...args: unknown[]) => {
+      warns.push(args);
+    }) as never);
+    await readySessionOf(U1);
+    gw.handleDisableStrategies({ apply: false });
+    gw.respondLimitChaserList([on(ISIN1, A)]);
+    warns.length = 0;
+
+    await sweeper().sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS);
+
+    const mine = warns.filter((w) => String(w[1]).includes("전략 끄기"));
+    expect(mine).toHaveLength(1);
+    expect(Object.keys(mine[0]?.[0] as object).sort()).toEqual(["reason", "remaining", "serverKey"]);
+    expect(mine[0]?.[0]).toEqual({ serverKey: "KB120", reason: "remaining", remaining: 1 });
+  });
+
   it("isActiveLimitChaser — 5스위치 OR autoSellState !== 0", () => {
     const base = {
       buyEnabled: false,
@@ -357,5 +506,52 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
     expect(isActiveLimitChaser(item({ autoSellEnabled: true }))).toBe(true);
     expect(isActiveLimitChaser(item({ autoSellState: 1 }))).toBe(true);
     expect(isActiveLimitChaser(item({ autoSellState: 4 }))).toBe(true);
+  });
+});
+
+describe("StaleStrategyRegister — 끄지 못한 계좌 (29-43)", () => {
+  const entry = (patch: Partial<Parameters<StaleStrategyRegister["set"]>[0]> = {}) => ({
+    userId: U1,
+    dmaUserId: "dma-1",
+    serverKey: "KB120",
+    accountNo: A,
+    remaining: 2 as number | null,
+    reason: "timeout" as const,
+    at: 1_000,
+    ...patch,
+  });
+
+  it("같은 (userId, serverKey, accountNo) 두 번 → 항목 1 · attempts 2 · since 첫 값 유지 · 마지막 값 갱신", () => {
+    const reg = new StaleStrategyRegister();
+    reg.set(entry());
+    reg.set(entry({ at: 2_000, remaining: 1, reason: "remaining" }));
+    expect(reg.all()).toEqual([
+      {
+        userId: U1,
+        dmaUserId: "dma-1",
+        serverKey: "KB120",
+        accountNo: A,
+        remaining: 1,
+        reason: "remaining",
+        since: 1_000,
+        attempts: 2,
+        lastAttemptAt: 2_000,
+      },
+    ]);
+  });
+
+  it("confirm → 사라짐 · pendingFor 는 그 사용자 것만 · byServer 는 서버별 끄지 못한 계좌 수", () => {
+    const reg = new StaleStrategyRegister();
+    reg.set(entry());
+    reg.set(entry({ accountNo: B }));
+    reg.set(entry({ userId: U2, serverKey: "KB121", accountNo: C }));
+    expect(reg.byServer()).toEqual(new Map([["KB120", 2], ["KB121", 1]]));
+    expect(reg.pendingFor(U1).map((e) => e.accountNo).sort()).toEqual([A, B].sort());
+    expect(reg.pendingFor(U2).map((e) => e.accountNo)).toEqual([C]);
+
+    expect(reg.confirm(U1, "KB120", A)).toBe(true);
+    expect(reg.confirm(U1, "KB120", A)).toBe(false);
+    expect(reg.byServer()).toEqual(new Map([["KB120", 1], ["KB121", 1]]));
+    expect(reg.pendingFor(U1).map((e) => e.accountNo)).toEqual([B]);
   });
 });
