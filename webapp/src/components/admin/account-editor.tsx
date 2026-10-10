@@ -18,12 +18,12 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { putDmaAccount, removeDmaAccount } from "@/lib/admin-api";
+import { putDmaAccount, removeDmaAccount, setAccountOrderServer } from "@/lib/admin-api";
 import { cn } from "@/lib/utils";
 
 import { ADMIN_BUTTON_PRIMARY, ADMIN_BUTTON_SECONDARY, ReflectChip } from "./reflect-chip";
-import { ADMIN_SEGMENT_ITEM, ADMIN_SEGMENT_ROOT } from "./role-segment";
-import { useFieldSave } from "./use-field-save";
+import { ADMIN_FLASH_CLASS, ADMIN_SEGMENT_ITEM, ADMIN_SEGMENT_ROOT } from "./role-segment";
+import { useFieldSave, type FieldSave } from "./use-field-save";
 
 /**
  * AccountEditor — 편집 시트 「계좌 · 등록 서버」 (Phase 29 D-14 · D-15 · D-23 ③④⑤ · 목업 A `acct()`).
@@ -43,6 +43,14 @@ import { useFieldSave } from "./use-field-save";
  * 마지막 계좌 「제거」 는 서버 409 `LAST_ACCOUNT` 를 기다리지 않고 화면이 먼저 안다 — `onRemoveLast`(시트가 확인 1회 뒤
  * 사용자 삭제). 켜진 서버가 1대인 계좌는 그 토글을 끌 수 없다 — 비활성 + `title` 「계좌는 서버 1대 이상」, 안내 문장은
  * 계좌마다 되풀이하지 않고 영역 아래 한 번(목업 하단 note 자리).
+ *
+ * **주문 서버(29-38 G-1 ⑦ · 29-30 채택 admin-control A — `mockup-g1-account-order-server.html` 변형 A).** 서버 칩 줄 아래 한 줄
+ * `주문 서버 [기본 · KB120][KB120][KB121]` 세그먼트. 칸 = 「기본 · <증권사 기본 주문 서버>」 + 그 계좌의 **active 등록 서버**(레지스트리
+ * 순 — removing · 미등록 · 다른 증권사 서버는 칸이 없다). 등록 서버가 1대면 세그먼트 없이 「주문 서버 <키>(기본)」 글자만. 꺼진 서버 칸은
+ * 취소선 · 흐림 · 누를 수 없음 · 꺼진 서버가 지정돼 있으면 그 칸이 켜진 채 경고색 + 카드 아래 「<키> 꺼짐 — 기본 <기본> 으로」(relay 는
+ * 기본값으로 보낸다). 고르면 즉시 `PUT …/order-server` 1건(D-15 · `useFieldSave` — 비행 중엔 마지막 값만) · 409 등은 계좌 오류 줄 ·
+ * 저장 뒤 첫 재조회 값이 정본(`releaseOn` = 계좌 뷰). 87 에만 있는 계좌 줄에는 없다(D-23 ⑤ 보기만).
+ * 영역 안내 문장은 목업 A 문장(답 이전)이 아니라 gh-trade-84 ②(가) 뒤 문장이다 — 전략은 relay 가 끈다 · 되돌릴 때 클라(OCX) 대사.
  */
 
 export const ACCOUNT_EDITOR_TEXT = {
@@ -57,6 +65,14 @@ export const ACCOUNT_EDITOR_TEXT = {
   submit: "추가",
   cancel: "취소",
   duplicate: "이미 있는 계좌 — 위 계좌 줄에서 서버를 고르세요",
+  /** 계좌 줄 컨트롤 이름(29-38) — 증권사 단위는 /admin/servers 의 「기본 주문 서버」. */
+  orderServer: "주문 서버",
+  orderServerDefault: (defaultKey: string | null) => (defaultKey ? `기본 · ${defaultKey}` : "기본"),
+  orderServerDefaultSuffix: "(기본)",
+  orderServerOff: (key: string, defaultKey: string | null) => `${key} 꺼짐 — 기본 ${defaultKey ?? "서버"} 으로`,
+  /** gh-trade-84 ②(가) 뒤 문장 — 목업 A 의 「옛 서버의 미체결 · 전략은 그 서버에서 …」 는 답 이전 것이라 바꿨다. */
+  orderServerNote:
+    "주문 서버를 바꾸면 relay 가 옛 서버에 남은 그 계좌의 활성 전략(상따 · VI · 자동매도)을 끄고 새 서버로 바로 재접속해요 — 옛 서버의 미체결은 그 서버(클라)에서 정리하고, 옛 서버로 되돌릴 때는 클라(OCX) 대사로 잔고를 맞추세요.",
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -245,6 +261,17 @@ const SERVER_PILL =
 const PILL_CHIP = "rounded-[4px] px-[5px] py-px text-[10.5px]";
 const NOTE = "mt-1.5 text-[12px] leading-[1.5] break-keep text-[var(--muted-fg)]";
 const ERROR_LINE = "mt-1.5 text-[12.5px] break-keep text-[var(--destructive)]";
+/**
+ * 주문 서버 세그먼트 칸 — 역할 세그먼트(`ADMIN_SEGMENT_ITEM` · 폰 36px · 데스크톱 28px)에 목업 A `.ord .seg span`(12.5px · 4px 10px).
+ * 꺼진 칸 = 취소선 · `--faint` · 누를 수 없음 / 꺼졌는데 지정된 칸 = 켜진 채 경고색(`--led-latent`).
+ */
+const ORDER_SEGMENT_ITEM = cn(ADMIN_SEGMENT_ITEM, "px-2.5 text-[12.5px] disabled:opacity-100");
+const ORDER_ITEM_OFF = "line-through text-[var(--faint)]";
+const ORDER_ITEM_OFF_ON = "line-through text-[var(--led-latent)]! data-[state=on]:text-[var(--led-latent)]!";
+const WARN_LINE = "mt-1.5 text-[12px] leading-[1.5] break-keep text-[var(--led-latent)]";
+/** 「기본」 칸의 토글 값 — Radix 단일 토글의 "" 는 「선택 해제」 라 따로 둔다. */
+const ORDER_DEFAULT_VALUE = "__default__";
+
 /** 성공 플래시 — 켜진 체크 칸을 성공 토큰으로 0.7초. */
 const ROW_FLASH = "[&_[data-state=checked]]:border-[var(--led-armed)]! [&_[data-state=checked]]:bg-[var(--led-armed)]!";
 
@@ -283,6 +310,8 @@ interface AccountRowProps {
   dmaUserId: string;
   /** 이 계좌 증권사의 서버 키(레지스트리 순). */
   candidates: readonly string[];
+  /** 이 계좌 증권사의 레지스트리 전체(꺼진 서버 포함 · 레지스트리 순) — 주문 서버 칸 순서 · 꺼짐 판정. */
+  registry: AdminUsersOverview["servers"];
   overlay: Overlay;
   /** 이 계좌가 마지막 계좌인가 — 「제거」 가 사용자 삭제로 간다. */
   last: boolean;
@@ -291,7 +320,17 @@ interface AccountRowProps {
   onRemoveLast: () => void;
 }
 
-function AccountRow({ account, dmaUserId, candidates, overlay, last, onResults, onChanged, onRemoveLast }: AccountRowProps) {
+function AccountRow({
+  account,
+  dmaUserId,
+  candidates,
+  registry,
+  overlay,
+  last,
+  onResults,
+  onChanged,
+  onRemoveLast,
+}: AccountRowProps) {
   const key = accountKeyOf(account.broker, account.accountNo);
 
   const toggle = useFieldSave<string[]>(
@@ -330,7 +369,14 @@ function AccountRow({ account, dmaUserId, candidates, overlay, last, onResults, 
     return null;
   };
 
-  const error = toggle.error ?? remove.error;
+  const order = useFieldSave<string | null>(
+    async (serverKey) => {
+      await setAccountOrderServer(dmaUserId, account.broker, account.accountNo, serverKey);
+    },
+    { onSuccess: () => onChanged(), releaseOn: account },
+  );
+
+  const error = order.error ?? toggle.error ?? remove.error;
 
   return (
     <div
@@ -388,12 +434,102 @@ function AccountRow({ account, dmaUserId, candidates, overlay, last, onResults, 
           );
         })}
       </div>
+      <OrderServerControl account={account} registry={registry} save={order} />
       {error && (
         <p role="alert" data-slot="admin-account-error" className={ERROR_LINE}>
           {error}
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * 계좌 줄 「주문 서버」(29-38 · 채택 A) — 칸 = 「기본 · <기본 키>」 + active 등록 서버(레지스트리 순) · 1대면 글자만 · 꺼진 칸 잠금 ·
+ * 꺼진 지정 경고 줄. 값 = 누른 값(비행 · 재조회 전) ?? 개요 `orderServer` ?? 기본(null).
+ */
+function OrderServerControl({
+  account,
+  registry,
+  save,
+}: {
+  account: AdminAccountView;
+  registry: AdminUsersOverview["servers"];
+  save: FieldSave<string | null>;
+}) {
+  const T = ACCOUNT_EDITOR_TEXT;
+  const active = new Set(account.servers.filter((s) => s.state === "active").map((s) => s.serverKey));
+  if (active.size === 0) return null;
+  const order = registry.map((s) => s.key);
+  const registered = [...order.filter((k) => active.has(k)), ...[...active].filter((k) => !order.includes(k))];
+  const enabled = (k: string) => registry.find((s) => s.key === k)?.enabled ?? true;
+  const defaultKey = account.defaultOrderServer ?? null;
+  const saved = account.orderServer ?? null;
+  const current = save.value !== undefined ? save.value : saved;
+
+  const offWarning =
+    saved !== null && active.has(saved) && !enabled(saved) ? (
+      <p data-slot="admin-order-server-off" className={WARN_LINE}>
+        {T.orderServerOff(saved, defaultKey)}
+      </p>
+    ) : null;
+
+  if (registered.length === 1) {
+    const only = registered[0];
+    return (
+      <>
+        <div data-slot="admin-order-server" data-account={account.accountNo} className="mt-2.5 text-[12.5px] text-[var(--muted-fg)]">
+          {T.orderServer} <b className="font-semibold text-[var(--fg)]">{only}</b>
+          {current === null || current === only ? T.orderServerDefaultSuffix : null}
+        </div>
+        {offWarning}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div
+        data-slot="admin-order-server"
+        data-account={account.accountNo}
+        data-state={save.state}
+        className="mt-2.5 flex flex-wrap items-center gap-2"
+      >
+        <span className="text-[12px] text-[var(--muted-fg)]">{T.orderServer}</span>
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          value={current ?? ORDER_DEFAULT_VALUE}
+          aria-label={`${account.broker} ${account.accountNo} ${T.orderServer}`}
+          onValueChange={(v) => {
+            // 켜진 칸을 다시 누르면 Radix 가 "" 를 준다 — 해제는 없다(늘 하나).
+            if (v === "") return;
+            const next = v === ORDER_DEFAULT_VALUE ? null : v;
+            if (next !== current) save.run(next);
+          }}
+          className={cn(ADMIN_SEGMENT_ROOT, save.state === "flash" && ADMIN_FLASH_CLASS)}
+        >
+          <ToggleGroupItem value={ORDER_DEFAULT_VALUE} className={ORDER_SEGMENT_ITEM}>
+            {T.orderServerDefault(defaultKey)}
+          </ToggleGroupItem>
+          {registered.map((k) => {
+            const off = !enabled(k);
+            return (
+              <ToggleGroupItem
+                key={k}
+                value={k}
+                disabled={off}
+                data-off={off ? "true" : undefined}
+                className={cn(ORDER_SEGMENT_ITEM, off && (current === k ? ORDER_ITEM_OFF_ON : ORDER_ITEM_OFF))}
+              >
+                {k}
+              </ToggleGroupItem>
+            );
+          })}
+        </ToggleGroup>
+      </div>
+      {offWarning}
+    </>
   );
 }
 
@@ -676,6 +812,7 @@ export function AccountEditor({
             account={a}
             dmaUserId={dmaUserId}
             candidates={serverKeysOf(a.broker)}
+            registry={servers.filter((s) => s.broker === a.broker)}
             overlay={overlay}
             last={isActive && activeCount <= 1}
             onResults={onResults}
@@ -711,7 +848,8 @@ export function AccountEditor({
 
       <BusyLines chips={shownChips} />
       <p data-slot="admin-accounts-note" className={NOTE}>
-        {ACCOUNT_EDITOR_TEXT.minOneServer} — 마지막 서버는 끌 수 없다. {ACCOUNT_EDITOR_TEXT.lastAccountNote}
+        {ACCOUNT_EDITOR_TEXT.minOneServer} — 마지막 서버는 끌 수 없다. {ACCOUNT_EDITOR_TEXT.lastAccountNote}{" "}
+        {ACCOUNT_EDITOR_TEXT.orderServerNote}
       </p>
     </div>
   );

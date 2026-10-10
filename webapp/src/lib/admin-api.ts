@@ -27,6 +27,7 @@ import type {
   AdminCommandResponse,
   AdminCreateUserBody,
   AdminDmaInput,
+  AdminOrderServerBody,
   AdminOrderServerResponse,
   AdminPutAccountBody,
   AdminServerPatchBody,
@@ -162,14 +163,21 @@ export function removeDmaAccount(
   );
 }
 
-/** 계좌 주문 서버 지정(29-38 G-1 ⑦) — 구현 전 골격(RED). */
+/**
+ * 계좌 주문 서버 지정(29-38 G-1 ⑦ · Express 29-37) — `serverKey` 는 그 계좌의 active 등록 서버 키, null 은 증권사 기본 주문 서버로
+ * 되돌림. 등록 안 된 서버는 409 `ORDER_SERVER_NOT_REGISTERED`. relay 가 저장 · 지정 재적재 뒤 응답하므로 긴 타임아웃.
+ */
 export function setAccountOrderServer(
-  _dmaUserId: string,
-  _broker: DmaBroker,
-  _accountNo: string,
-  _serverKey: string | null,
+  dmaUserId: string,
+  broker: DmaBroker,
+  accountNo: string,
+  serverKey: string | null,
 ): Promise<AdminOrderServerResponse> {
-  return Promise.reject(new Error("not implemented"));
+  const body: AdminOrderServerBody = { serverKey };
+  return authFetch<AdminOrderServerResponse>(
+    `${dmaPath(dmaUserId)}/accounts/${enc(broker)}/${enc(accountNo)}/order-server`,
+    jsonInit("PUT", body, { timeoutMs: RELAY_TIMEOUT_MS }),
+  );
 }
 
 /** 「다시 반영」 — DB 의도와 87 의 차이를 다시 보낸다. */
