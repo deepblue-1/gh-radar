@@ -19,24 +19,23 @@
  *   키    맵 키는 `${userId}|${serverKey}` 다(`sessionKey`). 서버 키는 레지스트리 키(예 "KB120")이고 증권사 접두라
  *         증권사별로 겹치지 않는다. D-13 의 「gh-radar userId 가 키」는 그대로다 — 서버 축이 하나 붙었을 뿐 DMA id 로
  *         세션을 섞지 않는다.
- *   D-10  **사용자 × 증권사당 세션은 최대 1개.** 그 증권사 세션이 살아 있으면(탭 · 유예 중) 레지스트리의 주문 서버가
- *         바뀌어도 그 세션을 재사용한다 — 새 서버는 그 세션이 끝난 뒤의 다음 acquire 부터다. 증권사 안 주문 서버
- *         선택(`resolveTarget(broker)`)은 **세션을 만들 때만** 읽는다. 색인은 `#byUserBroker`(`${userId}|${broker}` →
- *         세션 키) 하나다 — 주문 서버가 바뀐 뒤에도 옛 서버 세션을 찾아 재사용할 수 있게 서버 키가 아니라 증권사로 찾는다.
- *   D-18  사용자 단위 명령(VI 설정 · 사용자 설정 84 · 세션 상태 표시)의 세션은 `primaryOf` — **KB 세션 우선**, 없으면
- *         처음 만든 세션. 계좌가 있는 명령(주문 · 상따 · 자동매도)은 `forAccount` — 그 계좌가 든 세션.
+ *   G-1   **세션 키는 (유저, 서버) 하나뿐이다** (29-42 — D-10 「사용자 × 증권사당 세션 1개 · 살아 있는 세션 재사용」 대체).
+ *         사용자 × 증권사 색인은 없다. 증권사 기본 주문 서버가 바뀌면 다음 acquire 는 (유예 중 옛 서버 세션이 있어도) 새 서버
+ *         세션을 연다 — 옛 세션은 종전 유예로 끝난다. 영향 사용자 세션의 즉시 재수립은 29-36 몫이다(사용자 확정 2026-10-10
+ *         「즉시 재접속」 · 29-29 G-1 운영 규칙).
+ *   D-18  사용자 단위 명령(VI 설정 · 사용자 설정 84 · 세션 상태 표시)의 세션은 `primaryOf` — 그 사용자 세션 중 **처음 만든 KB
+ *         세션**, 없으면 처음 만든 세션(선호 규칙은 29-35). 계좌가 있는 명령(주문 · 상따 · 자동매도)은 `forAccount` — 그 계좌가
+ *         든 세션.
  *   주문 서버 없음 — `resolveTarget(broker)` 가 undefined 면 세션을 열지 않는다(`acquireFor` → null). 29-03 의 「생성자
  *         게이트웨이 폴백」은 여기서 끝냈다 — db 모드의 생성자 값은 127.0.0.1 이라 폴백은 열리지 않는 세션을 만들 뿐이다.
  *
  * Phase 29-33 — G-1 계좌별 주문 서버 (운영 경로 = `acquireOn`):
  *   운영 결선(wss 인증 · `refreshUserSessions`)은 `serversFor` 가 고른 대상마다 `acquireOn(userId, target, creds)` 를 부른다.
- *   `acquireOn` 은 세션을 **(유저, 서버) 키로만** 찾는다 — 사용자 × 증권사 색인(`#byUserBroker`)을 읽지도 쓰지도 않는다. 그래서
- *   증권사 기본 주문 서버가 바뀐 뒤의 새 인증은 유예 중인 옛 서버 세션을 재사용하지 않고 새 서버 세션을 연다(WR-05 의
- *   「따라 해도 적용 안 됨」 해소 · 옛 세션은 종전 유예로 끝난다). 영향 사용자 세션의 즉시 재수립은 29-36 몫이다(사용자 확정
- *   2026-10-10 「즉시 재접속」). 세션은 `ownerOf` 로 만든 소유 술어를 받아 **유효 주문 서버가 자기 서버인 계좌만** 허용한다
- *   (`DmaSession.allowedAccounts` — 같은 계좌가 두 서버에 등록돼 있어도 주문 · 프레임은 한 세션에서만). 위 D-10 의 옛 경로
- *   (`acquireFor` · 색인 · `primaryOf` 의 KB 색인 조회)는 단위 하네스를 위해 그대로 두고 29-42 가 걷어낸다 — 운영 경로만 쓰면
- *   색인은 비어 `primaryOf` 는 「처음 만든 세션」 이 된다(`serversFor` 가 KB 대상을 먼저 내므로 KB 세션 · 선호 규칙은 29-35).
+ *   `acquireOn` 은 세션을 **(유저, 서버) 키로만** 찾는다. 그래서 증권사 기본 주문 서버가 바뀐 뒤의 새 인증은 유예 중인 옛 서버
+ *   세션을 재사용하지 않고 새 서버 세션을 연다(WR-05 의 「따라 해도 적용 안 됨」 해소 · 옛 세션은 종전 유예로 끝난다). 세션은
+ *   `ownerOf` 로 만든 소유 술어를 받아 **유효 주문 서버가 자기 서버인 계좌만** 허용한다(`DmaSession.allowedAccounts` — 같은
+ *   계좌가 두 서버에 등록돼 있어도 주문 · 프레임은 한 세션에서만). 증권사 경로 `acquireFor(userId, broker, creds)` 는 그 증권사
+ *   주문 서버(`#target(broker)`)를 골라 `acquireOn` 에 위임할 뿐이다(29-42 — 색인 · 재사용 규율의 사본 없음).
  *
  * 하지 않는 것:
  *   - 자격증명을 조회·복호화하지 않는다. 호출자(15-04 wss 인증)가 이미 푼 값을 넘긴다.
@@ -105,9 +104,9 @@ export type SessionManagerOptions = {
   /** `LoginReq.broker`. 위 단일 대상의 증권사. */
   broker: string;
   /**
-   * 세션을 **만들 때마다** 그 증권사의 연결 대상을 고른다 (Phase 29 — 레지스트리의 증권사별 주문 서버). 주문 서버가 바뀌어도
-   * 열린 세션은 그대로이고 새 세션부터 새 서버다(D-10). undefined(그 증권사 주문 서버 없음)면 세션을 열지 않는다 —
-   * `acquireFor` 가 null 을 돌려주고 warn 1줄(29-16).
+   * `acquireFor(broker)` 를 부를 **때마다** 그 증권사의 연결 대상을 고른다 (Phase 29 — 레지스트리의 증권사 기본 주문 서버). 주문
+   * 서버가 바뀌면 다음 `acquireFor` 는 새 서버 세션이다(G-1 · 29-42 — 옛 서버 세션은 종전 유예로 끝난다). undefined(그 증권사
+   * 주문 서버 없음)면 세션을 열지 않는다 — `acquireFor` 가 null 을 돌려주고 warn 1줄(29-16).
    */
   resolveTarget?: (broker: string) => SessionTarget | undefined;
   /**
@@ -169,7 +168,7 @@ type Entry = {
   userId: string;
   /** 레지스트리 서버 키. */
   serverKey: string;
-  /** `LoginReq.broker` — 사용자 × 증권사당 1세션(D-10) 색인의 축. */
+  /** `LoginReq.broker` — `primaryOf` 의 KB 판정 축. */
   broker: string;
   /** 이 사용자의 살아 있는 wss 소켓 수. */
   refCount: number;
@@ -223,11 +222,6 @@ export function sessionKey(userId: string, serverKey: string): string {
   return `${userId}|${serverKey}`;
 }
 
-/** 사용자 × 증권사 색인 키 (D-10). */
-function userBrokerKey(userId: string, broker: string): string {
-  return `${userId}|${broker}`;
-}
-
 /** `closeForDmaUser` 가 세션 상태 프레임에 싣는 문구 — 브라우저 「권한 없음」 배지 옆 사유. */
 export const DMA_USER_CLOSED_MESSAGE = "DMA 계정 연결이 해제되어 실시간 세션을 종료했습니다";
 
@@ -237,8 +231,6 @@ const PRIMARY_BROKER = "KB";
 export class SessionManager {
   /** `${userId}|${serverKey}` → 엔트리. 삽입 순서 = 생성 순서(`primaryOf` 의 「처음 만든 세션」 · `firstReady` 순서). */
   readonly #sessions = new Map<string, Entry>();
-  /** `${userId}|${broker}` → 세션 키. 사용자 × 증권사당 세션 1개(D-10)의 색인이다. */
-  readonly #byUserBroker = new Map<string, string>();
   readonly #host: string;
   readonly #port: number;
   readonly #broker: string;
@@ -258,61 +250,29 @@ export class SessionManager {
   }
 
   /**
-   * 사용자의 **그 증권사** 세션을 얻고 참조계수를 1 올린다. wss 인증 성공 직후에 부른다.
+   * 사용자의 **그 증권사 기본 주문 서버** 세션을 얻고 참조계수를 1 올린다 (단위 하네스 · `serversFor` 미주입 fanout 경로).
    *
-   * 그 사용자 · 증권사 세션이 있으면(D-10 — 주문 서버가 그 사이 바뀌었어도) 그 세션을 종전 규율로 재사용한다: 유예
-   * 타이머가 걸려 있으면 **취소하고 같은 세션**(D-15 — 새로고침 왕복 흡수), 회선 문제로 죽은 세션은 새 접속(0 → 1)
-   * 에서만 재생성, 로그인 거부 계열(`NO_RETRY_STATES`)은 재로그인 없이 그대로 돌려준다. 없으면 그 증권사 주문 서버
-   * (`resolveTarget(broker)`)로 새로 만들어 `start()` 까지 한다.
+   * 대상은 부를 때마다 `#target(broker)`(레지스트리의 그 증권사 기본 주문 서버)로 고르고 `acquireOn` 에 위임한다 — 재사용 ·
+   * 유예 취소 · 회선 실패 재생성 · 거부 계열 규율은 `acquireOn` 하나다. 사용자 × 증권사 색인은 없다(G-1 · 29-42): 기본 주문
+   * 서버가 바뀐 뒤의 호출은 유예 중 옛 서버 세션이 있어도 새 서버 세션을 연다.
    *
    * @returns 세션. 그 증권사 주문 서버가 없으면 `null`(세션을 열지 않는다 · warn 1줄)
    */
   acquireFor(userId: string, broker: string, creds: DmaCredentials): DmaSession | null {
-    const key = this.#byUserBroker.get(userBrokerKey(userId, broker));
-    const existing = key !== undefined ? this.#sessions.get(key) : undefined;
-
-    if (key !== undefined && existing !== undefined) {
-      const state = existing.session.state;
-      const ctx = { userId, serverKey: existing.serverKey, state };
-
-      if (existing.graceTimer !== null) {
-        clearTimeout(existing.graceTimer);
-        existing.graceTimer = null;
-        logger.info(ctx, "[DMA] 유예 중 재연결 — 소멸 예약 취소, 세션 재사용");
-      }
-
-      if (existing.refCount === 0 && RETRYABLE_DEAD_STATES.has(state)) {
-        // 회선 문제로 죽은 세션이고 새 사용자 접속이다 — 여기서만 다시 세운다. 세션이 끝났으므로 대상도 다시 고른다(D-10).
-        logger.info(ctx, "[DMA] 죽은 세션 폐기 후 재생성 (회선 실패 복구 경로)");
-        existing.session.close();
-        this.#delete(key, existing);
-        return this.#create(userId, broker, creds);
-      }
-
-      existing.refCount += 1;
-      if (NO_RETRY_STATES.has(state)) {
-        logger.warn(
-          { ...ctx, refCount: existing.refCount },
-          "[DMA] 로그인 거부 세션 재사용 — 재로그인하지 않는다 (자격증명 수정 필요)",
-        );
-      } else {
-        logger.info(
-          { ...ctx, refCount: existing.refCount },
-          "[DMA] 살아 있는 세션 재사용 (같은 사용자의 추가 탭)",
-        );
-      }
-      return existing.session;
+    const target = this.#target(broker);
+    if (target === undefined) {
+      // 레지스트리에 그 증권사 주문 서버가 없다 — 열리지 않는 세션을 만들지 않는다(29-16). 사용자 · 증권사만 남긴다.
+      logger.warn({ userId, broker }, "[DMA] 그 증권사 주문 서버가 없다 — 세션을 열지 않는다");
+      return null;
     }
-
-    return this.#create(userId, broker, creds);
+    return this.acquireOn(userId, target, creds);
   }
 
   /**
-   * 사용자의 **그 서버** 세션을 얻고 참조계수를 1 올린다 (Phase 29-33 G-1 — 운영 경로). 키는 (userId, target.serverKey) 뿐이다 —
-   * 사용자 × 증권사 색인을 읽지도 쓰지도 않는다. 그래서 증권사 기본 주문 서버가 바뀐 뒤의 인증은 유예 중인 옛 서버 세션을 재사용하지
-   * 않고 새 서버로 연다.
+   * 사용자의 **그 서버** 세션을 얻고 참조계수를 1 올린다 (Phase 29-33 G-1 — 운영 경로). 키는 (userId, target.serverKey) 뿐이다.
+   * 그래서 증권사 기본 주문 서버가 바뀐 뒤의 인증은 유예 중인 옛 서버 세션을 재사용하지 않고 새 서버로 연다.
    *
-   * 같은 (유저, 서버) 세션이 있으면 `acquireFor` 와 같은 재사용 규율이다: 유예 타이머가 걸려 있으면 **취소하고 같은 세션**(D-15),
+   * 같은 (유저, 서버) 세션이 있으면 재사용한다: 유예 타이머가 걸려 있으면 **취소하고 같은 세션**(D-15),
    * 회선 문제로 죽은 세션은 새 접속(0 → 1)에서만 재생성, 로그인 거부 계열(`NO_RETRY_STATES`)은 재로그인 없이 그대로 돌려준다.
    * 없으면 그 대상으로 새로 만들어 `start()` 까지 한다 — `ownerOf` 를 주입했으면 소유 술어를 단다.
    */
@@ -413,13 +373,18 @@ export class SessionManager {
   }
 
   /**
-   * 사용자 단위 명령 · 상태 표시의 세션 (D-18) — **KB 세션 우선**, 없으면 처음 만든 세션, 없으면 undefined.
-   * 주문 라우트가 「활성 Ready 세션이 있는가」를 물을 때의 기본 세션이기도 하다(없으면 「세션 없음」 거부 · D-15).
+   * 사용자 단위 명령 · 상태 표시의 세션 (D-18) — 그 사용자 세션 중 **처음 만든 KB 세션**, 없으면 처음 만든 세션, 없으면
+   * undefined (29-42 — 삽입 순서 = 생성 순서 · 선호 규칙은 29-35). 주문 라우트가 「활성 Ready 세션이 있는가」를 물을 때의 기본
+   * 세션이기도 하다(없으면 「세션 없음」 거부 · D-15).
    */
   primaryOf(userId: string): DmaSession | undefined {
-    const kbKey = this.#byUserBroker.get(userBrokerKey(userId, PRIMARY_BROKER));
-    const kb = kbKey !== undefined ? this.#sessions.get(kbKey)?.session : undefined;
-    return kb ?? this.sessionsOf(userId)[0];
+    let first: DmaSession | undefined;
+    for (const entry of this.#sessions.values()) {
+      if (entry.userId !== userId) continue;
+      if (entry.broker === PRIMARY_BROKER) return entry.session;
+      first ??= entry.session;
+    }
+    return first;
   }
 
   /**
@@ -513,7 +478,6 @@ export class SessionManager {
       logger.info({ userId: entry.userId, serverKey: entry.serverKey }, "[DMA] 종료 절차 — 세션 정리");
     }
     this.#sessions.clear();
-    this.#byUserBroker.clear();
     logger.info({ count }, "[DMA] 전 세션 종료 완료");
     await Promise.resolve();
   }
@@ -561,34 +525,16 @@ export class SessionManager {
     return { serverKey: this.#broker, host: this.#host, port: this.#port, broker: this.#broker };
   }
 
-  /** 엔트리와 사용자 × 증권사 색인을 함께 지운다. 색인이 다른 세션을 가리키면 그대로 둔다(경합 방어). */
+  /** 엔트리를 지운다. 같은 키에 다른 엔트리가 들어와 있으면 그대로 둔다(경합 방어). */
   #delete(key: string, entry: Entry): void {
     if (this.#sessions.get(key) === entry) this.#sessions.delete(key);
-    const ub = userBrokerKey(entry.userId, entry.broker);
-    if (this.#byUserBroker.get(ub) === key) this.#byUserBroker.delete(ub);
   }
 
-  /** 옛 경로(`acquireFor` — D-10) 생성: 그 증권사 주문 서버로 열고 사용자 × 증권사 색인을 갱신한다. */
-  #create(userId: string, broker: string, creds: DmaCredentials): DmaSession | null {
-    const target = this.#target(broker);
-    if (target === undefined) {
-      // 레지스트리에 그 증권사 주문 서버가 없다 — 열리지 않는 세션을 만들지 않는다(29-16). 서버 키 · 증권사만 남긴다.
-      logger.warn({ userId, broker }, "[DMA] 그 증권사 주문 서버가 없다 — 세션을 열지 않는다");
-      return null;
-    }
-    const session = this.#open(userId, target, creds, { owns: false });
-    this.#byUserBroker.set(userBrokerKey(userId, broker), sessionKey(userId, target.serverKey));
-    return session;
-  }
-
-  /**
-   * 그 대상으로 세션을 만들어 맵에 넣고 `start()` 한다. 사용자 × 증권사 색인은 건드리지 않는다(색인 갱신은 옛 `#create` 만).
-   * `owns: false` 면 소유 술어를 달지 않는다(옛 경로 — 종전 원본 전부). 기본은 `ownerOf` 주입 시 술어를 단다(29-33 G-1).
-   */
-  #open(userId: string, target: SessionTarget, creds: DmaCredentials, opts: { owns?: boolean } = {}): DmaSession {
+  /** 그 대상으로 세션을 만들어 맵에 넣고 `start()` 한다. `ownerOf` 를 주입했으면 소유 술어를 단다(29-33 G-1). */
+  #open(userId: string, target: SessionTarget, creds: DmaCredentials): DmaSession {
     const key = sessionKey(userId, target.serverKey);
     const client = new DmaClient({ host: target.host, port: target.port });
-    const ownerOf = opts.owns === false ? undefined : this.#ownerOf;
+    const ownerOf = this.#ownerOf;
     const dmaUserId = creds.dmaUserId;
     const sessionCreds: DmaSessionCreds = {
       userId,
