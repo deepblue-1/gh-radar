@@ -10,7 +10,8 @@
  *   - 유저가 서버에 없고 active 계좌가 있으면 op 1(첫 계좌 = priority → accountNo 순, 신규 = 비밀번호 + 첫 계좌
  *     필수) + 나머지 op 3. 유저가 있으면 없는 · 값이 다른 active 계좌만 op 3(추가 또는 같은 account_no 갱신).
  *   - `removing` 계좌는 87 에 있을 때만 op 4(op 4 는 멱등이 아니다 — 없는 계좌는 8). 87 에 없으면 즉시 settle.
- *   - active 가 0 이고 removing 이 그 서버의 그 유저 계좌 전부면 op 4 대신 op 2(마지막 계좌 제거 = 12 회피).
+ *   - active 가 0 이고 removing 이 그 서버의 그 유저 계좌 전부면 op 4 대신 op 2(마지막 계좌 제거 = 12 회피). op 2 는 그 removing
+ *     계좌번호를 싣는다 — settle 이 계획 시점 스냅샷만 지우게(29-32 WR-01).
  *   - 의도에 없는 87 계좌(「서버에만 있음」)는 절대 지우지 않는다 — 하나라도 남으면 op 2 도 보내지 않는다.
  *   - 순서는 op 1 → op 3 → op 4 — 추가가 먼저라 「제거 뒤 계좌 0개」 순간이 생기지 않는다.
  *
@@ -27,7 +28,11 @@ import {
 export type PlannedOp =
   | { op: 1; account: AdminAccountFields }
   | { op: 1; passwordOnly: true }
-  | { op: 2 }
+  /**
+   * `accountNos` = 계획 때 87 에 있던 그 서버의 removing 계좌 — op 2 ok 면 dispatcher 가 이 행만 settle 한다(29-32 WR-01:
+   * 그 사이 다른 계좌에 그 서버가 active 로 막 체크돼도 지우지 않는다). 와이어(44 op 2)에는 싣지 않는다.
+   */
+  | { op: 2; accountNos: string[] }
   | { op: 3; account: AdminAccountFields }
   | { op: 4; accountNo: string };
 
@@ -103,7 +108,7 @@ export function planServerOps(input: PlanServerOpsInput): ServerPlan {
   //    남고 removing 행은 settle 하지 않는다(서버 실제 상태와 같다).
   if (diff.toRemove.length > 0) {
     if (active.length === 0 && diff.serverOnly.length === 0) {
-      ops.push({ op: 2 });
+      ops.push({ op: 2, accountNos: diff.toRemove.map((a) => a.accountNo) });
     } else {
       for (const a of diff.toRemove) ops.push({ op: 4, accountNo: a.accountNo });
     }

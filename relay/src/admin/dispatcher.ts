@@ -7,7 +7,9 @@
  *     admin 연결 없음 · 87 미수신(`currentSnapshot()` null) → `offline`(서버 상태를 모르고 쓰지 않는다)
  *     `planServerOps`(29-04 · shared `diffServerAccounts` 한 벌) → op 를 **순서대로** `command()` → `interpretAdminResult`
  *       첫 실패(failed · timeout · offline)에서 그 서버만 멈춘다 — 다른 서버 결과에 번지지 않는다(D-07 · D-23 ④)
- *     settle(D-23 ⑤) — op 4 가 ok(0 · 8 = 이미 없음)인 계좌 · 87 에 이미 없는 removing 계좌 · op 2 ok(0 · 4)면 그 서버 행 전부
+ *     settle(D-23 ⑤) — op 4 가 ok(0 · 8 = 이미 없음)인 계좌 · 87 에 이미 없는 removing 계좌 · op 2 ok(0 · 4)면 **계획 때 removing
+ *       이던 그 서버 행만**(29-32 WR-01 — op 2 진행 중 다른 계좌에 그 서버가 active 로 막 체크된 행은 남아 다음 반영이 op 1 로
+ *       다시 올린다). 그 서버 행 **전부**는 유저 삭제 경로(`settleUserOnOk`)에서만 지운다
  *   → 서버별 결과 배열(레지스트리 순) → `dma_admin_record_results`
  *
  * 요청 마감(29-32 WR-07): 세 공개 메서드는 선택 `deadlineAt`(epoch ms — 라우트 도착 + `ADMIN_REQUEST_DEADLINE_MS`)을 받는다.
@@ -247,7 +249,6 @@ export class AdminDispatcher {
 
     let usersRev = snapshot.usersRev.toString();
     const removed = [...p.settleRemoved];
-    let userRemoved = false;
     let failure: AdminServerResult | null = null;
 
     for (const op of p.ops) {
@@ -275,7 +276,8 @@ export class AdminDispatcher {
       }
       if (op.op === 4) removed.push(op.accountNo);
       if (op.op === 2) {
-        userRemoved = true;
+        // 그 서버에서 유저가 빠졌어도 settle 은 계획 때 removing 이던 행만(29-32 WR-01) — 그 사이 커밋된 active 행은 남긴다.
+        removed.push(...op.accountNos);
         // 29-21 — 그 서버에서 그 유저가 사라졌다(0 · 4). 그 서버의 그 DMA 유저 세션만 재접속 루프 없이 끝낸다 — 서버는 54 뒤
         // 연결을 끊고 재로그인을 거부하므로 두면 거부 루프 · 「회선 끊김」 오표시가 된다. 다른 서버 세션은 그대로다.
         this.#deps.sessions?.closeForDmaUser(dmaUserId, "deleted", { serverKey });
@@ -284,8 +286,8 @@ export class AdminDispatcher {
 
     if (opts.settleUserOnOk === true) {
       if (failure === null) await this.#settle(dmaUserId, serverKey, [], true);
-    } else if (removed.length > 0 || userRemoved) {
-      await this.#settle(dmaUserId, serverKey, removed, userRemoved);
+    } else if (removed.length > 0) {
+      await this.#settle(dmaUserId, serverKey, removed, false);
     }
     return failure ?? { server: serverKey, outcome: "ok", usersRev };
   }
