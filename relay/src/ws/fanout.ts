@@ -60,6 +60,18 @@
  *      같은 사용자의 변경이 연달아 오면 사용자별 직렬 체인(`#resyncChain`)이 뒤 변경을 앞 재수립이 끝난 뒤 그때의 서명으로 다시
  *      판정한다 — 진행 중 sweep 의 세션을 뒤 변경이 닫지 않는다. 미체결은 건드리지 않는다(정리는 사용자 몫 — gh-trade-84 ② 추가).
  *      어떤 경로로도 「주문 서버 바뀜」 표식 프레임을 보내지 않는다
+ *  11. G-1 (가) 보강 — 연결 유무 · 재시작 · 재시도 (Phase 29-44 · gh-trade-84 ②(가) 「세션은 연결 0 이어도 전략이 남아 옛 서버가 실주문을
+ *      낼 수 있다」). 10 은 연결 중 사용자만 본다. 세 갈래를 더한다 — 셋 다 같은 `sweeper.sweep` · 같은 레지스터 · 같은 상태 프레임이다:
+ *        (a) `sweepMoved(moves)` — index 의 `EffectiveOwnerTracker` 가 지정 · 레지스트리 · 87 변경마다 전 사용자 유효 주문 서버를 diff 해
+ *            준 move 로, 브라우저를 닫아 둔 사용자까지 옛 서버 전략을 끈다(DMA id → `userIdOf` → 자격증명 · 세션이 없으면 sweeper 가
+ *            옛 서버에만 임시 로그인 → release · 새 주문 서버 세션은 열지 않는다). 지금 그 계좌의 유효 서버인 서버는 끄지 않는다.
+ *        (b) 로그인 백스톱(`#backstopSweep`) — wss 인증이 세션을 연 뒤 병행으로, 등록은 됐지만 주문 서버가 아닌 (서버, 계좌)를 끈다
+ *            (relay 재시작 · 놓친 이벤트 · 클라(OCX)에서 다시 켠 전략 수렴). 확인 기록(`#confirmedOwner` — 확인 당시 소유 서버)이 있고
+ *            소유 서버가 그 뒤 그대로면 0회 — 매 탭마다 반복하지 않는다. 레지스터 미확인 키는 (c) 몫이라 건너뛴다.
+ *        (c) 60초 재시도(`startStaleRetry` · `STALE_STRATEGY_RETRY_MS`) — 레지스터 미확인 항목을 다시 끈다. 성공 → 확인 · 연결 중이면
+ *            상태 프레임 재송신. 그 계좌의 유효 서버가 다시 그 서버면(되돌아옴) 끄지 않고 해제(`#clearIfOwner` — (a) 의 move `to` 도 같다).
+ *      같은 (사용자, 서버, 계좌)를 두 경로가 동시에 끄지 않는다 — 10 · (a) · (b) · (c) 가 진행 중 집합(`#sweepInFlight`)을 함께 쓴다(뒤에
+ *      온 쪽은 기다리거나 건너뛴다). 미체결 취소 · 정리 프레임은 어느 갈래도 보내지 않는다. 로그에 DMA id · 계좌번호를 싣지 않는다
  *
  * 결정 근거:
  *   T-15-02  **사용자 데이터**(계좌 · 주문 · 전략 · 83)의 팬아웃 대상은 `Map<userId, …>` 로만 고른다(`#deliver`).
@@ -142,8 +154,13 @@ import { safePgError } from "../store/pg-error.js";
 import type { HubMarketEvent, SubscriptionHub } from "../hub/subscription-hub.js";
 import type { DmaSession } from "../dma/session.js";
 import type { DmaCredentials, SessionTarget } from "../dma/session-manager.js";
-import type { StaleStrategyRegister, StrategySweepFailReason, StrategySweeper } from "../dma/strategy-sweeper.js";
-import type { EffectiveOwnerTracker, OwnerMove } from "../dma/effective-owner-tracker.js";
+import type {
+  StaleStrategyEntry,
+  StaleStrategyRegister,
+  StrategySweepFailReason,
+  StrategySweeper,
+} from "../dma/strategy-sweeper.js";
+import type { EffectiveOwnerTracker, OwnerMove, OwnerSnapshotEntry } from "../dma/effective-owner-tracker.js";
 import type { DmaBroker } from "../registry/registry.js";
 import {
   OrderBuildError,
@@ -459,8 +476,26 @@ export const WS_CLOSE_ACCESS_REVOKED = 1008;
  */
 export const WS_CLOSE_ORDER_SERVER_CHANGED = 1012;
 
-/** (RED 골격 — 29-44 재시도 주기.) */
+/**
+ * 끄지 못한(미확인) 옛 서버 전략 재시도 주기 (Phase 29-44). 레지스터의 미확인 항목을 이 주기로 다시 끈다 — 성공하면 확인 · 연결 중이면
+ * 상태 프레임 재송신. sweep 전체 시한(20초 · 29-43)보다 길어 한 틱의 sweep 이 다음 틱과 겹치지 않는다(겹쳐도 진행 중 키는 건너뛴다).
+ */
 export const STALE_STRATEGY_RETRY_MS = 60_000;
+
+/** sweep 진행 중 · 확인 기록 키 (29-44) — (사용자, 서버, 계좌). 레지스터 키와 같은 모양이다. */
+function sweepKey(userId: string, serverKey: string, accountNo: string): string {
+  return `${userId}|${serverKey}|${accountNo}`;
+}
+
+/** 스냅샷에서 계좌번호로 항목을 찾는다 (29-44 재시도 — 레지스터 항목에는 증권사가 없다 · 계좌번호는 증권사를 가로질러 유일 · 29-20 가정). */
+function snapshotEntryOf(
+  snap: ReadonlyMap<string, OwnerSnapshotEntry> | undefined,
+  accountNo: string,
+): OwnerSnapshotEntry | undefined {
+  if (snap === undefined) return undefined;
+  for (const e of snap.values()) if (e.accountNo === accountNo) return e;
+  return undefined;
+}
 
 /** 브라우저 소켓 1개의 상태. */
 type Conn = {
@@ -615,6 +650,18 @@ export class WsFanout {
   readonly #userIdOf: ((dmaUserId: string) => string | undefined) | null;
   /** 전 사용자 유효 주문 서버 지금 값 (29-44). */
   readonly #owners: Pick<EffectiveOwnerTracker, "snapshotOf"> | null;
+  /**
+   * (사용자|서버|계좌) → 진행 중 sweep (29-44). 29-36 연결 중 경로 · `sweepMoved` · 로그인 백스톱 · 60초 재시도가 **함께** 쓴다 — 같은 키를
+   * 두 경로가 동시에 끄지 않는다(뒤에 온 쪽은 진행 중 sweep 을 기다린다 · 재시도 · 백스톱은 건너뛴다).
+   */
+  readonly #sweepInFlight = new Map<string, Promise<void>>();
+  /**
+   * (사용자|서버|계좌) → 끄기가 확인됐을 때 그 계좌의 소유 서버 (29-44 확인 기록 · relay 프로세스 수명). 로그인 백스톱은 기록이 있고
+   * 소유 서버가 그 뒤 그대로면 다시 끄지 않는다. 미확인 · 되돌아옴(그 서버가 다시 주문 서버)이면 지운다.
+   */
+  readonly #confirmedOwner = new Map<string, string | undefined>();
+  /** 미확인 재시도 타이머 (29-44 · `startStaleRetry`). `closeAll` 이 정리한다. */
+  #staleRetryTimer: NodeJS.Timeout | null = null;
   /** userId → 마지막 동기화 서명 (29-36). 인증 · 세션 추가 · 세션 상태 이벤트가 쌓고, 재수립 · 연결 소멸이 지운다. */
   readonly #syncedSig = new Map<string, UserSignature>();
   /**
@@ -723,6 +770,7 @@ export class WsFanout {
    */
   async closeAll(code?: number, reason = "server shutting down", graceMs = 250): Promise<void> {
     clearInterval(this.#heartbeat);
+    this.stopStaleRetry();
     this.#nxtTradable?.off("updated", this.#onNxtUpdated);
     this.#server?.removeListener("upgrade", this.#onUpgrade);
 
@@ -832,44 +880,198 @@ export class WsFanout {
     return counts.reduce((a, b) => a + b, 0);
   }
 
-  /** (RED 골격 — 29-44 재시도.) */
-  startStaleRetry(_intervalMs: number = STALE_STRATEGY_RETRY_MS): void {}
+  /**
+   * 미확인 재시도를 시작한다 (Phase 29-44 · 머리 11). `intervalMs` 마다 레지스터의 미확인 항목을 (사용자, 서버)로 묶어 다시 끈다 —
+   * 그 계좌의 유효 서버가 다시 그 서버면(되돌아옴) 끄지 않고 항목을 해제한다. 성공하면 확인(레지스터 · 확인 기록), 실패면 `attempts`
+   * +1 · warn. 그 사용자가 연결 중이면 상태 프레임을 다시 보낸다. 레지스터 · sweeper 가 없거나 이미 시작했으면 아무것도 하지 않는다.
+   * 종료는 `stopStaleRetry` · `closeAll`.
+   */
+  startStaleRetry(intervalMs: number = STALE_STRATEGY_RETRY_MS): void {
+    if (this.#staleRetryTimer !== null || this.#stale === null || this.#sweeper === null) return;
+    this.#staleRetryTimer = setInterval(() => {
+      void this.#retryStale().catch((err: unknown) =>
+        logger.error({ error: err instanceof Error ? err.message : String(err) }, "[WS] 옛 서버 전략 재시도 예외"),
+      );
+    }, intervalMs);
+    this.#staleRetryTimer.unref?.();
+  }
+
+  /** 미확인 재시도 타이머를 멈춘다 (29-44). 진행 중 sweep 은 끝까지 간다. */
+  stopStaleRetry(): void {
+    if (this.#staleRetryTimer === null) return;
+    clearInterval(this.#staleRetryTimer);
+    this.#staleRetryTimer = null;
+  }
+
+  /** 재시도 1틱 (29-44) — 진행 중 키는 건너뛰고 (사용자, DMA id)별 병렬. */
+  async #retryStale(): Promise<void> {
+    const stale = this.#stale;
+    if (stale === null) return;
+    const byUser = new Map<string, StaleStrategyEntry[]>();
+    for (const e of stale.all()) {
+      if (this.#sweepInFlight.has(sweepKey(e.userId, e.serverKey, e.accountNo))) continue;
+      const k = `${e.userId}\u0000${e.dmaUserId}`;
+      const list = byUser.get(k) ?? [];
+      list.push(e);
+      byUser.set(k, list);
+    }
+    await Promise.all([...byUser.values()].map((entries) => this.#retryUser(entries)));
+  }
+
+  /** 한 사용자 · 한 DMA id 몫 재시도 (29-44). */
+  async #retryUser(entries: readonly StaleStrategyEntry[]): Promise<void> {
+    const first = entries[0];
+    if (first === undefined) return;
+    const { userId, dmaUserId } = first;
+    const now = this.#owners?.snapshotOf(dmaUserId);
+    const groups = new Map<string, { broker: string; accountNos: string[] }>();
+    let cleared = 0;
+    for (const e of entries) {
+      const cur = snapshotEntryOf(now, e.accountNo);
+      if (cur !== undefined && cur.effective === e.serverKey) {
+        // 되돌아옴 — 그 서버가 다시 이 계좌의 주문 서버다. 끄지 않고 해제한다.
+        if (this.#clearIfOwner(userId, e.serverKey, e.accountNo)) cleared += 1;
+        continue;
+      }
+      // 계좌가 지금 어느 매핑에도 없으면 증권사를 모른다 — 건드리지 않는다(항목은 남아 healthz · 상태 프레임에 보인다).
+      if (cur === undefined) continue;
+      const g = groups.get(e.serverKey) ?? { broker: cur.broker, accountNos: [] };
+      g.accountNos.push(e.accountNo);
+      groups.set(e.serverKey, g);
+    }
+    if (groups.size > 0) {
+      const creds = await this.#credentialsFor(userId, dmaUserId, "옛 서버 전략 재시도");
+      if (typeof creds === "string") {
+        for (const [serverKey, g] of groups) this.#markStale(userId, dmaUserId, serverKey, g.accountNos, "no-session", null, creds);
+      } else {
+        for (const [serverKey, g] of groups) await this.#sweepAccounts(userId, creds, serverKey, g.broker, g.accountNos);
+      }
+    }
+    if ((groups.size > 0 || cleared > 0) && this.#users.has(userId)) this.#deliver(userId, this.#mergedStateFrame(userId));
+  }
+
+  /**
+   * 자격증명 (29-44 공통) — 쓸 수 있으면 그 값, 아니면 사유 문자열(`no-session` 레지스터 detail). 그 사이 DMA 연결이 바뀌었으면(옛 DMA id
+   * 의 전략은 새 자격증명으로 끌 수 없다) `dma-changed`.
+   */
+  async #credentialsFor(userId: string, dmaUserId: string, what: string): Promise<DmaCredentials | string> {
+    try {
+      const creds = await this.#lookupCredentials(userId);
+      if (creds === null) return "unauthorized";
+      if (creds === "not_ready") return "not_ready";
+      if (creds.dmaUserId !== dmaUserId) return "dma-changed";
+      return creds;
+    } catch (err) {
+      logger.error({ pgError: safePgError(err), userId }, `[WS] ${what} — 자격증명 조회 실패`);
+      return "lookup-failed";
+    }
+  }
+
+  /**
+   * 로그인 백스톱 (Phase 29-44 · 머리 11) — wss 인증이 세션을 연 **뒤** 병행으로(fire-and-forget) 그 사용자 계좌 X 가 서버 S 매핑에
+   * 있는데 X 의 유효 서버가 S 가 아닌 (S, X)(= 등록은 됐지만 주문 서버가 아닌 서버)의 전략을 끈다 — relay 재시작 · 놓친 변경 · 클라
+   * (OCX)에서 다시 켠 전략을 다음 로그인에 수렴시킨다. 매 탭마다 반복하지 않는다: 확인 기록이 있고 소유 서버가 그 뒤 그대로면 0회.
+   * 레지스터에 미확인으로 남은 키는 60초 재시도 몫이라 건너뛰고, 진행 중 키도 건너뛴다. 인증이 연 세션이 있으면 sweeper 가 그 세션을
+   * 재사용한다(새 로그인 0). 결과는 다른 경로와 같다(확인 · 레지스터 · 상태 프레임).
+   */
+  async #backstopSweep(userId: string, creds: DmaCredentials): Promise<void> {
+    if (this.#sweeper === null || this.#owners === null) return;
+    const pending = new Set((this.#stale?.pendingFor(userId) ?? []).map((e) => sweepKey(userId, e.serverKey, e.accountNo)));
+    const groups = new Map<string, { broker: string; accountNos: string[] }>();
+    for (const e of this.#owners.snapshotOf(creds.dmaUserId).values()) {
+      for (const serverKey of e.servers) {
+        if (serverKey === e.effective) continue; // 지금 주문 서버 — 끄지 않는다.
+        const key = sweepKey(userId, serverKey, e.accountNo);
+        if (pending.has(key) || this.#sweepInFlight.has(key)) continue;
+        if (this.#confirmedOwner.has(key) && this.#confirmedOwner.get(key) === e.owner) continue;
+        const g = groups.get(serverKey) ?? { broker: e.broker, accountNos: [] };
+        g.accountNos.push(e.accountNo);
+        groups.set(serverKey, g);
+      }
+    }
+    if (groups.size === 0) return;
+    logger.info(
+      { userId, servers: [...groups.keys()], accounts: [...groups.values()].reduce((n, g) => n + g.accountNos.length, 0) },
+      "[WS] 로그인 백스톱 — 주문 서버가 아닌 서버의 그 계좌 전략 끄기",
+    );
+    for (const [serverKey, g] of groups) await this.#sweepAccounts(userId, creds, serverKey, g.broker, g.accountNos);
+    if (this.#users.has(userId)) this.#deliver(userId, this.#mergedStateFrame(userId));
+  }
+
+  /**
+   * 되돌아옴 해제 (29-44) — 그 서버가 다시 그 계좌의 주문 서버가 됐다. 그 (사용자, 서버, 계좌)의 미확인 항목 · 확인 기록을 지운다(그
+   * 서버 전략은 이제 끄면 안 된다 · 다음에 다시 옮겨지면 처음부터 판정). 지웠으면 true.
+   */
+  #clearIfOwner(userId: string, serverKey: string, accountNo: string): boolean {
+    this.#confirmedOwner.delete(sweepKey(userId, serverKey, accountNo));
+    return this.#stale?.confirm(userId, serverKey, accountNo) ?? false;
+  }
+
+  /**
+   * 진행 중 집합을 거치는 sweep (29-44) — 이미 진행 중인 키는 그 sweep 을 기다리고, 나머지만 한 번에 `#sweepServer`. 29-36 연결 중 경로 ·
+   * `sweepMoved` · 백스톱 · 재시도 공통.
+   */
+  async #sweepAccounts(
+    userId: string,
+    creds: DmaCredentials,
+    serverKey: string,
+    broker: string,
+    accountNos: readonly string[],
+  ): Promise<void> {
+    const waits: Array<Promise<void>> = [];
+    const fresh: string[] = [];
+    for (const accountNo of accountNos) {
+      const running = this.#sweepInFlight.get(sweepKey(userId, serverKey, accountNo));
+      if (running === undefined) fresh.push(accountNo);
+      else if (!waits.includes(running)) waits.push(running);
+    }
+    if (fresh.length > 0) {
+      const keys = fresh.map((a) => sweepKey(userId, serverKey, a));
+      const run = this.#sweepServer(userId, creds, serverKey, broker, fresh);
+      for (const k of keys) this.#sweepInFlight.set(k, run);
+      const done = (): void => {
+        for (const k of keys) if (this.#sweepInFlight.get(k) === run) this.#sweepInFlight.delete(k);
+      };
+      void run.then(done, done);
+      waits.push(run);
+    }
+    await Promise.all(waits);
+  }
 
   /** 한 사용자 몫 `sweepMoved` (29-44). 옛 서버마다 계좌를 묶어 순차로 끈다. */
   async #sweepMovedUser(userId: string, dmaUserId: string, moves: readonly OwnerMove[]): Promise<number> {
     const now = this.#owners?.snapshotOf(dmaUserId);
     const groups = new Map<string, { broker: string; accountNos: string[] }>();
+    let cleared = 0;
     for (const m of moves) {
+      // 되돌아옴 — 새 소유 서버의 그 계좌 미확인 항목 · 확인 기록을 해제한다(그 서버는 이제 주문 서버라 끄지 않는다).
+      if (m.to !== undefined && this.#clearIfOwner(userId, m.to, m.accountNo)) cleared += 1;
       const from = m.from;
-      if (from === undefined) continue;
+      if (from === undefined || from === m.to) continue;
       // 되돌아옴 경합 — 지금 그 계좌의 유효 서버가 옛 서버 자신이면 끄지 않는다(그 서버가 주문 서버다).
       if (now?.get(`${m.broker}|${m.accountNo}`)?.effective === from) continue;
+      // 이번 변경을 다른 경로(29-36 연결 중 경로 · 백스톱)가 이미 끄고 확인했다 — 같은 소유 서버 기준이면 다시 끄지 않는다.
+      const key = sweepKey(userId, from, m.accountNo);
+      if (this.#confirmedOwner.has(key) && this.#confirmedOwner.get(key) === m.to) continue;
       const g = groups.get(from) ?? { broker: m.broker, accountNos: [] };
       if (!g.accountNos.includes(m.accountNo)) g.accountNos.push(m.accountNo);
       groups.set(from, g);
     }
-    if (groups.size === 0) return 0;
-    let creds: DmaCredentials | null | "not_ready";
-    let credFailure: string | null = null;
-    try {
-      creds = await this.#lookupCredentials(userId);
-    } catch (err) {
-      logger.error({ pgError: safePgError(err), userId }, "[WS] 옛 서버 전략 끄기(연결 무관) — 자격증명 조회 실패");
-      creds = null;
-      credFailure = "lookup-failed";
-    }
+    if (cleared > 0) logger.info({ userId, cleared }, "[WS] 주문 서버 되돌아옴 — 그 서버의 끄기 미확인 항목 해제");
     let attempted = 0;
-    if (creds === null || creds === "not_ready" || creds.dmaUserId !== dmaUserId) {
-      const why = credFailure ?? (creds === "not_ready" ? "not_ready" : creds === null ? "unauthorized" : "dma-changed");
-      for (const [serverKey, g] of groups) this.#markStale(userId, dmaUserId, serverKey, g.accountNos, "no-session", null, why);
-    } else {
-      for (const [serverKey, g] of groups) {
-        await this.#sweepServer(userId, creds, serverKey, g.broker, g.accountNos);
-        attempted += g.accountNos.length;
+    if (groups.size > 0) {
+      const creds = await this.#credentialsFor(userId, dmaUserId, "옛 서버 전략 끄기(연결 무관)");
+      if (typeof creds === "string") {
+        for (const [serverKey, g] of groups) this.#markStale(userId, dmaUserId, serverKey, g.accountNos, "no-session", null, creds);
+      } else {
+        for (const [serverKey, g] of groups) {
+          await this.#sweepAccounts(userId, creds, serverKey, g.broker, g.accountNos);
+          attempted += g.accountNos.length;
+        }
       }
     }
     // 연결 중이면 상태 프레임을 다시 — 계좌 `staleStrategies` 가 레지스터를 따른다.
-    if (this.#users.has(userId)) this.#deliver(userId, this.#mergedStateFrame(userId));
+    if ((groups.size > 0 || cleared > 0) && this.#users.has(userId)) this.#deliver(userId, this.#mergedStateFrame(userId));
     return attempted;
   }
 
@@ -1027,7 +1229,7 @@ export class WsFanout {
         }
       } else {
         for (const [serverKey, g] of groups) {
-          await this.#sweepServer(userId, creds, serverKey, g.broker, g.accountNos);
+          await this.#sweepAccounts(userId, creds, serverKey, g.broker, g.accountNos);
         }
       }
     }
@@ -1049,7 +1251,14 @@ export class WsFanout {
     try {
       const res = await sweeper.sweep({ userId, serverKey, broker, accountNos }, creds);
       if (res.ok) {
-        for (const accountNo of accountNos) this.#stale?.confirm(userId, serverKey, accountNo);
+        // 확인 기록(29-44) — 그때 그 계좌의 소유 서버를 남긴다(로그인 백스톱 · sweepMoved 중복 판정 원천).
+        const now = this.#owners?.snapshotOf(creds.dmaUserId);
+        for (const accountNo of accountNos) {
+          this.#stale?.confirm(userId, serverKey, accountNo);
+          if (now !== undefined) {
+            this.#confirmedOwner.set(sweepKey(userId, serverKey, accountNo), snapshotEntryOf(now, accountNo)?.owner);
+          }
+        }
         return;
       }
       this.#markStale(userId, creds.dmaUserId, serverKey, accountNos, res.reason, res.remaining, res.reason);
@@ -1077,6 +1286,7 @@ export class WsFanout {
   ): void {
     const at = Date.now();
     for (const accountNo of accountNos) {
+      this.#confirmedOwner.delete(sweepKey(userId, serverKey, accountNo));
       this.#stale?.set({
         userId,
         dmaUserId,
@@ -1361,6 +1571,12 @@ export class WsFanout {
     }
     for (const session of sessions) this.#hub.attach(session);
     this.#register(conn, userId, sessions, creds.dmaUserId);
+    // 29-44 — 로그인 백스톱(등록은 됐지만 주문 서버가 아닌 서버의 그 계좌 전략 끄기). 세션을 연 뒤라 그 세션을 재사용한다 ·
+    // 인증 응답을 기다리게 하지 않는다(병행).
+    const backstopCreds = creds;
+    void this.#backstopSweep(userId, backstopCreds).catch((err: unknown) =>
+      logger.error({ userId, error: err instanceof Error ? err.message : String(err) }, "[WS] 로그인 백스톱 예외"),
+    );
 
     // 인증 ACK 겸 배지 초기값. **브라우저는 이 프레임을 받은 뒤에야 구독을 보낸다**
     // (15-12 `use-relay-socket` 계약) — 빠뜨리면 화면이 영원히 비어 있다.

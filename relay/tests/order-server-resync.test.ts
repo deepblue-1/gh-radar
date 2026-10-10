@@ -100,6 +100,17 @@ async function waitFor(predicate: () => boolean, label: string, turns = 600): Pr
   throw new Error(`조건이 서지 않았습니다: ${label}`);
 }
 
+/**
+ * 연결된 탭이 있을 때 가짜 시계를 민다(29-44) — 한 번에 30초를 넘겨 밀면 wss 하트비트(30초)가 pong 을 받기 전에 두 번 돌아 탭을
+ * terminate 한다. 10초씩 밀고 그 사이 I/O 를 돌려 pong 을 받게 한다.
+ */
+async function advanceAlive(ms: number): Promise<void> {
+  for (let left = ms; left > 0; left -= 10_000) {
+    vi.advanceTimersByTime(Math.min(10_000, left));
+    await flushIo(4);
+  }
+}
+
 function envOf(payload: Buffer): Envelope {
   return Envelope.getRootAsEnvelope(
     new flatbuffers.ByteBuffer(new Uint8Array(payload.buffer, payload.byteOffset, payload.length)),
@@ -827,11 +838,12 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     // release 1 — 임시 세션은 종전 유예로 끝난다(즉시 drop 아님 · 연결 중 경로가 아니다).
     expect(drop).not.toHaveBeenCalled();
     expect(h.m.sessionsOf(U1).map((s) => s.serverKey)).toEqual(["KB120"]);
-    vi.advanceTimersByTime(SESSION_GRACE_MS);
-    await waitFor(() => h.m.sessionsOf(U1).length === 0, "임시 세션 유예 만료");
     // u2 는 아무 일 없음.
     expect(other.ws.closeInfo).toBeNull();
     expect(h.m.sessionsOf(U2).map((s) => s.serverKey)).toEqual(["KB120"]);
+    await advanceAlive(SESSION_GRACE_MS);
+    await waitFor(() => h.m.sessionsOf(U1).length === 0, "임시 세션 유예 만료");
+    expect(other.ws.closeInfo).toBeNull();
 
     // 같은 지정 재적재 → move 0 · sweep 0.
     await h.loader.reload();
@@ -999,8 +1011,10 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     expect(targets.filter((t) => t === `KB120:${A}`)).toHaveLength(2);
     expect(acctOf(readyAccounts(tab.inbox), A)?.staleStrategies).toEqual({ serverKey: "KB120", count: 1 });
 
-    // 다음 60초 — 고친 서버에서 성공 → 확인 · 상태 프레임 재송신.
-    vi.advanceTimersByTime(STALE_STRATEGY_RETRY_MS);
+    // 다음 60초 틱 — 고친 서버에서 성공 → 확인 · 상태 프레임 재송신. 틱이 sweep 을 시작하면 시계를 더 밀지 않는다(단계 시한 보호).
+    const before = targets.length;
+    for (let t = 0; t < STALE_STRATEGY_RETRY_MS && targets.length === before; t += 10_000) await advanceAlive(10_000);
+    expect(targets.slice(before)).toEqual([`KB120:${A}`]);
     await waitFor(() => h.register.all().length === 0, "재시도 성공 → 확인");
     await waitFor(() => acctOf(readyAccounts(tab.inbox), A)?.staleStrategies === undefined, "상태 프레임 재송신");
     expect(kb120.limitChaserSeed().filter((c) => c.buyEnabled)).toEqual([]);

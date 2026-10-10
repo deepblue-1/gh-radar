@@ -61,6 +61,9 @@
  *             (`StrategySweeper` · 끄지 못하면 `StaleStrategyRegister` · warn · 상태 프레임 `staleStrategies`) 세션 drop · wss 1012 →
  *             재접속이 새 서버 세션을 열고 ready → 25 → 66 으로 계좌 상태를 다시 맞춘다. D-10 의 「주문 서버 바뀜」 `order.server`
  *             표식(29-22)은 29-42 가 없앴다.
+ *           - 연결 유무와 무관한 옛 서버 끄기(29-44): 같은 두 `changed` 와 87 `applied` 뒤 `EffectiveOwnerTracker.refresh()` 의 move 를
+ *             `fanout.sweepMoved` 가 끈다(브라우저 0 사용자는 옛 서버에만 임시 세션) · wss 인증 백스톱(등록됐지만 주문 서버가 아닌 서버)
+ *             · 미확인 60초 재시도(`fanout.startStaleRetry`) · 되돌아오면 해제.
  *         이 플랜이 **남긴 것**(뒤 플랜 몫): 서버 푸시 신원은 29-06 에서 `AppAccess` 하나로 바뀌었다(런타임 추가 서버도 즉시 같은
  *         신원) · 사용자 세션은 (유저, 서버) 단위(29-16 · 29-20) · quote 전환은 29-23 `QuoteSwitch`.
  *
@@ -441,6 +444,9 @@ function sweepOwnerMoves(reason: string): void {
       logger.error({ error: err instanceof Error ? err.message : String(err) }, "[WS] 주문 서버 변경 옛 서버 끄기 예외"),
     );
 }
+// 29-44 — 끄지 못한(미확인) 옛 서버 전략을 60초마다 다시 끈다(성공 → 확인 · 연결 중 상태 프레임 재송신 · 되돌아오면 해제).
+// 종료 절차의 `fanout.stopStaleRetry()` · `closeAll` 이 정리한다.
+fanout.startStaleRetry();
 
 /**
  * 87 → 열린 세션 반영 (Phase 29-21 · ADMIN-06) — sink 가 그 서버 매핑에 87 을 넣은 직후(`applied`) 그 서버에 로그인한 사용자
@@ -705,9 +711,10 @@ async function shutdown(signal: string): Promise<void> {
   deadline.unref();
 
   try {
-    // 1) 새 연결 차단
+    // 1) 새 연결 차단 · 옛 서버 전략 재시도 타이머 정리(29-44 — 진행 중 sweep 은 끝까지 가고 새 틱은 없다)
     wsServer.close();
     orderApiServer.close();
+    fanout.stopStaleRetry();
     // 2) 살아 있는 wss 에 정상 close 프레임
     await fanout.closeAll(WS_CLOSE_GOING_AWAY);
     // 3) 구독 해제 + DMA 소켓 종료
