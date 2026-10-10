@@ -7,7 +7,8 @@
  *   - 같은 행 재적재 → 이벤트 없음 · host 변경 → changed 1회(changed 에 그 키)
  *   - 불변식 위반(증권사당 주문 서버 2개 · 시세 주 2개) · select 실패 → 직전 값 유지 + error 로그(비밀 · 행 값 없음)
  *   - 첫 성공 전에는 ready 가 풀리지 않는다(fail closed)
- *   - 겹친 `reload()` 는 select 한 번 · `close()` 뒤 타이머 0 · 조회 없음
+ *   - 겹친 `reload()` 는 진행 1 + 꼬리 1(WR-02) · 주기 틱만 겹치면 select 한 번 · `close()` 뒤 타이머 0 · 조회 없음
+ *   - WR-02 경합: 주기 적재가 옛 행을 읽는 중 주문 서버 교체 커밋 → 즉시 `reload()` 가 꼬리로 새 주문 서버를 반영
  *   - orderServerOf · quotePrimary · enabled 조회
  *
  * 가짜 supabase 는 `from(table).select(cols).order(col)` 체인만 흉내 내고, 결과를 큐에서 차례로 돌려준다.
@@ -248,20 +249,56 @@ describe("ServerRegistry — db 적재 (Phase 29 D-09)", () => {
     expect(db.calls).toHaveLength(2);
   });
 
-  it("겹친 reload() 는 select 한 번 · 주기 틱도 진행 중이면 건너뛴다", async () => {
+  it("주기 틱은 진행 중 적재를 공유(select 한 번) · 겹친 reload() 는 꼬리 1개를 공유(WR-02 — 진행 1 + 꼬리 1)", async () => {
     const db = fakeDb();
     let release: (r: Result) => void = () => undefined;
     db.queue(new Promise<Result>((resolve) => (release = resolve)));
+    db.queue(ok(ROWS));
     const { reg } = make(db);
     reg.start();
+    await vi.advanceTimersByTimeAsync(REFRESH_MS * 3); // 주기 틱 3번 — 진행 중 적재를 공유
+    expect(db.calls).toHaveLength(1);
     const a = reg.reload();
     const b = reg.reload();
-    await vi.advanceTimersByTimeAsync(REFRESH_MS * 3);
-    expect(db.calls).toHaveLength(1);
+    expect(b).toBe(a); // 꼬리 시작 전에 겹친 즉시 요청은 같은 꼬리
+    expect(db.calls).toHaveLength(1); // 꼬리는 진행이 끝나야 시작한다
     release(ok(ROWS));
-    expect(await a).toEqual({ ok: true, changed: true });
-    expect(await b).toEqual({ ok: true, changed: true });
-    expect(db.calls).toHaveLength(1);
+    // 첫 적재가 이미 같은 행을 반영했다 — 꼬리는 무변화.
+    expect(await a).toEqual({ ok: true, changed: false });
+    expect(db.calls).toHaveLength(2);
+  });
+
+  it("WR-02 — 주기 적재가 옛 행(KB120 주문 서버)을 읽는 중 KB121 로 교체 커밋 → 즉시 reload() 가 꼬리로 반영(select 2회)", async () => {
+    const db = fakeDb();
+    db.queue(ok(ROWS)); // 부팅 적재
+    let releasePeriodic: (r: Result) => void = () => undefined;
+    db.queue(new Promise<Result>((resolve) => (releasePeriodic = resolve))); // 주기 적재 — 교체 커밋 전에 시작
+    const switched = ROWS.map((r) =>
+      r.key === "KB120"
+        ? { ...r, is_order_server: false }
+        : r.key === "KB121"
+          ? { ...r, enabled: true, is_order_server: true }
+          : r,
+    );
+    db.queue(ok(switched)); // 커밋 뒤 읽기
+    const { reg, changes } = make(db);
+    reg.start();
+    await flush();
+    expect(reg.orderServerOf("KB")?.key).toBe("KB120");
+    const baseline = db.calls.length;
+
+    await vi.advanceTimersByTimeAsync(REFRESH_MS); // 주기 적재 시작(select 응답 멈춤)
+    expect(db.calls.length - baseline).toBe(1);
+
+    // Admin 이 KB121 을 주문 서버로 저장한 직후 Express 가 /internal/admin/registry/reload 를 부른다.
+    const immediate = reg.reload();
+    releasePeriodic(ok(ROWS)); // 진행 중 주기 적재는 커밋 전 행을 돌려준다
+    expect(await immediate).toEqual({ ok: true, changed: true });
+    expect(changes).toHaveLength(2);
+    expect(changes[1]).toMatchObject({ roles: true });
+    expect(reg.orderServerOf("KB")?.key).toBe("KB121");
+    // 경합 구간 select = 주기 1 + 꼬리 1.
+    expect(db.calls.length - baseline).toBe(2);
   });
 
   it("close() 뒤 타이머 0 · 조회 없음 · reload 는 ok false", async () => {
@@ -289,6 +326,8 @@ describe("ServerRegistry — env 합성 (Phase 29 D-09)", () => {
     });
     const changes: RegistryChange[] = [];
     reg.on("changed", (c) => changes.push(c));
+    // env 원천 reload() 는 종전대로 즉시 { ok: loaded, changed: false } — 꼬리 · 조회 없음.
+    expect(await reg.reload()).toEqual({ ok: false, changed: false });
     reg.start();
     expect(reg.loaded).toBe(true);
     await reg.ready();
