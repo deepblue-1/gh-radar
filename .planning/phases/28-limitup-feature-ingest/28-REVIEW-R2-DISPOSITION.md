@@ -3,7 +3,7 @@ phase: 28-limitup-feature-ingest
 review: 28-REVIEW-R2.md
 round: 2
 updated: 2026-10-10
-open: 9
+open: 7
 total: 9
 ---
 
@@ -15,9 +15,9 @@ total: 9
 | ID | Severity | Disposition | Source |
 |----|----------|-------------|--------|
 | WR-R2-01 | warning | open | - |
-| WR-R2-02 | warning | open | - |
+| WR-R2-02 | warning | fixed | quick-261010-h22 — purgeOld 실패를 result.purgeError 로 · main 판정(stale 로그 보존) |
 | IN-R2-01 | info | open | - |
-| IN-R2-02 | info | open | - |
+| IN-R2-02 | info | fixed | quick-261010-h22 — Freshness.calendarStale + `limitup-sync calendar stale` warn |
 | IN-R2-03 | info | open | - |
 | IN-R2-04 | info | open | - |
 | IN-R2-05 | info | open | - |

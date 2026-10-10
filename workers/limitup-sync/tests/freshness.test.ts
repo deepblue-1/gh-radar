@@ -15,6 +15,7 @@ describe("freshnessOf — 최신 export 뒤 export 없는 KRX 거래일 수 (WR-
       latestExport: "20261002",
       missingTradingDays: 0,
       stale: false,
+      calendarStale: false,
     });
   });
 
@@ -40,5 +41,13 @@ describe("freshnessOf — 최신 export 뒤 export 없는 KRX 거래일 수 (WR-
 
   it("날짜 순서와 무관하게 가장 새 날짜를 쓴다", () => {
     expect(freshnessOf(["20261002", "20260930"], SINCE, at("20261002")).latestExport).toBe("20261002");
+  });
+
+  it("KRX 휴장일 seed 범위(2026-12-31) 뒤 KST 오늘 → calendarStale (IN-R2-02) · 휴장일은 지어내지 않는다", () => {
+    expect(freshnessOf(["20261231"], SINCE, at("20261231")).calendarStale).toBe(false);
+    const f = freshnessOf(["20261231"], SINCE, at("20270104"));
+    expect(f.calendarStale).toBe(true);
+    // 2027 은 주말만 빠진다 — 1/1(금 · 신정) 도 거래일로 센다(seed 밖 · 그래서 calendarStale 로 드러낸다)
+    expect(f.missingTradingDays).toBe(2);
   });
 });

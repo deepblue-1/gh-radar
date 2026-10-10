@@ -368,7 +368,7 @@ describe("main — 신선도(WR-B01): 최신 export 뒤 3 거래일째 새 expor
     const fake = makeFakeSupabase({ loads: [{ date: GOOD, files_sig: SIG, skip_streak: 0 }] });
     const { dispatch, main } = await loadIndex(fake);
     const out = await dispatch({ now: new Date("2026-10-08T12:20:00Z") });
-    expect(out.freshness).toEqual({ latestExport: GOOD, missingTradingDays: 3, stale: true });
+    expect(out.freshness).toEqual({ latestExport: GOOD, missingTradingDays: 3, stale: true, calendarStale: false });
     expect(rpcs(fake.calls, "dma_strategy_events_purge_limit_feature")).toHaveLength(1);
 
     expect(await main(["node", "index.ts"], new Date("2026-10-08T12:20:00Z"))).toBe(1);
@@ -532,14 +532,59 @@ describe("dispatch — run 끝 보존 정리 (D-16 · D-19 · D-08 · 28-06)", (
     expect(rpcs(fake.calls, "dma_strategy_events_purge_limit_feature")[0].args).toEqual({ p_keep_days: 14 });
   });
 
-  it("정리 RPC error → 적재된 날짜를 담은 error 로그 + throw → main 종료 1", async () => {
+  it("정리 RPC error → 적재된 날짜를 담은 error 로그 · 다시 던지지 않고 result.purgeError → main 이 정리 실패 로그 + 종료 1 (WR-R2-02)", async () => {
     addDay(GOOD);
     const fake = makeFakeSupabase({ rpc: { limitup_purge_old: { error: { message: "canceling statement due to statement timeout" } } } });
     const { main } = await loadIndex(fake);
     expect(await main(["node", "index.ts"], NOW)).toBe(1);
     expect(rpcs(fake.calls, "limitup_commit_day").map((c) => c.args.p_date)).toEqual([GOOD]); // 적재는 끝났다
-    expect(log.calls.error.map((e) => e.msg)).toEqual(["limitup purge failed — 적재는 끝남", "limitup-sync failed"]);
+    expect(log.calls.error.map((e) => e.msg)).toEqual([
+      "limitup purge failed — 적재는 끝남",
+      "limitup-sync purge failed — 보존 정리 실패(적재는 끝남)",
+    ]);
     expect(log.calls.error[0].obj).toMatchObject({ loaded: [GOOD], grids: 3 });
-    expect((log.calls.error[1].obj.err as Error).message).toMatch(/limitup_purge_old: canceling statement/);
+    const purgeError = (log.calls.error[1].obj.result as { purgeError: { message: string } | null }).purgeError;
+    expect(purgeError?.message).toMatch(/limitup_purge_old: canceling statement/);
+    expect(log.calls.error.map((e) => e.msg)).not.toContain("limitup-sync failed");
+  });
+
+  it("정리 실패 + stale → stale 로그가 정리 실패에 가려지지 않는다 · 종료 1 (WR-R2-02)", async () => {
+    addDay(GOOD);
+    const fake = makeFakeSupabase({
+      loads: [{ date: GOOD, files_sig: SIG, skip_streak: 0 }],
+      rpc: { limitup_purge_old: { error: { message: "canceling statement due to statement timeout" } } },
+    });
+    const { main } = await loadIndex(fake);
+    expect(await main(["node", "index.ts"], new Date("2026-10-08T12:20:00Z"))).toBe(1);
+    expect(log.calls.error.map((e) => e.msg)).toEqual([
+      "limitup purge failed — 적재는 끝남",
+      "limitup-sync stale — 최신 export 뒤로 새 export 가 없는 거래일이 임계 이상 (119 export · radar-gw 운반 확인)",
+      "limitup-sync purge failed — 보존 정리 실패(적재는 끝남)",
+    ]);
+  });
+
+  it("정상 정리 · dry-run 이면 purgeError null", async () => {
+    const { out } = await run();
+    expect(out.purgeError).toBeNull();
+    const dry = await run({}, { dryRun: true });
+    expect(dry.out.purgeError).toBeNull();
+  });
+});
+
+describe("main — KRX 휴장일 캘린더 seed 만료 warn (IN-R2-02)", () => {
+  const calendarWarns = () => log.calls.warn.filter((w) => w.msg.startsWith("limitup-sync calendar stale"));
+
+  it("KST 오늘이 seed 끝(2026-12-31) 뒤 → `limitup-sync calendar stale` warn 1건 · seededThrough", async () => {
+    const { main } = await loadIndex(makeFakeSupabase());
+    await main(["node", "index.ts"], new Date("2027-01-05T12:20:00Z"));
+    expect(calendarWarns()).toHaveLength(1);
+    expect(calendarWarns()[0].obj.seededThrough).toBe("2026-12-31");
+  });
+
+  it("seed 범위 안(2026-10-05) → calendar warn 0건", async () => {
+    addDay(GOOD);
+    const { main } = await loadIndex(makeFakeSupabase({ loads: [{ date: GOOD, files_sig: SIG, skip_streak: 0 }] }));
+    expect(await main(["node", "index.ts"], NOW)).toBe(0);
+    expect(calendarWarns()).toEqual([]);
   });
 });

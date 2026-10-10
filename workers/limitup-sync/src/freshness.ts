@@ -7,9 +7,10 @@
  * - 오늘(KST)도 센다 — Scheduler 는 평일 21:20 KST 로 radar-gw 운반(21:00) 뒤다. 수동 실행이 21:00 전이어도 1일 차이라
  *   임계 아래다.
  * - 휴장일은 공유 캘린더(`@gh-radar/shared` isKrxHoliday — 두 번째 캘린더 금지), 주말은 여기서 건너뛴다. 캘린더 seed 가
- *   끝난 뒤(미등록 휴장일)는 주말만 빠져 공휴일 연휴에 오탐할 수 있다 — 캘린더 갱신이 정본 해법이다.
+ *   끝난 뒤(미등록 휴장일)는 주말만 빠져 공휴일 연휴에 오탐할 수 있다 — 캘린더 갱신이 정본 해법이다. 그 상태는
+ *   `calendarStale` 로 드러난다 — main 이 warn(IN-R2-02).
  */
-import { isKrxHoliday } from "@gh-radar/shared";
+import { isKrxCalendarStale, isKrxHoliday } from "@gh-radar/shared";
 
 /** 최신 export 뒤로 export 가 없는 거래일이 이 수 이상이면 stale → main 종료 1(알림). */
 export const STALE_TRADING_DAYS = 3;
@@ -23,6 +24,11 @@ export type Freshness = {
   /** `latestExport` 다음 날부터 KST 오늘까지(포함) export 가 없는 KRX 거래일 수. latestExport 가 null 이면 `since` 부터. */
   missingTradingDays: number;
   stale: boolean;
+  /**
+   * KST 오늘이 KRX 휴장일 seed 범위(KRX_HOLIDAYS_SEEDED_THROUGH) 밖 — 휴장일을 거래일로 세므로 stale 이 거짓일 수
+   * 있다(IN-R2-02). 세는 구간이 비어도 싣는다 — 「캘린더가 비었다」 는 run 마다 나와야 하는 신호다.
+   */
+  calendarStale: boolean;
 };
 
 const ymdToUtcMs = (ymd: string): number =>
@@ -42,5 +48,6 @@ export function freshnessOf(dates: readonly string[], since: string, now: Date):
     if (isKrxHoliday(d.toISOString().slice(0, 10))) continue;
     missing += 1;
   }
-  return { latestExport, missingTradingDays: missing, stale: missing >= STALE_TRADING_DAYS };
+  const calendarStale = isKrxCalendarStale(new Date(todayMs).toISOString().slice(0, 10));
+  return { latestExport, missingTradingDays: missing, stale: missing >= STALE_TRADING_DAYS, calendarStale };
 }

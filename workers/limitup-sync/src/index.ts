@@ -9,6 +9,7 @@ import { EXPORT_TABLES, commitDay, readNdjsonGz, stageDay, type ExportTbl, type 
 import { gridSummaryOf, memberDailyOf } from "./derive";
 import { GRID_NAME_RE, readGridGz, uploadGrids } from "./grid";
 import { kstYmdDaysAgo, purgeOld, type PurgeResult } from "./purge";
+import { KRX_HOLIDAYS_SEEDED_THROUGH } from "@gh-radar/shared";
 import { freshnessOf, STALE_TRADING_DAYS, type Freshness } from "./freshness";
 
 export { KNOWN_SCHEMA_VERSIONS } from "./manifest";
@@ -38,7 +39,9 @@ export { kstYmdDaysAgo } from "./purge";
  * 신선도(WR-B01): GCS 의 가장 새 export 날짜 뒤로 export 가 없는 KRX 거래일이 `STALE_TRADING_DAYS`(3) 이상이면
  * `freshness.stale` → main 이 error 로그 + 종료 1(119 export · radar-gw 운반이 멈추면 「새 날짜 없음」 정상 종료로 묻힌다).
  * 날짜 루프 뒤(날짜 0개 · 실패 날짜가 있어도) 보존 정리 `purgeOld` 1회(D-16 · D-19 · D-08 — purge.ts). 정리 오류는
- * 적재된 날짜를 사유와 함께 error 로그로 남기고 throw → 종료 1.
+ * 적재된 날짜를 사유와 함께 error 로그로 남기고 `result.purgeError` 에 담는다(throw 하지 않음) — main 이 신선도 로그를
+ * 먼저 낸 뒤 종료 1(정리 실패가 stale 신호를 가리지 않게 · WR-R2-02).
+ * KRX 휴장일 캘린더 seed 가 끝난 날(`freshness.calendarStale`)은 main 이 warn 만 낸다 — 종료 코드 영향 없음(IN-R2-02).
  *
  * `--dry-run`: Supabase 무접촉(env 불필요 · record_skip · 업로드 · 정리 없음) — 날짜별 행 수(파생 2표 포함) · 합계 ·
  * 격자 수 · skip 만 낸다.
@@ -86,6 +89,8 @@ export type DispatchResult = {
   excluded: string[];
   /** export 신선도(WR-B01) — `stale` 이면 main 종료 1. */
   freshness: Freshness;
+  /** run 끝 보존 정리 실패 — 적재는 끝났다. main 이 종료 1 로 판정(WR-R2-02). 정상 · dry-run 이면 null. */
+  purgeError: { message: string; partial?: PurgeResult } | null;
 };
 
 const SKIP_TEXT: Record<SkipReason, string> = {
@@ -145,6 +150,7 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
     failed: [],
     excluded: [],
     freshness: freshnessOf(dates, since, now),
+    purgeError: null,
   };
 
   /** `limitup_record_skip` → 새 streak 가 임계 이상이면 alertDates. RPC 오류는 throw. reason 은 DB 에서 자유 텍스트. */
@@ -318,21 +324,32 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
       });
       log.info({ purged: result.purged }, "limitup purge done");
     } catch (err) {
-      // 그날 적재는 이미 끝났다 — 무엇이 적재됐는지 남기고 실패로 끝낸다(알림 정책이 정리 실패를 잡는다).
-      // 단계는 서로 막지 않는다(WR-B05) — 끝난 단계 결과(partial)도 같이 남긴다.
+      // 그날 적재는 이미 끝났다 — 무엇이 적재됐는지 남긴다. 단계는 서로 막지 않는다(WR-B05) — 끝난 단계 결과(partial)도.
+      // throw 하지 않는다 — main 이 신선도 판정을 먼저 하고 종료 1(stale 신호가 정리 실패에 가려지지 않게 · WR-R2-02).
+      // 알림 정책은 실패 실행 수 metric 이라 종료 1 이면 그대로 울린다.
       const partial = (err as { partial?: PurgeResult }).partial;
       log.error({ loaded: result.loaded, grids: result.grids, partial, err }, "limitup purge failed — 적재는 끝남");
-      throw err;
+      result.purgeError = { message: err instanceof Error ? err.message : String(err), partial };
     }
   }
   return result;
 }
 
-/** 실행 1회 → 종료 코드(D-20): skip 만 0 · 같은 날짜 3연속 skip 1 · 실패 날짜 1(CR-B01) · stale 1(WR-B01) · 예외 1(사유 로그). */
+/**
+ * 실행 1회 → 종료 코드(D-20): skip 만 0 · 같은 날짜 3연속 skip 1 · 실패 날짜 1(CR-B01) · 정리 실패 1(WR-R2-02) ·
+ * stale 1(WR-B01) · 예외 1(사유 로그). 캘린더 seed 만료(IN-R2-02)는 warn 만 — 종료 코드 영향 없음.
+ * 로그 순서: calendar warn → stale error → (실패 날짜 | alert | 정리 실패) error. stale 은 다른 판정에 가려지지 않는다.
+ */
 export async function main(argv: string[] = process.argv, now?: Date): Promise<number> {
   try {
     const result = await dispatch({ dryRun: argv.includes("--dry-run"), now });
     const { freshness } = result;
+    if (freshness.calendarStale) {
+      logger.warn(
+        { freshness, seededThrough: KRX_HOLIDAYS_SEEDED_THROUGH },
+        "limitup-sync calendar stale — KRX 휴장일 seed 갱신 필요 (seed 끝 뒤 휴장일을 거래일로 세어 stale 이 거짓일 수 있다 · packages/shared/src/krxCalendar.ts)",
+      );
+    }
     if (freshness.stale) {
       // 실패 · alert 와 겹쳐도 따로 남긴다 — 운반 정지는 다른 원인이고, 로그 검색 한 줄로 찾을 수 있어야 한다.
       logger.error(
@@ -346,6 +363,10 @@ export async function main(argv: string[] = process.argv, now?: Date): Promise<n
     }
     if (result.alert) {
       logger.error({ result }, "limitup-sync alert — 같은 날짜 3회 연속 skip");
+      return 1;
+    }
+    if (result.purgeError) {
+      logger.error({ result }, "limitup-sync purge failed — 보존 정리 실패(적재는 끝남)");
       return 1;
     }
     if (freshness.stale) return 1;
