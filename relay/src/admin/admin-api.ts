@@ -19,7 +19,8 @@
  * 200 `{ ok: true, orderServer }`. null = 증권사 기본 주문 서버로. 레지스트리에 없는 키 · 형식 밖은 400, 그 계좌의 active 등록
  * 서버가 아니면(등록 안 됨 · removing · 다른 증권사) 409 `ORDER_SERVER_NOT_REGISTERED` · `NO_SUCH_ACCOUNT` · `NO_DMA_USER`.
  * 44 는 보내지 않는다 — gh-trade 는 지정을 모른다(와이어 무변경). 재적재 실패는 응답을 바꾸지 않는다(warn · 60초 주기가 잡는다).
- * 계좌 put · 계좌 제거 · 유저 삭제(deleted)도 끝에 같은 재적재를 건다 — DB 가 removing 전환과 함께 지정을 지운 것을 곧바로 라우팅에.
+ * 계좌 put · 계좌 제거 · 유저 삭제도 성공 응답 전에 같은 재적재를 건다 — DB 가 removing 전환(또는 settle)과 함께 지정을 지운 것을
+ * 60초 주기를 기다리지 않고 라우팅에. 생성 · 비밀번호 · reconcile 은 지정을 바꾸지 않아 걸지 않는다.
  *
  * 서버 상태 `GET /servers/status`(29-11) — 서버마다 `{ conn, journal, admin, quote, staleAccounts }`. `staleAccounts`(29-43 G-1 (가))는
  * 그 서버에 남아 끄지 못한 전략이 있는 계좌 수(deps `staleStrategies` 없으면 0 · 꺼진 서버에도 싣는다 — Admin 서버 카드 한 줄 · 29-38).
@@ -395,6 +396,8 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
       await deps.store.putAccount(dma, body.account, body.servers);
       return { results: await deps.dispatcher.reconcileUser(dma, { adminEmail: res.locals.adminEmail as string, deadlineAt }) };
     });
+    // 29-37 — 빠진 서버가 지정 서버였으면 RPC 가 removing 전환과 함께 지정을 지웠다 → 라우팅을 곧바로 기본 서버로.
+    await reloadOrderServers("PUT /dma-users/:dma/accounts");
     respond(res, results);
   });
 
@@ -406,6 +409,8 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
       await deps.store.markAccountRemoved(dma, broker, accountNo);
       return { results: await deps.dispatcher.reconcileUser(dma, { adminEmail: res.locals.adminEmail as string, deadlineAt }) };
     });
+    // 29-37 — 제거 표시가 그 계좌의 지정을 지웠다.
+    await reloadOrderServers("DELETE /dma-users/:dma/accounts/:broker/:accountNo");
     respond(res, results);
   });
 
@@ -449,6 +454,9 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
     );
     // D-04 즉시 반영 — DMA 연결이 사라진 웹 사용자의 wss 를 끊는다(접근 맵 revoked → fanout 결선). 실패해도 60초 주기가 잡는다.
     if (deleted) await deps.access.reload();
+    // 29-37 — 서버별 settle(op 2 ok · skipDisabled)이 그 서버의 등록 행(지정 포함)을 지웠다. deleted false 여도 일부 서버는
+    // 지웠을 수 있어 결과와 무관하게 다시 읽는다(무변화면 changed 0 — 재수립 없음).
+    await reloadOrderServers("DELETE /dma-users/:dma");
     res.status(200).json({ results, deleted });
   });
 
