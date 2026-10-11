@@ -15,6 +15,7 @@ v1.0 요구사항 아카이브: [milestones/v1.0-REQUIREMENTS.md](./milestones/v
 - [ ] **IPMAC-02**: 웹 Admin 계좌 편집에 「주문자 IP」·「MAC 주소」 입력칸 2개 — 클라 검증은 서버 규칙과 같다(IP 12자리 숫자 또는 a.b.c.d · MAC 12 hex(`:`·`-` 허용) · 둘 다 적거나 둘 다 비움), 저장 뒤 87 의 정규화 표기(12자리 · 대문자 MAC)로 다시 그린다, 멱등 비교 7필드에 두 필드 포함, 도움말 한 줄(같은 서버의 두 계좌가 서로 체결될 수 있으면 서로 다른 사용자 PC 값)
 - [ ] **IPMAC-03**: 86 code 13 BAD_ORDER_ENDPOINT 가 웹에 서버 문구 그대로 표시된다
 - [ ] **IPMAC-04**: gh-trade 질문 3개에 답을 인박스 노트에 적고 `status: done` · `done_commit` 으로 닫는다 — ① code 7 문구 확장 여부(웹이 문장을 대조하는지 확인) ② 입력 표기(웹은 점표기·콜론 그대로 보내고 서버 정규화에 맡김, 표시는 87 값) ③ 사용자 PC IP/MAC 은 `ipconfig /all` 값 수기 입력 운영 절차
+- [ ] **IPMAC-05**: 웹 Admin 에서 기존 계좌의 「계좌명」을 수정할 수 있다(지금은 추가 때만 입력 · 계좌 줄은 읽기 전용) — IP/MAC 과 같은 계좌 카드 편집에서 저장하고, 등록 서버마다 op 3 으로 반영된다(name 변경은 BUSY 미판정). 2026-10-11 사용자 추가 범위
 
 ### 인박스 — 상따 금액 단위 (`docs/inbox/from-gh-trade/261011-limitchaser-amount-unit.md`)
 
@@ -53,6 +54,7 @@ v1.0 요구사항 아카이브: [milestones/v1.0-REQUIREMENTS.md](./milestones/v
 | IPMAC-02 | Phase 30 | Pending |
 | IPMAC-03 | Phase 30 | Pending |
 | IPMAC-04 | Phase 30 | Pending |
+| IPMAC-05 | Phase 30 | Pending |
 | AMT-01 | Phase 31 | Pending |
 | AMT-02 | Phase 31 | Pending |
 | AMT-03 | Phase 31 | Pending |
@@ -60,11 +62,11 @@ v1.0 요구사항 아카이브: [milestones/v1.0-REQUIREMENTS.md](./milestones/v
 | DOCS-01 | quick | Pending |
 
 **Coverage:**
-- v1.1 requirements: 9 total
-- Mapped to phases: 8 (Phase 30: IPMAC 4 · Phase 31: AMT 4)
+- v1.1 requirements: 10 total
+- Mapped to phases: 9 (Phase 30: IPMAC 5 · Phase 31: AMT 4)
 - Quick (phase 없음): 1 (DOCS-01)
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-10-11*
-*Last updated: 2026-10-11 after roadmap creation (Phase 30-31)*
+*Last updated: 2026-10-11 — Phase 30 discuss 에서 IPMAC-05(계좌명 편집) 추가*

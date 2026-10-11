@@ -2,9 +2,14 @@
 gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: 운영 유지보수
+current_phase: 30
+current_phase_name: 인박스 KB 계좌별 주문자 IP/MAC
 status: planning
-last_updated: "2026-10-11T05:30:00.000Z"
+stopped_at: Phase 30 context gathered
+last_updated: "2026-10-11T05:01:34.395Z"
 last_activity: 2026-10-11
+last_activity_desc: v1.1 로드맵 생성(Phase 30-31 · IPMAC 4 + AMT 4 매핑, DOCS-01 은 quick)
+state_head: 2be5a437c679d983a80aad20cfdc1322a382cf03
 progress:
   total_phases: 2
   completed_phases: 0
@@ -70,10 +75,10 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 ## Session Continuity
 
-**Resume file:** None
+**Resume file:** .planning/phases/30-kb-ip-mac/30-CONTEXT.md
 
-Last session: 2026-10-11
-Stopped at: v1.1 로드맵 생성 완료(Phase 30-31)
+Last session: 2026-10-11T05:01:34.383Z
+Stopped at: Phase 30 context gathered
 Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 
 ## Operator Next Steps

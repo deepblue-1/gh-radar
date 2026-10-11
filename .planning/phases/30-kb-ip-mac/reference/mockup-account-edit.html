@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 30 목업 — Admin 계좌 편집(계좌명 · 주문자 IP/MAC) A 항상 입력칸 / B 카드 펼침 / C 작은 시트</title>
+<!-- standalone — 토큰 · 계좌 카드 · 시트/패널 틀은 Phase 29 채택 목업(reference/mockup-g1-account-order-server.html) 그대로. -->
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; gap: 24px; padding: 20px 12px 60px; overflow-x: auto; }
+.f { --bg: #ffffff; --surface: #f2f4f6; --fg: #191f28; --fg2: #333d4b; --muted: #f2f4f6; --mfg: #6b7684; --faint: #b0b8c1; --hair: #e5e8eb; --up: #f04452; --down: #3182f6; --upbg: #ffeeee; --dnbg: #e8f3ff; --okbg: #e6f7ee; --ok: #1c8f4e; --warnbg: #fff4e0; --warn: #b26a00; --pill-bg: #ffffff; --pill-fg: #191f28; --sheet: #ffffff; --scrim: rgba(0,0,0,.35);
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif; }
+.f.dark { --bg: #17171c; --surface: #0f0f12; --fg: #ffffff; --fg2: #e4e4e4; --muted: #2a2a31; --mfg: #9e9e9e; --faint: #636363; --hair: #33333a; --up: #f04251; --down: #3485fa; --upbg: rgba(240,66,81,.16); --dnbg: rgba(52,133,250,.16); --okbg: rgba(46,184,106,.18); --ok: #4cd38a; --warnbg: rgba(255,170,0,.16); --warn: #ffbf47; --pill-bg: #4e4e4e; --pill-fg: #ffffff; --sheet: #202026; --scrim: rgba(0,0,0,.55); }
+.f { position: relative; flex: none; overflow: hidden; background: var(--bg); color: var(--fg2); font-family: var(--font); -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 1px #2a2a31; display: flex; flex-direction: column; }
+.f.phone { width: 390px; height: 844px; border-radius: 30px; }
+.f.desktop { width: 1080px; height: 720px; border-radius: 16px; flex-direction: row; }
+.side { width: 200px; border-right: 1px solid var(--hair); padding: 18px 12px; font-size: 14px; color: var(--mfg); background: var(--surface); }
+.side .it { padding: 8px 10px; border-radius: 8px; }
+.side .it.on { background: var(--muted); color: var(--fg); font-weight: 600; }
+.side .sub { padding: 6px 10px 6px 26px; font-size: 13px; }
+.side .sub.on { color: var(--fg); font-weight: 600; }
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
+.hd { padding: 16px 20px 0; display: flex; align-items: center; gap: 10px; }
+.f.phone .hd { padding: 14px 16px 0; }
+.hd .nm { font-size: 20px; font-weight: 700; color: var(--fg); }
+.hd .ex { font-size: 12.5px; color: var(--mfg); }
+.hd .sp { flex: 1; }
+.btn { font: inherit; font-size: 13px; font-weight: 600; padding: 8px 12px; border-radius: 9px; border: 0; cursor: pointer; background: var(--muted); color: var(--fg); }
+.btn.sm { font-size: 12px; padding: 5px 9px; }
+.scroll { flex: 1; overflow-y: auto; }
+.sec { padding: 14px 20px 6px; font-size: 12.5px; font-weight: 600; color: var(--mfg); display: flex; align-items: center; gap: 8px; }
+.f.phone .sec { padding: 14px 16px 6px; }
+.sec .n { background: var(--muted); border-radius: 999px; padding: 1px 7px; font-size: 11px; }
+.row { display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-bottom: 1px solid var(--hair); }
+.f.phone .row { padding: 12px 16px; }
+.row.sel { background: var(--surface); box-shadow: inset 3px 0 0 var(--down); }
+.row .av { width: 36px; height: 36px; border-radius: 50%; background: var(--muted); display: grid; place-items: center; font-weight: 700; color: var(--fg); font-size: 14px; flex: none; }
+.row .c1 { flex: 1; min-width: 0; }
+.row .em { font-size: 14px; font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .m { font-size: 12.5px; color: var(--mfg); margin-top: 2px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.row .chev { color: var(--faint); font-size: 18px; }
+.ch { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 5px; white-space: nowrap; line-height: 1.4; }
+.ch.role { background: var(--muted); color: var(--fg2); }
+.ch.ok { background: var(--okbg); color: var(--ok); }
+.ch.warn { background: var(--warnbg); color: var(--warn); }
+.ch.err { background: var(--upbg); color: var(--up); }
+.srv { display: inline-flex; gap: 4px; }
+/* 편집 본문 */
+.ed { padding: 0 20px 24px; }
+.f.phone .ed { padding: 0 16px 24px; }
+.ed .ttl { display: flex; align-items: center; gap: 10px; padding: 16px 0 6px; }
+.ed .ttl .em { font-size: 17px; font-weight: 700; color: var(--fg); }
+.ed .ttl .x { margin-left: auto; color: var(--mfg); font-size: 20px; }
+.fld { padding: 12px 0; border-bottom: 1px solid var(--hair); }
+.fld .lb { font-size: 12px; color: var(--mfg); margin-bottom: 6px; }
+.seg { display: inline-flex; background: var(--muted); border-radius: 10px; padding: 2px; gap: 2px; }
+.seg span { font-size: 13px; font-weight: 500; color: var(--mfg); padding: 5px 12px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+.seg span.on { background: var(--pill-bg); color: var(--pill-fg); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+.acct { border: 1px solid var(--hair); border-radius: 12px; padding: 12px 14px; margin-top: 10px; }
+.acct .t { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--fg); min-width: 0; }
+.acct .t .bk { font-size: 11px; background: var(--muted); padding: 2px 6px; border-radius: 5px; color: var(--fg2); font-weight: 600; flex: none; }
+.acct .t .no { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.acct .t .nm2 { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--mfg); font-weight: 500; }
+.acct .t .sp { flex: 1; }
+.acct .t .btn { flex: none; }
+.acct .br { margin-top: 4px; font-size: 12px; color: var(--mfg); }
+.acct .srvs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.sv { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 5px 9px; border-radius: 999px; border: 1px solid var(--hair); color: var(--fg2); }
+.sv i { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid var(--faint); display: grid; place-items: center; font-size: 10px; color: #fff; font-style: normal; }
+.sv.on i { background: var(--down); border-color: var(--down); } .sv.on i::after { content: '✓'; }
+.sv .st { font-size: 10.5px; font-weight: 600; padding: 1px 5px; border-radius: 4px; }
+.sv .st.ok { background: var(--okbg); color: var(--ok); } .sv .st.warn { background: var(--warnbg); color: var(--warn); } .sv .st.off { background: transparent; color: var(--faint); border: 1px dashed var(--hair); }
+.note { font-size: 12px; color: var(--mfg); line-height: 1.5; margin-top: 6px; }
+.wline { font-size: 12px; color: var(--warn); line-height: 1.5; margin-top: 6px; }
+/* 시트 / 패널 */
+.scrim { position: absolute; inset: 0; background: var(--scrim); z-index: 5; }
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; top: 56px; background: var(--sheet); border-radius: 22px 22px 0 0; z-index: 6; display: flex; flex-direction: column; overflow: hidden; }
+.sheet .grab { width: 40px; height: 4px; border-radius: 2px; background: var(--faint); margin: 10px auto 0; }
+.sheet .scroll { padding-bottom: 20px; }
+/* Phase 30 — 계좌 편집 */
+.ipm { margin-top: 4px; font-size: 12px; color: var(--mfg); font-variant-numeric: tabular-nums; }
+.ipm b { color: var(--fg2); font-weight: 600; }
+.ipm .un { color: var(--faint); }
+.inp { width: 100%; font: inherit; font-size: 13.5px; color: var(--fg); background: var(--surface); border: 1px solid var(--hair); border-radius: 9px; padding: 8px 10px; outline: none; font-variant-numeric: tabular-nums; }
+.inp:focus { border-color: var(--down); }
+.inp.bad { border-color: var(--up); }
+.inp.sm { font-size: 13px; padding: 6px 9px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.lab { font-size: 11.5px; color: var(--mfg); margin-bottom: 4px; display: block; }
+.help { font-size: 11.5px; color: var(--mfg); line-height: 1.5; margin-top: 6px; }
+.err { font-size: 12px; color: var(--up); line-height: 1.5; margin-top: 6px; }
+.okl { font-size: 12px; color: var(--ok); line-height: 1.5; margin-top: 6px; }
+.acts { display: flex; gap: 6px; justify-content: flex-end; margin-top: 10px; }
+.btn.pri { background: var(--down); color: #fff; }
+.btn:disabled { opacity: .45; cursor: default; }
+.acct.editing { border-color: var(--down); }
+.nmin { font: inherit; font-size: 14px; font-weight: 500; color: var(--fg); background: transparent; border: 0; border-bottom: 1px dashed var(--faint); padding: 1px 2px; min-width: 0; width: 90px; outline: none; }
+.nmin:focus { border-bottom-color: var(--down); }
+.dirty { display: flex; align-items: center; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--hair); font-size: 12px; color: var(--mfg); }
+.dirty .sp { flex: 1; }
+/* C — 작은 시트 / 다이얼로그 */
+.scrim2 { position: absolute; inset: 0; background: var(--scrim); z-index: 8; }
+.mini { position: absolute; z-index: 9; background: var(--sheet); display: flex; flex-direction: column; }
+.f.phone .mini { left: 0; right: 0; bottom: 0; border-radius: 22px 22px 0 0; padding: 0 16px 20px; }
+.f.desktop .mini { right: 40px; top: 120px; width: 360px; border-radius: 14px; padding: 4px 18px 18px; box-shadow: 0 12px 40px rgba(0,0,0,.3); }
+.mini .grab { width: 40px; height: 4px; border-radius: 2px; background: var(--faint); margin: 10px auto 4px; }
+.mini .mt { font-size: 16px; font-weight: 700; color: var(--fg); padding: 10px 0 2px; display: flex; gap: 8px; align-items: center; }
+.mini .ms { font-size: 12px; color: var(--mfg); margin-bottom: 10px; }
+.mini .fl { margin-top: 10px; }
+.mini .acts .btn { flex: 1; padding: 10px; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">편집 모양</span><button data-variant="A" class="on">A 카드 안 항상 입력칸</button><button data-variant="B">B 「편집」 → 카드 펼침</button><button data-variant="C">C 「편집」 → 작은 시트</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390 (바텀시트)</button><button data-w="desktop">데스크톱 (440 패널)</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
+  <div class="g"><span class="l">저장 결과(시뮬)</span><button data-r="ok" class="on">서버 code 0</button><button data-r="c13">서버 code 13</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+<script>
+/*
+ * 화면 = Admin 편집 시트 안 「계좌 · 등록 서버」. 이번에 고칠 수 있게 되는 것 = 계좌명(KB·교보) + 주문자 IP·MAC(KB 만).
+ * IP/MAC 은 짝(둘 다 적거나 둘 다 비움)이라 한 번에 저장한다. 저장 = PUT 1건 → 등록 서버마다 op 3.
+ * 입력: IP 12자리 숫자 또는 a.b.c.d · MAC 12 hex(: - 허용). 표시: 87 정규화값(12자리 · 대문자 MAC).
+ * 입력·저장 버튼은 실제로 동작한다(검증 · 정규화 · 「변경 없음」 · code 13 시뮬).
+ */
+const DESC = {
+  A: '<b>A · 카드 안에 입력칸이 늘 보인다</b> — 계좌명은 제목줄에서 바로 고치는 밑줄 칸, KB 는 IP·MAC 2칸이 카드에 늘 펼쳐져 있다. 값을 바꾸면 카드 아래에 「되돌리기 · 저장」 줄이 생긴다(IP/MAC 짝이라 칸별 즉시 저장 대신 카드 저장). 손이 가장 짧지만 계좌가 많으면 시트가 길고, 평소에도 입력칸이 보여 실수로 건드리기 쉽다.',
+  B: '<b>B · 「편집」 → 그 카드가 편집 모드로 펼쳐진다</b> — 평소 카드는 지금처럼 읽기 전용(계좌명 · 지점/트레이더 · 「주문자 IP · MAC」 한 줄). 「편집」 을 누르면 그 카드 안에 계좌명 · IP · MAC 입력칸 + 도움말 + 「취소 · 저장」. 한 번에 한 카드만. 서버 토글 · 주문 서버 즉시 저장(D-15)은 그대로 두고, 「고쳐 쓰는 값」만 저장 버튼을 쓴다.',
+  C: '<b>C · 「편집」 → 작은 시트(폰) / 다이얼로그(데스크톱)</b> — 카드는 B 와 같이 읽기 전용. 「편집」 을 누르면 편집 시트 위에 작은 시트가 하나 더 뜬다. 입력에 집중되고 키보드가 떠도 버튼이 가려지지 않지만, 시트 위 시트(2겹)가 된다.',
+};
+const ACCTS = [
+  { id: 'a1', bk: 'KB', no: '377-28-502101', name: '위탁', branch: '01234', trader: 'KTR001', reg: ['KB120', 'KB121'], ip: '010041001124', mac: '1CFD087D978E' },
+  { id: 'a2', bk: 'KB', no: '377-03-857101', name: '', branch: '01234', trader: 'KTR001', reg: ['KB120'], ip: '', mac: '' },
+  { id: 'a3', bk: 'KYOBO', no: '98765432-01', name: '위탁', branch: null, trader: null, reg: ['KYOBO119'], ip: '', mac: '' },
+];
+let S = { variant: 'A', w: 'phone', t: 'dark', r: 'ok' };
+let EDIT = null;          // B · C: 편집 중인 계좌 id
+const DRAFT = {};         // 계좌 id → { name, ip, mac }
+const MSG = {};           // 계좌 id → { kind: 'ok'|'err'|'same', text }
+
+const HELP = '같은 서버의 두 계좌가 서로 체결될 수 있으면 계좌마다 서로 다른 사용자 PC 의 IP · MAC 을 적으세요(ipconfig /all).';
+const C13 = '주문자 IP/MAC 형식 오류 — IP 는 12자리 숫자 또는 a.b.c.d, MAC 은 12자리 16진, 둘 다 적거나 둘 다 비워야 합니다';
+
+function normIp(v) {
+  v = v.trim(); if (v === '') return '';
+  if (/^\d{12}$/.test(v)) return v;
+  const m = v.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (m && m.slice(1).every(x => +x <= 255)) return m.slice(1).map(x => x.padStart(3, '0')).join('');
+  return null;
+}
+function normMac(v) {
+  v = v.trim(); if (v === '') return '';
+  const h = v.replace(/[:-]/g, '');
+  return /^[0-9a-fA-F]{12}$/.test(h) ? h.toUpperCase() : null;
+}
+function draftOf(a) { return DRAFT[a.id] ?? (DRAFT[a.id] = { name: a.name, ip: a.ip, mac: a.mac }); }
+function check(a) {
+  const d = draftOf(a);
+  if (a.bk !== 'KB') return { ipBad: false, macBad: false, err: null, ip: '', mac: '' };
+  const ip = normIp(d.ip), mac = normMac(d.mac);
+  let err = null;
+  if (ip === null) err = 'IP 는 12자리 숫자 또는 10.41.1.124 형식이에요';
+  else if (mac === null) err = 'MAC 은 12자리 16진이에요(1C:FD:08:7D:97:8E)';
+  else if ((ip === '') !== (mac === '')) err = 'IP 와 MAC 은 둘 다 적거나 둘 다 비워 주세요';
+  return { ipBad: ip === null || (err && ip === '' && mac), macBad: mac === null || (err && mac === '' && ip), err, ip, mac };
+}
+function dirty(a) { const d = draftOf(a); return d.name.trim() !== a.name || d.ip.trim() !== a.ip || d.mac.trim() !== a.mac; }
+function save(a) {
+  const c = check(a); if (c.err) return;
+  const d = draftOf(a);
+  if (S.r === 'c13') { MSG[a.id] = { kind: 'err', text: C13 }; render(); return; }
+  const same = d.name.trim() === a.name && c.ip === a.ip && c.mac === a.mac;
+  a.name = d.name.trim(); a.ip = c.ip; a.mac = c.mac;
+  DRAFT[a.id] = { name: a.name, ip: a.ip, mac: a.mac };
+  MSG[a.id] = same ? { kind: 'same', text: '변경 없음' } : { kind: 'ok', text: `반영됨 · ${a.reg.join(' · ')}` };
+  EDIT = null; render();
+}
+function revert(a) { DRAFT[a.id] = { name: a.name, ip: a.ip, mac: a.mac }; delete MSG[a.id]; EDIT = null; render(); }
+
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+function ipmLine(a) {
+  if (a.bk !== 'KB') return '';
+  return a.ip ? `<div class="ipm">주문자 IP <b>${a.ip}</b> · MAC <b>${a.mac}</b></div>` : `<div class="ipm">주문자 IP · MAC <span class="un">미설정(서버 NIC 값)</span></div>`;
+}
+function br(a) { return a.bk === 'KB' ? `지점 ${a.branch} · 트레이더 ${a.trader}` : '지점 해당 없음 · 트레이더 해당 없음'; }
+function chips(a) {
+  return `<div class="srvs">${a.reg.map(k => `<span class="sv on"><i></i>${k} <span class="st ok">반영됨</span></span>`).join('')}</div>`;
+}
+function msgLine(a) {
+  const m = MSG[a.id]; if (!m) return '';
+  return m.kind === 'err' ? `<div class="err" role="alert">${a.reg[0]} 실패: ${m.text}</div>` : `<div class="okl">${m.text}</div>`;
+}
+function fields(a, cls) {
+  const d = draftOf(a), c = check(a);
+  const nameF = `<div class="${cls}"><label class="lab">계좌명</label><input class="inp sm" data-a="${a.id}" data-f="name" value="${esc(d.name)}" placeholder="계좌명(선택)"></div>`;
+  if (a.bk !== 'KB') return nameF + `<div class="help">교보 계좌는 주문자 IP · MAC 해당 없음</div>`;
+  return nameF + `<div class="grid2">
+      <div><label class="lab">주문자 IP</label><input class="inp sm${c.ipBad ? ' bad' : ''}" data-a="${a.id}" data-f="ip" value="${esc(d.ip)}" placeholder="10.41.1.124" inputmode="decimal"></div>
+      <div><label class="lab">MAC 주소</label><input class="inp sm${c.macBad ? ' bad' : ''}" data-a="${a.id}" data-f="mac" value="${esc(d.mac)}" placeholder="1C:FD:08:7D:97:8E"></div>
+    </div>
+    ${c.err && dirty(a) ? `<div class="err">${c.err}</div>` : `<div class="help">${HELP}</div>`}`;
+}
+function title(a, nameHtml, right) {
+  return `<div class="t"><span class="bk">${a.bk}</span><span class="no">${a.no}</span>${nameHtml}<span class="sp"></span>${right}</div>`;
+}
+function acctA(a) {
+  const d = draftOf(a), c = check(a), dz = dirty(a);
+  const nm = `<input class="nmin" data-a="${a.id}" data-f="name" value="${esc(d.name)}" placeholder="계좌명">`;
+  const ipmac = a.bk === 'KB' ? `<div class="grid2">
+      <div><label class="lab">주문자 IP</label><input class="inp sm${c.ipBad ? ' bad' : ''}" data-a="${a.id}" data-f="ip" value="${esc(d.ip)}" placeholder="10.41.1.124"></div>
+      <div><label class="lab">MAC 주소</label><input class="inp sm${c.macBad ? ' bad' : ''}" data-a="${a.id}" data-f="mac" value="${esc(d.mac)}" placeholder="1C:FD:08:7D:97:8E"></div></div>
+      ${c.err && dz ? `<div class="err">${c.err}</div>` : `<div class="help">${HELP}</div>`}` : '';
+  const bar = dz ? `<div class="dirty"><span>저장 안 한 변경</span><span class="sp"></span><button class="btn sm" data-act="revert" data-a="${a.id}">되돌리기</button><button class="btn sm pri" data-act="save" data-a="${a.id}"${c.err ? ' disabled' : ''}>저장</button></div>` : '';
+  return `<div class="acct">${title(a, nm, '<button class="btn sm">제거</button>')}<div class="br">${br(a)}</div>${ipmac}${chips(a)}${bar}${msgLine(a)}</div>`;
+}
+function acctRead(a) {
+  const nm = `<span class="nm2">${a.name ? esc(a.name) : '<span style="color:var(--faint)">이름 없음</span>'}</span>`;
+  const right = `<button class="btn sm" data-act="edit" data-a="${a.id}">편집</button><button class="btn sm">제거</button>`;
+  return `<div class="acct">${title(a, nm, right)}<div class="br">${br(a)}</div>${ipmLine(a)}${chips(a)}${msgLine(a)}</div>`;
+}
+function acctB(a) {
+  if (EDIT !== a.id) return acctRead(a);
+  const c = check(a);
+  return `<div class="acct editing">${title(a, '', '<button class="btn sm">제거</button>')}<div class="br">${br(a)}</div>
+    <div style="margin-top:10px">${fields(a, '')}</div>
+    <div class="acts"><button class="btn sm" data-act="revert" data-a="${a.id}">취소</button><button class="btn sm pri" data-act="save" data-a="${a.id}"${c.err || !dirty(a) ? ' disabled' : ''}>저장</button></div>
+    ${msgLine(a)}${chips(a)}</div>`;
+}
+function miniC() {
+  const a = ACCTS.find(x => x.id === EDIT); if (!a) return '';
+  const c = check(a);
+  return `<div class="scrim2" data-act="revert" data-a="${a.id}"></div><div class="mini">${S.w === 'phone' ? '<div class="grab"></div>' : ''}
+    <div class="mt"><span class="bk" style="font-size:11px;background:var(--muted);padding:2px 6px;border-radius:5px">${a.bk}</span>${a.no}</div>
+    <div class="ms">저장하면 등록 서버 ${a.reg.join(' · ')} 에 바로 반영돼요</div>
+    ${fields(a, 'fl')}
+    ${msgLine(a)}
+    <div class="acts"><button class="btn" data-act="revert" data-a="${a.id}">취소</button><button class="btn pri" data-act="save" data-a="${a.id}"${c.err || !dirty(a) ? ' disabled' : ''}>저장</button></div></div>`;
+}
+function editor() {
+  const f = S.variant === 'A' ? acctA : S.variant === 'B' ? acctB : acctRead;
+  return `<div class="ed">
+    <div class="ttl"><span class="em">kim.trader@gmail.com</span><span class="ch role">trader</span><span class="x">×</span></div>
+    <div class="fld"><div class="lb">계좌 · 등록 서버</div>
+      ${ACCTS.map(f).join('')}
+      <div style="margin-top:10px"><button class="btn sm">+ 계좌 추가</button></div>
+    </div></div>`;
+}
+const USERS = [
+  { em: 'alex@jx1.io', role: 'admin', dma: 'alexjx', n: 2 },
+  { em: 'kim.trader@gmail.com', role: 'trader', dma: 'kimtr', n: 3, sel: true },
+];
+function list() {
+  return `<div class="sec">사용자 <span class="n">${USERS.length}</span></div>` + USERS.map(u => `<div class="row${u.sel ? ' sel' : ''}"><div class="av">${u.em[0].toUpperCase()}</div><div class="c1"><div class="em">${u.em}</div><div class="m"><span class="ch role">${u.role}</span> DMA <b style="color:var(--fg)">${u.dma}</b> · 계좌 ${u.n}</div></div><span class="chev">›</span></div>`).join('');
+}
+function frame() {
+  const phone = S.w === 'phone';
+  const hd = `<div class="hd"><span class="nm">사용자</span><span class="sp"></span><button class="btn sm">+ 사용자</button></div>`;
+  let body = `${hd}<div class="scroll">${list()}</div>`;
+  body += phone ? `<div class="scrim"></div><div class="sheet"><div class="grab"></div><div class="scroll">${editor()}</div></div>`
+                : `<div class="panel"><div class="scroll">${editor()}</div></div>`;
+  if (S.variant === 'C' && EDIT) body += miniC();
+  if (phone) return `<div class="f phone ${S.t}"><div class="main">${body}</div></div>`;
+  const side = `<div class="side"><div class="it">트레이딩</div><div class="it on">Admin</div><div class="sub on">사용자</div><div class="sub">서버</div></div>`;
+  return `<div class="f desktop ${S.t}">${side}<div class="main">${body}</div></div>`;
+}
+function render() {
+  document.getElementById('desc').innerHTML = DESC[S.variant];
+  const sc = document.querySelector('#stage .ed')?.closest('.scroll'); const top = sc ? sc.scrollTop : 0;
+  const foc = document.activeElement?.dataset?.f ? { a: document.activeElement.dataset.a, f: document.activeElement.dataset.f, p: document.activeElement.selectionStart } : null;
+  document.getElementById('stage').innerHTML = frame();
+  const sc2 = document.querySelector('#stage .ed')?.closest('.scroll'); if (sc2) sc2.scrollTop = top;
+  if (foc) { const el = document.querySelector(`#stage input[data-a="${foc.a}"][data-f="${foc.f}"]`); if (el) { el.focus(); try { el.setSelectionRange(foc.p, foc.p); } catch (e) {} } }
+  document.querySelectorAll('#nav button').forEach(b => { const k = Object.keys(b.dataset)[0]; b.classList.toggle('on', String(S[k]) === b.dataset[k]); });
+}
+document.getElementById('nav').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const k = Object.keys(b.dataset)[0]; S[k] = b.dataset[k];
+  if (k === 'variant') { EDIT = null; ACCTS.forEach(a => { DRAFT[a.id] = { name: a.name, ip: a.ip, mac: a.mac }; delete MSG[a.id]; }); }
+  render();
+});
+const stage = document.getElementById('stage');
+stage.addEventListener('input', e => {
+  const el = e.target.closest('input[data-a]'); if (!el) return;
+  const a = ACCTS.find(x => x.id === el.dataset.a); draftOf(a)[el.dataset.f] = el.value; delete MSG[a.id]; render();
+});
+stage.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const a = ACCTS.find(x => x.id === b.dataset.a);
+  if (b.dataset.act === 'edit') { EDIT = a.id; DRAFT[a.id] = { name: a.name, ip: a.ip, mac: a.mac }; delete MSG[a.id]; render(); }
+  if (b.dataset.act === 'save') save(a);
+  if (b.dataset.act === 'revert') revert(a);
+});
+render();
+</script>
+</body>
+</html>
