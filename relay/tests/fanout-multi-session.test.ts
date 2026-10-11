@@ -42,7 +42,7 @@ import { WsFanout } from "../src/ws/fanout.js";
 import { SubscriptionHub } from "../src/hub/subscription-hub.js";
 import type { DmaBroker, DmaServerRow } from "../src/registry/registry.js";
 import type { SymbolInfo, SymbolLookup } from "../src/store/symbols.js";
-import { startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
+import { readGetVITriggerExchange, startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
 import { connectWs, type TestWs } from "./helpers/ws-client.js";
 import {
   SAMPLE_ACCOUNT_NO,
@@ -104,6 +104,22 @@ function orderNew(accountNo: string, rid: string) {
     price: 70_000,
     accountNo,
   };
+}
+
+/** 게이트웨이가 받은 `GetVITriggerReq(21)` 의 요청 거래소들(보낸 순). */
+function viGetsOf(payloads: Buffer[]): string[] {
+  return payloads
+    .filter((p) => envOf(p).msgType() === MSG.GetVITriggerReq)
+    .map((p) => readGetVITriggerExchange(MSG.GetVITriggerReq, p) ?? "<bare>");
+}
+
+function vis(inbox: RelayOutbound[]): RelayViTriggerMsg[] {
+  return inbox.filter((m): m is RelayViTriggerMsg => m.t === "vi");
+}
+
+/** relay 가 낸 거부 프레임(`msg` ERROR) 중 그 명령 몫. */
+function rejectsOf(inbox: RelayOutbound[], kind: string): RelayOutbound[] {
+  return inbox.filter((m) => m.t === "msg" && m.lv === "ERROR" && m.kind === kind);
 }
 
 function statesOf(inbox: RelayOutbound[]): RelayStateMsg[] {
@@ -510,28 +526,71 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
 
     // ① SessionManager — 사용자 단위 명령 세션.
     expect(manager.primaryOf(USER_A)?.serverKey).toBe("KB120");
-    // ② hub — 21 · 34 · 43 은 KB120 으로만.
+    // ② hub — 43(사용자 설정)은 KB120 으로만. 21 · 34 는 KB 세션 각각이 VI 원천이다(29-51 GC-05) — 단 이 시나리오의 KB121 은
+    //    hub 결선 전에 이미 Ready 라 hub Ready 프리페치가 없다(그 세션 몫 21 수는 아래 트레이서가 본다).
     await waitFor(() => countOf(p120, MSG.GetUserSettingsReq) === 1, "KB120 사용자 단위 프리페치");
     await flushIo(10);
     expect(countOf(p120, MSG.GetVITriggerReq)).toBe(2);
-    expect(countOf(p121, MSG.GetVITriggerReq)).toBe(0);
-    expect(countOf(p121, MSG.GetVIOrderListReq)).toBe(0);
     expect(countOf(p121, MSG.GetUserSettingsReq)).toBe(0);
     // ③ 병합 상태 프레임 — primary(KB120) 소유 계좌(B)가 먼저.
     const merged = statesOf(inbox).filter((f) => f.s === "ready" && (f.accounts ?? []).length === 2).at(-1);
     expect(merged?.accounts?.map((a) => a.accountNo)).toEqual([B, A]);
 
-    // VI 61 은 KB120 것만 브라우저로.
+    // VI 61 — 소유 뷰 안이면 그 세션 것도 원천(KB121 의 A · KB120 의 B) · 소유 뷰 밖(KB121 의 B)은 0.
     const s120 = kb120.sockets[0];
     const s121 = kb121.sockets[0];
     if (s120 === undefined || s121 === undefined) throw new Error("스텁 소켓 없음");
     const from = inbox.length;
+    kb121.sendFrame(s121, buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", run: true }));
     kb121.sendFrame(s121, buildSetVITriggerRespFrame({ accountNo: A, exchange: "NXT" }));
     kb120.sendFrame(s120, buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX" }));
-    await waitFor(() => inbox.slice(from).some((m) => m.t === "vi"), "KB120 61");
+    await waitFor(() => vis(inbox.slice(from)).length >= 2, "KB121 · KB120 61");
     await flushIo(10);
-    const vis = inbox.slice(from).filter((m): m is RelayViTriggerMsg => m.t === "vi");
-    expect(vis.map((m) => m.x)).toEqual(["KRX"]);
+    expect(vis(inbox.slice(from)).map((m) => [m.x, m.cfg?.accountNo])).toEqual([
+      ["NXT", A],
+      ["KRX", B],
+    ]);
+  });
+
+  it("GC-05 (29-51) 트레이서 — vi.set(A) 는 계좌 소유 KB121 세션으로 · KB121 61 에코 → 브라우저 vi KRX = A · 두 KB 세션 각각 21 KRX · NXT · vi.set(B, NXT) 는 KB120", async () => {
+    // 스텁은 거래소별 모드 — 21 은 그 슬롯(미등록 = 빈 61), 11 은 저장 뒤 61 에코(서버 Set 에코 흉내).
+    for (const g of [kb120, kb121]) {
+      g.respondViTriggerFor("KRX", null);
+      g.respondViTriggerFor("NXT", null);
+    }
+    const { ws, inbox } = await tab();
+    await bothReady();
+
+    // VI 원천 = 사용자의 KB 세션 각각 — 두 세션 모두 21(KRX → NXT).
+    await waitFor(
+      () => countOf(p120, MSG.GetVITriggerReq) === 2 && countOf(p121, MSG.GetVITriggerReq) === 2,
+      "두 KB 세션 Ready 21",
+    );
+    expect(viGetsOf(p120)).toEqual(["KRX", "NXT"]);
+    expect(viGetsOf(p121)).toEqual(["KRX", "NXT"]);
+    // 두 세션 모두 미등록으로 답했다 → 거래소마다 null 이 브라우저로(병합 3상태).
+    await waitFor(
+      () => vis(inbox).some((m) => m.x === "KRX" && m.cfg === null) && vis(inbox).some((m) => m.x === "NXT" && m.cfg === null),
+      "거래소별 미등록",
+    );
+
+    const from = inbox.length;
+    const since = (): RelayOutbound[] => inbox.slice(from);
+    ws.sendRaw({ t: "vi.set", accountNo: A, exchange: "KRX", orderAmountKrw: 5_000_000, checkRate: 25, run: true });
+    await waitFor(() => countOf(p121, MSG.SetVITriggerReq) === 1, "KB121 11");
+    await waitFor(() => vis(since()).some((m) => m.x === "KRX" && m.cfg?.accountNo === A), "브라우저 vi KRX = A");
+    await flushIo(10);
+    expect(countOf(p120, MSG.SetVITriggerReq)).toBe(0);
+    expect(rejectsOf(since(), "vi.set")).toEqual([]);
+    expect(vis(since()).map((m) => [m.x, m.cfg?.accountNo, m.cfg?.run])).toEqual([["KRX", A, true]]);
+    expect(hub.getViTrigger(USER_A, "KRX")).toMatchObject({ accountNo: A, run: true });
+
+    // B(KB120 소유)의 VI 는 종전대로 KB120 으로.
+    ws.sendRaw({ t: "vi.set", accountNo: B, exchange: "NXT", orderAmountKrw: 3_000_000, checkRate: 20, run: false });
+    await waitFor(() => countOf(p120, MSG.SetVITriggerReq) === 1, "KB120 11");
+    await waitFor(() => vis(since()).some((m) => m.x === "NXT" && m.cfg?.accountNo === B), "브라우저 vi NXT = B");
+    expect(countOf(p121, MSG.SetVITriggerReq)).toBe(1);
+    expect(rejectsOf(since(), "vi.set")).toEqual([]);
   });
 
   it("소유 계좌 0 세션은 병합 상태 프레임의 any-ready · accounts 에 기여하지 않는다 — KB120 이 ready 여도 계좌가 전부 KB121 이면 s 는 KB121 상태", async () => {
