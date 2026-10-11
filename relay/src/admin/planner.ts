@@ -15,7 +15,9 @@
  *   - 의도에 없는 87 계좌(「서버에만 있음」)는 절대 지우지 않는다 — 하나라도 남으면 op 2 도 보내지 않는다.
  *   - 순서는 op 1 → op 3 → op 4 — 추가가 먼저라 「제거 뒤 계좌 0개」 순간이 생기지 않는다.
  *   - op 1 · op 3 은 그 계좌 87 의 주문자 IP/MAC 을 되싣는다(GC-02 — 서버 계좌 설정 보존 · 서버는 빈 값을 「미설정」 으로
- *     되돌린다). 의도에 값이 있으면 의도 쌍이 이기고, 87 에 없는 계좌는 빈 문자열(= 미설정)이다. 값은 정규화 · 검증하지 않는다.
+ *     되돌린다). 의도에 값이 있으면 의도 쌍이 이기고, 그 유저 87 에 없는 계좌는 같은 87 다른 유저의 같은 정규화 계좌번호 값
+ *     (Phase 30 R3-02 · D-16 — gh-trade code 7 범위: 다른 사용자의 같은 계좌는 IP/MAC 도 같아야 한다), 그것도 없으면 빈 문자열
+ *     (= 미설정)이다. 다른 유저 값은 읽기만 한다(D-11 — 그 유저에는 op 없음). 값은 정규화 · 검증하지 않는다.
  *
  * 순수 함수 — 소켓 · DB 없음.
  */
@@ -109,7 +111,21 @@ export function planServerOps(input: PlanServerOpsInput): ServerPlan {
     const k = normalizeAccountNo(a.accountNo);
     if (!snapByNo.has(k)) snapByNo.set(k, a);
   }
-  const sendable = (a: AdminAccountFields): AdminAccountFields => withServerEndpoint(a, snapByNo.get(a.accountNo));
+  // R3-02(Phase 30 · D-16) — 같은 87 의 **다른 유저**가 IP/MAC 과 함께 가진 계좌(87 순 · 같은 키는 앞의 것). 이 유저 87 에 없는
+  // 계좌를 추가할 때(op 1 첫 계좌 · op 3) 그 값을 되싣는다 — gh-trade code 7 은 다른 사용자의 같은 계좌에 IP/MAC 도 같기를 요구한다.
+  // 읽기만 한다 — 다른 유저에게는 op 를 만들지 않는다(D-11).
+  const otherByNo = new Map<string, AdminAccountFields>();
+  for (const u of input.snapshot.users) {
+    if (u.userId === input.dmaUserId) continue;
+    for (const a of u.accounts) {
+      if (!a.orderIp && !a.orderMac) continue;
+      const k = normalizeAccountNo(a.accountNo);
+      if (!otherByNo.has(k)) otherByNo.set(k, a);
+    }
+  }
+  // 우선순위(withServerEndpoint): 의도/override 쌍 > 이 유저 87 > 다른 유저 87 > 빈 문자열.
+  const sendable = (a: AdminAccountFields): AdminAccountFields =>
+    withServerEndpoint(a, snapByNo.get(a.accountNo) ?? otherByNo.get(a.accountNo));
 
   // ① 추가 · 갱신 — 유저가 없으면 첫 계좌(priority → accountNo 순)를 op 1 에 싣고 나머지는 op 3.
   if (diff.userPresent) {
