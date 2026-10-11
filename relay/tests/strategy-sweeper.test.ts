@@ -11,7 +11,10 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { RelayOutbound } from "@gh-radar/shared";
+
 import { SessionManager, type DmaCredentials, type SessionTarget } from "../src/dma/session-manager.js";
+import { SubscriptionHub } from "../src/hub/subscription-hub.js";
 import {
   StaleStrategyRegister,
   StrategySweeper,
@@ -81,6 +84,9 @@ function off(isin: string, accountNo: string): FakeLimitChaserInput {
 }
 
 type Received = { msgType: number; payload: Buffer };
+
+type ViFrame = Extract<RelayOutbound, { t: "vi" }>;
+const isVi = (f: RelayOutbound): f is ViFrame => f.t === "vi";
 
 describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
   let gw: FakeGateway;
@@ -615,6 +621,119 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
 
     expect(result).toEqual({ ok: true, disabledLimitChasers: 2, viDisabled: 0, sessionCreated: false, skippedAccounts: [] });
     expect(disabledKeys().sort()).toEqual([keyOf(ISIN1, A), keyOf(ISIN2, B)].sort());
+  });
+
+  // ── 29-49 — hub 세션 대여 (GC-03 · GC-04 hub 쪽) ─────────────────────────────────────────
+
+  /**
+   * 실 hub 결선 — u1 의 KB120 세션(브라우저가 쥔 세션 역할 · 유일 세션이라 primary)을 hub 에 붙이고 Ready 프리페치
+   * (24 · 21(KRX) · 21(NXT) · 34 · 43)의 61 이 두 거래소에 귀속될 때까지 기다린다. 그 뒤 수신 기록 · 팬아웃 기록을 비운다.
+   */
+  async function hubWiredSessionOf(userId: string) {
+    const hub = new SubscriptionHub();
+    const out: RelayOutbound[] = [];
+    hub.on("fanout", (e: { userId: string; msg: RelayOutbound }) => {
+      if (e.userId === userId) out.push(e.msg);
+    });
+    const s = m.acquireOn(userId, target, CREDS);
+    hub.attach(s);
+    await waitFor(() => s.isReady, "세션 ready");
+    await waitFor(() => out.filter(isVi).length === 2, "hub 프리페치 61 두 거래소 귀속");
+    await flushIo();
+    received.length = 0;
+    out.length = 0;
+    return { hub, out, s };
+  }
+
+  it("GC-03 · GC-04 (29-49) 트레이서 — 실 hub 결선: sweeper 가 hub 에 세션을 빌려 X 를 끄는 동안 strategies.disabled 0 · 빈 61 vi 0 · hub 21 0 · 반납 뒤 재요청 0 · 대여 아닌 65 는 종전 팬아웃", async () => {
+    gw.respondLimitChaserList([on(ISIN1, A)]);
+    gw.respondViTriggerFor("NXT", { accountNo: A, run: true, orderAmountKrw: 2_000_000n, checkRate: 15 });
+    const { hub, out } = await hubWiredSessionOf(U1);
+    const lend = vi.spyOn(hub, "lendSession");
+
+    const result = await sweeper().sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS, {
+      lend: (s) => hub.lendSession(s),
+    });
+    await flushIo(8);
+
+    expect(result).toEqual({ ok: true, disabledLimitChasers: 1, viDisabled: 1, sessionCreated: false, skippedAccounts: [] });
+    // GC-03 — sweeper 가 보낸 14 의 65 는 브라우저에 「전부 정지가 반영됐어요」 로 가지 않는다.
+    expect(out.filter((f) => f.t === "strategies.disabled")).toHaveLength(0);
+    expect(lend).toHaveBeenCalledTimes(1);
+    // GC-04 — sweeper 의 빈 61(KRX 미등록 · 조회 · 재조회)로 생긴 vi 0. NXT run:false 에코는 서버 사실이라 그대로 간다.
+    const vis = out.filter(isVi);
+    expect(vis.filter((f) => f.cfg === null)).toHaveLength(0);
+    expect(vis.filter((f) => f.x === "KRX")).toHaveLength(0);
+    expect(vis.some((f) => f.x === "NXT" && f.cfg?.run === false)).toBe(true);
+    // 끈 상따의 60 에코도 서버 사실 — 카드에서 꺼진다.
+    expect(out.some((f) => f.t === "lc" && f.item.accountNo === A && !f.item.buyEnabled)).toBe(true);
+    // 21 은 sweeper 의 조회 · 재조회 4건뿐 — 대여 중 hub 21 0 · 반납 뒤 재요청 0(프리페치를 미루지 않았다).
+    expect(viGetExchanges()).toEqual(["KRX", "NXT", "KRX", "NXT"]);
+    // hub VI 캐시 — KRX 는 프리페치 그대로 미등록 · NXT 는 끈 값.
+    expect(hub.getViTrigger(U1, "KRX")).toBeNull();
+    expect(hub.getViTrigger(U1, "NXT")).toMatchObject({ run: false });
+
+    // 대여가 끝난 세션의 65(브라우저 전부 정지 · 서버 발 비활성화)는 종전대로 팬아웃한다.
+    const sock = gw.sockets.at(-1);
+    if (sock === undefined) throw new Error("게이트웨이 연결 없음");
+    gw.sendFrame(sock, buildDisableStrategiesRespFrame({ disabledCount: 3, viDisabled: true }));
+    await waitFor(() => out.some((f) => f.t === "strategies.disabled"), "대여 아닌 65 팬아웃");
+    expect(out.filter((f) => f.t === "strategies.disabled")).toEqual([
+      { t: "strategies.disabled", count: 3, viDisabled: true },
+    ]);
+    hub.closeAll();
+  });
+
+  it("GC-03 (29-49) — lend 1회 · 반납 1회 · 반납은 releaseSession 보다 먼저: ok · timeout · send-failed · not-ready · 예외 갈래 / acquireOn 이 세션을 주지 않으면 lend 0", async () => {
+    const order: string[] = [];
+    const releaseSession = m.releaseSession.bind(m);
+    vi.spyOn(m, "releaseSession").mockImplementation((userId, session) => {
+      order.push("releaseSession");
+      return releaseSession(userId, session);
+    });
+    const lend = vi.fn(async () => {
+      order.push("lend");
+      return {
+        release: () => {
+          order.push("release");
+        },
+      };
+    });
+    const run = (userId: string, opts: { stepTimeoutMs?: number } = {}, serverKey = "KB120") =>
+      sweeper(opts).sweep({ userId, serverKey, broker: "KB", accountNos: [A] }, CREDS, { lend });
+    const expectOneRound = () => {
+      expect(order).toEqual(["lend", "release", "releaseSession"]);
+      order.length = 0;
+    };
+
+    const s = await readySessionOf(U1);
+    gw.respondLimitChaserList([on(ISIN1, A)]);
+    expect(await run(U1)).toMatchObject({ ok: true });
+    expectOneRound();
+
+    gw.respondLimitChaserList([on(ISIN2, A)]);
+    gw.handleDisableStrategies({ respond65: false });
+    expect(await run(U1, { stepTimeoutMs: 200 })).toMatchObject({ ok: false, reason: "timeout" });
+    expectOneRound();
+    gw.handleDisableStrategies({});
+
+    const send = vi.spyOn(s, "send").mockReturnValue(false);
+    expect(await run(U1)).toMatchObject({ ok: false, reason: "send-failed" });
+    expectOneRound();
+    send.mockImplementation(() => {
+      throw new Error("소켓 쓰기 예외");
+    });
+    await expect(run(U1)).rejects.toThrow("소켓 쓰기 예외");
+    expectOneRound();
+    send.mockRestore();
+
+    gw.silenceLogin();
+    expect(await run(U2, { stepTimeoutMs: 200 })).toMatchObject({ ok: false, reason: "not-ready" });
+    expectOneRound();
+
+    expect(await run(U1, {}, "KB999")).toMatchObject({ ok: false, reason: "no-session" });
+    expect(order).toEqual([]);
+    expect(lend).toHaveBeenCalledTimes(5);
   });
 
   it("isActiveLimitChaser — 5스위치 OR autoSellState !== 0", () => {

@@ -112,6 +112,8 @@ export type StrategySweepResult =
  */
 export type StrategySweepOptions = {
   stillStale?: (accountNo: string) => boolean;
+  /** 29-49 RED 골격. */
+  lend?: (session: DmaSession) => Promise<{ release(): void }>;
 };
 
 /** `SessionManager` 의 이 모듈이 쓰는 면 — 테스트가 갈아 끼울 수 있게 구조 타입으로 둔다. */

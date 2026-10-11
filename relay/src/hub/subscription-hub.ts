@@ -313,6 +313,9 @@ export function samePriceSection(a: RelayQuote, b: RelayQuote): boolean {
 // 계약
 // ============================================================
 
+/** 29-49 RED 골격. */
+export type HubSessionLease = { release(): void };
+
 /**
  * Hub 가 세션에 요구하는 최소 표면. `DmaSession` 이 그대로 만족한다.
  *
@@ -989,6 +992,11 @@ export class SubscriptionHub extends EventEmitter {
     }
     // 뗀 세션이 없어도 부른다(29-35) — 기본 주문 서버가 바뀌어 선호 판정만 달라졌으면 여기가 「다음 결선」 이다.
     this.#afterPrimaryChange(userId, primaryBefore);
+  }
+
+  /** 29-49 RED 골격. */
+  lendSession(_session: HubSession): Promise<HubSessionLease> {
+    return Promise.resolve({ release: () => undefined });
   }
 
   /**
