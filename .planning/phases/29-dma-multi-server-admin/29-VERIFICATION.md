@@ -1,8 +1,16 @@
 ---
 phase: 29-dma-multi-server-admin
-verified: 2026-10-10T06:17:00Z
-status: gaps_found
-score: 9/16 must-haves verified
+verified: 2026-10-11T13:20:00+09:00
+status: passed
+score: 18/18 must-haves verified (3라운드 — 17 verified + 1 override GC-02 / R3-01)
+latest_round: 3
+superseded_by:
+  - 29-VERIFICATION-R2.md
+  - 29-VERIFICATION-R3.md
+round1_verified: 2026-10-10T06:17:00Z
+round1_status: gaps_found
+round1_score: 9/16 must-haves verified
+round1_covered_digest: "v3:sha256:716561cf82cf58f8aaec480eeda6e59d25a85756de5a90cb638eef66035389b7"
 covered_files:
   - ".planning/phases/29-dma-multi-server-admin/29-01-PLAN.md"
   - ".planning/phases/29-dma-multi-server-admin/29-01-SUMMARY.md"
@@ -56,7 +64,69 @@ covered_files:
   - ".planning/phases/29-dma-multi-server-admin/29-25-SUMMARY.md"
   - ".planning/phases/29-dma-multi-server-admin/29-26-PLAN.md"
   - ".planning/phases/29-dma-multi-server-admin/29-26-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-27-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-27-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-28-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-28-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-29-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-29-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-30-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-30-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-31-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-31-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-32-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-32-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-33-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-33-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-34-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-34-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-35-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-35-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-36-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-36-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-37-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-37-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-38-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-38-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-39-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-39-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-40-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-40-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-41-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-41-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-42-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-42-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-43-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-43-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-44-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-44-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-45-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-45-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-46-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-46-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-47-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-47-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-48-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-48-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-49-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-49-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-50-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-50-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-51-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-51-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-52-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-52-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-53-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-53-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-54-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-54-SUMMARY.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-55-PLAN.md"
+  - ".planning/phases/29-dma-multi-server-admin/29-55-SUMMARY.md"
   - "packages/shared/src/admin.ts"
+  - "packages/shared/src/index.ts"
+  - "packages/shared/src/order-server.ts"
+  - "packages/shared/src/relay.ts"
+  - "relay/src/access/account-order-servers.ts"
   - "relay/src/access/app-access.ts"
   - "relay/src/admin/admin-api.ts"
   - "relay/src/admin/admin-conn.ts"
@@ -66,17 +136,31 @@ covered_files:
   - "relay/src/admin/session-sync.ts"
   - "relay/src/admin/snapshot-sink.ts"
   - "relay/src/admin/types.ts"
+  - "relay/src/dma/effective-owner-tracker.ts"
+  - "relay/src/dma/envelope.ts"
   - "relay/src/dma/session-manager.ts"
+  - "relay/src/dma/session.ts"
+  - "relay/src/dma/strategy-sweeper.ts"
+  - "relay/src/hub/subscription-hub.ts"
   - "relay/src/index.ts"
+  - "relay/src/journal/access.ts"
+  - "relay/src/order/order-api.ts"
   - "relay/src/quote/quote-switch.ts"
   - "relay/src/registry/order-journal.ts"
   - "relay/src/registry/pipelines.ts"
   - "relay/src/registry/registry.ts"
+  - "relay/src/store/dma-users-migrate.ts"
+  - "relay/src/util/tail-reload.ts"
   - "relay/src/ws/fanout.ts"
+  - "relay/tests/account-order-servers.test.ts"
+  - "relay/tests/order-server-resync.test.ts"
+  - "relay/tests/tail-reload.test.ts"
   - "scripts/deploy-relay.sh"
+  - "server/src/config.ts"
   - "server/src/middleware/require-admin.ts"
   - "server/src/routes/admin-servers.ts"
   - "server/src/routes/admin.ts"
+  - "server/src/schemas/admin.ts"
   - "server/src/services/relay-admin-client.ts"
   - "supabase/migrations/20261006200000_app_access.sql"
   - "supabase/migrations/20261006200100_dma_registry_intent.sql"
@@ -84,6 +168,12 @@ covered_files:
   - "supabase/migrations/20261006200300_dma_admin_reflect.sql"
   - "supabase/migrations/20261007200000_gateway_key_rename.sql"
   - "supabase/migrations/20261007200100_dma_visibility_v2.sql"
+  - "supabase/migrations/20261010200000_dma_admin_create_dma_linked.sql"
+  - "supabase/migrations/20261010200100_dma_account_order_server.sql"
+  - "supabase/ops/29-orphan-dma-users.sql"
+  - "supabase/rollback/29-gateway-key-rename-revert.sql"
+  - "supabase/tests/dma_account_order_server.test.sql"
+  - "supabase/tests/dma_admin_create_guard.test.sql"
   - "webapp/src/app/admin/servers/page.tsx"
   - "webapp/src/app/admin/users/page.tsx"
   - "webapp/src/app/pending/page.tsx"
@@ -102,11 +192,22 @@ covered_files:
   - "webapp/src/components/admin/user-row.tsx"
   - "webapp/src/components/admin/user-sheet.tsx"
   - "webapp/src/components/admin/users-client.tsx"
+  - "webapp/src/components/trading/workbench/trading-workbench.tsx"
+  - "webapp/src/components/trading/workbench/workbench-status-bar.tsx"
+  - "webapp/src/components/ui/sheet.tsx"
+  - "webapp/src/lib/admin-api.ts"
+  - "webapp/src/lib/relay-provider.tsx"
   - "webapp/src/lib/supabase/access-gate.ts"
   - "webapp/src/lib/supabase/middleware.ts"
-covered_digest: "v3:sha256:716561cf82cf58f8aaec480eeda6e59d25a85756de5a90cb638eef66035389b7"
+  - "webapp/src/lib/use-relay-socket.ts"
+covered_digest: "v3:sha256:f01e255374cb0b32213ffab8dcaef8152c0f9a50241b68b6ab6b942bb0a3e7a9"
 behavior_unverified: 0
-overrides_applied: 0
+overrides_applied: 1
+overrides:
+  - must_have: "웹 Admin 이 보내는 op 1 · op 3 은 서버가 따로 보유한 계좌 설정(order_ip · order_mac)을 지우지 않는다 (운영 상태 보존)"
+    reason: "3라운드 R3-01(87 캐시 낡음 — relay 밖 설정 IP/MAC 소거 가능)을 웹 IP/MAC 입력칸 작업과 함께 마일스톤 마무리 뒤로 넘긴다. 운영 IP/MAC 값 0 · 설정 보류 권고 유지(인박스 261010 48행). 상세 29-VERIFICATION-R3.md"
+    accepted_by: "alex (사용자 — 2026-10-11 「2번」)"
+    accepted_at: "2026-10-11T13:20:00+09:00"
 gaps:
   - truth: "G-1 계좌별 주문 서버 — 각 계좌가 자기가 등록된 서버 중 하나를 주문 서버로 고르고, 그 계좌의 전략 설정·주문은 그 서버로만 간다 (사용자 변경 요청 2026-10-10, D-10 「증권사별 주문 서버」 대체)"
     status: failed
@@ -235,6 +336,9 @@ confirmed_decisions:
   - id: G-2
     decision: "교보 trader id 칸은 필요 없다. 교보 주문 전문(146B)에 지점·트레이더 칸이 없고 주문자 식별은 서버 단위 FEP 로그온 USER ID 다 (gh-trade server/src/broker/kyobo/KyoboProtocol.h, go-trader pkg/order/kyobo). 갭 아님 — 확정 결정으로 기록 (29-26 SUMMARY key-decisions 와 일치)."
 ---
+
+
+> **2026-10-11 frontmatter 승계:** 이 정본 본문은 1라운드 기록 그대로다. frontmatter 의 status · score · covered_* 는 최신 라운드(29-VERIFICATION-R3.md — 사용자 override 1건으로 passed)에서 승계했고 1라운드 값은 `round1_*` 에 보존했다. 2라운드 29-VERIFICATION-R2.md · 3라운드 29-VERIFICATION-R3.md 참조.
 
 # Phase 29: DMA 다중 서버 · 웹 Admin 유저 관리 Verification Report
 

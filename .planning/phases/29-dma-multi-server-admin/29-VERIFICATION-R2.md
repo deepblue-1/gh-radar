@@ -2,6 +2,7 @@
 phase: 29-dma-multi-server-admin
 verified: 2026-10-11T08:10:00+09:00
 round: 2
+superseded_by: 29-VERIFICATION-R3.md
 base_verification: 29-VERIFICATION.md
 status: gaps_found
 score: 16/17 must-haves verified

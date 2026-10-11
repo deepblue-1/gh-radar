@@ -220,6 +220,14 @@ completed: 2026-10-11
 
 (N-01 「전부 정지」 다중 세션은 29-54 가 고쳐 이 목록에 없다 — 처분 표 N-01 행 fixed.)
 
+**3라운드 리뷰 추가분 (2026-10-11 · 29-REVIEW-R3 · 29-VERIFICATION-R3 — 사용자 결정 「Phase 29 를 닫고 넘긴다」):**
+
+4. **R3-03 부팅 창 백스톱** — 기본 서버 매핑 미적재 창에서 `defaultUnknown` 이 로그인 백스톱 · `stillStale` 과 겹쳐 유일 등록 서버(진짜 주문 서버)의 전략을 끌 수 있다 — **켜기 전에 수정.**
+5. **R3-05 무동작 대여 미승격** — 연결 없는 사용자 sweep 중 브라우저가 같은 세션에 붙으면 sweeper 65 가 `strategies.disabled` 로 팬아웃된다(GC-03 잔여) — **켜기 전에 수정.**
+6. **R3-06 VI 끄기 에코 미확인** — 다른 서버 VI 끄기를 `send()` 성공만으로 보고 켜기를 보낸다. 끄기 유실 시 두 서버 VI 동시 가동 · 화면엔 하나만 — **켜기 전에 수정.**
+
+(IP/MAC 계열 R3-01 · R3-02 는 웹 IP/MAC 입력칸 작업과 함께 마일스톤 마무리 뒤 — 인박스 261010-kb-order-ip-mac 진행 줄 · 그 전까지 KB 운영 서버 IP/MAC 설정 보류 권고 유지. R3-04 · R3-07~10 처분은 29-REVIEW-R3-DISPOSITION.md.)
+
 ## Task 3 런북 — 메인 세션 (실제 값 · 순서 고정 · 앞 단계 실패면 멈춤)
 
 > Task 1 이 작성한 런북 원문이다(기록 보존). 실제 실행 결과는 아래 「Task 3 — 배포 창 결과」. 배포 worktree 는 런북의 `/private/tmp/gh-radar-deploy-2953` 대신 세션 scratchpad 의 `relay-deploy`(detached @`183ea9c8`)였다.

@@ -3,8 +3,10 @@ phase: 29-dma-multi-server-admin
 verified: 2026-10-11T12:45:00+09:00
 round: 3
 base_verification: 29-VERIFICATION.md
-status: gaps_found
-score: 17/18 must-haves verified
+status: passed
+verifier_status: gaps_found
+score: 18/18 must-haves verified (17 verified + 1 override — GC-02 / R3-01)
+verifier_score: 17/18
 covered_files:
   - ".planning/phases/29-dma-multi-server-admin/29-01-PLAN.md"
   - ".planning/phases/29-dma-multi-server-admin/29-01-SUMMARY.md"
@@ -135,9 +137,14 @@ covered_files:
   - "supabase/ops/29-orphan-dma-users.sql"
   - "webapp/src/components/admin/account-editor.tsx"
   - "webapp/src/components/trading/workbench/workbench-status-bar.tsx"
-covered_digest: "v3:sha256:8f3175e556912c8f28313b3e9c1db5e9968742ebdfb27ea08148ac50ac525e74"
+covered_digest: "v3:sha256:2f1a01300efcb66d1cc820f8047de6728102b33b6bbee9c4c5ba3c39621117dc"
 behavior_unverified: 0
-overrides_applied: 0
+overrides_applied: 1
+overrides:
+  - must_have: "웹 Admin 이 보내는 op 1 · op 3 은 서버가 따로 보유한 계좌 설정(order_ip · order_mac)을 지우지 않는다 (운영 상태 보존)"
+    reason: "R3-01 은 relay 밖에서 IP/MAC 을 설정한 뒤 op 3 이 나가는 웹 편집이 겹칠 때만 도달하고, 운영 서버에는 아직 IP/MAC 값이 없다(지금 피해 0). 수정(계획 직전 op 5 재조회)은 같은 코드 경로인 웹 IP/MAC 입력칸 작업(인박스 261010 항목 4)과 함께 마일스톤 마무리 뒤 진행한다. 그때까지 KB 운영 서버 IP/MAC 설정 보류 권고를 유지(인박스 48행 정정 · gh-trade 미통지). 추적: 29-REVIEW-R3-DISPOSITION R3-01 deferred"
+    accepted_by: "alex (사용자 — 2026-10-11 「2번」: Phase 29 를 닫고 R3-01 은 IP/MAC 작업으로 넘긴다)"
+    accepted_at: "2026-10-11T13:20:00+09:00"
 re_verification:
   previous_status: gaps_found
   previous_score: 16/17
@@ -187,13 +194,14 @@ review_findings_independently_checked:
   - id: R3-07..R3-10
     verdict: not-reproduced
     note: "Info — 이 검증이 재현하지 않았다. 처분은 29-REVIEW-R3-DISPOSITION.md (10행 전부 open)"
-human_verification:
+human_verification_note: "아래 항목은 Phase 29 완료 게이트가 아니다 — 두 번째 서버(KB121 · KYOBO127) 켜기 전 결정 또는 선택 확인이다(29-53-SUMMARY 「켜기 전 결정」 1~6). 사용자 결정 2026-10-11 로 human_verification_deferred 로 옮겼다. 인박스 정정 항목은 같은 날 처리(human_verification_resolved)."
+human_verification_resolved:
+  - test: "gh-trade 인계 정정 — 인박스 261010-kb-order-ip-mac.md 48행"
+    resolution: "「보류 권고 해제」 를 「보류 권고 유지 — 해제 조건 = R3-01 수정 배포」 로 정정(2026-10-11)"
+human_verification_deferred:
   - test: "(가) 실서버 실증 — R3 경고 수정(또는 수용) 뒤, 두 번째 서버(KB121 또는 KYOBO127)를 무거래 창에 켜고 테스트 계좌 하나의 주문 서버를 /admin/users 에서 바꿔 relay 로그 · 작업대 상태줄을 본다. 같은 사용자의 두 계좌 지정을 몇 초 간격으로 연달아 바꿔도 5분 뒤 연결 탭 세션이 산다. 연결 없는 사용자 · 로그인 백스톱도 한 번"
     expected: "옛 서버 그 계좌의 활성 전략만 꺼지고 탭이 재접속해 서버 꼬리표 · 칩이 새 서버로 바뀐다. 다른 계좌 전략은 그대로"
     why_human: "`relay/src/index.ts` 부팅 결선에 통합 테스트가 없고 운영에 두 번째 서버가 없다 (29-53 도 「미결 — 사용자 결정」). 켜기 전에 R3-03 · R3-05 · R3-06 처분도 필요하다"
-  - test: "gh-trade 인계 정정 — 인박스 261010-kb-order-ip-mac.md 48행 「설정 보류 권고 해제」 를 되돌리거나 R3-01 수정 배포 뒤에 해제"
-    expected: "R3-01 이 닫히기 전에는 relay 밖에서 KB 운영 서버에 IP/MAC 을 설정하지 않는다 (또는 설정했다면 웹 계좌 편집 전에 relay admin 재접속)"
-    why_human: "교차 시스템 일정 판단 — 29-53 에서 사용자가 gh-trade 알림을 미송신으로 결정했다"
   - test: "51 OrderResp 계좌 필터 공백 수용 재확인 (R2 human 5 이월 — 29-53 「켜기 전 결정」 미결)"
     expected: "두 번째 서버를 켜기 전에 비소유 서버 체결 통보 토스트 노출을 감수할지, gh-trade 에 OrderResp.account_no 를 요청할지 결정"
     why_human: "gh-trade 계약 판단"
@@ -400,3 +408,11 @@ REQUIREMENTS.md 는 이 검증이 고치지 않았다. `Complete` 전환은 GC-0
 
 _Verified: 2026-10-11T12:45:00+09:00_
 _Verifier: Claude (gsd-verifier) — 3라운드_
+
+## 사용자 결정 (2026-10-11) — Phase 29 닫기
+
+- 검증기 판정은 `gaps_found` 17/18(GC-02 / R3-01 부분)이었다(`verifier_status` · `verifier_score` 로 보존). 사용자가 「2번 — R3-01 은 IP/MAC 작업으로 넘기고 Phase 29 를 닫는다」 를 골라 frontmatter `overrides` 1건으로 수용했다 → `status: passed` · 18/18(override 1).
+- 인박스 `261010-kb-order-ip-mac.md` 48행을 정정했다 — KB 운영 서버 IP/MAC 설정 보류 권고 **유지**, 해제 조건 = R3-01 수정 배포.
+- 리뷰 R3-01~10 은 `29-REVIEW-R3-DISPOSITION.md` 에서 전부 `deferred`(open 0). R3-03 · R3-05 · R3-06 은 두 번째 서버 켜기 전 수정으로 `29-53-SUMMARY.md` 「켜기 전 결정」 4~6 에 올렸다.
+- human_verification 은 완료 게이트가 아닌 켜기 전 결정 · 선택 확인이라 `human_verification_deferred` 로 옮겼다.
+
