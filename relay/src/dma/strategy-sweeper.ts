@@ -27,8 +27,9 @@
  * primary 가 아니면 hub 캐시에 61 이 없다) **짝을 스스로 맞춘다**: 미해결 21 은 늘 하나(21(KRX) → 61 → 21(NXT) → 61 · (사용자, 서버)
  * 직렬화가 relay 안에서 이 전제를 지킨다 — fanout `#sweepLanes` · GC-04 · hub 쪽은 29-49), 빈 61 은
  * 지금 기다리는 거래소의 미등록, 본문 있는 61 은 `cfg.exchange` 가 그 거래소일 때만 답이다(다른 거래소 본문은 떠돌이 에코 —
- * 무시하고 계속 기다린다). 같은 세션을 hub 도 듣고 있으면 이 모듈의 빈 61 에 hub 가 「귀속 불가」 warn 을 남길 수 있다 — 서버
- * 상태는 하나라 값은 같고, 어긋나면 재조회가 fail closed 로 잡는다.
+ * 무시하고 계속 기다린다). 같은 세션을 hub 도 듣고 있으면(연결 중 사용자) `opts.lend` 로 hub 에 그 세션을 빌린다(29-49 · GC-03 ·
+ * GC-04) — 대여 동안 hub 는 자기 21 을 미루고(대여 전에 보낸 21 은 그 61 이 다 올 때까지 대여를 미룬다) 이 모듈의 빈 61 을 자기 대기열로
+ * 귀속하지 않으며, 14 의 65 를 브라우저 「전부 정지」 로 팬아웃하지 않는다. 그래서 그 세션의 미해결 21 은 늘 한 주인의 것이다.
  *
  * 활성(켜진) 판정 — `isActiveLimitChaser` = webapp `isActiveStrategy` 의 5스위치(매수 · 매도 · 취소잔량 · 후매수 자동 · 자동매도)
  * OR `autoSellState !== 0`. 끄기 판정은 「서버가 지금 발주할 수 있는가」 라 서버 `LimitChaser::IsActive()`(gh-trade
@@ -112,7 +113,11 @@ export type StrategySweepResult =
  */
 export type StrategySweepOptions = {
   stillStale?: (accountNo: string) => boolean;
-  /** 29-49 RED 골격. */
+  /**
+   * hub 세션 대여 (29-49 · GC-03 · GC-04) — `acquireOn` 이 준 세션을 hub 에 빌린다(fanout 이 `hub.lendSession` 을 넘긴다). 대여 동안 hub 는
+   * 그 세션 몫 21 을 미루고 빈 61 · 65 를 귀속 · 팬아웃하지 않는다. 반납은 finally 에서 세션 반납(`releaseSession`)보다 먼저다. 대여
+   * 대기도 전체 시한 안이다. 미주입 = 종전.
+   */
   lend?: (session: DmaSession) => Promise<{ release(): void }>;
 };
 
@@ -210,6 +215,36 @@ class FrameTap {
         this.#session.off("ready", onReady);
         this.#session.off("state", onState);
       };
+    });
+  }
+
+  /**
+   * 단계 시한 없는 외부 기다림(hub 대여 · 29-49) — 전체 시한(`abort`)이 오면 그 reason 으로 끝난다(대여 대기가 길어도 전체 시한 안에
+   * timeout 으로 접힌다). hub 의 배수 대기는 스스로 5초 상한이 있다.
+   */
+  hold<T>(p: Promise<T>): Promise<T> {
+    if (this.#aborted !== null) return Promise.reject(this.#aborted);
+    return new Promise<T>((resolve, reject) => {
+      const pend: Pending = {
+        cleanup: () => {
+          this.#pending.delete(pend);
+        },
+        reject: (err) => {
+          pend.cleanup();
+          reject(err);
+        },
+      };
+      this.#pending.add(pend);
+      p.then(
+        (v) => {
+          pend.cleanup();
+          resolve(v);
+        },
+        (err: unknown) => {
+          pend.cleanup();
+          reject(err);
+        },
+      );
     });
   }
 
@@ -333,7 +368,12 @@ export class StrategySweeper {
     const tap = new FrameTap(session, this.#stepMs);
     // 전체 시한 — 그 시점에 걸린 기다림을 timeout 으로 끝낸다(remaining 은 그때까지 마지막으로 읽은 값).
     const total = setTimeout(() => tap.abort(new SweepFailure("timeout")), this.#totalMs);
+    // hub 대여(29-49) — 이 세션을 hub 도 듣고 있으면 대여 동안 hub 는 21 을 미루고 빈 61 · 65 를 귀속 · 팬아웃하지 않는다.
+    let leasing: Promise<{ release(): void }> | undefined;
+    let lease: { release(): void } | undefined;
     try {
+      leasing = opts.lend?.(session);
+      if (leasing !== undefined) lease = await tap.hold(leasing);
       await tap.ready();
 
       const before = await this.#readActive(session, tap, accounts);
@@ -406,6 +446,15 @@ export class StrategySweeper {
     } finally {
       clearTimeout(total);
       tap.dispose();
+      // 대여 반납은 세션 반납보다 먼저다 — 반납 때 hub 가 미룬 21 을 보내려면 세션이 아직 살아 있어야 한다. 대여 대기 중 전체 시한이면
+      // 대여가 늦게 오는 대로 곧장 반납한다(hub 에 표식이 남지 않게).
+      if (lease !== undefined) lease.release();
+      else if (leasing !== undefined) {
+        void leasing.then(
+          (late) => late.release(),
+          () => undefined,
+        );
+      }
       this.#sessions.releaseSession(target.userId, session);
     }
   }

@@ -108,6 +108,12 @@
  *         위 표의 「병합」 프레임 중 계좌가 실린 것(66/67 · 60/64 · 83)은 그 세션 소유 뷰(`allowedAccounts` — 29-33 `DmaSession`)에 없는
  *         계좌면 **캐시에 넣지 않고 팬아웃하지 않는다**(debug 1줄 · 계좌 마스킹). 판정 함수는 `ownedAccountsOf` 하나다. 「같은 증권사
  *         다른 서버 세션 = 대체」(옛 D-10) 규칙은 없다 — 사용자 × 증권사 세션이 여럿일 수 있고, 떼어 낼 세션은 `retainSessions` 가 고른다.
+ *   Phase 29-49 sweep 대여 (GC-03 · GC-04)  옛 서버 끄기(`StrategySweeper`)는 연결 중 사용자의 세션 — hub 가 듣는 세션 — 을 재사용한다.
+ *         그래서 sweeper 는 세션을 쥐면 hub 에 그 세션을 빌린다(`lendSession` · fanout `#sweepServer` 가 sweep 옵션 `lend` 로 넘긴다). 대여
+ *         동안 hub 는 그 세션 몫 (a) 자기 21 을 보내지 않고 미루며(`refetchVi`) (b) 빈 61 을 `#pendingViGets` 머리로 귀속하지 않고(sweeper 자신의
+ *         21 답이다) (c) 65 를 `strategies.disabled` 로 팬아웃하지 않는다(사용자가 누르지 않은 「전부 정지」 · GC-03). 본문 있는 61 · 60 · 64 는
+ *         서버 사실이라 종전대로 캐시 · 팬아웃한다. 반납 때 21 재요청은 hub 가 자기 21 을 미뤘을 때만이다 — 대여가 미룬 Ready 프리페치의 회복
+ *         1회라 D-13 이 금지하는 사용자 단위 재조회 진입점(주기 타이머 · 브라우저 호출)이 아니다. 대여가 없으면(운영 sweep 0회) 전부 종전이다.
  *   D-13  전략 재조회는 **재접속(`ready`) 시에만** 일어난다. 주기 타이머·수동 새로고침
  *         진입점을 만들지 않는다 — 사용자 조작에 대한 60/61 에코는 Notice(유실 없음)라
  *         재조회로 메울 것이 없고, 폴링은 게이트웨이 왕복을 사용자 수에 비례시킨다.
@@ -313,8 +319,17 @@ export function samePriceSection(a: RelayQuote, b: RelayQuote): boolean {
 // 계약
 // ============================================================
 
-/** 29-49 RED 골격. */
+/**
+ * sweep 대여 (Phase 29-49 · GC-03 · GC-04) — `SubscriptionHub.lendSession` 이 돌려준다. `release()` 는 멱등이다(두 번째부터 무동작).
+ * 대여 동안 hub 는 그 세션 몫 21 을 미루고 빈 61 · 65 를 귀속 · 팬아웃하지 않는다(머리 주석).
+ */
 export type HubSessionLease = { release(): void };
+
+/** 결선되지 않은 세션의 대여 — 아무 일도 하지 않는다(연결 없는 사용자의 임시 세션 · 29-49). */
+const NOOP_LEASE: HubSessionLease = { release: () => undefined };
+
+/** 대여 표식 (29-49) — 소유 키마다 하나. `refetchVi` = 대여 동안 hub 가 자기 21 을 미뤘다(반납 때 다시 요청). */
+type LeaseMark = { refetchVi: boolean };
 
 /**
  * Hub 가 세션에 요구하는 최소 표면. `DmaSession` 이 그대로 만족한다.
@@ -843,6 +858,11 @@ export class SubscriptionHub extends EventEmitter {
    */
   readonly #pendingViGets = new Map<string, RelayExchange[]>();
   /**
+   * 세션 소유 키 → sweep 대여 표식 (Phase 29-49 · GC-03 · GC-04). 있으면 그 세션은 sweeper 가 쓰는 중이다 — hub 는 그 세션 몫 21 을
+   * 미루고(`#requestViTriggers`), 빈 61 을 귀속하지 않고, 65 를 팬아웃하지 않는다(`#onFrame`). `lendSession` 이 두고 반납이 지운다.
+   */
+  readonly #lent = new Map<string, LeaseMark>();
+  /**
    * `${userId}|${orderNo}` (접수 전은 `viPendingKey`) → VI 주문 추적 1건.
    *
    * 72 는 전량 교체, 73 은 항목 upsert 다 — 계좌 상태의 `snap` 규약과 동형이다.
@@ -994,9 +1014,48 @@ export class SubscriptionHub extends EventEmitter {
     this.#afterPrimaryChange(userId, primaryBefore);
   }
 
-  /** 29-49 RED 골격. */
-  lendSession(_session: HubSession): Promise<HubSessionLease> {
-    return Promise.resolve({ release: () => undefined });
+  /**
+   * sweeper 에게 세션을 빌려준다 (Phase 29-49 · GC-03 · GC-04 — 머리 주석). fanout `#sweepServer` 가 sweep 옵션 `lend` 로 넘기고,
+   * sweeper 는 `acquireOn` 이 준 세션으로 부른 뒤 finally 에서(세션 반납보다 먼저) `release()` 한다.
+   *
+   * hub 에 결선되지 않은 세션(연결 없는 사용자의 임시 세션 · 이미 교체 · 분리된 옛 세션)은 즉시 무동작 대여다. 결선된 세션이면 그 소유 키에
+   * 표식을 둔다 — 대여 동안 그 세션 몫 21 은 미루고(`refetchVi`), 빈 61 · 65 는 귀속 · 팬아웃하지 않는다. 반납은 표식을 지우고, 미룬 21 이
+   * 있었고 그 세션이 아직 같은 소유 키 · Ready · VI 원천(primary)이면 그때 21(KRX → NXT)을 보낸다.
+   */
+  lendSession(session: HubSession): Promise<HubSessionLease> {
+    const userId = session.userId;
+    const serverKey = serverKeyOf(session);
+    const owner = ownerKey(userId, serverKey);
+    if (this.#sessions.get(owner) !== session) return Promise.resolve(NOOP_LEASE);
+    const mark: LeaseMark = { refetchVi: false };
+    this.#lent.set(owner, mark);
+    logger.info({ userId, serverKey }, "[HUB] sweep 대여 — 그 세션 21 미룸 · 빈 61 · 65 억제 (29-49)");
+    let released = false;
+    return Promise.resolve({
+      release: () => {
+        if (released) return;
+        released = true;
+        this.#endLease(userId, owner, session, mark);
+      },
+    });
+  }
+
+  /** 대여 반납 (29-49) — 표식이 아직 이 대여의 것일 때만(교체 · 분리 · `closeAll` 이 먼저 지웠으면 무동작). */
+  #endLease(userId: string, owner: string, session: HubSession, mark: LeaseMark): void {
+    if (this.#lent.get(owner) !== mark) return;
+    this.#lent.delete(owner);
+    const serverKey = serverKeyOf(session);
+    if (!mark.refetchVi) {
+      logger.info({ userId, serverKey }, "[HUB] sweep 대여 반납 — 미룬 21 없음");
+      return;
+    }
+    // 옛 세션으로는 보내지 않는다 — 교체됐으면 새 세션의 Ready 가, primary 가 바뀌었으면 `#afterPrimaryChange` 가 이미 맡았다.
+    if (this.#sessions.get(owner) !== session || !session.isReady || this.#primaryOwner(userId) !== owner) {
+      logger.info({ userId, serverKey }, "[HUB] sweep 대여 반납 — 미룬 21 은 이 세션 몫이 아니게 됨 (재요청 생략)");
+      return;
+    }
+    logger.info({ userId, serverKey }, "[HUB] sweep 대여 반납 — 미룬 21 재요청 (29-49)");
+    this.#requestViTriggers(userId, owner, session);
   }
 
   /**
@@ -1042,9 +1101,9 @@ export class SubscriptionHub extends EventEmitter {
     // 옛 primary 가 떼어졌으면 `#dropOwner` 가 이미 비웠다. 남아 있으면(강등) 여기서 비운다.
     if (this.#sessions.has(primaryBefore)) this.#clearPrimaryCaches(userId);
     const session = after === undefined ? undefined : this.#sessions.get(after);
-    if (session === undefined) return;
+    if (after === undefined || session === undefined) return;
     logger.info({ userId, serverKey: serverKeyOf(session) }, "[HUB] primary 세션 변경 — 사용자 단위 원천 교체 (D-18)");
-    if (session.isReady) this.#requestPrimarySnapshot(userId, session);
+    if (session.isReady) this.#requestPrimarySnapshot(userId, after, session);
   }
 
   /**
@@ -1535,7 +1594,7 @@ export class SubscriptionHub extends EventEmitter {
    */
   requestStrategySnapshot(userId: string, owner: string | undefined = this.#primaryOwner(userId)): void {
     const session = owner === undefined ? undefined : this.#sessions.get(owner);
-    if (session === undefined || !session.isReady) {
+    if (owner === undefined || session === undefined || !session.isReady) {
       logger.warn(
         { userId, hasSession: session !== undefined },
         "[HUB] 전략 스냅샷 요청 생략 — 세션이 준비되지 않았다",
@@ -1550,19 +1609,12 @@ export class SubscriptionHub extends EventEmitter {
       );
       return;
     }
-    this.#requestPrimarySnapshot(userId, session);
+    this.#requestPrimarySnapshot(userId, owner, session);
   }
 
   /** primary 세션 몫 사용자 단위 스냅샷 요청 — 21(거래소별 2회) · 34 · 43 (D-18). 24 는 부르는 쪽이 이미 보냈다. */
-  #requestPrimarySnapshot(userId: string, session: HubSession): void {
-    // 옛 큐는 여기서 끝난다 — 이 Ready 이전에 보낸 21 의 응답은 이제 오지 않는다.
-    const queue: RelayExchange[] = [];
-    this.#pendingViGets.set(userId, queue);
-    for (const exchange of VI_PREFETCH_EXCHANGES) {
-      // 보내지 못한 요청은 큐에 넣지 않는다 — 넣으면 오지 않을 응답이 head 를 영원히 막고,
-      // 그 뒤의 빈 61 이 한 칸씩 밀려 엉뚱한 거래소로 귀속된다 (C# `SendGetVITrigger` 동형).
-      if (session.send(buildGetVITriggerReq(exchange))) queue.push(exchange);
-    }
+  #requestPrimarySnapshot(userId: string, owner: string, session: HubSession): void {
+    const queue = this.#requestViTriggers(userId, owner, session);
 
     session.send(buildGetVIOrderListReq());
     // 43 사용자 설정 (Phase 27 · Pitfall 4) — 84 는 로그인 직후(계좌 선언 전 = Ready 전)에 와서 캐시만 되고
@@ -1573,6 +1625,30 @@ export class SubscriptionHub extends EventEmitter {
       { userId, viExchanges: [...queue] },
       "[HUB] Ready — 전략 스냅샷 요청 (21 은 거래소별 2회 · 43 사용자 설정)",
     );
+  }
+
+  /**
+   * 21 두 거래소(KRX → NXT) 송신 · 보낸 순서대로 `#pendingViGets` 적재 — Ready 프리페치(`#requestPrimarySnapshot`)와 대여 반납
+   * (`#endLease` · 29-49)이 같은 코드를 쓴다. 옛 큐는 여기서 끝난다 — 이전에 보낸 21 의 응답은 이제 오지 않는다(규칙 (d)).
+   *
+   * 그 세션이 sweep 대여 중이면(29-49) 보내지 않고 표식에 `refetchVi` 를 남긴다 — 반납 때 이 함수가 다시 불린다. 미해결 21 이 한 세션에
+   * 두 주인(hub · sweeper)으로 섞이면 거래소 없는 빈 61 을 누구 것인지 가를 수 없다(GC-04).
+   */
+  #requestViTriggers(userId: string, owner: string, session: HubSession): RelayExchange[] {
+    const queue: RelayExchange[] = [];
+    this.#pendingViGets.set(userId, queue);
+    const mark = this.#lent.get(owner);
+    if (mark !== undefined) {
+      mark.refetchVi = true;
+      logger.info({ userId, serverKey: serverKeyOf(session) }, "[HUB] sweep 대여 중 — 21 미룸 (반납 때 요청 · 29-49)");
+      return queue;
+    }
+    for (const exchange of VI_PREFETCH_EXCHANGES) {
+      // 보내지 못한 요청은 큐에 넣지 않는다 — 넣으면 오지 않을 응답이 head 를 영원히 막고,
+      // 그 뒤의 빈 61 이 한 칸씩 밀려 엉뚱한 거래소로 귀속된다 (C# `SendGetVITrigger` 동형).
+      if (session.send(buildGetVITriggerReq(exchange))) queue.push(exchange);
+    }
+    return queue;
   }
 
   // ----------------------------------------------------------
@@ -1987,7 +2063,17 @@ export class SubscriptionHub extends EventEmitter {
         if (!this.#fromPrimary(userId, owner, e.msgType)) return;
         // `null` 은 파싱 실패, `{ok:true, cfg:null}` 은 **미등록**이다 — 뭉개지 않는다.
         const parsed = parseViTrigger(e.env);
-        if (parsed !== null) this.#onViTrigger(userId, parsed.cfg);
+        if (parsed === null) return;
+        // 대여 중 세션의 빈 61 은 sweeper 자신의 21 답이다(29-49 · GC-04) — hub 대기열 머리로 귀속하지 않는다. 본문 있는 61 은 거래소가
+        // 실린 서버 사실이라 대여 중에도 종전대로 캐시 · 팬아웃한다.
+        if (parsed.cfg === null && this.#lent.has(owner)) {
+          logger.debug(
+            { userId, serverKey: owner.slice(userPrefix(userId).length) },
+            "[HUB] sweep 대여 중 세션의 빈 61 — sweeper 의 21 답, 귀속 안 함 (GC-04)",
+          );
+          return;
+        }
+        this.#onViTrigger(userId, parsed.cfg);
         return;
       }
       case MSG.GetVIOrderListResp:
@@ -2004,6 +2090,15 @@ export class SubscriptionHub extends EventEmitter {
         // 먼저 보낸 뒤 이 집계를 보내므로 도착 시점에는 이미 캐시가 갱신돼 있다. 이 숫자로
         // 상태를 만들면 에코와 두 벌이 갈리고, 65 가 유실되면 화면이 되살아난다.
         const resp = parseDisableStrategiesResp(e.env);
+        // 대여 중 세션의 65 는 sweeper 가 옛 서버 계좌 몇 건을 끈 14 의 집계다(29-49 · GC-03) — 브라우저에 「전부 정지가 반영됐어요」 로
+        // 내보내면 사용자가 누르지 않은 정지가 모든 전략 카드에 찍힌다. 그 키들의 60/61 에코는 이미 카드를 갱신했다.
+        if (resp !== null && this.#lent.has(owner)) {
+          logger.debug(
+            { userId, serverKey: owner.slice(userPrefix(userId).length) },
+            "[HUB] sweep 대여 중 세션의 65 — sweeper 의 14 집계, 팬아웃 안 함 (GC-03)",
+          );
+          return;
+        }
         if (resp !== null) {
           this.#fanout(userId, {
             t: "strategies.disabled",

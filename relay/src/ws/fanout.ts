@@ -73,7 +73,8 @@
  *            상태 프레임 재송신. 그 계좌의 유효 서버가 다시 그 서버면(되돌아옴) 끄지 않고 해제(`#clearIfOwner` — (a) 의 move `to` 도 같다).
  *      같은 (사용자, 서버)의 sweep 은 한 번에 하나다 — 10 · (a) · (b) · (c) 가 (사용자, 서버) 레인(`#sweepLanes` · 29-45 GC-04)을 함께
  *      쓴다. 진행 중 계좌를 다시 요청하면 그 sweep 을 기다리고, 다른 계좌는 다음 sweep 1회에 합친다(재시도 · 백스톱은 레인 소속 계좌를
- *      건너뛴다). 그래서 한 세션에 sweeper 의 미해결 21 은 늘 하나다. 미체결 취소 · 정리 프레임은 어느 갈래도 보내지 않는다. 로그에 DMA id · 계좌번호를 싣지 않는다
+ *      건너뛴다). 그래서 한 세션에 sweeper 의 미해결 21 은 늘 하나다. sweeper 는 쥔 세션을 hub 세션 대여(29-49 — sweep 옵션
+ *      `lend`)로 빌려, 그 동안 hub 가 같은 세션의 21 을 미루고 sweeper 의 빈 61 · 65 를 귀속 · 「전부 정지」 팬아웃하지 않게 한다. 미체결 취소 · 정리 프레임은 어느 갈래도 보내지 않는다. 로그에 DMA id · 계좌번호를 싣지 않는다
  *
  * 결정 근거:
  *   T-15-02  **사용자 데이터**(계좌 · 주문 · 전략 · 83)의 팬아웃 대상은 `Map<userId, …>` 로만 고른다(`#deliver`).
@@ -1366,13 +1367,17 @@ export class WsFanout {
     const sweeper = this.#sweeper;
     if (sweeper === null) return;
     const owners = this.#owners;
-    const opts: StrategySweepOptions =
-      owners === null
+    const opts: StrategySweepOptions = {
+      // hub 세션 대여(29-49 · GC-03 · GC-04) — 연결 중 사용자의 세션이면 sweep 동안 hub 가 21 을 미루고 빈 61 · 65 를 귀속 · 팬아웃하지
+      // 않는다. 결선되지 않은 임시 세션이면 hub 가 무동작 대여를 준다.
+      lend: (s) => this.#hub.lendSession(s),
+      ...(owners === null
         ? {}
         : {
-            stillStale: (accountNo) =>
+            stillStale: (accountNo: string) =>
               owners.snapshotOf(creds.dmaUserId).get(`${broker}|${accountNo}`)?.effective !== serverKey,
-          };
+          }),
+    };
     try {
       const res = await sweeper.sweep({ userId, serverKey, broker, accountNos }, creds, opts);
       const skipped = new Set(res.skippedAccounts);
