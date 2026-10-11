@@ -1370,6 +1370,44 @@ describe('P30 보내기 규칙 — 원문 · 변경 없음 · 비우기 · code 
     await act(async () => {});
   });
 
+  it('(30 IN-01) 87 값이 한쪽만 설정(IP 만)인 계좌 → 오류 줄 없이 열림 · 계좌명만 바꾸면 「저장」 켜짐 · orderEndpoint 없음', async () => {
+    putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }] });
+    mount([withEp(KB_ACCT, { KB120: { orderIp: '010041001124', orderMac: '' } }), KYOBO_ACCT]);
+    fireEvent.click(btn(EDIT));
+    expect(ipInput()).toHaveValue('10.41.1.124');
+    expect(macInput()).toHaveValue('');
+    expect(acctRow(NO).querySelector('[data-slot="admin-account-edit-invalid"]')).toBeNull();
+    fireEvent.change(nameInput(), { target: { value: '위탁종합' } });
+    expect(btn(SAVE)).not.toBeDisabled();
+    fireEvent.click(btn(SAVE));
+    expect(putDmaAccountMock).toHaveBeenCalledTimes(1);
+    expect(bodyOf()).not.toHaveProperty('orderEndpoint');
+    expect(bodyOf().account.name).toBe('위탁종합');
+    await act(async () => {});
+  });
+
+  it('(30 IN-01) 위 계좌에서 IP/MAC 칸을 고치면 그때 검증이 막는다 — 오류 줄이 이유를 보인다', () => {
+    mount([withEp(KB_ACCT, { KB120: { orderIp: '010041001124', orderMac: '' } }), KYOBO_ACCT]);
+    fireEvent.click(btn(EDIT));
+    fireEvent.change(nameInput(), { target: { value: '위탁종합' } });
+    fireEvent.change(ipInput(), { target: { value: '10.41.1.125' } });
+    expect(btn(SAVE)).toBeDisabled();
+    expect(acctRow(NO).querySelector('[data-slot="admin-account-edit-invalid"]')).toHaveTextContent(
+      'IP 와 MAC 은 둘 다 적거나 둘 다 비워 주세요',
+    );
+    expect(putDmaAccountMock).not.toHaveBeenCalled();
+  });
+
+  it('(30 IN-01) 불일치 계좌의 출처 값이 한쪽만 설정 → 열자마자 오류 줄(그대로 맞추면 code 13) · 「저장」 비활성', () => {
+    mount([withEp(KB_TWO, { KB120: { orderIp: '010041001124', orderMac: '' }, KB121: EP_A }), KYOBO_ACCT]);
+    fireEvent.click(btn(EDIT));
+    expect(macInput()).toHaveAttribute('aria-invalid', 'true');
+    expect(acctRow(NO).querySelector('[data-slot="admin-account-edit-invalid"]')).toHaveTextContent(
+      'IP 와 MAC 은 둘 다 적거나 둘 다 비워 주세요',
+    );
+    expect(btn(SAVE)).toBeDisabled();
+  });
+
   it('(D-03) 교보 계좌 이름 변경 저장 → orderEndpoint 키 없음 · 같은 이름이면 「저장」 비활성', async () => {
     putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KYOBO119', outcome: 'ok' }] });
     mount([withEp(KB_ACCT, { KB120: EP_A }), KYOBO_ACCT]);

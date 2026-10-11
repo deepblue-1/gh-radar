@@ -713,9 +713,12 @@ function AccountRow({
   const editChanged = draft !== null && (draft.value.name.trim() !== draft.initial.name.trim() || endpointEdited);
   // 검증은 shared 한 벌(D-04 · 서버 규칙 그대로 · 우선순위 IP → MAC → 짝). 교보는 IP/MAC 이 없어 검증하지 않는다.
   const validation = kb && draft !== null ? validateOrderEndpointInput({ ip: draft.value.ip, mac: draft.value.mac }) : null;
-  const endpointValid = validation === null || validation.ok;
-  // 오류 줄 · 빨간 테두리는 IP 또는 MAC 이 초깃값과 달라졌을 때만(편집을 열자마자 빨갛게 시작하지 않는다 · E4 empty).
-  const shownInvalid = validation !== null && !validation.ok && endpointEdited ? validation : null;
+  // 30 IN-01 — 검증은 IP/MAC 을 실을 수 있는 저장(칸을 고쳤거나 D-10 불일치 맞추기 · `editSaveBodyOf` 의 sendEndpoint 상위 집합)만 막는다.
+  // 계좌명만 바꾼 저장은 IP/MAC 을 싣지 않으므로 87 초깃값이 웹 규칙 밖(한쪽만 설정 · 정규화 불가 레거시 값)이어도 막지 않는다.
+  // 막을 때는 오류 줄 · 빨간 테두리가 언제나 이유를 보인다 — 이유 없이 「저장」 만 꺼지는 일이 없다. 칸을 고치지 않은 일반 카드는
+  // 열자마자 빨갛게 시작하지 않는다(E4 empty) · 불일치 카드는 초깃값이 규칙 밖이면 바로 오류 줄(그대로 저장하면 code 13 이라서).
+  const shownInvalid = validation !== null && !validation.ok && (endpointEdited || mismatched) ? validation : null;
+  const endpointValid = shownInvalid === null;
   // 「저장」 = 오류 없음 · (바뀜 또는 D-10 불일치 맞추기) · 저장 중 아님.
   const canSave = draft !== null && !editSaving && endpointValid && (editChanged || mismatched);
 
