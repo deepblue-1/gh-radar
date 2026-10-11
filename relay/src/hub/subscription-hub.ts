@@ -128,6 +128,12 @@
  *         재요청은 hub 가 자기 21 을 미뤘거나 대기열을 비웠을 때만이다 — 대여가 미룬 프리페치의 회복 1회라 D-13 이 금지하는 사용자 단위
  *         재조회 진입점(주기 타이머 · 브라우저 호출)이 아니다. 교체 · 분리(`retainSessions`) · `closeAll` 은 그 표식 · 배수 대기를 정리한다.
  *         대여가 없으면(운영 sweep 0회) 전부 종전이다.
+ *   Phase 29-54 — 전부 정지 집계 · 14 송신자 꼬리표(N-01)  웹 「전부 정지」(빈 키 14)는 primary 증권사 세션 전부로 간다. 대상이 2개 이상일
+ *         때만 fanout 이 `beginAllStop` 으로 집계를 열고, 세션별 65 를 모아 `strategies.disabled` 1건(count 합 · viDisabled OR)을 낸다 — 대상
+ *         1개(지정 0 운영)는 종전 경로다. 65 귀속은 소유 키별 14 송신자 FIFO(`sweeper` · `user` · 집계)다: 서버는 한 연결의 요청을 순서대로
+ *         처리하고 65 는 그 14 처리의 마지막 프레임이라 송신 순서로 정확히 짝지어진다. 그래서 대여 중에도 사용자 14 의 65 는 사용자에게 가고
+ *         (29-49 의 「대여 중 사용자 65 억제」 수용을 거둔다) sweeper 14 의 65 는 집계에 섞이지 않는다. 꼬리표 없는 65(서버 발)는 29-49 규칙
+ *         그대로다. 65 는 여전히 완료 신호일 뿐 캐시를 고치지 않는다.
  *   D-13  전략 재조회는 **재접속(`ready`) 시에만** 일어난다. 주기 타이머·수동 새로고침
  *         진입점을 만들지 않는다 — 사용자 조작에 대한 60/61 에코는 Notice(유실 없음)라
  *         재조회로 메울 것이 없고, 폴링은 게이트웨이 왕복을 사용자 수에 비례시킨다.
@@ -294,6 +300,13 @@ export const USER_SUB_LIMIT = 200;
 export const HUB_LEASE_DRAIN_MS = 5_000;
 
 /**
+ * 「전부 정지」 집계 시한 (Phase 29-54 · N-01). 대상 세션(primary 증권사 세션 전부)의 65 를 이만큼 모은 뒤, 답한 세션 몫으로
+ * `strategies.disabled` 1건을 낸다(남은 대상은 `timeout` 실패). 웹 `STRATEGIES_DISABLE_ACK_TIMEOUT_MS`(8초) 안이라 모은 1건이 웹
+ * in-flight 창 안에 온다 — 그 창의 「전부 정지 때문에 꺼짐」 귀속이 모든 대상 서버의 60/61 에코를 덮는다.
+ */
+export const HUB_ALL_STOP_COLLECT_MS = 5_000;
+
+/**
  * `subscribe` 판정 결과 (D-11 · D-15). `"ok"` 가 아니면 참조계수 · 업스트림 모두 무변경이다.
  *   · `"limit-user"`   — 그 사용자에게 새 키인데 사용자 키 수가 `USER_SUB_LIMIT` 에 닿았다.
  *   · `"limit-global"` — 업스트림에 없는 새 키인데 업스트림 키(live + linger)가 `QUOTE_SUB_LIMIT` 에 닿았고 풀 linger 키도 없다.
@@ -348,6 +361,51 @@ export type HubSessionLease = { release(): void };
 
 /** 결선되지 않은 세션의 대여 — 아무 일도 하지 않는다(연결 없는 사용자의 임시 세션 · 29-49). */
 const NOOP_LEASE: HubSessionLease = { release: () => undefined };
+
+/** 「전부 정지」 대상 하나가 답하지 못한 사유 (29-54 · N-01). `detached` = 집계 중 그 세션이 교체 · 분리 · 종료됐다. */
+export type HubAllStopFailReason = "not-ready" | "send-failed" | "timeout" | "detached";
+
+/** 「전부 정지」 대상 하나의 실패 (29-54) — 서버 키 · 사유만(계좌 · 전략 키 없음). */
+export type HubAllStopFailure = { serverKey: string; reason: HubAllStopFailReason };
+
+/**
+ * 「전부 정지」 집계 결과 (29-54 · N-01). `count` · `viDisabled` 는 답한 세션 65 의 합 · OR 이다. `answered` · `failed` 는 대상 순서
+ * (primary 먼저)다. 답한 세션이 1개 이상이면 hub 가 이미 `strategies.disabled` 1건을 팬아웃했다.
+ */
+export type HubAllStopResult = { count: number; viDisabled: boolean; answered: string[]; failed: HubAllStopFailure[] };
+
+/**
+ * 「전부 정지」 집계 손잡이 (29-54 · N-01 — `SubscriptionHub.beginAllStop` 이 돌려준다). fanout 은 대상마다 14 를 보낸 직후 `sent`, 보내지
+ * 못했으면 `failed` 를 부른다. 모든 대상이 답 또는 실패가 되거나 시한(`HUB_ALL_STOP_COLLECT_MS`)이 오면 `done` 이 해결된다.
+ */
+export type HubAllStop = {
+  sent(session: HubSession): void;
+  failed(session: HubSession, reason: "not-ready" | "send-failed"): void;
+  done: Promise<HubAllStopResult>;
+};
+
+/** 「전부 정지」 대상 하나의 집계 상태 (29-54). */
+type AllStopTarget = { serverKey: string; state: "pending" | "sent" | "answered" | "failed"; reason?: HubAllStopFailReason };
+
+/**
+ * 진행 중인 「전부 정지」 집계 1건 (29-54 · N-01). 대상은 소유 키 → 상태(primary 먼저 · 삽입 순). 14 를 보낸 대상의 소유 키 FIFO 에
+ * 이 객체 자체가 꼬리표로 들어간다 — 그 65 가 오면 이 집계의 답이다.
+ */
+type AllStopCollection = {
+  userId: string;
+  targets: Map<string, AllStopTarget>;
+  count: number;
+  viDisabled: boolean;
+  finished: boolean;
+  timer: ReturnType<typeof setTimeout> | null;
+  resolve: (result: HubAllStopResult) => void;
+};
+
+/**
+ * 14 송신자 꼬리표 (29-54 · N-01) — 소유 키마다 14 를 실제로 보낸 순서대로 쌓고 65 마다 머리를 뺀다. 서버는 한 연결의 요청을 순서대로
+ * 처리하고 65 는 그 14 처리의 마지막 프레임이라 순서가 정확히 짝지어진다. `at` = 넣은 시각(ms — 오래된 꼬리표 버림).
+ */
+type DisableSender = { tag: "sweeper" | "user" | AllStopCollection; at: number };
 
 /**
  * 대여 표식 (29-49) — 소유 키마다 하나. `refetchVi` = hub 가 자기 21 을 미뤘거나(대여 중 Ready · primary 승격) 배수 상한에 걸려 대기열을
@@ -760,6 +818,8 @@ export type SubscriptionHubOptions = {
    * 원천을 받는 세션이 갈리지 않게). 없으면 종전(첫 KB → 첫 세션).
    */
   preferredPrimaryServerKey?: () => string | undefined;
+  /** 「전부 정지」 집계 시한(ms · 29-54) — 생략 = `HUB_ALL_STOP_COLLECT_MS`(5초). 테스트 주입용. */
+  allStopCollectMs?: number;
 };
 
 /**
@@ -925,6 +985,15 @@ export class SubscriptionHub extends EventEmitter {
    */
   readonly #lent = new Map<string, LeaseMark>();
   /**
+   * 세션 소유 키 → 14 송신자 꼬리표 FIFO (Phase 29-54 · N-01). 14 를 실제로 보낸 직후 송신자(`sweeper` · `user` · 「전부 정지」 집계)를
+   * 넣고 65 마다 머리를 뺀다(`#takeDisableSender`). 꼬리표 없는 65(서버 발)는 29-49 규칙 그대로다.
+   */
+  readonly #disableSenders = new Map<string, DisableSender[]>();
+  /** 진행 중인 「전부 정지」 집계 (29-54) — 정리(교체 · 분리 · `closeAll`)가 대상을 `detached` 로 끝낸다. */
+  readonly #allStops = new Set<AllStopCollection>();
+  /** 「전부 정지」 집계 시한(ms · 29-54). */
+  readonly #allStopCollectMs: number;
+  /**
    * 소유 키 → 마지막 대여 슬롯 (29-49). 같은 소유 키의 대여는 한 번에 하나다 — 뒤 대여는 앞 대여 반납을 기다린다(29-45 레인이 relay
    * 안에서는 막지만 방어). 반납이 슬롯을 연다.
    */
@@ -1003,6 +1072,7 @@ export class SubscriptionHub extends EventEmitter {
   constructor(opts?: SubscriptionHubOptions) {
     super();
     this.#preferredPrimaryServerKey = opts?.preferredPrimaryServerKey;
+    this.#allStopCollectMs = opts?.allStopCollectMs ?? HUB_ALL_STOP_COLLECT_MS;
     this.#symbols = opts?.symbols;
     this.#symbolMaster = opts?.symbolMaster;
     this.#lingerMs = opts?.lingerMs ?? LINGER_MS;
@@ -1190,6 +1260,133 @@ export class SubscriptionHub extends EventEmitter {
     }
     logger.info({ userId, serverKey }, "[HUB] sweep 대여 반납 — 미룬 21 재요청 (29-49)");
     this.#requestViTriggers(userId, owner, session);
+  }
+
+  // ----------------------------------------------------------
+  // 「전부 정지」 집계 · 14 송신자 꼬리표 (Phase 29-54 · N-01)
+  // ----------------------------------------------------------
+
+  /**
+   * 사용자 명령 14(대상 1개인 「전부 정지」 · 키 지정 정지)를 그 세션으로 **실제로 보낸 직후** 부른다 (29-54 · N-01). 그 소유 키 FIFO 에
+   * `user` 꼬리표를 넣는다 — 짝이 되는 65 는 대여 중이어도 `strategies.disabled` 로 사용자에게 간다(29-49 의 「대여 중 사용자 65 억제」
+   * 수용을 거둔다). 결선되지 않은 세션이면 무동작(그 세션 프레임은 hub 가 듣지 않는다).
+   */
+  noteUserDisable(session: HubSession): void {
+    const owner = ownerKey(session.userId, serverKeyOf(session));
+    if (this.#sessions.get(owner) !== session) return;
+    this.#pushDisableSender(owner, "user");
+  }
+
+  /**
+   * 「전부 정지」 집계를 연다 (29-54 · N-01 — 대상이 2개 이상일 때 fanout 이 부른다). 대상 = 그 사용자의 primary 증권사 세션 전부
+   * (primary 먼저). fanout 은 대상마다 14 를 보내고 `sent`(보냄) 또는 `failed`(미준비 · 송신 실패)를 부른다. 보낸 대상의 65 는 소유 키
+   * 꼬리표로 이 집계에 귀속되고 팬아웃하지 않는다. 모든 대상이 답 또는 실패가 되거나 시한(`allStopCollectMs`)이 오면 끝난다 — 답한
+   * 세션이 1개 이상이면 `strategies.disabled { count: 합, viDisabled: OR }` 1건을 팬아웃하고 `done` 을 해결한다. 답이 0 이면 지어내지
+   * 않는다(웹 8초 백스톱). 대여 · sweep 을 기다리지 않는다(kill switch).
+   */
+  beginAllStop(userId: string, sessions: readonly HubSession[]): HubAllStop {
+    let resolve: (result: HubAllStopResult) => void = () => undefined;
+    const done = new Promise<HubAllStopResult>((r) => {
+      resolve = r;
+    });
+    const coll: AllStopCollection = {
+      userId,
+      targets: new Map(),
+      count: 0,
+      viDisabled: false,
+      finished: false,
+      timer: null,
+      resolve,
+    };
+    for (const s of sessions) {
+      const serverKey = serverKeyOf(s);
+      const owner = ownerKey(userId, serverKey);
+      if (!coll.targets.has(owner)) coll.targets.set(owner, { serverKey, state: "pending" });
+    }
+    this.#allStops.add(coll);
+    coll.timer = setTimeout(() => {
+      coll.timer = null;
+      for (const t of coll.targets.values()) {
+        if (t.state === "pending" || t.state === "sent") this.#failTarget(t, "timeout");
+      }
+      this.#finishAllStop(coll);
+    }, this.#allStopCollectMs);
+    this.#settleAllStop(coll);
+
+    const targetOf = (s: HubSession): { owner: string; target: AllStopTarget } | undefined => {
+      const owner = ownerKey(userId, serverKeyOf(s));
+      const target = coll.targets.get(owner);
+      return target === undefined ? undefined : { owner, target };
+    };
+    return {
+      sent: (s) => {
+        const hit = targetOf(s);
+        if (coll.finished || hit === undefined || hit.target.state !== "pending") return;
+        if (this.#sessions.get(hit.owner) !== s) {
+          // 결선되지 않은(교체 · 분리된) 세션의 65 는 hub 가 듣지 않는다 — 기다리지 않는다.
+          this.#failTarget(hit.target, "detached");
+        } else {
+          hit.target.state = "sent";
+          this.#pushDisableSender(hit.owner, coll);
+        }
+        this.#settleAllStop(coll);
+      },
+      failed: (s, reason) => {
+        const hit = targetOf(s);
+        if (coll.finished || hit === undefined || hit.target.state !== "pending") return;
+        this.#failTarget(hit.target, reason);
+        this.#settleAllStop(coll);
+      },
+      done,
+    };
+  }
+
+  /** 그 소유 키 14 송신자 FIFO 에 꼬리표 하나를 넣는다 (29-54). */
+  #pushDisableSender(owner: string, tag: DisableSender["tag"]): void {
+    const queue = this.#disableSenders.get(owner);
+    const entry: DisableSender = { tag, at: Date.now() };
+    if (queue === undefined) this.#disableSenders.set(owner, [entry]);
+    else queue.push(entry);
+  }
+
+  /** 65 하나의 송신자 — 그 소유 키 FIFO 의 머리를 뺀다 (29-54). 꼬리표가 없으면 undefined(서버 발 65). */
+  #takeDisableSender(owner: string): DisableSender["tag"] | undefined {
+    const queue = this.#disableSenders.get(owner);
+    if (queue === undefined) return undefined;
+    const head = queue.shift();
+    if (queue.length === 0) this.#disableSenders.delete(owner);
+    return head?.tag;
+  }
+
+  #failTarget(target: AllStopTarget, reason: HubAllStopFailReason): void {
+    target.state = "failed";
+    target.reason = reason;
+  }
+
+  /** 기다릴 대상(보내기 전 · 보냄)이 남지 않았으면 집계를 끝낸다 (29-54). */
+  #settleAllStop(coll: AllStopCollection): void {
+    if (coll.finished) return;
+    for (const t of coll.targets.values()) if (t.state === "pending" || t.state === "sent") return;
+    this.#finishAllStop(coll);
+  }
+
+  /** 집계 끝 (29-54) — 타이머 정리 → 답한 세션이 있으면 `strategies.disabled` 1건 → `done` 해결. */
+  #finishAllStop(coll: AllStopCollection, fanout = true): void {
+    if (coll.finished) return;
+    coll.finished = true;
+    if (coll.timer !== null) clearTimeout(coll.timer);
+    coll.timer = null;
+    this.#allStops.delete(coll);
+    const answered: string[] = [];
+    const failed: HubAllStopFailure[] = [];
+    for (const t of coll.targets.values()) {
+      if (t.state === "answered") answered.push(t.serverKey);
+      else failed.push({ serverKey: t.serverKey, reason: t.reason ?? "detached" });
+    }
+    if (fanout && answered.length > 0) {
+      this.#fanout(coll.userId, { t: "strategies.disabled", count: coll.count, viDisabled: coll.viDisabled });
+    }
+    coll.resolve({ count: coll.count, viDisabled: coll.viDisabled, answered, failed });
   }
 
   /**
@@ -2333,22 +2530,39 @@ export class SubscriptionHub extends EventEmitter {
         // 먼저 보낸 뒤 이 집계를 보내므로 도착 시점에는 이미 캐시가 갱신돼 있다. 이 숫자로
         // 상태를 만들면 에코와 두 벌이 갈리고, 65 가 유실되면 화면이 되살아난다.
         const resp = parseDisableStrategiesResp(e.env);
-        // 대여 중 세션의 65 는 sweeper 가 옛 서버 계좌 몇 건을 끈 14 의 집계다(29-49 · GC-03) — 브라우저에 「전부 정지가 반영됐어요」 로
-        // 내보내면 사용자가 누르지 않은 정지가 모든 전략 카드에 찍힌다. 그 키들의 60/61 에코는 이미 카드를 갱신했다.
-        if (resp !== null && this.#lent.has(owner)) {
-          logger.debug(
-            { userId, serverKey: owner.slice(userPrefix(userId).length) },
-            "[HUB] sweep 대여 중 세션의 65 — sweeper 의 14 집계, 팬아웃 안 함 (GC-03)",
-          );
+        const serverKey = owner.slice(userPrefix(userId).length);
+        // 송신자 꼬리표(29-54 · N-01) — 이 세션으로 14 를 보낸 순서대로 짝짓는다(서버는 요청을 순서대로 처리하고 65 는 그 14 처리의 마지막
+        // 프레임이다). 해석 못 한 65 도 그 14 의 짝이라 머리는 뺀다(뒤 꼬리표가 밀리지 않게 — 집계 대상이면 시한 갈래가 맡는다).
+        const sender = this.#takeDisableSender(owner);
+        if (resp === null) return;
+        if (sender === "sweeper") {
+          logger.debug({ userId, serverKey }, "[HUB] sweeper 14 의 65 — 팬아웃 · 집계 안 함 (29-54)");
           return;
         }
-        if (resp !== null) {
-          this.#fanout(userId, {
-            t: "strategies.disabled",
-            count: resp.count,
-            viDisabled: resp.viDisabled,
-          });
+        if (sender !== undefined && sender !== "user") {
+          const target = sender.targets.get(owner);
+          if (sender.finished || target === undefined || target.state !== "sent") {
+            logger.info({ userId, serverKey, count: resp.count }, "[HUB] 전부 정지 집계가 끝난 뒤 늦게 온 65 — 팬아웃 안 함 (29-54)");
+            return;
+          }
+          target.state = "answered";
+          sender.count += resp.count;
+          sender.viDisabled ||= resp.viDisabled;
+          this.#settleAllStop(sender);
+          return;
         }
+        // 꼬리표 없는 65(서버 발) — 대여 중 세션의 65 는 sweeper 가 옛 서버 계좌 몇 건을 끈 14 의 집계다(29-49 · GC-03). 브라우저에
+        // 「전부 정지가 반영됐어요」 로 내보내면 사용자가 누르지 않은 정지가 모든 전략 카드에 찍힌다. 그 키들의 60/61 에코는 이미 카드를
+        // 갱신했다. 사용자 14 의 65(`user` 꼬리표)는 대여 중에도 사용자에게 간다(29-54).
+        if (sender === undefined && this.#lent.has(owner)) {
+          logger.debug({ userId, serverKey }, "[HUB] sweep 대여 중 세션의 65 — sweeper 의 14 집계, 팬아웃 안 함 (GC-03)");
+          return;
+        }
+        this.#fanout(userId, {
+          t: "strategies.disabled",
+          count: resp.count,
+          viDisabled: resp.viDisabled,
+        });
         return;
       }
       case MSG.RateCrossAlert: {

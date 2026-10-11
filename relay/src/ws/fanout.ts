@@ -104,6 +104,7 @@
  *   D-01     전략 4종(`lc.set`/`vi.set`/`vi.confirm`/`strategies.disable`)을 **이 소켓으로**
  *            받아 그 사용자의 DMA 세션으로 보낸다. 「누가 무엇을 보낼 수 있는가」의 게이트가
  *            여기다 — 통과한 바이트는 실계좌 전략 등록이 된다.
+ *            빈 키 `strategies.disable`(전부 정지)은 primary 증권사 세션 전부로 가고 세션별 65 를 hub 가 1건으로 모은다(N-01 · 29-54).
  *   T-16-01  전략의 `accountNo` 는 **`session.allowedAccounts` 하나만** 근거로 대조한다.
  *            상태 프레임의 계좌 사본이나 인바운드 바디를 믿으면 IDOR 이 그대로 열린다.
  *   T-16-06  전략·주문 인바운드는 server 의 `apiRateLimiter` 를 **우회하는 새 경로**다.
@@ -2151,7 +2152,17 @@ export class WsFanout {
     if (msg.t === "strategies.disable") {
       // `key` 생략·`""` 는 그 세션의 상따 전부 + VI 다. 대상은 언제나 **그 세션** 안이므로
       // 계좌 대조 대상이 없다. 64B 상한은 조립기가 던진다 (T-16-06).
+      //
+      // 빈 키 = primary 증권사 세션 전부 (N-01 · 29-54) — G-1 로 같은 증권사 다른 서버(KB121)에 지정한 계좌의 전략도 멈춘다. 다른
+      // 증권사 세션(KB primary 사용자의 교보)은 오늘처럼 대상이 아니다(D-18 증권사 축 유지). 대상이 1개(지정 0 — 운영)면 종전 경로
+      // 그대로이고, 2개 이상이면 hub 가 세션별 65 를 모아 `strategies.disabled` 1건을 낸다(`#allStop`). 키 지정은 종전 primary(D-09).
       const key = msg.key ?? "";
+      const primary = key === "" ? this.#sessions.primaryOf(userId) : undefined;
+      const targets = primary === undefined ? [] : this.#allStopTargets(userId, primary);
+      if (targets.length >= 2 && targets.some((s) => s.isReady)) {
+        this.#allStop(conn, userId, targets);
+        return;
+      }
       const session = this.#strategySession(conn, userId, msg.t);
       if (session === null) return;
       const payload = this.#buildStrategyPayload(conn, userId, msg.t, () =>
@@ -2159,6 +2170,8 @@ export class WsFanout {
       );
       if (payload === null) return;
       if (!session.send(payload)) this.#onStrategySendFailed(conn, userId, msg.t);
+      // hub 가 이 14 의 65 를 사용자 몫으로 귀속한다(29-54 — sweep 대여 중이어도 사용자에게 간다).
+      else this.#hub.noteUserDisable(session);
       return;
     }
 
@@ -2340,6 +2353,45 @@ export class WsFanout {
       (accountNo !== undefined ? this.#sessions.forAccount(userId, accountNo) : undefined) ??
       this.#sessions.primaryOf(userId);
     return this.#readySession(conn, userId, t, session);
+  }
+
+  /**
+   * 「전부 정지」 대상 (29-54 · N-01) — primary 먼저, 그다음 그 사용자가 쥔 세션(`UserEntry.sessions` · 결선 순) 중 primary 와 **같은
+   * 증권사**인 것 전부(소유 계좌 0 세션 포함 — 끄는 방향이라 넓게). 같은 객체는 한 번만. 다른 증권사 세션은 대상이 아니다(오늘과 같다).
+   */
+  #allStopTargets(userId: string, primary: DmaSession): DmaSession[] {
+    const out: DmaSession[] = [primary];
+    for (const { session } of this.#users.get(userId)?.sessions.values() ?? []) {
+      if (session.broker === primary.broker && !out.includes(session)) out.push(session);
+    }
+    return out;
+  }
+
+  /**
+   * 「전부 정지」 다중 대상 경로 (29-54 · N-01 — 대상 ≥ 2 · Ready ≥ 1). 빈 키 14 를 한 번 조립해 대상마다 즉시 보낸다(대여 · sweep · 레인을
+   * 기다리지 않는다 — kill switch). hub 집계(`beginAllStop`)가 세션별 65 를 모아 `strategies.disabled` 1건을 낸다. 끝나면 info 1줄
+   * (userId · 대상 수 · 답 수 · 실패 서버 키 · 사유 — 계좌 · 전략 키 없음).
+   */
+  #allStop(conn: Conn, userId: string, targets: readonly DmaSession[]): void {
+    const payload = this.#buildStrategyPayload(conn, userId, "strategies.disable", () => buildDisableStrategiesReq(""));
+    if (payload === null) return;
+    const all = this.#hub.beginAllStop(userId, targets);
+    for (const s of targets) {
+      if (!s.isReady) all.failed(s, "not-ready");
+      else if (s.send(payload)) all.sent(s);
+      else all.failed(s, "send-failed");
+    }
+    void all.done.then((result) => {
+      logger.info(
+        {
+          userId,
+          targets: targets.length,
+          answered: result.answered.length,
+          failed: result.failed.map((f) => `${f.serverKey}:${f.reason}`),
+        },
+        "[WS] 전부 정지 — primary 증권사 세션 전부 (29-54 · N-01)",
+      );
+    });
   }
 
   /**
