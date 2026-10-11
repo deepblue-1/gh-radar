@@ -5,8 +5,9 @@
 --   새 DMA id 로 조용히 덮어썼다. 그때 밀려난 옛 DMA 유저는 dma_users · dma_user_accounts · dma_account_servers 와 서버
 --   users.toml 에 그대로 남고, 어떤 app_users.dma_user_id 에도 연결되지 않는다. 이 쿼리는 그런 행을 찾는다.
 --
--- 실행 위치: 29-41 배포 창에서 **메인 세션**이 `supabase db query --linked` 또는 Supabase 대시보드 SQL 편집기로 돌린다.
---   executor(플랜 실행 에이전트)는 이 쿼리를 원격에 돌리지 않는다.
+-- 실행 위치: **메인 세션 또는 사람**이 Supabase 대시보드 SQL 편집기에 이 파일 전체를 붙여 돌린다. 수만 필요하면 REST
+--   (`Prefer: count=exact` · 서비스 키 · 읽기 전용)로도 된다(29-41 런북 정정과 같은 문장 — Supabase CLI v2.75 에는 SQL 을
+--   원격에 바로 돌리는 하위 명령이 없다). executor(플랜 실행 에이전트)는 이 쿼리를 원격에 돌리지 않는다.
 -- 읽기 전용: SELECT 하나뿐이다 — 아무 행도 쓰거나 지우지 않는다.
 --
 -- 해석:
