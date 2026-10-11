@@ -11,10 +11,10 @@ v1.0 요구사항 아카이브: [milestones/v1.0-REQUIREMENTS.md](./milestones/v
 
 ### 인박스 — KB 계좌별 주문자 IP/MAC (`docs/inbox/from-gh-trade/261010-kb-order-ip-mac.md`)
 
-- [ ] **IPMAC-01**: relay 가 Admin op 1/3(계좌 추가·수정)을 보내기 직전 op 5(ListUsers)로 87 을 재조회해 최신 `order_ip`/`order_mac` 을 되싣는다 — relay 밖(gh-trade 도구)에서 설정한 값이 웹 계좌 편집 한 번에 지워지지 않는다(R3-01 해제 조건)
-- [x] **IPMAC-02**: 웹 Admin 계좌 편집에 「주문자 IP」·「MAC 주소」 입력칸 2개 — 클라 검증은 서버 규칙과 같다(IP 12자리 숫자 또는 a.b.c.d · MAC 12 hex(`:`·`-` 허용) · 둘 다 적거나 둘 다 비움), 저장 뒤 87 의 정규화 표기(12자리 · 대문자 MAC)로 다시 그린다, 멱등 비교 7필드에 두 필드 포함, 도움말 한 줄(같은 서버의 두 계좌가 서로 체결될 수 있으면 서로 다른 사용자 PC 값)
+- [x] **IPMAC-01**: relay 가 Admin op 1/3(계좌 추가·수정)을 보내기 직전 op 5(ListUsers)로 87 을 재조회해 최신 `order_ip`/`order_mac` 을 되싣는다 — relay 밖(gh-trade 도구)에서 설정한 값이 웹 계좌 편집 한 번에 지워지지 않는다(R3-01 해제 조건)
+- [x] **IPMAC-02**: 웹 Admin 계좌 편집에 「주문자 IP」·「MAC 주소」 입력칸 2개 — 클라 검증은 서버 규칙과 같다(IP 12자리 숫자 또는 a.b.c.d · MAC 12 hex(`:`·`-` 허용) · 둘 다 적거나 둘 다 비움), 저장 뒤 87 값을 다시 그린다 — 화면 표기는 IP 점표기 · MAC 콜론 대문자(`10.41.1.124` · `1C:FD:08:7D:97:8E`), 저장 · 비교는 정규화값(12자리 · 대문자 MAC)(Phase 30 D-17 · 2026-10-11 갱신 → 30-08), 공유 KB 계좌는 편집 모드에 함께 쓰는 사용자 안내(D-18 → 30-09), 멱등 비교 7필드에 두 필드 포함, 도움말 한 줄(같은 서버의 두 계좌가 서로 체결될 수 있으면 서로 다른 사용자 PC 값)
 - [x] **IPMAC-03**: 86 code 13 BAD_ORDER_ENDPOINT 가 웹에 서버 문구 그대로 표시된다
-- [ ] **IPMAC-04**: gh-trade 질문 3개에 답을 인박스 노트에 적고 `status: done` · `done_commit` 으로 닫는다 — ① code 7 문구 확장 여부(웹이 문장을 대조하는지 확인) ② 입력 표기(웹은 점표기·콜론 그대로 보내고 서버 정규화에 맡김, 표시는 87 값) ③ 사용자 PC IP/MAC 은 `ipconfig /all` 값 수기 입력 운영 절차
+- [x] **IPMAC-04**: gh-trade 질문 3개에 답을 인박스 노트에 적고 `status: done` · `done_commit` 으로 닫는다 — ① code 7 문구 확장 여부(웹이 문장을 대조하는지 확인) ② 입력 표기(웹은 점표기·콜론 그대로 보내고 서버 정규화에 맡김, 표시는 87 값의 사람이 읽는 표기 — D-17) ③ 사용자 PC IP/MAC 은 `ipconfig /all` 값 수기 입력 운영 절차
 - [x] **IPMAC-05**: 웹 Admin 에서 기존 계좌의 「계좌명」을 수정할 수 있다(지금은 추가 때만 입력 · 계좌 줄은 읽기 전용) — IP/MAC 과 같은 계좌 카드 편집에서 저장하고, 등록 서버마다 op 3 으로 반영된다(name 변경은 BUSY 미판정). 2026-10-11 사용자 추가 범위
 
 ### 인박스 — 상따 금액 단위 (`docs/inbox/from-gh-trade/261011-limitchaser-amount-unit.md`)
@@ -50,10 +50,10 @@ v1.0 요구사항 아카이브: [milestones/v1.0-REQUIREMENTS.md](./milestones/v
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| IPMAC-01 | Phase 30 | Pending |
+| IPMAC-01 | Phase 30 | Complete |
 | IPMAC-02 | Phase 30 | Complete |
 | IPMAC-03 | Phase 30 | Complete |
-| IPMAC-04 | Phase 30 | Pending |
+| IPMAC-04 | Phase 30 | Complete |
 | IPMAC-05 | Phase 30 | Complete |
 | AMT-01 | Phase 31 | Pending |
 | AMT-02 | Phase 31 | Pending |

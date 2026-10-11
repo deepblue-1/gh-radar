@@ -24,10 +24,11 @@
 - [x] 종목별 네이버 종목토론방 수집 및 AI 분류 — Validated in Phase 8·08.1 (v1.0, Haiku 분류는 비용으로 비활성)
 - [x] 로그인(Google OAuth) + 관심종목 — Validated in Phase 06.2 (v1.0, 이메일/비번 AUTH-01 은 Deferred)
 - [x] GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK) — Validated in Phase 22 (MOBILE-02, v1.0)
+- [x] KB 계좌별 주문자 IP/MAC (IPMAC-01~05) — Validated in Phase 30: relay R3-01(op 1/3 직전 op 5 재조회 · 실패면 44 미송신) · R3-02(공유 계좌 추가 시 다른 유저 IP/MAC 되싣기) · 웹 Admin 계좌 카드 편집(계좌명 · IP/MAC, 표시는 `10.41.1.124` · `1C:FD:08:7D:97:8E`, 저장 · 비교는 정규화값) · 공유 계좌 IP/MAC 동시 반영(gh-trade 261011 op 3 전파 + 웹 안내 줄) · KB 운영 서버 IP/MAC 설정 보류 해제. 배포 relay 2234a1b5 · server 00061-fvv · webapp 34f145b1, 실서버 UAT 2라운드 pass(KB120). 남은 비차단: KB121 전파 배포 확인 · 실주문 전문 IP/MAC 회선 관측
 
 ### Active
 
-- [ ] gh-trade 인박스 처리 — KB 계좌별 주문자 IP/MAC(R3-01 재조회 · 웹 입력칸 · 질문 3개) · 상따 금액 단위(금액 8필드 되싣기 · 「만(주)」 표시 여부)
+- [ ] gh-trade 인박스 처리 — 상따 금액 단위(금액 8필드 되싣기 · 「만(주)」 표시 여부, Phase 31) · ~~KB 계좌별 주문자 IP/MAC~~ Phase 30 완료
 - [ ] 운영 중 발견되는 버그 수정 · 자잘한 기능 추가 (v1.1 상시)
 - [x] CLAUDE.md 다이어트
 
@@ -43,7 +44,7 @@
 - 운영: webapp https://gh-radar-webapp.vercel.app · 트레이딩 https://trade.jx1.io (push = 프로덕션 배포) · relay(Cloud Run, VPN 으로 KB/교보 gh-trade 서버) · 워커 Cloud Run Job 7종(master/intraday/news/discussion/theme/limitup/home-sync)
 - 모바일: GH Trade iOS TestFlight · Android Firebase APK(Play 는 인증 대기)
 - 37 phase · 432 plan · quick 130건 → `.planning/milestones/v1.0-*` 로 아카이브
-- 열린 운영 항목: 두 번째 DMA 서버 켜기 전 결정 · KB IP/MAC 설정 보류(R3-01) · D-25 래치 실기 관측(Xcode 라이선스) · smoke INV-9 첫 실행
+- 열린 운영 항목: 두 번째 DMA 서버 켜기 전 결정 · ~~KB IP/MAC 설정 보류(R3-01)~~ 해제(Phase 30) · KB121 IP/MAC 전파 배포 확인 · 실주문 IP/MAC 회선 관측 · D-25 래치 실기 관측(Xcode 라이선스) · smoke INV-9 첫 실행
 
 ## Current Milestone: v1.1 운영 유지보수
 
@@ -80,6 +81,7 @@
 | Claude API로 뉴스/토론방 요약 | 사용자 선호, 한국어 요약 품질 우수 | ⚠️ Revisit — 요약은 홈 AI 분석·챗봇으로 흡수, 토론 Haiku 분류는 비용으로 비활성 |
 | v1에 로그인+관심종목 포함 | Phase 7 뉴스 배치가 "사용자별 관심종목"을 타겟팅해야 트레이더 유즈케이스 완성 (2026-04-16 v2→v1 승격) | ✓ Good — Phase 06.2 (Google OAuth · 홈 인증 게이트) |
 | 상한가 기준값 사용자 조절 가능 | 트레이더마다 전략이 다름 | ✓ Good — Phase 5 스캐너 |
+| 공유 KB 계좌 IP/MAC 은 모든 보유자에 함께 반영(Phase 30 D-18) | gh-trade 가 같은 계좌번호의 라우팅 값(지점·거래자·IP·MAC)을 사용자 간 한 벌로 강제 — 사용자별 op 3 으로는 바꿀 수 없음 | ✓ Good — gh-trade op 3 원자적 전파(261011) · KB120 실서버 확인 |
 | 실시간 시세 소스: KIS → 키움 OpenAPI 전환 | KIS REST 폴링 한계 (per-stock N+1, rate limit) → 키움 ka10027 페이지네이션 단일 호출로 활성 종목 매분 갱신. Direct VPC Egress + Static IP whitelist 필수. | Phase 09.1 (2026-05-15) — KIS 완전 폐기 |
 | 캔들스틱 차트 채택 (Out of Scope 정책 반전) | 2026-05-15 사용자 명시 — 상세 페이지 자체 완결성 우선, TradingView/키움과의 차별화보다 트레이더가 화면 전환 없이 가격 흐름을 즉시 파악하는 가치 우선. RESEARCH 비교 후 lightweight-charts 5.2.0 lock-in. | Phase 09.2 |
 | 모바일 = Capacitor Remote-URL 셸 + 네이티브 탭바/로그인 (Phase 21) | 웹 한 벌을 운영 URL 로 그대로 쓰고(middleware 인증·OAuth callback 때문에 static export 불가), Google 이 WebView OAuth 를 막아 네이티브 Sign-In 이 필수 | ✓ Good — UAT 4차 30/30 (2026-09-26) |
@@ -107,4 +109,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-11 after v1.1 milestone start*
+*Last updated: 2026-10-11 after Phase 30*

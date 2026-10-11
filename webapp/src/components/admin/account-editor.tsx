@@ -2,6 +2,9 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
+  findSharedAccountHolders,
+  formatOrderIp,
+  formatOrderMac,
   isValidAccountNoInput,
   normalizeAccountNo,
   normalizeOrderIp,
@@ -15,6 +18,7 @@ import {
   type AdminPutAccountBody,
   type AdminServerResult,
   type AdminUsersOverview,
+  type AdminUserView,
   type DmaBroker,
   type OrderEndpointMismatch,
   type OrderEndpointSummary,
@@ -63,7 +67,8 @@ import { useFieldSave, type FieldSave } from "./use-field-save";
  * 영역 안내 문장은 목업 A 문장(답 이전)이 아니라 gh-trade-84 ②(가) 뒤 문장이다 — 전략은 relay 가 끈다 · 되돌릴 때 클라(OCX) 대사.
  *
  * **주문자 IP/MAC 읽기 줄(Phase 30 D-09 · D-10 · 30-UI-SPEC §1 · 목업 B).** KB 계좌만 지점 · 트레이더 줄 아래 한 줄 — 설정됨
- * 「주문자 IP <ip> · MAC <mac>」(87 정규화값 그대로 · 재정규화 금지) · 미설정 「… 미설정(서버 NIC 값)」 · 87 미확인 「… 확인 전」.
+ * 「주문자 IP <ip> · MAC <mac>」(87 정규화값을 사람이 읽는 표기로 — D-17 shared `formatOrderIp/Mac` · 판정 · 비교는 정규화값) ·
+ * 미설정 「… 미설정(서버 NIC 값)」 · 87 미확인 「… 확인 전」.
  * 값 · 출처 서버 · 등록 서버 간 불일치는 shared `summarizeOrderEndpoint`(relay 라우팅과 같은 유효 주문 서버 규칙 한 벌) 결과만
  * 그린다 — 웹은 별도 판정을 하지 않는다. 불일치는 다른 서버마다 경고 한 줄(`WARN_LINE`). 빈 계좌명은 제목줄에 흐린 「이름 없음」
  * (87 전용 흐린 줄은 편집 대상이 아니라 그대로).
@@ -75,15 +80,25 @@ import { useFieldSave, type FieldSave } from "./use-field-save";
  * 보존 · IPMAC-01). 서버 전부 ok 면 닫히고 포커스가 「편집」 으로 돌아온다. 서버 토글 · 주문 서버 · 「제거」 의 즉시 저장은 그대로.
  * 하나라도 ok 가 아니면 편집 · 입력값을 유지하고 동작 줄 아래 결과 줄에 서버마다 「<서버> 실패: <서버 message 원문>」(err ·
  * `role="alert"`) 또는 「<서버> 미반영: <사유>」(warn) — 서버 문구는 바꾸거나 대조하지 않는다(IPMAC-03 · D-12). HTTP 오류도 같은 자리.
- * 편집 저장에서 온 결과 칩은 `source: "edit"` 로 표시해 영역 하단 `BusyLines` 에 다시 띄우지 않는다(칩 · title 은 그대로).
- * 이름 저장 성공 뒤 재조회 전의 서버 토글은 새 이름을 싣는다(`editSave.value` — 옛 이름으로 되돌리지 않는다).
+ * 편집 저장에서 온 결과 칩은 `source: "edit"` 로 표시해 영역 하단 `BusyLines` 에 다시 띄우지 않는다(칩 · title 은 그대로). 단 카드 결과 줄이
+ * 지워지면(「취소」 · 다시 「편집」 · 입력 변경) 그 표시를 떼어 `BusyLines` 로 돌려보낸다 — 서버 문구가 화면에서 사라지지 않게(30 WR-04 · 터치 기기는 title 을 못 본다).
+ * 이름 저장 성공 뒤 재조회 전의 서버 토글은 새 이름을 싣는다(`editSave.value` — 옛 이름으로 되돌리지 않는다). 저장 **비행 중**에는 싣지 않고
+ * (실패하면 확정되지 않은 이름이 토글로 새어 들어간다 — 30 WR-03), 그동안 그 카드의 서버 토글 · 주문 서버 · 「제거」 를 잠근다(입력칸 readOnly 와 같이).
  *
  * **KB 주문자 IP/MAC 편집(Phase 30 30-05 · D-03 · D-04 · D-05 · D-06 · D-07 · D-10 · UI-SPEC §2-3 · §3).** KB 편집 블록은 계좌명 칸 아래
  * 「주문자 IP」 · 「MAC 주소」 2열 칸 + 도움말 한 줄(검증 오류가 보이면 그 자리를 오류 줄이 대신), 교보는 칸 대신 「해당 없음」 한 줄.
- * 초깃값 = 읽기 줄과 같은 출처(유효 주문 서버 87 정규화값). 검증 규칙은 shared `validateOrderEndpointInput` 한 벌(웹에 정규식 없음).
- * 보내는 값은 입력 원문(trim) — 정규화는 「바뀜 · 변경 없음」 비교에만 쓴다(`editSaveBodyOf`). IP/MAC 은 두 칸이 정규화 비교로 바뀌었거나
+ * 초깃값 = 읽기 줄과 같은 출처(유효 주문 서버 87 값의 표시 표기 · D-17). 검증 규칙은 shared `validateOrderEndpointInput` 한 벌(웹에 정규식 없음).
+ * 보내는 값은 입력 원문(trim) — 정규화는 「보낼지 · 변경 없음」 비교에만 쓴다(`editSaveBodyOf` · 양쪽 정규화). IP/MAC 은 두 칸이 정규화 비교로 바뀌었거나
  * 등록 서버 간 불일치(D-10 맞추기)일 때만 싣고, 계좌명만 바뀐 저장에는 싣지 않는다(화면 초깃값이 틀려도 87 값을 덮지 않는다).
  * 보낼 것이 없으면 요청 없이 편집을 닫고 「변경 없음」 한 줄(다음 「편집」 때 지움).
+ *
+ * **공유 계좌 안내(Phase 30 30-09 · D-18 · UI-SPEC Addendum A2).** KB 카드 편집 모드에서 개요(`users` prop)의 다른 DMA 사용자가 같은 증권사 ·
+ * 같은 정규화 계좌번호를 이 계좌의 active 등록 서버와 겹치는 서버에 가지고 있으면, 불일치 줄 아래 · 「취소 · 저장」 위에 안내 한 줄
+ * 「이 계좌를 함께 쓰는 사용자 {DMA id ' · '} — 주문자 IP · MAC 이 함께 바뀌어요」(`WARN_LINE` · role 없음). 판정은 shared
+ * `findSharedAccountHolders` 한 벌 · 개요 데이터만 읽는다(추가 요청 없음). 함께 바꾸는 일은 gh-trade 서버가 op 3 하나로 원자적으로
+ * 한다(웹은 이 사용자 PUT 1건만 · 다른 사용자 op 없음). 저장 결과는 기존 결과 줄 그대로 — gh-trade 배포 전 code 7 도 「<서버> 실패:
+ * <서버 message 원문>」 이고 code 7 특수 처리 · 문장 대조는 없다(IPMAC-03 · D-12). 전부 ok 면 기존 `onChanged` 개요 재조회가 함께 쓰는
+ * 사용자들의 같은 계좌 카드도 새 값으로 그린다. 읽기 카드 · 교보 · `users` 없음 · 함께 쓰는 사용자 0명이면 줄이 없다.
  */
 
 export const ACCOUNT_EDITOR_TEXT = {
@@ -131,7 +146,7 @@ export const ACCOUNT_EDITOR_TEXT = {
   ipmacUnknown: "확인 전",
   /** D-10 — 출처 서버와 값이 다른 다른 등록 서버 한 줄. */
   ipmacMismatch: (serverKey: string, m: Pick<OrderEndpointMismatch, "state" | "orderIp" | "orderMac">) =>
-    `${serverKey} 값이 달라요(${m.state === "set" ? `IP ${m.orderIp} · MAC ${m.orderMac}` : "미설정"}) — 편집에서 저장하면 등록 서버가 모두 같아져요`,
+    `${serverKey} 값이 달라요(${m.state === "set" ? `IP ${formatOrderIp(m.orderIp)} · MAC ${formatOrderMac(m.orderMac)}` : "미설정"}) — 편집에서 저장하면 등록 서버가 모두 같아져요`,
   // ── Phase 30 (30-05) 편집칸 — UI-SPEC Copywriting 「그 밖 문구」 정본 ──
   ipLabel: "주문자 IP",
   macLabel: "MAC 주소",
@@ -146,6 +161,9 @@ export const ACCOUNT_EDITOR_TEXT = {
   pairInvalid: "IP 와 MAC 은 둘 다 적거나 둘 다 비워 주세요",
   /** D-06 — 정규화 비교로 지금 값과 같아 요청을 보내지 않았다(NOTE · 다음 「편집」 때 지움). */
   unchanged: "변경 없음",
+  /** D-18 — 편집 모드 공유 계좌 안내(UI-SPEC Addendum A2 정본) · ids = 함께 쓰는 DMA id 오름차순. */
+  sharedAccountNote: (ids: readonly string[]) =>
+    `이 계좌를 함께 쓰는 사용자 ${ids.join(" · ")} — 주문자 IP · MAC 이 함께 바뀌어요`,
 } as const;
 
 /** shared 검증 오류 종류 → 편집 블록 오류 줄 문구(규칙은 shared 한 벌 · 문구만 여기). */
@@ -164,7 +182,10 @@ export interface ChipView {
   tone: ReflectTone;
   message: string | null;
   label: string | null;
-  /** 카드 편집 저장에서 온 칩 — 그 실패는 카드 결과 줄이 말하므로 영역 하단 `BusyLines` 에 다시 띄우지 않는다(Phase 30 UI-SPEC §4). */
+  /**
+   * 카드 편집 저장에서 온 칩 — 그 실패는 카드 결과 줄이 말하므로 영역 하단 `BusyLines` 에 다시 띄우지 않는다(Phase 30 UI-SPEC §4).
+   * 카드 결과 줄이 지워지는 순간(「취소」 · 다시 「편집」 · 입력 변경) 이 표시를 뗀다(`releaseEditChips` · 30 WR-04) — 그 뒤엔 `BusyLines` 가 말한다.
+   */
   source?: "edit";
 }
 
@@ -296,6 +317,21 @@ function applyAccountResults(
     next.set(slotKey(accountKey, r.server), source ? { ...chip, source } : chip);
   }
   return next;
+}
+
+/**
+ * 계좌 1개의 편집 저장 칩에서 `source` 표시를 뗀다(30 WR-04) — 카드 결과 줄이 지워진 뒤에는 `BusyLines` 가 그 문구를 다시 말한다.
+ * 뗄 것이 없으면 `prev` 그대로(입력마다 불려도 부모가 다시 그리지 않는다).
+ */
+function releaseEditChips(prev: Overlay, accountKey: string): Overlay {
+  const prefix = `${accountKey}|`;
+  let next: Map<string, ChipView> | null = null;
+  for (const [slot, chip] of prev) {
+    if (chip.source !== "edit" || !slot.startsWith(prefix)) continue;
+    next ??= new Map(prev);
+    next.set(slot, { tone: chip.tone, message: chip.message, label: chip.label });
+  }
+  return next ?? prev;
 }
 
 /** 카드 편집 저장 결과 줄 1개(UI-SPEC §4) — err 실패 · 응답 없음 / warn 미반영. */
@@ -437,7 +473,7 @@ function AccountTitle({
   );
 }
 
-/** KB 주문자 IP/MAC 읽기 줄(D-09 · UI-SPEC §1-3) — summary 값 그대로(재정규화 금지). */
+/** KB 주문자 IP/MAC 읽기 줄(D-09 · UI-SPEC §1-3) — summary 의 87 정규화값을 사람이 읽는 표기로(D-17 · shared `formatOrderIp/Mac` · 판정 · 비교는 정규화값). */
 function OrderEndpointLine({ summary }: { summary: OrderEndpointSummary }) {
   const T = ACCOUNT_EDITOR_TEXT;
   return (
@@ -445,9 +481,9 @@ function OrderEndpointLine({ summary }: { summary: OrderEndpointSummary }) {
       {summary.state === "set" ? (
         <>
           {`${T.ipmacLabel} `}
-          <b className={IPMAC_VALUE}>{summary.orderIp}</b>
+          <b className={IPMAC_VALUE}>{formatOrderIp(summary.orderIp)}</b>
           {` · ${T.ipmacMacLabel} `}
-          <b className={IPMAC_VALUE}>{summary.orderMac}</b>
+          <b className={IPMAC_VALUE}>{formatOrderMac(summary.orderMac)}</b>
         </>
       ) : (
         <>
@@ -486,6 +522,8 @@ interface AccountRowProps {
   overlay: Overlay;
   /** 이 계좌가 마지막 계좌인가 — 「제거」 가 사용자 삭제로 간다. */
   last: boolean;
+  /** 개요 사용자 전체 — D-18 공유 계좌 안내 판정용(`findSharedAccountHolders`). */
+  users: readonly AdminUserView[];
   /** 이 카드가 편집 모드인가(부모 `editingKey` — 한 번에 한 카드 · D-01). */
   editing: boolean;
   /** 다른 카드가 편집 중 — 「편집」 비활성 · title 「다른 계좌 편집 중」. */
@@ -493,12 +531,15 @@ interface AccountRowProps {
   onEditStart: () => void;
   onEditEnd: () => void;
   onResults: (accountKey: string, results: readonly AdminServerResult[], source?: "edit") => void;
+  /** 카드 결과 줄이 지워짐 — 그 계좌 편집 저장 칩을 `BusyLines` 로 돌려보낸다(30 WR-04). */
+  onEditResultsCleared: (accountKey: string) => void;
   onChanged: () => void;
   onRemoveLast: () => void;
 }
 
 /**
- * 편집 모드 입력값. `ip` · `mac` 초깃값 = 읽기 줄과 같은 출처(유효 주문 서버 87 정규화값 · D-10) — 미설정 · 확인 전 · 교보는 빈 문자열.
+ * 편집 모드 입력값. `ip` · `mac` 초깃값 = 읽기 줄과 같은 출처(유효 주문 서버 · D-10)의 87 값의 표시 표기(D-17) — 미설정 · 확인 전 · 교보는
+ * 빈 문자열. 비교는 양쪽 정규화(`editSaveBodyOf`).
  * 초안은 입력 원문 그대로 쥔다(보낼 때 trim 만 · 정규화는 비교에만 — D-07).
  */
 interface EditFields {
@@ -513,8 +554,8 @@ interface EditFields {
  * - 계좌명은 `trim()` 해서 · 나머지 계좌 필드는 개요 값 · `servers` 는 지금 active 등록 서버 그대로(서버 집합을 바꾸지 않는다).
  * - IP/MAC 은 KB 이고 (두 칸이 정규화 비교로 초깃값과 다름 || 등록 서버 간 불일치) 일 때만 최상위 `orderEndpoint` 로 싣는다.
  *   보내는 값은 입력 원문(trim) — 정규화값을 보내지 않는다(D-07 · gh-trade 가 정규화). 두 칸 비움 = 빈 문자열 둘(미설정으로 되돌리기 · D-04).
- * - 초깃값은 87 정규화값 또는 빈 문자열이라 정규화 비교가 곧 「서버 값과 같음」 이다. 형식 오류 값은 정규화가 null 이라 원문으로 비교한다
- *   (호출자가 검증 오류면 저장을 막는다).
+ * - 초깃값은 87 값의 표시 표기(D-17) 또는 빈 문자열 — 비교는 양쪽 정규화(표시 표기는 왕복 항등이라 정규화하면 87 값 그대로)여서
+ *   「서버 값과 같음」 이다. 정규화가 null 인 값(형식 오류 입력)은 원문으로 비교한다(호출자가 검증 오류면 저장을 막는다).
  */
 function editSaveBodyOf(input: {
   account: AdminAccountView;
@@ -525,10 +566,14 @@ function editSaveBodyOf(input: {
 }): AdminPutAccountBody | null {
   const { account, servers, initial, draft, mismatched } = input;
   const kb = account.broker === "KB";
+  // 정규화하되 실패(null)면 원문 — 초깃값(표시 표기)과 칸 값을 같은 잣대로 비교한다(D-17 · 표시 표기를 87 값처럼 비교하지 않는다).
+  const norm = (normalize: (raw: string) => string | null, raw: string) => normalize(raw) ?? raw;
   const ip = draft.ip.trim();
   const mac = draft.mac.trim();
   const endpointChanged =
-    kb && ((normalizeOrderIp(ip) ?? ip) !== initial.ip || (normalizeOrderMac(mac) ?? mac) !== initial.mac);
+    kb &&
+    (norm(normalizeOrderIp, ip) !== norm(normalizeOrderIp, initial.ip) ||
+      norm(normalizeOrderMac, mac) !== norm(normalizeOrderMac, initial.mac));
   const sendEndpoint = kb && (endpointChanged || mismatched);
   const nameChanged = draft.name.trim() !== initial.name.trim();
   if (!nameChanged && !sendEndpoint) return null;
@@ -546,11 +591,13 @@ function AccountRow({
   registry,
   overlay,
   last,
+  users,
   editing,
   editLocked,
   onEditStart,
   onEditEnd,
   onResults,
+  onEditResultsCleared,
   onChanged,
   onRemoveLast,
 }: AccountRowProps) {
@@ -571,6 +618,8 @@ function AccountRow({
   const clearEditResult = () => {
     setEditLines([]);
     setEditErrorShown(false);
+    // 30 WR-04 — 카드 결과 줄이 사라지면 편집 저장 칩의 문구는 영역 하단 BusyLines 가 이어 말한다.
+    onEditResultsCleared(key);
   };
 
   // 카드 저장 1건(D-02) — 서버 일부 실패도 HTTP 성공이라 onSuccess 가 불린다: 전부 ok 일 때만 편집을 닫는다.
@@ -593,10 +642,14 @@ function AccountRow({
   }, [isEditing]);
 
   // 이름은 「편집 저장이 쥔 새 이름 ?? 개요 이름」 — 저장 성공 뒤 재조회(`releaseOn`) 전 토글이 옛 이름으로 되돌리지 않게(Pitfall 4).
+  // 30 WR-03 — `editSave.value` 는 저장을 **시작할 때** 채워진다. 비행 중에는 싣지 않는다(실패하면 확정 안 된 이름이 토글로 커밋된다).
+  // 비행 중 토글은 UI 가 잠그지만, 그 전에 대기열에 들어간 토글이 이 사이에 나갈 수 있어 여기서도 막는다.
+  const confirmedName = () =>
+    editSave.state !== "saving" && editSave.value !== undefined ? editSave.value.account.name : account.name;
   const toggle = useFieldSave<string[]>(
     (servers) =>
       putDmaAccount(dmaUserId, {
-        account: { ...accountInputOf(account), name: editSave.value?.account.name ?? account.name },
+        account: { ...accountInputOf(account), name: confirmedName() },
         servers,
       }),
     {
@@ -619,6 +672,7 @@ function AccountRow({
   const shown = [...candidates, ...intent.filter((k) => !candidates.includes(k))];
 
   const setServer = (serverKey: string, on: boolean) => {
+    if (editSave.state === "saving") return; // 30 WR-03 — 편집 저장 비행 중엔 같은 계좌 쓰기를 잠근다(컨트롤도 비활성).
     const next = shown.filter((k) => (k === serverKey ? on : intent.includes(k)));
     if (next.length === 0) return; // 계좌는 서버 1대 이상
     toggle.run(next);
@@ -645,9 +699,15 @@ function AccountRow({
   // D-09 · D-10 — 표시값 · 출처 · 불일치는 shared 판정 한 벌(relay 라우팅과 같은 유효 주문 서버 규칙).
   const endpoint = kb ? summarizeOrderEndpoint({ account, registry }) : null;
   const mismatched = endpoint !== null && endpoint.mismatches.length > 0;
+  // D-18 — 이 계좌를 함께 쓰는 다른 DMA 사용자(서버 겹침 기준 · 개요 데이터만). 편집 블록 안내 줄 한 줄.
+  const sharedWith = kb
+    ? findSharedAccountHolders({ users, dmaUserId, broker: account.broker, accountNo: account.accountNo, servers: intent }).map(
+        (h) => h.dmaUserId,
+      )
+    : [];
 
   const editSaving = editSave.state === "saving";
-  // 「바뀜」(저장 버튼 기준 · UI-SPEC §3) = 계좌명 trim · IP/MAC 원문(trim) 이 초깃값과 다름. 점표기로 같은 값을 다시 적어도 「바뀜」.
+  // 「바뀜」(저장 버튼 기준 · UI-SPEC §3) = 계좌명 trim · IP/MAC 원문(trim) 이 초깃값(표시 표기)과 다름. 다른 표기로 같은 값을 다시 적어도 「바뀜」(누르면 「변경 없음」).
   const endpointEdited =
     kb && draft !== null && (draft.value.ip.trim() !== draft.initial.ip || draft.value.mac.trim() !== draft.initial.mac);
   const editChanged = draft !== null && (draft.value.name.trim() !== draft.initial.name.trim() || endpointEdited);
@@ -663,8 +723,9 @@ function AccountRow({
     const set = endpoint?.state === "set";
     const initial: EditFields = {
       name: account.name,
-      ip: set ? endpoint.orderIp : "",
-      mac: set ? endpoint.orderMac : "",
+      // D-17 — 칸에는 표시 표기(형식 밖은 원문). 비교는 editSaveBodyOf 가 양쪽 정규화로.
+      ip: set ? formatOrderIp(endpoint.orderIp) : "",
+      mac: set ? formatOrderMac(endpoint.orderMac) : "",
     };
     setDraft({ initial, value: initial });
     clearEditResult();
@@ -730,7 +791,8 @@ function AccountRow({
           size="sm"
           variant="secondary"
           aria-label={`${account.broker} ${account.accountNo} ${ACCOUNT_EDITOR_TEXT.remove}`}
-          disabled={remove.state === "saving"}
+          // 30 WR-03 — 편집 저장 비행 중엔 잠근다(같은 계좌 쓰기 경합 · 확정 안 된 이름).
+          disabled={remove.state === "saving" || editSaving}
           onClick={() => (last ? onRemoveLast() : remove.run(true))}
           className={cn(ADMIN_BUTTON_SECONDARY, ACCOUNT_BUTTON)}
         >
@@ -819,6 +881,11 @@ function AccountRow({
             </p>
           )}
           {endpoint && <OrderEndpointMismatchLines summary={endpoint} />}
+          {sharedWith.length > 0 && (
+            <p data-slot="admin-account-edit-shared" className={WARN_LINE}>
+              {T.sharedAccountNote(sharedWith)}
+            </p>
+          )}
           <div className="mt-2.5 flex justify-end gap-1.5">
             <Button
               type="button"
@@ -889,7 +956,7 @@ function AccountRow({
               <Checkbox
                 aria-label={serverKey}
                 checked={checked}
-                disabled={locked}
+                disabled={locked || editSaving}
                 onCheckedChange={(v) => setServer(serverKey, v === true)}
                 className="disabled:opacity-100"
               />
@@ -907,7 +974,7 @@ function AccountRow({
           );
         })}
       </div>
-      <OrderServerControl account={account} registry={registry} save={order} />
+      <OrderServerControl account={account} registry={registry} save={order} disabled={editSaving} />
       {error && (
         <p role="alert" data-slot="admin-account-error" className={ERROR_LINE}>
           {error}
@@ -926,10 +993,13 @@ function OrderServerControl({
   account,
   registry,
   save,
+  disabled = false,
 }: {
   account: AdminAccountView;
   registry: AdminUsersOverview["servers"];
   save: FieldSave<string | null>;
+  /** 카드 편집 저장 비행 중(30 WR-03) — 세그먼트 전체를 잠근다. */
+  disabled?: boolean;
 }) {
   const T = ACCOUNT_EDITOR_TEXT;
   const active = new Set(account.servers.filter((s) => s.state === "active").map((s) => s.serverKey));
@@ -983,9 +1053,10 @@ function OrderServerControl({
           variant="outline"
           value={current ?? ORDER_DEFAULT_VALUE}
           aria-label={`${account.broker} ${account.accountNo} ${T.orderServer}`}
+          disabled={disabled}
           onValueChange={(v) => {
             // 켜진 칸을 다시 누르면 Radix 가 "" 를 준다 — 해제는 없다(늘 하나).
-            if (v === "") return;
+            if (v === "" || disabled) return;
             const next = v === ORDER_DEFAULT_VALUE ? null : v;
             if (next !== current) save.run(next);
           }}
@@ -1250,7 +1321,12 @@ export interface AccountEditorProps {
   onRemoveLast: () => void;
   /** 사용자 전체 결과(「다시 반영」) — `id` 가 바뀔 때마다 한 번 반영한다. */
   serverResults?: { id: number; results: readonly AdminServerResult[] } | null;
+  /** 개요 사용자 전체(`AdminUsersOverview.users`) — D-18 공유 계좌 안내 판정용 · 없으면 안내 없음. */
+  users?: readonly AdminUserView[];
 }
+
+/** `users` 기본값 — 렌더마다 새 배열을 만들지 않는다. */
+const NO_USERS: readonly AdminUserView[] = [];
 
 export function AccountEditor({
   dmaUserId,
@@ -1259,6 +1335,7 @@ export function AccountEditor({
   onChanged,
   onRemoveLast,
   serverResults = null,
+  users = NO_USERS,
 }: AccountEditorProps) {
   const [overlay, setOverlay] = useState<Overlay>(() => new Map());
   const [adding, setAdding] = useState(false);
@@ -1274,6 +1351,7 @@ export function AccountEditor({
 
   const onResults = (accountKey: string, results: readonly AdminServerResult[], source?: "edit") =>
     setOverlay((prev) => applyAccountResults(prev, accountKey, results, source));
+  const onEditResultsCleared = (accountKey: string) => setOverlay((prev) => releaseEditChips(prev, accountKey));
 
   const serverKeysOf = (broker: DmaBroker) =>
     servers.filter((s) => s.broker === broker && s.enabled).map((s) => s.key);
@@ -1287,7 +1365,7 @@ export function AccountEditor({
   const nextPriority = Math.min(999, accounts.reduce((m, a) => Math.max(m, a.priority), 0) + 1);
 
   // BUSY 줄 — 지금 그려진 실패 칩(결과 덮개가 개요보다 앞선다). 카드 편집 저장 칩(source "edit")은 카드 결과 줄이 이미 말한다 —
-  // 두 번 띄우지 않는다(칩 · title 은 그대로 · UI-SPEC §4).
+  // 두 번 띄우지 않는다(칩 · title 은 그대로 · UI-SPEC §4). 카드 결과 줄이 지워지면 표시가 떨어져 여기로 돌아온다(30 WR-04).
   const shownChips: { serverKey: string; tone: ReflectTone; message: string | null }[] = [];
   for (const a of editable) {
     const k = accountKeyOf(a.broker, a.accountNo);
@@ -1315,11 +1393,13 @@ export function AccountEditor({
             registry={servers.filter((s) => s.broker === a.broker)}
             overlay={overlay}
             last={isActive && activeCount <= 1}
+            users={users}
             editing={editingKey === k}
             editLocked={editingKey !== null && editingKey !== k}
             onEditStart={() => setEditingKey(k)}
             onEditEnd={() => setEditingKey((cur) => (cur === k ? null : cur))}
             onResults={onResults}
+            onEditResultsCleared={onEditResultsCleared}
             onChanged={onChanged}
             onRemoveLast={onRemoveLast}
           />

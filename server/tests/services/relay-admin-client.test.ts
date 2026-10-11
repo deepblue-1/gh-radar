@@ -2,7 +2,11 @@ import { afterEach, beforeAll, afterAll, describe, it, expect, vi } from "vitest
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 
-import { assertRelayUrl, createRelayAdminClient } from "../../src/services/relay-admin-client";
+import {
+  assertRelayUrl,
+  createRelayAdminClient,
+  RELAY_ORDER_ENDPOINTS_TIMEOUT_MS,
+} from "../../src/services/relay-admin-client";
 import { logger } from "../../src/logger";
 import { loadConfig } from "../../src/config";
 
@@ -147,6 +151,29 @@ describe("createRelayAdminClient — 요청 계약", () => {
     expect(logged).not.toContain(SECRET);
     expect(logged).not.toContain("x-relay-secret");
     expect(logged).not.toContain("X-Relay-Secret");
+  });
+
+  it("30 WR-01 orderEndpoints 는 기본 timeoutMs 가 길어도 RELAY_ORDER_ENDPOINTS_TIMEOUT_MS 에서 끊는다 → { status: 0 }", async () => {
+    expect(RELAY_ORDER_ENDPOINTS_TIMEOUT_MS).toBe(2_000);
+    reply = (_req, res) => {
+      setTimeout(() => json(res, 200, { servers: {} }), RELAY_ORDER_ENDPOINTS_TIMEOUT_MS + 1_500).unref();
+    };
+    const t0 = Date.now();
+    const r = await client(15_000).orderEndpoints(ADMIN);
+    const elapsed = Date.now() - t0;
+    expect(r).toEqual({ status: 0, data: null });
+    expect(elapsed).toBeGreaterThanOrEqual(RELAY_ORDER_ENDPOINTS_TIMEOUT_MS - 100);
+    expect(elapsed).toBeLessThan(RELAY_ORDER_ENDPOINTS_TIMEOUT_MS + 1_000);
+  });
+
+  it("30 WR-01 호출별 상한은 기본보다 길게 못 늘린다 — 기본 100ms 면 orderEndpoints 도 100ms 에서 끊긴다", async () => {
+    reply = (_req, res) => {
+      setTimeout(() => json(res, 200, { servers: {} }), 600).unref();
+    };
+    const t0 = Date.now();
+    const r = await client(100).orderEndpoints(ADMIN);
+    expect(r).toEqual({ status: 0, data: null });
+    expect(Date.now() - t0).toBeLessThan(500);
   });
 
   it("연결 거부(relay 꺼짐) → { status: 0, data: null } (throw 없음)", async () => {

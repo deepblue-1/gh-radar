@@ -128,9 +128,11 @@ export interface UserSheetProps {
    * (「다시 반영」 결과와 같은 길 — 서버 S 의 결과가 S 에 등록된 계좌 칩에 닿는다).
    */
   initialResults?: readonly AdminServerResult[] | null;
+  /** 개요 사용자 전체(`AdminUsersOverview.users`) — 계좌 편집의 공유 계좌 안내(D-18)로 그대로 내려 보낸다. */
+  users?: readonly AdminUserView[];
 }
 
-export function UserSheet({ user, servers, onChanged, onClose, initialResults = null }: UserSheetProps) {
+export function UserSheet({ user, servers, onChanged, onClose, initialResults = null, users }: UserSheetProps) {
   const dma = user.dmaUserId;
 
   const role = useFieldSave<AppRole>(
@@ -284,6 +286,7 @@ export function UserSheet({ user, servers, onChanged, onClose, initialResults = 
                 setConfirm("last-account");
               }}
               serverResults={reconcileBatch}
+              users={users}
             />
           </section>
         )}

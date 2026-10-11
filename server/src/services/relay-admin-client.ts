@@ -39,13 +39,27 @@ export type RelayAdminResponse<T> = { status: number; data: T | null };
 /** `POST /internal/admin/{access,registry}/reload` 응답(29-11). */
 export type RelayReloadResult = { ok: boolean; changed: boolean };
 
+/**
+ * 호출별 옵션. `timeoutMs` = 이 호출만의 상한 — 클라이언트 기본(`RELAY_ADMIN_TIMEOUT_MS`)보다 길게는 못 늘린다(더 짧은 쪽).
+ * 쓰기 명령은 relay 마감 10초를 기다려야 하므로 기본을 쓰고, 메모리만 읽는 조회는 짧게 끊는다.
+ */
+export type RelayAdminRequestOptions = { timeoutMs?: number };
+
 /** 저수준 요청 — 경로 · 요청자 이메일 · 바디. 타입드 메서드는 전부 이것 위의 얇은 래퍼다. */
 export type RelayAdminRequest = <T = unknown>(
   method: RelayAdminMethod,
   path: string,
   adminEmail: string,
   body?: unknown,
+  opts?: RelayAdminRequestOptions,
 ) => Promise<RelayAdminResponse<T>>;
+
+/**
+ * `GET /internal/admin/order-endpoints` 상한(30 WR-01). relay 메모리 87 캐시 읽기라 정상이면 수십 ms 다 — 개요(GET /api/admin/users)가
+ * 이 조회를 RPC 와 함께 기다리므로, relay VM 이 안 닿을 때(정지 · SYN 무응답) 쓰기용 15초를 그대로 물려받으면 개요가 매번 15초 멈춘다.
+ * 넘으면 status 0 → 개요는 200 · 「확인 전」.
+ */
+export const RELAY_ORDER_ENDPOINTS_TIMEOUT_MS = 2_000;
 
 /** `POST /internal/admin/dma-users` 바디(29-11) — 웹 사용자 이메일 + `AdminDmaInput`. */
 export type RelayCreateDmaUserBody = { email: string } & AdminDmaInput;
@@ -108,6 +122,7 @@ export type RelayAdminClient = {
   /**
    * 계좌별 주문자 IP/MAC(30-03 · D-09) — relay 메모리 87 캐시(DB 에는 열이 없다). `servers` 에 키가 없는 서버 = 그 서버 87 을 모름.
    * 실패해도 개요(GET /api/admin/users)는 200 · 「확인 전」. 값은 사용자 PC 식별 정보 — 로그 금지.
+   * 상한은 `RELAY_ORDER_ENDPOINTS_TIMEOUT_MS`(30 WR-01) — 쓰기용 기본 15초를 물려받지 않는다.
    */
   orderEndpoints(adminEmail: string): Promise<RelayAdminResponse<AdminOrderEndpointsRaw>>;
   /**
@@ -253,6 +268,7 @@ export function createRelayAdminClient(opts: {
     path: string,
     adminEmail: string,
     body?: unknown,
+    reqOpts?: RelayAdminRequestOptions,
   ): Promise<RelayAdminResponse<T>> {
     if (!path.startsWith(ADMIN_PATH_PREFIX)) {
       throw new Error(`relay admin path must start with ${ADMIN_PATH_PREFIX}`);
@@ -264,6 +280,8 @@ export function createRelayAdminClient(opts: {
         url: path,
         data: body,
         headers: { "x-admin-email": adminEmail },
+        // 호출별 상한은 기본보다 짧게만(더 짧은 쪽) — 없으면 인스턴스 기본(RELAY_ADMIN_TIMEOUT_MS).
+        ...(reqOpts?.timeoutMs !== undefined ? { timeout: Math.min(reqOpts.timeoutMs, opts.timeoutMs) } : {}),
       });
       const data = res.data === "" || res.data === undefined ? null : (res.data as T);
       return { status: res.status, data };
@@ -319,7 +337,9 @@ export function relayAdminClientFrom(request: RelayAdminRequest): RelayAdminClie
     serversStatus: (adminEmail) =>
       request<RelayServersStatus>("GET", "/internal/admin/servers/status", adminEmail),
     orderEndpoints: (adminEmail) =>
-      request<AdminOrderEndpointsRaw>("GET", "/internal/admin/order-endpoints", adminEmail),
+      request<AdminOrderEndpointsRaw>("GET", "/internal/admin/order-endpoints", adminEmail, undefined, {
+        timeoutMs: RELAY_ORDER_ENDPOINTS_TIMEOUT_MS,
+      }),
     setQuotePrimary: (key, adminEmail) =>
       request<RelayQuotePrimaryResult>(
         "POST",
