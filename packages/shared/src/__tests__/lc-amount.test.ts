@@ -15,9 +15,12 @@ import {
   amountFromQty,
   amountOrDerive,
   echoAmountOf,
+  formatManwon,
+  formatQtyAmt,
   lcAmountPairOf,
   narrowQty,
   qtyForSubmit,
+  qtyAmt,
   qtyFromAmount,
   type LcAmountPair,
 } from "../lc-amount";
@@ -226,5 +229,62 @@ describe("P31 amountEchoMatches — 짝 성공 판정 (Pitfall 1 · RESEARCH A6)
   ])("$name", ({ qty, amount, out }) => {
     const s = echo({ sellWatchPrice: 12_870, sellWatchQty: qty, sellWatchAmount: amount });
     expect(amountEchoMatches(s, pair(), sent)).toBe(out);
+  });
+});
+
+describe("P31 주문로그 서식 (D-19 · gh-trade StrategyEventFormatter.cs 이식)", () => {
+  it.each([
+    { manwon: 0, out: "0만" },
+    { manwon: 3999, out: "3999만" },
+    { manwon: 9999, out: "9999만" },
+    { manwon: 10_000, out: "1억" },
+    { manwon: 10_449, out: "1억" },
+    { manwon: 10_450, out: "1억" },
+    { manwon: 10_500, out: "1.1억" },
+    { manwon: 12_345, out: "1.2억" },
+    { manwon: 100_000, out: "10억" },
+    { manwon: 104_975, out: "10.5억" },
+    { manwon: 999_999_999, out: "100000억" },
+  ])("formatManwon($manwon) → $out", ({ manwon, out }) => {
+    expect(formatManwon(manwon)).toBe(out);
+  });
+
+  it.each([
+    { qty: 15_000, price: 1000, out: "1500만(15,000주)" },
+    { qty: 10_000, price: 0, out: "10,000주" },
+    { qty: 85_000, price: 12_350, out: "10.5억(85,000주)" },
+    { qty: 100_000, price: 10_000, out: "10억(100,000주)" },
+    { qty: 12_345, price: 10_000, out: "1.2억(12,345주)" },
+    { qty: 0, price: 12_350, out: "0만(0주)" },
+    { qty: 300, price: -1, out: "300주" },
+  ])("formatQtyAmt($qty, $price) → $out", ({ qty, price, out }) => {
+    expect(formatQtyAmt(qty, price)).toBe(out);
+  });
+
+  it.each([
+    { qty: 0, price: 12_350, out: "0주" },
+    { qty: 300, price: 12_350, out: "371만(300주)" },
+    { qty: 30_000, price: 12_350, out: "3.7억(30,000주)" },
+    { qty: 38_200, price: 12_350, out: "4.7억(38,200주)" },
+    { qty: 50_000, price: 12_350, out: "6.2억(50,000주)" },
+    { qty: 16_000, price: 12_350, out: "2억(16,000주)" },
+    { qty: 3000, price: 12_350, out: "3705만(3,000주)" },
+    { qty: 200, price: 12_350, out: "247만(200주)" },
+    { qty: 100, price: 12_350, out: "124만(100주)" },
+    { qty: 30_000, price: 13_000, out: "3.9억(30,000주)" },
+    { qty: 5000, price: 13_000, out: "6500만(5,000주)" },
+    { qty: 100, price: 13_000, out: "130만(100주)" },
+    { qty: 5000, price: 0, out: "5,000주" },
+  ])("qtyAmt($qty, $price) → $out", ({ qty, price, out }) => {
+    expect(qtyAmt(qty, price)).toBe(out);
+  });
+
+  it("큰 값 — 주×가격이 2^53 을 넘으면 BigInt 경로 만원(1,073,741,823,500)으로 억 갈래를 쓴다", () => {
+    // tenths = floor((1073741823500 + 500) / 1000) = 1073741824 → 107374182.4억
+    expect(formatQtyAmt(2_147_483_647, 5_000_000)).toBe("107374182.4억(2,147,483,647주)");
+  });
+
+  it("폼 「1,000만」(천단위 · 억 없음)과 다른 함수다 — 1억 미만 만원에 천단위 구분을 넣지 않는다", () => {
+    expect(formatManwon(1000)).toBe("1000만");
   });
 });
