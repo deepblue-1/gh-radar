@@ -739,6 +739,37 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
     expect(lend).toHaveBeenCalledTimes(5);
   });
 
+  it("N-01 (29-54) — 14 송신 성공마다 lease.noteDisableSent 1회(송신 직후) · 송신 실패면 0 · 대여 반환에 noteDisableSent 가 없어도 종전", async () => {
+    const noteDisableSent = vi.fn();
+    const lend = vi.fn(async () => ({ release: () => undefined, noteDisableSent }));
+    const run = () => sweeper().sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS, { lend });
+
+    const s = await readySessionOf(U1);
+    gw.respondLimitChaserList([on(ISIN1, A), on(ISIN2, A)]);
+    expect(await run()).toMatchObject({ ok: true, disabledLimitChasers: 2 });
+    expect(noteDisableSent).toHaveBeenCalledTimes(2);
+
+    // 14 만 송신 실패(조회 24 · 21 은 나간다) → send-failed · 꼬리표 0.
+    noteDisableSent.mockClear();
+    gw.respondLimitChaserList([on(ISIN3, A)]);
+    const realSend = s.send.bind(s);
+    const send = vi
+      .spyOn(s, "send")
+      .mockImplementation((payload: Uint8Array) =>
+        readDisableStrategiesKey(MSG.DisableStrategiesReq, Buffer.from(payload)) === null ? realSend(payload) : false,
+      );
+    expect(await run()).toMatchObject({ ok: false, reason: "send-failed" });
+    expect(noteDisableSent).not.toHaveBeenCalled();
+    send.mockRestore();
+
+    // 대여가 noteDisableSent 를 주지 않아도(29-49 모양) 종전대로 끝난다.
+    const plainLend = vi.fn(async () => ({ release: () => undefined }));
+    gw.respondLimitChaserList([on(ISIN3, A)]);
+    expect(
+      await sweeper().sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS, { lend: plainLend }),
+    ).toMatchObject({ ok: true, disabledLimitChasers: 1 });
+  });
+
   it("isActiveLimitChaser — 5스위치 OR autoSellState !== 0", () => {
     const base = {
       buyEnabled: false,

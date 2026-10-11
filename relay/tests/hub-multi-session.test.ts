@@ -20,6 +20,8 @@ import * as flatbuffers from "flatbuffers";
 import type { RelayAccount, RelayOutbound } from "@gh-radar/shared";
 
 import {
+  HUB_ALL_STOP_COLLECT_MS,
+  HUB_DISABLE_SENDER_MAX_AGE_MS,
   HUB_LEASE_DRAIN_MS,
   SubscriptionHub,
   ownerKey,
@@ -1190,5 +1192,253 @@ describe("SubscriptionHub — VI 계좌 소유 세션 원천 (GC-05 · 29-51)", 
     expect(viSeen().at(-1)).toEqual(["KRX", B, false]);
     // primary 몫(84)은 그대로.
     expect(hub.getUserSettings(U)).toMatchObject({ present: true });
+  });
+});
+
+/**
+ * Phase 29-54 (N-01) — 「전부 정지」 집계 · 14 송신자 꼬리표. fanout 이 대상(primary 증권사 세션 전부)마다 14 를 보내고 `sent` 를 부르면
+ * hub 가 그 소유 키 FIFO 에 집계 꼬리표를 넣고, 세션별 65 를 모아 `strategies.disabled` 1건을 낸다. sweeper 14(대여 · `noteDisableSent`) ·
+ * 사용자 14(`noteUserDisable`) · 꼬리표 없는 65(서버 발 — 29-49 규칙)는 송신 순서로 갈린다.
+ */
+describe("SubscriptionHub — 전부 정지 집계 (29-54 · N-01)", () => {
+  const A = "1234567801";
+  const B = "1234567802";
+  let hub: SubscriptionHub;
+  let fanned: HubFanoutEvent[];
+  let kb120: FakeBrokerSession;
+  let kb121: FakeBrokerSession;
+  let infos: unknown[][];
+  let warns: unknown[][];
+
+  const r65 = (disabledCount: number, viDisabled = false) => buildDisableStrategiesRespFrame({ disabledCount, viDisabled });
+
+  function disabled(): RelayOutbound[] {
+    return fanned.filter((e) => e.userId === U && e.msg.t === "strategies.disabled").map((e) => e.msg);
+  }
+
+  function track<T>(p: Promise<T>): { done: boolean; value: T | undefined } {
+    const st: { done: boolean; value: T | undefined } = { done: false, value: undefined };
+    void p.then((v) => {
+      st.done = true;
+      st.value = v;
+    });
+    return st;
+  }
+
+  async function flush(): Promise<void> {
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    resetDroppedEnvelopeCount();
+    infos = [];
+    warns = [];
+    vi.spyOn(logger, "info").mockImplementation(((...args: unknown[]) => {
+      infos.push(args);
+    }) as never);
+    vi.spyOn(logger, "warn").mockImplementation(((...args: unknown[]) => {
+      warns.push(args);
+    }) as never);
+    hub = new SubscriptionHub({ preferredPrimaryServerKey: () => "KB120" });
+    fanned = [];
+    hub.on("fanout", (e: HubFanoutEvent) => fanned.push(e));
+    kb120 = new FakeBrokerSession(U, "KB120", "KB", [{ accountNo: B, name: "계좌B" }]);
+    kb121 = new FakeBrokerSession(U, "KB121", "KB", [{ accountNo: A, name: "계좌A" }]);
+    hub.attach(kb120);
+    hub.attach(kb121);
+  });
+
+  afterEach(() => {
+    hub.closeAll();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("N-01 두 65 뒤에만 1건 · 합 · OR — KB120 65 만으로는 0 · KB121 65 뒤 { count 3, viDisabled true } · done answered [KB120, KB121]", async () => {
+    const all = hub.beginAllStop(U, [kb120, kb121]);
+    const done = track(all.done);
+    all.sent(kb120);
+    all.sent(kb121);
+    kb120.pushFrame(r65(1));
+    await flush();
+    expect(disabled()).toEqual([]);
+    expect(done.done).toBe(false);
+
+    kb121.pushFrame(r65(2, true));
+    await flush();
+    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 3, viDisabled: true }]);
+    expect(done.value).toEqual({ count: 3, viDisabled: true, answered: ["KB120", "KB121"], failed: [] });
+  });
+
+  it("N-01 시한 → 답한 몫 1건 · 늦은 65 팬아웃 0 · info 1줄", async () => {
+    const all = hub.beginAllStop(U, [kb120, kb121]);
+    const done = track(all.done);
+    all.sent(kb120);
+    all.sent(kb121);
+    kb120.pushFrame(r65(1));
+    vi.advanceTimersByTime(HUB_ALL_STOP_COLLECT_MS - 1);
+    await flush();
+    expect(disabled()).toEqual([]);
+    vi.advanceTimersByTime(1);
+    await flush();
+    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 1, viDisabled: false }]);
+    expect(done.value).toEqual({ count: 1, viDisabled: false, answered: ["KB120"], failed: [{ serverKey: "KB121", reason: "timeout" }] });
+
+    kb121.pushFrame(r65(2));
+    expect(disabled()).toHaveLength(1);
+    const late = infos.filter((i) => String(i[1]).includes("늦게 온 65"));
+    expect(late).toHaveLength(1);
+    expect(late[0]?.[0]).toEqual({ userId: U, serverKey: "KB121", count: 2 });
+  });
+
+  it("N-01 답 0 → strategies.disabled 0 · done 즉시 해결(시한을 기다리지 않음) · 실패 2건", async () => {
+    const all = hub.beginAllStop(U, [kb120, kb121]);
+    const done = track(all.done);
+    all.failed(kb120, "send-failed");
+    all.failed(kb121, "not-ready");
+    await flush();
+    expect(done.value).toEqual({
+      count: 0,
+      viDisabled: false,
+      answered: [],
+      failed: [
+        { serverKey: "KB120", reason: "send-failed" },
+        { serverKey: "KB121", reason: "not-ready" },
+      ],
+    });
+    expect(disabled()).toEqual([]);
+    // 꼬리표를 넣지 않았다 — 뒤의 서버 발 65 는 종전대로 팬아웃.
+    kb120.pushFrame(r65(4));
+    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 4, viDisabled: false }]);
+  });
+
+  it("N-01 대여 중 sweeper 65 는 집계 0 · 사용자 65 는 집계 — sweeper 14 먼저 / 전부 정지 14 먼저 두 순서", async () => {
+    // (1) sweeper 가 KB121 로 14 를 먼저 보냈다 → 첫 65 는 sweeper 몫(억제) · 둘째 65 가 KB121 의 답.
+    const lease = await hub.lendSession(kb121);
+    lease.noteDisableSent();
+    const first = hub.beginAllStop(U, [kb120, kb121]);
+    const firstDone = track(first.done);
+    first.sent(kb120);
+    first.sent(kb121);
+    kb120.pushFrame(r65(1));
+    kb121.pushFrame(r65(5));
+    await flush();
+    expect(disabled()).toEqual([]);
+    expect(firstDone.done).toBe(false);
+    kb121.pushFrame(r65(2));
+    await flush();
+    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 3, viDisabled: false }]);
+
+    // (2) 전부 정지 14 가 먼저, sweeper 14 가 뒤 → 첫 65 = 집계 · 둘째 65 = 억제.
+    const second = hub.beginAllStop(U, [kb120, kb121]);
+    const secondDone = track(second.done);
+    second.sent(kb120);
+    second.sent(kb121);
+    lease.noteDisableSent();
+    kb121.pushFrame(r65(2));
+    kb120.pushFrame(r65(1));
+    await flush();
+    expect(secondDone.value).toMatchObject({ count: 3, answered: ["KB120", "KB121"] });
+    kb121.pushFrame(r65(7));
+    expect(disabled()).toEqual([
+      { t: "strategies.disabled", count: 3, viDisabled: false },
+      { t: "strategies.disabled", count: 3, viDisabled: false },
+    ]);
+    lease.release();
+  });
+
+  it("N-01 대여 중 user 꼬리표 65 → 팬아웃 1(29-49 수용 거둠) · 대여 중 꼬리표 없는 65 → 0(29-49 그대로) · 대여 아님 꼬리표 없는 65 → 1(종전)", async () => {
+    const lease = await hub.lendSession(kb121);
+    hub.noteUserDisable(kb121);
+    kb121.pushFrame(r65(2));
+    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 2, viDisabled: false }]);
+    kb121.pushFrame(r65(9));
+    expect(disabled()).toHaveLength(1);
+    lease.release();
+    kb121.pushFrame(r65(3));
+    expect(disabled()).toEqual([
+      { t: "strategies.disabled", count: 2, viDisabled: false },
+      { t: "strategies.disabled", count: 3, viDisabled: false },
+    ]);
+  });
+
+  it("N-01 결선 안 된 세션 — noteUserDisable · 무동작 대여의 noteDisableSent 는 꼬리표를 넣지 않는다", async () => {
+    const stray = new FakeBrokerSession(U, "KB121", "KB", [{ accountNo: A, name: "계좌A" }]);
+    hub.noteUserDisable(stray);
+    const noop = await hub.lendSession(stray);
+    noop.noteDisableSent();
+    const lease = await hub.lendSession(kb121);
+    kb121.pushFrame(r65(1));
+    expect(disabled()).toEqual([]); // 꼬리표 없음 + 대여 중 → 29-49 억제
+    lease.release();
+  });
+
+  it("N-01 분리 · 교체 · closeAll 정리 — 대상 detached · 그 소유 키 FIFO 비움 · closeAll 은 타이머 0 · done 해결 · 팬아웃 0", async () => {
+    // (1) 분리 — KB121 이 retainSessions 로 떼어진다 → KB121 detached · KB120 답으로 끝 · 되돌아온 KB121 의 65 는 꼬리표 없음(종전 팬아웃).
+    const detach = hub.beginAllStop(U, [kb120, kb121]);
+    const detachDone = track(detach.done);
+    detach.sent(kb120);
+    detach.sent(kb121);
+    hub.retainSessions(U, new Set(["KB120"]));
+    kb120.pushFrame(r65(1));
+    await flush();
+    expect(detachDone.value).toEqual({
+      count: 1,
+      viDisabled: false,
+      answered: ["KB120"],
+      failed: [{ serverKey: "KB121", reason: "detached" }],
+    });
+    hub.attach(kb121);
+    kb121.pushFrame(r65(6));
+    expect(disabled()).toEqual([
+      { t: "strategies.disabled", count: 1, viDisabled: false },
+      { t: "strategies.disabled", count: 6, viDisabled: false },
+    ]);
+
+    // (2) 교체 — 같은 소유 키 새 객체 결선 → KB121 detached · 새 세션의 65 는 꼬리표 없음.
+    const replace = hub.beginAllStop(U, [kb120, kb121]);
+    const replaceDone = track(replace.done);
+    replace.sent(kb120);
+    replace.sent(kb121);
+    const kb121b = new FakeBrokerSession(U, "KB121", "KB", [{ accountNo: A, name: "계좌A" }]);
+    hub.attach(kb121b);
+    kb120.pushFrame(r65(1));
+    await flush();
+    expect(replaceDone.value?.failed).toEqual([{ serverKey: "KB121", reason: "detached" }]);
+    kb121b.pushFrame(r65(8));
+    expect(disabled()).toHaveLength(4);
+
+    // (3) closeAll — 진행 중 집계의 done 이 해결되고 팬아웃 0 · 남은 타이머 0.
+    const closing = hub.beginAllStop(U, [kb120, kb121b]);
+    const closingDone = track(closing.done);
+    closing.sent(kb120);
+    closing.sent(kb121b);
+    hub.closeAll();
+    await flush();
+    expect(closingDone.done).toBe(true);
+    expect(closingDone.value?.answered).toEqual([]);
+    expect(disabled()).toHaveLength(4);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("N-01 30초 넘은 꼬리표 버림 — warn 1줄(서버 키 · 버린 수) · 그 65 는 다음 꼬리표(없으면 꼬리표 없음 규칙)로", async () => {
+    const lease = await hub.lendSession(kb121);
+    // (1) 오래된 user 꼬리표 → 버림 → 꼬리표 없음 + 대여 중 → 억제(버리지 않았다면 user 라 팬아웃했다).
+    hub.noteUserDisable(kb121);
+    vi.advanceTimersByTime(HUB_DISABLE_SENDER_MAX_AGE_MS + 1);
+    kb121.pushFrame(r65(1));
+    expect(disabled()).toEqual([]);
+    const dropped = warns.filter((w) => String(w[1]).includes("꼬리표 버림"));
+    expect(dropped).toHaveLength(1);
+    expect(dropped[0]?.[0]).toEqual({ userId: U, serverKey: "KB121", dropped: 1 });
+
+    // (2) 오래된 sweeper 꼬리표 뒤 새 user 꼬리표 → 그 65 는 user 몫(팬아웃 1).
+    lease.noteDisableSent();
+    vi.advanceTimersByTime(HUB_DISABLE_SENDER_MAX_AGE_MS + 1);
+    hub.noteUserDisable(kb121);
+    kb121.pushFrame(r65(2));
+    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 2, viDisabled: false }]);
+    lease.release();
   });
 });

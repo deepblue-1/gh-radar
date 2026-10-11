@@ -307,6 +307,12 @@ export const HUB_LEASE_DRAIN_MS = 5_000;
 export const HUB_ALL_STOP_COLLECT_MS = 5_000;
 
 /**
+ * 14 송신자 꼬리표 최대 나이 (Phase 29-54 · N-01). 65 를 귀속할 때 FIFO 머리부터 이보다 오래된 꼬리표는 「65 유실」 로 보고 버린다(warn 1줄) —
+ * 남겨 두면 그 뒤 65 가 모두 한 칸씩 밀려 엉뚱한 송신자로 귀속된다. 서버는 14 를 받으면 곧바로 키별 에코 뒤 65 를 쓰므로 30초는 넉넉하다.
+ */
+export const HUB_DISABLE_SENDER_MAX_AGE_MS = 30_000;
+
+/**
  * `subscribe` 판정 결과 (D-11 · D-15). `"ok"` 가 아니면 참조계수 · 업스트림 모두 무변경이다.
  *   · `"limit-user"`   — 그 사용자에게 새 키인데 사용자 키 수가 `USER_SUB_LIMIT` 에 닿았다.
  *   · `"limit-global"` — 업스트림에 없는 새 키인데 업스트림 키(live + linger)가 `QUOTE_SUB_LIMIT` 에 닿았고 풀 linger 키도 없다.
@@ -357,10 +363,17 @@ export function samePriceSection(a: RelayQuote, b: RelayQuote): boolean {
  * sweep 대여 (Phase 29-49 · GC-03 · GC-04) — `SubscriptionHub.lendSession` 이 돌려준다. `release()` 는 멱등이다(두 번째부터 무동작).
  * 대여 동안 hub 는 그 세션 몫 21 을 미루고 빈 61 · 65 를 귀속 · 팬아웃하지 않는다(머리 주석).
  */
-export type HubSessionLease = { release(): void };
+export type HubSessionLease = {
+  release(): void;
+  /**
+   * sweeper 가 이 세션으로 14 를 **실제로 보낸 직후** 부른다 (29-54 · N-01) — hub 는 그 소유 키 14 송신자 FIFO 에 `sweeper` 꼬리표를
+   * 넣고, 짝이 되는 65 를 집계 · 팬아웃 없이 버린다(사용자 「전부 정지」 의 65 와 섞이지 않게). 결선 안 된 세션의 대여는 무동작이다.
+   */
+  noteDisableSent(): void;
+};
 
 /** 결선되지 않은 세션의 대여 — 아무 일도 하지 않는다(연결 없는 사용자의 임시 세션 · 29-49). */
-const NOOP_LEASE: HubSessionLease = { release: () => undefined };
+const NOOP_LEASE: HubSessionLease = { release: () => undefined, noteDisableSent: () => undefined };
 
 /** 「전부 정지」 대상 하나가 답하지 못한 사유 (29-54 · N-01). `detached` = 집계 중 그 세션이 교체 · 분리 · 종료됐다. */
 export type HubAllStopFailReason = "not-ready" | "send-failed" | "timeout" | "detached";
@@ -1202,6 +1215,7 @@ export class SubscriptionHub extends EventEmitter {
         this.#endLease(userId, owner, session, mark);
         freeSlot();
       },
+      noteDisableSent: () => undefined,
     };
   }
 

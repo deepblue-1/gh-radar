@@ -415,6 +415,7 @@ describe("WsFanout — 증권사별 세션 · hub 세션 소유 키 · 병합 �
  * 기본 KB120). 운영 결선 모양 그대로 — `createOrderServerRouting` 의 `serversFor` · `ownerOf` 를 `WsFanout` · `SessionManager` 에 준다.
  */
 describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 소유 서버 세션에서만 (29-35)", () => {
+  const ALL_STOP_COLLECT_MS = 300;
   const A = "1234567801";
   const B = "1234567802";
   let kb120: FakeGateway;
@@ -475,7 +476,8 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
       ownerOf: routing.ownerOf,
       preferredPrimaryServerKey,
     });
-    hub = new SubscriptionHub({ preferredPrimaryServerKey });
+    // 29-54 — 「전부 정지」 집계 시한을 짧게(가짜 타이머 — 부분 실패 케이스만 시한까지 민다).
+    hub = new SubscriptionHub({ preferredPrimaryServerKey, allStopCollectMs: ALL_STOP_COLLECT_MS });
     server = http.createServer();
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
     port = (server.address() as AddressInfo).port;
@@ -806,5 +808,56 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
     expect(echoB).toBeGreaterThanOrEqual(0);
     expect(at).toBeGreaterThan(Math.max(echoA, echoB));
     expect(frames.filter((m) => m.t === "msg")).toEqual([]);
+  });
+
+  it("N-01 (29-54) 부분 실패 — KB121 65 없음 → 시한 뒤 strategies.disabled 1건(KB120 count) · 요청 탭 msg ERROR 1건 kind strategies.disable · 문구에 KB121", async () => {
+    seedAllStop();
+    kb121.handleDisableStrategies({ respond65: false });
+    const { ws, inbox } = await tab();
+    await bothReady();
+    const from = inbox.length;
+    const since = (): RelayOutbound[] => inbox.slice(from);
+
+    ws.sendRaw({ t: "strategies.disable" });
+    await waitFor(
+      () => allStopsOf(p120) === 1 && allStopsOf(p121) === 1 && since().some((m) => m.t === "lc" && m.item.accountNo === A),
+      "두 서버 14 · KB121 에코",
+    );
+    await flushIo(20);
+    expect(disabledOf(since())).toEqual([]);
+    vi.advanceTimersByTime(ALL_STOP_COLLECT_MS);
+    await waitFor(() => rejectsOf(since(), "strategies.disable").length === 1, "부분 실패 ERROR");
+    await flushIo(10);
+    expect(disabledOf(since())).toEqual([{ t: "strategies.disabled", count: 1, viDisabled: false }]);
+    const rejects = rejectsOf(since(), "strategies.disable");
+    expect(rejects).toHaveLength(1);
+    expect(rejects[0]).toMatchObject({ t: "msg", lv: "ERROR", kind: "strategies.disable" });
+    expect(rejects[0]?.t === "msg" ? rejects[0].m : "").toContain("KB121");
+    expect(rejects[0]?.t === "msg" ? rejects[0].m : "").not.toContain("KB120");
+  });
+
+  it("N-01 (29-54) KB121 미준비(로그인 무응답) → KB121 14 0 · KB120 정상 1건 · 같은 ERROR(KB121)", async () => {
+    seedAllStop();
+    kb121.silenceLogin();
+    const { ws, inbox } = await tab();
+    await waitFor(
+      () =>
+        manager.sessionsOf(USER_A).length === 2 &&
+        manager.sessionsOf(USER_A).find((s) => s.serverKey === "KB120")?.isReady === true,
+      "KB120 ready · KB121 로그인 중",
+    );
+    await flushIo(10);
+    expect(manager.sessionsOf(USER_A).find((s) => s.serverKey === "KB121")?.isReady).toBe(false);
+    const from = inbox.length;
+    const since = (): RelayOutbound[] => inbox.slice(from);
+
+    ws.sendRaw({ t: "strategies.disable" });
+    await waitFor(() => disabledOf(since()).length === 1 && rejectsOf(since(), "strategies.disable").length === 1, "1건 · ERROR");
+    await flushIo(10);
+    expect(allStopsOf(p120)).toBe(1);
+    expect(countOf(p121, MSG.DisableStrategiesReq)).toBe(0);
+    expect(disabledOf(since())).toEqual([{ t: "strategies.disabled", count: 1, viDisabled: false }]);
+    const reject = rejectsOf(since(), "strategies.disable")[0];
+    expect(reject?.t === "msg" ? reject.m : "").toContain("KB121");
   });
 });
