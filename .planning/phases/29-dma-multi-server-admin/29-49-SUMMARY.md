@@ -201,3 +201,10 @@ None - no external service configuration required.
 ---
 *Phase: 29-dma-multi-server-admin*
 *Completed: 2026-10-11*
+
+## Self-Check: PASSED
+
+- 변경 파일 3 · RED 증거 2 존재 (FOUND)
+- 커밋 14cd19af · 0993236d · d0da4aab · 24d71b99 HEAD 조상 (FOUND) · evaluation-scope resolved
+- 수용 기준: hub lendSession 4 · fanout lendSession 1 · #requestViTriggers 4 · HUB_LEASE_DRAIN_MS 5 · #lent 9 · plan 커밋에 relay/src/index.ts 0
+- verify: Task 1(4 파일 · 102) · Task 2(6 파일 · 229) · relay 전량(57 파일 · 1447) green
