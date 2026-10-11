@@ -81,7 +81,8 @@ import { useFieldSave, type FieldSave } from "./use-field-save";
  * 하나라도 ok 가 아니면 편집 · 입력값을 유지하고 동작 줄 아래 결과 줄에 서버마다 「<서버> 실패: <서버 message 원문>」(err ·
  * `role="alert"`) 또는 「<서버> 미반영: <사유>」(warn) — 서버 문구는 바꾸거나 대조하지 않는다(IPMAC-03 · D-12). HTTP 오류도 같은 자리.
  * 편집 저장에서 온 결과 칩은 `source: "edit"` 로 표시해 영역 하단 `BusyLines` 에 다시 띄우지 않는다(칩 · title 은 그대로).
- * 이름 저장 성공 뒤 재조회 전의 서버 토글은 새 이름을 싣는다(`editSave.value` — 옛 이름으로 되돌리지 않는다).
+ * 이름 저장 성공 뒤 재조회 전의 서버 토글은 새 이름을 싣는다(`editSave.value` — 옛 이름으로 되돌리지 않는다). 저장 **비행 중**에는 싣지 않고
+ * (실패하면 확정되지 않은 이름이 토글로 새어 들어간다 — 30 WR-03), 그동안 그 카드의 서버 토글 · 주문 서버 · 「제거」 를 잠근다(입력칸 readOnly 와 같이).
  *
  * **KB 주문자 IP/MAC 편집(Phase 30 30-05 · D-03 · D-04 · D-05 · D-06 · D-07 · D-10 · UI-SPEC §2-3 · §3).** KB 편집 블록은 계좌명 칸 아래
  * 「주문자 IP」 · 「MAC 주소」 2열 칸 + 도움말 한 줄(검증 오류가 보이면 그 자리를 오류 줄이 대신), 교보는 칸 대신 「해당 없음」 한 줄.
@@ -617,10 +618,14 @@ function AccountRow({
   }, [isEditing]);
 
   // 이름은 「편집 저장이 쥔 새 이름 ?? 개요 이름」 — 저장 성공 뒤 재조회(`releaseOn`) 전 토글이 옛 이름으로 되돌리지 않게(Pitfall 4).
+  // 30 WR-03 — `editSave.value` 는 저장을 **시작할 때** 채워진다. 비행 중에는 싣지 않는다(실패하면 확정 안 된 이름이 토글로 커밋된다).
+  // 비행 중 토글은 UI 가 잠그지만, 그 전에 대기열에 들어간 토글이 이 사이에 나갈 수 있어 여기서도 막는다.
+  const confirmedName = () =>
+    editSave.state !== "saving" && editSave.value !== undefined ? editSave.value.account.name : account.name;
   const toggle = useFieldSave<string[]>(
     (servers) =>
       putDmaAccount(dmaUserId, {
-        account: { ...accountInputOf(account), name: editSave.value?.account.name ?? account.name },
+        account: { ...accountInputOf(account), name: confirmedName() },
         servers,
       }),
     {
@@ -643,6 +648,7 @@ function AccountRow({
   const shown = [...candidates, ...intent.filter((k) => !candidates.includes(k))];
 
   const setServer = (serverKey: string, on: boolean) => {
+    if (editSave.state === "saving") return; // 30 WR-03 — 편집 저장 비행 중엔 같은 계좌 쓰기를 잠근다(컨트롤도 비활성).
     const next = shown.filter((k) => (k === serverKey ? on : intent.includes(k)));
     if (next.length === 0) return; // 계좌는 서버 1대 이상
     toggle.run(next);
@@ -761,7 +767,8 @@ function AccountRow({
           size="sm"
           variant="secondary"
           aria-label={`${account.broker} ${account.accountNo} ${ACCOUNT_EDITOR_TEXT.remove}`}
-          disabled={remove.state === "saving"}
+          // 30 WR-03 — 편집 저장 비행 중엔 잠근다(같은 계좌 쓰기 경합 · 확정 안 된 이름).
+          disabled={remove.state === "saving" || editSaving}
           onClick={() => (last ? onRemoveLast() : remove.run(true))}
           className={cn(ADMIN_BUTTON_SECONDARY, ACCOUNT_BUTTON)}
         >
@@ -925,7 +932,7 @@ function AccountRow({
               <Checkbox
                 aria-label={serverKey}
                 checked={checked}
-                disabled={locked}
+                disabled={locked || editSaving}
                 onCheckedChange={(v) => setServer(serverKey, v === true)}
                 className="disabled:opacity-100"
               />
@@ -943,7 +950,7 @@ function AccountRow({
           );
         })}
       </div>
-      <OrderServerControl account={account} registry={registry} save={order} />
+      <OrderServerControl account={account} registry={registry} save={order} disabled={editSaving} />
       {error && (
         <p role="alert" data-slot="admin-account-error" className={ERROR_LINE}>
           {error}
@@ -962,10 +969,13 @@ function OrderServerControl({
   account,
   registry,
   save,
+  disabled = false,
 }: {
   account: AdminAccountView;
   registry: AdminUsersOverview["servers"];
   save: FieldSave<string | null>;
+  /** 카드 편집 저장 비행 중(30 WR-03) — 세그먼트 전체를 잠근다. */
+  disabled?: boolean;
 }) {
   const T = ACCOUNT_EDITOR_TEXT;
   const active = new Set(account.servers.filter((s) => s.state === "active").map((s) => s.serverKey));
@@ -1019,9 +1029,10 @@ function OrderServerControl({
           variant="outline"
           value={current ?? ORDER_DEFAULT_VALUE}
           aria-label={`${account.broker} ${account.accountNo} ${T.orderServer}`}
+          disabled={disabled}
           onValueChange={(v) => {
             // 켜진 칸을 다시 누르면 Radix 가 "" 를 준다 — 해제는 없다(늘 하나).
-            if (v === "") return;
+            if (v === "" || disabled) return;
             const next = v === ORDER_DEFAULT_VALUE ? null : v;
             if (next !== current) save.run(next);
           }}

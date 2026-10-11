@@ -1000,6 +1000,44 @@ describe('P30 저장 결과 — 서버 문구 원문 · 중복 없음 (D-06 · I
     expect(second.servers).toEqual(['KB120', 'KB121']);
     await act(async () => {});
   });
+
+  it('(30 WR-03) 편집 저장 비행 중 → 그 카드 서버 토글 · 주문 서버 · 「제거」 비활성 · 눌러도 요청 없음', async () => {
+    let resolve: (v: unknown) => void = () => {};
+    putDmaAccountMock.mockImplementationOnce(() => new Promise((r) => (resolve = r)));
+    mount();
+    editAndSave('위탁종합');
+    const row = acctRow('12345678901');
+    expect(toggle('12345678901', 'KB120')).toBeDisabled();
+    expect(toggle('12345678901', 'KB121')).toBeDisabled();
+    expect(within(row).getByRole('button', { name: /제거/ })).toBeDisabled();
+    const seg = within(row).getByRole('group', { name: 'KB 12345678901 주문 서버' });
+    for (const item of within(seg).getAllByRole('radio')) expect(item).toBeDisabled();
+    fireEvent.click(toggle('12345678901', 'KB121'));
+    fireEvent.click(within(seg).getByRole('radio', { name: 'KB121' }));
+    expect(putDmaAccountMock).toHaveBeenCalledTimes(1);
+    expect(setAccountOrderServerMock).not.toHaveBeenCalled();
+    // 다른 카드는 잠그지 않는다
+    expect(toggle('9876543201', 'KYOBO127')).not.toBeDisabled();
+    await act(async () => resolve({ results: [{ server: 'KB120', outcome: 'ok' }, { server: 'KB121', outcome: 'ok' }] }));
+    await waitFor(() => expect(row).not.toHaveAttribute('data-editing'));
+    expect(toggle('12345678901', 'KB121')).not.toBeDisabled();
+    expect(within(row).getByRole('button', { name: /제거/ })).not.toBeDisabled();
+  });
+
+  it('(30 WR-03) 편집 저장이 HTTP 실패(409) → 이후 서버 토글 PUT 의 account.name 은 개요 이름(확정 안 된 새 이름을 싣지 않는다)', async () => {
+    putDmaAccountMock.mockRejectedValueOnce(new ApiClientError({ code: 'NO_DMA_USER', message: 'DMA 유저 없음', status: 409 }));
+    putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }] });
+    mount([withEp(KB_ACCT, { KB120: EP_A }), KYOBO_ACCT]);
+    editAndSave('위탁종합');
+    await waitFor(() => expect(resultLines()).toHaveLength(1));
+    expect(acctRow('12345678901')).toHaveAttribute('data-editing', 'true');
+    fireEvent.click(toggle('12345678901', 'KB121'));
+    expect(putDmaAccountMock).toHaveBeenCalledTimes(2);
+    const second = putDmaAccountMock.mock.calls[1][1] as { account: { name: string }; servers: string[] };
+    expect(second.account.name).toBe('위탁');
+    expect(second.servers).toEqual(['KB120', 'KB121']);
+    await act(async () => {});
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
