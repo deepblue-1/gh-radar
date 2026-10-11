@@ -233,6 +233,32 @@ describe("P30 GET /users orderEndpoints 병합 (D-09)", () => {
     expect(res.status).toBe(500);
     expect(res.body.error.code).toBe("DB_ERROR");
   });
+
+  it("E5 (30 WR-02) 서버 · 행 단위 모양 위반 → 200 · 그 서버 · 그 행만 버림(「확인 전」) · warn 에 버린 수만", async () => {
+    const warn = vi.spyOn(logger, "warn");
+    const good = endpoints.servers.KB120![0]!;
+    const data = {
+      servers: {
+        KB120: [good, null, {}, { dmaUserId: "kim01", orderIp: IP, orderMac: MAC }, { ...good, orderIp: 1 }],
+        KB121: null,
+        KYOBO119: {},
+      },
+    };
+    const relay = makeFakeRelay((c) => (c.path === ORDER_PATH ? { status: 200, data } : undefined));
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).get("/api/admin/users"));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(JSON.parse(JSON.stringify(deriveAdminUsersOverview(raw, endpoints))));
+    const kim = res.body.users.find((u: { dmaUserId: string | null }) => u.dmaUserId === "kim01");
+    expect(kim.accounts[0].orderEndpoints).toEqual({ KB120: { orderIp: IP, orderMac: MAC } });
+    const relayWarns = warn.mock.calls.filter((args) => (args[0] as { relay?: { op?: string } })?.relay?.op === "order-endpoints");
+    expect(relayWarns).toHaveLength(1);
+    expect(relayWarns[0]![0]).toEqual({
+      relay: { op: "order-endpoints", status: 200, droppedServers: 2, droppedRows: 4 },
+    });
+    expect(JSON.stringify(relayWarns)).not.toContain(IP);
+    expect(JSON.stringify(relayWarns)).not.toContain(MAC);
+  });
 });
 
 // ============================================================

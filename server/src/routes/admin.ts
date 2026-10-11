@@ -4,6 +4,7 @@ import {
   brokerOfServerKey,
   deriveAdminUsersOverview,
   maskDmaUserId,
+  type AdminOrderEndpointRow,
   type AdminOrderEndpointsRaw,
   type AdminUsersRaw,
 } from "@gh-radar/shared";
@@ -183,8 +184,47 @@ async function notifyAccess(req: Request, op: string): Promise<boolean> {
   return false;
 }
 
+/** relay 행 하나의 모양 — 네 필드 모두 문자열. 아니면 shared 파생(`normalizeAccountNo` 등)이 throw 해 개요가 500 이 된다. */
+function isOrderEndpointRow(r: unknown): r is AdminOrderEndpointRow {
+  if (!r || typeof r !== "object") return false;
+  const o = r as Record<string, unknown>;
+  return (
+    typeof o.dmaUserId === "string" &&
+    typeof o.accountNo === "string" &&
+    typeof o.orderIp === "string" &&
+    typeof o.orderMac === "string"
+  );
+}
+
+/**
+ * relay `servers` 를 서버 · 행 단위로 거른다(30 WR-02) — 행 목록이 배열이 아닌 서버는 통째로 빼고(그 서버 = 「확인 전」),
+ * 모양이 틀린 행은 버린다(그 계좌 = 「확인 전」). 버린 수만 로그에 남긴다 — 값은 사용자 PC 식별 정보다.
+ */
+function sanitizeOrderEndpoints(servers: object): AdminOrderEndpointsRaw {
+  const out: AdminOrderEndpointsRaw["servers"] = {};
+  let droppedServers = 0;
+  let droppedRows = 0;
+  for (const [key, rows] of Object.entries(servers)) {
+    if (!Array.isArray(rows)) {
+      droppedServers += 1;
+      continue;
+    }
+    const kept = rows.filter(isOrderEndpointRow);
+    droppedRows += rows.length - kept.length;
+    out[key] = kept;
+  }
+  if (droppedServers > 0 || droppedRows > 0) {
+    logger.warn(
+      { relay: { op: "order-endpoints", status: 200, droppedServers, droppedRows } },
+      "[admin] relay 주문자 IP/MAC 응답 일부가 모양 위반 — 해당 서버 · 계좌는 「확인 전」 으로",
+    );
+  }
+  return { servers: out };
+}
+
 /**
  * relay 87 캐시의 계좌별 주문자 IP/MAC(30-03 · D-09) — 클라이언트 없음 · 비200 · 모양 위반 · throw 면 null(화면은 「확인 전」).
+ * 서버 · 행 단위 모양 위반은 그 부분만 버린다(`sanitizeOrderEndpoints`) — 개요는 어떤 relay 응답에도 200 이다.
  * 로그에는 relay status 만 — 값은 사용자 PC 식별 정보다.
  */
 async function fetchOrderEndpoints(req: Request): Promise<AdminOrderEndpointsRaw | null> {
@@ -194,8 +234,8 @@ async function fetchOrderEndpoints(req: Request): Promise<AdminOrderEndpointsRaw
   try {
     const r = await relay.orderEndpoints(req.adminEmail!);
     status = r.status;
-    const servers = r.status === 200 ? r.data?.servers : undefined;
-    if (servers && typeof servers === "object" && !Array.isArray(servers)) return { servers };
+    const servers: unknown = r.status === 200 ? r.data?.servers : undefined;
+    if (servers && typeof servers === "object" && !Array.isArray(servers)) return sanitizeOrderEndpoints(servers);
   } catch {
     // 닿지 못함과 같게 본다(status 0) — 개요는 200 으로 「확인 전」.
   }
