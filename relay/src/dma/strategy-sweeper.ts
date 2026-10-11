@@ -97,7 +97,8 @@ export type StrategySweepResult =
 /** `SessionManager` 의 이 모듈이 쓰는 면 — 테스트가 갈아 끼울 수 있게 구조 타입으로 둔다. */
 export type SweeperSessions = {
   acquireOn(userId: string, target: SessionTarget, creds: DmaCredentials): DmaSession | null;
-  release(userId: string, serverKey: string): void;
+  /** 얻은 세션 객체로 반납한다(GC-01) — 맵 엔트리가 그 객체가 아니면 무시. 키 반납(`release`)은 브라우저 close 경로 전용이다. */
+  releaseSession(userId: string, session: DmaSession): boolean;
   sessionsOf(userId: string): DmaSession[];
 };
 
@@ -356,7 +357,7 @@ export class StrategySweeper {
     } finally {
       clearTimeout(total);
       tap.dispose();
-      this.#sessions.release(target.userId, target.serverKey);
+      this.#sessions.releaseSession(target.userId, session);
     }
   }
 

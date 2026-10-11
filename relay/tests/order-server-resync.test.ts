@@ -37,6 +37,7 @@ import { readDisableStrategiesKey, startFakeGateway, type FakeGateway } from "./
 import {
   SAMPLE_ISIN,
   buildAccountStateFrame,
+  buildLimitChaserListRespFrame,
   buildLoginRespFrame,
   type FakeAccount,
   type FakeLimitChaserInput,
@@ -1091,5 +1092,114 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     await flushIo(20);
     expect(targets).toEqual([]);
     expect(h.register.all()).toEqual([expect.objectContaining({ attempts: 1, reason: "no-session" })]);
+  });
+
+  // ============================================================
+  // 29-45 — GC-01 · GC-04 · GC-14 (sweep 갈래 간 직렬화 · 동일성 반납 · 송신 직전 stillStale)
+  // ============================================================
+
+  /** 3계좌(A · B · C)를 두 서버 매핑 모두에 둔다 — 29-45 회귀 공통. */
+  function threeAccounts(): void {
+    loginAccounts.set(D1, [
+      { accountNo: A, name: "계좌A" },
+      { accountNo: B, name: "계좌B" },
+      { accountNo: C, name: "계좌C" },
+    ]);
+    mappings.get("KB120")?.set(D1, new Set([A, B, C]));
+    mappings.get("KB121")?.set(D1, new Set([A, B, C]));
+  }
+
+  it("⑱ GC-01 회귀 — 로그인 백스톱이 KB121 세션에서 [B, C] sweep 을 쥔 채 B 지정을 KB121 로 바꾸면 재수립은 그 사용자의 진행 중 sweep 이 끝날 때까지 dropUser 0 → 풀면 dropUser 1 · 1012 → 재접속 KB121 새 세션 refCountOf 1(Ready 직후 · 6분 뒤) · 같은 객체 생존 · B 주문은 KB121 DirectOrderReq 1", async () => {
+    await captureLogs();
+    threeAccounts();
+    chosenRows = [{ dma_user_id: D1, broker: "KB", account_no: A, server_key: "KB121" }];
+    kb120.respondLimitChaserList([on(SAMPLE_ISIN, A), on(ISIN2, B)]);
+    kb121.respondLimitChaserList([on(ISIN3, C)]);
+    const targets: string[] = [];
+    const done: string[] = [];
+    let holding = false;
+    let held = false;
+    const h = await harness({
+      tracker: true,
+      wrapSweeper: (real) => ({
+        sweep: async (target, creds) => {
+          const label = `${target.serverKey}:${target.accountNos.join(",")}`;
+          targets.push(label);
+          if (target.serverKey === "KB121" && !holding) {
+            // 백스톱의 KB121 sweep — hub 프리페치 24 가 오간 뒤 24 답을 막아, sweeper 가 세션을 얻은(acquireOn) 채 첫 24 에서 멈추게 한다.
+            holding = true;
+            await waitFor(() => count("KB121", MSG.GetLimitChaserListReq) >= 1, "KB121 hub 프리페치 24");
+            await flushIo(10);
+            kb121.silenceQuery(MSG.GetLimitChaserListReq);
+            const from = count("KB121", MSG.GetLimitChaserListReq);
+            const run = real.sweep(target, creds);
+            await waitFor(() => count("KB121", MSG.GetLimitChaserListReq) > from, "sweeper 24 (쥠)");
+            held = true;
+            const res = await run;
+            done.push(label);
+            return res;
+          }
+          const res = await real.sweep(target, creds);
+          done.push(label);
+          return res;
+        },
+      }),
+    });
+
+    const tab = await h.open("token-1");
+    await readyTab(h, tab, U1, 3, "u1 ready(A · B · C)");
+    await waitFor(() => held, "백스톱 KB121 [B, C] sweep 쥠");
+    expect(targets).toContain(`KB121:${B},${C}`);
+    const s1 = h.m.sessionsOf(U1).find((s) => s.serverKey === "KB121");
+    expect(s1).toBeDefined();
+    expect(h.m.refCountOf(U1, "KB121")).toBe(2); // 탭 1 + 쥔 sweep 1
+    const drop = traceDrop(h.m);
+
+    // B 지정 변경 — 29-36 경로가 KB120 [B] 를 끈다. 재수립은 쥔 백스톱 sweep 이 끝날 때까지 기다린다.
+    chosenRows = [
+      { dma_user_id: D1, broker: "KB", account_no: A, server_key: "KB121" },
+      { dma_user_id: D1, broker: "KB", account_no: B, server_key: "KB121" },
+    ];
+    await h.loader.reload();
+    await waitFor(() => done.includes(`KB120:${B}`), "KB120 [B] 끄기 완료");
+    await flushIo(30);
+    expect(disabledKeys("KB120", 0)).toContain(keyOf(ISIN2, B));
+    expect(drop).not.toHaveBeenCalled();
+    expect(tab.ws.closeInfo).toBeNull();
+    expect(h.m.sessionsOf(U1)).toContain(s1);
+
+    // 게이트 해제 — 막아 둔 24 의 답을 보낸다 → 백스톱 sweep 끝 → 그 뒤에야 dropUser · 1012.
+    kb121.silenceQuery(MSG.GetLimitChaserListReq, false);
+    const sock = kb121.sockets[0];
+    expect(sock).toBeDefined();
+    if (sock !== undefined) kb121.sendFrame(sock, buildLimitChaserListRespFrame(kb121.limitChaserSeed()));
+    await waitFor(() => done.includes(`KB121:${B},${C}`), "백스톱 KB121 sweep 끝");
+    await waitFor(() => tab.ws.closeInfo !== null, "1012");
+    expect(tab.ws.closeInfo?.code).toBe(1012);
+    expect(drop).toHaveBeenCalledTimes(1);
+    expect(events.indexOf(`drop:${U1}`)).toBeGreaterThan(-1);
+
+    // 재접속 — KB121 새 세션. sweep 의 획득 · 반납이 끝난 뒤의 참조계수는 연결 탭 수 그대로다.
+    const again = await h.open("token-1");
+    await readyTab(h, again, U1, 3, "재접속 ready");
+    await flushIo(20);
+    const s2 = h.m.sessionsOf(U1).find((s) => s.serverKey === "KB121");
+    expect(s2).toBeDefined();
+    expect(s2).not.toBe(s1);
+    expect(h.m.refCountOf(U1, "KB121")).toBe(1);
+
+    // 5분 유예를 넘겨도(6분) 연결 탭의 세션은 같은 객체로 살아 있다.
+    await advanceAlive(6 * 60_000);
+    expect(h.m.refCountOf(U1, "KB121")).toBe(1);
+    expect(h.m.sessionsOf(U1)).toContain(s2);
+    expect(s2?.isReady).toBe(true);
+    expect(again.ws.closeInfo).toBeNull();
+
+    const r120 = mark("KB120");
+    const r121 = mark("KB121");
+    again.ws.sendRaw(orderNew(B, "rid-b"));
+    await waitFor(() => orderAccounts("KB121", r121).length === 1, "KB121 스텁 DirectOrderReq(B)");
+    expect(orderAccounts("KB121", r121)).toEqual([B]);
+    expect(orderAccounts("KB120", r120)).toEqual([]);
   });
 });

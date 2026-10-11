@@ -266,7 +266,7 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
 
   it("⑥ 세션이 없던 사용자 → acquireOn 이 새 세션(LoginReq 1) · Ready 뒤 같은 순서 · sessionCreated true · release 1", async () => {
     gw.respondLimitChaserList([on(ISIN1, A)]);
-    const releaseSpy = vi.spyOn(m, "release");
+    const releaseSpy = vi.spyOn(m, "releaseSession");
 
     const result = await sweeper().sweep({ userId: U2, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS);
 
@@ -282,7 +282,9 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
       MSG.GetVITriggerReq,
     ]);
     expect(releaseSpy).toHaveBeenCalledTimes(1);
-    expect(releaseSpy).toHaveBeenCalledWith(U2, "KB120");
+    // 얻은 세션 객체로 반납한다(GC-01 — 키 반납 아님). 반납 뒤에도 유예 중이라 맵에 같은 객체가 있다.
+    expect(releaseSpy).toHaveBeenCalledWith(U2, m.sessionsOf(U2)[0]);
+    expect(releaseSpy).toHaveReturnedWith(true);
   });
 
   it("⑦ 켜진 전략 0 · VI 미등록(두 거래소 빈 61) → 14 · 11 0건 · ok 0 0 · 21 은 두 거래소", async () => {
@@ -347,12 +349,12 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
   // ── Task 2 — 미확인 다섯 갈래 · 전체 시한 ────────────────────────────────────────────
 
   it("⑩ no-session — targetOf 에 없는 서버 키 · acquireOn null → remaining null · 송신 0 · release 0", async () => {
-    const releaseSpy = vi.spyOn(m, "release");
+    const releaseSpy = vi.spyOn(m, "releaseSession");
     const r1 = await sweeper().sweep({ userId: U1, serverKey: "KB999", broker: "KB", accountNos: [A] }, CREDS);
     expect(r1).toEqual({ ok: false, reason: "no-session", remaining: null, disabledLimitChasers: 0, viDisabled: 0 });
 
     const nullSessions = new StrategySweeper({
-      sessions: { acquireOn: () => null, release: () => undefined, sessionsOf: () => [] },
+      sessions: { acquireOn: () => null, releaseSession: () => false, sessionsOf: () => [] },
       targetOf: () => target,
     });
     const r2 = await nullSessions.sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS);
@@ -363,7 +365,7 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
 
   it("⑪ not-ready — 스텁이 LoginReq 에 답하지 않으면 단계 시한 뒤 not-ready · release 1 · 조회 0", async () => {
     gw.silenceLogin();
-    const releaseSpy = vi.spyOn(m, "release");
+    const releaseSpy = vi.spyOn(m, "releaseSession");
 
     const result = await sweeper({ stepTimeoutMs: 200 }).sweep(
       { userId: U2, serverKey: "KB120", broker: "KB", accountNos: [A] },
@@ -446,7 +448,7 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
     const s = await readySessionOf(U1);
     const baseline = s.listenerCount("frame");
     gw.silenceQuery(MSG.GetLimitChaserListReq);
-    const releaseSpy = vi.spyOn(m, "release");
+    const releaseSpy = vi.spyOn(m, "releaseSession");
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 
     const pending = sweeper({ stepTimeoutMs: 60_000 }).sweep(
@@ -467,6 +469,31 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
     expect(result).toEqual({ ok: false, reason: "timeout", remaining: null, disabledLimitChasers: 0, viDisabled: 0 });
     expect(s.listenerCount("frame")).toBe(baseline);
     expect(releaseSpy).toHaveBeenCalledTimes(1);
+    expect(releaseSpy).toHaveBeenCalledWith(U1, s);
+  });
+
+  it("GC-01 (29-45) — 반납은 얻은 세션 객체로: send-failed · 예외 갈래도 releaseSession 정확히 1회 · 키 반납(release) 0", async () => {
+    const s = await readySessionOf(U1);
+    gw.respondLimitChaserList([on(ISIN1, A)]);
+    const byObject = vi.spyOn(m, "releaseSession");
+    const byKey = vi.spyOn(m, "release");
+
+    const send = vi.spyOn(s, "send").mockReturnValue(false);
+    const failed = await sweeper().sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS);
+    expect(failed).toMatchObject({ ok: false, reason: "send-failed" });
+    expect(byObject).toHaveBeenCalledTimes(1);
+    expect(byObject).toHaveBeenLastCalledWith(U1, s);
+
+    send.mockImplementation(() => {
+      throw new Error("소켓 쓰기 예외");
+    });
+    await expect(
+      sweeper().sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS),
+    ).rejects.toThrow("소켓 쓰기 예외");
+    expect(byObject).toHaveBeenCalledTimes(2);
+    expect(byObject).toHaveBeenLastCalledWith(U1, s);
+    // releaseSession 이 같은 객체라 release 에 위임한 2회뿐 — sweeper 가 키로 직접 반납하지 않는다.
+    expect(byKey).toHaveBeenCalledTimes(2);
   });
 
   it("⑱ 실패 로그는 warn 1줄 — reason · remaining · 서버 키만", async () => {

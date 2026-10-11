@@ -355,6 +355,24 @@ export class SessionManager {
     );
   }
 
+  /**
+   * 얻은 **세션 객체**로 참조계수를 1 내린다 (Phase 29-45 GC-01 — sweeper 반납 전용). 맵의 (userId, session.serverKey) 엔트리가 바로
+   * 그 객체일 때만 `release` 에 위임하고 true. 엔트리가 없거나 다른 객체면(그 사이 `dropUser` → 재접속이 새 엔트리를 만들었다) info
+   * 1줄로 무시하고 false — 늦게 끝난 반납이 새 엔트리의 참조계수를 깎지 않는다.
+   */
+  releaseSession(userId: string, session: DmaSession): boolean {
+    this.release(userId, session.serverKey);
+    return true;
+  }
+
+  /**
+   * 그 (유저, 서버) 엔트리의 참조계수 (Phase 29-45 GC-01). 엔트리가 없으면 undefined. 참조계수를 건드리지 않는다 — 재수립 회귀 단언용
+   * (`sessionsOf` 와 같은 읽기 전용 규율).
+   */
+  refCountOf(userId: string, serverKey: string): number | undefined {
+    return this.#sessions.get(sessionKey(userId, serverKey))?.refCount;
+  }
+
   /** `primaryOf` 별칭(호환 — Phase 15~29-15 의 단일 세션 조회). 참조계수를 건드리지 않는다. */
   get(userId: string): DmaSession | undefined {
     return this.primaryOf(userId);

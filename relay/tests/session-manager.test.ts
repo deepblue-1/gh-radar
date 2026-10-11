@@ -808,4 +808,49 @@ describe("SessionManager — 조회 · 비밀 교체 · DMA 유저 종료 · 주
     await waitFor(() => again.isReady, "새 KB120 ready");
     expect(m.dropUser("없는-사용자", "x")).toBe(0);
   });
+
+  it("releaseSession (29-45 GC-01) — dropUser 뒤 재접속이 만든 새 엔트리를 옛 객체 반납이 깎지 않는다 · refCountOf 불변 · 6분 뒤 생존 · 같은 객체 반납은 종전 유예 · 엔트리 없음도 false · 로그에 DMA id 없음", async () => {
+    const { logger } = await import("../src/logger.js");
+    const infos: unknown[][] = [];
+    vi.spyOn(logger, "info").mockImplementation(((...args: unknown[]) => {
+      infos.push(args);
+    }) as never);
+    const m = mgr();
+    const t121: SessionTarget = { serverKey: "KB121", host: "127.0.0.1", port: kb121.port, broker: "KB" };
+    const s1 = m.acquireOn("user-1", t121, CREDS);
+    await waitFor(() => s1.isReady, "S1 ready");
+    expect(m.refCountOf("user-1", "KB121")).toBe(1);
+
+    // 재수립 — 유예 없이 지우고, 1012 재접속이 같은 키로 새 엔트리(S2 · refCount 1)를 만든다.
+    m.dropUser("user-1", "order-server-changed");
+    expect(m.refCountOf("user-1", "KB121")).toBeUndefined();
+    const s2 = m.acquireOn("user-1", t121, CREDS);
+    expect(s2).not.toBe(s1);
+    await waitFor(() => s2.isReady, "S2 ready");
+    expect(m.refCountOf("user-1", "KB121")).toBe(1);
+
+    // 늦게 끝난 sweep 의 반납(S1) — 새 엔트리를 깎지 않는다 · 유예 타이머 없음.
+    infos.length = 0;
+    expect(m.releaseSession("user-1", s1)).toBe(false);
+    expect(m.refCountOf("user-1", "KB121")).toBe(1);
+    const ignored = infos.filter((c) => typeof c[1] === "string" && c[1].includes("반납 무시"));
+    expect(ignored).toHaveLength(1);
+    expect(ignored[0]?.[0]).toEqual(expect.objectContaining({ userId: "user-1", serverKey: "KB121" }));
+    expect(JSON.stringify(infos)).not.toContain(CREDS.dmaUserId);
+    vi.advanceTimersByTime(6 * 60_000);
+    await flushIo();
+    expect(m.sessionsOf("user-1")).toEqual([s2]);
+    expect(m.refCountOf("user-1", "KB121")).toBe(1);
+
+    // 엔트리 없는 키 — false · 아무것도 바뀌지 않는다.
+    expect(m.releaseSession("user-2", s2)).toBe(false);
+    expect(m.refCountOf("user-1", "KB121")).toBe(1);
+
+    // 같은 객체 반납 — 종전 release(0 → 5분 유예 → 소멸).
+    expect(m.releaseSession("user-1", s2)).toBe(true);
+    expect(m.refCountOf("user-1", "KB121")).toBe(0);
+    vi.advanceTimersByTime(SESSION_GRACE_MS);
+    await waitFor(() => m.sessionsOf("user-1").length === 0, "S2 유예 만료 소멸");
+    expect(m.refCountOf("user-1", "KB121")).toBeUndefined();
+  });
 });
