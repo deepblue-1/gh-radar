@@ -1,4 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
+import { LC_QTY_WIRE_MAX, amountFromQty, qtyFromAmount } from '@gh-radar/shared';
 
 import { buildDiscussionList, mockDiscussionsApi } from '../fixtures/discussions';
 import { mockStockApi } from '../fixtures/mock-api';
@@ -148,6 +149,16 @@ const field = (page: Page, id: string): Locator => page.locator(`#${id}`);
 const lcRow = (page: Page, id: string): Locator => page.locator(`[data-lc-field="${id}"]`);
 const lcValue = (page: Page, id: string): Locator =>
   lcRow(page, id).locator('[data-slot="lc-row-value"]');
+/**
+ * Phase 31 D-07 — 수량 8칸의 **아래 줄**(`lc-row-sub` — 환산 주 「777주」 · 의미어 「무제한」 · 빨간 「비교가격 필요」).
+ * 위 줄 `lcValue` 는 만원(「1,000만」)이다. 에코를 그대로 둔 칸의 아래 줄 = 에코 주(제출과 같은 `qtyForSubmit`)라
+ * 「에코가 도착했다」 신호로도 쓴다.
+ */
+const lcSub = (page: Page, id: string): Locator => lcRow(page, id).locator('[data-slot="lc-row-sub"]');
+/** 두 줄 행 위 줄 글자 — 「1,000만」(천 단위 쉼표 · 억 없음 · D-07). */
+const manText = (manwon: number): string => `${manwon.toLocaleString('en-US')}만`;
+/** 두 줄 행 아래 줄 글자 — 「777주」. */
+const juText = (qty: number): string => `${qty.toLocaleString('en-US')}주`;
 /** 그룹 스위치 6개 — `role="switch"` · 이름 「○○ 켜기」(A-P2 · Phase 24 선 · 줄 · 후매수 포함). */
 const lcSwitch = (scope: Page | Locator, name: string): Locator =>
   scope.getByRole('switch', { name, exact: true });
@@ -265,6 +276,18 @@ function lcEchoFlagsOf(req: NonNullable<ReturnType<typeof readSetLimitChaserRequ
   };
 }
 
+/**
+ * Phase 31 — 선매수 「매도잔량」 을 만원으로 확정한 10 이 실은 금액 · 주를 단언하고 같은 값을 60 에코로 돌려준다(새 gh-trade
+ * 에코 모양 — 금액 원값 + 짝 주). 기대 주는 shared `qtyFromAmount`(내림)로 잰다 — 공식을 spec 에 복제하지 않는다.
+ */
+async function echoBuyWatchAmount(relay: LocalRelay, manwon: number): Promise<number> {
+  const sent = lcSetRequests(relay).at(-1)!;
+  expect(sent.buyWatchAmount, '10 의 매도잔량 금액 = 확정한 만원').toBe(manwon);
+  expect(sent.buyWatchQty, '10 의 매도잔량 주 = 매수 비교가 내림 환산').toBe(qtyFromAmount(manwon, sent.buyWatchPrice));
+  await relay.pushLimitChaserEcho({ buyEnabled: true, buyWatchAmount: manwon, buyWatchQty: sent.buyWatchQty });
+  return sent.buyWatchQty;
+}
+
 /** 그룹 카드 제목 옆 상태 문구(`lc-group-status`). */
 const lcGroupStatus = (card: Locator, slot: 'buy' | 'pre-buy' | 'extra-buy' | 'post-buy' | 'sell' | 'cancel') =>
   card.locator(`[data-slot="lc-group-${slot}"] [data-slot="lc-group-status"]`);
@@ -307,7 +330,7 @@ async function openFocusedCard(page: Page): Promise<void> {
   await page.goto(FOCUS_URL);
   await waitForReady(page);
   await expect(cardOf(page, E2E_ISIN)).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
-  await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('10,000주', { timeout: 15_000 });
+  await expect(lcSub(page, 'lc-buy-watch-qty')).toHaveText('10,000주', { timeout: 15_000 });
 }
 
 /**
@@ -585,14 +608,15 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     ).toBeChecked();
 
     // 스위치 7개 전부 OFF(Phase 20 — 매수취소도 스위치 · Phase 24 — 선 · 줄 · 후매수 스위치, 「한방체결 켜기」
-    // 없음 · Phase 27 — 자동매도 스위치) · WinForms 기본값(선매수 금액 4,000만원 — Phase 24 D-04 · 매도잔량 10,000 — 이 테스트는 시세 응답을 껐으므로
-    // 상장주식수(D-17)를 받지 못해 폴백 그대로) · 더티 바 없음(D-04 — 더티 모델 자체가 없다).
+    // 없음 · Phase 27 — 자동매도 스위치) · WinForms 기본값(선매수 금액 4,000만원 — Phase 24 D-04 · 매도잔량 0만 — Phase 31 은 옛 주
+    // 기본값을 버렸고, 이 테스트는 시세 응답을 껐으므로 상장주식수 · 비교가(D-17)를 받지 못해 폴백 0 그대로) · 더티 바 없음(D-04).
     await expect(card.getByRole('switch')).toHaveCount(7);
     for (const name of ['매수주문 켜기', '선매수 켜기', '줄매수 켜기', '후매수 켜기', '매도주문 켜기', '매수취소 켜기', '자동매도 켜기']) {
       await expect(lcSwitch(card, name)).not.toBeChecked();
     }
     await expect(lcValue(page, 'lc-buy-order-amount')).toHaveText('4,000만원');
-    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('10,000주');
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('0만');
+    await expect(lcSub(page, 'lc-buy-watch-qty')).toHaveText('0주');
     await expect(page.locator(DIRTY_BAR_SEL)).toHaveCount(0);
 
     // 그 행이 「거래중」으로 바뀐다 — 칩을 다시 눌러도 카드가 늘지 않는다.
@@ -968,8 +992,9 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
 
     await input.press('Enter');
     await waitForSetAtGateway(relay, before + 1);
-    await relay.pushLimitChaserEcho({ buyEnabled: true, buyWatchQty: 8_000 });
-    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('8,000주', { timeout: 15_000 });
+    const qty8000 = await echoBuyWatchAmount(relay, 8_000);
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('8,000만', { timeout: 15_000 });
+    await expect(lcSub(page, 'lc-buy-watch-qty')).toHaveText(juText(qty8000));
     await expect(page.locator(DIRTY_BAR_SEL)).toHaveCount(0);
 
     // ③ 페이지 맨 아래 — 흐름 안 자리(spacer) 덕에 카드 끝이 패널에 묻히지 않는다(옛 단언 그대로).
@@ -1217,7 +1242,12 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const card = cardOf(page, E2E_ISIN);
     const buySwitch = lcSwitch(card, '매수주문 켜기');
     await expect(buySwitch).toBeEnabled();
-    await expect(card.locator('[data-slot="lc-arm-blocked"]')).toHaveCount(0);
+    await expect(card.locator('[data-pane="buy"] [data-slot="lc-arm-blocked"]')).toHaveCount(0);
+    // Phase 31 D-12 — 새 폼 수량 8칸 기본값은 0(만원)이라 매도 「매수잔량」 이 0 → 매도 열 「켤 수 없는 이유」 가 그 사유를 말한다
+    // (옛 주 기본값 10 은 버렸다). 매수 쪽 판정과 무관하다.
+    await expect(card.locator('[data-pane="sell"] [data-slot="lc-arm-blocked-text"]')).toContainText(
+      '매도 매수잔량이 0 이에요. 감시할 매수잔량을 입력하면 켤 수 있어요.',
+    );
     await editLc(page, 'lc-buy-order-amount', '10'); // 10만원 → 0주(로컬 반영 · 전송 0)
     await expect(lcValue(page, 'lc-buy-order-amount')).toHaveText('10만원');
     // 선매수를 켜려 하면 그 카드 사전 검증 줄이 수량 0 을 말한다 — 전송 0 · 스위치 그대로 · 줄바꿈 허용 · 잘림 0.
@@ -1661,10 +1691,11 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(card.getByRole('button', { name: '수정', exact: true })).toHaveCount(0);
     await expect(card.getByRole('button', { name: '되돌리기', exact: true })).toHaveCount(0);
 
-    await relay.pushLimitChaserEcho({ buyEnabled: true, buyWatchQty: 8_000 });
+    const qty8000 = await echoBuyWatchAmount(relay, 8_000);
 
-    // 에코 → 행 값 · 상태줄 반영 시각.
-    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('8,000주', { timeout: 15_000 });
+    // 에코 → 행 값(위 줄 만원 · 아래 줄 환산 주) · 상태줄 반영 시각.
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('8,000만', { timeout: 15_000 });
+    await expect(lcSub(page, 'lc-buy-watch-qty')).toHaveText(juText(qty8000));
     await expect(statusBar(page).getByTestId('stat-applied')).toHaveText(/^반영 \d{2}:\d{2}:\d{2}$/);
     await expect(statusBar(page).getByTestId('stat-applied')).toHaveAttribute('title', '서버 반영 시각');
     expect(sets()).toBe(before + 1);
@@ -1692,8 +1723,9 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
 
     await editLc(page, 'lc-buy-watch-qty', '8000');
     await waitForSetAtGateway(relay, before + 1);
-    await relay.pushLimitChaserEcho({ buyEnabled: true, buyWatchQty: 8_000 });
-    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('8,000주', { timeout: 15_000 });
+    const qty8000 = await echoBuyWatchAmount(relay, 8_000);
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('8,000만', { timeout: 15_000 });
+    await expect(lcSub(page, 'lc-buy-watch-qty')).toHaveText(juText(qty8000));
     await form.evaluate((el) => {
       (el as HTMLElement).dataset.e2eMark = 'gc2';
     });
@@ -1711,7 +1743,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(card).toHaveAttribute('data-open', 'true');
     await expect(stackCard).toHaveCount(0);
     await expect(lcRow(page, 'lc-buy-watch-qty')).toBeVisible();
-    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('8,000주');
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('8,000만');
+    await expect(lcSub(page, 'lc-buy-watch-qty')).toHaveText(juText(qty8000));
     await expect(form).toHaveAttribute('data-e2e-mark', 'gc2');
     await expect(toggle).toBeFocused();
     await expect(page.locator(DIRTY_BAR_SEL)).toHaveCount(0);
@@ -1801,10 +1834,12 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(input).toHaveValue(/^8,?000$/);
     await expect(input).toBeFocused();
 
-    // Esc = 편집 버림 → 행은 서버 값(에코).
+    // Esc = 편집 버림 → 행은 서버 값(에코). 다른 단말 에코는 금액 0 · 주 5,000(구 서버 모양) — 위 줄은 매수 비교가
+    // 역산(D-18) · 아래 줄은 에코 주 그대로.
     await input.press('Escape');
     await expect(input).toHaveCount(0);
-    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('5,000주');
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText(manText(amountFromQty(5_000, 71_100)));
+    await expect(lcSub(page, 'lc-buy-watch-qty')).toHaveText('5,000주');
     await expect(page.locator(DIRTY_BAR_SEL)).toHaveCount(0);
     // 버린 편집은 나가지 않았다.
     expect(relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length).toBe(before);
@@ -1818,7 +1853,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await page.goto(FOCUS_URL);
     await waitForReady(page);
     await expect(strategyItems(page)).toHaveCount(1, { timeout: 15_000 });
-    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('8,000주', { timeout: 15_000 });
+    await expect(lcSub(page, 'lc-buy-watch-qty')).toHaveText('8,000주', { timeout: 15_000 });
     const before = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
 
     await expect(page.getByRole('button', { name: /삭제/ })).toHaveCount(0);
@@ -1829,9 +1864,14 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await relay.pushLimitChaserEcho({ crud: 'D', buyEnabled: false, buyWatchQty: 8_000 });
 
     await expect(strategyItems(page)).toHaveCount(0, { timeout: 15_000 });
-    // 삭제 뒤 폼은 새 전략 상태다 — 서버 값(8,000)이 아니라 기본값 + 상장주식수 시딩(D-17 · 스텁 상장주식수
-    // 5,969,782,550 × 0.3% = 17,909,347 — 서버 전략이 없는 새 폼 인스턴스라 폼당 1회 규칙대로 채운다).
-    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('17,909,347주');
+    // 삭제 뒤 폼은 새 전략 상태다 — 서버 값(8,000주)이 아니라 기본값 + 상장주식수 시딩(D-17 · 스텁 상장주식수
+    // 5,969,782,550 × 0.3% = 17,909,347주 — 서버 전략이 없는 새 폼 인스턴스라 폼당 1회 규칙대로 채운다). Phase 31 — 시딩은
+    // 만원 칸이라 위 줄 = 그 주의 매수 비교가 역산(`amountFromQty`), 아래 줄 = 그 만원의 내림 주(`qtyFromAmount`).
+    const watchPrice = Number((await lcValue(page, 'lc-buy-watch-price').innerText()).replace(/[^0-9]/g, ''));
+    expect(watchPrice, '새 폼 매수 비교가(상한가 시딩)').toBeGreaterThan(0);
+    const seeded = amountFromQty(17_909_347, watchPrice);
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText(manText(seeded));
+    await expect(lcSub(page, 'lc-buy-watch-qty')).toHaveText(juText(qtyFromAmount(seeded, watchPrice)));
     await expect((await logRows(page)).filter({ hasText: '전략이 삭제됐어요' })).toHaveCount(1);
   });
 
@@ -1911,8 +1951,9 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const before = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
     await editLc(page, 'lc-buy-watch-qty', '8000');
     await waitForSetAtGateway(relay, before + 1);
-    await relay.pushLimitChaserEcho({ buyEnabled: true, buyWatchQty: 8_000 });
-    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('8,000주', { timeout: 15_000 });
+    const qty8000 = await echoBuyWatchAmount(relay, 8_000);
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('8,000만', { timeout: 15_000 });
+    await expect(lcSub(page, 'lc-buy-watch-qty')).toHaveText(juText(qty8000));
     await expect(page.locator(DIRTY_BAR_SEL)).toHaveCount(0);
     await desktopNav(page).getByRole('link', { name: '홈' }).click();
 
@@ -3148,6 +3189,184 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(sent.buyOrderAmount).toBe(5000);
     expect(sent.autoSellRatioPct).toBe(15);
     expect(sent.autoSellMethod).toBe(1);
+    // Phase 31 D-12 — 84 에 후매수 최소 금액이 없으면(0) 새 폼 후매수 최소는 0 이다. 옛 봉인 주(84 `postBuyFloorQty`
+    // 100,000)는 더 이상 폼에 시딩하지 않는다 — 금액 · 주 둘 다 0 으로 실린다.
+    expect(sent.postBuyFloorAmount).toBe(0);
+    expect(sent.postBuyFloorQty).toBe(0);
+  });
+
+  /*
+    ── Phase 31 (31-07) — 상따 수량 칸 만원 단위 실 relay 경로 ──
+    진짜 브라우저 → 진짜 relay(코덱) → 스텁 게이트웨이 10 디코드(금액 8필드 · 31-01) → 60 에코(금액 입력) → 두 줄 행.
+    예시 수치는 UI-SPEC 「예시 수치 정정」 표(12,870원 · 1,000만 → 777주 · 127,400원 · 12만 → 0주)를 쓴다.
+    기대 주가 표 밖이면 shared `qtyFromAmount` · `amountFromQty` 로 잰다(공식 복제 금지).
+  */
+  test('P31-1 만원 한 칸 왕복 — 매도 비교가 12,870 · 매도 「매수잔량」 1000 Enter → 게이트웨이 10 sell_watch_amount 1000 · sell_watch_qty 777 → 60 에코 → 행 위 줄 「1,000만」 · 아래 줄 「777주」 (D-01 · D-02 · D-10)', async ({
+    page,
+  }) => {
+    // 매도 게이트는 꺼 둔다 — 매도 매수잔량 0 으로 켜진 전략은 서버가 세우지 않는다(무장 불가 사유). 값 칸은 게이트와
+    // 무관하게 확정된다(흐림만).
+    const seed = { buyEnabled: true, sellWatchPrice: 12_870, sellWatchQty: 0, sellWatchAmount: 0 };
+    relay.seedLimitChasers([seed]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    const card = cardOf(page, E2E_ISIN);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-sell-watch-price')).toHaveText('12,870원', { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-sell-watch-qty')).toHaveText('0만');
+    await expect(lcSub(page, 'lc-sell-watch-qty')).toHaveText('0주');
+
+    const before = lcSetCount(relay);
+    await editLc(page, 'lc-sell-watch-qty', '1000');
+    await waitForSetAtGateway(relay, before + 1);
+    const sent = lcSetRequests(relay).at(-1)!;
+    expect(lcSetCount(relay), '확정 한 번 = 10 한 건').toBe(before + 1);
+    expect(sent.sellWatchPrice).toBe(12_870);
+    expect(sent.sellWatchAmount, '금액(만원) 원값').toBe(1000);
+    expect(sent.sellWatchQty, '주 = floor(1000×10000÷12870)').toBe(777);
+
+    // 새 gh-trade 에코 — 금액 원값 + 짝 주.
+    await relay.pushLimitChaserEcho({ ...seed, sellWatchAmount: 1000, sellWatchQty: 777 });
+    await expect(lcValue(page, 'lc-sell-watch-qty')).toHaveText('1,000만', { timeout: 15_000 });
+    await expect(lcSub(page, 'lc-sell-watch-qty')).toHaveText('777주');
+    await expect(lcSub(page, 'lc-sell-watch-qty')).not.toHaveAttribute('data-tone', 'alert');
+    await expect(lcRow(page, 'lc-sell-watch-qty')).toHaveAccessibleName('매도 매수잔량 1,000만 777주');
+    await expect(page.locator('[data-slot="lc-failure-bubble"]')).toHaveCount(0);
+    expect(lcSetCount(relay), '에코는 제출을 만들지 않는다').toBe(before + 1);
+  });
+
+  test('P31-2 C# 원값 되싣기 — 8 금액이 각자 짝인 에코에서 「호가변경」 5 확정 → 게이트웨이 10 의 금액 8필드 = 에코 원값(sell_watch_amount 100) · 주 8필드 = 에코 주 → 구 서버 에코(금액 0 · 777주)는 역산 「1,000만」/「777주」 (AMT-02 · SC2 · D-10 · D-18)', async ({
+    page,
+  }) => {
+    const P = 12_870;
+    // 8 금액 각자 짝 — 주 = shared 내림 환산(C# 이 보낸 짝 그대로). 매도 매수잔량 · 취소는 100만 → 77주.
+    const AMOUNTS = {
+      buyWatchAmount: 1000,
+      buyMinTradeAmount: 500,
+      extraBuyMinAmount: 2000,
+      extraBuyMaxAmount: 2000,
+      postBuyFloorAmount: 84,
+      sellWatchAmount: 100,
+      sellMinTradeAmount: 500,
+      cancelWatchAmount: 100,
+    };
+    const QTYS = {
+      buyWatchQty: qtyFromAmount(AMOUNTS.buyWatchAmount, P),
+      buyMinTradeQty: qtyFromAmount(AMOUNTS.buyMinTradeAmount, P),
+      extraBuyMinQty: qtyFromAmount(AMOUNTS.extraBuyMinAmount, P),
+      extraBuyMaxQty: qtyFromAmount(AMOUNTS.extraBuyMaxAmount, P),
+      postBuyFloorQty: qtyFromAmount(AMOUNTS.postBuyFloorAmount, P),
+      sellWatchQty: qtyFromAmount(AMOUNTS.sellWatchAmount, P),
+      sellMinTradeQty: qtyFromAmount(AMOUNTS.sellMinTradeAmount, P),
+      cancelWatchQty: qtyFromAmount(AMOUNTS.cancelWatchAmount, P),
+    };
+    expect([QTYS.buyWatchQty, QTYS.sellWatchQty, QTYS.postBuyFloorQty], 'UI-SPEC 정정표 짝').toEqual([777, 77, 65]);
+    const seed = { buyEnabled: true, buyWatchPrice: P, sellWatchPrice: P, ...AMOUNTS, ...QTYS };
+    relay.seedLimitChasers([seed]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    const card = cardOf(page, E2E_ISIN);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-sell-watch-qty')).toHaveText('100만', { timeout: 15_000 });
+    await expect(lcSub(page, 'lc-sell-watch-qty')).toHaveText('77주');
+    await expect(lcValue(page, 'lc-cancel-watch-qty')).toHaveText('100만');
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('1,000만');
+    await expect(lcSub(page, 'lc-buy-watch-qty')).toHaveText('777주');
+
+    // 수량과 무관한 칸(「호가변경」 = 선매수 「한방」 건수) 하나만 확정한다.
+    const before = lcSetCount(relay);
+    await editLc(page, 'lc-sweep-tick', '5');
+    await waitForSetAtGateway(relay, before + 1);
+    const sent = lcSetRequests(relay).at(-1)!;
+    expect(sent.sweepMinTickCount).toBe(5);
+    const sentAmounts = Object.fromEntries(Object.keys(AMOUNTS).map((k) => [k, sent[k as keyof typeof sent]]));
+    const sentQtys = Object.fromEntries(Object.keys(QTYS).map((k) => [k, sent[k as keyof typeof sent]]));
+    expect(sentAmounts, '금액 8필드 = 에코 원값(웹이 0 을 지어내지 않는다 · SC2)').toEqual(AMOUNTS);
+    expect(sent.sellWatchAmount, 'SC2 「sell_watch_amount: 100」').toBe(100);
+    expect(sentQtys, '주 8필드 = 에코 주').toEqual(QTYS);
+
+    // 구 서버 에코(gh-trade 배포 전 — 금액 8필드를 모른다 · 0) — 같은 화면이 역산으로 보인다(D-18 정상 · 오류 표시 없음).
+    const zeroAmounts = Object.fromEntries(Object.keys(AMOUNTS).map((k) => [k, 0]));
+    await relay.pushLimitChaserEcho({ ...seed, ...zeroAmounts, sweepMinTickCount: 5, sellWatchQty: 777 });
+    await expect(lcValue(page, 'lc-sweep-tick')).toHaveText('5건', { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-sell-watch-qty')).toHaveText(manText(amountFromQty(777, P)));
+    await expect(lcValue(page, 'lc-sell-watch-qty')).toHaveText('1,000만');
+    await expect(lcSub(page, 'lc-sell-watch-qty')).toHaveText('777주');
+    await expect(lcSub(page, 'lc-sell-watch-qty')).not.toHaveAttribute('data-tone', 'alert');
+    await expect(card.locator('[data-slot="lc-row-sub"][data-tone="alert"]')).toHaveCount(0);
+    await expect(page.locator('[data-slot="lc-failure-bubble"]')).toHaveCount(0);
+    expect(lcSetCount(relay), '에코는 제출을 만들지 않는다').toBe(before + 1);
+  });
+
+  test('P31-4 등록 차단 — 매수 비교가 127,400 · 줄매수 최대 12만 에코에서 「줄매수 켜기」 = 전송 0 + 「줄매수 최대가 0주로 환산됩니다 — … (12만 → 0주)」 (D-04 · AMT-04)', async ({
+    page,
+  }) => {
+    const BLOCK =
+      '줄매수 최대가 0주로 환산됩니다 — 0 은 무제한이라 의도와 반대로 동작합니다. 최대 금액을 늘리거나 0(무제한) 으로 하세요. (12만 → 0주)';
+    // 줄매수 금액 500 — 「주문금액을 먼저 입력해 주세요」 사전 검증을 지난다. 최대 12만 @127,400 = 0주(내림) — 0 은 무제한이라 반대.
+    const seed = {
+      buyEnabled: true,
+      buyWatchPrice: 127_400,
+      extraBuyOrderAmount: 500,
+      extraBuyMaxAmount: 12,
+      extraBuyMaxQty: qtyFromAmount(12, 127_400),
+    };
+    expect(seed.extraBuyMaxQty, 'UI-SPEC 정정표 — 12만 @127,400 = 0주').toBe(0);
+    relay.seedLimitChasers([seed]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    const card = cardOf(page, E2E_ISIN);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-buy-watch-price')).toHaveText('127,400원', { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-extra-buy-max-qty')).toHaveText('12만');
+    // 아래 줄 순위 2(UI-SPEC 두 줄 행 문자열) — 제출 주 0 ∧ 의미어 칸이면 「무제한」. 서버가 실제로 그렇게 읽는다는 것을
+    // 보여 주고, 켜는 순간 아래 차단 문장이 그 반대 동작을 막는다.
+    await expect(lcSub(page, 'lc-extra-buy-max-qty')).toHaveText('무제한');
+
+    const extraSwitch = lcSwitch(card, '줄매수 켜기');
+    const before = lcSetCount(relay);
+    await extraSwitch.click();
+    // 스위치 전송 직전 가드(`armBlockOf`)의 문장은 폼 머리 제출 오류 줄(role=alert · 기존 채널)이 말한다 — C# 원문 + 접미 전문.
+    const submitError = card.locator('[data-slot="lc-submit-error"][role="alert"]');
+    await expect(submitError).toHaveText(BLOCK, { timeout: 15_000 });
+    await expect(extraSwitch).toHaveAttribute('aria-checked', 'false');
+
+    // 전송 0 — 뒤이은 허용 확정(「호가변경」 5)의 10 이 보인 순간 누적 = 기준 + 1 이고 그 10 의 줄매수는 꺼져 있다
+    // (같은 소켓 · 송신 순서라 앞선 켜기가 무언가 보냈다면 먼저 도착해 있다 · 고정 대기 없음).
+    await editLc(page, 'lc-sweep-tick', '5');
+    await expect
+      .poll(() => lcSetRequests(relay).filter((r) => r.sweepMinTickCount === 5).length, { timeout: 15_000 })
+      .toBe(1);
+    expect(lcSetCount(relay), '줄매수 켜기 = 전송 0 · 한방 확정 = 10 한 건').toBe(before + 1);
+    expect(lcSetRequests(relay).at(-1)!.extraBuyEnabled).toBe(false);
+  });
+
+  test('P31-7 새 폼 84 후매수 최소 — /me 기본값 postBuyFloorAmount 84 가 새 카드 첫 등록 cfg 의 post_buy_floor_amount 84 · post_buy_floor_qty = 매수 비교가 내림 환산으로 실린다 (D-12 · P27-4 갱신)', async ({
+    page,
+  }) => {
+    await page.goto(WORKBENCH_URL);
+    await waitForReady(page);
+    await relay.pushUserSettings({ present: true, postBuyFloorAmount: 84 });
+
+    const before = lcSetCount(relay);
+    await addStockByKeyboard(page);
+    const card = cardOf(page, E2E_ISIN);
+    await expect(lcValue(page, 'lc-buy-order-price')).toHaveText(`${LIVE_UPPER_LIMIT}원`, { timeout: 15_000 });
+    // 새 폼 매수 비교가 = 상한가 시딩 — 그 값으로 84만을 내림 환산한다(스텁 상한가 127,400 → 6주 · 12,870 이면 65주).
+    const watchPrice = Number((await lcValue(page, 'lc-buy-watch-price').innerText()).replace(/[^0-9]/g, ''));
+    expect(watchPrice).toBeGreaterThan(0);
+    await expect(lcValue(page, 'lc-post-buy-floor-qty')).toHaveText('84만', { timeout: 15_000 });
+    await expect(lcSub(page, 'lc-post-buy-floor-qty')).toHaveText(juText(qtyFromAmount(84, watchPrice)));
+    expect(lcSetCount(relay), '시딩은 전송을 만들지 않는다').toBe(before);
+
+    await lcSwitch(card, '매수주문 켜기').click();
+    await waitForSetAtGateway(relay, before + 1);
+    const sent = lcSetRequests(relay).at(-1)!;
+    expect(sent.buyEnabled).toBe(true);
+    expect(sent.buyWatchPrice).toBe(watchPrice);
+    expect(sent.postBuyFloorAmount, '84 금액 그대로').toBe(84);
+    expect(sent.postBuyFloorQty, '매수 비교가 내림 환산').toBe(qtyFromAmount(84, sent.buyWatchPrice));
+    expect(qtyFromAmount(84, 12_870), 'UI-SPEC 정정표 — 12,870원이면 65주').toBe(65);
   });
 
   test('vzy-1 후매수 「자동」 — 체크 → 10 buy3_schema 3 · post_buy_auto · 에코 표시 · 서버 발화 에코로 풀림 · [상따] 사유 줄 (quick-260929-vzy 트레이서)', async ({
@@ -3230,7 +3449,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await waitForReady(page);
     const card = cardOf(page, E2E_ISIN);
     await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
-    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('10,000주', { timeout: 15_000 });
+    await expect(lcSub(page, 'lc-buy-watch-qty')).toHaveText('10,000주', { timeout: 15_000 });
 
     // ① 첫 렌더 — 세 카드 접힘. 행은 언마운트가 아니라 숨김이다(나가 있던 확정 · 편집 보존).
     const fold = (slot: 'pre-buy' | 'extra-buy' | 'post-buy') =>
@@ -3246,7 +3465,9 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     for (const s of await summaries.all()) await expect(s).toBeVisible();
     const preSummary = card.locator('[data-slot="lc-group-pre-buy"] [data-slot="lc-group-summary"]');
     await expect(preSummary).toContainText('매도잔량');
-    await expect(preSummary).toContainText('10,000주');
+    // Phase 31 Open Q5 — 요약 kv 는 위 줄 글자 하나(만원 · 주 병기 없음). 스텁 에코는 금액 0 · 10,000주 @71,100 → 역산.
+    await expect(preSummary).toContainText(manText(amountFromQty(10_000, 71_100)));
+    await expect(preSummary).not.toContainText('10,000주');
 
     // ② 접기 버튼 = 펼침 · 로컬 동작(전송 0).
     const before = lcSetCount(relay);
@@ -3283,7 +3504,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await waitForReady(page);
     const card = cardOf(page, E2E_ISIN);
     await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
-    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('10,000주', { timeout: 15_000 });
+    await expect(lcSub(page, 'lc-buy-watch-qty')).toHaveText('10,000주', { timeout: 15_000 });
     await expect(lcSwitch(card, '매수주문 켜기')).not.toBeChecked();
     // 상한가(시세)가 들어와야 자동 체크가 가격을 판정한다(D-20) — 호가 사다리의 상한가 시딩을 기다린다.
     await expect(lcValue(page, 'lc-buy-order-price')).not.toHaveText('', { timeout: 15_000 });
@@ -3414,7 +3635,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await waitForReady(page);
     const card = cardOf(page, E2E_ISIN);
     await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
-    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('10,000주', { timeout: 15_000 });
+    await expect(lcSub(page, 'lc-buy-watch-qty')).toHaveText('10,000주', { timeout: 15_000 });
     const extraSwitch = lcSwitch(card, '줄매수 켜기');
     const precheck = card.locator('[data-slot="lc-group-extra-buy"] [data-slot="lc-group-precheck"]');
     const before = lcSetCount(relay);
@@ -3505,14 +3726,14 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(lcGroupStatus(card, 'buy')).toHaveText('보유중');
     await expect(lcGroupStatus(card, 'sell')).toHaveText(/ · 후매수 발동$/);
     await expect(lcGroupStatus(card, 'cancel')).toHaveText(/ · 후매수 발동$/);
-    await expect(lcValue(page, 'lc-sell-watch-qty')).toHaveText('264,000주');
-    await expect(lcValue(page, 'lc-cancel-watch-qty')).toHaveText('264,000주');
+    await expect(lcSub(page, 'lc-sell-watch-qty')).toHaveText('264,000주');
+    await expect(lcSub(page, 'lc-cancel-watch-qty')).toHaveText('264,000주');
 
     // 재진입(단계 2 → 1) — 서버가 두 잔량을 cfg(사람 값)로 되돌려 보낸다 · 잔여 2.
     await relay.pushLimitChaserEcho({ ...seed, postBuyPhase: 1, postBuyTriggerQty: 0, postBuyReentryLeft: 2 });
     await expect(lcGroupStatus(card, 'post-buy')).toHaveText('감시 중', { timeout: 15_000 });
-    await expect(lcValue(page, 'lc-sell-watch-qty')).toHaveText('10주');
-    await expect(lcValue(page, 'lc-cancel-watch-qty')).toHaveText('25주');
+    await expect(lcSub(page, 'lc-sell-watch-qty')).toHaveText('10주');
+    await expect(lcSub(page, 'lc-cancel-watch-qty')).toHaveText('25주');
 
     // 두 번째 발동(단계 1 → 2 · 잔여 1) — D-38 사람 값 유지: 잔고가 있어 매도 호가잔량은 사람 값(10) 그대로,
     //   매수 미체결이 없어 취소잔량은 발동잔량 × 80%(264,000). 웹은 두 값을 에코 그대로 보인다.
@@ -3525,8 +3746,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     });
     await expect(lcGroupStatus(card, 'post-buy')).toHaveText('보유중', { timeout: 15_000 });
     await expect(lcGroupStatus(card, 'cancel')).toHaveText(/ · 후매수 발동$/);
-    await expect(lcValue(page, 'lc-sell-watch-qty')).toHaveText('10주');
-    await expect(lcValue(page, 'lc-cancel-watch-qty')).toHaveText('264,000주');
+    await expect(lcSub(page, 'lc-sell-watch-qty')).toHaveText('10주');
+    await expect(lcSub(page, 'lc-cancel-watch-qty')).toHaveText('264,000주');
 
     // 단계 3 — 소진(후매수 OFF · 잔여 0). 접힌 카드는 상태 「소진」 + 요약 「3회 · 남은 0회」, 펼치면 안내 원문.
     await relay.pushLimitChaserEcho({
@@ -4024,7 +4245,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await waitForReady(page);
     const card = cardOf(page, E2E_ISIN);
     await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
-    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('17,909,347주', { timeout: 15_000 });
+    await expect(lcSub(page, 'lc-buy-watch-qty')).toHaveText('17,909,347주', { timeout: 15_000 });
     await expect(lcGroupStatus(card, 'post-buy')).toHaveText('감시 중');
     const tablist = card.getByRole('tablist', { name: '주문 진입' });
     await tablist.getByRole('tab', { name: '매수' }).click();
@@ -4107,7 +4328,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(lcValue(page, 'lc-post-buy-rebound')).toHaveText('40%', { timeout: 15_000 });
     expect(lcSetCount(relay), '첫 확정 = 10 정확히 1건').toBe(before + 1);
 
-    // (b) 새로고침 — 새로 마운트한 폼에서도 후매수 최소 잔량 확정이 10 한 건 더 나간다.
+    // (b) 새로고침 — 새로 마운트한 폼에서도 후매수 최소 잔량 확정이 10 한 건 더 나간다(Phase 31 — 칸은 만원 · 200만).
     relay.seedLimitChasers([echoed]);
     await page.reload();
     await waitForReady(page);
@@ -4115,10 +4336,11 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(lcValue(page, 'lc-post-buy-rebound')).toHaveText('40%', { timeout: 15_000 });
     await expect(lcValue(page, 'lc-buy-order-amount')).toHaveText('—');
     const beforeReload = lcSetCount(relay);
-    await editLc(page, 'lc-post-buy-floor-qty', '200000');
+    await editLc(page, 'lc-post-buy-floor-qty', '200');
     await waitForSetAtGateway(relay, beforeReload + 1);
     const second = lcSetRequests(relay).at(-1)!;
-    expect(second.postBuyFloorQty).toBe(200_000);
+    expect(second.postBuyFloorAmount, '후매수 최소 금액 = 확정한 만원').toBe(200);
+    expect(second.postBuyFloorQty, '후매수 최소 주 = 매수 비교가 내림 환산').toBe(qtyFromAmount(200, second.buyWatchPrice));
     expect(second.postBuyReboundPct, '새로고침 뒤 cfg 기준값 = 서버 에코').toBe(40);
     expect(second.buyOrderQty).toBe(0);
     expect(second.postBuyEnabled).toBe(true);
@@ -4253,7 +4475,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await waitForReady(page);
     const card = cardOf(page, E2E_ISIN);
     await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
-    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('10,000주', { timeout: 15_000 });
+    await expect(lcSub(page, 'lc-buy-watch-qty')).toHaveText('10,000주', { timeout: 15_000 });
     await expect(lcSwitch(card, '매수주문 켜기')).not.toBeChecked();
     await expect(lcSwitch(card, '매도주문 켜기')).not.toBeChecked();
     await expect(lcSwitch(card, '매수취소 켜기')).not.toBeChecked();
@@ -5066,7 +5288,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       await waitForReady(page);
       const card = cardOf(page, E2E_ISIN);
       await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
-      await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('10,000주', { timeout: 15_000 });
+      await expect(lcSub(page, 'lc-buy-watch-qty')).toHaveText('10,000주', { timeout: 15_000 });
       const directOrders = () => relay.requestLog().filter((m) => m === DMA_MSG.DirectOrderReq).length;
 
       await card.getByRole('tablist', { name: '주문 진입' }).getByRole('tab', { name: '수동' }).tap();
@@ -5111,6 +5333,81 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       await expect(confirm).toBeHidden();
       expect(directOrders()).toBe(0);
       expect(relay.orderInserts()).toHaveLength(0);
+    });
+
+    /*
+      P31-3 — 폰 시트 만원 칸(Phase 31 D-08 · UI-SPEC S3). 단위 「만」 · 만원 칩 · 상태 줄 환산 안내(role=status) →
+      적용 = 10 한 건. 매도 비교가 0 에코면 행 아래 줄 「비교가격 필요」 · 시트 잠금(role=alert) · 적용 버튼 비활성 · 전송 0.
+      매도 행 시트 제목 = 행 라벨(「매수잔량」) 이라 적용 버튼은 「매수잔량 적용」 이다.
+    */
+    test('P31-3 폰 시트 환산 · 잠금 — 매도 「매수잔량」 단위 「만」 · 칩 천만/오천만/1억/지우기 · 1000 → 「= 777주 (비교가격 12,870원)」 → 적용 = 10 한 건 · 매도 비교가 0 에코 → 아래 줄 「비교가격 필요」 · 시트 잠금 · 적용 비활성 · 전송 0 (D-08 · 390)', async ({
+      page,
+    }) => {
+      await page.setViewportSize(PHONE_VIEWPORT);
+      const seed = { buyEnabled: true, sellWatchPrice: 12_870, sellWatchQty: 0, sellWatchAmount: 0 };
+      relay.seedLimitChasers([seed]);
+      await page.goto(FOCUS_URL);
+      await waitForReady(page);
+      const card = cardOf(page, E2E_ISIN);
+      await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+      await card.getByRole('tablist', { name: '주문 진입' }).getByRole('tab', { name: '매도' }).tap();
+      await expect(card.locator('[data-pane="sell"]')).toBeVisible();
+
+      const row = lcRow(page, 'lc-sell-watch-qty');
+      await expect(lcValue(page, 'lc-sell-watch-qty')).toHaveText('0만', { timeout: 15_000 });
+      await expect(row).toHaveAttribute('aria-haspopup', 'dialog');
+      const before = lcSetCount(relay);
+
+      // ① 비교가 12,870 — 단위 「만」 · 만원 칩 · 1000 → 환산 안내 → 적용 = 10 한 건.
+      await row.tap();
+      const sheet = await settledSheet(page);
+      await expect(sheet.locator('[data-slot="numpad-display"] > span').last()).toHaveText('만');
+      const chips = sheet.locator('[data-slot="numpad-chips"] button');
+      await expect(chips).toHaveText(['천만', '오천만', '1억', '지우기']);
+      for (const name of ['1,000만원 더하기', '5,000만원 더하기', '1억원 더하기', '전부 지우기']) {
+        await expect(sheet.getByRole('button', { name, exact: true })).toHaveCount(1);
+      }
+      const pad = sheet.getByRole('group', { name: '숫자 키패드' });
+      for (const k of ['1', '0', '0', '0']) await pad.getByRole('button', { name: k, exact: true }).tap();
+      await expect(sheet.locator('[data-slot="numpad-value"]')).toHaveText('1,000');
+      const status = sheet.locator('[data-slot="numpad-status"]');
+      await expect(status.getByRole('status')).toHaveText('= 777주 (비교가격 12,870원)');
+      await expect(status.getByRole('alert')).toHaveCount(0);
+      const confirm = sheet.locator('[data-slot="numpad-confirm"]');
+      await expect(confirm).toHaveText('매수잔량 적용');
+      await expect(confirm).toBeEnabled();
+      await confirm.tap();
+      await waitForSetAtGateway(relay, before + 1);
+      expect(lcSetCount(relay), '적용 한 번 = 10 한 건').toBe(before + 1);
+      const sent = lcSetRequests(relay).at(-1)!;
+      expect([sent.sellWatchAmount, sent.sellWatchQty]).toEqual([1000, 777]);
+      await relay.pushLimitChaserEcho({ ...seed, sellWatchAmount: 1000, sellWatchQty: 777 });
+      await expect(page.locator('[data-slot="numpad-sheet"]')).toHaveCount(0, { timeout: 15_000 });
+      await expect(lcValue(page, 'lc-sell-watch-qty')).toHaveText('1,000만', { timeout: 15_000 });
+      await expect(lcSub(page, 'lc-sell-watch-qty')).toHaveText('777주');
+
+      // ② 매도 비교가 0 에코 — 금액은 남고 주로 환산할 수 없다 → 행 아래 줄 빨간 「비교가격 필요」.
+      await relay.pushLimitChaserEcho({ ...seed, sellWatchPrice: 0, sellWatchAmount: 1000, sellWatchQty: 777 });
+      await expect(lcValue(page, 'lc-sell-watch-price')).toHaveText(/^(0원|—)$/, { timeout: 15_000 });
+      await expect(lcSub(page, 'lc-sell-watch-qty')).toHaveText('비교가격 필요');
+      await expect(lcSub(page, 'lc-sell-watch-qty')).toHaveAttribute('data-tone', 'alert');
+
+      // 시트를 다시 열어 1500 — 잠금 문장(alert) · 「매수잔량 적용」 비활성 · 전송 0.
+      await row.tap();
+      const locked = await settledSheet(page);
+      for (const k of ['1', '5', '0', '0']) {
+        await locked.getByRole('group', { name: '숫자 키패드' }).getByRole('button', { name: k, exact: true }).tap();
+      }
+      await expect(locked.locator('[data-slot="numpad-value"]')).toHaveText('1,500');
+      await expect(locked.locator('[data-slot="numpad-status"]').getByRole('alert')).toHaveText(
+        '비교가격 필요 — 매도 비교가격을 입력하세요',
+      );
+      await expect(locked.locator('[data-slot="numpad-confirm"]')).toBeDisabled();
+      await locked.getByRole('button', { name: '닫기' }).tap();
+      await expect(page.locator('[data-slot="numpad-sheet"]')).toHaveCount(0, { timeout: 10_000 });
+      await expect(lcSub(page, 'lc-sell-watch-qty')).toHaveText('비교가격 필요');
+      // 잠긴 시트는 아무것도 보내지 않는다 — 닫힌 뒤에도 누적은 ① 의 한 건 그대로.
+      expect(lcSetCount(relay), '잠금 = 전송 0').toBe(before + 1);
     });
   });
 });

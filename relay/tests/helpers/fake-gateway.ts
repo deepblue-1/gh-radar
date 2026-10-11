@@ -548,6 +548,16 @@ export interface SetLimitChaserRequest {
   /** 선매수 주문금액(만원) — 새 폼 84 시딩(Phase 27 · 27-07 P27-4)이 첫 등록 cfg 에 실렸는가를 바이트로 본다. */
   buyOrderAmount: number;
   buyWatchPrice: number;
+  /**
+   * 수량 임계 주 나머지 4(선매수 매도잔량 · 체결량 · 매도 체결 · 취소 매수잔량) — Phase 31 e2e P31-2 가 「주 8필드 = 에코 주」
+   * (C# 원값 되싣기 · D-10)를 바이트로 본다. 나머지 4(줄매수 최소 · 최대 · 후매수 최소 · 매도 매수잔량)는 아래 기존 필드.
+   */
+  buyWatchQty: number;
+  buyMinTradeQty: number;
+  sellMinTradeQty: number;
+  cancelWatchQty: number;
+  /** 한방 건수(「호가변경」 · 0~255) — Phase 31 e2e 가 수량과 무관한 칸 확정의 증거로 본다. */
+  sweepMinTickCount: number;
   /** relay 파생값 — 1(자동 미적재 · `LC_FIXED_BUY3_SCHEMA`) · 2(자동 적재 · `LC_POST_BUY_AUTO_BUY3_SCHEMA`) ·
    *  3(자동 + 버스트 시 해제 적재 · `LC_BURST_RELEASE_BUY3_SCHEMA` · quick-261003-rc4) ·
    *  4(+ 자동매도 요청 4필드 적재 · `LC_AUTO_SELL_BUY3_SCHEMA` · Phase 27) ·
@@ -673,6 +683,11 @@ export function readSetLimitChaserRequest(
     buyOrderQty: req.buyOrderQty(),
     buyOrderAmount: req.buyOrderAmount(),
     buyWatchPrice: req.buyWatchPrice(),
+    buyWatchQty: req.buyWatchQty(),
+    buyMinTradeQty: req.buyMinTradeQty(),
+    sellMinTradeQty: req.sellMinTradeQty(),
+    cancelWatchQty: req.cancelWatchQty(),
+    sweepMinTickCount: req.sweepMinTickCount(),
     buy3Schema: req.buy3Schema(),
     buyWatchSide: readSealedStringSlot(bb, req.bb_pos, BUY_WATCH_SIDE_SEALED_VT),
     preBuyEnabled: req.preBuyEnabled(),
