@@ -9,6 +9,8 @@ import {
   deriveAdminUsersOverview,
   type AdminAccountFields,
   type AdminIntentRow,
+  type AdminOrderEndpointRow,
+  type AdminOrderEndpointsRaw,
   type AdminResultRow,
   type AdminServerLiveStatus,
   type AdminServersRaw,
@@ -295,6 +297,77 @@ describe("계좌 주문 서버 — 지정(orderServer) · 증권사 기본(defau
     const u = kimtr({ intent: [intent("kimtr", A1, "KB120"), intent("kimtr", A1, "KB121")] });
     expect(u.accounts[0]).toMatchObject({ orderServer: null, defaultOrderServer: null });
     expect(Object.keys(u.accounts[0])).toEqual(expect.arrayContaining(["orderServer", "defaultOrderServer"]));
+  });
+});
+
+describe("P30 orderEndpoints 파생 (D-09 · D-10)", () => {
+  const IP = "010041001124";
+  const MAC = "1CFD087D978E";
+  const row = (dmaUserId: string, accountNo: string, orderIp: string, orderMac: string): AdminOrderEndpointRow => ({
+    dmaUserId,
+    accountNo,
+    orderIp,
+    orderMac,
+  });
+  const withEndpoints = (over: Partial<AdminUsersRaw>, endpoints?: AdminOrderEndpointsRaw | null) => {
+    const ov = deriveAdminUsersOverview(raw(over), endpoints);
+    const u = ov.users.find((x) => x.dmaUserId === "kimtr");
+    if (!u) throw new Error("kimtr 행이 없다");
+    return u;
+  };
+  const BOTH = { intent: [intent("kimtr", A1, "KB120"), intent("kimtr", A1, "KB121")] };
+
+  it("KB120 · KB121 active · KB120 설정 · KB121 미설정 → { KB120: 값, KB121: \"\" \"\" }", () => {
+    const u = withEndpoints(BOTH, {
+      servers: { KB120: [row("kimtr", A1.accountNo, IP, MAC)], KB121: [row("kimtr", A1.accountNo, "", "")] },
+    });
+    expect(u.accounts[0].orderEndpoints).toEqual({
+      KB120: { orderIp: IP, orderMac: MAC },
+      KB121: { orderIp: "", orderMac: "" },
+    });
+  });
+
+  it("endpoints.servers 에 KB121 키 없음(87 모름) → KB121 null", () => {
+    const u = withEndpoints(BOTH, { servers: { KB120: [row("kimtr", A1.accountNo, IP, MAC)] } });
+    expect(u.accounts[0].orderEndpoints).toEqual({ KB120: { orderIp: IP, orderMac: MAC }, KB121: null });
+  });
+
+  it("KB121 87 에 이 계좌가 없으면 null — 다른 dmaUserId 의 같은 계좌번호 행은 쓰지 않는다", () => {
+    const u = withEndpoints(BOTH, {
+      servers: { KB120: [row("kimtr", A1.accountNo, IP, MAC)], KB121: [row("other", A1.accountNo, IP, MAC)] },
+    });
+    expect(u.accounts[0].orderEndpoints).toEqual({ KB120: { orderIp: IP, orderMac: MAC }, KB121: null });
+  });
+
+  it("endpoints 계좌번호 \"001234567\" 대 의도 \"1234567\" → 정규화 키로 찾는다", () => {
+    const u = withEndpoints({ intent: [intent("kimtr", A1, "KB120")] }, { servers: { KB120: [row("kimtr", "001234567", IP, MAC)] } });
+    expect(u.accounts[0].orderEndpoints).toEqual({ KB120: { orderIp: IP, orderMac: MAC } });
+  });
+
+  it("removing 등록 서버는 키에 없다 · 87 전용 계좌 → {}", () => {
+    const u = withEndpoints(
+      {
+        intent: [intent("kimtr", A1, "KB120"), intent("kimtr", A1, "KB121", "removing")],
+        snapshotAccounts: [snap("kimtr", A1, "KB120"), snap("kimtr", A1, "KB121"), snap("kimtr", A2, "KB120")],
+      },
+      {
+        servers: {
+          KB120: [row("kimtr", A1.accountNo, IP, MAC), row("kimtr", A2.accountNo, IP, MAC)],
+          KB121: [row("kimtr", A1.accountNo, IP, MAC)],
+        },
+      },
+    );
+    expect(u.accounts.map((a) => [a.accountNo, a.orderEndpoints])).toEqual([
+      [A1.accountNo, { KB120: { orderIp: IP, orderMac: MAC } }],
+      [A2.accountNo, {}],
+    ]);
+  });
+
+  it("endpoints null 과 인자 생략은 같은 출력 — 의도 계좌의 active 서버 전부 null", () => {
+    const omitted = withEndpoints(BOTH);
+    const nulled = withEndpoints(BOTH, null);
+    expect(nulled).toEqual(omitted);
+    expect(omitted.accounts[0].orderEndpoints).toEqual({ KB120: null, KB121: null });
   });
 });
 

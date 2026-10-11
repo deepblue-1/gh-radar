@@ -197,6 +197,40 @@ describe("diffServerAccounts — 주문자 IP/MAC 은 의도 값이 있을 때�
   });
 });
 
+describe("P30 sameValues 정규화 비교 (IPMAC-02)", () => {
+  // 의도 값은 웹 입력 원문(trim · D-07), 87 값은 서버 정규화값 — 정규화에 성공한 의도 값은 정규화값으로, 실패한 값은 원문으로 비교한다
+  // (gh-trade Gateway.cpp op 3 멱등과 같다 — 실패 값을 빈 값으로 바꾸면 미설정 계좌와 같아 보여 code 13 대신 「변경 없음」 이 된다).
+  const IP = "010041001124";
+  const MAC = "1CFD087D978E";
+  const diffWith = (intent: AdminAccountFields, server: AdminAccountFields) =>
+    diffServerAccounts({ active: [intent], removing: [], snapshotUser: { accounts: [server] }, snapshotKnown: true });
+
+  it("의도 점표기 · 소문자 콜론 대 87 정규화값 → 같다(changed 0)", () => {
+    const intent = { ...A1, orderIp: "10.41.1.124", orderMac: "1c:fd:08:7d:97:8e" };
+    expect(diffWith(intent, { ...A1, orderIp: IP, orderMac: MAC })).toMatchObject({ missing: [], changed: [] });
+  });
+
+  it("의도 MAC 만 하이픈 표기 · IP 없음 → MAC 만 정규화 비교해 같다(changed 0)", () => {
+    const intent = { ...A1, orderMac: "1c-fd-08-7d-97-8e" };
+    expect(diffWith(intent, { ...A1, orderIp: IP, orderMac: MAC })).toMatchObject({ changed: [] });
+  });
+
+  it("의도 orderIp 999.1.1.1(정규화 실패) 대 87 키 없음 → 원문 비교라 다르다(changed [A1])", () => {
+    const intent = { ...A1, orderIp: "999.1.1.1", orderMac: "" };
+    expect(diffWith(intent, { ...A1 })).toMatchObject({ changed: [intent] });
+  });
+
+  it("의도 \"\" \"\" 대 87 값 있음 → changed [A1] / 87 도 없음 → changed 0", () => {
+    const clear = { ...A1, orderIp: "", orderMac: "" };
+    expect(diffWith(clear, { ...A1, orderIp: IP, orderMac: MAC })).toMatchObject({ changed: [clear] });
+    expect(diffWith(clear, { ...A1 })).toMatchObject({ changed: [] });
+  });
+
+  it("의도에 두 필드가 없으면 87 IP/MAC 무시(GC-02 그대로)", () => {
+    expect(diffWith(A1, { ...A1, orderIp: IP, orderMac: MAC })).toMatchObject({ missing: [], changed: [] });
+  });
+});
+
 describe("interpretAdminResult — 86 code 해석 (D-23 ⑤)", () => {
   it.each([
     [4, 0, "ok"],
