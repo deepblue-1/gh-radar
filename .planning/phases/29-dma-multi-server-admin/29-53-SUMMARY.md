@@ -294,3 +294,9 @@ _(미실행 — go 일 때 메인 세션이 런북대로 실행한 뒤 결과를
 ---
 *Phase: 29-dma-multi-server-admin*
 *Draft: 2026-10-11 (Task 1 완료 · Task 2 대기)*
+
+## Self-Check: PASSED (초안 — Task 1 범위)
+
+- 파일: 29-53-SUMMARY.md · 29-REVIEW-R2-DISPOSITION.md · 261010-kb-order-ip-mac.md — FOUND.
+- 커밋: `9d78a24a`(Task 1) · `4b719a5c`(SUMMARY 초안) · 롤백 태그 `5d4ea4a5` — 전부 HEAD 조상.
+- 미완료를 PASS 로 덮지 않음: Task 2(go/no-go) · Task 3(배포 · 사람 확인) 미실행 — `status: halted`.
