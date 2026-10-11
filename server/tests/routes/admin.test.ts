@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { Writable } from "node:stream";
 import pino from "pino";
 import request from "supertest";
-import { deriveAdminUsersOverview, type AdminUsersRaw } from "@gh-radar/shared";
+import { deriveAdminUsersOverview, type AdminOrderEndpointsRaw, type AdminUsersRaw } from "@gh-radar/shared";
 
 import { createApp } from "../../src/app";
 import { requireRelayAdmin } from "../../src/routes/admin";
@@ -25,6 +25,7 @@ import {
   makeAdminSupabase,
   type AdminSupabaseOpts,
 } from "../fixtures/admin-supabase";
+import { makeFakeRelay } from "../fixtures/fake-relay-admin";
 
 /**
  * Phase 29 (29-10) — `/api/admin` 라우트. 역할 판정 · 개요 파생은 목 Supabase 위에서 증명한다(원격 DB 무관).
@@ -160,6 +161,77 @@ describe("GET /api/admin/users", () => {
     expect(res.status).toBe(500);
     expect(res.body.error.code).toBe("DB_ERROR");
     expect(rec.rpcCalls).toHaveLength(0);
+  });
+});
+
+// ============================================================
+// Phase 30 (30-03) — GET /users 에 relay 87 캐시 IP/MAC 병합 (D-09 · D-10)
+//   E1 relay order-endpoints 200 → body = deriveAdminUsersOverview(raw, endpoints) · 계좌 orderEndpoints.KB120 = 87 값
+//   E2 relay 500 → 200 · deriveAdminUsersOverview(raw, null) · warn 에 relay status 만
+//   E3 relay 호출 throw → 200 · 「확인 전」(null)
+//   E4 모양 위반(servers 가 배열 · data null) → 200 · null
+// ============================================================
+
+describe("P30 GET /users orderEndpoints 병합 (D-09)", () => {
+  const IP = "010041001124";
+  const MAC = "1CFD087D978E";
+  const endpoints: AdminOrderEndpointsRaw = {
+    servers: { KB120: [{ dmaUserId: "kim01", accountNo: "12345678901", orderIp: IP, orderMac: MAC }] },
+  };
+  const ORDER_PATH = "/internal/admin/order-endpoints";
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("E1 relay order-endpoints 200 → 200 · body = shared 파생(raw, endpoints) · 계좌 orderEndpoints.KB120 = 87 값", async () => {
+    const relay = makeFakeRelay((c) => (c.path === ORDER_PATH ? { status: 200, data: endpoints } : undefined));
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await auth(request(app).get("/api/admin/users"));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(JSON.parse(JSON.stringify(deriveAdminUsersOverview(raw, endpoints))));
+    const kim = res.body.users.find((u: { dmaUserId: string | null }) => u.dmaUserId === "kim01");
+    expect(kim.accounts[0].orderEndpoints).toEqual({ KB120: { orderIp: IP, orderMac: MAC } });
+    expect(rec.rpcCalls).toEqual([{ fn: "admin_users_raw", params: undefined }]);
+    expect(relay.calls).toEqual([{ method: "GET", path: ORDER_PATH, adminEmail: ADMIN_EMAIL }]);
+  });
+
+  it("E2 relay 500 → 200 · 파생(raw, null) = 전 서버 「확인 전」 · warn 에 relay status 만", async () => {
+    const warn = vi.spyOn(logger, "warn");
+    const relay = makeFakeRelay((c) => (c.path === ORDER_PATH ? { status: 500, data: null } : undefined));
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).get("/api/admin/users"));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(JSON.parse(JSON.stringify(deriveAdminUsersOverview(raw, null))));
+    const kim = res.body.users.find((u: { dmaUserId: string | null }) => u.dmaUserId === "kim01");
+    expect(kim.accounts[0].orderEndpoints).toEqual({ KB120: null });
+    const relayWarns = warn.mock.calls.filter((args) => (args[0] as { relay?: { op?: string } })?.relay?.op === "order-endpoints");
+    expect(relayWarns).toHaveLength(1);
+    expect(relayWarns[0]![0]).toEqual({ relay: { op: "order-endpoints", status: 500 } });
+  });
+
+  it("E3 relay 호출이 throw 해도 → 200 · 「확인 전」", async () => {
+    const relay = makeFakeRelay((c) => {
+      if (c.path === ORDER_PATH) throw new Error("socket hang up");
+      return undefined;
+    });
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).get("/api/admin/users"));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(JSON.parse(JSON.stringify(deriveAdminUsersOverview(raw, null))));
+  });
+
+  it("E4 모양 위반(servers 배열 · data null) → 200 · 「확인 전」 · RPC 오류는 종전대로 500", async () => {
+    for (const data of [{ servers: [] }, null, { servers: null }]) {
+      const relay = makeFakeRelay((c) => (c.path === ORDER_PATH ? { status: 200, data } : undefined));
+      const { app } = makeApp({}, relay.client);
+      const res = await auth(request(app).get("/api/admin/users"));
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(JSON.parse(JSON.stringify(deriveAdminUsersOverview(raw, null))));
+    }
+    const relay = makeFakeRelay((c) => (c.path === ORDER_PATH ? { status: 200, data: endpoints } : undefined));
+    const { app } = makeApp({ rpcError: { message: "permission denied", code: "42501" } }, relay.client);
+    const res = await auth(request(app).get("/api/admin/users"));
+    expect(res.status).toBe(500);
+    expect(res.body.error.code).toBe("DB_ERROR");
   });
 });
 

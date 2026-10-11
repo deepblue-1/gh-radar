@@ -821,3 +821,56 @@ describe("P30 PUT orderEndpoint 통과 (IPMAC-02)", () => {
     expect((relay.calls[0]!.body as { orderEndpoint: unknown }).orderEndpoint).toEqual({ orderIp: "10.41.1", orderMac: "zz:zz" });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 30 (30-03) — PUT 계좌 감사 줄의 orderEndpoint 플래그 (값 없음)
+//   A1 값 있음 → "set" · 로그 어디에도 IP/MAC 원문 없음
+//   A2 두 칸 빈 값 → "clear"
+//   A3 orderEndpoint 없음 → 감사 줄에 키 없음
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("P30 PUT 감사 플래그 — IP/MAC 값 없음", () => {
+  const IP = "10.41.1.124";
+  const MAC = "1c:fd:08:7d:97:8e";
+  const kbAccount = kbDma().account;
+  let cap: ReturnType<typeof captureLogs>;
+  beforeEach(() => {
+    cap = captureLogs();
+  });
+  afterEach(() => cap.restore());
+
+  const putAudit = async (body: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    const { app } = makeApp({}, makeFakeRelay().client);
+    const res = await auth(request(app).put("/api/admin/dma-users/kim01/accounts")).send({
+      account: kbAccount,
+      servers: ["KB120"],
+      ...body,
+    });
+    expect(res.status).toBe(200);
+    const lines = cap
+      .text()
+      .split("\n")
+      .filter((l) => l.includes('"audit":"admin"') && l.includes('"op":"dma-account-put"'));
+    expect(lines.length).toBeGreaterThan(0);
+    return JSON.parse(lines.at(-1)!) as Record<string, unknown>;
+  };
+
+  it("A1 orderEndpoint 값 있음 → 감사 orderEndpoint \"set\" · 로그에 IP/MAC 원문 없음", async () => {
+    const line = await putAudit({ orderEndpoint: { orderIp: ` ${IP} `, orderMac: MAC } });
+    expect(line.orderEndpoint).toBe("set");
+    const logged = cap.text();
+    expect(logged).not.toContain(IP);
+    expect(logged).not.toContain(MAC);
+  });
+
+  it("A2 두 칸 빈 값 → 감사 orderEndpoint \"clear\"", async () => {
+    const line = await putAudit({ orderEndpoint: { orderIp: "", orderMac: "" } });
+    expect(line.orderEndpoint).toBe("clear");
+  });
+
+  it("A3 orderEndpoint 없음 → 감사 줄에 orderEndpoint 키 없음", async () => {
+    const line = await putAudit({});
+    expect(line).not.toHaveProperty("orderEndpoint");
+    expect(line).toMatchObject({ op: "dma-account-put", broker: "KB" });
+  });
+});
