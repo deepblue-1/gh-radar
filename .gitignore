@@ -50,3 +50,5 @@ scripts/install-vpn-menubar.sh
 
 # GSD(@opengsd/gsd-core) 훅이 세션마다 쓰는 실행 격리 센티널. 머신 로컬 상태다.
 .gsd/
+.planning/**/shots/
+.planning/research/.cache/

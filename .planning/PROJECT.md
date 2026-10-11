@@ -18,31 +18,46 @@
 - [x] GH Trade 모바일 앱 (MOBILE-01) — Validated in Phase 21: Capacitor Remote-URL 셸(iOS·iPadOS·Android `com.ghtrade.app`)이 운영 웹 https://trade.jx1.io 를 로드 · 네이티브 하단 플로팅 탭바 5탭(라벨 없는 캡슐 · 키보드/키패드 즉시 숨김) · pull-to-refresh · 네이티브 Google 로그인 → signInWithIdToken · 오프라인 폴백 · 인앱 브라우저 · 테마 동기화(기본 다크). UAT 4차 실서버 30/30 pass · 재검증 R2 15/15 (2026-09-26). 스토어/TestFlight 배포는 별도 phase
 - [x] DMA 다중 서버 · 웹 Admin 유저 관리 (ADMIN-01~12) — Validated in Phase 29: 서버 레지스트리 4대(KB120·KB121·KYOBO119·KYOBO127, `dma_servers`) · 웹 Admin(`/admin/users` · `/admin/servers`)에서 허용 gmail·역할·DMA 유저·계좌·등록 서버·계좌별 주문 서버(G-1)를 편집하면 relay 가 서버별 관리자 연결(44/86/87)로 즉시 반영 · (유저, 서버) 세션 · 옛 서버 전략 끄기(sweep) · 운영(교보119·KB120) 보존 배포 relay 183ea9c8. 3라운드 갭 클로징 뒤 검증 passed(override 1 — R3-01 IP/MAC 87 캐시, IP/MAC 작업과 함께). 두 번째 서버 켜기 전 결정 남음(29-53-SUMMARY)
 
+- [x] 실시간 상한가 근접 종목 스캔 (등락률 기준값 조절) — Validated in Phase 5·05.2·09.1 (v1.0)
+- [x] 종목 검색 기능 — Validated in Phase 6·06.1 (v1.0)
+- [x] 종목별 뉴스 수집 및 AI 요약 — Validated in Phase 7·07.1·07.2·13·14 (v1.0, 요약은 홈 AI 분석·챗봇으로 흡수)
+- [x] 종목별 네이버 종목토론방 수집 및 AI 분류 — Validated in Phase 8·08.1 (v1.0, Haiku 분류는 비용으로 비활성)
+- [x] 로그인(Google OAuth) + 관심종목 — Validated in Phase 06.2 (v1.0, 이메일/비번 AUTH-01 은 Deferred)
+- [x] GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK) — Validated in Phase 22 (MOBILE-02, v1.0)
+
 ### Active
 
-- [ ] 실시간 상한가 근접 종목 스캔 (등락률 기준값 사용자 조절 가능, 기본 25%)
-- [ ] 종목 검색 기능
-- [ ] 종목별 뉴스 수집 및 AI 요약
-- [ ] 종목별 네이버 종목토론방 수집 및 AI 요약
-- [ ] 로그인/회원 기능 (이메일/비번 + 소셜 로그인)
-- [ ] 관심종목 저장 및 관리 (로그인 계정별)
-- [ ] GH Trade 테스트 배포 (iOS TestFlight 내부 테스터 · Android Play 내부 테스트 트랙) — Phase 22 (MOBILE-02 · 2026-09-27 · 스토어 정식 출시·심사·외부 테스터는 범위 밖)
+- [ ] gh-trade 인박스 처리 — KB 계좌별 주문자 IP/MAC(R3-01 재조회 · 웹 입력칸 · 질문 3개) · 상따 금액 단위(금액 8필드 되싣기 · 「만(주)」 표시 여부)
+- [ ] Phase 29 두 번째 서버(KB121·KYOBO127) 켜기 전 결정(R3-03/05/06 · 51 계좌 필터)
+- [ ] 운영 중 발견되는 버그 수정 · 자잘한 기능 추가 (v1.1 상시)
+- [ ] CLAUDE.md 다이어트
 
 ### Out of Scope
 
-- 미국 주식 — v1은 한국 시장만, 이후 확장
-- 실시간 알림/푸시 — v2 이후
+- 미국 주식 — 한국 시장만(v1.0 그대로 유효)
+- 실시간 알림/푸시 — 계속 범위 밖(relay `/healthz` 알림은 운영 감시로 별개)
+- Play 스토어 배포 — 개발자 인증 뒤 새 phase(2026-10-11 Phase 23 제거)
+- 이메일/비밀번호 로그인(AUTH-01) — Google OAuth 로 충분, 요청 있을 때만
+
+## Current State (v1.0 shipped 2026-10-11)
+
+- 운영: webapp https://gh-radar-webapp.vercel.app · 트레이딩 https://trade.jx1.io (push = 프로덕션 배포) · relay(Cloud Run, VPN 으로 KB/교보 gh-trade 서버) · 워커 Cloud Run Job 7종(master/intraday/news/discussion/theme/limitup/home-sync)
+- 모바일: GH Trade iOS TestFlight · Android Firebase APK(Play 는 인증 대기)
+- 37 phase · 432 plan · quick 130건 → `.planning/milestones/v1.0-*` 로 아카이브
+- 열린 운영 항목: 두 번째 DMA 서버 켜기 전 결정 · KB IP/MAC 설정 보류(R3-01) · D-25 래치 실기 관측(Xcode 라이선스) · smoke INV-9 첫 실행
+
+## Next Milestone Goals (v1.1)
+
+목표 기능 없이 **운영 유지보수** — 프로덕션에서 나오는 버그 수정, 자잘한 기능 추가, gh-trade 인박스 계약 반영을 quick/작은 phase 로 처리한다. 마일스톤은 작게 유지하고 주기적으로 아카이브한다(토큰 비용).
 
 ## Context
 
-- 대상 시장: 한국 주식 (코스피/코스닥)
-- 주식 데이터 소스: 무료 API 활용 (한국투자증권 OpenAPI, KRX 공개데이터 등)
-- 뉴스 소스: 리서치 후 결정 (네이버 금융, 한경, 매경 등 후보)
-- AI 요약: Claude API 사용
-- 프론트엔드: Next.js + Tailwind CSS + shadcn/ui → Vercel 배포
-- 백엔드: TypeScript + Express → Cloud Run 배포
-- 데이터베이스: Supabase
-- 필요시 Python 스크립트 별도 활용 가능 (크롤링 등)
+- 대상 시장: 한국 주식 (코스피/코스닥) · 실거래는 KB·교보 DMA(gh-trade 서버)
+- 시세: 키움 REST(매분) + KRX EOD 일봉 · 실시간 호가는 relay 공유 연결 · 뉴스: Naver Search API · 종목토론: Bright Data 경유 배치
+- AI: Claude API — 챗봇 Sonnet 5 · 분류 Haiku 4.5(비활성)
+- 프론트엔드: Next.js 15 + Tailwind 4 + shadcn/ui → Vercel · 모바일 Capacitor
+- 백엔드: Express(Cloud Run) · relay(Cloud Run + WireGuard radar-gw) · 워커 Cloud Run Job
+- 데이터베이스: Supabase (RLS · RPC)
 
 ## Constraints
 
@@ -55,9 +70,9 @@
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Claude API로 뉴스/토론방 요약 | 사용자 선호, 한국어 요약 품질 우수 | — Pending |
-| v1에 로그인+관심종목 포함 | Phase 7 뉴스 배치가 "사용자별 관심종목"을 타겟팅해야 트레이더 유즈케이스 완성 (2026-04-16 v2→v1 승격) | — Pending |
-| 상한가 기준값 사용자 조절 가능 | 트레이더마다 전략이 다름 | — Pending |
+| Claude API로 뉴스/토론방 요약 | 사용자 선호, 한국어 요약 품질 우수 | ⚠️ Revisit — 요약은 홈 AI 분석·챗봇으로 흡수, 토론 Haiku 분류는 비용으로 비활성 |
+| v1에 로그인+관심종목 포함 | Phase 7 뉴스 배치가 "사용자별 관심종목"을 타겟팅해야 트레이더 유즈케이스 완성 (2026-04-16 v2→v1 승격) | ✓ Good — Phase 06.2 (Google OAuth · 홈 인증 게이트) |
+| 상한가 기준값 사용자 조절 가능 | 트레이더마다 전략이 다름 | ✓ Good — Phase 5 스캐너 |
 | 실시간 시세 소스: KIS → 키움 OpenAPI 전환 | KIS REST 폴링 한계 (per-stock N+1, rate limit) → 키움 ka10027 페이지네이션 단일 호출로 활성 종목 매분 갱신. Direct VPC Egress + Static IP whitelist 필수. | Phase 09.1 (2026-05-15) — KIS 완전 폐기 |
 | 캔들스틱 차트 채택 (Out of Scope 정책 반전) | 2026-05-15 사용자 명시 — 상세 페이지 자체 완결성 우선, TradingView/키움과의 차별화보다 트레이더가 화면 전환 없이 가격 흐름을 즉시 파악하는 가치 우선. RESEARCH 비교 후 lightweight-charts 5.2.0 lock-in. | Phase 09.2 |
 | 모바일 = Capacitor Remote-URL 셸 + 네이티브 탭바/로그인 (Phase 21) | 웹 한 벌을 운영 URL 로 그대로 쓰고(middleware 인증·OAuth callback 때문에 static export 불가), Google 이 WebView OAuth 를 막아 네이티브 Sign-In 이 필수 | ✓ Good — UAT 4차 30/30 (2026-09-26) |
@@ -85,4 +100,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-11 after Phase 29 (DMA 다중 서버 · 웹 Admin)*
+*Last updated: 2026-10-11 after v1.0 milestone*
