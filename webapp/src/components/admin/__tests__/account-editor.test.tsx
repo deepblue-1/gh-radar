@@ -568,3 +568,114 @@ describe('AccountEditor — 계좌 주문 서버(29-38 채택 A)', () => {
     expect(noDefaultLine('123')).toBeNull();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 30 (30-04) — KB 주문자 IP/MAC 읽기 줄 · 불일치 · 「이름 없음」 · 「편집」 → 계좌명 저장 · 저장 결과
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** KB 계좌 12345678901 — 등록 KB120 · KB121(active) · 기본 KB120 · 지정 없음 · 87 값은 테스트마다. */
+const KB_TWO: AdminAccountView = {
+  ...KB_ACCT,
+  servers: [
+    { serverKey: 'KB120', tone: 'ok', message: null, state: 'active' },
+    { serverKey: 'KB121', tone: 'ok', message: null, state: 'active' },
+  ],
+  orderServer: null,
+  defaultOrderServer: 'KB120',
+};
+const EP_A = { orderIp: '010041001124', orderMac: '1CFD087D978E' };
+const EP_B = { orderIp: '010041001125', orderMac: '1CFD087D978F' };
+const EP_UNSET = { orderIp: '', orderMac: '' };
+const withEp = (a: AdminAccountView, orderEndpoints: AdminAccountView['orderEndpoints']): AdminAccountView => ({
+  ...a,
+  orderEndpoints,
+});
+
+const ipmacLine = (no: string) => acctRow(no).querySelector('[data-slot="admin-account-ipmac"]') as HTMLElement | null;
+const mismatchLines = (no: string) => [...acctRow(no).querySelectorAll('[data-slot="admin-account-ipmac-mismatch"]')];
+
+describe('P30 읽기 카드 — IP/MAC 줄 · 불일치 · 이름 없음 (D-09 · D-10)', () => {
+  it('설정됨 → 「주문자 IP 010041001124 · MAC 1CFD087D978E」 · 값 2개는 font-semibold · 87 정규화값 그대로', () => {
+    setup([withEp(KB_TWO, { KB120: EP_A, KB121: EP_A }), KYOBO_ACCT]);
+    const line = ipmacLine('12345678901');
+    expect(line).not.toBeNull();
+    expect(line).toHaveTextContent('주문자 IP 010041001124 · MAC 1CFD087D978E');
+    expect(line?.className).toContain('tabular-nums');
+    expect(line?.className).toContain('text-[12px]');
+    const values = [...(line as HTMLElement).querySelectorAll('b')];
+    expect(values.map((b) => b.textContent)).toEqual(['010041001124', '1CFD087D978E']);
+    for (const b of values) expect(b.className).toContain('font-semibold');
+    // 지점 · 트레이더 줄 바로 아래
+    const branch = acctRow('12345678901').querySelector('[data-slot="admin-account-branch"]') as HTMLElement;
+    expect(branch.nextElementSibling).toBe(line);
+    expect(mismatchLines('12345678901')).toHaveLength(0);
+  });
+
+  it('미설정 → 「주문자 IP · MAC 미설정(서버 NIC 값)」 · 「미설정(서버 NIC 값)」 만 --faint', () => {
+    setup([withEp(KB_TWO, { KB120: EP_UNSET, KB121: EP_UNSET }), KYOBO_ACCT]);
+    const line = ipmacLine('12345678901') as HTMLElement;
+    expect(line).toHaveTextContent('주문자 IP · MAC 미설정(서버 NIC 값)');
+    const faint = line.querySelector('.text-\\[var\\(--faint\\)\\]') as HTMLElement;
+    expect(faint).toHaveTextContent('미설정(서버 NIC 값)');
+    expect(line.querySelectorAll('b')).toHaveLength(0);
+  });
+
+  it('87 미확인(orderEndpoints 없음 · 전부 null) → 「확인 전」(--faint) — 「미설정」 이 아니다', () => {
+    setup([KB_TWO, KYOBO_ACCT]);
+    expect(ipmacLine('12345678901')).toHaveTextContent('주문자 IP · MAC 확인 전');
+    expect(ipmacLine('12345678901')).not.toHaveTextContent('미설정');
+  });
+
+  it('{ KB120: null } 만 있어도 「확인 전」 · 교보 계좌에는 IP/MAC 줄이 없다', () => {
+    setup([withEp(KB_ACCT, { KB120: null }), withEp(KYOBO_ACCT, { KYOBO119: EP_A })]);
+    const line = ipmacLine('12345678901') as HTMLElement;
+    expect(line).toHaveTextContent('주문자 IP · MAC 확인 전');
+    expect((line.querySelector('.text-\\[var\\(--faint\\)\\]') as HTMLElement).textContent).toBe('확인 전');
+    expect(ipmacLine('9876543201')).toBeNull();
+  });
+
+  it('불일치 — KB121 다른 값 → 경고 1줄(값) · KB121 미설정 → 「(미설정)」 · 같은 값 · KB121 null → 0줄', () => {
+    const { unmount } = render(
+      <AccountEditor dmaUserId="kimtr" accounts={[withEp(KB_TWO, { KB120: EP_A, KB121: EP_B })]} servers={SERVERS} onChanged={vi.fn()} onRemoveLast={vi.fn()} />,
+    );
+    // 출처 = 유효 주문 서버(기본 KB120) — 읽기 줄은 KB120 값
+    expect(ipmacLine('12345678901')).toHaveTextContent('주문자 IP 010041001124 · MAC 1CFD087D978E');
+    let lines = mismatchLines('12345678901');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toHaveAttribute('data-server', 'KB121');
+    expect(lines[0]).toHaveTextContent(
+      'KB121 값이 달라요(IP 010041001125 · MAC 1CFD087D978F) — 편집에서 저장하면 등록 서버가 모두 같아져요',
+    );
+    expect(lines[0].className).toContain('text-[var(--led-latent)]');
+    expect(lines[0].className).toContain('break-keep');
+    unmount();
+
+    const r2 = render(
+      <AccountEditor dmaUserId="kimtr" accounts={[withEp(KB_TWO, { KB120: EP_A, KB121: EP_UNSET })]} servers={SERVERS} onChanged={vi.fn()} onRemoveLast={vi.fn()} />,
+    );
+    lines = mismatchLines('12345678901');
+    expect(lines.map((l) => l.textContent)).toEqual(['KB121 값이 달라요(미설정) — 편집에서 저장하면 등록 서버가 모두 같아져요']);
+    r2.unmount();
+
+    const r3 = render(
+      <AccountEditor dmaUserId="kimtr" accounts={[withEp(KB_TWO, { KB120: EP_A, KB121: EP_A })]} servers={SERVERS} onChanged={vi.fn()} onRemoveLast={vi.fn()} />,
+    );
+    expect(mismatchLines('12345678901')).toHaveLength(0);
+    r3.unmount();
+
+    render(
+      <AccountEditor dmaUserId="kimtr" accounts={[withEp(KB_TWO, { KB120: EP_A, KB121: null })]} servers={SERVERS} onChanged={vi.fn()} onRemoveLast={vi.fn()} />,
+    );
+    expect(mismatchLines('12345678901')).toHaveLength(0);
+  });
+
+  it('계좌명 "" → 제목줄 계좌명 자리에 --faint 「이름 없음」 · 87 전용 줄(이름 "")에는 없다', () => {
+    setup([{ ...KB_ACCT, name: '' }, KYOBO_ACCT, ONLY_ACCT]);
+    const kb = acctRow('12345678901');
+    const noName = within(kb).getByText('이름 없음');
+    expect(noName.className).toContain('text-[var(--faint)]');
+    expect(noName.className).toContain('truncate');
+    expect(acctRow('5550001')).not.toHaveTextContent('이름 없음');
+    expect(acctRow('9876543201')).not.toHaveTextContent('이름 없음');
+  });
+});
