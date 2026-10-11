@@ -1,20 +1,16 @@
 ---
 gsd_state_version: "1.0"
-milestone: v1.0
-status: Awaiting next milestone
-stopped_at: v1.0 마일스톤 마무리 완료(2026-10-11) — 다음은 /gsd-new-milestone (v1.1)
-last_updated: "2026-10-11T03:45:54.781Z"
+milestone: v1.1
+milestone_name: 운영 유지보수
+status: planning
+last_updated: "2026-10-11T04:43:04.541Z"
 last_activity: 2026-10-11
-last_activity_desc: Milestone v1.0 completed and archived
-state_head: 7b83f1ec0167c60715d9d551b5733bdc41d2ef13
 progress:
-  total_phases: 37
-  completed_phases: 37
-  total_plans: 432
-  completed_plans: 432
-milestone_name: Launch
-current_phase: 29
-current_phase_name: DMA 다중 서버 · 웹 Admin 유저 관리
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -24,17 +20,14 @@ current_phase_name: DMA 다중 서버 · 웹 Admin 유저 관리
 See: .planning/PROJECT.md (updated 2026-10-11 after v1.0 milestone)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** v1.0 Launch 마무리 완료 — v1.1(운영 유지보수) 정의 전
+**Current focus:** v1.1 운영 유지보수 — 요구사항 정의 중
 
 ## Current Position
 
-Phase: Milestone v1.0 complete (Phase 1-29 · 23 제거)
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone — `/gsd-new-milestone`
-Production URL: https://gh-radar-webapp.vercel.app · https://trade.jx1.io
-Last activity: 2026-10-11 — Milestone v1.0 completed and archived
-
-v1.0 이력(Performance Metrics · Roadmap Evolution · Decisions 전체 · 종료 시점 Session Continuity 원문): [STATE-ARCHIVE.md](./STATE-ARCHIVE.md#v10-종료-시점-statemd-원문-2026-10-11-마일스톤-마무리-이관) · 결정 정본은 [PROJECT.md](./PROJECT.md#key-decisions) Key Decisions · [DECISIONS-ARCHIVE.md](./DECISIONS-ARCHIVE.md)
+Status: Defining requirements
+Last activity: 2026-10-11 — Milestone v1.1 started
 
 ## Accumulated Context
 

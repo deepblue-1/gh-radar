@@ -28,7 +28,6 @@
 ### Active
 
 - [ ] gh-trade 인박스 처리 — KB 계좌별 주문자 IP/MAC(R3-01 재조회 · 웹 입력칸 · 질문 3개) · 상따 금액 단위(금액 8필드 되싣기 · 「만(주)」 표시 여부)
-- [ ] Phase 29 두 번째 서버(KB121·KYOBO127) 켜기 전 결정(R3-03/05/06 · 51 계좌 필터)
 - [ ] 운영 중 발견되는 버그 수정 · 자잘한 기능 추가 (v1.1 상시)
 - [ ] CLAUDE.md 다이어트
 
@@ -46,9 +45,17 @@
 - 37 phase · 432 plan · quick 130건 → `.planning/milestones/v1.0-*` 로 아카이브
 - 열린 운영 항목: 두 번째 DMA 서버 켜기 전 결정 · KB IP/MAC 설정 보류(R3-01) · D-25 래치 실기 관측(Xcode 라이선스) · smoke INV-9 첫 실행
 
-## Next Milestone Goals (v1.1)
+## Current Milestone: v1.1 운영 유지보수
 
-목표 기능 없이 **운영 유지보수** — 프로덕션에서 나오는 버그 수정, 자잘한 기능 추가, gh-trade 인박스 계약 반영을 quick/작은 phase 로 처리한다. 마일스톤은 작게 유지하고 주기적으로 아카이브한다(토큰 비용).
+**Goal:** 목표 기능 없이, 운영 중인 프로덕트의 버그 수정 · 자잘한 기능 추가 · gh-trade 인박스 계약 반영을 작은 단위로 처리한다. 마일스톤은 작게 유지하고 주기적으로 마무리한다(토큰 비용).
+
+**Target features:**
+- 인박스 KB 계좌별 주문자 IP/MAC — relay R3-01(계획 직전 op 5 재조회) · 웹 Admin 계좌 편집 입력칸 2개 · gh-trade 질문 3개 답
+- 인박스 상따 금액 단위 — `lc.set` 재제출 때 금액 8필드 에코값 되싣기 · 84 `post_buy_floor_amount` 표시(「만(주)」 UI 도입은 결정 사항)
+- CLAUDE.md 다이어트 — quick 1건
+- 운영 버그 · 소규모 기능 — 발생 시 `/gsd-quick`·`/gsd-fast`, 로드맵 phase 없음
+
+**보류(v1.1 밖):** 두 번째 DMA 서버(KB121·KYOBO127) 켜기 전 결정(R3-03/05/06 · 51 계좌 필터) — 켤 계획이 생길 때 별도 phase.
 
 ## Context
 
@@ -100,4 +107,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-11 after v1.0 milestone*
+*Last updated: 2026-10-11 after v1.1 milestone start*
