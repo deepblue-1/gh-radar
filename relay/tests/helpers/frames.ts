@@ -1921,6 +1921,10 @@ export type FakeAdminAccountInput = {
   branchNo?: string;
   traderId?: string;
   priority?: number;
+  /** 주문자 IP(슬롯 14 · gh-trade 인박스 261010) — 주어질 때만 싣는다(생략 = 구 서버 · 필드 없음). */
+  orderIp?: string;
+  /** 주문자 MAC(슬롯 16) — 주어질 때만 싣는다. */
+  orderMac?: string;
 };
 
 /** 86 입력. 기본 = 성공(code 0) · rev 1. */
@@ -1947,12 +1951,16 @@ function buildFakeAdminAccount(b: flatbuffers.Builder, a: FakeAdminAccountInput)
   const name = b.createString(a.name ?? "위탁종합");
   const branchNo = b.createString(a.branchNo ?? "00000");
   const traderId = b.createString(a.traderId ?? "000000");
+  const orderIp = a.orderIp !== undefined ? b.createString(a.orderIp) : null;
+  const orderMac = a.orderMac !== undefined ? b.createString(a.orderMac) : null;
   AdminAccount.startAdminAccount(b);
   AdminAccount.addAccountNo(b, accountNo);
   AdminAccount.addName(b, name);
   AdminAccount.addBranchNo(b, branchNo);
   AdminAccount.addTraderId(b, traderId);
   AdminAccount.addPriority(b, a.priority ?? 0);
+  if (orderIp !== null) AdminAccount.addOrderIp(b, orderIp);
+  if (orderMac !== null) AdminAccount.addOrderMac(b, orderMac);
   return AdminAccount.endAdminAccount(b);
 }
 

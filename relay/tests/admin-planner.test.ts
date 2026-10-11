@@ -31,6 +31,14 @@ function intentRow(
   };
 }
 
+/**
+ * op 1 · op 3 에 실리는 계좌 — 87 에 그 계좌의 주문자 IP/MAC 이 없으면 빈 문자열(= 미설정)로 싣는다(GC-02 · 29-47).
+ * 87 에 값이 있으면 그 값을 되싣는다(아래 「주문자 IP/MAC 되싣기」).
+ */
+function sent(a: AdminAccountFields): AdminAccountFields {
+  return { ...a, orderIp: "", orderMac: "" };
+}
+
 describe("planServerOps — 트레이서(신규 유저 · 첫 계좌 · 서버 1대)", () => {
   it("87 에 유저 없음 → op 1(계좌 포함) 한 개", () => {
     expect(
@@ -40,7 +48,7 @@ describe("planServerOps — 트레이서(신규 유저 · 첫 계좌 · 서버 1
         intent: [intentRow(A1)],
         snapshot: { users: [] },
       }),
-    ).toEqual({ status: "ready", ops: [{ op: 1, account: A1 }], settleRemoved: [] });
+    ).toEqual({ status: "ready", ops: [{ op: 1, account: sent(A1) }], settleRemoved: [] });
   });
 
   it("87 에 같은 A1 → 보낼 것 없음", () => {
@@ -115,28 +123,28 @@ function plan(
 
 describe("planServerOps — op 3 추가 · 갱신", () => {
   it("유저 있음 · active [A1, A2] · 87 [A1] → op 3 A2", () => {
-    expect(plan([A1, A2], [], [{ ...A1 }]).ops).toEqual([{ op: 3, account: A2 }]);
+    expect(plan([A1, A2], [], [{ ...A1 }]).ops).toEqual([{ op: 3, account: sent(A2) }]);
   });
 
   it("87 의 A1 이름만 다름 → op 3 A1 · op 3 A2 (priority → accountNo 순)", () => {
     expect(plan([A2, A1], [], [{ ...A1, name: "옛 이름" }]).ops).toEqual([
-      { op: 3, account: A1 },
-      { op: 3, account: A2 },
+      { op: 3, account: sent(A1) },
+      { op: 3, account: sent(A2) },
     ]);
   });
 
   it("유저 없음 · active [A2(p1), A1(p0)] → op 1 A1(첫 계좌 = priority 순) · op 3 A2", () => {
     expect(plan([A2, A1], [], null).ops).toEqual([
-      { op: 1, account: A1 },
-      { op: 3, account: A2 },
+      { op: 1, account: sent(A1) },
+      { op: 3, account: sent(A2) },
     ]);
   });
 
   it("같은 priority 면 accountNo 순으로 첫 계좌를 고른다", () => {
     const B = { ...A2, priority: 0, accountNo: "1111111" };
     expect(plan([A1, B], [], null).ops).toEqual([
-      { op: 1, account: B },
-      { op: 3, account: A1 },
+      { op: 1, account: sent(B) },
+      { op: 3, account: sent(A1) },
     ]);
   });
 
@@ -145,9 +153,9 @@ describe("planServerOps — op 3 추가 · 갱신", () => {
   });
 
   it("값 비교는 branchNo · traderId · priority 도 본다", () => {
-    expect(plan([A1], [], [{ ...A1, priority: 3 }]).ops).toEqual([{ op: 3, account: A1 }]);
-    expect(plan([A1], [], [{ ...A1, traderId: "T00002" }]).ops).toEqual([{ op: 3, account: A1 }]);
-    expect(plan([A1], [], [{ ...A1, branchNo: "00124" }]).ops).toEqual([{ op: 3, account: A1 }]);
+    expect(plan([A1], [], [{ ...A1, priority: 3 }]).ops).toEqual([{ op: 3, account: sent(A1) }]);
+    expect(plan([A1], [], [{ ...A1, traderId: "T00002" }]).ops).toEqual([{ op: 3, account: sent(A1) }]);
+    expect(plan([A1], [], [{ ...A1, branchNo: "00124" }]).ops).toEqual([{ op: 3, account: sent(A1) }]);
   });
 });
 
@@ -218,8 +226,8 @@ describe("planServerOps — 서버에만 있음 계좌는 지우지 않는다 (D
 describe("planServerOps — 섞인 경우 순서 op 1 → op 3 → op 4", () => {
   it("유저 있음 · A1 값 변경 · A3 없음 · A2 제거 → op 3 A1 · op 3 A3 · op 4 A2", () => {
     expect(plan([A1, A3], [A2], [{ ...A1, name: "옛 이름" }, { ...A2 }]).ops).toEqual([
-      { op: 3, account: A1 },
-      { op: 3, account: A3 },
+      { op: 3, account: sent(A1) },
+      { op: 3, account: sent(A3) },
       { op: 4, accountNo: A2.accountNo },
     ]);
   });
@@ -228,11 +236,60 @@ describe("planServerOps — 섞인 경우 순서 op 1 → op 3 → op 4", () => 
     expect(plan([A3, A1], [A2], null)).toEqual({
       status: "ready",
       ops: [
-        { op: 1, account: A1 },
-        { op: 3, account: A3 },
+        { op: 1, account: sent(A1) },
+        { op: 3, account: sent(A3) },
       ],
       settleRemoved: [A2.accountNo],
     });
+  });
+});
+
+describe("planServerOps — 주문자 IP/MAC 되싣기 (GC-02 · 29-47)", () => {
+  // 서버(gh-trade 인박스 261010)는 op 3 의 null · 빈 값을 「미설정」 으로 되돌린다 — 그래서 op 1 · op 3 은 계획 시점 87 의
+  // 그 계좌 값을 그대로 되싣는다(서버 계좌 설정 보존). 의도(DB)는 지금 두 필드를 갖지 않는다.
+  const IP = "010041001124";
+  const MAC = "1CFD087D978E";
+  const A1_SERVER: AdminAccountFields = { ...A1, orderIp: IP, orderMac: MAC };
+
+  it("87 A1(이름 「위탁」 · IP/MAC 있음) · 의도 A1 이름 「위탁종합」 → op 3 에 87 의 IP/MAC 을 되싣는다", () => {
+    const renamed = { ...A1, name: "위탁종합" };
+    expect(plan([renamed], [], [{ ...A1_SERVER }]).ops).toEqual([
+      { op: 3, account: { ...renamed, orderIp: IP, orderMac: MAC } },
+    ]);
+  });
+
+  it("의도 계좌번호가 비정규(앞 0 · 공백)여도 정규화 키로 87 의 값을 찾아 되싣는다", () => {
+    const renamed = { ...A1, accountNo: " 01234567", name: "위탁종합" };
+    expect(plan([renamed], [], [{ ...A1_SERVER }]).ops).toEqual([
+      { op: 3, account: { ...A1, name: "위탁종합", orderIp: IP, orderMac: MAC } },
+    ]);
+  });
+
+  it("87 에 없는 계좌(추가 op 3)는 빈 문자열 — 보존할 값이 없다", () => {
+    expect(plan([A1, A3], [], [{ ...A1_SERVER }]).ops).toEqual([{ op: 3, account: sent(A3) }]);
+  });
+
+  it("87 에 유저가 없으면 op 1 첫 계좌 · 나머지 op 3 모두 빈 문자열", () => {
+    expect(plan([A1, A2], [], null).ops).toEqual([
+      { op: 1, account: sent(A1) },
+      { op: 3, account: sent(A2) },
+    ]);
+  });
+
+  it("의도 쪽에 값이 있으면 의도 쌍이 이긴다(미래 입력칸 대비 — 지금 DB 의도는 값이 없다)", () => {
+    const intentA1 = { ...A1, name: "위탁종합", orderIp: "010041001200", orderMac: "AABBCCDDEEFF" };
+    expect(plan([intentA1], [], [{ ...A1_SERVER }]).ops).toEqual([{ op: 3, account: intentA1 }]);
+  });
+
+  it("의도 쪽에 한쪽만 있어도 87 값과 섞지 않는다 — 쌍으로 의도를 쓴다(빈 쪽 = 빈 문자열 · 서버가 13 으로 거부)", () => {
+    const intentA1 = { ...A1, name: "위탁종합", orderIp: "010041001200" };
+    expect(plan([intentA1], [], [{ ...A1_SERVER }]).ops).toEqual([
+      { op: 3, account: { ...intentA1, orderMac: "" } },
+    ]);
+  });
+
+  it("87 의 IP/MAC 만 있고 나머지 값이 같으면 보낼 것 없음(op 0 — 의도에 두 필드가 없으면 비교하지 않는다)", () => {
+    expect(plan([A1], [], [{ ...A1_SERVER }]).ops).toEqual([]);
   });
 });
 

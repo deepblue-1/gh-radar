@@ -51,10 +51,24 @@ const SKIPPED_SETTLED = "사용이 꺼진 서버 — DB 등록만 지웠어요(�
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-type Acc = { accountNo: string; name?: string; branchNo?: string; traderId?: string; priority?: number };
+type Acc = {
+  accountNo: string;
+  name?: string;
+  branchNo?: string;
+  traderId?: string;
+  priority?: number;
+  /** 서버 계좌별 주문자 IP/MAC(gh-trade 인박스 261010) — 87 이 비어 있지 않을 때만 싣는다. */
+  orderIp?: string;
+  orderMac?: string;
+};
 
-function kb(accountNo: string, priority = 1): Required<Acc> {
+function kb(accountNo: string, priority = 1): Required<Omit<Acc, "orderIp" | "orderMac">> {
   return { accountNo, name: "위탁", branchNo: "00001", traderId: "000001", priority };
+}
+
+/** op 1 · op 3 command 에 실리는 계좌 — 87 에 주문자 IP/MAC 이 없으면 빈 문자열(= 미설정 · GC-02 · 29-47). */
+function wire<T extends object>(a: T): T & { orderIp: string; orderMac: string } {
+  return { ...a, orderIp: "", orderMac: "" };
 }
 
 function snapshotOf(state: FakeAdminState): AdminUsersSnapshot {
@@ -70,6 +84,9 @@ function snapshotOf(state: FakeAdminState): AdminUsersSnapshot {
           branchNo: a.branchNo ?? "",
           traderId: a.traderId ?? "",
           priority: a.priority ?? 0,
+          // 87 파서와 같은 규칙 — 비어 있지 않은 값만 키로 둔다.
+          ...(a.orderIp ? { orderIp: a.orderIp } : {}),
+          ...(a.orderMac ? { orderMac: a.orderMac } : {}),
         })),
     })),
   };
@@ -213,7 +230,7 @@ describe("AdminDispatcher — 변경 경로 (29-11 Task 2)", () => {
       { server: "KB120", outcome: "ok", usersRev: "6" },
       { server: "KB121", outcome: "ok", usersRev: "6" },
     ]);
-    expect(env.conns.KB121!.sent).toEqual([{ op: 3, userId: "u1", account: kb("B", 2) }]);
+    expect(env.conns.KB121!.sent).toEqual([{ op: 3, userId: "u1", account: wire(kb("B", 2)) }]);
     expect(env.conns.KB120!.sent).toEqual([
       { op: 4, userId: "u1", account: { accountNo: "B", name: "", branchNo: "", traderId: "", priority: 0 } },
     ]);
@@ -236,7 +253,7 @@ describe("AdminDispatcher — 변경 경로 (29-11 Task 2)", () => {
     const results = await env.dispatcher.reconcileUser("u1", { adminEmail: "boss@gmail.com" });
 
     expect(results.map((r) => r.outcome)).toEqual(["ok", "ok"]);
-    expect(env.conns.KB121!.sent).toEqual([{ op: 1, userId: "u1", password: PASSWORD, account: kb("A") }]);
+    expect(env.conns.KB121!.sent).toEqual([{ op: 1, userId: "u1", password: PASSWORD, account: wire(kb("A")) }]);
     expect(env.conns.KB120!.sent).toEqual([{ op: 2, userId: "u1" }]);
     // 29-32 WR-01 — reconcile 의 op 2 settle 은 계획 때 removing 이던 행만(전 행 삭제는 유저 삭제 경로 전용).
     expect(env.db.callsTo("dma_admin_settle_server").map((c) => c.args)).toEqual([
@@ -407,6 +424,20 @@ describe("AdminDispatcher — 변경 경로 (29-11 Task 2)", () => {
     ]);
     expect(env.conns.KB120!.sent).toEqual([]);
     expect(env.conns.KB121!.sent).toEqual([]);
+  });
+
+  it("D14 GC-02(29-47) — 87 의 주문자 IP/MAC 을 op 3 command 에 되싣는다 · 서버 값이 남는다", async () => {
+    const IP = "010041001124";
+    const MAC = "1CFD087D978E";
+    const env = setup({ KB120: state({ u1: [{ ...kb("A"), name: "옛 이름", orderIp: IP, orderMac: MAC }] }) }, [row("KB120")]);
+    seedU1(env, [{ accountNo: "A", servers: ["KB120"] }]);
+
+    const results = await env.dispatcher.reconcileUser("u1", { adminEmail: "boss@gmail.com" });
+
+    expect(results).toEqual([{ server: "KB120", outcome: "ok", usersRev: "6" }]);
+    expect(env.conns.KB120!.sent).toEqual([{ op: 3, userId: "u1", account: { ...kb("A"), orderIp: IP, orderMac: MAC } }]);
+    const kept = env.conns.KB120!.state.users.get("u1")![0]!;
+    expect([kept.name, kept.orderIp, kept.orderMac]).toEqual(["위탁", IP, MAC]);
   });
 
   it("D7 부분 실패 — 무응답 timeout · 다른 서버 ok · 응답 시간 ≤ 타임아웃 × op 수 + 여유", async () => {
@@ -667,7 +698,7 @@ describe("AdminDispatcher — 변경 경로 (29-11 Task 2)", () => {
       expect((await second).map((r) => r.outcome)).toEqual(["ok", "ok"]);
       expect(env.conns.KB121!.sent).toEqual([
         { op: 2, userId: "u1" },
-        { op: 1, userId: "u1", password: PASSWORD, account: kb("B", 2) },
+        { op: 1, userId: "u1", password: PASSWORD, account: wire(kb("B", 2)) },
       ]);
       expect(env.conns.KB121!.state.users.get("u1")?.map((a) => a.accountNo)).toEqual(["B"]);
     } finally {

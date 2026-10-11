@@ -2581,6 +2581,79 @@ describe("Phase 29 admin 코덱 (44 조립 · 86/87 파싱 · role 2)", () => {
     expect(droppedEnvelopeCount()).toBe(0);
   });
 
+  // GC-02(29-47) — 계좌별 주문자 IP/MAC(gh-trade 인박스 261010 · 슬롯 14 · 16). 서버는 op 3 의 null · 빈 값을 「미설정」 으로
+  // 되돌리므로 relay 는 87 값을 되싣는다 — 87 파서가 읽고 44 조립기가 싣는다.
+  const ORDER_IP = "010041001124";
+  const ORDER_MAC = "1CFD087D978E";
+
+  it("87 → order_ip/order_mac 은 비어 있지 않은 값만 키로 둔다(빈 값 · 필드 없음 = 미설정 = 키 없음 · GC-02)", () => {
+    const snap = parseAdminUsersSnapshot(
+      envOf(
+        buildAdminUsersSnapshotFrame({
+          usersRev: 4n,
+          users: [
+            {
+              userId: "kb-user",
+              accounts: [
+                { accountNo: SAMPLE_ACCOUNT_NO, priority: 0, orderIp: ORDER_IP, orderMac: ORDER_MAC },
+                { accountNo: "1234567802", name: "연금", priority: 1 },
+                { accountNo: "1234567804", name: "빈값", priority: 2, orderIp: "", orderMac: "" },
+              ],
+            },
+          ],
+        }),
+      ),
+    );
+    expect(snap).toEqual({
+      usersRev: 4n,
+      users: [
+        {
+          userId: "kb-user",
+          accounts: [
+            {
+              accountNo: SAMPLE_ACCOUNT_NO,
+              name: "위탁종합",
+              branchNo: "00000",
+              traderId: "000000",
+              priority: 0,
+              orderIp: ORDER_IP,
+              orderMac: ORDER_MAC,
+            },
+            { accountNo: "1234567802", name: "연금", branchNo: "00000", traderId: "000000", priority: 1 },
+            { accountNo: "1234567804", name: "빈값", branchNo: "00000", traderId: "000000", priority: 2 },
+          ],
+        },
+      ],
+    });
+    const [withIp, legacy, blank] = snap!.users[0]!.accounts;
+    expect("orderIp" in legacy! || "orderMac" in legacy!).toBe(false);
+    expect("orderIp" in blank! || "orderMac" in blank!).toBe(false);
+    expect(withIp!.orderIp).toBe(ORDER_IP);
+  });
+
+  it("44 op 3 — account 의 orderIp/orderMac 을 싣는다 · 바이트를 생성 리더로 다시 읽으면 두 값(GC-02 트레이서)", () => {
+    const env = readBack(
+      buildAdminCommandReq({
+        requestId: 9n,
+        op: ADMIN_OP.SetAccount,
+        userId: "kb-user",
+        account: { ...KB_ACCOUNT, orderIp: ORDER_IP, orderMac: ORDER_MAC },
+      }),
+    );
+    const a = env.adminCommandReq(new AdminCommandReq())!.account();
+    expect(a).not.toBeNull();
+    expect(a!.orderIp()).toBe(ORDER_IP);
+    expect(a!.orderMac()).toBe(ORDER_MAC);
+    expect(a!.name()).toBe(KB_ACCOUNT.name);
+  });
+
+  it("44 — 두 값이 없는 계좌는 빈 문자열을 명시적으로 싣는다(필드 부재 null 이 아니다 · 서버 판정상 미설정)", () => {
+    const env = readBack(buildAdminCommandReq({ requestId: 10n, op: ADMIN_OP.SetAccount, userId: "kb-user", account: KB_ACCOUNT }));
+    const a = env.adminCommandReq(new AdminCommandReq())!.account();
+    expect(a!.orderIp()).toBe("");
+    expect(a!.orderMac()).toBe("");
+  });
+
   it("86 · 87 슬롯 null → 드롭(slot-null · 카운터 +1)", () => {
     expect(parseAdminCommandResp(envOf(buildBareEnvelope(MSG.AdminCommandResp)))).toBeNull();
     expect(parseAdminUsersSnapshot(envOf(buildBareEnvelope(MSG.AdminUsersSnapshot)))).toBeNull();

@@ -924,7 +924,7 @@ function adminSnapshotOf(state: FakeAdminState): FakeAdminUsersSnapshotInput {
   };
 }
 
-/** 계좌 입력 → 5필드 완성본 (비교용). */
+/** 계좌 입력 → 7필드 완성본 (비교용 — op 3 멱등은 주문자 IP/MAC 까지 7필드 · gh-trade 인박스 261010 · 없음 = 빈 문자열). */
 function fullAccount(a: FakeAdminAccountInput): Required<FakeAdminAccountInput> {
   return {
     accountNo: a.accountNo ?? "",
@@ -932,6 +932,8 @@ function fullAccount(a: FakeAdminAccountInput): Required<FakeAdminAccountInput> 
     branchNo: a.branchNo ?? "",
     traderId: a.traderId ?? "",
     priority: a.priority ?? 0,
+    orderIp: a.orderIp ?? "",
+    orderMac: a.orderMac ?? "",
   };
 }
 
