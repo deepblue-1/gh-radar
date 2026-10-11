@@ -1150,3 +1150,150 @@ describe('P30 IP/MAC 편집칸 · 검증 (D-03 · D-04 · D-05 · D-10)', () => 
     await act(async () => resolve({ results: [{ server: 'KB120', outcome: 'ok' }] }));
   });
 });
+
+describe('P30 보내기 규칙 — 원문 · 변경 없음 · 비우기 · code 13 (D-06 · D-07 · IPMAC-03)', () => {
+  /** gh-trade 86 code 13 BAD_ORDER_ENDPOINT 원문(인박스 261010) — 웹은 이 문장을 바꾸거나 대조하지 않는다(D-12). */
+  const GH_TRADE_C13 =
+    '주문자 IP/MAC 형식 오류 — IP 는 12자리 숫자 또는 a.b.c.d, MAC 은 12자리 16진, 둘 다 적거나 둘 다 비워야 합니다';
+  const NO = '12345678901';
+  const EDIT = 'KB 12345678901 편집';
+  const SAVE = 'KB 12345678901 편집 저장';
+  const btn = (name: string) => screen.getByRole('button', { name });
+  const ipInput = () => within(acctRow(NO)).getByLabelText('주문자 IP') as HTMLInputElement;
+  const macInput = () => within(acctRow(NO)).getByLabelText('MAC 주소') as HTMLInputElement;
+  const nameInput = (no = NO) => within(acctRow(no)).getByRole('textbox', { name: '계좌명' }) as HTMLInputElement;
+  const resultLines = (no = NO) => [...acctRow(no).querySelectorAll('[data-slot="admin-account-edit-result"]')];
+  const bodyOf = (i = 0) => putDmaAccountMock.mock.calls[i][1] as Record<string, unknown> & { account: Record<string, unknown> };
+
+  function mount(accounts: AdminAccountView[]) {
+    render(<AccountEditor dmaUserId="kimtr" accounts={accounts} servers={SERVERS} onChanged={vi.fn()} onRemoveLast={vi.fn()} />);
+  }
+
+  it('(D-07) 미설정 계좌에 "10.41.1.124" · "1c:fd:08:7d:97:8e" 저장 → orderEndpoint 가 정확히 그 원문 · account 에 IP/MAC 키 없음', async () => {
+    putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }] });
+    mount([withEp(KB_ACCT, { KB120: EP_UNSET }), KYOBO_ACCT]);
+    fireEvent.click(btn(EDIT));
+    fireEvent.change(ipInput(), { target: { value: '10.41.1.124' } });
+    fireEvent.change(macInput(), { target: { value: '1c:fd:08:7d:97:8e' } });
+    fireEvent.click(btn(SAVE));
+    expect(putDmaAccountMock).toHaveBeenCalledTimes(1);
+    const body = bodyOf();
+    expect(body.orderEndpoint).toEqual({ orderIp: '10.41.1.124', orderMac: '1c:fd:08:7d:97:8e' });
+    expect(Object.keys(body).sort()).toEqual(['account', 'orderEndpoint', 'servers']);
+    expect(body.account).not.toHaveProperty('orderIp');
+    expect(body.account).not.toHaveProperty('orderMac');
+    expect(body.account).toEqual({ broker: 'KB', accountNo: NO, name: '위탁', branchNo: '00123', traderId: '000789', priority: 1 });
+    expect(body.servers).toEqual(['KB120']);
+    await waitFor(() => expect(acctRow(NO)).not.toHaveAttribute('data-editing'));
+  });
+
+  it('앞뒤 공백 " 10.41.1.124 " · " 1c-fd-08-7d-97-8e " → trim 만 한 원문을 보낸다(구분자 · 대소문자 그대로)', async () => {
+    putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }] });
+    mount([withEp(KB_ACCT, { KB120: EP_UNSET }), KYOBO_ACCT]);
+    fireEvent.click(btn(EDIT));
+    fireEvent.change(ipInput(), { target: { value: ' 10.41.1.124 ' } });
+    fireEvent.change(macInput(), { target: { value: ' 1c-fd-08-7d-97-8e ' } });
+    fireEvent.click(btn(SAVE));
+    expect(bodyOf().orderEndpoint).toEqual({ orderIp: '10.41.1.124', orderMac: '1c-fd-08-7d-97-8e' });
+    await act(async () => {});
+  });
+
+  it('(D-06) 설정 계좌에 같은 값을 점표기로 다시 적고 저장 → 요청 0 · 편집 닫힘 · 포커스 「편집」 · 「변경 없음」(NOTE) · 다시 열면 사라짐', () => {
+    mount([withEp(KB_TWO, { KB120: EP_A, KB121: EP_A }), KYOBO_ACCT]);
+    fireEvent.click(btn(EDIT));
+    fireEvent.change(ipInput(), { target: { value: '10.41.1.124' } });
+    fireEvent.change(macInput(), { target: { value: '1c:fd:08:7d:97:8e' } });
+    expect(btn(SAVE)).not.toBeDisabled(); // 원문이 달라 「바뀜」
+    fireEvent.click(btn(SAVE));
+    expect(putDmaAccountMock).toHaveBeenCalledTimes(0);
+    expect(acctRow(NO)).not.toHaveAttribute('data-editing');
+    expect(document.activeElement).toBe(btn(EDIT));
+    const lines = resultLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0].textContent).toBe('변경 없음');
+    expect(lines[0].className).toContain('text-[var(--muted-fg)]');
+    expect(lines[0]).not.toHaveAttribute('role');
+    // IP/MAC 읽기 줄 아래
+    expect((ipmacLine(NO) as HTMLElement).compareDocumentPosition(lines[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(btn(EDIT));
+    expect(resultLines()).toHaveLength(0);
+  });
+
+  it('(D-04) 설정 계좌의 두 칸을 모두 비우고 저장 → orderEndpoint { "", "" } (확인 없음)', async () => {
+    putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }, { server: 'KB121', outcome: 'ok' }] });
+    mount([withEp(KB_TWO, { KB120: EP_A, KB121: EP_A }), KYOBO_ACCT]);
+    fireEvent.click(btn(EDIT));
+    fireEvent.change(ipInput(), { target: { value: '' } });
+    fireEvent.change(macInput(), { target: { value: '' } });
+    expect(btn(SAVE)).not.toBeDisabled();
+    fireEvent.click(btn(SAVE));
+    expect(putDmaAccountMock).toHaveBeenCalledTimes(1);
+    expect(bodyOf().orderEndpoint).toEqual({ orderIp: '', orderMac: '' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await act(async () => {});
+  });
+
+  it('설정 계좌 계좌명만 바꿔 저장 → orderEndpoint 키 없음(87 값 보존)', async () => {
+    putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }, { server: 'KB121', outcome: 'ok' }] });
+    mount([withEp(KB_TWO, { KB120: EP_A, KB121: EP_A }), KYOBO_ACCT]);
+    fireEvent.click(btn(EDIT));
+    fireEvent.change(nameInput(), { target: { value: '위탁종합' } });
+    fireEvent.click(btn(SAVE));
+    expect(bodyOf()).not.toHaveProperty('orderEndpoint');
+    expect(bodyOf().account.name).toBe('위탁종합');
+    await act(async () => {});
+  });
+
+  it('계좌명 변경 + 같은 IP/MAC 점표기 → 이름만 싣고 orderEndpoint 없음(정규화 비교로 같음)', async () => {
+    putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }] });
+    mount([withEp(KB_ACCT, { KB120: EP_A }), KYOBO_ACCT]);
+    fireEvent.click(btn(EDIT));
+    fireEvent.change(nameInput(), { target: { value: '위탁종합' } });
+    fireEvent.change(ipInput(), { target: { value: '10.41.1.124' } });
+    fireEvent.click(btn(SAVE));
+    expect(putDmaAccountMock).toHaveBeenCalledTimes(1);
+    expect(bodyOf()).not.toHaveProperty('orderEndpoint');
+    await act(async () => {});
+  });
+
+  it('(D-10) 불일치 계좌(KB120 ≠ KB121) 바꾸지 않고 저장 → orderEndpoint = 출처(KB120) 값 그대로 · 등록 서버 전부', async () => {
+    putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }, { server: 'KB121', outcome: 'ok' }] });
+    mount([withEp(KB_TWO, { KB120: EP_A, KB121: EP_B }), KYOBO_ACCT]);
+    fireEvent.click(btn(EDIT));
+    fireEvent.click(btn(SAVE));
+    expect(putDmaAccountMock).toHaveBeenCalledTimes(1);
+    expect(bodyOf().orderEndpoint).toEqual({ orderIp: '010041001124', orderMac: '1CFD087D978E' });
+    expect(bodyOf().servers).toEqual(['KB120', 'KB121']);
+    await act(async () => {});
+  });
+
+  it('(D-03) 교보 계좌 이름 변경 저장 → orderEndpoint 키 없음 · 같은 이름이면 「저장」 비활성', async () => {
+    putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KYOBO119', outcome: 'ok' }] });
+    mount([withEp(KB_ACCT, { KB120: EP_A }), KYOBO_ACCT]);
+    fireEvent.click(btn('KYOBO 9876543201 편집'));
+    expect(btn('KYOBO 9876543201 편집 저장')).toBeDisabled();
+    fireEvent.change(nameInput('9876543201'), { target: { value: '교보위탁' } });
+    fireEvent.click(btn('KYOBO 9876543201 편집 저장'));
+    expect(putDmaAccountMock).toHaveBeenCalledTimes(1);
+    expect(bodyOf()).not.toHaveProperty('orderEndpoint');
+    expect(Object.keys(bodyOf()).sort()).toEqual(['account', 'servers']);
+    await act(async () => {});
+  });
+
+  it('(IPMAC-03) [KB120 failed code 13 · gh-trade 원문] → 결과 줄 원문 · 편집 유지 · IP/MAC 칸 값 유지', async () => {
+    putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'failed', code: 13, message: GH_TRADE_C13 }] });
+    mount([withEp(KB_ACCT, { KB120: EP_UNSET }), KYOBO_ACCT]);
+    fireEvent.click(btn(EDIT));
+    fireEvent.change(ipInput(), { target: { value: '10.41.1.124' } });
+    fireEvent.change(macInput(), { target: { value: '1c:fd:08:7d:97:8e' } });
+    fireEvent.click(btn(SAVE));
+    await waitFor(() => expect(resultLines()).toHaveLength(1));
+    expect(resultLines()[0].textContent).toBe(`KB120 실패: ${GH_TRADE_C13}`);
+    expect(resultLines()[0]).toHaveAttribute('role', 'alert');
+    expect(acctRow(NO)).toHaveAttribute('data-editing', 'true');
+    expect(ipInput()).toHaveValue('10.41.1.124');
+    expect(macInput()).toHaveValue('1c:fd:08:7d:97:8e');
+    // 같은 값으로 다시 「저장」 할 수 있다
+    expect(btn(SAVE)).not.toBeDisabled();
+  });
+});
