@@ -109,11 +109,11 @@ Plans:
   4. 「만(주)」 도입 여부가 인박스 노트 `261011-limitchaser-amount-unit.md` 질문 2개 답으로 적히고 `status: done` · `done_commit` 으로 커밋된다 — 도입하면 상따 수량 칸이 만원 입력 · 주 환산 표시(§10 규칙)로 바뀐다
 
 **배포 순서**: gh-trade 서버 배포 확인 → DB 변경 없음 → relay → webapp push(= 프로덕션). AMT-04 결정이 범위를 정하므로 discuss 에서 먼저 답한다
-**Plans**: 1/8 plans executed
+**Plans**: 2/8 plans executed
 Plans:
 **Wave 1**
 - [x] 31-01-PLAN.md — (트레이서) 매도 「매수잔량」 만원 한 칸 → lc.set 금액 · 산출 주 → relay → 10 → 60 에코 → 행 · 금액 8필드 계약(shared · relay zod/조립/파서) · §10 환산 한 벌
-- [ ] 31-02-PLAN.md — 표시 부품: 두 줄 행(56px · lc-row-sub) · 인라인 아래 줄 · 시트 환산 안내 줄(hint · 우선순위)
+- [x] 31-02-PLAN.md — 표시 부품: 두 줄 행(56px · lc-row-sub) · 인라인 아래 줄 · 시트 환산 안내 줄(hint · 우선순위)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 31-03-PLAN.md — AMT-03: /me 「후매수 최소(만원)」 · 42 12값 · 봉인 0 · 84 금액 · 구 탭 84 캐시 되싣기
@@ -141,4 +141,4 @@ Plans:
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 30. 인박스 KB 계좌별 주문자 IP/MAC | v1.1 | 6/7 | Not started | - |
-| 31. 인박스 상따 금액 단위 | v1.1 | 1/8 | Not started | - |
+| 31. 인박스 상따 금액 단위 | v1.1 | 2/8 | Not started | - |
