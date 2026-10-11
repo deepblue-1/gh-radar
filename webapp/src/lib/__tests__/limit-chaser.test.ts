@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { LC_AMOUNT_PAIRS, LIMIT_CHASER_SERVER_ONLY_FIELDS, echoAmountOf, qtyForSubmit } from '@gh-radar/shared';
+import {
+  LC_AMOUNT_MAX_MANWON,
+  LC_AMOUNT_PAIRS,
+  LIMIT_CHASER_SERVER_ONLY_FIELDS,
+  amountFromQty,
+  echoAmountOf,
+  qtyForSubmit,
+} from '@gh-radar/shared';
 import type { RelayLimitChaser, RelayLimitChaserInput, RelayUserSettingsMsg } from '@gh-radar/shared';
 
 /**
@@ -471,6 +478,107 @@ describe('P31 금액 8칸 — 기본값 · formFromServer 에코 적용값 (31-0
     const prev: LimitChaserFormValues = { ...defaultLimitChaserForm(), sellWatchAmount: 4321 };
     const next = formFromServer(serverEcho({ sellWatchPrice: 12_870, sellWatchQty: 777, sellWatchAmount: 0 }), prev);
     expect(next.sellWatchAmount).toBe(1000);
+  });
+});
+
+describe('P31 수량 8칸 만원 — 기본 0 · 상장주식수 만원 시딩 · 자동 체크 환산 주 (31-04 · D-01 · D-12 · Pitfall 8 · 9)', () => {
+  const QTY_KEYS = [
+    'buyWatchQty',
+    'buyMinTradeQty',
+    'extraBuyMinQty',
+    'extraBuyMaxQty',
+    'postBuyFloorQty',
+    'sellWatchQty',
+    'sellMinTradeQty',
+    'cancelWatchQty',
+  ] as const;
+
+  it('새 폼은 금액 8키가 0 이고 주 8키가 없다(옛 주 기본값 10,000 · 30,000 · 10 · 100,000 은 버린다)', () => {
+    const d = defaultLimitChaserForm();
+    for (const p of LC_AMOUNT_PAIRS) expect(d[p.amount], p.amount).toBe(0);
+    for (const k of QTY_KEYS) expect(d, k).not.toHaveProperty(k);
+  });
+
+  it('상장주식수 시딩은 만원 — 1,000만주 @12,870원 → 0.3% 30,000주 = 38,610만 · 3% 300,000주 = 386,100만', () => {
+    expect(seedListSharesDefaults(10_000_000, 12_870, 12_870)).toEqual({
+      buyWatchAmount: amountFromQty(30_000, 12_870),
+      buyMinTradeAmount: 38_610,
+      extraBuyMinAmount: 38_610,
+      extraBuyMaxAmount: amountFromQty(300_000, 12_870),
+      sellMinTradeAmount: 38_610,
+    });
+    expect(amountFromQty(300_000, 12_870)).toBe(386_100);
+  });
+
+  it('매수 비교가 0 · 상장주식수 0 이면 null(가드 미소진) · 매도 비교가 0 이면 매도 체결 칸만 건너뛴다', () => {
+    expect(seedListSharesDefaults(10_000_000, 0, 12_870)).toBeNull();
+    expect(seedListSharesDefaults(0, 12_870, 12_870)).toBeNull();
+    const r = seedListSharesDefaults(10_000_000, 12_870, 0);
+    expect(r).not.toBeNull();
+    expect(r).not.toHaveProperty('sellMinTradeAmount');
+    expect(r!.buyWatchAmount).toBe(38_610);
+  });
+
+  it('아주 큰 상장주식수 · 비교가는 각 칸이 999,999,999 에서 멈춘다(C# Clamp)', () => {
+    const r = seedListSharesDefaults(200_000_000_000, 5_000_000, 5_000_000)!;
+    expect(r.buyWatchAmount).toBe(LC_AMOUNT_MAX_MANWON);
+    expect(r.extraBuyMaxAmount).toBe(LC_AMOUNT_MAX_MANWON);
+    expect(r.sellMinTradeAmount).toBe(LC_AMOUNT_MAX_MANWON);
+  });
+
+  const filled = (over: Partial<LimitChaserFormValues>): LimitChaserFormValues => ({
+    ...defaultLimitChaserForm(),
+    sellWatchAmount: 1000,
+    sellMinTradeAmount: 500,
+    cancelWatchAmount: 1000,
+    ...over,
+  });
+
+  it('자동 체크 — 취소 매수잔량 0만 → 「취소 매수잔량 0」 · 매도 체결 0만 → 「매도 체결 0」 (토큰 글자 불변)', () => {
+    const c = groupAutoChecksOf('preBuyEnabled', filled({ cancelWatchAmount: 0 }), 12_870);
+    expect(c.skipped).toContainEqual({ item: '취소', reason: '취소 매수잔량 0' });
+    const t = groupAutoChecksOf('preBuyEnabled', filled({ sellMinTradeAmount: 0 }), 12_870);
+    expect(t.skipped).toContainEqual({ item: '매도>체결', reason: '매도 체결 0' });
+    expect(t.skipped).toContainEqual({ item: '취소>체결', reason: '매도 체결 0' });
+  });
+
+  it('자동 체크 — 판정은 상한가로 채운 매도 비교가의 환산 주(12만 @127,400원 = 0주 → 0 사유 · 금액 > 0 이고 주 > 0 이면 통과)', () => {
+    const zero = groupAutoChecksOf('preBuyEnabled', filled({ cancelWatchAmount: 12, sellMinTradeAmount: 12 }), 127_400);
+    expect(zero.skipped).toContainEqual({ item: '취소', reason: '취소 매수잔량 0' });
+    expect(zero.skipped).toContainEqual({ item: '매도>체결', reason: '매도 체결 0' });
+    const ok = groupAutoChecksOf('preBuyEnabled', filled({ cancelWatchAmount: 13, sellMinTradeAmount: 13 }), 127_400);
+    expect(ok.skipped).toEqual([]);
+    expect(ok.turnedOn).toContain('취소');
+    expect(ok.turnedOn).toContain('매도>체결');
+  });
+
+  it('formFromServer — 8 금액 모두 에코 적용값(취소 추적 ON 은 기준선 역산) · 주 8키는 폼에 싣지 않는다', () => {
+    const echo = serverEcho({
+      buyWatchPrice: 12_870,
+      sellWatchPrice: 12_870,
+      buyWatchQty: 777,
+      buyWatchAmount: 1000,
+      buyMinTradeQty: 388,
+      buyMinTradeAmount: 500,
+      extraBuyMinQty: 1554,
+      extraBuyMinAmount: 2000,
+      extraBuyMaxQty: 0,
+      extraBuyMaxAmount: 0,
+      postBuyFloorQty: 65,
+      postBuyFloorAmount: 84,
+      sellWatchQty: 1165,
+      sellWatchAmount: 1500,
+      sellMinTradeQty: 388,
+      sellMinTradeAmount: 500,
+      cancelWatchQty: 777,
+      cancelWatchAmount: 1000,
+      cancelQtyTrackEnabled: true,
+      cancelQtyTrackBaseline: 1554,
+    });
+    const next = formFromServer(echo, defaultLimitChaserForm());
+    for (const p of LC_AMOUNT_PAIRS) expect(next[p.amount], p.amount).toBe(echoAmountOf(echo, p).shown);
+    expect(next.cancelWatchAmount).toBe(amountFromQty(1554, 12_870));
+    for (const k of QTY_KEYS) expect(next, k).not.toHaveProperty(k);
   });
 });
 
