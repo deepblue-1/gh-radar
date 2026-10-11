@@ -500,4 +500,71 @@ describe('AccountEditor — 계좌 주문 서버(29-38 채택 A)', () => {
     expect(note).not.toHaveTextContent('그 서버에서 정리하세요');
     expect(note).toHaveTextContent('계좌는 서버 1대 이상');
   });
+
+  // ── 29-55 GC-06 — relay 와 같은 shared 규칙(resolveEffectiveOrderServer · 29-46)으로 진짜 소유 서버를 그린다 ──
+  const SERVERS_WITH_KB122: AdminUsersOverview['servers'] = [
+    ...SERVERS.slice(0, 2),
+    { key: 'KB122', broker: 'KB', enabled: true },
+    ...SERVERS.slice(2),
+  ];
+  /** KB 계좌 777 — 등록 KB121 · KB122(active) · 기본 KB120 에는 미등록 · 지정 없음. */
+  const KB_NO_DEFAULT: AdminAccountView = {
+    ...KB_ACCT,
+    accountNo: '777',
+    servers: [
+      { serverKey: 'KB121', tone: 'ok', message: null, state: 'active' },
+      { serverKey: 'KB122', tone: 'ok', message: null, state: 'active' },
+    ],
+    orderServer: null,
+    defaultOrderServer: 'KB120',
+  };
+  const noDefaultLine = (no: string) =>
+    acctRow(no).querySelector('[data-slot="admin-order-server-no-default"]') as HTMLElement | null;
+
+  it('GC-06: 등록 서버 1대가 기본 서버가 아니면(KB121 · 기본 KB120 미등록 · 지정 없음) → 「주문 서버 KB121」 · 「(기본)」 없음 · 경고 줄 없음', () => {
+    mount([{ ...KB_ACCT, servers: [{ serverKey: 'KB121', tone: 'ok', message: null, state: 'active' }], orderServer: null, defaultOrderServer: 'KB120' }, KYOBO_ACCT]);
+    const s = seg('12345678901');
+    expect(s).not.toBeNull();
+    expect(within(s as HTMLElement).queryAllByRole('radio')).toHaveLength(0);
+    expect(s).toHaveTextContent('주문 서버 KB121');
+    expect(s).not.toHaveTextContent('(기본)');
+    expect(noDefaultLine('12345678901')).toBeNull();
+  });
+
+  it('GC-06: 등록 2대 [KB121, KB122] · 기본 KB120 미등록 · 지정 없음 → 「기본 · KB120」 칸 잠금(클릭해도 PUT 0) · 경고 한 줄 · KB121 고르면 PUT 1건 → 경고 사라짐', async () => {
+    setAccountOrderServerMock.mockResolvedValue({ ok: true, orderServer: 'KB121' });
+    mount([KB_NO_DEFAULT, KYOBO_ACCT], SERVERS_WITH_KB122);
+    expect(cells('777').map((c) => c.textContent)).toEqual(['기본 · KB120', 'KB121', 'KB122']);
+    const def = cell('777', '기본 · KB120');
+    expect(def).toBeDisabled();
+    expect(def).toHaveAttribute('data-off', 'true');
+    fireEvent.click(def);
+    expect(setAccountOrderServerMock).not.toHaveBeenCalled();
+    expect(cell('777', 'KB121')).not.toBeDisabled();
+    expect(cell('777', 'KB122')).not.toBeDisabled();
+    const line = noDefaultLine('777');
+    expect(line).not.toBeNull();
+    expect(line).toHaveTextContent('기본 KB120 에 등록되지 않은 계좌 — 주문 서버를 고르세요');
+    expect(acctRow('777').querySelectorAll('[data-slot="admin-order-server-no-default"]')).toHaveLength(1);
+
+    fireEvent.click(cell('777', 'KB121'));
+    expect(setAccountOrderServerMock).toHaveBeenCalledTimes(1);
+    expect(setAccountOrderServerMock).toHaveBeenCalledWith('kimtr', 'KB', '777', 'KB121');
+    expect(noDefaultLine('777')).toBeNull();
+    await act(async () => {});
+  });
+
+  it('GC-06: 기본 미등록이어도 지정(KB122)이 있으면 경고 줄 없음 · 「기본」 칸은 잠긴 채', () => {
+    mount([{ ...KB_NO_DEFAULT, orderServer: 'KB122' }, KYOBO_ACCT], SERVERS_WITH_KB122);
+    expect(cell('777', 'KB122')).toHaveAttribute('aria-checked', 'true');
+    expect(cell('777', '기본 · KB120')).toBeDisabled();
+    expect(noDefaultLine('777')).toBeNull();
+  });
+
+  it('GC-06 운영 보존: 기본 서버에 등록된 계좌(KB120 · KB121) → 「기본」 칸 잠기지 않음 · 경고 줄 없음', () => {
+    mount([KB2, KYOBO_ACCT]);
+    expect(cell('123', '기본 · KB120')).not.toBeDisabled();
+    expect(cell('123', '기본 · KB120')).not.toHaveAttribute('data-off');
+    expect(noDefaultLine('123')).toBeNull();
+  });
 });
