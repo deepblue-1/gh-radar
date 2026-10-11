@@ -23,8 +23,11 @@ vi.mock('@/lib/use-edit-mode', () => ({ useEditMode: () => mockEditMode }));
 
 import { LimitChaserDefaultsSection, userSettingsValuesIssue } from '../limit-chaser-defaults';
 
-/** 서버 내장 기본값(fbs 주석 · 목업 `BUILTIN`). */
-const BUILTIN: Omit<RelayUserSettingsMsg, 'present'> = {
+/**
+ * 서버 내장 기본값(fbs 주석 · 목업 `BUILTIN`) — Phase 31 12값. `postBuyFloorQty` 는 봉인(84 값을 읽지 않는다 ·
+ * 42 에는 0)이라 일부러 0 이 아닌 값을 둔다. 후매수 최소(`postBuyFloorAmount`) 서버 내장값은 0.
+ */
+const BUILTIN: Omit<RelayUserSettingsMsg, 'present'> & { postBuyFloorAmount: number } = {
   t: 'user.settings',
   preBuyAmount: 4000,
   addBuyAmount: 4000,
@@ -37,6 +40,7 @@ const BUILTIN: Omit<RelayUserSettingsMsg, 'present'> = {
   auctionSellRatioPct: 20,
   autoSellRatioDefaultPct: 10,
   autoSellMethodDefault: 3,
+  postBuyFloorAmount: 0,
 };
 
 function settings(present: boolean, patch: Partial<RelayUserSettingsMsg> = {}): RelayUserSettingsMsg {
@@ -100,7 +104,7 @@ describe('Phase 27 상따 기본설정 표시', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it('묶음 4개 · 11행 순서 · 값 표기(만원 · 회 · 주 · % · 초 · 방법)', () => {
+  it('묶음 4개 · 11행 순서 · 값 표기(만원 · 회 · % · 초 · 방법)', () => {
     mockRelay = relay(settings(true));
     render(<LimitChaserDefaultsSection />);
     const groups = Array.from(section().querySelectorAll('[data-slot="me-lc-defaults-group"]')).map(
@@ -115,7 +119,7 @@ describe('Phase 27 상따 기본설정 표시', () => {
       '줄매수 금액',
       '후매수 금액',
       '후매수 최대',
-      '후매수 하한잔량',
+      '후매수 최소',
       '후매수 반등',
       '매도 잔량추적',
       '매도 주기',
@@ -127,7 +131,7 @@ describe('Phase 27 상따 기본설정 표시', () => {
     expect(rowValue('add-buy-amount')).toBe('4,000만원');
     expect(rowValue('post-buy-amount')).toBe('4,000만원');
     expect(rowValue('post-buy-max-count')).toBe('3회');
-    expect(rowValue('post-buy-floor-qty')).toBe('100,000주');
+    expect(rowValue('post-buy-floor-amount')).toBe('0만원');
     expect(rowValue('post-buy-rebound-pct')).toBe('30%');
     expect(rowValue('sell-qty-track-ratio')).toBe('55%');
     expect(rowValue('auto-sell-period-sec')).toBe('3초');
@@ -142,9 +146,10 @@ describe('Phase 27 상따 기본설정 표시', () => {
 
 /* ───────────────────────── Task 3 — 행 확정마다 즉시 42 ───────────────────────── */
 
+/** 42 본문 기대값 — 84 의 10값 + 후매수 최소 그대로 · 봉인 하한잔량은 늘 0(84 값을 읽지 않는다 · D-13). */
 const VALUES_OF = (m: RelayUserSettingsMsg) => {
   const { t: _t, present: _p, ...rest } = m;
-  return rest;
+  return { ...rest, postBuyFloorQty: 0, postBuyFloorAmount: m.postBuyFloorAmount ?? 0 };
 };
 
 function msg(m: string, extra: Partial<RelayServerMessageEntry> = {}): RelayServerMessageEntry {
@@ -173,7 +178,7 @@ describe('Phase 27 상따 기본설정 즉시 저장(42)', () => {
     vi.useRealTimers();
   });
 
-  it('42 — 매도 주기 3 → 5 확정 = send 1회 · s 는 84 의 11값 그대로 + autoSellPeriodSec 5', () => {
+  it('42 — 매도 주기 3 → 5 확정 = send 1회 · s 는 84 의 12값(봉인 0) + autoSellPeriodSec 5', () => {
     const base = settings(true);
     mockRelay = relay(base);
     render(<LimitChaserDefaultsSection />);
@@ -446,5 +451,95 @@ describe('261006-pey 설정 탭 S1 묶음 카드 (D-2 · sketch 013 settings.htm
     for (const el of [heads[0], chips[0], notes[0]]) {
       expect(el.compareDocumentPosition(rowsEl()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
+  });
+});
+
+/* ───────────────────────── Phase 31 — 「후매수 최소」(만원 · 42/84 vtable 28) ───────────────────────── */
+
+describe('P31 후매수 최소 (D-13 · UI-SPEC S5)', () => {
+  const rowButton = (field: string) =>
+    section().querySelector(`button[data-lc-field="me-lc-${field}"]`) as HTMLButtonElement;
+
+  it('84 최소 84 → 후매수 묶음 「최대 · 최소 · 반등」 · 「84만원」 · 접근성 이름 「후매수 최소 84만원」 · 하한잔량 글자 0 · 11행', () => {
+    mockRelay = relay(settings(true, { postBuyFloorAmount: 84 }));
+    render(<LimitChaserDefaultsSection />);
+    const card = within(section()).getByRole('group', { name: '후매수' });
+    const labels = Array.from(card.querySelectorAll('[data-slot="me-lc-defaults-row"]')).map((r) =>
+      r.getAttribute('data-label'),
+    );
+    expect(labels).toEqual(['후매수 최대', '후매수 최소', '후매수 반등']);
+    expect(rowValue('post-buy-floor-amount')).toBe('84만원');
+    expect(rowButton('post-buy-floor-amount')).toHaveAccessibleName('후매수 최소 84만원');
+    expect(section().textContent).not.toContain('하한잔량');
+    expect(section().querySelectorAll('[data-slot="me-lc-defaults-row"]')).toHaveLength(11);
+  });
+
+  it('84 최소 0 → 「0만원」(의미어 없음)', () => {
+    mockRelay = relay(settings(true, { postBuyFloorAmount: 0 }));
+    render(<LimitChaserDefaultsSection />);
+    expect(rowValue('post-buy-floor-amount')).toBe('0만원');
+  });
+
+  it('「후매수 최소」 300 확정 → send 1회 · 84 의 10값 그대로 + 최소 300 + 하한잔량 0(84 의 150000 은 싣지 않는다)', () => {
+    const base = settings(true, { postBuyFloorQty: 150_000, postBuyFloorAmount: 84 });
+    mockRelay = relay(base);
+    render(<LimitChaserDefaultsSection />);
+    inlineCommit('post-buy-floor-amount', '300');
+    expect(send).toHaveBeenCalledTimes(1);
+    const s = sentPayloads()[0]!.s;
+    expect(s).toEqual({ ...VALUES_OF(base), postBuyFloorAmount: 300 });
+    expect(s.postBuyFloorQty).toBe(0);
+    expect(Object.keys(s)).toHaveLength(12);
+  });
+
+  it('다른 칸(매도 주기 5) 확정 → s.postBuyFloorAmount 는 84 값 그대로 · 하한잔량 0', () => {
+    const base = settings(true, { postBuyFloorQty: 150_000, postBuyFloorAmount: 84 });
+    mockRelay = relay(base);
+    render(<LimitChaserDefaultsSection />);
+    inlineCommit('auto-sell-period-sec', '5');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sentPayloads()[0]!.s.postBuyFloorAmount).toBe(84);
+    expect(sentPayloads()[0]!.s.postBuyFloorQty).toBe(0);
+  });
+
+  it('84 에 최소 키 없음(구 relay) → 「불러오는 중」 칩 · 안내 · 행 버튼 비활성 · send 0 (Pitfall 10)', () => {
+    const { postBuyFloorAmount: _drop, ...legacy } = settings(true);
+    mockRelay = relay(legacy);
+    render(<LimitChaserDefaultsSection />);
+    expect(chip()).toHaveTextContent('불러오는 중');
+    expect(chip()).toHaveAttribute('data-tone', 'loading');
+    expect(note()).toHaveTextContent('DMA 세션이 준비되면 서버 설정(84)을 불러와요');
+    const body = section().querySelector('[data-slot="me-lc-defaults-rows"]') as HTMLElement;
+    expect(body).toHaveAttribute('data-dim', 'true');
+    for (const b of within(body).getAllByRole('button')) expect(b).toBeDisabled();
+    fireEvent.click(rowButton('auto-sell-period-sec'));
+    expect(document.getElementById('me-lc-auto-sell-period-sec')).toBeNull();
+    const method = within(section()).getByRole('radiogroup', { name: '방법 기본값' });
+    fireEvent.click(within(method).getByRole('radio', { name: '매도1호가' }));
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('54 ERROR SetUserSettings 「후매수 하한금액은 …」 → me-lc-defaults-reject 줄에 원문 그대로', () => {
+    vi.useFakeTimers();
+    try {
+      mockRelay = relay(settings(true, { postBuyFloorAmount: 84 }));
+      const view = render(<LimitChaserDefaultsSection />);
+      inlineCommit('post-buy-floor-amount', '300');
+      const text = '후매수 하한금액은 0~999999999만원이어야 합니다(받은 값 1000000000)';
+      mockRelay = { ...relay(settings(true, { postBuyFloorAmount: 84 })), messages: [msg(text)] };
+      view.rerender(<LimitChaserDefaultsSection />);
+      expect(rejectLine()?.textContent).toBe(text);
+      expect(rowValue('post-buy-floor-amount')).toBe('84만원');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('userSettingsValuesIssue — 최소 범위 밖은 「0~999,999,999만원 사이여야 해요」(shared 범위 한 벌)', () => {
+    const ok = VALUES_OF(settings(true));
+    expect(userSettingsValuesIssue({ ...ok, postBuyFloorAmount: 1_000_000_000 }, 'postBuyFloorAmount')).toBe(
+      '0~999,999,999만원 사이여야 해요',
+    );
+    expect(userSettingsValuesIssue({ ...ok, postBuyFloorAmount: 999_999_999 }, 'postBuyFloorAmount')).toBeNull();
   });
 });
