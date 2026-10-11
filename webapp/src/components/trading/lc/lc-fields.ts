@@ -17,7 +17,13 @@
  *   매수잔량). 그룹 카드 안 행의 보이는 라벨은 짧은 꼴이고 시트 제목만 그룹 이름을 되살린다(R14).
  */
 
-import { AUTO_SELL_METHOD_LABELS, AUTO_SELL_METHOD_ORDER, autoSellBasisLabel, type RelayLimitChaser } from '@gh-radar/shared';
+import {
+  AUTO_SELL_METHOD_LABELS,
+  AUTO_SELL_METHOD_ORDER,
+  amountFromQty,
+  autoSellBasisLabel,
+  type RelayLimitChaser,
+} from '@gh-radar/shared';
 
 import { LC_FIELD_RANGES, type LcRange } from '@/lib/lc-ranges';
 import type { LimitChaserFormValues } from '@/lib/limit-chaser';
@@ -29,24 +35,24 @@ export type LcNumField = Extract<
   | 'buyOrderPrice'
   | 'buyOrderAmount'
   | 'buyWatchPrice'
-  | 'buyWatchQty'
-  | 'buyMinTradeQty'
+  | 'buyWatchAmount'
+  | 'buyMinTradeAmount'
   | 'sweepMinTickCount'
   | 'sweepWatchPrice'
   | 'extraBuyOrderAmount'
-  | 'extraBuyMinQty'
-  | 'extraBuyMaxQty'
+  | 'extraBuyMinAmount'
+  | 'extraBuyMaxAmount'
   | 'postBuyOrderAmount'
   | 'postBuyReentry'
-  | 'postBuyFloorQty'
+  | 'postBuyFloorAmount'
   | 'postBuyReboundPct'
   | 'sellOrderPrice'
   | 'sellOrderRatio'
   | 'sellWatchPrice'
   | 'sellWatchAmount'
   | 'sellQtyTrackRatio'
-  | 'sellMinTradeQty'
-  | 'cancelWatchQty'
+  | 'sellMinTradeAmount'
+  | 'cancelWatchAmount'
   | 'autoSellStartCond'
   | 'autoSellRatioPct'
 >;
@@ -223,23 +229,27 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
       },
       {
         kind: 'value',
-        field: 'buyWatchQty',
+        // Phase 31 D-01 — 수량 8칸은 만원 입력 · 주는 제출 때 shared `qtyForSubmit` 이 산출한다. 행 id · 시트 제목은
+        // 그대로(e2e `data-lc-field` 안정).
+        field: 'buyWatchAmount',
         id: 'lc-buy-watch-qty',
         label: '매도잔량',
-        unit: '주',
+        unit: '만',
         sheetTitle: '선매수 매도잔량',
-        desc: '비교가격의 매도잔량이 이 값 이하로 줄면 선매수를 넣어요',
+        desc: '비교가격의 매도잔량이 이 금액 이하로 줄면 선매수를 넣어요',
+        ...LC_FIELD_RANGES.buyWatchAmount,
       },
       {
         kind: 'checkValue',
         check: 'buyTradeQtyEnabled',
         checkId: 'lc-buy-trade',
-        field: 'buyMinTradeQty',
+        field: 'buyMinTradeAmount',
         id: 'lc-buy-min-trade-qty',
         label: '체결량',
-        unit: '주',
+        unit: '만',
         sheetTitle: '선매수 체결량',
-        desc: '체결이 이 값 이상이면 선매수를 넣어요',
+        desc: '체결이 이 금액 이상이면 선매수를 넣어요',
+        ...LC_FIELD_RANGES.buyMinTradeAmount,
       },
       {
         // 한방 = 두 행(R6) — 체크 값 행 「○ 한방 ─ 3건 ›」 + 값 행 「한방가격」.
@@ -293,23 +303,23 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
       },
       {
         kind: 'value',
-        field: 'extraBuyMinQty',
+        field: 'extraBuyMinAmount',
         id: 'lc-extra-buy-min-qty',
         label: '최소 잔량',
-        unit: '주',
+        unit: '만',
         sheetTitle: '줄매수 최소 잔량',
-        desc: '상한가 매수잔량이 이 값 이상일 때 사요 · 0 = 1주',
-        ...LC_FIELD_RANGES.extraBuyMinQty,
+        desc: '상한가 매수잔량이 이 금액 이상일 때 사요 · 0 = 1주',
+        ...LC_FIELD_RANGES.extraBuyMinAmount,
       },
       {
         kind: 'value',
-        field: 'extraBuyMaxQty',
+        field: 'extraBuyMaxAmount',
         id: 'lc-extra-buy-max-qty',
         label: '최대 잔량',
-        unit: '주',
+        unit: '만',
         sheetTitle: '줄매수 최대 잔량',
-        desc: '상한가 매수잔량이 이 값을 넘으면 포기해요 · 0 = 무제한',
-        ...LC_FIELD_RANGES.extraBuyMaxQty,
+        desc: '상한가 매수잔량이 이 금액을 넘으면 포기해요 · 0 = 무제한',
+        ...LC_FIELD_RANGES.extraBuyMaxAmount,
       },
       // ☐버스트 해제(quick-261003-rc4 · gh-trade 3c6e6cff 클라 배치 = 최소~최대 줄 아래) — 켜 두면 버스트 상한가
       // 판정 뒤 첫 B6 틱에 서버가 줄매수를 내린다(포기 아님). 독립 축이 아니다 — 줄매수 OFF 면 같이 흐린다(P-2).
@@ -357,12 +367,13 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
       { kind: 'note', note: 'postBuyExhausted' },
       {
         kind: 'value',
-        field: 'postBuyFloorQty',
+        field: 'postBuyFloorAmount',
         id: 'lc-post-buy-floor-qty',
         label: '최소 잔량',
-        unit: '주',
+        unit: '만',
         sheetTitle: '후매수 최소 잔량',
         desc: '발동잔량의 하한(바닥)이에요 · 0 = 없음',
+        ...LC_FIELD_RANGES.postBuyFloorAmount,
       },
       {
         kind: 'value',
@@ -446,12 +457,13 @@ export const LC_SELL_GROUPS: readonly LcGroupSpec[] = [
         kind: 'checkValue',
         check: 'sellTradeQtyEnabled',
         checkId: 'lc-sell-trade',
-        field: 'sellMinTradeQty',
+        field: 'sellMinTradeAmount',
         id: 'lc-sell-min-trade-qty',
         label: '체결',
-        unit: '주',
-        desc: '체결이 이 값 이상이면 매도를 넣어요',
+        unit: '만',
+        desc: '체결이 이 금액 이상이면 매도를 넣어요',
         a11yPrefix: '매도',
+        ...LC_FIELD_RANGES.sellMinTradeAmount,
       },
       // S→C 전용 — 서버가 매도 진입을 래치했을 때만 그린다(렌더가 판정한다).
       { kind: 'derived', source: 'sellQtyTrackBaseline', label: '잔량추적 기준선' },
@@ -468,12 +480,13 @@ export const LC_SELL_GROUPS: readonly LcGroupSpec[] = [
     rows: [
       {
         kind: 'value',
-        field: 'cancelWatchQty',
+        field: 'cancelWatchAmount',
         id: 'lc-cancel-watch-qty',
         label: '매수잔량',
-        unit: '주',
-        desc: '매도 비교가격의 매수잔량이 이 값보다 적으면 매수 주문을 취소해요',
+        unit: '만',
+        desc: '매도 비교가격의 매수잔량이 이 금액보다 적으면 매수 주문을 취소해요',
         a11yPrefix: '취소',
+        ...LC_FIELD_RANGES.cancelWatchAmount,
       },
       { kind: 'check', check: 'cancelTradeEnabled', checkId: 'lc-cancel-trade', label: '체결', independent: true },
       { kind: 'check', check: 'cancelQtyTrackEnabled', checkId: 'lc-cancel-qty-track', label: '잔량추적' },
@@ -608,8 +621,9 @@ const fmt = (n: number, unit: string): string => `${NUM.format(n)}${unit}`;
  * 표시 문자열 — 행 · 요약 · 시트 「지금 ○○」 · 접근성 이름이 **이 한 함수**에서 받는다(UI-SPEC §4).
  * `null` = 의미어가 없다(호출부가 「{값}{단위}」 기본 포맷을 쓴다). 편집은 늘 숫자(0 포함)로 한다(D-10).
  *
- *   - 줄매수 최대 0 → 「무제한」 · 최소 0 → 「1주」 · 후매수 최소 잔량 0 → 「없음」(D-10)
- *   - 금액 0 → 「—」(추가 · 후매수 D-03 · 선매수 금액 0). 서버가 선매수 금액을 모르는 레거시(D-04a)는 폼의
+ *   - 수량 8칸(만원 · Phase 31)은 위 줄이 언제나 「{만원}만」 이다(0 도 「0만」 — 여기 의미어가 없다). 수량 8칸 의미어는
+ *     `lcAmountZeroWordOf` — 요약(금액 0) · 두 줄 행 아래 줄(제출 주 0 · 31-06).
+ *   - 주문 금액 0 → 「—」(추가 · 후매수 D-03 · 선매수 금액 0). 서버가 선매수 금액을 모르는 레거시(D-04a)는 폼의
  *     `amountRequired` 경로가 그대로 맡는다.
  *   - 후매수 재진입(D-11) — 단계 0(또는 에코 없음) 「{설정}회」 · 그 밖 「{설정}회 · 남은 {잔여}회」.
  *     C# 동형: 단계 0 이어도 에코 ☐줄매수 자동이면 잔여를 보인다(재진입 칸 공유 · quick-261011-0yb).
@@ -622,12 +636,6 @@ export function lcValueTextOf(
 ): string | null {
   const v = values[field];
   switch (field) {
-    case 'extraBuyMaxQty':
-      return v === 0 ? '무제한' : null;
-    case 'extraBuyMinQty':
-      return v === 0 ? '1주' : null;
-    case 'postBuyFloorQty':
-      return v === 0 ? '없음' : null;
     case 'buyOrderAmount':
     case 'extraBuyOrderAmount':
     case 'postBuyOrderAmount':
@@ -639,6 +647,23 @@ export function lcValueTextOf(
     case 'autoSellStartCond':
       // Phase 27 D-02 — 0 = 이탈 관측 뒤 다음 체결(gh-trade §6-6). 그 밖은 기본 「N%」.
       return v === 0 ? '이탈 후 다음 체결' : null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * 수량 임계 금액 0 의 의미어(UI-SPEC 「값 0 표시」 · D-10) — 줄매수 최대 「무제한」 · 줄매수 최소 「1주」 · 후매수 최소
+ * 「없음」, 그 밖 칸은 `null`(「0만」 · 「0주」 그대로). 접힌 요약(금액 0)과 두 줄 행 아래 줄(31-06)이 같이 읽는다.
+ */
+export function lcAmountZeroWordOf(field: LcNumField): string | null {
+  switch (field) {
+    case 'extraBuyMaxAmount':
+      return '무제한';
+    case 'extraBuyMinAmount':
+      return '1주';
+    case 'postBuyFloorAmount':
+      return '없음';
     default:
       return null;
   }
@@ -688,9 +713,11 @@ function amountItem(field: LcNumField, values: LimitChaserFormValues, unknown: b
 }
 
 /**
- * 접힌 카드의 요약 줄(UI-SPEC §3 · R5) — 항목 · 순서 · 표기. 접기 없는 카드는 빈 배열.
- * 의미어(「무제한」「1주」「없음」)는 꺼진 kv 가 아니다(정상 색). 발동잔량은 요약에서 빨강을 쓰지 않는다.
- * 발동잔량 0 · 해제선 > 0 이면 해제선을 꺼진 kv 색으로(+ sr 접두 「잠금 해제선」 · quick-261002-fim).
+ * 접힌 카드의 요약 줄(UI-SPEC §3 · R5 · Phase 31 「접힌 카드 요약 줄」) — 항목 · 순서 · 표기. 접기 없는 카드는 빈 배열.
+ * 수량 kv 는 위 줄 글자 하나(「1,000만」 — 주 병기 없음 · 비교가 0 이어도 빨강 · 「비교가격 필요」 없음)다. 금액 0 이고
+ * 의미어가 있는 칸은 의미어(`lcAmountZeroWordOf` — 「무제한」「1주」「없음」)이고 꺼진 kv 가 아니다(정상 색).
+ * 발동잔량(D-05)은 매수 비교가로 역산한 만원(비교가 0 이면 주 원값) — 요약에서 빨강을 쓰지 않는다.
+ * 발동잔량 0 · 해제선 > 0 이면 해제선을 같은 역산 규칙으로 꺼진 kv 색에(+ sr 접두 「잠금 해제선」 · quick-261002-fim).
  * `amountUnknown` = 서버가 선매수 금액을 모른다(D-04a · 폼의 `amountRequired`).
  */
 export function lcSummaryOf(
@@ -700,13 +727,23 @@ export function lcSummaryOf(
   amountUnknown = false,
 ): readonly LcSummaryItem[] {
   const text = (field: LcNumField, unit: string) => lcValueTextOf(field, values, server) ?? fmt(values[field], unit);
+  /** 수량 kv 값 — 금액 0 이고 의미어가 있으면 의미어, 아니면 「{만원}만」. */
+  const amountKv = (field: LcNumField): string => {
+    const word = values[field] === 0 ? lcAmountZeroWordOf(field) : null;
+    return word ?? fmt(values[field], '만');
+  };
+  /** 서버 주(발동잔량 · 해제선) → 매수 비교가 역산 만원 · 비교가 0 이면 주 원값(D-05). */
+  const buyQtyKv = (qty: number): string => {
+    const price = server?.buyWatchPrice ?? 0;
+    return price > 0 ? fmt(amountFromQty(qty, price), '만') : fmt(qty, '주');
+  };
   switch (slot) {
     case 'pre-buy':
       return [
         amountItem('buyOrderAmount', values, amountUnknown),
-        { key: '매도잔량', value: fmt(values.buyWatchQty, '주'), off: false },
+        { key: '매도잔량', value: amountKv('buyWatchAmount'), off: false },
         values.buyTradeQtyEnabled
-          ? { key: '체결량', value: fmt(values.buyMinTradeQty, '주'), off: false }
+          ? { key: '체결량', value: amountKv('buyMinTradeAmount'), off: false }
           : { key: '체결량', value: '꺼짐', off: true },
         values.sweepEnabled
           ? {
@@ -719,8 +756,8 @@ export function lcSummaryOf(
     case 'extra-buy':
       return [
         amountItem('extraBuyOrderAmount', values, false),
-        { key: '최소', value: text('extraBuyMinQty', '주'), off: false },
-        { key: '최대', value: text('extraBuyMaxQty', '주'), off: false },
+        { key: '최소', value: amountKv('extraBuyMinAmount'), off: false },
+        { key: '최대', value: amountKv('extraBuyMaxAmount'), off: false },
         // ☐버스트 해제 — ON 일 때만 덧붙인다(OFF 기본 사용자에게 요약은 종전 그대로 · P-3).
         ...(values.extraBuyBurstRelease ? [{ key: '버스트 해제', value: '켬', off: false }] : []),
       ];
@@ -730,12 +767,12 @@ export function lcSummaryOf(
       return [
         amountItem('postBuyOrderAmount', values, false),
         { key: '최대', value: text('postBuyReentry', '회'), off: false },
-        { key: '최소', value: text('postBuyFloorQty', '주'), off: false },
+        { key: '최소', value: amountKv('postBuyFloorAmount'), off: false },
         { key: '반등', value: fmt(values.postBuyReboundPct, '%'), off: false },
         trigger > 0
-          ? { key: '발동잔량', value: fmt(trigger, '주'), off: false }
+          ? { key: '발동잔량', value: buyQtyKv(trigger), off: false }
           : unlock > 0
-            ? { key: '발동잔량', value: fmt(unlock, '주'), off: true, sr: POST_BUY_UNLOCK_SR_TEXT }
+            ? { key: '발동잔량', value: buyQtyKv(unlock), off: true, sr: POST_BUY_UNLOCK_SR_TEXT }
             : { key: '발동잔량', value: '—', off: true },
       ];
     }
