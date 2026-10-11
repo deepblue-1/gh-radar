@@ -257,3 +257,11 @@ None - no external service configuration required.
 ---
 *Phase: 31-limitchaser-amount-unit*
 *Completed: 2026-10-11*
+
+## Self-Check: PASSED
+
+- 파일: `packages/shared/src/lc-amount.ts` · `packages/shared/src/__tests__/lc-amount.test.ts` · 이 SUMMARY — FOUND
+- 커밋: `9b852bc6` · `eaf6a980` · `14e625a7` · `6d7d3cc6` — HEAD 조상 FOUND · `check evaluation-scope --plan 31-01` resolved
+- 수용 기준: Task 1~3 grep · vitest 전부 PASS (relay P31 2 · webapp P31 4 · lc-amount 48 · envelope/protocol/fanout 369 · webapp 묶음 833)
+- 플랜 검증: shared typecheck + 567 · relay typecheck/typecheck:tests + 1533 · webapp typecheck + 3901 통과
+- 요구사항 AMT-02 · AMT-04: 같은 phase 다른 플랜이 함께 선언 — `requirements.ready-ids` 0/2 라 Complete 표시는 마지막 선언 플랜 몫

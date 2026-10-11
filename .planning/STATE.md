@@ -2,19 +2,19 @@
 gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: 운영 유지보수
-current_phase: 30
-current_phase_name: 인박스 KB 계좌별 주문자 IP/MAC
+current_phase: 31
+current_phase_name: 인박스 상따 금액 단위
 status: executing
-stopped_at: Completed 30-06-PLAN.md
-last_updated: "2026-10-11T06:59:56.342Z"
+stopped_at: Completed 31-01-PLAN.md
+last_updated: "2026-10-11T14:10:50.287Z"
 last_activity: 2026-10-11
-last_activity_desc: Phase 30 execution started
-state_head: bac6938006e7188801fbabef01ba53956b4f7561
+last_activity_desc: Phase 31 execution started
+state_head: d8ebc0117de7a19d0bd2c562dbcb19ec879f5c28
 progress:
   total_phases: 2
   completed_phases: 0
-  total_plans: 7
-  completed_plans: 6
+  total_plans: 15
+  completed_plans: 7
   percent: 0
 ---
 
@@ -25,14 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-11 after v1.1 milestone start)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 30 — 인박스 KB 계좌별 주문자 IP/MAC
+**Current focus:** Phase 31 — 인박스 상따 금액 단위
 
 ## Current Position
 
-Phase: 30 (인박스 KB 계좌별 주문자 IP/MAC) — EXECUTING
-Plan: 7 of 7
+Phase: 31 (인박스 상따 금액 단위) — EXECUTING
+Plan: 2 of 8
 Status: Ready to execute
-Last activity: 2026-10-11 — Phase 30 execution started
+Last activity: 2026-10-11 — Phase 31 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -78,8 +78,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-11T06:59:56.323Z
-Stopped at: Completed 30-06-PLAN.md
+Last session: 2026-10-11T14:10:50.264Z
+Stopped at: Completed 31-01-PLAN.md
 Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 
 ## Operator Next Steps
@@ -97,6 +97,7 @@ Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 | Phase 30 P04 | 6 min | 3 tasks | 2 files |
 | Phase 30 P05 | 4 min | 2 tasks | 2 files |
 | Phase 30 P06 | 13 min | 2 tasks | 3 files |
+| Phase 31 P01 | 21 min | 3 tasks | 25 files |
 
 ## Decisions
 
