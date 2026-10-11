@@ -11,6 +11,8 @@
  *      · "MOCK" · 빈 broker 는 통과
  *   ⑥ (29-08) 서버당 admin 연결(role 2) 정확히 1개 · 저널 관찰자와 별개 소켓 · 증권사별 비밀 · 접속마다 op 5 → 87 캐시 ·
  *      서버를 끄면 admin 연결도 stop · 비밀 없는 증권사는 admin 도 disabled
+ *   ⑧ (29-50 GC-07) 주소(port) 변경 재생성 → 새 벌 매핑이 79 전부터 옛 매핑(잠정) · 라우팅 `serversFor` 전후 같음 ·
+ *      새 주소 첫 79 가 잠정을 실제 매핑으로 교체 · 잠정 매핑은 DB 에 쓰지 않는다
  *
  * 29-08 부터 서버마다 소켓이 2개다(저널 관찰자 1 + admin 1) — 아래 「살아 있는 소켓 수」 단언은 둘을 합친 값이다.
  *
@@ -18,6 +20,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { createOrderServerRouting } from "../src/access/account-order-servers.js";
 import { logger } from "../src/logger.js";
 import { ServerPipelines, type ServerPipeline } from "../src/registry/pipelines.js";
 import type { DmaBroker, DmaServerRow } from "../src/registry/registry.js";
@@ -269,6 +272,104 @@ describe("ServerPipelines — 레지스트리 행 → 서버별 관찰자 (Phase
     expect(kyobo.adminLoginRequests()).toHaveLength(1);
     expect(kb.adminLoginRequests()).toHaveLength(1);
     expect(pipelines.get("KB120")?.admin.state).toBe("ready");
+  });
+
+  it("⑧ (29-50 GC-07) 주소 변경 재생성 → 새 벌 매핑이 79 전부터 옛 매핑(잠정) · serversFor 전후 같음 · 새 79 가 잠정을 교체", async () => {
+    const D1 = "gc07-d1";
+    const KB_ACC = "1111111101";
+    const KYOBO_ACC = "9111111101";
+    const KYOBO_ACC2 = "9111111102";
+    const withAccounts = async (broker: string, accounts: { dmaUserId: string; accountNo: string }[]): Promise<FakeGateway> => {
+      const gw = await startFakeGateway({ autoLogin: false, autoAccount: false });
+      gw.respondObserverLogin({ broker, epoch: `ep-${broker}`, headSeq: 0, oldestSeq: 0, resync: true, accounts });
+      gw.respondAdminLogin({ broker });
+      gw.onAdminCommand(defaultAdminHandler(adminState(`user-${broker}`)));
+      cleanups.push(() => gw.close());
+      return gw;
+    };
+    const kb = await withAccounts("KB", [{ dmaUserId: D1, accountNo: KB_ACC }]);
+    const kyoboOld = await withAccounts("KYOBO", [{ dmaUserId: D1, accountNo: KYOBO_ACC }]);
+    // 새 주소는 다른 등록(계좌 2개)을 돌려준다 — 첫 79 가 잠정 매핑을 교체하는지 본다.
+    const kyoboNew = await withAccounts("KYOBO", [
+      { dmaUserId: D1, accountNo: KYOBO_ACC },
+      { dmaUserId: D1, accountNo: KYOBO_ACC2 },
+    ]);
+    const { supabase, pipelines } = await rig();
+
+    let rows = [row("KB120", "KB", kb.port), row("KYOBO119", "KYOBO", kyoboOld.port)];
+    const routing = createOrderServerRouting({
+      loaded: () => true,
+      chosenOf: () => undefined,
+      registry: {
+        get: (key) => rows.find((r) => r.key === key),
+        enabled: () => rows.filter((r) => r.enabled),
+        orderServerOf: (broker) => rows.find((r) => r.broker === broker && r.isOrderServer && r.enabled),
+      },
+      accountsOf: (key, dma) => pipelines.get(key)?.access.accountsOf(dma),
+      mappingLoaded: (key) => pipelines.get(key)?.access.loaded === true,
+    });
+    const serverKeys = (): string[] | undefined => routing.serversFor(D1)?.map((t) => t.serverKey);
+    const syncCallsOf = (gateway: string): number =>
+      supabase
+        .requestsTo("/rest/v1/rpc/dma_journal_sync_access")
+        .filter((r) => (r.body as { p_gateway?: string } | null)?.p_gateway === gateway).length;
+
+    pipelines.sync(rows);
+    await waitFor(
+      () => pipelines.get("KB120")?.access.loaded === true && pipelines.get("KYOBO119")?.access.loaded === true,
+      "두 서버 매핑 적재(79)",
+    );
+    await waitFor(() => syncCallsOf("KYOBO119") === 1, "옛 KYOBO119 매핑 DB 동기화 1");
+    const before = serverKeys();
+    expect(before).toEqual(["KB120", "KYOBO119"]);
+    const oldPipeline = pipelines.get("KYOBO119");
+
+    // 운영 레지스트리에서 KYOBO119 의 port 만 바꾼다 → 같은 키 재생성.
+    rows = [row("KB120", "KB", kb.port), row("KYOBO119", "KYOBO", kyoboNew.port)];
+    const result = pipelines.sync(rows);
+    expect(result).toEqual({ created: ["KYOBO119"], removed: ["KYOBO119"] });
+    const fresh = pipelines.get("KYOBO119");
+    expect(fresh).not.toBe(oldPipeline);
+    // 79 전(동기 직후) — 새 벌이 옛 매핑을 잠정으로 들고 있다.
+    expect(fresh?.access.loaded).toBe(true);
+    expect(fresh?.access.provisional).toBe(true);
+    expect([...(fresh?.access.accountsOf(D1) ?? [])]).toEqual([KYOBO_ACC]);
+    // 라우팅 결과(재수립 서명의 원천)가 재생성 전후 같다 — 그 서버 사용자를 1012 로 끊지 않는다.
+    expect(serverKeys()).toEqual(before);
+
+    // 새 주소의 첫 79 가 잠정을 실제 매핑으로 교체한다.
+    await waitFor(() => fresh?.access.provisional === false, "새 79 수신 → 잠정 끝");
+    expect([...(fresh?.access.accountsOf(D1) ?? [])].sort()).toEqual([KYOBO_ACC, KYOBO_ACC2]);
+    expect(serverKeys()).toEqual(before);
+    // DB 동기화는 실제 스냅샷만 — 옛 벌 1 + 새 79 1(잠정 매핑은 쓰지 않았다).
+    await waitFor(() => syncCallsOf("KYOBO119") === 2, "새 79 매핑 DB 동기화");
+    await sleep(200);
+    expect(syncCallsOf("KYOBO119")).toBe(2);
+    const lastSync = supabase
+      .requestsTo("/rest/v1/rpc/dma_journal_sync_access")
+      .filter((r) => (r.body as { p_gateway?: string } | null)?.p_gateway === "KYOBO119")
+      .at(-1);
+    expect(((lastSync?.body as { p_rows: { account_no: string }[] }).p_rows ?? []).map((r) => r.account_no).sort()).toEqual([
+      KYOBO_ACC,
+      KYOBO_ACC2,
+    ]);
+    // KB120 은 재생성 대상이 아니다 — 잠정 표식 없음.
+    expect(pipelines.get("KB120")?.access.provisional).toBe(false);
+  });
+
+  it("⑧-b (29-50 GC-07) 끄기 · 행 제거로 내린 벌은 잠정 대상이 아니다 — 다시 켜면 빈 매핑(loaded 거짓)부터", async () => {
+    const kb = await gatewayFor("KB");
+    const kyobo = await gatewayFor("KYOBO");
+    const { pipelines } = await rig();
+    pipelines.sync([row("KB120", "KB", kb.port), row("KYOBO119", "KYOBO", kyobo.port)]);
+    await waitFor(() => pipelines.get("KYOBO119")?.access.loaded === true, "KYOBO119 매핑 적재");
+
+    pipelines.sync([row("KB120", "KB", kb.port), row("KYOBO119", "KYOBO", kyobo.port, { enabled: false })]);
+    pipelines.sync([row("KB120", "KB", kb.port), row("KYOBO119", "KYOBO", kyobo.port)]);
+    const again = pipelines.get("KYOBO119");
+    expect(again?.access.loaded).toBe(false);
+    expect(again?.access.provisional).toBe(false);
+    expect(again?.access.size).toBe(0);
   });
 
   it("⑦ (29-08) 비밀 없는 증권사 → admin 연결도 disabled · 소켓 0", async () => {

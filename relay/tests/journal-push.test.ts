@@ -489,7 +489,7 @@ describe("저널 푸시 — 레코드 → 기록기 → 적용 RPC → 계좌 �
       ],
       { skipped: 2 },
     );
-    expect(access.health()).toEqual({ rows: 1, skipped: 3, emptySnapshotsRejected: 0 });
+    expect(access.health()).toEqual({ rows: 1, skipped: 3, emptySnapshotsRejected: 0, provisional: false });
     await flushIo(4);
     expect(rpcCalls.filter((c) => c.fn === "dma_journal_sync_access")).toHaveLength(1);
 
@@ -502,7 +502,7 @@ describe("저널 푸시 — 레코드 → 기록기 → 적용 RPC → 계좌 �
     await flushIo(4);
     // DB 로 빈 스냅샷을 보내지 않는다 — dma_journal_sync_access 가 게이트웨이 매핑을 전부 지우지 않게.
     expect(rpcCalls.filter((c) => c.fn === "dma_journal_sync_access")).toHaveLength(1);
-    expect(access.health()).toEqual({ rows: 1, skipped: 1, emptySnapshotsRejected: 2 });
+    expect(access.health()).toEqual({ rows: 1, skipped: 1, emptySnapshotsRejected: 2, provisional: false });
     const hits = errorSpy.mock.calls.filter((c) => typeof c[1] === "string" && c[1].includes("빈 매핑 스냅샷"));
     expect(hits).toHaveLength(2);
     expect(hits[0]?.[0]).toMatchObject({ gateway: GATEWAY, received: 0, skipped: 4, keptRows: 1, rejected: 1 });
@@ -516,7 +516,7 @@ describe("저널 푸시 — 레코드 → 기록기 → 적용 RPC → 계좌 �
     access.replace([]);
     await flushIo(4);
     expect(rpcCalls.filter((c) => c.fn === "dma_journal_sync_access")).toHaveLength(0);
-    expect(access.health()).toEqual({ rows: 0, skipped: 0, emptySnapshotsRejected: 1 });
+    expect(access.health()).toEqual({ rows: 0, skipped: 0, emptySnapshotsRejected: 1, provisional: false });
   });
 
   it("29-46 GC-06 — loaded: 생성 직후 false · 빈 스냅샷(전 행 거부)은 false 유지 · 유효 스냅샷 1회 → true · 뒤 빈 스냅샷에도 true", async () => {
@@ -530,6 +530,54 @@ describe("저널 푸시 — 레코드 → 기록기 → 적용 RPC → 계좌 �
     access.replace([]);
     expect(access.loaded).toBe(true);
     expect(access.accountsOf("dma-shared")?.has(ACC1)).toBe(true);
+  });
+
+  it("29-50 GC-07 — seedProvisional: 옛 매핑 사본 · loaded · provisional · DB 동기화 0 · 첫 유효 replace 가 교체 · 빈 스냅샷은 잠정 유지", async () => {
+    await start();
+    // 옛 벌(재생성 전) — 유효 스냅샷 1회 적용 · DB 동기화 1회.
+    access.replace([
+      { dmaUserId: "dma-shared", accountNo: ACC1, name: "공유 계좌", priority: 0 },
+      { dmaUserId: "dma-shared", accountNo: ACC2, name: "둘째 계좌", priority: 1 },
+    ]);
+    await flushIo(4);
+    const syncsBefore = rpcCalls.filter((c) => c.fn === "dma_journal_sync_access").length;
+    expect(syncsBefore).toBe(1);
+    expect(access.provisional).toBe(false);
+
+    // 새 벌(같은 키 재생성) — 79/87 전.
+    const fresh = new JournalAccess({ supabase: rpcSupabase(rpcCalls), gateway: GATEWAY, retryBaseMs: 10, retryMaxMs: 50 });
+    expect(fresh.loaded).toBe(false);
+    expect(fresh.provisional).toBe(false);
+    fresh.seedProvisional(access);
+    expect([...(fresh.accountsOf("dma-shared") ?? [])].sort()).toEqual([ACC1, ACC2].sort());
+    // 사본이다 — 옛 벌의 Set 과 다른 객체.
+    expect(fresh.accountsOf("dma-shared")).not.toBe(access.accountsOf("dma-shared"));
+    expect(fresh.loaded).toBe(true);
+    expect(fresh.provisional).toBe(true);
+    expect(fresh.size).toBe(2);
+    expect(fresh.dmaUserIds()).toEqual(["dma-shared"]);
+    expect(fresh.health()).toMatchObject({ rows: 2, provisional: true });
+    // 잠정 매핑은 DB 에 쓰지 않는다.
+    await flushIo(4);
+    expect(rpcCalls.filter((c) => c.fn === "dma_journal_sync_access")).toHaveLength(syncsBefore);
+
+    // 빈 스냅샷은 종전대로 거부 — 잠정 매핑 유지.
+    fresh.replace([]);
+    expect(fresh.provisional).toBe(true);
+    expect(fresh.accountsOf("dma-shared")?.has(ACC2)).toBe(true);
+    await flushIo(4);
+    expect(rpcCalls.filter((c) => c.fn === "dma_journal_sync_access")).toHaveLength(syncsBefore);
+
+    // 첫 유효 79/87 이 잠정을 끝낸다 — 실제 매핑으로 교체 · DB 동기화 예약 1.
+    fresh.replace([{ dmaUserId: "dma-shared", accountNo: ACC1, name: "공유 계좌", priority: 0 }]);
+    expect(fresh.provisional).toBe(false);
+    expect([...(fresh.accountsOf("dma-shared") ?? [])]).toEqual([ACC1]);
+    expect(fresh.health()).toMatchObject({ rows: 1, provisional: false });
+    await flushIo(4);
+    expect(rpcCalls.filter((c) => c.fn === "dma_journal_sync_access")).toHaveLength(syncsBefore + 1);
+    // 옛 벌의 매핑은 그대로다(사본이라 새 벌 교체가 번지지 않는다).
+    expect([...(access.accountsOf("dma-shared") ?? [])].sort()).toEqual([ACC1, ACC2].sort());
+    fresh.close();
   });
 
   it("⑤ journal.state (Phase 19-07 D-04 (a)) — 스냅샷은 알 때만 · deliverJournalState 는 인증 사용자 전원 · 미인증 0", async () => {
