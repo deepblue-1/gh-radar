@@ -115,18 +115,18 @@
 
 정의 정본은 `29-RESEARCH.md` §Phase Requirements(아래 문장 그대로) — REQUIREMENTS.md 등록은 29-40(29-VERIFICATION 「Requirements Coverage」 권고). G-1(계좌별 주문 서버 · 사용자 확정 2026-10-10)이 바꾼 뜻은 해당 줄 끝 「G-1 갱신」 에 덧붙였다.
 
-- [ ] **ADMIN-01**: 서버 레지스트리 `dma_servers`(4대 시드 · enabled · 증권사별 주문 서버 · 시세 주 서버) + 기존 `KB`/`KYOBO` 키 in-place 개명 + 역개명 롤백 SQL — Phase 29
-- [ ] **ADMIN-02**: 허용 gmail · 역할(admin/trader/viewer) 표 + middleware 전면 게이트 + 승인 대기 화면 + `is_theme_admin()` 흡수 — Phase 29
-- [ ] **ADMIN-03**: DMA 유저 · 계좌 · 등록 서버 의도 표 + 비밀번호 암호문(DMA 유저당 1개) + 가시성 뷰 파생(`dma_visibility_identities` 재정의) — Phase 29
-- [ ] **ADMIN-04**: relay 레지스트리 순회 — 서버별 저널 관찰자 + admin 연결(role 2) · quote 주 서버 1 · D-09 안전 기본값 게이트 · 재적재 — Phase 29
-- [ ] **ADMIN-05**: admin 명령 경로 — Express → relay HTTP → 서버별 44 fan-out → 86 결과 배열 · 87 서버별 적재 + 그 서버 `JournalAccess` 갱신 — Phase 29
-- [ ] **ADMIN-06**: (유저, 서버) 사용자 세션 · 증권사별 주문 서버 선택 · 「주문 서버 바뀜」 프레임 · 87 뒤 계좌 자가 선언(3 mode 1) · 비밀번호 변경 시 세션 내 비밀 교체 — Phase 29 · **G-1 갱신(사용자 확정 2026-10-10 — 29-CONTEXT D-10 대체):** 주문 서버는 계좌별(계좌 지정 ?? 증권사 기본 주문 서버)이고, 「주문 서버 바뀜」 프레임 대신 지정 · 기본값 변경 시 영향 사용자를 즉시 재수립한다(옛 서버의 그 계좌 활성 전략 끄기 → wss 1012 → 재접속 → 25 → 66 재동기 — 29-33 · 29-35 · 29-36 · 29-42 · 29-43 · 29-44, 프레임 원천은 29-39 · 29-42 가 걷어냄)
-- [ ] **ADMIN-07**: 시세 주 서버 즉시 전환 break-then-make · 실패 시 복귀 · 상태 배지 — Phase 29
-- [ ] **ADMIN-08**: Express `/api/admin/*` + `requireAdmin` + relay admin 클라이언트(사설 대역 가드 · `x-relay-secret`) + Cloud Run env/IAM 복원 — Phase 29
-- [ ] **ADMIN-09**: `/admin/users` — 목록 · 승인 대기 · 서버별 반영 칩 · 「서버에만 있음」 · 편집 시트(필드별 즉시 저장) · 생성 시트 — Phase 29
-- [ ] **ADMIN-10**: `/admin/servers` — 증권사 그룹 카드 · 사용 토글 · 주문/시세 라디오 · 상태 칩 · 편집 시트 + 사이드바 Admin 그룹 — Phase 29 · **G-1 갱신(사용자 확정 2026-10-10 — 29-CONTEXT D-17 대체):** 카드의 주문 라디오 = 증권사 **기본** 주문 서버(화면 이름 「기본 주문 서버」 · 누르면 지정 없는 영향 사용자 즉시 재접속 — 29-36 · 29-38) · 계좌별 지정은 `/admin/users` 계좌 줄(29-38)
-- [ ] **ADMIN-11**: 역할 강등 · 허용 해제 즉시 반영 — relay 허용/역할 재적재 · wss 종료 · DMA 세션 유예 종료 — Phase 29
-- [ ] **ADMIN-12**: 빅뱅 배포 · 롤백 런북 — deploy-relay env 정리 · uptime 체크 재키잉 · README 갱신 · gh-trade 서버 선배포 확인 — Phase 29
+- [x] **ADMIN-01**: 서버 레지스트리 `dma_servers`(4대 시드 · enabled · 증권사별 주문 서버 · 시세 주 서버) + 기존 `KB`/`KYOBO` 키 in-place 개명 + 역개명 롤백 SQL — Phase 29
+- [x] **ADMIN-02**: 허용 gmail · 역할(admin/trader/viewer) 표 + middleware 전면 게이트 + 승인 대기 화면 + `is_theme_admin()` 흡수 — Phase 29
+- [x] **ADMIN-03**: DMA 유저 · 계좌 · 등록 서버 의도 표 + 비밀번호 암호문(DMA 유저당 1개) + 가시성 뷰 파생(`dma_visibility_identities` 재정의) — Phase 29
+- [x] **ADMIN-04**: relay 레지스트리 순회 — 서버별 저널 관찰자 + admin 연결(role 2) · quote 주 서버 1 · D-09 안전 기본값 게이트 · 재적재 — Phase 29
+- [x] **ADMIN-05**: admin 명령 경로 — Express → relay HTTP → 서버별 44 fan-out → 86 결과 배열 · 87 서버별 적재 + 그 서버 `JournalAccess` 갱신 — Phase 29
+- [x] **ADMIN-06**: (유저, 서버) 사용자 세션 · 증권사별 주문 서버 선택 · 「주문 서버 바뀜」 프레임 · 87 뒤 계좌 자가 선언(3 mode 1) · 비밀번호 변경 시 세션 내 비밀 교체 — Phase 29 · **G-1 갱신(사용자 확정 2026-10-10 — 29-CONTEXT D-10 대체):** 주문 서버는 계좌별(계좌 지정 ?? 증권사 기본 주문 서버)이고, 「주문 서버 바뀜」 프레임 대신 지정 · 기본값 변경 시 영향 사용자를 즉시 재수립한다(옛 서버의 그 계좌 활성 전략 끄기 → wss 1012 → 재접속 → 25 → 66 재동기 — 29-33 · 29-35 · 29-36 · 29-42 · 29-43 · 29-44, 프레임 원천은 29-39 · 29-42 가 걷어냄)
+- [x] **ADMIN-07**: 시세 주 서버 즉시 전환 break-then-make · 실패 시 복귀 · 상태 배지 — Phase 29
+- [x] **ADMIN-08**: Express `/api/admin/*` + `requireAdmin` + relay admin 클라이언트(사설 대역 가드 · `x-relay-secret`) + Cloud Run env/IAM 복원 — Phase 29
+- [x] **ADMIN-09**: `/admin/users` — 목록 · 승인 대기 · 서버별 반영 칩 · 「서버에만 있음」 · 편집 시트(필드별 즉시 저장) · 생성 시트 — Phase 29
+- [x] **ADMIN-10**: `/admin/servers` — 증권사 그룹 카드 · 사용 토글 · 주문/시세 라디오 · 상태 칩 · 편집 시트 + 사이드바 Admin 그룹 — Phase 29 · **G-1 갱신(사용자 확정 2026-10-10 — 29-CONTEXT D-17 대체):** 카드의 주문 라디오 = 증권사 **기본** 주문 서버(화면 이름 「기본 주문 서버」 · 누르면 지정 없는 영향 사용자 즉시 재접속 — 29-36 · 29-38) · 계좌별 지정은 `/admin/users` 계좌 줄(29-38)
+- [x] **ADMIN-11**: 역할 강등 · 허용 해제 즉시 반영 — relay 허용/역할 재적재 · wss 종료 · DMA 세션 유예 종료 — Phase 29
+- [x] **ADMIN-12**: 빅뱅 배포 · 롤백 런북 — deploy-relay env 정리 · uptime 체크 재키잉 · README 갱신 · gh-trade 서버 선배포 확인 — Phase 29
 
 ## v2 Requirements
 
@@ -211,18 +211,18 @@
 | TRADE-09 | Phase 18 | Complete |
 | MOBILE-01 | Phase 21 | Complete |
 | MOBILE-02 | Phase 22 | Complete |
-| ADMIN-01 | Phase 29 | Pending — 29 갭 클로징(29-27~29-44) 재검증 대기 |
-| ADMIN-02 | Phase 29 | Pending — 29 갭 클로징(29-27~29-44) 재검증 대기 |
-| ADMIN-03 | Phase 29 | Pending — 29 갭 클로징(29-27~29-44) 재검증 대기 |
-| ADMIN-04 | Phase 29 | Pending — 29 갭 클로징(29-27~29-44) 재검증 대기 |
-| ADMIN-05 | Phase 29 | Pending — 29 갭 클로징(29-27~29-44) 재검증 대기 |
-| ADMIN-06 | Phase 29 | Pending — 29 갭 클로징(29-27~29-44) 재검증 대기 |
-| ADMIN-07 | Phase 29 | Pending — 29 갭 클로징(29-27~29-44) 재검증 대기 |
-| ADMIN-08 | Phase 29 | Pending — 29 갭 클로징(29-27~29-44) 재검증 대기 |
-| ADMIN-09 | Phase 29 | Pending — 29 갭 클로징(29-27~29-44) 재검증 대기 |
-| ADMIN-10 | Phase 29 | Pending — 29 갭 클로징(29-27~29-44) 재검증 대기 |
-| ADMIN-11 | Phase 29 | Pending — 29 갭 클로징(29-27~29-44) 재검증 대기 |
-| ADMIN-12 | Phase 29 | Pending — 29 갭 클로징(29-27~29-44) 재검증 대기 |
+| ADMIN-01 | Phase 29 | Complete (29-VERIFICATION-R3 passed 18/18 — 2026-10-11 · 3라운드 갭 클로징 29-45~29-55 배포 relay 183ea9c8) |
+| ADMIN-02 | Phase 29 | Complete (29-VERIFICATION-R3 passed 18/18 — 2026-10-11 · 3라운드 갭 클로징 29-45~29-55 배포 relay 183ea9c8) |
+| ADMIN-03 | Phase 29 | Complete (29-VERIFICATION-R3 passed 18/18 — 2026-10-11 · 3라운드 갭 클로징 29-45~29-55 배포 relay 183ea9c8) |
+| ADMIN-04 | Phase 29 | Complete (29-VERIFICATION-R3 passed 18/18 — 2026-10-11 · 3라운드 갭 클로징 29-45~29-55 배포 relay 183ea9c8) |
+| ADMIN-05 | Phase 29 | Complete — override 1건(R3-01: op 3 IP/MAC 되싣기가 87 캐시 기반 → relay 밖 설정값 소거 가능, IP/MAC 작업과 함께 마일스톤 마무리 뒤 · 29-VERIFICATION-R3 overrides) |
+| ADMIN-06 | Phase 29 | Complete (29-VERIFICATION-R3 passed) — 두 번째 서버 켜기 전 R3-03 · R3-05 · R3-06 수정 · 실서버 실증 남음(29-53-SUMMARY 「켜기 전 결정」) |
+| ADMIN-07 | Phase 29 | Complete (29-VERIFICATION-R3 passed 18/18 — 2026-10-11 · 3라운드 갭 클로징 29-45~29-55 배포 relay 183ea9c8) |
+| ADMIN-08 | Phase 29 | Complete (29-VERIFICATION-R3 passed 18/18 — 2026-10-11 · 3라운드 갭 클로징 29-45~29-55 배포 relay 183ea9c8) |
+| ADMIN-09 | Phase 29 | Complete (29-VERIFICATION-R3 passed 18/18 — 2026-10-11 · 3라운드 갭 클로징 29-45~29-55 배포 relay 183ea9c8) |
+| ADMIN-10 | Phase 29 | Complete (29-VERIFICATION-R3 passed 18/18 — 2026-10-11 · 3라운드 갭 클로징 29-45~29-55 배포 relay 183ea9c8) |
+| ADMIN-11 | Phase 29 | Complete (29-VERIFICATION-R3 passed 18/18 — 2026-10-11 · 3라운드 갭 클로징 29-45~29-55 배포 relay 183ea9c8) |
+| ADMIN-12 | Phase 29 | Complete (29-VERIFICATION-R3 passed 18/18 — 2026-10-11 · 3라운드 갭 클로징 29-45~29-55 배포 relay 183ea9c8) |
 
 **Coverage:**
 
