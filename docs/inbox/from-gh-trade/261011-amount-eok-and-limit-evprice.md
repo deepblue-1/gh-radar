@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: b0d7f763
 from_branch: feature/limitchaser-amount-unit
 date: 2026-10-11
 fbs_sync_marker: e5b4fbca
-done_commit:
+done_commit: 9b0ccce1
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
@@ -33,6 +33,11 @@ MsgType 번호·필드·슬롯·의미 수준에서 무엇이 바뀌었는지 �
 - relay 생성물 재동기화: **불필요**(.fbs 무변경).
 - relay 파서·DB 마이그레이션: 불필요(새 필드 없음). kind 1·2 의 `ev_price` 를 0 으로 가정해 버리거나 검증하는 곳이 있으면 값이 와도 되게만 확인.
 - 웹: gh-trade 주문로그 문장을 웹이 같은 규칙으로 다시 만든다면 ① 1억 이상 `X.Y억(M주)` 갈래 ② 주문·대기·앞 잔량 금액 표기 ③ kind 1·2 수량을 `ev_price`(상한가)로 환산(0 이면 종전 숫자)을 따라가면 된다. 서버 54 사유 문장을 그대로 보여 주기만 한다면 할 일 없음.
+
+**gh-radar 처리 (2026-10-12 · Phase 31 · 31-05):**
+
+- relay 무변경 확인 — `ev_price` 는 relay `envelope.ts` 파싱 → 저널 → shared `strategy-event.ts` 로 그대로 흐르고, 0 을 가정하거나 검증하는 곳이 없다.
+- 웹 ⑦ 확장 — shared `strategy-event-text.ts` 수량 토큰이 「N만(M주)」/「X.Y억(M주)」 이고, kind 1·2 수량은 `ev_price`(상한가)로 환산하며 0 이면 종전 숫자다(커밋 e90f7ed3 · 서식 함수 6f764b44). 누적 거래량은 숫자 그대로다.
 
 ## 배포 순서 제약
 

@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: 983bd924
 from_branch: feature/limitchaser-amount-unit
 date: 2026-10-11
 fbs_sync_marker: e5b4fbca
-done_commit:
+done_commit: 9b0ccce1
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
@@ -87,3 +87,14 @@ gh-radar 쪽에 묻고 싶은 것, 결정이 필요한 것을 적는다(없으�
 
 - 웹 상따 화면에 「만(주)」 단위 표시를 언제 도입할지(도입 전에는 ⓑ 되싣기만 해 두면 C# 칸의 만원 원값이 웹 재제출로 지워지지 않는다).
 - 웹이 금액을 직접 받을지(그러면 환산 규칙 §10 을 그대로 공유 — 제출 내림·표시 반올림·그룹별 비교가), 아니면 지금처럼 주를 받고 금액은 되싣기만 할지.
+
+## 회신 (2026-10-12 · gh-radar Phase 31)
+
+- Q1 「만(주) 도입 시점」 — 이번 Phase 31 에 도입했다. 웹 상따 수량 8칸이 만원 입력이고, 두 줄로 표시한다(위 만원 · 아래 주). 환산은 gh-trade `limit-chaser.md` §10 규칙을 shared `lc-amount.ts` 한 벌로 공유한다.
+- Q2 「금액을 직접 받나」 — 웹이 금액(만원)을 직접 받고 주는 제출 때 산출한다. 제출 1회 내림(int.MaxValue 좁힘) · 표시 반올림 · 그룹별 비교가(매수 5칸 buy_watch_price · 매도 · 취소 3칸 sell_watch_price) · 비교가 0 이나 0주면 등록 거부(C# 문구 동형) · 에코 짝 검사 · 추적 ON 기준선 되싣기(WR-04 동형).
+- 툴팁 「N주 (환산가 P원)」 은 gh-trade c323c27e 로 「N주」 가 된 것을 확인했다. 웹 두 줄 행 아래 줄도 「N주」 다.
+- ⓑ `lc.set` 재제출 때 금액 8필드를 에코 원값으로 되싣는다. 0 을 지어내지 않고, 웹이 주를 바꾸면 금액은 사람이 넣은 만원 그대로 싣는다(31-01 · 31-04).
+- ⓒ 84 `post_buy_floor_amount` 를 /me 「후매수 최소(만원)」 로 보이고 설정한다. 42 는 12값 전체 교체이고 봉인 `post_buy_floor_qty` 는 0 이다. 구 탭이 보내는 11값 저장은 relay 가 그 사용자의 마지막 84 캐시 금액을 되싣고, 캐시가 없으면 저장하지 않고 거부한다(31-03).
+- AMT-01 Pending — gh-trade master 병합 전이다(`merge-base --is-ancestor feature/limitchaser-amount-unit master` exit 1). feature 기준 `sync-relay-schema.sh --check` 는 「신규/변경 예정 0 개 · .fbs 사본 최신」 이다. 생성물 마커 e5b4fbca / feature FBS 마지막 커밋 e5b4fbca6000 이다. 병합 뒤 gh-radar 가 master 기준으로 다시 대조한다(squash · rebase 병합이면 마커 해시가 바뀔 수 있다).
+- relay 배포 — 이 노트를 닫는 시점(2026-10-12 08:00 KST 전)에는 아직 배포하지 않았다. 라이브 relay 는 2234a1b5 이고, 배포 대상은 gh-radar 88e0ed31(phase 31 + master 병합)이다.
+- gh-trade 서버 배포 뒤 확인할 것(Manual-Only) — 60 에코 금액이 C# 원값으로 오는지, 84 `post_buy_floor_amount` 가 C# 저장값으로 오는지.
