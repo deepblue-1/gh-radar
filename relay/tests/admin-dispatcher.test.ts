@@ -22,6 +22,9 @@
  *       유지) · settle 실패면 그 서버는 삭제 사유 그대로 · deleted false
  *   D11 reconcile op 2 settle = 계획 때 removing 이던 행만(29-32 WR-01) — op 2 진행 중 다른 계좌에 그 서버가 active 로 체크돼도
  *       남고(settle 인자 userRemoved=false) · 줄 서 있던 다음 반영이 그 서버에 op 1 로 다시 올린다
+ *   IPMAC-01 (Phase 30 R3-01 · D-15) op 1(계좌) · op 3 직전 op 5 재조회 — 캐시에 없는 relay 밖 IP/MAC 을 새 87 에서 되싣는다 ·
+ *       계좌명만 바꾼 PUT 은 등록 서버마다 op 3(IPMAC-05) · 재조회 timeout/offline 이면 그 서버 44 0건(fail closed) · 비밀번호 ·
+ *       제거 · 유저 삭제 · 무변경은 재조회 0회 · 새 87 이 의도와 같으면 44 0건 · override(원문)가 새 87 값보다 이긴다(D-07 · D-10)
  */
 import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -99,6 +102,13 @@ class FakeConn implements AdminConnLike {
   timeoutMs = 80;
   /** normal 모드 op 1개의 처리 지연(ms) — 느린 서버 흉내(29-32 마감 테스트 · 가짜 타이머). */
   delayMs = 0;
+  /**
+   * op 5(ListUsers) 재조회 횟수 · 결과 · 지연(Phase 30 IPMAC-01 · R3-01). op 5 는 `sent` 에 넣지 않고 `mode` · `delayMs` 도
+   * 적용하지 않는다 — 기존 D1~D15 단언(`sent` · timeout · 마감)이 그대로 서게(30-RESEARCH Pitfall 3).
+   */
+  refreshes = 0;
+  refreshMode: "normal" | "timeout" | "offline" = "normal";
+  refreshDelayMs = 0;
   #snapshot: AdminUsersSnapshot | null;
   #requestId = 10n;
   readonly #handler: FakeAdminHandler;
@@ -118,6 +128,23 @@ class FakeConn implements AdminConnLike {
   }
 
   async command(input: CommandInput): Promise<AdminCommandOutcome> {
+    if (input.op === 5) {
+      // 서버의 지금 users.toml(state)을 87 로 — relay 밖 변경(state 직접 수정)이 여기서 처음 캐시에 들어온다.
+      this.refreshes += 1;
+      if (this.refreshMode === "offline") return { kind: "offline" };
+      if (this.refreshMode === "timeout") {
+        await sleep(this.timeoutMs);
+        return { kind: "timeout" };
+      }
+      if (this.refreshDelayMs > 0) await sleep(this.refreshDelayMs);
+      this.#requestId += 1n;
+      this.#snapshot = snapshotOf(this.state);
+      return {
+        kind: "result",
+        result: { requestId: this.#requestId, ok: true, code: 0, message: "", usersRev: this.state.usersRev },
+        snapshot: snapshotOf(this.state),
+      };
+    }
     this.sent.push(structuredClone(input));
     if (this.mode === "offline") return { kind: "offline" };
     if (this.mode === "timeout") {
@@ -835,5 +862,159 @@ describe("AdminDispatcher — 변경 경로 (29-11 Task 2)", () => {
       expect(env.db.callsTo("dma_admin_delete_dma_user")).toEqual([]);
       expect(env.db.intentOf("u1").map((r) => `${r.serverKey}:${r.state}`)).toEqual(["KB121:active"]);
     });
+  });
+});
+
+describe("IPMAC-01 R3-01 — op 1/3 직전 op 5 재조회 (D-15)", () => {
+  /** relay 밖(gh-trade 도구)에서 서버에만 설정된 값 — 캐시(생성 때 87)에는 없다. */
+  const OUT_IP = "010041001124";
+  const OUT_MAC = "1CFD087D978E";
+  const ADMIN_EMAIL = "boss@gmail.com";
+
+  beforeEach(async () => {
+    const { logger } = await import("../src/logger.js");
+    for (const level of ["debug", "info", "warn", "error"] as const) vi.spyOn(logger, level).mockImplementation((() => undefined) as never);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** 서버 state 의 그 유저 계좌에만 값을 넣는다(캐시는 그대로 — relay 밖 변경 흉내). */
+  function setOutside(conn: FakeConn, accountNo: string, orderIp: string, orderMac: string): void {
+    const a = conn.state.users.get("u1")!.find((x) => x.accountNo === accountNo)!;
+    a.orderIp = orderIp;
+    a.orderMac = orderMac;
+  }
+
+  it("캐시에 없는 relay 밖 IP/MAC — 계좌명 변경 op 3 에 새 87 값이 실린다 · 재조회 1회", async () => {
+    const env = setup({ KB120: state({ u1: [kb("A")] }) }, [row("KB120")]);
+    seedU1(env, [{ accountNo: "A", servers: ["KB120"] }]);
+    setOutside(env.conns.KB120!, "A", OUT_IP, OUT_MAC);
+    expect(env.conns.KB120!.currentSnapshot()!.users.find((u) => u.userId === "u1")!.accounts[0]).not.toHaveProperty("orderIp");
+
+    await env.store.putAccount("u1", { broker: "KB", ...kb("A"), name: "새 이름" }, ["KB120"]);
+    const results = await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN_EMAIL });
+
+    expect(results).toEqual([{ server: "KB120", outcome: "ok", usersRev: "6" }]);
+    expect(env.conns.KB120!.refreshes).toBe(1);
+    expect(env.conns.KB120!.sent).toEqual([
+      { op: 3, userId: "u1", account: { ...kb("A"), name: "새 이름", orderIp: OUT_IP, orderMac: OUT_MAC } },
+    ]);
+    // 서버 값이 지워지지 않았다(R3-01 해제).
+    const kept = env.conns.KB120!.state.users.get("u1")![0]!;
+    expect([kept.name, kept.orderIp, kept.orderMac]).toEqual(["새 이름", OUT_IP, OUT_MAC]);
+  });
+
+  it("IPMAC-05 계좌명만 바꾼 PUT — active 등록 서버마다 op 3(새 name) · 각 서버 새 87 의 IP/MAC", async () => {
+    const env = setup({ KB120: state({ u1: [kb("A")] }), KB121: state({ u1: [kb("A")] }) });
+    seedU1(env, [{ accountNo: "A", servers: ["KB120", "KB121"] }]);
+    setOutside(env.conns.KB120!, "A", OUT_IP, OUT_MAC);
+    setOutside(env.conns.KB121!, "A", "010041001125", "1CFD087D978F");
+
+    await env.store.putAccount("u1", { broker: "KB", ...kb("A"), name: "새 이름" }, ["KB120", "KB121"]);
+    const results = await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN_EMAIL });
+
+    expect(results.map((r) => r.outcome)).toEqual(["ok", "ok"]);
+    expect(env.conns.KB120!.sent).toEqual([
+      { op: 3, userId: "u1", account: { ...kb("A"), name: "새 이름", orderIp: OUT_IP, orderMac: OUT_MAC } },
+    ]);
+    expect(env.conns.KB121!.sent).toEqual([
+      { op: 3, userId: "u1", account: { ...kb("A"), name: "새 이름", orderIp: "010041001125", orderMac: "1CFD087D978F" } },
+    ]);
+    expect([env.conns.KB120!.refreshes, env.conns.KB121!.refreshes]).toEqual([1, 1]);
+  });
+
+  it("재조회 timeout → 그 서버 timeout · 44 0건(fail closed) · 다른 서버는 그대로 진행", async () => {
+    const env = setup({ KB120: state({ u1: [kb("A")] }), KB121: state({ u1: [kb("A")] }) });
+    seedU1(env, [{ accountNo: "A", servers: ["KB120", "KB121"] }]);
+    setOutside(env.conns.KB120!, "A", OUT_IP, OUT_MAC);
+    env.conns.KB120!.refreshMode = "timeout";
+
+    await env.store.putAccount("u1", { broker: "KB", ...kb("A"), name: "새 이름" }, ["KB120", "KB121"]);
+    const results = await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN_EMAIL });
+
+    expect(results).toEqual([
+      { server: "KB120", outcome: "timeout" },
+      { server: "KB121", outcome: "ok", usersRev: "6" },
+    ]);
+    expect(env.conns.KB120!.refreshes).toBe(1);
+    expect(env.conns.KB120!.sent).toHaveLength(0);
+    // 서버의 relay 밖 값 · 옛 이름이 그대로다(캐시로 진행했다면 빈 IP/MAC 이 나가 지워졌다).
+    const kept = env.conns.KB120!.state.users.get("u1")![0]!;
+    expect([kept.name, kept.orderIp, kept.orderMac]).toEqual(["위탁", OUT_IP, OUT_MAC]);
+  });
+
+  it("재조회 offline → 그 서버 offline · 44 0건(fail closed)", async () => {
+    const env = setup({ KB120: state({}) }, [row("KB120")]);
+    seedU1(env, [{ accountNo: "A", servers: ["KB120"] }]);
+    env.conns.KB120!.refreshMode = "offline";
+
+    // 87 에 유저가 없다 → 캐시 계획 = op 1(계좌) → 재조회 대상.
+    const results = await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN_EMAIL });
+
+    expect(results).toEqual([{ server: "KB120", outcome: "offline" }]);
+    expect(env.conns.KB120!.refreshes).toBe(1);
+    expect(env.conns.KB120!.sent).toHaveLength(0);
+    expect(env.conns.KB120!.state.users.has("u1")).toBe(false);
+  });
+
+  it("op 1(계좌) · op 3 이 없는 경로는 재조회 0회 — 무변경 다시 반영 · 비밀번호 · 계좌 제거(op 4) · 유저 삭제(op 2)", async () => {
+    const env = setup({ KB120: state({ u1: [kb("A", 1), kb("B", 2)] }) }, [row("KB120")]);
+    seedU1(env, [
+      { accountNo: "A", priority: 1, servers: ["KB120"] },
+      { accountNo: "B", priority: 2, servers: ["KB120"] },
+    ]);
+    const conn = env.conns.KB120!;
+
+    expect((await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN_EMAIL })).map((r) => r.outcome)).toEqual(["ok"]);
+    expect([ops(conn), conn.refreshes]).toEqual([[], 0]);
+
+    expect((await env.dispatcher.changePassword("u1", "새-p@ss", ADMIN_EMAIL)).map((r) => r.outcome)).toEqual(["ok"]);
+    expect([ops(conn), conn.refreshes]).toEqual([[1], 0]);
+
+    await env.store.markAccountRemoved("u1", "KB", "B");
+    expect((await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN_EMAIL })).map((r) => r.outcome)).toEqual(["ok"]);
+    expect([ops(conn), conn.refreshes]).toEqual([[1, 4], 0]);
+
+    const del = await env.dispatcher.deleteUser("u1", ADMIN_EMAIL);
+    expect(del.results.map((r) => r.outcome)).toEqual(["ok"]);
+    expect([ops(conn), conn.refreshes]).toEqual([[1, 4, 2], 0]);
+  });
+
+  it("새 87 이 이미 의도와 같으면 재계획 결과 op 0 · ok · 44 0건 · usersRev = 새 87", async () => {
+    const env = setup({ KB120: state({ u1: [kb("A")] }) }, [row("KB120")]);
+    seedU1(env, [{ accountNo: "A", servers: ["KB120"] }]);
+    // relay 밖에서 이미 같은 이름으로 바꿨다 — 캐시는 옛 이름이라 캐시 계획은 op 3 이다.
+    const conn = env.conns.KB120!;
+    conn.state.users.get("u1")![0]!.name = "새 이름";
+    conn.state.usersRev = 9n;
+
+    await env.store.putAccount("u1", { broker: "KB", ...kb("A"), name: "새 이름" }, ["KB120"]);
+    const results = await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN_EMAIL });
+
+    expect(results).toEqual([{ server: "KB120", outcome: "ok", usersRev: "9" }]);
+    expect(conn.refreshes).toBe(1);
+    expect(conn.sent).toHaveLength(0);
+  });
+
+  it("override(orderEndpoint 원문)가 새 87 값보다 이긴다 — KB120 · KB121 둘 다 같은 원문(D-10 · D-07)", async () => {
+    const env = setup({ KB120: state({ u1: [kb("A")] }), KB121: state({ u1: [kb("A")] }) });
+    seedU1(env, [{ accountNo: "A", servers: ["KB120", "KB121"] }]);
+    // 서버 값은 override 를 정규화해도 다른 값 — 정규화 멱등 비교(30-02)가 와도 op 3 이 나가야 한다.
+    setOutside(env.conns.KB120!, "A", "010041001120", "1CFD087D9700");
+    setOutside(env.conns.KB121!, "A", "010041001120", "1CFD087D9700");
+
+    const results = await env.dispatcher.reconcileUser("u1", {
+      adminEmail: ADMIN_EMAIL,
+      orderEndpoint: { broker: "KB", accountNo: "A", orderIp: "10.41.1.124", orderMac: "1c:fd:08:7d:97:8e" },
+    });
+
+    expect(results.map((r) => r.outcome)).toEqual(["ok", "ok"]);
+    for (const key of ["KB120", "KB121"]) {
+      expect(env.conns[key]!.sent).toEqual([
+        { op: 3, userId: "u1", account: { ...kb("A"), orderIp: "10.41.1.124", orderMac: "1c:fd:08:7d:97:8e" } },
+      ]);
+      expect(env.conns[key]!.refreshes).toBe(1);
+    }
   });
 });
