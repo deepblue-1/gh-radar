@@ -712,11 +712,13 @@ function qtyWordOf(field: LcAmountKey, qty: number): string {
 }
 
 /**
- * 두 줄 행 아래 줄(UI-SPEC 「두 줄 행 문자열」 · D-07) — 첫 일치 하나:
- *   ① 금액 > 0 ∧ 그 그룹 비교가 0 → 「비교가격 필요」(alert)
+ * 두 줄 행 아래 줄(UI-SPEC 「두 줄 행 문자열」 · D-07) — 제출 주를 **먼저** 계산하고 첫 일치 하나:
+ *   ① 금액 > 0 ∧ 그 그룹 비교가 0 ∧ 제출 주 0 → 「비교가격 필요」(alert)
  *   ② 제출 주 0 ∧ 의미어 칸 → 「무제한」 · 「1주」 · 「없음」
  *   ③ 그 밖 「{주}주」(0 이면 「0주」)
- * 비교가 0 ∧ 금액 0 은 ②/③ 이다(빨강 아님). 행 · 인라인 편집기(버퍼 값을 `values` 에 넣어 부른다) · 접근성 이름이 같이 읽는다.
+ * 비교가 0 이어도 에코 메모가 서버 주를 보존 중이면(짝 원값 에코 · 구 서버 에코 금액 0) ③ 「{주}주」 다 — `buildCfg` 가 싣는
+ * 주와 같은 글자다(C# `SetQtyAmountTip` 동형 · WR-02). 비교가 0 ∧ 금액 0 은 ②/③ 이다(빨강 아님).
+ * 행 · 인라인 편집기(버퍼 값을 `values` 에 넣어 부른다) · 접근성 이름이 같이 읽는다.
  */
 export function lcQtyRowSubOf(
   field: LcAmountKey,
@@ -724,14 +726,19 @@ export function lcQtyRowSubOf(
   server: RelayLimitChaser | null,
 ): LcRowSub {
   const amount = values[field];
-  if (amount > 0 && values[amountPairOf(field).price] === 0) return { text: '비교가격 필요', tone: 'alert' };
-  return { text: qtyWordOf(field, submitQtyOf(field, amount, values, server)), tone: 'muted' };
+  const qty = submitQtyOf(field, amount, values, server);
+  if (amount > 0 && values[amountPairOf(field).price] === 0 && qty === 0) {
+    return { text: '비교가격 필요', tone: 'alert' };
+  }
+  return { text: qtyWordOf(field, qty), tone: 'muted' };
 }
 
 /**
  * 넘버패드 시트 상태 줄 ⑤ 환산 안내(UI-SPEC 「넘버패드 시트」 · D-08) — 「= {주}주 (비교가격 {P}원)」 · 주 0 ∧ 의미어 칸은
- * 「= 무제한 (비교가격 P원)」 · 비교가 0 ∧ 값 0 은 괄호 없이 「= 0주」(또는 의미어). 비교가 0 ∧ 값 > 0 은 잠금(①)이 서는
- * 자리라 `null` 이다. 주는 행 아래 줄과 같은 `qtyForSubmit` 값이다.
+ * 「= 무제한 (비교가격 P원)」. 비교가 0 이면 괄호 없이 — 제출 주 > 0(에코 메모가 서버 주를 보존 중 · WR-02) 또는 값 0 은
+ * 「= {주}주」(0 이면 「= 0주」 또는 의미어), 값 > 0 ∧ 제출 주 0 은 잠금(①)이 서는 자리라 `null` 이다.
+ * 주는 행 아래 줄과 같은 `qtyForSubmit` 값이다 — 구 서버 에코(금액 0 · 주 Q · 가격 0)에서 행이 「Q주」 인데 시트가 「= 0주」
+ * 라고 말하지 않는다(C# `SetQtyAmountTip` 동형).
  */
 export function lcAmountHintOf(
   field: LcAmountKey,
@@ -740,8 +747,9 @@ export function lcAmountHintOf(
   server: RelayLimitChaser | null,
 ): string | null {
   const price = values[amountPairOf(field).price];
-  if (price === 0) return value === 0 ? `= ${qtyWordOf(field, 0)}` : null;
-  return `= ${qtyWordOf(field, submitQtyOf(field, value, values, server))} (비교가격 ${fmt(price, '원')})`;
+  const qty = submitQtyOf(field, value, values, server);
+  if (price === 0) return qty > 0 || value === 0 ? `= ${qtyWordOf(field, qty)}` : null;
+  return `= ${qtyWordOf(field, qty)} (비교가격 ${fmt(price, '원')})`;
 }
 
 /** 파생 행 두 줄 글자 — 위 줄 톤(`value` = 발동잔량 `--up` · 기준선 `--fg-2` / `muted` = 해제선 / `empty` = 「—」). */

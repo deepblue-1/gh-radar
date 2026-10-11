@@ -538,6 +538,28 @@ describe('P31 두 줄 문자열 (D-05 · D-07 · D-08)', () => {
     expect(lcAmountHintOf('extraBuyMinAmount', 0, at({ buyWatchPrice: 0 }), null)).toBe('= 1주');
   });
 
+  // WR-02 — 비교가 0 갈래도 제출 주(qtyForSubmit · 에코 메모)를 먼저 본다. 화면 · 무장 · cfg 가 같은 주(C# SetQtyAmountTip 동형).
+  it('WR-02 구 서버 에코(금액 0 · 주 Q · 가격 0) — 행 아래 줄 · 시트 안내 모두 「Q주」(「= 0주」 아님)', () => {
+    const server = srv({ sellWatchPrice: 0, sellWatchQty: 500, sellWatchAmount: 0 });
+    const v = at({ sellWatchPrice: 0, sellWatchAmount: 0 });
+    expect(lcQtyRowSubOf('sellWatchAmount', v, server)).toEqual({ text: '500주', tone: 'muted' });
+    expect(lcAmountHintOf('sellWatchAmount', 0, v, server)).toBe('= 500주');
+  });
+
+  it('WR-02 짝 원값 에코(가격 0 · 금액 원값 유지) — 「비교가격 필요」 가 아니라 에코 주 「Q주」', () => {
+    const server = srv({ sellWatchPrice: 0, sellWatchQty: 777, sellWatchAmount: 1000 });
+    const v = at({ sellWatchPrice: 0, sellWatchAmount: 1000 });
+    expect(lcQtyRowSubOf('sellWatchAmount', v, server)).toEqual({ text: '777주', tone: 'muted' });
+    expect(lcAmountHintOf('sellWatchAmount', 1000, v, server)).toBe('= 777주');
+  });
+
+  it('WR-02 가격 0 에서 에코와 다른 금액을 넣으면 제출 주 0 — 「비교가격 필요」 · 시트 안내 null(잠금 자리)', () => {
+    const server = srv({ sellWatchPrice: 0, sellWatchQty: 777, sellWatchAmount: 1000 });
+    const v = at({ sellWatchPrice: 0, sellWatchAmount: 1500 });
+    expect(lcQtyRowSubOf('sellWatchAmount', v, server)).toEqual({ text: '비교가격 필요', tone: 'alert' });
+    expect(lcAmountHintOf('sellWatchAmount', 1500, v, server)).toBeNull();
+  });
+
   it('lcDerivedRowTextOf 발동잔량 — 매수 비교가 역산 「32,175만」/「25,000주」 · 비교가 0 이면 위 줄 주 · 아래 줄 비움', () => {
     expect(lcDerivedRowTextOf('postBuyTriggerQty', srv({ buyWatchPrice: P, postBuyTriggerQty: 25_000 }))).toMatchObject({
       tone: 'value',
