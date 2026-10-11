@@ -333,6 +333,14 @@ export class StrategySweeper {
   }
 
   /**
+   * 그 서버 키를 레지스트리가 아는가 (29-52 GC-09) — `targetOf` 가 접속 대상을 주면 true. 꺼진(enabled false) 서버도 레지스트리에
+   * 있으면 true 다. false = 레지스트리에서 지운 서버 — 그 서버의 미확인 항목은 끌 수 없어(sweep 이 늘 no-session) 재시도가 지운다.
+   */
+  knowsServer(serverKey: string): boolean {
+    return this.#targetOf(serverKey) !== undefined;
+  }
+
+  /**
    * 그 서버 세션에서 `accountNos` 계좌의 켜진 전략(상따 · 두 거래소 VI)을 끄고 다시 읽어 0 임을 확인한다.
    * 확인되지 않은 모든 경우는 이름 붙은 실패다 — 조용히 성공으로 접지 않는다.
    */
@@ -509,6 +517,23 @@ export class StrategySweeper {
   }
 }
 
+/**
+ * 미확인 재시도 상한 (29-52 GC-09) — `attempts` 가 이 값 이상인 항목은 60초 재시도가 더 시도하지 않는다. 항목(경고)은 남는다 — 그
+ * 서버에 전략이 켜져 있을 수 있는 실제 위험이다. 그 사용자의 다음 로그인 백스톱이 한 번 더 시도한다(fanout).
+ */
+export const STALE_RETRY_MAX_ATTEMPTS = 12;
+
+/** 미확인 재시도 지연의 최대값 (29-52 GC-09) — 30분. */
+export const STALE_RETRY_MAX_DELAY_MS = 30 * 60_000;
+
+/**
+ * 미확인 항목의 다음 재시도까지 지연 (29-52 GC-09 · 지수 backoff) — `min(baseMs × 2^(attempts − 1), 30분)`. `attempts` 0 은 1 과
+ * 같다. 기본 60초면 60 · 120 · 240 · 480 · 960 · 1800 · 1800 …초. 꺼진 · 죽은 옛 서버에 60초마다 임시 로그인하지 않게 한다.
+ */
+export function staleRetryDelayMs(attempts: number, baseMs: number = 60_000): number {
+  return Math.min(baseMs * 2 ** (Math.max(1, attempts) - 1), STALE_RETRY_MAX_DELAY_MS);
+}
+
 /** 끄지 못한(미확인) 계좌 1건 — (userId, serverKey, accountNo) 마다 하나. */
 export type StaleStrategyEntry = {
   userId: string;
@@ -531,6 +556,8 @@ export type StaleStrategyInput = Omit<StaleStrategyEntry, "since" | "attempts" |
 /**
  * 끄지 못한 계좌 레지스터 (G-1 (가)). 순수 자료다 — 타이머 · 재시도 · 상태 프레임 송신을 갖지 않는다(결선은 29-36 · 재시도는
  * 29-44). healthz `accountOrderServers.<키>.staleAccounts` 와 Admin `servers/status` 의 `staleAccounts` 가 `byServer()` 를 읽는다.
+ * 해소 불가 항목 지우기(`discard`) · 재시도 backoff(`staleRetryDelayMs`) · 상한(`STALE_RETRY_MAX_ATTEMPTS`) 판정은 fanout 재시도
+ * 몫이다(29-52 GC-09) — 이 레지스터는 만료를 갖지 않는다.
  */
 export class StaleStrategyRegister {
   readonly #entries = new Map<string, StaleStrategyEntry>();
@@ -552,6 +579,14 @@ export class StaleStrategyRegister {
 
   /** 끄기가 확인됐다 — 그 항목을 지운다. 있었으면 true. */
   confirm(userId: string, serverKey: string, accountNo: string): boolean {
+    return this.#entries.delete(registerKey(userId, serverKey, accountNo));
+  }
+
+  /**
+   * 해소할 수 없는 항목을 지운다 (29-52 GC-09) — 끄기 확인이 아니다(`confirm` 과 이름을 갈라 로그 · 의미가 섞이지 않게). 사유
+   * (자격증명 unauthorized · dma-changed · 어느 매핑에도 없는 계좌 · 레지스트리에 없는 서버) 판정과 info 로그는 fanout 몫. 있었으면 true.
+   */
+  discard(userId: string, serverKey: string, accountNo: string): boolean {
     return this.#entries.delete(registerKey(userId, serverKey, accountNo));
   }
 
