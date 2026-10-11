@@ -508,23 +508,32 @@ const sub = price === 0 && amount > 0 ? '비교가격 필요'           // --des
 | A5 | shared 파일명 `lc-amount.ts` · 함수명은 재량 제안이다 | Pattern 1·2 | 없음(이름만) |
 | A6 | 웹 성공 판정을 「shown 일치 ∨ (에코 금액 0 ∧ 주 일치)」로 바꾸면 구 · 신 서버 모두에서 성공한다 | Pitfall 1 | 판정이 약해 오탐이 생길 수 있다 — 주 대조를 함께 두어 줄인다 |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> 2026-10-11 플래닝 리비전에서 7개 모두 해소 — 질문마다 아래 **RESOLVED** 줄이 근거(CONTEXT 결정 · UI-SPEC 표 · 담당 플랜)를 가리킨다. 미해소 질문 없음.
 
 1. **D-14 「필수」 vs 구 운영 webapp 4400(Pitfall 3)**
    - What we know: 운영 webapp 은 구판이고(D-17 push 금지), relay 는 먼저 배포된다(D-18). zod 위반은 소켓을 닫는다.
    - What's unclear: 사용자가 이 창(창 길이 = gh-trade 병합 · 우리 push 까지)을 감수할지.
    - Recommendation: zod `optional` + fanout 84 캐시 되싣기 + 캐시 없으면 비종료 거부 프레임. `postBuyFloorQty` 도 선택으로 두고 조립기가 0 을 고정한다. discuss 결정 변경이므로 플래너가 사용자에게 한 줄로 확인받는다(권고는 WinForms 무관 · relay 안정성 근거).
+   - **RESOLVED:** CONTEXT D-14 「2026-10-11 플래닝 보정」 으로 확정 — relay zod `postBuyFloorAmount` 는 `UIntSchema.optional()`, 부재(구 탭 11값)면 relay 가 84 캐시 금액을 되싣고 캐시가 없으면 소켓을 닫지 않는 거부 프레임 1건 · 새 webapp 은 12값 전부. 구현 31-03 Task 1(must_haves 「D-14 보정 · Pitfall 3」).
 2. **D-10 「추적 ON 되싣기 때 금액은 에코 원값」 vs C# 「칸 값(기준선 역산)」**
    - What we know: C# 은 추적 ON 이어도 `s.SellWatchAmount = (uint)numSellWatchQty.Value`, 즉 기준선 역산값을 싣는다 [VERIFIED: LimitChaserForm.cs:5428-5429].
    - What's unclear: D-10 의 「에코 원값」이 「에코가 칸에 쓴 값」인지 「에코 금액 필드 원값」인지.
    - Recommendation: WinForms 동형(칸 값 = `echo.shown`)으로 한다. 추적 ON 동안에는 표시가 늘 기준선 역산이라 저장 금액이 화면에 영향을 주지 않는다. 이 경우 SC2 의 「짝 또는 0」은 반올림 오차 범위 안에서만 성립한다 — 테스트는 메모 경로에서 짝 등식을 단언하지 않는다.
+   - **RESOLVED:** 권고대로 WinForms 동형 — 재제출 금액 = 칸 값(`echoAmountOf(...).shown`, 추적 ON 이면 기준선 역산). 31-01 「Flagged assumptions — D-10 「에코 원값」 해석」 · must_haves(추적 ON 에코 재제출 = 주 1554 · 금액 2000)로 고정.
 3. **취소 0 검사 신설 여부(D-04 「기존 0 검사」)**
    - What we know: 웹에는 매도 매수잔량 0(무장 가드)과 자동 체크 사유만 있다. C# 의 「취소 잔량 0」 · 「취소 체결 0」 · 「매도 비교가 0(anyCancel)」 차단은 **웹에 없다**(grep 실측) — 지금은 서버가 ERROR 로 취소를 눕힌다.
    - Recommendation: WinForms 동형 기본에 따라 `armBlockOf` 환산 검사에 함께 넣는다(접미 포함). 신규 차단이므로 UI-SPEC 문구표에 올린다.
+   - **RESOLVED:** 신설로 확정 — UI-SPEC 「등록(무장) 차단 문구」 표 7(취소 잔량 환산 0주) · 8(취소:체결 · 매도 체결 환산 0주) 행 + 접미, 「매도 비교가 0(anyCancel)」 은 2 · 7 · 8 이 먼저 잡아 문장을 따로 두지 않는다. 구현 31-06 Task 1(`armBlockOf` 환산 검사 · 순서 · 접미).
 4. **취소 「잔량추적 기준선」 파생 행** — D-05 는 `cancelQtyTrackBaseline` 도 말하지만 웹에는 매도 기준선 파생 행만 있다 [VERIFIED: lc-fields.ts:455 · limit-chaser-form.tsx:1616]. 권고: 새 행을 만들지 않는다(새 능력). 취소 칸 자체가 추적 ON 이면 기준선 역산을 보인다(D-06).
+   - **RESOLVED:** 권고대로 — 31-06 must_haves 「취소 기준선 파생 행은 만들지 않는다」, 취소 칸의 추적 ON 기준선 역산 표시 · 재제출 되싣기는 31-01 `echoAmountOf` 쌍 표(cancelWatch track/baseline) · 31-04 must_haves(D-06).
 5. **요약 줄 · 의미어** — `lcSummaryOf` 의 「매도잔량 N주」 · 「최소 1주/없음」 · 「최대 무제한」 · 발동잔량 주 표기를 만원으로 바꿀지, 두 줄 아래 줄 의미어(최소 0 → 「1주」 · 후매수 최소 0 → 「없음」)를 어떻게 할지는 UI-SPEC(ui-phase) 몫이다.
+   - **RESOLVED:** UI-SPEC 「접힌 카드 요약 줄」(Open Q5 — 이 계약이 정한다) · 「값 0 표시」 표로 확정 — 요약 kv 는 위 줄 만원 글자 하나 · 금액 0 은 의미어(「최대 무제한」 · 「최소 1주」 · 「최소 없음」). 구현 31-04 Task 2(`lcSummaryOf` · `lcAmountZeroWordOf`), 두 줄 아래 줄 의미어는 31-06(`lcQtyRowSubOf`).
 6. **AMT-01 시점** — 실행 시점에 gh-trade 가 병합 전이면 SC1 「master 병합 마커 기준」을 닫을 수 없다. 권고: 마무리 플랜에 「병합 확인 → `--check` + 마커 대조」를 `checkpoint` 로 두고, 병합 전이면 feature 기준 `--check` 결과를 기록하고 AMT-01 을 Pending 으로 남긴다.
+   - **RESOLVED:** 권고 폴백 채택 — 31-08 Task 2 가 `git -C /Users/alex/repos/gh-trade merge-base --is-ancestor feature/limitchaser-amount-unit master` 로 병합을 판정한다. 병합이면 master worktree `--check` + 마커 접두 대조(다르면 재생성 커밋 · D-15), 미병합이면 feature 기준 `--check` 출력 · 마커 해시 2개를 SUMMARY · 노트 1 에 「AMT-01 Pending」 으로 적고 멈추지 않는다. 노트 2건 닫기(D-16 · D-20)는 병합을 기다리지 않는다.
 7. **웹 주문로그 「N만(M주)」** — C# D-17 은 클라 주문로그 7종 · 상태 로그도 만원 형식으로 바꿨다. 웹 `strategy-event-text.ts` 의 「조건 … / 실측 …」은 CONTEXT 결정에 없다. 권고: 범위 밖(서버 54 사유는 원문이라 자동으로 바뀐다). 필요하면 후속 quick 으로 한다.
+   - **RESOLVED:** 권고(범위 밖)는 사용자 결정으로 바뀌었다 — 두 번째 인박스 `261011-amount-eok-and-limit-evprice.md` 접수로 CONTEXT D-19(웹 ⑦ 수량 토큰 「N만(M주)」/「X.Y억(M주)」 · kind 1·2 `ev_price` 환산 · 조립은 shared `strategy-event-text.ts` 한 곳) · D-20(노트 닫기)이 범위에 들어왔다. 구현 31-05 · 노트 닫기 31-08.
 
 ## AMT-04 노트 닫기 (형식 정본)
 
