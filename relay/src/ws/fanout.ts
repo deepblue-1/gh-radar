@@ -154,7 +154,7 @@ import { logger } from "../logger.js";
 import { verifyToken } from "../auth/verify-token.js";
 import { getDmaCredentials } from "../store/credentials.js";
 import { safePgError } from "../store/pg-error.js";
-import type { HubMarketEvent, SubscriptionHub } from "../hub/subscription-hub.js";
+import type { HubMarketEvent, HubSession, SubscriptionHub } from "../hub/subscription-hub.js";
 import type { DmaSession } from "../dma/session.js";
 import type { DmaCredentials, SessionTarget } from "../dma/session-manager.js";
 import type {
@@ -2026,6 +2026,11 @@ export class WsFanout {
         buildSetVITriggerReq({ accountNo, exchange, orderAmountKrw, checkRate, run }),
       );
       if (payload === null) return;
+      // 29-51 (GC-05) — 거래소당 켜진 VI 는 사용자 단위 1건이다(17-06 D-06 · 서버는 세션당 거래소 1슬롯). 다른 서버 세션에 같은 거래소의
+      // 켜진 VI 가 있으면 그 세션에 같은 값 run:false(11)를 **먼저** 보낸다 — 한 서버 안에서 서버가 슬롯을 갈아 끼우는 것과 같은 결과다
+      // (웹 「옮기기」 흐름 그대로). 끄기를 보내지 못하면 거부하고 켜기도 보내지 않는다 — 두 서버에 같은 거래소 VI 가 동시에 켜지는 것보다
+      // 안전하다. run:false 로 보내는 vi.set 에는 이 가드가 없다.
+      if (run && !this.#stopViElsewhere(conn, userId, msg.t, exchange, session)) return;
       if (!session.send(payload)) this.#onStrategySendFailed(conn, userId, msg.t);
       return;
     }
@@ -2033,8 +2038,11 @@ export class WsFanout {
     if (msg.t === "vi.confirm") {
       // 계좌 필드가 없다 — 확인 체크는 **이미 그 세션이 낸 주문**에 대한 토글이고, 대조의
       // 정본은 서버의 주문번호 소유권이다. 여기서 계좌를 지어내 대조하면 근거가 두 벌이 된다.
+      // 29-51 (GC-05) — 세션은 그 주문번호가 든 VI 주문 추적의 소유 세션(hub `viOrderSessionOf`)이다. 모르면 primary(종전).
       const { orderNo, confirmed } = msg;
-      const session = this.#strategySession(conn, userId, msg.t);
+      const owning = this.#entrySessionOf(userId, this.#hub.viOrderSessionOf(userId, orderNo));
+      const session =
+        owning === undefined ? this.#strategySession(conn, userId, msg.t) : this.#readySession(conn, userId, msg.t, owning);
       if (session === null) return;
       const payload = this.#buildStrategyPayload(conn, userId, msg.t, () =>
         buildConfirmVIOrderReq({ orderNo, confirmed }),
@@ -2247,6 +2255,42 @@ export class WsFanout {
     const owner = this.#sessions.forAccount(userId, accountNo);
     const session = owner !== undefined && owner.broker === VI_BROKER ? owner : this.#sessions.primaryOf(userId);
     return this.#readySession(conn, userId, t, session);
+  }
+
+  /**
+   * 다른 서버 세션의 같은 거래소 켜진 VI 끄기 (29-51 · GC-05 — `vi.set(run:true)` 가드). hub 가 그 세션 61 에코로 아는 값 그대로 run 만 false 로
+   * 보낸다. 없으면 true(보낼 것 없음). 그 세션이 준비되지 않았거나 송신이 실패하면 거부 프레임 뒤 false — 호출부는 켜기를 보내지 않는다.
+   * 로그는 서버 키 두 개 · 거래소만(계좌 · DMA id 없음).
+   */
+  #stopViElsewhere(conn: Conn, userId: string, t: RelayInbound["t"], exchange: RelayExchange, target: DmaSession): boolean {
+    const other = this.#hub.viRunningElsewhere(userId, exchange, target);
+    if (other === undefined) return true;
+    const { accountNo, orderAmountKrw, checkRate } = other.cfg;
+    const payload = this.#buildStrategyPayload(conn, userId, t, () =>
+      buildSetVITriggerReq({ accountNo, exchange, orderAmountKrw, checkRate, run: false }),
+    );
+    if (payload === null) return false;
+    const fromServer = other.session.serverKey ?? other.session.broker ?? "";
+    if (!other.session.isReady || !other.session.send(payload)) {
+      logger.warn(
+        { userId, t, exchange, from: fromServer, to: target.serverKey },
+        "[WS] 다른 서버의 켜진 VI 끄기 송신 실패 — 켜기 보내지 않음 (GC-05)",
+      );
+      this.#send(conn, rejectFrame("다른 서버에서 가동 중인 VI 를 먼저 끄지 못했습니다. 잠시 뒤 다시 시도해 주세요.", "", "", t));
+      return false;
+    }
+    logger.info(
+      { userId, t, exchange, from: fromServer, to: target.serverKey },
+      "[WS] 거래소당 켜진 VI 1건 — 다른 서버의 켜진 VI 를 먼저 끔 (GC-05)",
+    );
+    return true;
+  }
+
+  /** hub 가 돌려준 세션(`HubSession`)을 이 사용자 entry 의 `DmaSession` 으로 (같은 객체만 · 29-51). 없으면 undefined. */
+  #entrySessionOf(userId: string, hubSession: HubSession | undefined): DmaSession | undefined {
+    if (hubSession === undefined) return undefined;
+    for (const es of this.#users.get(userId)?.sessions.values() ?? []) if (es.session === hubSession) return es.session;
+    return undefined;
   }
 
   /** ① 확인 본체 — 세션 없음 · 미준비면 로그 + 거부 프레임 뒤 null (`#strategySession` · `#viSessionFor` 공용). */
