@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   isValidAccountNoInput,
   normalizeAccountNo,
@@ -64,6 +64,12 @@ import { useFieldSave, type FieldSave } from "./use-field-save";
  * 값 · 출처 서버 · 등록 서버 간 불일치는 shared `summarizeOrderEndpoint`(relay 라우팅과 같은 유효 주문 서버 규칙 한 벌) 결과만
  * 그린다 — 웹은 별도 판정을 하지 않는다. 불일치는 다른 서버마다 경고 한 줄(`WARN_LINE`). 빈 계좌명은 제목줄에 흐린 「이름 없음」
  * (87 전용 흐린 줄은 편집 대상이 아니라 그대로).
+ *
+ * **「편집」 → 카드 편집 모드(Phase 30 D-01 · D-02 · IPMAC-05 · UI-SPEC §2 · §5).** 제목줄 「제거」 왼쪽 「편집」 을 누르면 그 카드만
+ * `--primary` 테두리 편집 모드 — 계좌명 입력칸(첫 포커스) · 「취소 · 저장」. 한 번에 한 카드(부모 `editingKey` — 다른 카드 「편집」 은
+ * 비활성 · 「다른 계좌 편집 중」). 초깃값은 연 순간 고정(재조회가 덮지 않는다). 「저장」 1회 = `PUT …/accounts` 1건
+ * `{ account(새 이름 · 나머지 개요 값), servers(지금 active 등록 서버) }` — 계좌명만 바뀐 저장은 IP/MAC 을 싣지 않는다(relay 가 87 값을
+ * 보존 · IPMAC-01). 서버 전부 ok 면 닫히고 포커스가 「편집」 으로 돌아온다. 서버 토글 · 주문 서버 · 「제거」 의 즉시 저장은 그대로.
  */
 
 export const ACCOUNT_EDITOR_TEXT = {
@@ -90,6 +96,15 @@ export const ACCOUNT_EDITOR_TEXT = {
   orderServerNote:
     "주문 서버를 바꾸면 relay 가 옛 서버에 남은 그 계좌의 활성 전략(상따 · VI · 자동매도)을 끄고 새 서버로 바로 재접속해요 — 옛 서버의 미체결은 그 서버(클라)에서 정리하고, 옛 서버로 되돌릴 때는 클라(OCX) 대사로 잔고를 맞추세요.",
   // ── Phase 30 (30-UI-SPEC Copywriting 정본) ──
+  /** 편집 모드 CTA — 보이는 글자는 목업 B, 접근 이름은 「{증권사} {계좌번호} 편집 / 편집 취소 / 편집 저장」(UI-SPEC CTA 표). */
+  edit: "편집",
+  save: "저장",
+  editCancel: "편집 취소",
+  editSave: "편집 저장",
+  /** 다른 카드가 편집 중일 때 「편집」 의 title(D-01 · 한 번에 한 카드). */
+  editLocked: "다른 계좌 편집 중",
+  nameLabel: "계좌명",
+  namePlaceholder: "계좌명(선택)",
   /** 계좌명이 빈 값인 읽기 카드 제목줄(--faint). */
   noName: "이름 없음",
   ipmacLabel: "주문자 IP",
@@ -323,18 +338,21 @@ function BranchTrader({ account }: { account: Pick<AdminAccountView, "broker" | 
 function AccountTitle({
   account,
   noNamePlaceholder = false,
+  hideName = false,
   children,
 }: {
   account: AdminAccountView;
   /** 계좌명이 빈 값이면 그 자리에 흐린 「이름 없음」(편집 가능한 계좌 카드만 — 87 전용 줄은 넘기지 않는다). */
   noNamePlaceholder?: boolean;
+  /** 편집 모드 — 계좌명은 아래 입력칸으로 옮겨 가므로 제목줄에서 숨긴다(UI-SPEC §2-1). */
+  hideName?: boolean;
   children?: ReactNode;
 }) {
   return (
     <div className="flex items-center gap-2 text-[14px] font-semibold text-[var(--fg)]">
       <span className={BROKER_BADGE}>{brokerLabel(account.broker)}</span>
       <span className="min-w-0 truncate tabular-nums">{account.accountNo}</span>
-      {account.name ? (
+      {hideName ? null : account.name ? (
         <span className="min-w-0 truncate font-medium text-[var(--muted-fg)]">{account.name}</span>
       ) : noNamePlaceholder ? (
         <span className="min-w-0 truncate font-medium text-[var(--faint)]">{ACCOUNT_EDITOR_TEXT.noName}</span>
@@ -394,9 +412,20 @@ interface AccountRowProps {
   overlay: Overlay;
   /** 이 계좌가 마지막 계좌인가 — 「제거」 가 사용자 삭제로 간다. */
   last: boolean;
+  /** 이 카드가 편집 모드인가(부모 `editingKey` — 한 번에 한 카드 · D-01). */
+  editing: boolean;
+  /** 다른 카드가 편집 중 — 「편집」 비활성 · title 「다른 계좌 편집 중」. */
+  editLocked: boolean;
+  onEditStart: () => void;
+  onEditEnd: () => void;
   onResults: (accountKey: string, results: readonly AdminServerResult[]) => void;
   onChanged: () => void;
   onRemoveLast: () => void;
+}
+
+/** 편집 모드 입력값(30-05 가 ip · mac 을 더한다). */
+interface EditFields {
+  name: string;
 }
 
 function AccountRow({
@@ -406,11 +435,39 @@ function AccountRow({
   registry,
   overlay,
   last,
+  editing,
+  editLocked,
+  onEditStart,
+  onEditEnd,
   onResults,
   onChanged,
   onRemoveLast,
 }: AccountRowProps) {
+  const T = ACCOUNT_EDITOR_TEXT;
   const key = accountKeyOf(account.broker, account.accountNo);
+  const nameId = useId();
+  const editButtonRef = useRef<HTMLButtonElement>(null);
+  // 편집 초깃값 · 초안 — 「편집」 을 누른 순간 고정한다(이후 재조회 props 가 덮지 않는다 · UI-SPEC §5).
+  const [draft, setDraft] = useState<{ initial: EditFields; value: EditFields } | null>(null);
+  const isEditing = editing && draft !== null;
+
+  // 카드 저장 1건(D-02) — 서버 일부 실패도 HTTP 성공이라 onSuccess 가 불린다: 전부 ok 일 때만 편집을 닫는다.
+  const editSave = useFieldSave<AdminPutAccountBody>((body) => putDmaAccount(dmaUserId, body), {
+    releaseOn: account,
+    onSuccess: (_body, res) => {
+      if (res) onResults(key, res.results);
+      onChanged();
+      const allOk = !res || res.results.every((r) => r.outcome === "ok");
+      if (allOk) onEditEnd();
+    },
+  });
+
+  // 편집이 닫히면(취소 · 저장 성공) 포커스를 그 카드 「편집」 으로 돌린다.
+  const wasEditing = useRef(isEditing);
+  useEffect(() => {
+    if (wasEditing.current && !isEditing) editButtonRef.current?.focus();
+    wasEditing.current = isEditing;
+  }, [isEditing]);
 
   const toggle = useFieldSave<string[]>(
     (servers) => putDmaAccount(dmaUserId, { account: accountInputOf(account), servers }),
@@ -456,6 +513,23 @@ function AccountRow({
   );
 
   const error = order.error ?? toggle.error ?? remove.error;
+  const editSaving = editSave.state === "saving";
+  const editChanged = draft !== null && draft.value.name.trim() !== draft.initial.name.trim();
+
+  const openEdit = () => {
+    const initial: EditFields = { name: account.name };
+    setDraft({ initial, value: initial });
+    onEditStart();
+  };
+  const cancelEdit = () => {
+    if (editSaving) return;
+    onEditEnd();
+  };
+  const submitEdit = () => {
+    if (draft === null || !editChanged || editSaving) return;
+    // servers = 지금 그리는 active 등록 서버(토글 비행 중이면 그 값) — 서버 집합을 바꾸지 않는다. orderEndpoint 는 싣지 않는다.
+    editSave.run({ account: { ...accountInputOf(account), name: draft.value.name.trim() }, servers: intent });
+  };
   const kb = account.broker === "KB";
   // D-09 · D-10 — 표시값 · 출처 · 불일치는 shared 판정 한 벌(relay 라우팅과 같은 유효 주문 서버 규칙).
   const endpoint = kb ? summarizeOrderEndpoint({ account, registry }) : null;
@@ -466,9 +540,29 @@ function AccountRow({
       data-account={account.accountNo}
       data-broker={account.broker}
       data-state={remove.state === "saving" ? "saving" : toggle.state}
-      className={cn(ACCOUNT_CARD, toggle.state === "flash" && ROW_FLASH)}
+      data-editing={isEditing ? "true" : undefined}
+      className={cn(
+        ACCOUNT_CARD,
+        isEditing && "border-[var(--primary)]",
+        (toggle.state === "flash" || editSave.state === "flash") && ROW_FLASH,
+      )}
     >
-      <AccountTitle account={account} noNamePlaceholder>
+      <AccountTitle account={account} noNamePlaceholder hideName={isEditing}>
+        {!isEditing && (
+          <Button
+            ref={editButtonRef}
+            type="button"
+            size="sm"
+            variant="secondary"
+            aria-label={`${account.broker} ${account.accountNo} ${T.edit}`}
+            disabled={editLocked}
+            title={editLocked ? T.editLocked : undefined}
+            onClick={openEdit}
+            className={cn(ADMIN_BUTTON_SECONDARY, ACCOUNT_BUTTON)}
+          >
+            {T.edit}
+          </Button>
+        )}
         <Button
           type="button"
           size="sm"
@@ -482,11 +576,64 @@ function AccountRow({
         </Button>
       </AccountTitle>
       <BranchTrader account={account} />
-      {endpoint && (
-        <>
-          <OrderEndpointLine summary={endpoint} />
-          <OrderEndpointMismatchLines summary={endpoint} />
-        </>
+      {isEditing ? (
+        <form
+          data-slot="admin-account-edit"
+          className="mt-2.5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submitEdit();
+          }}
+        >
+          <label htmlFor={nameId} className="mb-1 block text-[12px] text-[var(--muted-fg)]">
+            {T.nameLabel}
+          </label>
+          <Input
+            id={nameId}
+            size="sm"
+            // UI-SPEC §2 — 「편집」 을 누르면 첫 포커스는 계좌명 칸(편집 블록은 그때 마운트된다).
+            autoFocus
+            maxLength={40}
+            autoComplete="off"
+            placeholder={T.namePlaceholder}
+            readOnly={editSaving}
+            value={draft.value.name}
+            onChange={(e) => {
+              const name = e.target.value;
+              setDraft((d) => (d ? { ...d, value: { ...d.value, name } } : d));
+            }}
+          />
+          {endpoint && <OrderEndpointMismatchLines summary={endpoint} />}
+          <div className="mt-2.5 flex justify-end gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              aria-label={`${account.broker} ${account.accountNo} ${T.editCancel}`}
+              disabled={editSaving}
+              onClick={cancelEdit}
+              className={cn(ADMIN_BUTTON_SECONDARY, ACCOUNT_BUTTON)}
+            >
+              {T.cancel}
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              aria-label={`${account.broker} ${account.accountNo} ${T.editSave}`}
+              disabled={!editChanged || editSaving}
+              className={cn(ADMIN_BUTTON_PRIMARY, ACCOUNT_BUTTON)}
+            >
+              {T.save}
+            </Button>
+          </div>
+        </form>
+      ) : (
+        endpoint && (
+          <>
+            <OrderEndpointLine summary={endpoint} />
+            <OrderEndpointMismatchLines summary={endpoint} />
+          </>
+        )
       )}
       <div className="mt-2.5 flex flex-wrap gap-1.5">
         {shown.map((serverKey) => {
@@ -878,6 +1025,8 @@ export function AccountEditor({
   const [overlay, setOverlay] = useState<Overlay>(() => new Map());
   const [adding, setAdding] = useState(false);
   const [appliedId, setAppliedId] = useState<number | null>(null);
+  // 편집 중인 카드(계좌 키) — 한 번에 한 카드(D-01 · UI-SPEC §5).
+  const [editingKey, setEditingKey] = useState<string | null>(null);
 
   // 「다시 반영」 결과 — props 로 온 새 묶음을 렌더 중 한 번 반영한다(React 「props 변화로 state 조정」 패턴).
   if (serverResults && serverResults.id !== appliedId) {
@@ -892,6 +1041,10 @@ export function AccountEditor({
     servers.filter((s) => s.broker === broker && s.enabled).map((s) => s.key);
 
   const editable = accounts.filter((a) => a.servers.length > 0);
+  // 편집 중인 카드가 목록에서 사라지면(제거 · 재조회) 잠금을 푼다 — 렌더 중 「props 변화로 state 조정」.
+  if (editingKey !== null && !editable.some((a) => accountKeyOf(a.broker, a.accountNo) === editingKey)) {
+    setEditingKey(null);
+  }
   const activeCount = accounts.filter((a) => a.servers.some((s) => s.state === "active")).length;
   const nextPriority = Math.min(999, accounts.reduce((m, a) => Math.max(m, a.priority), 0) + 1);
 
@@ -922,6 +1075,10 @@ export function AccountEditor({
             registry={servers.filter((s) => s.broker === a.broker)}
             overlay={overlay}
             last={isActive && activeCount <= 1}
+            editing={editingKey === k}
+            editLocked={editingKey !== null && editingKey !== k}
+            onEditStart={() => setEditingKey(k)}
+            onEditEnd={() => setEditingKey((cur) => (cur === k ? null : cur))}
             onResults={onResults}
             onChanged={onChanged}
             onRemoveLast={onRemoveLast}
