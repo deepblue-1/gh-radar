@@ -9,7 +9,7 @@ import {
   withLocalRelay,
   type LocalRelay,
 } from '../fixtures/relay';
-import { kstDateIso, type StrategyEventRow } from '@gh-radar/shared';
+import { amountFromQty, kstDateIso, type StrategyEventRow } from '@gh-radar/shared';
 import { FIXTURE_TRADE_DATE, STRATEGY_DAY_ROWS } from '@/test-fixtures/strategy-day';
 import { ROW_12451, TIMELINE_BY_ANCHOR } from '@/test-fixtures/order-timeline';
 
@@ -450,6 +450,14 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
     await expect(openCard.locator('[data-lc-field="lc-sell-watch-price"]')).toHaveAccessibleName(/^매도 비교가격 /);
     await expect(openCard.locator('[data-lc-field="lc-buy-watch-price"]')).toHaveAccessibleDescription(/^매수주문 /);
     await expect(openCard.locator('[data-lc-field="lc-sell-watch-price"]')).toHaveAccessibleDescription(/^매도주문 /);
+    // ③-c Phase 31 두 줄 행(UI-SPEC 접근성 표) — 값 버튼 이름은 「{접두} {라벨} {위 줄} {아래 줄}」 한 벌이다(아래 줄 별도 sr
+    //      텍스트 없음 — 버튼 aria-label 이 낭독을 덮는다). 스텁 에코는 금액 0 · 10,000주 @71,100 → 위 줄 = 역산 만원.
+    const watchQtyName = `선매수 매도잔량 ${amountFromQty(10_000, 71_100).toLocaleString('en-US')}만 10,000주`;
+    await expect(openCard.locator('[data-lc-field="lc-buy-watch-qty"]')).toHaveAccessibleName(watchQtyName);
+    await expect(
+      openCard.locator('[data-lc-field="lc-buy-watch-qty"] [data-slot="lc-row-sub"]'),
+    ).toHaveText('10,000주');
+    await expect(openCard.locator('[data-lc-field="lc-buy-watch-qty"] .sr-only')).toHaveCount(0);
 
     // ④ 상태줄 DMA 필은 `aria-live="polite"` — 포커스를 뺏지 않고 갱신을 알린다.
     await expect(page.locator('[data-slot="workbench-dma"]')).toHaveAttribute('aria-live', 'polite');
@@ -512,6 +520,8 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
         postBuyReentryLeft: 2,
         postBuyReboundPct: 30,
         postBuyFloorQty: 100_000,
+        // Phase 31 — 새 gh-trade 에코 모양(금액 원값 + 짝 주): 100,000주 @71,100(스텁 매수 비교가) = 711,000만.
+        postBuyFloorAmount: amountFromQty(100_000, 71_100),
         postBuyTriggerQty: 330_000,
       },
     ]);
@@ -602,7 +612,7 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
       { timeout: 30_000 },
     );
     await expect(
-      page.locator('[data-lc-field="lc-buy-watch-qty"] [data-slot="lc-row-value"]'),
+      page.locator('[data-lc-field="lc-buy-watch-qty"] [data-slot="lc-row-sub"]'),
     ).toHaveText('10,000주', { timeout: 15_000 });
 
     const blocking = await scanSurface(page);
@@ -684,7 +694,8 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
         { timeout: 30_000 },
       );
       const row = page.locator('[data-lc-field="lc-buy-watch-qty"]');
-      await expect(row.locator('[data-slot="lc-row-value"]')).toHaveText('10,000주', { timeout: 15_000 });
+      // Phase 31 — 위 줄은 만원(역산), 에코 도착 신호는 아래 줄 환산 주.
+      await expect(row.locator('[data-slot="lc-row-sub"]')).toHaveText('10,000주', { timeout: 15_000 });
       await expect(row).toHaveAttribute('aria-haspopup', 'dialog');
 
       // Phase 24 ⑤ — 선매수 카드는 기본 접힘이다(접기는 로컬 동작 · 전송 0).
@@ -698,7 +709,7 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
       await expect(sheet).toHaveAttribute('role', 'dialog');
       await expect(sheet).toHaveAttribute('aria-modal', 'true');
       await expect(sheet).toHaveAccessibleName('선매수 매도잔량');
-      await expect(sheet).toHaveAccessibleDescription('비교가격의 매도잔량이 이 값 이하로 줄면 선매수를 넣어요');
+      await expect(sheet).toHaveAccessibleDescription('비교가격의 매도잔량이 이 금액 이하로 줄면 선매수를 넣어요');
       // 열린 동안 포커스는 시트 안이다(초기 포커스 = 콘텐츠 컨테이너).
       expect(
         await page.evaluate(() => document.activeElement?.closest('[data-slot="numpad-sheet"]') != null),

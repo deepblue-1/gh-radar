@@ -178,6 +178,11 @@ describe('P31 두 줄 행 (D-07 · UI-SPEC S1 · S2)', () => {
     expect(valueBtn.querySelector('[data-slot="lc-row-sub"]')!.textContent).toBe('388주');
     const chk = screen.getByRole('checkbox', { name: '선매수 체결량' });
     expect(tokensOf(chk)).toContain('min-h-[44px]');
+    // L4b(31-07 실측) — 값 버튼은 줄지 않고(shrink-0), 체크 묶음이 줄며 라벨이 원형 체크 아래로 접힐 수 있다 · 늘지는 않는다(오터치).
+    expect(tokensOf(valueBtn)).toContain('shrink-0');
+    expect(tokensOf(chk)).toEqual(expect.arrayContaining(['shrink', 'flex-wrap']));
+    expect(tokensOf(chk)).not.toContain('flex-1');
+    expect(tokensOf(chk)).not.toContain('flex-none');
     expect(chk.querySelector('[data-slot="lc-check-circle"]')).not.toBeNull();
     expect(chk.querySelector('[data-slot="lc-row-sub"]')).toBeNull();
   });

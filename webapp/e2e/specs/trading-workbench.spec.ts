@@ -108,6 +108,12 @@ const VI_ORDERS = [
 type Band = 'phone' | 'compact' | 'wide' | 'desktop';
 /** 카드(`lc`) 첫 경계(폰|컴팩트) — 정본 globals.css §2.2b `LC_COMPACT_MIN_PX`. */
 const LC_COMPACT_MIN = 685;
+/**
+ * Phase 31 폭 백스톱 최악값(UI-SPEC 「폭 백스톱」 · Pitfall 5 · 7) — 수량 8칸 에코 주 = int.MaxValue(`LC_QTY_WIRE_MAX`),
+ * 비교가 1,274,000 이면 역산 만원이 `echoAmountOf` Clamp 로 999,999,999 에서 멈추고 제출 주 메모가 int.MaxValue 라
+ * 두 줄 행이 위 「999,999,999만」 · 아래 「2,147,483,647주」 가 된다.
+ */
+const QTY_WORST = 2_147_483_647;
 function bandOfWidth(width: number): Band {
   if (width < LC_COMPACT_MIN) return 'phone';
   if (width < 830) return 'compact';
@@ -159,6 +165,17 @@ const lcSub = (page: Page, id: string): Locator => lcRow(page, id).locator('[dat
 const manText = (manwon: number): string => `${manwon.toLocaleString('en-US')}만`;
 /** 두 줄 행 아래 줄 글자 — 「777주」. */
 const juText = (qty: number): string => `${qty.toLocaleString('en-US')}주`;
+/** Phase 31 수량 8칸 행 id(`lc-fields.ts`) — 두 줄 행(56px)의 값 행 · 체크 값 행. */
+const QTY_ROW_IDS = [
+  'lc-buy-watch-qty',
+  'lc-buy-min-trade-qty',
+  'lc-extra-buy-min-qty',
+  'lc-extra-buy-max-qty',
+  'lc-post-buy-floor-qty',
+  'lc-sell-watch-qty',
+  'lc-sell-min-trade-qty',
+  'lc-cancel-watch-qty',
+] as const;
 /** 그룹 스위치 6개 — `role="switch"` · 이름 「○○ 켜기」(A-P2 · Phase 24 선 · 줄 · 후매수 포함). */
 const lcSwitch = (scope: Page | Locator, name: string): Locator =>
   scope.getByRole('switch', { name, exact: true });
@@ -390,6 +407,10 @@ async function sizeCardTo(page: Page, isin: string, target: number): Promise<voi
  * 종목명은 폰 폭에서 현재가·등락률이 뜨면 말줄임된다 — 사용자 결정 2026-10-01 「수정 필요없음」
  * (Phase 26 deferred wontfix). 그래서 넘침 목록에서 빼되, 대신 말줄임 장치(ellipsis)와 전체 이름을
  * 담은 `title` 이 있는지 본다. 다른 요소의 넘침은 그대로 돌려준다.
+ *
+ * 수동주문 「주문계좌」 행의 계좌 **이름**(`data-part="account-name"`)도 같은 처지다 — quick-261007-h76 사용자 결정 B
+ * 「번호는 절대 줄지 않고 좁으면 이름 쪽만 줄어든다」(말줄임 + 값 `title` 전체). 31-07 이 P20-3 수동 pane 실측에서 처음
+ * 만났다(Phase 31 무관 · h76 이후 P20-3 미실행). 번호 쪽 넘침 · 다른 요소 넘침은 그대로 돌려준다.
  */
 async function cardScrollOverflowing(
   page: Page,
@@ -404,7 +425,15 @@ async function cardScrollOverflowing(
     await expect(nameEl.first(), `${label} — 종목명 말줄임`).toHaveCSS('text-overflow', 'ellipsis');
     expect(await nameEl.first().getAttribute('title'), `${label} — 종목명 title`).toContain(nameText);
   }
-  return all.filter((s) => !isName(s));
+  const acctEl = cardOf(page, isin).locator('[data-slot="mo-account-value"] [data-part="account-name"]');
+  const acctText = (await acctEl.count()) > 0 ? ((await acctEl.first().textContent()) ?? '') : null;
+  const isAcctName = (s: { tag: string; text: string }) => s.tag === 'span' && s.text === acctText?.slice(0, 24);
+  if (acctText !== null && all.some(isAcctName)) {
+    await expect(acctEl.first(), `${label} — 계좌 이름 말줄임`).toHaveCSS('text-overflow', 'ellipsis');
+    const full = await cardOf(page, isin).locator('[data-slot="mo-account-value"]').first().getAttribute('title');
+    expect(full, `${label} — 주문계좌 title 에 이름 전체`).toContain(acctText.replace(/^ · /, ''));
+  }
+  return all.filter((s) => !isName(s) && !isAcctName(s));
 }
 
 async function expectCardNotClipped(page: Page, isin: string, label: string): Promise<void> {
@@ -3786,7 +3815,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       · 폰 밴드 긴 상태 문구(E1 long-text): 「켜짐 · 켠 매수 없음」 · 「무장 · 대기 · 후매수 발동」은 제목 옆 흐름의
         둘째 줄 · 말줄임 0 · 스위치는 헤더 오른쪽 끝.
   */
-  test(`P24-7 폭 최악값 × 본문 344 · ${LC_COMPACT_MIN} · 830 · 992 — 패널 넘침 0 · 라벨 · 값 · 요약 잘림 0 · 말줄임 0 · 행 44 · 접기 버튼 ≥32 · 흐림 한 겹 0.45 · 폰 밴드 긴 상태 문구 둘째 줄 (UI-SPEC 검증 훅 · E1 overflow · E1 long-text · E3 overflow)`, async ({
+  test(`P24-7 폭 최악값 × 본문 344 · ${LC_COMPACT_MIN} · 830 · 992 — 패널 넘침 0 · 라벨 · 값 · 요약 잘림 0 · 말줄임 0 · 행 44/56 · 접기 버튼 ≥32 · 흐림 한 겹 0.45 · 폰 밴드 긴 상태 문구 둘째 줄 · 두 줄 행 최악값 「999,999,999만」/「2,147,483,647주」 · L4 라벨 접힘 (UI-SPEC 검증 훅 · E1 overflow · E1 long-text · E3 overflow · Phase 31 S1 · S2)`, async ({
     page,
   }) => {
     const WORST = {
@@ -3800,11 +3829,13 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       sellOrderPrice: 1_274_000,
       sellWatchPrice: 1_274_000,
       buyOrderAmount: 9_999,
-      buyWatchQty: 100_000,
-      sellWatchQty: 100_000,
-      cancelWatchQty: 100_000,
-      buyMinTradeQty: 100_000,
-      sellMinTradeQty: 100_000,
+      // Phase 31 — 수량 8칸 최악값(QTY_WORST · 금액 0 = 역산 Clamp). 기준선 100,000 · 발동잔량 330,000 은 L4(「잔량추적 /
+      // 기준선」)와 파생 행 최악값(역산 「12,740,000만」 · 「42,042,000만」)을 만든다.
+      buyWatchQty: QTY_WORST,
+      sellWatchQty: QTY_WORST,
+      cancelWatchQty: QTY_WORST,
+      buyMinTradeQty: QTY_WORST,
+      sellMinTradeQty: QTY_WORST,
       sellQtyTrackBaseline: 100_000,
       preBuyEnabled: true,
       buyTradeQtyEnabled: true,
@@ -3812,14 +3843,14 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       sweepMinTickCount: 255,
       extraBuyEnabled: true,
       extraBuyOrderAmount: 9_999,
-      extraBuyMinQty: 17_700_000,
-      extraBuyMaxQty: 177_000_000,
+      extraBuyMinQty: QTY_WORST,
+      extraBuyMaxQty: QTY_WORST,
       postBuyEnabled: true,
       postBuyOrderAmount: 9_999,
       postBuyReentry: 3,
       postBuyReentryLeft: 3,
       postBuyPhase: 1,
-      postBuyFloorQty: 17_700_000,
+      postBuyFloorQty: QTY_WORST,
       postBuyReboundPct: 100,
       postBuyTriggerQty: 330_000,
       // quick-260929-vzy — 후매수 제목줄 「자동」 체크(켜짐 = 라벨 가장 진한 상태).
@@ -3842,8 +3873,15 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const card = cardOf(page, E2E_ISIN);
     await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
     await expect(lcValue(page, 'lc-buy-order-price')).toHaveText('1,274,000원', { timeout: 15_000 });
-    await expect(lcValue(page, 'lc-extra-buy-max-qty')).toHaveText('177,000,000주');
-    await expect(lcValue(page, 'lc-extra-buy-min-qty')).toHaveText('17,700,000주');
+    // 두 줄 행 최악값 — 수량 8칸 전부 위 「999,999,999만」 · 아래 「2,147,483,647주」(UI-SPEC S1 long-text).
+    expect(QTY_WORST, '최악값 = 주 좁힘 상한 int.MaxValue').toBe(LC_QTY_WIRE_MAX);
+    for (const id of QTY_ROW_IDS) {
+      await expect(lcValue(page, id), `${id} 위 줄`).toHaveText('999,999,999만');
+      await expect(lcSub(page, id), `${id} 아래 줄`).toHaveText('2,147,483,647주');
+    }
+    await expect(card.locator('[data-slot="lc-post-buy-trigger"]')).toContainText(
+      `${manText(amountFromQty(330_000, 1_274_000))}330,000주`,
+    );
     await expect(lcValue(page, 'lc-post-buy-reentry')).toHaveText('3회 · 남은 3회');
     await expect(lcValue(page, 'lc-sweep-tick')).toHaveText('255건');
 
@@ -3892,6 +3930,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
             return {
               what: el.getAttribute('data-lc-field') ?? el.getAttribute('data-slot') ?? '?',
               text: (el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 28),
+              // Phase 31 — 두 줄 행(수량 8 · 파생 2)은 아래 줄 슬롯을 품는다 → 56px, 그 밖은 44px.
+              tall: el.querySelector('[data-slot="lc-row-sub"]') !== null,
               h: Math.round(r.height * 100) / 100,
               slack: Math.round((inner - right) * 10) / 10,
               free: Math.round((innerW - contentW - gap * Math.max(0, kids.length - 1)) * 10) / 10,
@@ -3946,7 +3986,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       expect(await scrollOverflowing(page, OPTIONS_SEL), `${label} — 내용이 상자를 넘친 요소`).toEqual([]);
       expect(await leavesOverflowing(options, m.right), `${label} — 패널 밖으로 밀린 잎 요소`).toEqual([]);
       expect(m.ellipsis, `${label} — 말줄임 0(오발주 불변식)`).toEqual([]);
-      expect(m.rows.filter((r) => Math.abs(r.h - 44) > 0.5), `${label} — 44px 이 아닌 행`).toEqual([]);
+      expect(m.rows.filter((r) => r.tall && Math.abs(r.h - 56) > 0.5), `${label} — 56px 이 아닌 두 줄 행`).toEqual([]);
+      expect(m.rows.filter((r) => !r.tall && Math.abs(r.h - 44) > 0.5), `${label} — 44px 이 아닌 행`).toEqual([]);
       expect(m.rows.filter((r) => r.slack < -0.5), `${label} — 행 안쪽 끝을 넘은 잎(잘림)`).toEqual([]);
       const measurable = m.rows.filter((r) => r.pieces >= 2);
       expect(measurable.filter((r) => r.free < -0.5), `${label} — 라벨 + 값이 행 안쪽 폭을 넘는 행`).toEqual([]);
@@ -4014,6 +4055,53 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       headerChecks[`${target} ${word}`] = `체크 ${h.checkW}×${h.checkH}`;
     };
 
+    /**
+     * L4(Phase 31 신설 · UI-SPEC 폭 백스톱) — 본문 344 의 「잔량추적 기준선」 은 값(「12,740,000만」)이 넓어 라벨이 **낱말 경계에서만**
+     * 「잔량추적 / 기준선」 두 줄로 접힌다. 말줄임 0 · 글자 크기 불변(14px) · 행 높이 56 불변 · 값 잘림 0.
+     */
+    const l4: string[] = [];
+    const checkL4Label = async (label: string) => {
+      const g = await page.evaluate((sel) => {
+        const row = document.querySelector<HTMLElement>(`${sel} [data-slot="lc-derived"]`)!;
+        const lab = row.firstElementChild as HTMLElement;
+        const text = lab.firstChild!;
+        const lineTopsOf = (from: number, to: number) => {
+          const range = document.createRange();
+          range.setStart(text, from);
+          range.setEnd(text, to);
+          return Array.from(new Set(Array.from(range.getClientRects()).filter((r) => r.width > 0).map((r) => Math.round(r.top))));
+        };
+        const all = text.textContent ?? '';
+        const gap = all.indexOf(' ');
+        const cs = getComputedStyle(lab);
+        const value = row.lastElementChild as HTMLElement;
+        return {
+          text: all,
+          rowH: Math.round(row.getBoundingClientRect().height * 100) / 100,
+          labelH: Math.round(lab.getBoundingClientRect().height * 10) / 10,
+          lineH: parseFloat(cs.lineHeight),
+          fontSize: cs.fontSize,
+          ellipsis: cs.textOverflow === 'ellipsis' || lab.classList.contains('truncate'),
+          firstWord: lineTopsOf(0, gap),
+          secondWord: lineTopsOf(gap + 1, all.length),
+          valueOverX: value.scrollWidth - value.clientWidth,
+          valueRight: value.getBoundingClientRect().right,
+          rowInnerRight: row.getBoundingClientRect().right - parseFloat(getComputedStyle(row).paddingRight),
+        };
+      }, OPTIONS_SEL);
+      expect(g.text, `${label} — 파생 행 라벨`).toBe('잔량추적 기준선');
+      expect(g.labelH, `${label} — L4 라벨이 두 줄로 접힌다 ${JSON.stringify(g)}`).toBeGreaterThan(g.lineH + 1);
+      expect(g.firstWord, `${label} — 「잔량추적」 은 한 줄(낱말 안에서 끊기지 않는다)`).toHaveLength(1);
+      expect(g.secondWord, `${label} — 「기준선」 은 한 줄`).toHaveLength(1);
+      expect(g.secondWord[0]!, `${label} — 「기준선」 이 둘째 줄`).toBeGreaterThan(g.firstWord[0]!);
+      expect(g.fontSize, `${label} — 글자 크기 불변`).toBe('14px');
+      expect(g.ellipsis, `${label} — 말줄임 0`).toBe(false);
+      expect(Math.abs(g.rowH - 56), `${label} — 행 56 불변`).toBeLessThanOrEqual(0.5);
+      expect(g.valueOverX, `${label} — 값 잘림 0`).toBeLessThanOrEqual(0);
+      expect(g.valueRight, `${label} — 값이 행 안쪽 끝 이내`).toBeLessThanOrEqual(g.rowInnerRight + 0.5);
+      l4.push(`${label}: 라벨 ${g.labelH}px(줄 ${g.lineH}) · 행 ${g.rowH}px`);
+    };
+
     const setsBefore = lcSetCount(relay);
     for (const target of [344, LC_COMPACT_MIN, 830, 992]) {
       await sizeCardTo(page, E2E_ISIN, target);
@@ -4034,6 +4122,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
         await setAllFolds(true);
         const sellRows = await checkExpanded(target, `${target} 매도 pane`);
         expect(sellRows).toEqual(expect.arrayContaining(['lc-derived', 'lc-auto-sell-method', 'lc-auto-sell-basis']));
+        if (target === 344) await checkL4Label(`${target} 매도 pane`);
         await checkCollapsed(target, `${target} 매도 pane`, 1);
         await tablist.getByRole('tab', { name: '매수' }).click();
       } else {
@@ -4048,6 +4137,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       }
     }
     expect(lcSetCount(relay), '재는 동안 전송 0').toBe(setsBefore);
+    expect(l4, 'L4 실측은 본문 344 매도 pane 한 번').toHaveLength(1);
+    test.info().annotations.push({ type: 'P24-7 L4 「잔량추적 기준선」', description: l4.join(' · ') });
     test.info().annotations.push({
       type: 'P24-7 행 최소 여유(px)',
       description: Object.entries(minFree)
@@ -4622,7 +4713,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       · Phase 24 — 선매수 · 줄매수 · 후매수 카드(기본 접힘)를 펼치고 새 행(선매수 5 · 줄매수 3 · 후매수 4 +
         발동잔량)을 최악값(「177,000,000주」 · 「17,700,000주」 · 「255회 · 남은 255회」 · 「255건」)으로 잰다.
   */
-  test(`P20-3 최악값 × 본문 344 · ${LC_COMPACT_MIN} · 830 · 992 — 우측 패널 잘림 0 · 행 44px(편집 전후) · ≥${LC_COMPACT_MIN} 매수주문/매도주문 헤더 높이 동일 (D-20 · UI-SPEC 검증 훅)`, async ({
+  test(`P20-3 최악값 × 본문 344 · ${LC_COMPACT_MIN} · 830 · 992 — 우측 패널 잘림 0 · 행 44/56px(편집 전후 — 수량 8 · 파생 2 = 56) · 두 줄 행 최악값 「999,999,999만」/「2,147,483,647주」 · ≥${LC_COMPACT_MIN} 매수주문/매도주문 헤더 높이 동일 (D-20 · UI-SPEC 검증 훅 · Phase 31 S1 · S2)`, async ({
     page,
   }) => {
     const WORST = {
@@ -4634,11 +4725,12 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       sellOrderPrice: 1_274_000,
       sellWatchPrice: 1_274_000,
       buyOrderAmount: 9_999,
-      buyWatchQty: 100_000,
-      sellWatchQty: 100_000,
-      cancelWatchQty: 100_000,
-      buyMinTradeQty: 100_000,
-      sellMinTradeQty: 100_000,
+      // Phase 31 — 수량 8칸 최악값(위 「999,999,999만」 · 아래 「2,147,483,647주」). 기준선 100,000 은 그대로(파생 행).
+      buyWatchQty: QTY_WORST,
+      sellWatchQty: QTY_WORST,
+      cancelWatchQty: QTY_WORST,
+      buyMinTradeQty: QTY_WORST,
+      sellMinTradeQty: QTY_WORST,
       sellEntryLatched: true,
       sellQtyTrackBaseline: 100_000,
       // Phase 24 — 세 그룹을 켜 흐림 없이(가장 짙은 글자) 최악값을 잰다.
@@ -4648,15 +4740,16 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       sweepMinTickCount: 255,
       extraBuyEnabled: true,
       extraBuyOrderAmount: 9_999,
-      extraBuyMinQty: 177_000_000,
-      extraBuyMaxQty: 177_000_000,
+      extraBuyMinQty: QTY_WORST,
+      extraBuyMaxQty: QTY_WORST,
       postBuyEnabled: true,
       postBuyOrderAmount: 9_999,
       postBuyReentry: 255,
       postBuyReentryLeft: 255,
       postBuyPhase: 1,
-      postBuyFloorQty: 17_700_000,
+      postBuyFloorQty: QTY_WORST,
       postBuyReboundPct: 100,
+      // 발동잔량 17,700,000주 @1,274,000 — 역산이 999,999,999 를 넘어 파생 행 위 줄도 「999,999,999만」(UI-SPEC S2 overflow).
       postBuyTriggerQty: 17_700_000,
     };
     relay.seedLimitChasers([WORST]);
@@ -4664,7 +4757,13 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await waitForReady(page);
     const card = cardOf(page, E2E_ISIN);
     await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
-    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('100,000주', { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('999,999,999만', { timeout: 15_000 });
+    await expect(lcSub(page, 'lc-buy-watch-qty')).toHaveText('2,147,483,647주');
+    for (const id of QTY_ROW_IDS) {
+      await expect(lcValue(page, id), `${id} 위 줄`).toHaveText('999,999,999만');
+      await expect(lcSub(page, id), `${id} 아래 줄`).toHaveText('2,147,483,647주');
+    }
+    await expect(card.locator('[data-slot="lc-post-buy-trigger"]')).toContainText('999,999,999만17,700,000주');
     await expect(lcValue(page, 'lc-buy-order-price')).toHaveText('1,274,000원');
     await expect(lcValue(page, 'lc-buy-order-amount')).toHaveText('9,999만원');
     // 최악값 시드는 매수·매도 두 게이트가 켜진 상태다 — 흐림(opacity .45) 없이 가장 짙은 글자로 잰다.
@@ -4708,6 +4807,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
             return {
               what: el.getAttribute('data-lc-field') ?? el.getAttribute('data-slot') ?? '?',
               text: (el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 24),
+              // Phase 31 — 두 줄 행(수량 8 · 파생 2)은 아래 줄 슬롯을 품는다 → 56px, 그 밖은 44px.
+              tall: el.querySelector('[data-slot="lc-row-sub"]') !== null,
               h: Math.round(r.height * 100) / 100,
               slack: Math.round((inner - right) * 10) / 10,
               free: Math.round((innerW - contentW - gap * Math.max(0, kids.length - 1)) * 10) / 10,
@@ -4722,9 +4823,18 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       const whats = rows.map((r) => r.what);
       for (const w of mustInclude) expect(whats, `${label} — ${w} 행이 보여야 한다`).toContain(w);
       expect(
-        rows.filter((r) => Math.abs(r.h - 44) > 0.5),
+        rows.filter((r) => r.tall && Math.abs(r.h - 56) > 0.5),
+        `${label} — 56px 이 아닌 두 줄 행(수량 8 · 파생 2)`,
+      ).toEqual([]);
+      expect(
+        rows.filter((r) => !r.tall && Math.abs(r.h - 44) > 0.5),
         `${label} — 44px 이 아닌 행`,
       ).toEqual([]);
+      // 두 줄 행 = 보이는 수량 칸(행 · 체크 행 바깥 상자) + 파생 2행 — 하나라도 한 줄로 그려지면 여기서 드러난다.
+      const tallWhats = new Set(rows.filter((r) => r.tall).map((r) => r.what));
+      for (const w of mustInclude.filter((id) => (QTY_ROW_IDS as readonly string[]).includes(id) || id === 'lc-derived' || id === 'lc-post-buy-trigger')) {
+        expect(tallWhats.has(w), `${label} — ${w} 는 두 줄 행`).toBe(true);
+      }
       expect(
         rows.filter((r) => r.slack < -0.5),
         `${label} — 행 안쪽 끝을 넘은 잎 요소(잘림)`,
@@ -4749,18 +4859,43 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
         .evaluate((el) => el.scrollWidth - el.clientWidth);
       expect(over, `${label} — 우측 패널 scrollWidth ≤ clientWidth`).toBeLessThanOrEqual(0);
     };
-    /** 잔량 행을 인라인 편집으로 연 상태도 44px — 편집 전후 레이아웃 이동 0(D-14a). */
-    const expectEditingRow44 = async (label: string) => {
+    /**
+     * 잔량 행(수량 · 두 줄)을 인라인 편집으로 연 상태도 56px — 편집 전후 레이아웃 이동 0(D-14a · UI-SPEC S4). 편집 상자에
+     * 「999,999,999」 + 「만」 이 잘리지 않는다(S4 long-text).
+     */
+    const expectEditingRow56 = async (label: string) => {
       await showLc(page, 'lc-buy-watch-qty');
+      const idle = await lcRow(page, 'lc-buy-watch-qty').boundingBox();
+      expect(Math.abs(idle!.height - 56), `${label} — 편집 전 수량 행 높이 ${idle!.height}`).toBeLessThanOrEqual(0.5);
       await lcRow(page, 'lc-buy-watch-qty').click();
       const editing = page.locator('[data-lc-field="lc-buy-watch-qty"][data-editing="true"]');
-      await expect(page.locator('#lc-buy-watch-qty')).toBeFocused();
+      const input = page.locator('#lc-buy-watch-qty');
+      await expect(input).toBeFocused();
+      await input.fill('999999999');
+      // 버퍼 999,999,999 = 에코가 보인 Clamp 값 · 같은 비교가 → 제출 주는 에코 메모(int.MaxValue) 그대로(qtyForSubmit · C# 동형).
+      await expect(editing.locator('[data-slot="lc-row-sub"]')).toHaveText('2,147,483,647주');
       const box = await editing.boundingBox();
       expect(box, `${label} — 편집 중 행을 잴 수 없다`).not.toBeNull();
-      expect(Math.abs(box!.height - 44), `${label} — 편집 중 행 높이 ${box!.height}`).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(box!.height - 56), `${label} — 편집 중 행 높이 ${box!.height}`).toBeLessThanOrEqual(0.5);
+      expect(await input.evaluate((el) => (el as HTMLInputElement).scrollWidth - (el as HTMLInputElement).clientWidth), `${label} — 편집 상자 「999,999,999」 잘림 0`).toBeLessThanOrEqual(0);
       expect(await cardScrollOverflowing(page, E2E_ISIN, label), `${label} — 편집 중 넘침`).toEqual([]);
-      await page.locator('#lc-buy-watch-qty').press('Escape');
+      await input.press('Escape');
       await expect(page.locator('#lc-buy-watch-qty')).toHaveCount(0);
+      const after = await lcRow(page, 'lc-buy-watch-qty').boundingBox();
+      expect(Math.abs(after!.height - 56), `${label} — 편집 뒤 수량 행 높이 ${after!.height}`).toBeLessThanOrEqual(0.5);
+    };
+    /** 44px 한 줄 행(「호가변경」 = 한방 건수 · 체크 값 행)은 편집 전 · 중 · 뒤 모두 44px — 두 줄 행과 섞이지 않는다. */
+    const expectEditingRow44 = async (label: string) => {
+      await showLc(page, 'lc-sweep-tick');
+      const checkRow = page.locator('[data-slot="lc-check-row"]').filter({ has: page.locator('[data-lc-field="lc-sweep-tick"]') });
+      const heightOf = async () => Math.round(((await checkRow.boundingBox())?.height ?? -1) * 100) / 100;
+      expect(Math.abs((await heightOf()) - 44), `${label} — 편집 전 「호가변경」 행`).toBeLessThanOrEqual(0.5);
+      await lcRow(page, 'lc-sweep-tick').click();
+      await expect(page.locator('#lc-sweep-tick')).toBeFocused();
+      expect(Math.abs((await heightOf()) - 44), `${label} — 편집 중 「호가변경」 행`).toBeLessThanOrEqual(0.5);
+      await page.locator('#lc-sweep-tick').press('Escape');
+      await expect(page.locator('#lc-sweep-tick')).toHaveCount(0);
+      expect(Math.abs((await heightOf()) - 44), `${label} — 편집 뒤 「호가변경」 행`).toBeLessThanOrEqual(0.5);
     };
 
     // Phase 24 — 공통 2 · 선매수 5 · 줄매수 3 · 후매수 4 + 발동잔량(감시대상 행은 ⑤ 로 없다).
@@ -4798,6 +4933,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
         await expectCardNotClipped(page, E2E_ISIN, `${label} · 매수 pane`);
         await expectOptionsNoScroll(`${label} · 매수 pane`);
         await expectRows(`${target} 매수 pane`, BUY_ROWS);
+        await expectEditingRow56(`${label} · 매수 pane`);
         await expectEditingRow44(`${label} · 매수 pane`);
 
         await tablist.getByRole('tab', { name: '매도' }).click();
@@ -4843,6 +4979,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
         await expectCardNotClipped(page, E2E_ISIN, label);
         await expectOptionsNoScroll(label);
         await expectRows(`${target} 2열`, [...BUY_ROWS, ...SELL_ROWS]);
+        await expectEditingRow56(label);
         await expectEditingRow44(label);
       }
     }
@@ -4863,7 +5000,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await page.goto(FOCUS_URL);
     await waitForReady(page);
     await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
-    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('100,000주', { timeout: 15_000 });
+    await expect(lcSub(page, 'lc-buy-watch-qty')).toHaveText('2,147,483,647주', { timeout: 15_000 });
     await expect(card.locator('[data-slot="lc-derived"]')).toHaveCount(0);
     for (const target of [LC_COMPACT_MIN, 830, 992]) {
       await sizeCardTo(page, E2E_ISIN, target);

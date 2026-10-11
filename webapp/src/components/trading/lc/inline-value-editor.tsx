@@ -169,74 +169,85 @@ export function InlineValueEditor({
   const editor = (
     <span className="flex min-w-0 flex-col items-end">
       <span className="flex min-w-0 items-center whitespace-nowrap">
-        <input
-          ref={inputRef}
-          id={id}
-          type="text"
-          inputMode="numeric"
-          autoComplete="off"
-          aria-label={label}
-          aria-busy={busy ? 'true' : undefined}
-          aria-invalid={blockingText ? 'true' : undefined}
-          readOnly={busy}
-          /* 포커스 표시는 행의 `inset` 링 한 겹이다(전역 규약 Q-02) — 입력 자체는 링을 그리지 않는다. */
-          data-focus-ring="seamless"
-          value={buffer}
-          onChange={(e) => {
-            if (busy) return;
-            const digits = e.target.value.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
-            if (digits.length > PAD_MAX_DIGITS) return;
-            setDigits(digits);
-          }}
-          onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing) return;
-            switch (e.key) {
-              case 'Enter':
-                e.preventDefault();
-                if (busy) return;
-                trySave('enter');
-                return;
-              case 'Tab': {
-                e.preventDefault();
-                // 반영 중이거나 이미 저장한 버퍼 — 다시 보내지 않고 이동만 한다(T-16-10).
-                const saved = busy || settledRef.current ? true : trySave('tab');
-                if (!saved || onNavigate === undefined) return;
-                leftRef.current = true;
-                onNavigate(e.shiftKey ? 'prev' : 'next');
+        {/*
+          입력칸 폭 = 버퍼 글자 폭(최소 9ch) — 숨은 거울 글자가 같은 격자 칸에서 폭을 잰다. 고정 9ch 는 9자리 값의 쉼표
+          두 개(「999,999,999」 11글자)를 못 담아 본문 344 에서 7px 잘렸다(31-07 P20-3 실측 · UI-SPEC S4 long-text). 행 상자는
+          그대로라 레이아웃 이동은 없고, 넓어진 몫은 행의 라벨–값 여유가 받는다(P20-3 이 같은 실측으로 잠근다).
+        */}
+        <span data-slot="lc-inline-input-box" className="inline-grid min-w-[9ch] text-[15px] font-semibold tabular-nums">
+          <span aria-hidden="true" className="invisible col-start-1 row-start-1 whitespace-pre pr-px">
+            {buffer}
+          </span>
+          <input
+            ref={inputRef}
+            id={id}
+            type="text"
+            inputMode="numeric"
+            autoComplete="off"
+            aria-label={label}
+            aria-busy={busy ? 'true' : undefined}
+            aria-invalid={blockingText ? 'true' : undefined}
+            readOnly={busy}
+            /* 포커스 표시는 행의 `inset` 링 한 겹이다(전역 규약 Q-02) — 입력 자체는 링을 그리지 않는다. */
+            data-focus-ring="seamless"
+            value={buffer}
+            onChange={(e) => {
+              if (busy) return;
+              const digits = e.target.value.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
+              if (digits.length > PAD_MAX_DIGITS) return;
+              setDigits(digits);
+            }}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing) return;
+              switch (e.key) {
+                case 'Enter':
+                  e.preventDefault();
+                  if (busy) return;
+                  trySave('enter');
+                  return;
+                case 'Tab': {
+                  e.preventDefault();
+                  // 반영 중이거나 이미 저장한 버퍼 — 다시 보내지 않고 이동만 한다(T-16-10).
+                  const saved = busy || settledRef.current ? true : trySave('tab');
+                  if (!saved || onNavigate === undefined) return;
+                  leftRef.current = true;
+                  onNavigate(e.shiftKey ? 'prev' : 'next');
+                  return;
+                }
+                case 'Escape':
+                  e.preventDefault();
+                  settledRef.current = true;
+                  onCancel();
+                  return;
+                case 'ArrowUp':
+                case 'ArrowDown': {
+                  e.preventDefault();
+                  if (busy) return;
+                  const next = stepValue(valueOf(), unit, e.key === 'ArrowUp' ? 1 : -1);
+                  setDigits(String(next));
+                  return;
+                }
+              }
+            }}
+            onBlur={() => {
+              if (leftRef.current) return;
+              if (busy || settledRef.current) {
+                onDismiss?.();
                 return;
               }
-              case 'Escape':
-                e.preventDefault();
-                settledRef.current = true;
-                onCancel();
-                return;
-              case 'ArrowUp':
-              case 'ArrowDown': {
-                e.preventDefault();
-                if (busy) return;
-                const next = stepValue(valueOf(), unit, e.key === 'ArrowUp' ? 1 : -1);
-                setDigits(String(next));
-                return;
-              }
-            }
-          }}
-          onBlur={() => {
-            if (leftRef.current) return;
-            if (busy || settledRef.current) {
-              onDismiss?.();
-              return;
-            }
-            settledRef.current = true;
-            // A6 — 위반 값을 둔 채 떠나면 Esc 와 같다(저장 안 함).
-            if (issueOf() !== null) onCancel();
-            else onSave(valueOf(), 'blur');
-          }}
-          className={cn(
-            'w-[9ch] border-0 bg-transparent text-right text-[15px] font-semibold tabular-nums text-[var(--fg)] outline-none',
-            'selection:bg-[color-mix(in_srgb,var(--primary)_35%,transparent)]',
-            busy && 'opacity-60',
-          )}
-        />
+              settledRef.current = true;
+              // A6 — 위반 값을 둔 채 떠나면 Esc 와 같다(저장 안 함).
+              if (issueOf() !== null) onCancel();
+              else onSave(valueOf(), 'blur');
+            }}
+            size={1}
+            className={cn(
+              'col-start-1 row-start-1 w-full min-w-0 border-0 bg-transparent text-right text-[15px] font-semibold tabular-nums text-[var(--fg)] outline-none',
+              'selection:bg-[color-mix(in_srgb,var(--primary)_35%,transparent)]',
+              busy && 'opacity-60',
+            )}
+          />
+        </span>
         <span className="ml-[2px] text-[15px] font-medium leading-[1.5] text-[var(--fg-2)]">{unit}</span>
         {/* 반영 중 — 화면 문구 없이 보조기기에만(행 높이 불변 · E4 loading). */}
         <span className="sr-only" aria-live="polite">

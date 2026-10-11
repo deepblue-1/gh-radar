@@ -327,10 +327,17 @@ describe('⑧ 9자리 · 무안내 (E4 long-text · D-14a)', () => {
     expect(input().value).toBe('123,456,789');
   });
 
-  it('입력칸은 9ch · nowrap 이고 편집기 DOM 에 버튼 · 「Enter」「Esc」「저장」 안내가 없다', () => {
+  it('입력칸은 최소 9ch · 버퍼 글자 폭만큼 넓어지고(거울 글자) · nowrap 이고 편집기 DOM 에 버튼 · 「Enter」「Esc」「저장」 안내가 없다', () => {
     const { container } = render(<InlineValueEditor {...props()} />);
-    expect(input().className).toContain('w-[9ch]');
-    expect((input().parentElement as HTMLElement).className).toContain('whitespace-nowrap');
+    const box = input().parentElement as HTMLElement;
+    expect(box.getAttribute('data-slot')).toBe('lc-inline-input-box');
+    expect(box.className).toContain('min-w-[9ch]');
+    expect(box.className).toContain('inline-grid');
+    // 거울 글자 = 버퍼 그대로(낭독 제외 · 보이지 않음) — 입력칸 폭을 잰다(31-07 · 「999,999,999」 잘림 0).
+    const mirror = box.querySelector('[aria-hidden="true"]') as HTMLElement;
+    expect(mirror.textContent).toBe(input().value);
+    expect(mirror.className).toContain('invisible');
+    expect((box.parentElement as HTMLElement).className).toContain('whitespace-nowrap');
     expect(container.querySelectorAll('button').length).toBe(0);
     expect(container.textContent).not.toContain('Enter');
     expect(container.textContent).not.toContain('Esc');

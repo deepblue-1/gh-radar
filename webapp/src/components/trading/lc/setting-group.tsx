@@ -92,6 +92,15 @@ const ROW_BOX =
 const ROW_BOX_TALL =
   'flex min-h-[56px] w-full min-w-0 items-center justify-between gap-1 rounded-[10px] px-0 text-left @min-[685px]/lc:gap-1.5 @min-[685px]/lc:px-1';
 
+/**
+ * 두 줄 체크 값 행의 체크 버튼(「○ 체결량」 · Phase 31 31-07 실측 · 폭 백스톱 L4b) — 원형 체크 + 라벨 묶음이 값 「999,999,999만」 에
+ * 자리를 내주며 줄어들고, 모자라면 라벨이 **원형 체크 아래 줄**로 접힌다(체크–라벨 경계에서만 · 라벨 낱말은 갈리지 않는다 ·
+ * 말줄임 0 · 글자 크기 불변 · 20 + 2 + 21 = 43px 라 행 높이 56 그대로). 값 버튼은 줄지 않는다(`shrink-0` — 값이 라벨 위로
+ * 겹치던 결함: 본문 344 「체결량」 −8px · 685 −3.5px · 830 −9px). 체크 버튼은 `flex-1` 로 늘리지 않는다 — 빈 가운데를 눌러
+ * 체크가 바뀌면 그 자리에서 전송된다(오터치). 값 행(`SettingRow`)의 L4 는 라벨 낱말 경계 접힘이다.
+ */
+const CHECK_BUTTON_TALL = 'shrink flex-wrap content-center gap-x-2 gap-y-0.5';
+
 /** 행 라벨 14/400 `--muted-fg`(UI-SPEC §2). */
 const LABEL_TEXT = 'whitespace-nowrap text-[14px] leading-[1.5] text-[var(--muted-fg)]';
 /** 두 줄 행 라벨(L4) — `LABEL_TEXT` 에서 nowrap 만 낱말 경계 접힘으로 바꾼다. 말줄임 유틸 없음. */
@@ -896,8 +905,8 @@ export function CheckValueRow({
       disabled={disabled}
       onClick={onToggle}
       className={cn(
-        'flex min-h-[44px] min-w-0 flex-none items-center gap-2 rounded-[10px] text-left disabled:opacity-50',
-        !hasValue && 'flex-1',
+        'flex min-h-[44px] min-w-0 items-center rounded-[10px] text-left disabled:opacity-50',
+        !hasValue ? 'flex-1 gap-2' : sub !== undefined ? CHECK_BUTTON_TALL : 'flex-none gap-2',
       )}
     >
       <span
@@ -939,7 +948,7 @@ export function CheckValueRow({
           onClick={(e) => onActivateValue?.(e.currentTarget)}
           className={cn(
             'flex min-w-0 items-center justify-end rounded-[10px] disabled:opacity-50',
-            sub !== undefined ? 'min-h-[56px]' : 'min-h-[44px]',
+            sub !== undefined ? 'min-h-[56px] shrink-0' : 'min-h-[44px]',
             dimPart,
           )}
         >
