@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 29
 current_phase_name: DMA 다중 서버 · 웹 Admin 유저 관리
 status: executing
-stopped_at: Completed 29-41-PLAN.md
-last_updated: "2026-10-11T00:09:05.202Z"
-last_activity: 2026-10-10
+stopped_at: Completed 29-45-PLAN.md
+last_updated: "2026-10-11T00:29:47.627Z"
+last_activity: 2026-10-11
 last_activity_desc: Phase 29 execution started
-state_head: 4970c3aea4f87d91eb45380daca7df2a9b09f5c0
+state_head: 5ffdfb0d87c572c474a4f6a9a820f5034fde3634
 progress:
   total_phases: 38
   completed_phases: 24
   total_plans: 432
-  completed_plans: 406
+  completed_plans: 407
 milestone_name: milestone
 ---
 
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 29 (DMA 다중 서버 · 웹 Admin 유저 관리) — READY TO EXECUTE
-Plan: 44 of 55
-Status: 29 갭 클로징 3라운드 플랜 29-45~29-55 작성(29-VERIFICATION-R2 · 29-REVIEW-R2 GC-01~15 + N-01) — 실행 대기
+Phase: 29 (DMA 다중 서버 · 웹 Admin 유저 관리) — EXECUTING
+Plan: 45 of 55
+Status: Executing Phase 29 — 29-45 완료(GC-01 블로커 · GC-04 relay 쪽 · GC-14) · 다음 wave 22 29-47 · 29-48
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-10-10 — Phase 29 execution started
+Last activity: 2026-10-11 — Phase 29 execution started
 
 Progress: [█████████░] 93%
 
@@ -241,6 +241,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 29 P44 | 17 min | 2 tasks | 8 files |
 | Phase 29 P40 | 7min | 2 tasks | 14 files |
 | Phase 29 P41 | 52min | 3 tasks | 1 files |
+| Phase 29 P45 | 15min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -681,6 +682,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 29]: 29-44: userIdOf 를 못 찾는 DMA 유저는 warn 1줄(수만) · userIdOf 는 DMA 권한 행 먼저, viewer 연결도 찾아 no-session 으로 보이게
 - [Phase 29]: 29-41: go(2026-10-11 ~03:30 KST) — (가)(나) 근거 전부 green · 51 OrderResp 계좌 필터 공백과 Phase 29 밖 커밋 동반 push 수용
 - [Phase 29]: 29-41: 지정 0 은 relay healthz accountOrderServers 키 없음으로 간접 확인 · (가) 실서버 실증은 KB121/KYOBO127 을 켠 뒤로 deferred
+- [Phase 29]: 29-45: GC-01 은 두 겹 — #sweepThenResync 가 그 사용자 진행 중 sweep 전부(최대 3바퀴)를 기다린 뒤 resyncUser, sweeper 는 얻은 세션 객체로만 반납(releaseSession · 다른 객체면 무시)
+- [Phase 29]: 29-45: sweep 직렬화 단위는 (사용자, 서버) 레인 — 진행 중 계좌는 current 대기, 나머지는 다음 sweep 1회에 합침 · 14 확인은 그 키 60 에코 뒤의 65(에코 스위치 값은 보지 않음 — 재조회가 판정)
+- [Phase 29]: 29-45: 송신 직전 stillStale(트래커 스냅샷 유효 서버 ≠ 이 서버면 참) — 거짓이면 14 · 11 생략 · skippedAccounts · 확인 기록 없이 #clearIfOwner
 
 ### Pending Todos
 
@@ -722,8 +726,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-10-10T22:29:31.856Z
-Stopped at: Completed 29-41-PLAN.md
+Last session: 2026-10-11T00:29:46.701Z
+Stopped at: Completed 29-45-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
