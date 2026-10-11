@@ -29,6 +29,9 @@ import {
   lcRowDimOf,
   lcRowOfField,
   lcAmountZeroWordOf,
+  lcAmountHintOf,
+  lcDerivedRowTextOf,
+  lcQtyRowSubOf,
   lcSummaryOf,
   lcValueTextOf,
   POST_BUY_UNLOCK_SR_TEXT,
@@ -468,5 +471,120 @@ describe('Phase 27 자동매도 그룹 — 스펙 · 의미어 · 요약 · 조�
   it('choice 행도 id · 필드로 찾는다 — 접힌 카드 자동 펼침(행 실패)이 쓴다', () => {
     expect(lcRowById('lc-auto-sell-method')?.group.slot).toBe('auto-sell');
     expect(lcRowOfField('autoSellMethod')).toMatchObject({ isCheck: false, group: { slot: 'auto-sell' } });
+  });
+});
+
+/**
+ * Phase 31 31-06 Task 2 — 두 줄 행 아래 줄 · 시트 환산 안내 · 파생 행 · 접근성 이름(UI-SPEC 「두 줄 행 문자열」 · 「값 0 표시」 ·
+ * 「파생 행 문자열」 · 「넘버패드 시트」 · 접근성 표). 예시 수치는 UI-SPEC 정정표(비교가 12,870원).
+ */
+describe('P31 두 줄 문자열 (D-05 · D-07 · D-08)', () => {
+  const P = 12_870;
+  const at = (over: Partial<LimitChaserFormValues> = {}) =>
+    values({ buyWatchPrice: P, sellWatchPrice: P, sellWatchAmount: 0, sellMinTradeAmount: 0, cancelWatchAmount: 0, ...over });
+
+  it.each([
+    ['buyWatchAmount', 1000, '777주'],
+    ['buyMinTradeAmount', 500, '388주'],
+    ['extraBuyMinAmount', 2000, '1,554주'],
+    ['postBuyFloorAmount', 84, '65주'],
+    ['sellWatchAmount', 1000, '777주'],
+    ['sellWatchAmount', 1500, '1,165주'],
+  ] as const)('lcQtyRowSubOf %s %d만 @12,870 → 「%s」(muted)', (field, amount, text) => {
+    expect(lcQtyRowSubOf(field, at({ [field]: amount }), null)).toEqual({ text, tone: 'muted' });
+  });
+
+  it.each([
+    ['extraBuyMaxAmount', '무제한'],
+    ['extraBuyMinAmount', '1주'],
+    ['postBuyFloorAmount', '없음'],
+    ['buyMinTradeAmount', '0주'],
+    ['cancelWatchAmount', '0주'],
+  ] as const)('lcQtyRowSubOf %s 0 → 「%s」(의미어 · 그 밖 0주)', (field, text) => {
+    expect(lcQtyRowSubOf(field, at({ [field]: 0 }), null)).toEqual({ text, tone: 'muted' });
+  });
+
+  it('lcQtyRowSubOf — 금액 > 0 ∧ 그룹 비교가 0 → 「비교가격 필요」(alert) · 금액 0 이면 빨강이 아니다', () => {
+    expect(lcQtyRowSubOf('sellWatchAmount', at({ sellWatchPrice: 0, sellWatchAmount: 1500 }), null)).toEqual({
+      text: '비교가격 필요',
+      tone: 'alert',
+    });
+    expect(lcQtyRowSubOf('buyWatchAmount', at({ buyWatchPrice: 0, buyWatchAmount: 1000 }), null)).toEqual({
+      text: '비교가격 필요',
+      tone: 'alert',
+    });
+    expect(lcQtyRowSubOf('sellWatchAmount', at({ sellWatchPrice: 0, sellWatchAmount: 0 }), null)).toEqual({
+      text: '0주',
+      tone: 'muted',
+    });
+    expect(lcQtyRowSubOf('extraBuyMaxAmount', at({ buyWatchPrice: 0, extraBuyMaxAmount: 0 }), null)).toEqual({
+      text: '무제한',
+      tone: 'muted',
+    });
+  });
+
+  it('lcQtyRowSubOf — 추적 ON 에코면 아래 줄 주 = 기준선(buildCfg 와 같은 qtyForSubmit 값)', () => {
+    const server = srv({ sellWatchPrice: P, sellQtyTrackEnabled: true, sellQtyTrackBaseline: 1554, sellWatchQty: 777 });
+    const v = at({ sellWatchAmount: amountFromQty(1554, P) });
+    expect(lcQtyRowSubOf('sellWatchAmount', v, server)).toEqual({ text: '1,554주', tone: 'muted' });
+  });
+
+  it('lcAmountHintOf — 「= {주}주 (비교가격 {P}원)」 · 의미어 칸 · 비교가 0 ∧ 값 0 은 괄호 없음', () => {
+    expect(lcAmountHintOf('sellWatchAmount', 1000, at(), null)).toBe('= 777주 (비교가격 12,870원)');
+    expect(lcAmountHintOf('extraBuyMaxAmount', 0, at(), null)).toBe('= 무제한 (비교가격 12,870원)');
+    expect(lcAmountHintOf('postBuyFloorAmount', 0, at(), null)).toBe('= 없음 (비교가격 12,870원)');
+    expect(lcAmountHintOf('buyMinTradeAmount', 0, at(), null)).toBe('= 0주 (비교가격 12,870원)');
+    expect(lcAmountHintOf('sellWatchAmount', 0, at({ sellWatchPrice: 0 }), null)).toBe('= 0주');
+    expect(lcAmountHintOf('extraBuyMinAmount', 0, at({ buyWatchPrice: 0 }), null)).toBe('= 1주');
+  });
+
+  it('lcDerivedRowTextOf 발동잔량 — 매수 비교가 역산 「32,175만」/「25,000주」 · 비교가 0 이면 위 줄 주 · 아래 줄 비움', () => {
+    expect(lcDerivedRowTextOf('postBuyTriggerQty', srv({ buyWatchPrice: P, postBuyTriggerQty: 25_000 }))).toMatchObject({
+      tone: 'value',
+      top: '32,175만',
+      sub: '25,000주',
+    });
+    expect(lcDerivedRowTextOf('postBuyTriggerQty', srv({ buyWatchPrice: 0, postBuyTriggerQty: 25_000 }))).toMatchObject({
+      tone: 'value',
+      top: '25,000주',
+      sub: '',
+    });
+  });
+
+  it('lcDerivedRowTextOf — 발동잔량 0 ∧ 해제선 > 0 이면 해제선 역산(muted) · 둘 다 0 이면 「—」 · 아래 줄 비움', () => {
+    expect(
+      lcDerivedRowTextOf('postBuyTriggerQty', srv({ buyWatchPrice: P, postBuyTriggerQty: 0, postBuyUnlockQty: 25_000 })),
+    ).toMatchObject({ tone: 'muted', top: '32,175만', sub: '25,000주', topValue: 32_175, topUnit: '만' });
+    expect(lcDerivedRowTextOf('postBuyTriggerQty', srv({ buyWatchPrice: P }))).toMatchObject({
+      tone: 'empty',
+      top: '—',
+      sub: '',
+    });
+    expect(lcDerivedRowTextOf('postBuyTriggerQty', null)).toMatchObject({ tone: 'empty', top: '—', sub: '' });
+  });
+
+  it('lcDerivedRowTextOf 잔량추적 기준선 — 매도 비교가로 같은 규칙(매수 비교가가 아니다)', () => {
+    const s = srv({ buyWatchPrice: 1, sellWatchPrice: P, sellQtyTrackBaseline: 25_000 });
+    expect(lcDerivedRowTextOf('sellQtyTrackBaseline', s)).toMatchObject({ tone: 'value', top: '32,175만', sub: '25,000주' });
+    expect(lcDerivedRowTextOf('sellQtyTrackBaseline', { ...s, sellWatchPrice: 0 })).toMatchObject({
+      top: '25,000주',
+      sub: '',
+    });
+  });
+
+  it('lcDerivedRowTextOf — 위 줄 역산은 999,999,999만에서 멈춘다(폭 백스톱 최악값 · echoAmountOf Clamp 동형)', () => {
+    const s = srv({ buyWatchPrice: 5_000_000, postBuyTriggerQty: 2_147_483_647 });
+    expect(lcDerivedRowTextOf('postBuyTriggerQty', s).top).toBe('999,999,999만');
+  });
+
+  it('lcRowA11yNameOf — 두 줄 행은 「{접두} {라벨} {위 줄} {아래 줄}」', () => {
+    const buyWatch = valueRow('lc-buy-watch-qty');
+    expect(lcRowA11yNameOf(buyWatch.group, buyWatch.row, '1,000만', '777주')).toBe('선매수 매도잔량 1,000만 777주');
+    const max = valueRow('lc-extra-buy-max-qty');
+    expect(lcRowA11yNameOf(max.group, max.row, '0만', '무제한')).toBe('줄매수 최대 잔량 0만 무제한');
+    const sell = valueRow('lc-sell-watch-qty');
+    expect(lcRowA11yNameOf(sell.group, sell.row, '1,500만', '비교가격 필요')).toBe('매도 매수잔량 1,500만 비교가격 필요');
+    const trade = valueRow('lc-buy-min-trade-qty');
+    expect(lcRowA11yNameOf(trade.group, trade.row, '500만', '388주')).toBe('선매수 체결량 500만 388주');
   });
 });

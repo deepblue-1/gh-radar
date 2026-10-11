@@ -4383,3 +4383,153 @@ describe('P31 등록 차단 (D-03 · D-04 · UI-SPEC 표 1~8)', () => {
     ]);
   });
 });
+
+/**
+ * Phase 31 31-06 Task 2 — 수량 8칸 두 줄 행 · 파생 2행 · 시트 환산 안내/잠금 · 인라인 아래 줄(UI-SPEC S1~S4 · D-05 · D-07 ·
+ * D-08 · D-09). 표시 판정은 `lc-fields.ts` 순수 함수 한 곳 — 여기서는 화면 연결만 잠근다. 예시 수치는 UI-SPEC 정정표.
+ */
+describe('P31 두 줄 · 시트 · 인라인 (D-05 · D-07 · D-08 · UI-SPEC S1~S4)', () => {
+  const P = 12_870;
+  /** 비교가 12,870원 · 수량 칸은 금액 원값 + 짝 주(새 gh-trade 에코 모양). */
+  const at = (over: Partial<RelayLimitChaser> = {}): RelayLimitChaser =>
+    echo({
+      buyWatchPrice: P,
+      sellWatchPrice: P,
+      buyWatchAmount: 1000,
+      buyWatchQty: qtyFromAmount(1000, P),
+      buyMinTradeAmount: 500,
+      buyMinTradeQty: qtyFromAmount(500, P),
+      extraBuyMinAmount: 2000,
+      extraBuyMinQty: qtyFromAmount(2000, P),
+      sellWatchAmount: 1000,
+      sellWatchQty: qtyFromAmount(1000, P),
+      sellMinTradeAmount: 500,
+      sellMinTradeQty: qtyFromAmount(500, P),
+      cancelWatchAmount: 1000,
+      cancelWatchQty: qtyFromAmount(1000, P),
+      ...over,
+    });
+  const sub = (id: string) => row(id)?.querySelector('[data-slot="lc-row-sub"]') ?? null;
+  const subText = (id: string) => sub(id)?.textContent ?? null;
+
+  it('수량 행 위 줄 「1,000만」 · 아래 줄 「777주」 · 접근성 이름 「선매수 매도잔량 1,000만 777주」 · 0 은 「0만 / 무제한」', () => {
+    render(<LimitChaserForm {...props({ server: at() })} />);
+    expect(rowText('lc-buy-watch-qty')).toBe('1,000만');
+    expect(subText('lc-buy-watch-qty')).toBe('777주');
+    expect(row('lc-buy-watch-qty')).toHaveAttribute('aria-label', '선매수 매도잔량 1,000만 777주');
+    expect(rowText('lc-buy-min-trade-qty')).toBe('500만');
+    expect(subText('lc-buy-min-trade-qty')).toBe('388주');
+    expect(subText('lc-extra-buy-min-qty')).toBe('1,554주');
+    expect(rowText('lc-extra-buy-max-qty')).toBe('0만');
+    expect(subText('lc-extra-buy-max-qty')).toBe('무제한');
+    expect(row('lc-extra-buy-max-qty')).toHaveAttribute('aria-label', '줄매수 최대 잔량 0만 무제한');
+    expect(subText('lc-post-buy-floor-qty')).toBe('없음');
+    expect(subText('lc-sell-watch-qty')).toBe('777주');
+    expect(subText('lc-sell-min-trade-qty')).toBe('388주');
+    expect(subText('lc-cancel-watch-qty')).toBe('777주');
+    expect(row('lc-cancel-watch-qty')).toHaveAttribute('aria-label', '취소 매수잔량 1,000만 777주');
+  });
+
+  it('매도 비교가 0 인 매도 매수잔량 1,500만 → 아래 줄 「비교가격 필요」(alert) · 접근성 이름에도 실린다', () => {
+    render(<LimitChaserForm {...props({ server: at({ sellWatchPrice: 0, sellWatchAmount: 1500, sellWatchQty: 0 }) })} />);
+    expect(rowText('lc-sell-watch-qty')).toBe('1,500만');
+    expect(subText('lc-sell-watch-qty')).toBe('비교가격 필요');
+    expect(sub('lc-sell-watch-qty')).toHaveAttribute('data-tone', 'alert');
+    expect(row('lc-sell-watch-qty')).toHaveAttribute('aria-label', '매도 매수잔량 1,500만 비교가격 필요');
+  });
+
+  it('금액 3칸(D-09)에는 아래 줄이 없다 — 44px 한 줄 「4,000만원」 그대로', () => {
+    render(<LimitChaserForm {...props({ server: at() })} />);
+    for (const id of ['lc-buy-order-amount', 'lc-extra-buy-amount', 'lc-post-buy-amount']) {
+      expect(row(id), id).not.toBeNull();
+      expect(sub(id), id).toBeNull();
+    }
+  });
+
+  it('파생 행 — 발동잔량 25,000 @12,870 → 위 「32,175만」 · 아래 「25,000주」 · 매수 비교가 0 → 위 「25,000주」 · 아래 빈 줄', () => {
+    const trigger = () => document.querySelector('[data-slot="lc-post-buy-trigger"]') as HTMLElement;
+    const { unmount } = render(<LimitChaserForm {...props({ server: at({ postBuyTriggerQty: 25_000 }) })} />);
+    expect(trigger().textContent).toBe('발동잔량32,175만25,000주');
+    unmount();
+    render(<LimitChaserForm {...props({ server: at({ postBuyTriggerQty: 25_000, buyWatchPrice: 0 }) })} />);
+    expect(trigger().textContent).toBe('발동잔량25,000주');
+    expect(trigger().querySelector('[data-slot="lc-row-sub"]')?.textContent).toBe('');
+  });
+
+  it('파생 행 — 잔량추적 기준선은 매도 비교가로 같은 규칙(「32,175만」 · 「25,000주」)', () => {
+    render(
+      <LimitChaserForm {...props({ server: at({ sellEntryLatched: true, sellQtyTrackBaseline: 25_000 }) })} />,
+    );
+    const baseline = document.querySelector('[data-slot="lc-derived"]') as HTMLElement;
+    expect(baseline.textContent).toBe('잔량추적 기준선32,175만25,000주');
+  });
+
+  describe('터치 기기 — 시트', () => {
+    beforeEach(() => mockPointer(true));
+    afterEach(restoreMatchMedia);
+    const sheet = () => document.querySelector('[data-slot="numpad-sheet"]') as HTMLElement;
+    const statusLine = () => document.querySelector('[data-slot="numpad-status"]')?.textContent ?? '';
+    const serverText = () => document.querySelector('[data-slot="numpad-server"]')?.textContent ?? '';
+    const confirm = () => document.querySelector('[data-slot="numpad-confirm"]') as HTMLButtonElement;
+    const keys = (...ks: string[]) => {
+      const pad = within(within(sheet()).getByRole('group', { name: '숫자 키패드' }));
+      for (const k of ks) click(pad.getByRole('button', { name: k }));
+    };
+
+    it('매도 매수잔량 → 단위 「만」 · 「지금 1,000만」 · 상태 줄 「= 777주 (비교가격 12,870원)」 · 1500 입력 「= 1,165주 …」', () => {
+      render(<LimitChaserForm {...props({ server: at() })} />);
+      click(row('lc-sell-watch-qty'));
+      expect(sheet().querySelector('[data-slot="numpad-display"]')!.textContent).toContain('만');
+      expect(serverText()).toBe('지금 1,000만');
+      expect(statusLine()).toBe('= 777주 (비교가격 12,870원)');
+      keys('1', '5', '0', '0');
+      expect(statusLine()).toBe('= 1,165주 (비교가격 12,870원)');
+      expect(confirm()).toBeEnabled();
+    });
+
+    it('줄매수 최대 0 → 「= 무제한 (비교가격 12,870원)」', () => {
+      render(<LimitChaserForm {...props({ server: at() })} />);
+      click(row('lc-extra-buy-max-qty'));
+      expect(statusLine()).toBe('= 무제한 (비교가격 12,870원)');
+    });
+
+    it('매도 비교가 0 · 1,500만 → 잠금 「비교가격 필요 — 매도 비교가격을 입력하세요」 · 적용 비활성 · 매수 칸은 「매수 …」', () => {
+      const { unmount } = render(
+        <LimitChaserForm {...props({ server: at({ sellWatchPrice: 0, sellWatchAmount: 1500, sellWatchQty: 0 }) })} />,
+      );
+      click(row('lc-sell-watch-qty'));
+      expect(statusLine()).toBe('비교가격 필요 — 매도 비교가격을 입력하세요');
+      expect(confirm()).toBeDisabled();
+      click(confirm());
+      expect(sentConfigs()).toHaveLength(0);
+      unmount();
+      render(<LimitChaserForm {...props({ server: at({ buyWatchPrice: 0 }) })} />);
+      click(row('lc-buy-watch-qty'));
+      expect(statusLine()).toBe('비교가격 필요 — 매수 비교가격을 입력하세요');
+      expect(confirm()).toBeDisabled();
+    });
+
+    it('12만 @127,400 → 「12만 → 0주 — 금액을 늘리세요」 · 13만은 「= 1주 (비교가격 127,400원)」', () => {
+      render(<LimitChaserForm {...props({ server: at({ sellWatchPrice: 127_400 }) })} />);
+      click(row('lc-sell-watch-qty'));
+      keys('1', '2');
+      expect(statusLine()).toBe('12만 → 0주 — 금액을 늘리세요');
+      expect(confirm()).toBeDisabled();
+      keys('한 글자 지우기', '3');
+      expect(statusLine()).toBe('= 1주 (비교가격 127,400원)');
+      expect(confirm()).toBeEnabled();
+    });
+  });
+
+  it('인라인 — 편집 중 아래 줄이 버퍼로 갱신된다(1000 → 「777주」 · 1 → 「0주」) · Enter 잠금이면 말풍선 · 저장 0 · 편집 유지', () => {
+    render(<LimitChaserForm {...props({ server: at() })} />);
+    const el = openInline('lc-sell-watch-qty');
+    expect(subText('lc-sell-watch-qty')).toBe('777주');
+    typeValue(el, '1');
+    expect(subText('lc-sell-watch-qty')).toBe('0주');
+    pressKey(el, 'Enter');
+    expect(sentConfigs()).toHaveLength(0);
+    expect(screen.getByText('1만 → 0주 — 금액을 늘리세요')).toBeInTheDocument();
+    expect(input('lc-sell-watch-qty')).not.toBeNull();
+  });
+});
