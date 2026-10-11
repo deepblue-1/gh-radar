@@ -171,6 +171,8 @@ describe("계좌별 칩 · removing · serverOnlyOn", () => {
         // 옛 raw(isOrder · isOrderServer 키 없음) — 파생은 두 필드를 늘 null 로 채운다(29-37).
         orderServer: null,
         defaultOrderServer: null,
+        // endpoints 생략 — active 등록 서버마다 null(「확인 전」 · Phase 30 D-09).
+        orderEndpoints: { KB120: null, KB121: null },
       },
       {
         broker: "KYOBO",
@@ -181,6 +183,7 @@ describe("계좌별 칩 · removing · serverOnlyOn", () => {
         serverOnlyOn: [],
         orderServer: null,
         defaultOrderServer: null,
+        orderEndpoints: { KYOBO119: null },
       },
     ]);
     expect(u.accountCount).toBe(2);
@@ -243,6 +246,7 @@ describe("계좌별 칩 · removing · serverOnlyOn", () => {
       serverOnlyOn: ["KB120"],
       orderServer: null,
       defaultOrderServer: null,
+      orderEndpoints: {}, // 87 전용 계좌 — 등록 서버가 없어 빈 객체(Phase 30)
     });
     expect(u.accountCount).toBe(1);
     expect(u.servers).toEqual([{ serverKey: "KB120", tone: "ok", message: null }]);

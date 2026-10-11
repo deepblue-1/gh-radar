@@ -15,6 +15,8 @@
  * 순수 함수만 둔다(DB · 소켓 없음).
  */
 
+import { normalizeOrderIp, normalizeOrderMac } from "./order-endpoint";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 기본 축 — 역할 · 증권사 · 서버 키
 // ─────────────────────────────────────────────────────────────────────────────
@@ -149,6 +151,30 @@ export interface AdminUsersRaw {
   servers: { key: string; broker: DmaBroker; enabled: boolean; isOrderServer?: boolean }[];
 }
 
+/**
+ * 계좌 하나 · 서버 하나의 주문자 IP/MAC(Phase 30 · D-09). `""` = 미설정(서버 NIC 값). 87 정규화값 그대로(재정규화 금지).
+ * 사용자 PC 식별 정보 — 로그 금지.
+ */
+export interface AdminOrderEndpoint {
+  orderIp: string;
+  orderMac: string;
+}
+
+/** relay 87 캐시의 계좌 1행 — 계좌 존재까지 싣는다(「그 서버 87 은 아는데 이 계좌는 없음」 = 「확인 전」 을 「미설정」 과 가른다). */
+export interface AdminOrderEndpointRow extends AdminOrderEndpoint {
+  dmaUserId: string;
+  accountNo: string;
+}
+
+/**
+ * relay `GET /internal/admin/order-endpoints` 응답(Phase 30 · D-09 · D-10) — relay 메모리 87 캐시를 읽는다. DB 에는 IP/MAC 열이
+ * 없다(DB 변경 없음 · 87 정본). `servers` 에 키가 없는 서버 = 그 서버 87 을 모름(꺼짐 · 미수신). 값 `""` = 미설정 · 87 정규화값 그대로
+ * (재정규화 금지). 사용자 PC 식별 정보 — 로그 금지.
+ */
+export interface AdminOrderEndpointsRaw {
+  servers: Record<string, AdminOrderEndpointRow[]>;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 개요 뷰 — Express GET /api/admin/users 응답
 // ─────────────────────────────────────────────────────────────────────────────
@@ -189,6 +215,12 @@ export interface AdminAccountView {
   orderServer?: string | null;
   /** 그 계좌 증권사의 기본 주문 서버 키(`servers[].isOrderServer`) · 없으면 null. 87 전용 계좌는 null. 파생은 늘 채운다. */
   defaultOrderServer?: string | null;
+  /**
+   * 서버별 주문자 IP/MAC(Phase 30 · D-09 · D-10) — 키 = 그 계좌의 active 등록 서버 · 값 = 그 서버 87 값(`""` = 미설정) ·
+   * null = 그 서버 87 을 모르거나 그 서버 87 에 이 계좌가 없음(화면 「확인 전」). 87 전용 계좌는 `{}`.
+   * 선택 필드(기존 픽스처 호환) — `deriveAdminUsersOverview` 는 늘 채운다. 표시 판정은 `summarizeOrderEndpoint`.
+   */
+  orderEndpoints?: Record<string, AdminOrderEndpoint | null>;
 }
 
 export interface AdminUserView {
@@ -325,6 +357,12 @@ export interface AdminPasswordBody {
 export interface AdminPutAccountBody {
   account: AdminAccountInput;
   servers: string[];
+  /**
+   * 주문자 IP/MAC 설정(Phase 30) — 계좌 객체 **밖**에 둔다(RPC `p_account` 로 가지 않게 · DB 저장 없음 · 87 정본). KB 계좌만.
+   * 웹 입력 원문(trim)을 그대로 보낸다(D-07 — 정규화는 서버 몫). 둘 다 빈 문자열 = 미설정으로 되돌리기(D-04).
+   * 없으면 서버 값 보존 — relay 가 op 5 로 새 87 을 받아 되싣는다(IPMAC-01).
+   */
+  orderEndpoint?: AdminOrderEndpoint;
 }
 
 /**
@@ -380,7 +418,10 @@ export type ServerAccountsDiff =
       userPresent: boolean;
       /** active 인데 87 에 없는 계좌(op 1 첫 계좌 · op 3). priority → accountNo 순. */
       missing: AdminAccountFields[];
-      /** active 이고 87 에 있지만 값(name · branchNo · traderId · priority · 의도에 있을 때만 주문자 IP/MAC)이 다른 계좌(op 3). 의도 값. */
+      /**
+       * active 이고 87 에 있지만 값(name · branchNo · traderId · priority · 의도에 있을 때만 주문자 IP/MAC)이 다른 계좌(op 3). 의도 값.
+       * 주문자 IP/MAC 은 정규화 비교(Phase 30 — `10.41.1.124` 와 `010041001124` 는 같다).
+       */
       changed: AdminAccountFields[];
       /** removing 인데 87 에 아직 있는 계좌(op 4 · 전부면 op 2). */
       toRemove: AdminAccountFields[];
@@ -405,6 +446,8 @@ export function compareAccounts(a: AdminAccountFields, b: AdminAccountFields): n
 /**
  * 인자 순서는 **의도 → 87**(`diffServerAccounts` 호출부가 그 순서). 주문자 IP/MAC 은 87 전용이라 의도 쪽에 값이 있을 때만
  * 87 값(없음 = 빈 문자열)과 비교한다 — 의도에 없으면 「서버 값 보존」(relay planner 가 87 값을 되싣는다 · GC-02).
+ * 정규화 비교(Phase 30 · IPMAC-02): 의도 값(웹 원문)이 정규화에 성공하면 정규화값으로, 실패하면 원문으로 87 값과 비교한다 —
+ * gh-trade Gateway.cpp op 3 멱등과 같다(실패 값을 빈 값으로 바꾸면 미설정 계좌와 같아 보여 code 13 경로를 막는다).
  */
 function sameValues(intent: AdminAccountFields, snap: AdminAccountFields): boolean {
   return (
@@ -412,15 +455,15 @@ function sameValues(intent: AdminAccountFields, snap: AdminAccountFields): boole
     intent.branchNo === snap.branchNo &&
     intent.traderId === snap.traderId &&
     intent.priority === snap.priority &&
-    (intent.orderIp === undefined || intent.orderIp === (snap.orderIp ?? "")) &&
-    (intent.orderMac === undefined || intent.orderMac === (snap.orderMac ?? ""))
+    (intent.orderIp === undefined || (normalizeOrderIp(intent.orderIp) ?? intent.orderIp) === (snap.orderIp ?? "")) &&
+    (intent.orderMac === undefined || (normalizeOrderMac(intent.orderMac) ?? intent.orderMac) === (snap.orderMac ?? ""))
   );
 }
 
 /**
  * 의도(active · removing)와 87 의 그 유저를 비교한다 — relay planner 와 개요 칩의 공통 판정.
  * 주문자 IP/MAC(`orderIp` · `orderMac`)은 87 전용 — 의도에 값이 없으면 보존(비교 제외 · GC-02). IP/MAC 이 설정된 계좌도
- * 나머지 4값이 같으면 반영됨.
+ * 나머지 4값이 같으면 반영됨. 의도에 값이 있으면 정규화 비교(Phase 30 — `sameValues`).
  */
 export function diffServerAccounts(input: ServerAccountsDiffInput): ServerAccountsDiff {
   if (!input.snapshotKnown) return { known: false };
@@ -635,11 +678,30 @@ interface AccountDraft {
   serverOnlyOn: string[];
 }
 
+/** 주문자 IP/MAC 색인 — serverKey → (dmaUserId + "\u0000" + 정규화 계좌번호) → 87 값. 서버 키 없음 = 그 서버 87 모름. */
+type OrderEndpointIndex = Map<string, Map<string, AdminOrderEndpoint>>;
+
+const endpointKey = (dmaUserId: string, accountNo: string) => `${dmaUserId}\u0000${normalizeAccountNo(accountNo)}`;
+
+function indexOrderEndpoints(endpoints: AdminOrderEndpointsRaw | null | undefined): OrderEndpointIndex {
+  const idx: OrderEndpointIndex = new Map();
+  for (const [serverKey, rows] of Object.entries(endpoints?.servers ?? {})) {
+    const byAccount = new Map<string, AdminOrderEndpoint>();
+    for (const r of rows) {
+      const k = endpointKey(r.dmaUserId, r.accountNo);
+      if (!byAccount.has(k)) byAccount.set(k, { orderIp: r.orderIp, orderMac: r.orderMac });
+    }
+    idx.set(serverKey, byAccount);
+  }
+  return idx;
+}
+
 /** 계좌 줄 — 의도 계좌의 등록 서버별 칩 + 87 에만 있는 서버(serverOnlyOn). 의도에 없는 87 계좌도 줄로 보인다. */
 function userAccounts(
   idx: RawIndex,
   dmaUserId: string,
   judged: ServerJudgement[],
+  endpoints: OrderEndpointIndex,
 ): { accounts: AdminAccountView[]; accountCount: number } {
   const drafts = new Map<string, AccountDraft>();
   const keyOf = (broker: DmaBroker, accountNo: string) => `${broker}\u0000${normalizeAccountNo(accountNo)}`;
@@ -693,15 +755,29 @@ function userAccounts(
   const list = [...drafts.values()].sort(
     (a, b) => BROKER_ORDER.indexOf(a.broker) - BROKER_ORDER.indexOf(b.broker) || compareAccounts(a.fields, b.fields),
   );
+  /** 의도 계좌의 active 등록 서버마다 87 값 · 모르면 null(D-09 · D-10). 87 전용 계좌는 {}. */
+  const orderEndpointsOf = (d: AccountDraft): Record<string, AdminOrderEndpoint | null> => {
+    const out: Record<string, AdminOrderEndpoint | null> = {};
+    if (!d.hasIntent) return out;
+    const k = endpointKey(dmaUserId, d.fields.accountNo);
+    for (const s of d.servers) {
+      if (s.state === "active") out[s.serverKey] = endpoints.get(s.serverKey)?.get(k) ?? null;
+    }
+    return out;
+  };
   return {
-    accounts: list.map((d) => ({
-      broker: d.broker,
-      ...d.fields,
-      servers: d.servers.sort((a, b) => bySrv(a.serverKey, b.serverKey)),
-      serverOnlyOn: d.serverOnlyOn.sort(bySrv),
-      orderServer: d.hasIntent ? d.orderServer : null,
-      defaultOrderServer: d.hasIntent ? (idx.defaultOrderServer.get(d.broker) ?? null) : null,
-    })),
+    accounts: list.map((d) => {
+      const servers = d.servers.sort((a, b) => bySrv(a.serverKey, b.serverKey));
+      return {
+        broker: d.broker,
+        ...d.fields,
+        servers,
+        serverOnlyOn: d.serverOnlyOn.sort(bySrv),
+        orderServer: d.hasIntent ? d.orderServer : null,
+        defaultOrderServer: d.hasIntent ? (idx.defaultOrderServer.get(d.broker) ?? null) : null,
+        orderEndpoints: orderEndpointsOf(d),
+      };
+    }),
     accountCount: list.filter((d) => d.hasActive).length,
   };
 }
@@ -736,16 +812,23 @@ function timeDesc(a: string, b: string): number {
 /**
  * `admin_users_raw()` 한 덩이 → 목록 행 · 칩 · 계좌 줄 · 「서버에만 있음」 행 · 승인 대기(D-03 · D-14).
  * 칩 판정은 `diffServerAccounts` 그대로 — relay planner 가 같은 diff 로 op 를 만든다.
+ *
+ * `endpoints`(Phase 30 · D-09) = relay 87 캐시의 주문자 IP/MAC(`GET /internal/admin/order-endpoints`) — 의도 계좌마다 active 등록
+ * 서버별 `orderEndpoints` 를 채운다. null/생략(relay 조회 실패 · 옛 호출)이면 전부 null(「확인 전」) — 두 경우 출력이 같다.
  */
-export function deriveAdminUsersOverview(raw: AdminUsersRaw): AdminUsersOverview {
+export function deriveAdminUsersOverview(
+  raw: AdminUsersRaw,
+  endpoints?: AdminOrderEndpointsRaw | null,
+): AdminUsersOverview {
   const idx = indexRaw(raw);
+  const endpointIdx = indexOrderEndpoints(endpoints);
   const users: AdminUserView[] = [...raw.appUsers]
     .sort((a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role] || (a.email < b.email ? -1 : a.email > b.email ? 1 : 0))
     .map((u) => {
       const head = { email: u.email, role: u.role, dmaUserId: u.dmaUserId, signedUp: u.signedUp };
       if (!u.dmaUserId) return { ...head, accountCount: 0, servers: [], accounts: [] };
       const judged = judgeUser(idx, u.dmaUserId);
-      const { accounts, accountCount } = userAccounts(idx, u.dmaUserId, judged);
+      const { accounts, accountCount } = userAccounts(idx, u.dmaUserId, judged, endpointIdx);
       return { ...head, accountCount, servers: userChips(idx, u.dmaUserId, judged), accounts };
     });
   return {
