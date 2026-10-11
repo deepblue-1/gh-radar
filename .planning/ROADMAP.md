@@ -76,14 +76,14 @@
   6. 인박스 노트 `261010-kb-order-ip-mac.md` 에 질문 3개(code 7 문구 · 입력 표기 · `ipconfig /all` 수기 절차) 답이 적히고 `status: done` · `done_commit` 으로 커밋된다
 
 **배포 순서**: DB 변경 없음 → relay(R3-01) 배포·확인(20:00 KST 이후) → server(Cloud Run — zod 가 `orderEndpoint` 를 버리므로 필수) → webapp push(= 프로덕션) — 백엔드 막히면 push 금지
-**Plans**: 2/7 plans executed
+**Plans**: 3/7 plans executed
 Plans:
 **Wave 1**
 - [x] 30-01-PLAN.md — (트레이서) orderEndpoint 쓰기 경로 Express → relay → op 3 · R3-01 op 5 재조회(D-15) · R3-02 다른 유저 IP/MAC 되싣기(D-16)
 - [x] 30-02-PLAN.md — shared 규칙 한 벌: IP/MAC 정규화 · 검증 · 표시 판정(출처 · 불일치) · 계약 타입 · sameValues 정규화 비교
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 30-03-PLAN.md — 읽기 경로: relay GET /order-endpoints · Express GET /users 병렬 병합 · PUT 감사 플래그
+- [x] 30-03-PLAN.md — 읽기 경로: relay GET /order-endpoints · Express GET /users 병렬 병합 · PUT 감사 플래그
 - [ ] 30-04-PLAN.md — 웹 계좌 카드 IP/MAC 읽기 줄 · 불일치 경고 · 「편집」 → 계좌명 저장 · 결과 줄(서버 문구 원문)
 
 **Wave 3** *(blocked on Wave 2 completion)*
@@ -121,5 +121,5 @@ Plans:
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 30. 인박스 KB 계좌별 주문자 IP/MAC | v1.1 | 2/7 | Not started | - |
+| 30. 인박스 KB 계좌별 주문자 IP/MAC | v1.1 | 3/7 | Not started | - |
 | 31. 인박스 상따 금액 단위 | v1.1 | 0/TBD | Not started | - |

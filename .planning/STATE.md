@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 30
 current_phase_name: 인박스 KB 계좌별 주문자 IP/MAC
 status: executing
-stopped_at: Completed 30-02-PLAN.md
-last_updated: "2026-10-11T06:20:18.113Z"
+stopped_at: Completed 30-03-PLAN.md
+last_updated: "2026-10-11T06:27:13.741Z"
 last_activity: 2026-10-11
 last_activity_desc: Phase 30 execution started
-state_head: 12ec20713875be80998845e78353064f3dc36d7c
+state_head: fc06c3b9acf8d61ceac08bd151381c4a1fe9a1e2
 progress:
   total_phases: 2
   completed_phases: 0
   total_plans: 7
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-11 after v1.1 milestone start)
 ## Current Position
 
 Phase: 30 (인박스 KB 계좌별 주문자 IP/MAC) — EXECUTING
-Plan: 3 of 7
+Plan: 4 of 7
 Status: Ready to execute
 Last activity: 2026-10-11 — Phase 30 execution started
 
@@ -78,8 +78,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-11T06:20:18.095Z
-Stopped at: Completed 30-02-PLAN.md
+Last session: 2026-10-11T06:27:13.723Z
+Stopped at: Completed 30-03-PLAN.md
 Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 
 ## Operator Next Steps
@@ -93,6 +93,7 @@ Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 |------|----------|-------|-------|
 | Phase 30 P01 | 7 min | 3 tasks | 8 files |
 | Phase 30 P02 | 5 min | 3 tasks | 6 files |
+| Phase 30 P03 | 5 min | 3 tasks | 8 files |
 
 ## Decisions
 
@@ -102,3 +103,6 @@ Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 - [Phase 30]: [30-02] sameValues 는 의도 IP/MAC 이 정규화에 성공하면 정규화값, 실패하면 원문으로 87 과 비교 — gh-trade op 3 멱등과 같아 code 13 경로 유지(의도 필드 없으면 비교 제외 · GC-02)
 - [Phase 30]: [30-02] orderEndpoints 는 의도 계좌의 active 등록 서버 전부에 채운다(증권사 무관) · null = 87 모름/계좌 없음 · 87 전용 {} — KB 만 그리는 판단은 화면 몫
 - [Phase 30]: [30-02] summarizeOrderEndpoint 출처 = resolveEffectiveOrderServer(웹 OrderServerControl 과 같은 입력) ?? 레지스트리 순 첫 active · 값 모르면 값 아는 첫 서버 · 불일치는 값 아는 다른 등록 서버(꺼진 서버 포함)
+- [Phase 30]: [30-03] relay GET /order-endpoints 는 켜진 서버 중 87 캐시(currentSnapshot)가 있는 서버만 키를 둔다 — 꺼짐 · 파이프라인 없음 · 재접속 중은 키 없음 = 확인 전
+- [Phase 30]: [30-03] Express GET /users 는 RPC 와 relay order-endpoints 를 Promise.all 병렬 — relay 없음·비200·모양 위반·throw 는 null(확인 전) · warn 에 status 만 · 개요 200 유지
+- [Phase 30]: [30-03] Express PUT 계좌 감사 줄은 orderEndpoint set/clear 플래그만(값 없음) — 두 칸 모두 빈 값이면 clear
