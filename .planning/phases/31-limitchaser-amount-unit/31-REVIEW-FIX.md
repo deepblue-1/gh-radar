@@ -39,7 +39,7 @@ status: all_fixed
   - 새 탭이 명시한 0은 캐시 에코 1000이 있어도 0 그대로 간다.
 - 기존 「캐시 없는 구 탭 → 0」 테스트는 그대로 통과한다. 수정 전 코드에서는 새 테스트 1건이 실패하는 것을 확인했다.
 
-### WR-02: 두 줄 행 아래 줄 · 시트 환산 안내가 비교가 0 갈래에서 에코 메모를 무시한다
+### WR-02: 두 줄 행 아래 줄 · 시트 환산 안내가 비교가 0 갈래에서 에코 메모를 무시한다 — 제출 주와 다른 글자를 보인다
 
 **Files modified:** `webapp/src/components/trading/lc/lc-fields.ts`, `webapp/src/components/trading/lc/__tests__/lc-fields.test.ts`
 **Commit:** 694d1f06
