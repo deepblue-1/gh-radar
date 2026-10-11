@@ -2884,7 +2884,9 @@ export class WsFanout {
    * 상태 프레임 계좌 항목에 G-1 부가 정보를 붙인 **사본** (29-36) — 세션 프레임 객체를 바꾸지 않는다(계좌 항목도 새 객체).
    *   - `serverKey` — 그 계좌를 소유한 세션의 서버 키(그 계좌 주문이 나가는 서버 · 표시용).
    *   - `movedFrom` — 이번 재수립으로 서버가 바뀐 계좌의 옛 서버 키(「옛 서버 잔고 · 미체결은 클라(OCX) 대사로」 안내 원천).
-   *   - `staleStrategies` — 끄지 못한 전략(레지스터 `pendingFor`)이 있는 계좌의 `{ serverKey, count }`.
+   *   - `staleStrategies` — 끄지 못한 전략(레지스터 `pendingFor`)이 있는 계좌의 `{ serverKey, count, otherServers? }`. 계좌마다 서버를
+   *     전부 묶는다(29-52 GC-12): 서버 키 순 첫 서버가 `serverKey` · 나머지가 `otherServers`(2대 이상일 때만 키) · `count` 는 모든
+   *     서버 수가 알려졌으면 합 · 하나라도 모르면 null. 옛 서버 하나면 종전 `{ serverKey, count }` 그대로다(옛 웹 하위 호환).
    * 계좌가 없으면(ready 전 · 실패) 그 프레임 그대로.
    */
   #withAccountExtras(
@@ -2895,9 +2897,23 @@ export class WsFanout {
     const accounts = frame.accounts;
     if (accounts === undefined || accounts.length === 0) return frame;
     const moved = this.#movedFrom.get(userId)?.accounts;
-    const stale = new Map<string, { serverKey: string; count: number | null }>();
+    const byAccount = new Map<string, Array<{ serverKey: string; remaining: number | null }>>();
     for (const e of this.#stale?.pendingFor(userId) ?? []) {
-      if (!stale.has(e.accountNo)) stale.set(e.accountNo, { serverKey: e.serverKey, count: e.remaining });
+      const list = byAccount.get(e.accountNo) ?? [];
+      list.push({ serverKey: e.serverKey, remaining: e.remaining });
+      byAccount.set(e.accountNo, list);
+    }
+    const stale = new Map<string, NonNullable<RelayAccount["staleStrategies"]>>();
+    for (const [accountNo, list] of byAccount) {
+      list.sort((a, b) => (a.serverKey < b.serverKey ? -1 : a.serverKey > b.serverKey ? 1 : 0));
+      const [first, ...rest] = list;
+      if (first === undefined) continue;
+      const count = list.some((x) => x.remaining === null) ? null : list.reduce((n, x) => n + (x.remaining ?? 0), 0);
+      stale.set(accountNo, {
+        serverKey: first.serverKey,
+        count,
+        ...(rest.length > 0 ? { otherServers: rest.map((x) => x.serverKey) } : {}),
+      });
     }
     return {
       ...frame,

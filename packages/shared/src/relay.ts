@@ -915,8 +915,12 @@ export type RelayAccount = {
    * 작업대가 「옛 서버 KB120 활성 전략 N건 — 끄지 못했어요 · 클라(OCX)에서 끄세요」 를 보이는 원천이다(29-39). `count` null = 수를
    * 모른다(조회 전 실패 · 자격증명 없음 · 여러 계좌를 한 번에 끄다 실패). 끄기가 확인될 때까지(29-44 재시도) 남는다. 선택 필드 —
    * 없으면 미확인 항목 없음.
+   *
+   * 한 계좌가 여러 옛 서버에 남기면(29-52 GC-12) `serverKey` 는 서버 키 순 첫 서버 · 세 번째 필드는 나머지 서버 키(서버 키 순)다.
+   * 그때 `count` 는 모든 서버의 수가 알려졌으면 합 · 하나라도 모르면 null 이다. 세 번째 필드가 없으면 옛 서버 하나다 — relay 가
+   * webapp 보다 먼저 배포되므로 선택 필드다(옛 웹은 첫 서버만 그린다).
    */
-  staleStrategies?: { serverKey: string; count: number | null };
+  staleStrategies?: { serverKey: string; count: number | null; otherServers?: string[] };
 };
 
 /** 상태 프레임 — 배지·상태 문구·계좌 목록의 원천 (D-36). */

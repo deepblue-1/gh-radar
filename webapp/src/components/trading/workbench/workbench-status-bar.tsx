@@ -56,7 +56,8 @@
  *   - 계좌 필(`AccountPill`) 옵션 글자 끝에 「 · 서버키」 꼬리표 · 필 바로 옆에 고른 계좌의 서버 키 칩 1개. `serverKey` 가 없는
  *     계좌는 둘 다 없다. 닫힌 필에서 서버 키가 꼬리표 · 칩으로 두 번 보이는 것은 채택 그대로다(29-30 「렌더 확인」).
  *   - 끄기 미확인 경고(gh-trade-84 ②(가)) — 고른 계좌에 `staleStrategies` 가 있으면 상태줄 끝에 경고색 한 줄. 닫기가 없다 —
- *     사라지는 조건은 relay 의 다음 상태 프레임(필드 없음)뿐이다.
+ *     사라지는 조건은 relay 의 다음 상태 프레임(필드 없음)뿐이다. 한 계좌가 여러 옛 서버에 남기면 relay 가 `otherServers` 를
+ *     실어 「옛 서버 KB120 외 1개 서버 …」 로 말한다(29-52 GC-12 · 새 요소 없음).
  *   - 되돌아옴 안내(gh-trade-84 ② 추가) — 고른 계좌에 `movedFrom` 이 있으면 「클라(OCX) 대사」 안내 한 줄 · × 로 그 (계좌,
  *     movedFrom) 조합을 이 탭 안에서 닫는다(로컬 상태 · 저장 안 함).
  *   - 두 줄은 목업 뒤에 생긴 요구라 목업에 없다. 해당 필드가 없으면 요소 0 — 상태줄 줄 수는 종전 그대로다.
@@ -95,9 +96,12 @@ const COLS: readonly TradingCols[] = [1, 2, 3];
 
 /** 상태줄 보조 줄 문구(⑧ · 해요체). */
 export const WORKBENCH_STATUS_TEXT = {
-  /** 끄기 미확인 경고 — `count` null = 몇 건인지 모름. */
-  staleStrategies: (serverKey: string, count: number | null) =>
-    `옛 서버 ${serverKey} 활성 전략 ${count === null ? "몇 건인지 모름" : `${count}건`} — 끄지 못했어요 · 클라(OCX)에서 끄세요`,
+  /**
+   * 끄기 미확인 경고 — `count` null = 몇 건인지 모름. `otherServers` 가 있으면(한 계좌가 여러 옛 서버에 남김 · 29-52 GC-12)
+   * 「외 N개 서버」 를 붙인다(`count` 는 그 서버들의 합 · relay 가 정한다). 없거나 비면 종전 문구.
+   */
+  staleStrategies: (serverKey: string, count: number | null, otherServers?: readonly string[]) =>
+    `옛 서버 ${serverKey}${otherServers !== undefined && otherServers.length > 0 ? ` 외 ${otherServers.length}개 서버` : ""} 활성 전략 ${count === null ? "몇 건인지 모름" : `${count}건`} — 끄지 못했어요 · 클라(OCX)에서 끄세요`,
   /** 되돌아옴 안내 — 옛 서버 → 지금 주문 서버. */
   movedFrom: (from: string, to: string) =>
     `주문 서버 ${from} → ${to} — 옛 서버 잔고 · 미체결은 클라(OCX) 대사로 맞추세요`,
@@ -292,7 +296,7 @@ export function WorkbenchStatusBar({
 
       {stale !== undefined && (
         <p role="status" data-slot="workbench-stale-strategies" className={AUX_LINE}>
-          {WORKBENCH_STATUS_TEXT.staleStrategies(stale.serverKey, stale.count)}
+          {WORKBENCH_STATUS_TEXT.staleStrategies(stale.serverKey, stale.count, stale.otherServers)}
         </p>
       )}
 
