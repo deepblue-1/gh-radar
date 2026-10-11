@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { RelayLimitChaser, RelayLimitChaserInput } from '@gh-radar/shared';
+import { qtyFromAmount } from '@gh-radar/shared';
 
 /**
  * 작업대 전략 카드 1장의 **흐름** — 전송 ↔ 에코 상관 · 서버 통지 · LED 전송 규율 · 철거 에코 (18-13 이관).
@@ -201,7 +202,16 @@ function Card() {
 }
 
 const logRows = () => document.querySelectorAll('[data-slot="strategy-log-row"]');
-/** 값 행의 표시 글자(「10,000주」) — Phase 20 토스식 리스트는 값을 입력칸이 아니라 행이 보여 준다. */
+/**
+ * 선매수 「매도잔량」 만원 칸이 그 금액으로 반영된 에코 조각 — 금액 원값 + 짝 주(매수 비교가 130,000원 내림 · Phase 31).
+ * 행은 짝이면 원값(「8,000만」)을 보인다.
+ */
+const bw = (manwon: number): Partial<RelayLimitChaser> => ({
+  buyWatchAmount: manwon,
+  buyWatchQty: qtyFromAmount(manwon, 130_000),
+});
+
+/** 값 행의 표시 글자(「8,000만」) — Phase 20 토스식 리스트는 값을 입력칸이 아니라 행이 보여 준다. */
 const rowValue = (id: string): string | null =>
   document.querySelector(`[data-lc-field="${id}"] [data-slot="lc-row-value"]`)?.textContent ?? null;
 /** 행을 눌러 인라인 편집기를 연다(마우스 기기 · D-14) — 입력 id 는 옛 입력 id 그대로다. */
@@ -298,7 +308,7 @@ describe('전송 ↔ 에코 상관 (옛 ⑥ ~ ⑧ · ⑪ · ⑬)', () => {
     setRelay({ limitChasers: [echo()] });
     const { rerender } = render(<Card />);
 
-    setRelay({ limitChasers: [echo({ buyWatchQty: 8_000 })] });
+    setRelay({ limitChasers: [echo(bw(8_000))] });
     rerender(<Card />);
 
     await waitFor(() => expect(logRows()[0]?.textContent ?? '').toContain(TRANSITION_TEXT.valuesApplied));
@@ -306,7 +316,7 @@ describe('전송 ↔ 에코 상관 (옛 ⑥ ~ ⑧ · ⑪ · ⑬)', () => {
     expect(screen.queryByRole('status')).toBeNull();
   });
 
-  it('⑦b ★ 인라인 편집 중 다른 단말 에코 → 입력 8,000 유지 · Esc 뒤 행 = 에코 5,000주 (D-04 · UI-SPEC E4 partial)', async () => {
+  it('⑦b ★ 인라인 편집 중 다른 단말 에코 → 입력 8,000 유지 · Esc 뒤 행 = 에코 5,000만 (D-04 · UI-SPEC E4 partial)', async () => {
     setRelay({ limitChasers: [echo()] });
     const { rerender } = render(<Card />);
 
@@ -317,7 +327,7 @@ describe('전송 ↔ 에코 상관 (옛 ⑥ ~ ⑧ · ⑪ · ⑬)', () => {
     });
     expect(input).toHaveValue('8,000');
 
-    setRelay({ limitChasers: [echo({ buyWatchQty: 5_000 })] });
+    setRelay({ limitChasers: [echo(bw(5_000))] });
     rerender(<Card />);
 
     await waitFor(() => expect(logRows()[0]?.textContent ?? '').toContain(TRANSITION_TEXT.valuesApplied));
@@ -328,7 +338,7 @@ describe('전송 ↔ 에코 상관 (옛 ⑥ ~ ⑧ · ⑪ · ⑬)', () => {
       fireEvent.keyDown(document.querySelector('#lc-buy-watch-qty')!, { key: 'Escape' });
     });
     expect(document.querySelector('#lc-buy-watch-qty')).toBeNull();
-    expect(rowValue('lc-buy-watch-qty')).toBe('5,000주');
+    expect(rowValue('lc-buy-watch-qty')).toBe('5,000만');
     expect(lcSets()).toHaveLength(0);
   });
 
@@ -354,14 +364,15 @@ describe('전송 ↔ 에코 상관 (옛 ⑥ ~ ⑧ · ⑪ · ⑬)', () => {
   });
 
   it('⑪ 삭제 에코 → 폼이 빈 상태(기본값)로 돌아가고 로그에 삭제가 남는다 (D-08)', async () => {
-    setRelay({ limitChasers: [echo({ buyWatchQty: 8_000 })] });
+    setRelay({ limitChasers: [echo(bw(8_000))] });
     const { rerender } = render(<Card />);
-    expect(rowValue('lc-buy-watch-qty')).toBe('8,000주');
+    expect(rowValue('lc-buy-watch-qty')).toBe('8,000만');
 
     setRelay({ limitChasers: [] });
     rerender(<Card />);
 
-    await waitFor(() => expect(rowValue('lc-buy-watch-qty')).toBe('10,000주'));
+    // 새 폼 기본값은 만원 0(Phase 31 D-12 — 옛 10,000주는 버린다).
+    await waitFor(() => expect(rowValue('lc-buy-watch-qty')).toBe('0만'));
     expect(screen.getByText(/전략이 삭제됐어요/)).toBeInTheDocument();
   });
 
@@ -397,9 +408,9 @@ describe('전송 ↔ 에코 상관 (옛 ⑥ ~ ⑧ · ⑪ · ⑬)', () => {
     expect(host.childElementCount).toBe(0);
     expect(card.className).not.toContain('var(--primary)_55%');
 
-    setRelay({ limitChasers: [echo({ buyOrderAmount: 100, buyWatchQty: 8_000 })] });
+    setRelay({ limitChasers: [echo({ buyOrderAmount: 100, ...bw(8_000) })] });
     rerender(<Card />);
-    expect(rowValue('lc-buy-watch-qty')).toBe('8,000주');
+    expect(rowValue('lc-buy-watch-qty')).toBe('8,000만');
     expect(document.querySelector('[data-slot="dirty-action-bar"]')).toBeNull();
     expect(host.childElementCount).toBe(0);
     expect(card.className).not.toContain('var(--primary)_55%');
@@ -1757,6 +1768,9 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 in-fli
       sellWatchQty: 10,
       // Phase 31 — 매수잔량은 만원 칸(비교가 0 → 에코 원값 1,000만 · 상한가 채움 뒤 66주). 금액 0 이면 환산 0주라 매도 3체크가 빠진다.
       sellWatchAmount: 1000,
+      // 31-04 — 매도 체결 · 취소 매수잔량도 만원 칸이라 같은 이유로 원값을 둔다(상한가 채움 뒤 33주 · 66주 > 0).
+      sellMinTradeAmount: 500,
+      cancelWatchAmount: 1000,
       extraBuyOrderAmount: 50,
     });
     setRelay({ limitChasers: [before], quote: q });

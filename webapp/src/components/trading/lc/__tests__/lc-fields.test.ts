@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import type { RelayLimitChaser } from '@gh-radar/shared';
+import { amountFromQty, type RelayLimitChaser } from '@gh-radar/shared';
 
 /**
  * Phase 24 Plan 04 Task 2 — 상따 필드 스펙의 **표시 순수 함수** (D-03 · D-09 · D-10 · D-11 · R5 · CR-01).
  *
  * 잠그는 것:
  *   ① 매수 카드 4장 순서(스케치 009 D) · 모든 값 행 id 유일
- *   ② `lcValueTextOf` — 의미어 「무제한」「1주」「없음」 · 금액 0 「—」 · 후매수 「최대」 D-11 문구
- *   ③ `lcSummaryOf` — 요약 항목 · 순서 · 꺼진 kv(UI-SPEC §3 · R5)
+ *   ② `lcValueTextOf` — 금액 0 「—」 · 후매수 「최대」 D-11 문구 · 수량 8칸(만원 · Phase 31)은 의미어 없음(위 줄 「0만」)
+ *      · 수량 의미어 「무제한」「1주」「없음」 은 `lcAmountZeroWordOf`
+ *   ③ `lcSummaryOf` — 요약 항목 · 순서 · 꺼진 kv(UI-SPEC §3 · R5 · Phase 31 S7 만원 kv)
  *   ④ `lcRowA11yNameOf` — 접근성 이름 접두(UI-SPEC 「접근성 이름 접두」 표 · D-09)
  *   ⑤ `lcRangeIssue` — 반등 0~100 + 「후매수 ON 이면 1~100」(relay zod `.superRefine` 동형 · T-24-17)
  *
@@ -27,6 +28,7 @@ import {
   lcRowById,
   lcRowDimOf,
   lcRowOfField,
+  lcAmountZeroWordOf,
   lcSummaryOf,
   lcValueTextOf,
   POST_BUY_UNLOCK_SR_TEXT,
@@ -39,16 +41,17 @@ const values = (over: Partial<LimitChaserFormValues> = {}): LimitChaserFormValue
   buyOrderPrice: 13_000,
   buyWatchPrice: 13_000,
   buyOrderAmount: 4000,
-  buyWatchQty: 10_000,
-  buyMinTradeQty: 30_000,
+  // 수량 칸은 만원(Phase 31 · UI-SPEC 정정표 예시 값).
+  buyWatchAmount: 1000,
+  buyMinTradeAmount: 500,
   sweepMinTickCount: 3,
   sweepWatchPrice: 12_990,
   extraBuyOrderAmount: 4000,
-  extraBuyMinQty: 50_000,
-  extraBuyMaxQty: 0,
+  extraBuyMinAmount: 2000,
+  extraBuyMaxAmount: 0,
   postBuyOrderAmount: 4000,
   postBuyReentry: 3,
-  postBuyFloorQty: 100_000,
+  postBuyFloorAmount: 84,
   postBuyReboundPct: 30,
   ...over,
 });
@@ -86,16 +89,21 @@ describe('① 매수 카드 4장 스펙 (스케치 009 D · ROADMAP ⑤)', () =>
 });
 
 describe('② lcValueTextOf — 의미어 · 「—」 · 후매수 「최대」 (D-03 · D-10 · D-11)', () => {
-  it('줄매수 최대 0 → 「무제한」 · 최소 0 → 「1주」 · 후매수 최소 잔량 0 → 「없음」', () => {
-    expect(lcValueTextOf('extraBuyMaxQty', values({ extraBuyMaxQty: 0 }), null)).toBe('무제한');
-    expect(lcValueTextOf('extraBuyMinQty', values({ extraBuyMinQty: 0 }), null)).toBe('1주');
-    expect(lcValueTextOf('postBuyFloorQty', values({ postBuyFloorQty: 0 }), null)).toBe('없음');
+  it('P31 수량 의미어는 lcAmountZeroWordOf — 줄매수 최대 「무제한」 · 최소 「1주」 · 후매수 최소 「없음」 · 그 밖 null', () => {
+    expect(lcAmountZeroWordOf('extraBuyMaxAmount')).toBe('무제한');
+    expect(lcAmountZeroWordOf('extraBuyMinAmount')).toBe('1주');
+    expect(lcAmountZeroWordOf('postBuyFloorAmount')).toBe('없음');
+    for (const f of ['buyWatchAmount', 'buyMinTradeAmount', 'sellWatchAmount', 'sellMinTradeAmount', 'cancelWatchAmount'] as const) {
+      expect(lcAmountZeroWordOf(f), f).toBeNull();
+    }
   });
 
-  it('값이 있으면 의미어를 쓰지 않는다(null = 기본 포맷)', () => {
-    expect(lcValueTextOf('extraBuyMaxQty', values({ extraBuyMaxQty: 500_000 }), null)).toBeNull();
-    expect(lcValueTextOf('extraBuyMinQty', values({ extraBuyMinQty: 50_000 }), null)).toBeNull();
-    expect(lcValueTextOf('postBuyFloorQty', values({ postBuyFloorQty: 100_000 }), null)).toBeNull();
+  it('P31 수량 8칸 위 줄은 0 도 「0만」 — lcValueTextOf 는 의미어를 주지 않는다(null = 「{만원}만」 기본 포맷)', () => {
+    const zero = values({ extraBuyMaxAmount: 0, extraBuyMinAmount: 0, postBuyFloorAmount: 0 });
+    expect(lcValueTextOf('extraBuyMaxAmount', zero, null)).toBeNull();
+    expect(lcValueTextOf('extraBuyMinAmount', zero, null)).toBeNull();
+    expect(lcValueTextOf('postBuyFloorAmount', zero, null)).toBeNull();
+    expect(lcValueTextOf('extraBuyMinAmount', values(), null)).toBeNull();
   });
 
   it('줄매수 · 후매수 금액 0 → 「—」(D-03)', () => {
@@ -140,15 +148,15 @@ describe('③ lcSummaryOf — 요약 항목 · 순서 · 꺼진 kv (UI-SPEC §3 
   it('선매수 = 금액 → 매도잔량 → 체결량(OFF 「꺼짐」) → 한방(OFF 「꺼짐」)', () => {
     expect(lcSummaryOf('pre-buy', values(), srv())).toEqual([
       { key: '금액', value: '4,000만원', off: false },
-      { key: '매도잔량', value: '10,000주', off: false },
+      { key: '매도잔량', value: '1,000만', off: false },
       { key: '체결량', value: '꺼짐', off: true },
       { key: '한방', value: '꺼짐', off: true },
     ]);
   });
 
-  it('선매수 체크 ON — 체결량 「30,000주」 · 한방 「3건 @12,990원」', () => {
+  it('선매수 체크 ON — 체결량 「500만」 · 한방 「3건 @12,990원」', () => {
     const items = lcSummaryOf('pre-buy', values({ buyTradeQtyEnabled: true, sweepEnabled: true }), srv());
-    expect(items[2]).toEqual({ key: '체결량', value: '30,000주', off: false });
+    expect(items[2]).toEqual({ key: '체결량', value: '500만', off: false });
     expect(items[3]).toEqual({ key: '한방', value: '3건 @12,990원', off: false });
   });
 
@@ -157,7 +165,7 @@ describe('③ lcSummaryOf — 요약 항목 · 순서 · 꺼진 kv (UI-SPEC §3 
   });
 
   it('줄매수 = 금액 → 최소 → 최대 — 의미어는 꺼진 kv 가 아니다', () => {
-    expect(lcSummaryOf('extra-buy', values({ extraBuyMinQty: 0 }), srv())).toEqual([
+    expect(lcSummaryOf('extra-buy', values({ extraBuyMinAmount: 0 }), srv())).toEqual([
       { key: '금액', value: '4,000만원', off: false },
       { key: '최소', value: '1주', off: false },
       { key: '최대', value: '무제한', off: false },
@@ -205,11 +213,12 @@ describe('③ lcSummaryOf — 요약 항목 · 순서 · 꺼진 kv (UI-SPEC §3 
     expect(lcSummaryOf('post-buy', values(), srv({ postBuyPhase: 1, postBuyReentryLeft: 2 }))).toEqual([
       { key: '금액', value: '4,000만원', off: false },
       { key: '최대', value: '3회 · 남은 2회', off: false },
-      { key: '최소', value: '100,000주', off: false },
+      { key: '최소', value: '84만', off: false },
       { key: '반등', value: '30%', off: false },
       { key: '발동잔량', value: '—', off: true },
     ]);
-    const hot = lcSummaryOf('post-buy', values({ postBuyFloorQty: 0 }), srv({ postBuyPhase: 2, postBuyTriggerQty: 330_000 }));
+    // 매수 비교가 0 인 에코(srv 기본) — 발동잔량은 주 원값(D-05 partial).
+    const hot = lcSummaryOf('post-buy', values({ postBuyFloorAmount: 0 }), srv({ postBuyPhase: 2, postBuyTriggerQty: 330_000 }));
     expect(hot[2]).toEqual({ key: '최소', value: '없음', off: false });
     expect(hot[4]).toEqual({ key: '발동잔량', value: '330,000주', off: false });
   });
@@ -230,6 +239,66 @@ describe('③ lcSummaryOf — 요약 항목 · 순서 · 꺼진 kv (UI-SPEC §3 
     ).toEqual({ key: '발동잔량', value: '330,000주', off: false });
   });
 
+  it('P31 S7 populated — 선매수 「매도잔량 1,000만 · 체결량 500만」 · 줄매수 「최소 2,000만 · 최대 무제한」 · 후매수 「최소 84만 · 발동잔량 32,175만」', () => {
+    const pre = lcSummaryOf('pre-buy', values({ buyTradeQtyEnabled: true }), srv());
+    expect(pre.slice(1, 3)).toEqual([
+      { key: '매도잔량', value: '1,000만', off: false },
+      { key: '체결량', value: '500만', off: false },
+    ]);
+    expect(lcSummaryOf('extra-buy', values(), srv()).slice(1)).toEqual([
+      { key: '최소', value: '2,000만', off: false },
+      { key: '최대', value: '무제한', off: false },
+    ]);
+    const post = lcSummaryOf('post-buy', values(), srv({ buyWatchPrice: 12_870, postBuyPhase: 2, postBuyTriggerQty: 25_000 }));
+    expect(post[2]).toEqual({ key: '최소', value: '84만', off: false });
+    expect(post[4]).toEqual({ key: '발동잔량', value: '32,175만', off: false });
+    expect(amountFromQty(25_000, 12_870)).toBe(32_175);
+  });
+
+  it('P31 S7 empty — 금액 0 = 의미어(최대 무제한 · 최소 1주 · 최소 없음) 또는 「{키} 0만」', () => {
+    const zero = values({
+      buyWatchAmount: 0,
+      buyMinTradeAmount: 0,
+      buyTradeQtyEnabled: true,
+      extraBuyMinAmount: 0,
+      extraBuyMaxAmount: 0,
+      postBuyFloorAmount: 0,
+    });
+    expect(lcSummaryOf('pre-buy', zero, srv()).slice(1, 3).map((i) => i.value)).toEqual(['0만', '0만']);
+    expect(lcSummaryOf('extra-buy', zero, srv()).slice(1).map((i) => i.value)).toEqual(['1주', '무제한']);
+    expect(lcSummaryOf('post-buy', zero, srv())[2]).toEqual({ key: '최소', value: '없음', off: false });
+  });
+
+  it('P31 S7 error — 비교가 0 이어도 요약 kv 는 위 줄 글자만(빨강 · 「비교가격 필요」 없음)', () => {
+    const items = lcSummaryOf('pre-buy', values({ buyWatchPrice: 0, buyWatchAmount: 1500 }), srv());
+    expect(items[1]).toEqual({ key: '매도잔량', value: '1,500만', off: false });
+    expect(JSON.stringify(lcSummaryOf('extra-buy', values({ buyWatchPrice: 0 }), srv()))).not.toContain('비교가격');
+  });
+
+  it('P31 S7 partial — 매수 비교가 0 인 발동잔량 「25,000주」 · 해제선은 같은 역산 규칙 + 꺼진 kv · sr 「잠금 해제선」', () => {
+    expect(lcSummaryOf('post-buy', values(), srv({ postBuyPhase: 2, postBuyTriggerQty: 25_000 }))[4]).toEqual({
+      key: '발동잔량',
+      value: '25,000주',
+      off: false,
+    });
+    expect(lcSummaryOf('post-buy', values(), srv({ buyWatchPrice: 12_870, postBuyPhase: 1, postBuyUnlockQty: 25_000 }))[4]).toEqual({
+      key: '발동잔량',
+      value: '32,175만',
+      off: true,
+      sr: POST_BUY_UNLOCK_SR_TEXT,
+    });
+  });
+
+  it('P31 S7 long-text · zero-one-many — 최악값 「999,999,999만」 · kv 수는 카드별 고정(금액 0 이어도 늘거나 줄지 않음)', () => {
+    const big = values({ buyWatchAmount: 999_999_999, extraBuyMaxAmount: 999_999_999 });
+    expect(lcSummaryOf('pre-buy', big, srv())[1]!.value).toBe('999,999,999만');
+    expect(lcSummaryOf('extra-buy', big, srv())[2]!.value).toBe('999,999,999만');
+    const zero = values({ buyWatchAmount: 0, extraBuyMinAmount: 0, postBuyFloorAmount: 0 });
+    for (const slot of ['pre-buy', 'extra-buy', 'post-buy'] as const) {
+      expect(lcSummaryOf(slot, zero, srv()).length, slot).toBe(lcSummaryOf(slot, big, srv()).length);
+    }
+  });
+
   it('접기 없는 카드는 요약이 없다', () => {
     expect(lcSummaryOf('buy', values(), srv())).toEqual([]);
     expect(lcSummaryOf('sell', values(), srv())).toEqual([]);
@@ -242,8 +311,8 @@ describe('④ lcRowA11yNameOf — 접근성 이름 접두 (D-09 · UI-SPEC 접�
     ['lc-buy-watch-price', '13,000원', '매수 비교가격 13,000원'],
     ['lc-sell-order-price', '13,000원', '매도 주문가격 13,000원'],
     ['lc-sell-watch-price', '13,000원', '매도 비교가격 13,000원'],
-    ['lc-sell-watch-qty', '10주', '매도 매수잔량 10주'],
-    ['lc-cancel-watch-qty', '10주', '취소 매수잔량 10주'],
+    ['lc-sell-watch-qty', '1,000만', '매도 매수잔량 1,000만'],
+    ['lc-cancel-watch-qty', '1,000만', '취소 매수잔량 1,000만'],
     ['lc-buy-order-amount', '4,000만원', '선매수 금액 4,000만원'],
     ['lc-extra-buy-max-qty', '무제한', '줄매수 최대 잔량 무제한'],
     ['lc-post-buy-reentry', '3회 · 남은 2회', '후매수 최대 3회 · 남은 2회'],

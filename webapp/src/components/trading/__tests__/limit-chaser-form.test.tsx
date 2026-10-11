@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { RelayLcSetMsg, RelayLimitChaser, RelayLimitChaserInput, RelayUserSettingsMsg } from '@gh-radar/shared';
+import { amountFromQty, qtyFromAmount } from '@gh-radar/shared';
 
 /**
  * Phase 20 Plan 04 Task 3 — 상따 설정 **토스식 리스트** 폼 계약 (TRADE-01 · D-01~D-04 · D-19~D-22).
@@ -73,6 +74,8 @@ function lastConfig(): RelayLimitChaserInput {
 /**
  * 서버 에코 1건. 기본은 **매수만 켜진 살아 있는 전략**이다 —
  * `floor(50만원 / 130,000) = 3주` 라 무장이 되는 값이다(0 주면 WR-06 가 전송 직전에 막는다).
+ * 수량 임계 4칸(선매수 매도잔량 · 체결량 · 매도 체결 · 취소 매수잔량)은 새 gh-trade 에코처럼 금액 원값 + 짝 주(비교가
+ * 130,000원 내림)를 싣는다 — 폼 칸 = 원값(「10,000만」 등 · Phase 31 D-06 · D-10).
  */
 function echo(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
   return {
@@ -85,8 +88,8 @@ function echo(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     buyOrderPrice: 130_000,
     buyOrderQty: 1,
     buyWatchPrice: 130_000,
-    buyWatchQty: 10_000,
-    buyMinTradeQty: 30_000,
+    buyWatchQty: qtyFromAmount(10_000, 130_000),
+    buyMinTradeQty: qtyFromAmount(30_000, 130_000),
     buyWatchSide: '0',
     buyTradeQtyEnabled: false,
     buyEnabled: true,
@@ -94,7 +97,7 @@ function echo(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     sellOrderPrice: 130_000,
     sellWatchPrice: 130_000,
     sellWatchQty: 100_000,
-    sellMinTradeQty: 30_000,
+    sellMinTradeQty: qtyFromAmount(30_000, 130_000),
     sellEnabled: false,
     sellTradeQtyEnabled: false,
     sellOrderRatio: 100,
@@ -107,7 +110,7 @@ function echo(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     sweepMinCount: 0,
     sweepMinRate: 0,
     cancelQtyEnabled: false,
-    cancelWatchQty: 10,
+    cancelWatchQty: qtyFromAmount(1_000, 130_000),
     cancelTradeEnabled: false,
     cancelQtyTrackEnabled: false,
     // S→C 전용 — 서버만 채운다. 폼은 되보내지 않는다(⑥).
@@ -117,9 +120,19 @@ function echo(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     cancelQtyTrackBaseline: 0,
     cancelEntryLatched: false,
     ...LC_BUY3_ECHO_DEFAULTS,
+    buyWatchAmount: 10_000,
+    buyMinTradeAmount: 30_000,
+    sellMinTradeAmount: 30_000,
+    cancelWatchAmount: 1_000,
     ...over,
   };
 }
+
+/** 선매수 「매도잔량」 만원 칸이 그 금액으로 반영된 에코 조각 — 금액 원값 + 짝 주(매수 비교가 130,000원 내림 · Phase 31). */
+const bw = (manwon: number): Partial<RelayLimitChaser> => ({
+  buyWatchAmount: manwon,
+  buyWatchQty: qtyFromAmount(manwon, 130_000),
+});
 
 function props(over: Partial<LimitChaserFormProps> = {}): LimitChaserFormProps {
   return {
@@ -219,13 +232,21 @@ describe('① 스위치 4개는 확인 없이 즉시 전송된다 (Phase 16 D-05
       preBuyEnabled: false,
       extraBuyEnabled: false,
       postBuyEnabled: false,
+      // 수량 8칸 — 만원 0(Phase 31 D-12) → 주 0. 옛 주 기본값(100,000주 등)은 실리지 않는다.
+      extraBuyMinAmount: 0,
       extraBuyMinQty: 0,
+      extraBuyMaxAmount: 0,
       extraBuyMaxQty: 0,
       extraBuyOrderAmount: 4000,
       postBuyOrderAmount: 4000,
       postBuyReboundPct: 30,
-      postBuyFloorQty: 100_000,
+      postBuyFloorAmount: 0,
+      postBuyFloorQty: 0,
       postBuyReentry: 3,
+      buyWatchAmount: 0,
+      buyWatchQty: 0,
+      cancelWatchAmount: 0,
+      cancelWatchQty: 0,
     });
     // 한 함수 · 같은 공통 매수가격으로 산출 — 역산 금지.
     expect(cfg.extraBuyOrderQty).toBe(buyOrderQtyFromAmount(4000, cfg.buyOrderPrice));
@@ -282,7 +303,9 @@ describe('② 값 확정 = 1회 전송 · 더티 바 없음 (D-04 · D-06) (옛 
     expect(sentConfigs()).toHaveLength(1);
     const cfg = lastConfig();
     expect(cfg.buyOrderPrice).toBe(150_000);
-    expect(cfg.buyWatchQty).toBe(10_000);
+    // 수량 칸은 에코 원값 그대로 — 금액 10,000만 · 짝 주(에코 메모) 769주(D-10).
+    expect(cfg.buyWatchAmount).toBe(10_000);
+    expect(cfg.buyWatchQty).toBe(qtyFromAmount(10_000, 130_000));
     expect(cfg.sellOrderRatio).toBe(100);
     expect(cfg.buyEnabled).toBe(true);
   });
@@ -314,7 +337,7 @@ describe('② 값 확정 = 1회 전송 · 더티 바 없음 (D-04 · D-06) (옛 
     expect(input('lc-buy-watch-qty')).toBeNull();
     editInline('lc-buy-watch-qty', '10000');
     expect(sentConfigs()).toHaveLength(0);
-    expect(rowText('lc-buy-watch-qty')).toBe('10,000주');
+    expect(rowText('lc-buy-watch-qty')).toBe('10,000만');
   });
 });
 
@@ -705,7 +728,7 @@ describe('⑨ 체크 행 「○ 라벨 ─ 값 ›」 (D-22) (옛 ⑫ 체크박�
     expect(chk('선매수 체결량')).toHaveAttribute('aria-checked', 'false');
     const valueBtn = row('lc-buy-min-trade-qty');
     expect(valueBtn.tagName).toBe('BUTTON');
-    expect(valueBtn).toHaveAccessibleName('선매수 체결량 30,000주');
+    expect(valueBtn).toHaveAccessibleName('선매수 체결량 30,000만');
     click(valueBtn);
     expect(input('lc-buy-min-trade-qty')).not.toBeNull();
   });
@@ -833,7 +856,7 @@ describe('⑪ 미등록 전략 — 값·체크·감시대상은 로컬만, 등�
     editInline('lc-buy-watch-qty', '8000');
     expect(sentConfigs()).toHaveLength(0);
     expect(input('lc-buy-watch-qty')).toBeNull();
-    expect(rowText('lc-buy-watch-qty')).toBe('8,000주');
+    expect(rowText('lc-buy-watch-qty')).toBe('8,000만');
   });
 
   it('체크도 전송 0 · 표시만 바뀐다', () => {
@@ -851,7 +874,9 @@ describe('⑪ 미등록 전략 — 값·체크·감시대상은 로컬만, 등�
     expect(sentConfigs()).toHaveLength(1);
     const cfg = lastConfig();
     expect(cfg.buyEnabled).toBe(true);
-    expect(cfg.buyWatchQty).toBe(8_000);
+    // 미등록(에코 메모 없음) — 8,000만 @상한가 30,000원 내림 = 2,666주.
+    expect(cfg.buyWatchAmount).toBe(8_000);
+    expect(cfg.buyWatchQty).toBe(qtyFromAmount(8_000, 30_000));
     expect(cfg.buyTradeQtyEnabled).toBe(true);
     expect('buyWatchSide' in cfg).toBe(false);
     expect(cfg.buyOrderPrice).toBe(30_000);
@@ -916,27 +941,31 @@ describe('⑫ pane · 탭 — 두 pane 은 늘 DOM, 숨김은 CSS (260912-k2x ·
 describe('⑬ 에코가 목록을 이긴다 · 편집 중 버퍼는 보존 (D-11 · E4 partial) (옛 ⑧⑪)', () => {
   it('새 에코가 행을 덮는다', () => {
     const { rerender } = render(<LimitChaserForm {...props()} />);
-    rerender(<LimitChaserForm {...props({ server: echo({ buyWatchQty: 5_000 }) })} />);
-    expect(rowText('lc-buy-watch-qty')).toBe('5,000주');
+    rerender(<LimitChaserForm {...props({ server: echo(bw(5_000)) })} />);
+    expect(rowText('lc-buy-watch-qty')).toBe('5,000만');
   });
 
   it('구서버 `buyOrderAmount: 0` 에코(서버가 모른다 · Pitfall 11) → 주문금액 행은 폼에 남은 값이 아니라 「—」 (D-04a · WR-07)', () => {
     const { rerender } = render(<LimitChaserForm {...props()} />);
     expect(rowText('lc-buy-order-amount')).toBe('50만원');
-    rerender(<LimitChaserForm {...props({ server: echo({ buy3Schema: 0, buyOrderAmount: 0, buyWatchQty: 7_000 }) })} />);
+    rerender(
+      <LimitChaserForm {...props({ server: echo({ buy3Schema: 0, buyOrderAmount: 0, buyWatchQty: 7_000, buyWatchAmount: 0 }) })} />,
+    );
     // 폼은 옛 금액을 버리지 않지만(formFromServer) 서버 사실이 아니므로 보이지 않는다.
     expect(rowText('lc-buy-order-amount')).toBe('—');
-    expect(rowText('lc-buy-watch-qty')).toBe('7,000주');
+    // 구 서버 에코(금액 0) — 수량 칸은 주에서 역산한다(7,000주 @130,000원 = 91,000만 · D-06).
+    expect(rowText('lc-buy-watch-qty')).toBe(`${amountFromQty(7_000, 130_000).toLocaleString('ko-KR')}만`);
   });
 
   it('인라인 편집 중 에코는 입력 버퍼를 덮지 않고, 저장하면 내 값이 나간다', () => {
     const { rerender } = render(<LimitChaserForm {...props()} />);
     const el = openInline('lc-buy-watch-qty');
     typeValue(el, '8000');
-    rerender(<LimitChaserForm {...props({ server: echo({ buyWatchQty: 5_000, sweepMinTickCount: 4 }) })} />);
+    rerender(<LimitChaserForm {...props({ server: echo({ ...bw(5_000), sweepMinTickCount: 4 }) })} />);
     expect(input('lc-buy-watch-qty')!.value).toBe('8,000');
     pressKey(input('lc-buy-watch-qty')!, 'Enter');
-    expect(lastConfig().buyWatchQty).toBe(8_000);
+    expect(lastConfig().buyWatchAmount).toBe(8_000);
+    expect(lastConfig().buyWatchQty).toBe(qtyFromAmount(8_000, 130_000));
     expect(lastConfig().sweepMinTickCount).toBe(4);
   });
 
@@ -1065,7 +1094,7 @@ describe('⑭ 터치 기기 — 모든 값 행이 시트다 · 「감시 중」 
     render(<LimitChaserForm {...props()} />);
     click(row('lc-buy-min-trade-qty'));
     expect(screen.getByRole('dialog', { name: '선매수 체결량' })).toBe(sheet());
-    expect(sheet()!.textContent).toContain('체결이 이 값 이상이면 선매수를 넣어요');
+    expect(sheet()!.textContent).toContain('체결이 이 금액 이상이면 선매수를 넣어요');
     expect(document.querySelector('[data-slot="numpad-confirm"]')!.textContent).toBe('선매수 체결량 적용');
   });
 
@@ -1126,7 +1155,7 @@ describe('⑭ 터치 기기 — 모든 값 행이 시트다 · 「감시 중」 
     expect(sentConfigs()).toHaveLength(1);
     expect(document.querySelector('[data-slot="numpad-confirm"]')!.textContent).toBe('반영 중…');
     // 앞 건 에코가 잔량 8,000 까지 담고 온다(다른 단말) — 대기 건은 꺼낼 때 no-op.
-    const both = echo({ sellEnabled: true, buyWatchQty: 8_000 });
+    const both = echo({ sellEnabled: true, ...bw(8_000) });
     rerender(<LimitChaserForm {...props({ server: both })} />);
     rerender(<LimitChaserForm {...props({ server: both, serverAnswerSeq: 1 })} />);
     expect(sentConfigs()).toHaveLength(1);
@@ -1438,24 +1467,28 @@ describe('⑮ 매수 카드 4장 · 제목줄 접기 · 요약 줄 · 자동 펼
           server: echo({
             buyOrderAmount: 4000,
             extraBuyOrderAmount: 4000,
-            extraBuyMinQty: 50_000,
+            extraBuyMinQty: qtyFromAmount(2_000, 130_000),
+            extraBuyMinAmount: 2_000,
             extraBuyMaxQty: 0,
+            extraBuyMaxAmount: 0,
             postBuyOrderAmount: 4000,
             postBuyReentry: 3,
             postBuyReentryLeft: 2,
             postBuyPhase: 1,
             postBuyEnabled: true,
             postBuyReboundPct: 30,
-            postBuyFloorQty: 100_000,
+            postBuyFloorQty: qtyFromAmount(84, 130_000),
+            postBuyFloorAmount: 84,
           }),
         })}
       />,
     );
     const kvs = (slot: string) =>
       Array.from(group(slot).querySelectorAll('[data-slot="lc-group-summary"] > span')).map((el) => el.textContent);
-    expect(kvs('pre-buy')).toEqual(['금액4,000만원', '매도잔량10,000주', '체결량꺼짐', '한방꺼짐']);
-    expect(kvs('extra-buy')).toEqual(['금액4,000만원', '최소50,000주', '최대무제한']);
-    expect(kvs('post-buy')).toEqual(['금액4,000만원', '최대3회 · 남은 2회', '최소100,000주', '반등30%', '발동잔량—']);
+    // Phase 31 — 수량 kv 는 만원(위 줄 글자 하나) · 금액 0 은 의미어(UI-SPEC 「접힌 카드 요약 줄」).
+    expect(kvs('pre-buy')).toEqual(['금액4,000만원', '매도잔량10,000만', '체결량꺼짐', '한방꺼짐']);
+    expect(kvs('extra-buy')).toEqual(['금액4,000만원', '최소2,000만', '최대무제한']);
+    expect(kvs('post-buy')).toEqual(['금액4,000만원', '최대3회 · 남은 2회', '최소84만', '반등30%', '발동잔량—']);
   });
 
   it('T-24-19 — 접힌 카드 안 행 확정이 거부되면 그 카드가 자동으로 펼쳐진다', () => {
@@ -1592,7 +1625,7 @@ describe('⑯ 라벨 개명 · 시트 제목 · 접근성 이름 접두 · 의�
     expect(row('lc-sell-order-price')).toHaveAccessibleName('매도 주문가격 130,000원');
     // Phase 31 — 만원 칸: 에코 100,000주 @ 130,000원(금액 0 = 구 서버) → 역산 1,300,000만.
     expect(row('lc-sell-watch-qty')).toHaveAccessibleName('매도 매수잔량 1,300,000만');
-    expect(row('lc-cancel-watch-qty')).toHaveAccessibleName('취소 매수잔량 10주');
+    expect(row('lc-cancel-watch-qty')).toHaveAccessibleName('취소 매수잔량 1,000만');
     expect(row('lc-buy-order-amount')).toHaveAccessibleName('선매수 금액 50만원');
   });
 
@@ -1608,12 +1641,12 @@ describe('⑯ 라벨 개명 · 시트 제목 · 접근성 이름 접두 · 의�
     }
   });
 
-  it('D-10 의미어 — 줄매수 최대 0 「무제한」 · 최소 0 「1주」 · 후매수 최소 잔량 0 「없음」(행 · 접근성 이름)', () => {
+  it('D-10 · P31 — 수량 칸 0 의 위 줄은 「0만」(의미어 「무제한」「1주」「없음」 은 아래 줄 · 요약 몫 · 31-06) · 금액 0 「—」', () => {
     render(<LimitChaserForm {...props({ server: echo({ extraBuyMaxQty: 0, extraBuyMinQty: 0, postBuyFloorQty: 0, extraBuyOrderAmount: 0 }) })} />);
-    expect(rowText('lc-extra-buy-max-qty')).toBe('무제한');
-    expect(row('lc-extra-buy-max-qty')).toHaveAccessibleName('줄매수 최대 잔량 무제한');
-    expect(rowText('lc-extra-buy-min-qty')).toBe('1주');
-    expect(rowText('lc-post-buy-floor-qty')).toBe('없음');
+    expect(rowText('lc-extra-buy-max-qty')).toBe('0만');
+    expect(row('lc-extra-buy-max-qty')).toHaveAccessibleName('줄매수 최대 잔량 0만');
+    expect(rowText('lc-extra-buy-min-qty')).toBe('0만');
+    expect(rowText('lc-post-buy-floor-qty')).toBe('0만');
     expect(rowText('lc-extra-buy-amount')).toBe('—');
     expect(row('lc-extra-buy-amount')).toHaveAccessibleName('줄매수 금액 미입력');
   });
@@ -1642,10 +1675,10 @@ describe('⑯ 라벨 개명 · 시트 제목 · 접근성 이름 접두 · 의�
       expect(document.querySelector('[data-slot="numpad-confirm"]')!.textContent).toBe(`${title} 적용`);
     });
 
-    it('시트 「지금 ○○」 — 의미어 「지금 무제한」 · 재진입은 잔여가 아니라 설정값 「지금 3회」', () => {
+    it('시트 「지금 ○○」 — 수량 칸 0 은 「지금 0만」(시트 안내 줄은 31-06) · 재진입은 잔여가 아니라 설정값 「지금 3회」', () => {
       const { unmount } = render(<LimitChaserForm {...props({ server: echo({ extraBuyMaxQty: 0 }) })} />);
       click(row('lc-extra-buy-max-qty'));
-      expect(document.querySelector('[data-slot="numpad-server"]')!.textContent).toBe('지금 무제한');
+      expect(document.querySelector('[data-slot="numpad-server"]')!.textContent).toBe('지금 0만');
       unmount();
       render(
         <LimitChaserForm
@@ -2078,7 +2111,8 @@ describe('⑱ 그룹 켜기 사전 검증 줄 · D-33 ① 폐기 · D-11 재제�
     click(fold('extra-buy'));
     editInline('lc-extra-buy-min-qty', '5000');
     expect(sentConfigs()).toHaveLength(1);
-    expect(lastConfig().extraBuyMinQty).toBe(5_000);
+    expect(lastConfig().extraBuyMinAmount).toBe(5_000);
+    expect(lastConfig().extraBuyMinQty).toBe(qtyFromAmount(5_000, 130_000));
   });
 
   it('수량 0 — 줄매수 금액 1(만원) · 주문가격 130,000 → 「금액이 주문가격보다 작아 …」', () => {
@@ -2328,7 +2362,7 @@ describe('⑲ 선매수 자동 체크 D-06 · D-07 · D-08 — 사람의 선매�
 
   it('생략이 있으면 error 줄 — 취소 매수잔량 0 → 취소 · 취소>잔량추적 켜지 않음(cfg 도 false 그대로)', () => {
     const onClientLog = vi.fn();
-    const s = idle({ cancelWatchQty: 0 });
+    const s = idle({ cancelWatchQty: 0, cancelWatchAmount: 0 });
     const { rerender } = render(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog })} />);
     click(sw('선매수 켜기'));
     expect(lastConfig()).toMatchObject({ cancelQtyEnabled: false, cancelQtyTrackEnabled: false, cancelTradeEnabled: true });
@@ -2985,12 +3019,13 @@ describe('GC-WR-04 — 자동 체크 로그는 그룹별이다 (24-VERIFICATION-
 });
 
 describe('⑳ 새 전략 기본값(D-04) · 상장주식수 시딩(D-17) — 폼당 1회 · 손댄 칸 제외 · 서버 전략이면 생략 · 제출 없음 (24-07)', () => {
+  /** 1,000만주 × 0.3% = 30,000주 · × 3% = 300,000주 — 상한가(비교가) 30,000원으로 만원 환산(Phase 31 D-12). */
   const SEEDED = {
-    'lc-buy-watch-qty': '30,000주',
-    'lc-buy-min-trade-qty': '30,000주',
-    'lc-extra-buy-min-qty': '30,000주',
-    'lc-extra-buy-max-qty': '300,000주',
-    'lc-sell-min-trade-qty': '30,000주',
+    'lc-buy-watch-qty': '90,000만',
+    'lc-buy-min-trade-qty': '90,000만',
+    'lc-extra-buy-min-qty': '90,000만',
+    'lc-extra-buy-max-qty': '900,000만',
+    'lc-sell-min-trade-qty': '90,000만',
   } as const;
   const expectRows = (want: Record<string, string>) => {
     for (const [id, text] of Object.entries(want)) expect(rowText(id), id).toBe(text);
@@ -3008,12 +3043,13 @@ describe('⑳ 새 전략 기본값(D-04) · 상장주식수 시딩(D-17) — 폼
   it('listShares 0 → 폴백 그대로 · 뒤에 1,000만주 도착 → 5칸 시딩 · 전송 0 · 로그 0 · 그 뒤 값이 바뀌어도 다시 시딩하지 않는다', () => {
     const onClientLog = vi.fn();
     const { rerender } = render(<LimitChaserForm {...props({ server: null, upperLimit: 30_000, listShares: 0, onClientLog })} />);
+    // 폴백 = 만원 0(옛 주 기본값은 버린다 · D-12).
     expectRows({
-      'lc-buy-watch-qty': '10,000주',
-      'lc-buy-min-trade-qty': '30,000주',
-      'lc-extra-buy-min-qty': '1주',
-      'lc-extra-buy-max-qty': '무제한',
-      'lc-sell-min-trade-qty': '30,000주',
+      'lc-buy-watch-qty': '0만',
+      'lc-buy-min-trade-qty': '0만',
+      'lc-extra-buy-min-qty': '0만',
+      'lc-extra-buy-max-qty': '0만',
+      'lc-sell-min-trade-qty': '0만',
     });
     rerender(<LimitChaserForm {...props({ server: null, upperLimit: 30_000, listShares: 10_000_000, onClientLog })} />);
     expectRows(SEEDED);
@@ -3033,9 +3069,9 @@ describe('⑳ 새 전략 기본값(D-04) · 상장주식수 시딩(D-17) — 폼
   it('사용자가 이 폼에서 손댄 칸은 덮지 않는다 — 매도잔량 8,000 로컬 확정 뒤 도착 → 8,000 그대로 · 나머지 4칸만', () => {
     const { rerender } = render(<LimitChaserForm {...props({ server: null, upperLimit: 30_000, listShares: 0 })} />);
     editInline('lc-buy-watch-qty', '8000');
-    expect(rowText('lc-buy-watch-qty')).toBe('8,000주');
+    expect(rowText('lc-buy-watch-qty')).toBe('8,000만');
     rerender(<LimitChaserForm {...props({ server: null, upperLimit: 30_000, listShares: 10_000_000 })} />);
-    expectRows({ ...SEEDED, 'lc-buy-watch-qty': '8,000주' });
+    expectRows({ ...SEEDED, 'lc-buy-watch-qty': '8,000만' });
     expect(sendMock).not.toHaveBeenCalled();
   });
 
@@ -3043,8 +3079,8 @@ describe('⑳ 새 전략 기본값(D-04) · 상장주식수 시딩(D-17) — 폼
     const s = echo();
     const { rerender } = render(<LimitChaserForm {...props({ server: s, listShares: 0 })} />);
     rerender(<LimitChaserForm {...props({ server: s, listShares: 10_000_000 })} />);
-    expect(rowText('lc-buy-watch-qty')).toBe('10,000주');
-    expect(rowText('lc-extra-buy-max-qty')).toBe('무제한');
+    expect(rowText('lc-buy-watch-qty')).toBe('10,000만');
+    expect(rowText('lc-extra-buy-max-qty')).toBe('0만');
     expect(sendMock).not.toHaveBeenCalled();
   });
 
@@ -3054,17 +3090,24 @@ describe('⑳ 새 전략 기본값(D-04) · 상장주식수 시딩(D-17) — 폼
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig()).toMatchObject({
       buyEnabled: true,
+      // 만원 5칸 + 비교가 30,000원 내림 환산 주(시딩값은 서버 값이 아니라 메모 없음 — 왕복 정확).
+      buyWatchAmount: 90_000,
       buyWatchQty: 30_000,
+      buyMinTradeAmount: 90_000,
       buyMinTradeQty: 30_000,
+      extraBuyMinAmount: 90_000,
       extraBuyMinQty: 30_000,
+      extraBuyMaxAmount: 900_000,
       extraBuyMaxQty: 300_000,
+      sellMinTradeAmount: 90_000,
       sellMinTradeQty: 30_000,
       buyOrderAmount: 4000,
       extraBuyOrderAmount: 4000,
       postBuyOrderAmount: 4000,
       sellQtyTrackRatio: 55,
       postBuyReboundPct: 30,
-      postBuyFloorQty: 100_000,
+      postBuyFloorAmount: 0,
+      postBuyFloorQty: 0,
       postBuyReentry: 3,
       buyOrderQty: buyOrderQtyFromAmount(4000, 30_000),
     });
@@ -3133,15 +3176,15 @@ describe('R3-WR-02 — 성공 신호가 한 실행에 겹쳐도 자동 체크 �
 
     editInline('lc-buy-watch-qty', '9000');
     expect(sentConfigs()).toHaveLength(2);
-    expect(lastConfig().buyWatchQty).toBe(9_000);
+    expect(lastConfig().buyWatchAmount).toBe(9_000);
     // 반영 중 — 편집기는 성공 에코까지 열려 있다.
     expect(input('lc-buy-watch-qty')).not.toBeNull();
 
     // 같은 실행에 ① 값 확정 성공(보낸 것) + ③ 매도 실패의 늦은 에코 성공.
-    const answered = { ...s, buyWatchQty: 9_000, sellEnabled: true };
+    const answered = { ...s, ...bw(9_000), sellEnabled: true };
     rerender(<LimitChaserForm {...props({ server: answered, upperLimit: 150_800, serverAnswerSeq: 2 })} />);
     expect(input('lc-buy-watch-qty')).toBeNull();
-    expect(rowText('lc-buy-watch-qty')).toBe('9,000주');
+    expect(rowText('lc-buy-watch-qty')).toBe('9,000만');
     expect(sentConfigs()).toHaveLength(2);
   });
 });
@@ -3893,7 +3936,7 @@ describe('Phase 27 새 폼 84 시딩', () => {
     expect(rowText('lc-extra-buy-amount')).toBe('6,000만원');
     expect(rowText('lc-post-buy-amount')).toBe('7,000만원');
     expect(rowText('lc-buy-order-price')).toBe('30,000원');
-    expect(rowText('lc-buy-watch-qty')).toBe('30,000주');
+    expect(rowText('lc-buy-watch-qty')).toBe('90,000만');
     expect(sendMock).not.toHaveBeenCalled();
     expect(onClientLog).not.toHaveBeenCalled();
     click(sw('매수주문 켜기'));
@@ -3904,12 +3947,15 @@ describe('Phase 27 새 폼 84 시딩', () => {
       extraBuyOrderAmount: 6000,
       postBuyOrderAmount: 7000,
       postBuyReentry: 4,
-      postBuyFloorQty: 200_000,
+      // 84 의 봉인 주 postBuyFloorQty 는 폼에 시딩하지 않는다 — 후매수 최소 84 금액 시딩은 31-06(그때까지 0).
+      postBuyFloorAmount: 0,
+      postBuyFloorQty: 0,
       postBuyReboundPct: 40,
       sellQtyTrackRatio: 60,
       autoSellRatioPct: 15,
       autoSellMethod: 1,
       buyWatchPrice: 30_000,
+      buyWatchAmount: 90_000,
       buyWatchQty: 30_000,
       buyOrderQty: buyOrderQtyFromAmount(5000, 30_000),
     });
@@ -3971,5 +4017,123 @@ describe('Phase 27 새 폼 84 시딩', () => {
     rerender(<LimitChaserForm {...props({ server: null })} />);
     expect(rowText('lc-buy-order-amount')).toBe('50만원');
     expect(sendMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Phase 31 31-04 — 수량 8칸 만원 · cfg 8쌍 조립(D-01 · D-02 · D-06 · D-10 · D-12 · AMT-02).
+ * 예시 수치는 UI-SPEC 정정표(12,870원). 기대 주는 shared `qtyFromAmount` 로 만든다(공식을 테스트에 다시 적지 않는다).
+ */
+describe('P31 수량 8칸 만원 — cfg 8쌍 되싣기 · 비교가 변경 재계산 · 금액끼리 최소>최대 · 시딩 미룸 · 취소 추적 되싣기', () => {
+  const P = 12_870;
+  /** C# 이 둔 원값 — 각 금액이 자기 짝 주와 맞는다(1001만 → 777주 처럼 역산 1000 과 다른 원값 포함). */
+  const C_SHARP = {
+    buyWatchAmount: 1001,
+    buyMinTradeAmount: 500,
+    extraBuyMinAmount: 2000,
+    extraBuyMaxAmount: 3000,
+    postBuyFloorAmount: 84,
+    sellWatchAmount: 1500,
+    sellMinTradeAmount: 500,
+    cancelWatchAmount: 1000,
+  } as const;
+  const QTY_OF = {
+    buyWatchAmount: 'buyWatchQty',
+    buyMinTradeAmount: 'buyMinTradeQty',
+    extraBuyMinAmount: 'extraBuyMinQty',
+    extraBuyMaxAmount: 'extraBuyMaxQty',
+    postBuyFloorAmount: 'postBuyFloorQty',
+    sellWatchAmount: 'sellWatchQty',
+    sellMinTradeAmount: 'sellMinTradeQty',
+    cancelWatchAmount: 'cancelWatchQty',
+  } as const;
+  const csharpEcho = (over: Partial<RelayLimitChaser> = {}): RelayLimitChaser => {
+    const pairs: Partial<RelayLimitChaser> = {};
+    for (const [amount, qty] of Object.entries(QTY_OF) as [keyof typeof QTY_OF, (typeof QTY_OF)[keyof typeof QTY_OF]][]) {
+      pairs[amount] = C_SHARP[amount];
+      pairs[qty] = qtyFromAmount(C_SHARP[amount], P);
+    }
+    return echo({ buyWatchPrice: P, sellWatchPrice: P, ...pairs, ...over });
+  };
+  const precheckIn = (slot: string) => group(slot).querySelector('[data-slot="lc-group-precheck"]');
+
+  it('(a) C# 원값 에코에서 「한방」 5 확정 → cfg 8 금액 = 에코 원값 · 8 주 = 에코 주(0 을 지어내지 않는다 · D-10)', () => {
+    const s = csharpEcho();
+    render(<LimitChaserForm {...props({ server: s })} />);
+    editInline('lc-sweep-tick', '5');
+    expect(sentConfigs()).toHaveLength(1);
+    const cfg = lastConfig();
+    expect(cfg.sweepMinTickCount).toBe(5);
+    for (const [amount, qty] of Object.entries(QTY_OF) as [keyof typeof QTY_OF, (typeof QTY_OF)[keyof typeof QTY_OF]][]) {
+      expect(cfg[amount], amount).toBe(s[amount]);
+      expect(cfg[qty], qty).toBe(s[qty]);
+    }
+    // 원값 1001 은 역산(777주 → 1000만)이 아니라 그대로다.
+    expect(cfg.buyWatchAmount).toBe(1001);
+    expect(amountFromQty(777, P)).toBe(1000);
+  });
+
+  it('(b) 매수 비교가 12,870 → 13,000 이면 주를 다시 내림 계산한다 — 비교가 확정 cfg · 이어지는 매도잔량 1000 확정 cfg.buyWatchQty = 769', () => {
+    const s = csharpEcho({ buyWatchAmount: 2000, buyWatchQty: qtyFromAmount(2000, P) });
+    const { rerender } = render(<LimitChaserForm {...props({ server: s })} />);
+    editInline('lc-buy-watch-price', '13000');
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().buyWatchPrice).toBe(13_000);
+    // 비교가가 에코와 달라졌다 — 메모(1554주)가 아니라 2,000만 @13,000원 내림 1,538주.
+    expect(lastConfig().buyWatchQty).toBe(qtyFromAmount(2000, 13_000));
+    // 서버는 비교가만 바꾼 에코를 돌려준다(주 · 금액은 그대로) → 폼 칸은 짝이 아니라 역산.
+    const after = { ...s, buyWatchPrice: 13_000 };
+    rerender(<LimitChaserForm {...props({ server: after })} />);
+    rerender(<LimitChaserForm {...props({ server: after, serverAnswerSeq: 1 })} />);
+    editInline('lc-buy-watch-qty', '1000');
+    expect(sentConfigs()).toHaveLength(2);
+    expect(lastConfig().buyWatchAmount).toBe(1000);
+    expect(lastConfig().buyWatchQty).toBe(769);
+    expect(qtyFromAmount(1000, 13_000)).toBe(769);
+  });
+
+  it('(c) 줄매수 최소 2,000만 · 최대 1,500만 → 줄매수 켜기 = 전송 0 · 최소/최대 문구(금액끼리 · C# 동형)', () => {
+    render(
+      <LimitChaserForm
+        {...props({
+          server: csharpEcho({
+            extraBuyOrderAmount: 50,
+            extraBuyMinAmount: 2000,
+            extraBuyMinQty: qtyFromAmount(2000, P),
+            extraBuyMaxAmount: 1500,
+            extraBuyMaxQty: qtyFromAmount(1500, P),
+          }),
+        })}
+      />,
+    );
+    click(sw('줄매수 켜기'));
+    expect(sentConfigs()).toHaveLength(0);
+    expect(precheckIn('extra-buy')?.textContent).toBe(
+      '최소 잔량이 최대 잔량보다 커요 — 최대를 0(무제한)으로 하거나 최소를 낮춰 주세요',
+    );
+  });
+
+  it('(d) 상장주식수 1,000만주 · 매수 비교가 0 인 새 폼 → 시딩 없음 → 비교가 12,870 이 들어오면 만원 시딩(매도 비교가 0 → 매도 체결 생략) · 전송 0', () => {
+    render(<LimitChaserForm {...props({ server: null, upperLimit: 0, listShares: 10_000_000 })} />);
+    expect(rowText('lc-buy-watch-qty')).toBe('0만');
+    expect(rowText('lc-extra-buy-max-qty')).toBe('0만');
+    editInline('lc-buy-watch-price', String(P));
+    const amt03 = `${amountFromQty(30_000, P).toLocaleString('ko-KR')}만`;
+    expect(rowText('lc-buy-watch-qty')).toBe(amt03);
+    expect(rowText('lc-buy-min-trade-qty')).toBe(amt03);
+    expect(rowText('lc-extra-buy-min-qty')).toBe(amt03);
+    expect(rowText('lc-extra-buy-max-qty')).toBe(`${amountFromQty(300_000, P).toLocaleString('ko-KR')}만`);
+    expect(rowText('lc-sell-min-trade-qty')).toBe('0만');
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('(e) 취소 잔량추적 ON 에코 → 다른 칸 확정 cfg.cancelWatchQty = 기준선(래칫 보존 · D-06) · 금액 = 기준선 역산', () => {
+    const s = csharpEcho({ cancelQtyTrackEnabled: true, cancelQtyTrackBaseline: 1554 });
+    render(<LimitChaserForm {...props({ server: s })} />);
+    expect(rowText('lc-cancel-watch-qty')).toBe(`${amountFromQty(1554, P).toLocaleString('ko-KR')}만`);
+    editInline('lc-sweep-tick', '5');
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().cancelWatchQty).toBe(1554);
+    expect(lastConfig().cancelWatchAmount).toBe(amountFromQty(1554, P));
   });
 });

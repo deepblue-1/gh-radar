@@ -4,13 +4,13 @@ import path from 'node:path';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import type { RelayLimitChaser, RelayLimitChaserInput } from '@gh-radar/shared';
-import { echoAmountOf, qtyForSubmit } from '@gh-radar/shared';
+import { LC_AMOUNT_PAIRS, qtyFromAmount, type LcAmountQtyKey } from '@gh-radar/shared';
 
 import {
-  SELL_WATCH_PAIR,
   crudOf,
   defaultLimitChaserForm,
   formFromServer,
+  lcSubmitQtyOf,
   type LimitChaserFormValues,
 } from '@/lib/limit-chaser';
 import {
@@ -88,10 +88,12 @@ function echo(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
 }
 
 /**
- * 테스트 전용 조립 — 폼의 `buildCfg` 와 같은 모양(32필드). 매도 매수잔량 주는 폼과 같은 shared `qtyForSubmit` 로 산출한다
- * (Phase 31 — server 에코 메모 · 추적 ON 은 기준선).
+ * 테스트 전용 조립 — 폼의 `buildCfg` 와 같은 모양. 수량 임계 주 8개는 폼과 같은 `lcSubmitQtyOf`(shared `qtyForSubmit`)로
+ * `LC_AMOUNT_PAIRS` 를 돌며 산출한다(Phase 31 — server 에코 메모 · 추적 ON 은 기준선).
  */
 function buildCfg(values: LimitChaserFormValues, server: RelayLimitChaser | null): RelayLimitChaserInput {
+  const qtys = {} as Pick<RelayLimitChaserInput, LcAmountQtyKey>;
+  for (const pair of LC_AMOUNT_PAIRS) qtys[pair.qty] = lcSubmitQtyOf(values, pair.amount, server);
   return {
     ...values,
     isin: ISIN,
@@ -101,16 +103,21 @@ function buildCfg(values: LimitChaserFormValues, server: RelayLimitChaser | null
     buyOrderQty: 1,
     extraBuyOrderQty: 0,
     postBuyOrderQty: 0,
-    sellWatchQty: qtyForSubmit(
-      values.sellWatchAmount,
-      values.sellWatchPrice,
-      server ? echoAmountOf(server, SELL_WATCH_PAIR) : null,
-    ),
+    ...qtys,
     sweepRecalcEnabled: true,
     sweepMinCount: 0,
     sweepMinRate: 0,
   };
 }
+
+/**
+ * 선매수 「매도잔량」 만원 칸이 그 금액으로 반영된 에코 조각 — 금액 원값 + 짝 주(매수 비교가 130,000원 내림 환산 · Phase 31).
+ * 금액 필드의 성공은 짝 판정이라(에코 주 = 보낸 주) 주도 함께 싣는다.
+ */
+const bw = (manwon: number): Partial<RelayLimitChaser> => ({
+  buyWatchAmount: manwon,
+  buyWatchQty: qtyFromAmount(manwon, 130_000),
+});
 
 type Opts = UseLcFieldCommitOptions & {
   unacked?: boolean;
@@ -283,13 +290,13 @@ describe('Task 1 규칙 — 확정 1회 = 전송 1회', () => {
     t.send.mockReturnValue(false);
     act(() => {
       t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
-      t.hook.result.current.commit('buyWatchQty', 8_000, 'value');
+      t.hook.result.current.commit('buyWatchAmount', 8_000, 'value');
     });
     act(() => {
       t.hook.result.current.clearFailure('sweepMinTickCount');
     });
     expect(t.hook.result.current.failures.sweepMinTickCount).toBeUndefined();
-    expect(t.hook.result.current.failures.buyWatchQty?.reason).toBe('disconnected');
+    expect(t.hook.result.current.failures.buyWatchAmount?.reason).toBe('disconnected');
   });
 });
 
@@ -314,11 +321,11 @@ describe('Task 2 — 타임아웃 · 직렬화 · 무장 가드 · 토글', () =
     let outB: string | undefined;
     act(() => {
       t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
-      outB = t.hook.result.current.commit('buyWatchQty', 8_000, 'value');
+      outB = t.hook.result.current.commit('buyWatchAmount', 8_000, 'value');
     });
     expect(outB).toBe('queued');
     expect(t.send).toHaveBeenCalledTimes(1);
-    expect(t.hook.result.current.queuedFields).toEqual(['buyWatchQty']);
+    expect(t.hook.result.current.queuedFields).toEqual(['buyWatchAmount']);
 
     // A 의 에코 — 카드의 답 신호는 한 렌더 늦게 보인다. 이 렌더에서 B 를 보내면 안 된다.
     t.update({ server: echo({ sweepMinTickCount: 5 }) });
@@ -329,8 +336,8 @@ describe('Task 2 — 타임아웃 · 직렬화 · 무장 가드 · 토글', () =
     t.update({ serverAnswerSeq: 2 });
     expect(t.send).toHaveBeenCalledTimes(2);
     expect(t.cfgs()[1]!.sweepMinTickCount).toBe(5);
-    expect(t.cfgs()[1]!.buyWatchQty).toBe(8_000);
-    expect(t.hook.result.current.inflightField).toBe('buyWatchQty');
+    expect(t.cfgs()[1]!.buyWatchAmount).toBe(8_000);
+    expect(t.hook.result.current.inflightField).toBe('buyWatchAmount');
     expect(t.hook.result.current.queuedFields).toEqual([]);
 
     // 그 뒤 답 신호가 더 오르지 않으면 B 를 거부로 오판하지 않는다.
@@ -338,8 +345,8 @@ describe('Task 2 — 타임아웃 · 직렬화 · 무장 가드 · 토글', () =
       vi.advanceTimersByTime(LC_FLASH_MS * 2);
     });
     t.update({ disabled: false });
-    expect(t.hook.result.current.failures.buyWatchQty).toBeUndefined();
-    expect(t.hook.result.current.inflightField).toBe('buyWatchQty');
+    expect(t.hook.result.current.failures.buyWatchAmount).toBeUndefined();
+    expect(t.hook.result.current.inflightField).toBe('buyWatchAmount');
   });
 
   it('같은 필드를 대기 중에 다시 확정하면 값만 바뀌고 자리는 그대로다', () => {
@@ -347,17 +354,17 @@ describe('Task 2 — 타임아웃 · 직렬화 · 무장 가드 · 토글', () =
     let out: string | undefined;
     act(() => {
       t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
-      t.hook.result.current.commit('buyWatchQty', 8_000, 'value');
+      t.hook.result.current.commit('buyWatchAmount', 8_000, 'value');
       t.hook.result.current.commit('sellWatchAmount', 20, 'value');
-      out = t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+      out = t.hook.result.current.commit('buyWatchAmount', 9_000, 'value');
     });
     expect(out).toBe('queued');
-    expect(t.hook.result.current.queuedFields).toEqual(['buyWatchQty', 'sellWatchAmount']);
+    expect(t.hook.result.current.queuedFields).toEqual(['buyWatchAmount', 'sellWatchAmount']);
 
     t.update({ server: echo({ sweepMinTickCount: 5 }) });
     t.update({ serverAnswerSeq: 1 });
     expect(t.send).toHaveBeenCalledTimes(2);
-    expect(t.cfgs()[1]!.buyWatchQty).toBe(9_000);
+    expect(t.cfgs()[1]!.buyWatchAmount).toBe(9_000);
     expect(t.hook.result.current.queuedFields).toEqual(['sellWatchAmount']);
   });
 
@@ -365,12 +372,12 @@ describe('Task 2 — 타임아웃 · 직렬화 · 무장 가드 · 토글', () =
     const t = setup();
     act(() => {
       t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
-      t.hook.result.current.commit('buyWatchQty', 8_000, 'value');
+      t.hook.result.current.commit('buyWatchAmount', 8_000, 'value');
     });
     t.update({ serverAnswerSeq: 1 });
     expect(t.send).toHaveBeenCalledTimes(1);
     expect(t.hook.result.current.failures.sweepMinTickCount?.reason).toBe('rejected');
-    expect(t.hook.result.current.failures.buyWatchQty).toEqual({
+    expect(t.hook.result.current.failures.buyWatchAmount).toEqual({
       reason: 'rejected',
       text: LC_COMMIT_TEXT.failed,
       value: 8_000,
@@ -482,12 +489,12 @@ describe('Task 2 — 타임아웃 · 직렬화 · 무장 가드 · 토글', () =
     const t = setup();
     act(() => {
       t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
-      t.hook.result.current.commit('buyWatchQty', 8_000, 'value');
+      t.hook.result.current.commit('buyWatchAmount', 8_000, 'value');
     });
     t.update({ serverAnswerSeq: 1 });
-    expect(t.hook.result.current.failures.buyWatchQty?.reason).toBe('rejected');
-    t.update({ server: echo({ buyWatchQty: 8_000 }) });
-    expect(t.hook.result.current.failures.buyWatchQty).toBeUndefined();
+    expect(t.hook.result.current.failures.buyWatchAmount?.reason).toBe('rejected');
+    t.update({ server: echo({ ...bw(8_000) }) });
+    expect(t.hook.result.current.failures.buyWatchAmount).toBeUndefined();
   });
 
   it('GC-WR-02 — 꺼낼 때 무장 가드로 막힌 대기 토글의 되돌림은 그 순간 서버 값이다(누른 순간 값이 아니다)', () => {
@@ -496,7 +503,7 @@ describe('Task 2 — 타임아웃 · 직렬화 · 무장 가드 · 토글', () =
     const t = setup({ server: echo({ buyEnabled: false, sellEnabled: true }), armBlockOf });
     let out: string | undefined;
     act(() => {
-      t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+      t.hook.result.current.commit('buyWatchAmount', 9_000, 'value');
       out = t.hook.result.current.commit('preBuyEnabled', true, 'toggle', { buyEnabled: true });
     });
     expect(out).toBe('queued');
@@ -504,7 +511,7 @@ describe('Task 2 — 타임아웃 · 직렬화 · 무장 가드 · 토글', () =
     expect(t.formRef.current.preBuyEnabled).toBe(true);
     expect(t.formRef.current.buyEnabled).toBe(true);
     // 앞 건 성공 에코 — 그사이 다른 단말이 마스터를 켰다 → 답 신호 렌더에서 꺼낼 때 무장 가드로 막힘.
-    t.update({ server: echo({ buyEnabled: true, sellEnabled: true, buyWatchQty: 9_000 }) });
+    t.update({ server: echo({ buyEnabled: true, sellEnabled: true, ...bw(9_000) }) });
     t.update({ serverAnswerSeq: 1 });
     expect(t.hook.result.current.failures.preBuyEnabled).toEqual({
       reason: 'armBlocked',
@@ -648,7 +655,7 @@ describe('CR-02 — 타임아웃은 결과 모름이다 · 늦게 닿은 앞 건
 
     let out: string | undefined;
     act(() => {
-      out = t.hook.result.current.commit('buyWatchQty', 8_000, 'value');
+      out = t.hook.result.current.commit('buyWatchAmount', 8_000, 'value');
     });
     // 곧바로 보내면 cfg 에 A 의 옛 값(sellEnabled: true)이 실려 늦게 닿은 해제를 되돌린다.
     expect(out).toBe('queued');
@@ -661,7 +668,7 @@ describe('CR-02 — 타임아웃은 결과 모름이다 · 늦게 닿은 앞 건
     t.update({ serverAnswerSeq: 1, unacked: false });
     expect(t.send).toHaveBeenCalledTimes(2);
     expect(t.cfgs()[1]!.sellEnabled).toBe(false);
-    expect(t.cfgs()[1]!.buyWatchQty).toBe(8_000);
+    expect(t.cfgs()[1]!.buyWatchAmount).toBe(8_000);
   });
 
   it('A 가 늦게 거부(답 신호만)되면 장벽이 풀리고 대기 건이 곧바로 나간다', () => {
@@ -671,12 +678,12 @@ describe('CR-02 — 타임아웃은 결과 모름이다 · 늦게 닿은 앞 건
     });
     t.update({ unacked: true });
     act(() => {
-      t.hook.result.current.commit('buyWatchQty', 8_000, 'value');
+      t.hook.result.current.commit('buyWatchAmount', 8_000, 'value');
     });
     expect(t.send).toHaveBeenCalledTimes(1);
     t.update({ serverAnswerSeq: 1 });
     expect(t.send).toHaveBeenCalledTimes(2);
-    expect(t.cfgs()[1]!.buyWatchQty).toBe(8_000);
+    expect(t.cfgs()[1]!.buyWatchAmount).toBe(8_000);
     expect(t.cfgs()[1]!.sweepMinTickCount).toBe(3);
   });
 
@@ -699,7 +706,7 @@ describe('CR-02 — 타임아웃은 결과 모름이다 · 늦게 닿은 앞 건
     expect(t.hook.result.current.queuedFields).toEqual([]);
     let out: string | undefined;
     act(() => {
-      out = t.hook.result.current.commit('buyWatchQty', 8_000, 'value');
+      out = t.hook.result.current.commit('buyWatchAmount', 8_000, 'value');
     });
     expect(out).toBe('sent');
   });
@@ -729,7 +736,7 @@ describe('CR-02 — 타임아웃은 결과 모름이다 · 늦게 닿은 앞 건
     let other: string | undefined;
     act(() => {
       retry = t.hook.result.current.commit('sellEnabled', false, 'toggle');
-      other = t.hook.result.current.commit('buyWatchQty', 8_000, 'value');
+      other = t.hook.result.current.commit('buyWatchAmount', 8_000, 'value');
     });
     expect(retry).toBe('sent');
     expect(other).toBe('queued');
@@ -770,12 +777,12 @@ describe('WR-06 — 꺼낼 때 no-op 이 된 대기 확정은 성공 신호를 �
     const t = setup();
     act(() => {
       t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
-      t.hook.result.current.commit('buyWatchQty', 8_000, 'value');
+      t.hook.result.current.commit('buyWatchAmount', 8_000, 'value');
     });
-    t.update({ server: echo({ sweepMinTickCount: 5, buyWatchQty: 8_000 }) });
+    t.update({ server: echo({ sweepMinTickCount: 5, ...bw(8_000) }) });
     t.update({ serverAnswerSeq: 1 });
     expect(t.send).toHaveBeenCalledTimes(1);
-    expect(t.hook.result.current.lastSuccessField).toBe('buyWatchQty');
+    expect(t.hook.result.current.lastSuccessField).toBe('buyWatchAmount');
     expect(t.hook.result.current.successSeq).toBe(2);
     expect(t.hook.result.current.queuedFields).toEqual([]);
   });
@@ -784,14 +791,14 @@ describe('WR-06 — 꺼낼 때 no-op 이 된 대기 확정은 성공 신호를 �
     const t = setup();
     act(() => {
       t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
-      t.hook.result.current.commit('buyWatchQty', 8_000, 'value');
+      t.hook.result.current.commit('buyWatchAmount', 8_000, 'value');
     });
-    // 다른 단말이 buyWatchQty 를 8,000 으로 바꾼 에코 — A(호가변경)는 반영되지 않았다.
-    t.update({ server: echo({ buyWatchQty: 8_000 }) });
+    // 다른 단말이 선매수 매도잔량을 8,000만으로 바꾼 에코 — A(호가변경)는 반영되지 않았다.
+    t.update({ server: echo({ ...bw(8_000) }) });
     t.update({ serverAnswerSeq: 1 });
     expect(t.hook.result.current.failures.sweepMinTickCount?.reason).toBe('rejected');
-    expect(t.hook.result.current.failures.buyWatchQty).toBeUndefined();
-    expect(t.hook.result.current.lastSuccessField).toBe('buyWatchQty');
+    expect(t.hook.result.current.failures.buyWatchAmount).toBeUndefined();
+    expect(t.hook.result.current.lastSuccessField).toBe('buyWatchAmount');
   });
 });
 
@@ -833,12 +840,12 @@ describe('sentSuccessSeq — 보낸 프레임의 답일 때만 오른다 (GC-IN-
   it('앞 건 실패로 대기 건을 접으며 주 필드가 섰음(동반 불일치 · GC-WR-02 섬) → 성공 · sentSuccessSeq 불변', () => {
     const t = setup({ server: echo({ preBuyEnabled: true, buyEnabled: true }) });
     act(() => {
-      t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+      t.hook.result.current.commit('buyWatchAmount', 9_000, 'value');
       t.hook.result.current.commit('preBuyEnabled', false, 'toggle', { buyEnabled: false });
     });
     t.update({ server: echo({ preBuyEnabled: false, buyEnabled: true }) });
     t.update({ serverAnswerSeq: 1 });
-    expect(t.hook.result.current.failures.buyWatchQty?.reason).toBe('rejected');
+    expect(t.hook.result.current.failures.buyWatchAmount?.reason).toBe('rejected');
     expect(t.hook.result.current.lastSuccessField).toBe('preBuyEnabled');
     expect(t.hook.result.current.sentSuccessSeq).toBe(0);
     expect(t.hook.result.current.lastSentSuccessField).toBeNull();
@@ -848,12 +855,12 @@ describe('sentSuccessSeq — 보낸 프레임의 답일 때만 오른다 (GC-IN-
     const t = setup();
     act(() => {
       t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
-      t.hook.result.current.commit('buyWatchQty', 8_000, 'value');
+      t.hook.result.current.commit('buyWatchAmount', 8_000, 'value');
     });
-    t.update({ server: echo({ buyWatchQty: 8_000 }) });
+    t.update({ server: echo({ ...bw(8_000) }) });
     t.update({ serverAnswerSeq: 1 });
     expect(t.hook.result.current.failures.sweepMinTickCount?.reason).toBe('rejected');
-    expect(t.hook.result.current.lastSuccessField).toBe('buyWatchQty');
+    expect(t.hook.result.current.lastSuccessField).toBe('buyWatchAmount');
     expect(t.hook.result.current.sentSuccessSeq).toBe(0);
   });
 
@@ -1267,11 +1274,11 @@ describe('WR-02 · D-04a 잔여 — 구서버 에코(buy3Schema 0) 금액 0 — 
     const t = setup({ server: legacy() });
     let out: string | undefined;
     act(() => {
-      out = t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+      out = t.hook.result.current.commit('buyWatchAmount', 9_000, 'value');
     });
     expect(out).toBe('blocked');
     expect(t.send).not.toHaveBeenCalled();
-    expect(t.hook.result.current.failures.buyWatchQty).toEqual({
+    expect(t.hook.result.current.failures.buyWatchAmount).toEqual({
       reason: 'legacySchema',
       text: LC_COMMIT_TEXT.legacyReadOnly,
       value: 9_000,
@@ -1338,11 +1345,11 @@ describe('WR-02 · D-04a 잔여 — 구서버 에코(buy3Schema 0) 금액 0 — 
     expect(t.hook.result.current.amountRequired).toBe(false);
     let out: string | undefined;
     act(() => {
-      out = t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+      out = t.hook.result.current.commit('buyWatchAmount', 9_000, 'value');
     });
     expect(out).toBe('sent');
     expect(t.send).toHaveBeenCalledTimes(1);
-    expect(t.cfgs()[0]!.buyWatchQty).toBe(9_000);
+    expect(t.cfgs()[0]!.buyWatchAmount).toBe(9_000);
     // 폼 기본 금액(4,000만원)으로 메우지 않는다 — 에코의 0 그대로 실린다(T-24-45).
     expect(t.cfgs()[0]!.buyOrderAmount).toBe(0);
   });
@@ -1356,7 +1363,7 @@ describe('WR-02 · D-04a 잔여 — 구서버 에코(buy3Schema 0) 금액 0 — 
     const t = setup({ server: null });
     let out: string | undefined;
     act(() => {
-      out = t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+      out = t.hook.result.current.commit('buyWatchAmount', 9_000, 'value');
     });
     expect(out).toBe('local');
   });
@@ -1379,11 +1386,11 @@ describe('WR-02 — 구서버 에코(buy3Schema 0)는 끄기만 · 매수주문�
     const on = nextOf({});
     const off = nextOf({ buyEnabled: false });
     // 구서버가 아니면 어떤 입력도 막지 않는다.
-    expect(lcLegacyBlockOf(false, 'buyWatchQty', 9_000, on)).toBeNull();
+    expect(lcLegacyBlockOf(false, 'buyWatchAmount', 9_000, on)).toBeNull();
     expect(lcLegacyBlockOf(false, 'sellEnabled', true, on)).toBeNull();
     expect(lcLegacyBlockOf(false, 'sellEnabled', false, on)).toBeNull();
     // 값 · 켜는 방향 = 읽기 전용 문장.
-    expect(lcLegacyBlockOf(true, 'buyWatchQty', 9_000, on)).toBe(LC_COMMIT_TEXT.legacyReadOnly);
+    expect(lcLegacyBlockOf(true, 'buyWatchAmount', 9_000, on)).toBe(LC_COMMIT_TEXT.legacyReadOnly);
     expect(lcLegacyBlockOf(true, 'sellEnabled', true, on)).toBe(LC_COMMIT_TEXT.legacyReadOnly);
     expect(lcLegacyBlockOf(true, 'buyOrderAmount', 300, on)).toBe(LC_COMMIT_TEXT.legacyReadOnly);
     // 매수가 켜진 채 다른 끄기 = 매수주문부터.
@@ -1439,13 +1446,13 @@ describe('WR-02 — 구서버 에코(buy3Schema 0)는 끄기만 · 매수주문�
     const t = setup({ server: legacy({ sellEnabled: false }) });
     const outs: string[] = [];
     act(() => {
-      outs.push(t.hook.result.current.commit('buyWatchQty', 9_000, 'value'));
+      outs.push(t.hook.result.current.commit('buyWatchAmount', 9_000, 'value'));
       outs.push(t.hook.result.current.commit('buyOrderAmount', 300, 'value'));
       outs.push(t.hook.result.current.commit('sellEnabled', true, 'toggle'));
     });
     expect(outs).toEqual(['blocked', 'blocked', 'blocked']);
     expect(t.send).not.toHaveBeenCalled();
-    for (const f of ['buyWatchQty', 'buyOrderAmount', 'sellEnabled'] as const) {
+    for (const f of ['buyWatchAmount', 'buyOrderAmount', 'sellEnabled'] as const) {
       expect(t.hook.result.current.failures[f]?.reason).toBe('legacySchema');
       expect(t.hook.result.current.failures[f]?.text).toBe(LC_COMMIT_TEXT.legacyReadOnly);
     }
@@ -1459,14 +1466,14 @@ describe('WR-02 — 구서버 에코(buy3Schema 0)는 끄기만 · 매수주문�
     });
     let out: string | undefined;
     act(() => {
-      out = t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+      out = t.hook.result.current.commit('buyWatchAmount', 9_000, 'value');
     });
     expect(out).toBe('queued');
     t.update({ server: legacy({ buyEnabled: false }) });
     t.update({ serverAnswerSeq: 1 });
     expect(t.send).toHaveBeenCalledTimes(1);
     expect(t.hook.result.current.queuedFields).toEqual([]);
-    expect(t.hook.result.current.failures.buyWatchQty).toEqual({
+    expect(t.hook.result.current.failures.buyWatchAmount).toEqual({
       reason: 'legacySchema',
       text: LC_COMMIT_TEXT.legacyReadOnly,
       value: 9_000,
@@ -1600,15 +1607,15 @@ describe('companions — 한 확정 = 한 lc.set 에 동반 필드 (Phase 24 D-0
     const t = setup({ server: masterOff() });
     act(() => {
       t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
-      t.hook.result.current.commit('buyWatchQty', 8_000, 'value');
+      t.hook.result.current.commit('buyWatchAmount', 8_000, 'value');
       t.hook.result.current.commit('preBuyEnabled', true, 'toggle', { buyEnabled: true });
       t.hook.result.current.commit('preBuyEnabled', true, 'toggle', { buyEnabled: true, cancelTradeEnabled: true });
     });
-    expect(t.hook.result.current.queuedFields).toEqual(['buyWatchQty', 'preBuyEnabled']);
-    // A 성공 → 답 신호 → buyWatchQty 전송 → 성공 → 답 신호 → preBuyEnabled 전송.
+    expect(t.hook.result.current.queuedFields).toEqual(['buyWatchAmount', 'preBuyEnabled']);
+    // A 성공 → 답 신호 → buyWatchAmount 전송 → 성공 → 답 신호 → preBuyEnabled 전송.
     t.update({ server: echo({ buyEnabled: false, sellEnabled: true, sweepMinTickCount: 5 }) });
     t.update({ serverAnswerSeq: 1 });
-    t.update({ server: echo({ buyEnabled: false, sellEnabled: true, sweepMinTickCount: 5, buyWatchQty: 8_000 }) });
+    t.update({ server: echo({ buyEnabled: false, sellEnabled: true, sweepMinTickCount: 5, ...bw(8_000) }) });
     t.update({ serverAnswerSeq: 2 });
     expect(t.send).toHaveBeenCalledTimes(3);
     const cfg = t.cfgs()[2]!;
@@ -1742,16 +1749,16 @@ describe('companions — 한 확정 = 한 lc.set 에 동반 필드 (Phase 24 D-0
     const t = setup({ server: echo({ preBuyEnabled: true, buyEnabled: true }) });
     let out: string | undefined;
     act(() => {
-      t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+      t.hook.result.current.commit('buyWatchAmount', 9_000, 'value');
       out = t.hook.result.current.commit('preBuyEnabled', false, 'toggle', { buyEnabled: false });
     });
     expect(out).toBe('queued');
     expect(t.formRef.current.preBuyEnabled).toBe(false);
     expect(t.formRef.current.buyEnabled).toBe(false);
-    // 서버가 선매수를 접었다(발주) · 마스터 ON · buyWatchQty 미반영 → 답 신호(한 렌더 뒤 · 훅 ⑦) → in-flight 거부.
+    // 서버가 선매수를 접었다(발주) · 마스터 ON · 선매수 매도잔량 미반영 → 답 신호(한 렌더 뒤 · 훅 ⑦) → in-flight 거부.
     t.update({ server: echo({ preBuyEnabled: false, buyEnabled: true }) });
     t.update({ serverAnswerSeq: 1 });
-    expect(t.hook.result.current.failures.buyWatchQty?.reason).toBe('rejected');
+    expect(t.hook.result.current.failures.buyWatchAmount?.reason).toBe('rejected');
     // GC-WR-02 — 주 필드가 서버에 섰으면 성공, 동반만 서버 값. 대기 건 전체를 성공으로 접은 것은 아니다(마스터는 ON 으로 돌아온다).
     expect(t.hook.result.current.failures.preBuyEnabled).toBeUndefined();
     expect(t.formRef.current.preBuyEnabled).toBe(false);
@@ -1763,12 +1770,12 @@ describe('companions — 한 확정 = 한 lc.set 에 동반 필드 (Phase 24 D-0
   it('WR-04 대조 — 서버가 주 필드와 동반 마스터 모두 그 값이면 대기 건은 성공으로 접힌다(전송 없음 · 실패 표시 없음)', () => {
     const t = setup({ server: echo({ preBuyEnabled: true, buyEnabled: true, sellEnabled: true }) });
     act(() => {
-      t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+      t.hook.result.current.commit('buyWatchAmount', 9_000, 'value');
       t.hook.result.current.commit('preBuyEnabled', false, 'toggle', { buyEnabled: false });
     });
     t.update({ server: echo({ preBuyEnabled: false, buyEnabled: false, sellEnabled: true }) });
     t.update({ serverAnswerSeq: 1 });
-    expect(t.hook.result.current.failures.buyWatchQty?.reason).toBe('rejected');
+    expect(t.hook.result.current.failures.buyWatchAmount?.reason).toBe('rejected');
     expect(t.hook.result.current.failures.preBuyEnabled).toBeUndefined();
     expect(t.hook.result.current.lastSuccessField).toBe('preBuyEnabled');
     expect(t.send).toHaveBeenCalledTimes(1);
@@ -1801,15 +1808,15 @@ describe('companions — 한 확정 = 한 lc.set 에 동반 필드 (Phase 24 D-0
   it('GC-WR-02 — 주 필드가 이미 서버에 섰다: 앞 건 거부로 대기 「선매수 끔 + 마스터 동반 끔」을 접어도 주 필드는 성공 · 동반만 서버 값', () => {
     const t = setup({ server: echo({ preBuyEnabled: true, buyEnabled: true }) });
     act(() => {
-      t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+      t.hook.result.current.commit('buyWatchAmount', 9_000, 'value');
       t.hook.result.current.commit('preBuyEnabled', false, 'toggle', { buyEnabled: false });
     });
     const seqBefore = t.hook.result.current.successSeq;
-    // 서버가 선매수를 접었다 · 마스터 ON · buyWatchQty 미반영 → 답 신호(다음 렌더) → in-flight 거부 → 대기 건 접기.
+    // 서버가 선매수를 접었다 · 마스터 ON · 선매수 매도잔량 미반영 → 답 신호(다음 렌더) → in-flight 거부 → 대기 건 접기.
     t.update({ server: echo({ preBuyEnabled: false, buyEnabled: true }) });
     t.update({ serverAnswerSeq: 1 });
     const r = t.hook.result.current;
-    expect(r.failures.buyWatchQty?.reason).toBe('rejected');
+    expect(r.failures.buyWatchAmount?.reason).toBe('rejected');
     expect(r.failures.preBuyEnabled).toBeUndefined();
     expect(r.successSeq).toBeGreaterThan(seqBefore);
     expect(r.lastSuccessField).toBe('preBuyEnabled');
@@ -1828,7 +1835,7 @@ describe('companions — 한 확정 = 한 lc.set 에 동반 필드 (Phase 24 D-0
   it('GC-WR-02 — 주 필드가 서버에 서지 않았다: 대기 건은 실패(`rejected`) · 폼 토글은 서버 값(선매수 ON · 마스터 ON)', () => {
     const t = setup({ server: echo({ preBuyEnabled: true, buyEnabled: true }) });
     act(() => {
-      t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+      t.hook.result.current.commit('buyWatchAmount', 9_000, 'value');
       t.hook.result.current.commit('preBuyEnabled', false, 'toggle', { buyEnabled: false });
     });
     expect(t.formRef.current.preBuyEnabled).toBe(false);
@@ -1949,7 +1956,7 @@ describe('D-03 — 선매수 · 줄매수 · 후매수 금액 0 이면 그 그�
   });
   it('그 밖 필드(다른 행 확정)는 null — 다른 행은 자유롭다 · 선매수는 금액 > 0 이면 null', () => {
     const v = values({ extraBuyOrderAmount: 0, postBuyOrderAmount: 0 });
-    expect(lcGroupAmountBlockOf(v, 'extraBuyMinQty', 5)).toBeNull();
+    expect(lcGroupAmountBlockOf(v, 'extraBuyMinAmount', 5)).toBeNull();
     expect(lcGroupAmountBlockOf(v, 'preBuyEnabled', true)).toBeNull();
     expect(lcGroupAmountBlockOf(v, 'buyWatchPrice', 1)).toBeNull();
   });
@@ -2062,5 +2069,44 @@ describe('P31 금액 필드 짝 판정 — 에코 주 = 보낸 주 ∧ (에코 �
     });
     expect(out).toBe('noop');
     expect(t.send).not.toHaveBeenCalled();
+  });
+});
+
+describe('P31 수량 8칸 짝 판정 — 선매수 매도잔량 · 취소 매수잔량도 구 서버 에코(금액 0 · 주 일치) = 성공 (31-04 · Pitfall 1)', () => {
+  it('선매수 매도잔량(buyWatchAmount) 1000만 @12,870원 → 777주 · 구 서버 에코(금액 0 · 주 777) = 성공', () => {
+    const t = setup({ server: echo({ buyWatchPrice: 12_870, buyWatchQty: 0, buyWatchAmount: 0 }) });
+    act(() => {
+      t.hook.result.current.commit('buyWatchAmount', 1000, 'value');
+    });
+    expect(t.cfgs()[0]!.buyWatchAmount).toBe(1000);
+    expect(t.cfgs()[0]!.buyWatchQty).toBe(qtyFromAmount(1000, 12_870));
+    t.update({ server: echo({ buyWatchPrice: 12_870, buyWatchQty: qtyFromAmount(1000, 12_870), buyWatchAmount: 0 }) });
+    expect(t.hook.result.current.inflightField).toBeNull();
+    expect(t.hook.result.current.failures.buyWatchAmount).toBeUndefined();
+    expect(t.hook.result.current.lastSentSuccessField).toBe('buyWatchAmount');
+  });
+
+  it('취소 매수잔량(cancelWatchAmount) 1500만 @매도 비교가 12,870원 → 1165주 · 구 서버 에코(금액 0 · 주 1165) = 성공', () => {
+    const t = setup({ server: echo({ sellWatchPrice: 12_870, cancelWatchQty: 0, cancelWatchAmount: 0 }) });
+    act(() => {
+      t.hook.result.current.commit('cancelWatchAmount', 1500, 'value');
+    });
+    expect(t.cfgs()[0]!.cancelWatchAmount).toBe(1500);
+    expect(t.cfgs()[0]!.cancelWatchQty).toBe(1165);
+    t.update({ server: echo({ sellWatchPrice: 12_870, cancelWatchQty: 1165, cancelWatchAmount: 0 }) });
+    expect(t.hook.result.current.inflightField).toBeNull();
+    expect(t.hook.result.current.failures.cancelWatchAmount).toBeUndefined();
+    expect(t.hook.result.current.lastSentSuccessField).toBe('cancelWatchAmount');
+  });
+
+  it('주 불일치 에코(1164) + 답 신호 = 실패 · 실패 기록에 보낸 주 1165', () => {
+    const t = setup({ server: echo({ sellWatchPrice: 12_870, cancelWatchQty: 0, cancelWatchAmount: 0 }) });
+    act(() => {
+      t.hook.result.current.commit('cancelWatchAmount', 1500, 'value');
+    });
+    t.update({ server: echo({ sellWatchPrice: 12_870, cancelWatchQty: 1164, cancelWatchAmount: 0 }) });
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.hook.result.current.failures.cancelWatchAmount?.sentQty).toBe(1165);
+    expect(t.send).toHaveBeenCalledTimes(1);
   });
 });
