@@ -6,7 +6,7 @@
 <domain>
 ## Phase Boundary
 
-gh-trade Phase 32 「상따 수량 옵션 금액 단위 전환」(SetLimitChaser 금액 8필드 append · UserSettings `post_buy_floor_amount`) 을 웹에서 **WinForms 동형**으로 받는다 — 상따 수량 8칸을 만원 입력 · 주 환산 표시로 바꾸고(AMT-04 → 도입), `lc.set` 재제출이 C# 만원 원값을 지우지 않게 금액 8필드를 싣고(AMT-02), /me 기본설정에 「후매수 최소(만원)」 를 84/42 로 보고 바꾸며(AMT-03), 생성물 마커를 확인하고(AMT-01) 인박스 노트 `261011-limitchaser-amount-unit.md` 질문 2개에 답해 닫는다. 와이어 번호 · 저널 kind · DB 는 바뀌지 않는다. 작업은 브랜치 `phase/31-limitchaser-amount-unit` 에서 하고 push 하지 않는다(phase 30 세션이 master 를 쓴다 — 끝나면 origin/master 위로 rebase).
+gh-trade Phase 32 「상따 수량 옵션 금액 단위 전환」(SetLimitChaser 금액 8필드 append · UserSettings `post_buy_floor_amount`) 을 웹에서 **WinForms 동형**으로 받는다 — 상따 수량 8칸을 만원 입력 · 주 환산 표시로 바꾸고(AMT-04 → 도입), `lc.set` 재제출이 C# 만원 원값을 지우지 않게 금액 8필드를 싣고(AMT-02), /me 기본설정에 「후매수 최소(만원)」 를 84/42 로 보고 바꾸며(AMT-03), 생성물 마커를 확인하고(AMT-01) 인박스 노트 `261011-limitchaser-amount-unit.md` 질문 2개에 답해 닫는다. **두 번째 인박스 `261011-amount-eok-and-limit-evprice.md`(2026-10-11 접수 · 와이어 무변경)도 이 phase 에서 받는다** — 웹 주문로그 ⑦ 문장(shared `strategy-event-text.ts`)의 수량 토큰을 WinForms `StrategyEventFormatter` 동형 「N만(M주)」/「X.Y억(M주)」(kind 1·2 는 `ev_price` 환산)으로 바꾸고 노트를 닫는다(D-19 · D-20). 와이어 번호 · 저널 kind · DB 는 바뀌지 않는다. 작업은 브랜치 `phase/31-limitchaser-amount-unit` 에서 하고 push 하지 않는다(phase 30 세션이 master 를 쓴다 — 끝나면 origin/master 위로 rebase).
 
 </domain>
 
@@ -34,6 +34,7 @@ gh-trade Phase 32 「상따 수량 옵션 금액 단위 전환」(SetLimitChaser
 ### /me 「후매수 최소」 (AMT-03 — 2026-10-11 사용자 결정: 교체)
 - **D-13: 「후매수 하한잔량(주)」 행을 「후매수 최소(만원)」 행으로 교체한다.** key `postBuyFloorAmount`, 범위 0~999,999,999(shared `USER_SETTINGS_RANGES` 에 추가 — fbs 주석 원문), 같은 묶음 「후매수」 같은 자리. 봉인 필드 `postBuyFloorQty` 는 화면에서 빼고 42 에 **0** 을 싣고 84 의 값은 읽지 않는다. 42 는 12값 전체 교체 — 84 에서 받은 11값 + 이 값 전부 채운다(범위 밖 하나라도 있으면 54 ERROR 전체 거부 「후매수 하한금액은 0~999999999만원이어야 합니다」 — 서버 문구 그대로 표시).
 - **D-14: relay** `user.settings.set` zod 에 `postBuyFloorAmount` 추가(필수 · 범위 shared), 84 파서가 `postBuyFloorAmount` 를 싣는다(`present` 뒤 vtable 28). 구 84(필드 부재) 는 0.
+  - **(2026-10-11 플래닝 보정 — RESEARCH Pitfall 3 · D-17/D-18 과의 충돌 해소)** 「필수」 는 **새 webapp 기준의 계약**이다. relay zod 는 `postBuyFloorAmount` 를 `UIntSchema.optional()` 로 받고, **부재면 relay 가 마지막 84 캐시의 `postBuyFloorAmount`(없으면 0)를 되싣는다**(구 탭 관용 — D-11 의 8필드와 같은 결). 이유: D-18 로 relay 가 먼저 배포되고 D-17 로 webapp push 가 뒤라, 그 창에서 운영 webapp(구판)이 /me 를 저장하면 필수 zod 가 소켓을 닫아(4400) 시세·에코·수동주문까지 끊긴다. 새 webapp 은 늘 12값 전부(이 값 포함)를 싣는다 — 「12값 전체 교체」 의미는 유지.
 
 ### 생성물 · 인박스 (AMT-01 · AMT-04 답)
 - **D-15: 생성물은 이미 최신.** `RELAY=… sync-relay-schema.sh --check` 가 feature 브랜치 HEAD(6370ac1d, fbs 는 e5b4fbca 이후 무변경) 기준 「신규/변경 예정 0 · 사본 최신」 — 2026-10-11 확인. gh-trade master 병합 뒤 마커 해시만 바뀔 수 있으니 마무리 플랜에서 `--check` 재실행, 다르면 재생성 커밋.
@@ -43,12 +44,25 @@ gh-trade Phase 32 「상따 수량 옵션 금액 단위 전환」(SetLimitChaser
 - **D-17: webapp 은 브랜치에서 Vercel 고유 URL 로 미리보기.** repo root 에서 `vercel pull --yes --environment=production` → `vercel build --prod` → `vercel deploy --prebuilt --prod --skip-domain`(운영 도메인 불변 · 배포 전후 `vercel inspect https://trade.jx1.io` 로 확인). 화면 플랜마다 또는 UI 웨이브 끝에 올리고 URL 을 보고한다. GitHub push 는 하지 않는다(= 프로덕션 배포 · phase 30 세션과 master 경합).
 - **D-18: relay 는 gh-trade 서버 배포 전에도 배포 허용**(호환 — 구 서버는 vtable 158~172 · 28 을 무시). 단 20:00 KST 이후 · 배포 직전 `git status -sb` 로 다른 세션 커밋 확인 · phase 30 세션의 배포와 겹치지 않게 ListAgents/SendMessage 로 알린다. AMT-02 금액 에코 실증(60 에코 `sell_watch_amount: 100` 등) · 84 `post_buy_floor_amount` 실증은 gh-trade 서버 배포 뒤에만 가능 — 그 전 실서버에서는 금액 에코가 오지 않아 칸이 역산 표시로 보이는 것이 정상이다.
 
+### 웹 주문로그 ⑦ 금액 표기 (두 번째 인박스 `261011-amount-eok-and-limit-evprice.md` — 2026-10-11 사용자 결정: Phase 31 에 플랜 1개 추가)
+- **D-19: 웹 주문로그 수량 토큰을 WinForms 동형 「N만(M주)」/「X.Y억(M주)」 로 바꾼다.** 조립 자리는 shared `packages/shared/src/strategy-event-text.ts` 한 곳(`strategyEventParts` 와 kind 별 body 함수 — 소비자 `webapp/src/lib/order-log-feed.ts` · `order-timeline.ts` · `components/trading/order-log/order-log-list.tsx` · `order-timeline.tsx` · `card/card-log-popups.tsx` 는 손대지 않는다). 규칙은 gh-trade `client/Services/DMA/StrategyEventFormatter.cs` 머리 주석 ⑦ 표(28~131행, 정본 사본 `docs/features/order-log-progress.md` ⑦)와 구현(595~760행) 그대로:
+  - `formatManwon(m)`: `m < 10000` → `${m}만`(천단위 구분 **없음**); 아니면 정수식 `tenths = floor((m + 500) / 1000)`, `whole = floor(tenths / 10)`, `frac = tenths % 10` → `frac == 0 ? \`${whole}억\` : \`${whole}.${frac}억\``. 예 10.5억 · 10억 · 1.2억.
+  - `formatQtyAmt(qty, price)`: `price > 0` → `${formatManwon(floor((qty × price + 5000) / 10000))}(${qty 천단위}주)`; `price ≤ 0` → `${qty 천단위}주`. 주문로그 래퍼 `qtyAmt`: `qty == 0` → 「0주」(공용 함수의 「0만(0주)」 는 54 서버 문장 바이트 동일성 때문에 그대로 두고 주문로그에서만 거른다 — C# DC-11).
+  - **환산가** = 그 줄 `price`. kind 10 「합계」 와 kind 1 `ask_qty_at_limit` · kind 2 `snap_qty[i]` 는 `ev_price`(서버가 싣는 상한가 — gh-trade quick-261011-oty, 배포 전 기록은 0). **웹은 `ev_price` 가 0 이면 종전 숫자 그대로**(C# 의 시세 캐시 폴백은 두지 않는다 — 천단위 숫자만 · 「주」 접미 없음, C# ⑨ 예시 「매도잔량 5,000」 동형). kind 5 첫체결 근거 `ev_kind 2` 의 `ev_trade_qty` 는 `ev_price` 환산(Phase 32 D-17 · ⑦ 표 「근거 변화 2 Trade」).
+  - **환산 대상(C# DC-07):** kind 3 `qty`(「매수 371만(300주) @12,350」) · kind 3 Sub 「상한가 매수잔량 {limit_bid_qty}」 · kind 4 ⓐⓑⓒ `qty` · `immediate_fill_qty` · 「앞에 {ahead}」 · kind 5 「예상보다 {|error|}」 · kind 6 `qty` 와 「매수1 {bid1_price}·{bid1_qty}」 · kind 7 「체결까지 {remaining} 남았었음」/「지점을 {|r|} 지났었음」 · kind 12 `qty` 와 「잔량 {cond_actual}」 · kind 13 「매도 누적 {qty}」 · kind 10 「합계」 · kind 1 「매도잔량」 · kind 2 「즉시/1초/3초」 · 조건식 실측·설정값 중 수량형 `cond_metric` 1 Ask1Qty · 2 Bid1Qty · 3 TradeQty · 5 Burst(환산가 = 줄 `price`; 4 Price · 6 SweepCount · 7 RiseRateBp 는 종전).
+  - **숫자 그대로(바꾸지 않는다):** 「누적 …」 · 「기준 누적」 · 「누적 N에 체결 예상」 · kind 2 `snap_cum` · 주기 거래량 · 예상체결량 · kind 10 「조각」 개수 · 자동매도 「실측」(가격) · 조건식 근거 `(before→after)` · kind 15 상한가 특징(`limit-feature.ts` — 별도 규칙).
+  - 골든 테스트 `packages/shared/src/__tests__/strategy-event-text.test.ts`(단언 162개)와 webapp 소비자 테스트(`order-log-list.test.tsx` · `order-timeline.test.ts`)의 고정 문자열을 새 형식으로 갱신한다 — 수치는 C# ⑦ 예시 대조표 ①~⑨(69~90행)를 그대로 옮겨 서버·C# 과 바이트 대조한다. — **Reversibility:** reversible(표시 문자열만 · 와이어 · DB 무변경).
+  - 서식 함수는 D-02 환산 모듈과 **같은 shared 파일 한 벌**에 둔다(`formatManwon` · `formatQtyAmt` · `qtyAmt`) — 폼 두 줄 행의 「1,000만」(천단위 구분 있음 · 억 없음, D-07 · UI-SPEC) 과는 **다른 함수**다. 폼 표시에 억을 들이지 않는다(C# 상따창 칸도 만원 숫자 그대로).
+  - relay 는 할 일 없음 — `ev_price` 는 `envelope.ts:3562` → shared `strategy-event.ts` → 저널 `strategy-stream.ts` 로 그대로 흐르고 0 을 가정하는 검증이 없다(2026-10-11 grep 확인). 54 `[상따]` 사유 문장은 원문 표시라 자동으로 바뀐다. RESEARCH Open Q7(「범위 밖 · 후속 quick」 권고)은 이 결정으로 대체된다.
+- **D-20: 두 번째 노트도 닫는다** — `261011-amount-eok-and-limit-evprice.md` 「gh-radar 가 할 일」 아래에 relay 무변경 확인 · 웹 ⑦ 확장 커밋을 한 줄씩 적고 `status: done` · `done_commit` 으로 경로 지정 커밋(D-16 의 첫 노트와 같은 마무리 플랜에서).
+
 ### Claude's Discretion
 - shared 환산 함수 이름 · 위치(`packages/shared/src/…`) · `LimitChaserFormValues` 에서 주 필드를 남길지(S→C 에코 보존용 읽기 전용) 아니면 제출 시 산출만 할지 — D-06 되싣기(서버 주 그대로)가 가능해야 한다.
 - 두 줄 행 컴포넌트 구현(SettingRow/DerivedRow 확장 vs 새 변형) · aria-label 문장(「선매수 매도잔량 1,000만 7,770주」) · 폭 백스톱 테스트 갱신.
 - D-03/D-04 거부 판정 함수의 위치(`canArmOf`/`armBlockedTextOf` 확장) — 문장은 한 곳에서만 짓는다.
 - 테스트 픽스처(`test-fixtures/limit-chaser.ts`) 만원화 범위, E2E P31 시나리오 수(390 · 1080).
-- 인박스 노트 닫기 커밋을 phase 마무리 플랜에 둘지 별도 커밋으로 둘지.
+- 인박스 노트 닫기 커밋을 phase 마무리 플랜에 둘지 별도 커밋으로 둘지(두 노트 모두).
+- D-19 서식 함수의 이름 · `strategy-event-text.ts` 안에서 `formatQty`(194행) 를 대체할지 옆에 둘지 · 조건식 `conditionValue`(386행) 에 줄 `price` 를 넘기는 방식.
 
 </decisions>
 
@@ -60,6 +74,9 @@ gh-trade Phase 32 「상따 수량 옵션 금액 단위 전환」(SetLimitChaser
 ### 계약 (gh-trade 인박스 · 정본)
 - `docs/inbox/from-gh-trade/261011-limitchaser-amount-unit.md` — 와이어 변경(8필드 vtable 158~172 · UserSettings 28 · 42 12값 · 54 사유 「N만(M주)」), 확인 방법, 질문 2개(D-16 으로 답)
 - `docs/inbox/from-gh-trade/README.md` — 노트 닫기 형식(`status: done` · `done_commit` · 경로 지정 커밋)
+- `docs/inbox/from-gh-trade/261011-amount-eok-and-limit-evprice.md` — 두 번째 노트(와이어 무변경): 1억 이상 「X.Y억(M주)」 · 주문로그 수량 토큰 확장 · kind 1·2 `ev_price` = 상한가(D-19 · D-20)
+- `/Users/alex/repos/gh-trade/client/Services/DMA/StrategyEventFormatter.cs` 28~131(⑦ 문장 규칙 표 + 예시 대조표 ①~⑨ 69~90) · 595~760(`QtyAmt` · `UpperLimitOf` · `LimitQty` · `FormatManwon` · `FormatAmount` · `FormatQtyAmt`) — D-19 의 정본 구현
+- `/Users/alex/repos/gh-trade/docs/features/order-log-progress.md` 483~(⑦ 클라 문장 규칙 — WinForms · gh-radar webapp 공유) · `docs/strategy/limit-chaser.md` 3495~3503(수량 표시 표 · quick-261011-myr/oty 행) · `.planning/quick/261011-myr-*/261011-myr-SUMMARY.md` DC-01~DC-11 · `261011-oty-*/261011-oty-SUMMARY.md` L-08
 - `relay/src/generated/StockDMA.fbs` — 생성물 사본(마커 e5b4fbca · 최신) · `relay/src/generated/stock-dma/set-limit-chaser.ts` · `user-settings.ts`
 - `/Users/alex/repos/gh-trade/docs/strategy/limit-chaser.md` §10 「금액 ↔ 수량 12벌」(3348~3363) · §9-2 ⑩(3085~3106) — 환산 공식 · 짝 검사 · 그룹 비교가 · 0 처리
 - `/Users/alex/repos/gh-trade/.planning/phases/32-limitchaser-amount-unit/32-CONTEXT.md` — D-01~D-26(특히 D-06 0 저장 · D-13 에코 적용 · D-22 매도 비교가 · D-23 0주 접미 · D-24 폴백 0)
@@ -94,6 +111,7 @@ gh-trade Phase 32 「상따 수량 옵션 금액 단위 전환」(SetLimitChaser
 - `relay/src/ws/protocol.ts` — `RelayLcSetSchema`(129~220, 선택 필드 `UIntSchema.optional()` 패턴 205·213·217) · `user.settings.set`(417) · 철거 프레임 기본값(564~570).
 - `relay/src/dma/envelope.ts` — SetLimitChaser 조립(1637~1661 `toWireUint`) · 60/64 파서(2589~2624) · UserSettings 42 조립(2059) · 84 파서(802).
 - `webapp/src/test-fixtures/limit-chaser.ts` · `relay/src/dma/__tests__/envelope.test.ts` — 픽스처 · 왕복 테스트.
+- `packages/shared/src/strategy-event-text.ts`(464행) — ⑦ 문장 조립 한 곳: `strategyEventParts`(107) · `formatQty`(194) · `limitExposedBody`(207) · `burstLimitBody`(215) · `limitEnteredBody`(226) · `buyOrderBody`(241) · `sellOrderBody`(253) · `autoSellModifiedBody`(321) · `autoSellStateBody`(335) · `queuedBody`(361) · `cancelledBody`(374) · `conditionValue`(386) · `evidenceText`(420) · 표면 `orderLogLineText`(441) · `timelineStrategyText`(459). 행 타입 `strategy-event.ts` `StrategyEventRow`(`price` · `evPrice` · `askQtyAtLimit` · `snapQty` · `limitBidQty` · `qty` · `immediateFillQty` · `evTradeQty` · `condActual` …). 골든 `__tests__/strategy-event-text.test.ts`(697행) · 픽스처 `__fixtures__/strategy-day.ts`. D-19 의 자리.
 
 ### Established Patterns
 - 「서버는 보관·에코만, 평가는 주」 규약은 `buyOrderAmount` 가 선례 — 금액 8필드도 같은 주석 어투로.

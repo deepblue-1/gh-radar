@@ -52,7 +52,9 @@ created: "2026-10-11"
 | TBD | TBD | TBD | AMT-03 | — | N/A | component (/me 행 교체 · 42/84) | `pnpm --filter @gh-radar/webapp exec vitest run src/components/me/__tests__/limit-chaser-defaults.test.tsx` | ✅ 파일 · ❌ 케이스 | ⬜ pending |
 | TBD | TBD | TBD | AMT-03 | — | N/A | unit (relay 42 봉인 0 · 84 파서) | `pnpm --filter @gh-radar/relay exec vitest run src/dma/__tests__/envelope.test.ts tests/protocol.test.ts tests/ws-autosell.test.ts` | ✅ 파일 · ❌ 케이스 | ⬜ pending |
 | TBD | TBD | TBD | AMT-02~04 | — | N/A | e2e (P31 · 백스톱) | `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/trading-workbench.spec.ts e2e/specs/me.spec.ts -g "P31\|P20-3\|P24-7\|P24-8" --workers=1` | ✅ 파일 · ❌ 케이스 | ⬜ pending |
+| TBD | TBD | TBD | AMT-04 (D-19) | — | N/A | unit (shared ⑦ 주문로그 수량 토큰 「N만(M주)」/「X.Y억(M주)」 · ev_price 환산 골든) | `pnpm --filter @gh-radar/shared exec vitest run src/__tests__/strategy-event-text.test.ts && pnpm --filter @gh-radar/webapp exec vitest run src/components/trading/order-log/__tests__/order-log-list.test.tsx src/lib/__tests__/order-timeline.test.ts --maxWorkers=2` | ✅ 파일 · ❌ 케이스 | ⬜ pending |
 | TBD | TBD | TBD | AMT-04 | — | N/A | doc check (인박스 노트 닫기) | `grep -qE '^status: done$' docs/inbox/from-gh-trade/261011-limitchaser-amount-unit.md && grep -qE '^done_commit: [0-9a-f]{7,}' docs/inbox/from-gh-trade/261011-limitchaser-amount-unit.md` | ✅ | ⬜ pending |
+| TBD | TBD | TBD | AMT-04 (D-20) | — | N/A | doc check (두 번째 노트 닫기) | `grep -qE '^status: done$' docs/inbox/from-gh-trade/261011-amount-eok-and-limit-evprice.md && grep -qE '^done_commit: [0-9a-f]{7,}' docs/inbox/from-gh-trade/261011-amount-eok-and-limit-evprice.md` | ✅ | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky — Task ID · Plan · Wave 는 플래너가 PLAN.md 확정 뒤 채운다.*
 
