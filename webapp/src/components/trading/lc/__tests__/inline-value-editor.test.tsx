@@ -380,3 +380,52 @@ describe('③-2 D-15a — ETP·분류 불명은 호가 단위 위반을 경고�
     expect(alertText()).toBe('상한가 32,500원을 넘을 수 없어요');
   });
 });
+
+describe('P31 두 줄 행 편집 — subOf 아래 줄 실시간 갱신 (UI-SPEC S4)', () => {
+  const sub = (): HTMLElement | null => document.querySelector<HTMLElement>('[data-slot="lc-row-sub"]');
+  const subOf = (v: number) => ({ text: `${v}주`, tone: 'muted' as const });
+
+  it('P31 처음 아래 줄 = subOf(initialValue) · 숫자 입력마다 버퍼 값으로 다시 계산 · 빈 버퍼 = subOf(0)', () => {
+    render(<InlineValueEditor {...props({ unit: '만', label: '매수잔량', initialValue: 1_000, subOf })} />);
+    expect(sub()!.textContent).toBe('1000주');
+    type('1500');
+    expect(sub()!.textContent).toBe('1500주');
+    type('');
+    expect(sub()!.textContent).toBe('0주');
+    // 위 줄 자리는 입력 + 단위 — 아래 줄은 입력 줄 밖(다음 줄)이다.
+    expect((input().parentElement as HTMLElement).contains(sub())).toBe(false);
+    expect(sub()!.className).toContain('text-[12px]');
+  });
+
+  it('P31 subOf 가 alert 를 돌려주면 아래 줄 data-tone="alert" · --destructive', () => {
+    render(
+      <InlineValueEditor
+        {...props({
+          unit: '만',
+          initialValue: 1_000,
+          subOf: (v) => (v > 1_000 ? { text: '비교가격 필요', tone: 'alert' } : { text: `${v}주`, tone: 'muted' }),
+        })}
+      />,
+    );
+    expect(sub()!.hasAttribute('data-tone')).toBe(false);
+    type('1500');
+    expect(sub()!.textContent).toBe('비교가격 필요');
+    expect(sub()!.getAttribute('data-tone')).toBe('alert');
+    expect(sub()!.className).toContain('text-[var(--destructive)]');
+  });
+
+  it('P31 subOf 없음 → 지금과 같은 한 줄(lc-row-sub 없음) · subOf 를 더하거나 빼도 입력 요소가 다시 마운트되지 않는다(포커스 유지)', () => {
+    const { rerender } = render(<InlineValueEditor {...props({ unit: '만', initialValue: 1_000 })} />);
+    expect(sub()).toBeNull();
+    const before = input();
+    type('1500');
+    rerender(<InlineValueEditor {...props({ unit: '만', initialValue: 1_000, subOf })} />);
+    expect(input()).toBe(before);
+    expect(document.activeElement).toBe(before);
+    expect(input().value).toBe('1,500');
+    expect(sub()!.textContent).toBe('1500주');
+    rerender(<InlineValueEditor {...props({ unit: '만', initialValue: 1_000 })} />);
+    expect(input()).toBe(before);
+    expect(sub()).toBeNull();
+  });
+});
