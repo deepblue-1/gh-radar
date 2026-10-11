@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 31
 current_phase_name: 인박스 상따 금액 단위
 status: executing
-stopped_at: Completed 31-04-PLAN.md
-last_updated: "2026-10-11T15:00:38.685Z"
+stopped_at: Completed 31-05-PLAN.md
+last_updated: "2026-10-11T15:15:38.809Z"
 last_activity: 2026-10-11
 last_activity_desc: Phase 31 execution started
-state_head: a9f2b9985b5c09bd4d5bfc509b29b35583d20542
+state_head: fb328f0743ac62b9262f4d96f952e76cfc434b50
 progress:
   total_phases: 2
   completed_phases: 0
   total_plans: 15
-  completed_plans: 10
+  completed_plans: 11
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-11 after v1.1 milestone start)
 ## Current Position
 
 Phase: 31 (인박스 상따 금액 단위) — EXECUTING
-Plan: 5 of 8
+Plan: 6 of 8
 Status: Ready to execute
 Last activity: 2026-10-11 — Phase 31 execution started
 
@@ -78,8 +78,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-11T15:00:38.661Z
-Stopped at: Completed 31-04-PLAN.md
+Last session: 2026-10-11T15:15:34.198Z
+Stopped at: Completed 31-05-PLAN.md
 Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 
 ## Operator Next Steps
@@ -101,6 +101,7 @@ Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 | Phase 31 P02 | 6min | 2 tasks | 6 files |
 | Phase 31 P03 | 13 min | 2 tasks | 12 files |
 | Phase 31 P04 | 19min | 3 tasks | 11 files |
+| Phase 31 P05 | 14min | 3 tasks | 6 files |
 
 ## Decisions
 
@@ -128,3 +129,5 @@ Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 - [Phase 31]: 31-04: 제출 주 산출은 lcSubmitQtyOf(values, 금액 키, server, price?) 한 함수 — buildCfg 8쌍 루프 · 무장 판정 · 자동 체크 공용(31-01 SELL_WATCH_PAIR 일반화)
 - [Phase 31]: 31-04: 상장주식수 시딩은 만원 · 매수 비교가 0 이면 가드 미소진(C# 순서 — 서버 전략이면 먼저 소진) · 매도 비교가 0 이면 매도 체결만 생략
 - [Phase 31]: 31-04: 수량 칸 위 줄은 0 도 「0만」 — 의미어(무제한 · 1주 · 없음)는 lcAmountZeroWordOf(요약 · 31-06 아래 줄)
+- [Phase 31]: 주문로그 ⑦ 수량 토큰은 shared lc-amount 서식 3함수(formatManwon · formatQtyAmt · qtyAmt) 한 벌 — 주문 줄만 「{금액(주)} @{가격}」, 나머지 제자리 교체
+- [Phase 31]: kind 1·2 시세 수량은 서버 ev_price(상한가)로만 환산 — 0 이면 종전 숫자(캐시 폴백 없음 · AMT-04)
