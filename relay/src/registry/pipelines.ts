@@ -7,7 +7,8 @@
  *
  *   새 enabled 키                → 생성 → `onCreated` → `observer.start()` (결선이 붙은 **뒤에** 시작 — 첫 배치를 버리지 않는다)
  *   빠진 키 · enabled=false     → `observer.stop()` → 기록기 drain(2초 · 비동기) → close → `onRemoved`
- *   host · port · broker 변경   → 위 정지 후 같은 키로 재생성(새 주소로 재로그인)
+ *   host · port · broker 변경   → 위 정지 후 같은 키로 재생성(새 주소로 재로그인) — 옛 벌 매핑을 새 벌에 **잠정**으로 옮긴 뒤
+ *                                 `onCreated` (29-50 GC-07 — 79/87 전의 빈 매핑이 그 서버 사용자를 끊지 않게 · DB 무기록)
  *
  * 결정 근거:
  *   - 벌끼리는 아무것도 공유하지 않는다 — 커서 · epoch · 매핑 · 상태가 서버 키별로 따로다(c8e 그대로). 한 서버의 거부 ·
@@ -109,7 +110,10 @@ export type ServerPipelinesDeps = {
   drainTimeoutMs?: number;
 };
 
-/** 같은 키를 다시 만들어야 하는가 — 주소 · 증권사(비밀 · broker 대조 원천)가 바뀌었다. */
+/**
+ * 같은 키를 다시 만들어야 하는가 — 주소 · 증권사(비밀 · broker 대조 원천)가 바뀌었다. 서버 키는 증권사 접두(`SERVER_KEY_RE`)라
+ * 증권사 변경 재생성은 실제로 없다 — 주소(host · port) 변경이 전부다. 재생성 벌은 옛 매핑을 잠정으로 받는다(29-50 GC-07).
+ */
 function needsRebuild(prev: DmaServerRow, next: DmaServerRow): boolean {
   return prev.host !== next.host || prev.port !== next.port || prev.broker !== next.broker;
 }
@@ -139,6 +143,8 @@ export class ServerPipelines {
     const desired = new Map<string, DmaServerRow>();
     for (const r of rows) if (r.enabled) desired.set(r.key, r);
 
+    // 같은 키 재생성(주소 변경)으로 내린 벌의 매핑 — 새 벌에 잠정으로 옮긴다(29-50 GC-07). 행 제거 · 꺼짐은 담지 않는다.
+    const rebuiltAccess = new Map<string, JournalAccess>();
     // 먼저 내린다 — 같은 키 재생성이 옛 벌과 겹치는 구간을 최소로.
     for (const [key, p] of [...this.#pipelines]) {
       const next = desired.get(key);
@@ -147,6 +153,7 @@ export class ServerPipelines {
         p.server = { ...next };
         continue;
       }
+      if (next !== undefined) rebuiltAccess.set(key, p.access);
       this.#retire(p, next === undefined ? "레지스트리에서 빠지거나 비활성" : "주소 · 증권사 변경 — 재생성");
       removed.push(key);
     }
@@ -154,6 +161,15 @@ export class ServerPipelines {
       if (this.#pipelines.has(key)) continue;
       const p = createJournalPipeline({ supabase: this.#deps.supabase, server: row, secret: this.#deps.secretOf(row.broker) });
       this.#pipelines.set(key, p);
+      const prevAccess = rebuiltAccess.get(key);
+      if (prevAccess !== undefined) {
+        // 결선(onCreated) · 시작 **전에** — 첫 판정부터 직전 값을 본다. 옛 벌 close 는 drain 뒤라 아직 읽을 수 있다(사본을 뜬다).
+        p.access.seedProvisional(prevAccess);
+        logger.info(
+          { gateway: key, provisionalUsers: p.access.dmaUserIds().length },
+          "[registry] 재생성 벌에 직전 매핑을 잠정으로 — 첫 79/87 이 교체",
+        );
+      }
       this.#deps.onCreated?.(p);
       p.observer.start();
       p.admin.start();

@@ -386,6 +386,8 @@ export type JournalMappingHealth = {
   rows: number;
   skipped: number;
   emptySnapshotsRejected: number;
+  /** 재생성 직후 잠정 매핑인가(29-50 GC-07 · 표시 신호). 옛 주입 · 테스트 스텁은 생략할 수 있다. */
+  provisional?: boolean;
 };
 
 /** `JournalHealth.strategy` — 전략 스트림 한 칸. */

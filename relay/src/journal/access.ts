@@ -13,6 +13,12 @@
  *      (`dma_journal_orders_for_user`)의 가시성 근거다. 실패해도 1 은 이미 유효하고, 지수 백오프로
  *      재시도한다. 재시도 사이에 `replace` 가 다시 불리면 **최신 스냅샷만** 보낸다.
  *
+ * 잠정 매핑 (Phase 29-50 GC-07): 서버 주소(host · port) 편집으로 같은 키 파이프라인이 다시 만들어지면 새 벌의 매핑은 79/87
+ * 전까지 비어 있다. 그 「모름」 을 빈 매핑으로 두면 이어지는 재수립 판정(`serversFor` 서명)이 그 서버 사용자 전원을 1012 로 끊고
+ * 계좌를 숨긴다. 그래서 `ServerPipelines.sync` 가 옛 벌의 매핑을 새 벌에 **잠정**(`seedProvisional`)으로 옮긴다 — 직전 값이다.
+ * 메모리에만 두고 DB 에 쓰지 않는다(DB 에는 옛 벌이 마지막으로 쓴 행이 그대로다). 새 주소의 첫 유효 스냅샷이 종전 규칙(빈 스냅샷
+ * 거부 포함)으로 교체하며 잠정을 끝낸다. 새 주소가 끝내 답하지 않으면 잠정 매핑이 남는다(그 서버 세션은 회선 실패로 보인다).
+ *
  * 결정 근거:
  *   Pitfall 7  계좌번호를 재정규화하지 않는다 — 게이트웨이 값 그대로가 키다. 하이픈 하나만 달라져도
  *              DB 의 `account_no` 와 어긋나 행이 아무에게도 안 보인다.
@@ -49,6 +55,8 @@ export type JournalAccessHealth = {
   skipped: number;
   /** 부팅 뒤 거부한 빈 스냅샷 수 — 유효 행이 0 인 스냅샷은 메모리 · DB 매핑을 지우지 않고 버린다. */
   emptySnapshotsRejected: number;
+  /** 지금 매핑이 재생성 직후의 잠정(직전 벌 사본 · 29-50 GC-07)인가 — 첫 유효 스냅샷이 거짓으로 바꾼다. */
+  provisional: boolean;
 };
 
 /** `replace` 의 부가 정보 — 파서가 이미 버린 항목 수(형식 이상 계좌번호 등 · WR-04). */
@@ -72,6 +80,8 @@ export class JournalAccess implements JournalAccessView {
   #emptySnapshotsRejected = 0;
   /** 유효 스냅샷을 한 번이라도 적용했나(29-46 GC-06) — 빈 스냅샷 거부는 세지 않는다. */
   #loaded = false;
+  /** 지금 매핑이 재생성 직후의 잠정(직전 벌 사본 · 29-50 GC-07)인가. */
+  #provisional = false;
 
   constructor(deps: JournalAccessDeps) {
     this.#supabase = deps.supabase;
@@ -97,6 +107,32 @@ export class JournalAccess implements JournalAccessView {
     return this.#loaded;
   }
 
+  /** 지금 매핑이 같은 키 재생성 직후 옮겨 받은 잠정 매핑인가 (29-50 GC-07). 첫 유효 `replace` 가 거짓으로 바꾼다. */
+  get provisional(): boolean {
+    return this.#provisional;
+  }
+
+  /**
+   * 같은 키 재생성 직후(주소 변경 · 29-50 GC-07) 옛 벌의 매핑을 **잠정**으로 옮겨 받는다 — 79/87 전의 「모름」 을 직전 값으로.
+   * Set 마다 새로 만든 깊은 사본이라 옛 벌이 닫히거나 바뀌어도 번지지 않는다. `loaded` 는 참이 된다(직전 값이 있으니 모름이 아니다).
+   * DB 동기화를 예약하지 않는다 — 잠정은 판정 · 화면을 위한 기억일 뿐이고 DB 정본은 첫 실제 스냅샷이 덮는다. 옛 벌이 한 번도
+   * 적재되지 않았으면(빈 매핑) 아무것도 하지 않는다 — 그때는 「모름」 그대로가 사실이다.
+   */
+  seedProvisional(from: JournalAccess): void {
+    if (!from.loaded) return;
+    const next = new Map<string, Set<string>>();
+    let rows = 0;
+    for (const dmaUserId of from.dmaUserIds()) {
+      const set = new Set(from.accountsOf(dmaUserId) ?? []);
+      next.set(dmaUserId, set);
+      rows += set.size;
+    }
+    this.#map = next;
+    this.#rows = rows;
+    this.#loaded = true;
+    this.#provisional = true;
+  }
+
   /**
    * 지금 매핑에 있는 DMA 유저 id (사본 · Phase 29-44 `EffectiveOwnerTracker` 열거 — 연결 유무와 무관하게 유효 주문 서버를 계산할
    * 대상). 로그 · 프레임에 싣지 않는다(T-19-14).
@@ -106,7 +142,12 @@ export class JournalAccess implements JournalAccessView {
   }
 
   health(): JournalAccessHealth {
-    return { rows: this.#rows, skipped: this.#lastSkipped, emptySnapshotsRejected: this.#emptySnapshotsRejected };
+    return {
+      rows: this.#rows,
+      skipped: this.#lastSkipped,
+      emptySnapshotsRejected: this.#emptySnapshotsRejected,
+      provisional: this.#provisional,
+    };
   }
 
   /**
@@ -172,6 +213,7 @@ export class JournalAccess implements JournalAccessView {
     this.#map = next;
     this.#rows = syncRows.length;
     this.#loaded = true;
+    this.#provisional = false;
     this.#pending = syncRows;
     logger.info({ gateway: this.#gateway, rows: syncRows.length, users: next.size }, "[journal] 계좌 매핑 교체");
     this.#kick();
