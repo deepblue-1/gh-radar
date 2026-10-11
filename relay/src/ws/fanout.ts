@@ -292,6 +292,12 @@ const VI_SNAPSHOT_EXCHANGES: readonly RelayExchange[] = ["KRX", "NXT"];
 const TEARDOWN_MARKET_FALLBACK: OrderMarket = "K";
 
 /**
+ * VI 원천 증권사 (D-18 · 29-51 GC-05) — VI 명령(`vi.set`)은 계좌 소유 세션이 이 증권사일 때만 그 세션으로 간다(서버 축만 계좌 소유).
+ * hub `#viSourceOwners` 와 같은 축이다.
+ */
+const VI_BROKER = "KB";
+
+/**
  * `ws` README 권고 기반 압축 튜닝 (D-35).
  *
  * 기본값 `true` 를 쓰지 않는 이유는 README 가 "increased concurrency, especially on Linux,
@@ -2010,9 +2016,9 @@ export class WsFanout {
       // **미지정 = KRX** (D-06 · D-18). 기존 브라우저가 싣지 않던 값이라 optional 이고,
       // 기본값을 여기서 한 번만 정한다 — 조립기에 두면 호출부마다 다른 기본값이 생긴다.
       const exchange = msg.exchange ?? "KRX";
-      // VI 설정은 **사용자 단위**(거래소별 1건)라 primary 세션(KB 우선 · D-18 · 29-16)이다 — 계좌는 실어 오지만
-      // 세션 선택 축이 아니다. 계좌 대조(②)는 그 세션의 허용 목록으로 종전 그대로 한다.
-      const session = this.#strategySession(conn, userId, msg.t);
+      // 29-51 (GC-05) — VI 설정의 세션은 **그 계좌의 소유 KB 세션**이다(G-1 로 KB121 에 지정한 계좌의 VI 는 KB121 서버에 있다 · 아니면
+      // primary — 교보 계좌는 종전대로 primary 에서 「사용할 수 없는 계좌」 로 끝난다). 계좌 대조(②)는 그 세션의 허용 목록(소유 뷰)으로 한다.
+      const session = this.#viSessionFor(conn, userId, msg.t, accountNo);
       if (session === null) return;
       if (!this.#accountAllowed(conn, session, userId, msg.t, accountNo)) return;
       // `priceType` 은 싣지 않는다 — 상한가("U") 고정이라 조립기가 채운다 (하한가 경로 봉쇄).
@@ -2229,6 +2235,22 @@ export class WsFanout {
     const session =
       (accountNo !== undefined ? this.#sessions.forAccount(userId, accountNo) : undefined) ??
       this.#sessions.primaryOf(userId);
+    return this.#readySession(conn, userId, t, session);
+  }
+
+  /**
+   * VI 명령 세션 (29-51 · GC-05) — 그 계좌의 소유 세션(`forAccount`)이 **KB** 면 그것, 아니면 primary. VI 원천 증권사는 KB 그대로다(hub
+   * `#viSourceOwners` 와 같은 축 — 서버 축만 계좌 소유로 넓혔다). 교보 계좌는 primary 로 가서 뒤의 `#accountAllowed` 가 종전 「사용할 수
+   * 없는 계좌」 거부로 끝낸다(교보 서버에 VI 프레임 0). 확인 순서 · 문구는 `#strategySession` 과 같다(`#readySession`).
+   */
+  #viSessionFor(conn: Conn, userId: string, t: RelayInbound["t"], accountNo: string): DmaSession | null {
+    const owner = this.#sessions.forAccount(userId, accountNo);
+    const session = owner !== undefined && owner.broker === VI_BROKER ? owner : this.#sessions.primaryOf(userId);
+    return this.#readySession(conn, userId, t, session);
+  }
+
+  /** ① 확인 본체 — 세션 없음 · 미준비면 로그 + 거부 프레임 뒤 null (`#strategySession` · `#viSessionFor` 공용). */
+  #readySession(conn: Conn, userId: string, t: RelayInbound["t"], session: DmaSession | undefined): DmaSession | null {
     if (session === undefined) {
       logger.warn({ userId, t }, "[WS] 세션 없음 — 전략 요청 거부");
       this.#send(conn, {

@@ -921,10 +921,14 @@ describe("SubscriptionHub — sweep 대여 (29-49 · GC-03 · GC-04)", () => {
     const detached = await hub.lendSession(kb121);
     hub.retainSessions(U, new Set(["KB120"]));
     hub.attach(kb121);
+    // 29-51 (GC-05) — KB121 도 VI 원천(사용자의 KB 세션 각각)이라 되돌아온 Ready 세션은 자기 Ready 프리페치 21 을 보낸다(대여 아님).
+    expect(kb121.viGets).toEqual(["KRX", "NXT"]);
+    kb121.pushFrame(empty61());
+    kb121.pushFrame(empty61());
     kb121.pushFrame(disable65());
     expect(framesOf("strategies.disabled")).toHaveLength(2);
     detached.release();
-    expect(kb121.viGets).toEqual([]);
+    expect(kb121.viGets).toEqual(["KRX", "NXT"]); // 반납은 옛 대여 몫 — 21 을 더 보내지 않는다
 
     // (3) closeAll — 표식 0 · 배수 대기 중인 대여도 즉시 해결(무동작).
     const kept = await hub.lendSession(kb121);
