@@ -5,6 +5,7 @@ import {
   isValidAccountNoInput,
   normalizeAccountNo,
   REFLECT_LABEL,
+  resolveEffectiveOrderServer,
   type AdminAccountInput,
   type AdminAccountView,
   type AdminPutAccountBody,
@@ -46,7 +47,10 @@ import { useFieldSave, type FieldSave } from "./use-field-save";
  *
  * **주문 서버(29-38 G-1 ⑦ · 29-30 채택 admin-control A — `mockup-g1-account-order-server.html` 변형 A).** 서버 칩 줄 아래 한 줄
  * `주문 서버 [기본 · KB120][KB120][KB121]` 세그먼트. 칸 = 「기본 · <증권사 기본 주문 서버>」 + 그 계좌의 **active 등록 서버**(레지스트리
- * 순 — removing · 미등록 · 다른 증권사 서버는 칸이 없다). 등록 서버가 1대면 세그먼트 없이 「주문 서버 <키>(기본)」 글자만. 꺼진 서버 칸은
+ * 순 — removing · 미등록 · 다른 증권사 서버는 칸이 없다). 무엇이 주문 서버인지는 relay 와 같은 shared 규칙 한 벌
+ * (`resolveEffectiveOrderServer` — 29-46 · GC-06: 지정 ?? 기본 서버에 등록돼 있으면 기본 ?? 등록 서버가 1대면 그 서버 ?? 없음)로 판정한다 —
+ * 등록 = 켜진 active 등록 서버. 등록 서버가 1대면 세그먼트 없이 「주문 서버 <키>」 글자만, 「(기본)」 꼬리표는 규칙이 기본 갈래일 때만.
+ * 기본 서버에 계좌가 없으면(여러 대) 「기본」 칸을 잠그고, 지정도 없으면 「기본 <키> 에 등록되지 않은 계좌 — 주문 서버를 고르세요」 한 줄. 꺼진 서버 칸은
  * 취소선 · 흐림 · 누를 수 없음 · 꺼진 서버가 지정돼 있으면 그 칸이 켜진 채 경고색 + 카드 아래 「<키> 꺼짐 — 기본 <기본> 으로」(relay 는
  * 기본값으로 보낸다). 고르면 즉시 `PUT …/order-server` 1건(D-15 · `useFieldSave` — 비행 중엔 마지막 값만) · 409 등은 계좌 오류 줄 ·
  * 저장 뒤 첫 재조회 값이 정본(`releaseOn` = 계좌 뷰). 87 에만 있는 계좌 줄에는 없다(D-23 ⑤ 보기만).
@@ -70,6 +74,9 @@ export const ACCOUNT_EDITOR_TEXT = {
   orderServerDefault: (defaultKey: string | null) => (defaultKey ? `기본 · ${defaultKey}` : "기본"),
   orderServerDefaultSuffix: "(기본)",
   orderServerOff: (key: string, defaultKey: string | null) => `${key} 꺼짐 — 기본 ${defaultKey ?? "서버"} 으로`,
+  /** 29-55 GC-06 — 기본 서버에 등록되지 않은 계좌(여러 대 · 지정 없음): relay 는 어느 서버로도 보내지 않는다. */
+  orderServerNoDefault: (defaultKey: string | null) =>
+    defaultKey ? `기본 ${defaultKey} 에 등록되지 않은 계좌 — 주문 서버를 고르세요` : "기본 주문 서버가 없는 계좌 — 주문 서버를 고르세요",
   /** gh-trade-84 ②(가) 뒤 문장 — 목업 A 의 「옛 서버의 미체결 · 전략은 그 서버에서 …」 는 답 이전 것이라 바꿨다. */
   orderServerNote:
     "주문 서버를 바꾸면 relay 가 옛 서버에 남은 그 계좌의 활성 전략(상따 · VI · 자동매도)을 끄고 새 서버로 바로 재접속해요 — 옛 서버의 미체결은 그 서버(클라)에서 정리하고, 옛 서버로 되돌릴 때는 클라(OCX) 대사로 잔고를 맞추세요.",
@@ -447,6 +454,7 @@ function AccountRow({
 /**
  * 계좌 줄 「주문 서버」(29-38 · 채택 A) — 칸 = 「기본 · <기본 키>」 + active 등록 서버(레지스트리 순) · 1대면 글자만 · 꺼진 칸 잠금 ·
  * 꺼진 지정 경고 줄. 값 = 누른 값(비행 · 재조회 전) ?? 개요 `orderServer` ?? 기본(null).
+ * 29-55 GC-06 — 「(기본)」 꼬리표 · 「기본」 칸 잠금 · 미등록 경고는 shared `resolveEffectiveOrderServer`(relay 와 한 벌) 결과로만 정한다.
  */
 function OrderServerControl({
   account,
@@ -466,6 +474,14 @@ function OrderServerControl({
   const defaultKey = account.defaultOrderServer ?? null;
   const saved = account.orderServer ?? null;
   const current = save.value !== undefined ? save.value : saved;
+  // GC-06 — relay 와 같은 규칙 한 벌. 등록 = 켜진 active 등록 서버 · 지정 = 지금 값이 그 안에 있을 때만(꺼진 지정은 relay 도 무시).
+  const enabledRegistered = registered.filter(enabled);
+  const effective = resolveEffectiveOrderServer({
+    designated: current !== null && enabledRegistered.includes(current) ? current : null,
+    defaultKey,
+    registered: enabledRegistered,
+  });
+  const defaultLocked = defaultKey === null || !enabledRegistered.includes(defaultKey);
 
   const offWarning =
     saved !== null && active.has(saved) && !enabled(saved) ? (
@@ -480,7 +496,7 @@ function OrderServerControl({
       <>
         <div data-slot="admin-order-server" data-account={account.accountNo} className="mt-2.5 text-[12.5px] text-[var(--muted-fg)]">
           {T.orderServer} <b className="font-semibold text-[var(--fg)]">{only}</b>
-          {current === null || current === only ? T.orderServerDefaultSuffix : null}
+          {effective?.via === "default" && effective.key === only ? T.orderServerDefaultSuffix : null}
         </div>
         {offWarning}
       </>
@@ -509,7 +525,12 @@ function OrderServerControl({
           }}
           className={cn(ADMIN_SEGMENT_ROOT, save.state === "flash" && ADMIN_FLASH_CLASS)}
         >
-          <ToggleGroupItem value={ORDER_DEFAULT_VALUE} className={ORDER_SEGMENT_ITEM}>
+          <ToggleGroupItem
+            value={ORDER_DEFAULT_VALUE}
+            disabled={defaultLocked}
+            data-off={defaultLocked ? "true" : undefined}
+            className={cn(ORDER_SEGMENT_ITEM, defaultLocked && (current === null ? ORDER_ITEM_OFF_ON : ORDER_ITEM_OFF))}
+          >
             {T.orderServerDefault(defaultKey)}
           </ToggleGroupItem>
           {registered.map((k) => {
@@ -529,6 +550,11 @@ function OrderServerControl({
         </ToggleGroup>
       </div>
       {offWarning}
+      {effective === null && (
+        <p data-slot="admin-order-server-no-default" className={WARN_LINE}>
+          {T.orderServerNoDefault(defaultKey)}
+        </p>
+      )}
     </>
   );
 }
