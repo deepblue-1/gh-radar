@@ -80,7 +80,8 @@ import { useFieldSave, type FieldSave } from "./use-field-save";
  * 보존 · IPMAC-01). 서버 전부 ok 면 닫히고 포커스가 「편집」 으로 돌아온다. 서버 토글 · 주문 서버 · 「제거」 의 즉시 저장은 그대로.
  * 하나라도 ok 가 아니면 편집 · 입력값을 유지하고 동작 줄 아래 결과 줄에 서버마다 「<서버> 실패: <서버 message 원문>」(err ·
  * `role="alert"`) 또는 「<서버> 미반영: <사유>」(warn) — 서버 문구는 바꾸거나 대조하지 않는다(IPMAC-03 · D-12). HTTP 오류도 같은 자리.
- * 편집 저장에서 온 결과 칩은 `source: "edit"` 로 표시해 영역 하단 `BusyLines` 에 다시 띄우지 않는다(칩 · title 은 그대로).
+ * 편집 저장에서 온 결과 칩은 `source: "edit"` 로 표시해 영역 하단 `BusyLines` 에 다시 띄우지 않는다(칩 · title 은 그대로). 단 카드 결과 줄이
+ * 지워지면(「취소」 · 다시 「편집」 · 입력 변경) 그 표시를 떼어 `BusyLines` 로 돌려보낸다 — 서버 문구가 화면에서 사라지지 않게(30 WR-04 · 터치 기기는 title 을 못 본다).
  * 이름 저장 성공 뒤 재조회 전의 서버 토글은 새 이름을 싣는다(`editSave.value` — 옛 이름으로 되돌리지 않는다). 저장 **비행 중**에는 싣지 않고
  * (실패하면 확정되지 않은 이름이 토글로 새어 들어간다 — 30 WR-03), 그동안 그 카드의 서버 토글 · 주문 서버 · 「제거」 를 잠근다(입력칸 readOnly 와 같이).
  *
@@ -181,7 +182,10 @@ export interface ChipView {
   tone: ReflectTone;
   message: string | null;
   label: string | null;
-  /** 카드 편집 저장에서 온 칩 — 그 실패는 카드 결과 줄이 말하므로 영역 하단 `BusyLines` 에 다시 띄우지 않는다(Phase 30 UI-SPEC §4). */
+  /**
+   * 카드 편집 저장에서 온 칩 — 그 실패는 카드 결과 줄이 말하므로 영역 하단 `BusyLines` 에 다시 띄우지 않는다(Phase 30 UI-SPEC §4).
+   * 카드 결과 줄이 지워지는 순간(「취소」 · 다시 「편집」 · 입력 변경) 이 표시를 뗀다(`releaseEditChips` · 30 WR-04) — 그 뒤엔 `BusyLines` 가 말한다.
+   */
   source?: "edit";
 }
 
@@ -313,6 +317,21 @@ function applyAccountResults(
     next.set(slotKey(accountKey, r.server), source ? { ...chip, source } : chip);
   }
   return next;
+}
+
+/**
+ * 계좌 1개의 편집 저장 칩에서 `source` 표시를 뗀다(30 WR-04) — 카드 결과 줄이 지워진 뒤에는 `BusyLines` 가 그 문구를 다시 말한다.
+ * 뗄 것이 없으면 `prev` 그대로(입력마다 불려도 부모가 다시 그리지 않는다).
+ */
+function releaseEditChips(prev: Overlay, accountKey: string): Overlay {
+  const prefix = `${accountKey}|`;
+  let next: Map<string, ChipView> | null = null;
+  for (const [slot, chip] of prev) {
+    if (chip.source !== "edit" || !slot.startsWith(prefix)) continue;
+    next ??= new Map(prev);
+    next.set(slot, { tone: chip.tone, message: chip.message, label: chip.label });
+  }
+  return next ?? prev;
 }
 
 /** 카드 편집 저장 결과 줄 1개(UI-SPEC §4) — err 실패 · 응답 없음 / warn 미반영. */
@@ -512,6 +531,8 @@ interface AccountRowProps {
   onEditStart: () => void;
   onEditEnd: () => void;
   onResults: (accountKey: string, results: readonly AdminServerResult[], source?: "edit") => void;
+  /** 카드 결과 줄이 지워짐 — 그 계좌 편집 저장 칩을 `BusyLines` 로 돌려보낸다(30 WR-04). */
+  onEditResultsCleared: (accountKey: string) => void;
   onChanged: () => void;
   onRemoveLast: () => void;
 }
@@ -576,6 +597,7 @@ function AccountRow({
   onEditStart,
   onEditEnd,
   onResults,
+  onEditResultsCleared,
   onChanged,
   onRemoveLast,
 }: AccountRowProps) {
@@ -596,6 +618,8 @@ function AccountRow({
   const clearEditResult = () => {
     setEditLines([]);
     setEditErrorShown(false);
+    // 30 WR-04 — 카드 결과 줄이 사라지면 편집 저장 칩의 문구는 영역 하단 BusyLines 가 이어 말한다.
+    onEditResultsCleared(key);
   };
 
   // 카드 저장 1건(D-02) — 서버 일부 실패도 HTTP 성공이라 onSuccess 가 불린다: 전부 ok 일 때만 편집을 닫는다.
@@ -1327,6 +1351,7 @@ export function AccountEditor({
 
   const onResults = (accountKey: string, results: readonly AdminServerResult[], source?: "edit") =>
     setOverlay((prev) => applyAccountResults(prev, accountKey, results, source));
+  const onEditResultsCleared = (accountKey: string) => setOverlay((prev) => releaseEditChips(prev, accountKey));
 
   const serverKeysOf = (broker: DmaBroker) =>
     servers.filter((s) => s.broker === broker && s.enabled).map((s) => s.key);
@@ -1340,7 +1365,7 @@ export function AccountEditor({
   const nextPriority = Math.min(999, accounts.reduce((m, a) => Math.max(m, a.priority), 0) + 1);
 
   // BUSY 줄 — 지금 그려진 실패 칩(결과 덮개가 개요보다 앞선다). 카드 편집 저장 칩(source "edit")은 카드 결과 줄이 이미 말한다 —
-  // 두 번 띄우지 않는다(칩 · title 은 그대로 · UI-SPEC §4).
+  // 두 번 띄우지 않는다(칩 · title 은 그대로 · UI-SPEC §4). 카드 결과 줄이 지워지면 표시가 떨어져 여기로 돌아온다(30 WR-04).
   const shownChips: { serverKey: string; tone: ReflectTone; message: string | null }[] = [];
   for (const a of editable) {
     const k = accountKeyOf(a.broker, a.accountNo);
@@ -1374,6 +1399,7 @@ export function AccountEditor({
             onEditStart={() => setEditingKey(k)}
             onEditEnd={() => setEditingKey((cur) => (cur === k ? null : cur))}
             onResults={onResults}
+            onEditResultsCleared={onEditResultsCleared}
             onChanged={onChanged}
             onRemoveLast={onRemoveLast}
           />

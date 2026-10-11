@@ -988,6 +988,48 @@ describe('P30 저장 결과 — 서버 문구 원문 · 중복 없음 (D-06 · I
     expect(nameInput()).toHaveValue('위탁');
   });
 
+  it('(30 WR-04) 부분 실패 뒤 「취소」 → 카드 결과 줄 대신 영역 하단 BusyLines 가 서버 문구를 이어 말한다 · 다시 「편집」 해도 유지', async () => {
+    putDmaAccountMock.mockResolvedValue({
+      results: [
+        { server: 'KB120', outcome: 'ok' },
+        { server: 'KB121', outcome: 'failed', code: 13, message: GH_TRADE_C13 },
+      ],
+    });
+    mount();
+    const busyWith = () =>
+      [...document.querySelectorAll('[data-slot="admin-busy-line"]')].filter((l) => (l.textContent ?? '').includes(GH_TRADE_C13));
+    editAndSave();
+    await waitFor(() => expect(resultLines()).toHaveLength(1));
+    expect(busyWith()).toHaveLength(0);
+    fireEvent.click(btn(CANCEL));
+    expect(resultLines()).toHaveLength(0);
+    expect(busyWith()).toHaveLength(1);
+    expect(busyWith()[0]).toHaveAttribute('data-tone', 'err');
+    expect(busyWith()[0]?.textContent).toBe(`KB121 실패 · BUSY: ${GH_TRADE_C13} — 정리 뒤 「다시 반영」`);
+    // 칩 title 은 그대로
+    const bad = pill('12345678901', 'KB121').querySelector('[data-slot="reflect-chip"]') as HTMLElement;
+    expect(bad).toHaveAttribute('title', GH_TRADE_C13);
+    fireEvent.click(btn(EDIT));
+    expect(resultLines()).toHaveLength(0);
+    expect(busyWith()).toHaveLength(1);
+  });
+
+  it('(30 WR-04) 부분 실패 뒤 입력을 고쳐 카드 결과 줄이 지워지면 BusyLines 가 이어 말한다', async () => {
+    putDmaAccountMock.mockResolvedValue({
+      results: [
+        { server: 'KB120', outcome: 'ok' },
+        { server: 'KB121', outcome: 'failed', code: 13, message: GH_TRADE_C13 },
+      ],
+    });
+    mount();
+    editAndSave();
+    await waitFor(() => expect(resultLines()).toHaveLength(1));
+    fireEvent.change(nameInput(), { target: { value: '위탁종합1' } });
+    expect(resultLines()).toHaveLength(0);
+    const busy = [...document.querySelectorAll('[data-slot="admin-busy-line"]')].map((l) => l.textContent);
+    expect(busy).toEqual([`KB121 실패 · BUSY: ${GH_TRADE_C13} — 정리 뒤 「다시 반영」`]);
+  });
+
   it('(Pitfall 4) 계좌명 저장 성공 직후 · 재조회 전 서버 토글 → 토글 PUT 의 account.name 은 새 이름', async () => {
     putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }] });
     mount([withEp(KB_ACCT, { KB120: EP_A }), KYOBO_ACCT]);
