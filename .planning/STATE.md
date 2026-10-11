@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 30
 current_phase_name: 인박스 KB 계좌별 주문자 IP/MAC
 status: executing
-stopped_at: Completed 30-08-PLAN.md
-last_updated: "2026-10-11T08:03:17.329Z"
+stopped_at: Completed 30-09-PLAN.md
+last_updated: "2026-10-11T08:14:55.271Z"
 last_activity: 2026-10-11
 last_activity_desc: Phase 30 execution started
-state_head: 32d7ed15801eafa60408b620dfd3714a72e868ab
+state_head: 6e02ea701aef18fca1143885862e0cf011b819af
 progress:
   total_phases: 2
   completed_phases: 0
   total_plans: 9
-  completed_plans: 7
+  completed_plans: 8
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-11 after v1.1 milestone start)
 ## Current Position
 
 Phase: 30 (인박스 KB 계좌별 주문자 IP/MAC) — EXECUTING
-Plan: 8 of 9
+Plan: 9 of 9
 Status: Ready to execute
 Last activity: 2026-10-11 — Phase 30 execution started
 
@@ -78,8 +78,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-11T08:03:03.035Z
-Stopped at: Completed 30-08-PLAN.md
+Last session: 2026-10-11T08:14:49.049Z
+Stopped at: Completed 30-09-PLAN.md
 Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 
 ## Operator Next Steps
@@ -98,6 +98,7 @@ Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 | Phase 30 P05 | 4 min | 2 tasks | 2 files |
 | Phase 30 P06 | 13 min | 2 tasks | 3 files |
 | Phase 30 P08 | 7min | 3 tasks | 6 files |
+| Phase 30 P09 | 9 min | 3 tasks | 9 files |
 
 ## Decisions
 
@@ -119,3 +120,5 @@ Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 - [Phase 30]: 30-06: e2e 목 PUT accounts 는 shared normalizeOrderIp/Mac 로 서버 정규화를 흉내(규칙 한 벌) · 이름 · IP/MAC 만 반영 · 형식/짝 오류는 서버마다 code 13
 - [Phase 30]: 30-08: IP/MAC 표시 표기(D-17)는 렌더 자리 전용 shared formatOrderIp/Mac(형식 밖 원문 · 왕복 항등) — 전송 · summarize · relay · server 는 정규화값
 - [Phase 30]: 30-08: editSaveBodyOf 「보낼지」 는 칸 값 · 초깃값(표시 표기) 양쪽 정규화 비교 · 저장 버튼 「바뀜」 은 원문 비교 그대로
+- [Phase 30]: 30-09: 공유 계좌 판정은 shared findSharedAccountHolders 한 벌(개요 데이터만 · 증권사 · 정규화 계좌번호 · 상대 active 등록 ∪ serverOnlyOn 과 이 계좌 저장 서버의 겹침) — 웹은 KB 편집 모드 안내 줄만, 동시 반영은 gh-trade op 3 전파 몫
+- [Phase 30]: 30-09: code 7 은 특수 처리 없이 결과 줄 「<서버> 실패: <서버 원문>」 — gh-trade 46a10ce9 의 넓힌 문구도 웹 변경 없음 · relay/server 무변경(30-07 은 webapp push 만)

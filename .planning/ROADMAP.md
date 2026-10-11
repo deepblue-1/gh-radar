@@ -77,7 +77,7 @@
   7. 같은 KB 계좌를 다른 DMA 사용자도 쓰면 그 계좌 「편집」 에 함께 쓰는 사용자 안내가 보이고, 저장 성공 뒤 그 사용자 카드도 새 IP/MAC 으로 다시 그려진다(D-18 · 2026-10-11 추가) — 서버 쪽 동시 반영은 gh-trade 261011 몫이라 실서버 저장 성공 확인은 gh-trade 배포 뒤(phase 완료를 막지 않는다)
 
 **배포 순서**: DB 변경 없음 → relay(R3-01) 배포·확인(20:00 KST 이후) → server(Cloud Run — zod 가 `orderEndpoint` 를 버리므로 필수) → webapp push(= 프로덕션) — 백엔드 막히면 push 금지. 첫 배포 완료(2026-10-11 · relay:2234a1b5 · server 00061-fvv) — 갭 클로징(30-08 · 30-09)은 relay · server 무변경이면 webapp push 만
-**Plans**: 7/9 plans executed
+**Plans**: 8/9 plans executed
 Plans:
 **Wave 1**
 - [x] 30-01-PLAN.md — (트레이서) orderEndpoint 쓰기 경로 Express → relay → op 3 · R3-01 op 5 재조회(D-15) · R3-02 다른 유저 IP/MAC 되싣기(D-16)
@@ -97,7 +97,7 @@ Plans:
 - [x] 30-08-PLAN.md — (갭) IP/MAC 표시 표기(D-17): shared formatOrderIp · formatOrderMac · 읽기 줄 · 불일치 줄 · 편집 초깃값 · 양쪽 정규화 비교 · E2E 기대 갱신
 
 **Wave 6** *(blocked on Wave 5 completion)* — 갭 클로징(30-UAT gap 2)
-- [ ] 30-09-PLAN.md — (갭) 공유 계좌 안내(D-18): shared findSharedAccountHolders · 편집 모드 「함께 쓰는 사용자」 줄 · 개요 결선 · 저장 뒤 재조회 · code 7 원문 · drift 고정 · E2E
+- [x] 30-09-PLAN.md — (갭) 공유 계좌 안내(D-18): shared findSharedAccountHolders · 편집 모드 「함께 쓰는 사용자」 줄 · 개요 결선 · 저장 뒤 재조회 · code 7 원문 · drift 고정 · E2E
 
 **Wave 7** *(blocked on Wave 6 completion)*
 - [ ] 30-07-PLAN.md — 배포(첫 배포 완료 기록 · 갭 클로징 webapp push) · 실서버 재확인(D-17 · D-18 · 공유 저장은 gh-trade 대기) · 인박스 261010 회신(① 261011 요청) · done
@@ -128,5 +128,5 @@ Plans:
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 30. 인박스 KB 계좌별 주문자 IP/MAC | v1.1 | 7/9 | Not started | - |
+| 30. 인박스 KB 계좌별 주문자 IP/MAC | v1.1 | 8/9 | Not started | - |
 | 31. 인박스 상따 금액 단위 | v1.1 | 0/TBD | Not started | - |
