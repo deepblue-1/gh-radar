@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 31
 current_phase_name: 인박스 상따 금액 단위
 status: executing
-stopped_at: Completed 31-03-PLAN.md
-last_updated: "2026-10-11T14:37:37.497Z"
+stopped_at: Completed 31-04-PLAN.md
+last_updated: "2026-10-11T15:00:38.685Z"
 last_activity: 2026-10-11
 last_activity_desc: Phase 31 execution started
-state_head: f64b6fc724c764cab8f19f940929d85f35b3215d
+state_head: a9f2b9985b5c09bd4d5bfc509b29b35583d20542
 progress:
   total_phases: 2
   completed_phases: 0
   total_plans: 15
-  completed_plans: 9
+  completed_plans: 10
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-11 after v1.1 milestone start)
 ## Current Position
 
 Phase: 31 (인박스 상따 금액 단위) — EXECUTING
-Plan: 4 of 8
+Plan: 5 of 8
 Status: Ready to execute
 Last activity: 2026-10-11 — Phase 31 execution started
 
@@ -78,8 +78,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-11T14:37:31.901Z
-Stopped at: Completed 31-03-PLAN.md
+Last session: 2026-10-11T15:00:38.661Z
+Stopped at: Completed 31-04-PLAN.md
 Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 
 ## Operator Next Steps
@@ -100,6 +100,7 @@ Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 | Phase 31 P01 | 21 min | 3 tasks | 25 files |
 | Phase 31 P02 | 6min | 2 tasks | 6 files |
 | Phase 31 P03 | 13 min | 2 tasks | 12 files |
+| Phase 31 P04 | 19min | 3 tasks | 11 files |
 
 ## Decisions
 
@@ -124,3 +125,6 @@ Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 - [Phase 31]: 31-03: 구 탭 11값 user.settings.set 의 후매수 최소는 relay 가 그 사용자 마지막 84 캐시에서 되싣고, 캐시가 없으면 저장하지 않고 비종료 거부(USER_SETTINGS_FLOOR_UNKNOWN_TEXT · 소켓 유지)
 - [Phase 31]: 31-03: 42 조립기는 봉인 post_buy_floor_qty 를 입력 무관 0 으로 싣는다 — 입력 타입은 그대로(구 탭 호환)
 - [Phase 31]: 31-03: /me 는 금액 키가 없는 84(구 relay)를 미수신과 같게 접는다(usableUserSettingsOf · 같은 객체 참조)
+- [Phase 31]: 31-04: 제출 주 산출은 lcSubmitQtyOf(values, 금액 키, server, price?) 한 함수 — buildCfg 8쌍 루프 · 무장 판정 · 자동 체크 공용(31-01 SELL_WATCH_PAIR 일반화)
+- [Phase 31]: 31-04: 상장주식수 시딩은 만원 · 매수 비교가 0 이면 가드 미소진(C# 순서 — 서버 전략이면 먼저 소진) · 매도 비교가 0 이면 매도 체결만 생략
+- [Phase 31]: 31-04: 수량 칸 위 줄은 0 도 「0만」 — 의미어(무제한 · 1주 · 없음)는 lcAmountZeroWordOf(요약 · 31-06 아래 줄)
