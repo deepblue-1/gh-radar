@@ -293,6 +293,82 @@ describe("planServerOps — 주문자 IP/MAC 되싣기 (GC-02 · 29-47)", () => 
   });
 });
 
+describe("R3-02 — 다른 유저의 같은 계좌 IP/MAC 되싣기 (D-16)", () => {
+  // gh-trade code 7 범위(인박스 261010) — 다른 사용자의 같은 계좌는 branch/trader 뿐 아니라 order_ip/order_mac 도 같아야 한다.
+  // 그래서 이 유저 87 에 없는 계좌는 같은 87 다른 유저의 같은 정규화 계좌번호 값을 되싣는다. 다른 유저에는 op 를 만들지 않는다(D-11).
+  const IP = "010041001124";
+  const MAC = "1CFD087D978E";
+  const U1_A: AdminAccountFields = { ...A1, orderIp: IP, orderMac: MAC };
+
+  /** U2 의 계획 — 87 에 U1(A 보유) 과 (있으면) U2. */
+  function planU2(active: AdminAccountFields[], u2Accounts: AdminAccountFields[] | null, u1Accounts: AdminAccountFields[] = [U1_A]) {
+    return planServerOps({
+      dmaUserId: "u2",
+      serverKey: "KB120",
+      intent: active.map((a) => intentRow(a, { dmaUserId: "u2" })),
+      snapshot: {
+        users: [
+          { userId: "u1", accounts: u1Accounts },
+          ...(u2Accounts === null ? [] : [{ userId: "u2", accounts: u2Accounts }]),
+        ],
+      },
+    });
+  }
+
+  it("U2 가 87 에 없음 · 의도 [A] → op 1 A 에 U1 의 IP/MAC", () => {
+    expect(planU2([A1], null).ops).toEqual([{ op: 1, account: { ...A1, orderIp: IP, orderMac: MAC } }]);
+  });
+
+  it("U2 87 에 [B] 만 · 의도 [A, B] → op 3 A 에 U1 의 IP/MAC", () => {
+    expect(planU2([A1, A2], [{ ...A2 }]).ops).toEqual([{ op: 3, account: { ...A1, orderIp: IP, orderMac: MAC } }]);
+  });
+
+  it("U2 의도 A 에 orderIp/orderMac(override)이 있으면 override 가 이긴다", () => {
+    const overridden = { ...A1, orderIp: "10.41.1.200", orderMac: "aa:bb:cc:dd:ee:ff" };
+    expect(planU2([overridden], [{ ...A2 }]).ops).toEqual([{ op: 3, account: overridden }]);
+  });
+
+  it("U2 자기 87 에 A 가 있으면(값 변경 op 3) 자기 값 — 다른 유저 값이 아니다", () => {
+    const own = { ...A1, orderIp: "010041001999", orderMac: "112233445566" };
+    const renamed = { ...A1, name: "위탁종합" };
+    expect(planU2([renamed], [own]).ops).toEqual([
+      { op: 3, account: { ...renamed, orderIp: "010041001999", orderMac: "112233445566" } },
+    ]);
+  });
+
+  it("다른 유저의 A 가 IP/MAC 이 비어 있으면 빈 문자열(폴백 없음)", () => {
+    expect(planU2([A1], [{ ...A2 }], [{ ...A1 }]).ops).toEqual([{ op: 3, account: sent(A1) }]);
+  });
+
+  it("다른 유저 계좌번호가 비정규(앞 0)여도 정규화 키로 찾는다", () => {
+    expect(planU2([A1], null, [{ ...U1_A, accountNo: "001234567" }]).ops).toEqual([
+      { op: 1, account: { ...A1, orderIp: IP, orderMac: MAC } },
+    ]);
+  });
+
+  it("계획의 op 는 전부 U2 몫이다 — U1 계좌를 겨냥한 op 2 · op 3 · op 4 가 없다(D-11)", () => {
+    // U2 87 에 [B, X] · 의도 active [A] · removing [B] — U1 은 A · A3 를 갖고 있다.
+    const p = planServerOps({
+      dmaUserId: "u2",
+      serverKey: "KB120",
+      intent: [intentRow(A1, { dmaUserId: "u2" }), intentRow(A2, { dmaUserId: "u2", state: "removing" })],
+      snapshot: {
+        users: [
+          { userId: "u1", accounts: [U1_A, { ...A3, orderIp: IP, orderMac: MAC }] },
+          { userId: "u2", accounts: [{ ...A2 }, { ...X }] },
+        ],
+      },
+    });
+    expect(p.ops).toEqual([
+      { op: 3, account: { ...A1, orderIp: IP, orderMac: MAC } },
+      { op: 4, accountNo: A2.accountNo },
+    ]);
+    // U1 의 다른 계좌(A3) · 87 전용 X 를 겨냥한 op 는 없다 — op 2 도 없다.
+    expect(p.ops.some((o) => o.op === 2)).toBe(false);
+    expect(p.ops.filter((o) => o.op === 3 || o.op === 1).map((o) => ("account" in o ? o.account.accountNo : ""))).toEqual([A1.accountNo]);
+  });
+});
+
 describe("planPasswordOps — 비밀번호만 op 1", () => {
   it("87 에 유저 있음 → op 1 passwordOnly", () => {
     expect(
