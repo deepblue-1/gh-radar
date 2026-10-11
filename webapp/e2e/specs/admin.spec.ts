@@ -7,8 +7,8 @@ import {
   ADMIN_LONG_ACCOUNT_NAME,
   ADMIN_LONG_NAME_ACCOUNT,
   ADMIN_MISMATCH_ACCOUNT,
-  ADMIN_ORDER_IP,
-  ADMIN_ORDER_MAC,
+  ADMIN_ORDER_IP_DISPLAY,
+  ADMIN_ORDER_MAC_DISPLAY,
   ADMIN_USERS_FIXTURE,
   ADMIN_USERS_FIXTURE_P30,
   mockAdminApi,
@@ -37,7 +37,7 @@ import { leavesOverflowing, scrollOverflowing } from '../overflow';
  *
  * ⑤ Phase 30 — KB 계좌별 주문자 IP/MAC(P30-E1 ~ E5 · `ADMIN_USERS_FIXTURE_P30` · 픽스처 머리 주석 ⑤)
  *   읽기 카드 IP/MAC 줄(설정 · 미설정 · 불일치 · 교보 없음) → 카드 편집 → 원문 저장(PUT 1건 · orderEndpoint 원문 · 목이 shared 로
- *   정규화) → 재조회 뒤 정규화 표기 → 같은 값을 다른 표기로 다시 저장하면 요청 없이 「변경 없음」. 클라 짝 검증 · code 13 원문 결과 줄 ·
+ *   정규화) → 재조회 뒤 표시 표기(D-17) → 같은 값을 다른 표기로 다시 저장하면 요청 없이 「변경 없음」. 클라 짝 검증 · code 13 원문 결과 줄 ·
  *   한 카드 잠금 · 계좌명 편집 · 「+ 계좌 추가」 무변경(D-08). UI-SPEC backstop 3종(E1 overflow · E2 long-text · E4 overflow)은 스크린샷이
  *   아니라 단언으로 잠근다.
  */
@@ -719,7 +719,7 @@ const ALEX = 'alex@example.invalid';
 const ALEX_KB = '11122233301';
 const ALEX_KYOBO = '5556667701';
 const KIM_KYOBO = '9876543201';
-const IPMAC_SET = `주문자 IP ${ADMIN_ORDER_IP} · MAC ${ADMIN_ORDER_MAC}`;
+const IPMAC_SET = `주문자 IP ${ADMIN_ORDER_IP_DISPLAY} · MAC ${ADMIN_ORDER_MAC_DISPLAY}`;
 const IPMAC_UNSET = '주문자 IP · MAC 미설정(서버 NIC 값)';
 const PAIR_INVALID = 'IP 와 MAC 은 둘 다 적거나 둘 다 비워 주세요';
 
@@ -759,7 +759,7 @@ for (const vp of VIEWPORTS) {
     await page.goto('/admin/users');
     const sheet = await openUserSheet(page, ALEX);
 
-    // 설정 · 일치 — 87 정규화값 그대로 · 불일치 줄 없음
+    // 설정 · 일치 — 87 값의 표시 표기(D-17) · 불일치 줄 없음
     const setCard = accountCard(sheet, ALEX_KB);
     const setLine = setCard.locator('[data-slot="admin-account-ipmac"]');
     await expect(setLine).toHaveText(IPMAC_SET);
@@ -767,7 +767,7 @@ for (const vp of VIEWPORTS) {
 
     // 불일치 — 출처(기본 주문 서버 KB120) 값 · 다른 서버 한 줄
     const mmCard = accountCard(sheet, ADMIN_MISMATCH_ACCOUNT);
-    await expect(mmCard.locator('[data-slot="admin-account-ipmac"]')).toHaveText('주문자 IP 010041001125 · MAC 1CFD087D978F');
+    await expect(mmCard.locator('[data-slot="admin-account-ipmac"]')).toHaveText('주문자 IP 10.41.1.125 · MAC 1C:FD:08:7D:97:8F');
     const mmLine = mmCard.locator('[data-slot="admin-account-ipmac-mismatch"]');
     await expect(mmLine).toHaveCount(1);
     await expect(mmLine).toHaveAttribute('data-server', 'KB121');
@@ -835,7 +835,7 @@ for (const vp of VIEWPORTS) {
 }
 
 for (const vp of VIEWPORTS) {
-  test(`P30-E2 편집 → IP/MAC 저장 → 정규화 표기 · 변경 없음 (${vp.name})`, async ({ page }, testInfo) => {
+  test(`P30-E2 편집 → IP/MAC 저장 → 표시 표기 · 변경 없음 (${vp.name})`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: vp.width, height: vp.height });
     const api = await mockAdminApi(page, { users: ADMIN_USERS_FIXTURE_P30 });
 
@@ -891,17 +891,17 @@ for (const vp of VIEWPORTS) {
       },
     });
 
-    // 편집이 닫히고 재조회 값(목이 shared 로 정규화)이 정규화 표기로 다시 그려진다
+    // 편집이 닫히고 재조회 값(목이 shared 로 정규화해 저장)이 표시 표기(D-17)로 다시 그려진다
     await expect(form).toHaveCount(0);
     await expect(line).toHaveText(IPMAC_SET);
     await expect(card.locator('[data-slot="admin-account-ipmac-mismatch"]')).toHaveCount(0);
 
-    // 같은 값을 다른 표기로 다시 적고 저장 → 요청 없음 · 「변경 없음」
+    // 초깃값은 표시 표기 · 같은 값을 다른 표기(12자리 · 구분자 없는 소문자)로 다시 적고 저장 → 요청 없음 · 「변경 없음」
     await card.getByRole('button', { name: `KB ${KIM_KB} 편집`, exact: true }).click();
-    await expect(ip).toHaveValue(ADMIN_ORDER_IP);
-    await expect(mac).toHaveValue(ADMIN_ORDER_MAC);
-    await ip.fill('10.41.1.124');
-    await mac.fill('1c:fd:08:7d:97:8e');
+    await expect(ip).toHaveValue(ADMIN_ORDER_IP_DISPLAY);
+    await expect(mac).toHaveValue(ADMIN_ORDER_MAC_DISPLAY);
+    await ip.fill('010041001124');
+    await mac.fill('1cfd087d978e');
     await expect(save).toBeEnabled();
     await save.click();
     await expect(form).toHaveCount(0);

@@ -40,6 +40,7 @@ import {
  *   `PUT /dma-users/:dma/accounts` 는 상태 계좌의 이름을 바꾸고, `orderEndpoint` 가 있으면 **shared 정규화(서버 규칙 한 벌 — 규칙 두
  *   벌 금지)** 로 서버처럼 처리한다 — 둘 다 성공 · 짝이 맞으면 그 계좌 active 등록 서버 전부에 정규화값을 적고 ok, 아니면 상태를
  *   바꾸지 않고 서버마다 failed code 13 + gh-trade 원문(`ADMIN_CODE13_MESSAGE`). 서버 집합은 바꾸지 않는다(P29 토글은 onRequest 몫).
+ *   목 상태 · PUT 저장은 87 정규화값이고, 카드는 그 값을 표시 표기(D-17 — `ADMIN_ORDER_IP_DISPLAY` · `ADMIN_ORDER_MAC_DISPLAY`)로 그린다.
  */
 
 export const ADMIN_SERVER_KEYS = ['KB120', 'KB121', 'KYOBO119', 'KYOBO127'] as const;
@@ -163,9 +164,12 @@ export const ADMIN_USERS_FIXTURE: AdminUsersOverview = {
 export const ADMIN_CODE13_MESSAGE =
   '주문자 IP/MAC 형식 오류 — IP 는 12자리 숫자 또는 a.b.c.d, MAC 은 12자리 16진, 둘 다 적거나 둘 다 비워야 합니다';
 
-/** 87 정규화값(설정 · 일치 계좌) — 카드는 이 값을 그대로 그린다(재정규화 금지). */
+/** 87 값(설정 · 일치 계좌 · 정규화값) — 카드는 표시 표기(D-17 · 아래 `*_DISPLAY`)로 그린다. */
 export const ADMIN_ORDER_IP = '010041001124';
 export const ADMIN_ORDER_MAC = '1CFD087D978E';
+/** 위 87 값의 표시 표기(D-17 · shared `formatOrderIp/Mac`) — 읽기 줄 · 편집칸 초깃값. */
+export const ADMIN_ORDER_IP_DISPLAY = '10.41.1.124';
+export const ADMIN_ORDER_MAC_DISPLAY = '1C:FD:08:7D:97:8E';
 
 /** 불일치 계좌 — KB120 설정 · KB121 미설정(D-10 경고 줄 1개). */
 export const ADMIN_MISMATCH_ACCOUNT = '11122233302';
