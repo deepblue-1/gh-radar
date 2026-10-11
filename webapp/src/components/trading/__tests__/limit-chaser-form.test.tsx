@@ -4137,3 +4137,247 @@ describe('P31 수량 8칸 만원 — cfg 8쌍 되싣기 · 비교가 변경 재�
     expect(lastConfig().cancelWatchAmount).toBe(amountFromQty(1554, P));
   });
 });
+
+/**
+ * Phase 31 31-06 Task 1 — 등록(무장) 차단 D-03 · D-04 · UI-SPEC 「등록 차단 문구」 표 1~8.
+ * 문장은 C# `LimitChaserForm.cs` 5153~5296 원문이고 판정 순서도 그 표 순서(첫 일치 하나)다. 예시 수치는 UI-SPEC 정정표
+ * (127,400원 · 12만 → 0주 / 13만 → 1주 경계).
+ */
+describe('P31 등록 차단 (D-03 · D-04 · UI-SPEC 표 1~8)', () => {
+  const BUY_AMOUNT_TEXT = '매수 비교가격이 0 입니다 — 금액(만원)을 주로 환산할 수 없습니다. 매수 비교가격을 입력하세요.';
+  const SELL_AMOUNT_TEXT = '매도 비교가격이 0 입니다 — 금액(만원)을 주로 환산할 수 없습니다. 매도 비교가격을 입력하세요.';
+  const EXTRA_MAX_TEXT =
+    '줄매수 최대가 0주로 환산됩니다 — 0 은 무제한이라 의도와 반대로 동작합니다. 최대 금액을 늘리거나 0(무제한) 으로 하세요.';
+  const PRE_TRADE_TEXT =
+    '선매수 체결량이 0주로 환산됩니다 — 0주면 매수 비교가격의 첫 체결부터 매수가 나갑니다. 체결량 금액을 늘리거나 ☐체결량을 끄세요.';
+  const SELL_TRADE_TEXT =
+    '매도 체결수량이 0주로 환산됩니다 — 0주면 매도 비교가격의 첫 매도체결부터 매도가 나갑니다. 체결 금액을 늘리거나 매도 ☐체결을 끄세요.';
+  const CANCEL_QTY_TEXT =
+    '취소 잔량이 0 입니다. 취소:잔량은 매도 비교가격의 매수잔량이 이 값 이하로 빠지면 미체결을 취소하므로 0 이면 의미가 없습니다. 취소 잔량을 확인하세요.';
+  const CANCEL_TRADE_TEXT =
+    '취소:체결 은 매도 옵션의 체결수량 칸을 임계로 재사용합니다. 그 값이 0 이면 매도 비교가격의 매 매도체결마다 취소가 나가므로 서버가 켜 주지 않습니다. 매도 체결수량을 확인하세요.';
+  const P = 127_400;
+  const reasons = (side: 'buy' | 'sell') =>
+    Array.from(pane(side).querySelectorAll('[data-slot="lc-arm-blocked"]')).map((li) => li.textContent);
+  /** 전송 직전 판정을 부른다 — 매수 공통 카드 주문가격(접기 없음) 확정 · 막히면 편집 말풍선이 그 문장을 말한다. */
+  const commitAny = () => editInline('lc-buy-order-price', '129000');
+
+  it('1 — 매수주문 · 선매수 켬 · 매도잔량 1,000만 · 매수 비교가 0 → 「매수주문 · 매수 비교가격이 0 입니다 — …」 · 전송 0', () => {
+    render(
+      <LimitChaserForm
+        {...props({
+          server: echo({ preBuyEnabled: true, buyWatchPrice: 0, buyWatchAmount: 1000, buyWatchQty: 0 }),
+        })}
+      />,
+    );
+    commitAny();
+    expect(sentConfigs()).toHaveLength(0);
+    expect(screen.getByText(`매수주문 · ${BUY_AMOUNT_TEXT}`)).toBeInTheDocument();
+  });
+
+  it('1 아님 — 선매수 꺼짐 · 줄매수 · 후매수 금액 칸 0 이면 기존 비교가 0 문장 경로다', () => {
+    render(
+      <LimitChaserForm
+        {...props({
+          server: echo({ preBuyEnabled: false, buyWatchPrice: 0, buyWatchAmount: 1000, buyWatchQty: 0 }),
+        })}
+      />,
+    );
+    commitAny();
+    expect(sentConfigs()).toHaveLength(0);
+    expect(
+      screen.getByText('매수주문 · 시세를 받지 못해 비교가격이 0 이에요. 비교가격을 입력하면 켤 수 있어요.'),
+    ).toBeInTheDocument();
+  });
+
+  it('2 — 매도주문 켬 · 매도 매수잔량 1,500만 · 매도 비교가 0 → 접두 없는 「매도 비교가격이 0 입니다 — …」', () => {
+    render(
+      <LimitChaserForm
+        {...props({ server: echo({ sellEnabled: true, sellWatchPrice: 0, sellWatchAmount: 1500, sellWatchQty: 0 }) })}
+      />,
+    );
+    commitAny();
+    expect(sentConfigs()).toHaveLength(0);
+    expect(screen.getByText(SELL_AMOUNT_TEXT)).toBeInTheDocument();
+  });
+
+  it('2 (WR-05) — 매도주문 꺼짐이어도 후매수 자동 · 매도 ☐체결 · 체결 500만 · 매도 비교가 0 이면 같은 문장', () => {
+    render(
+      <LimitChaserForm
+        {...props({
+          server: echo({
+            sellEnabled: false,
+            postBuyAuto: true,
+            sellTradeQtyEnabled: true,
+            sellMinTradeAmount: 500,
+            sellMinTradeQty: 0,
+            sellWatchPrice: 0,
+          }),
+        })}
+      />,
+    );
+    commitAny();
+    expect(sentConfigs()).toHaveLength(0);
+    expect(screen.getByText(SELL_AMOUNT_TEXT)).toBeInTheDocument();
+  });
+
+  it('3 — 매도주문 켬 · 매도 매수잔량 12만 @127,400(0주) → 「매도주문 · 매도 매수잔량이 0 이에요. … (12만 → 0주)」', () => {
+    render(
+      <LimitChaserForm
+        {...props({ server: echo({ sellEnabled: true, sellWatchPrice: P, sellWatchAmount: 12, sellWatchQty: 0 }) })}
+      />,
+    );
+    commitAny();
+    expect(sentConfigs()).toHaveLength(0);
+    expect(
+      screen.getByText('매도주문 · 매도 매수잔량이 0 이에요. 감시할 매수잔량을 입력하면 켤 수 있어요. (12만 → 0주)'),
+    ).toBeInTheDocument();
+  });
+
+  it('5 — 줄매수 켬 · 최대 12만 @127,400 → 접미 붙은 0주 문장 · 최대 0(무제한)은 막지 않는다', () => {
+    const extra = { extraBuyEnabled: true, extraBuyOrderAmount: 50, buyWatchPrice: P };
+    const { unmount } = render(
+      <LimitChaserForm {...props({ server: echo({ ...extra, extraBuyMaxAmount: 12, extraBuyMaxQty: 0 }) })} />,
+    );
+    commitAny();
+    expect(sentConfigs()).toHaveLength(0);
+    expect(screen.getByText(`${EXTRA_MAX_TEXT} (12만 → 0주)`)).toBeInTheDocument();
+    unmount();
+    render(<LimitChaserForm {...props({ server: echo({ ...extra, extraBuyMaxAmount: 0, extraBuyMaxQty: 0 }) })} />);
+    commitAny();
+    expect(sentConfigs()).toHaveLength(1);
+  });
+
+  it('6a — 선매수 ☐체결량 켬 · 체결량 12만 @127,400 → 선매수 체결량 0주 문장 + 접미', () => {
+    render(
+      <LimitChaserForm
+        {...props({
+          server: echo({
+            preBuyEnabled: true,
+            buyTradeQtyEnabled: true,
+            buyWatchPrice: P,
+            buyWatchQty: qtyFromAmount(10_000, P),
+            buyMinTradeAmount: 12,
+            buyMinTradeQty: 0,
+          }),
+        })}
+      />,
+    );
+    commitAny();
+    expect(sentConfigs()).toHaveLength(0);
+    expect(screen.getByText(`${PRE_TRADE_TEXT} (12만 → 0주)`)).toBeInTheDocument();
+  });
+
+  it('6b — 매도 켬 · 매도 ☐체결 켬 · 체결 12만 @127,400 → 매도 체결수량 0주 문장 + 접미', () => {
+    render(
+      <LimitChaserForm
+        {...props({
+          server: echo({
+            sellEnabled: true,
+            sellTradeQtyEnabled: true,
+            sellWatchPrice: P,
+            sellWatchAmount: 1500,
+            sellWatchQty: qtyFromAmount(1500, P),
+            sellMinTradeAmount: 12,
+            sellMinTradeQty: 0,
+          }),
+        })}
+      />,
+    );
+    commitAny();
+    expect(sentConfigs()).toHaveLength(0);
+    expect(screen.getByText(`${SELL_TRADE_TEXT} (12만 → 0주)`)).toBeInTheDocument();
+  });
+
+  it('7 — 취소:잔량 켬 · 취소 매수잔량 0 → 접미 없는 취소 잔량 문장 · 12만 @127,400 → 같은 문장 + 접미', () => {
+    const { unmount } = render(
+      <LimitChaserForm {...props({ server: echo({ cancelQtyEnabled: true, cancelWatchAmount: 0, cancelWatchQty: 0 }) })} />,
+    );
+    commitAny();
+    expect(sentConfigs()).toHaveLength(0);
+    expect(screen.getByText(CANCEL_QTY_TEXT)).toBeInTheDocument();
+    unmount();
+    render(
+      <LimitChaserForm
+        {...props({
+          server: echo({ cancelQtyEnabled: true, sellWatchPrice: P, cancelWatchAmount: 12, cancelWatchQty: 0 }),
+        })}
+      />,
+    );
+    commitAny();
+    expect(sentConfigs()).toHaveLength(0);
+    expect(screen.getByText(`${CANCEL_QTY_TEXT} (12만 → 0주)`)).toBeInTheDocument();
+  });
+
+  it('8 — 취소:체결 켬 · 매도 체결 0 → 취소:체결 문장', () => {
+    render(
+      <LimitChaserForm
+        {...props({ server: echo({ cancelTradeEnabled: true, sellMinTradeAmount: 0, sellMinTradeQty: 0 }) })}
+      />,
+    );
+    commitAny();
+    expect(sentConfigs()).toHaveLength(0);
+    expect(screen.getByText(CANCEL_TRADE_TEXT)).toBeInTheDocument();
+  });
+
+  it('첫 일치 하나 — 1 과 5 가 함께 서면 1 만 말한다 · 게이트 4종 OFF(철거)는 막지 않는다', () => {
+    const { unmount } = render(
+      <LimitChaserForm
+        {...props({
+          server: echo({
+            preBuyEnabled: true,
+            buyWatchPrice: 0,
+            buyWatchAmount: 1000,
+            buyWatchQty: 0,
+            extraBuyEnabled: true,
+            extraBuyOrderAmount: 50,
+            extraBuyMaxAmount: 12,
+            extraBuyMaxQty: 0,
+          }),
+        })}
+      />,
+    );
+    commitAny();
+    expect(sentConfigs()).toHaveLength(0);
+    expect(screen.getByText(`매수주문 · ${BUY_AMOUNT_TEXT}`)).toBeInTheDocument();
+    expect(screen.queryByText(new RegExp(`^${EXTRA_MAX_TEXT.slice(0, 20)}`))).toBeNull();
+    unmount();
+    render(
+      <LimitChaserForm
+        {...props({
+          server: echo({
+            buyEnabled: false,
+            preBuyEnabled: true,
+            buyWatchPrice: 0,
+            buyWatchAmount: 1000,
+            buyWatchQty: 0,
+            sellWatchPrice: 0,
+            sellWatchAmount: 1500,
+          }),
+        })}
+      />,
+    );
+    commitAny();
+    expect(sentConfigs()).toHaveLength(1);
+  });
+
+  it('열 아래 「켤 수 없는 이유」 패널이 1 · 3 의 같은 문장을 말한다', () => {
+    const { unmount } = render(
+      <LimitChaserForm
+        {...props({
+          server: echo({ buyEnabled: false, preBuyEnabled: true, buyWatchPrice: 0, buyWatchAmount: 1000, buyWatchQty: 0 }),
+        })}
+      />,
+    );
+    expect(reasons('buy')).toEqual([`매수주문 · 줄매수 · 후매수 · ${BUY_AMOUNT_TEXT}`]);
+    unmount();
+    render(
+      <LimitChaserForm
+        {...props({ server: echo({ sellEnabled: false, sellWatchPrice: P, sellWatchAmount: 12, sellWatchQty: 0 }) })}
+      />,
+    );
+    expect(reasons('sell')).toEqual([
+      '매도주문 · 매도 매수잔량이 0 이에요. 감시할 매수잔량을 입력하면 켤 수 있어요. (12만 → 0주)',
+    ]);
+  });
+});
