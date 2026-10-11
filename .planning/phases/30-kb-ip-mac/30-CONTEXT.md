@@ -44,6 +44,9 @@
 ### R3-01 (IPMAC-01)
 - **D-15: relay 는 op 1/3 을 보내기 직전 그 서버에 op 5(ListUsers)로 87 을 재조회**해 최신 `order_ip`/`order_mac` 으로 계획한다(이번 웹 편집이 IP/MAC 을 실어 보내는 경우는 그 값이 우선 — 기존 planner `withServerEndpoint` 규칙). 배포 확인 뒤 인박스 노트의 「KB 운영 서버 값 설정 보류 권고」를 해제로 적는다.
 
+### R3-02 (plan-phase 중 추가 — 2026-10-11 사용자 결정)
+- **D-16: R3-02 도 이번에 고친다.** 같은 계좌번호가 다른 DMA 유저에 이미 IP/MAC 과 함께 있을 때 「+ 계좌 추가」(op 1) 하면, relay planner 가 D-15 로 새로 받은 87 전체에서 같은 정규화 계좌번호의 `order_ip`/`order_mac` 을 찾아 되싣는다(code 7 회피). 이번 요청에 override 가 있으면 그 값이 우선. D-11(공유 계좌 「편집」 일괄 반영 없음)은 그대로.
+
 ### Claude's Discretion
 - IP/MAC 을 DB 의도에 저장하지 않고 PUT 요청에서 relay planner 로 넘기는 경로 설계(87 이 정본 · DB 변경 없음 제약 안에서)
 - 개요(`AdminAccountView`)에 서버별 `orderIp`/`orderMac` 을 싣는 방식 · 불일치 판정 위치(shared 파생 vs 웹)

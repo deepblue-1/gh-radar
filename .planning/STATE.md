@@ -4,16 +4,16 @@ milestone: v1.1
 milestone_name: 운영 유지보수
 current_phase: 30
 current_phase_name: 인박스 KB 계좌별 주문자 IP/MAC
-status: planning
+status: executing
 stopped_at: Phase 30 UI-SPEC approved
-last_updated: "2026-10-11T05:15:19.720Z"
+last_updated: "2026-10-11T05:58:06.277Z"
 last_activity: 2026-10-11
 last_activity_desc: v1.1 로드맵 생성(Phase 30-31 · IPMAC 4 + AMT 4 매핑, DOCS-01 은 quick)
-state_head: 7649e36fa072ab046292b6b38a70c4581cfd620f
+state_head: b327a0c34045a9be6113dcbce8d2e7f8acb50195
 progress:
   total_phases: 2
   completed_phases: 0
-  total_plans: 0
+  total_plans: 7
   completed_plans: 0
   percent: 0
 ---
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-10-11 after v1.1 milestone start)
 
 ## Current Position
 
-Phase: 30 (인박스 KB 계좌별 주문자 IP/MAC) — READY TO PLAN · v1.1 2개 중 1번째
+Phase: 30 (인박스 KB 계좌별 주문자 IP/MAC) — READY TO EXECUTE
 Plan: —
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-10-11 — quick 261011-j87 완료: CLAUDE.md 다이어트(18.3 KB → 7.6 KB, 참조 자료는 docs/stack.md 로 이관, DOCS-01 완료)
 
 Progress: [░░░░░░░░░░] 0%
