@@ -5,11 +5,11 @@ milestone_name: 운영 유지보수
 current_phase: 30
 current_phase_name: 인박스 KB 계좌별 주문자 IP/MAC
 status: planning
-stopped_at: Phase 30 context gathered
-last_updated: "2026-10-11T05:04:11.683Z"
+stopped_at: Phase 30 UI-SPEC approved
+last_updated: "2026-10-11T05:15:19.720Z"
 last_activity: 2026-10-11
 last_activity_desc: v1.1 로드맵 생성(Phase 30-31 · IPMAC 4 + AMT 4 매핑, DOCS-01 은 quick)
-state_head: 8b9a911dab336a99d26cd71f9f23b48ae0146174
+state_head: 7649e36fa072ab046292b6b38a70c4581cfd620f
 progress:
   total_phases: 2
   completed_phases: 0
@@ -76,10 +76,10 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/30-kb-ip-mac/30-CONTEXT.md
+**Resume file:** .planning/phases/30-kb-ip-mac/30-UI-SPEC.md
 
-Last session: 2026-10-11T05:01:34.383Z
-Stopped at: Phase 30 context gathered
+Last session: 2026-10-11T05:15:19.704Z
+Stopped at: Phase 30 UI-SPEC approved
 Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 
 ## Operator Next Steps
