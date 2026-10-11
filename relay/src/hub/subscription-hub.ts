@@ -112,8 +112,12 @@
  *         그래서 sweeper 는 세션을 쥐면 hub 에 그 세션을 빌린다(`lendSession` · fanout `#sweepServer` 가 sweep 옵션 `lend` 로 넘긴다). 대여
  *         동안 hub 는 그 세션 몫 (a) 자기 21 을 보내지 않고 미루며(`refetchVi`) (b) 빈 61 을 `#pendingViGets` 머리로 귀속하지 않고(sweeper 자신의
  *         21 답이다) (c) 65 를 `strategies.disabled` 로 팬아웃하지 않는다(사용자가 누르지 않은 「전부 정지」 · GC-03). 본문 있는 61 · 60 · 64 는
- *         서버 사실이라 종전대로 캐시 · 팬아웃한다. 반납 때 21 재요청은 hub 가 자기 21 을 미뤘을 때만이다 — 대여가 미룬 Ready 프리페치의 회복
- *         1회라 D-13 이 금지하는 사용자 단위 재조회 진입점(주기 타이머 · 브라우저 호출)이 아니다. 대여가 없으면(운영 sweep 0회) 전부 종전이다.
+ *         서버 사실이라 종전대로 캐시 · 팬아웃한다. 빌리기 전에 hub 가 그 세션으로 보낸 21 이 남아 있으면 그 61 이 다 올 때까지 대여를 미룬다
+ *         (배수 · 최대 `HUB_LEASE_DRAIN_MS` 5초 — 넘으면 hub 대기열을 비우고 반납 때 다시 묻는다). 그래서 한 세션의 미해결 21 은 늘 한 주인
+ *         (hub 또는 sweeper)의 것이다. Ready 앞 대여면 hub 는 그 Ready 프리페치에서 24 · 34 · 43 만 보내고 21 은 반납 때 보낸다. 반납 때 21
+ *         재요청은 hub 가 자기 21 을 미뤘거나 대기열을 비웠을 때만이다 — 대여가 미룬 프리페치의 회복 1회라 D-13 이 금지하는 사용자 단위
+ *         재조회 진입점(주기 타이머 · 브라우저 호출)이 아니다. 교체 · 분리(`retainSessions`) · `closeAll` 은 그 표식 · 배수 대기를 정리한다.
+ *         대여가 없으면(운영 sweep 0회) 전부 종전이다.
  *   D-13  전략 재조회는 **재접속(`ready`) 시에만** 일어난다. 주기 타이머·수동 새로고침
  *         진입점을 만들지 않는다 — 사용자 조작에 대한 60/61 에코는 Notice(유실 없음)라
  *         재조회로 메울 것이 없고, 폴링은 게이트웨이 왕복을 사용자 수에 비례시킨다.
@@ -272,7 +276,11 @@ export const QUOTE_SUB_LIMIT = 2000;
  */
 export const USER_SUB_LIMIT = 200;
 
-/** 29-49 RED 골격. */
+/**
+ * sweep 대여 전 배수 상한 (Phase 29-49 · GC-04). 대여 전에 hub 가 그 세션(VI 원천)으로 보낸 21 이 남아 있으면 그 61 이 다 올 때까지
+ * 대여를 미루되, 이 시간이 지나면 hub 대기열을 비우고(반납 때 다시 요청) 대여를 준다. sweeper 의 단계 시한(5초)과 같은 값이고 sweep
+ * 전체 시한(20초) 안이다.
+ */
 export const HUB_LEASE_DRAIN_MS = 5_000;
 
 /**
@@ -331,8 +339,14 @@ export type HubSessionLease = { release(): void };
 /** 결선되지 않은 세션의 대여 — 아무 일도 하지 않는다(연결 없는 사용자의 임시 세션 · 29-49). */
 const NOOP_LEASE: HubSessionLease = { release: () => undefined };
 
-/** 대여 표식 (29-49) — 소유 키마다 하나. `refetchVi` = 대여 동안 hub 가 자기 21 을 미뤘다(반납 때 다시 요청). */
+/**
+ * 대여 표식 (29-49) — 소유 키마다 하나. `refetchVi` = hub 가 자기 21 을 미뤘거나(대여 중 Ready · primary 승격) 배수 상한에 걸려 대기열을
+ * 비웠다 — 반납 때 다시 요청한다.
+ */
 type LeaseMark = { refetchVi: boolean };
+
+/** 대여 전 배수 대기 1건 (29-49) — 그 사용자 21 대기열이 비거나 상한이 오면 끝난다. `true` = 상한에 걸려 대기열을 비웠다. */
+type DrainWaiter = { userId: string; finish: (cleared: boolean) => void };
 
 /**
  * Hub 가 세션에 요구하는 최소 표면. `DmaSession` 이 그대로 만족한다.
@@ -866,6 +880,13 @@ export class SubscriptionHub extends EventEmitter {
    */
   readonly #lent = new Map<string, LeaseMark>();
   /**
+   * 소유 키 → 마지막 대여 슬롯 (29-49). 같은 소유 키의 대여는 한 번에 하나다 — 뒤 대여는 앞 대여 반납을 기다린다(29-45 레인이 relay
+   * 안에서는 막지만 방어). 반납이 슬롯을 연다.
+   */
+  readonly #leaseTails = new Map<string, Promise<void>>();
+  /** 대여 전 배수 대기 (29-49) — `#onViTrigger` 귀속 · 대기열 폐기 때 `#settleDrains` 가 끝낸다. 상한 타이머는 대기마다 하나. */
+  readonly #drains = new Set<DrainWaiter>();
+  /**
    * `${userId}|${orderNo}` (접수 전은 `viPendingKey`) → VI 주문 추적 1건.
    *
    * 72 는 전량 교체, 73 은 항목 upsert 다 — 계좌 상태의 `snap` 규약과 동형이다.
@@ -1024,23 +1045,84 @@ export class SubscriptionHub extends EventEmitter {
    * hub 에 결선되지 않은 세션(연결 없는 사용자의 임시 세션 · 이미 교체 · 분리된 옛 세션)은 즉시 무동작 대여다. 결선된 세션이면 그 소유 키에
    * 표식을 둔다 — 대여 동안 그 세션 몫 21 은 미루고(`refetchVi`), 빈 61 · 65 는 귀속 · 팬아웃하지 않는다. 반납은 표식을 지우고, 미룬 21 이
    * 있었고 그 세션이 아직 같은 소유 키 · Ready · VI 원천(primary)이면 그때 21(KRX → NXT)을 보낸다.
+   *
+   * 표식을 두기 **전에** 배수한다(GC-04): 그 세션이 VI 원천이고 hub 가 보낸 21 이 아직 답을 못 받았으면 그 61 이 다 귀속될 때까지(대기 중
+   * 온 61 은 종전대로 hub 몫) 기다린다 — `HUB_LEASE_DRAIN_MS` 를 넘으면 hub 대기열을 비우고 `refetchVi` 로 반납 때 다시 묻는다. 그래서 한
+   * 세션의 미해결 21 은 늘 한 주인(hub 또는 sweeper)의 것이다. 같은 소유 키의 두 번째 대여는 앞 대여 반납까지 기다린다. 기다리는 사이 그
+   * 세션이 교체 · 분리되거나 `closeAll` 이면 무동작 대여로 끝난다.
    */
-  lendSession(session: HubSession): Promise<HubSessionLease> {
+  async lendSession(session: HubSession): Promise<HubSessionLease> {
     const userId = session.userId;
     const serverKey = serverKeyOf(session);
     const owner = ownerKey(userId, serverKey);
-    if (this.#sessions.get(owner) !== session) return Promise.resolve(NOOP_LEASE);
-    const mark: LeaseMark = { refetchVi: false };
+    if (this.#sessions.get(owner) !== session) return NOOP_LEASE;
+
+    const before = this.#leaseTails.get(owner);
+    let openSlot: () => void = () => undefined;
+    const slot = new Promise<void>((resolve) => {
+      openSlot = resolve;
+    });
+    this.#leaseTails.set(owner, slot);
+    const freeSlot = (): void => {
+      openSlot();
+      if (this.#leaseTails.get(owner) === slot) this.#leaseTails.delete(owner);
+    };
+    if (before !== undefined) await before;
+
+    const cleared = this.#sessions.get(owner) === session ? await this.#drainViGets(userId, owner, serverKey) : false;
+    if (this.#sessions.get(owner) !== session) {
+      freeSlot();
+      return NOOP_LEASE;
+    }
+    const mark: LeaseMark = { refetchVi: cleared };
     this.#lent.set(owner, mark);
     logger.info({ userId, serverKey }, "[HUB] sweep 대여 — 그 세션 21 미룸 · 빈 61 · 65 억제 (29-49)");
     let released = false;
-    return Promise.resolve({
+    return {
       release: () => {
         if (released) return;
         released = true;
         this.#endLease(userId, owner, session, mark);
+        freeSlot();
       },
+    };
+  }
+
+  /**
+   * 대여 전 배수 (29-49 · GC-04) — 그 소유 키가 VI 원천(primary)이고 hub 의 21 대기열이 비어 있지 않으면 빌 때까지 기다린다. 상한
+   * (`HUB_LEASE_DRAIN_MS`)에 걸리면 대기열을 비우고 warn 1줄(userId · 서버 키 · 남은 수) 뒤 `true`(반납 때 재요청). 기다릴 것이 없으면 즉시 `false`.
+   */
+  #drainViGets(userId: string, owner: string, serverKey: string): Promise<boolean> {
+    if (this.#primaryOwner(userId) !== owner) return Promise.resolve(false);
+    if ((this.#pendingViGets.get(userId)?.length ?? 0) === 0) return Promise.resolve(false);
+    return new Promise<boolean>((resolve) => {
+      const waiter: DrainWaiter = {
+        userId,
+        finish: (clearedQueue) => {
+          clearTimeout(timer);
+          this.#drains.delete(waiter);
+          resolve(clearedQueue);
+        },
+      };
+      const timer = setTimeout(() => {
+        const remaining = this.#pendingViGets.get(userId)?.length ?? 0;
+        if (remaining === 0) {
+          waiter.finish(false);
+          return;
+        }
+        // 오지 않는 61 의 주인을 hub 로 남기면 sweeper 의 빈 61 이 그 머리로 귀속된다 — 비우고 반납 때 다시 묻는다.
+        this.#pendingViGets.delete(userId);
+        logger.warn({ userId, serverKey, remaining }, "[HUB] sweep 대여 전 21 배수 시한 — hub 대기열 비움 · 반납 때 재요청 (GC-04)");
+        waiter.finish(true);
+      }, HUB_LEASE_DRAIN_MS);
+      this.#drains.add(waiter);
     });
+  }
+
+  /** 그 사용자의 배수 대기 중 대기열이 빈 것을 끝낸다 (29-49) — 61 귀속 · 대기열 폐기 뒤 부른다. */
+  #settleDrains(userId: string): void {
+    if ((this.#pendingViGets.get(userId)?.length ?? 0) > 0) return;
+    for (const w of [...this.#drains]) if (w.userId === userId) w.finish(false);
   }
 
   /** 대여 반납 (29-49) — 표식이 아직 이 대여의 것일 때만(교체 · 분리 · `closeAll` 이 먼저 지웠으면 무동작). */
@@ -1651,6 +1733,8 @@ export class SubscriptionHub extends EventEmitter {
       // 그 뒤의 빈 61 이 한 칸씩 밀려 엉뚱한 거래소로 귀속된다 (C# `SendGetVITrigger` 동형).
       if (session.send(buildGetVITriggerReq(exchange))) queue.push(exchange);
     }
+    // 하나도 보내지 못했으면 옛 대기열을 기다리던 대여 배수(29-49)는 기다릴 것이 없다.
+    this.#settleDrains(userId);
     return queue;
   }
 
@@ -1990,6 +2074,10 @@ export class SubscriptionHub extends EventEmitter {
     this.#limitChaserKnown.clear();
     this.#viTriggers.clear();
     this.#pendingViGets.clear();
+    // sweep 대여(29-49) — 표식을 지우고 배수 대기를 끝낸다(대여는 세션이 사라졌으니 무동작으로 해결 · 상한 타이머 해제).
+    this.#lent.clear();
+    for (const w of [...this.#drains]) w.finish(false);
+    this.#leaseTails.clear();
     this.#viOrders.clear();
     this.#rateCrossItems.clear();
     this.#queuedWindows.clear();
@@ -2803,6 +2891,8 @@ export class SubscriptionHub extends EventEmitter {
       //     빈 61 이 한 칸 밀려 엉뚱한 거래소로 귀속된다.
       if (queue !== undefined && queue[0] === exchange) queue.shift();
     }
+    // 대여 전 배수 대기(29-49)는 hub 의 21 이 다 귀속되면 끝난다 — 이 61 은 그 전에 hub 몫으로 처리된다(아래 캐시 · 팬아웃).
+    this.#settleDrains(userId);
 
     this.#viTriggers.set(viTriggerKey(userId, exchange), cfg);
     logger.info(
@@ -3095,6 +3185,8 @@ export class SubscriptionHub extends EventEmitter {
     // 「64 받았음」 도 같이 지운다 (18-26) — 남기면 새 세션의 64 가 오기 전 인증한 연결이
     // 방금 비운 캐시를 확정 목록(`lc.snap []`)으로 받는다. 이 세션 것만 지운다(T-18-110 · 29-20).
     this.#limitChaserKnown.delete(owner);
+    // sweep 대여 표식(29-49)도 그 세션 몫이다 — 교체 · 분리된 세션의 대여는 끝난 것으로 본다(반납은 무동작 · 옛 세션으로 21 을 보내지 않는다).
+    this.#lent.delete(owner);
     // 사용자 단위 원천(VI · 84 · 76/78 · 77)은 primary 세션 몫이다(D-18) — primary 가 아닌 세션의 교체 · 분리는 건드리지 않는다.
     if (wasPrimary) this.#clearPrimaryCaches(userId);
     // 잔량진행률도 버린다 — 77 · 78 이 여기 있는 것과 같은 이유다(RESEARCH Pitfall 6 · T-25-26). 남기면
@@ -3145,6 +3237,8 @@ export class SubscriptionHub extends EventEmitter {
     // 답을 못 받은 조회는 영영 오지 않는다. 남겨 두면 다음 세션의 빈 61 이 옛 거래소로
     // 귀속돼 엉뚱한 칸이 「미등록」으로 내려간다.
     this.#pendingViGets.delete(userId);
+    // 그 대기열을 기다리던 대여 배수(29-49)도 끝낸다 — 오지 않을 61 을 기다리지 않는다(대여 쪽이 세션 교체 · 분리를 다시 판정한다).
+    this.#settleDrains(userId);
     for (const key of [...this.#viOrders.keys()]) {
       if (key.startsWith(prefix)) this.#viOrders.delete(key);
     }
