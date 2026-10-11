@@ -219,3 +219,11 @@ None - no external service configuration required.
 ---
 *Phase: 31-limitchaser-amount-unit*
 *Completed: 2026-10-11*
+
+## Self-Check: PASSED
+
+- 파일: limit-chaser-form.tsx · lc-fields.ts · limit-chaser.ts · 이 SUMMARY — FOUND
+- 커밋: `00ec7d42` · `8d467c99` · `b64df6a6` · `789dd128` · `5ff8e242` — HEAD 조상 FOUND · RED(test) → GREEN(feat) 순서 2쌍
+- 수용 기준: 「금액(만원)을 주로 환산할 수 없습니다」 2 · 「0주로 환산됩니다」 3줄 · 「만 → 0주)」 1줄 · export 3함수 각 1줄 · 「비교가격 필요 — 」 2 · 「만 → 0주 — 금액을 늘리세요」 1줄 · `sub={` · `hint={` · `qtyForSubmit(` · 시딩 표 한 줄 — 모두 PASS
+- 플랜 검증: shared build · webapp typecheck · webapp 단위 전체(165 files · 3989 passed) 통과
+- 요구사항 AMT-02 · AMT-03 · AMT-04 는 31-07 · 31-08 도 선언한다 — REQUIREMENTS.md Complete 표시는 마지막 선언 플랜 몫이라 이번에는 되돌렸다(31-04 와 같은 처리)

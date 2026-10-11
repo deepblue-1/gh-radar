@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 31
 current_phase_name: 인박스 상따 금액 단위
 status: executing
-stopped_at: Completed 31-05-PLAN.md
-last_updated: "2026-10-11T15:15:38.809Z"
+stopped_at: Completed 31-06-PLAN.md
+last_updated: "2026-10-11T15:45:19.136Z"
 last_activity: 2026-10-11
 last_activity_desc: Phase 31 execution started
-state_head: fb328f0743ac62b9262f4d96f952e76cfc434b50
+state_head: 308578de2b8f4282d8409d1668cc11c676ef39eb
 progress:
   total_phases: 2
   completed_phases: 0
   total_plans: 15
-  completed_plans: 11
+  completed_plans: 12
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-11 after v1.1 milestone start)
 ## Current Position
 
 Phase: 31 (인박스 상따 금액 단위) — EXECUTING
-Plan: 6 of 8
+Plan: 7 of 8
 Status: Ready to execute
 Last activity: 2026-10-11 — Phase 31 execution started
 
@@ -78,8 +78,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-11T15:15:34.198Z
-Stopped at: Completed 31-05-PLAN.md
+Last session: 2026-10-11T15:45:19.112Z
+Stopped at: Completed 31-06-PLAN.md
 Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 
 ## Operator Next Steps
@@ -102,6 +102,7 @@ Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 | Phase 31 P03 | 13 min | 2 tasks | 12 files |
 | Phase 31 P04 | 19min | 3 tasks | 11 files |
 | Phase 31 P05 | 14min | 3 tasks | 6 files |
+| Phase 31 P06 | 22min | 3 tasks | 8 files |
 
 ## Decisions
 
@@ -131,3 +132,6 @@ Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 - [Phase 31]: 31-04: 수량 칸 위 줄은 0 도 「0만」 — 의미어(무제한 · 1주 · 없음)는 lcAmountZeroWordOf(요약 · 31-06 아래 줄)
 - [Phase 31]: 주문로그 ⑦ 수량 토큰은 shared lc-amount 서식 3함수(formatManwon · formatQtyAmt · qtyAmt) 한 벌 — 주문 줄만 「{금액(주)} @{가격}」, 나머지 제자리 교체
 - [Phase 31]: kind 1·2 시세 수량은 서버 ev_price(상한가)로만 환산 — 0 이면 종전 숫자(캐시 폴백 없음 · AMT-04)
+- [Phase 31]: 31-06: 등록 차단 문장은 ARM_BLOCKED_TEXT 한 곳 · armBlockOf 순서 1~8(C# 동형) — 패널(buyPriceReasonOf)도 비교가 0 금액 판정을 주문가격 0 보다 먼저 본다
+- [Phase 31]: 31-06: 수량 칸 시트 · 인라인 잠금은 validateCommit 맨 앞 amountLockTextOf 한 곳 · 두 줄 행 아래 줄 · 시트 안내 주는 qtyForSubmit(buildCfg 와 같은 값)
+- [Phase 31]: 31-06: 새 폼 후매수 최소 = 84 postBuyFloorAmount(키 부재 · 범위 밖 폴백 0)
