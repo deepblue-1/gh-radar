@@ -11,6 +11,7 @@
  *       이던 그 서버 행만**(29-32 WR-01 — op 2 진행 중 다른 계좌에 그 서버가 active 로 막 체크된 행은 남아 다음 반영이 op 1 로
  *       다시 올린다). 그 서버 행 **전부**는 유저 삭제 경로(`settleUserOnOk`)에서만 지운다
  *   → 서버별 결과 배열(레지스트리 순) → `dma_admin_record_results`
+ *   계좌 PUT 의 주문자 IP/MAC(Phase 30 · `OrderEndpointOverride`): 그 계좌 의도 행에만 얹어 계획 — 87 값보다 이긴다 · DB 저장 없음
  *   유저 삭제 + `skipDisabled`(29-34 WR-04 — Admin 확인 뒤): 꺼진 · 없는 등록 서버는 op 없이 그 서버 의도 행만 settle(전 행) →
  *     `skipped`(`SKIPPED_SETTLED_MESSAGE`) — 켜진 서버 전부 ok 면 DB 삭제. 서버가 켜지면 87 대조가 「서버에만 있음」 으로 보인다
  *
@@ -31,8 +32,10 @@
  */
 import {
   interpretAdminResult,
+  normalizeAccountNo,
   type AdminIntentRow,
   type AdminServerResult,
+  type DmaBroker,
 } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
@@ -42,6 +45,17 @@ import type { AdminConn } from "./admin-conn.js";
 import type { AdminIntentStore } from "./intent-store.js";
 import { IntentError } from "./intent-store.js";
 import { planPasswordOps, planServerOps, type AdminSnapshotView, type PlannedOp, type ServerPlan } from "./planner.js";
+
+/**
+ * Phase 30 (IPMAC-02 · D-07 · D-10) — 웹 계좌 편집이 보낸 주문자 IP/MAC 쌍. `reconcileUser` 가 그 계좌(증권사 · 정규화 번호 ·
+ * active)의 의도 행에만 얹어 planner 에 넘긴다 — planner `withServerEndpoint` 가 「의도 쌍 우선」 이라 87 값보다 이긴다.
+ *   - 이 요청 메모리에만 산다(DB 저장 없음 — 87 이 정본). 실패 뒤 「다시 반영」 은 IP/MAC 을 다시 보내지 않는다 — 웹이 편집
+ *     모드 · 입력값을 유지하고 사용자가 다시 「저장」 한다(D-06).
+ *   - 값은 정규화 · 검증하지 않는다 — 형식 판정의 정본은 gh-trade(86 code 13 BAD_ORDER_ENDPOINT · D-07 · IPMAC-03).
+ *   - 그 계좌의 active 등록 서버 **전부**에 같은 쌍이 실린다(D-10). 빈 문자열 두 개 = 미설정으로 되돌리기.
+ *   - 사용자 PC 식별 정보 — 로그 · 감사 · 오류 문구에 싣지 않는다.
+ */
+export type OrderEndpointOverride = { broker: DmaBroker; accountNo: string; orderIp: string; orderMac: string };
 
 /** dispatcher 가 쓰는 admin 연결 표면 — 테스트가 대역을 넣을 수 있게 좁힌다. */
 export type AdminConnLike = Pick<AdminConn, "currentSnapshot" | "command">;
@@ -138,16 +152,19 @@ export class AdminDispatcher {
    * 의도 전체를 서버에 맞춘다 — 생성 · 계좌 put/remove · 「다시 반영」 공통. 의도와 87 이 같으면 44 0건 · 전 서버 ok.
    * `password` 를 주면(생성 직후) op 1 에 그 평문을 쓰고, 없으면 `dma_users` 암호문을 복호한다.
    * `adminEmail` 은 감사 문맥 — 감사 로그 1줄은 라우터가 남긴다.
+   * `orderEndpoint`(Phase 30 · `OrderEndpointOverride`) — 그 계좌의 의도 행에만 주문자 IP/MAC 을 얹어 계획한다(DB 저장 없음 ·
+   * 등록 서버 키 집합은 원래 의도 그대로).
    */
   reconcileUser(
     dmaUserId: string,
-    opts: { password?: string; adminEmail: string; deadlineAt?: number },
+    opts: { password?: string; adminEmail: string; deadlineAt?: number; orderEndpoint?: OrderEndpointOverride },
   ): Promise<AdminServerResult[]> {
     const progress = newProgress();
     const full = this.#serial(dmaUserId, async () => {
-      const intent = await this.#deps.store.intent(dmaUserId);
+      const stored = await this.#deps.store.intent(dmaUserId);
+      const intent = withOrderEndpoint(stored, opts.orderEndpoint);
       const password = this.#passwordSource(dmaUserId, opts.password);
-      const results = await this.#fanOut(progress, this.#serverKeysOf(intent), (serverKey) =>
+      const results = await this.#fanOut(progress, this.#serverKeysOf(stored), (serverKey) =>
         this.#applyServer(dmaUserId, serverKey, (snapshot) => planServerOps({ dmaUserId, serverKey, intent, snapshot }), password),
       );
       await this.#recordFinal(dmaUserId, progress, results);
@@ -550,4 +567,18 @@ export class AdminDispatcher {
 
 function newProgress(): Progress {
   return { keys: null, done: new Map(), finished: false, folded: null };
+}
+
+/**
+ * 의도 행 중 override 계좌(active · 같은 증권사 · 같은 정규화 번호)에만 주문자 IP/MAC 을 얹은 새 배열(Phase 30 · D-10 — 그 계좌의
+ * 등록 서버 행 전부). override 가 없으면 그대로. 값은 원문 그대로 — 정규화 · 검증은 gh-trade 몫(D-07).
+ */
+function withOrderEndpoint(intent: AdminIntentRow[], override: OrderEndpointOverride | undefined): AdminIntentRow[] {
+  if (override === undefined) return intent;
+  const no = normalizeAccountNo(override.accountNo);
+  return intent.map((r) =>
+    r.state === "active" && r.broker === override.broker && normalizeAccountNo(r.accountNo) === no
+      ? { ...r, orderIp: override.orderIp, orderMac: override.orderMac }
+      : r,
+  );
 }

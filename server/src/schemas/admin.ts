@@ -153,13 +153,34 @@ export const AdminOrderServerSchema = z.object({ serverKey: ServerKeySchema.null
 /** POST /api/admin/dma-users/:dma/password — `AdminPasswordBody`. */
 export const AdminPasswordSchema = z.object({ password: DmaPasswordSchema });
 
-/** PUT /api/admin/dma-users/:dma/accounts — `AdminPutAccountBody { account, servers }`. */
+/**
+ * 주문자 IP/MAC 쌍(Phase 30 · IPMAC-02) — 구조(두 키 모두) · 길이만 본다. **형식 검사는 하지 않는다** — 정본은 gh-trade 86 code 13
+ * (BAD_ORDER_ENDPOINT · IPMAC-03)이고, 여기서 막으면 그 문구가 화면에 도달하지 않는다. 표기도 바꾸지 않는다(D-07 — 정규화는
+ * gh-trade). trim 은 무해하다(gh-trade 는 trim 하지 않아 앞뒤 공백이 code 13 이 된다).
+ */
+export const OrderEndpointSchema = z.object({
+  orderIp: z.string().trim().max(64, "주문자 IP 가 너무 길어요"),
+  orderMac: z.string().trim().max(64, "MAC 주소가 너무 길어요"),
+});
+
+/**
+ * PUT /api/admin/dma-users/:dma/accounts — `AdminPutAccountBody { account, servers, orderEndpoint? }`.
+ * `orderEndpoint`(Phase 30)는 KB 계좌만 — relay 가 그 계좌 op 3 의 override 로만 쓴다(DB 미저장).
+ * ★ zod 기본 strip 이라 이 키가 스키마에 없으면 webapp 이 보낸 IP/MAC 이 **조용히 사라지고** 화면은 「반영됨」 을 보인다 →
+ *   배포 순서 relay → server → webapp(30-RESEARCH Pitfall 1).
+ */
 export const AdminPutAccountSchema = z
   .object({
     account: AdminAccountInputSchema,
     servers: ServerListSchema,
+    orderEndpoint: OrderEndpointSchema.optional(),
   })
-  .superRefine(checkServersMatchBroker);
+  .superRefine(checkServersMatchBroker)
+  .superRefine((v, ctx) => {
+    if (v.orderEndpoint !== undefined && v.account.broker !== "KB") {
+      ctx.addIssue({ code: "custom", path: ["orderEndpoint"], message: "주문자 IP · MAC 은 KB 계좌만이에요" });
+    }
+  });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 서버 레지스트리 (D-09 · D-17)

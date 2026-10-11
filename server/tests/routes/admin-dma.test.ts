@@ -739,3 +739,85 @@ describe("로그 위생 — 비밀번호 변경 · DMA id 마스킹", () => {
     expect(lines[0]).not.toContain("ab***");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 30 (30-01) — PUT body 최상위 orderEndpoint 통과 (IPMAC-02 · D-07)
+//   S1 KB 계좌 + orderEndpoint → relay PUT body 에 같은 값(trim) · 200
+//   S2 교보 + orderEndpoint → 400 VALIDATION_FAILED · relay 0
+//   S3 orderMac 누락 · 65자 값 → 400 · relay 0
+//   S4 형식 오류 값("10.41.1")은 Express 가 막지 않는다 — relay 로 그대로(code 13 정본은 gh-trade)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("P30 PUT orderEndpoint 통과 (IPMAC-02)", () => {
+  const kbAccount = kbDma().account;
+  const put = (app: Parameters<typeof request>[0], body: unknown) =>
+    auth(request(app).put("/api/admin/dma-users/kim01/accounts")).send(body as object);
+
+  it("S1 KB 계좌 PUT + orderEndpoint → relay PUT body 에 orderEndpoint(trim 된 원문) · 200", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await put(app, {
+      account: kbAccount,
+      servers: ["KB120", "KB121"],
+      orderEndpoint: { orderIp: " 10.41.1.124 ", orderMac: "1c:fd:08:7d:97:8e" },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ results: OK_RESULTS });
+    expect(relay.calls).toHaveLength(1);
+    expect(relay.calls[0]).toMatchObject({
+      method: "PUT",
+      path: "/internal/admin/dma-users/kim01/accounts",
+      body: {
+        account: kbAccount,
+        servers: ["KB120", "KB121"],
+        orderEndpoint: { orderIp: "10.41.1.124", orderMac: "1c:fd:08:7d:97:8e" },
+      },
+    });
+    // 두 칸 모두 빈 값 = 미설정으로 되돌리기 — 그대로 통과.
+    const clear = await put(app, { account: kbAccount, servers: ["KB120"], orderEndpoint: { orderIp: "", orderMac: "" } });
+    expect(clear.status).toBe(200);
+    expect((relay.calls[1]!.body as { orderEndpoint: unknown }).orderEndpoint).toEqual({ orderIp: "", orderMac: "" });
+  });
+
+  it("S2 교보 계좌 + orderEndpoint → 400 VALIDATION_FAILED · relay 0", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await put(app, {
+      account: { broker: "KYOBO", accountNo: "00777", name: "교", priority: 3 },
+      servers: ["KYOBO119"],
+      orderEndpoint: { orderIp: "10.41.1.124", orderMac: "1c:fd:08:7d:97:8e" },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("VALIDATION_FAILED");
+    expect(JSON.stringify(res.body)).not.toContain("10.41.1.124");
+    expect(relay.calls).toHaveLength(0);
+  });
+
+  it("S3 orderMac 누락 · 65자 값 → 400 · relay 0", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    for (const orderEndpoint of [
+      { orderIp: "10.41.1.124" },
+      { orderMac: "1c:fd:08:7d:97:8e" },
+      { orderIp: "1".repeat(65), orderMac: "1c:fd:08:7d:97:8e" },
+      { orderIp: "10.41.1.124", orderMac: "a".repeat(65) },
+    ]) {
+      const res = await put(app, { account: kbAccount, servers: ["KB120"], orderEndpoint });
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe("VALIDATION_FAILED");
+    }
+    expect(relay.calls).toHaveLength(0);
+  });
+
+  it("S4 형식 오류 값은 Express 가 막지 않는다 — relay 로 그대로", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await put(app, {
+      account: kbAccount,
+      servers: ["KB120"],
+      orderEndpoint: { orderIp: "10.41.1", orderMac: "zz:zz" },
+    });
+    expect(res.status).toBe(200);
+    expect((relay.calls[0]!.body as { orderEndpoint: unknown }).orderEndpoint).toEqual({ orderIp: "10.41.1", orderMac: "zz:zz" });
+  });
+});

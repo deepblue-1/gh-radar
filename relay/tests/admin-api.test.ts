@@ -1415,3 +1415,120 @@ describe("relay Admin 내부 HTTP — 재적재 대기 상한 (29-48 GC-10)", ()
     );
   });
 });
+
+/**
+ * 잠그는 것 (Phase 30 30-01 — 주문자 IP/MAC 쓰기 경로 · IPMAC-02 · D-07 · D-10):
+ *   W1  계좌명 변경 + orderEndpoint(원문) → 200 · KB120 · KB121 마지막 op 3 에 원문 그대로 · RPC p_account 에 IP/MAC 키 없음
+ *   W2  교보 계좌 + orderEndpoint → 400 VALIDATION_FAILED · RPC 0 · 44 0
+ *   W3  orderEndpoint 에 orderIp 만 → 400
+ *   W4  형식 오류 IP("10.41.1")도 relay 가 막지 않는다 — op 3 에 그대로(gh-trade code 13 이 정본 · IPMAC-03)
+ *   W5  감사 줄 orderEndpoint "set" / 두 칸 빈 값 "clear" · 로그 인자 어디에도 IP/MAC 원문 없음
+ */
+describe("P30 주문자 IP/MAC 쓰기 경로 (IPMAC-02 · D-07 · D-10)", () => {
+  const IP = "10.41.1.124";
+  const MAC = "1c:fd:08:7d:97:8e";
+  const PUT_PATH = "/internal/admin/dma-users/tr01/accounts";
+  let h: Harness;
+  let logs: LogCall[];
+
+  beforeEach(async () => {
+    logs = await spyLogs();
+    h = await startHarness();
+    expect((await call(h, "POST", "/internal/admin/dma-users", createBody())).status).toBe(200);
+  });
+
+  afterEach(async () => {
+    await h.close();
+    vi.restoreAllMocks();
+    // 사용자 PC 식별 정보 — 어떤 로그 인자에도 원문이 없다.
+    const dumped = stringify(logs.map((c) => c.args));
+    for (const v of [IP, MAC, "10.41.1\""]) expect(dumped).not.toContain(v);
+  });
+
+  const total44 = (): number => h.commands("KB120").length + h.commands("KB121").length;
+
+  it("W1 계좌명 변경 + orderEndpoint → 등록 서버 전부 op 3 에 원문 그대로 · RPC p_account 에 IP/MAC 없음", async () => {
+    const res = await call(h, "PUT", PUT_PATH, {
+      account: { ...KB_ACCOUNT, name: "새 이름" },
+      servers: ["KB120", "KB121"],
+      orderEndpoint: { orderIp: IP, orderMac: MAC },
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { results: { outcome: string }[] }).results.map((r) => r.outcome)).toEqual(["ok", "ok"]);
+    for (const key of ["KB120", "KB121"]) {
+      expect(h.commands(key).at(-1)).toMatchObject({
+        op: 3,
+        userId: "tr01",
+        account: { accountNo: "1234567801", name: "새 이름", orderIp: IP, orderMac: MAC },
+      });
+    }
+    const put = h.db.callsTo("dma_admin_put_account").at(-1)!;
+    const pAccount = put.args.p_account as Record<string, unknown>;
+    expect(pAccount).toMatchObject({ name: "새 이름" });
+    expect(Object.keys(pAccount)).not.toContain("orderIp");
+    expect(Object.keys(pAccount)).not.toContain("orderMac");
+    expect(Object.keys(pAccount)).not.toContain("orderEndpoint");
+    expect(stringify(put.args)).not.toContain(IP);
+  });
+
+  it("W2 교보 계좌 + orderEndpoint → 400 VALIDATION_FAILED · RPC 0 · 44 0", async () => {
+    const rpcBefore = h.db.calls.length;
+    const before = total44();
+    const res = await call(h, "PUT", PUT_PATH, {
+      account: { broker: "KYOBO", accountNo: "777", name: "교", priority: 1 },
+      servers: ["KYOBO119"],
+      orderEndpoint: { orderIp: IP, orderMac: MAC },
+    });
+    expect(res.status).toBe(400);
+    const err = ((await res.json()) as { error: { code: string; message: string } }).error;
+    expect(err.code).toBe("VALIDATION_FAILED");
+    expect(err.message).not.toContain(IP);
+    expect(h.db.calls.length).toBe(rpcBefore);
+    expect(total44()).toBe(before);
+  });
+
+  it("W3 orderEndpoint 에 orderIp 만 · orderMac 만 → 400 · RPC 0", async () => {
+    const rpcBefore = h.db.calls.length;
+    for (const orderEndpoint of [{ orderIp: IP }, { orderMac: MAC }]) {
+      const res = await call(h, "PUT", PUT_PATH, { account: KB_ACCOUNT, servers: ["KB120", "KB121"], orderEndpoint });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe("VALIDATION_FAILED");
+    }
+    expect(h.db.calls.length).toBe(rpcBefore);
+  });
+
+  it("W4 형식 오류 IP 도 relay 는 막지 않는다 — op 3 에 그대로(code 13 정본은 gh-trade)", async () => {
+    const res = await call(h, "PUT", PUT_PATH, {
+      account: KB_ACCOUNT,
+      servers: ["KB120", "KB121"],
+      orderEndpoint: { orderIp: "10.41.1", orderMac: MAC },
+    });
+    expect(res.status).toBe(200);
+    for (const key of ["KB120", "KB121"]) {
+      expect(h.commands(key).at(-1)).toMatchObject({ op: 3, account: { orderIp: "10.41.1", orderMac: MAC } });
+    }
+  });
+
+  it("W5 감사 줄 — orderEndpoint set / clear 플래그만 · 값 없음", async () => {
+    logs.length = 0;
+    expect(
+      (await call(h, "PUT", PUT_PATH, { account: KB_ACCOUNT, servers: ["KB120", "KB121"], orderEndpoint: { orderIp: IP, orderMac: MAC } }))
+        .status,
+    ).toBe(200);
+    expect(
+      (await call(h, "PUT", PUT_PATH, { account: KB_ACCOUNT, servers: ["KB120", "KB121"], orderEndpoint: { orderIp: "", orderMac: "" } }))
+        .status,
+    ).toBe(200);
+    expect((await call(h, "PUT", PUT_PATH, { account: KB_ACCOUNT, servers: ["KB120", "KB121"] })).status).toBe(200);
+    const audits = logs.filter((c) => c.level === "info" && String(c.args[1] ?? "").startsWith("[admin-audit]"));
+    expect(audits).toHaveLength(3);
+    expect(audits.map((c) => (c.args[0] as { orderEndpoint?: string }).orderEndpoint)).toEqual(["set", "clear", undefined]);
+    expect(audits[0]!.args[0]).toMatchObject({ route: "PUT /dma-users/:dma/accounts", orderEndpoint: "set" });
+    // 「clear」 저장은 서버에 빈 문자열 쌍(미설정으로 되돌리기)으로 나간다.
+    for (const key of ["KB120", "KB121"]) {
+      const ops3 = h.commands(key).filter((c) => c.op === 3);
+      expect(ops3.at(-1)!.account).not.toHaveProperty("orderIp");
+      expect(ops3.at(-1)!.account).not.toHaveProperty("orderMac");
+    }
+  });
+});

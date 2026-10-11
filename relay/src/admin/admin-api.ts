@@ -37,6 +37,12 @@
  * GC-10(29-48): 그 뒤의 재적재 대기(지정 재적재 · 유저 삭제의 접근 맵 재적재)도 같은 `deadlineAt` 의 남은 시간까지만 기다린다
  * (`awaitWithinDeadline`) — 지면 응답부터 하고 재적재는 취소 없이 뒤에서 끝까지 간다. 지정 라우트(PUT order-server)도 도착 시각 마감.
  *
+ * 계좌 PUT 의 주문자 IP/MAC(Phase 30 · IPMAC-02 · D-07 · D-10) — body 최상위 선택 `orderEndpoint { orderIp, orderMac }`(계좌 객체
+ * 밖). **KB 계좌만**(교보면 400 — 교보 서버는 형식을 보지 않고 저장한다) · 두 키 모두 필수(하나만 오면 400) · **형식 검사 없음**
+ * (막으면 gh-trade 86 code 13 이 도달하지 않는다 — IPMAC-03) · **DB 미저장**(RPC `p_account` 에 싣지 않는다 — 87 이 정본) →
+ * `dispatcher.reconcileUser` 의 override 로만 쓰여 그 계좌의 active 등록 서버 전부 op 3 에 원문 그대로 실린다. 감사 줄에는 값
+ * 대신 `orderEndpoint: "set" | "clear"`(두 칸 모두 빈 문자열 = clear) 플래그만.
+ *
  * 비밀번호(D-19 · Phase 15 D-19): 평문은 이 요청 메모리 안에서만 산다 — `encryptDmaPassword(plain, dmaUserId, credKey)` 로
  * 암호화한 값만 RPC 로 가고, op 1 은 같은 요청의 평문을 44 에 싣는다. 응답 · 로그에는 어디에도 없다.
  */
@@ -165,7 +171,20 @@ const CreateDmaUserBody = z.object({
 
 const PasswordBody = z.object({ password: PasswordSchema });
 
-const PutAccountBody = z.object({ account: AccountSchema, servers: ServersSchema });
+/**
+ * 주문자 IP/MAC 쌍(Phase 30) — 구조 · 길이만 본다. 형식(12자리 · a.b.c.d · 12 hex)은 gh-trade 가 정본(code 13 · IPMAC-03)이라
+ * 여기서 막지 않는다. 값은 사용자 PC 식별 정보 — 오류 문구에 싣지 않는다(zod 기본 문구는 값을 싣지 않는다).
+ */
+const OrderEndpointSchema = z.object({ orderIp: z.string().max(64), orderMac: z.string().max(64) });
+
+const PutAccountBody = z
+  .object({ account: AccountSchema, servers: ServersSchema, orderEndpoint: OrderEndpointSchema.optional() })
+  .superRefine((b, ctx) => {
+    // 교보 서버는 IP/MAC 형식을 보지 않고 users.toml 에 저장한다 — 화면에 칸이 없으니 실려 오면 거부(D-03).
+    if (b.orderEndpoint !== undefined && b.account.broker !== "KB") {
+      ctx.addIssue({ code: "custom", path: ["orderEndpoint"], message: "주문자 IP/MAC 은 KB 계좌만입니다" });
+    }
+  });
 
 /** 계좌 주문 서버 지정 — 레지스트리 키 형식 또는 null(증권사 기본값으로). 키 누락은 거부(실수로 해제되지 않게). */
 const OrderServerBody = z.object({ serverKey: z.string().regex(SERVER_KEY_RE).nullable() });
@@ -423,10 +442,35 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
     const { dma } = DmaParam.parse(req.params);
     const body = PutAccountBody.parse(req.body);
     assertKnownServers(body.servers);
-    const { results } = await audited(res, "PUT /dma-users/:dma/accounts", dma, async () => {
-      await deps.store.putAccount(dma, body.account, body.servers);
-      return { results: await deps.dispatcher.reconcileUser(dma, { adminEmail: res.locals.adminEmail as string, deadlineAt }) };
-    });
+    const endpoint = body.orderEndpoint;
+    const { results } = await audited(
+      res,
+      "PUT /dma-users/:dma/accounts",
+      dma,
+      async () => {
+        // IP/MAC 은 RPC 에 싣지 않는다(DB 변경 없음 · 87 정본) — 계좌 객체만.
+        await deps.store.putAccount(dma, body.account, body.servers);
+        return {
+          results: await deps.dispatcher.reconcileUser(dma, {
+            adminEmail: res.locals.adminEmail as string,
+            deadlineAt,
+            // accountNo 는 AccountSchema transform 이 이미 정규화했다.
+            ...(endpoint !== undefined
+              ? {
+                  orderEndpoint: {
+                    broker: body.account.broker,
+                    accountNo: body.account.accountNo,
+                    orderIp: endpoint.orderIp,
+                    orderMac: endpoint.orderMac,
+                  },
+                }
+              : {}),
+          }),
+        };
+      },
+      // 값은 싣지 않는다 — 사용자 PC 식별 정보. 두 칸 모두 빈 문자열 = 미설정으로 되돌리기.
+      endpoint !== undefined ? { orderEndpoint: endpoint.orderIp === "" && endpoint.orderMac === "" ? "clear" : "set" } : {},
+    );
     // 29-37 — 빠진 서버가 지정 서버였으면 RPC 가 removing 전환과 함께 지정을 지웠다 → 라우팅을 곧바로 기본 서버로(남은 마감까지 · GC-10).
     const route = "PUT /dma-users/:dma/accounts";
     await awaitWithinDeadline(reloadOrderServers(route), deadlineAt, route, "order-servers");
