@@ -595,20 +595,27 @@ const ipmacLine = (no: string) => acctRow(no).querySelector('[data-slot="admin-a
 const mismatchLines = (no: string) => [...acctRow(no).querySelectorAll('[data-slot="admin-account-ipmac-mismatch"]')];
 
 describe('P30 읽기 카드 — IP/MAC 줄 · 불일치 · 이름 없음 (D-09 · D-10)', () => {
-  it('설정됨 → 「주문자 IP 010041001124 · MAC 1CFD087D978E」 · 값 2개는 font-semibold · 87 정규화값 그대로', () => {
+  it('설정됨 → 「주문자 IP 10.41.1.124 · MAC 1C:FD:08:7D:97:8E」 · 값 2개는 font-semibold · 87 값의 표시 표기(D-17)', () => {
     setup([withEp(KB_TWO, { KB120: EP_A, KB121: EP_A }), KYOBO_ACCT]);
     const line = ipmacLine('12345678901');
     expect(line).not.toBeNull();
-    expect(line).toHaveTextContent('주문자 IP 010041001124 · MAC 1CFD087D978E');
+    expect(line).toHaveTextContent('주문자 IP 10.41.1.124 · MAC 1C:FD:08:7D:97:8E');
     expect(line?.className).toContain('tabular-nums');
     expect(line?.className).toContain('text-[12px]');
     const values = [...(line as HTMLElement).querySelectorAll('b')];
-    expect(values.map((b) => b.textContent)).toEqual(['010041001124', '1CFD087D978E']);
+    expect(values.map((b) => b.textContent)).toEqual(['10.41.1.124', '1C:FD:08:7D:97:8E']);
     for (const b of values) expect(b.className).toContain('font-semibold');
     // 지점 · 트레이더 줄 바로 아래
     const branch = acctRow('12345678901').querySelector('[data-slot="admin-account-branch"]') as HTMLElement;
     expect(branch.nextElementSibling).toBe(line);
     expect(mismatchLines('12345678901')).toHaveLength(0);
+  });
+
+  it('(D-17) 87 값이 정규화 형식 밖이면 원문 그대로 — IP 999999999999(옥텟 > 255) · MAC 은 콜론 표기', () => {
+    setup([withEp(KB_ACCT, { KB120: { orderIp: '999999999999', orderMac: '1CFD087D978E' } }), KYOBO_ACCT]);
+    const line = ipmacLine('12345678901') as HTMLElement;
+    expect(line).toHaveTextContent('주문자 IP 999999999999 · MAC 1C:FD:08:7D:97:8E');
+    expect([...line.querySelectorAll('b')].map((b) => b.textContent)).toEqual(['999999999999', '1C:FD:08:7D:97:8E']);
   });
 
   it('미설정 → 「주문자 IP · MAC 미설정(서버 NIC 값)」 · 「미설정(서버 NIC 값)」 만 --faint', () => {
@@ -638,8 +645,8 @@ describe('P30 읽기 카드 — IP/MAC 줄 · 불일치 · 이름 없음 (D-09 �
     const { unmount } = render(
       <AccountEditor dmaUserId="kimtr" accounts={[withEp(KB_TWO, { KB120: EP_A, KB121: EP_B })]} servers={SERVERS} onChanged={vi.fn()} onRemoveLast={vi.fn()} />,
     );
-    // 출처 = 유효 주문 서버(기본 KB120) — 읽기 줄은 KB120 값
-    expect(ipmacLine('12345678901')).toHaveTextContent('주문자 IP 010041001124 · MAC 1CFD087D978E');
+    // 출처 = 유효 주문 서버(기본 KB120) — 읽기 줄은 KB120 값(표시 표기 · D-17)
+    expect(ipmacLine('12345678901')).toHaveTextContent('주문자 IP 10.41.1.124 · MAC 1C:FD:08:7D:97:8E');
     let lines = mismatchLines('12345678901');
     expect(lines).toHaveLength(1);
     expect(lines[0]).toHaveAttribute('data-server', 'KB121');

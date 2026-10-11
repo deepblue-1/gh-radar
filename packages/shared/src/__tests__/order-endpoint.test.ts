@@ -8,6 +8,8 @@ import { describe, expect, it } from "vitest";
 
 import type { AdminAccountView, AdminOrderEndpoint } from "../admin";
 import {
+  formatOrderIp,
+  formatOrderMac,
   normalizeOrderIp,
   normalizeOrderMac,
   summarizeOrderEndpoint,
@@ -97,6 +99,50 @@ describe("validateOrderEndpointInput — trim 뒤 오류 하나(IP → MAC → �
     },
   ])("$name", ({ input, expected }) => {
     expect(validateOrderEndpointInput(input)).toEqual(expected);
+  });
+});
+
+describe("formatOrderIp · formatOrderMac — 표시 표기 (D-17)", () => {
+  // 87 정규화값 → 사람이 읽는 표기. 형식 밖은 원문 그대로(왕복 항등이 되는 값만 바꾼다) · trim 하지 않는다.
+  const IP_FORMATTED = [
+    { name: "010041001124 → 10.41.1.124", input: "010041001124", expected: "10.41.1.124" },
+    { name: "000000000000 → 0.0.0.0", input: "000000000000", expected: "0.0.0.0" },
+    { name: "255255255255 → 255.255.255.255", input: "255255255255", expected: "255.255.255.255" },
+    { name: "192168001010 → 192.168.1.10", input: "192168001010", expected: "192.168.1.10" },
+  ];
+  const IP_VERBATIM = [
+    { name: "빈 값 → 원문", input: "" },
+    { name: "999999999999(옥텟 > 255) → 원문", input: "999999999999" },
+    { name: "256001001001(첫 옥텟 256) → 원문", input: "256001001001" },
+    { name: "이미 점표기 → 원문", input: "10.41.1.124" },
+    { name: "11자리 → 원문", input: "01004100112" },
+    { name: "앞 공백 → 원문(trim 하지 않는다)", input: " 010041001124" },
+  ];
+  const MAC_FORMATTED = [{ name: "1CFD087D978E → 1C:FD:08:7D:97:8E", input: "1CFD087D978E", expected: "1C:FD:08:7D:97:8E" }];
+  const MAC_VERBATIM = [
+    { name: "빈 값 → 원문", input: "" },
+    { name: "소문자(정규화 형식 아님) → 원문", input: "1cfd087d978e" },
+    { name: "이미 콜론 → 원문", input: "1C:FD:08:7D:97:8E" },
+    { name: "10자 → 원문", input: "1CFD087D97" },
+    { name: "16진 밖 문자 → 원문", input: "ZZFD087D978E" },
+  ];
+
+  it.each(IP_FORMATTED)("formatOrderIp $name", ({ input, expected }) => {
+    expect(formatOrderIp(input)).toBe(expected);
+  });
+  it.each(IP_VERBATIM)("formatOrderIp $name", ({ input }) => {
+    expect(formatOrderIp(input)).toBe(input);
+  });
+  it.each(MAC_FORMATTED)("formatOrderMac $name", ({ input, expected }) => {
+    expect(formatOrderMac(input)).toBe(expected);
+  });
+  it.each(MAC_VERBATIM)("formatOrderMac $name", ({ input }) => {
+    expect(formatOrderMac(input)).toBe(input);
+  });
+
+  it("왕복 항등 — 바뀐 값은 다시 정규화하면 원래 87 값이다(표시값을 그대로 저장해도 서버 값이 바뀌지 않는다)", () => {
+    for (const { input } of IP_FORMATTED) expect(normalizeOrderIp(formatOrderIp(input))).toBe(input);
+    for (const { input } of MAC_FORMATTED) expect(normalizeOrderMac(formatOrderMac(input))).toBe(input);
   });
 });
 
