@@ -197,6 +197,7 @@ import {
   buy3CfgOf,
   LC_LEGACY_ARM_REJECT_TEXT,
   LC_LEGACY_SET_REJECT_TEXT,
+  USER_SETTINGS_FLOOR_UNKNOWN_TEXT,
   parseInbound,
   type RelayInboundWire,
   withNeutralBuy3,
@@ -2100,13 +2101,28 @@ export class WsFanout {
     }
 
     // `user.settings.set`(42 · Phase 27) — ② 계좌 대조가 **없다**: 계좌 축이 없고 서버가 세션 신원(`GetId()`)으로
-    // 저장한다. 11값 범위는 zod 가 이미 봤다(`USER_SETTINGS_RANGES`). 성공 신호는 서버가 같은 사용자 전 세션에
+    // 저장한다. 12값 범위는 zod 가 이미 봤다(`USER_SETTINGS_RANGES`). 성공 신호는 서버가 같은 사용자 전 세션에
     // 브로드캐스트하는 84 다 — relay 는 84 를 받은 대로 팬아웃할 뿐 **42 에 대해 지어낸 84 를 내지 않는다.**
     // 거부는 54 ERROR `src="SetUserSettings"` 가 기존 `msg` 경로로 간다. pending FIFO · 재전송 없음(T-16-10).
+    //
+    // 12값 · 구 탭은 84 캐시 금액 되싣기(D-14 보정 · Pitfall 3) — 후매수 최소(`postBuyFloorAmount`)가 없는 구 탭 11값은
+    // 그 사용자의 마지막 84 금액으로 채운다. 42 는 전체 교체라 0 을 지어 보내면 C# 「최소 [ ]만」 원값이 지워진다.
+    // 캐시도 없으면 게이트웨이 0바이트 · 거부 프레임 1건 · **소켓 유지**(`#reject` 금지 — 끊으면 시세 · 에코 · 수동주문까지
+    // 끊기고 재접속 루프가 된다 · 구 탭 lc.set 선례).
     if (msg.t === "user.settings.set") {
       const session = this.#strategySession(conn, userId, msg.t);
       if (session === null) return;
-      const settings = msg.s;
+      const amount = msg.s.postBuyFloorAmount ?? this.#hub.getUserSettings(userId)?.postBuyFloorAmount;
+      if (amount === undefined) {
+        // 값 · 계좌는 싣지 않는다.
+        logger.warn(
+          { userId, t: msg.t },
+          "[WS] 구 탭 user.settings.set(후매수 최소 없음) · 84 캐시 없음 — 거부 프레임으로 답하고 소켓 유지",
+        );
+        this.#send(conn, rejectFrame(USER_SETTINGS_FLOOR_UNKNOWN_TEXT, "", "", msg.t));
+        return;
+      }
+      const settings = { ...msg.s, postBuyFloorAmount: amount };
       const payload = this.#buildStrategyPayload(conn, userId, msg.t, () =>
         buildSetUserSettingsReq(settings),
       );

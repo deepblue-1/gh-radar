@@ -784,8 +784,9 @@ export function parseQueuedWindowState(env: Envelope): RelayQueuedWindowMsg | nu
 }
 
 /**
- * 사용자 설정 (84 — `user_settings` 슬롯 88 · Phase 27). 11값 + `present`(84 전용 — false 면 서버가 내장
- * 기본값을 실었다). 금액 3칸은 **만원** 그대로 옮긴다 — relay 는 단위를 바꾸지 않는다.
+ * 사용자 설정 (84 — `user_settings` 슬롯 88 · Phase 27 · Phase 31). 12값 + `present`(84 전용 — false 면 서버가 내장
+ * 기본값을 실었다). 금액 4칸은 **만원** 그대로 옮긴다 — relay 는 단위를 바꾸지 않는다. `postBuyFloorAmount` 는
+ * 늘 싣는다(구 84 슬롯 부재 = 0) — 키 부재는 「구 relay」 신호로만 쓰인다.
  */
 export function parseUserSettings(env: Envelope): RelayUserSettingsMsg | null {
   const u = env.userSettings();
@@ -806,6 +807,7 @@ export function parseUserSettings(env: Envelope): RelayUserSettingsMsg | null {
     auctionSellRatioPct: u.auctionSellRatioPct(),
     autoSellRatioDefaultPct: u.autoSellRatioDefaultPct(),
     autoSellMethodDefault: u.autoSellMethodDefault(),
+    postBuyFloorAmount: u.postBuyFloorAmount(), // vtable 28 · 구 84(부재) = 0
   };
 }
 
@@ -2063,7 +2065,7 @@ export function buildAutoSellCommandReq(req: AutoSellCommandInput): Uint8Array {
 /**
  * 사용자 설정 저장 (MsgType 42 · Envelope 슬롯 88 — 84 와 공유 · Phase 27 — gh-trade `limit-chaser.md` §9-3 「사용자 설정」).
  *
- * **11값 전체 교체**다(부분 갱신 아님). 서버는 범위 밖이 하나라도 있으면 요청 전체를 54 ERROR
+ * **12값 전체 교체**다(부분 갱신 아님 · post_buy_floor_qty 는 봉인 0 — Phase 32 D-08). 서버는 범위 밖이 하나라도 있으면 요청 전체를 54 ERROR
  * source `"SetUserSettings"` 로 거부하고, 성공하면 같은 사용자 **전 세션**에 84 를 브로드캐스트한다 — relay 는
  * 성공을 지어내지 않는다(84 를 합성하지 않는다).
  *
@@ -2079,13 +2081,14 @@ export function buildSetUserSettingsReq(s: RelayUserSettingsValues): Uint8Array 
   UserSettings.addAddBuyAmount(b, toWireUint(s.addBuyAmount, "addBuyAmount"));
   UserSettings.addPostBuyAmount(b, toWireUint(s.postBuyAmount, "postBuyAmount"));
   UserSettings.addPostBuyMaxCount(b, toWireUByte(s.postBuyMaxCount, "postBuyMaxCount"));
-  UserSettings.addPostBuyFloorQty(b, toWireUint(s.postBuyFloorQty, "postBuyFloorQty"));
+  UserSettings.addPostBuyFloorQty(b, 0); // 봉인 — 입력 무관 늘 0 (Phase 32 D-08 · 구 탭이 하한잔량을 실어도)
   UserSettings.addPostBuyReboundPct(b, toWireUByte(s.postBuyReboundPct, "postBuyReboundPct"));
   UserSettings.addSellQtyTrackRatio(b, toWireUByte(s.sellQtyTrackRatio, "sellQtyTrackRatio"));
   UserSettings.addAutoSellPeriodSec(b, toWireUByte(s.autoSellPeriodSec, "autoSellPeriodSec"));
   UserSettings.addAuctionSellRatioPct(b, toWireUByte(s.auctionSellRatioPct, "auctionSellRatioPct"));
   UserSettings.addAutoSellRatioDefaultPct(b, toWireUByte(s.autoSellRatioDefaultPct, "autoSellRatioDefaultPct"));
   UserSettings.addAutoSellMethodDefault(b, toWireUByte(s.autoSellMethodDefault, "autoSellMethodDefault"));
+  UserSettings.addPostBuyFloorAmount(b, toWireUint(s.postBuyFloorAmount, "postBuyFloorAmount"));
   // present — 84 전용(서버가 42 요청값을 읽지 않는다). 싣지 않는다.
   const table = UserSettings.endUserSettings(b);
 

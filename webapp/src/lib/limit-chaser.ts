@@ -427,7 +427,8 @@ export function seedFromUserSettings(us: RelayUserSettingsMsg | undefined): Part
   const seed: Partial<UserSettingsSeed> = {};
   for (const [field, key] of USER_SETTINGS_SEED_MAP) {
     const v = us[key];
-    seed[field] = fitsLcRange(field, v) ? v : fallback[field];
+    // 키 부재(구 relay · Phase 31 `postBuyFloorAmount` 선택 키)는 범위 밖과 같다 — 폴백.
+    seed[field] = v !== undefined && fitsLcRange(field, v) ? v : fallback[field];
   }
   return seed;
 }

@@ -1448,6 +1448,8 @@ describe("WsFanout", () => {
         auctionSellRatioPct: 20,
         autoSellRatioDefaultPct: 10,
         autoSellMethodDefault: 3,
+        // Phase 31 — 새 relay 는 늘 싣는다(84 슬롯 부재 = 0).
+        postBuyFloorAmount: 0,
       },
     ]);
     const order = tabB.inbox.map((m) => m.t);
