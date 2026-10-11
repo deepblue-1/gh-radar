@@ -1222,3 +1222,196 @@ describe("relay Admin 내부 HTTP — DB 등록만 지우고 삭제 (29-34 WR-04
     ]);
   });
 });
+
+/**
+ * 잠그는 것 (29-48 GC-10 — 재적재 대기 상한):
+ *   G1  PUT accounts · 지정 재적재 무응답 → 마감(주입 300ms) 안에 200 + 서버별 결과 배열(Express 15초 502 없음) · 마감 warn 1줄
+ *       (route · what · DMA id 없음) · 재적재는 취소되지 않고 뒤에서 끝까지 간다(늦은 결과 ok false → 종전 warn)
+ *   G2  PUT accounts · 지정 재적재 50ms → 응답이 재적재 완료 **뒤**(종전 순서 — 29-37 「응답 뒤 첫 주문이 새 지정으로」) · 마감 warn 0
+ *   G3  DELETE user · 접근 맵 재적재 + 지정 재적재 둘 다 무응답 → 200 { results, deleted: true } 가 마감 안에 — 두 대기가 같은
+ *       남은 마감을 나눠 쓴다(합이 마감을 넘지 않는다) · 지정 재적재도 불렸다 · 마감 warn 2줄(access · order-servers)
+ *   G4  PUT order-server · 지정 재적재 무응답 → 200 { ok, orderServer } 가 마감 안에(dispatcher 없음 — 핸들러 첫 줄 deadlineOf)
+ *   G5  재적재 거부(throw) — 즉시든 마감 뒤든 응답은 200 · warn 1줄씩 · 미처리 거부 0
+ */
+describe("relay Admin 내부 HTTP — 재적재 대기 상한 (29-48 GC-10)", () => {
+  const DEADLINE_MS = 300;
+  /** 마감 + 여유 — 이 안에 응답이 와야 한다(무한 대기 · 마감 두 번 쓰기는 넘는다). */
+  const WITHIN_MS = DEADLINE_MS + 200;
+  const DEADLINE_WARN = "마감 — 응답 먼저, 재적재는 뒤에서 계속";
+  let h: Harness;
+  let logs: LogCall[];
+  const releases: Array<() => void> = [];
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown): void => {
+    unhandled.push(reason);
+  };
+
+  /** 밖에서 풀 수 있는 Promise — 무응답 재적재 대역. 테스트 끝에서 반드시 푼다(열린 핸들 0). */
+  function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void } {
+    let resolve!: (v: T) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  /** 응답이 `ms` 안에 오지 않으면 null — 무한 대기 구현에서도 테스트가 단언으로 실패한다. */
+  async function within(p: Promise<Response>, ms: number): Promise<{ res: Response | null; elapsed: number }> {
+    const t0 = Date.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), ms);
+    });
+    const res = await Promise.race([p, late]);
+    clearTimeout(timer);
+    return { res, elapsed: Date.now() - t0 };
+  }
+
+  const deadlineWarns = () =>
+    logs.filter((c) => c.level === "warn" && String(c.args[1] ?? "").includes(DEADLINE_WARN)).map((c) => c.args[0] as Record<string, unknown>);
+
+  beforeEach(async () => {
+    logs = await spyLogs();
+    unhandled.length = 0;
+    process.on("unhandledRejection", onUnhandled);
+  });
+
+  afterEach(async () => {
+    for (const release of releases.splice(0)) release();
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    await h.close();
+    vi.restoreAllMocks();
+    process.off("unhandledRejection", onUnhandled);
+    expect(unhandled).toEqual([]);
+  });
+
+  it("G1 GC-10 무응답 재적재 → 마감 안 200 + 결과 배열 · 마감 warn 1줄 · 재적재는 뒤에서 끝까지", async () => {
+    h = await startHarness({ adminDeadlineMs: DEADLINE_MS });
+    expect((await call(h, "POST", "/internal/admin/dma-users", createBody())).status).toBe(200);
+    const hang = deferred<{ ok: boolean }>();
+    releases.push(() => hang.resolve({ ok: true }));
+    h.orderServersReload.mockClear();
+    h.orderServersReload.mockImplementation(() => hang.promise);
+    logs.length = 0;
+
+    const { res, elapsed } = await within(
+      call(h, "PUT", "/internal/admin/dma-users/tr01/accounts", { account: KB_ACCOUNT, servers: ["KB120", "KB121"] }),
+      WITHIN_MS,
+    );
+    expect(res, `마감(${DEADLINE_MS}ms) 안 응답 — ${elapsed}ms`).not.toBeNull();
+    expect(res!.status).toBe(200);
+    expect(((await res!.json()) as { results: Array<{ server: string; outcome: string }> }).results.map((r) => [r.server, r.outcome])).toEqual([
+      ["KB120", "ok"],
+      ["KB121", "ok"],
+    ]);
+    expect(h.orderServersReload).toHaveBeenCalledTimes(1);
+    expect(deadlineWarns()).toEqual([{ route: "PUT /dma-users/:dma/accounts", what: "order-servers" }]);
+    expect(stringify(deadlineWarns())).not.toContain("tr01");
+
+    // 재적재는 취소되지 않았다 — 늦게 끝난 결과(ok false)도 종전 규율대로 처리된다(warn 1줄).
+    hang.resolve({ ok: false });
+    await waitFor(
+      () => logs.some((c) => c.level === "warn" && String(c.args[1]).includes("지정 재적재 실패")),
+      "늦은 재적재 결과 처리",
+    );
+  });
+
+  it("G2 GC-10 빠른 재적재(50ms) → 응답 전 완료(종전 순서) · 마감 warn 0", async () => {
+    h = await startHarness({ adminDeadlineMs: DEADLINE_MS });
+    expect((await call(h, "POST", "/internal/admin/dma-users", createBody())).status).toBe(200);
+    let done = 0;
+    h.orderServersReload.mockClear();
+    h.orderServersReload.mockImplementation(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(() => {
+            done += 1;
+            resolve({ ok: true });
+          }, 50),
+        ),
+    );
+    logs.length = 0;
+
+    const res = await call(h, "PUT", "/internal/admin/dma-users/tr01/accounts", { account: KB_ACCOUNT, servers: ["KB120", "KB121"] });
+    // 응답을 받은 시점에 재적재는 이미 끝나 있다 — 응답 뒤 첫 주문이 새 지정으로 간다(29-37).
+    expect([h.orderServersReload.mock.calls.length, done]).toEqual([1, 1]);
+    expect(res.status).toBe(200);
+    expect(deadlineWarns()).toEqual([]);
+  });
+
+  it("G3 GC-10 DELETE user — access + 지정 재적재 둘 다 무응답 → 마감 안 200 { deleted: true } · 남은 마감 공유 · warn 2줄", async () => {
+    const accessHang = deferred<{ ok: boolean; revoked: string[] }>();
+    const accessReload = vi.fn(() => accessHang.promise);
+    h = await startHarness({ adminDeadlineMs: DEADLINE_MS, access: { reload: accessReload, entryOf: () => undefined } });
+    releases.push(() => accessHang.resolve({ ok: true, revoked: [] }));
+    expect((await call(h, "POST", "/internal/admin/dma-users", createBody())).status).toBe(200);
+    const hang = deferred<{ ok: boolean }>();
+    releases.push(() => hang.resolve({ ok: true }));
+    h.orderServersReload.mockClear();
+    h.orderServersReload.mockImplementation(() => hang.promise);
+    logs.length = 0;
+
+    const { res, elapsed } = await within(call(h, "DELETE", "/internal/admin/dma-users/tr01"), WITHIN_MS);
+    expect(res, `마감(${DEADLINE_MS}ms) 안 응답 — 두 대기 합 ${elapsed}ms`).not.toBeNull();
+    expect(res!.status).toBe(200);
+    expect(((await res!.json()) as { deleted: boolean }).deleted).toBe(true);
+    expect(accessReload).toHaveBeenCalledTimes(1);
+    expect(h.orderServersReload).toHaveBeenCalledTimes(1);
+    expect(deadlineWarns()).toEqual([
+      { route: "DELETE /dma-users/:dma", what: "access" },
+      { route: "DELETE /dma-users/:dma", what: "order-servers" },
+    ]);
+  });
+
+  it("G4 GC-10 PUT order-server — 지정 재적재 무응답 → 마감 안 200 { ok, orderServer }", async () => {
+    h = await startHarness({ adminDeadlineMs: DEADLINE_MS });
+    expect((await call(h, "POST", "/internal/admin/dma-users", createBody())).status).toBe(200);
+    const hang = deferred<{ ok: boolean }>();
+    releases.push(() => hang.resolve({ ok: true }));
+    h.orderServersReload.mockClear();
+    h.orderServersReload.mockImplementation(() => hang.promise);
+    logs.length = 0;
+
+    const { res, elapsed } = await within(
+      call(h, "PUT", "/internal/admin/dma-users/tr01/accounts/KB/1234567801/order-server", { serverKey: "KB121" }),
+      WITHIN_MS,
+    );
+    expect(res, `마감(${DEADLINE_MS}ms) 안 응답 — ${elapsed}ms`).not.toBeNull();
+    expect(res!.status).toBe(200);
+    expect(await res!.json()).toEqual({ ok: true, orderServer: "KB121" });
+    expect(h.db.orderServerOf("tr01", "KB", "1234567801")).toBe("KB121");
+    expect(deadlineWarns()).toEqual([
+      { route: "PUT /dma-users/:dma/accounts/:broker/:accountNo/order-server", what: "order-servers" },
+    ]);
+  });
+
+  it("G5 GC-10 재적재 거부 — 즉시(지정) · 마감 뒤(접근 맵) 둘 다 응답 200 · warn · 미처리 거부 0", async () => {
+    const accessLate = deferred<{ ok: boolean; revoked: string[] }>();
+    h = await startHarness({
+      adminDeadlineMs: DEADLINE_MS,
+      access: { reload: () => accessLate.promise, entryOf: () => undefined },
+    });
+    releases.push(() => accessLate.resolve({ ok: true, revoked: [] }));
+    expect((await call(h, "POST", "/internal/admin/dma-users", createBody())).status).toBe(200);
+    h.orderServersReload.mockClear();
+    h.orderServersReload.mockRejectedValue(new Error("boom"));
+    logs.length = 0;
+
+    const { res } = await within(call(h, "DELETE", "/internal/admin/dma-users/tr01"), WITHIN_MS);
+    expect(res).not.toBeNull();
+    expect(res!.status).toBe(200);
+    expect(((await res!.json()) as { deleted: boolean }).deleted).toBe(true);
+    // 지정 재적재 즉시 거부 → 종전 warn 1줄. 접근 맵은 마감에 접힘 → 마감 warn 1줄.
+    expect(logs.filter((c) => c.level === "warn" && String(c.args[1]).includes("지정 재적재 실패"))).toHaveLength(1);
+    expect(deadlineWarns()).toEqual([{ route: "DELETE /dma-users/:dma", what: "access" }]);
+
+    // 마감 뒤 접근 맵 재적재가 거부돼도 응답은 이미 나갔고, 거부는 잡혀 warn 1줄 — 미처리 거부 없음(afterEach 단언).
+    accessLate.reject(new Error("late boom"));
+    await waitFor(
+      () => logs.some((c) => c.level === "warn" && String(c.args[1]).includes("재적재 실패") && (c.args[0] as { what?: string }).what === "access"),
+      "늦은 접근 맵 거부 warn",
+    );
+  });
+});
