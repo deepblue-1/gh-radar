@@ -824,7 +824,7 @@ export function readAutoSellCommandRequest(payload: Buffer): AutoSellCommandRequ
 const USER_SETTINGS_PRESENT_VT = 26;
 
 /**
- * `SetUserSettingsReq(42)` 요청 내용 — 11값 + `present` 슬롯 부재 증거 (Phase 27).
+ * `SetUserSettingsReq(42)` 요청 내용 — 12값(Phase 31 · `postBuyFloorAmount` vtable 28) + `present` 슬롯 부재 증거 (Phase 27).
  *
  * `presentSlotEmpty` 는 접근자 값이 아니라 **vtable** 로 본다 — `false` 를 실어도 FlatBuffers 는 버퍼에 쓰지 않으므로
  * 접근자로는 「싣지 않았다」를 증명할 수 없다(`readSetLimitChaserRequest` 의 슬롯 판정과 같은 이유).
@@ -841,6 +841,8 @@ export type SetUserSettingsRequest = {
   auctionSellRatioPct: number;
   autoSellRatioDefaultPct: number;
   autoSellMethodDefault: number;
+  /** 후매수 최소(하한금액) — **만원** · vtable 28. */
+  postBuyFloorAmount: number;
   presentSlotEmpty: boolean;
 };
 
@@ -866,6 +868,7 @@ export function readSetUserSettingsRequest(payload: Buffer): SetUserSettingsRequ
     auctionSellRatioPct: u.auctionSellRatioPct(),
     autoSellRatioDefaultPct: u.autoSellRatioDefaultPct(),
     autoSellMethodDefault: u.autoSellMethodDefault(),
+    postBuyFloorAmount: u.postBuyFloorAmount(),
     presentSlotEmpty: u.bb.__offset(u.bb_pos, USER_SETTINGS_PRESENT_VT) === 0,
   };
 }

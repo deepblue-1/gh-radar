@@ -1264,7 +1264,7 @@ export function buildQueuedWindowStateFrame(input: FakeQueuedWindowInput = {}): 
 }
 
 /**
- * 사용자 설정 (84 · Phase 27). 11값 + `present`(84 전용). 금액 3칸은 **만원**.
+ * 사용자 설정 (84 · Phase 27 · Phase 31 12값). 12값 + `present`(84 전용). 금액 4칸은 **만원**.
  */
 export type FakeUserSettingsInput = {
   preBuyAmount?: number;
@@ -1279,6 +1279,11 @@ export type FakeUserSettingsInput = {
   autoSellRatioDefaultPct?: number;
   autoSellMethodDefault?: number;
   present?: boolean;
+  /**
+   * 후매수 최소(하한금액) — **만원** · fbs vtable 28(Phase 32 D-08 · present 뒤 말미 append). 기본 0 = 서버 내장 0
+   * (0 은 FlatBuffers 기본값이라 슬롯을 쓰지 않는다 — 구 84(슬롯 부재)와 같은 바이트).
+   */
+  postBuyFloorAmount?: number;
 };
 
 /**
@@ -1302,6 +1307,7 @@ export function buildUserSettingsFrame(input: FakeUserSettingsInput = {}): Uint8
   UserSettings.addAutoSellRatioDefaultPct(b, input.autoSellRatioDefaultPct ?? 10);
   UserSettings.addAutoSellMethodDefault(b, input.autoSellMethodDefault ?? 3);
   UserSettings.addPresent(b, input.present ?? false);
+  UserSettings.addPostBuyFloorAmount(b, input.postBuyFloorAmount ?? 0);
   const settings = UserSettings.endUserSettings(b);
 
   Envelope.startEnvelope(b);
