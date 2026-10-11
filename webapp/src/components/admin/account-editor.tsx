@@ -2,6 +2,8 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
+  formatOrderIp,
+  formatOrderMac,
   isValidAccountNoInput,
   normalizeAccountNo,
   normalizeOrderIp,
@@ -63,7 +65,8 @@ import { useFieldSave, type FieldSave } from "./use-field-save";
  * 영역 안내 문장은 목업 A 문장(답 이전)이 아니라 gh-trade-84 ②(가) 뒤 문장이다 — 전략은 relay 가 끈다 · 되돌릴 때 클라(OCX) 대사.
  *
  * **주문자 IP/MAC 읽기 줄(Phase 30 D-09 · D-10 · 30-UI-SPEC §1 · 목업 B).** KB 계좌만 지점 · 트레이더 줄 아래 한 줄 — 설정됨
- * 「주문자 IP <ip> · MAC <mac>」(87 정규화값 그대로 · 재정규화 금지) · 미설정 「… 미설정(서버 NIC 값)」 · 87 미확인 「… 확인 전」.
+ * 「주문자 IP <ip> · MAC <mac>」(87 정규화값을 사람이 읽는 표기로 — D-17 shared `formatOrderIp/Mac` · 판정 · 비교는 정규화값) ·
+ * 미설정 「… 미설정(서버 NIC 값)」 · 87 미확인 「… 확인 전」.
  * 값 · 출처 서버 · 등록 서버 간 불일치는 shared `summarizeOrderEndpoint`(relay 라우팅과 같은 유효 주문 서버 규칙 한 벌) 결과만
  * 그린다 — 웹은 별도 판정을 하지 않는다. 불일치는 다른 서버마다 경고 한 줄(`WARN_LINE`). 빈 계좌명은 제목줄에 흐린 「이름 없음」
  * (87 전용 흐린 줄은 편집 대상이 아니라 그대로).
@@ -437,7 +440,7 @@ function AccountTitle({
   );
 }
 
-/** KB 주문자 IP/MAC 읽기 줄(D-09 · UI-SPEC §1-3) — summary 값 그대로(재정규화 금지). */
+/** KB 주문자 IP/MAC 읽기 줄(D-09 · UI-SPEC §1-3) — summary 의 87 정규화값을 사람이 읽는 표기로(D-17 · shared `formatOrderIp/Mac` · 판정 · 비교는 정규화값). */
 function OrderEndpointLine({ summary }: { summary: OrderEndpointSummary }) {
   const T = ACCOUNT_EDITOR_TEXT;
   return (
@@ -445,9 +448,9 @@ function OrderEndpointLine({ summary }: { summary: OrderEndpointSummary }) {
       {summary.state === "set" ? (
         <>
           {`${T.ipmacLabel} `}
-          <b className={IPMAC_VALUE}>{summary.orderIp}</b>
+          <b className={IPMAC_VALUE}>{formatOrderIp(summary.orderIp)}</b>
           {` · ${T.ipmacMacLabel} `}
-          <b className={IPMAC_VALUE}>{summary.orderMac}</b>
+          <b className={IPMAC_VALUE}>{formatOrderMac(summary.orderMac)}</b>
         </>
       ) : (
         <>

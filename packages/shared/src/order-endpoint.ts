@@ -6,6 +6,7 @@
  *   - relay 멱등 비교(`admin.ts` `sameValues` — 의도 값과 87 값을 정규화해 비교).
  *   - Express 개요(`deriveAdminUsersOverview` 가 87 값을 싣고, 카드가 `summarizeOrderEndpoint` 로 그린다).
  *   - webapp 계좌 편집기 검증 · 표시 · 「변경 없음」 판정.
+ *   - webapp 표시(D-17 `formatOrderIp/Mac` — 87 정규화값을 사람이 읽는 표기로 · 렌더 자리 전용, 비교 · 전송은 정규화값).
  *
  * - **trim 하지 않는다** — gh-trade 서버와 같다(`" 10.41.1.124"` 는 code 13). trim 은 호출자 몫이고 `validateOrderEndpointInput` 만 trim 한다.
  * - **웹은 정규화값을 보내지 않는다(D-07)** — 입력 원문(trim)을 그대로 보내고 서버가 정규화한다. 여기 정규화는 비교 · 「변경 없음」 판정에만.
@@ -40,6 +41,28 @@ export function normalizeOrderMac(raw: string): string | null {
   if (raw === "") return "";
   const hex = raw.replace(/[:-]/g, "");
   return /^[0-9A-Fa-f]{12}$/.test(hex) ? hex.toUpperCase() : null;
+}
+
+/**
+ * 87 정규화 IP → 사람이 읽는 점표기(D-17 · `010041001124` → `10.41.1.124`). **렌더 자리 전용** — 비교 · 전송 · `summarizeOrderEndpoint` 는
+ * 정규화값을 쓴다(D-17 · D-07). 정확히 ASCII 숫자 12자리이고 세 자리씩 끊은 네 옥텟이 모두 0~255 일 때만 앞자리 0 없이 점으로 잇는다.
+ * **형식 밖은 원문 그대로**(빈 값 · `999999999999` · 이미 점표기 등) — 왕복 항등(`normalizeOrderIp(formatOrderIp(v)) === v`)이 되는 값만 바꾼다.
+ * trim 하지 않는다(정규화 함수와 같은 규율).
+ */
+export function formatOrderIp(value: string): string {
+  if (!/^\d{12}$/.test(value)) return value;
+  const octets = [0, 3, 6, 9].map((i) => Number(value.slice(i, i + 3)));
+  return octets.every((v) => v <= 255) ? octets.map(String).join(".") : value;
+}
+
+/**
+ * 87 정규화 MAC → 사람이 읽는 콜론 대문자(D-17 · `1CFD087D978E` → `1C:FD:08:7D:97:8E`). **렌더 자리 전용** — 비교 · 전송 ·
+ * `summarizeOrderEndpoint` 는 정규화값을 쓴다(D-17 · D-07). 정확히 대문자 16진 12자일 때만 두 자리씩 콜론으로 잇는다.
+ * **형식 밖은 원문 그대로**(빈 값 · 소문자 · 이미 구분자 등) — 왕복 항등(`normalizeOrderMac(formatOrderMac(v)) === v`)이 되는 값만 바꾼다.
+ * trim 하지 않는다(정규화 함수와 같은 규율).
+ */
+export function formatOrderMac(value: string): string {
+  return /^[0-9A-F]{12}$/.test(value) ? (value.match(/../g) as string[]).join(":") : value;
 }
 
 /** 입력 검증 결과 — ok 면 정규화값(둘 다 빈 값이면 `""` `""` = 미설정으로 되돌리기), 아니면 첫 오류 하나와 표시할 칸. */
