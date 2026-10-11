@@ -4,6 +4,8 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   isValidAccountNoInput,
   normalizeAccountNo,
+  normalizeOrderIp,
+  normalizeOrderMac,
   REFLECT_LABEL,
   resolveEffectiveOrderServer,
   summarizeOrderEndpoint,
@@ -75,6 +77,13 @@ import { useFieldSave, type FieldSave } from "./use-field-save";
  * `role="alert"`) 또는 「<서버> 미반영: <사유>」(warn) — 서버 문구는 바꾸거나 대조하지 않는다(IPMAC-03 · D-12). HTTP 오류도 같은 자리.
  * 편집 저장에서 온 결과 칩은 `source: "edit"` 로 표시해 영역 하단 `BusyLines` 에 다시 띄우지 않는다(칩 · title 은 그대로).
  * 이름 저장 성공 뒤 재조회 전의 서버 토글은 새 이름을 싣는다(`editSave.value` — 옛 이름으로 되돌리지 않는다).
+ *
+ * **KB 주문자 IP/MAC 편집(Phase 30 30-05 · D-03 · D-04 · D-05 · D-06 · D-07 · D-10 · UI-SPEC §2-3 · §3).** KB 편집 블록은 계좌명 칸 아래
+ * 「주문자 IP」 · 「MAC 주소」 2열 칸 + 도움말 한 줄(검증 오류가 보이면 그 자리를 오류 줄이 대신), 교보는 칸 대신 「해당 없음」 한 줄.
+ * 초깃값 = 읽기 줄과 같은 출처(유효 주문 서버 87 정규화값). 검증 규칙은 shared `validateOrderEndpointInput` 한 벌(웹에 정규식 없음).
+ * 보내는 값은 입력 원문(trim) — 정규화는 「바뀜 · 변경 없음」 비교에만 쓴다(`editSaveBodyOf`). IP/MAC 은 두 칸이 정규화 비교로 바뀌었거나
+ * 등록 서버 간 불일치(D-10 맞추기)일 때만 싣고, 계좌명만 바뀐 저장에는 싣지 않는다(화면 초깃값이 틀려도 87 값을 덮지 않는다).
+ * 보낼 것이 없으면 요청 없이 편집을 닫고 「변경 없음」 한 줄(다음 「편집」 때 지움).
  */
 
 export const ACCOUNT_EDITOR_TEXT = {
@@ -135,6 +144,8 @@ export const ACCOUNT_EDITOR_TEXT = {
   ipInvalid: "IP 는 12자리 숫자 또는 10.41.1.124 형식이에요",
   macInvalid: "MAC 은 12자리 16진이에요(1C:FD:08:7D:97:8E)",
   pairInvalid: "IP 와 MAC 은 둘 다 적거나 둘 다 비워 주세요",
+  /** D-06 — 정규화 비교로 지금 값과 같아 요청을 보내지 않았다(NOTE · 다음 「편집」 때 지움). */
+  unchanged: "변경 없음",
 } as const;
 
 /** shared 검증 오류 종류 → 편집 블록 오류 줄 문구(규칙은 shared 한 벌 · 문구만 여기). */
@@ -495,6 +506,38 @@ interface EditFields {
   mac: string;
 }
 
+/**
+ * 카드 편집 저장 본문(UI-SPEC §3 「보내는 값」 · D-06 · D-07 · D-10) — `null` = 보낼 것 없음(「변경 없음」).
+ *
+ * - 계좌명은 `trim()` 해서 · 나머지 계좌 필드는 개요 값 · `servers` 는 지금 active 등록 서버 그대로(서버 집합을 바꾸지 않는다).
+ * - IP/MAC 은 KB 이고 (두 칸이 정규화 비교로 초깃값과 다름 || 등록 서버 간 불일치) 일 때만 최상위 `orderEndpoint` 로 싣는다.
+ *   보내는 값은 입력 원문(trim) — 정규화값을 보내지 않는다(D-07 · gh-trade 가 정규화). 두 칸 비움 = 빈 문자열 둘(미설정으로 되돌리기 · D-04).
+ * - 초깃값은 87 정규화값 또는 빈 문자열이라 정규화 비교가 곧 「서버 값과 같음」 이다. 형식 오류 값은 정규화가 null 이라 원문으로 비교한다
+ *   (호출자가 검증 오류면 저장을 막는다).
+ */
+function editSaveBodyOf(input: {
+  account: AdminAccountView;
+  servers: string[];
+  initial: EditFields;
+  draft: EditFields;
+  mismatched: boolean;
+}): AdminPutAccountBody | null {
+  const { account, servers, initial, draft, mismatched } = input;
+  const kb = account.broker === "KB";
+  const ip = draft.ip.trim();
+  const mac = draft.mac.trim();
+  const endpointChanged =
+    kb && ((normalizeOrderIp(ip) ?? ip) !== initial.ip || (normalizeOrderMac(mac) ?? mac) !== initial.mac);
+  const sendEndpoint = kb && (endpointChanged || mismatched);
+  const nameChanged = draft.name.trim() !== initial.name.trim();
+  if (!nameChanged && !sendEndpoint) return null;
+  return {
+    account: { ...accountInputOf(account), name: draft.name.trim() },
+    servers,
+    ...(sendEndpoint ? { orderEndpoint: { orderIp: draft.ip.trim(), orderMac: draft.mac.trim() } } : {}),
+  };
+}
+
 function AccountRow({
   account,
   dmaUserId,
@@ -522,6 +565,8 @@ function AccountRow({
   // 저장 결과 줄(서버별) · HTTP 오류 줄 표시 — 입력을 고치거나 「취소」 · 다시 열면 지운다(목업 B `delete MSG`).
   const [editLines, setEditLines] = useState<EditResultLine[]>([]);
   const [editErrorShown, setEditErrorShown] = useState(false);
+  // 「변경 없음」(D-06) — 요청 없이 편집을 닫은 뒤 읽기 카드에 한 줄. 다음 「편집」 을 열 때 지운다.
+  const [editNote, setEditNote] = useState<"unchanged" | null>(null);
   const clearEditResult = () => {
     setEditLines([]);
     setEditErrorShown(false);
@@ -622,6 +667,7 @@ function AccountRow({
     };
     setDraft({ initial, value: initial });
     clearEditResult();
+    setEditNote(null);
     onEditStart();
   };
   const cancelEdit = () => {
@@ -631,10 +677,18 @@ function AccountRow({
   };
   const submitEdit = () => {
     if (draft === null || !canSave) return;
+    // servers = 지금 그리는 active 등록 서버(토글 비행 중이면 그 값) — 서버 집합을 바꾸지 않는다.
+    const body = editSaveBodyOf({ account, servers: intent, initial: draft.initial, draft: draft.value, mismatched });
+    if (body === null) {
+      // D-06 — 정규화 비교로 지금 값과 같고 D-10 불일치도 없다: 요청 없이 닫고 「변경 없음」.
+      clearEditResult();
+      setEditNote("unchanged");
+      onEditEnd();
+      return;
+    }
     setEditLines([]);
     setEditErrorShown(true);
-    // servers = 지금 그리는 active 등록 서버(토글 비행 중이면 그 값) — 서버 집합을 바꾸지 않는다. orderEndpoint 는 싣지 않는다.
-    editSave.run({ account: { ...accountInputOf(account), name: draft.value.name.trim() }, servers: intent });
+    editSave.run(body);
   };
   const setDraftField = (field: keyof EditFields, v: string) => {
     setDraft((d) => (d ? { ...d, value: { ...d.value, [field]: v } } : d));
@@ -804,12 +858,19 @@ function AccountRow({
           )}
         </form>
       ) : (
-        endpoint && (
-          <>
-            <OrderEndpointLine summary={endpoint} />
-            <OrderEndpointMismatchLines summary={endpoint} />
-          </>
-        )
+        <>
+          {endpoint && (
+            <>
+              <OrderEndpointLine summary={endpoint} />
+              <OrderEndpointMismatchLines summary={endpoint} />
+            </>
+          )}
+          {editNote === "unchanged" && (
+            <p data-slot="admin-account-edit-result" data-tone="note" className={NOTE}>
+              {T.unchanged}
+            </p>
+          )}
+        </>
       )}
       <div className="mt-2.5 flex flex-wrap gap-1.5">
         {shown.map((serverKey) => {
