@@ -272,6 +272,9 @@ export const QUOTE_SUB_LIMIT = 2000;
  */
 export const USER_SUB_LIMIT = 200;
 
+/** 29-49 RED 골격. */
+export const HUB_LEASE_DRAIN_MS = 5_000;
+
 /**
  * `subscribe` 판정 결과 (D-11 · D-15). `"ok"` 가 아니면 참조계수 · 업스트림 모두 무변경이다.
  *   · `"limit-user"`   — 그 사용자에게 새 키인데 사용자 키 수가 `USER_SUB_LIMIT` 에 닿았다.

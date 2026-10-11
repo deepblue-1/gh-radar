@@ -19,14 +19,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as flatbuffers from "flatbuffers";
 import type { RelayAccount, RelayOutbound } from "@gh-radar/shared";
 
-import { SubscriptionHub, ownerKey, type HubFanoutEvent, type HubSession } from "../src/hub/subscription-hub.js";
+import {
+  HUB_LEASE_DRAIN_MS,
+  SubscriptionHub,
+  ownerKey,
+  type HubFanoutEvent,
+  type HubSession,
+} from "../src/hub/subscription-hub.js";
 import { MSG } from "../src/dma/msg-type.js";
 import { resetDroppedEnvelopeCount, tryParseEnvelope } from "../src/dma/envelope.js";
 import { Envelope } from "../src/generated/stock-dma/envelope.js";
 import type { TransportFrameEvent } from "../src/dma/dma-client.js";
+import { readGetVITriggerExchange } from "./helpers/fake-gateway.js";
 import {
   SAMPLE_ISIN,
   buildAccountStateFrame,
+  buildDisableStrategiesRespFrame,
   buildLimitChaserListRespFrame,
   buildOrderRespFrame,
   buildQueueProgressFrame,
@@ -646,5 +654,278 @@ describe("SubscriptionHub — primary 선호 서버 (29-35)", () => {
     ]);
     kb121.pushFrame(buildUserSettingsFrame({ present: true }));
     expect(hub.getUserSettings(U)).toMatchObject({ present: true });
+  });
+});
+
+/**
+ * Phase 29-49 Task 2 — sweep 대여(GC-03 · GC-04 hub 쪽). sweeper 가 hub 가 듣는 세션을 쓰는 동안 그 세션의 미해결 21 은 늘 한 주인의
+ * 것이다: 대여 전에 hub 가 보낸 21 은 그 61 이 다 오거나 5초가 지날 때까지 대여를 미루고(넘으면 hub 대기열을 비우고 반납 때 다시 요청),
+ * Ready 앞 대여는 hub 프리페치 21 을 반납까지 미룬다. 결선 안 된 세션 대여는 무동작이고, 교체 · 분리 · closeAll 은 표식을 정리한다.
+ */
+describe("SubscriptionHub — sweep 대여 (29-49 · GC-03 · GC-04)", () => {
+  const A = "1234567801";
+  const B = "1234567802";
+
+  /** 21 의 요청 거래소까지 쌓는 가짜 세션. */
+  class LeaseSession extends FakeBrokerSession {
+    readonly viGets: string[] = [];
+
+    override send(payload: Uint8Array): boolean {
+      const env = Envelope.getRootAsEnvelope(new flatbuffers.ByteBuffer(payload));
+      if (env.msgType() === MSG.GetVITriggerReq) {
+        this.viGets.push(readGetVITriggerExchange(MSG.GetVITriggerReq, Buffer.from(payload)) ?? "<bare>");
+      }
+      return super.send(payload);
+    }
+  }
+
+  let hub: SubscriptionHub;
+  let fanned: HubFanoutEvent[];
+  let kb120: LeaseSession;
+  let kb121: LeaseSession;
+
+  function framesOf<T extends RelayOutbound["t"]>(t: T): Extract<RelayOutbound, { t: T }>[] {
+    return fanned
+      .filter((e) => e.userId === U && e.msg.t === t)
+      .map((e) => e.msg as Extract<RelayOutbound, { t: T }>);
+  }
+
+  /** 프로미스 해결 여부를 동기적으로 들여다본다. */
+  function track<T>(p: Promise<T>): { done: boolean; value: T | undefined } {
+    const st: { done: boolean; value: T | undefined } = { done: false, value: undefined };
+    void p.then((v) => {
+      st.done = true;
+      st.value = v;
+    });
+    return st;
+  }
+
+  async function flush(): Promise<void> {
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+  }
+
+  const empty61 = () => buildSetVITriggerRespFrame(null);
+  const disable65 = () => buildDisableStrategiesRespFrame({ disabledCount: 1, viDisabled: false });
+
+  /** KB120 을 Ready 로 결선해 Ready 프리페치(21 KRX · NXT)를 보낸 직후(61 아직) 상태를 만든다. */
+  function primaryPrefetched(): void {
+    kb120.isReady = false;
+    hub.attach(kb120);
+    kb120.emitReady();
+    expect(kb120.viGets).toEqual(["KRX", "NXT"]);
+    kb120.viGets.length = 0;
+    kb120.sentTypes.length = 0;
+  }
+
+  beforeEach(() => {
+    resetDroppedEnvelopeCount();
+    hub = new SubscriptionHub({ preferredPrimaryServerKey: () => "KB120" });
+    fanned = [];
+    hub.on("fanout", (e: HubFanoutEvent) => fanned.push(e));
+    kb120 = new LeaseSession(U, "KB120", "KB", [{ accountNo: B, name: "계좌B" }]);
+    kb121 = new LeaseSession(U, "KB121", "KB", [{ accountNo: A, name: "계좌A" }]);
+  });
+
+  afterEach(() => {
+    hub.closeAll();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("GC-04 배수 뒤 해결 — hub 의 21 두 개가 미해결이면 대여는 그 61 이 다 올 때까지 미해결 · 빈 61 은 KRX · NXT 순 귀속(종전) · 그 뒤 sweeper 의 빈 61 은 귀속 0 · 반납 때 재요청 0", async () => {
+    primaryPrefetched();
+    const lease = track(hub.lendSession(kb120));
+    await flush();
+    expect(lease.done).toBe(false);
+
+    kb120.pushFrame(empty61());
+    await flush();
+    expect(lease.done).toBe(false);
+    kb120.pushFrame(empty61());
+    await flush();
+    expect(lease.done).toBe(true);
+    expect(framesOf("vi")).toEqual([
+      { t: "vi", x: "KRX", cfg: null },
+      { t: "vi", x: "NXT", cfg: null },
+    ]);
+
+    // 대여 중 — sweeper 의 빈 61(21 답)은 hub 대기열 머리로 귀속하지 않는다 · 65 는 팬아웃하지 않는다.
+    kb120.pushFrame(empty61());
+    kb120.pushFrame(disable65());
+    expect(framesOf("vi")).toHaveLength(2);
+    expect(framesOf("strategies.disabled")).toHaveLength(0);
+    // 본문 있는 61 은 서버 사실 — 대여 중에도 캐시 · 팬아웃.
+    kb120.pushFrame(buildSetVITriggerRespFrame({ accountNo: B, exchange: "NXT", run: false }));
+    expect(framesOf("vi").at(-1)).toMatchObject({ x: "NXT", cfg: { run: false } });
+
+    lease.value?.release();
+    expect(kb120.viGets).toEqual([]);
+    // 반납 뒤 65 는 종전대로 팬아웃.
+    kb120.pushFrame(disable65());
+    expect(framesOf("strategies.disabled")).toHaveLength(1);
+  });
+
+  it("GC-04 5초 상한 — 61 이 오지 않으면 HUB_LEASE_DRAIN_MS 뒤 해결 · hub 대기열 비움 · warn 1줄 · 반납 때 21 두 거래소 재요청 → 빈 61 이 각 거래소에 귀속", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const warns: unknown[][] = [];
+    vi.spyOn(logger, "warn").mockImplementation(((...args: unknown[]) => {
+      warns.push(args);
+    }) as never);
+    primaryPrefetched();
+
+    const lease = track(hub.lendSession(kb120));
+    await vi.advanceTimersByTimeAsync(HUB_LEASE_DRAIN_MS - 1);
+    expect(lease.done).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(lease.done).toBe(true);
+    const mine = warns.filter((w) => String(w[1]).includes("대여"));
+    expect(mine).toHaveLength(1);
+    expect(mine[0]?.[0]).toEqual({ userId: U, serverKey: "KB120", remaining: 2 });
+
+    // 대여 중 늦게 온 hub 의 빈 61 · sweeper 의 빈 61 — 비운 대기열이라 귀속 0.
+    kb120.pushFrame(empty61());
+    expect(framesOf("vi")).toHaveLength(0);
+
+    lease.value?.release();
+    expect(kb120.viGets).toEqual(["KRX", "NXT"]);
+    kb120.pushFrame(empty61());
+    kb120.pushFrame(empty61());
+    expect(framesOf("vi")).toEqual([
+      { t: "vi", x: "KRX", cfg: null },
+      { t: "vi", x: "NXT", cfg: null },
+    ]);
+  });
+
+  it("GC-04 Ready 앞 대여 — Ready 에서 hub 는 25 · 24 · 34 · 43 만(21 미룸) · 대여 중 빈 61 · 65 억제 · 반납 때 21(KRX → NXT) → 빈 61 이 각 거래소에 귀속", async () => {
+    kb120.isReady = false;
+    hub.attach(kb120);
+    const lease = track(hub.lendSession(kb120));
+    await flush();
+    expect(lease.done).toBe(true);
+
+    kb120.emitReady();
+    expect(kb120.sentTypes).toEqual([
+      MSG.GetAccountStateReq,
+      MSG.GetLimitChaserListReq,
+      MSG.GetVIOrderListReq,
+      MSG.GetUserSettingsReq,
+    ]);
+    expect(kb120.viGets).toEqual([]);
+    kb120.pushFrame(empty61());
+    kb120.pushFrame(disable65());
+    expect(framesOf("vi")).toHaveLength(0);
+    expect(framesOf("strategies.disabled")).toHaveLength(0);
+
+    lease.value?.release();
+    expect(kb120.viGets).toEqual(["KRX", "NXT"]);
+    kb120.pushFrame(empty61());
+    kb120.pushFrame(empty61());
+    expect(framesOf("vi")).toEqual([
+      { t: "vi", x: "KRX", cfg: null },
+      { t: "vi", x: "NXT", cfg: null },
+    ]);
+    // 두 번째 반납은 무동작(멱등).
+    lease.value?.release();
+    expect(kb120.viGets).toEqual(["KRX", "NXT"]);
+  });
+
+  it("GC-04 결선 안 된 세션 무동작 — attach 안 한 객체의 대여는 즉시 해결 · 결선 세션 표식 0(65 종전 팬아웃) · 반납 무동작", async () => {
+    hub.attach(kb120);
+    const stray = new LeaseSession(U, "KB120", "KB", [{ accountNo: B, name: "계좌B" }]);
+    const lease = track(hub.lendSession(stray));
+    await flush();
+    expect(lease.done).toBe(true);
+
+    kb120.pushFrame(disable65());
+    expect(framesOf("strategies.disabled")).toHaveLength(1);
+    lease.value?.release();
+    expect(stray.sentTypes).toEqual([]);
+    expect(kb120.sentTypes).toEqual([]);
+  });
+
+  it("GC-04 primary 아닌 세션 대여 — KB121 의 65 억제 · KB120(primary)의 65 는 종전 팬아웃 · primary 의 21 · 61 귀속 무영향 · 반납 때 21 0", async () => {
+    primaryPrefetched();
+    hub.attach(kb121);
+    const lease = track(hub.lendSession(kb121));
+    await flush();
+    expect(lease.done).toBe(true); // primary 아님 — hub 의 21 은 KB120 몫이라 기다리지 않는다.
+
+    kb120.pushFrame(empty61());
+    kb120.pushFrame(empty61());
+    expect(framesOf("vi")).toEqual([
+      { t: "vi", x: "KRX", cfg: null },
+      { t: "vi", x: "NXT", cfg: null },
+    ]);
+    kb121.pushFrame(disable65());
+    expect(framesOf("strategies.disabled")).toHaveLength(0);
+    kb120.pushFrame(disable65());
+    expect(framesOf("strategies.disabled")).toHaveLength(1);
+
+    lease.value?.release();
+    expect(kb120.viGets).toEqual([]);
+    expect(kb121.viGets).toEqual([]);
+  });
+
+  it("GC-04 같은 세션의 두 번째 대여는 앞 대여 반납까지 미해결(방어)", async () => {
+    hub.attach(kb120);
+    const first = track(hub.lendSession(kb120));
+    await flush();
+    const second = track(hub.lendSession(kb120));
+    await flush();
+    expect(first.done).toBe(true);
+    expect(second.done).toBe(false);
+
+    first.value?.release();
+    await flush();
+    expect(second.done).toBe(true);
+    // 두 번째 대여가 쥐고 있다 — 65 억제.
+    kb120.pushFrame(disable65());
+    expect(framesOf("strategies.disabled")).toHaveLength(0);
+    second.value?.release();
+    kb120.pushFrame(disable65());
+    expect(framesOf("strategies.disabled")).toHaveLength(1);
+  });
+
+  it("GC-04 교체 · 분리 · closeAll 정리 — 대여 중 같은 소유 키 교체 · retainSessions 분리 · closeAll 이 표식을 지우고 반납은 옛 세션으로 21 을 보내지 않는다", async () => {
+    // (1) 교체 — 대여 중 hub 가 21 을 미룬 뒤(사용자 단위 스냅샷 요청) 같은 소유 키의 새 세션이 결선된다.
+    hub.attach(kb120);
+    const replaced = await hub.lendSession(kb120);
+    hub.requestStrategySnapshot(U);
+    expect(kb120.viGets).toEqual([]);
+    const kb120b = new LeaseSession(U, "KB120", "KB", [{ accountNo: B, name: "계좌B" }]);
+    hub.attach(kb120b);
+    kb120b.pushFrame(disable65());
+    expect(framesOf("strategies.disabled")).toHaveLength(1); // 새 세션은 대여 아님
+    replaced.release();
+    expect(kb120.viGets).toEqual([]); // 옛 세션으로 21 을 보내지 않는다
+    expect(kb120b.viGets).toEqual([]); // 새 세션 몫은 그 세션 Ready 가 한다
+
+    // (2) 분리 — KB121 대여 중 retainSessions 로 떼어지면 표식이 지워진다(같은 객체가 다시 붙어도 대여 아님).
+    hub.attach(kb121);
+    const detached = await hub.lendSession(kb121);
+    hub.retainSessions(U, new Set(["KB120"]));
+    hub.attach(kb121);
+    kb121.pushFrame(disable65());
+    expect(framesOf("strategies.disabled")).toHaveLength(2);
+    detached.release();
+    expect(kb121.viGets).toEqual([]);
+
+    // (3) closeAll — 표식 0 · 배수 대기 중인 대여도 즉시 해결(무동작).
+    const kept = await hub.lendSession(kb121);
+    kb120b.isReady = true;
+    hub.requestStrategySnapshot(U); // KB120b(primary) 로 21 두 개 — 미해결
+    expect(kb120b.viGets).toEqual(["KRX", "NXT"]);
+    const draining = track(hub.lendSession(kb120b));
+    await flush();
+    expect(draining.done).toBe(false);
+    hub.closeAll();
+    await flush();
+    expect(draining.done).toBe(true);
+    kept.release();
+    hub.attach(kb121);
+    kb121.pushFrame(disable65());
+    expect(framesOf("strategies.disabled")).toHaveLength(3);
+    draining.value?.release();
+    expect(kb120b.viGets).toEqual(["KRX", "NXT"]);
   });
 });
