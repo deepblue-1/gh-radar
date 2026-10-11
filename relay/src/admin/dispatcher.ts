@@ -25,6 +25,11 @@
  *   같은 유저 줄(`#serial`)은 실제 완료에 묶인다 — 응답이 먼저 나가도 다음 요청은 앞 반영이 끝난 뒤에 op 를 보내고, 그 대기
  *   시간도 다음 요청의 마감에 들어간다(줄에서 마감을 맞으면 의도의 등록 서버 전부 `timeout`). 유저 삭제가 마감에 걸리면
  *   `deleted: false` 로 응답하고, 늦게 끝나도 DB 의 DMA 유저를 지우지 않는다 — 다음 삭제 요청이 87 대조로 마저 처리한다.
+ *   마감 예산(30 IN-05 · 의도된 동작): op 1(계좌) · op 3 이 있는 서버는 그 앞에 R3-01 op 5 재조회 왕복(최대
+ *   `ADMIN_COMMAND_TIMEOUT_MS` 5초)이 먼저 마감 10초를 쓴다 — 87 이 느린 서버에서는 계좌 op 하나만으로도 마감을 넘길 수 있다.
+ *   그 경우 응답은 `timeout`(「응답 없음」)인데 뒤에서 op 가 끝나 실제로는 반영되는 일이 R3-01 전보다 잦다. 결과는 옳다 — 실제 결과가
+ *   다시 기록되어 개요 칩이 맞춰지고, 같은 요청을 다시 보내도 재계획이 `sameValues` 로 이미 반영된 계좌를 건너뛰어 멱등이다.
+ *   마감을 늘리지 않는 이유: Express `RELAY_ADMIN_TIMEOUT_MS`(15초) 안에 응답이 나가야 「relay 는 반영했는데 Express 는 502」 가 없다.
  *
  * 하지 않는 것:
  *   - **87 에만 있는 계좌 · 유저를 지우는 op 를 만들지 않는다**(D-23 ⑤ · D-16) — op 는 전부 planner 가 의도 행에서만 만든다.
@@ -308,6 +313,7 @@ export class AdminDispatcher {
     // IPMAC-01(R3-01 · D-15) — op 1(계좌) · op 3 은 87 의 주문자 IP/MAC 을 되싣는다(GC-02). relay 밖(gh-trade 도구)에서 바꾼 값은
     // 캐시에 없으므로 보내기 직전 그 서버 87 을 op 5 로 새로 받아 계획을 **처음부터 다시** 만든다(재계획이 op 를 없애도 따른다).
     // 비밀번호(op 1 passwordOnly) · 제거(op 4) · 유저 삭제(op 2) · 무변경은 IP/MAC 을 싣지 않으니 재조회하지 않는다.
+    // 이 왕복도 요청 마감 안이다 — 느린 87 이면 「응답 없음」 뒤 실제 반영이 잦아진다(모듈 머리 「마감 예산」 · 30 IN-05).
     if (p.ops.some((op) => op.op === 3 || (op.op === 1 && !("passwordOnly" in op)))) {
       const fresh = await admin.command({ op: ADMIN_OP.ListUsers, userId: "" });
       if (fresh.kind !== "result" || fresh.snapshot === undefined) {
