@@ -116,9 +116,10 @@ export type StrategySweepOptions = {
   /**
    * hub 세션 대여 (29-49 · GC-03 · GC-04) — `acquireOn` 이 준 세션을 hub 에 빌린다(fanout 이 `hub.lendSession` 을 넘긴다). 대여 동안 hub 는
    * 그 세션 몫 21 을 미루고 빈 61 · 65 를 귀속 · 팬아웃하지 않는다. 반납은 finally 에서 세션 반납(`releaseSession`)보다 먼저다. 대여
-   * 대기도 전체 시한 안이다. 미주입 = 종전.
+   * 대기도 전체 시한 안이다. 미주입 = 종전. 대여가 `noteDisableSent` 를 주면 14 송신 성공 직후마다 부른다(29-54 · N-01 — hub 가 이 세션의
+   * 65 를 송신 순서로 sweeper 몫으로 귀속한다).
    */
-  lend?: (session: DmaSession) => Promise<{ release(): void }>;
+  lend?: (session: DmaSession) => Promise<{ release(): void; noteDisableSent?(): void }>;
 };
 
 /** `SessionManager` 의 이 모듈이 쓰는 면 — 테스트가 갈아 끼울 수 있게 구조 타입으로 둔다. */
@@ -377,8 +378,8 @@ export class StrategySweeper {
     // 전체 시한 — 그 시점에 걸린 기다림을 timeout 으로 끝낸다(remaining 은 그때까지 마지막으로 읽은 값).
     const total = setTimeout(() => tap.abort(new SweepFailure("timeout")), this.#totalMs);
     // hub 대여(29-49) — 이 세션을 hub 도 듣고 있으면 대여 동안 hub 는 21 을 미루고 빈 61 · 65 를 귀속 · 팬아웃하지 않는다.
-    let leasing: Promise<{ release(): void }> | undefined;
-    let lease: { release(): void } | undefined;
+    let leasing: Promise<{ release(): void; noteDisableSent?(): void }> | undefined;
+    let lease: { release(): void; noteDisableSent?(): void } | undefined;
     try {
       leasing = opts.lend?.(session);
       if (leasing !== undefined) lease = await tap.hold(leasing);
@@ -401,6 +402,8 @@ export class StrategySweeper {
           return echoed && e.msgType === MSG.DisableStrategiesResp && parseDisableStrategiesResp(e.env) !== null;
         });
         send(session, () => buildDisableStrategiesReq(item.key));
+        // hub 가 이 세션의 65 를 송신 순서로 귀속한다 — 사용자 전부 정지의 65 와 섞이지 않게(29-54 · N-01).
+        lease?.noteDisableSent?.();
         await done;
         disabledLimitChasers += 1;
       }

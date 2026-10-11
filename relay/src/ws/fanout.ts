@@ -583,6 +583,13 @@ type Conn = {
 };
 
 /**
+ * 「전부 정지」 부분 실패 문구 (29-54 · N-01) — 확인하지 못한 서버 키를 그대로 싣는다(계좌 · 전략 키 없음). 요청 탭에 기존 `msg` ERROR
+ * 프레임(`kind: "strategies.disable"`)으로 간다 — 브라우저 계약 무변경.
+ */
+export const ALL_STOP_PARTIAL_TEXT = (serverKeys: readonly string[]): string =>
+  `전부 정지를 확인하지 못한 서버가 있습니다(${serverKeys.join(", ")}) — 그 서버 계좌의 전략이 아직 켜져 있을 수 있습니다. 전략 목록을 확인해 주세요.`;
+
+/**
  * relay 발 거부 통지 1건. 게이트웨이 통지와 같은 `{t:"msg"}` 슬롯이고 `src` 만 다르다.
  *
  * **조용한 거부를 만들지 않기 위한 프레임**이다 (PC-7). 전략은 서버가 거부를 응답 코드로
@@ -2391,6 +2398,14 @@ export class WsFanout {
         },
         "[WS] 전부 정지 — primary 증권사 세션 전부 (29-54 · N-01)",
       );
+      if (result.failed.length === 0) return;
+      // 부분 실패 — 멈추지 못했을 수 있는 서버를 이름으로 알린다(kill switch 의 거짓 안심 방지). 연결이 이미 닫혔으면 `#send` 가 버린다.
+      logger.warn(
+        { userId, failed: result.failed.map((f) => `${f.serverKey}:${f.reason}`) },
+        "[WS] 전부 정지 부분 실패 — 확인하지 못한 서버 알림 (29-54 · N-01)",
+      );
+      const keys = result.failed.map((f) => f.serverKey);
+      this.#send(conn, rejectFrame(ALL_STOP_PARTIAL_TEXT(keys), "", "", "strategies.disable"));
     });
   }
 

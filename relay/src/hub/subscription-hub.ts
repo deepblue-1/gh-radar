@@ -133,7 +133,9 @@
  *         1개(지정 0 운영)는 종전 경로다. 65 귀속은 소유 키별 14 송신자 FIFO(`sweeper` · `user` · 집계)다: 서버는 한 연결의 요청을 순서대로
  *         처리하고 65 는 그 14 처리의 마지막 프레임이라 송신 순서로 정확히 짝지어진다. 그래서 대여 중에도 사용자 14 의 65 는 사용자에게 가고
  *         (29-49 의 「대여 중 사용자 65 억제」 수용을 거둔다) sweeper 14 의 65 는 집계에 섞이지 않는다. 꼬리표 없는 65(서버 발)는 29-49 규칙
- *         그대로다. 65 는 여전히 완료 신호일 뿐 캐시를 고치지 않는다.
+ *         그대로다. 65 는 여전히 완료 신호일 뿐 캐시를 고치지 않는다. `HUB_DISABLE_SENDER_MAX_AGE_MS`(30초)를 넘은 꼬리표는 65 유실로 보고
+ *         버린다(warn). 교체 · 분리는 그 세션 꼬리표를 지우고 진행 중 집계의 그 대상을 `detached` 로, `closeAll` 은 모든 집계를 팬아웃 없이
+ *         끝낸다(`done` 해결).
  *   D-13  전략 재조회는 **재접속(`ready`) 시에만** 일어난다. 주기 타이머·수동 새로고침
  *         진입점을 만들지 않는다 — 사용자 조작에 대한 60/61 에코는 Notice(유실 없음)라
  *         재조회로 메울 것이 없고, 폴링은 게이트웨이 왕복을 사용자 수에 비례시킨다.
@@ -1215,7 +1217,11 @@ export class SubscriptionHub extends EventEmitter {
         this.#endLease(userId, owner, session, mark);
         freeSlot();
       },
-      noteDisableSent: () => undefined,
+      // sweeper 14 의 65 를 송신 순서로 귀속한다(29-54 · N-01) — 반납 뒤 · 교체 · 분리된 세션이면 꼬리표를 넣지 않는다.
+      noteDisableSent: () => {
+        if (released || this.#sessions.get(owner) !== session) return;
+        this.#pushDisableSender(owner, "sweeper");
+      },
     };
   }
 
@@ -1363,13 +1369,43 @@ export class SubscriptionHub extends EventEmitter {
     else queue.push(entry);
   }
 
-  /** 65 하나의 송신자 — 그 소유 키 FIFO 의 머리를 뺀다 (29-54). 꼬리표가 없으면 undefined(서버 발 65). */
-  #takeDisableSender(owner: string): DisableSender["tag"] | undefined {
+  /**
+   * 65 하나의 송신자 — 그 소유 키 FIFO 의 머리를 뺀다 (29-54). 꼬리표가 없으면 undefined(서버 발 65). 머리부터
+   * `HUB_DISABLE_SENDER_MAX_AGE_MS` 를 넘은 꼬리표는 65 유실로 보고 버린다(warn 1줄 — userId · 서버 키 · 버린 수). 버린 꼬리표가 진행 중
+   * 집계의 것이면 그 대상은 집계 시한(5초) 갈래가 이미 끝냈다.
+   */
+  #takeDisableSender(userId: string, owner: string): DisableSender["tag"] | undefined {
     const queue = this.#disableSenders.get(owner);
     if (queue === undefined) return undefined;
+    const now = Date.now();
+    let dropped = 0;
+    while (queue.length > 0 && now - (queue[0]?.at ?? now) > HUB_DISABLE_SENDER_MAX_AGE_MS) {
+      queue.shift();
+      dropped += 1;
+    }
+    if (dropped > 0) {
+      logger.warn(
+        { userId, serverKey: owner.slice(userPrefix(userId).length), dropped },
+        "[HUB] 65 유실로 보이는 14 꼬리표 버림 (29-54)",
+      );
+    }
     const head = queue.shift();
     if (queue.length === 0) this.#disableSenders.delete(owner);
     return head?.tag;
+  }
+
+  /**
+   * 세션 하나 몫의 14 송신자 꼬리표를 버린다 (29-54 — 교체 · 분리). 그 세션의 65 는 이제 hub 가 듣지 않으므로 진행 중 집계의 그 대상은
+   * `detached` 실패로 끝낸다(다른 대상이 다 끝났으면 집계도 끝난다).
+   */
+  #dropDisableSenders(owner: string): void {
+    this.#disableSenders.delete(owner);
+    for (const coll of [...this.#allStops]) {
+      const target = coll.targets.get(owner);
+      if (target === undefined || (target.state !== "pending" && target.state !== "sent")) continue;
+      this.#failTarget(target, "detached");
+      this.#settleAllStop(coll);
+    }
   }
 
   #failTarget(target: AllStopTarget, reason: HubAllStopFailReason): void {
@@ -2441,6 +2477,14 @@ export class SubscriptionHub extends EventEmitter {
     this.#lent.clear();
     for (const w of [...this.#drains]) w.finish(false);
     this.#leaseTails.clear();
+    // 「전부 정지」 집계(29-54) — 타이머를 지우고 done 을 해결한다(약속이 매달리지 않게 · 팬아웃 없음). 꼬리표도 비운다.
+    for (const coll of [...this.#allStops]) {
+      for (const t of coll.targets.values()) {
+        if (t.state === "pending" || t.state === "sent") this.#failTarget(t, "detached");
+      }
+      this.#finishAllStop(coll, false);
+    }
+    this.#disableSenders.clear();
     this.#viOrders.clear();
     this.#rateCrossItems.clear();
     this.#queuedWindows.clear();
@@ -2547,7 +2591,7 @@ export class SubscriptionHub extends EventEmitter {
         const serverKey = owner.slice(userPrefix(userId).length);
         // 송신자 꼬리표(29-54 · N-01) — 이 세션으로 14 를 보낸 순서대로 짝짓는다(서버는 요청을 순서대로 처리하고 65 는 그 14 처리의 마지막
         // 프레임이다). 해석 못 한 65 도 그 14 의 짝이라 머리는 뺀다(뒤 꼬리표가 밀리지 않게 — 집계 대상이면 시한 갈래가 맡는다).
-        const sender = this.#takeDisableSender(owner);
+        const sender = this.#takeDisableSender(userId, owner);
         if (resp === null) return;
         if (sender === "sweeper") {
           logger.debug({ userId, serverKey }, "[HUB] sweeper 14 의 65 — 팬아웃 · 집계 안 함 (29-54)");
@@ -3723,6 +3767,8 @@ export class SubscriptionHub extends EventEmitter {
     this.#limitChaserKnown.delete(owner);
     // sweep 대여 표식(29-49)도 그 세션 몫이다 — 교체 · 분리된 세션의 대여는 끝난 것으로 본다(반납은 무동작 · 옛 세션으로 21 을 보내지 않는다).
     this.#lent.delete(owner);
+    // 14 송신자 꼬리표(29-54)도 그 세션 몫이다 — 진행 중 「전부 정지」 집계의 그 대상은 detached 로 끝낸다.
+    this.#dropDisableSenders(owner);
     // VI 는 소유 키 몫이다(29-51 GC-05) — 그 세션의 VI 설정 칸 · VI 주문 추적 · 21 대기열을 버린다. 병합값 · 추적 합집합은 결선 정리
     // (`#afterPrimaryChange` → `#syncViSources`)가 원천이 빠졌을 때 다시 낸다(교체는 같은 원천이라 새 세션의 61 · 72 가 다시 채운다).
     const viOrdersCleared = this.#clearViOwner(owner);
