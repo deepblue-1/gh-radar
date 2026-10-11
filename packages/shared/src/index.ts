@@ -222,3 +222,5 @@ export type {
 export * from "./admin";
 // --- Phase 29 (29-46 · GC-06) 유효 주문 서버 규칙 한 벌 — relay 라우팅(서버 매핑 79/87)과 Admin 계좌 편집기(DB 의도 · 29-55)가 같이 부른다 ---
 export * from "./order-server";
+// --- Phase 30 (30-02) 주문자 IP/MAC 정규화 · 검증 · 표시 판정 한 벌(gh-trade AccountUtil.h 이식) — relay 멱등 비교 · Express 개요 · webapp 편집기 ---
+export * from "./order-endpoint";
