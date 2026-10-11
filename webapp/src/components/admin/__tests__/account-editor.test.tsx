@@ -651,7 +651,7 @@ describe('P30 읽기 카드 — IP/MAC 줄 · 불일치 · 이름 없음 (D-09 �
     expect(lines).toHaveLength(1);
     expect(lines[0]).toHaveAttribute('data-server', 'KB121');
     expect(lines[0]).toHaveTextContent(
-      'KB121 값이 달라요(IP 010041001125 · MAC 1CFD087D978F) — 편집에서 저장하면 등록 서버가 모두 같아져요',
+      'KB121 값이 달라요(IP 10.41.1.125 · MAC 1C:FD:08:7D:97:8F) — 편집에서 저장하면 등록 서버가 모두 같아져요',
     );
     expect(lines[0].className).toContain('text-[var(--led-latent)]');
     expect(lines[0].className).toContain('break-keep');
@@ -1062,11 +1062,11 @@ describe('P30 IP/MAC 편집칸 · 검증 (D-03 · D-04 · D-05 · D-10)', () => 
     expect(nameInput().compareDocumentPosition(ipInput()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('설정 계좌(KB120 = KB121) → 초깃값 010041001124 · 1CFD087D978E(87 정규화값) · 「저장」 비활성', () => {
+  it('설정 계좌(KB120 = KB121) → 초깃값 10.41.1.124 · 1C:FD:08:7D:97:8E(87 값의 표시 표기 · D-17) · 「저장」 비활성', () => {
     mount([withEp(KB_TWO, { KB120: EP_A, KB121: EP_A }), KYOBO_ACCT]);
     fireEvent.click(btn(EDIT));
-    expect(ipInput()).toHaveValue('010041001124');
-    expect(macInput()).toHaveValue('1CFD087D978E');
+    expect(ipInput()).toHaveValue('10.41.1.124');
+    expect(macInput()).toHaveValue('1C:FD:08:7D:97:8E');
     expect(btn(SAVE)).toBeDisabled();
     expect(invalid()).toBeNull();
   });
@@ -1117,8 +1117,8 @@ describe('P30 IP/MAC 편집칸 · 검증 (D-03 · D-04 · D-05 · D-10)', () => 
   it('(D-10) 불일치 계좌(KB120 ≠ KB121) → 초깃값 = 출처(KB120) 값 · 바꾸지 않아도 「저장」 켜짐 · 불일치 경고 줄은 도움말 아래', () => {
     mount([withEp(KB_TWO, { KB120: EP_A, KB121: EP_B }), KYOBO_ACCT]);
     fireEvent.click(btn(EDIT));
-    expect(ipInput()).toHaveValue('010041001124');
-    expect(macInput()).toHaveValue('1CFD087D978E');
+    expect(ipInput()).toHaveValue('10.41.1.124');
+    expect(macInput()).toHaveValue('1C:FD:08:7D:97:8E');
     expect(btn(SAVE)).not.toBeDisabled();
     const lines = mismatchLines(NO);
     expect(lines).toHaveLength(1);
@@ -1205,11 +1205,12 @@ describe('P30 보내기 규칙 — 원문 · 변경 없음 · 비우기 · code 
     await act(async () => {});
   });
 
-  it('(D-06) 설정 계좌에 같은 값을 점표기로 다시 적고 저장 → 요청 0 · 편집 닫힘 · 포커스 「편집」 · 「변경 없음」(NOTE) · 다시 열면 사라짐', () => {
+  it('(D-06) 설정 계좌에 같은 값을 12자리 · 구분자 없는 소문자 표기로 다시 적고 저장 → 요청 0 · 편집 닫힘 · 포커스 「편집」 · 「변경 없음」(NOTE) · 다시 열면 사라짐', () => {
     mount([withEp(KB_TWO, { KB120: EP_A, KB121: EP_A }), KYOBO_ACCT]);
     fireEvent.click(btn(EDIT));
-    fireEvent.change(ipInput(), { target: { value: '10.41.1.124' } });
-    fireEvent.change(macInput(), { target: { value: '1c:fd:08:7d:97:8e' } });
+    // 초깃값은 표시 표기(10.41.1.124 · 1C:FD:08:7D:97:8E) — 다른 표기 · 같은 값(D-17 · 비교는 양쪽 정규화)
+    fireEvent.change(ipInput(), { target: { value: '010041001124' } });
+    fireEvent.change(macInput(), { target: { value: '1cfd087d978e' } });
     expect(btn(SAVE)).not.toBeDisabled(); // 원문이 달라 「바뀜」
     fireEvent.click(btn(SAVE));
     expect(putDmaAccountMock).toHaveBeenCalledTimes(0);
@@ -1251,26 +1252,41 @@ describe('P30 보내기 규칙 — 원문 · 변경 없음 · 비우기 · code 
     await act(async () => {});
   });
 
-  it('계좌명 변경 + 같은 IP/MAC 점표기 → 이름만 싣고 orderEndpoint 없음(정규화 비교로 같음)', async () => {
+  it('계좌명 변경 + 같은 IP 를 12자리 표기로 → 이름만 싣고 orderEndpoint 없음(양쪽 정규화 비교로 같음)', async () => {
     putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }] });
     mount([withEp(KB_ACCT, { KB120: EP_A }), KYOBO_ACCT]);
     fireEvent.click(btn(EDIT));
     fireEvent.change(nameInput(), { target: { value: '위탁종합' } });
-    fireEvent.change(ipInput(), { target: { value: '10.41.1.124' } });
+    fireEvent.change(ipInput(), { target: { value: '010041001124' } });
     fireEvent.click(btn(SAVE));
     expect(putDmaAccountMock).toHaveBeenCalledTimes(1);
     expect(bodyOf()).not.toHaveProperty('orderEndpoint');
     await act(async () => {});
   });
 
-  it('(D-10) 불일치 계좌(KB120 ≠ KB121) 바꾸지 않고 저장 → orderEndpoint = 출처(KB120) 값 그대로 · 등록 서버 전부', async () => {
+  it('(D-10) 불일치 계좌(KB120 ≠ KB121) 바꾸지 않고 저장 → orderEndpoint = 칸 값(출처 KB120 의 표시 표기) 원문 · 등록 서버 전부', async () => {
     putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }, { server: 'KB121', outcome: 'ok' }] });
     mount([withEp(KB_TWO, { KB120: EP_A, KB121: EP_B }), KYOBO_ACCT]);
     fireEvent.click(btn(EDIT));
     fireEvent.click(btn(SAVE));
     expect(putDmaAccountMock).toHaveBeenCalledTimes(1);
-    expect(bodyOf().orderEndpoint).toEqual({ orderIp: '010041001124', orderMac: '1CFD087D978E' });
+    // D-07 — 칸 값(표시 표기)을 trim 만 해서 싣는다 · 서버가 정규화한다
+    expect(bodyOf().orderEndpoint).toEqual({ orderIp: '10.41.1.124', orderMac: '1C:FD:08:7D:97:8E' });
     expect(bodyOf().servers).toEqual(['KB120', 'KB121']);
+    await act(async () => {});
+  });
+
+  it('(D-17) 87 IP 가 형식 밖(999999999999)인 설정 계좌 → IP 칸 초깃값 원문 · 계좌명만 바꿔 저장 → orderEndpoint 없음', async () => {
+    putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }] });
+    mount([withEp(KB_ACCT, { KB120: { orderIp: '999999999999', orderMac: '1CFD087D978E' } }), KYOBO_ACCT]);
+    fireEvent.click(btn(EDIT));
+    expect(ipInput()).toHaveValue('999999999999');
+    expect(macInput()).toHaveValue('1C:FD:08:7D:97:8E');
+    fireEvent.change(nameInput(), { target: { value: '위탁종합' } });
+    fireEvent.click(btn(SAVE));
+    expect(putDmaAccountMock).toHaveBeenCalledTimes(1);
+    expect(bodyOf()).not.toHaveProperty('orderEndpoint');
+    expect(bodyOf().account.name).toBe('위탁종합');
     await act(async () => {});
   });
 
