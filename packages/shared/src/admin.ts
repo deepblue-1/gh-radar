@@ -93,6 +93,13 @@ export interface AdminAccountFields {
   traderId: string;
   /** 작을수록 앞(users.toml priority). */
   priority: number;
+  /**
+   * 계좌별 주문자 IP · MAC(gh-trade 인박스 261010 · 슬롯 14 · 16) — **87 전용**. 서버 정규화값 그대로(재정규화 금지),
+   * 빈 값(= 미설정)은 키를 두지 않는다. DB 의도는 지금 두 필드를 갖지 않는다 — 의도에 값이 없으면 relay 는 87 값을 되싣고
+   * diff 도 비교하지 않는다(서버 값 보존 · GC-02 · 29-47). 사용자 PC 식별 정보 — 로그 금지.
+   */
+  orderIp?: string;
+  orderMac?: string;
 }
 
 /** DB 의도 1행 = (DMA 유저, 계좌, 등록 서버). `removing` 은 제거 의도가 서버에 아직 반영되지 않은 행. */

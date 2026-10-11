@@ -895,6 +895,9 @@ export function readAdminCommandRequest(msgType: number, payload: Buffer): Admin
             branchNo: a.branchNo() ?? "",
             traderId: a.traderId() ?? "",
             priority: a.priority(),
+            // 주문자 IP/MAC(GC-02) — 87 파서와 같은 규칙: 비어 있지 않은 값만 키로.
+            ...(a.orderIp() ? { orderIp: a.orderIp()! } : {}),
+            ...(a.orderMac() ? { orderMac: a.orderMac()! } : {}),
           },
   };
 }

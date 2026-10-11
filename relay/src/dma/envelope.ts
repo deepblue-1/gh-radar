@@ -3245,7 +3245,9 @@ export function parseObserverLoginResp(env: Envelope): ObserverLoginResult | nul
 //
 // admin 연결(role 2) 전용이다. 계좌번호는 서버 정규화값 그대로 싣고 읽는다(재정규화 금지 — Pitfall 7).
 // ulong(request_id · users_rev)은 bigint 그대로 둔다 — toNum 을 거치지 않는다(정밀도 손실 금지).
-// 비밀번호 · 계좌번호는 어떤 로그 인자에도 싣지 않는다.
+// 비밀번호 · 계좌번호 · 주문자 IP/MAC 은 어떤 로그 인자에도 싣지 않는다.
+// GC-02(29-47 · gh-trade 인박스 261010) — op 3 은 7필드(주문자 IP/MAC 포함) 멱등이고 빈 값 · null 은 「미설정」 으로 되돌린다.
+//   그래서 relay 는 87 이 준 그 계좌의 order_ip/order_mac 을 op 1 · op 3 에 그대로 되싣는다(planner) — 서버 계좌 설정 보존.
 
 /** `AdminAccount` 테이블 조립 — 생성 빌더(start/add/end)로만. 문자열은 테이블 조립 **전에** 만든다. */
 function buildWireAdminAccount(b: flatbuffers.Builder, a: AdminAccount): flatbuffers.Offset {
@@ -3253,12 +3255,17 @@ function buildWireAdminAccount(b: flatbuffers.Builder, a: AdminAccount): flatbuf
   const name = b.createString(a.name);
   const branchNo = b.createString(a.branchNo);
   const traderId = b.createString(a.traderId);
+  // 서버에서 null 과 빈 문자열은 같은 「미설정」 이다 — 그래도 늘 명시적으로 싣는다(값 없음 = 빈 문자열).
+  const orderIp = b.createString(a.orderIp ?? "");
+  const orderMac = b.createString(a.orderMac ?? "");
   WireAdminAccount.startAdminAccount(b);
   WireAdminAccount.addAccountNo(b, accountNo);
   WireAdminAccount.addName(b, name);
   WireAdminAccount.addBranchNo(b, branchNo);
   WireAdminAccount.addTraderId(b, traderId);
   WireAdminAccount.addPriority(b, a.priority);
+  WireAdminAccount.addOrderIp(b, orderIp);
+  WireAdminAccount.addOrderMac(b, orderMac);
   return WireAdminAccount.endAdminAccount(b);
 }
 
@@ -3320,6 +3327,7 @@ export function parseAdminCommandResp(env: Envelope): AdminCommandResult | null 
  *
  * - 유저는 파일 순, 계좌는 priority 오름차순 — 서버 순서를 그대로 보존한다(정렬하지 않는다).
  * - 교보 계좌의 `branchNo` · `traderId` 빈 문자열은 그대로 둔다(D-23 ③).
+ * - 주문자 IP/MAC(GC-02)은 비어 있지 않을 때만 `orderIp` · `orderMac` 키로 둔다 — 서버 정규화값 그대로(재정규화 금지).
  * - `request_id` 가 없다 — 86 직후 같은 연결 순서로 짝짓는다(29-08).
  * - 원소 null 은 건너뛴다(구조 이상 — 로그에는 인덱스만, 계좌번호 없음). 상한 초과는 앞 N건(`takeCount` 경고).
  */
@@ -3348,12 +3356,17 @@ export function parseAdminUsersSnapshot(env: Envelope): AdminUsersSnapshot | nul
           logger.warn({ msgType, index: i, accountIndex: j }, "[DMA] admin 유저 스냅샷 계좌 항목 null — 건너뜀");
           continue;
         }
+        // 주문자 IP/MAC — 비어 있지 않은 값만 키로 둔다(필드 없음 · 빈 문자열 = 미설정 = 키 없음 · 구 서버 · 교보).
+        const orderIp = a.orderIp() ?? "";
+        const orderMac = a.orderMac() ?? "";
         accounts.push({
           accountNo: a.accountNo() ?? "",
           name: a.name() ?? "",
           branchNo: a.branchNo() ?? "",
           traderId: a.traderId() ?? "",
           priority: a.priority(),
+          ...(orderIp !== "" ? { orderIp } : {}),
+          ...(orderMac !== "" ? { orderMac } : {}),
         });
       }
       users.push({ userId, accounts });

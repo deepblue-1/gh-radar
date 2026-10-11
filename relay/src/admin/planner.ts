@@ -14,12 +14,15 @@
  *     계좌번호를 싣는다 — settle 이 계획 시점 스냅샷만 지우게(29-32 WR-01).
  *   - 의도에 없는 87 계좌(「서버에만 있음」)는 절대 지우지 않는다 — 하나라도 남으면 op 2 도 보내지 않는다.
  *   - 순서는 op 1 → op 3 → op 4 — 추가가 먼저라 「제거 뒤 계좌 0개」 순간이 생기지 않는다.
+ *   - op 1 · op 3 은 그 계좌 87 의 주문자 IP/MAC 을 되싣는다(GC-02 — 서버 계좌 설정 보존 · 서버는 빈 값을 「미설정」 으로
+ *     되돌린다). 의도에 값이 있으면 의도 쌍이 이기고, 87 에 없는 계좌는 빈 문자열(= 미설정)이다. 값은 정규화 · 검증하지 않는다.
  *
  * 순수 함수 — 소켓 · DB 없음.
  */
 import {
   compareAccounts,
   diffServerAccounts,
+  normalizeAccountNo,
   type AdminAccountFields,
   type AdminIntentRow,
 } from "@gh-radar/shared";
@@ -64,7 +67,19 @@ function fieldsOf(r: AdminIntentRow): AdminAccountFields {
     branchNo: r.branchNo,
     traderId: r.traderId,
     priority: r.priority,
+    // 지금 DB 의도는 두 필드가 없다 — 있을 때만 옮긴다(없음 = 87 값 보존).
+    ...(r.orderIp !== undefined ? { orderIp: r.orderIp } : {}),
+    ...(r.orderMac !== undefined ? { orderMac: r.orderMac } : {}),
   };
+}
+
+/**
+ * op 1 · op 3 계좌에 주문자 IP/MAC 을 채운다(GC-02). 의도에 어느 한쪽이라도 있으면 **의도 쌍**(빈 쪽 = 빈 문자열 — 87 값과
+ * 섞으면 서버의 「둘 다 또는 둘 다 비움」 규칙을 relay 가 몰래 깨뜨린다), 아니면 계획 시점 87 의 그 계좌 값(없으면 빈 문자열).
+ */
+function withServerEndpoint(account: AdminAccountFields, snap: AdminAccountFields | undefined): AdminAccountFields {
+  const src = account.orderIp !== undefined || account.orderMac !== undefined ? account : snap;
+  return { ...account, orderIp: src?.orderIp ?? "", orderMac: src?.orderMac ?? "" };
 }
 
 /**
@@ -88,16 +103,24 @@ export function planServerOps(input: PlanServerOpsInput): ServerPlan {
 
   const ops: PlannedOp[] = [];
 
+  // 87 의 그 유저 계좌 — 정규화 번호 → 계좌(diff 와 같은 키 · 같은 번호가 둘이면 앞의 것). diff 가 내는 계좌는 이미 정규화 번호다.
+  const snapByNo = new Map<string, AdminAccountFields>();
+  for (const a of snapUser?.accounts ?? []) {
+    const k = normalizeAccountNo(a.accountNo);
+    if (!snapByNo.has(k)) snapByNo.set(k, a);
+  }
+  const sendable = (a: AdminAccountFields): AdminAccountFields => withServerEndpoint(a, snapByNo.get(a.accountNo));
+
   // ① 추가 · 갱신 — 유저가 없으면 첫 계좌(priority → accountNo 순)를 op 1 에 싣고 나머지는 op 3.
   if (diff.userPresent) {
     for (const account of [...diff.missing, ...diff.changed].sort(compareAccounts)) {
-      ops.push({ op: 3, account });
+      ops.push({ op: 3, account: sendable(account) });
     }
   } else {
     const [first, ...rest] = diff.missing;
     if (first) {
-      ops.push({ op: 1, account: first });
-      for (const account of rest) ops.push({ op: 3, account });
+      ops.push({ op: 1, account: sendable(first) });
+      for (const account of rest) ops.push({ op: 3, account: sendable(account) });
     }
   }
 
