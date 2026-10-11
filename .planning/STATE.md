@@ -22,10 +22,10 @@ milestone_name: milestone
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-10)
+See: .planning/PROJECT.md (updated 2026-10-11)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 29 — DMA 다중 서버 · 웹 Admin 유저 관리
+**Current focus:** Phase 29 완료(2026-10-11) — 다음은 마일스톤 마무리 · Phase 23(Play 개발자 인증 대기)
 
 ## Current Position
 
@@ -734,6 +734,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 닫힌 항목(근거 포함): [STATE-ARCHIVE.md](./STATE-ARCHIVE.md#닫힌-todo--blocker)
 
+- **[Phase 29] 두 번째 서버(KB121 · KYOBO127) 켜기 전 결정 (2026-10-11).** 운영은 지정 0 · 두 번째 서버 꺼짐이라 잠복. 켜기 전에: R3-03 부팅 창 백스톱 · R3-05 무동작 대여 미승격 · R3-06 VI 끄기 에코 미확인 수정, 51 OrderResp 계좌 필터 공백 수용 여부, (가) 실서버 실증. 정본 `phases/29-dma-multi-server-admin/29-53-SUMMARY.md` 「켜기 전 결정」 · `29-REVIEW-R3-DISPOSITION.md`.
+- **[Phase 29] KB 운영 서버 계좌별 IP/MAC 설정 보류 (2026-10-11).** R3-01: relay 가 op 3 에 되싣는 IP/MAC 은 87 캐시라 relay 밖에서 설정한 값을 다음 웹 계좌 편집이 지울 수 있다. 수정(계획 직전 op 5 재조회) · R3-02 · 웹 IP/MAC 입력칸 · 인박스 질문 3개는 마일스톤 마무리 뒤 함께. gh-trade 미통지 — 인박스 `docs/inbox/from-gh-trade/261010-kb-order-ip-mac.md`(open).
 - **Phase 22 Play 경로 → Phase 23 (2026-09-27).** Play Console 개발자 인증 미완료로 Android 는 Firebase App Distribution APK 로 재범위(22-05~22-10 재계획 · 체커 통과). Play 스토어 배포는 Phase 23 — 착수 조건: Play 개발자 인증 완료. 옛 22-05~22-07 은 phases/23-gh-trade-play/from-phase-22/.
 
 ### Quick Tasks Completed
