@@ -380,7 +380,7 @@ export type ServerAccountsDiff =
       userPresent: boolean;
       /** active 인데 87 에 없는 계좌(op 1 첫 계좌 · op 3). priority → accountNo 순. */
       missing: AdminAccountFields[];
-      /** active 이고 87 에 있지만 값(name · branchNo · traderId · priority)이 다른 계좌(op 3). 의도 값. */
+      /** active 이고 87 에 있지만 값(name · branchNo · traderId · priority · 의도에 있을 때만 주문자 IP/MAC)이 다른 계좌(op 3). 의도 값. */
       changed: AdminAccountFields[];
       /** removing 인데 87 에 아직 있는 계좌(op 4 · 전부면 op 2). */
       toRemove: AdminAccountFields[];
@@ -402,17 +402,25 @@ export function compareAccounts(a: AdminAccountFields, b: AdminAccountFields): n
   return a.accountNo < b.accountNo ? -1 : a.accountNo > b.accountNo ? 1 : 0;
 }
 
-function sameValues(a: AdminAccountFields, b: AdminAccountFields): boolean {
+/**
+ * 인자 순서는 **의도 → 87**(`diffServerAccounts` 호출부가 그 순서). 주문자 IP/MAC 은 87 전용이라 의도 쪽에 값이 있을 때만
+ * 87 값(없음 = 빈 문자열)과 비교한다 — 의도에 없으면 「서버 값 보존」(relay planner 가 87 값을 되싣는다 · GC-02).
+ */
+function sameValues(intent: AdminAccountFields, snap: AdminAccountFields): boolean {
   return (
-    a.name === b.name &&
-    a.branchNo === b.branchNo &&
-    a.traderId === b.traderId &&
-    a.priority === b.priority
+    intent.name === snap.name &&
+    intent.branchNo === snap.branchNo &&
+    intent.traderId === snap.traderId &&
+    intent.priority === snap.priority &&
+    (intent.orderIp === undefined || intent.orderIp === (snap.orderIp ?? "")) &&
+    (intent.orderMac === undefined || intent.orderMac === (snap.orderMac ?? ""))
   );
 }
 
 /**
  * 의도(active · removing)와 87 의 그 유저를 비교한다 — relay planner 와 개요 칩의 공통 판정.
+ * 주문자 IP/MAC(`orderIp` · `orderMac`)은 87 전용 — 의도에 값이 없으면 보존(비교 제외 · GC-02). IP/MAC 이 설정된 계좌도
+ * 나머지 4값이 같으면 반영됨.
  */
 export function diffServerAccounts(input: ServerAccountsDiffInput): ServerAccountsDiff {
   if (!input.snapshotKnown) return { known: false };
@@ -467,6 +475,7 @@ export function diffServerAccounts(input: ServerAccountsDiffInput): ServerAccoun
  *   - 그 밖(9 BUSY · 12 LAST_ACCOUNT · 3 · 5 · 7 …)은 실패 — 칩은 서버 한국어 message 를 그대로 싣는다(D-23 ④).
  *     12 는 op 4 의 마지막 계좌 제거와 op 2 의 서버 마지막 사용자 삭제 둘 다에 온다(gh-trade 인박스 261007) —
  *     둘 다 서버별 실패 칩이고, relay HTTP 409 `LAST_ACCOUNT`(DB 의도 업무 거부)와는 이름만 같다.
+ *   - 13 BAD_ORDER_ENDPOINT(op 1 · op 3 주문자 IP/MAC 형식 오류 · gh-trade 인박스 261010)도 실패 — 칩은 서버 문구 그대로.
  */
 export function interpretAdminResult(op: 1 | 2 | 3 | 4 | 5, code: number): "ok" | "failed" {
   if (code === 0) return "ok";

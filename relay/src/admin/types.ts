@@ -51,6 +51,11 @@ export const ADMIN_CODE = {
   PersistFailed: 10,
   NotAdmin: 11,
   LastAccount: 12,
+  /**
+   * op 1 · op 3 의 주문자 IP/MAC 형식 오류(gh-trade 인박스 261010) — IP 12자리 숫자 또는 a.b.c.d · MAC 12자리 16진 위반,
+   * 한쪽만 적음, NUL · 잘못된 UTF-8. 실패 칩은 서버 message 원문(D-23 ④).
+   */
+  BadOrderEndpoint: 13,
 } as const;
 
 /** `ADMIN_CODE` 값 유니온. 와이어는 ushort 라 미래 값이 올 수 있어 결과 타입은 `number` 로 받는다. */
@@ -71,6 +76,7 @@ export const ADMIN_CODE_NAME: Readonly<Record<number, string>> = {
   10: "PERSIST_FAILED",
   11: "NOT_ADMIN",
   12: "LAST_ACCOUNT", // op 4 마지막 계좌 제거 · op 2 서버 마지막 사용자 삭제(사용자 0명 users.toml 은 기동 거부) — gh-trade 인박스 261007
+  13: "BAD_ORDER_ENDPOINT", // op 1 · op 3 주문자 IP/MAC 형식 오류 — gh-trade 인박스 261010
 };
 
 /** `AdminAccount` 테이블 — 44 의 `account` · 87 의 `users[].accounts[]`. */
