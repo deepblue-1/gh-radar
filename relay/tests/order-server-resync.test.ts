@@ -669,7 +669,7 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     },
   );
 
-  it("⑥ 증권사 기본 주문 서버 KB120 → KB121 — 지정 없는 u1 · u2 는 각자 계좌 전략만 KB120 에서 끈 뒤 1012 · 전부 KB121 지정인 u3 은 0 · 재접속 뒤 u1 = KB121 세션 · ready → 25 → 66", async () => {
+  it("⑥ 증권사 기본 주문 서버 KB120 → KB121 — 지정 없는 u1 은 A 전략만 KB120 에서 끈 뒤 1012 · KB120 에만 등록된 u2 는 이동 없음 · 전부 KB121 지정인 u3 은 0 · 재접속 뒤 u1 = KB121 세션 · ready → 25 → 66 (GC-06 — 유일 등록 서버 유지)", async () => {
     await captureLogs();
     chosenRows = [{ dma_user_id: D3, broker: "KB", account_no: E, server_key: "KB121" }];
     kb120.respondLimitChaserList([on(SAMPLE_ISIN, A), on(ISIN3, D)]);
@@ -687,20 +687,24 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
 
     // /admin/servers 에서 KB 기본 주문 서버를 KB121 로(레지스트리 changed → resyncChangedUsers("registry")).
     rows = rows.map((r) => ({ ...r, isOrderServer: r.key === "KB121" }));
-    expect(await h.fanout.resyncChangedUsers("registry")).toBe(2);
-    await waitFor(() => t1.ws.closeInfo !== null && t2.ws.closeInfo !== null, "u1 · u2 1012");
+    // 29-46 의도된 단언 변경(GC-06): u2 의 D 는 KB120 에만 등록 — 기본 서버가 바뀌어도 유일 등록 서버 KB120 에 남는다.
+    //   종전 「u1 · u2 둘 다 KB120 에서 끄고 1012」 → 이제 u1 만(재수립 1명 · dropUser 1 · KB120 끈 키 = A 만).
+    expect(await h.fanout.resyncChangedUsers("registry")).toBe(1);
+    await waitFor(() => t1.ws.closeInfo !== null, "u1 1012");
     expect(t1.ws.closeInfo?.code).toBe(1012);
-    expect(t2.ws.closeInfo?.code).toBe(1012);
+    await flushIo(10);
+    expect(t2.ws.closeInfo).toBeNull();
     expect(t3.ws.closeInfo).toBeNull();
-    expect(drop).toHaveBeenCalledTimes(2);
-    // 각자 계좌 키만 · 각자의 끄기가 각자의 drop 보다 먼저.
-    expect(disabledKeys("KB120", from120).sort()).toEqual([keyOf(SAMPLE_ISIN, A), keyOf(ISIN3, D)].sort());
+    expect(drop).toHaveBeenCalledTimes(1);
+    // u1 의 계좌 키만 · 끄기가 drop 보다 먼저.
+    expect(disabledKeys("KB120", from120)).toEqual([keyOf(SAMPLE_ISIN, A)]);
     const ev = events.slice(fromEvents);
     expect(ev.indexOf(`dk:KB120:${keyOf(SAMPLE_ISIN, A)}`)).toBeGreaterThanOrEqual(0);
     expect(ev.indexOf(`dk:KB120:${keyOf(SAMPLE_ISIN, A)}`)).toBeLessThan(ev.indexOf(`drop:${U1}`));
-    expect(ev.indexOf(`dk:KB120:${keyOf(ISIN3, D)}`)).toBeGreaterThanOrEqual(0);
-    expect(ev.indexOf(`dk:KB120:${keyOf(ISIN3, D)}`)).toBeLessThan(ev.indexOf(`drop:${U2}`));
+    expect(ev.indexOf(`dk:KB120:${keyOf(ISIN3, D)}`)).toBe(-1);
+    expect(ev.indexOf(`drop:${U2}`)).toBe(-1);
     expect(h.register.all()).toEqual([]);
+    expect(h.m.sessionsOf(U2).map((s) => s.serverKey)).toEqual(["KB120"]);
     expect(h.m.sessionsOf(U3).map((s) => s.serverKey)).toEqual(["KB121"]);
 
     const r121 = mark("KB121");

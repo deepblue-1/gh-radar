@@ -17,8 +17,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   ACCOUNT_ORDER_SERVERS_REFRESH_MS,
   AccountOrderServers,
+  createOrderServerRouting,
 } from "../src/access/account-order-servers.js";
 import { logger } from "../src/logger.js";
+import type { DmaServerRow } from "../src/registry/registry.js";
 
 const REFRESH_MS = 50;
 const D1 = "dma-user-one";
@@ -299,5 +301,133 @@ describe("AccountOrderServers — 계좌별 주문 서버 지정 적재 (29-33 G
     await expect(a.reload()).resolves.toEqual({ ok: false });
     await vi.advanceTimersByTimeAsync(REFRESH_MS * 3);
     expect(db.calls).toHaveLength(1);
+  });
+});
+
+// ============================================================
+// 29-46 GC-06 — 유효 주문 서버 라우팅(`createOrderServerRouting`) · shared 규칙 한 벌
+// ============================================================
+
+/**
+ * 레지스트리 KB120(KB 기본) · KB121 · KYOBO119(교보 기본) · 매핑(79/87 흉내)은 대역 객체다 — 스텁 게이트웨이 없음.
+ * 규칙 = 지정(켜짐 · 같은 증권사) ?? (기본 서버 매핑에 계좌가 있거나 그 매핑이 미적재면 기본) ?? (등록 서버가 정확히 1대면 그 서버)
+ * ?? 소유자 없음.
+ */
+describe("createOrderServerRouting — 기본 서버에 없는 계좌는 유일 등록 서버 (29-46 GC-06)", () => {
+  const D = "routing-d1";
+  const A = "1234567801";
+  const B = "1234567802";
+
+  function srow(key: string, broker: "KB" | "KYOBO", isOrderServer: boolean, sortOrder: number): DmaServerRow {
+    return { key, broker, host: "127.0.0.1", port: 1, enabled: true, isOrderServer, isQuotePrimary: false, sortOrder };
+  }
+
+  function setup() {
+    const rows: DmaServerRow[] = [
+      srow("KB120", "KB", true, 1),
+      srow("KB121", "KB", false, 2),
+      srow("KYOBO119", "KYOBO", true, 3),
+    ];
+    // KB120 = { d1: [B] } · KB121 = { d1: [A, B] } — A 는 KB121 에만 등록.
+    const mappings = new Map<string, Map<string, Set<string>>>([
+      ["KB120", new Map([[D, new Set([B])]])],
+      ["KB121", new Map([[D, new Set([A, B])]])],
+    ]);
+    const chosen = new Map<string, string>();
+    const loadedKeys = new Set<string>(["KB120", "KB121", "KYOBO119"]);
+    const registry = {
+      get: (key: string) => rows.find((r) => r.key === key),
+      enabled: () => rows.filter((r) => r.enabled),
+      orderServerOf: (broker: string) => rows.find((r) => r.broker === broker && r.isOrderServer && r.enabled),
+    };
+    const routing = createOrderServerRouting({
+      loaded: () => true,
+      chosenOf: (dma, broker, acct) => chosen.get(`${dma}|${broker}|${acct}`),
+      registry,
+      accountsOf: (serverKey, dma) => mappings.get(serverKey)?.get(dma),
+      mappingLoaded: (serverKey) => loadedKeys.has(serverKey),
+    });
+    return { rows, mappings, chosen, loadedKeys, routing };
+  }
+
+  it("KB121 에만 등록 → KB121 — serversFor 가 KB121 세션을 열고 ownerOf 도 KB121 · KB120 에도 있는 B 는 기본 KB120", () => {
+    const t = setup();
+    expect(t.routing.effectiveOrderServer(D, "KB", A)).toBe("KB121");
+    expect(t.routing.effectiveOrderServer(D, "KB", B)).toBe("KB120");
+    expect(t.routing.serversFor(D)?.map((s) => s.serverKey)).toEqual(["KB120", "KB121"]);
+    expect(t.routing.ownerOf(D, "KB", A)).toBe("KB121");
+    expect(t.routing.ownerOf(D, "KB", B)).toBe("KB120");
+  });
+
+  it("기본 매핑 미적재 → 기본 — mappingLoaded(KB120) 거짓 · KB120 매핑 비어 있음이면 A 는 KB120(종전) · 적재되면 KB121", () => {
+    const t = setup();
+    t.loadedKeys.delete("KB120");
+    t.mappings.delete("KB120");
+    expect(t.routing.effectiveOrderServer(D, "KB", A)).toBe("KB120");
+    expect(t.routing.ownerOf(D, "KB", A)).toBe("KB120");
+    // 79/87 가 KB120 매핑을 싣는다(A 없음).
+    t.mappings.set("KB120", new Map([[D, new Set([B])]]));
+    t.loadedKeys.add("KB120");
+    expect(t.routing.effectiveOrderServer(D, "KB", A)).toBe("KB121");
+    expect(t.routing.ownerOf(D, "KB", A)).toBe("KB121");
+  });
+
+  it("두 비기본 등록 · 지정 없음 → undefined — 소유자 없음(fail closed) · serversFor 의 KB 는 종전대로 기본 1개", () => {
+    const t = setup();
+    t.rows.push(srow("KB122", "KB", false, 4));
+    t.loadedKeys.add("KB122");
+    t.mappings.set("KB120", new Map([[D, new Set([B])]]));
+    t.mappings.set("KB121", new Map([[D, new Set([A])]]));
+    t.mappings.set("KB122", new Map([[D, new Set([A])]]));
+    expect(t.routing.effectiveOrderServer(D, "KB", A)).toBeUndefined();
+    expect(t.routing.ownerOf(D, "KB", A)).toBeUndefined();
+    expect(t.routing.serversFor(D)?.map((s) => s.serverKey)).toEqual(["KB120"]);
+    // B 도 없으면 KB 집합이 비어 기본 1개(종전 「KB 는 늘 연다」).
+    t.mappings.set("KB120", new Map());
+    expect(t.routing.serversFor(D)?.map((s) => s.serverKey)).toEqual(["KB120"]);
+  });
+
+  it("지정 KB121 인데 KB121 꺼짐 → 지정 무시 → 규칙(기본에 등록된 B 는 기본 · 꺼진 서버만 등록된 A 는 소유자 없음)", () => {
+    const t = setup();
+    t.chosen.set(`${D}|KB|${B}`, "KB121");
+    expect(t.routing.effectiveOrderServer(D, "KB", B)).toBe("KB121");
+    for (const r of t.rows) if (r.key === "KB121") r.enabled = false;
+    expect(t.routing.effectiveOrderServer(D, "KB", B)).toBe("KB120");
+    expect(t.routing.effectiveOrderServer(D, "KB", A)).toBeUndefined();
+    expect(t.routing.serversFor(D)?.map((s) => s.serverKey)).toEqual(["KB120"]);
+  });
+
+  it("지정은 매핑 등록 여부와 무관하게 이긴다(종전) — KB121 지정 · KB121 매핑에 계좌 없음이어도 유효 KB121 · 세션은 열지 않는다", () => {
+    const t = setup();
+    t.mappings.set("KB121", new Map([[D, new Set([A])]]));
+    t.chosen.set(`${D}|KB|${B}`, "KB121");
+    expect(t.routing.effectiveOrderServer(D, "KB", B)).toBe("KB121");
+    expect(t.routing.ownerOf(D, "KB", B)).toBe("KB121");
+  });
+
+  it("운영 모양 보존 — 지정 0 · 계좌는 기본 서버에만 등록(두 번째 서버 꺼짐) → 전부 기본 · serversFor 무변경", () => {
+    const t = setup();
+    for (const r of t.rows) if (r.key === "KB121") r.enabled = false;
+    t.mappings.set("KB120", new Map([[D, new Set([A, B])]]));
+    t.mappings.set("KYOBO119", new Map([[D, new Set(["9234567801"])]]));
+    expect(t.routing.effectiveOrderServer(D, "KB", A)).toBe("KB120");
+    expect(t.routing.effectiveOrderServer(D, "KB", B)).toBe("KB120");
+    expect(t.routing.effectiveOrderServer(D, "KYOBO", "9234567801")).toBe("KYOBO119");
+    expect(t.routing.serversFor(D)?.map((s) => s.serverKey)).toEqual(["KB120", "KYOBO119"]);
+  });
+
+  it("mappingLoaded 미주입 = 늘 적재됨 — 기존 하네스 그대로 규칙을 따른다", () => {
+    const t = setup();
+    const routing = createOrderServerRouting({
+      loaded: () => true,
+      chosenOf: () => undefined,
+      registry: {
+        get: (key) => t.rows.find((r) => r.key === key),
+        enabled: () => t.rows.filter((r) => r.enabled),
+        orderServerOf: (broker) => t.rows.find((r) => r.broker === broker && r.isOrderServer && r.enabled),
+      },
+      accountsOf: (serverKey, dma) => t.mappings.get(serverKey)?.get(dma),
+    });
+    expect(routing.effectiveOrderServer(D, "KB", A)).toBe("KB121");
   });
 });

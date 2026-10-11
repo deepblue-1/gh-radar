@@ -220,3 +220,5 @@ export type {
 // --- Phase 29 (29-04) Admin 계약 · 판정 한 벌 — relay planner(무엇을 보낼까)와 Express 개요(칩을 무엇으로 그릴까)가
 //     같은 diffServerAccounts 를 읽는다. 뒤 플랜(29-05 · 29-10 · 29-11 · 29-13 · 29-15~19)이 이름을 더하므로 모듈 단위 재수출 ---
 export * from "./admin";
+// --- Phase 29 (29-46 · GC-06) 유효 주문 서버 규칙 한 벌 — relay 라우팅(서버 매핑 79/87)과 Admin 계좌 편집기(DB 의도 · 29-55)가 같이 부른다 ---
+export * from "./order-server";

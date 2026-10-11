@@ -519,6 +519,19 @@ describe("저널 푸시 — 레코드 → 기록기 → 적용 RPC → 계좌 �
     expect(access.health()).toEqual({ rows: 0, skipped: 0, emptySnapshotsRejected: 1 });
   });
 
+  it("29-46 GC-06 — loaded: 생성 직후 false · 빈 스냅샷(전 행 거부)은 false 유지 · 유효 스냅샷 1회 → true · 뒤 빈 스냅샷에도 true", async () => {
+    await start();
+    expect(access.loaded).toBe(false);
+    access.replace([]);
+    access.replace([{ dmaUserId: "", accountNo: "", name: "", priority: 0 }]);
+    expect(access.loaded).toBe(false);
+    access.replace([{ dmaUserId: "dma-shared", accountNo: ACC1, name: "공유 계좌", priority: 0 }]);
+    expect(access.loaded).toBe(true);
+    access.replace([]);
+    expect(access.loaded).toBe(true);
+    expect(access.accountsOf("dma-shared")?.has(ACC1)).toBe(true);
+  });
+
   it("⑤ journal.state (Phase 19-07 D-04 (a)) — 스냅샷은 알 때만 · deliverJournalState 는 인증 사용자 전원 · 미인증 0", async () => {
     let current: RelayJournalStateMsg | null = null;
     await start({ journalFrame: () => current });

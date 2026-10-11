@@ -83,19 +83,12 @@ describe("EffectiveOwnerTracker — 전 사용자 유효 주문 서버 스냅샷
     expect(t.tracker.refresh()).toEqual([{ dmaUserId: D1, broker: "KB", accountNo: B, from: undefined, to: "KB121" }]);
   });
 
-  it("레지스트리 KB 기본 KB120 → KB121 — 지정 없는 계좌 전부 from KB120 · KB121 매핑에 있으면 to KB121, 없으면 undefined · 교보 무영향", () => {
+  it("레지스트리 KB 기본 KB120 → KB121 — KB121 에도 등록된 A 만 KB120 → KB121 · KB120 에만 등록된 B(D1 · D2)는 이동 없음 · 교보 무영향 (GC-06 — 유일 등록 서버 유지)", () => {
     const t = setup();
     t.tracker.refresh();
     for (const r of t.rows) if (r.broker === "KB") r.isOrderServer = r.key === "KB121";
-    const moves = t.tracker.refresh();
-    expect(moves).toEqual(
-      expect.arrayContaining([
-        { dmaUserId: D1, broker: "KB", accountNo: A, from: "KB120", to: "KB121" },
-        { dmaUserId: D1, broker: "KB", accountNo: B, from: "KB120", to: undefined },
-        { dmaUserId: D2, broker: "KB", accountNo: B, from: "KB120", to: undefined },
-      ]),
-    );
-    expect(moves).toHaveLength(3);
+    // 29-46 의도된 단언 변경: 종전 move 3(B 두 건 to undefined) → 기본 서버에 없는 계좌는 유일 등록 서버(KB120)에 남는다.
+    expect(t.tracker.refresh()).toEqual([{ dmaUserId: D1, broker: "KB", accountNo: A, from: "KB120", to: "KB121" }]);
   });
 
   it("매핑에서 사라진 계좌 · 새로 보인 계좌는 move 가 아니다(87 축소 · 확장 — 옮겨짐 아님)", () => {
