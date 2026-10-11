@@ -34,6 +34,7 @@ import { UserSheet } from "./user-sheet";
  * - 행을 누르면 `selected` 가 그 이메일이 되고 편집 시트(`UserSheet` — 29-17)가 열린다. 시트의 쓰기가 성공하면
  *   `load()` 로 다시 읽고, 시트는 재조회 결과에서 같은 이메일의 사용자로 내용을 바꿔 그린다(사라졌으면 닫힌다).
  *   시트는 이메일을 key 로 둔다 — 다른 사용자로 바꿔 열면 필드 저장 상태가 새로 시작한다.
+ *   시트에는 개요 사용자 전체(`users`)도 내려 보낸다 — 계좌 편집의 공유 계좌 안내(D-18)가 개요 데이터만으로 판정한다(추가 요청 없음).
  * - 데스크톱 시트는 비모달(29-31 · UI-REVIEW-2) — 시트를 연 채 다른 행을 누르면 그 사용자로 바뀐다. 편집 · 생성 시트는
  *   한 번에 하나만 연다(겹치지 않게 서로를 닫는다). 시트가 열린 동안 본문은 패널 폭을 비워(`AdminPanelPage` — 본문 폭
  *   784 이상) 목록 · 머리 「+ 사용자」 가 패널 왼쪽에 다 보인다(목업 A 「목록이 왼쪽에 남는다」).
@@ -173,6 +174,7 @@ export function UsersClient() {
           key={selectedUser.email}
           user={selectedUser}
           servers={state.data.servers}
+          users={state.data.users}
           initialResults={created?.email === selectedUser.email ? created.results : null}
           onChanged={() => void load()}
           onClose={() => {

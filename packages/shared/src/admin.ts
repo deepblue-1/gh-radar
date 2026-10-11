@@ -841,6 +841,51 @@ export function deriveAdminUsersOverview(
   };
 }
 
+/** 같은 계좌를 함께 쓰는 다른 DMA 사용자(Phase 30 · D-18) — `servers` = 이 계좌 저장이 가는 서버 중 그 사용자도 그 계좌를 가진 서버. */
+export interface SharedAccountHolder {
+  dmaUserId: string;
+  servers: string[];
+}
+
+/**
+ * 공유 계좌 판정(Phase 30 · D-18 · UI-SPEC Addendum A2) — 개요 사용자 중 **다른** DMA 사용자가 같은 증권사 · 같은 정규화 계좌번호
+ * (`normalizeAccountNo`)의 계좌를 가지고 있고, 그 계좌의 서버(active 등록 서버 ∪ `serverOnlyOn`)가 입력 `servers`(이 계좌의 active
+ * 등록 서버 = 저장이 가는 서버)와 하나 이상 겹치면 그 사용자를 돌려준다. 결과는 dmaUserId 오름차순(코드 단위) · 같은 dmaUserId 는
+ * 서버를 합쳐 한 항목 · 각 `servers` 는 입력 순서. 자기 자신 · DMA 없는 웹 사용자는 넣지 않는다. 순수 함수 · 개요 데이터만 읽는다.
+ *
+ * - gh-trade 전파(op 3 이 orderIp/orderMac 을 바꾸면 같은 계좌번호를 가진 다른 사용자에 같은 값)는 서버별 users.toml 안에서만
+ *   일어난다(D-18) — 겹치는 서버가 없으면 함께 바뀌지 않으므로 넣지 않는다.
+ * - gh-trade 가 함께 쓰는 사용자에게 옮기는 값은 주문자 IP · MAC 뿐이다(지점번호 · 거래자ID · 계좌명은 옮기지 않는다) — 안내 문구도
+ *   IP · MAC 만 말한다.
+ * - 한계: 웹 사용자에 연결되지 않은 87 전용 DMA id(「서버에만 있음」 사용자 행)는 개요에 계좌번호가 없어 나오지 않는다 — gh-trade
+ *   전파는 그 사용자에게도 적용된다.
+ */
+export function findSharedAccountHolders(input: {
+  users: readonly Pick<AdminUserView, "dmaUserId" | "accounts">[];
+  dmaUserId: string;
+  broker: DmaBroker;
+  accountNo: string;
+  servers: readonly string[];
+}): SharedAccountHolder[] {
+  const no = normalizeAccountNo(input.accountNo);
+  const byUser = new Map<string, Set<string>>();
+  for (const u of input.users) {
+    if (u.dmaUserId === null || u.dmaUserId === input.dmaUserId) continue;
+    for (const a of u.accounts) {
+      if (a.broker !== input.broker || normalizeAccountNo(a.accountNo) !== no) continue;
+      const theirs = new Set([...a.servers.filter((s) => s.state === "active").map((s) => s.serverKey), ...a.serverOnlyOn]);
+      const overlap = input.servers.filter((k) => theirs.has(k));
+      if (overlap.length === 0) continue;
+      const set = byUser.get(u.dmaUserId) ?? new Set<string>();
+      for (const k of overlap) set.add(k);
+      byUser.set(u.dmaUserId, set);
+    }
+  }
+  return [...byUser.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([dmaUserId, set]) => ({ dmaUserId, servers: input.servers.filter((k) => set.has(k)) }));
+}
+
 /**
  * `admin_servers_raw()` + relay 상태 → 증권사 그룹 카드(D-17). KB → KYOBO 고정 순 · 그룹 안은 sortOrder → key ·
  * userCount = 그 서버 87 의 DMA id 수(87 이 없으면 0) · relay 상태가 없으면(조회 실패 · 항목 없음) status null.

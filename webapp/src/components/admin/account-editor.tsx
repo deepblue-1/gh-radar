@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
+  findSharedAccountHolders,
   formatOrderIp,
   formatOrderMac,
   isValidAccountNoInput,
@@ -17,6 +18,7 @@ import {
   type AdminPutAccountBody,
   type AdminServerResult,
   type AdminUsersOverview,
+  type AdminUserView,
   type DmaBroker,
   type OrderEndpointMismatch,
   type OrderEndpointSummary,
@@ -87,6 +89,14 @@ import { useFieldSave, type FieldSave } from "./use-field-save";
  * 보내는 값은 입력 원문(trim) — 정규화는 「보낼지 · 변경 없음」 비교에만 쓴다(`editSaveBodyOf` · 양쪽 정규화). IP/MAC 은 두 칸이 정규화 비교로 바뀌었거나
  * 등록 서버 간 불일치(D-10 맞추기)일 때만 싣고, 계좌명만 바뀐 저장에는 싣지 않는다(화면 초깃값이 틀려도 87 값을 덮지 않는다).
  * 보낼 것이 없으면 요청 없이 편집을 닫고 「변경 없음」 한 줄(다음 「편집」 때 지움).
+ *
+ * **공유 계좌 안내(Phase 30 30-09 · D-18 · UI-SPEC Addendum A2).** KB 카드 편집 모드에서 개요(`users` prop)의 다른 DMA 사용자가 같은 증권사 ·
+ * 같은 정규화 계좌번호를 이 계좌의 active 등록 서버와 겹치는 서버에 가지고 있으면, 불일치 줄 아래 · 「취소 · 저장」 위에 안내 한 줄
+ * 「이 계좌를 함께 쓰는 사용자 {DMA id ' · '} — 주문자 IP · MAC 이 함께 바뀌어요」(`WARN_LINE` · role 없음). 판정은 shared
+ * `findSharedAccountHolders` 한 벌 · 개요 데이터만 읽는다(추가 요청 없음). 함께 바꾸는 일은 gh-trade 서버가 op 3 하나로 원자적으로
+ * 한다(웹은 이 사용자 PUT 1건만 · 다른 사용자 op 없음). 저장 결과는 기존 결과 줄 그대로 — gh-trade 배포 전 code 7 도 「<서버> 실패:
+ * <서버 message 원문>」 이고 code 7 특수 처리 · 문장 대조는 없다(IPMAC-03 · D-12). 전부 ok 면 기존 `onChanged` 개요 재조회가 함께 쓰는
+ * 사용자들의 같은 계좌 카드도 새 값으로 그린다. 읽기 카드 · 교보 · `users` 없음 · 함께 쓰는 사용자 0명이면 줄이 없다.
  */
 
 export const ACCOUNT_EDITOR_TEXT = {
@@ -149,6 +159,9 @@ export const ACCOUNT_EDITOR_TEXT = {
   pairInvalid: "IP 와 MAC 은 둘 다 적거나 둘 다 비워 주세요",
   /** D-06 — 정규화 비교로 지금 값과 같아 요청을 보내지 않았다(NOTE · 다음 「편집」 때 지움). */
   unchanged: "변경 없음",
+  /** D-18 — 편집 모드 공유 계좌 안내(UI-SPEC Addendum A2 정본) · ids = 함께 쓰는 DMA id 오름차순. */
+  sharedAccountNote: (ids: readonly string[]) =>
+    `이 계좌를 함께 쓰는 사용자 ${ids.join(" · ")} — 주문자 IP · MAC 이 함께 바뀌어요`,
 } as const;
 
 /** shared 검증 오류 종류 → 편집 블록 오류 줄 문구(규칙은 shared 한 벌 · 문구만 여기). */
@@ -489,6 +502,8 @@ interface AccountRowProps {
   overlay: Overlay;
   /** 이 계좌가 마지막 계좌인가 — 「제거」 가 사용자 삭제로 간다. */
   last: boolean;
+  /** 개요 사용자 전체 — D-18 공유 계좌 안내 판정용(`findSharedAccountHolders`). */
+  users: readonly AdminUserView[];
   /** 이 카드가 편집 모드인가(부모 `editingKey` — 한 번에 한 카드 · D-01). */
   editing: boolean;
   /** 다른 카드가 편집 중 — 「편집」 비활성 · title 「다른 계좌 편집 중」. */
@@ -554,6 +569,7 @@ function AccountRow({
   registry,
   overlay,
   last,
+  users,
   editing,
   editLocked,
   onEditStart,
@@ -653,6 +669,12 @@ function AccountRow({
   // D-09 · D-10 — 표시값 · 출처 · 불일치는 shared 판정 한 벌(relay 라우팅과 같은 유효 주문 서버 규칙).
   const endpoint = kb ? summarizeOrderEndpoint({ account, registry }) : null;
   const mismatched = endpoint !== null && endpoint.mismatches.length > 0;
+  // D-18 — 이 계좌를 함께 쓰는 다른 DMA 사용자(서버 겹침 기준 · 개요 데이터만). 편집 블록 안내 줄 한 줄.
+  const sharedWith = kb
+    ? findSharedAccountHolders({ users, dmaUserId, broker: account.broker, accountNo: account.accountNo, servers: intent }).map(
+        (h) => h.dmaUserId,
+      )
+    : [];
 
   const editSaving = editSave.state === "saving";
   // 「바뀜」(저장 버튼 기준 · UI-SPEC §3) = 계좌명 trim · IP/MAC 원문(trim) 이 초깃값(표시 표기)과 다름. 다른 표기로 같은 값을 다시 적어도 「바뀜」(누르면 「변경 없음」).
@@ -828,6 +850,11 @@ function AccountRow({
             </p>
           )}
           {endpoint && <OrderEndpointMismatchLines summary={endpoint} />}
+          {sharedWith.length > 0 && (
+            <p data-slot="admin-account-edit-shared" className={WARN_LINE}>
+              {T.sharedAccountNote(sharedWith)}
+            </p>
+          )}
           <div className="mt-2.5 flex justify-end gap-1.5">
             <Button
               type="button"
@@ -1259,7 +1286,12 @@ export interface AccountEditorProps {
   onRemoveLast: () => void;
   /** 사용자 전체 결과(「다시 반영」) — `id` 가 바뀔 때마다 한 번 반영한다. */
   serverResults?: { id: number; results: readonly AdminServerResult[] } | null;
+  /** 개요 사용자 전체(`AdminUsersOverview.users`) — D-18 공유 계좌 안내 판정용 · 없으면 안내 없음. */
+  users?: readonly AdminUserView[];
 }
+
+/** `users` 기본값 — 렌더마다 새 배열을 만들지 않는다. */
+const NO_USERS: readonly AdminUserView[] = [];
 
 export function AccountEditor({
   dmaUserId,
@@ -1268,6 +1300,7 @@ export function AccountEditor({
   onChanged,
   onRemoveLast,
   serverResults = null,
+  users = NO_USERS,
 }: AccountEditorProps) {
   const [overlay, setOverlay] = useState<Overlay>(() => new Map());
   const [adding, setAdding] = useState(false);
@@ -1324,6 +1357,7 @@ export function AccountEditor({
             registry={servers.filter((s) => s.broker === a.broker)}
             overlay={overlay}
             last={isActive && activeCount <= 1}
+            users={users}
             editing={editingKey === k}
             editLocked={editingKey !== null && editingKey !== k}
             onEditStart={() => setEditingKey(k)}
