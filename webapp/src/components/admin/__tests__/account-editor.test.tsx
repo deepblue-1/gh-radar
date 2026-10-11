@@ -679,3 +679,176 @@ describe('P30 읽기 카드 — IP/MAC 줄 · 불일치 · 이름 없음 (D-09 �
     expect(acctRow('9876543201')).not.toHaveTextContent('이름 없음');
   });
 });
+
+describe('P30 편집 모드 — 계좌명 저장 (D-01 · D-02 · IPMAC-05)', () => {
+  const EDIT = 'KB 12345678901 편집';
+  const SAVE = 'KB 12345678901 편집 저장';
+  const CANCEL = 'KB 12345678901 편집 취소';
+  const btn = (name: string) => screen.getByRole('button', { name });
+  const nameInput = () => within(acctRow('12345678901')).getByRole('textbox', { name: '계좌명' }) as HTMLInputElement;
+  const editForm = () => acctRow('12345678901').querySelector('[data-slot="admin-account-edit"]') as HTMLElement | null;
+
+  function mount(accounts: AdminAccountView[] = [withEp(KB_ACCT, { KB120: EP_A }), KYOBO_ACCT, ONLY_ACCT]) {
+    const onChanged = vi.fn();
+    const view = (a: AdminAccountView[]) => (
+      <AccountEditor dmaUserId="kimtr" accounts={a} servers={SERVERS} onChanged={onChanged} onRemoveLast={vi.fn()} />
+    );
+    const r = render(view(accounts));
+    return { onChanged, rerender: (a: AdminAccountView[]) => r.rerender(view(a)) };
+  }
+
+  it('「편집」 → 그 카드만 편집 모드(data-editing · --primary 테두리) · 계좌명 칸 포커스 · 제목줄 계좌명 · 「편집」 · IP/MAC 읽기 줄 숨김 · 다른 카드 「편집」 비활성', () => {
+    mount();
+    expect(acctRow('12345678901')).not.toHaveAttribute('data-editing');
+    expect(btn('KYOBO 9876543201 편집')).not.toBeDisabled();
+    // 「편집」 은 「제거」 왼쪽 · 같은 버튼 모양
+    const remove = within(acctRow('12345678901')).getByRole('button', { name: /제거/ });
+    expect(btn(EDIT).compareDocumentPosition(remove) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(btn(EDIT)).toHaveTextContent('편집');
+    // 87 전용 줄에는 「편집」 이 없다
+    expect(within(acctRow('5550001')).queryByRole('button')).toBeNull();
+
+    fireEvent.click(btn(EDIT));
+    const row = acctRow('12345678901');
+    expect(row).toHaveAttribute('data-editing', 'true');
+    expect(row.className).toContain('border-[var(--primary)]');
+    expect(editForm()).not.toBeNull();
+    expect(nameInput()).toHaveValue('위탁');
+    expect(document.activeElement).toBe(nameInput());
+    expect(screen.queryByRole('button', { name: EDIT })).toBeNull();
+    expect(row).not.toHaveTextContent('위탁');
+    expect(ipmacLine('12345678901')).toBeNull();
+    expect(within(row).getByRole('button', { name: /제거/ })).toBeInTheDocument();
+    expect(btn(SAVE)).toHaveTextContent('저장');
+    expect(btn(CANCEL)).toHaveTextContent('취소');
+    // 한 번에 한 카드
+    expect(btn('KYOBO 9876543201 편집')).toBeDisabled();
+    expect(btn('KYOBO 9876543201 편집')).toHaveAttribute('title', '다른 계좌 편집 중');
+    expect(acctRow('9876543201')).not.toHaveAttribute('data-editing');
+  });
+
+  it('바뀐 게 없으면 「저장」 비활성 · "위탁종합" → 저장 → PUT 1건 { account(새 이름 · 나머지 개요 값), servers(active 그대로) } · orderEndpoint 키 없음', async () => {
+    putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }] });
+    mount();
+    fireEvent.click(btn(EDIT));
+    expect(btn(SAVE)).toBeDisabled();
+    fireEvent.change(nameInput(), { target: { value: '위탁종합' } });
+    expect(btn(SAVE)).not.toBeDisabled();
+    fireEvent.click(btn(SAVE));
+    expect(putDmaAccountMock).toHaveBeenCalledTimes(1);
+    expect(putDmaAccountMock).toHaveBeenCalledWith('kimtr', {
+      account: { broker: 'KB', accountNo: '12345678901', name: '위탁종합', branchNo: '00123', traderId: '000789', priority: 1 },
+      servers: ['KB120'],
+    });
+    const body = putDmaAccountMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(['account', 'servers']);
+    expect(body).not.toHaveProperty('orderEndpoint');
+    await act(async () => {});
+  });
+
+  it('전부 ok → 편집 닫힘 · onChanged 1회 · 포커스 「편집」 · 칩 「반영됨」', async () => {
+    putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }] });
+    const { onChanged } = mount([withEp({ ...KB_ACCT, servers: [{ serverKey: 'KB120', tone: 'warn', message: null, state: 'active' }] }, { KB120: EP_A }), KYOBO_ACCT]);
+    fireEvent.click(btn(EDIT));
+    fireEvent.change(nameInput(), { target: { value: '위탁종합' } });
+    fireEvent.submit(editForm() as HTMLElement); // Enter = 「저장」
+    await waitFor(() => expect(acctRow('12345678901')).not.toHaveAttribute('data-editing'));
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(btn(EDIT));
+    const chip = pill('12345678901', 'KB120').querySelector('[data-slot="reflect-chip"]') as HTMLElement;
+    expect(chip).toHaveTextContent('반영됨');
+    expect(btn('KYOBO 9876543201 편집')).not.toBeDisabled();
+  });
+
+  it('앞뒤 공백만 다르면 비활성(trim 비교) · 이름을 지우고 저장 → name ""', async () => {
+    putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }] });
+    mount();
+    fireEvent.click(btn(EDIT));
+    fireEvent.change(nameInput(), { target: { value: '  위탁 ' } });
+    expect(btn(SAVE)).toBeDisabled();
+    fireEvent.change(nameInput(), { target: { value: '   ' } });
+    expect(btn(SAVE)).not.toBeDisabled();
+    fireEvent.click(btn(SAVE));
+    expect((putDmaAccountMock.mock.calls[0][1] as { account: { name: string } }).account.name).toBe('');
+    await act(async () => {});
+  });
+
+  it('계좌명 칸 maxLength 40 · placeholder 「계좌명(선택)」 · autoComplete off', () => {
+    mount();
+    fireEvent.click(btn(EDIT));
+    expect(nameInput()).toHaveAttribute('maxLength', '40');
+    expect(nameInput()).toHaveAttribute('placeholder', '계좌명(선택)');
+    expect(nameInput()).toHaveAttribute('autoComplete', 'off');
+  });
+
+  it('저장 중 → 입력칸 readOnly · 「취소」 「저장」 비활성(글자 그대로) · 결과 줄 없음', async () => {
+    let resolve: (v: unknown) => void = () => {};
+    putDmaAccountMock.mockImplementationOnce(() => new Promise((r) => (resolve = r)));
+    mount();
+    fireEvent.click(btn(EDIT));
+    fireEvent.change(nameInput(), { target: { value: '위탁종합' } });
+    fireEvent.click(btn(SAVE));
+    expect(nameInput()).toHaveAttribute('readOnly');
+    expect(btn(SAVE)).toBeDisabled();
+    expect(btn(SAVE)).toHaveTextContent('저장');
+    expect(btn(CANCEL)).toBeDisabled();
+    expect(acctRow('12345678901').querySelector('[data-slot="admin-account-edit-result"]')).toBeNull();
+    await act(async () => resolve({ results: [{ server: 'KB120', outcome: 'ok' }] }));
+  });
+
+  it('「취소」 → 요청 0 · 편집 닫힘 · 포커스 「편집」 · 다시 열면 개요 값에서 시작', () => {
+    mount();
+    fireEvent.click(btn(EDIT));
+    fireEvent.change(nameInput(), { target: { value: '버릴 이름' } });
+    fireEvent.click(btn(CANCEL));
+    expect(putDmaAccountMock).not.toHaveBeenCalled();
+    expect(acctRow('12345678901')).not.toHaveAttribute('data-editing');
+    expect(editForm()).toBeNull();
+    expect(document.activeElement).toBe(btn(EDIT));
+    expect(acctRow('12345678901')).toHaveTextContent('위탁');
+    fireEvent.click(btn(EDIT));
+    expect(nameInput()).toHaveValue('위탁');
+  });
+
+  it('편집 중 재조회(새 accounts · 다른 이름)가 와도 입력값 · 초깃값 유지', () => {
+    const { rerender } = mount();
+    fireEvent.click(btn(EDIT));
+    fireEvent.change(nameInput(), { target: { value: '쓰던 값' } });
+    rerender([withEp({ ...KB_ACCT, name: '신용' }, { KB120: EP_A }), KYOBO_ACCT, ONLY_ACCT]);
+    expect(nameInput()).toHaveValue('쓰던 값');
+    expect(acctRow('12345678901')).toHaveAttribute('data-editing', 'true');
+    // 초깃값('위탁')으로 되돌리면 「바뀐 게 없음」
+    fireEvent.change(nameInput(), { target: { value: '위탁' } });
+    expect(btn(SAVE)).toBeDisabled();
+  });
+
+  it('편집 중 같은 카드 서버 토글 → 즉시 PUT 1건(서버 집합) · 편집 모드 유지', async () => {
+    putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }, { server: 'KB121', outcome: 'ok' }] });
+    mount();
+    fireEvent.click(btn(EDIT));
+    fireEvent.change(nameInput(), { target: { value: '쓰던 값' } });
+    fireEvent.click(toggle('12345678901', 'KB121'));
+    expect(putDmaAccountMock).toHaveBeenCalledTimes(1);
+    expect((putDmaAccountMock.mock.calls[0][1] as { servers: string[] }).servers).toEqual(['KB120', 'KB121']);
+    await act(async () => {});
+    expect(acctRow('12345678901')).toHaveAttribute('data-editing', 'true');
+    expect(nameInput()).toHaveValue('쓰던 값');
+  });
+
+  it('편집 중 그 카드가 사라지면(제거 뒤 재조회) 다른 카드 「편집」 이 다시 켜진다', () => {
+    const { rerender } = mount();
+    fireEvent.click(btn(EDIT));
+    expect(btn('KYOBO 9876543201 편집')).toBeDisabled();
+    rerender([KYOBO_ACCT, ONLY_ACCT]);
+    expect(btn('KYOBO 9876543201 편집')).not.toBeDisabled();
+    expect(btn('KYOBO 9876543201 편집')).not.toHaveAttribute('title');
+  });
+
+  it('(D-08) 「+ 계좌 추가」 폼에는 주문자 IP · MAC 칸이 없다', () => {
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: '+ 계좌 추가' }));
+    const add = document.querySelector('[data-slot="admin-account-add"]') as HTMLElement;
+    expect(add).not.toHaveTextContent('주문자 IP');
+    expect(within(add).queryByRole('textbox', { name: /주문자 IP|MAC/ })).toBeNull();
+  });
+});
