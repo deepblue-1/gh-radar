@@ -43,6 +43,7 @@ import { SubscriptionHub } from "../src/hub/subscription-hub.js";
 import type { DmaBroker, DmaServerRow } from "../src/registry/registry.js";
 import type { SymbolInfo, SymbolLookup } from "../src/store/symbols.js";
 import {
+  readDisableStrategiesKey,
   readGetVITriggerExchange,
   readViConfirmRequest,
   readViSetRequest,
@@ -137,6 +138,16 @@ function viConfirmsOf(payloads: Buffer[]): string[] {
     .map((p) => readViConfirmRequest(envOf(p).msgType(), p))
     .filter((r): r is NonNullable<typeof r> => r !== null)
     .map((r) => r.orderNo);
+}
+
+/** 게이트웨이가 받은 **빈 키** `DisableStrategiesReq(14)` 수 — 「전부 정지」(29-54 · N-01). */
+function allStopsOf(payloads: Buffer[]): number {
+  return payloads.filter((p) => readDisableStrategiesKey(envOf(p).msgType(), p) === "").length;
+}
+
+/** 브라우저가 받은 `strategies.disabled` 들. */
+function disabledOf(inbox: RelayOutbound[]): RelayOutbound[] {
+  return inbox.filter((m) => m.t === "strategies.disabled");
 }
 
 /** relay 가 낸 거부 프레임(`msg` ERROR) 중 그 명령 몫. */
@@ -369,6 +380,31 @@ describe("WsFanout — 증권사별 세션 · hub 세션 소유 키 · 병합 �
     vi.advanceTimersByTime(SESSION_GRACE_MS + 1);
     await flushIo();
     expect(manager.sessionsOf(USER_A)).toHaveLength(0);
+  });
+
+  it("N-01 (29-54) 운영 보존 — KB120 + KYOBO119 사용자의 전부 정지는 오늘과 같다: KB 스텁 빈 키 14 = 1 · 교보 스텁 14 = 0 · strategies.disabled 1건 { count 1 } · msg 0", async () => {
+    await setup();
+    // 두 스텁 모두 14 를 처리한다(교보로 갔다면 count 가 늘어 드러난다).
+    kb.respondLimitChaserList([{ isin: SAMPLE_ISIN, accountNo: A1 }]);
+    kyobo.respondLimitChaserList([{ isin: SAMPLE_ISIN, accountNo: B1 }]);
+    kb.handleDisableStrategies({});
+    kyobo.handleDisableStrategies({});
+    const { ws, inbox } = await tab();
+    await waitFor(
+      () => manager.sessionsOf(USER_A).length === 2 && manager.sessionsOf(USER_A).every((s) => s.isReady),
+      "KB · 교보 세션 ready",
+    );
+    await flushIo(10);
+    const from = inbox.length;
+    const since = (): RelayOutbound[] => inbox.slice(from);
+
+    ws.sendRaw({ t: "strategies.disable" });
+    await waitFor(() => disabledOf(since()).length === 1, "strategies.disabled");
+    await flushIo(20);
+    expect(allStopsOf(kbPayloads)).toBe(1);
+    expect(countOf(kyoboPayloads, MSG.DisableStrategiesReq)).toBe(0);
+    expect(disabledOf(since())).toEqual([{ t: "strategies.disabled", count: 1, viDisabled: false }]);
+    expect(since().filter((m) => m.t === "msg")).toEqual([]);
   });
 });
 
@@ -737,5 +773,38 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
     await waitFor(() => viConfirmsOf(p120).length === 1, "KB120 33(모르는 주문번호)");
     expect(viConfirmsOf(p120)).toEqual(["O9"]);
     expect(viConfirmsOf(p121)).toEqual(["O2"]);
+  });
+
+  /** KB120 에 B 상따 · KB121 에 A 상따를 심고 두 스텁 모두 14 를 처리하게 한다(29-54 · N-01). */
+  function seedAllStop(): void {
+    kb120.respondLimitChaserList([{ isin: SAMPLE_ISIN, accountNo: B }]);
+    kb121.respondLimitChaserList([{ isin: SAMPLE_ISIN, accountNo: A }]);
+    kb120.handleDisableStrategies({});
+    kb121.handleDisableStrategies({});
+  }
+
+  it("N-01 (29-54) 트레이서 — 전부 정지(빈 키)는 KB120 · KB121 두 세션에 빈 키 14 각 1 · 브라우저 strategies.disabled 정확히 1건 { count 2 } · 두 서버 lc 에코(A · B) 뒤 · msg 0", async () => {
+    seedAllStop();
+    const { ws, inbox } = await tab();
+    await bothReady();
+    const from = inbox.length;
+    const since = (): RelayOutbound[] => inbox.slice(from);
+
+    ws.sendRaw({ t: "strategies.disable" });
+    await waitFor(() => allStopsOf(p120) === 1 && disabledOf(since()).length >= 1, "KB120 14 · strategies.disabled");
+    await flushIo(20);
+    // KB121 로 지정한 계좌 A 의 전략도 멈춘다 — 오늘은 primary(KB120) 하나로만 갔다(N-01).
+    expect(allStopsOf(p121)).toBe(1);
+    expect(allStopsOf(p120)).toBe(1);
+    expect(disabledOf(since())).toEqual([{ t: "strategies.disabled", count: 2, viDisabled: false }]);
+    // 완료 신호는 두 서버의 60 에코 뒤다 — 웹 in-flight 창의 「전부 정지 때문에 꺼짐」 귀속이 KB121 에코까지 덮는다.
+    const frames = since();
+    const at = frames.findIndex((m) => m.t === "strategies.disabled");
+    const echoA = frames.findIndex((m) => m.t === "lc" && m.item.accountNo === A);
+    const echoB = frames.findIndex((m) => m.t === "lc" && m.item.accountNo === B);
+    expect(echoA).toBeGreaterThanOrEqual(0);
+    expect(echoB).toBeGreaterThanOrEqual(0);
+    expect(at).toBeGreaterThan(Math.max(echoA, echoB));
+    expect(frames.filter((m) => m.t === "msg")).toEqual([]);
   });
 });
