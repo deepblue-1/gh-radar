@@ -117,7 +117,9 @@ function echo(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     sellOrderQty: 76,
     sellQtyTrackBaseline: 41_200,
     sellEntryLatched: false,
-    cancelQtyTrackBaseline: 0,
+    // 서버는 Set(재제출) 때 기준선을 cfg 주로 리셋한다(Q4) — 취소 추적 ON 에코의 기준선은 그 칸의 주다. 0 이면 Phase 31
+    // 등록 차단 7(취소 잔량 환산 0주 · C# 동형)이 서는데, 그것은 서버가 만들지 않는 에코다.
+    cancelQtyTrackBaseline: qtyFromAmount(1_000, 130_000),
     cancelEntryLatched: false,
     ...LC_BUY3_ECHO_DEFAULTS,
     buyWatchAmount: 10_000,

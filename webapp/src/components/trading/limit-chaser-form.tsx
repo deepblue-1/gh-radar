@@ -99,7 +99,7 @@ import type {
   RelayLimitChaserInput,
   TickRule,
 } from '@gh-radar/shared';
-import { LC_AMOUNT_PAIRS, type LcAmountQtyKey } from '@gh-radar/shared';
+import { LC_AMOUNT_PAIRS, type LcAmountKey, type LcAmountQtyKey } from '@gh-radar/shared';
 
 import { useRelayContext } from '@/lib/relay-provider';
 import {
@@ -231,7 +231,65 @@ const ARM_BLOCKED_TEXT = {
   sellPrice: '시세를 받지 못해 매도 주문가격이 0 이에요. 주문가격을 입력하면 켤 수 있어요.',
   sellWatchQty: '매도 매수잔량이 0 이에요. 감시할 매수잔량을 입력하면 켤 수 있어요.',
   sweepPrice: '시세를 받지 못해 한방가격이 0 이에요. 한방가격을 입력하면 켤 수 있어요.',
+  // ── Phase 31 D-03 · D-04 — C# `LimitChaserForm.cs` 5153~5296 원문(UI-SPEC 「등록 차단 문구」 표 1 · 2 · 5~8).
+  //    판정 · 순서 · 접미는 `armBlockOf` 머리 주석 표. 문장은 여기 한 곳에만 둔다(패널 · 전송 직전 · 시트 · 인라인 공용).
+  buyWatchPriceAmount: '매수 비교가격이 0 입니다 — 금액(만원)을 주로 환산할 수 없습니다. 매수 비교가격을 입력하세요.',
+  sellWatchPriceAmount: '매도 비교가격이 0 입니다 — 금액(만원)을 주로 환산할 수 없습니다. 매도 비교가격을 입력하세요.',
+  extraBuyMaxFloored:
+    '줄매수 최대가 0주로 환산됩니다 — 0 은 무제한이라 의도와 반대로 동작합니다. 최대 금액을 늘리거나 0(무제한) 으로 하세요.',
+  preBuyTradeFloored:
+    '선매수 체결량이 0주로 환산됩니다 — 0주면 매수 비교가격의 첫 체결부터 매수가 나갑니다. 체결량 금액을 늘리거나 ☐체결량을 끄세요.',
+  sellTradeFloored:
+    '매도 체결수량이 0주로 환산됩니다 — 0주면 매도 비교가격의 첫 매도체결부터 매도가 나갑니다. 체결 금액을 늘리거나 매도 ☐체결을 끄세요.',
+  cancelQtyZero:
+    '취소 잔량이 0 입니다. 취소:잔량은 매도 비교가격의 매수잔량이 이 값 이하로 빠지면 미체결을 취소하므로 0 이면 의미가 없습니다. 취소 잔량을 확인하세요.',
+  cancelTradeZero:
+    '취소:체결 은 매도 옵션의 체결수량 칸을 임계로 재사용합니다. 그 값이 0 이면 매도 비교가격의 매 매도체결마다 취소가 나가므로 서버가 켜 주지 않습니다. 매도 체결수량을 확인하세요.',
 } as const;
+
+/** 만원 · 주 천 단위 표기(웹 숫자 규칙 — 글자는 C# 과 같다). */
+const NUM = new Intl.NumberFormat('ko-KR');
+
+/**
+ * C# `ZeroQtySuffix` — 금액 > 0 이 내림으로 0주가 된 칸의 접미(예 「 (12만 → 0주」 + 닫는 괄호 · N 천 단위 쉼표). 금액 0 이면 빈 글자다
+ * (0 을 직접 친 칸은 「→ 0주」 를 말할 이유가 없다). 호출부는 그 칸의 제출 주가 0 일 때만 부른다.
+ */
+function zeroQtySuffixOf(amount: number): string {
+  return amount > 0 ? ` (${NUM.format(amount)}만 → 0주)` : '';
+}
+
+/**
+ * 켜진 매수 쪽 칸에 금액이 있는가 — C# `buyNeedsWatchPrice`(5175~5178)의 그룹 항(☐매수주문 항 제외).
+ * 선매수 두 칸 · (줄매수 ∨ 줄매수 자동) 최소 · 최대 · (후매수 ∨ 후매수 자동) 최소. 열 아래 정적 패널은 마스터가 꺼져
+ * 있어도 같은 문장을 말해야 해서 이 판을 쓰고, 전송 직전은 마스터 항을 더한 `buyNeedsWatchPrice` 를 쓴다.
+ */
+function buyAmountsNeedWatchPrice(values: LimitChaserFormValues): boolean {
+  return (
+    (values.preBuyEnabled && (values.buyWatchAmount > 0 || values.buyMinTradeAmount > 0)) ||
+    ((values.extraBuyEnabled || values.extraBuyAuto) && (values.extraBuyMinAmount > 0 || values.extraBuyMaxAmount > 0)) ||
+    ((values.postBuyEnabled || values.postBuyAuto) && values.postBuyFloorAmount > 0)
+  );
+}
+
+/** C# `buyNeedsWatchPrice` 그대로 — ☐매수주문 ∧ 그룹 항. */
+function buyNeedsWatchPrice(values: LimitChaserFormValues): boolean {
+  return values.buyEnabled && buyAmountsNeedWatchPrice(values);
+}
+
+/**
+ * C# `sellNeedsWatchPrice`(5179~5182) — 매도주문의 잔량 · 체결 칸, (후매수 ∨ 후매수 자동) ∧ 매도 ☐체결의 체결 칸(WR-05 —
+ * 후매수가 발동하면 서버가 매도를 켜고 그 임계를 쓴다), 취소:잔량의 취소 칸, 취소:체결의 체결 칸(매도 칸 재사용).
+ * 꺼진 그룹의 칸은 보지 않는다(C# CR-02).
+ */
+function sellNeedsWatchPrice(values: LimitChaserFormValues): boolean {
+  const postBuyArmsSell = values.postBuyEnabled || values.postBuyAuto;
+  return (
+    (values.sellEnabled && (values.sellWatchAmount > 0 || values.sellMinTradeAmount > 0)) ||
+    (postBuyArmsSell && values.sellTradeQtyEnabled && values.sellMinTradeAmount > 0) ||
+    (values.cancelQtyEnabled && values.cancelWatchAmount > 0) ||
+    (values.cancelTradeEnabled && values.sellMinTradeAmount > 0)
+  );
+}
 
 /**
  * 게이트의 **표시 이름** — 값은 각 그룹 카드의 `title` 과 **같은 문자열**이어야 한다.
@@ -249,8 +307,13 @@ const GATE_LABEL: Record<GateKey, string> = {
 /** 한방 체크의 무장 불가 접두 — 「{그룹} {라벨}」 규칙(체크 접근성 이름과 같다). */
 const SWEEP_LABEL = '선매수 한방';
 
-/** 매수 공통 가격(주문가격 · 비교가격) 사유 — 서버가 마스터를 눕히는 값(relay `buy` 갈래). 멀쩡하면 null. */
+/**
+ * 매수 공통 가격(주문가격 · 비교가격) 사유 — 서버가 마스터를 눕히는 값(relay `buy` 갈래). 멀쩡하면 null.
+ * Phase 31 D-03 — 매수 비교가 0 ∧ 켜진 매수 쪽 칸에 금액이 있으면 `ARM_BLOCKED_TEXT.buyWatchPriceAmount` 가 먼저다
+ * (UI-SPEC 표 1 — `armBlockOf` 의 1 순위와 같은 판정 순서 · 패널과 전송 직전이 같은 문장을 말한다).
+ */
 function buyPriceReasonOf(values: LimitChaserFormValues): string | null {
+  if (values.buyWatchPrice === 0 && buyAmountsNeedWatchPrice(values)) return ARM_BLOCKED_TEXT.buyWatchPriceAmount;
   if (values.buyOrderPrice === 0) return ARM_BLOCKED_TEXT.buyPrice;
   if (values.buyWatchPrice === 0) return ARM_BLOCKED_TEXT.buyWatchPrice;
   return null;
@@ -267,8 +330,12 @@ function buyPriceReasonOf(values: LimitChaserFormValues): string | null {
  */
 function armBlockedTextOf(key: GateKey, values: LimitChaserFormValues): string {
   // 매도는 두 값이 독립이다 — 가격이 0 이면 시세, 아니면 감시 매수잔량이다(`canArmOf.sellEnabled` 동형).
+  // Phase 31 — 매수잔량은 만원 칸의 제출 환산 주다. 매도 비교가 0 이면 환산할 수 없다(UI-SPEC 표 2 문장 · 패널은 접두를 단다),
+  //   그 밖에 0주면 C# 처럼 `zeroQtySuffixOf` 접미를 붙인다(금액 > 0 일 때만 · 표 3).
   if (key === 'sellEnabled') {
-    return values.sellOrderPrice === 0 ? ARM_BLOCKED_TEXT.sellPrice : ARM_BLOCKED_TEXT.sellWatchQty;
+    if (values.sellOrderPrice === 0) return ARM_BLOCKED_TEXT.sellPrice;
+    if (values.sellWatchPrice === 0 && values.sellWatchAmount > 0) return ARM_BLOCKED_TEXT.sellWatchPriceAmount;
+    return ARM_BLOCKED_TEXT.sellWatchQty + zeroQtySuffixOf(values.sellWatchAmount);
   }
   // 매수 넷은 공통 가격이 먼저다(시세 미수신 — 만질 곳은 가격). 가격이 멀쩡한데 막혔으면 그 그룹 수량 0 이다
   //   (만질 곳은 그 카드 금액 — 사전 검증 줄과 같은 문장).
@@ -368,7 +435,7 @@ function canArmStaticOf(values: LimitChaserFormValues, server: RelayLimitChaser 
 }
 
 /**
- * 이 값으로 보내면 relay 가 통째로 거부할 무장인가 — 사유 1줄, 아니면 `null`.
+ * 이 값으로 보내면 relay 가 통째로 거부할(또는 서버가 받아도 의도와 반대로 도는) 무장인가 — 사유 1줄, 아니면 `null`.
  *
  * ★ 조립 규칙은 `{게이트이름} · {사유}` 이고, 시트 검증(`validate`)과 필드 확정 훅이
  *   **이 함수 하나**를 읽는다(GC-WR-09 · T-16-60). 동반 필드(D-01)는 훅이 합친 값으로 부른다.
@@ -380,12 +447,60 @@ function canArmStaticOf(values: LimitChaserFormValues, server: RelayLimitChaser 
  *   마지막 관문보다 엄격하면 사용자는 전략을 내리려는데 화면이 막는다.
  */
 function armBlockOf(values: LimitChaserFormValues, server: RelayLimitChaser | null): string | null {
+  /*
+    ★ Phase 31 D-03 · D-04 — 판정 순서(첫 일치 하나 · UI-SPEC 「등록 차단 문구」 표 · C# 5153~5296 순서 동형):
+      | 순 | 조건                                                                   | 문장(`ARM_BLOCKED_TEXT`)             | 접두        |
+      |----|------------------------------------------------------------------------|--------------------------------------|-------------|
+      | 1  | C# buyNeedsWatchPrice ∧ 매수 비교가 0                                    | buyWatchPriceAmount                  | 매수주문 ·  |
+      | 2  | C# sellNeedsWatchPrice ∧ 매도 비교가 0                                   | sellWatchPriceAmount                 | 없음        |
+      | 3  | 기존 게이트 사유(가격 0 · 그룹 수량 0 · 매도 매수잔량 환산 0주 + 접미)   | armBlockedTextOf                     | {게이트} ·  |
+      | 4  | 선매수 ∧ 한방 ∧ 한방가격 0                                               | sweepPrice                           | 선매수 한방 · |
+      | 5  | 줄매수 ∧ 최대 금액 > 0 ∧ 환산 0주 (C# 5199 addMaxFloored)                | extraBuyMaxFloored + 접미            | 없음        |
+      | 6a | 매수주문 ∧ 선매수 ∧ ☐체결량 ∧ 체결량 금액 > 0 ∧ 환산 0주 (C# 5255)        | preBuyTradeFloored + 접미            | 없음        |
+      | 6b | (매도주문 ∨ 후매수 ∨ 후매수 자동) ∧ ☐체결 ∧ 체결 금액 > 0 ∧ 환산 0주 (5257) | sellTradeFloored + 접미             | 없음        |
+      | 7  | 취소:잔량 ∧ 취소 매수잔량 환산 0주 (C# 5276)                              | cancelQtyZero + 접미                 | 없음        |
+      | 8  | 취소:체결 ∧ 매도 체결 환산 0주 (C# 5287)                                  | cancelTradeZero + 접미               | 없음        |
+    2 · 5~8 은 문장이 주어를 품는다(C# 원문) — 접두를 달지 않는다. C# 의 「매도 비교가 0(anyCancel)」 차단(5296)은 2 · 7 · 8 이
+    먼저 잡아 여기서 도달하지 않으므로 문장을 따로 두지 않는다. 0주 판정의 주는 `lcSubmitQtyOf`(= buildCfg 가 싣는 주)다.
+    서버 54 는 0주 임계를 거부하지 않는다 — 0주 줄매수 최대는 무제한, 0주 체결 임계는 첫 체결 발주로 뒤집힌다(AMT-04).
+  */
   if (isDeleteIntent(values)) return null;
+  if (buyNeedsWatchPrice(values) && values.buyWatchPrice === 0) {
+    return `${GATE_LABEL.buyEnabled}${ARM_BLOCKED_SEP}${ARM_BLOCKED_TEXT.buyWatchPriceAmount}`;
+  }
+  if (sellNeedsWatchPrice(values) && values.sellWatchPrice === 0) return ARM_BLOCKED_TEXT.sellWatchPriceAmount;
   const canArm = canArmOf(values, server);
   const blocked = GATE_KEYS.find((key) => values[key] && !canArm[key]);
   if (blocked !== undefined) return `${GATE_LABEL[blocked]}${ARM_BLOCKED_SEP}${armBlockedTextOf(blocked, values)}`;
   if (values.preBuyEnabled && values.sweepEnabled && values.sweepWatchPrice === 0) {
     return `${SWEEP_LABEL}${ARM_BLOCKED_SEP}${ARM_BLOCKED_TEXT.sweepPrice}`;
+  }
+  const floored = (amount: LcAmountKey): boolean => lcSubmitQtyOf(values, amount, server) === 0;
+  if (values.extraBuyEnabled && values.extraBuyMaxAmount > 0 && floored('extraBuyMaxAmount')) {
+    return ARM_BLOCKED_TEXT.extraBuyMaxFloored + zeroQtySuffixOf(values.extraBuyMaxAmount);
+  }
+  if (
+    values.buyEnabled &&
+    values.preBuyEnabled &&
+    values.buyTradeQtyEnabled &&
+    values.buyMinTradeAmount > 0 &&
+    floored('buyMinTradeAmount')
+  ) {
+    return ARM_BLOCKED_TEXT.preBuyTradeFloored + zeroQtySuffixOf(values.buyMinTradeAmount);
+  }
+  if (
+    (values.sellEnabled || values.postBuyEnabled || values.postBuyAuto) &&
+    values.sellTradeQtyEnabled &&
+    values.sellMinTradeAmount > 0 &&
+    floored('sellMinTradeAmount')
+  ) {
+    return ARM_BLOCKED_TEXT.sellTradeFloored + zeroQtySuffixOf(values.sellMinTradeAmount);
+  }
+  if (values.cancelQtyEnabled && floored('cancelWatchAmount')) {
+    return ARM_BLOCKED_TEXT.cancelQtyZero + zeroQtySuffixOf(values.cancelWatchAmount);
+  }
+  if (values.cancelTradeEnabled && floored('sellMinTradeAmount')) {
+    return ARM_BLOCKED_TEXT.cancelTradeZero + zeroQtySuffixOf(values.sellMinTradeAmount);
   }
   return null;
 }

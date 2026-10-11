@@ -1817,6 +1817,8 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 in-fli
       cancelQtyEnabled: true,
       cancelTradeEnabled: true,
       cancelQtyTrackEnabled: true,
+      // 서버는 Set 때 취소 기준선을 cfg 주로 리셋한다(Q4) — 0 이면 Phase 31 등록 차단 7(취소 잔량 환산 0주)이 대기 줄매수를 막는다.
+      cancelQtyTrackBaseline: before.cancelWatchQty,
       sellOrderPrice: 150_800,
       sellWatchPrice: 150_800,
     });
