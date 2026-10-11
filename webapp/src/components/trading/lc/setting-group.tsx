@@ -9,12 +9,14 @@
  * 지웠다 — 새 서버는 감시대상을 읽지 않는다.) Phase 27 이 `ChoiceRow`(3택 행 — 자동매도 방법 · `/me` 방법 기본값)를 더했다.
  * 무엇을 어떤 순서로 그리는지는 이 파일이 아니라 `lc-fields.ts` 가 정한다.
  *
- * ★ 행 높이는 **언제나 44px** 다 (D-20 · D-14a). 편집 중인 행만 요소 종류가 `<button>` → `<div>`
- *   로 바뀐다(`<button>` 안에 `<input>` 을 넣을 수 없다) — 높이·패딩이 같아서 레이아웃 이동이 0 이다.
+ * ★ 값 행은 **44px** 다 (D-20 · D-14a) — 수량 8칸 · 파생 2행의 두 줄 변형(`sub` · Phase 31 D-07)만 56px 다.
+ *   편집 전후 같은 높이다(레이아웃 이동 0) — 편집 중인 행만 요소 종류가 `<button>` → `<div>` 로 바뀐다
+ *   (`<button>` 안에 `<input>` 을 넣을 수 없다). 높이·패딩이 같다.
  * ★ 폭 판정은 컨테이너 쿼리(`@min-[685px]/lc:` 등)만 쓴다. 뷰포트 브레이크포인트 유틸을 새로
  *   만들지 않는다 — 밴드 표·경계의 정본은 `webapp/src/styles/globals.css` §2.2b 다.
  * ★ 라벨·값은 `whitespace-nowrap` 이고 **말줄임 유틸을 쓰지 않는다** — 잘린 라벨은 오발주다.
- *   안 맞으면 보이게 넘치고 20-07 P20-3 이 잡는다.
+ *   안 맞으면 보이게 넘치고 20-07 P20-3 이 잡는다. 예외는 두 줄 행 라벨 하나 — 낱말 경계에서만 접힌다
+ *   (폭 백스톱 L4 · `ROW_BOX_TALL` 주석).
  * ★ 실패 표시는 행 **아래 흐름 밖**(Popover)이다 — 문구가 행 사이에 끼면 아래 행이 밀린다.
  */
 
@@ -77,8 +79,56 @@ export function formatSettingValue(value: number, unit: SettingUnit): string {
 const ROW_BOX =
   'flex min-h-[44px] w-full min-w-0 items-center justify-between gap-1 rounded-[10px] px-0 text-left @min-[685px]/lc:gap-1.5 @min-[685px]/lc:px-1';
 
+/**
+ * 두 줄 행 상자(Phase 31 D-07 · UI-SPEC S1 · S2) — `ROW_BOX` 와 같은 패딩 · 간격 · 모서리 · 폭 백스톱(L2)이고
+ * 높이만 **56px** 다. 수량 8칸(위 줄 만원 + 아래 줄 환산 주)과 파생 2행(발동잔량 · 잔량추적 기준선)만 쓴다 —
+ * 가격 · 금액 · % · 회 · 건 · 체크 전용 행은 44px 그대로다. 편집 중 div 도 이 상자라 레이아웃 이동이 0 이다.
+ *
+ * ★ 폭 백스톱 L4(Phase 31 신설 · 두 줄 행 한정) — 값이 넓어 라벨 자리가 모자라면 라벨이 **낱말 경계(공백)에서만**
+ *   두 줄로 접힌다(`LABEL_TEXT_WRAP` — `break-keep` · 말줄임 금지 · 글자 크기 불변). 14px × 1.5 두 줄 = 42px 라
+ *   행 높이 56 이 그대로다. 실제로 걸리는 행은 폰 밴드 본문 344 의 「잔량추적 기준선」(→ 「잔량추적 / 기준선」)뿐이다.
+ *   44px 행 라벨은 지금처럼 `whitespace-nowrap` 이고 L0~L3 규칙은 그대로다. 밴드 경계는 §2.2b 정본.
+ */
+const ROW_BOX_TALL =
+  'flex min-h-[56px] w-full min-w-0 items-center justify-between gap-1 rounded-[10px] px-0 text-left @min-[685px]/lc:gap-1.5 @min-[685px]/lc:px-1';
+
 /** 행 라벨 14/400 `--muted-fg`(UI-SPEC §2). */
 const LABEL_TEXT = 'whitespace-nowrap text-[14px] leading-[1.5] text-[var(--muted-fg)]';
+/** 두 줄 행 라벨(L4) — `LABEL_TEXT` 에서 nowrap 만 낱말 경계 접힘으로 바꾼다. 말줄임 유틸 없음. */
+const LABEL_TEXT_WRAP = 'whitespace-normal break-keep text-[14px] leading-[1.5] text-[var(--muted-fg)]';
+
+/**
+ * 두 줄 행 아래 줄(Phase 31 D-07) — 환산 주(「777주」) · 의미어(「무제한」) · 「비교가격 필요」. 판정(글자 · 톤)은
+ * 호출부가 `lc-fields.ts` 순수 함수에서 받는다 — 이 파일은 그리기만 한다.
+ */
+export type LcRowSub = { text: string; tone: 'muted' | 'alert' };
+
+/**
+ * 아래 줄 슬롯 — 12/400 · 줄 높이 16px · `tabular-nums`. 톤 `alert` 일 때만 `data-tone="alert"` + `--destructive`,
+ * 그 밖은 `--muted-fg` 다(색은 보조 — 의미는 글자가 싣는다 · WCAG 1.4.1). 확정 강조(flash)는 받지 않는다(위 줄만).
+ * 빈 글자여도 16px 자리를 지킨다(`min-h-4` · UI-SPEC S2) — 그때는 낭독에서 뺀다. 행 · 인라인 편집기가 같이 쓴다.
+ */
+export function RowSubLine({ sub }: { sub: LcRowSub }) {
+  const alert = sub.tone === 'alert';
+  return (
+    <span
+      data-slot="lc-row-sub"
+      data-tone={alert ? 'alert' : undefined}
+      aria-hidden={sub.text === '' ? 'true' : undefined}
+      className={cn(
+        'block min-h-4 whitespace-nowrap text-[12px] font-normal leading-4 tabular-nums',
+        alert ? 'text-[var(--destructive)]' : 'text-[var(--muted-fg)]',
+      )}
+    >
+      {sub.text}
+    </span>
+  );
+}
+
+/** 값 버튼 기본 접근성 이름 — 「{라벨} {위 줄}」 · 두 줄이면 「{라벨} {위 줄} {아래 줄}」(빈 아래 줄은 뺀다). */
+function rowNameOf(label: string, text: string, sub: LcRowSub | undefined): string {
+  return sub !== undefined && sub.text !== '' ? `${label} ${text} ${sub.text}` : `${label} ${text}`;
+}
 /** 행 값 15/500 `--fg-2` · 확정 뒤 900ms `--primary`(D-18). */
 function valueTextClass(flash: boolean, busy: boolean): string {
   return cn(
@@ -201,11 +251,25 @@ function useRefocusAfterEdit(editing: boolean, target: RefObject<HTMLElement | n
  */
 const GroupTitleIdContext = createContext<string | undefined>(undefined);
 
-/** 값 슬롯 + 쉐브런 — 값 행과 체크 값 행의 값 버튼이 같은 모양을 쓴다. */
-function ValueWithChevron({ text, flash, busy }: { text: string; flash: boolean; busy: boolean }) {
-  return (
+/**
+ * 값 슬롯 + 쉐브런 — 값 행과 체크 값 행의 값 버튼이 같은 모양을 쓴다.
+ * `sub` 가 있으면 두 줄(Phase 31 D-07 · UI-SPEC S1) — 위 줄 = 지금 그대로(값 슬롯 + 쉐브런 · L3 유지),
+ * 아래 줄 = `RowSubLine`. busy 흐림은 두 줄을 감싼 블록에 **한 번** 걸고(값 슬롯에 또 걸지 않는다), flash 는 위 줄만이다.
+ */
+function ValueWithChevron({
+  text,
+  flash,
+  busy,
+  sub,
+}: {
+  text: string;
+  flash: boolean;
+  busy: boolean;
+  sub?: LcRowSub;
+}) {
+  const line = (
     <span className="flex min-w-0 items-center whitespace-nowrap">
-      <span data-slot="lc-row-value" className={valueTextClass(flash, busy)}>
+      <span data-slot="lc-row-value" className={valueTextClass(flash, busy && sub === undefined)}>
         {text}
       </span>
       {/*
@@ -221,6 +285,13 @@ function ValueWithChevron({ text, flash, busy }: { text: string; flash: boolean;
       >
         {' ›'}
       </span>
+    </span>
+  );
+  if (sub === undefined) return line;
+  return (
+    <span className={cn('flex min-w-0 flex-col items-end', busy && 'opacity-60')}>
+      {line}
+      <RowSubLine sub={sub} />
     </span>
   );
 }
@@ -256,10 +327,15 @@ export interface SettingRowProps {
   ariaName?: string;
   /** 행 단위 흐림(⑩) — 편집 중이면 걸지 않는다. */
   dim?: boolean;
+  /**
+   * 두 줄 행(Phase 31 D-07) — 위 줄은 `valueText`/`value`, 아래 줄은 이 글자. 판정은 호출부가 `lc-fields.ts` 순수 함수에서
+   * 받는다. 주면 행 상자가 56px(편집 중 div 도 같다) · 라벨은 낱말 경계 접힘(L4) · 기본 접근성 이름에 아래 줄이 붙는다.
+   */
+  sub?: LcRowSub;
   className?: string;
 }
 
-/** 「라벨 ─ 값 ›」 44px 값 행 (UI-SPEC §2 · 스케치 `.lrow`). */
+/** 「라벨 ─ 값 ›」 44px 값 행 (UI-SPEC §2 · 스케치 `.lrow`) — `sub` 를 주면 56px 두 줄 행(Phase 31 D-07). */
 export function SettingRow({
   id,
   label,
@@ -277,6 +353,7 @@ export function SettingRow({
   valueText,
   ariaName,
   dim = false,
+  sub,
   className,
 }: SettingRowProps) {
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -284,16 +361,18 @@ export function SettingRow({
   const groupTitleId = useContext(GroupTitleIdContext);
 
   const text = valueText ?? (value === null ? '—' : formatSettingValue(value, unit));
-  const defaultName = value === null && valueText === undefined ? `${label} 미입력` : `${label} ${text}`;
+  const defaultName = value === null && valueText === undefined ? `${label} 미입력` : rowNameOf(label, text, sub);
+  const box = sub !== undefined ? ROW_BOX_TALL : ROW_BOX;
+  const labelClass = sub !== undefined ? LABEL_TEXT_WRAP : LABEL_TEXT;
 
   if (editing) {
     return (
       <div
         data-lc-field={id}
         data-editing="true"
-        className={cn(ROW_BOX, EDIT_BG, editRingClass(failed), className)}
+        className={cn(box, EDIT_BG, editRingClass(failed), className)}
       >
-        <label htmlFor={id} className={LABEL_TEXT}>
+        <label htmlFor={id} className={labelClass}>
           {label}
         </label>
         {editor}
@@ -313,15 +392,15 @@ export function SettingRow({
       disabled={disabled}
       onClick={(e) => onActivate(e.currentTarget)}
       className={cn(
-        ROW_BOX,
+        box,
         'pointer-fine:hover:bg-[color-mix(in_srgb,var(--fg)_5%,transparent)] disabled:opacity-50',
         failed && 'shadow-[inset_0_0_0_1.5px_var(--destructive)]',
         dim && DIM_SELF,
         className,
       )}
     >
-      <span className={LABEL_TEXT}>{label}</span>
-      <ValueWithChevron text={text} flash={flash} busy={busy} />
+      <span className={labelClass}>{label}</span>
+      <ValueWithChevron text={text} flash={flash} busy={busy} sub={sub} />
     </button>
   );
 
@@ -758,6 +837,11 @@ export interface CheckValueRowProps {
   ariaName?: string;
   /** 라벨 · 값만 흐림(⑩) — 원형 체크는 흐리지 않는다(켜는 컨트롤은 늘 제 대비). */
   dim?: boolean;
+  /**
+   * 두 줄 행(Phase 31 D-07) — 위 줄은 `valueText`/`value`, 아래 줄은 이 글자. 판정은 호출부가 `lc-fields.ts` 순수 함수에서
+   * 받는다. 주면 행 상자와 값 버튼이 56px · 값 버튼 쪽만 두 줄이다(원형 체크 · 라벨은 제자리 · 세로 가운데).
+   */
+  sub?: LcRowSub;
 }
 
 /**
@@ -792,6 +876,7 @@ export function CheckValueRow({
   valueText,
   ariaName,
   dim = false,
+  sub,
 }: CheckValueRowProps) {
   const valueRef = useRef<HTMLButtonElement>(null);
   useRefocusAfterEdit(editing, valueRef);
@@ -825,7 +910,10 @@ export function CheckValueRow({
       >
         {checked ? <Check className="size-3.5 text-white" strokeWidth={3} /> : null}
       </span>
-      <span className={cn(LABEL_TEXT, checkFlash && 'text-[var(--primary)]', dimPart)}>{label}</span>
+      {/* 두 줄 행 라벨도 L4 변형이지만 체크 버튼이 `flex-none` 이고 라벨이 한 낱말(「체결량」 · 「체결」)이라 실제로 접히지 않는다. */}
+      <span className={cn(sub !== undefined ? LABEL_TEXT_WRAP : LABEL_TEXT, checkFlash && 'text-[var(--primary)]', dimPart)}>
+        {label}
+      </span>
     </button>
   );
 
@@ -843,15 +931,19 @@ export function CheckValueRow({
           ref={valueRef}
           type="button"
           data-lc-field={valueId}
-          aria-label={ariaName ?? `${label} ${text}`}
+          aria-label={ariaName ?? rowNameOf(label, text, sub)}
           aria-describedby={groupTitleId}
           aria-busy={busy ? 'true' : undefined}
           aria-haspopup={hasPopup ? 'dialog' : undefined}
           disabled={disabled}
           onClick={(e) => onActivateValue?.(e.currentTarget)}
-          className={cn('flex min-h-[44px] min-w-0 items-center justify-end rounded-[10px] disabled:opacity-50', dimPart)}
+          className={cn(
+            'flex min-w-0 items-center justify-end rounded-[10px] disabled:opacity-50',
+            sub !== undefined ? 'min-h-[56px]' : 'min-h-[44px]',
+            dimPart,
+          )}
         >
-          <ValueWithChevron text={text} flash={flash} busy={busy} />
+          <ValueWithChevron text={text} flash={flash} busy={busy} sub={sub} />
         </button>
       </FailureBubble>
     );
@@ -862,7 +954,7 @@ export function CheckValueRow({
       data-slot="lc-check-row"
       className={cn(
         'group/lcrow',
-        ROW_BOX,
+        sub !== undefined ? ROW_BOX_TALL : ROW_BOX,
         editing && EDIT_BG,
         editing ? editRingClass(failed) : failed && 'shadow-[inset_0_0_0_1.5px_var(--destructive)]',
       )}
@@ -901,6 +993,11 @@ export interface DerivedRowProps {
   slot?: string;
   /** 흐림(⑩) — 그룹 에코 OFF. */
   dim?: boolean;
+  /**
+   * 두 줄 행(Phase 31 D-05 · D-07 · UI-SPEC S2) — 위 줄은 지금 렌더(발동잔량 `--up` 강조 · muted · 「—」 sr 「없음」 분기 그대로),
+   * 아래 줄은 이 글자. 그려지는 동안 늘 56px — 빈 글자여도 아래 줄 16px 자리를 비워 둔다. 판정은 호출부(`lc-fields.ts`).
+   */
+  sub?: LcRowSub;
 }
 
 /**
@@ -919,36 +1016,49 @@ export function DerivedRow({
   display,
   slot = 'lc-derived',
   dim = false,
+  sub,
 }: DerivedRowProps) {
   const muted = value === 0 && (mutedValue ?? 0) > 0;
   const empty = value === 0 && valueText !== undefined;
-  return (
-    <div data-slot={slot} className={cn(ROW_BOX, dim && 'opacity-45 pointer-fine:hover:opacity-100')}>
-      <span className={LABEL_TEXT}>{label}</span>
-      {muted ? (
-        <span className="whitespace-nowrap text-[15px] font-medium leading-[1.5]">
-          {mutedSrText ? <span className="sr-only">{`${mutedSrText} `}</span> : null}
-          <span data-muted-value="true" className="tabular-nums text-[var(--muted-fg)]">
-            {formatSettingValue(mutedValue ?? 0, unit)}
-          </span>
-        </span>
-      ) : empty ? (
-        <span className="whitespace-nowrap text-[15px] font-medium leading-[1.5]">
-          <span aria-hidden={srText ? 'true' : undefined} className="text-[var(--muted-fg)]">
-            {valueText}
-          </span>
-          {srText ? <span className="sr-only">{srText}</span> : null}
-        </span>
-      ) : (
-        <span
-          className={cn(
-            'whitespace-nowrap text-[15px] leading-[1.5] tabular-nums',
-            emphasis ? 'font-semibold text-[var(--up)]' : 'font-medium text-[var(--fg-2)]',
-          )}
-        >
-          {display ?? formatSettingValue(value, unit)}
-        </span>
+  const top = muted ? (
+    <span className="whitespace-nowrap text-[15px] font-medium leading-[1.5]">
+      {mutedSrText ? <span className="sr-only">{`${mutedSrText} `}</span> : null}
+      <span data-muted-value="true" className="tabular-nums text-[var(--muted-fg)]">
+        {formatSettingValue(mutedValue ?? 0, unit)}
+      </span>
+    </span>
+  ) : empty ? (
+    <span className="whitespace-nowrap text-[15px] font-medium leading-[1.5]">
+      <span aria-hidden={srText ? 'true' : undefined} className="text-[var(--muted-fg)]">
+        {valueText}
+      </span>
+      {srText ? <span className="sr-only">{srText}</span> : null}
+    </span>
+  ) : (
+    <span
+      className={cn(
+        'whitespace-nowrap text-[15px] leading-[1.5] tabular-nums',
+        emphasis ? 'font-semibold text-[var(--up)]' : 'font-medium text-[var(--fg-2)]',
       )}
+    >
+      {display ?? formatSettingValue(value, unit)}
+    </span>
+  );
+  if (sub === undefined) {
+    return (
+      <div data-slot={slot} className={cn(ROW_BOX, dim && 'opacity-45 pointer-fine:hover:opacity-100')}>
+        <span className={LABEL_TEXT}>{label}</span>
+        {top}
+      </div>
+    );
+  }
+  return (
+    <div data-slot={slot} className={cn(ROW_BOX_TALL, dim && 'opacity-45 pointer-fine:hover:opacity-100')}>
+      <span className={LABEL_TEXT_WRAP}>{label}</span>
+      <span className="flex min-w-0 flex-col items-end">
+        {top}
+        <RowSubLine sub={sub} />
+      </span>
     </div>
   );
 }
