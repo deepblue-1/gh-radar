@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 29
 current_phase_name: DMA 다중 서버 · 웹 Admin 유저 관리
 status: executing
-stopped_at: Completed 29-45-PLAN.md
-last_updated: "2026-10-11T00:29:47.627Z"
+stopped_at: Completed 29-47-PLAN.md
+last_updated: "2026-10-11T00:40:49.039Z"
 last_activity: 2026-10-11
 last_activity_desc: Phase 29 execution started
-state_head: 5ffdfb0d87c572c474a4f6a9a820f5034fde3634
+state_head: 6f2af51ad3fabc3e47e3dcc0162a599de8020837
 progress:
   total_phases: 38
   completed_phases: 24
   total_plans: 432
-  completed_plans: 407
+  completed_plans: 408
 milestone_name: milestone
 ---
 
@@ -29,8 +29,8 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 29 (DMA 다중 서버 · 웹 Admin 유저 관리) — EXECUTING
-Plan: 45 of 55
-Status: Executing Phase 29 — 29-45 완료(GC-01 블로커 · GC-04 relay 쪽 · GC-14) · 다음 wave 22 29-47 · 29-48
+Plan: 46 of 55
+Status: Executing Phase 29 — 29-47 완료(GC-02 주문자 IP/MAC 보존 · code 13 라벨 · relay 배포 전) · 다음 wave 22 29-48
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-10-11 — Phase 29 execution started
 
@@ -242,6 +242,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 29 P40 | 7min | 2 tasks | 14 files |
 | Phase 29 P41 | 52min | 3 tasks | 1 files |
 | Phase 29 P45 | 15min | 3 tasks | 6 files |
+| Phase 29 P47 | 9min | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -685,6 +686,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 29]: 29-45: GC-01 은 두 겹 — #sweepThenResync 가 그 사용자 진행 중 sweep 전부(최대 3바퀴)를 기다린 뒤 resyncUser, sweeper 는 얻은 세션 객체로만 반납(releaseSession · 다른 객체면 무시)
 - [Phase 29]: 29-45: sweep 직렬화 단위는 (사용자, 서버) 레인 — 진행 중 계좌는 current 대기, 나머지는 다음 sweep 1회에 합침 · 14 확인은 그 키 60 에코 뒤의 65(에코 스위치 값은 보지 않음 — 재조회가 판정)
 - [Phase 29]: 29-45: 송신 직전 stillStale(트래커 스냅샷 유효 서버 ≠ 이 서버면 참) — 거짓이면 14 · 11 생략 · skippedAccounts · 확인 기록 없이 #clearIfOwner
+- [Phase 29]: 29-47: op 1 · op 3 의 주문자 IP/MAC 은 의도에 한쪽이라도 있으면 의도 쌍, 아니면 계획 시점 87 의 그 계좌 값을 되싣는다(87 에 없으면 빈 문자열) — 출처를 섞지 않는다 (GC-02)
+- [Phase 29]: 29-47: shared diff 는 주문자 IP/MAC 을 의도 쪽에 값이 있을 때만 비교 — 지금 DB 의도는 값이 없어 IP/MAC 설정 계좌도 반영됨 · 웹 입력칸은 후속(인박스 항목 4)
 
 ### Pending Todos
 
@@ -726,8 +729,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-10-11T00:29:46.701Z
-Stopped at: Completed 29-45-PLAN.md
+Last session: 2026-10-11T00:40:32.182Z
+Stopped at: Completed 29-47-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
