@@ -42,7 +42,7 @@ import {
  */
 
 const EXPECTED_BUY_LINE =
-  "[09:45:02.861][12451][선매수] KRX | ○○전자 | 주문 · 조건 매도잔량≤50,000 / 실측 38,200 · 근거 호가(매도1잔량 52,100→38,200) · 상한가 매수잔량 0 · 12,350×300주 · 접수 +18ms | 누적 861,800";
+  "[09:45:02.861][12451][선매수] KRX | ○○전자 | 주문 · 조건 매도잔량≤6.2억(50,000주) / 실측 4.7억(38,200주) · 근거 호가(매도1잔량 52,100→38,200) · 상한가 매수잔량 0주 · 371만(300주) @12,350 · 접수 +18ms | 누적 861,800";
 
 describe("strategy-event 계약 (Phase 25 · T-25-02)", () => {
   it("공개 컬럼은 45개이고 dma_user_id · applied_at 이 없다", () => {
@@ -207,13 +207,13 @@ describe("조립기 — 시세 이벤트 · 모르는 값 (Phase 25-04 Task 1)",
       badge: "버스트 상한가",
       tone: "market",
       action: null,
-      body: "조각 3 · 합계 123,456주",
+      body: "조각 3 · 합계 15.2억(123,456주)",
       cum: "누적 620,000",
     });
     expect(orderLogLineText(row, FIXTURE_STOCK_NAME)).toBe(
-      "[09:42:13.215][버스트 상한가] KRX | ○○전자 | 조각 3 · 합계 123,456주 | 누적 620,000",
+      "[09:42:13.215][버스트 상한가] KRX | ○○전자 | 조각 3 · 합계 15.2억(123,456주) | 누적 620,000",
     );
-    expect(timelineStrategyText(row)).toEqual({ action: "버스트 상한가", text: "조각 3 · 합계 123,456주 · 누적 620,000" });
+    expect(timelineStrategyText(row)).toEqual({ action: "버스트 상한가", text: "조각 3 · 합계 15.2억(123,456주) · 누적 620,000" });
   });
 
   it("group 0 주문 이벤트 → 구분 칸 원문 「0」 · tone unknown(방향을 지어내지 않는다)", () => {
@@ -281,22 +281,22 @@ describe("조립기 — 주문 이벤트 갈래 (Phase 25-04 Task 2)", () => {
       badge: "선매수",
       tone: "buy",
       action: "대기",
-      body: "300주 · 체결예상 930,000 (900,000 + 30,000)",
+      body: "371만(300주) · 체결예상 930,000 (900,000 + 3.7억(30,000주))",
     });
     expect(strategyEventParts(STRATEGY_BRANCH_ROWS.queuedPartial!, "log").body).toBe(
-      "200주 · 100주 즉시체결 · 체결예상 930,000 (900,000 + 30,000)",
+      "247만(200주) · 124만(100주) 즉시체결 · 체결예상 930,000 (900,000 + 3.7억(30,000주))",
     );
     const full = strategyEventParts(STRATEGY_BRANCH_ROWS.queuedFull!, "log");
     expect(full.action).toBe("즉시체결");
-    expect(full.body).toBe("300주 · 대기 없음");
+    expect(full.body).toBe("371만(300주) · 대기 없음");
   });
 
   it("첫 체결 — 행위 탭 「체결」 · 펼침 「첫 체결」(R6) · 오차 부호만(+ / U+2212 · R8)", () => {
     const fill = STRATEGY_DAY_BY_NAME.fill12451!;
     expect(strategyEventParts(fill, "log").action).toBe("체결");
     expect(strategyEventParts(fill, "timeline").action).toBe("첫 체결");
-    expect(strategyEventParts(fill, "log").body).toBe("오차 +16,000");
-    expect(strategyEventParts(STRATEGY_BRANCH_ROWS.fillNegative!, "log").body).toBe("오차 \u22125,000");
+    expect(strategyEventParts(fill, "log").body).toBe("오차 +2억(16,000주)");
+    expect(strategyEventParts(STRATEGY_BRANCH_ROWS.fillNegative!, "log").body).toBe("오차 \u22126175만(5,000주)");
     expect(strategyEventParts({ ...fill, errorVolume: 0 }, "log").body).toBe("오차 0");
   });
 
@@ -308,13 +308,13 @@ describe("조립기 — 주문 이벤트 갈래 (Phase 25-04 Task 2)", () => {
     expect(parts.action).toBe("주문");
     const noBid = strategyEventParts({ ...sell, bid1Price: 0, bid1Qty: 0 }, "log").body;
     expect(noBid).not.toContain("매수1 12,350");
-    expect(strategyEventParts({ ...sell, orderCondition: "" }, "log").body).toContain("12,350×600주 · 접수");
-    expect(strategyEventParts({ ...sell, orderCondition: "3" }, "log").body).toContain("12,350×600주 3 · 접수");
+    expect(strategyEventParts({ ...sell, orderCondition: "" }, "log").body).toContain("741만(600주) @12,350 · 접수");
+    expect(strategyEventParts({ ...sell, orderCondition: "3" }, "log").body).toContain("741만(600주) @12,350 3 · 접수");
   });
 
   it("근거 — 체결(매도 그룹이면 매도체결) · 체결통보 · 0 은 생략", () => {
-    expect(strategyEventParts(STRATEGY_DAY_BY_NAME.sell12455!, "log").body).toContain("근거 체결(12,350 매도체결 18,000주)");
-    expect(strategyEventParts(STRATEGY_BRANCH_ROWS.riseRate!, "log").body).toContain("근거 체결(12,350 체결 2,000주)");
+    expect(strategyEventParts(STRATEGY_DAY_BY_NAME.sell12455!, "log").body).toContain("근거 체결(12,350 매도체결 2.2억(18,000주))");
+    expect(strategyEventParts(STRATEGY_BRANCH_ROWS.riseRate!, "log").body).toContain("근거 체결(12,350 체결 2470만(2,000주))");
     const hook = strategyEventParts(STRATEGY_BRANCH_ROWS.sellFillHook!, "log");
     expect(hook.badge).toBe("체결훅");
     expect(hook.tone).toBe("sell");
@@ -329,19 +329,19 @@ describe("조립기 — 주문 이벤트 갈래 (Phase 25-04 Task 2)", () => {
   it("reason_code 가 표와 정확히 같지 않으면 연산자 생략(공백) — 쪼개 읽지 않는다(D-36)", () => {
     const buy = STRATEGY_DAY_BY_NAME.buy12453!;
     const body = strategyEventParts({ ...buy, reasonCode: `${buy.reasonCode} ` }, "log").body;
-    expect(body).toMatch(/^조건 매수잔량 100,000 \/ 실측 100,000 · /);
+    expect(body).toMatch(/^조건 매수잔량 12\.4억\(100,000주\) \/ 실측 12\.4억\(100,000주\) · /);
   });
 
   it("취소 — 남은 거래량은 has_remaining 일 때만 · 예상 누적이 0 이면 C + R · 음수는 U+2212 · tone 은 그룹 방향", () => {
     const cancel = STRATEGY_DAY_BY_NAME.cancel12453!;
-    expect(strategyEventParts(cancel, "log").body).toBe("매수1 이탈 · 남은 거래량 12,000 (1,100,000 − 1,088,000)");
+    expect(strategyEventParts(cancel, "log").body).toBe("매수1 이탈 · 남은 거래량 1.5억(12,000주) (1,100,000 − 1,088,000)");
     expect(strategyEventParts({ ...cancel, hasRemaining: false }, "log").body).toBe("매수1 이탈");
     expect(strategyEventParts({ ...cancel, expectedCum: 0 }, "log").body).toBe(
-      "매수1 이탈 · 남은 거래량 12,000 (1,100,000 − 1,088,000)",
+      "매수1 이탈 · 남은 거래량 1.5억(12,000주) (1,100,000 − 1,088,000)",
     );
     expect(
       strategyEventParts({ ...cancel, remainingVolume: -3_000, expectedCum: 1_085_000 }, "log").body,
-    ).toBe("매수1 이탈 · 남은 거래량 \u22123,000 (1,085,000 − 1,088,000)");
+    ).toBe("매수1 이탈 · 남은 거래량 \u22123705만(3,000주) (1,085,000 − 1,088,000)");
     expect(strategyEventParts(STRATEGY_BRANCH_ROWS.cancelUnknown!, "log")).toMatchObject({
       badge: "호가매도",
       tone: "sell",
@@ -400,7 +400,7 @@ const EMPTY_CONDITION = {
 const MANUAL_BUY = { ...STRATEGY_DAY_BY_NAME.buy12451!, group: 7, ...EMPTY_CONDITION };
 
 const EXPECTED_MANUAL_BUY_LINE =
-  "[09:45:02.861][12451][수동] KRX | ○○전자 | 주문 · 수동 주문 · 12,350×300주 · 접수 +18ms | 누적 861,800";
+  "[09:45:02.861][12451][수동] KRX | ○○전자 | 주문 · 수동 주문 · 371만(300주) @12,350 · 접수 +18ms | 누적 861,800";
 
 describe("수동 · VI 주문 (quick-260930-e73)", () => {
   it("수동 매수 주문(조건 빈 값) → F-A 한 줄 · 구분 수동 · tone buy · 조건 자리 「수동 주문」", () => {
@@ -413,7 +413,7 @@ describe("수동 · VI 주문 (quick-260930-e73)", () => {
 
   it("수동 매수의 상한가 매수잔량은 0 일 때만 생략 — 값이 있으면 그린다", () => {
     expect(strategyEventParts(MANUAL_BUY, "log").body).not.toContain("상한가 매수잔량");
-    expect(strategyEventParts({ ...MANUAL_BUY, limitBidQty: 152_000 }, "log").body).toContain("상한가 매수잔량 152,000");
+    expect(strategyEventParts({ ...MANUAL_BUY, limitBidQty: 152_000 }, "log").body).toContain("상한가 매수잔량 18.8억(152,000주)");
   });
 
   it("상따 매수(group 1)는 상한가 매수잔량 0 을 그대로 그린다 — 기존 골든 바이트 동일", () => {
@@ -425,28 +425,28 @@ describe("수동 · VI 주문 (quick-260930-e73)", () => {
   it("펼침 — 조건 빈 수동 주문 줄은 출처를 한 번만 말한다(접두 「수동 · 」 없음)", () => {
     expect(timelineStrategyText(MANUAL_BUY)).toEqual({
       action: "주문",
-      text: "수동 주문 · 12,350×300주 · 접수 +18ms · 누적 861,800",
+      text: "수동 주문 · 371만(300주) @12,350 · 접수 +18ms · 누적 861,800",
     });
   });
 
   it("VI 매수 주문(group 8) → 구분 VI · tone buy · 조건 자리 「VI 자동주문」 · 펼침도 접두 없음", () => {
     const vi = { ...MANUAL_BUY, group: 8 };
     expect(orderLogLineText(vi, FIXTURE_STOCK_NAME)).toBe(
-      "[09:45:02.861][12451][VI] KRX | ○○전자 | 주문 · VI 자동주문 · 12,350×300주 · 접수 +18ms | 누적 861,800",
+      "[09:45:02.861][12451][VI] KRX | ○○전자 | 주문 · VI 자동주문 · 371만(300주) @12,350 · 접수 +18ms | 누적 861,800",
     );
     const parts = strategyEventParts(vi, "log");
     expect(parts.badge).toBe("VI");
     expect(parts.tone).toBe("buy");
     expect(timelineStrategyText(vi)).toEqual({
       action: "주문",
-      text: "VI 자동주문 · 12,350×300주 · 접수 +18ms · 누적 861,800",
+      text: "VI 자동주문 · 371만(300주) @12,350 · 접수 +18ms · 누적 861,800",
     });
   });
 
   it("수동 매도 주문(group 7 · kind 6 · bid1 0) → tone sell · 「매수1」 조각 없음 · 조건 자리 「수동 주문」", () => {
     const sell = { ...STRATEGY_DAY_BY_NAME.sell12454!, group: 7, ...EMPTY_CONDITION, bid1Price: 0, bid1Qty: 0 };
     expect(orderLogLineText(sell, FIXTURE_STOCK_NAME)).toBe(
-      "[10:11:40.210][12454][수동] KRX | ○○전자 | 주문 · 수동 주문 · 12,350×600주 지정가 · 접수 +16ms | 누적 1,640,000",
+      "[10:11:40.210][12454][수동] KRX | ○○전자 | 주문 · 수동 주문 · 741만(600주) @12,350 지정가 · 접수 +16ms | 누적 1,640,000",
     );
     const parts = strategyEventParts(sell, "log");
     expect(parts.badge).toBe("수동");
@@ -454,16 +454,16 @@ describe("수동 · VI 주문 (quick-260930-e73)", () => {
     expect(parts.body).not.toContain("매수1");
     expect(timelineStrategyText(sell)).toEqual({
       action: "주문",
-      text: "수동 주문 · 12,350×600주 지정가 · 접수 +16ms · 누적 1,640,000",
+      text: "수동 주문 · 741만(600주) @12,350 지정가 · 접수 +16ms · 누적 1,640,000",
     });
   });
 
   it("조건이 실린 수동 주문 → 본문은 조건부터 · 출처 문구 없음 · 펼침 접두 「수동 · 」", () => {
     const conditioned = { ...STRATEGY_DAY_BY_NAME.buy12451!, group: 7 };
     const body = strategyEventParts(conditioned, "log").body;
-    expect(body.startsWith("조건 매도잔량≤50,000 / 실측 38,200 · ")).toBe(true);
+    expect(body.startsWith("조건 매도잔량≤6.2억(50,000주) / 실측 4.7억(38,200주) · ")).toBe(true);
     expect(body).not.toContain("수동 주문");
-    expect(timelineStrategyText(conditioned).text.startsWith("수동 · 조건 매도잔량≤50,000")).toBe(true);
+    expect(timelineStrategyText(conditioned).text.startsWith("수동 · 조건 매도잔량≤6.2억(50,000주)")).toBe(true);
   });
 
   it("수동(7) 대기 · 체결 · 취소 → 구분 수동 · tone buy · 거부 → tone unknown · 본문 = message 원문", () => {
@@ -493,8 +493,8 @@ describe("수동 · VI 주문 (quick-260930-e73)", () => {
     const parts = strategyEventParts(unknown, "log");
     expect(parts.badge).toBe("10");
     expect(parts.tone).toBe("unknown");
-    expect(parts.body).toBe("상한가 매수잔량 0 · 12,350×300주 · 접수 +18ms");
-    expect(timelineStrategyText(unknown).text).toBe("10 · 상한가 매수잔량 0 · 12,350×300주 · 접수 +18ms · 누적 861,800");
+    expect(parts.body).toBe("상한가 매수잔량 0주 · 371만(300주) @12,350 · 접수 +18ms");
+    expect(timelineStrategyText(unknown).text).toBe("10 · 상한가 매수잔량 0주 · 371만(300주) @12,350 · 접수 +18ms · 누적 861,800");
   });
 });
 
@@ -537,7 +537,7 @@ describe("Phase 27 자동매도 조립기", () => {
       badge: "자동매도",
       tone: "sell",
       action: "주문",
-      body: "매도 6,000주 @12,990 · 주기 거래량 60,000 × 10% · 매도1호가",
+      body: "매도 7794만(6,000주) @12,990 · 주기 거래량 60,000 × 10% · 매도1호가",
       cum: "누적 974,000",
     });
     expect(parts.body).not.toContain("단건 매도체결");
@@ -554,7 +554,7 @@ describe("Phase 27 자동매도 조립기", () => {
     const parts = strategyEventParts(ev, "log");
     expect(parts.badge).toBe("자동매도");
     expect(parts.tone).toBe("sell");
-    expect(parts.body).toBe("동시호가 1회차 매도 1,200주 @7,000 · 예상체결량 6,000 × 20% · 예상체결가 12,500 · 보관 10,000→8,800");
+    expect(parts.body).toBe("동시호가 1회차 매도 840만(1,200주) @7,000 · 예상체결량 6,000 × 20% · 예상체결가 12,500 · 보관 10,000→8,800");
     expect(parts.body).not.toContain("근거");
   });
 
@@ -562,14 +562,14 @@ describe("Phase 27 자동매도 조립기", () => {
     const parts = strategyEventParts(row("asWr05LegacyInGroup9"), "log");
     expect(parts.badge).toBe("자동매도");
     expect(parts.tone).toBe("sell");
-    expect(parts.body).toContain("조건 단건 매도체결≥10,000 / 실측 18,000");
+    expect(parts.body).toContain("조건 단건 매도체결≥1.2억(10,000주) / 실측 2.2억(18,000주)");
     expect(parts.body).not.toContain("주기 거래량");
   });
 
   it("WR-05 — group 5 인데 AutoSellAsk1 이면 자동매도 본문 · 배지 「체결매도」 그대로", () => {
     const parts = strategyEventParts(row("asWr05AutoSellInGroup5"), "log");
     expect(parts.badge).toBe("체결매도");
-    expect(parts.body).toBe("매도 6,000주 @12,990 · 주기 거래량 60,000 × 10% · 매도1호가");
+    expect(parts.body).toBe("매도 7794만(6,000주) @12,990 · 주기 거래량 60,000 × 10% · 매도1호가");
   });
 
   it("집합 밖 AutoSell 토큰 → D-10 폴백(행위 원문 kind · 본문 없음 · tone unknown)", () => {
@@ -600,12 +600,12 @@ describe("Phase 27 자동매도 조립기", () => {
     const ev = row("asModify");
     const parts = strategyEventParts(ev, "log");
     expect(parts.action).toBe("정정");
-    expect(parts.body).toBe("3,000주 @12,950 · 원주문 @13,100 잔량 2,000주 · 새 번호 0000123 · 접수 +14ms");
+    expect(parts.body).toBe("3885만(3,000주) @12,950 · 원주문 @13,100 잔량 2590만(2,000주) · 새 번호 0000123 · 접수 +14ms");
     expect(orderLogLineText(ev, FIXTURE_STOCK_NAME)).toContain("[0000100][자동매도]");
     const noNew = strategyEventParts(row("asModifyNoNewNo"), "log").body;
-    expect(noNew).toBe("3,000주 @12,950 · 원주문 @13,100 잔량 2,000주");
+    expect(noNew).toBe("3885만(3,000주) @12,950 · 원주문 @13,100 잔량 2590만(2,000주)");
     expect(noNew).not.toContain("새 번호");
-    expect(timelineStrategyText(row("asModifyNoNewNo")).text).toBe("3,000주 @12,950 · 원주문 @13,100 잔량 2,000주 · 누적 1,011,000");
+    expect(timelineStrategyText(row("asModifyNoNewNo")).text).toBe("3885만(3,000주) @12,950 · 원주문 @13,100 잔량 2590만(2,000주) · 누적 1,011,000");
   });
 
   it("kind 13 상태 — 전이 낱말 · 기준(price 0 이면 없음) · 매도 누적(0 이면 없음) · 모르는 상태 원문", () => {
@@ -617,7 +617,7 @@ describe("Phase 27 자동매도 조립기", () => {
       cum: "누적 914,000",
     });
     expect(strategyEventParts(row("asStateOn"), "log").body).toBe("자동매도 꺼짐 → 대기");
-    expect(strategyEventParts(row("asStateDone"), "log").body).toBe("자동매도 매도중 → 완료 · 기준 상한가 13,000 · 매도 누적 6,000주");
+    expect(strategyEventParts(row("asStateDone"), "log").body).toBe("자동매도 매도중 → 완료 · 기준 상한가 13,000 · 매도 누적 7800만(6,000주)");
     expect(strategyEventParts(row("asStateUnknown"), "log").body).toBe("자동매도 완료 → 9");
   });
 
@@ -794,9 +794,9 @@ describe("P31 ⑦ 금액 표기 (D-19 · C# 예시 ①~⑨)", () => {
 
   it("조건식 — 수량형 1·2·3·5 만 formatQtyAmt(값, 줄 price) · 0 은 「0만(0주)」 · 7 상승률은 종전", () => {
     expect(body({ ...D.buy12451!, condThreshold: 0 })).toMatch(/^조건 매도잔량≤0만\(0주\) \/ 실측 4\.7억\(38,200주\) · /);
-    expect(body({ ...D.buy12451!, condMetric: 5 })).toMatch(/^조건 \S+ ?6\.2억\(50,000주\) \/ 실측 4\.7억\(38,200주\) · /);
+    expect(body({ ...D.buy12451!, condMetric: 5 })).toMatch(/^조건 체결 누적≤6\.2억\(50,000주\) \/ 실측 4\.7억\(38,200주\) · /);
     expect(body({ ...D.buy12451!, condMetric: 4, condThreshold: 12_350, condActual: 12_350 })).toMatch(
-      /^조건 \S+ ?12,350 \/ 실측 12,350 · /,
+      /^조건 .+?12,350 \/ 실측 12,350 · /,
     );
     expect(body(B.riseRate!)).toMatch(/^조건 상승률≥3\.00% \/ 실측 4\.12% · /);
   });
