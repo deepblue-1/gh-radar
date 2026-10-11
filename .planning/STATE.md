@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 29
 current_phase_name: DMA 다중 서버 · 웹 Admin 유저 관리
 status: executing
-stopped_at: Completed 29-49-PLAN.md
-last_updated: "2026-10-11T01:09:51.530Z"
+stopped_at: Completed 29-50-PLAN.md
+last_updated: "2026-10-11T01:18:09.848Z"
 last_activity: 2026-10-11
 last_activity_desc: Phase 29 execution started
-state_head: e0279afb5873a231cd2aac617a1976a05f39dab2
+state_head: 2653fc2668eab9909e042baf0b34e9e2a8a3552f
 progress:
   total_phases: 38
   completed_phases: 24
   total_plans: 432
-  completed_plans: 411
+  completed_plans: 412
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 29 (DMA 다중 서버 · 웹 Admin 유저 관리) — EXECUTING
-Plan: 49 of 55
+Plan: 50 of 55
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-10-11 — Phase 29 execution started
@@ -246,6 +246,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 29 P48 | 3min | 2 tasks | 3 files |
 | Phase 29 P46 | 5min | 1 tasks | 11 files |
 | Phase 29 P49 | 13min | 2 tasks | 5 files |
+| Phase 29 P50 | 6min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -697,6 +698,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 29]: 29-49: GC-03 · GC-04(hub 쪽)를 hub 세션 대여 한 장치로 닫는다 — sweeper 가 세션을 쥐면 hub.lendSession 으로 빌리고(fanout #sweepServer 의 sweep 옵션 lend), 대여 동안 hub 는 그 세션 몫 21 을 미루고 빈 61 을 귀속하지 않으며 65 를 strategies.disabled 로 팬아웃하지 않는다. 본문 61 · 60 · 64 는 종전
 - [Phase 29]: 29-49: 대여 전 배수 — hub 가 VI 원천 세션으로 보낸 21 이 남았으면 그 61 이 다 귀속될 때까지 대기, HUB_LEASE_DRAIN_MS(5초) 넘으면 대기열 비움 · 반납 때 재요청. 반납 재요청은 hub 가 자기 21 을 미뤘거나 비웠을 때만(같은 소유 키 · Ready · primary 일 때) — D-13 진입점 아님
 - [Phase 29]: 29-49: 대여 중 사용자 14 의 65 도 억제되는 것은 수용(드묾 · 60 에코가 카드 갱신) — 29-54(N-01) 세션별 14 송신자 꼬리표가 거둔다
+- [Phase 29]: 29-50: GC-07 — 서버 주소 변경 재생성은 옛 벌 매핑을 새 벌에 잠정(메모리 전용 · DB 무기록)으로 옮겨 79/87 전에도 serversFor · 재수립 서명이 같다. 첫 유효 스냅샷이 교체. 행 제거 · 꺼짐은 잠정 대상 아님. fanout · index 무수정
+- [Phase 29]: 29-50: GC-08 — EffectiveOwnerTracker 가 계좌별 마지막 정의 소유 서버(#lastOwner)를 기억해 X → (없음) → Y 에서 from = X. X → (없음) move 가 이미 실행 가능(지금 유효 ≠ X)했으면 기억 소비 — 29-44 기존 단언 무수정
 
 ### Pending Todos
 
@@ -738,8 +741,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-10-11T01:09:38.619Z
-Stopped at: Completed 29-49-PLAN.md
+Last session: 2026-10-11T01:18:08.956Z
+Stopped at: Completed 29-50-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.

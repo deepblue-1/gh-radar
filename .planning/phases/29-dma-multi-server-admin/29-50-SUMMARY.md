@@ -187,3 +187,10 @@ None - 외부 서비스 설정 없음. 배포는 하지 않았다. relay 배포�
 ---
 *Phase: 29-dma-multi-server-admin*
 *Completed: 2026-10-11*
+
+## Self-Check: PASSED
+
+- 파일 4 FOUND (access.ts · pipelines.ts · effective-owner-tracker.ts · SUMMARY)
+- 커밋 4 FOUND (99d81650 · 3b998c99 · 22971718 · 3f28c28a)
+- 수용 기준 grep: seedProvisional access 2 · pipelines 1 · get provisional 1 · #lastOwner 5
+- 플랜 verification: pipelines · journal-push · account-order-servers · admin-snapshot-sink · effective-owner-tracker · order-server-resync green · relay 전체 57파일 1453 green
