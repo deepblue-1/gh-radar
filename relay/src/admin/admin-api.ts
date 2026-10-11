@@ -34,6 +34,8 @@
  * 서버는 결과 배열에 `timeout`(「10초 안에 끝나지 않아 먼저 응답했어요 …」)으로 접혀 **200** 으로 나가고, 서버 반영은 뒤에서
  * 계속돼 실제 결과가 `dma_admin_results` 에 다시 기록된다(다음 재조회 칩). Express 상한(`RELAY_ADMIN_TIMEOUT_MS` 15초)이
  * 이 마감보다 길어 「relay 는 반영했는데 Express 는 502」(생성 재시도 → `DMA_USER_EXISTS`)가 생기지 않는다.
+ * GC-10(29-48): 그 뒤의 재적재 대기(지정 재적재 · 유저 삭제의 접근 맵 재적재)도 같은 `deadlineAt` 의 남은 시간까지만 기다린다
+ * (`awaitWithinDeadline`) — 지면 응답부터 하고 재적재는 취소 없이 뒤에서 끝까지 간다. 지정 라우트(PUT order-server)도 도착 시각 마감.
  *
  * 비밀번호(D-19 · Phase 15 D-19): 평문은 이 요청 메모리 안에서만 산다 — `encryptDmaPassword(plain, dmaUserId, credKey)` 로
  * 암호화한 값만 RPC 로 가고, op 1 은 같은 요청의 평문을 44 에 싣는다. 응답 · 로그에는 어디에도 없다.
@@ -99,7 +101,7 @@ export type AdminApiDeps = {
   staleStrategies?: () => ReadonlyMap<string, number>;
   /**
    * 계좌 주문 서버 지정 적재기 즉시 재적재(29-37 · `AccountOrderServers.reload` — 꼬리 의미). 지정이 바뀌는 라우트(지정 ·
-   * 계좌 put · 계좌 제거 · 유저 삭제) 끝에서 기다린다. 실패는 warn 만. 주지 않으면 60초 주기에 맡긴다.
+   * 계좌 put · 계좌 제거 · 유저 삭제) 끝에서 남은 마감까지 기다린다(GC-10). 실패는 warn 만. 주지 않으면 60초 주기에 맡긴다.
    */
   orderServers?: { reload(): Promise<{ ok: boolean }> };
 };
@@ -305,7 +307,8 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
   const deadlineOf = (): number => (deps.now?.() ?? Date.now()) + (deps.adminDeadlineMs ?? ADMIN_REQUEST_DEADLINE_MS);
 
   /**
-   * 지정 적재기 즉시 재적재(29-37) — 지정이 바뀌었을 수 있는 라우트 끝에서 기다린다(응답 뒤 첫 주문이 새 지정으로 가게).
+   * 지정 적재기 즉시 재적재(29-37) — 지정이 바뀌었을 수 있는 라우트 끝에서 남은 마감까지 기다린다(`awaitWithinDeadline` —
+   * 평상시엔 응답 전에 끝나 응답 뒤 첫 주문이 새 지정으로 간다). 지면 응답 먼저 · 라우팅은 그 재적재 · 60초 주기가 따라잡는다(GC-10).
    * 실패는 응답을 바꾸지 않는다 — DB 는 이미 커밋됐고 60초 주기가 따라잡는다(warn · 식별자 없음).
    */
   const reloadOrderServers = async (route: string): Promise<void> => {
@@ -318,6 +321,41 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
         { route, error: err instanceof Error ? err.message : String(err) },
         "[admin] 계좌 주문 서버 지정 재적재 실패 — 60초 주기가 따라잡는다",
       );
+    }
+  };
+
+  /**
+   * 재적재 대기 상한(29-48 GC-10) — `work` 를 남은 마감(`deadlineAt − now`, 음수면 0)까지만 기다린다. 마감이 이기면 warn 1줄
+   * (route · what · 식별자 없음)을 남기고 돌아가 응답이 먼저 나간다 — Express 15초 상한의 「반영됐는데 502」 를 막는다. `work` 는
+   * 취소하지 않는다(뒤에서 끝까지 · changed → 29-36 재수립 경로 그대로). 거부는 여기서 잡아 warn — 응답 뒤 거부도 미처리 거부가
+   * 되지 않는다. 같은 `deadlineAt` 을 쓰는 연속 대기(유저 삭제의 접근 맵 → 지정)는 남은 시간을 나눠 쓴다.
+   */
+  const awaitWithinDeadline = async (
+    work: Promise<unknown>,
+    deadlineAt: number,
+    route: string,
+    what: "order-servers" | "access",
+  ): Promise<void> => {
+    const settled = work.then(
+      () => "done" as const,
+      (err: unknown) => {
+        logger.warn(
+          { route, what, error: err instanceof Error ? err.message : String(err) },
+          "[admin] 재적재 실패 — 60초 주기가 따라잡는다",
+        );
+        return "done" as const;
+      },
+    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<"deadline">((resolve) => {
+      timer = setTimeout(() => resolve("deadline"), Math.max(0, deadlineAt - (deps.now?.() ?? Date.now())));
+    });
+    try {
+      if ((await Promise.race([settled, expired])) === "deadline") {
+        logger.warn({ route, what }, "[admin] 재적재 대기 마감 — 응답 먼저, 재적재는 뒤에서 계속");
+      }
+    } finally {
+      clearTimeout(timer);
     }
   };
 
@@ -389,8 +427,9 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
       await deps.store.putAccount(dma, body.account, body.servers);
       return { results: await deps.dispatcher.reconcileUser(dma, { adminEmail: res.locals.adminEmail as string, deadlineAt }) };
     });
-    // 29-37 — 빠진 서버가 지정 서버였으면 RPC 가 removing 전환과 함께 지정을 지웠다 → 라우팅을 곧바로 기본 서버로.
-    await reloadOrderServers("PUT /dma-users/:dma/accounts");
+    // 29-37 — 빠진 서버가 지정 서버였으면 RPC 가 removing 전환과 함께 지정을 지웠다 → 라우팅을 곧바로 기본 서버로(남은 마감까지 · GC-10).
+    const route = "PUT /dma-users/:dma/accounts";
+    await awaitWithinDeadline(reloadOrderServers(route), deadlineAt, route, "order-servers");
     respond(res, results);
   });
 
@@ -402,13 +441,15 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
       await deps.store.markAccountRemoved(dma, broker, accountNo);
       return { results: await deps.dispatcher.reconcileUser(dma, { adminEmail: res.locals.adminEmail as string, deadlineAt }) };
     });
-    // 29-37 — 제거 표시가 그 계좌의 지정을 지웠다.
-    await reloadOrderServers("DELETE /dma-users/:dma/accounts/:broker/:accountNo");
+    // 29-37 — 제거 표시가 그 계좌의 지정을 지웠다(남은 마감까지 · GC-10).
+    const route = "DELETE /dma-users/:dma/accounts/:broker/:accountNo";
+    await awaitWithinDeadline(reloadOrderServers(route), deadlineAt, route, "order-servers");
     respond(res, results);
   });
 
   // ── 계좌 주문 서버 지정 (29-37 G-1 ⑥ — RPC → 지정 재적재 → 29-36 재수립. 44 없음) ──────────────────────
   router.put("/dma-users/:dma/accounts/:broker/:accountNo/order-server", async (req, res) => {
+    const deadlineAt = deadlineOf(); // dispatcher 는 없지만 RPC + 재적재 대기를 같은 마감 안에(GC-10)
     const { dma, broker, accountNo } = AccountParam.parse(req.params);
     const { serverKey } = OrderServerBody.parse(req.body);
     if (serverKey !== null) assertKnownServers([serverKey], "serverKey");
@@ -422,7 +463,7 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
       if (err instanceof IntentError) audit(adminEmail, route, dma, { rejected: err.code }, extra);
       throw err;
     }
-    await reloadOrderServers(route);
+    await awaitWithinDeadline(reloadOrderServers(route), deadlineAt, route, "order-servers");
     audit(adminEmail, route, dma, { orderServer }, extra);
     res.status(200).json({ ok: true, orderServer });
   });
@@ -446,10 +487,12 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
       skipDisabled ? { skipDisabled: true } : {},
     );
     // D-04 즉시 반영 — DMA 연결이 사라진 웹 사용자의 wss 를 끊는다(접근 맵 revoked → fanout 결선). 실패해도 60초 주기가 잡는다.
-    if (deleted) await deps.access.reload();
+    // 두 재적재는 같은 deadlineAt 의 남은 시간을 나눠 쓴다(GC-10 — 합이 마감을 넘지 않는다 · 지면 뒤에서 계속).
+    const route = "DELETE /dma-users/:dma";
+    if (deleted) await awaitWithinDeadline(deps.access.reload(), deadlineAt, route, "access");
     // 29-37 — 서버별 settle(op 2 ok · skipDisabled)이 그 서버의 등록 행(지정 포함)을 지웠다. deleted false 여도 일부 서버는
     // 지웠을 수 있어 결과와 무관하게 다시 읽는다(무변화면 changed 0 — 재수립 없음).
-    await reloadOrderServers("DELETE /dma-users/:dma");
+    await awaitWithinDeadline(reloadOrderServers(route), deadlineAt, route, "order-servers");
     res.status(200).json({ results, deleted });
   });
 
