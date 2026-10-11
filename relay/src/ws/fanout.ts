@@ -160,6 +160,7 @@ import type {
   StaleStrategyEntry,
   StaleStrategyRegister,
   StrategySweepFailReason,
+  StrategySweepOptions,
   StrategySweeper,
 } from "../dma/strategy-sweeper.js";
 import type { EffectiveOwnerTracker, OwnerMove, OwnerSnapshotEntry } from "../dma/effective-owner-tracker.js";
@@ -1348,7 +1349,13 @@ export class WsFanout {
     }
   }
 
-  /** 서버 하나에서 끄기 (29-36). 결과를 레지스터에 반영한다 — 예외도 미확인(send-failed · 수 모름)으로 접는다. */
+  /**
+   * 서버 하나에서 끄기 (29-36). 결과를 레지스터에 반영한다 — 예외도 미확인(send-failed · 수 모름)으로 접는다.
+   *
+   * GC-14(29-45) — 트래커가 있으면 sweeper 에 `stillStale` 을 넘긴다: 그 계좌의 유효 서버가 지금 이 서버면(되돌아옴) 거짓 · 스냅샷에
+   * 항목이 없으면 참. sweeper 가 건너뛴 계좌(`skippedAccounts`)는 확인 기록 · 레지스터 확인 대신 `#clearIfOwner` 로 해제한다(다음에 다시
+   * 옮겨지면 처음부터 판정). 확인 · 미확인 기록은 건너뛰지 않은 계좌만.
+   */
   async #sweepServer(
     userId: string,
     creds: DmaCredentials,
@@ -1358,12 +1365,29 @@ export class WsFanout {
   ): Promise<void> {
     const sweeper = this.#sweeper;
     if (sweeper === null) return;
+    const owners = this.#owners;
+    const opts: StrategySweepOptions =
+      owners === null
+        ? {}
+        : {
+            stillStale: (accountNo) =>
+              owners.snapshotOf(creds.dmaUserId).get(`${broker}|${accountNo}`)?.effective !== serverKey,
+          };
     try {
-      const res = await sweeper.sweep({ userId, serverKey, broker, accountNos }, creds);
+      const res = await sweeper.sweep({ userId, serverKey, broker, accountNos }, creds, opts);
+      const skipped = new Set(res.skippedAccounts);
+      if (skipped.size > 0) {
+        for (const accountNo of skipped) this.#clearIfOwner(userId, serverKey, accountNo);
+        logger.info(
+          { userId, serverKey, skipped: skipped.size },
+          "[WS] 끄는 사이 그 서버가 다시 주문 서버 — 그 계좌 끄기 생략 · 해제 (GC-14)",
+        );
+      }
+      const swept = accountNos.filter((a) => !skipped.has(a));
       if (res.ok) {
         // 확인 기록(29-44) — 그때 그 계좌의 소유 서버를 남긴다(로그인 백스톱 · sweepMoved 중복 판정 원천).
-        const now = this.#owners?.snapshotOf(creds.dmaUserId);
-        for (const accountNo of accountNos) {
+        const now = owners?.snapshotOf(creds.dmaUserId);
+        for (const accountNo of swept) {
           this.#stale?.confirm(userId, serverKey, accountNo);
           if (now !== undefined) {
             this.#confirmedOwner.set(sweepKey(userId, serverKey, accountNo), snapshotEntryOf(now, accountNo)?.owner);
@@ -1371,7 +1395,7 @@ export class WsFanout {
         }
         return;
       }
-      this.#markStale(userId, creds.dmaUserId, serverKey, accountNos, res.reason, res.remaining, res.reason);
+      if (swept.length > 0) this.#markStale(userId, creds.dmaUserId, serverKey, swept, res.reason, res.remaining, res.reason);
     } catch (err) {
       logger.error(
         { userId, serverKey, error: err instanceof Error ? err.message : String(err) },

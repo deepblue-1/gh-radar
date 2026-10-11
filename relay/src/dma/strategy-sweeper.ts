@@ -14,6 +14,10 @@
  *   - 11 `SetVITriggerReq({ 같은 값, run: false })` → 61 에코. 14 를 빈 키로 보내면 VI 도 꺼지지만 **빈 키 14 는 금지다** — 그
  *     세션의 상따 **전부**가 꺼져 같은 서버에 남는 다른 계좌의 전략까지 죽는다. 그래서 VI 는 계좌를 보고 11 로 따로 끈다.
  *
+ * 되돌아옴(GC-14 · 29-45) — 14 · 11 을 보내기 **직전마다** `opts.stillStale(계좌)` 를 묻는다. 그 사이 이 서버가 다시 그 계좌의 유효 주문
+ * 서버가 됐으면(거짓) 그 계좌의 14 · 11 을 보내지 않고 재조회 확인에서도 뺀다(결과 `skippedAccounts`) — 막 되살아난 주문 서버의 정상 전략을
+ * 끄지 않는다. 이미 보낸 것은 되돌리지 않는다.
+ *
  * 미체결은 건드리지 않는다 — 2 `DirectOrderReq`(취소 포함)를 이 모듈은 만들지 않는다. 옛 서버의 미체결 정리는 사용자 몫이다
  * (gh-trade-84 ② 추가: 「옛 서버의 미체결은 그 서버에서 정리」).
  *
@@ -298,21 +302,31 @@ export class StrategySweeper {
   async sweep(
     target: StrategySweepTarget,
     creds: DmaCredentials,
-    _opts: StrategySweepOptions = {},
+    opts: StrategySweepOptions = {},
   ): Promise<StrategySweepResult> {
     const startedAt = this.#now();
     const accounts = new Set(target.accountNos);
     let disabledLimitChasers = 0;
     let viDisabled = 0;
     let lastRemaining: number | null = null;
+    // GC-14 — 송신 직전마다 묻는다. 한 번 거짓이면 그 계좌는 이 sweep 에서 끝까지 건너뛴다(이미 보낸 것은 되돌리지 않는다).
+    const skipped = new Set<string>();
+    const stillStale = (accountNo: string): boolean => {
+      if (skipped.has(accountNo)) return false;
+      if (opts.stillStale?.(accountNo) === false) {
+        skipped.add(accountNo);
+        return false;
+      }
+      return true;
+    };
 
     const conn = this.#targetOf(target.serverKey);
     if (conn === undefined || conn.broker !== target.broker) {
-      return this.#fail(target, "no-session", null, 0, 0);
+      return this.#fail(target, "no-session", null, 0, 0, skipped);
     }
     const sessionCreated = !this.#sessions.sessionsOf(target.userId).some((s) => s.serverKey === target.serverKey);
     const session = this.#sessions.acquireOn(target.userId, conn, creds);
-    if (session === null) return this.#fail(target, "no-session", null, 0, 0);
+    if (session === null) return this.#fail(target, "no-session", null, 0, 0, skipped);
 
     const tap = new FrameTap(session, this.#stepMs);
     // 전체 시한 — 그 시점에 걸린 기다림을 timeout 으로 끝낸다(remaining 은 그때까지 마지막으로 읽은 값).
@@ -324,6 +338,7 @@ export class StrategySweeper {
       lastRemaining = before.chasers.length + before.vis.length;
 
       for (const item of before.chasers) {
+        if (!stillStale(item.accountNo)) continue;
         // 확인 = 그 키의 60 에코 **뒤의** 65 (GC-04 · 29-45). 65 는 키를 싣지 않으므로, 그 키 에코를 보기 전의 65(다른 갈래 · 사용자
         // 조작의 14 응답)로는 이 키를 「확인됨」 으로 접지 않는다. 에코의 스위치 값은 보지 않는다 — 꺼졌는지는 재조회가 판정한다
         // (내리지 않는 서버는 `remaining` 으로 남는다).
@@ -341,6 +356,7 @@ export class StrategySweeper {
       }
 
       for (const cfg of before.vis) {
+        if (!stillStale(cfg.accountNo)) continue;
         const echoed = tap.wait((e) => {
           if (e.msgType !== MSG.SetVITriggerResp) return false;
           const echo = parseViTrigger(e.env)?.cfg ?? null;
@@ -359,10 +375,12 @@ export class StrategySweeper {
         viDisabled += 1;
       }
 
-      const after = await this.#readActive(session, tap, accounts);
+      // 재조회는 건너뛴 계좌를 빼고 센다 — 그 서버가 다시 그 계좌의 주문 서버라 켜져 있는 것이 정상이다(GC-14).
+      const confirmFor = new Set([...accounts].filter((a) => !skipped.has(a)));
+      const after = await this.#readActive(session, tap, confirmFor);
       lastRemaining = after.chasers.length + after.vis.length;
       if (lastRemaining !== 0) {
-        return this.#fail(target, "remaining", lastRemaining, disabledLimitChasers, viDisabled);
+        return this.#fail(target, "remaining", lastRemaining, disabledLimitChasers, viDisabled, skipped);
       }
 
       logger.info(
@@ -372,14 +390,15 @@ export class StrategySweeper {
           disabledLimitChasers,
           viDisabled,
           sessionCreated,
+          skipped: skipped.size,
           ms: this.#now() - startedAt,
         },
         "[DMA] 옛 서버 계좌 전략 끄기 완료 — 재조회 0 확인",
       );
-      return { ok: true, disabledLimitChasers, viDisabled, sessionCreated, skippedAccounts: [] };
+      return { ok: true, disabledLimitChasers, viDisabled, sessionCreated, skippedAccounts: [...skipped] };
     } catch (err) {
       if (err instanceof SweepFailure) {
-        return this.#fail(target, err.reason, lastRemaining, disabledLimitChasers, viDisabled);
+        return this.#fail(target, err.reason, lastRemaining, disabledLimitChasers, viDisabled, skipped);
       }
       throw err;
     } finally {
@@ -429,12 +448,13 @@ export class StrategySweeper {
     remaining: number | null,
     disabledLimitChasers: number,
     viDisabled: number,
+    skipped: ReadonlySet<string>,
   ): StrategySweepResult {
     logger.warn(
       { serverKey: target.serverKey, reason, remaining },
       "[DMA] 옛 서버 계좌 전략 끄기 미확인",
     );
-    return { ok: false, reason, remaining, disabledLimitChasers, viDisabled, skippedAccounts: [] };
+    return { ok: false, reason, remaining, disabledLimitChasers, viDisabled, skippedAccounts: [...skipped] };
   }
 }
 
