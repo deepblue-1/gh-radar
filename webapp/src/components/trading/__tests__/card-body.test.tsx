@@ -500,7 +500,8 @@ describe('⑥ 즉시 반영 — 더티 바 없음 (D-04)', () => {
    */
   function commitWatchQty(value: string): HTMLInputElement {
     act(() => {
-      fireEvent.click(screen.getByRole('button', { name: '선매수 매도잔량 130,000만' }));
+      // Phase 31 D-07 — 두 줄 행 접근성 이름 「{라벨} {위 줄} {아래 줄}」(아래 줄 = 에코 주 10,000주).
+      fireEvent.click(screen.getByRole('button', { name: '선매수 매도잔량 130,000만 10,000주' }));
     });
     const input = document.querySelector('#lc-buy-watch-qty') as HTMLInputElement;
     expect(input, '잔량 인라인 입력').not.toBeNull();

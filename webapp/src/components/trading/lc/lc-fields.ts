@@ -20,10 +20,18 @@
 import {
   AUTO_SELL_METHOD_LABELS,
   AUTO_SELL_METHOD_ORDER,
+  LC_AMOUNT_MAX_MANWON,
   amountFromQty,
   autoSellBasisLabel,
+  echoAmountOf,
+  lcAmountPairOf,
+  qtyForSubmit,
+  type LcAmountKey,
+  type LcAmountPair,
   type RelayLimitChaser,
 } from '@gh-radar/shared';
+
+import type { LcRowSub } from '@/components/trading/lc/setting-group';
 
 import { LC_FIELD_RANGES, type LcRange } from '@/lib/lc-ranges';
 import type { LimitChaserFormValues } from '@/lib/limit-chaser';
@@ -669,6 +677,109 @@ export function lcAmountZeroWordOf(field: LcNumField): string | null {
   }
 }
 
+/* ───────────────────────── Phase 31 — 두 줄 행 · 시트 환산 안내 · 파생 행(순수 함수) ───────────────────────── */
+
+/**
+ * 수량 8칸(만원 · D-01)이면 그 금액 키, 아니면 `null` — 두 줄 행 · 시트 환산 안내 · 수량 칸 잠금의 대상 판정 한 곳.
+ * 금액 3칸(선매수 · 줄매수 · 후매수 「금액」)은 대상이 아니다(D-09 — 44px 한 줄 「4,000만원」 그대로).
+ */
+export function lcQtyAmountFieldOf(field: LcNumField): LcAmountKey | null {
+  const pair = lcAmountPairOf(field);
+  return pair !== undefined && pair.amount === field ? pair.amount : null;
+}
+
+function amountPairOf(field: LcAmountKey): LcAmountPair {
+  return lcAmountPairOf(field)!;
+}
+
+/**
+ * 그 칸 금액의 **제출 주** — shared `qtyForSubmit`(그룹 비교가 · 에코 메모 — 추적 ON 은 기준선). `buildCfg` 가 싣는 주와
+ * 같은 호출이다(lib `lcSubmitQtyOf` 와 같은 식 — 아래 줄 · 안내 줄이 다른 식으로 다시 계산하지 않는다 · D-02 · D-06).
+ */
+function submitQtyOf(
+  field: LcAmountKey,
+  amount: number,
+  values: LimitChaserFormValues,
+  server: RelayLimitChaser | null,
+): number {
+  const pair = amountPairOf(field);
+  return qtyForSubmit(amount, values[pair.price], server ? echoAmountOf(server, pair) : null);
+}
+
+/** 제출 주 글자 — 0 이고 의미어가 있는 칸은 의미어(「무제한」「1주」「없음」), 그 밖 「{주}주」(0 이면 「0주」). */
+function qtyWordOf(field: LcAmountKey, qty: number): string {
+  return qty === 0 ? (lcAmountZeroWordOf(field) ?? '0주') : fmt(qty, '주');
+}
+
+/**
+ * 두 줄 행 아래 줄(UI-SPEC 「두 줄 행 문자열」 · D-07) — 첫 일치 하나:
+ *   ① 금액 > 0 ∧ 그 그룹 비교가 0 → 「비교가격 필요」(alert)
+ *   ② 제출 주 0 ∧ 의미어 칸 → 「무제한」 · 「1주」 · 「없음」
+ *   ③ 그 밖 「{주}주」(0 이면 「0주」)
+ * 비교가 0 ∧ 금액 0 은 ②/③ 이다(빨강 아님). 행 · 인라인 편집기(버퍼 값을 `values` 에 넣어 부른다) · 접근성 이름이 같이 읽는다.
+ */
+export function lcQtyRowSubOf(
+  field: LcAmountKey,
+  values: LimitChaserFormValues,
+  server: RelayLimitChaser | null,
+): LcRowSub {
+  const amount = values[field];
+  if (amount > 0 && values[amountPairOf(field).price] === 0) return { text: '비교가격 필요', tone: 'alert' };
+  return { text: qtyWordOf(field, submitQtyOf(field, amount, values, server)), tone: 'muted' };
+}
+
+/**
+ * 넘버패드 시트 상태 줄 ⑤ 환산 안내(UI-SPEC 「넘버패드 시트」 · D-08) — 「= {주}주 (비교가격 {P}원)」 · 주 0 ∧ 의미어 칸은
+ * 「= 무제한 (비교가격 P원)」 · 비교가 0 ∧ 값 0 은 괄호 없이 「= 0주」(또는 의미어). 비교가 0 ∧ 값 > 0 은 잠금(①)이 서는
+ * 자리라 `null` 이다. 주는 행 아래 줄과 같은 `qtyForSubmit` 값이다.
+ */
+export function lcAmountHintOf(
+  field: LcAmountKey,
+  value: number,
+  values: LimitChaserFormValues,
+  server: RelayLimitChaser | null,
+): string | null {
+  const price = values[amountPairOf(field).price];
+  if (price === 0) return value === 0 ? `= ${qtyWordOf(field, 0)}` : null;
+  return `= ${qtyWordOf(field, submitQtyOf(field, value, values, server))} (비교가격 ${fmt(price, '원')})`;
+}
+
+/** 파생 행 두 줄 글자 — 위 줄 톤(`value` = 발동잔량 `--up` · 기준선 `--fg-2` / `muted` = 해제선 / `empty` = 「—」). */
+export interface LcDerivedRowText {
+  tone: 'value' | 'muted' | 'empty';
+  /** 위 줄 글자 — 「32,175만」 · 「25,000주」(비교가 0) · 「—」. */
+  top: string;
+  /** 위 줄 숫자 · 단위 — 해제선(muted)은 행 부품이 숫자 + 단위로 그린다. */
+  topValue: number;
+  topUnit: '만' | '주';
+  /** 아래 줄 — 「25,000주」 · 비교가 0 또는 「—」 이면 빈 글자(행 높이 56 유지). */
+  sub: string;
+}
+
+/**
+ * 파생 행 문자열(UI-SPEC 「파생 행 문자열」 · D-05) — 발동잔량은 매수 비교가, 잔량추적 기준선은 매도 비교가로 반올림 역산.
+ *   값 > 0 ∧ 비교가 > 0 → 위 「{역산}만」 · 아래 「{주}주」 / 비교가 0 → 위 「{주}주」 · 아래 비움
+ *   발동잔량 0 ∧ 잠금 해제선 > 0 → 해제선을 같은 규칙으로(muted) / 값 0(해제선도 0) → 「—」 · 아래 비움
+ * 위 줄 역산은 `LC_AMOUNT_MAX_MANWON`(999,999,999만)에서 멈춘다(폭 백스톱 최악값 · `echoAmountOf` Clamp 동형).
+ * 취소 기준선 파생 행은 만들지 않는다(새 능력 금지 · Open Q4).
+ */
+export function lcDerivedRowTextOf(
+  source: 'postBuyTriggerQty' | 'sellQtyTrackBaseline',
+  server: RelayLimitChaser | null,
+): LcDerivedRowText {
+  const price = (source === 'postBuyTriggerQty' ? server?.buyWatchPrice : server?.sellWatchPrice) ?? 0;
+  const value = server?.[source] ?? 0;
+  const unlock = source === 'postBuyTriggerQty' ? (server?.postBuyUnlockQty ?? 0) : 0;
+  const qty = value > 0 ? value : unlock;
+  if (qty === 0) return { tone: 'empty', top: '—', topValue: 0, topUnit: '주', sub: '' };
+  const tone = value > 0 ? 'value' : 'muted';
+  if (price > 0) {
+    const amount = Math.min(amountFromQty(qty, price), LC_AMOUNT_MAX_MANWON);
+    return { tone, top: fmt(amount, '만'), topValue: amount, topUnit: '만', sub: fmt(qty, '주') };
+  }
+  return { tone, top: fmt(qty, '주'), topValue: qty, topUnit: '주', sub: '' };
+}
+
 /** 자동매도 방법 표시 — 옵션 밖(옛 에코 0 등)은 「—」(D-02 · 웹이 지어내지 않는다). */
 export function lcAutoSellMethodText(method: number): string {
   return Object.hasOwn(AUTO_SELL_METHOD_LABELS, method) ? AUTO_SELL_METHOD_LABELS[method]! : '—';
@@ -798,14 +909,17 @@ export function lcSummaryOf(
  * 값 버튼 접근성 이름(UI-SPEC 「접근성 이름 접두」 표 · D-09) — 「{접두} {라벨} {값}」.
  * 접두 = 행의 `a11yPrefix`(매수 공통 「매수」 · 매도 「매도」 · 취소 「취소」) 또는 카드 제목(선 · 줄 · 후매수).
  * 값 「—」 은 「{접두} {라벨} 미입력」 — 스크린리더가 「대시」로 읽지 않게 한다.
+ * 두 줄 행(Phase 31 · UI-SPEC 접근성 표)은 「{접두} {라벨} {위 줄} {아래 줄}」 — `subText` 는 `lcQtyRowSubOf` 글자(빈 글자면 생략).
  */
 export function lcRowA11yNameOf(
   group: LcGroupSpec,
   row: Extract<LcRowSpec, { kind: 'value' | 'checkValue' }>,
   valueText: string,
+  subText?: string,
 ): string {
   const head = `${row.a11yPrefix ?? group.title} ${row.label}`;
-  return valueText === '—' ? `${head} 미입력` : `${head} ${valueText}`;
+  if (valueText === '—') return `${head} 미입력`;
+  return subText ? `${head} ${valueText} ${subText}` : `${head} ${valueText}`;
 }
 
 /**

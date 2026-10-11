@@ -99,7 +99,7 @@ import type {
   RelayLimitChaserInput,
   TickRule,
 } from '@gh-radar/shared';
-import { LC_AMOUNT_PAIRS, type LcAmountKey, type LcAmountQtyKey } from '@gh-radar/shared';
+import { LC_AMOUNT_PAIRS, lcAmountPairOf, type LcAmountKey, type LcAmountQtyKey } from '@gh-radar/shared';
 
 import { useRelayContext } from '@/lib/relay-provider';
 import {
@@ -130,8 +130,12 @@ import {
   LC_BUY_GROUPS,
   LC_SELL_GROUPS,
   LC_SWITCH_LABEL,
+  lcAmountHintOf,
   lcAutoSellBasisText,
+  lcDerivedRowTextOf,
   lcNavigableRows,
+  lcQtyAmountFieldOf,
+  lcQtyRowSubOf,
   lcRowA11yNameOf,
   lcRowByField,
   lcRowById,
@@ -501,6 +505,33 @@ function armBlockOf(values: LimitChaserFormValues, server: RelayLimitChaser | nu
   }
   if (values.cancelTradeEnabled && floored('sellMinTradeAmount')) {
     return ARM_BLOCKED_TEXT.cancelTradeZero + zeroQtySuffixOf(values.sellMinTradeAmount);
+  }
+  return null;
+}
+
+/**
+ * 수량 칸(만원) **시트 · 인라인 잠금 문장 한 곳**(Phase 31 D-08 · UI-SPEC 「넘버패드 시트」 잠금 2행 · S4 말풍선) — 시트
+ * `validate` 와 인라인 `validate` 가 같은 `validateCommit` 을 지나므로 두 표면이 같은 문장을 말한다.
+ *   - 값 > 0 ∧ 그 그룹 비교가 0 → 「비교가격 필요」 + 매수 5칸은 매수 비교가 · 매도 · 취소 3칸은 매도 비교가 안내
+ *   - 값 > 0 ∧ 제출 주 0(내림 · 에코 메모 포함 — `lcSubmitQtyOf`) → 「{N}만 → 0주」 + 금액을 늘리라는 안내(8칸 공통)
+ * 그 밖(값 0 · 수량 칸이 아님) `null`. 그룹 켬 여부를 보지 않는다 — 환산할 수 없는 값은 칸에 들이지 않는다(UI-SPEC).
+ */
+function amountLockTextOf(
+  field: LcNumField,
+  value: number,
+  values: LimitChaserFormValues,
+  server: RelayLimitChaser | null,
+): string | null {
+  const amountField = lcQtyAmountFieldOf(field);
+  if (amountField === null || !(value > 0)) return null;
+  const price = lcAmountPairOf(amountField)!.price;
+  if (values[price] === 0) {
+    return price === 'buyWatchPrice'
+      ? '비교가격 필요 — 매수 비교가격을 입력하세요'
+      : '비교가격 필요 — 매도 비교가격을 입력하세요';
+  }
+  if (lcSubmitQtyOf({ ...values, [amountField]: value }, amountField, server) === 0) {
+    return `${NUM.format(value)}만 → 0주 — 금액을 늘리세요`;
   }
   return null;
 }
@@ -1497,6 +1528,8 @@ export function LimitChaserForm({
    */
   function inlineEditorOf(field: LcNumField, id: string, label: string, unit: LcUnit, range?: LcRange): ReactNode {
     const failure = lc.failures[field];
+    // Phase 31 S4 — 수량 칸은 편집 중에도 아래 줄이 남아 버퍼 값으로 갱신된다(행과 같은 `lcQtyRowSubOf`).
+    const amountField = lcQtyAmountFieldOf(field);
     return (
       <InlineValueEditor
         id={id}
@@ -1508,6 +1541,9 @@ export function LimitChaserForm({
         min={range?.min}
         max={range?.max}
         validate={(v) => validateCommit(field, v)}
+        subOf={
+          amountField === null ? undefined : (v) => lcQtyRowSubOf(amountField, { ...form, [amountField]: v }, server ?? null)
+        }
         busy={isBusy(field)}
         failureText={inlineFailureTextOf(failure)}
         onSave={(v, via) => handleInlineSave(field, v, via)}
@@ -1543,12 +1579,17 @@ export function LimitChaserForm({
   }
 
   /**
-   * 시트·인라인 확정 전 검증 — 구서버 에코 편집 제한(WR-02 · `lcLegacyBlockOf`) → 무장 불가(`armBlockOf`). 훅의 전송
-   * 직전 가드와 **같은 두 함수 · 같은 순서**다(기준값 = 서버 동기값 + 바꾼 필드 · T-20-03).
+   * 시트·인라인 확정 전 검증 — 수량 칸 환산 잠금(Phase 31 `amountLockTextOf` · 비교가격 필요 · 0주) → 구서버 에코 편집
+   * 제한(WR-02 · `lcLegacyBlockOf`) → 무장 불가(`armBlockOf`). 범위는 편집기 · 시트가 먼저 본다. 뒤 두 함수는 훅의 전송
+   * 직전 가드와 **같은 함수 · 같은 순서**다(기준값 = 서버 동기값 + 바꾼 필드 · T-20-03).
    */
   function validateCommit(field: LcNumField, v: number): string | null {
     const next: LimitChaserFormValues = { ...lcBaseValues(server, formRef.current), [field]: v };
-    return lcLegacyBlockOf(isLegacyBuySchema(server), field, v, next) ?? armBlockOf(next, server ?? null);
+    return (
+      amountLockTextOf(field, v, next, server ?? null) ??
+      lcLegacyBlockOf(isLegacyBuySchema(server), field, v, next) ??
+      armBlockOf(next, server ?? null)
+    );
   }
 
   /** 값 행이 공유하는 편집 배선(값 행 · 체크 값 행의 값 버튼). */
@@ -1574,7 +1615,10 @@ export function LimitChaserForm({
     const shown = shownValueOf(row.field);
     const valueText = shown === null ? undefined : (lcValueTextOf(row.field, form, server) ?? undefined);
     const text = valueText ?? (shown === null ? '—' : formatSettingValue(shown, row.unit));
-    return { valueText, ariaName: lcRowA11yNameOf(group, row, text) };
+    // Phase 31 D-07 — 수량 8칸은 56px 두 줄(위 「1,000만」 · 아래 환산 주 · 의미어 · 「비교가격 필요」). 금액 3칸은 한 줄(D-09).
+    const amountField = lcQtyAmountFieldOf(row.field);
+    const sub = amountField === null ? undefined : lcQtyRowSubOf(amountField, form, server ?? null);
+    return { valueText, sub, ariaName: lcRowA11yNameOf(group, row, text, sub?.text) };
   }
 
   /**
@@ -1612,10 +1656,29 @@ export function LimitChaserForm({
     );
   }
 
+  /**
+   * 수량 파생 2행(발동잔량 · 잔량추적 기준선)의 두 줄 값 배선 — 글자 판정은 `lcDerivedRowTextOf` 한 곳(UI-SPEC 「파생 행
+   * 문자열」). 위 줄: 값 > 0 = 역산 만원(비교가 0 이면 주) · 해제선 = 회색 보조값 · 0 = 「—」(sr 「없음」). 아래 줄은 늘 자리를
+   * 지킨다(56px — 빈 글자여도).
+   */
+  function qtyDerivedRowProps(source: 'postBuyTriggerQty' | 'sellQtyTrackBaseline') {
+    const d = lcDerivedRowTextOf(source, server ?? null);
+    return {
+      value: d.tone === 'value' ? (server?.[source] ?? 0) : 0,
+      unit: d.topUnit,
+      display: d.tone === 'value' ? d.top : undefined,
+      mutedValue: d.tone === 'muted' ? d.topValue : 0,
+      valueText: '—',
+      srText: '없음',
+      sub: { text: d.sub, tone: 'muted' as const },
+    };
+  }
+
   function renderRow(group: LcGroupSpec, row: LcRowSpec): ReactNode {
     const dim = lcRowDimOf(group, row, form);
     switch (row.kind) {
-      case 'value':
+      case 'value': {
+        const display = displayOf(group, row);
         return (
           <SettingRow
             key={row.id}
@@ -1623,7 +1686,10 @@ export function LimitChaserForm({
             label={row.label}
             unit={row.unit}
             value={shownValueOf(row.field)}
-            {...displayOf(group, row)}
+            valueText={display.valueText}
+            ariaName={display.ariaName}
+            // Phase 31 D-07 — 수량 칸이면 56px 두 줄의 아래 줄(금액 칸 · 그 밖 행은 undefined = 44px 한 줄).
+            sub={display.sub}
             dim={dim}
             {...valueProps(row.field, autoSellLocked(group))}
             onActivate={(el) => activateRow(row.field, el)}
@@ -1634,6 +1700,7 @@ export function LimitChaserForm({
             }
           />
         );
+      }
       case 'checkValue':
       case 'check': {
         const check = row.check;
@@ -1729,25 +1796,23 @@ export function LimitChaserForm({
         if (row.source === 'postBuyTriggerQty') {
           // 후매수 발동잔량 — 펼침이면 단계 0 에서도 늘 그린다(「—」 · sr-only 「없음」 · UI-SPEC §6 · E5).
           // 발동잔량 0 · 해제선 > 0 이면 해제선 회색(gh-trade 259bc869 · quick-261002-fim).
+          // Phase 31 D-05 — 56px 두 줄: 위 매수 비교가 역산 「32,175만」(`--up` 그대로) · 아래 「25,000주」.
           return (
             <DerivedRow
               key="post-buy-trigger"
               slot="lc-post-buy-trigger"
               label={row.label}
-              value={server?.postBuyTriggerQty ?? 0}
-              unit="주"
               emphasis
-              valueText="—"
-              srText="없음"
-              mutedValue={server?.postBuyUnlockQty ?? 0}
               mutedSrText={POST_BUY_UNLOCK_SR_TEXT}
               dim={dim}
+              {...qtyDerivedRowProps('postBuyTriggerQty')}
             />
           );
         }
         // 잔량추적 기준선 — S→C 전용 · 서버가 매도 진입을 래치한 뒤에만 존재한다(UI Considerations E1 partial).
+        // Phase 31 D-05 — 매도 비교가 역산 위 줄(`--fg-2` 15/500) · 아래 줄 주.
         return server?.sellEntryLatched ? (
-          <DerivedRow key="derived" label={row.label} value={server.sellQtyTrackBaseline} unit="주" dim={dim} />
+          <DerivedRow key="derived" label={row.label} dim={dim} {...qtyDerivedRowProps('sellQtyTrackBaseline')} />
         ) : null;
       case 'note':
         // 후매수 소진(단계 3) 안내 — 「최대」 행 바로 아래 · 역할 없음 · 흐리지 않는다(UI-SPEC §5).
@@ -1880,6 +1945,8 @@ export function LimitChaserForm({
   const sheetServerText =
     sheetRow === null || shownValueOf(sheetKey) === null ? undefined : (lcValueTextOf(sheetKey, form, null) ?? undefined);
   const sheetRange = sheetRow === null ? undefined : (sheetRow.row.inputRange ?? sheetRow.row.range);
+  // Phase 31 D-08 — 수량 칸 시트 상태 줄 ⑤ 환산 안내(「= 777주 (비교가격 12,870원)」). 잠금은 `validate`(`amountLockTextOf`).
+  const sheetAmountField = sheetRow === null ? null : lcQtyAmountFieldOf(sheetKey);
 
   return (
     <div data-slot="limit-chaser-form" className={cn('min-w-0', className)} onPointerDownCapture={handlePointerDownCapture}>
@@ -1958,6 +2025,9 @@ export function LimitChaserForm({
         failureText={sheetFailure?.text ?? null}
         // 그 행 카드가 감시 중이면 한 줄 안내(추가 확인 없음 · D-05) — 판정은 위 `sheetArmed`.
         armedNotice={sheetArmed}
+        hint={
+          sheetAmountField === null ? undefined : (v) => lcAmountHintOf(sheetAmountField, v, form, server ?? null)
+        }
         validate={(v) => validateCommit(sheetKey, v)}
         returnFocusRef={sheetReturnRef}
         onConfirm={(v) => handleSheetConfirm(sheetKey, v)}
