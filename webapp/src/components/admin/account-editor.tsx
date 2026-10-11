@@ -83,8 +83,8 @@ import { useFieldSave, type FieldSave } from "./use-field-save";
  *
  * **KB 주문자 IP/MAC 편집(Phase 30 30-05 · D-03 · D-04 · D-05 · D-06 · D-07 · D-10 · UI-SPEC §2-3 · §3).** KB 편집 블록은 계좌명 칸 아래
  * 「주문자 IP」 · 「MAC 주소」 2열 칸 + 도움말 한 줄(검증 오류가 보이면 그 자리를 오류 줄이 대신), 교보는 칸 대신 「해당 없음」 한 줄.
- * 초깃값 = 읽기 줄과 같은 출처(유효 주문 서버 87 정규화값). 검증 규칙은 shared `validateOrderEndpointInput` 한 벌(웹에 정규식 없음).
- * 보내는 값은 입력 원문(trim) — 정규화는 「바뀜 · 변경 없음」 비교에만 쓴다(`editSaveBodyOf`). IP/MAC 은 두 칸이 정규화 비교로 바뀌었거나
+ * 초깃값 = 읽기 줄과 같은 출처(유효 주문 서버 87 값의 표시 표기 · D-17). 검증 규칙은 shared `validateOrderEndpointInput` 한 벌(웹에 정규식 없음).
+ * 보내는 값은 입력 원문(trim) — 정규화는 「보낼지 · 변경 없음」 비교에만 쓴다(`editSaveBodyOf` · 양쪽 정규화). IP/MAC 은 두 칸이 정규화 비교로 바뀌었거나
  * 등록 서버 간 불일치(D-10 맞추기)일 때만 싣고, 계좌명만 바뀐 저장에는 싣지 않는다(화면 초깃값이 틀려도 87 값을 덮지 않는다).
  * 보낼 것이 없으면 요청 없이 편집을 닫고 「변경 없음」 한 줄(다음 「편집」 때 지움).
  */
@@ -134,7 +134,7 @@ export const ACCOUNT_EDITOR_TEXT = {
   ipmacUnknown: "확인 전",
   /** D-10 — 출처 서버와 값이 다른 다른 등록 서버 한 줄. */
   ipmacMismatch: (serverKey: string, m: Pick<OrderEndpointMismatch, "state" | "orderIp" | "orderMac">) =>
-    `${serverKey} 값이 달라요(${m.state === "set" ? `IP ${m.orderIp} · MAC ${m.orderMac}` : "미설정"}) — 편집에서 저장하면 등록 서버가 모두 같아져요`,
+    `${serverKey} 값이 달라요(${m.state === "set" ? `IP ${formatOrderIp(m.orderIp)} · MAC ${formatOrderMac(m.orderMac)}` : "미설정"}) — 편집에서 저장하면 등록 서버가 모두 같아져요`,
   // ── Phase 30 (30-05) 편집칸 — UI-SPEC Copywriting 「그 밖 문구」 정본 ──
   ipLabel: "주문자 IP",
   macLabel: "MAC 주소",
@@ -501,7 +501,8 @@ interface AccountRowProps {
 }
 
 /**
- * 편집 모드 입력값. `ip` · `mac` 초깃값 = 읽기 줄과 같은 출처(유효 주문 서버 87 정규화값 · D-10) — 미설정 · 확인 전 · 교보는 빈 문자열.
+ * 편집 모드 입력값. `ip` · `mac` 초깃값 = 읽기 줄과 같은 출처(유효 주문 서버 · D-10)의 87 값의 표시 표기(D-17) — 미설정 · 확인 전 · 교보는
+ * 빈 문자열. 비교는 양쪽 정규화(`editSaveBodyOf`).
  * 초안은 입력 원문 그대로 쥔다(보낼 때 trim 만 · 정규화는 비교에만 — D-07).
  */
 interface EditFields {
@@ -516,8 +517,8 @@ interface EditFields {
  * - 계좌명은 `trim()` 해서 · 나머지 계좌 필드는 개요 값 · `servers` 는 지금 active 등록 서버 그대로(서버 집합을 바꾸지 않는다).
  * - IP/MAC 은 KB 이고 (두 칸이 정규화 비교로 초깃값과 다름 || 등록 서버 간 불일치) 일 때만 최상위 `orderEndpoint` 로 싣는다.
  *   보내는 값은 입력 원문(trim) — 정규화값을 보내지 않는다(D-07 · gh-trade 가 정규화). 두 칸 비움 = 빈 문자열 둘(미설정으로 되돌리기 · D-04).
- * - 초깃값은 87 정규화값 또는 빈 문자열이라 정규화 비교가 곧 「서버 값과 같음」 이다. 형식 오류 값은 정규화가 null 이라 원문으로 비교한다
- *   (호출자가 검증 오류면 저장을 막는다).
+ * - 초깃값은 87 값의 표시 표기(D-17) 또는 빈 문자열 — 비교는 양쪽 정규화(표시 표기는 왕복 항등이라 정규화하면 87 값 그대로)여서
+ *   「서버 값과 같음」 이다. 정규화가 null 인 값(형식 오류 입력)은 원문으로 비교한다(호출자가 검증 오류면 저장을 막는다).
  */
 function editSaveBodyOf(input: {
   account: AdminAccountView;
@@ -528,10 +529,14 @@ function editSaveBodyOf(input: {
 }): AdminPutAccountBody | null {
   const { account, servers, initial, draft, mismatched } = input;
   const kb = account.broker === "KB";
+  // 정규화하되 실패(null)면 원문 — 초깃값(표시 표기)과 칸 값을 같은 잣대로 비교한다(D-17 · 표시 표기를 87 값처럼 비교하지 않는다).
+  const norm = (normalize: (raw: string) => string | null, raw: string) => normalize(raw) ?? raw;
   const ip = draft.ip.trim();
   const mac = draft.mac.trim();
   const endpointChanged =
-    kb && ((normalizeOrderIp(ip) ?? ip) !== initial.ip || (normalizeOrderMac(mac) ?? mac) !== initial.mac);
+    kb &&
+    (norm(normalizeOrderIp, ip) !== norm(normalizeOrderIp, initial.ip) ||
+      norm(normalizeOrderMac, mac) !== norm(normalizeOrderMac, initial.mac));
   const sendEndpoint = kb && (endpointChanged || mismatched);
   const nameChanged = draft.name.trim() !== initial.name.trim();
   if (!nameChanged && !sendEndpoint) return null;
@@ -650,7 +655,7 @@ function AccountRow({
   const mismatched = endpoint !== null && endpoint.mismatches.length > 0;
 
   const editSaving = editSave.state === "saving";
-  // 「바뀜」(저장 버튼 기준 · UI-SPEC §3) = 계좌명 trim · IP/MAC 원문(trim) 이 초깃값과 다름. 점표기로 같은 값을 다시 적어도 「바뀜」.
+  // 「바뀜」(저장 버튼 기준 · UI-SPEC §3) = 계좌명 trim · IP/MAC 원문(trim) 이 초깃값(표시 표기)과 다름. 다른 표기로 같은 값을 다시 적어도 「바뀜」(누르면 「변경 없음」).
   const endpointEdited =
     kb && draft !== null && (draft.value.ip.trim() !== draft.initial.ip || draft.value.mac.trim() !== draft.initial.mac);
   const editChanged = draft !== null && (draft.value.name.trim() !== draft.initial.name.trim() || endpointEdited);
@@ -666,8 +671,9 @@ function AccountRow({
     const set = endpoint?.state === "set";
     const initial: EditFields = {
       name: account.name,
-      ip: set ? endpoint.orderIp : "",
-      mac: set ? endpoint.orderMac : "",
+      // D-17 — 칸에는 표시 표기(형식 밖은 원문). 비교는 editSaveBodyOf 가 양쪽 정규화로.
+      ip: set ? formatOrderIp(endpoint.orderIp) : "",
+      mac: set ? formatOrderMac(endpoint.orderMac) : "",
     };
     setDraft({ initial, value: initial });
     clearEditResult();
