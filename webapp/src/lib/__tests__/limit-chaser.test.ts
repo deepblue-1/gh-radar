@@ -1650,13 +1650,15 @@ describe('Phase 27 84 시딩', () => {
     expect(seedFromUserSettings(undefined)).toEqual({});
   });
 
-  it('present true — 8칸 매핑(WinForms ResetStrategyOptionsToDefault 동형) · 매도 주기 · 동시호가 비율 · 봉인 하한잔량(주) 키 없음', () => {
+  it('present true — 9칸 매핑(WinForms ResetStrategyOptionsToDefault 동형) · 매도 주기 · 동시호가 비율 · 봉인 하한잔량(주) 키 없음', () => {
     const seed = seedFromUserSettings(SAVED);
     expect(seed).toEqual({
       buyOrderAmount: 5000,
       extraBuyOrderAmount: 6000,
       postBuyOrderAmount: 7000,
       postBuyReentry: 4,
+      // 이 픽스처는 구 relay 84(postBuyFloorAmount 키 없음) — 폴백 0(Phase 31 D-12 · Pitfall 10).
+      postBuyFloorAmount: 0,
       postBuyReboundPct: 40,
       sellQtyTrackRatio: 60,
       autoSellRatioPct: 15,
@@ -1667,13 +1669,14 @@ describe('Phase 27 84 시딩', () => {
     expect(Object.keys(seed)).not.toContain('auctionSellRatioPct');
   });
 
-  it('present false(서버 내장값) — D-04 상수와 같은 8값', () => {
+  it('present false(서버 내장값) — D-04 상수와 같은 9값', () => {
     const d = defaultLimitChaserForm();
     expect(seedFromUserSettings(us(false))).toEqual({
       buyOrderAmount: d.buyOrderAmount,
       extraBuyOrderAmount: d.extraBuyOrderAmount,
       postBuyOrderAmount: d.postBuyOrderAmount,
       postBuyReentry: d.postBuyReentry,
+      postBuyFloorAmount: d.postBuyFloorAmount,
       postBuyReboundPct: d.postBuyReboundPct,
       sellQtyTrackRatio: d.sellQtyTrackRatio,
       autoSellRatioPct: d.autoSellRatioPct,
@@ -1694,6 +1697,7 @@ describe('Phase 27 84 시딩', () => {
       extraBuyOrderAmount: 6000,
       postBuyOrderAmount: 7000,
       postBuyReentry: 4,
+      postBuyFloorAmount: 0,
       postBuyReboundPct: 30,
       sellQtyTrackRatio: 55,
       autoSellRatioPct: 10,
@@ -1714,5 +1718,39 @@ describe('Phase 27 84 시딩', () => {
     expect(seed.buyOrderAmount).toBe(4000);
     expect(seed).not.toHaveProperty('postBuyFloorQty');
     expect(seed.extraBuyOrderAmount).toBe(6000);
+  });
+});
+
+describe('P31 84 후매수 최소 (D-12)', () => {
+  const BASE: RelayUserSettingsMsg = {
+    t: 'user.settings',
+    present: true,
+    preBuyAmount: 4000,
+    addBuyAmount: 4000,
+    postBuyAmount: 4000,
+    postBuyMaxCount: 3,
+    postBuyFloorQty: 0,
+    postBuyReboundPct: 30,
+    sellQtyTrackRatio: 55,
+    autoSellPeriodSec: 3,
+    auctionSellRatioPct: 20,
+    autoSellRatioDefaultPct: 10,
+    autoSellMethodDefault: 3,
+  };
+
+  it('84 postBuyFloorAmount 84 → 새 폼 후매수 최소 84(만원 · C# F:6159)', () => {
+    expect(seedFromUserSettings({ ...BASE, postBuyFloorAmount: 84 }).postBuyFloorAmount).toBe(84);
+  });
+
+  it('금액 키가 없는 84(구 relay) → 폴백 0 — 봉인 주 postBuyFloorQty 는 읽지 않는다', () => {
+    const seed = seedFromUserSettings({ ...BASE, postBuyFloorQty: 200_000 });
+    expect(seed.postBuyFloorAmount).toBe(0);
+    expect(defaultLimitChaserForm().postBuyFloorAmount).toBe(0);
+  });
+
+  it('범위 밖(1,000,000,000만 · 금액 칸 0~999,999,999) → 그 칸만 폴백 0', () => {
+    const seed = seedFromUserSettings({ ...BASE, postBuyFloorAmount: 1_000_000_000, preBuyAmount: 5000 });
+    expect(seed.postBuyFloorAmount).toBe(0);
+    expect(seed.buyOrderAmount).toBe(5000);
   });
 });

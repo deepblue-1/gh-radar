@@ -382,8 +382,8 @@ export function seedListSharesDefaults(listShares: number, buyWatchPrice: number
 /* ── 사용자 기본설정(84) 시딩 (Phase 27 · 27-07 · D-11) ───────────────────────────────────────── */
 
 /**
- * 84 사용자 설정이 채우는 새 폼 8칸. 매도 주기 · 동시호가 비율은 서버 전용이라 폼 칸이 없다.
- * 후매수 최소 = 84 `postBuyFloorAmount`(만원)는 31-06 이 더한다 — 봉인된 주 `postBuyFloorQty` 는 폼 키가 아니다(Phase 31).
+ * 84 사용자 설정이 채우는 새 폼 9칸. 매도 주기 · 동시호가 비율은 서버 전용이라 폼 칸이 없다.
+ * 후매수 최소 = 84 `postBuyFloorAmount`(만원 · Phase 31 D-12 · C# F:6159) — 봉인된 주 `postBuyFloorQty` 는 폼 키가 아니다.
  */
 export type UserSettingsSeed = Pick<
   LimitChaserFormValues,
@@ -391,6 +391,7 @@ export type UserSettingsSeed = Pick<
   | 'extraBuyOrderAmount'
   | 'postBuyOrderAmount'
   | 'postBuyReentry'
+  | 'postBuyFloorAmount'
   | 'postBuyReboundPct'
   | 'sellQtyTrackRatio'
   | 'autoSellRatioPct'
@@ -403,7 +404,8 @@ const USER_SETTINGS_SEED_MAP: readonly (readonly [keyof UserSettingsSeed, keyof 
   ['extraBuyOrderAmount', 'addBuyAmount'],
   ['postBuyOrderAmount', 'postBuyAmount'],
   ['postBuyReentry', 'postBuyMaxCount'],
-  // 후매수 최소 = 84 postBuyFloorAmount(만원)는 31-06(C# F:6159).
+  // 후매수 최소(만원) — Phase 31 D-12 · C# F:6159. 84 에 키가 없으면(구 relay) 폴백 0(`fitsLcRange` · Pitfall 10).
+  ['postBuyFloorAmount', 'postBuyFloorAmount'],
   ['postBuyReboundPct', 'postBuyReboundPct'],
   ['sellQtyTrackRatio', 'sellQtyTrackRatio'],
   ['autoSellRatioPct', 'autoSellRatioDefaultPct'],
@@ -416,8 +418,9 @@ const USER_SETTINGS_SEED_MAP: readonly (readonly [keyof UserSettingsSeed, keyof 
  * 게이트를 켠 cfg 의 좁은 범위(`inputRange`)로 본다 — 시딩된 값이 사용자가 그룹을 켜는 순간 `lcRangeIssue` 에 걸리면
  * 안 된다. 범위가 없는 칸(주문 금액)은 relay `UIntSchema` = 0 이상 정수.
  */
-function fitsLcRange(field: keyof UserSettingsSeed, v: number): boolean {
-  if (!Number.isInteger(v) || v < 0) return false;
+function fitsLcRange(field: keyof UserSettingsSeed, v: number | undefined): v is number {
+  // 키 부재(구 relay 84 · Phase 31 `postBuyFloorAmount` 선택 키)는 범위 밖과 같다 — 폴백.
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 0) return false;
   if (field === 'autoSellMethod') return (AUTO_SELL_METHOD_ORDER as readonly number[]).includes(v);
   const r = lcFieldRangeOf(field);
   if (r === undefined) return true;
@@ -426,8 +429,8 @@ function fitsLcRange(field: keyof UserSettingsSeed, v: number): boolean {
 }
 
 /**
- * 사용자 기본설정(84) → 새 폼 8칸 시딩 — WinForms `ResetStrategyOptionsToDefault`(LimitChaserForm.cs :5765~5810)
- * 매핑 동형 · 순수 함수.
+ * 사용자 기본설정(84) → 새 폼 9칸 시딩 — WinForms `ResetStrategyOptionsToDefault`(LimitChaserForm.cs :5765~5810 ·
+ * 후매수 최소 F:6159) 매핑 동형 · 순수 함수.
  *
  *   | 폼 칸                 | 84                        | WinForms 컨트롤          |
  *   |----------------------|---------------------------|-------------------------|
@@ -435,6 +438,7 @@ function fitsLcRange(field: keyof UserSettingsSeed, v: number): boolean {
  *   | extraBuyOrderAmount  | addBuyAmount (만원)        | numAddBuyOrderAmount     |
  *   | postBuyOrderAmount   | postBuyAmount (만원)       | numPostBuyOrderAmount    |
  *   | postBuyReentry       | postBuyMaxCount (회)       | numPostBuyReentry        |
+ *   | postBuyFloorAmount   | postBuyFloorAmount (만원)  | numPostBuyFloorQty(만원 칸) |
  *   | postBuyReboundPct    | postBuyReboundPct (%)      | numPostBuyReboundPct     |
  *   | sellQtyTrackRatio    | sellQtyTrackRatio (%)      | numSellQtyTrackRatio     |
  *   | autoSellRatioPct     | autoSellRatioDefaultPct (%)| 자동매도 비율             |
@@ -457,8 +461,7 @@ export function seedFromUserSettings(us: RelayUserSettingsMsg | undefined): Part
   const seed: Partial<UserSettingsSeed> = {};
   for (const [field, key] of USER_SETTINGS_SEED_MAP) {
     const v = us[key];
-    // 키 부재(구 relay · Phase 31 `postBuyFloorAmount` 선택 키)는 범위 밖과 같다 — 폴백.
-    seed[field] = v !== undefined && fitsLcRange(field, v) ? v : fallback[field];
+    seed[field] = fitsLcRange(field, v) ? v : fallback[field];
   }
   return seed;
 }

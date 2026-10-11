@@ -3984,7 +3984,7 @@ describe('Phase 27 새 폼 84 시딩', () => {
       extraBuyOrderAmount: 6000,
       postBuyOrderAmount: 7000,
       postBuyReentry: 4,
-      // 84 의 봉인 주 postBuyFloorQty 는 폼에 시딩하지 않는다 — 후매수 최소 84 금액 시딩은 31-06(그때까지 0).
+      // 84 의 봉인 주 postBuyFloorQty 는 폼에 시딩하지 않는다 — 이 SAVED 는 금액 키가 없는 구 relay 84 라 후매수 최소 폴백 0.
       postBuyFloorAmount: 0,
       postBuyFloorQty: 0,
       postBuyReboundPct: 40,
@@ -4034,6 +4034,18 @@ describe('Phase 27 새 폼 84 시딩', () => {
       autoSellRatioPct: 15,
       autoSellMethod: 2,
     });
+  });
+
+  it('P31 D-12 — 84 postBuyFloorAmount 84 · 매수 비교가 12,870 새 폼 → 후매수 최소 「84만」/「65주」 · 첫 등록 cfg 84 · 65', () => {
+    mockUserSettings = { ...SAVED, postBuyFloorAmount: 84 };
+    render(<LimitChaserForm {...props({ server: null, upperLimit: 12_870 })} />);
+    expect(rowText('lc-post-buy-floor-qty')).toBe('84만');
+    expect(row('lc-post-buy-floor-qty').querySelector('[data-slot="lc-row-sub"]')?.textContent).toBe('65주');
+    expect(sendMock).not.toHaveBeenCalled();
+    click(sw('매수주문 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ buyEnabled: true, buyWatchPrice: 12_870, postBuyFloorAmount: 84, postBuyFloorQty: 65 });
+    expect(qtyFromAmount(84, 12_870)).toBe(65);
   });
 
   it('서버 에코가 있는 전략 폼은 84 로 덮지 않는다(에코가 이긴다) — 마운트 · 도착 둘 다', () => {
