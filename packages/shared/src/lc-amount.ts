@@ -159,3 +159,42 @@ export function amountEchoMatches(
 ): boolean {
   return server[pair.qty] === sent.qty && (server[pair.amount] === sent.amount || server[pair.amount] === 0);
 }
+
+// ── 주문로그 ⑦ 서식(D-19 · gh-trade StrategyEventFormatter.cs 595~760 이식) ─────────────────────────────
+// 폼 두 줄 행의 「1,000만」(천단위 구분 · 억 없음 · D-07)과 다른 함수다. 폼에 쓰지 않는다.
+
+/** 천단위 구분(C# `N0` · InvariantCulture 동형). */
+const QTY_NUM = new Intl.NumberFormat("ko-KR");
+
+/**
+ * C# `FormatManwon` — 만원 → 「N만」/「X.Y억」. 만원 < 10000 이면 「3999만」(천단위 구분 없음),
+ * 아니면 억 소수 한 자리 반올림 · 끝 .0 생략 — 십분위 = (만원 + 500) ÷ 1000 정수 나눗셈(서버 FormatQtyAmtImpl 억 갈래 동형).
+ * 예: 9999 → 「9999만」 · 10000 → 「1억」 · 104975 → 「10.5억」 · 100000 → 「10억」.
+ */
+export function formatManwon(manwon: number): string {
+  if (manwon < 10_000) return `${manwon}만`;
+  const tenths = Math.floor((manwon + 500) / 1_000);
+  const whole = Math.floor(tenths / 10);
+  const frac = tenths % 10;
+  return frac === 0 ? `${whole}억` : `${whole}.${frac}억`;
+}
+
+/**
+ * C# `FormatQtyAmt(qty, price)` — 수량 → 「N만(M주)」/「X.Y억(M주)」(만원 = `amountFromQty` 반올림 역산 · 2^53 초과는 BigInt),
+ * 가격 0 이하(모름)면 「M주」. 서버 54 사유 문장 · C# 공용 규칙이라 0 은 「0만(0주)」 다(주문로그는 `qtyAmt` 가 거른다).
+ * 예: (15000, 1000) → 「1500만(15,000주)」 · (10000, 0) → 「10,000주」 · (85000, 12350) → 「10.5억(85,000주)」.
+ */
+export function formatQtyAmt(qty: number, price: number): string {
+  if (price > 0) return `${formatManwon(amountFromQty(qty, price))}(${QTY_NUM.format(qty)}주)`;
+  return `${QTY_NUM.format(qty)}주`;
+}
+
+/**
+ * C# `QtyAmt` — 주문로그 전용 수량 토큰. 0 이면 「0주」, 아니면 `formatQtyAmt`.
+ * 공용 `formatQtyAmt` 의 「0만(0주)」 는 54 서버 문장과 바이트 동일성 때문에 그대로 두고 주문로그에서만 거른다(C# DC-11).
+ * 예: (300, 12350) → 「371만(300주)」 · (30000, 12350) → 「3.7억(30,000주)」 · (0, 12350) → 「0주」.
+ */
+export function qtyAmt(qty: number, price: number): string {
+  if (qty === 0) return "0주";
+  return formatQtyAmt(qty, price);
+}
