@@ -695,3 +695,128 @@ describe("Phase 28 kind 15 (28-09 · UI-SPEC ②-2)", () => {
     expect("lead" in strategyEventParts({ ...STRATEGY_DAY_ROWS[0]!, kind: 99 }, "log")).toBe(false);
   });
 });
+
+/**
+ * Phase 31 D-19 — ⑦ 금액 표기(gh-trade StrategyEventFormatter ⑦ 예시 대조표 ①~⑨ · 인박스 261011-amount-eok-and-limit-evprice).
+ * 수량 토큰 「N만(M주)」/「X.Y억(M주)」 · 환산가 = 줄 price, kind 1·2 = ev_price(0 이면 종전 숫자), kind 10 · 근거 체결 = ev_price.
+ * 웹 F-A 문법은 C# 두 줄 문장과 달라 같은 값의 웹 토큰을 제자리에서 바꾼다 — 주문 줄만 「{qtyAmt} @{가격}」.
+ * 행은 하루 흐름 픽스처를 펼쳐 덮어쓴다(픽스처 행은 바꾸지 않는다).
+ */
+describe("P31 ⑦ 금액 표기 (D-19 · C# 예시 ①~⑨)", () => {
+  const D = STRATEGY_DAY_BY_NAME;
+  const B = STRATEGY_BRANCH_ROWS;
+  const AS = STRATEGY_AUTO_SELL_ROWS;
+  const body = (ev: Parameters<typeof strategyEventParts>[0]) => strategyEventParts(ev, "log").body;
+
+  it("① kind 3 매수 — 조건 수량 메트릭 · 상한가 매수잔량 0주 · 「371만(300주) @12,350」", () => {
+    expect(body(D.buy12451!)).toBe(
+      "조건 매도잔량≤6.2억(50,000주) / 실측 4.7억(38,200주) · 근거 호가(매도1잔량 52,100→38,200) · 상한가 매수잔량 0주 · 371만(300주) @12,350 · 접수 +18ms",
+    );
+  });
+
+  it("② kind 4 대기 — 「371만(300주) · 체결예상 930,000 (900,000 + 3.7억(30,000주))」", () => {
+    expect(body({ ...D.queued12451!, price: 12_350 })).toBe("371만(300주) · 체결예상 930,000 (900,000 + 3.7억(30,000주))");
+  });
+
+  it("③ kind 2 진입 — ev_price 13,000 이면 스냅 잔량 환산 · 누적은 숫자", () => {
+    expect(body({ ...D.entered1!, evPrice: 13_000 })).toBe(
+      "잔량/누적 즉시 3.9억(30,000주)/900,000 · 1초 7.2억(55,000주)/903,000 · 3초 9.4억(72,000주)/908,000",
+    );
+  });
+
+  it("③ kind 2 진입 — ev_price 0(배포 전 기록)이면 종전 숫자 그대로(시세 캐시로 메우지 않는다)", () => {
+    expect(body({ ...D.entered1!, evPrice: 0 })).toBe(
+      "잔량/누적 즉시 30,000/900,000 · 1초 55,000/903,000 · 3초 72,000/908,000",
+    );
+  });
+
+  it("④ kind 5 첫 체결 — 오차 ±2억(16,000주) · 0 은 「오차 0」", () => {
+    const fill = { ...D.fill12451!, price: 12_350 };
+    expect(body({ ...fill, errorVolume: 16_000 })).toBe("오차 +2억(16,000주)");
+    expect(body({ ...fill, errorVolume: -16_000 })).toBe("오차 −2억(16,000주)");
+    expect(body({ ...fill, errorVolume: 0 })).toBe("오차 0");
+  });
+
+  it("⑤ kind 4 전량 즉시체결 — 행위 즉시체결 · 「371만(300주) · 대기 없음」", () => {
+    const parts = strategyEventParts({ ...B.queuedFull!, qty: 0, immediateFillQty: 300, price: 12_350 }, "log");
+    expect(parts.action).toBe("즉시체결");
+    expect(parts.body).toBe("371만(300주) · 대기 없음");
+  });
+
+  it("⑥ kind 4 일부 즉시체결 — 「247만(200주) · 124만(100주) 즉시체결 · 체결예상 930,000 (900,000 + 3.7억(30,000주))」", () => {
+    expect(body({ ...B.queuedPartial!, price: 12_350 })).toBe(
+      "247만(200주) · 124만(100주) 즉시체결 · 체결예상 930,000 (900,000 + 3.7억(30,000주))",
+    );
+  });
+
+  it("⑦ kind 7 취소 — 남은 거래량 3705만(3,000주) (E − C 숫자) · 음수는 U+2212", () => {
+    const cancel = { ...D.cancel12453!, price: 12_350, cumVolume: 927_000 };
+    expect(body({ ...cancel, remainingVolume: 3_000, expectedCum: 930_000 })).toBe(
+      "매수1 이탈 · 남은 거래량 3705만(3,000주) (930,000 − 927,000)",
+    );
+    expect(body({ ...cancel, remainingVolume: -3_000, expectedCum: 924_000 })).toBe(
+      "매수1 이탈 · 남은 거래량 −3705만(3,000주) (924,000 − 927,000)",
+    );
+  });
+
+  it("⑧ kind 3 수동 — 「수동 주문 · 상한가 매수잔량 3.9억(30,000주) · 130만(100주) @13,000 · 접수 +18ms」", () => {
+    const manual = { ...MANUAL_BUY, qty: 100, price: 13_000, limitBidQty: 30_000 };
+    expect(body(manual)).toBe("수동 주문 · 상한가 매수잔량 3.9억(30,000주) · 130만(100주) @13,000 · 접수 +18ms");
+    // 수동 · VI 의 상한가 매수잔량 0 은 종전대로 생략한다.
+    expect(body({ ...manual, limitBidQty: 0 })).toBe("수동 주문 · 130만(100주) @13,000 · 접수 +18ms");
+  });
+
+  it("⑨ kind 1 노출 — ev_price 13,000 → 「매도잔량 6500만(5,000주)」 · ev_price 0 → 「매도잔량 5,000」", () => {
+    const exposed = { ...D.exposed!, askQtyAtLimit: 5_000 };
+    expect(body({ ...exposed, evPrice: 13_000 })).toBe("매도잔량 6500만(5,000주)");
+    expect(body({ ...exposed, evPrice: 0 })).toBe("매도잔량 5,000");
+    expect(body({ ...exposed, evPrice: 13_000, openAtLimit: true })).toBe("시초 상한가 · 매도잔량 6500만(5,000주)");
+  });
+
+  it("kind 10 버스트 — ev_price 0 이면 「합계 123,456주」 그대로 · 13,000 이면 「합계 16억(123,456주)」 · 0 은 「0주」", () => {
+    const burst = { ...D.exposed!, kind: 10, condActual: 3, evTradeQty: 123_456 };
+    expect(body({ ...burst, evPrice: 0 })).toBe("조각 3 · 합계 123,456주");
+    expect(body({ ...burst, evPrice: 13_000 })).toBe("조각 3 · 합계 16억(123,456주)");
+    expect(body({ ...burst, evPrice: 13_000, evTradeQty: 0 })).toBe("조각 3 · 합계 0주");
+  });
+
+  it("kind 6 매도 — 조건 수량 메트릭 · 근거 체결 formatQtyAmt(ev_price) · 매수1 잔량 · 「371만(300주) @12,350 지정가」", () => {
+    expect(body(D.sell12455!)).toBe(
+      "조건 단건 매도체결≥1.2억(10,000주) / 실측 2.2억(18,000주) · 근거 체결(12,350 매도체결 2.2억(18,000주)) · 매수1 12,350·5.2억(42,000주) · 371만(300주) @12,350 지정가 · 접수 +16ms",
+    );
+  });
+
+  it("근거 — 체결은 formatQtyAmt(ev_trade_qty, ev_price) · 체결통보 · 호가 (before→after) 는 숫자 그대로", () => {
+    expect(body(B.riseRate!)).toContain("근거 체결(12,350 체결 2470만(2,000주))");
+    expect(body(B.sellFillHook!)).toContain("근거 체결통보(12,300 50주)");
+    expect(body(D.buy12452!)).toContain("근거 호가(매수1잔량 148,500→152,000)");
+  });
+
+  it("조건식 — 수량형 1·2·3·5 만 formatQtyAmt(값, 줄 price) · 0 은 「0만(0주)」 · 7 상승률은 종전", () => {
+    expect(body({ ...D.buy12451!, condThreshold: 0 })).toMatch(/^조건 매도잔량≤0만\(0주\) \/ 실측 4\.7억\(38,200주\) · /);
+    expect(body({ ...D.buy12451!, condMetric: 5 })).toMatch(/^조건 \S+ ?6\.2억\(50,000주\) \/ 실측 4\.7억\(38,200주\) · /);
+    expect(body({ ...D.buy12451!, condMetric: 4, condThreshold: 12_350, condActual: 12_350 })).toMatch(
+      /^조건 \S+ ?12,350 \/ 실측 12,350 · /,
+    );
+    expect(body(B.riseRate!)).toMatch(/^조건 상승률≥3\.00% \/ 실측 4\.12% · /);
+  });
+
+  it("자동매도 — kind 6 매도 · 동시호가 회차 수량은 qtyAmt · 주기 거래량 · 예상체결량 · 보관은 숫자 그대로", () => {
+    expect(body(AS.asAsk1!)).toBe("매도 7794만(6,000주) @12,990 · 주기 거래량 60,000 × 10% · 매도1호가");
+    expect(body(AS.asAuctionOrder!)).toBe(
+      "동시호가 1회차 매도 840만(1,200주) @7,000 · 예상체결량 6,000 × 20% · 예상체결가 12,500 · 보관 10,000→8,800",
+    );
+  });
+
+  it("자동매도 — kind 12 정정 수량 · 원주문 잔량 qtyAmt(price) · kind 13 매도 누적 qtyAmt", () => {
+    expect(body(AS.asModifyNoNewNo!)).toBe("3885만(3,000주) @12,950 · 원주문 @13,100 잔량 2590만(2,000주)");
+    expect(body(AS.asStateDone!)).toBe("자동매도 매도중 → 완료 · 기준 상한가 13,000 · 매도 누적 7800만(6,000주)");
+  });
+
+  it("누적 꼬리 · 기준 누적 · 체결예상 누적은 숫자 그대로 — 「누적 861,800」", () => {
+    expect(strategyEventParts(D.buy12451!, "log").cum).toBe("누적 861,800");
+    expect(orderLogLineText(D.buy12451!, FIXTURE_STOCK_NAME)).toBe(
+      "[09:45:02.861][12451][선매수] KRX | ○○전자 | 주문 · 조건 매도잔량≤6.2억(50,000주) / 실측 4.7억(38,200주) · 근거 호가(매도1잔량 52,100→38,200) · 상한가 매수잔량 0주 · 371만(300주) @12,350 · 접수 +18ms | 누적 861,800",
+    );
+  });
+});
