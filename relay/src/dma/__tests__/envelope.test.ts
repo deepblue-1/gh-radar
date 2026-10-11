@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as flatbuffers from "flatbuffers";
 import type { OrderMarket, RelayExchange, RelayLimitChaserInput, RelayUserSettingsValues } from "@gh-radar/shared";
-import { USER_SETTINGS_RANGES } from "@gh-radar/shared";
+import { USER_SETTINGS_RANGES, qtyFromAmount } from "@gh-radar/shared";
 
 import { logger } from "../../logger.js";
 import { Envelope } from "../../generated/stock-dma/envelope.js";
@@ -3223,5 +3223,103 @@ describe("Phase 27 요청 조립기 41 · 42 · 43", () => {
       autoSellRatioDefaultPct: { min: 1, max: 50 },
       autoSellMethodDefault: { min: 1, max: 3 },
     });
+  });
+});
+
+describe("P31 SetLimitChaser 금액 8필드 (vtable 158~172 · D-11)", () => {
+  /** 금액 8필드 vtable — 158 buy_watch_amount … 172 cancel_watch_amount(StockDMA.fbs Phase 32 말미 append). */
+  const AMOUNT_VT = [158, 160, 162, 164, 166, 168, 170, 172] as const;
+  /** 8필드에 서로 다른 값 — 값이 겹치면 한 칸 밀린 조립도 통과하는 거짓 green 이 된다(T-16-05 규율). */
+  const AMOUNTS = {
+    buyWatchAmount: 101,
+    buyMinTradeAmount: 102,
+    extraBuyMinAmount: 103,
+    extraBuyMaxAmount: 104,
+    postBuyFloorAmount: 105,
+    sellWatchAmount: 106,
+    sellMinTradeAmount: 107,
+    cancelWatchAmount: 108,
+  } as const;
+
+  function readLc(cfg: LcBuildInput): SetLimitChaser {
+    const env = readBack(buildSetLimitChaserReq(cfg));
+    const t = env.setLimitChaser(new SetLimitChaser());
+    expect(t).not.toBeNull();
+    return t!;
+  }
+
+  function inbound(bytes: Uint8Array) {
+    const parsed = tryParseEnvelope(Buffer.from(bytes));
+    expect(parsed).not.toBeNull();
+    return parsed!;
+  }
+
+  it("P31 8필드 왕복 — 각 슬롯이 실은 값 그대로(생성물 접근자 8개)", () => {
+    const t = readLc(lcInput(AMOUNTS));
+    expect({
+      buyWatchAmount: t.buyWatchAmount(),
+      buyMinTradeAmount: t.buyMinTradeAmount(),
+      extraBuyMinAmount: t.extraBuyMinAmount(),
+      extraBuyMaxAmount: t.extraBuyMaxAmount(),
+      postBuyFloorAmount: t.postBuyFloorAmount(),
+      sellWatchAmount: t.sellWatchAmount(),
+      sellMinTradeAmount: t.sellMinTradeAmount(),
+      cancelWatchAmount: t.cancelWatchAmount(),
+    }).toEqual(AMOUNTS);
+    expect(presentSlots(t, AMOUNT_VT)).toEqual([...AMOUNT_VT]);
+  });
+
+  it("P31 금액 키 없는 cfg(구 탭) — 8개 모두 0 이고 vtable 슬롯 부재(0 은 FlatBuffers 기본값)", () => {
+    const t = readLc(lcInput());
+    expect([
+      t.buyWatchAmount(),
+      t.buyMinTradeAmount(),
+      t.extraBuyMinAmount(),
+      t.extraBuyMaxAmount(),
+      t.postBuyFloorAmount(),
+      t.sellWatchAmount(),
+      t.sellMinTradeAmount(),
+      t.cancelWatchAmount(),
+    ]).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(presentSlots(t, AMOUNT_VT)).toEqual([]);
+  });
+
+  it("P31 짝 픽스처(shared qtyFromAmount) — 금액은 원값 · 주는 산출값 그대로 실린다(relay 는 환산하지 않는다)", () => {
+    const sellWatchQty = qtyFromAmount(1000, 12_870);
+    const t = readLc(lcInput({ sellWatchPrice: 12_870, sellWatchAmount: 1000, sellWatchQty }));
+    expect(t.sellWatchAmount()).toBe(1000);
+    expect(t.sellWatchQty()).toBe(777);
+  });
+
+  it("P31 음수 · 소수 금액은 조립 단계에서 거부된다(uint)", () => {
+    expect(() => buildSetLimitChaserReq(lcInput({ cancelWatchAmount: -1 }))).toThrow();
+    expect(() => buildSetLimitChaserReq(lcInput({ buyWatchAmount: 1.5 }))).toThrow();
+  });
+
+  it("P31 readLimitChaser — 8필드를 싣고 구 에코(슬롯 부재)는 0 (60 · 64 공용)", () => {
+    const absent = parseLimitChaserEcho(inbound(buildSetLimitChaserRespFrame({})).env)!;
+    expect({
+      buyWatchAmount: absent.buyWatchAmount,
+      buyMinTradeAmount: absent.buyMinTradeAmount,
+      extraBuyMinAmount: absent.extraBuyMinAmount,
+      extraBuyMaxAmount: absent.extraBuyMaxAmount,
+      postBuyFloorAmount: absent.postBuyFloorAmount,
+      sellWatchAmount: absent.sellWatchAmount,
+      sellMinTradeAmount: absent.sellMinTradeAmount,
+      cancelWatchAmount: absent.cancelWatchAmount,
+    }).toEqual({
+      buyWatchAmount: 0,
+      buyMinTradeAmount: 0,
+      extraBuyMinAmount: 0,
+      extraBuyMaxAmount: 0,
+      postBuyFloorAmount: 0,
+      sellWatchAmount: 0,
+      sellMinTradeAmount: 0,
+      cancelWatchAmount: 0,
+    });
+    const single = parseLimitChaserEcho(inbound(buildSetLimitChaserRespFrame(AMOUNTS)).env);
+    const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([AMOUNTS])).env);
+    expect(single).toMatchObject(AMOUNTS);
+    expect(list![0]).toMatchObject(AMOUNTS);
   });
 });

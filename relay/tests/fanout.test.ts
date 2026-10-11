@@ -2010,9 +2010,9 @@ describe("WsFanout", () => {
     expect(item.postBuyReentryLeft).toBe(2);
     expect(item.buyWatchSide).toBe("0");
     // 활성 59(+ postBuyAuto · quick-260929-vzy · extraBuyAbandonQty · quick-260930-fi4 · postBuyUnlockQty · quick-261002-fim
-    // · extraBuyBurstRelease · quick-261003-rc4 · 자동매도 8 · Phase 27 · extraBuyAuto · quick-261011-0yb · 금액 1(Phase 31 트레이서))
+    // · extraBuyBurstRelease · quick-261003-rc4 · 자동매도 8 · Phase 27 · extraBuyAuto · quick-261011-0yb · 금액 8(Phase 31 D-11))
     // + key — 봉인된 매수 진입 래치는 없다.
-    expect(Object.keys(item)).toHaveLength(70);
+    expect(Object.keys(item)).toHaveLength(77);
   });
 
   describe("P31 트레이서 — lc.set 금액 → 10 → 60 에코 → lc (D-10 · D-11)", () => {
