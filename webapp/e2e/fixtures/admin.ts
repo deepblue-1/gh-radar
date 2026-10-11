@@ -1,12 +1,16 @@
 import type { Page, Route } from '@playwright/test';
-import type {
-  AdminServerResult,
-  AdminServersOverview,
-  AdminServerView,
-  AdminUsersOverview,
-  AdminUserView,
-  AppRole,
-  DmaBroker,
+import {
+  normalizeAccountNo,
+  normalizeOrderIp,
+  normalizeOrderMac,
+  type AdminPutAccountBody,
+  type AdminServerResult,
+  type AdminServersOverview,
+  type AdminServerView,
+  type AdminUsersOverview,
+  type AdminUserView,
+  type AppRole,
+  type DmaBroker,
 } from '@gh-radar/shared';
 
 /**
@@ -29,6 +33,13 @@ import type {
  * ④ 계좌 주문 서버(29-38 G-1 ⑦) — 의도 계좌는 `orderServer: null`(지정 없음) · `defaultOrderServer` = 그 증권사 기본 주문 서버
  *   (`ADMIN_SERVERS_FIXTURE` 의 `isOrderServer` 와 같은 KB120 · KYOBO119). `PUT …/accounts/:broker/:accountNo/order-server` 는
  *   그 계좌의 active 등록 서버만 받고(아니면 409 `ORDER_SERVER_NOT_REGISTERED`) 상태의 `orderServer` 를 바꾼다.
+ *
+ * ⑤ 주문자 IP/MAC(30-06) — `ADMIN_USERS_FIXTURE_P30` 은 `ADMIN_USERS_FIXTURE` 복제에 KB 계좌별 `orderEndpoints`(서버별 87 값)를
+ *   붙인다: alex 위탁 = 설정 · 일치 · alex 불일치 계좌(KB120 설정 · KB121 미설정) · alex 40자 이름 계좌(미설정 · 폰 backstop) ·
+ *   kim 위탁 = 미설정. `ADMIN_USERS_FIXTURE` 는 그대로다(P29 카드는 「확인 전」 으로 보인다).
+ *   `PUT /dma-users/:dma/accounts` 는 상태 계좌의 이름을 바꾸고, `orderEndpoint` 가 있으면 **shared 정규화(서버 규칙 한 벌 — 규칙 두
+ *   벌 금지)** 로 서버처럼 처리한다 — 둘 다 성공 · 짝이 맞으면 그 계좌 active 등록 서버 전부에 정규화값을 적고 ok, 아니면 상태를
+ *   바꾸지 않고 서버마다 failed code 13 + gh-trade 원문(`ADMIN_CODE13_MESSAGE`). 서버 집합은 바꾸지 않는다(P29 토글은 onRequest 몫).
  */
 
 export const ADMIN_SERVER_KEYS = ['KB120', 'KB121', 'KYOBO119', 'KYOBO127'] as const;
@@ -145,6 +156,79 @@ export const ADMIN_USERS_FIXTURE: AdminUsersOverview = {
   serverOnly: [{ dmaUserId: 'smok95', servers: ['KYOBO119'], accountCount: 1 }],
   servers: REGISTRY,
 };
+
+// ── Phase 30 (30-06) 주문자 IP/MAC ────────────────────────────────────────────────
+
+/** gh-trade code 13 문구 원문(AdminProto.cpp — 30-RESEARCH §Pattern 4). 웹 결과 줄은 이 문장을 그대로 싣는다. */
+export const ADMIN_CODE13_MESSAGE =
+  '주문자 IP/MAC 형식 오류 — IP 는 12자리 숫자 또는 a.b.c.d, MAC 은 12자리 16진, 둘 다 적거나 둘 다 비워야 합니다';
+
+/** 87 정규화값(설정 · 일치 계좌) — 카드는 이 값을 그대로 그린다(재정규화 금지). */
+export const ADMIN_ORDER_IP = '010041001124';
+export const ADMIN_ORDER_MAC = '1CFD087D978E';
+
+/** 불일치 계좌 — KB120 설정 · KB121 미설정(D-10 경고 줄 1개). */
+export const ADMIN_MISMATCH_ACCOUNT = '11122233302';
+/** 40자 계좌명 계좌(UI-SPEC E2 long-text backstop) — 미설정. */
+export const ADMIN_LONG_NAME_ACCOUNT = '11122233303';
+export const ADMIN_LONG_ACCOUNT_NAME = '연금저축 장기투자 배당 성장 혼합 포트폴리오 위탁계좌 분기 리밸런싱 대상';
+
+const UNSET = { orderIp: '', orderMac: '' } as const;
+
+function buildP30Fixture(): AdminUsersOverview {
+  const users = JSON.parse(JSON.stringify(ADMIN_USERS_FIXTURE)) as AdminUsersOverview;
+  const alex = users.users.find((u) => u.email === 'alex@example.invalid')!;
+  const kim = users.users.find((u) => u.email === 'kim.trader@example.invalid')!;
+  const set = { orderIp: ADMIN_ORDER_IP, orderMac: ADMIN_ORDER_MAC };
+
+  // alex 위탁 — 설정 · 일치
+  alex.accounts[0].orderEndpoints = { KB120: { ...set }, KB121: { ...set } };
+  // 교보 — 값은 빈 문자열이어도 화면에 IP/MAC 줄이 없다(D-03 · D-09)
+  alex.accounts[1].orderEndpoints = { KYOBO119: { ...UNSET }, KYOBO127: { ...UNSET } };
+  const kbServers = () => [
+    { serverKey: 'KB120', tone: 'ok' as const, message: null, state: 'active' as const },
+    { serverKey: 'KB121', tone: 'ok' as const, message: null, state: 'active' as const },
+  ];
+  alex.accounts.push(
+    {
+      broker: 'KB',
+      accountNo: ADMIN_MISMATCH_ACCOUNT,
+      name: '단타',
+      branchNo: '00123',
+      traderId: '000456',
+      priority: 3,
+      servers: kbServers(),
+      serverOnlyOn: [],
+      orderServer: null,
+      defaultOrderServer: 'KB120',
+      orderEndpoints: { KB120: { orderIp: '010041001125', orderMac: '1CFD087D978F' }, KB121: { ...UNSET } },
+    },
+    {
+      broker: 'KB',
+      accountNo: ADMIN_LONG_NAME_ACCOUNT,
+      name: ADMIN_LONG_ACCOUNT_NAME,
+      branchNo: '00123',
+      traderId: '000456',
+      priority: 4,
+      servers: kbServers(),
+      serverOnlyOn: [],
+      orderServer: null,
+      defaultOrderServer: 'KB120',
+      orderEndpoints: { KB120: { ...UNSET }, KB121: { ...UNSET } },
+    },
+  );
+  alex.accountCount = alex.accounts.length;
+
+  // kim 위탁 — 등록 서버마다 미설정
+  kim.accounts[0].orderEndpoints = { KB120: { ...UNSET }, KB121: { ...UNSET } };
+  kim.accounts[1].orderEndpoints = { KYOBO119: { ...UNSET } };
+  return users;
+}
+
+/**
+ * P30 픽스처 — `ADMIN_USERS_FIXTURE` 복제 + KB 계좌별 `orderEndpoints`(설정 · 미설정 · 불일치 · 40자 이름). 머리 주석 ⑤.
+ */
+export const ADMIN_USERS_FIXTURE_P30: AdminUsersOverview = buildP30Fixture();
 
 function server(
   key: string,
@@ -338,7 +422,39 @@ export async function mockAdminApi(page: Page, opts: MockAdminApiOptions = {}): 
         return { body: { ok: true, orderServer: key } };
       }
       if (seg[2] === 'accounts' && req.method === 'PUT') {
-        return { body: { results: okResults((body.servers as string[] | undefined) ?? []) } };
+        const put = body as Partial<AdminPutAccountBody>;
+        const putServers = put.servers ?? [];
+        const acct = put.account
+          ? owner?.accounts.find(
+              (a) =>
+                a.broker === put.account!.broker &&
+                normalizeAccountNo(a.accountNo) === normalizeAccountNo(put.account!.accountNo),
+            )
+          : undefined;
+        // ⑤ 주문자 IP/MAC — 서버(gh-trade)처럼 정규화 · 짝 규칙. 실패면 상태를 바꾸지 않고 서버마다 code 13.
+        if (put.orderEndpoint) {
+          const ip = normalizeOrderIp(put.orderEndpoint.orderIp);
+          const mac = normalizeOrderMac(put.orderEndpoint.orderMac);
+          if (ip === null || mac === null || (ip === '') !== (mac === '')) {
+            return {
+              body: {
+                results: putServers.map((s) => ({
+                  server: s,
+                  outcome: 'failed' as const,
+                  code: 13,
+                  message: ADMIN_CODE13_MESSAGE,
+                })),
+              },
+            };
+          }
+          if (acct) {
+            const next = { ...(acct.orderEndpoints ?? {}) };
+            for (const c of acct.servers) if (c.state === 'active') next[c.serverKey] = { orderIp: ip, orderMac: mac };
+            acct.orderEndpoints = next;
+          }
+        }
+        if (acct && put.account) acct.name = put.account.name;
+        return { body: { results: okResults(putServers) } };
       }
       if (
         (seg[2] === 'password' && req.method === 'POST') ||

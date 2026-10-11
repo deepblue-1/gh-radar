@@ -4,9 +4,12 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   isValidAccountNoInput,
   normalizeAccountNo,
+  normalizeOrderIp,
+  normalizeOrderMac,
   REFLECT_LABEL,
   resolveEffectiveOrderServer,
   summarizeOrderEndpoint,
+  validateOrderEndpointInput,
   type AdminAccountInput,
   type AdminAccountView,
   type AdminPutAccountBody,
@@ -74,6 +77,13 @@ import { useFieldSave, type FieldSave } from "./use-field-save";
  * `role="alert"`) 또는 「<서버> 미반영: <사유>」(warn) — 서버 문구는 바꾸거나 대조하지 않는다(IPMAC-03 · D-12). HTTP 오류도 같은 자리.
  * 편집 저장에서 온 결과 칩은 `source: "edit"` 로 표시해 영역 하단 `BusyLines` 에 다시 띄우지 않는다(칩 · title 은 그대로).
  * 이름 저장 성공 뒤 재조회 전의 서버 토글은 새 이름을 싣는다(`editSave.value` — 옛 이름으로 되돌리지 않는다).
+ *
+ * **KB 주문자 IP/MAC 편집(Phase 30 30-05 · D-03 · D-04 · D-05 · D-06 · D-07 · D-10 · UI-SPEC §2-3 · §3).** KB 편집 블록은 계좌명 칸 아래
+ * 「주문자 IP」 · 「MAC 주소」 2열 칸 + 도움말 한 줄(검증 오류가 보이면 그 자리를 오류 줄이 대신), 교보는 칸 대신 「해당 없음」 한 줄.
+ * 초깃값 = 읽기 줄과 같은 출처(유효 주문 서버 87 정규화값). 검증 규칙은 shared `validateOrderEndpointInput` 한 벌(웹에 정규식 없음).
+ * 보내는 값은 입력 원문(trim) — 정규화는 「바뀜 · 변경 없음」 비교에만 쓴다(`editSaveBodyOf`). IP/MAC 은 두 칸이 정규화 비교로 바뀌었거나
+ * 등록 서버 간 불일치(D-10 맞추기)일 때만 싣고, 계좌명만 바뀐 저장에는 싣지 않는다(화면 초깃값이 틀려도 87 값을 덮지 않는다).
+ * 보낼 것이 없으면 요청 없이 편집을 닫고 「변경 없음」 한 줄(다음 「편집」 때 지움).
  */
 
 export const ACCOUNT_EDITOR_TEXT = {
@@ -122,6 +132,27 @@ export const ACCOUNT_EDITOR_TEXT = {
   /** D-10 — 출처 서버와 값이 다른 다른 등록 서버 한 줄. */
   ipmacMismatch: (serverKey: string, m: Pick<OrderEndpointMismatch, "state" | "orderIp" | "orderMac">) =>
     `${serverKey} 값이 달라요(${m.state === "set" ? `IP ${m.orderIp} · MAC ${m.orderMac}` : "미설정"}) — 편집에서 저장하면 등록 서버가 모두 같아져요`,
+  // ── Phase 30 (30-05) 편집칸 — UI-SPEC Copywriting 「그 밖 문구」 정본 ──
+  ipLabel: "주문자 IP",
+  macLabel: "MAC 주소",
+  ipPlaceholder: "10.41.1.124",
+  macPlaceholder: "1C:FD:08:7D:97:8E",
+  /** D-05 도움말 — 검증 오류가 있으면 이 자리를 오류 줄이 대신한다. */
+  ipmacHelp: "같은 서버의 두 계좌가 서로 체결될 수 있으면 계좌마다 서로 다른 사용자 PC 의 IP · MAC 을 적으세요(ipconfig /all).",
+  /** D-03 — 교보 계좌 편집 블록의 IP/MAC 칸 자리. */
+  kyoboIpmacNa: "교보 계좌는 주문자 IP · MAC 해당 없음",
+  ipInvalid: "IP 는 12자리 숫자 또는 10.41.1.124 형식이에요",
+  macInvalid: "MAC 은 12자리 16진이에요(1C:FD:08:7D:97:8E)",
+  pairInvalid: "IP 와 MAC 은 둘 다 적거나 둘 다 비워 주세요",
+  /** D-06 — 정규화 비교로 지금 값과 같아 요청을 보내지 않았다(NOTE · 다음 「편집」 때 지움). */
+  unchanged: "변경 없음",
+} as const;
+
+/** shared 검증 오류 종류 → 편집 블록 오류 줄 문구(규칙은 shared 한 벌 · 문구만 여기). */
+const ORDER_ENDPOINT_ERROR_TEXT = {
+  "ip-format": ACCOUNT_EDITOR_TEXT.ipInvalid,
+  "mac-format": ACCOUNT_EDITOR_TEXT.macInvalid,
+  pair: ACCOUNT_EDITOR_TEXT.pairInvalid,
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -393,7 +424,8 @@ function AccountTitle({
   return (
     <div className="flex items-center gap-2 text-[14px] font-semibold text-[var(--fg)]">
       <span className={BROKER_BADGE}>{brokerLabel(account.broker)}</span>
-      <span className="min-w-0 truncate tabular-nums">{account.accountNo}</span>
+      {/* 계좌번호는 줄지 않는다 — 말줄임은 계좌명만(UI-SPEC E2). 30-06 폰 390 에서 40자 이름이 계좌번호를 「11…」 로 잘랐다. */}
+      <span className="shrink-0 tabular-nums">{account.accountNo}</span>
       {hideName ? null : account.name ? (
         <span className="min-w-0 truncate font-medium text-[var(--muted-fg)]">{account.name}</span>
       ) : noNamePlaceholder ? (
@@ -465,9 +497,46 @@ interface AccountRowProps {
   onRemoveLast: () => void;
 }
 
-/** 편집 모드 입력값(30-05 가 ip · mac 을 더한다). */
+/**
+ * 편집 모드 입력값. `ip` · `mac` 초깃값 = 읽기 줄과 같은 출처(유효 주문 서버 87 정규화값 · D-10) — 미설정 · 확인 전 · 교보는 빈 문자열.
+ * 초안은 입력 원문 그대로 쥔다(보낼 때 trim 만 · 정규화는 비교에만 — D-07).
+ */
 interface EditFields {
   name: string;
+  ip: string;
+  mac: string;
+}
+
+/**
+ * 카드 편집 저장 본문(UI-SPEC §3 「보내는 값」 · D-06 · D-07 · D-10) — `null` = 보낼 것 없음(「변경 없음」).
+ *
+ * - 계좌명은 `trim()` 해서 · 나머지 계좌 필드는 개요 값 · `servers` 는 지금 active 등록 서버 그대로(서버 집합을 바꾸지 않는다).
+ * - IP/MAC 은 KB 이고 (두 칸이 정규화 비교로 초깃값과 다름 || 등록 서버 간 불일치) 일 때만 최상위 `orderEndpoint` 로 싣는다.
+ *   보내는 값은 입력 원문(trim) — 정규화값을 보내지 않는다(D-07 · gh-trade 가 정규화). 두 칸 비움 = 빈 문자열 둘(미설정으로 되돌리기 · D-04).
+ * - 초깃값은 87 정규화값 또는 빈 문자열이라 정규화 비교가 곧 「서버 값과 같음」 이다. 형식 오류 값은 정규화가 null 이라 원문으로 비교한다
+ *   (호출자가 검증 오류면 저장을 막는다).
+ */
+function editSaveBodyOf(input: {
+  account: AdminAccountView;
+  servers: string[];
+  initial: EditFields;
+  draft: EditFields;
+  mismatched: boolean;
+}): AdminPutAccountBody | null {
+  const { account, servers, initial, draft, mismatched } = input;
+  const kb = account.broker === "KB";
+  const ip = draft.ip.trim();
+  const mac = draft.mac.trim();
+  const endpointChanged =
+    kb && ((normalizeOrderIp(ip) ?? ip) !== initial.ip || (normalizeOrderMac(mac) ?? mac) !== initial.mac);
+  const sendEndpoint = kb && (endpointChanged || mismatched);
+  const nameChanged = draft.name.trim() !== initial.name.trim();
+  if (!nameChanged && !sendEndpoint) return null;
+  return {
+    account: { ...accountInputOf(account), name: draft.name.trim() },
+    servers,
+    ...(sendEndpoint ? { orderEndpoint: { orderIp: draft.ip.trim(), orderMac: draft.mac.trim() } } : {}),
+  };
 }
 
 function AccountRow({
@@ -488,6 +557,8 @@ function AccountRow({
   const T = ACCOUNT_EDITOR_TEXT;
   const key = accountKeyOf(account.broker, account.accountNo);
   const nameId = useId();
+  const ipId = useId();
+  const macId = useId();
   const editButtonRef = useRef<HTMLButtonElement>(null);
   // 편집 초깃값 · 초안 — 「편집」 을 누른 순간 고정한다(이후 재조회 props 가 덮지 않는다 · UI-SPEC §5).
   const [draft, setDraft] = useState<{ initial: EditFields; value: EditFields } | null>(null);
@@ -495,6 +566,8 @@ function AccountRow({
   // 저장 결과 줄(서버별) · HTTP 오류 줄 표시 — 입력을 고치거나 「취소」 · 다시 열면 지운다(목업 B `delete MSG`).
   const [editLines, setEditLines] = useState<EditResultLine[]>([]);
   const [editErrorShown, setEditErrorShown] = useState(false);
+  // 「변경 없음」(D-06) — 요청 없이 편집을 닫은 뒤 읽기 카드에 한 줄. 다음 「편집」 을 열 때 지운다.
+  const [editNote, setEditNote] = useState<"unchanged" | null>(null);
   const clearEditResult = () => {
     setEditLines([]);
     setEditErrorShown(false);
@@ -568,13 +641,34 @@ function AccountRow({
   );
 
   const error = order.error ?? toggle.error ?? remove.error;
+  const kb = account.broker === "KB";
+  // D-09 · D-10 — 표시값 · 출처 · 불일치는 shared 판정 한 벌(relay 라우팅과 같은 유효 주문 서버 규칙).
+  const endpoint = kb ? summarizeOrderEndpoint({ account, registry }) : null;
+  const mismatched = endpoint !== null && endpoint.mismatches.length > 0;
+
   const editSaving = editSave.state === "saving";
-  const editChanged = draft !== null && draft.value.name.trim() !== draft.initial.name.trim();
+  // 「바뀜」(저장 버튼 기준 · UI-SPEC §3) = 계좌명 trim · IP/MAC 원문(trim) 이 초깃값과 다름. 점표기로 같은 값을 다시 적어도 「바뀜」.
+  const endpointEdited =
+    kb && draft !== null && (draft.value.ip.trim() !== draft.initial.ip || draft.value.mac.trim() !== draft.initial.mac);
+  const editChanged = draft !== null && (draft.value.name.trim() !== draft.initial.name.trim() || endpointEdited);
+  // 검증은 shared 한 벌(D-04 · 서버 규칙 그대로 · 우선순위 IP → MAC → 짝). 교보는 IP/MAC 이 없어 검증하지 않는다.
+  const validation = kb && draft !== null ? validateOrderEndpointInput({ ip: draft.value.ip, mac: draft.value.mac }) : null;
+  const endpointValid = validation === null || validation.ok;
+  // 오류 줄 · 빨간 테두리는 IP 또는 MAC 이 초깃값과 달라졌을 때만(편집을 열자마자 빨갛게 시작하지 않는다 · E4 empty).
+  const shownInvalid = validation !== null && !validation.ok && endpointEdited ? validation : null;
+  // 「저장」 = 오류 없음 · (바뀜 또는 D-10 불일치 맞추기) · 저장 중 아님.
+  const canSave = draft !== null && !editSaving && endpointValid && (editChanged || mismatched);
 
   const openEdit = () => {
-    const initial: EditFields = { name: account.name };
+    const set = endpoint?.state === "set";
+    const initial: EditFields = {
+      name: account.name,
+      ip: set ? endpoint.orderIp : "",
+      mac: set ? endpoint.orderMac : "",
+    };
     setDraft({ initial, value: initial });
     clearEditResult();
+    setEditNote(null);
     onEditStart();
   };
   const cancelEdit = () => {
@@ -583,15 +677,24 @@ function AccountRow({
     onEditEnd();
   };
   const submitEdit = () => {
-    if (draft === null || !editChanged || editSaving) return;
+    if (draft === null || !canSave) return;
+    // servers = 지금 그리는 active 등록 서버(토글 비행 중이면 그 값) — 서버 집합을 바꾸지 않는다.
+    const body = editSaveBodyOf({ account, servers: intent, initial: draft.initial, draft: draft.value, mismatched });
+    if (body === null) {
+      // D-06 — 정규화 비교로 지금 값과 같고 D-10 불일치도 없다: 요청 없이 닫고 「변경 없음」.
+      clearEditResult();
+      setEditNote("unchanged");
+      onEditEnd();
+      return;
+    }
     setEditLines([]);
     setEditErrorShown(true);
-    // servers = 지금 그리는 active 등록 서버(토글 비행 중이면 그 값) — 서버 집합을 바꾸지 않는다. orderEndpoint 는 싣지 않는다.
-    editSave.run({ account: { ...accountInputOf(account), name: draft.value.name.trim() }, servers: intent });
+    editSave.run(body);
   };
-  const kb = account.broker === "KB";
-  // D-09 · D-10 — 표시값 · 출처 · 불일치는 shared 판정 한 벌(relay 라우팅과 같은 유효 주문 서버 규칙).
-  const endpoint = kb ? summarizeOrderEndpoint({ account, registry }) : null;
+  const setDraftField = (field: keyof EditFields, v: string) => {
+    setDraft((d) => (d ? { ...d, value: { ...d.value, [field]: v } } : d));
+    clearEditResult();
+  };
 
   return (
     <div
@@ -657,12 +760,64 @@ function AccountRow({
             placeholder={T.namePlaceholder}
             readOnly={editSaving}
             value={draft.value.name}
-            onChange={(e) => {
-              const name = e.target.value;
-              setDraft((d) => (d ? { ...d, value: { ...d.value, name } } : d));
-              clearEditResult();
-            }}
+            onChange={(e) => setDraftField("name", e.target.value)}
           />
+          {kb ? (
+            <>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <div className="min-w-0">
+                  <label htmlFor={ipId} className="mb-1 block text-[12px] text-[var(--muted-fg)]">
+                    {T.ipLabel}
+                  </label>
+                  <Input
+                    id={ipId}
+                    size="sm"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder={T.ipPlaceholder}
+                    readOnly={editSaving}
+                    aria-invalid={shownInvalid?.field === "ip" || undefined}
+                    className="tabular-nums"
+                    value={draft.value.ip}
+                    onChange={(e) => setDraftField("ip", e.target.value)}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <label htmlFor={macId} className="mb-1 block text-[12px] text-[var(--muted-fg)]">
+                    {T.macLabel}
+                  </label>
+                  <Input
+                    id={macId}
+                    size="sm"
+                    autoComplete="off"
+                    spellCheck={false}
+                    autoCapitalize="characters"
+                    placeholder={T.macPlaceholder}
+                    readOnly={editSaving}
+                    aria-invalid={shownInvalid?.field === "mac" || undefined}
+                    className="tabular-nums"
+                    value={draft.value.mac}
+                    onChange={(e) => setDraftField("mac", e.target.value)}
+                  />
+                </div>
+              </div>
+              {/* 도움말 자리 — 검증 오류가 보이면 오류 줄이 대신한다(둘이 동시에 나오지 않는다). 입력마다 바뀌는 줄이라 role=alert 없음. */}
+              {shownInvalid ? (
+                <p data-slot="admin-account-edit-invalid" className={EDIT_ERROR_LINE}>
+                  {ORDER_ENDPOINT_ERROR_TEXT[shownInvalid.error]}
+                </p>
+              ) : (
+                <p data-slot="admin-account-edit-help" className={NOTE}>
+                  {T.ipmacHelp}
+                </p>
+              )}
+            </>
+          ) : (
+            <p data-slot="admin-account-edit-na" className={NOTE}>
+              {T.kyoboIpmacNa}
+            </p>
+          )}
           {endpoint && <OrderEndpointMismatchLines summary={endpoint} />}
           <div className="mt-2.5 flex justify-end gap-1.5">
             <Button
@@ -680,7 +835,7 @@ function AccountRow({
               type="submit"
               size="sm"
               aria-label={`${account.broker} ${account.accountNo} ${T.editSave}`}
-              disabled={!editChanged || editSaving}
+              disabled={!canSave}
               className={cn(ADMIN_BUTTON_PRIMARY, ACCOUNT_BUTTON)}
             >
               {T.save}
@@ -704,12 +859,19 @@ function AccountRow({
           )}
         </form>
       ) : (
-        endpoint && (
-          <>
-            <OrderEndpointLine summary={endpoint} />
-            <OrderEndpointMismatchLines summary={endpoint} />
-          </>
-        )
+        <>
+          {endpoint && (
+            <>
+              <OrderEndpointLine summary={endpoint} />
+              <OrderEndpointMismatchLines summary={endpoint} />
+            </>
+          )}
+          {editNote === "unchanged" && (
+            <p data-slot="admin-account-edit-result" data-tone="note" className={NOTE}>
+              {T.unchanged}
+            </p>
+          )}
+        </>
       )}
       <div className="mt-2.5 flex flex-wrap gap-1.5">
         {shown.map((serverKey) => {
