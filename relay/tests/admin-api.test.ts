@@ -44,7 +44,7 @@
  *
  * 잠그는 것 (Phase 30 30-03 — GET /order-endpoints · D-09):
  *   E1  켜진 서버마다 87 캐시의 모든 계좌 { dmaUserId, accountNo, orderIp, orderMac } — 87 정규화값 그대로 · 미설정 ""
- *   E2  꺼진 서버 · 파이프라인 없는 서버 · 87 미수신(재접속 중) 서버는 키 없음(= 「확인 전」)
+ *   E2  꺼진 서버 · 파이프라인 없는 서버 · 87 미수신(재접속 중) 서버 · 교보 서버(30 IN-04)는 키 없음(= 「확인 전」)
  *   E3  X-Relay-Secret 없음 → 401(관문)
  *   E4  44 0건(op 5 포함 — 메모리 읽기만) · 로그 인자에 IP/MAC 원문 없음
  */
@@ -157,6 +157,8 @@ type HarnessOptions = {
   staleStrategies?: () => ReadonlyMap<string, number>;
   /** 계좌 주문 서버 지정 재적재 결과(29-37). 기본 = 성공 `{ ok: true }`. */
   orderServersReload?: () => Promise<{ ok: boolean }>;
+  /** KYOBO119 에도 admin 연결(대역 87)을 세운다(30 IN-04). 기본 = KB120 · KB121 만. */
+  kyoboAdmin?: boolean;
 };
 
 async function startHarness(opts: HarnessOptions = {}): Promise<Harness> {
@@ -170,14 +172,14 @@ async function startHarness(opts: HarnessOptions = {}): Promise<Harness> {
   const gateways: Record<string, FakeGateway> = {};
   const states: Record<string, FakeAdminState> = {};
   const conns: Record<string, AdminConn> = {};
-  for (const key of ["KB120", "KB121"]) {
+  for (const key of ["KB120", "KB121", ...(opts.kyoboAdmin ? ["KYOBO119"] : [])]) {
     const gw = await startFakeGateway({ autoLogin: false, autoAccount: false });
     const state = stateWithOther();
-    gw.respondAdminLogin({});
+    gw.respondAdminLogin(key.startsWith("KYOBO") ? { broker: "KYOBO" } : {});
     gw.onAdminCommand(defaultAdminHandler(state));
     const conn = new AdminConn({
       serverKey: key,
-      broker: "KB",
+      broker: key.startsWith("KYOBO") ? "KYOBO" : "KB",
       secret: OBSERVER_SECRET,
       host: "127.0.0.1",
       port: gw.port,
@@ -1596,6 +1598,21 @@ describe("P30 GET /order-endpoints (D-09)", () => {
 
     const body = (await (await call(h, "GET", PATH)).json()) as { servers: Record<string, unknown> };
     expect(Object.keys(body.servers)).toEqual(["KB120"]);
+  });
+
+  it("(30 IN-04) 교보 서버는 87 을 받았어도 키가 없다 — 그리지 않는 증권사의 PC 식별 정보를 relay 밖으로 내보내지 않는다", async () => {
+    h = await startHarness({ kyoboAdmin: true });
+    const kyobo = h.states.KYOBO119!.users.get("other")![0]!;
+    kyobo.orderIp = IP;
+    kyobo.orderMac = MAC;
+    await h.conns.KYOBO119!.command({ op: 5, userId: "" });
+    expect(h.conns.KYOBO119!.currentSnapshot()).not.toBeNull();
+
+    const res = await call(h, "GET", PATH);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { servers: Record<string, unknown> };
+    expect(Object.keys(body.servers)).toEqual(["KB120", "KB121"]);
+    expect(stringify(body)).not.toContain(IP);
   });
 
   it("E3 X-Relay-Secret 없음 → 401(관문)", async () => {

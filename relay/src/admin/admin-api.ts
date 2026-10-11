@@ -667,10 +667,12 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
   });
 
   // ── 계좌별 주문자 IP/MAC (Phase 30 · D-09 — relay 메모리 87 캐시 읽기만 · 44 · 감사 · 로그 없음) ─────────────────────
+  // KB 서버만(30 IN-04) — 주문자 IP/MAC 은 KB 계좌에만 그린다(교보 = 「해당 없음」 · D-03). 값이 사용자 PC 식별 정보라 그리지 않는
+  // 증권사 서버의 87 값은 relay 밖으로 내보내지 않는다. 교보 서버는 키 자체가 없다(개요에서 교보 계좌 orderEndpoints 는 전부 null).
   router.get("/order-endpoints", (_req, res) => {
     const servers: AdminOrderEndpointsRaw["servers"] = {};
     for (const row of deps.registry.all()) {
-      if (!row.enabled) continue;
+      if (!row.enabled || row.broker !== "KB") continue;
       // null/undefined = 그 서버 87 을 모른다(파이프라인 없음 · 재접속 중) → 키를 두지 않는다(「확인 전」).
       const snapshot = deps.pipelines.get(row.key)?.admin.currentSnapshot();
       if (snapshot == null) continue;
