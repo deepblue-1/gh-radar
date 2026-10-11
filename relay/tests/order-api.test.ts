@@ -63,6 +63,8 @@ type StartOptions = {
   accountOrderServers?: () => Array<{ serverKey: string; accounts: number; health: JournalHealth | undefined }>;
   /** 끄지 못한 전략 서버별 계좌 수 스텁 (Phase 29-43 (가)). 요청마다 부른다. */
   staleStrategies?: () => ReadonlyMap<string, number>;
+  /** 레지스트리 꺼진 서버 술어 스텁 (Phase 29-55 GC-13). 생략하면 주입하지 않는다(종전). */
+  serverDisabled?: (serverKey: string) => boolean;
 };
 
 /** VPN 이 서 있는 VM 의 실측 인터페이스 (2026-09-06 radar-gw). */
@@ -131,6 +133,7 @@ async function start(opts: StartOptions = {}): Promise<Harness> {
         }
       : {}),
     ...(opts.staleStrategies !== undefined ? { staleStrategies: opts.staleStrategies } : {}),
+    ...(opts.serverDisabled !== undefined ? { serverDisabled: opts.serverDisabled } : {}),
   });
   const server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
@@ -1103,5 +1106,61 @@ describe("Phase 29-43 accountOrderServers — 계좌 지정 서버 · 끄지 못
     const { status, body } = await get();
     expect(status).toBe(503);
     expect(body.accountOrderServers).toEqual({ KB121: { accounts: 1, alerting: false, staleAccounts: 0 } });
+  });
+
+  // ── 29-55 GC-13 — 레지스트리 꺼진 서버로의 지정 · 끄지 못한 전략은 경보가 아니다(지정은 남지만 그 계좌는 기본 서버로 간다) ──
+  it("GC-13: 꺼진 서버 지정(KB121 · 지정 3 · 파이프라인 없음) → { accounts: 3, alerting: false, staleAccounts: 0, disabled: true } · 켜진 서버 항목은 disabled 키 없음 · 200", async () => {
+    h = await start({
+      journal: journal("live", null),
+      now: IN_WINDOW,
+      accountOrderServers: () => [
+        { serverKey: "KB121", accounts: 3, health: undefined },
+        { serverKey: "KYOBO127", accounts: 1, health: undefined },
+      ],
+      serverDisabled: (k) => k === "KB121",
+    });
+    const { status, body } = await get();
+    expect(status).toBe(200);
+    const aos = body.accountOrderServers as Record<string, Record<string, unknown>>;
+    expect(aos.KB121).toEqual({ accounts: 3, alerting: false, staleAccounts: 0, disabled: true });
+    expect(aos.KYOBO127).toEqual({ accounts: 1, alerting: true, staleAccounts: 0 });
+    expect("disabled" in aos.KYOBO127).toBe(false);
+  });
+
+  it("GC-13: 꺼진 서버에 끄지 못한 전략만 2 → { accounts: 0, alerting: false, staleAccounts: 2, disabled: true } · 지정 · 끄지 못한 계좌가 함께여도 한 항목 disabled", async () => {
+    h = await start({
+      journal: journal("live", null),
+      now: IN_WINDOW,
+      accountOrderServers: () => [{ serverKey: "KB122", accounts: 1, health: undefined }],
+      staleStrategies: () => new Map([["KB121", 2], ["KB122", 1]]),
+      serverDisabled: (k) => k === "KB121" || k === "KB122",
+    });
+    const { status, body } = await get();
+    expect(status).toBe(200);
+    expect(body.accountOrderServers).toEqual({
+      KB121: { accounts: 0, alerting: false, staleAccounts: 2, disabled: true },
+      KB122: { accounts: 1, alerting: false, staleAccounts: 1, disabled: true },
+    });
+  });
+
+  it("GC-13: serverDisabled 미주입 → 종전(파이프라인 없음 = alerting true · disabled 키 없음) · 주입했어도 지정 0 · 레지스터 빈 → 최상위 키 없음", async () => {
+    h = await start({
+      journal: journal("live", null),
+      now: IN_WINDOW,
+      accountOrderServers: () => [{ serverKey: "KB121", accounts: 3, health: undefined }],
+    });
+    const legacy = await get();
+    const aos = legacy.body.accountOrderServers as Record<string, Record<string, unknown>>;
+    expect(aos).toEqual({ KB121: { accounts: 3, alerting: true, staleAccounts: 0 } });
+    expect("disabled" in aos.KB121).toBe(false);
+    await h.close();
+    h = await start({
+      journal: journal("live", null),
+      now: IN_WINDOW,
+      accountOrderServers: () => [],
+      staleStrategies: () => new Map(),
+      serverDisabled: () => true,
+    });
+    expect("accountOrderServers" in (await get()).body).toBe(false);
   });
 });
