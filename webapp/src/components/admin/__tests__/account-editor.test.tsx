@@ -852,3 +852,145 @@ describe('P30 편집 모드 — 계좌명 저장 (D-01 · D-02 · IPMAC-05)', ()
     expect(within(add).queryByRole('textbox', { name: /주문자 IP|MAC/ })).toBeNull();
   });
 });
+
+describe('P30 저장 결과 — 서버 문구 원문 · 중복 없음 (D-06 · IPMAC-03)', () => {
+  /** gh-trade 86 code 13 BAD_ORDER_ENDPOINT 원문(인박스 261010) — 웹은 이 문장을 바꾸거나 대조하지 않는다(D-12). */
+  const GH_TRADE_C13 =
+    '주문자 IP/MAC 형식 오류 — IP 는 12자리 숫자 또는 a.b.c.d, MAC 은 12자리 16진, 둘 다 적거나 둘 다 비워야 합니다';
+  const EDIT = 'KB 12345678901 편집';
+  const SAVE = 'KB 12345678901 편집 저장';
+  const CANCEL = 'KB 12345678901 편집 취소';
+  const btn = (name: string) => screen.getByRole('button', { name });
+  const nameInput = () => within(acctRow('12345678901')).getByRole('textbox', { name: '계좌명' }) as HTMLInputElement;
+  const resultLines = () => [...acctRow('12345678901').querySelectorAll('[data-slot="admin-account-edit-result"]')];
+  const editAndSave = (name = '위탁종합') => {
+    fireEvent.click(btn(EDIT));
+    fireEvent.change(nameInput(), { target: { value: name } });
+    fireEvent.click(btn(SAVE));
+  };
+
+  function mount(accounts: AdminAccountView[] = [withEp(KB_TWO, { KB120: EP_A, KB121: EP_A }), KYOBO_ACCT]) {
+    const onChanged = vi.fn();
+    render(<AccountEditor dmaUserId="kimtr" accounts={accounts} servers={SERVERS} onChanged={onChanged} onRemoveLast={vi.fn()} />);
+    return { onChanged };
+  }
+
+  it('[KB120 ok · KB121 failed code 13] → 편집 · 입력 유지 · 결과 줄 role=alert 「KB121 실패: <원문>」 · 칩 반영됨/title 원문 · BusyLines 에 같은 문구 없음', async () => {
+    putDmaAccountMock.mockResolvedValue({
+      results: [
+        { server: 'KB120', outcome: 'ok' },
+        { server: 'KB121', outcome: 'failed', code: 13, message: GH_TRADE_C13 },
+      ],
+    });
+    const { onChanged } = mount();
+    editAndSave();
+    await waitFor(() => expect(resultLines()).toHaveLength(1));
+    expect(acctRow('12345678901')).toHaveAttribute('data-editing', 'true');
+    expect(nameInput()).toHaveValue('위탁종합');
+    const line = resultLines()[0] as HTMLElement;
+    expect(line.textContent).toBe(`KB121 실패: ${GH_TRADE_C13}`);
+    expect(line).toHaveAttribute('role', 'alert');
+    expect(line.className).toContain('text-[12px]');
+    expect(line.className).toContain('text-[var(--destructive)]');
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    const ok = pill('12345678901', 'KB120').querySelector('[data-slot="reflect-chip"]') as HTMLElement;
+    const bad = pill('12345678901', 'KB121').querySelector('[data-slot="reflect-chip"]') as HTMLElement;
+    expect(ok).toHaveTextContent('반영됨');
+    expect(bad).toHaveAttribute('data-tone', 'err');
+    expect(bad).toHaveAttribute('title', GH_TRADE_C13);
+    const busy = [...document.querySelectorAll('[data-slot="admin-busy-line"]')].filter((l) =>
+      (l.textContent ?? '').includes(GH_TRADE_C13),
+    );
+    expect(busy).toHaveLength(0);
+    // 결과 줄은 동작 줄 바로 아래(편집 블록 안)
+    expect((document.querySelector('[data-slot="admin-account-edit"]') as HTMLElement).contains(line)).toBe(true);
+  });
+
+  it.each([
+    [{ server: 'KB120', outcome: 'timeout' }, 'KB120 실패: 응답 없음', 'err'],
+    [{ server: 'KB120', outcome: 'offline' }, 'KB120 미반영: 서버 연결 안 됨', 'warn'],
+    [{ server: 'KB120', outcome: 'skipped', message: SKIPPED_REASON }, `KB120 미반영: ${SKIPPED_REASON}`, 'warn'],
+  ] as const)('결과 %o → 결과 줄 「%s」(%s) · 편집 유지', async (result, text, tone) => {
+    putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB121', outcome: 'ok' }, result] });
+    mount();
+    editAndSave();
+    await waitFor(() => expect(resultLines()).toHaveLength(1));
+    const line = resultLines()[0] as HTMLElement;
+    expect(line.textContent).toBe(text);
+    if (tone === 'err') {
+      expect(line).toHaveAttribute('role', 'alert');
+      expect(line.className).toContain('text-[var(--destructive)]');
+    } else {
+      expect(line).not.toHaveAttribute('role');
+      expect(line.className).toContain('text-[var(--led-latent)]');
+    }
+    expect(acctRow('12345678901')).toHaveAttribute('data-editing', 'true');
+    // 같은 사유가 영역 하단 BusyLines 에 다시 뜨지 않는다
+    expect(document.querySelectorAll('[data-slot="admin-busy-line"]')).toHaveLength(0);
+  });
+
+  it('HTTP 오류(502) → 편집 블록에 role=alert 「저장하지 못했어요 · X」 · 편집 · 입력 유지 · 카드 하단 오류 줄에는 없다', async () => {
+    putDmaAccountMock.mockRejectedValue(new ApiClientError({ code: 'RELAY_FAILED', message: 'relay 에 닿지 못했어요', status: 502 }));
+    const { onChanged } = mount();
+    editAndSave();
+    await waitFor(() => expect(resultLines()).toHaveLength(1));
+    const line = resultLines()[0] as HTMLElement;
+    expect(line.textContent).toBe('저장하지 못했어요 · relay 에 닿지 못했어요');
+    expect(line).toHaveAttribute('role', 'alert');
+    expect(acctRow('12345678901')).toHaveAttribute('data-editing', 'true');
+    expect(nameInput()).toHaveValue('위탁종합');
+    expect(acctRow('12345678901').querySelector('[data-slot="admin-account-error"]')).toBeNull();
+    expect(onChanged).not.toHaveBeenCalled();
+    // 다시 저장할 수 있다(바뀐 값 그대로)
+    expect(btn(SAVE)).not.toBeDisabled();
+  });
+
+  it('실패 줄이 있을 때 계좌명을 한 글자 바꾸면 결과 줄 · HTTP 오류 줄이 사라진다', async () => {
+    putDmaAccountMock.mockResolvedValueOnce({
+      results: [
+        { server: 'KB120', outcome: 'ok' },
+        { server: 'KB121', outcome: 'failed', code: 13, message: GH_TRADE_C13 },
+      ],
+    });
+    putDmaAccountMock.mockRejectedValueOnce(new ApiClientError({ code: 'RELAY_FAILED', message: 'X', status: 502 }));
+    mount();
+    editAndSave();
+    await waitFor(() => expect(resultLines()).toHaveLength(1));
+    fireEvent.change(nameInput(), { target: { value: '위탁종합1' } });
+    expect(resultLines()).toHaveLength(0);
+    fireEvent.click(btn(SAVE));
+    await waitFor(() => expect(resultLines().map((l) => l.textContent)).toEqual(['저장하지 못했어요 · X']));
+    fireEvent.change(nameInput(), { target: { value: '위탁종합2' } });
+    expect(resultLines()).toHaveLength(0);
+  });
+
+  it('「취소」 → 결과 줄 지움 · 다음 「편집」 을 열면 결과 줄 없음', async () => {
+    putDmaAccountMock.mockResolvedValue({
+      results: [
+        { server: 'KB120', outcome: 'ok' },
+        { server: 'KB121', outcome: 'failed', code: 13, message: GH_TRADE_C13 },
+      ],
+    });
+    mount();
+    editAndSave();
+    await waitFor(() => expect(resultLines()).toHaveLength(1));
+    fireEvent.click(btn(CANCEL));
+    expect(resultLines()).toHaveLength(0);
+    fireEvent.click(btn(EDIT));
+    expect(resultLines()).toHaveLength(0);
+    expect(nameInput()).toHaveValue('위탁');
+  });
+
+  it('(Pitfall 4) 계좌명 저장 성공 직후 · 재조회 전 서버 토글 → 토글 PUT 의 account.name 은 새 이름', async () => {
+    putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }] });
+    mount([withEp(KB_ACCT, { KB120: EP_A }), KYOBO_ACCT]);
+    editAndSave('위탁종합');
+    await waitFor(() => expect(acctRow('12345678901')).not.toHaveAttribute('data-editing'));
+    fireEvent.click(toggle('12345678901', 'KB121'));
+    expect(putDmaAccountMock).toHaveBeenCalledTimes(2);
+    const second = putDmaAccountMock.mock.calls[1][1] as { account: { name: string }; servers: string[] };
+    expect(second.account.name).toBe('위탁종합');
+    expect(second.servers).toEqual(['KB120', 'KB121']);
+    await act(async () => {});
+  });
+});
