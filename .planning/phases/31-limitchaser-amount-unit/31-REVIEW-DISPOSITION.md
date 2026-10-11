@@ -5,11 +5,11 @@ titles: json
 findings:
   - id: WR-01
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "구 탭 `lc.set`(금액 8필드 부재)을 relay가 금액 0으로 조립해 서버에 저장된 C# 만원 원값을 지운다"
   - id: WR-02
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "두 줄 행 아래 줄 · 시트 환산 안내가 비교가 0 갈래에서 에코 메모를 무시한다 — 제출 주와 다른 글자를 보인다"
   - id: IN-01
     severity: info
@@ -31,17 +31,17 @@ findings:
     severity: info
     disposition: open
     title: "두 줄 행 · 시트 안내는 렌더 `form`으로, 잠금 검증은 서버 동기값으로 계산해 비행 중에 갈릴 수 있다"
-open: 7
+open: 5
 total: 7
-recorded: 2026-10-11T23:17:37.941Z
+recorded: 2026-10-11T23:53:53.043Z
 ---
 
 # Phase 31: Code Review Disposition
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| WR-01 | warning | open | - |
-| WR-02 | warning | open | - |
+| WR-01 | warning | fixed | 31-REVIEW-FIX.md |
+| WR-02 | warning | fixed | 31-REVIEW-FIX.md |
 | IN-01 | info | open | - |
 | IN-02 | info | open | - |
 | IN-03 | info | open | - |
