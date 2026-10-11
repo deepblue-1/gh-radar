@@ -33,7 +33,7 @@ import { Envelope } from "../src/generated/stock-dma/envelope.js";
 import { STALE_STRATEGY_RETRY_MS, WS_CLOSE_ORDER_SERVER_CHANGED, WsFanout } from "../src/ws/fanout.js";
 import { SubscriptionHub } from "../src/hub/subscription-hub.js";
 import type { SymbolInfo, SymbolLookup } from "../src/store/symbols.js";
-import { readDisableStrategiesKey, startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
+import { readDisableStrategiesKey, readViSetRequest, startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
 import {
   SAMPLE_ISIN,
   buildAccountStateFrame,
@@ -1201,5 +1201,91 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     await waitFor(() => orderAccounts("KB121", r121).length === 1, "KB121 스텁 DirectOrderReq(B)");
     expect(orderAccounts("KB121", r121)).toEqual([B]);
     expect(orderAccounts("KB120", r120)).toEqual([]);
+  });
+
+  it("⑲ GC-04 — 같은 세션 두 sweep 은 직렬: 백스톱이 KB120 [X=A] sweep 을 시작한 같은 틱에 sweepMoved 가 KB120 [Y=C] 를 요청 → 두 번째 sweep 의 첫 24 는 첫 sweep 의 마지막 21(재조회 NXT) 뒤(끼어들기 0) · X 의 11(NXT · run:false) 1 · Y 의 11(KRX) 1 · 레지스터 0", async () => {
+    await captureLogs();
+    // X = A(KB121 지정 · 두 서버 매핑 — 백스톱 대상 KB120:A) · Y = C(매핑 밖 — sweepMoved 로만 KB120 에서 끈다).
+    mappings.get("KB121")?.set(D1, new Set([A]));
+    chosenRows = [{ dma_user_id: D1, broker: "KB", account_no: A, server_key: "KB121" }];
+    kb120.respondLimitChaserList([on(SAMPLE_ISIN, A), on(ISIN2, B)]);
+    kb120.respondViTriggerFor("NXT", { accountNo: A, run: true, orderAmountKrw: 1_000_000n, checkRate: 25 });
+    kb120.respondViTriggerFor("KRX", { accountNo: C, run: true, orderAmountKrw: 2_000_000n, checkRate: 30 });
+    const results: StrategySweepResult[] = [];
+    const targets: string[] = [];
+    let kicked = false;
+    let fromSweep = -1;
+    let ref: Awaited<ReturnType<typeof harness>> | null = null;
+    const h = await harness({
+      tracker: true,
+      wrapSweeper: (real) => ({
+        sweep: async (target, creds) => {
+          const label = `${target.serverKey}:${target.accountNos.join(",")}`;
+          targets.push(label);
+          if (label === `KB120:${A}` && !kicked) {
+            kicked = true;
+            // hub Ready 프리페치(24 · 21 · 21)가 끝난 뒤를 기준점으로 — 그 뒤 KB120 이 받는 조회 · 끄기는 sweep 몫뿐이다.
+            await waitFor(
+              () => count("KB120", MSG.GetLimitChaserListReq) >= 1 && count("KB120", MSG.GetVITriggerReq) >= 2,
+              "KB120 hub 프리페치",
+            );
+            await flushIo(10);
+            fromSweep = events.length;
+            // 같은 틱 — 백스톱 sweep 시작과 함께 sweepMoved 가 같은 (u1, KB120) 레인에 Y 를 요청한다.
+            void ref?.fanout.sweepMoved(
+              [{ dmaUserId: D1, broker: "KB", accountNo: C, from: "KB120", to: "KB121" }],
+              "gc04-test",
+            );
+          }
+          const res = await real.sweep(target, creds);
+          results.push(res);
+          return res;
+        },
+      }),
+    });
+    ref = h;
+
+    const tab = await h.open("token-1");
+    await readyTab(h, tab, U1, 2, "u1 ready(A · B)");
+    await waitFor(() => results.length === 2, "두 sweep 완료");
+    await flushIo(20);
+    expect(targets).toEqual([`KB120:${A}`, `KB120:${C}`]);
+    expect(results).toEqual([expect.objectContaining({ ok: true }), expect.objectContaining({ ok: true })]);
+
+    // KB120 이 받은 조회 · 끄기 순서 — 첫 sweep 한 벌이 끝난 뒤에야 두 번째 sweep 의 24 가 온다.
+    const t = (n: number) => `KB120:${n}`;
+    const seq = events.slice(fromSweep).filter((e) => e.startsWith("KB120:") && SWEEP_TYPES.has(Number(e.slice(6))));
+    const first = [
+      t(MSG.GetLimitChaserListReq),
+      t(MSG.GetVITriggerReq),
+      t(MSG.GetVITriggerReq),
+      t(MSG.DisableStrategiesReq),
+      t(MSG.SetVITriggerReq),
+      t(MSG.GetLimitChaserListReq),
+      t(MSG.GetVITriggerReq),
+      t(MSG.GetVITriggerReq),
+    ];
+    const second = [
+      t(MSG.GetLimitChaserListReq),
+      t(MSG.GetVITriggerReq),
+      t(MSG.GetVITriggerReq),
+      t(MSG.SetVITriggerReq),
+      t(MSG.GetLimitChaserListReq),
+      t(MSG.GetVITriggerReq),
+      t(MSG.GetVITriggerReq),
+    ];
+    expect(seq).toEqual([...first, ...second]);
+
+    const sets = (rx.get("KB120") ?? [])
+      .filter((r) => r.msgType === MSG.SetVITriggerReq)
+      .map((r) => readViSetRequest(r.msgType, r.payload));
+    expect(sets.map((v) => [v?.accountNo, v?.exchange, v?.run])).toEqual([
+      [A, "NXT", false],
+      [C, "KRX", false],
+    ]);
+    expect(kb120.viTriggerSlot("NXT")).toMatchObject({ accountNo: A, run: false });
+    expect(kb120.viTriggerSlot("KRX")).toMatchObject({ accountNo: C, run: false });
+    expect(h.register.all()).toEqual([]);
+    expect(tab.ws.closeInfo).toBeNull();
   });
 });

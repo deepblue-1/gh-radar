@@ -27,7 +27,11 @@ import {
   startFakeGateway,
   type FakeGateway,
 } from "./helpers/fake-gateway.js";
-import type { FakeLimitChaserInput } from "./helpers/frames.js";
+import {
+  buildDisableStrategiesRespFrame,
+  buildSetLimitChaserRespFrame,
+  type FakeLimitChaserInput,
+} from "./helpers/frames.js";
 
 const CREDS: DmaCredentials = { dmaUserId: "dma-sweep-login-id", password: "p@ss-절대노출금지" };
 const U1 = "3f1c2b7a-9d40-4a11-8e55-0000000000c1";
@@ -513,6 +517,52 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
     expect(mine).toHaveLength(1);
     expect(Object.keys(mine[0]?.[0] as object).sort()).toEqual(["reason", "remaining", "serverKey"]);
     expect(mine[0]?.[0]).toEqual({ serverKey: "KB120", reason: "remaining", remaining: 1 });
+  });
+
+  it("GC-04 (29-45) — 14 확인은 그 키의 60 에코와 짝: 남의 65 만 오고 그 키 에코가 없으면 다음 키로 넘어가지 않는다 → 단계 시한 timeout · 14 1건", async () => {
+    await readySessionOf(U1);
+    gw.respondLimitChaserList([on(ISIN1, A), on(ISIN2, A)]);
+    // 서버는 14 를 기록만 하고(에코 · 65 없음), 다른 갈래의 65 하나가 그 자리에 온다.
+    gw.handleDisableStrategies(null);
+    gw.onFrame((msgType, _payload, sock) => {
+      if (msgType === MSG.DisableStrategiesReq) {
+        gw.sendFrame(sock, buildDisableStrategiesRespFrame({ disabledCount: 0, viDisabled: false }));
+      }
+    });
+
+    const result = await sweeper({ stepTimeoutMs: 200 }).sweep(
+      { userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] },
+      CREDS,
+    );
+
+    expect(result).toMatchObject({ ok: false, reason: "timeout", remaining: 2, disabledLimitChasers: 0 });
+    expect(disabledKeys()).toEqual([expect.any(String)]);
+  });
+
+  it("GC-04 (29-45) — 남의 65 가 그 키 에코보다 먼저 와도 그 키 에코 → 65 를 받고서야 다음 키로 · ok 2", async () => {
+    await readySessionOf(U1);
+    let list: FakeLimitChaserInput[] = [on(ISIN1, A), on(ISIN2, A)];
+    gw.respondLimitChaserList(list);
+    gw.handleDisableStrategies(null);
+    gw.onFrame((msgType, payload, sock) => {
+      if (msgType !== MSG.DisableStrategiesReq) return;
+      const key = readDisableStrategiesKey(msgType, Buffer.from(payload));
+      gw.sendFrame(sock, buildDisableStrategiesRespFrame({ disabledCount: 0, viDisabled: false })); // 남의 65 먼저
+      list = list.map((c) => (keyOf(c.isin ?? "", c.accountNo ?? "") === key ? off(c.isin ?? "", c.accountNo ?? "") : c));
+      gw.respondLimitChaserList(list);
+      const echoed = list.find((c) => keyOf(c.isin ?? "", c.accountNo ?? "") === key);
+      if (echoed !== undefined) gw.sendFrame(sock, buildSetLimitChaserRespFrame(echoed));
+      gw.sendFrame(sock, buildDisableStrategiesRespFrame({ disabledCount: 1, viDisabled: false }));
+    });
+
+    const result = await sweeper({ stepTimeoutMs: 200 }).sweep(
+      { userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] },
+      CREDS,
+    );
+
+    expect(result).toMatchObject({ ok: true, disabledLimitChasers: 2 });
+    expect(disabledKeys().sort()).toEqual([keyOf(ISIN1, A), keyOf(ISIN2, A)].sort());
+    expect(activeOf(A)).toBe(0);
   });
 
   it("isActiveLimitChaser — 5스위치 OR autoSellState !== 0", () => {
