@@ -43,6 +43,12 @@
  * `dispatcher.reconcileUser` 의 override 로만 쓰여 그 계좌의 active 등록 서버 전부 op 3 에 원문 그대로 실린다. 감사 줄에는 값
  * 대신 `orderEndpoint: "set" | "clear"`(두 칸 모두 빈 문자열 = clear) 플래그만.
  *
+ * 주문자 IP/MAC 읽기 `GET /order-endpoints`(Phase 30 · 30-03 · D-09 · D-10) — relay 메모리 87 캐시의 서버별 계좌 IP/MAC.
+ * DB 에는 열이 없다. 켜진 서버마다 그 서버 admin 연결의 `currentSnapshot()` 전 계좌를 `{ dmaUserId, accountNo, orderIp, orderMac }`
+ * (87 정규화값 그대로 · 미설정 `""`)로 → 200 `AdminOrderEndpointsRaw`. 꺼진 서버 · 파이프라인 없는 서버 · 87 미수신 서버는 키가
+ * 없다(= 「확인 전」). 44 를 보내지 않는다(메모리 읽기만) · 감사 · 로그 줄 없음(사용자 PC 식별 정보). 신선도 = 접속 · relay 변경 ·
+ * op 1/3 직전 op 5 때(relay 밖 변경은 다음 갱신까지 옛 값 — 표시만 늦고 쓰기는 늘 새 87).
+ *
  * 비밀번호(D-19 · Phase 15 D-19): 평문은 이 요청 메모리 안에서만 산다 — `encryptDmaPassword(plain, dmaUserId, credKey)` 로
  * 암호화한 값만 RPC 로 가고, op 1 은 같은 요청의 평문을 44 에 싣는다. 응답 · 로그에는 어디에도 없다.
  */
@@ -53,6 +59,7 @@ import {
   maskDmaUserId,
   normalizeAccountNo,
   SERVER_KEY_RE,
+  type AdminOrderEndpointsRaw,
   type AdminServerLiveStatus,
   type AdminServerResult,
 } from "@gh-radar/shared";
@@ -65,6 +72,7 @@ import type { DmaServerRow } from "../registry/registry.js";
 import type { QuoteSwitchResult } from "../quote/quote-switch.js";
 import { ADMIN_REQUEST_DEADLINE_MS, type AdminDispatcher } from "./dispatcher.js";
 import { IntentError, type AdminIntentStore } from "./intent-store.js";
+import type { AdminUsersSnapshot } from "./types.js";
 
 // ============================================================
 // 의존성
@@ -80,9 +88,14 @@ export type AdminApiDeps = {
   registry: { all(): DmaServerRow[]; reload(): Promise<{ ok: boolean; changed: boolean }> };
   /** 웹 사용자 접근 맵 즉시 재적재(D-04 — 회수 사용자는 `revoked` 이벤트 → fanout 결선이 끊는다). `AppAccess` 가 만족한다. */
   access: { reload(): Promise<{ ok: boolean; revoked: string[] }> };
-  /** 서버 키 → 파이프라인(admin 연결 · 저널 상태). `ServerPipelines` 가 만족한다. */
+  /** 서버 키 → 파이프라인(admin 연결 · 저널 상태 · 87 캐시). `ServerPipelines` 가 만족한다. */
   pipelines: {
-    get(key: string): { admin: { health(): { state: string } }; status: { health(nowMs: number): { state: string } } } | undefined;
+    get(key: string):
+      | {
+          admin: { health(): { state: string }; currentSnapshot(): AdminUsersSnapshot | null };
+          status: { health(nowMs: number): { state: string } };
+        }
+      | undefined;
   };
   /** `DMA_CRED_KEY` — relay 에만 있다(D-19). */
   credKey: string;
@@ -651,6 +664,27 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
       servers[row.key] = { conn, journal, admin, quote, staleAccounts };
     }
     res.status(200).json({ servers });
+  });
+
+  // ── 계좌별 주문자 IP/MAC (Phase 30 · D-09 — relay 메모리 87 캐시 읽기만 · 44 · 감사 · 로그 없음) ─────────────────────
+  router.get("/order-endpoints", (_req, res) => {
+    const servers: AdminOrderEndpointsRaw["servers"] = {};
+    for (const row of deps.registry.all()) {
+      if (!row.enabled) continue;
+      // null/undefined = 그 서버 87 을 모른다(파이프라인 없음 · 재접속 중) → 키를 두지 않는다(「확인 전」).
+      const snapshot = deps.pipelines.get(row.key)?.admin.currentSnapshot();
+      if (snapshot == null) continue;
+      servers[row.key] = snapshot.users.flatMap((u) =>
+        u.accounts.map((a) => ({
+          dmaUserId: u.userId,
+          accountNo: a.accountNo,
+          orderIp: a.orderIp ?? "",
+          orderMac: a.orderMac ?? "",
+        })),
+      );
+    }
+    const body: AdminOrderEndpointsRaw = { servers };
+    res.status(200).json(body);
   });
 
   // IntentError · ZodError → RelayApiError. 나머지는 order-api errorHandler 가 500 으로 끝낸다(S-1).
