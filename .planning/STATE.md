@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 30
 current_phase_name: 인박스 KB 계좌별 주문자 IP/MAC
 status: executing
-stopped_at: Completed 30-01-PLAN.md
-last_updated: "2026-10-11T06:13:10.372Z"
+stopped_at: Completed 30-02-PLAN.md
+last_updated: "2026-10-11T06:20:18.113Z"
 last_activity: 2026-10-11
 last_activity_desc: Phase 30 execution started
-state_head: 4a50d6b33d2f163cc0b7ef46b0f9bc96c760bef7
+state_head: 12ec20713875be80998845e78353064f3dc36d7c
 progress:
   total_phases: 2
   completed_phases: 0
   total_plans: 7
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-11 after v1.1 milestone start)
 ## Current Position
 
 Phase: 30 (인박스 KB 계좌별 주문자 IP/MAC) — EXECUTING
-Plan: 2 of 7
+Plan: 3 of 7
 Status: Ready to execute
 Last activity: 2026-10-11 — Phase 30 execution started
 
@@ -78,8 +78,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-11T06:13:10.355Z
-Stopped at: Completed 30-01-PLAN.md
+Last session: 2026-10-11T06:20:18.095Z
+Stopped at: Completed 30-02-PLAN.md
 Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 
 ## Operator Next Steps
@@ -92,9 +92,13 @@ Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 30 P01 | 7 min | 3 tasks | 8 files |
+| Phase 30 P02 | 5 min | 3 tasks | 6 files |
 
 ## Decisions
 
 - [Phase 30]: 30-01: PUT body 최상위 orderEndpoint(KB 만 · 구조/길이만 · 형식 검사 없음 · DB 미저장) → relay reconcileUser override → 등록 서버 전부 op 3
 - [Phase 30]: 30-01: op 1(계좌)·op 3 직전 op 5 재조회 · 재조회 실패면 그 서버 44 0건(fail closed) — R3-01 해제
 - [Phase 30]: 30-01: R3-02 폴백 — 의도/override > 이 유저 87 > 같은 87 다른 유저 IP/MAC > 빈 문자열, 다른 유저에 op 없음(D-11)
+- [Phase 30]: [30-02] sameValues 는 의도 IP/MAC 이 정규화에 성공하면 정규화값, 실패하면 원문으로 87 과 비교 — gh-trade op 3 멱등과 같아 code 13 경로 유지(의도 필드 없으면 비교 제외 · GC-02)
+- [Phase 30]: [30-02] orderEndpoints 는 의도 계좌의 active 등록 서버 전부에 채운다(증권사 무관) · null = 87 모름/계좌 없음 · 87 전용 {} — KB 만 그리는 판단은 화면 몫
+- [Phase 30]: [30-02] summarizeOrderEndpoint 출처 = resolveEffectiveOrderServer(웹 OrderServerControl 과 같은 입력) ?? 레지스트리 순 첫 active · 값 모르면 값 아는 첫 서버 · 불일치는 값 아는 다른 등록 서버(꺼진 서버 포함)
