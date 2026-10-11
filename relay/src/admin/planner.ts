@@ -114,6 +114,13 @@ export function planServerOps(input: PlanServerOpsInput): ServerPlan {
   // R3-02(Phase 30 · D-16) — 같은 87 의 **다른 유저**가 IP/MAC 과 함께 가진 계좌(87 순 · 같은 키는 앞의 것). 이 유저 87 에 없는
   // 계좌를 추가할 때(op 1 첫 계좌 · op 3) 그 값을 되싣는다 — gh-trade code 7 은 다른 사용자의 같은 계좌에 IP/MAC 도 같기를 요구한다.
   // 읽기만 한다 — 다른 유저에게는 op 를 만들지 않는다(D-11).
+  // 고르는 규칙(30 IN-03 · 의도된 tie-break): 두 칸이 다 빈(미설정) 다른 유저는 건너뛰고, IP 나 MAC 이 있는 **87 파일 순 첫 유저**의
+  // 값을 쓴다. 정상 서버에서는 gh-trade 가 code 7 · D-18 전파로 같은 계좌의 IP/MAC 을 한 값으로 묶어 두므로 누구를 골라도 같다 —
+  // 이 규칙이 갈리는 것은 묶이기 전의 레거시 불일치 서버(A 미설정 · B 설정)뿐이다. 그때 설정값을 고르는 이유: 빈 값을 실으면 새
+  // 계좌가 「미설정(서버 NIC 값)」 으로 들어가 사용자 PC 식별을 잃는다(설정값 쪽이 덜 잃는다). 어느 값을 골라도
+  // 일관된 답이 없는 데이터라 그 뒤(code 7 거부든 D-18 전파든)는 gh-trade 판정에 맡긴다. 설정값끼리 서로 다르면 파일 순 첫 값이다. 다른 유저끼리 갈린
+  // 경우를 따로 경고하지 않는다 — 어느 값을 골라도 일관되지 않은 데이터이고, 값은 로그에 싣지 않는다(PC 식별 정보). 운영자가
+  // 고칠 길은 이 계좌 카드에서 IP/MAC 을 명시 저장하는 것(override 쌍이 이 값보다 이긴다 — 아래 우선순위).
   const otherByNo = new Map<string, AdminAccountFields>();
   for (const u of input.snapshot.users) {
     if (u.userId === input.dmaUserId) continue;
