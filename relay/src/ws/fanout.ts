@@ -58,8 +58,9 @@
  *        (3) 브라우저 자동 재접속(1~3초) · 인증이 새 규칙으로 세션을 다시 열고, 새 세션마다 hub `ready` → 25(account_no "") → 66
  *            스냅샷으로 계좌 상태를 다시 맞춘다(gh-trade-84 ③ — 공백 동안의 51 · 67 은 저널 seq 재생으로 회수).
  *      같은 사용자의 변경이 연달아 오면 사용자별 직렬 체인(`#resyncChain`)이 뒤 변경을 앞 재수립이 끝난 뒤 그때의 서명으로 다시
- *      판정한다 — 진행 중 sweep 의 세션을 뒤 변경이 닫지 않는다. 미체결은 건드리지 않는다(정리는 사용자 몫 — gh-trade-84 ② 추가).
- *      어떤 경로로도 「주문 서버 바뀜」 표식 프레임을 보내지 않는다
+ *      판정한다 — 진행 중 sweep 의 세션을 뒤 변경이 닫지 않는다. 다른 갈래(백스톱 · 재시도 · sweepMoved)의 진행 중 sweep 도 기다린다
+ *      (GC-01 · 29-45 `#userSweepsSettled` — 그 반납이 재접속의 새 세션 참조계수를 깎지 않게). 미체결은 건드리지 않는다(정리는
+ *      사용자 몫 — gh-trade-84 ② 추가). 어떤 경로로도 「주문 서버 바뀜」 표식 프레임을 보내지 않는다
  *  11. G-1 (가) 보강 — 연결 유무 · 재시작 · 재시도 (Phase 29-44 · gh-trade-84 ②(가) 「세션은 연결 0 이어도 전략이 남아 옛 서버가 실주문을
  *      낼 수 있다」). 10 은 연결 중 사용자만 본다. 세 갈래를 더한다 — 셋 다 같은 `sweeper.sweep` · 같은 레지스터 · 같은 상태 프레임이다:
  *        (a) `sweepMoved(moves)` — index 의 `EffectiveOwnerTracker` 가 지정 · 레지스트리 · 87 변경마다 전 사용자 유효 주문 서버를 diff 해
@@ -481,6 +482,12 @@ export const WS_CLOSE_ORDER_SERVER_CHANGED = 1012;
  * 상태 프레임 재송신. sweep 전체 시한(20초 · 29-43)보다 길어 한 틱의 sweep 이 다음 틱과 겹치지 않는다(겹쳐도 진행 중 키는 건너뛴다).
  */
 export const STALE_STRATEGY_RETRY_MS = 60_000;
+
+/**
+ * 재수립 전 그 사용자의 진행 중 sweep 을 다시 모으는 최대 바퀴 (29-45 GC-01 · `#userSweepsSettled`). 기다리는 사이 다른 갈래가 새 sweep 을
+ * 붙일 수 있어 한 번으로 끝내지 않는다 — 바퀴를 넘기면 warn 1줄로 재수립을 진행한다.
+ */
+const USER_SWEEP_SETTLE_ROUNDS = 3;
 
 /** sweep 진행 중 · 확인 기록 키 (29-44) — (사용자, 서버, 계좌). 레지스터 키와 같은 모양이다. */
 function sweepKey(userId: string, serverKey: string, accountNo: string): string {
@@ -1233,9 +1240,32 @@ export class WsFanout {
         }
       }
     }
+    // GC-01(29-45) — 그 사용자의 다른 갈래(로그인 백스톱 · 60초 재시도 · sweepMoved) 진행 중 sweep 이 세션을 쥐고 있으면 끝날 때까지
+    // 기다린다. 그 sweep 의 반납이 재접속이 만든 새 세션을 건드리지 않게 하는 1차 방어(2차는 sweeper 의 객체 반납). 끝나기만 기다린다 —
+    // 실패해도 재수립은 진행한다(fail closed 규율).
+    await this.#userSweepsSettled(userId);
     // 상태 프레임 계좌 `movedFrom` — 이번 재수립의 옮겨짐으로 교체한다(옮겨지지 않은 계좌는 지운다).
     this.#movedFrom.set(userId, { accounts: new Map(moves.map((m) => [m.accountNo, m.from])), sessions: null });
     this.resyncUser(userId, reason);
+  }
+
+  /**
+   * 그 사용자의 진행 중 sweep 이 전부 끝날 때까지 (Phase 29-45 GC-01). 기다리는 사이 새로 붙은 sweep 이 있으면 다시 모은다 — 최대
+   * `USER_SWEEP_SETTLE_ROUNDS` 바퀴, 넘으면 warn 1줄(userId · 수만)로 그대로 진행한다(재수립을 무기한 막지 않는다). 거부하지 않는다.
+   */
+  async #userSweepsSettled(userId: string): Promise<void> {
+    const prefix = `${userId}|`;
+    for (let round = 0; round < USER_SWEEP_SETTLE_ROUNDS; round += 1) {
+      const running = new Set<Promise<void>>();
+      for (const [key, run] of this.#sweepInFlight) if (key.startsWith(prefix)) running.add(run);
+      if (running.size === 0) return;
+      await Promise.allSettled(running);
+    }
+    let left = 0;
+    for (const key of this.#sweepInFlight.keys()) if (key.startsWith(prefix)) left += 1;
+    if (left > 0) {
+      logger.warn({ userId, sweeps: left }, "[WS] 진행 중 sweep 이 계속 생김 — 재수립 진행");
+    }
   }
 
   /** 서버 하나에서 끄기 (29-36). 결과를 레지스터에 반영한다 — 예외도 미확인(send-failed · 수 모름)으로 접는다. */

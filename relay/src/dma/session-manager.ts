@@ -37,6 +37,8 @@
  *   `ownerOf` 로 만든 소유 술어를 받아 **유효 주문 서버가 자기 서버인 계좌만** 허용한다(`DmaSession.allowedAccounts` — 같은
  *   계좌가 두 서버에 등록돼 있어도 주문 · 프레임은 한 세션에서만). 증권사 경로 `acquireFor(userId, broker, creds)` 는 그 증권사
  *   주문 서버(`#target(broker)`)를 골라 `acquireOn` 에 위임할 뿐이다(29-42 — 색인 · 재사용 규율의 사본 없음).
+ *   GC-01(29-45) — 키 반납(`release(userId, serverKey)`)은 브라우저 close 경로 전용이다(그 경로는 재수립이 연결의 쥔 서버 목록을
+ *   비워 막는다). 옛 서버 끄기(sweeper)는 얻은 **세션 객체**로 반납한다(`releaseSession` — 엔트리가 다른 객체면 무시).
  *
  * 하지 않는 것:
  *   - 자격증명을 조회·복호화하지 않는다. 호출자(15-04 wss 인증)가 이미 푼 값을 넘긴다.
@@ -361,7 +363,16 @@ export class SessionManager {
    * 1줄로 무시하고 false — 늦게 끝난 반납이 새 엔트리의 참조계수를 깎지 않는다.
    */
   releaseSession(userId: string, session: DmaSession): boolean {
-    this.release(userId, session.serverKey);
+    const serverKey = session.serverKey;
+    const entry = this.#sessions.get(sessionKey(userId, serverKey));
+    if (entry === undefined || entry.session !== session) {
+      logger.info(
+        { userId, serverKey, entry: entry === undefined ? "none" : "other" },
+        "[DMA] 다른 세션 엔트리 — 반납 무시 (재수립 뒤 늦은 반납 — 새 엔트리를 깎지 않는다)",
+      );
+      return false;
+    }
+    this.release(userId, serverKey);
     return true;
   }
 
