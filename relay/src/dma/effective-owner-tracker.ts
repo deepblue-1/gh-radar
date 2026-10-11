@@ -14,6 +14,11 @@
  *     아니면 undefined(29-33 fail closed — 지정 서버가 아직 계좌를 모르면 아무 세션도 그 계좌를 소유하지 않는다).
  *   - `refresh()` 는 직전 스냅샷과 견주어 **두 스냅샷 모두에 있는 계좌** 중 소유 서버가 바뀐 것만 낸다. 매핑에서 사라진 계좌 ·
  *     새로 보인 계좌는 옮겨짐이 아니다(87 축소 · 확장 — 29-36 「선언 목록에서 빠진 계좌는 옮겨짐이 아니다」 와 같은 규율).
+ *   - (29-50 GC-08) 계좌마다 **마지막으로 정의된 소유 서버**를 기억한다(`#lastOwner`). (없음)을 거쳐 다른 서버에 정착하면
+ *     `from = 마지막 정의 소유 서버` 다 — 지정 서버 X 에서 등록을 빼는 순서(87 → 지정 재적재)는 X → (없음) → Y 두 단계이고, 첫
+ *     단계 move(X → 없음)는 그때 유효 서버가 아직 X 라 소비자(`sweepMoved` — 「지금 유효 = from」 은 끄지 않음)가 건너뛴다.
+ *     그 X → 없음 move 가 실제로 끄는 경우(그때 유효 서버가 이미 X 가 아님)에는 기억을 소비한다 — 같은 X 를 두 번 내지 않는다.
+ *     X 로 돌아오면 from = X = to 라 move 가 아니다. 모든 매핑에서 사라진 계좌의 기억은 지운다(무한 성장 없음).
  *   - 첫 `refresh()` 는 기준선만 잡는다(0). 지정 첫 적재 전(`ready()` false)에는 기준선을 잡지 않는다 — 미적재 사본(지정 없음)을
  *     기준선으로 삼으면 첫 적재가 「지정된 계좌 전부 기본 서버 → 지정 서버」 로 보여 부팅마다 대량 sweep 이 난다.
  *   - `snapshotOf(dmaUserId)` 는 그 유저의 **지금 값**을 계산해 돌려준다(기준선 불변) — 로그인 백스톱 · 재시도의 「지금 누가 주문
@@ -67,6 +72,8 @@ export class EffectiveOwnerTracker {
   readonly #deps: EffectiveOwnerTrackerDeps;
   /** 기준선 — 마지막 `refresh` 의 전 사용자 스냅샷. 첫 기준선 전 null. */
   #snap: Map<string, UserSnapshot> | null = null;
+  /** DMA 유저 → 계좌 키 → 마지막으로 정의된 소유 서버(29-50 GC-08). 기준선과 같은 시점에 잡고 `refresh` 마다 교체한다. */
+  #lastOwner = new Map<string, Map<string, string>>();
 
   constructor(deps: EffectiveOwnerTrackerDeps) {
     this.#deps = deps;
@@ -85,18 +92,29 @@ export class EffectiveOwnerTracker {
       if (snap.size > 0) next.set(dma, snap);
     }
     const prev = this.#snap;
+    const lastBefore = this.#lastOwner;
     this.#snap = next;
-    if (prev === null) return [];
+    if (prev === null) {
+      this.#lastOwner = rememberOwners(next, lastBefore, new Set());
+      return [];
+    }
     const moves: OwnerMove[] = [];
+    /** 이번 move 가 옛 서버를 실제로 끄는(지금 유효 ≠ from) 소유자 없음 이동 — 그 기억을 소비한다. */
+    const consumed = new Set<string>();
     for (const [dma, before] of prev) {
       const after = next.get(dma);
       if (after === undefined) continue;
       for (const [key, p] of before) {
         const n = after.get(key);
         if (n === undefined || n.owner === p.owner) continue;
-        moves.push({ dmaUserId: dma, broker: p.broker, accountNo: p.accountNo, from: p.owner, to: n.owner });
+        // (없음)을 거쳐 정착 — from 은 마지막 정의 소유 서버(GC-08). 그 서버로 돌아왔으면 옮겨짐이 아니다.
+        const from = p.owner ?? lastBefore.get(dma)?.get(key);
+        if (from === n.owner) continue;
+        moves.push({ dmaUserId: dma, broker: p.broker, accountNo: p.accountNo, from, to: n.owner });
+        if (n.owner === undefined && n.effective !== from) consumed.add(`${dma}\n${key}`);
       }
     }
+    this.#lastOwner = rememberOwners(next, lastBefore, consumed);
     return moves;
   }
 
@@ -125,4 +143,27 @@ export class EffectiveOwnerTracker {
     }
     return out;
   }
+}
+
+/**
+ * 새 스냅샷의 마지막 정의 소유 서버 기억 (29-50 GC-08). 소유 서버가 정의된 계좌는 그 값으로 덮고, 소유자 없음이면 직전 기억을
+ * 잇는다(단 이번 move 가 그 기억 서버를 실제로 끄면 — `consumed` — 버린다). 새 스냅샷에 없는 계좌(모든 매핑에서 사라짐)는 담지
+ * 않는다 — 그대로 지워진다.
+ */
+function rememberOwners(
+  next: ReadonlyMap<string, UserSnapshot>,
+  lastBefore: ReadonlyMap<string, ReadonlyMap<string, string>>,
+  consumed: ReadonlySet<string>,
+): Map<string, Map<string, string>> {
+  const out = new Map<string, Map<string, string>>();
+  for (const [dma, snap] of next) {
+    const prev = lastBefore.get(dma);
+    const m = new Map<string, string>();
+    for (const [key, e] of snap) {
+      const owner = e.owner ?? (consumed.has(`${dma}\n${key}`) ? undefined : prev?.get(key));
+      if (owner !== undefined) m.set(key, owner);
+    }
+    if (m.size > 0) out.set(dma, m);
+  }
+  return out;
 }
