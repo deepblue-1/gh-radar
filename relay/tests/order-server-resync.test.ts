@@ -39,6 +39,7 @@ import {
   buildAccountStateFrame,
   buildLimitChaserListRespFrame,
   buildLoginRespFrame,
+  buildSetVITriggerRespFrame,
   type FakeAccount,
   type FakeLimitChaserInput,
 } from "./helpers/frames.js";
@@ -789,9 +790,9 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
   /** sweep 결과를 모으는 래퍼(실 sweeper 그대로). */
   function recording(results: StrategySweepResult[], targets: string[]) {
     return (real: StrategySweeper): Pick<StrategySweeper, "sweep"> => ({
-      sweep: async (target, creds) => {
+      sweep: async (target, creds, opts) => {
         targets.push(`${target.serverKey}:${target.accountNos.join(",")}`);
-        const res = await real.sweep(target, creds);
+        const res = await real.sweep(target, creds, opts);
         results.push(res);
         return res;
       },
@@ -1122,7 +1123,7 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     const h = await harness({
       tracker: true,
       wrapSweeper: (real) => ({
-        sweep: async (target, creds) => {
+        sweep: async (target, creds, opts) => {
           const label = `${target.serverKey}:${target.accountNos.join(",")}`;
           targets.push(label);
           if (target.serverKey === "KB121" && !holding) {
@@ -1132,14 +1133,14 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
             await flushIo(10);
             kb121.silenceQuery(MSG.GetLimitChaserListReq);
             const from = count("KB121", MSG.GetLimitChaserListReq);
-            const run = real.sweep(target, creds);
+            const run = real.sweep(target, creds, opts);
             await waitFor(() => count("KB121", MSG.GetLimitChaserListReq) > from, "sweeper 24 (쥠)");
             held = true;
             const res = await run;
             done.push(label);
             return res;
           }
-          const res = await real.sweep(target, creds);
+          const res = await real.sweep(target, creds, opts);
           done.push(label);
           return res;
         },
@@ -1219,7 +1220,7 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     const h = await harness({
       tracker: true,
       wrapSweeper: (real) => ({
-        sweep: async (target, creds) => {
+        sweep: async (target, creds, opts) => {
           const label = `${target.serverKey}:${target.accountNos.join(",")}`;
           targets.push(label);
           if (label === `KB120:${A}` && !kicked) {
@@ -1237,7 +1238,7 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
               "gc04-test",
             );
           }
-          const res = await real.sweep(target, creds);
+          const res = await real.sweep(target, creds, opts);
           results.push(res);
           return res;
         },
@@ -1287,5 +1288,65 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     expect(kb120.viTriggerSlot("KRX")).toMatchObject({ accountNo: C, run: false });
     expect(h.register.all()).toEqual([]);
     expect(tab.ws.closeInfo).toBeNull();
+  });
+
+  it("⑳ GC-14 — 연결 없는 u1 의 A 를 KB121 로 지정 → KB120 sweep 이 24 · 21 · 21 을 읽는 사이(21 NXT 쥠) 지정 해제(유효 KB120) → 풀면 KB120 14(A) 0 · 11 0 · skippedAccounts [A] · 레지스터 (u1, KB120, A) 없음 · 확인 기록 없음(다시 옮기면 다시 끈다) · info 1줄(수 · 서버 키만)", async () => {
+    const logs = await captureLogs();
+    kb120.respondLimitChaserList([on(SAMPLE_ISIN, A), on(ISIN2, B)]);
+    kb120.respondViTriggerFor("NXT", "silent");
+    const results: StrategySweepResult[] = [];
+    const targets: string[] = [];
+    const h = await harness({ tracker: true, wrapSweeper: recording(results, targets) });
+    const from120 = mark("KB120");
+
+    chosenRows = [{ dma_user_id: D1, broker: "KB", account_no: A, server_key: "KB121" }];
+    await h.loader.reload();
+    // 임시 세션 sweep 이 24 · 21(KRX) · 21(NXT) 를 보냈고 NXT 답을 기다린다(쥠).
+    await waitFor(
+      () => count("KB120", MSG.GetLimitChaserListReq, from120) === 1 && count("KB120", MSG.GetVITriggerReq, from120) === 2,
+      "KB120 sweep 조회 쥠",
+    );
+    await flushIo(10);
+    expect(targets).toEqual([`KB120:${A}`]);
+
+    // 지정 해제 — A 의 유효 서버가 다시 KB120. sweepMoved 는 되돌아옴 해제(KB120) · 이제 옛 서버인 KB121 [A] 를 끈다.
+    chosenRows = [];
+    await h.loader.reload();
+    await flushIo(20);
+
+    // 쥔 21(NXT)의 답(빈 61)을 보낸다 → sweep 이 14 · 11 직전에 stillStale 을 묻는다.
+    kb120.respondViTriggerFor("NXT", null);
+    const sock = kb120.sockets[0];
+    expect(sock).toBeDefined();
+    if (sock !== undefined) kb120.sendFrame(sock, buildSetVITriggerRespFrame(null));
+    await waitFor(() => results.length === 2, "KB120 · KB121 sweep 완료");
+    await flushIo(10);
+
+    // 결과는 끝난 순서다 — KB121 [A](되돌아옴 뒤 옛 서버)는 건너뛸 계좌가 없고, 쥐었던 KB120 [A] 만 A 를 건너뛴다.
+    expect(targets).toEqual([`KB120:${A}`, `KB121:${A}`]);
+    expect(results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ ok: true, skippedAccounts: [A] }),
+        expect.objectContaining({ ok: true, skippedAccounts: [] }),
+      ]),
+    );
+    expect(count("KB120", MSG.DisableStrategiesReq, from120)).toBe(0);
+    expect(count("KB120", MSG.SetVITriggerReq, from120)).toBe(0);
+    expect(kb120.limitChaserSeed().filter((c) => c.buyEnabled).map((c) => c.accountNo)).toEqual([A, B]);
+    expect(h.register.all().filter((e) => e.serverKey === "KB120")).toEqual([]);
+    const lines = logs.infos.filter((c) => msgOf(c).includes("GC-14"));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.[0]).toEqual(expect.objectContaining({ serverKey: "KB120", skipped: 1 }));
+    for (const secret of [A, B, D1]) expect(JSON.stringify(lines)).not.toContain(secret);
+
+    // 확인 기록 없음 — 다시 KB121 로 옮기면 KB120 의 A 를 다시 판정해 끈다.
+    const again120 = mark("KB120");
+    chosenRows = [{ dma_user_id: D1, broker: "KB", account_no: A, server_key: "KB121" }];
+    await h.loader.reload();
+    await waitFor(() => results.length === 3, "다시 옮김 → KB120 sweep");
+    await flushIo(10);
+    expect(targets[2]).toBe(`KB120:${A}`);
+    expect(results[2]).toEqual(expect.objectContaining({ ok: true, skippedAccounts: [] }));
+    expect(disabledKeys("KB120", again120)).toEqual([keyOf(SAMPLE_ISIN, A)]);
   });
 });

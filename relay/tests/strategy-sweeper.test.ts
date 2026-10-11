@@ -181,7 +181,7 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
       CREDS,
     );
 
-    expect(result).toEqual({ ok: true, disabledLimitChasers: 2, viDisabled: 1, sessionCreated: false });
+    expect(result).toEqual({ ok: true, disabledLimitChasers: 2, viDisabled: 1, sessionCreated: false, skippedAccounts: [] });
     // 스텁 수신 순서: 24 → 21(KRX) → 21(NXT) → 14 × 2 → 11 × 1 → 24 · 21(KRX) · 21(NXT).
     expect(sweepTypes()).toEqual([
       MSG.GetLimitChaserListReq,
@@ -217,7 +217,7 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
 
     const result = await sweeper().sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS);
 
-    expect(result).toEqual({ ok: true, disabledLimitChasers: 0, viDisabled: 1, sessionCreated: false });
+    expect(result).toEqual({ ok: true, disabledLimitChasers: 0, viDisabled: 1, sessionCreated: false, skippedAccounts: [] });
     expect(viSets()).toEqual([
       { accountNo: A, orderAmountKrw: 2_000_000, checkRate: 15, priceType: "U", run: false, exchange: "NXT" },
     ]);
@@ -234,7 +234,7 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
 
     const result = await sweeper().sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS);
 
-    expect(result).toEqual({ ok: true, disabledLimitChasers: 0, viDisabled: 2, sessionCreated: false });
+    expect(result).toEqual({ ok: true, disabledLimitChasers: 0, viDisabled: 2, sessionCreated: false, skippedAccounts: [] });
     expect(viSets()).toEqual([
       { accountNo: A, orderAmountKrw: 1_000_000, checkRate: 25, priceType: "U", run: false, exchange: "KRX" },
       { accountNo: A, orderAmountKrw: 4_000_000, checkRate: 10, priceType: "U", run: false, exchange: "NXT" },
@@ -251,7 +251,7 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
 
     const result = await sweeper().sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS);
 
-    expect(result).toEqual({ ok: true, disabledLimitChasers: 1, viDisabled: 0, sessionCreated: false });
+    expect(result).toEqual({ ok: true, disabledLimitChasers: 1, viDisabled: 0, sessionCreated: false, skippedAccounts: [] });
     expect(viSets()).toHaveLength(0);
     expect(gw.viTriggerSlot("KRX")).toMatchObject({ accountNo: B, run: true });
     expect(gw.viTriggerSlot("NXT")).toMatchObject({ accountNo: B, run: true });
@@ -263,7 +263,7 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
 
     const result = await sweeper().sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS);
 
-    expect(result).toEqual({ ok: true, disabledLimitChasers: 1, viDisabled: 0, sessionCreated: false });
+    expect(result).toEqual({ ok: true, disabledLimitChasers: 1, viDisabled: 0, sessionCreated: false, skippedAccounts: [] });
     expect(disabledKeys()).toEqual([keyOf(ISIN1, A)]);
     expect(gw.limitChaserSeed()[0]?.autoSellState).toBe(0);
   });
@@ -274,7 +274,7 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
 
     const result = await sweeper().sweep({ userId: U2, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS);
 
-    expect(result).toEqual({ ok: true, disabledLimitChasers: 1, viDisabled: 0, sessionCreated: true });
+    expect(result).toEqual({ ok: true, disabledLimitChasers: 1, viDisabled: 0, sessionCreated: true, skippedAccounts: [] });
     expect(received.filter((r) => r.msgType === MSG.LoginReq)).toHaveLength(1);
     expect(sweepTypes()).toEqual([
       MSG.GetLimitChaserListReq,
@@ -297,7 +297,7 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
 
     const result = await sweeper().sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS);
 
-    expect(result).toEqual({ ok: true, disabledLimitChasers: 0, viDisabled: 0, sessionCreated: false });
+    expect(result).toEqual({ ok: true, disabledLimitChasers: 0, viDisabled: 0, sessionCreated: false, skippedAccounts: [] });
     expect(sweepTypes()).toEqual([
       MSG.GetLimitChaserListReq,
       MSG.GetVITriggerReq,
@@ -320,7 +320,7 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
       CREDS,
     );
 
-    expect(result).toEqual({ ok: true, disabledLimitChasers: 2, viDisabled: 1, sessionCreated: false });
+    expect(result).toEqual({ ok: true, disabledLimitChasers: 2, viDisabled: 1, sessionCreated: false, skippedAccounts: [] });
     expect(disabledKeys().sort()).toEqual([keyOf(ISIN1, A), keyOf(ISIN2, C)].sort());
     expect(viSets().map((v) => v?.exchange)).toEqual(["KRX"]);
     expect(activeOf(B)).toBe(1);
@@ -355,14 +355,14 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
   it("⑩ no-session — targetOf 에 없는 서버 키 · acquireOn null → remaining null · 송신 0 · release 0", async () => {
     const releaseSpy = vi.spyOn(m, "releaseSession");
     const r1 = await sweeper().sweep({ userId: U1, serverKey: "KB999", broker: "KB", accountNos: [A] }, CREDS);
-    expect(r1).toEqual({ ok: false, reason: "no-session", remaining: null, disabledLimitChasers: 0, viDisabled: 0 });
+    expect(r1).toEqual({ ok: false, reason: "no-session", remaining: null, disabledLimitChasers: 0, viDisabled: 0, skippedAccounts: [] });
 
     const nullSessions = new StrategySweeper({
       sessions: { acquireOn: () => null, releaseSession: () => false, sessionsOf: () => [] },
       targetOf: () => target,
     });
     const r2 = await nullSessions.sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS);
-    expect(r2).toEqual({ ok: false, reason: "no-session", remaining: null, disabledLimitChasers: 0, viDisabled: 0 });
+    expect(r2).toEqual({ ok: false, reason: "no-session", remaining: null, disabledLimitChasers: 0, viDisabled: 0, skippedAccounts: [] });
     expect(sweepTypes()).toHaveLength(0);
     expect(releaseSpy).not.toHaveBeenCalled();
   });
@@ -376,7 +376,7 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
       CREDS,
     );
 
-    expect(result).toEqual({ ok: false, reason: "not-ready", remaining: null, disabledLimitChasers: 0, viDisabled: 0 });
+    expect(result).toEqual({ ok: false, reason: "not-ready", remaining: null, disabledLimitChasers: 0, viDisabled: 0, skippedAccounts: [] });
     expect(releaseSpy).toHaveBeenCalledTimes(1);
     expect(sweepTypes()).toHaveLength(0);
   });
@@ -391,7 +391,7 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
       CREDS,
     );
 
-    expect(result).toEqual({ ok: false, reason: "timeout", remaining: 2, disabledLimitChasers: 0, viDisabled: 0 });
+    expect(result).toEqual({ ok: false, reason: "timeout", remaining: 2, disabledLimitChasers: 0, viDisabled: 0, skippedAccounts: [] });
     expect(disabledKeys()).toHaveLength(1);
   });
 
@@ -406,7 +406,7 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
       CREDS,
     );
 
-    expect(result).toEqual({ ok: false, reason: "timeout", remaining: null, disabledLimitChasers: 0, viDisabled: 0 });
+    expect(result).toEqual({ ok: false, reason: "timeout", remaining: null, disabledLimitChasers: 0, viDisabled: 0, skippedAccounts: [] });
     expect(viGetExchanges()).toEqual(["KRX", "NXT"]);
     expect(disabledKeys()).toHaveLength(0);
     expect(viSets()).toHaveLength(0);
@@ -432,7 +432,7 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
 
     const result = await sweeper().sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS);
 
-    expect(result).toEqual({ ok: false, reason: "remaining", remaining: 2, disabledLimitChasers: 2, viDisabled: 0 });
+    expect(result).toEqual({ ok: false, reason: "remaining", remaining: 2, disabledLimitChasers: 2, viDisabled: 0, skippedAccounts: [] });
   });
 
   it("⑯ send-failed — 세션이 도중에 Ready 를 잃어 send 가 false → send-failed · 기다리지 않는다", async () => {
@@ -445,7 +445,7 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
       CREDS,
     );
 
-    expect(result).toEqual({ ok: false, reason: "send-failed", remaining: null, disabledLimitChasers: 0, viDisabled: 0 });
+    expect(result).toEqual({ ok: false, reason: "send-failed", remaining: null, disabledLimitChasers: 0, viDisabled: 0, skippedAccounts: [] });
   });
 
   it("⑰ 전체 시한(가짜 타이머 20초) 초과 → timeout · 프레임 리스너 해제 · release 1", async () => {
@@ -470,7 +470,7 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
     await vi.advanceTimersByTimeAsync(1);
     const result = await pending;
 
-    expect(result).toEqual({ ok: false, reason: "timeout", remaining: null, disabledLimitChasers: 0, viDisabled: 0 });
+    expect(result).toEqual({ ok: false, reason: "timeout", remaining: null, disabledLimitChasers: 0, viDisabled: 0, skippedAccounts: [] });
     expect(s.listenerCount("frame")).toBe(baseline);
     expect(releaseSpy).toHaveBeenCalledTimes(1);
     expect(releaseSpy).toHaveBeenCalledWith(U1, s);
@@ -563,6 +563,58 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
     expect(result).toMatchObject({ ok: true, disabledLimitChasers: 2 });
     expect(disabledKeys().sort()).toEqual([keyOf(ISIN1, A), keyOf(ISIN2, A)].sort());
     expect(activeOf(A)).toBe(0);
+  });
+
+  it("GC-14 (29-45) — stillStale(A) 거짓 → A 의 14 · 11 송신 0 · 재조회 남은 수에서 A 제외 · ok · skippedAccounts [A] · 참인 B 는 그대로 끔", async () => {
+    await readySessionOf(U1);
+    gw.respondLimitChaserList([on(ISIN1, A), on(ISIN2, B)]);
+    gw.respondViTriggerFor("KRX", { accountNo: A, run: true, orderAmountKrw: 1_000_000n, checkRate: 25 });
+    const asked: string[] = [];
+
+    const result = await sweeper().sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A, B] }, CREDS, {
+      stillStale: (accountNo) => {
+        asked.push(accountNo);
+        return accountNo !== A;
+      },
+    });
+
+    expect(result).toEqual({ ok: true, disabledLimitChasers: 1, viDisabled: 0, sessionCreated: false, skippedAccounts: [A] });
+    expect(disabledKeys()).toEqual([keyOf(ISIN2, B)]);
+    expect(viSets()).toEqual([]);
+    expect(activeOf(A)).toBe(1); // 되돌아온 서버의 A 전략은 그대로
+    expect(activeOf(B)).toBe(0);
+    expect(gw.viTriggerSlot("KRX")).toMatchObject({ accountNo: A, run: true });
+    expect(asked).toContain(A);
+    expect(asked).toContain(B);
+  });
+
+  it("GC-14 (29-45) — 송신 직전마다 묻는다: 첫 14 뒤 A 가 거짓으로 바뀌면 A 의 남은 14 · 11 은 보내지 않는다(보낸 것은 되돌리지 않음) · ok · skippedAccounts [A]", async () => {
+    await readySessionOf(U1);
+    gw.respondLimitChaserList([on(ISIN1, A), on(ISIN2, A), on(ISIN3, A)]);
+    gw.respondViTriggerFor("NXT", { accountNo: A, run: true, orderAmountKrw: 1_000_000n, checkRate: 25 });
+    let stale = true;
+    gw.onFrame((msgType) => {
+      if (msgType === MSG.DisableStrategiesReq) stale = false;
+    });
+
+    const result = await sweeper().sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS, {
+      stillStale: () => stale,
+    });
+
+    expect(result).toEqual({ ok: true, disabledLimitChasers: 1, viDisabled: 0, sessionCreated: false, skippedAccounts: [A] });
+    expect(disabledKeys()).toHaveLength(1);
+    expect(viSets()).toEqual([]);
+    expect(activeOf(A)).toBe(2);
+  });
+
+  it("GC-14 (29-45) — stillStale 미주입 → 종전(대상 계좌 전부 끔 · skippedAccounts [])", async () => {
+    await readySessionOf(U1);
+    gw.respondLimitChaserList([on(ISIN1, A), on(ISIN2, B)]);
+
+    const result = await sweeper().sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A, B] }, CREDS);
+
+    expect(result).toEqual({ ok: true, disabledLimitChasers: 2, viDisabled: 0, sessionCreated: false, skippedAccounts: [] });
+    expect(disabledKeys().sort()).toEqual([keyOf(ISIN1, A), keyOf(ISIN2, B)].sort());
   });
 
   it("isActiveLimitChaser — 5스위치 OR autoSellState !== 0", () => {

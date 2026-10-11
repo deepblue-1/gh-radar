@@ -88,6 +88,8 @@ export type StrategySweepResult =
       viDisabled: number;
       /** 이 호출이 새 세션을 열었는가(로그인 1회). */
       sessionCreated: boolean;
+      /** 송신 직전 `stillStale` 이 거짓이라 14 · 11 을 보내지 않은 계좌(GC-14 · 29-45). 확인 대상이 아니다. */
+      skippedAccounts: string[];
     }
   | {
       ok: false;
@@ -96,7 +98,17 @@ export type StrategySweepResult =
       remaining: number | null;
       disabledLimitChasers: number;
       viDisabled: number;
+      /** 송신 직전 `stillStale` 이 거짓이라 14 · 11 을 보내지 않은 계좌(GC-14 · 29-45). */
+      skippedAccounts: string[];
     };
+
+/**
+ * `sweep` 호출 옵션 (29-45). `stillStale(accountNo)` — 그 계좌가 **아직** 이 서버에서 끌 대상인가(그 사이 이 서버가 다시 그 계좌의 유효
+ * 주문 서버가 됐으면 거짓). 14 · 11 송신 직전마다 묻는다. 미주입 = 늘 참(종전).
+ */
+export type StrategySweepOptions = {
+  stillStale?: (accountNo: string) => boolean;
+};
 
 /** `SessionManager` 의 이 모듈이 쓰는 면 — 테스트가 갈아 끼울 수 있게 구조 타입으로 둔다. */
 export type SweeperSessions = {
@@ -283,7 +295,11 @@ export class StrategySweeper {
    * 그 서버 세션에서 `accountNos` 계좌의 켜진 전략(상따 · 두 거래소 VI)을 끄고 다시 읽어 0 임을 확인한다.
    * 확인되지 않은 모든 경우는 이름 붙은 실패다 — 조용히 성공으로 접지 않는다.
    */
-  async sweep(target: StrategySweepTarget, creds: DmaCredentials): Promise<StrategySweepResult> {
+  async sweep(
+    target: StrategySweepTarget,
+    creds: DmaCredentials,
+    _opts: StrategySweepOptions = {},
+  ): Promise<StrategySweepResult> {
     const startedAt = this.#now();
     const accounts = new Set(target.accountNos);
     let disabledLimitChasers = 0;
@@ -360,7 +376,7 @@ export class StrategySweeper {
         },
         "[DMA] 옛 서버 계좌 전략 끄기 완료 — 재조회 0 확인",
       );
-      return { ok: true, disabledLimitChasers, viDisabled, sessionCreated };
+      return { ok: true, disabledLimitChasers, viDisabled, sessionCreated, skippedAccounts: [] };
     } catch (err) {
       if (err instanceof SweepFailure) {
         return this.#fail(target, err.reason, lastRemaining, disabledLimitChasers, viDisabled);
@@ -418,7 +434,7 @@ export class StrategySweeper {
       { serverKey: target.serverKey, reason, remaining },
       "[DMA] 옛 서버 계좌 전략 끄기 미확인",
     );
-    return { ok: false, reason, remaining, disabledLimitChasers, viDisabled };
+    return { ok: false, reason, remaining, disabledLimitChasers, viDisabled, skippedAccounts: [] };
   }
 }
 
