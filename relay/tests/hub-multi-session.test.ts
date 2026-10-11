@@ -45,6 +45,7 @@ import {
   buildSetVITriggerRespFrame,
   buildUserSettingsFrame,
   buildViOrderListFrame,
+  buildViOrderNoticeFrame,
 } from "./helpers/frames.js";
 import { logger } from "../src/logger.js";
 
@@ -1053,5 +1054,141 @@ describe("SubscriptionHub — VI 계좌 소유 세션 원천 (GC-05 · 29-51)", 
     kb120.pushFrame(buildSetVITriggerRespFrame(null));
     expect(hub.getViTrigger(U, "NXT")).toMatchObject({ accountNo: A });
     expect(viSeen()).toHaveLength(2);
+  });
+
+  it("GC-05 병합 — 켜진 등록본 우선 · 둘 다 꺼짐이면 마지막으로 에코가 온 세션의 등록본 · 병합값이 그대로면 다른 세션 에코는 팬아웃 0", () => {
+    // 둘 다 꺼짐 — 마지막 에코(KB121 의 A)가 병합값.
+    kb120.pushFrame(buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", run: false }));
+    kb121.pushFrame(buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", run: false }));
+    expect(hub.getViTrigger(U, "KRX")).toMatchObject({ accountNo: A, run: false });
+    expect(viSeen()).toEqual([
+      ["KRX", B, false],
+      ["KRX", A, false],
+    ]);
+    // KB120 이 다시 에코하면 그것이 마지막 — B.
+    kb120.pushFrame(buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", run: false }));
+    expect(hub.getViTrigger(U, "KRX")).toMatchObject({ accountNo: B });
+    expect(viSeen().at(-1)).toEqual(["KRX", B, false]);
+
+    // 켜진 것 우선 — KB121 의 A 가 켜지면 A · 그 뒤 KB120 의 꺼진 B 에코는 병합값을 바꾸지 않아 팬아웃 0.
+    kb121.pushFrame(buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", run: true }));
+    expect(viSeen().at(-1)).toEqual(["KRX", A, true]);
+    const n = viSeen().length;
+    kb120.pushFrame(buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", run: false }));
+    expect(hub.getViTrigger(U, "KRX")).toMatchObject({ accountNo: A, run: true });
+    expect(viSeen()).toHaveLength(n);
+  });
+
+  it("GC-05 병합 — 두 세션 모두 켜짐(가드 밖에서 생긴 충돌)이면 primary(KB120) 것 + warn 1줄(서버 키 · 거래소만 · 계좌 없음)", () => {
+    // KB121 을 먼저 결선한 hub — 결선 순이 아니라 primary 가 이긴다.
+    const other = new SubscriptionHub({ preferredPrimaryServerKey: () => "KB120" });
+    const events: HubFanoutEvent[] = [];
+    other.on("fanout", (e: HubFanoutEvent) => events.push(e));
+    const s121 = new FakeBrokerSession(U, "KB121", "KB", [{ accountNo: A, name: "계좌A" }]);
+    const s120 = new FakeBrokerSession(U, "KB120", "KB", [{ accountNo: B, name: "계좌B" }]);
+    other.attach(s121);
+    other.attach(s120);
+    const warns: unknown[][] = [];
+    vi.spyOn(logger, "warn").mockImplementation(((...args: unknown[]) => {
+      warns.push(args);
+    }) as never);
+
+    s121.pushFrame(buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", run: true }));
+    s120.pushFrame(buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", run: true }));
+    expect(other.getViTrigger(U, "KRX")).toMatchObject({ accountNo: B, run: true });
+    const last = events.filter((e) => e.msg.t === "vi").at(-1)?.msg;
+    expect(last?.t === "vi" ? last.cfg?.accountNo : null).toBe(B);
+
+    const conflicts = warns.filter((c) => typeof c[1] === "string" && c[1].includes("켜진 VI"));
+    expect(conflicts).toHaveLength(1);
+    const ctx = conflicts[0]?.[0] as Record<string, unknown>;
+    expect(ctx).toMatchObject({ exchange: "KRX", serverKeys: ["KB121", "KB120"] });
+    expect(JSON.stringify(ctx)).not.toContain(A);
+    expect(JSON.stringify(ctx)).not.toContain(B);
+    other.closeAll();
+  });
+
+  it("GC-05 viRunningElsewhere — 다른 VI 원천 세션의 그 거래소 켜진 VI · 같은 세션 · 꺼짐 · 다른 거래소는 undefined", () => {
+    kb120.pushFrame(buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", run: true, checkRate: 21 }));
+    const hit = hub.viRunningElsewhere(U, "KRX", kb121);
+    expect(hit?.session).toBe(kb120);
+    expect(hit?.cfg).toMatchObject({ accountNo: B, exchange: "KRX", run: true, checkRate: 21 });
+    expect(hub.viRunningElsewhere(U, "KRX", kb120)).toBeUndefined();
+    expect(hub.viRunningElsewhere(U, "NXT", kb121)).toBeUndefined();
+    kb120.pushFrame(buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", run: false }));
+    expect(hub.viRunningElsewhere(U, "KRX", kb121)).toBeUndefined();
+  });
+
+  it("GC-05 72/73 — 소유 세션별 캐시의 합집합 · vi.list 스냅샷 = 합집합 · 73 은 증분 그대로 · 소유 뷰 밖 항목 버림 · viOrderSessionOf", () => {
+    kb120.pushFrame(buildViOrderListFrame([{ orderNo: "O1", accountNo: B }], true));
+    kb121.pushFrame(buildViOrderListFrame([{ orderNo: "O2", accountNo: A }], true));
+    const lists = (): Extract<RelayOutbound, { t: "vi.list" }>[] =>
+      fanned.filter((e) => e.userId === U && e.msg.t === "vi.list").map((e) => e.msg as Extract<RelayOutbound, { t: "vi.list" }>);
+    expect(lists().at(-1)?.snap).toBe(true);
+    expect(lists().at(-1)?.items.map((i) => i.orderNo)).toEqual(["O1", "O2"]);
+    expect(hub.getViOrders(U).map((i) => i.orderNo)).toEqual(["O1", "O2"]);
+
+    // 73 — 그 세션 몫 증분 그대로.
+    kb121.pushFrame(buildViOrderListFrame([{ orderNo: "O2", accountNo: A, confirmed: true }], false));
+    expect(lists().at(-1)).toMatchObject({ snap: false });
+    expect(lists().at(-1)?.items.map((i) => [i.orderNo, i.confirmed])).toEqual([["O2", true]]);
+
+    // KB120 72 에 A 항목(소유 밖 — 옛 서버 잔여) → 버림. KB120 몫만 교체 · KB121 몫 유지.
+    kb120.pushFrame(
+      buildViOrderListFrame(
+        [
+          { orderNo: "O3", accountNo: A },
+          { orderNo: "O1", accountNo: B },
+        ],
+        true,
+      ),
+    );
+    expect(hub.getViOrders(U).map((i) => i.orderNo)).toEqual(["O1", "O2"]);
+    expect(lists().at(-1)?.items.map((i) => i.orderNo)).toEqual(["O1", "O2"]);
+    // 소유 밖 항목만 실린 73 은 팬아웃 0.
+    const n = lists().length;
+    kb120.pushFrame(buildViOrderListFrame([{ orderNo: "O3", accountNo: A }], false));
+    expect(lists()).toHaveLength(n);
+
+    expect(hub.viOrderSessionOf(U, "O2")).toBe(kb121);
+    expect(hub.viOrderSessionOf(U, "O1")).toBe(kb120);
+    expect(hub.viOrderSessionOf(U, "O3")).toBeUndefined();
+  });
+
+  it("GC-05 56 — VI 발동 통보는 그 계좌의 소유 세션 것만 팬아웃", () => {
+    // 발동가로 출처를 가른다 — KB121 의 A(1001) · B(1002) · KB120 의 A(1003) · B(1004).
+    kb121.pushFrame(buildViOrderNoticeFrame({ accountNo: A, triggerPrice: 1001 }));
+    kb121.pushFrame(buildViOrderNoticeFrame({ accountNo: B, triggerPrice: 1002 }));
+    kb120.pushFrame(buildViOrderNoticeFrame({ accountNo: A, triggerPrice: 1003 }));
+    kb120.pushFrame(buildViOrderNoticeFrame({ accountNo: B, triggerPrice: 1004 }));
+    const notices = fanned.filter((e) => e.userId === U && e.msg.t === "vi.notice").map((e) => e.msg);
+    expect(notices.map((m) => (m.t === "vi.notice" ? [m.accountNo, m.triggerPrice] : null))).toEqual([
+      [A, 1001],
+      [B, 1004],
+    ]);
+  });
+
+  it("GC-05 KB121 분리(retainSessions) — KB121 몫 VI 설정 · 주문 · 대기열 0 · 남은 원천 기준 병합 재팬아웃 · primary(KB120) 몫은 그대로", () => {
+    kb120.emitReady();
+    kb121.emitReady();
+    kb120.pushFrame(buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", run: false }));
+    kb121.pushFrame(buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", run: true }));
+    kb120.pushFrame(buildViOrderListFrame([{ orderNo: "O1", accountNo: B }], true));
+    kb121.pushFrame(buildViOrderListFrame([{ orderNo: "O2", accountNo: A }], true));
+    kb120.pushFrame(buildUserSettingsFrame({ present: true }));
+    expect(hub.getViTrigger(U, "KRX")).toMatchObject({ accountNo: A, run: true });
+
+    hub.retainSessions(U, new Set(["KB120"]));
+    expect(hub.getViTrigger(U, "KRX")).toMatchObject({ accountNo: B, run: false });
+    expect(viSeen().at(-1)).toEqual(["KRX", B, false]);
+    expect(hub.getViOrders(U).map((i) => i.orderNo)).toEqual(["O1"]);
+    const last = fanned.filter((e) => e.userId === U && e.msg.t === "vi.list").at(-1)?.msg;
+    expect(last?.t === "vi.list" ? [last.snap, last.items.map((i) => i.orderNo)] : null).toEqual([true, ["O1"]]);
+    expect(hub.viOrderSessionOf(U, "O2")).toBeUndefined();
+    // KB121 의 늦은 빈 61 은 침묵한다(떼어진 세션 · 대기열 없음).
+    kb121.pushFrame(buildSetVITriggerRespFrame(null));
+    expect(viSeen().at(-1)).toEqual(["KRX", B, false]);
+    // primary 몫(84)은 그대로.
+    expect(hub.getUserSettings(U)).toMatchObject({ present: true });
   });
 });

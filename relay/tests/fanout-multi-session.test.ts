@@ -42,7 +42,13 @@ import { WsFanout } from "../src/ws/fanout.js";
 import { SubscriptionHub } from "../src/hub/subscription-hub.js";
 import type { DmaBroker, DmaServerRow } from "../src/registry/registry.js";
 import type { SymbolInfo, SymbolLookup } from "../src/store/symbols.js";
-import { readGetVITriggerExchange, startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
+import {
+  readGetVITriggerExchange,
+  readViConfirmRequest,
+  readViSetRequest,
+  startFakeGateway,
+  type FakeGateway,
+} from "./helpers/fake-gateway.js";
 import { connectWs, type TestWs } from "./helpers/ws-client.js";
 import {
   SAMPLE_ACCOUNT_NO,
@@ -50,6 +56,7 @@ import {
   buildAccountStateFrame,
   buildLimitChaserListRespFrame,
   buildSetVITriggerRespFrame,
+  buildViOrderListFrame,
 } from "./helpers/frames.js";
 
 const USER_A = "3f1c2b7a-9d40-4a11-8e55-0000000020a1";
@@ -115,6 +122,21 @@ function viGetsOf(payloads: Buffer[]): string[] {
 
 function vis(inbox: RelayOutbound[]): RelayViTriggerMsg[] {
   return inbox.filter((m): m is RelayViTriggerMsg => m.t === "vi");
+}
+
+/** 게이트웨이가 받은 `SetVITriggerReq(11)` 내용들. */
+function viSetsOf(payloads: Buffer[]): NonNullable<ReturnType<typeof readViSetRequest>>[] {
+  return payloads
+    .map((p) => readViSetRequest(envOf(p).msgType(), p))
+    .filter((r): r is NonNullable<typeof r> => r !== null);
+}
+
+/** 게이트웨이가 받은 `ConfirmVIOrderReq(33)` 의 주문번호들. */
+function viConfirmsOf(payloads: Buffer[]): string[] {
+  return payloads
+    .map((p) => readViConfirmRequest(envOf(p).msgType(), p))
+    .filter((r): r is NonNullable<typeof r> => r !== null)
+    .map((r) => r.orderNo);
 }
 
 /** relay 가 낸 거부 프레임(`msg` ERROR) 중 그 명령 몫. */
@@ -612,5 +634,108 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
     // 소유 0 인 KB120 의 ready 가 화면을 「연결됨」 으로 덮지 않는다.
     expect(last?.s).toBe("reconnecting");
     expect(last?.accounts?.map((a) => a.accountNo).sort()).toEqual([A, B].sort());
+  });
+
+  /** 두 스텁이 받은 11 을 도착 순서대로 한 줄에 쌓는다(서버 키 · 계좌 · run). */
+  function viSetLog(): { log: [string, string, boolean][] } {
+    const out: { log: [string, string, boolean][] } = { log: [] };
+    kb120.onFrame((t, payload) => {
+      const r = readViSetRequest(t, Buffer.from(payload));
+      if (r !== null) out.log.push(["KB120", r.accountNo, r.run]);
+    });
+    kb121.onFrame((t, payload) => {
+      const r = readViSetRequest(t, Buffer.from(payload));
+      if (r !== null) out.log.push(["KB121", r.accountNo, r.run]);
+    });
+    return out;
+  }
+
+  /** 인증 · 두 세션 Ready 뒤 KB120 의 KRX 칸에 켜진 B(가동 중)를 심는다(61 에코). 스텁은 기본 모드(21 = 빈 61 · 11 은 기록만). */
+  async function withRunningBOnKb120(): Promise<{ ws: TestWs; inbox: RelayOutbound[]; s120: NonNullable<(typeof kb120.sockets)[0]>; s121: NonNullable<(typeof kb121.sockets)[0]> }> {
+    const { ws, inbox } = await tab();
+    await bothReady();
+    const s120 = kb120.sockets[0];
+    const s121 = kb121.sockets[0];
+    if (s120 === undefined || s121 === undefined) throw new Error("스텁 소켓 없음");
+    kb120.sendFrame(s120, buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", run: true, orderAmountKrw: 7_000_000n, checkRate: 22 }));
+    await waitFor(() => vis(inbox).some((m) => m.x === "KRX" && m.cfg?.accountNo === B && m.cfg.run), "KB120 KRX 켜진 B");
+    return { ws, inbox, s120, s121 };
+  }
+
+  it("GC-05 가드 — KB120 에 KRX 켜진 B 인 채 vi.set(A, KRX, run:true) → KB120 에 11{B 같은 값 · run:false} 먼저 · KB121 에 11{A, run:true} · 브라우저 vi 는 (B run:false) 뒤 (A run:true)", async () => {
+    const order = viSetLog();
+    const { ws, inbox, s120, s121 } = await withRunningBOnKb120();
+    const from = inbox.length;
+    const since = (): RelayOutbound[] => inbox.slice(from);
+
+    ws.sendRaw({ t: "vi.set", accountNo: A, exchange: "KRX", orderAmountKrw: 5_000_000, checkRate: 25, run: true });
+    await waitFor(() => order.log.length === 2, "11 두 건");
+    expect(order.log).toEqual([
+      ["KB120", B, false],
+      ["KB121", A, true],
+    ]);
+    // 끄는 11 은 B 의 등록값 그대로(run 만 false).
+    expect(viSetsOf(p120)).toEqual([
+      { accountNo: B, exchange: "KRX", orderAmountKrw: 7_000_000, checkRate: 22, priceType: "U", run: false },
+    ]);
+    expect(rejectsOf(since(), "vi.set")).toEqual([]);
+
+    // 서버 에코 — KB120 의 run:false 가 먼저, KB121 의 run:true 가 뒤.
+    kb120.sendFrame(s120, buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", run: false, orderAmountKrw: 7_000_000n, checkRate: 22 }));
+    await waitFor(() => vis(since()).length === 1, "B run:false 에코");
+    kb121.sendFrame(s121, buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", run: true }));
+    await waitFor(() => vis(since()).length === 2, "A run:true 에코");
+    expect(vis(since()).map((m) => [m.x, m.cfg?.accountNo, m.cfg?.run])).toEqual([
+      ["KRX", B, false],
+      ["KRX", A, true],
+    ]);
+  });
+
+  it("GC-05 가드 없음 — run:false 로 보내는 vi.set 은 다른 세션에 11 을 보내지 않는다", async () => {
+    const { ws } = await withRunningBOnKb120();
+    ws.sendRaw({ t: "vi.set", accountNo: A, exchange: "KRX", orderAmountKrw: 5_000_000, checkRate: 25, run: false });
+    await waitFor(() => countOf(p121, MSG.SetVITriggerReq) === 1, "KB121 11");
+    await flushIo(10);
+    expect(countOf(p120, MSG.SetVITriggerReq)).toBe(0);
+  });
+
+  it("GC-05 가드 없음 — 같은 세션(B 도 KB121 소유)의 켜진 VI 는 서버가 슬롯을 갈아 끼운다 · 다른 세션 송신 0", async () => {
+    const { ws, inbox } = await tab();
+    await bothReady();
+    // B 도 KB121 로 지정 — 재로그인 없이 소유 뷰가 따라간다(KB120 은 소유 0 · 세션은 남는다).
+    chosen.set(B, "KB121");
+    const s121 = kb121.sockets[0];
+    if (s121 === undefined) throw new Error("KB121 소켓 없음");
+    kb121.sendFrame(s121, buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", run: true }));
+    await waitFor(() => vis(inbox).some((m) => m.x === "KRX" && m.cfg?.accountNo === B), "KB121 KRX 켜진 B");
+
+    ws.sendRaw({ t: "vi.set", accountNo: A, exchange: "KRX", orderAmountKrw: 5_000_000, checkRate: 25, run: true });
+    await waitFor(() => countOf(p121, MSG.SetVITriggerReq) === 1, "KB121 11");
+    await flushIo(10);
+    expect(countOf(p120, MSG.SetVITriggerReq)).toBe(0);
+    expect(viSetsOf(p121).map((r) => [r.accountNo, r.run])).toEqual([[A, true]]);
+  });
+
+  it("GC-05 vi.confirm — 그 주문번호가 든 VI 주문 추적의 소유 세션(KB121)으로 · 모르는 주문번호는 primary(KB120 · 종전)", async () => {
+    const { ws, inbox } = await tab();
+    await bothReady();
+    const s120 = kb120.sockets[0];
+    const s121 = kb121.sockets[0];
+    if (s120 === undefined || s121 === undefined) throw new Error("스텁 소켓 없음");
+    kb120.sendFrame(s120, buildViOrderListFrame([{ orderNo: "O1", accountNo: B }], true));
+    kb121.sendFrame(s121, buildViOrderListFrame([{ orderNo: "O2", accountNo: A }], true));
+    await waitFor(
+      () => inbox.some((m) => m.t === "vi.list" && m.items.some((i) => i.orderNo === "O2")),
+      "KB121 72 O2",
+    );
+
+    ws.sendRaw({ t: "vi.confirm", orderNo: "O2", confirmed: true });
+    await waitFor(() => viConfirmsOf(p121).length === 1, "KB121 33");
+    expect(viConfirmsOf(p120)).toEqual([]);
+
+    ws.sendRaw({ t: "vi.confirm", orderNo: "O9", confirmed: true });
+    await waitFor(() => viConfirmsOf(p120).length === 1, "KB120 33(모르는 주문번호)");
+    expect(viConfirmsOf(p120)).toEqual(["O9"]);
+    expect(viConfirmsOf(p121)).toEqual(["O2"]);
   });
 });
