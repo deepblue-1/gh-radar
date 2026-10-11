@@ -41,6 +41,12 @@
  *   R2  계좌 제거 뒤 재적재 1회 · 409 거부(LAST_ACCOUNT)는 0회
  *   R3  유저 삭제 뒤 재적재 1회(서버 settle 이 지정 행을 지운다)
  *   R4  생성 · 비밀번호 · reconcile 은 재적재하지 않는다(지정이 바뀌지 않는다)
+ *
+ * 잠그는 것 (Phase 30 30-03 — GET /order-endpoints · D-09):
+ *   E1  켜진 서버마다 87 캐시의 모든 계좌 { dmaUserId, accountNo, orderIp, orderMac } — 87 정규화값 그대로 · 미설정 ""
+ *   E2  꺼진 서버 · 파이프라인 없는 서버 · 87 미수신(재접속 중) 서버는 키 없음(= 「확인 전」)
+ *   E3  X-Relay-Secret 없음 → 401(관문)
+ *   E4  44 0건(op 5 포함 — 메모리 읽기만) · 로그 인자에 IP/MAC 원문 없음
  */
 import { randomBytes } from "node:crypto";
 import http from "node:http";
@@ -1530,5 +1536,87 @@ describe("P30 주문자 IP/MAC 쓰기 경로 (IPMAC-02 · D-07 · D-10)", () => 
       expect(ops3.at(-1)!.account).not.toHaveProperty("orderIp");
       expect(ops3.at(-1)!.account).not.toHaveProperty("orderMac");
     }
+  });
+});
+
+/**
+ * 잠그는 것 (Phase 30 30-03 — GET /order-endpoints · D-09): 머리 잠금 목록 E1~E4.
+ */
+describe("P30 GET /order-endpoints (D-09)", () => {
+  const IP = "010041001124";
+  const MAC = "1CFD087D978E";
+  const PATH = "/internal/admin/order-endpoints";
+  let h: Harness | undefined;
+
+  afterEach(async () => {
+    await h?.close();
+    h = undefined;
+    vi.restoreAllMocks();
+  });
+
+  /** tr01 을 KB120 · KB121 에 만들고 KB120 의 tr01 계좌에만 IP/MAC 을 넣은 뒤 op 5 로 KB120 캐시를 새로 받는다. */
+  async function seedKb120Endpoint(harness: Harness): Promise<void> {
+    expect((await call(harness, "POST", "/internal/admin/dma-users", createBody())).status).toBe(200);
+    const account = harness.states.KB120!.users.get("tr01")![0]!;
+    account.orderIp = IP;
+    account.orderMac = MAC;
+    await harness.conns.KB120!.command({ op: 5, userId: "" });
+  }
+
+  it("E1 켜진 서버마다 87 캐시의 모든 계좌 IP/MAC — 정규화값 그대로 · 미설정은 빈 문자열", async () => {
+    h = await startHarness();
+    await seedKb120Endpoint(h);
+
+    const res = await call(h, "GET", PATH);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      servers: {
+        KB120: [
+          { dmaUserId: "other", accountNo: "9999999901", orderIp: "", orderMac: "" },
+          { dmaUserId: "tr01", accountNo: "1234567801", orderIp: IP, orderMac: MAC },
+        ],
+        KB121: [
+          { dmaUserId: "other", accountNo: "9999999901", orderIp: "", orderMac: "" },
+          { dmaUserId: "tr01", accountNo: "1234567801", orderIp: "", orderMac: "" },
+        ],
+      },
+    });
+  });
+
+  it("E2 꺼진 서버 · 파이프라인 없는 서버는 키가 없다", async () => {
+    h = await startHarness({ disabled: ["KB121"] });
+    const body = (await (await call(h, "GET", PATH)).json()) as { servers: Record<string, unknown> };
+    expect(Object.keys(body.servers)).toEqual(["KB120"]);
+  });
+
+  it("E2 87 미수신(재접속 중) 서버는 키가 없다", async () => {
+    h = await startHarness();
+    h.gateways.KB121!.sockets.forEach((sock) => sock.destroy());
+    await waitFor(() => h!.conns.KB121!.currentSnapshot() === null, "KB121 87 캐시 무효");
+
+    const body = (await (await call(h, "GET", PATH)).json()) as { servers: Record<string, unknown> };
+    expect(Object.keys(body.servers)).toEqual(["KB120"]);
+  });
+
+  it("E3 X-Relay-Secret 없음 → 401(관문)", async () => {
+    h = await startHarness();
+    const res = await fetch(h.url(PATH), { headers: { "x-admin-email": ADMIN } });
+    expect(res.status).toBe(401);
+  });
+
+  it("E4 44 를 보내지 않는다(op 5 포함) · 로그 인자에 IP/MAC 원문 없음", async () => {
+    h = await startHarness();
+    await seedKb120Endpoint(h);
+    const sent = (): number =>
+      h!.gateways.KB120!.adminCommandRequests().length + h!.gateways.KB121!.adminCommandRequests().length;
+    const before = sent();
+    const logs = await spyLogs();
+
+    const res = await call(h, "GET", PATH);
+    expect(res.status).toBe(200);
+    expect(stringify(await res.json())).toContain(IP);
+    expect(sent()).toBe(before);
+    const dumped = stringify(logs.map((c) => c.args));
+    for (const v of [IP, MAC]) expect(dumped).not.toContain(v);
   });
 });
