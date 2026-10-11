@@ -6,7 +6,14 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { normalizeOrderIp, normalizeOrderMac, validateOrderEndpointInput } from "../order-endpoint";
+import type { AdminAccountView, AdminOrderEndpoint } from "../admin";
+import {
+  normalizeOrderIp,
+  normalizeOrderMac,
+  summarizeOrderEndpoint,
+  validateOrderEndpointInput,
+  type OrderEndpointSummary,
+} from "../order-endpoint";
 
 describe("normalizeOrderIp — gh-trade NormalizeOrderIp 이식 (D-04 · D-13)", () => {
   it.each([
@@ -90,5 +97,126 @@ describe("validateOrderEndpointInput — trim 뒤 오류 하나(IP → MAC → �
     },
   ])("$name", ({ input, expected }) => {
     expect(validateOrderEndpointInput(input)).toEqual(expected);
+  });
+});
+
+describe("summarizeOrderEndpoint — 출처 · 불일치 (D-09 · D-10)", () => {
+  // 87 정규화값(재정규화하지 않는다). 가짜 값 — 실 PC 가 아니다.
+  const SET_A: AdminOrderEndpoint = { orderIp: "010041001124", orderMac: "1CFD087D978E" };
+  const SET_B: AdminOrderEndpoint = { orderIp: "010041001200", orderMac: "AABBCCDDEEFF" };
+  const UNSET: AdminOrderEndpoint = { orderIp: "", orderMac: "" };
+  const REGISTRY = [
+    { key: "KB120", enabled: true },
+    { key: "KB121", enabled: true },
+    { key: "KB122", enabled: true },
+  ];
+
+  type AccountIn = Pick<AdminAccountView, "servers" | "orderServer" | "defaultOrderServer" | "orderEndpoints">;
+  const account = (
+    activeKeys: string[],
+    orderEndpoints: AccountIn["orderEndpoints"],
+    over: Partial<Pick<AdminAccountView, "orderServer" | "defaultOrderServer">> = {},
+  ): AccountIn => ({
+    servers: activeKeys.map((serverKey) => ({ serverKey, tone: "ok" as const, message: null, state: "active" as const })),
+    orderServer: null,
+    defaultOrderServer: "KB120",
+    orderEndpoints,
+    ...over,
+  });
+  const UNKNOWN: OrderEndpointSummary = { state: "unknown", orderIp: "", orderMac: "", source: null, mismatches: [] };
+
+  it.each([
+    {
+      name: "지정 KB121(active · 켜짐) · 두 서버 값 있음 → 출처 KB121",
+      account: account(["KB120", "KB121"], { KB120: SET_A, KB121: SET_A }, { orderServer: "KB121" }),
+      registry: REGISTRY,
+      expected: { state: "set", ...SET_A, source: "KB121", mismatches: [] },
+    },
+    {
+      name: "지정 없음 · 기본 KB120 · 등록 [KB120, KB121] → 출처 KB120",
+      account: account(["KB120", "KB121"], { KB120: SET_A, KB121: SET_A }),
+      registry: REGISTRY,
+      expected: { state: "set", ...SET_A, source: "KB120", mismatches: [] },
+    },
+    {
+      name: "지정 없음 · 기본 KB120 · 등록 [KB121] 만 → 출처 KB121(유일 등록)",
+      account: account(["KB121"], { KB121: SET_A }),
+      registry: REGISTRY,
+      expected: { state: "set", ...SET_A, source: "KB121", mismatches: [] },
+    },
+    {
+      name: "지정 없음 · 기본 KB120 · 등록 [KB121, KB122] → 유효 서버 없음 → 레지스트리 순 첫 active KB121",
+      account: account(["KB122", "KB121"], { KB121: SET_A, KB122: SET_A }),
+      registry: REGISTRY,
+      expected: { state: "set", ...SET_A, source: "KB121", mismatches: [] },
+    },
+    {
+      name: "출처 KB120 값 null · KB121 값 있음 → 값을 아는 첫 서버 KB121",
+      account: account(["KB120", "KB121"], { KB120: null, KB121: SET_A }),
+      registry: REGISTRY,
+      expected: { state: "set", ...SET_A, source: "KB121", mismatches: [] },
+    },
+    {
+      name: "모든 서버 null → unknown",
+      account: account(["KB120", "KB121"], { KB120: null, KB121: null }),
+      registry: REGISTRY,
+      expected: UNKNOWN,
+    },
+    {
+      name: "orderEndpoints 없음(옛 픽스처) → unknown",
+      account: account(["KB120"], undefined),
+      registry: REGISTRY,
+      expected: UNKNOWN,
+    },
+    {
+      name: "KB120 설정 · KB121 미설정 → state set · 불일치 [KB121 unset]",
+      account: account(["KB120", "KB121"], { KB120: SET_A, KB121: UNSET }),
+      registry: REGISTRY,
+      expected: {
+        state: "set",
+        ...SET_A,
+        source: "KB120",
+        mismatches: [{ serverKey: "KB121", state: "unset", orderIp: "", orderMac: "" }],
+      },
+    },
+    {
+      name: "KB120 설정 · KB121 다른 값 · KB122 같은 값 → 불일치 [KB121 set] 만(레지스트리 순)",
+      account: account(["KB120", "KB121", "KB122"], { KB120: SET_A, KB121: SET_B, KB122: SET_A }),
+      registry: REGISTRY,
+      expected: {
+        state: "set",
+        ...SET_A,
+        source: "KB120",
+        mismatches: [{ serverKey: "KB121", state: "set", ...SET_B }],
+      },
+    },
+    {
+      name: "KB121 null(87 모름) → 비교하지 않는다(불일치 0)",
+      account: account(["KB120", "KB121"], { KB120: SET_A, KB121: null }),
+      registry: REGISTRY,
+      expected: { state: "set", ...SET_A, source: "KB120", mismatches: [] },
+    },
+    {
+      name: "출처 값 \"\" \"\" → state unset",
+      account: account(["KB120", "KB121"], { KB120: UNSET, KB121: UNSET }),
+      registry: REGISTRY,
+      expected: { state: "unset", orderIp: "", orderMac: "", source: "KB120", mismatches: [] },
+    },
+    {
+      name: "지정 KB121 이 꺼진 서버 → 지정 무시 · 기본 KB120 이 출처",
+      account: account(["KB120", "KB121"], { KB120: SET_A, KB121: SET_B }, { orderServer: "KB121" }),
+      registry: [
+        { key: "KB120", enabled: true },
+        { key: "KB121", enabled: false },
+      ],
+      expected: {
+        state: "set",
+        ...SET_A,
+        source: "KB120",
+        mismatches: [{ serverKey: "KB121", state: "set", ...SET_B }],
+      },
+    },
+  ])("$name", ({ account: acct, registry, expected }) => {
+    expect(summarizeOrderEndpoint({ account: acct, registry })).toEqual(expected);
   });
 });
