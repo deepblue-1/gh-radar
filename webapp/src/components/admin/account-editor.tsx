@@ -70,6 +70,10 @@ import { useFieldSave, type FieldSave } from "./use-field-save";
  * 비활성 · 「다른 계좌 편집 중」). 초깃값은 연 순간 고정(재조회가 덮지 않는다). 「저장」 1회 = `PUT …/accounts` 1건
  * `{ account(새 이름 · 나머지 개요 값), servers(지금 active 등록 서버) }` — 계좌명만 바뀐 저장은 IP/MAC 을 싣지 않는다(relay 가 87 값을
  * 보존 · IPMAC-01). 서버 전부 ok 면 닫히고 포커스가 「편집」 으로 돌아온다. 서버 토글 · 주문 서버 · 「제거」 의 즉시 저장은 그대로.
+ * 하나라도 ok 가 아니면 편집 · 입력값을 유지하고 동작 줄 아래 결과 줄에 서버마다 「<서버> 실패: <서버 message 원문>」(err ·
+ * `role="alert"`) 또는 「<서버> 미반영: <사유>」(warn) — 서버 문구는 바꾸거나 대조하지 않는다(IPMAC-03 · D-12). HTTP 오류도 같은 자리.
+ * 편집 저장에서 온 결과 칩은 `source: "edit"` 로 표시해 영역 하단 `BusyLines` 에 다시 띄우지 않는다(칩 · title 은 그대로).
+ * 이름 저장 성공 뒤 재조회 전의 서버 토글은 새 이름을 싣는다(`editSave.value` — 옛 이름으로 되돌리지 않는다).
  */
 
 export const ACCOUNT_EDITOR_TEXT = {
@@ -105,6 +109,8 @@ export const ACCOUNT_EDITOR_TEXT = {
   editLocked: "다른 계좌 편집 중",
   nameLabel: "계좌명",
   namePlaceholder: "계좌명(선택)",
+  /** 편집 저장 결과 줄 — 실패 서버 한 줄(message 는 서버 원문 그대로). */
+  editFailedLine: (serverKey: string, message: string) => `${serverKey} 실패: ${message}`,
   /** 계좌명이 빈 값인 읽기 카드 제목줄(--faint). */
   noName: "이름 없음",
   ipmacLabel: "주문자 IP",
@@ -127,6 +133,8 @@ export interface ChipView {
   tone: ReflectTone;
   message: string | null;
   label: string | null;
+  /** 카드 편집 저장에서 온 칩 — 그 실패는 카드 결과 줄이 말하므로 영역 하단 `BusyLines` 에 다시 띄우지 않는다(Phase 30 UI-SPEC §4). */
+  source?: "edit";
 }
 
 /**
@@ -244,11 +252,43 @@ function viewChipOf(account: AdminAccountView, serverKey: string): ChipView | nu
   return s ? { tone: s.tone, message: s.message, label: null } : null;
 }
 
-/** 계좌 1개에 온 결과 — 그 계좌 · 그 서버 칩을 그대로 바꾼다(PUT · 계좌 DELETE · 계좌 추가). */
-function applyAccountResults(prev: Overlay, accountKey: string, results: readonly AdminServerResult[]): Overlay {
+/** 계좌 1개에 온 결과 — 그 계좌 · 그 서버 칩을 그대로 바꾼다(PUT · 계좌 DELETE · 계좌 추가 · 카드 편집 저장 = `source` "edit"). */
+function applyAccountResults(
+  prev: Overlay,
+  accountKey: string,
+  results: readonly AdminServerResult[],
+  source?: "edit",
+): Overlay {
   const next = new Map(prev);
-  for (const r of results) next.set(slotKey(accountKey, r.server), chipOfResult(r));
+  for (const r of results) {
+    const chip = chipOfResult(r);
+    next.set(slotKey(accountKey, r.server), source ? { ...chip, source } : chip);
+  }
   return next;
+}
+
+/** 카드 편집 저장 결과 줄 1개(UI-SPEC §4) — err 실패 · 응답 없음 / warn 미반영. */
+interface EditResultLine {
+  server: string;
+  tone: "err" | "warn";
+  text: string;
+}
+
+/**
+ * ok 가 아닌 결과 → 서버마다 한 줄. err = 「<서버> 실패: <message 원문 · 없으면 칩 낱말(응답 없음 · 실패 · BUSY)>」 ·
+ * warn = 「<서버> 미반영: <사유 원문 · 없으면 서버 연결 안 됨>」. 서버 문구는 바꾸거나 대조하지 않는다(D-12).
+ */
+function editResultLines(results: readonly AdminServerResult[]): EditResultLine[] {
+  const lines: EditResultLine[] = [];
+  for (const r of results) {
+    const chip = chipOfResult(r);
+    if (chip.tone === "err") {
+      lines.push({ server: r.server, tone: "err", text: ACCOUNT_EDITOR_TEXT.editFailedLine(r.server, r.message || chipStatusText(chip)) });
+    } else if (chip.tone === "warn") {
+      lines.push({ server: r.server, tone: "warn", text: skippedLineText(r.server, r.message || "서버 연결 안 됨") });
+    }
+  }
+  return lines;
 }
 
 /**
@@ -312,6 +352,8 @@ const ORDER_SEGMENT_ITEM = cn(ADMIN_SEGMENT_ITEM, "px-2.5 text-[12.5px] disabled
 const ORDER_ITEM_OFF = "line-through text-[var(--faint)]";
 const ORDER_ITEM_OFF_ON = "line-through text-[var(--led-latent)]! data-[state=on]:text-[var(--led-latent)]!";
 const WARN_LINE = "mt-1.5 text-[12px] leading-[1.5] break-keep text-[var(--led-latent)]";
+/** 카드 편집 블록의 오류 줄(Phase 30 UI-SPEC 유일한 새 상수) — 12px(도움말 자리와 같은 크기 · `BusyLines` err 줄과 같은 조합). */
+const EDIT_ERROR_LINE = "mt-1.5 text-[12px] leading-[1.5] break-keep text-[var(--destructive)]";
 /** 주문자 IP/MAC 읽기 줄(Phase 30 D-09) — 12px · muted · 숫자 tabular · 값은 600 · --fg-2. */
 const IPMAC_LINE = "mt-1 text-[12px] leading-[1.5] break-keep text-[var(--muted-fg)] tabular-nums";
 const IPMAC_VALUE = "font-semibold text-[var(--fg-2)]";
@@ -418,7 +460,7 @@ interface AccountRowProps {
   editLocked: boolean;
   onEditStart: () => void;
   onEditEnd: () => void;
-  onResults: (accountKey: string, results: readonly AdminServerResult[]) => void;
+  onResults: (accountKey: string, results: readonly AdminServerResult[], source?: "edit") => void;
   onChanged: () => void;
   onRemoveLast: () => void;
 }
@@ -450,15 +492,23 @@ function AccountRow({
   // 편집 초깃값 · 초안 — 「편집」 을 누른 순간 고정한다(이후 재조회 props 가 덮지 않는다 · UI-SPEC §5).
   const [draft, setDraft] = useState<{ initial: EditFields; value: EditFields } | null>(null);
   const isEditing = editing && draft !== null;
+  // 저장 결과 줄(서버별) · HTTP 오류 줄 표시 — 입력을 고치거나 「취소」 · 다시 열면 지운다(목업 B `delete MSG`).
+  const [editLines, setEditLines] = useState<EditResultLine[]>([]);
+  const [editErrorShown, setEditErrorShown] = useState(false);
+  const clearEditResult = () => {
+    setEditLines([]);
+    setEditErrorShown(false);
+  };
 
   // 카드 저장 1건(D-02) — 서버 일부 실패도 HTTP 성공이라 onSuccess 가 불린다: 전부 ok 일 때만 편집을 닫는다.
   const editSave = useFieldSave<AdminPutAccountBody>((body) => putDmaAccount(dmaUserId, body), {
     releaseOn: account,
     onSuccess: (_body, res) => {
-      if (res) onResults(key, res.results);
+      if (res) onResults(key, res.results, "edit");
       onChanged();
-      const allOk = !res || res.results.every((r) => r.outcome === "ok");
-      if (allOk) onEditEnd();
+      const lines = res ? editResultLines(res.results) : [];
+      setEditLines(lines);
+      if (lines.length === 0) onEditEnd();
     },
   });
 
@@ -469,8 +519,13 @@ function AccountRow({
     wasEditing.current = isEditing;
   }, [isEditing]);
 
+  // 이름은 「편집 저장이 쥔 새 이름 ?? 개요 이름」 — 저장 성공 뒤 재조회(`releaseOn`) 전 토글이 옛 이름으로 되돌리지 않게(Pitfall 4).
   const toggle = useFieldSave<string[]>(
-    (servers) => putDmaAccount(dmaUserId, { account: accountInputOf(account), servers }),
+    (servers) =>
+      putDmaAccount(dmaUserId, {
+        account: { ...accountInputOf(account), name: editSave.value?.account.name ?? account.name },
+        servers,
+      }),
     {
       onSuccess: (_v, res) => {
         if (res) onResults(key, res.results);
@@ -519,14 +574,18 @@ function AccountRow({
   const openEdit = () => {
     const initial: EditFields = { name: account.name };
     setDraft({ initial, value: initial });
+    clearEditResult();
     onEditStart();
   };
   const cancelEdit = () => {
     if (editSaving) return;
+    clearEditResult();
     onEditEnd();
   };
   const submitEdit = () => {
     if (draft === null || !editChanged || editSaving) return;
+    setEditLines([]);
+    setEditErrorShown(true);
     // servers = 지금 그리는 active 등록 서버(토글 비행 중이면 그 값) — 서버 집합을 바꾸지 않는다. orderEndpoint 는 싣지 않는다.
     editSave.run({ account: { ...accountInputOf(account), name: draft.value.name.trim() }, servers: intent });
   };
@@ -601,6 +660,7 @@ function AccountRow({
             onChange={(e) => {
               const name = e.target.value;
               setDraft((d) => (d ? { ...d, value: { ...d.value, name } } : d));
+              clearEditResult();
             }}
           />
           {endpoint && <OrderEndpointMismatchLines summary={endpoint} />}
@@ -626,6 +686,22 @@ function AccountRow({
               {T.save}
             </Button>
           </div>
+          {editErrorShown && editSave.error && (
+            <p role="alert" data-slot="admin-account-edit-result" data-tone="err" className={EDIT_ERROR_LINE}>
+              {editSave.error}
+            </p>
+          )}
+          {editLines.map((l) =>
+            l.tone === "err" ? (
+              <p key={l.server} role="alert" data-slot="admin-account-edit-result" data-server={l.server} data-tone="err" className={EDIT_ERROR_LINE}>
+                {l.text}
+              </p>
+            ) : (
+              <p key={l.server} data-slot="admin-account-edit-result" data-server={l.server} data-tone="warn" className={WARN_LINE}>
+                {l.text}
+              </p>
+            ),
+          )}
         </form>
       ) : (
         endpoint && (
@@ -1034,8 +1110,8 @@ export function AccountEditor({
     setOverlay((prev) => applyServerWideResults(prev, accounts, serverResults.results));
   }
 
-  const onResults = (accountKey: string, results: readonly AdminServerResult[]) =>
-    setOverlay((prev) => applyAccountResults(prev, accountKey, results));
+  const onResults = (accountKey: string, results: readonly AdminServerResult[], source?: "edit") =>
+    setOverlay((prev) => applyAccountResults(prev, accountKey, results, source));
 
   const serverKeysOf = (broker: DmaBroker) =>
     servers.filter((s) => s.broker === broker && s.enabled).map((s) => s.key);
@@ -1048,7 +1124,8 @@ export function AccountEditor({
   const activeCount = accounts.filter((a) => a.servers.some((s) => s.state === "active")).length;
   const nextPriority = Math.min(999, accounts.reduce((m, a) => Math.max(m, a.priority), 0) + 1);
 
-  // BUSY 줄 — 지금 그려진 실패 칩(결과 덮개가 개요보다 앞선다).
+  // BUSY 줄 — 지금 그려진 실패 칩(결과 덮개가 개요보다 앞선다). 카드 편집 저장 칩(source "edit")은 카드 결과 줄이 이미 말한다 —
+  // 두 번 띄우지 않는다(칩 · title 은 그대로 · UI-SPEC §4).
   const shownChips: { serverKey: string; tone: ReflectTone; message: string | null }[] = [];
   for (const a of editable) {
     const k = accountKeyOf(a.broker, a.accountNo);
@@ -1056,6 +1133,7 @@ export function AccountEditor({
     for (const slot of overlay.keys()) if (slot.startsWith(`${k}|`)) keys.add(slot.slice(k.length + 1));
     for (const serverKey of keys) {
       const chip = overlay.get(slotKey(k, serverKey)) ?? viewChipOf(a, serverKey);
+      if (chip?.source === "edit") continue;
       if (chip) shownChips.push({ serverKey, tone: chip.tone, message: chip.message });
     }
   }
