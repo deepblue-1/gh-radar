@@ -99,9 +99,11 @@ import type {
   RelayLimitChaserInput,
   TickRule,
 } from '@gh-radar/shared';
+import { echoAmountOf, qtyForSubmit } from '@gh-radar/shared';
 
 import { useRelayContext } from '@/lib/relay-provider';
 import {
+  SELL_WATCH_PAIR,
   buyOrderQtyFromAmount,
   crudOf,
   defaultLimitChaserForm,
@@ -335,15 +337,24 @@ const ARM_BLOCKED_SEP = ' · ';
  * 그런 종목을 고르면 상한가 시딩이 가격 칸을 전부 0 으로 채운다 — 그 상태의 「무장」 배지는 영원히
  * 발주하지 않는 조용한 실패다.
  */
-function canArmOf(values: LimitChaserFormValues): Record<GateKey, boolean> {
+/**
+ * 매도 「매수잔량」 제출 주 — 화면 · 무장 판정 · cfg 가 **같은 값**을 본다(shared `qtyForSubmit` 한 함수 · Phase 31 D-02).
+ * server 가 있으면 에코 메모(서버 주 · 추적 ON 은 기준선)를 쓴다 — `buildCfg` 와 같은 호출이다.
+ */
+function sellWatchSubmitQtyOf(values: LimitChaserFormValues, server: RelayLimitChaser | null): number {
+  return qtyForSubmit(values.sellWatchAmount, values.sellWatchPrice, server ? echoAmountOf(server, SELL_WATCH_PAIR) : null);
+}
+
+function canArmOf(values: LimitChaserFormValues, server: RelayLimitChaser | null): Record<GateKey, boolean> {
   const buy = buyPriceReasonOf(values) === null;
   /*
     ★ 매도는 **예상 매도수량(`estimatedSellQty(매도가능, 비율)`)을 조건으로 쓰지 않는다.**
     정본은 서버가 Set 시점에 스냅샷하는 `sellOrderQty` 이고, 상따의 정상 흐름은 「아직 한 주도 없는 상태에서
     매수·매도를 함께 무장」이다. 서버 검증과 동형으로 `sellWatchQty === 0`(「0 이면 서버가 매도 활성화를
-    거부한다」)과 시세 미수신(`sellOrderPrice === 0`)만 본다.
+    거부한다」)과 시세 미수신(`sellOrderPrice === 0`)만 본다. 매수잔량 주는 만원 칸의 **제출 환산 주**다
+    (Phase 31 — relay `#strategyArmable` 이 보는 cfg.sellWatchQty 와 같은 값).
   */
-  const sell = values.sellOrderPrice > 0 && values.sellWatchQty > 0;
+  const sell = values.sellOrderPrice > 0 && sellWatchSubmitQtyOf(values, server) > 0;
   return {
     buyEnabled: buy,
     preBuyEnabled: buy && groupQtyOf('preBuyEnabled', values) > 0,
@@ -358,9 +369,9 @@ function canArmOf(values: LimitChaserFormValues): Record<GateKey, boolean> {
  * 열 아래 패널이 이것을 읽는다. 그룹 수량 0 은 누르는 순간의 사전 검증이다(R7 · UI-SPEC §7) — 여기 넣으면
  * 금액만 모자란 그룹 스위치가 눌리지도 않아 「왜」를 말할 자리가 사라진다.
  */
-function canArmStaticOf(values: LimitChaserFormValues): Record<GateKey, boolean> {
+function canArmStaticOf(values: LimitChaserFormValues, server: RelayLimitChaser | null): Record<GateKey, boolean> {
   const buy = buyPriceReasonOf(values) === null;
-  const sell = values.sellOrderPrice > 0 && values.sellWatchQty > 0;
+  const sell = values.sellOrderPrice > 0 && sellWatchSubmitQtyOf(values, server) > 0;
   return { buyEnabled: buy, preBuyEnabled: buy, extraBuyEnabled: buy, postBuyEnabled: buy, sellEnabled: sell };
 }
 
@@ -376,9 +387,9 @@ function canArmStaticOf(values: LimitChaserFormValues): Record<GateKey, boolean>
  *   relay `fanout.ts` `#strategyArmable` 도 `#isTeardown(cfg)` 를 먼저 면제한다. 첫 관문이
  *   마지막 관문보다 엄격하면 사용자는 전략을 내리려는데 화면이 막는다.
  */
-function armBlockOf(values: LimitChaserFormValues): string | null {
+function armBlockOf(values: LimitChaserFormValues, server: RelayLimitChaser | null): string | null {
   if (isDeleteIntent(values)) return null;
-  const canArm = canArmOf(values);
+  const canArm = canArmOf(values, server);
   const blocked = GATE_KEYS.find((key) => values[key] && !canArm[key]);
   if (blocked !== undefined) return `${GATE_LABEL[blocked]}${ARM_BLOCKED_SEP}${armBlockedTextOf(blocked, values)}`;
   if (values.preBuyEnabled && values.sweepEnabled && values.sweepWatchPrice === 0) {
@@ -672,7 +683,7 @@ export function LimitChaserForm({
    * 정규화하므로 화면과 와이어만 갈린다.
    */
   const buildCfg = useCallback(
-    (values: LimitChaserFormValues): RelayLimitChaserInput => ({
+    (values: LimitChaserFormValues, server: RelayLimitChaser | null): RelayLimitChaserInput => ({
       ...values,
       isin,
       accountNo,
@@ -685,6 +696,9 @@ export function LimitChaserForm({
       // Phase 24 — 줄매수 · 후매수도 같은 함수 · 같은 공통 매수가격(금액→수량 3벌 = 호출 3곳).
       extraBuyOrderQty: buyOrderQtyFromAmount(values.extraBuyOrderAmount, values.buyOrderPrice),
       postBuyOrderQty: buyOrderQtyFromAmount(values.postBuyOrderAmount, values.buyOrderPrice),
+      // Phase 31 — 주 산출은 shared `qtyForSubmit` 한 곳(에코 메모 = 서버 주 · 추적 ON 은 기준선 되싣기 · D-06).
+      //   31-01 은 매도 매수잔량 한 쌍, 31-04 가 `LC_AMOUNT_PAIRS` 8쌍 루프로 넓힌다. 금액은 `...values` 의 칸 값 그대로다.
+      sellWatchQty: sellWatchSubmitQtyOf(values, server),
       // 클라 고정 3 — 폼에 노출하지 않는다(파일 상단 ⑤).
       sweepRecalcEnabled: true,
       sweepMinCount: 0,
@@ -891,7 +905,7 @@ export function LimitChaserForm({
     ★ **`useMemo` 다** (GC-IN-01) — 객체 리터럴이면 매 렌더 새 참조라 아래 `gateBlocked` 의 `useCallback` 이
       아무것도 메모하지 않는다. 의존성은 이미 계산이 끝난 두 boolean 이면 충분하다.
   */
-  const { buyEnabled: canArmBuyPrice, sellEnabled: canArmSell } = canArmStaticOf(form);
+  const { buyEnabled: canArmBuyPrice, sellEnabled: canArmSell } = canArmStaticOf(form, server ?? null);
   /** WR-02 — 구서버 에코면 켜는 방향 전부가 누르기 전에 막힌다(스위치 `disabled` · 열 패널 한 줄). 판별은 lib 하나. */
   const legacy = isLegacyBuySchema(server);
   const canArm: Record<GateKey, boolean> = useMemo(
@@ -1087,7 +1101,7 @@ export function LimitChaserForm({
         const outcome = commitField(gate, true, 'toggle', (base, laid) => {
           const companions: Partial<LimitChaserFormValues> = base.buyEnabled ? {} : { buyEnabled: true };
           if (autoGate === null) return companions;
-          const auto = groupAutoChecksOf(autoGate, base, upperLimitRef.current, laid);
+          const auto = groupAutoChecksOf(autoGate, base, upperLimitRef.current, laid, serverRef.current ?? null);
           autoCheckRef.current[autoGate] = auto;
           return { ...auto.companions, ...companions };
         });
@@ -1286,7 +1300,7 @@ export function LimitChaserForm({
     }
     // ⑤ 보낼 cfg 가 최신 에코와 `buyEnabled` 한 필드만 달라야 한다 — 웹이 다시 계산하는 수량 3벌 · 클라 고정 3필드가
     //    에코와 다르면 다른 클라가 둔 값이다. 자동 제출이 덮지 않는다(WR-06 · ① 과 같은 결 — 다시 예약하지 않는다).
-    if (!isMasterOnlyDelta(buildCfg({ ...lcBaseValues(s, formRef.current), buyEnabled: false }), s)) {
+    if (!isMasterOnlyDelta(buildCfg({ ...lcBaseValues(s, formRef.current), buyEnabled: false }, s), s)) {
       foldPendingRef.current = false;
       return;
     }
@@ -1414,7 +1428,7 @@ export function LimitChaserForm({
    */
   function validateCommit(field: LcNumField, v: number): string | null {
     const next: LimitChaserFormValues = { ...lcBaseValues(server, formRef.current), [field]: v };
-    return lcLegacyBlockOf(isLegacyBuySchema(server), field, v, next) ?? armBlockOf(next);
+    return lcLegacyBlockOf(isLegacyBuySchema(server), field, v, next) ?? armBlockOf(next, server ?? null);
   }
 
   /** 값 행이 공유하는 편집 배선(값 행 · 체크 값 행의 값 버튼). */

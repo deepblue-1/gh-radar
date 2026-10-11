@@ -22,8 +22,11 @@ import {
   type TickRule,
 } from '@gh-radar/shared';
 
-/** `'초'` = `/me` 상따 기본설정 「매도 주기」(1~60초 · Phase 27). */
-export type PadUnit = '원' | '주' | '만원' | '%' | '건' | '회' | '초';
+/**
+ * `'초'` = `/me` 상따 기본설정 「매도 주기」(1~60초 · Phase 27).
+ * `'만'` = 상따 수량 임계 8칸의 만원 입력(Phase 31 D-08) — 칩은 `'만원'` 과 같은 배열을 쓴다.
+ */
+export type PadUnit = '원' | '주' | '만원' | '만' | '%' | '건' | '회' | '초';
 
 /** 키패드 버퍼. `buf` 는 숫자만 담은 문자열('' = 빈 값) · `fresh` = 첫 입력 대기. */
 export interface PadState {
@@ -79,6 +82,14 @@ const CLEAR: PadChip = { label: '지우기', ariaLabel: '전부 지우기', op: 
 const add = (n: number): PadChip => ({ label: `+${fmt(n)}`, op: { kind: 'add', n } });
 const set = (n: number): PadChip => ({ label: String(n), op: { kind: 'set', n } });
 
+/** 만원 칩 = 천만 · 오천만 · 1억(값은 만원 단위 · G-21-R3-3) — `'만원'` · `'만'`(Phase 31 D-08)이 같은 배열을 쓴다. */
+const MANWON_CHIPS: readonly PadChip[] = [
+  { label: '천만', ariaLabel: '1,000만원 더하기', op: { kind: 'add', n: 1_000 } },
+  { label: '오천만', ariaLabel: '5,000만원 더하기', op: { kind: 'add', n: 5_000 } },
+  { label: '1억', ariaLabel: '1억원 더하기', op: { kind: 'add', n: 10_000 } },
+  CLEAR,
+];
+
 /** 단위별 단축 칩(D-17) — 라벨·순서가 UI-SPEC 표 그대로다. */
 export const PAD_CHIPS: Record<PadUnit, readonly PadChip[]> = {
   원: [
@@ -89,13 +100,9 @@ export const PAD_CHIPS: Record<PadUnit, readonly PadChip[]> = {
   ],
   주: [add(100), add(1_000), add(10_000), CLEAR],
   '%': [set(10), set(30), set(50), set(100)],
-  // 만원 = 천만 · 오천만 · 1억(값은 만원 단위 · G-21-R3-3)
-  만원: [
-    { label: '천만', ariaLabel: '1,000만원 더하기', op: { kind: 'add', n: 1_000 } },
-    { label: '오천만', ariaLabel: '5,000만원 더하기', op: { kind: 'add', n: 5_000 } },
-    { label: '1억', ariaLabel: '1억원 더하기', op: { kind: 'add', n: 10_000 } },
-    CLEAR,
-  ],
+  만원: MANWON_CHIPS,
+  // 상따 수량 임계 8칸 만원 입력(Phase 31 D-08) — 만원 칩 그대로(라벨 · 접근성 이름 불변)
+  만: MANWON_CHIPS,
   건: [set(1), set(3), set(5), CLEAR],
   회: [set(1), set(3), set(5), set(10)],
   // 매도 주기(1~60초 · Phase 27 `/me`) — 서버 내장 기본 3초

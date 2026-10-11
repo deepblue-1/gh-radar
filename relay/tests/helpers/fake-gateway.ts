@@ -600,6 +600,10 @@ export interface SetLimitChaserRequest {
   sellQtyTrackEnabled: boolean;
   sellOrderPrice: number;
   sellWatchPrice: number;
+  /** 매도 매수잔량(주) — Phase 31 트레이서가 금액과 짝(산출 주)으로 본다. */
+  sellWatchQty: number;
+  /** 매도 매수잔량 금액(만원 · vtable 168 · Phase 31 D-11) — 슬롯 부재(구 탭 cfg) = 0. */
+  sellWatchAmount: number;
   cancelQtyEnabled: boolean;
   cancelTradeEnabled: boolean;
   cancelQtyTrackEnabled: boolean;
@@ -689,6 +693,8 @@ export function readSetLimitChaserRequest(
     sellQtyTrackEnabled: req.sellQtyTrackEnabled(),
     sellOrderPrice: req.sellOrderPrice(),
     sellWatchPrice: req.sellWatchPrice(),
+    sellWatchQty: req.sellWatchQty(),
+    sellWatchAmount: req.sellWatchAmount(),
     cancelQtyEnabled: req.cancelQtyEnabled(),
     cancelTradeEnabled: req.cancelTradeEnabled(),
     cancelQtyTrackEnabled: req.cancelQtyTrackEnabled(),

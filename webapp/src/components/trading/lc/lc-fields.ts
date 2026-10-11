@@ -43,7 +43,7 @@ export type LcNumField = Extract<
   | 'sellOrderPrice'
   | 'sellOrderRatio'
   | 'sellWatchPrice'
-  | 'sellWatchQty'
+  | 'sellWatchAmount'
   | 'sellQtyTrackRatio'
   | 'sellMinTradeQty'
   | 'cancelWatchQty'
@@ -421,12 +421,14 @@ export const LC_SELL_GROUPS: readonly LcGroupSpec[] = [
       },
       {
         kind: 'value',
-        field: 'sellWatchQty',
+        // Phase 31 D-01 — 만원 입력 · 주는 제출 때 shared `qtyForSubmit` 이 산출한다. 행 id 는 그대로(e2e `data-lc-field` 안정).
+        field: 'sellWatchAmount',
         id: 'lc-sell-watch-qty',
         label: '매수잔량',
-        unit: '주',
-        desc: '비교가격의 매수잔량이 이 값보다 줄면 매도를 넣어요',
+        unit: '만',
+        desc: '비교가격의 매수잔량이 이 금액보다 줄면 매도를 넣어요',
         a11yPrefix: '매도',
+        ...LC_FIELD_RANGES.sellWatchAmount,
       },
       {
         kind: 'checkValue',

@@ -224,3 +224,5 @@ export * from "./admin";
 export * from "./order-server";
 // --- Phase 30 (30-02) 주문자 IP/MAC 정규화 · 검증 · 표시 판정 한 벌(gh-trade AccountUtil.h 이식) — relay 멱등 비교 · Express 개요 · webapp 편집기 ---
 export * from "./order-endpoint";
+// --- Phase 31 상따 금액(만원)↔주 §10 환산 한 벌(gh-trade LimitChaserForm.cs 이식) — webapp 행 · 시트 · 제출 · 검증 · relay 테스트 ---
+export * from "./lc-amount";

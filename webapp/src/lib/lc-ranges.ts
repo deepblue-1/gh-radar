@@ -18,6 +18,7 @@
  *   - `autoSellStartCond` `z.number().int().min(0).max(9)` (Phase 27 · 늘)
  *   - `autoSellRatioPct` · `autoSellMethod` `UByteSchema` + `.superRefine` 「자동매도 ON 이면 비율 1~50 · 방법 1~3」
  *     (서버 §9-3 동형 — `lcRangeIssue` 가 같은 조건 규칙을 본다 · Pitfall 5)
+ *   - 금액 8칸 0~999,999,999 — fbs 주석(만원 · Phase 31 · shared `LC_AMOUNT_MAX_MANWON`)
  * 나머지 값 필드(가격·수량·금액)는 `UIntSchema`(0 이상 정수) — 키패드가 음수·소수를 만들 수 없어 범위가 없다.
  * 자동매도 3칸(`autoSellStartCond` · `autoSellRatioPct` · `autoSellMethod`)의 숫자는 shared `LC_AUTO_SELL_RANGES` 가
  * 정본이다 — relay zod · superRefine 도 같은 상수를 읽는다(27-REVIEW IN-06).
@@ -25,7 +26,7 @@
  * `LC_AUTO_SELL_RANGES.autoSellMethod`(1~3)와 같다는 것은 shared 테스트가 잠근다.
  */
 
-import { LC_AUTO_SELL_RANGES } from '@gh-radar/shared';
+import { LC_AMOUNT_MAX_MANWON, LC_AUTO_SELL_RANGES } from '@gh-radar/shared';
 
 import type { LimitChaserFormValues } from '@/lib/limit-chaser';
 
@@ -58,6 +59,8 @@ export const LC_FIELD_RANGES = {
   autoSellStartCond: { range: LC_AUTO_SELL_RANGES.autoSellStartCond },
   // 꺼진 옛 에코의 0 은 통과(relay UByte) — 켠 cfg 만 1~50(`lcRangeIssue` 조건 규칙 · Pitfall 5).
   autoSellRatioPct: { range: UBYTE, inputRange: LC_AUTO_SELL_RANGES.autoSellRatioPct },
+  // 금액(만원) 8칸 — 0~999,999,999(fbs 주석 · Phase 31). 31-01 은 매도 매수잔량 한 칸.
+  sellWatchAmount: { range: { min: 0, max: LC_AMOUNT_MAX_MANWON } },
 } as const satisfies Partial<Record<keyof LimitChaserFormValues, LcFieldRange>>;
 
 /** 그 필드의 범위 — 표에 없으면(가격 · 수량 · 금액) `undefined`. */

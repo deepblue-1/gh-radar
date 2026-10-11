@@ -1429,6 +1429,12 @@ export const LC_AUTO_SELL_BUY3_SCHEMA = 4;
  */
 export const LC_EXTRA_BUY_AUTO_BUY3_SCHEMA = 5;
 
+/**
+ * 수량 임계 금액 8필드(만원 · Phase 31 D-11) — relay `LcSetCfg` 에서는 선택(구 탭 관용 · 부재 = 0 으로 조립),
+ * shared 입력 계약에서는 필수. `buy3_schema` 파생과 무관하다(게이트 없음).
+ */
+type LcAmountKey = "sellWatchAmount";
+
 /** 자동매도 요청 4필드 — relay `LcSetCfg` 에서는 선택(구 탭 관용), shared 입력 계약에서는 필수. */
 type LcAutoSellReqKey = "autoSellEnabled" | "autoSellStartCond" | "autoSellRatioPct" | "autoSellMethod";
 
@@ -1440,8 +1446,8 @@ type LcAutoSellReqKey = "autoSellEnabled" | "autoSellStartCond" | "autoSellRatio
  */
 export type LcSetCfg = Omit<
   RelayLimitChaserInput,
-  "postBuyAuto" | "extraBuyBurstRelease" | LcAutoSellReqKey | "extraBuyAuto"
-> & {
+  "postBuyAuto" | "extraBuyBurstRelease" | LcAutoSellReqKey | "extraBuyAuto" | LcAmountKey
+> & Partial<Pick<RelayLimitChaserInput, LcAmountKey>> & {
   postBuyAuto?: boolean;
   extraBuyBurstRelease?: boolean;
   extraBuyAuto?: boolean;
@@ -1697,6 +1703,8 @@ export function buildSetLimitChaserReq(
   if (buy3Schema >= LC_EXTRA_BUY_AUTO_BUY3_SCHEMA && cfg.extraBuyAuto !== undefined) {
     SetLimitChaser.addExtraBuyAuto(b, cfg.extraBuyAuto);
   }
+  // 금액 8(vtable 158~172 · buyOrderAmount 규약 · schema 게이트 없음 · 부재 = 0 — 0 은 FlatBuffers 기본값이라 버퍼에 안 쓰인다)
+  SetLimitChaser.addSellWatchAmount(b, toWireUint(cfg.sellWatchAmount ?? 0, "sellWatchAmount"));
   const table = SetLimitChaser.endSetLimitChaser(b);
 
   Envelope.startEnvelope(b);
@@ -2566,6 +2574,8 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       sellOrderQty: t.sellOrderQty(),
       sellWatchPrice: t.sellWatchPrice(),
       sellWatchQty: t.sellWatchQty(),
+      // 단위 만원(Phase 31 D-11) — 슬롯 부재(구 서버) = 0 · 역산은 웹 몫.
+      sellWatchAmount: t.sellWatchAmount(),
       sellMinTradeQty: t.sellMinTradeQty(),
       sellEnabled: t.sellEnabled(),
       sellTradeQtyEnabled: t.sellTradeQtyEnabled(),

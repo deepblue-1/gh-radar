@@ -594,6 +594,8 @@ export type FakeLimitChaserInput = {
   sellOrderQty?: number;
   sellWatchPrice?: number;
   sellWatchQty?: number;
+  /** 매도 매수잔량 금액(만원 · vtable 168 · Phase 31) — 서버 보관 · 에코. 부재 기본 0 = 구 서버. */
+  sellWatchAmount?: number;
   sellMinTradeQty?: number;
   sellEnabled?: boolean;
   sellTradeQtyEnabled?: boolean;
@@ -813,6 +815,8 @@ function emitSetLimitChaser(
   SetLimitChaser.addAutoSellBasis(b, input.autoSellBasis ?? 0);
   SetLimitChaser.addAutoSellBasisPrice(b, input.autoSellBasisPrice ?? 0);
   SetLimitChaser.addExtraBuyAuto(b, input.extraBuyAuto ?? false);
+  // === Phase 31 금액 8필드(vtable 158~172) — 부재 기본 0 = 구 서버(슬롯 무시) ===
+  SetLimitChaser.addSellWatchAmount(b, input.sellWatchAmount ?? 0);
   return SetLimitChaser.endSetLimitChaser(b);
 }
 

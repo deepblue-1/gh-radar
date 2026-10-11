@@ -154,6 +154,7 @@ export type RelayLcWatchSide = "0" | "1";
  *    사라진다. buy3 에코(`buy3Schema 1`)의 0 은 **선매수 금액 미입력**이다(추가 · 후매수 금액 0 과 같은
  *    뜻). 판별은 webapp lib `isLegacyAmountUnknown` 한 곳이다. 수량 x 가격 역산은 어느 쪽이든
  *    금지다(나머지 손실로 왕복이 깨진다, Pitfall 11).
+ *    이 문단은 `buyOrderAmount`(금액 3칸) 에만 해당한다 — 수량 임계 8칸 금액은 역산이 정본(Phase 31 D-06).
  *
  * 와이어는 전부 `number` 다 (D-34) — 64비트 정수를 계약에 넣지 않는다.
  */
@@ -201,6 +202,11 @@ export type RelayLimitChaser = {
   sellWatchPrice: number;
   /** 매도 감시 호가잔량(주). **0 이면 서버가 매도 활성화를 거부**(눕힘)한다. */
   sellWatchQty: number;
+  /**
+   * 매도 매수잔량 금액 — **단위 만원** · 짝 `sellWatchQty`(제출 때 `floor(만원×10000÷sellWatchPrice)`). 서버는 보관·에코만
+   * 한다(`buyOrderAmount` 규약 · 평가는 주). 부재/구서버 = 0 → 클라가 주에서 역산 표시(fbs 원문 · Phase 31 D-11).
+   */
+  sellWatchAmount: number;
   /** 매도 체결 임계(주). **취소의 「체결」 항이 이 값을 재사용**한다. */
   sellMinTradeQty: number;
   /** 매도 게이트. 에코는 `&& sellArmed` 로 접힌 무장 상태다. */

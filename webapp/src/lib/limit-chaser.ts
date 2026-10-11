@@ -46,7 +46,13 @@ import type {
   RelayUserSettingsMsg,
   RelayUserSettingsValues,
 } from '@gh-radar/shared';
-import { AUTO_SELL_METHOD_ORDER } from '@gh-radar/shared';
+import {
+  AUTO_SELL_METHOD_ORDER,
+  LC_AMOUNT_PAIRS,
+  echoAmountOf,
+  lcAmountPairOf,
+  qtyForSubmit,
+} from '@gh-radar/shared';
 
 // 84 시딩의 칸별 범위 판정은 lc 범위 표(`lc-ranges` — lc-fields 행과 같은 한 벌)를 읽는다. lib 는 components 를
 // 런타임 import 하지 않는다(27-REVIEW IN-05 — 계층 역전 · 초기화 순서 순환 방지).
@@ -61,6 +67,8 @@ import { lcFieldRangeOf } from '@/lib/lc-ranges';
  *     `market` 은 애초에 `RelayLimitChaserInput` 에 없다 — relay 가 ISIN 으로 푼다(WR-03/D-28)
  *   - 파생 4 (`crud` = `crudOf`, `buyOrderQty` · `extraBuyOrderQty` · `postBuyOrderQty` =
  *     `buyOrderQtyFromAmount` — Phase 24: 금액→수량 3벌을 `buildCfg` 가 한 함수로 산출한다. 역산 금지)
+ *   - 파생 · 금액→주 8벌(Phase 31 — `buildCfg` 가 shared `qtyForSubmit` 으로 산출 · 31-01 은 매도 매수잔량 한 쌍
+ *     `sellWatchQty`)
  *   - 클라 고정 3 (`sweepRecalcEnabled: true` · `sweepMinCount: 0` · `sweepMinRate: 0`)
  *
  * ★ 고정 3 을 폼에 노출하지 않는 이유: relay 빌더가 `true`/`0`/`0` 으로 **덮어쓴다**(16-04).
@@ -75,6 +83,7 @@ export type LimitChaserFormValues = Omit<
   | 'buyOrderQty'
   | 'extraBuyOrderQty'
   | 'postBuyOrderQty'
+  | 'sellWatchQty'
   | 'sweepRecalcEnabled'
   | 'sweepMinCount'
   | 'sweepMinRate'
@@ -108,6 +117,12 @@ export function buyOrderQtyFromAmount(amountManwon: number, price: number): numb
   if (!(price > 0)) return 0;
   return Math.floor((amountManwon * 10_000) / price);
 }
+
+/**
+ * 매도 「매수잔량」 금액↔주 쌍(Phase 31 트레이서) — shared `LC_AMOUNT_PAIRS` 표에서 찾는다(쌍을 여기서 다시 적지 않는다).
+ * 31-04 가 8쌍 루프로 넓히면 이 상수는 사라진다.
+ */
+export const SELL_WATCH_PAIR = LC_AMOUNT_PAIRS.find((p) => p.amount === 'sellWatchAmount')!;
 
 /**
  * 「켜진 전략」 — 작업대가 기본으로 카드를 만들고 사이드바가 싣는 기준(2026-09-23 사용자 결정).
@@ -240,7 +255,7 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
     sweepEnabled: false,
     // 매도주문
     sellWatchPrice: 0,
-    sellWatchQty: 10, // DEFAULT_SELL_WATCH_QTY
+    sellWatchAmount: 0, // D-12 — 만원 · gh-trade D-24 리셋 폴백 0(옛 DEFAULT_SELL_WATCH_QTY 10 은 이전하지 않는다)
     sellMinTradeQty: 30_000, // DEFAULT_SELL_MIN_TRADE_QTY
     sellTradeQtyEnabled: false,
     sellQtyTrackEnabled: false,
@@ -493,6 +508,7 @@ export function groupAutoChecksOf(
   values: LimitChaserFormValues,
   upperLimit: number,
   laid: ReadonlySet<keyof LimitChaserFormValues> = NO_LAID,
+  server: RelayLimitChaser | null = null,
 ): GroupAutoCheckResult {
   const companions: Partial<LimitChaserFormValues> = {};
   let sellOrderPrice = values.sellOrderPrice;
@@ -515,7 +531,14 @@ export function groupAutoChecksOf(
   // 조건 → 사유. 배열 순서가 곧 사유 우선순위다(첫 실패 하나만 말한다).
   const pricesMissing = sellOrderPrice === 0 || sellWatchPrice === 0;
   const watchPriceMissing = sellWatchPrice === 0;
-  const sellQtyZero = values.sellWatchQty === 0;
+  // 임계 판정은 ① 에서 채운 매도 비교가로 환산한 주로 한다 — 제출 · 무장 판정과 같은 `qtyForSubmit`(C# 「가격 채움 뒤
+  // 환산 주」 · Pitfall 8). server 가 있으면 에코 메모(서버 주 · 추적 ON 은 기준선)를 쓴다.
+  const sellQtyZero =
+    qtyForSubmit(
+      values.sellWatchAmount,
+      sellWatchPrice,
+      server ? echoAmountOf(server, SELL_WATCH_PAIR) : null,
+    ) === 0;
   const ratioZero = values.sellOrderRatio === 0;
   const cancelQtyZero = values.cancelWatchQty === 0;
   const tradeZero = values.sellMinTradeQty === 0;
@@ -662,6 +685,9 @@ export function isLegacyAmountUnknown(server: RelayLimitChaser | null | undefine
  * 이전 값을 남긴다(Pitfall 11 · D-04a). 수량 × 가격 역산으로 채우지도 않는다. buy3 에코의 선매수 금액 0 은
  * 「미입력」이라 0 그대로 들인다 — 이전 폼 값(기본 4,000만원)으로 메우면 다음 확정이 사용자가 두지 않은
  * 금액 · 수량을 조용히 싣는다(T-24-45).
+ *
+ * 금액 8칸(Phase 31 · 수량 임계)은 `buyOrderAmount` 의 prev 보존 규칙을 쓰지 않는다 — 짝이면 원값, 아니면 역산이
+ * 정본(D-06 · shared `echoAmountOf`).
  */
 export function formFromServer(
   server: RelayLimitChaser,
@@ -679,7 +705,8 @@ export function formFromServer(
     sweepMinTickCount: server.sweepMinTickCount,
     sweepEnabled: server.sweepEnabled,
     sellWatchPrice: server.sellWatchPrice,
-    sellWatchQty: server.sellWatchQty,
+    // 금액(만원) — 짝이면 원값 · 아니면(구 서버 0 · 서버가 주를 바꿈) 역산 · 추적 ON 이면 기준선 역산(D-06 · Pitfall 6).
+    sellWatchAmount: echoAmountOf(server, SELL_WATCH_PAIR).shown,
     sellMinTradeQty: server.sellMinTradeQty,
     sellTradeQtyEnabled: server.sellTradeQtyEnabled,
     sellQtyTrackEnabled: server.sellQtyTrackEnabled,
@@ -731,10 +758,19 @@ export function formFromServer(
  *
  * 비교는 `cfg` 의 키 전부(`buyEnabled` 제외)를 에코의 같은 키와 `===` 로 본다 — 키 목록의 정본은 입력 타입
  * `RelayLimitChaserInput` 이고, 여기에 필드를 나열하지 않는다(필드가 합류할 때 갈라진다).
+ * ★ 금액↔주 쌍 키(Phase 31)는 에코 원값이 아니라 **에코 적용값**과 본다 — 금액 키는 `echoAmountOf(...).shown`, 짝 주
+ *   키는 `echoAmountOf(...).qty`(추적 ON 이면 기준선). 구 서버 에코(금액 0)나 짝 아닌 에코에서 폼이 역산값을 싣는 것은
+ *   「다른 곳에서 둔 값」이 아니므로, 원값 `===` 로 보면 자동 끔이 영구히 억제된다(Pitfall 2).
  */
 export function isMasterOnlyDelta(cfg: RelayLimitChaserInput, echo: RelayLimitChaser): boolean {
   for (const key of Object.keys(cfg) as (keyof RelayLimitChaserInput)[]) {
     if (key === 'buyEnabled') continue;
+    const pair = lcAmountPairOf(key);
+    if (pair !== undefined) {
+      const applied = echoAmountOf(echo, pair);
+      if (cfg[key] !== (key === pair.amount ? applied.shown : applied.qty)) return false;
+      continue;
+    }
     if (cfg[key] !== echo[key]) return false;
   }
   return true;

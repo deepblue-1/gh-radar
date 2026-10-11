@@ -252,6 +252,9 @@ export const RelayLcSetSchema = z.object({
     //     postBuyAuto · extraBuyBurstRelease · 자동매도 4필드와 모두 있을 때만 buy3_schema 5(조립기 `lcBuy3SchemaOf`).
     //   - superRefine 완결성 검사를 넣지 않는다 — 아무것도 즉시 무장하지 않는 설정값이다.
     extraBuyAuto: z.boolean().optional(),
+    // === Phase 31 금액 8필드(만원 · C→S · 보관/에코만 · gh-trade D-06) — 12필드 블록 밖: `buy3CfgOf` · `lcBuy3SchemaOf` 에
+    //     넣지 않는다. 부재 = 0 으로 조립(구 탭 관용 · D-11). 기본값을 여기서 채우지 않는다.
+    sellWatchAmount: UIntSchema.optional(),
   }).superRefine((cfg, ctx) => {
     // 서버 §9-2 ⑤ 반등률 1~100 과 동형 — 켜는 쪽만 본다(끄는 쪽 0 은 통과).
     // 값이 **있을 때만** 본다 — 부재(구 탭)는 fanout 이 거부 프레임으로 답한다.
