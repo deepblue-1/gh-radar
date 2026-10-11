@@ -1370,6 +1370,19 @@ describe('P30 보내기 규칙 — 원문 · 변경 없음 · 비우기 · code 
     await act(async () => {});
   });
 
+  it('(30 IN-06) 「확인 전」 계좌 — 두 칸을 비운 채 계좌명만 바꿔 저장해도 orderEndpoint 없음(모르는 87 을 빈 값으로 덮지 않는다)', async () => {
+    putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }] });
+    mount([KB_ACCT, KYOBO_ACCT]);
+    fireEvent.click(btn(EDIT));
+    expect(ipInput()).toHaveValue('');
+    expect(macInput()).toHaveValue('');
+    fireEvent.change(nameInput(), { target: { value: '위탁종합' } });
+    fireEvent.click(btn(SAVE));
+    expect(putDmaAccountMock).toHaveBeenCalledTimes(1);
+    expect(bodyOf()).not.toHaveProperty('orderEndpoint');
+    await act(async () => {});
+  });
+
   it('(30 IN-01) 87 값이 한쪽만 설정(IP 만)인 계좌 → 오류 줄 없이 열림 · 계좌명만 바꾸면 「저장」 켜짐 · orderEndpoint 없음', async () => {
     putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }] });
     mount([withEp(KB_ACCT, { KB120: { orderIp: '010041001124', orderMac: '' } }), KYOBO_ACCT]);
