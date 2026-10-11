@@ -593,6 +593,8 @@ const orderApi = createOrderApi({
   },
   // 옛 서버에 끄지 못한 전략 — 서버 키 → 계좌 수(`StaleStrategyRegister.byServer`). 본문 `accountOrderServers.<키>.staleAccounts`.
   staleStrategies: () => staleStrategies.byServer(),
+  // Phase 29-55 GC-13 — 레지스트리 꺼진(또는 빠진) 서버 항목은 `alerting: false` · `disabled: true`(지정은 남지만 그 계좌는 기본 서버로 간다).
+  serverDisabled: (key) => registry.get(key)?.enabled !== true,
   // Phase 29-11 — Admin 내부 HTTP(관문 뒤 · 404 앞). Express 만 부른다(D-07).
   admin: { router: adminRouter },
 });

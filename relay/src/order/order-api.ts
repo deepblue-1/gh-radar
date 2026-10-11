@@ -45,6 +45,8 @@
  *   G-1      (Phase 29-43 관측 재검토) 503 축 `journal` 과 uptime 고정 경로 `brokers.{KB,KYOBO}` 는 **증권사 기본 주문 서버**
  *            저널 그대로다. 계좌별 지정 서버의 저널과 옛 서버에 남아 끄지 못한 전략은 본문 전용 `accountOrderServers.<키>`
  *            (`{ accounts, alerting, staleAccounts }` — 수뿐 · 없으면 키 생략)로만 드러낸다. 근거는 healthz 판정 근거 주석.
+ *            레지스트리 꺼진 서버 항목은 `alerting: false` · `disabled: true` 다(29-55 GC-13) — 서버를 꺼도 지정은 남지만 그 계좌는
+ *            기본 서버로 간다(G-1 규칙). 그 서버 저널을 볼 이유가 없으므로 경보가 아니다.
  */
 import { timingSafeEqual } from "node:crypto";
 import os from "node:os";
@@ -84,9 +86,10 @@ export type BrokerJournalHealth = { server: string; alerting: boolean };
 /**
  * 계좌 지정 주문 서버 요약 (Phase 29-43 G-1 — healthz `accountOrderServers.<서버 키>`). 수와 알림 판정뿐 — 계좌 · 사용자 식별자 없음.
  * `accounts` = 그 서버를 주문 서버로 지정한 계좌 수, `alerting` = 그 서버 저널이 「주 게이트웨이였다면 503」 인가(파이프라인이 없으면
- * true), `staleAccounts` = 그 서버에 남아 끄지 못한 전략이 있는 계좌 수(G-1 (가)).
+ * true), `staleAccounts` = 그 서버에 남아 끄지 못한 전략이 있는 계좌 수(G-1 (가)). `disabled` = 레지스트리에서 꺼진 서버(29-55 GC-13
+ * — 그때 `alerting` 은 늘 false · 켜진 서버 항목에는 키 자체가 없다).
  */
-export type AccountOrderServerHealth = { accounts: number; alerting: boolean; staleAccounts: number };
+export type AccountOrderServerHealth = { accounts: number; alerting: boolean; staleAccounts: number; disabled?: true };
 
 export type OrderApiDeps = {
   /** `RELAY_ORDER_SECRET` — 내부 HTTP 표면의 공유 비밀 (D-22). */
@@ -143,6 +146,11 @@ export type OrderApiDeps = {
    * 끄지 못한 전략 — 서버 키 → 계좌 수 (Phase 29-43 G-1 (가) · `StaleStrategyRegister.byServer()`). 본문 전용. 요청마다 부른다.
    */
   staleStrategies?: () => ReadonlyMap<string, number>;
+  /**
+   * 레지스트리에서 꺼진 서버인가 (Phase 29-55 GC-13). 참인 서버의 `accountOrderServers` 항목은 `alerting: false` · `disabled: true` —
+   * 꺼진 서버로의 지정은 남지만 그 계좌는 기본 서버로 간다(G-1 규칙)라 거짓 경보다. 미주입 = 모두 켜짐(종전). 요청마다 부른다.
+   */
+  serverDisabled?: (serverKey: string) => boolean;
   /** 시각 주입구 — 테스트가 장중/장 밖을 흉내낸다. 기본 `new Date()`. */
   now?: () => Date;
   /**
@@ -216,6 +224,7 @@ export type HealthPayload = {
    * 계좌 지정 주문 서버 · 끄지 못한 전략 (Phase 29-43 G-1). 값은 `{ accounts, alerting, staleAccounts }` 뿐이다 — 계좌 · 사용자
    * 식별자 · 호스트가 없다. 지정 1건 이상이거나 끄지 못한 계좌가 있는 서버만 싣고, **그런 서버가 하나도 없으면 필드 자체가
    * 없다**(`{}` 를 싣지 않는다 — 종전 본문과 같다 · 29-41 운영 확인 `jq .accountOrderServers` = null). 503 판정 밖.
+   * 레지스트리 꺼진 서버 항목은 `{ …, alerting: false, disabled: true }` — 경보 아님(29-55 GC-13).
    */
   accountOrderServers?: Record<string, AccountOrderServerHealth>;
 };
@@ -465,6 +474,7 @@ export function createOrderApi(deps: OrderApiDeps): Express {
       deps.accountOrderServers?.() ?? [],
       deps.staleStrategies?.(),
       now,
+      deps.serverDisabled,
     );
 
     const payload: HealthPayload = {
@@ -517,16 +527,23 @@ export function createOrderApi(deps: OrderApiDeps): Express {
 /**
  * healthz `accountOrderServers` 조립 (Phase 29-43). 지정 계좌가 1건 이상인 서버와 끄지 못한 계좌가 있는 서버의 합집합 — 지정만
  * 있으면 `staleAccounts` 0, 끄지 못한 계좌만 있으면 `accounts` 0 · `alerting` false(지정이 없어 그 서버 저널을 볼 이유가 없다).
- * 합집합이 비면 `undefined` — 키 자체를 싣지 않는다(`{}` 금지).
+ * 합집합이 비면 `undefined` — 키 자체를 싣지 않는다(`{}` 금지). 레지스트리 꺼진 서버(`serverDisabled` 참)는 두 갈래 모두
+ * `alerting: false` · `disabled: true`(29-55 GC-13 — 지정은 남지만 그 계좌는 기본 서버로 간다 · 경보 아님).
  */
 function buildAccountOrderServers(
   designated: ReadonlyArray<{ serverKey: string; accounts: number; health(nowMs: number): JournalHealth | undefined }>,
   stale: ReadonlyMap<string, number> | undefined,
   now: Date,
+  serverDisabled?: (serverKey: string) => boolean,
 ): Record<string, AccountOrderServerHealth> | undefined {
   const out: Record<string, AccountOrderServerHealth> = {};
+  const off = (serverKey: string) => serverDisabled?.(serverKey) === true;
   for (const d of designated) {
     if (d.accounts <= 0) continue;
+    if (off(d.serverKey)) {
+      out[d.serverKey] = { accounts: d.accounts, alerting: false, staleAccounts: 0, disabled: true };
+      continue;
+    }
     const health = d.health(now.getTime());
     out[d.serverKey] = {
       accounts: d.accounts,
@@ -537,7 +554,9 @@ function buildAccountOrderServers(
   for (const [serverKey, n] of stale ?? []) {
     if (n <= 0) continue;
     const prev = out[serverKey];
-    out[serverKey] = prev === undefined ? { accounts: 0, alerting: false, staleAccounts: n } : { ...prev, staleAccounts: n };
+    if (prev !== undefined) out[serverKey] = { ...prev, staleAccounts: n };
+    else if (off(serverKey)) out[serverKey] = { accounts: 0, alerting: false, staleAccounts: n, disabled: true };
+    else out[serverKey] = { accounts: 0, alerting: false, staleAccounts: n };
   }
   return Object.keys(out).length > 0 ? out : undefined;
 }
