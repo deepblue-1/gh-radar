@@ -2,6 +2,7 @@ import axios, { type AxiosInstance } from "axios";
 import type {
   AdminCommandResponse,
   AdminDmaInput,
+  AdminOrderEndpointsRaw,
   AdminPutAccountBody,
   AdminServerLiveStatus,
   DmaBroker,
@@ -104,6 +105,11 @@ export type RelayAdminClient = {
   reconcile(dmaUserId: string, adminEmail: string): Promise<RelayAdminResponse<AdminCommandResponse>>;
   /** 서버 카드 상태 칩(연결 · 저널 · admin · 시세). */
   serversStatus(adminEmail: string): Promise<RelayAdminResponse<RelayServersStatus>>;
+  /**
+   * 계좌별 주문자 IP/MAC(30-03 · D-09) — relay 메모리 87 캐시(DB 에는 열이 없다). `servers` 에 키가 없는 서버 = 그 서버 87 을 모름.
+   * 실패해도 개요(GET /api/admin/users)는 200 · 「확인 전」. 값은 사용자 PC 식별 정보 — 로그 금지.
+   */
+  orderEndpoints(adminEmail: string): Promise<RelayAdminResponse<AdminOrderEndpointsRaw>>;
   /**
    * 계좌 주문 서버 지정(29-37 G-1 ⑥) — relay 가 RPC 로 저장하고 지정 적재기를 즉시 재적재한다(29-36 재수립까지).
    * `serverKey` null = 증권사 기본 주문 서버로. 거부는 relay 409(`ORDER_SERVER_NOT_REGISTERED` · `NO_SUCH_ACCOUNT` · `NO_DMA_USER`).
@@ -312,6 +318,8 @@ export function relayAdminClientFrom(request: RelayAdminRequest): RelayAdminClie
       request<AdminCommandResponse>("POST", `${user(dma)}/reconcile`, adminEmail),
     serversStatus: (adminEmail) =>
       request<RelayServersStatus>("GET", "/internal/admin/servers/status", adminEmail),
+    orderEndpoints: (adminEmail) =>
+      request<AdminOrderEndpointsRaw>("GET", "/internal/admin/order-endpoints", adminEmail),
     setQuotePrimary: (key, adminEmail) =>
       request<RelayQuotePrimaryResult>(
         "POST",

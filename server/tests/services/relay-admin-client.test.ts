@@ -103,6 +103,21 @@ describe("createRelayAdminClient — 요청 계약", () => {
     expect(seen[0].url).toBe("/internal/admin/registry/reload");
   });
 
+  it("P30 orderEndpoints — GET /internal/admin/order-endpoints · x-admin-email · 바디 없음", async () => {
+    const data = {
+      servers: { KB120: [{ dmaUserId: "kim01", accountNo: "1234567801", orderIp: "010041001124", orderMac: "1CFD087D978E" }] },
+    };
+    reply = (_req, res) => json(res, 200, data);
+    const r = await client().orderEndpoints(ADMIN);
+    expect(r).toEqual({ status: 200, data });
+    expect(seen).toHaveLength(1);
+    expect(seen[0].method).toBe("GET");
+    expect(seen[0].url).toBe("/internal/admin/order-endpoints");
+    expect(seen[0].headers["x-relay-secret"]).toBe(SECRET);
+    expect(seen[0].headers["x-admin-email"]).toBe(ADMIN);
+    expect(seen[0].body).toBe("");
+  });
+
   it("request — 바디는 JSON 으로 · 상태코드는 그대로(validateStatus 무조건 통과 — 409 를 throw 하지 않는다)", async () => {
     reply = (_req, res) => json(res, 409, { error: { code: "DMA_USER_EXISTS" } });
     const r = await client().request("POST", "/internal/admin/dma-users", ADMIN, { email: "a@b.co" });

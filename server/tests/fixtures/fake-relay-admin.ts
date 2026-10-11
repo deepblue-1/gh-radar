@@ -13,6 +13,7 @@ import {
  *   dma-users 계열 → 200 `{ results: [KB120 ok] }` (DELETE /dma-users/:dma 는 `deleted: true` 포함)
  *   reload        → 200 `{ ok: true, changed: true }`
  *   servers/status → 200 `{ servers: {} }`
+ *   order-endpoints → 200 `{ servers: {} }` (30-03 — 전 서버 「확인 전」)
  *   quote-primary → 200 `{ ok: true }`
  */
 
@@ -32,6 +33,7 @@ export const OK_RESULTS = [{ server: "KB120", outcome: "ok", usersRev: "2" }];
 function defaultResponse(call: FakeRelayCall): RelayAdminResponse<unknown> {
   if (/\/reload$/.test(call.path)) return { status: 200, data: { ok: true, changed: true } };
   if (call.path === "/internal/admin/servers/status") return { status: 200, data: { servers: {} } };
+  if (call.path === "/internal/admin/order-endpoints") return { status: 200, data: { servers: {} } };
   if (/\/quote-primary$/.test(call.path)) return { status: 200, data: { ok: true } };
   if (call.method === "DELETE" && /^\/internal\/admin\/dma-users\/[^/]+$/.test(call.path)) {
     return { status: 200, data: { results: OK_RESULTS, deleted: true } };
