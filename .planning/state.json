@@ -6,7 +6,7 @@
     {
       "number": "30",
       "name": "인박스 KB 계좌별 주문자 IP/MAC",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "31",
@@ -16,8 +16,8 @@
   ],
   "next": {
     "command": "/gsd:progress --next",
-    "label": "Advance to the next step (verify)",
-    "reason": "Phase 30 of 2 · 0% · ready to verify"
+    "label": "Advance to the next step (plan phase 31)",
+    "reason": "Phase 31 of 2 — needs a plan"
   },
-  "updated_at": "2026-10-11T09:59:59.956Z"
+  "updated_at": "2026-10-11T10:14:09.088Z"
 }
