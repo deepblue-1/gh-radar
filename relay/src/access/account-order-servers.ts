@@ -2,8 +2,10 @@
  * Phase 29 Plan 33 — G-1 ③ (ADMIN-06). 계좌별 주문 서버 지정 적재기 (`AccountOrderServers`) · 유효 주문 서버 라우팅.
  *
  * G-1(사용자 변경 요청 2026-10-10 · D-10 「증권사당 주문 서버 1대」 대체): 계좌 a(증권사 b)의 **유효 주문 서버** =
- * a 의 지정 서버(레지스트리에서 enabled 이고 증권사가 b 일 때) → 아니면 b 의 기본 주문 서버(`dma_servers.is_order_server`).
- * 지정 서버가 꺼지면 기본값으로 간다(지정은 지우지 않는다 — 다시 켜면 돌아온다). 그 계좌의 주문 · 전략 · 계좌 · 83 프레임은
+ * a 의 지정 서버(레지스트리에서 enabled 이고 증권사가 b 일 때) → 아니면 b 의 기본 주문 서버(`dma_servers.is_order_server`) —
+ * **단 기본 서버 매핑에 a 가 있거나 그 매핑이 아직 미적재일 때** → 아니면 a 가 등록된 b 의 켜진 서버가 정확히 1대면 그 서버 →
+ * 아니면 소유자 없음(29-46 GC-06 · 규칙 정본은 shared `resolveEffectiveOrderServer` — Admin 계좌 편집기와 한 벌).
+ * 지정 서버가 꺼지면 규칙의 나머지로 간다(지정은 지우지 않는다 — 다시 켜면 돌아온다). 그 계좌의 주문 · 전략 · 계좌 · 83 프레임은
  * 유효 주문 서버 세션 **하나에서만** 오가고 보인다(세션 소유 뷰 — `DmaSession.allowedAccounts`).
  *
  * DB 계약(29-29 산출물 표): 서비스롤 RPC `dma_account_order_servers()` → `(dma_user_id, broker, account_no, server_key)` —
@@ -20,8 +22,9 @@
  *   지정 서버 미반영 — 지정 서버 매핑(79/87)에 그 계좌가 아직 없으면 그 계좌는 어느 세션도 소유하지 않는다(주문은 「허용 계좌
  *         아님」 거부 · 다른 서버로 새지 않는다). `serversFor` 는 그 서버 세션을 열지 않는다 — 87 이 반영하면
  *         `refreshUserSessions` 가 빠진 서버 세션을 연다.
- *   같은 증권사 두 서버 세션은 계좌들이 실제로 서로 다른 서버를 쓸 때만 연다 — 지정이 하나도 없는 사용자는 종전과 같은 세션
- *         (KB 기본 1개 + 교보 기본 매핑에 계좌가 있으면 교보 기본 1개).
+ *   같은 증권사 두 서버 세션은 계좌들이 실제로 서로 다른 서버를 쓸 때만 연다 — 지정이 하나도 없고 계좌가 전부 기본 서버에 등록된
+ *         사용자는 종전과 같은 세션(KB 기본 1개 + 교보 기본 매핑에 계좌가 있으면 교보 기본 1개). 기본 서버에 없는 계좌는 유일 등록
+ *         서버 세션을 연다(29-46 GC-06).
  *
  * 하지 않는 것:
  *   - 로그에 DMA id · 계좌번호를 싣지 않는다(D-19 · T-16-09) — 행 수 · 건너뛴 수만. 오류는 `safePgError` 로만.
@@ -30,7 +33,7 @@
  */
 import { EventEmitter } from "node:events";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { SERVER_KEY_RE } from "@gh-radar/shared";
+import { SERVER_KEY_RE, resolveEffectiveOrderServer } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
 import { safePgError } from "../store/pg-error.js";
@@ -271,10 +274,18 @@ export type OrderServerRoutingDeps = {
   registry: OrderServerRegistryView;
   /** 그 서버 매핑(79/87)의 그 DMA id 계좌 — 그 서버 users.toml 에 등록된 계좌다. 매핑 없음 = undefined. */
   accountsOf: (serverKey: string, dmaUserId: string) => ReadonlySet<string> | undefined;
+  /**
+   * 그 서버 매핑이 유효 스냅샷을 한 번이라도 적용했나(`JournalAccess.loaded` · 29-46 GC-06). 기본 서버 매핑이 미적재(부팅 ·
+   * 파이프라인 재생성 직후)면 등록을 모르는 것으로 보고 종전대로 기본 서버다. 미주입 = 늘 적재됨.
+   */
+  mappingLoaded?: (serverKey: string) => boolean;
 };
 
 export type OrderServerRouting = {
-  /** 계좌의 유효 주문 서버 키 = 지정(enabled · 같은 증권사) ?? 증권사 기본 주문 서버. 둘 다 없으면 undefined. */
+  /**
+   * 계좌의 유효 주문 서버 키 = 지정(enabled · 같은 증권사) ?? (기본 서버 매핑에 계좌가 있거나 그 매핑이 미적재면 증권사 기본 주문
+   * 서버) ?? (그 증권사 켜진 서버 중 계좌가 등록된 서버가 정확히 1대면 그 서버) ?? undefined(소유자 없음) — shared 규칙 한 벌(GC-06).
+   */
   effectiveOrderServer(dmaUserId: string, broker: DmaBroker, accountNo: string): string | undefined;
   /** 세션 소유 판정 원천(`SessionManager` `ownerOf`) — 증권사 문자열을 받는다(세션 `broker`). */
   ownerOf(dmaUserId: string, broker: string, accountNo: string): string | undefined;
@@ -294,9 +305,18 @@ export function createOrderServerRouting(deps: OrderServerRoutingDeps): OrderSer
     if (chosen !== undefined) {
       const row = registry.get(chosen);
       // 꺼진 서버 · 다른 증권사 키(비정상 행)는 지정이 없는 것으로 본다 — 지정 자체는 지우지 않는다(다시 켜면 돌아온다).
+      // 유효한 지정은 매핑 등록 여부와 무관하게 이긴다(종전 — 지정 서버 매핑 미반영은 `serversFor` 가 세션을 열지 않는 것으로 막는다).
       if (row !== undefined && row.enabled && row.broker === broker) return row.key;
     }
-    return registry.orderServerOf(broker)?.key;
+    const defaultKey = registry.orderServerOf(broker)?.key;
+    // 등록 = 그 증권사 켜진 서버 중 매핑(79/87)에 그 계좌가 있는 키(레지스트리 순).
+    const registered = registry
+      .enabled()
+      .filter((s) => s.broker === broker && deps.accountsOf(s.key, dmaUserId)?.has(accountNo) === true)
+      .map((s) => s.key);
+    // 기본 서버 매핑 미적재 = 등록 모름 → 종전대로 기본(부팅 · 재생성 직후 계좌가 몇 초 사라지는 회귀 방지).
+    const defaultUnknown = defaultKey !== undefined && deps.mappingLoaded !== undefined && !deps.mappingLoaded(defaultKey);
+    return resolveEffectiveOrderServer({ defaultKey, registered, defaultUnknown })?.key;
   }
 
   function serversFor(dmaUserId: string): SessionTarget[] | null {
@@ -309,6 +329,7 @@ export function createOrderServerRouting(deps: OrderServerRoutingDeps): OrderSer
       for (const s of servers) for (const a of deps.accountsOf(s.key, dmaUserId) ?? []) accounts.add(a);
       const keys = new Set<string>();
       for (const a of accounts) {
+        // 유일 등록 서버도 유효 서버다(GC-06) — 기본 서버에 없는 계좌가 그 서버 세션을 연다.
         const eff = effectiveOrderServer(dmaUserId, broker, a);
         // 지정 서버가 그 계좌를 아직 모르면(매핑 미반영) 그 서버 세션을 열지 않는다 — 열어도 그 계좌는 서버가 거부한다.
         if (eff !== undefined && deps.accountsOf(eff, dmaUserId)?.has(a) === true) keys.add(eff);

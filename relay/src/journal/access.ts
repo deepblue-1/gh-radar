@@ -70,6 +70,8 @@ export class JournalAccess implements JournalAccessView {
   #closed = false;
   #lastSkipped = 0;
   #emptySnapshotsRejected = 0;
+  /** 유효 스냅샷을 한 번이라도 적용했나(29-46 GC-06) — 빈 스냅샷 거부는 세지 않는다. */
+  #loaded = false;
 
   constructor(deps: JournalAccessDeps) {
     this.#supabase = deps.supabase;
@@ -85,6 +87,14 @@ export class JournalAccess implements JournalAccessView {
 
   accountsOf(dmaUserId: string): ReadonlySet<string> | undefined {
     return this.#map.get(dmaUserId);
+  }
+
+  /**
+   * 유효 스냅샷(79 · 87)을 한 번이라도 적용했나 (Phase 29-46 GC-06). 거짓이면 이 서버의 등록 목록을 아직 모른다 — 유효 주문 서버
+   * 라우팅이 기본 서버 매핑 미적재를 「등록 모름 = 기본 등록」 으로 보는 근거다(부팅 · 파이프라인 재생성 직후 계좌가 사라지지 않게).
+   */
+  get loaded(): boolean {
+    return this.#loaded;
   }
 
   /**
@@ -161,6 +171,7 @@ export class JournalAccess implements JournalAccessView {
     }
     this.#map = next;
     this.#rows = syncRows.length;
+    this.#loaded = true;
     this.#pending = syncRows;
     logger.info({ gateway: this.#gateway, rows: syncRows.length, users: next.size }, "[journal] 계좌 매핑 교체");
     this.#kick();

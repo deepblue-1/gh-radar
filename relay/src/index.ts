@@ -219,8 +219,9 @@ const appAccess = new AppAccess({ supabase, refreshMs: config.appAccessRefreshMs
 
 /**
  * 계좌별 주문 서버 지정 (Phase 29-33 · G-1 — D-10 「증권사당 주문 서버 1대」 대체) — RPC `dma_account_order_servers` 60초 사본 ·
- * 즉시 재적재는 꼬리(`reload()`). 유효 주문 서버 = 지정(레지스트리 enabled · 같은 증권사) ?? 증권사 기본 주문 서버
- * (`effectiveOrderServer`). 세션 소유(`ownerOf`) · wss 인증이 열 (유저, 서버) 대상(`serversFor`)의 원천이다. 첫 적재 전
+ * 즉시 재적재는 꼬리(`reload()`). 유효 주문 서버(`effectiveOrderServer` · 규칙 정본 shared `resolveEffectiveOrderServer` — 29-46
+ * GC-06) = 지정(레지스트리 enabled · 같은 증권사) ?? (기본 서버 매핑에 계좌가 있거나 그 매핑이 미적재면 증권사 기본 주문 서버) ??
+ * (계좌가 등록된 그 증권사 켜진 서버가 정확히 1대면 그 서버) ?? 소유자 없음. 세션 소유(`ownerOf`) · wss 인증이 열 (유저, 서버) 대상(`serversFor`)의 원천이다. 첫 적재 전
  * `serversFor` 는 null — wss 인증은 「조회 실패」(failed + 1011)로 끝난다(fail closed). 시작은 접근 맵 옆(관찰자보다 먼저).
  */
 const accountOrderServers = new AccountOrderServers({ supabase, refreshMs: config.appAccessRefreshMs });
@@ -230,6 +231,8 @@ const orderServerRouting = createOrderServerRouting({
   registry,
   // 그 서버 매핑(79/87) = 그 서버 users.toml 에 등록된 계좌. 호출마다 지금 파이프라인을 본다(재생성 추종).
   accountsOf: (serverKey, dmaUserId) => pipelines.get(serverKey)?.access.accountsOf(dmaUserId),
+  // 29-46 GC-06 — 기본 서버 매핑 미적재(부팅 · 재생성 직후)면 등록 모름 = 기본 등록으로 본다(종전 동작 유지).
+  mappingLoaded: (serverKey) => pipelines.get(serverKey)?.access.loaded === true,
 });
 /** 계좌의 유효 주문 서버 키(G-1) — 세션 소유 판정 원천. DMA id · 계좌번호를 로그에 싣지 않는다. */
 const effectiveOrderServer = orderServerRouting.effectiveOrderServer;
