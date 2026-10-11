@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 30
 current_phase_name: 인박스 KB 계좌별 주문자 IP/MAC
 status: executing
-stopped_at: Completed 30-03-PLAN.md
-last_updated: "2026-10-11T06:27:13.741Z"
+stopped_at: Completed 30-04-PLAN.md
+last_updated: "2026-10-11T06:35:40.546Z"
 last_activity: 2026-10-11
 last_activity_desc: Phase 30 execution started
-state_head: fc06c3b9acf8d61ceac08bd151381c4a1fe9a1e2
+state_head: 96d0084f1d4b07519f32133f01a1cee12e3d7d7f
 progress:
   total_phases: 2
   completed_phases: 0
   total_plans: 7
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-11 after v1.1 milestone start)
 ## Current Position
 
 Phase: 30 (인박스 KB 계좌별 주문자 IP/MAC) — EXECUTING
-Plan: 4 of 7
+Plan: 5 of 7
 Status: Ready to execute
 Last activity: 2026-10-11 — Phase 30 execution started
 
@@ -78,8 +78,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-11T06:27:13.723Z
-Stopped at: Completed 30-03-PLAN.md
+Last session: 2026-10-11T06:35:40.527Z
+Stopped at: Completed 30-04-PLAN.md
 Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 
 ## Operator Next Steps
@@ -94,6 +94,7 @@ Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 | Phase 30 P01 | 7 min | 3 tasks | 8 files |
 | Phase 30 P02 | 5 min | 3 tasks | 6 files |
 | Phase 30 P03 | 5 min | 3 tasks | 8 files |
+| Phase 30 P04 | 6 min | 3 tasks | 2 files |
 
 ## Decisions
 
@@ -106,3 +107,5 @@ Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 - [Phase 30]: [30-03] relay GET /order-endpoints 는 켜진 서버 중 87 캐시(currentSnapshot)가 있는 서버만 키를 둔다 — 꺼짐 · 파이프라인 없음 · 재접속 중은 키 없음 = 확인 전
 - [Phase 30]: [30-03] Express GET /users 는 RPC 와 relay order-endpoints 를 Promise.all 병렬 — relay 없음·비200·모양 위반·throw 는 null(확인 전) · warn 에 status 만 · 개요 200 유지
 - [Phase 30]: [30-03] Express PUT 계좌 감사 줄은 orderEndpoint set/clear 플래그만(값 없음) — 두 칸 모두 빈 값이면 clear
+- [Phase 30]: 30-04: 편집 저장 결과 줄 err 문구는 서버 message 원문 우선(없으면 칩 낱말) · 편집 저장 칩은 source edit 로 BusyLines 에서 뺀다
+- [Phase 30]: 30-04: 토글 PUT 이름 = editSave.value 새 이름 ?? 개요 이름(releaseOn: account) — 이름 저장 직후 재조회 전 토글 경합 방지
