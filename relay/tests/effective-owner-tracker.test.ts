@@ -127,4 +127,45 @@ describe("EffectiveOwnerTracker — 전 사용자 유효 주문 서버 스냅샷
     // snapshotOf 는 기준선을 건드리지 않는다 — refresh 는 여전히 A 의 move 를 낸다.
     expect(t.tracker.refresh()).toEqual([{ dmaUserId: D1, broker: "KB", accountNo: A, from: "KB120", to: "KB121" }]);
   });
+
+  // 29-50 GC-08 — 지정 서버 X 에서 계좌 등록을 빼는 순서(put_account → X 의 87 applied → 지정 재적재)는 X → (소유자 없음) → Y 두 단계다.
+  // 첫 단계 move(X → 없음)는 그때 유효 서버가 아직 X 라 소비자(sweepMoved)가 건너뛴다 — 트래커가 X 를 기억해 두 번째 단계에서 from = X 로 낸다.
+  it("GC-08 X → (없음) → Y — 지정 KB121 매핑에서 A 를 뺀 뒤 지정 해제 → 두 번째 단계 move 가 from KB121 · to KB120", () => {
+    const t = setup();
+    t.chosen.set(`${D1}|KB|${A}`, "KB121");
+    expect(t.tracker.refresh()).toEqual([]); // 기준선 — A 소유 KB121
+    // ① put_account 뒤 KB121 의 87 이 A 를 뺐다 — 메모리 지정 사본은 아직 KB121(유효 = KB121 · 소유자 없음).
+    t.mappings.get("KB121")?.get(D1)?.delete(A);
+    expect(t.tracker.refresh()).toEqual([{ dmaUserId: D1, broker: "KB", accountNo: A, from: "KB121", to: undefined }]);
+    expect(t.tracker.snapshotOf(D1).get(`KB|${A}`)).toMatchObject({ owner: undefined, effective: "KB121" });
+    // ② 지정 재적재 — 지정 해제(기본 KB120). 종전엔 from undefined 라 0 이었다.
+    t.chosen.delete(`${D1}|KB|${A}`);
+    expect(t.tracker.refresh()).toEqual([{ dmaUserId: D1, broker: "KB", accountNo: A, from: "KB121", to: "KB120" }]);
+    expect(t.tracker.refresh()).toEqual([]);
+  });
+
+  it("GC-08 X → (없음) → X — 지정 KB121 매핑에서 A 를 뺐다가 다시 넣으면 두 번째 단계 move 0", () => {
+    const t = setup();
+    t.chosen.set(`${D1}|KB|${A}`, "KB121");
+    t.tracker.refresh();
+    t.mappings.get("KB121")?.get(D1)?.delete(A);
+    expect(t.tracker.refresh()).toEqual([{ dmaUserId: D1, broker: "KB", accountNo: A, from: "KB121", to: undefined }]);
+    t.mappings.get("KB121")?.get(D1)?.add(A);
+    expect(t.tracker.refresh()).toEqual([]);
+  });
+
+  it("GC-08 기억 정리 — 계좌가 모든 매핑에서 사라지면 기억을 지운다 · 다시 KB120 에만 나타나도 move 0 · 그 뒤 정착은 from 없음", () => {
+    const t = setup();
+    t.chosen.set(`${D1}|KB|${A}`, "KB121");
+    t.tracker.refresh(); // A 소유 KB121
+    t.mappings.get("KB121")?.get(D1)?.delete(A);
+    t.tracker.refresh(); // KB121 → 없음(유효 KB121 — 기억 KB121 유지)
+    t.mappings.get("KB120")?.get(D1)?.delete(A);
+    expect(t.tracker.refresh()).toEqual([]); // 모든 매핑에서 사라짐 — move 아님 · 기억 삭제
+    t.mappings.get("KB120")?.get(D1)?.add(A);
+    expect(t.tracker.refresh()).toEqual([]); // 새로 보인 계좌 — move 아님(지정 KB121 은 A 를 몰라 소유자 없음)
+    t.chosen.delete(`${D1}|KB|${A}`);
+    // 기억이 지워졌으므로 옛 KB121 을 from 으로 되살리지 않는다.
+    expect(t.tracker.refresh()).toEqual([{ dmaUserId: D1, broker: "KB", accountNo: A, from: undefined, to: "KB120" }]);
+  });
 });
