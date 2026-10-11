@@ -352,7 +352,7 @@ Source: ui-consideration-probe. 6 elements × categories, resolved in one batch 
 
 ### A2. 공유 계좌 안내 줄 — 편집 모드 (D-18 · 플랜 30-09)
 
-**언제:** KB 계좌 카드가 편집 모드이고, 개요(`AdminUsersOverview.users`)의 **다른** DMA 사용자가 같은 증권사 · 같은 정규화 계좌번호(`normalizeAccountNo`)의 계좌를 가지고 있으며, 그 사용자의 그 계좌 서버(active 등록 서버 + 「서버에만 있음」 서버)가 이 계좌의 active 등록 서버(= 저장이 가는 서버)와 **하나 이상 겹칠 때**. 겹치는 서버가 없으면 그 사용자는 빠진다(gh-trade 전파는 서버별 users.toml 안에서만 일어난다). 판정은 shared `findSharedAccountHolders` 한 벌.
+**언제:** KB 계좌 카드가 편집 모드이고, 개요(`AdminUsersOverview.users`)의 **다른** DMA 사용자가 같은 증권사 · 같은 정규화 계좌번호(`normalizeAccountNo`)의 계좌를 가지고 있으며, 그 사용자의 그 계좌가 **87 에 있는** 서버(「서버에만 있음」 서버 + active 이고 반영됨 또는 relay 87 값 있음 + removing 인데 아직 87 에 남음 — 30 IN-02 · active 미반영은 빠진다)가 이 계좌의 active 등록 서버(= 저장이 가는 서버)와 **하나 이상 겹칠 때**. 겹치는 서버가 없으면 그 사용자는 빠진다(gh-trade 전파는 서버별 users.toml 안에서만 일어난다). 판정은 shared `findSharedAccountHolders` 한 벌.
 
 **어디:** 편집 블록 안 — 도움말/검증 오류 줄 → 불일치 경고 줄(있으면) → **안내 줄** → 동작 줄(「취소 · 저장」). 저장 버튼 바로 위라 「누르면 무엇이 함께 바뀌는지」 를 말한다.
 

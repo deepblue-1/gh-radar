@@ -841,6 +841,20 @@ export function deriveAdminUsersOverview(
   };
 }
 
+/**
+ * 계좌 하나가 87(users.toml)에 있다고 볼 수 있는 서버(30 IN-02 · `findSharedAccountHolders` 전용) — 판정 근거는 그 함수 주석.
+ * removing 칩 ok = 87 에서 이미 지워짐(`userAccounts` 의 reflected) · ok 아님 = 아직 있음(toRemove) 또는 87 모름.
+ */
+function presentOn87(a: Pick<AdminAccountView, "servers" | "serverOnlyOn" | "orderEndpoints">): Set<string> {
+  const out = new Set(a.serverOnlyOn);
+  for (const s of a.servers) {
+    const present =
+      s.state === "active" ? s.tone === "ok" || a.orderEndpoints?.[s.serverKey] != null : s.tone !== "ok";
+    if (present) out.add(s.serverKey);
+  }
+  return out;
+}
+
 /** 같은 계좌를 함께 쓰는 다른 DMA 사용자(Phase 30 · D-18) — `servers` = 이 계좌 저장이 가는 서버 중 그 사용자도 그 계좌를 가진 서버. */
 export interface SharedAccountHolder {
   dmaUserId: string;
@@ -849,12 +863,17 @@ export interface SharedAccountHolder {
 
 /**
  * 공유 계좌 판정(Phase 30 · D-18 · UI-SPEC Addendum A2) — 개요 사용자 중 **다른** DMA 사용자가 같은 증권사 · 같은 정규화 계좌번호
- * (`normalizeAccountNo`)의 계좌를 가지고 있고, 그 계좌의 서버(active 등록 서버 ∪ `serverOnlyOn`)가 입력 `servers`(이 계좌의 active
+ * (`normalizeAccountNo`)의 계좌를 가지고 있고, 그 계좌가 **87 에 있는 서버**(아래 `presentOn87`)가 입력 `servers`(이 계좌의 active
  * 등록 서버 = 저장이 가는 서버)와 하나 이상 겹치면 그 사용자를 돌려준다. 결과는 dmaUserId 오름차순(코드 단위) · 같은 dmaUserId 는
  * 서버를 합쳐 한 항목 · 각 `servers` 는 입력 순서. 자기 자신 · DMA 없는 웹 사용자는 넣지 않는다. 순수 함수 · 개요 데이터만 읽는다.
  *
  * - gh-trade 전파(op 3 이 orderIp/orderMac 을 바꾸면 같은 계좌번호를 가진 다른 사용자에 같은 값)는 서버별 users.toml 안에서만
  *   일어난다(D-18) — 겹치는 서버가 없으면 함께 바뀌지 않으므로 넣지 않는다.
+ * - 서버 집합은 의도가 아니라 **87 반영 상태**다(30 IN-02) — gh-trade 는 users.toml 에 지금 있는 계좌에만 전파한다.
+ *   `serverOnlyOn` · active 이고 반영됨(칩 ok) · active 이고 relay 87 캐시에 값이 있음(`orderEndpoints[서버]` non-null — 칩이 이름 등
+ *   다른 필드 미반영으로 ok 가 아니어도 계좌는 87 에 있다) · removing 인데 아직 지워지지 않음(칩 ok 아님 = toRemove 대기 · 87 을
+ *   모르면 있다고 본다). active 미반영 계좌(87 에 아직 없음)와 지워진 removing 행은 넣지 않는다.
+ *   남는 근사: active 미반영 칩이 「87 에 있지만 다른 필드가 다름」 이고 relay 87 조회도 실패한 경우는 빠진다(개요가 둘을 가르지 않는다).
  * - gh-trade 가 함께 쓰는 사용자에게 옮기는 값은 주문자 IP · MAC 뿐이다(지점번호 · 거래자ID · 계좌명은 옮기지 않는다) — 안내 문구도
  *   IP · MAC 만 말한다.
  * - 한계: 웹 사용자에 연결되지 않은 87 전용 DMA id(「서버에만 있음」 사용자 행)는 개요에 계좌번호가 없어 나오지 않는다 — gh-trade
@@ -873,7 +892,7 @@ export function findSharedAccountHolders(input: {
     if (u.dmaUserId === null || u.dmaUserId === input.dmaUserId) continue;
     for (const a of u.accounts) {
       if (a.broker !== input.broker || normalizeAccountNo(a.accountNo) !== no) continue;
-      const theirs = new Set([...a.servers.filter((s) => s.state === "active").map((s) => s.serverKey), ...a.serverOnlyOn]);
+      const theirs = presentOn87(a);
       const overlap = input.servers.filter((k) => theirs.has(k));
       if (overlap.length === 0) continue;
       const set = byUser.get(u.dmaUserId) ?? new Set<string>();
