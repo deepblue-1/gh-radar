@@ -24,7 +24,8 @@
  *       남고(settle 인자 userRemoved=false) · 줄 서 있던 다음 반영이 그 서버에 op 1 로 다시 올린다
  *   IPMAC-01 (Phase 30 R3-01 · D-15) op 1(계좌) · op 3 직전 op 5 재조회 — 캐시에 없는 relay 밖 IP/MAC 을 새 87 에서 되싣는다 ·
  *       계좌명만 바꾼 PUT 은 등록 서버마다 op 3(IPMAC-05) · 재조회 timeout/offline 이면 그 서버 44 0건(fail closed) · 비밀번호 ·
- *       제거 · 유저 삭제 · 무변경은 재조회 0회 · 새 87 이 의도와 같으면 44 0건 · override(원문)가 새 87 값보다 이긴다(D-07 · D-10)
+ *       제거 · 유저 삭제 · 무변경은 재조회 0회 · 새 87 이 의도와 같으면 44 0건 · override(원문)가 새 87 값보다 이긴다(D-07 · D-10) ·
+ *       재조회 왕복도 요청 마감(29-32)에 들어 마감 접기 · 뒤 기록이 그대로 처리한다(Pitfall 9)
  */
 import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -472,7 +473,10 @@ describe("AdminDispatcher — 변경 경로 (29-11 Task 2)", () => {
     const env = setup({ KB120: state({ u1: [{ ...kb("A"), name: "옛 이름" }] }) }, [row("KB120")]);
     seedU1(env, [{ accountNo: "A", servers: ["KB120"] }]);
     const conn = env.conns.KB120!;
+    const original = conn.command.bind(conn);
     vi.spyOn(conn, "command").mockImplementation(async (input) => {
+      // Phase 30 IPMAC-01 — op 3 직전 op 5 재조회는 대역 그대로(새 87). 86 code 13 은 op 3 에만.
+      if (input.op === 5) return original(input);
       conn.sent.push(structuredClone(input));
       return { kind: "result", result: { requestId: 11n, ok: false, code: 13, message, usersRev: 5n } };
     });
@@ -995,6 +999,20 @@ describe("IPMAC-01 R3-01 — op 1/3 직전 op 5 재조회 (D-15)", () => {
     expect(results).toEqual([{ server: "KB120", outcome: "ok", usersRev: "9" }]);
     expect(conn.refreshes).toBe(1);
     expect(conn.sent).toHaveLength(0);
+  });
+
+  it("재조회 왕복도 요청 마감에 든다 — op 5 가 마감을 넘기면 timeout(마감 문구)으로 먼저 응답 · 뒤에서 op 3 까지 끝나 실제 결과 기록", async () => {
+    const env = setup({ KB120: state({ u1: [kb("A")] }) }, [row("KB120")]);
+    seedU1(env, [{ accountNo: "A", servers: ["KB120"] }]);
+    env.conns.KB120!.refreshDelayMs = 150;
+
+    await env.store.putAccount("u1", { broker: "KB", ...kb("A"), name: "새 이름" }, ["KB120"]);
+    const results = await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN_EMAIL, deadlineAt: Date.now() + 30 });
+
+    expect(results).toEqual([{ server: "KB120", outcome: "timeout", message: DEADLINE_MESSAGE }]);
+    await vi.waitFor(() => expect(env.db.callsTo("dma_admin_record_results")).toHaveLength(2), { timeout: 2000 });
+    expect(ops(env.conns.KB120!)).toEqual([3]);
+    expect(env.conns.KB120!.state.users.get("u1")![0]!.name).toBe("새 이름");
   });
 
   it("override(orderEndpoint 원문)가 새 87 값보다 이긴다 — KB120 · KB121 둘 다 같은 원문(D-10 · D-07)", async () => {

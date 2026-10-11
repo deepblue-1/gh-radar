@@ -5,7 +5,10 @@
  *   의도(`dma_admin_intent`) → 등록 서버 키 집합 → **서버마다 병렬로**
  *     레지스트리에서 꺼진 · 없는 서버 → `skipped` + 사유 문구(29-34 WR-04 — 유저 삭제 · 그 밖 반영 맥락별)
  *     admin 연결 없음 · 87 미수신(`currentSnapshot()` null) → `offline`(서버 상태를 모르고 쓰지 않는다)
- *     `planServerOps`(29-04 · shared `diffServerAccounts` 한 벌) → op 를 **순서대로** `command()` → `interpretAdminResult`
+ *     `planServerOps`(29-04 · shared `diffServerAccounts` 한 벌) — 캐시 87 로 계획 → op 1(계좌) · op 3 이 있으면 **op 5 로 그 서버
+ *       87 을 새로 받아 다시 계획**(Phase 30 R3-01 · D-15 — relay 밖에서 설정된 주문자 IP/MAC 을 되싣는다). 재조회 timeout →
+ *       `timeout` · offline · 87 없음 → `offline` 이고 그 서버에는 44 를 보내지 않는다(fail closed — 캐시로 진행하지 않는다)
+ *     → op 를 **순서대로** `command()` → `interpretAdminResult`
  *       첫 실패(failed · timeout · offline)에서 그 서버만 멈춘다 — 다른 서버 결과에 번지지 않는다(D-07 · D-23 ④)
  *     settle(D-23 ⑤) — op 4 가 ok(0 · 8 = 이미 없음)인 계좌 · 87 에 이미 없는 removing 계좌 · op 2 ok(0 · 4)면 **계획 때 removing
  *       이던 그 서버 행만**(29-32 WR-01 — op 2 진행 중 다른 계좌에 그 서버가 active 로 막 체크된 행은 남아 다음 반영이 op 1 로
@@ -26,6 +29,8 @@
  * 하지 않는 것:
  *   - **87 에만 있는 계좌 · 유저를 지우는 op 를 만들지 않는다**(D-23 ⑤ · D-16) — op 는 전부 planner 가 의도 행에서만 만든다.
  *     DB 등록 서버가 아닌 서버에는 아무것도 보내지 않는다.
+ *   - op 1(계좌) · op 3 을 캐시 87 만으로 보내지 않는다(Phase 30 R3-01 · D-15) — 직전 op 5 재조회가 실패하면 그 서버는 보내지
+ *     않는다. 재조회는 op 1(계좌) · op 3 이 있을 때만(비밀번호 · 제거 · 유저 삭제 · 무변경은 0회).
  *   - 평문 비밀번호를 저장 · 로그 · 응답에 남기지 않는다. op 1 직전에만 인자 평문 또는 `dma_users` 암호문 복호(AAD = dmaUserId,
  *     D-19)로 꺼내 44 에 싣는다. dmaUserId · 계좌번호도 로그 인자에 없다(서버 키 · op · code 까지만).
  *   - 같은 DMA 유저의 반영은 relay 안에서 줄 세운다(`#serial`) — 두 Admin 요청의 op 가 한 서버에서 섞이지 않게.
@@ -45,6 +50,7 @@ import type { AdminConn } from "./admin-conn.js";
 import type { AdminIntentStore } from "./intent-store.js";
 import { IntentError } from "./intent-store.js";
 import { planPasswordOps, planServerOps, type AdminSnapshotView, type PlannedOp, type ServerPlan } from "./planner.js";
+import { ADMIN_OP } from "./types.js";
 
 /**
  * Phase 30 (IPMAC-02 · D-07 · D-10) — 웹 계좌 편집이 보낸 주문자 IP/MAC 쌍. `reconcileUser` 가 그 계좌(증권사 · 정규화 번호 ·
@@ -294,10 +300,26 @@ export class AdminDispatcher {
       return { server: serverKey, outcome: "skipped", message };
     }
     const admin = this.#deps.pipelines.get(serverKey)?.admin;
-    const snapshot = admin?.currentSnapshot() ?? null;
+    let snapshot = admin?.currentSnapshot() ?? null;
     if (admin === undefined || snapshot === null) return { server: serverKey, outcome: "offline" };
-    const p = plan(snapshot);
+    let p = plan(snapshot);
     if (p.status === "no-snapshot") return { server: serverKey, outcome: "offline" };
+
+    // IPMAC-01(R3-01 · D-15) — op 1(계좌) · op 3 은 87 의 주문자 IP/MAC 을 되싣는다(GC-02). relay 밖(gh-trade 도구)에서 바꾼 값은
+    // 캐시에 없으므로 보내기 직전 그 서버 87 을 op 5 로 새로 받아 계획을 **처음부터 다시** 만든다(재계획이 op 를 없애도 따른다).
+    // 비밀번호(op 1 passwordOnly) · 제거(op 4) · 유저 삭제(op 2) · 무변경은 IP/MAC 을 싣지 않으니 재조회하지 않는다.
+    if (p.ops.some((op) => op.op === 3 || (op.op === 1 && !("passwordOnly" in op)))) {
+      const fresh = await admin.command({ op: ADMIN_OP.ListUsers, userId: "" });
+      if (fresh.kind !== "result" || fresh.snapshot === undefined) {
+        // 새 87 없이 캐시로 보내면 relay 밖 값을 지울 수 있다 — 이 서버에는 44 를 하나도 보내지 않는다(fail closed).
+        const reason = fresh.kind === "result" ? "no-snapshot" : fresh.kind;
+        logger.warn({ server: serverKey, reason }, "[admin] op 1/3 직전 87 재조회 실패 — 44 미송신(relay 밖 IP/MAC 보존)");
+        return { server: serverKey, outcome: fresh.kind === "timeout" ? "timeout" : "offline" };
+      }
+      snapshot = fresh.snapshot;
+      p = plan(snapshot);
+      if (p.status === "no-snapshot") return { server: serverKey, outcome: "offline" };
+    }
 
     let usersRev = snapshot.usersRev.toString();
     const removed = [...p.settleRemoved];
