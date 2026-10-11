@@ -3,10 +3,10 @@ gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: 운영 유지보수
 status: planning
-last_updated: "2026-10-11T04:43:04.541Z"
+last_updated: "2026-10-11T05:30:00.000Z"
 last_activity: 2026-10-11
 progress:
-  total_phases: 0
+  total_phases: 2
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,17 +17,19 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-11 after v1.0 milestone)
+See: .planning/PROJECT.md (updated 2026-10-11 after v1.1 milestone start)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** v1.1 운영 유지보수 — 요구사항 정의 중
+**Current focus:** Phase 30 — 인박스 KB 계좌별 주문자 IP/MAC
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 30 (인박스 KB 계좌별 주문자 IP/MAC) — READY TO PLAN · v1.1 2개 중 1번째
 Plan: —
-Status: Defining requirements
-Last activity: 2026-10-11 — Milestone v1.1 started
+Status: Ready to plan
+Last activity: 2026-10-11 — v1.1 로드맵 생성(Phase 30-31 · IPMAC 4 + AMT 4 매핑, DOCS-01 은 quick)
+
+Progress: [░░░░░░░░░░] 0%
 
 ## Accumulated Context
 
@@ -40,9 +42,9 @@ Last activity: 2026-10-11 — Milestone v1.1 started
 
 ### Blockers/Concerns (v1.1 로 이월)
 
-- **[Phase 29] 두 번째 서버(KB121 · KYOBO127) 켜기 전 결정.** 운영은 지정 0 · 두 번째 서버 꺼짐이라 잠복. 켜기 전에 R3-03 부팅 창 백스톱 · R3-05 무동작 대여 미승격 · R3-06 VI 끄기 에코 미확인 수정, 51 OrderResp 계좌 필터 공백 수용 여부, 실서버 실증. 정본 `milestones/v1.0-phases/29-dma-multi-server-admin/29-53-SUMMARY.md` 「켜기 전 결정」.
-- **[Phase 29] KB 운영 서버 계좌별 IP/MAC 설정 보류 (R3-01).** relay 가 op 3 에 되싣는 IP/MAC 은 87 캐시라 relay 밖에서 설정한 값을 다음 웹 계좌 편집이 지울 수 있다. 수정(계획 직전 op 5 재조회) · 웹 IP/MAC 입력칸 · 인박스 질문 3개를 v1.1 에서 함께 — `docs/inbox/from-gh-trade/261010-kb-order-ip-mac.md` (status open).
-- **[인박스] 상따 금액 단위** — `docs/inbox/from-gh-trade/261011-limitchaser-amount-unit.md` (status open · 호환이라 급하지 않음). `lc.set` 재제출 때 금액 8필드 되싣기 · 「만(주)」 표시 도입 여부 결정.
+- **[Phase 29] 두 번째 서버(KB121 · KYOBO127) 켜기 전 결정.** 운영은 지정 0 · 두 번째 서버 꺼짐이라 잠복. 켜기 전에 R3-03 부팅 창 백스톱 · R3-05 무동작 대여 미승격 · R3-06 VI 끄기 에코 미확인 수정, 51 OrderResp 계좌 필터 공백 수용 여부, 실서버 실증. 정본 `milestones/v1.0-phases/29-dma-multi-server-admin/29-53-SUMMARY.md` 「켜기 전 결정」. v1.1 밖(v1.2+ ADMIN-NEXT).
+- **[Phase 29 → Phase 30] KB 운영 서버 계좌별 IP/MAC 설정 보류 (R3-01).** relay 가 op 3 에 되싣는 IP/MAC 은 87 캐시라 relay 밖에서 설정한 값을 다음 웹 계좌 편집이 지울 수 있다. 수정(계획 직전 op 5 재조회) · 웹 IP/MAC 입력칸 · 인박스 질문 3개를 Phase 30 에서 함께 — `docs/inbox/from-gh-trade/261010-kb-order-ip-mac.md` (status open).
+- **[인박스 → Phase 31] 상따 금액 단위** — `docs/inbox/from-gh-trade/261011-limitchaser-amount-unit.md` (status open · 호환이라 급하지 않음). `lc.set` 재제출 때 금액 8필드 되싣기 · 「만(주)」 표시 도입 여부 결정. gh-trade `feature/limitchaser-amount-unit` master 병합 · 서버 배포 뒤에 되싣기 실증 가능.
 - **Phase 17 승계 실기 관측 2건.** ① D-25 래치 36/37/38 왕복·76/77/78 드롭 0 미관측(WINDOWS #17 — `sudo xcodebuild -license` 동의 뒤 gh-trade HEAD 빌드 또는 장중 LED 관측). ② smoke `INV-9` 프로덕션 첫 실행 미수행(`SMOKE_AUTH_TOKEN` 필요). TRADE-04·05 는 그래서 Pending 유지.
 - **`/healthz` 알림 정책 — 사용자 결정 대기.** 게이트웨이가 끊기면 세션 생성 5분 뒤 503 상시화. 후보 4개는 v1.0 phase 16 `deferred-items.md` §16-35.
 - **WINDOWS.md open 4건** — #9·#10·#11(Phase 16 승계 · 상따 밴드 전이점·체결가 7자 예산) · #17(D-25).
@@ -71,9 +73,10 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 **Resume file:** None
 
 Last session: 2026-10-11
-Stopped at: v1.0 마일스톤 마무리 완료
-Next: `/gsd-new-milestone` 으로 v1.1(운영 유지보수) 정의 → CLAUDE.md 다이어트(quick) → 인박스 open 2건
+Stopped at: v1.1 로드맵 생성 완료(Phase 30-31)
+Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- `/gsd-quick` 로 CLAUDE.md 다이어트(DOCS-01)
+- `/gsd-discuss-phase 30` — 인박스 KB 계좌별 주문자 IP/MAC

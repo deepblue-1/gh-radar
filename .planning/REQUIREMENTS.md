@@ -49,21 +49,22 @@ v1.0 요구사항 아카이브: [milestones/v1.0-REQUIREMENTS.md](./milestones/v
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| IPMAC-01 | — | Pending |
-| IPMAC-02 | — | Pending |
-| IPMAC-03 | — | Pending |
-| IPMAC-04 | — | Pending |
-| AMT-01 | — | Pending |
-| AMT-02 | — | Pending |
-| AMT-03 | — | Pending |
-| AMT-04 | — | Pending |
+| IPMAC-01 | Phase 30 | Pending |
+| IPMAC-02 | Phase 30 | Pending |
+| IPMAC-03 | Phase 30 | Pending |
+| IPMAC-04 | Phase 30 | Pending |
+| AMT-01 | Phase 31 | Pending |
+| AMT-02 | Phase 31 | Pending |
+| AMT-03 | Phase 31 | Pending |
+| AMT-04 | Phase 31 | Pending |
 | DOCS-01 | quick | Pending |
 
 **Coverage:**
 - v1.1 requirements: 9 total
-- Mapped to phases: 0 (로드맵 생성 시 채움)
-- Unmapped: 8 ⚠️ (DOCS-01 은 quick)
+- Mapped to phases: 8 (Phase 30: IPMAC 4 · Phase 31: AMT 4)
+- Quick (phase 없음): 1 (DOCS-01)
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-10-11*
-*Last updated: 2026-10-11 after initial definition*
+*Last updated: 2026-10-11 after roadmap creation (Phase 30-31)*

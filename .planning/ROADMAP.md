@@ -3,11 +3,11 @@
 ## Milestones
 
 - ✅ **v1.0 Launch** — Phases 1-29 (shipped 2026-10-11) · [아카이브](./milestones/v1.0-ROADMAP.md)
-- 🚧 **v1.1** — 운영 유지보수(버그 수정 · 자잘한 기능 · gh-trade 인박스) — `/gsd-new-milestone` 으로 정의
+- 🚧 **v1.1 운영 유지보수** — Phases 30-31 (진행 중) · 버그 수정 · 자잘한 기능은 quick(phase 없음)
 
 ## Phases
 
-**Phase Numbering:** 정수 phase 는 마일스톤 계획 작업, 소수 phase(2.1 …) 는 긴급 삽입(INSERTED). 번호는 마일스톤을 넘어 이어진다(다음 phase = 30).
+**Phase Numbering:** 정수 phase 는 마일스톤 계획 작업, 소수 phase(2.1 …) 는 긴급 삽입(INSERTED). 번호는 마일스톤을 넘어 이어진다(v1.1 = 30부터).
 
 <details>
 <summary>✅ v1.0 Launch (Phases 1-29) — SHIPPED 2026-10-11</summary>
@@ -53,18 +53,50 @@
 
 </details>
 
-### 🚧 v1.1 (정의 전)
+### 🚧 v1.1 운영 유지보수 (진행 중)
 
-`/gsd-new-milestone` 이 채운다. 후보 작업:
+**Milestone Goal:** gh-trade 인박스 open 2건의 계약을 relay·웹에 반영해 노트를 닫는다. CLAUDE.md 다이어트(DOCS-01)와 운영 버그·소규모 기능(MAINT)은 `/gsd-quick`·`/gsd-fast` 로 처리하고 phase 를 만들지 않는다.
 
-- gh-trade 인박스 open 2건 — `261010-kb-order-ip-mac.md`(R3-01 · 웹 IP/MAC 입력칸 · 질문 3개), `261011-limitchaser-amount-unit.md`(금액 8필드 되싣기 · 「만(주)」 단위)
-- Phase 29 「두 번째 서버 켜기 전 결정」(29-53-SUMMARY)
-- CLAUDE.md 다이어트
-- 운영 중 발견되는 버그 수정 · 자잘한 기능 추가
+- [ ] **Phase 30: 인박스 KB 계좌별 주문자 IP/MAC** - relay R3-01(op 5 재조회) · 웹 Admin 계좌 편집 IP/MAC 입력칸 · code 13 문구 · 질문 3개 답으로 `261010-kb-order-ip-mac.md` 닫기
+- [ ] **Phase 31: 인박스 상따 금액 단위** - 생성물 마커 확인 · `lc.set` 금액 8필드 되싣기 · 84 `post_buy_floor_amount` · 「만(주)」 결정으로 `261011-limitchaser-amount-unit.md` 닫기
+
+## Phase Details
+
+### Phase 30: 인박스 KB 계좌별 주문자 IP/MAC
+**Goal**: 운영자가 웹 Admin 에서 KB 계좌별 주문자 IP/MAC 을 안전하게 설정·수정할 수 있고, relay 밖에서 설정한 값이 웹 계좌 편집으로 지워지지 않는다(R3-01 해제 → KB 운영 서버 IP/MAC 설정 보류 해제)
+**Depends on**: 없음 (relay 87 파서 · op 1/3 되싣기 · code 13 라벨은 29-47 에서 배포됨)
+**Requirements**: IPMAC-01, IPMAC-02, IPMAC-03, IPMAC-04
+**Success Criteria** (what must be TRUE):
+  1. relay 밖(gh-trade 도구)에서 IP/MAC 을 설정한 계좌를 웹에서 이름만 바꿔 저장해도, op 5(ListUsers) 87 에 그 `order_ip`/`order_mac` 이 그대로 남는다(미설정 계좌는 빈 문자열)
+  2. 웹 Admin 계좌 편집에 「주문자 IP」·「MAC 주소」를 `10.41.1.124`·`1c:fd:08:7d:97:8e` 로 저장하면 86 code 0 이고 목록이 `010041001124`·`1CFD087D978E` 로 다시 그려진다 — 같은 값 재저장은 「변경 없음」
+  3. 한쪽만 적거나 형식이 틀리면 웹이 저장 전에 막고, 서버가 code 13 BAD_ORDER_ENDPOINT 를 내면 서버 문구가 그대로 보인다
+  4. 입력칸 아래 도움말 한 줄(같은 서버의 두 계좌가 서로 체결될 수 있으면 서로 다른 사용자 PC 값)이 보인다
+  5. 인박스 노트 `261010-kb-order-ip-mac.md` 에 질문 3개(code 7 문구 · 입력 표기 · `ipconfig /all` 수기 절차) 답이 적히고 `status: done` · `done_commit` 으로 커밋된다
+**배포 순서**: DB 변경 없음 → relay(R3-01) 배포·확인 → webapp push(= 프로덕션) — relay 막히면 push 금지
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 31: 인박스 상따 금액 단위
+**Goal**: 웹에서 상따를 재제출해도 C# 단말 칸에 사람이 넣은 만원 원값이 지워지지 않고, /me 기본설정에서 「후매수 최소」 금액을 보고 바꿀 수 있다
+**Depends on**: Phase 30 (순서만 — 코드 의존 없음) · 외부: gh-trade `feature/limitchaser-amount-unit` master 병합 · 서버 배포(구 서버는 vtable 158~172 를 무시하므로 되싣기 실증은 배포 뒤)
+**Requirements**: AMT-01, AMT-02, AMT-03, AMT-04
+**Success Criteria** (what must be TRUE):
+  1. `sync-relay-schema.sh --check` 가 gh-trade master 병합 마커 기준 「신규/변경 예정 0 개 · .fbs 사본 최신」을 낸다
+  2. C# 상따창에서 만원을 넣은 종목을 웹에서 재제출해도 60 에코의 금액 8필드가 그 원값 그대로다(예: `sell_watch_amount: 100`) — 웹이 주를 바꿔 보내면 짝이 맞는 금액(`floor(만원×10000÷비교가) == 주`) 또는 0 이 실린다
+  3. /me 기본설정에 「후매수 최소(만원)」가 84 값으로 보이고, 저장하면 42 12값 전체 교체로 84 에 그 값이 실리며 봉인 필드 `post_buy_floor_qty` 는 0 이다
+  4. 「만(주)」 도입 여부가 인박스 노트 `261011-limitchaser-amount-unit.md` 질문 2개 답으로 적히고 `status: done` · `done_commit` 으로 커밋된다 — 도입하면 상따 수량 칸이 만원 입력 · 주 환산 표시(§10 규칙)로 바뀐다
+**배포 순서**: gh-trade 서버 배포 확인 → DB 변경 없음 → relay → webapp push(= 프로덕션). AMT-04 결정이 범위를 정하므로 discuss 에서 먼저 답한다
+**Plans**: TBD
+**UI hint**: yes
 
 ## Progress
 
 | Milestone | Phases | Plans | Status |
 |-----------|--------|-------|--------|
 | v1.0 Launch | 37 | 432 | ✅ Shipped 2026-10-11 |
-| v1.1 | — | — | 정의 전 |
+| v1.1 운영 유지보수 | 2 | — | 🚧 진행 중 |
+
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 30. 인박스 KB 계좌별 주문자 IP/MAC | v1.1 | 0/TBD | Not started | - |
+| 31. 인박스 상따 금액 단위 | v1.1 | 0/TBD | Not started | - |
