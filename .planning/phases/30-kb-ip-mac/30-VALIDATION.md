@@ -60,9 +60,15 @@ created: "2026-10-11"
 | 30-05-T2 | 30-05 | 3 | IPMAC-02 · IPMAC-03 | — | 원문 전송(D-07) · 이름만 저장 미적재 | component | `… account-editor.test.tsx -t "P30 보내기 규칙"` · `pnpm --filter @gh-radar/webapp run test` | ✅ 파일 · ❌ 케이스 | ⬜ pending |
 | 30-06-T1 | 30-06 | 4 | IPMAC-02 · IPMAC-03 · IPMAC-05 | — | N/A | e2e(픽스처) | `pnpm --filter @gh-radar/webapp run typecheck:e2e` · `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/admin.spec.ts -g "P29" --workers=1` | ✅ 파일 · ❌ 케이스 W0(픽스처) | ⬜ pending |
 | 30-06-T2 | 30-06 | 4 | UI backstop(E1 · E2 · E4) | — | N/A | e2e | `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/admin.spec.ts -g "P30" --workers=1` | ✅ 파일 · ❌ 케이스 | ⬜ pending |
-| 30-07-T1 | 30-07 | 5 | (배포) | — | relay 20:00 KST 이후 · relay/server 실패면 push 금지 | manual(checkpoint) | — (메인 세션 배포 · smoke-relay.sh) | — | ⬜ pending |
-| 30-07-T2 | 30-07 | 5 | IPMAC-01 · IPMAC-02(라이브) | — | 실험 값 원복 | manual(checkpoint) | — (relay_docker 로그 · 화면) | — | ⬜ pending |
-| 30-07-T3 | 30-07 | 5 | IPMAC-04 | — | N/A | doc check | `grep -qE '^status: done$' docs/inbox/from-gh-trade/261010-kb-order-ip-mac.md && grep -qE '^done_commit: [0-9a-f]{7,}' docs/inbox/from-gh-trade/261010-kb-order-ip-mac.md` | ✅ | ⬜ pending |
+| 30-08-T1 (tracer · 갭) | 30-08 | 5 | IPMAC-02(D-17) | — | 형식 밖 값 원문 · 왕복 항등 | unit + component | `pnpm --filter @gh-radar/shared exec vitest run src/__tests__/order-endpoint.test.ts --maxWorkers=2` · `pnpm --filter @gh-radar/webapp exec vitest run src/components/admin/__tests__/account-editor.test.tsx -t "P30 읽기 카드" --maxWorkers=2` | ✅ 파일 · ❌ 케이스 | ⬜ pending |
+| 30-08-T2 (갭) | 30-08 | 5 | IPMAC-02(D-17 · D-06 · D-07 · D-10) | — | 비교는 양쪽 정규화 · 손대지 않은 IP/MAC 미적재 | component | `pnpm --filter @gh-radar/webapp exec vitest run src/components/admin --maxWorkers=2` · `pnpm --filter @gh-radar/webapp run typecheck` | ✅ 파일 · ❌ 케이스 | ⬜ pending |
+| 30-08-T3 (갭) | 30-08 | 5 | IPMAC-02(D-17) | — | N/A | e2e | `pnpm --filter @gh-radar/webapp run typecheck:e2e` · `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/admin.spec.ts --workers=1` | ✅ | ⬜ pending |
+| 30-09-T1 (tracer · 갭) | 30-09 | 6 | IPMAC-02(D-18) | — | 개요 데이터만 · 추가 요청 0 | component | `pnpm --filter @gh-radar/webapp exec vitest run src/components/admin/__tests__/users-client.test.tsx --maxWorkers=2` (`P30 공유 계좌`) | ✅ 파일 · ❌ 케이스 | ⬜ pending |
+| 30-09-T2 (갭) | 30-09 | 6 | IPMAC-02 · IPMAC-03(D-18) | — | code 7 원문 · 문장 대조 없음 · 전파 값 drift 아님 | unit + component | `pnpm --filter @gh-radar/shared exec vitest run src/__tests__/admin.test.ts src/__tests__/admin-overview.test.ts --maxWorkers=2` · `pnpm --filter @gh-radar/webapp exec vitest run src/components/admin --maxWorkers=2` | ✅ 파일 · ❌ 케이스 | ⬜ pending |
+| 30-09-T3 (갭) | 30-09 | 6 | IPMAC-02 · IPMAC-03(D-18) | — | relay/src · server/src 무변경 | e2e + 회귀 | `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/admin.spec.ts --workers=1` · 회귀 게이트(shared · webapp vitest · typecheck 4종) · `test -z "$(git diff --stat 2234a1b5..HEAD -- relay/src server/src)"` | ✅ 파일 · ❌ 케이스 W0(픽스처 공유 계좌 · 전파 목) | ⬜ pending |
+| 30-07-T1 | 30-07 | 7 | (배포) | — | 첫 배포 완료 기록 · 갭 클로징 = webapp push 만(relay/server 무변경 확인) · 바뀌었으면 relay 20:00 KST 이후 · 실패면 push 금지 | manual(checkpoint) | — (메인 세션 push · Vercel Ready) | — | ⬜ pending |
+| 30-07-T2 | 30-07 | 7 | IPMAC-02(D-17 · D-18 라이브) | — | 실험 값 원복 · 공유 계좌는 저장 안 함 | manual(checkpoint) | — (화면 · 공유 저장은 pending-on-gh-trade 비차단) | — | ⬜ pending |
+| 30-07-T3 | 30-07 | 7 | IPMAC-04 | — | N/A | doc check | `grep -qE '^status: done$' docs/inbox/from-gh-trade/261010-kb-order-ip-mac.md && grep -qE '^done_commit: [0-9a-f]{7,}' docs/inbox/from-gh-trade/261010-kb-order-ip-mac.md && grep -q "261011-shared-account-ipmac" docs/inbox/from-gh-trade/261010-kb-order-ip-mac.md` | ✅ | ⬜ pending |
 
 기존 회귀(변경 없음 확인): IPMAC-03 relay 경로 = `pnpm --filter @gh-radar/relay exec vitest run tests/admin-dispatcher.test.ts -t "D15"`(86 code 13 → failed · message 원문) — 30-01-T2 의 파일 전체 실행에 포함.
 
@@ -75,6 +81,7 @@ created: "2026-10-11"
 - [ ] `relay/tests/admin-dispatcher.test.ts` — `FakeConn.command` op 5 분기 (`refreshes` 카운터 · `sent` 제외 · 별도 `refreshMode`/`refreshDelayMs` — 기존 `mode`/`delayMs` 는 op 5 에 적용하지 않아 D7 · D10 단언 보존) → **30-01-T2**
 - [ ] `packages/shared/src/__tests__/order-endpoint.test.ts` — 정규화 · 검증(30-02-T1) · 요약(30-02-T3) (신규)
 - [ ] `webapp/e2e/fixtures/admin.ts` — `ADMIN_USERS_FIXTURE_P30`(계좌 `orderEndpoints`) · PUT 이 이름 · IP/MAC(shared 정규화) 반영 · code 13 흉내 → **30-06-T1**
+- [ ] (갭) `webapp/e2e/fixtures/admin.ts` — `ADMIN_ORDER_IP_DISPLAY` · `ADMIN_ORDER_MAC_DISPLAY`(D-17) → **30-08-T3** · `ADMIN_SHARED_ACCOUNT`(alex · kim 공유) · `ADMIN_CODE7_MESSAGE` · PUT 전파 목(gh-trade 261011 흉내) → **30-09-T3**
 - [ ] relay `admin-api.test.ts` 하네스는 실 `AdminConn` 을 써 `currentSnapshot` 을 이미 만족 · `quote-switch.test.ts` 의 `get: () => undefined` 스텁도 호환 — 타입 확장 뒤 `typecheck:tests` 로 확인 → **30-03-T1**
 
 ---
@@ -84,7 +91,10 @@ created: "2026-10-11"
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
 | relay 밖 설정 → 웹 이름 변경 → 87 보존 | IPMAC-01 | 실 gh-trade 서버 · relay 배포 필요 | **30-07-T2** — relay 배포 뒤 웹 이름만 변경 저장 → Cloud Logging `relay_docker` 에서 op 3 앞 87 수신(op 5) · 카드 IP/MAC 유지. gh-trade 도구 접근이 되면 relay 밖 설정 후 같은 확인 |
-| `10.41.1.124` · `1c:fd:08:7d:97:8e` 저장 → `010041001124` · `1CFD087D978E` 표시 · 재저장 「변경 없음」 | IPMAC-02 | 실 서버 정규화 응답(운영 KB 서버가 gh-trade 4bf6d8f1 이후 빌드여야 함) | **30-07-T2** — 실험 계좌로 저장 · 재저장 후 원복. 운영 gh-trade 미배포면 보류 사유 기록 |
+| `10.41.1.124` · `1c:fd:08:7d:97:8e` 저장 → `010041001124` · `1CFD087D978E` 표시 · 재저장 「변경 없음」 | IPMAC-02 | 실 서버 정규화 응답(운영 KB 서버가 gh-trade 4bf6d8f1 이후 빌드여야 함) | 첫 배포 확인 완료(2026-10-11 · 30-UAT 2 — 표시가 전문 표기라 gap → D-17) |
+| (D-17) 같은 저장 뒤 카드 · 편집 초깃값이 `10.41.1.124` · `1C:FD:08:7D:97:8E` · 재저장 「변경 없음」 | IPMAC-02 | 프로덕션 87 값 · 실 화면 | **30-07-T2** 1 — 실험 계좌로 저장 · 확인 · 원복 |
+| (D-18) 공유 계좌(junysim 37728502101) 편집 모드 안내 줄 | IPMAC-02 | 프로덕션 개요의 실제 공유 사용자 | **30-07-T2** 2 — 열어 보기만 · 「취소」 |
+| (D-18) 공유 계좌 IP/MAC 저장 성공 · 함께 쓰는 사용자 카드 갱신 | IPMAC-02 | gh-trade 261011 op 3 전파 배포가 필요(외부) | **30-07-T2** 3 — gh-trade 배포 뒤. 그 전에는 pending-on-gh-trade 기록(비차단) |
 
 ---
 

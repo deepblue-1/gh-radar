@@ -62,6 +62,8 @@ blocked: 0
   reason: "User reported: 표시가 전문 표기(010041001124 · 1CFD087D978E)라 보기 불편"
   severity: minor
   test: 2
+  resolution_plan: 30-08
+  decision: "D-17 (30-CONTEXT)"
   root_cause: "shared summarizeOrderEndpoint 가 87 정규화값을 표시값으로 그대로 내고, 웹 카드 · 불일치 경고 · 편집칸 초깃값이 그 값을 그대로 쓴다 — 표시용 포맷 함수가 없다"
   artifacts:
     - path: "packages/shared/src/order-endpoint.ts"
@@ -78,6 +80,10 @@ blocked: 0
   reason: "User reported: junysim 37728502101 편집 → KB120 code 7 「다른 사용자가 같은 계좌를 다른 지점번호/거래자ID 로 보유」"
   severity: major
   test: 5
+  resolution_plan: 30-09
+  decision: "D-18 (30-CONTEXT) — D-11 을 IP/MAC 에 한해 대체"
+  external: "gh-trade 몫 — <gh-trade>/docs/inbox/from-gh-radar/261011-shared-account-ipmac.md (op 3 원자적 전파 · open · 미배포). 공유 계좌 저장 성공 확인은 gh-trade 배포 뒤(30-07 Task 2 pending-on-gh-trade · 비차단)"
+  resolution_note: "플래너 drift 확인(2026-10-11) — relay · server 변경 불필요: relay 는 요청 DMA 사용자만 계획(자동 reconcile 없음), DB 의도에 IP/MAC 이 없어 sameValues 비교 제외(GC-02) · 개요 칩 판정도 87 IP/MAC 을 빼므로 다른 사용자에 전파된 값은 drift · op 를 만들지 않는다"
   root_cause: "gh-trade ValidateUsers(server/src/util/Config.cpp 2차 검증)가 users.toml 전체에서 같은 KB 계좌번호의 branchNo · traderId · orderIp · orderMac 이 사용자 간 한 벌이어야 한다고 본다(quick-261010-vfn). op 3 은 한 사용자만 바꾸므로 공유 계좌의 IP/MAC 변경은 어느 순서로 보내도 code 7 이다 — relay 에서 사용자별 op 3 을 차례로 보내는 방식으로는 풀 수 없다(첫 op 가 늘 상대 사용자와 어긋난다)."
   artifacts:
     - path: "gh-trade server/src/util/Config.cpp:1186-1201"

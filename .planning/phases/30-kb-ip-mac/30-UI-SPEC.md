@@ -13,6 +13,7 @@ created: "2026-10-11"
 > 인박스 KB 계좌별 주문자 IP/MAC + 계좌명 편집. 손대는 화면은 **Admin 사용자 편집 시트 → 「계좌 · 등록 서버」 계좌 카드 1종**뿐이다(`webapp/src/components/admin/account-editor.tsx` `AccountRow`).
 > 레이아웃 · 문구는 채택 목업 **B**(`reference/mockup-account-edit.html` — 「편집」 → 카드 펼침)가 정본이다. A · C 는 기각.
 > 새 토큰 · 새 폰트 · 새 색 0개 — Phase 29 계좌 카드 상수(`ACCOUNT_CARD` · `ACCOUNT_BUTTON` · `NOTE` · `ERROR_LINE` · `WARN_LINE` · `ADMIN_BUTTON_*`)를 그대로 쓴다. 새 클래스 상수는 `EDIT_ERROR_LINE` 1개뿐(기존 `BusyLines` err 줄과 같은 클래스 조합 — Typography 참조).
+> **갭 클로징 Addendum(맨 아래 · 2026-10-11 · D-17 · D-18)** 이 아래 본문의 IP/MAC **값 표기**(§1-3 「87 정규화값 그대로(재정규화 금지)」 · §1-4 불일치 줄 값 · §2 초깃값 · Typography/Copywriting/E1 의 `010041001124` · `1CFD087D978E` 예시)를 대체하고, 편집 모드에 공유 계좌 안내 줄 1개를 더한다. 충돌하면 Addendum 이 이긴다.
 
 ---
 
@@ -329,3 +330,50 @@ Source: ui-consideration-probe. 6 elements × categories, resolved in one batch 
 - [x] Dimension 7 Inventory Provenance: PASS
 
 **Approval:** approved 2026-10-11 (revision 1 — D1 CTA 짧은 글자는 사용자 잠금 예외; FLAG: D4 물려받은 크기 · D5 물려받은 10px/6px 리듬)
+
+---
+
+## Addendum — 갭 클로징 (2026-10-11 · 실서버 UAT `30-UAT.md` gap 2건 · D-17 · D-18)
+
+새 토큰 · 새 폰트 · 새 색 · 새 클래스 상수 0개. 기존 `WARN_LINE` · `IPMAC_LINE` · `IPMAC_VALUE` 를 그대로 쓴다.
+
+### A1. IP/MAC 값 표기 — 사람이 읽는 표기 (D-17 · 플랜 30-08)
+
+| 자리 | 전(87 정규화값 그대로) | 후(D-17) |
+|------|------------------------|----------|
+| §1-3 읽기 줄 값(`<b>` 600 · `--fg-2` · `tabular-nums` 그대로) | 「주문자 IP 010041001124 · MAC 1CFD087D978E」 | 「주문자 IP 10.41.1.124 · MAC 1C:FD:08:7D:97:8E」 |
+| §1-4 불일치 경고 줄 괄호 안 값 | 「KB121 값이 달라요(IP 010041001125 · MAC 1CFD087D978F) — …」 | 「KB121 값이 달라요(IP 10.41.1.125 · MAC 1C:FD:08:7D:97:8F) — …」 (「(미설정)」 은 그대로) |
+| §2 편집칸 초깃값(설정 계좌) | `010041001124` · `1CFD087D978E` | `10.41.1.124` · `1C:FD:08:7D:97:8E` (미설정 · 확인 전 · 교보는 빈 칸 그대로) |
+
+- **변환 규칙(shared `formatOrderIp` · `formatOrderMac` 한 벌):** IP — 정확히 12자리 숫자이고 세 자리씩 끊은 네 옥텟이 모두 0~255 이면 앞자리 0 을 뗀 점표기, MAC — 정확히 대문자 16진 12자리이면 두 자리씩 콜론. **그 밖은 원문 그대로**(빈 값 · 옥텟이 255 를 넘는 12자리 `999999999999` · 소문자 · 이미 구분자가 있는 값). 변환한 값은 다시 정규화하면 원래 값이 된다(왕복 항등) — 그래서 표시값을 그대로 저장해도 서버 값이 바뀌지 않는다.
+- **저장 · 전송 · 비교는 정규화값 그대로(D-07 · D-13 전송 규칙 유지).** 변환은 렌더 자리에서만 — `summarizeOrderEndpoint` · 불일치 판정 · `sameValues` · relay · server 는 정규화값을 쓴다. 「바뀜」(저장 버튼)은 칸 원문(trim)과 초깃값(표시 표기) 비교, 「보낼지 · 변경 없음」 은 양쪽을 정규화해 비교한다 — 초깃값 그대로 저장하거나 같은 값을 12자리로 다시 적어도 요청 없이 「변경 없음」.
+- D-10 맞추기 저장은 칸 값(표시 표기 원문)을 그대로 싣는다 — 서버가 정규화한다.
+- E1 overflow backstop(폰 390 — 줄이 카드 오른쪽을 넘지 않고 `break-keep` 으로 감긴다)은 더 긴 MAC 표기(17자)에도 그대로 적용된다.
+
+### A2. 공유 계좌 안내 줄 — 편집 모드 (D-18 · 플랜 30-09)
+
+**언제:** KB 계좌 카드가 편집 모드이고, 개요(`AdminUsersOverview.users`)의 **다른** DMA 사용자가 같은 증권사 · 같은 정규화 계좌번호(`normalizeAccountNo`)의 계좌를 가지고 있으며, 그 사용자의 그 계좌 서버(active 등록 서버 + 「서버에만 있음」 서버)가 이 계좌의 active 등록 서버(= 저장이 가는 서버)와 **하나 이상 겹칠 때**. 겹치는 서버가 없으면 그 사용자는 빠진다(gh-trade 전파는 서버별 users.toml 안에서만 일어난다). 판정은 shared `findSharedAccountHolders` 한 벌.
+
+**어디:** 편집 블록 안 — 도움말/검증 오류 줄 → 불일치 경고 줄(있으면) → **안내 줄** → 동작 줄(「취소 · 저장」). 저장 버튼 바로 위라 「누르면 무엇이 함께 바뀌는지」 를 말한다.
+
+| 항목 | 값 |
+|------|-----|
+| 클래스 | 기존 `WARN_LINE`(`mt-1.5` · 12px · 1.5 · `break-keep` · `--led-latent`) — 새 상수 없음 |
+| data-slot | `admin-account-edit-shared` |
+| role | 없음(정적 안내 — 입력마다 바뀌지 않는다) |
+| 문구 | 「이 계좌를 함께 쓰는 사용자 {id1} · {id2} — 주문자 IP · MAC 이 함께 바뀌어요」 |
+| {id} | 그 사용자의 DMA id(`dmaUserId`) — 오름차순 · 중복 없음 · ` · ` 로 잇는다. 자기 DMA id · DMA 없는 웹 사용자는 넣지 않는다 |
+
+- 문구 근거: 사용자 예시(「이 계좌를 함께 쓰는 사용자 junysim2 · kim — 주문자 IP/MAC 이 함께 바뀝니다」)를 기존 Admin 해요체 · 「주문자 IP · MAC」 낱말(§Copywriting)에 맞췄다.
+- 읽기 카드 · 교보 계좌 · 함께 쓰는 사용자 0명이면 줄이 없다.
+- **저장 결과는 기존 §4 그대로 — 특수 처리 없음.** gh-trade 전파 배포 전: 서버 code 7 → 결과 줄 「KB120 실패: {서버 message 원문}」(문장 대조 없음 · 편집 · 입력값 · 안내 줄 유지). 배포 뒤: 전부 ok → 편집 닫힘 · 칩 「반영됨」 · 기존 `onChanged` 개요 재조회가 함께 쓰는 사용자들의 계좌 카드도 새 값으로 바꾼다.
+- 한계(문서화): 웹 사용자에 연결되지 않은 87 전용 DMA id(「서버에만 있음」 사용자 행)는 개요에 계좌번호가 없어 목록에 나오지 않는다 — gh-trade 전파는 그 사용자에게도 적용된다.
+
+| ID | Element | Category | Status | Resolution |
+|----|---------|----------|--------|------------|
+| E7 | 공유 계좌 안내 줄 | empty | ✅ resolved (explicit) | 함께 쓰는 사용자 0명 · 교보 · 읽기 카드 → 줄 없음 |
+| E7 | 공유 계좌 안내 줄 | populated | ✅ resolved (explicit) | 위 문구 · DMA id 오름차순 |
+| E7 | 공유 계좌 안내 줄 | zero-one-many | ✅ resolved (explicit) | 한 줄에 전원 · ` · ` 구분 |
+| E7 | 공유 계좌 안내 줄 | error | ✅ resolved (explicit) | 저장 실패(code 7 포함)는 §4 결과 줄 — 안내 줄은 그대로 남는다 |
+| E7 | 공유 계좌 안내 줄 | overflow | 🧪 resolved (backstop) | `{ statement: "폰 390 시트에서 안내 줄이 카드 오른쪽을 넘지 않고 break-keep 으로 감긴다", verification: backstop }` |
+| E7 | 공유 계좌 안내 줄 | loading | ➖ dismissed | 개요 데이터만 읽는다 — 추가 요청 없음 |
