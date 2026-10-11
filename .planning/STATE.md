@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 31
 current_phase_name: 인박스 상따 금액 단위
 status: executing
-stopped_at: Completed 31-02-PLAN.md
-last_updated: "2026-10-11T14:19:55.874Z"
+stopped_at: Completed 31-03-PLAN.md
+last_updated: "2026-10-11T14:37:37.497Z"
 last_activity: 2026-10-11
 last_activity_desc: Phase 31 execution started
-state_head: 02442cfe8312a04e7b61da8ebcbf9b453362c87d
+state_head: f64b6fc724c764cab8f19f940929d85f35b3215d
 progress:
   total_phases: 2
   completed_phases: 0
   total_plans: 15
-  completed_plans: 8
+  completed_plans: 9
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-11 after v1.1 milestone start)
 ## Current Position
 
 Phase: 31 (인박스 상따 금액 단위) — EXECUTING
-Plan: 3 of 8
+Plan: 4 of 8
 Status: Ready to execute
 Last activity: 2026-10-11 — Phase 31 execution started
 
@@ -78,8 +78,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-11T14:19:55.851Z
-Stopped at: Completed 31-02-PLAN.md
+Last session: 2026-10-11T14:37:31.901Z
+Stopped at: Completed 31-03-PLAN.md
 Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 
 ## Operator Next Steps
@@ -99,6 +99,7 @@ Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 | Phase 30 P06 | 13 min | 2 tasks | 3 files |
 | Phase 31 P01 | 21 min | 3 tasks | 25 files |
 | Phase 31 P02 | 6min | 2 tasks | 6 files |
+| Phase 31 P03 | 13 min | 2 tasks | 12 files |
 
 ## Decisions
 
@@ -120,3 +121,6 @@ Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 - [Phase 30]: 30-06: e2e 목 PUT accounts 는 shared normalizeOrderIp/Mac 로 서버 정규화를 흉내(규칙 한 벌) · 이름 · IP/MAC 만 반영 · 형식/짝 오류는 서버마다 code 13
 - [Phase 31]: 31-02: 두 줄 행 아래 줄은 RowSubLine 한 곳(setting-group export) — 행 3종 · 인라인 편집기 공용, 판정은 호출부 lc-fields.ts
 - [Phase 31]: 31-02: 시트 상태 줄 ⑤ 환산 안내(hint)는 ①잠금 ②반영 실패 ③경고 ④다른 단말 뒤 · armedNotice 면 같은 줄 둘째 줄(StatusLine.armedLine)에 「감시 중」
+- [Phase 31]: 31-03: 구 탭 11값 user.settings.set 의 후매수 최소는 relay 가 그 사용자 마지막 84 캐시에서 되싣고, 캐시가 없으면 저장하지 않고 비종료 거부(USER_SETTINGS_FLOOR_UNKNOWN_TEXT · 소켓 유지)
+- [Phase 31]: 31-03: 42 조립기는 봉인 post_buy_floor_qty 를 입력 무관 0 으로 싣는다 — 입력 타입은 그대로(구 탭 호환)
+- [Phase 31]: 31-03: /me 는 금액 키가 없는 84(구 relay)를 미수신과 같게 접는다(usableUserSettingsOf · 같은 객체 참조)
