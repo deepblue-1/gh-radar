@@ -266,7 +266,7 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
   /** 지정 적재기 · 라우팅 · 세션 관리자 · 실 sweeper · 레지스터 · fanout(운영 결선 모양) · 적재기 changed → resync. */
   async function harness(
     opts: {
-      wrapSweeper?: (real: StrategySweeper) => Pick<StrategySweeper, "sweep">;
+      wrapSweeper?: (real: StrategySweeper) => Pick<StrategySweeper, "sweep"> & Partial<Pick<StrategySweeper, "knowsServer">>;
       /**
        * 29-44 — 운영 index 와 같은 결선: `EffectiveOwnerTracker`(전 사용자 유효 주문 서버) · `userIdOf` · 적재기 changed 에서
        * `resyncChangedUsers` **뒤** `tracker.refresh()` → `sweepMoved`.
@@ -313,9 +313,12 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
     const port = (server.address() as AddressInfo).port;
     const hub = new SubscriptionHub();
+    // 29-52 GC-09 — 재시도 backoff 는 시각으로 판정한다. 이 파일은 setTimeout 계열만 가짜라 Date 는 진짜다 — fanout 에 가짜 시계를 준다.
+    const clock = (): number => vi.getMockedSystemTime()?.getTime() ?? Date.now();
     const fanout = new WsFanout({
       server,
       supabase,
+      now: clock,
       sessions: m,
       hub,
       credKey: "unused-with-credentials-dep",
@@ -354,7 +357,7 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
       hub.closeAll();
       await new Promise<void>((r) => server.close(() => r()));
     });
-    return { loader, routing, m, fanout, register, open, tracker };
+    return { loader, routing, m, fanout, register, open, tracker, clock };
   }
 
   function mark(key: string): number {
@@ -823,7 +826,8 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
 
   /** sweep 결과를 모으는 래퍼(실 sweeper 그대로). */
   function recording(results: StrategySweepResult[], targets: string[]) {
-    return (real: StrategySweeper): Pick<StrategySweeper, "sweep"> => ({
+    return (real: StrategySweeper): Pick<StrategySweeper, "sweep" | "knowsServer"> => ({
+      knowsServer: (serverKey) => real.knowsServer(serverKey),
       sweep: async (target, creds, opts) => {
         targets.push(`${target.serverKey}:${target.accountNos.join(",")}`);
         const res = await real.sweep(target, creds, opts);
@@ -1009,7 +1013,7 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     expect(tab3.ws.closeInfo).toBeNull();
   });
 
-  it("⑭ 60초 재시도 — 연결 0 사용자 끄기 미확인(timeout) → 60초 → 다시 sweep → 실패면 attempts 2 → u1 로그인(미확인 항목은 백스톱이 아니라 재시도 몫) → 고친 서버로 60초 → 성공 · 레지스터 확인 · 연결 중 상태 프레임 재송신(A staleStrategies 사라짐)", async () => {
+  it("⑭ 60초 재시도 — 연결 0 사용자 끄기 미확인(timeout) → 60초 → 다시 sweep → 실패면 attempts 2 → u1 로그인(미확인 항목은 백스톱이 아니라 재시도 몫) → 고친 서버로 120초(29-52 backoff) → 성공 · 레지스터 확인 · 연결 중 상태 프레임 재송신(A staleStrategies 사라짐)", async () => {
     await captureLogs();
     kb120.respondLimitChaserList([on(SAMPLE_ISIN, A)]);
     kb120.handleDisableStrategies({ apply: false, respond65: false });
@@ -1047,9 +1051,10 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     expect(targets.filter((t) => t === `KB120:${A}`)).toHaveLength(2);
     expect(acctOf(readyAccounts(tab.inbox), A)?.staleStrategies).toEqual({ serverKey: "KB120", count: 1 });
 
-    // 다음 60초 틱 — 고친 서버에서 성공 → 확인 · 상태 프레임 재송신. 틱이 sweep 을 시작하면 시계를 더 밀지 않는다(단계 시한 보호).
+    // 고친 서버에서 성공 → 확인 · 상태 프레임 재송신. 틱이 sweep 을 시작하면 시계를 더 밀지 않는다(단계 시한 보호).
+    // 29-52 GC-09 — attempts 2 의 재시도 지연은 120초다(지수 backoff) — 바로 다음 60초 틱은 건너뛴다(의도된 단언 변경).
     const before = targets.length;
-    for (let t = 0; t < STALE_STRATEGY_RETRY_MS && targets.length === before; t += 10_000) await advanceAlive(10_000);
+    for (let t = 0; t < STALE_STRATEGY_RETRY_MS * 2 && targets.length === before; t += 10_000) await advanceAlive(10_000);
     expect(targets.slice(before)).toEqual([`KB120:${A}`]);
     await waitFor(() => h.register.all().length === 0, "재시도 성공 → 확인");
     await waitFor(() => acctOf(readyAccounts(tab.inbox), A)?.staleStrategies === undefined, "상태 프레임 재송신");
@@ -1382,5 +1387,139 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     expect(targets[2]).toBe(`KB120:${A}`);
     expect(results[2]).toEqual(expect.objectContaining({ ok: true, skippedAccounts: [] }));
     expect(disabledKeys("KB120", again120)).toEqual([keyOf(SAMPLE_ISIN, A)]);
+  });
+
+  // ============================================================
+  // 29-52 — GC-09 끄기 미확인 레지스터 위생 (해소 불가 지우기 · 지수 backoff · 상한)
+  // ============================================================
+
+  /** 레지스터에 미확인 1건을 n 번 기록한다(attempts = n) — 지금 가짜 시각. */
+  function seedStale(
+    h: Awaited<ReturnType<typeof harness>>,
+    e: { userId: string; dmaUserId: string; serverKey: string; accountNo: string; remaining?: number | null },
+    times = 1,
+  ): void {
+    for (let i = 0; i < times; i += 1) {
+      h.register.set({ remaining: 1, reason: "timeout", at: h.clock(), ...e });
+    }
+  }
+
+  it("GC-09 해소 불가 4사유 지우기 + info — 60초 틱에 unauthorized · dma-changed · 어느 매핑에도 없는 계좌 · 레지스트리에 없는 서버 항목을 지운다(sweep 0 · 로그인 0) · info 4줄(userId · 서버 키 · 계좌 수 · 사유 — 계좌번호 · DMA id 없음)", async () => {
+    const logs = await captureLogs();
+    const results: StrategySweepResult[] = [];
+    const targets: string[] = [];
+    const h = await harness({ tracker: true, staleRetry: true, wrapSweeper: recording(results, targets) });
+    // u1 웹 자격증명 없음(삭제 · 강등) — A 는 KB121 에 남은 미확인.
+    credMode.set(U1, "null");
+    seedStale(h, { userId: U1, dmaUserId: D1, serverKey: "KB121", accountNo: A });
+    // u3 의 DMA 연결이 D2 → D3 으로 바뀜 — 옛 DMA id(D2)의 D 는 새 자격증명으로 끌 수 없다.
+    seedStale(h, { userId: U3, dmaUserId: D2, serverKey: "KB121", accountNo: D });
+    // u2 — 어느 매핑에도 없는 계좌 · 레지스트리에 없는 서버(KB122).
+    const GONE = "9234567809";
+    seedStale(h, { userId: U2, dmaUserId: D2, serverKey: "KB121", accountNo: GONE });
+    seedStale(h, { userId: U2, dmaUserId: D2, serverKey: "KB122", accountNo: D });
+    expect(h.register.byServer()).toEqual(new Map([["KB121", 3], ["KB122", 1]]));
+    const logins121 = count("KB121", MSG.LoginReq);
+
+    vi.advanceTimersByTime(STALE_STRATEGY_RETRY_MS);
+    await waitFor(() => h.register.all().length === 0, "4사유 지우기");
+    await flushIo(20);
+    expect(targets).toEqual([]);
+    expect(count("KB121", MSG.LoginReq)).toBe(logins121);
+    expect(h.register.byServer()).toEqual(new Map());
+
+    const lines = logs.infos.filter((c) => msgOf(c).includes("해소 불가"));
+    expect(lines.map((c) => (c[0] as { reason: string }).reason).sort()).toEqual([
+      "dma-changed",
+      "unauthorized",
+      "unknown-server",
+      "unmapped",
+    ]);
+    expect(lines.map((c) => c[0])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ userId: U1, serverKey: "KB121", accounts: 1, reason: "unauthorized" }),
+        expect.objectContaining({ userId: U3, serverKey: "KB121", accounts: 1, reason: "dma-changed" }),
+        expect.objectContaining({ userId: U2, serverKey: "KB121", accounts: 1, reason: "unmapped" }),
+        expect.objectContaining({ userId: U2, serverKey: "KB122", accounts: 1, reason: "unknown-server" }),
+      ]),
+    );
+    const dumped = JSON.stringify(lines);
+    for (const secret of [A, D, GONE, D1, D2, D3]) expect(dumped).not.toContain(secret);
+  });
+
+  it("GC-09 transient 는 남고 attempts +1 — 자격증명 not_ready · lookup-failed 는 지우지 않는다(no-session · sweep 0)", async () => {
+    await captureLogs();
+    const results: StrategySweepResult[] = [];
+    const targets: string[] = [];
+    const h = await harness({ tracker: true, staleRetry: true, wrapSweeper: recording(results, targets) });
+    credMode.set(U1, "not_ready");
+    credMode.set(U3, "throw");
+    seedStale(h, { userId: U1, dmaUserId: D1, serverKey: "KB121", accountNo: A });
+    seedStale(h, { userId: U3, dmaUserId: D3, serverKey: "KB121", accountNo: E });
+
+    vi.advanceTimersByTime(STALE_STRATEGY_RETRY_MS);
+    await waitFor(() => h.register.all().every((e) => e.attempts === 2), "attempts 2");
+    await flushIo(20);
+    expect(targets).toEqual([]);
+    expect(h.register.all()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ userId: U1, serverKey: "KB121", accountNo: A, attempts: 2, reason: "no-session" }),
+        expect.objectContaining({ userId: U3, serverKey: "KB121", accountNo: E, attempts: 2, reason: "no-session" }),
+      ]),
+    );
+    expect(h.register.all()).toHaveLength(2);
+  });
+
+  it("GC-09 backoff 60 · 120 · 240 · 480 — 끄기가 계속 미확인이면 재시도 sweep 은 60초 틱 중 60 · 180 · 420 · 900초째에만 시작한다(매 60초 두드리지 않음)", async () => {
+    await captureLogs();
+    kb121.respondLimitChaserList([on(SAMPLE_ISIN, A)]);
+    kb121.handleDisableStrategies({ apply: false, respond65: false });
+    const results: StrategySweepResult[] = [];
+    const targets: string[] = [];
+    const h = await harness({ tracker: true, staleRetry: true, wrapSweeper: recording(results, targets) });
+    seedStale(h, { userId: U1, dmaUserId: D1, serverKey: "KB121", accountNo: A });
+
+    const startedAt: number[] = [];
+    for (let t = 10_000; t <= 960_000; t += 10_000) {
+      const before = targets.length;
+      vi.advanceTimersByTime(10_000);
+      await flushIo(8);
+      if (targets.length > before) startedAt.push(t);
+    }
+    expect(startedAt).toEqual([60_000, 180_000, 420_000, 900_000]);
+    expect(targets.every((x) => x === `KB121:${A}`)).toBe(true);
+    await waitFor(() => results.length === 4, "네 번째 시한");
+    expect(results.every((r) => !r.ok)).toBe(true);
+    expect(h.register.all()).toEqual([expect.objectContaining({ serverKey: "KB121", accountNo: A, attempts: 5 })]);
+  });
+
+  it("GC-09 상한 — attempts 12 항목은 60초 틱 재시도 0(2시간) · 레지스터 · byServer · 상태 프레임 경고는 그대로 · 그 사용자 로그인 백스톱이 (KB121, A) 를 1회 sweep → 확인 · 사라짐", async () => {
+    await captureLogs();
+    const results: StrategySweepResult[] = [];
+    const targets: string[] = [];
+    const h = await harness({ tracker: true, staleRetry: true, wrapSweeper: recording(results, targets) });
+    seedStale(h, { userId: U1, dmaUserId: D1, serverKey: "KB121", accountNo: A }, 12);
+    expect(h.register.all()).toEqual([expect.objectContaining({ attempts: 12 })]);
+
+    for (let i = 0; i < 120; i += 1) {
+      vi.advanceTimersByTime(STALE_STRATEGY_RETRY_MS);
+      await flushIo(2);
+    }
+    expect(targets).toEqual([]);
+    expect(count("KB121", MSG.LoginReq)).toBe(0);
+    expect(h.register.all()).toEqual([expect.objectContaining({ serverKey: "KB121", accountNo: A, attempts: 12 })]);
+    expect(h.register.byServer()).toEqual(new Map([["KB121", 1]]));
+
+    const tab = await h.open("token-1");
+    await waitFor(() => readyAccounts(tab.inbox).length === 2, "u1 ready");
+    const first = tab.inbox.find(
+      (f): f is RelayStateMsg => f.t === "state" && (f.accounts?.some((a) => a.accountNo === A) ?? false),
+    );
+    expect(first?.accounts?.find((a) => a.accountNo === A)?.staleStrategies).toEqual({ serverKey: "KB121", count: 1 });
+    await waitFor(() => targets.some((x) => x.startsWith("KB121:") && x.includes(A)), "로그인 백스톱이 상한 항목 1회");
+    await waitFor(() => h.register.all().length === 0, "백스톱 성공 → 확인");
+    await waitFor(() => acctOf(readyAccounts(tab.inbox), A)?.staleStrategies === undefined, "상태 프레임 재송신");
+    expect(targets.filter((x) => x.startsWith("KB121:") && x.includes(A))).toHaveLength(1);
+    expect(tab.ws.closeInfo).toBeNull();
   });
 });

@@ -16,9 +16,12 @@ import type { RelayOutbound } from "@gh-radar/shared";
 import { SessionManager, type DmaCredentials, type SessionTarget } from "../src/dma/session-manager.js";
 import { SubscriptionHub } from "../src/hub/subscription-hub.js";
 import {
+  STALE_RETRY_MAX_ATTEMPTS,
+  STALE_RETRY_MAX_DELAY_MS,
   StaleStrategyRegister,
   StrategySweeper,
   isActiveLimitChaser,
+  staleRetryDelayMs,
   type StrategySweepResult,
 } from "../src/dma/strategy-sweeper.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
@@ -801,5 +804,37 @@ describe("StaleStrategyRegister — 끄지 못한 계좌 (29-43)", () => {
     expect(reg.confirm(U1, "KB120", A)).toBe(false);
     expect(reg.byServer()).toEqual(new Map([["KB120", 1], ["KB121", 1]]));
     expect(reg.pendingFor(U1).map((e) => e.accountNo)).toEqual([B]);
+  });
+
+  it("GC-09 (29-52) discard — 해소 불가 항목 지우기: 있었으면 true · 두 번째 false · byServer · pendingFor 에서 사라짐 · 다른 항목 무영향", () => {
+    const reg = new StaleStrategyRegister();
+    reg.set(entry());
+    reg.set(entry({ userId: U2, serverKey: "KB121", accountNo: C }));
+    expect(reg.discard(U1, "KB120", A)).toBe(true);
+    expect(reg.discard(U1, "KB120", A)).toBe(false);
+    expect(reg.pendingFor(U1)).toEqual([]);
+    expect(reg.byServer()).toEqual(new Map([["KB121", 1]]));
+    expect(reg.all().map((e) => e.accountNo)).toEqual([C]);
+  });
+
+  it("GC-09 (29-52) staleRetryDelayMs 표 — 60 · 120 · 240 · 480 · 960 · 1800 · 1800 …초(최대 30분) · attempts 0 은 1 과 같다 · baseMs 주입 · 상한 상수", () => {
+    expect(STALE_RETRY_MAX_ATTEMPTS).toBe(12);
+    expect(STALE_RETRY_MAX_DELAY_MS).toBe(1_800_000);
+    const table = [0, 1, 2, 3, 4, 5, 6, 7, 12, 40].map((n) => staleRetryDelayMs(n));
+    expect(table).toEqual([
+      60_000, 60_000, 120_000, 240_000, 480_000, 960_000, 1_800_000, 1_800_000, 1_800_000, 1_800_000,
+    ]);
+    expect(staleRetryDelayMs(3, 1_000)).toBe(4_000);
+    expect(staleRetryDelayMs(40, 1_000)).toBe(1_800_000);
+  });
+});
+
+describe("StrategySweeper.knowsServer — 레지스트리에 있는 서버인가 (29-52 GC-09)", () => {
+  it("GC-09 targetOf 가 아는 서버 키만 true — 레지스트리에서 지운 서버는 false", () => {
+    const sessions = new SessionManager({ host: "127.0.0.1", port: 1, broker: "KB" });
+    const target: SessionTarget = { serverKey: "KB120", host: "127.0.0.1", port: 1, broker: "KB" };
+    const sw = new StrategySweeper({ sessions, targetOf: (k) => (k === "KB120" ? target : undefined) });
+    expect(sw.knowsServer("KB120")).toBe(true);
+    expect(sw.knowsServer("KB122")).toBe(false);
   });
 });
