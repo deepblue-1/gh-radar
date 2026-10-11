@@ -6,12 +6,15 @@ import {
   normalizeAccountNo,
   REFLECT_LABEL,
   resolveEffectiveOrderServer,
+  summarizeOrderEndpoint,
   type AdminAccountInput,
   type AdminAccountView,
   type AdminPutAccountBody,
   type AdminServerResult,
   type AdminUsersOverview,
   type DmaBroker,
+  type OrderEndpointMismatch,
+  type OrderEndpointSummary,
   type ReflectTone,
 } from "@gh-radar/shared";
 
@@ -55,6 +58,12 @@ import { useFieldSave, type FieldSave } from "./use-field-save";
  * 기본값으로 보낸다). 고르면 즉시 `PUT …/order-server` 1건(D-15 · `useFieldSave` — 비행 중엔 마지막 값만) · 409 등은 계좌 오류 줄 ·
  * 저장 뒤 첫 재조회 값이 정본(`releaseOn` = 계좌 뷰). 87 에만 있는 계좌 줄에는 없다(D-23 ⑤ 보기만).
  * 영역 안내 문장은 목업 A 문장(답 이전)이 아니라 gh-trade-84 ②(가) 뒤 문장이다 — 전략은 relay 가 끈다 · 되돌릴 때 클라(OCX) 대사.
+ *
+ * **주문자 IP/MAC 읽기 줄(Phase 30 D-09 · D-10 · 30-UI-SPEC §1 · 목업 B).** KB 계좌만 지점 · 트레이더 줄 아래 한 줄 — 설정됨
+ * 「주문자 IP <ip> · MAC <mac>」(87 정규화값 그대로 · 재정규화 금지) · 미설정 「… 미설정(서버 NIC 값)」 · 87 미확인 「… 확인 전」.
+ * 값 · 출처 서버 · 등록 서버 간 불일치는 shared `summarizeOrderEndpoint`(relay 라우팅과 같은 유효 주문 서버 규칙 한 벌) 결과만
+ * 그린다 — 웹은 별도 판정을 하지 않는다. 불일치는 다른 서버마다 경고 한 줄(`WARN_LINE`). 빈 계좌명은 제목줄에 흐린 「이름 없음」
+ * (87 전용 흐린 줄은 편집 대상이 아니라 그대로).
  */
 
 export const ACCOUNT_EDITOR_TEXT = {
@@ -80,6 +89,18 @@ export const ACCOUNT_EDITOR_TEXT = {
   /** gh-trade-84 ②(가) 뒤 문장 — 목업 A 의 「옛 서버의 미체결 · 전략은 그 서버에서 …」 는 답 이전 것이라 바꿨다. */
   orderServerNote:
     "주문 서버를 바꾸면 relay 가 옛 서버에 남은 그 계좌의 활성 전략(상따 · VI · 자동매도)을 끄고 새 서버로 바로 재접속해요 — 옛 서버의 미체결은 그 서버(클라)에서 정리하고, 옛 서버로 되돌릴 때는 클라(OCX) 대사로 잔고를 맞추세요.",
+  // ── Phase 30 (30-UI-SPEC Copywriting 정본) ──
+  /** 계좌명이 빈 값인 읽기 카드 제목줄(--faint). */
+  noName: "이름 없음",
+  ipmacLabel: "주문자 IP",
+  ipmacMacLabel: "MAC",
+  /** 87 값이 빈 값(서버 NIC 값으로 주문) — --faint. */
+  ipmacUnset: "미설정(서버 NIC 값)",
+  /** 어느 등록 서버의 87 에도 그 계좌가 아직 없음 — 「미설정」 으로 보이면 실제 서버 값과 어긋난다. */
+  ipmacUnknown: "확인 전",
+  /** D-10 — 출처 서버와 값이 다른 다른 등록 서버 한 줄. */
+  ipmacMismatch: (serverKey: string, m: Pick<OrderEndpointMismatch, "state" | "orderIp" | "orderMac">) =>
+    `${serverKey} 값이 달라요(${m.state === "set" ? `IP ${m.orderIp} · MAC ${m.orderMac}` : "미설정"}) — 편집에서 저장하면 등록 서버가 모두 같아져요`,
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -276,6 +297,9 @@ const ORDER_SEGMENT_ITEM = cn(ADMIN_SEGMENT_ITEM, "px-2.5 text-[12.5px] disabled
 const ORDER_ITEM_OFF = "line-through text-[var(--faint)]";
 const ORDER_ITEM_OFF_ON = "line-through text-[var(--led-latent)]! data-[state=on]:text-[var(--led-latent)]!";
 const WARN_LINE = "mt-1.5 text-[12px] leading-[1.5] break-keep text-[var(--led-latent)]";
+/** 주문자 IP/MAC 읽기 줄(Phase 30 D-09) — 12px · muted · 숫자 tabular · 값은 600 · --fg-2. */
+const IPMAC_LINE = "mt-1 text-[12px] leading-[1.5] break-keep text-[var(--muted-fg)] tabular-nums";
+const IPMAC_VALUE = "font-semibold text-[var(--fg-2)]";
 /** 「기본」 칸의 토글 값 — Radix 단일 토글의 "" 는 「선택 해제」 라 따로 둔다. */
 const ORDER_DEFAULT_VALUE = "__default__";
 
@@ -296,15 +320,63 @@ function BranchTrader({ account }: { account: Pick<AdminAccountView, "broker" | 
   );
 }
 
-function AccountTitle({ account, children }: { account: AdminAccountView; children?: ReactNode }) {
+function AccountTitle({
+  account,
+  noNamePlaceholder = false,
+  children,
+}: {
+  account: AdminAccountView;
+  /** 계좌명이 빈 값이면 그 자리에 흐린 「이름 없음」(편집 가능한 계좌 카드만 — 87 전용 줄은 넘기지 않는다). */
+  noNamePlaceholder?: boolean;
+  children?: ReactNode;
+}) {
   return (
     <div className="flex items-center gap-2 text-[14px] font-semibold text-[var(--fg)]">
       <span className={BROKER_BADGE}>{brokerLabel(account.broker)}</span>
       <span className="min-w-0 truncate tabular-nums">{account.accountNo}</span>
-      {account.name && <span className="min-w-0 truncate font-medium text-[var(--muted-fg)]">{account.name}</span>}
+      {account.name ? (
+        <span className="min-w-0 truncate font-medium text-[var(--muted-fg)]">{account.name}</span>
+      ) : noNamePlaceholder ? (
+        <span className="min-w-0 truncate font-medium text-[var(--faint)]">{ACCOUNT_EDITOR_TEXT.noName}</span>
+      ) : null}
       <span className="flex-1" />
       {children}
     </div>
+  );
+}
+
+/** KB 주문자 IP/MAC 읽기 줄(D-09 · UI-SPEC §1-3) — summary 값 그대로(재정규화 금지). */
+function OrderEndpointLine({ summary }: { summary: OrderEndpointSummary }) {
+  const T = ACCOUNT_EDITOR_TEXT;
+  return (
+    <p data-slot="admin-account-ipmac" className={IPMAC_LINE}>
+      {summary.state === "set" ? (
+        <>
+          {`${T.ipmacLabel} `}
+          <b className={IPMAC_VALUE}>{summary.orderIp}</b>
+          {` · ${T.ipmacMacLabel} `}
+          <b className={IPMAC_VALUE}>{summary.orderMac}</b>
+        </>
+      ) : (
+        <>
+          {`${T.ipmacLabel} · ${T.ipmacMacLabel} `}
+          <span className="text-[var(--faint)]">{summary.state === "unset" ? T.ipmacUnset : T.ipmacUnknown}</span>
+        </>
+      )}
+    </p>
+  );
+}
+
+/** 등록 서버 간 87 값 불일치(D-10 · UI-SPEC §1-4) — 다른 서버마다 한 줄 · 0줄 = 일치 · 87 을 모르는 서버는 summary 가 빼 둔다. */
+function OrderEndpointMismatchLines({ summary }: { summary: OrderEndpointSummary }) {
+  return (
+    <>
+      {summary.mismatches.map((m) => (
+        <p key={m.serverKey} data-slot="admin-account-ipmac-mismatch" data-server={m.serverKey} className={WARN_LINE}>
+          {ACCOUNT_EDITOR_TEXT.ipmacMismatch(m.serverKey, m)}
+        </p>
+      ))}
+    </>
   );
 }
 
@@ -384,6 +456,9 @@ function AccountRow({
   );
 
   const error = order.error ?? toggle.error ?? remove.error;
+  const kb = account.broker === "KB";
+  // D-09 · D-10 — 표시값 · 출처 · 불일치는 shared 판정 한 벌(relay 라우팅과 같은 유효 주문 서버 규칙).
+  const endpoint = kb ? summarizeOrderEndpoint({ account, registry }) : null;
 
   return (
     <div
@@ -393,7 +468,7 @@ function AccountRow({
       data-state={remove.state === "saving" ? "saving" : toggle.state}
       className={cn(ACCOUNT_CARD, toggle.state === "flash" && ROW_FLASH)}
     >
-      <AccountTitle account={account}>
+      <AccountTitle account={account} noNamePlaceholder>
         <Button
           type="button"
           size="sm"
@@ -407,6 +482,12 @@ function AccountRow({
         </Button>
       </AccountTitle>
       <BranchTrader account={account} />
+      {endpoint && (
+        <>
+          <OrderEndpointLine summary={endpoint} />
+          <OrderEndpointMismatchLines summary={endpoint} />
+        </>
+      )}
       <div className="mt-2.5 flex flex-wrap gap-1.5">
         {shown.map((serverKey) => {
           const checked = intent.includes(serverKey);
