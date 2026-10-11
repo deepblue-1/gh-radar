@@ -1320,3 +1320,157 @@ describe('P30 보내기 규칙 — 원문 · 변경 없음 · 비우기 · code 
     expect(btn(SAVE)).not.toBeDisabled();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 30 (30-09) — 공유 계좌 안내 줄 (D-18 · UI-SPEC Addendum A2 · E7)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('P30 공유 계좌 안내 (D-18)', () => {
+  /**
+   * gh-trade 86 code 7 ACCOUNT_CONFLICT 원문(gh-trade master 46a10ce9 — D-12 로 넓힌 문구). 웹은 이 문장을 대조하거나 바꾸지 않는다 —
+   * 결과 줄 접두사 「KB120 실패: 」 만 웹 문구다(IPMAC-03).
+   */
+  const GH_TRADE_C7 = '다른 사용자가 같은 계좌를 다른 지점번호/거래자ID/주문자 IP·MAC 으로 보유하고 있습니다';
+  const NO = '12345678901';
+  const EDIT = `KB ${NO} 편집`;
+  const SAVE = `KB ${NO} 편집 저장`;
+  const CANCEL = `KB ${NO} 편집 취소`;
+  const btn = (name: string) => screen.getByRole('button', { name });
+  const sharedLines = () => [...document.querySelectorAll('[data-slot="admin-account-edit-shared"]')] as HTMLElement[];
+  const resultLines = () => [...acctRow(NO).querySelectorAll('[data-slot="admin-account-edit-result"]')] as HTMLElement[];
+  const ipInput = () => within(acctRow(NO)).getByRole('textbox', { name: '주문자 IP' }) as HTMLInputElement;
+  const macInput = () => within(acctRow(NO)).getByRole('textbox', { name: 'MAC 주소' }) as HTMLInputElement;
+
+  const holder = (
+    dmaUserId: string | null,
+    accounts: AdminAccountView[],
+  ): AdminUsersOverview['users'][number] => ({
+    email: `${dmaUserId ?? 'web'}@example.invalid`,
+    role: 'trader',
+    dmaUserId,
+    signedUp: true,
+    accountCount: accounts.length,
+    servers: [],
+    accounts,
+  });
+  const on = (a: AdminAccountView, keys: string[]): AdminAccountView => ({
+    ...a,
+    servers: keys.map((serverKey) => ({ serverKey, tone: 'ok' as const, message: null, state: 'active' as const })),
+  });
+  const OWN = withEp(KB_TWO, { KB120: EP_A, KB121: EP_A });
+  /** 함께 쓰는 사용자 둘(kimtr — KB120 · bob — KB121) + 자기 · DMA 없는 웹 사용자(빠져야 한다). */
+  const USERS = [
+    holder('alexjx', [OWN, KYOBO_ACCT]),
+    holder('kimtr', [on(KB_ACCT, ['KB120'])]),
+    holder(null, []),
+    holder('bob', [on(KB_ACCT, ['KB121'])]),
+  ];
+
+  function mount(
+    accounts: AdminAccountView[] = [OWN, KYOBO_ACCT],
+    /** null = users prop 을 넘기지 않는다. */
+    users: AdminUsersOverview['users'] | null = USERS,
+  ) {
+    const onChanged = vi.fn();
+    render(
+      <AccountEditor
+        dmaUserId="alexjx"
+        accounts={accounts}
+        servers={SERVERS}
+        onChanged={onChanged}
+        onRemoveLast={vi.fn()}
+        {...(users ? { users } : {})}
+      />,
+    );
+    return { onChanged };
+  }
+
+  it('함께 쓰는 사용자 둘 → 편집 모드 「… bob · kimtr — …」 · WARN_LINE · role 없음 · 불일치/도움말 줄 뒤 · 「취소」 앞', () => {
+    mount([withEp(KB_TWO, { KB120: EP_A, KB121: EP_B }), KYOBO_ACCT]);
+    fireEvent.click(btn(EDIT));
+    expect(sharedLines()).toHaveLength(1);
+    const line = sharedLines()[0];
+    expect(line.textContent).toBe('이 계좌를 함께 쓰는 사용자 bob · kimtr — 주문자 IP · MAC 이 함께 바뀌어요');
+    expect(line.className).toContain('text-[12px]');
+    expect(line.className).toContain('break-keep');
+    expect(line.className).toContain('text-[var(--led-latent)]');
+    expect(line).not.toHaveAttribute('role');
+    const edit = acctRow(NO).querySelector('[data-slot="admin-account-edit"]') as HTMLElement;
+    expect(edit.contains(line)).toBe(true);
+    const help = edit.querySelector('[data-slot="admin-account-edit-help"]') as HTMLElement;
+    const mismatch = edit.querySelector('[data-slot="admin-account-ipmac-mismatch"]') as HTMLElement;
+    expect(mismatch).not.toBeNull();
+    expect(help.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(mismatch.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(line.compareDocumentPosition(btn(CANCEL)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('안내 줄 0개 — 읽기 카드', () => {
+    mount();
+    expect(acctRow(NO)).not.toHaveAttribute('data-editing');
+    expect(sharedLines()).toHaveLength(0);
+  });
+
+  it('안내 줄 0개 — users prop 없음', () => {
+    mount([OWN, KYOBO_ACCT], null);
+    fireEvent.click(btn(EDIT));
+    expect(document.querySelector('[data-slot="admin-account-edit"]')).not.toBeNull();
+    expect(sharedLines()).toHaveLength(0);
+  });
+
+  it('안내 줄 0개 — 겹치는 서버 없음(이 계좌 KB120 만 · 상대 KB121 만)', () => {
+    mount([withEp(KB_ACCT, { KB120: EP_A }), KYOBO_ACCT], [holder('alexjx', []), holder('bob', [on(KB_ACCT, ['KB121'])])]);
+    fireEvent.click(btn(EDIT));
+    expect(document.querySelector('[data-slot="admin-account-edit"]')).not.toBeNull();
+    expect(sharedLines()).toHaveLength(0);
+  });
+
+  it('안내 줄 0개 — 교보 계좌(같은 번호 교보 계좌를 다른 사용자가 같은 서버에 보유해도)', () => {
+    mount([OWN, KYOBO_ACCT], [...USERS, holder('kyobo2', [KYOBO_ACCT])]);
+    fireEvent.click(btn(`KYOBO ${KYOBO_ACCT.accountNo} 편집`));
+    expect(document.querySelector('[data-slot="admin-account-edit"]')).not.toBeNull();
+    expect(sharedLines()).toHaveLength(0);
+  });
+
+  it('[KB120 failed code 7 · KB121 ok] → 결과 줄 「KB120 실패: <gh-trade 원문>」 role=alert · 편집 · IP/MAC 입력값 · 안내 줄 유지 · onChanged 1회', async () => {
+    putDmaAccountMock.mockResolvedValue({
+      results: [
+        { server: 'KB120', outcome: 'failed', code: 7, message: GH_TRADE_C7 },
+        { server: 'KB121', outcome: 'ok' },
+      ],
+    });
+    const { onChanged } = mount();
+    fireEvent.click(btn(EDIT));
+    fireEvent.change(ipInput(), { target: { value: '10.41.1.200' } });
+    fireEvent.change(macInput(), { target: { value: '1C:FD:08:7D:97:90' } });
+    fireEvent.click(btn(SAVE));
+    await waitFor(() => expect(resultLines()).toHaveLength(1));
+    expect(putDmaAccountMock).toHaveBeenCalledTimes(1);
+    expect((putDmaAccountMock.mock.calls[0][1] as { orderEndpoint?: unknown }).orderEndpoint).toEqual({
+      orderIp: '10.41.1.200',
+      orderMac: '1C:FD:08:7D:97:90',
+    });
+    const line = resultLines()[0];
+    expect(line.textContent).toBe(`KB120 실패: ${GH_TRADE_C7}`);
+    expect(line).toHaveAttribute('role', 'alert');
+    expect(line).toHaveAttribute('data-tone', 'err');
+    expect(acctRow(NO)).toHaveAttribute('data-editing', 'true');
+    expect(ipInput()).toHaveValue('10.41.1.200');
+    expect(macInput()).toHaveValue('1C:FD:08:7D:97:90');
+    expect(sharedLines()).toHaveLength(1);
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('저장 응답 전부 ok → 편집 닫힘 · onChanged 1회(개요 재조회 — 함께 쓰는 사용자 카드도 새 값)', async () => {
+    putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }, { server: 'KB121', outcome: 'ok' }] });
+    const { onChanged } = mount();
+    fireEvent.click(btn(EDIT));
+    fireEvent.change(ipInput(), { target: { value: '10.41.1.200' } });
+    fireEvent.change(macInput(), { target: { value: '1C:FD:08:7D:97:90' } });
+    fireEvent.click(btn(SAVE));
+    await waitFor(() => expect(acctRow(NO)).not.toHaveAttribute('data-editing'));
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(resultLines()).toHaveLength(0);
+    expect(sharedLines()).toHaveLength(0);
+  });
+});

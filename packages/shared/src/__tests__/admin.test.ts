@@ -8,12 +8,15 @@ import {
   REFLECT_LABEL,
   deriveAdminUsersOverview,
   diffServerAccounts,
+  findSharedAccountHolders,
   interpretAdminResult,
   isValidAccountNoInput,
   maskDmaUserId,
   normalizeAccountNo,
   type AdminAccountFields,
+  type AdminAccountView,
   type AdminIntentRow,
+  type AdminUserView,
   type AdminUsersRaw,
 } from "../admin";
 
@@ -314,5 +317,151 @@ describe("maskDmaUserId — 로그 전용 DMA id 마스킹 한 벌 (IN-01 · 29-
 
   it("빈 문자열 → ***(0)", () => {
     expect(maskDmaUserId("")).toBe("***(0)");
+  });
+});
+
+describe("P30 공유 계좌 — findSharedAccountHolders (D-18)", () => {
+  // 개요 데이터만 — 다른 DMA 사용자 · 같은 증권사 · 같은 정규화 계좌번호 · 서버(active 등록 ∪ serverOnlyOn)가 이 계좌 저장 서버와 겹칠 때만.
+  const NO = "11122233304";
+  const view = (
+    over: Partial<AdminAccountView> & { active?: string[]; removing?: string[] } = {},
+  ): AdminAccountView => {
+    const { active = ["KB120"], removing = [], ...rest } = over;
+    return {
+      broker: "KB",
+      accountNo: NO,
+      name: "공유",
+      branchNo: "00123",
+      traderId: "000789",
+      priority: 1,
+      servers: [
+        ...active.map((serverKey) => ({ serverKey, tone: "ok" as const, message: null, state: "active" as const })),
+        ...removing.map((serverKey) => ({ serverKey, tone: "warn" as const, message: null, state: "removing" as const })),
+      ],
+      serverOnlyOn: [],
+      ...rest,
+    };
+  };
+  const user = (dmaUserId: string | null, accounts: AdminAccountView[]): Pick<AdminUserView, "dmaUserId" | "accounts"> => ({
+    dmaUserId,
+    accounts,
+  });
+  const find = (users: Pick<AdminUserView, "dmaUserId" | "accounts">[], servers: string[] = ["KB120", "KB121"]) =>
+    findSharedAccountHolders({ users, dmaUserId: "alexjx", broker: "KB", accountNo: NO, servers });
+
+  it("함께 쓰는 사용자 둘(입력 kimtr → bob) → dmaUserId 오름차순 · 각 servers 는 겹치는 서버(입력 순서)", () => {
+    const users = [
+      user("alexjx", [view({ active: ["KB120", "KB121"] })]),
+      user("kimtr", [view({ active: ["KB121", "KB120"] })]),
+      user("bob", [view({ active: ["KB121"] })]),
+    ];
+    expect(find(users)).toEqual([
+      { dmaUserId: "bob", servers: ["KB121"] },
+      { dmaUserId: "kimtr", servers: ["KB120", "KB121"] },
+    ]);
+  });
+
+  it("정규화 계좌번호 일치(\"011122233304\" 대 \"11122233304\") → 포함 · 다른 증권사 같은 번호 → 제외", () => {
+    expect(find([user("kimtr", [view({ accountNo: "011122233304" })])])).toEqual([{ dmaUserId: "kimtr", servers: ["KB120"] }]);
+    expect(
+      find([user("kimtr", [view({ broker: "KYOBO", active: ["KB120"] })])]),
+    ).toEqual([]);
+    // 입력 쪽 계좌번호도 정규화
+    expect(
+      findSharedAccountHolders({
+        users: [user("kimtr", [view()])],
+        dmaUserId: "alexjx",
+        broker: "KB",
+        accountNo: "0011122233304",
+        servers: ["KB120"],
+      }),
+    ).toEqual([{ dmaUserId: "kimtr", servers: ["KB120"] }]);
+  });
+
+  it("겹치는 서버 없음 → 제외 · serverOnlyOn 으로만 KB120 → 포함 · KB120 이 removing 뿐 → 제외", () => {
+    expect(find([user("kimtr", [view({ active: ["KB121"] })])], ["KB120"])).toEqual([]);
+    expect(find([user("kimtr", [view({ active: [], serverOnlyOn: ["KB120"] })])], ["KB120"])).toEqual([
+      { dmaUserId: "kimtr", servers: ["KB120"] },
+    ]);
+    expect(find([user("kimtr", [view({ active: ["KB121"], removing: ["KB120"] })])], ["KB120"])).toEqual([]);
+  });
+
+  it("자기 dmaUserId · dmaUserId null 웹 사용자 → 제외 · 같은 dmaUserId 웹 사용자 둘 → 한 항목(서버 합침) · users [] → []", () => {
+    expect(find([user("alexjx", [view()]), user(null, [view()])])).toEqual([]);
+    expect(
+      find([user("kimtr", [view({ active: ["KB120"] })]), user("kimtr", [view({ active: ["KB121"] })])]),
+    ).toEqual([{ dmaUserId: "kimtr", servers: ["KB120", "KB121"] }]);
+    expect(find([])).toEqual([]);
+  });
+});
+
+describe("P30 공유 계좌 전파는 drift 가 아니다 (D-18)", () => {
+  // gh-trade 전파(op 3 하나 → 같은 서버 users.toml 의 같은 계좌번호 사용자 모두에 같은 IP/MAC) 뒤 B 의 87 에는 A 가 바꾼 값이 있다.
+  // DB 의도에는 IP/MAC 이 없다 → sameValues 가 비교하지 않는다(GC-02) · 개요 칩 판정 fieldsOf 도 87 IP/MAC 을 뺀다 → op · 경고 없음.
+  const IP = "010041001124";
+  const MAC = "1CFD087D978E";
+  const SHARED: AdminAccountFields = { accountNo: "11122233304", name: "공유", branchNo: "00123", traderId: "000789", priority: 3 };
+  const PROPAGATED: AdminAccountFields = { ...SHARED, orderIp: IP, orderMac: MAC };
+
+  it("B 의도(IP/MAC 없음) 대 B 87(전파된 orderIp/orderMac) → diffServerAccounts changed [] · missing []", () => {
+    const diff = diffServerAccounts({
+      active: [intentRow(SHARED, "KB120")],
+      removing: [],
+      snapshotUser: { accounts: [{ ...PROPAGATED }] },
+      snapshotKnown: true,
+    });
+    expect(diff).toMatchObject({ known: true, userPresent: true, missing: [], serverOnly: [] });
+    if (!diff.known) throw new Error("known 이어야 한다");
+    expect(diff.changed).toHaveLength(0);
+  });
+
+  it("deriveAdminUsersOverview(raw, endpoints) — B 칩 ok · B 계좌 orderEndpoints 에 전파된 값 · A 에서 보면 B 가 함께 쓰는 사용자", () => {
+    const overview = deriveAdminUsersOverview(
+      rawWith({
+        appUsers: [
+          { email: "alex@example.invalid", role: "admin", dmaUserId: "alexjx", signedUp: true },
+          { email: "kim.trader@gmail.com", role: "trader", dmaUserId: "kimtr", signedUp: true },
+        ],
+        intent: [
+          intentRow(SHARED, "KB120", { dmaUserId: "alexjx" }),
+          intentRow(SHARED, "KB121", { dmaUserId: "alexjx" }),
+          intentRow(SHARED, "KB120", { dmaUserId: "kimtr" }),
+        ],
+        snapshots: [
+          { serverKey: "KB120", usersRev: "7", receivedAt: "2026-10-11T08:00:00Z" },
+          { serverKey: "KB121", usersRev: "7", receivedAt: "2026-10-11T08:00:00Z" },
+        ],
+        snapshotAccounts: [
+          { serverKey: "KB120", dmaUserId: "alexjx", ...PROPAGATED },
+          { serverKey: "KB121", dmaUserId: "alexjx", ...PROPAGATED },
+          { serverKey: "KB120", dmaUserId: "kimtr", ...PROPAGATED },
+        ],
+      }),
+      {
+        servers: {
+          KB120: [
+            { dmaUserId: "alexjx", accountNo: SHARED.accountNo, orderIp: IP, orderMac: MAC },
+            { dmaUserId: "kimtr", accountNo: SHARED.accountNo, orderIp: IP, orderMac: MAC },
+          ],
+          KB121: [{ dmaUserId: "alexjx", accountNo: SHARED.accountNo, orderIp: IP, orderMac: MAC }],
+        },
+      },
+    );
+    const kim = overview.users.find((u) => u.dmaUserId === "kimtr");
+    if (!kim) throw new Error("kimtr 행이 없다");
+    expect(kim.servers).toEqual([{ serverKey: "KB120", tone: "ok", message: null }]);
+    expect(kim.accounts).toHaveLength(1);
+    expect(kim.accounts[0].servers).toEqual([{ serverKey: "KB120", tone: "ok", message: null, state: "active" }]);
+    expect(kim.accounts[0].orderEndpoints).toEqual({ KB120: { orderIp: IP, orderMac: MAC } });
+
+    expect(
+      findSharedAccountHolders({
+        users: overview.users,
+        dmaUserId: "alexjx",
+        broker: "KB",
+        accountNo: SHARED.accountNo,
+        servers: ["KB120", "KB121"],
+      }),
+    ).toEqual([{ dmaUserId: "kimtr", servers: ["KB120"] }]);
   });
 });
