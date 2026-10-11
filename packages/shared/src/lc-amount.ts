@@ -54,11 +54,27 @@ export function amountOrDerive(amount: number, qty: number, price: number): numb
   return amountFromQty(qty, price);
 }
 
-/** 수량 임계 금액 키(만원). */
-export type LcAmountKey = "sellWatchAmount";
+/** 수량 임계 금액 키(만원) 8개 — gh-trade SetLimitChaser vtable 158~172. */
+export type LcAmountKey =
+  | "buyWatchAmount"
+  | "buyMinTradeAmount"
+  | "extraBuyMinAmount"
+  | "extraBuyMaxAmount"
+  | "postBuyFloorAmount"
+  | "sellWatchAmount"
+  | "sellMinTradeAmount"
+  | "cancelWatchAmount";
 
 /** 금액 키의 짝 주 키(서버 비교 정본). */
-export type LcAmountQtyKey = "sellWatchQty";
+export type LcAmountQtyKey =
+  | "buyWatchQty"
+  | "buyMinTradeQty"
+  | "extraBuyMinQty"
+  | "extraBuyMaxQty"
+  | "postBuyFloorQty"
+  | "sellWatchQty"
+  | "sellMinTradeQty"
+  | "cancelWatchQty";
 
 /** 금액↔주 한 쌍 — 그룹 비교가 · (매도 · 취소만) 잔량추적 토글 · 기준선. */
 export type LcAmountPair = {
@@ -74,12 +90,27 @@ export type LcAmountPair = {
  * 순서는 표시 · 판정 우선순위가 아니다(등록 차단 순서는 UI-SPEC 표).
  */
 export const LC_AMOUNT_PAIRS = [
+  // 매수 그룹 — 매수 비교가(`buyWatchPrice`): 선매수 매도잔량 · 체결량 → 줄매수 최소 · 최대 → 후매수 최소
+  { amount: "buyWatchAmount", qty: "buyWatchQty", price: "buyWatchPrice" },
+  { amount: "buyMinTradeAmount", qty: "buyMinTradeQty", price: "buyWatchPrice" },
+  { amount: "extraBuyMinAmount", qty: "extraBuyMinQty", price: "buyWatchPrice" },
+  { amount: "extraBuyMaxAmount", qty: "extraBuyMaxQty", price: "buyWatchPrice" },
+  { amount: "postBuyFloorAmount", qty: "postBuyFloorQty", price: "buyWatchPrice" },
+  // 매도 · 취소 그룹 — 매도 비교가(`sellWatchPrice` · 취소 비교가 = 매도 비교가): 매도 매수잔량 · 체결 → 취소 매수잔량
   {
     amount: "sellWatchAmount",
     qty: "sellWatchQty",
     price: "sellWatchPrice",
     track: "sellQtyTrackEnabled",
     baseline: "sellQtyTrackBaseline",
+  },
+  { amount: "sellMinTradeAmount", qty: "sellMinTradeQty", price: "sellWatchPrice" },
+  {
+    amount: "cancelWatchAmount",
+    qty: "cancelWatchQty",
+    price: "sellWatchPrice",
+    track: "cancelQtyTrackEnabled",
+    baseline: "cancelQtyTrackBaseline",
   },
 ] as const satisfies readonly LcAmountPair[];
 

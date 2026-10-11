@@ -157,9 +157,9 @@ describe("P31 echoAmountOf — 에코 적용값(C# ApplyServerConfig + RememberE
     expect(echoAmountOf(s, pairOf("sellWatchAmount"))).toEqual({ shown: 1001, qty: 777, price: 12_870 });
   });
 
-  it("추적 OFF · 구 서버(금액 0) → shown = 역산", () => {
+  it("추적 OFF · 구 서버(금액 0) → shown = 역산(500만 → 388주 → 499만 · 왕복은 몇 주만큼 어긋날 수 있다)", () => {
     const s = echo({ buyWatchPrice: 12_870, buyMinTradeQty: 388, buyMinTradeAmount: 0 });
-    expect(echoAmountOf(s, pairOf("buyMinTradeAmount"))).toEqual({ shown: 500, qty: 388, price: 12_870 });
+    expect(echoAmountOf(s, pairOf("buyMinTradeAmount"))).toEqual({ shown: 499, qty: 388, price: 12_870 });
   });
 
   it("매도 추적 ON → shown = 기준선 역산 · qty = 기준선", () => {
@@ -181,7 +181,8 @@ describe("P31 echoAmountOf — 에코 적용값(C# ApplyServerConfig + RememberE
       cancelQtyTrackEnabled: true,
       cancelQtyTrackBaseline: 1165,
     });
-    expect(echoAmountOf(s, pairOf("cancelWatchAmount"))).toEqual({ shown: 1500, qty: 1165, price: 12_870 });
+    // 1165주 × 12,870원 = 14,993,550 → (+5000)÷10000 = 1499만(1500만 → 1165주 왕복 손실).
+    expect(echoAmountOf(s, pairOf("cancelWatchAmount"))).toEqual({ shown: 1499, qty: 1165, price: 12_870 });
   });
 
   it("매도 추적 ON 은 매도 체결 쌍에 영향이 없다(track 없는 쌍)", () => {

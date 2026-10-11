@@ -179,8 +179,18 @@ export type RelayLimitChaser = {
   buyWatchPrice: number;
   /** 매수 감시 잔량(주). */
   buyWatchQty: number;
+  /**
+   * 선매수 매도잔량 임계 금액 — **단위 만원** · 짝 `buyWatchQty`(제출 때 `floor(만원×10000÷buyWatchPrice)`). 서버는 보관·에코만
+   * 한다(`buyOrderAmount` 규약 · 평가는 주). 부재/구서버 = 0 → 클라가 주에서 역산 표시(fbs 원문 · Phase 31 D-11).
+   */
+  buyWatchAmount: number;
   /** 매수 최소 체결수량(주). */
   buyMinTradeQty: number;
+  /**
+   * 선매수 최소 체결수량 금액 — **단위 만원** · 짝 `buyMinTradeQty`(제출 때 `floor(만원×10000÷buyWatchPrice)`). 서버는 보관·에코만
+   * 한다(`buyOrderAmount` 규약 · 평가는 주). 부재/구서버 = 0 → 클라가 주에서 역산 표시(fbs 원문 · Phase 31 D-11).
+   */
+  buyMinTradeAmount: number;
   /**
    * 매수 감시 기준 호가 — **읽기 전용**(옛 서버 에코 호환). relay 가 늘 `"0"` 을 채운다 — gh-trade
    * 슬롯 24 봉인(a3610261)으로 생성 접근자가 없고, 새 서버(buy3) 에코에는 원래 없었다.
@@ -209,6 +219,11 @@ export type RelayLimitChaser = {
   sellWatchAmount: number;
   /** 매도 체결 임계(주). **취소의 「체결」 항이 이 값을 재사용**한다. */
   sellMinTradeQty: number;
+  /**
+   * 매도 · 취소 최소 체결수량 금액 — **단위 만원** · 짝 `sellMinTradeQty`(제출 때 `floor(만원×10000÷sellWatchPrice)`). 서버는 보관·에코만
+   * 한다(`buyOrderAmount` 규약 · 평가는 주). 부재/구서버 = 0 → 클라가 주에서 역산 표시(fbs 원문 · Phase 31 D-11).
+   */
+  sellMinTradeAmount: number;
   /** 매도 게이트. 에코는 `&& sellArmed` 로 접힌 무장 상태다. */
   sellEnabled: boolean;
   /** 매도 체결수량 조건 사용 여부. */
@@ -250,6 +265,11 @@ export type RelayLimitChaser = {
   cancelQtyEnabled: boolean;
   /** 취소 감시 잔량(주). */
   cancelWatchQty: number;
+  /**
+   * 취소 매수잔량 임계 금액 — **단위 만원** · 짝 `cancelWatchQty`(제출 때 `floor(만원×10000÷sellWatchPrice)`). 취소 비교가 = 매도 비교가. 서버는 보관·에코만
+   * 한다(`buyOrderAmount` 규약 · 평가는 주). 부재/구서버 = 0 → 클라가 주에서 역산 표시(fbs 원문 · Phase 31 D-11).
+   */
+  cancelWatchAmount: number;
   /** 취소:체결 게이트. 에코는 `&& cancelArmed`. */
   cancelTradeEnabled: boolean;
   /** 취소 잔량추적 사용 여부. **에코는 접지 않은 원값**. */
@@ -278,8 +298,18 @@ export type RelayLimitChaser = {
   extraBuyEnabled: boolean;
   /** 줄매수 최소 매수잔량(주, C→S). `0` = 1주(gh-trade D-08). */
   extraBuyMinQty: number;
+  /**
+   * 줄매수 최소 매수잔량 금액 — **단위 만원** · 짝 `extraBuyMinQty`(제출 때 `floor(만원×10000÷buyWatchPrice)`). 서버는 보관·에코만
+   * 한다(`buyOrderAmount` 규약 · 평가는 주). 부재/구서버 = 0 → 클라가 주에서 역산 표시(fbs 원문 · Phase 31 D-11).
+   */
+  extraBuyMinAmount: number;
   /** 줄매수 최대 매수잔량(주, C→S). `0` = 무제한(gh-trade D-08). */
   extraBuyMaxQty: number;
+  /**
+   * 줄매수 최대 매수잔량 금액 — **단위 만원** · 짝 `extraBuyMaxQty`(제출 때 `floor(만원×10000÷buyWatchPrice)`). 0 = 무제한(주와 같은 뜻). 서버는 보관·에코만
+   * 한다(`buyOrderAmount` 규약 · 평가는 주). 부재/구서버 = 0 → 클라가 주에서 역산 표시(fbs 원문 · Phase 31 D-11).
+   */
+  extraBuyMaxAmount: number;
   /** 줄매수 주문금액 — **단위 만원**. 서버는 보관·에코만 한다(`buyOrderAmount` 규약). */
   extraBuyOrderAmount: number;
   /** 줄매수 주문수량(주, C→S) — **발주 정본**. */
@@ -321,6 +351,11 @@ export type RelayLimitChaser = {
   postBuyReboundPct: number;
   /** 후매수 하한잔량(주, C→S). */
   postBuyFloorQty: number;
+  /**
+   * 후매수 하한잔량(최소) 금액 — **단위 만원** · 짝 `postBuyFloorQty`(제출 때 `floor(만원×10000÷buyWatchPrice)`). 상따 cfg 의 이 주 필드는 살아 있는 서버 비교값이다 — UserSettings 의 봉인 `postBuyFloorQty` 와 다르다(Pitfall 11). 서버는 보관·에코만
+   * 한다(`buyOrderAmount` 규약 · 평가는 주). 부재/구서버 = 0 → 클라가 주에서 역산 표시(fbs 원문 · Phase 31 D-11).
+   */
+  postBuyFloorAmount: number;
   /**
    * 후매수 최대 횟수(회, ubyte, C→S) — **최초 포함 총 횟수**. `0` = 사지 않음(gh-trade D-30).
    * cfg 설정값 원값이다 — 잔여는 `postBuyReentryLeft`.

@@ -1433,7 +1433,15 @@ export const LC_EXTRA_BUY_AUTO_BUY3_SCHEMA = 5;
  * 수량 임계 금액 8필드(만원 · Phase 31 D-11) — relay `LcSetCfg` 에서는 선택(구 탭 관용 · 부재 = 0 으로 조립),
  * shared 입력 계약에서는 필수. `buy3_schema` 파생과 무관하다(게이트 없음).
  */
-type LcAmountKey = "sellWatchAmount";
+type LcAmountKey =
+  | "buyWatchAmount"
+  | "buyMinTradeAmount"
+  | "extraBuyMinAmount"
+  | "extraBuyMaxAmount"
+  | "postBuyFloorAmount"
+  | "sellWatchAmount"
+  | "sellMinTradeAmount"
+  | "cancelWatchAmount";
 
 /** 자동매도 요청 4필드 — relay `LcSetCfg` 에서는 선택(구 탭 관용), shared 입력 계약에서는 필수. */
 type LcAutoSellReqKey = "autoSellEnabled" | "autoSellStartCond" | "autoSellRatioPct" | "autoSellMethod";
@@ -1704,7 +1712,14 @@ export function buildSetLimitChaserReq(
     SetLimitChaser.addExtraBuyAuto(b, cfg.extraBuyAuto);
   }
   // 금액 8(vtable 158~172 · buyOrderAmount 규약 · schema 게이트 없음 · 부재 = 0 — 0 은 FlatBuffers 기본값이라 버퍼에 안 쓰인다)
+  SetLimitChaser.addBuyWatchAmount(b, toWireUint(cfg.buyWatchAmount ?? 0, "buyWatchAmount"));
+  SetLimitChaser.addBuyMinTradeAmount(b, toWireUint(cfg.buyMinTradeAmount ?? 0, "buyMinTradeAmount"));
+  SetLimitChaser.addExtraBuyMinAmount(b, toWireUint(cfg.extraBuyMinAmount ?? 0, "extraBuyMinAmount"));
+  SetLimitChaser.addExtraBuyMaxAmount(b, toWireUint(cfg.extraBuyMaxAmount ?? 0, "extraBuyMaxAmount"));
+  SetLimitChaser.addPostBuyFloorAmount(b, toWireUint(cfg.postBuyFloorAmount ?? 0, "postBuyFloorAmount"));
   SetLimitChaser.addSellWatchAmount(b, toWireUint(cfg.sellWatchAmount ?? 0, "sellWatchAmount"));
+  SetLimitChaser.addSellMinTradeAmount(b, toWireUint(cfg.sellMinTradeAmount ?? 0, "sellMinTradeAmount"));
+  SetLimitChaser.addCancelWatchAmount(b, toWireUint(cfg.cancelWatchAmount ?? 0, "cancelWatchAmount"));
   const table = SetLimitChaser.endSetLimitChaser(b);
 
   Envelope.startEnvelope(b);
@@ -2561,7 +2576,10 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       buyOrderQty: t.buyOrderQty(),
       buyWatchPrice: t.buyWatchPrice(),
       buyWatchQty: t.buyWatchQty(),
+      // 금액 8(만원 · Phase 31 D-11) — 슬롯 부재(구 서버) = 0 · 역산은 웹 몫. 각 짝 주 필드 바로 뒤.
+      buyWatchAmount: t.buyWatchAmount(),
       buyMinTradeQty: t.buyMinTradeQty(),
+      buyMinTradeAmount: t.buyMinTradeAmount(),
       // gh-trade a3610261 로 슬롯 24 봉인 — 생성 접근자가 없다. buy3 서버 에코에는 원래 없어
       // 종전에도 "0" 이었다(Phase 24). 값 영향 0 — 상수로 채운다.
       buyWatchSide: "0",
@@ -2577,6 +2595,7 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       // 단위 만원(Phase 31 D-11) — 슬롯 부재(구 서버) = 0 · 역산은 웹 몫.
       sellWatchAmount: t.sellWatchAmount(),
       sellMinTradeQty: t.sellMinTradeQty(),
+      sellMinTradeAmount: t.sellMinTradeAmount(),
       sellEnabled: t.sellEnabled(),
       sellTradeQtyEnabled: t.sellTradeQtyEnabled(),
       sweepWatchPrice: t.sweepWatchPrice(),
@@ -2605,6 +2624,7 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       cancelEntryLatched: t.cancelEntryLatched(),
       cancelQtyEnabled: t.cancelQtyEnabled(),
       cancelWatchQty: t.cancelWatchQty(),
+      cancelWatchAmount: t.cancelWatchAmount(),
       cancelTradeEnabled: t.cancelTradeEnabled(),
       cancelQtyTrackEnabled: t.cancelQtyTrackEnabled(),
       // S→C 전용 — 16-01 재동기화로 접근자가 생긴 필드다.
@@ -2617,7 +2637,9 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       // 양방향 — 에코는 cfg ∧ 무장 ∧ !포기(gh-trade D-03 · D-08).
       extraBuyEnabled: t.extraBuyEnabled(),
       extraBuyMinQty: t.extraBuyMinQty(),
+      extraBuyMinAmount: t.extraBuyMinAmount(),
       extraBuyMaxQty: t.extraBuyMaxQty(),
+      extraBuyMaxAmount: t.extraBuyMaxAmount(),
       extraBuyOrderAmount: t.extraBuyOrderAmount(),
       extraBuyOrderQty: t.extraBuyOrderQty(),
       // S→C 전용 — 줄매수 포기(최대 초과 · 상한가 이탈 최소 미달).
@@ -2629,6 +2651,7 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       postBuyEnabled: t.postBuyEnabled(),
       postBuyReboundPct: t.postBuyReboundPct(),
       postBuyFloorQty: t.postBuyFloorQty(),
+      postBuyFloorAmount: t.postBuyFloorAmount(),
       // cfg 설정값 원값 — 잔여가 아니다(잔여는 postBuyReentryLeft).
       postBuyReentry: t.postBuyReentry(),
       postBuyOrderAmount: t.postBuyOrderAmount(),

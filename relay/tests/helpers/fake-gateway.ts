@@ -604,6 +604,14 @@ export interface SetLimitChaserRequest {
   sellWatchQty: number;
   /** 매도 매수잔량 금액(만원 · vtable 168 · Phase 31 D-11) — 슬롯 부재(구 탭 cfg) = 0. */
   sellWatchAmount: number;
+  /** 금액 나머지 7(만원 · vtable 158~172 · Phase 31 D-11) — 슬롯 부재(구 탭 cfg) = 0. */
+  buyWatchAmount: number;
+  buyMinTradeAmount: number;
+  extraBuyMinAmount: number;
+  extraBuyMaxAmount: number;
+  postBuyFloorAmount: number;
+  sellMinTradeAmount: number;
+  cancelWatchAmount: number;
   cancelQtyEnabled: boolean;
   cancelTradeEnabled: boolean;
   cancelQtyTrackEnabled: boolean;
@@ -695,6 +703,13 @@ export function readSetLimitChaserRequest(
     sellWatchPrice: req.sellWatchPrice(),
     sellWatchQty: req.sellWatchQty(),
     sellWatchAmount: req.sellWatchAmount(),
+    buyWatchAmount: req.buyWatchAmount(),
+    buyMinTradeAmount: req.buyMinTradeAmount(),
+    extraBuyMinAmount: req.extraBuyMinAmount(),
+    extraBuyMaxAmount: req.extraBuyMaxAmount(),
+    postBuyFloorAmount: req.postBuyFloorAmount(),
+    sellMinTradeAmount: req.sellMinTradeAmount(),
+    cancelWatchAmount: req.cancelWatchAmount(),
     cancelQtyEnabled: req.cancelQtyEnabled(),
     cancelTradeEnabled: req.cancelTradeEnabled(),
     cancelQtyTrackEnabled: req.cancelQtyTrackEnabled(),

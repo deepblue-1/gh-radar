@@ -1840,9 +1840,10 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
 
     // 활성 59 + 파생 key = 60. (39 − 1(매수 진입 래치 봉인) + 17(Phase 24) + 1(postBuyAuto · quick-260929-vzy)
     // + 1(extraBuyAbandonQty · quick-260930-fi4) + 1(postBuyUnlockQty · quick-261002-fim)
-    // + 1(extraBuyBurstRelease · quick-261003-rc4) + 8(자동매도 · Phase 27) + 1(extraBuyAuto · quick-261011-0yb) = 68 + key).
+    // + 1(extraBuyBurstRelease · quick-261003-rc4) + 8(자동매도 · Phase 27) + 1(extraBuyAuto · quick-261011-0yb)
+    // + 8(금액 · Phase 31 D-11) = 76 + key).
     // 필드를 하나라도 빠뜨리면 여기서 잡힌다.
-    expect(Object.keys(item!)).toHaveLength(69);
+    expect(Object.keys(item!)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
     expect(item!.key).toBe(strategyKey(SAMPLE_ISIN, SAMPLE_ACCOUNT_NO, "KRX"));
   });
 
@@ -1960,8 +1961,8 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     // 새 서버 에코에는 감시대상 슬롯이 없다 → "0".
     expect(single!.buyWatchSide).toBe("0");
     expect(list![0]!.buyWatchSide).toBe("0");
-    expect(Object.keys(single!)).toHaveLength(69);
-    expect(Object.keys(list![0]!)).toHaveLength(69);
+    expect(Object.keys(single!)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
+    expect(Object.keys(list![0]!)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
 
     // postBuyEnabled 는 서버 값 그대로 — false 로 접혀 온 에코는 false(phase 와 무관하게).
     const folded = parseLimitChaserEcho(
@@ -1982,7 +1983,7 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     expect(list![0]!.postBuyAuto).toBe(true);
     const plain = parseLimitChaserEcho(inbound(buildSetLimitChaserRespFrame({})).env);
     expect(plain!.postBuyAuto).toBe(false);
-    expect(Object.keys(plain!)).toHaveLength(69);
+    expect(Object.keys(plain!)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
   });
 
   it("⑤-abandon-qty 60 · 64 의 extraBuyAbandonQty 를 디코드한다 — 기본 프레임 0 · 포기 에코는 645842 (quick-260930-fi4)", () => {
@@ -1998,7 +1999,7 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
     expect(single).toMatchObject(echo);
     expect(list![0]).toMatchObject(echo);
-    expect(Object.keys(single!)).toHaveLength(69);
+    expect(Object.keys(single!)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
   });
 
   it("⑤-unlock-qty 60 · 64 의 postBuyUnlockQty 를 디코드한다 — 기본 프레임 0 · 잠금 에코는 264000 (quick-261002-fim)", () => {
@@ -2013,8 +2014,8 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
     expect(single).toMatchObject(echo);
     expect(list![0]).toMatchObject(echo);
-    expect(Object.keys(single!)).toHaveLength(69);
-    expect(Object.keys(list![0]!)).toHaveLength(69);
+    expect(Object.keys(single!)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
+    expect(Object.keys(list![0]!)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
   });
 
   it("⑤-extra-auto 60 · 64 의 extraBuyAuto 를 디코드한다 — 슬롯 부재 false · true 에코는 true (quick-261011-0yb)", () => {
@@ -2028,8 +2029,8 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
     expect(single).toMatchObject(echo);
     expect(list![0]).toMatchObject(echo);
-    expect(Object.keys(single!)).toHaveLength(69);
-    expect(Object.keys(list![0]!)).toHaveLength(69);
+    expect(Object.keys(single!)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
+    expect(Object.keys(list![0]!)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
   });
 
   it("⑤-burst 60 · 64 의 extraBuyBurstRelease 를 디코드한다 — 슬롯 부재 false · true 에코는 true (quick-261003-rc4 B6)", () => {
@@ -2043,8 +2044,8 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
     expect(single).toMatchObject(echo);
     expect(list![0]).toMatchObject(echo);
-    expect(Object.keys(single!)).toHaveLength(69);
-    expect(Object.keys(list![0]!)).toHaveLength(69);
+    expect(Object.keys(single!)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
+    expect(Object.keys(list![0]!)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
   });
 
   it("⑤-3 S→C 전용 래치 2필드는 요청 조립기가 **싣지 않는다** (Pitfall 6 / T-17-03)", () => {
