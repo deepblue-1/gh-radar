@@ -6,10 +6,10 @@ current_phase: 30
 current_phase_name: 인박스 KB 계좌별 주문자 IP/MAC
 status: planning
 stopped_at: Phase 30 context gathered
-last_updated: "2026-10-11T05:01:34.395Z"
+last_updated: "2026-10-11T05:04:11.683Z"
 last_activity: 2026-10-11
 last_activity_desc: v1.1 로드맵 생성(Phase 30-31 · IPMAC 4 + AMT 4 매핑, DOCS-01 은 quick)
-state_head: 2be5a437c679d983a80aad20cfdc1322a382cf03
+state_head: 8b9a911dab336a99d26cd71f9f23b48ae0146174
 progress:
   total_phases: 2
   completed_phases: 0
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-10-11 after v1.1 milestone start)
 Phase: 30 (인박스 KB 계좌별 주문자 IP/MAC) — READY TO PLAN · v1.1 2개 중 1번째
 Plan: —
 Status: Ready to plan
-Last activity: 2026-10-11 — v1.1 로드맵 생성(Phase 30-31 · IPMAC 4 + AMT 4 매핑, DOCS-01 은 quick)
+Last activity: 2026-10-11 — quick 261011-j87 완료: CLAUDE.md 다이어트(18.3 KB → 7.6 KB, 참조 자료는 docs/stack.md 로 이관, DOCS-01 완료)
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -72,6 +72,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 261011-j87 | CLAUDE.md 다이어트 — 스택 표·법적 판례·설치 참조·출처 링크를 docs/ 로 옮기고 운영 5원칙·공식 API 기준·인박스·컨벤션만 요약 유지 | 2026-10-11 | 8b9a911d | [261011-j87-claude-md-docs-5-api](./quick/261011-j87-claude-md-docs-5-api/) |
 
 ## Session Continuity
 

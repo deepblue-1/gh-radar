@@ -26,7 +26,7 @@ v1.0 요구사항 아카이브: [milestones/v1.0-REQUIREMENTS.md](./milestones/v
 
 ### 문서
 
-- [ ] **DOCS-01**: CLAUDE.md 다이어트 — 세션마다 로드되는 분량을 핵심 규칙만으로 줄인다(스택 표 · 법적 판례 · 설치 참조 · 출처 링크는 `docs/` 로 이동, 운영 5원칙·공식 API 기준·인박스·컨벤션은 요약 유지). quick 으로 처리, 로드맵 phase 없음
+- [x] **DOCS-01**: CLAUDE.md 다이어트 — 세션마다 로드되는 분량을 핵심 규칙만으로 줄인다(스택 표 · 법적 판례 · 설치 참조 · 출처 링크는 `docs/` 로 이동, 운영 5원칙·공식 API 기준·인박스·컨벤션은 요약 유지). quick 으로 처리, 로드맵 phase 없음
 
 ## 상시 (phase 없음)
 
@@ -59,7 +59,7 @@ v1.0 요구사항 아카이브: [milestones/v1.0-REQUIREMENTS.md](./milestones/v
 | AMT-02 | Phase 31 | Pending |
 | AMT-03 | Phase 31 | Pending |
 | AMT-04 | Phase 31 | Pending |
-| DOCS-01 | quick | Pending |
+| DOCS-01 | quick | Complete |
 
 **Coverage:**
 - v1.1 requirements: 10 total
