@@ -387,3 +387,55 @@ describe('UsersClient — 승인 대기 (D-03 · 목업 A `pendRow()`)', () => {
     await waitFor(() => expect(upsertAdminUserMock).toHaveBeenCalledTimes(2));
   });
 });
+
+// Phase 30 (30-09 · D-18 · UI-SPEC Addendum A2) — 개요 users 가 UsersClient → UserSheet → AccountEditor 로 내려가
+// 공유 KB 계좌(다른 DMA 사용자가 같은 계좌번호를 겹치는 서버에 보유)의 편집 모드에 안내 한 줄이 보인다.
+describe('UsersClient — P30 공유 계좌 안내 (D-18)', () => {
+  const SHARED_NO = '11122233304';
+  const acct = (
+    accountNo: string,
+    servers: string[],
+    priority: number,
+  ): AdminUsersOverview['users'][number]['accounts'][number] => ({
+    broker: 'KB',
+    accountNo,
+    name: '공유',
+    branchNo: '00123',
+    traderId: '000789',
+    priority,
+    servers: servers.map((serverKey) => ({ serverKey, tone: 'ok' as const, message: null, state: 'active' as const })),
+    serverOnlyOn: [],
+  });
+  const SHARED_OVERVIEW: AdminUsersOverview = {
+    ...OVERVIEW,
+    users: OVERVIEW.users.map((u) =>
+      u.dmaUserId === 'alexjx'
+        ? { ...u, accountCount: 2, accounts: [acct('12345678901', ['KB120'], 1), acct(SHARED_NO, ['KB120', 'KB121'], 5)] }
+        : u.dmaUserId === 'kimtr'
+          ? { ...u, accountCount: 1, accounts: [acct(SHARED_NO, ['KB120'], 3)] }
+          : u,
+    ),
+  };
+  const sharedLines = () => Array.from(document.querySelectorAll('[data-slot="admin-account-edit-shared"]'));
+
+  it('alex 시트 → 공유 계좌 「편집」 → 「이 계좌를 함께 쓰는 사용자 kimtr — …」 · 읽기 카드 · 공유 아닌 계좌 편집에는 없다', async () => {
+    fetchAdminUsersMock.mockResolvedValue(SHARED_OVERVIEW);
+    render(<UsersClient />);
+    await waitFor(() => expect(rows()).toHaveLength(4));
+    fireEvent.click(rowOf('alex@example.invalid'));
+    await screen.findByRole('button', { name: `KB ${SHARED_NO} 편집` });
+    // 읽기 카드 — 안내 없음
+    expect(sharedLines()).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole('button', { name: `KB ${SHARED_NO} 편집` }));
+    expect(sharedLines()).toHaveLength(1);
+    expect(sharedLines()[0].textContent).toBe('이 계좌를 함께 쓰는 사용자 kimtr — 주문자 IP · MAC 이 함께 바뀌어요');
+
+    // 공유 아닌 KB 계좌 편집 — 안내 없음
+    fireEvent.click(screen.getByRole('button', { name: `KB ${SHARED_NO} 편집 취소` }));
+    fireEvent.click(screen.getByRole('button', { name: 'KB 12345678901 편집' }));
+    expect(document.querySelector('[data-slot="admin-account-edit"]')).not.toBeNull();
+    expect(sharedLines()).toHaveLength(0);
+    expect(fetchAdminUsersMock).toHaveBeenCalledTimes(1);
+  });
+});
