@@ -994,3 +994,159 @@ describe('P30 저장 결과 — 서버 문구 원문 · 중복 없음 (D-06 · I
     await act(async () => {});
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 30 (30-05) — KB 주문자 IP/MAC 편집칸 · 검증 · 보내기 규칙
+// ─────────────────────────────────────────────────────────────────────────────
+
+const IPMAC_HELP = '같은 서버의 두 계좌가 서로 체결될 수 있으면 계좌마다 서로 다른 사용자 PC 의 IP · MAC 을 적으세요(ipconfig /all).';
+const IP_INVALID = 'IP 는 12자리 숫자 또는 10.41.1.124 형식이에요';
+const MAC_INVALID = 'MAC 은 12자리 16진이에요(1C:FD:08:7D:97:8E)';
+const PAIR_INVALID = 'IP 와 MAC 은 둘 다 적거나 둘 다 비워 주세요';
+
+describe('P30 IP/MAC 편집칸 · 검증 (D-03 · D-04 · D-05 · D-10)', () => {
+  const NO = '12345678901';
+  const EDIT = 'KB 12345678901 편집';
+  const SAVE = 'KB 12345678901 편집 저장';
+  const btn = (name: string) => screen.getByRole('button', { name });
+  const ipInput = () => within(acctRow(NO)).getByLabelText('주문자 IP') as HTMLInputElement;
+  const macInput = () => within(acctRow(NO)).getByLabelText('MAC 주소') as HTMLInputElement;
+  const nameInput = () => within(acctRow(NO)).getByRole('textbox', { name: '계좌명' }) as HTMLInputElement;
+  const help = (no = NO) => acctRow(no).querySelector('[data-slot="admin-account-edit-help"]') as HTMLElement | null;
+  const invalid = (no = NO) => acctRow(no).querySelector('[data-slot="admin-account-edit-invalid"]') as HTMLElement | null;
+
+  function mount(accounts: AdminAccountView[]) {
+    render(<AccountEditor dmaUserId="kimtr" accounts={accounts} servers={SERVERS} onChanged={vi.fn()} onRemoveLast={vi.fn()} />);
+  }
+
+  it('KB 미설정 · 87 미확인 → 「주문자 IP」 · 「MAC 주소」 빈 칸(라벨 htmlFor) · placeholder · aria-invalid 없음 · 도움말 · 오류 줄 없음 · 2열 그리드', () => {
+    for (const a of [withEp(KB_TWO, { KB120: EP_UNSET, KB121: EP_UNSET }), KB_TWO]) {
+      const r = render(<AccountEditor dmaUserId="kimtr" accounts={[a, KYOBO_ACCT]} servers={SERVERS} onChanged={vi.fn()} onRemoveLast={vi.fn()} />);
+      fireEvent.click(btn(EDIT));
+      expect(ipInput()).toHaveValue('');
+      expect(macInput()).toHaveValue('');
+      expect(ipInput()).toHaveAttribute('placeholder', '10.41.1.124');
+      expect(macInput()).toHaveAttribute('placeholder', '1C:FD:08:7D:97:8E');
+      expect(ipInput()).not.toHaveAttribute('aria-invalid');
+      expect(macInput()).not.toHaveAttribute('aria-invalid');
+      expect(help()).toHaveTextContent(IPMAC_HELP);
+      expect(help()?.className).toContain('text-[12px]');
+      expect(help()?.className).toContain('text-[var(--muted-fg)]');
+      expect(invalid()).toBeNull();
+      const grid = ipInput().closest('.grid') as HTMLElement;
+      expect(grid.className).toContain('grid-cols-2');
+      expect(grid.className).toContain('gap-2');
+      expect(grid.contains(macInput())).toBe(true);
+      expect(btn(SAVE)).toBeDisabled();
+      r.unmount();
+    }
+  });
+
+  it('IP · MAC 칸 속성 — inputMode decimal · autoComplete off · spellCheck false · MAC autoCapitalize characters', () => {
+    mount([withEp(KB_ACCT, { KB120: EP_UNSET }), KYOBO_ACCT]);
+    fireEvent.click(btn(EDIT));
+    expect(ipInput()).toHaveAttribute('inputMode', 'decimal');
+    expect(ipInput()).toHaveAttribute('autoComplete', 'off');
+    expect(ipInput()).toHaveAttribute('spellCheck', 'false');
+    expect(macInput()).toHaveAttribute('autoComplete', 'off');
+    expect(macInput()).toHaveAttribute('spellCheck', 'false');
+    expect(macInput()).toHaveAttribute('autoCapitalize', 'characters');
+    // 계좌명 칸 아래
+    expect(nameInput().compareDocumentPosition(ipInput()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('설정 계좌(KB120 = KB121) → 초깃값 010041001124 · 1CFD087D978E(87 정규화값) · 「저장」 비활성', () => {
+    mount([withEp(KB_TWO, { KB120: EP_A, KB121: EP_A }), KYOBO_ACCT]);
+    fireEvent.click(btn(EDIT));
+    expect(ipInput()).toHaveValue('010041001124');
+    expect(macInput()).toHaveValue('1CFD087D978E');
+    expect(btn(SAVE)).toBeDisabled();
+    expect(invalid()).toBeNull();
+  });
+
+  it('IP 만 "10.41.1.124" → 비어 있는 MAC 칸 aria-invalid · 도움말 대신 짝 오류(12px · --destructive · role 없음) · 「저장」 비활성', () => {
+    mount([withEp(KB_ACCT, { KB120: EP_UNSET }), KYOBO_ACCT]);
+    fireEvent.click(btn(EDIT));
+    fireEvent.change(ipInput(), { target: { value: '10.41.1.124' } });
+    expect(macInput()).toHaveAttribute('aria-invalid', 'true');
+    expect(ipInput()).not.toHaveAttribute('aria-invalid');
+    expect(invalid()).toHaveTextContent(PAIR_INVALID);
+    expect(invalid()?.className).toContain('text-[12px]');
+    expect(invalid()?.className).toContain('text-[var(--destructive)]');
+    expect(invalid()).not.toHaveAttribute('role');
+    expect(help()).toBeNull();
+    expect(btn(SAVE)).toBeDisabled();
+  });
+
+  it('우선순위 — IP "256.1.1.1" · MAC "zz" → IP 칸만 · IP 문구 / IP 정상 · MAC "1c:fd" → MAC 칸 · MAC 문구', () => {
+    mount([withEp(KB_ACCT, { KB120: EP_UNSET }), KYOBO_ACCT]);
+    fireEvent.click(btn(EDIT));
+    fireEvent.change(ipInput(), { target: { value: '256.1.1.1' } });
+    fireEvent.change(macInput(), { target: { value: 'zz' } });
+    expect(ipInput()).toHaveAttribute('aria-invalid', 'true');
+    expect(macInput()).not.toHaveAttribute('aria-invalid');
+    expect(invalid()?.textContent).toBe(IP_INVALID);
+    fireEvent.change(ipInput(), { target: { value: '10.41.1.124' } });
+    fireEvent.change(macInput(), { target: { value: '1c:fd' } });
+    expect(ipInput()).not.toHaveAttribute('aria-invalid');
+    expect(macInput()).toHaveAttribute('aria-invalid', 'true');
+    expect(invalid()?.textContent).toBe(MAC_INVALID);
+    expect(btn(SAVE)).toBeDisabled();
+  });
+
+  it('오류를 고치면 오류 줄이 도움말로 돌아오고 「저장」 이 켜진다', () => {
+    mount([withEp(KB_ACCT, { KB120: EP_UNSET }), KYOBO_ACCT]);
+    fireEvent.click(btn(EDIT));
+    fireEvent.change(ipInput(), { target: { value: '10.41.1.124' } });
+    expect(invalid()).not.toBeNull();
+    fireEvent.change(macInput(), { target: { value: '1c:fd:08:7d:97:8e' } });
+    expect(invalid()).toBeNull();
+    expect(help()).toHaveTextContent(IPMAC_HELP);
+    expect(ipInput()).not.toHaveAttribute('aria-invalid');
+    expect(macInput()).not.toHaveAttribute('aria-invalid');
+    expect(btn(SAVE)).not.toBeDisabled();
+  });
+
+  it('(D-10) 불일치 계좌(KB120 ≠ KB121) → 초깃값 = 출처(KB120) 값 · 바꾸지 않아도 「저장」 켜짐 · 불일치 경고 줄은 도움말 아래', () => {
+    mount([withEp(KB_TWO, { KB120: EP_A, KB121: EP_B }), KYOBO_ACCT]);
+    fireEvent.click(btn(EDIT));
+    expect(ipInput()).toHaveValue('010041001124');
+    expect(macInput()).toHaveValue('1CFD087D978E');
+    expect(btn(SAVE)).not.toBeDisabled();
+    const lines = mismatchLines(NO);
+    expect(lines).toHaveLength(1);
+    expect((help() as HTMLElement).compareDocumentPosition(lines[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // 오류가 있으면 불일치여도 「저장」 비활성
+    fireEvent.change(macInput(), { target: { value: '' } });
+    expect(btn(SAVE)).toBeDisabled();
+    expect(invalid()).toHaveTextContent(PAIR_INVALID);
+    expect((invalid() as HTMLElement).compareDocumentPosition(mismatchLines(NO)[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('(D-03) 교보 계좌 편집 → IP/MAC 칸 없음 · 「교보 계좌는 주문자 IP · MAC 해당 없음」 NOTE 한 줄 · 도움말 없음', () => {
+    mount([withEp(KB_ACCT, { KB120: EP_A }), KYOBO_ACCT]);
+    fireEvent.click(btn('KYOBO 9876543201 편집'));
+    const row = acctRow('9876543201');
+    expect(within(row).queryByLabelText('주문자 IP')).toBeNull();
+    expect(within(row).queryByLabelText('MAC 주소')).toBeNull();
+    const na = row.querySelector('[data-slot="admin-account-edit-na"]') as HTMLElement;
+    expect(na.textContent).toBe('교보 계좌는 주문자 IP · MAC 해당 없음');
+    expect(na.className).toContain('text-[var(--muted-fg)]');
+    expect(help('9876543201')).toBeNull();
+  });
+
+  it('저장 중 → 계좌명 · IP · MAC 칸 모두 readOnly', async () => {
+    let resolve: (v: unknown) => void = () => {};
+    putDmaAccountMock.mockImplementationOnce(() => new Promise((r) => (resolve = r)));
+    mount([withEp(KB_ACCT, { KB120: EP_UNSET }), KYOBO_ACCT]);
+    fireEvent.click(btn(EDIT));
+    fireEvent.change(ipInput(), { target: { value: '10.41.1.124' } });
+    fireEvent.change(macInput(), { target: { value: '1c:fd:08:7d:97:8e' } });
+    fireEvent.click(btn(SAVE));
+    expect(nameInput()).toHaveAttribute('readOnly');
+    expect(ipInput()).toHaveAttribute('readOnly');
+    expect(macInput()).toHaveAttribute('readOnly');
+    expect(btn(SAVE)).toBeDisabled();
+    await act(async () => resolve({ results: [{ server: 'KB120', outcome: 'ok' }] }));
+  });
+});
