@@ -542,6 +542,36 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     expect(acctOf(accounts, B)?.staleStrategies).toBeUndefined();
   });
 
+  it("GC-12 — 한 계좌가 여러 옛 서버에 미확인 → 인증 첫 상태 프레임 A = { KB120, count 합 3, otherServers [KB122] }(서버 키 순) · B(한쪽 수 모름) = { KB120, null, [KB121, KB123] } · 옛 서버 하나인 계좌는 otherServers 키 없음", async () => {
+    await captureLogs();
+    const h = await harness();
+    const at = Date.now();
+    const base = { userId: U1, dmaUserId: D1, reason: "timeout" as const, at };
+    // 기록 순서를 서버 키 순과 다르게 — 정렬은 상태 프레임이 한다.
+    h.register.set({ ...base, serverKey: "KB122", accountNo: A, remaining: 1 });
+    h.register.set({ ...base, serverKey: "KB120", accountNo: A, remaining: 2 });
+    h.register.set({ ...base, serverKey: "KB123", accountNo: B, remaining: 4 });
+    h.register.set({ ...base, serverKey: "KB121", accountNo: B, remaining: null });
+    h.register.set({ ...base, serverKey: "KB120", accountNo: B, remaining: 1 });
+    h.register.set({ userId: U3, dmaUserId: D3, reason: "timeout", at, serverKey: "KB121", accountNo: E, remaining: 2 });
+
+    const tab = await h.open("token-1");
+    await readyTab(h, tab, U1, 2, "u1 ready");
+    const accounts = readyAccounts(tab.inbox);
+    expect(acctOf(accounts, A)?.staleStrategies).toStrictEqual({ serverKey: "KB120", count: 3, otherServers: ["KB122"] });
+    expect(acctOf(accounts, B)?.staleStrategies).toStrictEqual({
+      serverKey: "KB120",
+      count: null,
+      otherServers: ["KB121", "KB123"],
+    });
+
+    const tab3 = await h.open("token-3");
+    await readyTab(h, tab3, U3, 1, "u3 ready");
+    const e = acctOf(readyAccounts(tab3.inbox), E)?.staleStrategies;
+    expect(e).toStrictEqual({ serverKey: "KB121", count: 2 });
+    expect(e !== undefined && "otherServers" in e).toBe(false);
+  });
+
   it("③ 소유자 없음 전이 — A 지정 KB121 인데 KB121 매핑에 A 없음 → KB120 에서 A 끄기 1회(B 키 0) · 재접속 뒤 A 는 어느 세션도 소유하지 않는다(fail closed)", async () => {
     await captureLogs();
     mappings.get("KB121")?.set(D1, new Set([B]));

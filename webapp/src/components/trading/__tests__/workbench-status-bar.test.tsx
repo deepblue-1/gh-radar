@@ -460,6 +460,44 @@ describe('WorkbenchStatusBar — 끄기 미확인 경고 (29-39 · gh-trade-84 �
     ]);
   });
 
+  it('GC-12 문구 상수 — otherServers 가 있으면 「외 N개 서버」 · 없거나 빈 배열이면 종전 문구', () => {
+    expect(WORKBENCH_STATUS_TEXT.staleStrategies('KB120', 3, ['KB122'])).toBe(
+      '옛 서버 KB120 외 1개 서버 활성 전략 3건 — 끄지 못했어요 · 클라(OCX)에서 끄세요',
+    );
+    expect(WORKBENCH_STATUS_TEXT.staleStrategies('KB120', null, ['KB121', 'KB122'])).toBe(
+      '옛 서버 KB120 외 2개 서버 활성 전략 몇 건인지 모름 — 끄지 못했어요 · 클라(OCX)에서 끄세요',
+    );
+    expect(WORKBENCH_STATUS_TEXT.staleStrategies('KB120', 2, [])).toBe(STALE);
+    expect(WORKBENCH_STATUS_TEXT.staleStrategies('KB120', 2, undefined)).toBe(STALE);
+  });
+
+  it('GC-12 — 상태 프레임 staleStrategies { KB120, 3, otherServers [KB122] } → 경고 줄 「옛 서버 KB120 외 1개 서버 …」 1개', () => {
+    render(
+      <WorkbenchStatusBar
+        {...props({
+          account: {
+            accountNo: '9',
+            name: 'x',
+            serverKey: 'KB121',
+            staleStrategies: { serverKey: 'KB120', count: 3, otherServers: ['KB122'] },
+          },
+        })}
+      />,
+    );
+    expect(all('workbench-stale-strategies').map((l) => l.textContent)).toEqual([
+      '옛 서버 KB120 외 1개 서버 활성 전략 3건 — 끄지 못했어요 · 클라(OCX)에서 끄세요',
+    ]);
+  });
+
+  it('GC-12 — otherServers 없으면 종전 문구 그대로(옛 서버 하나)', () => {
+    render(
+      <WorkbenchStatusBar
+        {...props({ account: { accountNo: '9', name: 'x', serverKey: 'KB121', staleStrategies: { serverKey: 'KB120', count: 2 } } })}
+      />,
+    );
+    expect(all('workbench-stale-strategies').map((l) => l.textContent)).toEqual([STALE]);
+  });
+
   it('다음 상태 프레임에 필드가 없으면(relay 확인) 사라진다', () => {
     const acc = G1_ACCOUNTS[1]!;
     const { rerender } = render(<WorkbenchStatusBar {...props({ account: acc })} />);
