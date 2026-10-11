@@ -9,7 +9,7 @@
  *
  * 와이어 무변경(gh-trade-84 ④) — relay 가 이미 쓰는 프레임만 쓴다:
  *   - 24 `GetLimitChaserListReq` → 64 전량 · 21 `GetVITriggerReq(거래소)` → 61 (조회 · 재조회)
- *   - 14 `DisableStrategiesReq(그 키)` → 60 에코 · 65 집계. **삭제가 아니라 발주 게이트만 내린다**(등록 유지) — 키 1건 = 그 상따
+ *   - 14 `DisableStrategiesReq(그 키)` → 60 에코 · 65 집계(확인 = 그 키 60 에코 뒤의 65 — GC-04). **삭제가 아니라 발주 게이트만 내린다**(등록 유지) — 키 1건 = 그 상따
  *     (자동매도 포함 — 서버 `Deactivate()` 가 자동매도 상태도 꺼짐으로 내린다).
  *   - 11 `SetVITriggerReq({ 같은 값, run: false })` → 61 에코. 14 를 빈 키로 보내면 VI 도 꺼지지만 **빈 키 14 는 금지다** — 그
  *     세션의 상따 **전부**가 꺼져 같은 서버에 남는 다른 계좌의 전략까지 죽는다. 그래서 VI 는 계좌를 보고 11 로 따로 끈다.
@@ -20,7 +20,8 @@
  * VI 는 거래소별이다 — 서버는 VI 전략을 세션당 **거래소별(KRX · NXT) 1건**으로 관리하고 21 의 key 로 슬롯을 고른다
  * (`buildGetVITriggerReq` 주석 · 빈 키는 KRX 로 접힌다). 그래서 조회 · 재조회 모두 `SWEEP_VI_EXCHANGES` 를 전부 돈다. 빈 61(미등록)
  * 에는 거래소가 실리지 않고, 이 모듈은 hub 의 `#pendingViGets` FIFO 를 거치지 않으므로(세션 프레임을 직접 듣는다 — 옛 서버가
- * primary 가 아니면 hub 캐시에 61 이 없다) **짝을 스스로 맞춘다**: 미해결 21 은 늘 하나(21(KRX) → 61 → 21(NXT) → 61), 빈 61 은
+ * primary 가 아니면 hub 캐시에 61 이 없다) **짝을 스스로 맞춘다**: 미해결 21 은 늘 하나(21(KRX) → 61 → 21(NXT) → 61 · (사용자, 서버)
+ * 직렬화가 relay 안에서 이 전제를 지킨다 — fanout `#sweepLanes` · GC-04 · hub 쪽은 29-49), 빈 61 은
  * 지금 기다리는 거래소의 미등록, 본문 있는 61 은 `cfg.exchange` 가 그 거래소일 때만 답이다(다른 거래소 본문은 떠돌이 에코 —
  * 무시하고 계속 기다린다). 같은 세션을 hub 도 듣고 있으면 이 모듈의 빈 61 에 hub 가 「귀속 불가」 warn 을 남길 수 있다 — 서버
  * 상태는 하나라 값은 같고, 어긋나면 재조회가 fail closed 로 잡는다.
@@ -50,6 +51,7 @@ import {
   buildGetVITriggerReq,
   buildSetVITriggerReq,
   parseDisableStrategiesResp,
+  parseLimitChaserEcho,
   parseLimitChaserList,
   parseViTrigger,
 } from "./envelope.js";
@@ -306,9 +308,17 @@ export class StrategySweeper {
       lastRemaining = before.chasers.length + before.vis.length;
 
       for (const item of before.chasers) {
-        const done = tap.wait(
-          (e) => e.msgType === MSG.DisableStrategiesResp && parseDisableStrategiesResp(e.env) !== null,
-        );
+        // 확인 = 그 키의 60 에코 **뒤의** 65 (GC-04 · 29-45). 65 는 키를 싣지 않으므로, 그 키 에코를 보기 전의 65(다른 갈래 · 사용자
+        // 조작의 14 응답)로는 이 키를 「확인됨」 으로 접지 않는다. 에코의 스위치 값은 보지 않는다 — 꺼졌는지는 재조회가 판정한다
+        // (내리지 않는 서버는 `remaining` 으로 남는다).
+        let echoed = false;
+        const done = tap.wait((e) => {
+          if (e.msgType === MSG.SetLimitChaserResp) {
+            if (parseLimitChaserEcho(e.env)?.key === item.key) echoed = true;
+            return false;
+          }
+          return echoed && e.msgType === MSG.DisableStrategiesResp && parseDisableStrategiesResp(e.env) !== null;
+        });
         send(session, () => buildDisableStrategiesReq(item.key));
         await done;
         disabledLimitChasers += 1;

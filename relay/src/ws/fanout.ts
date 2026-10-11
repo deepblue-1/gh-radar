@@ -71,8 +71,9 @@
  *            소유 서버가 그 뒤 그대로면 0회 — 매 탭마다 반복하지 않는다. 레지스터 미확인 키는 (c) 몫이라 건너뛴다.
  *        (c) 60초 재시도(`startStaleRetry` · `STALE_STRATEGY_RETRY_MS`) — 레지스터 미확인 항목을 다시 끈다. 성공 → 확인 · 연결 중이면
  *            상태 프레임 재송신. 그 계좌의 유효 서버가 다시 그 서버면(되돌아옴) 끄지 않고 해제(`#clearIfOwner` — (a) 의 move `to` 도 같다).
- *      같은 (사용자, 서버, 계좌)를 두 경로가 동시에 끄지 않는다 — 10 · (a) · (b) · (c) 가 진행 중 집합(`#sweepInFlight`)을 함께 쓴다(뒤에
- *      온 쪽은 기다리거나 건너뛴다). 미체결 취소 · 정리 프레임은 어느 갈래도 보내지 않는다. 로그에 DMA id · 계좌번호를 싣지 않는다
+ *      같은 (사용자, 서버)의 sweep 은 한 번에 하나다 — 10 · (a) · (b) · (c) 가 (사용자, 서버) 레인(`#sweepLanes` · 29-45 GC-04)을 함께
+ *      쓴다. 진행 중 계좌를 다시 요청하면 그 sweep 을 기다리고, 다른 계좌는 다음 sweep 1회에 합친다(재시도 · 백스톱은 레인 소속 계좌를
+ *      건너뛴다). 그래서 한 세션에 sweeper 의 미해결 21 은 늘 하나다. 미체결 취소 · 정리 프레임은 어느 갈래도 보내지 않는다. 로그에 DMA id · 계좌번호를 싣지 않는다
  *
  * 결정 근거:
  *   T-15-02  **사용자 데이터**(계좌 · 주문 · 전략 · 83)의 팬아웃 대상은 `Map<userId, …>` 로만 고른다(`#deliver`).
@@ -489,7 +490,30 @@ export const STALE_STRATEGY_RETRY_MS = 60_000;
  */
 const USER_SWEEP_SETTLE_ROUNDS = 3;
 
-/** sweep 진행 중 · 확인 기록 키 (29-44) — (사용자, 서버, 계좌). 레지스터 키와 같은 모양이다. */
+/**
+ * sweep 레인 키 (29-45 GC-04) — (사용자, 서버). 같은 세션의 미해결 21 은 sweeper 몫 하나다(빈 61 귀속 전제 — 레인이 그 세션 sweep 을
+ * 직렬화한다 · hub FIFO 쪽은 29-49).
+ */
+function sweepLaneKey(userId: string, serverKey: string): string {
+  return `${userId}|${serverKey}`;
+}
+
+/** 레인의 다음 sweep (29-45) — 진행 중 sweep 이 끝난 뒤 시작한다. 계좌는 시작 시점까지 붙은 것 전부 · 자격증명은 마지막 요청 값. */
+type SweepNext = {
+  accounts: Set<string>;
+  run: Promise<void>;
+  creds: DmaCredentials;
+  broker: string;
+};
+
+/** (사용자, 서버) sweep 레인 (29-45 GC-04). */
+type SweepLane = {
+  current: Promise<void>;
+  currentAccounts: Set<string>;
+  next: SweepNext | null;
+};
+
+/** sweep 확인 기록 키 (29-44) — (사용자, 서버, 계좌). 레지스터 키와 같은 모양이다. */
 function sweepKey(userId: string, serverKey: string, accountNo: string): string {
   return `${userId}|${serverKey}|${accountNo}`;
 }
@@ -658,10 +682,12 @@ export class WsFanout {
   /** 전 사용자 유효 주문 서버 지금 값 (29-44). */
   readonly #owners: Pick<EffectiveOwnerTracker, "snapshotOf"> | null;
   /**
-   * (사용자|서버|계좌) → 진행 중 sweep (29-44). 29-36 연결 중 경로 · `sweepMoved` · 로그인 백스톱 · 60초 재시도가 **함께** 쓴다 — 같은 키를
-   * 두 경로가 동시에 끄지 않는다(뒤에 온 쪽은 진행 중 sweep 을 기다린다 · 재시도 · 백스톱은 건너뛴다).
+   * (사용자|서버) → sweep 레인 (29-45 GC-04 · 29-44 계좌 키 진행 중 맵 대체). 29-36 연결 중 경로 · `sweepMoved` · 로그인 백스톱 · 60초
+   * 재시도가 **함께** 쓴다 — 같은 (사용자, 서버) 세션의 sweep 은 한 번에 하나(`current`)이고, 진행 중이 아닌 계좌는 다음 sweep 1회
+   * (`next`)에 합친다. 재시도 · 백스톱은 레인 소속 계좌(`#sweepPending`)를 건너뛰고, 재수립은 그 사용자 레인이 빌 때까지 기다린다
+   * (`#userSweepsSettled` · GC-01).
    */
-  readonly #sweepInFlight = new Map<string, Promise<void>>();
+  readonly #sweepLanes = new Map<string, SweepLane>();
   /**
    * (사용자|서버|계좌) → 끄기가 확인됐을 때 그 계좌의 소유 서버 (29-44 확인 기록 · relay 프로세스 수명). 로그인 백스톱은 기록이 있고
    * 소유 서버가 그 뒤 그대로면 다시 끄지 않는다. 미확인 · 되돌아옴(그 서버가 다시 주문 서버)이면 지운다.
@@ -916,7 +942,7 @@ export class WsFanout {
     if (stale === null) return;
     const byUser = new Map<string, StaleStrategyEntry[]>();
     for (const e of stale.all()) {
-      if (this.#sweepInFlight.has(sweepKey(e.userId, e.serverKey, e.accountNo))) continue;
+      if (this.#sweepPending(e.userId, e.serverKey, e.accountNo)) continue;
       const k = `${e.userId}\u0000${e.dmaUserId}`;
       const list = byUser.get(k) ?? [];
       list.push(e);
@@ -989,7 +1015,7 @@ export class WsFanout {
       for (const serverKey of e.servers) {
         if (serverKey === e.effective) continue; // 지금 주문 서버 — 끄지 않는다.
         const key = sweepKey(userId, serverKey, e.accountNo);
-        if (pending.has(key) || this.#sweepInFlight.has(key)) continue;
+        if (pending.has(key) || this.#sweepPending(userId, serverKey, e.accountNo)) continue;
         if (this.#confirmedOwner.has(key) && this.#confirmedOwner.get(key) === e.owner) continue;
         const g = groups.get(serverKey) ?? { broker: e.broker, accountNos: [] };
         g.accountNos.push(e.accountNo);
@@ -1015,8 +1041,9 @@ export class WsFanout {
   }
 
   /**
-   * 진행 중 집합을 거치는 sweep (29-44) — 이미 진행 중인 키는 그 sweep 을 기다리고, 나머지만 한 번에 `#sweepServer`. 29-36 연결 중 경로 ·
-   * `sweepMoved` · 백스톱 · 재시도 공통.
+   * 레인을 거치는 sweep (29-44 · 29-45 GC-04) — 29-36 연결 중 경로 · `sweepMoved` · 백스톱 · 재시도 공통. (사용자, 서버) 레인이 비어
+   * 있으면 그 계좌들로 바로 시작한다. 진행 중이면 그 sweep 의 계좌는 진행 중 sweep 을 기다리고, 나머지는 다음 sweep 1회에 합친다(진행 중
+   * sweep 이 끝난 뒤 시작 — 그때까지 붙은 계좌 전부 · 자격증명은 마지막 요청 값). 호출자는 자기 계좌가 든 sweep 만 기다린다.
    */
   async #sweepAccounts(
     userId: string,
@@ -1025,24 +1052,73 @@ export class WsFanout {
     broker: string,
     accountNos: readonly string[],
   ): Promise<void> {
-    const waits: Array<Promise<void>> = [];
-    const fresh: string[] = [];
-    for (const accountNo of accountNos) {
-      const running = this.#sweepInFlight.get(sweepKey(userId, serverKey, accountNo));
-      if (running === undefined) fresh.push(accountNo);
-      else if (!waits.includes(running)) waits.push(running);
+    if (accountNos.length === 0) return;
+    const key = sweepLaneKey(userId, serverKey);
+    const lane = this.#sweepLanes.get(key);
+    if (lane === undefined) {
+      const fresh: SweepLane = { current: Promise.resolve(), currentAccounts: new Set(accountNos), next: null };
+      this.#sweepLanes.set(key, fresh);
+      fresh.current = this.#laneSweep(key, fresh, userId, creds, serverKey, broker);
+      await fresh.current;
+      return;
     }
-    if (fresh.length > 0) {
-      const keys = fresh.map((a) => sweepKey(userId, serverKey, a));
-      const run = this.#sweepServer(userId, creds, serverKey, broker, fresh);
-      for (const k of keys) this.#sweepInFlight.set(k, run);
-      const done = (): void => {
-        for (const k of keys) if (this.#sweepInFlight.get(k) === run) this.#sweepInFlight.delete(k);
-      };
-      void run.then(done, done);
-      waits.push(run);
+    const waits = new Set<Promise<void>>();
+    const extra: string[] = [];
+    for (const accountNo of accountNos) {
+      if (lane.currentAccounts.has(accountNo)) waits.add(lane.current);
+      else extra.push(accountNo);
+    }
+    if (extra.length > 0) {
+      let next = lane.next;
+      if (next === null) {
+        const created: SweepNext = { accounts: new Set(), run: Promise.resolve(), creds, broker };
+        // 진행 중 sweep 이 끝나면(레인 정리 뒤) 다음 sweep 을 current 로 올린다 — 그때까지 붙은 계좌를 한 번에.
+        created.run = lane.current.then(() => {
+          lane.next = null;
+          lane.currentAccounts = created.accounts;
+          lane.current = this.#laneSweep(key, lane, userId, created.creds, serverKey, created.broker);
+          return lane.current;
+        });
+        lane.next = created;
+        next = created;
+      }
+      for (const accountNo of extra) next.accounts.add(accountNo);
+      next.creds = creds;
+      next.broker = broker;
+      waits.add(next.run);
     }
     await Promise.all(waits);
+  }
+
+  /**
+   * 레인의 sweep 1회 (29-45) — `currentAccounts` 로 `#sweepServer` 를 돌리고, 끝났을 때 다음 sweep 이 없으면 레인을 지운다(있으면 다음
+   * sweep 이 current 로 올라간다). 거부하지 않는다(`#sweepServer` 는 예외를 미확인으로 접는다).
+   */
+  #laneSweep(
+    key: string,
+    lane: SweepLane,
+    userId: string,
+    creds: DmaCredentials,
+    serverKey: string,
+    broker: string,
+  ): Promise<void> {
+    const settle = (): void => {
+      if (lane.next === null && this.#sweepLanes.get(key) === lane) this.#sweepLanes.delete(key);
+    };
+    return this.#sweepServer(userId, creds, serverKey, broker, [...lane.currentAccounts]).then(settle, (err: unknown) => {
+      logger.error(
+        { userId, serverKey, error: err instanceof Error ? err.message : String(err) },
+        "[WS] 옛 서버 전략 끄기 레인 예외",
+      );
+      settle();
+    });
+  }
+
+  /** 그 계좌가 (사용자, 서버) 레인에 들었는가 (29-45) — 진행 중 sweep 또는 다음 sweep 대기. 재시도 · 백스톱의 「진행 중이면 건너뜀」. */
+  #sweepPending(userId: string, serverKey: string, accountNo: string): boolean {
+    const lane = this.#sweepLanes.get(sweepLaneKey(userId, serverKey));
+    if (lane === undefined) return false;
+    return lane.currentAccounts.has(accountNo) || (lane.next?.accounts.has(accountNo) ?? false);
   }
 
   /** 한 사용자 몫 `sweepMoved` (29-44). 옛 서버마다 계좌를 묶어 순차로 끈다. */
@@ -1257,12 +1333,16 @@ export class WsFanout {
     const prefix = `${userId}|`;
     for (let round = 0; round < USER_SWEEP_SETTLE_ROUNDS; round += 1) {
       const running = new Set<Promise<void>>();
-      for (const [key, run] of this.#sweepInFlight) if (key.startsWith(prefix)) running.add(run);
+      for (const [key, lane] of this.#sweepLanes) {
+        if (!key.startsWith(prefix)) continue;
+        running.add(lane.current);
+        if (lane.next !== null) running.add(lane.next.run);
+      }
       if (running.size === 0) return;
       await Promise.allSettled(running);
     }
     let left = 0;
-    for (const key of this.#sweepInFlight.keys()) if (key.startsWith(prefix)) left += 1;
+    for (const key of this.#sweepLanes.keys()) if (key.startsWith(prefix)) left += 1;
     if (left > 0) {
       logger.warn({ userId, sweeps: left }, "[WS] 진행 중 sweep 이 계속 생김 — 재수립 진행");
     }
