@@ -4,8 +4,10 @@ import path from 'node:path';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import type { RelayLimitChaser, RelayLimitChaserInput } from '@gh-radar/shared';
+import { echoAmountOf, qtyForSubmit } from '@gh-radar/shared';
 
 import {
+  SELL_WATCH_PAIR,
   crudOf,
   defaultLimitChaserForm,
   formFromServer,
@@ -85,8 +87,11 @@ function echo(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
   };
 }
 
-/** 테스트 전용 조립 — 폼의 `buildCfg` 와 같은 모양(32필드). */
-function buildCfg(values: LimitChaserFormValues): RelayLimitChaserInput {
+/**
+ * 테스트 전용 조립 — 폼의 `buildCfg` 와 같은 모양(32필드). 매도 매수잔량 주는 폼과 같은 shared `qtyForSubmit` 로 산출한다
+ * (Phase 31 — server 에코 메모 · 추적 ON 은 기준선).
+ */
+function buildCfg(values: LimitChaserFormValues, server: RelayLimitChaser | null): RelayLimitChaserInput {
   return {
     ...values,
     isin: ISIN,
@@ -96,6 +101,11 @@ function buildCfg(values: LimitChaserFormValues): RelayLimitChaserInput {
     buyOrderQty: 1,
     extraBuyOrderQty: 0,
     postBuyOrderQty: 0,
+    sellWatchQty: qtyForSubmit(
+      values.sellWatchAmount,
+      values.sellWatchPrice,
+      server ? echoAmountOf(server, SELL_WATCH_PAIR) : null,
+    ),
     sweepRecalcEnabled: true,
     sweepMinCount: 0,
     sweepMinRate: 0,
@@ -338,17 +348,17 @@ describe('Task 2 — 타임아웃 · 직렬화 · 무장 가드 · 토글', () =
     act(() => {
       t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
       t.hook.result.current.commit('buyWatchQty', 8_000, 'value');
-      t.hook.result.current.commit('sellWatchQty', 20, 'value');
+      t.hook.result.current.commit('sellWatchAmount', 20, 'value');
       out = t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
     });
     expect(out).toBe('queued');
-    expect(t.hook.result.current.queuedFields).toEqual(['buyWatchQty', 'sellWatchQty']);
+    expect(t.hook.result.current.queuedFields).toEqual(['buyWatchQty', 'sellWatchAmount']);
 
     t.update({ server: echo({ sweepMinTickCount: 5 }) });
     t.update({ serverAnswerSeq: 1 });
     expect(t.send).toHaveBeenCalledTimes(2);
     expect(t.cfgs()[1]!.buyWatchQty).toBe(9_000);
-    expect(t.hook.result.current.queuedFields).toEqual(['sellWatchQty']);
+    expect(t.hook.result.current.queuedFields).toEqual(['sellWatchAmount']);
   });
 
   it('A 가 거부되면 대기 건은 하나도 보내지 않고 각 필드를 거부 실패로 표시한다 (조용한 드롭 0 · 자동 전송 0)', () => {
@@ -389,25 +399,27 @@ describe('Task 2 — 타임아웃 · 직렬화 · 무장 가드 · 토글', () =
       text: '매수주문 · 주문금액이 부족해요',
       value: 5,
     });
-    // 판정은 서버 동기값 + 바꾼 필드 1개로 한다.
+    // 판정은 서버 동기값 + 바꾼 필드 1개로 한다. 둘째 인자는 에코(Phase 31 — 제출 주 메모 · `qtyForSubmit`).
     expect(armBlockOf).toHaveBeenLastCalledWith(
       expect.objectContaining({ buyEnabled: true, buyOrderAmount: 5, sweepMinTickCount: 3 }),
+      expect.objectContaining({ isin: ISIN, accountNo: ACCOUNT }),
     );
   });
 
   it('대기 건을 꺼낼 때도 무장 판정을 새 서버 값으로 다시 한다', () => {
     const armBlockOf = (v: LimitChaserFormValues) =>
-      v.sellEnabled && v.sellWatchQty === 0 ? '매도주문 · 호가잔량이 0 이에요' : null;
+      v.sellEnabled && v.sellWatchAmount === 0 ? '매도주문 · 호가잔량이 0 이에요' : null;
     const t = setup({ armBlockOf });
     act(() => {
       t.hook.result.current.commit('sellEnabled', true, 'toggle');
-      t.hook.result.current.commit('sellWatchQty', 0, 'value');
+      // 매수잔량은 만원 칸이다(Phase 31) — 금액 0 → 환산 0주와 같은 결과.
+      t.hook.result.current.commit('sellWatchAmount', 0, 'value');
     });
     expect(t.send).toHaveBeenCalledTimes(1);
     t.update({ server: echo({ sellEnabled: true }) });
     t.update({ serverAnswerSeq: 1 });
     expect(t.send).toHaveBeenCalledTimes(1);
-    expect(t.hook.result.current.failures.sellWatchQty?.reason).toBe('armBlocked');
+    expect(t.hook.result.current.failures.sellWatchAmount?.reason).toBe('armBlocked');
   });
 
   it('끄는 방향 게이트는 무장 판정과 무관하게 나간다 (T-16-44)', () => {
@@ -1989,5 +2001,66 @@ describe('Phase 27 자동매도 그룹 — 등록 게이트 · 조건 범위 (D-
     });
     expect(out).toBe('sent');
     expect(t.cfgs()[0]!.autoSellEnabled).toBe(false);
+  });
+});
+
+describe('P31 금액 필드 짝 판정 — 에코 주 = 보낸 주 ∧ (에코 금액 = 보낸 금액 ∨ 0) (31-01 · Pitfall 1)', () => {
+  /** 매도 비교가 12,870원 · 매수잔량 0 — 1000만 확정은 777주를 싣는다(UI-SPEC 정정표). */
+  const start = () => echo({ sellWatchPrice: 12_870, sellWatchQty: 0, sellWatchAmount: 0 });
+
+  function commitThousand(t: ReturnType<typeof setup>): void {
+    act(() => {
+      t.hook.result.current.commit('sellWatchAmount', 1000, 'value');
+    });
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.cfgs()[0]!.sellWatchAmount).toBe(1000);
+    expect(t.cfgs()[0]!.sellWatchQty).toBe(777);
+  }
+
+  it('구 gh-trade 서버 에코(금액 0 · 주 777) = 성공 · 보낸 성공 신호 · 실패 없음', () => {
+    const t = setup({ server: start() });
+    commitThousand(t);
+    t.update({ server: echo({ sellWatchPrice: 12_870, sellWatchQty: 777, sellWatchAmount: 0 }) });
+    expect(t.hook.result.current.inflightField).toBeNull();
+    expect(t.hook.result.current.failures.sellWatchAmount).toBeUndefined();
+    expect(t.hook.result.current.lastSentSuccessField).toBe('sellWatchAmount');
+    expect(t.hook.result.current.sentSuccessSeq).toBe(1);
+  });
+
+  it('새 서버 에코(금액 1000 원값 · 주 777) = 성공', () => {
+    const t = setup({ server: start() });
+    commitThousand(t);
+    t.update({ server: echo({ sellWatchPrice: 12_870, sellWatchQty: 777, sellWatchAmount: 1000 }) });
+    expect(t.hook.result.current.inflightField).toBeNull();
+    expect(t.hook.result.current.sentSuccessSeq).toBe(1);
+  });
+
+  it('주 불일치 에코(776) + 답 신호 = 실패 유지 · 실패 기록에 보낸 주 777 · 재전송 0', () => {
+    const t = setup({ server: start() });
+    commitThousand(t);
+    t.update({ server: echo({ sellWatchPrice: 12_870, sellWatchQty: 776, sellWatchAmount: 0 }) });
+    expect(t.hook.result.current.inflightField).toBe('sellWatchAmount');
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.hook.result.current.failures.sellWatchAmount).toEqual({
+      reason: 'rejected',
+      text: LC_COMMIT_TEXT.failed,
+      value: 1000,
+      sentQty: 777,
+    });
+    expect(t.send).toHaveBeenCalledTimes(1);
+    // 늦은 에코가 짝이면(구 서버 금액 0 · 주 777) 그때 성공으로 바뀐다.
+    t.update({ server: echo({ sellWatchPrice: 12_870, sellWatchQty: 777, sellWatchAmount: 0 }) });
+    expect(t.hook.result.current.failures.sellWatchAmount).toBeUndefined();
+    expect(t.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('보내기 전 no-op 은 에코 적용값과 본다 — 구 서버 에코(777주 · 금액 0)에서 1000 확정 = 전송 0', () => {
+    const t = setup({ server: echo({ sellWatchPrice: 12_870, sellWatchQty: 777, sellWatchAmount: 0 }) });
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('sellWatchAmount', 1000, 'value');
+    });
+    expect(out).toBe('noop');
+    expect(t.send).not.toHaveBeenCalled();
   });
 });

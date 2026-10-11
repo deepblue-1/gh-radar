@@ -52,6 +52,7 @@ import {
   echoAmountOf,
   lcAmountPairOf,
   qtyForSubmit,
+  type LcAmountKey,
 } from '@gh-radar/shared';
 
 // 84 시딩의 칸별 범위 판정은 lc 범위 표(`lc-ranges` — lc-fields 행과 같은 한 벌)를 읽는다. lib 는 components 를
@@ -244,6 +245,15 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
     buyWatchPrice: 0,
     buyWatchQty: 10_000, // DEFAULT_BUY_WATCH_QTY
     buyMinTradeQty: 30_000, // DEFAULT_BUY_MIN_TRADE_QTY
+    // 금액(만원) 7칸 — Phase 31 31-01 과도 상태: 입력 전환은 31-04(주 기본값은 그때 D-12 에 따라 버린다). 미등록 cfg 에
+    //   실리는 금액은 0(gh-trade D-24 리셋 폴백 0 · 서버는 보관 · 에코만).
+    buyWatchAmount: 0,
+    buyMinTradeAmount: 0,
+    extraBuyMinAmount: 0,
+    extraBuyMaxAmount: 0,
+    postBuyFloorAmount: 0,
+    sellMinTradeAmount: 0,
+    cancelWatchAmount: 0,
     buyTradeQtyEnabled: false,
     buyEnabled: false,
     // 매수가격
@@ -705,8 +715,6 @@ export function formFromServer(
     sweepMinTickCount: server.sweepMinTickCount,
     sweepEnabled: server.sweepEnabled,
     sellWatchPrice: server.sellWatchPrice,
-    // 금액(만원) — 짝이면 원값 · 아니면(구 서버 0 · 서버가 주를 바꿈) 역산 · 추적 ON 이면 기준선 역산(D-06 · Pitfall 6).
-    sellWatchAmount: echoAmountOf(server, SELL_WATCH_PAIR).shown,
     sellMinTradeQty: server.sellMinTradeQty,
     sellTradeQtyEnabled: server.sellTradeQtyEnabled,
     sellQtyTrackEnabled: server.sellQtyTrackEnabled,
@@ -743,7 +751,18 @@ export function formFromServer(
     autoSellStartCond: server.autoSellStartCond,
     autoSellRatioPct: server.autoSellRatioPct,
     autoSellMethod: server.autoSellMethod,
+    // === Phase 31 금액(만원) 8칸 — 쌍 표(shared `LC_AMOUNT_PAIRS`)가 정본. 짝이면 원값 · 아니면(구 서버 0 · 서버가 주를
+    //     바꿈) 역산 · 추적 ON(매도 · 취소)이면 기준선 역산(D-06 · Pitfall 6). 31-01 은 매도 매수잔량만 입력 칸이고 나머지
+    //     7칸은 이 에코 적용값이 cfg 에 그대로 실린다(입력 전환은 31-04).
+    ...amountsFromServer(server),
   };
+}
+
+/** 금액 8키 ← 에코 적용값(`echoAmountOf(server, pair).shown`) — `formFromServer` 한 곳만 부른다. */
+function amountsFromServer(server: RelayLimitChaser): Record<LcAmountKey, number> {
+  const out = {} as Record<LcAmountKey, number>;
+  for (const pair of LC_AMOUNT_PAIRS) out[pair.amount] = echoAmountOf(server, pair).shown;
+  return out;
 }
 
 /**

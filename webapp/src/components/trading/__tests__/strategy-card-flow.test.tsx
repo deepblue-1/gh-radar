@@ -1755,6 +1755,8 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 in-fli
       sellOrderPrice: 0,
       sellWatchPrice: 0,
       sellWatchQty: 10,
+      // Phase 31 — 매수잔량은 만원 칸(비교가 0 → 에코 원값 1,000만 · 상한가 채움 뒤 66주). 금액 0 이면 환산 0주라 매도 3체크가 빠진다.
+      sellWatchAmount: 1000,
       extraBuyOrderAmount: 50,
     });
     setRelay({ limitChasers: [before], quote: q });

@@ -149,7 +149,8 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
       sellOrderPrice: 'lc-sell-order-price',
       sellOrderRatio: 'lc-sell-order-ratio',
       sellWatchPrice: 'lc-sell-watch-price',
-      sellWatchQty: 'lc-sell-watch-qty',
+      // Phase 31 — 폼 키는 금액(만원) · 행 id 는 그대로(e2e `data-lc-field` 안정).
+      sellWatchAmount: 'lc-sell-watch-qty',
       sellQtyTrackRatio: 'lc-sell-qty-track-ratio',
       sellQtyTrackEnabled: 'lc-sell-qty-track',
       sellMinTradeQty: 'lc-sell-min-trade-qty',
@@ -184,7 +185,11 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
       '보유 수량 중 매도할 비율이에요',
     ]);
     expect([spec('lc-sell-qty-track-ratio').label, spec('lc-sell-qty-track-ratio').unit]).toEqual(['잔량추적', '%']);
-    expect(spec('lc-sell-watch-qty').desc).toBe('비교가격의 매수잔량이 이 값보다 줄면 매도를 넣어요');
+    // Phase 31 — 매도 「매수잔량」 은 만원 입력(단위 「만」 · UI-SPEC 시트 설명 「이 금액보다」).
+    expect([spec('lc-sell-watch-qty').unit, spec('lc-sell-watch-qty').desc]).toEqual([
+      '만',
+      '비교가격의 매수잔량이 이 금액보다 줄면 매도를 넣어요',
+    ]);
     expect(spec('lc-sell-min-trade-qty').desc).toBe('체결이 이 값 이상이면 매도를 넣어요');
     expect(spec('lc-cancel-watch-qty').desc).toBe('매도 비교가격의 매수잔량이 이 값보다 적으면 매수 주문을 취소해요');
   });

@@ -388,8 +388,9 @@ describe('④ 동시에 나가 있는 전송은 1건이다 (UI-SPEC §6 직렬�
     rerender(<LimitChaserForm {...props({ server: next, serverAnswerSeq: 0 })} />);
     rerender(<LimitChaserForm {...props({ server: next, serverAnswerSeq: 1 })} />);
     expect(lastConfig().buyOrderPrice).toBe(150_000);
-    // 44 + extraBuyBurstRelease(quick-261003-rc4) = 45 + 자동매도 요청 4(Phase 27) = 49 + extraBuyAuto(quick-261011-0yb) = 50.
-    expect(Object.keys(lastConfig())).toHaveLength(50);
+    // 44 + extraBuyBurstRelease(quick-261003-rc4) = 45 + 자동매도 요청 4(Phase 27) = 49 + extraBuyAuto(quick-261011-0yb) = 50
+    // + 금액 8(Phase 31 D-11) = 58.
+    expect(Object.keys(lastConfig())).toHaveLength(58);
   });
 });
 
@@ -498,10 +499,19 @@ describe('⑥ S→C 전용 필드를 보내지 않는다 · cfg 49키 (Pitfall 6
     'autoSellMethod',
     // + extraBuyAuto(quick-261011-0yb — relay 가 존재로 buy3_schema 5 를 파생한다) = 50.
     'extraBuyAuto',
+    // + 금액(만원) 8(Phase 31 D-11 — 양방향 · 보관/에코만 · buy3_schema 와 무관) = 58.
+    'buyWatchAmount',
+    'buyMinTradeAmount',
+    'extraBuyMinAmount',
+    'extraBuyMaxAmount',
+    'postBuyFloorAmount',
+    'sellWatchAmount',
+    'sellMinTradeAmount',
+    'cancelWatchAmount',
   ];
   function expectCleanCfg(cfg: RelayLimitChaserInput): void {
     const keys = Object.keys(cfg);
-    expect(keys).toHaveLength(50);
+    expect(keys).toHaveLength(58);
     expect(keys.sort()).toEqual([...EXPECTED_KEYS].sort());
     for (const f of FORBIDDEN) expect(keys).not.toContain(f);
     expect(keys).not.toContain('key');
@@ -1580,7 +1590,8 @@ describe('⑯ 라벨 개명 · 시트 제목 · 접근성 이름 접두 · 의�
     expect(row('lc-buy-order-price')).toHaveAccessibleName('매수 주문가격 130,000원');
     expect(row('lc-buy-watch-price')).toHaveAccessibleName('매수 비교가격 130,000원');
     expect(row('lc-sell-order-price')).toHaveAccessibleName('매도 주문가격 130,000원');
-    expect(row('lc-sell-watch-qty')).toHaveAccessibleName('매도 매수잔량 100,000주');
+    // Phase 31 — 만원 칸: 에코 100,000주 @ 130,000원(금액 0 = 구 서버) → 역산 1,300,000만.
+    expect(row('lc-sell-watch-qty')).toHaveAccessibleName('매도 매수잔량 1,300,000만');
     expect(row('lc-cancel-watch-qty')).toHaveAccessibleName('취소 매수잔량 10주');
     expect(row('lc-buy-order-amount')).toHaveAccessibleName('선매수 금액 50만원');
   });
@@ -2245,7 +2256,8 @@ describe('⑱ 그룹 켜기 사전 검증 줄 · D-33 ① 폐기 · D-11 재제�
 describe('⑲ 선매수 자동 체크 D-06 · D-07 · D-08 — 사람의 선매수 ON 에만 매도 · 취소 6체크가 같은 제출에 실린다 (24-07)', () => {
   /** 마스터 OFF · 매도/취소 전부 OFF · 매도 가격 0(상한가로 채울 자리) · 매도 매수잔량 10 · 체결 30,000 · 취소 매수잔량 10. */
   const idle = (over: Partial<RelayLimitChaser> = {}) =>
-    echo({ buyEnabled: false, sellOrderPrice: 0, sellWatchPrice: 0, sellWatchQty: 10, ...over });
+    // Phase 31 — 매수잔량은 만원 칸이다. 비교가 0 이면 에코 금액 원값(1,000만)이 칸에 서고, 상한가 150,800원 채움 뒤 66주로 나간다.
+    echo({ buyEnabled: false, sellOrderPrice: 0, sellWatchPrice: 0, sellWatchQty: 10, sellWatchAmount: 1000, ...over });
   const SIX = {
     sellEnabled: true,
     sellQtyTrackEnabled: true,
@@ -2422,7 +2434,8 @@ describe('⑲ 선매수 자동 체크 D-06 · D-07 · D-08 — 사람의 선매�
 describe('WR-03 — 대기열 선매수 켜기의 동반 필드는 꺼내는 순간 다시 계산된다 (24-VERIFICATION 갭 3)', () => {
   /** ⑲ 과 같은 출발점 — 마스터 OFF · 매도/취소 전부 OFF · 매도 가격 0 · 매도 매수잔량 10. */
   const idle = (over: Partial<RelayLimitChaser> = {}) =>
-    echo({ buyEnabled: false, sellOrderPrice: 0, sellWatchPrice: 0, sellWatchQty: 10, ...over });
+    // Phase 31 — 매수잔량은 만원 칸이다. 비교가 0 이면 에코 금액 원값(1,000만)이 칸에 서고, 상한가 150,800원 채움 뒤 66주로 나간다.
+    echo({ buyEnabled: false, sellOrderPrice: 0, sellWatchPrice: 0, sellWatchQty: 10, sellWatchAmount: 1000, ...over });
 
   it('매도 주문가격 120,000 확정(in-flight) → 선매수 켜기(대기) → 에코 뒤 나간 cfg 는 120,000 을 지키고 비교가격만 상한가 · 로그도 그 판정', () => {
     const onClientLog = vi.fn();
@@ -2484,7 +2497,7 @@ describe('WR-03 — 대기열 선매수 켜기의 동반 필드는 꺼내는 순
     click(sw('선매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
 
-    const zero = idle({ ...priced, sellWatchQty: 0 });
+    const zero = idle({ ...priced, sellWatchQty: 0, sellWatchAmount: 0 });
     rerender(<LimitChaserForm {...props({ server: zero, upperLimit: 150_800, onClientLog, serverAnswerSeq: 1 })} />);
     rerender(<LimitChaserForm {...props({ server: zero, upperLimit: 150_800, onClientLog, serverAnswerSeq: 2 })} />);
     // relay 가 프레임 전체를 거부할 `sellEnabled: true ∧ 매수잔량 0` 이 실리지 않는다 — 선매수 켜기는 나간다.
@@ -2636,7 +2649,8 @@ describe('D-35 — 줄매수 켬도 선매수처럼 매도 · 취소 6체크를 
    * (폼은 호가를 받지 않는다 — 상한가 중 켜기 클라 차단은 D-33 ① 폐기로 없다 · quick-261011-0yb).
    */
   const idle = (over: Partial<RelayLimitChaser> = {}) =>
-    echo({ buyEnabled: false, sellOrderPrice: 0, sellWatchPrice: 0, sellWatchQty: 10, extraBuyOrderAmount: 50, ...over });
+    // Phase 31 — 매수잔량 만원 칸(비교가 0 → 원값 1,000만 · 상한가 채움 뒤 66주).
+    echo({ buyEnabled: false, sellOrderPrice: 0, sellWatchPrice: 0, sellWatchQty: 10, sellWatchAmount: 1000, extraBuyOrderAmount: 50, ...over });
   const SIX = {
     sellEnabled: true,
     sellQtyTrackEnabled: true,
@@ -2835,7 +2849,8 @@ describe('D-35 — 줄매수 켬도 선매수처럼 매도 · 취소 6체크를 
 describe('GC-WR-04 — 자동 체크 로그는 그룹별이다 (24-VERIFICATION-R2 갭 4)', () => {
   /** D-35 describe 와 같은 출발점 — 마스터 OFF · 매도/취소 전부 OFF · 매도 가격 0 · 매도 매수잔량 10 · 줄매수 금액 50. */
   const idle = (over: Partial<RelayLimitChaser> = {}) =>
-    echo({ buyEnabled: false, sellOrderPrice: 0, sellWatchPrice: 0, sellWatchQty: 10, extraBuyOrderAmount: 50, ...over });
+    // Phase 31 — 매수잔량 만원 칸(비교가 0 → 원값 1,000만 · 상한가 채움 뒤 66주).
+    echo({ buyEnabled: false, sellOrderPrice: 0, sellWatchPrice: 0, sellWatchQty: 10, sellWatchAmount: 1000, extraBuyOrderAmount: 50, ...over });
   const SIX = {
     sellEnabled: true,
     sellQtyTrackEnabled: true,
@@ -2900,7 +2915,7 @@ describe('GC-WR-04 — 자동 체크 로그는 그룹별이다 (24-VERIFICATION-
 
   it('생략 사유도 그룹별 — 매도 매수잔량 0: 선매수 성공 → 「선매수 자동 체크 — … 켜지 않음: 매도주문(매도 매수잔량 0) …」 · 줄매수 성공 → 「줄매수 자동 체크 — 켜지 않음: …」 두 줄 모두(error)', () => {
     const onClientLog = vi.fn();
-    const s = idle({ sellWatchQty: 0, sellOrderPrice: 150_800, sellWatchPrice: 150_800 });
+    const s = idle({ sellWatchQty: 0, sellWatchAmount: 0, sellOrderPrice: 150_800, sellWatchPrice: 150_800 });
     const { rerender } = render(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog })} />);
     click(sw('선매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
@@ -2950,7 +2965,7 @@ describe('GC-WR-04 — 자동 체크 로그는 그룹별이다 (24-VERIFICATION-
     const onClientLog = vi.fn();
     // 마스터 ON · 줄매수 OFF · 매도 매수잔량 0(매도 세 체크 생략 사유) · 취소 세 체크 이미 ON · 매도 가격 이미 채움
     //   → 꺼낼 때 계산한 동반이 빈 객체라, 서버가 줄매수 ON 이면 no-op 이다.
-    const s = idle({ buyEnabled: true, sellWatchQty: 0, sellOrderPrice: 150_800, sellWatchPrice: 150_800, ...CANCEL_THREE });
+    const s = idle({ buyEnabled: true, sellWatchQty: 0, sellWatchAmount: 0, sellOrderPrice: 150_800, sellWatchPrice: 150_800, ...CANCEL_THREE });
     const { rerender } = render(<LimitChaserForm {...props({ server: s, upperLimit: 150_800, onClientLog })} />);
     editInline('lc-sell-order-price', '140000');
     expect(sentConfigs()).toHaveLength(1);
@@ -3146,7 +3161,8 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 선매
 
   /** GC-WR-04 와 같은 출발점 — 마스터 OFF · 매도/취소 전부 OFF · 매도 가격 0 · 매도 매수잔량 10 · 줄매수 금액 50. */
   const idle = (over: Partial<RelayLimitChaser> = {}) =>
-    echo({ buyEnabled: false, sellOrderPrice: 0, sellWatchPrice: 0, sellWatchQty: 10, extraBuyOrderAmount: 50, ...over });
+    // Phase 31 — 매수잔량 만원 칸(비교가 0 → 원값 1,000만 · 상한가 채움 뒤 66주).
+    echo({ buyEnabled: false, sellOrderPrice: 0, sellWatchPrice: 0, sellWatchQty: 10, sellWatchAmount: 1000, extraBuyOrderAmount: 50, ...over });
   const FIVE_WITHOUT_SELL = {
     sellQtyTrackEnabled: true,
     sellTradeQtyEnabled: true,
@@ -3509,13 +3525,13 @@ describe('줄매수 「버스트 해제」 체크 — 양방향 설정값 · 게
     expect(ids.indexOf('lc-extra-buy-max-qty')).toBeLessThan(ids.indexOf('lc-extra-buy-burst-release'));
   });
 
-  it('등록된 전략에서 누르면 lc.set 1건 · cfg 50키 · extraBuyBurstRelease true', () => {
+  it('등록된 전략에서 누르면 lc.set 1건 · cfg 58키 · extraBuyBurstRelease true', () => {
     render(<LimitChaserForm {...props()} />);
     click(burst());
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig().extraBuyBurstRelease).toBe(true);
-    // 49 + extraBuyAuto(quick-261011-0yb) = 50.
-    expect(Object.keys(lastConfig())).toHaveLength(50);
+    // 49 + extraBuyAuto(quick-261011-0yb) = 50 + 금액 8(Phase 31 D-11) = 58.
+    expect(Object.keys(lastConfig())).toHaveLength(58);
     expect(burst()).toHaveAttribute('aria-checked', 'true');
   });
 
