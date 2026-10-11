@@ -424,7 +424,8 @@ function AccountTitle({
   return (
     <div className="flex items-center gap-2 text-[14px] font-semibold text-[var(--fg)]">
       <span className={BROKER_BADGE}>{brokerLabel(account.broker)}</span>
-      <span className="min-w-0 truncate tabular-nums">{account.accountNo}</span>
+      {/* 계좌번호는 줄지 않는다 — 말줄임은 계좌명만(UI-SPEC E2). 30-06 폰 390 에서 40자 이름이 계좌번호를 「11…」 로 잘랐다. */}
+      <span className="shrink-0 tabular-nums">{account.accountNo}</span>
       {hideName ? null : account.name ? (
         <span className="min-w-0 truncate font-medium text-[var(--muted-fg)]">{account.name}</span>
       ) : noNamePlaceholder ? (
