@@ -280,3 +280,10 @@ None - no external service configuration required.
 ---
 *Phase: 29-dma-multi-server-admin*
 *Completed: 2026-10-11*
+
+## Self-Check: PASSED
+
+- 변경 파일 4 · RED 증거 2 존재 (FOUND)
+- 커밋 80e1e8f1 · 2a70a499 · 1674549a · b93dac50 HEAD 조상 (FOUND) · evaluation-scope resolved · 삭제 0
+- 수용 기준: hub `#viSourceOwners` 9 · fanout `#viSessionFor` 3 · hub `viRunningElsewhere` 2 · fanout `viRunningElsewhere` 1 · fanout `viOrderSessionOf` 2
+- verify: Task 1(shared build · typecheck · typecheck:tests · 4 파일 162) · Task 2(7 파일 334) · relay 전량(57 파일 · 1467) green
