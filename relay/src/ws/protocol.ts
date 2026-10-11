@@ -253,7 +253,8 @@ export const RelayLcSetSchema = z.object({
     //   - superRefine 완결성 검사를 넣지 않는다 — 아무것도 즉시 무장하지 않는 설정값이다.
     extraBuyAuto: z.boolean().optional(),
     // === Phase 31 금액 8필드(만원 · C→S · 보관/에코만 · gh-trade D-06) — 12필드 블록 밖: `buy3CfgOf` · `lcBuy3SchemaOf` 에
-    //     넣지 않는다. 부재 = 0 으로 조립(구 탭 관용 · D-11). 기본값을 여기서 채우지 않는다.
+    //     넣지 않는다. 부재 = fanout `lc.set` 이 그 키의 에코 원값(짝이 맞을 때) 또는 0 으로 채운다(구 탭 관용 · D-11 ·
+    //     WR-01). 기본값을 여기서 채우지 않는다.
     buyWatchAmount: UIntSchema.optional(),
     buyMinTradeAmount: UIntSchema.optional(),
     extraBuyMinAmount: UIntSchema.optional(),

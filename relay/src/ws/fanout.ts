@@ -137,9 +137,10 @@ import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 import type { RawData } from "ws";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { RELAY_WS_CLOSE, isMarketStrategyEvent } from "@gh-radar/shared";
+import { LC_AMOUNT_PAIRS, RELAY_WS_CLOSE, isMarketStrategyEvent } from "@gh-radar/shared";
 import type {
   JournalOrderRow,
+  LcAmountKey,
   OrderMarket,
   RelayExchange,
   RelayAccount,
@@ -1991,6 +1992,9 @@ export class WsFanout {
         }
         cfg = withNeutralBuy3(msg.cfg);
       }
+      // ②-0′ 구 탭 금액 8필드 되싣기 (Phase 31 WR-01) — 금액 키가 없는 칸만 그 키의 최신 에코로 채운다.
+      //      부재를 0 으로 지어 보내면 서버가 0 을 저장해 C# 상따창의 만원 원값이 지워진다(`#withEchoAmounts`).
+      cfg = this.#withEchoAmounts(userId, cfg);
       // ②-1 시장 해석은 **게이트 상태로 갈린다** (R2-CR-01 / GC-WR-04 / T-16-55).
       //
       // 갈림의 근거는 클라이언트가 자칭하는 `crud` 가 **아니라** 게이트 4종의 실제 상태다
@@ -2620,6 +2624,30 @@ export class WsFanout {
       cfg.postBuyAuto !== true &&
       cfg.autoSellEnabled !== true
     );
+  }
+
+  /**
+   * ②-0′ **구 탭 금액 8필드 되싣기** — `lc.set` 전용 (Phase 31 WR-01 · D-11 · Pitfall 3).
+   *
+   * 금액 키가 **없는** 쌍만 채운다 — 새 탭이 보낸 값은 0 이어도 그대로 간다(사용자가 0 을 넣은 것이다).
+   *   · 그 키의 최신 에코(`lc.snap` 캐시 · `getLimitChasers`)가 있고 보낼 주 == 에코 주(짝이 맞음) → 에코 금액 원값.
+   *   · 아니면 0 — gh-trade 인계 노트 ⓑ 가 허용한 값이다(C# 칸이 주에서 역산한다). 주가 바뀐 칸에 옛 원값을 실으면
+   *     금액 ↔ 주 짝이 어긋난 채 저장된다.
+   *
+   * 서버는 「0 이 오면 0 을 저장한다(keep 아님)」 — 부재를 0 으로 지어 보내면 C# 상따창에서 사람이 넣은 만원 원값이
+   * 지워지고 C# 칸이 역산값으로 떨어진다. `user.settings.set` 이 84 캐시로 `postBuyFloorAmount` 를 되싣는 것과
+   * 같은 정책이다. 키 대조는 `strategyKey()` 한 곳이다(`#teardownMarket` 과 같은 이유).
+   */
+  #withEchoAmounts(userId: string, cfg: LcSetCfg): LcSetCfg {
+    const missing = LC_AMOUNT_PAIRS.filter((p) => cfg[p.amount] === undefined);
+    if (missing.length === 0) return cfg;
+    const wanted = strategyKey(cfg.isin, cfg.accountNo, cfg.exchange);
+    const echo = this.#hub.getLimitChasers(userId).find((lc) => lc.key === wanted);
+    const filled: Partial<Record<LcAmountKey, number>> = {};
+    for (const p of missing) {
+      filled[p.amount] = echo !== undefined && echo[p.qty] === cfg[p.qty] ? echo[p.amount] : 0;
+    }
+    return { ...cfg, ...filled };
   }
 
   /**

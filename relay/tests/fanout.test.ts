@@ -37,7 +37,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as flatbuffers from "flatbuffers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { RelayAccount, RelayOutbound } from "@gh-radar/shared";
-import { qtyFromAmount } from "@gh-radar/shared";
+import { LC_AMOUNT_PAIRS, qtyFromAmount } from "@gh-radar/shared";
 import type { SymbolInfo, SymbolLookup } from "../src/store/symbols.js";
 
 import {
@@ -2070,6 +2070,71 @@ describe("WsFanout", () => {
       const req = readSetLimitChaserRequest(sets[0]!.msgType, sets[0]!.payload);
       expect(req).toMatchObject({ sellWatchAmount: 0, sellWatchQty: 777 });
       expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+    });
+
+    // WR-01 — 서버는 0 을 받으면 0 을 저장한다(keep 아님). 구 탭이 C# 만원 원값을 지우지 않도록 relay 가 캐시 에코로 되싣는다.
+    it("P31 구 탭 cfg(금액 없음)는 캐시 에코의 금액 원값을 같은 주인 칸에만 되싣고, 주가 바뀐 칸은 0 이다(WR-01)", async () => {
+      const a = await authed("token-a");
+      const sock = gateway.sockets[0];
+      if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+      gateway.pushLimitChaserEcho(sock, {
+        isin: SAMPLE_ISIN,
+        accountNo: SAMPLE_ACCOUNT_NO,
+        buyWatchQty: 100,
+        buyWatchAmount: 300,
+        sellWatchPrice: 12_870,
+        sellWatchQty: 777,
+        sellWatchAmount: 1000,
+      });
+      await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
+
+      const cfg: Record<string, unknown> = {
+        ...lcInput({ buyWatchQty: 100, sellWatchPrice: 12_870, sellWatchQty: 800 }),
+      };
+      for (const p of LC_AMOUNT_PAIRS) delete cfg[p.amount];
+      a.ws.sendRaw({ t: "lc.set", cfg });
+      await waitFor(
+        () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+        "10 수신",
+      );
+      const sets = gateway
+        .strategyRequests()
+        .filter((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq);
+      expect(sets).toHaveLength(1);
+      const req = readSetLimitChaserRequest(sets[0]!.msgType, sets[0]!.payload);
+      // 매수 매도잔량 — 보낼 주 100 == 에코 주 100 → 에코 원값 300 (vtable 158~172).
+      expect(req).toMatchObject({ buyWatchQty: 100, buyWatchAmount: 300 });
+      // 매도 매수잔량 — 보낼 주 800 ≠ 에코 주 777 → 0(옛 원값을 실으면 짝이 어긋난 채 저장된다).
+      expect(req).toMatchObject({ sellWatchQty: 800, sellWatchAmount: 0 });
+      expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+    });
+
+    it("P31 새 탭이 실은 금액(0 포함)은 캐시 에코가 있어도 덮지 않는다(WR-01)", async () => {
+      const a = await authed("token-a");
+      const sock = gateway.sockets[0];
+      if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+      gateway.pushLimitChaserEcho(sock, {
+        isin: SAMPLE_ISIN,
+        accountNo: SAMPLE_ACCOUNT_NO,
+        sellWatchPrice: 12_870,
+        sellWatchQty: 777,
+        sellWatchAmount: 1000,
+      });
+      await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
+
+      a.ws.sendRaw({
+        t: "lc.set",
+        cfg: lcInput({ sellWatchPrice: 12_870, sellWatchQty: 777, sellWatchAmount: 0 }),
+      });
+      await waitFor(
+        () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+        "10 수신",
+      );
+      const sets = gateway
+        .strategyRequests()
+        .filter((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq);
+      const req = readSetLimitChaserRequest(sets[0]!.msgType, sets[0]!.payload);
+      expect(req).toMatchObject({ sellWatchQty: 777, sellWatchAmount: 0 });
     });
   });
 
