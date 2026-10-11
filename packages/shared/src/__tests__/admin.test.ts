@@ -162,6 +162,41 @@ describe("diffServerAccounts — removing · 서버에만 있음", () => {
   });
 });
 
+describe("diffServerAccounts — 주문자 IP/MAC 은 의도 값이 있을 때만 비교 (GC-02 · 29-47)", () => {
+  // 87 전용 필드다 — 지금 DB 의도는 두 값을 갖지 않는다. 의도에 값이 없으면 「서버 값 보존」 이라 비교하지 않는다.
+  const IP = "010041001124";
+  const MAC = "1CFD087D978E";
+  const SERVER_A1: AdminAccountFields = { ...A1, orderIp: IP, orderMac: MAC };
+  const diffOf = (intent: AdminAccountFields) =>
+    diffServerAccounts({ active: [intent], removing: [], snapshotUser: { accounts: [{ ...SERVER_A1 }] }, snapshotKnown: true });
+
+  it("의도에 두 필드가 없으면 87 의 IP/MAC 차이를 무시한다 — 나머지 4값이 같으면 changed · missing 0", () => {
+    expect(diffOf(A1)).toMatchObject({ known: true, userPresent: true, missing: [], changed: [], serverOnly: [] });
+  });
+
+  it("의도에 orderIp 가 있고 87 과 다르면 changed [의도 A1]", () => {
+    const intent = { ...A1, orderIp: "010041001200", orderMac: MAC };
+    expect(diffOf(intent)).toMatchObject({ missing: [], changed: [intent] });
+  });
+
+  it("의도에 orderMac 만 있고 87 과 다르면 changed — 필드마다 의도 쪽에 값이 있을 때만 본다", () => {
+    const intent = { ...A1, orderMac: "AABBCCDDEEFF" };
+    expect(diffOf(intent)).toMatchObject({ changed: [intent] });
+  });
+
+  it("의도 값이 87 과 같으면 changed 0", () => {
+    expect(diffOf({ ...SERVER_A1 })).toMatchObject({ missing: [], changed: [] });
+  });
+
+  it("의도의 빈 문자열은 「비우기」 의도 — 87 에 값이 있으면 changed · 87 도 없으면(키 없음) 같다", () => {
+    const clear = { ...A1, orderIp: "", orderMac: "" };
+    expect(diffOf(clear)).toMatchObject({ changed: [clear] });
+    expect(
+      diffServerAccounts({ active: [clear], removing: [], snapshotUser: { accounts: [{ ...A1 }] }, snapshotKnown: true }),
+    ).toMatchObject({ changed: [] });
+  });
+});
+
 describe("interpretAdminResult — 86 code 해석 (D-23 ⑤)", () => {
   it.each([
     [4, 0, "ok"],
@@ -174,6 +209,8 @@ describe("interpretAdminResult — 86 code 해석 (D-23 ⑤)", () => {
     [3, 8, "failed"], // 8 은 op 4 에서만 반영됨
     [4, 12, "failed"], // 12 LAST_ACCOUNT — op 4 마지막 계좌
     [2, 12, "failed"], // 12 — op 2 서버 마지막 사용자(gh-trade 인박스 261007) · 반영됨 아님
+    [3, 13, "failed"], // 13 BAD_ORDER_ENDPOINT — 주문자 IP/MAC 형식 오류(gh-trade 인박스 261010)
+    [1, 13, "failed"], // 13 — op 1 신규 첫 계좌에도 온다
     [5, 0, "ok"],
   ] as const)("op %i · code %i → %s", (op, code, expected) => {
     expect(interpretAdminResult(op, code)).toBe(expected);

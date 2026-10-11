@@ -30,7 +30,7 @@ import type { AdminCommandOutcome } from "../src/admin/admin-conn.js";
 import * as dispatcherModule from "../src/admin/dispatcher.js";
 import { AdminDispatcher, type AdminConnLike } from "../src/admin/dispatcher.js";
 import { AdminIntentStore, IntentError } from "../src/admin/intent-store.js";
-import type { AdminUsersSnapshot } from "../src/admin/types.js";
+import { ADMIN_CODE, ADMIN_CODE_NAME, type AdminUsersSnapshot } from "../src/admin/types.js";
 import type { DmaServerRow } from "../src/registry/registry.js";
 import { decryptDmaPassword, encryptDmaPassword } from "../src/store/credentials.js";
 import { AdminDbFake } from "./helpers/admin-db-fake.js";
@@ -438,6 +438,25 @@ describe("AdminDispatcher — 변경 경로 (29-11 Task 2)", () => {
     expect(env.conns.KB120!.sent).toEqual([{ op: 3, userId: "u1", account: { ...kb("A"), orderIp: IP, orderMac: MAC } }]);
     const kept = env.conns.KB120!.state.users.get("u1")![0]!;
     expect([kept.name, kept.orderIp, kept.orderMac]).toEqual(["위탁", IP, MAC]);
+  });
+
+  it("D15 86 code 13 BAD_ORDER_ENDPOINT(gh-trade 인박스 261010) → failed · message 원문 · 로그 이름표 BAD_ORDER_ENDPOINT", async () => {
+    const message = "주문자 IP/MAC 형식 오류 — IP 는 12자리 숫자 또는 a.b.c.d, MAC 은 12자리 16진, 둘 다 적거나 둘 다 비워야 합니다";
+    const env = setup({ KB120: state({ u1: [{ ...kb("A"), name: "옛 이름" }] }) }, [row("KB120")]);
+    seedU1(env, [{ accountNo: "A", servers: ["KB120"] }]);
+    const conn = env.conns.KB120!;
+    vi.spyOn(conn, "command").mockImplementation(async (input) => {
+      conn.sent.push(structuredClone(input));
+      return { kind: "result", result: { requestId: 11n, ok: false, code: 13, message, usersRev: 5n } };
+    });
+
+    const results = await env.dispatcher.reconcileUser("u1", { adminEmail: "boss@gmail.com" });
+
+    expect(ops(conn)).toEqual([3]);
+    expect(results).toEqual([{ server: "KB120", outcome: "failed", code: 13, message, usersRev: "5" }]);
+    // admin-conn 의 86 감사 로그 codeName 은 이 표를 읽는다.
+    expect(ADMIN_CODE.BadOrderEndpoint).toBe(13);
+    expect(ADMIN_CODE_NAME[13]).toBe("BAD_ORDER_ENDPOINT");
   });
 
   it("D7 부분 실패 — 무응답 timeout · 다른 서버 ok · 응답 시간 ≤ 타임아웃 × op 수 + 여유", async () => {
