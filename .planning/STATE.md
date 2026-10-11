@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 30
 current_phase_name: 인박스 KB 계좌별 주문자 IP/MAC
 status: executing
-stopped_at: Phase 30 UI-SPEC approved
-last_updated: "2026-10-11T06:03:58.107Z"
+stopped_at: Completed 30-01-PLAN.md
+last_updated: "2026-10-11T06:13:10.372Z"
 last_activity: 2026-10-11
 last_activity_desc: Phase 30 execution started
-state_head: 901861e35977c999bcbbe9827d194fbba1f2789f
+state_head: 4a50d6b33d2f163cc0b7ef46b0f9bc96c760bef7
 progress:
   total_phases: 2
   completed_phases: 0
   total_plans: 7
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -30,8 +30,8 @@ See: .planning/PROJECT.md (updated 2026-10-11 after v1.1 milestone start)
 ## Current Position
 
 Phase: 30 (인박스 KB 계좌별 주문자 IP/MAC) — EXECUTING
-Plan: 1 of 7
-Status: Executing Phase 30
+Plan: 2 of 7
+Status: Ready to execute
 Last activity: 2026-10-11 — Phase 30 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -76,13 +76,25 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/30-kb-ip-mac/30-UI-SPEC.md
+**Resume file:** None
 
-Last session: 2026-10-11T05:15:19.704Z
-Stopped at: Phase 30 UI-SPEC approved
+Last session: 2026-10-11T06:13:10.355Z
+Stopped at: Completed 30-01-PLAN.md
 Next: CLAUDE.md 다이어트(DOCS-01, `/gsd-quick`) → `/gsd-discuss-phase 30`
 
 ## Operator Next Steps
 
 - `/gsd-quick` 로 CLAUDE.md 다이어트(DOCS-01)
 - `/gsd-discuss-phase 30` — 인박스 KB 계좌별 주문자 IP/MAC
+
+## Performance Metrics
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 30 P01 | 7 min | 3 tasks | 8 files |
+
+## Decisions
+
+- [Phase 30]: 30-01: PUT body 최상위 orderEndpoint(KB 만 · 구조/길이만 · 형식 검사 없음 · DB 미저장) → relay reconcileUser override → 등록 서버 전부 op 3
+- [Phase 30]: 30-01: op 1(계좌)·op 3 직전 op 5 재조회 · 재조회 실패면 그 서버 44 0건(fail closed) — R3-01 해제
+- [Phase 30]: 30-01: R3-02 폴백 — 의도/override > 이 유저 87 > 같은 87 다른 유저 IP/MAC > 빈 문자열, 다른 유저에 op 없음(D-11)
