@@ -1,6 +1,12 @@
 import { Router, type Request, type Router as RouterT } from "express";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { brokerOfServerKey, deriveAdminUsersOverview, maskDmaUserId, type AdminUsersRaw } from "@gh-radar/shared";
+import {
+  brokerOfServerKey,
+  deriveAdminUsersOverview,
+  maskDmaUserId,
+  type AdminOrderEndpointsRaw,
+  type AdminUsersRaw,
+} from "@gh-radar/shared";
 import type { z } from "zod";
 
 import { requireAuth } from "../middleware/require-auth.js";
@@ -32,6 +38,8 @@ import type { AdminCommandResponse } from "@gh-radar/shared";
  *
  * - GET    /users        : 사용자 개요(`AdminUsersOverview`) — RPC `admin_users_raw` **1회** → shared `deriveAdminUsersOverview`.
  *                          칩 판정 규칙은 shared 한 곳(relay planner 와 같은 diff)이고 server 는 파생만 부른다.
+ *                          30-03(D-09 · D-10): relay `GET /internal/admin/order-endpoints`(87 캐시 IP/MAC)를 RPC 와 병렬로 받아
+ *                          파생 두 번째 인자로 넘긴다. relay 없음 · 실패 · 모양 위반은 null(전 서버 「확인 전」) — 개요는 200 유지.
  * - POST   /users        : `{ email, role, dma? }` — 사전 등록 · 승인 대기 승인 · viewer 생성(D-03). app_users upsert.
  *                          `dma` 가 있으면(trader/admin · D-16) upsert 뒤 relay `POST /internal/admin/dma-users` 1회 →
  *                          서버별 결과 배열을 그대로 `results` 로. viewer + dma 는 400. 이미 DMA 가 연결된 이메일 + dma 는
@@ -175,17 +183,43 @@ async function notifyAccess(req: Request, op: string): Promise<boolean> {
   return false;
 }
 
+/**
+ * relay 87 캐시의 계좌별 주문자 IP/MAC(30-03 · D-09) — 클라이언트 없음 · 비200 · 모양 위반 · throw 면 null(화면은 「확인 전」).
+ * 로그에는 relay status 만 — 값은 사용자 PC 식별 정보다.
+ */
+async function fetchOrderEndpoints(req: Request): Promise<AdminOrderEndpointsRaw | null> {
+  const relay = req.app.locals.relayAdmin as RelayAdminClient | undefined;
+  if (!relay) return null;
+  let status = 0;
+  try {
+    const r = await relay.orderEndpoints(req.adminEmail!);
+    status = r.status;
+    const servers = r.status === 200 ? r.data?.servers : undefined;
+    if (servers && typeof servers === "object" && !Array.isArray(servers)) return { servers };
+  } catch {
+    // 닿지 못함과 같게 본다(status 0) — 개요는 200 으로 「확인 전」.
+  }
+  logger.warn(
+    { relay: { op: "order-endpoints", status } },
+    "[admin] relay 주문자 IP/MAC 조회 실패 — 개요는 「확인 전」 으로",
+  );
+  return null;
+}
+
 // --- GET /users — 사용자 개요 (D-14) ---
 adminRouter.get("/users", async (req, res, next) => {
   try {
     const supabase = req.app.locals.supabase as SupabaseClient;
-    const { data, error } = await supabase.rpc("admin_users_raw");
+    const [{ data, error }, endpoints] = await Promise.all([
+      supabase.rpc("admin_users_raw"),
+      fetchOrderEndpoints(req),
+    ]);
     if (error) throw DbError("사용자 목록 조회에 실패했습니다.", error);
     // RPC 는 늘 7키 객체를 준다(coalesce '[]'). 객체가 아니면 계약 위반 — 빈 목록으로 감추지 않는다.
     if (!data || typeof data !== "object" || Array.isArray(data)) {
       throw DbError("사용자 목록 조회에 실패했습니다.");
     }
-    res.json(deriveAdminUsersOverview(data as AdminUsersRaw));
+    res.json(deriveAdminUsersOverview(data as AdminUsersRaw, endpoints));
   } catch (e) {
     next(e);
   }
@@ -403,6 +437,10 @@ adminRouter.put("/dma-users/:dma/accounts", async (req, res, next) => {
     audit(req, "dma-account-put", maskDmaUserId(dma), {
       broker: body.account.broker,
       servers: results.map((x) => `${x.server}:${x.outcome}`),
+      // 30-03 — 주문자 IP/MAC 은 값 대신 플래그만(사용자 PC 식별 정보). 두 칸 모두 빈 값 = 미설정으로 되돌리기.
+      ...(body.orderEndpoint
+        ? { orderEndpoint: body.orderEndpoint.orderIp === "" && body.orderEndpoint.orderMac === "" ? "clear" : "set" }
+        : {}),
     });
     res.json({ results });
   } catch (e) {
