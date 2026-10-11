@@ -246,3 +246,9 @@ None - no external service configuration required.
 ---
 *Phase: 29-dma-multi-server-admin*
 *Completed: 2026-10-11*
+
+## Self-Check: PASSED
+
+- 파일: `relay/src/hub/subscription-hub.ts` · `relay/src/ws/fanout.ts` · `relay/src/dma/strategy-sweeper.ts` · `.red/29-54-task1-red.json` · `.red/29-54-task2-red.json` 모두 있음
+- 커밋: `45233cf8` · `bc432326` · `e38d01ef` · `c40ebf5d` 모두 HEAD 조상 · evaluation-scope(plan 29-54) resolved
+- 플랜 verification: 7 파일 · 355 green(Task 2 verify) · relay 전량 57 파일 · 1491 green · `packages/shared` · webapp 변경 0
