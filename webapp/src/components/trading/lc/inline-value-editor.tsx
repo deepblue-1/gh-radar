@@ -33,12 +33,20 @@
  *
  * 반영 중 (E4 loading): `readOnly` · `aria-busy` · 값 opacity .6 · 링 유지 · 화면 문구 없이 sr-only live
  *   region 에 「반영 중…」. 타이핑·↑↓ 는 무시하고 포커스 이탈은 다시 저장하지 않는다.
+ *
+ * 두 줄 행 편집 (Phase 31 UI-SPEC S4): `subOf` 를 주면 입력은 위 줄 자리, 아래 줄(`RowSubLine`)은 **버퍼 값**으로
+ *   매 입력 다시 계산된다(데스크톱의 환산 안내 자리). 행 상자(56px)는 `SettingRow` 가 지킨다 — 편집기는 두 줄만 쌓는다.
  */
 
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { TickRule } from '@gh-radar/shared';
 
-import { FailureBubble, type SettingUnit } from '@/components/trading/lc/setting-group';
+import {
+  FailureBubble,
+  RowSubLine,
+  type LcRowSub,
+  type SettingUnit,
+} from '@/components/trading/lc/setting-group';
 import { LC_COMMIT_TEXT } from '@/components/trading/lc/use-lc-field-commit';
 import { PAD_MAX_DIGITS, padIssue, padWarning, stepValue, type PadCtx } from '@/lib/numpad';
 import { cn } from '@/lib/utils';
@@ -74,6 +82,11 @@ export interface InlineValueEditorProps {
   onDismiss?: () => void;
   /** Tab / Shift+Tab — 저장(또는 이미 저장됨) **뒤** 부른다. */
   onNavigate?: (dir: 'next' | 'prev') => void;
+  /**
+   * 두 줄 행 편집(Phase 31 S4) — 아래 줄을 버퍼 값(빈 값 = 0)으로 매 입력 다시 계산한다. 행 · 시트와 같은 판정 함수를
+   * 호출부가 넘긴다. 없으면 지금과 같은 한 줄이다.
+   */
+  subOf?: (value: number) => LcRowSub;
 }
 
 function formatDigits(digits: string): string {
@@ -96,6 +109,7 @@ export function InlineValueEditor({
   onCancel,
   onDismiss,
   onNavigate,
+  subOf,
 }: InlineValueEditorProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [buffer, setBuffer] = useState(() => (initialValue === null ? '' : NUM.format(initialValue)));
@@ -151,81 +165,85 @@ export function InlineValueEditor({
   const blockingText = issue ?? failureText;
   const bubbleText = blockingText ?? warning;
 
+  // `subOf` 유무와 무관하게 **같은 트리**다(바깥 블록 + 입력 줄) — 둘째 줄만 조건부라 입력이 다시 마운트되지 않는다.
   const editor = (
-    <span className="flex min-w-0 items-center whitespace-nowrap">
-      <input
-        ref={inputRef}
-        id={id}
-        type="text"
-        inputMode="numeric"
-        autoComplete="off"
-        aria-label={label}
-        aria-busy={busy ? 'true' : undefined}
-        aria-invalid={blockingText ? 'true' : undefined}
-        readOnly={busy}
-        /* 포커스 표시는 행의 `inset` 링 한 겹이다(전역 규약 Q-02) — 입력 자체는 링을 그리지 않는다. */
-        data-focus-ring="seamless"
-        value={buffer}
-        onChange={(e) => {
-          if (busy) return;
-          const digits = e.target.value.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
-          if (digits.length > PAD_MAX_DIGITS) return;
-          setDigits(digits);
-        }}
-        onKeyDown={(e) => {
-          if (e.nativeEvent.isComposing) return;
-          switch (e.key) {
-            case 'Enter':
-              e.preventDefault();
-              if (busy) return;
-              trySave('enter');
-              return;
-            case 'Tab': {
-              e.preventDefault();
-              // 반영 중이거나 이미 저장한 버퍼 — 다시 보내지 않고 이동만 한다(T-16-10).
-              const saved = busy || settledRef.current ? true : trySave('tab');
-              if (!saved || onNavigate === undefined) return;
-              leftRef.current = true;
-              onNavigate(e.shiftKey ? 'prev' : 'next');
+    <span className="flex min-w-0 flex-col items-end">
+      <span className="flex min-w-0 items-center whitespace-nowrap">
+        <input
+          ref={inputRef}
+          id={id}
+          type="text"
+          inputMode="numeric"
+          autoComplete="off"
+          aria-label={label}
+          aria-busy={busy ? 'true' : undefined}
+          aria-invalid={blockingText ? 'true' : undefined}
+          readOnly={busy}
+          /* 포커스 표시는 행의 `inset` 링 한 겹이다(전역 규약 Q-02) — 입력 자체는 링을 그리지 않는다. */
+          data-focus-ring="seamless"
+          value={buffer}
+          onChange={(e) => {
+            if (busy) return;
+            const digits = e.target.value.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
+            if (digits.length > PAD_MAX_DIGITS) return;
+            setDigits(digits);
+          }}
+          onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing) return;
+            switch (e.key) {
+              case 'Enter':
+                e.preventDefault();
+                if (busy) return;
+                trySave('enter');
+                return;
+              case 'Tab': {
+                e.preventDefault();
+                // 반영 중이거나 이미 저장한 버퍼 — 다시 보내지 않고 이동만 한다(T-16-10).
+                const saved = busy || settledRef.current ? true : trySave('tab');
+                if (!saved || onNavigate === undefined) return;
+                leftRef.current = true;
+                onNavigate(e.shiftKey ? 'prev' : 'next');
+                return;
+              }
+              case 'Escape':
+                e.preventDefault();
+                settledRef.current = true;
+                onCancel();
+                return;
+              case 'ArrowUp':
+              case 'ArrowDown': {
+                e.preventDefault();
+                if (busy) return;
+                const next = stepValue(valueOf(), unit, e.key === 'ArrowUp' ? 1 : -1);
+                setDigits(String(next));
+                return;
+              }
+            }
+          }}
+          onBlur={() => {
+            if (leftRef.current) return;
+            if (busy || settledRef.current) {
+              onDismiss?.();
               return;
             }
-            case 'Escape':
-              e.preventDefault();
-              settledRef.current = true;
-              onCancel();
-              return;
-            case 'ArrowUp':
-            case 'ArrowDown': {
-              e.preventDefault();
-              if (busy) return;
-              const next = stepValue(valueOf(), unit, e.key === 'ArrowUp' ? 1 : -1);
-              setDigits(String(next));
-              return;
-            }
-          }
-        }}
-        onBlur={() => {
-          if (leftRef.current) return;
-          if (busy || settledRef.current) {
-            onDismiss?.();
-            return;
-          }
-          settledRef.current = true;
-          // A6 — 위반 값을 둔 채 떠나면 Esc 와 같다(저장 안 함).
-          if (issueOf() !== null) onCancel();
-          else onSave(valueOf(), 'blur');
-        }}
-        className={cn(
-          'w-[9ch] border-0 bg-transparent text-right text-[15px] font-semibold tabular-nums text-[var(--fg)] outline-none',
-          'selection:bg-[color-mix(in_srgb,var(--primary)_35%,transparent)]',
-          busy && 'opacity-60',
-        )}
-      />
-      <span className="ml-[2px] text-[15px] font-medium leading-[1.5] text-[var(--fg-2)]">{unit}</span>
-      {/* 반영 중 — 화면 문구 없이 보조기기에만(행 높이 불변 · E4 loading). */}
-      <span className="sr-only" aria-live="polite">
-        {busy ? LC_COMMIT_TEXT.busy : ''}
+            settledRef.current = true;
+            // A6 — 위반 값을 둔 채 떠나면 Esc 와 같다(저장 안 함).
+            if (issueOf() !== null) onCancel();
+            else onSave(valueOf(), 'blur');
+          }}
+          className={cn(
+            'w-[9ch] border-0 bg-transparent text-right text-[15px] font-semibold tabular-nums text-[var(--fg)] outline-none',
+            'selection:bg-[color-mix(in_srgb,var(--primary)_35%,transparent)]',
+            busy && 'opacity-60',
+          )}
+        />
+        <span className="ml-[2px] text-[15px] font-medium leading-[1.5] text-[var(--fg-2)]">{unit}</span>
+        {/* 반영 중 — 화면 문구 없이 보조기기에만(행 높이 불변 · E4 loading). */}
+        <span className="sr-only" aria-live="polite">
+          {busy ? LC_COMMIT_TEXT.busy : ''}
+        </span>
       </span>
+      {subOf !== undefined && <RowSubLine sub={subOf(valueOf())} />}
     </span>
   );
 
