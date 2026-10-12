@@ -30,7 +30,7 @@ covered_files:
   - "webapp/src/components/trading/lc/use-lc-field-commit.ts"
   - "webapp/src/components/trading/limit-chaser-form.tsx"
   - "webapp/src/lib/limit-chaser.ts"
-covered_digest: "v3:sha256:09ac4d366fb1ca33863649f503b624507218dc0ce428f79b290f3486ea40469d"
+covered_digest: "v3:sha256:bf41d648f3eded5a37f62a3e4841790350b07a421d38dc051ce94924e425f8aa"
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
@@ -52,6 +52,7 @@ advisory:
     category: other
     reason: "확정 성공/실패 표시(commit-success signalling)의 좁은 경우. C# 만원 원값 보존(목표 문장)과 무관 — 발주/저장 값에 영향 없고 다음 진짜 에코가 성공으로 되돌린다. disposition open 상태 유지(31-REVIEW-DISPOSITION-R3.md)"
     evidence_status: "리뷰 서술을 코드(shared/src/lc-amount.ts amountEchoMatches · echoKnowsAmounts)와 대조해 일치 확인; 목표 대비 비차단으로 판정"
+    resolved_by: "b977002f — 모호한 에코(주 일치 · 금액 0 · 금액을 아는 서버)는 거부 대신 LC_REJECT_ECHO_GRACE_MS 유예. shared lc-amount 84 · webapp trading/me/lib 3097 테스트 통과, webapp/relay tsc 0. covered_digest 는 이 수정 뒤 재계산"
 ---
 
 # Phase 31: 인박스 상따 금액 단위 Verification Report (재검증 2차)

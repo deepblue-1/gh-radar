@@ -5,7 +5,8 @@ round: 3
 findings:
   - id: R3-WR-01
     severity: warning
-    disposition: open
+    disposition: fixed
+    fixed_by: b977002f
     title: "IN-02 수정이 「조기 성공」을 「거짓 거부」로 바꾼다 — 같은 키 옛 푸시(금액 0 · 같은 주)가 먼저 오면 즉시 rejected"
   - id: R3-IN-01
     severity: info
@@ -27,4 +28,4 @@ findings:
 
 # Phase 31 — Code Review Disposition (Round 3)
 
-verify-work 31 의 재검증(stale 해소) 중 code_review_gate 가 돌린 3라운드 리뷰다. 게이트는 advisory 라 phase 진행을 막지 않는다. 5건 모두 `open` — 처리는 `/gsd-code-review 31 --fix` 또는 quick 으로 별도 진행.
+verify-work 31 의 재검증(stale 해소) 중 code_review_gate 가 돌린 3라운드 리뷰다. 게이트는 advisory 라 phase 진행을 막지 않는다. R3-WR-01 은 사용자 지시로 (a) 안(모호한 에코 = 거부 대신 에코 유예)으로 고쳤다(b977002f — shared `amountEchoIsAmbiguous` · 훅 유예 분기 · 운영 배선(답 신호 증가)을 모사한 훅 테스트 4건, 수정 전 코드에서 3건 실패 확인). R3-IN-01~04 는 `open`.
