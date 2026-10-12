@@ -13,27 +13,27 @@ findings:
     title: "두 줄 행 아래 줄 · 시트 환산 안내가 비교가 0 갈래에서 에코 메모를 무시한다 — 제출 주와 다른 글자를 보인다"
   - id: IN-01
     severity: info
-    disposition: open
+    disposition: fixed
     title: "줄매수 최소 > 최대 사전 검증이 금액끼리 비교해, 같은 금액이어도 제출 주는 최소 > 최대가 될 수 있다"
   - id: IN-02
     severity: info
-    disposition: open
+    disposition: fixed
     title: "`amountEchoMatches`의 「에코 금액 0 = 성공」 관용이 새 서버에서도 열려 있어 늦게 온 푸시 에코로 조기 성공 판정이 난다"
   - id: IN-03
     severity: info
-    disposition: open
+    disposition: fixed
     title: "제출 주 계산이 두 곳에 같은 식으로 복제돼 있다"
   - id: IN-04
     severity: info
-    disposition: open
+    disposition: fixed
     title: "relay `envelope.ts`가 shared에 이미 있는 `LcAmountKey`를 로컬 타입으로 다시 적었다"
   - id: IN-05
     severity: info
-    disposition: open
+    disposition: fixed
     title: "두 줄 행 · 시트 안내는 렌더 `form`으로, 잠금 검증은 서버 동기값으로 계산해 비행 중에 갈릴 수 있다"
-open: 5
+open: 0
 total: 7
-recorded: 2026-10-11T23:53:53.043Z
+recorded: 2026-10-12T00:50:35.191Z
 ---
 
 # Phase 31: Code Review Disposition
@@ -42,11 +42,11 @@ recorded: 2026-10-11T23:53:53.043Z
 |---------|----------|-------------|--------|
 | WR-01 | warning | fixed | 31-REVIEW-FIX.md |
 | WR-02 | warning | fixed | 31-REVIEW-FIX.md |
-| IN-01 | info | open | - |
-| IN-02 | info | open | - |
-| IN-03 | info | open | - |
-| IN-04 | info | open | - |
-| IN-05 | info | open | - |
+| IN-01 | info | fixed | 31-REVIEW-FIX-R2.md |
+| IN-02 | info | fixed | 31-REVIEW-FIX-R2.md |
+| IN-03 | info | fixed | 31-REVIEW-FIX-R2.md |
+| IN-04 | info | fixed | 31-REVIEW-FIX-R2.md |
+| IN-05 | info | fixed | 31-REVIEW-FIX-R2.md |
 
 Dispositions: `open` (recorded, not yet triaged), `fixed`, `skipped`, `deferred`.
 Set `deferred` by hand and put the reason in the Source cell; both are preserved. A `|` in the reason is kept as prose and escaped on the next run.
