@@ -36,12 +36,13 @@ export function narrowQty(qtyRaw: number): number {
 
 /**
  * C# `AmountFromQty` — 주 → 만원(표시용 반올림 `(주×가격+5000)÷10000` 정수 나눗셈). 주 · 가격 어느 쪽이든 0 이하이면 0.
- * 주×가격이 2^53 을 넘으면(예: 2,147,483,647주 × 5,000,000원) BigInt 로 정확히 계산한다(C# long 동형 · Pitfall 14).
+ * 주×가격 + 5000 이 2^53 을 넘으면(예: 2,147,483,647주 × 5,000,000원) BigInt 로 정확히 계산한다(C# long 동형 · Pitfall 14).
+ * 판정은 더한 뒤의 값으로 한다 — 곱만 안전 정수여도 `+ 5000` 이 경계를 넘으면 그 합이 정확한 정수가 아닐 수 있다(IN-05).
  */
 export function amountFromQty(qty: number, price: number): number {
   if (!(price > 0) || !(qty > 0)) return 0;
   const p = qty * price;
-  if (Number.isSafeInteger(p)) return Math.floor((p + 5_000) / 10_000);
+  if (Number.isSafeInteger(p + 5_000)) return Math.floor((p + 5_000) / 10_000);
   return Number((BigInt(qty) * BigInt(price) + 5_000n) / 10_000n);
 }
 

@@ -82,6 +82,13 @@ describe("P31 qtyFromAmount · amountFromQty — 정정표 (UI-SPEC 예시 수�
     expect(Number.isSafeInteger(2_147_483_647 * 5_000_000)).toBe(false);
     expect(amountFromQty(2_147_483_647, 5_000_000)).toBe(1_073_741_823_500);
   });
+
+  it("amountFromQty — 곱은 안전 정수지만 + 5000 이 2^53 을 넘으면 BigInt 경로와 같은 값(IN-05 경계)", () => {
+    const price = Number.MAX_SAFE_INTEGER; // 2^53 − 1 — 곱(주 1)은 안전 정수, + 5000 은 아니다.
+    expect(Number.isSafeInteger(1 * price)).toBe(true);
+    expect(Number.isSafeInteger(price + 5_000)).toBe(false);
+    expect(amountFromQty(1, price)).toBe(Number((BigInt(price) + 5_000n) / 10_000n));
+  });
 });
 
 describe("P31 narrowQty — C# NarrowQty 동형(int.MaxValue 에서 자른다 · Pitfall 5)", () => {

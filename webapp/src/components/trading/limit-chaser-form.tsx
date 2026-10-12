@@ -1555,6 +1555,8 @@ export function LimitChaserForm({
   function inlineEditorOf(field: LcNumField, id: string, label: string, unit: LcUnit, range?: LcRange): ReactNode {
     const failure = lc.failures[field];
     // Phase 31 S4 — 수량 칸은 편집 중에도 아래 줄이 남아 버퍼 값으로 갱신된다(행과 같은 `lcQtyRowSubOf`).
+    //   기준값은 잠금(`validateCommit`) · cfg 와 같은 `lcBaseValues`(서버 동기값)다 — 비행 중에도 아래 줄과 잠금이 같은
+    //   비교가로 주를 센다(IN-05).
     const amountField = lcQtyAmountFieldOf(field);
     return (
       <InlineValueEditor
@@ -1568,7 +1570,9 @@ export function LimitChaserForm({
         max={range?.max}
         validate={(v) => validateCommit(field, v)}
         subOf={
-          amountField === null ? undefined : (v) => lcQtyRowSubOf(amountField, { ...form, [amountField]: v }, server ?? null)
+          amountField === null
+            ? undefined
+            : (v) => lcQtyRowSubOf(amountField, { ...lcBaseValues(server ?? null, form), [amountField]: v }, server ?? null)
         }
         busy={isBusy(field)}
         failureText={inlineFailureTextOf(failure)}
@@ -1972,6 +1976,7 @@ export function LimitChaserForm({
     sheetRow === null || shownValueOf(sheetKey) === null ? undefined : (lcValueTextOf(sheetKey, form, null) ?? undefined);
   const sheetRange = sheetRow === null ? undefined : (sheetRow.row.inputRange ?? sheetRow.row.range);
   // Phase 31 D-08 — 수량 칸 시트 상태 줄 ⑤ 환산 안내(「= 777주 (비교가격 12,870원)」). 잠금은 `validate`(`amountLockTextOf`).
+  //   안내 · 잠금 · cfg 가 같은 기준값(`lcBaseValues` = 서버 동기값)으로 주를 센다 — 비행 중에도 서로 다른 말을 하지 않는다(IN-05).
   const sheetAmountField = sheetRow === null ? null : lcQtyAmountFieldOf(sheetKey);
 
   return (
@@ -2052,7 +2057,9 @@ export function LimitChaserForm({
         // 그 행 카드가 감시 중이면 한 줄 안내(추가 확인 없음 · D-05) — 판정은 위 `sheetArmed`.
         armedNotice={sheetArmed}
         hint={
-          sheetAmountField === null ? undefined : (v) => lcAmountHintOf(sheetAmountField, v, form, server ?? null)
+          sheetAmountField === null
+            ? undefined
+            : (v) => lcAmountHintOf(sheetAmountField, v, lcBaseValues(server ?? null, form), server ?? null)
         }
         validate={(v) => validateCommit(sheetKey, v)}
         returnFocusRef={sheetReturnRef}
