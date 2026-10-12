@@ -5,6 +5,7 @@ status: complete
 completed: 2026-10-12
 commits:
   - 708c4772
+  - ef9e5173
 key_files:
   modified:
     - webapp/src/components/trading/limit-chaser-form.tsx
@@ -31,3 +32,11 @@ gh-trade 인박스 `261012-phase32-review-fix-wr06-in07` (서버 WR-06 f6e176e5 
 ## Deviations
 
 - planner/executor 없이 인라인 실행(작은 조정 · 사용자 지정 범위 상한).
+
+## 코드 리뷰 (quick depth · `261012-mig-REVIEW.md`)
+
+C# f6e176e5 · e4a66ae2 와 판정 · 순서 · 문장 일치. BLOCKER 0 · WARNING 2 · INFO 4.
+
+- 반영(ef9e5173): WR-01 ☐자동만 켠 「최대 0주」 차단 테스트(확장 되돌리면 실패 확인) · WR-02 같은 에코에서 ☐자동 끄기 · 최대 0 확정이 나가는지 고정 · IN-01 `armBlockOf` 「끄는 방향」 주석 정정 · IN-04 테스트 (c) 제목 정정.
+- 그대로 둠: IN-02(구서버 · 비교가 0 에서 「최대를 0 으로」 안내가 풀이가 아님 — C# 동형) · IN-03(사전 검증은 웹 어조 `LC_COMMIT_TEXT.minOverMax`, 전송 직전은 C# 원문 — 기존 UI-SPEC 문장 체계).
+- 대상 파일 289/289 통과 · typecheck 통과.
