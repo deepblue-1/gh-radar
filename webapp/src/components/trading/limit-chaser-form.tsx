@@ -512,8 +512,13 @@ function armBlockOf(values: LimitChaserFormValues, server: RelayLimitChaser | nu
 /**
  * 수량 칸(만원) **시트 · 인라인 잠금 문장 한 곳**(Phase 31 D-08 · UI-SPEC 「넘버패드 시트」 잠금 2행 · S4 말풍선) — 시트
  * `validate` 와 인라인 `validate` 가 같은 `validateCommit` 을 지나므로 두 표면이 같은 문장을 말한다.
- *   - 값 > 0 ∧ 그 그룹 비교가 0 → 「비교가격 필요」 + 매수 5칸은 매수 비교가 · 매도 · 취소 3칸은 매도 비교가 안내
- *   - 값 > 0 ∧ 제출 주 0(내림 · 에코 메모 포함 — `lcSubmitQtyOf`) → 「{N}만 → 0주」 + 금액을 늘리라는 안내(8칸 공통)
+ * 제출 주(`lcSubmitQtyOf` — 내림 · 에코 메모 포함)를 **먼저** 계산하고, 그 주가 0 일 때만 잠근다(행 아래 줄
+ * `lcQtyRowSubOf` · 시트 안내 `lcAmountHintOf` 와 같은 순서 · R2-WR-01):
+ *   - 값 > 0 ∧ 제출 주 0 ∧ 그 그룹 비교가 0 → 「비교가격 필요」 + 매수 5칸은 매수 비교가 · 매도 · 취소 3칸은 매도 비교가 안내
+ *   - 값 > 0 ∧ 제출 주 0 → 「{N}만 → 0주」 + 금액을 늘리라는 안내(8칸 공통)
+ * 비교가 0 이어도 에코 메모가 서버 주를 보존 중이면(짝 원값 에코 — 값 = 에코 표시값 ∧ 비교가 = 에코 비교가 0) 잠그지 않는다 —
+ * 행은 「777주」 인데 시트가 빨간 잠금을 말하지 않는다. 그 확정은 `buildCfg` 가 에코 주를 그대로 싣는 no-op 이고, 값을 바꾸면
+ * 메모가 깨져 제출 주 0 → 잠금이 다시 선다. C# 칸에는 값 확정 잠금이 없다 — 이 잠금은 웹 규칙이고 등록 차단은 `armBlockOf` 몫.
  * 그 밖(값 0 · 수량 칸이 아님) `null`. 그룹 켬 여부를 보지 않는다 — 환산할 수 없는 값은 칸에 들이지 않는다(UI-SPEC).
  */
 function amountLockTextOf(
@@ -524,16 +529,14 @@ function amountLockTextOf(
 ): string | null {
   const amountField = lcQtyAmountFieldOf(field);
   if (amountField === null || !(value > 0)) return null;
+  if (lcSubmitQtyOf({ ...values, [amountField]: value }, amountField, server) > 0) return null;
   const price = lcAmountPairOf(amountField)!.price;
   if (values[price] === 0) {
     return price === 'buyWatchPrice'
       ? '비교가격 필요 — 매수 비교가격을 입력하세요'
       : '비교가격 필요 — 매도 비교가격을 입력하세요';
   }
-  if (lcSubmitQtyOf({ ...values, [amountField]: value }, amountField, server) === 0) {
-    return `${NUM.format(value)}만 → 0주 — 금액을 늘리세요`;
-  }
-  return null;
+  return `${NUM.format(value)}만 → 0주 — 금액을 늘리세요`;
 }
 
 /** 매수 열이 품는 게이트 — 마스터 + 세 그룹. 사유가 같으면 한 줄로 합쳐진다. */

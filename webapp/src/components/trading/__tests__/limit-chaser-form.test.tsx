@@ -4550,10 +4550,32 @@ describe('P31 두 줄 · 시트 · 인라인 (D-05 · D-07 · D-08 · UI-SPEC S1
       click(confirm());
       expect(sentConfigs()).toHaveLength(0);
       unmount();
+      // 매수 칸 — 에코 짝(1,000만 · 777주)은 가격 0 에서도 메모가 서버 주를 보존한다(R2-WR-01). 값을 바꿔야 잠금이 선다.
       render(<LimitChaserForm {...props({ server: at({ buyWatchPrice: 0 }) })} />);
       click(row('lc-buy-watch-qty'));
+      keys('1', '5', '0', '0');
       expect(statusLine()).toBe('비교가격 필요 — 매수 비교가격을 입력하세요');
       expect(confirm()).toBeDisabled();
+    });
+
+    it('R2-WR-01 가격 0 · 짝 원값 에코(1,000만 · 777주) → 행 「777주」 · 시트 상태 줄 「= 777주」 · 적용 가능(no-op) · 1,500만이면 잠금', () => {
+      render(
+        <LimitChaserForm {...props({ server: at({ sellWatchPrice: 0, sellWatchAmount: 1000, sellWatchQty: 777 }) })} />,
+      );
+      // 행 아래 줄과 시트가 같은 말을 한다 — 행은 정상인데 시트만 빨간 잠금을 말하지 않는다.
+      expect(subText('lc-sell-watch-qty')).toBe('777주');
+      click(row('lc-sell-watch-qty'));
+      expect(statusLine()).toBe('= 777주');
+      expect(confirm()).toBeEnabled();
+      // 값을 바꾸면 메모가 깨져 제출 주 0 — 비교가 0 잠금이 다시 선다.
+      keys('1', '5', '0', '0');
+      expect(statusLine()).toBe('비교가격 필요 — 매도 비교가격을 입력하세요');
+      expect(confirm()).toBeDisabled();
+      // 에코 값으로 돌아오면 다시 「= 777주」 · 적용은 서버와 같은 값이라 전송 0(no-op).
+      keys('한 글자 지우기', '한 글자 지우기', '한 글자 지우기', '한 글자 지우기', '1', '0', '0', '0');
+      expect(statusLine()).toBe('= 777주');
+      click(confirm());
+      expect(sentConfigs()).toHaveLength(0);
     });
 
     it('12만 @127,400 → 「12만 → 0주 — 금액을 늘리세요」 · 13만은 「= 1주 (비교가격 127,400원)」', () => {
@@ -4578,5 +4600,21 @@ describe('P31 두 줄 · 시트 · 인라인 (D-05 · D-07 · D-08 · UI-SPEC S1
     expect(sentConfigs()).toHaveLength(0);
     expect(screen.getByText('1만 → 0주 — 금액을 늘리세요')).toBeInTheDocument();
     expect(input('lc-sell-watch-qty')).not.toBeNull();
+  });
+
+  it('R2-WR-01 인라인 — 가격 0 · 짝 원값 에코면 아래 줄 「777주」 그대로 Enter 가 잠기지 않는다 · 1500 이면 「비교가격 필요」 말풍선', () => {
+    render(<LimitChaserForm {...props({ server: at({ sellWatchPrice: 0, sellWatchAmount: 1000, sellWatchQty: 777 }) })} />);
+    const el = openInline('lc-sell-watch-qty');
+    expect(subText('lc-sell-watch-qty')).toBe('777주');
+    typeValue(el, '1500');
+    expect(subText('lc-sell-watch-qty')).toBe('비교가격 필요');
+    pressKey(el, 'Enter');
+    expect(sentConfigs()).toHaveLength(0);
+    expect(screen.getByText('비교가격 필요 — 매도 비교가격을 입력하세요')).toBeInTheDocument();
+    typeValue(el, '1000');
+    expect(subText('lc-sell-watch-qty')).toBe('777주');
+    pressKey(el, 'Enter');
+    expect(screen.queryByText('비교가격 필요 — 매도 비교가격을 입력하세요')).toBeNull();
+    expect(sentConfigs()).toHaveLength(0);
   });
 });
