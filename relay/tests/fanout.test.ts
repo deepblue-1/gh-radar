@@ -37,6 +37,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as flatbuffers from "flatbuffers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { RelayAccount, RelayOutbound } from "@gh-radar/shared";
+import { LC_AMOUNT_PAIRS, qtyFromAmount } from "@gh-radar/shared";
 import type { SymbolInfo, SymbolLookup } from "../src/store/symbols.js";
 
 import {
@@ -1447,6 +1448,8 @@ describe("WsFanout", () => {
         auctionSellRatioPct: 20,
         autoSellRatioDefaultPct: 10,
         autoSellMethodDefault: 3,
+        // Phase 31 — 새 relay 는 늘 싣는다(84 슬롯 부재 = 0).
+        postBuyFloorAmount: 0,
       },
     ]);
     const order = tabB.inbox.map((m) => m.t);
@@ -2009,8 +2012,276 @@ describe("WsFanout", () => {
     expect(item.postBuyReentryLeft).toBe(2);
     expect(item.buyWatchSide).toBe("0");
     // 활성 59(+ postBuyAuto · quick-260929-vzy · extraBuyAbandonQty · quick-260930-fi4 · postBuyUnlockQty · quick-261002-fim
-    // · extraBuyBurstRelease · quick-261003-rc4 · 자동매도 8 · Phase 27 · extraBuyAuto · quick-261011-0yb) + key — 봉인된 매수 진입 래치는 없다.
-    expect(Object.keys(item)).toHaveLength(69);
+    // · extraBuyBurstRelease · quick-261003-rc4 · 자동매도 8 · Phase 27 · extraBuyAuto · quick-261011-0yb · 금액 8(Phase 31 D-11))
+    // + key — 봉인된 매수 진입 래치는 없다.
+    expect(Object.keys(item)).toHaveLength(77);
+  });
+
+  describe("P31 트레이서 — lc.set 금액 → 10 → 60 에코 → lc (D-10 · D-11)", () => {
+    it("P31 매도 매수잔량 1000만 · 777주(@12,870원)가 10 에 원값으로 실리고 60 에코의 금액이 lc 로 돌아온다", async () => {
+      const a = await authed("token-a");
+      // 777 = floor(1000 × 10000 ÷ 12870) — 짝은 shared 한 벌이 만든다(공식을 테스트에 다시 적지 않는다 · D-02).
+      const qty = qtyFromAmount(1000, 12_870);
+      expect(qty).toBe(777);
+      a.ws.sendRaw({
+        t: "lc.set",
+        cfg: lcInput({ sellWatchPrice: 12_870, sellWatchAmount: 1000, sellWatchQty: qty }),
+      });
+      await waitFor(
+        () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+        "10 수신",
+      );
+      const sets = gateway
+        .strategyRequests()
+        .filter((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq);
+      expect(sets).toHaveLength(1);
+      const req = readSetLimitChaserRequest(sets[0]!.msgType, sets[0]!.payload);
+      expect(req).toMatchObject({ sellWatchPrice: 12_870, sellWatchAmount: 1000, sellWatchQty: 777 });
+
+      const sock = gateway.sockets[0];
+      if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+      gateway.pushLimitChaserEcho(sock, {
+        isin: SAMPLE_ISIN,
+        accountNo: SAMPLE_ACCOUNT_NO,
+        sellWatchPrice: 12_870,
+        sellWatchQty: 777,
+        sellWatchAmount: 1000,
+      });
+      await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
+      const item = framesOf(a.inbox, "lc").at(-1)!.item;
+      expect(item.sellWatchAmount).toBe(1000);
+      expect(item.sellWatchQty).toBe(777);
+    });
+
+    it("P31 금액 키가 없는 구 탭 cfg 는 10 에 sellWatchAmount 0 으로 실린다(구 탭 관용)", async () => {
+      const a = await authed("token-a");
+      const cfg: Record<string, unknown> = { ...lcInput({ sellWatchPrice: 12_870, sellWatchQty: 777 }) };
+      delete cfg.sellWatchAmount;
+      expect("sellWatchAmount" in cfg).toBe(false);
+      a.ws.sendRaw({ t: "lc.set", cfg });
+      await waitFor(
+        () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+        "10 수신",
+      );
+      const sets = gateway
+        .strategyRequests()
+        .filter((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq);
+      expect(sets).toHaveLength(1);
+      const req = readSetLimitChaserRequest(sets[0]!.msgType, sets[0]!.payload);
+      expect(req).toMatchObject({ sellWatchAmount: 0, sellWatchQty: 777 });
+      expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+    });
+
+    // WR-01 — 서버는 0 을 받으면 0 을 저장한다(keep 아님). 구 탭이 C# 만원 원값을 지우지 않도록 relay 가 캐시 에코로 되싣는다.
+    it("P31 구 탭 cfg(금액 없음)는 캐시 에코의 금액 원값을 같은 주인 칸에만 되싣고, 주가 바뀐 칸은 0 이다(WR-01)", async () => {
+      const a = await authed("token-a");
+      const sock = gateway.sockets[0];
+      if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+      gateway.pushLimitChaserEcho(sock, {
+        isin: SAMPLE_ISIN,
+        accountNo: SAMPLE_ACCOUNT_NO,
+        buyWatchPrice: 69_900,
+        buyWatchQty: 100,
+        buyWatchAmount: 300,
+        sellWatchPrice: 12_870,
+        sellWatchQty: 777,
+        sellWatchAmount: 1000,
+      });
+      await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
+
+      const cfg: Record<string, unknown> = {
+        ...lcInput({ buyWatchPrice: 69_900, buyWatchQty: 100, sellWatchPrice: 12_870, sellWatchQty: 800 }),
+      };
+      for (const p of LC_AMOUNT_PAIRS) delete cfg[p.amount];
+      a.ws.sendRaw({ t: "lc.set", cfg });
+      await waitFor(
+        () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+        "10 수신",
+      );
+      const sets = gateway
+        .strategyRequests()
+        .filter((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq);
+      expect(sets).toHaveLength(1);
+      const req = readSetLimitChaserRequest(sets[0]!.msgType, sets[0]!.payload);
+      // 매수 매도잔량 — 보낼 주 100 == 에코 주 100 → 에코 원값 300 (vtable 158~172).
+      expect(req).toMatchObject({ buyWatchQty: 100, buyWatchAmount: 300 });
+      // 매도 매수잔량 — 보낼 주 800 ≠ 에코 주 777 → 0(옛 원값을 실으면 짝이 어긋난 채 저장된다).
+      expect(req).toMatchObject({ sellWatchQty: 800, sellWatchAmount: 0 });
+      expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+    });
+
+    it("P31 구 탭 cfg 가 주는 같고 그룹 비교가만 바꾼 칸은 0 이다 — 옛 원값은 새 비교가와 짝이 아니다(R2-IN-01)", async () => {
+      const a = await authed("token-a");
+      const sock = gateway.sockets[0];
+      if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+      gateway.pushLimitChaserEcho(sock, {
+        isin: SAMPLE_ISIN,
+        accountNo: SAMPLE_ACCOUNT_NO,
+        buyWatchPrice: 69_900,
+        buyWatchQty: 100,
+        buyWatchAmount: 300,
+        sellWatchPrice: 12_870,
+        sellWatchQty: 777,
+        sellWatchAmount: 1000,
+      });
+      await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
+
+      // 매도 비교가만 12,870 → 13,000 (주 777 그대로) · 매수 쌍은 주 · 비교가 모두 그대로.
+      const cfg: Record<string, unknown> = {
+        ...lcInput({ buyWatchPrice: 69_900, buyWatchQty: 100, sellWatchPrice: 13_000, sellWatchQty: 777 }),
+      };
+      for (const p of LC_AMOUNT_PAIRS) delete cfg[p.amount];
+      a.ws.sendRaw({ t: "lc.set", cfg });
+      await waitFor(
+        () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+        "10 수신",
+      );
+      const sets = gateway
+        .strategyRequests()
+        .filter((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq);
+      const req = readSetLimitChaserRequest(sets[0]!.msgType, sets[0]!.payload);
+      expect(req).toMatchObject({ buyWatchQty: 100, buyWatchAmount: 300 });
+      expect(req).toMatchObject({ sellWatchPrice: 13_000, sellWatchQty: 777, sellWatchAmount: 0 });
+    });
+
+    // R2-IN-02 — 키 격리(같은 ISIN · 같은 계좌의 NXT 에코) · 8쌍 쌍별 대조 · 철거(withNeutralBuy3) 경로.
+    /** 쌍마다 서로 다른 에코 금액 · 주 — 어느 쌍이 다른 쌍의 값을 집으면 단언이 갈린다. 비교가는 lcInput 기본과 같다. */
+    const PAIRED = {
+      buyWatchPrice: 69_900,
+      sellWatchPrice: 70_900,
+      buyWatchQty: 100,
+      buyWatchAmount: 301,
+      buyMinTradeQty: 1,
+      buyMinTradeAmount: 302,
+      extraBuyMinQty: 10,
+      extraBuyMinAmount: 303,
+      extraBuyMaxQty: 20,
+      extraBuyMaxAmount: 304,
+      postBuyFloorQty: 30,
+      postBuyFloorAmount: 305,
+      sellWatchQty: 100,
+      sellWatchAmount: 306,
+      sellMinTradeQty: 1,
+      sellMinTradeAmount: 307,
+      cancelWatchQty: 40,
+      cancelWatchAmount: 308,
+    } as const;
+
+    it("P31 구 탭 금액 되싣기는 같은 키(ISIN · 계좌 · 거래소) 에코만 쓴다 — NXT 에코(9999)가 먼저 있어도 KRX 8쌍은 KRX 원값(R2-IN-02)", async () => {
+      const a = await authed("token-a");
+      const sock = gateway.sockets[0];
+      if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+      // NXT 를 먼저 민다 — 「첫 에코를 무조건 집는」 대조라면 9999 가 실린다.
+      const nxt: Record<string, number> = {};
+      for (const p of LC_AMOUNT_PAIRS) nxt[p.amount] = 9999;
+      gateway.pushLimitChaserEcho(sock, {
+        isin: SAMPLE_ISIN,
+        accountNo: SAMPLE_ACCOUNT_NO,
+        exchange: "NXT",
+        ...PAIRED,
+        ...nxt,
+      });
+      gateway.pushLimitChaserEcho(sock, { isin: SAMPLE_ISIN, accountNo: SAMPLE_ACCOUNT_NO, exchange: "KRX", ...PAIRED });
+      await waitFor(() => framesOf(a.inbox, "lc").length >= 2, "lc 에코 프레임 2");
+
+      const { buyWatchPrice, sellWatchPrice, ...qtys } = PAIRED;
+      const cfg: Record<string, unknown> = { ...lcInput({ buyWatchPrice, sellWatchPrice, exchange: "KRX" }) };
+      for (const p of LC_AMOUNT_PAIRS) {
+        cfg[p.qty] = qtys[p.qty];
+        delete cfg[p.amount];
+      }
+      a.ws.sendRaw({ t: "lc.set", cfg });
+      await waitFor(
+        () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+        "10 수신",
+      );
+      const sets = gateway
+        .strategyRequests()
+        .filter((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq);
+      expect(sets).toHaveLength(1);
+      const req = readSetLimitChaserRequest(sets[0]!.msgType, sets[0]!.payload)!;
+      for (const p of LC_AMOUNT_PAIRS) {
+        expect(req[p.qty], p.qty).toBe(PAIRED[p.qty]);
+        expect(req[p.amount], p.amount).toBe(PAIRED[p.amount]);
+      }
+      expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+    });
+
+    it("P31 옛 모양 철거 lc.set(withNeutralBuy3)도 금액을 되싣는다 — 레거시 5쌍은 원값 · 중립값 0 이 된 매수 3종 쌍은 주가 달라 0(R2-IN-02)", async () => {
+      const a = await authed("token-a");
+      const sock = gateway.sockets[0];
+      if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+      gateway.pushLimitChaserEcho(sock, { isin: SAMPLE_ISIN, accountNo: SAMPLE_ACCOUNT_NO, ...PAIRED });
+      await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
+
+      const { buyWatchPrice, sellWatchPrice } = PAIRED;
+      const cfg = legacyCfg({
+        crud: "D",
+        buyEnabled: false,
+        sellEnabled: false,
+        cancelQtyEnabled: false,
+        cancelTradeEnabled: false,
+        buyWatchPrice,
+        sellWatchPrice,
+        buyWatchQty: PAIRED.buyWatchQty,
+        buyMinTradeQty: PAIRED.buyMinTradeQty,
+        sellWatchQty: PAIRED.sellWatchQty,
+        sellMinTradeQty: PAIRED.sellMinTradeQty,
+        cancelWatchQty: PAIRED.cancelWatchQty,
+      });
+      for (const p of LC_AMOUNT_PAIRS) delete cfg[p.amount];
+      a.ws.sendRaw({ t: "lc.set", cfg });
+      await waitFor(
+        () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+        "철거 10 수신",
+      );
+      const sets = gateway
+        .strategyRequests()
+        .filter((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq);
+      expect(sets).toHaveLength(1);
+      const req = readSetLimitChaserRequest(sets[0]!.msgType, sets[0]!.payload)!;
+      expect(req.buy3Schema).toBe(1);
+      for (const key of ["buyWatchAmount", "buyMinTradeAmount", "sellWatchAmount", "sellMinTradeAmount", "cancelWatchAmount"] as const) {
+        expect(req[key], key).toBe(PAIRED[key]);
+      }
+      // 중립값(주 0)이 에코 주(10 · 20 · 30)와 달라 짝이 아니다 → 0.
+      expect(req).toMatchObject({
+        extraBuyMinQty: 0,
+        extraBuyMinAmount: 0,
+        extraBuyMaxQty: 0,
+        extraBuyMaxAmount: 0,
+        postBuyFloorQty: 0,
+        postBuyFloorAmount: 0,
+      });
+    });
+
+    it("P31 새 탭이 실은 금액(0 포함)은 캐시 에코가 있어도 덮지 않는다(WR-01)", async () => {
+      const a = await authed("token-a");
+      const sock = gateway.sockets[0];
+      if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+      gateway.pushLimitChaserEcho(sock, {
+        isin: SAMPLE_ISIN,
+        accountNo: SAMPLE_ACCOUNT_NO,
+        sellWatchPrice: 12_870,
+        sellWatchQty: 777,
+        sellWatchAmount: 1000,
+      });
+      await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
+
+      a.ws.sendRaw({
+        t: "lc.set",
+        cfg: lcInput({ sellWatchPrice: 12_870, sellWatchQty: 777, sellWatchAmount: 0 }),
+      });
+      await waitFor(
+        () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+        "10 수신",
+      );
+      const sets = gateway
+        .strategyRequests()
+        .filter((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq);
+      const req = readSetLimitChaserRequest(sets[0]!.msgType, sets[0]!.payload);
+      expect(req).toMatchObject({ sellWatchQty: 777, sellWatchAmount: 0 });
+    });
   });
 
   /*
@@ -2419,7 +2690,7 @@ describe("WsFanout", () => {
     await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
     const item = framesOf(a.inbox, "lc").at(-1)!.item;
     expect(item.extraBuyBurstRelease).toBe(true);
-    expect(Object.keys(item)).toHaveLength(69);
+    expect(Object.keys(item)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
   });
 
   /*
@@ -2468,7 +2739,7 @@ describe("WsFanout", () => {
     await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
     const item = framesOf(a.inbox, "lc").at(-1)!.item;
     expect(item.extraBuyAuto).toBe(true);
-    expect(Object.keys(item)).toHaveLength(69);
+    expect(Object.keys(item)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
   });
 
   it("⑰-burst-b 게이트 4종 OFF + postBuyAuto false + extraBuyBurstRelease true(crud C)는 철거다 — 모르는 ISIN 이어도 10 으로 나간다 (#isTeardown 무변경)", async () => {
@@ -2609,7 +2880,7 @@ describe("WsFanout", () => {
       autoSellBasis: 1,
       autoSellBasisPrice: 13_000,
     });
-    expect(Object.keys(item)).toHaveLength(69);
+    expect(Object.keys(item)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
   });
 
   it("⑰-auto-c 60 에코 postBuyAuto true → ws lc 프레임 item.postBuyAuto true · 68키 (D-01)", async () => {
@@ -2630,7 +2901,7 @@ describe("WsFanout", () => {
     await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
     const item = framesOf(a.inbox, "lc").at(-1)!.item;
     expect(item.postBuyAuto).toBe(true);
-    expect(Object.keys(item)).toHaveLength(69);
+    expect(Object.keys(item)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
   });
 
   it("⑰-unlock 60 에코 postBuyUnlockQty 264000 → ws lc 프레임 item 그대로 · 68키 (quick-261002-fim)", async () => {
@@ -2655,7 +2926,7 @@ describe("WsFanout", () => {
     const item = framesOf(a.inbox, "lc").at(-1)!.item;
     expect(item.postBuyUnlockQty).toBe(264_000);
     expect(item.postBuyTriggerQty).toBe(0);
-    expect(Object.keys(item)).toHaveLength(69);
+    expect(Object.keys(item)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
   });
 
   it("⑰-e2 삭제의 시장은 **에코 캐시가 1순위**다 — 종목맵이 못 풀어도 폴백까지 가지 않는다", async () => {

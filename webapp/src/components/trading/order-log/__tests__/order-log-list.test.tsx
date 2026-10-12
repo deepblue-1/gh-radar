@@ -373,7 +373,7 @@ describe('OrderLogList — 수동 · VI 줄 (quick-260930-e73)', () => {
       expect(line.getAttribute('data-group')).toBe(expected[i]!.group);
       expect(normalize(line.textContent)).toBe(orderLogLineText(rows[i]!, FIXTURE_STOCK_NAME));
     });
-    expect(normalize(lines[0]!.textContent)).toContain('주문 · 수동 주문 · 12,350×300주');
+    expect(normalize(lines[0]!.textContent)).toContain('주문 · 수동 주문 · 371만(300주) @12,350');
     expect(normalize(lines[1]!.textContent)).not.toContain('매수1');
     expect(normalize(lines[2]!.textContent)).toContain('주문 · VI 자동주문 · ');
   });

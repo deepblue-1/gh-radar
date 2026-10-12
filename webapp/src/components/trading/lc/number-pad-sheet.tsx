@@ -91,6 +91,12 @@ export interface NumberPadSheetProps {
   armedNotice?: boolean;
   /** 호출부 검증(무장 불가 등). 문장을 돌려주면 확정을 잠그고 그 문장을 상태 줄에 보인다. */
   validate?: (value: number) => string | null;
+  /**
+   * 환산 안내(Phase 31 D-08 · 상태 줄 ⑤ status) — 잠금이 아니다. 잠금은 `validate` 다. 입력마다 다시 부르고
+   * null 이면 ⑤ 가 없다. ①~④(잠금 · 반영 실패 · 경고 · 다른 단말)가 서면 숨는다. `armedNotice` 면 같은 상태 줄
+   * 둘째 줄에 「감시 중」 안내를 함께 둔다(환산 주도 즉시 반영 안내도 잃지 않는다).
+   */
+  hint?: (value: number) => string | null;
   /** 닫힌 뒤 포커스를 돌려줄 요소(연 행). */
   returnFocusRef: { current: HTMLElement | null };
   onConfirm: (value: number) => void;
@@ -116,11 +122,23 @@ function fmt(n: number): string {
   return n.toLocaleString('ko-KR');
 }
 
+/**
+ * 상태 줄 한 줄 — 위가 이긴다(UI-SPEC 「상태 줄 우선순위」): ① 잠금(alert) ② 반영 실패(alert) ③ 경고(warn)
+ * ④ 다른 단말(status) ⑤ 환산 안내(status · Phase 31). status 의 `armed` = 글자 앞 초록 점(「감시 중」 단독 줄),
+ * `armedLine` = ⑤ 아래 둘째 줄에 「감시 중」 안내를 함께 싣는다.
+ */
 type StatusLine =
   | { tone: 'alert'; text: string }
   | { tone: 'warn'; text: string }
-  | { tone: 'status'; text: string; armed?: boolean }
+  | { tone: 'status'; text: string; armed?: boolean; armedLine?: boolean }
   | null;
+
+/** 「감시 중」 초록 점 — 단독 줄과 ⑤ 둘째 줄이 같은 점을 쓴다. */
+function ArmedDot() {
+  return (
+    <span aria-hidden="true" className="mr-1.5 inline-block size-1.5 rounded-full bg-[var(--led-armed)] align-middle" />
+  );
+}
 
 export function NumberPadSheet({
   open,
@@ -136,6 +154,7 @@ export function NumberPadSheet({
   failureText,
   armedNotice = false,
   validate,
+  hint,
   returnFocusRef,
   onConfirm,
   onClose,
@@ -170,7 +189,12 @@ export function NumberPadSheet({
   else if (!busy && failureText) line = { tone: 'alert', text: failureText };
   else if (warning) line = { tone: 'warn', text: warning };
   else if (otherDevice) line = { tone: 'status', text: LC_COMMIT_TEXT.otherDevice };
-  else if (armedNotice) line = { tone: 'status', text: LC_COMMIT_TEXT.armed, armed: true };
+  else {
+    // ⑤ 환산 안내 — 잠금 · 실패 · 경고 · 다른 단말이 없을 때만. 「감시 중」 은 같은 줄 둘째 줄로 함께 싣는다.
+    const hintText = value !== null && hint ? hint(value) : null;
+    if (hintText !== null) line = { tone: 'status', text: hintText, armedLine: armedNotice };
+    else if (armedNotice) line = { tone: 'status', text: LC_COMMIT_TEXT.armed, armed: true };
+  }
 
   const confirmText = busy
     ? LC_COMMIT_TEXT.busy
@@ -277,13 +301,14 @@ export function NumberPadSheet({
         )}
         {line?.tone === 'status' && (
           <span role="status" className="text-[var(--muted-fg)]">
-            {line.armed && (
-              <span
-                aria-hidden="true"
-                className="mr-1.5 inline-block size-1.5 rounded-full bg-[var(--led-armed)] align-middle"
-              />
-            )}
+            {line.armed && <ArmedDot />}
             {line.text}
+            {line.armedLine && (
+              <span data-slot="numpad-armed" className="block">
+                <ArmedDot />
+                {LC_COMMIT_TEXT.armed}
+              </span>
+            )}
           </span>
         )}
       </p>

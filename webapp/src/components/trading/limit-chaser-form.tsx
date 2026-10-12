@@ -99,6 +99,7 @@ import type {
   RelayLimitChaserInput,
   TickRule,
 } from '@gh-radar/shared';
+import { LC_AMOUNT_PAIRS, lcAmountPairOf, type LcAmountKey, type LcAmountQtyKey } from '@gh-radar/shared';
 
 import { useRelayContext } from '@/lib/relay-provider';
 import {
@@ -112,6 +113,7 @@ import {
   groupAutoCheckLogLine,
   groupAutoChecksOf,
   isMasterOnlyDelta,
+  lcSubmitQtyOf,
   seedFromUpperLimit,
   seedListSharesDefaults,
   seedFromUserSettings,
@@ -128,8 +130,12 @@ import {
   LC_BUY_GROUPS,
   LC_SELL_GROUPS,
   LC_SWITCH_LABEL,
+  lcAmountHintOf,
   lcAutoSellBasisText,
+  lcDerivedRowTextOf,
   lcNavigableRows,
+  lcQtyAmountFieldOf,
+  lcQtyRowSubOf,
   lcRowA11yNameOf,
   lcRowByField,
   lcRowById,
@@ -229,7 +235,66 @@ const ARM_BLOCKED_TEXT = {
   sellPrice: '시세를 받지 못해 매도 주문가격이 0 이에요. 주문가격을 입력하면 켤 수 있어요.',
   sellWatchQty: '매도 매수잔량이 0 이에요. 감시할 매수잔량을 입력하면 켤 수 있어요.',
   sweepPrice: '시세를 받지 못해 한방가격이 0 이에요. 한방가격을 입력하면 켤 수 있어요.',
+  // ── Phase 31 D-03 · D-04 — C# `LimitChaserForm.cs` 5153~5296 원문(UI-SPEC 「등록 차단 문구」 표 1 · 2 · 5~8).
+  //    판정 · 순서 · 접미는 `armBlockOf` 머리 주석 표. 문장은 여기 한 곳에만 둔다(패널 · 전송 직전 · 시트 · 인라인 공용).
+  buyWatchPriceAmount: '매수 비교가격이 0 입니다 — 금액(만원)을 주로 환산할 수 없습니다. 매수 비교가격을 입력하세요.',
+  sellWatchPriceAmount: '매도 비교가격이 0 입니다 — 금액(만원)을 주로 환산할 수 없습니다. 매도 비교가격을 입력하세요.',
+  extraBuyMaxFloored:
+    '줄매수 최대가 0주로 환산됩니다 — 0 은 무제한이라 의도와 반대로 동작합니다. 최대 금액을 늘리거나 0(무제한) 으로 하세요.',
+  extraBuyMinOverMax: '줄매수의 최소 잔량이 최대 잔량보다 큽니다 — 최대를 0(무제한) 으로 하거나 최소를 낮추세요.',
+  preBuyTradeFloored:
+    '선매수 체결량이 0주로 환산됩니다 — 0주면 매수 비교가격의 첫 체결부터 매수가 나갑니다. 체결량 금액을 늘리거나 ☐체결량을 끄세요.',
+  sellTradeFloored:
+    '매도 체결수량이 0주로 환산됩니다 — 0주면 매도 비교가격의 첫 매도체결부터 매도가 나갑니다. 체결 금액을 늘리거나 매도 ☐체결을 끄세요.',
+  cancelQtyZero:
+    '취소 잔량이 0 입니다. 취소:잔량은 매도 비교가격의 매수잔량이 이 값 이하로 빠지면 미체결을 취소하므로 0 이면 의미가 없습니다. 취소 잔량을 확인하세요.',
+  cancelTradeZero:
+    '취소:체결 은 매도 옵션의 체결수량 칸을 임계로 재사용합니다. 그 값이 0 이면 매도 비교가격의 매 매도체결마다 취소가 나가므로 서버가 켜 주지 않습니다. 매도 체결수량을 확인하세요.',
 } as const;
+
+/** 만원 · 주 천 단위 표기(웹 숫자 규칙 — 글자는 C# 과 같다). */
+const NUM = new Intl.NumberFormat('ko-KR');
+
+/**
+ * C# `ZeroQtySuffix` — 금액 > 0 이 내림으로 0주가 된 칸의 접미(예 「 (12만 → 0주」 + 닫는 괄호 · N 천 단위 쉼표). 금액 0 이면 빈 글자다
+ * (0 을 직접 친 칸은 「→ 0주」 를 말할 이유가 없다). 호출부는 그 칸의 제출 주가 0 일 때만 부른다.
+ */
+function zeroQtySuffixOf(amount: number): string {
+  return amount > 0 ? ` (${NUM.format(amount)}만 → 0주)` : '';
+}
+
+/**
+ * 켜진 매수 쪽 칸에 금액이 있는가 — C# `buyNeedsWatchPrice`(5175~5178)의 그룹 항(☐매수주문 항 제외).
+ * 선매수 두 칸 · (줄매수 ∨ 줄매수 자동) 최소 · 최대 · (후매수 ∨ 후매수 자동) 최소. 열 아래 정적 패널은 마스터가 꺼져
+ * 있어도 같은 문장을 말해야 해서 이 판을 쓰고, 전송 직전은 마스터 항을 더한 `buyNeedsWatchPrice` 를 쓴다.
+ */
+function buyAmountsNeedWatchPrice(values: LimitChaserFormValues): boolean {
+  return (
+    (values.preBuyEnabled && (values.buyWatchAmount > 0 || values.buyMinTradeAmount > 0)) ||
+    ((values.extraBuyEnabled || values.extraBuyAuto) && (values.extraBuyMinAmount > 0 || values.extraBuyMaxAmount > 0)) ||
+    ((values.postBuyEnabled || values.postBuyAuto) && values.postBuyFloorAmount > 0)
+  );
+}
+
+/** C# `buyNeedsWatchPrice` 그대로 — ☐매수주문 ∧ 그룹 항. */
+function buyNeedsWatchPrice(values: LimitChaserFormValues): boolean {
+  return values.buyEnabled && buyAmountsNeedWatchPrice(values);
+}
+
+/**
+ * C# `sellNeedsWatchPrice`(5179~5182) — 매도주문의 잔량 · 체결 칸, (후매수 ∨ 후매수 자동) ∧ 매도 ☐체결의 체결 칸(WR-05 —
+ * 후매수가 발동하면 서버가 매도를 켜고 그 임계를 쓴다), 취소:잔량의 취소 칸, 취소:체결의 체결 칸(매도 칸 재사용).
+ * 꺼진 그룹의 칸은 보지 않는다(C# CR-02).
+ */
+function sellNeedsWatchPrice(values: LimitChaserFormValues): boolean {
+  const postBuyArmsSell = values.postBuyEnabled || values.postBuyAuto;
+  return (
+    (values.sellEnabled && (values.sellWatchAmount > 0 || values.sellMinTradeAmount > 0)) ||
+    (postBuyArmsSell && values.sellTradeQtyEnabled && values.sellMinTradeAmount > 0) ||
+    (values.cancelQtyEnabled && values.cancelWatchAmount > 0) ||
+    (values.cancelTradeEnabled && values.sellMinTradeAmount > 0)
+  );
+}
 
 /**
  * 게이트의 **표시 이름** — 값은 각 그룹 카드의 `title` 과 **같은 문자열**이어야 한다.
@@ -247,8 +312,13 @@ const GATE_LABEL: Record<GateKey, string> = {
 /** 한방 체크의 무장 불가 접두 — 「{그룹} {라벨}」 규칙(체크 접근성 이름과 같다). */
 const SWEEP_LABEL = '선매수 한방';
 
-/** 매수 공통 가격(주문가격 · 비교가격) 사유 — 서버가 마스터를 눕히는 값(relay `buy` 갈래). 멀쩡하면 null. */
+/**
+ * 매수 공통 가격(주문가격 · 비교가격) 사유 — 서버가 마스터를 눕히는 값(relay `buy` 갈래). 멀쩡하면 null.
+ * Phase 31 D-03 — 매수 비교가 0 ∧ 켜진 매수 쪽 칸에 금액이 있으면 `ARM_BLOCKED_TEXT.buyWatchPriceAmount` 가 먼저다
+ * (UI-SPEC 표 1 — `armBlockOf` 의 1 순위와 같은 판정 순서 · 패널과 전송 직전이 같은 문장을 말한다).
+ */
 function buyPriceReasonOf(values: LimitChaserFormValues): string | null {
+  if (values.buyWatchPrice === 0 && buyAmountsNeedWatchPrice(values)) return ARM_BLOCKED_TEXT.buyWatchPriceAmount;
   if (values.buyOrderPrice === 0) return ARM_BLOCKED_TEXT.buyPrice;
   if (values.buyWatchPrice === 0) return ARM_BLOCKED_TEXT.buyWatchPrice;
   return null;
@@ -265,8 +335,12 @@ function buyPriceReasonOf(values: LimitChaserFormValues): string | null {
  */
 function armBlockedTextOf(key: GateKey, values: LimitChaserFormValues): string {
   // 매도는 두 값이 독립이다 — 가격이 0 이면 시세, 아니면 감시 매수잔량이다(`canArmOf.sellEnabled` 동형).
+  // Phase 31 — 매수잔량은 만원 칸의 제출 환산 주다. 매도 비교가 0 이면 환산할 수 없다(UI-SPEC 표 2 문장 · 패널은 접두를 단다),
+  //   그 밖에 0주면 C# 처럼 `zeroQtySuffixOf` 접미를 붙인다(금액 > 0 일 때만 · 표 3).
   if (key === 'sellEnabled') {
-    return values.sellOrderPrice === 0 ? ARM_BLOCKED_TEXT.sellPrice : ARM_BLOCKED_TEXT.sellWatchQty;
+    if (values.sellOrderPrice === 0) return ARM_BLOCKED_TEXT.sellPrice;
+    if (values.sellWatchPrice === 0 && values.sellWatchAmount > 0) return ARM_BLOCKED_TEXT.sellWatchPriceAmount;
+    return ARM_BLOCKED_TEXT.sellWatchQty + zeroQtySuffixOf(values.sellWatchAmount);
   }
   // 매수 넷은 공통 가격이 먼저다(시세 미수신 — 만질 곳은 가격). 가격이 멀쩡한데 막혔으면 그 그룹 수량 0 이다
   //   (만질 곳은 그 카드 금액 — 사전 검증 줄과 같은 문장).
@@ -335,15 +409,16 @@ const ARM_BLOCKED_SEP = ' · ';
  * 그런 종목을 고르면 상한가 시딩이 가격 칸을 전부 0 으로 채운다 — 그 상태의 「무장」 배지는 영원히
  * 발주하지 않는 조용한 실패다.
  */
-function canArmOf(values: LimitChaserFormValues): Record<GateKey, boolean> {
+function canArmOf(values: LimitChaserFormValues, server: RelayLimitChaser | null): Record<GateKey, boolean> {
   const buy = buyPriceReasonOf(values) === null;
   /*
     ★ 매도는 **예상 매도수량(`estimatedSellQty(매도가능, 비율)`)을 조건으로 쓰지 않는다.**
     정본은 서버가 Set 시점에 스냅샷하는 `sellOrderQty` 이고, 상따의 정상 흐름은 「아직 한 주도 없는 상태에서
     매수·매도를 함께 무장」이다. 서버 검증과 동형으로 `sellWatchQty === 0`(「0 이면 서버가 매도 활성화를
-    거부한다」)과 시세 미수신(`sellOrderPrice === 0`)만 본다.
+    거부한다」)과 시세 미수신(`sellOrderPrice === 0`)만 본다. 매수잔량 주는 만원 칸의 **제출 환산 주**다
+    (Phase 31 — relay `#strategyArmable` 이 보는 cfg.sellWatchQty 와 같은 값).
   */
-  const sell = values.sellOrderPrice > 0 && values.sellWatchQty > 0;
+  const sell = values.sellOrderPrice > 0 && lcSubmitQtyOf(values, 'sellWatchAmount', server) > 0;
   return {
     buyEnabled: buy,
     preBuyEnabled: buy && groupQtyOf('preBuyEnabled', values) > 0,
@@ -358,33 +433,118 @@ function canArmOf(values: LimitChaserFormValues): Record<GateKey, boolean> {
  * 열 아래 패널이 이것을 읽는다. 그룹 수량 0 은 누르는 순간의 사전 검증이다(R7 · UI-SPEC §7) — 여기 넣으면
  * 금액만 모자란 그룹 스위치가 눌리지도 않아 「왜」를 말할 자리가 사라진다.
  */
-function canArmStaticOf(values: LimitChaserFormValues): Record<GateKey, boolean> {
+function canArmStaticOf(values: LimitChaserFormValues, server: RelayLimitChaser | null): Record<GateKey, boolean> {
   const buy = buyPriceReasonOf(values) === null;
-  const sell = values.sellOrderPrice > 0 && values.sellWatchQty > 0;
+  const sell = values.sellOrderPrice > 0 && lcSubmitQtyOf(values, 'sellWatchAmount', server) > 0;
   return { buyEnabled: buy, preBuyEnabled: buy, extraBuyEnabled: buy, postBuyEnabled: buy, sellEnabled: sell };
 }
 
 /**
- * 이 값으로 보내면 relay 가 통째로 거부할 무장인가 — 사유 1줄, 아니면 `null`.
+ * 이 값으로 보내면 relay 가 통째로 거부할(또는 서버가 받아도 의도와 반대로 도는) 무장인가 — 사유 1줄, 아니면 `null`.
  *
  * ★ 조립 규칙은 `{게이트이름} · {사유}` 이고, 시트 검증(`validate`)과 필드 확정 훅이
  *   **이 함수 하나**를 읽는다(GC-WR-09 · T-16-60). 동반 필드(D-01)는 훅이 합친 값으로 부른다.
- * ★ **켜져 있는 게이트만** 본다(`values[key]`) — 끄는 방향은 막지 않는다(T-16-44).
+ * ★ **켜져 있는 게이트만** 본다(`values[key]`) — 게이트를 끄는 방향은 막지 않는다(T-16-44 · 훅 `isDisarm`). 단 5 · 5b(줄매수
+ *   구간)는 C# 처럼 폼 전체를 본다 — ☐줄매수 ∨ ☐자동이 켜진 채 구간이 깨져 있으면 게이트가 아닌 체크의 OFF 도 막힌다.
+ *   빠져나갈 길(☐자동 끄기 · 최소/최대 수정 · 철거)은 열려 있다.
  * ★ 한방(선매수 안 체크)은 게이트 뒤 한 줄이다 — 선매수가 켜져 있을 때만 한방가격 0 을 본다(relay `sweep` 갈래 ·
  *   선매수가 꺼져 있으면 판정되지 않는 값이라 막을 이유가 없다).
  * ★★ **철거 면제**(R2-WR-02) — 게이트 4종이 전부 꺼진 요청은 전략을 내리는 요청이라 막지 않는다.
  *   relay `fanout.ts` `#strategyArmable` 도 `#isTeardown(cfg)` 를 먼저 면제한다. 첫 관문이
  *   마지막 관문보다 엄격하면 사용자는 전략을 내리려는데 화면이 막는다.
  */
-function armBlockOf(values: LimitChaserFormValues): string | null {
+function armBlockOf(values: LimitChaserFormValues, server: RelayLimitChaser | null): string | null {
+  /*
+    ★ Phase 31 D-03 · D-04 — 판정 순서(첫 일치 하나 · UI-SPEC 「등록 차단 문구」 표 · C# 5153~5296 순서 동형):
+      | 순 | 조건                                                                   | 문장(`ARM_BLOCKED_TEXT`)             | 접두        |
+      |----|------------------------------------------------------------------------|--------------------------------------|-------------|
+      | 1  | C# buyNeedsWatchPrice ∧ 매수 비교가 0                                    | buyWatchPriceAmount                  | 매수주문 ·  |
+      | 2  | C# sellNeedsWatchPrice ∧ 매도 비교가 0                                   | sellWatchPriceAmount                 | 없음        |
+      | 3  | 기존 게이트 사유(가격 0 · 그룹 수량 0 · 매도 매수잔량 환산 0주 + 접미)   | armBlockedTextOf                     | {게이트} ·  |
+      | 4  | 선매수 ∧ 한방 ∧ 한방가격 0                                               | sweepPrice                           | 선매수 한방 · |
+      | 5  | (줄매수 ∨ 줄매수 자동) ∧ 최대 금액 > 0 ∧ 환산 0주 (C# addMaxFloored)      | extraBuyMaxFloored + 접미            | 없음        |
+      | 5b | (줄매수 ∨ 줄매수 자동) ∧ 최대 주 ≠ 0 ∧ 최소 주 > 최대 주 (C# 같은 if)     | extraBuyMinOverMax                   | 없음        |
+      | 6a | 매수주문 ∧ 선매수 ∧ ☐체결량 ∧ 체결량 금액 > 0 ∧ 환산 0주 (C# 5255)        | preBuyTradeFloored + 접미            | 없음        |
+      | 6b | (매도주문 ∨ 후매수 ∨ 후매수 자동) ∧ ☐체결 ∧ 체결 금액 > 0 ∧ 환산 0주 (5257) | sellTradeFloored + 접미             | 없음        |
+      | 7  | 취소:잔량 ∧ 취소 매수잔량 환산 0주 (C# 5276)                              | cancelQtyZero + 접미                 | 없음        |
+      | 8  | 취소:체결 ∧ 매도 체결 환산 0주 (C# 5287)                                  | cancelTradeZero + 접미               | 없음        |
+    2 · 5~8 은 문장이 주어를 품는다(C# 원문) — 접두를 달지 않는다. C# 의 「매도 비교가 0(anyCancel)」 차단(5296)은 2 · 7 · 8 이
+    먼저 잡아 여기서 도달하지 않으므로 문장을 따로 두지 않는다. 0주 판정의 주는 `lcSubmitQtyOf`(= buildCfg 가 싣는 주)다.
+    서버 54 는 0주 임계를 거부하지 않는다 — 0주 줄매수 최대는 무제한, 0주 체결 임계는 첫 체결 발주로 뒤집힌다(AMT-04).
+    5 · 5b 의 「줄매수 ∨ 자동」은 C# `addBuyLive`(gh-trade Phase 32 WR-06) — ☐자동은 이탈 뒤 서버가 줄매수를 다시 켜므로 ☐줄매수가
+    꺼진 대기에서도 구간이 살아 있다. 서버도 그 조합의 최소 > 최대를 54 ERROR 로 거부하고 줄매수 · 자동을 함께 끈다.
+  */
   if (isDeleteIntent(values)) return null;
-  const canArm = canArmOf(values);
+  if (buyNeedsWatchPrice(values) && values.buyWatchPrice === 0) {
+    return `${GATE_LABEL.buyEnabled}${ARM_BLOCKED_SEP}${ARM_BLOCKED_TEXT.buyWatchPriceAmount}`;
+  }
+  if (sellNeedsWatchPrice(values) && values.sellWatchPrice === 0) return ARM_BLOCKED_TEXT.sellWatchPriceAmount;
+  const canArm = canArmOf(values, server);
   const blocked = GATE_KEYS.find((key) => values[key] && !canArm[key]);
   if (blocked !== undefined) return `${GATE_LABEL[blocked]}${ARM_BLOCKED_SEP}${armBlockedTextOf(blocked, values)}`;
   if (values.preBuyEnabled && values.sweepEnabled && values.sweepWatchPrice === 0) {
     return `${SWEEP_LABEL}${ARM_BLOCKED_SEP}${ARM_BLOCKED_TEXT.sweepPrice}`;
   }
+  const floored = (amount: LcAmountKey): boolean => lcSubmitQtyOf(values, amount, server) === 0;
+  const extraBuyLive = values.extraBuyEnabled || values.extraBuyAuto;
+  if (extraBuyLive && values.extraBuyMaxAmount > 0 && floored('extraBuyMaxAmount')) {
+    return ARM_BLOCKED_TEXT.extraBuyMaxFloored + zeroQtySuffixOf(values.extraBuyMaxAmount);
+  }
+  if (extraBuyLive && extraBuyMinOverMax(values, server)) return ARM_BLOCKED_TEXT.extraBuyMinOverMax;
+  if (
+    values.buyEnabled &&
+    values.preBuyEnabled &&
+    values.buyTradeQtyEnabled &&
+    values.buyMinTradeAmount > 0 &&
+    floored('buyMinTradeAmount')
+  ) {
+    return ARM_BLOCKED_TEXT.preBuyTradeFloored + zeroQtySuffixOf(values.buyMinTradeAmount);
+  }
+  if (
+    (values.sellEnabled || values.postBuyEnabled || values.postBuyAuto) &&
+    values.sellTradeQtyEnabled &&
+    values.sellMinTradeAmount > 0 &&
+    floored('sellMinTradeAmount')
+  ) {
+    return ARM_BLOCKED_TEXT.sellTradeFloored + zeroQtySuffixOf(values.sellMinTradeAmount);
+  }
+  if (values.cancelQtyEnabled && floored('cancelWatchAmount')) {
+    return ARM_BLOCKED_TEXT.cancelQtyZero + zeroQtySuffixOf(values.cancelWatchAmount);
+  }
+  if (values.cancelTradeEnabled && floored('sellMinTradeAmount')) {
+    return ARM_BLOCKED_TEXT.cancelTradeZero + zeroQtySuffixOf(values.sellMinTradeAmount);
+  }
   return null;
+}
+
+/**
+ * 수량 칸(만원) **시트 · 인라인 잠금 문장 한 곳**(Phase 31 D-08 · UI-SPEC 「넘버패드 시트」 잠금 2행 · S4 말풍선) — 시트
+ * `validate` 와 인라인 `validate` 가 같은 `validateCommit` 을 지나므로 두 표면이 같은 문장을 말한다.
+ * 제출 주(`lcSubmitQtyOf` — 내림 · 에코 메모 포함)를 **먼저** 계산하고, 그 주가 0 일 때만 잠근다(행 아래 줄
+ * `lcQtyRowSubOf` · 시트 안내 `lcAmountHintOf` 와 같은 순서 · R2-WR-01):
+ *   - 값 > 0 ∧ 제출 주 0 ∧ 그 그룹 비교가 0 → 「비교가격 필요」 + 매수 5칸은 매수 비교가 · 매도 · 취소 3칸은 매도 비교가 안내
+ *   - 값 > 0 ∧ 제출 주 0 → 「{N}만 → 0주」 + 금액을 늘리라는 안내(8칸 공통)
+ * 비교가 0 이어도 에코 메모가 서버 주를 보존 중이면(짝 원값 에코 — 값 = 에코 표시값 ∧ 비교가 = 에코 비교가 0) 잠그지 않는다 —
+ * 행은 「777주」 인데 시트가 빨간 잠금을 말하지 않는다. 그 확정은 `buildCfg` 가 에코 주를 그대로 싣는 no-op 이고, 값을 바꾸면
+ * 메모가 깨져 제출 주 0 → 잠금이 다시 선다. C# 칸에는 값 확정 잠금이 없다 — 이 잠금은 웹 규칙이고 등록 차단은 `armBlockOf` 몫.
+ * 그 밖(값 0 · 수량 칸이 아님) `null`. 그룹 켬 여부를 보지 않는다 — 환산할 수 없는 값은 칸에 들이지 않는다(UI-SPEC).
+ */
+function amountLockTextOf(
+  field: LcNumField,
+  value: number,
+  values: LimitChaserFormValues,
+  server: RelayLimitChaser | null,
+): string | null {
+  const amountField = lcQtyAmountFieldOf(field);
+  if (amountField === null || !(value > 0)) return null;
+  if (lcSubmitQtyOf({ ...values, [amountField]: value }, amountField, server) > 0) return null;
+  const price = lcAmountPairOf(amountField)!.price;
+  if (values[price] === 0) {
+    return price === 'buyWatchPrice'
+      ? '비교가격 필요 — 매수 비교가격을 입력하세요'
+      : '비교가격 필요 — 매도 비교가격을 입력하세요';
+  }
+  return `${NUM.format(value)}만 → 0주 — 금액을 늘리세요`;
 }
 
 /** 매수 열이 품는 게이트 — 마스터 + 세 그룹. 사유가 같으면 한 줄로 합쳐진다. */
@@ -460,11 +620,15 @@ type PrecheckSlot = (typeof GROUP_SLOT)[BuyGroupGate];
  *     금액이 실패하면 수량은 보지 않는다(같은 원인을 두 번 말하지 않는다).
  *   - 수량: `buyOrderQtyFromAmount(그룹 금액, 공통 주문가격) === 0` — 웹 `canArmOf` · relay `…OrderQty === 0` 과 같은 식.
  *   - 선매수: 한방 체크 ON ∧ 한방가격 0 → `ARM_BLOCKED_TEXT.sweepPrice`(IN-03 — 폼 맨 위가 아니라 선매수 카드 한 줄).
- *   - 줄매수: D-10 최대 ≠ 0 ∧ 최소 > 최대.
+ *   - 줄매수: D-10 최대 제출 주 ≠ 0 ∧ 최소 제출 주 > 최대 제출 주(`extraBuyMinOverMax` · C# 동형).
  *   - 후매수: 반등 1~100 밖(D-20 · 레거시 0) → 매도비율 0(D-27 · 레거시).
- * `values` = 이 확정이 실을 기준값(서버 동기값 — 훅과 같은 `lcBaseValues`).
+ * `values` = 이 확정이 실을 기준값(서버 동기값 — 훅과 같은 `lcBaseValues`). `server` = 제출 주의 에코 메모(`lcSubmitQtyOf`).
  */
-function groupPrechecksOf(gate: BuyGroupGate, values: LimitChaserFormValues): string[] {
+function groupPrechecksOf(
+  gate: BuyGroupGate,
+  values: LimitChaserFormValues,
+  server: RelayLimitChaser | null,
+): string[] {
   const out: string[] = [];
   const amount = lcGroupAmountBlockOf(values, gate, true);
   if (amount !== null) out.push(amount);
@@ -472,7 +636,7 @@ function groupPrechecksOf(gate: BuyGroupGate, values: LimitChaserFormValues): st
   if (gate === 'preBuyEnabled' && values.sweepEnabled && values.sweepWatchPrice === 0) {
     out.push(ARM_BLOCKED_TEXT.sweepPrice);
   }
-  if (gate === 'extraBuyEnabled' && values.extraBuyMaxQty !== 0 && values.extraBuyMinQty > values.extraBuyMaxQty) {
+  if (gate === 'extraBuyEnabled' && extraBuyMinOverMax(values, server)) {
     out.push(LC_COMMIT_TEXT.minOverMax);
   }
   if (gate === 'postBuyEnabled') {
@@ -482,9 +646,26 @@ function groupPrechecksOf(gate: BuyGroupGate, values: LimitChaserFormValues): st
   return out;
 }
 
+/**
+ * 줄매수 최소 > 최대 — **제출 주끼리**(C# `LimitChaserForm.cs` `addBuyMaxQtyRaw != 0 && addBuyMinQtyRaw > addBuyMaxQtyRaw` 동형 ·
+ * gh-trade e4a66ae2). 서버 Gateway 검증과 같은 값이다. 만원끼리 비교하면 에코 메모 칸에서 어긋난다 — 최소 에코 1,000주
+ * @12,354원(표시 1,235만) 옆에 최대 1,235만을 넣으면 금액은 같아도 최대 = 999주라 서버가 줄매수를 ERROR 로 눕힌다(IN-01).
+ * 반대로 금액은 최소 > 최대여도 같은 주로 내림되면 서버는 받는다 — 막지 않는다.
+ *   최대 주 0 은 무제한이라 보지 않는다. 최대 금액 > 0 인데 내림 0주인 경우는 「줄매수 최대 0주」 차단(`armBlockOf` 5 · C#
+ *   addMaxFloored)이 먼저다.
+ */
+function extraBuyMinOverMax(values: LimitChaserFormValues, server: RelayLimitChaser | null): boolean {
+  const maxQty = lcSubmitQtyOf(values, 'extraBuyMaxAmount', server);
+  return maxQty !== 0 && lcSubmitQtyOf(values, 'extraBuyMinAmount', server) > maxQty;
+}
+
 /** 그룹 켜기 사전 검증 — 첫 실패 문구 하나, 통과면 null(누르는 순간 판정 · R7). 끄는 방향에는 부르지 않는다(T-16-44). */
-function groupPrecheckOf(gate: BuyGroupGate, values: LimitChaserFormValues): string | null {
-  return groupPrechecksOf(gate, values)[0] ?? null;
+function groupPrecheckOf(
+  gate: BuyGroupGate,
+  values: LimitChaserFormValues,
+  server: RelayLimitChaser | null,
+): string | null {
+  return groupPrechecksOf(gate, values, server)[0] ?? null;
 }
 
 /**
@@ -528,7 +709,7 @@ export interface LimitChaserFormProps {
   upperLimit?: number;
   /**
    * 호가 프레임 상장주식수(`RelayQuote.ls`) — D-17 시딩 원천, 0 = 모름. 새 전략(서버 전략 없음)이면 폼당 1회
-   * 수량 5칸을 채운다(`seedListSharesDefaults` · 사용자가 이 폼에서 손댄 칸 제외 · 제출 없음).
+   * 만원 5칸(비교가 필요)을 채운다(`seedListSharesDefaults` · 사용자가 이 폼에서 손댄 칸 제외 · 제출 없음).
    */
   listShares?: number;
   /** 세션 미준비 등 — 폼 전체 비활성. */
@@ -672,24 +853,33 @@ export function LimitChaserForm({
    * 정규화하므로 화면과 와이어만 갈린다.
    */
   const buildCfg = useCallback(
-    (values: LimitChaserFormValues): RelayLimitChaserInput => ({
-      ...values,
-      isin,
-      accountNo,
-      // ★ `market` 을 싣지 않는다 (WR-03 / D-28) — relay 가 `symbols.lookup(isin)` 으로 푼다.
-      //   여기서 추측해 넣으면 그 추측이 **반복 발주 설정**이 된다. 스키마도 이 키를 떨어뜨린다.
-      exchange,
-      crud: crudOf(values),
-      // 발주 정본. **역산 금지** — 산출식은 `lib/limit-chaser.ts` 한 곳뿐이다.
-      buyOrderQty: buyOrderQtyFromAmount(values.buyOrderAmount, values.buyOrderPrice),
-      // Phase 24 — 줄매수 · 후매수도 같은 함수 · 같은 공통 매수가격(금액→수량 3벌 = 호출 3곳).
-      extraBuyOrderQty: buyOrderQtyFromAmount(values.extraBuyOrderAmount, values.buyOrderPrice),
-      postBuyOrderQty: buyOrderQtyFromAmount(values.postBuyOrderAmount, values.buyOrderPrice),
-      // 클라 고정 3 — 폼에 노출하지 않는다(파일 상단 ⑤).
-      sweepRecalcEnabled: true,
-      sweepMinCount: 0,
-      sweepMinRate: 0,
-    }),
+    (values: LimitChaserFormValues, server: RelayLimitChaser | null): RelayLimitChaserInput => {
+      // Phase 31 — 수량 임계 주 8개. 주 산출은 shared `qtyForSubmit` 한 곳(`lcSubmitQtyOf`) — 행 아래 줄 · 시트 안내 · 무장
+      //   판정이 같은 값을 본다(Key insight). 쌍마다 그룹 비교가(매수 5칸 `buyWatchPrice` · 매도 · 취소 3칸 `sellWatchPrice`)로
+      //   내림 환산하고, 칸 · 비교가가 에코가 쓴 그대로면 에코 주(추적 ON 은 기준선)를 되싣는다(D-02 · D-06 · D-10 — 0 을
+      //   지어내지 않는다). 금액은 `...values` 의 칸 값 그대로 실린다.
+      const qtys = {} as Pick<RelayLimitChaserInput, LcAmountQtyKey>;
+      for (const pair of LC_AMOUNT_PAIRS) qtys[pair.qty] = lcSubmitQtyOf(values, pair.amount, server);
+      return {
+        ...values,
+        isin,
+        accountNo,
+        // ★ `market` 을 싣지 않는다 (WR-03 / D-28) — relay 가 `symbols.lookup(isin)` 으로 푼다.
+        //   여기서 추측해 넣으면 그 추측이 **반복 발주 설정**이 된다. 스키마도 이 키를 떨어뜨린다.
+        exchange,
+        crud: crudOf(values),
+        // 발주 정본. **역산 금지** — 산출식은 `lib/limit-chaser.ts` 한 곳뿐이다.
+        buyOrderQty: buyOrderQtyFromAmount(values.buyOrderAmount, values.buyOrderPrice),
+        // Phase 24 — 줄매수 · 후매수도 같은 함수 · 같은 공통 매수가격(금액→수량 3벌 = 호출 3곳).
+        extraBuyOrderQty: buyOrderQtyFromAmount(values.extraBuyOrderAmount, values.buyOrderPrice),
+        postBuyOrderQty: buyOrderQtyFromAmount(values.postBuyOrderAmount, values.buyOrderPrice),
+        ...qtys,
+        // 클라 고정 3 — 폼에 노출하지 않는다(파일 상단 ⑤).
+        sweepRecalcEnabled: true,
+        sweepMinCount: 0,
+        sweepMinRate: 0,
+      };
+    },
     [isin, accountNo, exchange],
   );
 
@@ -743,9 +933,12 @@ export function LimitChaserForm({
   const { successSeq, lastSuccessField, sentSuccessSeq, lastSentSuccessField, commit: commitField, clearFailure } = lc;
 
   /*
-    ★ D-17 상장주식수 시딩 — 새 전략(서버 전략 없음)에서 **폼당 1회** 수량 5칸을 채운다(WinForms `SeedListSharesDefaults`).
+    ★ D-17 상장주식수 시딩 — 새 전략(서버 전략 없음)에서 **폼당 1회** 만원 5칸(비교가 필요)을 채운다(WinForms
+      `SeedListSharesDefaults` · Phase 31 — 주 비율을 비교가격으로 환산한 만원).
       ① 서버에 그 키의 전략이 있으면 시딩하지 않는다(에코가 이긴다 · 가드 소진).
-      ② `listShares === 0`(모름)이면 아무것도 하지 않아 가드가 남는다 — 뒤에 오는 프레임이 채운다(그동안 폴백 유지).
+      ② `listShares === 0`(모름)이면 아무것도 하지 않아 가드가 남는다 — 뒤에 오는 프레임이 채운다(그동안 폴백 0 유지).
+         매수 비교가가 0 이면(상한가 미수신 · 사람이 비움) 환산할 수 없어 역시 가드를 남긴다 — 비교가가 생긴 뒤 다음
+         렌더에 채운다(Pitfall 9 · C# 「가드 미소진」). 매도 비교가 0 이면 매도 체결 칸만 건너뛴다.
       ③ 사용자가 이 폼에서 확정한 값 칸(`touchedRef` — 인라인 · 시트 · 3택 확정 경로)은 덮지 않는다.
          3택(자동매도 방법 · Phase 27)도 같은 집합에 든다 — 27-07 84 시딩이 「손대지 않은 칸만」 을 같은 집합으로 판정한다.
       ④ **제출 · 로그(`onClientLog`) · 강조를 만들지 않는다** — `setForm` 한 번뿐이고, 값은 첫 등록 cfg 에 실린다.
@@ -757,17 +950,20 @@ export function LimitChaserForm({
     if (outcome !== 'blocked' && outcome !== 'disconnected') touchedRef.current.add(field);
   }, []);
   useEffect(() => {
-    if (seededRef.current) return;
-    const seed = seedListSharesDefaults(listShares);
-    if (seed === null) return; // ② 모른다 — 가드를 남긴다.
+    if (seededRef.current || !(listShares > 0)) return; // ② 모른다 — 가드를 남긴다.
+    if (server != null) {
+      seededRef.current = true; // ① 서버 값이 이긴다(C# 순서 — 비교가 판정보다 먼저 소진).
+      return;
+    }
+    const seed = seedListSharesDefaults(listShares, formRef.current.buyWatchPrice, formRef.current.sellWatchPrice);
+    if (seed === null) return; // ② 매수 비교가 0 — 환산할 수 없다 · 가드를 남긴다.
     seededRef.current = true;
-    if (server != null) return; // ① 서버 값이 이긴다.
     const patch: Partial<LimitChaserFormValues> = {};
     for (const [field, value] of Object.entries(seed) as [keyof typeof seed, number][]) {
       if (!touchedRef.current.has(field)) patch[field] = value; // ③
     }
     if (Object.keys(patch).length > 0) setForm((prev) => ({ ...prev, ...patch }));
-  }, [listShares, server]);
+  }, [listShares, server, form.buyWatchPrice, form.sellWatchPrice]);
 
   /*
     ★ D-11 84 사용자 기본설정 재시딩(27-07) — 84 가 열려 있는 **미등록** 폼에 늦게(또는 브로드캐스트로 다시) 오면
@@ -891,7 +1087,7 @@ export function LimitChaserForm({
     ★ **`useMemo` 다** (GC-IN-01) — 객체 리터럴이면 매 렌더 새 참조라 아래 `gateBlocked` 의 `useCallback` 이
       아무것도 메모하지 않는다. 의존성은 이미 계산이 끝난 두 boolean 이면 충분하다.
   */
-  const { buyEnabled: canArmBuyPrice, sellEnabled: canArmSell } = canArmStaticOf(form);
+  const { buyEnabled: canArmBuyPrice, sellEnabled: canArmSell } = canArmStaticOf(form, server ?? null);
   /** WR-02 — 구서버 에코면 켜는 방향 전부가 누르기 전에 막힌다(스위치 `disabled` · 열 패널 한 줄). 판별은 lib 하나. */
   const legacy = isLegacyBuySchema(server);
   const canArm: Record<GateKey, boolean> = useMemo(
@@ -1029,7 +1225,7 @@ export function LimitChaserForm({
     setPrecheck((cur) => {
       if (cur === null) return cur;
       if (server?.[cur.gate] === true) return null;
-      const still = groupPrechecksOf(cur.gate, lcBaseValues(server, form)).includes(cur.text);
+      const still = groupPrechecksOf(cur.gate, lcBaseValues(server, form), server ?? null).includes(cur.text);
       return still ? cur : null;
     });
   }, [server, form]);
@@ -1057,7 +1253,7 @@ export function LimitChaserForm({
         // 사전 검증(R7 · UI-SPEC §7) — 낙관 표시 전에 판정한다(스위치는 움직이지 않는다). 전송 0 · 그 카드 한 줄.
         const pressed = lcBaseValues(serverRef.current, f);
         const slot = GROUP_SLOT[gate];
-        const failed = groupPrecheckOf(gate, pressed);
+        const failed = groupPrecheckOf(gate, pressed, serverRef.current ?? null);
         if (failed !== null) {
           setPrecheck({ slot, gate, text: failed });
           return;
@@ -1087,7 +1283,7 @@ export function LimitChaserForm({
         const outcome = commitField(gate, true, 'toggle', (base, laid) => {
           const companions: Partial<LimitChaserFormValues> = base.buyEnabled ? {} : { buyEnabled: true };
           if (autoGate === null) return companions;
-          const auto = groupAutoChecksOf(autoGate, base, upperLimitRef.current, laid);
+          const auto = groupAutoChecksOf(autoGate, base, upperLimitRef.current, laid, serverRef.current ?? null);
           autoCheckRef.current[autoGate] = auto;
           return { ...auto.companions, ...companions };
         });
@@ -1160,7 +1356,7 @@ export function LimitChaserForm({
   const commitPostBuyAuto = useCallback(
     (on: boolean) => {
       if (on) {
-        const failed = groupPrecheckOf('postBuyEnabled', lcBaseValues(serverRef.current, formRef.current));
+        const failed = groupPrecheckOf('postBuyEnabled', lcBaseValues(serverRef.current, formRef.current), serverRef.current ?? null);
         if (failed !== null) {
           setPrecheck({ slot: 'post-buy', gate: 'postBuyEnabled', text: failed });
           return;
@@ -1286,7 +1482,7 @@ export function LimitChaserForm({
     }
     // ⑤ 보낼 cfg 가 최신 에코와 `buyEnabled` 한 필드만 달라야 한다 — 웹이 다시 계산하는 수량 3벌 · 클라 고정 3필드가
     //    에코와 다르면 다른 클라가 둔 값이다. 자동 제출이 덮지 않는다(WR-06 · ① 과 같은 결 — 다시 예약하지 않는다).
-    if (!isMasterOnlyDelta(buildCfg({ ...lcBaseValues(s, formRef.current), buyEnabled: false }), s)) {
+    if (!isMasterOnlyDelta(buildCfg({ ...lcBaseValues(s, formRef.current), buyEnabled: false }, s), s)) {
       foldPendingRef.current = false;
       return;
     }
@@ -1363,6 +1559,10 @@ export function LimitChaserForm({
    */
   function inlineEditorOf(field: LcNumField, id: string, label: string, unit: LcUnit, range?: LcRange): ReactNode {
     const failure = lc.failures[field];
+    // Phase 31 S4 — 수량 칸은 편집 중에도 아래 줄이 남아 버퍼 값으로 갱신된다(행과 같은 `lcQtyRowSubOf`).
+    //   기준값은 잠금(`validateCommit`) · cfg 와 같은 `lcBaseValues`(서버 동기값)다 — 비행 중에도 아래 줄과 잠금이 같은
+    //   비교가로 주를 센다(IN-05).
+    const amountField = lcQtyAmountFieldOf(field);
     return (
       <InlineValueEditor
         id={id}
@@ -1374,6 +1574,11 @@ export function LimitChaserForm({
         min={range?.min}
         max={range?.max}
         validate={(v) => validateCommit(field, v)}
+        subOf={
+          amountField === null
+            ? undefined
+            : (v) => lcQtyRowSubOf(amountField, { ...lcBaseValues(server ?? null, form), [amountField]: v }, server ?? null)
+        }
         busy={isBusy(field)}
         failureText={inlineFailureTextOf(failure)}
         onSave={(v, via) => handleInlineSave(field, v, via)}
@@ -1409,12 +1614,17 @@ export function LimitChaserForm({
   }
 
   /**
-   * 시트·인라인 확정 전 검증 — 구서버 에코 편집 제한(WR-02 · `lcLegacyBlockOf`) → 무장 불가(`armBlockOf`). 훅의 전송
-   * 직전 가드와 **같은 두 함수 · 같은 순서**다(기준값 = 서버 동기값 + 바꾼 필드 · T-20-03).
+   * 시트·인라인 확정 전 검증 — 수량 칸 환산 잠금(Phase 31 `amountLockTextOf` · 비교가격 필요 · 0주) → 구서버 에코 편집
+   * 제한(WR-02 · `lcLegacyBlockOf`) → 무장 불가(`armBlockOf`). 범위는 편집기 · 시트가 먼저 본다. 뒤 두 함수는 훅의 전송
+   * 직전 가드와 **같은 함수 · 같은 순서**다(기준값 = 서버 동기값 + 바꾼 필드 · T-20-03).
    */
   function validateCommit(field: LcNumField, v: number): string | null {
     const next: LimitChaserFormValues = { ...lcBaseValues(server, formRef.current), [field]: v };
-    return lcLegacyBlockOf(isLegacyBuySchema(server), field, v, next) ?? armBlockOf(next);
+    return (
+      amountLockTextOf(field, v, next, server ?? null) ??
+      lcLegacyBlockOf(isLegacyBuySchema(server), field, v, next) ??
+      armBlockOf(next, server ?? null)
+    );
   }
 
   /** 값 행이 공유하는 편집 배선(값 행 · 체크 값 행의 값 버튼). */
@@ -1440,7 +1650,10 @@ export function LimitChaserForm({
     const shown = shownValueOf(row.field);
     const valueText = shown === null ? undefined : (lcValueTextOf(row.field, form, server) ?? undefined);
     const text = valueText ?? (shown === null ? '—' : formatSettingValue(shown, row.unit));
-    return { valueText, ariaName: lcRowA11yNameOf(group, row, text) };
+    // Phase 31 D-07 — 수량 8칸은 56px 두 줄(위 「1,000만」 · 아래 환산 주 · 의미어 · 「비교가격 필요」). 금액 3칸은 한 줄(D-09).
+    const amountField = lcQtyAmountFieldOf(row.field);
+    const sub = amountField === null ? undefined : lcQtyRowSubOf(amountField, form, server ?? null);
+    return { valueText, sub, ariaName: lcRowA11yNameOf(group, row, text, sub?.text) };
   }
 
   /**
@@ -1478,10 +1691,29 @@ export function LimitChaserForm({
     );
   }
 
+  /**
+   * 수량 파생 2행(발동잔량 · 잔량추적 기준선)의 두 줄 값 배선 — 글자 판정은 `lcDerivedRowTextOf` 한 곳(UI-SPEC 「파생 행
+   * 문자열」). 위 줄: 값 > 0 = 역산 만원(비교가 0 이면 주) · 해제선 = 회색 보조값 · 0 = 「—」(sr 「없음」). 아래 줄은 늘 자리를
+   * 지킨다(56px — 빈 글자여도).
+   */
+  function qtyDerivedRowProps(source: 'postBuyTriggerQty' | 'sellQtyTrackBaseline') {
+    const d = lcDerivedRowTextOf(source, server ?? null);
+    return {
+      value: d.tone === 'value' ? (server?.[source] ?? 0) : 0,
+      unit: d.topUnit,
+      display: d.tone === 'value' ? d.top : undefined,
+      mutedValue: d.tone === 'muted' ? d.topValue : 0,
+      valueText: '—',
+      srText: '없음',
+      sub: { text: d.sub, tone: 'muted' as const },
+    };
+  }
+
   function renderRow(group: LcGroupSpec, row: LcRowSpec): ReactNode {
     const dim = lcRowDimOf(group, row, form);
     switch (row.kind) {
-      case 'value':
+      case 'value': {
+        const display = displayOf(group, row);
         return (
           <SettingRow
             key={row.id}
@@ -1489,7 +1721,10 @@ export function LimitChaserForm({
             label={row.label}
             unit={row.unit}
             value={shownValueOf(row.field)}
-            {...displayOf(group, row)}
+            valueText={display.valueText}
+            ariaName={display.ariaName}
+            // Phase 31 D-07 — 수량 칸이면 56px 두 줄의 아래 줄(금액 칸 · 그 밖 행은 undefined = 44px 한 줄).
+            sub={display.sub}
             dim={dim}
             {...valueProps(row.field, autoSellLocked(group))}
             onActivate={(el) => activateRow(row.field, el)}
@@ -1500,6 +1735,7 @@ export function LimitChaserForm({
             }
           />
         );
+      }
       case 'checkValue':
       case 'check': {
         const check = row.check;
@@ -1595,25 +1831,23 @@ export function LimitChaserForm({
         if (row.source === 'postBuyTriggerQty') {
           // 후매수 발동잔량 — 펼침이면 단계 0 에서도 늘 그린다(「—」 · sr-only 「없음」 · UI-SPEC §6 · E5).
           // 발동잔량 0 · 해제선 > 0 이면 해제선 회색(gh-trade 259bc869 · quick-261002-fim).
+          // Phase 31 D-05 — 56px 두 줄: 위 매수 비교가 역산 「32,175만」(`--up` 그대로) · 아래 「25,000주」.
           return (
             <DerivedRow
               key="post-buy-trigger"
               slot="lc-post-buy-trigger"
               label={row.label}
-              value={server?.postBuyTriggerQty ?? 0}
-              unit="주"
               emphasis
-              valueText="—"
-              srText="없음"
-              mutedValue={server?.postBuyUnlockQty ?? 0}
               mutedSrText={POST_BUY_UNLOCK_SR_TEXT}
               dim={dim}
+              {...qtyDerivedRowProps('postBuyTriggerQty')}
             />
           );
         }
         // 잔량추적 기준선 — S→C 전용 · 서버가 매도 진입을 래치한 뒤에만 존재한다(UI Considerations E1 partial).
+        // Phase 31 D-05 — 매도 비교가 역산 위 줄(`--fg-2` 15/500) · 아래 줄 주.
         return server?.sellEntryLatched ? (
-          <DerivedRow key="derived" label={row.label} value={server.sellQtyTrackBaseline} unit="주" dim={dim} />
+          <DerivedRow key="derived" label={row.label} dim={dim} {...qtyDerivedRowProps('sellQtyTrackBaseline')} />
         ) : null;
       case 'note':
         // 후매수 소진(단계 3) 안내 — 「최대」 행 바로 아래 · 역할 없음 · 흐리지 않는다(UI-SPEC §5).
@@ -1746,6 +1980,9 @@ export function LimitChaserForm({
   const sheetServerText =
     sheetRow === null || shownValueOf(sheetKey) === null ? undefined : (lcValueTextOf(sheetKey, form, null) ?? undefined);
   const sheetRange = sheetRow === null ? undefined : (sheetRow.row.inputRange ?? sheetRow.row.range);
+  // Phase 31 D-08 — 수량 칸 시트 상태 줄 ⑤ 환산 안내(「= 777주 (비교가격 12,870원)」). 잠금은 `validate`(`amountLockTextOf`).
+  //   안내 · 잠금 · cfg 가 같은 기준값(`lcBaseValues` = 서버 동기값)으로 주를 센다 — 비행 중에도 서로 다른 말을 하지 않는다(IN-05).
+  const sheetAmountField = sheetRow === null ? null : lcQtyAmountFieldOf(sheetKey);
 
   return (
     <div data-slot="limit-chaser-form" className={cn('min-w-0', className)} onPointerDownCapture={handlePointerDownCapture}>
@@ -1824,6 +2061,11 @@ export function LimitChaserForm({
         failureText={sheetFailure?.text ?? null}
         // 그 행 카드가 감시 중이면 한 줄 안내(추가 확인 없음 · D-05) — 판정은 위 `sheetArmed`.
         armedNotice={sheetArmed}
+        hint={
+          sheetAmountField === null
+            ? undefined
+            : (v) => lcAmountHintOf(sheetAmountField, v, lcBaseValues(server ?? null, form), server ?? null)
+        }
         validate={(v) => validateCommit(sheetKey, v)}
         returnFocusRef={sheetReturnRef}
         onConfirm={(v) => handleSheetConfirm(sheetKey, v)}

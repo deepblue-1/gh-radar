@@ -46,6 +46,7 @@ import type {
   RelayHolding,
   RelayKrxSession,
   RelayLcCrud,
+  LcAmountKey,
   RelayLimitChaser,
   RelayLimitChaserInput,
   RelayLimitFeatureMember,
@@ -784,8 +785,9 @@ export function parseQueuedWindowState(env: Envelope): RelayQueuedWindowMsg | nu
 }
 
 /**
- * 사용자 설정 (84 — `user_settings` 슬롯 88 · Phase 27). 11값 + `present`(84 전용 — false 면 서버가 내장
- * 기본값을 실었다). 금액 3칸은 **만원** 그대로 옮긴다 — relay 는 단위를 바꾸지 않는다.
+ * 사용자 설정 (84 — `user_settings` 슬롯 88 · Phase 27 · Phase 31). 12값 + `present`(84 전용 — false 면 서버가 내장
+ * 기본값을 실었다). 금액 4칸은 **만원** 그대로 옮긴다 — relay 는 단위를 바꾸지 않는다. `postBuyFloorAmount` 는
+ * 늘 싣는다(구 84 슬롯 부재 = 0) — 키 부재는 「구 relay」 신호로만 쓰인다.
  */
 export function parseUserSettings(env: Envelope): RelayUserSettingsMsg | null {
   const u = env.userSettings();
@@ -806,6 +808,7 @@ export function parseUserSettings(env: Envelope): RelayUserSettingsMsg | null {
     auctionSellRatioPct: u.auctionSellRatioPct(),
     autoSellRatioDefaultPct: u.autoSellRatioDefaultPct(),
     autoSellMethodDefault: u.autoSellMethodDefault(),
+    postBuyFloorAmount: u.postBuyFloorAmount(), // vtable 28 · 구 84(부재) = 0
   };
 }
 
@@ -1437,11 +1440,13 @@ type LcAutoSellReqKey = "autoSellEnabled" | "autoSellStartCond" | "autoSellRatio
  * quick-260929-vzy · quick-261003-rc4 · Phase 27) · `extraBuyAuto`(quick-261011-0yb)만 선택. 존재 여부가 `buy3_schema`(1~5)를 정한다. shared 계약
  * `RelayLimitChaserInput` 에서는 전부 필수다(새 탭이 빠뜨리면 컴파일이 막는다) — 「shared 는 새 클라 계약, relay
  * 와이어는 구 탭 관용」 규약.
+ * 수량 임계 금액 8필드(만원 · Phase 31 D-11 · shared `LcAmountKey`)도 여기서는 선택이다(구 탭 관용 · 부재 = 0 으로 조립 —
+ * `fanout.ts` 가 먼저 짝 맞는 에코 원값으로 채운다). `buy3_schema` 파생과 무관하다(게이트 없음).
  */
 export type LcSetCfg = Omit<
   RelayLimitChaserInput,
-  "postBuyAuto" | "extraBuyBurstRelease" | LcAutoSellReqKey | "extraBuyAuto"
-> & {
+  "postBuyAuto" | "extraBuyBurstRelease" | LcAutoSellReqKey | "extraBuyAuto" | LcAmountKey
+> & Partial<Pick<RelayLimitChaserInput, LcAmountKey>> & {
   postBuyAuto?: boolean;
   extraBuyBurstRelease?: boolean;
   extraBuyAuto?: boolean;
@@ -1697,6 +1702,15 @@ export function buildSetLimitChaserReq(
   if (buy3Schema >= LC_EXTRA_BUY_AUTO_BUY3_SCHEMA && cfg.extraBuyAuto !== undefined) {
     SetLimitChaser.addExtraBuyAuto(b, cfg.extraBuyAuto);
   }
+  // 금액 8(vtable 158~172 · buyOrderAmount 규약 · schema 게이트 없음 · 부재 = 0 — 0 은 FlatBuffers 기본값이라 버퍼에 안 쓰인다)
+  SetLimitChaser.addBuyWatchAmount(b, toWireUint(cfg.buyWatchAmount ?? 0, "buyWatchAmount"));
+  SetLimitChaser.addBuyMinTradeAmount(b, toWireUint(cfg.buyMinTradeAmount ?? 0, "buyMinTradeAmount"));
+  SetLimitChaser.addExtraBuyMinAmount(b, toWireUint(cfg.extraBuyMinAmount ?? 0, "extraBuyMinAmount"));
+  SetLimitChaser.addExtraBuyMaxAmount(b, toWireUint(cfg.extraBuyMaxAmount ?? 0, "extraBuyMaxAmount"));
+  SetLimitChaser.addPostBuyFloorAmount(b, toWireUint(cfg.postBuyFloorAmount ?? 0, "postBuyFloorAmount"));
+  SetLimitChaser.addSellWatchAmount(b, toWireUint(cfg.sellWatchAmount ?? 0, "sellWatchAmount"));
+  SetLimitChaser.addSellMinTradeAmount(b, toWireUint(cfg.sellMinTradeAmount ?? 0, "sellMinTradeAmount"));
+  SetLimitChaser.addCancelWatchAmount(b, toWireUint(cfg.cancelWatchAmount ?? 0, "cancelWatchAmount"));
   const table = SetLimitChaser.endSetLimitChaser(b);
 
   Envelope.startEnvelope(b);
@@ -2040,7 +2054,7 @@ export function buildAutoSellCommandReq(req: AutoSellCommandInput): Uint8Array {
 /**
  * 사용자 설정 저장 (MsgType 42 · Envelope 슬롯 88 — 84 와 공유 · Phase 27 — gh-trade `limit-chaser.md` §9-3 「사용자 설정」).
  *
- * **11값 전체 교체**다(부분 갱신 아님). 서버는 범위 밖이 하나라도 있으면 요청 전체를 54 ERROR
+ * **12값 전체 교체**다(부분 갱신 아님 · post_buy_floor_qty 는 봉인 0 — Phase 32 D-08). 서버는 범위 밖이 하나라도 있으면 요청 전체를 54 ERROR
  * source `"SetUserSettings"` 로 거부하고, 성공하면 같은 사용자 **전 세션**에 84 를 브로드캐스트한다 — relay 는
  * 성공을 지어내지 않는다(84 를 합성하지 않는다).
  *
@@ -2056,13 +2070,14 @@ export function buildSetUserSettingsReq(s: RelayUserSettingsValues): Uint8Array 
   UserSettings.addAddBuyAmount(b, toWireUint(s.addBuyAmount, "addBuyAmount"));
   UserSettings.addPostBuyAmount(b, toWireUint(s.postBuyAmount, "postBuyAmount"));
   UserSettings.addPostBuyMaxCount(b, toWireUByte(s.postBuyMaxCount, "postBuyMaxCount"));
-  UserSettings.addPostBuyFloorQty(b, toWireUint(s.postBuyFloorQty, "postBuyFloorQty"));
+  UserSettings.addPostBuyFloorQty(b, 0); // 봉인 — 입력 무관 늘 0 (Phase 32 D-08 · 구 탭이 하한잔량을 실어도)
   UserSettings.addPostBuyReboundPct(b, toWireUByte(s.postBuyReboundPct, "postBuyReboundPct"));
   UserSettings.addSellQtyTrackRatio(b, toWireUByte(s.sellQtyTrackRatio, "sellQtyTrackRatio"));
   UserSettings.addAutoSellPeriodSec(b, toWireUByte(s.autoSellPeriodSec, "autoSellPeriodSec"));
   UserSettings.addAuctionSellRatioPct(b, toWireUByte(s.auctionSellRatioPct, "auctionSellRatioPct"));
   UserSettings.addAutoSellRatioDefaultPct(b, toWireUByte(s.autoSellRatioDefaultPct, "autoSellRatioDefaultPct"));
   UserSettings.addAutoSellMethodDefault(b, toWireUByte(s.autoSellMethodDefault, "autoSellMethodDefault"));
+  UserSettings.addPostBuyFloorAmount(b, toWireUint(s.postBuyFloorAmount, "postBuyFloorAmount"));
   // present — 84 전용(서버가 42 요청값을 읽지 않는다). 싣지 않는다.
   const table = UserSettings.endUserSettings(b);
 
@@ -2553,7 +2568,10 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       buyOrderQty: t.buyOrderQty(),
       buyWatchPrice: t.buyWatchPrice(),
       buyWatchQty: t.buyWatchQty(),
+      // 금액 8(만원 · Phase 31 D-11) — 슬롯 부재(구 서버) = 0 · 역산은 웹 몫. 각 짝 주 필드 바로 뒤.
+      buyWatchAmount: t.buyWatchAmount(),
       buyMinTradeQty: t.buyMinTradeQty(),
+      buyMinTradeAmount: t.buyMinTradeAmount(),
       // gh-trade a3610261 로 슬롯 24 봉인 — 생성 접근자가 없다. buy3 서버 에코에는 원래 없어
       // 종전에도 "0" 이었다(Phase 24). 값 영향 0 — 상수로 채운다.
       buyWatchSide: "0",
@@ -2566,7 +2584,10 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       sellOrderQty: t.sellOrderQty(),
       sellWatchPrice: t.sellWatchPrice(),
       sellWatchQty: t.sellWatchQty(),
+      // 단위 만원(Phase 31 D-11) — 슬롯 부재(구 서버) = 0 · 역산은 웹 몫.
+      sellWatchAmount: t.sellWatchAmount(),
       sellMinTradeQty: t.sellMinTradeQty(),
+      sellMinTradeAmount: t.sellMinTradeAmount(),
       sellEnabled: t.sellEnabled(),
       sellTradeQtyEnabled: t.sellTradeQtyEnabled(),
       sweepWatchPrice: t.sweepWatchPrice(),
@@ -2595,6 +2616,7 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       cancelEntryLatched: t.cancelEntryLatched(),
       cancelQtyEnabled: t.cancelQtyEnabled(),
       cancelWatchQty: t.cancelWatchQty(),
+      cancelWatchAmount: t.cancelWatchAmount(),
       cancelTradeEnabled: t.cancelTradeEnabled(),
       cancelQtyTrackEnabled: t.cancelQtyTrackEnabled(),
       // S→C 전용 — 16-01 재동기화로 접근자가 생긴 필드다.
@@ -2607,7 +2629,9 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       // 양방향 — 에코는 cfg ∧ 무장 ∧ !포기(gh-trade D-03 · D-08).
       extraBuyEnabled: t.extraBuyEnabled(),
       extraBuyMinQty: t.extraBuyMinQty(),
+      extraBuyMinAmount: t.extraBuyMinAmount(),
       extraBuyMaxQty: t.extraBuyMaxQty(),
+      extraBuyMaxAmount: t.extraBuyMaxAmount(),
       extraBuyOrderAmount: t.extraBuyOrderAmount(),
       extraBuyOrderQty: t.extraBuyOrderQty(),
       // S→C 전용 — 줄매수 포기(최대 초과 · 상한가 이탈 최소 미달).
@@ -2619,6 +2643,7 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       postBuyEnabled: t.postBuyEnabled(),
       postBuyReboundPct: t.postBuyReboundPct(),
       postBuyFloorQty: t.postBuyFloorQty(),
+      postBuyFloorAmount: t.postBuyFloorAmount(),
       // cfg 설정값 원값 — 잔여가 아니다(잔여는 postBuyReentryLeft).
       postBuyReentry: t.postBuyReentry(),
       postBuyOrderAmount: t.postBuyOrderAmount(),

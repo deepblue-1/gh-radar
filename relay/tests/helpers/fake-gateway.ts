@@ -548,6 +548,16 @@ export interface SetLimitChaserRequest {
   /** 선매수 주문금액(만원) — 새 폼 84 시딩(Phase 27 · 27-07 P27-4)이 첫 등록 cfg 에 실렸는가를 바이트로 본다. */
   buyOrderAmount: number;
   buyWatchPrice: number;
+  /**
+   * 수량 임계 주 나머지 4(선매수 매도잔량 · 체결량 · 매도 체결 · 취소 매수잔량) — Phase 31 e2e P31-2 가 「주 8필드 = 에코 주」
+   * (C# 원값 되싣기 · D-10)를 바이트로 본다. 나머지 4(줄매수 최소 · 최대 · 후매수 최소 · 매도 매수잔량)는 아래 기존 필드.
+   */
+  buyWatchQty: number;
+  buyMinTradeQty: number;
+  sellMinTradeQty: number;
+  cancelWatchQty: number;
+  /** 한방 건수(「호가변경」 · 0~255) — Phase 31 e2e 가 수량과 무관한 칸 확정의 증거로 본다. */
+  sweepMinTickCount: number;
   /** relay 파생값 — 1(자동 미적재 · `LC_FIXED_BUY3_SCHEMA`) · 2(자동 적재 · `LC_POST_BUY_AUTO_BUY3_SCHEMA`) ·
    *  3(자동 + 버스트 시 해제 적재 · `LC_BURST_RELEASE_BUY3_SCHEMA` · quick-261003-rc4) ·
    *  4(+ 자동매도 요청 4필드 적재 · `LC_AUTO_SELL_BUY3_SCHEMA` · Phase 27) ·
@@ -600,6 +610,18 @@ export interface SetLimitChaserRequest {
   sellQtyTrackEnabled: boolean;
   sellOrderPrice: number;
   sellWatchPrice: number;
+  /** 매도 매수잔량(주) — Phase 31 트레이서가 금액과 짝(산출 주)으로 본다. */
+  sellWatchQty: number;
+  /** 매도 매수잔량 금액(만원 · vtable 168 · Phase 31 D-11) — 슬롯 부재(구 탭 cfg) = 0. */
+  sellWatchAmount: number;
+  /** 금액 나머지 7(만원 · vtable 158~172 · Phase 31 D-11) — 슬롯 부재(구 탭 cfg) = 0. */
+  buyWatchAmount: number;
+  buyMinTradeAmount: number;
+  extraBuyMinAmount: number;
+  extraBuyMaxAmount: number;
+  postBuyFloorAmount: number;
+  sellMinTradeAmount: number;
+  cancelWatchAmount: number;
   cancelQtyEnabled: boolean;
   cancelTradeEnabled: boolean;
   cancelQtyTrackEnabled: boolean;
@@ -661,6 +683,11 @@ export function readSetLimitChaserRequest(
     buyOrderQty: req.buyOrderQty(),
     buyOrderAmount: req.buyOrderAmount(),
     buyWatchPrice: req.buyWatchPrice(),
+    buyWatchQty: req.buyWatchQty(),
+    buyMinTradeQty: req.buyMinTradeQty(),
+    sellMinTradeQty: req.sellMinTradeQty(),
+    cancelWatchQty: req.cancelWatchQty(),
+    sweepMinTickCount: req.sweepMinTickCount(),
     buy3Schema: req.buy3Schema(),
     buyWatchSide: readSealedStringSlot(bb, req.bb_pos, BUY_WATCH_SIDE_SEALED_VT),
     preBuyEnabled: req.preBuyEnabled(),
@@ -689,6 +716,15 @@ export function readSetLimitChaserRequest(
     sellQtyTrackEnabled: req.sellQtyTrackEnabled(),
     sellOrderPrice: req.sellOrderPrice(),
     sellWatchPrice: req.sellWatchPrice(),
+    sellWatchQty: req.sellWatchQty(),
+    sellWatchAmount: req.sellWatchAmount(),
+    buyWatchAmount: req.buyWatchAmount(),
+    buyMinTradeAmount: req.buyMinTradeAmount(),
+    extraBuyMinAmount: req.extraBuyMinAmount(),
+    extraBuyMaxAmount: req.extraBuyMaxAmount(),
+    postBuyFloorAmount: req.postBuyFloorAmount(),
+    sellMinTradeAmount: req.sellMinTradeAmount(),
+    cancelWatchAmount: req.cancelWatchAmount(),
     cancelQtyEnabled: req.cancelQtyEnabled(),
     cancelTradeEnabled: req.cancelTradeEnabled(),
     cancelQtyTrackEnabled: req.cancelQtyTrackEnabled(),
@@ -803,7 +839,7 @@ export function readAutoSellCommandRequest(payload: Buffer): AutoSellCommandRequ
 const USER_SETTINGS_PRESENT_VT = 26;
 
 /**
- * `SetUserSettingsReq(42)` 요청 내용 — 11값 + `present` 슬롯 부재 증거 (Phase 27).
+ * `SetUserSettingsReq(42)` 요청 내용 — 12값(Phase 31 · `postBuyFloorAmount` vtable 28) + `present` 슬롯 부재 증거 (Phase 27).
  *
  * `presentSlotEmpty` 는 접근자 값이 아니라 **vtable** 로 본다 — `false` 를 실어도 FlatBuffers 는 버퍼에 쓰지 않으므로
  * 접근자로는 「싣지 않았다」를 증명할 수 없다(`readSetLimitChaserRequest` 의 슬롯 판정과 같은 이유).
@@ -820,6 +856,8 @@ export type SetUserSettingsRequest = {
   auctionSellRatioPct: number;
   autoSellRatioDefaultPct: number;
   autoSellMethodDefault: number;
+  /** 후매수 최소(하한금액) — **만원** · vtable 28. */
+  postBuyFloorAmount: number;
   presentSlotEmpty: boolean;
 };
 
@@ -845,6 +883,7 @@ export function readSetUserSettingsRequest(payload: Buffer): SetUserSettingsRequ
     auctionSellRatioPct: u.auctionSellRatioPct(),
     autoSellRatioDefaultPct: u.autoSellRatioDefaultPct(),
     autoSellMethodDefault: u.autoSellMethodDefault(),
+    postBuyFloorAmount: u.postBuyFloorAmount(),
     presentSlotEmpty: u.bb.__offset(u.bb_pos, USER_SETTINGS_PRESENT_VT) === 0,
   };
 }

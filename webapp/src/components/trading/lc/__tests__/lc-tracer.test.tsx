@@ -245,7 +245,7 @@ describe('트레이서 — 「호가변경」 한 행 (20-01 · D-04 · D-14 · 
     const cfg = lcSets()[0]!.cfg!;
     expect(cfg.sweepMinTickCount).toBe(5);
     expect(cfg.sellOrderRatio).toBe(100);
-    expect(Object.keys(cfg)).toHaveLength(50); // 31 + Phase 24 C→S 12 + postBuyAuto(quick-260929-vzy) + extraBuyBurstRelease(quick-261003-rc4) + 자동매도 요청 4(Phase 27) + extraBuyAuto(quick-261011-0yb) (감시대상은 Phase 24 ⑤ 로 빠졌다)
+    expect(Object.keys(cfg)).toHaveLength(58); // 31 + Phase 24 C→S 12 + postBuyAuto(quick-260929-vzy) + extraBuyBurstRelease(quick-261003-rc4) + 자동매도 요청 4(Phase 27) + extraBuyAuto(quick-261011-0yb) + 금액 8(Phase 31 D-11) (감시대상은 Phase 24 ⑤ 로 빠졌다)
 
     // 반영 중 — 입력칸 잠김(에코 전).
     expect(editor()!.readOnly).toBe(true);
@@ -451,8 +451,101 @@ describe("Phase 27 자동매도 요청 4필드 — 값 확정 1회의 lc.set 이
     for (const k of ['autoSellState', 'autoSellSoldQty', 'autoSellBasis', 'autoSellBasisPrice']) {
       expect(Object.keys(cfg), k).not.toContain(k);
     }
-    // 49 + extraBuyAuto(quick-261011-0yb) = 50.
-    expect(Object.keys(cfg)).toHaveLength(50);
+    // 49 + extraBuyAuto(quick-261011-0yb) = 50 + 금액 8(Phase 31 D-11) = 58.
+    expect(Object.keys(cfg)).toHaveLength(58);
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────
+   P31 트레이서 (31-01) — 매도 「매수잔량」 만원 한 칸. 행 확정 → lc.set(금액 + shared 산출 주) → 에코 → 행.
+   예시 수치는 UI-SPEC 「예시 수치 정정」 표 — 12,870원 · 1,000만 → 777주 (CONTEXT · 목업의 7,770주는 10배 틀림).
+   ───────────────────────────────────────────────────────────── */
+describe('P31 트레이서 — 매도 「매수잔량」 만원 한 칸 (31-01 · D-01 · D-02 · D-06 · D-10)', () => {
+  const SELL_ROW = '[data-lc-field="lc-sell-watch-qty"]';
+  const sellRow = (): HTMLElement => document.querySelector(SELL_ROW) as HTMLElement;
+  const sellRowValue = (): HTMLElement =>
+    document.querySelector(`${SELL_ROW} [data-slot="lc-row-value"]`) as HTMLElement;
+  const sellEditor = (): HTMLInputElement | null =>
+    document.querySelector<HTMLInputElement>('#lc-sell-watch-qty');
+
+  function openSellEditor(): HTMLInputElement {
+    expect(sellRow(), '매도 「매수잔량」 값 행').not.toBeNull();
+    act(() => {
+      fireEvent.click(sellRow());
+    });
+    const input = sellEditor();
+    expect(input).not.toBeNull();
+    return input!;
+  }
+
+  it('P31 ① 비교가 12,870원 · 매수잔량 1000(만) Enter = lc.set 1회 · cfg.sellWatchAmount 1000 · cfg.sellWatchQty 777', () => {
+    setRelay({ limitChasers: [echo({ sellWatchPrice: 12_870, sellWatchQty: 0, sellWatchAmount: 0 })] });
+    render(<Card />);
+
+    typeAndEnter(openSellEditor(), '1000');
+
+    expect(lcSets()).toHaveLength(1);
+    const cfg = lcSets()[0]!.cfg!;
+    expect(cfg.sellWatchAmount).toBe(1000);
+    expect(cfg.sellWatchQty).toBe(777);
+    expect(cfg.sellWatchPrice).toBe(12_870);
+  });
+
+  it('P31 ② 구 gh-trade 서버 에코(금액 0 · 주 777)도 성공 — 편집 닫힘 · 실패 말풍선 없음 · 값 슬롯 「1,000만」 (Pitfall 1)', () => {
+    setRelay({ limitChasers: [echo({ sellWatchPrice: 12_870, sellWatchQty: 0, sellWatchAmount: 0 })] });
+    const { rerender } = render(<Card />);
+
+    typeAndEnter(openSellEditor(), '1000');
+    expect(lcSets()).toHaveLength(1);
+
+    setRelay({ limitChasers: [echo({ sellWatchPrice: 12_870, sellWatchQty: 777, sellWatchAmount: 0 })] });
+    rerender(<Card />);
+
+    expect(sellEditor()).toBeNull();
+    expect(screen.queryByText(INLINE_FAILED)).toBeNull();
+    expect(sellRowValue().textContent).toBe('1,000만');
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS * 2);
+    });
+    expect(screen.queryByText(INLINE_FAILED)).toBeNull();
+    expect(lcSets()).toHaveLength(1);
+  });
+
+  it('P31 ③ C# 원값 에코(100만 · 77주 @12,870 — 짝)에서 「호가변경」 5 확정 = cfg.sellWatchAmount 100 · cfg.sellWatchQty 77 (D-10 — 0 을 지어내지 않는다)', () => {
+    setRelay({ limitChasers: [echo({ sellWatchPrice: 12_870, sellWatchQty: 77, sellWatchAmount: 100 })] });
+    render(<Card />);
+    expect(sellRowValue().textContent).toBe('100만');
+
+    typeAndEnter(openEditor(), '5');
+
+    expect(lcSets()).toHaveLength(1);
+    const cfg = lcSets()[0]!.cfg!;
+    expect(cfg.sweepMinTickCount).toBe(5);
+    expect(cfg.sellWatchAmount).toBe(100);
+    expect(cfg.sellWatchQty).toBe(77);
+  });
+
+  it('P31 ④ 매도 잔량추적 ON 에코(기준선 1554 · cfg 777 · 1000만)에서 「호가변경」 5 확정 = cfg.sellWatchQty 1554(래칫 보존) · cfg.sellWatchAmount 2000 (D-06 · Pitfall 6)', () => {
+    setRelay({
+      limitChasers: [
+        echo({
+          sellWatchPrice: 12_870,
+          sellWatchQty: 777,
+          sellWatchAmount: 1000,
+          sellQtyTrackEnabled: true,
+          sellQtyTrackBaseline: 1554,
+        }),
+      ],
+    });
+    render(<Card />);
+    expect(sellRowValue().textContent).toBe('2,000만');
+
+    typeAndEnter(openEditor(), '5');
+
+    expect(lcSets()).toHaveLength(1);
+    const cfg = lcSets()[0]!.cfg!;
+    expect(cfg.sellWatchQty).toBe(1554);
+    expect(cfg.sellWatchAmount).toBe(2000);
   });
 });
 

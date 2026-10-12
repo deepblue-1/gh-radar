@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as flatbuffers from "flatbuffers";
 import type { OrderMarket, RelayExchange, RelayLimitChaserInput, RelayUserSettingsValues } from "@gh-radar/shared";
-import { USER_SETTINGS_RANGES } from "@gh-radar/shared";
+import { USER_SETTINGS_RANGES, qtyFromAmount } from "@gh-radar/shared";
 
 import { logger } from "../../logger.js";
 import { Envelope } from "../../generated/stock-dma/envelope.js";
@@ -1840,9 +1840,10 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
 
     // 활성 59 + 파생 key = 60. (39 − 1(매수 진입 래치 봉인) + 17(Phase 24) + 1(postBuyAuto · quick-260929-vzy)
     // + 1(extraBuyAbandonQty · quick-260930-fi4) + 1(postBuyUnlockQty · quick-261002-fim)
-    // + 1(extraBuyBurstRelease · quick-261003-rc4) + 8(자동매도 · Phase 27) + 1(extraBuyAuto · quick-261011-0yb) = 68 + key).
+    // + 1(extraBuyBurstRelease · quick-261003-rc4) + 8(자동매도 · Phase 27) + 1(extraBuyAuto · quick-261011-0yb)
+    // + 8(금액 · Phase 31 D-11) = 76 + key).
     // 필드를 하나라도 빠뜨리면 여기서 잡힌다.
-    expect(Object.keys(item!)).toHaveLength(69);
+    expect(Object.keys(item!)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
     expect(item!.key).toBe(strategyKey(SAMPLE_ISIN, SAMPLE_ACCOUNT_NO, "KRX"));
   });
 
@@ -1960,8 +1961,8 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     // 새 서버 에코에는 감시대상 슬롯이 없다 → "0".
     expect(single!.buyWatchSide).toBe("0");
     expect(list![0]!.buyWatchSide).toBe("0");
-    expect(Object.keys(single!)).toHaveLength(69);
-    expect(Object.keys(list![0]!)).toHaveLength(69);
+    expect(Object.keys(single!)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
+    expect(Object.keys(list![0]!)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
 
     // postBuyEnabled 는 서버 값 그대로 — false 로 접혀 온 에코는 false(phase 와 무관하게).
     const folded = parseLimitChaserEcho(
@@ -1982,7 +1983,7 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     expect(list![0]!.postBuyAuto).toBe(true);
     const plain = parseLimitChaserEcho(inbound(buildSetLimitChaserRespFrame({})).env);
     expect(plain!.postBuyAuto).toBe(false);
-    expect(Object.keys(plain!)).toHaveLength(69);
+    expect(Object.keys(plain!)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
   });
 
   it("⑤-abandon-qty 60 · 64 의 extraBuyAbandonQty 를 디코드한다 — 기본 프레임 0 · 포기 에코는 645842 (quick-260930-fi4)", () => {
@@ -1998,7 +1999,7 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
     expect(single).toMatchObject(echo);
     expect(list![0]).toMatchObject(echo);
-    expect(Object.keys(single!)).toHaveLength(69);
+    expect(Object.keys(single!)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
   });
 
   it("⑤-unlock-qty 60 · 64 의 postBuyUnlockQty 를 디코드한다 — 기본 프레임 0 · 잠금 에코는 264000 (quick-261002-fim)", () => {
@@ -2013,8 +2014,8 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
     expect(single).toMatchObject(echo);
     expect(list![0]).toMatchObject(echo);
-    expect(Object.keys(single!)).toHaveLength(69);
-    expect(Object.keys(list![0]!)).toHaveLength(69);
+    expect(Object.keys(single!)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
+    expect(Object.keys(list![0]!)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
   });
 
   it("⑤-extra-auto 60 · 64 의 extraBuyAuto 를 디코드한다 — 슬롯 부재 false · true 에코는 true (quick-261011-0yb)", () => {
@@ -2028,8 +2029,8 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
     expect(single).toMatchObject(echo);
     expect(list![0]).toMatchObject(echo);
-    expect(Object.keys(single!)).toHaveLength(69);
-    expect(Object.keys(list![0]!)).toHaveLength(69);
+    expect(Object.keys(single!)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
+    expect(Object.keys(list![0]!)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
   });
 
   it("⑤-burst 60 · 64 의 extraBuyBurstRelease 를 디코드한다 — 슬롯 부재 false · true 에코는 true (quick-261003-rc4 B6)", () => {
@@ -2043,8 +2044,8 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
     expect(single).toMatchObject(echo);
     expect(list![0]).toMatchObject(echo);
-    expect(Object.keys(single!)).toHaveLength(69);
-    expect(Object.keys(list![0]!)).toHaveLength(69);
+    expect(Object.keys(single!)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
+    expect(Object.keys(list![0]!)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
   });
 
   it("⑤-3 S→C 전용 래치 2필드는 요청 조립기가 **싣지 않는다** (Pitfall 6 / T-17-03)", () => {
@@ -2949,7 +2950,7 @@ describe("Phase 27 자동매도 와이어 — schema 1~4 파생 · 에코 슬롯
     expect(list![0]).toMatchObject(echo);
   });
 
-  it("parseUserSettings — 11값 + present 왕복", () => {
+  it("parseUserSettings — 12값 + present 왕복", () => {
     const parsed = inbound(buildUserSettingsFrame({ present: true, autoSellPeriodSec: 5 }));
     expect(parsed.msgType).toBe(MSG.UserSettingsResp);
     expect(parseUserSettings(parsed.env)).toEqual({
@@ -2966,6 +2967,7 @@ describe("Phase 27 자동매도 와이어 — schema 1~4 파생 · 에코 슬롯
       auctionSellRatioPct: 20,
       autoSellRatioDefaultPct: 10,
       autoSellMethodDefault: 3,
+      postBuyFloorAmount: 0,
     });
     // present 기본 false — 서버 내장 기본값.
     expect(parseUserSettings(inbound(buildUserSettingsFrame()).env)!.present).toBe(false);
@@ -3069,9 +3071,9 @@ describe("③-extra-auto extra_buy_auto · buy3_schema 5 파생 (quick-261011-0y
  * Phase 27 (27-02) — 요청 조립기 41 · 42 · 43 (gh-trade `limit-chaser.md` §9-3).
  *
  * 못박는 것: ① 41 의 네 칸이 슬롯 86 에 그대로 · 가드 3종(ISIN · 계좌 · 거래소) · action 1/2 밖은 송신 전 거부
- * ② 42 의 11값이 슬롯 88 에 그대로 · `present`(84 전용)는 **싣지 않는다** ③ 43 은 본문 없는 Envelope
+ * ② 42 의 12값이 슬롯 88 에 그대로(봉인 `post_buy_floor_qty` 만 늘 0 · Phase 31) · `present`(84 전용)는 **싣지 않는다** ③ 43 은 본문 없는 Envelope
  * ④ 세 요청 모두 수신 화이트리스트를 통과하지 못한다(반사 프레임 방어 — 42 는 84 와 슬롯을 공유해도 번호로 갈린다)
- * ⑤ 범위 정본 `USER_SETTINGS_RANGES` 11키 = `RelayUserSettingsValues` 키 · 값 = fbs 주석.
+ * ⑤ 범위 정본 `USER_SETTINGS_RANGES` 12키 = `RelayUserSettingsValues` 키 · 값 = fbs 주석.
  */
 describe("Phase 27 요청 조립기 41 · 42 · 43", () => {
   const SETTINGS: RelayUserSettingsValues = {
@@ -3086,6 +3088,7 @@ describe("Phase 27 요청 조립기 41 · 42 · 43", () => {
     auctionSellRatioPct: 50,
     autoSellRatioDefaultPct: 1,
     autoSellMethodDefault: 2,
+    postBuyFloorAmount: 999_999_999,
   };
   /** `UserSettings.present` 의 vtable 오프셋(fbs 12번째 필드 — 4 + 2×11). */
   const PRESENT_VT = 26;
@@ -3160,7 +3163,7 @@ describe("Phase 27 요청 조립기 41 · 42 · 43", () => {
     }
   });
 
-  it("42 — msgType 42 · 슬롯 88 의 11값이 그대로(금액 만원 원값) · present 슬롯 미적재", () => {
+  it("42 — msgType 42 · 슬롯 88 의 12값이 그대로(금액 만원 원값 · 봉인 하한잔량만 0) · present 슬롯 미적재", () => {
     const env = readBack(buildSetUserSettingsReq(SETTINGS));
     expect(env.msgType()).toBe(MSG.SetUserSettingsReq);
     expect(env.autoSellCommandReq()).toBeNull();
@@ -3178,7 +3181,8 @@ describe("Phase 27 요청 조립기 41 · 42 · 43", () => {
       auctionSellRatioPct: u!.auctionSellRatioPct(),
       autoSellRatioDefaultPct: u!.autoSellRatioDefaultPct(),
       autoSellMethodDefault: u!.autoSellMethodDefault(),
-    }).toEqual(SETTINGS);
+      postBuyFloorAmount: u!.postBuyFloorAmount(),
+    }).toEqual({ ...SETTINGS, postBuyFloorQty: 0 });
     // present 는 84 전용 — 서버가 42 에서 읽지 않는다. 슬롯 자체가 없어야 한다(false 적재와 구별).
     expect(u!.bb!.__offset(u!.bb_pos, PRESENT_VT)).toBe(0);
   });
@@ -3208,7 +3212,7 @@ describe("Phase 27 요청 조립기 41 · 42 · 43", () => {
     expect(droppedEnvelopeCount()).toBe(3);
   });
 
-  it("USER_SETTINGS_RANGES — 11키 = RelayUserSettingsValues 키 · 값은 fbs 주석 범위 그대로", () => {
+  it("USER_SETTINGS_RANGES — 12키 = RelayUserSettingsValues 키 · 값은 fbs 주석 범위 그대로", () => {
     expect(Object.keys(USER_SETTINGS_RANGES).sort()).toEqual(Object.keys(SETTINGS).sort());
     expect(USER_SETTINGS_RANGES).toEqual({
       preBuyAmount: { min: 0, max: 999_999_999 },
@@ -3222,6 +3226,173 @@ describe("Phase 27 요청 조립기 41 · 42 · 43", () => {
       auctionSellRatioPct: { min: 1, max: 50 },
       autoSellRatioDefaultPct: { min: 1, max: 50 },
       autoSellMethodDefault: { min: 1, max: 3 },
+      postBuyFloorAmount: { min: 0, max: 999_999_999 },
     });
+  });
+});
+
+describe("P31 UserSettings post_buy_floor_amount (vtable 28)", () => {
+  const SETTINGS: RelayUserSettingsValues = {
+    preBuyAmount: 5000,
+    addBuyAmount: 3000,
+    postBuyAmount: 2000,
+    postBuyMaxCount: 4,
+    postBuyFloorQty: 0,
+    postBuyReboundPct: 25,
+    sellQtyTrackRatio: 40,
+    autoSellPeriodSec: 3,
+    auctionSellRatioPct: 20,
+    autoSellRatioDefaultPct: 10,
+    autoSellMethodDefault: 3,
+    postBuyFloorAmount: 84,
+  };
+  /** fbs `table UserSettings` — post_buy_floor_qty 5번째(4 + 2×4) · post_buy_floor_amount 13번째(4 + 2×12, present 뒤 말미). */
+  const FLOOR_QTY_VT = 12;
+  const FLOOR_AMOUNT_VT = 28;
+
+  /** 84 프레임을 **수신 경로 그대로**(화이트리스트 포함) 통과시킨다. */
+  function inbound(bytes: Uint8Array) {
+    const parsed = tryParseEnvelope(Buffer.from(bytes));
+    expect(parsed).not.toBeNull();
+    return parsed!;
+  }
+
+  function readSettings(bytes: Uint8Array): UserSettings {
+    const env = readBack(bytes);
+    expect(env.msgType()).toBe(MSG.SetUserSettingsReq);
+    const u = env.userSettings(new UserSettings());
+    expect(u).not.toBeNull();
+    return u!;
+  }
+
+  it("42 조립 — post_buy_floor_amount(vtable 28) 에 요청 값 84 · post_buy_floor_qty 는 0", () => {
+    const u = readSettings(buildSetUserSettingsReq(SETTINGS));
+    expect(u.postBuyFloorAmount()).toBe(84);
+    expect(u.bb!.__offset(u.bb_pos, FLOOR_AMOUNT_VT)).not.toBe(0);
+    expect(u.postBuyFloorQty()).toBe(0);
+  });
+
+  it("42 조립 — 하한잔량 120000 을 실어도 봉인 0 (입력 무관 · Phase 32 D-08)", () => {
+    const u = readSettings(buildSetUserSettingsReq({ ...SETTINGS, postBuyFloorQty: 120_000 }));
+    expect(u.postBuyFloorQty()).toBe(0);
+    // 0 은 FlatBuffers 기본값이라 슬롯 자체가 쓰이지 않는다 — 서버가 읽는 값은 0.
+    expect(u.bb!.__offset(u.bb_pos, FLOOR_QTY_VT)).toBe(0);
+    expect(u.postBuyFloorAmount()).toBe(84);
+  });
+
+  it("42 조립 — 최소 최대값 999,999,999 는 그대로 · 음수 · 소수는 송신 전 OrderBuildError", () => {
+    expect(readSettings(buildSetUserSettingsReq({ ...SETTINGS, postBuyFloorAmount: 999_999_999 })).postBuyFloorAmount()).toBe(
+      999_999_999,
+    );
+    expect(() => buildSetUserSettingsReq({ ...SETTINGS, postBuyFloorAmount: -1 })).toThrow(OrderBuildError);
+    expect(() => buildSetUserSettingsReq({ ...SETTINGS, postBuyFloorAmount: 1.5 })).toThrow(OrderBuildError);
+  });
+
+  it("84 파서 — post_buy_floor_amount 84 프레임은 user.settings 에 postBuyFloorAmount 84", () => {
+    const parsed = parseUserSettings(inbound(buildUserSettingsFrame({ present: true, postBuyFloorAmount: 84 })).env);
+    expect(parsed?.postBuyFloorAmount).toBe(84);
+  });
+
+  it("84 파서 — 슬롯 부재(구 84 · 구 서버) 는 0 을 싣는다(키는 늘 있다 — 새 relay 계약)", () => {
+    const parsed = parseUserSettings(inbound(buildUserSettingsFrame({ present: true })).env);
+    expect(parsed).toHaveProperty("postBuyFloorAmount", 0);
+  });
+});
+
+describe("P31 SetLimitChaser 금액 8필드 (vtable 158~172 · D-11)", () => {
+  /** 금액 8필드 vtable — 158 buy_watch_amount … 172 cancel_watch_amount(StockDMA.fbs Phase 32 말미 append). */
+  const AMOUNT_VT = [158, 160, 162, 164, 166, 168, 170, 172] as const;
+  /** 8필드에 서로 다른 값 — 값이 겹치면 한 칸 밀린 조립도 통과하는 거짓 green 이 된다(T-16-05 규율). */
+  const AMOUNTS = {
+    buyWatchAmount: 101,
+    buyMinTradeAmount: 102,
+    extraBuyMinAmount: 103,
+    extraBuyMaxAmount: 104,
+    postBuyFloorAmount: 105,
+    sellWatchAmount: 106,
+    sellMinTradeAmount: 107,
+    cancelWatchAmount: 108,
+  } as const;
+
+  function readLc(cfg: LcBuildInput): SetLimitChaser {
+    const env = readBack(buildSetLimitChaserReq(cfg));
+    const t = env.setLimitChaser(new SetLimitChaser());
+    expect(t).not.toBeNull();
+    return t!;
+  }
+
+  function inbound(bytes: Uint8Array) {
+    const parsed = tryParseEnvelope(Buffer.from(bytes));
+    expect(parsed).not.toBeNull();
+    return parsed!;
+  }
+
+  it("P31 8필드 왕복 — 각 슬롯이 실은 값 그대로(생성물 접근자 8개)", () => {
+    const t = readLc(lcInput(AMOUNTS));
+    expect({
+      buyWatchAmount: t.buyWatchAmount(),
+      buyMinTradeAmount: t.buyMinTradeAmount(),
+      extraBuyMinAmount: t.extraBuyMinAmount(),
+      extraBuyMaxAmount: t.extraBuyMaxAmount(),
+      postBuyFloorAmount: t.postBuyFloorAmount(),
+      sellWatchAmount: t.sellWatchAmount(),
+      sellMinTradeAmount: t.sellMinTradeAmount(),
+      cancelWatchAmount: t.cancelWatchAmount(),
+    }).toEqual(AMOUNTS);
+    expect(presentSlots(t, AMOUNT_VT)).toEqual([...AMOUNT_VT]);
+  });
+
+  it("P31 금액 키 없는 cfg(구 탭) — 8개 모두 0 이고 vtable 슬롯 부재(0 은 FlatBuffers 기본값)", () => {
+    const t = readLc(lcInput());
+    expect([
+      t.buyWatchAmount(),
+      t.buyMinTradeAmount(),
+      t.extraBuyMinAmount(),
+      t.extraBuyMaxAmount(),
+      t.postBuyFloorAmount(),
+      t.sellWatchAmount(),
+      t.sellMinTradeAmount(),
+      t.cancelWatchAmount(),
+    ]).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(presentSlots(t, AMOUNT_VT)).toEqual([]);
+  });
+
+  it("P31 짝 픽스처(shared qtyFromAmount) — 금액은 원값 · 주는 산출값 그대로 실린다(relay 는 환산하지 않는다)", () => {
+    const sellWatchQty = qtyFromAmount(1000, 12_870);
+    const t = readLc(lcInput({ sellWatchPrice: 12_870, sellWatchAmount: 1000, sellWatchQty }));
+    expect(t.sellWatchAmount()).toBe(1000);
+    expect(t.sellWatchQty()).toBe(777);
+  });
+
+  it("P31 음수 · 소수 금액은 조립 단계에서 거부된다(uint)", () => {
+    expect(() => buildSetLimitChaserReq(lcInput({ cancelWatchAmount: -1 }))).toThrow();
+    expect(() => buildSetLimitChaserReq(lcInput({ buyWatchAmount: 1.5 }))).toThrow();
+  });
+
+  it("P31 readLimitChaser — 8필드를 싣고 구 에코(슬롯 부재)는 0 (60 · 64 공용)", () => {
+    const absent = parseLimitChaserEcho(inbound(buildSetLimitChaserRespFrame({})).env)!;
+    expect({
+      buyWatchAmount: absent.buyWatchAmount,
+      buyMinTradeAmount: absent.buyMinTradeAmount,
+      extraBuyMinAmount: absent.extraBuyMinAmount,
+      extraBuyMaxAmount: absent.extraBuyMaxAmount,
+      postBuyFloorAmount: absent.postBuyFloorAmount,
+      sellWatchAmount: absent.sellWatchAmount,
+      sellMinTradeAmount: absent.sellMinTradeAmount,
+      cancelWatchAmount: absent.cancelWatchAmount,
+    }).toEqual({
+      buyWatchAmount: 0,
+      buyMinTradeAmount: 0,
+      extraBuyMinAmount: 0,
+      extraBuyMaxAmount: 0,
+      postBuyFloorAmount: 0,
+      sellWatchAmount: 0,
+      sellMinTradeAmount: 0,
+      cancelWatchAmount: 0,
+    });
+    const single = parseLimitChaserEcho(inbound(buildSetLimitChaserRespFrame(AMOUNTS)).env);
+    const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([AMOUNTS])).env);
+    expect(single).toMatchObject(AMOUNTS);
+    expect(list![0]).toMatchObject(AMOUNTS);
   });
 });

@@ -4,7 +4,8 @@
  * `ws-latch.test.ts` 동형 하네스다 — 스텁은 Supabase(토큰 · 자격증명) 하나뿐이고 실제 ws 서버 · 실제 TCP 로 붙는
  * 가짜 게이트웨이 · 실제 `SessionManager`/`SubscriptionHub` 가 전부 진짜다. 검증 대상:
  *   · `{t:"autosell.cmd", …, action:"start"|"stop"}` → `Envelope{msg_type=41, auto_sell_command_req={…, action 1|2}}`
- *   · `{t:"user.settings.set", s:{11값}}` → `Envelope{msg_type=42, user_settings={11값 · present 슬롯 없음}}`
+ *   · `{t:"user.settings.set", s:{12값}}` → `Envelope{msg_type=42, user_settings={12값 · 봉인 post_buy_floor_qty 0 · present 슬롯 없음}}`
+ *   · (Phase 31 D-14 보정) 구 탭 11값(후매수 최소 없음) → 84 캐시 금액 되싣기 · 캐시 없음 → 거부 프레임 · 소켓 유지
  *   · 가드 — Ready 세션 · 세션 계좌(41 만 · IDOR · D-09). 거부는 언제나 「게이트웨이 수신 0」과 함께 단언한다
  *   · relay 는 서버 진실을 지어내지 않는다 — 42 에 대해 84 를 합성하지 않고, 54 본문을 해석하지 않는다(교훈 24)
  *   · 41/42 는 pending FIFO 에 들어가지 않는다(T-16-10)
@@ -24,6 +25,7 @@ import { SubscriptionHub } from "../src/hub/subscription-hub.js";
 import { SessionManager } from "../src/dma/session-manager.js";
 import { encryptDmaPassword } from "../src/store/credentials.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
+import { USER_SETTINGS_FLOOR_UNKNOWN_TEXT } from "../src/ws/protocol.js";
 import { MSG } from "../src/dma/msg-type.js";
 import { logger } from "../src/logger.js";
 import type { SymbolInfo, SymbolLookup } from "../src/store/symbols.js";
@@ -112,7 +114,10 @@ async function waitFor(predicate: () => boolean, label: string, turns = 600): Pr
   throw new Error(`조건이 서지 않았습니다: ${label}`);
 }
 
-/** `user.settings.set` 11값 — 서버 범위 안(fbs 주석). 기본값과 다른 칸을 섞어 왕복을 본다. */
+/**
+ * `user.settings.set` 12값 — 서버 범위 안(fbs 주석). 기본값과 다른 칸을 섞어 왕복을 본다.
+ * `postBuyFloorQty` 는 봉인(Phase 32 D-08)이라 relay 가 0 으로 바꿔 싣는다 — 일부러 0 이 아닌 값을 둔다.
+ */
 const SETTINGS: RelayUserSettingsValues = {
   preBuyAmount: 5000,
   addBuyAmount: 3000,
@@ -125,7 +130,11 @@ const SETTINGS: RelayUserSettingsValues = {
   auctionSellRatioPct: 20,
   autoSellRatioDefaultPct: 10,
   autoSellMethodDefault: 3,
+  postBuyFloorAmount: 84,
 };
+
+/** 구 탭(Phase 31 이전 webapp) 모양 — 11값 · 후매수 최소 키 없음. */
+const { postBuyFloorAmount: _legacyDrop, ...LEGACY_SETTINGS } = SETTINGS;
 
 describe("Phase 27 autosell.cmd · user.settings.set", () => {
   let gateway: FakeGateway;
@@ -370,7 +379,7 @@ describe("Phase 27 autosell.cmd · user.settings.set", () => {
   // ③ user.settings.set → 42 · relay 는 84 를 지어내지 않는다
   // ==========================================================
 
-  it("③-1 user.settings.set 은 msg_type 42 1건 · 11값 그대로 · present 슬롯 없음", async () => {
+  it("③-1 user.settings.set 은 msg_type 42 1건 · 12값 그대로(봉인 하한잔량만 0) · present 슬롯 없음", async () => {
     const { ws } = await authed("token-a");
 
     ws.sendRaw({ t: "user.settings.set", s: { ...SETTINGS, present: true } });
@@ -378,7 +387,8 @@ describe("Phase 27 autosell.cmd · user.settings.set", () => {
 
     expect(gateway.strategyRequests().filter((r) => r.msgType === MSG.SetUserSettingsReq)).toHaveLength(1);
     const { presentSlotEmpty, ...values } = settingsReqs()[0]!;
-    expect(values).toEqual(SETTINGS);
+    // post_buy_floor_qty 는 봉인(Phase 32 D-08) — 요청이 120000 을 실어도 relay 는 늘 0 을 싣는다.
+    expect(values).toEqual({ ...SETTINGS, postBuyFloorQty: 0 });
     expect(presentSlotEmpty).toBe(true);
   });
 
@@ -421,6 +431,105 @@ describe("Phase 27 autosell.cmd · user.settings.set", () => {
     expect(framesOf(inbox, "user.settings")).toHaveLength(1);
     expect(framesOf(inbox, "user.settings")[0]).toMatchObject({ present: true, autoSellRatioDefaultPct: 15 });
     expect(hub.getUserSettings(USER_A)).toMatchObject({ present: true, autoSellRatioDefaultPct: 15 });
+  });
+
+  // ==========================================================
+  // P31 — 후매수 최소(만원 · vtable 28) · 봉인 하한잔량 · 구 탭 관용 (D-13 · D-14 보정 · Pitfall 3)
+  // ==========================================================
+
+  describe("P31 user.settings.set 후매수 최소 (D-13 · D-14 보정)", () => {
+    it("새 웹 12값(하한잔량 0 · 최소 84) → 42 1건 · 디코드 하한잔량 0 · 최소 84 · present 슬롯 없음", async () => {
+      const { ws } = await authed("token-a");
+
+      ws.sendRaw({ t: "user.settings.set", s: { ...SETTINGS, postBuyFloorQty: 0 } });
+      await waitFor(() => settingsReqs().length === 1, "42 송신");
+
+      const req = settingsReqs()[0]!;
+      expect(req.postBuyFloorQty).toBe(0);
+      expect(req.postBuyFloorAmount).toBe(84);
+      expect(req.presentSlotEmpty).toBe(true);
+      expect(ws.closeInfo).toBeNull();
+    });
+
+    it("하한잔량 120000 을 실은 요청도 42 에는 0 이다(봉인 고정 — 입력 무관)", async () => {
+      const { ws } = await authed("token-a");
+
+      ws.sendRaw({ t: "user.settings.set", s: { ...SETTINGS, postBuyFloorQty: 120_000 } });
+      await waitFor(() => settingsReqs().length === 1, "42 송신");
+
+      expect(settingsReqs()[0]!.postBuyFloorQty).toBe(0);
+      expect(settingsReqs()[0]!.postBuyFloorAmount).toBe(84);
+    });
+
+    it("84 의 후매수 최소 300 은 user.settings 프레임에 그대로 실린다", async () => {
+      const { inbox } = await authed("token-a");
+
+      gateway.sendUserSettings(gatewaySocket(), { present: true, postBuyFloorAmount: 300 });
+      await waitFor(() => framesOf(inbox, "user.settings").length === 1, "84 팬아웃");
+
+      expect(framesOf(inbox, "user.settings")[0]!.postBuyFloorAmount).toBe(300);
+    });
+
+    it("구 탭 11값(최소 없음) · 84 캐시 최소 300 → 42 1건 · 디코드 최소 300(캐시 되싣기) · 소켓 열림", async () => {
+      const { ws, inbox } = await authed("token-a");
+      gateway.sendUserSettings(gatewaySocket(), { present: true, postBuyFloorAmount: 300 });
+      await waitFor(() => framesOf(inbox, "user.settings").length === 1, "84 캐시 적재");
+      expect(hub.getUserSettings(USER_A)?.postBuyFloorAmount).toBe(300);
+
+      ws.sendRaw({ t: "user.settings.set", s: LEGACY_SETTINGS });
+      await waitFor(() => settingsReqs().length === 1, "42 송신");
+      await flushIo(30);
+
+      expect(settingsReqs()).toHaveLength(1);
+      // 나머지 10값은 요청 그대로 · 하한잔량 봉인 0 · 최소는 84 캐시 값 — 0 을 지어내지 않는다.
+      const { presentSlotEmpty: _p, ...values } = settingsReqs()[0]!;
+      expect(values).toEqual({ ...SETTINGS, postBuyFloorQty: 0, postBuyFloorAmount: 300 });
+      expect(framesOf(inbox, "msg")).toHaveLength(0);
+      expect(ws.closeInfo).toBeNull();
+    });
+
+    it("구 탭 11값 · 84 캐시 없음 → 42 0건 · 거부 프레임 1건(ERROR · Relay · user.settings.set) · 소켓 유지 · 다음 12값은 42 로 간다", async () => {
+      const { ws, inbox } = await authed("token-a");
+      expect(hub.getUserSettings(USER_A)).toBeUndefined();
+
+      ws.sendRaw({ t: "user.settings.set", s: LEGACY_SETTINGS });
+      await waitFor(() => framesOf(inbox, "msg").length === 1, "거부 프레임");
+      await flushIo(30);
+
+      expect(settingsReqs()).toHaveLength(0);
+      expect(gateway.strategyRequests().filter((r) => r.msgType === MSG.SetUserSettingsReq)).toHaveLength(0);
+      const [rejected] = framesOf(inbox, "msg");
+      expect({ lv: rejected?.lv, src: rejected?.src, kind: rejected?.kind, m: rejected?.m }).toEqual({
+        lv: "ERROR",
+        src: "Relay",
+        kind: "user.settings.set",
+        m: USER_SETTINGS_FLOOR_UNKNOWN_TEXT,
+      });
+      expect(USER_SETTINGS_FLOOR_UNKNOWN_TEXT).toBe(
+        "후매수 최소 금액을 아직 받지 못해 저장하지 않았어요 — 화면을 새로고침해 주세요",
+      );
+      expect(ws.closeInfo).toBeNull();
+
+      // 같은 소켓의 다음 새 웹 저장은 정상으로 나간다 — 끊지 않았다는 증거.
+      ws.sendRaw({ t: "user.settings.set", s: SETTINGS });
+      await waitFor(() => settingsReqs().length === 1, "다음 12값 42 송신");
+      expect(settingsReqs()[0]!.postBuyFloorAmount).toBe(84);
+      expect(ws.closeInfo).toBeNull();
+    });
+
+    it.each([1_000_000_000, -1, 1.5])(
+      "후매수 최소 %s 는 zod 위반 close(4400) · 게이트웨이 42 0건",
+      async (amount) => {
+        const { ws } = await authed("token-a");
+
+        ws.sendRaw({ t: "user.settings.set", s: { ...SETTINGS, postBuyFloorAmount: amount } });
+        await waitFor(() => ws.closeInfo !== null, "프로토콜 위반 close");
+        await flushIo(30);
+
+        expect(ws.closeInfo?.code).toBe(4400);
+        expect(settingsReqs()).toHaveLength(0);
+      },
+    );
   });
 
   // ==========================================================

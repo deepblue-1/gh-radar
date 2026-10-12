@@ -9,6 +9,8 @@
  *
  * ② 값의 원천은 84 캐시(`useRelayContext().userSettings`) 하나다 — 3상태(77 `queuedWindow` 규율):
  *    - `undefined` = 84 를 아직 못 받았다 → 「불러오는 중」 · 행 흐림 · 편집 불가. 기본값을 지어내지 않는다.
+ *      84 에 `postBuyFloorAmount` 키가 없으면(구 relay · Phase 31 Pitfall 10) 이것과 같다(`usableUserSettingsOf`) —
+ *      42 는 12값 전체 교체라 모르는 금액을 0 으로 지어 보내면 C# 「최소 [ ]만」 원값이 지워진다. 새 문구 없음.
  *    - `present: true`  = 서버 저장값 → 「서버 저장값」(ok).
  *    - `present: false` = 저장값 없음 → 「서버 저장값 없음 · 내장 기본값」(warn). 84 가 실은 내장 기본값을 그대로
  *      보이고, **42 를 자동으로 보내지 않는다**(인박스 Q2 — 이전 없음). 사용자가 행을 확정할 때만 42.
@@ -20,7 +22,8 @@
  * ④ 문구는 목업 원문 그대로다(D-13) — 칩 3 · 안내 3 은 `USER_SETTINGS_STATUS_TEXT` 한 곳.
  *
  * ⑤ 저장 = 행 확정마다 즉시 42(D-12 변형 C · 저장 버튼 없음 · 낙관 반영 없음) — `useUserSettingsSave`.
- *    - 조립 = **84 캐시 11값 + 바뀐 1칸**(화면 로컬 값 금지 · T-20-03 동형 — 다른 탭이 바꾼 칸을 덮지 않는다).
+ *    - 조립 = **84 캐시 12값 + 바뀐 1칸**(화면 로컬 값 금지 · T-20-03 동형 — 다른 탭이 바꾼 칸을 덮지 않는다).
+ *      봉인 `postBuyFloorQty` 는 84 값을 읽지 않고 늘 0 을 싣는다(Phase 32 D-08 · D-13).
  *    - 한 번에 1건 비행. 비행 중 다른 행 확정은 행당 1건 대기열(같은 행 재확정은 값만 교체)에 서고, 앞 건의 84 를
  *      받은 **뒤 새 캐시로 다시 조립**해 보낸다(RESEARCH Pitfall 8 — 낡은 캐시로 앞 칸을 되돌리지 않는다).
  *    - 성공 = 보낸 칸 값이 실린 84 → 그 행 초록 플래시 ~0.7초. 다른 탭의 42 로 값이 바뀐 행도 플래시한다(목업).
@@ -81,15 +84,16 @@ export interface UserSettingsRowSpec {
 export const USER_SETTINGS_GROUPS: readonly UserSettingsGroup[] = ["매수 금액", "후매수", "매도", "자동매도"];
 
 /**
- * 11행 표(목업 `F` · `GROUPS` 그대로 · 금액 3칸은 만원 — 인박스 Q1). 순서 = 화면 순서. 범위는 여기 두지 않는다 —
- * shared `USER_SETTINGS_RANGES`(서버 42 범위 정본) 하나를 읽는다.
+ * 11행 표(목업 `F` · `GROUPS` 그대로 · 금액 4칸은 만원 — 인박스 Q1 · Phase 31 D-13). 순서 = 화면 순서. 범위는 여기 두지
+ * 않는다 — shared `USER_SETTINGS_RANGES`(서버 42 범위 정본) 하나를 읽는다.
+ * 봉인 `postBuyFloorQty` 는 행이 없다 — 42 에 0 을 싣는다(Phase 32 D-08). 그 자리는 「후매수 최소」(만원)가 교체했다.
  */
 export const USER_SETTINGS_ROWS: readonly UserSettingsRowSpec[] = [
   { key: "preBuyAmount", label: "선매수 금액", unit: "만원", group: "매수 금액", id: "me-lc-pre-buy-amount" },
   { key: "addBuyAmount", label: "줄매수 금액", unit: "만원", group: "매수 금액", id: "me-lc-add-buy-amount" },
   { key: "postBuyAmount", label: "후매수 금액", unit: "만원", group: "매수 금액", id: "me-lc-post-buy-amount" },
   { key: "postBuyMaxCount", label: "후매수 최대", unit: "회", group: "후매수", id: "me-lc-post-buy-max-count" },
-  { key: "postBuyFloorQty", label: "후매수 하한잔량", unit: "주", group: "후매수", id: "me-lc-post-buy-floor-qty" },
+  { key: "postBuyFloorAmount", label: "후매수 최소", unit: "만원", group: "후매수", id: "me-lc-post-buy-floor-amount" },
   { key: "postBuyReboundPct", label: "후매수 반등", unit: "%", group: "후매수", id: "me-lc-post-buy-rebound-pct" },
   { key: "sellQtyTrackRatio", label: "매도 잔량추적", unit: "%", group: "매도", id: "me-lc-sell-qty-track-ratio" },
   { key: "autoSellPeriodSec", label: "매도 주기", unit: "초", group: "자동매도", id: "me-lc-auto-sell-period-sec" },
@@ -177,9 +181,9 @@ export function userSettingsRangeIssue(key: UserSettingsKey, value: number, unit
 }
 
 /**
- * 42 본문 11칸 전부의 범위 검사 — 첫 위반 칸의 문장 · 전부 안이면 null (27-REVIEW IN-02).
+ * 42 본문 행 11칸 전부의 범위 검사 — 첫 위반 칸의 문장 · 전부 안이면 null (27-REVIEW IN-02). 봉인 칸은 늘 0 이라 보지 않는다.
  *
- * 42 는 84 캐시 11값 + 바뀐 1칸으로 조립한다. 바뀐 칸만 보면 캐시의 나머지 칸이 범위 밖일 때 relay zod 가
+ * 42 는 84 캐시 12값 + 바뀐 1칸으로 조립한다. 바뀐 칸만 보면 캐시의 나머지 칸이 범위 밖일 때 relay zod 가
  * close(4400)로 **앱 소켓 전체**를 끊는다(상따 카드 `lcRangeIssue` 가 cfg 전체를 보는 것과 같은 이유).
  * 위반 칸이 바뀐 칸이 아니면 문장 앞에 그 칸 이름을 붙인다 — 실패 말풍선은 바뀐 행에 서기 때문이다.
  */
@@ -191,20 +195,32 @@ export function userSettingsValuesIssue(s: RelayUserSettingsValues, changed: Use
   return null;
 }
 
-/** 84 에서 42 본문 11값만 뽑는다(`t` · `present` 제외 — `present` 는 84 전용). */
-export function userSettingsValuesOf(s: RelayUserSettingsMsg): RelayUserSettingsValues {
+/** 후매수 최소 금액이 실린 84 — 새 relay 의 84 · 이 섹션이 편집 · 저장에 쓸 수 있는 유일한 모양. */
+export type UsableUserSettings = RelayUserSettingsMsg & { postBuyFloorAmount: number };
+
+/**
+ * 「금액 키가 있는 84」 만 통과시킨다 — 키 부재(구 relay · Pitfall 10)는 `undefined`(= 「불러오는 중」)와 같다.
+ * 같은 객체 참조를 그대로 돌려준다(84 변화 판정 이펙트가 참조 동등으로 본다).
+ */
+export function usableUserSettingsOf(s: RelayUserSettingsMsg | undefined): UsableUserSettings | undefined {
+  return s !== undefined && typeof s.postBuyFloorAmount === "number" ? (s as UsableUserSettings) : undefined;
+}
+
+/** 84 에서 42 본문 12값만 뽑는다(`t` · `present` 제외 — `present` 는 84 전용). */
+export function userSettingsValuesOf(s: UsableUserSettings): RelayUserSettingsValues {
   return {
     preBuyAmount: s.preBuyAmount,
     addBuyAmount: s.addBuyAmount,
     postBuyAmount: s.postBuyAmount,
     postBuyMaxCount: s.postBuyMaxCount,
-    postBuyFloorQty: s.postBuyFloorQty,
+    postBuyFloorQty: 0, // 봉인 — 84 값은 읽지 않는다(D-13)
     postBuyReboundPct: s.postBuyReboundPct,
     sellQtyTrackRatio: s.sellQtyTrackRatio,
     autoSellPeriodSec: s.autoSellPeriodSec,
     auctionSellRatioPct: s.auctionSellRatioPct,
     autoSellRatioDefaultPct: s.autoSellRatioDefaultPct,
     autoSellMethodDefault: s.autoSellMethodDefault,
+    postBuyFloorAmount: s.postBuyFloorAmount,
   };
 }
 
@@ -240,7 +256,7 @@ interface UserSettingsSave {
  * 54 스트림 이펙트가 동기로 읽는 값은 ref 가 정본이고 렌더용 state 는 그 거울이다.
  */
 function useUserSettingsSave(
-  userSettings: RelayUserSettingsMsg | undefined,
+  userSettings: UsableUserSettings | undefined,
   send: (msg: RelayInbound) => boolean,
   messages: readonly RelayServerMessageEntry[],
 ): UserSettingsSave {
@@ -307,10 +323,10 @@ function useUserSettingsSave(
 
   /** 42 한 건 — `base`(84 캐시) + 바뀐 1칸. 서버 값과 같으면 보내지 않는다. */
   const dispatchOne = useCallback(
-    (key: UserSettingsKey, value: number, base: RelayUserSettingsMsg): SaveOutcome => {
+    (key: UserSettingsKey, value: number, base: UsableUserSettings): SaveOutcome => {
       if (base[key] === value) return "noop";
       const s: RelayUserSettingsValues = { ...userSettingsValuesOf(base), [key]: value };
-      // ★ 11칸 전부 본다(IN-02) — 하나라도 범위 밖이면 relay 가 소켓을 끊는다. 보내지 않고 이 행을 실패로 둔다.
+      // ★ 행 11칸 전부 본다(IN-02) — 하나라도 범위 밖이면 relay 가 소켓을 끊는다. 보내지 않고 이 행을 실패로 둔다.
       const issue = userSettingsValuesIssue(s, key);
       if (issue !== null) {
         setFailures((f) => ({ ...f, [key]: { text: issue, value } }));
@@ -342,7 +358,7 @@ function useUserSettingsSave(
 
   /** 대기열 앞 건부터 **새 캐시**로 다시 조립해 보낸다. 이미 그 값(no-op)이면 성공으로 접고 다음 건. */
   const drain = useCallback(
-    (base: RelayUserSettingsMsg) => {
+    (base: UsableUserSettings) => {
       while (queueRef.current.size > 0) {
         const [key, value] = queueRef.current.entries().next().value as [UserSettingsKey, number];
         queueRef.current.delete(key);
@@ -464,7 +480,10 @@ export function userSettingsStatusOf(s: RelayUserSettingsMsg | undefined): UserS
 }
 
 export function LimitChaserDefaultsSection() {
-  const { userSettings, send, messages } = useRelayContext();
+  const relay = useRelayContext();
+  const { send, messages } = relay;
+  // 금액 키가 없는 84(구 relay)는 미수신과 같다 — 칩 · 흐림 · 편집 불가 · 저장 기계가 모두 이 값을 본다(Pitfall 10).
+  const userSettings = usableUserSettingsOf(relay.userSettings);
   const status = userSettingsStatusOf(userSettings);
   const loading = userSettings === undefined;
   const text = USER_SETTINGS_STATUS_TEXT[status];

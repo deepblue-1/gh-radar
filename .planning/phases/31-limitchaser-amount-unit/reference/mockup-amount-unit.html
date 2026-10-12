@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>상따 수량 칸 「만(주)」 표시 — 목업 A/B/C</title>
+<style>
+  :root{--bg:#fff;--surface:#f2f4f6;--fg:#191f28;--fg-2:#333d4b;--muted-fg:#6b7684;--faint:#b0b8c1;--muted:#f2f4f6;--primary:#3182f6;--destructive:#f04452;--up:#f04452;--card:#fff}
+  @media (prefers-color-scheme:dark){:root{--bg:#0a0a0a;--surface:#0a0a0a;--fg:#fff;--fg-2:#e4e4e4;--muted-fg:#9e9e9e;--faint:#5c5c5c;--muted:#1f1f1f;--card:#151515;--destructive:#f04251;--up:#f04251}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--surface);color:var(--fg);font:14px/1.5 -apple-system,"Pretendard","Apple SD Gothic Neo","Noto Sans KR",sans-serif;padding:16px}
+  h1{font-size:18px;margin:0 0 4px}
+  .lead{color:var(--muted-fg);font-size:13px;margin:0 0 16px;max-width:900px}
+  .lead b{color:var(--fg)}
+  .grid{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
+  .variant{width:390px;max-width:100%}
+  .variant h2{font-size:15px;margin:0 0 6px}
+  .variant h2 small{color:var(--muted-fg);font-weight:400;font-size:12.5px;display:block}
+  .phone{background:var(--bg);border-radius:14px;padding:12px 16px;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+  .card{padding:6px 0 2px}
+  .ct{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;margin:0 0 4px}
+  .ct .led{width:8px;height:8px;border-radius:50%;background:#20c997}
+  .ct .sw{margin-left:auto;width:36px;height:20px;border-radius:10px;background:var(--primary);position:relative}
+  .ct .sw::after{content:"";position:absolute;right:2px;top:2px;width:16px;height:16px;border-radius:50%;background:#fff}
+  .row{display:flex;min-height:44px;align-items:center;justify-content:space-between;gap:4px;border-radius:10px}
+  .row.tall{min-height:56px}
+  .lb{white-space:nowrap;font-size:14px;color:var(--muted-fg)}
+  .lb .chk{display:inline-block;width:16px;height:16px;border:1.5px solid var(--faint);border-radius:4px;vertical-align:-3px;margin-right:6px}
+  .lb .chk.on{background:var(--primary);border-color:var(--primary)}
+  .v{white-space:nowrap;font-size:15px;font-weight:500;color:var(--fg-2);font-variant-numeric:tabular-nums;text-align:right}
+  .v .sub{display:block;font-size:12px;font-weight:400;color:var(--muted-fg);line-height:1.3}
+  .v .inl{font-size:12.5px;font-weight:400;color:var(--muted-fg);margin-left:6px}
+  .v.hot{color:var(--up);font-weight:600}
+  .v.dim{color:var(--muted-fg);font-weight:400}
+  .v.alert .inl,.v.alert .sub{color:var(--destructive)}
+  .sep{height:1px;background:var(--surface);margin:6px 0}
+  .note{font-size:12.5px;color:var(--muted-fg);margin:8px 0 0}
+  .note b{color:var(--fg)}
+  /* 넘버패드 시트 */
+  .sheet{margin-top:10px;background:var(--card);border-radius:14px 14px 0 0;padding:16px 16px 12px;box-shadow:0 -2px 12px rgba(0,0,0,.08)}
+  .sheet .t{font-size:20px;font-weight:700;margin:0 0 2px}
+  .sheet .d{font-size:13px;color:var(--muted-fg);margin:0 0 10px}
+  .out{display:flex;align-items:baseline;gap:4px}
+  .out .n{font-size:26px;font-weight:700;line-height:32px}
+  .out .u{font-size:18px;font-weight:600;color:var(--fg-2)}
+  .out .caret{display:inline-block;width:2px;height:26px;background:var(--primary);align-self:center;margin-left:2px}
+  .out .now{margin-left:auto;font-size:12.5px;color:var(--muted-fg);white-space:nowrap}
+  .st{min-height:16px;font-size:12.5px;line-height:16px;margin:-2px 0 8px 2px;color:var(--muted-fg)}
+  .st.alert{color:var(--destructive)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+  .chips span{height:32px;line-height:32px;padding:0 12px;border-radius:16px;background:var(--muted);font-size:13px;font-weight:600;color:var(--fg-2)}
+  .pad{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .pad span{height:40px;line-height:40px;text-align:center;border-radius:10px;background:var(--muted);font-size:17px;font-weight:600}
+  .cta{margin-top:10px;height:48px;line-height:48px;border-radius:12px;background:var(--primary);color:#fff;text-align:center;font-weight:700;font-size:15px}
+  .sect{margin-top:28px}
+</style>
+</head>
+<body>
+<h1>상따 수량 칸 「만(주)」 표시 — 목업 A / B / C</h1>
+<p class="lead">공통(세 안 동일): 수량 8칸의 <b>입력·행 값은 만원</b>(C# 칸과 같음). 제출은 주=floor(만원×10000÷그룹 비교가) 1회 내림, 표시 역산은 반올림. 매수 5칸은 「비교가격」(buyWatchPrice), 매도·취소 3칸은 매도 「비교가격」(sellWatchPrice). 「발동잔량」·「잔량추적 기준선」(S→C 주)은 만원으로 역산해 보인다. 다른 점은 <b>환산 주를 어디에 보이느냐</b>만이다. 폰 밴드(본문 344) 기준 390px 프레임. 예시 종목 비교가 12,870원(상한가).</p>
+
+<div class="grid">
+
+<!-- A -->
+<section class="variant">
+  <h2>A. 행 안에 한 줄 병기<small>「1,000만 · 7,770주」 — 늘 보이지만 큰 값에서 폰 밴드 폭이 모자랄 수 있다(현행 177,000,000주 가 이미 4px 넘친 전례).</small></h2>
+  <div class="phone">
+    <div class="card">
+      <div class="ct"><span class="led"></span>선매수<span class="sw"></span></div>
+      <div class="row"><span class="lb">주문가격</span><span class="v">12,870원</span></div>
+      <div class="row"><span class="lb">비교가격</span><span class="v">12,870원</span></div>
+      <div class="row"><span class="lb">금액</span><span class="v">4,000만원</span></div>
+      <div class="row"><span class="lb">매도잔량</span><span class="v">1,000만<span class="inl">7,770주</span></span></div>
+      <div class="row"><span class="lb"><span class="chk on"></span>체결량</span><span class="v">500만<span class="inl">3,885주</span></span></div>
+      <div class="sep"></div>
+      <div class="ct">줄매수</div>
+      <div class="row"><span class="lb">최소 잔량</span><span class="v">2,000만<span class="inl">15,540주</span></span></div>
+      <div class="row"><span class="lb">최대 잔량</span><span class="v">0만<span class="inl">무제한</span></span></div>
+      <div class="sep"></div>
+      <div class="ct">후매수</div>
+      <div class="row"><span class="lb">최소 잔량</span><span class="v">3,000만<span class="inl">23,310주</span></span></div>
+      <div class="row"><span class="lb">발동잔량</span><span class="v hot">3,218만<span class="inl">25,000주</span></span></div>
+      <div class="sep"></div>
+      <div class="ct">매도 <span class="sw" style="background:var(--faint)"></span></div>
+      <div class="row"><span class="lb">비교가격</span><span class="v">0원</span></div>
+      <div class="row"><span class="lb">매수잔량</span><span class="v alert">1,500만<span class="inl">비교가격 필요</span></span></div>
+    </div>
+  </div>
+  <p class="note">비교가 0: 값 옆 붉은 「비교가격 필요」. 켜진 그룹에 그 칸이 있으면 등록을 막는다(C# 문구 그대로).</p>
+</section>
+
+<!-- B -->
+<section class="variant">
+  <h2>B. 행은 만원만 · 환산 주는 시트 안에<small>C# 「칸=만원 · 툴팁=N주」 동형. 행 폭 그대로. 탭해서 열면 「= 7,770주」가 상태 줄에 뜨고 숫자를 바꾸면 따라 바뀐다.</small></h2>
+  <div class="phone">
+    <div class="card">
+      <div class="ct"><span class="led"></span>선매수<span class="sw"></span></div>
+      <div class="row"><span class="lb">주문가격</span><span class="v">12,870원</span></div>
+      <div class="row"><span class="lb">비교가격</span><span class="v">12,870원</span></div>
+      <div class="row"><span class="lb">금액</span><span class="v">4,000만원</span></div>
+      <div class="row"><span class="lb">매도잔량</span><span class="v">1,000만</span></div>
+      <div class="row"><span class="lb"><span class="chk on"></span>체결량</span><span class="v">500만</span></div>
+      <div class="sep"></div>
+      <div class="ct">줄매수</div>
+      <div class="row"><span class="lb">최소 잔량</span><span class="v">2,000만</span></div>
+      <div class="row"><span class="lb">최대 잔량</span><span class="v dim">무제한</span></div>
+      <div class="sep"></div>
+      <div class="ct">후매수</div>
+      <div class="row"><span class="lb">최소 잔량</span><span class="v">3,000만</span></div>
+      <div class="row"><span class="lb">발동잔량</span><span class="v hot">3,218만</span></div>
+    </div>
+    <div class="sheet">
+      <p class="t">선매수 매도잔량</p>
+      <p class="d">비교가격의 매도잔량이 이 금액 이하로 줄면 선매수를 넣어요</p>
+      <div class="out"><span class="n">1,000</span><span class="caret"></span><span class="u">만</span><span class="now">지금 1,000만</span></div>
+      <p class="st">= 7,770주 (비교가격 12,870원)</p>
+      <div class="chips"><span>+100</span><span>+500</span><span>+1,000</span><span>×2</span><span>½</span></div>
+      <div class="pad"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>00</span><span>0</span><span>⌫</span></div>
+      <div class="cta">선매수 매도잔량 적용</div>
+    </div>
+  </div>
+  <p class="note">비교가 0 이면 상태 줄이 붉은 「비교가격 필요 — 매수 비교가격을 입력하세요」. 0주로 내림되면 「500만 → 0주 — 금액을 늘리세요」(C# 거부 문구 동형) 로 적용 막음.</p>
+</section>
+
+<!-- C -->
+<section class="variant">
+  <h2>C. 두 줄 행<small>값 아래 작은 글씨로 「7,770주」. 늘 보이고 폭 문제 없음. 행이 44→56px 로 커져 카드가 길어진다(수량 8행 + 파생 2행 ≈ +120px).</small></h2>
+  <div class="phone">
+    <div class="card">
+      <div class="ct"><span class="led"></span>선매수<span class="sw"></span></div>
+      <div class="row"><span class="lb">주문가격</span><span class="v">12,870원</span></div>
+      <div class="row"><span class="lb">비교가격</span><span class="v">12,870원</span></div>
+      <div class="row"><span class="lb">금액</span><span class="v">4,000만원</span></div>
+      <div class="row tall"><span class="lb">매도잔량</span><span class="v">1,000만<span class="sub">7,770주</span></span></div>
+      <div class="row tall"><span class="lb"><span class="chk on"></span>체결량</span><span class="v">500만<span class="sub">3,885주</span></span></div>
+      <div class="sep"></div>
+      <div class="ct">줄매수</div>
+      <div class="row tall"><span class="lb">최소 잔량</span><span class="v">2,000만<span class="sub">15,540주</span></span></div>
+      <div class="row tall"><span class="lb">최대 잔량</span><span class="v">0만<span class="sub">무제한</span></span></div>
+      <div class="sep"></div>
+      <div class="ct">후매수</div>
+      <div class="row tall"><span class="lb">최소 잔량</span><span class="v">3,000만<span class="sub">23,310주</span></span></div>
+      <div class="row tall"><span class="lb">발동잔량</span><span class="v hot">3,218만<span class="sub">25,000주</span></span></div>
+      <div class="sep"></div>
+      <div class="ct">매도 <span class="sw" style="background:var(--faint)"></span></div>
+      <div class="row"><span class="lb">비교가격</span><span class="v">0원</span></div>
+      <div class="row tall"><span class="lb">매수잔량</span><span class="v alert">1,500만<span class="sub">비교가격 필요</span></span></div>
+    </div>
+  </div>
+  <p class="note">A 와 같은 정보량을 두 줄로. 데스크톱 밴드(≥685)에서는 한 줄로 접을 수도 있다.</p>
+</section>
+
+</div>
+
+<div class="sect">
+  <h2 style="font-size:15px;margin:0 0 6px">공통 — 에코 적용 · 재제출 규칙(세 안 동일, 결정 참고)</h2>
+  <p class="lead" style="margin:0">
+    에코 금액 &gt; 0 이고 floor(금액×10000÷비교가) == 에코 주 이면 그 만원 원값을 칸에 둔다. 아니면(0 · 서버가 주를 바꿈) 주를 반올림 역산해 보인다.
+    추적 ON 매도·취소 잔량은 기준선(주)을 역산해 보이고, 재제출 때 그 주를 그대로 되싣는다. 칸을 사람이 바꾸거나 비교가가 바뀌면 다음 제출에서 다시 내림 환산한다.
+    재제출은 금액 8필드를 함께 싣는다(0 으로 지어내지 않음).
+  </p>
+</div>
+</body>
+</html>

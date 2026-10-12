@@ -4,17 +4,17 @@ milestone: v1.1
 milestone_name: 운영 유지보수
 current_phase: 31
 current_phase_name: 인박스 상따 금액 단위
-status: planning
-stopped_at: Phase 30 complete, ready to plan Phase 31
-last_updated: "2026-10-11T10:14:09.079Z"
+status: executing
+stopped_at: Completed 31-07-PLAN.md
+last_updated: "2026-10-12T07:15:51.198Z"
 last_activity: 2026-10-11
-last_activity_desc: Phase 30 complete, transitioned to Phase 31
-state_head: 36c41fb9112c17ad2ba14147a8391005aa876d25
+last_activity_desc: Phase 31 execution started
+state_head: 708c4772cdffaace57c35239a373ab3f9d7c9b1f
 progress:
   total_phases: 2
   completed_phases: 1
-  total_plans: 9
-  completed_plans: 9
+  total_plans: 17
+  completed_plans: 16
   percent: 50
 ---
 
@@ -25,14 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-11 after v1.1 milestone start)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 30 — 인박스 KB 계좌별 주문자 IP/MAC
+**Current focus:** Phase 31 — 인박스 상따 금액 단위
 
 ## Current Position
 
-Phase: 31 — 인박스 상따 금액 단위
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-10-11 — Phase 30 complete, transitioned to Phase 31
+Phase: 31 (인박스 상따 금액 단위) — EXECUTING
+Plan: 8 of 8
+Status: Ready to execute
+Last activity: 2026-10-12 - Completed quick task 261012-mig: 상따 줄매수 최소>최대·최대 0주 차단 C# 동형 정렬
 
 Progress: [█████░░░░░] 50%
 
@@ -73,14 +73,15 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 261011-j87 | CLAUDE.md 다이어트 — 스택 표·법적 판례·설치 참조·출처 링크를 docs/ 로 옮기고 운영 5원칙·공식 API 기준·인박스·컨벤션만 요약 유지 | 2026-10-11 | 8b9a911d | [261011-j87-claude-md-docs-5-api](./quick/261011-j87-claude-md-docs-5-api/) |
+| 261012-mig | 상따 줄매수 「최소 > 최대」·「최대 0주」 차단을 C# addBuyLive(☐줄매수 ∨ ☐자동)·제출 주 비교로 정렬 — gh-trade 인박스 261012-phase32-review-fix-wr06-in07 | 2026-10-12 | 708c4772 | [261012-mig-lc-extrabuy-minmax-parity](./quick/261012-mig-lc-extrabuy-minmax-parity/) |
 
 ## Session Continuity
 
 **Resume file:** None
 
-Last session: 2026-10-11T10:00:00.354Z
-Stopped at: Phase 30 complete, ready to plan Phase 31
-Next: Phase 31 — 다른 세션이 phase/31 브랜치에서 진행 중(리서치·VALIDATION 끝, 다음 `/gsd-ui-phase 31`)
+Last session: 2026-10-12T07:50:00+09:00
+Stopped at: 31-08 Task 1 배포 체크포인트(relay · Vercel 미리보기 대기)
+Next: 31-08 relay 배포 → Vercel 미리보기 → 인박스 2건 닫기 → phase 31 검증
 
 ## Operator Next Steps
 
@@ -100,6 +101,13 @@ Next: Phase 31 — 다른 세션이 phase/31 브랜치에서 진행 중(리서�
 | Phase 30 P08 | 7min | 3 tasks | 6 files |
 | Phase 30 P09 | 9 min | 3 tasks | 9 files |
 | Phase 30 P07 | 3 min | 3 tasks | 2 files |
+| Phase 31 P01 | 21 min | 3 tasks | 25 files |
+| Phase 31 P02 | 6min | 2 tasks | 6 files |
+| Phase 31 P03 | 13 min | 2 tasks | 12 files |
+| Phase 31 P04 | 19min | 3 tasks | 11 files |
+| Phase 31 P05 | 14min | 3 tasks | 6 files |
+| Phase 31 P06 | 22min | 3 tasks | 8 files |
+| Phase 31 P07 | 47 min | 3 tasks | 9 files |
 
 ## Decisions
 
@@ -125,3 +133,16 @@ Next: Phase 31 — 다른 세션이 phase/31 브랜치에서 진행 중(리서�
 - [Phase 30]: 30-09: code 7 은 특수 처리 없이 결과 줄 「<서버> 실패: <서버 원문>」 — gh-trade 46a10ce9 의 넓힌 문구도 웹 변경 없음 · relay/server 무변경(30-07 은 webapp push 만)
 - [Phase 30]: 30-07: 인박스 261010 닫힘(done_commit 5687c282) — ① code 7 넓혀 달라 + 공유 계좌 IP/MAC 동시 반영(gh-trade 261011 · KB120 배포 · 사용자 확인, KB121 은 gh-trade 배포 여부 확인 필요) ② 원문 전송 · 표시는 사람이 읽는 표기 ③ ipconfig /all 수기 입력 · KB IP/MAC 설정 보류 권고 해제(relay:2234a1b5)
 - [Phase 30]: 30-07: 주문 전문(TCHODR1000 orderInfo · macAddr) IP/MAC 회선 관측은 열린 후속(비차단) — KB 담당 주문번호 조회 · KB120 패킷 캡처(gh-trade) · gh-trade 값 없는 출처 진단 로그 중 택1
+- [Phase 31]: 31-02: 두 줄 행 아래 줄은 RowSubLine 한 곳(setting-group export) — 행 3종 · 인라인 편집기 공용, 판정은 호출부 lc-fields.ts
+- [Phase 31]: 31-02: 시트 상태 줄 ⑤ 환산 안내(hint)는 ①잠금 ②반영 실패 ③경고 ④다른 단말 뒤 · armedNotice 면 같은 줄 둘째 줄(StatusLine.armedLine)에 「감시 중」
+- [Phase 31]: 31-03: 구 탭 11값 user.settings.set 의 후매수 최소는 relay 가 그 사용자 마지막 84 캐시에서 되싣고, 캐시가 없으면 저장하지 않고 비종료 거부(USER_SETTINGS_FLOOR_UNKNOWN_TEXT · 소켓 유지)
+- [Phase 31]: 31-03: 42 조립기는 봉인 post_buy_floor_qty 를 입력 무관 0 으로 싣는다 — 입력 타입은 그대로(구 탭 호환)
+- [Phase 31]: 31-03: /me 는 금액 키가 없는 84(구 relay)를 미수신과 같게 접는다(usableUserSettingsOf · 같은 객체 참조)
+- [Phase 31]: 31-04: 제출 주 산출은 lcSubmitQtyOf(values, 금액 키, server, price?) 한 함수 — buildCfg 8쌍 루프 · 무장 판정 · 자동 체크 공용(31-01 SELL_WATCH_PAIR 일반화)
+- [Phase 31]: 31-04: 상장주식수 시딩은 만원 · 매수 비교가 0 이면 가드 미소진(C# 순서 — 서버 전략이면 먼저 소진) · 매도 비교가 0 이면 매도 체결만 생략
+- [Phase 31]: 31-04: 수량 칸 위 줄은 0 도 「0만」 — 의미어(무제한 · 1주 · 없음)는 lcAmountZeroWordOf(요약 · 31-06 아래 줄)
+- [Phase 31]: 주문로그 ⑦ 수량 토큰은 shared lc-amount 서식 3함수(formatManwon · formatQtyAmt · qtyAmt) 한 벌 — 주문 줄만 「{금액(주)} @{가격}」, 나머지 제자리 교체
+- [Phase 31]: kind 1·2 시세 수량은 서버 ev_price(상한가)로만 환산 — 0 이면 종전 숫자(캐시 폴백 없음 · AMT-04)
+- [Phase 31]: 31-06: 등록 차단 문장은 ARM_BLOCKED_TEXT 한 곳 · armBlockOf 순서 1~8(C# 동형) — 패널(buyPriceReasonOf)도 비교가 0 금액 판정을 주문가격 0 보다 먼저 본다
+- [Phase 31]: 31-06: 수량 칸 시트 · 인라인 잠금은 validateCommit 맨 앞 amountLockTextOf 한 곳 · 두 줄 행 아래 줄 · 시트 안내 주는 qtyForSubmit(buildCfg 와 같은 값)
+- [Phase 31]: 31-06: 새 폼 후매수 최소 = 84 postBuyFloorAmount(키 부재 · 범위 밖 폴백 0)

@@ -23,7 +23,7 @@ import {
   parseInbound,
   withNeutralBuy3,
 } from "../src/ws/protocol.js";
-import { OrderBuildError, buildSetVITriggerReq } from "../src/dma/envelope.js";
+import { OrderBuildError, buildSetVITriggerReq, lcBuy3SchemaOf } from "../src/dma/envelope.js";
 import { logger } from "../src/logger.js";
 
 const ISIN = "KR7005930003";
@@ -918,5 +918,49 @@ describe("Phase 27 autosell.cmd · user.settings.set 인바운드 스키마", ()
     expect(msg.s).not.toHaveProperty("present");
     expect(msg).not.toHaveProperty("extra");
     expect(msg.s).toEqual(SETTINGS);
+  });
+});
+
+describe("P31 lc.set 금액 8필드 선택 (D-11)", () => {
+  const AMOUNT_KEYS = [
+    "buyWatchAmount",
+    "buyMinTradeAmount",
+    "extraBuyMinAmount",
+    "extraBuyMaxAmount",
+    "postBuyFloorAmount",
+    "sellWatchAmount",
+    "sellMinTradeAmount",
+    "cancelWatchAmount",
+  ] as const;
+  const AMOUNTS = Object.fromEntries(AMOUNT_KEYS.map((k, i) => [k, 1000 + i]));
+
+  it("P31 8필드 부재(구 탭)는 통과하고 키를 만들지 않는다 · 있으면 값 그대로 통과", () => {
+    const old = parseInbound(lcSet());
+    if (old?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    for (const k of AMOUNT_KEYS) expect(old.cfg, k).not.toHaveProperty(k);
+
+    const full = parseInbound(lcSet(AMOUNTS));
+    if (full?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(full.cfg).toMatchObject(AMOUNTS);
+  });
+
+  it.each(AMOUNT_KEYS)("P31 %s — -1 · 1.5 · 문자열은 스키마 위반", (k) => {
+    expect(parseInbound(lcSet({ [k]: -1 }))).toBeNull();
+    expect(parseInbound(lcSet({ [k]: 1.5 }))).toBeNull();
+    expect(parseInbound(lcSet({ [k]: "1000" }))).toBeNull();
+    expect(parseInbound(lcSet({ [k]: 0 }))).not.toBeNull();
+    expect(parseInbound(lcSet({ [k]: 999_999_999 }))).not.toBeNull();
+  });
+
+  it("P31 12필드가 없는 cfg 는 금액이 있어도 구 탭 판정(buy3CfgOf null) · buy3 파생은 금액 키와 무관", () => {
+    const legacy = parseInbound(JSON.stringify({ t: "lc.set", cfg: legacyCfg(AMOUNTS) }));
+    if (legacy?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(buy3CfgOf(legacy.cfg)).toBeNull();
+
+    const full = parseInbound(lcSet({ postBuyAuto: false, extraBuyBurstRelease: false, ...AMOUNTS }));
+    const bare = parseInbound(lcSet({ postBuyAuto: false, extraBuyBurstRelease: false }));
+    if (full?.t !== "lc.set" || bare?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(buy3CfgOf(full.cfg)).not.toBeNull();
+    expect(lcBuy3SchemaOf(full.cfg)).toBe(lcBuy3SchemaOf(bare.cfg));
   });
 });

@@ -395,3 +395,74 @@ describe('NumberPadSheet — 금지 항목(소스 가드)', () => {
     expect(SRC).not.toMatch(/<input/);
   });
 });
+
+describe('P31 환산 안내 상태 줄 — hint ⑤ · 감시 중 둘째 줄 (D-08 · UI-SPEC S3 · 상태 줄 우선순위)', () => {
+  const HINT = (v: number) => `= ${v.toLocaleString('ko-KR')}주 (비교가격 12,870원)`;
+  const AMT: Overrides = { title: '매도 매수잔량', unit: '만원', initialValue: 1_000, serverValue: 1_000, hint: HINT };
+
+  it('P31 잠금 없음 → 상태 줄 role=status · --muted-fg · 글자 = hint(value) · 입력 따라 갱신', async () => {
+    const { user } = setup(AMT);
+    const st = within(statusLine()).getByRole('status');
+    expect(st).toHaveTextContent('= 1,000주 (비교가격 12,870원)');
+    expect(st.className).toContain('text-[var(--muted-fg)]');
+    expect(within(statusLine()).queryByRole('alert')).toBeNull();
+    await user.click(key('7'));
+    expect(within(statusLine()).getByRole('status')).toHaveTextContent('= 7주 (비교가격 12,870원)');
+    expect(confirmBtn()).toBeEnabled();
+  });
+
+  it('P31 hint + armedNotice → 같은 상태 줄 요소 안 두 줄 — 첫 줄 hint · 둘째 줄 「감시 중 — 적용하면 바로 반영돼요」(초록 점)', () => {
+    setup({ ...AMT, armedNotice: true });
+    const statuses = within(statusLine()).getAllByRole('status');
+    expect(statuses).toHaveLength(1);
+    const st = statuses[0]!;
+    expect(st.textContent).toBe('= 1,000주 (비교가격 12,870원)감시 중 — 적용하면 바로 반영돼요');
+    const armed = st.querySelector('[data-slot="numpad-armed"]') as HTMLElement;
+    expect(armed).not.toBeNull();
+    expect(armed.className).toContain('block');
+    expect(armed.textContent).toBe('감시 중 — 적용하면 바로 반영돼요');
+    expect(armed.querySelector('.bg-\\[var\\(--led-armed\\)\\]')).not.toBeNull();
+  });
+
+  it('P31 validate 잠금 문장 → 상태 줄 = 그 문장 role=alert · hint 는 숨음 · 적용 버튼 disabled', () => {
+    setup({ ...AMT, armedNotice: true, validate: () => '비교가격 필요 — 매도 비교가격을 입력하세요' });
+    expect(within(statusLine()).getByRole('alert')).toHaveTextContent('비교가격 필요 — 매도 비교가격을 입력하세요');
+    expect(within(statusLine()).queryByRole('status')).toBeNull();
+    expect(statusLine().textContent).not.toContain('비교가격 12,870원');
+    expect(confirmBtn()).toBeDisabled();
+  });
+
+  it('P31 반영 실패 · 경고 · 다른 단말이 서면 hint 보다 이긴다(② > ③ > ④ > ⑤)', async () => {
+    // ② 반영 실패(alert)
+    const failed = setup({ ...AMT, status: 'failed', failureText: '반영하지 못했어요' });
+    expect(within(statusLine()).getByRole('alert')).toHaveTextContent('반영하지 못했어요');
+    expect(statusLine().textContent).not.toContain('비교가격 12,870원');
+    failed.unmount();
+
+    // ③ 경고(warn — ETP 호가 단위)
+    const warned = setup({
+      ...AMT,
+      unit: '원',
+      initialValue: 25_005,
+      serverValue: 25_000,
+      ctx: { current: 25_000, upper: 32_500, tickRule: 'etp' },
+    });
+    expect(within(statusLine()).getByRole('status')).toHaveAttribute('data-tone', 'warn');
+    expect(statusLine().textContent).not.toContain('비교가격 12,870원');
+    warned.unmount();
+
+    // ④ 다른 단말(status)
+    const other = setup(AMT);
+    other.rerender({ serverValue: 2_000 });
+    expect(within(statusLine()).getByRole('status')).toHaveTextContent('다른 단말에서 바뀌었어요');
+    expect(statusLine().textContent).not.toContain('비교가격 12,870원');
+  });
+
+  it('P31 hint 가 null 을 돌려주면 ⑤ 없음 → 종전 armed 안내만 · armed 도 없으면 빈 줄', () => {
+    const a = setup({ ...AMT, hint: () => null, armedNotice: true });
+    expect(within(statusLine()).getByRole('status')).toHaveTextContent(/^감시 중 — 적용하면 바로 반영돼요$/);
+    a.unmount();
+    setup({ ...AMT, hint: () => null });
+    expect(statusLine().textContent).toBe('');
+  });
+});

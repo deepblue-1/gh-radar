@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import type { RelayLimitChaser, RelayQuote, RelayQueuedWindowMsg } from '@gh-radar/shared';
+import { amountFromQty, qtyFromAmount } from '@gh-radar/shared';
 
 /**
  * Phase 18 Plan 10 Task 1 — 카드 본문 계약 (D-12 · D-19 · D-23 · D-24 · D-28, TRADE-07/09).
@@ -493,10 +494,14 @@ describe('⑥ 즉시 반영 — 더티 바 없음 (D-04)', () => {
       .filter((m) => m?.t === 'lc.set');
   const INLINE_FAILED = '반영하지 못했어요 · Enter 로 다시 시도해 주세요';
 
-  /** 「잔량 10,000주」 행을 눌러 인라인 편집기를 열고 값을 친 뒤 Enter — 확정 1회. */
+  /**
+   * 「매도잔량 130,000만」 행(에코 10,000주 @130,000원 역산 · Phase 31 만원 칸)을 눌러 인라인 편집기를 열고 값을 친 뒤
+   * Enter — 확정 1회.
+   */
   function commitWatchQty(value: string): HTMLInputElement {
     act(() => {
-      fireEvent.click(screen.getByRole('button', { name: '선매수 매도잔량 10,000주' }));
+      // Phase 31 D-07 — 두 줄 행 접근성 이름 「{라벨} {위 줄} {아래 줄}」(아래 줄 = 에코 주 10,000주).
+      fireEvent.click(screen.getByRole('button', { name: '선매수 매도잔량 130,000만 10,000주' }));
     });
     const input = document.querySelector('#lc-buy-watch-qty') as HTMLInputElement;
     expect(input, '잔량 인라인 입력').not.toBeNull();
@@ -515,11 +520,12 @@ describe('⑥ 즉시 반영 — 더티 바 없음 (D-04)', () => {
     expect(all.some((el) => (el.getAttribute('class') ?? '').includes('var(--primary)_55%'))).toBe(false);
   }
 
-  it('작업대 카드 — 잔량 행 인라인 8000 Enter → lc.set 1회(cfg 8000) · 더티 바·더티 테두리 없음 · 종목명 바 문구도 없다', () => {
+  it('작업대 카드 — 잔량 행 인라인 8000 Enter → lc.set 1회(cfg 8,000만 · 615주) · 더티 바·더티 테두리 없음 · 종목명 바 문구도 없다', () => {
     render(<CardBody {...props({ card: cardState({ server: server() }) })} />);
     commitWatchQty('8000');
     expect(lcSets()).toHaveLength(1);
-    expect(lcSets()[0]!.cfg!.buyWatchQty).toBe(8_000);
+    expect(lcSets()[0]!.cfg!.buyWatchAmount).toBe(8_000);
+    expect(lcSets()[0]!.cfg!.buyWatchQty).toBe(qtyFromAmount(8_000, 130_000));
     noDirtyTraces();
     expect(document.body.textContent).not.toContain('개 미반영');
     expect(document.body.textContent).not.toContain('「수정」을 눌러야 반영돼요');
@@ -709,18 +715,18 @@ describe('24-07 — 폼에 상장주식수(listShares = quote.ls) 를 넘긴다 
   const maxRow = () =>
     document.querySelector('[data-lc-field="lc-extra-buy-max-qty"] [data-slot="lc-row-value"]')?.textContent ?? null;
 
-  it('새 전략 · quote.ls > 0 → 폼이 그 값으로 5칸을 시딩한다(줄매수 최대 = 3%) · 전송 0', () => {
+  it('새 전략 · quote.ls > 0 → 폼이 그 값으로 만원 5칸을 시딩한다(줄매수 최대 = 3% 300,000주 @상한가 156,000원) · 전송 0', () => {
     render(<CardBody {...props({ card: cardState({ server: null, quote: quote({ ls: 10_000_000 }) }) })} />);
-    expect(maxRow()).toBe('300,000주');
+    expect(maxRow()).toBe(`${amountFromQty(300_000, 156_000).toLocaleString('ko-KR')}만`);
     expect(sendMock).not.toHaveBeenCalled();
   });
 
-  it('quote.ls 0 · 시세 없음 → 0 을 넘긴다(폴백 유지)', () => {
+  it('quote.ls 0 · 시세 없음 → 0 을 넘긴다(폴백 0만 유지 · 의미어는 아래 줄 몫)', () => {
     const { unmount } = render(<CardBody {...props({ card: cardState({ server: null, quote: quote({ ls: 0 }) }) })} />);
-    expect(maxRow()).toBe('무제한');
+    expect(maxRow()).toBe('0만');
     unmount();
     render(<CardBody {...props({ card: cardState({ server: null, quote: null }) })} />);
-    expect(maxRow()).toBe('무제한');
+    expect(maxRow()).toBe('0만');
   });
 });
 

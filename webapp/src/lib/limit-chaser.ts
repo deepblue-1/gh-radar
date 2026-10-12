@@ -46,7 +46,17 @@ import type {
   RelayUserSettingsMsg,
   RelayUserSettingsValues,
 } from '@gh-radar/shared';
-import { AUTO_SELL_METHOD_ORDER } from '@gh-radar/shared';
+import {
+  AUTO_SELL_METHOD_ORDER,
+  LC_AMOUNT_MAX_MANWON,
+  LC_AMOUNT_PAIRS,
+  amountFromQty,
+  echoAmountOf,
+  lcAmountPairOf,
+  qtyForSubmit,
+  type LcAmountKey,
+  type LcAmountPair,
+} from '@gh-radar/shared';
 
 // 84 시딩의 칸별 범위 판정은 lc 범위 표(`lc-ranges` — lc-fields 행과 같은 한 벌)를 읽는다. lib 는 components 를
 // 런타임 import 하지 않는다(27-REVIEW IN-05 — 계층 역전 · 초기화 순서 순환 방지).
@@ -61,6 +71,8 @@ import { lcFieldRangeOf } from '@/lib/lc-ranges';
  *     `market` 은 애초에 `RelayLimitChaserInput` 에 없다 — relay 가 ISIN 으로 푼다(WR-03/D-28)
  *   - 파생 4 (`crud` = `crudOf`, `buyOrderQty` · `extraBuyOrderQty` · `postBuyOrderQty` =
  *     `buyOrderQtyFromAmount` — Phase 24: 금액→수량 3벌을 `buildCfg` 가 한 함수로 산출한다. 역산 금지)
+ *   - 파생 · 금액→주 8벌(Phase 31 — `buildCfg` 가 `LC_AMOUNT_PAIRS` 8쌍을 shared `qtyForSubmit` 으로 산출한다.
+ *     폼은 만원 칸만 편집하고 주는 늘 제출 때 다시 계산한다 — D-01 · D-02 · D-10)
  *   - 클라 고정 3 (`sweepRecalcEnabled: true` · `sweepMinCount: 0` · `sweepMinRate: 0`)
  *
  * ★ 고정 3 을 폼에 노출하지 않는 이유: relay 빌더가 `true`/`0`/`0` 으로 **덮어쓴다**(16-04).
@@ -75,6 +87,14 @@ export type LimitChaserFormValues = Omit<
   | 'buyOrderQty'
   | 'extraBuyOrderQty'
   | 'postBuyOrderQty'
+  | 'buyWatchQty'
+  | 'buyMinTradeQty'
+  | 'extraBuyMinQty'
+  | 'extraBuyMaxQty'
+  | 'postBuyFloorQty'
+  | 'sellWatchQty'
+  | 'sellMinTradeQty'
+  | 'cancelWatchQty'
   | 'sweepRecalcEnabled'
   | 'sweepMinCount'
   | 'sweepMinRate'
@@ -107,6 +127,28 @@ export type LimitChaserGates = Pick<
 export function buyOrderQtyFromAmount(amountManwon: number, price: number): number {
   if (!(price > 0)) return 0;
   return Math.floor((amountManwon * 10_000) / price);
+}
+
+/** 금액 키 → 쌍 — shared `LC_AMOUNT_PAIRS` 표에서 만든다(쌍을 여기서 다시 적지 않는다). */
+const LC_PAIR_BY_AMOUNT = Object.fromEntries(LC_AMOUNT_PAIRS.map((p) => [p.amount, p])) as Record<
+  LcAmountKey,
+  LcAmountPair
+>;
+
+/**
+ * 수량 칸 하나의 **제출 주** — 화면 · 무장 판정 · cfg(`buildCfg`) · 자동 체크가 같은 호출을 본다(shared `qtyForSubmit`
+ * 한 함수 · Phase 31 D-02 · D-10 — 갈리면 오발주 표면).
+ * `price` 를 주지 않으면 그 그룹 비교가(매수 5칸 `buyWatchPrice` · 매도 · 취소 3칸 `sellWatchPrice`)다 — 자동 체크는
+ * ① 에서 상한가로 채운 매도 비교가를 넘긴다. server 가 있으면 에코 메모(서버 주 · 추적 ON 은 기준선)를 쓴다.
+ */
+export function lcSubmitQtyOf(
+  values: LimitChaserFormValues,
+  amount: LcAmountKey,
+  server: RelayLimitChaser | null,
+  price?: number,
+): number {
+  const pair = LC_PAIR_BY_AMOUNT[amount];
+  return qtyForSubmit(values[amount], price ?? values[pair.price], server ? echoAmountOf(server, pair) : null);
 }
 
 /**
@@ -217,9 +259,11 @@ export function seedFromUpperLimit(upperLimit: number): LimitChaserSeedPrices {
 /**
  * 신규 폼 기본값 `[VERIFIED: LimitChaserForm.cs:129~178]` · Phase 24 D-04(WinForms 「기본값 (D-33)」 표).
  *
- * 매수 금액 3벌 각 4,000만원 · 반등 30% · 최소 100,000주 · 최대 3회 · 매도 매수잔량 10주 · 잔량추적 55% · 취소 매수잔량 10주.
- * 상장주식수 비율 5칸(선매수 매도잔량 · 체결량 · 줄매수 최소/최대 · 매도 체결)은 여기 값이 **폴백**이고, 상장주식수를
- * 알면 `seedListSharesDefaults` 가 폼당 1회 덮는다(D-17). 가격 5칸은 `seedFromUpperLimit` 이 채운다.
+ * 매수 금액 3벌 각 4,000만원 · 반등 30% · 최대 3회 · 잔량추적 55% · 수량 8칸 0(만원 · Phase 31 D-12 — 옛 주 기본값
+ * 10,000 · 30,000 · 10 · 100,000 은 만원으로 옮기지도 환산하지도 않고 버린다 · gh-trade D-24 리셋 폴백 0).
+ * 상장주식수 비율 5칸(선매수 매도잔량 · 체결량 · 줄매수 최소/최대 · 매도 체결)은 여기 0 이 **폴백**이고, 상장주식수와
+ * 매수 비교가를 알면 `seedListSharesDefaults` 가 폼당 1회 만원으로 덮는다(D-17 · Phase 31). 가격 5칸은
+ * `seedFromUpperLimit` 이 채운다.
  *
  * ★ 매 호출 **새 객체**를 돌려준다. 모듈 상수를 공유하면 한 폼의 편집이 다음 신규 폼으로 샌다.
  */
@@ -227,8 +271,8 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
   return {
     // 매수주문
     buyWatchPrice: 0,
-    buyWatchQty: 10_000, // DEFAULT_BUY_WATCH_QTY
-    buyMinTradeQty: 30_000, // DEFAULT_BUY_MIN_TRADE_QTY
+    buyWatchAmount: 0, // 만원 · D-12 · gh-trade D-24 리셋 폴백 0
+    buyMinTradeAmount: 0, // 만원 · D-12 · gh-trade D-24 리셋 폴백 0
     buyTradeQtyEnabled: false,
     buyEnabled: false,
     // 매수가격
@@ -240,8 +284,8 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
     sweepEnabled: false,
     // 매도주문
     sellWatchPrice: 0,
-    sellWatchQty: 10, // DEFAULT_SELL_WATCH_QTY
-    sellMinTradeQty: 30_000, // DEFAULT_SELL_MIN_TRADE_QTY
+    sellWatchAmount: 0, // D-12 — 만원 · gh-trade D-24 리셋 폴백 0(옛 DEFAULT_SELL_WATCH_QTY 10 은 이전하지 않는다)
+    sellMinTradeAmount: 0, // 만원 · D-12 · gh-trade D-24 리셋 폴백 0
     sellTradeQtyEnabled: false,
     sellQtyTrackEnabled: false,
     sellQtyTrackRatio: 55, // DEFAULT_SELL_QTY_TRACK_RATIO = 55%, D-04 — 옛 50 폐기
@@ -251,16 +295,16 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
     sellOrderRatio: 100, // DEFAULT_SELL_ORDER_RATIO
     // 매수 미체결 자동취소
     cancelQtyEnabled: false,
-    cancelWatchQty: 10, // DEFAULT_CANCEL_QTY
+    cancelWatchAmount: 0, // 만원 · D-12 · gh-trade D-24 리셋 폴백 0
     cancelTradeEnabled: false,
     cancelQtyTrackEnabled: false,
     // === Phase 24 매수 3종 (D-04 · D-05 · D-17 폴백) ===
     // 그룹 스위치는 전부 OFF 로 시작한다(D-05).
     preBuyEnabled: false,
     extraBuyEnabled: false,
-    // 줄매수 최소·최대 매수잔량(주) — 폴백 0 = 1주 · 무제한. 상장주식수를 알면 `seedListSharesDefaults`(D-17)가 채운다.
-    extraBuyMinQty: 0,
-    extraBuyMaxQty: 0,
+    // 줄매수 최소·최대 매수잔량(만원) — 폴백 0 = 1주 · 무제한. 상장주식수 · 매수 비교가를 알면 `seedListSharesDefaults`(D-17)가 채운다.
+    extraBuyMinAmount: 0, // 만원 · D-12 · gh-trade D-24 리셋 폴백 0
+    extraBuyMaxAmount: 0, // 만원 · D-12 · gh-trade D-24 리셋 폴백 0
     extraBuyOrderAmount: 4000, // DEFAULT_EXTRA_BUY_ORDER_AMOUNT (만원) — D-04
     // 줄매수 ☐버스트 시 해제(quick-261003-rc4) — 새 폼은 OFF(gh-trade 클라 기본 해제 · 종목 전환 초기화 동형).
     // 게이트가 아니다 — 삭제 판정 · 켜진 전략 판정에 들어가지 않는다(P-4).
@@ -272,7 +316,7 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
     // 후매수 ☐자동(quick-260929-vzy) — 새 폼은 자동 OFF(WinForms 종목 전환 초기화 동형).
     postBuyAuto: false,
     postBuyReboundPct: 30, // DEFAULT_POST_BUY_REBOUND_PCT (%)
-    postBuyFloorQty: 100_000, // DEFAULT_POST_BUY_FLOOR_QTY (주)
+    postBuyFloorAmount: 0, // 만원 · D-12 · gh-trade D-24 리셋 폴백 0 — 84 postBuyFloorAmount 시딩은 31-06(C# F:6159)
     postBuyReentry: 3, // DEFAULT_POST_BUY_REENTRY (회, 최초 포함)
     postBuyOrderAmount: 4000, // DEFAULT_POST_BUY_ORDER_AMOUNT (만원) — D-04
     // === Phase 27 자동매도 요청 4필드 — 스위치 OFF · 시작조건 0 · 비율 10% · 방법 3(양쪽) ===
@@ -291,50 +335,63 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
 export const LIST_SHARES_SEED_PERMILLE = 3;
 /** 상장주식수 × 3% — 백분율 3. */
 export const LIST_SHARES_SEED_PERCENT = 3;
-/** relay 스키마 · 서버 cfg 의 줄매수 최소 · 최대 잔량 상한(uint32). */
-export const UINT32_MAX = 4_294_967_295;
-
-/** 상장주식수 시딩이 채우는 5칸. */
+/** 상장주식수 시딩이 채우는 만원 5칸 — 매도 체결은 매도 비교가가 0 이면 빠진다. */
 export type ListSharesSeed = Pick<
   LimitChaserFormValues,
-  'buyWatchQty' | 'buyMinTradeQty' | 'extraBuyMinQty' | 'extraBuyMaxQty' | 'sellMinTradeQty'
->;
+  'buyWatchAmount' | 'buyMinTradeAmount' | 'extraBuyMinAmount' | 'extraBuyMaxAmount'
+> &
+  Partial<Pick<LimitChaserFormValues, 'sellMinTradeAmount'>>;
+
+/** C# `Clamp(칸, AmountFromQty(주, 비교가))` — 만원 칸 상한(999,999,999)에서 멈춘다. */
+function seedAmountOf(qty: number, price: number): number {
+  return Math.min(amountFromQty(qty, price), LC_AMOUNT_MAX_MANWON);
+}
 
 /**
- * 상장주식수 5칸 시딩 — WinForms `SeedListSharesDefaults`(LimitChaserForm.cs) 동형 · 순수 함수.
+ * 상장주식수 만원 5칸 시딩 — WinForms `SeedListSharesDefaults`(LimitChaserForm.cs 1458~1500 · Phase 32 D-11) 동형 · 순수 함수.
  *
- * 선매수 매도잔량 · 체결량 · 줄매수 최소 · 매도 체결 = 상장주식수 × 0.3% · 줄매수 최대 = × 3%. 전부 정수 내림이고
- * 줄매수 최소 · 최대는 uint32 상한에서 멈춘다. 상장주식수를 모르면(≤ 0) null — 호출자는 가드를 소진하지 않는다.
+ * 칸은 만원이다 — 주 비율을 비교가격(상한가 시딩이 채운 값)으로 환산해 채운다:
+ *   선매수 매도잔량 · 체결량 · 줄매수 최소 = `AmountFromQty(상장주식수 × 0.3% 내림, 매수 비교가)` ·
+ *   줄매수 최대 = `AmountFromQty(× 3% 내림, 매수 비교가)` · 매도 체결 = `AmountFromQty(× 0.3%, 매도 비교가)`.
+ *   각 값은 999,999,999 에서 멈춘다(C# Clamp).
+ * - 상장주식수를 모르거나(≤ 0) 매수 비교가가 0 이면(상한가 미수신 · 사람이 비움) null — 환산할 수 없다. 호출자는 가드를
+ *   소진하지 않고 미룬다(비교가격이 생긴 뒤 채운다 · Pitfall 9).
+ * - 매도 비교가가 0 이면 매도 체결 칸만 건너뛴다(키 없음 — C# `sellUpper > 0` 조건).
  * 적용 규칙(D-17 ①~④)은 호출자(폼) 몫이다:
  *   ① 서버에 그 키의 전략이 있으면 시딩하지 않는다(에코가 이긴다).
- *   ② 0(모름)이면 가드를 남겨 뒤에 오는 호가 프레임이 채운다 — 그동안 `defaultLimitChaserForm` 폴백이 남는다.
+ *   ② null(모름 · 비교가 0)이면 가드를 남겨 뒤에 오는 프레임 · 비교가가 채운다 — 그동안 `defaultLimitChaserForm` 폴백 0 이 남는다.
  *   ③ 사용자가 이 폼에서 손댄 칸은 덮지 않는다.
  *   ④ 폼당 1회 · 제출 · 로그 · 강조를 만들지 않는다(값만 바뀌고 첫 등록 cfg 에 실린다).
- * ★ `Math.floor(listShares * 3 / 1000)` — 상장주식수(최대 수백억)에 3 을 곱해도 2^53 안이라 정확한 정수다.
+ * ★ `Math.floor(listShares * 3 / 1000)` — 상장주식수(최대 수백억)에 3 을 곱해도 2^53 안이라 정확한 정수다. 주 × 비교가가
+ *   2^53 을 넘으면 shared `amountFromQty` 가 BigInt 로 정확히 계산한다.
  */
-export function seedListSharesDefaults(listShares: number): ListSharesSeed | null {
-  if (!(listShares > 0)) return null;
+export function seedListSharesDefaults(listShares: number, buyWatchPrice: number, sellWatchPrice: number): ListSharesSeed | null {
+  if (!(listShares > 0) || !(buyWatchPrice > 0)) return null;
   const permille = Math.floor((listShares * LIST_SHARES_SEED_PERMILLE) / 1000);
   const percent = Math.floor((listShares * LIST_SHARES_SEED_PERCENT) / 100);
+  const amt03 = seedAmountOf(permille, buyWatchPrice);
   return {
-    buyWatchQty: permille,
-    buyMinTradeQty: permille,
-    extraBuyMinQty: Math.min(permille, UINT32_MAX),
-    extraBuyMaxQty: Math.min(percent, UINT32_MAX),
-    sellMinTradeQty: permille,
+    buyWatchAmount: amt03,
+    buyMinTradeAmount: amt03,
+    extraBuyMinAmount: amt03,
+    extraBuyMaxAmount: seedAmountOf(percent, buyWatchPrice),
+    ...(sellWatchPrice > 0 ? { sellMinTradeAmount: seedAmountOf(permille, sellWatchPrice) } : {}),
   };
 }
 
 /* ── 사용자 기본설정(84) 시딩 (Phase 27 · 27-07 · D-11) ───────────────────────────────────────── */
 
-/** 84 사용자 설정이 채우는 새 폼 9칸. 매도 주기 · 동시호가 비율은 서버 전용이라 폼 칸이 없다. */
+/**
+ * 84 사용자 설정이 채우는 새 폼 9칸. 매도 주기 · 동시호가 비율은 서버 전용이라 폼 칸이 없다.
+ * 후매수 최소 = 84 `postBuyFloorAmount`(만원 · Phase 31 D-12 · C# F:6159) — 봉인된 주 `postBuyFloorQty` 는 폼 키가 아니다.
+ */
 export type UserSettingsSeed = Pick<
   LimitChaserFormValues,
   | 'buyOrderAmount'
   | 'extraBuyOrderAmount'
   | 'postBuyOrderAmount'
   | 'postBuyReentry'
-  | 'postBuyFloorQty'
+  | 'postBuyFloorAmount'
   | 'postBuyReboundPct'
   | 'sellQtyTrackRatio'
   | 'autoSellRatioPct'
@@ -347,7 +404,8 @@ const USER_SETTINGS_SEED_MAP: readonly (readonly [keyof UserSettingsSeed, keyof 
   ['extraBuyOrderAmount', 'addBuyAmount'],
   ['postBuyOrderAmount', 'postBuyAmount'],
   ['postBuyReentry', 'postBuyMaxCount'],
-  ['postBuyFloorQty', 'postBuyFloorQty'],
+  // 후매수 최소(만원) — Phase 31 D-12 · C# F:6159. 84 에 키가 없으면(구 relay) 폴백 0(`fitsLcRange` · Pitfall 10).
+  ['postBuyFloorAmount', 'postBuyFloorAmount'],
   ['postBuyReboundPct', 'postBuyReboundPct'],
   ['sellQtyTrackRatio', 'sellQtyTrackRatio'],
   ['autoSellRatioPct', 'autoSellRatioDefaultPct'],
@@ -358,10 +416,11 @@ const USER_SETTINGS_SEED_MAP: readonly (readonly [keyof UserSettingsSeed, keyof 
  * 이 값이 그 칸의 lc 행 범위에 드는가 — 범위 정본은 `lc-ranges` 표(`inputRange ?? range` — lc-fields 행이 같은 표를
  * 펼쳐 쓴다)이고, 3택(자동매도 방법)은 옵션 값 = shared `AUTO_SELL_METHOD_ORDER`(lc-fields `choice` 행의 옵션 원천)이다.
  * 게이트를 켠 cfg 의 좁은 범위(`inputRange`)로 본다 — 시딩된 값이 사용자가 그룹을 켜는 순간 `lcRangeIssue` 에 걸리면
- * 안 된다. 범위가 없는 칸(금액 · 하한잔량)은 relay `UIntSchema` = 0 이상 정수.
+ * 안 된다. 범위가 없는 칸(주문 금액)은 relay `UIntSchema` = 0 이상 정수.
  */
-function fitsLcRange(field: keyof UserSettingsSeed, v: number): boolean {
-  if (!Number.isInteger(v) || v < 0) return false;
+function fitsLcRange(field: keyof UserSettingsSeed, v: number | undefined): v is number {
+  // 키 부재(구 relay 84 · Phase 31 `postBuyFloorAmount` 선택 키)는 범위 밖과 같다 — 폴백.
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 0) return false;
   if (field === 'autoSellMethod') return (AUTO_SELL_METHOD_ORDER as readonly number[]).includes(v);
   const r = lcFieldRangeOf(field);
   if (r === undefined) return true;
@@ -370,8 +429,8 @@ function fitsLcRange(field: keyof UserSettingsSeed, v: number): boolean {
 }
 
 /**
- * 사용자 기본설정(84) → 새 폼 9칸 시딩 — WinForms `ResetStrategyOptionsToDefault`(LimitChaserForm.cs :5765~5810)
- * 매핑 동형 · 순수 함수.
+ * 사용자 기본설정(84) → 새 폼 9칸 시딩 — WinForms `ResetStrategyOptionsToDefault`(LimitChaserForm.cs :5765~5810 ·
+ * 후매수 최소 F:6159) 매핑 동형 · 순수 함수.
  *
  *   | 폼 칸                 | 84                        | WinForms 컨트롤          |
  *   |----------------------|---------------------------|-------------------------|
@@ -379,7 +438,7 @@ function fitsLcRange(field: keyof UserSettingsSeed, v: number): boolean {
  *   | extraBuyOrderAmount  | addBuyAmount (만원)        | numAddBuyOrderAmount     |
  *   | postBuyOrderAmount   | postBuyAmount (만원)       | numPostBuyOrderAmount    |
  *   | postBuyReentry       | postBuyMaxCount (회)       | numPostBuyReentry        |
- *   | postBuyFloorQty      | postBuyFloorQty (주)       | numPostBuyFloorQty       |
+ *   | postBuyFloorAmount   | postBuyFloorAmount (만원)  | numPostBuyFloorQty(만원 칸) |
  *   | postBuyReboundPct    | postBuyReboundPct (%)      | numPostBuyReboundPct     |
  *   | sellQtyTrackRatio    | sellQtyTrackRatio (%)      | numSellQtyTrackRatio     |
  *   | autoSellRatioPct     | autoSellRatioDefaultPct (%)| 자동매도 비율             |
@@ -493,6 +552,7 @@ export function groupAutoChecksOf(
   values: LimitChaserFormValues,
   upperLimit: number,
   laid: ReadonlySet<keyof LimitChaserFormValues> = NO_LAID,
+  server: RelayLimitChaser | null = null,
 ): GroupAutoCheckResult {
   const companions: Partial<LimitChaserFormValues> = {};
   let sellOrderPrice = values.sellOrderPrice;
@@ -515,10 +575,12 @@ export function groupAutoChecksOf(
   // 조건 → 사유. 배열 순서가 곧 사유 우선순위다(첫 실패 하나만 말한다).
   const pricesMissing = sellOrderPrice === 0 || sellWatchPrice === 0;
   const watchPriceMissing = sellWatchPrice === 0;
-  const sellQtyZero = values.sellWatchQty === 0;
+  // 임계 판정은 ① 에서 채운 매도 비교가로 환산한 주로 한다 — 제출 · 무장 판정과 같은 `qtyForSubmit`(C# 「가격 채움 뒤
+  // 환산 주」 · Pitfall 8). server 가 있으면 에코 메모(서버 주 · 추적 ON 은 기준선)를 쓴다.
+  const sellQtyZero = lcSubmitQtyOf(values, 'sellWatchAmount', server, sellWatchPrice) === 0;
   const ratioZero = values.sellOrderRatio === 0;
-  const cancelQtyZero = values.cancelWatchQty === 0;
-  const tradeZero = values.sellMinTradeQty === 0;
+  const cancelQtyZero = lcSubmitQtyOf(values, 'cancelWatchAmount', server, sellWatchPrice) === 0;
+  const tradeZero = lcSubmitQtyOf(values, 'sellMinTradeAmount', server, sellWatchPrice) === 0;
   type Check = readonly [failed: boolean, reason: AutoCheckReason];
   const firstFail = (checks: readonly Check[]): AutoCheckReason | null =>
     checks.find(([failed]) => failed)?.[1] ?? null;
@@ -662,6 +724,9 @@ export function isLegacyAmountUnknown(server: RelayLimitChaser | null | undefine
  * 이전 값을 남긴다(Pitfall 11 · D-04a). 수량 × 가격 역산으로 채우지도 않는다. buy3 에코의 선매수 금액 0 은
  * 「미입력」이라 0 그대로 들인다 — 이전 폼 값(기본 4,000만원)으로 메우면 다음 확정이 사용자가 두지 않은
  * 금액 · 수량을 조용히 싣는다(T-24-45).
+ *
+ * 금액 8칸(Phase 31 · 수량 임계)은 `buyOrderAmount` 의 prev 보존 규칙을 쓰지 않는다 — 짝이면 원값, 아니면 역산이
+ * 정본(D-06 · shared `echoAmountOf`).
  */
 export function formFromServer(
   server: RelayLimitChaser,
@@ -669,8 +734,6 @@ export function formFromServer(
 ): LimitChaserFormValues {
   return {
     buyWatchPrice: server.buyWatchPrice,
-    buyWatchQty: server.buyWatchQty,
-    buyMinTradeQty: server.buyMinTradeQty,
     buyTradeQtyEnabled: server.buyTradeQtyEnabled,
     buyEnabled: server.buyEnabled,
     buyOrderPrice: server.buyOrderPrice,
@@ -679,8 +742,6 @@ export function formFromServer(
     sweepMinTickCount: server.sweepMinTickCount,
     sweepEnabled: server.sweepEnabled,
     sellWatchPrice: server.sellWatchPrice,
-    sellWatchQty: server.sellWatchQty,
-    sellMinTradeQty: server.sellMinTradeQty,
     sellTradeQtyEnabled: server.sellTradeQtyEnabled,
     sellQtyTrackEnabled: server.sellQtyTrackEnabled,
     sellQtyTrackRatio: server.sellQtyTrackRatio,
@@ -688,14 +749,11 @@ export function formFromServer(
     sellOrderPrice: server.sellOrderPrice,
     sellOrderRatio: server.sellOrderRatio,
     cancelQtyEnabled: server.cancelQtyEnabled,
-    cancelWatchQty: server.cancelWatchQty,
     cancelTradeEnabled: server.cancelTradeEnabled,
     cancelQtyTrackEnabled: server.cancelQtyTrackEnabled,
     // === Phase 24 매수 3종 — 에코 값 그대로 (D-03) ===
     preBuyEnabled: server.preBuyEnabled,
     extraBuyEnabled: server.extraBuyEnabled,
-    extraBuyMinQty: server.extraBuyMinQty,
-    extraBuyMaxQty: server.extraBuyMaxQty,
     // ★ 금액 0 도 그대로 들인다 — 선매수와 같은 규칙이다(구서버 에코의 선매수 금액만 예외 · `isLegacyAmountUnknown`).
     //   buy3 서버는 세 금액을 늘 싣기 때문에 0 은 「모른다」가 아니라 사용자가 둔 값이다(D-03).
     extraBuyOrderAmount: server.extraBuyOrderAmount,
@@ -708,7 +766,6 @@ export function formFromServer(
     // 에코 그대로 — 서버가 자동을 발화하면 false 로 온다(quick-260929-vzy).
     postBuyAuto: server.postBuyAuto,
     postBuyReboundPct: server.postBuyReboundPct,
-    postBuyFloorQty: server.postBuyFloorQty,
     postBuyReentry: server.postBuyReentry,
     postBuyOrderAmount: server.postBuyOrderAmount,
     // === Phase 27 자동매도 요청 4필드 — 에코 값 그대로(0 은 0 — 메우지 않는다). 에코 전용 4필드는 폼 타입에 없다. ===
@@ -716,7 +773,18 @@ export function formFromServer(
     autoSellStartCond: server.autoSellStartCond,
     autoSellRatioPct: server.autoSellRatioPct,
     autoSellMethod: server.autoSellMethod,
+    // === Phase 31 금액(만원) 8칸 — 쌍 표(shared `LC_AMOUNT_PAIRS`)가 정본. 짝이면 원값 · 아니면(구 서버 0 · 서버가 주를
+    //     바꿈) 역산 · 추적 ON(매도 · 취소)이면 기준선 역산(D-06 · Pitfall 6). 짝 주 8개는 폼 키가 아니다 — 제출 때
+    //     `buildCfg` 가 에코 메모로 되싣거나 내림 환산한다(D-10).
+    ...amountsFromServer(server),
   };
+}
+
+/** 금액 8키 ← 에코 적용값(`echoAmountOf(server, pair).shown`) — `formFromServer` 한 곳만 부른다. */
+function amountsFromServer(server: RelayLimitChaser): Record<LcAmountKey, number> {
+  const out = {} as Record<LcAmountKey, number>;
+  for (const pair of LC_AMOUNT_PAIRS) out[pair.amount] = echoAmountOf(server, pair).shown;
+  return out;
 }
 
 /**
@@ -731,10 +799,19 @@ export function formFromServer(
  *
  * 비교는 `cfg` 의 키 전부(`buyEnabled` 제외)를 에코의 같은 키와 `===` 로 본다 — 키 목록의 정본은 입력 타입
  * `RelayLimitChaserInput` 이고, 여기에 필드를 나열하지 않는다(필드가 합류할 때 갈라진다).
+ * ★ 금액↔주 쌍 키(Phase 31)는 에코 원값이 아니라 **에코 적용값**과 본다 — 금액 키는 `echoAmountOf(...).shown`, 짝 주
+ *   키는 `echoAmountOf(...).qty`(추적 ON 이면 기준선). 구 서버 에코(금액 0)나 짝 아닌 에코에서 폼이 역산값을 싣는 것은
+ *   「다른 곳에서 둔 값」이 아니므로, 원값 `===` 로 보면 자동 끔이 영구히 억제된다(Pitfall 2).
  */
 export function isMasterOnlyDelta(cfg: RelayLimitChaserInput, echo: RelayLimitChaser): boolean {
   for (const key of Object.keys(cfg) as (keyof RelayLimitChaserInput)[]) {
     if (key === 'buyEnabled') continue;
+    const pair = lcAmountPairOf(key);
+    if (pair !== undefined) {
+      const applied = echoAmountOf(echo, pair);
+      if (cfg[key] !== (key === pair.amount ? applied.shown : applied.qty)) return false;
+      continue;
+    }
     if (cfg[key] !== echo[key]) return false;
   }
   return true;

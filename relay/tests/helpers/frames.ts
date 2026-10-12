@@ -594,6 +594,16 @@ export type FakeLimitChaserInput = {
   sellOrderQty?: number;
   sellWatchPrice?: number;
   sellWatchQty?: number;
+  /** 매도 매수잔량 금액(만원 · vtable 168 · Phase 31) — 서버 보관 · 에코. 부재 기본 0 = 구 서버. */
+  sellWatchAmount?: number;
+  // === Phase 31 금액 나머지 7(만원 · vtable 158~172) — 서버 보관 · 에코. 부재 기본 0 = 구 서버. ===
+  buyWatchAmount?: number;
+  buyMinTradeAmount?: number;
+  extraBuyMinAmount?: number;
+  extraBuyMaxAmount?: number;
+  postBuyFloorAmount?: number;
+  sellMinTradeAmount?: number;
+  cancelWatchAmount?: number;
   sellMinTradeQty?: number;
   sellEnabled?: boolean;
   sellTradeQtyEnabled?: boolean;
@@ -813,6 +823,15 @@ function emitSetLimitChaser(
   SetLimitChaser.addAutoSellBasis(b, input.autoSellBasis ?? 0);
   SetLimitChaser.addAutoSellBasisPrice(b, input.autoSellBasisPrice ?? 0);
   SetLimitChaser.addExtraBuyAuto(b, input.extraBuyAuto ?? false);
+  // === Phase 31 금액 8필드(vtable 158~172) — 부재 기본 0 = 구 서버(슬롯 무시) ===
+  SetLimitChaser.addBuyWatchAmount(b, input.buyWatchAmount ?? 0);
+  SetLimitChaser.addBuyMinTradeAmount(b, input.buyMinTradeAmount ?? 0);
+  SetLimitChaser.addExtraBuyMinAmount(b, input.extraBuyMinAmount ?? 0);
+  SetLimitChaser.addExtraBuyMaxAmount(b, input.extraBuyMaxAmount ?? 0);
+  SetLimitChaser.addPostBuyFloorAmount(b, input.postBuyFloorAmount ?? 0);
+  SetLimitChaser.addSellWatchAmount(b, input.sellWatchAmount ?? 0);
+  SetLimitChaser.addSellMinTradeAmount(b, input.sellMinTradeAmount ?? 0);
+  SetLimitChaser.addCancelWatchAmount(b, input.cancelWatchAmount ?? 0);
   return SetLimitChaser.endSetLimitChaser(b);
 }
 
@@ -1245,7 +1264,7 @@ export function buildQueuedWindowStateFrame(input: FakeQueuedWindowInput = {}): 
 }
 
 /**
- * 사용자 설정 (84 · Phase 27). 11값 + `present`(84 전용). 금액 3칸은 **만원**.
+ * 사용자 설정 (84 · Phase 27 · Phase 31 12값). 12값 + `present`(84 전용). 금액 4칸은 **만원**.
  */
 export type FakeUserSettingsInput = {
   preBuyAmount?: number;
@@ -1260,6 +1279,11 @@ export type FakeUserSettingsInput = {
   autoSellRatioDefaultPct?: number;
   autoSellMethodDefault?: number;
   present?: boolean;
+  /**
+   * 후매수 최소(하한금액) — **만원** · fbs vtable 28(Phase 32 D-08 · present 뒤 말미 append). 기본 0 = 서버 내장 0
+   * (0 은 FlatBuffers 기본값이라 슬롯을 쓰지 않는다 — 구 84(슬롯 부재)와 같은 바이트).
+   */
+  postBuyFloorAmount?: number;
 };
 
 /**
@@ -1283,6 +1307,7 @@ export function buildUserSettingsFrame(input: FakeUserSettingsInput = {}): Uint8
   UserSettings.addAutoSellRatioDefaultPct(b, input.autoSellRatioDefaultPct ?? 10);
   UserSettings.addAutoSellMethodDefault(b, input.autoSellMethodDefault ?? 3);
   UserSettings.addPresent(b, input.present ?? false);
+  UserSettings.addPostBuyFloorAmount(b, input.postBuyFloorAmount ?? 0);
   const settings = UserSettings.endUserSettings(b);
 
   Envelope.startEnvelope(b);

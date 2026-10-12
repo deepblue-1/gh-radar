@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { LIMIT_CHASER_SERVER_ONLY_FIELDS } from '@gh-radar/shared';
+import {
+  LC_AMOUNT_MAX_MANWON,
+  LC_AMOUNT_PAIRS,
+  LIMIT_CHASER_SERVER_ONLY_FIELDS,
+  amountFromQty,
+  echoAmountOf,
+  qtyForSubmit,
+} from '@gh-radar/shared';
 import type { RelayLimitChaser, RelayLimitChaserInput, RelayUserSettingsMsg } from '@gh-radar/shared';
 
 /**
@@ -42,6 +49,7 @@ import {
   AUTO_SELL_PEND_TEXT,
   isMarketCloseReleaseNotice,
   isMasterOnlyDelta,
+  lcSubmitQtyOf,
   limitChaserGateDisarmed,
   confirmAutoChecks,
   marketCloseReleaseKeysOf,
@@ -78,6 +86,13 @@ function serverEcho(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     sellEntryLatched: false,
     cancelQtyTrackBaseline: 0,
     cancelEntryLatched: false,
+    // 수량 임계 주 — 폼 키는 금액(만원 · Phase 31)이라 폼 기본값(금액 0 · 비교가 0)이 만드는 0주로 둔다
+    // (줄매수 최소 · 최대 · 후매수 최소는 `LC_BUY3_ECHO_DEFAULTS` 의 0).
+    buyWatchQty: 0,
+    buyMinTradeQty: 0,
+    sellWatchQty: 0,
+    sellMinTradeQty: 0,
+    cancelWatchQty: 0,
     ...LC_BUY3_ECHO_DEFAULTS,
     // 클라 고정 3
     sweepRecalcEnabled: true,
@@ -348,17 +363,19 @@ describe('seedFromUpperLimit — 상한가 5칸 시딩', () => {
 });
 
 describe('defaultLimitChaserForm — WinForms 기본값', () => {
-  it('감시잔량 10000 · 주문금액 4,000만원(D-04) · 최소체결 30000 · 매도호가잔량 10 · 잔량추적 55(D-04) · 매도비율 100 · 호가변경 3 · 취소잔량 10', () => {
+  it('주문금액 4,000만원(D-04) · 수량 8칸 0만(Phase 31 D-12) · 잔량추적 55(D-04) · 매도비율 100 · 호가변경 3', () => {
     const d = defaultLimitChaserForm();
-    expect(d.buyWatchQty).toBe(10_000);
     expect(d.buyOrderAmount).toBe(4000);
-    expect(d.buyMinTradeQty).toBe(30_000);
-    expect(d.sellWatchQty).toBe(10);
+    // 수량 칸은 만원 — 옛 주 기본값(10,000 · 30,000 · 10)은 이전하지 않는다(D-12 · gh-trade D-24 폴백 0).
+    expect(d.buyWatchAmount).toBe(0);
+    expect(d.buyMinTradeAmount).toBe(0);
+    expect(d.sellWatchAmount).toBe(0);
+    expect(d.sellMinTradeAmount).toBe(0);
+    expect(d.cancelWatchAmount).toBe(0);
+    expect(d).not.toHaveProperty('sellWatchQty');
     expect(d.sellQtyTrackRatio).toBe(55);
-    expect(d.sellMinTradeQty).toBe(30_000);
     expect(d.sellOrderRatio).toBe(100);
     expect(d.sweepMinTickCount).toBe(3);
-    expect(d.cancelWatchQty).toBe(10);
   });
 
   it('게이트는 전부 false 이고 감시대상 키가 없다 (Phase 24 ⑤)', () => {
@@ -403,6 +420,170 @@ describe('isLegacyBuySchema · isLegacyAmountUnknown — 구서버 판별 단일
     expect(isLegacyAmountUnknown(serverEcho({ buy3Schema: 1, buyOrderAmount: 0 }))).toBe(false);
     expect(isLegacyAmountUnknown(serverEcho({ buy3Schema: 0, buyOrderAmount: 20 }))).toBe(false);
     expect(isLegacyAmountUnknown(null)).toBe(false);
+  });
+});
+
+describe('P31 금액 8칸 — 기본값 · formFromServer 에코 적용값 (31-01 · D-06 · D-12)', () => {
+  it('새 폼의 금액 8키는 모두 0 이다(매도 매수잔량 포함)', () => {
+    const d = defaultLimitChaserForm();
+    for (const p of LC_AMOUNT_PAIRS) expect(d[p.amount], p.amount).toBe(0);
+  });
+
+  it('추적 OFF · 짝이면 원값 — C# 이 둔 만원이 그대로 폼에 들어온다', () => {
+    const next = formFromServer(
+      serverEcho({
+        buyWatchPrice: 12_870,
+        buyWatchQty: 777,
+        buyWatchAmount: 1001,
+        sellWatchPrice: 12_870,
+        sellMinTradeQty: 388,
+        sellMinTradeAmount: 500,
+      }),
+      defaultLimitChaserForm(),
+    );
+    expect(next.buyWatchAmount).toBe(1001);
+    expect(next.sellMinTradeAmount).toBe(500);
+  });
+
+  it('구 서버(금액 0) · 짝 아님은 주에서 역산 — 777주 → 1000만 · 776주(1000만과 짝 아님) → 999만', () => {
+    const next = formFromServer(
+      serverEcho({
+        buyWatchPrice: 12_870,
+        extraBuyMinQty: 777,
+        extraBuyMinAmount: 0,
+        postBuyFloorQty: 776,
+        postBuyFloorAmount: 1000,
+      }),
+      defaultLimitChaserForm(),
+    );
+    expect(next.extraBuyMinAmount).toBe(1000);
+    expect(next.postBuyFloorAmount).toBe(999);
+  });
+
+  it('매도 · 취소 추적 ON → 기준선 역산(매도 1554주 → 2000만 · 취소 1165주 → 1499만)', () => {
+    const next = formFromServer(
+      serverEcho({
+        sellWatchPrice: 12_870,
+        sellWatchQty: 777,
+        sellWatchAmount: 1000,
+        sellQtyTrackEnabled: true,
+        sellQtyTrackBaseline: 1554,
+        cancelWatchQty: 777,
+        cancelWatchAmount: 1000,
+        cancelQtyTrackEnabled: true,
+        cancelQtyTrackBaseline: 1165,
+      }),
+      defaultLimitChaserForm(),
+    );
+    expect(next.sellWatchAmount).toBe(2000);
+    expect(next.cancelWatchAmount).toBe(1499);
+  });
+
+  it('금액 키는 prev 를 보존하지 않는다 — buyOrderAmount 의 구서버 규칙과 다르다(역산이 정본)', () => {
+    const prev: LimitChaserFormValues = { ...defaultLimitChaserForm(), sellWatchAmount: 4321 };
+    const next = formFromServer(serverEcho({ sellWatchPrice: 12_870, sellWatchQty: 777, sellWatchAmount: 0 }), prev);
+    expect(next.sellWatchAmount).toBe(1000);
+  });
+});
+
+describe('P31 수량 8칸 만원 — 기본 0 · 상장주식수 만원 시딩 · 자동 체크 환산 주 (31-04 · D-01 · D-12 · Pitfall 8 · 9)', () => {
+  const QTY_KEYS = [
+    'buyWatchQty',
+    'buyMinTradeQty',
+    'extraBuyMinQty',
+    'extraBuyMaxQty',
+    'postBuyFloorQty',
+    'sellWatchQty',
+    'sellMinTradeQty',
+    'cancelWatchQty',
+  ] as const;
+
+  it('새 폼은 금액 8키가 0 이고 주 8키가 없다(옛 주 기본값 10,000 · 30,000 · 10 · 100,000 은 버린다)', () => {
+    const d = defaultLimitChaserForm();
+    for (const p of LC_AMOUNT_PAIRS) expect(d[p.amount], p.amount).toBe(0);
+    for (const k of QTY_KEYS) expect(d, k).not.toHaveProperty(k);
+  });
+
+  it('상장주식수 시딩은 만원 — 1,000만주 @12,870원 → 0.3% 30,000주 = 38,610만 · 3% 300,000주 = 386,100만', () => {
+    expect(seedListSharesDefaults(10_000_000, 12_870, 12_870)).toEqual({
+      buyWatchAmount: amountFromQty(30_000, 12_870),
+      buyMinTradeAmount: 38_610,
+      extraBuyMinAmount: 38_610,
+      extraBuyMaxAmount: amountFromQty(300_000, 12_870),
+      sellMinTradeAmount: 38_610,
+    });
+    expect(amountFromQty(300_000, 12_870)).toBe(386_100);
+  });
+
+  it('매수 비교가 0 · 상장주식수 0 이면 null(가드 미소진) · 매도 비교가 0 이면 매도 체결 칸만 건너뛴다', () => {
+    expect(seedListSharesDefaults(10_000_000, 0, 12_870)).toBeNull();
+    expect(seedListSharesDefaults(0, 12_870, 12_870)).toBeNull();
+    const r = seedListSharesDefaults(10_000_000, 12_870, 0);
+    expect(r).not.toBeNull();
+    expect(r).not.toHaveProperty('sellMinTradeAmount');
+    expect(r!.buyWatchAmount).toBe(38_610);
+  });
+
+  it('아주 큰 상장주식수 · 비교가는 각 칸이 999,999,999 에서 멈춘다(C# Clamp)', () => {
+    const r = seedListSharesDefaults(200_000_000_000, 5_000_000, 5_000_000)!;
+    expect(r.buyWatchAmount).toBe(LC_AMOUNT_MAX_MANWON);
+    expect(r.extraBuyMaxAmount).toBe(LC_AMOUNT_MAX_MANWON);
+    expect(r.sellMinTradeAmount).toBe(LC_AMOUNT_MAX_MANWON);
+  });
+
+  const filled = (over: Partial<LimitChaserFormValues>): LimitChaserFormValues => ({
+    ...defaultLimitChaserForm(),
+    sellWatchAmount: 1000,
+    sellMinTradeAmount: 500,
+    cancelWatchAmount: 1000,
+    ...over,
+  });
+
+  it('자동 체크 — 취소 매수잔량 0만 → 「취소 매수잔량 0」 · 매도 체결 0만 → 「매도 체결 0」 (토큰 글자 불변)', () => {
+    const c = groupAutoChecksOf('preBuyEnabled', filled({ cancelWatchAmount: 0 }), 12_870);
+    expect(c.skipped).toContainEqual({ item: '취소', reason: '취소 매수잔량 0' });
+    const t = groupAutoChecksOf('preBuyEnabled', filled({ sellMinTradeAmount: 0 }), 12_870);
+    expect(t.skipped).toContainEqual({ item: '매도>체결', reason: '매도 체결 0' });
+    expect(t.skipped).toContainEqual({ item: '취소>체결', reason: '매도 체결 0' });
+  });
+
+  it('자동 체크 — 판정은 상한가로 채운 매도 비교가의 환산 주(12만 @127,400원 = 0주 → 0 사유 · 금액 > 0 이고 주 > 0 이면 통과)', () => {
+    const zero = groupAutoChecksOf('preBuyEnabled', filled({ cancelWatchAmount: 12, sellMinTradeAmount: 12 }), 127_400);
+    expect(zero.skipped).toContainEqual({ item: '취소', reason: '취소 매수잔량 0' });
+    expect(zero.skipped).toContainEqual({ item: '매도>체결', reason: '매도 체결 0' });
+    const ok = groupAutoChecksOf('preBuyEnabled', filled({ cancelWatchAmount: 13, sellMinTradeAmount: 13 }), 127_400);
+    expect(ok.skipped).toEqual([]);
+    expect(ok.turnedOn).toContain('취소');
+    expect(ok.turnedOn).toContain('매도>체결');
+  });
+
+  it('formFromServer — 8 금액 모두 에코 적용값(취소 추적 ON 은 기준선 역산) · 주 8키는 폼에 싣지 않는다', () => {
+    const echo = serverEcho({
+      buyWatchPrice: 12_870,
+      sellWatchPrice: 12_870,
+      buyWatchQty: 777,
+      buyWatchAmount: 1000,
+      buyMinTradeQty: 388,
+      buyMinTradeAmount: 500,
+      extraBuyMinQty: 1554,
+      extraBuyMinAmount: 2000,
+      extraBuyMaxQty: 0,
+      extraBuyMaxAmount: 0,
+      postBuyFloorQty: 65,
+      postBuyFloorAmount: 84,
+      sellWatchQty: 1165,
+      sellWatchAmount: 1500,
+      sellMinTradeQty: 388,
+      sellMinTradeAmount: 500,
+      cancelWatchQty: 777,
+      cancelWatchAmount: 1000,
+      cancelQtyTrackEnabled: true,
+      cancelQtyTrackBaseline: 1554,
+    });
+    const next = formFromServer(echo, defaultLimitChaserForm());
+    for (const p of LC_AMOUNT_PAIRS) expect(next[p.amount], p.amount).toBe(echoAmountOf(echo, p).shown);
+    expect(next.cancelWatchAmount).toBe(amountFromQty(1554, 12_870));
+    for (const k of QTY_KEYS) expect(next, k).not.toHaveProperty(k);
   });
 });
 
@@ -468,17 +649,17 @@ describe('formFromServer — 에코 → 폼 (D-11 서버값 우선)', () => {
     expect(next).not.toHaveProperty('postBuyPhase');
   });
 
-  it('Phase 24 — 신규 폼 기본값: 그룹 스위치 OFF · 금액 4,000만원 · 반등 30% · 하한 100,000주 · 3회', () => {
+  it('Phase 24 — 신규 폼 기본값: 그룹 스위치 OFF · 금액 4,000만원 · 반등 30% · 최소 0만(Phase 31 D-12) · 3회', () => {
     expect(defaultLimitChaserForm()).toMatchObject({
       preBuyEnabled: false,
       extraBuyEnabled: false,
       postBuyEnabled: false,
-      extraBuyMinQty: 0,
-      extraBuyMaxQty: 0,
+      extraBuyMinAmount: 0,
+      extraBuyMaxAmount: 0,
       extraBuyOrderAmount: 4000,
       postBuyOrderAmount: 4000,
       postBuyReboundPct: 30,
-      postBuyFloorQty: 100_000,
+      postBuyFloorAmount: 0,
       postBuyReentry: 3,
     });
   });
@@ -658,10 +839,10 @@ describe('groupAutoChecksOf(preBuyEnabled) — 선매수 자동 체크 (24-07 D-
     cancelQtyTrackEnabled: false,
     sellOrderPrice: 0,
     sellWatchPrice: 0,
-    sellWatchQty: 10,
-    sellMinTradeQty: 30_000,
+    sellWatchAmount: 1000, // 만원(Phase 31) — 상한가 150,800원에서도 66주 > 0
+    sellMinTradeAmount: 500, // 만원 — 상한가 150,800원에서도 33주 > 0
     sellOrderRatio: 100,
-    cancelWatchQty: 10,
+    cancelWatchAmount: 1000, // 만원 — 상한가 150,800원에서도 66주 > 0
     ...over,
   });
   const ALL = ['매도주문', '매도>잔량추적', '매도>체결', '취소', '취소>체결', '취소>잔량추적'];
@@ -683,11 +864,15 @@ describe('groupAutoChecksOf(preBuyEnabled) — 선매수 자동 체크 (24-07 D-
     expect(r.priceFilled).toBe(13_000);
   });
 
-  it('상한가 0(미수신) → 매도주문 · 취소 3종은 「상한가 미수신」으로 켜지 않는다 · 매도>잔량추적 · 매도>체결은 켠다 · 가격 채움 없음', () => {
+  it('상한가 0(미수신) → 매도주문 · 취소 3종은 「상한가 미수신」 · 매도>잔량추적 · 매도>체결은 「매도 매수잔량 0」 으로 켜지 않는다 · 가격 채움 없음', () => {
     const r = groupAutoChecksOf('preBuyEnabled', base(), 0);
-    expect(r.turnedOn).toEqual(['매도>잔량추적', '매도>체결']);
+    // Phase 31 — 매수잔량은 만원 칸이라 매도 비교가가 0 이면 환산 주가 0 이다(C# 「가격 채움 뒤 환산 주」 · Pitfall 8). 그 주로
+    //   나가면 relay sell 갈래가 프레임 전체를 거부하므로 매도 두 체크도 켜지 않는다(웹 D-07 과 같은 결).
+    expect(r.turnedOn).toEqual([]);
     expect(r.skipped).toEqual([
       { item: '매도주문', reason: '상한가 미수신' },
+      { item: '매도>잔량추적', reason: '매도 매수잔량 0' },
+      { item: '매도>체결', reason: '매도 매수잔량 0' },
       { item: '취소', reason: '상한가 미수신' },
       { item: '취소>체결', reason: '상한가 미수신' },
       { item: '취소>잔량추적', reason: '상한가 미수신' },
@@ -706,7 +891,7 @@ describe('groupAutoChecksOf(preBuyEnabled) — 선매수 자동 체크 (24-07 D-
   });
 
   it('매도 매수잔량 0 → 매도 3체크를 「매도 매수잔량 0」으로 켜지 않는다(웹 D-07 — relay sell 갈래가 프레임 전체를 거부) · 취소 계열은 켠다', () => {
-    const r = groupAutoChecksOf('preBuyEnabled', base({ sellWatchQty: 0 }), 13_000);
+    const r = groupAutoChecksOf('preBuyEnabled', base({ sellWatchAmount: 0 }), 13_000);
     expect(r.skipped).toEqual([
       { item: '매도주문', reason: '매도 매수잔량 0' },
       { item: '매도>잔량추적', reason: '매도 매수잔량 0' },
@@ -716,8 +901,30 @@ describe('groupAutoChecksOf(preBuyEnabled) — 선매수 자동 체크 (24-07 D-
     expect(r.companions).not.toHaveProperty('sellEnabled');
   });
 
+  it('P31 매도 매수잔량은 ① 에서 채운 매도 비교가로 환산한 주로 본다 — 127,400원에서 12만 = 0주(사유) · 13만 = 1주(켬) (Pitfall 8)', () => {
+    const zero = groupAutoChecksOf('preBuyEnabled', base({ sellWatchAmount: 12 }), 127_400);
+    expect(zero.priceFilled).toBe(127_400);
+    expect(zero.skipped).toContainEqual({ item: '매도주문', reason: '매도 매수잔량 0' });
+    const one = groupAutoChecksOf('preBuyEnabled', base({ sellWatchAmount: 13 }), 127_400);
+    expect(one.turnedOn).toContain('매도주문');
+    expect(one.skipped).toEqual([]);
+  });
+
+  it('P31 server 를 넘기면 에코 메모(추적 ON 기준선)로 본다 — 칸 · 비교가가 에코 그대로면 기준선 주', () => {
+    const server = {
+      sellWatchPrice: 12_870,
+      sellWatchQty: 0,
+      sellWatchAmount: 0,
+      sellQtyTrackEnabled: true,
+      sellQtyTrackBaseline: 1554,
+    } as RelayLimitChaser;
+    const values = base({ sellWatchAmount: 2000, sellWatchPrice: 12_870, sellOrderPrice: 13_000 });
+    const r = groupAutoChecksOf('preBuyEnabled', values, 13_000, undefined, server);
+    expect(r.turnedOn).toContain('매도주문');
+  });
+
   it('취소 매수잔량 0 → 취소 · 취소>잔량추적을 「취소 매수잔량 0」으로 켜지 않는다(서버 §9 ②′) · 취소>체결은 켠다', () => {
-    const r = groupAutoChecksOf('preBuyEnabled', base({ cancelWatchQty: 0 }), 13_000);
+    const r = groupAutoChecksOf('preBuyEnabled', base({ cancelWatchAmount: 0 }), 13_000);
     expect(r.skipped).toEqual([
       { item: '취소', reason: '취소 매수잔량 0' },
       { item: '취소>잔량추적', reason: '취소 매수잔량 0' },
@@ -733,7 +940,7 @@ describe('groupAutoChecksOf(preBuyEnabled) — 선매수 자동 체크 (24-07 D-
   });
 
   it('매도 체결 0 → 매도>체결 · 취소>체결을 「매도 체결 0」으로 켜지 않는다', () => {
-    const r = groupAutoChecksOf('preBuyEnabled', base({ sellMinTradeQty: 0 }), 13_000);
+    const r = groupAutoChecksOf('preBuyEnabled', base({ sellMinTradeAmount: 0 }), 13_000);
     expect(r.skipped).toEqual([
       { item: '매도>체결', reason: '매도 체결 0' },
       { item: '취소>체결', reason: '매도 체결 0' },
@@ -782,10 +989,10 @@ describe('groupAutoCheckLogLine — 자동 체크 로그 한 줄 문법 (UI-SPEC
     ...defaultLimitChaserForm(),
     sellOrderPrice: 0,
     sellWatchPrice: 0,
-    sellWatchQty: 10,
-    sellMinTradeQty: 30_000,
+    sellWatchAmount: 1000, // 만원(Phase 31) — 상한가 150,800원에서도 66주 > 0
+    sellMinTradeAmount: 500, // 만원 — 상한가 150,800원에서도 33주 > 0
     sellOrderRatio: 100,
-    cancelWatchQty: 10,
+    cancelWatchAmount: 1000, // 만원 — 상한가 150,800원에서도 66주 > 0
     ...over,
   });
 
@@ -797,7 +1004,7 @@ describe('groupAutoCheckLogLine — 자동 체크 로그 한 줄 문법 (UI-SPEC
   });
 
   it('생략이 하나라도 있으면 error · 「켜지 않음: 항목(사유) · …」 조각', () => {
-    expect(groupAutoCheckLogLine(groupAutoChecksOf('preBuyEnabled', base({ cancelWatchQty: 0 }), 13_000))).toEqual({
+    expect(groupAutoCheckLogLine(groupAutoChecksOf('preBuyEnabled', base({ cancelWatchAmount: 0 }), 13_000))).toEqual({
       level: 'error',
       text:
         '선매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소>체결 / 켜지 않음: 취소(취소 매수잔량 0) · 취소>잔량추적(취소 매수잔량 0) / 매도 주문가격·비교가격 = 상한가 13,000원',
@@ -818,7 +1025,7 @@ describe('groupAutoCheckLogLine — 자동 체크 로그 한 줄 문법 (UI-SPEC
         sellTradeQtyEnabled: true,
         cancelTradeEnabled: true,
         sellOrderRatio: 0,
-        cancelWatchQty: 0,
+        cancelWatchAmount: 0,
       }),
       13_000,
     );
@@ -844,19 +1051,19 @@ describe('D-35 — groupAutoChecksOf · groupAutoCheckLogLine 은 그룹 인자 
     cancelQtyTrackEnabled: false,
     sellOrderPrice: 0,
     sellWatchPrice: 0,
-    sellWatchQty: 10,
-    sellMinTradeQty: 30_000,
+    sellWatchAmount: 1000, // 만원(Phase 31) — 상한가 150,800원에서도 66주 > 0
+    sellMinTradeAmount: 500, // 만원 — 상한가 150,800원에서도 33주 > 0
     sellOrderRatio: 100,
-    cancelWatchQty: 10,
+    cancelWatchAmount: 1000, // 만원 — 상한가 150,800원에서도 66주 > 0
     ...over,
   });
   const CASES: readonly [string, Partial<LimitChaserFormValues>, number][] = [
     ['전부 켤 수 있음', {}, 150_800],
     ['상한가 미수신', {}, 0],
     ['매도 가격 이미 있음', { sellOrderPrice: 12_000, sellWatchPrice: 12_500 }, 150_800],
-    ['매도 매수잔량 0', { sellWatchQty: 0 }, 150_800],
-    ['취소 매수잔량 0', { cancelWatchQty: 0 }, 150_800],
-    ['매도 체결 0', { sellMinTradeQty: 0 }, 150_800],
+    ['매도 매수잔량 0', { sellWatchAmount: 0 }, 150_800],
+    ['취소 매수잔량 0', { cancelWatchAmount: 0 }, 150_800],
+    ['매도 체결 0', { sellMinTradeAmount: 0 }, 150_800],
     ['매도비율 0', { sellOrderRatio: 0 }, 150_800],
     ['매도주문 · 취소 이미 켜짐', { sellEnabled: true, cancelQtyEnabled: true }, 150_800],
   ];
@@ -880,7 +1087,7 @@ describe('D-35 — groupAutoChecksOf · groupAutoCheckLogLine 은 그룹 인자 
   });
 
   it('줄매수 로그 — 생략이 있으면 error · 사유 어휘는 선매수와 같다(D-07 매도 매수잔량 0)', () => {
-    expect(groupAutoCheckLogLine(groupAutoChecksOf('extraBuyEnabled', base({ sellWatchQty: 0 }), 150_800))).toEqual({
+    expect(groupAutoCheckLogLine(groupAutoChecksOf('extraBuyEnabled', base({ sellWatchAmount: 0 }), 150_800))).toEqual({
       level: 'error',
       text: '줄매수 자동 체크 — 켬: 취소 · 취소>체결 · 취소>잔량추적 / 켜지 않음: 매도주문(매도 매수잔량 0) · 매도>잔량추적(매도 매수잔량 0) · 매도>체결(매도 매수잔량 0) / 매도 주문가격·비교가격 = 상한가 150,800원',
     });
@@ -932,10 +1139,10 @@ describe('confirmAutoChecks — 자동 체크 예측을 성공 에코로 확정�
     cancelQtyTrackEnabled: false,
     sellOrderPrice: 0,
     sellWatchPrice: 0,
-    sellWatchQty: 10,
-    sellMinTradeQty: 30_000,
+    sellWatchAmount: 1000, // 만원(Phase 31) — 상한가 150,800원에서도 66주 > 0
+    sellMinTradeAmount: 500, // 만원 — 상한가 150,800원에서도 33주 > 0
     sellOrderRatio: 100,
-    cancelWatchQty: 10,
+    cancelWatchAmount: 1000, // 만원 — 상한가 150,800원에서도 66주 > 0
     ...over,
   });
   /** 요청 6체크 + 가격 둘이 전부 선 에코 — over 로 눕힌다. */
@@ -974,7 +1181,7 @@ describe('confirmAutoChecks — 자동 체크 예측을 성공 에코로 확정�
   });
 
   it('예측 생략(취소 매수잔량 0)과 무장 안 됨(매도주문)이 섞이면 skipped 는 항목 정본 순서다', () => {
-    const auto = groupAutoChecksOf('preBuyEnabled', base({ cancelWatchQty: 0 }), 150_800);
+    const auto = groupAutoChecksOf('preBuyEnabled', base({ cancelWatchAmount: 0 }), 150_800);
     const r = confirmAutoChecks(auto, echoed({ sellEnabled: false, cancelQtyEnabled: false, cancelQtyTrackEnabled: false }));
     expect(r.skipped).toEqual([
       { item: '매도주문', reason: '무장 안 됨' },
@@ -1022,10 +1229,10 @@ describe('groupAutoChecksOf laid — 이 흐름에서 무장되지 않은 동반
     cancelQtyTrackEnabled: false,
     sellOrderPrice: 0,
     sellWatchPrice: 0,
-    sellWatchQty: 10,
-    sellMinTradeQty: 30_000,
+    sellWatchAmount: 1000, // 만원(Phase 31) — 상한가 150,800원에서도 66주 > 0
+    sellMinTradeAmount: 500, // 만원 — 상한가 150,800원에서도 33주 > 0
     sellOrderRatio: 100,
-    cancelWatchQty: 10,
+    cancelWatchAmount: 1000, // 만원 — 상한가 150,800원에서도 66주 > 0
     ...over,
   });
   const laid = (...keys: (keyof LimitChaserFormValues)[]): ReadonlySet<keyof LimitChaserFormValues> => new Set(keys);
@@ -1046,7 +1253,7 @@ describe('groupAutoChecksOf laid — 이 흐름에서 무장되지 않은 동반
     expect(on.turnedOn).not.toContain('매도주문');
     expect(on.skipped).toEqual([]);
 
-    const predicted = groupAutoChecksOf('extraBuyEnabled', base({ sellWatchQty: 0 }), 150_800, laid('sellEnabled'));
+    const predicted = groupAutoChecksOf('extraBuyEnabled', base({ sellWatchAmount: 0 }), 150_800, laid('sellEnabled'));
     expect(predicted.skipped[0]).toEqual({ item: '매도주문', reason: '매도 매수잔량 0' });
   });
 
@@ -1062,7 +1269,7 @@ describe('groupAutoChecksOf laid — 이 흐름에서 무장되지 않은 동반
   });
 
   it('laid 를 생략하거나 비우면 결과가 종전과 같다', () => {
-    for (const over of [{}, { cancelWatchQty: 0 }, { sellWatchQty: 0 }, { sellEnabled: true }] as Partial<LimitChaserFormValues>[]) {
+    for (const over of [{}, { cancelWatchAmount: 0 }, { sellWatchAmount: 0 }, { sellEnabled: true }] as Partial<LimitChaserFormValues>[]) {
       for (const upper of [150_800, 0]) {
         expect(groupAutoChecksOf('preBuyEnabled', base(over), upper, laid())).toEqual(
           groupAutoChecksOf('preBuyEnabled', base(over), upper),
@@ -1073,22 +1280,22 @@ describe('groupAutoChecksOf laid — 이 흐름에서 무장되지 않은 동반
 });
 
 describe('D-04 새 전략 기본값 — WinForms 기본값 표 그대로 (24-07)', () => {
-  it('선매수 · 줄매수 · 후매수 금액 각 4,000만원 · 반등 30% · 최소 100,000주 · 최대 3회 · 매도 매수잔량 10 · 잔량추적 55% · 취소 매수잔량 10 · 폴백 5칸 · 스위치 전부 OFF', () => {
+  it('선매수 · 줄매수 · 후매수 금액 각 4,000만원 · 반등 30% · 최대 3회 · 수량 8칸 0만(Phase 31 D-12) · 잔량추적 55% · 스위치 전부 OFF', () => {
     expect(defaultLimitChaserForm()).toMatchObject({
       buyOrderAmount: 4000,
       extraBuyOrderAmount: 4000,
       postBuyOrderAmount: 4000,
       postBuyReboundPct: 30,
-      postBuyFloorQty: 100_000,
+      postBuyFloorAmount: 0,
       postBuyReentry: 3,
-      sellWatchQty: 10,
+      sellWatchAmount: 0,
       sellQtyTrackRatio: 55,
-      cancelWatchQty: 10,
-      buyWatchQty: 10_000,
-      buyMinTradeQty: 30_000,
-      sellMinTradeQty: 30_000,
-      extraBuyMinQty: 0,
-      extraBuyMaxQty: 0,
+      cancelWatchAmount: 0,
+      buyWatchAmount: 0,
+      buyMinTradeAmount: 0,
+      sellMinTradeAmount: 0,
+      extraBuyMinAmount: 0,
+      extraBuyMaxAmount: 0,
       preBuyEnabled: false,
       extraBuyEnabled: false,
       postBuyEnabled: false,
@@ -1097,43 +1304,33 @@ describe('D-04 새 전략 기본값 — WinForms 기본값 표 그대로 (24-07)
   });
 });
 
-describe('seedListSharesDefaults — 상장주식수 5칸 시딩 (D-17 · WinForms SeedListSharesDefaults 동형)', () => {
+describe('seedListSharesDefaults — 상장주식수 만원 5칸 시딩 (D-17 · WinForms SeedListSharesDefaults 동형 · Phase 31)', () => {
   it('상장주식수를 모르면(0 · 음수) null — 폴백이 남고 가드를 소진하지 않는다', () => {
-    expect(seedListSharesDefaults(0)).toBeNull();
-    expect(seedListSharesDefaults(-1)).toBeNull();
+    expect(seedListSharesDefaults(0, 12_870, 12_870)).toBeNull();
+    expect(seedListSharesDefaults(-1, 12_870, 12_870)).toBeNull();
   });
 
-  it('1,000만주 → 0.3% = 30,000 · 3% = 300,000', () => {
-    expect(seedListSharesDefaults(10_000_000)).toEqual({
-      buyWatchQty: 30_000,
-      buyMinTradeQty: 30_000,
-      extraBuyMinQty: 30_000,
-      extraBuyMaxQty: 300_000,
-      sellMinTradeQty: 30_000,
-    });
-  });
-
-  it('정수 내림 — 5,969,782,550주 → 3% = 179,093,476 · 0.3% = 17,909,347', () => {
-    const r = seedListSharesDefaults(5_969_782_550)!;
-    expect(r.extraBuyMaxQty).toBe(179_093_476);
-    expect(r.buyWatchQty).toBe(17_909_347);
+  it('정수 내림 뒤 만원 역산 — 5,969,782,550주 @12,870원 → 0.3% 17,909,347주 · 3% 179,093,476주', () => {
+    const r = seedListSharesDefaults(5_969_782_550, 12_870, 12_870)!;
+    expect(r.buyWatchAmount).toBe(amountFromQty(17_909_347, 12_870));
+    expect(r.extraBuyMaxAmount).toBe(amountFromQty(179_093_476, 12_870));
     for (const v of Object.values(r)) expect(Number.isInteger(v)).toBe(true);
   });
 
-  it('줄매수 최소 · 최대는 uint32 상한(4,294,967,295)에서 멈춘다', () => {
-    const r = seedListSharesDefaults(200_000_000_000)!;
-    expect(r.extraBuyMaxQty).toBe(4_294_967_295);
-    expect(r.extraBuyMinQty).toBe(600_000_000);
+  it('작은 값도 정수 내림 — 333주 → 0.3% = 0주(0만) · 3% = 9주(@12,870원 = 12만)', () => {
+    expect(seedListSharesDefaults(333, 12_870, 12_870)).toEqual({
+      buyWatchAmount: 0,
+      buyMinTradeAmount: 0,
+      extraBuyMinAmount: 0,
+      extraBuyMaxAmount: amountFromQty(9, 12_870),
+      sellMinTradeAmount: 0,
+    });
   });
 
-  it('작은 값도 정수 내림 — 333주 → 0.3% = 0 · 3% = 9', () => {
-    expect(seedListSharesDefaults(333)).toEqual({
-      buyWatchQty: 0,
-      buyMinTradeQty: 0,
-      extraBuyMinQty: 0,
-      extraBuyMaxQty: 9,
-      sellMinTradeQty: 0,
-    });
+  it('매도 체결만 매도 비교가로 환산한다(매수 · 매도 비교가가 다르면 매도 체결만 다르다)', () => {
+    const r = seedListSharesDefaults(10_000_000, 12_870, 13_000)!;
+    expect(r.buyWatchAmount).toBe(amountFromQty(30_000, 12_870));
+    expect(r.sellMinTradeAmount).toBe(amountFromQty(30_000, 13_000));
   });
 });
 
@@ -1153,7 +1350,10 @@ describe('isMasterOnlyDelta — D-02 후반 자동 끔은 buyEnabled 한 필드�
       ...over,
     });
 
-  /** 폼 `buildCfg` 와 같은 조립 — 에코 → 폼 값 + `buyEnabled:false` · 수량 3벌 웹 산출 · 클라 고정 3. */
+  /**
+   * 폼 `buildCfg` 와 같은 조립 — 에코 → 폼 값 + `buyEnabled:false` · 수량 3벌 웹 산출 · 수량 임계 주 8개(shared
+   * `qtyForSubmit` · 에코 메모 · Phase 31 `LC_AMOUNT_PAIRS`) · 클라 고정 3.
+   */
   function webCfgOf(echo: RelayLimitChaser): RelayLimitChaserInput {
     const values: LimitChaserFormValues = { ...formFromServer(echo, defaultLimitChaserForm()), buyEnabled: false };
     return {
@@ -1165,6 +1365,10 @@ describe('isMasterOnlyDelta — D-02 후반 자동 끔은 buyEnabled 한 필드�
       buyOrderQty: buyOrderQtyFromAmount(values.buyOrderAmount, values.buyOrderPrice),
       extraBuyOrderQty: buyOrderQtyFromAmount(values.extraBuyOrderAmount, values.buyOrderPrice),
       postBuyOrderQty: buyOrderQtyFromAmount(values.postBuyOrderAmount, values.buyOrderPrice),
+      ...(Object.fromEntries(LC_AMOUNT_PAIRS.map((p) => [p.qty, lcSubmitQtyOf(values, p.amount, echo)])) as Record<
+        (typeof LC_AMOUNT_PAIRS)[number]['qty'],
+        number
+      >),
       sweepRecalcEnabled: true,
       sweepMinCount: 0,
       sweepMinRate: 0,
@@ -1188,6 +1392,40 @@ describe('isMasterOnlyDelta — D-02 후반 자동 끔은 buyEnabled 한 필드�
   it('후매수 수량이 웹 산출과 같으면(4,000만원 / 130,000 = 307주) true', () => {
     const echo = folded({ postBuyOrderAmount: 4000, postBuyOrderQty: 307 });
     expect(isMasterOnlyDelta(webCfgOf(echo), echo)).toBe(true);
+  });
+
+  it('P31 구 서버 에코(금액 8 모두 0 · 주는 값 있음)로 만든 마스터 OFF cfg 도 순수 델타 true — 금액 키는 에코 적용값과 본다(Pitfall 2)', () => {
+    const echo = folded({
+      buyWatchQty: 10_000,
+      buyMinTradeQty: 30_000,
+      extraBuyMinQty: 5_000,
+      extraBuyMaxQty: 150_000,
+      postBuyFloorQty: 100_000,
+      sellWatchPrice: 12_870,
+      sellWatchQty: 777,
+      sellMinTradeQty: 388,
+      cancelWatchQty: 1165,
+    });
+    for (const p of LC_AMOUNT_PAIRS) expect(echo[p.amount], p.amount).toBe(0);
+    const cfg = webCfgOf(echo);
+    // 폼은 역산값을 싣는다(0 이 아니다) — 그래도 다른 곳에서 둔 값이 아니므로 순수 델타다.
+    expect(cfg.sellWatchAmount).toBe(1000);
+    expect(cfg.sellWatchQty).toBe(777);
+    expect(isMasterOnlyDelta(cfg, echo)).toBe(true);
+  });
+
+  it('P31 매도 추적 ON 에코 — cfg 주는 기준선(래칫 보존)이고 순수 델타 true', () => {
+    const echo = folded({
+      sellWatchPrice: 12_870,
+      sellWatchQty: 777,
+      sellWatchAmount: 1000,
+      sellQtyTrackEnabled: true,
+      sellQtyTrackBaseline: 1554,
+    });
+    const cfg = webCfgOf(echo);
+    expect(cfg.sellWatchQty).toBe(1554);
+    expect(cfg.sellWatchAmount).toBe(2000);
+    expect(isMasterOnlyDelta(cfg, echo)).toBe(true);
   });
 
   it('buyEnabled 외 한 필드라도 다르면 false — cfg 의 값을 직접 바꾼 경우', () => {
@@ -1412,20 +1650,22 @@ describe('Phase 27 84 시딩', () => {
     expect(seedFromUserSettings(undefined)).toEqual({});
   });
 
-  it('present true — 9칸 매핑(WinForms ResetStrategyOptionsToDefault 동형) · 매도 주기 · 동시호가 비율 키 없음', () => {
+  it('present true — 9칸 매핑(WinForms ResetStrategyOptionsToDefault 동형) · 매도 주기 · 동시호가 비율 · 봉인 하한잔량(주) 키 없음', () => {
     const seed = seedFromUserSettings(SAVED);
     expect(seed).toEqual({
       buyOrderAmount: 5000,
       extraBuyOrderAmount: 6000,
       postBuyOrderAmount: 7000,
       postBuyReentry: 4,
-      postBuyFloorQty: 200_000,
+      // 이 픽스처는 구 relay 84(postBuyFloorAmount 키 없음) — 폴백 0(Phase 31 D-12 · Pitfall 10).
+      postBuyFloorAmount: 0,
       postBuyReboundPct: 40,
       sellQtyTrackRatio: 60,
       autoSellRatioPct: 15,
       autoSellMethod: 1,
     });
     expect(Object.keys(seed)).not.toContain('autoSellPeriodSec');
+    expect(Object.keys(seed)).not.toContain('postBuyFloorQty');
     expect(Object.keys(seed)).not.toContain('auctionSellRatioPct');
   });
 
@@ -1436,7 +1676,7 @@ describe('Phase 27 84 시딩', () => {
       extraBuyOrderAmount: d.extraBuyOrderAmount,
       postBuyOrderAmount: d.postBuyOrderAmount,
       postBuyReentry: d.postBuyReentry,
-      postBuyFloorQty: d.postBuyFloorQty,
+      postBuyFloorAmount: d.postBuyFloorAmount,
       postBuyReboundPct: d.postBuyReboundPct,
       sellQtyTrackRatio: d.sellQtyTrackRatio,
       autoSellRatioPct: d.autoSellRatioPct,
@@ -1457,7 +1697,7 @@ describe('Phase 27 84 시딩', () => {
       extraBuyOrderAmount: 6000,
       postBuyOrderAmount: 7000,
       postBuyReentry: 4,
-      postBuyFloorQty: 200_000,
+      postBuyFloorAmount: 0,
       postBuyReboundPct: 30,
       sellQtyTrackRatio: 55,
       autoSellRatioPct: 10,
@@ -1476,7 +1716,41 @@ describe('Phase 27 84 시딩', () => {
     expect(seed.autoSellRatioPct).toBe(10);
     expect(seed.autoSellMethod).toBe(3);
     expect(seed.buyOrderAmount).toBe(4000);
-    expect(seed.postBuyFloorQty).toBe(100_000);
+    expect(seed).not.toHaveProperty('postBuyFloorQty');
     expect(seed.extraBuyOrderAmount).toBe(6000);
+  });
+});
+
+describe('P31 84 후매수 최소 (D-12)', () => {
+  const BASE: RelayUserSettingsMsg = {
+    t: 'user.settings',
+    present: true,
+    preBuyAmount: 4000,
+    addBuyAmount: 4000,
+    postBuyAmount: 4000,
+    postBuyMaxCount: 3,
+    postBuyFloorQty: 0,
+    postBuyReboundPct: 30,
+    sellQtyTrackRatio: 55,
+    autoSellPeriodSec: 3,
+    auctionSellRatioPct: 20,
+    autoSellRatioDefaultPct: 10,
+    autoSellMethodDefault: 3,
+  };
+
+  it('84 postBuyFloorAmount 84 → 새 폼 후매수 최소 84(만원 · C# F:6159)', () => {
+    expect(seedFromUserSettings({ ...BASE, postBuyFloorAmount: 84 }).postBuyFloorAmount).toBe(84);
+  });
+
+  it('금액 키가 없는 84(구 relay) → 폴백 0 — 봉인 주 postBuyFloorQty 는 읽지 않는다', () => {
+    const seed = seedFromUserSettings({ ...BASE, postBuyFloorQty: 200_000 });
+    expect(seed.postBuyFloorAmount).toBe(0);
+    expect(defaultLimitChaserForm().postBuyFloorAmount).toBe(0);
+  });
+
+  it('범위 밖(1,000,000,000만 · 금액 칸 0~999,999,999) → 그 칸만 폴백 0', () => {
+    const seed = seedFromUserSettings({ ...BASE, postBuyFloorAmount: 1_000_000_000, preBuyAmount: 5000 });
+    expect(seed.postBuyFloorAmount).toBe(0);
+    expect(seed.buyOrderAmount).toBe(5000);
   });
 });

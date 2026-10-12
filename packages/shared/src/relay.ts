@@ -154,6 +154,7 @@ export type RelayLcWatchSide = "0" | "1";
  *    사라진다. buy3 에코(`buy3Schema 1`)의 0 은 **선매수 금액 미입력**이다(추가 · 후매수 금액 0 과 같은
  *    뜻). 판별은 webapp lib `isLegacyAmountUnknown` 한 곳이다. 수량 x 가격 역산은 어느 쪽이든
  *    금지다(나머지 손실로 왕복이 깨진다, Pitfall 11).
+ *    이 문단은 `buyOrderAmount`(금액 3칸) 에만 해당한다 — 수량 임계 8칸 금액은 역산이 정본(Phase 31 D-06).
  *
  * 와이어는 전부 `number` 다 (D-34) — 64비트 정수를 계약에 넣지 않는다.
  */
@@ -178,8 +179,18 @@ export type RelayLimitChaser = {
   buyWatchPrice: number;
   /** 매수 감시 잔량(주). */
   buyWatchQty: number;
+  /**
+   * 선매수 매도잔량 임계 금액 — **단위 만원** · 짝 `buyWatchQty`(제출 때 `floor(만원×10000÷buyWatchPrice)`). 서버는 보관·에코만
+   * 한다(`buyOrderAmount` 규약 · 평가는 주). 부재/구서버 = 0 → 클라가 주에서 역산 표시(fbs 원문 · Phase 31 D-11).
+   */
+  buyWatchAmount: number;
   /** 매수 최소 체결수량(주). */
   buyMinTradeQty: number;
+  /**
+   * 선매수 최소 체결수량 금액 — **단위 만원** · 짝 `buyMinTradeQty`(제출 때 `floor(만원×10000÷buyWatchPrice)`). 서버는 보관·에코만
+   * 한다(`buyOrderAmount` 규약 · 평가는 주). 부재/구서버 = 0 → 클라가 주에서 역산 표시(fbs 원문 · Phase 31 D-11).
+   */
+  buyMinTradeAmount: number;
   /**
    * 매수 감시 기준 호가 — **읽기 전용**(옛 서버 에코 호환). relay 가 늘 `"0"` 을 채운다 — gh-trade
    * 슬롯 24 봉인(a3610261)으로 생성 접근자가 없고, 새 서버(buy3) 에코에는 원래 없었다.
@@ -201,8 +212,18 @@ export type RelayLimitChaser = {
   sellWatchPrice: number;
   /** 매도 감시 호가잔량(주). **0 이면 서버가 매도 활성화를 거부**(눕힘)한다. */
   sellWatchQty: number;
+  /**
+   * 매도 매수잔량 금액 — **단위 만원** · 짝 `sellWatchQty`(제출 때 `floor(만원×10000÷sellWatchPrice)`). 서버는 보관·에코만
+   * 한다(`buyOrderAmount` 규약 · 평가는 주). 부재/구서버 = 0 → 클라가 주에서 역산 표시(fbs 원문 · Phase 31 D-11).
+   */
+  sellWatchAmount: number;
   /** 매도 체결 임계(주). **취소의 「체결」 항이 이 값을 재사용**한다. */
   sellMinTradeQty: number;
+  /**
+   * 매도 · 취소 최소 체결수량 금액 — **단위 만원** · 짝 `sellMinTradeQty`(제출 때 `floor(만원×10000÷sellWatchPrice)`). 서버는 보관·에코만
+   * 한다(`buyOrderAmount` 규약 · 평가는 주). 부재/구서버 = 0 → 클라가 주에서 역산 표시(fbs 원문 · Phase 31 D-11).
+   */
+  sellMinTradeAmount: number;
   /** 매도 게이트. 에코는 `&& sellArmed` 로 접힌 무장 상태다. */
   sellEnabled: boolean;
   /** 매도 체결수량 조건 사용 여부. */
@@ -244,6 +265,11 @@ export type RelayLimitChaser = {
   cancelQtyEnabled: boolean;
   /** 취소 감시 잔량(주). */
   cancelWatchQty: number;
+  /**
+   * 취소 매수잔량 임계 금액 — **단위 만원** · 짝 `cancelWatchQty`(제출 때 `floor(만원×10000÷sellWatchPrice)`). 취소 비교가 = 매도 비교가. 서버는 보관·에코만
+   * 한다(`buyOrderAmount` 규약 · 평가는 주). 부재/구서버 = 0 → 클라가 주에서 역산 표시(fbs 원문 · Phase 31 D-11).
+   */
+  cancelWatchAmount: number;
   /** 취소:체결 게이트. 에코는 `&& cancelArmed`. */
   cancelTradeEnabled: boolean;
   /** 취소 잔량추적 사용 여부. **에코는 접지 않은 원값**. */
@@ -272,8 +298,18 @@ export type RelayLimitChaser = {
   extraBuyEnabled: boolean;
   /** 줄매수 최소 매수잔량(주, C→S). `0` = 1주(gh-trade D-08). */
   extraBuyMinQty: number;
+  /**
+   * 줄매수 최소 매수잔량 금액 — **단위 만원** · 짝 `extraBuyMinQty`(제출 때 `floor(만원×10000÷buyWatchPrice)`). 서버는 보관·에코만
+   * 한다(`buyOrderAmount` 규약 · 평가는 주). 부재/구서버 = 0 → 클라가 주에서 역산 표시(fbs 원문 · Phase 31 D-11).
+   */
+  extraBuyMinAmount: number;
   /** 줄매수 최대 매수잔량(주, C→S). `0` = 무제한(gh-trade D-08). */
   extraBuyMaxQty: number;
+  /**
+   * 줄매수 최대 매수잔량 금액 — **단위 만원** · 짝 `extraBuyMaxQty`(제출 때 `floor(만원×10000÷buyWatchPrice)`). 0 = 무제한(주와 같은 뜻). 서버는 보관·에코만
+   * 한다(`buyOrderAmount` 규약 · 평가는 주). 부재/구서버 = 0 → 클라가 주에서 역산 표시(fbs 원문 · Phase 31 D-11).
+   */
+  extraBuyMaxAmount: number;
   /** 줄매수 주문금액 — **단위 만원**. 서버는 보관·에코만 한다(`buyOrderAmount` 규약). */
   extraBuyOrderAmount: number;
   /** 줄매수 주문수량(주, C→S) — **발주 정본**. */
@@ -315,6 +351,11 @@ export type RelayLimitChaser = {
   postBuyReboundPct: number;
   /** 후매수 하한잔량(주, C→S). */
   postBuyFloorQty: number;
+  /**
+   * 후매수 하한잔량(최소) 금액 — **단위 만원** · 짝 `postBuyFloorQty`(제출 때 `floor(만원×10000÷buyWatchPrice)`). 상따 cfg 의 이 주 필드는 살아 있는 서버 비교값이다 — UserSettings 의 봉인 `postBuyFloorQty` 와 다르다(Pitfall 11). 서버는 보관·에코만
+   * 한다(`buyOrderAmount` 규약 · 평가는 주). 부재/구서버 = 0 → 클라가 주에서 역산 표시(fbs 원문 · Phase 31 D-11).
+   */
+  postBuyFloorAmount: number;
   /**
    * 후매수 최대 횟수(회, ubyte, C→S) — **최초 포함 총 횟수**. `0` = 사지 않음(gh-trade D-30).
    * cfg 설정값 원값이다 — 잔여는 `postBuyReentryLeft`.
@@ -731,7 +772,8 @@ export type RelayAutoSellCmdMsg = {
 };
 
 /**
- * 사용자 설정 저장 (`SetUserSettingsReq(42)` · Phase 27). 11값 **전체 교체** — 부분 갱신이 아니다.
+ * 사용자 설정 저장 (`SetUserSettingsReq(42)` · Phase 27 · Phase 31 12값). 12값 **전체 교체** — 부분 갱신이 아니다.
+ * 봉인 `postBuyFloorQty` 는 relay 42 조립기가 입력과 무관하게 늘 0 을 싣는다(Phase 32 D-08).
  *
  * 조립 기준은 서버 캐시(84 `user.settings`) + 바꾼 1칸이다(화면 로컬 값 금지 · T-20-03 동형). 범위는
  * `USER_SETTINGS_RANGES` 하나 — 밖이면 relay zod 가 소켓을 닫으므로(4400) 웹이 같은 범위로 먼저 막는다.
@@ -1386,9 +1428,9 @@ export type RelayQueuedWindowMsg = {
 };
 
 /**
- * 사용자 설정 11값 (42/84 `UserSettings` 본문 · Phase 27 — gh-trade 2404509b). 사용자(DMA 로그인 id)별
- * 상따 기본설정이다. 범위는 fbs 주석 그대로(서버가 42 에서 범위 밖 하나면 요청 전체를 거부한다).
- * 금액 3칸은 **단위 만원**(C# `LimitChaserDefaults` 와 같다).
+ * 사용자 설정 12값 (42/84 `UserSettings` 본문 · Phase 27 — gh-trade 2404509b · Phase 31 — 후매수 최소 Phase 32 D-08).
+ * 사용자(DMA 로그인 id)별 상따 기본설정이다. 범위는 fbs 주석 그대로(서버가 42 에서 범위 밖 하나면 요청 전체를 거부한다).
+ * 금액 4칸은 **단위 만원**(C# `LimitChaserDefaults` 와 같다).
  */
 export type RelayUserSettingsValues = {
   /** 선매수 주문금액 — **만원** · 0~999999999. */
@@ -1399,7 +1441,10 @@ export type RelayUserSettingsValues = {
   postBuyAmount: number;
   /** 후매수 최대 횟수(최초 포함) · 0~255. */
   postBuyMaxCount: number;
-  /** 후매수 하한잔량(주) · 0~99999999. */
+  /**
+   * 후매수 하한잔량(주) · 0~99999999 — **봉인**(Phase 32 D-08 · fbs). 새 웹 · relay 42 조립기는 0 을 싣고
+   * 84 값은 읽지 않는다. 그 자리의 값은 `postBuyFloorAmount`(만원)다.
+   */
   postBuyFloorQty: number;
   /** 후매수 반등률 % · 0~100. */
   postBuyReboundPct: number;
@@ -1413,6 +1458,8 @@ export type RelayUserSettingsValues = {
   autoSellRatioDefaultPct: number;
   /** 상따창 자동매도 방법 기본값 — `1` 매도1호가 · `2` 매수1호가 · `3` 양쪽 · 기본 3. */
   autoSellMethodDefault: number;
+  /** 후매수 최소(하한금액) — **만원** · 0~999999999 · fbs vtable 28(Phase 32 D-08). 42 12값 전체 교체에 포함. */
+  postBuyFloorAmount: number;
 };
 
 /**
@@ -1421,11 +1468,17 @@ export type RelayUserSettingsValues = {
  *
  * `present` 는 84 전용 — `false` 면 서버 저장값이 없어 서버가 **내장 기본값**을 실은 것이다(42 요청값은
  * 서버가 읽지 않는다).
+ *
+ * `postBuyFloorAmount` 는 타입에서 **선택**이다 — 새 relay 는 늘 싣는다(84 슬롯 부재 = 0). 키 부재 = 구 relay 이고,
+ * 웹은 그 섹션을 「불러오는 중」 으로 둔다(Pitfall 10 — 모르는 금액으로 42 전체 교체를 하면 C# 원값이 지워진다).
  */
-export type RelayUserSettingsMsg = { t: "user.settings"; present: boolean } & RelayUserSettingsValues;
+export type RelayUserSettingsMsg = { t: "user.settings"; present: boolean } & Omit<
+  RelayUserSettingsValues,
+  "postBuyFloorAmount"
+> & { postBuyFloorAmount?: number };
 
 /**
- * 사용자 설정 11값의 서버 42 검증 범위 (Phase 27) — **fbs `table UserSettings` 주석 원문 그대로**.
+ * 사용자 설정 12값의 서버 42 검증 범위 (Phase 27 · Phase 31) — **fbs `table UserSettings` 주석 원문 그대로**.
  *
  * relay zod(`user.settings.set`)와 webapp `/me` 시트가 이 한 벌을 읽는다 — 두 곳에 적으면 언젠가 갈라진다.
  * `lc.set` 범위와 다르다(잔량추적 · 반등은 여기서 0 허용) — 새 폼 시딩은 lc 범위 밖이면 D-04 상수로 폴백한다(27-07).
@@ -1442,6 +1495,7 @@ export const USER_SETTINGS_RANGES = {
   auctionSellRatioPct: { min: 1, max: 50 },
   autoSellRatioDefaultPct: { min: 1, max: 50 },
   autoSellMethodDefault: { min: 1, max: 3 },
+  postBuyFloorAmount: { min: 0, max: 999_999_999 },
 } as const satisfies Readonly<Record<keyof RelayUserSettingsValues, { readonly min: number; readonly max: number }>>;
 
 /**

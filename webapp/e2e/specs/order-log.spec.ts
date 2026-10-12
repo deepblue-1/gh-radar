@@ -148,7 +148,7 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
     await expect(lines(page)).toHaveCount(2, { timeout: 15_000 });
     await expect(lines(page).nth(0)).toHaveText(/^\[09:42:13\.215\]\[상한가노출\] KRX \| .+ \| 매도잔량 185,400 \| 누적 620,000$/);
     await expect(lines(page).nth(1)).toHaveText(
-      /^\[09:45:02\.861\]\[12451\]\[선매수\] KRX \| .+ \| 주문 · 조건 매도잔량≤50,000 \/ 실측 38,200 · .+ \| 누적 861,800$/,
+      /^\[09:45:02\.861\]\[12451\]\[선매수\] KRX \| .+ \| 주문 · 조건 매도잔량≤6\.2억\(50,000주\) \/ 실측 4\.7억\(38,200주\) · .+ \| 누적 861,800$/,
     );
     await expect(lines(page).nth(1)).toHaveAttribute('data-kind', '3');
     await expect(lines(page).nth(1)).toHaveAttribute('data-group', '1');
@@ -160,6 +160,40 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
     // 위 강조 제거 대기(최대 6초) 동안 첫 ready 는 이미 지났다 — 그 뒤로 더 늘지 않는다.
     expect(restore.count()).toBeGreaterThanOrEqual(1);
     expect(restore.count()).toBeLessThanOrEqual(2);
+  });
+
+  /*
+    Phase 31 주문로그 ⑦ 금액 표기(D-19 · gh-trade StrategyEventFormatter 동형 · shared lc-amount 서식 한 벌).
+    상한가노출(kind 1)의 매도잔량은 서버가 실은 ev_price(상한가)로 「6500만(5,000주)」 — ev_price 0 이면 금액을 지어내지 않고
+    종전 「5,000」. 주문 줄 수량은 「371만(300주) @12,350」(가격 × 금액 곱셈 오독 방지 꼴). 공용 패널 탭 · 카드 팝업 둘 다 본다.
+  */
+  test('P31-6 주문로그 ⑦ 금액 표기 — 상한가노출 ev_price 13,000 · 매도잔량 5,000 → 「매도잔량 6500만(5,000주)」 · ev_price 0 → 「매도잔량 5,000」 · 주문 줄 「371만(300주) @12,350」 (공용 패널 · 카드 팝업 · D-19)', async ({
+    page,
+  }) => {
+    const base = byName('exposed');
+    const priced = { ...base, askQtyAtLimit: 5_000, evPrice: 13_000, seq: 9301 };
+    const unpriced = { ...base, askQtyAtLimit: 5_000, evPrice: 0, seq: 9302, gwTimeMs: base.gwTimeMs + 1_000 };
+    await mockRestore(page, [priced, unpriced]);
+    await openWorkbench(page);
+    await openOrderLogTab(page);
+    await expect(lines(page)).toHaveCount(2);
+    await expect(lines(page).nth(0)).toHaveText(/\| 매도잔량 6500만\(5,000주\) \| /);
+    await expect(lines(page).nth(1)).toHaveText(/\| 매도잔량 5,000 \| /);
+
+    // 게이트웨이 80 매수 주문(300주 @12,350) — 주문 줄 수량은 「371만(300주) @12,350」.
+    await relay.pushStrategyEvents([wire(byName('buy12451'))]);
+    await expect(lines(page)).toHaveCount(3, { timeout: 15_000 });
+    await expect(lines(page).nth(2)).toContainText('371만(300주) @12,350');
+    await expect(lines(page).nth(2)).not.toContainText('300 @12,350');
+
+    // 카드 팝업 — 같은 문장 한 벌(shared formatter).
+    await mockRestore(page, [priced, unpriced, byName('buy12451')]);
+    await openFocusCard(page);
+    await openCardLog(page);
+    await expect(popupRows(page)).toHaveCount(3);
+    await expect(popupRows(page).nth(0).locator('td').nth(4)).toHaveText('매도잔량 6500만(5,000주)');
+    await expect(popupRows(page).nth(1).locator('td').nth(4)).toHaveText('매도잔량 5,000');
+    await expect(popupRows(page).nth(2).locator('td').nth(4)).toContainText('371만(300주) @12,350');
   });
 
   test('P25-2 새 로그 배지 — 미체결 탭 활성 중 푸시 3 → 「주문로그 (3)」 · 탭 열면 괄호 없음', async ({ page }) => {
@@ -360,7 +394,7 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
     await expect(r1.nth(1)).toHaveText('2451');
     await expect(r1.nth(2)).toHaveText('선매수');
     await expect(r1.nth(3)).toHaveText('주문');
-    await expect(r1.nth(4)).toHaveText(/^조건 매도잔량≤50,000/);
+    await expect(r1.nth(4)).toHaveText(/^조건 매도잔량≤6\.2억\(50,000주\)/);
     await expect(r1.nth(5)).toHaveText('861,800');
 
     // 열린 동안 푸시 → 3행 · 맨 아래

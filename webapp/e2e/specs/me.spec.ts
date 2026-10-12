@@ -1402,19 +1402,28 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
       .strategyRequests()
       .map((r) => readSetUserSettingsRequest(r.payload))
       .filter((r): r is NonNullable<typeof r> => r !== null);
-  /** 서버 내장 기본값(fixture `buildUserSettingsFrame` 기본 = fbs 주석). */
+  /**
+   * 84 픽스처 — 새 gh-trade 의 84 는 후매수 최소 금액(만원 · `postBuyFloorAmount`)을 싣는다(Phase 31 D-13). 금액이 실린 84 여야
+   * 섹션이 편집 · 저장 가능 상태가 된다(구 relay 모양 = 「불러오는 중」 · UI-SPEC /me 표).
+   */
+  const LC84 = { present: true, postBuyFloorAmount: 84 } as const;
+  /**
+   * 42 의 12값 기대 — 서버 내장 기본값(fixture `buildUserSettingsFrame` 기본 = fbs 주석) + 84 의 후매수 최소 금액(LC84).
+   * 봉인 `postBuyFloorQty` 는 웹이 늘 0 을 싣는다(Phase 31 · gh-trade Phase 32 D-08 — 84 의 100,000 을 되싣지 않는다).
+   */
   const USER_SETTINGS_BUILTIN = {
     preBuyAmount: 4000,
     addBuyAmount: 4000,
     postBuyAmount: 4000,
     postBuyMaxCount: 3,
-    postBuyFloorQty: 100_000,
+    postBuyFloorQty: 0,
     postBuyReboundPct: 30,
     sellQtyTrackRatio: 55,
     autoSellPeriodSec: 3,
     auctionSellRatioPct: 20,
     autoSellRatioDefaultPct: 10,
     autoSellMethodDefault: 3,
+    postBuyFloorAmount: LC84.postBuyFloorAmount,
   } as const;
 
   test('P27-M1 상따 기본설정 — 84 표시 → 행 확정 42(캐시 + 1칸) → 84 플래시 · 거부 원문 (D-12 · D-13 · 261006-pey D-2)', async ({
@@ -1450,7 +1459,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
       expect(await leavesOverflowing(groupCard, (await boxOf(groupCard)).right)).toEqual([]);
     }
 
-    await relay.pushUserSettings({ present: true, autoSellPeriodSec: 3 });
+    await relay.pushUserSettings({ ...LC84, autoSellPeriodSec: 3 });
     await expect(lcDefaultsChip(page)).toHaveText('서버 저장값', { timeout: 15_000 });
     const period = lcDefaultsRow(page, 'auto-sell-period-sec');
     await expect(period.locator('[data-slot="lc-row-value"]')).toHaveText('3초');
@@ -1471,7 +1480,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     });
 
     // 서버 브로드캐스트 84 → 행 「5초」 + 초록 플래시.
-    await relay.pushUserSettings({ present: true, autoSellPeriodSec: 5 });
+    await relay.pushUserSettings({ ...LC84, autoSellPeriodSec: 5 });
     await expect(period).toHaveAttribute('data-flash', 'ok', { timeout: 15_000 });
     await expect(period.locator('[data-slot="lc-row-value"]')).toHaveText('5초');
     await expect(period).not.toHaveAttribute('data-flash', 'ok', { timeout: 5_000 });
@@ -1497,6 +1506,54 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     expect(await leavesOverflowing(lcDefaults(page), (await boxOf(lcDefaults(page))).right)).toEqual([]);
     // 사람 확인용(목업 S1 대조) — 1280 설정 탭 2열 카드.
     await page.screenshot({ path: 'test-results/me-settings-1280.png', fullPage: true });
+  });
+
+  /*
+    Phase 31 /me 「후매수 최소」(D-13 · AMT-03 · SC3) — 옛 봉인 주(하한잔량) 행 자리를 만원 행이 교체했다(교체이지 추가가 아니다).
+    84 금액 84 → 행 「84만원」 → 300 확정 → 42 의 post_buy_floor_amount 300 · post_buy_floor_qty 0(봉인) · 나머지 10값은 84
+    그대로 · present 슬롯 없음 → 84 브로드캐스트 뒤 「300만원」.
+  */
+  test('P31-5 /me 후매수 최소 — 84 postBuyFloorAmount 84 → 「84만원」 → 300 확정 → 42 post_buy_floor_amount 300 · post_buy_floor_qty 0 · 나머지 10값 84 그대로 → 84 뒤 「300만원」 (D-13 · AMT-03 · SC3)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/me');
+    await waitForReady(page, 2);
+    await openMeTab(page, '설정', 'settings');
+    await relay.pushUserSettings({ ...LC84, postBuyMaxCount: 5, sellQtyTrackRatio: 60 });
+    await expect(lcDefaultsChip(page)).toHaveText('서버 저장값', { timeout: 15_000 });
+
+    // 「후매수」 묶음 — 옛 봉인 주 행(하한잔량)은 없고 「후매수 최소」 만원 행이 그 자리에 있다.
+    await expect(lcDefaults(page).getByText('후매수 하한잔량')).toHaveCount(0);
+    const floor = lcDefaultsRow(page, 'post-buy-floor-amount');
+    await expect(floor).toHaveCount(1);
+    await expect(floor).toContainText('후매수 최소');
+    await expect(floor.locator('[data-slot="lc-row-value"]')).toHaveText('84만원');
+    const button = floor.locator('button[data-lc-field="me-lc-post-buy-floor-amount"]');
+    await expect(button).toHaveAccessibleName('후매수 최소 84만원');
+    expect(setUserSettingsRequests()).toHaveLength(0);
+
+    // 데스크톱 인라인 — 300 Enter → 42 한 건(84 캐시 10값 + 후매수 최소 300 · 봉인 주 0 · present 미적재).
+    await button.click();
+    const input = page.locator('input#me-lc-post-buy-floor-amount');
+    await expect(input).toBeFocused();
+    await input.fill('300');
+    await input.press('Enter');
+    await expect.poll(() => setUserSettingsRequests().length, { timeout: 15_000 }).toBe(1);
+    expect(setUserSettingsRequests()[0]).toEqual({
+      ...USER_SETTINGS_BUILTIN,
+      postBuyMaxCount: 5,
+      sellQtyTrackRatio: 60,
+      postBuyFloorAmount: 300,
+      postBuyFloorQty: 0,
+      presentSlotEmpty: true,
+    });
+
+    // 서버 브로드캐스트 84(300) → 행 「300만원」 + 초록 플래시.
+    await relay.pushUserSettings({ ...LC84, postBuyMaxCount: 5, sellQtyTrackRatio: 60, postBuyFloorAmount: 300 });
+    await expect(floor).toHaveAttribute('data-flash', 'ok', { timeout: 15_000 });
+    await expect(floor.locator('[data-slot="lc-row-value"]')).toHaveText('300만원');
+    expect(setUserSettingsRequests(), '84 는 42 를 다시 만들지 않는다').toHaveLength(1);
   });
 
   test.describe('P27-M1 폰 390 — 터치 키패드 시트', () => {

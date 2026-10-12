@@ -252,6 +252,17 @@ export const RelayLcSetSchema = z.object({
     //     postBuyAuto · extraBuyBurstRelease · 자동매도 4필드와 모두 있을 때만 buy3_schema 5(조립기 `lcBuy3SchemaOf`).
     //   - superRefine 완결성 검사를 넣지 않는다 — 아무것도 즉시 무장하지 않는 설정값이다.
     extraBuyAuto: z.boolean().optional(),
+    // === Phase 31 금액 8필드(만원 · C→S · 보관/에코만 · gh-trade D-06) — 12필드 블록 밖: `buy3CfgOf` · `lcBuy3SchemaOf` 에
+    //     넣지 않는다. 부재 = fanout `lc.set` 이 그 키의 에코 원값(짝이 맞을 때) 또는 0 으로 채운다(구 탭 관용 · D-11 ·
+    //     WR-01). 기본값을 여기서 채우지 않는다.
+    buyWatchAmount: UIntSchema.optional(),
+    buyMinTradeAmount: UIntSchema.optional(),
+    extraBuyMinAmount: UIntSchema.optional(),
+    extraBuyMaxAmount: UIntSchema.optional(),
+    postBuyFloorAmount: UIntSchema.optional(),
+    sellWatchAmount: UIntSchema.optional(),
+    sellMinTradeAmount: UIntSchema.optional(),
+    cancelWatchAmount: UIntSchema.optional(),
   }).superRefine((cfg, ctx) => {
     // 서버 §9-2 ⑤ 반등률 1~100 과 동형 — 켜는 쪽만 본다(끄는 쪽 0 은 통과).
     // 값이 **있을 때만** 본다 — 부재(구 탭)는 fanout 이 거부 프레임으로 답한다.
@@ -403,7 +414,8 @@ function userSettingInt(k: keyof RelayUserSettingsValues) {
 /**
  * 사용자 설정 저장 (`user.settings.set` → `SetUserSettingsReq(42)` · Phase 27).
  *
- * 11값 **전체**가 필수다(서버 42 는 전체 교체 — 빠진 칸을 0 으로 보내면 저장값이 지워진다). 범위는 서버 42 검증
+ * 12값 — `postBuyFloorAmount` 만 선택(구 탭 관용), 나머지 11값은 필수다(서버 42 는 전체 교체 — 빠진 칸을 0 으로
+ * 보내면 저장값이 지워진다). 봉인 `postBuyFloorQty` 는 받아도 조립기가 0 으로 싣는다(Phase 32 D-08). 범위는 서버 42 검증
  * 범위 그대로(fbs 주석 = `USER_SETTINGS_RANGES`)이고, 위반은 close(4400) 이라 웹이 같은 상수로 먼저 막는다.
  * `present`(84 전용)는 스키마에 없다 — 실려 와도 zod 기본 strip 으로 버려진다(엄격 모드 금지 · T-18-07).
  */
@@ -421,6 +433,9 @@ export const RelayUserSettingsSetSchema = z.object({
     auctionSellRatioPct: userSettingInt("auctionSellRatioPct"),
     autoSellRatioDefaultPct: userSettingInt("autoSellRatioDefaultPct"),
     autoSellMethodDefault: userSettingInt("autoSellMethodDefault"),
+    // D-14 보정 — 「필수」 는 새 webapp 계약이고 zod 는 선택이다. 부재(구 탭 11값)면 fanout 이 84 캐시를 되싣는다 —
+    // 필수로 두면 relay 선배포 창의 구 /me 저장이 소켓을 닫는다(4400 · Pitfall 3).
+    postBuyFloorAmount: userSettingInt("postBuyFloorAmount").optional(),
   }),
 });
 
@@ -548,6 +563,13 @@ export const RelayInboundSchema = z.discriminatedUnion("t", [
  * (24-UI-SPEC Copywriting 원문). 소켓을 끊지 않고(F-4) 이 문구 한 건으로 답한다.
  */
 export const LC_LEGACY_SET_REJECT_TEXT = "매수 설정 방식이 바뀌었어요 — 화면을 새로고침해 주세요";
+
+/**
+ * 구 탭 `user.settings.set`(후매수 최소 `postBuyFloorAmount` 없음 · Phase 31 D-14 보정)인데 그 사용자의 84 캐시도
+ * 없을 때 relay 가 돌려주는 거부 문구. 42 는 12값 전체 교체라 모르는 금액을 0 으로 지어 보내면 C# 「최소 [ ]만」
+ * 원값이 지워진다 — 저장하지 않고, 소켓도 끊지 않고(`LC_LEGACY_SET_REJECT_TEXT` 와 같은 규율) 이 문구 한 건으로 답한다.
+ */
+export const USER_SETTINGS_FLOOR_UNKNOWN_TEXT = "후매수 최소 금액을 아직 받지 못해 저장하지 않았어요 — 화면을 새로고침해 주세요";
 
 /**
  * Phase 24 매수 3종 C→S 12 의 **중립값** — 옛 모양 **철거** 프레임에만 쓴다(`withNeutralBuy3`).

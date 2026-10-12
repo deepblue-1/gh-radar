@@ -92,6 +92,10 @@
  *   `commit(field, value, kind, companions)` 한 번 = 전송 한 번이고 cfg = 서버 동기값 + 동반 필드 + 주 필드다.
  *   ★ **성공 판정은 주 필드만**이다(`server[field] === value`) — 서버는 동반 필드를 부분 거부할 수 있고(예: 매도
  *     검증 실패 → `sell_enabled=false` + ERROR 원문 로그) 그것은 주 필드의 실패가 아니다.
+ *     금액 필드(Phase 31 · shared `LC_AMOUNT_PAIRS`)는 짝 판정이다 — 에코 주 = 보낸 주 ∧ (에코 금액 = 보낸 금액 ∨ 0)
+ *     (`amountEchoMatches` · 구 gh-trade 서버는 금액을 에코하지 않는다 · Pitfall 1 — 0 관용은 금액을 모르는 서버 에코에만 ·
+ *     IN-02). 보내기 전 「서버와 같은 값」은
+ *     에코 적용값(`echoAmountOf(...).shown`)과 본다.
  *   ★ 무장 가드(`armBlockOf`) · 범위 가드는 동반 필드를 **합친 값**으로 판정한다(실제로 나갈 cfg).
  *   ★ 낙관 표시 · 되돌림(거부 · 무응답 · 끊김 · 대기 폐기)은 주 필드와 동반 **불리언**을 **함께** 한다(값 필드는 ④).
  *     되돌림 값은 지금 서버 동기값이다(미등록이면 확정 직전 값 · ⑩ · GC-WR-02) — `revertToggle` 한 자리.
@@ -139,6 +143,7 @@
 
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { RelayLcSetMsg, RelayLimitChaser, RelayLimitChaserInput } from '@gh-radar/shared';
+import { amountEchoMatches, echoAmountOf, lcAmountPairOf } from '@gh-radar/shared';
 
 import { lcRangeIssue } from '@/components/trading/lc/lc-fields';
 import type { StrategySubmitCause } from '@/components/trading/strategy-log';
@@ -163,6 +168,8 @@ export interface LcCommitFailure {
   text: string;
   /** 사용자가 확정하려던 값 — 편집을 다시 열 때 이 값으로 연다(입력 보존). */
   value: unknown;
+  /** 금액 필드(Phase 31)를 보냈다면 그 cfg 의 짝 주 — 늦은 에코의 짝 판정(`amountEchoMatches`)에 쓴다. */
+  sentQty?: number;
 }
 /**
  * `noop` 서버 값과 같다(전송 0) · `local` 미등록이라 로컬 반영만 · `sent` 전송함 ·
@@ -287,7 +294,7 @@ export interface UseLcFieldCommitOptions {
   formRef: { current: LimitChaserFormValues };
   setForm: Dispatch<SetStateAction<LimitChaserFormValues>>;
   /** 폼 값 → 와이어 cfg. 조립 지점은 폼의 `buildCfg` 하나다 — 여기서 복제하지 않는다. */
-  buildCfg: (values: LimitChaserFormValues) => RelayLimitChaserInput;
+  buildCfg: (values: LimitChaserFormValues, server: RelayLimitChaser | null) => RelayLimitChaserInput;
   /** 소켓에 실었는가. false 면 **보내지 않았음이 확실**하다(`use-relay-socket.ts`). */
   send: (msg: RelayLcSetMsg) => boolean;
   /** 보낸 직후 통지 — 카드 `handleSent`(3초 무응답 판정 · 에코 출처 · 보낸 사유 ⑫). */
@@ -304,7 +311,7 @@ export interface UseLcFieldCommitOptions {
   /** 카드 3초 무응답(`unacked`) — in-flight 중 true 가 되면 타임아웃 실패(⑧). 기본 false. */
   unacked?: boolean;
   /** 무장 불가 사유 — 문장이면 전송하지 않는다(⑨). 폼의 `armBlockOf` 가 원천이다. */
-  armBlockOf?: (values: LimitChaserFormValues) => string | null;
+  armBlockOf?: (values: LimitChaserFormValues, server: RelayLimitChaser | null) => string | null;
 }
 
 /**
@@ -348,6 +355,8 @@ interface Inflight extends Pending {
   answerSeqAtSend: number;
   /** 보낼 때의 `serverRejectSeq` — 이 값에서 바뀌면 거부 통지가 온 것이다(에코 유예 · R3-WR-01). */
   rejectSeqAtSend: number;
+  /** 금액 필드(Phase 31)면 실제로 실은 cfg 의 짝 주 — 성공 판정이 짝으로 본다(Pitfall 1). 그 밖 필드는 없다. */
+  sentQty?: number;
 }
 
 type FailureMap = Partial<Record<LcFieldKey, LcCommitFailure>>;
@@ -400,11 +409,34 @@ function companionsAt(
   return typeof c === 'function' ? c(base, laid) : c;
 }
 
+/**
+ * 서버가 이 필드를 이 값으로 들고 있는가(보내기 전 판정) — 금액 필드(Phase 31)는 에코 적용값(`echoAmountOf(...).shown`
+ * — 폼이 보이는 값)과 본다. 구 서버 에코의 금액은 0 이라 원값 `===` 로 보면 늘 다르다(Pitfall 1).
+ */
+function serverHolds(server: RelayLimitChaser, field: LcFieldKey, value: unknown): boolean {
+  const pair = lcAmountPairOf(field);
+  if (pair !== undefined && pair.amount === field) return echoAmountOf(server, pair).shown === value;
+  return server[field] === value;
+}
+
+/**
+ * 보낸 확정이 서버에 섰는가 — 금액 필드는 짝 판정(에코 주 = 보낸 주 ∧ (에코 금액 = 보낸 금액 ∨ 금액을 모르는 서버의 0) ·
+ * `amountEchoMatches`).
+ * 보낸 주를 모르면(보내지 않은 대기 건) `serverHolds` 다. 그 밖 필드는 종전 `===` 그대로.
+ */
+function echoConfirms(server: RelayLimitChaser, field: LcFieldKey, value: unknown, sentQty: number | undefined): boolean {
+  const pair = lcAmountPairOf(field);
+  if (pair !== undefined && pair.amount === field && sentQty !== undefined && typeof value === 'number') {
+    return amountEchoMatches(server, pair, { amount: value, qty: sentQty });
+  }
+  return serverHolds(server, field, value);
+}
+
 /** 서버가 이미 이 확정 그대로인가 — 주 필드와 모든 동반 필드가 같을 때만(⑪). */
 function sameAsServer(server: RelayLimitChaser, field: LcFieldKey, value: unknown, companions?: Partial<LimitChaserFormValues>): boolean {
-  if (server[field] !== value) return false;
+  if (!serverHolds(server, field, value)) return false;
   if (companions === undefined) return true;
-  return (Object.entries(companions) as [LcFieldKey, unknown][]).every(([k, v]) => server[k] === v);
+  return (Object.entries(companions) as [LcFieldKey, unknown][]).every(([k, v]) => serverHolds(server, k, v));
 }
 
 function withoutField(map: FailureMap, field: LcFieldKey): FailureMap {
@@ -494,8 +526,11 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
     setFailuresState(next);
   }, []);
   const setFailure = useCallback(
-    (field: LcFieldKey, reason: LcFailReason, text: string, value: unknown) =>
-      writeFailures((prev) => ({ ...prev, [field]: { reason, text, value } })),
+    (field: LcFieldKey, reason: LcFailReason, text: string, value: unknown, sentQty?: number) =>
+      writeFailures((prev) => ({
+        ...prev,
+        [field]: sentQty === undefined ? { reason, text, value } : { reason, text, value, sentQty },
+      })),
     [writeFailures],
   );
 
@@ -613,13 +648,13 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
         return 'blocked';
       }
       const turningOff = isDisarm(p.field, p.value);
-      const blocked = turningOff ? null : (armBlockOf?.(next) ?? null);
+      const blocked = turningOff ? null : (armBlockOf?.(next, server) ?? null);
       if (blocked !== null) {
         setFailure(p.field, 'armBlocked', blocked, p.value);
         if (optimistic) revertToggle(p);
         return 'blocked';
       }
-      let cfg = buildCfg(next);
+      let cfg = buildCfg(next, server);
       // ⑨-3 금액을 모르는 채 나가는 것은 끄기뿐이다(WR-02 가드를 지났다) — 금액·수량은 서버 값 그대로 싣는다
       //   (수량을 기본 금액으로 다시 계산해 덮지 않는다 · D-04a 잔여 규칙).
       if (server != null && amountUnknownNow()) {
@@ -634,12 +669,14 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       if (p.meta === undefined) onSent?.(cfg);
       else onSent?.(cfg, p.meta);
       writeFailures((prev) => withoutField(prev, p.field));
-      // in-flight 기록에는 실제로 실은 계산 결과가 남는다(함수가 아니라 값 · ⑪).
+      // in-flight 기록에는 실제로 실은 계산 결과가 남는다(함수가 아니라 값 · ⑪). 금액 필드면 실은 짝 주도 함께(Phase 31).
+      const amountPair = lcAmountPairOf(p.field);
       setInflight({
         ...p,
         companions,
         answerSeqAtSend: serverAnswerSeq,
         rejectSeqAtSend: optsRef.current.serverRejectSeq ?? 0,
+        ...(amountPair !== undefined && amountPair.amount === p.field ? { sentQty: cfg[amountPair.qty] } : {}),
       });
       // ⑩ 토글은 전송 뒤 낙관 표시 — 대기 중 에코가 폼을 덮었을 수 있어 꺼낼 때도 다시 건다.
       if (p.kind === 'toggle') applyToggle(p);
@@ -712,7 +749,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       clearRejectGrace();
       setInflight(null);
       popAfterSeqRef.current = null;
-      setFailure(inf.field, reason, LC_COMMIT_TEXT.failed, inf.value);
+      setFailure(inf.field, reason, LC_COMMIT_TEXT.failed, inf.value, inf.sentQty);
       if (inf.kind === 'toggle') revertToggle(inf);
       failQueue('rejected');
       // CR-02 — 타임아웃은 결과 모름이다. 그 프레임이 늦게 닿을 수 있으니 다음 답 신호까지 장벽을 둔다.
@@ -853,8 +890,8 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
     let drainNow = false;
     if (inf !== null) {
       const answered = seq !== inf.answerSeqAtSend;
-      // ⑧ 성공 = 에코의 그 필드 값 === 보낸 값, 예외 없음.
-      const matches = server != null && server[inf.field] === inf.value;
+      // ⑧ 성공 = 에코의 그 필드 값 === 보낸 값, 예외 없음. 금액 필드(Phase 31)만 짝 판정이다(`echoConfirms`).
+      const matches = server != null && echoConfirms(server, inf.field, inf.value, inf.sentQty);
       if (matches) {
         clearRejectGrace();
         setInflight(null);
@@ -914,7 +951,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
     if (serverChanged && server != null) {
       for (const [f, fail] of Object.entries(failuresRef.current) as [LcFieldKey, LcCommitFailure][]) {
         if (fail.reason !== 'rejected' && fail.reason !== 'timeout') continue;
-        if (server[f] === fail.value) markSuccess(f);
+        if (echoConfirms(server, f, fail.value, fail.sentQty)) markSuccess(f);
       }
     }
   }, [

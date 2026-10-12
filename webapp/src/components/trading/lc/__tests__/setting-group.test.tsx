@@ -132,29 +132,30 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
       buyOrderPrice: 'lc-buy-order-price',
       buyOrderAmount: 'lc-buy-order-amount',
       buyWatchPrice: 'lc-buy-watch-price',
-      buyWatchQty: 'lc-buy-watch-qty',
-      buyMinTradeQty: 'lc-buy-min-trade-qty',
+      // Phase 31 — 수량 8칸 폼 키는 금액(만원) · 행 id 는 옛 주 id 그대로(e2e `data-lc-field` 안정).
+      buyWatchAmount: 'lc-buy-watch-qty',
+      buyMinTradeAmount: 'lc-buy-min-trade-qty',
       buyTradeQtyEnabled: 'lc-buy-trade',
       sweepEnabled: 'lc-sweep',
       sweepMinTickCount: 'lc-sweep-tick',
       sweepWatchPrice: 'lc-sweep-watch-price',
       extraBuyOrderAmount: 'lc-extra-buy-amount',
-      extraBuyMinQty: 'lc-extra-buy-min-qty',
-      extraBuyMaxQty: 'lc-extra-buy-max-qty',
+      extraBuyMinAmount: 'lc-extra-buy-min-qty',
+      extraBuyMaxAmount: 'lc-extra-buy-max-qty',
       extraBuyBurstRelease: 'lc-extra-buy-burst-release',
       postBuyOrderAmount: 'lc-post-buy-amount',
       postBuyReentry: 'lc-post-buy-reentry',
-      postBuyFloorQty: 'lc-post-buy-floor-qty',
+      postBuyFloorAmount: 'lc-post-buy-floor-qty',
       postBuyReboundPct: 'lc-post-buy-rebound',
       sellOrderPrice: 'lc-sell-order-price',
       sellOrderRatio: 'lc-sell-order-ratio',
       sellWatchPrice: 'lc-sell-watch-price',
-      sellWatchQty: 'lc-sell-watch-qty',
+      sellWatchAmount: 'lc-sell-watch-qty',
       sellQtyTrackRatio: 'lc-sell-qty-track-ratio',
       sellQtyTrackEnabled: 'lc-sell-qty-track',
-      sellMinTradeQty: 'lc-sell-min-trade-qty',
+      sellMinTradeAmount: 'lc-sell-min-trade-qty',
       sellTradeQtyEnabled: 'lc-sell-trade',
-      cancelWatchQty: 'lc-cancel-watch-qty',
+      cancelWatchAmount: 'lc-cancel-watch-qty',
       cancelTradeEnabled: 'lc-cancel-trade',
       cancelQtyTrackEnabled: 'lc-cancel-qty-track',
       autoSellStartCond: 'lc-auto-sell-start-cond',
@@ -172,9 +173,15 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
     ]);
     expect(spec('lc-buy-watch-price').desc).toBe('세 매수가 같이 지켜보는 가격(상한가)이에요');
     expect([spec('lc-buy-order-amount').unit, spec('lc-buy-order-amount').desc]).toEqual(['만원', '선매수 한 번에 넣을 금액이에요']);
-    expect(spec('lc-buy-watch-qty').desc).toBe('비교가격의 매도잔량이 이 값 이하로 줄면 선매수를 넣어요');
+    expect([spec('lc-buy-watch-qty').unit, spec('lc-buy-watch-qty').desc]).toEqual([
+      '만',
+      '비교가격의 매도잔량이 이 금액 이하로 줄면 선매수를 넣어요',
+    ]);
+    expect(spec('lc-buy-min-trade-qty').desc).toBe('체결이 이 금액 이상이면 선매수를 넣어요');
     expect(spec('lc-sweep-tick').desc).toBe('호가가 이만큼 바뀌면 한 번에 체결해요');
-    expect(spec('lc-extra-buy-max-qty').desc).toBe('상한가 매수잔량이 이 값을 넘으면 포기해요 · 0 = 무제한');
+    expect(spec('lc-extra-buy-min-qty').desc).toBe('상한가 매수잔량이 이 금액 이상일 때 사요 · 0 = 1주');
+    expect(spec('lc-extra-buy-max-qty').desc).toBe('상한가 매수잔량이 이 금액을 넘으면 포기해요 · 0 = 무제한');
+    expect(spec('lc-post-buy-floor-qty').desc).toBe('발동잔량의 하한(바닥)이에요 · 0 = 없음');
     expect(spec('lc-post-buy-reentry').desc).toBe(
       '최초 포함 총 진입 횟수예요 · 후매수와 줄매수 자동이 같이 써요 · 0 = 사지 않아요 · 껐다 켜면 이 값부터 다시 세요',
     );
@@ -184,9 +191,27 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
       '보유 수량 중 매도할 비율이에요',
     ]);
     expect([spec('lc-sell-qty-track-ratio').label, spec('lc-sell-qty-track-ratio').unit]).toEqual(['잔량추적', '%']);
-    expect(spec('lc-sell-watch-qty').desc).toBe('비교가격의 매수잔량이 이 값보다 줄면 매도를 넣어요');
-    expect(spec('lc-sell-min-trade-qty').desc).toBe('체결이 이 값 이상이면 매도를 넣어요');
-    expect(spec('lc-cancel-watch-qty').desc).toBe('매도 비교가격의 매수잔량이 이 값보다 적으면 매수 주문을 취소해요');
+    // Phase 31 — 매도 「매수잔량」 은 만원 입력(단위 「만」 · UI-SPEC 시트 설명 「이 금액보다」).
+    expect([spec('lc-sell-watch-qty').unit, spec('lc-sell-watch-qty').desc]).toEqual([
+      '만',
+      '비교가격의 매수잔량이 이 금액보다 줄면 매도를 넣어요',
+    ]);
+    expect(spec('lc-sell-min-trade-qty').desc).toBe('체결이 이 금액 이상이면 매도를 넣어요');
+    expect(spec('lc-cancel-watch-qty').desc).toBe('매도 비교가격의 매수잔량이 이 금액보다 적으면 매수 주문을 취소해요');
+    // 수량 8행 모두 단위 「만」 · 범위 0~999,999,999(키패드 9자리 · D-01).
+    for (const id of [
+      'lc-buy-watch-qty',
+      'lc-buy-min-trade-qty',
+      'lc-extra-buy-min-qty',
+      'lc-extra-buy-max-qty',
+      'lc-post-buy-floor-qty',
+      'lc-sell-watch-qty',
+      'lc-sell-min-trade-qty',
+      'lc-cancel-watch-qty',
+    ]) {
+      expect(spec(id).unit, id).toBe('만');
+      expect(spec(id).range, id).toEqual({ min: 0, max: 999_999_999 });
+    }
   });
 
   it('스위치 이름 7개(「한방체결 켜기」 없음 · Phase 27 「자동매도 켜기」) · 매수취소 스위치 = cancelQtyEnabled', () => {
@@ -220,7 +245,7 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
       'lc-post-buy-floor-qty',
       'lc-post-buy-rebound',
     ]);
-    expect(lcNavigableRows('cancel')).toEqual([{ field: 'cancelWatchQty', id: 'lc-cancel-watch-qty' }]);
+    expect(lcNavigableRows('cancel')).toEqual([{ field: 'cancelWatchAmount', id: 'lc-cancel-watch-qty' }]);
     expect(lcNavigableRows('sell').map((r) => r.id)).toEqual([
       'lc-sell-order-price',
       'lc-sell-watch-price',
