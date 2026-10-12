@@ -2080,6 +2080,7 @@ describe("WsFanout", () => {
       gateway.pushLimitChaserEcho(sock, {
         isin: SAMPLE_ISIN,
         accountNo: SAMPLE_ACCOUNT_NO,
+        buyWatchPrice: 69_900,
         buyWatchQty: 100,
         buyWatchAmount: 300,
         sellWatchPrice: 12_870,
@@ -2089,7 +2090,7 @@ describe("WsFanout", () => {
       await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
 
       const cfg: Record<string, unknown> = {
-        ...lcInput({ buyWatchQty: 100, sellWatchPrice: 12_870, sellWatchQty: 800 }),
+        ...lcInput({ buyWatchPrice: 69_900, buyWatchQty: 100, sellWatchPrice: 12_870, sellWatchQty: 800 }),
       };
       for (const p of LC_AMOUNT_PAIRS) delete cfg[p.amount];
       a.ws.sendRaw({ t: "lc.set", cfg });
@@ -2107,6 +2108,40 @@ describe("WsFanout", () => {
       // 매도 매수잔량 — 보낼 주 800 ≠ 에코 주 777 → 0(옛 원값을 실으면 짝이 어긋난 채 저장된다).
       expect(req).toMatchObject({ sellWatchQty: 800, sellWatchAmount: 0 });
       expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+    });
+
+    it("P31 구 탭 cfg 가 주는 같고 그룹 비교가만 바꾼 칸은 0 이다 — 옛 원값은 새 비교가와 짝이 아니다(R2-IN-01)", async () => {
+      const a = await authed("token-a");
+      const sock = gateway.sockets[0];
+      if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+      gateway.pushLimitChaserEcho(sock, {
+        isin: SAMPLE_ISIN,
+        accountNo: SAMPLE_ACCOUNT_NO,
+        buyWatchPrice: 69_900,
+        buyWatchQty: 100,
+        buyWatchAmount: 300,
+        sellWatchPrice: 12_870,
+        sellWatchQty: 777,
+        sellWatchAmount: 1000,
+      });
+      await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
+
+      // 매도 비교가만 12,870 → 13,000 (주 777 그대로) · 매수 쌍은 주 · 비교가 모두 그대로.
+      const cfg: Record<string, unknown> = {
+        ...lcInput({ buyWatchPrice: 69_900, buyWatchQty: 100, sellWatchPrice: 13_000, sellWatchQty: 777 }),
+      };
+      for (const p of LC_AMOUNT_PAIRS) delete cfg[p.amount];
+      a.ws.sendRaw({ t: "lc.set", cfg });
+      await waitFor(
+        () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+        "10 수신",
+      );
+      const sets = gateway
+        .strategyRequests()
+        .filter((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq);
+      const req = readSetLimitChaserRequest(sets[0]!.msgType, sets[0]!.payload);
+      expect(req).toMatchObject({ buyWatchQty: 100, buyWatchAmount: 300 });
+      expect(req).toMatchObject({ sellWatchPrice: 13_000, sellWatchQty: 777, sellWatchAmount: 0 });
     });
 
     it("P31 새 탭이 실은 금액(0 포함)은 캐시 에코가 있어도 덮지 않는다(WR-01)", async () => {

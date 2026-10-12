@@ -2630,9 +2630,10 @@ export class WsFanout {
    * ②-0′ **구 탭 금액 8필드 되싣기** — `lc.set` 전용 (Phase 31 WR-01 · D-11 · Pitfall 3).
    *
    * 금액 키가 **없는** 쌍만 채운다 — 새 탭이 보낸 값은 0 이어도 그대로 간다(사용자가 0 을 넣은 것이다).
-   *   · 그 키의 최신 에코(`lc.snap` 캐시 · `getLimitChasers`)가 있고 보낼 주 == 에코 주(짝이 맞음) → 에코 금액 원값.
-   *   · 아니면 0 — gh-trade 인계 노트 ⓑ 가 허용한 값이다(C# 칸이 주에서 역산한다). 주가 바뀐 칸에 옛 원값을 실으면
-   *     금액 ↔ 주 짝이 어긋난 채 저장된다.
+   *   · 그 키의 최신 에코(`lc.snap` 캐시 · `getLimitChasers`)가 있고 보낼 주 == 에코 주 ∧ 보낼 그룹 비교가 == 에코 비교가
+   *     (짝을 만든 두 입력이 그대로) → 에코 금액 원값. 서버에 선 값을 그대로 되싣는 것이라 「keep」 과 같다.
+   *   · 아니면 0 — gh-trade 인계 노트 ⓑ 가 허용한 값이다(C# 칸이 주에서 역산한다). 주나 비교가가 바뀐 칸에 옛 원값을
+   *     실으면 금액 ↔ 주 짝이 어긋난 채 저장된다(R2-IN-01 — 주만 보면 비교가만 바꾼 구 탭 재제출이 옛 원값을 싣는다).
    *
    * 서버는 「0 이 오면 0 을 저장한다(keep 아님)」 — 부재를 0 으로 지어 보내면 C# 상따창에서 사람이 넣은 만원 원값이
    * 지워지고 C# 칸이 역산값으로 떨어진다. `user.settings.set` 이 84 캐시로 `postBuyFloorAmount` 를 되싣는 것과
@@ -2645,7 +2646,8 @@ export class WsFanout {
     const echo = this.#hub.getLimitChasers(userId).find((lc) => lc.key === wanted);
     const filled: Partial<Record<LcAmountKey, number>> = {};
     for (const p of missing) {
-      filled[p.amount] = echo !== undefined && echo[p.qty] === cfg[p.qty] ? echo[p.amount] : 0;
+      const paired = echo !== undefined && echo[p.qty] === cfg[p.qty] && echo[p.price] === cfg[p.price];
+      filled[p.amount] = paired ? echo[p.amount] : 0;
     }
     return { ...cfg, ...filled };
   }
