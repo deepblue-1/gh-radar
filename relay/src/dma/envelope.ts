@@ -46,6 +46,7 @@ import type {
   RelayHolding,
   RelayKrxSession,
   RelayLcCrud,
+  LcAmountKey,
   RelayLimitChaser,
   RelayLimitChaserInput,
   RelayLimitFeatureMember,
@@ -1431,20 +1432,6 @@ export const LC_AUTO_SELL_BUY3_SCHEMA = 4;
  */
 export const LC_EXTRA_BUY_AUTO_BUY3_SCHEMA = 5;
 
-/**
- * 수량 임계 금액 8필드(만원 · Phase 31 D-11) — relay `LcSetCfg` 에서는 선택(구 탭 관용 · 부재 = 0 으로 조립),
- * shared 입력 계약에서는 필수. `buy3_schema` 파생과 무관하다(게이트 없음).
- */
-type LcAmountKey =
-  | "buyWatchAmount"
-  | "buyMinTradeAmount"
-  | "extraBuyMinAmount"
-  | "extraBuyMaxAmount"
-  | "postBuyFloorAmount"
-  | "sellWatchAmount"
-  | "sellMinTradeAmount"
-  | "cancelWatchAmount";
-
 /** 자동매도 요청 4필드 — relay `LcSetCfg` 에서는 선택(구 탭 관용), shared 입력 계약에서는 필수. */
 type LcAutoSellReqKey = "autoSellEnabled" | "autoSellStartCond" | "autoSellRatioPct" | "autoSellMethod";
 
@@ -1453,6 +1440,8 @@ type LcAutoSellReqKey = "autoSellEnabled" | "autoSellStartCond" | "autoSellRatio
  * quick-260929-vzy · quick-261003-rc4 · Phase 27) · `extraBuyAuto`(quick-261011-0yb)만 선택. 존재 여부가 `buy3_schema`(1~5)를 정한다. shared 계약
  * `RelayLimitChaserInput` 에서는 전부 필수다(새 탭이 빠뜨리면 컴파일이 막는다) — 「shared 는 새 클라 계약, relay
  * 와이어는 구 탭 관용」 규약.
+ * 수량 임계 금액 8필드(만원 · Phase 31 D-11 · shared `LcAmountKey`)도 여기서는 선택이다(구 탭 관용 · 부재 = 0 으로 조립 —
+ * `fanout.ts` 가 먼저 짝 맞는 에코 원값으로 채운다). `buy3_schema` 파생과 무관하다(게이트 없음).
  */
 export type LcSetCfg = Omit<
   RelayLimitChaserInput,
