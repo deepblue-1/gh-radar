@@ -5,10 +5,10 @@ milestone_name: 운영 유지보수
 current_phase: 31
 status: completed
 stopped_at: Phase 31 complete — 마일스톤 v1.1 계속(종료 안 함)
-last_updated: "2026-10-12T08:37:42.849Z"
+last_updated: "2026-10-12T08:59:45.789Z"
 last_activity: 2026-10-12
 last_activity_desc: Phase 31 complete
-state_head: 6d7f96846bcb217e7ebe458f62702e22fc33252e
+state_head: 3fb8ecbd070c5d499768c546fcaba9184992a8d0
 progress:
   total_phases: 2
   completed_phases: 2
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-10-12 after Phase 31)
 Phase: 31
 Plan: Not started
 Status: 로드맵 phase 전부 완료 · 마일스톤 v1.1 계속(새 phase 추가 또는 quick)
-Last activity: 2026-10-12 — Phase 31 complete
+Last activity: 2026-10-12 — Completed quick task 261012-oif: 상따카드 4건(쉐브런 · 기준선 행 · 매수취소 접이식 · 버스트 취소)
 
 Progress: [██████████] 100% (17/17 plans)
 
@@ -73,6 +73,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 |---|-------------|------|--------|-----------|
 | 261011-j87 | CLAUDE.md 다이어트 — 스택 표·법적 판례·설치 참조·출처 링크를 docs/ 로 옮기고 운영 5원칙·공식 API 기준·인박스·컨벤션만 요약 유지 | 2026-10-11 | 8b9a911d | [261011-j87-claude-md-docs-5-api](./quick/261011-j87-claude-md-docs-5-api/) |
 | 261012-mig | 상따 줄매수 「최소 > 최대」·「최대 0주」 차단을 C# addBuyLive(☐줄매수 ∨ ☐자동)·제출 주 비교로 정렬 — gh-trade 인박스 261012-phase32-review-fix-wr06-in07 | 2026-10-12 | 708c4772 | [261012-mig-lc-extrabuy-minmax-parity](./quick/261012-mig-lc-extrabuy-minmax-parity/) |
+| 261012-oif | 상따카드 4건 — 쉐브런 lc 360↑ 표시 · 매도 잔량추적 기준선 행 삭제 · 매수취소 접이식 · 버스트 취소 매수주문 이동 | 2026-10-12 | 3fb8ecbd | [261012-oif-lc-card-tweaks](./quick/261012-oif-lc-card-tweaks/) |
 
 ## Session Continuity
 
