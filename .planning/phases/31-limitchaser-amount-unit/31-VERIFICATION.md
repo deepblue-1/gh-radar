@@ -1,8 +1,8 @@
 ---
 phase: 31-limitchaser-amount-unit
-verified: 2026-10-12T08:30:00Z
-status: human_needed
-score: 3/4 must-haves verified
+verified: 2026-10-12T08:23:45Z
+status: passed
+score: 4/4 must-haves verified
 covered_files:
   - ".planning/phases/31-limitchaser-amount-unit/31-01-PLAN.md"
   - ".planning/phases/31-limitchaser-amount-unit/31-01-SUMMARY.md"
@@ -26,11 +26,23 @@ covered_files:
   - "relay/src/ws/fanout.ts"
   - "relay/src/ws/protocol.ts"
   - "webapp/src/components/me/limit-chaser-defaults.tsx"
+  - "webapp/src/components/trading/lc/lc-fields.ts"
+  - "webapp/src/components/trading/lc/use-lc-field-commit.ts"
   - "webapp/src/components/trading/limit-chaser-form.tsx"
   - "webapp/src/lib/limit-chaser.ts"
-covered_digest: "v3:sha256:203c3b955984275a688068d554f50bd7940c741e5650da0ab39a331d12b724bb"
-behavior_unverified: 1
-behavior_unverified_items:
+covered_digest: "v3:sha256:09ac4d366fb1ca33863649f503b624507218dc0ce428f79b290f3486ea40469d"
+behavior_unverified: 0
+superseded_by: 31-VERIFICATION-R2.md
+human_verification_resolved:
+  source: ".planning/phases/31-limitchaser-amount-unit/31-UAT.md"
+  commit: "edfc50df"
+  result: "4/4 pass"
+round1_verified: 2026-10-12T08:30:00Z
+round1_status: human_needed
+round1_score: 3/4 must-haves verified
+round1_covered_digest: "v3:sha256:203c3b955984275a688068d554f50bd7940c741e5650da0ab39a331d12b724bb"
+round1_behavior_unverified: 1
+round1_behavior_unverified_items:
   - truth: "C# 단말 만원 원값이 웹 재제출로 지워지지 않는다 (실서버 경로)"
     test: "gh-trade 서버(feature/limitchaser-amount-unit) 배포 + relay 배포 + webapp 새 번들 뒤, C# 상따창에 만원(예: 매도 매수잔량 100)을 넣은 종목을 웹에서 아무 칸이나 재제출"
     expected: "Cloud Logging relay_docker 의 60 에코에서 sell_watch_amount 가 100 그대로, C# 칸도 100 그대로"
