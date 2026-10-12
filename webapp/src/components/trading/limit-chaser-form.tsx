@@ -612,11 +612,15 @@ type PrecheckSlot = (typeof GROUP_SLOT)[BuyGroupGate];
  *     금액이 실패하면 수량은 보지 않는다(같은 원인을 두 번 말하지 않는다).
  *   - 수량: `buyOrderQtyFromAmount(그룹 금액, 공통 주문가격) === 0` — 웹 `canArmOf` · relay `…OrderQty === 0` 과 같은 식.
  *   - 선매수: 한방 체크 ON ∧ 한방가격 0 → `ARM_BLOCKED_TEXT.sweepPrice`(IN-03 — 폼 맨 위가 아니라 선매수 카드 한 줄).
- *   - 줄매수: D-10 최대 ≠ 0 ∧ 최소 > 최대(만원끼리 · Phase 31).
+ *   - 줄매수: D-10 최대 ≠ 0 ∧ (최소 금액 > 최대 금액(C# 동형) ∨ 최소 제출 주 > 최대 제출 주(> 0) — IN-01 · Phase 31).
  *   - 후매수: 반등 1~100 밖(D-20 · 레거시 0) → 매도비율 0(D-27 · 레거시).
- * `values` = 이 확정이 실을 기준값(서버 동기값 — 훅과 같은 `lcBaseValues`).
+ * `values` = 이 확정이 실을 기준값(서버 동기값 — 훅과 같은 `lcBaseValues`). `server` = 제출 주의 에코 메모(`lcSubmitQtyOf`).
  */
-function groupPrechecksOf(gate: BuyGroupGate, values: LimitChaserFormValues): string[] {
+function groupPrechecksOf(
+  gate: BuyGroupGate,
+  values: LimitChaserFormValues,
+  server: RelayLimitChaser | null,
+): string[] {
   const out: string[] = [];
   const amount = lcGroupAmountBlockOf(values, gate, true);
   if (amount !== null) out.push(amount);
@@ -624,8 +628,7 @@ function groupPrechecksOf(gate: BuyGroupGate, values: LimitChaserFormValues): st
   if (gate === 'preBuyEnabled' && values.sweepEnabled && values.sweepWatchPrice === 0) {
     out.push(ARM_BLOCKED_TEXT.sweepPrice);
   }
-  // 금액끼리 비교한다(C# 동형 · Phase 31) — 같은 매수 비교가로 내림 환산하므로 금액 순서 = 주 순서다.
-  if (gate === 'extraBuyEnabled' && values.extraBuyMaxAmount !== 0 && values.extraBuyMinAmount > values.extraBuyMaxAmount) {
+  if (gate === 'extraBuyEnabled' && values.extraBuyMaxAmount !== 0 && extraBuyMinOverMax(values, server)) {
     out.push(LC_COMMIT_TEXT.minOverMax);
   }
   if (gate === 'postBuyEnabled') {
@@ -635,9 +638,29 @@ function groupPrechecksOf(gate: BuyGroupGate, values: LimitChaserFormValues): st
   return out;
 }
 
+/**
+ * 줄매수 최소 > 최대(최대 ≠ 0 일 때만 부른다) — 두 판정의 합이다(IN-01).
+ *   ① 금액끼리(C# `LimitChaserForm.cs` 5200 동형) — 사람이 넣은 값의 순서. 같은 비교가 내림이면 주 순서와 같다.
+ *   ② 제출 주끼리 — 에코 메모 칸은 내림이 아니라 서버 주를 싣는다. 최소 에코 1,000주 @12,354원(표시 1,235만) 옆에 최대
+ *     1,235만을 넣으면 금액은 같아도 최대 = 999주라 서버가 줄매수를 ERROR 로 눕힌다. ② 는 그 경우만 더 막는다(금액 최소 <
+ *     최대이면 주도 최소 ≤ 최대 — 메모 표시값은 반올림이라 그 아래 금액은 늘 더 적은 주로 내림된다).
+ *   최대 주 0(최대 금액 > 0 인데 내림 0주)은 여기서 보지 않는다 — 「줄매수 최대 0주」 차단(`armBlockOf` 5 · C# addMaxFloored)이
+ *   먼저다(C# 은 addMaxFloored 를 최소 > 최대보다 앞에 둔다).
+ * ★ ② 는 C# 에 없는 웹 보강이다 — gh-trade 인계 후보(C# 주석 「만원끼리 … 단조라 결과가 같다」 는 에코 메모 칸에서 틀린다).
+ */
+function extraBuyMinOverMax(values: LimitChaserFormValues, server: RelayLimitChaser | null): boolean {
+  if (values.extraBuyMinAmount > values.extraBuyMaxAmount) return true;
+  const maxQty = lcSubmitQtyOf(values, 'extraBuyMaxAmount', server);
+  return maxQty > 0 && lcSubmitQtyOf(values, 'extraBuyMinAmount', server) > maxQty;
+}
+
 /** 그룹 켜기 사전 검증 — 첫 실패 문구 하나, 통과면 null(누르는 순간 판정 · R7). 끄는 방향에는 부르지 않는다(T-16-44). */
-function groupPrecheckOf(gate: BuyGroupGate, values: LimitChaserFormValues): string | null {
-  return groupPrechecksOf(gate, values)[0] ?? null;
+function groupPrecheckOf(
+  gate: BuyGroupGate,
+  values: LimitChaserFormValues,
+  server: RelayLimitChaser | null,
+): string | null {
+  return groupPrechecksOf(gate, values, server)[0] ?? null;
 }
 
 /**
@@ -1197,7 +1220,7 @@ export function LimitChaserForm({
     setPrecheck((cur) => {
       if (cur === null) return cur;
       if (server?.[cur.gate] === true) return null;
-      const still = groupPrechecksOf(cur.gate, lcBaseValues(server, form)).includes(cur.text);
+      const still = groupPrechecksOf(cur.gate, lcBaseValues(server, form), server ?? null).includes(cur.text);
       return still ? cur : null;
     });
   }, [server, form]);
@@ -1225,7 +1248,7 @@ export function LimitChaserForm({
         // 사전 검증(R7 · UI-SPEC §7) — 낙관 표시 전에 판정한다(스위치는 움직이지 않는다). 전송 0 · 그 카드 한 줄.
         const pressed = lcBaseValues(serverRef.current, f);
         const slot = GROUP_SLOT[gate];
-        const failed = groupPrecheckOf(gate, pressed);
+        const failed = groupPrecheckOf(gate, pressed, serverRef.current ?? null);
         if (failed !== null) {
           setPrecheck({ slot, gate, text: failed });
           return;
@@ -1328,7 +1351,7 @@ export function LimitChaserForm({
   const commitPostBuyAuto = useCallback(
     (on: boolean) => {
       if (on) {
-        const failed = groupPrecheckOf('postBuyEnabled', lcBaseValues(serverRef.current, formRef.current));
+        const failed = groupPrecheckOf('postBuyEnabled', lcBaseValues(serverRef.current, formRef.current), serverRef.current ?? null);
         if (failed !== null) {
           setPrecheck({ slot: 'post-buy', gate: 'postBuyEnabled', text: failed });
           return;

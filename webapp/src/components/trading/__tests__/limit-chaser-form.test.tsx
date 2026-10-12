@@ -4073,7 +4073,7 @@ describe('Phase 27 새 폼 84 시딩', () => {
  * Phase 31 31-04 — 수량 8칸 만원 · cfg 8쌍 조립(D-01 · D-02 · D-06 · D-10 · D-12 · AMT-02).
  * 예시 수치는 UI-SPEC 정정표(12,870원). 기대 주는 shared `qtyFromAmount` 로 만든다(공식을 테스트에 다시 적지 않는다).
  */
-describe('P31 수량 8칸 만원 — cfg 8쌍 되싣기 · 비교가 변경 재계산 · 금액끼리 최소>최대 · 시딩 미룸 · 취소 추적 되싣기', () => {
+describe('P31 수량 8칸 만원 — cfg 8쌍 되싣기 · 비교가 변경 재계산 · 금액끼리 최소>최대(+ 제출 주끼리 · IN-01) · 시딩 미룸 · 취소 추적 되싣기', () => {
   const P = 12_870;
   /** C# 이 둔 원값 — 각 금액이 자기 짝 주와 맞는다(1001만 → 777주 처럼 역산 1000 과 다른 원값 포함). */
   const C_SHARP = {
@@ -4155,6 +4155,29 @@ describe('P31 수량 8칸 만원 — cfg 8쌍 되싣기 · 비교가 변경 재�
         })}
       />,
     );
+    click(sw('줄매수 켜기'));
+    expect(sentConfigs()).toHaveLength(0);
+    expect(precheckIn('extra-buy')?.textContent).toBe(
+      '최소 잔량이 최대 잔량보다 커요 — 최대를 0(무제한)으로 하거나 최소를 낮춰 주세요',
+    );
+  });
+
+  it('(c2) IN-01 금액은 같아도 제출 주가 최소 > 최대면 막는다 — 최소 에코 1,000주 @12,354(표시 1,235만) · 최대 1,235만(999주)', () => {
+    const PX = 12_354;
+    const s = csharpEcho({
+      buyWatchPrice: PX,
+      extraBuyOrderAmount: 50,
+      // 최소는 구 서버 모양(금액 0 · 주 1,000) — 칸은 역산 1,235만 · 제출 주는 메모 1,000주.
+      extraBuyMinAmount: 0,
+      extraBuyMinQty: 1000,
+      extraBuyMaxAmount: 1235,
+      extraBuyMaxQty: qtyFromAmount(1235, PX),
+    });
+    expect(amountFromQty(1000, PX)).toBe(1235);
+    expect(qtyFromAmount(1235, PX)).toBe(999);
+    render(<LimitChaserForm {...props({ server: s })} />);
+    expect(rowText('lc-extra-buy-min-qty')).toBe('1,235만');
+    expect(rowText('lc-extra-buy-max-qty')).toBe('1,235만');
     click(sw('줄매수 켜기'));
     expect(sentConfigs()).toHaveLength(0);
     expect(precheckIn('extra-buy')?.textContent).toBe(
