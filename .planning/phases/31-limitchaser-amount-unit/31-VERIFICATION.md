@@ -30,7 +30,7 @@ covered_files:
   - "webapp/src/components/trading/lc/use-lc-field-commit.ts"
   - "webapp/src/components/trading/limit-chaser-form.tsx"
   - "webapp/src/lib/limit-chaser.ts"
-covered_digest: "v3:sha256:bf41d648f3eded5a37f62a3e4841790350b07a421d38dc051ce94924e425f8aa"
+covered_digest: "v3:sha256:03e97261ce0e1e71671b7b067b59912358879fd8d51491a513a2d02a0c4d6414"
 behavior_unverified: 0
 superseded_by: 31-VERIFICATION-R2.md
 human_verification_resolved:

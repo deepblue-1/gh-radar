@@ -56,6 +56,10 @@ gh-trade Phase 32 「상따 수량 옵션 금액 단위 전환」(SetLimitChaser
   - relay 는 할 일 없음 — `ev_price` 는 `envelope.ts:3562` → shared `strategy-event.ts` → 저널 `strategy-stream.ts` 로 그대로 흐르고 0 을 가정하는 검증이 없다(2026-10-11 grep 확인). 54 `[상따]` 사유 문장은 원문 표시라 자동으로 바뀐다. RESEARCH Open Q7(「범위 밖 · 후속 quick」 권고)은 이 결정으로 대체된다.
 - **D-20: 두 번째 노트도 닫는다** — `261011-amount-eok-and-limit-evprice.md` 「gh-radar 가 할 일」 아래에 relay 무변경 확인 · 웹 ⑦ 확장 커밋을 한 줄씩 적고 `status: done` · `done_commit` 으로 경로 지정 커밋(D-16 의 첫 노트와 같은 마무리 플랜에서).
 
+### 사후 정정 (2026-10-12)
+
+- **D-21: 줄매수 「최소 > 최대」 판정은 제출 주끼리** — UI-SPEC 「등록 차단」 · 31-04 의 「금액끼리」를 바꾼다. gh-trade Phase 32 `e4a66ae2`(C# `addBuyLive` = ☐줄매수 ∨ ☐자동 · 제출 주 비교)에 맞춘 quick-261012-mig(`708c4772` · `ef9e5173`). 금액이 최소 > 최대여도 같은 주로 내림되면 통과. 31-REVIEW-R3 R3-IN-04.
+
 ### Claude's Discretion
 - shared 환산 함수 이름 · 위치(`packages/shared/src/…`) · `LimitChaserFormValues` 에서 주 필드를 남길지(S→C 에코 보존용 읽기 전용) 아니면 제출 시 산출만 할지 — D-06 되싣기(서버 주 그대로)가 가능해야 한다.
 - 두 줄 행 컴포넌트 구현(SettingRow/DerivedRow 확장 vs 새 변형) · aria-label 문장(「선매수 매도잔량 1,000만 7,770주」) · 폭 백스톱 테스트 갱신.
