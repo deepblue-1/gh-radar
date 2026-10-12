@@ -21,31 +21,31 @@ findings:
     title: "Failures from an edit save disappear from `BusyLines` for good, even after the edit card closes"
   - id: IN-01
     severity: info
-    disposition: open
+    disposition: fixed
     title: "The save button can be disabled with no visible reason when the initial 87 value fails web validation"
   - id: IN-02
     severity: info
-    disposition: open
+    disposition: fixed
     title: "The shared-holder note approximates gh-trade's propagation set"
   - id: IN-03
     severity: info
-    disposition: open
+    disposition: fixed
     title: "R3-02 copies the first other user that has IP/MAC set and ignores other users that are explicitly unset"
   - id: IN-04
     severity: info
-    disposition: open
+    disposition: fixed
     title: "The overview ships KYOBO accounts' 87 IP/MAC to the browser"
   - id: IN-05
     severity: info
-    disposition: open
+    disposition: fixed
     title: "The R3-01 re-read uses the request deadline before any op is sent"
   - id: IN-06
     severity: info
-    disposition: open
+    disposition: fixed
     title: "When the state is \"확인 전\" (unknown), there is no way to express \"clear to 미설정\""
-open: 6
+open: 0
 total: 10
-recorded: 2026-10-11T10:41:24.423Z
+recorded: 2026-10-12T00:05:00.000Z
 ---
 
 # Phase 30: Code Review Disposition
@@ -56,12 +56,12 @@ recorded: 2026-10-11T10:41:24.423Z
 | WR-02 | warning | fixed | 30-REVIEW-FIX.md |
 | WR-03 | warning | fixed | 30-REVIEW-FIX.md |
 | WR-04 | warning | fixed | 30-REVIEW-FIX.md |
-| IN-01 | info | open | - |
-| IN-02 | info | open | - |
-| IN-03 | info | open | - |
-| IN-04 | info | open | - |
-| IN-05 | info | open | - |
-| IN-06 | info | open | - |
+| IN-01 | info | fixed | 30-REVIEW-FIX-R2.md |
+| IN-02 | info | fixed | 30-REVIEW-FIX-R2.md |
+| IN-03 | info | fixed | 30-REVIEW-FIX-R2.md |
+| IN-04 | info | fixed | 30-REVIEW-FIX-R2.md |
+| IN-05 | info | fixed | 30-REVIEW-FIX-R2.md |
+| IN-06 | info | fixed | 30-REVIEW-FIX-R2.md |
 
 Dispositions: `open` (recorded, not yet triaged), `fixed`, `skipped`, `deferred`.
 Set `deferred` by hand and put the reason in the Source cell; both are preserved. A `|` in the reason is kept as prose and escaped on the next run.
