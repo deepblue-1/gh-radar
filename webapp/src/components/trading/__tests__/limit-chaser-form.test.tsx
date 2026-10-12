@@ -4141,7 +4141,7 @@ describe('P31 수량 8칸 만원 — cfg 8쌍 되싣기 · 비교가 변경 재�
     expect(qtyFromAmount(1000, 13_000)).toBe(769);
   });
 
-  it('(c) 줄매수 최소 2,000만 · 최대 1,500만 → 줄매수 켜기 = 전송 0 · 최소/최대 문구(제출 주끼리 · C# 동형)', () => {
+  it('(c) 줄매수 최소 2,000만 · 최대 1,500만 → 줄매수 켜기 = 전송 0 · 최소/최대 문구(금액 · 제출 주 모두 최소 > 최대)', () => {
     render(
       <LimitChaserForm
         {...props({
@@ -4210,6 +4210,19 @@ describe('P31 수량 8칸 만원 — cfg 8쌍 되싣기 · 비교가 변경 재�
     editInline('lc-sweep-tick', '5');
     expect(sentConfigs()).toHaveLength(0);
     expect(screen.getByRole('alert').textContent).toBe(MIN_OVER_MAX_ARM);
+  });
+
+  it('(c4b) 같은 에코에서 빠져나갈 길은 열려 있다 — ☐자동 끄기 · 최대 0(무제한) 확정은 그대로 나간다', () => {
+    const { unmount } = render(<LimitChaserForm {...props({ server: minOverMaxEcho({ extraBuyAuto: true }) })} />);
+    click(chk('줄매수 자동'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().extraBuyAuto).toBe(false);
+    unmount();
+    sendMock.mockClear();
+    render(<LimitChaserForm {...props({ server: minOverMaxEcho({ extraBuyAuto: true }) })} />);
+    editInline('lc-extra-buy-max-qty', '0');
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ extraBuyAuto: true, extraBuyMaxAmount: 0, extraBuyMaxQty: 0 });
   });
 
   it('(c5) 금액은 최소 > 최대여도 같은 주로 내림되면 막지 않는다 — 최소 1,001만 · 최대 1,000만 @12,870 = 둘 다 777주(제출 주끼리 · C# e4a66ae2)', () => {
@@ -4365,6 +4378,18 @@ describe('P31 등록 차단 (D-03 · D-04 · UI-SPEC 표 1~8)', () => {
     expect(screen.getByText(`${EXTRA_MAX_TEXT} (12만 → 0주)`)).toBeInTheDocument();
     unmount();
     render(<LimitChaserForm {...props({ server: echo({ ...extra, extraBuyMaxAmount: 0, extraBuyMaxQty: 0 }) })} />);
+    commitAny();
+    expect(sentConfigs()).toHaveLength(1);
+  });
+
+  it('5 (WR-06) — ☐줄매수 OFF · ☐자동 ON · 최대 12만 → 같은 0주 문장 · ☐자동도 꺼져 있으면 막지 않는다(C# addBuyLive)', () => {
+    const extra = { extraBuyOrderAmount: 50, buyWatchPrice: P, extraBuyMaxAmount: 12, extraBuyMaxQty: 0 };
+    const { unmount } = render(<LimitChaserForm {...props({ server: echo({ ...extra, extraBuyAuto: true }) })} />);
+    commitAny();
+    expect(sentConfigs()).toHaveLength(0);
+    expect(screen.getByText(`${EXTRA_MAX_TEXT} (12만 → 0주)`)).toBeInTheDocument();
+    unmount();
+    render(<LimitChaserForm {...props({ server: echo({ ...extra, extraBuyAuto: false }) })} />);
     commitAny();
     expect(sentConfigs()).toHaveLength(1);
   });
