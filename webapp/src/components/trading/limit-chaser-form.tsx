@@ -118,6 +118,7 @@ import {
   seedFromUpperLimit,
   seedListSharesDefaults,
   seedFromUserSettings,
+  preBuyWatchFixedOf,
   autoSellButtonsOf,
   autoSellStartBlocked,
   type AutoCheckGate,
@@ -943,7 +944,12 @@ export function LimitChaserForm({
       ③ 사용자가 이 폼에서 확정한 값 칸(`touchedRef` — 인라인 · 시트 · 3택 확정 경로)은 덮지 않는다.
          3택(자동매도 방법 · Phase 27)도 같은 집합에 든다 — 27-07 84 시딩이 「손대지 않은 칸만」 을 같은 집합으로 판정한다.
       ④ **제출 · 로그(`onClientLog`) · 강조를 만들지 않는다** — `setForm` 한 번뿐이고, 값은 첫 등록 cfg 에 실린다.
+      ⑤ 84 선매수 매도잔량 기본값이 > 0 이면(`preBuyWatchFixedOf` · C# `buyWatchFixed` · gh-trade quick-261012-sd1) 선매수
+         매도잔량 칸만 패치에서 뺀다 — 그 칸은 84 시딩(`seedFromUserSettings`)이 채운다. 나머지 4칸은 그대로다.
   */
+  // 최신 84 — 이벤트 핸들러 · 시딩 이펙트가 읽는다(상장주식수 시딩의 매도잔량 생략 판정 · 「줄매수도 같이 켜기」).
+  const userSettingsRef = useRef(userSettings);
+  userSettingsRef.current = userSettings;
   // 폼 키 집합 — 84 시딩 칸에는 행이 없는 칸(후매수 재진입 · gh-trade 261012)도 있어 `LcNumField` 보다 넓게 둔다.
   const touchedRef = useRef(new Set<keyof LimitChaserFormValues>());
   const seededRef = useRef(false);
@@ -960,8 +966,10 @@ export function LimitChaserForm({
     const seed = seedListSharesDefaults(listShares, formRef.current.buyWatchPrice, formRef.current.sellWatchPrice);
     if (seed === null) return; // ② 매수 비교가 0 — 환산할 수 없다 · 가드를 남긴다.
     seededRef.current = true;
+    const watchFixed = preBuyWatchFixedOf(userSettingsRef.current); // ⑤
     const patch: Partial<LimitChaserFormValues> = {};
     for (const [field, value] of Object.entries(seed) as [keyof typeof seed, number][]) {
+      if (watchFixed && field === 'buyWatchAmount') continue; // ⑤ 그 칸은 84 값이 채운다
       if (!touchedRef.current.has(field)) patch[field] = value; // ③
     }
     if (Object.keys(patch).length > 0) setForm((prev) => ({ ...prev, ...patch }));
@@ -974,6 +982,9 @@ export function LimitChaserForm({
       ③ `touchedRef`(값 · 3택 방법)에 든 칸은 덮지 않는다.
       ④ 전송 · 로그(`onClientLog`) · 강조를 만들지 않는다 — `setForm` 한 번뿐이고 값은 첫 등록 cfg 에 실린다(D-17 ④ 동형).
       ★ 같은 값이면 `setForm` 을 부르지 않는다 — 마운트 직후 같은 84 로 도는 첫 실행은 no-op 이다(불필요한 렌더 0).
+      ★ 선매수 매도잔량은 84 `preBuyWatchAmount` > 0 일 때만 키가 있다(gh-trade quick-261012-sd1) — 상장주식수 시딩 뒤에
+        84(50)가 와도 손대지 않은 칸이면 50 으로 바꾼다. 반대로 84 가 50 → 0 으로 바뀌어도 열린 미등록 폼의 매도잔량을
+        상장주식수 값으로 되돌리지 않는다(0 은 키가 없어 재시딩할 값이 없다 · 상장주식수 시딩은 폼당 1회).
   */
   const hadServerRef = useRef(server != null);
   useEffect(() => {
@@ -1245,6 +1256,11 @@ export function LimitChaserForm({
    *   ☐자동이 켜진 줄매수는 열린 그룹이라 마스터를 동반해 끄지 않는다(D-34 개정).
    * - 사람이 **줄매수**를 끄면 누른 순간 화면의 ☐자동이 켜져 있을 때 같은 `lc.set` 에 `extraBuyAuto: false` 를
    *   동반한다(WinForms `HandleArmToggle` addAutoOff 동형 · S7 「사람의 줄매수 OFF 는 자동의 종료」). 실패 되돌림은 훅 ⑪.
+   * - 「줄매수도 같이 켜기」(84 `preBuyAutoAddBuy` · gh-trade quick-261012-sd1 · C# `HandleArmToggle` addBuyAutoOn) — 사람이
+   *   **선매수**를 켤 때 설정이 켜져 있고 누른 순간 화면의 ☐줄매수가 꺼져 있으면 같은 `lc.set` 에 `extraBuyEnabled: true`
+   *   (+ 줄매수 몫 ⑨ `extraBuyBurstRelease: true`)를 동반한다. 줄매수 사전 검증이 실패하면 전송 없이 그 문구를 줄매수 카드에
+   *   세운다(선매수 스위치도 움직이지 않는다 — C# 「한 제출이 실패하면 두 체크가 함께 되돌아간다」 동형). 낙관 표시 · 실패
+   *   되돌림은 훅 ⑪. 끄는 방향 · 에코 · 줄매수 ☐자동(`extraBuyAuto` — 다른 기능)은 건드리지 않는다.
    * ★ 에코 경로(서버 에코 · 재접속 · 다른 단말)는 이 함수를 부르지 않는다 — 에코로 생기는 제출은 D-02 후반
    *   `dropMasterAfterServerFold` 한 곳뿐이다.
    */
@@ -1259,6 +1275,16 @@ export function LimitChaserForm({
         if (failed !== null) {
           setPrecheck({ slot, gate, text: failed });
           return;
+        }
+        // 「줄매수도 같이 켜기」 — 사람의 선매수 켬 · 설정 ON · 누른 순간 화면의 줄매수 OFF 일 때만(C# addBuyAutoOn).
+        const addBuyAutoOn =
+          gate === 'preBuyEnabled' && userSettingsRef.current?.preBuyAutoAddBuy === true && !f.extraBuyEnabled;
+        if (addBuyAutoOn) {
+          const extraFailed = groupPrecheckOf('extraBuyEnabled', pressed, serverRef.current ?? null);
+          if (extraFailed !== null) {
+            setPrecheck({ slot: GROUP_SLOT.extraBuyEnabled, gate: 'extraBuyEnabled', text: extraFailed });
+            return;
+          }
         }
         // 통과했다 = 그 카드에 떠 있던 사유는 이제 사실이 아니다.
         setPrecheck((cur) => (cur !== null && cur.slot === slot ? null : cur));
@@ -1284,10 +1310,15 @@ export function LimitChaserForm({
         if (autoGate !== null) delete autoCheckRef.current[autoGate];
         const outcome = commitField(gate, true, 'toggle', (base, laid) => {
           const companions: Partial<LimitChaserFormValues> = base.buyEnabled ? {} : { buyEnabled: true };
-          if (autoGate === null) return companions;
+          // 「줄매수도 같이 켜기」 줄매수 동반 — 판정 시점 서버 값(WR-03)에서 줄매수가 꺼져 있을 때만 · 버스트 취소는 줄매수 몫(⑨).
+          const addBuy: Partial<LimitChaserFormValues> =
+            addBuyAutoOn && !base.extraBuyEnabled
+              ? { extraBuyEnabled: true, ...(base.extraBuyBurstRelease ? {} : { extraBuyBurstRelease: true }) }
+              : {};
+          if (autoGate === null) return { ...addBuy, ...companions };
           const auto = groupAutoChecksOf(autoGate, base, upperLimitRef.current, laid, serverRef.current ?? null);
           autoCheckRef.current[autoGate] = auto;
-          return { ...auto.companions, ...companions };
+          return { ...auto.companions, ...addBuy, ...companions };
         });
         if (autoGate === null) return;
         // 로그는 성공 에코 뒤 한 줄 — 나가지 못했으면(막힘 · 끊김) 쓰지 않는다(「보냈다」를 로그로 남기지 않는다).

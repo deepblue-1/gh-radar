@@ -4681,3 +4681,206 @@ describe('P31 두 줄 · 시트 · 인라인 (D-05 · D-07 · D-08 · UI-SPEC S1
     expect(sentConfigs()).toHaveLength(0);
   });
 });
+
+/* ───────────── quick-261012-u04 — 84 선매수 기본설정(매도잔량 시딩 · 줄매수도 같이 켜기 · gh-trade 261012) ───────────── */
+
+describe('u04 84 선매수 기본설정 — 매도잔량 시딩 · 「줄매수도 같이 켜기」 동반 (gh-trade quick-261012-sd1 · C# HandleArmToggle addBuyAutoOn)', () => {
+  const us = (over: Partial<RelayUserSettingsMsg> = {}): RelayUserSettingsMsg => ({
+    t: 'user.settings',
+    present: true,
+    preBuyAmount: 4000,
+    addBuyAmount: 4000,
+    postBuyAmount: 4000,
+    postBuyMaxCount: 3,
+    postBuyFloorQty: 0,
+    postBuyReboundPct: 30,
+    sellQtyTrackRatio: 55,
+    autoSellPeriodSec: 3,
+    auctionSellRatioPct: 20,
+    autoSellRatioDefaultPct: 10,
+    autoSellMethodDefault: 3,
+    postBuyFloorAmount: 0,
+    ...over,
+  });
+  /** 줄매수 금액이 있어 줄매수 사전 검증을 통과하는 에코 — 마스터 ON · 선 · 줄 OFF · 버스트 취소 OFF. */
+  const ready = (over: Partial<RelayLimitChaser> = {}) => echo({ extraBuyOrderAmount: 50, ...over });
+  const burst = () => chk('매수주문 버스트 취소');
+  const precheckIn = (slot: string) => group(slot).querySelector('[data-slot="lc-group-precheck"]');
+
+  describe('매도잔량 기본값 시딩', () => {
+    const newForm = (over: Partial<LimitChaserFormProps> = {}) =>
+      props({ server: null, upperLimit: 30_000, listShares: 10_000_000, ...over });
+
+    it('84 preBuyWatchAmount 50 → 선매수 매도잔량 50만 · 체결량 · 줄매수 최소/최대 · 매도 체결은 상장주식수 시딩 그대로 · 전송 0', () => {
+      mockUserSettings = us({ preBuyWatchAmount: 50 });
+      render(<LimitChaserForm {...newForm()} />);
+      expect(rowText('lc-buy-watch-qty')).toBe('50만');
+      expect(rowText('lc-buy-min-trade-qty')).toBe('90,000만');
+      expect(rowText('lc-extra-buy-min-qty')).toBe('90,000만');
+      expect(rowText('lc-extra-buy-max-qty')).toBe('900,000만');
+      expect(rowText('lc-sell-min-trade-qty')).toBe('90,000만');
+      expect(sendMock).not.toHaveBeenCalled();
+    });
+
+    it('84 preBuyWatchAmount 0 · 키 부재 → 매도잔량도 종전 상장주식수 시딩 값', () => {
+      mockUserSettings = us({ preBuyWatchAmount: 0 });
+      const { unmount } = render(<LimitChaserForm {...newForm()} />);
+      expect(rowText('lc-buy-watch-qty')).toBe('90,000만');
+      unmount();
+      mockUserSettings = us();
+      render(<LimitChaserForm {...newForm()} />);
+      expect(rowText('lc-buy-watch-qty')).toBe('90,000만');
+    });
+
+    it('서버 전략 에코가 있으면 에코 값이 이긴다', () => {
+      mockUserSettings = us({ preBuyWatchAmount: 50 });
+      render(<LimitChaserForm {...props({ listShares: 10_000_000 })} />);
+      expect(rowText('lc-buy-watch-qty')).toBe('10,000만');
+    });
+
+    it('상장주식수 시딩 뒤 84(50)가 늦게 오면 매도잔량만 50 · 손댄 칸은 덮지 않는다 · 전송 0', () => {
+      const { rerender, unmount } = render(<LimitChaserForm {...newForm()} />);
+      expect(rowText('lc-buy-watch-qty')).toBe('90,000만');
+      mockUserSettings = us({ preBuyWatchAmount: 50 });
+      rerender(<LimitChaserForm {...newForm()} />);
+      expect(rowText('lc-buy-watch-qty')).toBe('50만');
+      expect(rowText('lc-buy-min-trade-qty')).toBe('90,000만');
+      expect(sendMock).not.toHaveBeenCalled();
+      unmount();
+
+      // 손댄 칸 — 8,000 로컬 확정 뒤 84(50) 도착 → 8,000 그대로.
+      mockUserSettings = undefined;
+      const second = render(<LimitChaserForm {...newForm()} />);
+      editInline('lc-buy-watch-qty', '8000');
+      expect(rowText('lc-buy-watch-qty')).toBe('8,000만');
+      mockUserSettings = us({ preBuyWatchAmount: 50 });
+      second.rerender(<LimitChaserForm {...newForm()} />);
+      expect(rowText('lc-buy-watch-qty')).toBe('8,000만');
+      expect(sendMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('「줄매수도 같이 켜기」', () => {
+    it('설정 ON · 서버 줄매수 OFF → ☐선매수 켬 = lc.set 1건 · 선매수 · 줄매수 · 버스트 취소 true · 줄매수 · 버스트 취소 낙관 ON · ☐자동 불변', () => {
+      mockUserSettings = us({ preBuyAutoAddBuy: true });
+      render(<LimitChaserForm {...props({ server: ready() })} />);
+      click(sw('선매수 켜기'));
+      expect(sentConfigs()).toHaveLength(1);
+      expect(lastConfig()).toMatchObject({
+        preBuyEnabled: true,
+        extraBuyEnabled: true,
+        extraBuyBurstRelease: true,
+        extraBuyAuto: false,
+        buyEnabled: true,
+      });
+      expect(sw('선매수 켜기')).toHaveAttribute('aria-checked', 'true');
+      expect(sw('줄매수 켜기')).toHaveAttribute('aria-checked', 'true');
+      expect(burst()).toHaveAttribute('aria-checked', 'true');
+    });
+
+    it('마스터 OFF 에서도 같은 제출에 마스터 · 기존 매도 · 취소 자동 체크가 함께 실린다', () => {
+      mockUserSettings = us({ preBuyAutoAddBuy: true });
+      render(<LimitChaserForm {...props({ server: ready({ buyEnabled: false }), upperLimit: 150_800 })} />);
+      click(sw('선매수 켜기'));
+      expect(sentConfigs()).toHaveLength(1);
+      expect(lastConfig()).toMatchObject({
+        buyEnabled: true,
+        preBuyEnabled: true,
+        extraBuyEnabled: true,
+        extraBuyBurstRelease: true,
+        sellEnabled: true,
+        cancelTradeEnabled: true,
+      });
+    });
+
+    it('거부(답만 증가) → 선매수 · 줄매수 · 버스트 취소가 서버 값(OFF)으로 되돌아간다', () => {
+      mockUserSettings = us({ preBuyAutoAddBuy: true });
+      const s = ready();
+      const { rerender } = render(<LimitChaserForm {...props({ server: s })} />);
+      click(sw('선매수 켜기'));
+      expect(sw('줄매수 켜기')).toHaveAttribute('aria-checked', 'true');
+      rerender(<LimitChaserForm {...props({ server: s, serverAnswerSeq: 1 })} />);
+      expect(sw('선매수 켜기')).toHaveAttribute('aria-checked', 'false');
+      expect(sw('줄매수 켜기')).toHaveAttribute('aria-checked', 'false');
+      expect(burst()).toHaveAttribute('aria-checked', 'false');
+      expect(sentConfigs()).toHaveLength(1);
+    });
+
+    it('3초 무응답(카드 unacked) → 선매수 · 줄매수 · 버스트 취소가 서버 값(OFF)으로 되돌아간다', () => {
+      mockUserSettings = us({ preBuyAutoAddBuy: true });
+      const s = ready();
+      const { rerender } = render(<LimitChaserForm {...props({ server: s })} />);
+      click(sw('선매수 켜기'));
+      expect(sw('줄매수 켜기')).toHaveAttribute('aria-checked', 'true');
+      rerender(<LimitChaserForm {...props({ server: s, unacked: true })} />);
+      expect(sw('선매수 켜기')).toHaveAttribute('aria-checked', 'false');
+      expect(sw('줄매수 켜기')).toHaveAttribute('aria-checked', 'false');
+      expect(burst()).toHaveAttribute('aria-checked', 'false');
+      expect(sentConfigs()).toHaveLength(1);
+    });
+
+    it('설정 false · 84 키 부재 · 84 미수신 → cfg.extraBuyEnabled false(종전)', () => {
+      for (const setting of [us({ preBuyAutoAddBuy: false }), us(), undefined]) {
+        sendMock.mockClear();
+        mockUserSettings = setting;
+        const { unmount } = render(<LimitChaserForm {...props({ server: ready() })} />);
+        click(sw('선매수 켜기'));
+        expect(sentConfigs()).toHaveLength(1);
+        expect(lastConfig()).toMatchObject({ preBuyEnabled: true, extraBuyEnabled: false, extraBuyBurstRelease: false });
+        unmount();
+      }
+    });
+
+    it('서버 줄매수가 이미 ON → 줄매수 · 버스트 취소 동반 없음(버스트 취소 값 불변)', () => {
+      mockUserSettings = us({ preBuyAutoAddBuy: true });
+      render(<LimitChaserForm {...props({ server: ready({ extraBuyEnabled: true }) })} />);
+      click(sw('선매수 켜기'));
+      expect(sentConfigs()).toHaveLength(1);
+      expect(lastConfig()).toMatchObject({ preBuyEnabled: true, extraBuyEnabled: true, extraBuyBurstRelease: false });
+      expect(burst()).toHaveAttribute('aria-checked', 'false');
+    });
+
+    it('☐선매수 끄기 → cfg.extraBuyEnabled 는 서버 값 그대로(설정 ON 이어도)', () => {
+      mockUserSettings = us({ preBuyAutoAddBuy: true });
+      render(<LimitChaserForm {...props({ server: ready({ preBuyEnabled: true, sellEnabled: true }) })} />);
+      click(sw('선매수 켜기'));
+      expect(sentConfigs()).toHaveLength(1);
+      expect(lastConfig()).toMatchObject({ preBuyEnabled: false, extraBuyEnabled: false, extraBuyBurstRelease: false });
+    });
+
+    it('서버 에코로 선매수가 ON 이 됨(사람 클릭 없음) → 전송 0', () => {
+      vi.useFakeTimers();
+      try {
+        mockUserSettings = us({ preBuyAutoAddBuy: true });
+        const { rerender } = render(<LimitChaserForm {...props({ server: ready() })} />);
+        rerender(<LimitChaserForm {...props({ server: ready({ preBuyEnabled: true }) })} />);
+        act(() => {
+          vi.advanceTimersByTime(10);
+        });
+        expect(sendMock).not.toHaveBeenCalled();
+        expect(sw('줄매수 켜기')).toHaveAttribute('aria-checked', 'false');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('설정 ON · 줄매수 금액 0(줄매수 사전 검증 실패) → 전송 0 · 줄매수 카드에 그 문구 · 선매수 스위치 OFF 유지', () => {
+      mockUserSettings = us({ preBuyAutoAddBuy: true });
+      render(<LimitChaserForm {...props({ server: echo() })} />);
+      click(sw('선매수 켜기'));
+      expect(sentConfigs()).toHaveLength(0);
+      expect(precheckIn('extra-buy')?.textContent).toBe('주문금액을 먼저 입력해 주세요');
+      expect(precheckIn('pre-buy')).toBeNull();
+      expect(sw('선매수 켜기')).toHaveAttribute('aria-checked', 'false');
+      expect(sw('줄매수 켜기')).toHaveAttribute('aria-checked', 'false');
+    });
+
+    it('줄매수 ☐자동(extraBuyAuto)은 건드리지 않는다 — 서버 값 그대로 실린다', () => {
+      mockUserSettings = us({ preBuyAutoAddBuy: true });
+      render(<LimitChaserForm {...props({ server: ready({ extraBuyAuto: true }) })} />);
+      click(sw('선매수 켜기'));
+      expect(sentConfigs()).toHaveLength(1);
+      expect(lastConfig().extraBuyAuto).toBe(true);
+    });
+  });
+});

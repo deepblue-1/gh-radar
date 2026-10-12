@@ -57,6 +57,7 @@ import {
   parseStrategyKey,
   seedListSharesDefaults,
   seedFromUserSettings,
+  preBuyWatchFixedOf,
   groupAutoCheckLogLine,
   groupAutoChecksOf,
   seedFromUpperLimit,
@@ -1756,5 +1757,48 @@ describe('P31 84 후매수 최소 (D-12)', () => {
     const seed = seedFromUserSettings({ ...BASE, postBuyFloorAmount: 1_000_000_000, preBuyAmount: 5000 });
     expect(seed.postBuyFloorAmount).toBe(0);
     expect(seed.buyOrderAmount).toBe(5000);
+  });
+});
+
+describe('u04 84 선매수 매도잔량 기본값 (gh-trade quick-261012-sd1 · C# buyWatchFixed)', () => {
+  const BASE: RelayUserSettingsMsg = {
+    t: 'user.settings',
+    present: true,
+    preBuyAmount: 4000,
+    addBuyAmount: 4000,
+    postBuyAmount: 4000,
+    postBuyMaxCount: 3,
+    postBuyFloorQty: 0,
+    postBuyReboundPct: 30,
+    sellQtyTrackRatio: 55,
+    autoSellPeriodSec: 3,
+    auctionSellRatioPct: 20,
+    autoSellRatioDefaultPct: 10,
+    autoSellMethodDefault: 3,
+    postBuyFloorAmount: 0,
+  };
+
+  it('preBuyWatchAmount 50 → buyWatchAmount 50 · 기존 9칸은 불변', () => {
+    const seed = seedFromUserSettings({ ...BASE, preBuyWatchAmount: 50 });
+    expect(seed.buyWatchAmount).toBe(50);
+    const { buyWatchAmount: _w, ...rest } = seed;
+    expect(rest).toEqual(seedFromUserSettings(BASE));
+  });
+
+  it('0 · 키 부재 · 84 미수신 → buyWatchAmount 키 없음(폴백 값 금지 — 상장주식수 시딩 값을 지우지 않는다)', () => {
+    expect(seedFromUserSettings({ ...BASE, preBuyWatchAmount: 0 })).not.toHaveProperty('buyWatchAmount');
+    expect(seedFromUserSettings(BASE)).not.toHaveProperty('buyWatchAmount');
+    expect(seedFromUserSettings(undefined)).not.toHaveProperty('buyWatchAmount');
+  });
+
+  it('범위 밖(1,000,000,000만) → 키 없음', () => {
+    expect(seedFromUserSettings({ ...BASE, preBuyWatchAmount: 1_000_000_000 })).not.toHaveProperty('buyWatchAmount');
+  });
+
+  it('preBuyWatchFixedOf — 50 → true · 0 · 부재 · undefined → false', () => {
+    expect(preBuyWatchFixedOf({ ...BASE, preBuyWatchAmount: 50 })).toBe(true);
+    expect(preBuyWatchFixedOf({ ...BASE, preBuyWatchAmount: 0 })).toBe(false);
+    expect(preBuyWatchFixedOf(BASE)).toBe(false);
+    expect(preBuyWatchFixedOf(undefined)).toBe(false);
   });
 });

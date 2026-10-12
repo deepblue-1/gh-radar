@@ -503,11 +503,11 @@ describe('⑰ 취소 래치 전이 2종 + skip 집합 (17-11 Task 2 · Phase 24 
     );
   });
 
-  it('⑰-6 ★ 두 표가 31종 닫힌 집합으로 동형이다 — 문구/전이가 한쪽만 늘지 않는다 (Phase 24: −buyFired +그룹 6 +동반 6 +서버 접힘 1 · quick-260929-vzy +자동 2 · quick-260930-fi4 +포기 1 · quick-261011-0yb +줄매수 자동 2)', () => {
-    expect(TRANSITION_ORDER).toHaveLength(31);
-    expect(Object.keys(TRANSITION_TEXT)).toHaveLength(31);
+  it('⑰-6 ★ 두 표가 32종 닫힌 집합으로 동형이다 — 문구/전이가 한쪽만 늘지 않는다 (Phase 24: −buyFired +그룹 6 +동반 6 +서버 접힘 1 · quick-260929-vzy +자동 2 · quick-260930-fi4 +포기 1 · quick-261011-0yb +줄매수 자동 2 · quick-261012-u04 +줄매수도 같이 켜기 1)', () => {
+    expect(TRANSITION_ORDER).toHaveLength(32);
+    expect(Object.keys(TRANSITION_TEXT)).toHaveLength(32);
     // 중복 없음 + 두 표의 원소 집합이 정확히 같다.
-    expect(new Set(TRANSITION_ORDER).size).toBe(31);
+    expect(new Set(TRANSITION_ORDER).size).toBe(32);
     expect([...TRANSITION_ORDER].sort()).toEqual(Object.keys(TRANSITION_TEXT).sort());
   });
 
@@ -640,6 +640,33 @@ describe('Phase 24 ⑨ — 그룹 전이 · 동반 문구 · override 귀속 (24
         sent: sentOf({ buyEnabled: true, preBuyEnabled: false }),
       }),
     ).toBe('매수주문 무장 · 선매수 무장');
+  });
+
+  it('u04 줄매수도 같이 켜기 — 마스터 이미 ON · 선 · 줄 함께 보냄 → 「선매수 무장 · 선매수 체크 — 줄매수도 켬」(「줄매수 무장」 없음)', () => {
+    const next = at({ buyEnabled: true, preBuyEnabled: true, extraBuyEnabled: true });
+    const sent = sentOf({ buyEnabled: true, preBuyEnabled: true, extraBuyEnabled: true });
+    const line = strategyLogLine(ON, next, { sent });
+    expect(line).toBe('선매수 무장 · 선매수 체크 — 줄매수도 켬');
+    expect(line).not.toContain('줄매수 무장');
+    expect(TRANSITION_TEXT.preBuyWithExtraBuyOn).toBe('선매수 체크 — 줄매수도 켬');
+  });
+
+  it('u04 줄매수도 같이 켜기 — 마스터도 같이 켜짐 → 「선매수 체크 — 매수주문도 켬 · 선매수 체크 — 줄매수도 켬」(「줄매수 체크 — 매수주문도 켬」 없음)', () => {
+    const next = at({ buyEnabled: true, preBuyEnabled: true, extraBuyEnabled: true });
+    const sent = sentOf({ buyEnabled: true, preBuyEnabled: true, extraBuyEnabled: true });
+    const line = strategyLogLine(OFF, next, { sent });
+    expect(line).toBe('선매수 체크 — 매수주문도 켬 · 선매수 체크 — 줄매수도 켬');
+    expect(line).not.toContain('줄매수 체크 — 매수주문도 켬');
+  });
+
+  it('u04 줄매수도 같이 켜기 — 보내지 않은 같은 에코(다른 단말)는 종전 문장 · 줄매수를 싣지 않은 제출도 종전', () => {
+    const next = at({ buyEnabled: true, preBuyEnabled: true, extraBuyEnabled: true });
+    expect(strategyLogLine(ON, next, { sent: null })).toBe('선매수 무장 · 줄매수 무장');
+    expect(strategyLogLine(OFF, next)).toBe('매수주문 무장 · 선매수 무장 · 줄매수 무장');
+    // 선매수만 보냈는데 다른 단말이 줄매수를 함께 켠 에코 — 줄매수는 내 제출이 아니다.
+    expect(
+      strategyLogLine(ON, next, { sent: sentOf({ buyEnabled: true, preBuyEnabled: true, extraBuyEnabled: false }) }),
+    ).toBe('선매수 무장 · 줄매수 무장');
   });
 
   it('D-02 전반: 마지막 그룹 OFF + 마스터 OFF 를 함께 보냈고 에코가 둘 다 OFF → 「후매수 해제 — 매수주문도 끔」', () => {

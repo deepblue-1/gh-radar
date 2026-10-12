@@ -388,11 +388,13 @@ export function seedListSharesDefaults(listShares: number, buyWatchPrice: number
 /* ── 사용자 기본설정(84) 시딩 (Phase 27 · 27-07 · D-11) ───────────────────────────────────────── */
 
 /**
- * 84 사용자 설정이 채우는 새 폼 9칸. 매도 주기 · 동시호가 비율은 서버 전용이라 폼 칸이 없다.
- * 후매수 최소 = 84 `postBuyFloorAmount`(만원 · Phase 31 D-12 · C# F:6159) — 봉인된 주 `postBuyFloorQty` 는 폼 키가 아니다.
+ * 84 사용자 설정이 채우는 새 폼 9칸 + 선매수 매도잔량(> 0 일 때만 · quick-261012-u04). 매도 주기 · 동시호가 비율은 서버
+ * 전용이라 폼 칸이 없다. 후매수 최소 = 84 `postBuyFloorAmount`(만원 · Phase 31 D-12 · C# F:6159) — 봉인된 주
+ * `postBuyFloorQty` 는 폼 키가 아니다.
  */
 export type UserSettingsSeed = Pick<
   LimitChaserFormValues,
+  | 'buyWatchAmount'
   | 'buyOrderAmount'
   | 'extraBuyOrderAmount'
   | 'postBuyOrderAmount'
@@ -405,7 +407,7 @@ export type UserSettingsSeed = Pick<
 >;
 
 /** 폼 칸 ← 84 값 — 순서 = WinForms `ResetStrategyOptionsToDefault` 대입 순서가 아니라 화면(매수 → 매도) 순서. */
-const USER_SETTINGS_SEED_MAP: readonly (readonly [keyof UserSettingsSeed, UserSettingsNumericKey])[] = [
+const USER_SETTINGS_SEED_MAP: readonly (readonly [Exclude<keyof UserSettingsSeed, 'buyWatchAmount'>, UserSettingsNumericKey])[] = [
   ['buyOrderAmount', 'preBuyAmount'],
   ['extraBuyOrderAmount', 'addBuyAmount'],
   ['postBuyOrderAmount', 'postBuyAmount'],
@@ -450,6 +452,7 @@ function fitsLcRange(field: keyof UserSettingsSeed, v: number | undefined): v is
  *   | sellQtyTrackRatio    | sellQtyTrackRatio (%)      | numSellQtyTrackRatio     |
  *   | autoSellRatioPct     | autoSellRatioDefaultPct (%)| 자동매도 비율             |
  *   | autoSellMethod       | autoSellMethodDefault      | 자동매도 방법             |
+ *   | buyWatchAmount       | preBuyWatchAmount (만원 · > 0 일 때만) | numBuyWatchQty (gh-trade quick-261012-sd1) |
  *
  * - 84 미수신(`undefined`)이면 빈 패치 — 폼에는 `defaultLimitChaserForm()` 의 D-04 상수가 남는다.
  * - `present=false` 면 84 가 서버 내장 기본값을 실은 것이라 그대로 쓴다(값은 D-04 상수와 같다).
@@ -461,6 +464,9 @@ function fitsLcRange(field: keyof UserSettingsSeed, v: number | undefined): v is
  *   ② 84 가 늦게 오면 열려 있는 미등록 폼을 다시 시딩한다.
  *   ③ 사용자가 이 폼에서 손댄 칸은 덮지 않는다.
  *   ④ 전송 · 로그 · 강조를 만들지 않는다(값만 바뀌고 첫 등록 cfg 에 실린다).
+ * - 선매수 매도잔량(`buyWatchAmount` ← `preBuyWatchAmount`)은 다른 9칸과 다르다 — 84 값이 **> 0 이고 lc 범위 안일 때만** 키를
+ *   넣는다. 0 · 부재 · 범위 밖이면 키가 **없다**(폴백 값 금지): 0 은 「종전대로 상장주식수 × 0.3% 시딩」 이라는 뜻이고, 폴백
+ *   0 을 넣으면 폼의 84 재시딩 이펙트가 상장주식수로 채운 매도잔량을 0 으로 지운다(gh-trade 261012 · C# `buyWatchFixed`).
  */
 export function seedFromUserSettings(us: RelayUserSettingsMsg | undefined): Partial<UserSettingsSeed> {
   if (us === undefined) return {};
@@ -470,7 +476,17 @@ export function seedFromUserSettings(us: RelayUserSettingsMsg | undefined): Part
     const v = us[key];
     seed[field] = fitsLcRange(field, v) ? v : fallback[field];
   }
+  const watch = us.preBuyWatchAmount;
+  if (preBuyWatchFixedOf(us) && fitsLcRange('buyWatchAmount', watch)) seed.buyWatchAmount = watch;
   return seed;
+}
+
+/**
+ * 84 선매수 매도잔량 기본값이 고정값인가(> 0 · 부재 = 0) — C# `buyWatchFixed`(gh-trade quick-261012-sd1 규칙 ④) 동형.
+ * 참이면 상따 폼의 상장주식수 시딩이 선매수 매도잔량 칸만 건너뛴다(그 칸은 84 값이 채운다).
+ */
+export function preBuyWatchFixedOf(us: RelayUserSettingsMsg | undefined): boolean {
+  return (us?.preBuyWatchAmount ?? 0) > 0;
 }
 
 /* ── 그룹 켬 자동 체크 (Phase 24 · 24-07 · 24-17 · D-06 · D-07 · D-08 · D-20 · D-35) ─────────────────── */

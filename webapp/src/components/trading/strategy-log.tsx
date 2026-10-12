@@ -46,6 +46,8 @@
  *     매수주문도 끔」). 보내지 않은 같은 에코(다른 단말)에는 동반 문장을 지어내지 않는다.
  *     D-02 후반(서버 접힘 뒤 폼이 스스로 보낸 마스터 OFF)은 **보낸 사유(`cause: 'serverFold'`)**로
  *     판정해 「서버가 매수 그룹 해제 — …」 한 줄이 「매수주문 무장 해제」를 대신한다.
+ *     「줄매수도 같이 켜기」(quick-261012-u04 · C# ScreenLogLine 원문)도 같은 규율 — 선매수 · 줄매수를 함께 실어 보낸 제출의
+ *     에코에서 줄매수 조각(「줄매수 무장」 · 「줄매수 체크 — 매수주문도 켬」)을 「선매수 체크 — 줄매수도 켬」 이 대신한다.
  *   - **Pitfall 8 — 후매수 발동(단계 → 2) · 재진입(2 → 1) 에코의 override 값**
  *     (`POST_BUY_OVERRIDE_FIELDS`)은 서버 귀속이다 — 「서버 반영 완료」도 「다른 단말」 배너도 아니다.
  *   - **후매수 ☐자동(quick-260929-vzy D-07).** 서버 발화 사유는 54 원문 줄(`[상따] 서버 통지 — 후매수 자동 켬 — …`)이
@@ -100,6 +102,7 @@ export type StrategyTransition =
   | 'preBuyWithMasterOff'
   | 'extraBuyWithMasterOff'
   | 'postBuyWithMasterOff'
+  | 'preBuyWithExtraBuyOn'
   | 'preBuyArmed'
   | 'preBuyDisarmed'
   | 'extraBuyArmed'
@@ -143,6 +146,9 @@ export const TRANSITION_TEXT: Record<StrategyTransition, string> = {
   preBuyWithMasterOff: '선매수 해제 — 매수주문도 끔',
   extraBuyWithMasterOff: '줄매수 해제 — 매수주문도 끔',
   postBuyWithMasterOff: '후매수 해제 — 매수주문도 끔',
+  // 「줄매수도 같이 켜기」(quick-261012-u04 · gh-trade quick-261012-sd1 C# ScreenLogLine 원문) — 선매수와 줄매수를 함께 실어
+  //   보낸 제출의 에코. 줄매수 조각(무장 · 마스터 동반)을 대신한다.
+  preBuyWithExtraBuyOn: '선매수 체크 — 줄매수도 켬',
   // 매수 그룹 게이트 3종(Phase 24 D-13 — 클라 합성은 게이트 전이만).
   preBuyArmed: '선매수 무장',
   preBuyDisarmed: '선매수 무장 해제',
@@ -193,6 +199,7 @@ export const TRANSITION_ORDER: readonly StrategyTransition[] = [
   'postBuyWithMasterOff',
   'preBuyArmed',
   'preBuyDisarmed',
+  'preBuyWithExtraBuyOn',
   'extraBuyArmed',
   'extraBuyDisarmed',
   'extraBuyAbandoned',
@@ -471,10 +478,21 @@ export function strategyLogLine(
       보낸 cfg 이지 에코의 모양이 아니다 — 다른 단말이 같은 모양을 보내도 그건 내 동반 제출이 아니다.
     */
     let masterTold = false;
+    // 「줄매수도 같이 켜기」 — 이 에코에서 선매수 · 줄매수가 함께 켜졌고 둘 다 내가 실어 보냈다(보낸 cfg 로만 판정).
+    const preBuyWithExtraBuy =
+      !prev.preBuyEnabled &&
+      next.preBuyEnabled &&
+      !prev.extraBuyEnabled &&
+      next.extraBuyEnabled &&
+      sent?.preBuyEnabled === true &&
+      sent.extraBuyEnabled === true;
     for (const g of BUY_GROUPS) {
       const on = !prev[g.gate] && next[g.gate];
       const off = prev[g.gate] && !next[g.gate];
-      if (on && masterOn && sent?.buyEnabled === true && sent[g.gate] === true) {
+      if (g.gate === 'extraBuyEnabled' && preBuyWithExtraBuy) {
+        // 마스터 동반 분기보다 먼저 — 줄매수 조각(무장 · 마스터 동반)을 대신한다. 마스터는 선매수 그룹이 말한다.
+        hit.add('preBuyWithExtraBuyOn');
+      } else if (on && masterOn && sent?.buyEnabled === true && sent[g.gate] === true) {
         hit.add(g.withMasterOn);
         masterTold = true;
       } else if (off && masterOff && sent?.buyEnabled === false && sent[g.gate] === false) {
