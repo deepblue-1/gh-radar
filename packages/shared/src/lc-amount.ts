@@ -173,6 +173,20 @@ export function amountEchoMatches(
   return server[pair.amount] === 0 && !echoKnowsAmounts(server);
 }
 
+/**
+ * 금액 확정의 모호한 에코 — 주는 보낸 주와 같고 금액만 0(금액을 아는 서버 · 보낸 금액 ≠ 0). 답보다 먼저 온 옛 푸시일 수도,
+ * 서버가 금액을 0 으로 세운 것일 수도 있다. `amountEchoMatches` 는 거짓이지만 같은 키 푸시도 답 신호를 올리므로(카드
+ * `acceptAnswer`) 이 모양에서 답 신호만으로 거부로 닫으면 같은 주로 내림되는 미세 조정이 거짓 거부가 된다(R3-WR-01).
+ * 훅은 이 모양이면 거부 대신 에코 유예를 건다.
+ */
+export function amountEchoIsAmbiguous(
+  server: RelayLimitChaser,
+  pair: LcAmountPair,
+  sent: { amount: number; qty: number },
+): boolean {
+  return server[pair.qty] === sent.qty && server[pair.amount] === 0 && sent.amount !== 0 && echoKnowsAmounts(server);
+}
+
 // ── 주문로그 ⑦ 서식(D-19 · gh-trade StrategyEventFormatter.cs 595~760 이식) ─────────────────────────────
 // 폼 두 줄 행의 「1,000만」(천단위 구분 · 억 없음 · D-07)과 다른 함수다. 폼에 쓰지 않는다.
 

@@ -21,6 +21,8 @@
  *     올랐고 ∧ 이 렌더에 서버 값 변화가 없다」면 판정을 `LC_REJECT_ECHO_GRACE_MS` 미룬다. 유예 중 에코가 오면 에코가
  *     정본이다(주 필드 일치 = 성공 · 불일치 = 그 렌더에서 즉시 거부). 에코가 없으면(전면 거부 — 에코가 없다) 유예
  *     끝에 종전대로 거부다. 거부 신호 없이 답 신호만 오른 경우(미등록 키 철거 에코 등)는 즉시 판정한다.
+ *     단 금액 확정의 모호한 에코(주 일치 · 금액 0 · 금액을 아는 서버)는 답보다 먼저 온 옛 푸시일 수 있어 같은 유예를
+ *     건다(31-REVIEW-R3 R3-WR-01 · `amountEchoIsAmbiguous`).
  *   `serverAnswerSeq` 가 먼저 오르고 서버 값이 뒤따르는 순서(Pitfall 4)는 「늦은 에코」 전이가
  *   받는다 — 기록된 실패의 값이 서버에 서면 그 실패를 성공으로 바꾼다.
  *
@@ -143,7 +145,7 @@
 
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { RelayLcSetMsg, RelayLimitChaser, RelayLimitChaserInput } from '@gh-radar/shared';
-import { amountEchoMatches, echoAmountOf, lcAmountPairOf } from '@gh-radar/shared';
+import { amountEchoIsAmbiguous, amountEchoMatches, echoAmountOf, lcAmountPairOf } from '@gh-radar/shared';
 
 import { lcRangeIssue } from '@/components/trading/lc/lc-fields';
 import type { StrategySubmitCause } from '@/components/trading/strategy-log';
@@ -430,6 +432,17 @@ function echoConfirms(server: RelayLimitChaser, field: LcFieldKey, value: unknow
     return amountEchoMatches(server, pair, { amount: value, qty: sentQty });
   }
   return serverHolds(server, field, value);
+}
+
+/**
+ * 보낸 금액 확정의 에코가 모호한가(31-REVIEW-R3 R3-WR-01) — 주는 맞고 금액만 0 인 금액을 아는 서버 에코
+ * (`amountEchoIsAmbiguous`). 답보다 먼저 온 옛 푸시도 같은 키라 답 신호를 올리므로, 이 모양은 즉시 거부하지 않고
+ * 거부 통지와 같은 에코 유예를 건다. 금액 필드가 아니거나 보낸 주를 모르면 거짓.
+ */
+function echoAmbiguous(server: RelayLimitChaser, field: LcFieldKey, value: unknown, sentQty: number | undefined): boolean {
+  const pair = lcAmountPairOf(field);
+  if (pair === undefined || pair.amount !== field || sentQty === undefined || typeof value !== 'number') return false;
+  return amountEchoIsAmbiguous(server, pair, { amount: value, qty: sentQty });
 }
 
 /** 서버가 이미 이 확정 그대로인가 — 주 필드와 모든 동반 필드가 같을 때만(⑪). */
@@ -913,8 +926,15 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
         else if (queueRef.current.length > 0) drainNow = true;
       } else if (unacked) {
         failInflight(inf, 'timeout');
-      } else if (answered && rejectSeq !== inf.rejectSeqAtSend && !serverChanged) {
+      } else if (
+        answered &&
+        (rejectSeq !== inf.rejectSeqAtSend
+          ? !serverChanged
+          : server != null && echoAmbiguous(server, inf.field, inf.value, inf.sentQty))
+      ) {
         // ③ 거부 통지 답인데 이 렌더에 에코가 없다 — 부분 거부면 같은 제출의 에코가 곧 온다(R3-WR-01).
+        //   또는 거부 통지 없이 답 신호만 올랐는데 금액 확정의 에코가 모호하다(주 일치 · 금액 0 · 금액을 아는 서버) —
+        //   답보다 먼저 온 옛 푸시일 수 있어 진짜 에코를 기다린다(31-REVIEW-R3 R3-WR-01).
         //   유예 중 에코가 오면 위 `matches` 또는 아래 즉시 거부가 판정한다. 이미 걸려 있으면 마감을 늘리지 않는다.
         //   ★ 타이머는 실패 표시만 한다 — 아무것도 보내지 않는다(T-16-10).
         if (rejectGraceTimer.current == null) {

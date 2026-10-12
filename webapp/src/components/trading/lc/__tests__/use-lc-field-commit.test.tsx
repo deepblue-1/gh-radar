@@ -2087,6 +2087,78 @@ describe('P31 금액 필드 짝 판정 — 에코 주 = 보낸 주 ∧ (에코 �
     expect(t.hook.result.current.inflightField).toBeNull();
     expect(t.hook.result.current.sentSuccessSeq).toBe(1);
   });
+
+  describe('31-REVIEW-R3 R3-WR-01 — 옛 푸시도 답 신호를 올린다(카드 acceptAnswer) · 모호한 에코는 거부 대신 에코 유예', () => {
+    const old = () => echo({ sellWatchPrice: 12_870, sellWatchQty: 777, sellWatchAmount: 0, buyWatchAmount: 300 });
+    function commitFineTune(): ReturnType<typeof setup> {
+      const t = setup({ server: old() });
+      act(() => {
+        t.hook.result.current.commit('sellWatchAmount', 1001, 'value');
+      });
+      expect(t.send).toHaveBeenCalledTimes(1);
+      expect(t.cfgs()[0]!.sellWatchQty).toBe(777);
+      return t;
+    }
+
+    it('옛 푸시 → 답 신호 = 실패 0 · in-flight 유지 → 진짜 에코 = 성공', () => {
+      const t = commitFineTune();
+      t.update({ server: old() });
+      t.update({ serverAnswerSeq: 1 });
+      expect(t.hook.result.current.failures).toEqual({});
+      expect(t.hook.result.current.inflightField).toBe('sellWatchAmount');
+      t.update({ server: { ...old(), sellWatchAmount: 1001 } });
+      expect(t.hook.result.current.inflightField).toBeNull();
+      expect(t.hook.result.current.failures).toEqual({});
+      expect(t.hook.result.current.sentSuccessSeq).toBe(1);
+    });
+
+    it('유예 중 대기 확정은 버려지지 않는다 — 진짜 에코 뒤 답 신호에 대기 건 전송 · 실패 0', () => {
+      const t = commitFineTune();
+      let queued: string | undefined;
+      act(() => {
+        queued = t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
+      });
+      expect(queued).toBe('queued');
+      t.update({ server: old() });
+      t.update({ serverAnswerSeq: 1 });
+      t.update({ server: { ...old(), sellWatchAmount: 1001 } });
+      expect(t.send).toHaveBeenCalledTimes(1);
+      t.update({ serverAnswerSeq: 2 });
+      expect(t.send).toHaveBeenCalledTimes(2);
+      expect(t.cfgs()[1]!.sweepMinTickCount).toBe(5);
+      expect(t.hook.result.current.failures).toEqual({});
+    });
+
+    it('진짜 에코가 끝내 없으면 유예 끝에 rejected(보낸 주 777) · 재전송 0', () => {
+      // 경계 1ms 를 재므로 실시간이 가짜 시계를 밀지 않게 다시 설치한다.
+      vi.useFakeTimers({ shouldAdvanceTime: false });
+      const t = commitFineTune();
+      t.update({ server: old() });
+      t.update({ serverAnswerSeq: 1 });
+      act(() => {
+        vi.advanceTimersByTime(LC_REJECT_ECHO_GRACE_MS - 1);
+      });
+      expect(t.hook.result.current.failures).toEqual({});
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(t.hook.result.current.failures.sellWatchAmount).toEqual({
+        reason: 'rejected',
+        text: LC_COMMIT_TEXT.failed,
+        value: 1001,
+        sentQty: 777,
+      });
+      expect(t.hook.result.current.inflightField).toBeNull();
+      expect(t.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('거부 통지와 함께 온 모호한 에코는 유예 없이 즉시 rejected', () => {
+      const t = commitFineTune();
+      t.update({ server: old(), serverAnswerSeq: 1, serverRejectSeq: 1 });
+      expect(t.hook.result.current.failures.sellWatchAmount?.reason).toBe('rejected');
+      expect(t.hook.result.current.inflightField).toBeNull();
+    });
+  });
 });
 
 describe('P31 수량 8칸 짝 판정 — 선매수 매도잔량 · 취소 매수잔량도 구 서버 에코(금액 0 · 주 일치) = 성공 (31-04 · Pitfall 1)', () => {
