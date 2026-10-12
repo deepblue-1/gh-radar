@@ -8,8 +8,8 @@ import type { RelayServerMessageEntry } from '@/lib/use-relay-socket';
 /**
  * Phase 27 (27-06) — `/me` 「상따 기본설정」 섹션 (D-10 · D-12 · D-13 · 인박스 Q1/Q2 · 목업 변형 C).
  *
- * 잠그는 것: 84 3상태(미수신 · present true · present false)의 칩 · 안내 원문 · 4묶음 10행 순서와 값 표기 ·
- * 미수신 흐림/비활성 · present=false 자동 42 없음.
+ * 잠그는 것: 84 3상태(미수신 · present true · present false)의 칩 · 안내 원문 · 5묶음 12행 순서와 값 표기 ·
+ * 미수신 흐림/비활성 · present=false 자동 42 없음 · 「선매수」 카드(quick-261012-u04).
  */
 
 let mockRelay: RelayContextValue;
@@ -21,7 +21,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
 let mockEditMode: 'inline' | 'sheet' = 'inline';
 vi.mock('@/lib/use-edit-mode', () => ({ useEditMode: () => mockEditMode }));
 
-import { LimitChaserDefaultsSection, userSettingsValuesIssue } from '../limit-chaser-defaults';
+import { LimitChaserDefaultsSection, USER_SETTINGS_SAVE_TEXT, userSettingsValuesIssue } from '../limit-chaser-defaults';
 
 /**
  * 서버 내장 기본값(fbs 주석 · 목업 `BUILTIN`) — Phase 31 12값. `postBuyFloorQty` 는 봉인(84 값을 읽지 않는다 ·
@@ -104,13 +104,13 @@ describe('Phase 27 상따 기본설정 표시', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it('묶음 4개 · 10행 순서 · 값 표기(만원 · % · 초 · 방법)', () => {
+  it('묶음 5개 · 12행 순서 · 값 표기(만원 · % · 초 · 방법 · 체크)', () => {
     mockRelay = relay(settings(true));
     render(<LimitChaserDefaultsSection />);
     const groups = Array.from(section().querySelectorAll('[data-slot="me-lc-defaults-group"]')).map(
       (g) => g.textContent,
     );
-    expect(groups).toEqual(['매수 금액', '후매수', '매도', '자동매도']);
+    expect(groups).toEqual(['매수 금액', '선매수', '후매수', '매도', '자동매도']);
     const labels = Array.from(section().querySelectorAll('[data-slot="me-lc-defaults-row"]')).map(
       (r) => r.getAttribute('data-label'),
     );
@@ -118,6 +118,8 @@ describe('Phase 27 상따 기본설정 표시', () => {
       '선매수 금액',
       '줄매수 금액',
       '후매수 금액',
+      '매도잔량',
+      '줄매수도 같이 켜기',
       '후매수 최소',
       '후매수 반등',
       '매도 잔량추적',
@@ -129,6 +131,7 @@ describe('Phase 27 상따 기본설정 표시', () => {
     expect(rowValue('pre-buy-amount')).toBe('4,000만원');
     expect(rowValue('add-buy-amount')).toBe('4,000만원');
     expect(rowValue('post-buy-amount')).toBe('4,000만원');
+    expect(rowValue('pre-buy-watch-amount')).toBe('0만원');
     expect(rowValue('post-buy-floor-amount')).toBe('0만원');
     expect(rowValue('post-buy-rebound-pct')).toBe('30%');
     expect(rowValue('sell-qty-track-ratio')).toBe('55%');
@@ -444,18 +447,19 @@ describe('261006-pey 설정 탭 S1 묶음 카드 (D-2 · sketch 013 settings.htm
   const cards = () =>
     Array.from(section().querySelectorAll('[data-slot="me-lc-defaults-group-card"]')) as HTMLElement[];
 
-  it('S1-1 — 묶음 카드 4장 · role=group 이름 순서 · CARD 면(radius 16 · --card) · 카드별 행 3·2·1·4', () => {
+  it('S1-1 — 묶음 카드 5장 · role=group 이름 순서 · CARD 면(radius 16 · --card) · 카드별 행 3·2·2·1·4', () => {
     mockRelay = relay(settings(true));
     render(<LimitChaserDefaultsSection />);
     const cs = cards();
-    expect(cs).toHaveLength(4);
-    expect(cs.map((c) => c.getAttribute('role'))).toEqual(['group', 'group', 'group', 'group']);
-    expect(cs.map((c) => c.getAttribute('aria-label'))).toEqual(['매수 금액', '후매수', '매도', '자동매도']);
+    expect(cs).toHaveLength(5);
+    expect(cs.map((c) => c.getAttribute('role'))).toEqual(['group', 'group', 'group', 'group', 'group']);
+    expect(cs.map((c) => c.getAttribute('aria-label'))).toEqual(['매수 금액', '선매수', '후매수', '매도', '자동매도']);
     for (const c of cs) {
       expect(c.className).toContain('rounded-[16px]');
       expect(c.className).toContain('bg-[var(--card)]');
     }
-    expect(cs.map((c) => c.querySelectorAll('[data-slot="me-lc-defaults-row"]').length)).toEqual([3, 2, 1, 4]);
+    expect(cs.map((c) => c.querySelectorAll('[data-slot="me-lc-defaults-row"]').length)).toEqual([3, 2, 2, 1, 4]);
+    expect(section().querySelectorAll('[data-slot="me-lc-defaults-row"]')).toHaveLength(12);
   });
 
   it('S1-2 — 카드마다 행 목록에 @container/lc 하나 · 섹션 루트는 @container/me 이고 카드 면이 아니다', () => {
@@ -482,6 +486,23 @@ describe('261006-pey 설정 탭 S1 묶음 카드 (D-2 · sketch 013 settings.htm
     expect(rowsEl()).toHaveAttribute('data-dim', 'true');
   });
 
+  it('S1-3b u04 B′ 열 고정 — 열 래퍼 2개(왼쪽 매수 금액 · 선매수 · 후매수 / 오른쪽 매도 · 자동매도) · 1열 contents · ≥700 grid', () => {
+    mockRelay = relay(settings(true));
+    render(<LimitChaserDefaultsSection />);
+    const cols = Array.from(rowsEl().children) as HTMLElement[];
+    expect(cols).toHaveLength(2);
+    for (const col of cols) {
+      expect(col).toHaveAttribute('data-slot', 'me-lc-defaults-column');
+      const cls = col.className.split(/\s+/);
+      expect(cls).toContain('contents');
+      expect(cls).toContain('@min-[700px]/me:grid');
+    }
+    const namesOf = (col: HTMLElement) =>
+      Array.from(col.querySelectorAll('[data-slot="me-lc-defaults-group-card"]')).map((c) => c.getAttribute('aria-label'));
+    expect(namesOf(cols[0]!)).toEqual(['매수 금액', '선매수', '후매수']);
+    expect(namesOf(cols[1]!)).toEqual(['매도', '자동매도']);
+  });
+
   it('S1-4 — 제목 · 칩 · 안내는 격자 위에 한 번씩만', () => {
     mockRelay = relay(settings(true));
     render(<LimitChaserDefaultsSection />);
@@ -503,7 +524,7 @@ describe('P31 후매수 최소 (D-13 · UI-SPEC S5)', () => {
   const rowButton = (field: string) =>
     section().querySelector(`button[data-lc-field="me-lc-${field}"]`) as HTMLButtonElement;
 
-  it('84 최소 84 → 후매수 묶음 「최소 · 반등」 · 「84만원」 · 접근성 이름 「후매수 최소 84만원」 · 하한잔량 글자 0 · 10행', () => {
+  it('84 최소 84 → 후매수 묶음 「최소 · 반등」 · 「84만원」 · 접근성 이름 「후매수 최소 84만원」 · 하한잔량 글자 0 · 12행', () => {
     mockRelay = relay(settings(true, { postBuyFloorAmount: 84 }));
     render(<LimitChaserDefaultsSection />);
     const card = within(section()).getByRole('group', { name: '후매수' });
@@ -514,7 +535,7 @@ describe('P31 후매수 최소 (D-13 · UI-SPEC S5)', () => {
     expect(rowValue('post-buy-floor-amount')).toBe('84만원');
     expect(rowButton('post-buy-floor-amount')).toHaveAccessibleName('후매수 최소 84만원');
     expect(section().textContent).not.toContain('하한잔량');
-    expect(section().querySelectorAll('[data-slot="me-lc-defaults-row"]')).toHaveLength(10);
+    expect(section().querySelectorAll('[data-slot="me-lc-defaults-row"]')).toHaveLength(12);
   });
 
   it('84 최소 0 → 「0만원」(의미어 없음)', () => {
@@ -584,5 +605,144 @@ describe('P31 후매수 최소 (D-13 · UI-SPEC S5)', () => {
       '0~999,999,999만원 사이여야 해요',
     );
     expect(userSettingsValuesIssue({ ...ok, postBuyFloorAmount: 999_999_999 }, 'postBuyFloorAmount')).toBeNull();
+  });
+});
+
+/* ───────────────────────── quick-261012-u04 — 「선매수」 카드(매도잔량 · 줄매수도 같이 켜기) ───────────────────────── */
+
+describe('u04 「선매수」 카드 (gh-trade 261012 · 목업 B′)', () => {
+  const checkbox = () => within(section()).getByRole('checkbox', { name: '선매수 줄매수도 같이 켜기' });
+
+  it('84 50 · true → 「매도잔량」 「50만원」 · 체크 행 role=checkbox · aria-checked true', () => {
+    mockRelay = relay(settings(true, { preBuyWatchAmount: 50, preBuyAutoAddBuy: true }));
+    render(<LimitChaserDefaultsSection />);
+    const card = within(section()).getByRole('group', { name: '선매수' });
+    const labels = Array.from(card.querySelectorAll('[data-slot="me-lc-defaults-row"]')).map((r) =>
+      r.getAttribute('data-label'),
+    );
+    expect(labels).toEqual(['매도잔량', '줄매수도 같이 켜기']);
+    expect(rowValue('pre-buy-watch-amount')).toBe('50만원');
+    expect(checkbox()).toHaveAttribute('aria-checked', 'true');
+    expect(checkbox()).toBeEnabled();
+  });
+
+  it('84 에 두 키가 없으면(구 서버) 「0만원」 · 미체크 · 편집 가능(불러오는 중 아님)', () => {
+    mockRelay = relay(settings(true));
+    render(<LimitChaserDefaultsSection />);
+    expect(chip()).toHaveTextContent('서버 저장값');
+    expect(rowValue('pre-buy-watch-amount')).toBe('0만원');
+    expect(checkbox()).toHaveAttribute('aria-checked', 'false');
+    expect(checkbox()).toBeEnabled();
+    expect(section().querySelector('button[data-lc-field="me-lc-pre-buy-watch-amount"]')).toBeEnabled();
+  });
+
+  it('84 미수신 — 체크 버튼 disabled · 행 흐림', () => {
+    mockRelay = relay(undefined);
+    render(<LimitChaserDefaultsSection />);
+    expect(checkbox()).toBeDisabled();
+    expect(section().querySelector('[data-slot="me-lc-defaults-rows"]')).toHaveAttribute('data-dim', 'true');
+    fireEvent.click(checkbox());
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  describe('저장', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('매도잔량 인라인 300 확정 → send 1 · s = 84 14값 + preBuyWatchAmount 300', () => {
+      const base = settings(true, { preBuyWatchAmount: 50, preBuyAutoAddBuy: true });
+      mockRelay = relay(base);
+      render(<LimitChaserDefaultsSection />);
+      inlineCommit('pre-buy-watch-amount', '300');
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(sentPayloads()[0]).toEqual({ t: 'user.settings.set', s: { ...VALUES_OF(base), preBuyWatchAmount: 300 } });
+    });
+
+    it('매도잔량 범위 — 「0~999,999,999만원 사이여야 해요」(shared 범위 한 벌) · 시트 설명 줄 · 84 캐시가 범위 밖이면 보내지 않는다', () => {
+      const ok = VALUES_OF(settings(true));
+      expect(userSettingsValuesIssue({ ...ok, preBuyWatchAmount: 1_000_000_000 }, 'preBuyWatchAmount')).toBe(
+        '0~999,999,999만원 사이여야 해요',
+      );
+      expect(userSettingsValuesIssue({ ...ok, preBuyWatchAmount: 999_999_999 }, 'preBuyWatchAmount')).toBeNull();
+      // bool 칸은 범위 검사 대상이 아니다.
+      expect(userSettingsValuesIssue({ ...ok, preBuyAutoAddBuy: true }, 'preBuyAutoAddBuy')).toBeNull();
+
+      // 84 캐시의 매도잔량이 범위 밖 — 체크 토글도 42 를 보내지 않고 그 행을 실패로 둔다(IN-02 · 소켓 close 4400 차단).
+      mockRelay = relay(settings(true, { preBuyWatchAmount: 1_000_000_000 }));
+      render(<LimitChaserDefaultsSection />);
+      fireEvent.click(checkbox());
+      expect(send).not.toHaveBeenCalled();
+      expect(rowWrap('pre-buy-auto-add-buy')).toHaveAttribute('data-failed', 'true');
+    });
+
+    it('체크 클릭(84 false) → send 1 · s = 84 14값 + preBuyAutoAddBuy true · 84 전엔 aria-checked false(낙관 없음) · aria-busy · 84(true) → 체크 · 플래시', () => {
+      const base = settings(true);
+      mockRelay = relay(base);
+      const view = render(<LimitChaserDefaultsSection />);
+      fireEvent.click(checkbox());
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(sentPayloads()[0]).toEqual({ t: 'user.settings.set', s: { ...VALUES_OF(base), preBuyAutoAddBuy: true } });
+      expect(checkbox()).toHaveAttribute('aria-checked', 'false');
+      expect(checkbox()).toHaveAttribute('aria-busy', 'true');
+      expect(checkbox()).toBeDisabled();
+
+      mockRelay = relay(settings(true, { preBuyAutoAddBuy: true }));
+      view.rerender(<LimitChaserDefaultsSection />);
+      expect(checkbox()).toHaveAttribute('aria-checked', 'true');
+      expect(checkbox()).not.toHaveAttribute('aria-busy');
+      expect(rowWrap('pre-buy-auto-add-buy')).toHaveAttribute('data-flash', 'ok');
+      expect(send).toHaveBeenCalledTimes(1);
+    });
+
+    it('체크 켬 상태(84 true)에서 클릭 → s.preBuyAutoAddBuy false(그 bool 만 뒤집는다)', () => {
+      const base = settings(true, { preBuyWatchAmount: 50, preBuyAutoAddBuy: true });
+      mockRelay = relay(base);
+      render(<LimitChaserDefaultsSection />);
+      fireEvent.click(checkbox());
+      expect(sentPayloads()[0]).toEqual({ t: 'user.settings.set', s: { ...VALUES_OF(base), preBuyAutoAddBuy: false } });
+    });
+
+    it('체크 3초 무응답 → 그 행 실패 말풍선 「반영되지 않았어요」 · 재전송 0', () => {
+      mockRelay = relay(settings(true));
+      render(<LimitChaserDefaultsSection />);
+      fireEvent.click(checkbox());
+      act(() => {
+        vi.advanceTimersByTime(3_000);
+      });
+      expect(rowWrap('pre-buy-auto-add-buy')).toHaveAttribute('data-failed', 'true');
+      expect(document.querySelector('[data-slot="lc-failure-bubble"]')).toHaveTextContent(USER_SETTINGS_SAVE_TEXT.timeout);
+      expect(checkbox()).toHaveAttribute('aria-checked', 'false');
+      expect(send).toHaveBeenCalledTimes(1);
+    });
+
+    it('체크 비행 중 54 SetUserSettings 거부 → 섹션 아래 원문 줄 · 체크는 84 그대로', () => {
+      mockRelay = relay(settings(true));
+      const view = render(<LimitChaserDefaultsSection />);
+      fireEvent.click(checkbox());
+      const text = '선매수 매도잔량 기본값은 0~999999999만원이어야 합니다';
+      mockRelay = { ...relay(settings(true)), messages: [msg(text)] };
+      view.rerender(<LimitChaserDefaultsSection />);
+      expect(rejectLine()).toHaveTextContent(text);
+      expect(checkbox()).toHaveAttribute('aria-checked', 'false');
+      expect(rowWrap('pre-buy-auto-add-buy')).toHaveAttribute('data-failed', 'true');
+    });
+
+    it('비행 중 체크 확정은 대기열 — 앞 건 84 뒤 새 캐시로 조립(앞 칸을 되돌리지 않는다)', () => {
+      mockRelay = relay(settings(true));
+      const view = render(<LimitChaserDefaultsSection />);
+      inlineCommit('pre-buy-watch-amount', '50');
+      fireEvent.click(checkbox());
+      expect(send).toHaveBeenCalledTimes(1);
+      const after = settings(true, { preBuyWatchAmount: 50, preBuyAutoAddBuy: false });
+      mockRelay = relay(after);
+      view.rerender(<LimitChaserDefaultsSection />);
+      expect(send).toHaveBeenCalledTimes(2);
+      expect(sentPayloads()[1]).toEqual({ t: 'user.settings.set', s: { ...VALUES_OF(after), preBuyAutoAddBuy: true } });
+      expect(sentPayloads()[1]!.s.preBuyWatchAmount).toBe(50);
+    });
   });
 });

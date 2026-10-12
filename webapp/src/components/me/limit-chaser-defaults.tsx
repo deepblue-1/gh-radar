@@ -10,20 +10,25 @@
  * ② 값의 원천은 84 캐시(`useRelayContext().userSettings`) 하나다 — 3상태(77 `queuedWindow` 규율):
  *    - `undefined` = 84 를 아직 못 받았다 → 「불러오는 중」 · 행 흐림 · 편집 불가. 기본값을 지어내지 않는다.
  *      84 에 `postBuyFloorAmount` 키가 없으면(구 relay · Phase 31 Pitfall 10) 이것과 같다(`usableUserSettingsOf`) —
- *      42 는 12값 전체 교체라 모르는 금액을 0 으로 지어 보내면 C# 「최소 [ ]만」 원값이 지워진다. 새 문구 없음.
+ *      42 는 14값 전체 교체라 모르는 금액을 0 으로 지어 보내면 C# 「최소 [ ]만」 원값이 지워진다. 새 문구 없음.
+ *      선매수 2필드(`preBuyWatchAmount` · `preBuyAutoAddBuy`) 부재는 **다르다** — 0 · false 로 읽는다(gh-trade 261012
+ *      「84 에 없으면 0·false」 · 42 부재는 서버가 저장값을 유지하므로 지어낸 값이 원값을 지우는 함정이 없다).
  *    - `present: true`  = 서버 저장값 → 「서버 저장값」(ok).
  *    - `present: false` = 저장값 없음 → 「서버 저장값 없음 · 내장 기본값」(warn). 84 가 실은 내장 기본값을 그대로
  *      보이고, **42 를 자동으로 보내지 않는다**(인박스 Q2 — 이전 없음). 사용자가 행을 확정할 때만 42.
  *
- * ③ 행 문법은 상따 카드와 같다 — 「라벨 ─ 값 ›」 44px `SettingRow` · 방법 기본값은 27-04 `ChoiceRow`.
+ * ③ 행 문법은 상따 카드와 같다 — 「라벨 ─ 값 ›」 44px `SettingRow` · 방법 기본값은 27-04 `ChoiceRow` ·
+ *    「○ 줄매수도 같이 켜기」 는 상따 카드의 `CheckValueRow` 를 값 없이 쓴다(체크 버튼이 행을 채운다 · quick-261012-u04).
  *    새 입력 컴포넌트를 만들지 않는다. 카드 행의 폭 규칙(쉐브런 · 좌우 패딩)이 `@container/lc` 를 재므로 **묶음 카드마다**
  *    행 목록에 같은 컨테이너 선언을 단다(`LC_CONTAINER_CLASS` — 문자열 재기재 금지).
  *
  * ④ 문구는 목업 원문 그대로다(D-13) — 칩 3 · 안내 3 은 `USER_SETTINGS_STATUS_TEXT` 한 곳.
  *
  * ⑤ 저장 = 행 확정마다 즉시 42(D-12 변형 C · 저장 버튼 없음 · 낙관 반영 없음) — `useUserSettingsSave`.
- *    - 조립 = **84 캐시 12값 + 바뀐 1칸**(화면 로컬 값 금지 · T-20-03 동형 — 다른 탭이 바꾼 칸을 덮지 않는다).
- *      봉인 `postBuyFloorQty` 는 84 값을 읽지 않고 늘 0 을 싣는다(Phase 32 D-08 · D-13).
+ *    - 조립 = **84 캐시 14값 + 바뀐 1칸**(화면 로컬 값 금지 · T-20-03 동형 — 다른 탭이 바꾼 칸을 덮지 않는다).
+ *      봉인 `postBuyFloorQty` 는 84 값을 읽지 않고 늘 0 을 싣는다(Phase 32 D-08 · D-13). 선매수 2필드는 84 부재면
+ *      0 · false 로 채워 **늘 싣는다**(gh-trade 261012). bool 칸(「줄매수도 같이 켜기」)도 같은 저장 기계를 탄다 —
+ *      토글 = 그 bool 만 뒤집은 42 1건 · 84 가 실어야 체크가 바뀐다(낙관 반영 없음).
  *    - 한 번에 1건 비행. 비행 중 다른 행 확정은 행당 1건 대기열(같은 행 재확정은 값만 교체)에 서고, 앞 건의 84 를
  *      받은 **뒤 새 캐시로 다시 조립**해 보낸다(RESEARCH Pitfall 8 — 낡은 캐시로 앞 칸을 되돌리지 않는다).
  *    - 성공 = 보낸 칸 값이 실린 84 → 그 행 초록 플래시 ~0.7초. 다른 탭의 42 로 값이 바뀐 행도 플래시한다(목업).
@@ -34,9 +39,14 @@
  *      사이여야 해요」(목업). 범위 밖 42 는 relay zod 가 소켓을 닫는다(4400).
  *    - 저장 이력(로그)은 남기지 않는다(Deferred).
  *
- * ⑥ S1 묶음 카드 (quick-261006-pey D-2 · sketch 013 settings.html 변형 S1)
+ * ⑥ S1 묶음 카드 (quick-261006-pey D-2 · sketch 013 settings.html 변형 S1 · quick-261012-u04 채택 목업
+ *    `.planning/quick/261012-u04-gh-trade-261012/mockup-me-prebuy.html` 변형 B′ 열 고정)
  *    제목 · 칩 · 안내는 격자 위에 한 번이고, 묶음(`USER_SETTINGS_GROUPS`)마다 `CARD` 한 장(머리 13px/600 muted)이다.
- *    격자는 1열이 기본이고 **섹션 본문 폭 ≥700** 에서 2열(`align-items:start`)이다. 판정은 이 섹션 루트의
+ *    격자는 1열이 기본이고 **섹션 본문 폭 ≥700** 에서 2열(`align-items:start`)이다. 2열은 **열 고정**이다
+ *    (`USER_SETTINGS_COLUMNS`) — 왼쪽 매수 금액 · 선매수 · 후매수, 오른쪽 매도 · 자동매도. 열마다 래퍼
+ *    (`me-lc-defaults-column`)가 ≥700 에서 제 세로 스택(grid)이 되어, 카드 높이가 달라도 행 정렬에 끌려가지 않는다.
+ *    1열(폰)에서는 래퍼가 `display: contents` 라 카드가 바깥 격자의 직접 항목이 된다 — DOM 순서 그대로
+ *    매수 금액 → 선매수 → 후매수 → 매도 → 자동매도. 판정은 이 섹션 루트의
  *    `@container/me` 로 한다 — /me 본문 폭은 사이드바(240/64/없음)·앱 셸 패딩에 따라 뷰포트와 어긋나므로 뷰포트
  *    브레이크포인트로는 「본문 ≥ ~700」 을 말할 수 없다. 700 은 목업 수치이자 작업대 `@container/wb` 700 선례
  *    (`workbench/card-grid.tsx`)와 같다. ★ 컨테이너는 **이 섹션에만** 단다 — 페이지 루트에 달면 `container-type`
@@ -44,7 +54,7 @@
  *    요소는 `NumberPadSheet` 뿐이고 Dialog 포털로 body 에 서므로 안전하다.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AUTO_SELL_METHOD_LABELS,
   AUTO_SELL_METHOD_ORDER,
@@ -59,7 +69,7 @@ import { CARD } from "@/components/layout/page-layout";
 import { ACK_TIMEOUT_MS, LC_CONTAINER_CLASS } from "@/components/trading/card/constants";
 import { InlineValueEditor } from "@/components/trading/lc/inline-value-editor";
 import { NumberPadSheet } from "@/components/trading/lc/number-pad-sheet";
-import { ChoiceRow, SettingRow } from "@/components/trading/lc/setting-group";
+import { CheckValueRow, ChoiceRow, SettingRow } from "@/components/trading/lc/setting-group";
 import { LC_COMMIT_TEXT } from "@/components/trading/lc/use-lc-field-commit";
 import type { PadUnit } from "@/lib/numpad";
 import { useRelayContext } from "@/lib/relay-provider";
@@ -68,38 +78,85 @@ import { useEditMode } from "@/lib/use-edit-mode";
 import { cn } from "@/lib/utils";
 
 export type UserSettingsKey = keyof RelayUserSettingsValues;
+/** bool 칸 키(「줄매수도 같이 켜기」) — 숫자 키의 여집합(파생). */
+export type UserSettingsBoolKey = Exclude<UserSettingsKey, UserSettingsNumericKey>;
+/** 저장 기계가 다루는 칸 값 — 숫자 칸 · bool 칸. */
+type UserSettingsFieldValue = number | boolean;
 
-export type UserSettingsGroup = "매수 금액" | "후매수" | "매도" | "자동매도";
+export type UserSettingsGroup = "매수 금액" | "선매수" | "후매수" | "매도" | "자동매도";
 
-export interface UserSettingsRowSpec {
-  key: UserSettingsNumericKey;
+interface UserSettingsRowBase {
   label: string;
-  /** 숫자 행 단위 — 방법 기본값(3택)은 `null`. */
-  unit: PadUnit | null;
   group: UserSettingsGroup;
-  /** 행 식별자(`data-lc-field`) — `me-lc-` + 키 kebab. */
+  /** 행 식별자(`data-lc-field` · 체크 id) — `me-lc-` + 키 kebab. */
   id: string;
 }
 
-/** 묶음 순서(D-13 · 목업 `GROUPS`). */
-export const USER_SETTINGS_GROUPS: readonly UserSettingsGroup[] = ["매수 금액", "후매수", "매도", "자동매도"];
+/**
+ * 행 1개 — `kind` 로 렌더 갈래가 정해진다: `value`(`SettingRow` · 숫자 칸) · `choice`(`ChoiceRow` · 방법 기본값 3택) ·
+ * `check`(`CheckValueRow` 값 없음 · bool 칸).
+ */
+export type UserSettingsRowSpec =
+  | (UserSettingsRowBase & { kind: "value"; key: UserSettingsNumericKey; unit: PadUnit })
+  | (UserSettingsRowBase & { kind: "choice"; key: UserSettingsNumericKey })
+  | (UserSettingsRowBase & { kind: "check"; key: UserSettingsBoolKey });
+
+export type UserSettingsValueRowSpec = Extract<UserSettingsRowSpec, { kind: "value" }>;
 
 /**
- * 10행 표(목업 `F` · `GROUPS` 그대로 · 금액 4칸은 만원 — 인박스 Q1 · Phase 31 D-13). 순서 = 화면 순서. 범위는 여기 두지
- * 않는다 — shared `USER_SETTINGS_RANGES`(서버 42 범위 정본) 하나를 읽는다.
+ * 열 고정 2열(채택 목업 B′ · quick-261012-u04) — 왼쪽 매수 금액 · 선매수 · 후매수, 오른쪽 매도 · 자동매도.
+ * 1열(폰)은 이 순서를 평탄화한 순서다. 묶음 순서의 정본이다(`USER_SETTINGS_GROUPS` 는 파생).
+ */
+export const USER_SETTINGS_COLUMNS: readonly (readonly UserSettingsGroup[])[] = [
+  ["매수 금액", "선매수", "후매수"],
+  ["매도", "자동매도"],
+];
+
+/** 묶음 순서(D-13 · 목업 `GROUPS` · B′) — 열 정본의 평탄화. */
+export const USER_SETTINGS_GROUPS: readonly UserSettingsGroup[] = USER_SETTINGS_COLUMNS.flat();
+
+/**
+ * 12행 표(목업 `F` · `GROUPS` 그대로 · 금액 5칸은 만원 — 인박스 Q1 · Phase 31 D-13). 순서 = 화면(DOM · 열) 순서 — 인라인
+ * Tab 이동(`value` 행만)이 이 순서를 따른다. 범위는 여기 두지 않는다 — shared `USER_SETTINGS_RANGES`(서버 42 범위 정본) 하나를 읽는다.
  * 봉인 `postBuyFloorQty` 는 행이 없다 — 42 에 0 을 싣는다(Phase 32 D-08). 그 자리는 「후매수 최소」(만원)가 교체했다.
  * 「후매수 최대」(`postBuyMaxCount`)는 행이 없다 — 서버가 재진입 횟수를 읽지 않는다(gh-trade 261012 · C# 기본값 창도 삭제). 42 에는 84 값을
  * 그대로 싣는다(ubyte 전 범위 = 0~255 라 범위 검사 불요).
+ * 「선매수」 2행(quick-261012-u04 · gh-trade 261012 · 목업 원문 라벨): 「매도잔량」(만원 · 0 = 상따 폼이 상장주식수 × 0.3% 로
+ * 시딩 · > 0 = 그 값으로 선매수 매도잔량 칸을 채움) · 「줄매수도 같이 켜기」(켜 두면 상따 폼에서 사람이 ☐선매수를 켤 때 ☐줄매수도
+ * 같은 제출로 켬).
  */
 export const USER_SETTINGS_ROWS: readonly UserSettingsRowSpec[] = [
-  { key: "preBuyAmount", label: "선매수 금액", unit: "만원", group: "매수 금액", id: "me-lc-pre-buy-amount" },
-  { key: "addBuyAmount", label: "줄매수 금액", unit: "만원", group: "매수 금액", id: "me-lc-add-buy-amount" },
-  { key: "postBuyAmount", label: "후매수 금액", unit: "만원", group: "매수 금액", id: "me-lc-post-buy-amount" },
-  { key: "postBuyFloorAmount", label: "후매수 최소", unit: "만원", group: "후매수", id: "me-lc-post-buy-floor-amount" },
-  { key: "postBuyReboundPct", label: "후매수 반등", unit: "%", group: "후매수", id: "me-lc-post-buy-rebound-pct" },
-  { key: "sellQtyTrackRatio", label: "매도 잔량추적", unit: "%", group: "매도", id: "me-lc-sell-qty-track-ratio" },
-  { key: "autoSellPeriodSec", label: "매도 주기", unit: "초", group: "자동매도", id: "me-lc-auto-sell-period-sec" },
+  { kind: "value", key: "preBuyAmount", label: "선매수 금액", unit: "만원", group: "매수 금액", id: "me-lc-pre-buy-amount" },
+  { kind: "value", key: "addBuyAmount", label: "줄매수 금액", unit: "만원", group: "매수 금액", id: "me-lc-add-buy-amount" },
+  { kind: "value", key: "postBuyAmount", label: "후매수 금액", unit: "만원", group: "매수 금액", id: "me-lc-post-buy-amount" },
   {
+    kind: "value",
+    key: "preBuyWatchAmount",
+    label: "매도잔량",
+    unit: "만원",
+    group: "선매수",
+    id: "me-lc-pre-buy-watch-amount",
+  },
+  {
+    kind: "check",
+    key: "preBuyAutoAddBuy",
+    label: "줄매수도 같이 켜기",
+    group: "선매수",
+    id: "me-lc-pre-buy-auto-add-buy",
+  },
+  {
+    kind: "value",
+    key: "postBuyFloorAmount",
+    label: "후매수 최소",
+    unit: "만원",
+    group: "후매수",
+    id: "me-lc-post-buy-floor-amount",
+  },
+  { kind: "value", key: "postBuyReboundPct", label: "후매수 반등", unit: "%", group: "후매수", id: "me-lc-post-buy-rebound-pct" },
+  { kind: "value", key: "sellQtyTrackRatio", label: "매도 잔량추적", unit: "%", group: "매도", id: "me-lc-sell-qty-track-ratio" },
+  { kind: "value", key: "autoSellPeriodSec", label: "매도 주기", unit: "초", group: "자동매도", id: "me-lc-auto-sell-period-sec" },
+  {
+    kind: "value",
     key: "auctionSellRatioPct",
     label: "동시호가 매도비율",
     unit: "%",
@@ -107,6 +164,7 @@ export const USER_SETTINGS_ROWS: readonly UserSettingsRowSpec[] = [
     id: "me-lc-auction-sell-ratio-pct",
   },
   {
+    kind: "value",
     key: "autoSellRatioDefaultPct",
     label: "비율 기본값",
     unit: "%",
@@ -114,13 +172,15 @@ export const USER_SETTINGS_ROWS: readonly UserSettingsRowSpec[] = [
     id: "me-lc-auto-sell-ratio-default-pct",
   },
   {
+    kind: "choice",
     key: "autoSellMethodDefault",
     label: "방법 기본값",
-    unit: null,
     group: "자동매도",
     id: "me-lc-auto-sell-method-default",
   },
 ];
+
+const isValueRow = (r: UserSettingsRowSpec): r is UserSettingsValueRowSpec => r.kind === "value";
 
 export type UserSettingsStatus = "loading" | "present" | "absent";
 
@@ -183,15 +243,17 @@ export function userSettingsRangeIssue(key: UserSettingsNumericKey, value: numbe
 }
 
 /**
- * 42 본문 행 10칸 전부의 범위 검사 — 첫 위반 칸의 문장 · 전부 안이면 null (27-REVIEW IN-02). 봉인 칸은 늘 0 이라 보지 않는다.
+ * 42 본문 숫자 행 11칸(값 10 · 방법 1) 전부의 범위 검사 — 첫 위반 칸의 문장 · 전부 안이면 null (27-REVIEW IN-02). 봉인 칸은
+ * 늘 0 이라 보지 않고, bool 칸(체크 행)은 범위가 없어 건너뛴다.
  *
- * 42 는 84 캐시 12값 + 바뀐 1칸으로 조립한다. 바뀐 칸만 보면 캐시의 나머지 칸이 범위 밖일 때 relay zod 가
+ * 42 는 84 캐시 14값 + 바뀐 1칸으로 조립한다. 바뀐 칸만 보면 캐시의 나머지 칸이 범위 밖일 때 relay zod 가
  * close(4400)로 **앱 소켓 전체**를 끊는다(상따 카드 `lcRangeIssue` 가 cfg 전체를 보는 것과 같은 이유).
  * 위반 칸이 바뀐 칸이 아니면 문장 앞에 그 칸 이름을 붙인다 — 실패 말풍선은 바뀐 행에 서기 때문이다.
  */
 export function userSettingsValuesIssue(s: RelayUserSettingsValues, changed: UserSettingsKey): string | null {
   for (const row of USER_SETTINGS_ROWS) {
-    const issue = userSettingsRangeIssue(row.key, s[row.key], row.unit ?? "");
+    if (row.kind === "check") continue;
+    const issue = userSettingsRangeIssue(row.key, s[row.key], row.kind === "value" ? row.unit : "");
     if (issue !== null) return row.key === changed ? issue : `${row.label} ${issue}`;
   }
   return null;
@@ -242,14 +304,14 @@ const EMPTY_KEYS: ReadonlySet<UserSettingsKey> = new Set();
  * 실패한 행 1건 — 말풍선 문구와 **시도한 값**(27-REVIEW WR-05). 늦게 온 84 가 그 값을 실으면 서버 저장은
  * 성공한 것이라 실패를 거둔다(상따 카드 「③ 늦은 에코」와 같은 대응).
  */
-type UserSettingsFailure = { text: string; value: number };
+type UserSettingsFailure = { text: string; value: UserSettingsFieldValue };
 type UserSettingsFailures = Partial<Record<UserSettingsKey, UserSettingsFailure>>;
 
 type SaveOutcome = "noop" | "sent" | "disconnected" | "invalid";
 
 interface UserSettingsSave {
   /** 행 확정 1건 — 84 미수신이면 무시 · 비행 중이면 대기열 · 아니면 즉시 42. */
-  commit: (key: UserSettingsKey, value: number) => void;
+  commit: (key: UserSettingsKey, value: UserSettingsFieldValue) => void;
   inflightKey: UserSettingsKey | null;
   queuedKeys: ReadonlySet<UserSettingsKey>;
   /** 실패한 행 → 말풍선 문구(빈 문자열 = 링만 — 거부 원문은 섹션 아래 한 줄이 말한다). */
@@ -267,8 +329,8 @@ function useUserSettingsSave(
   send: (msg: RelayInbound) => boolean,
   messages: readonly RelayServerMessageEntry[],
 ): UserSettingsSave {
-  const inflightRef = useRef<{ key: UserSettingsKey; value: number } | null>(null);
-  const queueRef = useRef(new Map<UserSettingsKey, number>());
+  const inflightRef = useRef<{ key: UserSettingsKey; value: UserSettingsFieldValue } | null>(null);
+  const queueRef = useRef(new Map<UserSettingsKey, UserSettingsFieldValue>());
   const ackTimer = useRef<number | null>(null);
   const flashTimers = useRef(new Map<UserSettingsKey, number>());
   const [inflightKey, setInflightKey] = useState<UserSettingsKey | null>(null);
@@ -328,12 +390,13 @@ function useUserSettingsSave(
     [syncQueue],
   );
 
-  /** 42 한 건 — `base`(84 캐시) + 바뀐 1칸. 서버 값과 같으면 보내지 않는다. */
+  /** 42 한 건 — `base`(84 캐시) + 바뀐 1칸. 서버 값과 같으면 보내지 않는다(비교는 정규화 14값 — 부재 = 0 · false). */
   const dispatchOne = useCallback(
-    (key: UserSettingsKey, value: number, base: UsableUserSettings): SaveOutcome => {
-      if (base[key] === value) return "noop";
-      const s: RelayUserSettingsValues = { ...userSettingsValuesOf(base), [key]: value };
-      // ★ 행 10칸 전부 본다(IN-02) — 하나라도 범위 밖이면 relay 가 소켓을 끊는다. 보내지 않고 이 행을 실패로 둔다.
+    (key: UserSettingsKey, value: UserSettingsFieldValue, base: UsableUserSettings): SaveOutcome => {
+      const current = userSettingsValuesOf(base);
+      if (current[key] === value) return "noop";
+      const s: RelayUserSettingsValues = { ...current, [key]: value };
+      // ★ 숫자 행 전부 본다(IN-02) — 하나라도 범위 밖이면 relay 가 소켓을 끊는다. 보내지 않고 이 행을 실패로 둔다.
       const issue = userSettingsValuesIssue(s, key);
       if (issue !== null) {
         setFailures((f) => ({ ...f, [key]: { text: issue, value } }));
@@ -367,7 +430,7 @@ function useUserSettingsSave(
   const drain = useCallback(
     (base: UsableUserSettings) => {
       while (queueRef.current.size > 0) {
-        const [key, value] = queueRef.current.entries().next().value as [UserSettingsKey, number];
+        const [key, value] = queueRef.current.entries().next().value as [UserSettingsKey, UserSettingsFieldValue];
         queueRef.current.delete(key);
         const outcome = dispatchOne(key, value, base);
         if (outcome === "sent" || outcome === "disconnected") break;
@@ -381,7 +444,7 @@ function useUserSettingsSave(
   );
 
   const commit = useCallback(
-    (key: UserSettingsKey, value: number) => {
+    (key: UserSettingsKey, value: UserSettingsFieldValue) => {
       if (userSettings === undefined) return;
       setFailures((f) => {
         if (!(key in f)) return f;
@@ -412,8 +475,11 @@ function useUserSettingsSave(
       return;
     }
     if (prev === undefined || prev === userSettings) return;
+    // 비교는 정규화 14값으로 한다 — 선매수 2필드 84 부재 = 0 · false(키가 생겨도 값이 같으면 플래시하지 않는다).
+    const before = userSettingsValuesOf(prev);
+    const now = userSettingsValuesOf(userSettings);
     for (const row of USER_SETTINGS_ROWS) {
-      if (prev[row.key] !== userSettings[row.key]) flash(row.key);
+      if (before[row.key] !== now[row.key]) flash(row.key);
     }
     /*
       ★ 늦은 성공(27-REVIEW WR-05) — 3초 무응답 · 거부로 실패를 박은 행도 84 가 **시도한 그 값**을 실으면 서버에
@@ -422,14 +488,14 @@ function useUserSettingsSave(
     setFailures((f) => {
       let next: UserSettingsFailures | null = null;
       for (const [k, entry] of Object.entries(f) as [UserSettingsKey, UserSettingsFailure][]) {
-        if (userSettings[k] !== entry.value) continue;
+        if (now[k] !== entry.value) continue;
         next ??= { ...f };
         delete next[k];
       }
       return next ?? f;
     });
     const inflight = inflightRef.current;
-    if (inflight !== null && userSettings[inflight.key] === inflight.value) {
+    if (inflight !== null && now[inflight.key] === inflight.value) {
       flash(inflight.key);
       endInflight();
       drain(userSettings);
@@ -507,7 +573,8 @@ export function LimitChaserDefaultsSection() {
   /** 키패드 시트를 연 행(터치 기기). */
   const [sheetKey, setSheetKey] = useState<UserSettingsKey | null>(null);
   const sheetReturnRef = useRef<HTMLElement | null>(null);
-  const sheetRow = sheetKey === null ? null : (USER_SETTINGS_ROWS.find((r) => r.key === sheetKey) ?? null);
+  const numericRows = USER_SETTINGS_ROWS.filter(isValueRow);
+  const sheetRow = sheetKey === null ? null : (numericRows.find((r) => r.key === sheetKey) ?? null);
   const sheetUnit: PadUnit = sheetRow?.unit ?? "%";
 
   const busyOf = (key: UserSettingsKey) => save.inflightKey === key || save.queuedKeys.has(key);
@@ -520,7 +587,6 @@ export function LimitChaserDefaultsSection() {
       setEditingKey(key);
     }
   };
-  const numericRows = USER_SETTINGS_ROWS.filter((r) => r.unit !== null);
   const navigate = (key: UserSettingsKey, dir: "next" | "prev") => {
     const i = numericRows.findIndex((r) => r.key === key);
     const to = numericRows[dir === "next" ? i + 1 : i - 1];
@@ -565,97 +631,130 @@ export function LimitChaserDefaultsSection() {
           loading && "opacity-45",
         )}
       >
-        {USER_SETTINGS_GROUPS.map((group) => (
+        {USER_SETTINGS_COLUMNS.map((column) => (
           <div
-            key={group}
-            role="group"
-            aria-label={group}
-            data-slot="me-lc-defaults-group-card"
-            className={cn(CARD, "min-w-0 px-2.5 pt-2.5 pb-1")}
+            key={column.join("|")}
+            data-slot="me-lc-defaults-column"
+            // ⑥ B′ 열 고정 — 1열은 contents(카드가 바깥 격자의 직접 항목 · DOM 순서 = 폰 순서), ≥700 은 열마다 제 세로 스택.
+            className="contents @min-[700px]/me:grid @min-[700px]/me:min-w-0 @min-[700px]/me:items-start @min-[700px]/me:gap-3"
           >
-            {/*
-              쉐브런 상시 표시(2026-10-06 사용자 요청) — 공용 행은 lc <360 에서 쉐브런을 숨긴다(L3 · 상따 카드의
-              「최소 잔량 | 177,000,000주 ›」 넘침 대책). 이 카드의 최장 행은 「선매수 금액 | 999,999,999만원 ›」 ≈230px 로
-              카드 폭(폰 ≈350 · 데스크톱 ≈440)에 여유가 커서 /me 에서만 되살린다. 공용 규칙은 건드리지 않는다.
-            */}
-            <div className={cn(LC_CONTAINER_CLASS, "min-w-0 [&_[data-slot=lc-row-chevron]]:inline")}>
-              {/*
-                카드 머리는 행 목록 컨테이너 **안**에 둔다 — 좌우 패딩이 행(`setting-group` ROW_BOX
-                `px-0 @min-[685px]/lc:px-1`)과 같은 밴드로 갈려야 글자선이 맞는다. 카드 폭(≈440)은 좁은 밴드라
-                고정 px-1.5 면 머리만 6px 들여 써졌다.
-              */}
+            {column.map((group) => (
               <div
-                data-slot="me-lc-defaults-group"
-                className="px-0 pb-0.5 text-[13px] font-semibold text-[var(--muted-fg)] @min-[685px]/lc:px-1"
+                key={group}
+                role="group"
+                aria-label={group}
+                data-slot="me-lc-defaults-group-card"
+                className={cn(CARD, "min-w-0 px-2.5 pt-2.5 pb-1")}
               >
-                {group}
-              </div>
-              {USER_SETTINGS_ROWS.filter((r) => r.group === group).map((row) => {
-                const flashing = save.flashKeys.has(row.key);
-                const failure = save.failures[row.key];
-                const failed = failure !== undefined;
-                const busy = busyOf(row.key);
-                return (
+                {/*
+                  쉐브런 상시 표시(2026-10-06 사용자 요청) — 공용 행은 lc <360 에서 쉐브런을 숨긴다(L3 · 상따 카드의
+                  「최소 잔량 | 177,000,000주 ›」 넘침 대책). 이 카드의 최장 행은 「선매수 금액 | 999,999,999만원 ›」 ≈230px 로
+                  카드 폭(폰 ≈350 · 데스크톱 ≈440)에 여유가 커서 /me 에서만 되살린다. 공용 규칙은 건드리지 않는다.
+                */}
+                <div className={cn(LC_CONTAINER_CLASS, "min-w-0 [&_[data-slot=lc-row-chevron]]:inline")}>
+                  {/*
+                    카드 머리는 행 목록 컨테이너 **안**에 둔다 — 좌우 패딩이 행(`setting-group` ROW_BOX
+                    `px-0 @min-[685px]/lc:px-1`)과 같은 밴드로 갈려야 글자선이 맞는다. 카드 폭(≈440)은 좁은 밴드라
+                    고정 px-1.5 면 머리만 6px 들여 써졌다.
+                  */}
                   <div
-                    key={row.key}
-                    data-slot="me-lc-defaults-row"
-                    data-label={row.label}
-                    data-field={row.id}
-                    data-flash={flashing ? "ok" : undefined}
-                    data-failed={failed ? "true" : undefined}
-                    className={cn("min-w-0", flashing && FLASH_CLASS)}
+                    data-slot="me-lc-defaults-group"
+                    className="px-0 pb-0.5 text-[13px] font-semibold text-[var(--muted-fg)] @min-[685px]/lc:px-1"
                   >
-                    {row.unit === null ? (
-                      <ChoiceRow
-                        id={row.id}
-                        label={row.label}
-                        value={values?.[row.key] ?? 0}
-                        options={METHOD_OPTIONS}
-                        onSelect={(v) => save.commit(row.key, v)}
-                        a11yName={row.label}
-                        description="새 전략의 자동매도 방법 초기값이에요"
-                        disabled={loading || busy}
-                        busy={busy}
-                        failureText={failure || null}
-                        segmentAlways
-                      />
-                    ) : (
-                      <SettingRow
-                        id={row.id}
-                        label={row.label}
-                        unit={row.unit}
-                        value={values?.[row.key] ?? null}
-                        disabled={loading}
-                        busy={busy}
-                        failed={failed}
-                        failureText={failure || null}
-                        editing={editingKey === row.key && userSettings !== undefined}
-                        hasPopup={editMode === "sheet"}
-                        editor={
-                          values === undefined ? null : (
-                            <InlineValueEditor
-                              id={row.id}
-                              label={row.label}
-                              unit={row.unit}
-                              initialValue={values[row.key]}
-                              validate={(v) => userSettingsRangeIssue(row.key, v, row.unit ?? "")}
-                              onSave={(v) => {
-                                save.commit(row.key, v);
-                                setEditingKey(null);
-                              }}
-                              onCancel={() => setEditingKey(null)}
-                              onDismiss={() => setEditingKey(null)}
-                              onNavigate={(dir) => navigate(row.key, dir)}
-                            />
-                          )
-                        }
-                        onActivate={(el) => activate(row.key, el)}
-                      />
-                    )}
+                    {group}
                   </div>
-                );
-              })}
-            </div>
+                  {USER_SETTINGS_ROWS.filter((r) => r.group === group).map((row) => {
+                    const flashing = save.flashKeys.has(row.key);
+                    const failure = save.failures[row.key];
+                    const failed = failure !== undefined;
+                    const busy = busyOf(row.key);
+                    let control: ReactNode;
+                    if (row.kind === "check") {
+                      // 값 없는 CheckValueRow — 체크가 행을 채운다. 체크는 84 를 따른다(낙관 반영 없음 · ⑤).
+                      control = (
+                        <CheckValueRow
+                          checkId={row.id}
+                          groupTitle={row.group}
+                          label={row.label}
+                          checked={values?.[row.key] ?? false}
+                          onToggle={() => {
+                            if (values !== undefined) save.commit(row.key, !values[row.key]);
+                          }}
+                          disabled={loading || busy}
+                          checkBusy={busy}
+                          checkFlash={flashing}
+                          checkFailureText={failure || null}
+                          failed={failed}
+                        />
+                      );
+                    } else if (row.kind === "choice") {
+                      control = (
+                        <ChoiceRow
+                          id={row.id}
+                          label={row.label}
+                          value={values?.[row.key] ?? 0}
+                          options={METHOD_OPTIONS}
+                          onSelect={(v) => save.commit(row.key, v)}
+                          a11yName={row.label}
+                          description="새 전략의 자동매도 방법 초기값이에요"
+                          disabled={loading || busy}
+                          busy={busy}
+                          failureText={failure || null}
+                          segmentAlways
+                        />
+                      );
+                    } else {
+                      control = (
+                        <SettingRow
+                          id={row.id}
+                          label={row.label}
+                          unit={row.unit}
+                          value={values?.[row.key] ?? null}
+                          disabled={loading}
+                          busy={busy}
+                          failed={failed}
+                          failureText={failure || null}
+                          editing={editingKey === row.key && values !== undefined}
+                          hasPopup={editMode === "sheet"}
+                          editor={
+                            values === undefined ? null : (
+                              <InlineValueEditor
+                                id={row.id}
+                                label={row.label}
+                                unit={row.unit}
+                                initialValue={values[row.key]}
+                                validate={(v) => userSettingsRangeIssue(row.key, v, row.unit)}
+                                onSave={(v) => {
+                                  save.commit(row.key, v);
+                                  setEditingKey(null);
+                                }}
+                                onCancel={() => setEditingKey(null)}
+                                onDismiss={() => setEditingKey(null)}
+                                onNavigate={(dir) => navigate(row.key, dir)}
+                              />
+                            )
+                          }
+                          onActivate={(el) => activate(row.key, el)}
+                        />
+                      );
+                    }
+                    return (
+                      <div
+                        key={row.key}
+                        data-slot="me-lc-defaults-row"
+                        data-label={row.label}
+                        data-field={row.id}
+                        data-flash={flashing ? "ok" : undefined}
+                        data-failed={failed ? "true" : undefined}
+                        className={cn("min-w-0", flashing && FLASH_CLASS)}
+                      >
+                        {control}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         ))}
       </div>
