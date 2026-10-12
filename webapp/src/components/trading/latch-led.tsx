@@ -96,7 +96,7 @@ export const LATCH_LED_NAMES: Record<LatchLedKind, string> = {
 /**
  * 매수 LED 「보유중」 툴팁 — C# 원문(Phase 24 D-12). 한 글자도 고치지 않는다.
  */
-export const BUY_HOLDING_TOOLTIP = "후매수 보유중 — 산 물량이 전부 정리되면 다시 감시(남은 횟수 0 이면 소진)";
+export const BUY_HOLDING_TOOLTIP = "후매수 보유중 — 산 물량이 전부 정리되면 다시 감시";
 
 const TOOLTIPS = {
   sell: {

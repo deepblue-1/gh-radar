@@ -51,6 +51,7 @@ import {
   isMasterOnlyDelta,
   lcSubmitQtyOf,
   limitChaserGateDisarmed,
+  POST_BUY_REENTRY_UNLIMITED,
   confirmAutoChecks,
   marketCloseReleaseKeysOf,
   parseStrategyKey,
@@ -649,7 +650,7 @@ describe('formFromServer — 에코 → 폼 (D-11 서버값 우선)', () => {
     expect(next).not.toHaveProperty('postBuyPhase');
   });
 
-  it('Phase 24 — 신규 폼 기본값: 그룹 스위치 OFF · 금액 4,000만원 · 반등 30% · 최소 0만(Phase 31 D-12) · 3회', () => {
+  it('Phase 24 — 신규 폼 기본값: 그룹 스위치 OFF · 금액 4,000만원 · 반등 30% · 최소 0만(Phase 31 D-12) · 재진입 255 고정(gh-trade 261012)', () => {
     expect(defaultLimitChaserForm()).toMatchObject({
       preBuyEnabled: false,
       extraBuyEnabled: false,
@@ -660,7 +661,7 @@ describe('formFromServer — 에코 → 폼 (D-11 서버값 우선)', () => {
       postBuyOrderAmount: 4000,
       postBuyReboundPct: 30,
       postBuyFloorAmount: 0,
-      postBuyReentry: 3,
+      postBuyReentry: POST_BUY_REENTRY_UNLIMITED,
     });
   });
 });
@@ -1280,14 +1281,14 @@ describe('groupAutoChecksOf laid — 이 흐름에서 무장되지 않은 동반
 });
 
 describe('D-04 새 전략 기본값 — WinForms 기본값 표 그대로 (24-07)', () => {
-  it('선매수 · 줄매수 · 후매수 금액 각 4,000만원 · 반등 30% · 최대 3회 · 수량 8칸 0만(Phase 31 D-12) · 잔량추적 55% · 스위치 전부 OFF', () => {
+  it('선매수 · 줄매수 · 후매수 금액 각 4,000만원 · 반등 30% · 후매수 재진입 255 고정(gh-trade 261012) · 수량 8칸 0만(Phase 31 D-12) · 잔량추적 55% · 스위치 전부 OFF', () => {
     expect(defaultLimitChaserForm()).toMatchObject({
       buyOrderAmount: 4000,
       extraBuyOrderAmount: 4000,
       postBuyOrderAmount: 4000,
       postBuyReboundPct: 30,
       postBuyFloorAmount: 0,
-      postBuyReentry: 3,
+      postBuyReentry: POST_BUY_REENTRY_UNLIMITED,
       sellWatchAmount: 0,
       sellQtyTrackRatio: 55,
       cancelWatchAmount: 0,
@@ -1352,7 +1353,7 @@ describe('isMasterOnlyDelta — D-02 후반 자동 끔은 buyEnabled 한 필드�
 
   /**
    * 폼 `buildCfg` 와 같은 조립 — 에코 → 폼 값 + `buyEnabled:false` · 수량 3벌 웹 산출 · 수량 임계 주 8개(shared
-   * `qtyForSubmit` · 에코 메모 · Phase 31 `LC_AMOUNT_PAIRS`) · 클라 고정 3.
+   * `qtyForSubmit` · 에코 메모 · Phase 31 `LC_AMOUNT_PAIRS`) · 클라 고정 4(후매수 재진입 255 — gh-trade 261012).
    */
   function webCfgOf(echo: RelayLimitChaser): RelayLimitChaserInput {
     const values: LimitChaserFormValues = { ...formFromServer(echo, defaultLimitChaserForm()), buyEnabled: false };
@@ -1372,6 +1373,7 @@ describe('isMasterOnlyDelta — D-02 후반 자동 끔은 buyEnabled 한 필드�
       sweepRecalcEnabled: true,
       sweepMinCount: 0,
       sweepMinRate: 0,
+      postBuyReentry: POST_BUY_REENTRY_UNLIMITED,
     };
   }
 
@@ -1384,6 +1386,7 @@ describe('isMasterOnlyDelta — D-02 후반 자동 끔은 buyEnabled 한 필드�
     ['클라 고정 sweepRecalcEnabled false ≠ true', { sweepRecalcEnabled: false }, false],
     ['클라 고정 sweepMinRate 2950 ≠ 0', { sweepMinRate: 2_950 }, false],
     ['S→C 전용 필드(매도수량 · 후매수 단계)는 cfg 에 없어 비교하지 않는다', { sellOrderQty: 99, postBuyPhase: 3 }, true],
+    ['옛 등록 에코 postBuyReentry 3 — 서버가 읽지 않는 칸은 비교하지 않는다(gh-trade 261012)', { postBuyReentry: 3 }, true],
   ])('%s → %s', (_name, over, expected) => {
     const echo = folded(over);
     expect(isMasterOnlyDelta(webCfgOf(echo), echo)).toBe(expected);
@@ -1669,13 +1672,14 @@ describe('Phase 27 84 시딩', () => {
     expect(Object.keys(seed)).not.toContain('auctionSellRatioPct');
   });
 
-  it('present false(서버 내장값) — D-04 상수와 같은 9값', () => {
+  it('present false(서버 내장값) — 8값은 D-04 상수 · 재진입은 84 값', () => {
     const d = defaultLimitChaserForm();
     expect(seedFromUserSettings(us(false))).toEqual({
       buyOrderAmount: d.buyOrderAmount,
       extraBuyOrderAmount: d.extraBuyOrderAmount,
       postBuyOrderAmount: d.postBuyOrderAmount,
-      postBuyReentry: d.postBuyReentry,
+      // 84 내장 postBuyMaxCount 3 이 여전히 폼 값에 시딩된다 — 무효 값(전송은 buildCfg 가 255 고정 · gh-trade 261012).
+      postBuyReentry: 3,
       postBuyFloorAmount: d.postBuyFloorAmount,
       postBuyReboundPct: d.postBuyReboundPct,
       sellQtyTrackRatio: d.sellQtyTrackRatio,

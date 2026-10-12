@@ -57,13 +57,13 @@
  *     구서버 에코는 끄기만 · 매수주문부터다(WR-02 · 판정은 훅 `lcLegacyBlockOf` 하나 — 시트 · 인라인 검증과 전송 직전
  *     가드가 같이 읽는다). 매수주문 끄기는 늘 나간다(T-16-44).
  *
- * ⑤ ★ 전송 필드는 **클라 입력 + 클라 고정 3** 이다 — 목록의 정본은 shared `RelayLimitChaserInput`(Omit)이다
+ * ⑤ ★ 전송 필드는 **클라 입력 + 클라 고정 4** 이다 — 목록의 정본은 shared `RelayLimitChaserInput`(Omit)이다
  *   (여기에 필드 수를 적지 않는다 — 필드가 합류할 때 갈라진다).
  *   S→C 전용 필드(정본 shared `LIMIT_CHASER_SERVER_ONLY_FIELDS`)를 **싣지 않는다**(Pitfall 6). 되보내면
  *   「값이 왕복한다」는 착각으로 에코 비교가 오염된다.
  *   고정 3(`sweepRecalcEnabled: true`·`sweepMinCount: 0`·`sweepMinRate: 0`)은 **폼에 노출하지
  *   않는다** — relay 빌더가 어차피 그 값으로 덮으므로(16-04), 입력을 열면 「설정했는데 반영
- *   안 됨」이 된다.
+ *   안 됨」이 된다. 고정 4번째 `postBuyReentry: 255` 는 gh-trade 261012 로 서버가 읽지 않는 칸이다(C# 동형).
  *
  * ⑥ 토스트를 쓰지 않는다 (UI-SPEC D3)
  *   결과는 행(값 강조 900ms · 실패 링/말풍선) · 시트 상태 줄 · 폼 맨 위 한 줄(스위치·체크
@@ -114,6 +114,7 @@ import {
   groupAutoChecksOf,
   isMasterOnlyDelta,
   lcSubmitQtyOf,
+  POST_BUY_REENTRY_UNLIMITED,
   seedFromUpperLimit,
   seedListSharesDefaults,
   seedFromUserSettings,
@@ -159,7 +160,6 @@ import {
   ChoiceRow,
   DerivedRow,
   formatSettingValue,
-  GroupNote,
   GroupHeaderCheck,
   GroupSummary,
   GroupSwitch,
@@ -685,8 +685,6 @@ const FOLD_SLOTS: ReadonlySet<string> = new Set<FoldSlot>(['pre-buy', 'extra-buy
 const isFoldSlot = (slot: string): slot is FoldSlot => FOLD_SLOTS.has(slot);
 /** 매수 쪽 카드 — 시트 「감시 중」 안내를 게이트 에코로 판정한다(D-05 · UI-SPEC §11 끝). */
 const BUY_SIDE_SLOTS: ReadonlySet<string> = new Set(['buy', 'pre-buy', 'extra-buy', 'post-buy']);
-/** 후매수 소진 안내(UI-SPEC §5 · 스케치 원문). */
-const POST_BUY_EXHAUSTED_TEXT = '소진 — 「최대」에 횟수를 넣고 다시 켜면 그 값부터 세요';
 
 export interface LimitChaserFormProps {
   /** 12자 ISIN — 상단 종목 카드(A1)가 고른 값. */
@@ -875,10 +873,12 @@ export function LimitChaserForm({
         extraBuyOrderQty: buyOrderQtyFromAmount(values.extraBuyOrderAmount, values.buyOrderPrice),
         postBuyOrderQty: buyOrderQtyFromAmount(values.postBuyOrderAmount, values.buyOrderPrice),
         ...qtys,
-        // 클라 고정 3 — 폼에 노출하지 않는다(파일 상단 ⑤).
+        // 클라 고정 4 — 폼에 노출하지 않는다(파일 상단 ⑤). `...values` 뒤라 폼 · 에코 · 84 시딩 값을 이긴다.
         sweepRecalcEnabled: true,
         sweepMinCount: 0,
         sweepMinRate: 0,
+        // 후매수 재진입 — gh-trade 261012 · 서버가 읽지 않는 칸 · C# 동형 255(구 서버에서도 사실상 무제한).
+        postBuyReentry: POST_BUY_REENTRY_UNLIMITED,
       };
     },
     [isin, accountNo, exchange],
@@ -944,7 +944,8 @@ export function LimitChaserForm({
          3택(자동매도 방법 · Phase 27)도 같은 집합에 든다 — 27-07 84 시딩이 「손대지 않은 칸만」 을 같은 집합으로 판정한다.
       ④ **제출 · 로그(`onClientLog`) · 강조를 만들지 않는다** — `setForm` 한 번뿐이고, 값은 첫 등록 cfg 에 실린다.
   */
-  const touchedRef = useRef(new Set<LcNumField | 'autoSellMethod'>());
+  // 폼 키 집합 — 84 시딩 칸에는 행이 없는 칸(후매수 재진입 · gh-trade 261012)도 있어 `LcNumField` 보다 넓게 둔다.
+  const touchedRef = useRef(new Set<keyof LimitChaserFormValues>());
   const seededRef = useRef(false);
   /** 사람이 이 폼에서 값을 확정했다 — 보내지 못한 확정(막힘 · 끊김)은 값이 바뀌지 않았으므로 세지 않는다. */
   const markTouched = useCallback((field: LcNumField | 'autoSellMethod', outcome: string) => {
@@ -1650,7 +1651,7 @@ export function LimitChaserForm({
    */
   function displayOf(group: LcGroupSpec, row: Extract<LcRowSpec, { kind: 'value' | 'checkValue' }>) {
     const shown = shownValueOf(row.field);
-    const valueText = shown === null ? undefined : (lcValueTextOf(row.field, form, server) ?? undefined);
+    const valueText = shown === null ? undefined : (lcValueTextOf(row.field, form) ?? undefined);
     const text = valueText ?? (shown === null ? '—' : formatSettingValue(shown, row.unit));
     // Phase 31 D-07 — 수량 8칸은 56px 두 줄(위 「1,000만」 · 아래 환산 주 · 의미어 · 「비교가격 필요」). 금액 3칸은 한 줄(D-09).
     const amountField = lcQtyAmountFieldOf(row.field);
@@ -1845,15 +1846,6 @@ export function LimitChaserForm({
             {...qtyDerivedRowProps('postBuyTriggerQty')}
           />
         );
-      case 'note':
-        // 후매수 소진(단계 3) 안내 — 「최대」 행 바로 아래 · 역할 없음 · 흐리지 않는다(UI-SPEC §5).
-        // 접힌 카드에서는 그리지 않는다(상태 「소진」 + 요약 「3회 · 남은 0회」가 같은 사실을 말하고, 안내가
-        // 가리키는 「최대」 편집은 펼쳐야 가능하다).
-        return server?.postBuyPhase === 3 && expanded['post-buy'] ? (
-          <GroupNote key="post-buy-exhausted" slot="lc-post-buy-exhausted">
-            {POST_BUY_EXHAUSTED_TEXT}
-          </GroupNote>
-        ) : null;
     }
   }
 
@@ -1972,9 +1964,9 @@ export function LimitChaserForm({
       : BUY_SIDE_SLOTS.has(sheetGroup.slot) || sheetGroup.slot === 'auto-sell'
         ? sheetGroup.dimGate !== undefined && server?.[sheetGroup.dimGate] === true
         : (statusOf(sheetGroup.statusKey) ?? '').startsWith('감시 중');
-  // 시트 「지금 ○○」 — 의미어를 행과 같은 함수에서 받는다. 에코 런타임(잔여)은 싣지 않는다 = 설정값(D-11).
+  // 시트 「지금 ○○」 — 의미어를 행과 같은 함수에서 받는다(설정값 · D-11).
   const sheetServerText =
-    sheetRow === null || shownValueOf(sheetKey) === null ? undefined : (lcValueTextOf(sheetKey, form, null) ?? undefined);
+    sheetRow === null || shownValueOf(sheetKey) === null ? undefined : (lcValueTextOf(sheetKey, form) ?? undefined);
   const sheetRange = sheetRow === null ? undefined : (sheetRow.row.inputRange ?? sheetRow.row.range);
   // Phase 31 D-08 — 수량 칸 시트 상태 줄 ⑤ 환산 안내(「= 777주 (비교가격 12,870원)」). 잠금은 `validate`(`amountLockTextOf`).
   //   안내 · 잠금 · cfg 가 같은 기준값(`lcBaseValues` = 서버 동기값)으로 주를 센다 — 비행 중에도 서로 다른 말을 하지 않는다(IN-05).

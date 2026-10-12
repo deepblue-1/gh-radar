@@ -20,7 +20,7 @@ import { mockPointer, restoreMatchMedia } from '@/lib/__tests__/match-media';
  *      접힌 행 영역은 `hidden` 클래스(언마운트 없음) · 요약 줄 · 사전 검증 줄(`role="alert"`).
  *   ⑩ 상태 색 — 첫 단어 기준(감시 중 · 보유중 · 포기 · 그 밖) · 새 색 토큰 0.
  *   ⑪ 표시 문자열(`valueText`) · 접근성 이름(`ariaName`) · 행 단위 흐림(`dim`) · 발동잔량 강조 ·
- *      소진 안내 · 「회」 단위 · 값 버튼 설명 = 카드 제목 + 상태 문구(R10).
+ *      「회」 단위 · 값 버튼 설명 = 카드 제목 + 상태 문구(R10).
  *
  * (감시대상 행 조각은 Phase 24 ⑤ 로 지웠다 — 새 서버는 감시대상을 읽지 않는다.)
  *
@@ -44,7 +44,6 @@ import {
   DerivedRow,
   formatSettingValue,
   GroupHeaderCheck,
-  GroupNote,
   GroupSummary,
   groupStatusClassOf,
   GroupSwitch,
@@ -81,11 +80,10 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
       'lc-extra-buy-min-qty',
       'lc-extra-buy-max-qty',
     ]);
-    expect(groupOf('post-buy').rows.map((r) => r.kind)).toEqual(['value', 'value', 'note', 'value', 'value', 'derived']);
+    // 후매수 최대 칸 · 소진 안내 줄 폐지(gh-trade 261012) — 금액 → 최소 잔량 → 반등 → 발동잔량.
+    expect(groupOf('post-buy').rows.map((r) => r.kind)).toEqual(['value', 'value', 'value', 'derived']);
     expect(groupOf('post-buy').rows.map(idOf)).toEqual([
       'lc-post-buy-amount',
-      'lc-post-buy-reentry',
-      null,
       'lc-post-buy-floor-qty',
       'lc-post-buy-rebound',
       null,
@@ -141,7 +139,6 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
       extraBuyMaxAmount: 'lc-extra-buy-max-qty',
       extraBuyBurstRelease: 'lc-extra-buy-burst-release',
       postBuyOrderAmount: 'lc-post-buy-amount',
-      postBuyReentry: 'lc-post-buy-reentry',
       postBuyFloorAmount: 'lc-post-buy-floor-qty',
       postBuyReboundPct: 'lc-post-buy-rebound',
       sellOrderPrice: 'lc-sell-order-price',
@@ -179,10 +176,7 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
     expect(spec('lc-extra-buy-min-qty').desc).toBe('상한가 매수잔량이 이 금액 이상일 때 사요 · 0 = 1주');
     expect(spec('lc-extra-buy-max-qty').desc).toBe('상한가 매수잔량이 이 금액을 넘으면 포기해요 · 0 = 무제한');
     expect(spec('lc-post-buy-floor-qty').desc).toBe('발동잔량의 하한(바닥)이에요 · 0 = 없음');
-    expect(spec('lc-post-buy-reentry').desc).toBe(
-      '최초 포함 총 진입 횟수예요 · 후매수와 줄매수 자동이 같이 써요 · 0 = 사지 않아요 · 껐다 켜면 이 값부터 다시 세요',
-    );
-    expect([spec('lc-post-buy-reentry').unit, spec('lc-post-buy-rebound').unit]).toEqual(['회', '%']);
+    expect(spec('lc-post-buy-rebound').unit).toBe('%');
     expect([spec('lc-sell-order-ratio').unit, spec('lc-sell-order-ratio').desc]).toEqual([
       '%',
       '보유 수량 중 매도할 비율이에요',
@@ -227,7 +221,7 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
     expect(groupOf('sell').gate).toBe('sellEnabled');
   });
 
-  it('lcNavigableRows 는 값 편집 행만 — 체크 전용 · 기준선 · 발동잔량 · 소진 안내는 건너뛴다 (R4)', () => {
+  it('lcNavigableRows 는 값 편집 행만 — 체크 전용 · 기준선 · 발동잔량은 건너뛴다 (R4)', () => {
     expect(lcNavigableRows('buy').map((r) => r.field)).toEqual(['buyOrderPrice', 'buyWatchPrice']);
     expect(lcNavigableRows('pre-buy').map((r) => r.id)).toEqual([
       'lc-buy-order-amount',
@@ -238,7 +232,6 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
     ]);
     expect(lcNavigableRows('post-buy').map((r) => r.id)).toEqual([
       'lc-post-buy-amount',
-      'lc-post-buy-reentry',
       'lc-post-buy-floor-qty',
       'lc-post-buy-rebound',
     ]);
@@ -276,6 +269,12 @@ describe('②-auto GroupHeaderCheck · 제목줄 체크 슬롯 (quick-260929-vzy
       label: '자동',
       ariaLabel: '줄매수 자동',
     });
+    // 재체크 횟수 제한 없음(gh-trade 261012) — 힌트가 후매수 칸을 가리키지 않는다.
+    const extraHint = groupOf('extra-buy').headerCheck!.hint;
+    expect(extraHint).toBe(
+      '줄매수가 풀린 뒤(발주 · 포기 · 버스트 취소) 상한가를 벗어나고 잔고가 0 이면 서버가 줄매수를 다시 켜요',
+    );
+    expect(extraHint).not.toContain('최대');
     for (const g of [...LC_BUY_GROUPS, ...LC_SELL_GROUPS]) {
       if (g.slot !== 'post-buy' && g.slot !== 'extra-buy') expect(g.headerCheck).toBeUndefined();
     }
@@ -877,7 +876,7 @@ describe('⑨ SettingGroup fold — 제목줄 접기 · 요약 줄 · 사전 검
   });
 });
 
-describe('⑨-b GroupSummary · GroupNote — 요약 kv · 소진 안내', () => {
+describe('⑨-b GroupSummary — 요약 kv', () => {
   it('kv 마다 nowrap · 키 12 `--muted-fg` · 값 13/500 `--fg-2` · off 면 값만 `--muted-fg`', () => {
     const { container } = render(
       <GroupSummary
@@ -925,14 +924,6 @@ describe('⑨-b GroupSummary · GroupNote — 요약 kv · 소진 안내', () =>
     expect(val.textContent).toBe('264,000주');
     expect(val.className).toContain('text-[var(--muted-fg)]');
     expect(kvs[1].querySelectorAll('.sr-only')).toHaveLength(1);
-  });
-
-  it('GroupNote — 역할 없는 정적 텍스트 12.5px `--muted-fg`', () => {
-    const { container } = render(<GroupNote slot="lc-post-buy-exhausted">소진 — 안내</GroupNote>);
-    const note = container.querySelector('[data-slot="lc-post-buy-exhausted"]') as HTMLElement;
-    expect(note.getAttribute('role')).toBeNull();
-    for (const c of ['text-[12.5px]', 'leading-[1.45]', 'text-[var(--muted-fg)]']) expect(note.className).toContain(c);
-    expect(note.textContent).toBe('소진 — 안내');
   });
 });
 

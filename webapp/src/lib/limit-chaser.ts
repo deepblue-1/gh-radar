@@ -257,9 +257,15 @@ export function seedFromUpperLimit(upperLimit: number): LimitChaserSeedPrices {
 }
 
 /**
+ * 후매수 재진입(`postBuyReentry`) 전송 고정값 — gh-trade 261012(quick-261012-ow7): 서버는 이 칸을 읽지 않는다(후매수 ·
+ * 줄매수 자동 무제한). C# 클라처럼 늘 255 를 싣는다 — 구 서버에서도 사실상 무제한.
+ */
+export const POST_BUY_REENTRY_UNLIMITED = 255;
+
+/**
  * 신규 폼 기본값 `[VERIFIED: LimitChaserForm.cs:129~178]` · Phase 24 D-04(WinForms 「기본값 (D-33)」 표).
  *
- * 매수 금액 3벌 각 4,000만원 · 반등 30% · 최대 3회 · 잔량추적 55% · 수량 8칸 0(만원 · Phase 31 D-12 — 옛 주 기본값
+ * 매수 금액 3벌 각 4,000만원 · 반등 30% · 후매수 재진입 255 고정 · 잔량추적 55% · 수량 8칸 0(만원 · Phase 31 D-12 — 옛 주 기본값
  * 10,000 · 30,000 · 10 · 100,000 은 만원으로 옮기지도 환산하지도 않고 버린다 · gh-trade D-24 리셋 폴백 0).
  * 상장주식수 비율 5칸(선매수 매도잔량 · 체결량 · 줄매수 최소/최대 · 매도 체결)은 여기 0 이 **폴백**이고, 상장주식수와
  * 매수 비교가를 알면 `seedListSharesDefaults` 가 폼당 1회 만원으로 덮는다(D-17 · Phase 31). 가격 5칸은
@@ -317,7 +323,7 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
     postBuyAuto: false,
     postBuyReboundPct: 30, // DEFAULT_POST_BUY_REBOUND_PCT (%)
     postBuyFloorAmount: 0, // 만원 · D-12 · gh-trade D-24 리셋 폴백 0 — 84 postBuyFloorAmount 시딩은 31-06(C# F:6159)
-    postBuyReentry: 3, // DEFAULT_POST_BUY_REENTRY (회, 최초 포함)
+    postBuyReentry: POST_BUY_REENTRY_UNLIMITED, // gh-trade 261012 — 서버가 읽지 않는 칸 · 전송은 buildCfg 가 255 고정
     postBuyOrderAmount: 4000, // DEFAULT_POST_BUY_ORDER_AMOUNT (만원) — D-04
     // === Phase 27 자동매도 요청 4필드 — 스위치 OFF · 시작조건 0 · 비율 10% · 방법 3(양쪽) ===
     // 비율 · 방법은 84 시딩 폴백(D-11 · `seedFromUserSettings`) — 84 미수신 · 범위 밖일 때만 이 값이 남는다. 비율 · 방법을
@@ -403,6 +409,7 @@ const USER_SETTINGS_SEED_MAP: readonly (readonly [keyof UserSettingsSeed, keyof 
   ['buyOrderAmount', 'preBuyAmount'],
   ['extraBuyOrderAmount', 'addBuyAmount'],
   ['postBuyOrderAmount', 'postBuyAmount'],
+  // 시딩 값은 무효다 — buildCfg 가 전송 때 255 로 고정한다(gh-trade 261012 · 서버가 읽지 않는 칸).
   ['postBuyReentry', 'postBuyMaxCount'],
   // 후매수 최소(만원) — Phase 31 D-12 · C# F:6159. 84 에 키가 없으면(구 relay) 폴백 0(`fitsLcRange` · Pitfall 10).
   ['postBuyFloorAmount', 'postBuyFloorAmount'],
@@ -796,6 +803,8 @@ function amountsFromServer(server: RelayLimitChaser): Record<LcAmountKey, number
  * 곳에서 둔 값이고, 자동 제출이 덮으면 사람 손이 아닌 경로의 무언 변경이다.
  * ★ 고정 필드를 비교에서 빼지 않는다 — relay 도 같은 값으로 못박아 싣기 때문에, 빼면 relay 고정을 거쳐 결국
  *   에코 값(다른 클라가 둔 값)이 바뀐다.
+ *   예외 `postBuyReentry`: 서버가 이 칸을 읽지 않는다(gh-trade 261012). 옛 등록 에코 값(예: 3)과 웹 고정 255 의 차이는
+ *   「다른 클라가 둔 값」이 아니다 — 빼지 않으면 이 변경 전에 등록된 전략은 D-02 자동 끔이 영구히 억제된다.
  *
  * 비교는 `cfg` 의 키 전부(`buyEnabled` 제외)를 에코의 같은 키와 `===` 로 본다 — 키 목록의 정본은 입력 타입
  * `RelayLimitChaserInput` 이고, 여기에 필드를 나열하지 않는다(필드가 합류할 때 갈라진다).
@@ -805,7 +814,7 @@ function amountsFromServer(server: RelayLimitChaser): Record<LcAmountKey, number
  */
 export function isMasterOnlyDelta(cfg: RelayLimitChaserInput, echo: RelayLimitChaser): boolean {
   for (const key of Object.keys(cfg) as (keyof RelayLimitChaserInput)[]) {
-    if (key === 'buyEnabled') continue;
+    if (key === 'buyEnabled' || key === 'postBuyReentry') continue;
     const pair = lcAmountPairOf(key);
     if (pair !== undefined) {
       const applied = echoAmountOf(echo, pair);

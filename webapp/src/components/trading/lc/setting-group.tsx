@@ -333,8 +333,8 @@ export interface SettingRowProps {
   /** 시트 모드 — `aria-haspopup="dialog"`. */
   hasPopup?: boolean;
   /**
-   * 표시 문자열(Phase 24 D-10 · D-11) — 주면 값 슬롯과 기본 접근성 이름이 이 글자를 쓴다(「무제한」 ·
-   * 「3회 · 남은 2회」). 판정은 `lcValueTextOf` 한 곳이다. 편집은 여전히 숫자 `value` 로 한다.
+   * 표시 문자열(Phase 24 D-10 · D-11) — 주면 값 슬롯과 기본 접근성 이름이 이 글자를 쓴다(「—」 ·
+   * 「이탈 후 다음 체결」). 판정은 `lcValueTextOf` 한 곳이다. 편집은 여전히 숫자 `value` 로 한다.
    */
   valueText?: string;
   /** 값 버튼 `aria-label` 전체(「선매수 금액 4,000만원」 — UI-SPEC 접근성 이름 접두 표). */
@@ -665,15 +665,6 @@ export function GroupSummary({
         </span>
       ))}
     </div>
-  );
-}
-
-/** 카드 안 정적 안내 줄(후매수 소진 안내 — UI-SPEC §5) · 역할 없음 · 흐리지 않는다. */
-export function GroupNote({ slot, children }: { slot: string; children: ReactNode }) {
-  return (
-    <p data-slot={slot} className="px-1.5 pt-0.5 pb-1.5 text-[12.5px] leading-[1.45] text-[var(--muted-fg)]">
-      {children}
-    </p>
   );
 }
 

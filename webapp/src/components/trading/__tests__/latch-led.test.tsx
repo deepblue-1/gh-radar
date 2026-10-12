@@ -80,7 +80,7 @@ function chaser(over: ChaserOverrides = {}): RelayLimitChaser {
 }
 
 /** 매수 「보유중」 툴팁 원문 (Phase 24 D-12 · C# 리터럴 — 한 글자도 고치지 않는다). */
-const TIP_BUY_HOLDING = "후매수 보유중 — 산 물량이 전부 정리되면 다시 감시(남은 횟수 0 이면 소진)";
+const TIP_BUY_HOLDING = "후매수 보유중 — 산 물량이 전부 정리되면 다시 감시";
 
 const SOURCE_PATH = path.resolve(__dirname, "../latch-led.tsx");
 const SOURCE = readFileSync(SOURCE_PATH, "utf8");

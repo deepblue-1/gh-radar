@@ -221,7 +221,7 @@ describe('① Tab / Shift+Tab — 같은 그룹 안 값 행만 (D-14 · A5)', ()
     expect(sentConfigs()).toHaveLength(0);
   });
 
-  it('R4 후매수 카드: 최대 → Tab → 최소 잔량(소진 안내 · 발동잔량 건너뜀) → 반등 → Tab = 종료', async () => {
+  it('R4 후매수 카드: 금액 → Tab → 최소 잔량 → 반등(발동잔량 건너뜀) → Tab = 종료 · 단계 3 에코여도 최대 칸 · 소진 안내 없음(gh-trade 261012)', async () => {
     const user = userEvent.setup();
     render(
       <LimitChaserForm
@@ -229,10 +229,10 @@ describe('① Tab / Shift+Tab — 같은 그룹 안 값 행만 (D-14 · A5)', ()
       />,
     );
     await user.click(document.querySelector('[data-slot="lc-group-post-buy"] [data-slot="lc-group-fold"]') as HTMLElement);
-    // 소진 안내 줄이 「최대」 바로 아래 서 있어도 Tab 은 그 줄을 건너뛴다.
-    expect(document.querySelector('[data-slot="lc-post-buy-exhausted"]')).not.toBeNull();
-    await user.click(row('lc-post-buy-reentry'));
-    key(input('lc-post-buy-reentry')!, 'Tab');
+    expect(document.querySelector('[data-slot="lc-post-buy-exhausted"]')).toBeNull();
+    expect(row('lc-post-buy-reentry')).toBeNull();
+    await user.click(row('lc-post-buy-amount'));
+    key(input('lc-post-buy-amount')!, 'Tab');
     expect(editingId()).toBe('lc-post-buy-floor-qty');
     key(input('lc-post-buy-floor-qty')!, 'Tab');
     expect(editingId()).toBe('lc-post-buy-rebound');

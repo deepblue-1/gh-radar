@@ -258,6 +258,13 @@ describe('S→C 전용 필드 · 값 변경 판정 · 런타임 전용 에코 (q
     expect(limitChaserValuesChanged(a, { ...a, postBuyReboundPct: 40 })).toBe(true);
   });
 
+  it('gh-trade 261012 — 후매수 재진입 3 → 255 만 바뀐 에코는 값 변경이 아니고 「서버 반영 완료」 도 없다(서버가 읽지 않는 칸)', () => {
+    const a = at({ buyEnabled: true, postBuyReentry: 3 });
+    const b = { ...a, postBuyReentry: 255 };
+    expect(limitChaserValuesChanged(a, b)).toBe(false);
+    expect(strategyLogLine(a, b) ?? '').not.toContain('서버 반영 완료');
+  });
+
   it.each([
     ['sellOrderQty', { sellOrderQty: 42 }],
     ['sellQtyTrackBaseline', { sellQtyTrackBaseline: 9_000 }],

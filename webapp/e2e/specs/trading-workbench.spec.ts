@@ -2599,7 +2599,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     // 2 는 버스트 해제 없는 탭, 1 은 자동 필드 없는 옛 탭 몫.
     expect(last.buy3Schema).toBe(5);
     expect(last.postBuyEnabled).toBe(true);
-    expect(last.postBuyReentry).toBe(3);
+    // 시드 에코 3 이어도 웹은 255 고정(gh-trade 261012 · 서버가 읽지 않는 칸 · C# 동형).
+    expect(last.postBuyReentry).toBe(255);
     expect(last.postBuyReboundPct).toBe(30);
     expect(last.buyWatchSide).toBeNull();
     expect(last.serverOnlySlots).toEqual([]);
@@ -2617,7 +2618,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(await buyLed.evaluate((el) => el.tagName)).toBe('SPAN');
     await buyLed.hover();
     await expect(page.getByRole('tooltip')).toContainText(
-      '후매수 보유중 — 산 물량이 전부 정리되면 다시 감시(남은 횟수 0 이면 소진)',
+      '후매수 보유중 — 산 물량이 전부 정리되면 다시 감시',
       { timeout: 5_000 },
     );
     await page.mouse.move(0, 0);
@@ -3710,7 +3711,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(rows.filter({ hasText: '매수1잔량이 최소 미만일 때만' })).toHaveCount(0);
   });
 
-  test('P24-6 후매수 단계 · 발동 override 무배너 — 단계 1 감시 중 → 2 보유중(매수 LED 주황 · 매도 · 취소 「… · 후매수 발동」 · 배너 · 「서버 반영 완료」 없음) → 3 소진(요약 「3회 · 남은 0회」 · 펼치면 안내 원문) (D-11 · D-12 · D-15 · Pitfall 8) (D-38 80%)', async ({
+  test('P24-6 후매수 단계 · 발동 override 무배너 — 단계 1 감시 중 → 2 보유중(매수 LED 주황 · 매도 · 취소 「… · 후매수 발동」 · 배너 · 「서버 반영 완료」 없음) → 3 소진 상태 유지 · 최대 칸 · 안내 없음(gh-trade 261012) (D-11 · D-12 · D-15 · Pitfall 8) (D-38 80%)', async ({
     page,
   }) => {
     // 선매수를 켜 둔다 — 단계 3(후매수 OFF)이 서버 접힘 하강 전이(D-02 후반)를 만들지 않게 이 케이스를 가른다.
@@ -3780,7 +3781,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(lcSub(page, 'lc-sell-watch-qty')).toHaveText('10주');
     await expect(lcSub(page, 'lc-cancel-watch-qty')).toHaveText('264,000주');
 
-    // 단계 3 — 소진(후매수 OFF · 잔여 0). 접힌 카드는 상태 「소진」 + 요약 「3회 · 남은 0회」, 펼치면 안내 원문.
+    // 단계 3 — 소진(후매수 OFF · 옛 gh-trade 상태 복원). 상태 「소진」 은 남고, 후매수 최대 칸 · 남은 횟수 · 소진 안내 줄은
+    // 없다(gh-trade 261012 — 서버가 횟수를 세지 않는다).
     await relay.pushLimitChaserEcho({
       ...seed,
       postBuyEnabled: false,
@@ -3796,13 +3798,10 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(rows.filter({ hasText: '서버 반영 완료' })).toHaveCount(0);
     expect(lcSetCount(relay), '서버 단계 에코는 제출을 만들지 않는다').toBe(before);
     const postSummary = card.locator('[data-slot="lc-group-post-buy"] [data-slot="lc-group-summary"]');
-    await expect(postSummary).toContainText('3회 · 남은 0회');
-    await expect(card.locator('[data-slot="lc-post-buy-exhausted"]')).toHaveCount(0);
+    await expect(postSummary).not.toContainText('남은');
     await expandLcGroup(card, 'post-buy');
-    await expect(card.locator('[data-slot="lc-post-buy-exhausted"]')).toHaveText(
-      '소진 — 「최대」에 횟수를 넣고 다시 켜면 그 값부터 세요',
-    );
-    await expect(lcValue(page, 'lc-post-buy-reentry')).toHaveText('3회 · 남은 0회');
+    await expect(card.locator('[data-slot="lc-post-buy-exhausted"]')).toHaveCount(0);
+    await expect(lcRow(page, 'lc-post-buy-reentry')).toHaveCount(0);
     await expect(buyLed).not.toHaveAttribute('data-tone', 'latent');
   });
 
@@ -3884,7 +3883,6 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(card.locator('[data-slot="lc-post-buy-trigger"]')).toContainText(
       `${manText(amountFromQty(330_000, 1_274_000))}330,000주`,
     );
-    await expect(lcValue(page, 'lc-post-buy-reentry')).toHaveText('3회 · 남은 3회');
     await expect(lcValue(page, 'lc-sweep-tick')).toHaveText('255건');
 
     const OPTIONS_SEL = `${cardSelector(E2E_ISIN)} [data-slot="card-body-options"]`;
@@ -4662,8 +4660,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
         (20-06 이 human_judgment 로 남긴 항목). 예약창(77 open)을 밀어 최악 라벨로 잰다.
       · ≥685 2열 — 매수주문 · 매도주문 두 그룹 헤더 높이가 같다(상태 한 줄). Phase 24 로 매수주문 공통 카드는
         2행(주문가격 · 비교가격)이 되어 「두 그룹 높이 같음」의 근거(같은 행 수)가 사라졌다 — 헤더만 잰다.
-      · Phase 24 — 선매수 · 줄매수 · 후매수 카드(기본 접힘)를 펼치고 새 행(선매수 5 · 줄매수 3 · 후매수 4 +
-        발동잔량)을 최악값(「177,000,000주」 · 「17,700,000주」 · 「255회 · 남은 255회」 · 「255건」)으로 잰다.
+      · Phase 24 — 선매수 · 줄매수 · 후매수 카드(기본 접힘)를 펼치고 새 행(선매수 5 · 줄매수 3 · 후매수 3 +
+        발동잔량)을 최악값(「177,000,000주」 · 「17,700,000주」 · 「255건」)으로 잰다.
   */
   test(`P20-3 최악값 × 본문 344 · ${LC_CHEVRON_MIN} · ${LC_COMPACT_MIN} · 830 · 992 — 우측 패널 잘림 0 · 행 44/56px(편집 전후 — 수량 8 · 파생 2 = 56) · 두 줄 행 최악값 「999,999,999만」/「2,147,483,647주」 · ≥${LC_COMPACT_MIN} 매수주문/매도주문 헤더 높이 동일 (D-20 · UI-SPEC 검증 훅 · Phase 31 S1 · S2)`, async ({
     page,
@@ -4721,7 +4719,6 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     // 최악값 시드는 매수·매도 두 게이트가 켜진 상태다 — 흐림(opacity .45) 없이 가장 짙은 글자로 잰다.
     await expect(lcSwitch(card, '매수주문 켜기')).toBeChecked();
     await expect(lcSwitch(card, '매도주문 켜기')).toBeChecked();
-    await expect(lcValue(page, 'lc-post-buy-reentry')).toHaveText('255회 · 남은 255회');
     // 세 그룹 카드 + 매수취소(quick-261012-oif)를 펼친다 — 접힘은 폼 상태라 밴드 · 탭 전환에 풀리지 않는다(R1).
     for (const slot of ['pre-buy', 'extra-buy', 'post-buy', 'cancel'] as const) await expandLcGroup(card, slot);
 
@@ -4863,7 +4860,6 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       'lc-extra-buy-min-qty',
       'lc-extra-buy-max-qty',
       'lc-post-buy-amount',
-      'lc-post-buy-reentry',
       'lc-post-buy-floor-qty',
       'lc-post-buy-rebound',
       'lc-post-buy-trigger',

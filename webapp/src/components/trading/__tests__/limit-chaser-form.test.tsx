@@ -244,7 +244,7 @@ describe('① 스위치 4개는 확인 없이 즉시 전송된다 (Phase 16 D-05
       postBuyReboundPct: 30,
       postBuyFloorAmount: 0,
       postBuyFloorQty: 0,
-      postBuyReentry: 3,
+      postBuyReentry: 255, // gh-trade 261012 — 클라 고정 255
       buyWatchAmount: 0,
       buyWatchQty: 0,
       cancelWatchAmount: 0,
@@ -637,12 +637,12 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
     const rows = document.querySelectorAll<HTMLElement>(
       '[data-lc-field]:not([data-slot="lc-check-row"] [data-lc-field]), [data-slot="lc-check-row"], [data-slot="lc-derived"], [data-slot="lc-post-buy-trigger"], [data-slot="lc-auto-sell-sold"], [data-slot="lc-auto-sell-basis"]',
     );
-    // 값 행 19(공통 2 · 선매수 3 · 줄매수 3 · 후매수 4 · 매도주문 4 · 취소 1 · 자동매도 2) + 3택 행 2(자동매도 방법 —
+    // 값 행 18(공통 2 · 선매수 3 · 줄매수 3 · 후매수 3 — 최대 칸 폐지 gh-trade 261012 · 매도주문 4 · 취소 1 · 자동매도 2) + 3택 행 2(자동매도 방법 —
     // 마우스 기기는 「라벨 ─ 값 ›」 행과 카드 ≥992 세그먼트 행을 둘 다 마운트하고 컨테이너 쿼리로 하나만 보인다) +
-    // 체크 행 7(+ 매수주문 버스트 취소 · quick-261003-rc4 · quick-261012-oif) + 발동잔량 1 + 자동매도 누적 · 기준 2 = 31
+    // 체크 행 7(+ 매수주문 버스트 취소 · quick-261003-rc4 · quick-261012-oif) + 발동잔량 1 + 자동매도 누적 · 기준 2 = 30
     // (고정 스키마 — E1 zero-one-many · 매도 기준선 행은 quick-261012-oif 에서 지웠다).
-    expect(rows).toHaveLength(31);
-    // Phase 31 D-07 · D-05 — 수량 8칸(체크 값 행 2개는 체크 행 상자) + 발동잔량 = 56px 두 줄 9개 · 나머지 22개 44px.
+    expect(rows).toHaveLength(30);
+    // Phase 31 D-07 · D-05 — 수량 8칸(체크 값 행 2개는 체크 행 상자) + 발동잔량 = 56px 두 줄 9개 · 나머지 21개 44px.
     const QTY_IDS = [
       'lc-buy-watch-qty',
       'lc-buy-min-trade-qty',
@@ -1434,7 +1434,6 @@ describe('WR-01 — buy3 선매수 금액 0 전략은 새 마운트 · 재마운
 describe('⑮ 매수 카드 4장 · 제목줄 접기 · 요약 줄 · 자동 펼침 · 후매수 단계 (Phase 24 ⑤ ⑥ ⑩ · R1)', () => {
   const FOLD_SLOTS = ['pre-buy', 'extra-buy', 'post-buy'] as const;
   const rowsOf = (slot: string) => group(slot).querySelector('[data-slot="lc-group-rows"]') as HTMLElement;
-  const EXHAUSTED = '소진 — 「최대」에 횟수를 넣고 다시 켜면 그 값부터 세요';
 
   it('첫 렌더 — 세 그룹 카드 접힘(aria-expanded=false) · 행 영역 hidden 클래스(DOM 유지) · 요약 줄 3개 · 공통 카드는 접기 없음', () => {
     render(<LimitChaserForm {...props({ server: echo({ preBuyEnabled: true }) })} />);
@@ -1477,7 +1476,7 @@ describe('⑮ 매수 카드 4장 · 제목줄 접기 · 요약 줄 · 자동 펼
     expect(fold('post-buy')).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('요약 줄 — 선매수 「금액 · 매도잔량 · 체결량 · 한방」 · 줄매수 「금액 · 최소 · 최대」 · 후매수 5항목', () => {
+  it('요약 줄 — 선매수 「금액 · 매도잔량 · 체결량 · 한방」 · 줄매수 「금액 · 최소 · 최대」 · 후매수 4항목(「최대」 없음 · gh-trade 261012)', () => {
     render(
       <LimitChaserForm
         {...props({
@@ -1505,7 +1504,7 @@ describe('⑮ 매수 카드 4장 · 제목줄 접기 · 요약 줄 · 자동 펼
     // Phase 31 — 수량 kv 는 만원(위 줄 글자 하나) · 금액 0 은 의미어(UI-SPEC 「접힌 카드 요약 줄」).
     expect(kvs('pre-buy')).toEqual(['금액4,000만원', '매도잔량10,000만', '체결량꺼짐', '한방꺼짐']);
     expect(kvs('extra-buy')).toEqual(['금액4,000만원', '최소2,000만', '최대무제한']);
-    expect(kvs('post-buy')).toEqual(['금액4,000만원', '최대3회 · 남은 2회', '최소84만', '반등30%', '발동잔량—']);
+    expect(kvs('post-buy')).toEqual(['금액4,000만원', '최소84만', '반등30%', '발동잔량—']);
   });
 
   it('T-24-19 — 접힌 카드 안 행 확정이 거부되면 그 카드가 자동으로 펼쳐진다', () => {
@@ -1532,23 +1531,18 @@ describe('⑮ 매수 카드 4장 · 제목줄 접기 · 요약 줄 · 자동 펼
     expect(fold('pre-buy')).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('후매수 소진(단계 3) — 스위치 OFF · 상태 「소진」 · 「3회 · 남은 0회」 · 펼친 경우만 소진 안내', () => {
+  it('후매수 소진(단계 3 · 옛 gh-trade 상태 복원) — 스위치 OFF · 상태 「소진」 유지 · 펼쳐도 최대 칸 · 소진 안내 없음(gh-trade 261012)', () => {
     const exhausted = echo({ postBuyEnabled: false, postBuyPhase: 3, postBuyReentry: 3, postBuyReentryLeft: 0 });
     render(<LimitChaserForm {...props({ server: exhausted, groupStatus: { postBuy: '소진' } })} />);
     expect(sw('후매수 켜기')).toHaveAttribute('aria-checked', 'false');
     expect(within(fold('post-buy')).getByText('소진')).toBeInTheDocument();
-    expect(rowText('lc-post-buy-reentry')).toBe('3회 · 남은 0회');
-    expect(document.querySelector('[data-slot="lc-post-buy-exhausted"]')).toBeNull();
     click(fold('post-buy'));
-    const note = document.querySelector('[data-slot="lc-post-buy-exhausted"]') as HTMLElement;
-    expect(note.textContent).toBe(EXHAUSTED);
-    // 「최대」 행 바로 아래.
-    expect(row('lc-post-buy-reentry').nextElementSibling).toBe(note);
+    expect(row('lc-post-buy-reentry')).toBeNull();
+    expect(document.querySelector('[data-slot="lc-post-buy-exhausted"]')).toBeNull();
   });
 
-  it('단계 0 이면 최대 「3회」 · 발동잔량 행은 단계 0 에서도 늘 그려진다(「—」 + sr-only 「없음」)', () => {
+  it('단계 0 이어도 발동잔량 행은 늘 그려진다(「—」 + sr-only 「없음」)', () => {
     render(<LimitChaserForm {...props({ server: echo({ postBuyReentry: 3 }) })} />);
-    expect(rowText('lc-post-buy-reentry')).toBe('3회');
     const trig = group('post-buy').querySelector('[data-slot="lc-post-buy-trigger"]') as HTMLElement;
     expect(trig).not.toBeNull();
     expect(trig.querySelector('button')).toBeNull();
@@ -1556,7 +1550,7 @@ describe('⑮ 매수 카드 4장 · 제목줄 접기 · 요약 줄 · 자동 펼
     expect(trig.querySelector('.sr-only')!.textContent).toBe('없음');
   });
 
-  it('보유중(단계 2) — 발동잔량 위 줄 「4,290,000만」 `--up` · 아래 줄 「330,000주」 · 최대 「3회 · 남은 2회」', () => {
+  it('보유중(단계 2) — 발동잔량 위 줄 「4,290,000만」 `--up` · 아래 줄 「330,000주」', () => {
     render(
       <LimitChaserForm
         {...props({
@@ -1569,7 +1563,6 @@ describe('⑮ 매수 카드 4장 · 제목줄 접기 · 요약 줄 · 자동 펼
     const v = within(trig).getByText(`${amountFromQty(330_000, 130_000).toLocaleString('ko-KR')}만`);
     expect(v.className).toContain('text-[var(--up)]');
     expect(trig.querySelector('[data-slot="lc-row-sub"]')!.textContent).toBe('330,000주');
-    expect(rowText('lc-post-buy-reentry')).toBe('3회 · 남은 2회');
   });
 
   it('잠금 중(단계 1 · 발동잔량 0) — 해제선 역산 「3,432,000만」 · 아래 「264,000주」 를 `--muted-fg` 회색 + sr-only 「잠금 해제선」 (quick-261002-fim · P31 D-05)', () => {
@@ -1694,7 +1687,6 @@ describe('⑯ 라벨 개명 · 시트 제목 · 접근성 이름 접두 · 의�
 
     it.each([
       ['lc-buy-order-amount', '선매수 금액'],
-      ['lc-post-buy-reentry', '후매수 최대 횟수'],
       ['lc-sweep-tick', '한방 건수'],
       ['lc-sell-watch-qty', '매수잔량'],
       ['lc-cancel-watch-qty', '매수잔량'],
@@ -1705,27 +1697,13 @@ describe('⑯ 라벨 개명 · 시트 제목 · 접근성 이름 접두 · 의�
       expect(document.querySelector('[data-slot="numpad-confirm"]')!.textContent).toBe(`${title} 적용`);
     });
 
-    it('시트 「지금 ○○」 — 수량 칸 0 은 「지금 0만」(시트 안내 줄은 31-06) · 재진입은 잔여가 아니라 설정값 「지금 3회」', () => {
-      const { unmount } = render(<LimitChaserForm {...props({ server: echo({ extraBuyMaxQty: 0 }) })} />);
+    it('시트 「지금 ○○」 — 수량 칸 0 은 「지금 0만」(시트 안내 줄은 31-06)', () => {
+      render(<LimitChaserForm {...props({ server: echo({ extraBuyMaxQty: 0 }) })} />);
       click(row('lc-extra-buy-max-qty'));
       expect(document.querySelector('[data-slot="numpad-server"]')!.textContent).toBe('지금 0만');
-      unmount();
-      render(
-        <LimitChaserForm
-          {...props({ server: echo({ postBuyEnabled: true, postBuyPhase: 1, postBuyReentry: 3, postBuyReentryLeft: 2, postBuyReboundPct: 30 }) })}
-        />,
-      );
-      click(row('lc-post-buy-reentry'));
-      expect(document.querySelector('[data-slot="numpad-server"]')!.textContent).toBe('지금 3회');
     });
 
-    it('재진입은 0 을 받는다(0 = 사지 않음) · 반등 시트는 1~100(0 잠금)', () => {
-      const { unmount } = render(<LimitChaserForm {...props()} />);
-      click(row('lc-post-buy-reentry'));
-      const pad = within(within(sheetEl()!).getByRole('group', { name: '숫자 키패드' }));
-      click(pad.getByRole('button', { name: '0' }));
-      expect(document.querySelector('[data-slot="numpad-confirm"]')).toBeEnabled();
-      unmount();
+    it('반등 시트는 1~100(0 잠금)', () => {
       render(<LimitChaserForm {...props()} />);
       click(row('lc-post-buy-rebound'));
       const pad2 = within(within(sheetEl()!).getByRole('group', { name: '숫자 키패드' }));
@@ -2291,7 +2269,7 @@ describe('⑱ 그룹 켜기 사전 검증 줄 · D-33 ① 폐기 · D-11 재제�
     expect(onClientLog).not.toHaveBeenCalled();
   });
 
-  it('D-11 — 후매수 ON 에서 다른 행(반등) 확정 → cfg postBuyReentry = 에코 설정값 3(잔여 1 아님) · postBuyReentryLeft 키 없음', () => {
+  it('D-11 — 후매수 ON 에서 다른 행(반등) 확정 → cfg postBuyReentry = 255 고정 · 에코 설정값 3 · 잔여 1 무관 · postBuyReentryLeft 키 없음', () => {
     render(
       <LimitChaserForm
         {...props({
@@ -2311,7 +2289,7 @@ describe('⑱ 그룹 켜기 사전 검증 줄 · D-33 ① 폐기 · D-11 재제�
     expect(sentConfigs()).toHaveLength(1);
     const cfg = lastConfig();
     expect(cfg.postBuyReboundPct).toBe(40);
-    expect(cfg.postBuyReentry).toBe(3);
+    expect(cfg.postBuyReentry).toBe(255);
     expect(cfg).not.toHaveProperty('postBuyReentryLeft');
     expect(cfg).not.toHaveProperty('postBuyPhase');
   });
@@ -3061,7 +3039,7 @@ describe('⑳ 새 전략 기본값(D-04) · 상장주식수 시딩(D-17) — 폼
     for (const [id, text] of Object.entries(want)) expect(rowText(id), id).toBe(text);
   };
 
-  it('E1 새 전략 — 금액 각 4,000만원 · 반등 30% · 최소 100,000주 · 최대 3회 · 스위치 전부 OFF', () => {
+  it('E1 새 전략 — 금액 각 4,000만원 · 반등 30% · 최소 100,000주 · 스위치 전부 OFF', () => {
     render(<LimitChaserForm {...props({ server: null, upperLimit: 30_000 })} />);
     expect(rowText('lc-buy-order-amount')).toBe('4,000만원');
     expect(sw('매수주문 켜기')).toHaveAttribute('aria-checked', 'false');
@@ -3138,7 +3116,7 @@ describe('⑳ 새 전략 기본값(D-04) · 상장주식수 시딩(D-17) — 폼
       postBuyReboundPct: 30,
       postBuyFloorAmount: 0,
       postBuyFloorQty: 0,
-      postBuyReentry: 3,
+      postBuyReentry: 255, // gh-trade 261012 — 클라 고정 255
       buyOrderQty: buyOrderQtyFromAmount(4000, 30_000),
     });
   });
@@ -3450,16 +3428,6 @@ describe('줄매수 자동 — 제목줄 체크 · 동반 해제 · 열린 그�
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it('후매수 「최대」 행 — 단계 0 · 에코 ☐줄매수 자동 · 잔여 2 → 「3회 · 남은 2회」', () => {
-    render(
-      <LimitChaserForm
-        {...props({ server: echo({ postBuyPhase: 0, postBuyReentry: 3, postBuyReentryLeft: 2, extraBuyAuto: true }) })}
-      />,
-    );
-    click(fold('post-buy'));
-    expect(rowText('lc-post-buy-reentry')).toBe('3회 · 남은 2회');
   });
 });
 
@@ -3988,7 +3956,8 @@ describe('Phase 27 새 폼 84 시딩', () => {
       buyOrderAmount: 5000,
       extraBuyOrderAmount: 6000,
       postBuyOrderAmount: 7000,
-      postBuyReentry: 4,
+      // 84 postBuyMaxCount 4 는 폼 값에만 시딩, 전송은 255(gh-trade 261012 · 서버가 읽지 않는 칸).
+      postBuyReentry: 255,
       // 84 의 봉인 주 postBuyFloorQty 는 폼에 시딩하지 않는다 — 이 SAVED 는 금액 키가 없는 구 relay 84 라 후매수 최소 폴백 0.
       postBuyFloorAmount: 0,
       postBuyFloorQty: 0,
