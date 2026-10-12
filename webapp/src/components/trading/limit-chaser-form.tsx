@@ -241,6 +241,7 @@ const ARM_BLOCKED_TEXT = {
   sellWatchPriceAmount: '매도 비교가격이 0 입니다 — 금액(만원)을 주로 환산할 수 없습니다. 매도 비교가격을 입력하세요.',
   extraBuyMaxFloored:
     '줄매수 최대가 0주로 환산됩니다 — 0 은 무제한이라 의도와 반대로 동작합니다. 최대 금액을 늘리거나 0(무제한) 으로 하세요.',
+  extraBuyMinOverMax: '줄매수의 최소 잔량이 최대 잔량보다 큽니다 — 최대를 0(무제한) 으로 하거나 최소를 낮추세요.',
   preBuyTradeFloored:
     '선매수 체결량이 0주로 환산됩니다 — 0주면 매수 비교가격의 첫 체결부터 매수가 나갑니다. 체결량 금액을 늘리거나 ☐체결량을 끄세요.',
   sellTradeFloored:
@@ -459,7 +460,8 @@ function armBlockOf(values: LimitChaserFormValues, server: RelayLimitChaser | nu
       | 2  | C# sellNeedsWatchPrice ∧ 매도 비교가 0                                   | sellWatchPriceAmount                 | 없음        |
       | 3  | 기존 게이트 사유(가격 0 · 그룹 수량 0 · 매도 매수잔량 환산 0주 + 접미)   | armBlockedTextOf                     | {게이트} ·  |
       | 4  | 선매수 ∧ 한방 ∧ 한방가격 0                                               | sweepPrice                           | 선매수 한방 · |
-      | 5  | 줄매수 ∧ 최대 금액 > 0 ∧ 환산 0주 (C# 5199 addMaxFloored)                | extraBuyMaxFloored + 접미            | 없음        |
+      | 5  | (줄매수 ∨ 줄매수 자동) ∧ 최대 금액 > 0 ∧ 환산 0주 (C# addMaxFloored)      | extraBuyMaxFloored + 접미            | 없음        |
+      | 5b | (줄매수 ∨ 줄매수 자동) ∧ 최대 주 ≠ 0 ∧ 최소 주 > 최대 주 (C# 같은 if)     | extraBuyMinOverMax                   | 없음        |
       | 6a | 매수주문 ∧ 선매수 ∧ ☐체결량 ∧ 체결량 금액 > 0 ∧ 환산 0주 (C# 5255)        | preBuyTradeFloored + 접미            | 없음        |
       | 6b | (매도주문 ∨ 후매수 ∨ 후매수 자동) ∧ ☐체결 ∧ 체결 금액 > 0 ∧ 환산 0주 (5257) | sellTradeFloored + 접미             | 없음        |
       | 7  | 취소:잔량 ∧ 취소 매수잔량 환산 0주 (C# 5276)                              | cancelQtyZero + 접미                 | 없음        |
@@ -467,6 +469,8 @@ function armBlockOf(values: LimitChaserFormValues, server: RelayLimitChaser | nu
     2 · 5~8 은 문장이 주어를 품는다(C# 원문) — 접두를 달지 않는다. C# 의 「매도 비교가 0(anyCancel)」 차단(5296)은 2 · 7 · 8 이
     먼저 잡아 여기서 도달하지 않으므로 문장을 따로 두지 않는다. 0주 판정의 주는 `lcSubmitQtyOf`(= buildCfg 가 싣는 주)다.
     서버 54 는 0주 임계를 거부하지 않는다 — 0주 줄매수 최대는 무제한, 0주 체결 임계는 첫 체결 발주로 뒤집힌다(AMT-04).
+    5 · 5b 의 「줄매수 ∨ 자동」은 C# `addBuyLive`(gh-trade Phase 32 WR-06) — ☐자동은 이탈 뒤 서버가 줄매수를 다시 켜므로 ☐줄매수가
+    꺼진 대기에서도 구간이 살아 있다. 서버도 그 조합의 최소 > 최대를 54 ERROR 로 거부하고 줄매수 · 자동을 함께 끈다.
   */
   if (isDeleteIntent(values)) return null;
   if (buyNeedsWatchPrice(values) && values.buyWatchPrice === 0) {
@@ -480,9 +484,11 @@ function armBlockOf(values: LimitChaserFormValues, server: RelayLimitChaser | nu
     return `${SWEEP_LABEL}${ARM_BLOCKED_SEP}${ARM_BLOCKED_TEXT.sweepPrice}`;
   }
   const floored = (amount: LcAmountKey): boolean => lcSubmitQtyOf(values, amount, server) === 0;
-  if (values.extraBuyEnabled && values.extraBuyMaxAmount > 0 && floored('extraBuyMaxAmount')) {
+  const extraBuyLive = values.extraBuyEnabled || values.extraBuyAuto;
+  if (extraBuyLive && values.extraBuyMaxAmount > 0 && floored('extraBuyMaxAmount')) {
     return ARM_BLOCKED_TEXT.extraBuyMaxFloored + zeroQtySuffixOf(values.extraBuyMaxAmount);
   }
+  if (extraBuyLive && extraBuyMinOverMax(values, server)) return ARM_BLOCKED_TEXT.extraBuyMinOverMax;
   if (
     values.buyEnabled &&
     values.preBuyEnabled &&
@@ -612,7 +618,7 @@ type PrecheckSlot = (typeof GROUP_SLOT)[BuyGroupGate];
  *     금액이 실패하면 수량은 보지 않는다(같은 원인을 두 번 말하지 않는다).
  *   - 수량: `buyOrderQtyFromAmount(그룹 금액, 공통 주문가격) === 0` — 웹 `canArmOf` · relay `…OrderQty === 0` 과 같은 식.
  *   - 선매수: 한방 체크 ON ∧ 한방가격 0 → `ARM_BLOCKED_TEXT.sweepPrice`(IN-03 — 폼 맨 위가 아니라 선매수 카드 한 줄).
- *   - 줄매수: D-10 최대 ≠ 0 ∧ (최소 금액 > 최대 금액(C# 동형) ∨ 최소 제출 주 > 최대 제출 주(> 0) — IN-01 · Phase 31).
+ *   - 줄매수: D-10 최대 제출 주 ≠ 0 ∧ 최소 제출 주 > 최대 제출 주(`extraBuyMinOverMax` · C# 동형).
  *   - 후매수: 반등 1~100 밖(D-20 · 레거시 0) → 매도비율 0(D-27 · 레거시).
  * `values` = 이 확정이 실을 기준값(서버 동기값 — 훅과 같은 `lcBaseValues`). `server` = 제출 주의 에코 메모(`lcSubmitQtyOf`).
  */
@@ -628,7 +634,7 @@ function groupPrechecksOf(
   if (gate === 'preBuyEnabled' && values.sweepEnabled && values.sweepWatchPrice === 0) {
     out.push(ARM_BLOCKED_TEXT.sweepPrice);
   }
-  if (gate === 'extraBuyEnabled' && values.extraBuyMaxAmount !== 0 && extraBuyMinOverMax(values, server)) {
+  if (gate === 'extraBuyEnabled' && extraBuyMinOverMax(values, server)) {
     out.push(LC_COMMIT_TEXT.minOverMax);
   }
   if (gate === 'postBuyEnabled') {
@@ -639,19 +645,16 @@ function groupPrechecksOf(
 }
 
 /**
- * 줄매수 최소 > 최대(최대 ≠ 0 일 때만 부른다) — 두 판정의 합이다(IN-01).
- *   ① 금액끼리(C# `LimitChaserForm.cs` 5200 동형) — 사람이 넣은 값의 순서. 같은 비교가 내림이면 주 순서와 같다.
- *   ② 제출 주끼리 — 에코 메모 칸은 내림이 아니라 서버 주를 싣는다. 최소 에코 1,000주 @12,354원(표시 1,235만) 옆에 최대
- *     1,235만을 넣으면 금액은 같아도 최대 = 999주라 서버가 줄매수를 ERROR 로 눕힌다. ② 는 그 경우만 더 막는다(금액 최소 <
- *     최대이면 주도 최소 ≤ 최대 — 메모 표시값은 반올림이라 그 아래 금액은 늘 더 적은 주로 내림된다).
- *   최대 주 0(최대 금액 > 0 인데 내림 0주)은 여기서 보지 않는다 — 「줄매수 최대 0주」 차단(`armBlockOf` 5 · C# addMaxFloored)이
- *   먼저다(C# 은 addMaxFloored 를 최소 > 최대보다 앞에 둔다).
- * ★ ② 는 C# 에 없는 웹 보강이다 — gh-trade 인계 후보(C# 주석 「만원끼리 … 단조라 결과가 같다」 는 에코 메모 칸에서 틀린다).
+ * 줄매수 최소 > 최대 — **제출 주끼리**(C# `LimitChaserForm.cs` `addBuyMaxQtyRaw != 0 && addBuyMinQtyRaw > addBuyMaxQtyRaw` 동형 ·
+ * gh-trade e4a66ae2). 서버 Gateway 검증과 같은 값이다. 만원끼리 비교하면 에코 메모 칸에서 어긋난다 — 최소 에코 1,000주
+ * @12,354원(표시 1,235만) 옆에 최대 1,235만을 넣으면 금액은 같아도 최대 = 999주라 서버가 줄매수를 ERROR 로 눕힌다(IN-01).
+ * 반대로 금액은 최소 > 최대여도 같은 주로 내림되면 서버는 받는다 — 막지 않는다.
+ *   최대 주 0 은 무제한이라 보지 않는다. 최대 금액 > 0 인데 내림 0주인 경우는 「줄매수 최대 0주」 차단(`armBlockOf` 5 · C#
+ *   addMaxFloored)이 먼저다.
  */
 function extraBuyMinOverMax(values: LimitChaserFormValues, server: RelayLimitChaser | null): boolean {
-  if (values.extraBuyMinAmount > values.extraBuyMaxAmount) return true;
   const maxQty = lcSubmitQtyOf(values, 'extraBuyMaxAmount', server);
-  return maxQty > 0 && lcSubmitQtyOf(values, 'extraBuyMinAmount', server) > maxQty;
+  return maxQty !== 0 && lcSubmitQtyOf(values, 'extraBuyMinAmount', server) > maxQty;
 }
 
 /** 그룹 켜기 사전 검증 — 첫 실패 문구 하나, 통과면 null(누르는 순간 판정 · R7). 끄는 방향에는 부르지 않는다(T-16-44). */

@@ -4073,7 +4073,7 @@ describe('Phase 27 새 폼 84 시딩', () => {
  * Phase 31 31-04 — 수량 8칸 만원 · cfg 8쌍 조립(D-01 · D-02 · D-06 · D-10 · D-12 · AMT-02).
  * 예시 수치는 UI-SPEC 정정표(12,870원). 기대 주는 shared `qtyFromAmount` 로 만든다(공식을 테스트에 다시 적지 않는다).
  */
-describe('P31 수량 8칸 만원 — cfg 8쌍 되싣기 · 비교가 변경 재계산 · 금액끼리 최소>최대(+ 제출 주끼리 · IN-01) · 시딩 미룸 · 취소 추적 되싣기', () => {
+describe('P31 수량 8칸 만원 — cfg 8쌍 되싣기 · 비교가 변경 재계산 · 제출 주끼리 최소>최대(IN-01 · WR-06 자동 포함) · 시딩 미룸 · 취소 추적 되싣기', () => {
   const P = 12_870;
   /** C# 이 둔 원값 — 각 금액이 자기 짝 주와 맞는다(1001만 → 777주 처럼 역산 1000 과 다른 원값 포함). */
   const C_SHARP = {
@@ -4141,7 +4141,7 @@ describe('P31 수량 8칸 만원 — cfg 8쌍 되싣기 · 비교가 변경 재�
     expect(qtyFromAmount(1000, 13_000)).toBe(769);
   });
 
-  it('(c) 줄매수 최소 2,000만 · 최대 1,500만 → 줄매수 켜기 = 전송 0 · 최소/최대 문구(금액끼리 · C# 동형)', () => {
+  it('(c) 줄매수 최소 2,000만 · 최대 1,500만 → 줄매수 켜기 = 전송 0 · 최소/최대 문구(제출 주끼리 · C# 동형)', () => {
     render(
       <LimitChaserForm
         {...props({
@@ -4183,6 +4183,55 @@ describe('P31 수량 8칸 만원 — cfg 8쌍 되싣기 · 비교가 변경 재�
     expect(precheckIn('extra-buy')?.textContent).toBe(
       '최소 잔량이 최대 잔량보다 커요 — 최대를 0(무제한)으로 하거나 최소를 낮춰 주세요',
     );
+  });
+
+  /** C# `addBuyLive` 차단 문장(gh-trade Phase 32 WR-06 · e4a66ae2) — 전송 직전 `armBlockOf` 5b. */
+  const MIN_OVER_MAX_ARM = '줄매수의 최소 잔량이 최대 잔량보다 큽니다 — 최대를 0(무제한) 으로 하거나 최소를 낮추세요.';
+  /** 최소 2,000만(1,554주) · 최대 1,500만(1,165주) @12,870 — 주끼리도 최소 > 최대. */
+  const minOverMaxEcho = (over: Partial<RelayLimitChaser> = {}): RelayLimitChaser =>
+    csharpEcho({
+      extraBuyOrderAmount: 50,
+      extraBuyMinAmount: 2000,
+      extraBuyMinQty: qtyFromAmount(2000, P),
+      extraBuyMaxAmount: 1500,
+      extraBuyMaxQty: qtyFromAmount(1500, P),
+      ...over,
+    });
+
+  it('(c3) WR-06 ☐줄매수 OFF 에서 ☐자동 켜기 · 최소 > 최대(주) → 전송 0 · 폼 맨 위 C# 차단 문장', () => {
+    render(<LimitChaserForm {...props({ server: minOverMaxEcho() })} />);
+    click(chk('줄매수 자동'));
+    expect(sentConfigs()).toHaveLength(0);
+    expect(submitError()?.textContent).toBe(MIN_OVER_MAX_ARM);
+  });
+
+  it('(c4) WR-06 ☐자동만 켜진 에코 · 최소 > 최대 → 무관한 칸(한방 틱) 확정도 전송 0 — 서버가 줄매수 · 자동을 함께 눕히기 전에 막는다', () => {
+    render(<LimitChaserForm {...props({ server: minOverMaxEcho({ extraBuyAuto: true }) })} />);
+    editInline('lc-sweep-tick', '5');
+    expect(sentConfigs()).toHaveLength(0);
+    expect(screen.getByRole('alert').textContent).toBe(MIN_OVER_MAX_ARM);
+  });
+
+  it('(c5) 금액은 최소 > 최대여도 같은 주로 내림되면 막지 않는다 — 최소 1,001만 · 최대 1,000만 @12,870 = 둘 다 777주(제출 주끼리 · C# e4a66ae2)', () => {
+    expect(qtyFromAmount(1001, P)).toBe(777);
+    expect(qtyFromAmount(1000, P)).toBe(777);
+    render(
+      <LimitChaserForm
+        {...props({
+          server: csharpEcho({
+            extraBuyOrderAmount: 50,
+            extraBuyMinAmount: 1001,
+            extraBuyMinQty: 777,
+            extraBuyMaxAmount: 1000,
+            extraBuyMaxQty: 777,
+          }),
+        })}
+      />,
+    );
+    click(sw('줄매수 켜기'));
+    expect(precheckIn('extra-buy')).toBeNull();
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ extraBuyEnabled: true, extraBuyMinQty: 777, extraBuyMaxQty: 777 });
   });
 
   it('(d) 상장주식수 1,000만주 · 매수 비교가 0 인 새 폼 → 시딩 없음 → 비교가 12,870 이 들어오면 만원 시딩(매도 비교가 0 → 매도 체결 생략) · 전송 0', () => {
