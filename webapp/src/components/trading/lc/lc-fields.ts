@@ -23,9 +23,7 @@ import {
   LC_AMOUNT_MAX_MANWON,
   amountFromQty,
   autoSellBasisLabel,
-  echoAmountOf,
   lcAmountPairOf,
-  qtyForSubmit,
   type LcAmountKey,
   type LcAmountPair,
   type RelayLimitChaser,
@@ -34,7 +32,7 @@ import {
 import type { LcRowSub } from '@/components/trading/lc/setting-group';
 
 import { LC_FIELD_RANGES, type LcRange } from '@/lib/lc-ranges';
-import type { LimitChaserFormValues } from '@/lib/limit-chaser';
+import { lcSubmitQtyOf, type LimitChaserFormValues } from '@/lib/limit-chaser';
 import { rangeIssueText, type PadUnit } from '@/lib/numpad';
 
 /** 값(숫자) 필드 — 시트/인라인으로 편집한다. */
@@ -693,8 +691,9 @@ function amountPairOf(field: LcAmountKey): LcAmountPair {
 }
 
 /**
- * 그 칸 금액의 **제출 주** — shared `qtyForSubmit`(그룹 비교가 · 에코 메모 — 추적 ON 은 기준선). `buildCfg` 가 싣는 주와
- * 같은 호출이다(lib `lcSubmitQtyOf` 와 같은 식 — 아래 줄 · 안내 줄이 다른 식으로 다시 계산하지 않는다 · D-02 · D-06).
+ * 그 칸 금액의 **제출 주** — lib `lcSubmitQtyOf`(shared `qtyForSubmit` · 그룹 비교가 · 에코 메모 — 추적 ON 은 기준선)에
+ * 그 금액을 넣어 부른다. `buildCfg` · 무장 판정이 싣는 주와 **같은 함수**다 — 아래 줄 · 안내 줄이 식을 다시 적지 않는다
+ * (D-02 · D-06 · IN-03).
  */
 function submitQtyOf(
   field: LcAmountKey,
@@ -702,8 +701,7 @@ function submitQtyOf(
   values: LimitChaserFormValues,
   server: RelayLimitChaser | null,
 ): number {
-  const pair = amountPairOf(field);
-  return qtyForSubmit(amount, values[pair.price], server ? echoAmountOf(server, pair) : null);
+  return lcSubmitQtyOf({ ...values, [field]: amount }, field, server);
 }
 
 /** 제출 주 글자 — 0 이고 의미어가 있는 칸은 의미어(「무제한」「1주」「없음」), 그 밖 「{주}주」(0 이면 「0주」). */
