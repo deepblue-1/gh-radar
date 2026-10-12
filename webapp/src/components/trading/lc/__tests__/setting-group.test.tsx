@@ -661,14 +661,14 @@ describe('⑥ 공통 규율 — 44px · 컨테이너 쿼리만 · 말줄임 0', 
     }
   });
 
-  it('폭 백스톱 L3 — 값 쉐브런은 폰 밴드(<685)에서 숨고 ≥685 에서만 선다(상따 설정 전체 한 규칙 · Phase 24 E1 overflow)', () => {
+  it('폭 백스톱 L3 — 값 쉐브런은 lc <360 에서만 숨고 ≥360 에서 선다(상따 설정 전체 한 규칙 · Phase 24 E1 overflow · quick-261012-oif 실측)', () => {
     const { container } = renderAll();
     const chevs = Array.from(container.querySelectorAll<HTMLElement>('[data-slot="lc-row-chevron"]'));
     expect(chevs.length).toBeGreaterThan(0);
     for (const c of chevs) {
       const tokens = c.className.split(/\s+/);
       expect(tokens).toContain('hidden');
-      expect(tokens).toContain('@min-[685px]/lc:inline');
+      expect(tokens).toContain('@min-[360px]/lc:inline');
       expect(c.getAttribute('aria-hidden')).toBe('true');
     }
   });

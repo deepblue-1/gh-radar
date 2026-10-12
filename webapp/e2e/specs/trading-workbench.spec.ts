@@ -108,6 +108,8 @@ const VI_ORDERS = [
 type Band = 'phone' | 'compact' | 'wide' | 'desktop';
 /** 카드(`lc`) 첫 경계(폰|컴팩트) — 정본 globals.css §2.2b `LC_COMPACT_MIN_PX`. */
 const LC_COMPACT_MIN = 685;
+/** 값 쉐브런 L3 임계(`setting-group.tsx` `ValueWithChevron` `@min-[360px]/lc` · 밴드 경계 아님 · quick-261012-oif 실측). */
+const LC_CHEVRON_MIN = 360;
 /**
  * Phase 31 폭 백스톱 최악값(UI-SPEC 「폭 백스톱」 · Pitfall 5 · 7) — 수량 8칸 에코 주 = int.MaxValue(`LC_QTY_WIRE_MAX`),
  * 비교가 1,274,000 이면 역산 만원이 `echoAmountOf` Clamp 로 999,999,999 에서 멈추고 제출 주 메모가 int.MaxValue 라
@@ -184,7 +186,7 @@ const lcSwitch = (scope: Page | Locator, name: string): Locator =>
  * 접기 버튼이 접혀 있으면 눌러 펼친다(멱등 — 이미 펼쳐져 있으면 누르지 않는다). 접기는 로컬 동작이라
  * `lc.set` 을 보내지 않는다.
  */
-async function expandLcGroup(card: Page | Locator, slot: 'pre-buy' | 'extra-buy' | 'post-buy'): Promise<void> {
+async function expandLcGroup(card: Page | Locator, slot: 'pre-buy' | 'extra-buy' | 'post-buy' | 'cancel'): Promise<void> {
   const fold = card.locator(`[data-slot="lc-group-${slot}"] [data-slot="lc-group-fold"]`);
   if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click();
   await expect(fold).toHaveAttribute('aria-expanded', 'true');
@@ -3815,7 +3817,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       · 폰 밴드 긴 상태 문구(E1 long-text): 「켜짐 · 켠 매수 없음」 · 「무장 · 대기 · 후매수 발동」은 제목 옆 흐름의
         둘째 줄 · 말줄임 0 · 스위치는 헤더 오른쪽 끝.
   */
-  test(`P24-7 폭 최악값 × 본문 344 · ${LC_COMPACT_MIN} · 830 · 992 — 패널 넘침 0 · 라벨 · 값 · 요약 잘림 0 · 말줄임 0 · 행 44/56 · 접기 버튼 ≥32 · 흐림 한 겹 0.45 · 폰 밴드 긴 상태 문구 둘째 줄 · 두 줄 행 최악값 「999,999,999만」/「2,147,483,647주」 · L4 라벨 접힘 (UI-SPEC 검증 훅 · E1 overflow · E1 long-text · E3 overflow · Phase 31 S1 · S2)`, async ({
+  test(`P24-7 폭 최악값 × 본문 344 · ${LC_COMPACT_MIN} · 830 · 992 — 패널 넘침 0 · 라벨 · 값 · 요약 잘림 0 · 말줄임 0 · 행 44/56 · 접기 버튼 ≥32 · 흐림 한 겹 0.45 · 폰 밴드 긴 상태 문구 둘째 줄 · 두 줄 행 최악값 「999,999,999만」/「2,147,483,647주」 (UI-SPEC 검증 훅 · E1 overflow · E1 long-text · E3 overflow · Phase 31 S1 · S2)`, async ({
     page,
   }) => {
     const WORST = {
@@ -3829,8 +3831,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       sellOrderPrice: 1_274_000,
       sellWatchPrice: 1_274_000,
       buyOrderAmount: 9_999,
-      // Phase 31 — 수량 8칸 최악값(QTY_WORST · 금액 0 = 역산 Clamp). 기준선 100,000 · 발동잔량 330,000 은 L4(「잔량추적 /
-      // 기준선」)와 파생 행 최악값(역산 「12,740,000만」 · 「42,042,000만」)을 만든다.
+      // Phase 31 — 수량 8칸 최악값(QTY_WORST · 금액 0 = 역산 Clamp). 발동잔량 330,000 은 파생 행 최악값(역산
+      // 「42,042,000만」)을 만든다. 매도 「잔량추적 기준선」 행 · 그 L4 실측은 quick-261012-oif 에서 지웠다.
       buyWatchQty: QTY_WORST,
       sellWatchQty: QTY_WORST,
       cancelWatchQty: QTY_WORST,
@@ -3887,7 +3889,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
 
     const OPTIONS_SEL = `${cardSelector(E2E_ISIN)} [data-slot="card-body-options"]`;
     const options = card.locator('[data-slot="card-body-options"]');
-    const FOLD_SLOTS = ['pre-buy', 'extra-buy', 'post-buy', 'auto-sell'] as const;
+    const FOLD_SLOTS = ['pre-buy', 'extra-buy', 'post-buy', 'cancel', 'auto-sell'] as const;
     const setAllFolds = async (expanded: boolean) => {
       for (const slot of FOLD_SLOTS) {
         const fold = card.locator(`[data-slot="lc-group-${slot}"] [data-slot="lc-group-fold"]`);
@@ -4055,53 +4057,6 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       headerChecks[`${target} ${word}`] = `체크 ${h.checkW}×${h.checkH}`;
     };
 
-    /**
-     * L4(Phase 31 신설 · UI-SPEC 폭 백스톱) — 본문 344 의 「잔량추적 기준선」 은 값(「12,740,000만」)이 넓어 라벨이 **낱말 경계에서만**
-     * 「잔량추적 / 기준선」 두 줄로 접힌다. 말줄임 0 · 글자 크기 불변(14px) · 행 높이 56 불변 · 값 잘림 0.
-     */
-    const l4: string[] = [];
-    const checkL4Label = async (label: string) => {
-      const g = await page.evaluate((sel) => {
-        const row = document.querySelector<HTMLElement>(`${sel} [data-slot="lc-derived"]`)!;
-        const lab = row.firstElementChild as HTMLElement;
-        const text = lab.firstChild!;
-        const lineTopsOf = (from: number, to: number) => {
-          const range = document.createRange();
-          range.setStart(text, from);
-          range.setEnd(text, to);
-          return Array.from(new Set(Array.from(range.getClientRects()).filter((r) => r.width > 0).map((r) => Math.round(r.top))));
-        };
-        const all = text.textContent ?? '';
-        const gap = all.indexOf(' ');
-        const cs = getComputedStyle(lab);
-        const value = row.lastElementChild as HTMLElement;
-        return {
-          text: all,
-          rowH: Math.round(row.getBoundingClientRect().height * 100) / 100,
-          labelH: Math.round(lab.getBoundingClientRect().height * 10) / 10,
-          lineH: parseFloat(cs.lineHeight),
-          fontSize: cs.fontSize,
-          ellipsis: cs.textOverflow === 'ellipsis' || lab.classList.contains('truncate'),
-          firstWord: lineTopsOf(0, gap),
-          secondWord: lineTopsOf(gap + 1, all.length),
-          valueOverX: value.scrollWidth - value.clientWidth,
-          valueRight: value.getBoundingClientRect().right,
-          rowInnerRight: row.getBoundingClientRect().right - parseFloat(getComputedStyle(row).paddingRight),
-        };
-      }, OPTIONS_SEL);
-      expect(g.text, `${label} — 파생 행 라벨`).toBe('잔량추적 기준선');
-      expect(g.labelH, `${label} — L4 라벨이 두 줄로 접힌다 ${JSON.stringify(g)}`).toBeGreaterThan(g.lineH + 1);
-      expect(g.firstWord, `${label} — 「잔량추적」 은 한 줄(낱말 안에서 끊기지 않는다)`).toHaveLength(1);
-      expect(g.secondWord, `${label} — 「기준선」 은 한 줄`).toHaveLength(1);
-      expect(g.secondWord[0]!, `${label} — 「기준선」 이 둘째 줄`).toBeGreaterThan(g.firstWord[0]!);
-      expect(g.fontSize, `${label} — 글자 크기 불변`).toBe('14px');
-      expect(g.ellipsis, `${label} — 말줄임 0`).toBe(false);
-      expect(Math.abs(g.rowH - 56), `${label} — 행 56 불변`).toBeLessThanOrEqual(0.5);
-      expect(g.valueOverX, `${label} — 값 잘림 0`).toBeLessThanOrEqual(0);
-      expect(g.valueRight, `${label} — 값이 행 안쪽 끝 이내`).toBeLessThanOrEqual(g.rowInnerRight + 0.5);
-      l4.push(`${label}: 라벨 ${g.labelH}px(줄 ${g.lineH}) · 행 ${g.rowH}px`);
-    };
-
     const setsBefore = lcSetCount(relay);
     for (const target of [344, LC_COMPACT_MIN, 830, 992]) {
       await sizeCardTo(page, E2E_ISIN, target);
@@ -4121,24 +4076,21 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
         await expect(card.locator('[data-pane="sell"]')).toBeVisible();
         await setAllFolds(true);
         const sellRows = await checkExpanded(target, `${target} 매도 pane`);
-        expect(sellRows).toEqual(expect.arrayContaining(['lc-derived', 'lc-auto-sell-method', 'lc-auto-sell-basis']));
-        if (target === 344) await checkL4Label(`${target} 매도 pane`);
-        await checkCollapsed(target, `${target} 매도 pane`, 1);
+        expect(sellRows).toEqual(expect.arrayContaining(['lc-cancel-watch-qty', 'lc-auto-sell-method', 'lc-auto-sell-basis']));
+        await checkCollapsed(target, `${target} 매도 pane`, 2);
         await tablist.getByRole('tab', { name: '매수' }).click();
       } else {
         await expect(card.locator('[data-pane="sell"]')).toBeVisible();
         const rows = await checkExpanded(target, `${target} 2열`);
         expect(rows).toEqual(
-          expect.arrayContaining(['lc-post-buy-trigger', 'lc-derived', 'lc-extra-buy-max-qty', 'lc-auto-sell-method', 'lc-auto-sell-basis']),
+          expect.arrayContaining(['lc-post-buy-trigger', 'lc-extra-buy-max-qty', 'lc-auto-sell-method', 'lc-auto-sell-basis']),
         );
         await checkHeaderCheck('post-buy', '후매수', target, `${target} 2열`);
         await checkHeaderCheck('extra-buy', '줄매수', target, `${target} 2열`);
-        await checkCollapsed(target, `${target} 2열`, 4);
+        await checkCollapsed(target, `${target} 2열`, 5);
       }
     }
     expect(lcSetCount(relay), '재는 동안 전송 0').toBe(setsBefore);
-    expect(l4, 'L4 실측은 본문 344 매도 pane 한 번').toHaveLength(1);
-    test.info().annotations.push({ type: 'P24-7 L4 「잔량추적 기준선」', description: l4.join(' · ') });
     test.info().annotations.push({
       type: 'P24-7 행 최소 여유(px)',
       description: Object.entries(minFree)
@@ -4702,8 +4654,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       에코로 심고, 카드 컨테이너를 본문 344 · 685 · 830 · 992 에 **정확히** 맞춰(`sizeCardTo`) 잰다.
       · 잘림 0 — 카드 전체 두 판정(`expectCardNotClipped`) + 우측 패널 scrollWidth ≤ clientWidth +
         **행마다** 가장 오른쪽 잎 요소가 행 안쪽 끝을 넘지 않는다(여유 px 를 주석으로 남긴다).
-        폰 밴드 「잔량추적 기준선 | 100,000주」 는 20-04 가 L2 백스톱으로 +0.9px 를 만든 행이다 — 여기가
-        그 얇은 여유의 실브라우저 단언이다.
+        폰 밴드 「잔량추적 기준선 | 100,000주」 는 20-04 가 L2 백스톱으로 +0.9px 를 만든 행이었다(quick-261012-oif 에서
+        행 삭제 — 기준선은 매수잔량 칸이 보인다).
       · 모든 리스트 행 44px(±0.5) · 인라인 편집 중인 행도 44px(레이아웃 이동 0).
       · 폰 밴드는 「매수」「매도」 탭을 각각 눌러 두 pane 을 모두 잰다(비활성 pane 은 display:none).
       · 본문 344 수동주문 — 「예약매수」「예약매도」 48px · 「정정」「취소」 38px 라벨이 잘리지 않는다
@@ -4713,7 +4665,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       · Phase 24 — 선매수 · 줄매수 · 후매수 카드(기본 접힘)를 펼치고 새 행(선매수 5 · 줄매수 3 · 후매수 4 +
         발동잔량)을 최악값(「177,000,000주」 · 「17,700,000주」 · 「255회 · 남은 255회」 · 「255건」)으로 잰다.
   */
-  test(`P20-3 최악값 × 본문 344 · ${LC_COMPACT_MIN} · 830 · 992 — 우측 패널 잘림 0 · 행 44/56px(편집 전후 — 수량 8 · 파생 2 = 56) · 두 줄 행 최악값 「999,999,999만」/「2,147,483,647주」 · ≥${LC_COMPACT_MIN} 매수주문/매도주문 헤더 높이 동일 (D-20 · UI-SPEC 검증 훅 · Phase 31 S1 · S2)`, async ({
+  test(`P20-3 최악값 × 본문 344 · ${LC_CHEVRON_MIN} · ${LC_COMPACT_MIN} · 830 · 992 — 우측 패널 잘림 0 · 행 44/56px(편집 전후 — 수량 8 · 파생 2 = 56) · 두 줄 행 최악값 「999,999,999만」/「2,147,483,647주」 · ≥${LC_COMPACT_MIN} 매수주문/매도주문 헤더 높이 동일 (D-20 · UI-SPEC 검증 훅 · Phase 31 S1 · S2)`, async ({
     page,
   }) => {
     const WORST = {
@@ -4770,8 +4722,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(lcSwitch(card, '매수주문 켜기')).toBeChecked();
     await expect(lcSwitch(card, '매도주문 켜기')).toBeChecked();
     await expect(lcValue(page, 'lc-post-buy-reentry')).toHaveText('255회 · 남은 255회');
-    // 세 그룹 카드를 펼친다 — 접힘은 폼 상태라 밴드 · 탭 전환에 풀리지 않는다(R1).
-    for (const slot of ['pre-buy', 'extra-buy', 'post-buy'] as const) await expandLcGroup(card, slot);
+    // 세 그룹 카드 + 매수취소(quick-261012-oif)를 펼친다 — 접힘은 폼 상태라 밴드 · 탭 전환에 풀리지 않는다(R1).
+    for (const slot of ['pre-buy', 'extra-buy', 'post-buy', 'cancel'] as const) await expandLcGroup(card, slot);
 
     /** 보이는 리스트 행 전부 — 값 행 · 체크 행 · 기준선 행 · 발동잔량 행. 높이와 행 안쪽 여유. */
     const measureRows = () =>
@@ -4916,10 +4868,11 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       'lc-post-buy-rebound',
       'lc-post-buy-trigger',
     ];
-    const SELL_ROWS = ['lc-sell-order-price', 'lc-sell-watch-qty', 'lc-derived', 'lc-cancel-watch-qty'];
+    const SELL_ROWS = ['lc-sell-order-price', 'lc-sell-watch-qty', 'lc-cancel-watch-qty'];
     const setsBefore = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
 
-    for (const target of [344, LC_COMPACT_MIN, 830, 992]) {
+    // LC_CHEVRON_MIN = 쉐브런이 서는 가장 좁은 폭(폰 밴드 안) — 쉐브런 L3 임계의 최악값 상시 가드(quick-261012-oif).
+    for (const target of [344, LC_CHEVRON_MIN, LC_COMPACT_MIN, 830, 992]) {
       await sizeCardTo(page, E2E_ISIN, target);
       const { band } = await cardMetrics(page, E2E_ISIN);
       expect(band, `카드 ${target} — 기대 밴드`).toBe(bandOfWidth(target));
@@ -4941,7 +4894,6 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
         await expectCardNotClipped(page, E2E_ISIN, `${label} · 매도 pane`);
         await expectOptionsNoScroll(`${label} · 매도 pane`);
         await expectRows(`${target} 매도 pane`, SELL_ROWS);
-        await expect(card.locator('[data-slot="lc-derived"]')).toContainText('100,000주');
 
         // 수동주문 — 예약창(77 open)이면 「예약매수」「예약매도」 + 조각 수 상자까지 선다(최악 라벨).
         const sock = await relay.userSocket();
@@ -5001,7 +4953,6 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await waitForReady(page);
     await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
     await expect(lcSub(page, 'lc-buy-watch-qty')).toHaveText('2,147,483,647주', { timeout: 15_000 });
-    await expect(card.locator('[data-slot="lc-derived"]')).toHaveCount(0);
     for (const target of [LC_COMPACT_MIN, 830, 992]) {
       await sizeCardTo(page, E2E_ISIN, target);
       // 상태 문구는 한 줄 — 헤더 높이가 두 그룹 같다(둘째 줄로 내려가면 여기서 갈린다).

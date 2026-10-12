@@ -85,7 +85,7 @@ describe('P31 두 줄 행 (D-07 · UI-SPEC S1 · S2)', () => {
     const chev = flashed.container.querySelector('[data-slot="lc-row-chevron"]')!;
     expect(chev.parentElement).toBe(value.parentElement);
     expect(value.parentElement!.contains(sub)).toBe(false);
-    expect(tokensOf(chev)).toEqual(expect.arrayContaining(['hidden', '@min-[685px]/lc:inline']));
+    expect(tokensOf(chev)).toEqual(expect.arrayContaining(['hidden', '@min-[360px]/lc:inline']));
     flashed.unmount();
 
     const busy = renderValueRow({ sub: MUTED, busy: true });
