@@ -245,10 +245,11 @@ describe('① 좌 호가 | 우 옵션 4그룹 (D-12)', () => {
     expect(within(root).queryByText('옵션 세팅', { exact: true })).toBeNull();
     expect(within(root).queryByText('체결 테이프', { exact: true })).toBeNull();
     expect(within(root).queryAllByRole('heading')).toHaveLength(0);
-    // 「체결」 은 체크 행 라벨(`role="checkbox"` 버튼 안)로만 산다 — 섹션 제목이 아니다(Phase 20 D-22).
+    // 「체결」 은 체크 행 라벨(`role="checkbox"` 버튼 안)과 접힌 매수취소 요약 kv 키(quick-261012-oif)로만 산다 —
+    // 섹션 제목이 아니다(Phase 20 D-22).
     const optionsCheLabels = within(optionsPane(container))
       .queryAllByText('체결', { exact: true })
-      .filter((el) => el.closest('[role="checkbox"]') === null);
+      .filter((el) => el.closest('[role="checkbox"]') === null && el.closest('[data-slot="lc-group-summary"]') === null);
     expect(optionsCheLabels).toHaveLength(0);
   });
 

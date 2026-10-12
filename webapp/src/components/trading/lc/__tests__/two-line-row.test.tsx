@@ -145,7 +145,7 @@ describe('P31 두 줄 행 (D-07 · UI-SPEC S1 · S2)', () => {
     expect(tokensOf(row.querySelector('span'))).toContain('break-keep');
     full.unmount();
 
-    const empty = render(<DerivedRow label="잔량추적 기준선" value={0} unit="주" valueText="—" srText="없음" sub={{ text: '', tone: 'muted' }} />);
+    const empty = render(<DerivedRow label="발동잔량" value={0} unit="주" valueText="—" srText="없음" sub={{ text: '', tone: 'muted' }} />);
     const row2 = empty.container.querySelector('[data-slot="lc-derived"]')!;
     expect(tokensOf(row2)).toContain('min-h-[56px]');
     const sub = empty.container.querySelector('[data-slot="lc-row-sub"]')!;

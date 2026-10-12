@@ -74,9 +74,9 @@ describe('① 매수 카드 4장 스펙 (스케치 009 D · ROADMAP ⑤)', () =>
     expect(LC_SELL_GROUPS.map((g) => g.slot)).toEqual(['sell', 'cancel', 'auto-sell']);
   });
 
-  it('세 그룹 카드 + 자동매도만 접힌다 — 공통 카드 · 매도주문 · 매수취소는 접기 없음 (Phase 27 D-01)', () => {
+  it('세 그룹 카드 + 매수취소 + 자동매도가 접힌다 — 공통 카드 · 매도주문은 접기 없음 (Phase 27 D-01 · quick-261012-oif)', () => {
     const collapsible = [...LC_BUY_GROUPS, ...LC_SELL_GROUPS].filter((g) => g.collapsible).map((g) => g.slot);
-    expect(collapsible).toEqual(['pre-buy', 'extra-buy', 'post-buy', 'auto-sell']);
+    expect(collapsible).toEqual(['pre-buy', 'extra-buy', 'post-buy', 'cancel', 'auto-sell']);
   });
 
   it('모든 값 · 체크 id 가 유일하다', () => {
@@ -180,12 +180,22 @@ describe('③ lcSummaryOf — 요약 항목 · 순서 · 꺼진 kv (UI-SPEC §3 
     });
   });
 
-  it('줄매수 버스트 해제(quick-261003-rc4 P-3) — OFF 면 종전 3항목 그대로 · ON 이면 4번째 kv 「버스트 해제 · 켬」', () => {
-    expect(lcSummaryOf('extra-buy', values({ extraBuyBurstRelease: false }), srv())).toHaveLength(3);
+  it('줄매수 요약에 버스트 kv 가 없다 — ☐버스트 취소는 매수주문 카드로 옮겼다 (quick-261012-oif)', () => {
     const on = lcSummaryOf('extra-buy', values({ extraBuyBurstRelease: true }), srv());
-    expect(on).toHaveLength(4);
-    expect(on.slice(0, 3)).toEqual(lcSummaryOf('extra-buy', values(), srv()));
-    expect(on[3]).toEqual({ key: '버스트 해제', value: '켬', off: false });
+    expect(on).toEqual(lcSummaryOf('extra-buy', values({ extraBuyBurstRelease: false }), srv()));
+    expect(on.some((kv) => kv.key.includes('버스트'))).toBe(false);
+  });
+
+  it('매수취소 = 매수잔량 → 체결(OFF 「꺼짐」) → 잔량추적(OFF 「꺼짐」) · ON 이면 「켬」 (quick-261012-oif)', () => {
+    const off = values({ cancelWatchAmount: 300, cancelTradeEnabled: false, cancelQtyTrackEnabled: false });
+    expect(lcSummaryOf('cancel', off, srv())).toEqual([
+      { key: '매수잔량', value: '300만', off: false },
+      { key: '체결', value: '꺼짐', off: true },
+      { key: '잔량추적', value: '꺼짐', off: true },
+    ]);
+    const on = lcSummaryOf('cancel', values({ cancelTradeEnabled: true, cancelQtyTrackEnabled: true }), srv());
+    expect(on[1]).toEqual({ key: '체결', value: '켬', off: false });
+    expect(on[2]).toEqual({ key: '잔량추적', value: '켬', off: false });
   });
 
   it('줄매수 제목줄 체크 「자동」 — id lc-extra-buy-auto · 접근성 이름 「줄매수 자동」 · 요약 kv 없음 (U-1 · quick-261011-0yb)', () => {
@@ -202,14 +212,19 @@ describe('③ lcSummaryOf — 요약 항목 · 순서 · 꺼진 kv (UI-SPEC §3 
     );
   });
 
-  it('줄매수 카드 마지막 행 = 체크 「버스트 해제」 · id lc-extra-buy-burst-release · 독립 축 아님(P-2)', () => {
-    const g = LC_BUY_GROUPS.find((x) => x.slot === 'extra-buy')!;
-    expect(g.rows.at(-1)).toEqual({
+  it('매수주문 카드 마지막 행 = 체크 「버스트 취소」 · id lc-extra-buy-burst-release · 매수주문 게이트로 흐림 (quick-261012-oif)', () => {
+    const g = LC_BUY_GROUPS.find((x) => x.slot === 'buy')!;
+    const row = g.rows.at(-1)!;
+    expect(row).toEqual({
       kind: 'check',
       check: 'extraBuyBurstRelease',
       checkId: 'lc-extra-buy-burst-release',
-      label: '버스트 해제',
+      label: '버스트 취소',
     });
+    expect(lcRowDimOf(g, row, values({ buyEnabled: false, extraBuyBurstRelease: true }))).toBe(true);
+    expect(lcRowDimOf(g, row, values({ buyEnabled: true, extraBuyBurstRelease: true }))).toBe(false);
+    const extra = LC_BUY_GROUPS.find((x) => x.slot === 'extra-buy')!;
+    expect(extra.rows.some((r) => r.kind === 'check' && r.check === 'extraBuyBurstRelease')).toBe(false);
   });
 
   it('후매수 = 금액 → 최대 → 최소 → 반등 → 발동잔량(0 「—」 꺼짐 · 값 있으면 정상)', () => {
@@ -583,15 +598,6 @@ describe('P31 두 줄 문자열 (D-05 · D-07 · D-08)', () => {
       sub: '',
     });
     expect(lcDerivedRowTextOf('postBuyTriggerQty', null)).toMatchObject({ tone: 'empty', top: '—', sub: '' });
-  });
-
-  it('lcDerivedRowTextOf 잔량추적 기준선 — 매도 비교가로 같은 규칙(매수 비교가가 아니다)', () => {
-    const s = srv({ buyWatchPrice: 1, sellWatchPrice: P, sellQtyTrackBaseline: 25_000 });
-    expect(lcDerivedRowTextOf('sellQtyTrackBaseline', s)).toMatchObject({ tone: 'value', top: '32,175만', sub: '25,000주' });
-    expect(lcDerivedRowTextOf('sellQtyTrackBaseline', { ...s, sellWatchPrice: 0 })).toMatchObject({
-      top: '25,000주',
-      sub: '',
-    });
   });
 
   it('lcDerivedRowTextOf — 위 줄 역산은 999,999,999만에서 멈춘다(폭 백스톱 최악값 · echoAmountOf Clamp 동형)', () => {

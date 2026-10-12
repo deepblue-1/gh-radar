@@ -581,7 +581,7 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
     expect(document.querySelector('[data-slot="lc-group-sweep"]')).toBeNull();
   });
 
-  it('매도주문 한 카드 — 제목줄(스위치 「매도주문 켜기」) 아래 주문가격 · 비교가격 · 매도비율 · 매수잔량 · ○잔량추적 · ○체결 · (래치 때) 기준선 (quick-261001-gjk)', () => {
+  it('매도주문 한 카드 — 제목줄(스위치 「매도주문 켜기」) 아래 주문가격 · 비교가격 · 매도비율 · 매수잔량 · ○잔량추적 · ○체결 · 래치여도 기준선 행 없음 (quick-261001-gjk · quick-261012-oif)', () => {
     render(<LimitChaserForm {...props({ server: echo({ sellEntryLatched: true }) })} />);
     const header = group('sell').querySelector('[data-slot="lc-group-header"]') as HTMLElement;
     expect(header).not.toBeNull();
@@ -599,7 +599,6 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
       'lc-sell-watch-qty',
       'lc-sell-qty-track-ratio',
       'lc-sell-min-trade-qty',
-      'lc-derived',
     ]);
   });
 
@@ -640,10 +639,10 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
     );
     // 값 행 19(공통 2 · 선매수 3 · 줄매수 3 · 후매수 4 · 매도주문 4 · 취소 1 · 자동매도 2) + 3택 행 2(자동매도 방법 —
     // 마우스 기기는 「라벨 ─ 값 ›」 행과 카드 ≥992 세그먼트 행을 둘 다 마운트하고 컨테이너 쿼리로 하나만 보인다) +
-    // 체크 행 7(+ 줄매수 버스트 시 해제 · quick-261003-rc4) + 기준선 1 + 발동잔량 1 + 자동매도 누적 · 기준 2 = 32
-    // (고정 스키마 — E1 zero-one-many).
-    expect(rows).toHaveLength(32);
-    // Phase 31 D-07 · D-05 — 수량 8칸(체크 값 행 2개는 체크 행 상자) + 파생 2행 = 56px 두 줄 10개 · 나머지 22개 44px.
+    // 체크 행 7(+ 매수주문 버스트 취소 · quick-261003-rc4 · quick-261012-oif) + 발동잔량 1 + 자동매도 누적 · 기준 2 = 31
+    // (고정 스키마 — E1 zero-one-many · 매도 기준선 행은 quick-261012-oif 에서 지웠다).
+    expect(rows).toHaveLength(31);
+    // Phase 31 D-07 · D-05 — 수량 8칸(체크 값 행 2개는 체크 행 상자) + 발동잔량 = 56px 두 줄 9개 · 나머지 22개 44px.
     const QTY_IDS = [
       'lc-buy-watch-qty',
       'lc-buy-min-trade-qty',
@@ -657,7 +656,7 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
     const tall = (r: HTMLElement) =>
       r.matches('[data-slot="lc-derived"], [data-slot="lc-post-buy-trigger"]') ||
       QTY_IDS.some((id) => r.matches(`[data-lc-field="${id}"]`) || r.querySelector(`[data-lc-field="${id}"]`) !== null);
-    expect(Array.from(rows).filter(tall)).toHaveLength(10);
+    expect(Array.from(rows).filter(tall)).toHaveLength(9);
     for (const r of Array.from(rows)) expect(r.className).toContain(tall(r) ? 'min-h-[56px]' : 'min-h-[44px]');
     openInline('lc-sweep-watch-price');
     const editing = document.querySelector('[data-lc-field="lc-sweep-watch-price"][data-editing="true"]') as HTMLElement;
@@ -675,15 +674,9 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
     expect(screen.queryByText(/예상 매도수량/)).toBeNull();
   });
 
-  it('잔량추적 기준선 행은 `sellEntryLatched` 일 때만 매도주문 그룹에 읽기 전용으로 선다 (E1 partial)', () => {
-    const { rerender } = render(<LimitChaserForm {...props()} />);
+  it('매도주문에 잔량추적 기준선 행이 없다 — `sellEntryLatched` 여도(기준선은 매수잔량 칸이 보인다 · quick-261012-oif)', () => {
+    render(<LimitChaserForm {...props({ server: echo({ sellEntryLatched: true }) })} />);
     expect(document.querySelector('[data-slot="lc-derived"]')).toBeNull();
-    rerender(<LimitChaserForm {...props({ server: echo({ sellEntryLatched: true }) })} />);
-    const derived = document.querySelector('[data-slot="lc-derived"]') as HTMLElement;
-    expect(group('sell').contains(derived)).toBe(true);
-    // Phase 31 D-05 — 위 줄 매도 비교가 역산(41,200주 @130,000원 = 535,600만) · 아래 줄 주.
-    expect(derived.textContent).toBe(`잔량추적 기준선${amountFromQty(41_200, 130_000).toLocaleString('ko-KR')}만41,200주`);
-    expect(derived.querySelector('button')).toBeNull();
   });
 
   it('세션 미준비(`disabled`)면 모든 행·스위치·체크·토글이 비활성이다 (E1 loading)', () => {
@@ -691,7 +684,7 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
     const form = document.querySelector('[data-slot="limit-chaser-form"]') as HTMLElement;
     // 접기 버튼은 로컬 동작이라 세션과 무관하게 눌린다(E1 loading).
     const folds = Array.from(form.querySelectorAll('[data-slot="lc-group-fold"]'));
-    expect(folds).toHaveLength(4);
+    expect(folds).toHaveLength(5);
     for (const f of folds) expect(f).toBeEnabled();
     const buttons = Array.from(form.querySelectorAll('button')).filter(
       (b) => b.getAttribute('role') !== 'tab' && b.getAttribute('data-slot') !== 'lc-group-fold',
@@ -1453,8 +1446,8 @@ describe('⑮ 매수 카드 4장 · 제목줄 접기 · 요약 줄 · 자동 펼
     }
     // 켜진 그룹(선매수 ON)도 자동으로 펼치지 않는다.
     expect(fold('pre-buy')).toHaveAttribute('aria-expanded', 'false');
-    // 요약 줄 = 세 그룹 + 자동매도(Phase 27 D-01 — 매도 pane 접이식 카드)
-    expect(document.querySelectorAll('[data-slot="lc-group-summary"]')).toHaveLength(4);
+    // 요약 줄 = 세 그룹 + 매수취소(quick-261012-oif) + 자동매도(Phase 27 D-01 — 매도 pane 접이식 카드)
+    expect(document.querySelectorAll('[data-slot="lc-group-summary"]')).toHaveLength(5);
     expect(group('buy').querySelector('[data-slot="lc-group-fold"]')).toBeNull();
     expect(rowsOf('buy').classList.contains('hidden')).toBe(false);
   });
@@ -3589,20 +3582,19 @@ describe('후매수 자동 — 마스터 OFF 동반 끔 · 켜기 사전 검증 
   });
 });
 
-describe('줄매수 「버스트 해제」 체크 — 양방향 설정값 · 게이트 아님 (quick-261003-rc4 B10)', () => {
-  const burst = () => chk('줄매수 버스트 해제');
+describe('매수주문 「버스트 취소」 체크 — 양방향 설정값 · 게이트 아님 (quick-261003-rc4 B10 · quick-261012-oif 이동)', () => {
+  const burst = () => chk('매수주문 버스트 취소');
 
-  it('줄매수 카드 마지막 행 · id lc-extra-buy-burst-release · 기본 OFF', () => {
+  it('매수주문 카드 마지막 행 · id lc-extra-buy-burst-release · 기본 OFF · 줄매수 카드에는 없다', () => {
     render(<LimitChaserForm {...props()} />);
     const btn = document.getElementById('lc-extra-buy-burst-release') as HTMLElement;
     expect(btn).toBe(burst());
     expect(btn.getAttribute('role')).toBe('checkbox');
     expect(btn).toHaveAttribute('aria-checked', 'false');
-    // 줄매수 그룹 행 영역의 마지막 행이다(최소 · 최대 잔량 행 밑).
-    const rowsEl = group('extra-buy');
-    const ids = [...rowsEl.querySelectorAll('[id^="lc-extra-buy"]')].map((el) => el.id);
-    expect(ids.at(-1)).toBe('lc-extra-buy-burst-release');
-    expect(ids.indexOf('lc-extra-buy-max-qty')).toBeLessThan(ids.indexOf('lc-extra-buy-burst-release'));
+    // 매수주문 그룹 행 영역의 마지막 행이다(주문가격 · 비교가격 행 밑).
+    const rows = Array.from((group('buy').querySelector('[data-slot="lc-group-rows"]') as HTMLElement).children);
+    expect(rows.at(-1)!.contains(btn)).toBe(true);
+    expect(group('extra-buy').contains(btn)).toBe(false);
   });
 
   it('등록된 전략에서 누르면 lc.set 1건 · cfg 58키 · extraBuyBurstRelease true', () => {
@@ -3630,7 +3622,7 @@ describe('줄매수 「버스트 해제」 체크 — 양방향 설정값 · 게
     expect(burst()).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('에코 extraBuyAuto true(C# 이 켠 자동)인 전략에서 다른 체크(버스트 해제)를 누르면 lc.set 1건의 cfg.extraBuyAuto 가 true 다 — 웹 재제출이 자동을 지우지 않는다 (quick-261011-0yb 트레이서)', () => {
+  it('에코 extraBuyAuto true(C# 이 켠 자동)인 전략에서 다른 체크(버스트 취소)를 누르면 lc.set 1건의 cfg.extraBuyAuto 가 true 다 — 웹 재제출이 자동을 지우지 않는다 (quick-261011-0yb 트레이서)', () => {
     render(<LimitChaserForm {...props({ server: echo({ extraBuyAuto: true }) })} />);
     click(burst());
     expect(sentConfigs()).toHaveLength(1);
@@ -3645,9 +3637,9 @@ describe('줄매수 「버스트 해제」 체크 — 양방향 설정값 · 게
     expect(burst()).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('줄매수 스위치 OFF 면 라벨이 흐려진다(값 유지) · 원형 체크는 흐리지 않는다', () => {
-    render(<LimitChaserForm {...props({ server: echo({ extraBuyEnabled: false, extraBuyBurstRelease: true }) })} />);
-    const label = within(burst()).getByText('버스트 해제');
+  it('매수주문 스위치 OFF 면 라벨이 흐려진다(값 유지) · 원형 체크는 흐리지 않는다', () => {
+    render(<LimitChaserForm {...props({ server: echo({ buyEnabled: false, extraBuyBurstRelease: true }) })} />);
+    const label = within(burst()).getByText('버스트 취소');
     expect(opacityLayers(label)).toBe(1);
     expect(burst()).toHaveAttribute('aria-checked', 'true');
     const circle = burst().querySelector('[data-slot="lc-check-circle"]') as HTMLElement;
@@ -3746,6 +3738,19 @@ describe('Phase 27 자동매도 카드 — 3택 행 · 누적/기준 · 칩 · �
     click(fold('auto-sell'));
     expect(rows.classList.contains('hidden')).toBe(false);
     expect((summary.parentElement as HTMLElement).classList.contains('hidden')).toBe(true);
+  });
+
+  it('매수취소도 자동매도처럼 접힌다 — 첫 렌더 접힘 · 제목줄 스위치 · 요약 매수잔량 · 체결 · 잔량추적 (quick-261012-oif)', () => {
+    renderAuto(echo({ cancelQtyEnabled: true, cancelTradeEnabled: true }));
+    const rows = group('cancel').querySelector('[data-slot="lc-group-rows"]') as HTMLElement;
+    expect(fold('cancel')).toHaveAttribute('aria-expanded', 'false');
+    expect(rows.classList.contains('hidden')).toBe(true);
+    const header = group('cancel').querySelector('[data-slot="lc-group-header"]') as HTMLElement;
+    expect(within(header).getByRole('switch', { name: '매수취소 켜기' })).toBeChecked();
+    const summary = group('cancel').querySelector('[data-slot="lc-group-summary"]') as HTMLElement;
+    expect(summary.textContent).toBe('매수잔량1,000만체결켬잔량추적꺼짐');
+    click(fold('cancel'));
+    expect(rows.classList.contains('hidden')).toBe(false);
   });
 
   it('흐림 — 매도주문 OFF 여도 자동매도 ON 이면 입력 행이 흐리지 않는다 · 자동매도 OFF 면 입력 행만 흐린다', () => {
@@ -4598,14 +4603,6 @@ describe('P31 두 줄 · 시트 · 인라인 (D-05 · D-07 · D-08 · UI-SPEC S1
     render(<LimitChaserForm {...props({ server: at({ postBuyTriggerQty: 25_000, buyWatchPrice: 0 }) })} />);
     expect(trigger().textContent).toBe('발동잔량25,000주');
     expect(trigger().querySelector('[data-slot="lc-row-sub"]')?.textContent).toBe('');
-  });
-
-  it('파생 행 — 잔량추적 기준선은 매도 비교가로 같은 규칙(「32,175만」 · 「25,000주」)', () => {
-    render(
-      <LimitChaserForm {...props({ server: at({ sellEntryLatched: true, sellQtyTrackBaseline: 25_000 }) })} />,
-    );
-    const baseline = document.querySelector('[data-slot="lc-derived"]') as HTMLElement;
-    expect(baseline.textContent).toBe('잔량추적 기준선32,175만25,000주');
   });
 
   describe('터치 기기 — 시트', () => {

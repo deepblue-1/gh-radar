@@ -6,9 +6,9 @@
  * `data-lc-field` · 요약 줄 · 접근성 이름이 모두 여기서 온다. 같은 목록을 다른 곳에 다시 적지 않는다 — 둘이
  * 되면 갈라진다.
  *
- * ★ 매수 쪽 = 「매수주문」 공통 카드(주문가격 · 비교가격 · 마스터 스위치, 접기 없음) → 선매수 → 줄매수 →
+ * ★ 매수 쪽 = 「매수주문」 공통 카드(주문가격 · 비교가격 · ☐버스트 취소 · 마스터 스위치, 접기 없음) → 선매수 → 줄매수 →
  *   후매수(접이식 카드 3장 · 스케치 009 D). 매도 쪽 = 「매도주문」 카드(주문가격 · 비교가격 · 매도비율 ·
- *   매수잔량 · ○잔량추적 · ○체결 · 접기 없음 — quick-261001-gjk 로 한 카드) → 매수취소(맨 아래).
+ *   매수잔량 · ○잔량추적 · ○체결 · 접기 없음 — quick-261001-gjk 로 한 카드) → 매수취소(접이식 · quick-261012-oif) → 자동매도.
  * ★ 매수취소 그룹 스위치 = `cancelQtyEnabled`(D-21). 스위치가 꺼져도 체결 · 잔량추적 체크는 켤 수 있다
  *   (quick-260912-u58 ④). 흐림은 행마다 판정한다(`lcRowDimOf` — 매수취소 「체결」은 자기 체크 축만).
  * ★ 체크가 달린 필드는 체크 행(D-22) — 「○ 라벨 ─ 값 ›」(`checkValue`) 또는 값 없는 「○ 라벨」(`check`).
@@ -130,8 +130,8 @@ export type LcRowSpec =
     }
   | {
       kind: 'derived';
-      source: 'sellQtyTrackBaseline' | 'postBuyTriggerQty' | 'autoSellSoldQty' | 'autoSellBasisPrice';
-      label: '잔량추적 기준선' | '발동잔량' | '누적 매도' | '기준';
+      source: 'postBuyTriggerQty' | 'autoSellSoldQty' | 'autoSellBasisPrice';
+      label: '발동잔량' | '누적 매도' | '기준';
     }
   | { kind: 'note'; note: 'postBuyExhausted' };
 
@@ -167,7 +167,7 @@ export interface LcGroupSpec {
   dimGate?: LcGate;
   /** 옛 컨테이너 흐림 경로(`SettingGroup` 기본 `dimRows`) · 접힌 요약 줄 흐림 — 편집은 막지 않는다(D-01). */
   dimWhenOff: boolean;
-  /** 제목줄 접기(Phase 24 ⑤ — 선매수 · 줄매수 · 후매수 · Phase 27 D-01 자동매도). */
+  /** 제목줄 접기(Phase 24 ⑤ — 선매수 · 줄매수 · 후매수 · Phase 27 D-01 자동매도 · quick-261012-oif 매수취소). */
   collapsible: boolean;
   /**
    * 제목줄 체크(후매수 ☐자동 quick-260929-vzy · 줄매수 ☐자동 quick-261011-0yb) — 그룹 스위치와 같은 지위 · 게이트가
@@ -213,6 +213,13 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
         desc: '세 매수가 같이 지켜보는 가격(상한가)이에요',
         a11yPrefix: '매수',
       },
+      // ☐버스트 해제(quick-261003-rc4 · gh-trade 3c6e6cff 클라 배치 = 최소~최대 줄 아래) — 켜 두면 버스트 상한가
+      // 판정 뒤 첫 B6 틱에 서버가 줄매수를 내린다(포기 아님).
+      // gh-trade 261008-ks9: 라벨 「버스트 시 해제」→「버스트 해제」. 취소 범위가 그 계좌·종목·거래소 매수 미체결 전부
+      // (상따 1·2·3 + 인수한 수동 7 · VI 8)로 넓어졌다 — 취소 사유 12 「버스트 상한가」. 해제 범위(줄매수)는 그대로.
+      // quick-261012-oif: 취소 범위 = 매수 미체결 전부라(gh-trade inbox 261008-burst-release-all-buy-cancel) 매수주문
+      // 카드 맨 아래로 옮기고 「버스트 취소」로 개명 — 매수주문 게이트(buyEnabled)로 같이 흐린다. 필드 · checkId · 와이어 그대로.
+      { kind: 'check', check: 'extraBuyBurstRelease', checkId: 'lc-extra-buy-burst-release', label: '버스트 취소' },
     ],
   },
   {
@@ -295,7 +302,7 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
       checkId: 'lc-extra-buy-auto',
       label: '자동',
       ariaLabel: '줄매수 자동',
-      hint: '줄매수가 풀린 뒤(발주 · 포기 · 버스트 해제) 상한가를 벗어나고 잔고가 0 이면 서버가 줄매수를 다시 켜요 — 횟수는 후매수 「최대」 칸을 같이 써요',
+      hint: '줄매수가 풀린 뒤(발주 · 포기 · 버스트 취소) 상한가를 벗어나고 잔고가 0 이면 서버가 줄매수를 다시 켜요 — 횟수는 후매수 「최대」 칸을 같이 써요',
     },
     rows: [
       {
@@ -327,11 +334,6 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
         desc: '상한가 매수잔량이 이 금액을 넘으면 포기해요 · 0 = 무제한',
         ...LC_FIELD_RANGES.extraBuyMaxAmount,
       },
-      // ☐버스트 해제(quick-261003-rc4 · gh-trade 3c6e6cff 클라 배치 = 최소~최대 줄 아래) — 켜 두면 버스트 상한가
-      // 판정 뒤 첫 B6 틱에 서버가 줄매수를 내린다(포기 아님). 독립 축이 아니다 — 줄매수 OFF 면 같이 흐린다(P-2).
-      // gh-trade 261008-ks9: 라벨 「버스트 시 해제」→「버스트 해제」. 취소 범위가 그 계좌·종목·거래소 매수 미체결 전부
-      // (상따 1·2·3 + 인수한 수동 7 · VI 8)로 넓어졌다 — 취소 사유 12 「버스트 상한가」. 해제 범위(줄매수)는 그대로.
-      { kind: 'check', check: 'extraBuyBurstRelease', checkId: 'lc-extra-buy-burst-release', label: '버스트 해제' },
     ],
   },
   {
@@ -471,8 +473,6 @@ export const LC_SELL_GROUPS: readonly LcGroupSpec[] = [
         a11yPrefix: '매도',
         ...LC_FIELD_RANGES.sellMinTradeAmount,
       },
-      // S→C 전용 — 서버가 매도 진입을 래치했을 때만 그린다(렌더가 판정한다).
-      { kind: 'derived', source: 'sellQtyTrackBaseline', label: '잔량추적 기준선' },
     ],
   },
   {
@@ -482,7 +482,7 @@ export const LC_SELL_GROUPS: readonly LcGroupSpec[] = [
     statusKey: 'cancel',
     dimGate: 'cancelQtyEnabled',
     dimWhenOff: false,
-    collapsible: false,
+    collapsible: true,
     rows: [
       {
         kind: 'value',
@@ -605,7 +605,7 @@ export function lcRowOfField(field: string): { group: LcGroupSpec; row: LcRowSpe
 }
 
 /**
- * 값 편집이 가능한 행만 — 체크 전용 · 3택(자동매도 방법) · 기준선 · 발동잔량 · 누적/기준(읽기 전용) · 소진 안내는 건너뛴다.
+ * 값 편집이 가능한 행만 — 체크 전용 · 3택(자동매도 방법) · 발동잔량 · 누적/기준(읽기 전용) · 소진 안내는 건너뛴다.
  * 20-05 의 Tab 연속 편집이 이 순서를 쓴다 — 같은 카드 안에서만 돈다(R4).
  */
 export function lcNavigableRows(slot: LcGroupSpec['slot']): readonly { field: LcNumField; id: string }[] {
@@ -750,7 +750,7 @@ export function lcAmountHintOf(
   return `= ${qtyWordOf(field, qty)} (비교가격 ${fmt(price, '원')})`;
 }
 
-/** 파생 행 두 줄 글자 — 위 줄 톤(`value` = 발동잔량 `--up` · 기준선 `--fg-2` / `muted` = 해제선 / `empty` = 「—」). */
+/** 파생 행 두 줄 글자 — 위 줄 톤(`value` = 발동잔량 `--up` / `muted` = 해제선 / `empty` = 「—」). */
 export interface LcDerivedRowText {
   tone: 'value' | 'muted' | 'empty';
   /** 위 줄 글자 — 「32,175만」 · 「25,000주」(비교가 0) · 「—」. */
@@ -763,19 +763,17 @@ export interface LcDerivedRowText {
 }
 
 /**
- * 파생 행 문자열(UI-SPEC 「파생 행 문자열」 · D-05) — 발동잔량은 매수 비교가, 잔량추적 기준선은 매도 비교가로 반올림 역산.
+ * 파생 행 문자열(UI-SPEC 「파생 행 문자열」 · D-05) — 발동잔량은 매수 비교가로 반올림 역산.
  *   값 > 0 ∧ 비교가 > 0 → 위 「{역산}만」 · 아래 「{주}주」 / 비교가 0 → 위 「{주}주」 · 아래 비움
  *   발동잔량 0 ∧ 잠금 해제선 > 0 → 해제선을 같은 규칙으로(muted) / 값 0(해제선도 0) → 「—」 · 아래 비움
  * 위 줄 역산은 `LC_AMOUNT_MAX_MANWON`(999,999,999만)에서 멈춘다(폭 백스톱 최악값 · `echoAmountOf` Clamp 동형).
- * 취소 기준선 파생 행은 만들지 않는다(새 능력 금지 · Open Q4).
+ * 잔량추적 기준선(매도 · 취소)은 파생 행을 두지 않는다 — 기준선은 그 카드의 매수잔량 칸이 `echoAmountOf` 로 보인다
+ * (취소는 Open Q4 · 매도 「잔량추적 기준선」 행은 quick-261012-oif 에서 지웠다).
  */
-export function lcDerivedRowTextOf(
-  source: 'postBuyTriggerQty' | 'sellQtyTrackBaseline',
-  server: RelayLimitChaser | null,
-): LcDerivedRowText {
-  const price = (source === 'postBuyTriggerQty' ? server?.buyWatchPrice : server?.sellWatchPrice) ?? 0;
+export function lcDerivedRowTextOf(source: 'postBuyTriggerQty', server: RelayLimitChaser | null): LcDerivedRowText {
+  const price = server?.buyWatchPrice ?? 0;
   const value = server?.[source] ?? 0;
-  const unlock = source === 'postBuyTriggerQty' ? (server?.postBuyUnlockQty ?? 0) : 0;
+  const unlock = server?.postBuyUnlockQty ?? 0;
   const qty = value > 0 ? value : unlock;
   if (qty === 0) return { tone: 'empty', top: '—', topValue: 0, topUnit: '주', sub: '' };
   const tone = value > 0 ? 'value' : 'muted';
@@ -875,8 +873,6 @@ export function lcSummaryOf(
         amountItem('extraBuyOrderAmount', values, false),
         { key: '최소', value: amountKv('extraBuyMinAmount'), off: false },
         { key: '최대', value: amountKv('extraBuyMaxAmount'), off: false },
-        // ☐버스트 해제 — ON 일 때만 덧붙인다(OFF 기본 사용자에게 요약은 종전 그대로 · P-3).
-        ...(values.extraBuyBurstRelease ? [{ key: '버스트 해제', value: '켬', off: false }] : []),
       ];
     case 'post-buy': {
       const trigger = server?.postBuyTriggerQty ?? 0;
@@ -893,6 +889,14 @@ export function lcSummaryOf(
             : { key: '발동잔량', value: '—', off: true },
       ];
     }
+    case 'cancel':
+      return [
+        { key: '매수잔량', value: amountKv('cancelWatchAmount'), off: false },
+        values.cancelTradeEnabled ? { key: '체결', value: '켬', off: false } : { key: '체결', value: '꺼짐', off: true },
+        values.cancelQtyTrackEnabled
+          ? { key: '잔량추적', value: '켬', off: false }
+          : { key: '잔량추적', value: '꺼짐', off: true },
+      ];
     case 'auto-sell': {
       // Phase 27 D-02 — 행과 같은 의미어 · 누적 > 0 은 빨강(hot) · 「—」 은 꺼진 kv. 누적 · 기준은 에코(`server`)만 읽는다.
       const method = lcAutoSellMethodText(values.autoSellMethod);

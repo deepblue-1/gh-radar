@@ -678,9 +678,9 @@ const SEND_FAILED_TEXT = {
   gate: '연결이 끊겨 켜기/끄기를 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.',
 } as const;
 
-/** 접이식 그룹 카드 slot(Phase 24 ⑤ · Phase 27 D-01 자동매도). */
-type FoldSlot = 'pre-buy' | 'extra-buy' | 'post-buy' | 'auto-sell';
-const FOLD_SLOTS: ReadonlySet<string> = new Set<FoldSlot>(['pre-buy', 'extra-buy', 'post-buy', 'auto-sell']);
+/** 접이식 그룹 카드 slot(Phase 24 ⑤ · Phase 27 D-01 자동매도 · quick-261012-oif 매수취소). */
+type FoldSlot = 'pre-buy' | 'extra-buy' | 'post-buy' | 'cancel' | 'auto-sell';
+const FOLD_SLOTS: ReadonlySet<string> = new Set<FoldSlot>(['pre-buy', 'extra-buy', 'post-buy', 'cancel', 'auto-sell']);
 const isFoldSlot = (slot: string): slot is FoldSlot => FOLD_SLOTS.has(slot);
 /** 매수 쪽 카드 — 시트 「감시 중」 안내를 게이트 에코로 판정한다(D-05 · UI-SPEC §11 끝). */
 const BUY_SIDE_SLOTS: ReadonlySet<string> = new Set(['buy', 'pre-buy', 'extra-buy', 'post-buy']);
@@ -1519,6 +1519,7 @@ export function LimitChaserForm({
     'pre-buy': false,
     'extra-buy': false,
     'post-buy': false,
+    cancel: false,
     'auto-sell': false,
   });
   const toggleFold = useCallback((slot: FoldSlot) => {
@@ -1692,11 +1693,12 @@ export function LimitChaserForm({
   }
 
   /**
-   * 수량 파생 2행(발동잔량 · 잔량추적 기준선)의 두 줄 값 배선 — 글자 판정은 `lcDerivedRowTextOf` 한 곳(UI-SPEC 「파생 행
+   * 수량 파생 행(발동잔량)의 두 줄 값 배선 — 글자 판정은 `lcDerivedRowTextOf` 한 곳(UI-SPEC 「파생 행
    * 문자열」). 위 줄: 값 > 0 = 역산 만원(비교가 0 이면 주) · 해제선 = 회색 보조값 · 0 = 「—」(sr 「없음」). 아래 줄은 늘 자리를
-   * 지킨다(56px — 빈 글자여도).
+   * 지킨다(56px — 빈 글자여도). 매도 잔량추적 기준선은 매수잔량 칸이 `echoAmountOf` 로 보여 파생 행을 두지 않는다
+   * (매수취소와 같은 이유 · quick-261012-oif 에서 지웠다).
    */
-  function qtyDerivedRowProps(source: 'postBuyTriggerQty' | 'sellQtyTrackBaseline') {
+  function qtyDerivedRowProps(source: 'postBuyTriggerQty') {
     const d = lcDerivedRowTextOf(source, server ?? null);
     return {
       value: d.tone === 'value' ? (server?.[source] ?? 0) : 0,
@@ -1828,27 +1830,20 @@ export function LimitChaserForm({
             />
           );
         }
-        if (row.source === 'postBuyTriggerQty') {
-          // 후매수 발동잔량 — 펼침이면 단계 0 에서도 늘 그린다(「—」 · sr-only 「없음」 · UI-SPEC §6 · E5).
-          // 발동잔량 0 · 해제선 > 0 이면 해제선 회색(gh-trade 259bc869 · quick-261002-fim).
-          // Phase 31 D-05 — 56px 두 줄: 위 매수 비교가 역산 「32,175만」(`--up` 그대로) · 아래 「25,000주」.
-          return (
-            <DerivedRow
-              key="post-buy-trigger"
-              slot="lc-post-buy-trigger"
-              label={row.label}
-              emphasis
-              mutedSrText={POST_BUY_UNLOCK_SR_TEXT}
-              dim={dim}
-              {...qtyDerivedRowProps('postBuyTriggerQty')}
-            />
-          );
-        }
-        // 잔량추적 기준선 — S→C 전용 · 서버가 매도 진입을 래치한 뒤에만 존재한다(UI Considerations E1 partial).
-        // Phase 31 D-05 — 매도 비교가 역산 위 줄(`--fg-2` 15/500) · 아래 줄 주.
-        return server?.sellEntryLatched ? (
-          <DerivedRow key="derived" label={row.label} dim={dim} {...qtyDerivedRowProps('sellQtyTrackBaseline')} />
-        ) : null;
+        // 후매수 발동잔량 — 펼침이면 단계 0 에서도 늘 그린다(「—」 · sr-only 「없음」 · UI-SPEC §6 · E5).
+        // 발동잔량 0 · 해제선 > 0 이면 해제선 회색(gh-trade 259bc869 · quick-261002-fim).
+        // Phase 31 D-05 — 56px 두 줄: 위 매수 비교가 역산 「32,175만」(`--up` 그대로) · 아래 「25,000주」.
+        return (
+          <DerivedRow
+            key="post-buy-trigger"
+            slot="lc-post-buy-trigger"
+            label={row.label}
+            emphasis
+            mutedSrText={POST_BUY_UNLOCK_SR_TEXT}
+            dim={dim}
+            {...qtyDerivedRowProps('postBuyTriggerQty')}
+          />
+        );
       case 'note':
         // 후매수 소진(단계 3) 안내 — 「최대」 행 바로 아래 · 역할 없음 · 흐리지 않는다(UI-SPEC §5).
         // 접힌 카드에서는 그리지 않는다(상태 「소진」 + 요약 「3회 · 남은 0회」가 같은 사실을 말하고, 안내가

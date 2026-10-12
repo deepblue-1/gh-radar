@@ -64,8 +64,9 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
     expect(LC_SELL_GROUPS.map((g) => g.slot)).toEqual(['sell', 'cancel', 'auto-sell']);
   });
 
-  it('매수주문 공통 카드 = 주문가격 · 비교가격 · 선매수 = 금액 · 매도잔량 · ○체결량 · ○한방 · 한방가격', () => {
-    expect(groupOf('buy').rows.map(idOf)).toEqual(['lc-buy-order-price', 'lc-buy-watch-price']);
+  it('매수주문 공통 카드 = 주문가격 · 비교가격 · ○버스트 취소 · 선매수 = 금액 · 매도잔량 · ○체결량 · ○한방 · 한방가격', () => {
+    // ☐버스트 취소(quick-261003-rc4 · quick-261012-oif 에서 줄매수 → 매수주문 맨 아래로 옮김).
+    expect(groupOf('buy').rows.map(idOf)).toEqual(['lc-buy-order-price', 'lc-buy-watch-price', 'lc-extra-buy-burst-release']);
     expect(groupOf('pre-buy').rows.map((r) => r.kind)).toEqual(['value', 'value', 'checkValue', 'checkValue', 'value']);
     expect(groupOf('pre-buy').rows.map(idOf)).toEqual([
       'lc-buy-order-amount',
@@ -74,13 +75,11 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
       'lc-sweep-tick',
       'lc-sweep-watch-price',
     ]);
-    // + ☐버스트 시 해제 체크 행(quick-261003-rc4 — 최소 · 최대 잔량 밑 마지막 행).
-    expect(groupOf('extra-buy').rows.map((r) => r.kind)).toEqual(['value', 'value', 'value', 'check']);
+    expect(groupOf('extra-buy').rows.map((r) => r.kind)).toEqual(['value', 'value', 'value']);
     expect(groupOf('extra-buy').rows.map(idOf)).toEqual([
       'lc-extra-buy-amount',
       'lc-extra-buy-min-qty',
       'lc-extra-buy-max-qty',
-      'lc-extra-buy-burst-release',
     ]);
     expect(groupOf('post-buy').rows.map((r) => r.kind)).toEqual(['value', 'value', 'note', 'value', 'value', 'derived']);
     expect(groupOf('post-buy').rows.map(idOf)).toEqual([
@@ -93,7 +92,7 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
     ]);
   });
 
-  it('매도주문 행 = 주문가격 · 비교가격 · 매도비율 · 매수잔량 · 잔량추적 % · 체결 · (조건부) 기준선 · 매수취소 = 매수잔량 · 체결 · 잔량추적 (quick-261001-gjk)', () => {
+  it('매도주문 행 = 주문가격 · 비교가격 · 매도비율 · 매수잔량 · 잔량추적 % · 체결 · 매수취소 = 매수잔량 · 체결 · 잔량추적 (quick-261001-gjk · 기준선 행 삭제 quick-261012-oif)', () => {
     expect(groupOf('sell').rows.map((r) => r.kind)).toEqual([
       'value',
       'value',
@@ -101,7 +100,6 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
       'value',
       'checkValue',
       'checkValue',
-      'derived',
     ]);
     expect(groupOf('sell').rows.map(idOf)).toEqual([
       'lc-sell-order-price',
@@ -110,7 +108,6 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
       'lc-sell-watch-qty',
       'lc-sell-qty-track-ratio',
       'lc-sell-min-trade-qty',
-      null,
     ]);
     expect(groupOf('cancel').rows.map((r) => r.kind)).toEqual(['value', 'check', 'check']);
     expect(groupOf('cancel').rows.map(idOf)).toEqual([
@@ -608,12 +605,12 @@ describe('④ CheckValueRow — 「○ 라벨 ─ 값 ›」 (D-22)', () => {
 });
 
 describe('⑤ DerivedRow — 읽기 전용 기준선 행', () => {
-  it('버튼이 아니고 쉐브런이 없다 · 「잔량추적 기준선 41,200주」', () => {
-    const { container } = render(<DerivedRow label="잔량추적 기준선" value={41_200} unit="주" />);
+  it('버튼이 아니고 쉐브런이 없다 · 「발동잔량 41,200주」', () => {
+    const { container } = render(<DerivedRow label="발동잔량" value={41_200} unit="주" />);
     const row = container.querySelector('[data-slot="lc-derived"]') as HTMLElement;
     expect(row.tagName).not.toBe('BUTTON');
     expect(screen.queryAllByRole('button')).toHaveLength(0);
-    expect(row.textContent).toBe('잔량추적 기준선41,200주');
+    expect(row.textContent).toBe('발동잔량41,200주');
     expect(row.textContent).not.toContain('›');
   });
 });
@@ -638,7 +635,7 @@ describe('⑥ 공통 규율 — 44px · 컨테이너 쿼리만 · 말줄임 0', 
             onActivateValue={() => {}}
           />
           <CheckValueRow checkId="lc-cancel-trade" groupTitle="매수취소" label="체결" checked={false} onToggle={() => {}} />
-          <DerivedRow label="잔량추적 기준선" value={100_000} unit="주" />
+          <DerivedRow label="발동잔량" value={100_000} unit="주" />
         </SettingGroup>
       </div>,
     );
@@ -1138,8 +1135,8 @@ describe('⑪ 표시 문자열 · 접근성 이름 · 행 단위 흐림 · 발�
   });
 
   it('DerivedRow 기본(emphasis 없음)은 기존 기준선 행 그대로 — slot lc-derived', () => {
-    const { container } = render(<DerivedRow label="잔량추적 기준선" value={100_000} unit="주" />);
-    expect(container.querySelector('[data-slot="lc-derived"]')!.textContent).toBe('잔량추적 기준선100,000주');
+    const { container } = render(<DerivedRow label="발동잔량" value={100_000} unit="주" />);
+    expect(container.querySelector('[data-slot="lc-derived"]')!.textContent).toBe('발동잔량100,000주');
   });
 
   it('formatSettingValue(3, 회) → 「3회」', () => {
