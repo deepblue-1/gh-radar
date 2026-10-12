@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>/me 선매수 기본값 2칸 자리 A/B</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; align-items: flex-start; padding: 20px 12px 60px; }
+.f { --bg: #0a0a0a; --card: #151515; --muted: #2d2d2d; --raised2: #3d3d3d; --hair: #3d3d3d; --fg: #fff; --fg2: #e4e4e4; --mfg: #9e9e9e; --faint: #636363; --armed: #2fca73; --primary: #3485fa;
+  font-variant-numeric: tabular-nums; word-break: keep-all; background: var(--bg); color: var(--fg2); border-radius: 14px; box-shadow: 0 0 0 1px #2a2a30; padding: 16px 20px 28px; display: flex; flex-direction: column; gap: 12px; }
+.f.desktop { width: 940px; } .f.phone { width: 390px; padding: 14px 14px 28px; border-radius: 28px; }
+h2 { margin: 0; font-size: 15px; font-weight: 600; color: var(--fg); }
+.ch { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.chip { display: inline-flex; border-radius: 999px; padding: 2px 7px; font-size: 11px; font-weight: 600; background: rgba(47,202,115,.16); color: var(--armed); }
+.set-note { font-size: 12.5px; color: var(--mfg); line-height: 1.5; margin: 0; }
+.sgrid { display: grid; gap: 12px; align-items: start; }
+.f.desktop .sgrid { grid-template-columns: 1fr 1fr; }
+.col { display: grid; gap: 12px; align-items: start; min-width: 0; }
+.f.phone .sgrid.cols { display: grid; } .f.phone .col { display: contents; }
+.sg { background: var(--card); border-radius: 16px; padding: 10px 10px 4px; }
+.gh { font-size: 13px; color: var(--mfg); font-weight: 600; margin-bottom: 2px; }
+.row { display: flex; align-items: center; min-height: 44px; gap: 8px; }
+.row .lb { font-size: 14px; color: var(--mfg); white-space: nowrap; }
+.row .vl { margin-left: auto; font-size: 15px; font-weight: 600; color: var(--fg); white-space: nowrap; }
+.row .ar { color: var(--faint); font-size: 13px; }
+.row.new { background: rgba(52,133,250,.10); border-radius: 8px; margin: 0 -6px; padding: 0 6px; }
+.ck { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--faint); display: grid; place-items: center; flex: none; cursor: pointer; }
+.ck.on { background: var(--primary); border-color: var(--primary); }
+.ck.on::after { content: ''; width: 9px; height: 5px; border: solid #fff; border-width: 0 0 2px 2px; transform: translateY(-1px) rotate(-45deg); }
+.row.ckrow .lb { color: var(--fg2); cursor: pointer; }
+.cseg { margin-left: auto; display: inline-flex; gap: 2px; background: var(--muted); border-radius: 999px; padding: 2px; }
+.cseg span { font-size: 12px; font-weight: 600; color: var(--mfg); padding: 3px 10px; border-radius: 999px; }
+.cseg span.on { background: var(--raised2); color: var(--fg); }
+.legend { font-size: 12px; color: #8a8a94; }
+.legend i { display: inline-block; width: 10px; height: 10px; background: rgba(52,133,250,.25); border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">자리</span>
+    <button data-v="A" class="on">A 「매수 금액」 카드 안</button>
+    <button data-v="B">B 새 「선매수」 카드</button>
+    <button data-v="B2">B′ 채택안 — 왼쪽 매수 · 오른쪽 매도</button>
+  </div>
+  <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390</button><button data-w="desktop">데스크톱 940</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+<script>
+const state = { v: 'B2', w: 'desktop', amt: 50, on: true };
+const DESC = {
+  A: '<b>A 「매수 금액」 카드 안</b> — 선매수 금액 바로 아래에 「선매수 매도잔량」·「○ 줄매수도 같이 켜기」 2행. WinForms 「선매수 줄 아래」와 같은 자리. 카드 수 그대로(4장), 매수 금액 카드만 3→5행.',
+  B2: '<b>B′ 채택안</b> — 새 「선매수」 카드 + 데스크톱 2열을 열 고정: 왼쪽 매수 금액 · 선매수 · 후매수, 오른쪽 매도 · 자동매도. 폰(1열)은 매수 금액 → 선매수 → 후매수 → 매도 → 자동매도.',
+  B: '<b>B 새 「선매수」 카드</b> — 매수 금액 다음에 카드 한 장(2행). 상따 폼의 「선매수」 묶음 이름과 같다. 카드가 4→5장, 데스크톱 2열에서 「선매수」가 「매수 금액」 오른쪽에 선다.',
+};
+const amtRow = (label) => `<div class="row new"><span class="lb">${label}</span><span class="vl">${state.amt.toLocaleString()}만원</span><span class="ar">›</span></div>`;
+const ckRow = () => `<div class="row ckrow new" data-ck><span class="ck ${state.on ? 'on' : ''}"></span><span class="lb">줄매수도 같이 켜기</span></div>`;
+const row = (lb, v, u) => v === null
+  ? `<div class="row"><span class="lb">${lb}</span><span class="cseg"><span>매도1호가</span><span>매수1호가</span><span class="on">절반절반</span></span></div>`
+  : `<div class="row"><span class="lb">${lb}</span><span class="vl">${v}${u}</span><span class="ar">›</span></div>`;
+const card = (g, body) => `<div class="sg"><div class="gh">${g}</div>${body}</div>`;
+const REST = [
+  ['후매수', [['후매수 최소', '30', '만원'], ['후매수 반등', '2', '%']]],
+  ['매도', [['매도 잔량추적', '30', '%']]],
+  ['자동매도', [['매도 주기', '3', '초'], ['동시호가 매도비율', '20', '%'], ['비율 기본값', '10', '%'], ['방법 기본값', null, null]]],
+];
+function body() {
+  const head = `<div class="ch"><h2>상따 기본설정</h2><span class="chip">서버 저장값</span></div><p class="set-note">새 전략 폼의 기본값이에요 · 매도 주기 · 동시호가 비율은 서버가 다음 주기부터 바로 써요</p>`;
+  const rest = REST.map(([g, rows]) => card(g, rows.map(([l, v, u]) => row(l, v, u)).join(''))).join('');
+  let cards;
+  if (state.v === 'A') {
+    cards = card('매수 금액', row('선매수 금액', '100', '만원') + amtRow('선매수 매도잔량') + ckRow() + row('줄매수 금액', '50', '만원') + row('후매수 금액', '30', '만원')) + rest;
+  } else if (state.v === 'B2') {
+    const R = Object.fromEntries(REST.map(([g, rows]) => [g, card(g, rows.map(([l, v, u]) => row(l, v, u)).join(''))]));
+    const left = card('매수 금액', row('선매수 금액', '100', '만원') + row('줄매수 금액', '50', '만원') + row('후매수 금액', '30', '만원'))
+      + card('선매수', amtRow('매도잔량') + ckRow()) + R['후매수'];
+    return head + `<div class="sgrid cols"><div class="col">${left}</div><div class="col">${R['매도'] + R['자동매도']}</div></div><div class="legend"><i></i>파란 바탕 = 새 행 (실제 화면엔 바탕 없음) · ○ 를 누르면 켜짐/꺼짐 · 매도잔량 0 = 지금처럼 상장주식수 × 0.3% 로 채움</div>`;
+  } else {
+    cards = card('매수 금액', row('선매수 금액', '100', '만원') + row('줄매수 금액', '50', '만원') + row('후매수 금액', '30', '만원'))
+      + card('선매수', amtRow('매도잔량') + ckRow()) + rest;
+  }
+  return head + `<div class="sgrid">${cards}</div><div class="legend"><i></i>파란 바탕 = 새 행 (실제 화면엔 바탕 없음) · ○ 를 누르면 켜짐/꺼짐 · 매도잔량 0 = 지금처럼 상장주식수 × 0.3% 로 채움</div>`;
+}
+function render() {
+  document.querySelectorAll('#nav button').forEach((b) => { const k = b.dataset.v ? 'v' : 'w'; b.classList.toggle('on', b.dataset[k] === state[k]); });
+  document.getElementById('desc').innerHTML = DESC[state.v];
+  const f = document.createElement('div'); f.className = `f ${state.w}`; f.innerHTML = body();
+  f.querySelectorAll('[data-ck]').forEach((el) => el.addEventListener('click', () => { state.on = !state.on; render(); }));
+  const st = document.getElementById('stage'); st.innerHTML = ''; st.appendChild(f);
+}
+document.querySelectorAll('#nav button').forEach((b) => b.addEventListener('click', () => { if (b.dataset.v) state.v = b.dataset.v; else state.w = b.dataset.w; render(); }));
+render();
+</script>
+</body>
+</html>
