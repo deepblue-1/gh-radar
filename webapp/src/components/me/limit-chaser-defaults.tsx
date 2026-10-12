@@ -52,6 +52,7 @@ import {
   type RelayInbound,
   type RelayUserSettingsMsg,
   type RelayUserSettingsValues,
+  type UserSettingsNumericKey,
 } from "@gh-radar/shared";
 
 import { CARD } from "@/components/layout/page-layout";
@@ -71,7 +72,7 @@ export type UserSettingsKey = keyof RelayUserSettingsValues;
 export type UserSettingsGroup = "매수 금액" | "후매수" | "매도" | "자동매도";
 
 export interface UserSettingsRowSpec {
-  key: UserSettingsKey;
+  key: UserSettingsNumericKey;
   label: string;
   /** 숫자 행 단위 — 방법 기본값(3택)은 `null`. */
   unit: PadUnit | null;
@@ -170,13 +171,13 @@ export function rangeSentence(min: number, max: number, unit: string): string {
 }
 
 /** 시트 설명 줄 — 범위 표기(fbs 주석 그대로 · 「1~60초」). */
-export function rangeLabel(key: UserSettingsKey, unit: string): string {
+export function rangeLabel(key: UserSettingsNumericKey, unit: string): string {
   const r = USER_SETTINGS_RANGES[key];
   return `${NUM.format(r.min)}~${NUM.format(r.max)}${unit}`;
 }
 
 /** 범위 밖이면 문장 · 안이면 null. 범위 정본은 shared `USER_SETTINGS_RANGES` 하나다. */
-export function userSettingsRangeIssue(key: UserSettingsKey, value: number, unit: string): string | null {
+export function userSettingsRangeIssue(key: UserSettingsNumericKey, value: number, unit: string): string | null {
   const r = USER_SETTINGS_RANGES[key];
   return value < r.min || value > r.max ? rangeSentence(r.min, r.max, unit) : null;
 }
@@ -207,7 +208,10 @@ export function usableUserSettingsOf(s: RelayUserSettingsMsg | undefined): Usabl
   return s !== undefined && typeof s.postBuyFloorAmount === "number" ? (s as UsableUserSettings) : undefined;
 }
 
-/** 84 에서 42 본문 12값만 뽑는다(`t` · `present` 제외 — `present` 는 84 전용). */
+/**
+ * 84 에서 42 본문 14값만 뽑는다(`t` · `present` 제외 — `present` 는 84 전용). 선매수 2필드는 84 부재면 0 · false 로
+ * 채워 **늘 싣는다**(gh-trade 261012 — 42 부재는 서버 「저장값 유지」 라 지우려면 실어야 한다 · quick-261012-u04).
+ */
 export function userSettingsValuesOf(s: UsableUserSettings): RelayUserSettingsValues {
   return {
     preBuyAmount: s.preBuyAmount,
@@ -222,6 +226,8 @@ export function userSettingsValuesOf(s: UsableUserSettings): RelayUserSettingsVa
     autoSellRatioDefaultPct: s.autoSellRatioDefaultPct,
     autoSellMethodDefault: s.autoSellMethodDefault,
     postBuyFloorAmount: s.postBuyFloorAmount,
+    preBuyWatchAmount: s.preBuyWatchAmount ?? 0,
+    preBuyAutoAddBuy: s.preBuyAutoAddBuy ?? false,
   };
 }
 
@@ -489,6 +495,11 @@ export function LimitChaserDefaultsSection() {
   const loading = userSettings === undefined;
   const text = USER_SETTINGS_STATUS_TEXT[status];
   const save = useUserSettingsSave(userSettings, send, messages);
+  // 표시 · 시트 초기값은 정규화 14값으로 읽는다 — 선매수 2필드 84 부재 = 0 · false(gh-trade 261012).
+  const values = useMemo(
+    () => (userSettings === undefined ? undefined : userSettingsValuesOf(userSettings)),
+    [userSettings],
+  );
 
   const editMode = useEditMode();
   /** 인라인 편집 중인 행(마우스 기기). */
@@ -598,7 +609,7 @@ export function LimitChaserDefaultsSection() {
                       <ChoiceRow
                         id={row.id}
                         label={row.label}
-                        value={userSettings?.[row.key] ?? 0}
+                        value={values?.[row.key] ?? 0}
                         options={METHOD_OPTIONS}
                         onSelect={(v) => save.commit(row.key, v)}
                         a11yName={row.label}
@@ -613,7 +624,7 @@ export function LimitChaserDefaultsSection() {
                         id={row.id}
                         label={row.label}
                         unit={row.unit}
-                        value={userSettings?.[row.key] ?? null}
+                        value={values?.[row.key] ?? null}
                         disabled={loading}
                         busy={busy}
                         failed={failed}
@@ -621,12 +632,12 @@ export function LimitChaserDefaultsSection() {
                         editing={editingKey === row.key && userSettings !== undefined}
                         hasPopup={editMode === "sheet"}
                         editor={
-                          userSettings === undefined ? null : (
+                          values === undefined ? null : (
                             <InlineValueEditor
                               id={row.id}
                               label={row.label}
                               unit={row.unit}
-                              initialValue={userSettings[row.key]}
+                              initialValue={values[row.key]}
                               validate={(v) => userSettingsRangeIssue(row.key, v, row.unit ?? "")}
                               onSave={(v) => {
                                 save.commit(row.key, v);
@@ -666,8 +677,8 @@ export function LimitChaserDefaultsSection() {
         description={sheetRow === null ? "" : rangeLabel(sheetRow.key, sheetUnit)}
         unit={sheetUnit}
         purpose="apply"
-        initialValue={sheetRow === null || userSettings === undefined ? null : userSettings[sheetRow.key]}
-        serverValue={sheetRow === null || userSettings === undefined ? null : userSettings[sheetRow.key]}
+        initialValue={sheetRow === null || values === undefined ? null : values[sheetRow.key]}
+        serverValue={sheetRow === null || values === undefined ? null : values[sheetRow.key]}
         ctx={{ current: 0, upper: 0 }}
         validate={(v) => (sheetRow === null ? null : userSettingsRangeIssue(sheetRow.key, v, sheetUnit))}
         returnFocusRef={sheetReturnRef}

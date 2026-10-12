@@ -772,8 +772,10 @@ export type RelayAutoSellCmdMsg = {
 };
 
 /**
- * 사용자 설정 저장 (`SetUserSettingsReq(42)` · Phase 27 · Phase 31 12값). 12값 **전체 교체** — 부분 갱신이 아니다.
+ * 사용자 설정 저장 (`SetUserSettingsReq(42)` · Phase 27 · Phase 31 · quick-261012-u04 14값). 14값 **전체 교체** — 부분 갱신이 아니다.
  * 봉인 `postBuyFloorQty` 는 relay 42 조립기가 입력과 무관하게 늘 0 을 싣는다(Phase 32 D-08).
+ * 선매수 2필드(`preBuyWatchAmount` · `preBuyAutoAddBuy`)는 웹이 **늘 싣는다**(gh-trade 261012 — 부재 = 서버 저장값 유지라
+ * 0 · false 로 지우려면 실어야 한다).
  *
  * 조립 기준은 서버 캐시(84 `user.settings`) + 바꾼 1칸이다(화면 로컬 값 금지 · T-20-03 동형). 범위는
  * `USER_SETTINGS_RANGES` 하나 — 밖이면 relay zod 가 소켓을 닫으므로(4400) 웹이 같은 범위로 먼저 막는다.
@@ -1428,7 +1430,8 @@ export type RelayQueuedWindowMsg = {
 };
 
 /**
- * 사용자 설정 12값 (42/84 `UserSettings` 본문 · Phase 27 — gh-trade 2404509b · Phase 31 — 후매수 최소 Phase 32 D-08).
+ * 사용자 설정 14값 (42/84 `UserSettings` 본문 · Phase 27 — gh-trade 2404509b · Phase 31 — 후매수 최소 Phase 32 D-08 ·
+ * quick-261012-u04 — 선매수 2필드 gh-trade 261012).
  * 사용자(DMA 로그인 id)별 상따 기본설정이다. 범위는 fbs 주석 그대로(서버가 42 에서 범위 밖 하나면 요청 전체를 거부한다).
  * 금액 4칸은 **단위 만원**(C# `LimitChaserDefaults` 와 같다).
  */
@@ -1460,7 +1463,24 @@ export type RelayUserSettingsValues = {
   autoSellMethodDefault: number;
   /** 후매수 최소(하한금액) — **만원** · 0~999999999 · fbs vtable 28(Phase 32 D-08). 42 12값 전체 교체에 포함. */
   postBuyFloorAmount: number;
+  /**
+   * 선매수 매도잔량 기본값 — **만원** · 0~999999999 · fbs vtable 30(gh-trade 261012). 0 = 종전(상따 폼이 상장주식수 × 0.3%
+   * 로 시딩), > 0 = 서버 전략 없는 폼의 선매수 매도잔량 칸을 그 값으로(그 칸만 상장주식수 시딩 생략 · 서버 에코가 이김).
+   */
+  preBuyWatchAmount: number;
+  /**
+   * 「줄매수도 같이 켜기」 · fbs vtable 32(gh-trade 261012). 켜 두면 사람이 상따 폼 ☐선매수를 켤 때 ☐줄매수(+☐버스트 취소)를
+   * 같은 제출로 켠다. 서버는 보관 · 에코만 — 동작은 클라 몫.
+   */
+  preBuyAutoAddBuy: boolean;
 };
+
+/**
+ * `RelayUserSettingsValues` 중 값이 숫자인 키 — 범위 표(`USER_SETTINGS_RANGES`) · 숫자 칸 키의 정본(파생 · 손 목록 금지).
+ */
+export type UserSettingsNumericKey = {
+  [K in keyof RelayUserSettingsValues]: RelayUserSettingsValues[K] extends number ? K : never;
+}[keyof RelayUserSettingsValues];
 
 /**
  * 사용자 설정 응답 (84 — `UserSettingsResp`). **최신 1건만** 보관한다(77 동형 3상태 규율 — relay 는 84 를
@@ -1471,14 +1491,18 @@ export type RelayUserSettingsValues = {
  *
  * `postBuyFloorAmount` 는 타입에서 **선택**이다 — 새 relay 는 늘 싣는다(84 슬롯 부재 = 0). 키 부재 = 구 relay 이고,
  * 웹은 그 섹션을 「불러오는 중」 으로 둔다(Pitfall 10 — 모르는 금액으로 42 전체 교체를 하면 C# 원값이 지워진다).
+ *
+ * `preBuyWatchAmount` · `preBuyAutoAddBuy` 도 타입에서 **선택**이지만 부재의 뜻이 다르다 — **0 · false 로 읽는다**
+ * (gh-trade 261012 「84 에 없으면 0·false」). 새 relay 는 늘 싣고(84 슬롯 부재 = 구 서버 = 0 · false), 키 부재는 이
+ * 동기화보다 오래된 relay 뿐이다. 「불러오는 중」 으로 두지 않는다.
  */
 export type RelayUserSettingsMsg = { t: "user.settings"; present: boolean } & Omit<
   RelayUserSettingsValues,
-  "postBuyFloorAmount"
-> & { postBuyFloorAmount?: number };
+  "postBuyFloorAmount" | "preBuyWatchAmount" | "preBuyAutoAddBuy"
+> & { postBuyFloorAmount?: number; preBuyWatchAmount?: number; preBuyAutoAddBuy?: boolean };
 
 /**
- * 사용자 설정 12값의 서버 42 검증 범위 (Phase 27 · Phase 31) — **fbs `table UserSettings` 주석 원문 그대로**.
+ * 사용자 설정 숫자 13칸의 서버 42 검증 범위 (Phase 27 · Phase 31 · quick-261012-u04 — bool `preBuyAutoAddBuy` 는 범위 없음) — **fbs `table UserSettings` 주석 원문 그대로**.
  *
  * relay zod(`user.settings.set`)와 webapp `/me` 시트가 이 한 벌을 읽는다 — 두 곳에 적으면 언젠가 갈라진다.
  * `lc.set` 범위와 다르다(잔량추적 · 반등은 여기서 0 허용) — 새 폼 시딩은 lc 범위 밖이면 D-04 상수로 폴백한다(27-07).
@@ -1496,7 +1520,8 @@ export const USER_SETTINGS_RANGES = {
   autoSellRatioDefaultPct: { min: 1, max: 50 },
   autoSellMethodDefault: { min: 1, max: 3 },
   postBuyFloorAmount: { min: 0, max: 999_999_999 },
-} as const satisfies Readonly<Record<keyof RelayUserSettingsValues, { readonly min: number; readonly max: number }>>;
+  preBuyWatchAmount: { min: 0, max: 999_999_999 },
+} as const satisfies Readonly<Record<UserSettingsNumericKey, { readonly min: number; readonly max: number }>>;
 
 /**
  * 상따 `lc.set` 자동매도 요청 3칸의 범위 (Phase 27 · 서버 §9-3 ② 동형 · 27-REVIEW IN-06).

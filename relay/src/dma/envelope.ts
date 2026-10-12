@@ -785,9 +785,12 @@ export function parseQueuedWindowState(env: Envelope): RelayQueuedWindowMsg | nu
 }
 
 /**
- * 사용자 설정 (84 — `user_settings` 슬롯 88 · Phase 27 · Phase 31). 12값 + `present`(84 전용 — false 면 서버가 내장
- * 기본값을 실었다). 금액 4칸은 **만원** 그대로 옮긴다 — relay 는 단위를 바꾸지 않는다. `postBuyFloorAmount` 는
+ * 사용자 설정 (84 — `user_settings` 슬롯 88 · Phase 27 · Phase 31 · quick-261012-u04). 14값 + `present`(84 전용 — false 면
+ * 서버가 내장 기본값을 실었다). 금액 5칸은 **만원** 그대로 옮긴다 — relay 는 단위를 바꾸지 않는다. `postBuyFloorAmount` 는
  * 늘 싣는다(구 84 슬롯 부재 = 0) — 키 부재는 「구 relay」 신호로만 쓰인다.
+ *
+ * 선매수 2필드(`preBuyWatchAmount` vtable 30 · `preBuyAutoAddBuy` vtable 32 — fbs `= null`)도 늘 싣는다. 84 슬롯 부재 =
+ * 구 서버(예: 미배포 KB 121) → 0 · false(gh-trade 261012 「84 에 없으면 0·false」).
  */
 export function parseUserSettings(env: Envelope): RelayUserSettingsMsg | null {
   const u = env.userSettings();
@@ -809,6 +812,8 @@ export function parseUserSettings(env: Envelope): RelayUserSettingsMsg | null {
     autoSellRatioDefaultPct: u.autoSellRatioDefaultPct(),
     autoSellMethodDefault: u.autoSellMethodDefault(),
     postBuyFloorAmount: u.postBuyFloorAmount(), // vtable 28 · 구 84(부재) = 0
+    preBuyWatchAmount: u.preBuyWatchAmount() ?? 0, // vtable 30 · 구 서버(부재) = 0
+    preBuyAutoAddBuy: u.preBuyAutoAddBuy() ?? false, // vtable 32 · 구 서버(부재) = false
   };
 }
 
@@ -2054,7 +2059,11 @@ export function buildAutoSellCommandReq(req: AutoSellCommandInput): Uint8Array {
 /**
  * 사용자 설정 저장 (MsgType 42 · Envelope 슬롯 88 — 84 와 공유 · Phase 27 — gh-trade `limit-chaser.md` §9-3 「사용자 설정」).
  *
- * **12값 전체 교체**다(부분 갱신 아님 · post_buy_floor_qty 는 봉인 0 — Phase 32 D-08). 서버는 범위 밖이 하나라도 있으면 요청 전체를 54 ERROR
+ * **12값 전체 교체**다(부분 갱신 아님 · post_buy_floor_qty 는 봉인 0 — Phase 32 D-08).
+ *
+ * 선매수 2필드(`preBuyWatchAmount` · `preBuyAutoAddBuy` — fbs `= null` · quick-261012-u04)는 **값이 있을 때만** 슬롯을
+ * 싣는다. 슬롯 부재 = 서버가 저장값을 유지한다(구 탭 · relay 선배포 창). 0 · false 로 지우려면 **실어야** 한다 — 새 웹은
+ * 늘 싣는다(gh-trade 261012). 서버는 범위 밖이 하나라도 있으면 요청 전체를 54 ERROR
  * source `"SetUserSettings"` 로 거부하고, 성공하면 같은 사용자 **전 세션**에 84 를 브로드캐스트한다 — relay 는
  * 성공을 지어내지 않는다(84 를 합성하지 않는다).
  *
@@ -2063,7 +2072,10 @@ export function buildAutoSellCommandReq(req: AutoSellCommandInput): Uint8Array {
  *
  * @throws {OrderBuildError} 값이 uint/ubyte 표현 범위를 벗어날 때
  */
-export function buildSetUserSettingsReq(s: RelayUserSettingsValues): Uint8Array {
+export function buildSetUserSettingsReq(
+  s: Omit<RelayUserSettingsValues, "preBuyWatchAmount" | "preBuyAutoAddBuy"> &
+    Partial<Pick<RelayUserSettingsValues, "preBuyWatchAmount" | "preBuyAutoAddBuy">>,
+): Uint8Array {
   const b = new flatbuffers.Builder(128);
   UserSettings.startUserSettings(b);
   UserSettings.addPreBuyAmount(b, toWireUint(s.preBuyAmount, "preBuyAmount"));
@@ -2078,6 +2090,13 @@ export function buildSetUserSettingsReq(s: RelayUserSettingsValues): Uint8Array 
   UserSettings.addAutoSellRatioDefaultPct(b, toWireUByte(s.autoSellRatioDefaultPct, "autoSellRatioDefaultPct"));
   UserSettings.addAutoSellMethodDefault(b, toWireUByte(s.autoSellMethodDefault, "autoSellMethodDefault"));
   UserSettings.addPostBuyFloorAmount(b, toWireUint(s.postBuyFloorAmount, "postBuyFloorAmount"));
+  // 선매수 2필드 — 부재 = 슬롯 부재 = 서버 저장값 유지. 0 · false 도 실으면 슬롯이 선다(생성기 기본값 null).
+  if (s.preBuyWatchAmount !== undefined) {
+    UserSettings.addPreBuyWatchAmount(b, toWireUint(s.preBuyWatchAmount, "preBuyWatchAmount"));
+  }
+  if (s.preBuyAutoAddBuy !== undefined) {
+    UserSettings.addPreBuyAutoAddBuy(b, s.preBuyAutoAddBuy);
+  }
   // present — 84 전용(서버가 42 요청값을 읽지 않는다). 싣지 않는다.
   const table = UserSettings.endUserSettings(b);
 

@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: e5b4fbca
-// synced-date:        2026-10-11
+// server-repo-commit: 8d56ea53
+// synced-date:        2026-10-12
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -652,12 +652,12 @@ table SetLimitChaser {
     post_buy_enabled: bool;          // 후매수 체크(양방향) — 에코는 cfg ∧ 마스터 무장 ∧ 단계 ≠ 소진: 마스터 OFF 면 OFF(D-32, 선·줄매수와 같은 모양), 「소진」이면 OFF 로 접는다(D-31). 자기 게이트와는 접지 않는다 — 무장 여부는 post_buy_phase. vtable 114
     post_buy_rebound_pct: ubyte;     // 후매수 반등률 % (C→S, 1~100). vtable 116
     post_buy_floor_qty: uint;        // 후매수 하한잔량(주, C→S). vtable 118
-    post_buy_reentry: ubyte;         // 후매수 최대 횟수(최초 포함, D-30) — C→S 「최대」 칸. OFF→ON 재무장은 잔여를 이 값으로 다시 싣는다(D-31). vtable 120
+    post_buy_reentry: ubyte;         // (deprecated, quick-261012-ow7) 후매수 「최대」 칸 폐지 — 서버는 보관·에코만, 판정·횟수 제한 없음(후매수·줄매수 자동 무제한). vtable 120
     post_buy_order_amount: uint;     // 후매수 주문금액(만원) — buy_order_amount 규약(보관·에코만). vtable 122
     post_buy_order_qty: uint;        // 후매수 주문수량(주, C→S) — 발주 정본. vtable 124
     post_buy_trigger_qty: uint;      // **S→C 전용** 발동잔량(주). 요청값은 서버가 읽지 않는다. vtable 126
-    post_buy_reentry_left: ubyte;    // **S→C 전용** 재진입 잔여(회). 요청값은 서버가 읽지 않는다. vtable 128
-    post_buy_phase: ubyte;           // **S→C 전용** 0 꺼짐 / 1 감시 / 2 보유중 / 3 소진. 요청값은 서버가 읽지 않는다. vtable 130
+    post_buy_reentry_left: ubyte;    // (deprecated, quick-261012-ow7) **S→C 전용** — 서버가 더 채우지 않는다(0). vtable 128
+    post_buy_phase: ubyte;           // **S→C 전용** 0 꺼짐 / 1 감시 / 2 보유중 / 3 소진(quick-261012-ow7 뒤로는 구 상태 파일 복원에서만). 요청값은 서버가 읽지 않는다. vtable 130
     // === 이하 quick-260929-ucy 추가 (말미 append) ===
     post_buy_auto: bool;             // ☐자동(양방향) — ON 이면 선매수·줄매수가 상따 취소 옵션으로 무체결 전량취소되거나 보유 0 전이 때 서버가 후매수를 1회 켜고
                                      // 이 값을 false 로 에코한다(꺼져 있던 마스터도 올린다 — docs/strategy/limit-chaser.md §5-3-1).
@@ -691,9 +691,9 @@ table SetLimitChaser {
     auto_sell_basis_price: uint;     // **S→C 전용** 기준가격(원 — 상한가 또는 매수가). vtable 154
     // === 이하 quick-261010-ub8 추가 (말미 append) ===
     extra_buy_auto: bool;            // 줄매수 ☐자동(양방향, 와이어 이름 extra_buy_* 규약 D-29) — ON 이면 줄매수 체크가 풀린 뒤
-                                     // (발주·거부·최대 초과 포기·버스트 해제) 상한가 이탈 ∧ 그 계좌·종목 보유 0 ∧ 재진입 잔여 > 0 인
-                                     // 첫 B6 에 서버가 줄매수를 다시 켠다(docs/strategy/limit-chaser.md §5-2-1). 재진입 칸은
-                                     // post_buy_reentry 를 공유한다. 서버는 buy3_schema >= 5 일 때만 읽는다 — 그 미만(C# 구 클라 ·
+                                     // (발주·거부·최대 초과 포기·버스트 해제) 상한가 이탈 ∧ 그 계좌·종목 보유 0 인
+                                     // 첫 B6 에 서버가 줄매수를 다시 켠다(docs/strategy/limit-chaser.md §5-2-1). 횟수 제한 없음
+                                     // (quick-261012-ow7). 서버는 buy3_schema >= 5 일 때만 읽는다 — 그 미만(C# 구 클라 ·
                                      // gh-radar relay)은 서버 값 유지. 에코는 설정값. vtable 156
     // === 이하 Phase 32 추가 (말미 append) ===
     // 수량 옵션의 금액(만원) 원값 — 클라가 입력한 만원 값을 서버가 보관했다가 에코·상태파일로 되돌린다.
@@ -1606,12 +1606,12 @@ table AutoSellCommandReq {       // 41 본문 — 자동매도 바로시작/중�
                                  // 그 밖 값은 54 ERROR
 }
 
-table UserSettings {             // 42/84 공용 본문 — 사용자(dma_user_id)별 상따 기본설정 12개 + present (D-20 · Phase 32 D-08)
+table UserSettings {             // 42/84 공용 본문 — 사용자(dma_user_id)별 상따 기본설정 14개 + present (D-20 · Phase 32 D-08 · quick-261012-sd1)
     // 기존 클라 settings.ini [LimitChaserDefaults] 7키 — 금액 3칸 단위는 **만원**(클라 LimitChaserDefaults 와 같다)
     pre_buy_amount: uint;        // 선매수 주문금액(만원) 0~999999999
     add_buy_amount: uint;        // 줄매수 주문금액(만원) 0~999999999
     post_buy_amount: uint;       // 후매수 주문금액(만원) 0~999999999
-    post_buy_max_count: ubyte;   // 후매수 최대 횟수(최초 포함) 0~255
+    post_buy_max_count: ubyte;   // (deprecated, quick-261012-ow7) 후매수 최대 횟수 0~255 — 서버 판정 무관(보관·에코만, 횟수 제한 없음), 신 클라는 255
     post_buy_floor_qty: uint;    // 후매수 하한잔량(주) 0~99999999 (봉인 — Phase 32 D-08, 신 클라는 0 을 싣고 읽지 않는다)
     post_buy_rebound_pct: ubyte; // 후매수 반등률 % 0~100
     sell_qty_track_ratio: ubyte; // 매도잔량 추적 비율 % 0~90
@@ -1624,6 +1624,11 @@ table UserSettings {             // 42/84 공용 본문 — 사용자(dma_user_i
                                  // 클라는 false 면 ini 값으로 42 를 1회 보내 이전한다, D-20). 42 요청값은 서버가 읽지 않는다
     // === 이하 Phase 32 추가 (말미 append — present 뒤가 참 말미다. present 앞에 끼우면 present 슬롯이 밀린다) ===
     post_buy_floor_amount: uint;   // 후매수 하한금액(만원) 0~999999999 — Phase 32 D-08. 신 클라의 「후매수 최소」 기본값. present 뒤 말미 append. vtable 28
+    // === 이하 quick-261012-sd1 — **optional 스칼라(`= null`)**, vtable 30·32. 부재 = 모름: 42 에 필드가 없으면(구 WinForms·
+    //     스키마 동기화 전 웹) 서버는 저장값을 유지한다. 0·false 로 지우려면 필드를 **실어** 보낸다(C#·TS 생성 빌더는 null 이
+    //     아닌 값이면 0·false 도 쓴다 — 송신자는 두 필드를 늘 싣는다). 84 는 서버가 늘 싣는다(84 부재 = 구 서버 → 0·false 로 읽는다)
+    pre_buy_watch_amount: uint = null;   // 선매수 매도잔량 기본값(만원) 0~999999999, 0 = 종전(상장주식수 × 0.3% 시딩). vtable 30
+    pre_buy_auto_add_buy: bool = null;   // ☐줄매수 자동켜짐 — 사람이 상따창 ☐선매수를 켤 때 ☐줄매수도 같은 제출로 켠다(클라 동작, 서버는 보관·에코만). vtable 32
 }
 
 // ============================================================================

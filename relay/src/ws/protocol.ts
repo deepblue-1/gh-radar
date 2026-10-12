@@ -33,7 +33,7 @@ import type {
   RelayExchange,
   RelayLimitChaserInput,
   RelayOutbound,
-  RelayUserSettingsValues,
+  UserSettingsNumericKey,
 } from "@gh-radar/shared";
 import type { LcSetCfg } from "../dma/envelope.js";
 
@@ -407,7 +407,7 @@ export const RelayAutoSellCmdSchema = z.object({
 });
 
 /** 사용자 설정 1칸 — 정수 · 범위는 shared `USER_SETTINGS_RANGES` 에서 읽는다(리터럴을 다시 쓰지 않는다). */
-function userSettingInt(k: keyof RelayUserSettingsValues) {
+function userSettingInt(k: UserSettingsNumericKey) {
   return z.number().int().min(USER_SETTINGS_RANGES[k].min).max(USER_SETTINGS_RANGES[k].max);
 }
 
@@ -418,6 +418,10 @@ function userSettingInt(k: keyof RelayUserSettingsValues) {
  * 보내면 저장값이 지워진다). 봉인 `postBuyFloorQty` 는 받아도 조립기가 0 으로 싣는다(Phase 32 D-08). 범위는 서버 42 검증
  * 범위 그대로(fbs 주석 = `USER_SETTINGS_RANGES`)이고, 위반은 close(4400) 이라 웹이 같은 상수로 먼저 막는다.
  * `present`(84 전용)는 스키마에 없다 — 실려 와도 zod 기본 strip 으로 버려진다(엄격 모드 금지 · T-18-07).
+ *
+ * 선매수 2필드(`preBuyWatchAmount` · `preBuyAutoAddBuy` · quick-261012-u04)도 선택이다 — relay 선배포 창의 구 탭 관용.
+ * `postBuyFloorAmount` 와 달리 **84 캐시 되싣기가 필요 없다**: 부재는 42 슬롯 부재로 나가고 서버가 「저장값 유지」 로
+ * 읽는다(fbs `= null` — 지어낸 0 이 저장값을 지우는 Pitfall 3 이 구조적으로 없다). 범위 밖은 기존대로 close(4400).
  */
 export const RelayUserSettingsSetSchema = z.object({
   t: z.literal("user.settings.set"),
@@ -436,6 +440,8 @@ export const RelayUserSettingsSetSchema = z.object({
     // D-14 보정 — 「필수」 는 새 webapp 계약이고 zod 는 선택이다. 부재(구 탭 11값)면 fanout 이 84 캐시를 되싣는다 —
     // 필수로 두면 relay 선배포 창의 구 /me 저장이 소켓을 닫는다(4400 · Pitfall 3).
     postBuyFloorAmount: userSettingInt("postBuyFloorAmount").optional(),
+    preBuyWatchAmount: userSettingInt("preBuyWatchAmount").optional(),
+    preBuyAutoAddBuy: z.boolean().optional(),
   }),
 });
 

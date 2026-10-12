@@ -2105,7 +2105,7 @@ export class WsFanout {
     }
 
     // `user.settings.set`(42 · Phase 27) — ② 계좌 대조가 **없다**: 계좌 축이 없고 서버가 세션 신원(`GetId()`)으로
-    // 저장한다. 12값 범위는 zod 가 이미 봤다(`USER_SETTINGS_RANGES`). 성공 신호는 서버가 같은 사용자 전 세션에
+    // 저장한다. 14값 범위는 zod 가 이미 봤다(`USER_SETTINGS_RANGES`). 성공 신호는 서버가 같은 사용자 전 세션에
     // 브로드캐스트하는 84 다 — relay 는 84 를 받은 대로 팬아웃할 뿐 **42 에 대해 지어낸 84 를 내지 않는다.**
     // 거부는 54 ERROR `src="SetUserSettings"` 가 기존 `msg` 경로로 간다. pending FIFO · 재전송 없음(T-16-10).
     //
@@ -2113,6 +2113,7 @@ export class WsFanout {
     // 그 사용자의 마지막 84 금액으로 채운다. 42 는 전체 교체라 0 을 지어 보내면 C# 「최소 [ ]만」 원값이 지워진다.
     // 캐시도 없으면 게이트웨이 0바이트 · 거부 프레임 1건 · **소켓 유지**(`#reject` 금지 — 끊으면 시세 · 에코 · 수동주문까지
     // 끊기고 재접속 루프가 된다 · 구 탭 lc.set 선례).
+    // 선매수 2필드(quick-261012-u04)는 그대로 통과 — 부재 = 42 슬롯 부재 = 서버 저장값 유지(되싣기 불필요).
     if (msg.t === "user.settings.set") {
       const session = this.#strategySession(conn, userId, msg.t);
       if (session === null) return;

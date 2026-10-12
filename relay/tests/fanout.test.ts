@@ -1450,6 +1450,9 @@ describe("WsFanout", () => {
         autoSellMethodDefault: 3,
         // Phase 31 — 새 relay 는 늘 싣는다(84 슬롯 부재 = 0).
         postBuyFloorAmount: 0,
+        // quick-261012-u04 — 선매수 2필드도 늘 싣는다(84 슬롯 부재 = 구 서버 = 0 · false).
+        preBuyWatchAmount: 0,
+        preBuyAutoAddBuy: false,
       },
     ]);
     const order = tabB.inbox.map((m) => m.t);

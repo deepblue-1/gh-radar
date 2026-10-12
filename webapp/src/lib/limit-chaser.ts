@@ -44,7 +44,7 @@ import type {
   RelayLimitChaser,
   RelayLimitChaserInput,
   RelayUserSettingsMsg,
-  RelayUserSettingsValues,
+  UserSettingsNumericKey,
 } from '@gh-radar/shared';
 import {
   AUTO_SELL_METHOD_ORDER,
@@ -405,7 +405,7 @@ export type UserSettingsSeed = Pick<
 >;
 
 /** 폼 칸 ← 84 값 — 순서 = WinForms `ResetStrategyOptionsToDefault` 대입 순서가 아니라 화면(매수 → 매도) 순서. */
-const USER_SETTINGS_SEED_MAP: readonly (readonly [keyof UserSettingsSeed, keyof RelayUserSettingsValues])[] = [
+const USER_SETTINGS_SEED_MAP: readonly (readonly [keyof UserSettingsSeed, UserSettingsNumericKey])[] = [
   ['buyOrderAmount', 'preBuyAmount'],
   ['extraBuyOrderAmount', 'addBuyAmount'],
   ['postBuyOrderAmount', 'postBuyAmount'],

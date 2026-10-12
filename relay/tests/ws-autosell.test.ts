@@ -4,7 +4,7 @@
  * `ws-latch.test.ts` 동형 하네스다 — 스텁은 Supabase(토큰 · 자격증명) 하나뿐이고 실제 ws 서버 · 실제 TCP 로 붙는
  * 가짜 게이트웨이 · 실제 `SessionManager`/`SubscriptionHub` 가 전부 진짜다. 검증 대상:
  *   · `{t:"autosell.cmd", …, action:"start"|"stop"}` → `Envelope{msg_type=41, auto_sell_command_req={…, action 1|2}}`
- *   · `{t:"user.settings.set", s:{12값}}` → `Envelope{msg_type=42, user_settings={12값 · 봉인 post_buy_floor_qty 0 · present 슬롯 없음}}`
+ *   · `{t:"user.settings.set", s:{14값}}` → `Envelope{msg_type=42, user_settings={14값 · 봉인 post_buy_floor_qty 0 · present 슬롯 없음}}`
  *   · (Phase 31 D-14 보정) 구 탭 11값(후매수 최소 없음) → 84 캐시 금액 되싣기 · 캐시 없음 → 거부 프레임 · 소켓 유지
  *   · 가드 — Ready 세션 · 세션 계좌(41 만 · IDOR · D-09). 거부는 언제나 「게이트웨이 수신 0」과 함께 단언한다
  *   · relay 는 서버 진실을 지어내지 않는다 — 42 에 대해 84 를 합성하지 않고, 54 본문을 해석하지 않는다(교훈 24)
@@ -115,7 +115,7 @@ async function waitFor(predicate: () => boolean, label: string, turns = 600): Pr
 }
 
 /**
- * `user.settings.set` 12값 — 서버 범위 안(fbs 주석). 기본값과 다른 칸을 섞어 왕복을 본다.
+ * `user.settings.set` 14값 — 서버 범위 안(fbs 주석). 기본값과 다른 칸을 섞어 왕복을 본다.
  * `postBuyFloorQty` 는 봉인(Phase 32 D-08)이라 relay 가 0 으로 바꿔 싣는다 — 일부러 0 이 아닌 값을 둔다.
  */
 const SETTINGS: RelayUserSettingsValues = {
@@ -131,10 +131,15 @@ const SETTINGS: RelayUserSettingsValues = {
   autoSellRatioDefaultPct: 10,
   autoSellMethodDefault: 3,
   postBuyFloorAmount: 84,
+  preBuyWatchAmount: 50,
+  preBuyAutoAddBuy: true,
 };
 
-/** 구 탭(Phase 31 이전 webapp) 모양 — 11값 · 후매수 최소 키 없음. */
-const { postBuyFloorAmount: _legacyDrop, ...LEGACY_SETTINGS } = SETTINGS;
+/** quick-261012-u04 이전 webapp 모양 — 12값 · 선매수 2필드 키 없음. */
+const { preBuyWatchAmount: _u04WatchDrop, preBuyAutoAddBuy: _u04AutoDrop, ...SETTINGS_12 } = SETTINGS;
+
+/** 구 탭(Phase 31 이전 webapp) 모양 — 11값 · 후매수 최소 · 선매수 2필드 키 없음. */
+const { postBuyFloorAmount: _legacyDrop, ...LEGACY_SETTINGS } = SETTINGS_12;
 
 describe("Phase 27 autosell.cmd · user.settings.set", () => {
   let gateway: FakeGateway;
@@ -379,7 +384,7 @@ describe("Phase 27 autosell.cmd · user.settings.set", () => {
   // ③ user.settings.set → 42 · relay 는 84 를 지어내지 않는다
   // ==========================================================
 
-  it("③-1 user.settings.set 은 msg_type 42 1건 · 12값 그대로(봉인 하한잔량만 0) · present 슬롯 없음", async () => {
+  it("③-1 user.settings.set 은 msg_type 42 1건 · 14값 그대로(봉인 하한잔량만 0) · present 슬롯 없음", async () => {
     const { ws } = await authed("token-a");
 
     ws.sendRaw({ t: "user.settings.set", s: { ...SETTINGS, present: true } });
@@ -482,8 +487,15 @@ describe("Phase 27 autosell.cmd · user.settings.set", () => {
 
       expect(settingsReqs()).toHaveLength(1);
       // 나머지 10값은 요청 그대로 · 하한잔량 봉인 0 · 최소는 84 캐시 값 — 0 을 지어내지 않는다.
+      // 선매수 2필드는 되싣지 않는다 — 슬롯 부재(null) = 서버 저장값 유지(quick-261012-u04).
       const { presentSlotEmpty: _p, ...values } = settingsReqs()[0]!;
-      expect(values).toEqual({ ...SETTINGS, postBuyFloorQty: 0, postBuyFloorAmount: 300 });
+      expect(values).toEqual({
+        ...SETTINGS,
+        postBuyFloorQty: 0,
+        postBuyFloorAmount: 300,
+        preBuyWatchAmount: null,
+        preBuyAutoAddBuy: null,
+      });
       expect(framesOf(inbox, "msg")).toHaveLength(0);
       expect(ws.closeInfo).toBeNull();
     });
@@ -530,6 +542,63 @@ describe("Phase 27 autosell.cmd · user.settings.set", () => {
         expect(settingsReqs()).toHaveLength(0);
       },
     );
+  });
+
+  // ==========================================================
+  // quick-261012-u04 — 선매수 2필드(vtable 30 · 32 · fbs `= null`)
+  // ==========================================================
+
+  describe("quick-261012-u04 user.settings.set 선매수 2필드", () => {
+    it("14값(50 · true) → 게이트웨이 42 디코드 preBuyWatchAmount 50 · preBuyAutoAddBuy true", async () => {
+      const { ws } = await authed("token-a");
+
+      ws.sendRaw({ t: "user.settings.set", s: SETTINGS });
+      await waitFor(() => settingsReqs().length === 1, "42 송신");
+
+      expect(settingsReqs()[0]).toMatchObject({ preBuyWatchAmount: 50, preBuyAutoAddBuy: true });
+    });
+
+    it("14값(0 · false) → 42 슬롯이 선다(0 · false — 지우기)", async () => {
+      const { ws } = await authed("token-a");
+
+      ws.sendRaw({ t: "user.settings.set", s: { ...SETTINGS, preBuyWatchAmount: 0, preBuyAutoAddBuy: false } });
+      await waitFor(() => settingsReqs().length === 1, "42 송신");
+
+      expect(settingsReqs()[0]).toMatchObject({ preBuyWatchAmount: 0, preBuyAutoAddBuy: false });
+    });
+
+    it("12값(구 탭 — 두 필드 없음) → 42 두 슬롯 부재(null = 서버 저장값 유지) · 소켓 열림", async () => {
+      const { ws } = await authed("token-a");
+
+      ws.sendRaw({ t: "user.settings.set", s: SETTINGS_12 });
+      await waitFor(() => settingsReqs().length === 1, "42 송신");
+
+      expect(settingsReqs()[0]).toMatchObject({ preBuyWatchAmount: null, preBuyAutoAddBuy: null, postBuyFloorAmount: 84 });
+      expect(ws.closeInfo).toBeNull();
+    });
+
+    it("84 의 두 슬롯(50 · true)은 user.settings 에 그대로 · 슬롯 부재 84 는 0 · false", async () => {
+      const { inbox } = await authed("token-a");
+
+      gateway.sendUserSettings(gatewaySocket(), { present: true, preBuyWatchAmount: 50, preBuyAutoAddBuy: true });
+      await waitFor(() => framesOf(inbox, "user.settings").length === 1, "84 팬아웃");
+      expect(framesOf(inbox, "user.settings")[0]).toMatchObject({ preBuyWatchAmount: 50, preBuyAutoAddBuy: true });
+
+      gateway.sendUserSettings(gatewaySocket(), { present: true });
+      await waitFor(() => framesOf(inbox, "user.settings").length === 2, "84 팬아웃(구 서버 모양)");
+      expect(framesOf(inbox, "user.settings")[1]).toMatchObject({ preBuyWatchAmount: 0, preBuyAutoAddBuy: false });
+    });
+
+    it("preBuyWatchAmount 1,000,000,000 은 zod 위반 close(4400) · 게이트웨이 42 0건", async () => {
+      const { ws } = await authed("token-a");
+
+      ws.sendRaw({ t: "user.settings.set", s: { ...SETTINGS, preBuyWatchAmount: 1_000_000_000 } });
+      await waitFor(() => ws.closeInfo !== null, "프로토콜 위반 close");
+      await flushIo(30);
+
+      expect(ws.closeInfo?.code).toBe(4400);
+      expect(settingsReqs()).toHaveLength(0);
+    });
   });
 
   // ==========================================================

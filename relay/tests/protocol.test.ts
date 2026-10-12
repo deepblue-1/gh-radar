@@ -919,6 +919,30 @@ describe("Phase 27 autosell.cmd · user.settings.set 인바운드 스키마", ()
     expect(msg).not.toHaveProperty("extra");
     expect(msg.s).toEqual(SETTINGS);
   });
+
+  it("quick-261012-u04 선매수 2필드 — 부재(구 탭)는 통과 · 키를 만들지 않는다", () => {
+    const msg = parseInbound(set({ ...SETTINGS, postBuyFloorAmount: 0 }));
+    if (msg?.t !== "user.settings.set") throw new Error("user.settings.set 으로 좁혀지지 않았습니다");
+    expect(msg.s).not.toHaveProperty("preBuyWatchAmount");
+    expect(msg.s).not.toHaveProperty("preBuyAutoAddBuy");
+  });
+
+  it("quick-261012-u04 preBuyWatchAmount — 0 · 999,999,999 통과 · -1 · 1,000,000,000 · 1.5 · \"50\" 거부", () => {
+    expect(parseInbound(set({ ...SETTINGS, preBuyWatchAmount: 0 }))).toMatchObject({ s: { preBuyWatchAmount: 0 } });
+    expect(parseInbound(set({ ...SETTINGS, preBuyWatchAmount: 999_999_999 }))).toMatchObject({
+      s: { preBuyWatchAmount: 999_999_999 },
+    });
+    for (const bad of [-1, 1_000_000_000, 1.5, "50"]) {
+      expect(parseInbound(set({ ...SETTINGS, preBuyWatchAmount: bad })), String(bad)).toBeNull();
+    }
+  });
+
+  it("quick-261012-u04 preBuyAutoAddBuy — true · false 통과 · 1 · \"true\" 거부", () => {
+    expect(parseInbound(set({ ...SETTINGS, preBuyAutoAddBuy: true }))).toMatchObject({ s: { preBuyAutoAddBuy: true } });
+    expect(parseInbound(set({ ...SETTINGS, preBuyAutoAddBuy: false }))).toMatchObject({ s: { preBuyAutoAddBuy: false } });
+    expect(parseInbound(set({ ...SETTINGS, preBuyAutoAddBuy: 1 }))).toBeNull();
+    expect(parseInbound(set({ ...SETTINGS, preBuyAutoAddBuy: "true" }))).toBeNull();
+  });
 });
 
 describe("P31 lc.set 금액 8필드 선택 (D-11)", () => {

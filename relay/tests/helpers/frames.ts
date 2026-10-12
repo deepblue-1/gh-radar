@@ -1284,6 +1284,13 @@ export type FakeUserSettingsInput = {
    * (0 은 FlatBuffers 기본값이라 슬롯을 쓰지 않는다 — 구 84(슬롯 부재)와 같은 바이트).
    */
   postBuyFloorAmount?: number;
+  /**
+   * 선매수 매도잔량 기본값 — **만원** · fbs vtable 30(`= null` · quick-261012-u04). **주어졌을 때만** 슬롯을 쓴다 —
+   * 기본은 구 서버 모양(슬롯 부재 → relay 0)이라 「부재 = 0/false」 경로가 기본으로 시험된다.
+   */
+  preBuyWatchAmount?: number;
+  /** 「줄매수도 같이 켜기」 · fbs vtable 32(`= null`). 주어졌을 때만 슬롯을 쓴다(기본 부재 → relay false). */
+  preBuyAutoAddBuy?: boolean;
 };
 
 /**
@@ -1308,6 +1315,8 @@ export function buildUserSettingsFrame(input: FakeUserSettingsInput = {}): Uint8
   UserSettings.addAutoSellMethodDefault(b, input.autoSellMethodDefault ?? 3);
   UserSettings.addPresent(b, input.present ?? false);
   UserSettings.addPostBuyFloorAmount(b, input.postBuyFloorAmount ?? 0);
+  if (input.preBuyWatchAmount !== undefined) UserSettings.addPreBuyWatchAmount(b, input.preBuyWatchAmount);
+  if (input.preBuyAutoAddBuy !== undefined) UserSettings.addPreBuyAutoAddBuy(b, input.preBuyAutoAddBuy);
   const settings = UserSettings.endUserSettings(b);
 
   Envelope.startEnvelope(b);

@@ -858,6 +858,10 @@ export type SetUserSettingsRequest = {
   autoSellMethodDefault: number;
   /** 후매수 최소(하한금액) — **만원** · vtable 28. */
   postBuyFloorAmount: number;
+  /** 선매수 매도잔량 기본값 — **만원** · vtable 30(quick-261012-u04). `null` = 슬롯 부재(서버 저장값 유지). */
+  preBuyWatchAmount: number | null;
+  /** 「줄매수도 같이 켜기」 · vtable 32. `null` = 슬롯 부재(서버 저장값 유지). */
+  preBuyAutoAddBuy: boolean | null;
   presentSlotEmpty: boolean;
 };
 
@@ -884,6 +888,8 @@ export function readSetUserSettingsRequest(payload: Buffer): SetUserSettingsRequ
     autoSellRatioDefaultPct: u.autoSellRatioDefaultPct(),
     autoSellMethodDefault: u.autoSellMethodDefault(),
     postBuyFloorAmount: u.postBuyFloorAmount(),
+    preBuyWatchAmount: u.preBuyWatchAmount(),
+    preBuyAutoAddBuy: u.preBuyAutoAddBuy(),
     presentSlotEmpty: u.bb.__offset(u.bb_pos, USER_SETTINGS_PRESENT_VT) === 0,
   };
 }

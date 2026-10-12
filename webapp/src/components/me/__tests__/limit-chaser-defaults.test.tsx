@@ -144,10 +144,19 @@ describe('Phase 27 상따 기본설정 표시', () => {
 
 /* ───────────────────────── Task 3 — 행 확정마다 즉시 42 ───────────────────────── */
 
-/** 42 본문 기대값 — 84 의 10값 + 후매수 최소 그대로 · 봉인 하한잔량은 늘 0(84 값을 읽지 않는다 · D-13). */
+/**
+ * 42 본문 기대값 — 84 의 10값 + 후매수 최소 그대로 · 봉인 하한잔량은 늘 0(84 값을 읽지 않는다 · D-13) ·
+ * 선매수 2필드는 84 부재면 0 · false 로 늘 싣는다(quick-261012-u04 · gh-trade 261012).
+ */
 const VALUES_OF = (m: RelayUserSettingsMsg) => {
   const { t: _t, present: _p, ...rest } = m;
-  return { ...rest, postBuyFloorQty: 0, postBuyFloorAmount: m.postBuyFloorAmount ?? 0 };
+  return {
+    ...rest,
+    postBuyFloorQty: 0,
+    postBuyFloorAmount: m.postBuyFloorAmount ?? 0,
+    preBuyWatchAmount: m.preBuyWatchAmount ?? 0,
+    preBuyAutoAddBuy: m.preBuyAutoAddBuy ?? false,
+  };
 };
 
 function msg(m: string, extra: Partial<RelayServerMessageEntry> = {}): RelayServerMessageEntry {
@@ -183,6 +192,42 @@ describe('Phase 27 상따 기본설정 즉시 저장(42)', () => {
     inlineCommit('auto-sell-period-sec', '5');
     expect(send).toHaveBeenCalledTimes(1);
     expect(sentPayloads()[0]).toEqual({ t: 'user.settings.set', s: { ...VALUES_OF(base), autoSellPeriodSec: 5 } });
+  });
+
+  it('u04 — 84 에 선매수 2키가 없을 때 매도 주기 3 → 5 확정 = s 에 preBuyWatchAmount 0 · preBuyAutoAddBuy false 를 늘 싣는다', () => {
+    const base = settings(true);
+    expect(base).not.toHaveProperty('preBuyWatchAmount');
+    mockRelay = relay(base);
+    render(<LimitChaserDefaultsSection />);
+    inlineCommit('auto-sell-period-sec', '5');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sentPayloads()[0]).toEqual({
+      t: 'user.settings.set',
+      s: {
+        preBuyAmount: 4000,
+        addBuyAmount: 4000,
+        postBuyAmount: 4000,
+        postBuyMaxCount: 3,
+        postBuyFloorQty: 0,
+        postBuyReboundPct: 30,
+        sellQtyTrackRatio: 55,
+        autoSellPeriodSec: 5,
+        auctionSellRatioPct: 20,
+        autoSellRatioDefaultPct: 10,
+        autoSellMethodDefault: 3,
+        postBuyFloorAmount: 0,
+        preBuyWatchAmount: 0,
+        preBuyAutoAddBuy: false,
+      },
+    });
+  });
+
+  it('u04 — 84 에 50 · true 가 있을 때 다른 행 확정 → s.preBuyWatchAmount 50 · s.preBuyAutoAddBuy true 그대로', () => {
+    mockRelay = relay(settings(true, { preBuyWatchAmount: 50, preBuyAutoAddBuy: true }));
+    render(<LimitChaserDefaultsSection />);
+    inlineCommit('auto-sell-period-sec', '5');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sentPayloads()[0]!.s).toMatchObject({ autoSellPeriodSec: 5, preBuyWatchAmount: 50, preBuyAutoAddBuy: true });
   });
 
   it('42 — 시트에서 61 → 적용 비활성 · 「1~60초 사이여야 해요」 · 전송 0 / 잔량추적 0 은 허용(서버 범위 0~90)', () => {
@@ -487,7 +532,7 @@ describe('P31 후매수 최소 (D-13 · UI-SPEC S5)', () => {
     const s = sentPayloads()[0]!.s;
     expect(s).toEqual({ ...VALUES_OF(base), postBuyFloorAmount: 300 });
     expect(s.postBuyFloorQty).toBe(0);
-    expect(Object.keys(s)).toHaveLength(12);
+    expect(Object.keys(s)).toHaveLength(14);
   });
 
   it('다른 칸(매도 주기 5) 확정 → s.postBuyFloorAmount 는 84 값 그대로 · 하한잔량 0', () => {

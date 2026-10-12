@@ -2950,7 +2950,7 @@ describe("Phase 27 자동매도 와이어 — schema 1~4 파생 · 에코 슬롯
     expect(list![0]).toMatchObject(echo);
   });
 
-  it("parseUserSettings — 12값 + present 왕복", () => {
+  it("parseUserSettings — 14값 + present 왕복(선매수 2필드 슬롯 부재 = 0 · false)", () => {
     const parsed = inbound(buildUserSettingsFrame({ present: true, autoSellPeriodSec: 5 }));
     expect(parsed.msgType).toBe(MSG.UserSettingsResp);
     expect(parseUserSettings(parsed.env)).toEqual({
@@ -2968,6 +2968,8 @@ describe("Phase 27 자동매도 와이어 — schema 1~4 파생 · 에코 슬롯
       autoSellRatioDefaultPct: 10,
       autoSellMethodDefault: 3,
       postBuyFloorAmount: 0,
+      preBuyWatchAmount: 0,
+      preBuyAutoAddBuy: false,
     });
     // present 기본 false — 서버 내장 기본값.
     expect(parseUserSettings(inbound(buildUserSettingsFrame()).env)!.present).toBe(false);
@@ -3071,9 +3073,9 @@ describe("③-extra-auto extra_buy_auto · buy3_schema 5 파생 (quick-261011-0y
  * Phase 27 (27-02) — 요청 조립기 41 · 42 · 43 (gh-trade `limit-chaser.md` §9-3).
  *
  * 못박는 것: ① 41 의 네 칸이 슬롯 86 에 그대로 · 가드 3종(ISIN · 계좌 · 거래소) · action 1/2 밖은 송신 전 거부
- * ② 42 의 12값이 슬롯 88 에 그대로(봉인 `post_buy_floor_qty` 만 늘 0 · Phase 31) · `present`(84 전용)는 **싣지 않는다** ③ 43 은 본문 없는 Envelope
+ * ② 42 의 14값이 슬롯 88 에 그대로(봉인 `post_buy_floor_qty` 만 늘 0 · Phase 31) · `present`(84 전용)는 **싣지 않는다** ③ 43 은 본문 없는 Envelope
  * ④ 세 요청 모두 수신 화이트리스트를 통과하지 못한다(반사 프레임 방어 — 42 는 84 와 슬롯을 공유해도 번호로 갈린다)
- * ⑤ 범위 정본 `USER_SETTINGS_RANGES` 12키 = `RelayUserSettingsValues` 키 · 값 = fbs 주석.
+ * ⑤ 범위 정본 `USER_SETTINGS_RANGES` 키 = `RelayUserSettingsValues` 의 숫자 키(13 · bool `preBuyAutoAddBuy` 제외) · 값 = fbs 주석.
  */
 describe("Phase 27 요청 조립기 41 · 42 · 43", () => {
   const SETTINGS: RelayUserSettingsValues = {
@@ -3089,6 +3091,8 @@ describe("Phase 27 요청 조립기 41 · 42 · 43", () => {
     autoSellRatioDefaultPct: 1,
     autoSellMethodDefault: 2,
     postBuyFloorAmount: 999_999_999,
+    preBuyWatchAmount: 999_999_999,
+    preBuyAutoAddBuy: true,
   };
   /** `UserSettings.present` 의 vtable 오프셋(fbs 12번째 필드 — 4 + 2×11). */
   const PRESENT_VT = 26;
@@ -3163,7 +3167,7 @@ describe("Phase 27 요청 조립기 41 · 42 · 43", () => {
     }
   });
 
-  it("42 — msgType 42 · 슬롯 88 의 12값이 그대로(금액 만원 원값 · 봉인 하한잔량만 0) · present 슬롯 미적재", () => {
+  it("42 — msgType 42 · 슬롯 88 의 14값이 그대로(금액 만원 원값 · 봉인 하한잔량만 0) · present 슬롯 미적재", () => {
     const env = readBack(buildSetUserSettingsReq(SETTINGS));
     expect(env.msgType()).toBe(MSG.SetUserSettingsReq);
     expect(env.autoSellCommandReq()).toBeNull();
@@ -3182,6 +3186,8 @@ describe("Phase 27 요청 조립기 41 · 42 · 43", () => {
       autoSellRatioDefaultPct: u!.autoSellRatioDefaultPct(),
       autoSellMethodDefault: u!.autoSellMethodDefault(),
       postBuyFloorAmount: u!.postBuyFloorAmount(),
+      preBuyWatchAmount: u!.preBuyWatchAmount(),
+      preBuyAutoAddBuy: u!.preBuyAutoAddBuy(),
     }).toEqual({ ...SETTINGS, postBuyFloorQty: 0 });
     // present 는 84 전용 — 서버가 42 에서 읽지 않는다. 슬롯 자체가 없어야 한다(false 적재와 구별).
     expect(u!.bb!.__offset(u!.bb_pos, PRESENT_VT)).toBe(0);
@@ -3212,8 +3218,12 @@ describe("Phase 27 요청 조립기 41 · 42 · 43", () => {
     expect(droppedEnvelopeCount()).toBe(3);
   });
 
-  it("USER_SETTINGS_RANGES — 12키 = RelayUserSettingsValues 키 · 값은 fbs 주석 범위 그대로", () => {
-    expect(Object.keys(USER_SETTINGS_RANGES).sort()).toEqual(Object.keys(SETTINGS).sort());
+  it("USER_SETTINGS_RANGES — 키 = RelayUserSettingsValues 의 숫자 키 · 값은 fbs 주석 범위 그대로", () => {
+    const numericKeys = Object.entries(SETTINGS)
+      .filter(([, v]) => typeof v === "number")
+      .map(([k]) => k);
+    expect(numericKeys).toHaveLength(13);
+    expect(Object.keys(USER_SETTINGS_RANGES).sort()).toEqual(numericKeys.sort());
     expect(USER_SETTINGS_RANGES).toEqual({
       preBuyAmount: { min: 0, max: 999_999_999 },
       addBuyAmount: { min: 0, max: 999_999_999 },
@@ -3227,6 +3237,7 @@ describe("Phase 27 요청 조립기 41 · 42 · 43", () => {
       autoSellRatioDefaultPct: { min: 1, max: 50 },
       autoSellMethodDefault: { min: 1, max: 3 },
       postBuyFloorAmount: { min: 0, max: 999_999_999 },
+      preBuyWatchAmount: { min: 0, max: 999_999_999 },
     });
   });
 });
@@ -3245,6 +3256,8 @@ describe("P31 UserSettings post_buy_floor_amount (vtable 28)", () => {
     autoSellRatioDefaultPct: 10,
     autoSellMethodDefault: 3,
     postBuyFloorAmount: 84,
+    preBuyWatchAmount: 0,
+    preBuyAutoAddBuy: false,
   };
   /** fbs `table UserSettings` — post_buy_floor_qty 5번째(4 + 2×4) · post_buy_floor_amount 13번째(4 + 2×12, present 뒤 말미). */
   const FLOOR_QTY_VT = 12;
@@ -3296,6 +3309,84 @@ describe("P31 UserSettings post_buy_floor_amount (vtable 28)", () => {
   it("84 파서 — 슬롯 부재(구 84 · 구 서버) 는 0 을 싣는다(키는 늘 있다 — 새 relay 계약)", () => {
     const parsed = parseUserSettings(inbound(buildUserSettingsFrame({ present: true })).env);
     expect(parsed).toHaveProperty("postBuyFloorAmount", 0);
+  });
+});
+
+/**
+ * quick-261012-u04 — UserSettings 선매수 2필드(gh-trade 261012 · fbs `= null` · vtable 30 · 32).
+ *
+ * 못박는 것: ① 84 슬롯이 있으면 그 값 · 없으면(구 서버) 0 · false — 키는 늘 있다 ② 42 는 값이 있을 때만 슬롯을 싣는다
+ * (0 · false 도 슬롯 존재 — 지우려면 실어야 한다) · 빠지면 슬롯 부재(= 서버 저장값 유지) ③ 금액은 와이어 가드.
+ */
+describe("quick-261012-u04 UserSettings 선매수 2필드 (vtable 30 · 32)", () => {
+  const BASE = {
+    preBuyAmount: 5000,
+    addBuyAmount: 3000,
+    postBuyAmount: 2000,
+    postBuyMaxCount: 4,
+    postBuyFloorQty: 0,
+    postBuyReboundPct: 25,
+    sellQtyTrackRatio: 40,
+    autoSellPeriodSec: 3,
+    auctionSellRatioPct: 20,
+    autoSellRatioDefaultPct: 10,
+    autoSellMethodDefault: 3,
+    postBuyFloorAmount: 84,
+  };
+  const WATCH_VT = 30;
+  const AUTO_ADD_BUY_VT = 32;
+
+  function inbound(bytes: Uint8Array) {
+    const parsed = tryParseEnvelope(Buffer.from(bytes));
+    expect(parsed).not.toBeNull();
+    return parsed!;
+  }
+
+  function readSettings(bytes: Uint8Array): UserSettings {
+    const env = readBack(bytes);
+    expect(env.msgType()).toBe(MSG.SetUserSettingsReq);
+    const u = env.userSettings(new UserSettings());
+    expect(u).not.toBeNull();
+    return u!;
+  }
+
+  it("84 파서 — 슬롯이 실린 84(50 · true) 는 preBuyWatchAmount 50 · preBuyAutoAddBuy true", () => {
+    const parsed = parseUserSettings(
+      inbound(buildUserSettingsFrame({ present: true, preBuyWatchAmount: 50, preBuyAutoAddBuy: true })).env,
+    );
+    expect(parsed).toMatchObject({ preBuyWatchAmount: 50, preBuyAutoAddBuy: true });
+  });
+
+  it("84 파서 — 슬롯 부재(구 서버 모양) 는 0 · false(키는 늘 있다)", () => {
+    const parsed = parseUserSettings(inbound(buildUserSettingsFrame({ present: true })).env);
+    expect(parsed).toHaveProperty("preBuyWatchAmount", 0);
+    expect(parsed).toHaveProperty("preBuyAutoAddBuy", false);
+  });
+
+  it("42 조립 — 1234 · true 는 그 값 · 0 · false 도 슬롯이 선다(null 아님)", () => {
+    const on = readSettings(buildSetUserSettingsReq({ ...BASE, preBuyWatchAmount: 1234, preBuyAutoAddBuy: true }));
+    expect(on.preBuyWatchAmount()).toBe(1234);
+    expect(on.preBuyAutoAddBuy()).toBe(true);
+    const off = readSettings(buildSetUserSettingsReq({ ...BASE, preBuyWatchAmount: 0, preBuyAutoAddBuy: false }));
+    expect(off.preBuyWatchAmount()).toBe(0);
+    expect(off.preBuyAutoAddBuy()).toBe(false);
+    expect(off.bb!.__offset(off.bb_pos, WATCH_VT)).not.toBe(0);
+    expect(off.bb!.__offset(off.bb_pos, AUTO_ADD_BUY_VT)).not.toBe(0);
+  });
+
+  it("42 조립 — 두 값을 빼면(구 탭) 두 슬롯 부재 = getter null(서버 저장값 유지)", () => {
+    const u = readSettings(buildSetUserSettingsReq(BASE));
+    expect(u.preBuyWatchAmount()).toBeNull();
+    expect(u.preBuyAutoAddBuy()).toBeNull();
+    expect(u.bb!.__offset(u.bb_pos, WATCH_VT)).toBe(0);
+    expect(u.bb!.__offset(u.bb_pos, AUTO_ADD_BUY_VT)).toBe(0);
+    expect(u.postBuyFloorAmount()).toBe(84);
+  });
+
+  it("42 조립 — 금액은 와이어 가드(음수 · 소수 · uint 밖) 송신 전 OrderBuildError", () => {
+    expect(() => buildSetUserSettingsReq({ ...BASE, preBuyWatchAmount: -1 })).toThrow(OrderBuildError);
+    expect(() => buildSetUserSettingsReq({ ...BASE, preBuyWatchAmount: 1.5 })).toThrow(OrderBuildError);
+    expect(() => buildSetUserSettingsReq({ ...BASE, preBuyWatchAmount: 2 ** 32 })).toThrow(OrderBuildError);
   });
 });
 

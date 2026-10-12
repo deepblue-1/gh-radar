@@ -101,6 +101,7 @@ export type {
   // --- Phase 27 사용자 설정(84 — 42/84 `UserSettings`) ---
   RelayUserSettingsValues,
   RelayUserSettingsMsg,
+  UserSettingsNumericKey,
   // --- Phase 27 인바운드 2종(41 바로시작/중지 · 42 사용자 설정 저장) ---
   RelayAutoSellCmdMsg,
   RelayUserSettingsSetMsg,

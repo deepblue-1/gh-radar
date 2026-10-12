@@ -87,8 +87,18 @@ postBuyFloorAmount():number {
   return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
 }
 
+preBuyWatchAmount():number|null {
+  const offset = this.bb!.__offset(this.bb_pos, 30);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : null;
+}
+
+preBuyAutoAddBuy():boolean|null {
+  const offset = this.bb!.__offset(this.bb_pos, 32);
+  return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : null;
+}
+
 static startUserSettings(builder:flatbuffers.Builder) {
-  builder.startObject(13);
+  builder.startObject(15);
 }
 
 static addPreBuyAmount(builder:flatbuffers.Builder, preBuyAmount:number) {
@@ -143,12 +153,20 @@ static addPostBuyFloorAmount(builder:flatbuffers.Builder, postBuyFloorAmount:num
   builder.addFieldInt32(12, postBuyFloorAmount, 0);
 }
 
+static addPreBuyWatchAmount(builder:flatbuffers.Builder, preBuyWatchAmount:number) {
+  builder.addFieldInt32(13, preBuyWatchAmount, null);
+}
+
+static addPreBuyAutoAddBuy(builder:flatbuffers.Builder, preBuyAutoAddBuy:boolean) {
+  builder.addFieldInt8(14, +preBuyAutoAddBuy, null);
+}
+
 static endUserSettings(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createUserSettings(builder:flatbuffers.Builder, preBuyAmount:number, addBuyAmount:number, postBuyAmount:number, postBuyMaxCount:number, postBuyFloorQty:number, postBuyReboundPct:number, sellQtyTrackRatio:number, autoSellPeriodSec:number, auctionSellRatioPct:number, autoSellRatioDefaultPct:number, autoSellMethodDefault:number, present:boolean, postBuyFloorAmount:number):flatbuffers.Offset {
+static createUserSettings(builder:flatbuffers.Builder, preBuyAmount:number, addBuyAmount:number, postBuyAmount:number, postBuyMaxCount:number, postBuyFloorQty:number, postBuyReboundPct:number, sellQtyTrackRatio:number, autoSellPeriodSec:number, auctionSellRatioPct:number, autoSellRatioDefaultPct:number, autoSellMethodDefault:number, present:boolean, postBuyFloorAmount:number, preBuyWatchAmount:number|null, preBuyAutoAddBuy:boolean|null):flatbuffers.Offset {
   UserSettings.startUserSettings(builder);
   UserSettings.addPreBuyAmount(builder, preBuyAmount);
   UserSettings.addAddBuyAmount(builder, addBuyAmount);
@@ -163,6 +181,10 @@ static createUserSettings(builder:flatbuffers.Builder, preBuyAmount:number, addB
   UserSettings.addAutoSellMethodDefault(builder, autoSellMethodDefault);
   UserSettings.addPresent(builder, present);
   UserSettings.addPostBuyFloorAmount(builder, postBuyFloorAmount);
+  if (preBuyWatchAmount !== null)
+    UserSettings.addPreBuyWatchAmount(builder, preBuyWatchAmount);
+  if (preBuyAutoAddBuy !== null)
+    UserSettings.addPreBuyAutoAddBuy(builder, preBuyAutoAddBuy);
   return UserSettings.endUserSettings(builder);
 }
 }
