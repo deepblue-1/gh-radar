@@ -84,15 +84,16 @@ export interface UserSettingsRowSpec {
 export const USER_SETTINGS_GROUPS: readonly UserSettingsGroup[] = ["매수 금액", "후매수", "매도", "자동매도"];
 
 /**
- * 11행 표(목업 `F` · `GROUPS` 그대로 · 금액 4칸은 만원 — 인박스 Q1 · Phase 31 D-13). 순서 = 화면 순서. 범위는 여기 두지
+ * 10행 표(목업 `F` · `GROUPS` 그대로 · 금액 4칸은 만원 — 인박스 Q1 · Phase 31 D-13). 순서 = 화면 순서. 범위는 여기 두지
  * 않는다 — shared `USER_SETTINGS_RANGES`(서버 42 범위 정본) 하나를 읽는다.
  * 봉인 `postBuyFloorQty` 는 행이 없다 — 42 에 0 을 싣는다(Phase 32 D-08). 그 자리는 「후매수 최소」(만원)가 교체했다.
+ * 「후매수 최대」(`postBuyMaxCount`)는 행이 없다 — 서버가 재진입 횟수를 읽지 않는다(gh-trade 261012 · C# 기본값 창도 삭제). 42 에는 84 값을
+ * 그대로 싣는다(ubyte 전 범위 = 0~255 라 범위 검사 불요).
  */
 export const USER_SETTINGS_ROWS: readonly UserSettingsRowSpec[] = [
   { key: "preBuyAmount", label: "선매수 금액", unit: "만원", group: "매수 금액", id: "me-lc-pre-buy-amount" },
   { key: "addBuyAmount", label: "줄매수 금액", unit: "만원", group: "매수 금액", id: "me-lc-add-buy-amount" },
   { key: "postBuyAmount", label: "후매수 금액", unit: "만원", group: "매수 금액", id: "me-lc-post-buy-amount" },
-  { key: "postBuyMaxCount", label: "후매수 최대", unit: "회", group: "후매수", id: "me-lc-post-buy-max-count" },
   { key: "postBuyFloorAmount", label: "후매수 최소", unit: "만원", group: "후매수", id: "me-lc-post-buy-floor-amount" },
   { key: "postBuyReboundPct", label: "후매수 반등", unit: "%", group: "후매수", id: "me-lc-post-buy-rebound-pct" },
   { key: "sellQtyTrackRatio", label: "매도 잔량추적", unit: "%", group: "매도", id: "me-lc-sell-qty-track-ratio" },
@@ -181,7 +182,7 @@ export function userSettingsRangeIssue(key: UserSettingsKey, value: number, unit
 }
 
 /**
- * 42 본문 행 11칸 전부의 범위 검사 — 첫 위반 칸의 문장 · 전부 안이면 null (27-REVIEW IN-02). 봉인 칸은 늘 0 이라 보지 않는다.
+ * 42 본문 행 10칸 전부의 범위 검사 — 첫 위반 칸의 문장 · 전부 안이면 null (27-REVIEW IN-02). 봉인 칸은 늘 0 이라 보지 않는다.
  *
  * 42 는 84 캐시 12값 + 바뀐 1칸으로 조립한다. 바뀐 칸만 보면 캐시의 나머지 칸이 범위 밖일 때 relay zod 가
  * close(4400)로 **앱 소켓 전체**를 끊는다(상따 카드 `lcRangeIssue` 가 cfg 전체를 보는 것과 같은 이유).
@@ -326,7 +327,7 @@ function useUserSettingsSave(
     (key: UserSettingsKey, value: number, base: UsableUserSettings): SaveOutcome => {
       if (base[key] === value) return "noop";
       const s: RelayUserSettingsValues = { ...userSettingsValuesOf(base), [key]: value };
-      // ★ 행 11칸 전부 본다(IN-02) — 하나라도 범위 밖이면 relay 가 소켓을 끊는다. 보내지 않고 이 행을 실패로 둔다.
+      // ★ 행 10칸 전부 본다(IN-02) — 하나라도 범위 밖이면 relay 가 소켓을 끊는다. 보내지 않고 이 행을 실패로 둔다.
       const issue = userSettingsValuesIssue(s, key);
       if (issue !== null) {
         setFailures((f) => ({ ...f, [key]: { text: issue, value } }));

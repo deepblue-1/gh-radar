@@ -8,7 +8,7 @@ import type { RelayServerMessageEntry } from '@/lib/use-relay-socket';
 /**
  * Phase 27 (27-06) — `/me` 「상따 기본설정」 섹션 (D-10 · D-12 · D-13 · 인박스 Q1/Q2 · 목업 변형 C).
  *
- * 잠그는 것: 84 3상태(미수신 · present true · present false)의 칩 · 안내 원문 · 4묶음 11행 순서와 값 표기 ·
+ * 잠그는 것: 84 3상태(미수신 · present true · present false)의 칩 · 안내 원문 · 4묶음 10행 순서와 값 표기 ·
  * 미수신 흐림/비활성 · present=false 자동 42 없음.
  */
 
@@ -69,7 +69,7 @@ afterEach(() => {
 });
 
 describe('Phase 27 상따 기본설정 표시', () => {
-  it('84 미수신 — 「불러오는 중」 칩 · 안내 · 11행 흐림 · 값 버튼 비활성', () => {
+  it('84 미수신 — 「불러오는 중」 칩 · 안내 · 10행 흐림 · 값 버튼 비활성', () => {
     mockRelay = relay(undefined);
     render(<LimitChaserDefaultsSection />);
     expect(within(section()).getByRole('heading', { name: '상따 기본설정' })).toBeInTheDocument();
@@ -79,7 +79,7 @@ describe('Phase 27 상따 기본설정 표시', () => {
     const body = section().querySelector('[data-slot="me-lc-defaults-rows"]') as HTMLElement;
     expect(body).toHaveAttribute('data-dim', 'true');
     const buttons = within(body).getAllByRole('button');
-    expect(buttons.length).toBeGreaterThanOrEqual(11);
+    expect(buttons.length).toBeGreaterThanOrEqual(10);
     for (const b of buttons) expect(b).toBeDisabled();
     expect(send).not.toHaveBeenCalled();
   });
@@ -104,7 +104,7 @@ describe('Phase 27 상따 기본설정 표시', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it('묶음 4개 · 11행 순서 · 값 표기(만원 · 회 · % · 초 · 방법)', () => {
+  it('묶음 4개 · 10행 순서 · 값 표기(만원 · % · 초 · 방법)', () => {
     mockRelay = relay(settings(true));
     render(<LimitChaserDefaultsSection />);
     const groups = Array.from(section().querySelectorAll('[data-slot="me-lc-defaults-group"]')).map(
@@ -118,7 +118,6 @@ describe('Phase 27 상따 기본설정 표시', () => {
       '선매수 금액',
       '줄매수 금액',
       '후매수 금액',
-      '후매수 최대',
       '후매수 최소',
       '후매수 반등',
       '매도 잔량추적',
@@ -130,7 +129,6 @@ describe('Phase 27 상따 기본설정 표시', () => {
     expect(rowValue('pre-buy-amount')).toBe('4,000만원');
     expect(rowValue('add-buy-amount')).toBe('4,000만원');
     expect(rowValue('post-buy-amount')).toBe('4,000만원');
-    expect(rowValue('post-buy-max-count')).toBe('3회');
     expect(rowValue('post-buy-floor-amount')).toBe('0만원');
     expect(rowValue('post-buy-rebound-pct')).toBe('30%');
     expect(rowValue('sell-qty-track-ratio')).toBe('55%');
@@ -259,9 +257,9 @@ describe('Phase 27 상따 기본설정 즉시 저장(42)', () => {
     expect(rowWrap('auto-sell-period-sec')).not.toHaveAttribute('data-flash');
 
     // 다른 탭의 42 — 이 탭은 보낸 적 없다.
-    mockRelay = relay(settings(true, { autoSellPeriodSec: 5, postBuyMaxCount: 7 }));
+    mockRelay = relay(settings(true, { autoSellPeriodSec: 5, postBuyReboundPct: 40 }));
     view.rerender(<LimitChaserDefaultsSection />);
-    expect(rowWrap('post-buy-max-count')).toHaveAttribute('data-flash', 'ok');
+    expect(rowWrap('post-buy-rebound-pct')).toHaveAttribute('data-flash', 'ok');
     expect(rowWrap('auto-sell-period-sec')).not.toHaveAttribute('data-flash');
     expect(send).toHaveBeenCalledTimes(1);
   });
@@ -401,7 +399,7 @@ describe('261006-pey 설정 탭 S1 묶음 카드 (D-2 · sketch 013 settings.htm
   const cards = () =>
     Array.from(section().querySelectorAll('[data-slot="me-lc-defaults-group-card"]')) as HTMLElement[];
 
-  it('S1-1 — 묶음 카드 4장 · role=group 이름 순서 · CARD 면(radius 16 · --card) · 카드별 행 3·3·1·4', () => {
+  it('S1-1 — 묶음 카드 4장 · role=group 이름 순서 · CARD 면(radius 16 · --card) · 카드별 행 3·2·1·4', () => {
     mockRelay = relay(settings(true));
     render(<LimitChaserDefaultsSection />);
     const cs = cards();
@@ -412,7 +410,7 @@ describe('261006-pey 설정 탭 S1 묶음 카드 (D-2 · sketch 013 settings.htm
       expect(c.className).toContain('rounded-[16px]');
       expect(c.className).toContain('bg-[var(--card)]');
     }
-    expect(cs.map((c) => c.querySelectorAll('[data-slot="me-lc-defaults-row"]').length)).toEqual([3, 3, 1, 4]);
+    expect(cs.map((c) => c.querySelectorAll('[data-slot="me-lc-defaults-row"]').length)).toEqual([3, 2, 1, 4]);
   });
 
   it('S1-2 — 카드마다 행 목록에 @container/lc 하나 · 섹션 루트는 @container/me 이고 카드 면이 아니다', () => {
@@ -460,18 +458,18 @@ describe('P31 후매수 최소 (D-13 · UI-SPEC S5)', () => {
   const rowButton = (field: string) =>
     section().querySelector(`button[data-lc-field="me-lc-${field}"]`) as HTMLButtonElement;
 
-  it('84 최소 84 → 후매수 묶음 「최대 · 최소 · 반등」 · 「84만원」 · 접근성 이름 「후매수 최소 84만원」 · 하한잔량 글자 0 · 11행', () => {
+  it('84 최소 84 → 후매수 묶음 「최소 · 반등」 · 「84만원」 · 접근성 이름 「후매수 최소 84만원」 · 하한잔량 글자 0 · 10행', () => {
     mockRelay = relay(settings(true, { postBuyFloorAmount: 84 }));
     render(<LimitChaserDefaultsSection />);
     const card = within(section()).getByRole('group', { name: '후매수' });
     const labels = Array.from(card.querySelectorAll('[data-slot="me-lc-defaults-row"]')).map((r) =>
       r.getAttribute('data-label'),
     );
-    expect(labels).toEqual(['후매수 최대', '후매수 최소', '후매수 반등']);
+    expect(labels).toEqual(['후매수 최소', '후매수 반등']);
     expect(rowValue('post-buy-floor-amount')).toBe('84만원');
     expect(rowButton('post-buy-floor-amount')).toHaveAccessibleName('후매수 최소 84만원');
     expect(section().textContent).not.toContain('하한잔량');
-    expect(section().querySelectorAll('[data-slot="me-lc-defaults-row"]')).toHaveLength(11);
+    expect(section().querySelectorAll('[data-slot="me-lc-defaults-row"]')).toHaveLength(10);
   });
 
   it('84 최소 0 → 「0만원」(의미어 없음)', () => {
