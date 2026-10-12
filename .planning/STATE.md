@@ -3,38 +3,37 @@ gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: 운영 유지보수
 current_phase: 31
-current_phase_name: 인박스 상따 금액 단위
-status: executing
-stopped_at: Completed 31-07-PLAN.md
-last_updated: "2026-10-12T07:15:51.198Z"
-last_activity: 2026-10-11
-last_activity_desc: Phase 31 execution started
-state_head: 708c4772cdffaace57c35239a373ab3f9d7c9b1f
+status: completed
+stopped_at: Phase 31 complete — 마일스톤 v1.1 계속(종료 안 함)
+last_updated: "2026-10-12T08:37:42.849Z"
+last_activity: 2026-10-12
+last_activity_desc: Phase 31 complete
+state_head: 6d7f96846bcb217e7ebe458f62702e22fc33252e
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 17
-  completed_plans: 16
-  percent: 50
+  completed_plans: 17
+  percent: 100
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-11 after v1.1 milestone start)
+See: .planning/PROJECT.md (updated 2026-10-12 after Phase 31)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 31 — 인박스 상따 금액 단위
+**Current focus:** v1.1 운영 유지보수 상시 — 다음 phase 미정(마일스톤 종료 안 함)
 
 ## Current Position
 
-Phase: 31 (인박스 상따 금액 단위) — EXECUTING
-Plan: 8 of 8
-Status: Ready to execute
-Last activity: 2026-10-12 - Completed quick task 261012-mig: 상따 줄매수 최소>최대·최대 0주 차단 C# 동형 정렬
+Phase: 31
+Plan: Not started
+Status: 로드맵 phase 전부 완료 · 마일스톤 v1.1 계속(새 phase 추가 또는 quick)
+Last activity: 2026-10-12 — Phase 31 complete
 
-Progress: [█████░░░░░] 50%
+Progress: [██████████] 100% (17/17 plans)
 
 ## Accumulated Context
 
@@ -49,7 +48,7 @@ Progress: [█████░░░░░] 50%
 
 - **[Phase 29] 두 번째 서버(KB121 · KYOBO127) 켜기 전 결정.** 운영은 지정 0 · 두 번째 서버 꺼짐이라 잠복. 켜기 전에 R3-03 부팅 창 백스톱 · R3-05 무동작 대여 미승격 · R3-06 VI 끄기 에코 미확인 수정, 51 OrderResp 계좌 필터 공백 수용 여부, 실서버 실증. 정본 `milestones/v1.0-phases/29-dma-multi-server-admin/29-53-SUMMARY.md` 「켜기 전 결정」. v1.1 밖(v1.2+ ADMIN-NEXT).
 - **[Phase 30 후속 · 비차단] KB 주문자 IP/MAC.** R3-01 보류 권고는 해제(30-07 · relay:2234a1b5 · 인박스 261010 done). 남은 것: ① KB121 에 gh-trade 261011(공유 계좌 IP/MAC 전파) 배포 여부 확인 — KB121 켤 때 공유 계좌 저장 1회 확인 ② 주문 전문(TCHODR1000 orderInfo · macAddr)에 설정값이 실리는지 회선 관측 없음(gh-trade 단위 테스트 `test_kb_endpoint_race.cpp` 만) — KB 담당 주문번호 조회 · KB120 패킷 캡처 · gh-trade 값 없는 출처 진단 로그 중 택1. 정본 `phases/30-kb-ip-mac/30-07-SUMMARY.md` 「Next Phase Readiness」.
-- **[인박스 → Phase 31] 상따 금액 단위** — `docs/inbox/from-gh-trade/261011-limitchaser-amount-unit.md` (status open · 호환이라 급하지 않음). `lc.set` 재제출 때 금액 8필드 되싣기 · 「만(주)」 표시 도입 여부 결정. gh-trade `feature/limitchaser-amount-unit` master 병합 · 서버 배포 뒤에 되싣기 실증 가능.
+- **[Phase 31 후속 · 비차단] 리뷰 R3 Info 4건 open** — R3-IN-01(IN-05 폼 변경 테스트 미고정) · R3-IN-02(armBlockOf 주석이 ☐줄매수 켜진 조합에서 거짓) · R3-IN-03(8필드 모두 0 인 에코는 관용 유지) · R3-IN-04(UI-SPEC 230 · 31-04-PLAN 38 「금액끼리」 문구). 정본 `phases/31-limitchaser-amount-unit/31-REVIEW-DISPOSITION-R3.md`. R3-WR-01 은 b977002f 로 고침.
 - **Phase 17 승계 실기 관측 2건.** ① D-25 래치 36/37/38 왕복·76/77/78 드롭 0 미관측(WINDOWS #17 — `sudo xcodebuild -license` 동의 뒤 gh-trade HEAD 빌드 또는 장중 LED 관측). ② smoke `INV-9` 프로덕션 첫 실행 미수행(`SMOKE_AUTH_TOKEN` 필요). TRADE-04·05 는 그래서 Pending 유지.
 - **`/healthz` 알림 정책 — 사용자 결정 대기.** 게이트웨이가 끊기면 세션 생성 5분 뒤 503 상시화. 후보 4개는 v1.0 phase 16 `deferred-items.md` §16-35.
 - **WINDOWS.md open 4건** — #9·#10·#11(Phase 16 승계 · 상따 밴드 전이점·체결가 7자 예산) · #17(D-25).
@@ -79,14 +78,14 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-12T07:50:00+09:00
-Stopped at: 31-08 Task 1 배포 체크포인트(relay · Vercel 미리보기 대기)
-Next: 31-08 relay 배포 → Vercel 미리보기 → 인박스 2건 닫기 → phase 31 검증
+Last session: 2026-10-12T17:45:00+09:00
+Stopped at: Phase 31 complete (UAT 4/4 · 재검증 R2 passed · R3-WR-01 수정) — 마일스톤 v1.1 계속
+Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
 
-- `/gsd-quick` 로 CLAUDE.md 다이어트(DOCS-01)
-- `/gsd-discuss-phase 30` — 인박스 KB 계좌별 주문자 IP/MAC
+- 마일스톤 v1.1 은 계속 — 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` (마일스톤 종료는 사용자 지시 때만)
+- 선택: Phase 31 리뷰 R3-IN-01~04 정리(quick)
 
 ## Performance Metrics
 
@@ -111,6 +110,8 @@ Next: 31-08 relay 배포 → Vercel 미리보기 → 인박스 2건 닫기 → p
 
 ## Decisions
 
+- [Phase 31]: 금액 확정 성공 = 짝 판정(에코 주 = 보낸 주 ∧ (에코 금액 = 보낸 금액 ∨ 금액을 모르는 서버의 0)) · 금액을 아는 서버의 모호한 에코(주 일치 · 금액 0)는 거부 대신 LC_REJECT_ECHO_GRACE_MS 유예(R3-WR-01 · b977002f)
+- [Phase 31]: 구 탭 `lc.set`(금액 부재)은 relay 가 최신 에코 원값으로 금액을 되싣는다 — 주 · 비교가가 어긋난 쌍만 0(WR-01 · `#withEchoAmounts`)
 - [Phase 30]: 30-01: PUT body 최상위 orderEndpoint(KB 만 · 구조/길이만 · 형식 검사 없음 · DB 미저장) → relay reconcileUser override → 등록 서버 전부 op 3
 - [Phase 30]: 30-01: op 1(계좌)·op 3 직전 op 5 재조회 · 재조회 실패면 그 서버 44 0건(fail closed) — R3-01 해제
 - [Phase 30]: 30-01: R3-02 폴백 — 의도/override > 이 유저 87 > 같은 87 다른 유저 IP/MAC > 빈 문자열, 다른 유저에 op 없음(D-11)

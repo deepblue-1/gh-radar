@@ -19,10 +19,10 @@ v1.0 요구사항 아카이브: [milestones/v1.0-REQUIREMENTS.md](./milestones/v
 
 ### 인박스 — 상따 금액 단위 (`docs/inbox/from-gh-trade/261011-limitchaser-amount-unit.md`)
 
-- [ ] **AMT-01**: relay 생성물 재동기화 커밋(`4970c3ae`)이 gh-trade master 병합 뒤 마커와 일치하는지 `sync-relay-schema.sh --check` 로 확인하고, 다르면 재생성한다
-- [ ] **AMT-02**: 웹 `lc.set` 재제출 때 금액 8필드(`buy_watch_amount` … `cancel_watch_amount`)를 60/64 에코값 그대로 되싣는다 — 웹이 주 필드를 바꿔 보내면 짝이 맞는 금액(`floor(만원×10000÷비교가) == 주`) 또는 0 을 싣는다. C# 단말 칸의 만원 원값이 웹 재제출로 지워지지 않는다
-- [ ] **AMT-03**: 84 `post_buy_floor_amount` 를 /me 기본설정에 표시·설정한다 — 42 는 12값 전체 교체에 이 필드를 포함하고 봉인 필드 `post_buy_floor_qty` 는 0
-- [ ] **AMT-04**: 「만(주)」 단위 표시 도입 여부를 결정해 인박스 노트 질문 2개에 답하고 닫는다 — 도입하면 환산 규칙(gh-trade `docs/strategy/limit-chaser.md` §10 · 제출 내림 · 표시 반올림 · 그룹별 비교가 · 비교가 0 이면 등록 거부)을 그대로 공유, 안 하면 AMT-02 되싣기만
+- [x] **AMT-01**: relay 생성물 재동기화 커밋(`4970c3ae`)이 gh-trade master 병합 뒤 마커와 일치하는지 `sync-relay-schema.sh --check` 로 확인하고, 다르면 재생성한다
+- [x] **AMT-02**: 웹 `lc.set` 재제출 때 금액 8필드(`buy_watch_amount` … `cancel_watch_amount`)를 60/64 에코값 그대로 되싣는다 — 웹이 주 필드를 바꿔 보내면 짝이 맞는 금액(`floor(만원×10000÷비교가) == 주`) 또는 0 을 싣는다. C# 단말 칸의 만원 원값이 웹 재제출로 지워지지 않는다
+- [x] **AMT-03**: 84 `post_buy_floor_amount` 를 /me 기본설정에 표시·설정한다 — 42 는 12값 전체 교체에 이 필드를 포함하고 봉인 필드 `post_buy_floor_qty` 는 0
+- [x] **AMT-04**: 「만(주)」 단위 표시 도입 여부를 결정해 인박스 노트 질문 2개에 답하고 닫는다 — 도입하면 환산 규칙(gh-trade `docs/strategy/limit-chaser.md` §10 · 제출 내림 · 표시 반올림 · 그룹별 비교가 · 비교가 0 이면 등록 거부)을 그대로 공유, 안 하면 AMT-02 되싣기만
 
 ### 문서
 
@@ -55,10 +55,10 @@ v1.0 요구사항 아카이브: [milestones/v1.0-REQUIREMENTS.md](./milestones/v
 | IPMAC-03 | Phase 30 | Complete |
 | IPMAC-04 | Phase 30 | Complete |
 | IPMAC-05 | Phase 30 | Complete |
-| AMT-01 | Phase 31 | Pending |
-| AMT-02 | Phase 31 | Pending |
-| AMT-03 | Phase 31 | Pending |
-| AMT-04 | Phase 31 | Pending |
+| AMT-01 | Phase 31 | Complete |
+| AMT-02 | Phase 31 | Complete |
+| AMT-03 | Phase 31 | Complete |
+| AMT-04 | Phase 31 | Complete |
 | DOCS-01 | quick | Complete |
 
 **Coverage:**

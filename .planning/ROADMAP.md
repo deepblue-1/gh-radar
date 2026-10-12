@@ -58,7 +58,7 @@
 **Milestone Goal:** gh-trade 인박스 open 2건의 계약을 relay·웹에 반영해 노트를 닫는다. CLAUDE.md 다이어트(DOCS-01)와 운영 버그·소규모 기능(MAINT)은 `/gsd-quick`·`/gsd-fast` 로 처리하고 phase 를 만들지 않는다.
 
 - [x] **Phase 30: 인박스 KB 계좌별 주문자 IP/MAC** - relay R3-01(op 5 재조회) · 웹 Admin 계좌 편집 IP/MAC 입력칸 · 계좌명 편집 · code 13 문구 · 질문 3개 답으로 `261010-kb-order-ip-mac.md` 닫기 (completed 2026-10-11)
-- [ ] **Phase 31: 인박스 상따 금액 단위** - 생성물 마커 확인 · `lc.set` 금액 8필드 되싣기 · 84 `post_buy_floor_amount` · 「만(주)」 결정으로 `261011-limitchaser-amount-unit.md` 닫기
+- [x] **Phase 31: 인박스 상따 금액 단위** - 생성물 마커 확인 · `lc.set` 금액 8필드 되싣기 · 84 `post_buy_floor_amount` · 「만(주)」 결정으로 `261011-limitchaser-amount-unit.md` 닫기 (completed 2026-10-12)
 
 ## Phase Details
 
@@ -116,7 +116,7 @@ Plans:
   4. 「만(주)」 도입 여부가 인박스 노트 `261011-limitchaser-amount-unit.md` 질문 2개 답으로 적히고 `status: done` · `done_commit` 으로 커밋된다 — 도입하면 상따 수량 칸이 만원 입력 · 주 환산 표시(§10 규칙)로 바뀐다
 
 **배포 순서**: gh-trade 서버 배포 확인 → DB 변경 없음 → relay → webapp push(= 프로덕션). AMT-04 결정이 범위를 정하므로 discuss 에서 먼저 답한다
-**Plans**: 8/8 plans executed
+**Plans**: 8/8 plans complete
 Plans:
 **Wave 1**
 - [x] 31-01-PLAN.md — (트레이서) 매도 「매수잔량」 만원 한 칸 → lc.set 금액 · 산출 주 → relay → 10 → 60 에코 → 행 · 금액 8필드 계약(shared · relay zod/조립/파서) · §10 환산 한 벌
@@ -148,4 +148,4 @@ Plans:
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 30. 인박스 KB 계좌별 주문자 IP/MAC | v1.1 | 9/9 | Complete | 2026-10-11 |
-| 31. 인박스 상따 금액 단위 | v1.1 | 8/8 | In Progress | - |
+| 31. 인박스 상따 금액 단위 | v1.1 | 8/8 | In Progress | 2026-10-12 |

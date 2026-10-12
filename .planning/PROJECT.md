@@ -25,10 +25,11 @@
 - [x] 로그인(Google OAuth) + 관심종목 — Validated in Phase 06.2 (v1.0, 이메일/비번 AUTH-01 은 Deferred)
 - [x] GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK) — Validated in Phase 22 (MOBILE-02, v1.0)
 - [x] KB 계좌별 주문자 IP/MAC (IPMAC-01~05) — Validated in Phase 30: relay R3-01(op 1/3 직전 op 5 재조회 · 실패면 44 미송신) · R3-02(공유 계좌 추가 시 다른 유저 IP/MAC 되싣기) · 웹 Admin 계좌 카드 편집(계좌명 · IP/MAC, 표시는 `10.41.1.124` · `1C:FD:08:7D:97:8E`, 저장 · 비교는 정규화값) · 공유 계좌 IP/MAC 동시 반영(gh-trade 261011 op 3 전파 + 웹 안내 줄) · KB 운영 서버 IP/MAC 설정 보류 해제. 배포 relay 2234a1b5 · server 00061-fvv · webapp 34f145b1, 실서버 UAT 2라운드 pass(KB120). 남은 비차단: KB121 전파 배포 확인 · 실주문 전문 IP/MAC 회선 관측
+- [x] 상따 금액(만원) 단위 (AMT-01~04) — Validated in Phase 31: 웹 `lc.set` 재제출이 C# 단말 칸의 만원 원값을 지우지 않는다(금액 8필드 되싣기 · 구 탭은 relay 가 에코 원값으로 보충) · 수량 8칸 두 줄 행(위 만원 / 아래 주) · 시트 환산 안내 · 주문로그 「N만(M주)」 · /me 「후매수 최소(만원)」(84 `post_buy_floor_amount` · 42 12값). gh-trade feature 병합 뒤 생성물 마커 e5b4fbca 일치. UAT 4/4 · 재검증 R2 passed 4/4 (2026-10-12)
 
 ### Active
 
-- [ ] gh-trade 인박스 처리 — 상따 금액 단위(금액 8필드 되싣기 · 「만(주)」 표시 여부, Phase 31) · ~~KB 계좌별 주문자 IP/MAC~~ Phase 30 완료
+- [ ] gh-trade 인박스 처리 — 새 노트가 오면 처리 · ~~KB 계좌별 주문자 IP/MAC~~ Phase 30 완료 · ~~상따 금액 단위~~ Phase 31 완료
 - [ ] 운영 중 발견되는 버그 수정 · 자잘한 기능 추가 (v1.1 상시)
 - [x] CLAUDE.md 다이어트
 
@@ -109,4 +110,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-11 after Phase 30*
+*Last updated: 2026-10-12 after Phase 31*
