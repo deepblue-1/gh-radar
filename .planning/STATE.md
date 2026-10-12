@@ -6,10 +6,10 @@ current_phase: 31
 current_phase_name: 인박스 상따 금액 단위
 status: executing
 stopped_at: Completed 31-07-PLAN.md
-last_updated: "2026-10-11T16:48:29.825Z"
+last_updated: "2026-10-12T07:15:51.198Z"
 last_activity: 2026-10-11
 last_activity_desc: Phase 31 execution started
-state_head: 127a1fe5cf90ffc0a4e83751b9f5440978c12523
+state_head: 708c4772cdffaace57c35239a373ab3f9d7c9b1f
 progress:
   total_phases: 2
   completed_phases: 1
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-10-11 after v1.1 milestone start)
 Phase: 31 (인박스 상따 금액 단위) — EXECUTING
 Plan: 8 of 8
 Status: Ready to execute
-Last activity: 2026-10-11 — Phase 31 execution started
+Last activity: 2026-10-12 - Completed quick task 261012-mig: 상따 줄매수 최소>최대·최대 0주 차단 C# 동형 정렬
 
 Progress: [█████░░░░░] 50%
 
@@ -73,6 +73,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 261011-j87 | CLAUDE.md 다이어트 — 스택 표·법적 판례·설치 참조·출처 링크를 docs/ 로 옮기고 운영 5원칙·공식 API 기준·인박스·컨벤션만 요약 유지 | 2026-10-11 | 8b9a911d | [261011-j87-claude-md-docs-5-api](./quick/261011-j87-claude-md-docs-5-api/) |
+| 261012-mig | 상따 줄매수 「최소 > 최대」·「최대 0주」 차단을 C# addBuyLive(☐줄매수 ∨ ☐자동)·제출 주 비교로 정렬 — gh-trade 인박스 261012-phase32-review-fix-wr06-in07 | 2026-10-12 | 708c4772 | [261012-mig-lc-extrabuy-minmax-parity](./quick/261012-mig-lc-extrabuy-minmax-parity/) |
 
 ## Session Continuity
 
