@@ -5,10 +5,10 @@ milestone_name: 운영 유지보수
 current_phase: 31
 status: completed
 stopped_at: Phase 31 complete — 마일스톤 v1.1 계속(종료 안 함)
-last_updated: "2026-10-12T10:32:56.972Z"
+last_updated: "2026-10-12T10:44:16.007Z"
 last_activity: 2026-10-12
 last_activity_desc: Phase 31 complete
-state_head: e14695c2d8da88b9aeded057ea69550059b7ce45
+state_head: 028d9e638cd6db4a3d761a17b3993159a34e14a1
 progress:
   total_phases: 2
   completed_phases: 2
@@ -74,6 +74,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261012-mig | 상따 줄매수 「최소 > 최대」·「최대 0주」 차단을 C# addBuyLive(☐줄매수 ∨ ☐자동)·제출 주 비교로 정렬 — gh-trade 인박스 261012-phase32-review-fix-wr06-in07 | 2026-10-12 | 708c4772 | [261012-mig-lc-extrabuy-minmax-parity](./quick/261012-mig-lc-extrabuy-minmax-parity/) |
 | 261012-oif | 상따카드 4건 — 쉐브런 lc 360↑ 표시 · 매도 잔량추적 기준선 행 삭제 · 매수취소 접이식 · 버스트 취소 매수주문 이동 | 2026-10-12 | 3fb8ecbd | [261012-oif-lc-card-tweaks](./quick/261012-oif-lc-card-tweaks/) |
 | 261012-qld | gh-trade 261012 반영 — 상따 후매수 「최대」 칸 · 소진 안내 삭제 · 줄매수 자동 힌트 정리 · lc.set 재진입 255 고정 | 2026-10-12 | e14695c2 | [261012-qld-gh-trade-261012](./quick/261012-qld-gh-trade-261012/) |
+| 5 | /me 상따 기본값 「후매수 최대」 행 삭제 — gh-trade 261012 후속 | 2026-10-12 | 028d9e63 | — |
 
 ## Session Continuity
 
