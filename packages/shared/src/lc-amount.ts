@@ -149,8 +149,18 @@ export function qtyForSubmit(amount: number, price: number, echo: LcEchoAmount |
 }
 
 /**
- * 금액 필드 확정의 성공 판정(짝) — 에코 주 = 보낸 주 ∧ (에코 금액 = 보낸 금액 ∨ 에코 금액 = 0).
+ * 에코가 금액을 아는 서버의 것인가 — 금액 8필드 중 하나라도 0 보다 크면 그렇다. 구 gh-trade 서버는 vtable 158~172 를
+ * 읽지 않아 8필드가 늘 0(부재)으로 온다. 8필드가 모두 0 인 새 서버 에코는 구분할 수 없어 「모름」 쪽(관용 유지)으로 둔다.
+ */
+function echoKnowsAmounts(server: RelayLimitChaser): boolean {
+  return LC_AMOUNT_PAIRS.some((p) => server[p.amount] > 0);
+}
+
+/**
+ * 금액 필드 확정의 성공 판정(짝) — 에코 주 = 보낸 주 ∧ (에코 금액 = 보낸 금액 ∨ (에코 금액 = 0 ∧ 금액을 모르는 서버)).
  * 에코 금액 0 = 구 gh-trade 서버(vtable 158~172 무시) 또는 0 을 보냄 — 주가 같으면 성공이다(Pitfall 1 · RESEARCH A6).
+ * 금액을 아는 서버(`echoKnowsAmounts`)의 에코 금액 0 은 「이 칸의 저장 금액이 0」 이라는 사실이라 관용하지 않는다 — 답보다
+ * 먼저 온 옛 푸시(금액 0 · 같은 주)를 보낸 확정의 성공으로 읽지 않는다(IN-02). 0 을 보낸 확정은 첫 갈래로 그대로 성공이다.
  * 역산 표시만 보면 1,001만 → 777주 → 1,000만처럼 어긋나므로 주 대조를 반드시 함께 둔다.
  */
 export function amountEchoMatches(
@@ -158,7 +168,9 @@ export function amountEchoMatches(
   pair: LcAmountPair,
   sent: { amount: number; qty: number },
 ): boolean {
-  return server[pair.qty] === sent.qty && (server[pair.amount] === sent.amount || server[pair.amount] === 0);
+  if (server[pair.qty] !== sent.qty) return false;
+  if (server[pair.amount] === sent.amount) return true;
+  return server[pair.amount] === 0 && !echoKnowsAmounts(server);
 }
 
 // ── 주문로그 ⑦ 서식(D-19 · gh-trade StrategyEventFormatter.cs 595~760 이식) ─────────────────────────────

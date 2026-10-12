@@ -2070,6 +2070,23 @@ describe('P31 금액 필드 짝 판정 — 에코 주 = 보낸 주 ∧ (에코 �
     expect(out).toBe('noop');
     expect(t.send).not.toHaveBeenCalled();
   });
+
+  it('IN-02 금액을 아는 서버(다른 칸 금액 > 0) — 답보다 먼저 온 옛 푸시(금액 0 · 같은 주)는 성공이 아니다 · 답 에코가 판정', () => {
+    // 저장 금액 0 · 777주(칸 = 역산 1,000만) — 1,001만도 777주로 내림된다.
+    const old = () => echo({ sellWatchPrice: 12_870, sellWatchQty: 777, sellWatchAmount: 0, buyWatchAmount: 300 });
+    const t = setup({ server: old() });
+    act(() => {
+      t.hook.result.current.commit('sellWatchAmount', 1001, 'value');
+    });
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.cfgs()[0]!.sellWatchQty).toBe(777);
+    t.update({ server: old() });
+    expect(t.hook.result.current.inflightField).toBe('sellWatchAmount');
+    expect(t.hook.result.current.sentSuccessSeq).toBe(0);
+    t.update({ server: { ...old(), sellWatchAmount: 1001 } });
+    expect(t.hook.result.current.inflightField).toBeNull();
+    expect(t.hook.result.current.sentSuccessSeq).toBe(1);
+  });
 });
 
 describe('P31 수량 8칸 짝 판정 — 선매수 매도잔량 · 취소 매수잔량도 구 서버 에코(금액 0 · 주 일치) = 성공 (31-04 · Pitfall 1)', () => {

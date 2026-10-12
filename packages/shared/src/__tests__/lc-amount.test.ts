@@ -237,6 +237,14 @@ describe("P31 amountEchoMatches — 짝 성공 판정 (Pitfall 1 · RESEARCH A6)
     const s = echo({ sellWatchPrice: 12_870, sellWatchQty: qty, sellWatchAmount: amount });
     expect(amountEchoMatches(s, pair(), sent)).toBe(out);
   });
+
+  it("IN-02 금액을 아는 서버(다른 칸 금액 > 0)의 금액 0 · 같은 주 에코는 성공이 아니다 — 답보다 먼저 온 옛 푸시", () => {
+    const s = echo({ sellWatchPrice: 12_870, sellWatchQty: 777, sellWatchAmount: 0, buyWatchAmount: 300 });
+    expect(amountEchoMatches(s, pair(), sent)).toBe(false);
+    // 답 에코(금액 원값)는 성공 · 0 을 보낸 확정은 금액 0 에코로 성공이다.
+    expect(amountEchoMatches({ ...s, sellWatchAmount: 1000 }, pair(), sent)).toBe(true);
+    expect(amountEchoMatches(s, pair(), { amount: 0, qty: 777 })).toBe(true);
+  });
 });
 
 describe("P31 주문로그 서식 (D-19 · gh-trade StrategyEventFormatter.cs 이식)", () => {

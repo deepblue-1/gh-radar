@@ -93,7 +93,8 @@
  *   ★ **성공 판정은 주 필드만**이다(`server[field] === value`) — 서버는 동반 필드를 부분 거부할 수 있고(예: 매도
  *     검증 실패 → `sell_enabled=false` + ERROR 원문 로그) 그것은 주 필드의 실패가 아니다.
  *     금액 필드(Phase 31 · shared `LC_AMOUNT_PAIRS`)는 짝 판정이다 — 에코 주 = 보낸 주 ∧ (에코 금액 = 보낸 금액 ∨ 0)
- *     (`amountEchoMatches` · 구 gh-trade 서버는 금액을 에코하지 않는다 · Pitfall 1). 보내기 전 「서버와 같은 값」은
+ *     (`amountEchoMatches` · 구 gh-trade 서버는 금액을 에코하지 않는다 · Pitfall 1 — 0 관용은 금액을 모르는 서버 에코에만 ·
+ *     IN-02). 보내기 전 「서버와 같은 값」은
  *     에코 적용값(`echoAmountOf(...).shown`)과 본다.
  *   ★ 무장 가드(`armBlockOf`) · 범위 가드는 동반 필드를 **합친 값**으로 판정한다(실제로 나갈 cfg).
  *   ★ 낙관 표시 · 되돌림(거부 · 무응답 · 끊김 · 대기 폐기)은 주 필드와 동반 **불리언**을 **함께** 한다(값 필드는 ④).
@@ -419,7 +420,8 @@ function serverHolds(server: RelayLimitChaser, field: LcFieldKey, value: unknown
 }
 
 /**
- * 보낸 확정이 서버에 섰는가 — 금액 필드는 짝 판정(에코 주 = 보낸 주 ∧ (에코 금액 = 보낸 금액 ∨ 0) · `amountEchoMatches`).
+ * 보낸 확정이 서버에 섰는가 — 금액 필드는 짝 판정(에코 주 = 보낸 주 ∧ (에코 금액 = 보낸 금액 ∨ 금액을 모르는 서버의 0) ·
+ * `amountEchoMatches`).
  * 보낸 주를 모르면(보내지 않은 대기 건) `serverHolds` 다. 그 밖 필드는 종전 `===` 그대로.
  */
 function echoConfirms(server: RelayLimitChaser, field: LcFieldKey, value: unknown, sentQty: number | undefined): boolean {
