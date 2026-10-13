@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 32 계좌 축 정리 — 목업</title>
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; gap: 24px; padding: 20px 12px 60px; overflow-x: auto; }
+.f { --bg: #ffffff; --surface: #f2f4f6; --card: #ffffff; --fg: #191f28; --fg2: #333d4b; --muted: #f2f4f6; --raised2: #e5e8eb; --mfg: #6b7684; --faint: #b0b8c1; --hair: #e5e8eb; --up: #f04452; --down: #3182f6; --upbg: #ffeeee; --dnbg: #e8f3ff; --okbg: #e6f7ee; --ok: #1c8f4e; --led: #2eb86a; --warnbg: #fff4e0; --warn: #b26a00; --pill-bg: #ffffff; --pill-fg: #191f28; --sheet: #ffffff; --scrim: rgba(0,0,0,.35);
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif; }
+.f.dark { --bg: #0a0a0a; --surface: #0f0f12; --card: #151515; --fg: #ffffff; --fg2: #e4e4e4; --muted: #2d2d2d; --raised2: #3d3d3d; --mfg: #9e9e9e; --faint: #636363; --hair: #3d3d3d; --up: #f04251; --down: #3485fa; --upbg: rgba(240,66,81,.16); --dnbg: rgba(52,133,250,.16); --okbg: rgba(46,184,106,.18); --ok: #4cd38a; --led: #4cd38a; --warnbg: rgba(255,170,0,.16); --warn: #ffbf47; --pill-bg: #4e4e4e; --pill-fg: #ffffff; --sheet: #202026; --scrim: rgba(0,0,0,.55); }
+.f { position: relative; flex: none; overflow: hidden; background: var(--bg); color: var(--fg2); font-family: var(--font); -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 1px #2a2a31; display: flex; flex-direction: column; }
+.f.phone { width: 390px; height: 844px; border-radius: 30px; }
+.f.desktop { width: 1080px; height: 720px; border-radius: 16px; flex-direction: row; }
+.mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+/* 사이드바 */
+.side { width: 220px; border-right: 1px solid var(--hair); padding: 18px 10px; font-size: 14px; color: var(--mfg); background: var(--surface); display: flex; flex-direction: column; gap: 2px; }
+.side .it { padding: 8px 10px; border-radius: 8px; display: flex; align-items: center; gap: 8px; }
+.side .it.on { background: var(--muted); color: var(--fg); font-weight: 600; }
+.side .it .bd { margin-left: auto; font-size: 10.5px; font-weight: 700; background: var(--led); color: #fff; border-radius: 999px; padding: 1px 6px; }
+.side .grp { margin: 2px 0 2px 14px; padding-left: 10px; border-left: 1px solid var(--hair); display: flex; flex-direction: column; gap: 1px; }
+.side .ah { display: flex; align-items: center; gap: 6px; padding: 7px 8px 3px; font-size: 11.5px; color: var(--mfg); font-weight: 600; min-width: 0; }
+.side .ah .no { font-family: ui-monospace, Menlo, monospace; font-weight: 600; }
+.side .ah .sk { font-size: 10px; background: var(--muted); border-radius: 4px; padding: 1px 5px; color: var(--fg2); font-weight: 700; margin-left: auto; }
+.side .st { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 7px; font-size: 13px; color: var(--fg); min-width: 0; }
+.side .st .nm { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.side .st .led { display: inline-flex; gap: 3px; } .led i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); display: block; } .led i.on { background: var(--led); }
+.side .st.vi .tag { font-size: 10px; font-weight: 700; background: var(--okbg); color: var(--ok); border-radius: 4px; padding: 1px 5px; }
+.side .st.mt { color: var(--faint); font-size: 12px; }
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
+.scroll { flex: 1; overflow-y: auto; }
+.pad { padding: 14px 16px; } .f.desktop .pad { padding: 16px 20px; }
+.h1 { font-size: 20px; font-weight: 700; color: var(--fg); }
+/* 공용 칩/필 */
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 999px; background: var(--muted); color: var(--fg); font-size: 11.5px; white-space: nowrap; font-family: ui-monospace, Menlo, monospace; }
+.pill .car { color: var(--mfg); font-size: 9px; }
+.pill.lg { height: 34px; font-size: 13px; padding: 0 12px; }
+.sk { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 5px; background: var(--muted); color: var(--fg2); font-size: 10px; font-weight: 700; font-family: ui-monospace, Menlo, monospace; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--led); display: inline-block; flex: none; }
+.dot.off { background: var(--faint); } .dot.bad { background: var(--up); }
+.st2 { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--mfg); white-space: nowrap; }
+.st2 b { color: var(--fg); font-weight: 600; }
+.seg { display: inline-flex; height: 24px; background: var(--muted); border-radius: 999px; overflow: hidden; flex: none; }
+.seg span { font-size: 11px; font-weight: 600; color: var(--mfg); padding: 0 9px; display: inline-flex; align-items: center; }
+.seg span.on { background: var(--pill-bg); color: var(--pill-fg); }
+.btn { font: inherit; font-size: 12px; font-weight: 600; padding: 5px 9px; border-radius: 8px; border: 0; cursor: pointer; background: var(--muted); color: var(--fg); white-space: nowrap; }
+.btn.danger { background: var(--upbg); color: var(--up); }
+.btn.ghost { background: transparent; border: 1px solid var(--hair); color: var(--fg2); }
+.btn.sm { font-size: 11px; padding: 3px 7px; }
+/* 작업대 상단 줄 */
+.wb-head { display: flex; flex-direction: column; gap: 8px; }
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; background: var(--card); border-radius: 16px; padding: 10px 14px; font-size: 11.5px; color: var(--mfg); }
+.bar .sp { flex: 1; }
+.tabs { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.tabs .t { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px; border-radius: 999px; background: var(--muted); color: var(--mfg); font-size: 12px; font-weight: 600; }
+.tabs .t.on { background: var(--pill-bg); color: var(--pill-fg); box-shadow: 0 0 0 1px var(--hair); }
+.tabs .t .sk { height: 16px; }
+.card { background: var(--card); border-radius: 14px; padding: 12px 14px; margin-top: 10px; box-shadow: 0 0 0 1px var(--hair); }
+.card .nm { font-size: 15px; font-weight: 700; color: var(--fg); display: flex; gap: 8px; align-items: center; }
+.card .m2 { font-size: 11.5px; color: var(--mfg); margin-top: 3px; display: flex; gap: 6px; }
+.card.ghost { opacity: .5; }
+.grid { display: grid; grid-template-columns: 1fr; gap: 0; } .f.desktop .grid { grid-template-columns: 1fr 1fr; gap: 0 10px; }
+.toast { position: absolute; left: 12px; right: 12px; top: 70px; background: var(--sheet); border-radius: 14px; padding: 10px 12px; box-shadow: 0 10px 30px rgba(0,0,0,.35), 0 0 0 1px var(--hair); display: flex; gap: 10px; align-items: center; z-index: 20; }
+.f.desktop .toast { left: auto; right: 20px; top: 20px; width: 360px; }
+.toast .ic { width: 28px; height: 28px; border-radius: 8px; background: var(--okbg); color: var(--ok); display: grid; place-items: center; font-weight: 800; font-size: 13px; flex: none; }
+.toast .tx { flex: 1; min-width: 0; font-size: 13px; color: var(--fg); font-weight: 600; }
+.toast .tx .ac { display: block; font-size: 11px; color: var(--mfg); font-weight: 500; margin-top: 2px; }
+.toast .go { font-size: 11px; color: var(--down); font-weight: 600; white-space: nowrap; }
+.aux { font-size: 11px; color: var(--warn); padding: 2px 4px 0; }
+/* /me */
+.me-tabs { display: flex; gap: 14px; border-bottom: 1px solid var(--hair); padding: 0 16px; } .f.desktop .me-tabs { padding: 0 20px; }
+.me-tabs span { padding: 10px 2px; font-size: 14px; color: var(--mfg); } .me-tabs span.on { color: var(--fg); font-weight: 700; box-shadow: inset 0 -2px 0 var(--fg); }
+.me-tabs span .n { font-size: 11px; background: var(--muted); border-radius: 999px; padding: 1px 6px; margin-left: 4px; color: var(--fg2); }
+.sec { padding: 14px 16px 6px; } .f.desktop .sec { padding: 16px 20px 6px; }
+.mcard { background: var(--card); border-radius: 16px; box-shadow: 0 0 0 1px var(--hair); margin: 0 16px 10px; padding: 12px 14px; } .f.desktop .mcard { margin: 0 20px 10px; }
+.mcard .tt { font-size: 15px; font-weight: 700; color: var(--fg); display: flex; align-items: center; gap: 8px; }
+.mcard .tt .sp { flex: 1; }
+.mcard .cap { font-size: 11.5px; color: var(--mfg); margin-top: 4px; line-height: 1.5; }
+.ag { margin-top: 12px; }
+.ag .ah { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--mfg); padding: 6px 2px; min-width: 0; }
+.ag .ah .no { color: var(--fg); font-family: ui-monospace, Menlo, monospace; }
+.ag .ah .nm { color: var(--mfg); font-weight: 500; }
+.ag .ah .sp { flex: 1; }
+.ag.alt .ah { background: var(--surface); border-radius: 10px; padding: 8px 10px; }
+.srow { display: flex; align-items: center; gap: 8px; padding: 9px 2px; border-top: 1px solid var(--hair); min-width: 0; }
+.srow .c1 { flex: 1; min-width: 0; }
+.srow .n1 { font-size: 14px; font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; gap: 6px; align-items: center; }
+.srow .n2 { font-size: 11px; color: var(--mfg); margin-top: 2px; font-family: ui-monospace, Menlo, monospace; }
+.srow .bg { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; background: var(--okbg); color: var(--ok); }
+.srow .bg.off { background: var(--muted); color: var(--mfg); }
+.srow .ch { color: var(--faint); }
+.empty { border: 1px dashed var(--faint); border-radius: 10px; padding: 10px; text-align: center; font-size: 12px; color: var(--mfg); margin-top: 6px; }
+.kill { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--hair); margin-top: 12px; padding-top: 10px; font-size: 11px; color: var(--mfg); }
+.kill .sp { flex: 1; }
+.orow { display: flex; align-items: center; gap: 8px; padding: 9px 2px; border-top: 1px solid var(--hair); font-size: 12.5px; }
+.orow .tm { color: var(--mfg); font-family: ui-monospace, Menlo, monospace; font-size: 11px; width: 52px; flex: none; }
+.orow .n1 { flex: 1; min-width: 0; color: var(--fg); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.orow .sd { font-size: 10.5px; font-weight: 700; padding: 1px 5px; border-radius: 4px; } .orow .sd.b { background: var(--upbg); color: var(--up); } .orow .sd.s { background: var(--dnbg); color: var(--down); }
+.orow .q { font-family: ui-monospace, Menlo, monospace; color: var(--fg2); flex: none; }
+/* 설정 탭 */
+.srv-seg { display: inline-flex; background: var(--muted); border-radius: 10px; padding: 2px; gap: 2px; }
+.srv-seg span { font-size: 12.5px; font-weight: 600; color: var(--mfg); padding: 6px 12px; border-radius: 8px; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.srv-seg span.on { background: var(--pill-bg); color: var(--pill-fg); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+.srv-seg span .d { width: 6px; height: 6px; border-radius: 50%; background: var(--led); } .srv-seg span .d.w { background: var(--faint); }
+.chip { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
+.chip.ok { background: var(--okbg); color: var(--ok); } .chip.warn { background: var(--warnbg); color: var(--warn); } .chip.mute { background: var(--muted); color: var(--mfg); }
+.gh { font-size: 12px; font-weight: 700; color: var(--mfg); padding: 12px 2px 4px; }
+.vrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 11px 2px; border-top: 1px solid var(--hair); font-size: 13.5px; color: var(--fg); }
+.vrow .v { font-family: ui-monospace, Menlo, monospace; color: var(--fg2); } .vrow .v u { text-decoration: none; color: var(--mfg); font-size: 11px; margin-left: 2px; }
+.vrow .sw { width: 36px; height: 20px; border-radius: 999px; background: var(--faint); position: relative; } .vrow .sw.on { background: var(--led); } .vrow .sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; } .vrow .sw.on::after { left: 18px; }
+.dim { opacity: .45; }
+.sel { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: 10px; background: var(--muted); color: var(--fg); font-size: 13px; font-weight: 600; }
+.sel .car { color: var(--mfg); font-size: 10px; margin-left: auto; }
+.col2 { display: grid; grid-template-columns: 1fr; } .f.desktop .col2 { grid-template-columns: 1fr 1fr; gap: 0 20px; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">화면</span>
+    <button data-screen="top" class="on">① 작업대 상단 줄</button>
+    <button data-screen="side">② 사이드바</button>
+    <button data-screen="status">③ /me 현황</button>
+    <button data-screen="orders">④ /me 주문</button>
+    <button data-screen="settings">⑤ /me 설정</button>
+  </div>
+  <div class="g" id="vg"><span class="l">변형</span><button data-variant="A" class="on">A</button><button data-variant="B">B</button><button data-variant="C">C</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390</button><button data-w="desktop">데스크톱 1080</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
+  <div class="g"><span class="l">상태</span><button data-r="ok" class="on">정상</button><button data-r="down">주문 끊김</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+<script>
+const ACCTS = [
+  { no: '1234-5678', nm: '김알렉스', sk: 'KB120', strategies: [ { n: '삼성전자', led: [1,1,0] }, { n: '에코프로비엠 · NXT', led: [1,0,1] } ], vi: 'KRX' },
+  { no: '8765-4321', nm: '교보 종합', sk: 'KYOBO119', strategies: [ { n: '한화오션', led: [1,0,0] } ], vi: null },
+  { no: '5555-0001', nm: '김알렉스 2', sk: 'KB120', strategies: [], vi: null },
+];
+const SEL = 0;
+const acctLabel = (a) => `${a.no} · ${a.nm} · ${a.sk}`;
+let S = { screen: 'top', variant: 'A', w: 'phone', t: 'dark', r: 'ok' };
+
+const DESC = {
+  top: {
+    A: '<b>A 한 줄 필.</b> 계좌 셀렉트(번호 · 이름 · 서버키)가 줄 왼쪽, 시세 · 주문 상태가 LED 점 두 개 + 짧은 말, 컬럼 세그먼트가 오른쪽. 지금 구조에서 「정규」 배지 · 알림음 · 반영 시각 · 다시 연결을 뺀 가장 작은 변화. 폰에서는 세그먼트가 줄 아래로 내려감.',
+    B: '<b>B 계좌가 제목.</b> 「트레이딩」 제목 자리에 계좌 라벨이 큰 셀렉트로 서고(탭하면 OS 선택 UI), 그 아래 작은 줄에 시세 · 주문 상태와 컬럼 세그먼트. 계좌가 화면의 주어라는 뜻이 가장 또렷함.',
+    C: '<b>C 계좌 탭.</b> 계좌들을 가로 칩(탭)으로 나열해 한 번 탭으로 바꿈(폰은 가로 스크롤). 각 칩에 서버키. 상태 · 세그먼트는 그 아래 줄. 계좌 2~3개일 때 전환이 가장 빠르고, 많아지면 길어짐.',
+  },
+  side: { A: '<b>사이드바 계좌 묶음.</b> 「트레이딩」 아래 계좌 소제목(이름 · 서버키) → 그 계좌 전략(LED 3점). VI 는 켜진 계좌 묶음 안에 「VI KRX」 한 줄(마지막 웨이브 뒤 계좌별). 전략 0건 계좌는 소제목 없음(사이드바는 켜진 것만).' },
+  status: {
+    A: '<b>A 소제목 우측 「끄기」.</b> 계좌 소제목 「계좌 · 번호 · 이름 · 서버키」 오른쪽 끝에 작은 「이 계좌 끄기」. 전략 행 · VI 행이 묶음 안. 전략 0건은 빈 상태 한 줄. 카드 맨 아래 「전체 비활성화」 는 그대로.',
+    B: '<b>B 묶음 하단 줄.</b> 각 계좌 묶음 끝에 「이 계좌의 상따 · VI 끄기」 한 줄(전체 비활성화와 같은 문법). 소제목은 깨끗하고 위험 버튼이 아래로 모임.',
+  },
+  orders: { A: '<b>주문 탭 계좌 선택.</b> 카드 제목 옆에 작업대와 같은 계좌 필(값은 따로 기억). 고른 계좌의 주문만 평탄하게, 탭 라벨 「주문 N」 은 고른 계좌 건수. 그룹 소제목은 사라짐.' },
+  settings: {
+    A: '<b>A 서버 세그먼트.</b> 「상따 기본설정」 제목 아래 세션 열린 서버 세그먼트(KB120 | KYOBO119). 84 아직 못 받은 서버는 점이 회색 + 선택하면 행이 흐려지고 칩 「아직 못 받음」. 그 아래 「이 기기」 묶음에 돌파 알림음 토글.',
+    B: '<b>B 서버 셀렉트.</b> 제목 옆 셀렉트 한 개(OS 선택 UI · 계좌 필과 같은 문법). 서버가 많아져도 줄이 안 길어짐. 나머지는 A 와 같음.',
+    C: '<b>C 서버별 세로 나열.</b> 서버마다 「상따 기본설정 — KB120」 카드를 세로로 반복(잔고 탭 문법). 전환 없이 둘 다 보이지만 12행 × 서버 수로 길어짐.',
+  },
+};
+const VARIANTS = { top: ['A','B','C'], side: ['A'], status: ['A','B'], orders: ['A'], settings: ['A','B','C'] };
+
+function dots(led) { return `<span class="led">${led.map(x => `<i class="${x?'on':''}"></i>`).join('')}</span>`; }
+function quoteOrder(inline) {
+  const bad = S.r === 'down';
+  const q = `<span class="st2"><i class="dot"></i>시세</span>`;
+  const o = bad ? `<span class="st2"><i class="dot bad"></i>주문 <b style="color:var(--up)">끊김</b> · <span style="color:var(--down);font-weight:600">다시 연결</span></span>` : `<span class="st2"><i class="dot"></i>주문</span>`;
+  return q + o;
+}
+const cols = () => `<span class="seg"><span>1단</span><span class="on">2단</span><span>3단</span></span>`;
+function acctPill(lg) { const a = ACCTS[SEL]; return `<span class="pill ${lg?'lg':''}">${a.no} · ${a.nm} · ${a.sk} <span class="car">▼</span></span>`; }
+
+function topBar() {
+  const phone = S.w === 'phone';
+  let head;
+  if (S.variant === 'A') {
+    head = `<div class="wb-head"><div class="h1">트레이딩</div>
+      <div class="bar">${acctPill(false)} ${quoteOrder()} <span class="sp"></span> ${phone ? '' : cols()}</div>
+      ${phone ? `<div class="bar" style="padding:6px 14px">${cols()}</div>` : ''}</div>`;
+  } else if (S.variant === 'B') {
+    head = `<div class="wb-head"><div style="display:flex;align-items:center;gap:8px;min-width:0">${acctPill(true)}</div>
+      <div class="bar">${quoteOrder()} <span class="sp"></span> ${cols()}</div></div>`;
+  } else {
+    head = `<div class="wb-head">
+      <div class="tabs">${ACCTS.map((a,i) => `<span class="t ${i===SEL?'on':''}">${a.nm} <span class="sk">${a.sk}</span></span>`).join('')}</div>
+      <div class="bar">${quoteOrder()} <span class="sp"></span> ${cols()}</div></div>`;
+  }
+  const a = ACCTS[SEL];
+  const cards = `<div class="grid">${a.strategies.map(s => `<div class="card"><div class="nm">${s.n} ${dots(s.led)}</div><div class="m2"><span class="mono">${a.no}</span><span>·</span><span>${a.sk}</span></div></div>`).join('')}
+    <div class="card" style="border:1px dashed var(--faint);box-shadow:none;background:transparent;color:var(--mfg);font-size:12.5px;text-align:center">+ 새 전략 (기본 계좌 ${a.no})</div></div>`;
+  const toast = `<div class="toast"><div class="ic">체</div><div class="tx">한화오션 매수 체결 3,000주<span class="ac">계좌 8765-4321 · 교보 종합 · KYOBO119</span></div><span class="go">이 계좌 보기 ›</span></div>`;
+  return `<div class="main"><div class="scroll"><div class="pad">${head}${cards}</div></div>${toast}</div>`;
+}
+
+function sidebar(active) {
+  const groups = ACCTS.filter(a => a.strategies.length || a.vi).map(a => `
+    <div class="ah"><span class="no">${a.nm}</span><span class="sk">${a.sk}</span></div>
+    ${a.vi ? `<div class="st vi"><span class="nm">VI</span><span class="tag">${a.vi}</span></div>` : ''}
+    ${a.strategies.map(s => `<div class="st"><span class="nm">${s.n}</span>${dots(s.led)}</div>`).join('')}`).join('');
+  return `<div class="side">
+    <div class="it">홈</div><div class="it">종목검색</div>
+    <div class="it ${active==='trading'?'on':''}">트레이딩 <span class="bd">3</span></div>
+    <div class="grp">${groups}</div>
+    <div class="it">분석</div>
+    <div class="it ${active==='me'?'on':''}">My page</div>
+    <div style="flex:1"></div><div class="it">관리</div></div>`;
+}
+
+function meShell(tab, body) {
+  const tabs = ['현황','잔고','주문 <span class="n">4</span>','설정'];
+  return `<div class="main"><div class="pad" style="padding-bottom:0"><div class="h1">My page</div></div>
+    <div class="me-tabs">${tabs.map((t,i) => `<span class="${i===tab?'on':''}">${t}</span>`).join('')}</div>
+    <div class="scroll" style="padding-top:12px">${body}</div></div>`;
+}
+
+function meStatus() {
+  const alt = S.variant === 'B';
+  const groups = ACCTS.map(a => {
+    const rows = a.strategies.map(s => `<div class="srow"><div class="c1"><div class="n1">${s.n} <span class="bg">무장</span></div><div class="n2">005930 · KRX · ${a.no}</div></div><span class="ch">›</span></div>`).join('');
+    const vi = `<div class="srow"><div class="c1"><div class="n1">VI 자동매수 <span class="bg ${a.vi?'':'off'}">${a.vi?'가동':'중지'}</span></div><div class="n2">${a.vi ? 'KRX · 500만 · 3%' : '—'}</div></div><span class="ch">›</span></div>`;
+    const empty = a.strategies.length ? '' : `<div class="empty">등록된 전략 없음</div>`;
+    const killA = alt ? '' : `<button class="btn ghost sm">이 계좌 끄기</button>`;
+    const killB = alt ? `<div class="kill"><span>이 계좌의 상따 · VI 를 끕니다.</span><span class="sp"></span><button class="btn danger sm">계좌 끄기</button></div>` : '';
+    return `<div class="ag ${alt?'alt':''}"><div class="ah"><span>계좌</span><span class="no">${a.no}</span><span class="nm">${a.nm}</span><span class="sk">${a.sk}</span><span class="sp"></span>${killA}</div>${empty}${rows}${vi}${killB}</div>`;
+  }).join('');
+  const body = `<div class="mcard"><div class="tt">전략 현황 <span class="sp"></span><span class="chip ok">상따 3건</span></div>
+    ${groups}
+    <div class="kill"><span>모든 계좌의 상따 전략과 VI 자동매수를 한 번에 끕니다.</span><span class="sp"></span><button class="btn danger">전체 비활성화</button></div></div>`;
+  return meShell(0, body);
+}
+
+function meOrders() {
+  const a = ACCTS[SEL];
+  const rows = [['09:02:11','삼성전자','b','1,000'],['09:05:40','삼성전자','s','1,000'],['10:21:03','에코프로비엠','b','200'],['13:40:55','에코프로비엠','s','200']]
+    .map(r => `<div class="orow"><span class="tm">${r[0]}</span><span class="n1">${r[1]}</span><span class="sd ${r[2]}">${r[2]==='b'?'매수':'매도'}</span><span class="q">${r[3]}주</span></div>`).join('');
+  const body = `<div class="mcard"><div class="tt">오늘 주문 <span class="sp"></span>${acctPill(false)}</div>
+    <div class="cap">고른 계좌의 오늘 주문만 보여요. 작업대 계좌 선택과는 따로 기억해요.</div>
+    <div style="margin-top:8px">${rows}</div></div>`;
+  return meShell(2, body);
+}
+
+function meSettings() {
+  const v = S.variant;
+  const srvs = [{k:'KB120', got:true},{k:'KYOBO119', got:false}];
+  const cur = 0;
+  const seg = `<div class="srv-seg">${srvs.map((s,i) => `<span class="${i===cur?'on':''}"><i class="d ${s.got?'':'w'}"></i>${s.k}</span>`).join('')}</div>`;
+  const sel = `<span class="sel"><i class="dot"></i>KB120 <span class="car">▼</span></span>`;
+  const rows = (dim) => `<div class="col2 ${dim?'dim':''}">
+    <div><div class="gh">매수 금액</div><div class="vrow">선매수 금액<span class="v">500<u>만</u></span></div><div class="vrow">줄매수 금액<span class="v">300<u>만</u></span></div>
+      <div class="gh">선매수</div><div class="vrow">매도잔량<span class="v">0<u>만</u></span></div><div class="vrow">줄매수도 같이 켜기<span class="sw on"></span></div>
+      <div class="gh">후매수</div><div class="vrow">후매수 최소<span class="v">100<u>만</u></span></div></div>
+    <div><div class="gh">매도</div><div class="vrow">매도 방법<span class="v">잔량추적</span></div><div class="vrow">매도 비율<span class="v">50<u>%</u></span></div>
+      <div class="gh">자동매도</div><div class="vrow">매도 주기<span class="v">3<u>초</u></span></div><div class="vrow">동시호가 비율<span class="v">30<u>%</u></span></div></div></div>`;
+  const tone = `<div class="mcard"><div class="tt">이 기기</div><div class="cap">이 브라우저(기기)에만 저장돼요.</div><div class="vrow">돌파 알림음<span class="sw on"></span></div></div>`;
+  let body;
+  if (v === 'C') {
+    body = srvs.map(s => `<div class="mcard"><div class="tt">상따 기본설정 <span class="sk" style="height:20px;font-size:11px">${s.k}</span> <span class="sp"></span><span class="chip ${s.got?'ok':'mute'}">${s.got?'서버값':'아직 못 받음'}</span></div>${rows(!s.got)}</div>`).join('') + tone;
+  } else {
+    const head = v === 'A' ? `<div class="tt">상따 기본설정 <span class="sp"></span><span class="chip ok">서버값</span></div><div style="margin-top:8px">${seg}</div>` : `<div class="tt">상따 기본설정 <span class="sp"></span>${sel}</div>`;
+    body = `<div class="mcard">${head}<div class="cap">고른 서버에만 저장돼요. 다른 서버는 따로 봐야 해요.</div>${rows(false)}</div>` + tone;
+  }
+  return meShell(3, body);
+}
+
+function render() {
+  const vs = VARIANTS[S.screen];
+  if (!vs.includes(S.variant)) S.variant = vs[0];
+  document.querySelectorAll('#vg button').forEach(b => { b.style.display = vs.includes(b.dataset.variant) ? '' : 'none'; });
+  const desktop = S.w === 'desktop';
+  let inner;
+  if (S.screen === 'top') inner = (desktop ? sidebar('trading') : '') + topBar();
+  else if (S.screen === 'side') inner = desktop ? sidebar('trading') + `<div class="main"><div class="pad"><div class="h1">트레이딩</div><div class="bar" style="margin-top:8px">${acctPill(false)} ${quoteOrder()}</div></div></div>` : `<div class="main" style="flex-direction:row"><div style="width:280px;display:flex">${sidebar('trading')}</div><div style="flex:1;background:var(--scrim)"></div></div>`;
+  else if (S.screen === 'status') inner = (desktop ? sidebar('me') : '') + meStatus();
+  else if (S.screen === 'orders') inner = (desktop ? sidebar('me') : '') + meOrders();
+  else inner = (desktop ? sidebar('me') : '') + meSettings();
+  document.getElementById('stage').innerHTML = `<div class="f ${S.w} ${S.t}">${inner}</div>`;
+  document.getElementById('desc').innerHTML = DESC[S.screen][S.variant] || '';
+  document.querySelectorAll('#nav button').forEach(b => { const k = Object.keys(b.dataset)[0]; b.classList.toggle('on', String(S[k]) === b.dataset[k]); });
+}
+document.getElementById('nav').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  const k = Object.keys(b.dataset)[0]; S[k] = b.dataset[k]; render();
+});
+render();
+</script>
+</body>
+</html>
