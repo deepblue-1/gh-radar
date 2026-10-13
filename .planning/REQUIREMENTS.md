@@ -24,6 +24,14 @@ v1.0 요구사항 아카이브: [milestones/v1.0-REQUIREMENTS.md](./milestones/v
 - [x] **AMT-03**: 84 `post_buy_floor_amount` 를 /me 기본설정에 표시·설정한다 — 42 는 12값 전체 교체에 이 필드를 포함하고 봉인 필드 `post_buy_floor_qty` 는 0
 - [x] **AMT-04**: 「만(주)」 단위 표시 도입 여부를 결정해 인박스 노트 질문 2개에 답하고 닫는다 — 도입하면 환산 규칙(gh-trade `docs/strategy/limit-chaser.md` §10 · 제출 내림 · 표시 반올림 · 그룹별 비교가 · 비교가 0 이면 등록 거부)을 그대로 공유, 안 하면 AMT-02 되싣기만
 
+### 계좌 축 정리 (Phase 32 · 사용자 요청 2026-10-13)
+
+- [ ] **AXIS-01**: 작업대 계좌 선택이 화면 범위다 — 고른 계좌의 전략 카드 · VI 트리거 스트립 · VI 설정 행 · 알림 토스트만 보이고, 새 카드 기본 계좌 기능은 유지한다
+- [ ] **AXIS-02**: 작업대 상단 줄 재설계 — 「정규」 배지 · 사운드 토글 제거, 계좌 선택을 중심으로 시세·주문 상태를 축약한 한 줄(목업 A/B/C 채택). 알림음 켜고 끄기의 새 자리(또는 제거)를 결정해 기록한다
+- [ ] **AXIS-03**: /me 현황 탭 전략 현황을 계좌별로 묶어 나열한다(소제목에 계좌 · 번호 · 상품명 · 서버키, VI 행 포함) — 잔고 탭처럼 쭉 나열
+- [ ] **AXIS-04**: /me 주문 탭에 계좌 선택을 두고 고른 계좌의 주문만 보인다 — 작업대와 같은 계좌 선택 부품, D-21 뒤집음 기록
+- [ ] **AXIS-05**: /me 설정 탭 매매설정을 서버별로 보고 저장한다 — relay `user.settings`/`user.settings.set` 에 `serverKey`, hub 84 캐시 `(userId, serverKey)` · `#fromPrimary` 해제 · 42 지정 서버 라우팅, 상따 폼 시딩은 카드 계좌의 소유 서버 설정. gh-trade 와이어 변경 없음
+
 ### 문서
 
 - [x] **DOCS-01**: CLAUDE.md 다이어트 — 세션마다 로드되는 분량을 핵심 규칙만으로 줄인다(스택 표 · 법적 판례 · 설치 참조 · 출처 링크는 `docs/` 로 이동, 운영 5원칙·공식 API 기준·인박스·컨벤션은 요약 유지). quick 으로 처리, 로드맵 phase 없음
@@ -60,13 +68,18 @@ v1.0 요구사항 아카이브: [milestones/v1.0-REQUIREMENTS.md](./milestones/v
 | AMT-03 | Phase 31 | Complete |
 | AMT-04 | Phase 31 | Complete |
 | DOCS-01 | quick | Complete |
+| AXIS-01 | Phase 32 | Pending |
+| AXIS-02 | Phase 32 | Pending |
+| AXIS-03 | Phase 32 | Pending |
+| AXIS-04 | Phase 32 | Pending |
+| AXIS-05 | Phase 32 | Pending |
 
 **Coverage:**
-- v1.1 requirements: 10 total
-- Mapped to phases: 9 (Phase 30: IPMAC 5 · Phase 31: AMT 4)
+- v1.1 requirements: 15 total
+- Mapped to phases: 14 (Phase 30: IPMAC 5 · Phase 31: AMT 4 · Phase 32: AXIS 5)
 - Quick (phase 없음): 1 (DOCS-01)
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-10-11*
-*Last updated: 2026-10-11 — Phase 30 discuss 에서 IPMAC-05(계좌명 편집) 추가*
+*Last updated: 2026-10-13 — Phase 32 추가(AXIS-01~05 · 계좌 축 정리)*

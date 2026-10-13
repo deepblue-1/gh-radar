@@ -59,6 +59,7 @@
 
 - [x] **Phase 30: 인박스 KB 계좌별 주문자 IP/MAC** - relay R3-01(op 5 재조회) · 웹 Admin 계좌 편집 IP/MAC 입력칸 · 계좌명 편집 · code 13 문구 · 질문 3개 답으로 `261010-kb-order-ip-mac.md` 닫기 (completed 2026-10-11)
 - [x] **Phase 31: 인박스 상따 금액 단위** - 생성물 마커 확인 · `lc.set` 금액 8필드 되싣기 · 84 `post_buy_floor_amount` · 「만(주)」 결정으로 `261011-limitchaser-amount-unit.md` 닫기 (completed 2026-10-12)
+- [ ] **Phase 32: 계좌 축 정리** - 작업대 계좌 스코프(전략·VI 계좌별) · 상단 줄 재설계(정규 배지·사운드 토글 제거, 시세·주문 축약, 계좌 선택) · /me 전략 현황 계좌별 묶음 · 주문 탭 계좌 선택 · 매매설정 서버별(relay 42/84 serverKey)
 
 ## Phase Details
 
@@ -138,14 +139,35 @@ Plans:
 
 **UI hint**: yes
 
+### Phase 32: 계좌 축 정리
+
+**Goal**: 트레이딩 작업대와 /me 가 「고른 계좌 · 서버」 축으로 읽힌다 — 작업대는 고른 계좌의 전략·VI 만 보이고 상단 줄이 계좌 선택 중심으로 정리되며, /me 는 전략 현황이 계좌별로 묶이고 주문 탭은 계좌를 골라 보고, 매매설정은 서버(gh-trade 게이트웨이)마다 따로 보고 저장한다
+**Depends on**: Phase 31 (순서만 — 코드 의존 없음) · 외부: gh-trade 와이어 변경 없음(UserSettings 는 서버마다 이미 `user_settings.toml` 에 따로 저장) · 2026-10-12 결정 「서버별 사용자 설정 저장 유지」와 일관
+**Requirements**: AXIS-01, AXIS-02, AXIS-03, AXIS-04, AXIS-05
+**Success Criteria** (what must be TRUE):
+  1. 작업대에서 계좌를 고르면 전략 카드 격자 · VI 트리거 스트립 · VI 설정 행 · 알림 토스트가 그 계좌 것만 보이고, 계좌를 바꾸면 즉시 바뀐다(새 카드 기본 계좌 기능은 유지)
+  2. 작업대 상단 줄에 「정규」 배지와 사운드 토글이 없고, 계좌 선택 · 시세/주문 상태가 채택 목업(A/B/C 중 하나) 그대로 한 줄에 정리된다 — 알림음 켜고 끄기는 다른 자리(/me 설정 등 · 목업에서 결정)에 남거나 제거가 기록된다. E2E(trading-workbench · a11y aria-live · 단위) 가 새 구조로 통과한다
+  3. /me 현황 탭 전략 현황이 계좌별(소제목 「계좌 · 번호 · 상품명 · 서버키」)로 묶여 나열되고 VI 행도 계좌 묶음 안에 든다 — 잔고 탭처럼 계좌 순서는 `accounts[]` 순
+  4. /me 주문 탭에 계좌 선택이 있어 고른 계좌의 주문만 보이고, 선택은 작업대 계좌 선택과 같은 부품이다(D-21 「/me 계좌 셀렉터 없음」 뒤집음을 CONTEXT 에 기록)
+  5. /me 설정 탭에서 서버(세션이 열린 서버 목록)를 골라 그 서버의 84 값을 보고 42 로 그 서버에만 저장한다 — relay `user.settings`/`user.settings.set` 에 `serverKey`, hub 84 캐시 `(userId, serverKey)`, `#fromPrimary` 필터 해제, 42 지정 서버 라우팅. 상따 폼 시딩은 카드 계좌의 소유 서버 설정을 읽는다. relay 단위 · E2E 통과, relay 배포(20:00 KST 뒤) 후 KB120 · KYOBO119 에서 서로 다른 값이 보인다
+
+**배포 순서**: DB 변경 없음 · gh-trade 변경 없음 → relay(20:00 KST 뒤) → webapp push(= 프로덕션). 웨이브는 ① /me 전략 현황·주문 탭(데이터 변경 없음) ② 작업대 계좌 스코프·상단 줄(목업 뒤) ③ 매매설정 서버별(relay+shared+webapp) ④ E2E·배포 순
+**Plans**: 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 32 to break down)
+
+**UI hint**: yes
+
 ## Progress
 
 | Milestone | Phases | Plans | Status |
 |-----------|--------|-------|--------|
 | v1.0 Launch | 37 | 432 | ✅ Shipped 2026-10-11 |
-| v1.1 운영 유지보수 | 2 | — | 🚧 진행 중 |
+| v1.1 운영 유지보수 | 3 | — | 🚧 진행 중 |
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 30. 인박스 KB 계좌별 주문자 IP/MAC | v1.1 | 9/9 | Complete | 2026-10-11 |
-| 31. 인박스 상따 금액 단위 | v1.1 | 8/8 | In Progress | 2026-10-12 |
+| 31. 인박스 상따 금액 단위 | v1.1 | 8/8 | Complete | 2026-10-12 |
+| 32. 계좌 축 정리 | v1.1 | 0/0 | Not started | — |

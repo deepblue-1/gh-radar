@@ -4,13 +4,13 @@ milestone: v1.1
 milestone_name: 운영 유지보수
 current_phase: 31
 status: completed
-stopped_at: Phase 31 complete — 마일스톤 v1.1 계속(종료 안 함)
+stopped_at: Phase 32 added — discuss/plan 대기
 last_updated: "2026-10-12T13:12:04.507Z"
 last_activity: 2026-10-12
 last_activity_desc: Phase 31 complete
 state_head: 6a628d3b269f62031b11330e136f7bfc21976c34
 progress:
-  total_phases: 2
+  total_phases: 3
   completed_phases: 2
   total_plans: 17
   completed_plans: 17
@@ -30,12 +30,16 @@ See: .planning/PROJECT.md (updated 2026-10-12 after Phase 31)
 
 Phase: 31
 Plan: Not started
-Status: 로드맵 phase 전부 완료 · 마일스톤 v1.1 계속(새 phase 추가 또는 quick)
+Status: Phase 32 「계좌 축 정리」 추가(2026-10-13) — discuss → sketch(상단 줄 · 설정 탭 서버 전환) → plan 순
 Last activity: 2026-10-12 — Completed quick task 261012-u04: gh-trade 261012 선매수 매도잔량 기본값·줄매수도 같이 켜기 웹 반영
 
 Progress: [██████████] 100% (17/17 plans)
 
 ## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 32 added (2026-10-13): 계좌 축 정리 — 작업대 계좌 스코프 · 상단 줄 재설계 · /me 전략 현황 계좌별 · 주문 탭 계좌 선택 · 매매설정 서버별(relay serverKey). 사용자가 A(quick+phase 2개) 대신 B(phase 1개 · 웨이브 분리)를 택함
 
 ### Pending Todos
 
