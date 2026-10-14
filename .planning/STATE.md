@@ -5,10 +5,10 @@ milestone_name: 운영 유지보수
 current_phase: 31
 status: completed
 stopped_at: Phase 32 UI-SPEC approved
-last_updated: "2026-10-13T07:40:31.787Z"
+last_updated: "2026-10-14T02:39:09.683Z"
 last_activity: 2026-10-12
 last_activity_desc: Phase 31 complete
-state_head: 83529556235e3482b7193f97dfe69130220c8f6b
+state_head: 51e629042256eafddb5b47e83b3884300ef49a30
 progress:
   total_phases: 3
   completed_phases: 2
@@ -80,6 +80,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261012-qld | gh-trade 261012 반영 — 상따 후매수 「최대」 칸 · 소진 안내 삭제 · 줄매수 자동 힌트 정리 · lc.set 재진입 255 고정 | 2026-10-12 | e14695c2 | [261012-qld-gh-trade-261012](./quick/261012-qld-gh-trade-261012/) |
 | 5 | /me 상따 기본값 「후매수 최대」 행 삭제 — gh-trade 261012 후속 | 2026-10-12 | 028d9e63 | — |
 | 261012-u04 | gh-trade 261012 선매수 매도잔량 기본값·줄매수도 같이 켜기 웹 반영 (UserSettings 2필드 · /me 선매수 카드 · 2열 열 고정 · 상따 폼 시딩/동반 제출) | 2026-10-12 | 6a628d3b | [261012-u04-gh-trade-261012](./quick/261012-u04-gh-trade-261012/) |
+| 7 | vpn-menubar v3.8: 게이트웨이↔직접 접속(KB VPN·교보) 상호배제 해제 · SSH 명령 복사 메뉴 제거 (스크립트는 gitignore 개인 파일, 문서 2곳 커밋 51e62904) | 2026-10-14 | 51e62904 | — |
 
 ## Session Continuity
 
