@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type { RelayAccountState, RelayLimitChaser } from "@gh-radar/shared";
@@ -8,21 +8,16 @@ import type { RelayAccountState, RelayLimitChaser } from "@gh-radar/shared";
  * Phase 16 Plan 15 Task 1 — 전략 현황 카드 계약 (MYPAGE-01 · UI-SPEC C2~C4 · D-09/D-14/D-20).
  *
  * 이 파일이 잠그는 것은 **정보와 조작 경로**이지 픽셀이 아니다:
- *  ① 전략 3건이 종목명·코드·거래소 태그·**계좌번호 전체**·상태 배지를 전부 보여준다
+ *  ① 전략 3건이 종목명·코드·거래소·상태 배지를 보여주고 2줄째에 계좌번호는 없다(Phase 32 D-21 — 계좌는 /me 칩이 말한다)
  *  ② 행 링크가 `encodeURIComponent` 된 전략 키로 나간다
- *  ③ 전략 0 + VI 중지 → 「전체 비활성화」가 `disabled`
- *  ④ 확인 다이얼로그의 기본 포커스가 **닫기**다 (Enter 연타 방어)
- *  ⑤ 확정 시 `{t:"strategies.disable"}` 1회 · **`key` 프로퍼티 없음**(생략 = 전체)
- *  ⑥ 65 수신이 목록 상태를 바꾸지 않는다 (완료 신호일 뿐 — T-16-07)
  *  ⑦ 전략 0 빈 상태 문구
+ *  ⑨ 단절 중에도 상따 목록이 남아 보인다
  *
- * Plan 19(gap 3) 가 덧붙인 것 — **킬 스위치가 침묵하지 않는다**:
- *  ⑨  단절 중에는 목록이 남아 있어도 버튼이 비활성이다 (회귀 잠금)
- *  ⑩  `send` 가 `false` 면 `awaitingAck` 가 서지 않고 실패 문구가 뜬다
- *  ⑪  8초 안에 65 가 오지 않으면 「반영을 확인하지 못했어요」가 뜬다 (실패로 단정하지 않는다)
+ * quick-260928-no0 — 세 스위치가 모두 꺼진 전략은 행·요약에서 빠진다(isActiveStrategy · 사이드바·작업대와
+ * 같은 기준). 취소잔량만 켜진 전략은 남는다. 스냅샷 전에는 거른 수가 0 이어도 로딩이다.
  *
- * quick-260928-no0 — 세 스위치가 모두 꺼진 전략은 행·요약·다이얼로그 건수에서 빠진다(isActiveStrategy ·
- * 사이드바·작업대와 같은 기준). 취소잔량만 켜진 전략은 남는다. 스냅샷 전에는 거른 수가 0 이어도 로딩이다.
+ * Phase 32 — 카드는 /me 계좌 칩이 고른 계좌(`accountNo`)만 그린다(D-21 · S5′). 끄기 UI 는 /me 현황에 없다
+ * (D-27 — 「이 계좌 끄기」 는 32-06 이 세운다 · 계좌 끄기 케이스도 32-06 이 쓴다).
  */
 
 // ---------------------------------------------------------------------------
@@ -231,7 +226,6 @@ function populated(over: Partial<RelayShape> = {}): RelayShape {
 }
 
 const rows = () => document.querySelectorAll('[data-slot="strategy-row"]');
-const disableButton = () => screen.getByRole("button", { name: "전체 비활성화" });
 
 beforeEach(() => {
   mockRelay = populated();
@@ -252,7 +246,7 @@ describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
       행 높이가 배지 개수와 무관하게 일정해진다.
       보여주는 정보는 하나도 줄지 않았다(아래 단언이 셋 다 그대로 남는 이유다).
   */
-  it("① 전략 3건이 2줄 문법으로 종목명·코드·거래소·계좌번호 전체·상태 배지를 보여준다", () => {
+  it("① 전략 3건이 2줄 문법으로 종목명·코드·거래소·상태 배지를 보여주고 2줄째에 계좌번호가 없다", () => {
     render(<StrategyStatusCard />);
 
     expect(rows()).toHaveLength(3);
@@ -266,14 +260,11 @@ describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
     // r1 — 종목명(relay 역매핑에서만 온다) + 상태 배지.
     expect(within(r1(first)).getByText("에코프로머티리얼즈우선주")).toBeInTheDocument();
     expect(within(r1(first)).getByText("매수ON")).toBeInTheDocument();
-    // r2 — 코드 · 거래소 · 계좌번호.
+    // r2 — 코드 · 거래소 뿐(Phase 32 D-21 — 계좌는 /me 계좌 칩이 말한다).
     expect(within(r2(first)).getByText("086520")).toBeInTheDocument();
     expect(within(r2(first)).getByText("KRX")).toBeInTheDocument();
-    // ★ 계좌번호는 **마스킹 없이 전체** 표시된다 (D2 · S-5).
-    expect(within(r2(first)).getByText("37728502101")).toBeInTheDocument();
-    expect(
-      r2(first).querySelector('[data-slot="strategy-row-account"]'),
-    ).toHaveTextContent("37728502101");
+    expect(r2(first).textContent).not.toContain("37728502101");
+    expect(document.querySelectorAll('[data-slot="strategy-row-account"]')).toHaveLength(0);
 
     /*
       ★ **거래소가 배지가 아니다.** r1 의 `strategy-badge` 개수가 상태 배지 개수와
@@ -286,16 +277,15 @@ describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
     expect(within(r1(second)).getByText("이수페타시스")).toBeInTheDocument();
     expect(within(r1(second)).getByText("매도대기")).toBeInTheDocument();
     expect(within(r2(second)).getByText("NXT")).toBeInTheDocument();
-    expect(within(r2(second)).getByText("37728502102")).toBeInTheDocument();
+    expect(r2(second).textContent).not.toContain("37728502102");
 
     // 이름을 모르는 전략은 ISIN 으로 폴백하고 **같은 값을 코드 칸에 두 번 쓰지 않는다**.
     const third = rows()[2] as HTMLElement;
     expect(within(third).getAllByText("KR7000660001")).toHaveLength(1);
     expect(within(r1(third)).getByText("매수ON")).toBeInTheDocument();
     expect(within(r1(third)).getByText("매도감시")).toBeInTheDocument();
-    // 코드 조각이 없어도 r2 는 `{거래소} · {계좌번호}` 로 이어진다.
-    expect(r2(third).textContent).toContain("KRX");
-    expect(r2(third).textContent).toContain("37728502101");
+    // 코드 조각이 없으면 r2 는 거래소 하나다.
+    expect(r2(third).textContent).toBe("KRX");
     expect(r1(third).querySelectorAll('[data-slot="strategy-badge"]')).toHaveLength(2);
 
     /*
@@ -324,105 +314,6 @@ describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
     // 인코딩이 실제로 일어났는지 — 원문 `:` 가 남아 있으면 세그먼트가 깨진다.
     expect(first.getAttribute("href")).toContain("%3A");
     expect(first.getAttribute("href")).not.toContain(":");
-  });
-
-  it("③ 전략 0 + VI 중지 → 「전체 비활성화」가 disabled 다 (C4)", () => {
-    mockRelay = relayState({ status: "ready", limitChasers: [], viTriggers: { KRX: null } });
-    render(<StrategyStatusCard />);
-
-    expect(disableButton()).toBeDisabled();
-  });
-
-  it("③-a 전략 0 이어도 VI 가 가동 중이면 열려 있다 (끌 것이 남아 있다)", () => {
-    mockRelay = relayState({ status: "ready", limitChasers: [], viTriggers: { KRX: VI_RUNNING } });
-    render(<StrategyStatusCard />);
-
-    expect(disableButton()).toBeEnabled();
-  });
-
-  it("③-b 「전체 비활성화」는 채움이 아니라 `--destructive` 테두리다 (S-6 토큰 충돌)", () => {
-    render(<StrategyStatusCard />);
-
-    const button = disableButton();
-    expect(button.className).toContain("border-[var(--destructive)]");
-    expect(button.className).toContain("text-[var(--destructive)]");
-    expect(button.className).toContain("bg-transparent");
-    // 채움 빨강은 매수 버튼과 구분되지 않는다 — 배경 토큰이 들어오면 안 된다.
-    expect(button.className).not.toContain("bg-[var(--destructive)]");
-  });
-
-  it("④ 확인 다이얼로그의 기본 포커스는 「닫기」다 (Enter 연타 방어)", async () => {
-    const user = userEvent.setup();
-    render(<StrategyStatusCard />);
-
-    await user.click(disableButton());
-    const dialog = await screen.findByRole("dialog");
-
-    expect(within(dialog).getByText("전략을 전부 비활성화할까요?")).toBeInTheDocument();
-    expect(
-      within(dialog).getByText("상따 3건과 VI 자동매수가 한 번에 꺼져요."),
-    ).toBeInTheDocument();
-    // 계좌 목록도 전체 표시된다.
-    expect(within(dialog).getByText("37728502101 · 37728502102")).toBeInTheDocument();
-    expect(
-      within(dialog).getByText(
-        "이미 접수된 주문은 취소되지 않아요. 미체결은 아래 표에서 개별 취소해 주세요.",
-      ),
-    ).toBeInTheDocument();
-
-    await waitFor(() =>
-      expect(within(dialog).getByRole("button", { name: "닫기" })).toHaveFocus(),
-    );
-
-    /*
-      ★ 포커스 단언만으로는 부족하다 — `onOpenAutoFocus` 오버라이드를 지우는 변이가
-        `autoFocus` 이중 안전장치 덕에 **그대로 통과했다**(실측). 진짜로 지켜야 하는 것은
-        「실행 버튼이 첫 tabbable 이 아니다」이므로 **DOM/탭 순서**를 함께 못 박는다.
-    */
-    const buttons = within(dialog).getAllByRole("button");
-    expect(buttons[0]).toHaveTextContent("닫기");
-    expect(buttons[1]).toHaveTextContent("전체 비활성화");
-  });
-
-  it("⑤ 확정하면 `{t:\"strategies.disable\"}` 이 1회 나가고 `key` 프로퍼티가 없다 (전체)", async () => {
-    // `send` 는 boolean 계약이다 — 성공을 뜻하는 `true` 를 돌려줘야 65 대기로 넘어간다.
-    // 인자 타입을 남겨 둔다: `vi.fn(() => true)` 로 쓰면 `mock.calls` 가 빈 튜플이 된다.
-    const send = vi.fn((_msg: unknown) => true);
-    mockRelay = populated({ send });
-    const user = userEvent.setup();
-    render(<StrategyStatusCard />);
-
-    await user.click(disableButton());
-    const dialog = await screen.findByRole("dialog");
-    await user.click(within(dialog).getByRole("button", { name: "전체 비활성화" }));
-
-    expect(send).toHaveBeenCalledTimes(1);
-    const sent = send.mock.calls[0][0] as Record<string, unknown>;
-    expect(sent).toEqual({ t: "strategies.disable" });
-    // ★ 생략이 곧 「전부」다. `key: ""` 를 실어도 서버 뜻은 같지만, 단건 경로를 만들지
-    //   않는다는 계약(D-09)을 프로퍼티 부재로 못 박는다.
-    expect(Object.prototype.hasOwnProperty.call(sent, "key")).toBe(false);
-
-    // 65 를 기다리는 동안 버튼은 잠긴다 — 연타로 14 가 두 번 나가지 않는다.
-    await waitFor(() => expect(disableButton()).toBeDisabled());
-  });
-
-  it("⑥ 65(`strategies.disabled`) 수신은 목록 상태를 바꾸지 않는다 (완료 신호 — T-16-07)", () => {
-    const { rerender } = render(<StrategyStatusCard />);
-    expect(rows()).toHaveLength(3);
-    expect(screen.getByText("상따 3 · VI 가동")).toBeInTheDocument();
-
-    // 65 만 도착했다 — 60/61 에코는 아직 오지 않았다.
-    mockRelay = populated({
-      strategiesDisabled: { t: "strategies.disabled", count: 3, viDisabled: true },
-    });
-    rerender(<StrategyStatusCard />);
-
-    // 행 수·배지·VI 상태 어느 것도 65 의 숫자로 만들어지지 않는다.
-    expect(rows()).toHaveLength(3);
-    expect(screen.getByText("상따 3 · VI 가동")).toBeInTheDocument();
-    expect(within(rows()[0] as HTMLElement).getByText("매수ON")).toBeInTheDocument();
-    expect(screen.getByText("KRX 1,000만원 · 22.0% 이상")).toBeInTheDocument();
   });
 
   it("⑦ 전략 0 이면 빈 상태 문구를 보여준다 (UI-SPEC §빈 상태)", () => {
@@ -495,21 +386,13 @@ describe("StrategyStatusCard — 켜진 전략만 나열 (quick-260928-no0 · is
     expect(summaryText()).toBe("상따 2 · VI 가동");
   });
 
-  it("T-b 섞인 목록 — 행·요약·확인 다이얼로그 건수가 모두 켜진 수를 따른다", async () => {
+  it("T-b 섞인 목록 — 행·요약이 모두 켜진 수를 따른다", () => {
     mockRelay = populated({ limitChasers: [CHASER_A, CHASER_OFF, CHASER_B] });
-    const user = userEvent.setup();
     render(<StrategyStatusCard />);
 
     expect(rows()).toHaveLength(2);
     expect(rowKeys()).toEqual([CHASER_A.key, CHASER_B.key]);
     expect(summaryText()).toBe("상따 2 · VI 가동");
-
-    await user.click(disableButton());
-    const dialog = await screen.findByRole("dialog");
-    expect(
-      within(dialog).getByText("상따 2건과 VI 자동매수가 한 번에 꺼져요."),
-    ).toBeInTheDocument();
-    expect(within(dialog).getByText("2건 → 전부 OFF")).toBeInTheDocument();
   });
 
   it("T-c 취소잔량만 켜진 전략은 켜진 전략이다 (매수∨매도 판정이면 이 케이스가 깨진다)", () => {
@@ -521,7 +404,7 @@ describe("StrategyStatusCard — 켜진 전략만 나열 (quick-260928-no0 · is
     expect(summaryText()).toBe("상따 1 · VI 가동");
   });
 
-  it("T-d 등록 전략이 전부 꺼지고 VI 중지 → 새 빈 상태 + 「전체 비활성화」 disabled", () => {
+  it("T-d 등록 전략이 전부 꺼지고 VI 중지 → 새 빈 상태", () => {
     mockRelay = relayState({
       status: "ready",
       limitChasers: [CHASER_OFF, CHASER_B_OFF],
@@ -537,23 +420,20 @@ describe("StrategyStatusCard — 켜진 전략만 나열 (quick-260928-no0 · is
       screen.getByText("트레이딩 › 상따에서 매수·매도·취소 스위치를 켜면 여기에 표시돼요."),
     ).toBeInTheDocument();
     expect(summaryText()).toBe("상따 0 · VI 중지");
-    expect(disableButton()).toBeDisabled();
   });
 
-  it("T-e 등록 전략이 전부 꺼져도 VI 가 가동이면 열려 있고, 다이얼로그는 VI 만 말한다", async () => {
+  it("T-e 등록 전략이 전부 꺼져도 VI 가 가동이면 요약 · VI 행은 가동을 말한다", () => {
     mockRelay = relayState({
       status: "ready",
       limitChasers: [CHASER_OFF, CHASER_B_OFF],
       viTriggers: { KRX: VI_RUNNING },
     });
-    const user = userEvent.setup();
     render(<StrategyStatusCard />);
 
-    expect(disableButton()).toBeEnabled();
-    await user.click(disableButton());
-    const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("VI 자동매수가 꺼져요.")).toBeInTheDocument();
-    expect(within(dialog).getByText("없음")).toBeInTheDocument();
+    expect(rows()).toHaveLength(0);
+    expect(summaryText()).toBe("상따 0 · VI 가동");
+    const viRow = document.querySelector('[data-slot="vi-status-row"]') as HTMLElement;
+    expect(within(viRow).getByText("가동")).toBeInTheDocument();
   });
 
   it("T-f 스냅샷 수신 전에는 꺼진 전략만 있어도 「없어요」가 아니라 로딩이다", () => {
@@ -567,82 +447,12 @@ describe("StrategyStatusCard — 켜진 전략만 나열 (quick-260928-no0 · is
   });
 });
 
-describe("StrategyStatusCard — 킬 스위치의 침묵 방지 (gap 3 · T-16-19/20/21)", () => {
-  const errorLine = () =>
-    document.querySelector('[data-slot="strategy-disable-error"]') as HTMLElement | null;
-
-  it("⑨ 단절 중에는 상따 목록이 남아 있어도 「전체 비활성화」가 비활성이다", () => {
-    /*
-      리듀서는 단절 시 `isStale` 만 세우고 `limitChasers` 를 유지한다 — 목록이 남아 있으니
-      `nothingToDisable` 은 false 다. 세션 가드가 없으면 버튼이 열린 채 0바이트가 나간다.
-    */
+describe("StrategyStatusCard — 단절 중 목록 유지 (gap 3)", () => {
+  it("⑨ 단절 중에도 상따 목록이 남아 보인다 (리듀서는 isStale 만 세운다)", () => {
     mockRelay = populated({ status: "reconnecting", isStale: true });
     render(<StrategyStatusCard />);
 
     expect(rows()).toHaveLength(3);
-    expect(disableButton()).toBeDisabled();
-  });
-
-  it("⑨-a `ready` 로 돌아오면 다시 열린다 (영구 잠금이 아니다)", () => {
-    mockRelay = populated({ status: "reconnecting", isStale: true });
-    const { rerender } = render(<StrategyStatusCard />);
-    expect(disableButton()).toBeDisabled();
-
-    mockRelay = populated();
-    rerender(<StrategyStatusCard />);
-    expect(disableButton()).toBeEnabled();
-  });
-
-  it("⑩ send 가 false 면 awaitingAck 가 서지 않고 실패 문구가 뜬다", async () => {
-    // `ready` 인데도 소켓이 이미 닫혀 있는 경우다 — 상태 갱신보다 절단이 빠를 수 있다.
-    const send = vi.fn(() => false);
-    mockRelay = populated({ send });
-    const user = userEvent.setup();
-    render(<StrategyStatusCard />);
-
-    await user.click(disableButton());
-    const dialog = await screen.findByRole("dialog");
-    await user.click(within(dialog).getByRole("button", { name: "전체 비활성화" }));
-
-    expect(send).toHaveBeenCalledTimes(1);
-
-    const alert = await screen.findByRole("alert");
-    expect(alert).toBe(errorLine());
-    expect(alert).toHaveTextContent(
-      "연결이 끊겨 비활성화 요청을 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.",
-    );
-    // ★ 못 나갔으면 기다릴 것도 없다 — 8초 동안 잠기면 사용자는 껐다고 믿는다.
-    expect(disableButton()).toBeEnabled();
-  });
-
-  it("⑪ 8초가 지나도 65 가 오지 않으면 「반영을 확인하지 못했어요」가 뜬다", async () => {
-    // `shouldAdvanceTime` 없이는 Radix 다이얼로그의 열림 대기가 가짜 시계에 갇힌다.
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    const send = vi.fn(() => true);
-    mockRelay = populated({ send });
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    render(<StrategyStatusCard />);
-
-    await user.click(disableButton());
-    const dialog = await screen.findByRole("dialog");
-    await user.click(within(dialog).getByRole("button", { name: "전체 비활성화" }));
-
-    // 65 를 기다리는 동안은 잠긴다 — 아직 아무 문구도 없다.
-    expect(disableButton()).toBeDisabled();
-    expect(errorLine()).toBeNull();
-
-    await act(async () => {
-      vi.advanceTimersByTime(8_000);
-    });
-
-    const alert = screen.getByRole("alert");
-    expect(alert).toBe(errorLine());
-    expect(alert).toHaveTextContent(
-      "전체 비활성화 요청의 반영을 확인하지 못했어요. 전략 목록을 확인해 주세요.",
-    );
-    // ★ 「실패」라고 단정하지 않는다 — 65 가 유실됐을 뿐 실제로 꺼졌을 수 있다(T-16-21).
-    expect(alert.textContent ?? "").not.toContain("실패");
-    expect(disableButton()).toBeEnabled();
   });
 });
 
@@ -684,12 +494,11 @@ describe("StrategyStatusCard — 「현황 | 로그」 전환 (D-25a · 스케�
     mockRelay = { ...EMPTY_RELAY_VALUE, status: "ready", limitChasers: [makeChaser()] } as RelayShape;
   });
 
-  it("머리 오른쪽 알약 세그먼트 · 기본 현황(행 목록·전체 비활성화 보임) → 로그로 바꾸면 같은 카드 본문이 로그가 되고 다시 현황으로 돌아온다", async () => {
+  it("머리 오른쪽 알약 세그먼트 · 기본 현황(행 목록 보임) → 로그로 바꾸면 같은 카드 본문이 로그가 되고 다시 현황으로 돌아온다", async () => {
     render(<StrategyStatusCard />);
     const seg = screen.getByRole("tablist", { name: "전략 현황 보기" });
     expect(within(seg).getAllByRole("tab").map((t) => t.textContent)).toEqual(["현황", "로그"]);
     expect(document.querySelector('[data-slot="strategy-row-list"]')).not.toBeNull();
-    expect(document.querySelector('[data-slot="strategy-disable-all"]')).not.toBeNull();
 
     await userEvent.click(within(seg).getByRole("tab", { name: "로그" }));
     expect(document.querySelector('[data-slot="me-strategy-log"]')).not.toBeNull();
@@ -705,5 +514,135 @@ describe("StrategyStatusCard — 「현황 | 로그」 전환 (D-25a · 스케�
     const summary = document.querySelector('[data-slot="strategy-status-summary"]');
     expect(summary).toHaveTextContent("상따 1 · VI 중지");
     expect(screen.getByRole("heading", { name: /전략 현황/ }).contains(summary)).toBe(false);
+  });
+});
+
+// ===========================================================================
+// Phase 32 — 고른 계좌 (D-21 · S5′) · 끄기 UI 없음 (D-27)
+// ===========================================================================
+
+/** 끄기 UI 흔적 — 카드 맨 아래 줄 · 버튼 · 다이얼로그 · 오류 줄. 어느 것도 없어야 한다(D-27). */
+function expectNoKillUi(): void {
+  const card = document.querySelector('[data-slot="strategy-status-card"]') as HTMLElement;
+  expect(card).not.toBeNull();
+  expect(within(card).queryAllByRole("button")).toHaveLength(0);
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(card.textContent ?? "").not.toContain("비활성화");
+  expect(document.querySelectorAll('[data-slot^="strategy-disable"]')).toHaveLength(0);
+}
+
+describe("StrategyStatusCard — P32 끄기 UI 없음 (D-27)", () => {
+  it("전 계좌(accountNo 없음) — 카드에 끄기 줄 · 버튼 · 다이얼로그 · 오류 줄이 없다", () => {
+    render(<StrategyStatusCard />);
+    expect(rows()).toHaveLength(3);
+    expectNoKillUi();
+  });
+});
+
+describe("StrategyStatusCard — P32 고른 계좌 (D-21 · S5′)", () => {
+  const ACC_A = "37728502101";
+  const ACC_B = "37728502102";
+  const ACC_C = "37728502103";
+  const rowKeys = () =>
+    Array.from(rows()).map((row) => (row as HTMLElement).getAttribute("data-strategy-key"));
+  const summaryText = () =>
+    document.querySelector('[data-slot="strategy-status-summary"]')?.textContent ?? "";
+  const viRow = () => document.querySelector('[data-slot="vi-status-row"]') as HTMLElement | null;
+  const accountEmpty = () =>
+    document.querySelector('[data-slot="strategy-account-empty"]') as HTMLElement | null;
+
+  it("A(VI 등록 · 가동) — 행 2 · 요약 「상따 2 · VI 가동」 · VI 행 있음", () => {
+    render(<StrategyStatusCard accountNo={ACC_A} />);
+
+    expect(rowKeys()).toEqual([CHASER_A.key, CHASER_C.key]);
+    expect(summaryText()).toBe("상따 2 · VI 가동");
+    expect(viRow()).not.toBeNull();
+    expect(within(viRow() as HTMLElement).getByText("가동")).toBeInTheDocument();
+    expect(accountEmpty()).toBeNull();
+  });
+
+  it("B — 행 1 · VI 행 없음(VI 는 A 등록) · 요약 「상따 1 · VI 중지」", () => {
+    render(<StrategyStatusCard accountNo={ACC_B} />);
+
+    expect(rowKeys()).toEqual([CHASER_B.key]);
+    expect(summaryText()).toBe("상따 1 · VI 중지");
+    expect(viRow()).toBeNull();
+    expect(accountEmpty()).toBeNull();
+  });
+
+  it("C(전략 0 · VI 없음) — 「이 계좌에 등록된 전략 없음」 한 줄 · 행 목록 · 「켜진 상따 전략이 없어요」 없음 / VI 만 있으면 VI 행만", () => {
+    const { unmount } = render(<StrategyStatusCard accountNo={ACC_C} />);
+
+    expect(accountEmpty()).toHaveTextContent("이 계좌에 등록된 전략 없음");
+    expect(document.querySelectorAll('[data-slot="strategy-account-empty"]')).toHaveLength(1);
+    expect(document.querySelector('[data-slot="strategy-row-list"]')).toBeNull();
+    expect(screen.queryByText("켜진 상따 전략이 없어요")).toBeNull();
+    expect(viRow()).toBeNull();
+    expect(summaryText()).toBe("상따 0 · VI 중지");
+    unmount();
+
+    // 전략 0 이지만 그 계좌가 VI 등록 계좌면 빈 상태 대신 VI 행만.
+    mockRelay = populated({ viTriggers: { KRX: { ...VI_RUNNING, accountNo: ACC_C } } });
+    render(<StrategyStatusCard accountNo={ACC_C} />);
+    expect(accountEmpty()).toBeNull();
+    expect(viRow()).not.toBeNull();
+    expect(summaryText()).toBe("상따 0 · VI 가동");
+  });
+
+  it("VI KRX = A · NXT = B 로 등록 → A 는 KRX 만 · B 는 NXT 만 말한다", () => {
+    mockRelay = populated({
+      viTriggers: {
+        KRX: VI_RUNNING,
+        NXT: { ...VI_RUNNING, accountNo: ACC_B, exchange: "NXT", orderAmountKrw: 5_000_000, checkRate: 18 },
+      },
+    });
+    const { unmount } = render(<StrategyStatusCard accountNo={ACC_A} />);
+    expect(
+      (viRow() as HTMLElement).querySelector('[data-slot="vi-status-summary"]'),
+    ).toHaveTextContent(/^KRX 1,000만원 · 22\.0% 이상$/);
+    unmount();
+
+    render(<StrategyStatusCard accountNo={ACC_B} />);
+    expect(
+      (viRow() as HTMLElement).querySelector('[data-slot="vi-status-summary"]'),
+    ).toHaveTextContent(/^NXT 500만원 · 18\.0% 이상$/);
+    expect(summaryText()).toBe("상따 1 · VI 가동");
+  });
+
+  it("(D-27) 어느 계좌에서도 끄기 줄 · 버튼 · 다이얼로그 · 오류 줄이 없다", () => {
+    for (const no of [ACC_A, ACC_B, ACC_C]) {
+      const { unmount } = render(<StrategyStatusCard accountNo={no} />);
+      expectNoKillUi();
+      unmount();
+    }
+  });
+
+  it("전략 행 2줄째에 계좌번호가 없다 — strategy-row-account 0", () => {
+    render(<StrategyStatusCard accountNo={ACC_A} />);
+
+    expect(document.querySelectorAll('[data-slot="strategy-row-account"]')).toHaveLength(0);
+    for (const row of rows()) {
+      const meta = (row as HTMLElement).querySelector('[data-slot="strategy-row-meta"]');
+      expect(meta?.textContent ?? "").not.toContain(ACC_A);
+    }
+  });
+
+  it("accountNo 없음 → 종전과 같다(전 계좌 · 「켜진 상따 전략이 없어요」 · 로딩 스켈레톤)", () => {
+    const { unmount } = render(<StrategyStatusCard />);
+    expect(rows()).toHaveLength(3);
+    expect(summaryText()).toBe("상따 3 · VI 가동");
+    unmount();
+
+    mockRelay = relayState({ status: "ready", limitChasers: [], viTriggers: { KRX: null } });
+    const empty = render(<StrategyStatusCard />);
+    expect(screen.getByText("켜진 상따 전략이 없어요")).toBeInTheDocument();
+    expect(accountEmpty()).toBeNull();
+    expect(viRow()).not.toBeNull();
+    empty.unmount();
+
+    mockRelay = relayState({ status: "connecting", limitChasers: [], viTriggers: {} });
+    render(<StrategyStatusCard />);
+    expect(document.querySelector('[data-slot="strategy-list-loading"]')).toBeInTheDocument();
   });
 });

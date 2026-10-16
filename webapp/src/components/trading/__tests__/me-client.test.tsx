@@ -250,7 +250,7 @@ describe('MeStatusBar — 시세 필 (D-01 · D-04)', () => {
     expect(q.compareDocumentPosition(order()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('down → 「● 시세 09:41:52~ 멈춤」 적색 · 주문 필은 ready 그대로 · 상따/VI/계좌 칸 유지', () => {
+  it('down → 「● 시세 09:41:52~ 멈춤」 적색 · 주문 필은 ready 그대로 · 상따/VI 칸 유지', () => {
     mockRelay = {
       ...EMPTY_RELAY_VALUE,
       status: 'ready',
@@ -266,7 +266,8 @@ describe('MeStatusBar — 시세 필 (D-01 · D-04)', () => {
     expect(bar()).toHaveAttribute('data-status', 'ready');
     expect(bar()).toHaveTextContent('상따 0건');
     expect(bar()).toHaveTextContent('VI 중지');
-    expect(bar()).toHaveTextContent('계좌 0개');
+    // Phase 32 D-21 — 「계좌 N개」 칸은 없다(계좌는 탭 위 칩이 말한다).
+    expect(bar()).not.toHaveTextContent('계좌');
   });
 
   it('첫 페인트(idle) 주문 필은 「주문 서버 연결 중…」 — 연결 문구 상수는 이제 중립이다', () => {
@@ -275,6 +276,61 @@ describe('MeStatusBar — 시세 필 (D-01 · D-04)', () => {
     expect(order()).not.toBeNull();
     expect(visibleText(order())).toBe('주문 서버 연결 중…');
     expect(bar()).not.toHaveTextContent('시세 서버 연결 중');
+  });
+});
+
+describe('P32 MeStatusBar 고른 계좌 (D-21) · 계좌 칩 (D-20)', () => {
+  const ACC_A = '37728502101';
+  const ACC_B = '37728502102';
+  const bar = () => document.querySelector('[data-slot="me-status-bar"]') as HTMLElement;
+  const chip = (no: string) =>
+    document.querySelector(`[data-slot="me-account-chip"][data-account-no="${no}"]`) as HTMLElement | null;
+  const chaser = (isin: string, accountNo: string) =>
+    makeLimitChaser({ isin, accountNo, key: `${isin}:${accountNo}:KRX` });
+
+  beforeEach(() => {
+    mockGate = null;
+    mockFeed = [];
+    mockRelay = {
+      ...EMPTY_RELAY_VALUE,
+      status: 'ready',
+      accounts: [
+        { accountNo: ACC_A, name: '위탁종합' },
+        { accountNo: ACC_B, name: '위탁CMA' },
+      ],
+      limitChasers: [
+        chaser('KR7005930003', ACC_A),
+        chaser('KR7000660001', ACC_A),
+        chaser('KR7035720002', ACC_B),
+      ],
+      viTriggers: {
+        KRX: { accountNo: ACC_A, exchange: 'KRX', orderAmountKrw: 10_000_000, checkRate: 22, priceType: 'U', run: true },
+      },
+    } as RelayContextValue;
+  });
+
+  it('기본 첫 칩(A) — 상태줄 「상따 2건」 · 「VI 가동」 · 계좌 칸 없음 → B 칩 → 「상따 1건」 · 「VI 중지」(VI 는 A 등록)', async () => {
+    render(<MeClient />);
+    expect(chip(ACC_A)).toHaveAttribute('aria-checked', 'true');
+    expect(bar()).toHaveTextContent('상따 2건');
+    expect(bar()).toHaveTextContent('VI 가동');
+    expect(bar()).not.toHaveTextContent('계좌');
+
+    await userEvent.click(chip(ACC_B) as HTMLElement);
+    expect(chip(ACC_B)).toHaveAttribute('aria-checked', 'true');
+    expect(bar()).toHaveTextContent('상따 1건');
+    expect(bar()).toHaveTextContent('VI 중지');
+    // 현황 카드도 같은 계좌를 따른다.
+    expect(document.querySelectorAll('[data-slot="strategy-row"]')).toHaveLength(1);
+  });
+
+  it('accounts[] 미수신이면 칩 줄 없음 · 상태줄 · 카드는 전 계좌(종전)', () => {
+    mockRelay = { ...mockRelay, accounts: [] } as RelayContextValue;
+    render(<MeClient />);
+    expect(document.querySelector('[data-slot="me-account-chips"]')).toBeNull();
+    expect(bar()).toHaveTextContent('상따 3건');
+    expect(bar()).toHaveTextContent('VI 가동');
+    expect(document.querySelectorAll('[data-slot="strategy-row"]')).toHaveLength(3);
   });
 });
 
