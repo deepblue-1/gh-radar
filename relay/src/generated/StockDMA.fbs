@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 8d56ea53
-// synced-date:        2026-10-12
+// server-repo-commit: acb8182d
+// synced-date:        2026-10-16
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -722,7 +722,8 @@ table SetLimitChaser {
 // VITrigger (VI 발동) 전략 설정
 // - R8(VI발동) 이벤트 수신 시 상승률 체크 후 자동 매수
 // - 전 종목 대상, Stock 바인딩 없음
-// - 거래소별 1건 — R8 을 받은 fd 의 거래소 슬롯만 발주한다 (Phase 21 D-01/D-08)
+// - (계좌, 거래소)별 1건 — R8 을 받은 fd 의 거래소 슬롯을 **먼저 켠 순서로** 전부 발주한다
+//   (Phase 33 D-01/D-02/D-03; 거래소 축은 Phase 21 D-01/D-08)
 table SetVITrigger {
     account_no: string;       // 계좌번호 (최대 12자리)
     order_amount_krw: ulong;  // 주문금액 (원, 주문가격으로 나눠 수량 계산)
@@ -734,8 +735,15 @@ table SetVITrigger {
     exchange: string;         // 거래소 "KRX" / "NXT" (Phase 21 D-03 말미 append).
                               // ★ **빈 값·미지정 = KRX** — 구 클라·구 strategy_state.toml 이
                               //   마이그레이션 없이 그대로 KRX 설정으로 읽힌다.
-                              // VI 전략은 세션당 거래소별 1건(KRX 1 + NXT 1)이고 Set/Get/에코가
+                              // VI 전략은 (계좌, 거래소)별 1건이고(Phase 33 D-02) Set/Get/에코가
                               // 전부 거래소별이다 (D-01). vtable 슬롯 14
+
+    // === 이하 Phase 33 추가 (테이블 **말미 append** — 가운데 삽입 금지, 하위호환) ===
+    unregistered: bool;       // **S→C 전용** — true = 이 (account_no, exchange) 에 VI 설정이 없다(「미등록」 프레임:
+                              //   계좌·거래소만 유효, 나머지 0/false). 기본 false = 등록됨 — 구 서버의 61 은 이 필드가
+                              //   없어 false 로 읽히고 그대로 「등록됨」 이다 (Phase 33 D-07). 요청(11)값은 서버가 읽지
+                              //   않는다. 21 응답은 세션 선언 계좌마다 1프레임(D-06) — 빈 Envelope 는 선언 계좌 0 일 때만.
+                              //   vtable 슬롯 16
 }
 
 // VI 자동주문 발주 통지 (Server -> Client 푸시, Phase 11.1 D-14)
@@ -1809,4 +1817,17 @@ root_type Envelope;
 // 56(VIOrderNotice)·72/73(VIOrderItem) 의 exchange 필드와 21(GetStrategyReq.key) 로만 흐른다
 // (NVI-04). 어휘는 "KRX"/"NXT" 3글자이고 **빈 값·미지정 = KRX** 다 — 구 클라와 구 상태파일이
 // 마이그레이션 없이 KRX 설정으로 읽힌다 (D-03/D-10). 슬롯 14/24/34 는 폐기해도 재사용 금지.
+// ============================================================================
+
+// ============================================================================
+// === Phase 33 (VI 전략 계좌별 슬롯) 변경 요약: SetVITrigger.unregistered 말미 append
+//     (vtable 슬롯 16) + 21 응답 선언 계좌마다 61 n 프레임 ===
+//
+// 새 테이블·새 Envelope 슬롯·새 MsgType 은 하나도 없다. VI 슬롯 키가 (세션, 거래소) 에서
+// (세션, account_no, exchange) 로 넓어졌다 — 11(SetVITrigger) 의 키는 account_no 이고 다른 계좌의
+// 설정을 갈아 끼우지 않는다 (D-02). 21(GetStrategyReq key=거래소) 응답은 세션 선언 계좌마다
+// 61 1프레임(등록 = 설정 그대로, 미등록 = account_no·exchange 만 + unregistered=true)이고
+// 빈 Envelope 는 선언 계좌 0 일 때만 남는다 (D-06/D-07). 56/72/73/33 와이어는 무변경 (D-09).
+// unregistered 는 S→C 전용·기본 false = 등록됨 — 구 서버 61 은 그대로 「등록됨」 으로 읽힌다.
+// 슬롯 16 은 폐기해도 재사용 금지.
 // ============================================================================
