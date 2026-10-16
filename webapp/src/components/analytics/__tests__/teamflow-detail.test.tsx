@@ -11,7 +11,7 @@ import type { TeamflowRow } from '@gh-radar/shared';
  * 다섯 창구 거래원 2단 막대(net 내림차순 · null 뒤 · null 칸 채움 없음 · 상위 5 밖 · 범례 · 참고 줄 · 자료 없음).
  */
 
-import { CHEONIL, SMBEXCEL, teamflowRows } from '@/test-fixtures/teamflow-export';
+import { CHEONIL, DONGYANG, SMBEXCEL, teamflowRows } from '@/test-fixtures/teamflow-export';
 
 import { TeamflowDayGrid } from '../teamflow-day-grid';
 import { TeamflowDetail } from '../teamflow-detail';
@@ -206,5 +206,79 @@ describe('TeamflowDetail — 다섯 창구 거래원 (T7)', () => {
     unmount();
     renderDetail(withPayload(ch, { members: { ...m, top_buy: null, top_sell: null } }));
     expect(within(membersBox()).queryByText(/^참고:/)).toBeNull();
+  });
+});
+
+describe('TeamflowDetail — 10분 흐름 차트 (T8 · D-13)', () => {
+  const bucketSvg = () => document.querySelector('[data-slot="teamflow-bucket-chart"]') as SVGSVGElement;
+  const bucketBlock = () => document.querySelector('[data-slot="teamflow-buckets"]') as HTMLElement;
+
+  it('천일고속 — role=img 접근 이름 · viewBox 0 0 640 228 · 칸 g(title) 39개 · 캡션 음영 문구 · 첫 상한가 글자 · 범례', () => {
+    renderDetail(rowOf(CHEONIL));
+    const svg = screen.getByRole('img', {
+      name: '천일고속 10분 흐름 — 최대 매집 12:00~12:09 +7.2억 · 첫 상한가 11:50',
+    });
+    expect(svg.getAttribute('data-slot')).toBe('teamflow-bucket-chart');
+    expect(svg.getAttribute('viewBox')).toBe('0 0 640 228');
+    expect(svg.getAttribute('height')).toBe('228');
+    const titles = Array.from(svg.querySelectorAll('g > title')).map((t) => t.textContent);
+    expect(titles).toHaveLength(39);
+    expect(titles[18]).toBe('12:00 · 등락 21.1~29.8% · 팀 순매수 +7.2억 · 매수 중 팀 47% · 거래량 10,418주');
+    expect(titles[38]!.startsWith('15:20 · ')).toBe(true);
+    expect(svg.textContent).toContain('첫 상한가 11:50');
+    expect(svg.textContent).toContain('+9.2억');
+    expect(svg.textContent).toContain('9시');
+    expect(svg.textContent).toContain('15시');
+    const block = bucketBlock();
+    expect(within(block).getByText('10분 단위 흐름')).toBeTruthy();
+    expect(block.textContent).toContain('09:00~15:30 · 보라 음영 = 팀 순매수가 가장 크게 이어진 12:00~12:09 (+7.2억)');
+    const legend = block.querySelector('[data-slot="teamflow-bucket-legend"]') as HTMLElement;
+    expect(Array.from(legend.children).map((c) => c.textContent)).toEqual([
+      '팀 순매수 +',
+      '팀 순매수 −',
+      '매수 중 팀 %',
+      '등락률 범위',
+      '최대 매집 창',
+      '첫 상한가',
+    ]);
+  });
+
+  it('배치 — 2열 그리드 다음 · 판정 기준 앞(전폭 · 그리드 밖)', () => {
+    renderDetail(rowOf(CHEONIL));
+    const block = bucketBlock();
+    expect(block.closest('.xl\\:grid-cols-2')).toBeNull();
+    const grid = document.querySelector('.xl\\:grid-cols-2') as HTMLElement;
+    const rules = document.querySelector('[data-slot="teamflow-rules"]') as HTMLElement;
+    expect(grid.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(block.compareDocumentPosition(rules) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('동양고속(미도달 · 팀 체결 거의 없음) — 차트 유지 · 「첫 상한가」 글자 · 범례 없음 · 안내 문구 없음', () => {
+    renderDetail(rowOf(DONGYANG));
+    const svg = bucketSvg();
+    expect(svg.getAttribute('aria-label')).toBe('동양고속 10분 흐름 — 최대 매집 12:00~12:19 +1.9억');
+    expect(svg.textContent).not.toContain('첫 상한가');
+    expect(svg.querySelectorAll('g > title')).toHaveLength(39);
+    expect(bucketBlock().textContent).not.toContain('첫 상한가');
+    expect(screen.queryByText('10분 체결 기록이 없어요')).toBeNull();
+  });
+
+  it('window null(합성) → 이름 「최대 매집 창 없음」 · 캡션 음영 문구 없음 · 범례 「최대 매집 창」 없음', () => {
+    renderDetail(withPayload(rowOf(CHEONIL), { window: null }));
+    const svg = bucketSvg();
+    expect(svg.getAttribute('aria-label')).toBe('천일고속 10분 흐름 — 최대 매집 창 없음 · 첫 상한가 11:50');
+    const block = bucketBlock();
+    expect(block.textContent).not.toContain('보라 음영');
+    expect(block.textContent).not.toContain('최대 매집 창');
+    expect(block.textContent).toContain('09:00~15:30');
+  });
+
+  it('buckets [](합성) → 축 · 0선은 그대로 + 「10분 체결 기록이 없어요」 · 칸 title 0', () => {
+    renderDetail(withPayload(rowOf(CHEONIL), { buckets: [] }));
+    const svg = bucketSvg();
+    expect(svg.getAttribute('viewBox')).toBe('0 0 640 228');
+    expect(svg.querySelectorAll('g > title')).toHaveLength(0);
+    expect(svg.textContent).toContain('10분 체결 기록이 없어요');
+    expect(svg.textContent).toContain('9시');
   });
 });

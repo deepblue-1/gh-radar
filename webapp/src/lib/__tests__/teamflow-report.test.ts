@@ -10,7 +10,13 @@ import { describe, it, expect } from 'vitest';
 
 import {
   BAND_SLOTS,
+  BUCKET_KEY_CLOSE,
+  BUCKET_KEY_FIRST,
+  BUCKET_KEY_LAST,
+  BUCKET_SLOTS,
   bandSlotsOf,
+  bucketSlotsOf,
+  fmtRangePct,
   fmtEok,
   fmtQty,
   fmtRate,
@@ -25,7 +31,7 @@ import {
   toneOf,
 } from '../teamflow-report';
 import { CHEONIL, DONGYANG, HANSUN, SMBEXCEL, teamflowRows } from '@/test-fixtures/teamflow-export';
-import type { TeamflowRow } from '@gh-radar/shared';
+import type { TeamflowBucket, TeamflowRow } from '@gh-radar/shared';
 
 const rowOf = (isin: string): TeamflowRow => teamflowRows().find((r) => r.isin === isin)!;
 
@@ -216,5 +222,112 @@ describe('rowDescriptionOf (UI-SPEC T3 행 sr 설명)', () => {
     expect(
       rowDescriptionOf({ ...rowOf(DONGYANG), high_rate: null, below20_net_val: null, team_buy_share: null }),
     ).toBe('결과 +22.1%, 팀 순매수 +2.2억, 20% 아래 —, 20%~상한 +2.3억, 매수 중 팀 —');
+  });
+});
+
+/** 합성 10분 버킷 — key 로 start 를 만들고 나머지는 null(필요한 키만 덮어쓴다). */
+const bk = (key: number, patch: Partial<TeamflowBucket> = {}): TeamflowBucket => {
+  const m = key * 10;
+  const start = `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  return {
+    key,
+    start,
+    lo: null,
+    hi: null,
+    share: null,
+    vol: null,
+    val: null,
+    buy_aggr: null,
+    sell_aggr: null,
+    team_buy: null,
+    team_sell: null,
+    net: null,
+    team_buy_val: null,
+    team_sell_val: null,
+    net_val: null,
+    ...patch,
+  };
+};
+
+describe('bucketSlotsOf (D-13 · 2026-10-16 보정 — key 93 → 슬롯 38 합산)', () => {
+  it('상수 — 54(09:00) · 92(15:20) · 93(15:30 종가 단일가) · 39칸', () => {
+    expect(BUCKET_KEY_FIRST).toBe(54);
+    expect(BUCKET_KEY_LAST).toBe(92);
+    expect(BUCKET_KEY_CLOSE).toBe(93);
+    expect(BUCKET_SLOTS).toBe(39);
+  });
+
+  it('천일고속 — 39칸 전부 채워짐 · slots[0] 09:00 · slots[38] = key 93 복사(start 15:20 · vol 40 · share null · lo = hi ≈ 29.78)', () => {
+    const slots = bucketSlotsOf(rowOf(CHEONIL).payload!.buckets);
+    expect(slots).toHaveLength(39);
+    expect(slots.every((s) => s !== null)).toBe(true);
+    expect(slots[0]!.start).toBe('09:00');
+    expect(slots[18]!.start).toBe('12:00');
+    const last = slots[38]!;
+    expect(last.start).toBe('15:20');
+    expect(last.key).toBe(92);
+    expect(last.vol).toBe(40);
+    expect(last.share).toBeNull();
+    expect(last.lo).toBeCloseTo(29.78, 2);
+    expect(last.hi).toBeCloseTo(29.78, 2);
+  });
+
+  it('합성 key 92 + 93 → 슬롯 38 하나로 합산(수량 · 금액 합 · lo min · hi max · share = 합산 team_buy ÷ buy_aggr)', () => {
+    const slots = bucketSlotsOf([
+      bk(92, { vol: 10, buy_aggr: 4, team_buy: 2, lo: 20, hi: 21, net_val: 100, share: 0.5 }),
+      bk(93, { vol: 5, buy_aggr: 0, team_buy: 0, lo: 22, hi: 22, net_val: 0 }),
+    ]);
+    const s = slots[38]!;
+    expect(s.start).toBe('15:20');
+    expect(s.vol).toBe(15);
+    expect(s.buy_aggr).toBe(4);
+    expect(s.team_buy).toBe(2);
+    expect(s.share).toBe(0.5);
+    expect(s.lo).toBe(20);
+    expect(s.hi).toBe(22);
+    expect(s.net_val).toBe(100);
+    // 둘 다 null 인 키는 null 그대로
+    expect(s.team_sell_val).toBeNull();
+    expect(slots.slice(0, 38).every((x) => x === null)).toBe(true);
+  });
+
+  it('합산 분모 0 → share null', () => {
+    const s = bucketSlotsOf([bk(92, { buy_aggr: 0, team_buy: 0 }), bk(93, { buy_aggr: 0, team_buy: 0 })])[38]!;
+    expect(s.share).toBeNull();
+  });
+
+  it('범위 밖 key(53 · 94) 버림 · 빈 칸 null · 54 → 슬롯 0 · 91 → 슬롯 37', () => {
+    const slots = bucketSlotsOf([bk(53, { vol: 1 }), bk(54, { vol: 2 }), bk(91, { vol: 3 }), bk(94, { vol: 4 })]);
+    expect(slots).toHaveLength(39);
+    expect(slots[0]!.vol).toBe(2);
+    expect(slots[37]!.vol).toBe(3);
+    expect(slots.filter((x) => x !== null)).toHaveLength(2);
+  });
+
+  it('[] → null 39개(예외 없음)', () => {
+    const slots = bucketSlotsOf([]);
+    expect(slots).toHaveLength(39);
+    expect(slots.every((x) => x === null)).toBe(true);
+  });
+
+  it('입력 배열 · 객체 불변', () => {
+    const input = [bk(92, { vol: 10, buy_aggr: 4, team_buy: 2 }), bk(93, { vol: 5, buy_aggr: 0, team_buy: 0 })];
+    const before = JSON.stringify(input);
+    const slots = bucketSlotsOf(input);
+    expect(JSON.stringify(input)).toBe(before);
+    expect(slots[38]).not.toBe(input[0]);
+  });
+});
+
+describe('fmtRangePct (UI-SPEC 10분 표 · 툴팁)', () => {
+  it('소수 1자리 · 음수만 U+2212 · 「~」 · 「%」', () => {
+    expect(fmtRangePct(21.089, 29.779)).toBe('21.1~29.8%');
+    expect(fmtRangePct(-1.23, 3.4)).toBe('\u22121.2~3.4%');
+    expect(fmtRangePct(-0.04, 0)).toBe('0.0~0.0%');
+  });
+
+  it('둘 중 하나라도 null → 「—」', () => {
+    expect(fmtRangePct(null, 3)).toBe('—');
+    expect(fmtRangePct(3, null)).toBe('—');
   });
 });

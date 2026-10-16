@@ -7,11 +7,19 @@ import { describe, it, expect } from 'vitest';
  * mx = max(5천만 원, 행 |값| 최대) · + 는 0선 위(y = 14 − h) · − 는 아래(y = 14).
  */
 
-import type { TeamflowBand } from '@gh-radar/shared';
+import type { TeamflowBand, TeamflowBucket } from '@gh-radar/shared';
 
-import { CHART_FALLBACK_W, bandChartOf, chartWidthOf, stripBarsOf } from '../teamflow-chart';
-import { bandSlotsOf } from '../teamflow-report';
-import { CHEONIL, SMBEXCEL, teamflowRows } from '@/test-fixtures/teamflow-export';
+import {
+  CHART_FALLBACK_W,
+  bandChartOf,
+  bucketChartOf,
+  chartWidthOf,
+  firstLimitXOf,
+  stripBarsOf,
+  windowSlotsOf,
+} from '../teamflow-chart';
+import { bandSlotsOf, bucketSlotsOf } from '../teamflow-report';
+import { CHEONIL, DONGYANG, HANSUN, SMBEXCEL, teamflowRows } from '@/test-fixtures/teamflow-export';
 
 const bandsOf = (isin: string) => teamflowRows().find((r) => r.isin === isin)!.payload!.bands;
 const smSlots = () => bandSlotsOf(teamflowRows().find((r) => r.isin === SMBEXCEL)!.payload!.bands);
@@ -151,5 +159,173 @@ describe('bandChartOf', () => {
   it('스케일 하한 5천만 — 값이 전부 작으면 막대가 판 반폭을 채우지 않는다', () => {
     const g = bandChartOf([band('0~5%', 1e7)], 640);
     expect(g.rows[0]!.barW).toBeCloseTo((204 * 1e7) / 5e7, 9);
+  });
+});
+
+/* ───────── 10분 흐름 차트 (33-06 · UI-SPEC T8 · D-13) ───────── */
+
+const rowPayload = (isin: string) => teamflowRows().find((r) => r.isin === isin)!;
+const SLOT640 = (640 - 76) / 39;
+/** KST 시각 → epoch ms(2026-10-14). */
+const kstMs = (h: number, m: number) => Date.UTC(2026, 9, 14, h - 9, m);
+
+const bkt = (key: number, patch: Partial<TeamflowBucket> = {}): TeamflowBucket => ({
+  key,
+  start: `${String(Math.floor((key * 10) / 60)).padStart(2, '0')}:${String((key * 10) % 60).padStart(2, '0')}`,
+  lo: 1,
+  hi: 2,
+  share: null,
+  vol: 1,
+  val: 1,
+  buy_aggr: 1,
+  sell_aggr: 1,
+  team_buy: 0,
+  team_sell: 0,
+  net: 0,
+  team_buy_val: 0,
+  team_sell_val: 0,
+  net_val: 0,
+  ...patch,
+});
+
+describe('windowSlotsOf', () => {
+  it('「HH:MM」 → floor(분 / 10) − 54 · 양끝 포함', () => {
+    expect(windowSlotsOf({ start: '09:10', end: '09:59' })).toEqual([1, 5]);
+    expect(windowSlotsOf({ start: '12:00', end: '12:09' })).toEqual([18, 18]);
+    expect(windowSlotsOf({ start: '12:00', end: '12:19' })).toEqual([18, 19]);
+  });
+
+  it('null → null · 0~38 로 자른다', () => {
+    expect(windowSlotsOf(null)).toBeNull();
+    expect(windowSlotsOf({ start: '08:40', end: '15:39' })).toEqual([0, 38]);
+  });
+});
+
+describe('firstLimitXOf (첫 상한가 세로선 — KST 분 정확 위치)', () => {
+  it('천일고속 11:50:30 → x ≈ 286.57 · 라벨 오른쪽(start)', () => {
+    const f = firstLimitXOf(rowPayload(CHEONIL).first_limit_ms, 640)!;
+    expect(f.x).toBeCloseTo(286.57, 1);
+    expect(f.anchor).toBe('start');
+  });
+
+  it('15:19 → x ≈ 588.09 · 라벨이 오른쪽 끝을 넘어 선 왼쪽(end)', () => {
+    const f = firstLimitXOf(kstMs(15, 19), 640)!;
+    expect(f.x).toBeCloseTo(40 + 37.9 * SLOT640, 6);
+    expect(f.x).toBeCloseTo(588.09, 1);
+    expect(f.anchor).toBe('end');
+  });
+
+  it('09:00 이전 → 왼쪽 축 끝 40 · 15:30 이후 → 오른쪽 축 끝 604 · null → null', () => {
+    expect(firstLimitXOf(kstMs(8, 59), 640)!.x).toBe(40);
+    expect(firstLimitXOf(kstMs(15, 31), 640)!.x).toBe(604);
+    expect(firstLimitXOf(null, 640)).toBeNull();
+  });
+});
+
+describe('bucketChartOf (39칸 고정축 · 높이 228)', () => {
+  it('천일고속 640 — H 228 · slot 564/39 · barW slot − 2 · zero 78.4 · 막대 39 · rlo 0 · rhi 30 · y20 · 눈금 7', () => {
+    const r = rowPayload(CHEONIL);
+    const g = bucketChartOf(bucketSlotsOf(r.payload!.buckets), r.payload!.window, r.first_limit_ms, 640);
+    expect(g.W).toBe(640);
+    expect(g.H).toBe(228);
+    expect(g.slot).toBeCloseTo(SLOT640, 9);
+    expect(g.barW).toBeCloseTo(SLOT640 - 2, 9);
+    expect(g.zero).toBeCloseTo(78.4, 9);
+    expect(g.mx).toBe(922446500);
+    expect(g.empty).toBe(false);
+    expect(g.bars).toHaveLength(39);
+    expect(g.hits).toHaveLength(39);
+    expect(g.rates).toHaveLength(39);
+    expect(g.rlo).toBe(0);
+    expect(g.rhi).toBe(30);
+    expect(g.y20).toBeCloseTo(208 - (20 / 30) * 56, 9);
+    // 최대 |값| = 슬롯 17(11:50) −9.2억 → 아래로 dn = 136 − 78.4 − 4
+    const b17 = g.bars.find((b) => b.i === 17)!;
+    expect(b17.tone).toBe('down');
+    expect(b17.y).toBeCloseTo(78.4, 9);
+    expect(b17.h).toBeCloseTo(53.6, 9);
+    expect(b17.x).toBeCloseTo(40 + 17 * SLOT640 + 1, 9);
+    // 0 원 칸 = 최소 1.5 · flat
+    const b38 = g.bars.find((b) => b.i === 38)!;
+    expect(b38.h).toBe(1.5);
+    expect(b38.tone).toBe('flat');
+    // 눈금 9시~15시 = 슬롯 0 · 6 · … · 36 가운데
+    expect(g.ticks.map((t) => t.label)).toEqual(['9시', '10시', '11시', '12시', '13시', '14시', '15시']);
+    expect(g.ticks[0]!.x).toBeCloseTo(40 + 1 + (SLOT640 - 2) / 2, 9);
+    expect(g.ticks[6]!.x).toBeCloseTo(40 + 36 * SLOT640 + 1 + (SLOT640 - 2) / 2, 9);
+    // 음영 = window 12:00~12:09 → 슬롯 18 하나
+    expect(g.shade!.x).toBeCloseTo(40 + 18 * SLOT640, 9);
+    expect(g.shade!.w).toBeCloseTo(SLOT640 - 2 + 2, 9);
+    // 첫 상한가 = 11:50
+    expect(g.firstLimit!.label).toBe('첫 상한가 11:50');
+    expect(g.firstLimit!.anchor).toBe('start');
+    expect(g.firstLimit!.x).toBeCloseTo(286.57, 1);
+  });
+
+  it('한선엔지니어링 window 09:10~09:59 → 음영 x = 40 + slot · 폭 = 4·slot + barW + 2 · 미도달 = firstLimit null', () => {
+    const r = rowPayload(HANSUN);
+    const g = bucketChartOf(bucketSlotsOf(r.payload!.buckets), r.payload!.window, r.first_limit_ms, 640);
+    expect(g.shade!.x).toBeCloseTo(40 + SLOT640, 9);
+    expect(g.shade!.w).toBeCloseTo(4 * SLOT640 + (SLOT640 - 2) + 2, 9);
+    expect(g.firstLimit).toBeNull();
+  });
+
+  it('비중 선 — 빈 칸 · share null 에서 끊긴다(구간 = 연속 덩어리) · 0.60 초과는 위끝 y = 8 · 0 은 판 바닥 136', () => {
+    const slots = bucketSlotsOf([
+      bkt(54, { share: 0.9 }),
+      bkt(55, { share: 0 }),
+      // 56 빈 칸
+      bkt(57, { share: 0.3 }),
+      bkt(58, { share: null }),
+      bkt(59, { share: 0.6 }),
+      bkt(60, { share: 0.15 }),
+    ]);
+    const g = bucketChartOf(slots, null, null, 640);
+    expect(g.shareSegments.map((s) => s.length)).toEqual([2, 1, 2]);
+    expect(g.shareSegments[0]![0]!.y).toBe(8);
+    expect(g.shareSegments[0]![1]!.y).toBe(136);
+    expect(g.shareSegments[1]![0]!.y).toBeCloseTo(136 - 64, 9);
+    expect(g.shareSegments[2]![0]!.y).toBeCloseTo(8, 9);
+    expect(g.shareSegments[0]![0]!.x).toBeCloseTo(40 + 1 + (SLOT640 - 2) / 2, 9);
+    expect(g.shade).toBeNull();
+  });
+
+  it('동양고속 — share 거의 0 이어도 막대 39 · 비중 선 1구간(슬롯 38 share null 제외 38점) · 띠 유지', () => {
+    const r = rowPayload(DONGYANG);
+    const g = bucketChartOf(bucketSlotsOf(r.payload!.buckets), r.payload!.window, r.first_limit_ms, 640);
+    expect(g.bars).toHaveLength(39);
+    expect(g.rates).toHaveLength(39);
+    expect(g.shareSegments.map((s) => s.length)).toEqual([38]);
+    expect(g.shade!.x).toBeCloseTo(40 + 18 * SLOT640, 9);
+    expect(g.firstLimit).toBeNull();
+  });
+
+  it('등락률 축 — rlo = min(0, lo 최소) · rhi = max(30, hi 최대) · 띠 h 최소 1.5', () => {
+    const g = bucketChartOf(bucketSlotsOf([bkt(54, { lo: -5, hi: -5 }), bkt(55, { lo: 10, hi: 31 })]), null, null, 640);
+    expect(g.rlo).toBe(-5);
+    expect(g.rhi).toBe(31);
+    expect(g.rates[0]!.h).toBe(1.5);
+    const yr = (v: number) => 208 - ((v + 5) / 36) * 56;
+    expect(g.rates[1]!.y).toBeCloseTo(yr(31), 9);
+    expect(g.rates[1]!.h).toBeCloseTo(yr(10) - yr(31), 9);
+  });
+
+  it('39칸 전부 null → empty · 막대 · 띠 · 선 0 · 눈금 7 은 그대로 · 폭 0 → 640', () => {
+    const g = bucketChartOf(bucketSlotsOf([]), null, null, 0);
+    expect(g.W).toBe(640);
+    expect(g.empty).toBe(true);
+    expect(g.bars).toEqual([]);
+    expect(g.rates).toEqual([]);
+    expect(g.shareSegments).toEqual([]);
+    expect(g.hits).toEqual([]);
+    expect(g.ticks).toHaveLength(7);
+    expect(g.mx).toBe(5e7);
+  });
+
+  it('net_val null 칸은 막대 없음(히트 · 띠는 남는다)', () => {
+    const g = bucketChartOf(bucketSlotsOf([bkt(54, { net_val: null })]), null, null, 640);
+    expect(g.bars).toEqual([]);
+    expect(g.hits).toHaveLength(1);
+    expect(g.rates).toHaveLength(1);
   });
 });
