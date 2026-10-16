@@ -56,7 +56,7 @@ import {
   type RelayOrderRequest,
 } from '../relay-provider';
 import { strategyKey } from '../limit-chaser';
-import { RELAY_MARKET_BATCH_MS } from '../use-relay-socket';
+import { RELAY_MARKET_BATCH_MS, viSlotOf } from '../use-relay-socket';
 import { LC_BUY3_ECHO_DEFAULTS } from '@/test-fixtures/limit-chaser';
 
 const ISIN_A = 'KR7005930003';
@@ -262,14 +262,17 @@ function QuoteConsumer({
 }
 
 /**
- * VI 3상태를 한 **거래소 분량**으로 문자열화한다 (17-06 / D-06).
- * 거래소마다 독립이라 KRX 의 응답이 NXT 의 「아직 모름」을 채우지 않는다.
+ * VI 3상태를 한 **(계좌, 거래소) 슬롯 분량**으로 문자열화한다 (17-06 / D-06 → Phase 32 D-17).
+ * 슬롯마다 독립이라 KRX 의 응답이 NXT 의 「아직 모름」을 채우지 않는다.
  */
 function viStateText(cfg: RelayViTrigger | null | undefined): string {
   if (cfg === undefined) return 'unfetched';
   if (cfg === null) return 'unregistered';
   return `run:${cfg.run}`;
 }
+
+/** VI 진단 대역이 읽는 계좌 — `acceptAndAuth` 의 ready 계좌와 같다. */
+const PROBE_ACCOUNT = '12345678-01';
 
 /** 구독 없이 전역 상태만 보는 화면(사이드바·My page)의 대역. */
 function StrategyProbe() {
@@ -279,11 +282,12 @@ function StrategyProbe() {
       <div data-testid="status">{relay.status}</div>
       <div data-testid="lc-keys">{relay.limitChasers.map((c) => c.key).join(',')}</div>
       {/*
-        `?.` 는 방어가 아니라 **진단 장치**다 — 계약에서 `viTriggers` 가 사라지면 이 대역이
-        크래시로 죽는 대신 단언 실패로 드러난다(크래시는 어느 케이스가 깨졌는지 말해 주지 않는다).
+        Phase 32 D-17 — 웹은 VI 를 (계좌, 거래소) 슬롯으로만 읽는다. 대역 계좌는 `acceptAndAuth` 의 계좌다.
+        `vi-legacy` 는 진단 장치다 — 거래소 단일 칸이 컨텍스트에 되살아나면 크래시가 아니라 단언 실패로 드러난다.
       */}
-      <div data-testid="vi-state-krx">{viStateText(relay.viTriggers?.KRX)}</div>
-      <div data-testid="vi-state-nxt">{viStateText(relay.viTriggers?.NXT)}</div>
+      <div data-testid="vi-state-krx">{viStateText(viSlotOf(relay.viSlots, PROBE_ACCOUNT, 'KRX'))}</div>
+      <div data-testid="vi-state-nxt">{viStateText(viSlotOf(relay.viSlots, PROBE_ACCOUNT, 'NXT'))}</div>
+      <div data-testid="vi-legacy">{'viTriggers' in relay ? 'present' : 'absent'}</div>
       <div data-testid="vi-orders">{relay.viOrders.map((o) => o.state).join(',')}</div>
       <div data-testid="vi-order-count">{String(relay.viOrders.length)}</div>
       <div data-testid="vi-notices">{String(relay.viNotices.length)}</div>
@@ -758,7 +762,7 @@ describe('RelayProvider — 전략 프레임 반영 (D-12)', () => {
     expect(screen.getByTestId('lc-keys')).toHaveTextContent(`${first.key},${second.key}`);
   });
 
-  it('⑥-b vi 는 미조회/미등록/등록 3상태를 **거래소마다** 구분한다 (17-06 / D-06)', async () => {
+  it('⑥-b vi.slot 은 미조회/미등록/등록 3상태를 **(계좌, 거래소) 슬롯마다** 구분한다 (17-06 / D-06 · Phase 32 D-17)', async () => {
     render(
       <RelayProvider>
         <StrategyProbe />
@@ -771,7 +775,7 @@ describe('RelayProvider — 전략 프레임 반영 (D-12)', () => {
     expect(screen.getByTestId('vi-state-nxt')).toHaveTextContent('unfetched');
 
     await act(async () => {
-      ws.push({ t: 'vi', x: 'KRX', cfg: null });
+      ws.push({ t: 'vi.slot', a: PROBE_ACCOUNT, x: 'KRX', cfg: null });
     });
     // KRX 는 조회했고 등록이 없다 — 「모름」으로 되돌아가면 안 된다.
     expect(screen.getByTestId('vi-state-krx')).toHaveTextContent('unregistered');
@@ -780,7 +784,8 @@ describe('RelayProvider — 전략 프레임 반영 (D-12)', () => {
 
     await act(async () => {
       ws.push({
-        t: 'vi',
+        t: 'vi.slot',
+        a: PROBE_ACCOUNT,
         x: 'KRX',
         cfg: {
           accountNo: '12345678-01',
@@ -801,13 +806,13 @@ describe('RelayProvider — 전략 프레임 반영 (D-12)', () => {
         KRX 를 덮어** KRX-only 세션에서 방금 읽은 설정이 사라진다(WINDOWS #13).
     */
     await act(async () => {
-      ws.push({ t: 'vi', x: 'NXT', cfg: null });
+      ws.push({ t: 'vi.slot', a: PROBE_ACCOUNT, x: 'NXT', cfg: null });
     });
     expect(screen.getByTestId('vi-state-krx')).toHaveTextContent('run:true');
     expect(screen.getByTestId('vi-state-nxt')).toHaveTextContent('unregistered');
   });
 
-  it('⑥-b2 거래소를 모르는 vi 프레임은 **아무 거래소에도 귀속시키지 않는다**', async () => {
+  it('⑥-b2 구 vi 프레임(거래소 단일 칸)은 무시한다 — 웹은 vi.slot 만 읽고 컨텍스트에 거래소 단일 칸이 없다 (Phase 32 D-17)', async () => {
     render(
       <RelayProvider>
         <StrategyProbe />
@@ -816,12 +821,19 @@ describe('RelayProvider — 전략 프레임 반영 (D-12)', () => {
     const ws = await acceptAndAuth();
 
     await act(async () => {
-      // 계약 밖 프레임(구 relay). 기본 거래소를 지어내면 그 순간 화면이 거짓말을 한다.
-      ws.push({ t: 'vi', cfg: null } as unknown as { t: 'vi' });
+      // 구 relay 의 거래소 병합 프레임 — slot-only relay 는 더 내지 않고, 와도 어느 슬롯에도 귀속하지 않는다.
+      ws.push({
+        t: 'vi',
+        x: 'KRX',
+        cfg: { accountNo: PROBE_ACCOUNT, exchange: 'KRX', orderAmountKrw: 1_000_000, checkRate: 25, priceType: 'U', run: true },
+      });
+      // 거래소를 모르는 계약 밖 프레임도 마찬가지다.
+      ws.push({ t: 'vi', cfg: null });
     });
 
     expect(screen.getByTestId('vi-state-krx')).toHaveTextContent('unfetched');
     expect(screen.getByTestId('vi-state-nxt')).toHaveTextContent('unfetched');
+    expect(screen.getByTestId('vi-legacy')).toHaveTextContent('absent');
   });
 
   it('⑥-c vi.list 는 snap 전량교체 / 델타 upsert 로 갈린다', async () => {
@@ -951,6 +963,7 @@ describe('RelayProvider — 견고성', () => {
     expect(screen.getByTestId('lc-keys')).toHaveTextContent('');
     expect(screen.getByTestId('vi-state-krx')).toHaveTextContent('unfetched');
     expect(screen.getByTestId('vi-state-nxt')).toHaveTextContent('unfetched');
+    expect(screen.getByTestId('vi-legacy')).toHaveTextContent('absent');
     expect(screen.getByTestId('quote-orphan')).toHaveTextContent('none');
     // 구독을 시도해도 소켓이 없으니 아무 일도 일어나지 않는다
     expect(FakeWebSocket.instances).toHaveLength(0);

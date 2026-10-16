@@ -2012,22 +2012,23 @@ describe('P32 viSlots 리듀서 (D-17 · vi.slot)', () => {
     expect(hook.result.current.viSlots.size).toBe(0);
   });
 
-  it('slot-only 다리 — 거래소 칸(viTriggers)은 슬롯 위 병합값(켜짐 우선 → 최근 등록본 → 미등록 null)', async () => {
+  it('구 vi 프레임(거래소 단일 칸)은 상태를 바꾸지 않는다 · 상태에 거래소 단일 칸이 없다 — 웹은 vi.slot 만 읽는다(32-13)', async () => {
     const hook = render({ enabled: true });
     const ws = await connected(hook);
-    expect(hook.result.current.viTriggers.KRX).toBeUndefined();
+    const before = hook.result.current.viSlots;
     await act(async () => {
-      ws.push({ t: 'vi.slot', a: A, x: 'KRX', cfg: null });
+      ws.push({ t: 'vi', x: 'KRX', cfg: cfgOf(A, { run: true }) });
     });
-    expect(hook.result.current.viTriggers.KRX).toBeNull();
+    expect(hook.result.current.viSlots).toBe(before);
+    expect(viSlotOf(hook.result.current.viSlots, A, 'KRX')).toBeUndefined();
+    expect('viTriggers' in hook.result.current).toBe(false);
+
+    // 슬롯이 와도 거래소 단일 칸을 만들지 않는다(32-11 의 임시 다리 없음).
     await act(async () => {
       ws.push({ t: 'vi.slot', a: B, x: 'KRX', cfg: cfgOf(B, { run: true }) });
-      ws.push({ t: 'vi.slot', a: A, x: 'KRX', cfg: cfgOf(A, { run: false }) });
     });
-    // 꺼진 A 가 더 최근이어도 켜진 B 가 거래소 칸이다.
-    expect(hook.result.current.viTriggers.KRX).toMatchObject({ accountNo: B, run: true });
-    // NXT 는 아무 슬롯도 없으니 여전히 모름.
-    expect(hook.result.current.viTriggers.NXT).toBeUndefined();
+    expect(viSlotOf(hook.result.current.viSlots, B, 'KRX')).toMatchObject({ accountNo: B, run: true });
+    expect('viTriggers' in hook.result.current).toBe(false);
   });
 
   it('reset(로그아웃 · 비활성화)이 슬롯을 비운다', async () => {
