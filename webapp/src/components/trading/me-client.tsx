@@ -397,6 +397,11 @@ function MeTabs() {
         : [],
     [accounts, settingsServerKey, meAccountNo],
   );
+  /**
+   * 설정 탭 저장 비행 · 대기열(Pitfall 12 · S13 잠금) — 그동안 계좌 칩 줄을 잠근다. 설정 탭을 열기 전에는 섹션이 없어
+   * false 다. 「이 계좌 끄기」 대기는 잠그지 않는다(끄기는 계좌 인자를 실어 보내 전환해도 귀속이 안 깨진다 · S5′).
+   */
+  const [settingsBusy, setSettingsBusy] = useState(false);
   /* null = 주문 탭 미방문(카드 없음) — 숫자를 그리지 않는다. */
   const [ordersCount, setOrdersCount] = useState<number | null>(null);
 
@@ -418,7 +423,13 @@ function MeTabs() {
       칩 줄 ↔ 탭 줄 간격 12 는 `me-page` 의 gap 이 준다(이 Fragment 의 두 자식이 그 flex 열의 형제다).
     */}
     {accounts.length > 0 && (
-      <MeAccountChips choices={choices} accountNo={meAccountNo} onChange={pickMeAccount} />
+      <MeAccountChips
+        choices={choices}
+        accountNo={meAccountNo}
+        onChange={pickMeAccount}
+        locked={settingsBusy}
+        lockedTitle="저장 중에는 계좌를 바꿀 수 없어요"
+      />
     )}
     <Tabs value={tab.active} onValueChange={tab.select} className="flex-col gap-0">
       {/*
@@ -532,7 +543,11 @@ function MeTabs() {
       >
         {/* Phase 27 D-10 — 상따 기본설정(42/84). DMA 게이트 분기에는 없다. Phase 32 D-24 — 서버 = 고른 계좌의 서버키
             (위 `settingsServerKey` — 서버키 칩 · 서버 캡션 · 그 서버 84 · 그 서버로 42). */}
-        <LimitChaserDefaultsSection serverKey={settingsServerKey} sameServerAccountNos={sameServerAccountNos} />
+        <LimitChaserDefaultsSection
+          serverKey={settingsServerKey}
+          sameServerAccountNos={sameServerAccountNos}
+          onBusyChange={setSettingsBusy}
+        />
         {/* Phase 32 D-15 — 「이 기기」 카드(돌파 알림음 · 이 브라우저 localStorage). 이 기기 카드는 계좌 칩과 무관(D-24 · D-15). */}
         <DeviceSettingsCard />
       </TabsContent>

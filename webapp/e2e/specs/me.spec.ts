@@ -1925,6 +1925,52 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     expect(await leavesOverflowing(lcDefaults(page), (await boxOf(lcDefaults(page))).right)).toEqual([]);
   });
 
+  /*
+    RESEARCH Pitfall 12 · S13 잠금 — 설정 탭 42 비행 중 계좌를 바꾸면 84 판정이 다른 서버를 본다. 스텁 게이트웨이는 42 에
+    84 를 저절로 답하지 않으므로(P27-M1 과 같은 방식) 「84 를 늦춘」 상태가 곧 비행 창이다. 3초 상한 안에 84 를 민다 —
+    늦어져 상한으로 풀리면 B 클릭이 먹혀 이 단언이 실패한다(통과로 숨지 않는다).
+  */
+  test('P32-settings-lock 저장 중 칩 잠금 — 게이트웨이 84 를 늦추면 칩 줄 aria-disabled · B 칩 클릭 무시 · 84 뒤 해제 (Pitfall 12)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/me');
+    await waitForReady(page, 2);
+    await openMeTab(page, '설정', 'settings');
+    await relay.pushUserSettings({ ...LC84, autoSellPeriodSec: 3 });
+    await expect(lcDefaultsChip(page)).toHaveText('서버 저장값', { timeout: 15_000 });
+
+    const chipRow = page.getByRole('radiogroup', { name: 'My page 계좌' });
+    await expect(chipRow).not.toHaveAttribute('aria-disabled', 'true');
+    await expect(accountChip(page, E2E_ACCOUNT_NO)).toHaveAttribute('aria-checked', 'true');
+
+    // 행 확정 → 42 비행(84 를 아직 안 민다) → 칩 줄 잠금.
+    const period = lcDefaultsRow(page, 'auto-sell-period-sec');
+    await period.locator('button[data-lc-field="me-lc-auto-sell-period-sec"]').click();
+    const input = page.locator('input#me-lc-auto-sell-period-sec');
+    await expect(input).toBeFocused();
+    await input.fill('7');
+    await input.press('Enter');
+    await expect(chipRow).toHaveAttribute('aria-disabled', 'true');
+    await expect(chipRow).toHaveAttribute('title', '저장 중에는 계좌를 바꿀 수 없어요');
+    await expect.poll(() => setUserSettingsRequests().length, { timeout: 2_000 }).toBe(1);
+
+    // 잠금 중 B 칩 클릭 — 계좌가 바뀌지 않는다. ★ `force` — Playwright 는 aria-disabled 조상 아래 요소를 「비활성」 으로 보고
+    //   풀릴 때까지(3초 상한) 클릭을 미룬다. 사용자 클릭은 기다리지 않고 바로 들어오므로 그 모양을 흉내 낸다.
+    await accountChip(page, ACCOUNT_B).click({ force: true });
+    await expect(accountChip(page, E2E_ACCOUNT_NO)).toHaveAttribute('aria-checked', 'true');
+    await expect(accountChip(page, ACCOUNT_B)).toHaveAttribute('aria-checked', 'false');
+
+    // 그 값 84 → 비행 끝 → 잠금 해제 · 이제 B 를 고를 수 있다.
+    await relay.pushUserSettings({ ...LC84, autoSellPeriodSec: 7 });
+    await expect(period.locator('[data-slot="lc-row-value"]')).toHaveText('7초', { timeout: 15_000 });
+    await expect(chipRow).not.toHaveAttribute('aria-disabled', 'true');
+    await expect(chipRow).not.toHaveAttribute('title', '저장 중에는 계좌를 바꿀 수 없어요');
+    await accountChip(page, ACCOUNT_B).click();
+    await expect(accountChip(page, ACCOUNT_B)).toHaveAttribute('aria-checked', 'true');
+    expect(setUserSettingsRequests()).toHaveLength(1);
+  });
+
   test.describe('P27-M1 폰 390 — 터치 키패드 시트', () => {
     test.use({ hasTouch: true, viewport: MOBILE_VIEWPORT });
 

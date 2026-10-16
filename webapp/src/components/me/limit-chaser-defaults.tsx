@@ -305,9 +305,15 @@ export function userSettingsValuesOf(s: UsableUserSettings): RelayUserSettingsVa
   };
 }
 
-/** 42 거부 판정 — 동등 비교만(본문은 읽지 않는다). 비행 중 창 안에서만 묻는다. */
-export function isSetUserSettingsRejection(msg: { lv: string; src: string }): boolean {
-  return msg.lv === "ERROR" && msg.src === "SetUserSettings";
+/**
+ * 42 거부 판정 — 동등 비교만(본문은 읽지 않는다). 비행 중 창 안에서만 묻는다.
+ * - 서버 54 `src "SetUserSettings"`(범위 밖 등).
+ * - Phase 32 — relay 의 거부(`src "Relay"` · `kind "user.settings.set"` = 인바운드 t): 지정 서버 세션 없음 ·
+ *   금액 미상 등. 같은 비행 창에서 원문으로 보인다(`me-lc-defaults-reject`). 다른 kind 의 relay 거부는 이 섹션 것이 아니다.
+ */
+export function isSetUserSettingsRejection(msg: { lv: string; src: string; kind?: string }): boolean {
+  if (msg.lv !== "ERROR") return false;
+  return msg.src === "SetUserSettings" || (msg.src === "Relay" && msg.kind === "user.settings.set");
 }
 
 const EMPTY_KEYS: ReadonlySet<UserSettingsKey> = new Set();
@@ -557,6 +563,29 @@ function useUserSettingsSave(
   return { commit, inflightKey, queuedKeys, failures, flashKeys, rejectText };
 }
 
+/**
+ * 비행 유무 보고(Pitfall 12) — 마지막으로 알린 값과 다를 때만 부른다(마운트 때 false 는 부르지 않는다 · 부모 초기값이
+ * false 다). 비행 중 언마운트면 false 한 번 — 칩 줄이 잠긴 채 남지 않게. 콜백은 ref 로 읽어 인라인 함수여도 재호출이 없다.
+ */
+function useBusyReport(busy: boolean, onBusyChange: ((busy: boolean) => void) | undefined): void {
+  const callbackRef = useRef(onBusyChange);
+  callbackRef.current = onBusyChange;
+  const reportedRef = useRef(false);
+  useEffect(() => {
+    if (reportedRef.current === busy) return;
+    reportedRef.current = busy;
+    callbackRef.current?.(busy);
+  }, [busy]);
+  useEffect(
+    () => () => {
+      if (!reportedRef.current) return;
+      reportedRef.current = false;
+      callbackRef.current?.(false);
+    },
+    [],
+  );
+}
+
 /** 플래시 — 값 글자(값 행)와 선택된 세그먼트를 성공 토큰(`--led-armed`)으로. 색만 바뀐다(움직임 없음). */
 const FLASH_CLASS =
   "[&_[data-slot=lc-row-value]]:text-[var(--led-armed)]! [&_[role=radio][aria-checked=true]]:text-[var(--led-armed)]!";
@@ -579,6 +608,11 @@ export interface LimitChaserDefaultsSectionProps {
   serverKey?: string;
   /** 같은 서버의 다른 계좌 번호(`accounts[]` 순) — 서버 캡션 「같은 서버의 … 계좌도 이 설정을 함께 써요.」. */
   sameServerAccountNos?: readonly string[];
+  /**
+   * 저장 비행 · 대기열 유무가 **바뀔 때만** 부른다(언마운트 때 비행 중이었으면 false 한 번) — `/me` 가 계좌 칩 줄을
+   * 잠근다(RESEARCH Pitfall 12 · S13 — 비행 중 계좌를 바꾸면 84 판정이 엉뚱한 서버를 본다). 3초 상한 안에 풀린다.
+   */
+  onBusyChange?: (busy: boolean) => void;
 }
 
 const NO_ACCOUNT_NOS: readonly string[] = [];
@@ -586,6 +620,7 @@ const NO_ACCOUNT_NOS: readonly string[] = [];
 export function LimitChaserDefaultsSection({
   serverKey,
   sameServerAccountNos = NO_ACCOUNT_NOS,
+  onBusyChange,
 }: LimitChaserDefaultsSectionProps = {}) {
   const relay = useRelayContext();
   const { send, messages } = relay;
@@ -601,6 +636,7 @@ export function LimitChaserDefaultsSection({
   const loading = userSettings === undefined;
   const text = USER_SETTINGS_STATUS_TEXT[status];
   const save = useUserSettingsSave(userSettings, send, messages, serverKey);
+  useBusyReport(save.inflightKey !== null || save.queuedKeys.size > 0, onBusyChange);
   // 표시 · 시트 초기값은 정규화 14값으로 읽는다 — 선매수 2필드 84 부재 = 0 · false(gh-trade 261012).
   const values = useMemo(
     () => (userSettings === undefined ? undefined : userSettingsValuesOf(userSettings)),
