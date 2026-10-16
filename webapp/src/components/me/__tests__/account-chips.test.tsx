@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -8,8 +9,9 @@ import type { MeAccountChoice } from '@/lib/trading-layout';
 import { MeAccountChips } from '../account-chips';
 
 /**
- * Phase 32 D-20 · S13 — /me 탭 위 계좌 칩. radiogroup · roving tabindex(←/→ 는 포커스만 · Home/End) ·
- * Enter/Space/클릭이 고른다 · 잠금 · 빈 목록 = 줄 없음 · 부분별 렌더(상품명 · 번호 · 서버키).
+ * Phase 32 D-20 · S13 — /me 탭 위 계좌 칩. radiogroup · roving tabindex ·
+ * ←/→/↑/↓ · Home/End = 포커스 + 선택(WAI-ARIA radio · IN-02) · 잠금이면 포커스만 ·
+ * Enter/Space/클릭도 고른다 · 빈 목록 = 줄 없음 · 부분별 렌더(상품명 · 번호 · 서버키).
  */
 
 const CHOICES: MeAccountChoice[] = [
@@ -27,6 +29,29 @@ function setup(props: Partial<Parameters<typeof MeAccountChips>[0]> = {}) {
 }
 
 const chips = () => screen.getAllByRole('radio');
+
+/** 제어 하네스 — 소비처(me-client · 작업대)처럼 onChange 에서 상태를 바꾼다. 스파이도 함께 부른다. */
+function Controlled({ initial, spy }: { initial: string; spy: (accountNo: string) => void }) {
+  const [accountNo, setAccountNo] = useState(initial);
+  return (
+    <MeAccountChips
+      choices={CHOICES}
+      accountNo={accountNo}
+      onChange={(next) => {
+        spy(next);
+        setAccountNo(next);
+      }}
+    />
+  );
+}
+
+/** 포커스 칩 = 선택 칩 = 유일한 탭 정지점. */
+function expectFocusedSelected(i: number) {
+  expect(chips()[i]).toHaveFocus();
+  expect(chips()[i]).toHaveAttribute('aria-checked', 'true');
+  expect(chips().filter((c) => c.getAttribute('aria-checked') === 'true')).toHaveLength(1);
+  expect(chips().map((c) => c.tabIndex)).toEqual(chips().map((_, j) => (j === i ? 0 : -1)));
+}
 
 describe('P32 MeAccountChips (D-20 · S13)', () => {
   it('radiogroup 이름 「My page 계좌」 · 칩 수 · 선택 칩 하나', () => {
@@ -69,36 +94,88 @@ describe('P32 MeAccountChips (D-20 · S13)', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it('→ 키는 포커스만 옮기고 onChange 0회 · 끝에서 처음으로 돈다', async () => {
+  it('→ 키는 이웃 칩으로 포커스 + 선택(onChange 1회) — IN-02', async () => {
     const { onChange } = setup();
     chips()[0].focus();
     await userEvent.keyboard('{ArrowRight}');
     expect(chips()[1]).toHaveFocus();
-    await userEvent.keyboard('{ArrowRight}{ArrowRight}');
-    expect(chips()[0]).toHaveFocus();
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith('8765-4321');
+  });
+
+  it('제어 — → 세 번은 차례로 고르며 끝에서 처음으로 돈다 · 포커스 칩 = 선택 칩 = 탭 정지점', async () => {
+    const spy = vi.fn();
+    render(<Controlled initial="1234-5678" spy={spy} />);
+    chips()[0].focus();
+    await userEvent.keyboard('{ArrowRight}');
+    expectFocusedSelected(1);
+    await userEvent.keyboard('{ArrowRight}');
+    expectFocusedSelected(2);
+    await userEvent.keyboard('{ArrowRight}');
+    expectFocusedSelected(0);
+    expect(spy.mock.calls.map((c) => c[0])).toEqual(['8765-4321', '5555-0001', '1234-5678']);
+  });
+
+  it('제어 — ← 는 반대편으로 돈다 · ↓/↑ 는 →/← 와 같다', async () => {
+    const spy = vi.fn();
+    render(<Controlled initial="1234-5678" spy={spy} />);
+    chips()[0].focus();
     await userEvent.keyboard('{ArrowLeft}');
-    expect(chips()[2]).toHaveFocus();
+    expectFocusedSelected(2);
+    await userEvent.keyboard('{ArrowDown}');
+    expectFocusedSelected(0);
+    await userEvent.keyboard('{ArrowDown}');
+    expectFocusedSelected(1);
+    await userEvent.keyboard('{ArrowUp}');
+    expectFocusedSelected(0);
+    expect(spy.mock.calls.map((c) => c[0])).toEqual(['5555-0001', '1234-5678', '8765-4321', '1234-5678']);
+  });
+
+  it('제어 — End/Home 은 끝/처음 칩 포커스 + 선택', async () => {
+    const spy = vi.fn();
+    render(<Controlled initial="8765-4321" spy={spy} />);
+    chips()[1].focus();
+    await userEvent.keyboard('{End}');
+    expectFocusedSelected(2);
+    await userEvent.keyboard('{Home}');
+    expectFocusedSelected(0);
+    expect(spy.mock.calls.map((c) => c[0])).toEqual(['5555-0001', '1234-5678']);
+  });
+
+  it('계좌 1개 — → 는 같은 칩 · onChange 0회', async () => {
+    const onChange = vi.fn();
+    render(<MeAccountChips choices={[CHOICES[0]]} accountNo={CHOICES[0].accountNo} onChange={onChange} />);
+    chips()[0].focus();
+    await userEvent.keyboard('{ArrowRight}{End}{Home}');
+    expect(chips()[0]).toHaveFocus();
     expect(onChange).not.toHaveBeenCalled();
   });
 
   it('Enter 가 포커스 칩을 고른다 · Space 도', async () => {
     const { onChange } = setup();
-    chips()[0].focus();
-    await userEvent.keyboard('{ArrowRight}{Enter}');
-    expect(onChange).toHaveBeenLastCalledWith('8765-4321');
-    await userEvent.keyboard('{ArrowRight} ');
+    chips()[2].focus();
+    await userEvent.keyboard('{Enter}');
     expect(onChange).toHaveBeenLastCalledWith('5555-0001');
+    chips()[1].focus();
+    await userEvent.keyboard(' ');
+    expect(onChange).toHaveBeenLastCalledWith('8765-4321');
     expect(onChange).toHaveBeenCalledTimes(2);
   });
 
-  it('Home/End 는 처음/끝 칩 포커스', async () => {
-    const { onChange } = setup({ accountNo: '8765-4321' });
-    chips()[1].focus();
+  it('locked — 화살표 · End · Home 은 포커스만 · onChange 0회 · 선택 그대로', async () => {
+    const { onChange } = setup({ locked: true, lockedTitle: '잠김' });
+    chips()[0].focus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(chips()[1]).toHaveFocus();
     await userEvent.keyboard('{End}');
     expect(chips()[2]).toHaveFocus();
     await userEvent.keyboard('{Home}');
     expect(chips()[0]).toHaveFocus();
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(chips()[2]).toHaveFocus();
     expect(onChange).not.toHaveBeenCalled();
+    expect(chips()[0]).toHaveAttribute('aria-checked', 'true');
+    expect(chips()[2]).toHaveAttribute('aria-checked', 'false');
   });
 
   it('locked — 클릭 · Enter 0회 + aria-disabled · title', async () => {
