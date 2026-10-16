@@ -635,6 +635,29 @@ describe('P32 칩 줄 잠금 (Pitfall 12 · S13)', () => {
     expect(chip(ACC_B)).toHaveAttribute('aria-checked', 'true');
   });
 
+  it('WR-04 계좌 칩으로 서버가 바뀌면(KB120 → KYOBO119) 값이 다른 행이 「저장 성공」 플래시를 내지 않는다', async () => {
+    mockSearchParams = new URLSearchParams('tab=settings');
+    mockRelay = {
+      ...relayWith(lc84()),
+      accounts: [
+        { accountNo: ACC_A, name: '위탁종합', serverKey: 'KB120' },
+        { accountNo: ACC_B, name: '교보위탁', serverKey: 'KYOBO119' },
+      ],
+      userSettingsByServer: new Map([
+        ['KB120', lc84()],
+        ['KYOBO119', lc84({ serverKey: 'KYOBO119', preBuyAmount: 9000, postBuyMaxCount: 5 })],
+      ]),
+    } as RelayContextValue;
+    render(<MeClient />);
+    expect(chip(ACC_A)).toHaveAttribute('aria-checked', 'true');
+    expect(document.querySelectorAll('[data-flash="ok"]')).toHaveLength(0);
+
+    await userEvent.click(chip(ACC_B));
+    expect(chip(ACC_B)).toHaveAttribute('aria-checked', 'true');
+    // 서버를 바꿨을 뿐 저장한 것이 없다 — 플래시 0.
+    expect(document.querySelectorAll('[data-flash="ok"]')).toHaveLength(0);
+  });
+
   it('「이 계좌 끄기」 대기 중에는 칩 줄을 잠그지 않는다(끄기는 계좌 인자를 싣는다 · S5′)', async () => {
     mockRelay = relayWith(lc84());
     render(<MeClient />);

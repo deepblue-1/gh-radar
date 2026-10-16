@@ -540,8 +540,11 @@ function MeTabs() {
         className={ME_PANEL}
       >
         {/* Phase 27 D-10 — 상따 기본설정(42/84). DMA 게이트 분기에는 없다. Phase 32 D-24 — 서버 = 고른 계좌의 서버키
-            (위 `settingsServerKey` — 서버키 칩 · 서버 캡션 · 그 서버 84 · 그 서버로 42). */}
+            (위 `settingsServerKey` — 서버키 칩 · 서버 캡션 · 그 서버 84 · 그 서버로 42).
+            `key` = 서버(WR-04) — 저장 기계(직전 84 · 실패 · 거부 원문 · 대기열)는 서버 하나의 것이다. 계좌 칩으로 서버가 바뀌면 새로
+            시작한다 — 남겨 두면 두 서버 84 의 차이가 「저장 성공」 플래시로 읽히고 A 서버 거부 원문이 B 서버 화면에 선다. */}
         <LimitChaserDefaultsSection
+          key={settingsServerKey ?? ""}
           serverKey={settingsServerKey}
           sameServerAccountNos={sameServerAccountNos}
           onBusyChange={setSettingsBusy}
