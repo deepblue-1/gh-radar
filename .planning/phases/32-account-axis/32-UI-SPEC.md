@@ -6,15 +6,16 @@ shadcn_initialized: true
 preset: "radix-nova (components.json · baseColor neutral · Toss TDS 토큰 override)"
 created: "2026-10-13"
 reviewed_at: "2026-10-16"
-amended: "2026-10-16 — /me 계좌 위 선택(목업 ⑥ B · CONTEXT D-20~D-25) · 아래 「2026-10-16 수정」 절이 S5~S8 · S10 보다 우선"
+amended: "2026-10-16 — /me 계좌 위 선택(목업 ⑥ B · CONTEXT D-20~D-25) · 아래 「2026-10-16 수정」 절이 S5~S8 · S10 보다 우선 · 2026-10-16 32-15 작업대 상단 줄 셀렉트 → 계좌 칩(「2026-10-16 수정 (32-15)」 절 우선) · 계좌 칩 화살표 = 선택(IN-02)"
 ---
 
 # Phase 32 — UI Design Contract
 
 > 계좌 축 정리(AXIS-01~05). gsd-ui-researcher 가 만들고 gsd-ui-checker 가 검증한다.
-> **디자인 시스템은 이미 확립돼 있다.** 이 계약은 새 색 토큰 · 새 shadcn 컴포넌트 · 새 레지스트리를 만들지 않는다. 기존 상태줄 · 사이드바 3단 · 토스트 · /me 카드 문법을 **계좌 · 서버 축으로 다시 묶고 거르는 것**이 전부다. 새 파일은 공용 계좌 필(`AccountPill` 이전) 하나다.
+> **디자인 시스템은 이미 확립돼 있다.** 이 계약은 새 색 토큰 · 새 shadcn 컴포넌트 · 새 레지스트리를 만들지 않는다. 기존 상태줄 · 사이드바 3단 · 토스트 · /me 카드 문법을 **계좌 · 서버 축으로 다시 묶고 거르는 것**이 전부다. ~~새 파일은 공용 계좌 필(`AccountPill` 이전) 하나다.~~ (32-15: 공용 필 없음 — 작업대 · /me 모두 `MeAccountChips`)
 > 결정 출처: `32-CONTEXT.md` D-01~D-25(잠금 · D-09 보정 포함), 채택 목업 `reference/mockup-account-axis.html` — ① 상단 줄 **A** · ② 사이드바 · **⑥ /me 계좌 위 선택 B**(2026-10-16 · ③ · ④ · ⑤ 의 /me 부분을 대체), `32-RESEARCH.md` Pitfall 1~16 · Open Q2 · Q3.
 > **2026-10-16 수정:** /me 는 탭 위 계좌 칩 한 곳에서 계좌를 고르고 현황 · 잔고 · 주문 · 설정이 그 계좌를 따른다. 아래 「2026-10-16 수정 — /me 계좌 위 선택」 절이 S5 · S6 · S7 · S8 · S10 의 /me 부분과 어긋나면 **수정 절이 이긴다**. 원문 절은 변경 이력으로 남긴다.
+> **2026-10-16 수정 (32-15):** 작업대 상단 줄의 계좌 선택도 네이티브 셀렉트가 아니라 계좌 칩 줄(`MeAccountChips`)이다. 아래 「2026-10-16 수정 (32-15) — 작업대 상단 줄도 계좌 칩」 절이 S1 · S2 · S10 · S10′ · 접근성 · 폭 백스톱 · UI Considerations · Claude's Discretion 의 셀렉트 기술과 어긋나면 **그 절이 이긴다**.
 > 목업 팔레트(`--led` · `--okbg` · `--warn` 등)는 목업 전용 변수다. 이 계약은 그것을 `globals.css` §9 기존 토큰으로 옮긴다(아래 「Color」).
 
 ### 웨이브 · 표면 지도 (D-19)
@@ -50,7 +51,7 @@ amended: "2026-10-16 — /me 계좌 위 선택(목업 ⑥ B · CONTEXT D-20~D-25
 
 **잠금.** 설정 탭 저장 비행 · 대기열이 있으면 칩 줄 전체 `aria-disabled` + `opacity .45` + `title` 「저장 중에는 계좌를 바꿀 수 없어요」(Pitfall 12 · 3초 상한 안에 풀림). 끄기 응답 대기 중에는 잠그지 않는다(끄기는 계좌 인자를 실어 보내므로 전환해도 귀속이 안 깨진다).
 
-**접근성.** 칩 줄 `role="radiogroup"` `aria-label="My page 계좌"` · 칩 `role="radio"` `aria-checked` · roving tabindex(←/→ · Home/End) — `ChoiceRow` 세그먼트와 같은 키보드 문법(탭 안 탭이 되지 않도록 `tablist` 는 쓰지 않는다). 칩 접근 이름 = 「{상품명} {번호} {서버키}」(칩 글자 그대로 · 서버키 칩은 장식 아님). 계좌를 바꾸면 포커스는 그 칩에 남는다. 탭 패널은 바뀐 계좌 내용으로 다시 그려지며 라이브 영역 공지는 없다(상태줄 `aria-live` 가 숫자 변화를 말한다).
+**접근성.** 칩 줄 `role="radiogroup"` `aria-label="My page 계좌"` · 칩 `role="radio"` `aria-checked` · ~~roving tabindex(←/→ · Home/End) — `ChoiceRow` 세그먼트와 같은 키보드 문법~~ roving tabindex · ←/→/↑/↓ · Home/End 는 포커스를 옮기며 그 칩을 고른다(WAI-ARIA radio · IN-02 수정 2026-10-16) · 끝에서 반대편 · Enter/Space/클릭도 고른다 · 잠금이면 포커스만 — ChoiceRow 는 선택 = 전송이라 포커스만으로 남는다(탭 안 탭이 되지 않도록 `tablist` 는 쓰지 않는다). 칩 접근 이름 = 「{상품명} {번호} {서버키}」(칩 글자 그대로 · 서버키 칩은 장식 아님). 계좌를 바꾸면 포커스는 그 칩에 남는다. 탭 패널은 바뀐 계좌 내용으로 다시 그려지며 라이브 영역 공지는 없다(상태줄 `aria-live` 가 숫자 변화를 말한다).
 
 **Copywriting.**
 
@@ -107,7 +108,9 @@ amended: "2026-10-16 — /me 계좌 위 선택(목업 ⑥ B · CONTEXT D-20~D-25
 
 ### S10′. 공용 계좌 필 (D-25 축소)
 
-- /me 가 필을 쓰지 않으므로 `AccountPill` 을 공용 파일로 올릴 **필요가 없다**(작업대 안 그대로 두어도 된다 · 플래너 재량). S10 원문의 모양 · props 는 작업대 상단 줄 S1 에만 적용. 접근성 표의 「오늘 주문 계좌」 이름은 사라진다.
+> **32-15 수정 절이 우선** — 계좌 셀렉트 기술은 계좌 칩 줄로 대체(「2026-10-16 수정 (32-15)」 절).
+
+- /me 가 필을 쓰지 않으므로 `AccountPill` 을 공용 파일로 올릴 **필요가 없다**(작업대 안 그대로 두어도 된다 · 플래너 재량). ~~S10 원문의 모양 · props 는 작업대 상단 줄 S1 에만 적용.~~ 32-15 로 S10 은 어디에도 적용되지 않는다(작업대 · /me 모두 `MeAccountChips`). 접근성 표의 「오늘 주문 계좌」 이름은 사라진다.
 
 ### E2E · 테스트 갱신 지점(수정분)
 
@@ -118,6 +121,78 @@ amended: "2026-10-16 — /me 계좌 위 선택(목업 ⑥ B · CONTEXT D-20~D-25
 - **계좌 칩 줄:** 계좌 4개(최악값 상품명 15자 · 번호 12자 · KYOBO127)가 /me 폰 본문 334 에서 한 줄 가로 스크롤 · 칩 글자 잘림 0 · 페이지 가로 스크롤 0.
 - **설정 탭 제목 줄:** 「상따 기본설정」 + 「KYOBO127」 칩 + 「아직 못 받음」 칩이 334 에서 한 줄(넘치면 상태 칩만 다음 줄 오른쪽 끝 · `flex-wrap`).
 - S5 「/me 현황 소제목」 · S8 「서버 세그먼트」 백스톱 항목은 표면이 사라져 **무효**.
+
+---
+
+## 2026-10-16 수정 (32-15) — 작업대 상단 줄도 계좌 칩
+
+> 사용자 지시 2026-10-16: 「계좌선택을 콤보로 하지 말고 칩으로」 · 「칩 밖에 KB120 한번 더 표현하는건 없애줘」. 구현 커밋 `55aee55b`(feat — 셀렉트 → 칩 · 칩 밖 서버키 칩 제거 · 계좌 0 = 「계좌 확인 중…」 글자) · `09b546be`(test — E2E 칩 전환 · 폰 「상품명 · 서버키」 · 백스톱 칩 줄 판정). 32-VERIFICATION 은 「사용자 지시 변경이라 갭 아님」 으로 기록했다. **이 절이 S1 · S2 · S10 · S10′ · 접근성 · 폭 백스톱 · UI Considerations · Claude's Discretion 의 셀렉트 기술과 어긋나면 이 절이 이긴다.** 원문은 변경 이력으로 남기고 취소선 · 「32-15」 표시를 붙였다(quick-261016-udz · 32-UI-REVIEW Top 3 ①).
+
+### S1′. 상단 줄 배치
+
+상단 줄 카드 안, 왼쪽부터: **계좌 칩 줄 → 시세 알약 → 주문 알약 → (`ml-auto`) 컬럼 세그먼트.** 칩 밖 서버키 칩 항목은 없다. 카드 `flex-wrap` · 컬럼 세그먼트 폭 규칙 · 주문 알약 끊김 · 보조 줄은 S1 원문 그대로다.
+
+### 부품
+
+- `AccountPill`(이름 유지 · `workbench-status-bar.tsx` export · props `{accounts, accountNo, onChange, compact}`)은 `MeAccountChips`(`components/me/account-chips.tsx`)를 감싼 얇은 래퍼다 — 네이티브 셀렉트 없음.
+- 넘기는 값: 그룹 이름(radiogroup `aria-label`) 「계좌」 · 그룹 `title` = `ACCOUNT_PILL_TITLE` 「작업대에 보일 계좌예요 · 새로 추가하는 카드도 이 계좌로 열려요」 · 그룹 슬롯 `workbench-account`(유지) · 칩 슬롯 `workbench-account-chip` + `data-account-no` · `compact` = 상단 줄 `phoneBand` · 잠금(`locked`) 없음.
+
+### 칩 모양
+
+S13 칩과 같은 부품 · 같은 치수 — 높이 32 · 좌우 12 · `rounded-full` · 칩 사이 8(`gap-2`) · 칩 안 4(`gap-1`) · 선택 `--seg-on-bg` + `--seg-on-shadow` + `--seg-on-fg` · 비선택 `--muted` 면 + `--muted-fg` · `whitespace-nowrap` · 한 줄 가로 스크롤 · 스크롤바 숨김.
+
+### 칩 글자 (`compact` 3상태)
+
+| `compact` | 언제 | 칩 글자 |
+|---|---|---|
+| `false` | `wb` ≥ 680 | /me 와 같은 상품명(12.5/600) · 번호(11/400 mono) · 서버키 칩(10/700) |
+| `true` | `wb` < 680 — 격자 1열 고정(컬럼 세그먼트를 DOM 에서 빼는 것과 같은 판정) | 번호를 빼고 「상품명 · 서버키」. 단 상품명이 비었거나 다른 계좌와 상품명 ∧ 서버키가 같으면 상품명 대신 번호(`accountShortLabelOf` · 사이드바 소제목 규칙) |
+| `null` | 폭 미판정 첫 페인트 | 두 부분을 모두 그리고 CSS `@max-[680px]/wb:hidden` 으로 줄인다(세그먼트 `hidden @min-[680px]/wb:inline-flex` 와 같은 경계) |
+
+- 접근 이름은 언제나 전체 `accountChipLabelOf`(「{상품명} {번호} {서버키}」) — 줄인 칩도 같다.
+- 작업대 폰 칩 글자(「상품명 · 서버키」)와 /me 칩 글자(번호 포함)가 다른 것은 폭 때문의 **의도된 차이**다(32-UI-REVIEW Pillar 2 메모).
+
+### 서버키
+
+칩 안 `data-part="server"` 뿐이다 — 칩 밖 서버키 칩(옛 슬롯 `workbench-account-server`)과 그 `title` 「이 계좌의 주문 서버」 는 없다.
+
+### 상태
+
+| 계좌 수 | 모양 |
+|---|---|
+| 0 | 칩 없이 「계좌 확인 중…」 글자 하나 — `span` · 슬롯 `workbench-account` · `aria-disabled="true"` · 같은 `title` · 11px `--muted-fg` · 높이 32(옛 「1옵션 비활성 셀렉트」 대체) |
+| 1 | 칩 1개 선택 |
+| 다수 | 칩 줄 · 넘치면 그 줄 안 가로 스크롤(옛 네이티브 말줄임 대체) |
+
+### 접근성 · 키보드
+
+- radiogroup 「계좌」 · 칩 `role="radio"` + `aria-checked` · roving tabindex(선택 칩만 `tabIndex` 0).
+- 키보드는 S13 과 같다 — ←/→/↑/↓ · Home/End 는 포커스를 옮기며 그 칩을 고른다(끝에서 반대편) · Enter/Space/클릭도 고른다(IN-02 수정 · quick-261016-udz).
+- 바꾼 뒤 포커스는 그 칩에 남는다(S2 「포커스는 셀렉트에」 를 대체). 작업대는 잠금이 없다.
+
+### 슬롯 · 테스트
+
+- S1 「유지 슬롯」 에서 칩 밖 서버키 칩 슬롯이 빠지고 `workbench-account-chip` 이 더해진다. `workbench-account` 는 칩 줄 루트(계좌 0 이면 「계좌 확인 중…」 span)다.
+- E2E 조회구 = `webapp/e2e/fixtures/workbench-account.ts`(`accountChips` · `accountChip` · `pickAccount` · `expectAccount`) — 옛 `option` 개수 · `selectOption` · `toHaveValue` 대체.
+- 폭 백스톱(`webapp/e2e/specs/account-axis-backstop.spec.ts`)은 칩 줄 박스가 카드 안 · 칩마다 글자 잘림 0 · 칩 한 줄을 보고, 칩 줄 자신의 가로 스크롤 폭은 넘침 판정에서 뺀다.
+
+### S10 · S10′ 무효
+
+공용 계좌 필(네이티브 셀렉트)은 어디에도 없다 — /me(S13) · 작업대(이 절) 모두 `MeAccountChips`.
+
+### 무효 표시한 자리
+
+- 머리 인용문 「새 파일은 공용 계좌 필 …」
+- S13 「접근성」 문단 키보드 문법(IN-02)
+- S10′ 본문
+- Component Inventory `AccountPill` · `MeAccountChips` · `ChoiceRow` 행
+- Spacing Exceptions 서버키 칩 · 상단 줄 계좌 셀렉트 높이
+- Color Secondary · 글자 색 「계좌번호(셀렉트 · 소제목)」
+- Copywriting Primary CTA · S11 쓰는 자리 ① · S1 표(접근 이름 · `title` · 계좌 0개 · 서버키 칩 `title`)
+- 시각 S1(배치 · 「셀렉트 · 칩」 · 유지 슬롯) · S2(전환 · 계좌 1개) · S6 원문(계좌 필) · S10 원문
+- 접근성 표(계좌 셀렉트 · /me 계좌 칩 · 계좌 전환 포커스) · 체커 메모 시선 앵커 · 폭 백스톱(최악값 · 상단 줄)
+- UI Considerations S1 · S2 · S6 long-text · S10 · S11 overflow 행
+- Claude's Discretion 4
 
 ---
 
@@ -148,8 +223,8 @@ Enumerated by `npx shadcn info` (cwd `webapp/`, 「Installed Components」 절) 
 | Dialog | `@/components/ui/dialog` | 「이 계좌 끄기」 확인 다이얼로그 — 기존 `DisableAllDialog` 를 계좌 1개 모드로 쓴다(D-09). 전체 모드 호출은 D-27 로 사라진다(2026-10-16) |
 | Button | `@/components/ui/button` | 「이 계좌 끄기」(2026-10-16 S5′ — 기존 「전체 비활성화」 와 같은 destructive 변형 · 카드 맨 아래 · 전체 비활성화 자체는 D-27 로 제거) · 다이얼로그 버튼 |
 | Tabs | `@/components/ui/tabs` | /me 4탭(「잔고 N」 · 「주문 N」 라벨 = 고른 계좌 건수) — 메커니즘 변경 없음 |
-| `AccountPill` (프로젝트) | `@/components/trading/workbench/workbench-status-bar` | 네이티브 `<select>` + 서버키 칩. 작업대 상단 줄 전용(2026-10-16 D-25 — /me 공용화 불필요 · 올리기는 플래너 재량) |
-| `MeAccountChips` (프로젝트 · 신규 · 이름 플래너) | `@/components/me/account-chips`(예) | /me 탭 위 계좌 칩(S13) · `role="radiogroup"` · roving tabindex — `ChoiceRow` 세그먼트 키보드 문법 재사용 · 새 shadcn 설치 없음 |
+| `AccountPill` (프로젝트) | `@/components/trading/workbench/workbench-status-bar` | ~~네이티브 `<select>` + 서버키 칩.~~ 32-15: `MeAccountChips` 래퍼 · label 「계좌」 · slot `workbench-account` / `workbench-account-chip` · compact = phoneBand. 작업대 상단 줄 전용(2026-10-16 D-25 — /me 공용화 불필요 · 올리기는 플래너 재량) |
+| `MeAccountChips` (프로젝트 · 신규 · 이름 플래너) | `@/components/me/account-chips`(예) | /me 탭 위(S13) + 작업대 상단 줄(32-15 · `AccountPill` 경유) 계좌 칩 · props `choices` · `accountNo` · `onChange` · `label` · `title` · `slot` · `chipSlot` · `compact` · `locked` · `lockedTitle` · `role="radiogroup"` · roving tabindex — ~~`ChoiceRow` 세그먼트 키보드 문법 재사용~~ 키보드 WAI-ARIA radio — 화살표 · Home/End = 선택(IN-02) · 새 shadcn 설치 없음 |
 | `WorkbenchStatusBar` (프로젝트) | `@/components/trading/workbench/workbench-status-bar` | 상단 줄 A 로 재구성(S1). 루트 슬롯 · `data-status` · `workbench-dma` · `workbench-quote` 유지 |
 | `quotePillOf` · `orderPillOf` (프로젝트) | `@/lib/quote-state` | 시세 · 주문 알약 판정 — 함수 무변경(D-05) |
 | `CardGrid` (프로젝트) | `@/components/trading/workbench/card-grid` | 숨김 카드 주차(RESEARCH Pattern 2) · 계좌 빈 상태(S2) |
@@ -160,7 +235,7 @@ Enumerated by `npx shadcn info` (cwd `webapp/`, 「Installed Components」 절) 
 | `TodayOrdersCard` (프로젝트) | `@/components/trading/today-orders-card` | 고른 계좌 평탄 목록(S6′ · `accountNo` prop) |
 | `AccountPanel` (프로젝트) | `@/components/orderbook/account-panel` | 고른 계좌 1벌 · 머리 없음(S7′) |
 | `LimitChaserDefaultsSection` (프로젝트) | `@/components/me/limit-chaser-defaults` | 고른 계좌 `serverKey` prop · 서버키 칩 · 미수신 잠금(S8′) |
-| `ChoiceRow` 세그먼트 문법 (프로젝트) | `@/components/trading/lc/setting-group` | /me 계좌 칩(S13)의 키보드 · 선택 면 문법 원본(`role="radio"` · roving tabindex · `--seg-on-*`) |
+| `ChoiceRow` 세그먼트 문법 (프로젝트) | `@/components/trading/lc/setting-group` | /me 계좌 칩(S13)의 선택 면 문법 원본(`role="radio"` · roving tabindex · `--seg-on-*`) · 키보드는 갈림(ChoiceRow 화살표 = 포커스만 · 선택 = 전송 / 계좌 칩 화살표 = 선택 · IN-02) |
 | `ViSettingsRows` (프로젝트) | `@/components/trading/workbench/vi-settings-rows` | ④ 에서만 — 고른 계좌 KRX · NXT 행 · 옮기기 제거(S12) |
 
 ---
@@ -199,8 +274,8 @@ Declared values (must be multiples of 4) — 프로젝트 토큰 `--s-*` 그대�
 
 Exceptions (상속 · 컴포넌트 내부 미세 치수 — 간격 스케일 밖으로 선언):
 - ~~서버 세그먼트 트랙 안쪽 패딩 2px · 항목 사이 2px~~ — 2026-10-16 무효(세그먼트 없음).
-- 서버키 칩 높이 18px · 좌우 6px · 모서리 5px — 기존 `workbench-account-server` 칩 그대로.
-- 상단 줄 계좌 셀렉트 높이 26px · 컬럼 세그먼트 높이 24px · LED 점 7px — 기존값 그대로.
+- 서버키 칩 높이 18px · 좌우 6px · 모서리 5px — ~~기존 `workbench-account-server` 칩 그대로~~ 32-15 뒤 계좌 칩 안 `data-part="server"`(/me · 작업대 공용 `account-chips.tsx`) · /me 설정 제목 줄 서버키 칩(`limit-chaser-defaults.tsx`) — 옛 칩 치수 그대로.
+- ~~상단 줄 계좌 셀렉트 높이 26px~~(32-15: 칩 높이 32 · S13 치수) · 컬럼 세그먼트 높이 24px · LED 점 7px — 기존값 그대로.
 - 사이드바 서버키 칩 모서리 4px · 세그먼트 점 6px — 목업 값 그대로(장식 요소).
 
 ---
@@ -226,7 +301,7 @@ Exceptions (상속 · 컴포넌트 내부 미세 치수 — 간격 스케일 밖
 | Role | Value (라이트 / 다크) | Usage |
 |------|-------|-------|
 | Dominant (60%) | `--bg` #ffffff / #0a0a0a · `--surface` #f2f4f6 / #0a0a0a | 본문면 · 사이드바 면 |
-| Secondary (30%) | `--card` #ffffff / #151515 · `--muted` #f2f4f6 / #2d2d2d | 상단 줄 카드 · /me 카드 · 토스트 면 / 계좌 셀렉트 · 서버키 칩 · 세그먼트 트랙 |
+| Secondary (30%) | `--card` #ffffff / #151515 · `--muted` #f2f4f6 / #2d2d2d | 상단 줄 카드 · /me 카드 · 토스트 면 / ~~계좌 셀렉트~~ 계좌 칩 비선택 면(32-15) · 서버키 칩 · 세그먼트 트랙 |
 | Accent (10%) | `--primary` #3182f6 / #3485fa | 아래 목록 자리만 |
 | Destructive | `--destructive` #f04452 / #f04251 | 「주문 끊김」 점 · 상태어, 「이 계좌 끄기」 카드 버튼(면 — 2026-10-16 S5′ · 기존 「전체 비활성화」 와 같은 변형) · 다이얼로그 실행 버튼(테두리형) · 경고 문단, 계좌 끄기 오류 줄 |
 
@@ -247,7 +322,7 @@ Exceptions (상속 · 컴포넌트 내부 미세 치수 — 간격 스케일 밖
 
 | 요소 | 토큰 |
 |---|---|
-| 계좌번호(셀렉트 · 소제목) | `--fg` (`mono`) |
+| 계좌번호(~~셀렉트~~ · 소제목 — 32-15: 계좌 칩 번호는 S13 규칙) | `--fg` (`mono`) |
 | 상품명 · 「계좌」 접두 · 캡션 · 토스트 계좌 줄 | `--muted-fg` |
 | 서버키 칩 글자 | `--fg-2` on `--muted` |
 | 세그먼트 선택 항목 | `--seg-on-fg` on `--seg-on-bg` + `--seg-on-shadow` · 비선택 `--muted-fg` |
@@ -261,7 +336,7 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 
 | Element | Copy |
 |---------|------|
-| Primary CTA | 「이 계좌 끄기」(/me 현황 카드 맨 아래 — 2026-10-16 S5′ · 다이얼로그 실행 버튼) — 작업대의 주 동작은 계좌 셀렉트 선택(버튼 없음) · /me 의 주 조작은 계좌 칩 선택(S13) |
+| Primary CTA | 「이 계좌 끄기」(/me 현황 카드 맨 아래 — 2026-10-16 S5′ · 다이얼로그 실행 버튼) — 작업대의 주 동작은 ~~계좌 셀렉트 선택~~ 계좌 칩 선택(32-15 · 버튼 없음) · /me 의 주 조작은 계좌 칩 선택(S13) |
 | Empty state heading | 작업대(고른 계좌에 카드 0 · 다른 계좌 카드 ≥1) 「이 계좌에 거래할 종목이 없어요」 · /me 현황(고른 계좌 전략 0) 「이 계좌에 등록된 전략 없음」(2026-10-16 D-21 · S5′) · /me 주문(고른 계좌 0 · 다른 계좌 ≥1) 「이 계좌의 오늘 주문이 없어요」 |
 | Empty state body | 작업대 「위 검색란에서 종목을 추가하면 이 계좌로 열려요 · 다른 계좌 카드 {N}장은 계좌를 바꾸면 보여요」 · /me 주문 「다른 계좌에 오늘 주문 {N}건이 있어요 · 위에서 계좌를 바꿔 보세요」 · 전 계좌 0 이면 기존 문구 그대로(아래 표) |
 | Error state | 주문 끊김 → 주문 알약 「주문 끊김 · 다시 연결」(정확한 상태어는 sr-only · title) · 계좌 끄기 미확인 「이 계좌 끄기 요청의 반영을 확인하지 못했어요. 전략 목록을 확인해 주세요.」 · 서버 설정 미수신 칩 「아직 못 받음」 |
@@ -273,20 +348,22 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 
 | 변형 | 글자 | 빈 칸 규칙 | 쓰는 자리 |
 |---|---|---|---|
-| 전체 | 「{번호} · {상품명} · {서버키}」 — 예 「1234-5678 · 김알렉스 · KB120」 | 빈 칸은 생략하고 「 · 」 꼬리를 남기지 않는다(「8765-4321 · KYOBO119」 · 「5555-0001」) | ① 상단 줄 셀렉트 옵션 ② /me 현황 · 잔고 소제목(부분별 렌더 · 아래) ③ /me 주문 필 옵션 ④ 토스트 계좌 줄 「계좌 {전체}」 ⑤ 사이드바 소제목 `title` |
+| 전체 | 「{번호} · {상품명} · {서버키}」 — 예 「1234-5678 · 김알렉스 · KB120」 | 빈 칸은 생략하고 「 · 」 꼬리를 남기지 않는다(「8765-4321 · KYOBO119」 · 「5555-0001」) | ① ~~상단 줄 셀렉트 옵션~~(32-15: 작업대 칩 접근 이름 `accountChipLabelOf` · 폰 칩 글자 `accountShortLabelOf`) ② /me 현황 · 잔고 소제목(부분별 렌더 · 아래) ③ /me 주문 필 옵션 ④ 토스트 계좌 줄 「계좌 {전체}」 ⑤ 사이드바 소제목 `title` |
 | 짧음(사이드바) | 「{상품명}」 + 서버키 칩 | 상품명이 비었거나 **보이는 다른 묶음과 상품명 · 서버키가 같으면** 번호로 대신한다(mono) · 서버키 없으면 칩 없음 | ⑤ 사이드바 계좌 소제목 |
 
 부분별 렌더(/me 현황 · 잔고 소제목 — 목업 ③ `.ag .ah`): 「계좌」(12/600 `--muted-fg`) → 번호(12/600 `--fg` mono) → 상품명(12/400 `--muted-fg` · 있을 때만) → 서버키 칩(있을 때만). 점(「 · 」)을 쓰지 않고 8px 간격으로 띄운다. 읽는 순서는 전체 변형과 같다.
 
 ### S1. 작업대 상단 줄 A (D-05 · D-06 · D-07)
 
+> **32-15 수정 절이 우선** — 계좌 셀렉트 기술은 계좌 칩 줄로 대체(「2026-10-16 수정 (32-15)」 절).
+
 | 요소 | 문구 |
 |---|---|
 | 제목 | 「트레이딩」 h1 (불변 · 상단 줄 위 자기 줄) |
-| 계좌 셀렉트 접근 이름 | 「계좌」 (`aria-label` · 불변) |
-| 계좌 셀렉트 `title` | 「작업대에 보일 계좌예요 · 새로 추가하는 카드도 이 계좌로 열려요」 — 옛 `ACCOUNT_PILL_TITLE`(「…이미 있는 카드는 자기 계좌를 유지해요」)는 D-01 로 거짓이 되므로 교체 |
-| 계좌 0개 | 옵션 「계좌 확인 중…」 · 셀렉트 비활성(불변) |
-| 서버키 칩 `title` | 「이 계좌의 주문 서버」 (불변) |
+| ~~계좌 셀렉트~~ 계좌 칩 줄(radiogroup · 32-15) 접근 이름 | 「계좌」 (`aria-label` · 불변) |
+| ~~계좌 셀렉트~~ 계좌 칩 줄(radiogroup · 32-15) `title` | 「작업대에 보일 계좌예요 · 새로 추가하는 카드도 이 계좌로 열려요」 — 옛 `ACCOUNT_PILL_TITLE`(「…이미 있는 카드는 자기 계좌를 유지해요」)는 D-01 로 거짓이 되므로 교체 |
+| 계좌 0개 | ~~옵션 「계좌 확인 중…」 · 셀렉트 비활성(불변)~~ 32-15: 「계좌 확인 중…」 글자 span(칩 없음 · `aria-disabled`) |
+| ~~서버키 칩 `title`~~ | ~~「이 계좌의 주문 서버」 (불변)~~ 32-15 로 없음(칩 밖 서버키 칩 제거) |
 | 시세 알약 | `quotePillOf` 그대로 — 「● 시세」 · 「● 시세 HH:MM:SS~ 멈춤」 |
 | 주문 알약 — ready | 「● 주문」 (sr-only 「실시간」 · 불변) |
 | 주문 알약 — 진행 중(`connecting` · `logging_in` · `declaring` · `reconnecting`) | 「● 주문 {RELAY_STATE_LABELS}」 — 예 「주문 재접속 중」 · 점 `--flat` + pulse (불변) |
@@ -409,9 +486,11 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 
 ### S1. 작업대 상단 줄 A
 
+> **32-15 수정 절이 우선** — 계좌 셀렉트 기술은 계좌 칩 줄로 대체(「2026-10-16 수정 (32-15)」 절).
+
 **배치(목업 ① A):** `workbench-head` = 세로 묶음, 간격 8px — ① 「트레이딩」 h1 자기 줄 ② 상단 줄 카드(한 줄 필) ③ 보조 줄(있을 때만).
 
-상단 줄 카드 안, 왼쪽부터: **계좌 셀렉트 → 서버키 칩 → 시세 알약 → 주문 알약 → (`ml-auto`) 컬럼 세그먼트.** 카드는 `flex-wrap` 이다 — 내용이 한 줄을 넘으면 뒤 항목부터 다음 줄로 내려가고, 세그먼트는 내려가도 오른쪽 끝(`ml-auto`)에 선다. 글자를 줄이거나 말줄임하지 않는다(셀렉트 내부 글자는 네이티브 `<select>` 가 자른다 · `max-w-full min-w-0`).
+상단 줄 카드 안, 왼쪽부터: **~~계좌 셀렉트 → 서버키 칩~~ 계좌 칩 줄(32-15) → 시세 알약 → 주문 알약 → (`ml-auto`) 컬럼 세그먼트.** 카드는 `flex-wrap` 이다 — 내용이 한 줄을 넘으면 뒤 항목부터 다음 줄로 내려가고, 세그먼트는 내려가도 오른쪽 끝(`ml-auto`)에 선다. 글자를 줄이거나 말줄임하지 않는다(~~셀렉트 내부 글자는 네이티브 `<select>` 가 자른다 · `max-w-full min-w-0`~~ 32-15: 칩 줄이 넘치면 그 줄 안 가로 스크롤).
 
 **컬럼 세그먼트 폭 규칙 — Pitfall 7 · D-05 「플래너가 §2.2b 밴드 규칙과 맞춘다」 의 이 계약 결정:**
 
@@ -421,24 +500,26 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 | ≥ 680 | 같은 카드 안 오른쪽 끝. 한 줄에 다 안 들어가면 `flex-wrap` 으로 **다음 줄 오른쪽 끝**에 선다 — 목업의 「세그먼트가 줄 아래로」 는 이 줄바꿈이다 |
 | 폭 미판정 첫 페인트(`null`) | 기존 CSS 폴백 `hidden @min-[680px]/wb:inline-flex` (불변) |
 
-**셀렉트 · 칩:** 기존 `AccountPill` 기하 그대로 — 셀렉트 26px · 둥근 알약 · `--muted` 면 · 11px mono · 네이티브 화살표(`appearance-none` 금지). 서버키 칩은 셀렉트 바로 오른쪽(D-05 「옆 서버키 칩 유지」). 서버키가 없는 계좌는 칩 없음.
+~~**셀렉트 · 칩:** 기존 `AccountPill` 기하 그대로 — 셀렉트 26px · 둥근 알약 · `--muted` 면 · 11px mono · 네이티브 화살표(`appearance-none` 금지). 서버키 칩은 셀렉트 바로 오른쪽(D-05 「옆 서버키 칩 유지」). 서버키가 없는 계좌는 칩 없음.~~ (32-15 로 대체 — 계좌 칩 줄 · 「2026-10-16 수정 (32-15)」 절)
 
 **주문 알약 끊김:** `orderPillOf` 는 바꾸지 않는다. 상태줄이 `onReconnect` 를 받은 경우(= `UNRECOVERABLE_STATES`)에만 보이는 상태어를 「끊김」 으로, 점 · 상태어를 `--destructive` 로 그리고, 바로 뒤에 「 · 」 + 「다시 연결」 텍스트 버튼(`--primary` 12/600 · hover 밑줄 · `type="button"`)을 둔다. 버튼은 `workbench-dma` 라이브 영역 **밖의 형제**로 둔다(라이브 영역이 버튼 글자를 낭독하지 않게) — 둘을 감싼 `inline-flex` 묶음이 시각상 한 알약이다. 버튼 슬롯 이름은 플래너 결정(예 `workbench-reconnect`).
 
 **보조 줄(D-06 · 플래너 재량 → 이 계약 결정):** 낡은 전략(`workbench-stale-strategies` · `role="status"`) · 옮김(`workbench-moved-from` · 닫기 ×) 두 줄은 상단 줄 카드 **밖, 바로 아래** `workbench-head` 안에 그대로 옮긴다. 양식은 기존 `AUX_LINE`(11px · `--led-latent` · `break-keep` · 줄 전체 폭) · 좌우 4px 들여쓰기 · 카드와 4px. 필드가 없으면 요소 0 — 머리 높이는 상단 줄만큼이다. 토스트성 안내로 바꾸지 않는다(사라지는 조건이 relay 다음 상태 프레임뿐이라 상시 표시가 맞다).
 
-**유지 슬롯(Pitfall 4 — 다른 spec 5개의 준비 신호):** 루트 `data-slot="workbench-status-bar"` + `data-status={status}` · `workbench-dma`(`aria-live="polite"`) · `workbench-quote`(`aria-live="polite"`) · `workbench-cols-segment` · `workbench-account` · `workbench-account-server`. 루트는 상단 줄 카드 자신이다.
+**유지 슬롯(Pitfall 4 — 다른 spec 5개의 준비 신호):** 루트 `data-slot="workbench-status-bar"` + `data-status={status}` · `workbench-dma`(`aria-live="polite"`) · `workbench-quote`(`aria-live="polite"`) · `workbench-cols-segment` · `workbench-account` · ~~`workbench-account-server`~~(32-15: 빠짐 · `workbench-account-chip` 추가). 루트는 상단 줄 카드 자신이다.
 
 ### S2. 작업대 계좌 스코프
 
+> **32-15 수정 절이 우선** — 계좌 셀렉트 기술은 계좌 칩 줄로 대체(「2026-10-16 수정 (32-15)」 절).
+
 - **보이는 것:** `card.accountNo === 고른 계좌`(또는 계좌 공란 카드)인 카드 · `viOrder.accountNo === 고른 계좌` 인 VI 트리거 스트립 칩(「미확인 n」 도 그 목록으로 센다) · 공용 패널(이미 계좌 축). 돌파 스트립 · 종목 추가란은 스코프 밖(종목 축).
 - **숨은 카드:** 마운트 유지 · 화면에서만 뺀다(주차 노드 `hidden`). 에코 · 더티 · 「결과 모름」 잠금 · 미확인 카운트를 계속 받는다. 시세 구독 수는 그대로다(계좌를 바꿔도 줄지 않는다 — 이 계약은 줄어든다고 말하지 않는다).
-- **전환:** 셀렉트를 바꾸면 **즉시** 격자가 바뀐다(전환 애니메이션 없음). 열린 넘버패드 시트 · 인라인 편집 · 카드 안 팝오버는 닫는다(카드가 숨으므로 · 더티 값은 카드 안에 보존). 사용자가 셀렉트로 바꾼 경우 포커스는 셀렉트에 남는다.
+- **전환:** ~~셀렉트를~~ 계좌 칩을(32-15) 바꾸면 **즉시** 격자가 바뀐다(전환 애니메이션 없음). 열린 넘버패드 시트 · 인라인 편집 · 카드 안 팝오버는 닫는다(카드가 숨으므로 · 더티 값은 카드 안에 보존). ~~사용자가 셀렉트로 바꾼 경우 포커스는 셀렉트에 남는다.~~ 32-15: 칩으로 바꾸면 포커스는 그 칩에 남는다.
 - **프로그램 전환 3경로(토스트 · 사이드바 전략 클릭 · `?focus=`):** 모두 `pickAccount` 한 경로로 바꾸고, 바꾼 계좌는 작업대 기억 계좌(`writeTradingAccount`)가 된다 — **의도된 동작**이다(RESEARCH A1 · Pitfall 5). 그 뒤 기존 카드 포커스 · 펼침 규칙.
 - **종목 단위 경로(Pitfall 6):** 종목 추가 · 보유 행 선택 · 돌파 클릭 · 「이미 카드 있음」 표시는 **고른 계좌의 카드**만 본다. 다른 계좌의 숨은 같은 종목 카드를 펼치지 않는다 — 고른 계좌에 그 종목 카드가 없으면 고른 계좌로 새 카드를 연다(같은 전략 키 1장 규칙만 전수).
 - **빈 상태:** 판정은 「보이는 카드 0」. 문구는 Copywriting S2 표. 상자 기하 · 슬롯(`card-grid-empty`)은 기존 그대로. ✕ 뒤 포커스 이동은 보이는 카드 순서만 본다.
 - **새 카드 기본 계좌:** 고른 계좌(불변). 목업의 점선 「+ 새 전략」 카드는 이 사실의 그림일 뿐 — **새 요소를 만들지 않는다**(기존 종목 추가란이 그 역할).
-- 계좌 1개 사용자: 셀렉트는 그대로(옵션 1개 · 비활성 아님) — 라벨이 곧 「지금 보는 계좌」.
+- 계좌 1개 사용자: ~~셀렉트는 그대로(옵션 1개 · 비활성 아님)~~ 32-15: 칩 1개 선택 — 라벨이 곧 「지금 보는 계좌」.
 
 ### S3. 사이드바 계좌 묶음 트리 (D-02 · 목업 ②)
 
@@ -488,7 +569,7 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 
 > **2026-10-16 수정 절(S′)이 우선.** 아래는 2026-10-13 원문(변경 이력).
 
-- 카드 머리 줄: 「오늘 주문」 · 「{N}건」 · (지연 칩) · (`ml-auto`) **계좌 필**(공용 `AccountPill` — 셀렉트 + 서버키 칩). 줄이 좁으면 필이 다음 줄 오른쪽 끝으로 내려간다(`flex-wrap`).
+- 카드 머리 줄: 「오늘 주문」 · 「{N}건」 · (지연 칩) · (`ml-auto`) ~~**계좌 필**(공용 `AccountPill` — 셀렉트 + 서버키 칩)~~(S6′ 로 /me 주문 필 없음 · 32-15 로 공용 필도 없음). 줄이 좁으면 필이 다음 줄 오른쪽 끝으로 내려간다(`flex-wrap`).
 - 캡션 한 줄(12/400 `--muted-fg`)이 머리 줄 아래.
 - **옵션 목록:** `accounts[]` ∪ 「주문 행에만 있는 계좌」(라벨 = 번호만 · Pitfall 10 — 기록된 주문을 화면이 숨기지 않는다).
 - **기본 선택:** 이 탭 기억값(기기별 · 저장 키 플래너 결정 · 예 `gh-radar:me-orders-account:{userId}`)이 옵션 안이면 그것 → 작업대 기억 계좌(`readTradingAccount`)가 옵션 안이면 그것 → 첫 옵션. 이 탭에서 고르면 이 탭 기억값만 바뀐다(작업대 계좌 불변).
@@ -525,10 +606,11 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 ### S10. 공용 계좌 필 (D-13)
 
 > **2026-10-16 수정 절(S′)이 우선.** 아래는 2026-10-13 원문(변경 이력).
+> **32-15 수정 절이 우선** — 계좌 셀렉트 기술은 계좌 칩 줄로 대체(「2026-10-16 수정 (32-15)」 절). S10 은 어디에도 적용되지 않는다.
 
-- 네이티브 `<select>` + 고른 계좌 서버키 칩. `appearance-none` 금지(OS 선택 UI). 마스킹 없음. 옵션 글자 = S11 전체 변형.
-- props `{accounts, accountNo, onChange, title?}` — `title` 은 쓰는 곳 문구(S1 · S6). 접근 이름 · `data-slot` 은 쓰는 곳마다 다르다(작업대 `workbench-account` · `workbench-account-server` 유지 · /me 주문은 새 슬롯 — 전달 방식 플래너 결정).
-- 계좌 0개 = 「계좌 확인 중…」 1옵션 · 비활성. 계좌 1개 = 활성 · 옵션 1개.
+- ~~네이티브 `<select>` + 고른 계좌 서버키 칩. `appearance-none` 금지(OS 선택 UI). 마스킹 없음. 옵션 글자 = S11 전체 변형.~~ (32-15 로 무효)
+- ~~props `{accounts, accountNo, onChange, title?}` — `title` 은 쓰는 곳 문구(S1 · S6). 접근 이름 · `data-slot` 은 쓰는 곳마다 다르다(작업대 `workbench-account` · `workbench-account-server` 유지 · /me 주문은 새 슬롯 — 전달 방식 플래너 결정).~~ (32-15 로 무효)
+- ~~계좌 0개 = 「계좌 확인 중…」 1옵션 · 비활성. 계좌 1개 = 활성 · 옵션 1개.~~ (32-15 로 무효)
 
 ### S12. VI 계좌별 — 웨이브 ④ 시각
 
@@ -546,8 +628,8 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 | 상단 줄 라이브 영역 | `workbench-dma` · `workbench-quote` 는 `aria-live="polite"` 유지(a11y e2e 463 · trading-workbench 5611). 「다시 연결」 버튼은 라이브 영역 밖 형제 | — |
 | 주문 끊김 | 보이는 「끊김」 + sr-only 「 — {정확한 상태어}」 · 색(`--destructive`)은 보조(WCAG 1.4.1) | 「주문 끊김 — 회선 단절」 |
 | 「다시 연결」 | 네이티브 `button` · 이름 = 보이는 글자 | 「다시 연결」 |
-| 계좌 셀렉트 | 네이티브 `select` · `aria-label` 「계좌」(작업대) · 서버키 칩은 장식 아님(글자 그대로 낭독) · (/me 주문 셀렉트는 2026-10-16 수정으로 없음) | — |
-| /me 계좌 칩(S13) | `role="radiogroup"` 이름 「My page 계좌」 · 칩 `role="radio"` + `aria-checked` · roving tabindex(←/→ · Home/End) · 잠금 시 `aria-disabled` · 이름 = 칩 글자 그대로 | 「김알렉스 1234-5678 KB120」 |
+| ~~계좌 셀렉트~~ 계좌 칩 줄(32-15) | ~~네이티브 `select` · `aria-label` 「계좌」(작업대) · 서버키 칩은 장식 아님(글자 그대로 낭독)~~ 32-15: radiogroup 「계좌」 · 칩 `role="radio"` · 칩 안 서버키는 접근 이름에 포함 · (/me 주문 셀렉트는 2026-10-16 수정으로 없음) | — |
+| /me 계좌 칩(S13) | `role="radiogroup"` 이름 「My page 계좌」 · 칩 `role="radio"` + `aria-checked` · roving tabindex · ←/→/↑/↓ · Home/End = 포커스 + 선택(WAI-ARIA radio · IN-02 수정 2026-10-16 · 잠금이면 포커스만) · Enter/Space/클릭도 선택 · 잠금 시 `aria-disabled` · 이름 = 칩 글자 그대로 · 작업대 상단 줄도 같은 부품(32-15 · 이름 「계좌」) | 「김알렉스 1234-5678 KB120」 |
 | 컬럼 세그먼트 | `ToggleGroup` 이름 「카드 단 수」 · `wb` < 680 에서는 DOM 에 없음(탭 체인 · 접근성 트리에서 빠짐) | — |
 | 토스트 | 컨테이너 `role="status"` · `aria-live="polite"` 유지(trading-workbench 1620). 계좌 줄 · 힌트는 본문 버튼 안이라 버튼 이름에 포함 · `›` 는 `aria-hidden` | 「한화오션 매수 체결 … 계좌 8765-4321 · 교보 종합 · KYOBO119 이 계좌 보기」 |
 | 사이드바 묶음 | 묶음 = `<li>` 안에 소제목 `<div id>`(포커스 없음) + `<ul aria-labelledby>` · 전략 · VI 링크 이름 불변 · LED 묶음 `role="img"` 라벨 불변 | 목록 이름 「김알렉스 KB120」 |
@@ -558,13 +640,13 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 | 서버 세그먼트 | (2026-10-16 수정으로 없음 — S8′ 서버키 칩은 글자 그대로 낭독 · 상태 칩 「아직 못 받음」 도 글자) | — |
 | 12행 흐림 | 기존 `aria-busy="true"` · `data-dim` | — |
 | 「돌파 알림음」 | `Switch`(`role="switch"`) 이름 「돌파 알림음」 · `aria-describedby` = 캡션 · 「클릭해 활성화」 는 별도 `button` | — |
-| 계좌 전환 포커스 | 셀렉트로 바꾸면 포커스는 셀렉트에 · 숨은 카드 안에 포커스가 있던 경우는 없다(셀렉트를 조작 중) · 프로그램 전환은 기존 카드 포커스 규칙 | — |
+| 계좌 전환 포커스 | ~~셀렉트로 바꾸면 포커스는 셀렉트에~~ 32-15: 칩으로 바꾸면 포커스는 그 칩에 · 숨은 카드 안에 포커스가 있던 경우는 없다(~~셀렉트를~~ 칩 줄을 조작 중) · 프로그램 전환은 기존 카드 포커스 규칙 | — |
 
 ---
 
 ## 체커 FLAG 반영 메모 (2026-10-13 · 비차단)
 
-- **시선 앵커(Dim 2):** 작업대 상단 줄 = **계좌 셀렉트**(가장 왼쪽 · 유일한 입력) · /me 현황 카드 = 첫 계좌 **소제목의 번호**(12/600 `--fg` — 나머지는 `--muted-fg`) · /me 설정 = **서버 세그먼트 선택 항목**(`--seg-on-bg` 유일한 면색 대비).
+- **시선 앵커(Dim 2):** 작업대 상단 줄 = ~~**계좌 셀렉트**(가장 왼쪽 · 유일한 입력)~~ 32-15: 계좌 칩 줄의 **선택 칩**(가장 왼쪽 · `--seg-on-bg`) · /me 현황 카드 = 첫 계좌 **소제목의 번호**(12/600 `--fg` — 나머지는 `--muted-fg`) · /me 설정 = **서버 세그먼트 선택 항목**(`--seg-on-bg` 유일한 면색 대비).
 - **D-14 서버 목록 출처(FLAG 2):** 이 계약은 `accounts[]` 서버키 중복 제거를 쓴다(계좌 목록이 곧 결선 세션의 산물이고 · 미수신 서버를 「아직 못 받음」 으로 **보여 주는** 상태가 D-14 의 요구이므로 84 수신 집합만으로는 그 상태를 만들 수 없다). 세션이 닫힌 서버의 계좌가 `accounts[]` 에 남는지는 플래너가 relay `state` 조립을 확인해 정한다 — 남는다면 D-14a 의 `state.sessions[]` 추가로 거른다(CONTEXT 재량 항목).
 - **타이포(Dim 4):** 12 와 12.5 는 각각 기존 `--t-sm`(행 보조) · `ChoiceRow` 세그먼트 상속값이라 이 phase 가 새로 만든 간격이 아니다. 「이 계좌 끄기」 11/600 은 목업 ③ A `.btn.sm` 그대로 · 보조 동작(주 동작은 다이얼로그 실행 버튼)이라 유지.
 - **E2E 갱신 지점(FLAG 7 · 플래너 체크리스트):** `webapp/e2e/specs/trading-workbench.spec.ts` 1730~1731(`stat-applied` 제거) · 5080(`workbench-window-badge` 단언 삭제) · 5611(`workbench-dma` live 유지 확인) · 1620(토스트 `role=status` 유지) · `webapp/e2e/specs/a11y.spec.ts` 463(live 영역) · `webapp/e2e/specs/me.spec.ts` 849(`strategy-row-account` 제거) · 943 근처(/me 주문 그룹 소제목 → 평탄 + 계좌 필) · 단위 `workbench-status-bar.test.tsx` · `tone` describe 이전(S9). 줄 번호는 2026-10-13 기준 — 플래너가 재확인.
@@ -573,8 +655,8 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 
 ## 폭 백스톱
 
-- **최악값 글자:** 셀렉트 옵션 「1234-5678-90 · 종합매매(위탁) 김알렉스 · KYOBO127」(번호 12 · 상품명 15 · 서버키 8자) · 사이드바 소제목 같은 상품명 + 「KYOBO127」 · 토스트 계좌 줄 「계좌 」 + 같은 전체 라벨.
-- **상단 줄:** 본문 344(폰) · 685 · 830 · 992 에서 상단 줄 항목 잘림 0 — 셀렉트는 `max-w-full` 안에서 네이티브 말줄임, 알약 · 칩 · 세그먼트는 `whitespace-nowrap` 로 통째 줄바꿈. 가로 스크롤 0.
+- **최악값 글자:** ~~셀렉트 옵션~~ 계좌 칩(32-15) 「1234-5678-90 · 종합매매(위탁) 김알렉스 · KYOBO127」(번호 12 · 상품명 15 · 서버키 8자) · 사이드바 소제목 같은 상품명 + 「KYOBO127」 · 토스트 계좌 줄 「계좌 」 + 같은 전체 라벨.
+- **상단 줄:** 본문 344(폰) · 685 · 830 · 992 에서 상단 줄 항목 잘림 0 — ~~셀렉트는 `max-w-full` 안에서 네이티브 말줄임~~ 32-15: 계좌 칩 줄은 그 줄 안 가로 스크롤(칩 글자 잘림 0), 알약 · 칩 · 세그먼트는 `whitespace-nowrap` 로 통째 줄바꿈. 가로 스크롤 0.
 - **사이드바(240 · 드로어 280):** 소제목 이름만 말줄임(+ `title`) · 서버키 칩 온전 · 전략 줄은 기존 규칙(종목명 말줄임 · LED 온전).
 - **/me 현황 소제목(폰 /me 본문 ≈ 334):** 번호 · 칩 · 버튼 온전, 상품명만 말줄임. 그래도 모자라면(번호 12자 + KYOBO127 + 버튼) 상품명이 0폭까지 줄고 줄은 1줄 유지.
 - **토스트:** 계좌 줄 `break-keep` 로 두 줄까지 접힘 · 힌트는 줄바꿈해도 온전 · 말줄임 없음.
@@ -591,21 +673,21 @@ Applicable state considerations: 91 · resolved 85 (explicit 77 · backstop 8) �
 
 | Category | Element | Status | Resolution |
 |----------|---------|--------|------------|
-| empty | S1 상단 줄 | ✅ resolved (explicit) | 계좌 0 = 셀렉트 「계좌 확인 중…」 1옵션 비활성 · 서버키 칩 없음 · 알약 · 세그먼트는 그대로(Copywriting S1) |
+| empty | S1 상단 줄 | ✅ resolved (explicit) | ~~계좌 0 = 셀렉트 「계좌 확인 중…」 1옵션 비활성 · 서버키 칩 없음~~ 32-15: 계좌 0 = 「계좌 확인 중…」 글자(칩 없음) · 알약 · 세그먼트는 그대로(Copywriting S1) |
 | loading | S1 상단 줄 | ✅ resolved (explicit) | 주문 알약 진행 상태어(`RELAY_STATE_LABELS`) + 점 `--flat` pulse · 시세 모름이면 시세 알약 없음(기존) · 폭 미판정 첫 페인트는 CSS 폴백 `hidden @min-[680px]/wb:inline-flex` |
 | error | S1 상단 줄 | ✅ resolved (explicit) | `UNRECOVERABLE_STATES` → 「주문 끊김 · 다시 연결」(점 · 상태어 `--destructive`, 링크 `--primary` · 라이브 영역 밖 형제) · 정확한 상태어는 sr-only · `title` · `unauthorized` 는 「권한 없음」 링크 없음 |
-| populated | S1 상단 줄 | ✅ resolved (explicit) | 셀렉트 → 칩 → 시세 알약 → 주문 알약 → (`ml-auto`) 세그먼트 한 줄 · 보조 줄 없으면 요소 0 — 머리 높이는 상단 줄만 |
+| populated | S1 상단 줄 | ✅ resolved (explicit) | ~~셀렉트 → 칩~~ 계좌 칩 줄(32-15) → 시세 알약 → 주문 알약 → (`ml-auto`) 세그먼트 한 줄 · 보조 줄 없으면 요소 0 — 머리 높이는 상단 줄만 |
 | partial | S1 상단 줄 | ✅ resolved (explicit) | 서버키 없는 계좌 = 칩 없음 · 시세 알약은 시세 상태가 있을 때만 · 낡은 전략 · 옮김 보조 줄은 필드가 있을 때만 각각 1줄 |
 | overflow | S1 상단 줄 | ✅ resolved (explicit) | `wb` < 680 세그먼트 DOM 제외(**사용자 확인 2026-10-13** · 목업 폰 둘째 줄 안 그림) · ≥680 `flex-wrap` 다음 줄 오른쪽 끝 · 보조 줄은 카드 밖 전체 폭 `break-keep` · 가로 스크롤 0 |
-| zero-one-many | S1 상단 줄 | ✅ resolved (explicit) | 계좌 0 = 비활성 1옵션 / 1 = 활성 옵션 1개(라벨이 곧 보는 계좌) / 다수 = 옵션 목록 · 보조 줄 0 · 1 · 2줄로 쌓임 |
-| long-text | S1 상단 줄 | 🧪 resolved (backstop) | { statement: "본문 344 · 685 · 830 · 992 에서 최악값 셀렉트 라벨 · 「주문 끊김 · 다시 연결」 · 세그먼트가 잘림 0 · 가로 스크롤 0 · 넘치면 flex-wrap 줄바꿈(세그먼트는 다음 줄 오른쪽 끝)", verification: backstop } |
+| zero-one-many | S1 상단 줄 | ✅ resolved (explicit) | ~~계좌 0 = 비활성 1옵션 / 1 = 활성 옵션 1개(라벨이 곧 보는 계좌) / 다수 = 옵션 목록~~ 32-15: 계좌 0 = 「계좌 확인 중…」 글자 / 1 = 칩 1개 선택 / 다수 = 칩 줄 가로 스크롤 · 보조 줄 0 · 1 · 2줄로 쌓임 |
+| long-text | S1 상단 줄 | 🧪 resolved (backstop) | { statement: "본문 344 · 685 · 830 · 992 에서 최악값 ~~셀렉트 라벨~~ 계좌 칩(32-15) · 「주문 끊김 · 다시 연결」 · 세그먼트가 잘림 0 · 가로 스크롤 0 · 넘치면 flex-wrap 줄바꿈(세그먼트는 다음 줄 오른쪽 끝)", verification: backstop } |
 | empty | S2 계좌 스코프 격자 | ✅ resolved (explicit) | 판정 「보이는 카드 0」 · 전 계좌 0 = 기존 `CARD_GRID_EMPTY_*` · 고른 계좌만 0 = 「이 계좌에 거래할 종목이 없어요」 + 숨은 카드 {N}장 안내 · 슬롯 `card-grid-empty` 기존 |
-| loading | S2 계좌 스코프 격자 | ✅ resolved (explicit) | 스냅샷 전 = 기존 격자 로딩 그대로 · 고른 계좌가 아직 없는(`accounts[]` 미수신 · 셀렉트 「확인 중」) 동안은 **거르지 않는다**(전부 보임) → 계좌가 정해지는 순간 거른다(빈 격자 깜빡임 방지 — 이 계약 결정) |
+| loading | S2 계좌 스코프 격자 | ✅ resolved (explicit) | 스냅샷 전 = 기존 격자 로딩 그대로 · 고른 계좌가 아직 없는(`accounts[]` 미수신 · ~~셀렉트 「확인 중」~~ 「계좌 확인 중…」 글자 — 32-15) 동안은 **거르지 않는다**(전부 보임) → 계좌가 정해지는 순간 거른다(빈 격자 깜빡임 방지 — 이 계약 결정) |
 | error | S2 계좌 스코프 격자 | ✅ resolved (explicit) | 전환은 로컬 상태라 실패 경로 없음 · 카드 안 오류 · 「결과 모름」 잠금은 숨은 채 보존 · 다른 계좌 카드의 거부 · 체결은 토스트가 전부 띄운다(S4) |
 | populated | S2 계좌 스코프 격자 | ✅ resolved (explicit) | 고른 계좌 카드만 기존 격자 규칙(§2.2b 밴드 · 저장 단 수)으로 · 숨은 카드는 마운트 유지(에코 · 더티 · 결과 모름 · 미확인 카운트 보존 · 시세 구독 수 불변) |
 | partial | S2 계좌 스코프 격자 | ✅ resolved (explicit) | 계좌 공란 카드는 모든 계좌에서 보인다 · VI 트리거 스트립 칩은 `viOrder.accountNo` 로 거른다 · 작업대 VI 설정 행은 ④ 전 현행(스코프 밖) |
 | overflow | S2 계좌 스코프 격자 | ✅ resolved (explicit) | 격자 폭 · 단 수 규칙 불변 — 숨김은 레이아웃 폭에 영향 없음 · 숨은 카드 수는 빈 상태 본문에서만 말한다 |
-| zero-one-many | S2 계좌 스코프 격자 | ✅ resolved (explicit) | 계좌 1개 = 셀렉트 옵션 1개 활성 · 격자 = 지금과 동일 · 다계좌 = 전환 즉시(애니메이션 없음) · 열린 시트 · 인라인 편집 · 팝오버 닫힘 · 포커스는 셀렉트에 |
+| zero-one-many | S2 계좌 스코프 격자 | ✅ resolved (explicit) | 계좌 1개 = ~~셀렉트 옵션 1개 활성~~ 칩 1개 선택(32-15) · 격자 = 지금과 동일 · 다계좌 = 전환 즉시(애니메이션 없음) · 열린 시트 · 인라인 편집 · 팝오버 닫힘 · 포커스는 ~~셀렉트에~~ 그 칩에(32-15) |
 | empty | S3 사이드바 묶음 | ✅ resolved (explicit) | 켜진 전략 · 가동 VI 없는 계좌는 소제목 없음 · 전부 없으면 3단 목록 자체 없음(빈 문구 없음 — 기존) |
 | loading | S3 사이드바 묶음 | ✅ resolved (explicit) | 스냅샷 전 = 목록 없음(스피너 없음 — 기존) · `accounts[]` 미수신 중 켜진 전략은 목록 밖 계좌 묶음(번호 소제목)으로 섰다가 수신 후 제자리 |
 | error | S3 사이드바 묶음 | ✅ resolved (explicit) | 사이드바에 오류 상태 없음 — relay 끊김 시 마지막 스냅샷 유지 · LED 는 기존 규칙(기존 동작 불변) |
@@ -637,7 +719,7 @@ Applicable state considerations: 91 · resolved 85 (explicit 77 · backstop 8) �
 | partial | S6 /me 주문 | ✅ resolved (explicit) | 행에만 있는 계좌도 옵션(번호 라벨) — 기록된 주문을 숨기지 않는다(Pitfall 10) · 기억값이 옵션 밖이면 작업대 계좌 → 첫 옵션 |
 | overflow | S6 /me 주문 | ✅ resolved (explicit) | 머리 줄 `flex-wrap` — 좁으면 필이 다음 줄 오른쪽 끝 · 표 가로 스크롤 · 카드 목록 규칙 기존 |
 | zero-one-many | S6 /me 주문 | ✅ resolved (explicit) | 「주문 N」 · 「N건」 = 고른 계좌 건수 · 0 이면 탭 숫자 없음 · 그룹 소제목 없음(평탄) · 계좌 1개 = 필 옵션 1개 활성 |
-| long-text | S6 /me 주문 | ✅ resolved (explicit) | 필 옵션 라벨은 네이티브 `<select>` 말줄임(`max-w-full min-w-0`) · 캡션 `break-keep` 줄바꿈 · 말줄임 없음 |
+| long-text | S6 /me 주문 | ✅ resolved (explicit) | ~~필 옵션 라벨은 네이티브 `<select>` 말줄임(`max-w-full min-w-0`)~~(S6′ · 32-15 로 필 없음) · 캡션 `break-keep` 줄바꿈 · 말줄임 없음 |
 | empty | S7 /me 잔고 소제목 | ✅ resolved (explicit) | 계좌 0 = `AccountPanel` 기존 빈 · 확인 중 상태 그대로(소제목 없음) |
 | loading | S7 /me 잔고 소제목 | ✅ resolved (explicit) | 잔고 로딩은 기존 `AccountPanel` 그대로 · 소제목은 `accounts[]` 가 있으면 잔고와 독립해 즉시 그린다 |
 | error | S7 /me 잔고 소제목 | ✅ resolved (explicit) | 잔고 조회 실패 문구 기존 · 소제목은 유지(계좌 식별은 오류와 무관) |
@@ -662,17 +744,17 @@ Applicable state considerations: 91 · resolved 85 (explicit 77 · backstop 8) �
 | overflow | S9 「이 기기」 카드 | ✅ resolved (explicit) | 라벨 `whitespace-nowrap` · 「클릭해 활성화」 + 스위치 묶음은 좁으면 라벨 아래로 줄바꿈 허용 · 가로 스크롤 0 |
 | zero-one-many | S9 「이 기기」 카드 | ⛔ dismissed | 사유: 행 1개 고정(「돌파 알림음」) — 개수 축이 없다. 기기 설정이 늘면 같은 카드에 행을 추가한다(이 phase 밖) |
 | long-text | S9 「이 기기」 카드 | 🧪 resolved (backstop) | { statement: "켜짐 ∧ 차단일 때 「돌파 알림음」 행에 「클릭해 활성화」 + 스위치가 폰 /me 본문에서 한 줄 또는 줄바꿈으로 잘림 0", verification: backstop } |
-| empty | S10 공용 계좌 필 | ✅ resolved (explicit) | 계좌 0 = 「계좌 확인 중…」 1옵션 · 셀렉트 비활성 · 서버키 칩 없음 |
-| loading | S10 공용 계좌 필 | ✅ resolved (explicit) | 로딩 = 계좌 0 과 같은 모양(「확인 중」) · 부품은 별도 스피너 없음 · 쓰는 곳 로딩은 각자(S1 · S6) |
-| error | S10 공용 계좌 필 | ⛔ dismissed | 사유: 부품 자체 오류 상태 없음 — 계좌 목록은 relay `state` 에서 오고 연결 오류는 쓰는 곳(S1 주문 알약 · S6 실패 문구)이 말한다 |
-| populated | S10 공용 계좌 필 | ✅ resolved (explicit) | 네이티브 `<select>` 26px 둥근 알약 `--muted` 11px mono(`appearance-none` 금지) + 고른 계좌 서버키 칩 · 옵션 글자 = S11 전체 변형 · props `{accounts, accountNo, onChange, title?}` |
-| partial | S10 공용 계좌 필 | ✅ resolved (explicit) | 서버키 없는 계좌 = 칩 없음 · 목록 밖 계좌 옵션(S6 · 번호 라벨) · 접근 이름 · `data-slot` 은 쓰는 곳마다(작업대 `workbench-account` · `workbench-account-server` 유지) |
-| overflow | S10 공용 계좌 필 | ✅ resolved (explicit) | `max-w-full min-w-0` — 라벨은 네이티브 말줄임 · 칩 `whitespace-nowrap` · 컨테이너 `flex-wrap` 은 쓰는 곳 몫 |
-| zero-one-many | S10 공용 계좌 필 | ✅ resolved (explicit) | 0 = 비활성 1옵션 / 1 = 활성 옵션 1개 / 다수 = 전체 옵션 · 마스킹 없음 |
-| long-text | S10 공용 계좌 필 | 🧪 resolved (backstop) | { statement: "최악값 옵션 「1234-5678-90 · 종합매매(위탁) 김알렉스 · KYOBO127」 이 작업대 본문 344 · /me 334 에서 셀렉트 안 네이티브 말줄임으로 보이고 칩 온전 · 가로 스크롤 0", verification: backstop } |
+| empty | S10 공용 계좌 필 | ✅ resolved (explicit) | 계좌 0 = 「계좌 확인 중…」 1옵션 · 셀렉트 비활성 · 서버키 칩 없음 · **32-15 로 무효** |
+| loading | S10 공용 계좌 필 | ✅ resolved (explicit) | 로딩 = 계좌 0 과 같은 모양(「확인 중」) · 부품은 별도 스피너 없음 · 쓰는 곳 로딩은 각자(S1 · S6) · **32-15 로 무효** |
+| error | S10 공용 계좌 필 | ⛔ dismissed | 사유: 부품 자체 오류 상태 없음 — 계좌 목록은 relay `state` 에서 오고 연결 오류는 쓰는 곳(S1 주문 알약 · S6 실패 문구)이 말한다 · **32-15 로 무효** |
+| populated | S10 공용 계좌 필 | ✅ resolved (explicit) | 네이티브 `<select>` 26px 둥근 알약 `--muted` 11px mono(`appearance-none` 금지) + 고른 계좌 서버키 칩 · 옵션 글자 = S11 전체 변형 · props `{accounts, accountNo, onChange, title?}` · **32-15 로 무효** |
+| partial | S10 공용 계좌 필 | ✅ resolved (explicit) | 서버키 없는 계좌 = 칩 없음 · 목록 밖 계좌 옵션(S6 · 번호 라벨) · 접근 이름 · `data-slot` 은 쓰는 곳마다(작업대 `workbench-account` · `workbench-account-server` 유지) · **32-15 로 무효** |
+| overflow | S10 공용 계좌 필 | ✅ resolved (explicit) | `max-w-full min-w-0` — 라벨은 네이티브 말줄임 · 칩 `whitespace-nowrap` · 컨테이너 `flex-wrap` 은 쓰는 곳 몫 · **32-15 로 무효** |
+| zero-one-many | S10 공용 계좌 필 | ✅ resolved (explicit) | 0 = 비활성 1옵션 / 1 = 활성 옵션 1개 / 다수 = 전체 옵션 · 마스킹 없음 · **32-15 로 무효** |
+| long-text | S10 공용 계좌 필 | 🧪 resolved (backstop) | { statement: "최악값 옵션 「1234-5678-90 · 종합매매(위탁) 김알렉스 · KYOBO127」 이 작업대 본문 344 · /me 334 에서 셀렉트 안 네이티브 말줄임으로 보이고 칩 온전 · 가로 스크롤 0", verification: backstop } · **32-15 로 무효** |
 | loading | S11 계좌 라벨 | ✅ resolved (explicit) | 상품명 · 서버키 미수신(`accounts[]` 전 · 목록 밖 계좌) = 번호만 · 「 · 」 꼬리를 남기지 않는다 |
 | error | S11 계좌 라벨 | ⛔ dismissed | 사유: 순수 서식 함수 — 오류 상태가 없다(빈 입력은 빈 칸 생략 규칙으로 흡수) |
-| overflow | S11 계좌 라벨 | ✅ resolved (explicit) | 함수는 자르지 않는다 · 자르기는 쓰는 곳 CSS(`truncate` + `title`) — 네이티브 `<select>` 옵션은 OS 가 자른다 |
+| overflow | S11 계좌 라벨 | ✅ resolved (explicit) | 함수는 자르지 않는다 · 자르기는 쓰는 곳 CSS(`truncate` + `title`) — ~~네이티브 `<select>` 옵션은 OS 가 자른다~~(32-15: 셀렉트 없음 · 칩은 자르지 않고 줄이 가로 스크롤) |
 | long-text | S11 계좌 라벨 | ✅ resolved (explicit) | 최악값 번호 12 · 상품명 15 · 서버키 8자 → 전체 변형 ≈ 40자 · 짧은 변형은 상품명(중복 시 번호) + 칩 · 쓰는 곳 백스톱(S1 · S3 · S5 · S7 · S10)이 잘림 0 을 확인 |
 | empty | S12 VI 계좌별(④) | ✅ resolved (explicit) | 미등록 슬롯 = 기존 미등록 빈 행(저장하면 고른 계좌로 등록) · 어느 계좌에도 없음 = ④ 전 /me VI 행 없음 / ④ 뒤 모든 묶음 한 행 「중지」 |
 | loading | S12 VI 계좌별(④) | ✅ resolved (explicit) | 61 프레임 전 = 기존 VI 로딩 · 구 서버(계좌 1건 61) 호환 창에서는 기존 모양 유지(relay 먼저 배포 · D-16) |
@@ -702,7 +784,7 @@ CONTEXT 「Claude's Discretion」 과 RESEARCH Open Q 중 화면에 닿는 것�
 1. **폰 밴드 세그먼트(Pitfall 7 · Open Q2):** `wb` < 680 은 DOM 제외(종전 접근성 계약), ≥680 은 넘칠 때 같은 카드 안 다음 줄 오른쪽 끝. 목업 폰 390 의 아래 줄 세그먼트는 1열 고정 폭이라 동작하지 않는 조작이므로 그리지 않는다. **사용자 확인 완료(2026-10-13 · ui-phase): 「폰에서 뺀다」** — 목업 폰 390 의 둘째 줄 세그먼트는 그리지 않는다.
 2. **주문 알약 끊김 문구:** `UNRECOVERABLE_STATES` 에서만 보이는 상태어 「끊김」(목업) + 「다시 연결」 링크 · 정확한 상태어는 sr-only · title. `orderPillOf` · /me 상태줄은 불변.
 3. **낡은 전략 · 옮김 보조 줄:** 상단 줄 카드 밖 바로 아래(목업 `.aux` 자리) · 기존 양식 · 토스트로 바꾸지 않음.
-4. 계좌 1개 = 셀렉트 활성 · 옵션 1개 / 계좌 0 = 기존 「계좌 확인 중…」.
+4. ~~계좌 1개 = 셀렉트 활성 · 옵션 1개~~ 32-15: 계좌 1개 = 칩 1개 선택 / 계좌 0 = 기존 「계좌 확인 중…」(칩 없이 글자).
 5. 사이드바 전략 클릭 = 작업대 계좌 전환 + 포커스 · VI 줄 클릭 전환은 ④ 에서.
 6. 계좌 전환 시 시트 · 인라인 편집 닫기 · 프로그램 전환은 기억 계좌도 바꾼다(RESEARCH A1 — 의도된 동작).
 7. 계좌 빈 상태 문구(숨은 카드 수 안내) · /me 주문 고른 계좌 빈 상태 문구(다른 계좌 건수 안내).
