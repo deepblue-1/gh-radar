@@ -56,21 +56,14 @@
  *   그 행이 보내는 `vi.set` 의 계좌는 **그 행의 계좌**다 — 미등록 행을 저장하면 그 계좌 슬롯으로 등록된다.
  *   계좌 목록이 비었거나 고른 계좌가 목록 밖이면 고른 계좌(공란이면 잠긴 행) 두 행을 그대로 그린다(종전 빈 모양).
  *
- * ⑨-b ★ 계좌 정본 (CR-02 · UI-SPEC Q-3 VI 판)
- *   등록된 전략(서버 61 에코의 `accountNo` 가 공란 아님)은 **자기 계좌를 유지한다** — 상태줄
- *   계좌는 미등록 줄의 기본값일 뿐이다. 그 줄이 보내는 모든 `vi.set`(「수정」·시작·중지)과 잠금·
- *   확인 요약·고지가 `viRowAccountOf` 한 값을 읽는다. 상태줄 계좌로 보내면 계좌 B 로 가동 중인
- *   무인 매수가 「수정」 한 번에 조용히 A 로 옮겨 간다(실돈 오계좌 주문).
- *   ★ 잠그지 않는다 — 계좌가 다를 때 줄을 잠그면 **중지**도 막혀 무인 매수를 끄려면 상태줄부터
- *     바꿔야 한다. 정본 계좌로 보내면 옮겨지는 것 자체가 없고, 줄 아래 `role="status"` 한 줄이
- *     「어느 계좌의 VI 인지」를 말한다. 같으면 아무것도 그리지 않는다(D-05 평상시 그대로).
- *   ★ 중지 상태에서만 명시 동작으로 옮긴다 (GC-WR-04 · 사용자 결정 2026-09-22). 등록 줄이
- *     **중지**(`run:false`)이고 등록 계좌 B 가 상태줄 계좌 A 와 다를 때만, 고지 옆에 「상태줄
- *     계좌({A})로 옮겨 시작」 이 붙는다. 누르면 시작 확인 창의 「계좌」 줄이 「B → A」 를 말하고,
- *     확정하면 같은 거래소 슬롯에 `vi.set{accountNo:A, run:true}` 가 **한 번** 나간다(삭제·재등록
- *     경로는 없다). 가동 중에는 버튼이 없고(DOM 부재) `submit` 도 계좌 지정 송신을 막는다 — 두 겹.
- *     확정 직전 `viMoveTargetOf` 를 다시 계산해 창을 연 때의 B → A 와 다르면 아무것도 보내지 않는다.
- *     일반 스위치 시작·「수정」 은 여전히 B 다 — 계좌 이동은 이 동작 하나뿐이다.
+ *   Phase 32 D-18 — 계좌별 슬롯이라 옮기기가 없다(같은 거래소에 다른 계좌로 저장 = 그 계좌의 새 슬롯).
+ *
+ * ⑩ ★ `vi.set` 거부는 보낸 (계좌, 거래소) 행에만 선다 (UI-SPEC S12 error)
+ *   relay 거부(`src "Relay"` · `kind "vi.set"` — 소유 세션 · 계좌 대조)와 서버 54(`src "SetVITrigger"`)는 거래소 축이 없다.
+ *   그래서 이 섹션이 최근 송신의 (계좌, 거래소)를 기억해 두고, 새 거부를 계좌가 맞는 **가장 최근 송신** 행에 귀속한다(판정은
+ *   `isViSetRejection` 하나). 행은 아직 답(에코)을 못 받은 송신이 있을 때만 받아 잠금을 풀고 기존 VI 오류 문구(`ViServerErrorLine`
+ *   · 출처 배지 + 원문)를 그 행 아래에 보인다. 다음 송신이나 에코가 지운다. 작업대 VI 패널의 한 자리 경보는 그대로다(패널이
+ *   접혀도 보이는 자리).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -95,7 +88,12 @@ import {
 import { ExchangeTag } from '@/components/trading/vi-order-list';
 import { MAX_VI_ORDER_AMOUNT_MANWON, krwToManwon, manwonToKrw } from '@/lib/vi-alert';
 import { useRelayContext } from '@/lib/relay-provider';
-import { VI_EXCHANGES, viSlotOf, type RelayViSlots } from '@/lib/use-relay-socket';
+import {
+  VI_EXCHANGES,
+  viSlotOf,
+  type RelayServerMessageEntry,
+  type RelayViSlots,
+} from '@/lib/use-relay-socket';
 import type { ViServerError } from '@/lib/use-vi-server-error';
 import { cn } from '@/lib/utils';
 
@@ -130,50 +128,20 @@ export const VI_ACK_TIMEOUT_TEXT = '미반영 · 서버 응답을 기다리고 �
 export const VI_DIRTY_HINT = '「수정」을 눌러야 반영돼요 · 가동 상태(run)는 그대로 유지돼요';
 
 /**
- * 등록 계좌 ≠ 상태줄 계좌일 때 줄 아래 고지 (⑨ · UI-SPEC Q-3 「그 사실을 UI 가 말해야 한다」).
- * 이름은 세션 계좌 목록에서 **정본 계좌로** 찾은 값이다 — 없으면 번호만.
- * `run` 으로 두 갈래(GC-WR-04): 가동 중이면 옮길 수 없다는 것과 방법(먼저 중지)을 말하고, 중지면
- * 사실만 말한다 — 옮기는 길은 바로 옆 버튼이 말한다(위치를 가리키는 말은 폭마다 틀려진다).
+ * `vi.set` 거부인가 (⑩) — relay 자기 거부(`src "Relay"` · `kind "vi.set"`)와 서버 54 `SetVITrigger` 의 ERROR 만.
+ * ★ 동등 비교만 한다(`RelayServerMsg.src` · `kind` 규율). `Account` · `VITrigger` 통지는 행의 송신 답이 아니다.
  */
-export function viRegisteredAccountText(accountNo: string, name: string | undefined, run: boolean): string {
-  const label = name !== undefined && name !== '' ? `${accountNo} · ${name}` : accountNo;
-  return run
-    ? `계좌 ${label} 에 등록된 VI 예요 — 가동 중에는 이 계좌로만 나가요 · 옮기려면 먼저 중지하세요`
-    : `계좌 ${label} 에 등록된 VI 예요 — 수정·시작은 이 계좌로 나가요`;
+export function isViSetRejection(msg: Pick<RelayServerMessageEntry, 'lv' | 'src' | 'kind'>): boolean {
+  if (msg.lv !== 'ERROR') return false;
+  return (msg.src === 'Relay' && msg.kind === 'vi.set') || msg.src === 'SetVITrigger';
 }
 
-/**
- * 줄 계좌 판정의 **유일 지점** (⑨). 등록 전략(객체 ∧ `accountNo` 공란 아님)이면 그 계좌,
- * 아니면 상태줄 계좌. `differs` 는 등록 계좌가 상태줄 계좌와 다를 때만 참이다.
- */
-export function viRowAccountOf(
-  server: RelayViTrigger | null | undefined,
-  statusAccountNo: string,
-): { accountNo: string; differs: boolean } {
-  const registered = server != null && server.accountNo !== '' ? server.accountNo : null;
-  if (registered === null) return { accountNo: statusAccountNo, differs: false };
-  return { accountNo: registered, differs: registered !== statusAccountNo };
+/** 행에 귀속한 거부 1건 — `seq` 가 바뀔 때만 행이 새 사건으로 읽는다. */
+interface ViSlotRejection {
+  slotKey: string;
+  seq: number;
+  error: ViServerError;
 }
-
-/**
- * 옮기기 대상 판정 (GC-WR-04 · 사용자 결정 2026-09-22). 등록 전략(객체 ∧ `accountNo` 공란 아님)
- * ∧ **중지**(`run === false`) ∧ 상태줄 계좌 공란 아님 ∧ 등록 계좌 ≠ 상태줄 계좌일 때만
- * `{from: 등록 계좌, to: 상태줄 계좌}`, 아니면 `null`.
- *   ★ 가동 중에는 절대 옮기지 않는다 — 무인 매수가 도는 중에 계좌가 바뀌면 실돈 오계좌다(CR-02).
- *   ★ 옮기기는 명시 동작 하나다 — 「수정」·일반 스위치 시작은 이 판정을 읽지 않는다.
- */
-export function viMoveTargetOf(
-  server: RelayViTrigger | null | undefined,
-  statusAccountNo: string,
-): { from: string; to: string } | null {
-  if (server == null || server.accountNo === '') return null;
-  if (server.run !== false) return null;
-  if (statusAccountNo === '' || server.accountNo === statusAccountNo) return null;
-  return { from: server.accountNo, to: statusAccountNo };
-}
-
-/** 옮기기 창을 연 뒤 상태(가동·등록 계좌·상태줄 계좌)가 바뀌어 보내지 않았을 때 (T-18-118). */
-export const VI_MOVE_STALE_TEXT = '계좌 상태가 바뀌었어요 — 다시 확인해 주세요';
 
 /* ───────────────────────────── 순수 조각 ───────────────────────────── */
 
@@ -276,6 +244,42 @@ export function ViSettingsRows({
     onDirtyCountChange?.(total);
   }, [total, onDirtyCountChange]);
 
+  /* ── `vi.set` 거부 귀속 (⑩) ── */
+  const { messages } = useRelayContext();
+  /** 최근 송신의 (계좌, 거래소) — 최신이 뒤. 슬롯당 1개 · 거부 귀속에만 쓴다. */
+  const sentRef = useRef<{ slotKey: string; accountNo: string }[]>([]);
+  const handleSent = useCallback(
+    (msg: RelayViSetMsg) => {
+      const slotKey = rowSlotKey(msg.accountNo, msg.exchange ?? 'KRX');
+      sentRef.current = [
+        ...sentRef.current.filter((s) => s.slotKey !== slotKey),
+        { slotKey, accountNo: msg.accountNo },
+      ].slice(-8);
+      onSent?.(msg);
+    },
+    [onSent],
+  );
+  const [rejection, setRejection] = useState<ViSlotRejection | null>(null);
+  /** 이미 본 최신 통지 — 마운트 전 통지는 이 섹션의 송신 답이 아니다(relay 는 최신을 index 0 에 둔다). */
+  const seenMsgRef = useRef<RelayServerMessageEntry | null>(messages[0] ?? null);
+  const rejectionSeqRef = useRef(0);
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const seen = seenMsgRef.current;
+    const idx = seen === null ? -1 : messages.indexOf(seen);
+    const fresh = idx < 0 ? messages : messages.slice(0, idx);
+    seenMsgRef.current = messages[0];
+    for (const msg of [...fresh].reverse()) {
+      if (!isViSetRejection(msg)) continue;
+      // 계좌가 맞는 가장 최근 송신 — 거부가 계좌를 싣지 않으면(전송 실패 등) 가장 최근 송신.
+      const target = [...sentRef.current].reverse().find((s) => msg.a === '' || msg.a === s.accountNo);
+      if (target === undefined) continue;
+      sentRef.current = sentRef.current.filter((s) => s !== target);
+      rejectionSeqRef.current += 1;
+      setRejection({ slotKey: target.slotKey, seq: rejectionSeqRef.current, error: { text: msg.m, src: msg.src } });
+    }
+  }, [messages]);
+
   /** 마운트할 계좌 — 세션 계좌 전부 + (목록 밖이면) 고른 계좌. 목록이 비면 고른 계좌 하나(종전 빈 모양). */
   const rowAccounts = accounts.some((a) => a.accountNo === accountNo)
     ? accounts.map((a) => a.accountNo)
@@ -303,10 +307,11 @@ export function ViSettingsRows({
           >
             {VI_EXCHANGES.map((exchange) => {
               const mine = viOrders.filter((o) => o.exchange === exchange && o.accountNo === rowAccountNo);
+              const slotKey = rowSlotKey(rowAccountNo, exchange);
               return (
                 <ViSettingsRow
                   key={exchange}
-                  slotKey={rowSlotKey(rowAccountNo, exchange)}
+                  slotKey={slotKey}
                   // 보이는 행만 종전 id(`vi-krx-rate` …)를 갖는다 — 숨은 계좌 행은 계좌를 붙여 id 가 겹치지 않게 한다.
                   idBase={shown ? `vi-${exchange.toLowerCase()}` : `vi-${exchange.toLowerCase()}-${rowAccountNo}`}
                   exchange={exchange}
@@ -316,7 +321,8 @@ export function ViSettingsRows({
                   disabled={disabled}
                   todayOrderCount={mine.length}
                   unfilledCount={mine.filter(isLiveViOrder).length}
-                  onSent={onSent}
+                  rejection={rejection?.slotKey === slotKey ? rejection : null}
+                  onSent={handleSent}
                   onDirtyCountChange={handleRowDirty}
                 />
               );
@@ -333,20 +339,24 @@ export function ViSettingsRows({
  * `useViServerError` 가 하고 여기서는 그리기만 한다(18-13 · 옛 VI 상태줄 계약 승계).
  * 줄마다가 아니라 **한 자리**인 이유: `Account`·`VITrigger` 통지에는 거래소 축이 없다(어느 줄의
  * 거부인지 서버가 말하지 않는다). 자리는 작업대가 정한다 — VI 패널이 접혀도 보이는 곳이다.
+ * 예외는 이 화면이 보낸 `vi.set` 의 거부다 — 보낸 (계좌, 거래소)를 알므로 그 슬롯 행에도 같은 모양으로 선다(⑩ · `slot`).
  * 출처 배지는 `serverMsgBadge` 하나로 판정하는 텍스트 접두다(색만으로 가르지 않는다).
  */
 export function ViServerErrorLine({
   error,
+  slot = 'vi-server-error',
   className,
 }: {
   error: ViServerError | null;
+  /** 자리 식별자 — 작업대 한 자리 경보는 기본값, 슬롯 행 아래(⑩)는 `vi-row-server-error`. */
+  slot?: string;
   className?: string;
 }) {
   if (error === null) return null;
   return (
     <p
       role="alert"
-      data-slot="vi-server-error"
+      data-slot={slot}
       className={cn('m-0 min-w-0 text-[11px] break-keep text-[var(--destructive)]', className)}
     >
       <span data-slot="vi-server-error-src" className="font-semibold">
@@ -368,13 +378,15 @@ interface ViSettingsRowProps {
   exchange: RelayExchange;
   /** 이 행 슬롯의 서버 값(`viSlotOf`). */
   server: RelayViTrigger | null | undefined;
-  /** 이 행의 계좌(⑨ D-18) — 송신에는 `viRowAccountOf` 결과만 쓴다. */
+  /** ★ 이 행의 계좌(⑨ D-18) — 잠금 · 송신 · 확인 요약이 이 한 값을 읽는다. 다른 계좌로 보내지 않는다. */
   accountNo: string;
   /** 이 행 계좌의 이름. */
   accountName?: string;
   disabled: boolean;
   todayOrderCount: number;
   unfilledCount: number;
+  /** 이 행에 귀속된 최신 `vi.set` 거부(⑩) — 아니면 `null`. */
+  rejection: ViSlotRejection | null;
   onSent?: (msg: RelayViSetMsg) => void;
   onDirtyCountChange: (slotKey: string, count: number) => void;
 }
@@ -389,24 +401,18 @@ function ViSettingsRow({
   disabled,
   todayOrderCount,
   unfilledCount,
+  rejection,
   onSent,
   onDirtyCountChange,
 }: ViSettingsRowProps) {
-  const { send, accounts } = useRelayContext();
-
-  /* ── 계좌 정본 (⑨) — 잠금·송신·확인 요약·고지가 이 한 값을 읽는다 ── */
-  const { accountNo: rowAccountNo, differs: accountDiffers } = viRowAccountOf(server, accountNo);
-  /** 계좌 이름 — 세션 목록에서 찾고, 상태줄 이름(prop)은 상태줄 계좌 번호 옆에만 붙인다. */
-  const accountNameOf = (no: string) =>
-    accounts.find((a) => a.accountNo === no)?.name ?? (no === accountNo ? accountName : undefined);
-  const rowAccountName = accountNameOf(rowAccountNo);
-  /** 옮기기 대상(GC-WR-04) — 중지 ∧ 계좌 다름일 때만 null 이 아니다. */
-  const moveTarget = viMoveTargetOf(server, accountNo);
+  const { send } = useRelayContext();
 
   const [form, setForm] = useState<ViRowForm>(DEFAULT_FORM);
   /** 더티 기준선. 미등록이면 마지막 확정 표시값이다 — 비워 두면 첫 렌더부터 더티가 뜬다. */
   const [baseline, setBaseline] = useState<ViRowForm>(DEFAULT_FORM);
   const [rowError, setRowError] = useState('');
+  /** 이 행 송신의 거부(⑩) — 기존 VI 오류 문구 그대로(출처 배지 + 원문). */
+  const [serverError, setServerError] = useState<ViServerError | null>(null);
   const [amountClamped, setAmountClamped] = useState(false);
 
   const run = server?.run === true;
@@ -417,6 +423,8 @@ function ViSettingsRow({
   const submittingRef = useRef(false);
   /** 마지막으로 보낸 요청. 에코가 오면 비운다. **재전송에 쓰지 않는다.** */
   const pendingRef = useRef<RelayViSetMsg | null>(null);
+  /** 보낸 뒤 아직 답(에코 · 거부)이 없다 — 3초 잠금 해제 뒤에 온 거부도 이 행 몫으로 받는다(⑩). */
+  const awaitingAnswerRef = useRef(false);
   const ackTimer = useRef<number | null>(null);
 
   const unlock = useCallback(() => {
@@ -442,8 +450,10 @@ function ViSettingsRow({
     if (server === undefined) return; // 미조회는 사건이 아니다
 
     pendingRef.current = null;
+    awaitingAnswerRef.current = false;
     unlock();
     setRowError('');
+    setServerError(null);
 
     // 빈 61(미등록)은 입력값을 그대로 둔다(CR-01). 가동은 `run` 파생으로 저절로 내려간다.
     if (server === null) return;
@@ -453,6 +463,19 @@ function ViSettingsRow({
     setBaseline(next);
     setAmountClamped(false);
   }, [server, unlock]);
+
+  /* ── 거부 (⑩) — 답을 기다리는 송신이 있을 때만 받는다 ── */
+  const seenRejectionRef = useRef(0);
+  useEffect(() => {
+    if (rejection === null || rejection.seq === seenRejectionRef.current) return;
+    seenRejectionRef.current = rejection.seq;
+    if (!awaitingAnswerRef.current) return;
+    awaitingAnswerRef.current = false;
+    pendingRef.current = null;
+    unlock();
+    setRowError('');
+    setServerError(rejection.error);
+  }, [rejection, unlock]);
 
   const dirty = useMemo(() => dirtyFieldsOf(form, baseline), [form, baseline]);
   useEffect(() => {
@@ -466,7 +489,7 @@ function ViSettingsRow({
   const showAmountLimit = amountClamped || amountOverLimit;
 
   /** 잠금 판정의 유일 지점 — 입력·스위치·`submit` 이 같은 값을 본다. */
-  const locked = disabled || server === undefined || rowAccountNo === '';
+  const locked = disabled || server === undefined || accountNo === '';
 
   /* ── 입력 ── */
   const handleRate = useCallback((raw: string) => {
@@ -483,13 +506,8 @@ function ViSettingsRow({
 
   /* ── 전송 ── */
   const submit = useCallback(
-    /**
-     * `accountOverride` 는 옮기기 확정(GC-WR-04)만 넘긴다. 그 순간 가동 중이면 보내지 않는다 —
-     * 버튼 부재에 이은 **두 번째 겹**이다(가동 중 계좌 이전 금지 · CR-02).
-     */
-    (nextRun: boolean, accountOverride?: string): ViSubmitResult => {
+    (nextRun: boolean): ViSubmitResult => {
       if (locked) return 'blocked';
-      if (accountOverride !== undefined && (server?.run === true || accountOverride === '')) return 'blocked';
       if (submittingRef.current) return 'blocked'; // 두 번째 등록을 만들지 않는다
       if (form.checkRate === null || form.amountManwon === null) return 'blocked';
       // 금액 상한 가드 (WR-07 / T-16-41) — 에코발 상한 초과 값을 그대로 보내지 않는다.
@@ -499,21 +517,22 @@ function ViSettingsRow({
       }
       const msg: RelayViSetMsg = {
         t: 'vi.set',
-        // ★ 정본 계좌(⑨) — 등록된 전략을 상태줄 계좌로 옮기지 않는다(CR-02).
-        //   예외는 옮기기 확정의 `accountOverride` 하나다(GC-WR-04 · 중지 상태만).
-        accountNo: accountOverride ?? rowAccountNo,
+        // ★ 행의 계좌(⑨ D-18) — 계좌별 슬롯이라 다른 계좌로 보내면 그 계좌 VI 를 새로 만든다.
+        accountNo,
         // ★ 줄의 거래소를 **명시**한다(②). 생략하면 relay 가 KRX 로 접는다.
         exchange,
         orderAmountKrw: manwonToKrw(form.amountManwon),
         checkRate: form.checkRate,
         run: nextRun,
       };
+      setServerError(null);
       if (!send(msg)) {
         setRowError(VI_SET_SEND_FAILED_TEXT);
         return 'failed';
       }
       setRowError('');
       pendingRef.current = msg;
+      awaitingAnswerRef.current = true;
       submittingRef.current = true;
       setSubmitting(true);
       onSent?.(msg);
@@ -526,17 +545,12 @@ function ViSettingsRow({
       }, VI_ACK_TIMEOUT_MS);
       return 'sent';
     },
-    [rowAccountNo, exchange, form, locked, onSent, send, unlock, server],
+    [accountNo, exchange, form, locked, onSent, send, unlock],
   );
 
   /* ── 확인 다이얼로그 (④) ── */
   const [confirmKind, setConfirmKind] = useState<'start' | 'stop' | null>(null);
   const [dialogError, setDialogError] = useState('');
-  /**
-   * 옮기기 확인 스냅샷(GC-WR-04) — 창을 연 순간의 B → A. 요약과 송신 계좌가 이 한 값에서 나온다.
-   * `null` 이면 일반 시작/중지다.
-   */
-  const [moveSnapshot, setMoveSnapshot] = useState<{ from: string; to: string } | null>(null);
 
   const fixDescId = `${idBase}-fix-desc`;
 
@@ -561,7 +575,6 @@ function ViSettingsRow({
           disabled={locked || submitting}
           onClick={() => {
             setDialogError('');
-            setMoveSnapshot(null);
             setConfirmKind(run ? 'stop' : 'start');
           }}
         />
@@ -617,47 +630,14 @@ function ViSettingsRow({
           {rowError}
         </p>
       )}
-      {accountDiffers && (
-        /* 고지 + (중지일 때만) 옮기기 — 좁은 폭에서는 버튼이 고지 아래 줄로 내려간다(목업 1-a). */
-        <div data-slot="vi-row-account-box" className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5">
-          <p
-            role="status"
-            data-slot="vi-row-account"
-            className="m-0 min-w-0 flex-[1_1_220px] text-[11px] break-keep text-[var(--muted-fg)]"
-          >
-            {viRegisteredAccountText(rowAccountNo, rowAccountName, run)}
-          </p>
-          {moveTarget !== null && (
-            /* 테두리형 — 채움(`--up`)은 확인 창의 「시작」 하나다(⑧). 크기 축은 「수정」 과 같다. */
-            <button
-              type="button"
-              data-slot="vi-row-move"
-              disabled={locked || submitting || blank || amountOverLimit}
-              onClick={() => {
-                setDialogError('');
-                setMoveSnapshot(moveTarget);
-                setConfirmKind('start');
-              }}
-              className="h-[26px] flex-none rounded-[var(--r)] border border-transparent bg-[var(--muted)] px-2.5 text-[11px] font-semibold whitespace-nowrap text-[var(--fg)] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              상태줄 계좌({moveTarget.to})로 옮겨 시작
-            </button>
-          )}
-        </div>
-      )}
+      <ViServerErrorLine error={serverError} slot="vi-row-server-error" />
 
       <ViConfirmDialog
         kind={confirmKind}
         exchange={exchange}
-        // ★ 요약의 「계좌」 = 실제로 나갈 계좌(⑨) — 확인하는 계좌와 송신 계좌가 갈라지지 않는다.
-        //   옮기기면 스냅샷의 B → A 다(GC-WR-04) — 확정도 같은 스냅샷의 `to` 로 나간다.
-        accountNo={moveSnapshot?.to ?? rowAccountNo}
-        accountName={moveSnapshot !== null ? accountNameOf(moveSnapshot.to) : rowAccountName}
-        moveFrom={
-          moveSnapshot !== null
-            ? { accountNo: moveSnapshot.from, name: accountNameOf(moveSnapshot.from) }
-            : undefined
-        }
+        // ★ 요약의 「계좌」 = 실제로 나갈 계좌 = 행의 계좌(⑨) — 확인하는 계좌와 송신 계좌가 갈라지지 않는다.
+        accountNo={accountNo}
+        accountName={accountName}
         amountManwon={form.amountManwon}
         checkRate={form.checkRate}
         todayOrderCount={todayOrderCount}
@@ -667,31 +647,17 @@ function ViSettingsRow({
           if (!open) {
             setConfirmKind(null);
             setDialogError('');
-            setMoveSnapshot(null);
           }
         }}
         onConfirm={() => {
           if (confirmKind === null) return;
-          let result: ViSubmitResult;
-          if (moveSnapshot !== null) {
-            // ★ 확정 직전 재판정(T-18-118) — 창을 연 뒤 다른 단말이 시작했거나 등록 계좌·상태줄
-            //   계좌가 바뀌었으면, 요약에 보인 B → A 와 다른 이동이 나가지 않게 아무것도 보내지 않는다.
-            const now = viMoveTargetOf(server, accountNo);
-            if (now === null || now.from !== moveSnapshot.from || now.to !== moveSnapshot.to) {
-              setDialogError(VI_MOVE_STALE_TEXT);
-              return;
-            }
-            result = submit(true, moveSnapshot.to);
-          } else {
-            result = submit(confirmKind === 'start');
-          }
+          const result = submit(confirmKind === 'start');
           // 못 나갔으면 닫지 않는다 — 「창이 닫혔다」가 성공 신호로 읽힌다(GC-WR-06).
           if (result === 'failed') {
             setDialogError(VI_SET_SEND_FAILED_TEXT);
             return;
           }
           setConfirmKind(null);
-          setMoveSnapshot(null);
         }}
       />
     </div>
@@ -814,7 +780,6 @@ export function ViConfirmDialog({
   exchange,
   accountNo,
   accountName,
-  moveFrom,
   amountManwon,
   checkRate,
   todayOrderCount,
@@ -828,11 +793,6 @@ export function ViConfirmDialog({
   exchange: RelayExchange;
   accountNo: string;
   accountName?: string;
-  /**
-   * 옮기기 시작(GC-WR-04)이면 옮겨 가기 **전** 계좌. 있으면 「계좌」 줄이 「{from} → {to}」 이고
-   * `data-move="true"` 다. 제목·경고·버튼·기본 포커스는 일반 시작과 같다.
-   */
-  moveFrom?: { accountNo: string; name?: string };
   amountManwon: number | null;
   checkRate: number | null;
   todayOrderCount: number;
@@ -852,7 +812,6 @@ export function ViConfirmDialog({
         showCloseButton={false}
         className="sm:max-w-sm"
         data-testid={isStart ? 'vi-start-dialog' : 'vi-stop-dialog'}
-        data-move={moveFrom !== undefined ? 'true' : undefined}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           dismissRef.current?.focus();
@@ -874,20 +833,7 @@ export function ViConfirmDialog({
           className="flex flex-col gap-1.5 rounded-[var(--r-md)] border border-[var(--border)] px-3 py-2.5 text-[length:var(--t-caption)]"
         >
           {/* 「계좌」 는 시작·중지 모두 맨 앞이다 — 어느 계좌의 전략을 켜고 끄는지 말한다(CR-02). */}
-          <SummaryRow label="계좌">
-            {moveFrom !== undefined ? (
-              /* 옮기기 — 옛 계좌는 흐리게 취소선, 새 계좌는 굵게(목업 1-c `.mv`). */
-              <span data-slot="vi-confirm-move" className="inline-flex flex-wrap justify-end gap-x-1.5 gap-y-0.5">
-                <span data-slot="vi-confirm-move-from" className="font-normal text-[var(--muted-fg)] line-through decoration-1">
-                  {accountLabel(moveFrom.accountNo, moveFrom.name)}
-                </span>{' '}
-                <span>→</span>{' '}
-                <span data-slot="vi-confirm-move-to">{accountLabel(accountNo, accountName)}</span>
-              </span>
-            ) : (
-              accountLabel(accountNo, accountName)
-            )}
-          </SummaryRow>
+          <SummaryRow label="계좌">{accountLabel(accountNo, accountName)}</SummaryRow>
           {isStart ? (
             <>
               {/* ★ 금액·상승률이 요약에 **반드시** 있어야 한다(T-16-10). */}

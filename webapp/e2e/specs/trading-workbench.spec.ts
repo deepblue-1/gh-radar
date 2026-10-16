@@ -2568,6 +2568,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(slot(P32_ACCOUNT_B)).toBeHidden();
     await expect(slotRow(P32_ACCOUNT_B)).toHaveCount(1);
     await expect(page.locator('#vi-krx-amount')).toHaveCount(1);
+    // 계좌별 슬롯이라 「옮기기」 버튼 · 등록 계좌 고지 줄이 없다(S12 · 32-12 Task 2).
+    await expect(page.locator('[data-slot="vi-row-move"], [data-slot="vi-row-account"]')).toHaveCount(0);
 
     // A NXT 를 고치고 저장하지 않는다(더티).
     await field(page, 'vi-nxt-rate').fill('30');
