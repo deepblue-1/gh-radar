@@ -3211,6 +3211,36 @@ describe('상따 비활성화 원인 귀속 (quick-260926-nr2)', () => {
     expect(echoes(hook).has(KEY_NXT)).toBe(false);
   });
 
+  it('P32 WR-01 계좌를 실은 strategies.disabled 는 그 계좌 항목만 닫는다 — 이 탭이 보내지 않은 계좌(다른 탭)의 완료는 창을 닫지 않는다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [lcItem(), nxtItem()] });
+    });
+    act(() => {
+      hook.result.current.send({ t: 'strategies.disable.account', accountNo: ACCT });
+    });
+    // 다른 탭이 끈 계좌의 완료 — 이 탭의 창은 열려 있다.
+    await act(async () => {
+      ws.push({ t: 'strategies.disabled', count: 1, viDisabled: false, accountNo: '98765432-01' });
+    });
+    await act(async () => {
+      ws.push({ t: 'lc', item: lcItem({ buyEnabled: false }) });
+    });
+    expect(echoes(hook).get(KEY)?.cause).toBe('killSwitch');
+    // 이 탭 계좌의 완료 — 닫힌다. 다시 켜졌다 꺼지는 에코는 귀속 없음.
+    await act(async () => {
+      ws.push({ t: 'strategies.disabled', count: 1, viDisabled: false, accountNo: ACCT });
+    });
+    await act(async () => {
+      ws.push({ t: 'lc', item: nxtItem({ buyEnabled: true }) });
+    });
+    await act(async () => {
+      ws.push({ t: 'lc', item: nxtItem({ buyEnabled: false }) });
+    });
+    expect(echoes(hook).has(KEY_NXT)).toBe(false);
+  });
+
   it('귀속과 무관한 에코는 귀속 맵 참조를 바꾸지 않는다(재렌더 예산)', async () => {
     const hook = render();
     const ws = await connected(hook);

@@ -831,6 +831,26 @@ describe("StrategyStatusCard — P32 이 계좌 끄기 (D-09 · D-27 · S5′)",
     expect(killButton(ACC_A)).toBeDisabled();
   });
 
+  it("④′ WR-01 A · B 대기 중 B 를 실은 strategies.disabled → B 만 열림 · A 는 대기 · 대기에 없는 계좌(다른 탭)의 완료는 아무것도 풀지 않는다", () => {
+    const view = render(<StrategyStatusCard accountNo={ACC_A} />);
+    confirmDisable(ACC_A);
+    view.rerender(<StrategyStatusCard accountNo={ACC_B} />);
+    confirmDisable(ACC_B);
+    expect(killButton(ACC_B)).toBeDisabled();
+
+    // 다른 탭이 끈 계좌 C 의 완료 — 맨 앞(A)을 풀지 않는다.
+    mockRelay = { ...mockRelay, strategiesDisabled: { ...disabledMsg(1), accountNo: ACC_C } };
+    view.rerender(<StrategyStatusCard accountNo={ACC_A} />);
+    expect(killButton(ACC_A)).toBeDisabled();
+
+    // B 의 완료 — B 만 풀린다(맨 앞 A 가 아니라).
+    mockRelay = { ...mockRelay, strategiesDisabled: { ...disabledMsg(1), accountNo: ACC_B } };
+    view.rerender(<StrategyStatusCard accountNo={ACC_B} />);
+    expect(killButton(ACC_B)).toBeEnabled();
+    view.rerender(<StrategyStatusCard accountNo={ACC_A} />);
+    expect(killButton(ACC_A)).toBeDisabled();
+  });
+
   it("⑤ 8초 백스톱 → kill 줄 바로 위 role=alert 미확인 문구 · 그 계좌 버튼 다시 열림", () => {
     vi.useFakeTimers();
     render(<StrategyStatusCard accountNo={ACC_A} />);

@@ -1614,6 +1614,12 @@ export type RelayStrategiesDisabledMsg = {
   count: number;
   /** VI 도 함께 내려갔는지. */
   viDisabled: boolean;
+  /**
+   * 「이 계좌 끄기」(`strategies.disable.account`) 집계의 완료면 **그 계좌**(Phase 32 WR-01). 웹은 이 값으로 그 계좌의 대기를 짝짓는다 —
+   * 맨 앞 대기를 풀면 relay 가 0프레임으로 끝낸 끄기 · 다른 탭의 끄기 완료가 엉뚱한 계좌를 푼다. 부재 = 계좌 없는 완료(전부 정지 ·
+   * 서버 발 65 · 구 relay) — 웹은 종전대로 보낸 순서 맨 앞을 푼다.
+   */
+  accountNo?: string;
 };
 
 /**

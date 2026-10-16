@@ -31,7 +31,8 @@
  *   `--up`(매수)이 같은 색이라 채움 빨강은 매수 버튼과 구분되지 않는다(S-6).
  *   65(`strategies.disabled`)는 **완료 신호로만** 쓴다 — 목록은 60/61 에코가 이미 고쳐 둔다(T-16-07).
  *   ★ 대기 잠금은 **계좌별**이다(S5′ 「끄기 응답 대기 잠금」): 보낸 순서대로의 계좌 목록을 두고 `strategies.disabled` 새 참조마다
- *     맨 앞 하나를 푼다(relay 가 계좌 끄기 1건당 1프레임으로 접어 준다 · 소켓 훅 in-flight 카운터와 같은 짝). 계좌 칩 줄은 잠그지
+ *     그 프레임의 계좌(`accountNo` · WR-01)를 푼다 — 계좌 없는 프레임(구 relay)만 맨 앞 하나(relay 가 계좌 끄기 1건당 1프레임으로
+ *     접어 준다 · 소켓 훅 in-flight 창과 같은 짝). 계좌 칩 줄은 잠그지
  *     않는다 — A 를 끈 대기 중에 B 로 바꾸면 B 버튼은 누를 수 있다. 8초 백스톱(소켓 훅과 같은 상수)이 먼저 오면 그 항목을 빼고
  *     「반영을 확인하지 못했어요」 를 그 계좌 오류로 말한다(실패라고 말하지 않는다 — 결과를 모른다 · T-16-21). `send` 가 false 면
  *     0바이트가 확실하므로 잠그지 않고 「보내지 못했어요」 를 말한다(T-16-20). 오류 줄은 kill 줄 바로 위 `role="alert"` 한 줄이다.
@@ -427,12 +428,14 @@ export function StrategyStatusCard({ className, accountNo }: StrategyStatusCardP
     setErrorOf(account, error);
   };
 
-  // `strategies.disabled` 새 참조 → 대기 맨 앞 하나를 푼다. **목록 상태는 건드리지 않는다**(파일 상단 ③ — 완료 신호로만).
+  // `strategies.disabled` 새 참조 → 그 계좌의 대기를 푼다. **목록 상태는 건드리지 않는다**(파일 상단 ③ — 완료 신호로만).
+  // 계좌를 실은 프레임(WR-01)은 그 계좌만 — 대기에 없으면(다른 탭이 끈 계좌) 아무것도 풀지 않는다. 계좌 없는 프레임(구 relay ·
+  // 전부 정지)만 종전대로 보낸 순서 맨 앞을 푼다.
   useEffect(() => {
     if (strategiesDisabled === seenAck.current) return;
     seenAck.current = strategiesDisabled;
-    const head = pendingRef.current[0];
-    if (head !== undefined) release(head, "");
+    const target = strategiesDisabled?.accountNo ?? pendingRef.current[0];
+    if (target !== undefined && pendingRef.current.includes(target)) release(target, "");
     // release 는 매 렌더 새 함수지만 ref · setState 만 만진다 — 완료 신호 참조만 의존한다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [strategiesDisabled]);

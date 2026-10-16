@@ -3418,7 +3418,7 @@ describe("WsFanout", () => {
       // Pitfall 3 — 65 k(=2)건을 모아 1건만 브라우저로.
       const disabled = framesOf(a.inbox, "strategies.disabled");
       expect(disabled).toHaveLength(1);
-      expect(disabled[0]).toEqual({ t: "strategies.disabled", count: 2, viDisabled: false });
+      expect(disabled[0]).toEqual({ t: "strategies.disabled", count: 2, viDisabled: false, accountNo: ACC_A });
 
       // 60 에코 — A 두 키는 꺼짐 · B 는 켜짐 그대로.
       const byKey = new Map(h.hub.getLimitChasers(USER_A).map((c) => [c.key, c]));
@@ -3497,7 +3497,7 @@ describe("WsFanout", () => {
       expect(viSets()).toEqual([
         { accountNo: ACC_A, exchange: "KRX", orderAmountKrw: 3_000_000, checkRate: 25, priceType: "U", run: false },
       ]);
-      expect(framesOf(a.inbox, "strategies.disabled")[0]).toEqual({ t: "strategies.disabled", count: 0, viDisabled: true });
+      expect(framesOf(a.inbox, "strategies.disabled")[0]).toEqual({ t: "strategies.disabled", count: 0, viDisabled: true, accountNo: ACC_A });
       expect(h.hub.getViSlot(USER_A, ACC_A, "KRX")).toMatchObject({ run: false });
       expect(h.hub.getViSlot(USER_A, ACC_B, "KRX")).toMatchObject({ run: true, orderAmountKrw: 7_000_000 });
       expect(framesOf(a.inbox, "msg")).toHaveLength(0);

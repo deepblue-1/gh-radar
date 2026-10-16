@@ -1492,7 +1492,13 @@ export class SubscriptionHub extends EventEmitter {
     this.#accountStops.delete(coll);
     const received = coll.answered > 0 || coll.viDisabled;
     if (ended !== "closed" && received) {
-      this.#fanout(coll.userId, { t: "strategies.disabled", count: coll.count, viDisabled: coll.viDisabled });
+      // 계좌를 싣는다(WR-01) — 웹이 맨 앞 대기가 아니라 그 계좌의 대기를 푼다.
+      this.#fanout(coll.userId, {
+        t: "strategies.disabled",
+        count: coll.count,
+        viDisabled: coll.viDisabled,
+        accountNo: coll.accountNo,
+      });
     }
     coll.resolve({ count: coll.count, viDisabled: coll.viDisabled, answered: coll.answered, expected: coll.expected, ended });
   }

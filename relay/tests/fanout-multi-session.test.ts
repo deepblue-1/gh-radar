@@ -1080,7 +1080,7 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
       expect(countOf(p120, MSG.DisableStrategiesReq)).toBe(0);
       expect(countOf(p120, MSG.SetVITriggerReq)).toBe(0);
       expect(countOf(p121, MSG.SetVITriggerReq)).toBe(0);
-      expect(disabledOf(since())).toEqual([{ t: "strategies.disabled", count: 2, viDisabled: false }]);
+      expect(disabledOf(since())).toEqual([{ t: "strategies.disabled", count: 2, viDisabled: false, accountNo: A }]);
       expect(hub.getLimitChasers(USER_A).find((c) => c.accountNo === B)?.buyEnabled).toBe(true);
       expect(since().filter((m) => m.t === "msg")).toEqual([]);
     });
@@ -1100,7 +1100,7 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
       ]);
       expect(countOf(p120, MSG.SetVITriggerReq)).toBe(0);
       expect(countOf(p121, MSG.DisableStrategiesReq)).toBe(2);
-      expect(disabledOf(since())).toEqual([{ t: "strategies.disabled", count: 2, viDisabled: true }]);
+      expect(disabledOf(since())).toEqual([{ t: "strategies.disabled", count: 2, viDisabled: true, accountNo: A }]);
       // 완료 신호는 VI 에코(브라우저 vi.slot A|KRX run:false) 뒤다.
       const frames = since();
       const at = frames.findIndex((m) => m.t === "strategies.disabled");
@@ -1121,7 +1121,7 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
 
       expect(countOf(p121, MSG.DisableStrategiesReq)).toBe(0);
       expect(countOf(p121, MSG.SetVITriggerReq)).toBe(1);
-      expect(disabledOf(since())).toEqual([{ t: "strategies.disabled", count: 0, viDisabled: true }]);
+      expect(disabledOf(since())).toEqual([{ t: "strategies.disabled", count: 0, viDisabled: true, accountNo: A }]);
     });
 
     it("A 켜진 전략 0 ∧ VI 없음 — 게이트웨이 0바이트 · 거부 프레임 「이 계좌에 끌 전략이 없어요」 · warn 1줄 · strategies.disabled 0", async () => {

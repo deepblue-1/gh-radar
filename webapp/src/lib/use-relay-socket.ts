@@ -399,6 +399,8 @@ export type LimitChaserDisableEcho = { echo: RelayLimitChaser; cause: LimitChase
 const EMPTY_DISABLE_ECHOES: ReadonlyMap<string, LimitChaserDisableEcho> = new Map();
 /** 빈 15:40 대기 키 집합 — 모듈 상수 하나. */
 const EMPTY_KEYS: ReadonlySet<string> = new Set();
+/** 닫힌 킬 스위치 in-flight 창 — 모듈 상수라 이미 닫혀 있으면 참조가 그대로다. */
+const EMPTY_IN_FLIGHT: readonly string[] = [];
 /** 84 를 어느 서버에서도 아직 못 받았다(초기값 · reset). 리듀서는 늘 새 Map 을 만들므로 이 객체는 변하지 않는다. */
 const EMPTY_USER_SETTINGS: ReadonlyMap<string, RelayUserSettingsMsg> = new Map();
 /** VI 슬롯을 하나도 모른다(초기값 · reset · Phase 32 D-17). 리듀서는 늘 새 Map 을 만들므로 이 객체는 변하지 않는다. */
@@ -781,12 +783,13 @@ interface RelayData {
   /** 위 `RelayConnectionState.limitChaserDisableEchoes` 문서 참조. */
   limitChaserDisableEchoes: ReadonlyMap<string, LimitChaserDisableEcho>;
   /**
-   * 내부 전용(반환하지 않는다) — 이 브라우저가 보내고 아직 `strategies.disabled` 를 받지 못한 끄기 요청 수(전부 정지 ·
-   * 계좌 끄기). 0 보다 크면 킬 스위치 in-flight 창이 열려 있다. 보낼 때마다 1 올리고 `strategies.disabled` 마다 1 내린다 ·
-   * 연결 수명 · 백스톱 타이머는 0 으로 닫는다(Phase 32 Pitfall 3 — 서로 다른 계좌 끄기 둘이 겹쳐도 첫 완료 신호가 창을 닫아
-   * 두 번째 계좌의 60 에코가 원인 없이 「발주로 게이트 소진」 으로 읽히지 않게).
+   * 내부 전용(반환하지 않는다) — 이 브라우저가 보내고 아직 완료 신호를 받지 못한 끄기 요청 — **보낸 순서대로의 계좌**(계좌
+   * 끄기 = 그 계좌 · 전부 정지 = `""`). 비어 있지 않으면 킬 스위치 in-flight 창이 열려 있다. 보낼 때마다 하나 넣고 완료 신호마다
+   * `releaseKillSwitch` 로 하나 뺀다 · 연결 수명 · 백스톱 타이머는 비운다(Phase 32 Pitfall 3 — 서로 다른 계좌 끄기 둘이 겹쳐도 첫
+   * 완료 신호가 창을 닫아 두 번째 계좌의 60 에코가 원인 없이 「발주로 게이트 소진」 으로 읽히지 않게). 계좌를 싣는 완료 신호는 그
+   * 계좌 항목만 뺀다(WR-01 — 다른 탭의 계좌 끄기 완료가 이 탭의 창을 닫지 않게).
    */
-  killSwitchInFlight: number;
+  killSwitchInFlight: readonly string[];
   /** 내부 전용 — 15:40 해제 통지 뒤 아직 첫 에코가 오지 않은 KRX 키. 키별 첫 에코가 소비한다. */
   marketCloseReleaseKeys: ReadonlySet<string>;
   viSlots: RelayViSlots;
@@ -832,7 +835,7 @@ const INITIAL_DATA: RelayData = {
   // 「아직 아무 답도 못 받았다」 — 이 값은 **응답 유무**만 말하고 목록을 만들지 않는다.
   lastLimitChaserEcho: null,
   limitChaserDisableEchoes: EMPTY_DISABLE_ECHOES,
-  killSwitchInFlight: 0,
+  killSwitchInFlight: EMPTY_IN_FLIGHT,
   marketCloseReleaseKeys: EMPTY_KEYS,
   // 미조회(키 부재) 와 미등록(null) 은 다른 화면이다 — 초기 슬롯은 전부 모름(빈 Map)이다. reset 이 이 값으로 되돌린다
   // (다음 사용자가 이전 사용자의 VI 를 보지 않는다).
@@ -887,17 +890,29 @@ type RelayAction =
   | { type: "limit-feature.drop"; key: string }
   /** 세션 종료(로그아웃·비활성화). 이전 사용자의 계좌·전략을 메모리에 남기지 않는다. */
   | { type: "reset" }
-  /** 이 브라우저가 `strategies.disable` 을 소켓에 실었다 — 전부 정지 in-flight 창을 연다. */
-  | { type: "strategies-disable-sent" }
+  /** 이 브라우저가 `strategies.disable` · `strategies.disable.account` 를 소켓에 실었다 — in-flight 창에 그 계좌(전부 정지 = `""`)를 넣는다. */
+  | { type: "strategies-disable-sent"; accountNo: string }
   /** 65 를 `STRATEGIES_DISABLE_ACK_TIMEOUT_MS` 안에 못 받았다 — 창을 닫는다(백스톱). */
   | { type: "strategies-disable-expired" };
+
+/**
+ * 킬 스위치 in-flight 창에서 완료 신호 1건만큼 뺀다 (Phase 32 WR-01). `accountNo` 가 있으면(계좌 끄기 완료 · 거부) 그 계좌 항목
+ * 하나 — 창에 그 계좌가 없으면 이 탭이 보낸 끄기가 아니므로(같은 사용자 다른 탭) 그대로 둔다. `accountNo` 가 없으면(전부 정지 ·
+ * 서버 발 65 · 구 relay) 종전대로 보낸 순서 맨 앞 하나. 변화가 없으면 같은 참조.
+ */
+export function releaseKillSwitch(inFlight: readonly string[], accountNo: string | undefined): readonly string[] {
+  if (inFlight.length === 0) return inFlight;
+  const at = accountNo === undefined ? 0 : inFlight.indexOf(accountNo);
+  if (at < 0) return inFlight;
+  return inFlight.length === 1 ? EMPTY_IN_FLIGHT : [...inFlight.slice(0, at), ...inFlight.slice(at + 1)];
+}
 
 /**
  * 연결 수명 경계에서 덮어쓸 값 — 요청 도중 끊긴 연결의 에코는 새 연결에 `lc.snap` 으로 돌아오므로
  * 귀속 창을 닫는다(quick-260926-nr2). 빈 집합은 모듈 상수라 이미 닫혀 있으면 참조가 그대로다.
  */
 const CLOSED_DISABLE_WINDOWS: Pick<RelayData, "killSwitchInFlight" | "marketCloseReleaseKeys"> = {
-  killSwitchInFlight: 0,
+  killSwitchInFlight: EMPTY_IN_FLIGHT,
   marketCloseReleaseKeys: EMPTY_KEYS,
 };
 
@@ -932,10 +947,10 @@ function relayReducer(state: RelayData, action: RelayAction): RelayData {
     }
 
     case "strategies-disable-sent":
-      return { ...state, killSwitchInFlight: state.killSwitchInFlight + 1 };
+      return { ...state, killSwitchInFlight: [...state.killSwitchInFlight, action.accountNo] };
 
     case "strategies-disable-expired":
-      return state.killSwitchInFlight > 0 ? { ...state, killSwitchInFlight: 0 } : state;
+      return state.killSwitchInFlight.length > 0 ? { ...state, killSwitchInFlight: EMPTY_IN_FLIGHT } : state;
 
     case "stale":
       return state.isStale === action.value ? state : { ...state, isStale: action.value };
@@ -1166,7 +1181,12 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
       // 갱신해 뒀다 — 여기 담긴 숫자로 목록을 만들면 에코와 두 벌이 갈린다.
       // 65 는 전부 정지 핸들러의 마지막 프레임이다 — 이 브라우저의 in-flight 창을 닫는다(nr2).
       // 끄기 요청 하나의 완료다 — 보낸 수만큼 와야 창이 닫힌다(계좌 끄기 겹침 · Phase 32 Pitfall 3).
-      return { ...state, strategiesDisabled: frame, killSwitchInFlight: Math.max(0, state.killSwitchInFlight - 1) };
+      // 계좌를 실었으면 그 계좌 항목만 뺀다(WR-01 — 이 탭이 보내지 않은 계좌면 창은 그대로).
+      return {
+        ...state,
+        strategiesDisabled: frame,
+        killSwitchInFlight: releaseKillSwitch(state.killSwitchInFlight, frame.accountNo),
+      };
 
     default:
       // 알 수 없는 `t` 는 무시한다 — 서버가 앞서 나가도 브라우저가 터지지 않는다(T-15-41).
@@ -1192,7 +1212,7 @@ function attributeDisableEcho(
   const key = item.key;
   const waiting = state.marketCloseReleaseKeys.has(key);
   let cause: LimitChaserDisableCause | null = null;
-  if (state.killSwitchInFlight > 0) {
+  if (state.killSwitchInFlight.length > 0) {
     cause = "killSwitch";
   } else if (waiting) {
     const prev = state.limitChasers.find((c) => c.key === key);
@@ -2194,7 +2214,7 @@ export function useRelayConnection({
           백스톱은 마지막 송신 기준이다(겹친 두 계좌 끄기의 두 번째 에코도 원인이 빠지지 않는다).
           무인자 `strategies.disable` 갈래는 웹 소비처가 없어도(D-27) relay 계약이 남아 있어 그대로 둔다.
       */
-      dispatch({ type: "strategies-disable-sent" });
+      dispatch({ type: "strategies-disable-sent", accountNo: msg.t === "strategies.disable.account" ? msg.accountNo : "" });
       if (killSwitchTimerRef.current !== null) clearTimeout(killSwitchTimerRef.current);
       killSwitchTimerRef.current = setTimeout(() => {
         killSwitchTimerRef.current = null;

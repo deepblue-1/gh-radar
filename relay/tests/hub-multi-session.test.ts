@@ -1580,7 +1580,7 @@ describe("SubscriptionHub — P32 beginAccountStop 집계 (D-09 보정)", () => 
     expect(done.done).toBe(false);
     kb121.pushFrame(r65(1));
     await flush();
-    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 2, viDisabled: false }]);
+    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 2, viDisabled: false, accountNo: A }]);
     expect(done.value).toEqual({ count: 2, viDisabled: false, answered: 2, expected: 2, ended: "complete" });
   });
 
@@ -1599,7 +1599,7 @@ describe("SubscriptionHub — P32 beginAccountStop 집계 (D-09 보정)", () => 
 
     kb121.pushFrame(vi61());
     await flush();
-    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 1, viDisabled: true }]);
+    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 1, viDisabled: true, accountNo: A }]);
     expect(done.value).toMatchObject({ count: 1, viDisabled: true, ended: "complete" });
   });
 
@@ -1611,7 +1611,7 @@ describe("SubscriptionHub — P32 beginAccountStop 집계 (D-09 보정)", () => 
     expect(disabled()).toEqual([]);
     kb121.pushFrame(vi61());
     await flush();
-    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 0, viDisabled: true }]);
+    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 0, viDisabled: true, accountNo: A }]);
     expect(done.value).toMatchObject({ count: 0, viDisabled: true, answered: 0, expected: 0, ended: "complete" });
   });
 
@@ -1626,7 +1626,7 @@ describe("SubscriptionHub — P32 beginAccountStop 집계 (D-09 보정)", () => 
     expect(disabled()).toEqual([]);
     vi.advanceTimersByTime(1);
     await flush();
-    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 1, viDisabled: false }]);
+    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 1, viDisabled: false, accountNo: A }]);
     expect(done.value).toEqual({ count: 1, viDisabled: false, answered: 1, expected: 2, ended: "timeout" });
 
     kb121.pushFrame(r65(1));
@@ -1644,7 +1644,7 @@ describe("SubscriptionHub — P32 beginAccountStop 집계 (D-09 보정)", () => 
     expect(disabled()).toEqual([]);
     vi.advanceTimersByTime(HUB_ALL_STOP_COLLECT_MS);
     await flush();
-    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 1, viDisabled: false }]);
+    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 1, viDisabled: false, accountNo: A }]);
     expect(done.value).toMatchObject({ ended: "timeout", viDisabled: false });
   });
 
@@ -1672,7 +1672,7 @@ describe("SubscriptionHub — P32 beginAccountStop 집계 (D-09 보정)", () => 
     hub.retainSessions(U, new Set(["KB120"]));
     await flush();
     expect(firstDone.value).toEqual({ count: 1, viDisabled: false, answered: 1, expected: 2, ended: "detached" });
-    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 1, viDisabled: false }]);
+    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 1, viDisabled: false, accountNo: A }]);
     // 되돌아온 세션의 65 는 꼬리표가 비었으므로 서버 발 65 규칙(종전 팬아웃).
     hub.attach(kb121);
     kb121.pushFrame(r65(6));
