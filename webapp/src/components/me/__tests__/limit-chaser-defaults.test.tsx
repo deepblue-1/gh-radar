@@ -952,3 +952,94 @@ describe('P32 설정 탭 = 고른 계좌의 서버 (D-24 · S8′)', () => {
     expect(rowValue('auto-sell-period-sec')).toBe('8초');
   });
 });
+
+describe('P32 저장 비행 · 거부 (Pitfall 12 · S8′)', () => {
+  /** relay 의 지정 서버 없음 거부(32-07 `USER_SETTINGS_SERVER_GONE_TEXT` 원문 · `rejectFrame` 모양). */
+  const SERVER_GONE = '고른 서버 세션이 없어 저장하지 않았어요 — 계좌를 다시 골라 주세요';
+  const relayReject = (m: string, kind = 'user.settings.set') => msg(m, { src: 'Relay', kind });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('onBusyChange — 행 확정 → true · 그 값 84(성공) → false · 바뀔 때만 부른다(마운트 때 호출 없음)', () => {
+    const onBusy = vi.fn();
+    mockRelay = relay(settings(true));
+    const view = render(<LimitChaserDefaultsSection onBusyChange={onBusy} />);
+    expect(onBusy).not.toHaveBeenCalled();
+    inlineCommit('auto-sell-period-sec', '5');
+    expect(onBusy.mock.calls).toEqual([[true]]);
+    mockRelay = relay(settings(true, { autoSellPeriodSec: 5 }));
+    view.rerender(<LimitChaserDefaultsSection onBusyChange={onBusy} />);
+    expect(onBusy.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it('onBusyChange — 3초 상한(무응답)이면 false 로 풀린다', () => {
+    const onBusy = vi.fn();
+    mockRelay = relay(settings(true));
+    render(<LimitChaserDefaultsSection onBusyChange={onBusy} />);
+    inlineCommit('auto-sell-period-sec', '5');
+    expect(onBusy).toHaveBeenLastCalledWith(true);
+    act(() => {
+      vi.advanceTimersByTime(3_000);
+    });
+    expect(onBusy.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it('onBusyChange — 비행 1 + 대기 1 이면 앞 84 뒤에도 true 유지 · 둘 다 끝나야 false', () => {
+    const onBusy = vi.fn();
+    mockRelay = relay(settings(true));
+    const view = render(<LimitChaserDefaultsSection onBusyChange={onBusy} />);
+    inlineCommit('auto-sell-period-sec', '5');
+    inlineCommit('auto-sell-ratio-default-pct', '15');
+    // 앞 건 84 → 대기 건이 바로 비행으로 — busy 는 끊기지 않는다.
+    mockRelay = relay(settings(true, { autoSellPeriodSec: 5 }));
+    view.rerender(<LimitChaserDefaultsSection onBusyChange={onBusy} />);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(onBusy.mock.calls).toEqual([[true]]);
+    mockRelay = relay(settings(true, { autoSellPeriodSec: 5, autoSellRatioDefaultPct: 15 }));
+    view.rerender(<LimitChaserDefaultsSection onBusyChange={onBusy} />);
+    expect(onBusy.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it('relay 거부(src Relay · kind user.settings.set) → me-lc-defaults-reject 에 원문 · 그 행 실패 링 · 비행 해제(false) · 재전송 0', () => {
+    const onBusy = vi.fn();
+    mockRelay = relay(settings(true));
+    const view = render(<LimitChaserDefaultsSection onBusyChange={onBusy} />);
+    inlineCommit('auto-sell-period-sec', '9');
+    mockRelay = { ...relay(settings(true)), messages: [relayReject(SERVER_GONE)] };
+    view.rerender(<LimitChaserDefaultsSection onBusyChange={onBusy} />);
+    expect(rejectLine()).toHaveTextContent(SERVER_GONE);
+    expect(rowWrap('auto-sell-period-sec')).toHaveAttribute('data-failed', 'true');
+    expect(rowValue('auto-sell-period-sec')).toBe('3초');
+    expect(onBusy.mock.calls).toEqual([[true], [false]]);
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('다른 kind 의 Relay 거부(lc.set)는 무시 — 줄 없음 · 비행 유지', () => {
+    const onBusy = vi.fn();
+    mockRelay = relay(settings(true));
+    const view = render(<LimitChaserDefaultsSection onBusyChange={onBusy} />);
+    inlineCommit('auto-sell-period-sec', '9');
+    mockRelay = { ...relay(settings(true)), messages: [relayReject('다른 요청 거부', 'lc.set')] };
+    view.rerender(<LimitChaserDefaultsSection onBusyChange={onBusy} />);
+    expect(rejectLine()).toBeNull();
+    expect(rowWrap('auto-sell-period-sec')).not.toHaveAttribute('data-failed');
+    expect(onBusy.mock.calls).toEqual([[true]]);
+  });
+
+  it('비행 중 언마운트 → onBusyChange(false) 한 번(칩 줄이 잠긴 채 남지 않는다)', () => {
+    const onBusy = vi.fn();
+    mockRelay = relay(settings(true));
+    const view = render(<LimitChaserDefaultsSection onBusyChange={onBusy} />);
+    inlineCommit('auto-sell-period-sec', '5');
+    view.unmount();
+    expect(onBusy.mock.calls).toEqual([[true], [false]]);
+  });
+});
