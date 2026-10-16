@@ -11,7 +11,7 @@
  * 뒤 플랜(33-06)이 10분 축 변환을 이 모듈에 덧붙인다(KPI · 행 칸 · 미니막대 슬롯은 33-03).
  */
 
-import type { TeamflowRow } from '@gh-radar/shared';
+import type { TeamflowBand, TeamflowRow } from '@gh-radar/shared';
 
 import { kstSecOf } from './limitup-report';
 
@@ -196,4 +196,77 @@ export function kpisOf(rows: readonly Pick<TeamflowRow, 'status' | 'team_net_val
     if (r.status === 'limit') limit += 1;
   }
   return { detected: rows.length, netPositive, limit, netSum };
+}
+
+/** 팀 비중(0~1) → 정수 「26%」(× 100 반올림) · null 「—」(D-10). */
+export function fmtShare(share: number | null | undefined): string {
+  if (!isNum(share)) return DASH;
+  return `${Math.round(share * 100)}%`;
+}
+
+/** 매수 중 팀 강조 문턱 — share ≥ 0.30 이면 `--team` 600(UI-SPEC Color). */
+export function isHotShare(share: number | null | undefined): boolean {
+  return isNum(share) && share >= 0.3;
+}
+
+/** 수량 → ko-KR 정수 「96,289」 · `signed` 면 「+96,289」 / 「−21,245」(0 은 부호 없음) · null 「—」. 단위 「주」 는 호출부. */
+export function fmtQty(n: number | null | undefined, opts: { signed?: boolean } = {}): string {
+  if (!isNum(n)) return DASH;
+  const v = Math.round(n);
+  const abs = INT_FMT.format(Math.abs(v));
+  if (v < 0) return `${MINUS}${abs}`;
+  return `${opts.signed && v > 0 ? '+' : ''}${abs}`;
+}
+
+/** 미니막대 9칸 고정 라벨(UI-SPEC T4 순서 · 「하루 합계」 없음). 5번째 칸(20~25%) 앞이 20% 경계. */
+export const BAND_SLOTS = [
+  '0% 미만',
+  '0~5%',
+  '5~10%',
+  '10~15%',
+  '15~20%',
+  '20~25%',
+  '25~28%',
+  '28%~상한 미만',
+  '상한가 가격',
+] as const;
+
+/**
+ * payload.bands → 9칸 `net_val`(UI-SPEC T4). 라벨이 일치하는 칸에만 놓고 없으면 null(칸 위치 고정) ·
+ * 「하루 합계」 · 모르는 라벨은 어디에도 놓지 않는다(T11 error).
+ */
+export function bandSlotsOf(bands: readonly Pick<TeamflowBand, 'label' | 'net_val'>[]): (number | null)[] {
+  return BAND_SLOTS.map((label) => {
+    const b = bands.find((x) => x.label === label);
+    return b && isNum(b.net_val) ? b.net_val : null;
+  });
+}
+
+/**
+ * 행 sr 설명(UI-SPEC T3 Copywriting) — 「결과 {태그}{, 고가 +NN.N%}, 팀 순매수 {net}, 20% 아래 {below20}, 20%~상한 {above20},
+ * 매수 중 팀 {share}」. 고가는 미도달 · high_rate 있을 때만(D-09 보조줄과 같은 조건).
+ */
+export function rowDescriptionOf(
+  row: Pick<
+    TeamflowRow,
+    | 'status'
+    | 'first_limit_ms'
+    | 'last_rate'
+    | 'high_rate'
+    | 'team_net_val'
+    | 'below20_net_val'
+    | 'above20_net_val'
+    | 'team_buy_share'
+  >,
+): string {
+  const tag = tagOf(row);
+  const parts = [`결과 ${tag.text}`];
+  if (tag.kind === 'below' && isNum(row.high_rate)) parts.push(`고가 ${fmtRate(row.high_rate)}`);
+  parts.push(
+    `팀 순매수 ${fmtEok(row.team_net_val, { signed: true })}`,
+    `20% 아래 ${fmtEok(row.below20_net_val, { signed: true })}`,
+    `20%~상한 ${fmtEok(row.above20_net_val, { signed: true })}`,
+    `매수 중 팀 ${fmtShare(row.team_buy_share)}`,
+  );
+  return parts.join(', ');
 }
