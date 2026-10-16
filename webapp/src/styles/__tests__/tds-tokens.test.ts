@@ -52,6 +52,8 @@ const LIGHT_EXPECTED: Record<string, string> = {
   down: '#3182f6',
   'up-bg': '#ffeeee',
   'down-bg': '#e8f3ff',
+  team: '#a234c7',
+  'team-bg': '#f9f0fc',
   'seg-on-bg': '#ffffff',
   'pill-on-bg': '#e8f3ff',
   'pill-on-fg': '#1b64da',
@@ -83,6 +85,8 @@ const DARK_EXPECTED: Record<string, string> = {
   up: '#f04251',
   destructive: '#f04251',
   down: '#3485fa',
+  team: '#c353e5',
+  'team-bg': 'rgba(174, 61, 209, 0.16)',
   'seg-on-bg': '#4e4e4e',
   'pill-on-bg': '#4e4e4e',
   'pill-on-fg': '#ffffff',
@@ -105,7 +109,7 @@ const THEME_COLOR_TOKENS = [
   'seg-on-bg', 'seg-on-fg', 'seg-on-shadow', 'pill-on-bg', 'pill-on-fg',
   'ask-bar', 'bid-bar', 'side-bg', 'led-latent', 'led-armed', 'new-bg', 'new-bd',
   'nav-on-bg', 'nav-on-fg', 'nav-on-line', 'spec-dot-bg', 'spec-dot-ring',
-  'group-bg', 'switch-off', 'dim',
+  'group-bg', 'switch-off', 'dim', 'team', 'team-bg',
 ];
 
 describe('TDS 토큰 값 (@toss/tds-colors@0.1.0)', () => {

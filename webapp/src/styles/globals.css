@@ -78,6 +78,10 @@
   --flat: #6b7684;
   --up-bg: #ffeeee;
   --down-bg: #e8f3ff;
+  /* 팀(teamflow 다섯 창구) 축 — 가격 방향(--up/--down) · 래치 LED(--led-*) · 선택(--seg-on-* · --nav-on-*)과 다른 축이다.
+     서로 대체하지 마라. TDS purple 라이트 500 / 다크 600(대비 AA) · 면은 라이트 purple50 / 다크 purple500 rgba .16 (Phase 33). */
+  --team: #a234c7;
+  --team-bg: #f9f0fc;
 
   /* B 세그먼트 선택 면 · 작은 알약 선택 · 호가 잔량 막대 · 사이드바 바탕 (sketch 001 · 260924-vj1).
      작은 알약 선택 `--pill-on-*` 과 사이드바 바탕 `--side-bg` 의 라이트 값은 sketch 003-A
@@ -226,6 +230,10 @@
   --flat: #9e9e9e;
   --up-bg: rgba(240, 66, 81, 0.16);
   --down-bg: rgba(52, 133, 250, 0.16);
+  /* 팀(teamflow 다섯 창구) 축 — 가격 방향(--up/--down) · 래치 LED(--led-*) · 선택(--seg-on-* · --nav-on-*)과 다른 축이다.
+     서로 대체하지 마라. TDS purple 라이트 500 / 다크 600(대비 AA) — 다크 purple500 #ae3dd1 은 --card 위 3.8:1 이라 600. */
+  --team: #c353e5;
+  --team-bg: rgba(174, 61, 209, 0.16);
 
   /* B 세그먼트·알약·호가 막대·사이드바 다크 값 — 의미는 `:root` 쪽 주석. `:root` 와 같은 집합을
      빠짐없이 정의한다. `--seg-on-shadow` 는 `none` 대신 `0 0 #0000` — Tailwind shadow 합성에서
