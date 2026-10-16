@@ -83,7 +83,7 @@ describe("dispatch — 정상 경로(stage_clear → 격자 업로드 → stage 
     expect(seq.slice(commitAt + 1)).toEqual(["rpc:limitup_purge_old", "storage:", "rpc:dma_strategy_events_purge_limit_feature"]);
 
     const select = fake.calls[0] as Extract<Call, { kind: "select" }>;
-    expect(select.cols).toBe("date, files_sig, skip_streak");
+    expect(select.cols).toBe("date, files_sig, skip_streak, rows");
     expect(select.gte).toEqual(["date", "20260707"]); // KST 2026-10-05 − 90일
 
     const clear = fake.calls[1] as Extract<Call, { kind: "rpc" }>;

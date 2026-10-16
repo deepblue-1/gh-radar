@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { makeFakeSupabase, type Call, type FakeOptions } from "./helpers/fake-supabase";
-import { filesSig, type Manifest } from "../src/manifest";
+import { filesSig, readManifest, type Manifest } from "../src/manifest";
 import { readNdjsonGz } from "../src/load";
 
 /**
@@ -567,6 +567,76 @@ describe("dispatch — team_flow 선택 파일(D-02)", () => {
     ]);
     expect(out.loaded).toEqual(["20261014"]);
     expect(rpcs(fake.calls, "limitup_commit_day").map((c) => c.args.p_date)).toEqual(["20261014"]);
+  });
+});
+
+describe("dispatch — team_flow 재적재 자동 감지(D-03)", () => {
+  const TF_DATE = "20261014";
+  /** 디스크에 만든 날짜의 filesSig — 이력 「같은 sig」 값. */
+  const sigOf = (date: string) => {
+    const r = readManifest(dir, date);
+    if (!r.ok) throw new Error(r.reason);
+    return filesSig(r.manifest);
+  };
+  /** 옛 워커가 남긴 이력 rows — 6표 + 파생 2표 키만(team_flow 키 없음). */
+  const OLD_ROWS: Record<string, number> = { ...STAGED8 };
+  const committedLog = (date: string) =>
+    log.calls.info.find((c) => c.msg === "limitup day committed" && c.obj.date === date);
+
+  it("이력 rows 에 team_flow 키 없음 + 같은 sig + manifest team_flow 34 → 재적재 · p_expected.team_flow 34 · reason team_flow_backfill", async () => {
+    addTeamFlowDay(TF_DATE);
+    const { out, fake } = await run({ loads: [{ date: TF_DATE, files_sig: sigOf(TF_DATE), skip_streak: 0, rows: OLD_ROWS }] });
+    expect(out.skipped.unchanged).toEqual([]);
+    expect(out.loaded).toEqual([TF_DATE]);
+    expect((commitFor(fake.calls, TF_DATE).args.p_expected as Record<string, number>).team_flow).toBe(34);
+    expect(committedLog(TF_DATE)?.obj).toMatchObject({ reason: "team_flow_backfill", replaced: true, sigChanged: false });
+    const backfill = log.calls.info.find((c) => c.msg.startsWith("limitup day team_flow backfill"));
+    expect(backfill?.obj).toEqual({ date: TF_DATE, prevTeamFlow: null, manifestTeamFlow: 34 });
+  });
+
+  it("이력 rows.team_flow 34 + 같은 sig → unchanged · commit 0회(다 실린 날짜는 다시 싣지 않는다)", async () => {
+    addTeamFlowDay(TF_DATE);
+    const { out, fake } = await run({
+      loads: [{ date: TF_DATE, files_sig: sigOf(TF_DATE), skip_streak: 0, rows: { ...OLD_ROWS, team_flow: 34 } }],
+    });
+    expect(out.skipped.unchanged).toEqual([TF_DATE]);
+    expect(out.loaded).toEqual([]);
+    expect(rpcs(fake.calls, "limitup_commit_day")).toEqual([]);
+    expect(tfRowsOf(fake.calls)).toEqual([]);
+  });
+
+  it("이력 rows.team_flow 0 + 같은 sig + manifest 34 → 재적재(개수 불일치 · reason team_flow_backfill)", async () => {
+    addTeamFlowDay(TF_DATE);
+    const { out, fake } = await run({
+      loads: [{ date: TF_DATE, files_sig: sigOf(TF_DATE), skip_streak: 0, rows: { ...OLD_ROWS, team_flow: 0 } }],
+    });
+    expect(out.loaded).toEqual([TF_DATE]);
+    expect((commitFor(fake.calls, TF_DATE).args.p_expected as Record<string, number>).team_flow).toBe(34);
+    expect(committedLog(TF_DATE)?.obj.reason).toBe("team_flow_backfill");
+  });
+
+  it("manifest 에 team_flow 파일 없음 + 같은 sig + 이력 rows 에 키 없음 → unchanged(재적재 없음)", async () => {
+    addDay(GOOD);
+    const { out, fake } = await run({ loads: [{ date: GOOD, files_sig: SIG, skip_streak: 0, rows: OLD_ROWS }] });
+    expect(out.skipped.unchanged).toEqual([GOOD]);
+    expect(out.loaded).toEqual([]);
+    expect(rpcs(fake.calls, "limitup_commit_day")).toEqual([]);
+  });
+
+  it("sig 다름 → reason files_sig · 이력 없음 → reason new", async () => {
+    addDay(BAD);
+    addDay(GOOD);
+    const { out } = await run({ loads: [{ date: GOOD, files_sig: "0".repeat(64), skip_streak: 0, rows: OLD_ROWS }] });
+    expect(out.loaded).toEqual([BAD, GOOD]);
+    expect(committedLog(BAD)?.obj).toMatchObject({ reason: "new", replaced: false });
+    expect(committedLog(GOOD)?.obj).toMatchObject({ reason: "files_sig", replaced: true, sigChanged: true });
+    expect(log.calls.info.filter((c) => c.msg.startsWith("limitup day team_flow backfill"))).toEqual([]);
+  });
+
+  it('이력 select 열 = "date, files_sig, skip_streak, rows"', async () => {
+    const { fake } = await run();
+    const select = fake.calls.find((c): c is Extract<Call, { kind: "select" }> => c.kind === "select");
+    expect(select).toMatchObject({ table: "limitup_loads", cols: "date, files_sig, skip_streak, rows" });
   });
 });
 

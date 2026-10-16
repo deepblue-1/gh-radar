@@ -40,7 +40,8 @@ export type FakeOptions = {
   storage?: (bucket: string, op: "upload" | "list" | "remove", args: unknown[]) => Resp | undefined;
 };
 
-export type LoadRow = { date: string; files_sig: string | null; skip_streak: number };
+/** `rows` = 적재 이력의 표별 행 수 jsonb(Phase 33 D-03 — team_flow 키는 새 워커가 적재한 날짜에만 있다). */
+export type LoadRow = { date: string; files_sig: string | null; skip_streak: number; rows?: Record<string, number> | null };
 
 export function makeFakeSupabase(opts: FakeOptions = {}): { sb: SupabaseClient; calls: Call[] } {
   const calls: Call[] = [];
