@@ -7,7 +7,7 @@ v1.0 요구사항 아카이브: [milestones/v1.0-REQUIREMENTS.md](./milestones/v
 
 ## v1.1 Requirements
 
-목표 기능이 없는 유지보수 마일스톤. 로드맵 phase 는 인박스 계약 반영 2건만 가지고, 나머지는 quick 으로 처리한다.
+유지보수 마일스톤. 로드맵 phase 는 인박스 계약 반영 2건(30·31) + 사용자 요청 2건(32 계좌 축 · 33 팀 매집 보고서)이고, 나머지는 quick 으로 처리한다.
 
 ### 인박스 — KB 계좌별 주문자 IP/MAC (`docs/inbox/from-gh-trade/261010-kb-order-ip-mac.md`)
 
@@ -31,6 +31,13 @@ v1.0 요구사항 아카이브: [milestones/v1.0-REQUIREMENTS.md](./milestones/v
 - [ ] **AXIS-03**: /me 현황 탭 전략 현황을 계좌별로 묶어 나열한다(소제목에 계좌 · 번호 · 상품명 · 서버키, VI 행 포함) — 잔고 탭처럼 쭉 나열
 - [ ] **AXIS-04**: /me 주문 탭에 계좌 선택을 두고 고른 계좌의 주문만 보인다 — 작업대와 같은 계좌 선택 부품, D-21 뒤집음 기록
 - [ ] **AXIS-05**: /me 설정 탭 매매설정을 서버별로 보고 저장한다 — relay `user.settings`/`user.settings.set` 에 `serverKey`, hub 84 캐시 `(userId, serverKey)` · `#fromPrimary` 해제 · 42 지정 서버 라우팅, 상따 폼 시딩은 카드 계좌의 소유 서버 설정. gh-trade 와이어 변경 없음
+
+### 팀 매집(teamflow) 보고서 (Phase 33 · 사용자 요청 2026-10-16 · 스케치 014 A · 015 C)
+
+- [ ] **TEAM-01**: gh-trade 119 밤 export 의 `team_flow.ndjson.gz`(gh-trade `docs/analysis/team-flow.md` §11 · 열 사전 인박스 `261016-teamflow-export.md`)를 `gh-radar-limitup-sync` 가 기존 표 6개와 같은 규칙(manifest sha256 대조 · 날짜 단위 교체)으로 `team_flow` 표(평평한 열 + `payload` jsonb)에 적재한다. 파일이 없는 날짜는 기존 적재에 영향이 없다
+- [ ] **TEAM-02**: 서버가 상한가 보고서와 같은 경로(RPC 1회 · `require-dma-mapped`)로 날짜 목록 · 종목 행 · 상세 payload 를 내주고, 사이드바 「분석」 에 「팀 매집」 항목이 생긴다
+- [ ] **TEAM-03**: `/analytics/teamflow?d=YYYYMMDD` 목록 — 날짜 알약 → KPI 4칸 → 종목 행(결과 · 팀 순매수 · 20% 아래/위 · 매수 중 팀 · 구간별 순매수 9칸 미니막대 · 상한가/미도달 태그) → 행 클릭 그 자리 아코디언(한 번에 하나 · 기본 전부 접힘), 폰 390 은 2줄 카드형 행(스케치 014 A)
+- [ ] **TEAM-04**: 행 펼침 상세 — 요약 문장 → [구간 가로 막대 | 거래원 2단 막대] 2열(폰 1열) → 10분 흐름 차트(순매수 막대 + 매수 중 팀 % 선 + 등락률 범위 띠 · 최대 매집 창 음영 · 첫 상한가 세로선) → 판정 기준 접힘. 각 차트 아래 접힌 표(「구간표 보기」 · 「10분 표 보기」). 차트 규칙 = 중앙 0선 · + 빨강/− 파랑 · 20% 점선 · 팀 비중 ≥ 30% 보라 · `<title>` 툴팁(스케치 015 C)
 
 ### 문서
 
@@ -73,6 +80,10 @@ v1.0 요구사항 아카이브: [milestones/v1.0-REQUIREMENTS.md](./milestones/v
 | AXIS-03 | Phase 32 | Pending |
 | AXIS-04 | Phase 32 | Pending |
 | AXIS-05 | Phase 32 | Pending |
+| TEAM-01 | Phase 33 | Pending |
+| TEAM-02 | Phase 33 | Pending |
+| TEAM-03 | Phase 33 | Pending |
+| TEAM-04 | Phase 33 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 15 total
