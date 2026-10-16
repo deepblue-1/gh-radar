@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: 운영 유지보수
-current_phase: 33
-current_phase_name: 팀 매집(teamflow) 보고서
-status: verifying
-stopped_at: Completed 33-09-PLAN.md
-last_updated: "2026-10-16T08:51:58.737Z"
+current_phase: 32
+current_phase_name: 계좌 축 정리
+status: executing
+stopped_at: Phase 33 complete (2026-10-16) — Phase 32 실행 중(별도 세션)
+last_updated: "2026-10-16T09:17:33.272Z"
 last_activity: 2026-10-16
-last_activity_desc: Phase 33 33-09 완료 — 9/9 플랜, 검증 대기
-state_head: 3538c7cad3c6d707728ec29c4346d51be349b4f6
+last_activity_desc: Phase 33 complete — Phase 32 실행 계속
+state_head: 36cd83839d50f005bf89ea751ee288ada47c68d2
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 40
   completed_plans: 35
   percent: 50
@@ -25,15 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-12 after Phase 31)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 33 — 팀 매집(teamflow) 보고서
+**Current focus:** Phase 32 — 계좌 축 정리
 
 ## Current Position
 
-Phase: 33 (팀 매집(teamflow) 보고서) — EXECUTING
-Plan: 9 of 9
-Status: Phase complete — ready for verification
-Last activity: 2026-10-16 — Phase 33 33-09 완료(webapp push 3a6e75fa..9e1561ab · Vercel dpl_BJuxRw63heNSFCsWS8WLdFLiFemg · 10/14 라이브 UAT 「전부 통과」 · 인박스 261016-teamflow-export done 5d6e2499 · TEAM-02 문구 정합) — phase 검증 대기
-Parallel: Phase 32 (계좌 축 정리) — 32-10 Task 3 라이브 UAT 대기(relay·push 55459fe5 배포 완료, 별도 세션)
+Phase: 32 — 계좌 축 정리
+Plan: 32-10 이후 진행 중(별도 세션 — 정확한 위치는 Phase 32 세션의 STATE 갱신이 정본)
+Status: Executing Phase 32
+Last activity: 2026-10-16 — Phase 33 완료(9/9 · 검증 passed · UAT 첫 로드 1~2초 · 배포 완료)
 
 Progress: [█████░░░░░] 50% (17/17 plans)
 
@@ -91,7 +90,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 **Resume file:** None
 
 Last session: 2026-10-16T08:51:53.087Z
-Stopped at: Completed 33-09-PLAN.md
+Stopped at: Phase 33 complete, ready to plan Phase 32
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps

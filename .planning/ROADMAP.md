@@ -60,7 +60,7 @@
 - [x] **Phase 30: 인박스 KB 계좌별 주문자 IP/MAC** - relay R3-01(op 5 재조회) · 웹 Admin 계좌 편집 IP/MAC 입력칸 · 계좌명 편집 · code 13 문구 · 질문 3개 답으로 `261010-kb-order-ip-mac.md` 닫기 (completed 2026-10-11)
 - [x] **Phase 31: 인박스 상따 금액 단위** - 생성물 마커 확인 · `lc.set` 금액 8필드 되싣기 · 84 `post_buy_floor_amount` · 「만(주)」 결정으로 `261011-limitchaser-amount-unit.md` 닫기 (completed 2026-10-12)
 - [ ] **Phase 32: 계좌 축 정리** - 작업대 계좌 스코프(전략·VI 계좌별) · 상단 줄 재설계(정규 배지·사운드 토글 제거, 시세·주문 축약, 계좌 선택) · /me 탭 위 계좌 칩(현황 · 잔고 · 주문 · 설정이 고른 계좌를 따름) · 매매설정 서버별(relay 42/84 serverKey) · VI 계좌별(relay 61 슬롯 · gh-trade Phase 33 뒤)
-- [ ] **Phase 33: 팀 매집(teamflow) 보고서** - gh-trade `team_flow.ndjson.gz` export 적재(limitup-sync · 표 + payload) · 서버 RPC · `/analytics/teamflow` 목록(스케치 014 A 보고서 동형 · 기본 접힘) + 행 펼침 상세(스케치 015 C 차트 + 접힌 표) · 인박스 `261016-teamflow-export.md` 닫기
+- [x] **Phase 33: 팀 매집(teamflow) 보고서** - gh-trade `team_flow.ndjson.gz` export 적재(limitup-sync · 표 + payload) · 서버 RPC · `/analytics/teamflow` 목록(스케치 014 A 보고서 동형 · 기본 접힘) + 행 펼침 상세(스케치 015 C 차트 + 접힌 표) · 인박스 `261016-teamflow-export.md` 닫기 (completed 2026-10-16)
 
 ## Phase Details
 
@@ -212,7 +212,7 @@ Plans:
 | 30. 인박스 KB 계좌별 주문자 IP/MAC | v1.1 | 9/9 | Complete | 2026-10-11 |
 | 31. 인박스 상따 금액 단위 | v1.1 | 8/8 | Complete | 2026-10-12 |
 | 32. 계좌 축 정리 | v1.1 | 9/14 | In Progress | — |
-| 33. 팀 매집(teamflow) 보고서 | v1.1 | 9/9 | In Progress | — |
+| 33. 팀 매집(teamflow) 보고서 | v1.1 | 9/9 | Complete | 2026-10-16 |
 
 ### Phase 33: 팀 매집(teamflow) 보고서
 
@@ -227,7 +227,7 @@ Plans:
   5. 단위 · E2E(limitup-report 동형 fixture) 통과 · 10/14 실측 3종목으로 라이브 UAT · 인박스 `261016-teamflow-export.md` 를 `status: done` 으로 닫는다
 
 **배포 순서**: DB 마이그레이션(표 · RPC · RLS 정책 0개 · service_role 전용 · REVOKE 명시(D-06)) → limitup-sync Job 재배포(`scripts/deploy-limitup-sync.sh` · 21:20 KST 밖) → server → webapp push(= 프로덕션). radar-gw 변경 없음. 첫 적재는 119 export 에 `team_flow.ndjson.gz` 가 실린 날짜부터
-**Plans**: 9/9 plans executed
+**Plans**: 9/9 plans complete
 
 Plans:
 **Wave 1**
