@@ -37,7 +37,7 @@ gh-trade 119 밤 배치가 내보내는 `team_flow.ndjson.gz`(종목·일 한 �
 
 ### 상세 · 차트 (TEAM-04 — 스케치 015 C)
 - **D-12: 순수 SVG 손그림.** 스케치 015 `index.html` 의 차트 코드를 React 컴포넌트로 이식한다(구간 가로 막대 · 거래원 2단 막대 · 10분 흐름 막대 + 보라 선 + 등락률 띠). 라이브러리 추가 없음(recharts 래퍼 · lightweight-charts 안 씀). 색은 CSS 변수 그대로(`--up`/`--down` 류 · [[feedback_lightweight_charts_oklch]] 문제 없음) · 수치는 `<title>` 툴팁 · 상한가 보고서 lane/sparkline 과 같은 `viewBox` 결.
-- **D-13: 10분 차트 가로축 = 장 시간 고정 09:00~15:30(39칸).** `payload.buckets[]` 의 `key`(0~143 · `start` "HH:MM")를 09:00=key 54 … 15:20=key 92 슬롯에 놓고 빈 버킷은 빈 칸(0선만). 종목 간 같은 위치에서 「언제」 가 읽히고 VI · 잠김 공백이 보인다. 폰 390 막대 ≈ 7px(스케치 검증값). 최대 매집 창 음영 = `payload.window.start~end`, 첫 상한가 세로선 = `first_limit_ms`, 등락률 띠 = `buckets[].lo/hi`(% 그대로) · 20% 점선, 팀 비중 선 = `buckets[].share`(≥ 0.30 보라 강조).
+- **D-13: 10분 차트 가로축 = 장 시간 고정(39칸).** 장 시간 = 09:00~15:30. `payload.buckets[]` 의 `key`(0~143 · `start` "HH:MM")를 09:00=key 54 … 15:20=key 92 슬롯에 놓고 빈 버킷은 빈 칸(0선만). 종목 간 같은 위치에서 「언제」 가 읽히고 VI · 잠김 공백이 보인다. 폰 390 막대 ≈ 7px(스케치 검증값). 최대 매집 창 음영 = `payload.window.start~end`, 첫 상한가 세로선 = `first_limit_ms`, 등락률 띠 = `buckets[].lo/hi`(% 그대로) · 20% 점선, 팀 비중 선 = `buckets[].share`(≥ 0.30 보라 강조). **2026-10-16 plan-phase 보정(사용자 결정):** 종가 단일가 체결 버킷 `key` 93(15:30:00 체결 · 실측 34행 중 33행에 존재 · key 92 는 0행)은 **마지막 칸(슬롯 38 = 15:20 칸 · 15:20~15:30 종가 접수 구간)에 합산**한다 — 축은 39칸 · 15:30 끝 표기 그대로, 마지막 빈 칸이 사라진다. 합산 규칙: 수량 · 금액 키는 더하고 `lo`=min · `hi`=max · `share` 는 합산한 `team_buy ÷ buy_aggr`(분모 0 → null). 그 밖의 범위 밖 key(< 54 · > 93)는 차트에서 버린다. 「10분 표 보기」 표에는 key 92 · 93 이 각자 행으로 남는다.
 - **D-14: 상세 순서 · 접힌 표.** 요약 문장(`payload.summary_lines[]` · HTML 은 `<b>` 만 허용 — sanitize 후 렌더) → [구간 가로 막대 | 거래원 2단 막대] 2열(폰 1열) → 10분 흐름 차트 → 판정 기준 접힘. 구간 차트 아래 「구간표 보기」(bands 표 · 「하루 합계」 행 포함 · 열 = gh-trade 샘플 표 6열), 10분 차트 아래 「10분 표 보기」(buckets 표 7열) — 기본 접힘. 거래원 = `payload.members.rows[]`(buy/sell/net null 허용) + `absent[]` → 「상위 5 밖: …」 한 줄. 팀 체결이 거의 없는 종목(동양고속형)도 빈 차트가 0선 · 축만으로 깨지지 않는다.
 
 ### UAT · 픽스처 · 인박스
@@ -46,7 +46,7 @@ gh-trade 119 밤 배치가 내보내는 `team_flow.ndjson.gz`(종목·일 한 �
 - **D-17: 인박스 닫기.** `docs/inbox/from-gh-trade/261016-teamflow-export.md` 의 `status: done` · `done_commit` 을 phase 마지막 플랜(배포 뒤)에서 채워 **경로 지정** 커밋. gh-trade 세션(gh-trade-e0)에 처리 완료를 SendMessage 로 알린다(보조).
 
 ### 배포 순서
-- **D-18:** DB 마이그레이션(표 · CHECK · commit_day · purge · 보고서 RPC — 옛 워커 호환 D-03) → limitup-sync Job 재배포(`scripts/deploy-limitup-sync.sh` · **21:00~21:20 KST 밖**) → server → webapp push(= 프로덕션). radar-gw 변경 없음. 워커 배포 뒤 첫 실행(다음 21:20 또는 수동 `gcloud run jobs execute`)이 11일 + 10/16 team_flow 를 채운다.
+- **D-18:** DB 마이그레이션(표 · CHECK · commit_day · purge · 보고서 RPC — 옛 워커 호환 D-03) → limitup-sync Job 재배포(`scripts/deploy-limitup-sync.sh` · **21:00~21:20 KST 밖**) → server → webapp push(= 프로덕션). radar-gw 변경 없음. 워커 배포 뒤 첫 실행(다음 21:20 또는 수동 `gcloud run jobs execute`)이 11일 + 10/16 team_flow 를 채운다. **2026-10-16 plan-phase 보정(사용자 결정 · gh-trade 세션 전달):** 워커 재배포 직후 **장중이어도 21:00 타이머를 기다리지 않고** radar-gw 에서 `limitup-pull.sh --allow-daytime` 을 1회 돌려 운반한 뒤 `gcloud run jobs execute` 로 워커를 즉시 실행하고 INV-8 로 10/14 를 확인한다(메인 세션 체크포인트). limitup-pull 은 Nice 19 · IO idle · MemoryMax 300M 이라 relay 부하는 작다. 단, 20:55~21:25 KST 창은 여전히 피한다.
 
 ### Claude's Discretion
 - 표 · RPC · 라우트 · 파일 이름(`limitup_team_flow` · `teamflow_report_for_user` · `server/src/routes/teamflow-report.ts` · `webapp/src/app/analytics/teamflow/page.tsx` 류) · shared 타입 위치(`packages/shared/src/teamflow-report.ts`).

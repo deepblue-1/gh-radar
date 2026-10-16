@@ -303,7 +303,7 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 | `fmtQty(n, {signed})` | `ko-KR` 그룹 정수 · `signed` 면 부호 · 단위 「주」 는 호출부 | `96,289` · `+96,289` |
 | `kstHm(ms)` | KST 「HH:MM」(`kstSecOf` 재사용) | `14:17` |
 | `bandSlotsOf(bands)` | 9칸 고정 라벨(T4 표 순서)에 `net_val` 을 놓는다 · 없는 라벨 = null · 「하루 합계」 제외 | — |
-| `bucketSlotsOf(buckets)` | `key` 54(09:00) ~ 92(15:20) → 39칸 · 범위 밖 `key` 는 차트에서 버린다(표에는 남는다) · 빈 칸 = null | — |
+| `bucketSlotsOf(buckets)` | `key` 54(09:00) ~ 92(15:20) → 39칸 · **`key` 93(15:30 종가 단일가)은 슬롯 38(15:20 칸)에 합산**(수량·금액 합 · `lo` min · `hi` max · `share` = 합산 `team_buy ÷ buy_aggr`, 분모 0 → null) · 그 밖의 범위 밖 `key` 는 차트에서 버린다(표에는 남는다) · 빈 칸 = null | — |
 | `summaryPartsOf(line)` | `<b>…</b>` 만 `strong` 조각으로 · 그 밖 태그는 **글자째 제거** · 엔티티 5종(`&amp;` `&lt;` `&gt;` `&quot;` `&#39;`) 해제 · `dangerouslySetInnerHTML` 금지(상한가 `storyOf` parts 와 같은 결) | `"순매수 <b>+7.0억</b>"` → `[text, strong]` |
 | `sortRows(rows)` | `team_net_val` 내림차순 · null 맨 뒤 · 같으면 `isin` 오름차순(안정) | — |
 
@@ -370,7 +370,7 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 ### T8. 상세 — 10분 흐름 차트 + 「10분 표 보기」
 
 - 2열 그리드 아래 전폭. 폭 측정 · 1:1 viewBox 는 T6 와 같다. 높이 228 고정.
-- **가로축 고정(D-13):** 39칸 = `key` 54(09:00) … 92(15:20). 칸 폭 `slot = (W − 40 − 36) ÷ 39` · 막대 폭 `max(2, slot − 2)` · 폰 본문(≈ 334~358px)에서 칸 ≈ 7px. 빈 버킷 = 아무것도 그리지 않는다(0선만) — VI · 잠김 공백이 빈자리로 보인다. 범위 밖 `key`(장전 · 장후 단일가 등)는 차트에서 버린다.
+- **가로축 고정(D-13):** 39칸 = `key` 54(09:00) … 92(15:20). 칸 폭 `slot = (W − 40 − 36) ÷ 39` · 막대 폭 `max(2, slot − 2)` · 폰 본문(≈ 334~358px)에서 칸 ≈ 7px. 빈 버킷 = 아무것도 그리지 않는다(0선만) — VI · 잠김 공백이 빈자리로 보인다. **`key` 93(15:30 종가 단일가 체결)은 마지막 칸(슬롯 38 · 15:20 칸)에 합산한다(2026-10-16 사용자 결정 — D-13 보정).** 그 밖의 범위 밖 `key`(장전 · 장후 단일가 등)는 차트에서 버린다.
 - 위 판(높이 128): 0선 = 판 위에서 55% 지점 `--border-subtle` · 막대 + 위 / − 아래 · `mx = max(5천만 원, |net_val| 최대)` · 최소 높이 1.5 · 색 `toneOf` · `rx 1.5`. 팀 비중 선 = `share` 0~0.60 을 판 높이에 매핑(0.60 초과는 위끝에 고정) · `--team` 2px · `stroke-linejoin round` · **빈 칸 · share null 에서 선을 끊는다**(공백을 잇지 않는다).
 - 아래 판(높이 56 · 위 판과 16 간격): 등락률 범위 띠 = 칸마다 `lo`~`hi` 세로 rect `--faint` · 최소 1.5 · 축 `rlo = min(0, lo 최소)` · `rhi = max(30, hi 최대)` · 20% 점선 가로 `--muted-fg` `3 3`.
 - 최대 매집 창 음영: `payload.window` 의 `start`~`end` 칸(양끝 포함)을 두 판 전체 높이로 `--team-bg` `rx 4` — **맨 아래 레이어**. window null = 음영 없음 · 캡션에서 음영 문구 빠짐.
@@ -492,7 +492,7 @@ Applicable state considerations resolved: 83 · resolved 62 (explicit 57 · back
 | loading | T8 10분 차트 | ✅ covered | 측정 전 첫 페인트는 폴백 폭 640 으로 그리고 측정 즉시 다시 그린다(레인과 같은 규칙) |
 | error | T8 10분 차트 | ⛔ dismissed | 사유: 응답 안 payload 를 그대로 표로 — 추가 fetch 가 없어 실패 경로가 없다(D-05) |
 | populated | T8 10분 차트 | ✅ covered | 39칸 고정축 · 막대 ± · 보라 비중 선 · 등락률 띠 · 창 음영 · 첫 상한가 선 · 범례 |
-| partial | T8 10분 차트 | ✅ covered | 빈 버킷 = 빈 칸(선 끊김) · window null = 음영 없음 · 미도달 = 세로선 없음 · 범위 밖 key = 차트 제외(표 포함) |
+| partial | T8 10분 차트 | ✅ covered | 빈 버킷 = 빈 칸(선 끊김) · window null = 음영 없음 · 미도달 = 세로선 없음 · key 93 = 슬롯 38 합산 · 그 밖 범위 밖 key = 차트 제외(표 포함) |
 | overflow | T8 10분 차트 | 🧪 backstop | { statement: "폰 390 에서 39칸 칸 폭 ≈ 7px · 「첫 상한가 HH:MM」 라벨이 오른쪽 끝을 넘지 않음 · 축 글자 11px 그대로(viewBox 1:1)", verification: backstop } |
 | zero-one-many | T8 10분 차트 | ✅ covered | 두 표 · 판정 기준 토글이 서로 독립 · 행 접으면 초기화 |
 | long-text | T8 10분 차트 | ✅ covered | 축 글자(HH:MM · ±NN%) · 범례 「첫 상한가 HH:MM」 모두 고정 길이 — 긴 글 입력 없음 |
