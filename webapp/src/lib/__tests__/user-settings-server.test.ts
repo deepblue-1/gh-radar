@@ -38,8 +38,9 @@ const ACCOUNTS: RelayAccount[] = [
 describe('P32 서버별 84 조회 (D-14a · D-14b · Pitfall 14)', () => {
   describe('firstServerKeyOf — accounts[] 에서 처음 나온 서버키 = primary', () => {
     it('서버키 없는 계좌는 건너뛰고 첫 서버키 · 하나도 없으면 undefined', () => {
-      expect(firstServerKeyOf([{ accountNo: 'x', name: '' }, ...ACCOUNTS])).toBe('KB120');
-      expect(firstServerKeyOf([{ accountNo: 'x', name: '' }])).toBeUndefined();
+      const noKey: RelayAccount = { accountNo: 'x', name: '' };
+      expect(firstServerKeyOf([noKey, ...ACCOUNTS])).toBe('KB120');
+      expect(firstServerKeyOf([noKey])).toBeUndefined();
       expect(firstServerKeyOf([])).toBeUndefined();
     });
   });
