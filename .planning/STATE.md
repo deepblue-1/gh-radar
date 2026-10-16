@@ -5,7 +5,7 @@ milestone_name: 운영 유지보수
 current_phase: 32
 current_phase_name: 계좌 축 정리
 status: executing
-stopped_at: Phase 32 14/14 plans complete + 32-15 작업대 계좌 칩(배포 c7cdb797) — phase 검증 진행
+stopped_at: Phase 32 검증 human_needed — 리뷰 수정 배포(relay·push 57c19e5e) 뒤 UAT 4건 대기
 last_updated: "2026-10-16T10:10:00.000Z"
 last_activity: 2026-10-16
 last_activity_desc: Phase 33 complete — Phase 32 실행 계속
