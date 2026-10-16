@@ -259,6 +259,11 @@ export interface AccountPanelProps {
    */
   stack?: boolean;
   /**
+   * 계좌 전용 모드에서 머리 줄(「계좌 · 번호 · 상품명」)을 그리지 않는다 — /me 는 탭 위 계좌 칩이 계좌를
+   * 말한다(Phase 32 D-22). 종목 축 모드(셀렉터)에는 영향 없음. 넘기지 않으면 DOM 불변(다른 3표면).
+   */
+  hideAccountHeader?: boolean;
+  /**
    * 미체결 섹션 헤더 우측에 붙일 컨트롤 (UI-SPEC B7 — 거래소 필터 · 「전체 취소」).
    *
    * 패널이 필터·일괄취소를 **소유하지 않는다.** 필터는 어떤 행을 넘길지의 문제라
@@ -362,6 +367,7 @@ export function AccountPanel({
   currentPrice,
   originTag,
   stack = false,
+  hideAccountHeader = false,
   unfilledHeaderActions,
   status,
   onCancelSubmitted,
@@ -668,7 +674,11 @@ export function AccountPanel({
       data-mode={stockScoped ? 'stock' : 'account'}
       className={cn('flex flex-col bg-[var(--card)]', className)}
     >
-      {/* 계좌 머리 — 종목 축이 있으면 셀렉터, 없으면 그 계좌번호를 **전체 표시**한다(D2 · ⑦). */}
+      {/*
+        계좌 머리 — 종목 축이 있으면 셀렉터, 없으면 그 계좌번호를 **전체 표시**한다(D2 · ⑦).
+        계좌 전용 + `hideAccountHeader`(/me — 칩이 계좌를 말한다 · Phase 32 D-22)면 그리지 않는다.
+      */}
+      {!(hideAccountHeader && !stockScoped) && (
       <div className="flex items-center gap-[var(--s-2)] border-b border-[var(--border-subtle)] px-[var(--s-3)] py-[var(--s-2)]">
         <label
           htmlFor={stockScoped ? 'account-panel-account' : undefined}
@@ -714,6 +724,7 @@ export function AccountPanel({
           </>
         )}
       </div>
+      )}
 
       {/*
         ≥900px 전용 탭. 좁은 폭에서는 두 표를 그냥 나열하므로 탭 자체가 사라진다(M3).

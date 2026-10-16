@@ -163,8 +163,8 @@ const ACCOUNT_B_STATE = {
  *     묶인 줄이 390px ②줄 줄바꿈의 시험대다 — 주문번호 범위 + 가격 범위 + (4건)이 한 줄에 못 든다.
  *   계좌 B(위탁CMA) — 긴 종목명 행(ord-b · 출처 미상 `origin: null` = 칩 생략 대상, D-08 보충) ·
  *     VI KRX 매수(ord-f).
- *   ★ 가장 최신 행(ord-f)이 **계좌 B** 다 — 첫 등장 순으로 묶으면 B 가 먼저 서므로, 묶음이
- *     relay 계좌 목록 순(A → B)으로 선다는 단언이 헛통과하지 않는다.
+ *   ★ 가장 최신 행(ord-f)이 **계좌 B** 다 — Phase 32 D-23 부터 주문 탭은 고른 계좌의 평탄 목록이라
+ *     (계좌 묶음 없음) 계좌별 줄 수는 `linesOfAccount` 로 픽스처에서 센다(숫자 하드코딩 금지).
  *   ★ NXT 는 ord-d 한 종류뿐이다(태그 1개 단언).
  */
 const TODAY = kstDateIso();
@@ -337,6 +337,16 @@ const TODAY_ORDERS: JournalOrderRow[] = [
 /** 화면 줄 수 — 조각 체결 4건이 한 줄로 접혀 9행이 6줄이 된다. */
 const TODAY_ORDER_LINES = 6;
 
+/** Phase 32 D-23 — 주문 탭은 고른 계좌의 행만 그린다. 그 계좌의 행(묶기 전). */
+const rowsOfAccount = (rows: readonly JournalOrderRow[], acct: string): JournalOrderRow[] =>
+  rows.filter((r) => r.accountNo === acct);
+/** 그 계좌의 화면 줄 수 = 행 수 − (그 계좌에 든 조각 체결 수 − 1) — 조각 체결(MERGED_FILLS)은 한 줄로 접힌다. */
+const linesOfAccount = (rows: readonly JournalOrderRow[], acct: string): number => {
+  const mine = rowsOfAccount(rows, acct);
+  const fills = mine.filter((r) => MERGED_FILLS.some((m) => m.id === r.id)).length;
+  return mine.length - Math.max(0, fills - 1);
+};
+
 /**
  * Phase 25 25-08 — 오늘 주문 행 펼침(P25-E) 전용 목록. 기존 `TODAY_ORDERS` 건수 단언(9행 · 6줄)을 흔들지 않게
  * P25-E 케이스만 `**\/api/orders` 를 이 목록으로 덮어쓴다(라우트는 나중에 건 것이 이긴다).
@@ -415,9 +425,13 @@ async function waitForStrategies(page: Page, count: number): Promise<void> {
   await expect(strategyRows(page)).toHaveCount(count, { timeout: 30_000 });
 }
 
-/** 계좌 목록이 설 때까지 기다린다 = relay 세션이 `ready` 라는 뜻이다. */
-async function waitForAccounts(page: Page, count: number): Promise<void> {
-  await expect(accountCards(page)).toHaveCount(count, { timeout: 30_000 });
+/**
+ * 잔고 탭에 고른 계좌 카드 **1벌**이 설 때까지 기다린다 = relay 세션이 `ready` 이고 그 칩이 골라졌다는 뜻이다
+ * (Phase 32 D-22 — 계좌마다 세로로 반복하던 카드는 고른 계좌 한 벌로 바뀌었다).
+ */
+async function waitForAccountCard(page: Page, accountNo: string): Promise<void> {
+  await expect(accountCards(page)).toHaveCount(1, { timeout: 30_000 });
+  await expect(accountCards(page)).toHaveAttribute('data-account-no', accountNo, { timeout: 30_000 });
 }
 
 /*
@@ -441,7 +455,7 @@ async function openMeTab(page: Page, label: string, value: string): Promise<void
 
 /**
  * relay 준비 동기점 — 상태줄 ready + 계좌 칩 n개. 상태줄은 현황 탭 안이라 **현황 탭에서만** 쓴다.
- * (옛 `waitForAccounts` 가 맡던 「relay 준비」 역할 — 계좌 카드는 이제 잔고 탭에 있다.)
+ * (옛 계좌 카드 대기가 맡던 「relay 준비」 역할 — 계좌 카드는 이제 잔고 탭에 있다.)
  * Phase 32 — 「계좌 N개」 칸이 사라져 칩 수로 준비를 잰다(칩 줄은 `accounts[]` 수신 뒤에만 선다).
  */
 async function waitForReady(page: Page, count: number): Promise<void> {
@@ -600,13 +614,8 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
   }) => {
     /** 계좌 목록 밖 계좌 — 오늘 주문 복원 행에만 있다(RESEARCH Pitfall 10). */
     const OUTSIDE_ACCOUNT = '9999999901';
-    const rowsOf = (rows: readonly JournalOrderRow[], acct: string) => rows.filter((r) => r.accountNo === acct);
-    /** 화면 줄 수 = 행 수 − (그 계좌에 든 조각 체결 수 − 1) — 조각 체결(MERGED_FILLS)은 한 줄로 접힌다. */
-    const linesOf = (rows: readonly JournalOrderRow[], acct: string) => {
-      const mine = rowsOf(rows, acct);
-      const fills = mine.filter((r) => MERGED_FILLS.some((m) => m.id === r.id)).length;
-      return mine.length - Math.max(0, fills - 1);
-    };
+    const rowsOf = rowsOfAccount;
+    const linesOf = linesOfAccount;
     const card = todayOrdersCard(page);
     const header = card.locator('h2 + span');
 
@@ -670,7 +679,51 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await expect(header).toHaveText('1건');
   });
 
-  test('1. 전략 3 · 계좌 2 — 고른 계좌의 전략 행이 배지·거래소를 보여주고 계좌 카드가 세로로 반복된다', async ({
+  test('P32-balance 잔고 탭 = 고른 계좌 한 벌 — 머리 없음 · 「잔고 N」 · B 칩 전환 (D-22)', async ({ page }) => {
+    /** B 에 미체결 2건 — A(1건) · 합(3건)과 갈라져 라벨이 고른 계좌 수인지 가린다. */
+    const bState = {
+      ...ACCOUNT_B_STATE,
+      unfilled: [
+        ...ACCOUNT_B_STATE.unfilled,
+        { ...ACCOUNT_B_STATE.unfilled[0], orderNo: '0000135802', exchange: 'KRX' },
+      ],
+    };
+    await page.goto('/me');
+    await waitForReady(page, 2);
+    await relay.pushAccountState(ACCOUNT_A_STATE);
+    await relay.pushAccountState(bState);
+
+    // 라벨 = 고른 계좌(기본 A) 미체결 수 — relay 컨텍스트에서 오므로 탭을 열기 전에도 선다.
+    await expect(meTabCount(page, '잔고')).toHaveText(String(ACCOUNT_A_STATE.unfilled.length), {
+      timeout: 15_000,
+    });
+
+    await openMeTab(page, '잔고', 'accounts');
+    await waitForAccountCard(page, E2E_ACCOUNT_NO);
+    const card = accountCards(page);
+    // 머리 줄(「계좌 · 번호 · 상품명」) 없음 — 계좌는 탭 위 칩이 말한다 · 세로 반복 없음.
+    await expect(card.getByTestId('account-panel-account-no')).toHaveCount(0);
+    await expect(card.getByTestId('account-panel-account-name')).toHaveCount(0);
+    await expect(card).toHaveCount(1);
+    await expect(card).toContainText('0000135742', { timeout: 15_000 });
+    await expect(card).not.toContainText('0000135801');
+
+    // B 칩 → B 카드 한 벌 · 라벨 = B 미체결 수.
+    await accountChip(page, ACCOUNT_B).click();
+    await waitForAccountCard(page, ACCOUNT_B);
+    await expect(card).toContainText('0000135801', { timeout: 15_000 });
+    await expect(card).toContainText('0000135802');
+    await expect(card).not.toContainText('0000135742');
+    await expect(meTabCount(page, '잔고')).toHaveText(String(bState.unfilled.length));
+
+    // A 로 돌아오면 A.
+    await accountChip(page, E2E_ACCOUNT_NO).click();
+    await waitForAccountCard(page, E2E_ACCOUNT_NO);
+    await expect(card).toContainText('0000135742');
+    await expect(meTabCount(page, '잔고')).toHaveText(String(ACCOUNT_A_STATE.unfilled.length));
+  });
+
+  test('1. 전략 3 · 계좌 2 — 고른 계좌의 전략 행이 배지·거래소를 보여주고 잔고 · 주문 탭이 고른 계좌를 따른다', async ({
     page,
   }) => {
     await page.goto('/me');
@@ -711,27 +764,24 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await expect(onlyB).not.toContainText(ACCOUNT_B);
     await expect(onlyB).toContainText('매도대기');
 
-    // --- 계좌 카드 (C5 · D-21) — 잔고 탭 ---
+    // --- 계좌 카드 (C5 · Phase 32 D-22) — 잔고 탭 = 고른 계좌(지금 B) 한 벌 ---
     await openMeTab(page, '잔고', 'accounts');
-    await waitForAccounts(page, 2);
-    const cardA = accountCard(page, E2E_ACCOUNT_NO);
-    const cardB = accountCard(page, ACCOUNT_B);
-    await expect(cardA).toContainText('위탁종합');
-    await expect(cardB).toContainText('위탁CMA');
+    await waitForAccountCard(page, ACCOUNT_B);
+    const card = accountCards(page);
 
     /*
-      ★ 계좌마다 **자기 주문**이 들어 있어야 한다. 브라우저가 마지막 `acct` 프레임 하나만
-        들고 있으면 여기서 계좌 A 가 「미체결 주문이 없어요」가 된다(=거짓말).
+      ★ 고른 계좌의 **자기 주문만** 들어 있어야 한다. 브라우저가 마지막 `acct` 프레임 하나만
+        들고 있으면 여기서 고른 계좌가 「미체결 주문이 없어요」가 되거나 남의 주문을 보인다(=거짓말).
     */
-    await expect(cardA).toContainText('0000135742', { timeout: 15_000 });
-    await expect(cardA).not.toContainText('0000135801');
-    await expect(cardB).toContainText('0000135801');
-    await expect(cardB).not.toContainText('0000135742');
+    await expect(card).toContainText('0000135801', { timeout: 15_000 });
+    await expect(card).not.toContainText('0000135742');
+    await accountChip(page, E2E_ACCOUNT_NO).click();
+    await waitForAccountCard(page, E2E_ACCOUNT_NO);
+    await expect(card).toContainText('0000135742', { timeout: 15_000 });
+    await expect(card).not.toContainText('0000135801');
 
-    // ★ 계좌 선택 UI 가 없다 (D-21) — 세로 반복이 계좌 구분이다.
+    // ★ 패널 안 계좌 셀렉터는 없다 — 계좌 선택은 탭 위 칩(button) 한 곳이다(D-20).
     await expect(page$(page).locator('select')).toHaveCount(0);
-    // 잔고 탭 안 세로 반복 — 계좌 A 가 B 위(relay 계좌 목록 순).
-    expect((await boxOf(cardA)).y).toBeLessThan((await boxOf(cardB)).y);
 
     /*
       ★ 오늘 주문 카드 (RELAY-02 / D-24) — **D-20 의 v1 유예를 명시적으로 되돌렸다.**
@@ -742,7 +792,10 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await openMeTab(page, '주문', 'orders');
     const ordersCard = todayOrdersCard(page);
     await expect(ordersCard).toBeVisible();
-    await expect(todayOrderRows(page)).toHaveCount(TODAY_ORDER_LINES, { timeout: 15_000 });
+    // 고른 계좌(A)의 주문만 — 줄 수는 픽스처에서 센다(Phase 32 D-23).
+    await expect(todayOrderRows(page)).toHaveCount(linesOfAccount(TODAY_ORDERS, E2E_ACCOUNT_NO), {
+      timeout: 15_000,
+    });
     // 취소된 주문은 미체결 목록에 없다 — 이 표면만이 그 행을 담는다.
     await expect(ordersCard).toContainText('0000900003');
     await expect(ordersCard).toContainText('취소');
@@ -756,6 +809,9 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     */
     await expect(ordersCard).toContainText('삼성전자', { timeout: 15_000 });
     await expect(ordersCard).toContainText('005930');
+    // 긴 종목명 행(ord-b)은 B 의 주문이다 — B 칩을 고르면 선다.
+    await accountChip(page, ACCOUNT_B).click();
+    await expect(todayOrderRows(page)).toHaveCount(linesOfAccount(TODAY_ORDERS, ACCOUNT_B));
     await expect(ordersCard).toContainText('한국제7호기업인수목적우선주식회사');
     await expect(ordersCard).toContainText('000660');
     // 이 경로로는 **읽기만** 나간다 (D-02 — 주문 접수는 wss 단일 경로다).
@@ -764,7 +820,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
 
     /*
       세로 순서 → 탭 순서 승계(quick-261006-pey D-1): 옛 「상태줄 → 전략 현황 → 계좌 A → 계좌 B → 오늘 주문」 은
-      탭 순서 현황(상태줄 · 전략) → 잔고(계좌 A → B · 위에서 단언) → 주문 → 설정으로 잇는다.
+      탭 순서 현황(상태줄 · 전략) → 잔고(고른 계좌 한 벌 · 위에서 단언) → 주문 → 설정으로 잇는다.
     */
     const tabNames = (await meTabList(page).getByRole('tab').allTextContents()).map((t) =>
       t.replace(/\d+$/, ''),
@@ -875,10 +931,11 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
   }) => {
     await page.goto('/me');
     await waitForReady(page, 2);
-    // 스트레스 데이터가 실린 계좌 B 가 잘림의 시험대다.
+    // 스트레스 데이터가 실린 계좌 B 가 잘림의 시험대다 — 잔고 탭은 고른 계좌 한 벌이라 B 칩을 고른다(D-22).
     await relay.pushAccountState(ACCOUNT_B_STATE);
+    await accountChip(page, ACCOUNT_B).click();
     await openMeTab(page, '잔고', 'accounts');
-    await waitForAccounts(page, 2);
+    await waitForAccountCard(page, ACCOUNT_B);
 
     const card = accountCard(page, ACCOUNT_B);
     const unfilled = card.getByTestId('account-unfilled');
@@ -963,8 +1020,10 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     // 그 줄이 행 폭의 대부분을 차지한다.
     expect(metaBox.width).toBeGreaterThan(rowBox.width * 0.8);
 
+    // 스트레스 데이터가 실린 B — 잔고 · 주문 탭은 고른 계좌 한 벌이라 B 칩을 고른다(D-22 · D-23).
+    await accountChip(page, ACCOUNT_B).click();
     await openMeTab(page, '잔고', 'accounts');
-    await waitForAccounts(page, 2);
+    await waitForAccountCard(page, ACCOUNT_B);
     const card = accountCard(page, ACCOUNT_B);
     await expect(card.locator('[data-slot="account-unfilled-row"]')).toHaveCount(1, {
       timeout: 15_000,
@@ -1001,7 +1060,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     */
     await openMeTab(page, '주문', 'orders');
     const longOrderRow = todayOrderRows(page).filter({ hasText: '0000900002' });
-    // B′(19-08) 부터 목록이 계좌마다 한 벌이다 — 그 행이 든 목록으로 좁힌다.
+    // 고른 계좌(B)의 평탄 목록 하나다(Phase 32 D-23) — 그래도 그 행이 든 목록으로 좁혀 잰다.
     const orderList = page
       .locator('[data-slot="today-orders-list"]')
       .filter({ has: page.locator('[data-slot="today-order-row"]', { hasText: '0000900002' }) });
@@ -1029,54 +1088,45 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
       단위 테스트 `today-orders-card.test.tsx` ⑫ 다.
   */
 
-  test('9. B′ — 데스크톱 1280: 계좌 순 묶음 · 출처 열 · NXT 태그', async ({ page }) => {
+  test('9. 데스크톱 1280: 고른 계좌 평탄 · 출처 열 · NXT 태그 (Phase 32 D-23)', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/me');
     await waitForReady(page, 2);
     await openMeTab(page, '주문', 'orders');
 
+    // 계좌별 줄 수 헬퍼가 픽스처 전체 줄 수와 맞는다(헬퍼 자체가 헛돌지 않게).
+    expect(
+      linesOfAccount(TODAY_ORDERS, E2E_ACCOUNT_NO) + linesOfAccount(TODAY_ORDERS, ACCOUNT_B),
+    ).toBe(TODAY_ORDER_LINES);
+
     const card = todayOrdersCard(page);
-    const groups = card.locator('[data-slot="today-orders-group"]');
-    await expect(groups).toHaveCount(2, { timeout: 15_000 });
-    // relay 계좌 목록 순(A → B) — 가장 최신 행이 B 인데도 A 가 먼저 선다.
-    await expect
-      .poll(() => groups.evaluateAll((els) => els.map((el) => el.getAttribute('data-account'))))
-      .toEqual([E2E_ACCOUNT_NO, ACCOUNT_B]);
-
-    // 각 묶음 머리 — 계좌 · 번호 전체 · 상품명 · 그 계좌의 묶기 전 행 수.
-    const [groupA, groupB] = [groups.nth(0), groups.nth(1)];
-    await expect(groupA.locator('[data-slot="today-orders-group-account-no"]')).toHaveText(
-      E2E_ACCOUNT_NO,
-    );
-    await expect(groupB.locator('[data-slot="today-orders-group-account-no"]')).toHaveText(
-      ACCOUNT_B,
-    );
-    await expect(groupA).toContainText('위탁종합');
-    await expect(groupA).toContainText('7건');
-    await expect(groupB).toContainText('위탁CMA');
-    await expect(groupB).toContainText('2건');
-    // 헤더 「N건」 은 묶기 전 전체 행 수다.
-    await expect(card.locator('h2 + span')).toHaveText(`${TODAY_ORDERS.length}건`);
-
-    // 이 폭에서는 표다 — 묶음마다 표 하나, 「출처」 열이 구분 바로 뒤.
     const tableRows = card.locator('[data-slot="today-order-table-row"]');
-    await expect(tableRows).toHaveCount(TODAY_ORDER_LINES);
-    await expect(card.locator('[data-slot="today-order-row"]').first()).toBeHidden();
-    for (const group of [groupA, groupB]) {
-      const heads = await group.locator('th').allTextContents();
-      expect(heads.map((h) => h.trim())).toEqual([
-        '시각',
-        '종목',
-        '구분',
-        '출처',
-        '수량',
-        '가격',
-        '상태',
-        '주문번호',
-      ]);
-    }
+    const linesA = linesOfAccount(TODAY_ORDERS, E2E_ACCOUNT_NO);
+    // 고른 계좌(기본 A) 평탄 — 계좌 묶음 · 소제목(계좌 · 번호 · 상품명) 없음.
+    await expect(tableRows).toHaveCount(linesA, { timeout: 15_000 });
+    await expect(card.getByTestId('today-orders-flat')).toHaveCount(1);
+    await expect(card.locator('[data-slot="today-orders-group"]')).toHaveCount(0);
+    await expect(card).not.toContainText('위탁종합');
+    // 헤더 「N건」 은 고른 계좌의 묶기 전 행 수다.
+    await expect(card.locator('h2 + span')).toHaveText(
+      `${rowsOfAccount(TODAY_ORDERS, E2E_ACCOUNT_NO).length}건`,
+    );
 
-    // NXT 태그 — NXT 행(묶인 상따 매도) 하나에만, 종목 칸 안에.
+    // 이 폭에서는 표다 — 표 하나, 「출처」 열이 구분 바로 뒤.
+    await expect(card.locator('[data-slot="today-order-row"]').first()).toBeHidden();
+    const heads = await card.locator('th').allTextContents();
+    expect(heads.map((h) => h.trim())).toEqual([
+      '시각',
+      '종목',
+      '구분',
+      '출처',
+      '수량',
+      '가격',
+      '상태',
+      '주문번호',
+    ]);
+
+    // NXT 태그 — NXT 행(묶인 상따 매도 · A) 하나에만, 종목 칸 안에.
     const nxtTags = tableRows.locator('[data-slot="exchange-tag"]');
     await expect(nxtTags).toHaveCount(1);
     await expect(nxtTags).toHaveAttribute('data-exchange', 'NXT');
@@ -1084,31 +1134,38 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await expect(mergedRow.locator('[data-slot="exchange-tag"]')).toHaveCount(1);
     await expect(mergedRow.locator('[data-slot="today-order-origin"]')).toHaveText('상따');
 
-    // 출처 칩 — 아는 행마다 하나, 미상(ord-b)은 없다(D-08 보충 · T-19-30).
+    // 출처 칩 — A 의 줄은 전부 출처를 안다(수동 · 상따).
+    await expect(
+      tableRows.filter({ hasText: '0000900001' }).locator('[data-slot="today-order-origin"]'),
+    ).toHaveText('수동');
+    await expect(tableRows.locator('[data-slot="today-order-origin"]')).toHaveCount(linesA);
+
+    // 「· 수동」 꼬리는 없다 — 칩이 말한다(D-08).
+    await expect(card).not.toContainText('· 수동');
+
+    // 로컬 거부 줄(A) — 주문번호 · 수량 · 가격 자리가 「—」.
+    const rejected = tableRows.filter({ hasText: '거부' });
+    await expect(rejected).toHaveCount(1);
+    const cells = (await rejected.locator('td').allTextContents()).map((t) => t.trim());
+    expect([cells[4], cells[5], cells[7]]).toEqual(['—', '—', '—']);
+
+    // B 칩 → B 의 줄 — 출처 미상(ord-b)은 칩이 없고(D-08 보충 · T-19-30) VI 는 「VI」 · NXT 없음.
+    await accountChip(page, ACCOUNT_B).click();
+    const linesB = linesOfAccount(TODAY_ORDERS, ACCOUNT_B);
+    await expect(tableRows).toHaveCount(linesB);
+    await expect(card.locator('h2 + span')).toHaveText(`${rowsOfAccount(TODAY_ORDERS, ACCOUNT_B).length}건`);
     await expect(
       tableRows.filter({ hasText: '0000900002' }).locator('[data-slot="today-order-origin"]'),
     ).toHaveCount(0);
     await expect(
       tableRows.filter({ hasText: '0000900020' }).locator('[data-slot="today-order-origin"]'),
     ).toHaveText('VI');
-    await expect(
-      tableRows.filter({ hasText: '0000900001' }).locator('[data-slot="today-order-origin"]'),
-    ).toHaveText('수동');
-    await expect(tableRows.locator('[data-slot="today-order-origin"]')).toHaveCount(
-      TODAY_ORDER_LINES - 1,
-    );
-
-    // 「· 수동」 꼬리는 없다 — 칩이 말한다(D-08).
-    await expect(card).not.toContainText('· 수동');
-
-    // 로컬 거부 줄 — 주문번호 · 수량 · 가격 자리가 「—」.
-    const rejected = tableRows.filter({ hasText: '거부' });
-    await expect(rejected).toHaveCount(1);
-    const cells = (await rejected.locator('td').allTextContents()).map((t) => t.trim());
-    expect([cells[4], cells[5], cells[7]]).toEqual(['—', '—', '—']);
+    await expect(tableRows.locator('[data-slot="today-order-origin"]')).toHaveCount(linesB - 1);
+    await expect(tableRows.locator('[data-slot="exchange-tag"]')).toHaveCount(0);
+    await expect(card.locator('[data-slot="today-orders-group"]')).toHaveCount(0);
   });
 
-  test('10. B′ — 폰 390: 묶인 행 ②줄 줄바꿈 · 주문번호 비잘림', async ({ page }) => {
+  test('10. 폰 390: 고른 계좌 평탄 · 묶인 행 ②줄 줄바꿈 · 주문번호 비잘림 (Phase 32 D-23)', async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
     await page.goto('/me');
     await waitForReady(page, 2);
@@ -1118,11 +1175,12 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await openMeTab(page, '주문', 'orders');
 
     const card = todayOrdersCard(page);
-    await expect(card.locator('[data-slot="today-orders-group"]')).toHaveCount(2, {
+    // 고른 계좌(기본 A) 평탄 — 묶인 상따 매도 줄은 A 의 것이다.
+    await expect(todayOrderRows(page)).toHaveCount(linesOfAccount(TODAY_ORDERS, E2E_ACCOUNT_NO), {
       timeout: 15_000,
     });
-    await expect(todayOrderRows(page)).toHaveCount(TODAY_ORDER_LINES);
-    await expect(card).toContainText('한국제7호기업인수목적우선주식회사', { timeout: 15_000 });
+    await expect(card.locator('[data-slot="today-orders-group"]')).toHaveCount(0);
+    await expect(card).toContainText('삼성전자', { timeout: 15_000 });
 
     const mergedRow = todayOrderRows(page).filter({ hasText: MERGED_ORDER_NO });
     await expect(mergedRow).toHaveCount(1);
@@ -1148,13 +1206,20 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     expect(line2Height).toBeGreaterThan(timeHeight * 1.5);
     expect(orderNoBox.y).toBeGreaterThan(timeBox.y);
 
-    // 테스트 8 과 같은 자 — **모든 행**의 잎이 자기 목록 밖으로 밀려나지 않는다.
-    const rows = await todayOrderRows(page).all();
-    for (const row of rows) {
-      const ownList = row.locator('xpath=ancestor::*[@data-slot="today-orders-list"][1]');
-      const right = (await boxOf(ownList)).right;
-      expect(await leavesOverflowing(row, right)).toEqual([]);
-    }
+    // 테스트 8 과 같은 자 — **모든 행**의 잎이 자기 목록 밖으로 밀려나지 않는다. B(긴 종목명)도 칩을 바꿔 잰다.
+    const expectNoOverflow = async () => {
+      const rows = await todayOrderRows(page).all();
+      for (const row of rows) {
+        const ownList = row.locator('xpath=ancestor::*[@data-slot="today-orders-list"][1]');
+        const right = (await boxOf(ownList)).right;
+        expect(await leavesOverflowing(row, right)).toEqual([]);
+      }
+    };
+    await expectNoOverflow();
+    await accountChip(page, ACCOUNT_B).click();
+    await expect(todayOrderRows(page)).toHaveCount(linesOfAccount(TODAY_ORDERS, ACCOUNT_B));
+    await expect(card).toContainText('한국제7호기업인수목적우선주식회사', { timeout: 15_000 });
+    await expectNoOverflow();
   });
 
   test('11. 폰 390 — 잔고·미체결 행을 누르면 /trading 에서 그 종목 카드가 펼쳐진다 · 취소 버튼은 이동하지 않는다 (2026-09-27)', async ({
@@ -1166,7 +1231,8 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await waitForReady(page, 2);
     await relay.pushAccountState(ACCOUNT_A_STATE);
     await openMeTab(page, '잔고', 'accounts');
-    await waitForAccounts(page, 2);
+    // 기본 칩 A 한 벌(Phase 32 D-22).
+    await waitForAccountCard(page, E2E_ACCOUNT_NO);
 
     const card = accountCard(page, E2E_ACCOUNT_NO);
     const unfilledRow = card.locator('[data-slot="account-unfilled-row"]').first();
@@ -1732,7 +1798,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await expect(meTabCount(page, '주문')).toHaveCount(0);
   });
 
-  test('PEY-2 전환 · 라벨 숫자 — 잔고 = 미체결 합 · 주문 = 헤더 「N건」 · 재방문은 다시 조회하지 않는다', async ({
+  test('PEY-2 전환 · 라벨 숫자 — 잔고 = 고른 계좌 미체결 · 주문 = 헤더 「N건」(고른 계좌) · 재방문은 다시 조회하지 않는다', async ({
     page,
   }) => {
     await page.goto('/me');
@@ -1740,17 +1806,20 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await relay.pushAccountState(ACCOUNT_A_STATE);
     await relay.pushAccountState(ACCOUNT_B_STATE);
 
-    // 잔고 라벨 숫자는 relay 컨텍스트에서 온다 — 탭을 열기 전에도 선다.
-    const unfilledTotal = ACCOUNT_A_STATE.unfilled.length + ACCOUNT_B_STATE.unfilled.length;
-    await expect(meTabCount(page, '잔고')).toHaveText(String(unfilledTotal), { timeout: 15_000 });
+    // 잔고 라벨 숫자는 relay 컨텍스트에서 온다 — 탭을 열기 전에도 선다 · 고른 계좌(기본 A)의 미체결 수(D-22).
+    await expect(meTabCount(page, '잔고')).toHaveText(String(ACCOUNT_A_STATE.unfilled.length), {
+      timeout: 15_000,
+    });
 
     await openMeTab(page, '잔고', 'accounts');
-    await expect(accountCards(page)).toHaveCount(2);
+    await waitForAccountCard(page, E2E_ACCOUNT_NO);
 
+    // 주문 라벨 = 고른 계좌의 헤더 「N건」(D-23).
+    const aOrders = rowsOfAccount(TODAY_ORDERS, E2E_ACCOUNT_NO).length;
     await openMeTab(page, '주문', 'orders');
     const header = todayOrdersCard(page).locator('h2 + span');
-    await expect(header).toHaveText(`${TODAY_ORDERS.length}건`, { timeout: 15_000 });
-    await expect(meTabCount(page, '주문')).toHaveText(String(TODAY_ORDERS.length));
+    await expect(header).toHaveText(`${aOrders}건`, { timeout: 15_000 });
+    await expect(meTabCount(page, '주문')).toHaveText(String(aOrders));
     expect(ordersRequestMethods.length).toBeGreaterThan(0);
     const n = ordersRequestMethods.length;
 

@@ -35,6 +35,8 @@
  *   리플로우를 여기서 다시 만들면 한 곳만 고쳐지고 나머지가 조용히 갈린다. `min-width:0`
  *   이 빠지면 표의 콘텐츠 최소폭(미체결 439px · 잔고 444px) 때문에 스크롤이 아니라
  *   **조용한 잘림**이 된다(`tasks/lessons.md` 등재 함정).
+ *   잔고 탭은 고른 계좌 한 벌이다(Phase 32 D-22 — 계좌마다 세로로 반복하던 Phase 16 D-21 을 뒤집음). 계좌는
+ *   탭 위 칩이 말하므로 패널 머리 줄을 생략시킨다(account-panel 의 머리 생략 prop).
  *   My page 는 본문 900 폭이라 `stack`(세로 — 미체결 위 · 잔고 아래)을 넘긴다(quick-260926-o2u).
  *   900 카드에서 2열이면 칸마다 표 영역이 약 419px 로 두 표의 최소폭보다 좁아 가로 스크롤된다.
  *
@@ -44,8 +46,8 @@
  *      새로고침하면 오늘 낸 주문이 화면에서 사라졌다. 이 주석은 그 부재를 서술하던 자리이고,
  *      **조용히 어기지 않으려고** 같은 커밋에서 다시 썼다(`me.spec.ts` 단언도 함께 고쳤다).
  *   ⓑ 조회는 **페이지당 1회**이고 계좌 카드 안이 아니다. `AccountPanel` 은 4표면이 공유하고
- *      여기서는 계좌마다 한 벌씩 렌더되므로, 그 안에 넣으면 계좌 축이 없는 같은 응답을
- *      계좌 수만큼 부르게 된다. T-16-02 의 취지(표면마다 조회 경로를 늘리지 않는다)는
+ *      계좌 칩을 바꿀 때마다 그 계좌로 다시 그려지므로, 그 안에 넣으면 계좌 축이 없는 같은 응답을
+ *      칩 전환마다 부르게 된다. T-16-02 의 취지(표면마다 조회 경로를 늘리지 않는다)는
  *      유지된다 — 늘어난 조회 표면은 **하나**이고, 그 라우트는 `user_id` 로만 거른다.
  *      주문 탭을 처음 열 때 1회 — 열지 않으면 0회(아래 ⑦ · 한 번 연 탭은 마운트 유지라 재방문 재조회 없음).
  *   ⓒ 미체결로는 이 요구를 담을 수 없다. **취소된 주문은 정의상 미체결 목록에 없다** —
@@ -60,9 +62,10 @@
  *   ⓐ 메커니즘 정본은 `lib/use-url-tab.ts` — 종목상세 3탭과 **같은 훅**이다(`?tab=` 단일 진실 · pushState ·
  *      화이트리스트 밖은 기본 탭(현황) · 한 번 연 탭 마운트 유지 · 열지 않은 탭은 마운트 0). 이 파일에서
  *      pushState 를 직접 부르지 않는다.
- *   ⓑ 라벨 숫자 — 잔고 = 잔고 탭에 그리는 계좌들의 미체결 합(`unfilledCountOf` · relay 컨텍스트만 읽으므로
- *      조회가 아니다 · 미방문이어도 선다) · 주문 = 오늘 주문 카드 헤더 「N건」 과 같은 수(`onCountChange` —
- *      미방문이면 카드가 없으니 숫자도 없다). 0 이면 숫자를 생략한다.
+ *   ⓑ 라벨 숫자 — 잔고 = 고른 계좌 미체결 · 주문 = 고른 계좌 오늘 주문(Phase 32 D-22 · D-23). 잔고는 relay
+ *      컨텍스트만 읽으므로 조회가 아니다(미방문이어도 선다 · 계좌를 아직 못 골랐으면 `unfilledCountOf` 합) ·
+ *      주문은 오늘 주문 카드 헤더 「N건」 과 같은 수(`onCountChange` — 미방문이면 카드가 없으니 숫자도 없다).
+ *      0 이면 숫자를 생략한다.
  *   ⓒ Suspense 경계는 탭 영역(`MeTabs`)만 감싼다 — `/me` 는 정적 라우트라 `useSearchParams` 에 경계가 필요하다
  *      (Next 15 · `/trading` 관례). 제목 · 계정 카드는 경계 밖이라 서버 HTML 에 그대로 남는다(me.spec
  *      「서버 응답에 me-page」 계약). 폴백은 null — 스켈레톤으로 위장하지 않는다.
@@ -316,7 +319,7 @@ const ME_PANEL =
   "flex flex-col gap-[var(--s-3)] pt-[var(--s-3)] text-[length:var(--t-base)] data-[state=inactive]:hidden";
 
 /**
- * 잔고 탭 라벨 숫자(위 ⑦ ⓑ) — 잔고 탭에 그리는 계좌마다 미체결 수의 합. 각 계좌 패널 「미체결 (N)」 의 합과
+ * 잔고 탭 라벨 숫자의 합 버전(위 ⑦ ⓑ) — 고른 계좌가 아직 없을 때만 쓴다. 계좌마다 미체결 수의 합. 각 계좌 패널 「미체결 (N)」 의 합과
  * 같다(`account-panel` 의 미체결 = `account.unf` 1:1). 목록 밖 계좌의 상태는 세지 않는다 — 그리지 않는 것을 세면
  * 라벨과 화면이 어긋난다.
  */
@@ -382,7 +385,12 @@ function MeTabs() {
   const [ordersCount, setOrdersCount] = useState<number | null>(null);
 
   const countOf = (v: MeTabValue): number | null => {
-    if (v === "accounts") return unfilledCountOf(accounts, accountStates);
+    if (v === "accounts") {
+      // 잔고 탭이 그리는 것과 같은 게이트(`shownAccountNo`) — 라벨과 화면이 어긋나지 않게.
+      return shownAccountNo === undefined
+        ? unfilledCountOf(accounts, accountStates)
+        : (accountStates.get(shownAccountNo)?.unf.length ?? 0);
+    }
     if (v === "orders") return ordersCount;
     return null;
   };
@@ -442,10 +450,11 @@ function MeTabs() {
         forceMount={tab.keepMounted("accounts")}
         className={ME_PANEL}
       >
-        {accounts.length === 0 ? (
+        {shownAccountNo === undefined ? (
           /*
             `ready` 이전에는 빈 계좌 목록이 정상이다(`RelayAccount` 주의). 「계좌 없음」이
-            아니라 「아직 모른다」이므로 빈 상태가 아니라 로딩으로 말한다.
+            아니라 「아직 모른다」이므로 빈 상태가 아니라 로딩으로 말한다. 계좌 목록은 왔지만 기본 칩이 아직
+            안 정해진 한 박자(효과 전)도 같다 — 빈 계좌 패널(「미체결 없음」)을 한 번 비추지 않는다.
           */
           <p
             data-slot="me-accounts-loading"
@@ -455,31 +464,29 @@ function MeTabs() {
             계좌 정보를 불러오는 중이에요…
           </p>
         ) : (
-          accounts.map((acct) => (
-            <section
-              key={acct.accountNo}
-              data-slot="me-account-card"
-              data-account-no={acct.accountNo}
-              className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)]"
-            >
-              {/*
-                계좌 전용 모드(`code` 미전달)는 셀렉터·탭이 없고 헤더에 계좌번호를 전체
-                표시한다 — 그 헤더가 곧 C5 의 카드 머리다. 여기서 헤더를 한 벌 더 그리면
-                같은 계좌번호가 두 번 나온다.
-                `stack` — 900 폭 카드에서 ≥1280 2열이면 칸마다 표 영역이 약 419px 로 미체결 439 ·
-                잔고 444 최소폭보다 좁아 두 표가 가로 스크롤된다. 좁은 컨테이너를 호출부가 알려 주는
-                account-panel 의 기존 장치다(위 ④ · quick-260926-o2u).
-              */}
-              <AccountPanel
-                selectedAccountNo={acct.accountNo}
-                accountName={acct.name}
-                account={accountStates.get(acct.accountNo) ?? null}
-                status={status}
-                stack
-                stockHref={tradingCardHref}
-              />
-            </section>
-          ))
+          /*
+            고른 계좌 한 벌(Phase 32 D-22). 계좌는 탭 위 칩이 말하므로 패널 머리 줄(「계좌 · 번호 · 상품명」)을
+            머리 생략 prop 으로 지운다 — 같은 계좌번호를 두 번 보이지 않는다. 고른 계좌가 `accountStates` 에
+            없으면(목록 밖 · 상태 미수신) `account` null → 미체결 · 잔고 모두 기존 빈 문구다.
+            `stack` — 900 폭 카드에서 ≥1280 2열이면 칸마다 표 영역이 약 419px 로 미체결 439 · 잔고 444
+            최소폭보다 좁아 두 표가 가로 스크롤된다. 좁은 컨테이너를 호출부가 알려 주는 account-panel 의 기존
+            장치다(위 ④ · quick-260926-o2u).
+          */
+          <section
+            data-slot="me-account-card"
+            data-account-no={shownAccountNo}
+            className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)]"
+          >
+            <AccountPanel
+              selectedAccountNo={shownAccountNo}
+              accountName={choices.find((c) => c.accountNo === shownAccountNo)?.name}
+              account={accountStates.get(shownAccountNo) ?? null}
+              status={status}
+              stack
+              hideAccountHeader
+              stockHref={tradingCardHref}
+            />
+          </section>
         )}
       </TabsContent>
 
