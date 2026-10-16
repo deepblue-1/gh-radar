@@ -179,7 +179,7 @@ const SEL = 0;
 const acctLabel = (a) => `${a.no} · ${a.nm} · ${a.sk}`;
 let S = { screen: 'top', variant: 'A', w: 'phone', t: 'dark', r: 'ok', tab: 'status', acct: '0' };
 
-const ME_COMMON = '<br><b>탭 공통(③④⑤ 대체):</b> 현황 = 이 계좌 전략 · VI 만 + 맨 아래 「이 계좌 끄기」(전체 비활성화는 작은 링크) · 잔고 = 이 계좌 미체결 · 잔고(계좌 소제목 없음) · 주문 = 이 계좌 오늘 주문 평탄(카드 안 계좌 필 없음) · 설정 = 이 계좌 서버의 상따 기본설정(서버 세그먼트 없음 · 같은 서버 계좌는 설정을 함께 씀 · 84 미수신 서버는 흐림) · 「이 기기」 카드는 계좌 무관. 탭 숫자 = 이 계좌 건수. 상태줄 「계좌 N개」 는 뺌. 목업에서 계좌 필 · 칩을 누르면 계좌가 바뀜.';
+const ME_COMMON = '<br><b>탭 공통(③④⑤ 대체):</b> 현황 = 이 계좌 전략 · VI 만 + 맨 아래 「이 계좌 끄기」(전체 비활성화 없음 — 2026-10-16 정정) · 잔고 = 이 계좌 미체결 · 잔고(계좌 소제목 없음) · 주문 = 이 계좌 오늘 주문 평탄(카드 안 계좌 필 없음) · 설정 = 이 계좌 서버의 상따 기본설정(서버 세그먼트 없음 · 같은 서버 계좌는 설정을 함께 씀 · 84 미수신 서버는 흐림) · 「이 기기」 카드는 계좌 무관. 탭 숫자 = 이 계좌 건수. 상태줄 「계좌 N개」 는 뺌. 목업에서 계좌 필 · 칩을 누르면 계좌가 바뀜.';
 const DESC = {
   top: {
     A: '<b>A 한 줄 필.</b> 계좌 셀렉트(번호 · 이름 · 서버키)가 줄 왼쪽, 시세 · 주문 상태가 LED 점 두 개 + 짧은 말, 컬럼 세그먼트가 오른쪽. 지금 구조에서 「정규」 배지 · 알림음 · 반영 시각 · 다시 연결을 뺀 가장 작은 변화. 폰에서는 세그먼트가 줄 아래로 내려감.',
@@ -330,7 +330,7 @@ function meAxis() {
       <div class="mcard"><div class="tt">전략 현황 <span class="sp"></span><span class="chip ${on?'ok':'mute'}">상따 ${a.strategies.length}건</span></div>
       ${empty}${rows}${vi}
       <div class="kill"><span>이 계좌의 상따 전략과 VI 자동매수를 한 번에 끕니다.</span><span class="sp"></span><button class="btn danger" ${on?'':'style="opacity:.45"'}>이 계좌 끄기</button></div>
-      <div class="cap" style="margin-top:8px">모든 계좌를 한 번에 끄려면 <span class="link">전체 비활성화 ›</span></div></div>`;
+</div>`;
   } else if (S.tab === 'accounts') {
     const unf = a.unf.length ? a.unf.map(r => `<div class="urow"><div class="c1"><div class="n1">${r[0]} <span class="sd ${r[1]==='매수'?'b':'s'}" style="font-size:10.5px;font-weight:700;padding:1px 5px;border-radius:4px;background:${r[1]==='매수'?'var(--upbg)':'var(--dnbg)'};color:${r[1]==='매수'?'var(--up)':'var(--down)'}">${r[1]}</span></div><div class="sub">주문가 ${r[2]}</div></div><div class="c2">미체결 ${r[3]}주</div><button class="btn ghost sm">취소</button></div>`).join('') : `<div class="empty">미체결 없음</div>`;
     const hold = a.hold.length ? a.hold.map(r => `<div class="urow"><div class="c1"><div class="n1">${r[0]}</div><div class="sub">${r[1]}주 · 평단 ${r[2]}</div></div><div class="c2 ${r[3][0]==='+'?'pl':'mi'}">${r[3]}<div class="sub ${r[3][0]==='+'?'pl':'mi'}">${r[4]}</div></div></div>`).join('') : `<div class="empty">보유 종목 없음</div>`;

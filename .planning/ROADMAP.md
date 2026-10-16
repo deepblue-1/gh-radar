@@ -59,7 +59,7 @@
 
 - [x] **Phase 30: 인박스 KB 계좌별 주문자 IP/MAC** - relay R3-01(op 5 재조회) · 웹 Admin 계좌 편집 IP/MAC 입력칸 · 계좌명 편집 · code 13 문구 · 질문 3개 답으로 `261010-kb-order-ip-mac.md` 닫기 (completed 2026-10-11)
 - [x] **Phase 31: 인박스 상따 금액 단위** - 생성물 마커 확인 · `lc.set` 금액 8필드 되싣기 · 84 `post_buy_floor_amount` · 「만(주)」 결정으로 `261011-limitchaser-amount-unit.md` 닫기 (completed 2026-10-12)
-- [ ] **Phase 32: 계좌 축 정리** - 작업대 계좌 스코프(전략·VI 계좌별) · 상단 줄 재설계(정규 배지·사운드 토글 제거, 시세·주문 축약, 계좌 선택) · /me 전략 현황 계좌별 묶음 · 주문 탭 계좌 선택 · 매매설정 서버별(relay 42/84 serverKey)
+- [ ] **Phase 32: 계좌 축 정리** - 작업대 계좌 스코프(전략·VI 계좌별) · 상단 줄 재설계(정규 배지·사운드 토글 제거, 시세·주문 축약, 계좌 선택) · /me 탭 위 계좌 칩(현황 · 잔고 · 주문 · 설정이 고른 계좌를 따름) · 매매설정 서버별(relay 42/84 serverKey) · VI 계좌별(relay 61 슬롯 · gh-trade Phase 33 뒤)
 - [ ] **Phase 33: 팀 매집(teamflow) 보고서** - gh-trade `team_flow.ndjson.gz` export 적재(limitup-sync · 표 + payload) · 서버 RPC · `/analytics/teamflow` 목록(스케치 014 A 보고서 동형 · 기본 접힘) + 행 펼침 상세(스케치 015 C 차트 + 접힌 표) · 인박스 `261016-teamflow-export.md` 닫기
 
 ## Phase Details
@@ -142,28 +142,61 @@ Plans:
 
 ### Phase 32: 계좌 축 정리
 
-**Goal**: 트레이딩 작업대와 /me 가 「고른 계좌 · 서버」 축으로 읽힌다 — 작업대는 고른 계좌의 전략·VI 만 보이고 상단 줄이 계좌 선택 중심으로 정리되며, /me 는 전략 현황이 계좌별로 묶이고 주문 탭은 계좌를 골라 보고, 매매설정은 서버(gh-trade 게이트웨이)마다 따로 보고 저장한다
-**Depends on**: Phase 31 (순서만 — 코드 의존 없음) · 외부: gh-trade 와이어 변경 없음(UserSettings 는 서버마다 이미 `user_settings.toml` 에 따로 저장) · 2026-10-12 결정 「서버별 사용자 설정 저장 유지」와 일관
+**Goal**: 트레이딩 작업대와 /me 가 「고른 계좌 · 서버」 축으로 읽힌다 — 작업대는 고른 계좌의 전략·VI 만 보이고 상단 줄이 계좌 선택 중심으로 정리되며, /me 는 탭 위 계좌 칩으로 고른 계좌를 현황 · 잔고 · 주문 · 설정 네 탭이 함께 따르고, 매매설정은 그 계좌의 서버(gh-trade 게이트웨이)에 따로 보고 저장한다
+**Depends on**: Phase 31 (순서만 — 코드 의존 없음) · 외부: 웨이브 ①~③ 은 gh-trade 와이어 변경 없음(UserSettings 는 서버마다 이미 `user_settings.toml` 에 따로 저장) · 웨이브 ④ 는 gh-trade Phase 33(61 `unregistered` · 21 → 계좌마다 61 · 인박스 `261016-vi-per-account.md` · 생성물 `ecd62f33`) · 2026-10-12 결정 「서버별 사용자 설정 저장 유지」와 일관
 **Requirements**: AXIS-01, AXIS-02, AXIS-03, AXIS-04, AXIS-05
 **Success Criteria** (what must be TRUE):
   1. 작업대에서 계좌를 고르면 전략 카드 격자 · VI 트리거 스트립 · VI 설정 행(웨이브 ④ — gh-trade Phase 33 뒤)이 그 계좌 것만 보이고, 계좌를 바꾸면 즉시 바뀐다(새 카드 기본 계좌 기능은 유지). 알림 토스트는 계좌와 무관하게 모든 계좌 것을 계좌 표시와 함께 띄우고, 누르면 그 계좌로 작업대 계좌가 바뀐다(32-CONTEXT D-03 · 2026-10-13 사용자 결정으로 「토스트만 보이고」 를 뒤집음)
-  2. 작업대 상단 줄에 「정규」 배지와 사운드 토글이 없고, 계좌 선택 · 시세/주문 상태가 채택 목업(A/B/C 중 하나) 그대로 한 줄에 정리된다 — 알림음 켜고 끄기는 다른 자리(/me 설정 등 · 목업에서 결정)에 남거나 제거가 기록된다. E2E(trading-workbench · a11y aria-live · 단위) 가 새 구조로 통과한다
-  3. /me 현황 탭 전략 현황이 계좌별(소제목 「계좌 · 번호 · 상품명 · 서버키」)로 묶여 나열되고 VI 행도 계좌 묶음 안에 든다 — 잔고 탭처럼 계좌 순서는 `accounts[]` 순
-  4. /me 주문 탭에 계좌 선택이 있어 고른 계좌의 주문만 보이고, 선택은 작업대 계좌 선택과 같은 부품이다(D-21 「/me 계좌 셀렉터 없음」 뒤집음을 CONTEXT 에 기록)
-  5. /me 설정 탭에서 서버(세션이 열린 서버 목록)를 골라 그 서버의 84 값을 보고 42 로 그 서버에만 저장한다 — relay `user.settings`/`user.settings.set` 에 `serverKey`, hub 84 캐시 `(userId, serverKey)`, `#fromPrimary` 필터 해제, 42 지정 서버 라우팅. 상따 폼 시딩은 카드 계좌의 소유 서버 설정을 읽는다. relay 단위 · E2E 통과, relay 배포(20:00 KST 뒤) 후 KB120 · KYOBO119 에서 서로 다른 값이 보인다
+  2. 작업대 상단 줄에 「정규」 배지와 사운드 토글이 없고, 계좌 선택 · 시세/주문 상태가 채택 목업 A 그대로 한 줄에 정리된다 — 알림음 켜고 끄기는 /me 설정 탭 「이 기기」 카드로 옮겨진다. E2E(trading-workbench · a11y aria-live · 단위) 가 새 구조로 통과한다
+  3. /me 계정 카드 아래 · 탭 위 계좌 칩(상품명 · 번호 · 서버키 · `accounts[]` 순 + 행에만 있는 계좌)에서 고른 계좌를 현황 탭이 따른다 — 그 계좌의 전략 행 · VI 행(웨이브 ④ 전엔 그 계좌가 등록 계좌인 거래소만) · 상태줄 「상따 N건 · VI」 가 그 계좌 기준이고, 카드 맨 아래 「이 계좌 끄기」 가 그 계좌의 상따 · VI 만 끈다(relay `strategies.disable.account` · 14 건별 + 11 run:false · 65 집계 1건) · 「전체 비활성화」 는 없다(D-27)
+  4. /me 잔고 · 주문 탭도 같은 칩을 따른다 — 잔고 = 그 계좌 한 벌(소제목 없음) · 주문 = 그 계좌 평탄 목록 · 「잔고 N」 · 「주문 N」 = 그 계좌 건수 · 칩 선택은 작업대와 따로 기기별 기억(Phase 16 D-21 전면 뒤집음 · 32-CONTEXT D-20 · D-22 · D-23)
+  5. /me 설정 탭은 고른 계좌의 서버(서버키 칩 · 「이 계좌의 서버 {서버키} 에 저장돼요」)의 84 값을 보고 42 로 그 서버에만 저장한다 — relay `user.settings`/`user.settings.set` 에 `serverKey`, hub 84 캐시 `(userId, serverKey)`, `#fromPrimary` 필터 해제, 42 지정 서버 라우팅. 상따 폼 시딩은 카드 계좌의 소유 서버 설정을 읽는다. relay 단위 · E2E 통과, relay 배포(20:00 KST 뒤) 후 KB120 · KYOBO119 에서 서로 다른 값이 보인다
 
-**배포 순서**: DB 변경 없음 · gh-trade 변경 없음 → relay(20:00 KST 뒤) → webapp push(= 프로덕션). 웨이브는 ① /me 전략 현황·주문 탭(데이터 변경 없음) ② 작업대 계좌 스코프·상단 줄(목업 뒤) ③ 매매설정 서버별(relay+shared+webapp) ④ E2E·배포 순
-**Plans**: 0/8 plans executed
+**배포 순서**: DB 변경 없음 → relay(20:00 KST 뒤) → webapp push(= 프로덕션). 웨이브 ① /me 계좌 칩 · 현황 · 잔고 · 주문(webapp 만 · 단독 push 가능) ② 작업대 계좌 스코프 · 상단 줄 A · 사이드바 · 토스트 · 「이 기기」 · 계좌별 끄기(relay 새 메시지 타입) ③ 매매설정 서버별(relay + shared + webapp) → ①~③ relay 배포 → push ④ VI 계좌별 — relay 먼저(20:00 KST 뒤) → gh-trade 서버(KB120 · 121 · 교보119) → webapp push
+**Plans**: 0/14 plans executed
 
 Plans:
-- [ ] 32-01-PLAN.md — 웨이브 ① /me 계좌 축: 라벨 한 벌 · 공용 계좌 필 · 현황 계좌 묶음 · 잔고 소제목 서버키 · 주문 탭 계좌 필 · 평탄 목록 (트레이서)
-- [ ] 32-02-PLAN.md — 웨이브 ② 상단 줄 A 한 줄 · 「이 기기」 알림음 이전 · 사이드바 계좌 묶음 트리 (트레이서)
-- [ ] 32-03-PLAN.md — 웨이브 ② 작업대 계좌 스코프(숨김 주차 · ISIN 경로 · pickAccount 3경로) · 토스트 계좌 줄 (트레이서)
-- [ ] 32-04-PLAN.md — 웨이브 ② 계좌별 끄기 `strategies.disable.account` — relay 14(key) 건별 + VI 11 run:false + 집계 1건 · 웹 버튼 · 다이얼로그 (트레이서)
-- [ ] 32-05-PLAN.md — 웨이브 ③ 매매설정 서버별 — hub 84 `(userId, serverKey)` · 42 지정 서버 · replay · 웹 Map · 서버 세그먼트 · 카드 계좌 서버 시딩 (트레이서)
-- [ ] 32-06-PLAN.md — 웨이브 ①~③ 회귀 · 폭 백스톱 E2E · relay(20:00 KST 뒤) → push 배포 · 라이브 UAT
-- [ ] 32-07-PLAN.md — 웨이브 ④(gh-trade Phase 33 뒤) VI 계좌별 relay · 계약 · 웹 수신 — D-17 checkpoint:decision (트레이서)
-- [ ] 32-08-PLAN.md — 웨이브 ④ VI 웹 표면(작업대 행 · /me · 사이드바 · 옮기기 제거) · 배포 (b) · 교보119 실증
+**Wave 1**
+- [ ] 32-01-PLAN.md — 웨이브 ① /me 탭 위 계좌 칩 · 현황 탭 고른 계좌 · 라벨 한 벌 · /me 전체 비활성화 제거 (트레이서)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 32-02-PLAN.md — 웨이브 ① 잔고 한 벌 · 주문 평탄 목록 · 탭 라벨 숫자 · 목록 밖 계좌 칩 · ① 단독 push 결정 (트레이서)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 32-03-PLAN.md — 웨이브 ② 작업대 상단 줄 A · 「이 기기」 알림음 이전 (트레이서)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 32-04-PLAN.md — 웨이브 ② 작업대 계좌 스코프(숨김 주차 · pickAccount 3경로 · ISIN 경로) · 토스트 계좌 줄 (트레이서)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 32-05-PLAN.md — 웨이브 ② 사이드바 계좌 묶음 트리 (트레이서)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [ ] 32-06-PLAN.md — 웨이브 ② 계좌별 끄기 `strategies.disable.account` — relay 14 건별 + 11 run:false + 65 집계 · /me 「이 계좌 끄기」 (트레이서)
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [ ] 32-07-PLAN.md — 웨이브 ③ 매매설정 서버별 relay · 계약 — hub 84 `(userId, serverKey)` · 42 지정 서버 · replay (트레이서)
+
+**Wave 8** *(blocked on Wave 7 completion)*
+- [ ] 32-08-PLAN.md — 웨이브 ③ 웹 서버별 84 `userSettingsByServer` · /me serverKey 저장 · 상따 폼 시딩 D-14b (트레이서)
+
+**Wave 9** *(blocked on Wave 8 completion)*
+- [ ] 32-09-PLAN.md — 웨이브 ③ /me 설정 = 고른 계좌의 서버 — 서버키 칩 · 「아직 못 받음」 · 캡션 · 칩 잠금 (트레이서)
+
+**Wave 10** *(blocked on Wave 9 completion)*
+- [ ] 32-10-PLAN.md — 웨이브 ①~③ 회귀 · 폭 백스톱 · relay(20:00 KST 뒤) → push · 라이브 UAT
+
+**Wave 11** *(blocked on Wave 10 completion)*
+- [ ] 32-11-PLAN.md — 웨이브 ④ VI 계좌별 relay — D-17 checkpoint:decision · 슬롯 캐시 · `vi.slot` · 원천 · 가드 해제 (트레이서)
+
+**Wave 12** *(blocked on Wave 11 completion)*
+- [ ] 32-12-PLAN.md — 웨이브 ④ 작업대 VI 설정 행 = 고른 계좌 슬롯 · 옮기기 제거 (트레이서)
+
+**Wave 13** *(blocked on Wave 12 completion)*
+- [ ] 32-13-PLAN.md — 웨이브 ④ /me · 사이드바 VI 슬롯 · VI 줄 → 계좌 전환 · 웹 단일 칸 VI 상태 제거 (트레이서)
+
+**Wave 14** *(blocked on Wave 13 completion)*
+- [ ] 32-14-PLAN.md — 웨이브 ④ relay 배포 · gh-trade 회신 · webapp push · 교보119 실증 · 인박스 닫기
 
 **UI hint**: yes
 
@@ -178,7 +211,7 @@ Plans:
 |-------|-----------|----------------|--------|-----------|
 | 30. 인박스 KB 계좌별 주문자 IP/MAC | v1.1 | 9/9 | Complete | 2026-10-11 |
 | 31. 인박스 상따 금액 단위 | v1.1 | 8/8 | Complete | 2026-10-12 |
-| 32. 계좌 축 정리 | v1.1 | 0/8 | Not started | — |
+| 32. 계좌 축 정리 | v1.1 | 0/14 | Not started | — |
 | 33. 팀 매집(teamflow) 보고서 | v1.1 | 0/0 | Not planned | — |
 
 ### Phase 33: 팀 매집(teamflow) 보고서

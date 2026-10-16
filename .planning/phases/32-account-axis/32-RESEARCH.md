@@ -536,7 +536,7 @@ const settingsOf = (sk: string) =>
 | A5 | 서버 목록은 `accounts[]` 서버키 집합으로 충분하다(소유 계좌 0 세션 제외) | Pattern 5 | 소유 계좌 0 서버의 설정을 웹에서 편집해야 하면 `state.sessions[]` 를 추가해야 한다 |
 | A6 | 웹 E2E 하네스는 단일 게이트웨이 · 단일 세션이다. 다중 서버는 relay `fanout-multi-session.test.ts` 와 라이브 UAT 로 증명한다 | Validation | 웹에서 2서버 세그먼트를 E2E 로 보려면 픽스처에 `DMA_KYOBO_HOST/PORT` 두 번째 스텁을 붙이는 Wave 0 작업이 필요하다 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **D-09 형식 보정(Pitfall 1 · 2 · 3) — 사용자 확인 필요**
    - What we know: lc.set 전부 OFF = 삭제다. 14(key) 가 등록 유지 끄기다. 구 relay 는 `accountNo` 를 strip 해 전부 정지로 바꾼다.
@@ -545,11 +545,15 @@ const settingsOf = (sk: string) =>
    - **RESOLVED (2026-10-13 · plan-phase · 사용자 결정): 새 메시지 타입**(예 `strategies.disable.account` · `{accountNo}`) 채택. CONTEXT D-09 「보정」 항에 기록 — 플래너는 `checkpoint:decision` 없이 그대로 계획한다.
 2. **폰 밴드 세그먼트(Pitfall 7)**
    - Recommendation: wb < 680 은 DOM 에서 빼는 종전 규칙을 유지한다. 목업의 「아래 줄」 은 680 이상에서 넘칠 때 줄바꿈하는 것으로 해석한다. UI-SPEC 에서 사용자 확인 한 줄.
+   - **RESOLVED (UI-SPEC 「Claude's Discretion」 1 · S1 컬럼 세그먼트 폭 규칙 · 사용자 확인 2026-10-13 「폰에서 뺀다」):** wb < 680 은 DOM 제외(종전) · ≥ 680 은 넘칠 때 `flex-wrap` 다음 줄 오른쪽 끝. §2.2b · 680 · 700 값 불변. 플랜 32-03 이 구현한다.
 3. **웨이브 ① 의 /me VI 행 위치(미등록 · 두 거래소가 다른 계좌)**
    - What we know: ④ 전 VI 는 거래소별 1건이고 `cfg.accountNo` 가 있다.
    - Recommendation: 등록된(켜짐/꺼짐) 거래소는 그 `cfg.accountNo` 묶음에 둔다. 미등록 거래소는 어느 묶음에도 행을 만들지 않는다. 다만 목업은 모든 묶음에 「VI 자동매수 중지」 행을 보인다 — UI-SPEC 에서 확정한다.
+   - **RESOLVED (UI-SPEC 「2026-10-16 수정」 절 S5′ · 「Claude's Discretion」 9):** /me 는 계좌 묶음 없이 고른 계좌만 보인다 — ④ 전 VI 행은 고른 계좌가 등록 계좌인 거래소가 있을 때만(요약은 그 거래소만) · ④ 뒤 고른 계좌의 거래소별 한 행. 플랜 32-01(④ 전) · 32-13(④ 뒤)이 구현한다.
 4. **서버키 zod 상한** — 서버키 형식 정본(레지스트리 · admin 스키마)을 찾아 같은 상수를 쓴다. 지금 이 세션에서는 확인하지 않았다.
+   - **RESOLVED (플랜 32-07 Flagged assumptions):** `user.settings.set.serverKey` 는 `z.string().min(1).max(16).optional()` 만 본다. shared `SERVER_KEY_RE`(`^(KB|KYOBO)[0-9]{1,3}$`)는 쓰지 않는다 — 레지스트리 없는 세션(E2E 하네스 · 단위 테스트)의 서버키는 증권사 이름(`"KB"` — `DmaSession.serverKey = creds.serverKey ?? creds.broker`)이라 그 정규식이면 4400 이 된다. 진짜 검증은 그 사용자 세션 맵 조회(없으면 거부 프레임 · primary 로 떨어뜨리지 않음)다.
 5. **gh-trade 33 선언 밖 등록 슬롯 덧붙임 여부**(33-RESEARCH:642) — relay 는 소유 뷰 밖 프레임을 버리므로 어느 쪽이든 안전하다. 인계 노트를 받을 때 확인한다.
+   - **RESOLVED (인박스 `docs/inbox/from-gh-trade/261016-vi-per-account.md` 2026-10-16 도착 · 플랜 32-11 이 처리):** 61 `SetVITrigger.unregistered` 는 vtable 16 append(S→C · 기본 false) · 21 응답 = 선언 계좌마다 61 1프레임 + 선언 밖 등록 슬롯 초집합 · `account_no` · `exchange` 모든 프레임 상시 · 생성물 gh-radar `ecd62f33`. relay 는 소유 뷰 밖 계좌 프레임을 버리고 소유 뷰 안 · 선언 밖(복원본) 슬롯은 캐시한다.
 
 ## Environment Availability
 
