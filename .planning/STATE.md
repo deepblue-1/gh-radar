@@ -6,10 +6,10 @@ current_phase: 32
 current_phase_name: 계좌 축 정리
 status: completed
 stopped_at: Phase 32 complete — UAT 4/4 · v1.1 전 phase 완료
-last_updated: "2026-10-16T13:12:22.656Z"
+last_updated: "2026-10-16T23:57:42.715Z"
 last_activity: 2026-10-16
 last_activity_desc: Phase 32 complete
-state_head: 1ad9d4fb82710512d540ee6b21d962a565182811
+state_head: bdceac0790bfe206fdbab113588360da07c99b42
 progress:
   total_phases: 4
   completed_phases: 4
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-10-16 after Phase 32)
 Phase: 32 (계좌 축 정리) — COMPLETE
 Plan: 14 of 14
 Status: All phases complete (v1.1 30 · 31 · 32 · 33)
-Last activity: 2026-10-16 - Completed quick task 261016-udz: Phase 32 UI 리뷰 Top 3 수정
+Last activity: 2026-10-17 - Completed quick task 261017-bwt: Phase 32 UI 리뷰 잔여 항목
 
 Progress: [██████████] 100% (40/40 plans)
 
@@ -85,6 +85,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 7 | vpn-menubar v3.8: 게이트웨이↔직접 접속(KB VPN·교보) 상호배제 해제 · SSH 명령 복사 메뉴 제거 (스크립트는 gitignore 개인 파일, 문서 2곳 커밋 51e62904) | 2026-10-14 | 51e62904 | — |
 | 261016-miy | intraday-sync 60s 타임아웃 실패 해소 — STEP2 quotes UPDATE RPC 일괄화 + 알림 조건 완화(10분 3건) | 2026-10-16 | e44cf64f | [261016-miy-intraday-sync-60s-step2-quotes-update-rp](./quick/261016-miy-intraday-sync-60s-step2-quotes-update-rp/) |
 | 261016-udz | Phase 32 UI 리뷰 Top 3 — 계좌 칩 화살표·Home/End 가 선택까지(WAI-ARIA radio · IN-02) · UI-SPEC 32-15 작업대 칩 절·옛 셀렉트 무효 · 간격 1곳 4배수(pt-1)·7곳 예외 근거 명시 | 2026-10-16 | 1ad9d4fb | [261016-udz-phase-32-ui-top-3-ui-spec-4](./quick/261016-udz-phase-32-ui-top-3-ui-spec-4/) |
+| 261017-bwt | Phase 32 UI 리뷰 잔여 — 간격 7곳 4배수(공용 짝 VI 다이얼로그·ChoiceRow·마이크로 배지 동행) · 끄기 버튼 --destructive 면 카드·다이얼로그 일치 · 「끄기」 어휘 통일 · 잠긴 칩 개별 aria-disabled·title · VI 스트립 scopeAccount 게이트(IN-05) | 2026-10-17 | bdceac07 | [261017-bwt-phase-32-ui-7-4-destructive-in-05](./quick/261017-bwt-phase-32-ui-7-4-destructive-in-05/) |
 
 ## Session Continuity
 
