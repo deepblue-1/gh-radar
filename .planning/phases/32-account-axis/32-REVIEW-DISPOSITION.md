@@ -5,27 +5,27 @@ titles: json
 findings:
   - id: WR-01
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "「이 계좌 끄기」 대기 해제가 계좌가 아니라 FIFO 맨 앞을 푼다 — relay 가 0프레임으로 끝나는 끄기가 끼면 다른 계좌가 풀린다"
   - id: WR-02
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "계좌 끄기 거부 · 0답 종료가 웹 킬 스위치 in-flight 창을 8초 동안 열어 둔다 — 그동안 무관한 60 에코가 「킬 스위치」 원인으로 읽힌다"
   - id: WR-03
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "Ready 중 추가 선언된 계좌의 VI 슬롯을 relay 가 영영 묻지 않는다 — 작업대 VI 행이 「미조회」 잠금으로 남는다"
   - id: WR-04
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "/me 설정 탭 저장 기계가 서버 전환을 넘어 상태를 들고 간다 — 계좌 칩만 바꿔도 값이 다른 행이 「저장 성공」 플래시를 낸다"
   - id: WR-05
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "`?account=` 가 URL 에 남는다 — 새로고침 · 앱 새로고침이 사용자가 나중에 고른 작업대 계좌를 되돌린다"
   - id: WR-06
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "/me 기본 계좌 칩이 한 렌더 동안 첫 계좌로 섰다가 기억 계좌로 바뀐다 — 네 탭이 엉뚱한 계좌를 한 번 그린다"
   - id: IN-01
     severity: info
@@ -56,12 +56,12 @@ recorded: 2026-10-16T11:34:54.853Z
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| WR-01 | warning | open | - |
-| WR-02 | warning | open | - |
-| WR-03 | warning | open | - |
-| WR-04 | warning | open | - |
-| WR-05 | warning | open | - |
-| WR-06 | warning | open | - |
+| WR-01 | warning | fixed | 32-REVIEW-FIX.md (cd4859d9) |
+| WR-02 | warning | fixed | 32-REVIEW-FIX.md (b82f6520) |
+| WR-03 | warning | fixed | 32-REVIEW-FIX.md (704f3717) |
+| WR-04 | warning | fixed | 32-REVIEW-FIX.md (10a2bd06) |
+| WR-05 | warning | fixed | 32-REVIEW-FIX.md (04c22d53) |
+| WR-06 | warning | fixed | 32-REVIEW-FIX.md (5191ea13) |
 | IN-01 | info | open | - |
 | IN-02 | info | open | - |
 | IN-03 | info | open | - |
