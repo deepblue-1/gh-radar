@@ -16,7 +16,7 @@
     {
       "number": "32",
       "name": "계좌 축 정리",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "33",
@@ -29,5 +29,5 @@
     "label": "Advance to the next step",
     "reason": "Phase 33 of 4 · 50% · executing"
   },
-  "updated_at": "2026-10-16T08:17:36.958Z"
+  "updated_at": "2026-10-16T08:38:12.084Z"
 }

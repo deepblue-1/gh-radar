@@ -6,15 +6,15 @@ current_phase: 33
 current_phase_name: 팀 매집(teamflow) 보고서
 status: executing
 stopped_at: Completed 33-07-PLAN.md
-last_updated: "2026-10-16T08:17:43.927Z"
+last_updated: "2026-10-16T08:38:12.072Z"
 last_activity: 2026-10-16
 last_activity_desc: Phase 33 execution started
-state_head: 8be382f28a6a45485412d0d9e1e08e3f5d96ed2b
+state_head: 5d6e2499d0a02bfb6756201985b9590890229438
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 40
-  completed_plans: 28
+  completed_plans: 34
   percent: 50
 ---
 
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-10-12 after Phase 31)
 ## Current Position
 
 Phase: 33 (팀 매집(teamflow) 보고서) — EXECUTING
-Plan: 8 of 9
+Plan: 9 of 9
 Status: Ready to execute
-Last activity: 2026-10-16 — Phase 33 33-07 완료(상세 E2E · 백스톱 T6 · T8 · 전 워크스페이스 회귀 게이트 green · pgTAP 300 ok, push 안 함)
+Last activity: 2026-10-16 — Phase 33 33-08 완료(백엔드 배포: db push · limitup-sync 5d6e2499 · 낮 운반 1회 · 10/14 team_flow 34행 · server 00062 · webapp push 안 함)
 Parallel: Phase 32 (계좌 축 정리) — 32-10 Task 2 배포 체크포인트(relay 20:00 KST 뒤 → push) 대기 (별도 세션)
 
 Progress: [█████░░░░░] 50% (17/17 plans)

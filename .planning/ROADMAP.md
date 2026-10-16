@@ -212,7 +212,7 @@ Plans:
 | 30. 인박스 KB 계좌별 주문자 IP/MAC | v1.1 | 9/9 | Complete | 2026-10-11 |
 | 31. 인박스 상따 금액 단위 | v1.1 | 8/8 | Complete | 2026-10-12 |
 | 32. 계좌 축 정리 | v1.1 | 9/14 | In Progress | — |
-| 33. 팀 매집(teamflow) 보고서 | v1.1 | 7/9 | In Progress | — |
+| 33. 팀 매집(teamflow) 보고서 | v1.1 | 8/9 | In Progress | — |
 
 ### Phase 33: 팀 매집(teamflow) 보고서
 
@@ -227,7 +227,7 @@ Plans:
   5. 단위 · E2E(limitup-report 동형 fixture) 통과 · 10/14 실측 3종목으로 라이브 UAT · 인박스 `261016-teamflow-export.md` 를 `status: done` 으로 닫는다
 
 **배포 순서**: DB 마이그레이션(표 · RPC · RLS `TO anon, authenticated` · REVOKE 명시) → limitup-sync Job 재배포(`scripts/deploy-limitup-sync.sh` · 21:20 KST 밖) → server → webapp push(= 프로덕션). radar-gw 변경 없음. 첫 적재는 119 export 에 `team_flow.ndjson.gz` 가 실린 날짜부터
-**Plans**: 7/9 plans executed
+**Plans**: 8/9 plans executed
 
 Plans:
 **Wave 1**
@@ -252,7 +252,7 @@ Plans:
 - [x] 33-07-PLAN.md — (트레이서) 상세 E2E · 폭 백스톱 T6 · T8 · 전 워크스페이스 회귀 게이트
 
 **Wave 8** *(blocked on Wave 7 completion)*
-- [ ] 33-08-PLAN.md — 백엔드 배포(메인 세션): [BLOCKING] supabase db push(pgTAP 미실행이면 사용자 승인) → limitup-sync 재배포(20:55~21:25 밖) → radar-gw 낮 운반 1회 · Job 즉시 실행 · 스모크 INV-8 → server
+- [x] 33-08-PLAN.md — 백엔드 배포(메인 세션): [BLOCKING] supabase db push(pgTAP 미실행이면 사용자 승인) → limitup-sync 재배포(20:55~21:25 밖) → radar-gw 낮 운반 1회 · Job 즉시 실행 · 스모크 INV-8 → server
 
 **Wave 9** *(blocked on Wave 8 completion)*
 - [ ] 33-09-PLAN.md — git push(= webapp 프로덕션) · 라이브 UAT 10/14 · 인박스 261016-teamflow-export done · TEAM-02 문구 정합
