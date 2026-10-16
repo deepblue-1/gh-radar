@@ -7,6 +7,7 @@ import { factLineOf, summaryPartsOf } from '@/lib/teamflow-report';
 import { TeamflowBandChart } from './teamflow-band-chart';
 import { TeamflowBandTable } from './teamflow-band-table';
 import { TeamflowBucketChart } from './teamflow-bucket-chart';
+import { TeamflowBucketTable } from './teamflow-bucket-table';
 import { TeamflowMembers } from './teamflow-members';
 import { TeamflowToggle } from './teamflow-toggle';
 
@@ -32,8 +33,8 @@ const RULES = [
  *   summary_lines 가 비면 번호 목록 없이 사실 줄만, 사실 줄도 없으면 상자를 그리지 않는다.
  * - 요약 다음 = [구간 가로 막대 | 다섯 창구 거래원] 2열(`grid gap-4 xl:grid-cols-2` · < xl 1열 — D-14 · UI-SPEC T6 · T7).
  *   구간 차트 아래 8px 「구간표 보기」 접힘 표.
- * - 상세 맨 아래 「판정 기준」 접힘(UI-SPEC T9 — 6항목 + 출처 줄). 두 토글 모두 기본 접힘 · 서로 독립 · 행을 접으면 초기화.
- * - 2열 아래 전폭 = 10분 흐름 블록(UI-SPEC T8 · D-13 — 39칸 고정축 차트 · 세로 블록 사이 16px).
+ * - 상세 맨 아래 「판정 기준」 접힘(UI-SPEC T9 — 6항목 + 출처 줄). 세 토글 모두 기본 접힘 · 서로 독립 · 행을 접으면 초기화.
+ * - 2열 아래 전폭 = 10분 흐름 블록(UI-SPEC T8 · D-13 — 39칸 고정축 차트 · 세로 블록 사이 16px) → 8px 「10분 표 보기」 접힘 표.
  */
 export function TeamflowDetail({ row, labelledBy }: { row: TeamflowRow; labelledBy: string }) {
   const lines = row.payload?.summary_lines ?? [];
@@ -114,6 +115,11 @@ export function TeamflowDetail({ row, labelledBy }: { row: TeamflowRow; labelled
           window={row.payload?.window ?? null}
           firstLimitMs={row.first_limit_ms}
         />
+        <div className="mt-2">
+          <TeamflowToggle label="10분 표 보기" tone="accent">
+            <TeamflowBucketTable buckets={row.payload?.buckets ?? []} window={row.payload?.window ?? null} />
+          </TeamflowToggle>
+        </div>
       </div>
 
       <div data-slot="teamflow-rules">
