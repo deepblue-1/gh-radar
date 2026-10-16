@@ -7,10 +7,11 @@ import type { TeamflowRow } from '@gh-radar/shared';
  * Phase 33 Plan 05 — 펼친 상세 ① (UI-SPEC T6 · T7 · T9 · D-12 · D-14).
  *
  * 잠그는 것: 요약 아래 [구간 가로 막대 | 다섯 창구 거래원] 2열 · 구간 차트 접근 이름 · 측정 폭 1:1 viewBox(jsdom 폭 0 = 폴백 640) ·
- * 「구간표 보기」 · 「판정 기준」 기본 접힘 · 서로 독립 · 행 접으면 초기화(상세 언마운트).
+ * 「구간표 보기」 · 「판정 기준」 기본 접힘 · 서로 독립 · 행 접으면 초기화(상세 언마운트) ·
+ * 다섯 창구 거래원 2단 막대(net 내림차순 · null 뒤 · null 칸 채움 없음 · 상위 5 밖 · 범례 · 참고 줄 · 자료 없음).
  */
 
-import { SMBEXCEL, teamflowRows } from '@/test-fixtures/teamflow-export';
+import { CHEONIL, SMBEXCEL, teamflowRows } from '@/test-fixtures/teamflow-export';
 
 import { TeamflowDayGrid } from '../teamflow-day-grid';
 import { TeamflowDetail } from '../teamflow-detail';
@@ -112,5 +113,98 @@ describe('TeamflowDetail — 접힘 토글 · 구간표 · 판정 기준 (T6 · 
     fireEvent.click(rowBtn());
     expect(toggle('구간표 보기').getAttribute('aria-expanded')).toBe('false');
     expect(document.querySelector('[data-slot="teamflow-band-table"]')).toBeNull();
+  });
+});
+
+describe('TeamflowDetail — 다섯 창구 거래원 (T7)', () => {
+  const membersBox = () => document.querySelector('[data-slot="teamflow-members"]') as HTMLElement;
+  const memberRows = () => Array.from(membersBox().querySelectorAll<HTMLElement>('[data-slot="teamflow-member-row"]'));
+  const nameOf = (el: HTMLElement) => el.getAttribute('data-member');
+  const fill = (el: HTMLElement, side: 'buy' | 'sell') =>
+    el.querySelector<HTMLElement>(`[data-slot="teamflow-member-${side}"]`);
+
+  it('천일고속 — 4행 net 큰 순 · 상위 5 밖: 유진 · 15:30 캡션 · 교보 매도 채움 없음 · 폭 = max(buy, sell) 정규화 · 2열 오른쪽', () => {
+    renderDetail(rowOf(CHEONIL));
+    const box = membersBox();
+    expect(box).not.toBeNull();
+    expect(box.closest('.xl\\:grid-cols-2')).not.toBeNull();
+    expect(within(box).getByText('다섯 창구 거래원')).toBeTruthy();
+    expect(within(box).getByText('15:30 기준 하루 누적 · 창구 전체(일반 고객 포함)')).toBeTruthy();
+    const rows = memberRows();
+    expect(rows.map(nameOf)).toEqual(['신한', '한국', 'NH', '교보']);
+    expect(rows[0]!.textContent).toContain('+3,625주');
+    expect(rows[2]!.textContent).toContain('−2,191주');
+    expect(rows[0]!.getAttribute('title')).toBe('신한 · 매수 15,096주 · 매도 11,471주');
+    // 막대 폭 = 값 ÷ 이 종목 max(buy, sell)(신한 매수 15,096) × 100
+    expect(fill(rows[0]!, 'buy')!.style.width).toBe('100%');
+    expect(parseFloat(fill(rows[0]!, 'sell')!.style.width)).toBeCloseTo((11471 / 15096) * 100, 6);
+    // 교보: sell null → 매도 채움 없음 · net null → 「—」
+    const kyobo = rows[3]!;
+    expect(fill(kyobo, 'buy')).not.toBeNull();
+    expect(fill(kyobo, 'sell')).toBeNull();
+    expect(kyobo.getAttribute('title')).toBe('교보 · 매수 6,994주 · 매도 —');
+    expect(within(box).getByText('상위 5 밖: 유진')).toBeTruthy();
+    expect(within(box).getByText('매수')).toBeTruthy();
+    expect(within(box).getByText('매도')).toBeTruthy();
+    expect(within(box).getByText('오른쪽 = 순매수(주)')).toBeTruthy();
+    expect(within(box).getByText('참고: 매수 1위 키움증권 17,487주 · 매도 1위 키움증권 20,192주')).toBeTruthy();
+  });
+
+  it('에스엠벡셀 — 캡션 「19:50 기준」(장 마감 뒤 시각 그대로) · 상위 5 밖: 교보 · 유진', () => {
+    renderDetail(rowOf(SMBEXCEL));
+    const box = membersBox();
+    expect(within(box).getByText('19:50 기준 하루 누적 · 창구 전체(일반 고객 포함)')).toBeTruthy();
+    expect(within(box).getByText('상위 5 밖: 교보 · 유진')).toBeTruthy();
+    expect(memberRows().map(nameOf)).toEqual(['NH', '신한', '한국']);
+  });
+
+  it('members null → 「거래원 자료 없음」(teamflow-members-none) · 소제목 남음 · 범례 없음', () => {
+    renderDetail(withPayload(rowOf(CHEONIL), { members: null }));
+    const none = document.querySelector('[data-slot="teamflow-members-none"]');
+    expect(none?.textContent).toBe('거래원 자료 없음');
+    expect(within(membersBox()).getByText('다섯 창구 거래원')).toBeTruthy();
+    expect(within(membersBox()).getByText('하루 누적 · 창구 전체(일반 고객 포함)')).toBeTruthy();
+    expect(memberRows()).toHaveLength(0);
+    expect(within(membersBox()).queryByText('오른쪽 = 순매수(주)')).toBeNull();
+  });
+
+  it('rows [] + absent [교보] → 막대 0 · 「상위 5 밖: 교보」 한 줄 · 자료 없음 아님', () => {
+    const ch = rowOf(CHEONIL);
+    renderDetail(
+      withPayload(ch, {
+        members: { ...ch.payload!.members!, rows: [], absent: ['교보'], top_buy: null, top_sell: null },
+      }),
+    );
+    expect(memberRows()).toHaveLength(0);
+    expect(within(membersBox()).getByText('상위 5 밖: 교보')).toBeTruthy();
+    expect(document.querySelector('[data-slot="teamflow-members-none"]')).toBeNull();
+    expect(within(membersBox()).queryByText('오른쪽 = 순매수(주)')).toBeNull();
+    expect(within(membersBox()).queryByText(/^참고:/)).toBeNull();
+  });
+
+  it('net null 행 → 값 「—」 · 맨 뒤(입력 첫 행이어도)', () => {
+    const ch = rowOf(CHEONIL);
+    const m = ch.payload!.members!;
+    renderDetail(
+      withPayload(ch, {
+        members: { ...m, rows: [{ member: '00001', name: '교보', buy: null, sell: 500, net: null }, ...m.rows.slice(0, 3)] },
+      }),
+    );
+    const rows = memberRows();
+    expect(rows.map(nameOf)).toEqual(['신한', '한국', 'NH', '교보']);
+    const last = rows.at(-1)!;
+    expect(last.querySelector('[data-slot="teamflow-member-net"]')!.textContent).toBe('—');
+    expect(fill(last, 'buy')).toBeNull();
+    expect(fill(last, 'sell')).not.toBeNull();
+  });
+
+  it('top_buy 만 → 참고 줄 매수 1위만 · 둘 다 null → 참고 줄 없음', () => {
+    const ch = rowOf(CHEONIL);
+    const m = ch.payload!.members!;
+    const { unmount } = renderDetail(withPayload(ch, { members: { ...m, top_sell: null } }));
+    expect(within(membersBox()).getByText('참고: 매수 1위 키움증권 17,487주')).toBeTruthy();
+    unmount();
+    renderDetail(withPayload(ch, { members: { ...m, top_buy: null, top_sell: null } }));
+    expect(within(membersBox()).queryByText(/^참고:/)).toBeNull();
   });
 });
