@@ -78,7 +78,7 @@ describe('TeamflowReport', () => {
   it('(a) 10/14 픽스처 → 34행 · team_net_val 큰 순(첫 행 한선엔지니어링 「+5.9억」) · 기본 전부 접힘', async () => {
     await open('d=20261014', teamflowReportFixture());
     expect(screen.getByRole('heading', { level: 1, name: '팀 매집' })).toBeTruthy();
-    expect(screen.getByText('평일 밤 21:20쯤 그날 보고서가 올라와요 · 팀 = 교보 · 한국 · 유진 · 신한 · NH')).toBeTruthy();
+    expect(screen.getByText('평일 밤 20:30쯤 그날 보고서가 올라와요 · 팀 = 교보 · 한국 · 유진 · 신한 · NH')).toBeTruthy();
     expect(screen.getByRole('heading', { level: 2, name: '탐지 종목' })).toBeTruthy();
     const btns = rowButtons();
     expect(btns).toHaveLength(34);
@@ -129,7 +129,7 @@ describe('TeamflowReport', () => {
   it('(d) 적재 이력 0 → 「아직 올라온 팀 매집 보고서가 없어요」 · 목록 없음', async () => {
     await open('', { access: true, dates: [], date: null, rows: [] });
     expect(screen.getByText('아직 올라온 팀 매집 보고서가 없어요')).toBeTruthy();
-    expect(screen.getByText('첫 보고서는 평일 밤 21:20쯤 올라와요')).toBeTruthy();
+    expect(screen.getByText('첫 보고서는 평일 밤 20:30쯤 올라와요')).toBeTruthy();
     expect(document.querySelector('[data-slot="teamflow-empty"]')).toBeTruthy();
     expect(document.querySelector('[data-slot="teamflow-list"]')).toBeNull();
     expect((screen.getByRole('button', { name: '이전 보고서' }) as HTMLButtonElement).disabled).toBe(true);
@@ -140,7 +140,7 @@ describe('TeamflowReport', () => {
   it('(e) 행 없는 날짜 → 「이 날은 팀 매집 데이터가 없어요」 · 「최신 보고서 보기」 → push', async () => {
     await open('d=20261011', teamflowReportFixture({ date: '20261011', rows: [] }));
     expect(screen.getByText('이 날은 팀 매집 데이터가 없어요')).toBeTruthy();
-    expect(screen.getByText('팀 매집 보고서는 평일 밤 21:20쯤 올라와요. 최신 보고서는 10/14예요')).toBeTruthy();
+    expect(screen.getByText('팀 매집 보고서는 평일 밤 20:30쯤 올라와요. 최신 보고서는 10/14예요')).toBeTruthy();
     expect(document.querySelector('[data-slot="teamflow-list"]')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '최신 보고서 보기' }));
     expect(pushMock).toHaveBeenCalledWith('/analytics/teamflow?d=20261014');

@@ -74,7 +74,7 @@ describe('LimitupReport', () => {
     fetchReportMock.mockReturnValueOnce(new Promise(() => {}));
     await open('d=20261002');
     expect(screen.getByRole('heading', { level: 1, name: '상한가 보고서' })).toBeTruthy();
-    expect(screen.getByText('평일 밤 21:20쯤 그날 보고서가 올라와요')).toBeTruthy();
+    expect(screen.getByText('평일 밤 20:30쯤 그날 보고서가 올라와요')).toBeTruthy();
     expect(screen.getByText('10/02 (금)')).toBeTruthy();
     expect(screen.getByText('불러오는 중…')).toBeTruthy();
     expect(document.querySelector('[data-slot="limitup-kpis"]')).toBeNull();
@@ -98,7 +98,7 @@ describe('LimitupReport', () => {
     await open('', new ApiClientError({ code: 'DMA_UNMAPPED', message: 'x', status: 403 }));
     expect(screen.getByText(/^상한가 보고서는 증권사 계정이 연결된 사용자만 이용할 수 있어요/)).toBeTruthy();
     expect(document.querySelector('[data-slot="dma-gate"]')!.getAttribute('data-reason')).toBe('unmapped');
-    expect(screen.queryByText('평일 밤 21:20쯤 그날 보고서가 올라와요')).toBeNull();
+    expect(screen.queryByText('평일 밤 20:30쯤 그날 보고서가 올라와요')).toBeNull();
   });
 
   it('401 → DmaGate unauthenticated', async () => {
@@ -117,7 +117,7 @@ describe('LimitupReport', () => {
   it('적재 이력 0 → 「아직 올라온 보고서가 없어요」 · ‹ › 둘 다 disabled · 알약 「—」', async () => {
     await open('', { access: true, dates: [], date: null, loaded: false });
     expect(screen.getByText('아직 올라온 보고서가 없어요')).toBeTruthy();
-    expect(screen.getByText('첫 보고서는 평일 밤 21:20쯤 올라와요')).toBeTruthy();
+    expect(screen.getByText('첫 보고서는 평일 밤 20:30쯤 올라와요')).toBeTruthy();
     expect(prevBtn().disabled).toBe(true);
     expect(nextBtn().disabled).toBe(true);
     expect(fetchReportMock).toHaveBeenCalledWith(undefined);
@@ -127,7 +127,7 @@ describe('LimitupReport', () => {
   it('없는 날짜 → 「이 날 보고서가 아직 없어요」 + 최신 MM/DD + 「최신 보고서 보기」 → push', async () => {
     await open('d=20260915', { access: true, dates: ['20261002', '20261001'], date: '20260915', loaded: false });
     expect(screen.getByText('이 날 보고서가 아직 없어요')).toBeTruthy();
-    expect(screen.getByText('보고서는 평일 밤 21:20쯤 올라와요. 최신 보고서는 10/02예요')).toBeTruthy();
+    expect(screen.getByText('보고서는 평일 밤 20:30쯤 올라와요. 최신 보고서는 10/02예요')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '최신 보고서 보기' }));
     expect(pushMock).toHaveBeenCalledWith('/analytics/limitup?d=20261002');
     // 목록보다 오래된 날 — ‹ 없음 · › = 가장 오래된 적재 날짜

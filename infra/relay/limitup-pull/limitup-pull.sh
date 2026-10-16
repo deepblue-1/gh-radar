@@ -12,7 +12,7 @@
 # 대상: radar-gw(Debian 12, bash 5, 시스템 시간대 UTC) — limitup-pull.service 가 limitpull 사용자로 부른다.
 #
 # 옵션
-#   (없음)               본 실행. 평일 06:30~20:30 KST 에는 「장중 — 건너뜀」 한 줄 뒤 종료 0
+#   (없음)               본 실행. 평일 06:30~20:20 KST 에는 「장중 — 건너뜀」 한 줄 뒤 종료 0
 #   --self-test          순수 함수(date_dirs · dates_summary · daytime_blocked) 단언. 네트워크 없음, BUCKET 불필요
 #   --check              원격 루트 목록과 버킷 export/ 목록 조회(둘 다 되면 0, 하나라도 실패하면 1)
 #   --dry-run            받을 날짜 목록과 올릴 객체 개수만 출력. 전송 없음, 장중 가드 대상 아님
@@ -86,10 +86,10 @@ dates_summary() {
     printf 'dates=%s latest=%s\n' "$n" "$latest"
 }
 
-# daytime_blocked DOW HHMM — 월~금(1~5) 06:30 ≤ HHMM < 20:30 이면 참(0). 호출자는 TZ=Asia/Seoul 로 값을 구한다
+# daytime_blocked DOW HHMM — 월~금(1~5) 06:30 ≤ HHMM < 20:20 이면 참(0) — 2026-10-16 운반 20:20 당김(119 배치 20:10 시작). 호출자는 TZ=Asia/Seoul 로 값을 구한다
 daytime_blocked() {
     local dow=$1 hhmm=$((10#$2))
-    (( dow >= 1 && dow <= 5 && hhmm >= 630 && hhmm < 2030 ))
+    (( dow >= 1 && dow <= 5 && hhmm >= 630 && hhmm < 2020 ))
 }
 
 # ---------------------------------------------------------------- 자가 시험
@@ -137,7 +137,7 @@ self_test() {
 
     # DOW HHMM 기대(1=차단, 0=통과)
     local c dow hhmm want rc
-    for c in '1 0900 1' '1 2100 0' '6 1200 0' '5 0630 1' '5 2030 0' '1 0629 0' '7 0700 0' '3 2029 1'; do
+    for c in '1 0900 1' '1 2100 0' '6 1200 0' '5 0630 1' '5 2020 0' '1 0629 0' '7 0700 0' '3 2019 1'; do
         read -r dow hhmm want <<<"$c"
         rc=0
         daytime_blocked "$dow" "$hhmm" || rc=1
