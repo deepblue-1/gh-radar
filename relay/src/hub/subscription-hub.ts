@@ -136,6 +136,10 @@
  *         그대로다. 65 는 여전히 완료 신호일 뿐 캐시를 고치지 않는다. `HUB_DISABLE_SENDER_MAX_AGE_MS`(30초)를 넘은 꼬리표는 65 유실로 보고
  *         버린다(warn). 교체 · 분리는 그 세션 꼬리표를 지우고 진행 중 집계의 그 대상을 `detached` 로, `closeAll` 은 모든 집계를 팬아웃 없이
  *         끝낸다(`done` 해결).
+ *   Phase 32 — 계좌 끄기 집계(D-09 보정 · D-21)  웹 「이 계좌 끄기」(`strategies.disable.account`)는 fanout 이 그 계좌 소유 세션으로 켜진 키마다
+ *         14(key)를 보내고(`lc.set` 스위치 off 아님 — 서버가 crud D 로 삭제한다 · Pitfall 1) `beginAccountStop` 이 그 65 k건을 같은 14 송신자
+ *         꼬리표로 모아 `strategies.disabled` 1건(count 합)을 낸다 — k 건을 그대로 내보내면 웹 킬 스위치 귀속 창이 첫 65 에서 닫힌다(Pitfall
+ *         3). 시한은 「전부 정지」 와 같은 `HUB_ALL_STOP_COLLECT_MS` · 받은 것이 0 이면 지어내지 않는다 · 늦은 65 는 끝난 집계 몫으로 소비.
  *   D-13  전략 재조회는 **재접속(`ready`) 시에만** 일어난다. 주기 타이머·수동 새로고침
  *         진입점을 만들지 않는다 — 사용자 조작에 대한 60/61 에코는 Notice(유실 없음)라
  *         재조회로 메울 것이 없고, 폴링은 게이트웨이 왕복을 사용자 수에 비례시킨다.
@@ -407,6 +411,7 @@ type AllStopTarget = { serverKey: string; state: "pending" | "sent" | "answered"
  * 이 객체 자체가 꼬리표로 들어간다 — 그 65 가 오면 이 집계의 답이다.
  */
 type AllStopCollection = {
+  kind: "all";
   userId: string;
   targets: Map<string, AllStopTarget>;
   count: number;
@@ -420,7 +425,57 @@ type AllStopCollection = {
  * 14 송신자 꼬리표 (29-54 · N-01) — 소유 키마다 14 를 실제로 보낸 순서대로 쌓고 65 마다 머리를 뺀다. 서버는 한 연결의 요청을 순서대로
  * 처리하고 65 는 그 14 처리의 마지막 프레임이라 순서가 정확히 짝지어진다. `at` = 넣은 시각(ms — 오래된 꼬리표 버림).
  */
-type DisableSender = { tag: "sweeper" | "user" | AllStopCollection; at: number };
+type DisableSender = { tag: "sweeper" | "user" | AllStopCollection | AccountStopCollection; at: number };
+
+/**
+ * 「계좌 끄기」 집계 결과 (Phase 32 D-09 보정). `count` = 받은 65 count 합 · `viDisabled` = VI 61 run:false 에코를 하나라도 봤는가.
+ * `answered` · `expected` = 받은 65 수 · 보낸 14 수. `ended` = 끝난 사유(`complete` 모두 받음 · `timeout` 시한 · `detached` 세션
+ * 교체 · 분리 · `closed` hub 종료). 받은 것이 하나라도 있으면(`closed` 제외) hub 가 이미 `strategies.disabled` 1건을 팬아웃했다.
+ */
+export type HubAccountStopResult = {
+  count: number;
+  viDisabled: boolean;
+  answered: number;
+  expected: number;
+  ended: "complete" | "timeout" | "detached" | "closed";
+};
+
+/**
+ * 「계좌 끄기」 집계 손잡이 (Phase 32 D-09 보정 — `SubscriptionHub.beginAccountStop` 이 돌려준다). fanout 은 그 계좌의 켜진 키마다 14 를
+ * 소유 세션으로 보낸 직후 `sent`, 보내지 못했으면 `failed` 를 부른다. 계획한 송신이 다 알려지고 보낸 14 의 65 를 다 받거나, 시한
+ * (`HUB_ALL_STOP_COLLECT_MS`)이 오면 `done` 이 해결된다.
+ */
+export type HubAccountStop = {
+  sent(): void;
+  failed(): void;
+  done: Promise<HubAccountStopResult>;
+};
+
+/**
+ * 진행 중인 「계좌 끄기」 집계 1건 (Phase 32 D-09 보정). 14 를 보낸 소유 키 FIFO 에 이 객체 자체가 꼬리표로 들어간다 — 그 65 가 오면
+ * 이 집계의 답이고 브라우저로 따로 팬아웃하지 않는다. 끝나면 받은 만큼으로 `strategies.disabled` 1건(받은 것이 없으면 0건 — 지어내지
+ * 않는다 · 웹 8초 백스톱).
+ */
+type AccountStopCollection = {
+  kind: "account";
+  userId: string;
+  /** 14 를 보내는 소유 세션의 소유 키. */
+  owner: string;
+  session: HubSession;
+  /** 아직 `sent` · `failed` 가 오지 않은 계획 14 수. */
+  keysUnreported: number;
+  /** 보냈고 65 를 기다리는 14 수. */
+  keysAwaiting: number;
+  /** 보낸 14 수(결과 보고용). */
+  expected: number;
+  /** 받은 65 수. */
+  answered: number;
+  count: number;
+  viDisabled: boolean;
+  finished: boolean;
+  timer: ReturnType<typeof setTimeout> | null;
+  resolve: (result: HubAccountStopResult) => void;
+};
 
 /**
  * 대여 표식 (29-49) — 소유 키마다 하나. `refetchVi` = hub 가 자기 21 을 미뤘거나(대여 중 Ready · primary 승격) 배수 상한에 걸려 대기열을
@@ -1006,6 +1061,8 @@ export class SubscriptionHub extends EventEmitter {
   readonly #disableSenders = new Map<string, DisableSender[]>();
   /** 진행 중인 「전부 정지」 집계 (29-54) — 정리(교체 · 분리 · `closeAll`)가 대상을 `detached` 로 끝낸다. */
   readonly #allStops = new Set<AllStopCollection>();
+  /** 진행 중인 「계좌 끄기」 집계 (Phase 32 D-09 보정) — `closeAll` 이 팬아웃 없이 끝낸다. 시한은 `#allStopCollectMs` 를 같이 쓴다. */
+  readonly #accountStops = new Set<AccountStopCollection>();
   /** 「전부 정지」 집계 시한(ms · 29-54). */
   readonly #allStopCollectMs: number;
   /**
@@ -1310,6 +1367,7 @@ export class SubscriptionHub extends EventEmitter {
       resolve = r;
     });
     const coll: AllStopCollection = {
+      kind: "all",
       userId,
       targets: new Map(),
       count: 0,
@@ -1359,6 +1417,85 @@ export class SubscriptionHub extends EventEmitter {
       },
       done,
     };
+  }
+
+  /**
+   * 「계좌 끄기」 집계를 연다 (Phase 32 D-09 보정 · D-21 — fanout `strategies.disable.account` 가 부른다). `session` = 그 계좌의 **소유
+   * 세션**, `plan.keys` = 그 계좌의 켜진 상따 수(보낼 14 건수). fanout 은 키마다 14 `DisableStrategiesReq(key)` 를 그 세션으로 보낸 직후
+   * `sent`, 보내지 못했으면 `failed` 를 부른다. 보낸 14 의 65 는 소유 키 꼬리표로 이 집계에 귀속되고 **브라우저로 따로 내보내지 않는다**
+   * (k 건이 그대로 가면 웹의 킬 스위치 귀속 창이 첫 65 에서 닫힌다 — Pitfall 3). 계획한 송신이 다 알려지고 보낸 14 의 65 를 다 받으면
+   * 끝난다 — 또는 시한(`allStopCollectMs`). 끝나면 받은 65 가 있을 때만 `strategies.disabled { count: 합, viDisabled }` 1건을 팬아웃한다
+   * (답 0 이면 지어내지 않는다 · 웹 8초 백스톱). 시한 뒤 늦게 온 65 는 이미 닫힌 집계 몫으로 소비된다(꼬리표가 짝을 맞춘다).
+   */
+  beginAccountStop(userId: string, session: HubSession, plan: { keys: number }): HubAccountStop {
+    let resolve: (result: HubAccountStopResult) => void = () => undefined;
+    const done = new Promise<HubAccountStopResult>((r) => {
+      resolve = r;
+    });
+    const coll: AccountStopCollection = {
+      kind: "account",
+      userId,
+      owner: ownerKey(userId, serverKeyOf(session)),
+      session,
+      keysUnreported: Math.max(0, plan.keys),
+      keysAwaiting: 0,
+      expected: 0,
+      answered: 0,
+      count: 0,
+      viDisabled: false,
+      finished: false,
+      timer: null,
+      resolve,
+    };
+    this.#accountStops.add(coll);
+    coll.timer = setTimeout(() => {
+      coll.timer = null;
+      this.#finishAccountStop(coll, "timeout");
+    }, this.#allStopCollectMs);
+    this.#settleAccountStop(coll);
+    return {
+      sent: () => {
+        if (coll.finished || coll.keysUnreported === 0) return;
+        coll.keysUnreported -= 1;
+        if (this.#sessions.get(coll.owner) === coll.session) {
+          coll.keysAwaiting += 1;
+          coll.expected += 1;
+          this.#pushDisableSender(coll.owner, coll);
+        }
+        // 결선되지 않은(교체 · 분리된) 세션의 65 는 hub 가 듣지 않는다 — 기다리지 않는다.
+        this.#settleAccountStop(coll);
+      },
+      failed: () => {
+        if (coll.finished || coll.keysUnreported === 0) return;
+        coll.keysUnreported -= 1;
+        this.#settleAccountStop(coll);
+      },
+      done,
+    };
+  }
+
+  /** 계획한 송신이 다 알려지고 기다릴 65 가 없으면 「계좌 끄기」 집계를 끝낸다 (Phase 32). */
+  #settleAccountStop(coll: AccountStopCollection): void {
+    if (coll.finished) return;
+    if (coll.keysUnreported > 0 || coll.keysAwaiting > 0) return;
+    this.#finishAccountStop(coll, "complete");
+  }
+
+  /**
+   * 「계좌 끄기」 집계 끝 (Phase 32) — 타이머 정리 → 받은 것이 있으면 `strategies.disabled` 1건 → `done` 해결. `closed`(hub 종료)는
+   * 팬아웃하지 않는다. 그 소유 키 FIFO 의 이 집계 꼬리표는 남겨 둔다 — 늦게 온 65 가 그 꼬리표로 이 집계 몫이 되어 조용히 소비된다.
+   */
+  #finishAccountStop(coll: AccountStopCollection, ended: HubAccountStopResult["ended"]): void {
+    if (coll.finished) return;
+    coll.finished = true;
+    if (coll.timer !== null) clearTimeout(coll.timer);
+    coll.timer = null;
+    this.#accountStops.delete(coll);
+    const received = coll.answered > 0 || coll.viDisabled;
+    if (ended !== "closed" && received) {
+      this.#fanout(coll.userId, { t: "strategies.disabled", count: coll.count, viDisabled: coll.viDisabled });
+    }
+    coll.resolve({ count: coll.count, viDisabled: coll.viDisabled, answered: coll.answered, expected: coll.expected, ended });
   }
 
   /** 그 소유 키 14 송신자 FIFO 에 꼬리표 하나를 넣는다 (29-54). */
@@ -2484,6 +2621,8 @@ export class SubscriptionHub extends EventEmitter {
       }
       this.#finishAllStop(coll, false);
     }
+    // 「계좌 끄기」 집계(Phase 32) — 같은 규율(타이머 해제 · done 해결 · 팬아웃 없음).
+    for (const coll of [...this.#accountStops]) this.#finishAccountStop(coll, "closed");
     this.#disableSenders.clear();
     this.#viOrders.clear();
     this.#rateCrossItems.clear();
@@ -2597,7 +2736,19 @@ export class SubscriptionHub extends EventEmitter {
           logger.debug({ userId, serverKey }, "[HUB] sweeper 14 의 65 — 팬아웃 · 집계 안 함 (29-54)");
           return;
         }
-        if (sender !== undefined && sender !== "user") {
+        if (sender !== undefined && sender !== "user" && sender.kind === "account") {
+          // 「계좌 끄기」 집계 몫(Phase 32) — 브라우저로 따로 내보내지 않는다. 이미 끝난 집계(시한)의 늦은 65 는 조용히 소비한다.
+          if (sender.finished) {
+            logger.info({ userId, serverKey, count: resp.count }, "[HUB] 계좌 끄기 집계가 끝난 뒤 늦게 온 65 — 팬아웃 안 함 (Phase 32)");
+            return;
+          }
+          sender.keysAwaiting = Math.max(0, sender.keysAwaiting - 1);
+          sender.answered += 1;
+          sender.count += resp.count;
+          this.#settleAccountStop(sender);
+          return;
+        }
+        if (sender !== undefined && sender !== "user" && sender.kind === "all") {
           const target = sender.targets.get(owner);
           if (sender.finished || target === undefined || target.state !== "sent") {
             logger.info({ userId, serverKey, count: resp.count }, "[HUB] 전부 정지 집계가 끝난 뒤 늦게 온 65 — 팬아웃 안 함 (29-54)");

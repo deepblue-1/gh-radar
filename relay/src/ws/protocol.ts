@@ -456,6 +456,19 @@ export const RelayStrategiesDisableSchema = z.object({
   key: z.string().max(64).optional(),
 });
 
+/**
+ * 계좌 하나 끄기 (`strategies.disable.account` · Phase 32 D-09 보정).
+ *
+ * **새 판별자다(Pitfall 2)** — `strategies.disable` 에 `accountNo` 를 선택 인자로 붙이면 구 relay(엄격 모드 아님 · 모르는 키 strip)가
+ * 그 인자를 버리고 빈 키 = 「전부 정지」 로 처리한다. 새 `t` 는 구 relay 에서 판별 실패 → 4400 이라 아무것도 끄지 않는다.
+ * `accountNo` 는 `lc.set` · `order.*` 와 같은 형식 판정(`AccountNoSchema`)이고, 소유권은 fanout 이 `#accountAllowed` 로 본다.
+ * 엄격 모드는 쓰지 않는다(T-18-07 — 모르는 키는 strip).
+ */
+export const RelayStrategiesDisableAccountSchema = z.object({
+  t: z.literal("strategies.disable.account"),
+  accountNo: AccountNoSchema,
+});
+
 /** 매매구분. 신규·정정이 **같은 스키마**를 쓴다 — 어휘가 둘로 갈리면 한쪽만 넓어진다. */
 const OrderSideSchema = z.enum(["B", "S"]);
 
@@ -559,6 +572,7 @@ export const RelayInboundSchema = z.discriminatedUnion("t", [
   RelayViSetSchema,
   RelayViConfirmSchema,
   RelayStrategiesDisableSchema,
+  RelayStrategiesDisableAccountSchema,
   RelayOrderNewSchema,
   RelayOrderModifySchema,
   RelayOrderCancelSchema,

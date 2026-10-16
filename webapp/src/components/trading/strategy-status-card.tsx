@@ -22,7 +22,14 @@
  *     `exchangeBadgeOf` 정의는 `strategy-badge.tsx` 에 **그대로 있다**(다른 소비처와 자기
  *     단위 테스트가 쓴다) — 이 파일의 import 만 사라졌다.
  *
- * ③ 끄기 — Phase 32 D-27 — /me 현황의 끄기는 고른 계좌 단위(32-06).
+ * ③ ★ 「이 계좌 끄기」 — 고른 계좌 단위 끄기만 둔다 (Phase 32 D-09 보정 · D-21 · D-27)
+ *   카드 맨 아래 kill 줄 한 줄이다. 모든 계좌를 한꺼번에 끄는 버튼 · 링크 · 다이얼로그는 /me 에 없다(D-27 · 사용자
+ *   2026-10-16). 확인하면 `send({ t: "strategies.disable.account", accountNo })` 1건 — relay 가 그 계좌 소유 세션으로
+ *   켜진 키마다 14 를 건별로 보내고 65 를 모아 `strategies.disabled` 1건을 준다(서버 와이어는 세션 단위라 계좌 필터는
+ *   relay 몫). 새 메시지 타입이라 구 relay 는 4400 으로 끊고 아무것도 끄지 않는다(Pitfall 2).
+ *   확인 다이얼로그의 기본 포커스는 **닫기**다(Enter 연타로 꺼지면 안 된다). 실행 버튼은 테두리형이다 — `--destructive` 와
+ *   `--up`(매수)이 같은 색이라 채움 빨강은 매수 버튼과 구분되지 않는다(S-6).
+ *   65(`strategies.disabled`)는 **완료 신호로만** 쓴다 — 목록은 60/61 에코가 이미 고쳐 둔다(T-16-07).
  *
  * ⑧ 「현황 | 로그」 전환 (Phase 21 D-25a · G-21-R3-2 · 스케치 008 ① B 채택)
  *   앱은 /trading 하단 공용 패널(전략 로그 탭 포함)을 숨기므로 전 종목 전략 흐름을 여기서 본다.
@@ -56,8 +63,8 @@
  */
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import type { RelayLimitChaser } from "@gh-radar/shared";
+import { useEffect, useRef, useState } from "react";
+import type { RelayLimitChaser, RelayStrategiesDisabledMsg } from "@gh-radar/shared";
 
 import { limitChaserHref } from "@/components/layout/app-sidebar";
 import {
@@ -66,6 +73,15 @@ import {
   viBadgeOf,
 } from "@/components/trading/strategy-badge";
 import { StrategyLog } from "@/components/trading/strategy-log";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useIsinLabels, type IsinLabel } from "@/lib/isin-labels";
 import { isActiveStrategy } from "@/lib/limit-chaser";
@@ -207,6 +223,104 @@ function StrategyRow({
 }
 
 // ---------------------------------------------------------------------------
+// 「이 계좌 끄기」 확인 다이얼로그 (계좌 모드만 · D-27)
+// ---------------------------------------------------------------------------
+
+interface DisableAccountSummary {
+  chaserCount: number;
+  viRunning: boolean;
+  accountNo: string;
+}
+
+/**
+ * 부제 — 그 계좌 건수 · 그 계좌 VI 기준. 버튼은 **둘 중 하나만 살아 있어도** 열리므로(전략 0 + VI 가동 / 전략 N + VI 중지)
+ * 꺼지지 않는 것을 꺼진다고 말하지 않게 셋으로 가른다.
+ */
+function disableSubtitle({ chaserCount, viRunning }: DisableAccountSummary): string {
+  if (chaserCount > 0 && viRunning) {
+    return `상따 ${chaserCount}건과 VI 자동매수가 한 번에 꺼져요.`;
+  }
+  if (chaserCount > 0) return `상따 ${chaserCount}건이 한 번에 꺼져요.`;
+  return "VI 자동매수가 꺼져요.";
+}
+
+function DisableAccountDialog({
+  open,
+  summary,
+  onOpenChange,
+  onConfirm,
+}: {
+  open: boolean;
+  summary: DisableAccountSummary;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+}) {
+  /** 기본 포커스 대상. 실행 버튼에 포커스가 가면 Enter 한 번에 그 계좌가 꺼진다. */
+  const dismissRef = useRef<HTMLButtonElement>(null);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        showCloseButton={false}
+        className="sm:max-w-sm"
+        data-testid="strategy-disable-account-dialog"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          dismissRef.current?.focus();
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>이 계좌의 전략을 비활성화할까요?</DialogTitle>
+          <DialogDescription>{disableSubtitle(summary)}</DialogDescription>
+        </DialogHeader>
+
+        <dl className="flex flex-col gap-1.5 rounded-[var(--r-md)] border border-[var(--border)] px-3 py-2.5 text-[length:var(--t-caption)]">
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-[var(--muted-fg)]">상따 전략</dt>
+            <dd className="mono font-semibold text-[var(--fg)]">
+              {summary.chaserCount === 0 ? "없음" : `${summary.chaserCount}건 → 전부 OFF`}
+            </dd>
+          </div>
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-[var(--muted-fg)]">VI 자동매수</dt>
+            <dd className="mono font-semibold text-[var(--fg)]">
+              {summary.viRunning ? "가동 → 중지" : "중지 (변화 없음)"}
+            </dd>
+          </div>
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="shrink-0 text-[var(--muted-fg)]">계좌</dt>
+            <dd className="mono min-w-0 text-right font-semibold break-all text-[var(--fg)]">
+              {summary.accountNo}
+            </dd>
+          </div>
+        </dl>
+
+        {/* 되돌릴 수 없는 사실 — 이미 나간 주문은 이 버튼으로 취소되지 않는다. */}
+        <p className="rounded-[var(--r-md)] border border-[var(--destructive)] px-2.5 py-2 text-[length:var(--t-caption)] text-[var(--destructive)]">
+          이미 접수된 주문은 취소되지 않아요. 미체결은 아래 표에서 개별 취소해 주세요.
+        </p>
+
+        <DialogFooter>
+          {/* 기본 포커스 대상 — 실행 버튼보다 **앞**에 둔다(탭 순서·오클릭 방어). */}
+          <Button type="button" variant="outline" autoFocus ref={dismissRef} onClick={() => onOpenChange(false)}>
+            닫기
+          </Button>
+          {/* 채움 금지 — `--destructive` 는 `--up`(매수)과 같은 색이다(S-6). */}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onConfirm}
+            className="border-[var(--destructive)] bg-transparent text-[var(--destructive)] hover:bg-[color-mix(in_oklab,var(--destructive)_10%,transparent)]"
+          >
+            이 계좌 끄기
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 카드
 // ---------------------------------------------------------------------------
 
@@ -249,12 +363,17 @@ const SEG_TRIGGER =
 const LOG_MAX_H = "max-h-[320px]";
 
 export function StrategyStatusCard({ className, accountNo }: StrategyStatusCardProps) {
-  const { status, limitChasers, viTriggers } = useRelayContext();
+  const { status, limitChasers, viTriggers, strategiesDisabled, send } = useRelayContext();
   const labels = useIsinLabels();
   const snapshotSeen = useSnapshotSeen(status);
   const logEntries = useStrategyLogFeed();
   /** 기본 = 현황(D-25a). 기억하지 않는다 — 다시 오면 현황이다. */
   const [view, setView] = useState<StatusView>("status");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  /** 끄기를 보내고 `strategies.disabled` 를 기다리는 계좌. 그 계좌 버튼을 잠근다(중복 송신 방지). */
+  const [pendingAccount, setPendingAccount] = useState<string | null>(null);
+  /** 송신 시점의 65 참조. **이것과 달라지는 순간**이 새 완료 신호다. */
+  const ackBaseline = useRef<RelayStrategiesDisabledMsg | null>(null);
 
   // 켜진 전략만(파일 상단 ⑨) — 사이드바 `sidebarChasers` · 작업대 `pruneInactiveCards` 와 같은 한 함수.
   // 등록 정본(`limitChasers` 전수)은 건드리지 않는다.
@@ -269,6 +388,23 @@ export function StrategyStatusCard({ className, accountNo }: StrategyStatusCardP
   const viShownRunning = viAnyRunning(viShown);
   /** VI 행 — 전 계좌면 언제나(종전) · 고른 계좌면 그 계좌가 등록 계좌인 거래소가 하나라도 있을 때만. */
   const showViRow = accountNo === undefined || VI_EXCHANGES.some((ex) => viShown[ex] != null);
+
+  /** 그 계좌에 켜진 전략 0 ∧ 그 계좌 VI 미가동 → 끌 것이 없다(relay 도 0바이트로 거부한다). */
+  const nothingToDisable = shownCount === 0 && !viShownRunning;
+
+  // `strategies.disabled` 수신 → 대기를 푼다. **목록 상태는 건드리지 않는다**(파일 상단 ③ — 완료 신호로만).
+  useEffect(() => {
+    if (pendingAccount === null) return;
+    if (strategiesDisabled !== ackBaseline.current) setPendingAccount(null);
+  }, [pendingAccount, strategiesDisabled]);
+
+  const handleConfirm = (): void => {
+    setDialogOpen(false);
+    if (accountNo === undefined) return;
+    if (!send({ t: "strategies.disable.account", accountNo })) return;
+    ackBaseline.current = strategiesDisabled;
+    setPendingAccount(accountNo);
+  };
 
   return (
     <section
@@ -373,6 +509,24 @@ export function StrategyStatusCard({ className, accountNo }: StrategyStatusCardP
         </span>
       </Link>
       )}
+
+      {/* 「이 계좌 끄기」 (S5′ · D-27) — 고른 계좌가 있을 때만 · 카드 맨 아래 한 줄. */}
+      {accountNo !== undefined && (
+        <div
+          data-slot="strategy-disable-account"
+          className="mt-3 flex flex-wrap items-center gap-2.5 border-t border-[var(--border-subtle)] pt-3"
+        >
+          <Button
+            type="button"
+            aria-label={`이 계좌 끄기 — ${accountNo}`}
+            disabled={nothingToDisable || pendingAccount !== null || status !== "ready"}
+            onClick={() => setDialogOpen(true)}
+            className="ml-auto h-8 rounded-[var(--r-sm)] bg-[var(--up-bg)] px-3 text-[12px] font-semibold text-[var(--destructive)] hover:bg-[color-mix(in_oklab,var(--destructive)_18%,transparent)] disabled:opacity-[.45]"
+          >
+            이 계좌 끄기
+          </Button>
+        </div>
+      )}
       </TabsContent>
 
       <TabsContent value="log" className="min-w-0">
@@ -388,6 +542,15 @@ export function StrategyStatusCard({ className, accountNo }: StrategyStatusCardP
         </div>
       </TabsContent>
       </Tabs>
+
+      {accountNo !== undefined && (
+        <DisableAccountDialog
+          open={dialogOpen}
+          summary={{ chaserCount: shownCount, viRunning: viShownRunning, accountNo }}
+          onOpenChange={setDialogOpen}
+          onConfirm={handleConfirm}
+        />
+      )}
     </section>
   );
 }

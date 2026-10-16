@@ -72,6 +72,7 @@ import { logger } from "../src/logger.js";
 import { Envelope } from "../src/generated/stock-dma/envelope.js";
 import {
   readSetLimitChaserRequest,
+  readDisableStrategiesKey,
   readSubscribeRequest,
   readViSetRequest,
   startFakeGateway,
@@ -3275,6 +3276,74 @@ describe("WsFanout", () => {
     // `""` = 그 세션의 상따 전부 + VI. 등록은 유지하고 발주 게이트만 내린다.
     expect(rootEnvelope(req!.payload).disableStrategiesReq()?.key()).toBe("");
     expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+  });
+
+  describe("P32 계좌 끄기 트레이서 (D-09 보정)", () => {
+    /** 같은 세션의 두 번째 계좌 — 로그인 응답에 함께 실어 세션 소유 뷰에 넣는다. */
+    const ACC_A = SAMPLE_ACCOUNT_NO;
+    const ACC_B = "1234567802";
+    const KEY_A1 = `${SAMPLE_ISIN}:${ACC_A}:KRX`;
+    const KEY_A2 = `${OTHER_ISIN}:${ACC_A}:NXT`;
+    const KEY_B1 = `${SAMPLE_ISIN}:${ACC_B}:KRX`;
+    const disableKeys = (): (string | null)[] =>
+      gateway
+        .strategyRequests()
+        .filter((r) => r.msgType === STRATEGY_MSG.DisableStrategiesReq)
+        .map((r) => readDisableStrategiesKey(r.msgType, r.payload));
+
+    beforeEach(() => {
+      gateway.respondLoginWithAccounts([
+        { accountNo: ACC_A, name: "위탁종합" },
+        { accountNo: ACC_B, name: "위탁CMA" },
+      ]);
+      // A 켜진 2 · B 켜진 1 — 같은 세션(한 서버)이다.
+      gateway.respondLimitChaserList([
+        { isin: SAMPLE_ISIN, accountNo: ACC_A, exchange: "KRX", buyEnabled: true },
+        { isin: OTHER_ISIN, accountNo: ACC_A, exchange: "NXT", sellEnabled: true },
+        { isin: SAMPLE_ISIN, accountNo: ACC_B, exchange: "KRX", buyEnabled: true },
+      ]);
+      gateway.handleDisableStrategies({ apply: true, respond65: true });
+    });
+
+    it("이 계좌 끄기(A) — 14 는 A 의 두 키만 건별 · B 키 0 · 빈 키 0 · lc.set 0 · strategies.disabled 정확히 1건 { count 2 } · A 꺼짐 · B 켜짐", async () => {
+      const a = await authed("token-a");
+      await waitFor(() => h.hub.getLimitChasers(USER_A).length === 3, "상따 캐시 3건");
+
+      a.ws.sendRaw({ t: "strategies.disable.account", accountNo: ACC_A });
+      await waitFor(() => framesOf(a.inbox, "strategies.disabled").length === 1, "strategies.disabled 1건");
+      await flushIo(30);
+
+      // 건별 14 — A 의 두 키만(순서 무관). 빈 키(= 전부 정지)도 B 의 키도 없다.
+      expect([...disableKeys()].sort()).toEqual([KEY_A1, KEY_A2].sort());
+      expect(disableKeys()).not.toContain(KEY_B1);
+      expect(disableKeys()).not.toContain("");
+      // Pitfall 1 — lc.set 스위치 off 로 끄지 않는다(서버가 crud D 로 등록을 지운다).
+      expect(gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq)).toBe(false);
+
+      // Pitfall 3 — 65 k(=2)건을 모아 1건만 브라우저로.
+      const disabled = framesOf(a.inbox, "strategies.disabled");
+      expect(disabled).toHaveLength(1);
+      expect(disabled[0]).toEqual({ t: "strategies.disabled", count: 2, viDisabled: false });
+
+      // 60 에코 — A 두 키는 꺼짐 · B 는 켜짐 그대로.
+      const byKey = new Map(h.hub.getLimitChasers(USER_A).map((c) => [c.key, c]));
+      expect(byKey.get(KEY_A1)?.buyEnabled).toBe(false);
+      expect(byKey.get(KEY_A2)?.sellEnabled).toBe(false);
+      expect(byKey.get(KEY_B1)?.buyEnabled).toBe(true);
+      expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+    });
+
+    it("회귀 — 기존 strategies.disable(빈 키)은 그대로 빈 키 14 1건 · strategies.disabled 1건 { count 3 }", async () => {
+      const a = await authed("token-a");
+      await waitFor(() => h.hub.getLimitChasers(USER_A).length === 3, "상따 캐시 3건");
+
+      a.ws.sendRaw({ t: "strategies.disable" });
+      await waitFor(() => framesOf(a.inbox, "strategies.disabled").length === 1, "strategies.disabled 1건");
+      await flushIo(30);
+
+      expect(disableKeys()).toEqual([""]);
+      expect(framesOf(a.inbox, "strategies.disabled")[0]).toEqual({ t: "strategies.disabled", count: 3, viDisabled: false });
+    });
   });
 
   it("⑳ lc.set 처리가 sub 경로의 키 계산을 건드리지 않는다 (Pitfall 14 회귀)", async () => {

@@ -171,7 +171,7 @@ import type {
   StrategySweepOptions,
   StrategySweeper,
 } from "../dma/strategy-sweeper.js";
-import { STALE_RETRY_MAX_ATTEMPTS, staleRetryDelayMs } from "../dma/strategy-sweeper.js";
+import { STALE_RETRY_MAX_ATTEMPTS, isActiveLimitChaser, staleRetryDelayMs } from "../dma/strategy-sweeper.js";
 import type { EffectiveOwnerTracker, OwnerMove, OwnerSnapshotEntry } from "../dma/effective-owner-tracker.js";
 import type { DmaBroker } from "../registry/registry.js";
 import {
@@ -2203,6 +2203,11 @@ export class WsFanout {
       return;
     }
 
+    if (msg.t === "strategies.disable.account") {
+      this.#disableAccount(conn, userId, msg.accountNo);
+      return;
+    }
+
     // ------------------------------------------------------------------
     // 주문 3종 (D-02 · 정정은 Phase 18 D-21). 전략과 **같은 자리**다 — `isin` 은 있지만 `ex`/`isin` 조합으로
     // 시세 키를 만드는 메시지가 아니므로 `keyOf` 좁히기보다 먼저 갈라야 한다 (Pitfall 14).
@@ -2428,6 +2433,44 @@ export class WsFanout {
       const keys = result.failed.map((f) => f.serverKey);
       this.#send(conn, rejectFrame(ALL_STOP_PARTIAL_TEXT(keys), "", "", "strategies.disable"));
     });
+  }
+
+  /**
+   * 「이 계좌 끄기」 (Phase 32 D-09 보정 · D-21 — `strategies.disable.account`). 서버 와이어(14 · 65)는 세션 단위라 계좌 필터는 relay 몫이다.
+   *
+   * ① 소유 세션 = `#strategySession(accountNo)`(= `forAccount` · 없으면 primary → ② 에서 거부). **primary 로 보내지 않는다** — G-1 로 다른
+   *    서버에 지정한 계좌의 키를 엉뚱한 서버로 보내게 된다. ② `#accountAllowed` — 그 세션 소유 뷰 밖이면 거부 프레임 · 게이트웨이 0바이트
+   *    (IDOR). ③ 그 계좌의 켜진 상따(`isActiveLimitChaser`)마다 14 `DisableStrategiesReq(key)` — 등록은 남고 게이트만 내려간다(`DisableOne`).
+   *    **`lc.set` 스위치 off 로 끄지 않는다** — 서버가 전부 꺼진 Set 을 crud D 로 정규화해 등록을 지운다(Pitfall 1). ④ hub
+   *    `beginAccountStop` 이 65 k건을 모아 `strategies.disabled` 1건을 낸다(Pitfall 3). 로그는 계좌 마스킹 · 키 수만.
+   */
+  #disableAccount(conn: Conn, userId: string, accountNo: string): void {
+    const t = "strategies.disable.account";
+    const session = this.#strategySession(conn, userId, t, accountNo);
+    if (session === null) return;
+    if (!this.#accountAllowed(conn, session, userId, t, accountNo)) return;
+    const keys = this.#hub
+      .getLimitChasers(userId)
+      .filter((c) => c.accountNo === accountNo && isActiveLimitChaser(c))
+      .map((c) => c.key);
+    logger.info({ userId, t, accountNo: maskAccountNo(accountNo), keys: keys.length }, "[WS] 계좌 끄기 — 소유 세션으로 14 건별 (Phase 32)");
+    const stop = this.#hub.beginAccountStop(userId, session, { keys: keys.length });
+    let sendFailed = false;
+    for (const key of keys) {
+      const payload = this.#buildStrategyPayload(conn, userId, t, () => buildDisableStrategiesReq(key));
+      if (payload === null) {
+        stop.failed();
+        continue;
+      }
+      if (session.send(payload)) {
+        stop.sent();
+      } else {
+        stop.failed();
+        sendFailed = true;
+      }
+    }
+    // 송신 실패 알림은 1건 — 같은 세션이라 한 번 실패하면 뒤도 실패한다(거부 프레임 폭주 방지).
+    if (sendFailed) this.#onStrategySendFailed(conn, userId, t);
   }
 
   /**

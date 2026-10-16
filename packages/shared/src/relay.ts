@@ -807,6 +807,17 @@ export type RelayViConfirmMsg = { t: "vi.confirm"; orderNo: string; confirmed: b
 export type RelayStrategiesDisableMsg = { t: "strategies.disable"; key?: string };
 
 /**
+ * 계좌 하나 끄기 `strategies.disable.account` (Phase 32 D-09 보정 · D-21) — 그 계좌의 켜진 상따(14 `DisableStrategiesReq(key)` 건별) + 그 계좌가 등록 계좌인
+ * 거래소의 가동 VI(11 run:false). relay 가 그 계좌 **소유 세션**으로 풀어 보내고 65 · 61 에코를 모아 `strategies.disabled` 1건을 낸다.
+ * 등록은 남고 발주 게이트만 내려간다(`lc.set` 스위치 off 가 아니다 — 서버가 crud D 로 등록을 지운다 · Pitfall 1).
+ *
+ * ⚠️ **새 타입인 이유(Pitfall 2):** 구 relay 는 모르는 `t` 라 판별 실패로 4400 을 내고 **아무것도 끄지 않는다**(fail-safe).
+ *    `strategies.disable` 에 `accountNo` 를 붙이면 구 relay 의 zod 가 그 인자를 strip 해 「전부 정지」 가 된다.
+ * ⚠️ `accountNo` 는 형식만 여기서 본다 — 소유권 대조(`session.allowedAccounts`)는 relay 가 한다(IDOR).
+ */
+export type RelayStrategiesDisableAccountMsg = { t: "strategies.disable.account"; accountNo: string };
+
+/**
  * 신규 주문 (`DirectOrderReq(2)` 신규, D-02).
  *
  * ⚠️ **`market` 은 브라우저가 보내지 않는다.** relay 가 `SymbolMap` 으로 ISIN → 단축코드·
@@ -916,6 +927,7 @@ export type RelayInbound =
   | RelayViSetMsg
   | RelayViConfirmMsg
   | RelayStrategiesDisableMsg
+  | RelayStrategiesDisableAccountMsg
   | RelayOrderNewMsg
   | RelayOrderModifyMsg
   | RelayOrderCancelMsg;

@@ -4,6 +4,7 @@ import { kstDateIso, type JournalOrderRow } from '@gh-radar/shared';
 import { mockHomeApi, HOME_POPULATED } from '../fixtures/home';
 import { mockStockApi } from '../fixtures/mock-api';
 import {
+  DMA_MSG,
   E2E_ACCOUNT_NO,
   E2E_ISIN,
   E2E_LONG_NAME_ISIN,
@@ -501,6 +502,8 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     // 전략 시드는 **연결 전에** 심는다 — relay 는 로그인 직후 24/21 을 물어본다.
     relay.seedLimitChasers([...CHASERS]);
     relay.seedViTrigger(VI_CFG);
+    // 14 처리(적용 · 60 에코 · 65)는 P32-disable 만 켠다 — `reset()` 이 되돌리지 않으므로 매번 끈다(기록만 하는 종전 스텁).
+    relay.gateway.handleDisableStrategies(null);
     await mockStockApi(page);
     await mockHomeApi(page, { response: HOME_POPULATED });
     /*
@@ -600,13 +603,56 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await expect(accountEmpty).toHaveText('이 계좌에 등록된 전략 없음', { timeout: 15_000 });
     await expect(strategyRows(page)).toHaveCount(0);
     await expect(statusBar).toContainText('상따 0건');
-    // 끄기 UI 는 /me 현황에 없다(D-27).
-    await expect(strategyCard(page).getByRole('button')).toHaveCount(0);
+    // 끄기 UI 는 「이 계좌 끄기」 하나뿐(D-27) — 끌 것이 없으면 disabled.
+    await expect(strategyCard(page).getByRole('button')).toHaveCount(1);
+    await expect(strategyCard(page).getByRole('button', { name: `이 계좌 끄기 — ${ACCOUNT_B}` })).toBeDisabled();
 
     // A 로 돌아오면 다시 2행 + VI 행.
     await accountChip(page, E2E_ACCOUNT_NO).click();
     await waitForStrategies(page, 2);
     await expect(viRow).toHaveCount(1);
+  });
+
+  test('P32-disable 이 계좌 끄기 — 확인 → 게이트웨이 14 가 고른 계좌 키만 · 그 계좌 전략이 현황에서 빠지고 다른 계좌 칩의 전략은 그대로 (D-09 · D-21)', async ({
+    page,
+  }) => {
+    // 스텁이 14 를 서버처럼 처리한다 — 그 키의 상따 게이트를 내리고 60 에코 → 65.
+    relay.gateway.handleDisableStrategies({ apply: true, respond65: true });
+    const disableCount = () => relay.requestLog().filter((t) => t === DMA_MSG.DisableStrategiesReq).length;
+
+    await page.goto('/me');
+    await waitForReady(page, 2);
+    await waitForStrategies(page, 2);
+
+    const killButton = strategyCard(page).getByRole('button', { name: `이 계좌 끄기 — ${E2E_ACCOUNT_NO}` });
+    await expect(killButton).toBeEnabled();
+    await killButton.click();
+
+    const dialog = page.getByTestId('strategy-disable-account-dialog');
+    await expect(dialog).toBeVisible();
+    // 기본 포커스는 닫기 — Enter 한 번에 꺼지면 안 된다.
+    await expect(dialog.getByRole('button', { name: '닫기' })).toBeFocused();
+    await dialog.getByRole('button', { name: '이 계좌 끄기' }).click();
+
+    // 14 는 A 의 켜진 두 키만 건별로 — B 의 키 · 빈 키(전부 정지)는 없다. 스텁 시드로 무엇이 꺼졌는지 본다.
+    await expect.poll(disableCount, { timeout: 15_000 }).toBe(2);
+    await expect(strategyRows(page)).toHaveCount(0, { timeout: 15_000 });
+    const seed = relay.gateway.limitChaserSeed();
+    const seedOf = (accountNo: string) => seed.filter((c) => c.accountNo === accountNo);
+    expect(seedOf(E2E_ACCOUNT_NO)).toHaveLength(2);
+    for (const c of seedOf(E2E_ACCOUNT_NO)) {
+      expect(c.buyEnabled).toBe(false);
+      expect(c.sellEnabled).toBe(false);
+    }
+    expect(seedOf(ACCOUNT_B)[0]?.sellEnabled).toBe(true);
+    // Pitfall 1 — 스위치 off(lc.set 10)로 끄지 않는다(서버가 등록을 지운다).
+    expect(relay.requestLog()).not.toContain(DMA_MSG.SetLimitChaserReq);
+
+    // 다른 계좌(B) 칩 — 그 계좌 전략은 그대로 켜져 있다.
+    await accountChip(page, ACCOUNT_B).click();
+    await waitForStrategies(page, 1);
+    await expect(strategyRows(page).nth(0)).toContainText('한국제7호기업인수목적우선주식회사', { timeout: 15_000 });
+    expect(disableCount()).toBe(2);
   });
 
   test('P32-orders 주문 탭 = 고른 계좌 평탄 목록 — 그룹 소제목 없음 · 「주문 N」 · 「N건」 = 고른 계좌 · B 칩 → B 행만 · 다른 계좌 안내 빈 상태 (D-23 · Pitfall 10)', async ({
@@ -866,7 +912,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await expect(desktopNav(page).locator('[data-strategy-key][aria-current]')).toHaveCount(0);
   });
 
-  test('3. 전략 0 · VI 중지 — 빈 문구 · 끄기 버튼 없음', async ({ page }) => {
+  test('3. 전략 0 · VI 중지 — 빈 문구 · 「이 계좌 끄기」 disabled', async ({ page }) => {
     relay.seedLimitChasers([]);
     relay.seedViTrigger(null);
 
@@ -880,8 +926,11 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     );
     await expect(strategyRows(page)).toHaveCount(0);
     await expect(strategyCard(page).locator('[data-slot="vi-status-row"]')).toHaveCount(0);
-    // 끄기 UI 는 /me 현황에 없다(D-27 — 「이 계좌 끄기」 는 32-06).
-    await expect(strategyCard(page).getByRole('button')).toHaveCount(0);
+    // 끌 것이 없다 — 「이 계좌 끄기」 하나뿐이고 disabled(D-27 · S5′).
+    await expect(strategyCard(page).getByRole('button')).toHaveCount(1);
+    await expect(
+      strategyCard(page).getByRole('button', { name: `이 계좌 끄기 — ${E2E_ACCOUNT_NO}` }),
+    ).toBeDisabled();
   });
 
   test('5. 매핑 없음 — DMA 게이트가 본문을 대체한다 (C6 · T-16-04)', async ({ page }) => {

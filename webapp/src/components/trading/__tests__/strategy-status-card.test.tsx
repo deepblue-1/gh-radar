@@ -533,7 +533,7 @@ function expectNoKillUi(): void {
 }
 
 describe("StrategyStatusCard — P32 끄기 UI 없음 (D-27)", () => {
-  it("전 계좌(accountNo 없음) — 카드에 끄기 줄 · 버튼 · 다이얼로그 · 오류 줄이 없다", () => {
+  it("accountNo 없음(계좌 미수신 · 전 계좌) — 카드에 끄기 줄 · 버튼 · 다이얼로그 · 오류 줄이 없다", () => {
     render(<StrategyStatusCard />);
     expect(rows()).toHaveLength(3);
     expectNoKillUi();
@@ -610,10 +610,17 @@ describe("StrategyStatusCard — P32 고른 계좌 (D-21 · S5′)", () => {
     expect(summaryText()).toBe("상따 1 · VI 가동");
   });
 
-  it("(D-27) 어느 계좌에서도 끄기 줄 · 버튼 · 다이얼로그 · 오류 줄이 없다", () => {
+  it("(D-27) accountNo 있음 — 끄기 컨트롤은 「이 계좌 끄기」 하나뿐(모든 계좌를 끄는 버튼 · 링크 · 다이얼로그 없음)", () => {
     for (const no of [ACC_A, ACC_B, ACC_C]) {
       const { unmount } = render(<StrategyStatusCard accountNo={no} />);
-      expectNoKillUi();
+      const card = document.querySelector('[data-slot="strategy-status-card"]') as HTMLElement;
+      const buttons = within(card).queryAllByRole("button");
+      expect(buttons).toHaveLength(1);
+      expect(buttons[0]).toHaveAccessibleName(`이 계좌 끄기 — ${no}`);
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(card.textContent ?? "").not.toContain("전체 비활성화");
+      expect(card.textContent ?? "").not.toContain("모든 계좌");
+      expect(document.querySelectorAll('[data-slot="strategy-disable-all"]')).toHaveLength(0);
       unmount();
     }
   });
