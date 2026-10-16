@@ -606,7 +606,7 @@ export function userSettingsStatusOf(
 export interface LimitChaserDefaultsSectionProps {
   /** 고른 계좌의 서버키(D-24). 없으면(구 relay · 목록 밖 계좌) 서버키 칩 · 서버 캡션 없이 키 `""` 칸 = 종전 단일 동작. */
   serverKey?: string;
-  /** 같은 서버의 다른 계좌 번호(`accounts[]` 순) — 서버 캡션 「같은 서버의 … 계좌도 이 설정을 함께 써요.」. */
+  /** 같은 서버의 다른 계좌 번호(`accounts[]` 순) — 서버 캡션 뒤 「같은 서버 계좌」 안내 문장에 「 · 」 로 잇는다(S8′). */
   sameServerAccountNos?: readonly string[];
   /**
    * 저장 비행 · 대기열 유무가 **바뀔 때만** 부른다(언마운트 때 비행 중이었으면 false 한 번) — `/me` 가 계좌 칩 줄을
