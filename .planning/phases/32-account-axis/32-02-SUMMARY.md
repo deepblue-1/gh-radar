@@ -225,3 +225,8 @@ None — 필터 · 칩 합집합 · 라벨 모두 relay 컨텍스트 · 복원 �
 ---
 *Phase: 32-account-axis*
 *Completed: 2026-10-16*
+
+## Self-Check: PASSED
+
+- 파일 4개 존재(SUMMARY · deferred-items · today-orders-card · account-panel) · 커밋 9c51bb98 · 85bbb343 · edde1632 · 9474ff46 이 HEAD 조상
+- STATE.md · state.json · ROADMAP.md · REQUIREMENTS.md 는 이 플랜이 바꾸지 않았다(작업 트리의 변경은 다른 세션 몫) · push 없음
