@@ -7,7 +7,7 @@ import type { RelayAccount, RelayQuoteStateMsg, RelaySubLimitMsg } from '@gh-rad
  * 작업대 상단 줄 (Phase 18 Plan 11 → Phase 32 D-05 · D-06 · D-07 · UI-SPEC S1 · 목업 ① A).
  *
  * 잠그는 것:
- *   - 상단 줄 카드 한 줄: 계좌 셀렉트 → 서버키 칩 → 시세 알약 → 주문 알약 → 컬럼 세그먼트. 카드 자신이
+ *   - 상단 줄 카드 한 줄: 계좌 칩 줄 → 시세 알약 → 주문 알약 → 컬럼 세그먼트. 카드 자신이
  *     `workbench-status-bar` + `data-status` 루트다(다른 spec 의 준비 신호 · Pitfall 4).
  *   - 뺀 것(D-06): 77 예약 창 배지 · 알림음 아이콘(→ /me 「이 기기」 · `device-settings-card.test.tsx`) ·
  *     반영 시각 · 「다시 연결」 `Button`. 목록 개수·임계 문구 없음.
@@ -17,9 +17,11 @@ import type { RelayAccount, RelayQuoteStateMsg, RelaySubLimitMsg } from '@gh-rad
  *   - Phase 26 배지 2축(26-13 채택안 안 B): 시세 알약은 모르면 없고 · live 「시세」 · down 「HH:MM:SS~ 멈춤」 적색 ·
  *     구독 한도는 title · 주문 알약은 ready 면 「주문」 뿐.
  *   - 보조 줄(`WorkbenchAuxLines`)은 카드 밖 — 낡은 전략 · 옮김(29-39) 문구 · 닫기 그대로.
+ *   - 계좌 칩 줄(32-15 — 셀렉트 → 칩 · /me `MeAccountChips` 재사용): 칩 밖 서버키 칩 없음 · 폰(`phoneBand`)은
+ *     「상품명 · 서버키」(번호 없음) · 구분이 안 되는 칩만 번호 · 접근 이름은 전체 글자.
  */
 
-import { accountFullLabelOf, accountLabelOf } from '@/lib/account-label';
+import { accountChipLabelOf } from '@/lib/account-label';
 import { TRADING_COLS_KEY } from '@/lib/breakout-list';
 import {
   ACCOUNT_PILL_TITLE,
@@ -31,6 +33,12 @@ import {
 } from '../workbench/workbench-status-bar';
 
 const slot = (name: string) => document.querySelector(`[data-slot="${name}"]`);
+/** 상단 줄 계좌 칩(32-15) — 번호로 찾는다. */
+const chipOf = (no: string) =>
+  document.querySelector(`[data-slot="workbench-account"] [data-account-no="${no}"]`) as HTMLElement;
+/** 칩 안 부분(`data-part`) 글자 — 렌더된 부분만. */
+const partsOf = (no: string) =>
+  [...chipOf(no).querySelectorAll('[data-part]')].map((p) => `${p.getAttribute('data-part')}:${p.textContent}`);
 /** 눈에 보이는 글자 — `sr-only` 조각을 뺀 textContent. */
 function visibleText(el: Element): string {
   const clone = el.cloneNode(true) as Element;
@@ -77,12 +85,12 @@ describe('P32 상단 줄 A (D-05 · D-06 · S1)', () => {
     expect(bar.className.split(/\s+/)).toContain('flex-wrap');
   });
 
-  it('자식 순서 — 셀렉트 → 서버키 칩 → 시세 → 주문 → 세그먼트 (모두 카드 안)', () => {
+  it('자식 순서 — 계좌 칩 줄 → 시세 → 주문 → 세그먼트 (모두 카드 안 · 칩 밖 서버키 칩 없음 · 32-15)', () => {
     render(<WorkbenchStatusBar {...props({ accounts: TWO, accountNo: '1234-5678', quoteState: LIVE })} />);
     const bar = slot('workbench-status-bar') as HTMLElement;
+    expect(slot('workbench-account-server')).toBeNull();
     const order = [
       slot('workbench-account'),
-      slot('workbench-account-server'),
       slot('workbench-quote'),
       slot('workbench-dma'),
       slot('workbench-cols-segment'),
@@ -183,17 +191,18 @@ describe('P32 상단 줄 A (D-05 · D-06 · S1)', () => {
     expect(onReconnect).toHaveBeenCalledTimes(1);
   });
 
-  it('계좌 0 → 셀렉트 「계좌 확인 중…」 1옵션 · 비활성 · 서버키 칩 없음 · 알약 · 세그먼트는 그대로', () => {
+  it('계좌 0 → 「계좌 확인 중…」 글자 하나 · 칩 없음 · 서버키 칩 없음 · 알약 · 세그먼트는 그대로', () => {
     render(<WorkbenchStatusBar {...props({ accounts: [], accountNo: '' })} />);
-    const select = screen.getByRole('combobox', { name: '계좌' });
-    expect(select).toBeDisabled();
-    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['계좌 확인 중…']);
+    const account = slot('workbench-account') as HTMLElement;
+    expect(account.textContent).toBe('계좌 확인 중…');
+    expect(account).toHaveAttribute('aria-disabled', 'true');
+    expect(within(account).queryAllByRole('radio')).toHaveLength(0);
     expect(slot('workbench-account-server')).toBeNull();
     expect(slot('workbench-dma')).not.toBeNull();
     expect(slot('workbench-cols-segment')).not.toBeNull();
   });
 
-  it('서버키 없는 계좌 → 칩 없음 · 셀렉트를 바꾸면 onAccountChange', () => {
+  it('서버키 없는 계좌 → 칩 안 서버 부분 없음 · 다른 칩 클릭 → onAccountChange', () => {
     const onAccountChange = vi.fn();
     render(
       <WorkbenchStatusBar
@@ -201,16 +210,58 @@ describe('P32 상단 줄 A (D-05 · D-06 · S1)', () => {
       />,
     );
     expect(slot('workbench-account-server')).toBeNull();
-    fireEvent.change(screen.getByRole('combobox', { name: '계좌' }), { target: { value: '8765-4321' } });
+    expect(chipOf('5555-0001').querySelector('[data-part="server"]')).toBeNull();
+    fireEvent.click(chipOf('8765-4321'));
     expect(onAccountChange).toHaveBeenCalledWith('8765-4321');
   });
 
-  it('옵션 글자 = accountFullLabelOf (D-12 · 빈 칸 생략)', () => {
+  it('칩 글자 = 상품명 · 번호 · 서버키(빈 칸 생략) · 접근 이름 = accountChipLabelOf (D-12 · 32-15)', () => {
     const accounts: RelayAccount[] = [{ accountNo: '5555-0001', name: '' }, ...TWO, { accountNo: '9999-0000', name: '', serverKey: 'KB121' }];
     render(<WorkbenchStatusBar {...props({ accounts, accountNo: '5555-0001' })} />);
-    const texts = screen.getAllByRole('option').map((o) => o.textContent);
-    expect(texts).toEqual(accounts.map((a) => accountFullLabelOf(a)));
-    expect(texts).toEqual(['5555-0001', '1234-5678 · 김알렉스 · KB120', '8765-4321 · 교보 종합 · KYOBO119', '9999-0000 · KB121']);
+    const group = screen.getByRole('radiogroup', { name: '계좌' });
+    expect(group).toHaveAttribute('data-slot', 'workbench-account');
+    const chips = within(group).getAllByRole('radio');
+    expect(chips.map((c) => c.getAttribute('aria-label'))).toEqual(accounts.map((a) => accountChipLabelOf(a)));
+    expect(chips.map((c) => c.textContent)).toEqual(['5555-0001', '김알렉스1234-5678KB120', '교보 종합8765-4321KYOBO119', '9999-0000KB121']);
+    expect(partsOf('1234-5678')).toEqual(['name:김알렉스', 'no:1234-5678', 'server:KB120']);
+  });
+
+  it('폰(phoneBand true) — 칩 글자 「상품명 · 서버키」 · 번호 없음 · 접근 이름은 전체 글자 (32-15)', () => {
+    render(<WorkbenchStatusBar {...props({ accounts: TWO, accountNo: '1234-5678', phoneBand: true })} />);
+    expect(partsOf('1234-5678')).toEqual(['name:김알렉스', 'server:KB120']);
+    expect(partsOf('8765-4321')).toEqual(['name:교보 종합', 'server:KYOBO119']);
+    expect(chipOf('1234-5678')).toHaveAccessibleName('김알렉스 1234-5678 KB120');
+    expect(slot('workbench-account-server')).toBeNull();
+  });
+
+  it('폰 — 같은 상품명 ∧ 같은 서버키 · 상품명 빈 칩만 번호로 떨어진다 (accountShortLabelOf · 32-15)', () => {
+    const accounts: RelayAccount[] = [
+      { accountNo: '1111-0001', name: '위탁종합', serverKey: 'KB120' },
+      { accountNo: '1111-0002', name: '위탁종합', serverKey: 'KB120' },
+      { accountNo: '1111-0003', name: '위탁종합', serverKey: 'KYOBO119' },
+      { accountNo: '1111-0004', name: '', serverKey: 'KB121' },
+    ];
+    render(<WorkbenchStatusBar {...props({ accounts, accountNo: '1111-0001', phoneBand: true })} />);
+    expect(partsOf('1111-0001')).toEqual(['no:1111-0001', 'server:KB120']);
+    expect(partsOf('1111-0002')).toEqual(['no:1111-0002', 'server:KB120']);
+    // 상품명이 같아도 서버키가 다르면 구분된다 — 번호 없이.
+    expect(partsOf('1111-0003')).toEqual(['name:위탁종합', 'server:KYOBO119']);
+    expect(partsOf('1111-0004')).toEqual(['no:1111-0004', 'server:KB121']);
+    accounts.forEach((a) => expect(chipOf(a.accountNo)).toHaveAccessibleName(accountChipLabelOf(a)));
+  });
+
+  it('폭 미판정(phoneBand null) — 번호는 DOM 에 있고 `wb` < 680 CSS 폴백으로 숨는다 · 구분 안 되는 칩은 상품명이 숨는다', () => {
+    const accounts: RelayAccount[] = [
+      ...TWO,
+      { accountNo: '1111-0001', name: '위탁종합', serverKey: 'KB120' },
+      { accountNo: '1111-0002', name: '위탁종합', serverKey: 'KB120' },
+    ];
+    render(<WorkbenchStatusBar {...props({ accounts, accountNo: '1234-5678', phoneBand: null })} />);
+    const part = (no: string, name: string) => chipOf(no).querySelector(`[data-part="${name}"]`) as HTMLElement;
+    expect(part('1234-5678', 'no').className).toContain('@max-[680px]/wb:hidden');
+    expect(part('1234-5678', 'name').className).not.toContain('@max-[680px]/wb:hidden');
+    expect(part('1111-0001', 'name').className).toContain('@max-[680px]/wb:hidden');
+    expect(part('1111-0001', 'no').className).not.toContain('@max-[680px]/wb:hidden');
   });
 
   it('격자 1열 고정(phoneBand true) → 세그먼트 DOM 제외 · 미판정(null) → CSS 폴백 클래스', () => {
@@ -356,8 +407,8 @@ describe('WorkbenchStatusBar — 옛 「재접속하면 적용」 배지 없음 
   });
 });
 
-describe('AccountPill — 작업대에 보일 계좌 (Phase 32 D-01 · S1)', () => {
-  it('계좌 목록을 고르고, 셀렉트가 작업대 스코프라는 사실을 title 로 말한다(옛 「자기 계좌를 유지」 문구 없음)', () => {
+describe('AccountPill — 작업대에 보일 계좌 (Phase 32 D-01 · S1 · 32-15 칩)', () => {
+  it('계좌 칩을 고르고, 칩 줄이 작업대 스코프라는 사실을 title 로 말한다(옛 「자기 계좌를 유지」 문구 없음)', () => {
     const onChange = vi.fn();
     render(
       <AccountPill
@@ -369,25 +420,16 @@ describe('AccountPill — 작업대에 보일 계좌 (Phase 32 D-01 · S1)', () 
         onChange={onChange}
       />,
     );
-    const select = screen.getByRole('combobox', { name: '계좌' });
-    expect(select.getAttribute('title')).toBe('작업대에 보일 계좌예요 · 새로 추가하는 카드도 이 계좌로 열려요');
-    expect(select.getAttribute('title')).not.toContain('자기 계좌를 유지');
-    fireEvent.change(select, { target: { value: '1234567802' } });
+    const group = screen.getByRole('radiogroup', { name: '계좌' });
+    expect(group.getAttribute('title')).toBe('작업대에 보일 계좌예요 · 새로 추가하는 카드도 이 계좌로 열려요');
+    expect(group.getAttribute('title')).not.toContain('자기 계좌를 유지');
+    expect(chipOf('1234567801')).toHaveAttribute('aria-checked', 'true');
+    expect(chipOf('1234567801')).toHaveAttribute('data-slot', 'workbench-account-chip');
+    fireEvent.click(chipOf('1234567802'));
     expect(onChange).toHaveBeenCalledWith('1234567802');
   });
-  it('P1: 서버키 없는 계좌의 옵션 글자 = accountLabelOf = accountFullLabelOf — 수동주문 「주문계좌」 행과 같은 문자열 (quick-261007-h76 · D-12)', () => {
-    const accounts = [
-      { accountNo: '1234567801', name: '위탁종합' },
-      { accountNo: '1234567802', name: 'ISA' },
-    ];
-    render(<AccountPill accounts={accounts} accountNo="1234567801" onChange={vi.fn()} />);
-    const texts = screen.getAllByRole('option').map((o) => o.textContent);
-    expect(texts).toEqual(['1234567801 · 위탁종합', '1234567802 · ISA']);
-    expect(texts).toEqual(accounts.map((a) => accountLabelOf(a.accountNo, a.name)));
-    expect(texts).toEqual(accounts.map((a) => accountFullLabelOf(a)));
-  });
 
-  it('P2: 이름이 빈 계좌는 번호만 — 「번호 · 」 꼬리 없음', () => {
+  it('P2: 이름이 빈 계좌는 번호만 — 접근 이름도 번호만', () => {
     render(
       <AccountPill
         accounts={[{ accountNo: '1234567801', name: '' }]}
@@ -395,7 +437,8 @@ describe('AccountPill — 작업대에 보일 계좌 (Phase 32 D-01 · S1)', () 
         onChange={vi.fn()}
       />,
     );
-    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['1234567801']);
+    expect(partsOf('1234567801')).toEqual(['no:1234567801']);
+    expect(chipOf('1234567801')).toHaveAccessibleName('1234567801');
   });
 });
 
@@ -416,7 +459,7 @@ const G1_ACCOUNTS: RelayAccount[] = [
 ];
 
 /**
- * 작업대와 같은 배선(Phase 32 목업 ① A) — 상단 줄 카드 안 셀렉트가 고른 계좌를 카드 밖 보조 줄
+ * 작업대와 같은 배선(Phase 32 목업 ① A) — 상단 줄 카드 안 계좌 칩이 고른 계좌를 카드 밖 보조 줄
  * `WorkbenchAuxLines account` 로 넘긴다.
  */
 function G1Harness({ accounts = G1_ACCOUNTS }: { accounts?: RelayAccount[] }) {
@@ -429,36 +472,34 @@ function G1Harness({ accounts = G1_ACCOUNTS }: { accounts?: RelayAccount[] }) {
   );
 }
 
-const pickAccount = (no: string) =>
-  fireEvent.change(screen.getByRole('combobox', { name: '계좌' }), { target: { value: no } });
+const pickAccount = (no: string) => fireEvent.click(chipOf(no));
 const all = (name: string) => [...document.querySelectorAll(`[data-slot="${name}"]`)];
+/** 고른 칩의 서버 부분 — 칩 밖 서버키 칩(29-30 채택 A)을 대신한다(32-15). */
+const pickedServer = () =>
+  document.querySelector('[data-slot="workbench-account"] [aria-checked="true"] [data-part="server"]')?.textContent ?? null;
 
-describe('AccountPill — 계좌별 주문 서버 (29-39 · 채택 A)', () => {
-  it('옵션 글자 = accountFullLabelOf(번호 · 이름 · 서버키) · 고른 계좌의 서버 키 칩 1개(title 「이 계좌의 주문 서버」)', () => {
+describe('AccountPill — 계좌별 주문 서버 (29-39 · 32-15 칩 안 서버키)', () => {
+  it('칩마다 그 계좌 서버키가 칩 안에 · 칩 밖 서버키 칩은 없다', () => {
     render(<G1Harness />);
-    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
-      '1 · 홍길동 · KB120',
-      '2 · 단기 · KB121',
-    ]);
-    const chips = all('workbench-account-server');
-    expect(chips).toHaveLength(1);
-    expect(chips[0]!.textContent).toBe('KB120');
-    expect(chips[0]).toHaveAttribute('title', '이 계좌의 주문 서버');
-    // 목업 A `.srvkey` — mono 10px bold · h18 · r5 · --muted 바탕 · --fg-2 글자.
-    for (const cls of ['mono', 'text-[10px]', 'font-bold', 'h-[18px]', 'rounded-[5px]', 'bg-[var(--muted)]', 'text-[var(--fg-2)]']) {
-      expect(chips[0]!.className).toContain(cls);
+    expect(partsOf('1')).toEqual(['name:홍길동', 'no:1', 'server:KB120']);
+    expect(partsOf('2')).toEqual(['name:단기', 'no:2', 'server:KB121']);
+    expect(all('workbench-account-server')).toHaveLength(0);
+    expect(pickedServer()).toBe('KB120');
+    // 목업 A `.srvkey` 모양 그대로(칩 안) — mono 10px bold · h18 · r5.
+    const server = chipOf('1').querySelector('[data-part="server"]') as HTMLElement;
+    for (const cls of ['mono', 'text-[10px]', 'font-bold', 'h-[18px]', 'rounded-[5px]']) {
+      expect(server.className).toContain(cls);
     }
-    // 칩은 필 바로 옆이다.
-    expect(chips[0]!.previousElementSibling).toBe(screen.getByRole('combobox', { name: '계좌' }));
   });
 
-  it('계좌 2 를 고르면 칩이 「KB121」 로 바뀐다', () => {
+  it('계좌 2 를 고르면 고른 칩의 서버키가 「KB121」', () => {
     render(<G1Harness />);
     pickAccount('2');
-    expect(all('workbench-account-server').map((c) => c.textContent)).toEqual(['KB121']);
+    expect(chipOf('2')).toHaveAttribute('aria-checked', 'true');
+    expect(pickedServer()).toBe('KB121');
   });
 
-  it('serverKey 없는 계좌는 옵션 꼬리표 · 칩 없음 — 필 기존 동작(title · 비마스킹) 그대로', () => {
+  it('serverKey 없는 계좌는 칩 안 서버 부분 없음 — 필 기존 동작(title · 비마스킹) 그대로', () => {
     render(
       <G1Harness
         accounts={[
@@ -467,14 +508,11 @@ describe('AccountPill — 계좌별 주문 서버 (29-39 · 채택 A)', () => {
         ]}
       />,
     );
-    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
-      '1234567801 · 위탁종합',
-      '1234567802 · ISA · KB121',
-    ]);
-    expect(all('workbench-account-server')).toHaveLength(0);
-    expect(screen.getByRole('combobox', { name: '계좌' }).getAttribute('title')).toBe(ACCOUNT_PILL_TITLE);
+    expect(partsOf('1234567801')).toEqual(['name:위탁종합', 'no:1234567801']);
+    expect(pickedServer()).toBeNull();
+    expect(screen.getByRole('radiogroup', { name: '계좌' }).getAttribute('title')).toBe(ACCOUNT_PILL_TITLE);
     pickAccount('1234567802');
-    expect(all('workbench-account-server').map((c) => c.textContent)).toEqual(['KB121']);
+    expect(pickedServer()).toBe('KB121');
   });
 });
 

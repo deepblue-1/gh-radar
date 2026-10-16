@@ -188,6 +188,14 @@ import { renderOrderOf } from '../workbench/card-grid';
 
 const ACCOUNT = '37728502101';
 const slot = (name: string) => document.querySelector(`[data-slot="${name}"]`) as HTMLElement | null;
+/** 상단 줄 계좌 칩 줄(32-15 — 셀렉트 → 칩) — 고른 칩의 번호(없으면 '') · 칩 클릭으로 고르기. */
+const pickedAccount = () =>
+  document.querySelector('[data-slot="workbench-account"] [role="radio"][aria-checked="true"]')?.getAttribute('data-account-no') ?? '';
+const clickAccount = (no: string) => {
+  const chip = document.querySelector(`[data-slot="workbench-account"] [role="radio"][data-account-no="${no}"]`);
+  if (chip === null) throw new Error(`계좌 칩 없음: ${no}`);
+  fireEvent.click(chip);
+};
 const cardsInDom = () =>
   Array.from(document.querySelectorAll('[data-slot="strategy-card"]')) as HTMLElement[];
 /** 그 ISIN 의 첫 카드 헤더 토글(`aria-expanded` 를 가진 버튼) — DOM id 는 카드 id 축이다. */
@@ -334,8 +342,8 @@ describe('TradingWorkbench — 조립 (D-04 · 레이아웃 계약)', () => {
       expect(rel & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
     expect(screen.getByRole('heading', { name: '트레이딩' })).toBe(slot('workbench-title'));
-    // Phase 32 D-05 — 계좌 셀렉트는 제목 옆이 아니라 상단 줄 카드 맨 앞이다.
-    expect(within(slot('workbench-status-bar')!).getByRole('combobox', { name: '계좌' })).toBeTruthy();
+    // Phase 32 D-05 — 계좌 칩 줄(32-15)은 제목 옆이 아니라 상단 줄 카드 맨 앞이다.
+    expect(within(slot('workbench-status-bar')!).getByRole('radiogroup', { name: '계좌' })).toBeTruthy();
   });
 
   it('머리 — h1 자기 줄 → 상단 줄 카드 → (보조 줄) 세로 묶음(workbench-head flex-col) · 카드는 flex-wrap (Phase 32 D-05 · 목업 ① A)', () => {
@@ -1929,9 +1937,8 @@ describe('TradingWorkbench — R3-WR-02 — 잠금은 RelayProvider 가 들고 �
 
     fireEvent.click(toggleOf(SAMSUNG));
     fireEvent.click(toggleOf(SAMSUNG));
-    const pill = screen.getByRole('combobox', { name: '계좌' });
-    fireEvent.change(pill, { target: { value: OTHER_ACCOUNT } });
-    fireEvent.change(pill, { target: { value: ACCOUNT } });
+    clickAccount(OTHER_ACCOUNT);
+    clickAccount(ACCOUNT);
 
     fireEvent.click(closeBtn('삼성전자'));
     expect(dialogEl().getAttribute('data-reason')).toBe('unknown');
@@ -2285,7 +2292,6 @@ describe('TradingWorkbench — 계좌칸 기억 — 다른 페이지 다녀와�
   const A = ACCOUNT;
   const B = '99999999901';
   const KEY = 'gh-radar:trading-account:u1';
-  const pill = () => slot('workbench-account') as HTMLSelectElement;
   const accA = { accountNo: A, name: '위탁종합' };
   const accB = { accountNo: B, name: '교보위탁' };
   const storedAccount = () => {
@@ -2296,13 +2302,13 @@ describe('TradingWorkbench — 계좌칸 기억 — 다른 페이지 다녀와�
   it('W1 사용자 증상 「다른 페이지 다녀오면 다른 계좌로 바뀜」 — 고른 계좌가 재마운트 뒤에도 그대로 · 새 카드도 그 계좌', () => {
     mockRelay = relay({ accounts: [accA, accB], rateCrossItems: [rc()] });
     const first = render(<TradingWorkbench />);
-    expect(pill().value).toBe(A);
-    fireEvent.change(pill(), { target: { value: B } });
-    expect(pill().value).toBe(B);
+    expect(pickedAccount()).toBe(A);
+    clickAccount(B);
+    expect(pickedAccount()).toBe(B);
     first.unmount(); // 다른 페이지
 
     render(<TradingWorkbench />);
-    expect(pill().value).toBe(B);
+    expect(pickedAccount()).toBe(B);
     fireEvent.click(slot('breakout-chip')!);
     expect(cardsInDom()[0].getAttribute('data-key')).toContain(`:${B}:`);
   });
@@ -2310,15 +2316,15 @@ describe('TradingWorkbench — 계좌칸 기억 — 다른 페이지 다녀와�
   it('W2 「KB 먼저 도착」 회귀 — 저장 계좌가 나중 프레임에 와도 계좌칸이 저장 계좌로 바뀐다 · 자동 선택은 저장값을 덮지 않는다', () => {
     mockRelay = relay({ accounts: [accA, accB] });
     const first = render(<TradingWorkbench />);
-    fireEvent.change(pill(), { target: { value: B } });
+    clickAccount(B);
     first.unmount();
 
     mockRelay = relay({ accounts: [accA] }); // KB 세션 계좌만 먼저
     const second = render(<TradingWorkbench />);
-    expect(pill().value).toBe(A); // 임시
+    expect(pickedAccount()).toBe(A); // 임시
     mockRelay = relay({ accounts: [accA, accB] }); // 저장 계좌(교보) 도착
     second.rerender(<TradingWorkbench />);
-    expect(pill().value).toBe(B);
+    expect(pickedAccount()).toBe(B);
     expect(storedAccount()).toBe(B);
   });
 
@@ -2326,7 +2332,7 @@ describe('TradingWorkbench — 계좌칸 기억 — 다른 페이지 다녀와�
     window.localStorage.setItem(KEY, JSON.stringify({ v: 1, accountNo: 'ZZZ' }));
     mockRelay = relay({ accounts: [accA, accB] });
     render(<TradingWorkbench />);
-    expect(pill().value).toBe(A);
+    expect(pickedAccount()).toBe(A);
   });
 
   it('W4 이번 마운트에서 직접 고른 계좌는 나중에 도착한 저장 계좌가 덮지 않는다', () => {
@@ -2335,33 +2341,33 @@ describe('TradingWorkbench — 계좌칸 기억 — 다른 페이지 다녀와�
     const accC = { accountNo: '11111111101', name: '기타' };
     mockRelay = relay({ accounts: [accC, accA] });
     const view = render(<TradingWorkbench />);
-    expect(pill().value).toBe(accC.accountNo);
-    fireEvent.change(pill(), { target: { value: A } });
-    expect(pill().value).toBe(A);
+    expect(pickedAccount()).toBe(accC.accountNo);
+    clickAccount(A);
+    expect(pickedAccount()).toBe(A);
     mockRelay = relay({ accounts: [accC, accA, accB] });
     view.rerender(<TradingWorkbench />);
-    expect(pill().value).toBe(A);
+    expect(pickedAccount()).toBe(A);
     expect(storedAccount()).toBe(A);
   });
 
   it('W5 고르지 않고 자동 선택만 일어나면 저장 키가 생기지 않는다', () => {
     mockRelay = relay({ accounts: [accA, accB] });
     render(<TradingWorkbench />);
-    expect(pill().value).toBe(A);
+    expect(pickedAccount()).toBe(A);
     expect(window.localStorage.getItem(KEY)).toBeNull();
   });
 
   it('W6 다른 사용자로 들어오면 앞 사용자의 계좌칸 기억을 받지 않는다', () => {
     mockRelay = relay({ accounts: [accA, accB] });
     const first = render(<TradingWorkbench />);
-    fireEvent.change(pill(), { target: { value: B } });
+    clickAccount(B);
     first.unmount();
 
     const prevUser = authState.user;
     authState.user = { id: 'other-user' };
     try {
       render(<TradingWorkbench />);
-      expect(pill().value).toBe(A);
+      expect(pickedAccount()).toBe(A);
     } finally {
       authState.user = prevUser;
     }
@@ -2908,7 +2914,6 @@ describe('P32 VI 슬롯 표면 (D-18) — 사이드바 VI 줄 → 작업대 계�
   const accA = { accountNo: A, name: '위탁종합' };
   const accB = { accountNo: B, name: '교보위탁' };
   const KEY = 'gh-radar:trading-account:u1';
-  const pill = () => slot('workbench-account') as HTMLSelectElement;
   const storedAccount = () => {
     const raw = window.localStorage.getItem(KEY);
     return raw === null ? null : (JSON.parse(raw) as { accountNo: string }).accountNo;
@@ -2919,7 +2924,7 @@ describe('P32 VI 슬롯 표면 (D-18) — 사이드바 VI 줄 → 작업대 계�
     searchParams = new URLSearchParams(`account=${B}`);
     mockRelay = relay({ accounts: [accA, accB] });
     render(<TradingWorkbench />);
-    expect(pill().value).toBe(B);
+    expect(pickedAccount()).toBe(B);
     expect(storedAccount()).toBe(B);
   });
 
@@ -2927,29 +2932,29 @@ describe('P32 VI 슬롯 표면 (D-18) — 사이드바 VI 줄 → 작업대 계�
     searchParams = new URLSearchParams(`account=${B}`);
     mockRelay = relay({ accounts: [accA] });
     const view = render(<TradingWorkbench />);
-    expect(pill().value).toBe(A);
+    expect(pickedAccount()).toBe(A);
 
     mockRelay = relay({ accounts: [accA, accB] });
     view.rerender(<TradingWorkbench />);
-    expect(pill().value).toBe(B);
+    expect(pickedAccount()).toBe(B);
 
-    fireEvent.change(pill(), { target: { value: A } });
+    clickAccount(A);
     mockRelay = relay({ accounts: [accA, accB] });
     view.rerender(<TradingWorkbench />);
-    expect(pill().value).toBe(A);
+    expect(pickedAccount()).toBe(A);
     expect(storedAccount()).toBe(A);
   });
 
   it('requestTradingAccount(B) — 이미 작업대일 때도 계좌 전환 · 저장 · 목록 밖 계좌 요청은 무시', () => {
     mockRelay = relay({ accounts: [accA, accB] });
     render(<TradingWorkbench />);
-    expect(pill().value).toBe(A);
+    expect(pickedAccount()).toBe(A);
 
     act(() => requestTradingAccount('11111111101'));
-    expect(pill().value).toBe(A);
+    expect(pickedAccount()).toBe(A);
 
     act(() => requestTradingAccount(B));
-    expect(pill().value).toBe(B);
+    expect(pickedAccount()).toBe(B);
     expect(storedAccount()).toBe(B);
   });
 });
@@ -2961,7 +2966,6 @@ describe('P32 계좌 전환 경로 · 종목 단위 스코프 (Pitfall 5 · 6)',
   const accB = { accountNo: B, name: '교보위탁' };
   const SAMSUNG = 'KR7005930003';
   const KEY = 'gh-radar:trading-account:u1';
-  const pill = () => slot('workbench-account') as HTMLSelectElement;
   const storedAccount = () => {
     const raw = window.localStorage.getItem(KEY);
     return raw === null ? null : (JSON.parse(raw) as { accountNo: string }).accountNo;
@@ -3013,7 +3017,7 @@ describe('P32 계좌 전환 경로 · 종목 단위 스코프 (Pitfall 5 · 6)',
       limitChasers: [lc('KR7086520004'), lc(SAMSUNG, { accountNo: B })],
     });
     render(<TradingWorkbench />);
-    expect(pill().value).toBe(B);
+    expect(pickedAccount()).toBe(B);
     expect(storedAccount()).toBe(B);
     expect(byKey()[keyB]).toBe('true');
     expect(parkedKeys()).toEqual([`KR7086520004:${A}:KRX`]);
@@ -3026,11 +3030,11 @@ describe('P32 계좌 전환 경로 · 종목 단위 스코프 (Pitfall 5 · 6)',
       limitChasers: [lc('KR7086520004'), lc(SAMSUNG, { accountNo: B })],
     });
     render(<TradingWorkbench />);
-    expect(pill().value).toBe(A);
+    expect(pickedAccount()).toBe(A);
     expect(parkedKeys()).toEqual([keyB]);
 
     act(() => requestTradingFocus(keyB));
-    expect(pill().value).toBe(B);
+    expect(pickedAccount()).toBe(B);
     expect(storedAccount()).toBe(B);
     expect(byKey()[keyB]).toBe('true');
     expect(parkedKeys()).toEqual([`KR7086520004:${A}:KRX`]);
@@ -3039,7 +3043,7 @@ describe('P32 계좌 전환 경로 · 종목 단위 스코프 (Pitfall 5 · 6)',
   it('종목 추가 — 같은 종목 카드가 다른 계좌에만 있으면 그 숨은 카드를 펼치지 않고 고른 계좌로 새 카드', () => {
     mockRelay = relay({ accounts: [accA, accB], limitChasers: [lc(SAMSUNG, { accountNo: B })] });
     render(<TradingWorkbench />);
-    expect(pill().value).toBe(A);
+    expect(pickedAccount()).toBe(A);
     fireEvent.click(screen.getByRole('button', { name: '추가' }));
     expect(byKey()).toEqual({ [`${SAMSUNG}:${B}:KRX`]: 'false', [`${SAMSUNG}:${A}:KRX`]: 'true' });
     expect(parkedKeys()).toEqual([`${SAMSUNG}:${B}:KRX`]);
@@ -3049,7 +3053,7 @@ describe('P32 계좌 전환 경로 · 종목 단위 스코프 (Pitfall 5 · 6)',
     mockRelay = relay({ accounts: [accA, accB], limitChasers: [lc(SAMSUNG, { accountNo: B })] });
     render(<TradingWorkbench />);
     // A: 삼성 카드는 B 에만 → 「추가」 = 새 카드. B 로 바꾸면 같은 버튼이 기존 카드 포커스(새 카드 없음).
-    fireEvent.change(pill(), { target: { value: B } });
+    clickAccount(B);
     fireEvent.click(screen.getByRole('button', { name: '추가' }));
     expect(Object.keys(byKey())).toEqual([`${SAMSUNG}:${B}:KRX`]);
     expect(byKey()[`${SAMSUNG}:${B}:KRX`]).toBe('true');
@@ -3059,7 +3063,7 @@ describe('P32 계좌 전환 경로 · 종목 단위 스코프 (Pitfall 5 · 6)',
     const ALTEO = 'KR7196170005';
     mockRelay = relay({ accounts: [accA, accB] });
     const view = render(<TradingWorkbench />);
-    expect(pill().value).toBe(A);
+    expect(pickedAccount()).toBe(A);
     mockRelay = relay({
       accounts: [accA, accB],
       viNotices: [
@@ -3083,7 +3087,7 @@ describe('P32 계좌 전환 경로 · 종목 단위 스코프 (Pitfall 5 · 6)',
     view.rerender(<TradingWorkbench />);
     const toast = document.querySelector('[data-slot="alert-toast"]') as HTMLElement;
     fireEvent.click(toast);
-    expect(pill().value).toBe(B);
+    expect(pickedAccount()).toBe(B);
     expect(storedAccount()).toBe(B);
     expect(byKey()[`${ALTEO}:${B}:KRX`]).toBe('true');
     expect(parkedKeys()).toEqual([]);

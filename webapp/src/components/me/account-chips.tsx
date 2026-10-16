@@ -18,22 +18,41 @@
  *
  * ④ 글자는 자르지 않는다(S13 long-text) — 칩은 `whitespace-nowrap` 이고 줄이 가로 스크롤된다(스크롤바 숨김).
  *   선택 칩이 줄 밖이면 마운트 때 `scrollIntoView({ inline: "nearest" })` 로 보이게 한다.
+ *
+ * ⑤ 작업대 상단 줄도 이 칩을 쓴다(32-15 · 사용자 2026-10-16 「계좌선택을 콤보로 하지 말고 칩으로」).
+ *   그룹 이름 · `title` · 슬롯만 쓰는 곳이 정한다. `compact` 면 칩 글자가 「상품명 · 서버키」 로 줄고 번호를 뺀다 —
+ *   단 상품명이 비었거나 같은 상품명 ∧ 같은 서버키 계좌가 또 있으면 상품명 대신 번호를 쓴다(`accountShortLabelOf` ·
+ *   사이드바 소제목과 같은 규칙). 접근 이름은 줄여도 전체 글자(`accountChipLabelOf`) 그대로다.
+ *   `compact === null` = 쓰는 곳이 폭을 아직 모른다 → 작업대 `wb` 컨테이너 680 미만이면 CSS 가 줄인다(첫 페인트 폴백 ·
+ *   상단 줄 세그먼트의 `hidden @min-[680px]/wb:inline-flex` 와 같은 경계).
  */
 
 import { useEffect, useRef, type KeyboardEvent } from "react";
 
-import { accountChipLabelOf } from "@/lib/account-label";
-import type { MeAccountChoice } from "@/lib/trading-layout";
+import { accountChipLabelOf, accountShortLabelOf, type AccountLabelInput } from "@/lib/account-label";
 import { cn } from "@/lib/utils";
 
+/** 「줄인 칩」 에서 빠질 부분 — `compact` true 면 렌더하지 않고, null 이면 `wb` < 680 에서 CSS 로 숨긴다(⑤). */
+const COMPACT_FALLBACK_HIDDEN = "@max-[680px]/wb:hidden";
+
 export interface MeAccountChipsProps {
-  choices: readonly MeAccountChoice[];
+  /** `/me` 는 `MeAccountChoice` · 작업대는 `RelayAccount` 를 그대로 넘긴다(둘 다 이 모양을 만족한다). */
+  choices: readonly AccountLabelInput[];
   /** 고른 계좌. 목록에 없으면 선택 칩이 없고 첫 칩이 탭 정지점이다. */
   accountNo: string;
   onChange: (accountNo: string) => void;
   /** 저장 비행 중 잠금(32-09) — `aria-disabled` · 흐림 · `title`. */
   locked?: boolean;
   lockedTitle?: string;
+  /** radiogroup 접근 이름(기본 「My page 계좌」). */
+  label?: string;
+  /** 잠금이 아닐 때 그룹 `title`(작업대 — 스코프 설명). */
+  title?: string;
+  /** 그룹 · 칩 `data-slot`(기본 `me-account-chips` · `me-account-chip`). */
+  slot?: string;
+  chipSlot?: string;
+  /** 줄인 칩(⑤) — true 「상품명 · 서버키」 · false 전체 · null 작업대 `wb` 폭 CSS 폴백. */
+  compact?: boolean | null;
 }
 
 export function MeAccountChips({
@@ -42,6 +61,11 @@ export function MeAccountChips({
   onChange,
   locked = false,
   lockedTitle,
+  label = "My page 계좌",
+  title,
+  slot = "me-account-chips",
+  chipSlot = "me-account-chip",
+  compact = false,
 }: MeAccountChipsProps) {
   const rowRef = useRef<HTMLDivElement>(null);
   /** 첫 선택 칩을 한 번 보이게 했는가 — 전환 때는 사용자가 이미 그 칩을 보고 있으니 다시 굴리지 않는다. */
@@ -84,10 +108,10 @@ export function MeAccountChips({
     <div
       ref={rowRef}
       role="radiogroup"
-      aria-label="My page 계좌"
+      aria-label={label}
       aria-disabled={locked ? "true" : undefined}
-      title={locked ? lockedTitle : undefined}
-      data-slot="me-account-chips"
+      title={locked ? lockedTitle : title}
+      data-slot={slot}
       onKeyDown={onKeyDown}
       className={cn(
         "flex min-w-0 flex-nowrap gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
@@ -96,6 +120,11 @@ export function MeAccountChips({
     >
       {choices.map((c) => {
         const on = c.accountNo === accountNo;
+        const name = c.name ?? "";
+        // 줄인 칩(⑤)에서 상품명 · 번호 중 하나만 남긴다 — 구분이 안 되면 번호(사이드바 소제목 규칙).
+        const byNumber = compact !== false && accountShortLabelOf(c, choices).isNumber;
+        const dropName = byNumber ? compact : false;
+        const dropNo = compact !== false && !byNumber ? compact : false;
         return (
           <button
             key={c.accountNo}
@@ -103,7 +132,7 @@ export function MeAccountChips({
             role="radio"
             aria-checked={on}
             aria-label={accountChipLabelOf(c)}
-            data-slot="me-account-chip"
+            data-slot={chipSlot}
             data-account-no={c.accountNo}
             tabIndex={c.accountNo === tabStop ? 0 : -1}
             onClick={() => pick(c.accountNo)}
@@ -114,20 +143,26 @@ export function MeAccountChips({
                 : "bg-[var(--muted)] text-[var(--muted-fg)]",
             )}
           >
-            {c.name !== "" && (
-              <span data-part="name" className="text-[12.5px] font-semibold">
-                {c.name}
+            {name !== "" && dropName !== true && (
+              <span
+                data-part="name"
+                className={cn("text-[12.5px] font-semibold", dropName === null && COMPACT_FALLBACK_HIDDEN)}
+              >
+                {name}
               </span>
             )}
-            <span
-              data-part="no"
-              className={cn(
-                "mono text-[11px] font-normal",
-                on ? "text-[var(--seg-on-fg)] opacity-80" : "text-[var(--muted-fg)]",
-              )}
-            >
-              {c.accountNo}
-            </span>
+            {dropNo !== true && (
+              <span
+                data-part="no"
+                className={cn(
+                  "mono text-[11px] font-normal",
+                  on ? "text-[var(--seg-on-fg)] opacity-80" : "text-[var(--muted-fg)]",
+                  dropNo === null && COMPACT_FALLBACK_HIDDEN,
+                )}
+              >
+                {c.accountNo}
+              </span>
+            )}
             {c.serverKey !== undefined && c.serverKey !== "" && (
               <span
                 data-part="server"

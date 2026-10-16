@@ -998,7 +998,7 @@ export function ManualOrderForm({
       {/*
         5b 주문계좌 — 표시 전용 44px 행(quick-261007-h76 · 사용자 결정 B · 목업 261007-h76-mockup.html).
         주문 버튼 바로 위라 누르기 직전에 눈에 들어온다. 계좌를 바꾸는 select · 버튼은 없다(잘못 만든
-        카드는 닫고 새로 만든다). 글자 = accountLabelOf — 계좌칸(AccountPill) 옵션과 같은 문자열.
+        카드는 닫고 새로 만든다). 글자 = accountLabelOf(「번호 · 이름」).
         - 번호는 `flex-none` 이라 절대 줄지 않고, 좁으면 이름 쪽만 줄어든다(결정 B 「truncate 대신 이름 쪽만」).
         - 이름 span 은 flex 항목이라 맨 앞 공백(「 · 」의 앞)이 줄 시작 공백으로 사라진다 → `whitespace-pre`
           로 지킨다. `truncate` 유틸은 `white-space: nowrap` 을 함께 넣어 충돌하므로 개별 유틸

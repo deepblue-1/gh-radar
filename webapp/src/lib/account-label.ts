@@ -2,7 +2,7 @@
  * 계좌 표시 글자.
  *
  * D-12 계좌 라벨 한 벌(Phase 32) — 소비처:
- *   ① 작업대 상단 줄 셀렉트 옵션(`accountFullLabelOf`)
+ *   ① 작업대 상단 줄 계좌 칩(32-15 — /me 칩과 같은 부품 · 폰은 `accountShortLabelOf` 로 번호를 뺀다)
  *   ② /me 계좌 칩(`accountChipLabelOf` · 칩 안은 상품명 · 번호 · 서버키 부분별 렌더)
  *   ③ 토스트 계좌 줄(`accountFullLabelOf`)
  *   ④ 사이드바 계좌 소제목(`accountShortLabelOf` · `title` 은 전체)
@@ -25,8 +25,8 @@ function filled(parts: readonly (string | undefined)[]): string[] {
 /**
  * 「번호 · 이름」 (quick-261007-h76).
  *
- * - 트레이딩 제목 옆 계좌칸(AccountPill) 옵션과 수동주문 폼 「주문계좌」 행이 **같은 글자**를 쓰게 하는
- *   단일 규칙이다. 사용자가 두 곳을 글자 그대로 대조한다(계좌칸에서 고른 계좌 = 주문 나갈 계좌인지).
+ * - 수동주문 폼 「주문계좌」 행의 글자다(원래 계좌칸 셀렉트 옵션과 같은 글자였다 — 계좌칸은 Phase 32 D-12 에서
+ *   「번호 · 상품명 · 서버키」, 32-15 에서 칩으로 바뀌었고 이 행은 그대로 「번호 · 이름」).
  * - 이름이 비어 있으면 번호만 쓴다(「번호 · 」 꼬리 없음).
  * - 마스킹하지 않는다(UI-SPEC D2 — 본인 계좌 대조가 목적).
  */
@@ -51,7 +51,7 @@ export function accountChipLabelOf(a: AccountLabelInput): string {
 }
 
 /**
- * 짧은 라벨(사이드바 계좌 소제목 — 32-05). 상품명이 비었거나, `siblings` 중 **다른 계좌**가 같은 상품명 ∧
+ * 짧은 라벨(사이드바 계좌 소제목 — 32-05 · 작업대 상단 줄 폰 칩 — 32-15). 상품명이 비었거나, `siblings` 중 **다른 계좌**가 같은 상품명 ∧
  * 같은 서버키면 상품명만으로는 구분이 안 되므로 번호를 쓴다(`isNumber: true` — 쓰는 곳이 mono 로 그린다).
  */
 export function accountShortLabelOf(

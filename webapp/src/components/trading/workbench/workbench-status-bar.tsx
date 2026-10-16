@@ -5,9 +5,9 @@
  * `.planning/phases/32-account-axis/reference/mockup-account-axis.html` ① A 「한 줄 필」).
  *
  * ① 배치 — 「트레이딩」 h1 자기 줄 → **이 카드 한 줄** → 보조 줄(`WorkbenchAuxLines` · 있을 때만)
- *   카드 안 왼쪽부터 계좌 셀렉트 → 서버키 칩 → 시세 알약 → 주문 알약 → (`ml-auto`) 컬럼 세그먼트. 카드는
+ *   카드 안 왼쪽부터 계좌 칩 줄 → 시세 알약 → 주문 알약 → (`ml-auto`) 컬럼 세그먼트. 카드는
  *   `flex-wrap` 이라 한 줄을 넘으면 뒤 항목부터 다음 줄로 내려가고, 세그먼트는 내려가도 오른쪽 끝에 선다.
- *   글자를 줄이거나 말줄임하지 않는다(셀렉트 내부 글자만 네이티브 `<select>` 가 자른다). 이 카드 자신이
+ *   글자를 줄이거나 말줄임하지 않는다(칩 줄이 넘치면 그 줄 안에서 가로 스크롤 · 32-15). 이 카드 자신이
  *   `workbench-status-bar` 슬롯 + `data-status` 루트다 — 다른 spec 5개의 준비 신호다(Pitfall 4).
  *
  * ② 뺀 것 (D-06) — 「정규」 · 예약 창 배지 · 알림음 아이콘(→ /me 설정 「이 기기」 카드 · D-15) · 반영 시각 ·
@@ -21,9 +21,9 @@
  *   받친다. 목업 폰 390 의 「아래 줄 세그먼트」 는 이 이유로 그리지 않는다 — D-05 의 「아래 줄」 은 680 이상에서
  *   넘칠 때의 `flex-wrap` 줄바꿈이다(RESEARCH Pitfall 7).
  *
- * ④ 계좌 셀렉트 (`AccountPill` · D-25 로 작업대 파일 안 그대로)
- *   옵션 글자 = `accountFullLabelOf`(D-12 「번호 · 상품명 · 서버키」 · 빈 칸 생략). 고른 계좌에 `serverKey` 가
- *   있으면 셀렉트 바로 오른쪽에 서버키 칩 1개(29-30 채택 A). 계좌 선택의 **뜻**은 작업대 스코프다(32-04 D-01 — 고른
+ * ④ 계좌 칩 줄 (`AccountPill` → `MeAccountChips` · 32-15 에서 네이티브 셀렉트 → 칩)
+ *   칩 글자 = 상품명 · 번호 · 서버키(/me 칩과 같다) · 폰(`phoneBand`)은 「상품명 · 서버키」. 서버키가 칩 안에 있어
+ *   옛 칩 밖 서버키 칩(29-30 채택 A)은 없다. 계좌 선택의 **뜻**은 작업대 스코프다(32-04 D-01 — 고른
  *   계좌의 카드 · VI 스트립만 보이고 새 카드도 이 계좌로 열린다 · `ACCOUNT_PILL_TITLE`).
  *
  * ⑤ 오류 채널 (S1 error)
@@ -60,7 +60,7 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import type { RelayAccount, RelayQuoteStateMsg, RelaySubLimitMsg } from "@gh-radar/shared";
 
-import { accountFullLabelOf } from "@/lib/account-label";
+import { MeAccountChips } from "@/components/me/account-chips";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { writeColsPref, type TradingCols } from "@/lib/breakout-list";
 import type { IsinLabel } from "@/lib/isin-labels";
@@ -69,7 +69,7 @@ import type { RelayStatus } from "@/lib/use-relay-socket";
 import { cn } from "@/lib/utils";
 
 /**
- * 계좌 셀렉트 `title` — Phase 32 D-01 — 상단 줄 계좌 = 작업대 스코프(카드 · VI 스트립이 이 계좌 것만 보인다).
+ * 계좌 칩 줄 `title` — Phase 32 D-01 — 상단 줄 계좌 = 작업대 스코프(카드 · VI 스트립이 이 계좌 것만 보인다).
  * 옛 문구 「이미 있는 카드는 자기 계좌를 유지해요」 는 거짓이 됐다(다른 계좌 카드는 숨는다).
  */
 export const ACCOUNT_PILL_TITLE =
@@ -102,14 +102,14 @@ export interface WorkbenchStatusBarProps {
   subLimit: RelaySubLimitMsg | null;
   /** `subLimit.i` 의 표시 라벨(종목명 · 단축코드). 모르면 생략 — 문구가 ISIN 원문을 쓴다. */
   subLimitLabel?: IsinLabel;
-  /** 계좌 셀렉트 목록(④). 비면 「계좌 확인 중…」 1옵션 · 비활성. */
+  /** 계좌 칩 목록(④). 비면 「계좌 확인 중…」 글자 하나 · 칩 없음. */
   accounts: readonly RelayAccount[];
-  /** 셀렉트가 고른 계좌번호(④). */
+  /** 고른 계좌번호(④). */
   accountNo: string;
   onAccountChange: (accountNo: string) => void;
   cols: TradingCols;
   onColsChange: (cols: TradingCols) => void;
-  /** `wb` 폭이 격자 1열 고정(< 680)인가. `true` 면 세그먼트를 DOM 에서 뺀다. `null` = 아직 모름(③). */
+  /** `wb` 폭이 격자 1열 고정(< 680)인가. `true` 면 세그먼트를 DOM 에서 빼고 계좌 칩을 줄인다(④). `null` = 아직 모름(③). */
   phoneBand: boolean | null;
   /** 자동 복구를 포기한 상태에서만 넘긴다 — 있으면 「끊김 · 다시 연결」(⑤). */
   onReconnect?: () => void;
@@ -155,7 +155,7 @@ export function WorkbenchStatusBar({
         className,
       )}
     >
-      <AccountPill accounts={accounts} accountNo={accountNo} onChange={onAccountChange} />
+      <AccountPill accounts={accounts} accountNo={accountNo} onChange={onAccountChange} compact={phoneBand} />
 
       {quote !== null && (
         <span
@@ -319,51 +319,44 @@ export interface AccountPillProps {
   accounts: readonly RelayAccount[];
   accountNo: string;
   onChange: (accountNo: string) => void;
+  /** 줄인 칩(`MeAccountChips` ⑤) — 상단 줄의 `phoneBand`(격자 1열 고정 · `wb` < 680)를 그대로 받는다. */
+  compact?: boolean | null;
 }
 
 /**
- * 상단 줄 계좌 필 (목업 `.acct` `:728` · Phase 32 목업 ① A 에서 상단 줄 카드 맨 앞) — 상태줄 계좌 = **신규 카드의 기본 계좌**이자 VI 설정 2줄 ·
- * 공용 패널의 계좌 축이다(Q-2 · Q-3). 이미 등록된 카드는 자기 키의 계좌를 유지하며 이 값을 바꿔도
- * 움직이지 않는다 — 그 사실을 `title` 이 말한다.
+ * 상단 줄 계좌 칩 줄 (Phase 32 목업 ① A 에서 상단 줄 카드 맨 앞 · 32-15 에서 셀렉트 → 칩) — 상태줄 계좌 =
+ * **작업대 스코프**(D-01 — 고른 계좌의 카드 · VI 스트립만 보이고 새 카드도 이 계좌로 열린다 · `ACCOUNT_PILL_TITLE`).
  *
- * ★ 옛 상따 계좌 칩과 같은 네이티브 `<select>` 다(`appearance-none` 금지 — OS 선택 UI 를 잃는다).
- * ★ 계좌번호는 마스킹하지 않는다(D2 · S-5).
- * ★ 옵션 글자 = `accountFullLabelOf`(Phase 32 D-12 「번호 · 상품명 · 서버키」 · 빈 칸 생략) — 종전 인라인 조립
- *   (「번호 · 이름」 + 「 · 서버키」)과 같은 글자다. 고른 계좌에 `serverKey` 가 있으면 필 바로 옆에 서버 키 칩이 선다
- *   (④ · 29-30 채택 A — 목업 `.srvkey`).
+ * ★ /me 계좌 칩(`MeAccountChips`)과 같은 부품이다 — radiogroup · roving tabindex · 한 줄 가로 스크롤 · 칩 글자 =
+ *   상품명 · 번호 · 서버키(빈 칸 생략 · 접근 이름 `accountChipLabelOf`). 서버키가 칩 안에 있으므로 칩 밖 서버키 칩은
+ *   없다(사용자 2026-10-16 「칩 밖에 KB120 한번 더 표현하는건 없애줘」).
+ * ★ 폰(`compact` — 상단 줄 세그먼트를 빼는 것과 같은 `wb` < 680 판정)에서는 번호를 빼고 「상품명 · 서버키」 만 —
+ *   구분이 안 되는 칩만 번호로 떨어진다(`accountShortLabelOf`).
+ * ★ 계좌번호는 마스킹하지 않는다(D2 · S-5). 계좌 0 = 「계좌 확인 중…」 글자 하나(칩 없음).
  */
-export function AccountPill({ accounts, accountNo, onChange }: AccountPillProps) {
-  const serverKey = accounts.find((a) => a.accountNo === accountNo)?.serverKey;
-  return (
-    <>
-      <select
+export function AccountPill({ accounts, accountNo, onChange, compact = false }: AccountPillProps) {
+  if (accounts.length === 0) {
+    return (
+      <span
         data-slot="workbench-account"
-        aria-label="계좌"
+        aria-disabled="true"
         title={ACCOUNT_PILL_TITLE}
-        value={accountNo}
-        onChange={(e) => onChange(e.target.value)}
-        disabled={accounts.length === 0}
-        className="mono h-[26px] max-w-full min-w-0 rounded-full border border-transparent bg-[var(--muted)] px-2 text-[11px] text-[var(--fg)] disabled:opacity-50"
+        className="inline-flex h-8 items-center whitespace-nowrap text-[11px] text-[var(--muted-fg)]"
       >
-        {accounts.length === 0 ? (
-          <option value="">계좌 확인 중…</option>
-        ) : (
-          accounts.map((a) => (
-            <option key={a.accountNo} value={a.accountNo}>
-              {accountFullLabelOf(a)}
-            </option>
-          ))
-        )}
-      </select>
-      {serverKey !== undefined && (
-        <span
-          data-slot="workbench-account-server"
-          title="이 계좌의 주문 서버"
-          className="mono inline-flex h-[18px] shrink-0 items-center rounded-[5px] bg-[var(--muted)] px-1.5 text-[10px] font-bold whitespace-nowrap text-[var(--fg-2)]"
-        >
-          {serverKey}
-        </span>
-      )}
-    </>
+        계좌 확인 중…
+      </span>
+    );
+  }
+  return (
+    <MeAccountChips
+      choices={accounts}
+      accountNo={accountNo}
+      onChange={onChange}
+      label="계좌"
+      title={ACCOUNT_PILL_TITLE}
+      slot="workbench-account"
+      chipSlot="workbench-account-chip"
+      compact={compact}
+    />
   );
 }
