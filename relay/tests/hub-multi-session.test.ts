@@ -1786,3 +1786,122 @@ describe("SubscriptionHub — P32 VI 슬롯 트레이서 (D-17)", () => {
     expect(hub.getViSlot(U, A, "KRX")).toMatchObject({ accountNo: A, run: true });
   });
 });
+
+describe("SubscriptionHub — P32 VI 슬롯 다세션 (D-17)", () => {
+  const A = "1234567801";
+  const B = "1234567802";
+  /** 소유 뷰 밖 계좌(옛 지정 · 초집합 슬롯). */
+  const X = "1234567899";
+  let hub: SubscriptionHub;
+  let fanned: HubFanoutEvent[];
+  let kb: FakeBrokerSession;
+  let ky: FakeBrokerSession;
+
+  function slotsSeen(): [string, string, boolean | null][] {
+    return fanned
+      .filter((e) => e.userId === U && e.msg.t === "vi.slot")
+      .map((e) => {
+        const m = e.msg as Extract<RelayOutbound, { t: "vi.slot" }>;
+        return [m.a, m.x, m.cfg?.run ?? null];
+      });
+  }
+
+  beforeEach(() => {
+    resetDroppedEnvelopeCount();
+    hub = new SubscriptionHub({ preferredPrimaryServerKey: () => "KB120" });
+    fanned = [];
+    hub.on("fanout", (e: HubFanoutEvent) => fanned.push(e));
+    kb = new FakeBrokerSession(U, "KB120", "KB", [
+      { accountNo: A, name: "계좌A" },
+      { accountNo: B, name: "계좌B" },
+    ]);
+    ky = new FakeBrokerSession(U, "KYOBO119", "KYOBO", [{ accountNo: B1, name: "교보" }]);
+    kb.isReady = false;
+    ky.isReady = false;
+    hub.attach(kb);
+    hub.attach(ky);
+  });
+
+  afterEach(() => {
+    hub.closeAll();
+    vi.restoreAllMocks();
+  });
+
+  it("소유 뷰 밖 계좌 61(초집합 · 옛 지정) → 슬롯 캐시 0 · vi.slot 0 · #logForeign 1줄", () => {
+    const debugs: unknown[][] = [];
+    vi.spyOn(logger, "debug").mockImplementation(((...args: unknown[]) => {
+      debugs.push(args);
+    }) as never);
+    kb.pushFrame(buildSetVITriggerRespFrame({ accountNo: X, exchange: "KRX", run: true }));
+    expect(hub.getViSlot(U, X, "KRX")).toBeUndefined();
+    expect(slotsSeen()).toEqual([]);
+    const foreign = debugs.filter((c) => typeof c[1] === "string" && c[1].includes("소유 아닌 계좌"));
+    expect(foreign).toHaveLength(1);
+    expect((foreign[0]?.[0] as { msgType: number }).msgType).toBe(MSG.SetVITriggerResp);
+  });
+
+  it("새 서버 — 21(KRX) 답 A 등록 · B unregistered 2프레임 → A|KRX = cfg · B|KRX = null · 머리 KRX 소비 1회(뒤 빈 Envelope 는 NXT)", () => {
+    kb.emitReady();
+    kb.pushFrame(buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", run: true }));
+    kb.pushFrame(buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", unregistered: true }));
+    expect(hub.getViSlot(U, A, "KRX")).toMatchObject({ accountNo: A, run: true });
+    expect(hub.getViSlot(U, B, "KRX")).toBeNull();
+    // 머리 KRX 는 첫 프레임이 한 번만 소비했다 — 다음 빈 Envelope 는 대기열 머리 NXT 로 귀속된다.
+    expect(hub.getViSlot(U, A, "NXT")).toBeUndefined();
+    kb.pushFrame(buildSetVITriggerRespFrame(null));
+    expect(hub.getViSlot(U, A, "NXT")).toBeNull();
+    expect(hub.getViSlot(U, B, "NXT")).toBeNull();
+    expect(hub.getViSlot(U, A, "KRX")).toMatchObject({ run: true });
+  });
+
+  it("구 서버 — 21(KRX) 답 A 등록 1프레임 → A|KRX = cfg · 소유 B|KRX(모름) = null / 빈 Envelope → A · B 모두 null", () => {
+    kb.emitReady();
+    kb.pushFrame(buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", run: true }));
+    expect(hub.getViSlot(U, A, "KRX")).toMatchObject({ accountNo: A, run: true });
+    expect(hub.getViSlot(U, B, "KRX")).toBeNull();
+    kb.pushFrame(buildSetVITriggerRespFrame(null));
+    expect(hub.getViSlot(U, A, "NXT")).toBeNull();
+    expect(hub.getViSlot(U, B, "NXT")).toBeNull();
+
+    // 재조회(Ready) 의 빈 Envelope 는 그 세션 소유 계좌 **전부** 그 거래소 미등록 — 등록본도 덮는다.
+    kb.emitReady();
+    kb.pushFrame(buildSetVITriggerRespFrame(null));
+    expect(hub.getViSlot(U, A, "KRX")).toBeNull();
+    expect(hub.getViSlot(U, B, "KRX")).toBeNull();
+  });
+
+  it("교보 세션 61 · 72/73 · 56 도 원천 — KB 세션이 있어도 21 · 34 를 보내고 받아들인다(KB 한정 해제)", () => {
+    ky.emitReady();
+    expect(ky.sentTypes).toContain(MSG.GetVITriggerReq);
+    expect(ky.sentTypes).toContain(MSG.GetVIOrderListReq);
+    ky.pushFrame(buildSetVITriggerRespFrame({ accountNo: B1, exchange: "KRX", run: true }));
+    ky.pushFrame(buildViOrderListFrame([{ orderNo: "V-9", accountNo: B1 }], true));
+    ky.pushFrame(buildViOrderNoticeFrame({ accountNo: B1 }));
+    expect(hub.getViSlot(U, B1, "KRX")).toMatchObject({ accountNo: B1, run: true });
+    expect(hub.getViOrders(U).map((o) => o.orderNo)).toEqual(["V-9"]);
+    expect(fanned.some((e) => e.msg.t === "vi.notice")).toBe(true);
+    expect(slotsSeen()).toContainEqual([B1, "KRX", true]);
+  });
+
+  it("KB 계좌 A 와 교보 계좌 B1 이 같은 거래소 VI 를 함께 run → 둘 다 유지 · getViSlotsAll 이 두 슬롯(결선 순)", () => {
+    kb.pushFrame(buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", run: true }));
+    ky.pushFrame(buildSetVITriggerRespFrame({ accountNo: B1, exchange: "KRX", run: true }));
+    expect(hub.getViSlot(U, A, "KRX")).toMatchObject({ run: true });
+    expect(hub.getViSlot(U, B1, "KRX")).toMatchObject({ run: true });
+    expect(hub.getViSlotsAll(U).map((s) => [s.a, s.x, s.cfg?.run ?? null])).toEqual([
+      [A, "KRX", true],
+      [B1, "KRX", true],
+    ]);
+  });
+
+  it("세션 분리 → 그 소유 키 슬롯 전부 삭제 · 그 칸 vi.slot 재송신 0 · 남은 세션 슬롯 유지", () => {
+    kb.pushFrame(buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", run: true }));
+    ky.pushFrame(buildSetVITriggerRespFrame({ accountNo: B1, exchange: "KRX", run: true }));
+    const before = slotsSeen().length;
+    hub.retainSessions(U, new Set(["KB120"]));
+    expect(hub.getViSlot(U, B1, "KRX")).toBeUndefined();
+    expect(hub.getViSlot(U, A, "KRX")).toMatchObject({ run: true });
+    expect(slotsSeen()).toHaveLength(before);
+    expect(hub.getViSlotsAll(U).map((s) => s.a)).toEqual([A]);
+  });
+});

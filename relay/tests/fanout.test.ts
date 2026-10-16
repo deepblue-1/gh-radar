@@ -3440,6 +3440,69 @@ describe("WsFanout", () => {
     });
   });
 
+  describe("P32 VI 슬롯 replay · 계좌 끄기 VI 몫 (D-17)", () => {
+    /** 같은 세션의 두 계좌 — gh-trade Phase 33 슬롯 모드 스텁(21 → 선언 계좌마다 61 · 11 → 그 슬롯 에코). */
+    const ACC_A = SAMPLE_ACCOUNT_NO;
+    const ACC_B = "1234567802";
+    const viSets = () =>
+      gateway
+        .strategyRequests()
+        .map((r) => readViSetRequest(r.msgType, r.payload))
+        .filter((r): r is NonNullable<typeof r> => r !== null);
+
+    beforeEach(() => {
+      gateway.respondLoginWithAccounts([
+        { accountNo: ACC_A, name: "위탁종합" },
+        { accountNo: ACC_B, name: "위탁CMA" },
+      ]);
+      gateway.respondViSlots([
+        { accountNo: ACC_A, exchange: "KRX", run: true, orderAmountKrw: 3_000_000n, checkRate: 25 },
+        { accountNo: ACC_B, exchange: "KRX", run: true, orderAmountKrw: 7_000_000n, checkRate: 22 },
+      ]);
+    });
+
+    it("인증 replay — 슬롯 전량 vi.slot(A · B KRX 각자 값 · NXT 미등록 둘) · 구 vi 프레임 0 (slot-only)", async () => {
+      await authed("token-a");
+      await waitFor(() => h.hub.getViSlot(USER_A, ACC_B, "NXT") === null, "슬롯 4칸 확정");
+      expect(h.hub.getViSlot(USER_A, ACC_A, "KRX")).toMatchObject({ run: true, orderAmountKrw: 3_000_000 });
+      expect(h.hub.getViSlot(USER_A, ACC_B, "KRX")).toMatchObject({ run: true, orderAmountKrw: 7_000_000 });
+
+      const second = await open();
+      second.ws.sendAuth("token-a");
+      await waitFor(() => framesOf(second.inbox, "vi.list").length === 1, "새 탭 VI 주문 스냅샷");
+      await flushIo(20);
+
+      const slots = framesOf(second.inbox, "vi.slot").map((m) => [m.a, m.x, m.cfg?.orderAmountKrw ?? null, m.cfg?.run ?? null]);
+      expect([...slots].sort()).toEqual(
+        [
+          [ACC_A, "KRX", 3_000_000, true],
+          [ACC_B, "KRX", 7_000_000, true],
+          [ACC_A, "NXT", null, null],
+          [ACC_B, "NXT", null, null],
+        ].sort(),
+      );
+      // D-17 slot-only — 거래소 병합 프레임은 더 내지 않는다.
+      expect(framesOf(second.inbox, "vi")).toHaveLength(0);
+    });
+
+    it("계좌 끄기(A) VI 몫 — A 슬롯 중 run 인 KRX 만 11 run:false(A 값 그대로) · B 11 0 · 61 에코 뒤 strategies.disabled { count 0, viDisabled: true } · B 슬롯 무변경", async () => {
+      const a = await authed("token-a");
+      await waitFor(() => h.hub.getViSlot(USER_A, ACC_B, "NXT") === null, "슬롯 4칸 확정");
+
+      a.ws.sendRaw({ t: "strategies.disable.account", accountNo: ACC_A });
+      await waitFor(() => framesOf(a.inbox, "strategies.disabled").length === 1, "strategies.disabled 1건");
+      await flushIo(20);
+
+      expect(viSets()).toEqual([
+        { accountNo: ACC_A, exchange: "KRX", orderAmountKrw: 3_000_000, checkRate: 25, priceType: "U", run: false },
+      ]);
+      expect(framesOf(a.inbox, "strategies.disabled")[0]).toEqual({ t: "strategies.disabled", count: 0, viDisabled: true });
+      expect(h.hub.getViSlot(USER_A, ACC_A, "KRX")).toMatchObject({ run: false });
+      expect(h.hub.getViSlot(USER_A, ACC_B, "KRX")).toMatchObject({ run: true, orderAmountKrw: 7_000_000 });
+      expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+    });
+  });
+
   it("⑳ lc.set 처리가 sub 경로의 키 계산을 건드리지 않는다 (Pitfall 14 회귀)", async () => {
     const a = await authed("token-a");
 

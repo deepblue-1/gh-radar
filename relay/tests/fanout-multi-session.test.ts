@@ -285,6 +285,29 @@ describe("WsFanout — 증권사별 세션 · hub 세션 소유 키 · 병합 �
     expect(countOf(kyoboPayloads, MSG.GetUserSettingsReq)).toBe(1);
   });
 
+  it("P32 vi.set 소유 세션 — 교보 계좌 B1 의 vi.set(run:true) 은 교보 스텁으로 11 1건 · KB 11 0 · 거부 0 · 에코 vi.slot B1 (D-17)", async () => {
+    await setup();
+    kb.respondViSlots([{ accountNo: A1, exchange: "KRX", run: true }]);
+    kyobo.respondViSlots([]);
+    const { ws, inbox } = await tab();
+    await waitFor(
+      () => statesOf(inbox).some((f) => f.s === "ready" && (f.accounts ?? []).length === 2),
+      "병합 상태 프레임(두 계좌)",
+    );
+    await flushIo(10);
+
+    ws.sendRaw({ t: "vi.set", accountNo: B1, exchange: "KRX", orderAmountKrw: 5_000_000, checkRate: 25, run: true });
+    await waitFor(() => countOf(kyoboPayloads, MSG.SetVITriggerReq) === 1, "교보 11");
+    await waitFor(() => inbox.some((m) => m.t === "vi.slot" && m.a === B1 && m.cfg?.run === true), "교보 에코 vi.slot");
+    await flushIo(10);
+    expect(countOf(kbPayloads, MSG.SetVITriggerReq)).toBe(0);
+    expect(viSetsOf(kyoboPayloads).map((r) => [r.accountNo, r.exchange, r.run])).toEqual([[B1, "KRX", true]]);
+    expect(rejectsOf(inbox, "vi.set")).toEqual([]);
+    // KB 계좌 A1 의 KRX VI 도 그대로 가동 — 두 증권사 동시 가동(가드 없음).
+    expect(hub.getViSlot(USER_A, A1, "KRX")).toMatchObject({ run: true });
+    expect(hub.getViSlot(USER_A, B1, "KRX")).toMatchObject({ run: true });
+  });
+
   it("② 교보 매핑에 없으면 교보 LoginReq 0 · KB 세션 1개만(종전과 같다)", async () => {
     kyoboMapped = false;
     await setup();
@@ -1003,6 +1026,33 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
     expect(disabledOf(since())).toEqual([{ t: "strategies.disabled", count: 1, viDisabled: false }]);
     const reject = rejectsOf(since(), "strategies.disable")[0];
     expect(reject?.t === "msg" ? reject.m : "").toContain("KB121");
+  });
+
+  describe("P32 vi.set 소유 세션 · 가드 없음 (D-17)", () => {
+    function slotsOf(inbox: RelayOutbound[]): Extract<RelayOutbound, { t: "vi.slot" }>[] {
+      return inbox.filter((m): m is Extract<RelayOutbound, { t: "vi.slot" }> => m.t === "vi.slot");
+    }
+
+    it("KB120 에 KRX 켜진 B 인 채 vi.set(A, KRX, run:true) → KB121 에 11{A} 하나뿐 · KB120 11 0 · 두 슬롯 모두 run 유지", async () => {
+      for (const g of [kb120, kb121]) g.respondViSlots([]);
+      const { ws, inbox } = await tab();
+      await bothReady();
+      const s120 = kb120.sockets[0];
+      if (s120 === undefined) throw new Error("KB120 소켓 없음");
+      kb120.sendFrame(s120, buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", run: true, orderAmountKrw: 7_000_000n }));
+      await waitFor(() => slotsOf(inbox).some((m) => m.a === B && m.x === "KRX" && m.cfg?.run === true), "KB120 KRX 켜진 B");
+
+      ws.sendRaw({ t: "vi.set", accountNo: A, exchange: "KRX", orderAmountKrw: 5_000_000, checkRate: 25, run: true });
+      await waitFor(() => countOf(p121, MSG.SetVITriggerReq) === 1, "KB121 11");
+      await waitFor(() => slotsOf(inbox).some((m) => m.a === A && m.x === "KRX" && m.cfg?.run === true), "A 에코");
+      await flushIo(10);
+      // 서버 간 거래소당 1건 가드가 없다 — 다른 서버 VI 를 먼저 끄는 11 이 나가지 않는다.
+      expect(countOf(p120, MSG.SetVITriggerReq)).toBe(0);
+      expect(viSetsOf(p121).map((r) => [r.accountNo, r.run])).toEqual([[A, true]]);
+      expect(hub.getViSlot(USER_A, A, "KRX")).toMatchObject({ run: true });
+      expect(hub.getViSlot(USER_A, B, "KRX")).toMatchObject({ run: true, orderAmountKrw: 7_000_000 });
+      expect(rejectsOf(inbox, "vi.set")).toEqual([]);
+    });
   });
 
   describe("P32 계좌 끄기 다세션 (G-1 · D-09 보정)", () => {
