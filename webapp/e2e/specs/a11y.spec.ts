@@ -323,12 +323,12 @@ async function sizeOpenCardTo(page: Page, target: number): Promise<void> {
 }
 
 /**
- * 선매수 · 줄매수 · 후매수 · 자동매도(Phase 27) 네 카드를 모두 접거나 모두 펼친다(접기는 로컬 동작 — 전송 0).
- * 폰 밴드는 탭당 한 pane 이라 숨은 pane 의 접기 버튼은 건너뛴다.
+ * 선매수 · 줄매수 · 후매수 · 자동매도(Phase 27) · 매수취소(quick-261012-oif) 다섯 카드를 모두 접거나 모두 펼친다
+ * (접기는 로컬 동작 — 전송 0). 폰 밴드는 탭당 한 pane 이라 숨은 pane 의 접기 버튼은 건너뛴다.
  */
 async function setLcFolds(page: Page, expanded: boolean): Promise<void> {
   const folds = page.locator(LC_OPEN_CARD).locator('[data-slot="lc-group-fold"]');
-  await expect(folds).toHaveCount(4);
+  await expect(folds).toHaveCount(5);
   for (const f of await folds.all()) {
     if (!(await f.isVisible())) continue;
     if ((await f.getAttribute('aria-expanded')) !== String(expanded)) await f.click();
