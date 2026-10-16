@@ -30,7 +30,7 @@ import type {
   RelayLimitChaserSnapMsg,
   RelayOutbound,
   RelayStateMsg,
-  RelayViTriggerMsg,
+  RelayViSlotMsg,
 } from "@gh-radar/shared";
 
 import { SESSION_GRACE_MS, SessionManager, type DmaCredentials, type SessionTarget } from "../src/dma/session-manager.js";
@@ -124,8 +124,9 @@ function viGetsOf(payloads: Buffer[]): string[] {
     .map((p) => readGetVITriggerExchange(MSG.GetVITriggerReq, p) ?? "<bare>");
 }
 
-function vis(inbox: RelayOutbound[]): RelayViTriggerMsg[] {
-  return inbox.filter((m): m is RelayViTriggerMsg => m.t === "vi");
+/** 브라우저가 받은 VI 슬롯 프레임 (P32 D-17 slot-only — 구 거래소 병합 `vi` 는 더 오지 않는다). */
+function vis(inbox: RelayOutbound[]): RelayViSlotMsg[] {
+  return inbox.filter((m): m is RelayViSlotMsg => m.t === "vi.slot");
 }
 
 /** 게이트웨이가 받은 `SetVITriggerReq(11)` 내용들. */
@@ -253,7 +254,7 @@ describe("WsFanout — 증권사별 세션 · hub 세션 소유 키 · 병합 �
     vi.restoreAllMocks();
   });
 
-  it("① 두 증권사 계좌 사용자 — 세션 2 · 스텁마다 LoginReq 1 · 상태 프레임 accounts 합집합 · 교보는 24 · 43(21 · 34 는 KB · 43 은 세션마다 P32)", async () => {
+  it("① 두 증권사 계좌 사용자 — 세션 2 · 스텁마다 LoginReq 1 · 상태 프레임 accounts 합집합 · 24 · 21 · 34 · 43 은 세션마다(P32 D-14a · D-17)", async () => {
     await setup();
     const acquireSpy = vi.spyOn(manager, "acquireFor");
     const { inbox } = await tab();
@@ -271,7 +272,7 @@ describe("WsFanout — 증권사별 세션 · hub 세션 소유 키 · 병합 �
     // primary(KB) 계좌가 먼저다.
     expect(merged?.accounts?.map((a) => a.accountNo)).toEqual([A1, B1]);
 
-    // 두 세션 모두 Ready 프리페치 — 계좌(25) · 상따 목록(24) · 사용자 설정(43 · P32 D-14a 서버별)은 세션마다, 21 · 34 는 VI 원천(KB) 만.
+    // 두 세션 모두 Ready 프리페치 — 계좌(25) · 상따 목록(24) · 사용자 설정(43 · P32 D-14a 서버별) · VI(21 · 34 · P32 D-17 모든 세션)는 세션마다.
     await waitFor(
       () => countOf(kbPayloads, MSG.GetUserSettingsReq) === 1 && countOf(kyoboPayloads, MSG.GetUserSettingsReq) === 1,
       "두 세션 Ready 프리페치",
@@ -280,9 +281,32 @@ describe("WsFanout — 증권사별 세션 · hub 세션 소유 키 · 병합 �
     expect(countOf(kbPayloads, MSG.GetAccountStateReq)).toBe(1);
     expect(countOf(kyoboPayloads, MSG.GetAccountStateReq)).toBe(1);
     expect(countOf(kbPayloads, MSG.GetVITriggerReq)).toBe(2);
-    expect(countOf(kyoboPayloads, MSG.GetVITriggerReq)).toBe(0);
-    expect(countOf(kyoboPayloads, MSG.GetVIOrderListReq)).toBe(0);
+    expect(countOf(kyoboPayloads, MSG.GetVITriggerReq)).toBe(2);
+    expect(countOf(kyoboPayloads, MSG.GetVIOrderListReq)).toBe(1);
     expect(countOf(kyoboPayloads, MSG.GetUserSettingsReq)).toBe(1);
+  });
+
+  it("P32 vi.set 소유 세션 — 교보 계좌 B1 의 vi.set(run:true) 은 교보 스텁으로 11 1건 · KB 11 0 · 거부 0 · 에코 vi.slot B1 (D-17)", async () => {
+    await setup();
+    kb.respondViSlots([{ accountNo: A1, exchange: "KRX", run: true }]);
+    kyobo.respondViSlots([]);
+    const { ws, inbox } = await tab();
+    await waitFor(
+      () => statesOf(inbox).some((f) => f.s === "ready" && (f.accounts ?? []).length === 2),
+      "병합 상태 프레임(두 계좌)",
+    );
+    await flushIo(10);
+
+    ws.sendRaw({ t: "vi.set", accountNo: B1, exchange: "KRX", orderAmountKrw: 5_000_000, checkRate: 25, run: true });
+    await waitFor(() => countOf(kyoboPayloads, MSG.SetVITriggerReq) === 1, "교보 11");
+    await waitFor(() => inbox.some((m) => m.t === "vi.slot" && m.a === B1 && m.cfg?.run === true), "교보 에코 vi.slot");
+    await flushIo(10);
+    expect(countOf(kbPayloads, MSG.SetVITriggerReq)).toBe(0);
+    expect(viSetsOf(kyoboPayloads).map((r) => [r.accountNo, r.exchange, r.run])).toEqual([[B1, "KRX", true]]);
+    expect(rejectsOf(inbox, "vi.set")).toEqual([]);
+    // KB 계좌 A1 의 KRX VI 도 그대로 가동 — 두 증권사 동시 가동(가드 없음).
+    expect(hub.getViSlot(USER_A, A1, "KRX")).toMatchObject({ run: true });
+    expect(hub.getViSlot(USER_A, B1, "KRX")).toMatchObject({ run: true });
   });
 
   it("② 교보 매핑에 없으면 교보 LoginReq 0 · KB 세션 1개만(종전과 같다)", async () => {
@@ -730,7 +754,7 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
 
     // ① SessionManager — 사용자 단위 명령 세션.
     expect(manager.primaryOf(USER_A)?.serverKey).toBe("KB120");
-    // ② hub — 43(사용자 설정)은 KB120 으로만. 21 · 34 는 KB 세션 각각이 VI 원천이다(29-51 GC-05) — 단 이 시나리오의 KB121 은
+    // ② hub — 43(사용자 설정)은 KB120 으로만. 21 · 34 는 모든 세션이 VI 원천이다(P32 D-17) — 단 이 시나리오의 KB121 은
     //    hub 결선 전에 이미 Ready 라 hub Ready 프리페치가 없다(그 세션 몫 21 수는 아래 트레이서가 본다).
     await waitFor(() => countOf(p120, MSG.GetUserSettingsReq) === 1, "KB120 사용자 단위 프리페치");
     await flushIo(10);
@@ -740,7 +764,7 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
     const merged = statesOf(inbox).filter((f) => f.s === "ready" && (f.accounts ?? []).length === 2).at(-1);
     expect(merged?.accounts?.map((a) => a.accountNo)).toEqual([B, A]);
 
-    // VI 61 — 소유 뷰 안이면 그 세션 것도 원천(KB121 의 A · KB120 의 B) · 소유 뷰 밖(KB121 의 B)은 0.
+    // VI 61 — 소유 뷰 안이면 그 세션 슬롯(KB121 의 A · KB120 의 B) · 소유 뷰 밖(KB121 의 B)은 0.
     const s120 = kb120.sockets[0];
     const s121 = kb121.sockets[0];
     if (s120 === undefined || s121 === undefined) throw new Error("스텁 소켓 없음");
@@ -750,13 +774,13 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
     kb120.sendFrame(s120, buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX" }));
     await waitFor(() => vis(inbox.slice(from)).length >= 2, "KB121 · KB120 61");
     await flushIo(10);
-    expect(vis(inbox.slice(from)).map((m) => [m.x, m.cfg?.accountNo])).toEqual([
-      ["NXT", A],
-      ["KRX", B],
+    expect(vis(inbox.slice(from)).map((m) => [m.a, m.x, m.cfg?.accountNo])).toEqual([
+      [A, "NXT", A],
+      [B, "KRX", B],
     ]);
   });
 
-  it("GC-05 (29-51) 트레이서 — vi.set(A) 는 계좌 소유 KB121 세션으로 · KB121 61 에코 → 브라우저 vi KRX = A · 두 KB 세션 각각 21 KRX · NXT · vi.set(B, NXT) 는 KB120", async () => {
+  it("GC-05 (29-51 → P32 D-17) 트레이서 — vi.set(A) 는 계좌 소유 KB121 세션으로 · KB121 61 에코 → 브라우저 vi.slot A|KRX · 두 세션 각각 21 KRX · NXT · vi.set(B, NXT) 는 KB120", async () => {
     // 스텁은 거래소별 모드 — 21 은 그 슬롯(미등록 = 빈 61), 11 은 저장 뒤 61 에코(서버 Set 에코 흉내).
     for (const g of [kb120, kb121]) {
       g.respondViTriggerFor("KRX", null);
@@ -765,34 +789,31 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
     const { ws, inbox } = await tab();
     await bothReady();
 
-    // VI 원천 = 사용자의 KB 세션 각각 — 두 세션 모두 21(KRX → NXT).
+    // VI 원천 = 사용자의 모든 결선 세션 — 두 세션 모두 21(KRX → NXT).
     await waitFor(
       () => countOf(p120, MSG.GetVITriggerReq) === 2 && countOf(p121, MSG.GetVITriggerReq) === 2,
       "두 KB 세션 Ready 21",
     );
     expect(viGetsOf(p120)).toEqual(["KRX", "NXT"]);
     expect(viGetsOf(p121)).toEqual(["KRX", "NXT"]);
-    // 두 세션 모두 미등록으로 답했다 → 거래소마다 null 이 브라우저로(병합 3상태).
-    await waitFor(
-      () => vis(inbox).some((m) => m.x === "KRX" && m.cfg === null) && vis(inbox).some((m) => m.x === "NXT" && m.cfg === null),
-      "거래소별 미등록",
-    );
+    // 두 세션 모두 미등록으로 답했다 → 그 세션 소유 계좌 슬롯마다 null 이 브라우저로(A · B × KRX · NXT).
+    await waitFor(() => vis(inbox).filter((m) => m.cfg === null).length === 4, "슬롯별 미등록");
 
     const from = inbox.length;
     const since = (): RelayOutbound[] => inbox.slice(from);
     ws.sendRaw({ t: "vi.set", accountNo: A, exchange: "KRX", orderAmountKrw: 5_000_000, checkRate: 25, run: true });
     await waitFor(() => countOf(p121, MSG.SetVITriggerReq) === 1, "KB121 11");
-    await waitFor(() => vis(since()).some((m) => m.x === "KRX" && m.cfg?.accountNo === A), "브라우저 vi KRX = A");
+    await waitFor(() => vis(since()).some((m) => m.a === A && m.x === "KRX" && m.cfg?.accountNo === A), "브라우저 vi.slot A|KRX");
     await flushIo(10);
     expect(countOf(p120, MSG.SetVITriggerReq)).toBe(0);
     expect(rejectsOf(since(), "vi.set")).toEqual([]);
-    expect(vis(since()).map((m) => [m.x, m.cfg?.accountNo, m.cfg?.run])).toEqual([["KRX", A, true]]);
-    expect(hub.getViTrigger(USER_A, "KRX")).toMatchObject({ accountNo: A, run: true });
+    expect(vis(since()).map((m) => [m.a, m.x, m.cfg?.run])).toEqual([[A, "KRX", true]]);
+    expect(hub.getViSlot(USER_A, A, "KRX")).toMatchObject({ accountNo: A, run: true });
 
     // B(KB120 소유)의 VI 는 종전대로 KB120 으로.
     ws.sendRaw({ t: "vi.set", accountNo: B, exchange: "NXT", orderAmountKrw: 3_000_000, checkRate: 20, run: false });
     await waitFor(() => countOf(p120, MSG.SetVITriggerReq) === 1, "KB120 11");
-    await waitFor(() => vis(since()).some((m) => m.x === "NXT" && m.cfg?.accountNo === B), "브라우저 vi NXT = B");
+    await waitFor(() => vis(since()).some((m) => m.a === B && m.x === "NXT" && m.cfg?.accountNo === B), "브라우저 vi.slot B|NXT");
     expect(countOf(p121, MSG.SetVITriggerReq)).toBe(1);
     expect(rejectsOf(since(), "vi.set")).toEqual([]);
   });
@@ -840,38 +861,12 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
     const s121 = kb121.sockets[0];
     if (s120 === undefined || s121 === undefined) throw new Error("스텁 소켓 없음");
     kb120.sendFrame(s120, buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", run: true, orderAmountKrw: 7_000_000n, checkRate: 22 }));
-    await waitFor(() => vis(inbox).some((m) => m.x === "KRX" && m.cfg?.accountNo === B && m.cfg.run), "KB120 KRX 켜진 B");
+    await waitFor(() => vis(inbox).some((m) => m.a === B && m.x === "KRX" && m.cfg?.run === true), "KB120 KRX 켜진 B");
     return { ws, inbox, s120, s121 };
   }
 
-  it("GC-05 가드 — KB120 에 KRX 켜진 B 인 채 vi.set(A, KRX, run:true) → KB120 에 11{B 같은 값 · run:false} 먼저 · KB121 에 11{A, run:true} · 브라우저 vi 는 (B run:false) 뒤 (A run:true)", async () => {
-    const order = viSetLog();
-    const { ws, inbox, s120, s121 } = await withRunningBOnKb120();
-    const from = inbox.length;
-    const since = (): RelayOutbound[] => inbox.slice(from);
-
-    ws.sendRaw({ t: "vi.set", accountNo: A, exchange: "KRX", orderAmountKrw: 5_000_000, checkRate: 25, run: true });
-    await waitFor(() => order.log.length === 2, "11 두 건");
-    expect(order.log).toEqual([
-      ["KB120", B, false],
-      ["KB121", A, true],
-    ]);
-    // 끄는 11 은 B 의 등록값 그대로(run 만 false).
-    expect(viSetsOf(p120)).toEqual([
-      { accountNo: B, exchange: "KRX", orderAmountKrw: 7_000_000, checkRate: 22, priceType: "U", run: false },
-    ]);
-    expect(rejectsOf(since(), "vi.set")).toEqual([]);
-
-    // 서버 에코 — KB120 의 run:false 가 먼저, KB121 의 run:true 가 뒤.
-    kb120.sendFrame(s120, buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", run: false, orderAmountKrw: 7_000_000n, checkRate: 22 }));
-    await waitFor(() => vis(since()).length === 1, "B run:false 에코");
-    kb121.sendFrame(s121, buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", run: true }));
-    await waitFor(() => vis(since()).length === 2, "A run:true 에코");
-    expect(vis(since()).map((m) => [m.x, m.cfg?.accountNo, m.cfg?.run])).toEqual([
-      ["KRX", B, false],
-      ["KRX", A, true],
-    ]);
-  });
+  // 29-51 의 「GC-05 가드 — 다른 서버의 켜진 VI 를 먼저 끈다」 는 P32 D-17 로 없어졌다 — 반대 단언(11 이 소유 세션 하나뿐 · 두 슬롯 모두
+  // run 유지)은 아래 「P32 vi.set 소유 세션 · 가드 없음 (D-17)」 이 본다.
 
   it("GC-05 가드 없음 — run:false 로 보내는 vi.set 은 다른 세션에 11 을 보내지 않는다", async () => {
     const { ws } = await withRunningBOnKb120();
@@ -889,7 +884,7 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
     const s121 = kb121.sockets[0];
     if (s121 === undefined) throw new Error("KB121 소켓 없음");
     kb121.sendFrame(s121, buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", run: true }));
-    await waitFor(() => vis(inbox).some((m) => m.x === "KRX" && m.cfg?.accountNo === B), "KB121 KRX 켜진 B");
+    await waitFor(() => vis(inbox).some((m) => m.a === B && m.x === "KRX" && m.cfg?.accountNo === B), "KB121 KRX 켜진 B");
 
     ws.sendRaw({ t: "vi.set", accountNo: A, exchange: "KRX", orderAmountKrw: 5_000_000, checkRate: 25, run: true });
     await waitFor(() => countOf(p121, MSG.SetVITriggerReq) === 1, "KB121 11");
@@ -1005,6 +1000,33 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
     expect(reject?.t === "msg" ? reject.m : "").toContain("KB121");
   });
 
+  describe("P32 vi.set 소유 세션 · 가드 없음 (D-17)", () => {
+    function slotsOf(inbox: RelayOutbound[]): Extract<RelayOutbound, { t: "vi.slot" }>[] {
+      return inbox.filter((m): m is Extract<RelayOutbound, { t: "vi.slot" }> => m.t === "vi.slot");
+    }
+
+    it("KB120 에 KRX 켜진 B 인 채 vi.set(A, KRX, run:true) → KB121 에 11{A} 하나뿐 · KB120 11 0 · 두 슬롯 모두 run 유지", async () => {
+      for (const g of [kb120, kb121]) g.respondViSlots([]);
+      const { ws, inbox } = await tab();
+      await bothReady();
+      const s120 = kb120.sockets[0];
+      if (s120 === undefined) throw new Error("KB120 소켓 없음");
+      kb120.sendFrame(s120, buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", run: true, orderAmountKrw: 7_000_000n }));
+      await waitFor(() => slotsOf(inbox).some((m) => m.a === B && m.x === "KRX" && m.cfg?.run === true), "KB120 KRX 켜진 B");
+
+      ws.sendRaw({ t: "vi.set", accountNo: A, exchange: "KRX", orderAmountKrw: 5_000_000, checkRate: 25, run: true });
+      await waitFor(() => countOf(p121, MSG.SetVITriggerReq) === 1, "KB121 11");
+      await waitFor(() => slotsOf(inbox).some((m) => m.a === A && m.x === "KRX" && m.cfg?.run === true), "A 에코");
+      await flushIo(10);
+      // 서버 간 거래소당 1건 가드가 없다 — 다른 서버 VI 를 먼저 끄는 11 이 나가지 않는다.
+      expect(countOf(p120, MSG.SetVITriggerReq)).toBe(0);
+      expect(viSetsOf(p121).map((r) => [r.accountNo, r.run])).toEqual([[A, true]]);
+      expect(hub.getViSlot(USER_A, A, "KRX")).toMatchObject({ run: true });
+      expect(hub.getViSlot(USER_A, B, "KRX")).toMatchObject({ run: true, orderAmountKrw: 7_000_000 });
+      expect(rejectsOf(inbox, "vi.set")).toEqual([]);
+    });
+  });
+
   describe("P32 계좌 끄기 다세션 (G-1 · D-09 보정)", () => {
     const OTHER = "KR7000660001";
     const VI_A = { accountNo: A, exchange: "KRX" as const, orderAmountKrw: 5_000_000n, checkRate: 25, run: true };
@@ -1039,7 +1061,7 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
       const t = await tab();
       await bothReady();
       await waitFor(() => countOf(p121, MSG.GetVITriggerReq) === 2 && countOf(p120, MSG.GetVITriggerReq) === 2, "두 세션 21");
-      if (viA) await waitFor(() => hub.getViTrigger(USER_A, "KRX")?.run === true, "A KRX VI 가동 캐시");
+      if (viA) await waitFor(() => hub.getViSlot(USER_A, A, "KRX")?.run === true, "A KRX VI 가동 슬롯");
       await flushIo(10);
       return t;
     }
@@ -1079,10 +1101,10 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
       expect(countOf(p120, MSG.SetVITriggerReq)).toBe(0);
       expect(countOf(p121, MSG.DisableStrategiesReq)).toBe(2);
       expect(disabledOf(since())).toEqual([{ t: "strategies.disabled", count: 2, viDisabled: true }]);
-      // 완료 신호는 VI 에코(브라우저 vi run:false) 뒤다.
+      // 완료 신호는 VI 에코(브라우저 vi.slot A|KRX run:false) 뒤다.
       const frames = since();
       const at = frames.findIndex((m) => m.t === "strategies.disabled");
-      const viOff = frames.findIndex((m) => m.t === "vi" && m.x === "KRX" && m.cfg?.run === false);
+      const viOff = frames.findIndex((m) => m.t === "vi.slot" && m.a === A && m.x === "KRX" && m.cfg?.run === false);
       expect(viOff).toBeGreaterThanOrEqual(0);
       expect(at).toBeGreaterThan(viOff);
     });

@@ -61,7 +61,7 @@ vi.mock("../user-section", () => ({
 }));
 
 import { EMPTY_RELAY_VALUE } from "@/lib/relay-provider";
-import { TRADING_FOCUS_EVENT } from "@/lib/trading-focus";
+import { TRADING_ACCOUNT_EVENT, TRADING_FOCUS_EVENT } from "@/lib/trading-focus";
 
 import { AppSidebar, sidebarGroupsOf, strategyLedLabel } from "../app-sidebar";
 import { SIDEBAR_COLLAPSED_KEY, setSidebarCollapsed } from "@/lib/sidebar-collapse";
@@ -156,6 +156,16 @@ function viCfg(
     run: false,
     ...over,
   };
+}
+
+/** VI (계좌, 거래소) 슬롯 Map — 키 `${accountNo}|${exchange}`(리듀서와 같은 키 · Phase 32 D-17). 넣은 순서 = 수신 순. */
+function viSlotsOf(...cfgs: RelayViTrigger[]): RelayShape["viSlots"] {
+  return new Map(cfgs.map((c) => [`${c.accountNo}|${c.exchange}`, c] as const));
+}
+
+/** 미등록 슬롯(`null`)까지 섞어 만든다 — `[계좌, 거래소, cfg|null]`. */
+function viSlotsRaw(...entries: [string, "KRX" | "NXT", RelayViTrigger | null][]): RelayShape["viSlots"] {
+  return new Map(entries.map(([a, x, cfg]) => [`${a}|${x}`, cfg] as const));
 }
 
 /**
@@ -455,7 +465,7 @@ describe("AppSidebar — 조건부 숨김 (N4/D-19)", () => {
 
 describe("AppSidebar — 3단 목록 (D-03 · E16)", () => {
   it("④ 3단 = VI 한 줄 · 등록 전략 순서이고, 옛 `/trading/vi` · 상따 개별 메뉴가 없다", () => {
-    setupReady({ viTriggers: { KRX: viCfg("KRX", { run: true }) } });
+    setupReady({ viSlots: viSlotsOf(viCfg("KRX", { run: true })) });
     render(<AppSidebar />);
 
     const names = tradingSubLinks().map((a) => a.getAttribute("data-sidebar-item"));
@@ -471,13 +481,14 @@ describe("AppSidebar — 3단 목록 (D-03 · E16)", () => {
     }
   });
 
-  it("④ VI 줄은 작업대(`/trading`)로 가고 활성 표시를 받지 않는다 — 활성은 제목 하나", () => {
+  it("④ VI 줄은 그 계좌 작업대(`/trading?account=`)로 가고 활성 표시를 받지 않는다 — 활성은 제목 하나", () => {
     mockPathname = "/trading";
-    setupReady({ viTriggers: { KRX: viCfg("KRX", { run: true }) } });
+    setupReady({ viSlots: viSlotsOf(viCfg("KRX", { run: true })) });
     render(<AppSidebar />);
 
     const a = screen.getByRole("link", { name: "VI — KRX 가동" });
-    expect(a).toHaveAttribute("href", "/trading");
+    // Phase 32 D-18 — 그 계좌 작업대로(`?account=`).
+    expect(a).toHaveAttribute("href", "/trading?account=37728502101");
     expect(a).not.toHaveAttribute("aria-current");
     expect(a).toHaveAttribute("data-sidebar-item", "vi");
     expect(viTagExchanges()).toEqual(["KRX"]);
@@ -485,7 +496,7 @@ describe("AppSidebar — 3단 목록 (D-03 · E16)", () => {
 
   it("⑤ NXT 만 가동 → 태그는 NXT 하나 · 이름 「VI — NXT 가동」 (합집합이 아니라 거래소별)", () => {
     setupReady({
-      viTriggers: { KRX: viCfg("KRX", { run: false }), NXT: viCfg("NXT", { run: true }) },
+      viSlots: viSlotsOf(viCfg("KRX", { run: false }), viCfg("NXT", { run: true })),
     });
     render(<AppSidebar />);
 
@@ -496,7 +507,7 @@ describe("AppSidebar — 3단 목록 (D-03 · E16)", () => {
 
   it("⑤ 둘 다 가동 → KRX · NXT 순 태그(객체 키를 NXT 먼저 넣어도) · 이름 「VI — KRX·NXT 가동」", () => {
     setupReady({
-      viTriggers: { NXT: viCfg("NXT", { run: true }), KRX: viCfg("KRX", { run: true }) },
+      viSlots: viSlotsOf(viCfg("NXT", { run: true }), viCfg("KRX", { run: true })),
     });
     render(<AppSidebar />);
 
@@ -505,14 +516,14 @@ describe("AppSidebar — 3단 목록 (D-03 · E16)", () => {
   });
 
   it("⑤ 둘 다 중지 · 미등록(null) · 모름(키 부재) → VI 줄이 DOM 에 없다(미렌더) · 전략은 그대로", () => {
-    const cases: RelayShape["viTriggers"][] = [
-      { KRX: viCfg("KRX", { run: false }), NXT: viCfg("NXT", { run: false }) },
-      { KRX: null, NXT: null },
-      {},
-      { KRX: null },
+    const cases: RelayShape["viSlots"][] = [
+      viSlotsOf(viCfg("KRX", { run: false }), viCfg("NXT", { run: false })),
+      viSlotsRaw(["37728502101", "KRX", null], ["37728502101", "NXT", null]),
+      new Map(),
+      viSlotsRaw(["37728502101", "KRX", null]),
     ];
-    for (const viTriggers of cases) {
-      setupReady({ viTriggers });
+    for (const viSlots of cases) {
+      setupReady({ viSlots });
       const view = render(<AppSidebar />);
       expect(viLinks()).toHaveLength(0);
       expect(screen.queryByRole("link", { name: /^VI/ })).toBeNull();
@@ -526,7 +537,7 @@ describe("AppSidebar — 3단 목록 (D-03 · E16)", () => {
 
   it("⑤ VI 줄 텍스트는 「VI」 + 태그 글자뿐 — 옛 「가동」 배지 글자 · strategy-badge 슬롯이 없다", () => {
     setupReady({
-      viTriggers: { KRX: viCfg("KRX", { run: true }), NXT: viCfg("NXT", { run: true }) },
+      viSlots: viSlotsOf(viCfg("KRX", { run: true }), viCfg("NXT", { run: true })),
     });
     render(<AppSidebar />);
 
@@ -569,7 +580,7 @@ describe("AppSidebar — 3단 목록 (D-03 · E16)", () => {
   });
 
   it("⑦ 등록 전략 0 + KRX 가동 → VI 한 줄만, 빈 문구 · 스피너 없음 (E16 empty)", () => {
-    setupReady({ limitChasers: [], viTriggers: { KRX: viCfg("KRX", { run: true }) } });
+    setupReady({ limitChasers: [], viSlots: viSlotsOf(viCfg("KRX", { run: true })) });
     render(<AppSidebar />);
 
     expect(tradingSubLinks().map((a) => a.getAttribute("data-sidebar-item"))).toEqual(["vi"]);
@@ -742,7 +753,7 @@ describe("P32 사이드바 계좌 묶음 (D-02 · S3)", () => {
   it("sidebarGroupsOf — `accounts[]` 순으로 묶고 묶음 안 전략은 받은 순서 그대로", () => {
     const a2 = makeChaser({ isin: "KR7000001111", accountNo: ACCT_A.accountNo });
     // accounts[] = B → A 순. 전략은 A · B · A 순으로 섞여 와도 묶음은 accounts[] 순이다.
-    const groups = sidebarGroupsOf([ACCT_B, ACCT_A], [CHASER_A, CHASER_B, a2], {});
+    const groups = sidebarGroupsOf([ACCT_B, ACCT_A], [CHASER_A, CHASER_B, a2], new Map());
     expect(groups.map((g) => g.accountNo)).toEqual([ACCT_B.accountNo, ACCT_A.accountNo]);
     expect(groups[0]!.account).toBe(ACCT_B);
     expect(groups[0]!.chasers).toEqual([CHASER_B]);
@@ -754,7 +765,7 @@ describe("P32 사이드바 계좌 묶음 (D-02 · S3)", () => {
     const x = makeChaser({ isin: "KR7000001111", accountNo: "99990000001" });
     const y = makeChaser({ isin: "KR7000002222", accountNo: "99990000002" });
     const x2 = makeChaser({ isin: "KR7000003333", accountNo: "99990000001" });
-    const groups = sidebarGroupsOf([ACCT_A, ACCT_B], [x, CHASER_A, y, x2], {});
+    const groups = sidebarGroupsOf([ACCT_A, ACCT_B], [x, CHASER_A, y, x2], new Map());
     expect(groups.map((g) => g.accountNo)).toEqual([ACCT_A.accountNo, "99990000001", "99990000002"]);
     expect(groups[1]!.account).toBeUndefined();
     expect(groups[1]!.chasers).toEqual([x, x2]);
@@ -762,20 +773,20 @@ describe("P32 사이드바 계좌 묶음 (D-02 · S3)", () => {
   });
 
   it("sidebarGroupsOf — 켜진 전략도 가동 VI 도 없는 계좌는 묶음이 없다 · 전부 없으면 빈 배열", () => {
-    expect(sidebarGroupsOf([ACCT_A, ACCT_B], [CHASER_A], {}).map((g) => g.accountNo)).toEqual([ACCT_A.accountNo]);
-    expect(sidebarGroupsOf([ACCT_A, ACCT_B], [], {})).toEqual([]);
+    expect(sidebarGroupsOf([ACCT_A, ACCT_B], [CHASER_A], new Map()).map((g) => g.accountNo)).toEqual([ACCT_A.accountNo]);
+    expect(sidebarGroupsOf([ACCT_A, ACCT_B], [], new Map())).toEqual([]);
     expect(
-      sidebarGroupsOf([ACCT_A], [], { KRX: viCfg("KRX", { run: false }), NXT: null }),
+      sidebarGroupsOf([ACCT_A], [], viSlotsRaw([ACCT_A.accountNo, "KRX", viCfg("KRX", { run: false })], [ACCT_A.accountNo, "NXT", null])),
     ).toEqual([]);
   });
 
   it("sidebarGroupsOf — `accounts[]` 미수신(빈 목록)이면 전략 계좌가 전부 목록 밖 묶음 · 수신 뒤 accounts[] 순", () => {
-    const before = sidebarGroupsOf([], [CHASER_B, CHASER_A], {});
+    const before = sidebarGroupsOf([], [CHASER_B, CHASER_A], new Map());
     expect(before.map((g) => [g.accountNo, g.account])).toEqual([
       [ACCT_B.accountNo, undefined],
       [ACCT_A.accountNo, undefined],
     ]);
-    const after = sidebarGroupsOf([ACCT_A, ACCT_B], [CHASER_B, CHASER_A], {});
+    const after = sidebarGroupsOf([ACCT_A, ACCT_B], [CHASER_B, CHASER_A], new Map());
     expect(after.map((g) => g.account)).toEqual([ACCT_A, ACCT_B]);
   });
 
@@ -905,7 +916,7 @@ describe("P32 사이드바 VI 줄 · 목록 밖 (D-02 · S3)", () => {
   it("VI KRX · NXT 가 둘 다 A 계좌 → A 묶음에 VI 한 줄(KRX · NXT 태그) · 소제목 → VI → 전략 순 · B 묶음은 VI 없음", () => {
     setupReady({
       accounts: [ACCT_A, ACCT_B],
-      viTriggers: { KRX: viCfg("KRX", { run: true }), NXT: viCfg("NXT", { run: true }) },
+      viSlots: viSlotsOf(viCfg("KRX", { run: true }), viCfg("NXT", { run: true })),
     });
     render(<AppSidebar />);
 
@@ -926,10 +937,7 @@ describe("P32 사이드바 VI 줄 · 목록 밖 (D-02 · S3)", () => {
   it("VI KRX 는 A · NXT 는 B 계좌 → A 묶음 「VI — KRX 가동」 · B 묶음 「VI — NXT 가동」 (태그는 그 묶음 거래소만)", () => {
     setupReady({
       accounts: [ACCT_A, ACCT_B],
-      viTriggers: {
-        KRX: viCfg("KRX", { run: true }),
-        NXT: viCfg("NXT", { run: true, accountNo: ACCT_B.accountNo }),
-      },
+      viSlots: viSlotsOf(viCfg("KRX", { run: true }), viCfg("NXT", { run: true, accountNo: ACCT_B.accountNo })),
     });
     render(<AppSidebar />);
 
@@ -945,7 +953,7 @@ describe("P32 사이드바 VI 줄 · 목록 밖 (D-02 · S3)", () => {
     setupReady({
       accounts: [ACCT_A, ACCT_B],
       limitChasers: [CHASER_A],
-      viTriggers: { NXT: viCfg("NXT", { run: true, accountNo: ACCT_B.accountNo }) },
+      viSlots: viSlotsOf(viCfg("NXT", { run: true, accountNo: ACCT_B.accountNo })),
     });
     render(<AppSidebar />);
 
@@ -993,13 +1001,82 @@ describe("P32 사이드바 VI 줄 · 목록 밖 (D-02 · S3)", () => {
     setupReady({
       accounts: [ACCT_A, ACCT_B],
       limitChasers: [makeChaser({ buyEnabled: false, sellEnabled: false })],
-      viTriggers: { KRX: viCfg("KRX", { run: false }), NXT: null },
+      viSlots: viSlotsRaw(["37728502101", "KRX", viCfg("KRX", { run: false })], ["37728502101", "NXT", null]),
     });
     render(<AppSidebar />);
 
     expect(tradingSubList()).toBeNull();
     expect(accountGroups()).toHaveLength(0);
     expect(document.querySelector('[data-slot="sidebar-account-heading"]')).toBeNull();
+  });
+});
+
+describe("P32 VI 슬롯 표면 (D-18) — 사이드바", () => {
+  /** 교보 세션 계좌 C — 슬롯 원천은 모든 결선 세션(KB 한정 해제 · 32-11). */
+  const ACCT_C: RelayAccount = { accountNo: "37728502103", name: "교보 위탁", serverKey: "KYOBO127" };
+
+  it("A KRX 가동 · C(교보) KRX 가동 → A 묶음 「VI — KRX 가동」 · C 묶음 「VI — KRX 가동」 둘 다 · 가동 없는 B 묶음엔 VI 줄 없음", () => {
+    setupReady({
+      accounts: [ACCT_A, ACCT_B, ACCT_C],
+      viSlots: viSlotsRaw(
+        [ACCT_A.accountNo, "KRX", viCfg("KRX", { run: true })],
+        [ACCT_B.accountNo, "KRX", viCfg("KRX", { run: false, accountNo: ACCT_B.accountNo })],
+        [ACCT_B.accountNo, "NXT", null],
+        [ACCT_C.accountNo, "KRX", viCfg("KRX", { run: true, accountNo: ACCT_C.accountNo })],
+      ),
+    });
+    render(<AppSidebar />);
+
+    const groups = accountGroups();
+    expect(groups.map((g) => g.getAttribute("data-account-no"))).toEqual([
+      ACCT_A.accountNo,
+      ACCT_B.accountNo,
+      ACCT_C.accountNo,
+    ]);
+    expect(viLinks()).toHaveLength(2);
+    expect(within(groups[0]!).getByRole("link", { name: "VI — KRX 가동" })).toBeInTheDocument();
+    expect(within(groups[2]!).getByRole("link", { name: "VI — KRX 가동" })).toBeInTheDocument();
+    expect(groups[1]!.querySelector('a[data-sidebar-item="vi"]')).toBeNull();
+    expect(itemKindsOf(groups[2]!)).toEqual(["vi"]);
+  });
+
+  it("sidebarGroupsOf — 같은 계좌 KRX · NXT 가동은 KRX → NXT 태그(수신 순 무관) · 미등록 · 중지 슬롯만 있는 계좌는 묶음 없음", () => {
+    const groups = sidebarGroupsOf(
+      [ACCT_A, ACCT_B],
+      [],
+      viSlotsRaw(
+        [ACCT_A.accountNo, "NXT", viCfg("NXT", { run: true })],
+        [ACCT_A.accountNo, "KRX", viCfg("KRX", { run: true })],
+        [ACCT_B.accountNo, "KRX", null],
+      ),
+    );
+    expect(groups.map((g) => [g.accountNo, g.viRunning])).toEqual([[ACCT_A.accountNo, ["KRX", "NXT"]]]);
+  });
+
+  it("VI 줄 클릭 → 링크 `/trading?account=C` + 계좌 전환 요청(C) · 수식 키 클릭은 요청하지 않는다", () => {
+    setupReady({
+      accounts: [ACCT_A, ACCT_C],
+      viSlots: viSlotsOf(viCfg("NXT", { run: true, accountNo: ACCT_C.accountNo })),
+    });
+    render(<AppSidebar />);
+    const seen: string[] = [];
+    const onAccount = (e: Event) => seen.push((e as CustomEvent<string>).detail);
+    window.addEventListener(TRADING_ACCOUNT_EVENT, onAccount);
+    try {
+      const groupC = accountGroups().find((g) => g.getAttribute("data-account-no") === ACCT_C.accountNo)!;
+      const a = within(groupC).getByRole("link", { name: "VI — NXT 가동" });
+      expect(a).toHaveAttribute("href", `/trading?account=${ACCT_C.accountNo}`);
+      a.addEventListener("click", (e) => e.preventDefault(), { once: true });
+      fireEvent.click(a);
+      expect(seen).toEqual([ACCT_C.accountNo]);
+
+      // 새 탭 열기(수식 키)는 지금 탭의 작업대 계좌를 건드리지 않는다.
+      a.addEventListener("click", (e) => e.preventDefault(), { once: true });
+      fireEvent.click(a, { ctrlKey: true });
+      expect(seen).toEqual([ACCT_C.accountNo]);
+    } finally {
+      window.removeEventListener(TRADING_ACCOUNT_EVENT, onAccount);
+    }
   });
 });
 

@@ -281,7 +281,8 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     await waitForTradingGroup(nav);
 
     await expect(viItem(nav)).toBeVisible({ timeout: 15_000 });
-    await expect(viItem(nav)).toHaveAttribute('href', '/trading');
+    // Phase 32 D-18 — VI 줄은 그 계좌 작업대로(`?account=`).
+    await expect(viItem(nav)).toHaveAttribute('href', `/trading?account=${E2E_ACCOUNT_NO}`);
     await expect(viItem(nav)).not.toHaveAttribute('aria-current');
     await expect.poll(() => viTagExchanges(nav), { timeout: 15_000 }).toEqual(['KRX']);
     await expect(viItem(nav)).toHaveAccessibleName('VI — KRX 가동');
@@ -565,7 +566,7 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     await expect(cardOfKey(keyB)).toBeHidden();
   });
 
-  test('P32-sidebar-vi VI 가 A 계좌 등록 → A 묶음 안 소제목 다음에 VI 줄 · B 묶음은 없음 · NXT 를 B 로 켜면 B 묶음에 VI 줄 (D-02 · D-16)', async ({
+  test('P32-sidebar-vi VI 슬롯 → 계좌 묶음마다 그 계좌 가동 거래소 VI 줄 · 같은 KRX 를 두 계좌가 켜면 두 묶음 모두 · VI 줄 클릭 → /trading?account= · 작업대 계좌가 그 묶음 계좌로 (D-18 · S3)', async ({
     page,
   }) => {
     relay.gateway.respondLoginWithAccounts(P32_ACCOUNTS);
@@ -577,7 +578,9 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
       priceType: 'U',
       run: true,
     };
-    relay.seedViTrigger(cfg);
+    // gh-trade Phase 33 서버 흉내(슬롯 모드) — A KRX 가동 · B 는 미등록 슬롯(`unregistered`).
+    relay.seedViSlots([{ ...cfg, exchange: 'KRX' }]);
+    const account = page.locator('[data-slot="workbench-status-bar"] [data-slot="workbench-account"]');
 
     await page.goto('/trading');
     const nav = desktopNav(page);
@@ -588,20 +591,49 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
 
     await expect(viItem(ga)).toHaveCount(1, { timeout: 15_000 });
     await expect(viItem(ga)).toHaveAccessibleName('VI — KRX 가동');
+    await expect(viItem(ga)).toHaveAttribute('href', `/trading?account=${E2E_ACCOUNT_NO}`);
     await expect(viItem(gb)).toHaveCount(0);
     // 묶음 안 순서 = 소제목 → VI → 전략.
     expect(
       await ga.locator('a[data-sidebar-item]').evaluateAll((els) => els.map((e) => e.getAttribute('data-sidebar-item'))),
     ).toEqual(['vi', 'strategy', 'strategy']);
 
-    // NXT 를 B 계좌로 켠다 — 두 거래소가 다른 계좌면 각 묶음에 한 줄씩(태그는 그 묶음 거래소만).
+    // B 가 NXT · KRX 를 켠다 — (B, 거래소) 슬롯이라 A 의 KRX 를 덮지 않고, 두 묶음 모두 KRX 태그가 선다.
     const sock = await relay.userSocket();
     relay.gateway.sendFrame(
       sock,
       buildSetVITriggerRespFrame({ ...cfg, accountNo: P32_ACCOUNT_B, exchange: 'NXT', run: true }),
     );
     await expect(viItem(gb)).toHaveAccessibleName('VI — NXT 가동', { timeout: 15_000 });
+    relay.gateway.sendFrame(
+      sock,
+      buildSetVITriggerRespFrame({ ...cfg, accountNo: P32_ACCOUNT_B, exchange: 'KRX', run: true }),
+    );
+    await expect(viItem(gb)).toHaveAccessibleName('VI — KRX·NXT 가동', { timeout: 15_000 });
     await expect(viItem(ga)).toHaveAccessibleName('VI — KRX 가동');
     await expect(viItem(nav)).toHaveCount(2);
+
+    // 클릭 — 작업대에서 A 를 고른 상태에서 B 묶음 VI 줄 → URL `?account=B` · 작업대 계좌 = B(이미 /trading 위 — 요청 이벤트 경로).
+    await expect(account.locator('option')).toHaveCount(2, { timeout: 30_000 });
+    await account.selectOption(E2E_ACCOUNT_NO);
+    await expect(account).toHaveValue(E2E_ACCOUNT_NO);
+    await viItem(gb).click();
+    await expect(page).toHaveURL(
+      (url) => url.pathname === '/trading' && url.searchParams.get('account') === P32_ACCOUNT_B,
+    );
+    await expect(account).toHaveValue(P32_ACCOUNT_B, { timeout: 15_000 });
+
+    // A 묶음 VI 줄 → A 로 돌아온다.
+    await viItem(ga).click();
+    await expect(account).toHaveValue(E2E_ACCOUNT_NO, { timeout: 15_000 });
+
+    // 다른 화면에서 누르면 이동 뒤 마운트가 `?account=` 를 소비한다 — /me(클라이언트 이동 · 소켓 유지) → B 묶음 VI 줄 → 작업대
+    // 계좌 B. 저장값은 방금 고른 A 라 마운트 소비가 아니면 A 로 선다.
+    await nav.getByRole('link', { name: 'My page' }).click();
+    await expect(page).toHaveURL((url) => url.pathname === '/me');
+    await expect(viItem(accountGroups(nav).nth(1))).toHaveCount(1, { timeout: 15_000 });
+    await viItem(accountGroups(nav).nth(1)).click();
+    await expect(page).toHaveURL((url) => url.pathname === '/trading' && url.searchParams.get('account') === P32_ACCOUNT_B);
+    await expect(account).toHaveValue(P32_ACCOUNT_B, { timeout: 30_000 });
   });
 });

@@ -364,7 +364,7 @@ describe("Phase 27 autosell.cmd · user.settings.set", () => {
   it("②-4 41 은 pending FIFO 를 늘리지 않는다 — 3연타 뒤 귀속 근거 없는 빈 61 은 어느 칸도 건드리지 않는다 (T-16-10)", async () => {
     const { ws, inbox } = await authed("token-a");
     await flushIo(30);
-    const viBefore = framesOf(inbox, "vi").length;
+    const viBefore = framesOf(inbox, "vi.slot").length;
 
     for (const action of ["start", "stop", "start"] as const) {
       ws.sendRaw({ t: "autosell.cmd", isin: SAMPLE_ISIN, accountNo: SAMPLE_ACCOUNT_NO, exchange: "KRX", action });
@@ -374,7 +374,9 @@ describe("Phase 27 autosell.cmd · user.settings.set", () => {
     gateway.sendFrame(gatewaySocket(), buildSetVITriggerRespFrame(null));
     await flushIo(50);
 
-    expect(framesOf(inbox, "vi")).toHaveLength(viBefore);
+    // P32 D-17 — VI 는 슬롯 프레임(`vi.slot`)으로만 나간다(slot-only).
+    expect(viBefore).toBeGreaterThan(0);
+    expect(framesOf(inbox, "vi.slot")).toHaveLength(viBefore);
     expect(framesOf(inbox, "lc")).toHaveLength(0);
     // 재전송 경로가 없다 — 보낸 만큼만 나갔다.
     expect(autoSellReqs()).toHaveLength(3);

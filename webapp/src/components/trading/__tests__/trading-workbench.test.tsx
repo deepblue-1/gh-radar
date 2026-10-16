@@ -167,7 +167,7 @@ vi.mock('@/components/trading/workbench/shared-panels', async (importOriginal) =
 
 import { EMPTY_RELAY_VALUE } from '@/lib/relay-provider';
 import { indexUnfilled } from '@/lib/trading-alerts';
-import { requestTradingFocus } from '@/lib/trading-focus';
+import { requestTradingAccount, requestTradingFocus } from '@/lib/trading-focus';
 import { LEAVE_WARNING } from '@/lib/use-leave-warning';
 import {
   cardForAlert,
@@ -1051,7 +1051,12 @@ describe('TradingWorkbench — 이탈 경고 (한 곳)', () => {
 describe('TradingWorkbench — VI 설정 더티는 패널을 접어도 남는다 (hidden 접힘)', () => {
   it('VI 설정을 고친 뒤 VI 패널을 접어도 입력값과 이탈 경고가 유지된다', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    mockRelay = relay({ viTriggers: { KRX: null, NXT: null } });
+    mockRelay = relay({
+      viSlots: new Map([
+        [`${ACCOUNT}|KRX`, null],
+        [`${ACCOUNT}|NXT`, null],
+      ]),
+    });
     render(<TradingWorkbench />);
     const more = slot('vi-strip-more')!;
     fireEvent.click(more);
@@ -2896,6 +2901,58 @@ describe('꺼진 전략 — 기본 카드 없음 · 복원 카드 걷기 (2026-0
 });
 
 /* ── Phase 32 — 계좌 전환 경로 · 종목 단위 스코프 (Pitfall 5 · 6 · UI-SPEC S2) ───────────── */
+
+describe('P32 VI 슬롯 표면 (D-18) — 사이드바 VI 줄 → 작업대 계좌', () => {
+  const A = ACCOUNT;
+  const B = '99999999901';
+  const accA = { accountNo: A, name: '위탁종합' };
+  const accB = { accountNo: B, name: '교보위탁' };
+  const KEY = 'gh-radar:trading-account:u1';
+  const pill = () => slot('workbench-account') as HTMLSelectElement;
+  const storedAccount = () => {
+    const raw = window.localStorage.getItem(KEY);
+    return raw === null ? null : (JSON.parse(raw) as { accountNo: string }).accountNo;
+  };
+
+  it('?account=B → 작업대 계좌 = B · 저장값도 B (저장된 A 가 되돌리지 않는다)', () => {
+    window.localStorage.setItem(KEY, JSON.stringify({ v: 1, accountNo: A }));
+    searchParams = new URLSearchParams(`account=${B}`);
+    mockRelay = relay({ accounts: [accA, accB] });
+    render(<TradingWorkbench />);
+    expect(pill().value).toBe(B);
+    expect(storedAccount()).toBe(B);
+  });
+
+  it('?account= 계좌가 늦게 오면 들어온 뒤 한 번 바꾼다 · 그 뒤 셀렉트로 고른 계좌를 다시 덮지 않는다(마운트 1회)', () => {
+    searchParams = new URLSearchParams(`account=${B}`);
+    mockRelay = relay({ accounts: [accA] });
+    const view = render(<TradingWorkbench />);
+    expect(pill().value).toBe(A);
+
+    mockRelay = relay({ accounts: [accA, accB] });
+    view.rerender(<TradingWorkbench />);
+    expect(pill().value).toBe(B);
+
+    fireEvent.change(pill(), { target: { value: A } });
+    mockRelay = relay({ accounts: [accA, accB] });
+    view.rerender(<TradingWorkbench />);
+    expect(pill().value).toBe(A);
+    expect(storedAccount()).toBe(A);
+  });
+
+  it('requestTradingAccount(B) — 이미 작업대일 때도 계좌 전환 · 저장 · 목록 밖 계좌 요청은 무시', () => {
+    mockRelay = relay({ accounts: [accA, accB] });
+    render(<TradingWorkbench />);
+    expect(pill().value).toBe(A);
+
+    act(() => requestTradingAccount('11111111101'));
+    expect(pill().value).toBe(A);
+
+    act(() => requestTradingAccount(B));
+    expect(pill().value).toBe(B);
+    expect(storedAccount()).toBe(B);
+  });
+});
 
 describe('P32 계좌 전환 경로 · 종목 단위 스코프 (Pitfall 5 · 6)', () => {
   const A = ACCOUNT;

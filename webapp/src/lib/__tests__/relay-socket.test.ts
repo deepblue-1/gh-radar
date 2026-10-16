@@ -63,6 +63,7 @@ import {
   STRATEGIES_DISABLE_ACK_TIMEOUT_MS,
   relayQuoteKey,
   useRelayConnection,
+  viSlotOf,
   type RelayConnectionState,
 } from '../use-relay-socket';
 import { useRelayContext } from '../relay-provider';
@@ -1949,6 +1950,98 @@ describe('nxt.snap — NXT 거래가능 집합 (quick-260923-pq2)', () => {
       hook.rerender({ enabled: false });
     });
     expect(hook.result.current.nxtTradable).toBeNull();
+  });
+});
+
+describe('P32 viSlots 리듀서 (D-17 · vi.slot)', () => {
+  const A = '1234567801';
+  const B = '1234567802';
+  const cfgOf = (accountNo: string, over: { run?: boolean; orderAmountKrw?: number; exchange?: 'KRX' | 'NXT' } = {}) => ({
+    accountNo,
+    exchange: over.exchange ?? ('KRX' as const),
+    orderAmountKrw: over.orderAmountKrw ?? 3_000_000,
+    checkRate: 25,
+    priceType: 'U' as const,
+    run: over.run ?? false,
+  });
+
+  it('같은 거래소 A · B 두 칸 — 한쪽이 다른 쪽을 덮지 않는다 · 초기는 전부 모름', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    expect(hook.result.current.viSlots.size).toBe(0);
+    expect(viSlotOf(hook.result.current.viSlots, A, 'KRX')).toBeUndefined();
+
+    await act(async () => {
+      ws.push({ t: 'vi.slot', a: A, x: 'KRX', cfg: cfgOf(A, { run: true, orderAmountKrw: 3_000_000 }) });
+      ws.push({ t: 'vi.slot', a: B, x: 'KRX', cfg: cfgOf(B, { run: true, orderAmountKrw: 7_000_000 }) });
+    });
+    const slots = hook.result.current.viSlots;
+    expect(viSlotOf(slots, A, 'KRX')).toMatchObject({ accountNo: A, orderAmountKrw: 3_000_000, run: true });
+    expect(viSlotOf(slots, B, 'KRX')).toMatchObject({ accountNo: B, orderAmountKrw: 7_000_000, run: true });
+    expect(viSlotOf(slots, A, 'NXT')).toBeUndefined();
+  });
+
+  it('같은 키는 교체 · cfg null 은 키를 남긴다(미등록 ≠ 모름)', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'vi.slot', a: A, x: 'KRX', cfg: cfgOf(A, { run: true }) });
+    });
+    await act(async () => {
+      ws.push({ t: 'vi.slot', a: A, x: 'KRX', cfg: cfgOf(A, { run: false, orderAmountKrw: 5_000_000 }) });
+    });
+    expect(viSlotOf(hook.result.current.viSlots, A, 'KRX')).toMatchObject({ run: false, orderAmountKrw: 5_000_000 });
+    expect(hook.result.current.viSlots.size).toBe(1);
+
+    await act(async () => {
+      ws.push({ t: 'vi.slot', a: A, x: 'KRX', cfg: null });
+    });
+    expect(hook.result.current.viSlots.has(`${A}|KRX`)).toBe(true);
+    expect(viSlotOf(hook.result.current.viSlots, A, 'KRX')).toBeNull();
+  });
+
+  it('VI 거래소 밖 프레임은 무시한다(어느 칸에도 귀속하지 않는다)', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    const before = hook.result.current.viSlots;
+    await act(async () => {
+      // 계약 밖 거래소 — 런타임 방어를 시험한다.
+      ws.push({ t: 'vi.slot', a: A, x: 'SOR', cfg: null });
+    });
+    expect(hook.result.current.viSlots).toBe(before);
+    expect(hook.result.current.viSlots.size).toBe(0);
+  });
+
+  it('구 vi 프레임(거래소 단일 칸)은 상태를 바꾸지 않는다 · 상태에 거래소 단일 칸이 없다 — 웹은 vi.slot 만 읽는다(32-13)', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    const before = hook.result.current.viSlots;
+    await act(async () => {
+      ws.push({ t: 'vi', x: 'KRX', cfg: cfgOf(A, { run: true }) });
+    });
+    expect(hook.result.current.viSlots).toBe(before);
+    expect(viSlotOf(hook.result.current.viSlots, A, 'KRX')).toBeUndefined();
+    expect('viTriggers' in hook.result.current).toBe(false);
+
+    // 슬롯이 와도 거래소 단일 칸을 만들지 않는다(32-11 의 임시 다리 없음).
+    await act(async () => {
+      ws.push({ t: 'vi.slot', a: B, x: 'KRX', cfg: cfgOf(B, { run: true }) });
+    });
+    expect(viSlotOf(hook.result.current.viSlots, B, 'KRX')).toMatchObject({ accountNo: B, run: true });
+    expect('viTriggers' in hook.result.current).toBe(false);
+  });
+
+  it('reset(로그아웃 · 비활성화)이 슬롯을 비운다', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'vi.slot', a: A, x: 'KRX', cfg: cfgOf(A) });
+    });
+    expect(hook.result.current.viSlots.size).toBe(1);
+    await act(async () => {
+      hook.rerender({ enabled: false });
+    });
+    expect(hook.result.current.viSlots.size).toBe(0);
   });
 });
 

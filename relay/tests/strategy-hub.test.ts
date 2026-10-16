@@ -28,7 +28,6 @@ import type {
   RelayViListMsg,
   RelayViNoticeMsg,
   RelayStrategiesDisabledMsg,
-  RelayViTriggerMsg,
 } from "@gh-radar/shared";
 
 import {
@@ -70,6 +69,11 @@ class FakeSession extends EventEmitter implements HubSession {
    */
   readonly sentPayloads: Buffer[] = [];
   isReady = true;
+  /**
+   * 세션 소유 뷰 (Phase 32 D-17) — 빈 61 은 그 세션 소유 계좌의 그 거래소 슬롯을 미등록으로 귀속하므로 계좌를 알아야 한다. 이 파일의 픽스처는
+   * 전부 기본 계좌(`SAMPLE_ACCOUNT_NO`)라 다른 프레임의 소유 필터에는 영향이 없다.
+   */
+  readonly allowedAccounts = [{ accountNo: SAMPLE_ACCOUNT_NO, name: "위탁" }];
 
   constructor(readonly userId: string) {
     super();
@@ -187,11 +191,11 @@ describe("SubscriptionHub — 전략 캐시 (D-12/D-13)", () => {
     session.pushFrame(buildSetVITriggerRespFrame(null));
     session.pushFrame(buildSetVITriggerRespFrame({ exchange: "NXT", run: true, checkRate: 30 }));
 
-    expect(hub.getViTrigger(USER_A, "KRX")).toBeNull();
-    expect(hub.getViTrigger(USER_A, "NXT")).toMatchObject({ exchange: "NXT", run: true });
+    expect(hub.getViSlot(USER_A, SAMPLE_ACCOUNT_NO, "KRX")).toBeNull();
+    expect(hub.getViSlot(USER_A, SAMPLE_ACCOUNT_NO, "NXT")).toMatchObject({ exchange: "NXT", run: true });
 
-    // 프레임도 거래소별이다 — `cfg:null` 일 때도 `x` 가 실려야 브라우저가 두 칸을 구분한다.
-    const vi = msgsOf(fanout, "vi") as RelayViTriggerMsg[];
+    // 프레임은 (계좌, 거래소) 슬롯별이다(P32 D-17 `vi.slot`) — `cfg:null` 일 때도 `x` 가 실려야 브라우저가 두 칸을 구분한다.
+    const vi = msgsOf(fanout, "vi.slot");
     expect(vi.map((m) => [m.x, m.cfg === null])).toEqual([
       ["KRX", true],
       ["NXT", false],
@@ -207,8 +211,8 @@ describe("SubscriptionHub — 전략 캐시 (D-12/D-13)", () => {
     // 이어서 빈 61 이 오면 아직 살아 있는 head(KRX)로 귀속된다.
     session.pushFrame(buildSetVITriggerRespFrame(null));
 
-    expect(hub.getViTrigger(USER_A, "KRX")).toBeNull();
-    expect(hub.getViTrigger(USER_A, "NXT")).toMatchObject({ exchange: "NXT", run: true });
+    expect(hub.getViSlot(USER_A, SAMPLE_ACCOUNT_NO, "KRX")).toBeNull();
+    expect(hub.getViSlot(USER_A, SAMPLE_ACCOUNT_NO, "NXT")).toMatchObject({ exchange: "NXT", run: true });
   });
 
   it("①-5 21 을 보낸 적 없는데 온 빈 61 은 **캐시를 고치지 않는다** (T-17-16)", () => {
@@ -216,24 +220,24 @@ describe("SubscriptionHub — 전략 캐시 (D-12/D-13)", () => {
     session.pushFrame(buildSetVITriggerRespFrame(null));
 
     // 지어낸 거래소로 귀속하면 사용자가 입력 중인 금액이 엉뚱한 칸에서 지워진다.
-    expect(hub.getViTrigger(USER_A, "KRX")).toBeUndefined();
-    expect(hub.getViTrigger(USER_A, "NXT")).toBeUndefined();
-    expect(msgsOf(fanout, "vi")).toHaveLength(0);
+    expect(hub.getViSlot(USER_A, SAMPLE_ACCOUNT_NO, "KRX")).toBeUndefined();
+    expect(hub.getViSlot(USER_A, SAMPLE_ACCOUNT_NO, "NXT")).toBeUndefined();
+    expect(msgsOf(fanout, "vi.slot")).toHaveLength(0);
   });
 
   it("①-6 세션이 교체되면 FIFO 를 비운다 — 옛 큐로 귀속되지 않는다 (규칙 (d))", () => {
     session.emitReady();
     // KRX 응답만 오고 NXT 응답은 영영 오지 않은 채 끊긴다 → 옛 FIFO 에 NXT 가 남아 있다.
     session.pushFrame(buildSetVITriggerRespFrame(null));
-    expect(hub.getViTrigger(USER_A, "KRX")).toBeNull();
+    expect(hub.getViSlot(USER_A, SAMPLE_ACCOUNT_NO, "KRX")).toBeNull();
 
     const next = new FakeSession(USER_A);
     hub.attach(next);
     // 새 세션의 Ready 전에 도착한 빈 61 — 옛 큐가 남아 있었다면 NXT 로 귀속돼 버린다.
     next.pushFrame(buildSetVITriggerRespFrame(null));
 
-    expect(hub.getViTrigger(USER_A, "NXT")).toBeUndefined();
-    expect(hub.getViTrigger(USER_A, "KRX")).toBeUndefined();
+    expect(hub.getViSlot(USER_A, SAMPLE_ACCOUNT_NO, "NXT")).toBeUndefined();
+    expect(hub.getViSlot(USER_A, SAMPLE_ACCOUNT_NO, "KRX")).toBeUndefined();
   });
 
   it("② 재조회는 재접속 때만 — ready 유지 중 10분이 흘러도 추가 요청 0건이다 (D-13)", () => {
@@ -302,21 +306,21 @@ describe("SubscriptionHub — 전략 캐시 (D-12/D-13)", () => {
 
   it("⑥ 빈 61 은 파손이 아니라 미등록이다 — cfg:null 을 저장하고 그대로 내린다", () => {
     // 조회 전에는 「모른다」(undefined) 이고, 이때는 프레임을 지어내지 않는다.
-    expect(hub.getViTrigger(USER_A, "KRX")).toBeUndefined();
+    expect(hub.getViSlot(USER_A, SAMPLE_ACCOUNT_NO, "KRX")).toBeUndefined();
 
     // 21 을 보내야 빈 61 을 귀속할 FIFO 가 생긴다 (17-05) — Ready 가 KRX·NXT 순으로 보낸다.
     session.emitReady();
     session.pushFrame(buildSetVITriggerRespFrame(null));
 
-    expect(hub.getViTrigger(USER_A, "KRX")).toBeNull();
-    const vi = msgsOf(fanout, "vi") as RelayViTriggerMsg[];
+    expect(hub.getViSlot(USER_A, SAMPLE_ACCOUNT_NO, "KRX")).toBeNull();
+    const vi = msgsOf(fanout, "vi.slot");
     expect(vi).toHaveLength(1);
     expect(vi[0]?.cfg).toBeNull();
     expect(vi[0]?.x).toBe("KRX");
 
     // 등록본이 오면 **그 거래소 칸이** 덮인다.
     session.pushFrame(buildSetVITriggerRespFrame({ run: true, checkRate: 25 }));
-    expect(hub.getViTrigger(USER_A, "KRX")).toMatchObject({
+    expect(hub.getViSlot(USER_A, SAMPLE_ACCOUNT_NO, "KRX")).toMatchObject({
       run: true,
       checkRate: 25,
       priceType: "U",
@@ -462,7 +466,7 @@ describe("SubscriptionHub — 전략 캐시 (D-12/D-13)", () => {
     session.pushFrame(buildViOrderListFrame([{ orderNo: "0001" }], true));
     expect(hub.getLimitChasers(USER_A)).toHaveLength(1);
     // 등록본(61)은 본문의 거래소가 정본이다 — 픽스처 기본값은 슬롯 부재 = KRX.
-    expect(hub.getViTrigger(USER_A, "KRX")).not.toBeNull();
+    expect(hub.getViSlot(USER_A, SAMPLE_ACCOUNT_NO, "KRX")).not.toBeNull();
     expect(hub.getViOrders(USER_A)).toHaveLength(1);
 
     hub.attach(new FakeSession(USER_A));
@@ -471,8 +475,8 @@ describe("SubscriptionHub — 전략 캐시 (D-12/D-13)", () => {
     expect(hub.getViOrders(USER_A)).toHaveLength(0);
     // 「미등록(null)」이 아니라 「모름(undefined)」으로 돌아가야 한다 —
     // null 로 남으면 새 세션의 61 이 오기 전에 사용자 입력이 지워진다. 두 칸 모두다.
-    expect(hub.getViTrigger(USER_A, "KRX")).toBeUndefined();
-    expect(hub.getViTrigger(USER_A, "NXT")).toBeUndefined();
+    expect(hub.getViSlot(USER_A, SAMPLE_ACCOUNT_NO, "KRX")).toBeUndefined();
+    expect(hub.getViSlot(USER_A, SAMPLE_ACCOUNT_NO, "NXT")).toBeUndefined();
   });
 
   it("⑩ 전략 팬아웃·캐시는 사용자 간 교차하지 않는다 (T-16-02)", () => {

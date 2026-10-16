@@ -85,7 +85,7 @@ import {
   type LimitChaserDisableEcho,
   type RelayConnectionState,
   type RelaySocketState,
-  type RelayViTriggers,
+  type RelayViSlots,
 } from "@/lib/use-relay-socket";
 import type {
   JournalOrderRow,
@@ -317,10 +317,10 @@ const EMPTY_ORDER_INDEX: ReadonlyMap<string, OrderIndexEntry> = new Map();
 const EMPTY_TAPES: ReadonlyMap<string, RelayTapeEntry[]> = new Map();
 const EMPTY_LIMIT_FEATURES: ReadonlyMap<string, RelayLimitFeatureMsg> = new Map();
 /**
- * 두 거래소 모두 「아직 모름」인 고정 참조 (17-06 / D-06). 매 렌더 새 객체를 만들면
- * `viAnyRunning` 을 memo 로 감싼 소비처가 전부 무효화된다.
+ * VI (계좌, 거래소) 슬롯 전부 모름(빈 Map · Phase 32 D-17)의 고정 참조. Provider 밖에서는 아무것도 조회한 적이 없다 —
+ * 매 렌더 새 Map 을 만들면 슬롯을 memo 로 감싼 소비처가 전부 무효화된다.
  */
-const EMPTY_VI_TRIGGERS: RelayViTriggers = {};
+const EMPTY_VI_SLOTS: RelayViSlots = new Map();
 /** 빈 테이프의 고정 참조 — 매 렌더 새 배열을 만들면 소비자 memo 가 전부 무효화된다. */
 const EMPTY_TAPE: RelayTapeEntry[] = [];
 /** 빈 주문 잠금의 고정 참조 (⑤ · ⑧) — Provider 밖 폴백이 매 호출 새 Map 을 만들지 않게 한다. */
@@ -375,8 +375,8 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   lastLimitChaserEcho: null,
   // Provider 밖에는 소켓도 비활성화 요청도 없다 — 귀속할 에코가 없다(quick-260926-nr2).
   limitChaserDisableEchoes: EMPTY_LC_DISABLE_ECHOES,
-  // 두 거래소 모두 미조회다. Provider 밖에서는 아무것도 조회한 적이 없다.
-  viTriggers: EMPTY_VI_TRIGGERS,
+  // VI 슬롯 전부 미조회다(웹은 VI 를 (계좌, 거래소) 슬롯으로만 읽는다 · Phase 32 D-17).
+  viSlots: EMPTY_VI_SLOTS,
   viOrders: [],
   viNotices: [],
   strategiesDisabled: null,

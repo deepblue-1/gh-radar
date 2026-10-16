@@ -573,7 +573,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await waitForStrategies(page, 2);
   });
 
-  test('P32-status 현황 = 고른 계좌 — 상태줄 「상따 N건 · VI」 고른 계좌 기준 · 「계좌 N개」 없음 · VI 행은 등록 계좌에만 · 빈 상태 문구 (D-21)', async ({
+  test('P32-status 현황 = 고른 계좌 — 상태줄 「상따 N건 · VI」 고른 계좌 기준 · 「계좌 N개」 없음 · VI 행은 고른 계좌 슬롯(④ 뒤 늘 한 행) · 빈 상태 문구 (D-21 · D-18)', async ({
     page,
   }) => {
     const statusBar = page.locator('[data-slot="me-status-bar"]');
@@ -592,17 +592,19 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await expect(viRow).toContainText('가동');
     await expect(accountEmpty).toHaveCount(0);
 
-    // B — VI 는 A 등록이라 B 에는 VI 행이 없다 · 상태줄 「VI 중지」.
+    // B — VI 는 A 슬롯이라 B 슬롯은 미등록 · ④ 뒤 VI 행은 늘 선다 → 「중지」 · 상태줄 「VI 중지」(D-18).
     await accountChip(page, ACCOUNT_B).click();
     await waitForStrategies(page, 1);
     await expect(statusBar).toContainText('상따 1건');
     await expect(statusBar).toContainText('VI 중지');
-    await expect(viRow).toHaveCount(0);
+    await expect(viRow).toHaveCount(1);
+    await expect(viRow).toContainText('중지');
     await expect(accountEmpty).toHaveCount(0);
 
-    // B 의 전략이 에코로 꺼지면 — 전략 0 ∧ VI 행 없음 → 「이 계좌에 등록된 전략 없음」.
+    // B 의 전략이 에코로 꺼지면 — 전략 0 ∧ 등록 VI 슬롯 없음 → 「이 계좌에 등록된 전략 없음」 + VI 행 「중지」.
     await relay.pushLimitChaserEcho({ ...CHASERS[1], buyEnabled: false, sellEnabled: false });
     await expect(accountEmpty).toHaveText('이 계좌에 등록된 전략 없음', { timeout: 15_000 });
+    await expect(viRow).toHaveCount(1);
     await expect(strategyRows(page)).toHaveCount(0);
     await expect(statusBar).toContainText('상따 0건');
     // 끄기 UI 는 「이 계좌 끄기」 하나뿐(D-27) — 끌 것이 없으면 disabled.
@@ -613,6 +615,48 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await accountChip(page, E2E_ACCOUNT_NO).click();
     await waitForStrategies(page, 2);
     await expect(viRow).toHaveCount(1);
+  });
+
+  test('P32-vi-me /me VI 행 = 고른 계좌 슬롯 — A 칩 KRX 가동(요약 A 값) · B 칩 미등록 「중지 · —」 · B NXT 61 이 오면 B 만 「가동」 (D-18 · S5′ · S12)', async ({
+    page,
+  }) => {
+    // gh-trade Phase 33 서버 흉내 — 21 은 선언 계좌마다 61 1프레임(B 는 `unregistered`) · relay 는 vi.slot 만 낸다(32-11).
+    relay.seedViSlots([{ ...VI_CFG, accountNo: E2E_ACCOUNT_NO, exchange: 'KRX', run: true }]);
+    const statusBar = page.locator('[data-slot="me-status-bar"]');
+    const viRow = strategyCard(page).locator('[data-slot="vi-status-row"]');
+    const viSummary = viRow.locator('[data-slot="vi-status-summary"]');
+
+    await page.goto('/me');
+    await waitForReady(page, 2);
+    await waitForStrategies(page, 2);
+
+    // A — 그 계좌 KRX 슬롯 가동.
+    await expect(viRow).toHaveCount(1);
+    await expect(viRow).toContainText('가동', { timeout: 15_000 });
+    await expect(viSummary).toHaveText('KRX 1,000만원 · 22.0% 이상');
+    await expect(statusBar).toContainText('VI 가동');
+
+    // B — 슬롯 미등록 → 같은 자리 한 행 「중지」 · 「—」(A 의 가동을 빌려 오지 않는다).
+    await accountChip(page, ACCOUNT_B).click();
+    await waitForStrategies(page, 1);
+    await expect(viRow).toHaveCount(1);
+    await expect(viRow).toContainText('중지');
+    await expect(viSummary).toHaveText('—');
+    await expect(statusBar).toContainText('VI 중지');
+
+    // B NXT 슬롯 61(가동)이 오면 B 행만 가동 — 같은 거래소 칸 덮어쓰기가 아니라 (B, NXT) 슬롯이다.
+    const sock = await relay.userSocket();
+    relay.gateway.sendFrame(
+      sock,
+      buildSetVITriggerRespFrame({ ...VI_CFG, accountNo: ACCOUNT_B, exchange: 'NXT', orderAmountKrw: 5_000_000n, checkRate: 18, run: true }),
+    );
+    await expect(viSummary).toHaveText('NXT 500만원 · 18.0% 이상', { timeout: 15_000 });
+    await expect(statusBar).toContainText('VI 가동');
+
+    // A 로 돌아오면 A 값 그대로.
+    await accountChip(page, E2E_ACCOUNT_NO).click();
+    await waitForStrategies(page, 2);
+    await expect(viSummary).toHaveText('KRX 1,000만원 · 22.0% 이상');
   });
 
   test('P32-disable 이 계좌 끄기 — 확인 → 게이트웨이 14 가 고른 계좌 키만 · 그 계좌 VI 11 run:false · 대기 잠금 → 완료 신호로 해제 · 그 계좌 전략이 현황 · 사이드바에서 빠지고 다른 계좌 칩의 전략은 그대로 (D-09 · D-21 · S5′)', async ({
@@ -963,7 +1007,9 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
       { timeout: 30_000 },
     );
     await expect(strategyRows(page)).toHaveCount(0);
-    await expect(strategyCard(page).locator('[data-slot="vi-status-row"]')).toHaveCount(0);
+    // ④ 뒤 VI 행은 늘 한 행 — 등록 슬롯이 없으면 「중지」(Phase 32 D-18 · S12 empty).
+    await expect(strategyCard(page).locator('[data-slot="vi-status-row"]')).toHaveCount(1);
+    await expect(strategyCard(page).locator('[data-slot="vi-status-row"]')).toContainText('중지');
     // 끌 것이 없다 — 「이 계좌 끄기」 하나뿐이고 disabled(D-27 · S5′).
     await expect(strategyCard(page).getByRole('button')).toHaveCount(1);
     await expect(

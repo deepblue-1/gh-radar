@@ -97,25 +97,25 @@
  *                                                                   `lc.snap` 은 사용자 합집합(세션 결선 순) · 「64 받았음」 은 세션별
  *           83 잔량진행률                             병합           `${ownerKey}|isin|ex` — 그 세션 소유 계좌로만 거름 ·  항목 단위(종전 25-06 거름 · fail-closed)
  *                                                                   팬아웃 · 스냅샷은 (isin, ex) 합집합
- *           61 VI 설정 · 72/73 VI 추적 · 56 VI 통보    VI 원천 병합   `${ownerKey}|거래소` · `${ownerKey}|주문번호` —   본문 계좌 ∉ 소유 뷰 → 버림(61 은 그 세션
- *                                                    (29-51 GC-05)  VI 원천 = 사용자의 **KB 세션 각각**(KB 세션이       그 거래소 = 미등록으로 기록)
- *                                                                   없으면 primary) · 브라우저 `vi` 는 거래소마다 병합값
+ *           61 VI 설정 · 72/73 VI 추적 · 56 VI 통보    VI 슬롯        `${ownerKey}|계좌|거래소` · `${ownerKey}|주문번호` —  본문 계좌 ∉ 소유 뷰 → 버림(슬롯 오염
+ *                                                    (P32 D-17)     VI = (소유 키, 계좌, 거래소) 슬롯 · 원천 = 모든 결선      없음 · 21 답 첫 프레임이면 그 세션 소유
+ *                                                                   세션 · 거래소당 1건 가드 없음 · 브라우저 `vi.slot` 슬롯마다   계좌의 모르는 슬롯 = 미등록)
  *           84 사용자 설정 (Phase 32 D-14a)          소유 키 단위   `${ownerKey}` → 그 서버 84 1건(`serverKey` 를 실음) ·   없음
  *                                                                   서버마다 `user_settings.toml` 이 따로 · replay 는 서버마다 1프레임(primary 마지막)
  *           76/78 돌파 · 77 예약 창                   primary 전용   사용자 단위 키 그대로 — 다른 세션 프레임은 debug 드롭  없음
- *         요청: 25(계좌) · 24(상따) · 43(사용자 설정 · Phase 32)은 세션마다 Ready 에서, 21 · 34 는 VI 원천 세션마다(21 대기열은 소유 키별).
+ *         요청: 25(계좌) · 24(상따) · 43(사용자 설정 · Phase 32) · 21 · 34(VI · P32 D-17)는 세션마다 Ready 에서(21 대기열은 소유 키별).
  *         세션 교체(같은 소유 키 다른 객체) · 분리(`retainSessions`)는 **그 세션 몫**만 버리고(VI · 84 도 소유 키 몫), 그 세션이 primary
  *         였으면 primary 전용 캐시(76/78 · 77)도 버린다. primary 가 바뀌면 옛 primary 몫 primary 전용 캐시만 버린다 — 84 는 서버별이라
- *         지우지 않고 43 도 다시 보내지 않는다(각 세션이 자기 Ready 에서 이미 요청했다 · VI 원천도 primary 와 무관 — KB 세션 각각이라
+ *         지우지 않고 43 도 다시 보내지 않는다(각 세션이 자기 Ready 에서 이미 요청했다 · VI 원천도 primary 와 무관 — 모든 결선 세션이라
  *         그대로다). 단일 세션 사용자는 「세션 1개짜리 병합」 — 종전과 같다.
- *   Phase 29-51 VI 계좌 소유 세션 원천 (GC-05)  G-1 로 계좌 A 를 KB121 로 지정하면 A 의 VI 는 KB121 서버에 있다. 그래서 VI 원천은
- *         primary 하나가 아니라 사용자의 KB 세션 각각이다(`#viSourceOwners` — 증권사 축은 KB 그대로 · 교보 세션은 원천 아님 · KB 세션이
- *         하나도 없을 때만 primary). 61 은 그 세션 소유 뷰 안 계좌만 그 소유 키 · 거래소 칸에 캐시하고(밖이면 그 칸 = 미등록 — 옛 서버에
- *         남은 지정 계좌 VI 는 원천이 아니다 · 끄기는 sweep 몫), 브라우저 `{t:"vi", x, cfg}` 는 거래소당 1건 그대로 — hub 가 병합한다:
- *         켜진(run) 등록본 → 마지막 에코의 등록본 → (Ready 인 원천이 전부 답했고) 전부 미등록이면 null → 아무도 답하지 않았으면 보내지
- *         않는다(3상태 규율). 거래소당 켜진 VI 1건은 fanout `vi.set` 이 세션 경계 너머에서도 지킨다(`viRunningElsewhere`). 72/73 추적은
- *         소유 키별 캐시의 합집합(`vi.list` 스냅샷 = 합집합), 56 은 그 계좌의 소유 세션 것만. 지금 운영(사용자마다 KB 세션 1개)은
- *         「원천 1개짜리 병합」 — 종전과 같다.
+ *   Phase 32 D-17 VI 계좌별 슬롯 (gh-trade Phase 33 · 29-51 GC-05 대체)  61 이 (계좌, 거래소) 슬롯이 됐다 — 21 답은 선언 계좌마다 1프레임
+ *         (`unregistered` 프레임 = 그 슬롯 미등록) · 에코는 바뀐 슬롯만. 그래서 VI = **(소유 키, 계좌, 거래소) 슬롯**(`#viSlots`)이고 원천 =
+ *         그 사용자의 **모든 결선 세션**(29-51 의 KB 한정 해제 — 교보 세션도 21 · 34 를 보내고 61 · 72/73 · 56 을 받는다) · 서버 간 거래소당
+ *         1건 가드 없음(한 서버 안 두 계좌 동시 VI 도 허용 — gh-trade D-03). 61 은 그 세션 소유 뷰 안 계좌만 캐시하고(밖이면 버림 · 옛 서버에
+ *         남은 지정 계좌 VI 끄기는 sweep 몫), 브라우저 `{t:"vi.slot", a, x, cfg}` 를 슬롯마다 1건 낸다 — 병합하지 않는다(slot-only · 구
+ *         거래소 병합 `vi` 는 더 내지 않는다). 구 gh-trade 서버(21 → 61 한 프레임)는 21 답 첫 프레임에서 그 세션 소유 계좌의 모르는 슬롯을
+ *         미등록으로 채워 호환한다(`#onViTrigger`). 72/73 추적은 소유 키별 캐시의 합집합(`vi.list` 스냅샷 = 합집합), 56 은 그 계좌의 소유
+ *         세션 것만.
  *   Phase 29-35 G-1 소유 필터  같은 계좌가 두 서버 users.toml 에 모두 있어도 그 계좌는 **유효 주문 서버 세션 하나에서만 보인다**
  *         (29-29 운영 규칙 · gh-trade-84 ② 확정 — A 서버 주문의 체결 통보는 B 서버로 가지 않으므로 다른 서버의 잔고 · 미체결은 낡는다).
  *         위 표의 「병합」 프레임 중 계좌가 실린 것(66/67 · 60/64 · 83)은 그 세션 소유 뷰(`allowedAccounts` — 29-33 `DmaSession`)에 없는
@@ -242,6 +242,7 @@ import {
   parseViTrigger,
   type ParsedOrderResp,
   type ParsedSymbolMasterFrame,
+  type ParsedViTrigger,
   type QueueProgressFrame,
 } from "../dma/envelope.js";
 import { MSG } from "../dma/msg-type.js";
@@ -834,32 +835,12 @@ function viPendingKey(owner: string, item: RelayViOrderItem): string {
 }
 
 /**
- * VI 전략 캐시 키 (17-05 / D-06). 서버가 **세션당 거래소별 1건**으로 관리하므로 캐시도 거래소별이다.
- *
- * 한 칸으로 키를 잡으면 NXT 응답이 KRX 행을 덮어 「KRX 에 등록했는데 NXT 설정이 보인다」가 된다. 앞은 **세션 소유 키**다(29-51
- * GC-05 — VI 원천이 사용자의 KB 세션 각각이라 서버마다 칸이 따로다 · 사용자 단위 조회는 `userPrefix` 로 소유 키를 훑는다). 브라우저로
- * 나가는 사용자 · 거래소 단위 병합값의 마지막 팬아웃 기록(`#viEmitted`)은 `viUserKey` 다.
+ * VI (계좌, 거래소) 슬롯 캐시 키 (Phase 32 D-17 · gh-trade Phase 33) — `${소유 키}|${계좌}|${거래소}`. 61 이 계좌별 슬롯이 돼 21 답이 선언
+ * 계좌마다 1프레임이다 — 거래소 칸 하나에 쓰면 마지막 계좌 건만 남는다(인박스 261016 「배포 순서 제약」). 앞이 소유 키라 `ownerPrefix`
+ * 정리(`#clearViOwner`)가 그대로 동작한다.
  */
-function viTriggerKey(owner: string, exchange: RelayExchange): string {
-  return `${owner}|${exchange}`;
-}
-
-/** 사용자 · 거래소 키 (29-51) — 브라우저 `vi` 프레임 단위(거래소당 1건)의 마지막 팬아웃 값 기록 `#viEmitted` 전용. */
-function viUserKey(userId: string, exchange: RelayExchange): string {
-  return `${userId}|${exchange}`;
-}
-
-/** VI 설정 두 값이 같은가 (29-51 — 병합값이 바뀌었을 때만 팬아웃). 미등록(null)끼리는 같다. */
-function sameViTrigger(a: RelayViTrigger | null, b: RelayViTrigger | null): boolean {
-  if (a === null || b === null) return a === b;
-  return (
-    a.accountNo === b.accountNo &&
-    a.exchange === b.exchange &&
-    a.orderAmountKrw === b.orderAmountKrw &&
-    a.checkRate === b.checkRate &&
-    a.priceType === b.priceType &&
-    a.run === b.run
-  );
+function viSlotKey(owner: string, accountNo: string, exchange: RelayExchange): string {
+  return `${owner}|${accountNo}|${exchange}`;
 }
 
 /**
@@ -1009,7 +990,7 @@ export class SubscriptionHub extends EventEmitter {
   /**
    * 세션 소유 키 집합(29-20 — 옛 단위는 userId) — **게이트웨이 64(목록 전량)를 이 세션에서 받았는가** (18-26 / GC-IN-02).
    *
-   * `#viTriggers` 의 3상태와 같은 규율이다. 캐시가 비어 있다는 것만으로는 「등록 전략 없음」
+   * `#viSlots` 의 3상태와 같은 규율이다. 캐시가 비어 있다는 것만으로는 「등록 전략 없음」
    * (64 가 빈 목록으로 왔다)과 「아직 모름」(콜드 세션 · 세션 교체 직후 64 전)을 가를 수
    * 없다. 둘을 뭉개면 인증 경로가 빈 캐시를 `lc.snap []` 으로 내려 「모름」을 「없음」으로
    * 말하고, 브라우저는 그 거짓 확정 위에서 포커스 보류를 판정한다.
@@ -1020,35 +1001,20 @@ export class SubscriptionHub extends EventEmitter {
    */
   readonly #limitChaserKnown = new Set<string>();
   /**
-   * `${ownerKey}|${exchange}` → 그 VI 원천 세션의 VI 전략 (17-05 / D-06 · 29-51 GC-05 — 키 앞이 세션 소유 키).
+   * `viSlotKey(owner, accountNo, exchange)` → 그 (계좌, 거래소) 슬롯의 VI 전략 (Phase 32 D-17 · gh-trade Phase 33 — 17-05 의 거래소별 칸을
+   * 계좌까지 넓혔다). 서버는 VI 를 세션 안 (계좌, 거래소) 슬롯마다 1건으로 관리한다 — 거래소 칸 하나로 두면 21 답(선언 계좌마다 61)의 마지막
+   * 계좌 건만 남는다.
    *
-   * 서버는 VI 전략을 **세션당 거래소별 1건**(KRX 1 + NXT 1)으로 관리한다. 한 칸으로 두면
-   * 나중에 온 거래소의 답이 앞 칸을 덮어, KRX 에 등록한 사용자가 NXT 의 「미등록」을 본다.
-   *
-   * **`null` 을 명시로 저장한다.** 「조회했더니 미등록」(`null`)과 「아직 조회한 적 없음」
-   * (키 부재)은 다른 상태다. 둘을 뭉개면 인증 직후
-   * 팬아웃이 「미등록」을 지어내 보내고, 브라우저가 사용자가 입력한 금액을 지운다.
-   * **거래소마다 독립으로** 이 3상태를 판정하고, 사용자 · 거래소 단위 값은 VI 원천 세션들의 칸을 병합한다(`#mergeVi`).
+   * **`null` 을 명시로 저장한다.** 「조회했더니 미등록」(`null` — `unregistered` 프레임 · 구 서버 21 답의 귀속)과 「아직 조회한 적 없음」
+   * (키 부재)은 다른 상태다. 둘을 뭉개면 인증 직후 팬아웃이 「미등록」을 지어내 보내고, 브라우저가 사용자가 입력한 금액을 지운다. 슬롯마다
+   * 브라우저 `vi.slot` 1건으로 낸다 — 병합하지 않는다(D-17 slot-only · 구 `vi` 거래소 병합 프레임은 더 내지 않는다).
    */
-  readonly #viTriggers = new Map<string, RelayViTrigger | null>();
-  /**
-   * `viUserKey(userId, exchange)` → 그 거래소로 브라우저에 마지막으로 팬아웃한 병합값 (29-51). 병합값이 바뀌지 않은 다른 세션의 61 이
-   * 카드 칸을 흔들지 않게 한다(바뀌었거나 그 61 이 병합값 자신일 때만 팬아웃). 병합값이 「모름」이 되면 지운다.
-   */
-  readonly #viEmitted = new Map<string, RelayViTrigger | null>();
-  /**
-   * `viTriggerKey(owner, exchange)` → 그 칸에 등록본 에코가 온 순번 (29-51). 병합에서 꺼진 등록본이 여럿이면 **마지막으로 에코가 온 세션**
-   * 것을 고른다(사용자가 방금 만진 칸). 순번은 hub 전체에서 하나씩 오른다(`#viSeq`).
-   */
-  readonly #viTriggerSeq = new Map<string, number>();
-  #viSeq = 0;
+  readonly #viSlots = new Map<string, RelayViTrigger | null>();
   /** VI 주문 추적 캐시에서 세션 몫을 지워 브라우저 사본과 어긋난 사용자 (29-51 — 분리) — 다음 원천 정리가 `vi.list` 스냅샷(합집합)을 낸다. */
   readonly #viListDirty = new Set<string>();
-  /** userId → 마지막으로 정리를 마친 VI 원천 소유 키 목록 (29-51) — 원천에서 빠진 세션 몫 VI 캐시를 지우고 병합을 다시 낸다. */
-  readonly #lastViSources = new Map<string, string[]>();
   /**
    * 세션 소유 키(29-51 — 옛 단위는 userId) → **보낸 21 요청의 거래소 FIFO** (17-05 / D-06 / Pitfall 3 — C# `_pendingViGets`).
-   * 빈 61 은 그 61 이 온 세션의 대기열 머리로만 귀속한다 — VI 원천 세션이 여럿이어도 서로의 21 답을 가로채지 않는다.
+   * 빈 61 은 그 61 이 온 세션의 대기열 머리로만 귀속한다 — 세션이 여럿이어도 서로의 21 답을 가로채지 않는다.
    *
    * 미등록 응답(빈 61)에는 본문이 없어 **거래소가 실리지 않는다**. 요청 순서가 그 응답을
    * 귀속할 유일한 근거다. 규약 4개(C# `Client.cs:2187-2214`, `:3038`):
@@ -1106,7 +1072,7 @@ export class SubscriptionHub extends EventEmitter {
    * `userId` → 예약·장전·시간외종가 발주 창 상태 **최신 1건** (17-03 / D-03).
    *
    * 키 부재(= `getQueuedWindow` 가 `undefined`)는 「77 을 아직 못 받았다」이고 `open:false`
-   * 와 **다른 상태**다. `#viTriggers` 의 3상태 규율과 같은 이유로 뭉개지 않는다.
+   * 와 **다른 상태**다. `#viSlots` 의 3상태 규율과 같은 이유로 뭉개지 않는다.
    */
   readonly #queuedWindows = new Map<string, RelayQueuedWindowMsg>();
   /**
@@ -1213,8 +1179,7 @@ export class SubscriptionHub extends EventEmitter {
       session.on("ready", () => this.#onReady(userId, owner, session));
     }
     logger.info({ userId, serverKey }, "[HUB] 세션 결선");
-    const readyHandled = rewired && session.isReady ? owner : undefined;
-    this.#afterPrimaryChange(userId, primaryBefore, readyHandled);
+    this.#afterPrimaryChange(userId, primaryBefore);
     // 떼어 냈던(`retainSessions`) 세션이 Ready 인 채 돌아왔다 — 그 사이 비운 몫은 지나간 `ready` 를 기다리면 영영
     // 채워지지 않는다. 같은 자리(`#onReady`)로 다시 요청한다. 새 세션(처음 결선)은 곧 오는 `ready` 가 한다.
     if (rewired && session.isReady) this.#onReady(userId, owner, session);
@@ -1245,9 +1210,9 @@ export class SubscriptionHub extends EventEmitter {
    *
    * hub 에 결선되지 않은 세션(연결 없는 사용자의 임시 세션 · 이미 교체 · 분리된 옛 세션)은 즉시 무동작 대여다. 결선된 세션이면 그 소유 키에
    * 표식을 둔다 — 대여 동안 그 세션 몫 21 은 미루고(`refetchVi`), 빈 61 · 65 는 귀속 · 팬아웃하지 않는다. 반납은 표식을 지우고, 미룬 21 이
-   * 있었고 그 세션이 아직 같은 소유 키 · Ready · VI 원천(29-51 — 사용자의 KB 세션 각각)이면 그때 21(KRX → NXT)을 보낸다.
+   * 있었고 그 세션이 아직 같은 소유 키 · Ready 면 그때 21(KRX → NXT)을 보낸다.
    *
-   * 표식을 두기 **전에** 배수한다(GC-04): 그 세션이 VI 원천이고 hub 가 그 세션으로 보낸 21(대기열은 소유 키별 · 29-51)이 아직 답을 못
+   * 표식을 두기 **전에** 배수한다(GC-04): hub 가 그 세션으로 보낸 21(대기열은 소유 키별 · 29-51)이 아직 답을 못
    * 받았으면 그 61 이 다 귀속될 때까지(대기 중
    * 온 61 은 종전대로 hub 몫) 기다린다 — `HUB_LEASE_DRAIN_MS` 를 넘으면 hub 대기열을 비우고 `refetchVi` 로 반납 때 다시 묻는다. 그래서 한
    * 세션의 미해결 21 은 늘 한 주인(hub 또는 sweeper)의 것이다. 같은 소유 키의 두 번째 대여는 앞 대여 반납까지 기다린다. 기다리는 사이 그
@@ -1296,12 +1261,11 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
-   * 대여 전 배수 (29-49 · GC-04) — 그 소유 키가 VI 원천(29-51 — 사용자의 KB 세션 각각)이고 그 소유 키의 hub 21 대기열이 비어 있지 않으면
+   * 대여 전 배수 (29-49 · GC-04) — 그 소유 키의 hub 21 대기열이 비어 있지 않으면(Phase 32 D-17 — VI 원천은 모든 결선 세션)
    * 빌 때까지 기다린다. 상한(`HUB_LEASE_DRAIN_MS`)에 걸리면 대기열을 비우고 warn 1줄(userId · 서버 키 · 남은 수) 뒤 `true`(반납 때 재요청).
    * 기다릴 것이 없으면 즉시 `false`.
    */
   #drainViGets(userId: string, owner: string, serverKey: string): Promise<boolean> {
-    if (!this.#isViSource(userId, owner)) return Promise.resolve(false);
     if ((this.#pendingViGets.get(owner)?.length ?? 0) === 0) return Promise.resolve(false);
     return new Promise<boolean>((resolve) => {
       const waiter: DrainWaiter = {
@@ -1342,9 +1306,8 @@ export class SubscriptionHub extends EventEmitter {
       logger.info({ userId, serverKey }, "[HUB] sweep 대여 반납 — 미룬 21 없음");
       return;
     }
-    // 옛 세션으로는 보내지 않는다 — 교체됐으면 새 세션의 Ready 가 이미 맡았다. VI 원천에서 빠졌으면(29-51 — KB 세션이 아닌 primary 였다가
-    // KB 세션이 결선됨) 그 세션 몫 21 은 이제 없다.
-    if (this.#sessions.get(owner) !== session || !session.isReady || !this.#isViSource(userId, owner)) {
+    // 옛 세션으로는 보내지 않는다 — 교체됐으면 새 세션의 Ready 가 이미 맡았다.
+    if (this.#sessions.get(owner) !== session || !session.isReady) {
       logger.info({ userId, serverKey }, "[HUB] sweep 대여 반납 — 미룬 21 은 이 세션 몫이 아니게 됨 (재요청 생략)");
       return;
     }
@@ -1619,7 +1582,7 @@ export class SubscriptionHub extends EventEmitter {
    * 서버), 없으면 처음 결선된 KB 세션, 없으면 처음 결선된 세션, 세션이 없으면 undefined. `SessionManager.primaryOf` 와 같은
    * 규칙 · 같은 주입이라 결선 순서와 무관하게 같은 답이다. 사용자 단위 원천(76/78 · 77)이 이 세션만 본다. 84 · 43 은 Phase 32 D-14a
    * 부터 세션마다(소유 키)이고, 이 세션은 인증 replay 의 「마지막 84」 순서만 정한다(`getUserSettingsAll`). VI(61 · 72/73 · 56 · 21 · 34)는
-   * 29-51 부터 `#viSourceOwners`(사용자의 KB 세션 각각)다 — KB 세션이 없을 때만 이 세션이다.
+   * Phase 32 D-17 부터 모든 결선 세션이 원천이라 primary 와 무관하다.
    */
   #primaryOwner(userId: string): string | undefined {
     const prefix = userPrefix(userId);
@@ -1635,28 +1598,6 @@ export class SubscriptionHub extends EventEmitter {
     return firstKb ?? first;
   }
 
-  /**
-   * 그 사용자의 VI 원천 세션 소유 키들 (29-51 · GC-05) — 결선된 세션 중 **증권사가 KB 인 것 각각**(결선 순). KB 세션이 하나도 없으면
-   * primary 하나(교보만 가진 사용자 — 종전 「primary 원천」 그대로). 증권사 축은 KB 그대로다(D-18) — KB 세션이 있는 사용자의 교보
-   * 세션은 원천이 아니다(21 · 34 를 보내지 않고 그 61 · 72/73 · 56 은 버린다). G-1 로 같은 증권사 서버가 여럿이면 계좌가 지정된 서버마다
-   * 그 계좌의 VI 가 있으므로 서버 축만 넓힌다.
-   */
-  #viSourceOwners(userId: string): string[] {
-    const prefix = userPrefix(userId);
-    const out: string[] = [];
-    for (const [owner, s] of this.#sessions) {
-      if (owner.startsWith(prefix) && brokerOf(s) === PRIMARY_BROKER) out.push(owner);
-    }
-    if (out.length > 0) return out;
-    const primary = this.#primaryOwner(userId);
-    return primary === undefined ? [] : [primary];
-  }
-
-  /** 그 소유 키가 지금 그 사용자의 VI 원천인가 (29-51 · `#viSourceOwners`). */
-  #isViSource(userId: string, owner: string): boolean {
-    return this.#viSourceOwners(userId).includes(owner);
-  }
-
   /** 결선 · 분리 직전의 primary — 마지막으로 정리를 마친 값(`#lastPrimary` · 29-35). */
   #primaryBefore(userId: string): string | undefined {
     return this.#lastPrimary.get(userId);
@@ -1664,26 +1605,23 @@ export class SubscriptionHub extends EventEmitter {
 
   /** 세션 하나를 떼어 낸다 — 그 세션 몫 캐시 폐기 + 결선 해제. 리스너는 정본 대조로 침묵한다. */
   #dropOwner(userId: string, owner: string, wasPrimary: boolean): void {
-    // 떼어 낸 세션의 VI 주문 추적이 브라우저 사본에 남지 않게 — 원천 정리(`#syncViSources`)가 남은 합집합 스냅샷을 낸다(29-51).
+    // 떼어 낸 세션의 VI 주문 추적이 브라우저 사본에 남지 않게 — 결선 정리(`#syncViList`)가 남은 합집합 스냅샷을 낸다(29-51).
     if (this.#clearCaches(userId, owner, wasPrimary)) this.#viListDirty.add(userId);
     this.#sessions.delete(owner);
   }
 
   /**
-   * 결선 · 분리 뒤 정리 — VI 원천 목록이 바뀌었으면 맞추고(29-51 `#syncViSources`), primary 가 바뀌었으면(D-18) 아직 붙어 있는 옛
+   * 결선 · 분리 뒤 정리 — 떼어 낸 세션 몫 VI 주문 추적이 있었으면 합집합 스냅샷을 다시 내고(`#syncViList`), primary 가 바뀌었으면(D-18) 아직 붙어 있는 옛
    * primary 몫 사용자 단위 캐시(76/78 · 77)를 버린다. 처음 결선(이전 primary 없음)은 곧 오는 `ready` 몫이다.
    *
    * Phase 32 D-14a — 84 는 서버별(소유 키)이라 primary 변경과 무관하다: 지우지 않고, 새 primary 로 43 을 다시 보내지도 않는다(43 은
    * 세션마다 자기 Ready 에서 보낸다 · 76/78 · 77 은 서버 푸시라 43 과 무관하다).
-   *
-   * @param readyHandled 곧 `#onReady` 가 자기 Ready 프리페치를 할 세션의 소유 키(되돌아온 Ready 세션 — `attach`) — 원천 정리가 21 을 겹쳐
-   *        보내지 않게 한다.
    */
-  #afterPrimaryChange(userId: string, primaryBefore: string | undefined, readyHandled?: string): void {
+  #afterPrimaryChange(userId: string, primaryBefore: string | undefined): void {
     const after = this.#primaryOwner(userId);
     if (after === undefined) this.#lastPrimary.delete(userId);
     else this.#lastPrimary.set(userId, after);
-    this.#syncViSources(userId, readyHandled);
+    this.#syncViList(userId);
     if (after === primaryBefore || primaryBefore === undefined) return;
     // 옛 primary 가 떼어졌으면 `#dropOwner` 가 이미 비웠다. 남아 있으면(강등) 여기서 비운다.
     if (this.#sessions.has(primaryBefore)) this.#clearPrimaryCaches(userId);
@@ -1693,29 +1631,13 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
-   * VI 원천 목록 정리 (29-51 · GC-05) — 마지막 정리 뒤 원천에서 빠진 소유 키(분리 · KB 세션 결선으로 교보 primary 가 원천에서 빠짐)의 VI
-   * 캐시 · 21 대기열을 지우고, 원천이 바뀌었으면 거래소별 병합값을 다시 낸다(바뀐 칸만 · 모름이면 보내지 않는다). 원천 전환으로 **이미 Ready
-   * 인 교보 primary** 가 새 원천이 되면(KB 세션이 사라짐) 그 세션으로 21 · 34 를 요청한다 — KB 세션은 결선 뒤 자기 Ready 가 요청한다.
+   * VI 주문 추적 합집합 재송신 (29-51 → Phase 32 D-17). VI 원천이 모든 결선 세션이라 원천이 바뀌는 길은 결선 · 분리뿐이고, 분리된 세션의 VI 몫
+   * (설정 슬롯 · 추적 · 21 대기열)은 `#clearCaches` → `#clearViOwner` 가 이미 지웠다. 그때 추적을 하나라도 지웠으면(`#viListDirty`) 남은
+   * 합집합 `vi.list` 스냅샷을 낸다. 새로 결선된 세션의 21 · 34 는 그 세션 Ready 프리페치(`#onReady` — 되돌아온 Ready 세션은 `attach` 가 바로
+   * 부른다)가 보낸다. 설정 슬롯은 다시 보내지 않는다 — 브라우저에 「지움」 프레임이 없고, 모르면 보내지 않는다(3상태 규율).
    */
-  #syncViSources(userId: string, readyHandled?: string): void {
-    const before = this.#lastViSources.get(userId) ?? [];
-    const after = this.#viSourceOwners(userId);
-    if (after.length === 0) this.#lastViSources.delete(userId);
-    else this.#lastViSources.set(userId, after);
-    const removed = before.filter((o) => !after.includes(o));
-    let listDirty = this.#viListDirty.delete(userId);
-    for (const owner of removed) if (this.#clearViOwner(owner)) listDirty = true;
-    if (before.length > 0) {
-      for (const owner of after) {
-        if (before.includes(owner) || owner === readyHandled) continue;
-        const session = this.#sessions.get(owner);
-        if (session === undefined || brokerOf(session) === PRIMARY_BROKER || !session.isReady) continue;
-        logger.info({ userId, serverKey: serverKeyOf(session) }, "[HUB] VI 원천 전환 — KB 세션 없음, primary 로 21 · 34 요청 (29-51)");
-        this.#requestViSnapshot(userId, owner, session);
-      }
-    }
-    if (removed.length > 0) this.#reemitVi(userId);
-    if (listDirty) this.#fanout(userId, { t: "vi.list", snap: true, items: this.getViOrders(userId) });
+  #syncViList(userId: string): void {
+    if (this.#viListDirty.delete(userId)) this.#fanout(userId, { t: "vi.list", snap: true, items: this.getViOrders(userId) });
   }
 
   /**
@@ -2201,8 +2123,8 @@ export class SubscriptionHub extends EventEmitter {
    *
    * Phase 29-20 (D-18) — 24(상따 목록)는 **증권사 세션마다**(상따는 병합)다. Phase 32 D-14a — 43 도 **세션마다**다(84 는 서버마다
    * `user_settings.toml` 이 따로라 소유 키로 캐시한다).
-   * Phase 29-51 (GC-05) — 21 · 34 는 **VI 원천 세션마다**(사용자의 KB 세션 각각 · `#viSourceOwners`)다. 21 대기열은 소유 키별이라
-   * 세션이 여럿이어도 서로의 빈 61 을 가로채지 않는다. 원천이 아닌 세션(KB 세션이 있는 사용자의 교보 세션)은 21 · 34 를 보내지 않는다.
+   * Phase 32 D-17 — 21 · 34 는 **세션마다**다(VI 원천 = 그 사용자의 모든 결선 세션 · 29-51 의 KB 한정 해제 — 교보 세션도 보낸다).
+   * 21 대기열은 소유 키별이라 세션이 여럿이어도 서로의 21 답을 가로채지 않는다.
    *
    * @param owner 세션 소유 키. 생략 = primary 세션.
    */
@@ -2216,25 +2138,22 @@ export class SubscriptionHub extends EventEmitter {
       return;
     }
     session.send(buildGetLimitChaserListReq());
-    const viSource = this.#isViSource(userId, owner);
-    const queue = viSource ? this.#requestViSnapshot(userId, owner, session) : [];
+    const queue = this.#requestViSnapshot(userId, owner, session);
     this.#requestUserSettings(userId, session);
     logger.info(
-      { userId, serverKey: serverKeyOf(session), viSource, viExchanges: [...queue] },
-      viSource
-        ? "[HUB] Ready — 전략 스냅샷 요청 (21 · 34 는 VI 원천 세션마다 · 43 은 세션마다 · 29-51 · P32 D-14a)"
-        : "[HUB] Ready — 상따 목록 · 사용자 설정 요청 (VI 원천 아닌 세션 — 21 · 34 없음 · 43 은 세션마다 · P32 D-14a)",
+      { userId, serverKey: serverKeyOf(session), viExchanges: [...queue] },
+      "[HUB] Ready — 전략 스냅샷 요청 (24 · 21 · 34 · 43 세션마다 · P32 D-14a · D-17)",
     );
   }
 
-  /** VI 원천 세션 몫 스냅샷 요청 (29-51) — 21(거래소별 2회 · 그 소유 키 대기열) · 34. 보낸 21 거래소 순서를 돌려준다. */
+  /** 세션 몫 VI 스냅샷 요청 (29-51 · P32 D-17 모든 세션) — 21(거래소별 2회 · 그 소유 키 대기열) · 34. 보낸 21 거래소 순서를 돌려준다. */
   #requestViSnapshot(userId: string, owner: string, session: HubSession): RelayExchange[] {
     const queue = this.#requestViTriggers(userId, owner, session);
     session.send(buildGetVIOrderListReq());
     return queue;
   }
 
-  /** 세션 몫 사용자 설정 요청 — 43 (Phase 32 D-14a · 세션마다). 24 는 부르는 쪽이 이미 보냈다 · 21 · 34 는 VI 원천 몫(29-51). */
+  /** 세션 몫 사용자 설정 요청 — 43 (Phase 32 D-14a · 세션마다). 24 · 21 · 34 는 부르는 쪽이 이미 보냈다. */
   #requestUserSettings(userId: string, session: HubSession): void {
     // 43 사용자 설정 (Phase 27 · Pitfall 4) — 84 는 로그인 직후(계좌 선언 전 = Ready 전)에 와서 캐시만 되고
     // 팬아웃되지 않는다. 같은 세션에 이미 붙어 있던 탭(재접속)은 이 43 의 84 로 갱신된다. 응답 귀속이 필요 없다
@@ -2313,7 +2232,7 @@ export class SubscriptionHub extends EventEmitter {
    *
    * `true` 면 `getLimitChasers` 가 **확정 목록**이다(빈 배열 = 등록 전략 없음). `false` 면
    * 캐시는 「모름」이고 — 60 에코로 몇 건 들어 있어도 전체가 아니다 — 인증 경로는
-   * `lc.snap` 을 보내지 않는다. `getViTrigger` 의 `undefined` 와 같은 자리다.
+   * `lc.snap` 을 보내지 않는다. `getViSlot` 의 `undefined` 와 같은 자리다.
    */
   hasLimitChaserList(userId: string): boolean {
     // 29-20 (D-18) — 어느 증권사 세션이든 64 를 받았으면 확정이다(그 세션 몫은 확정 · 아직 못 받은 세션 몫은 곧 오는 64 가
@@ -2324,18 +2243,37 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
-   * 그 사용자의 **그 거래소** VI 전략 (17-05 / D-06).
-   *
-   * **반환값 3종을 구분해야 한다**: `RelayViTrigger` = 등록됨, `null` = 조회 결과 미등록,
-   * `undefined` = **아직 모른다**(그 거래소의 61 을 한 번도 못 받았다). `undefined` 일 때는
-   * 프레임을 내리지 않는다 — 지어낸 「미등록」을 보내면 브라우저가 사용자가 입력 중인 금액을
-   * 지운다. 판정은 **거래소마다 독립**이다(KRX 는 알고 NXT 는 모르는 상태가 정상이다).
-   *
-   * 29-51 (GC-05) — VI 원천 세션(사용자의 KB 세션 각각) 칸의 **병합값**이다(`#mergeVi` — 브라우저 `vi` 프레임과 같은 값). 원천이 하나면
-   * 그 세션 값 그대로다.
+   * 그 사용자의 VI 슬롯 전량 (Phase 32 D-17) — 인증 replay(`vi.slot` 전량)에 쓴다. 세션 결선 순 · 세션 안은 캐시 삽입 순. 아는 슬롯만이다
+   * (키 부재 = 모름은 싣지 않는다 — 지어낸 「미등록」 을 내리면 브라우저가 사용자가 입력 중인 금액을 지운다 · 16-06 결정 2).
    */
-  getViTrigger(userId: string, exchange: RelayExchange): RelayViTrigger | null | undefined {
-    return this.#mergeVi(userId, exchange).cfg;
+  getViSlotsAll(userId: string): { a: string; x: RelayExchange; cfg: RelayViTrigger | null }[] {
+    const prefix = userPrefix(userId);
+    const out: { a: string; x: RelayExchange; cfg: RelayViTrigger | null }[] = [];
+    for (const owner of this.#sessions.keys()) {
+      if (!owner.startsWith(prefix)) continue;
+      const own = ownerPrefix(owner);
+      for (const [key, cfg] of this.#viSlots) {
+        if (!key.startsWith(own)) continue;
+        const rest = key.slice(own.length);
+        const bar = rest.lastIndexOf("|");
+        out.push({ a: rest.slice(0, bar), x: rest.slice(bar + 1) as RelayExchange, cfg });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * 그 사용자의 그 (계좌, 거래소) VI 슬롯 (Phase 32 D-17). 3상태 — 객체 = 등록 · `null` = 미등록 · `undefined` = 모름. 그 사용자의 세션
+   * (결선 순) 중 그 슬롯을 아는 첫 세션 것이다 — 계좌는 소유 세션 하나에만 보이므로(G-1 소유 필터) 보통 하나뿐이다.
+   */
+  getViSlot(userId: string, accountNo: string, exchange: RelayExchange): RelayViTrigger | null | undefined {
+    const prefix = userPrefix(userId);
+    for (const owner of this.#sessions.keys()) {
+      if (!owner.startsWith(prefix)) continue;
+      const key = viSlotKey(owner, accountNo, exchange);
+      if (this.#viSlots.has(key)) return this.#viSlots.get(key) ?? null;
+    }
+    return undefined;
   }
 
   /**
@@ -2367,26 +2305,6 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
-   * 그 세션이 아닌 VI 원천 세션 중 그 거래소에 **켜진(run)** VI 가 있는 첫 것 (29-51 · GC-05). fanout `vi.set(run:true)` 이 그 세션에 같은
-   * 값 run:false(11)를 먼저 보내 거래소당 켜진 VI 사용자 단위 1건(17-06 D-06)을 세션 경계 너머에서도 지킨다 — 한 서버 안에서 서버가 슬롯을
-   * 갈아 끼우는 것과 같은 결과다. 같은 세션이면 서버가 갈아 끼우므로 보지 않는다.
-   */
-  viRunningElsewhere(
-    userId: string,
-    exchange: RelayExchange,
-    session: HubSession,
-  ): { session: HubSession; cfg: RelayViTrigger } | undefined {
-    const self = ownerKey(userId, serverKeyOf(session));
-    for (const owner of this.#viSourceOwners(userId)) {
-      if (owner === self) continue;
-      const cfg = this.#viTriggers.get(viTriggerKey(owner, exchange));
-      const other = this.#sessions.get(owner);
-      if (cfg !== undefined && cfg !== null && cfg.run && other !== undefined) return { session: other, cfg };
-    }
-    return undefined;
-  }
-
-  /**
    * 그 사용자의 등락률 돌파 above 집합 복사본 (17-03 / D-03).
    *
    * 정렬은 `sortRateCrossNewestFirst`(**`exchangeTime` 내림차순 · 동률이면 `isin` 오름차순**)다 —
@@ -2407,7 +2325,7 @@ export class SubscriptionHub extends EventEmitter {
   /**
    * 그 사용자의 예약·장전·시간외종가 발주 창 상태 (17-03 / D-03).
    *
-   * **`undefined` 는 「77 을 아직 못 받았다」**이고 `getViTrigger` 의 3상태 규율과 같은
+   * **`undefined` 는 「77 을 아직 못 받았다」**이고 `getViSlot` 의 3상태 규율과 같은
    * 이유로 뭉개지 않는다 — 지어낸 창 상태를 내리면 브라우저가 거짓 라벨을 그린다.
    */
   getQueuedWindow(userId: string): RelayQueuedWindowMsg | undefined {
@@ -2630,7 +2548,7 @@ export class SubscriptionHub extends EventEmitter {
       cachedQuoteCount: this.#quotes.size,
       cachedAccountCount: this.#accountStates.size,
       cachedLimitChaserCount: this.#limitChasers.size,
-      cachedViTriggerCount: this.#viTriggers.size,
+      cachedViTriggerCount: this.#viSlots.size,
       cachedViOrderCount: this.#viOrders.size,
       cachedRateCrossCount: this.#rateCrossItems.size,
       unhandledFrameCount: this.#unhandledFrames,
@@ -2666,11 +2584,8 @@ export class SubscriptionHub extends EventEmitter {
     this.#accountStates.clear();
     this.#limitChasers.clear();
     this.#limitChaserKnown.clear();
-    this.#viTriggers.clear();
-    this.#viTriggerSeq.clear();
+    this.#viSlots.clear();
     this.#viListDirty.clear();
-    this.#viEmitted.clear();
-    this.#lastViSources.clear();
     this.#pendingViGets.clear();
     // sweep 대여(29-49) — 표식을 지우고 배수 대기를 끝낸다(대여는 세션이 사라졌으니 무동작으로 해결 · 상한 타이머 해제).
     this.#lent.clear();
@@ -2758,27 +2673,25 @@ export class SubscriptionHub extends EventEmitter {
         return;
       }
       case MSG.SetVITriggerResp: {
-        // VI 는 VI 원천 세션(29-51 GC-05 — 사용자의 KB 세션 각각)만이다. 계좌 소유 필터는 `#onViTrigger` 가 한다.
-        if (!this.#fromViSource(userId, owner, e.msgType)) return;
+        // VI 원천 = 그 사용자의 모든 결선 세션(Phase 32 D-17 — 29-51 의 KB 한정 해제). 계좌 소유 필터는 `#onViTrigger` 가 한다.
         // `null` 은 파싱 실패, `{ok:true, cfg:null}` 은 **미등록**이다 — 뭉개지 않는다.
         const parsed = parseViTrigger(e.env);
         if (parsed === null) return;
-        // 대여 중 세션의 빈 61 은 sweeper 자신의 21 답이다(29-49 · GC-04) — hub 대기열 머리로 귀속하지 않는다. 본문 있는 61 은 거래소가
-        // 실린 서버 사실이라 대여 중에도 종전대로 캐시 · 팬아웃한다.
-        if (parsed.cfg === null && this.#lent.has(owner)) {
+        // 대여 중 세션의 빈 Envelope 는 sweeper 자신의 21 답이다(29-49 · GC-04) — hub 대기열 머리로 귀속하지 않는다. 슬롯이 실린 61
+        // (등록본 · `unregistered`)은 계좌 · 거래소가 실린 서버 사실이라 대여 중에도 캐시 · 팬아웃한다.
+        if (parsed.cfg === null && parsed.slot === undefined && this.#lent.has(owner)) {
           logger.debug(
             { userId, serverKey: owner.slice(userPrefix(userId).length) },
             "[HUB] sweep 대여 중 세션의 빈 61 — sweeper 의 21 답, 귀속 안 함 (GC-04)",
           );
           return;
         }
-        this.#onViTrigger(userId, owner, session, parsed.cfg);
+        this.#onViTrigger(userId, owner, session, parsed);
         return;
       }
       case MSG.GetVIOrderListResp:
       case MSG.VIOrderListPush: {
-        // VI 주문 추적도 VI 원천 세션(29-51 GC-05 — 사용자의 KB 세션 각각)만이다 — VI 설정과 추적 목록의 원천이 같아야 화면이 맞다.
-        if (!this.#fromViSource(userId, owner, e.msgType)) return;
+        // VI 주문 추적도 모든 결선 세션이 원천이다(Phase 32 D-17) — VI 설정과 추적 목록의 원천이 같아야 화면이 맞다. 항목 계좌는 소유 뷰로 거른다.
         // 72/73 은 슬롯 하나를 공유하고 스냅샷 구분은 msg_type 이 정본이다 (D-33).
         const list = parseViOrderList(e.env, e.msgType === MSG.GetVIOrderListResp);
         if (list !== null) this.#onViOrderList(userId, owner, session, e.msgType, list.snap, list.items);
@@ -2877,9 +2790,8 @@ export class SubscriptionHub extends EventEmitter {
       }
       case MSG.VIOrderNotice: {
         // 「주문이 이미 나갔다」는 알림이다. 캐시에 넣지 않는다 — 추적 목록의 정본은 72/73 이고,
-        // 이 통보에는 주문번호·상태가 없어 같은 행을 만들 수 없다. VI 원천 세션만이고(29-51 GC-05), 통보 계좌가 그 세션 소유 뷰
+        // 이 통보에는 주문번호·상태가 없어 같은 행을 만들 수 없다. 모든 결선 세션이 원천이고(Phase 32 D-17), 통보 계좌가 그 세션 소유 뷰
         // 안일 때만 간다(G-1 — 옛 서버에 남은 지정 계좌 VI 의 발동은 그 계좌의 주문 서버 것이 아니다 · 목록 없는 가짜 세션은 통과).
-        if (!this.#fromViSource(userId, owner, e.msgType)) return;
         const notice = parseViOrderNotice(e.env);
         if (notice === null) return;
         const owned = ownedAccountsOf(session);
@@ -2942,19 +2854,6 @@ export class SubscriptionHub extends EventEmitter {
     logger.debug(
       { userId, msgType, serverKey: owner.slice(userPrefix(userId).length) },
       "[HUB] primary 아닌 세션의 사용자 단위 프레임 — 버림 (D-18)",
-    );
-    return false;
-  }
-
-  /**
-   * VI 원천 판정 (29-51 · GC-05) — VI 원천 세션(`#viSourceOwners` — 사용자의 KB 세션 각각)이 아니면 debug 1줄 뒤 false. KB 세션이 있는
-   * 사용자의 교보 세션이 여기 걸린다(증권사 축은 KB 그대로). 의도된 무시라 `unhandledFrameCount` 는 올리지 않는다.
-   */
-  #fromViSource(userId: string, owner: string, msgType: number): boolean {
-    if (this.#isViSource(userId, owner)) return true;
-    logger.debug(
-      { userId, msgType, serverKey: owner.slice(userPrefix(userId).length) },
-      "[HUB] VI 원천 아닌 세션(KB 세션 아님 · primary 아닌 세션)의 VI 프레임 — 버림 (D-18 · 29-51)",
     );
     return false;
   }
@@ -3046,7 +2945,7 @@ export class SubscriptionHub extends EventEmitter {
    * 서버가 로그인 직후 1프레임 + 창 마스크 전이마다 보내므로, 여기 남는 값은 언제나
    * 「서버가 마지막으로 말한 창 상태」다. 키 부재(`getQueuedWindow` 가 `undefined`)는
    * 「아직 못 받았다」이고 `open:false` 와 다른 상태다 — 뭉개면 인증 직후 팬아웃이
-   * 지어낸 「닫힘」을 보내고 브라우저가 거짓 라벨을 그린다 (`getViTrigger` 와 같은 규율).
+   * 지어낸 「닫힘」을 보내고 브라우저가 거짓 라벨을 그린다 (`getViSlot` 과 같은 규율).
    */
   #onQueuedWindow(userId: string, session: HubSession, state: RelayQueuedWindowMsg): void {
     this.#queuedWindows.set(userId, state);
@@ -3515,161 +3414,104 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
-   * VI 전략 에코 (61). `cfg === null` 은 **미등록**이며 그 사실도 캐시에 명시로 남긴다 —
-   * 「조회했더니 없다」와 「아직 조회한 적 없다」를 구분하기 위해서다.
+   * VI 전략 에코 (61) — (계좌, 거래소) 슬롯 1건 (Phase 32 D-17 · gh-trade Phase 33). `cfg === null` 은 **미등록**이며 그 사실도 캐시에
+   * 명시로 남긴다 — 「조회했더니 없다」와 「아직 조회한 적 없다」를 구분하기 위해서다.
    *
-   * **귀속(어느 거래소의 답인가)이 이 함수의 핵심이다** (17-05 / D-06 / Pitfall 3).
-   * 등록본은 **본문의 `cfg.exchange` 가 정본**이고(서버 `BuildVITriggerEcho` 가 반드시 싣는다),
-   * 미등록은 본문 자체가 없어 `#pendingViGets` FIFO 의 head 로만 귀속된다. FIFO 가 비어
-   * 귀속할 수 없으면 **캐시를 고치지 않는다** — 지어낸 거래소로 귀속하면 사용자가 입력 중인
-   * 금액이 엉뚱한 칸에서 지워진다 (T-17-16). 서버 진실을 relay 가 재계산하지 않는 규율이다.
+   * **귀속(어느 슬롯의 답인가)이 이 함수의 핵심이다** (17-05 / D-06 / Pitfall 3 → D-17).
+   *   - 슬롯이 실린 61(등록본 · `unregistered` 프레임)은 **본문의 계좌 · 거래소가 정본**이다. 그 세션 소유 뷰 밖 계좌(초집합 · 옛 지정)는
+   *     `#logForeign` 뒤 버린다 — 슬롯 오염 없음(RESEARCH Open Q5).
+   *   - 21 대기열(`#pendingViGets`)은 **한 21 에 한 번** 소비한다 — 본문 거래소 == 머리면 그 21 답의 첫 프레임이다(규칙 (b)). 같은 거래소의
+   *     뒤이은 프레임(새 서버의 선언 계좌마다 61)은 머리와 다르므로 (c) 에코처럼 슬롯만 쓴다.
+   *   - **구 서버 호환(D-16 순서 (b) — relay 가 gh-trade 서버보다 먼저 배포)**: 구 서버 21 답은 세션당 거래소 1건이라 한 프레임뿐이다. 그래서
+   *     머리를 소비하는 그 순간 그 세션 소유 계좌 중 그 거래소 슬롯이 아직 모름인 것을 미등록(null)으로 채운다. 새 서버는 뒤이은 프레임이 곧
+   *     덮는다(웹에 미등록 → 등록이 수 ms 안에 연달아 갈 수 있다 — Flagged assumption · 데이터 손실 없음).
+   *   - 본문 없는 빈 Envelope(선언 계좌 0 · 구 서버의 미등록)는 머리 거래소로 귀속하고 그 세션 소유 계좌 **전부**의 그 거래소 슬롯을 null 로
+   *     둔다. 대기열이 비었으면 귀속 실패 — **캐시를 고치지 않는다**(지어낸 거래소로 귀속하면 사용자가 입력 중인 금액이 엉뚱한 칸에서 지워진다
+   *     · T-17-16).
    *
    * ⚠️ 15:40 서버 자동 비활성화의 `run=false` 는 Broadcast 라 유실될 수 있다 (Pitfall 19).
    *    D-13 이 주기 재조회를 금지하므로 여기서 메우지 않는다 — 브라우저가 장 마감 표시로
    *    오해를 막는다.
    */
-  #onViTrigger(userId: string, owner: string, session: HubSession, cfg: RelayViTrigger | null): void {
+  #onViTrigger(userId: string, owner: string, session: HubSession, parsed: ParsedViTrigger): void {
+    const { cfg, slot } = parsed;
     const queue = this.#pendingViGets.get(owner);
     const serverKey = serverKeyOf(session);
-    let exchange: RelayExchange;
-    let value = cfg;
+    const owned = ownedAccountsOf(session);
 
-    if (cfg === null) {
-      // (a) 본문 없음 → head 를 꺼내 귀속한다(그 61 이 온 세션의 대기열 — 29-51).
+    if (slot === undefined) {
+      // 빈 Envelope → 머리를 꺼내 귀속한다(그 61 이 온 세션의 대기열 — 29-51).
       const head = queue?.shift();
       if (head === undefined) {
-        // 귀속 실패. 어느 칸의 답인지 모르는 「미등록」은 **아무 칸에도 쓰지 않는다** —
-        // 팬아웃도 하지 않는다(거래소 없는 `vi` 프레임은 계약에 없다).
         logger.warn(
           { userId, serverKey },
-          "[HUB] 거래소를 담지 않은 빈 61 인데 요청 FIFO 가 비었다 — 귀속 불가, 캐시 무변경",
+          "[HUB] 슬롯을 담지 않은 빈 61 인데 요청 FIFO 가 비었다 — 귀속 불가, 캐시 무변경",
         );
         return;
       }
-      exchange = head;
-    } else {
-      exchange = cfg.exchange;
-      // (b) 본문의 거래소 == head → 내 21 의 답이므로 head 를 버린다.
-      // (c) 다르면 팬아웃 에코(Set/Disable/푸시)다 — 큐를 건드리지 않는다. 꺼내면 뒤이어 올
-      //     빈 61 이 한 칸 밀려 엉뚱한 거래소로 귀속된다.
-      const answered = queue !== undefined && queue[0] === exchange;
-      if (answered) queue.shift();
-      // G-1 소유 필터 (29-51 · GC-05) — 그 세션 소유 뷰 밖 계좌의 VI(옛 서버에 남은 지정 계좌 VI)는 원천이 아니다. 본문은 캐시 ·
-      // 팬아웃하지 않는다(끄기는 sweep 몫). 다만 그 61 이 이 세션 21 의 답이거나(그 칸을 물었다) 이 칸에 소유 계좌 등록본이 있었으면(서버
-      // 칸은 거래소당 1건 — 다른 계좌가 차지했다) 이 세션 몫 그 칸은 「미등록」이다 — null 로 둔다. 그 밖(묻지 않은 칸의 에코)은 무변경.
-      const owned = ownedAccountsOf(session);
-      if (owned !== null && !owned.has(cfg.accountNo)) {
-        this.#logForeign(userId, owner, MSG.SetVITriggerResp, [cfg.accountNo]);
-        const prev = this.#viTriggers.get(viTriggerKey(owner, exchange));
-        if (!answered && (prev === undefined || prev === null)) return;
-        value = null;
-      }
-    }
-    // 대여 전 배수 대기(29-49)는 hub 의 21 이 다 귀속되면 끝난다 — 이 61 은 그 전에 hub 몫으로 처리된다(아래 캐시 · 팬아웃).
-    this.#settleDrains(owner);
-
-    const key = viTriggerKey(owner, exchange);
-    this.#viTriggers.set(key, value);
-    if (value !== null) this.#viTriggerSeq.set(key, ++this.#viSeq);
-    else this.#viTriggerSeq.delete(key);
-    logger.info(
-      { userId, serverKey, exchange, registered: value !== null, run: value?.run ?? false },
-      "[HUB] VI 전략 수신",
-    );
-    this.#emitVi(userId, exchange, owner);
-    // 「계좌 끄기」 VI 에코(Phase 32) — 브라우저 `vi` 를 먼저 내보낸 뒤에 완료 1건이 가도록 팬아웃 뒤에 센다.
-    this.#noteAccountStopVi(owner, exchange, value);
-  }
-
-  /**
-   * 사용자 · 거래소의 VI 병합값 (29-51 · GC-05) — VI 원천 세션 칸들을 합친다. 순서:
-   *   ① 켜진(run) 등록본 — 거래소당 켜진 VI 는 사용자 단위 1건(17-06 D-06 · fanout `vi.set` 이 세션 경계 너머에서도 지킨다). 그래도 둘
-   *      이상이면(가드 밖에서 생긴 충돌 — 다른 클라이언트 · 가드 송신 실패) primary 것, primary 에 없으면 원천 결선 순 첫 것 —
-   *      `conflict` 에 그 서버 키들을 싣는다(팬아웃 때 warn 1줄)
-   *   ② 꺼진 등록본 — **마지막으로 에코가 온 세션** 것(`#viTriggerSeq` · 사용자가 방금 만진 칸)
-   *   ③ 등록본이 없고, 하나라도 답했고, 그 거래소 21 답을 기다리는 원천이 없으면(대기열에 그 거래소가 있거나 대여로 21 을 미룬 원천 —
-   *      묻지 않은 원천 · Ready 전 원천은 기다리지 않는다 · 그 세션 Ready 프리페치가 곧 칸을 채운다) null(미등록)
-   *   ④ 그 밖 undefined(모름 — 프레임을 내리지 않는다)
-   * 원천이 하나면 그 세션 칸 그대로다(종전).
-   */
-  #mergeVi(
-    userId: string,
-    exchange: RelayExchange,
-  ): { cfg: RelayViTrigger | null | undefined; conflict: string[] } {
-    const running: { owner: string; cfg: RelayViTrigger }[] = [];
-    let registered: { cfg: RelayViTrigger; seq: number } | undefined;
-    let answered = 0;
-    let waiting = 0;
-    for (const owner of this.#viSourceOwners(userId)) {
-      const key = viTriggerKey(owner, exchange);
-      if (this.#pendingViGets.get(owner)?.includes(exchange) === true || this.#lent.get(owner)?.refetchVi === true) waiting += 1;
-      if (!this.#viTriggers.has(key)) continue;
-      answered += 1;
-      const cfg = this.#viTriggers.get(key) ?? null;
-      if (cfg === null) continue;
-      if (cfg.run) {
-        running.push({ owner, cfg });
-        continue;
-      }
-      const seq = this.#viTriggerSeq.get(key) ?? 0;
-      if (registered === undefined || seq > registered.seq) registered = { cfg, seq };
-    }
-    if (running.length > 0) {
-      const primary = this.#primaryOwner(userId);
-      const pick = running.find((r) => r.owner === primary) ?? running[0];
-      const conflict = running.length > 1 ? running.map((r) => r.owner.slice(userPrefix(userId).length)) : [];
-      return { cfg: pick?.cfg, conflict };
-    }
-    if (registered !== undefined) return { cfg: registered.cfg, conflict: [] };
-    if (answered > 0 && waiting === 0) return { cfg: null, conflict: [] };
-    return { cfg: undefined, conflict: [] };
-  }
-
-  /**
-   * 거래소 하나의 병합값을 브라우저로 낸다 (29-51 · GC-05). 모름이면 보내지 않고 기록을 지운다. `from`(그 61 을 보낸 원천)이 있으면 그
-   * 원천 칸이 곧 병합값일 때(원천 1개 사용자 = 늘) 같은 값이어도 낸다 — 사용자 조작의 에코는 종전처럼 매번 간다. 그 밖(다른 원천의 61 ·
-   * 원천 정리)은 병합값이 마지막 팬아웃 값과 다를 때만 낸다 — 다른 서버의 미등록 · 꺼진 칸이 카드 칸을 흔들지 않는다.
-   */
-  #emitVi(userId: string, exchange: RelayExchange, from?: string): void {
-    const merged = this.#mergeVi(userId, exchange);
-    const key = viUserKey(userId, exchange);
-    if (merged.cfg === undefined) {
-      this.#viEmitted.delete(key);
+      // 대여 전 배수 대기(29-49)는 hub 의 21 이 다 귀속되면 끝난다.
+      this.#settleDrains(owner);
+      logger.info({ userId, serverKey, exchange: head, accounts: owned?.size ?? 0 }, "[HUB] VI 빈 61 — 그 세션 소유 계좌 전부 미등록");
+      this.#fillViSlots(userId, owner, owned, head, "all");
       return;
     }
-    if (merged.conflict.length > 0) {
-      // 계좌 · DMA id 는 싣지 않는다(마스킹 규율) — 서버 키 · 거래소만.
-      logger.warn(
-        { userId, exchange, serverKeys: merged.conflict },
-        "[HUB] 두 서버에 같은 거래소 켜진 VI — primary 것을 보임 (GC-05 · 가드 밖 충돌)",
-      );
-    }
-    const own = from === undefined ? undefined : this.#viTriggers.get(viTriggerKey(from, exchange));
-    const isOwn = from !== undefined && own === merged.cfg;
-    const prev = this.#viEmitted.get(key);
-    if (!isOwn && prev !== undefined && sameViTrigger(prev, merged.cfg)) return;
-    this.#viEmitted.set(key, merged.cfg);
-    // 프레임은 **거래소별**이다 (D-06). `cfg === null`(미등록)일 때도 `x` 가 실린다 —
-    // 어느 거래소가 미등록인지 말해야 브라우저가 두 칸을 구분한다.
-    this.#fanout(userId, { t: "vi", x: exchange, cfg: merged.cfg });
-  }
 
-  /** 두 거래소 병합값을 다시 낸다 (29-51 — 원천이 빠진 뒤). 바뀐 칸만 간다. */
-  #reemitVi(userId: string): void {
-    for (const exchange of VI_PREFETCH_EXCHANGES) this.#emitVi(userId, exchange);
+    const { accountNo, exchange } = slot;
+    const answered = queue !== undefined && queue[0] === exchange;
+    if (answered) queue.shift();
+    const foreign = owned !== null && !owned.has(accountNo);
+    if (foreign) this.#logForeign(userId, owner, MSG.SetVITriggerResp, [accountNo]);
+    else {
+      logger.info(
+        { userId, serverKey, exchange, registered: cfg !== null, run: cfg?.run ?? false },
+        "[HUB] VI 슬롯 수신",
+      );
+      this.#setViSlot(userId, owner, accountNo, exchange, cfg);
+    }
+    // 구 서버 호환 — 21 답의 첫 프레임이면 그 세션 소유 계좌 중 그 거래소 슬롯이 아직 모름인 것을 미등록으로(소유 뷰 밖 프레임이어도 —
+    // 구 서버의 그 거래소 칸은 다른 계좌가 차지했다).
+    if (answered) this.#fillViSlots(userId, owner, owned, exchange, "unknown");
+    this.#settleDrains(owner);
+    // 「계좌 끄기」 VI 에코(Phase 32) — 브라우저 `vi.slot` 을 먼저 내보낸 뒤에 완료 1건이 가도록 팬아웃 뒤에 센다.
+    if (!foreign) this.#noteAccountStopVi(owner, exchange, cfg);
   }
 
   /**
-   * 소유 키 하나의 VI 몫을 지운다 (29-51) — VI 설정 칸 · 에코 순번 · VI 주문 추적 · 21 대기열(규칙 (d) — 그 세션 답은 이제 오지 않는다 ·
-   * 그 대기열을 기다리던 대여 배수도 끝낸다). VI 주문 추적을 하나라도 지웠으면 true(브라우저 사본이 어긋났다).
+   * VI 슬롯 1건 기록 · 팬아웃 (Phase 32 D-17). 슬롯 61 은 그 슬롯 원천의 사실 1건이라 같은 값이어도 낸다 — 웹 VI 행은 에코 도착(새 객체)으로
+   * 송신 잠금을 풀므로, 같은 값 저장의 에코를 삼키면 「미반영」 이 뜬다(29-51 의 원천 1개 사용자 isOwn 규율과 같다).
+   */
+  #setViSlot(userId: string, owner: string, accountNo: string, exchange: RelayExchange, cfg: RelayViTrigger | null): void {
+    this.#viSlots.set(viSlotKey(owner, accountNo, exchange), cfg);
+    this.#fanout(userId, { t: "vi.slot", a: accountNo, x: exchange, cfg });
+  }
+
+  /**
+   * 그 세션 소유 계좌의 그 거래소 슬롯을 미등록(null)으로 (Phase 32 D-17 — 21 답 귀속). `"all"` = 빈 Envelope(소유 계좌 전부) ·
+   * `"unknown"` = 구 서버 호환(아직 모름인 슬롯만 — 아는 슬롯은 그 서버가 말한 값이라 덮지 않는다). 소유 목록이 없는 세션(단위 테스트 가짜)은
+   * 채울 계좌를 모르므로 무동작이다.
+   */
+  #fillViSlots(
+    userId: string,
+    owner: string,
+    owned: ReadonlySet<string> | null,
+    exchange: RelayExchange,
+    mode: "all" | "unknown",
+  ): void {
+    if (owned === null) return;
+    for (const accountNo of owned) {
+      if (mode === "unknown" && this.#viSlots.has(viSlotKey(owner, accountNo, exchange))) continue;
+      this.#setViSlot(userId, owner, accountNo, exchange, null);
+    }
+  }
+
+  /**
+   * 소유 키 하나의 VI 몫을 지운다 (29-51 · P32 D-17) — VI 설정 슬롯 · VI 주문 추적 · 21 대기열(규칙 (d) — 그 세션 답은 이제 오지 않는다 ·
+   * 그 대기열을 기다리던 대여 배수도 끝낸다). 브라우저 사본의 그 슬롯은 지우지 않는다(「지움」 프레임 없음 — 모르면 보내지 않는다). VI 주문
+   * 추적을 하나라도 지웠으면 true(브라우저 사본이 어긋났다 — `vi.list` 합집합 스냅샷을 다시 낸다).
    */
   #clearViOwner(owner: string): boolean {
     const own = ownerPrefix(owner);
-    for (const key of [...this.#viTriggers.keys()]) {
-      if (!key.startsWith(own)) continue;
-      this.#viTriggers.delete(key);
-      this.#viTriggerSeq.delete(key);
-    }
+    for (const key of [...this.#viSlots.keys()]) if (key.startsWith(own)) this.#viSlots.delete(key);
     let orders = false;
     for (const key of [...this.#viOrders.keys()]) {
       if (!key.startsWith(own)) continue;
@@ -3928,7 +3770,7 @@ export class SubscriptionHub extends EventEmitter {
     // 있는 수동 새로고침 진입점도 만들지 않는다.
     // 시세 재구독은 여기서 하지 않는다 — **quote 연결 ready 하나다**(Phase 26 D-03 · D-08 · Pitfall 4 재정의).
     // 사용자 세션으로 종목을 되걸면 per-user 경로가 폴백으로 되살아난다.
-    // 증권사 세션마다 제 계좌 · 상따 · 사용자 설정(43 · Phase 32 D-14a)을 요청한다 — 21 · 34 는 VI 원천 세션마다(29-51).
+    // 세션마다 제 계좌 · 상따 · VI(21 · 34 · P32 D-17) · 사용자 설정(43 · Phase 32 D-14a)을 요청한다.
     this.requestAccountState(userId, owner);
     this.requestStrategySnapshot(userId, owner);
     // 잔량진행률 재동기화 (R2-WR-01) — 게이트웨이 재요청이 **아니다**(83 은 재요청 경로가 없다). Ready 이전
@@ -3989,8 +3831,8 @@ export class SubscriptionHub extends EventEmitter {
     this.#lent.delete(owner);
     // 14 송신자 꼬리표(29-54)도 그 세션 몫이다 — 진행 중 「전부 정지」 집계의 그 대상은 detached 로 끝낸다.
     this.#dropDisableSenders(owner);
-    // VI 는 소유 키 몫이다(29-51 GC-05) — 그 세션의 VI 설정 칸 · VI 주문 추적 · 21 대기열을 버린다. 병합값 · 추적 합집합은 결선 정리
-    // (`#afterPrimaryChange` → `#syncViSources`)가 원천이 빠졌을 때 다시 낸다(교체는 같은 원천이라 새 세션의 61 · 72 가 다시 채운다).
+    // VI 는 소유 키 몫이다(29-51 GC-05 · P32 D-17) — 그 세션의 VI 슬롯 · VI 주문 추적 · 21 대기열을 버린다. 추적 합집합은 결선 정리
+    // (`#afterPrimaryChange` → `#syncViList`)가 다시 낸다(교체는 새 세션의 61 · 72 가 다시 채운다).
     const viOrdersCleared = this.#clearViOwner(owner);
     // 사용자 설정(84)은 소유 키 몫이다(Phase 32 D-14a) — 그 세션의 교체 · 분리는 **늘** 그 서버 84 를 버린다(새 세션의 84 · 43 이 다시
     // 채울 때까지 「모름」). 브라우저 사본은 지우지 않는다 — 「지움」 프레임이 없다(77/84 규율 · RESEARCH Pitfall 13).

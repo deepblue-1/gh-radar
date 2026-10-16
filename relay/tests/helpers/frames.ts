@@ -892,6 +892,11 @@ export type FakeViTriggerInput = {
    * 빈 문자열(`""`)을 명시로 넣는 것과 슬롯 부재를 **둘 다** 시험할 수 있어야 한다.
    */
   exchange?: string;
+  /**
+   * 미등록 프레임 (gh-trade Phase 33 · vtable 16 · Phase 32 D-17). true 면 서버가 그 (계좌, 거래소) 슬롯에 설정이 없다고 말하는
+   * 프레임이다 — 금액 · 상승률 · run · price_type 은 stub 이다. 기본 false 는 와이어에 싣지 않는다(flatbuffers 기본값 생략 = 구 서버 바이트).
+   */
+  unregistered?: boolean;
 };
 
 /**
@@ -924,6 +929,7 @@ export function buildSetVITriggerRespFrame(input: FakeViTriggerInput | null = {}
   SetVITrigger.addPriceType(b, priceType);
   SetVITrigger.addRun(b, input.run ?? false);
   if (exchange !== null) SetVITrigger.addExchange(b, exchange);
+  SetVITrigger.addUnregistered(b, input.unregistered ?? false);
   const cfg = SetVITrigger.endSetVITrigger(b);
 
   Envelope.startEnvelope(b);

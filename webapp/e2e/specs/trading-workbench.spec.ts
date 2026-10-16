@@ -2540,6 +2540,79 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(viSetRequests(relay).at(-1)).toMatchObject({ run: false, exchange: 'KRX' });
   });
 
+  test('P32-vi 작업대 VI 설정 행 = 고른 계좌 — A 가동 값 · B 빈 행 · B 저장 → 11 accountNo B · A 불변 · 더티 보존 (D-18)', async ({
+    page,
+  }) => {
+    /*
+      gh-trade Phase 33 서버 흉내(fake gateway 슬롯 모드) — 21 은 선언 계좌마다 61 1프레임(B 는 `unregistered`), 11 은 그
+      (계좌, 거래소) 슬롯에만 저장하고 에코한다. relay(32-11)는 `vi.slot` 만 낸다.
+    */
+    relay.gateway.respondLoginWithAccounts(P32_ACCOUNTS);
+    relay.seedViSlots([{ ...VI_CFG, accountNo: E2E_ACCOUNT_NO, exchange: 'KRX', run: true }]);
+    await page.goto(WORKBENCH_URL);
+    await waitForReady(page);
+    const account = statusBar(page).locator('[data-slot="workbench-account"]');
+    await expect(account.locator('option')).toHaveCount(2, { timeout: 30_000 });
+    await account.selectOption(E2E_ACCOUNT_NO);
+    await openViPanel(page);
+
+    const slot = (acct: string) =>
+      page.locator(`[data-slot="vi-settings-account"][data-account="${acct}"]`);
+    const slotRow = (acct: string, ex: 'KRX' | 'NXT' = 'KRX') =>
+      slot(acct).locator(`[data-slot="vi-settings-row"][data-exchange="${ex}"]`);
+
+    // A — KRX 가동 1,000만원 · 22% · NXT 는 미등록 빈 행. B 행은 마운트된 채 숨는다.
+    await expect(slotRow(E2E_ACCOUNT_NO)).toHaveAttribute('data-run', 'true', { timeout: 15_000 });
+    await expect(field(page, 'vi-krx-amount')).toHaveValue('1,000');
+    await expect(field(page, 'vi-krx-rate')).toHaveValue('22');
+    await expect(slot(P32_ACCOUNT_B)).toBeHidden();
+    await expect(slotRow(P32_ACCOUNT_B)).toHaveCount(1);
+    await expect(page.locator('#vi-krx-amount')).toHaveCount(1);
+    // 계좌별 슬롯이라 「옮기기」 버튼 · 등록 계좌 고지 줄이 없다(S12 · 32-12 Task 2).
+    await expect(page.locator('[data-slot="vi-row-move"], [data-slot="vi-row-account"]')).toHaveCount(0);
+
+    // A NXT 를 고치고 저장하지 않는다(더티).
+    await field(page, 'vi-nxt-rate').fill('30');
+    await expect(slotRow(E2E_ACCOUNT_NO, 'NXT').locator('[data-slot="vi-row-fix"]')).toBeVisible();
+
+    // B 를 고르면 B 행(미등록 빈 행 · 중지 · 기본값)이 보이고 A 행은 숨는다.
+    await account.selectOption(P32_ACCOUNT_B);
+    await expect(slot(E2E_ACCOUNT_NO)).toBeHidden();
+    await expect(slotRow(P32_ACCOUNT_B)).toBeVisible();
+    await expect(slotRow(P32_ACCOUNT_B)).toHaveAttribute('data-run', 'false');
+    await expect(slotRow(P32_ACCOUNT_B).getByRole('switch', { name: 'VI KRX 시작' })).toBeEnabled();
+    await expect(field(page, 'vi-krx-amount')).toHaveValue('1,000');
+    await expect(field(page, 'vi-nxt-rate')).toHaveValue('22');
+
+    // B KRX 에 입력해 저장 → 11 은 B 계좌 · KRX · run 현재값(false) 하나뿐이다.
+    const before = viSetRequests(relay).length;
+    await field(page, 'vi-krx-amount').fill('700');
+    await slotRow(P32_ACCOUNT_B).locator('[data-slot="vi-row-fix"]').click();
+    await expect.poll(() => viSetRequests(relay).length, { timeout: 15_000 }).toBe(before + 1);
+    expect(viSetRequests(relay).at(-1)).toMatchObject({
+      accountNo: P32_ACCOUNT_B,
+      exchange: 'KRX',
+      orderAmountKrw: 7_000_000,
+      checkRate: 22,
+      run: false,
+    });
+    // 서버 에코(그 슬롯 61) → relay `vi.slot` → B 행이 저장값으로 맞춰지고 더티가 사라진다.
+    await expect(slotRow(P32_ACCOUNT_B).locator('[data-slot="vi-row-fix"]')).toHaveCount(0, { timeout: 15_000 });
+    await expect(field(page, 'vi-krx-amount')).toHaveValue('700');
+    // A 슬롯은 그대로다(서버 · 화면 둘 다).
+    expect(relay.gateway.viSlot(E2E_ACCOUNT_NO, 'KRX')).toMatchObject({ run: true, orderAmountKrw: 10_000_000n });
+    expect(relay.gateway.viSlot(P32_ACCOUNT_B, 'KRX')).toMatchObject({ run: false, orderAmountKrw: 7_000_000n });
+
+    // A 로 돌아오면 가동 값 그대로 · NXT 더티 입력도 그대로다.
+    await account.selectOption(E2E_ACCOUNT_NO);
+    await expect(slotRow(E2E_ACCOUNT_NO)).toBeVisible();
+    await expect(slotRow(E2E_ACCOUNT_NO)).toHaveAttribute('data-run', 'true');
+    await expect(field(page, 'vi-krx-amount')).toHaveValue('1,000');
+    await expect(field(page, 'vi-nxt-rate')).toHaveValue('30');
+    await expect(slotRow(E2E_ACCOUNT_NO, 'NXT').locator('[data-slot="vi-row-fix"]')).toBeVisible();
+    expect(viSetRequests(relay).filter((r) => r.accountNo === E2E_ACCOUNT_NO)).toHaveLength(0);
+  });
+
   test('24. VI 발동 표 6건 — 상태 배지 6종 · 부분체결 파생 · 종목명 역매핑 · 잠긴 행 체크 비활성 · 110초 (옛 VI 5 · E3)', async ({
     page,
   }) => {

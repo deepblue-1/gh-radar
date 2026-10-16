@@ -20,7 +20,7 @@
  *
  * Phase 16 Plan 07 추가 — **전략 표면**(⑬~㉒). 검증 대상은 같은 신뢰 경계다:
  *   · 인증만 하면 전략 스냅샷 3프레임이 **구독 없이** 온다 (D-12)
- *   · 「0건」과 「아직 모른다」를 가른다 — `getViTrigger` 가 `undefined` 면 `vi` 프레임이 없다
+ *   · 「0건」과 「아직 모른다」를 가른다 — `getViSlot` 이 `undefined` 면 그 슬롯 `vi.slot` 프레임이 없다(P32 D-17)
  *   · `dma_credentials` 미등록은 스냅샷도 전략 전송도 못 받는다 (D-04)
  *   · `accountNo` 는 `session.allowedAccounts` 대조를 통과해야만 게이트웨이로 나간다 (T-16-01)
  *   · 연결당 인바운드 상한 (T-16-06) · 사용자 간 전략 비교차 (T-16-02)
@@ -1279,10 +1279,10 @@ describe("WsFanout", () => {
     await authed("token-a");
     await waitFor(() => h.hub.getLimitChasers(USER_A).length === 2, "상따 캐시 2건");
     // 스텁 게이트웨이는 21 두 건 모두에 같은 61 로 답하고 그 본문에는 거래소 슬롯이 없다
-    // (= KRX). **본문이 정본**이므로 둘 다 KRX 칸에 들어가고 NXT 는 「모름」으로 남는다
-    // (17-05 / D-06) — KRX 전략만 있는 세션의 정확한 모습이다.
-    await waitFor(() => h.hub.getViTrigger(USER_A, "KRX") != null, "VI 설정 캐시(KRX)");
-    expect(h.hub.getViTrigger(USER_A, "NXT")).toBeUndefined();
+    // (= KRX). **본문이 정본**이므로 둘 다 그 계좌 KRX 슬롯에 들어가고 NXT 슬롯은 「모름」으로 남는다
+    // (17-05 / D-06 · P32 D-17) — KRX 전략만 있는 세션의 정확한 모습이다.
+    await waitFor(() => h.hub.getViSlot(USER_A, SAMPLE_ACCOUNT_NO, "KRX") != null, "VI 슬롯 캐시(KRX)");
+    expect(h.hub.getViSlot(USER_A, SAMPLE_ACCOUNT_NO, "NXT")).toBeUndefined();
     await waitFor(() => h.hub.getViOrders(USER_A).length === 3, "VI 주문 캐시 3건");
 
     // 새 탭은 **구독을 한 건도 보내지 않고** 캐시에서 3프레임을 받는다.
@@ -1295,12 +1295,14 @@ describe("WsFanout", () => {
     expect(lcSnap?.items).toHaveLength(2);
     expect(lcSnap?.items.map((i) => i.isin).sort()).toEqual([OTHER_ISIN, SAMPLE_ISIN].sort());
 
-    // NXT 는 「모름」이므로 프레임이 **1건**이다 — 지어낸 NXT 미등록을 내리지 않는다.
-    const viFrames = framesOf(second.inbox, "vi");
+    // NXT 는 「모름」이므로 프레임이 **1건**이다 — 지어낸 NXT 미등록을 내리지 않는다. 구 `vi` 는 없다(slot-only).
+    const viFrames = framesOf(second.inbox, "vi.slot");
     expect(viFrames).toHaveLength(1);
     const [vi] = viFrames;
+    expect(vi?.a).toBe(SAMPLE_ACCOUNT_NO);
     expect(vi?.x).toBe("KRX");
     expect(vi?.cfg).toMatchObject({ run: true, orderAmountKrw: 3_000_000, checkRate: 25 });
+    expect(framesOf(second.inbox, "vi")).toHaveLength(0);
 
     const [viList] = framesOf(second.inbox, "vi.list");
     expect(viList?.snap).toBe(true);
@@ -1310,13 +1312,13 @@ describe("WsFanout", () => {
     expect(h.hub.refCount(SAMPLE_ISIN, "KRX")).toBe(0);
   });
 
-  it("⑭ 0건도 프레임이 오지만, VI 를 아직 모르면 vi 프레임은 오지 않는다", async () => {
+  it("⑭ 0건도 프레임이 오지만, VI 를 아직 모르면 vi.slot 프레임은 오지 않는다", async () => {
     // (A) 조회 결과 **미등록**(`null`) — 확정 정보이므로 `cfg:null` 을 보낸다.
     gateway.respondViTrigger(null);
     await authed("token-a");
-    // 빈 61 두 건이 요청 거래소 FIFO 로 **각각** 귀속된다 (17-05 / Pitfall 3).
-    await waitFor(() => h.hub.getViTrigger(USER_A, "KRX") === null, "KRX 미등록 확정");
-    await waitFor(() => h.hub.getViTrigger(USER_A, "NXT") === null, "NXT 미등록 확정");
+    // 빈 61 두 건이 요청 거래소 FIFO 로 **각각** 귀속된다 (17-05 / Pitfall 3) — 그 세션 소유 계좌의 그 거래소 슬롯(P32 D-17).
+    await waitFor(() => h.hub.getViSlot(USER_A, SAMPLE_ACCOUNT_NO, "KRX") === null, "KRX 미등록 확정");
+    await waitFor(() => h.hub.getViSlot(USER_A, SAMPLE_ACCOUNT_NO, "NXT") === null, "NXT 미등록 확정");
 
     const tabA = await open();
     tabA.ws.sendAuth("token-a");
@@ -1324,11 +1326,11 @@ describe("WsFanout", () => {
     await flushIo(20);
 
     expect(framesOf(tabA.inbox, "lc.snap")[0]).toEqual({ t: "lc.snap", items: [] });
-    // `x` 는 거래소별 프레임의 축이다 (D-06). 미등록(`cfg: null`)의 거래소는 **21 요청 FIFO**
+    // `a` · `x` 는 슬롯 프레임의 축이다 (D-06 · P32 D-17). 미등록(`cfg: null`)의 거래소는 **21 요청 FIFO**
     // 가 정한다 (17-05) — 두 거래소를 다 조회했으므로 **두 칸 모두** 확정이고 프레임도 2건이다.
-    expect(framesOf(tabA.inbox, "vi")).toEqual([
-      { t: "vi", x: "KRX", cfg: null },
-      { t: "vi", x: "NXT", cfg: null },
+    expect(framesOf(tabA.inbox, "vi.slot")).toEqual([
+      { t: "vi.slot", a: SAMPLE_ACCOUNT_NO, x: "KRX", cfg: null },
+      { t: "vi.slot", a: SAMPLE_ACCOUNT_NO, x: "NXT", cfg: null },
     ]);
     expect(framesOf(tabA.inbox, "vi.list")[0]).toEqual({ t: "vi.list", snap: true, items: [] });
 
@@ -1340,9 +1342,8 @@ describe("WsFanout", () => {
     await waitFor(() => framesOf(tabB.inbox, "vi.list").length === 1, "B 스냅샷");
     await flushIo(20);
 
-    expect(h.hub.getViTrigger(USER_B, "KRX")).toBeUndefined();
-    expect(h.hub.getViTrigger(USER_B, "NXT")).toBeUndefined();
-    expect(framesOf(tabB.inbox, "vi")).toHaveLength(0);
+    expect(h.hub.getViSlotsAll(USER_B)).toEqual([]);
+    expect(framesOf(tabB.inbox, "vi.slot")).toHaveLength(0);
     // 상따 목록도 같은 규율이다 (18-26 / GC-IN-02). 64 를 받은 적 없는 사용자에게 `lc.snap []`
     // 을 내리면 「모름」을 「전략 없음」으로 말하는 셈이다 — 옛 단언(`items: []` 1프레임)은
     // 그 결함을 진실로 잠그고 있었다(18-22 deferred-items). 모르면 **프레임이 없다**.
@@ -3437,6 +3438,69 @@ describe("WsFanout", () => {
 
       expect(disableKeys()).toEqual([""]);
       expect(framesOf(a.inbox, "strategies.disabled")[0]).toEqual({ t: "strategies.disabled", count: 3, viDisabled: false });
+    });
+  });
+
+  describe("P32 VI 슬롯 replay · 계좌 끄기 VI 몫 (D-17)", () => {
+    /** 같은 세션의 두 계좌 — gh-trade Phase 33 슬롯 모드 스텁(21 → 선언 계좌마다 61 · 11 → 그 슬롯 에코). */
+    const ACC_A = SAMPLE_ACCOUNT_NO;
+    const ACC_B = "1234567802";
+    const viSets = () =>
+      gateway
+        .strategyRequests()
+        .map((r) => readViSetRequest(r.msgType, r.payload))
+        .filter((r): r is NonNullable<typeof r> => r !== null);
+
+    beforeEach(() => {
+      gateway.respondLoginWithAccounts([
+        { accountNo: ACC_A, name: "위탁종합" },
+        { accountNo: ACC_B, name: "위탁CMA" },
+      ]);
+      gateway.respondViSlots([
+        { accountNo: ACC_A, exchange: "KRX", run: true, orderAmountKrw: 3_000_000n, checkRate: 25 },
+        { accountNo: ACC_B, exchange: "KRX", run: true, orderAmountKrw: 7_000_000n, checkRate: 22 },
+      ]);
+    });
+
+    it("인증 replay — 슬롯 전량 vi.slot(A · B KRX 각자 값 · NXT 미등록 둘) · 구 vi 프레임 0 (slot-only)", async () => {
+      await authed("token-a");
+      await waitFor(() => h.hub.getViSlot(USER_A, ACC_B, "NXT") === null, "슬롯 4칸 확정");
+      expect(h.hub.getViSlot(USER_A, ACC_A, "KRX")).toMatchObject({ run: true, orderAmountKrw: 3_000_000 });
+      expect(h.hub.getViSlot(USER_A, ACC_B, "KRX")).toMatchObject({ run: true, orderAmountKrw: 7_000_000 });
+
+      const second = await open();
+      second.ws.sendAuth("token-a");
+      await waitFor(() => framesOf(second.inbox, "vi.list").length === 1, "새 탭 VI 주문 스냅샷");
+      await flushIo(20);
+
+      const slots = framesOf(second.inbox, "vi.slot").map((m) => [m.a, m.x, m.cfg?.orderAmountKrw ?? null, m.cfg?.run ?? null]);
+      expect([...slots].sort()).toEqual(
+        [
+          [ACC_A, "KRX", 3_000_000, true],
+          [ACC_B, "KRX", 7_000_000, true],
+          [ACC_A, "NXT", null, null],
+          [ACC_B, "NXT", null, null],
+        ].sort(),
+      );
+      // D-17 slot-only — 거래소 병합 프레임은 더 내지 않는다.
+      expect(framesOf(second.inbox, "vi")).toHaveLength(0);
+    });
+
+    it("계좌 끄기(A) VI 몫 — A 슬롯 중 run 인 KRX 만 11 run:false(A 값 그대로) · B 11 0 · 61 에코 뒤 strategies.disabled { count 0, viDisabled: true } · B 슬롯 무변경", async () => {
+      const a = await authed("token-a");
+      await waitFor(() => h.hub.getViSlot(USER_A, ACC_B, "NXT") === null, "슬롯 4칸 확정");
+
+      a.ws.sendRaw({ t: "strategies.disable.account", accountNo: ACC_A });
+      await waitFor(() => framesOf(a.inbox, "strategies.disabled").length === 1, "strategies.disabled 1건");
+      await flushIo(20);
+
+      expect(viSets()).toEqual([
+        { accountNo: ACC_A, exchange: "KRX", orderAmountKrw: 3_000_000, checkRate: 25, priceType: "U", run: false },
+      ]);
+      expect(framesOf(a.inbox, "strategies.disabled")[0]).toEqual({ t: "strategies.disabled", count: 0, viDisabled: true });
+      expect(h.hub.getViSlot(USER_A, ACC_A, "KRX")).toMatchObject({ run: false });
+      expect(h.hub.getViSlot(USER_A, ACC_B, "KRX")).toMatchObject({ run: true, orderAmountKrw: 7_000_000 });
+      expect(framesOf(a.inbox, "msg")).toHaveLength(0);
     });
   });
 

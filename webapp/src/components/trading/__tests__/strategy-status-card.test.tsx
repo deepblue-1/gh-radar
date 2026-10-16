@@ -2,7 +2,12 @@ import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import type { RelayAccountState, RelayLimitChaser, RelayStrategiesDisabledMsg } from "@gh-radar/shared";
+import type {
+  RelayAccountState,
+  RelayLimitChaser,
+  RelayStrategiesDisabledMsg,
+  RelayViTrigger,
+} from "@gh-radar/shared";
 
 /**
  * Phase 16 Plan 15 Task 1 — 전략 현황 카드 계약 (MYPAGE-01 · UI-SPEC C2~C4 · D-09/D-14/D-20).
@@ -211,6 +216,16 @@ const VI_RUNNING = {
   run: true,
 };
 
+/** VI (계좌, 거래소) 슬롯 Map — 키 `${accountNo}|${exchange}`(리듀서와 같은 키 · Phase 32 D-17). */
+function viSlotsOf(...cfgs: RelayViTrigger[]): RelayShape["viSlots"] {
+  return new Map(cfgs.map((c) => [`${c.accountNo}|${c.exchange}`, c] as const));
+}
+
+/** 미등록 슬롯(`null`) — 그 슬롯을 조회했고 없다. */
+function unregisteredSlots(...keys: [string, "KRX" | "NXT"][]): RelayShape["viSlots"] {
+  return new Map(keys.map(([a, x]) => [`${a}|${x}`, null] as const));
+}
+
 /** 전략 3건 + VI 가동 + 계좌 2개 — 목업의 「전략 3 · 계좌 2」 시나리오다. */
 function populated(over: Partial<RelayShape> = {}): RelayShape {
   return relayState({
@@ -220,7 +235,7 @@ function populated(over: Partial<RelayShape> = {}): RelayShape {
       { accountNo: "37728502102", name: "위탁CMA" },
     ],
     limitChasers: [CHASER_A, CHASER_B, CHASER_C],
-    viTriggers: { KRX: VI_RUNNING },
+    viSlots: viSlotsOf(VI_RUNNING),
     accountStates: accountStates(),
     ...over,
   });
@@ -318,7 +333,7 @@ describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
   });
 
   it("⑦ 전략 0 이면 빈 상태 문구를 보여준다 (UI-SPEC §빈 상태)", () => {
-    mockRelay = relayState({ status: "ready", limitChasers: [], viTriggers: { KRX: null } });
+    mockRelay = relayState({ status: "ready", limitChasers: [], viSlots: unregisteredSlots(["37728502101", "KRX"]) });
     render(<StrategyStatusCard />);
 
     expect(screen.getByText("켜진 상따 전략이 없어요")).toBeInTheDocument();
@@ -334,7 +349,7 @@ describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
 
   it("⑦-a 스냅샷 수신 전에는 「없음」이 아니라 로딩이다 (C2 로딩)", () => {
     // `connecting` — 아직 `lc.snap` 을 받은 적이 없다.
-    mockRelay = relayState({ status: "connecting", limitChasers: [], viTriggers: {} });
+    mockRelay = relayState({ status: "connecting", limitChasers: [], viSlots: new Map() });
     const { rerender } = render(<StrategyStatusCard />);
 
     expect(document.querySelector('[data-slot="strategy-list-loading"]')).toBeInTheDocument();
@@ -343,7 +358,7 @@ describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
     expect(screen.queryByText("켜진 상따 전략이 없어요")).not.toBeInTheDocument();
 
     // `ready` 를 본 뒤의 빈 목록은 **확정된 0건**이다(relay 는 빈 스냅샷도 보낸다).
-    mockRelay = relayState({ status: "ready", limitChasers: [], viTriggers: { KRX: null } });
+    mockRelay = relayState({ status: "ready", limitChasers: [], viSlots: unregisteredSlots(["37728502101", "KRX"]) });
     rerender(<StrategyStatusCard />);
     expect(screen.getByText("켜진 상따 전략이 없어요")).toBeInTheDocument();
     expect(document.querySelector('[data-slot="strategy-list-loading"]')).toBeNull();
@@ -409,7 +424,7 @@ describe("StrategyStatusCard — 켜진 전략만 나열 (quick-260928-no0 · is
     mockRelay = relayState({
       status: "ready",
       limitChasers: [CHASER_OFF, CHASER_B_OFF],
-      viTriggers: { KRX: null },
+      viSlots: unregisteredSlots(["37728502101", "KRX"]),
     });
     render(<StrategyStatusCard />);
 
@@ -427,7 +442,7 @@ describe("StrategyStatusCard — 켜진 전략만 나열 (quick-260928-no0 · is
     mockRelay = relayState({
       status: "ready",
       limitChasers: [CHASER_OFF, CHASER_B_OFF],
-      viTriggers: { KRX: VI_RUNNING },
+      viSlots: viSlotsOf(VI_RUNNING),
     });
     render(<StrategyStatusCard />);
 
@@ -438,7 +453,7 @@ describe("StrategyStatusCard — 켜진 전략만 나열 (quick-260928-no0 · is
   });
 
   it("T-f 스냅샷 수신 전에는 꺼진 전략만 있어도 「없어요」가 아니라 로딩이다", () => {
-    mockRelay = relayState({ status: "connecting", limitChasers: [CHASER_OFF], viTriggers: {} });
+    mockRelay = relayState({ status: "connecting", limitChasers: [CHASER_OFF], viSlots: new Map() });
     render(<StrategyStatusCard />);
 
     expect(document.querySelector('[data-slot="strategy-list-loading"]')).toBeInTheDocument();
@@ -563,28 +578,29 @@ describe("StrategyStatusCard — P32 고른 계좌 (D-21 · S5′)", () => {
     expect(accountEmpty()).toBeNull();
   });
 
-  it("B — 행 1 · VI 행 없음(VI 는 A 등록) · 요약 「상따 1 · VI 중지」", () => {
+  it("B — 행 1 · VI 슬롯 미등록(VI 는 A 슬롯) → VI 행 「중지」 · 「—」(④ 뒤 늘 선다 · D-18) · 요약 「상따 1 · VI 중지」", () => {
     render(<StrategyStatusCard accountNo={ACC_B} />);
 
     expect(rowKeys()).toEqual([CHASER_B.key]);
     expect(summaryText()).toBe("상따 1 · VI 중지");
-    expect(viRow()).toBeNull();
+    expect(within(viRow() as HTMLElement).getByText("중지")).toBeInTheDocument();
+    expect((viRow() as HTMLElement).querySelector('[data-slot="vi-status-summary"]')).toHaveTextContent(/^—$/);
     expect(accountEmpty()).toBeNull();
   });
 
-  it("C(전략 0 · VI 없음) — 「이 계좌에 등록된 전략 없음」 한 줄 · 행 목록 · 「켜진 상따 전략이 없어요」 없음 / VI 만 있으면 VI 행만", () => {
+  it("C(전략 0 · 등록 VI 슬롯 없음) — 「이 계좌에 등록된 전략 없음」 한 줄 + VI 행 「중지」 · 「켜진 상따 전략이 없어요」 없음 / VI 슬롯이 등록이면 VI 행만", () => {
     const { unmount } = render(<StrategyStatusCard accountNo={ACC_C} />);
 
     expect(accountEmpty()).toHaveTextContent("이 계좌에 등록된 전략 없음");
     expect(document.querySelectorAll('[data-slot="strategy-account-empty"]')).toHaveLength(1);
     expect(document.querySelector('[data-slot="strategy-row-list"]')).toBeNull();
     expect(screen.queryByText("켜진 상따 전략이 없어요")).toBeNull();
-    expect(viRow()).toBeNull();
+    expect(within(viRow() as HTMLElement).getByText("중지")).toBeInTheDocument();
     expect(summaryText()).toBe("상따 0 · VI 중지");
     unmount();
 
     // 전략 0 이지만 그 계좌가 VI 등록 계좌면 빈 상태 대신 VI 행만.
-    mockRelay = populated({ viTriggers: { KRX: { ...VI_RUNNING, accountNo: ACC_C } } });
+    mockRelay = populated({ viSlots: viSlotsOf({ ...VI_RUNNING, accountNo: ACC_C }) });
     render(<StrategyStatusCard accountNo={ACC_C} />);
     expect(accountEmpty()).toBeNull();
     expect(viRow()).not.toBeNull();
@@ -593,10 +609,13 @@ describe("StrategyStatusCard — P32 고른 계좌 (D-21 · S5′)", () => {
 
   it("VI KRX = A · NXT = B 로 등록 → A 는 KRX 만 · B 는 NXT 만 말한다", () => {
     mockRelay = populated({
-      viTriggers: {
-        KRX: VI_RUNNING,
-        NXT: { ...VI_RUNNING, accountNo: ACC_B, exchange: "NXT", orderAmountKrw: 5_000_000, checkRate: 18 },
-      },
+      viSlots: viSlotsOf(VI_RUNNING, {
+        ...VI_RUNNING,
+        accountNo: ACC_B,
+        exchange: "NXT",
+        orderAmountKrw: 5_000_000,
+        checkRate: 18,
+      }),
     });
     const { unmount } = render(<StrategyStatusCard accountNo={ACC_A} />);
     expect(
@@ -642,16 +661,95 @@ describe("StrategyStatusCard — P32 고른 계좌 (D-21 · S5′)", () => {
     expect(summaryText()).toBe("상따 3 · VI 가동");
     unmount();
 
-    mockRelay = relayState({ status: "ready", limitChasers: [], viTriggers: { KRX: null } });
+    mockRelay = relayState({ status: "ready", limitChasers: [], viSlots: unregisteredSlots(["37728502101", "KRX"]) });
     const empty = render(<StrategyStatusCard />);
     expect(screen.getByText("켜진 상따 전략이 없어요")).toBeInTheDocument();
     expect(accountEmpty()).toBeNull();
     expect(viRow()).not.toBeNull();
     empty.unmount();
 
-    mockRelay = relayState({ status: "connecting", limitChasers: [], viTriggers: {} });
+    mockRelay = relayState({ status: "connecting", limitChasers: [], viSlots: new Map() });
     render(<StrategyStatusCard />);
     expect(document.querySelector('[data-slot="strategy-list-loading"]')).toBeInTheDocument();
+  });
+});
+
+// ===========================================================================
+// Phase 32 — VI 슬롯 표면 (D-18 · S5′ · S12) — 웨이브 ④ 뒤 /me VI 행 · 요약 · 끄기 판정
+// ===========================================================================
+
+describe("StrategyStatusCard — P32 VI 슬롯 표면 (D-18)", () => {
+  const ACC_A = "37728502101";
+  const ACC_B = "37728502102";
+  const ACC_C = "37728502103";
+  const summaryText = () =>
+    document.querySelector('[data-slot="strategy-status-summary"]')?.textContent ?? "";
+  const viRow = () => document.querySelector('[data-slot="vi-status-row"]') as HTMLElement;
+  const viSummary = () => viRow().querySelector('[data-slot="vi-status-summary"]');
+  const accountEmpty = () => document.querySelector('[data-slot="strategy-account-empty"]');
+  const killButton = (no: string) => screen.getByRole("button", { name: `이 계좌 끄기 — ${no}` });
+  const B_KRX = { ...VI_RUNNING, accountNo: ACC_B, orderAmountKrw: 7_000_000, checkRate: 15 };
+
+  it("같은 KRX 를 A · B 가 각자 슬롯으로 켜면 A 칩은 A 값 · B 칩은 B 값만 말한다(덮어쓰기 없음)", () => {
+    mockRelay = populated({ viSlots: viSlotsOf(VI_RUNNING, B_KRX) });
+    const a = render(<StrategyStatusCard accountNo={ACC_A} />);
+    expect(within(viRow()).getByText("가동")).toBeInTheDocument();
+    expect(viSummary()).toHaveTextContent(/^KRX 1,000만원 · 22\.0% 이상$/);
+    a.unmount();
+
+    render(<StrategyStatusCard accountNo={ACC_B} />);
+    expect(within(viRow()).getByText("가동")).toBeInTheDocument();
+    expect(viSummary()).toHaveTextContent(/^KRX 700만원 · 15\.0% 이상$/);
+    expect(summaryText()).toBe("상따 1 · VI 가동");
+  });
+
+  it("B 슬롯 미등록(null) · 모름 → VI 행 「중지」 · 「—」 · 요약 「VI 중지」 — A 의 가동을 빌려 오지 않는다", () => {
+    mockRelay = populated({
+      viSlots: new Map([
+        [`${ACC_A}|KRX`, VI_RUNNING],
+        [`${ACC_B}|KRX`, null],
+      ]),
+    });
+    render(<StrategyStatusCard accountNo={ACC_B} />);
+    expect(within(viRow()).getByText("중지")).toBeInTheDocument();
+    expect(viSummary()).toHaveTextContent(/^—$/);
+    expect(summaryText()).toBe("상따 1 · VI 중지");
+  });
+
+  it("전략 0 ∧ 등록 슬롯 없음(미등록 null 만) → 「이 계좌에 등록된 전략 없음」 + VI 행 「중지」 · 등록이지만 중지면 빈 상태 없이 VI 행만", () => {
+    mockRelay = populated({ viSlots: unregisteredSlots([ACC_C, "KRX"], [ACC_C, "NXT"]) });
+    const view = render(<StrategyStatusCard accountNo={ACC_C} />);
+    expect(accountEmpty()).toHaveTextContent("이 계좌에 등록된 전략 없음");
+    expect(within(viRow()).getByText("중지")).toBeInTheDocument();
+    // 순서 — 빈 상태 한 줄 다음에 VI 행.
+    expect(accountEmpty()!.compareDocumentPosition(viRow()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    view.unmount();
+
+    mockRelay = populated({ viSlots: viSlotsOf({ ...VI_RUNNING, accountNo: ACC_C, exchange: "NXT", run: false }) });
+    render(<StrategyStatusCard accountNo={ACC_C} />);
+    expect(accountEmpty()).toBeNull();
+    expect(within(viRow()).getByText("중지")).toBeInTheDocument();
+  });
+
+  it("「이 계좌 끄기」 VI 판정 = 그 계좌 슬롯 가동(viAccountRunning) — C 는 전략 0 이어도 C NXT 가동이면 활성 · A 의 KRX 가동은 C 를 열지 않는다", () => {
+    mockRelay = populated({ viSlots: viSlotsOf(VI_RUNNING) });
+    const view = render(<StrategyStatusCard accountNo={ACC_C} />);
+    expect(killButton(ACC_C)).toBeDisabled();
+    view.unmount();
+
+    mockRelay = populated({
+      viSlots: viSlotsOf(VI_RUNNING, { ...VI_RUNNING, accountNo: ACC_C, exchange: "NXT" }),
+    });
+    render(<StrategyStatusCard accountNo={ACC_C} />);
+    expect(killButton(ACC_C)).toBeEnabled();
+    expect(summaryText()).toBe("상따 0 · VI 가동");
+  });
+
+  it("accountNo 없음(계좌 미수신) → 전 계좌 슬롯 기준 — 어느 계좌든 가동이면 「VI 가동」 · 요약은 가동 슬롯", () => {
+    mockRelay = populated({ viSlots: viSlotsOf({ ...VI_RUNNING, accountNo: ACC_B, exchange: "NXT" }) });
+    render(<StrategyStatusCard />);
+    expect(summaryText()).toBe("상따 3 · VI 가동");
+    expect(viSummary()).toHaveTextContent(/^NXT 1,000만원 · 22\.0% 이상$/);
   });
 });
 
@@ -797,7 +895,7 @@ describe("StrategyStatusCard — P32 이 계좌 끄기 (D-09 · D-27 · S5′)",
 
     mockRelay = populated({
       send: send as unknown as RelayShape["send"],
-      viTriggers: { KRX: { ...VI_RUNNING, accountNo: ACC_C } },
+      viSlots: viSlotsOf({ ...VI_RUNNING, accountNo: ACC_C }),
     });
     render(<StrategyStatusCard accountNo={ACC_C} />);
     expect(killButton(ACC_C)).toBeEnabled();

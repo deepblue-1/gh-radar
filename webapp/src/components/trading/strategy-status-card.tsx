@@ -96,10 +96,11 @@ import { useRelayContext } from "@/lib/relay-provider";
 import { useStrategyLogFeed } from "@/lib/strategy-log-feed";
 import {
   STRATEGIES_DISABLE_ACK_TIMEOUT_MS,
-  viAnyRunning,
+  viAccountRunning,
+  viSlotsOfAccount,
   VI_EXCHANGES,
   type RelayStatus,
-  type RelayViTriggers,
+  type RelayViAccountSlots,
 } from "@/lib/use-relay-socket";
 import { cn } from "@/lib/utils";
 
@@ -127,7 +128,7 @@ const DISABLE_SEND_FAILED_TEXT = "연결이 끊겨 비활성화 요청을 보내
  * 값을 반올림하면 없는 금액을 말하게 되므로 소수 한 자리를 살린다.
  * `checkRate` 는 **정수 %** 다(`sweepMinRate` 의 BasisPoints 와 단위가 다르다 — Pitfall 5).
  */
-export function viSummaryText(triggers: RelayViTriggers): string {
+export function viSummaryText(triggers: RelayViAccountSlots): string {
   const parts: string[] = [];
   for (const exchange of VI_EXCHANGES) {
     const cfg = triggers[exchange];
@@ -137,20 +138,6 @@ export function viSummaryText(triggers: RelayViTriggers): string {
     parts.push(`${exchange} ${amount}만원 · ${cfg.checkRate.toFixed(1)}% 이상`);
   }
   return parts.length === 0 ? "—" : parts.join(" / ");
-}
-
-/**
- * 그 계좌가 **등록 계좌**인 거래소만 남긴 VI 부분 맵(표시 필터 — Phase 32 D-21).
- * 웨이브 ④ 전 VI 는 거래소별 1건(D-16) — 그 계좌가 등록 계좌인 거래소만 그 계좌 것이다. ④ 에서 계좌 슬롯 조회로 바뀐다.
- * `viTriggers` 모양 · relay VI 캐시는 건드리지 않는다(새 객체를 돌려준다).
- */
-export function viTriggersOfAccount(triggers: RelayViTriggers, accountNo: string): RelayViTriggers {
-  const out: RelayViTriggers = {};
-  for (const exchange of VI_EXCHANGES) {
-    const cfg = triggers[exchange];
-    if (cfg != null && cfg.accountNo === accountNo) out[exchange] = cfg;
-  }
-  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -379,7 +366,7 @@ const SEG_TRIGGER =
 const LOG_MAX_H = "max-h-[320px]";
 
 export function StrategyStatusCard({ className, accountNo }: StrategyStatusCardProps) {
-  const { status, limitChasers, viTriggers, accounts, strategiesDisabled, send } = useRelayContext();
+  const { status, limitChasers, viSlots, accounts, strategiesDisabled, send } = useRelayContext();
   const labels = useIsinLabels();
   const snapshotSeen = useSnapshotSeen(status);
   const logEntries = useStrategyLogFeed();
@@ -406,12 +393,15 @@ export function StrategyStatusCard({ className, accountNo }: StrategyStatusCardP
   const shownChasers =
     accountNo === undefined ? activeChasers : activeChasers.filter((c) => c.accountNo === accountNo);
   const shownCount = shownChasers.length;
-  /** 표시 축의 VI — 고른 계좌가 등록 계좌인 거래소만(웨이브 ④ 전 · 표시 필터). undefined = 전 거래소(종전). */
-  const viShown = accountNo === undefined ? viTriggers : viTriggersOfAccount(viTriggers, accountNo);
-  // 합집합 판정은 `viAnyRunning` 한 함수다 (17-06 / D-18) — 사이드바·My page 와 같은 답.
-  const viShownRunning = viAnyRunning(viShown);
-  /** VI 행 — 전 계좌면 언제나(종전) · 고른 계좌면 그 계좌가 등록 계좌인 거래소가 하나라도 있을 때만. */
-  const showViRow = accountNo === undefined || VI_EXCHANGES.some((ex) => viShown[ex] != null);
+  /** 표시 축의 VI — 고른 계좌의 거래소별 슬롯(Phase 32 D-18 · ④ 뒤). undefined = 전 계좌 슬롯(계좌 목록 미수신). */
+  const viShown = viSlotsOfAccount(viSlots, accountNo);
+  // 가동 판정은 `viAccountRunning` 한 함수다 — 상태줄(MeStatusBar)과 같은 답.
+  const viShownRunning = viAccountRunning(viSlots, accountNo);
+  /**
+   * 그 계좌에 **등록된** VI 슬롯이 있나 — ④ 뒤 VI 행은 늘 서므로 빈 상태 판정은 「VI 행 없음」 이 아니라 이것이다(32-13 Flagged
+   * assumptions · S5′ · S12 empty). 미등록(`null`) · 모름(키 부재)은 등록이 아니다.
+   */
+  const viRegistered = VI_EXCHANGES.some((ex) => viShown[ex] != null);
 
   /** 그 계좌에 켜진 전략 0 ∧ 그 계좌 VI 미가동 → 끌 것이 없다(relay 도 0바이트로 거부한다). */
   const nothingToDisable = shownCount === 0 && !viShownRunning;
@@ -539,8 +529,8 @@ export function StrategyStatusCard({ className, accountNo }: StrategyStatusCardP
           </p>
         </div>
       ) : shownCount === 0 && accountNo !== undefined ? (
-        /* 고른 계좌에 전략 0 — VI 행도 없을 때만 점선 한 줄(S5′). VI 행이 있으면 그 행만 선다. */
-        showViRow ? null : (
+        /* 고른 계좌에 전략 0 ∧ 등록 VI 슬롯 없음 → 점선 한 줄 + 아래 VI 행 「중지」(S5′ · S12 empty). 등록 슬롯이 있으면 VI 행만. */
+        viRegistered ? null : (
           <p
             data-slot="strategy-account-empty"
             className="m-0 mt-1 rounded-[var(--r)] border border-dashed border-[var(--faint)] p-3 text-center text-[12px] text-[var(--muted-fg)]"
@@ -568,8 +558,10 @@ export function StrategyStatusCard({ className, accountNo }: StrategyStatusCardP
         </div>
       )}
 
-      {/* VI 행 (C3) — 한 줄이다. 고른 계좌면 그 계좌가 등록 계좌인 거래소만(Phase 32 D-21). */}
-      {showViRow && (
+      {/*
+        VI 행 (C3) — 한 줄이고 ④ 뒤에는 **늘 선다**(Phase 32 D-18 · S5 「VI 행(④ 뒤)」). 요약은 고른 계좌의 거래소별 슬롯이고,
+        등록 슬롯이 없으면 「중지」 · 「—」 다(S12 empty).
+      */}
       <Link
         href="/trading"
         data-slot="vi-status-row"
@@ -589,7 +581,6 @@ export function StrategyStatusCard({ className, accountNo }: StrategyStatusCardP
           ›
         </span>
       </Link>
-      )}
 
       {/* 끄기 오류(전송 실패 · 반영 미확인) — kill 줄 바로 위 한 줄(S5′). 고른 계좌 것만. */}
       {accountNo !== undefined && shownError !== "" && (

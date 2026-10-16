@@ -580,8 +580,8 @@ export type RelayViTrigger = {
   /** 계좌번호 (최대 12자). */
   accountNo: string;
   /**
-   * 거래소 — VI 전략은 세션당 **거래소별 1건**이다(계좌당 1건이 아니다).
-   * 와이어의 빈 값·미지정은 **relay 가 `"KRX"` 로 정규화**한 뒤 올린다 (D-06).
+   * 거래소 — VI 전략은 세션 안 **(계좌, 거래소) 슬롯마다 1건**이다(gh-trade Phase 33 · Phase 32 D-17 — 그 전에는 세션당 거래소별
+   * 1건이었다). 와이어의 빈 값·미지정은 **relay 가 `"KRX"` 로 정규화**한 뒤 올린다 (D-06).
    */
   exchange: RelayExchange;
   /**
@@ -1299,7 +1299,12 @@ export type RelayLimitChaserMsg = { t: "lc"; item: RelayLimitChaser };
 export type RelayLimitChaserSnapMsg = { t: "lc.snap"; items: RelayLimitChaser[] };
 
 /**
- * VI 전략 에코 (`SetVITriggerResp(61)`).
+ * VI 전략 에코 (`SetVITriggerResp(61)`) — 거래소 병합값 1건.
+ *
+ * ⚠️ **Phase 32 D-17(slot-only) 부터 relay 는 이 프레임을 내지 않고 웹도 읽지 않는다** — VI 는 `RelayViSlotMsg`(`vi.slot`)로만 간다.
+ *    웹 리듀서에는 이 `t` 의 갈래가 없어 모르는 프레임으로 무시된다(32-13). 타입은 relay 테스트가 「이 프레임이 나가지 않는다」 를
+ *    단언하는 데만 남아 있다.
+ *
  * **`cfg: null` 은 미등록**이다(서버가 빈 응답을 보낸다 — 무응답이 아니다). 이때 UI 는
  * 입력값을 그대로 두고 가동 스위치만 내린다.
  *
@@ -1313,6 +1318,26 @@ export type RelayViTriggerMsg = {
    * 빈 61(그 거래소 미등록)에는 거래소 정보가 없으므로 relay 가 21 요청 거래소 FIFO 로
    * 귀속한다 — 브라우저는 그 결과인 이 값만 믿는다.
    */
+  x: RelayExchange;
+  cfg: RelayViTrigger | null;
+};
+
+/**
+ * VI 전략 (계좌, 거래소) 슬롯 1건 (Phase 32 D-17 · gh-trade Phase 33 — 61 이 계좌별 슬롯이 됐다).
+ *
+ * 브라우저 칸 키는 `${a}|${x}` 다. 3상태는 칸마다 독립이다:
+ *  - 키 부재 : 그 슬롯을 아직 모른다(프레임을 받은 적 없음 — relay 는 모르면 보내지 않는다)
+ *  - `cfg: null` : 미등록(61 `unregistered` 프레임 · 구 서버의 빈 61 · 구 서버 21 답의 다른 소유 계좌)
+ *  - 객체 : 등록돼 있다(`cfg.accountNo === a` · `cfg.exchange === x`)
+ *
+ * 같은 거래소의 다른 계좌 슬롯을 덮지 않는다 — 거래소 칸 하나로 접으면 21 답의 마지막 계좌 건만 남는다(인박스 261016).
+ * relay 는 슬롯마다 받은 61 을 그대로 이 프레임 1건으로 낸다(같은 값이어도 — 웹 VI 행은 에코 도착으로 송신 잠금을 푼다).
+ */
+export type RelayViSlotMsg = {
+  t: "vi.slot";
+  /** 계좌번호 — 슬롯 키의 앞. */
+  a: string;
+  /** 거래소 — 슬롯 키의 뒤. */
   x: RelayExchange;
   cfg: RelayViTrigger | null;
 };
@@ -1827,6 +1852,7 @@ export type RelayOutbound =
   | RelayLimitChaserMsg
   | RelayLimitChaserSnapMsg
   | RelayViTriggerMsg
+  | RelayViSlotMsg
   | RelayViListMsg
   | RelayViNoticeMsg
   | RelayStrategiesDisabledMsg
