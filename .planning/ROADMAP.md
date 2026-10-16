@@ -212,7 +212,7 @@ Plans:
 | 30. 인박스 KB 계좌별 주문자 IP/MAC | v1.1 | 9/9 | Complete | 2026-10-11 |
 | 31. 인박스 상따 금액 단위 | v1.1 | 8/8 | Complete | 2026-10-12 |
 | 32. 계좌 축 정리 | v1.1 | 4/14 | Not started | — |
-| 33. 팀 매집(teamflow) 보고서 | v1.1 | 3/9 | In Progress | — |
+| 33. 팀 매집(teamflow) 보고서 | v1.1 | 4/9 | In Progress | — |
 
 ### Phase 33: 팀 매집(teamflow) 보고서
 
@@ -227,7 +227,7 @@ Plans:
   5. 단위 · E2E(limitup-report 동형 fixture) 통과 · 10/14 실측 3종목으로 라이브 UAT · 인박스 `261016-teamflow-export.md` 를 `status: done` 으로 닫는다
 
 **배포 순서**: DB 마이그레이션(표 · RPC · RLS `TO anon, authenticated` · REVOKE 명시) → limitup-sync Job 재배포(`scripts/deploy-limitup-sync.sh` · 21:20 KST 밖) → server → webapp push(= 프로덕션). radar-gw 변경 없음. 첫 적재는 119 export 에 `team_flow.ndjson.gz` 가 실린 날짜부터
-**Plans**: 3/9 plans executed
+**Plans**: 4/9 plans executed
 
 Plans:
 **Wave 1**
@@ -240,7 +240,7 @@ Plans:
 - [x] 33-03-PLAN.md — (트레이서) 목록 완성: 변환 모듈 · KPI 4칸 · 9칸 미니막대 · xl 7열/폰 카드 · --team 토큰
 
 **Wave 4** *(blocked on Wave 3 completion)*
-- [ ] 33-04-PLAN.md — (트레이서) 사이드바 「분석 › 팀 매집」 · 게이트 직접 진입 · 목록 E2E(1280 · 390) · 폭 백스톱 T1~T3
+- [x] 33-04-PLAN.md — (트레이서) 사이드바 「분석 › 팀 매집」 · 게이트 직접 진입 · 목록 E2E(1280 · 390) · 폭 백스톱 T1~T3
 
 **Wave 5** *(blocked on Wave 4 completion)*
 - [ ] 33-05-PLAN.md — (트레이서) 상세 ① 구간 가로 막대 · 구간표 · 판정 기준 · 거래원 2단 막대(2열 · 폰 1열)
