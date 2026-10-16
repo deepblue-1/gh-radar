@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: 8aaa9d01
 from_branch: worktree-agent-a46f55ba18ffddcfe
 date: 2026-10-16
 fbs_sync_marker: acb8182d
-done_commit:
+done_commit: eb2c36bb
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
@@ -90,3 +90,13 @@ gh-radar 쪽에 묻고 싶은 것, 결정이 필요한 것을 적는다(없으�
 
 1. relay 배포 예정일 — 그날 장 마감 뒤 gh-trade 서버 3대 배포·C# 클라 발행을 묶는다.
 2. 웹에서 미등록(`unregistered=true`) 계좌의 VI 행을 빈 행으로 보일지 숨길지 — gh-trade C# 은 VI 창에서 체크 OFF·입력값 유지, 메인폼 대시보드에서는 행 없음이다.
+
+## 회신 (2026-10-16 · gh-radar Phase 32 웨이브 ④)
+
+- **relay 배포:** `7794dcd9` · 2026-10-16 19:01 KST(사용자 지시로 NXT 애프터 중 배포 · 롤백 태그 `55459fe5`) · smoke 전 INV 통과(INV-9 · 10 은 비밀값 필요로 건너뜀) · 배포 뒤 `relay_docker` 오류 · 스키마 위반 0건 · KB120 · KYOBO119 adminConns ready.
+- **Q1 답:** relay 배포일 = 2026-10-16. gh-trade 서버 3대 배포는 사용자 말로 이미 끝나 있어 relay → webapp push 를 바로 이어서 했다.
+- **Q2 답:** 작업대 VI 설정 행은 미등록 슬롯을 **빈 행**으로 보인다(저장하면 그 계좌로 등록 · C# VI 창 「체크 OFF · 입력값 유지」 와 같은 결). /me 현황은 고른 계좌 VI 행 **한 줄**이 늘 서고 등록 슬롯이 없으면 「중지 · —」. 사이드바는 **가동 슬롯만** 그 계좌 묶음에 태그로 서고 미등록 · 중지는 줄이 없다(C# 메인폼 대시보드와 같은 결).
+- **처리 내용:** relay VI 캐시 키 = (소유키, 계좌, 거래소) · `unregistered=true` = 그 슬롯 미등록 · 소유 뷰 밖 계좌 프레임은 버림 · VI 원천 = 결선된 모든 세션(KB 한정 해제) · 서버 간 거래소당 1건 가드 제거 · `vi.set` = 그 계좌 소유 세션으로. 브라우저 계약 = 새 `vi.slot`(계좌 · 거래소마다 1건)만 · 구 `vi` 병합 프레임 중단(D-17 = slot-only, 사용자 결정). 커밋 32-11 `4e2b5596` · `eb2c36bb`, 웹 32-12 `4a6063cc` · 32-13 `24933fbf`.
+- **추가 수정:** 옛 서버 계좌 전략 끄기(strategy-sweeper)가 21 답 n 프레임을 첫 프레임만 읽어 두 번째 이후 계좌의 켜진 VI 를 놓치던 결함 — 21(KRX) · 21(NXT) · 24 순으로 보내고 64 를 두 21 답의 끝으로 잡아 슬롯을 모으게 고쳤다(`6a3067f7`). 판정 불가면 조용한 ok 대신 timeout 실패. 와이어 요청 수는 같고 순서만 24 · 21 · 21 → 21 · 21 · 24.
+- **webapp push:** `df038c32..7794dcd9` · Vercel `dpl_35D8jypqKXavte1jntVLg6BMHvEP`(19:03 KST).
+- **확인 결과(사용자 2026-10-16 「다 잘돼」):** ① 교보119 계좌 KRX · NXT VI 행 · 켜면 가동 ② KB 계좌 VI 행 따로 · 동시 가동 ③ 사이드바 KB · 교보 묶음 각각 「VI」 ④ /me 교보 칩 → 현황 VI 「가동」 ⑤ 한쪽 끄기 · 다른 쪽 그대로 ⑥ WinForms VI 창 두 계좌 각자 켜짐 — 전부 통과.
