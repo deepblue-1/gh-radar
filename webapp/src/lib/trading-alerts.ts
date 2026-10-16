@@ -21,7 +21,8 @@
  *   - `RelayOrderMsg.msg` 를 **파싱하지 않는다**(D-08) — 거부 토스트에 원문을 그대로 보일 뿐이다.
  *   - 알림 이력을 저장하지 않는다(A안 — 벨 · 이력 없음). 브라우저 저장소를 쓰지 않는다.
  *   - 브라우저 Notification API 를 쓰지 않는다.
- *   - 계좌번호는 카드 매칭에만 쓴다 — 표시 문구에 싣지 않는다(T-pgu-02).
+ *   - 이 파일의 문구 함수(`alertWho` · `alertSubtitle`)에 계좌번호를 싣지 않는다 — 계좌는 토스트가 따로 「계좌 {전체
+ *     라벨}」 줄로 그린다(사용자 결정 2026-10-13 · `TradingAlert.accountNo` 주석 · 옛 T-pgu-02 「표시 안 함」 갱신).
  */
 
 import type {
@@ -83,7 +84,10 @@ export interface TradingAlert {
   /** 색인 미스 주문은 없다(카드를 찾거나 만들 수 없다). */
   isin?: string;
   exchange: RelayExchange;
-  /** 카드 매칭 전용 — 표시하지 않는다(T-pgu-02). */
+  /**
+   * 카드 매칭 + 토스트 계좌 줄 표시(Phase 32 D-03 — T-pgu-02 「표시하지 않는다」 를 사용자 결정 2026-10-13 으로
+   * 뒤집음 · 마스킹 없음 D2). 계좌 없는 알림(돌파)은 `undefined`.
+   */
   accountNo?: string;
   name?: string;
   code?: string;

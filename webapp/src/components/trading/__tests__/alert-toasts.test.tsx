@@ -68,7 +68,7 @@ afterEach(() => {
 
 describe('AlertToasts — 마크업', () => {
   it('비어 있어도 role=status · aria-live=polite 컨테이너가 선다', () => {
-    render(<AlertToasts alerts={[]} onOpen={vi.fn()} onDismiss={vi.fn()} />);
+    render(<AlertToasts accounts={[]} currentAccountNo="" alerts={[]} onOpen={vi.fn()} onDismiss={vi.fn()} />);
     expect(container()).toHaveAttribute('role', 'status');
     expect(container()).toHaveAttribute('aria-live', 'polite');
     expect(toasts()).toHaveLength(0);
@@ -76,7 +76,7 @@ describe('AlertToasts — 마크업', () => {
 
   it('항목마다 data-kind · 제목 · 부제 · count ≥ 2 면 N건 배지', () => {
     render(
-      <AlertToasts
+      <AlertToasts accounts={[]} currentAccountNo=""
         alerts={[
           alert({ count: 3, filledQty: 300 }),
           alert({ id: 'wb-alert-2', kind: 'reject', label: '매수', msg: '주문가능금액 초과', name: '에코프로' }),
@@ -101,7 +101,7 @@ describe('AlertToasts — 마크업', () => {
 describe('AlertToasts — 배치', () => {
   it('가장 최근 알림(배열 끝)이 DOM 첫째 — 앵커에 가장 가까운 맨 위', () => {
     render(
-      <AlertToasts
+      <AlertToasts accounts={[]} currentAccountNo=""
         alerts={[
           alert({ id: 'wb-alert-1', at: 1_000 }),
           alert({ id: 'wb-alert-2', at: 2_000, kind: 'reject', msg: '주문가능금액 초과', name: '에코프로' }),
@@ -118,7 +118,7 @@ describe('AlertToasts — 배치', () => {
   });
 
   it('컨테이너는 헤더 아래 상단 앵커 한 식만 — bottom 앵커 0 · 폰 top 변형 0', () => {
-    render(<AlertToasts alerts={[]} onOpen={vi.fn()} onDismiss={vi.fn()} />);
+    render(<AlertToasts accounts={[]} currentAccountNo="" alerts={[]} onOpen={vi.fn()} onDismiss={vi.fn()} />);
     const tokens = container().className.split(/\s+/).filter(Boolean);
     expect(tokens.filter((t) => /(^|:)bottom-/.test(t))).toEqual([]);
     expect(tokens.filter((t) => t.startsWith('max-[699px]:top-'))).toEqual([]);
@@ -137,11 +137,11 @@ describe('AlertToasts — 배치', () => {
     const onDismiss = vi.fn();
     const a1 = alert({ id: 'wb-alert-1', at: 1_000 });
     const a2 = alert({ id: 'wb-alert-2', at: 2_000, name: '에코프로' });
-    const view = render(<AlertToasts alerts={[a1]} onOpen={vi.fn()} onDismiss={onDismiss} />);
+    const view = render(<AlertToasts accounts={[]} currentAccountNo="" alerts={[a1]} onOpen={vi.fn()} onDismiss={onDismiss} />);
     act(() => {
       vi.advanceTimersByTime(3_000);
     });
-    view.rerender(<AlertToasts alerts={[a1, a2]} onOpen={vi.fn()} onDismiss={onDismiss} />);
+    view.rerender(<AlertToasts accounts={[]} currentAccountNo="" alerts={[a1, a2]} onOpen={vi.fn()} onDismiss={onDismiss} />);
     expect(toasts()[0].textContent).toContain('에코프로');
     act(() => {
       vi.advanceTimersByTime(TOAST_TTL_MS - 3_000);
@@ -155,7 +155,7 @@ describe('AlertToasts — 조작', () => {
   it('✕ 는 onDismiss 만 · onOpen 호출 0', () => {
     const onOpen = vi.fn();
     const onDismiss = vi.fn();
-    render(<AlertToasts alerts={[alert()]} onOpen={onOpen} onDismiss={onDismiss} />);
+    render(<AlertToasts accounts={[]} currentAccountNo="" alerts={[alert()]} onOpen={onOpen} onDismiss={onDismiss} />);
     fireEvent.click(within(toasts()[0]).getByRole('button', { name: '알림 닫기' }));
     expect(onDismiss).toHaveBeenCalledWith('wb-alert-1');
     expect(onOpen).not.toHaveBeenCalled();
@@ -164,7 +164,7 @@ describe('AlertToasts — 조작', () => {
   it('본문 클릭 → onOpen(alert)', () => {
     const onOpen = vi.fn();
     const a = alert();
-    render(<AlertToasts alerts={[a]} onOpen={onOpen} onDismiss={vi.fn()} />);
+    render(<AlertToasts accounts={[]} currentAccountNo="" alerts={[a]} onOpen={onOpen} onDismiss={vi.fn()} />);
     fireEvent.click(toasts()[0]);
     expect(onOpen).toHaveBeenCalledWith(a);
   });
@@ -173,11 +173,11 @@ describe('AlertToasts — 조작', () => {
 describe('AlertToasts — 타이머', () => {
   it('TTL 6000ms — 5999ms 에는 미호출 · 병합으로 at 이 바뀌면 다시 6000ms', () => {
     const onDismiss = vi.fn();
-    const view = render(<AlertToasts alerts={[alert()]} onOpen={vi.fn()} onDismiss={onDismiss} />);
+    const view = render(<AlertToasts accounts={[]} currentAccountNo="" alerts={[alert()]} onOpen={vi.fn()} onDismiss={onDismiss} />);
     act(() => {
       vi.advanceTimersByTime(TOAST_TTL_MS - 1_000);
     });
-    view.rerender(<AlertToasts alerts={[alert({ at: 2_000, count: 2 })]} onOpen={vi.fn()} onDismiss={onDismiss} />);
+    view.rerender(<AlertToasts accounts={[]} currentAccountNo="" alerts={[alert({ at: 2_000, count: 2 })]} onOpen={vi.fn()} onDismiss={onDismiss} />);
     act(() => {
       vi.advanceTimersByTime(TOAST_TTL_MS - 1);
     });
@@ -190,7 +190,7 @@ describe('AlertToasts — 타이머', () => {
 
   it('호버 중에는 10초가 지나도 안 닫히고, 떠나면 2500ms 뒤 닫힌다', () => {
     const onDismiss = vi.fn();
-    render(<AlertToasts alerts={[alert()]} onOpen={vi.fn()} onDismiss={onDismiss} />);
+    render(<AlertToasts accounts={[]} currentAccountNo="" alerts={[alert()]} onOpen={vi.fn()} onDismiss={onDismiss} />);
     fireEvent.mouseEnter(toasts()[0]);
     act(() => {
       vi.advanceTimersByTime(10_000);
@@ -210,7 +210,7 @@ describe('AlertToasts — 타이머', () => {
   it('폰(max-width: 699px) 은 TTL 4000ms', () => {
     phone(true);
     const onDismiss = vi.fn();
-    render(<AlertToasts alerts={[alert()]} onOpen={vi.fn()} onDismiss={onDismiss} />);
+    render(<AlertToasts accounts={[]} currentAccountNo="" alerts={[alert()]} onOpen={vi.fn()} onDismiss={onDismiss} />);
     act(() => {
       vi.advanceTimersByTime(TOAST_TTL_PHONE_MS - 1);
     });

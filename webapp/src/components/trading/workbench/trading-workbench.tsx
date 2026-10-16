@@ -1585,7 +1585,13 @@ function WorkbenchSurface() {
       />
 
       {/* 8 · 이벤트 알림 토스트(⑩) — 뷰포트 오버레이지만 이 작업대 루트 안에만 산다 */}
-      <AlertToasts alerts={alerts} onOpen={openAlert} onDismiss={dismissAlert} />
+      <AlertToasts
+        alerts={alerts}
+        onOpen={openAlert}
+        onDismiss={dismissAlert}
+        accounts={accounts}
+        currentAccountNo={accountNo}
+      />
 
       <StockInfoModal
         code={info?.code ?? null}

@@ -27,9 +27,19 @@
  *
  * ④ 문구 표는 `trading-alerts.ts` 한 곳이다 — 여기서 문장을 만들지 않는다. 텍스트 노드로만 그린다
  *   (거부 사유 원문 포함 · T-pgu-01).
+ *
+ * ⑤ 계좌 줄 (Phase 32 D-03 · UI-SPEC S4) — 토스트는 작업대 계좌와 **무관하게 전부** 뜬다(숨은 계좌 것 포함).
+ *   본문 버튼 안 줄 순서: ① 제목 ② 계좌 줄(`account` 파트 · 11/400 `--muted-fg` · 「계좌 {전체 라벨}」 —
+ *   `accountFullLabelOf`(D-12) · 목록 밖 계좌는 번호만) ③ 기존 부제. 알림 계좌가 지금 작업대 계좌와 다르고 목록
+ *   안이면 계좌 줄 오른쪽 끝에 「이 계좌 보기 ›」(11/600 `--primary` · `›` aria-hidden) — 별도 버튼이 아니다(토스트
+ *   전체 클릭이 그 계좌로 바꾸고 카드로 간다 · 힌트는 그 결과를 말한다). 계좌 없는 알림(돌파)은 줄이 없다.
+ *   계좌 줄 · 힌트는 본문 버튼 안이라 버튼 접근 이름에 들어간다.
  */
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import type { RelayAccount } from "@gh-radar/shared";
+
+import { accountFullLabelOf } from "@/lib/account-label";
 
 import {
   ALERT_TITLE_SUFFIX,
@@ -48,6 +58,10 @@ export interface AlertToastsProps {
   /** 본문 클릭 — 작업대가 카드를 펼치고 탭을 옮긴 뒤 이 알림을 닫는다. */
   onOpen: (a: TradingAlert) => void;
   onDismiss: (id: string) => void;
+  /** relay 계좌 목록 — 계좌 줄 글자(`accountFullLabelOf`)의 원천 · 「이 계좌 보기」 는 이 목록 안 계좌만(⑤). */
+  accounts: readonly RelayAccount[];
+  /** 지금 작업대 계좌 — 알림 계좌가 이 값과 다를 때만 「이 계좌 보기 ›」(⑤). */
+  currentAccountNo: string;
 }
 
 /** 이 뷰포트가 폰 배치인가 — 마운트 시점에 한 번 읽는다(SSR 에는 창이 없다). */
@@ -58,7 +72,7 @@ function toastTtl(): number {
     : TOAST_TTL_MS;
 }
 
-export function AlertToasts({ alerts, onOpen, onDismiss }: AlertToastsProps) {
+export function AlertToasts({ alerts, onOpen, onDismiss, accounts, currentAccountNo }: AlertToastsProps) {
   return (
     <div
       data-slot="alert-toasts"
@@ -67,7 +81,14 @@ export function AlertToasts({ alerts, onOpen, onDismiss }: AlertToastsProps) {
       className="pointer-events-none fixed top-[calc(3.5rem+8px+var(--app-safe-top))] right-3 z-50 flex w-[min(340px,calc(100%-24px))] flex-col gap-2 max-[699px]:left-3 max-[699px]:w-auto"
     >
       {[...alerts].reverse().map((a) => (
-        <ToastItem key={a.id} alert={a} onOpen={onOpen} onDismiss={onDismiss} />
+        <ToastItem
+          key={a.id}
+          alert={a}
+          onOpen={onOpen}
+          onDismiss={onDismiss}
+          accounts={accounts}
+          currentAccountNo={currentAccountNo}
+        />
       ))}
     </div>
   );
@@ -77,11 +98,21 @@ function ToastItem({
   alert: a,
   onOpen,
   onDismiss,
+  accounts,
+  currentAccountNo,
 }: {
   alert: TradingAlert;
   onOpen: (a: TradingAlert) => void;
   onDismiss: (id: string) => void;
+  accounts: readonly RelayAccount[];
+  currentAccountNo: string;
 }) {
+  // ⑤ 계좌 줄 — 목록 안이면 전체 라벨, 밖이면 번호만(전환할 수 없어 힌트도 없다).
+  const account =
+    a.accountNo === undefined || a.accountNo === ""
+      ? undefined
+      : accounts.find((x) => x.accountNo === a.accountNo);
+  const showHint = account !== undefined && a.accountNo !== currentAccountNo;
   const [ttl] = useState(toastTtl);
   const [hovered, setHovered] = useState(false);
   /** 호버를 떠난 뒤인가 — 떠난 뒤의 타이머는 `TOAST_LEAVE_MS` 다. 새 이벤트(`at`)가 오면 풀린다. */
@@ -138,6 +169,24 @@ function ToastItem({
             className="mono ml-1 inline-block rounded-full bg-[var(--accent)] px-[5px] text-[10px] font-bold text-[var(--accent-fg)]"
           >
             {a.count}건
+          </span>
+        )}
+        {a.accountNo !== undefined && a.accountNo !== "" && (
+          <span
+            data-part="account"
+            className="flex items-start gap-2 text-[11px] leading-4 font-normal text-[var(--muted-fg)] break-keep"
+          >
+            <span className="min-w-0">
+              계좌 {account !== undefined ? accountFullLabelOf(account) : a.accountNo}
+            </span>
+            {showHint && (
+              <span
+                data-part="account-hint"
+                className="ml-auto whitespace-nowrap font-semibold text-[var(--primary)]"
+              >
+                이 계좌 보기 <span aria-hidden="true">›</span>
+              </span>
+            )}
           </span>
         )}
         <span data-part="sub" className="block text-[11px] text-[var(--muted-fg)]">

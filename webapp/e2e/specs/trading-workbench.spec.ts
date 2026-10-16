@@ -1863,6 +1863,67 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(page.locator('[data-slot="alert-toast"]')).toHaveCount(0);
   });
 
+  test('P32-toast 토스트 계좌 줄 — 다른 계좌(B) 체결 토스트가 A 를 보는 중에도 뜨고 「계좌 B…」 + 「이 계좌 보기 ›」 · 누르면 작업대가 B 로 바뀌고 그 카드로 간다 · 컨테이너 role=status · aria-live 유지 (D-03)', async ({
+    page,
+  }) => {
+    const orderNo = '0000000932';
+    relay.gateway.respondLoginWithAccounts(P32_ACCOUNTS);
+    await page.goto(WORKBENCH_URL);
+    await waitForReady(page);
+    const account = statusBar(page).locator('[data-slot="workbench-account"]');
+    await expect(account.locator('option')).toHaveCount(2, { timeout: 30_000 });
+    await account.selectOption(E2E_ACCOUNT_NO);
+    const toastBox = page.locator('[data-slot="alert-toasts"]');
+    await expect(toastBox).toHaveAttribute('role', 'status');
+    await expect(toastBox).toHaveAttribute('aria-live', 'polite');
+
+    // B 계좌의 미체결 행 = 주문번호 색인의 원천(알림이 B 계좌를 안다).
+    await relay.pushAccountState({
+      accountNo: P32_ACCOUNT_B,
+      unfilled: [
+        {
+          orderNo,
+          isin: E2E_ISIN,
+          side: 'B',
+          price: 98_000,
+          orderQty: 500,
+          filledQty: 0,
+          unfilledQty: 500,
+          exchange: 'KRX',
+        },
+      ],
+    });
+    await relay.pushOrderResp({
+      orderNo,
+      noticeType: 'E',
+      isin: E2E_ISIN,
+      side: 'B',
+      price: 98_000,
+      quantity: 100,
+      exchange: 'KRX',
+      requestKind: 'New',
+    });
+
+    // A 를 보는 중에도 B 의 체결 토스트가 뜬다 — 둘째 줄 계좌 줄 + 「이 계좌 보기 ›」.
+    const toast = page.locator('[data-slot="alert-toast"][data-kind="fill"]');
+    await expect(toast).toBeVisible({ timeout: 15_000 });
+    const line = toast.locator('[data-part="account"]');
+    await expect(line).toContainText(`계좌 ${P32_ACCOUNT_B} · 위탁CMA`);
+    await expect(toast.locator('[data-part="account-hint"]')).toHaveText('이 계좌 보기 ›');
+    await expect(toast.getByRole('button', { name: /이 계좌 보기/ })).toHaveAttribute('data-part', 'text');
+    await expect(account).toHaveValue(E2E_ACCOUNT_NO);
+
+    // 누르면 작업대가 B 로 바뀌고 그 종목 · B 계좌 카드로 간다(펼침).
+    await toast.locator('[data-part="text"]').click();
+    await expect(account).toHaveValue(P32_ACCOUNT_B);
+    const card = cardByKey(page, `${E2E_ISIN}:${P32_ACCOUNT_B}:KRX`);
+    await expect(card).toBeVisible({ timeout: 15_000 });
+    await expect(card).toHaveAttribute('data-open', 'true');
+    await expect(page.locator('[data-slot="alert-toast"]')).toHaveCount(0);
+    await expect(toastBox).toHaveAttribute('role', 'status');
+    await expect(toastBox).toHaveAttribute('aria-live', 'polite');
+  });
+
   test('11. 카드 헤더에 LED 4개가 매수·매도·취소·자동 순서로 보이고 라벨이 상태를 말한다 (옛 LC 3b · 17-11 D-22 · Phase 27 D-04)', async ({
     page,
   }) => {
