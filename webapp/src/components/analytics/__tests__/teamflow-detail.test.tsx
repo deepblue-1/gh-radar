@@ -11,7 +11,7 @@ import type { TeamflowRow } from '@gh-radar/shared';
  * 다섯 창구 거래원 2단 막대(net 내림차순 · null 뒤 · null 칸 채움 없음 · 상위 5 밖 · 범례 · 참고 줄 · 자료 없음).
  */
 
-import { CHEONIL, DONGYANG, SMBEXCEL, teamflowRows } from '@/test-fixtures/teamflow-export';
+import { CHEONIL, DONGYANG, HANSUN, SMBEXCEL, teamflowRows } from '@/test-fixtures/teamflow-export';
 
 import { TeamflowDayGrid } from '../teamflow-day-grid';
 import { TeamflowDetail } from '../teamflow-detail';
@@ -280,5 +280,100 @@ describe('TeamflowDetail — 10분 흐름 차트 (T8 · D-13)', () => {
     expect(svg.querySelectorAll('g > title')).toHaveLength(0);
     expect(svg.textContent).toContain('10분 체결 기록이 없어요');
     expect(svg.textContent).toContain('9시');
+  });
+});
+
+describe('TeamflowDetail — 「10분 표 보기」 (T8 · D-14)', () => {
+  const bucketTable = () => document.querySelector('[data-slot="teamflow-bucket-table"]') as HTMLElement | null;
+  const bodyRows = () => within(bucketTable()!).getAllByRole('row').slice(1);
+  const INSET = 'inset_3px_0_0_var(--team)';
+
+  it('기본 접힘 → 클릭 → 7열 · 행 = buckets 전부(천일고속 39) · 마지막 「15:30」(key 93 따로) · 12:00 행 칸', () => {
+    renderDetail(rowOf(CHEONIL));
+    const btn = toggle('10분 표 보기');
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+    expect(bucketTable()).toBeNull();
+
+    fireEvent.click(btn);
+    expect(btn.getAttribute('aria-expanded')).toBe('true');
+    const table = bucketTable()!;
+    expect(document.getElementById(btn.getAttribute('aria-controls')!)!.contains(table)).toBe(true);
+    const heads = within(table).getAllByRole('columnheader').map((h) => h.textContent);
+    expect(heads).toEqual(['시각', '등락 범위', '거래량', '팀 매수', '팀 매도', '팀 순매수', '매수 중 팀']);
+    const rows = bodyRows();
+    expect(rows).toHaveLength(39);
+    expect(within(rows[0]!).getAllByRole('cell')[0]!.textContent).toBe('09:00');
+    expect(within(rows.at(-1)!).getAllByRole('cell')[0]!.textContent).toBe('15:30');
+    const noon = rows.find((r) => within(r).getAllByRole('cell')[0]!.textContent === '12:00')!;
+    expect(within(noon).getAllByRole('cell').map((c) => c.textContent)).toEqual([
+      '12:00',
+      '21.1~29.8%',
+      '10,418',
+      '3,444',
+      '219',
+      '+7.2억',
+      '47%',
+    ]);
+  });
+
+  it('천일고속 window 12:00~12:09 → 그 행 첫 칸에만 inset 3px --team 띠', () => {
+    renderDetail(rowOf(CHEONIL));
+    fireEvent.click(toggle('10분 표 보기'));
+    const striped = bodyRows().filter((r) => within(r).getAllByRole('cell')[0]!.className.includes(INSET));
+    expect(striped).toHaveLength(1);
+    expect(within(striped[0]!).getAllByRole('cell')[0]!.textContent).toBe('12:00');
+    // 둘째 칸 이후에는 띠 없음
+    expect(within(striped[0]!).getAllByRole('cell')[1]!.className.includes(INSET)).toBe(false);
+  });
+
+  it('한선엔지니어링 window 09:10~09:59 → 5행(09:10 · 09:20 · 09:30 · 09:40 · 09:50)에 띠', () => {
+    renderDetail(rowOf(HANSUN));
+    fireEvent.click(toggle('10분 표 보기'));
+    const striped = bodyRows()
+      .filter((r) => within(r).getAllByRole('cell')[0]!.className.includes(INSET))
+      .map((r) => within(r).getAllByRole('cell')[0]!.textContent);
+    expect(striped).toEqual(['09:10', '09:20', '09:30', '09:40', '09:50']);
+  });
+
+  it('합성 key 50(08:20 · 범위 밖) → 차트 칸 수 그대로 39 · 표에는 맨 위 행(key 오름차순)', () => {
+    const ch = rowOf(CHEONIL);
+    const extra = { ...ch.payload!.buckets[0]!, key: 50, start: '08:20' };
+    renderDetail(withPayload(ch, { buckets: [...ch.payload!.buckets, extra] }));
+    const svg = document.querySelector('[data-slot="teamflow-bucket-chart"]') as SVGSVGElement;
+    expect(svg.querySelectorAll('g > title')).toHaveLength(39);
+    fireEvent.click(toggle('10분 표 보기'));
+    const rows = bodyRows();
+    expect(rows).toHaveLength(40);
+    expect(within(rows[0]!).getAllByRole('cell')[0]!.textContent).toBe('08:20');
+  });
+
+  it('구간표 · 10분 표 · 판정 기준 — 차례로 열고 닫아도 서로의 상태를 바꾸지 않는다', () => {
+    renderDetail(rowOf(CHEONIL));
+    const state = () => ['구간표 보기', '10분 표 보기', '판정 기준'].map((l) => toggle(l).getAttribute('aria-expanded'));
+    expect(state()).toEqual(['false', 'false', 'false']);
+    fireEvent.click(toggle('구간표 보기'));
+    expect(state()).toEqual(['true', 'false', 'false']);
+    fireEvent.click(toggle('10분 표 보기'));
+    expect(state()).toEqual(['true', 'true', 'false']);
+    fireEvent.click(toggle('판정 기준'));
+    expect(state()).toEqual(['true', 'true', 'true']);
+    fireEvent.click(toggle('10분 표 보기'));
+    expect(state()).toEqual(['true', 'false', 'true']);
+    expect(bucketTable()).toBeNull();
+    expect(document.querySelector('[data-slot="teamflow-band-table"]')).not.toBeNull();
+    fireEvent.click(toggle('구간표 보기'));
+    expect(state()).toEqual(['false', 'false', 'true']);
+  });
+
+  it('DayGrid — 10분 표 열기 → 행 접기 → 다시 열기 = 10분 표 닫힘(초기화)', () => {
+    render(<TeamflowDayGrid rows={teamflowRows()} />);
+    const rowBtn = () => document.getElementById(`teamflow-row-${CHEONIL}`) as HTMLButtonElement;
+    fireEvent.click(rowBtn());
+    fireEvent.click(toggle('10분 표 보기'));
+    expect(bucketTable()).not.toBeNull();
+    fireEvent.click(rowBtn());
+    fireEvent.click(rowBtn());
+    expect(toggle('10분 표 보기').getAttribute('aria-expanded')).toBe('false');
+    expect(bucketTable()).toBeNull();
   });
 });
