@@ -35,6 +35,7 @@ import {
 } from "./helpers/fake-gateway.js";
 import {
   buildDisableStrategiesRespFrame,
+  buildLimitChaserListRespFrame,
   buildSetLimitChaserRespFrame,
   type FakeLimitChaserInput,
 } from "./helpers/frames.js";
@@ -770,6 +771,116 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
     expect(
       await sweeper().sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS, { lend: plainLend }),
     ).toMatchObject({ ok: true, disabledLimitChasers: 1 });
+  });
+
+  // ── 32-14 — 21 답 n 프레임(gh-trade Phase 33 · 인박스 261016). 선언 계좌 A · B · C(로그인 응답 순)마다 61 1프레임 + 선언 밖 등록 슬롯.
+  //    슬롯 모드(`respondViSlots`)로 새 서버를 흉내 낸다. 구 서버(거래소당 61 1프레임)는 ①~⑧ · 아래 32-14 (c) 가 고정한다.
+
+  it("32-14 (a) 새 서버 — 끌 대상 B 가 둘째 선언 계좌 · B 의 VI(KRX) 가동 → B 슬롯 11 run:false · viDisabled 1 · A 슬롯 무영향", async () => {
+    await readySessionOf(U1);
+    gw.respondLimitChaserList([]);
+    gw.respondViSlots([
+      { accountNo: A, exchange: "KRX", run: true, orderAmountKrw: 1_000_000n, checkRate: 25 },
+      { accountNo: B, exchange: "KRX", run: true, orderAmountKrw: 3_000_000n, checkRate: 20 },
+    ]);
+
+    const result = await sweeper().sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [B] }, CREDS);
+
+    expect(result).toEqual({ ok: true, disabledLimitChasers: 0, viDisabled: 1, sessionCreated: false, skippedAccounts: [] });
+    expect(viSets()).toEqual([
+      { accountNo: B, orderAmountKrw: 3_000_000, checkRate: 20, priceType: "U", run: false, exchange: "KRX" },
+    ]);
+    expect(gw.viSlot(B, "KRX")).toMatchObject({ run: false });
+    expect(gw.viSlot(A, "KRX")).toMatchObject({ run: true });
+  });
+
+  it("32-14 (b) 새 서버 — 21(KRX) 답의 남은 프레임(C 미등록 · cfg null)을 21(NXT) 의 답으로 읽지 않는다 → 첫 선언 계좌 A 의 VI(NXT) 를 끈다", async () => {
+    await readySessionOf(U1);
+    gw.respondLimitChaserList([]);
+    // KRX 는 세 계좌 모두 미등록 프레임 · NXT 는 A 만 가동 — 21(KRX) 답 3프레임 중 첫 프레임만 접으면 남은 B · C 미등록 프레임이
+    // 21(NXT) 대기에 「빈 61 = 미등록」 으로 잡혀 A 의 NXT 가동을 놓친다.
+    gw.respondViSlots([{ accountNo: A, exchange: "NXT", run: true, orderAmountKrw: 2_000_000n, checkRate: 15 }]);
+
+    const result = await sweeper().sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS);
+
+    expect(result).toEqual({ ok: true, disabledLimitChasers: 0, viDisabled: 1, sessionCreated: false, skippedAccounts: [] });
+    expect(viSets()).toEqual([
+      { accountNo: A, orderAmountKrw: 2_000_000, checkRate: 15, priceType: "U", run: false, exchange: "NXT" },
+    ]);
+    expect(gw.viSlot(A, "NXT")).toMatchObject({ run: false });
+  });
+
+  it("32-14 (a') 새 서버 — 대상 둘(B · C) · 두 거래소 · 선언 밖 등록 슬롯까지 → 대상 슬롯마다 11 run:false · 재조회 0 → ok", async () => {
+    await readySessionOf(U1);
+    gw.respondLimitChaserList([]);
+    const D = "4444444401"; // 선언 밖 등록 슬롯(복원본) — 초집합 꼬리로 온다.
+    gw.respondViSlots([
+      { accountNo: A, exchange: "KRX", run: true, orderAmountKrw: 1_000_000n, checkRate: 25 },
+      { accountNo: C, exchange: "KRX", run: true, orderAmountKrw: 5_000_000n, checkRate: 30 },
+      { accountNo: B, exchange: "NXT", run: true, orderAmountKrw: 2_000_000n, checkRate: 15 },
+      { accountNo: D, exchange: "NXT", run: true, orderAmountKrw: 7_000_000n, checkRate: 12 },
+    ]);
+
+    const result = await sweeper().sweep(
+      { userId: U1, serverKey: "KB120", broker: "KB", accountNos: [B, C, D] },
+      CREDS,
+    );
+
+    expect(result).toEqual({ ok: true, disabledLimitChasers: 0, viDisabled: 3, sessionCreated: false, skippedAccounts: [] });
+    expect(
+      viSets()
+        .map((v) => `${v?.accountNo}|${v?.exchange}|${v?.run}`)
+        .sort(),
+    ).toEqual([`${B}|NXT|false`, `${C}|KRX|false`, `${D}|NXT|false`].sort());
+    expect(gw.viSlot(A, "KRX")).toMatchObject({ run: true });
+  });
+
+  it("32-14 (c) 구 서버(거래소당 61 1프레임) — 본문 61(KRX · 대상 A 가동) + 빈 61(NXT) → 종전대로 KRX 만 끈다 · ok", async () => {
+    await readySessionOf(U1);
+    gw.respondLimitChaserList([]);
+    gw.respondViTriggerFor("KRX", { accountNo: A, run: true, orderAmountKrw: 3_000_000n, checkRate: 20 });
+    gw.respondViTriggerFor("NXT", null);
+
+    const result = await sweeper().sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS);
+
+    expect(result).toEqual({ ok: true, disabledLimitChasers: 0, viDisabled: 1, sessionCreated: false, skippedAccounts: [] });
+    expect(viSets()).toEqual([
+      { accountNo: A, orderAmountKrw: 3_000_000, checkRate: 20, priceType: "U", run: false, exchange: "KRX" },
+    ]);
+    expect(gw.viTriggerSlot("KRX")).toMatchObject({ run: false });
+  });
+
+  it("32-14 (d) 21 답 사이에 남의 64 가 끼어도 그것을 21 답의 끝으로 쓰지 않는다 → NXT 답까지 읽고 대상 A 의 VI(NXT) 를 끈다", async () => {
+    await readySessionOf(U1);
+    gw.respondLimitChaserList([]);
+    gw.respondViSlots([{ accountNo: A, exchange: "NXT", run: true, orderAmountKrw: 2_000_000n, checkRate: 15 }]);
+    // 21(KRX) 답 바로 뒤에 남의 64(예: hub Ready 프리페치 24 의 답)를 하나 끼운다.
+    gw.onFrame((msgType, payload, sock) => {
+      if (msgType === MSG.GetVITriggerReq && readGetVITriggerExchange(msgType, Buffer.from(payload)) === "KRX") {
+        gw.sendFrame(sock, buildLimitChaserListRespFrame([]));
+      }
+    });
+
+    const result = await sweeper().sweep({ userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] }, CREDS);
+
+    expect(result).toEqual({ ok: true, disabledLimitChasers: 0, viDisabled: 1, sessionCreated: false, skippedAccounts: [] });
+    expect(gw.viSlot(A, "NXT")).toMatchObject({ run: false });
+  });
+
+  it("32-14 (e) 새 서버 — 21 이 답하지 않으면(64 는 옴) 「끌 것 없음」 으로 접지 않는다 → timeout · remaining null · 11 0건", async () => {
+    await readySessionOf(U1);
+    gw.respondLimitChaserList([]);
+    gw.respondViSlots([{ accountNo: B, exchange: "KRX", run: true, orderAmountKrw: 1_000_000n, checkRate: 25 }]);
+    gw.silenceQuery(MSG.GetVITriggerReq);
+
+    const result = await sweeper({ stepTimeoutMs: 200 }).sweep(
+      { userId: U1, serverKey: "KB120", broker: "KB", accountNos: [B] },
+      CREDS,
+    );
+
+    expect(result).toEqual({ ok: false, reason: "timeout", remaining: null, disabledLimitChasers: 0, viDisabled: 0, skippedAccounts: [] });
+    expect(viSets()).toHaveLength(0);
+    expect(gw.viSlot(B, "KRX")).toMatchObject({ run: true });
   });
 
   it("isActiveLimitChaser — 5스위치 OR autoSellState !== 0", () => {
