@@ -100,11 +100,14 @@
  *           61 VI 설정 · 72/73 VI 추적 · 56 VI 통보    VI 원천 병합   `${ownerKey}|거래소` · `${ownerKey}|주문번호` —   본문 계좌 ∉ 소유 뷰 → 버림(61 은 그 세션
  *                                                    (29-51 GC-05)  VI 원천 = 사용자의 **KB 세션 각각**(KB 세션이       그 거래소 = 미등록으로 기록)
  *                                                                   없으면 primary) · 브라우저 `vi` 는 거래소마다 병합값
- *           84 사용자 설정 · 76/78 돌파 · 77 예약 창    primary 전용   사용자 단위 키 그대로 — 다른 세션 프레임은 debug 드롭  없음
- *         요청: 25(계좌) · 24(상따)는 세션마다 Ready 에서, 21 · 34 는 VI 원천 세션마다(21 대기열은 소유 키별), 43 은 primary 세션만.
- *         세션 교체(같은 소유 키 다른 객체) · 분리(`retainSessions`)는 **그 세션 몫**만 버리고(VI 도 소유 키 몫), 그 세션이 primary
- *         였으면 primary 전용 캐시도 버린다. primary 가 바뀌면 옛 primary 몫을 버리고 새 primary 가 Ready 면 43 을 그 세션으로
- *         요청한다(VI 원천은 primary 와 무관 — KB 세션 각각이라 그대로다). 단일 세션 사용자는 「세션 1개짜리 병합」 — 종전과 같다.
+ *           84 사용자 설정 (Phase 32 D-14a)          소유 키 단위   `${ownerKey}` → 그 서버 84 1건(`serverKey` 를 실음) ·   없음
+ *                                                                   서버마다 `user_settings.toml` 이 따로 · replay 는 서버마다 1프레임(primary 마지막)
+ *           76/78 돌파 · 77 예약 창                   primary 전용   사용자 단위 키 그대로 — 다른 세션 프레임은 debug 드롭  없음
+ *         요청: 25(계좌) · 24(상따) · 43(사용자 설정 · Phase 32)은 세션마다 Ready 에서, 21 · 34 는 VI 원천 세션마다(21 대기열은 소유 키별).
+ *         세션 교체(같은 소유 키 다른 객체) · 분리(`retainSessions`)는 **그 세션 몫**만 버리고(VI · 84 도 소유 키 몫), 그 세션이 primary
+ *         였으면 primary 전용 캐시(76/78 · 77)도 버린다. primary 가 바뀌면 옛 primary 몫 primary 전용 캐시만 버린다 — 84 는 서버별이라
+ *         지우지 않고 43 도 다시 보내지 않는다(각 세션이 자기 Ready 에서 이미 요청했다 · VI 원천도 primary 와 무관 — KB 세션 각각이라
+ *         그대로다). 단일 세션 사용자는 「세션 1개짜리 병합」 — 종전과 같다.
  *   Phase 29-51 VI 계좌 소유 세션 원천 (GC-05)  G-1 로 계좌 A 를 KB121 로 지정하면 A 의 VI 는 KB121 서버에 있다. 그래서 VI 원천은
  *         primary 하나가 아니라 사용자의 KB 세션 각각이다(`#viSourceOwners` — 증권사 축은 KB 그대로 · 교보 세션은 원천 아님 · KB 세션이
  *         하나도 없을 때만 primary). 61 은 그 세션 소유 뷰 안 계좌만 그 소유 키 · 거래소 칸에 캐시하고(밖이면 그 칸 = 미등록 — 옛 서버에
@@ -1614,8 +1617,9 @@ export class SubscriptionHub extends EventEmitter {
   /**
    * 그 사용자의 primary 세션 소유 키 (D-18 · 29-35) — **선호 서버 키 세션**(`preferredPrimaryServerKey` — 운영은 KB 기본 주문
    * 서버), 없으면 처음 결선된 KB 세션, 없으면 처음 결선된 세션, 세션이 없으면 undefined. `SessionManager.primaryOf` 와 같은
-   * 규칙 · 같은 주입이라 결선 순서와 무관하게 같은 답이다. 사용자 단위 원천(84 · 76/78 · 77)과 사용자 단위 요청(43)이 이 세션만
-   * 본다. VI(61 · 72/73 · 56 · 21 · 34)는 29-51 부터 `#viSourceOwners`(사용자의 KB 세션 각각)다 — KB 세션이 없을 때만 이 세션이다.
+   * 규칙 · 같은 주입이라 결선 순서와 무관하게 같은 답이다. 사용자 단위 원천(76/78 · 77)이 이 세션만 본다. 84 · 43 은 Phase 32 D-14a
+   * 부터 세션마다(소유 키)이고, 이 세션은 인증 replay 의 「마지막 84」 순서만 정한다(`getUserSettingsAll`). VI(61 · 72/73 · 56 · 21 · 34)는
+   * 29-51 부터 `#viSourceOwners`(사용자의 KB 세션 각각)다 — KB 세션이 없을 때만 이 세션이다.
    */
   #primaryOwner(userId: string): string | undefined {
     const prefix = userPrefix(userId);
@@ -1667,8 +1671,10 @@ export class SubscriptionHub extends EventEmitter {
 
   /**
    * 결선 · 분리 뒤 정리 — VI 원천 목록이 바뀌었으면 맞추고(29-51 `#syncViSources`), primary 가 바뀌었으면(D-18) 아직 붙어 있는 옛
-   * primary 몫 사용자 단위 캐시(84 · 76/78 · 77)를 버리고 새 primary 가 이미 Ready 면 43 을 그 세션으로 요청한다. 처음 결선(이전 primary
-   * 없음)은 곧 오는 `ready` 몫이다.
+   * primary 몫 사용자 단위 캐시(76/78 · 77)를 버린다. 처음 결선(이전 primary 없음)은 곧 오는 `ready` 몫이다.
+   *
+   * Phase 32 D-14a — 84 는 서버별(소유 키)이라 primary 변경과 무관하다: 지우지 않고, 새 primary 로 43 을 다시 보내지도 않는다(43 은
+   * 세션마다 자기 Ready 에서 보낸다 · 76/78 · 77 은 서버 푸시라 43 과 무관하다).
    *
    * @param readyHandled 곧 `#onReady` 가 자기 Ready 프리페치를 할 세션의 소유 키(되돌아온 Ready 세션 — `attach`) — 원천 정리가 21 을 겹쳐
    *        보내지 않게 한다.
@@ -1684,7 +1690,6 @@ export class SubscriptionHub extends EventEmitter {
     const session = after === undefined ? undefined : this.#sessions.get(after);
     if (after === undefined || session === undefined) return;
     logger.info({ userId, serverKey: serverKeyOf(session) }, "[HUB] primary 세션 변경 — 사용자 단위 원천 교체 (D-18)");
-    if (session.isReady && after !== readyHandled) this.#requestPrimarySnapshot(userId, session);
   }
 
   /**
@@ -2194,7 +2199,8 @@ export class SubscriptionHub extends EventEmitter {
    * 만들지 않는다 — 사용자 조작에 대한 60/61 에코는 Notice 라 유실되지 않으므로 메울 것이
    * 없고, 폴링은 게이트웨이 왕복을 탭 수에 비례시킨다.
    *
-   * Phase 29-20 (D-18) — 24(상따 목록)는 **증권사 세션마다**(상따는 병합), 43 은 **primary 세션만**(사용자 설정은 primary 원천)이다.
+   * Phase 29-20 (D-18) — 24(상따 목록)는 **증권사 세션마다**(상따는 병합)다. Phase 32 D-14a — 43 도 **세션마다**다(84 는 서버마다
+   * `user_settings.toml` 이 따로라 소유 키로 캐시한다).
    * Phase 29-51 (GC-05) — 21 · 34 는 **VI 원천 세션마다**(사용자의 KB 세션 각각 · `#viSourceOwners`)다. 21 대기열은 소유 키별이라
    * 세션이 여럿이어도 서로의 빈 61 을 가로채지 않는다. 원천이 아닌 세션(KB 세션이 있는 사용자의 교보 세션)은 21 · 34 를 보내지 않는다.
    *
@@ -2211,14 +2217,13 @@ export class SubscriptionHub extends EventEmitter {
     }
     session.send(buildGetLimitChaserListReq());
     const viSource = this.#isViSource(userId, owner);
-    const primary = owner === this.#primaryOwner(userId);
     const queue = viSource ? this.#requestViSnapshot(userId, owner, session) : [];
-    if (primary) this.#requestPrimarySnapshot(userId, session);
+    this.#requestUserSettings(userId, session);
     logger.info(
-      { userId, serverKey: serverKeyOf(session), viSource, primary, viExchanges: [...queue] },
-      viSource || primary
-        ? "[HUB] Ready — 전략 스냅샷 요청 (21 · 34 는 VI 원천 세션마다 · 43 은 primary · D-18 · 29-51)"
-        : "[HUB] Ready — 상따 목록 요청 (VI 원천 · primary 아닌 세션 — 21 · 34 · 43 없음 · D-18)",
+      { userId, serverKey: serverKeyOf(session), viSource, viExchanges: [...queue] },
+      viSource
+        ? "[HUB] Ready — 전략 스냅샷 요청 (21 · 34 는 VI 원천 세션마다 · 43 은 세션마다 · 29-51 · P32 D-14a)"
+        : "[HUB] Ready — 상따 목록 · 사용자 설정 요청 (VI 원천 아닌 세션 — 21 · 34 없음 · 43 은 세션마다 · P32 D-14a)",
     );
   }
 
@@ -2229,13 +2234,13 @@ export class SubscriptionHub extends EventEmitter {
     return queue;
   }
 
-  /** primary 세션 몫 사용자 단위 스냅샷 요청 — 43 (D-18). 24 는 부르는 쪽이 이미 보냈다 · 21 · 34 는 VI 원천 몫(29-51). */
-  #requestPrimarySnapshot(userId: string, session: HubSession): void {
+  /** 세션 몫 사용자 설정 요청 — 43 (Phase 32 D-14a · 세션마다). 24 는 부르는 쪽이 이미 보냈다 · 21 · 34 는 VI 원천 몫(29-51). */
+  #requestUserSettings(userId: string, session: HubSession): void {
     // 43 사용자 설정 (Phase 27 · Pitfall 4) — 84 는 로그인 직후(계좌 선언 전 = Ready 전)에 와서 캐시만 되고
     // 팬아웃되지 않는다. 같은 세션에 이미 붙어 있던 탭(재접속)은 이 43 의 84 로 갱신된다. 응답 귀속이 필요 없다
-    // (84 는 사용자 단위 1건) — FIFO 없음.
+    // (84 는 그 세션 소유 키 1건) — FIFO 없음.
     session.send(buildGetUserSettingsReq());
-    logger.debug({ userId, serverKey: serverKeyOf(session) }, "[HUB] primary — 43 사용자 설정 요청");
+    logger.debug({ userId, serverKey: serverKeyOf(session) }, "[HUB] 세션 몫 — 43 사용자 설정 요청 (P32 D-14a)");
   }
 
   /**
@@ -2417,6 +2422,27 @@ export class SubscriptionHub extends EventEmitter {
    */
   getUserSettings(userId: string, serverKey: string): RelayUserSettingsMsg | undefined {
     return this.#userSettings.get(ownerKey(userId, serverKey));
+  }
+
+  /**
+   * 그 사용자의 서버별 사용자 설정 전부 (Phase 32 D-14a) — 인증 직후 재생(fanout)의 원천. 84 를 받은 소유 키만, 결선 순으로 모으되
+   * **primary 소유 키 것을 맨 뒤에** 둔다(RESEARCH A3 — 구 webapp 은 마지막 `user.settings` 프레임을 쓰므로 relay 배포 ~ push 사이 구
+   * /me 가 primary 값(구 탭 42 가 가는 곳)을 본다). 84 를 하나도 모르면 빈 배열(재생 0프레임 — 3상태 규율).
+   */
+  getUserSettingsAll(userId: string): RelayUserSettingsMsg[] {
+    const prefix = userPrefix(userId);
+    const primary = this.#primaryOwner(userId);
+    const out: RelayUserSettingsMsg[] = [];
+    let last: RelayUserSettingsMsg | undefined;
+    for (const owner of this.#sessions.keys()) {
+      if (!owner.startsWith(prefix)) continue;
+      const settings = this.#userSettings.get(owner);
+      if (settings === undefined) continue;
+      if (owner === primary) last = settings;
+      else out.push(settings);
+    }
+    if (last !== undefined) out.push(last);
+    return out;
   }
 
   /**
@@ -2836,7 +2862,7 @@ export class SubscriptionHub extends EventEmitter {
       case MSG.UserSettingsResp: {
         // 화이트리스트와 **같은 커밋**의 명시 case 다(PC-12 · 27-01). 84 는 LoginResp → 77 → 84 순으로 계좌 선언 전
         // (Ready 전)에 온다 — 캐시는 늘, 팬아웃은 Ready 뒤(RESEARCH Pitfall 4). Phase 32 D-14a — 사용자 설정은 **서버마다** 따로라
-        // 모든 세션의 84 를 그 소유 키로 받는다(`#fromPrimary` 해제는 이 갈래만 — 76/78 · 77 은 사용자 단위 1건이라 primary 전용
+        // 모든 세션의 84 를 그 소유 키로 받는다(primary 게이트 해제는 이 갈래만 — 76/78 · 77 은 사용자 단위 1건이라 primary 전용
         // 그대로다 · Pitfall 11).
         const settings = parseUserSettings(e.env);
         if (settings !== null) this.#onUserSettings(userId, owner, session, settings);
@@ -3902,7 +3928,7 @@ export class SubscriptionHub extends EventEmitter {
     // 있는 수동 새로고침 진입점도 만들지 않는다.
     // 시세 재구독은 여기서 하지 않는다 — **quote 연결 ready 하나다**(Phase 26 D-03 · D-08 · Pitfall 4 재정의).
     // 사용자 세션으로 종목을 되걸면 per-user 경로가 폴백으로 되살아난다.
-    // 증권사 세션마다 제 계좌 · 상따를 요청한다 — 사용자 단위(21 · 34 · 43)는 primary 세션만(D-18 · 29-20).
+    // 증권사 세션마다 제 계좌 · 상따 · 사용자 설정(43 · Phase 32 D-14a)을 요청한다 — 21 · 34 는 VI 원천 세션마다(29-51).
     this.requestAccountState(userId, owner);
     this.requestStrategySnapshot(userId, owner);
     // 잔량진행률 재동기화 (R2-WR-01) — 게이트웨이 재요청이 **아니다**(83 은 재요청 경로가 없다). Ready 이전
@@ -3934,7 +3960,8 @@ export class SubscriptionHub extends EventEmitter {
    * 세션 하나 몫의 사용자 캐시를 버린다 (세션 교체 · 분리 — Phase 29-20 부터 **세션 소유 키 단위**).
    *
    * @param owner 버릴 세션의 소유 키 — 계좌 등 병합 캐시는 이 키 몫만 지운다(같은 사용자의 다른 증권사 세션 몫 보존).
-   * @param wasPrimary 그 세션이 primary 였는가 — 그렇다면 사용자 단위 원천(84 · 76/78 · 77)도 그 세션 몫이라 함께 버린다.
+   * @param wasPrimary 그 세션이 primary 였는가 — 그렇다면 사용자 단위 원천(76/78 · 77)도 그 세션 몫이라 함께 버린다(84 는 늘 그 소유
+   *        키 몫만 버린다 · Phase 32 D-14a).
    * @returns 그 세션 몫 VI 주문 추적을 하나라도 지웠는가(29-51 — 분리면 남은 합집합 스냅샷을 다시 낸다).
    */
   #clearCaches(userId: string, owner: string, wasPrimary: boolean): boolean {
@@ -3965,7 +3992,10 @@ export class SubscriptionHub extends EventEmitter {
     // VI 는 소유 키 몫이다(29-51 GC-05) — 그 세션의 VI 설정 칸 · VI 주문 추적 · 21 대기열을 버린다. 병합값 · 추적 합집합은 결선 정리
     // (`#afterPrimaryChange` → `#syncViSources`)가 원천이 빠졌을 때 다시 낸다(교체는 같은 원천이라 새 세션의 61 · 72 가 다시 채운다).
     const viOrdersCleared = this.#clearViOwner(owner);
-    // 사용자 단위 원천(84 · 76/78 · 77)은 primary 세션 몫이다(D-18) — primary 가 아닌 세션의 교체 · 분리는 건드리지 않는다.
+    // 사용자 설정(84)은 소유 키 몫이다(Phase 32 D-14a) — 그 세션의 교체 · 분리는 **늘** 그 서버 84 를 버린다(새 세션의 84 · 43 이 다시
+    // 채울 때까지 「모름」). 브라우저 사본은 지우지 않는다 — 「지움」 프레임이 없다(77/84 규율 · RESEARCH Pitfall 13).
+    this.#userSettings.delete(owner);
+    // 사용자 단위 원천(76/78 · 77)은 primary 세션 몫이다(D-18) — primary 가 아닌 세션의 교체 · 분리는 건드리지 않는다.
     if (wasPrimary) this.#clearPrimaryCaches(userId);
     // 잔량진행률도 버린다 — 77 · 78 이 여기 있는 것과 같은 이유다(RESEARCH Pitfall 6 · T-25-26). 남기면
     // 세션 교체 뒤 인증 직후 스냅이 이미 사라진 대기 주문의 진행률을 그린다. 새 세션의 83 이 다시 채운다.
@@ -4002,7 +4032,8 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
-   * primary 세션 몫 사용자 단위 캐시(D-18 — 돌파 집합 · 예약 창 · 사용자 설정)를 버린다.
+   * primary 세션 몫 사용자 단위 캐시(D-18 — 돌파 집합 · 예약 창)를 버린다. 사용자 설정(84)은 Phase 32 D-14a 부터 소유 키 몫이라 여기서
+   * 버리지 않는다(`#clearCaches` 가 그 소유 키 것만 버린다 · primary 변경은 84 를 지우지 않는다).
    * primary 세션의 교체 · 분리, 또는 primary 가 다른 세션으로 바뀔 때(`#afterPrimaryChange`) 부른다.
    * VI(설정 · 21 FIFO · 주문 추적)는 29-51 부터 소유 키 몫이다(`#clearViOwner` — 교체 · 분리 · 원천 정리). 21 FIFO 를 비우는 규칙 (d)
    * (C# `Client.cs:3038` 동형 — 끊긴 세션의 조회 답은 오지 않는다)은 그 자리에서 지킨다.
@@ -4017,8 +4048,6 @@ export class SubscriptionHub extends EventEmitter {
     // 예약창도 버린다 — 키가 userId 자체이므로 지우면 `getQueuedWindow` 가 다시
     // `undefined`(모름)가 되고, 새 세션의 77 이 올 때까지 아무 프레임도 내리지 않는다.
     this.#queuedWindows.delete(userId);
-    // 사용자 설정도 버린다(27-01) — 77 과 같은 이유. 새 세션의 84 가 다시 채울 때까지 「모름」으로 둔다.
-    this.#userSettings.delete(userId);
   }
 
   /**

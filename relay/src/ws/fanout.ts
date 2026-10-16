@@ -1890,11 +1890,9 @@ export class WsFanout {
     if (queuedWindow !== undefined) this.#send(conn, queuedWindow);
     // ⚠️ `user.settings` 도 `queued.window` 와 같다 (Phase 27) — 84 를 한 번도 못 받았으면(`undefined`) **보내지 않는다.**
     //    모르면 보내지 않는다 — 지어낸 `present=false` 를 내리면 `/me` 가 「서버 저장값 없음」 거짓 칩을 그린다.
-    //    Phase 32 D-14a — 84 는 서버마다 따로다. (트레이서 단계: primary 서버 것 1건 — 서버별 재생은 다음 태스크.)
-    const primarySession = this.#sessions.primaryOf(userId);
-    const userSettings =
-      primarySession === undefined ? undefined : this.#hub.getUserSettings(userId, primarySession.serverKey);
-    if (userSettings !== undefined) this.#send(conn, userSettings);
+    //    Phase 32 D-14a — 84 는 서버마다 따로다: 84 를 받은 서버마다 1프레임(`serverKey` 실림)이고 **primary 서버 것이 마지막**이다
+    //    (RESEARCH A3 — 구 webapp 은 마지막 프레임을 쓰므로 relay 배포 ~ push 사이 구 /me 가 primary 값, 곧 구 탭 42 가 가는 곳을 본다).
+    for (const userSettings of this.#hub.getUserSettingsAll(userId)) this.#send(conn, userSettings);
     // ⚠️ `unf.progress` snap:true 는 `rate.cross.snap` 과 같다 — **비어 있어도 1프레임 보낸다** (25-06).
     //    빈 배열은 「지금 보이는 진행 중 대기 없음」의 확정 정보이고, 웹은 snap 이면 Map 을 전량 교체한다
     //    (새 탭 · 재접속 뒤 옛 진행률이 남지 않는다). 83 은 Broadcast 라 캐시에는 hub 가 세션 허용 계좌로
