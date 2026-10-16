@@ -558,13 +558,13 @@ describe("wss 상따 래치 점등 경로 (D-04)", () => {
     const { ws, inbox } = await authed("token-a");
     await flushIo(30);
 
-    // Ready 프리페치가 21 을 KRX·NXT 로 보냈고 스텁이 둘 다 빈 61 로 답했다 — 두 칸 모두
-    // 「미등록」으로 확정돼 프레임이 2건이다. 여기까지가 FIFO 가 정상 소비된 모습이다.
-    expect(framesOf(inbox, "vi")).toEqual([
-      { t: "vi", x: "KRX", cfg: null },
-      { t: "vi", x: "NXT", cfg: null },
+    // Ready 프리페치가 21 을 KRX·NXT 로 보냈고 스텁이 둘 다 빈 61 로 답했다 — 그 세션 소유 계좌의 두 슬롯 모두
+    // 「미등록」으로 확정돼 프레임이 2건이다(P32 D-17 `vi.slot`). 여기까지가 FIFO 가 정상 소비된 모습이다.
+    expect(framesOf(inbox, "vi.slot")).toEqual([
+      { t: "vi.slot", a: SAMPLE_ACCOUNT_NO, x: "KRX", cfg: null },
+      { t: "vi.slot", a: SAMPLE_ACCOUNT_NO, x: "NXT", cfg: null },
     ]);
-    const viBefore = framesOf(inbox, "vi").length;
+    const viBefore = framesOf(inbox, "vi.slot").length;
 
     for (const latch of ["sell", "cancel", "sell"] as const) {
       ws.sendRaw({ t: "lc.arm", key: ARM_KEY, latch });
@@ -575,8 +575,8 @@ describe("wss 상따 래치 점등 경로 (D-04)", () => {
     gateway.sendFrame(gatewaySocket(), buildSetVITriggerRespFrame(null));
     await flushIo(50);
 
-    // 래치 키로도, 지어낸 "KRX" 로도 귀속되지 않는다 — 새 `vi` 프레임이 없다.
-    expect(framesOf(inbox, "vi")).toHaveLength(viBefore);
+    // 래치 키로도, 지어낸 "KRX" 로도 귀속되지 않는다 — 새 `vi.slot` 프레임이 없다.
+    expect(framesOf(inbox, "vi.slot")).toHaveLength(viBefore);
     // 빈 61 이 상따 에코로 새지도 않는다.
     expect(framesOf(inbox, "lc")).toHaveLength(0);
   });

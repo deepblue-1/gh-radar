@@ -88,8 +88,9 @@ function off(isin: string, accountNo: string): FakeLimitChaserInput {
 
 type Received = { msgType: number; payload: Buffer };
 
-type ViFrame = Extract<RelayOutbound, { t: "vi" }>;
-const isVi = (f: RelayOutbound): f is ViFrame => f.t === "vi";
+type ViFrame = Extract<RelayOutbound, { t: "vi.slot" }>;
+/** VI 슬롯 프레임 (Phase 32 D-17 slot-only — 구 거래소 병합 `vi` 는 더 나가지 않는다). */
+const isVi = (f: RelayOutbound): f is ViFrame => f.t === "vi.slot";
 
 describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
   let gw: FakeGateway;
@@ -641,7 +642,8 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
     const s = m.acquireOn(userId, target, CREDS);
     hub.attach(s);
     await waitFor(() => s.isReady, "세션 ready");
-    await waitFor(() => out.filter(isVi).length === 2, "hub 프리페치 61 두 거래소 귀속");
+    // 프리페치 21 두 거래소의 답이 그 세션 소유 계좌(A · B · C) × 두 거래소 슬롯 6칸으로 귀속된다(P32 D-17).
+    await waitFor(() => hub.getViSlotsAll(userId).length === 6, "hub 프리페치 61 슬롯 귀속");
     await flushIo();
     received.length = 0;
     out.length = 0;
@@ -663,7 +665,7 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
     // GC-03 — sweeper 가 보낸 14 의 65 는 브라우저에 「전부 정지가 반영됐어요」 로 가지 않는다.
     expect(out.filter((f) => f.t === "strategies.disabled")).toHaveLength(0);
     expect(lend).toHaveBeenCalledTimes(1);
-    // GC-04 — sweeper 의 빈 61(KRX 미등록 · 조회 · 재조회)로 생긴 vi 0. NXT run:false 에코는 서버 사실이라 그대로 간다.
+    // GC-04 — sweeper 의 빈 61(KRX 미등록 · 조회 · 재조회)로 생긴 vi.slot 0. NXT 슬롯 61 은 서버 사실이라 그대로 간다.
     const vis = out.filter(isVi);
     expect(vis.filter((f) => f.cfg === null)).toHaveLength(0);
     expect(vis.filter((f) => f.x === "KRX")).toHaveLength(0);
@@ -673,8 +675,8 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
     // 21 은 sweeper 의 조회 · 재조회 4건뿐 — 대여 중 hub 21 0 · 반납 뒤 재요청 0(프리페치를 미루지 않았다).
     expect(viGetExchanges()).toEqual(["KRX", "NXT", "KRX", "NXT"]);
     // hub VI 캐시 — KRX 는 프리페치 그대로 미등록 · NXT 는 끈 값.
-    expect(hub.getViTrigger(U1, "KRX")).toBeNull();
-    expect(hub.getViTrigger(U1, "NXT")).toMatchObject({ run: false });
+    expect(hub.getViSlot(U1, A, "KRX")).toBeNull();
+    expect(hub.getViSlot(U1, A, "NXT")).toMatchObject({ run: false });
 
     // 대여가 끝난 세션의 65(브라우저 전부 정지 · 서버 발 비활성화)는 종전대로 팬아웃한다.
     const sock = gw.sockets.at(-1);

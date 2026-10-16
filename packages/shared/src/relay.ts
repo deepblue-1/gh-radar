@@ -1299,7 +1299,11 @@ export type RelayLimitChaserMsg = { t: "lc"; item: RelayLimitChaser };
 export type RelayLimitChaserSnapMsg = { t: "lc.snap"; items: RelayLimitChaser[] };
 
 /**
- * VI 전략 에코 (`SetVITriggerResp(61)`).
+ * VI 전략 에코 (`SetVITriggerResp(61)`) — 거래소 병합값 1건.
+ *
+ * ⚠️ **Phase 32 D-17(slot-only) 부터 relay 는 이 프레임을 내지 않는다** — VI 는 `RelayViSlotMsg`(`vi.slot`)로만 간다. 타입은 구 relay ·
+ *    구 탭 호환으로 웹 리듀서 갈래가 남아 있는 동안만 둔다(웹 `case "vi"` 와 거래소 단일 칸은 32-13 이 지운다).
+ *
  * **`cfg: null` 은 미등록**이다(서버가 빈 응답을 보낸다 — 무응답이 아니다). 이때 UI 는
  * 입력값을 그대로 두고 가동 스위치만 내린다.
  *

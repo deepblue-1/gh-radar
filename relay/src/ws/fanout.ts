@@ -303,12 +303,6 @@ const VI_SNAPSHOT_EXCHANGES: readonly RelayExchange[] = ["KRX", "NXT"];
 const TEARDOWN_MARKET_FALLBACK: OrderMarket = "K";
 
 /**
- * VI 원천 증권사 (D-18 · 29-51 GC-05) — VI 명령(`vi.set`)은 계좌 소유 세션이 이 증권사일 때만 그 세션으로 간다(서버 축만 계좌 소유).
- * hub `#viSourceOwners` 와 같은 축이다.
- */
-const VI_BROKER = "KB";
-
-/**
  * `ws` README 권고 기반 압축 튜닝 (D-35).
  *
  * 기본값 `true` 를 쓰지 않는 이유는 README 가 "increased concurrency, especially on Linux,
@@ -1861,19 +1855,15 @@ export class WsFanout {
     // ⚠️ `vi.list` 는 **비어 있어도 1프레임 보낸다** — 안 보내면 브라우저는 「아직 안 왔다」와
     //    구분하지 못해 계속 스켈레톤이다. (이 규율은 18-26 에서 바꾸지 않았다 — `vi.list`
     //    에는 「모름」 으로 판정을 내리는 소비처가 없다.)
-    // ⚠️ VI 설정은 `getViTrigger` 3상태 — `undefined`(61 을 아직 못 받았다)면 **보내지
-    //    않는다.** 지어낸 「미등록」을 내리면 브라우저가 사용자가 입력 중인 금액을 지운다
-    //    (16-06 결정 2). `null`(조회 결과 미등록)은 확정이므로 보낸다.
+    // ⚠️ VI 설정은 슬롯 3상태 — 모르는 슬롯(61 을 아직 못 받았다)은 **보내지 않는다.** 지어낸
+    //    「미등록」을 내리면 브라우저가 사용자가 입력 중인 금액을 지운다(16-06 결정 2). `null`(조회
+    //    결과 미등록)은 확정이므로 보낸다.
     if (this.#hub.hasLimitChaserList(userId)) {
       this.#send(conn, { t: "lc.snap", items: this.#hub.getLimitChasers(userId) });
     }
-    // VI 설정은 **거래소별 1건**이라 두 거래소를 모두 내린다 (17-05 / D-06). 3상태 규율은
-    // 거래소마다 **독립**이다 — KRX 는 알고 NXT 는 아직 모르는 상태가 정상이고, 그때
-    // NXT 프레임을 지어내면 브라우저가 NXT 칸의 입력값을 지운다.
-    for (const exchange of VI_SNAPSHOT_EXCHANGES) {
-      const viTrigger = this.#hub.getViTrigger(userId, exchange);
-      if (viTrigger !== undefined) this.#send(conn, { t: "vi", x: exchange, cfg: viTrigger });
-    }
+    // VI 설정은 **(계좌, 거래소) 슬롯마다 1건**이다 (Phase 32 D-17 · slot-only) — hub 가 아는 슬롯 전량을 `vi.slot` 으로 내린다.
+    // 3상태 규율은 슬롯마다 **독립**이다 — 아는 슬롯만 싣는다. 구 거래소 병합 `vi` 는 더 내지 않는다(구 탭은 VI 「모름」 — 사용자 결정).
+    for (const { a, x, cfg } of this.#hub.getViSlotsAll(userId)) this.#send(conn, { t: "vi.slot", a, x, cfg });
     this.#send(conn, { t: "vi.list", snap: true, items: this.#hub.getViOrders(userId) });
 
     // 신규 푸시 3종의 스냅샷 (17-03 / D-03). **두 프레임의 규율이 다르다:**
@@ -2171,9 +2161,9 @@ export class WsFanout {
       // **미지정 = KRX** (D-06 · D-18). 기존 브라우저가 싣지 않던 값이라 optional 이고,
       // 기본값을 여기서 한 번만 정한다 — 조립기에 두면 호출부마다 다른 기본값이 생긴다.
       const exchange = msg.exchange ?? "KRX";
-      // 29-51 (GC-05) — VI 설정의 세션은 **그 계좌의 소유 KB 세션**이다(G-1 로 KB121 에 지정한 계좌의 VI 는 KB121 서버에 있다 · 아니면
-      // primary — 교보 계좌는 종전대로 primary 에서 「사용할 수 없는 계좌」 로 끝난다). 계좌 대조(②)는 그 세션의 허용 목록(소유 뷰)으로 한다.
-      const session = this.#viSessionFor(conn, userId, msg.t, accountNo);
+      // Phase 32 D-17 — VI 설정의 세션은 **그 계좌의 소유 세션**이다(증권사 무관 — 교보 계좌는 교보 세션 · G-1 로 KB121 에 지정한 계좌는
+      // KB121). 어느 세션에도 없으면 primary 로 가서 계좌 대조(②)가 종전 「사용할 수 없는 계좌」 로 끝낸다(`#strategySession` 판정 순서 · 문구).
+      const session = this.#strategySession(conn, userId, msg.t, accountNo);
       if (session === null) return;
       if (!this.#accountAllowed(conn, session, userId, msg.t, accountNo)) return;
       // `priceType` 은 싣지 않는다 — 상한가("U") 고정이라 조립기가 채운다 (하한가 경로 봉쇄).
@@ -2181,11 +2171,8 @@ export class WsFanout {
         buildSetVITriggerReq({ accountNo, exchange, orderAmountKrw, checkRate, run }),
       );
       if (payload === null) return;
-      // 29-51 (GC-05) — 거래소당 켜진 VI 는 사용자 단위 1건이다(17-06 D-06 · 서버는 세션당 거래소 1슬롯). 다른 서버 세션에 같은 거래소의
-      // 켜진 VI 가 있으면 그 세션에 같은 값 run:false(11)를 **먼저** 보낸다 — 한 서버 안에서 서버가 슬롯을 갈아 끼우는 것과 같은 결과다
-      // (웹 「옮기기」 흐름 그대로). 끄기를 보내지 못하면 거부하고 켜기도 보내지 않는다 — 두 서버에 같은 거래소 VI 가 동시에 켜지는 것보다
-      // 안전하다. run:false 로 보내는 vi.set 에는 이 가드가 없다.
-      if (run && !this.#stopViElsewhere(conn, userId, msg.t, exchange, session)) return;
+      // Phase 32 D-17 — 서버 간 거래소당 1건 가드(29-51 · 다른 서버 VI 먼저 끄기)는 없다. 서버가 VI 를 (계좌, 거래소) 슬롯으로 관리하고
+      // 두 계좌 · 두 서버 동시 가동을 허용한다(gh-trade Phase 33 D-03) — 다른 계좌 슬롯을 relay 가 끄지 않는다.
       if (!session.send(payload)) this.#onStrategySendFailed(conn, userId, msg.t);
       return;
     }
@@ -2484,12 +2471,12 @@ export class WsFanout {
       .getLimitChasers(userId)
       .filter((c) => c.accountNo === accountNo && isActiveLimitChaser(c))
       .map((c) => c.key);
-    // 웨이브 ④ 전 VI 는 거래소별 병합값이다 — 그 계좌가 등록 계좌이고 가동 중인 거래소만 그 계좌 것이다. 끄기는 캐시 값 그대로 run 만
-    // false(`#stopViElsewhere` 와 같은 조립). 세션은 `#viSessionFor`(웨이브 ④ 에서 소유 세션으로) — 14 소유 세션과 같을 때만 보낸다.
+    // VI 몫(Phase 32 D-17) — 그 계좌의 (계좌, 거래소) 슬롯 중 run 인 거래소마다 캐시 값 그대로 run 만 false. 세션은 14 와 같은 소유 세션이다
+    // (VI 도 그 계좌 소유 세션의 슬롯이다 — 다른 계좌 슬롯은 건드리지 않는다).
     const viCfgs: RelayViTrigger[] = [];
     for (const ex of VI_SNAPSHOT_EXCHANGES) {
-      const cfg = this.#hub.getViTrigger(userId, ex);
-      if (cfg != null && cfg.accountNo === accountNo && cfg.run) viCfgs.push(cfg);
+      const cfg = this.#hub.getViSlot(userId, accountNo, ex);
+      if (cfg != null && cfg.run) viCfgs.push(cfg);
     }
     if (keys.length === 0 && viCfgs.length === 0) {
       // 끌 것 0 — 게이트웨이 0바이트. 웹 버튼은 이때 비활성이라 경합(다른 탭 · 서버 15:40 정리)에서만 난다.
@@ -2497,16 +2484,7 @@ export class WsFanout {
       this.#send(conn, rejectFrame(ACCOUNT_DISABLE_NOTHING_TEXT, accountNo, "", t));
       return;
     }
-    let viSession: DmaSession | null = null;
-    if (viCfgs.length > 0) {
-      viSession = this.#viSessionFor(conn, userId, t, accountNo);
-      if (viSession !== null && viSession !== session) {
-        // 웨이브 ④ 전 VI 원천은 KB 세션이고 14 소유 세션도 그 KB 세션이다 — 갈리면 그 VI 는 이 계좌 소유 서버 것이 아니다.
-        logger.warn({ userId, t, accountNo: masked }, "[WS] 계좌 끄기 — VI 세션이 소유 세션과 다름 · VI 11 생략 (Phase 32)");
-        viSession = null;
-      }
-    }
-    const viExchanges = viSession === null ? [] : viCfgs.map((c) => c.exchange);
+    const viExchanges = viCfgs.map((c) => c.exchange);
     logger.info(
       { userId, t, accountNo: masked, keys: keys.length, vi: viExchanges },
       "[WS] 계좌 끄기 — 소유 세션으로 14 건별 · VI 11 run:false (Phase 32)",
@@ -2526,18 +2504,16 @@ export class WsFanout {
         sendFailed = true;
       }
     }
-    if (viSession !== null) {
-      for (const cfg of viCfgs) {
-        const { orderAmountKrw, checkRate, exchange } = cfg;
-        const payload = this.#buildStrategyPayload(conn, userId, t, () =>
-          buildSetVITriggerReq({ accountNo, exchange, orderAmountKrw, checkRate, run: false }),
-        );
-        if (payload === null) {
-          stop.viFailed(exchange);
-        } else if (!viSession.send(payload)) {
-          stop.viFailed(exchange);
-          sendFailed = true;
-        }
+    for (const cfg of viCfgs) {
+      const { orderAmountKrw, checkRate, exchange } = cfg;
+      const payload = this.#buildStrategyPayload(conn, userId, t, () =>
+        buildSetVITriggerReq({ accountNo, exchange, orderAmountKrw, checkRate, run: false }),
+      );
+      if (payload === null) {
+        stop.viFailed(exchange);
+      } else if (!session.send(payload)) {
+        stop.viFailed(exchange);
+        sendFailed = true;
       }
     }
     // 송신 실패 알림은 1건 — 같은 세션이라 한 번 실패하면 뒤도 실패한다(거부 프레임 폭주 방지).
@@ -2550,46 +2526,6 @@ export class WsFanout {
     });
   }
 
-  /**
-   * VI 명령 세션 (29-51 · GC-05) — 그 계좌의 소유 세션(`forAccount`)이 **KB** 면 그것, 아니면 primary. VI 원천 증권사는 KB 그대로다(hub
-   * `#viSourceOwners` 와 같은 축 — 서버 축만 계좌 소유로 넓혔다). 교보 계좌는 primary 로 가서 뒤의 `#accountAllowed` 가 종전 「사용할 수
-   * 없는 계좌」 거부로 끝낸다(교보 서버에 VI 프레임 0). 확인 순서 · 문구는 `#strategySession` 과 같다(`#readySession`).
-   */
-  #viSessionFor(conn: Conn, userId: string, t: RelayInbound["t"], accountNo: string): DmaSession | null {
-    const owner = this.#sessions.forAccount(userId, accountNo);
-    const session = owner !== undefined && owner.broker === VI_BROKER ? owner : this.#sessions.primaryOf(userId);
-    return this.#readySession(conn, userId, t, session);
-  }
-
-  /**
-   * 다른 서버 세션의 같은 거래소 켜진 VI 끄기 (29-51 · GC-05 — `vi.set(run:true)` 가드). hub 가 그 세션 61 에코로 아는 값 그대로 run 만 false 로
-   * 보낸다. 없으면 true(보낼 것 없음). 그 세션이 준비되지 않았거나 송신이 실패하면 거부 프레임 뒤 false — 호출부는 켜기를 보내지 않는다.
-   * 로그는 서버 키 두 개 · 거래소만(계좌 · DMA id 없음).
-   */
-  #stopViElsewhere(conn: Conn, userId: string, t: RelayInbound["t"], exchange: RelayExchange, target: DmaSession): boolean {
-    const other = this.#hub.viRunningElsewhere(userId, exchange, target);
-    if (other === undefined) return true;
-    const { accountNo, orderAmountKrw, checkRate } = other.cfg;
-    const payload = this.#buildStrategyPayload(conn, userId, t, () =>
-      buildSetVITriggerReq({ accountNo, exchange, orderAmountKrw, checkRate, run: false }),
-    );
-    if (payload === null) return false;
-    const fromServer = other.session.serverKey ?? other.session.broker ?? "";
-    if (!other.session.isReady || !other.session.send(payload)) {
-      logger.warn(
-        { userId, t, exchange, from: fromServer, to: target.serverKey },
-        "[WS] 다른 서버의 켜진 VI 끄기 송신 실패 — 켜기 보내지 않음 (GC-05)",
-      );
-      this.#send(conn, rejectFrame("다른 서버에서 가동 중인 VI 를 먼저 끄지 못했습니다. 잠시 뒤 다시 시도해 주세요.", "", "", t));
-      return false;
-    }
-    logger.info(
-      { userId, t, exchange, from: fromServer, to: target.serverKey },
-      "[WS] 거래소당 켜진 VI 1건 — 다른 서버의 켜진 VI 를 먼저 끔 (GC-05)",
-    );
-    return true;
-  }
-
   /** hub 가 돌려준 세션(`HubSession`)을 이 사용자 entry 의 `DmaSession` 으로 (같은 객체만 · 29-51). 없으면 undefined. */
   #entrySessionOf(userId: string, hubSession: HubSession | undefined): DmaSession | undefined {
     if (hubSession === undefined) return undefined;
@@ -2597,7 +2533,7 @@ export class WsFanout {
     return undefined;
   }
 
-  /** ① 확인 본체 — 세션 없음 · 미준비면 로그 + 거부 프레임 뒤 null (`#strategySession` · `#viSessionFor` 공용). */
+  /** ① 확인 본체 — 세션 없음 · 미준비면 로그 + 거부 프레임 뒤 null (`#strategySession` 공용). */
   #readySession(conn: Conn, userId: string, t: RelayInbound["t"], session: DmaSession | undefined): DmaSession | null {
     if (session === undefined) {
       logger.warn({ userId, t }, "[WS] 세션 없음 — 전략 요청 거부");
