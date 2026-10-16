@@ -897,6 +897,112 @@ describe("P32 사이드바 계좌 묶음 (D-02 · S3)", () => {
   });
 });
 
+/** 묶음 안 링크 종류 순서(`vi` · `strategy`). */
+const itemKindsOf = (group: Element) =>
+  Array.from(group.querySelectorAll("a[data-sidebar-item]")).map((a) => a.getAttribute("data-sidebar-item"));
+
+describe("P32 사이드바 VI 줄 · 목록 밖 (D-02 · S3)", () => {
+  it("VI KRX · NXT 가 둘 다 A 계좌 → A 묶음에 VI 한 줄(KRX · NXT 태그) · 소제목 → VI → 전략 순 · B 묶음은 VI 없음", () => {
+    setupReady({
+      accounts: [ACCT_A, ACCT_B],
+      viTriggers: { KRX: viCfg("KRX", { run: true }), NXT: viCfg("NXT", { run: true }) },
+    });
+    render(<AppSidebar />);
+
+    const [ga, gb] = accountGroups();
+    expect(itemKindsOf(ga!)).toEqual(["vi", "strategy"]);
+    expect(itemKindsOf(gb!)).toEqual(["strategy"]);
+    expect(viLinks()).toHaveLength(1);
+    const vi = ga!.querySelector('a[data-sidebar-item="vi"]')!;
+    expect(Array.from(vi.querySelectorAll('[data-slot="exchange-tag"]')).map((e) => e.getAttribute("data-exchange"))).toEqual([
+      "KRX",
+      "NXT",
+    ]);
+    expect(within(ga as HTMLElement).getByRole("link", { name: "VI — KRX·NXT 가동" })).toBe(vi);
+    // VI 줄은 묶음 목록(aria-labelledby) 안이다 — 소제목 다음.
+    expect(ga!.querySelector("ul")!.contains(vi)).toBe(true);
+  });
+
+  it("VI KRX 는 A · NXT 는 B 계좌 → A 묶음 「VI — KRX 가동」 · B 묶음 「VI — NXT 가동」 (태그는 그 묶음 거래소만)", () => {
+    setupReady({
+      accounts: [ACCT_A, ACCT_B],
+      viTriggers: {
+        KRX: viCfg("KRX", { run: true }),
+        NXT: viCfg("NXT", { run: true, accountNo: ACCT_B.accountNo }),
+      },
+    });
+    render(<AppSidebar />);
+
+    const [ga, gb] = accountGroups();
+    expect(viLinks()).toHaveLength(2);
+    expect(within(ga!).getByRole("link", { name: "VI — KRX 가동" })).toBeInTheDocument();
+    expect(within(gb!).getByRole("link", { name: "VI — NXT 가동" })).toBeInTheDocument();
+    expect(within(ga!).queryByRole("link", { name: /NXT 가동/ })).toBeNull();
+    expect(itemKindsOf(gb!)).toEqual(["vi", "strategy"]);
+  });
+
+  it("VI 만 가동이고 켜진 전략 0 인 계좌 → 그 묶음이 선다(소제목 + VI 줄만)", () => {
+    setupReady({
+      accounts: [ACCT_A, ACCT_B],
+      limitChasers: [CHASER_A],
+      viTriggers: { NXT: viCfg("NXT", { run: true, accountNo: ACCT_B.accountNo }) },
+    });
+    render(<AppSidebar />);
+
+    const groups = accountGroups();
+    expect(groups.map((g) => g.getAttribute("data-account-no"))).toEqual([ACCT_A.accountNo, ACCT_B.accountNo]);
+    expect(headingOf(groups[1]!).querySelector("span")!.textContent).toBe("교보 종합");
+    expect(itemKindsOf(groups[1]!)).toEqual(["vi"]);
+    expect(itemKindsOf(groups[0]!)).toEqual(["strategy"]);
+  });
+
+  it("켜진 전략의 계좌가 `accounts[]` 에 없음 → 맨 뒤 번호(mono) 소제목 · 칩 없음 · `accounts[]` 가 비었을 때도 같은 모양", () => {
+    const outside = makeChaser({ isin: "KR7000001111", accountNo: "99990000001" });
+    setupReady({ accounts: [ACCT_A, ACCT_B], limitChasers: [outside, CHASER_A, CHASER_B] });
+    const view = render(<AppSidebar />);
+
+    let groups = accountGroups();
+    expect(groups.map((g) => g.getAttribute("data-account-no"))).toEqual([
+      ACCT_A.accountNo,
+      ACCT_B.accountNo,
+      "99990000001",
+    ]);
+    const last = headingOf(groups[2]!);
+    expect(last.querySelector("span")!.textContent).toBe("99990000001");
+    expect(last.querySelector("span")!.className).toContain("mono");
+    expect(last).toHaveAttribute("title", "99990000001");
+    expect(groups[2]!.querySelector('[data-slot="sidebar-account-server"]')).toBeNull();
+    expect(strategyKeysOf(groups[2]!)).toEqual([outside.key]);
+    view.unmount();
+
+    // loading — accounts[] 미수신: 전 묶음이 번호 소제목 · 칩 없음(수신 뒤 제자리).
+    setupReady({ accounts: [], limitChasers: [CHASER_A, CHASER_B] });
+    render(<AppSidebar />);
+    groups = accountGroups();
+    expect(groups.map((g) => headingOf(g).querySelector("span")!.textContent)).toEqual([
+      ACCT_A.accountNo,
+      ACCT_B.accountNo,
+    ]);
+    for (const g of groups) {
+      expect(headingOf(g).querySelector("span")!.className).toContain("mono");
+      expect(g.querySelector('[data-slot="sidebar-account-server"]')).toBeNull();
+    }
+  });
+
+  it("모든 묶음이 비면(켜진 전략 0 · 가동 VI 0) 3단 목록(`ul`) · 소제목이 없다", () => {
+    setupReady({
+      accounts: [ACCT_A, ACCT_B],
+      limitChasers: [makeChaser({ buyEnabled: false, sellEnabled: false })],
+      viTriggers: { KRX: viCfg("KRX", { run: false }), NXT: null },
+    });
+    render(<AppSidebar />);
+
+    expect(tradingSubList()).toBeNull();
+    expect(accountGroups()).toHaveLength(0);
+    expect(document.querySelector('[data-slot="sidebar-account-heading"]')).toBeNull();
+  });
+});
+
 describe("AppSidebar — 활성 표시 · drawer 계약", () => {
   it("기존 정확 일치 동작이 유지된다 — `/scanner` 하위 경로는 「검색」도 「홈」도 켜지 않는다", () => {
     mockPathname = "/scanner/detail";

@@ -520,4 +520,83 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
       expect(box!.x + box!.width).toBeLessThanOrEqual(navBox!.x + navBox!.width + 0.5);
     }
   });
+
+  test('P32-sidebar-click 다른 계좌 전략 줄 클릭 → /trading?focus= · 작업대 계좌가 그 계좌로 · 그 카드 보임 · 셀렉트 값 = 그 계좌 (D-02 · CONTEXT 재량)', async ({
+    page,
+  }) => {
+    relay.gateway.respondLoginWithAccounts(P32_ACCOUNTS);
+    relay.seedLimitChasers([...P32_CHASERS]);
+    const account = page.locator('[data-slot="workbench-status-bar"] [data-slot="workbench-account"]');
+    const cardOfKey = (key: string) => page.locator(`[data-slot="strategy-card"][data-key="${key}"]`);
+    const keyB = p32KeyOf(P32_CHASERS[0]);
+    const keyA = p32KeyOf(P32_CHASERS[1]);
+
+    // 작업대에서 A 를 고른 상태 — B 카드는 숨어 있다.
+    await page.goto('/trading');
+    const nav = desktopNav(page);
+    await waitForTradingGroup(nav);
+    await expect(account.locator('option')).toHaveCount(2, { timeout: 30_000 });
+    await account.selectOption(E2E_ACCOUNT_NO);
+    await expect(account).toHaveValue(E2E_ACCOUNT_NO);
+    await expect(cardOfKey(keyA)).toBeVisible({ timeout: 15_000 });
+    await expect(cardOfKey(keyB)).toBeHidden();
+
+    // B 묶음 전략 줄 클릭(이미 /trading 위 — 포커스 요청 경로) → 작업대가 B 로 바뀌고 그 카드가 보인다.
+    const groupB = accountGroups(nav).nth(1);
+    await expect(groupB).toHaveAttribute('data-account-no', P32_ACCOUNT_B);
+    await strategyItems(groupB).first().click();
+    await expect(page).toHaveURL(
+      (url) => url.pathname === '/trading' && url.searchParams.get('focus') === keyB,
+    );
+    await expect(account).toHaveValue(P32_ACCOUNT_B, { timeout: 15_000 });
+    await expect(cardOfKey(keyB)).toBeVisible();
+    await expect(cardOfKey(keyB)).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(cardOfKey(keyA)).toBeHidden();
+
+    // 다시 A 묶음 전략 줄 → A 로 돌아온다.
+    await strategyItems(accountGroups(nav).nth(0)).first().click();
+    await expect(account).toHaveValue(E2E_ACCOUNT_NO, { timeout: 15_000 });
+    await expect(cardOfKey(keyA)).toBeVisible();
+    await expect(cardOfKey(keyB)).toBeHidden();
+  });
+
+  test('P32-sidebar-vi VI 가 A 계좌 등록 → A 묶음 안 소제목 다음에 VI 줄 · B 묶음은 없음 · NXT 를 B 로 켜면 B 묶음에 VI 줄 (D-02 · D-16)', async ({
+    page,
+  }) => {
+    relay.gateway.respondLoginWithAccounts(P32_ACCOUNTS);
+    relay.seedLimitChasers([...P32_CHASERS]);
+    const cfg = {
+      accountNo: E2E_ACCOUNT_NO,
+      orderAmountKrw: 10_000_000n,
+      checkRate: 22,
+      priceType: 'U',
+      run: true,
+    };
+    relay.seedViTrigger(cfg);
+
+    await page.goto('/trading');
+    const nav = desktopNav(page);
+    await waitForTradingGroup(nav);
+    const groups = accountGroups(nav);
+    await expect(groups).toHaveCount(2, { timeout: 15_000 });
+    const [ga, gb] = [groups.nth(0), groups.nth(1)];
+
+    await expect(viItem(ga)).toHaveCount(1, { timeout: 15_000 });
+    await expect(viItem(ga)).toHaveAccessibleName('VI — KRX 가동');
+    await expect(viItem(gb)).toHaveCount(0);
+    // 묶음 안 순서 = 소제목 → VI → 전략.
+    expect(
+      await ga.locator('a[data-sidebar-item]').evaluateAll((els) => els.map((e) => e.getAttribute('data-sidebar-item'))),
+    ).toEqual(['vi', 'strategy', 'strategy']);
+
+    // NXT 를 B 계좌로 켠다 — 두 거래소가 다른 계좌면 각 묶음에 한 줄씩(태그는 그 묶음 거래소만).
+    const sock = await relay.userSocket();
+    relay.gateway.sendFrame(
+      sock,
+      buildSetVITriggerRespFrame({ ...cfg, accountNo: P32_ACCOUNT_B, exchange: 'NXT', run: true }),
+    );
+    await expect(viItem(gb)).toHaveAccessibleName('VI — NXT 가동', { timeout: 15_000 });
+    await expect(viItem(ga)).toHaveAccessibleName('VI — KRX 가동');
+    await expect(viItem(nav)).toHaveCount(2);
+  });
 });
