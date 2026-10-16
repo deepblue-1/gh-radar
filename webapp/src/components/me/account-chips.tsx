@@ -17,6 +17,8 @@
  *
  * ③ 값은 스스로 저장하지 않는다 — 호출부(`MeTabs`)가 상태를 쥐고 기기별로 저장한다(`writeMeAccount`).
  *   `locked` 는 32-09(설정 탭 저장 비행 중)가 건다 — 칩 클릭 · 키 선택이 무시된다(화살표는 포커스만 옮긴다).
+ *   잠금이면 그룹과 칩마다 `aria-disabled` + 같은 잠금 `title` — 칩 hover · 스크린리더가 왜 안 바뀌는지 안다.
+ *   `disabled` 는 쓰지 않는다(포커스 유지 · 화살표는 포커스만) · quick-261017-bwt.
  *
  * ④ 글자는 자르지 않는다(S13 long-text) — 칩은 `whitespace-nowrap` 이고 줄이 가로 스크롤된다(스크롤바 숨김).
  *   선택 칩이 줄 밖이면 마운트 때 `scrollIntoView({ inline: "nearest" })` 로 보이게 한다.
@@ -43,7 +45,7 @@ export interface MeAccountChipsProps {
   /** 고른 계좌. 목록에 없으면 선택 칩이 없고 첫 칩이 탭 정지점이다. */
   accountNo: string;
   onChange: (accountNo: string) => void;
-  /** 저장 비행 중 잠금(32-09) — `aria-disabled` · 흐림 · `title`. */
+  /** 저장 비행 중 잠금(32-09) — `aria-disabled` · 흐림 · `title`(그룹과 칩마다도). */
   locked?: boolean;
   lockedTitle?: string;
   /** radiogroup 접근 이름(기본 「My page 계좌」). */
@@ -138,6 +140,8 @@ export function MeAccountChips({
             role="radio"
             aria-checked={on}
             aria-label={accountChipLabelOf(c)}
+            aria-disabled={locked ? "true" : undefined}
+            title={locked ? lockedTitle : undefined}
             data-slot={chipSlot}
             data-account-no={c.accountNo}
             tabIndex={c.accountNo === tabStop ? 0 : -1}

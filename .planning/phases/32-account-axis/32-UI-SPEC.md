@@ -49,7 +49,7 @@ amended: "2026-10-16 — /me 계좌 위 선택(목업 ⑥ B · CONTEXT D-20~D-25
 
 **네 탭 공통.** `MeClient` 가 고른 계좌를 상태로 들고 `StrategyStatusCard` · `AccountPanel` · `TodayOrdersCard` · `LimitChaserDefaultsSection` 에 prop 으로 내린다(각 카드는 계좌를 스스로 고르지 않는다). 탭 라벨 숫자 「잔고 N」(고른 계좌 미체결) · 「주문 N」(고른 계좌 오늘 주문) — 0 이면 숫자 없음(기존 규칙). 탭 전환 · `?tab=` 메커니즘 불변.
 
-**잠금.** 설정 탭 저장 비행 · 대기열이 있으면 칩 줄 전체 `aria-disabled` + `opacity .45` + `title` 「저장 중에는 계좌를 바꿀 수 없어요」(Pitfall 12 · 3초 상한 안에 풀림). 끄기 응답 대기 중에는 잠그지 않는다(끄기는 계좌 인자를 실어 보내므로 전환해도 귀속이 안 깨진다).
+**잠금.** 설정 탭 저장 비행 · 대기열이 있으면 칩 줄 전체 `aria-disabled` + `opacity .45` + `title` 「저장 중에는 계좌를 바꿀 수 없어요」(Pitfall 12 · 3초 상한 안에 풀림) · 잠금 시 칩마다 `aria-disabled` + 같은 `title`(`disabled` 속성 없음 — 포커스 · roving 유지 · quick-261017-bwt). 끄기 응답 대기 중에는 잠그지 않는다(끄기는 계좌 인자를 실어 보내므로 전환해도 귀속이 안 깨진다).
 
 **접근성.** 칩 줄 `role="radiogroup"` `aria-label="My page 계좌"` · 칩 `role="radio"` `aria-checked` · ~~roving tabindex(←/→ · Home/End) — `ChoiceRow` 세그먼트와 같은 키보드 문법~~ roving tabindex · ←/→/↑/↓ · Home/End 는 포커스를 옮기며 그 칩을 고른다(WAI-ARIA radio · IN-02 수정 2026-10-16) · 끝에서 반대편 · Enter/Space/클릭도 고른다 · 잠금이면 포커스만 — ChoiceRow 는 선택 = 전송이라 포커스만으로 남는다(탭 안 탭이 되지 않도록 `tablist` 는 쓰지 않는다). 칩 접근 이름 = 「{상품명} {번호} {서버키}」(칩 글자 그대로 · 서버키 칩은 장식 아님). 계좌를 바꾸면 포커스는 그 칩에 남는다. 탭 패널은 바뀐 계좌 내용으로 다시 그려지며 라이브 영역 공지는 없다(상태줄 `aria-live` 가 숫자 변화를 말한다).
 
@@ -638,7 +638,7 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 | 주문 끊김 | 보이는 「끊김」 + sr-only 「 — {정확한 상태어}」 · 색(`--destructive`)은 보조(WCAG 1.4.1) | 「주문 끊김 — 회선 단절」 |
 | 「다시 연결」 | 네이티브 `button` · 이름 = 보이는 글자 | 「다시 연결」 |
 | ~~계좌 셀렉트~~ 계좌 칩 줄(32-15) | ~~네이티브 `select` · `aria-label` 「계좌」(작업대) · 서버키 칩은 장식 아님(글자 그대로 낭독)~~ 32-15: radiogroup 「계좌」 · 칩 `role="radio"` · 칩 안 서버키는 접근 이름에 포함 · (/me 주문 셀렉트는 2026-10-16 수정으로 없음) | — |
-| /me 계좌 칩(S13) | `role="radiogroup"` 이름 「My page 계좌」 · 칩 `role="radio"` + `aria-checked` · roving tabindex · ←/→/↑/↓ · Home/End = 포커스 + 선택(WAI-ARIA radio · IN-02 수정 2026-10-16 · 잠금이면 포커스만) · Enter/Space/클릭도 선택 · 잠금 시 `aria-disabled` · 이름 = 칩 글자 그대로 · 작업대 상단 줄도 같은 부품(32-15 · 이름 「계좌」) | 「김알렉스 1234-5678 KB120」 |
+| /me 계좌 칩(S13) | `role="radiogroup"` 이름 「My page 계좌」 · 칩 `role="radio"` + `aria-checked` · roving tabindex · ←/→/↑/↓ · Home/End = 포커스 + 선택(WAI-ARIA radio · IN-02 수정 2026-10-16 · 잠금이면 포커스만) · Enter/Space/클릭도 선택 · 잠금 시 `aria-disabled` · 잠금 시 칩마다 `aria-disabled` + 같은 `title`(`disabled` 속성 없음 — 포커스 · roving 유지 · quick-261017-bwt) · 이름 = 칩 글자 그대로 · 작업대 상단 줄도 같은 부품(32-15 · 이름 「계좌」) | 「김알렉스 1234-5678 KB120」 |
 | 컬럼 세그먼트 | `ToggleGroup` 이름 「카드 단 수」 · `wb` < 680 에서는 DOM 에 없음(탭 체인 · 접근성 트리에서 빠짐) | — |
 | 토스트 | 컨테이너 `role="status"` · `aria-live="polite"` 유지(trading-workbench 1620). 계좌 줄 · 힌트는 본문 버튼 안이라 버튼 이름에 포함 · `›` 는 `aria-hidden` | 「한화오션 매수 체결 … 계좌 8765-4321 · 교보 종합 · KYOBO119 이 계좌 보기」 |
 | 사이드바 묶음 | 묶음 = `<li>` 안에 소제목 `<div id>`(포커스 없음) + `<ul aria-labelledby>` · 전략 · VI 링크 이름 불변 · LED 묶음 `role="img"` 라벨 불변 | 목록 이름 「김알렉스 KB120」 |

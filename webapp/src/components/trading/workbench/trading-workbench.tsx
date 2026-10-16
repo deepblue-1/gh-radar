@@ -1420,6 +1420,8 @@ function WorkbenchSurface() {
     고른 계좌의 카드(+ 계좌 공란 카드 = `visibleCards`)만 격자에 보이고, 나머지는 CardGrid 가 **주차**한다(언마운트
     아님 — 에코 · 더티 · 결과 모름 잠금 · 미확인 카운트 보존 · 시세 구독 수 불변). VI 트리거 스트립 칩(「미확인 n」
     포함)도 같은 계좌로 거른다. VI 설정 행은 웨이브 ④ 전 현행(D-16).
+    VI 스트립도 카드 격자와 같은 `scopeAccount` 게이트다(IN-05) — 계좌 목록이 나중에 비면 둘 다 거르지 않는다
+    (`pillAccountOf` 는 그때 계좌를 비우지 않는다).
   */
   const hiddenCardIds = useMemo<ReadonlySet<string>>(() => {
     if (visibleCards === cards) return new Set();
@@ -1427,8 +1429,8 @@ function WorkbenchSurface() {
     return new Set(cards.filter((c) => !shown.has(c.id)).map((c) => c.id));
   }, [visibleCards, cards]);
   const scopedViOrders = useMemo(
-    () => (accountNo === "" ? activeViOrders : activeViOrders.filter((o) => o.accountNo === accountNo)),
-    [activeViOrders, accountNo],
+    () => (scopeAccount === "" ? activeViOrders : activeViOrders.filter((o) => o.accountNo === scopeAccount)),
+    [activeViOrders, scopeAccount],
   );
   const accountName = accounts.find((a) => a.accountNo === accountNo)?.name;
   const closeCardInfo = closeAsk === null ? null : cards.find((c) => c.id === closeAsk.id) ?? null;
