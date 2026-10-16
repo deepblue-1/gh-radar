@@ -35,7 +35,7 @@ v1.0 요구사항 아카이브: [milestones/v1.0-REQUIREMENTS.md](./milestones/v
 ### 팀 매집(teamflow) 보고서 (Phase 33 · 사용자 요청 2026-10-16 · 스케치 014 A · 015 C)
 
 - [ ] **TEAM-01**: gh-trade 119 밤 export 의 `team_flow.ndjson.gz`(gh-trade `docs/analysis/team-flow.md` §11 · 열 사전 인박스 `261016-teamflow-export.md`)를 `gh-radar-limitup-sync` 가 기존 표 6개와 같은 규칙(manifest sha256 대조 · 날짜 단위 교체)으로 `team_flow` 표(평평한 열 + `payload` jsonb)에 적재한다. 파일이 없는 날짜는 기존 적재에 영향이 없다
-- [ ] **TEAM-02**: 서버가 상한가 보고서와 같은 경로(RPC 1회 · `require-dma-mapped`)로 날짜 목록 · 종목 행 · 상세 payload 를 내주고, 사이드바 「분석」 에 「팀 매집」 항목이 생긴다
+- [ ] **TEAM-02**: 서버가 상한가 보고서와 같은 경로(RPC 1회 · DMA 게이트는 RPC 안(`dma_visible_accounts` → 403 DMA_UNMAPPED · 라우트는 인증만 — D-05))로 날짜 목록 · 종목 행 · 상세 payload 를 내주고, 사이드바 「분석」 에 「팀 매집」 항목이 생긴다
 - [ ] **TEAM-03**: `/analytics/teamflow?d=YYYYMMDD` 목록 — 날짜 알약 → KPI 4칸 → 종목 행(결과 · 팀 순매수 · 20% 아래/위 · 매수 중 팀 · 구간별 순매수 9칸 미니막대 · 상한가/미도달 태그) → 행 클릭 그 자리 아코디언(한 번에 하나 · 기본 전부 접힘), 폰 390 은 2줄 카드형 행(스케치 014 A)
 - [ ] **TEAM-04**: 행 펼침 상세 — 요약 문장 → [구간 가로 막대 | 거래원 2단 막대] 2열(폰 1열) → 10분 흐름 차트(순매수 막대 + 매수 중 팀 % 선 + 등락률 범위 띠 · 최대 매집 창 음영 · 첫 상한가 세로선) → 판정 기준 접힘. 각 차트 아래 접힌 표(「구간표 보기」 · 「10분 표 보기」). 차트 규칙 = 중앙 0선 · + 빨강/− 파랑 · 20% 점선 · 팀 비중 ≥ 30% 보라 · `<title>` 툴팁(스케치 015 C)
 

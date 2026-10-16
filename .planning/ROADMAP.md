@@ -217,16 +217,16 @@ Plans:
 ### Phase 33: 팀 매집(teamflow) 보고서
 
 **Goal**: gh-trade 119 밤 배치가 내보내는 `team_flow.ndjson.gz` 가 Supabase 에 적재되고, 「분석 › 팀 매집」 `/analytics/teamflow?d=YYYYMMDD` 에서 상한가 보고서(011 A)와 같은 틀로 하루 탐지 종목 목록(스케치 014 A 보고서 동형 · 기본 전부 접힘)과 행 펼침 상세(스케치 015 C 혼합 — 구간 가로 막대 · 거래원 2단 막대 · 10분 흐름 차트 + 접힌 표)가 읽힌다
-**Depends on**: Phase 32 와 코드 의존 없음(순서만) · 외부: gh-trade `team-flow.md` §11 export(`batch.export_day` 가 manifest `files[]` 에 `team_flow.ndjson.gz` 추가 — radar-gw `limitup-pull` 은 export 디렉터리 전체를 미러하므로 운반 변경 없음) · 열 사전 정본 인박스 `docs/inbox/from-gh-trade/261016-teamflow-export.md` (2026-10-16 현재 **미도착** — 도착 전 적재 열은 스케치 014 README 「Data contract」 표 기준, 도착 후 대조)
+**Depends on**: Phase 32 와 코드 의존 없음(순서만) · 외부: gh-trade `team-flow.md` §11 export(`batch.export_day` 가 manifest `files[]` 에 `team_flow.ndjson.gz` 추가 — radar-gw `limitup-pull` 은 export 디렉터리 전체를 미러하므로 운반 변경 없음) · 열 사전 정본 인박스 `docs/inbox/from-gh-trade/261016-teamflow-export.md` (2026-10-16 도착 — 열 사전 정본)
 **Requirements**: TEAM-01, TEAM-02, TEAM-03, TEAM-04
 **Success Criteria** (what must be TRUE):
   1. `gh-radar-limitup-sync`(21:20 KST) 가 manifest `files[]` 에 `team_flow.ndjson.gz` 가 있으면 같은 sha256 대조 · 날짜 단위 교체 규칙으로 `team_flow` 표(평평한 열 + `payload` jsonb)에 적재하고, 파일이 없는 날짜는 기존 표 6개 적재에 영향이 없다. 단위는 §11 그대로(ms epoch · 원 · 주 · 비중 0~1 · 등락률 % · NaN→null)
-  2. 서버가 상한가 보고서와 같은 경로(RPC 1회 · `require-dma-mapped`)로 날짜 목록 · 종목 행 · 상세 payload 를 내주고, 사이드바 「분석」 에 「팀 매집」 항목이 생긴다
+  2. 서버가 상한가 보고서와 같은 경로(RPC 1회 · DMA 게이트는 RPC 안(`dma_visible_accounts` → 403 DMA_UNMAPPED · 라우트는 인증만 — D-05))로 날짜 목록 · 종목 행 · 상세 payload 를 내주고, 사이드바 「분석」 에 「팀 매집」 항목이 생긴다
   3. `/analytics/teamflow` 목록 = 날짜 알약 → KPI 4칸(탐지 · 팀 순매수 종목 · 상한가 도달 · 팀 순매수 합) → 종목 행(결과 · 팀 순매수 · 20% 아래/위 · 매수 중 팀 · 구간별 순매수 9칸 미니막대) · 상한가 도달 「상한가 HH:MM」 / 미도달 「+NN.N%」 태그 · 행 클릭 시 그 자리 아코디언(한 번에 하나 · **기본 전부 접힘**) · 폰 390 은 2줄 카드형 행
   4. 펼친 상세 = 요약 문장 → [구간 가로 막대 | 거래원 2단 막대] 2열(폰 1열) → 10분 흐름 차트(순매수 막대 + 매수 중 팀 % 선 + 등락률 범위 띠 · 최대 매집 창 음영 · 첫 상한가 세로선) → 판정 기준 접힘. 차트 규칙 = 중앙 0선 · + 빨강/− 파랑 · 20% 점선 · 팀 비중 ≥ 30% 보라 · 수치는 `<title>` 툴팁. 구간 차트 아래 「구간표 보기」 · 10분 차트 아래 「10분 표 보기」 접힌 표(기본 접힘). 팀 체결이 거의 없는 종목(동양고속형)도 빈 차트가 깨지지 않는다
   5. 단위 · E2E(limitup-report 동형 fixture) 통과 · 10/14 실측 3종목으로 라이브 UAT · 인박스 `261016-teamflow-export.md` 를 `status: done` 으로 닫는다
 
-**배포 순서**: DB 마이그레이션(표 · RPC · RLS `TO anon, authenticated` · REVOKE 명시) → limitup-sync Job 재배포(`scripts/deploy-limitup-sync.sh` · 21:20 KST 밖) → server → webapp push(= 프로덕션). radar-gw 변경 없음. 첫 적재는 119 export 에 `team_flow.ndjson.gz` 가 실린 날짜부터
+**배포 순서**: DB 마이그레이션(표 · RPC · RLS 정책 0개 · service_role 전용 · REVOKE 명시(D-06)) → limitup-sync Job 재배포(`scripts/deploy-limitup-sync.sh` · 21:20 KST 밖) → server → webapp push(= 프로덕션). radar-gw 변경 없음. 첫 적재는 119 export 에 `team_flow.ndjson.gz` 가 실린 날짜부터
 **Plans**: 8/9 plans executed
 
 Plans:
