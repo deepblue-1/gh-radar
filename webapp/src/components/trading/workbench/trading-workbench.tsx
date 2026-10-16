@@ -613,7 +613,6 @@ function WorkbenchSurface() {
     accountStates,
     limitChasers,
     limitChaserSnapSeq,
-    viTriggers,
     viOrders,
     rateCrossItems,
     rateCrossSnapSeq,
@@ -1504,7 +1503,8 @@ function WorkbenchSurface() {
         disabled={status !== "ready"}
         settings={
           <ViSettingsRows
-            viTriggers={viTriggers}
+            viSlots={relay.viSlots}
+            accounts={accounts}
             accountNo={accountNo}
             accountName={accountName}
             disabled={status !== "ready"}

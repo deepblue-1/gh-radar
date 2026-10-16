@@ -267,8 +267,9 @@ export type FakeGateway = {
    * 21(거래소) → 그 연결이 선언한 계좌마다 선언 순서로 61 1프레임(그 계좌 · 거래소 슬롯이 있으면 등록본, 없으면 `unregistered: true` 에
    * 계좌 · 거래소만) · 그 뒤 선언 밖 등록 슬롯을 1프레임씩(초집합) · 선언 0 이면 빈 Envelope. 11 → 그 (계좌, 거래소) 슬롯에 저장하고 그 슬롯
    * 61 1프레임 에코. 구 서버(거래소당 1건)는 `respondViTrigger` · `respondViTriggerFor` 가 그대로 흉내 낸다.
+   * `null` 이면 슬롯 모드를 끈다(E2E 픽스처 `reset` — 다음 spec 이 구 서버 모드로 돌아간다).
    */
-  respondViSlots(slots: FakeViTriggerInput[]): void;
+  respondViSlots(slots: FakeViTriggerInput[] | null): void;
   /** 슬롯 모드의 지금 슬롯 값(테스트 단언용 사본). 모드가 꺼져 있거나 슬롯이 없으면 `undefined`. */
   viSlot(accountNo: string, exchange: "KRX" | "NXT"): FakeViTriggerInput | undefined;
   /**
@@ -1416,6 +1417,10 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
     },
 
     respondViSlots(slots) {
+      if (slots === null) {
+        viSlots = null;
+        return;
+      }
       viSlots = new Map();
       for (const slot of slots) {
         const ex = viSlotOf(slot.exchange ?? null);

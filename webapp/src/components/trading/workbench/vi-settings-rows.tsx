@@ -49,7 +49,14 @@
  *   가동 스위치의 빨강 채움은 `--up`(가격 방향 축)이지 `--destructive` 가 아니다. 두 값이 같으므로
  *   다이얼로그의 「중지」는 테두리형, 「시작」만 `--up` 채움이다.
  *
- * ⑨ ★ 계좌 정본 (CR-02 · UI-SPEC Q-3 VI 판)
+ * ⑨ ★ Phase 32 D-18 — 행 = 고른 계좌의 (계좌, 거래소) 슬롯 · 숨은 계좌 행은 마운트 유지
+ *   행은 세션 계좌(`accounts[]`) × KRX · NXT 를 `${계좌}|${거래소}` 키로 전부 마운트하고 상단 줄에서 고른 계좌의 두 행만
+ *   보인다(작업대 카드 숨김 주차와 같은 「버리지 않는다」 규율). 그래서 저장 안 한 편집(더티)이 계좌 전환을 견딘다 — 다시
+ *   고르면 그대로다. 행의 서버 값은 `viSlotOf(viSlots, 계좌, 거래소)`(키 부재 = 모름 · null = 미등록 빈 행 · 객체 = 등록)이고
+ *   그 행이 보내는 `vi.set` 의 계좌는 **그 행의 계좌**다 — 미등록 행을 저장하면 그 계좌 슬롯으로 등록된다.
+ *   계좌 목록이 비었거나 고른 계좌가 목록 밖이면 고른 계좌(공란이면 잠긴 행) 두 행을 그대로 그린다(종전 빈 모양).
+ *
+ * ⑨-b ★ 계좌 정본 (CR-02 · UI-SPEC Q-3 VI 판)
  *   등록된 전략(서버 61 에코의 `accountNo` 가 공란 아님)은 **자기 계좌를 유지한다** — 상태줄
  *   계좌는 미등록 줄의 기본값일 뿐이다. 그 줄이 보내는 모든 `vi.set`(「수정」·시작·중지)과 잠금·
  *   확인 요약·고지가 `viRowAccountOf` 한 값을 읽는다. 상태줄 계좌로 보내면 계좌 B 로 가동 중인
@@ -69,6 +76,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { serverMsgBadge } from '@gh-radar/shared';
 import type {
+  RelayAccount,
   RelayExchange,
   RelayViOrderItem,
   RelayViSetMsg,
@@ -87,7 +95,7 @@ import {
 import { ExchangeTag } from '@/components/trading/vi-order-list';
 import { MAX_VI_ORDER_AMOUNT_MANWON, krwToManwon, manwonToKrw } from '@/lib/vi-alert';
 import { useRelayContext } from '@/lib/relay-provider';
-import { VI_EXCHANGES, type RelayViTriggers } from '@/lib/use-relay-socket';
+import { VI_EXCHANGES, viSlotOf, type RelayViSlots } from '@/lib/use-relay-socket';
 import type { ViServerError } from '@/lib/use-vi-server-error';
 import { cn } from '@/lib/utils';
 
@@ -216,28 +224,39 @@ type ViSubmitResult = 'sent' | 'blocked' | 'failed';
 /* ───────────────────────────── 2줄 ───────────────────────────── */
 
 export interface ViSettingsRowsProps {
-  /** 거래소별 서버 에코. 키 부재 = 미조회 / `null` = 미등록 / 객체 = 등록됨(3상태를 뭉개지 않는다). */
-  viTriggers: RelayViTriggers;
   /**
-   * 상태줄에서 고른 계좌 — **미등록 줄의 기본 계좌**다. 등록된 줄은 서버 에코의 계좌가 정본이다(⑨).
-   * 정본 계좌가 비어 있으면 줄이 잠긴다(계좌 없는 `vi.set` 은 서버가 버린다).
+   * VI (계좌, 거래소) 슬롯 (Phase 32 D-17 · relay `vi.slot`). 행마다 `viSlotOf` 로 고른다 —
+   * 키 부재 = 미조회 / `null` = 미등록 / 객체 = 등록됨(3상태를 뭉개지 않는다).
+   */
+  viSlots: RelayViSlots;
+  /** 세션 계좌 목록 — 행을 계좌마다 마운트한다(숨은 계좌 행의 더티 보존 · ⑨). 이름 조회도 여기서 한다. */
+  accounts: readonly RelayAccount[];
+  /**
+   * 상단 줄에서 고른 계좌 — 이 계좌의 KRX · NXT 두 행만 보인다(D-18). 비어 있으면 행이 잠긴다
+   * (계좌 없는 `vi.set` 은 서버가 버린다).
    */
   accountNo: string;
-  /** 상태줄 계좌의 이름 — 정본 계좌가 상태줄 계좌와 같을 때만 요약에 붙는다. */
+  /** 고른 계좌의 이름 — 계좌 목록에 이름이 없을 때의 보조값. */
   accountName?: string;
   /** 세션이 준비되지 않았다(`status !== 'ready'`). */
   disabled?: boolean;
-  /** 중지 확인 요약의 「오늘 VI 주문」·「미체결」 — 줄의 거래소로 걸러 센다. */
+  /** 중지 확인 요약의 「오늘 VI 주문」·「미체결」 — 행의 (계좌, 거래소)로 걸러 센다. */
   viOrders?: readonly RelayViOrderItem[];
   /** 전송한 프레임 알림(로그용). */
   onSent?: (msg: RelayViSetMsg) => void;
-  /** 두 줄 더티 개수의 **합** — 상위 이탈 경고 게이트. */
+  /** 모든 슬롯 행(숨은 계좌 행 포함) 더티 개수의 **합** — 상위 이탈 경고 게이트. */
   onDirtyCountChange?: (count: number) => void;
   className?: string;
 }
 
+/** 행 슬롯 키 — 더티 합 · React key 가 같은 한 벌을 쓴다. */
+function rowSlotKey(accountNo: string, exchange: RelayExchange): string {
+  return `${accountNo}|${exchange}`;
+}
+
 export function ViSettingsRows({
-  viTriggers,
+  viSlots,
+  accounts,
   accountNo,
   accountName,
   disabled = false,
@@ -246,16 +265,21 @@ export function ViSettingsRows({
   onDirtyCountChange,
   className,
 }: ViSettingsRowsProps) {
-  const [dirtyByExchange, setDirtyByExchange] = useState<Partial<Record<RelayExchange, number>>>({});
+  const [dirtyBySlot, setDirtyBySlot] = useState<Readonly<Record<string, number>>>({});
 
-  const handleRowDirty = useCallback((exchange: RelayExchange, count: number) => {
-    setDirtyByExchange((prev) => (prev[exchange] === count ? prev : { ...prev, [exchange]: count }));
+  const handleRowDirty = useCallback((slotKey: string, count: number) => {
+    setDirtyBySlot((prev) => ((prev[slotKey] ?? 0) === count ? prev : { ...prev, [slotKey]: count }));
   }, []);
 
-  const total = VI_EXCHANGES.reduce((sum, ex) => sum + (dirtyByExchange[ex] ?? 0), 0);
+  const total = Object.values(dirtyBySlot).reduce((sum, n) => sum + n, 0);
   useEffect(() => {
     onDirtyCountChange?.(total);
   }, [total, onDirtyCountChange]);
+
+  /** 마운트할 계좌 — 세션 계좌 전부 + (목록 밖이면) 고른 계좌. 목록이 비면 고른 계좌 하나(종전 빈 모양). */
+  const rowAccounts = accounts.some((a) => a.accountNo === accountNo)
+    ? accounts.map((a) => a.accountNo)
+    : [...accounts.map((a) => a.accountNo), accountNo];
 
   return (
     <section
@@ -265,21 +289,39 @@ export function ViSettingsRows({
         className,
       )}
     >
-      {VI_EXCHANGES.map((exchange) => {
-        const mine = viOrders.filter((o) => o.exchange === exchange);
+      {rowAccounts.map((rowAccountNo) => {
+        const shown = rowAccountNo === accountNo;
+        const name = accounts.find((a) => a.accountNo === rowAccountNo)?.name ?? (shown ? accountName : undefined);
         return (
-          <ViSettingsRow
-            key={exchange}
-            exchange={exchange}
-            server={viTriggers[exchange]}
-            accountNo={accountNo}
-            accountName={accountName}
-            disabled={disabled}
-            todayOrderCount={mine.length}
-            unfilledCount={mine.filter(isLiveViOrder).length}
-            onSent={onSent}
-            onDirtyCountChange={handleRowDirty}
-          />
+          /* `contents` — 두 행이 바깥 격자의 칸에 그대로 선다. 숨은 계좌는 `hidden`(마운트 유지 · 더티 보존). */
+          <div
+            key={rowAccountNo}
+            data-slot="vi-settings-account"
+            data-account={rowAccountNo}
+            hidden={!shown}
+            className="contents"
+          >
+            {VI_EXCHANGES.map((exchange) => {
+              const mine = viOrders.filter((o) => o.exchange === exchange && o.accountNo === rowAccountNo);
+              return (
+                <ViSettingsRow
+                  key={exchange}
+                  slotKey={rowSlotKey(rowAccountNo, exchange)}
+                  // 보이는 행만 종전 id(`vi-krx-rate` …)를 갖는다 — 숨은 계좌 행은 계좌를 붙여 id 가 겹치지 않게 한다.
+                  idBase={shown ? `vi-${exchange.toLowerCase()}` : `vi-${exchange.toLowerCase()}-${rowAccountNo}`}
+                  exchange={exchange}
+                  server={viSlotOf(viSlots, rowAccountNo, exchange)}
+                  accountNo={rowAccountNo}
+                  accountName={name}
+                  disabled={disabled}
+                  todayOrderCount={mine.length}
+                  unfilledCount={mine.filter(isLiveViOrder).length}
+                  onSent={onSent}
+                  onDirtyCountChange={handleRowDirty}
+                />
+              );
+            })}
+          </div>
         );
       })}
     </section>
@@ -318,21 +360,28 @@ export function ViServerErrorLine({
 /* ───────────────────────────── 한 줄 ───────────────────────────── */
 
 interface ViSettingsRowProps {
+  /** 이 행의 (계좌, 거래소) 슬롯 키 — 더티 합 보고에 쓴다. */
+  slotKey: string;
+  /** 입력 · 설명 요소 id 접두 — 보이는 행만 종전 값(`vi-krx`)이다. */
+  idBase: string;
   /** ★ 이 줄의 거래소 — `vi.set` 페이로드의 `exchange` 로 **그대로** 나간다(②). */
   exchange: RelayExchange;
+  /** 이 행 슬롯의 서버 값(`viSlotOf`). */
   server: RelayViTrigger | null | undefined;
-  /** 상태줄 계좌 — 미등록 줄의 기본 계좌(⑨). 송신에는 `viRowAccountOf` 결과만 쓴다. */
+  /** 이 행의 계좌(⑨ D-18) — 송신에는 `viRowAccountOf` 결과만 쓴다. */
   accountNo: string;
-  /** 상태줄 계좌의 이름. */
+  /** 이 행 계좌의 이름. */
   accountName?: string;
   disabled: boolean;
   todayOrderCount: number;
   unfilledCount: number;
   onSent?: (msg: RelayViSetMsg) => void;
-  onDirtyCountChange: (exchange: RelayExchange, count: number) => void;
+  onDirtyCountChange: (slotKey: string, count: number) => void;
 }
 
 function ViSettingsRow({
+  slotKey,
+  idBase,
   exchange,
   server,
   accountNo,
@@ -344,7 +393,6 @@ function ViSettingsRow({
   onDirtyCountChange,
 }: ViSettingsRowProps) {
   const { send, accounts } = useRelayContext();
-  const ex = exchange.toLowerCase();
 
   /* ── 계좌 정본 (⑨) — 잠금·송신·확인 요약·고지가 이 한 값을 읽는다 ── */
   const { accountNo: rowAccountNo, differs: accountDiffers } = viRowAccountOf(server, accountNo);
@@ -408,8 +456,10 @@ function ViSettingsRow({
 
   const dirty = useMemo(() => dirtyFieldsOf(form, baseline), [form, baseline]);
   useEffect(() => {
-    onDirtyCountChange(exchange, dirty.size);
-  }, [exchange, dirty.size, onDirtyCountChange]);
+    onDirtyCountChange(slotKey, dirty.size);
+  }, [slotKey, dirty.size, onDirtyCountChange]);
+  // 계좌가 목록에서 빠져 행이 사라지면 그 몫을 합에서 뺀다.
+  useEffect(() => () => onDirtyCountChange(slotKey, 0), [slotKey, onDirtyCountChange]);
 
   const blank = form.checkRate === null || form.amountManwon === null;
   const amountOverLimit = form.amountManwon !== null && form.amountManwon > MAX_VI_ORDER_AMOUNT_MANWON;
@@ -488,7 +538,7 @@ function ViSettingsRow({
    */
   const [moveSnapshot, setMoveSnapshot] = useState<{ from: string; to: string } | null>(null);
 
-  const fixDescId = `vi-${ex}-fix-desc`;
+  const fixDescId = `${idBase}-fix-desc`;
 
   return (
     <div
@@ -517,7 +567,7 @@ function ViSettingsRow({
         />
 
         <RowField
-          id={`vi-${ex}-rate`}
+          id={`${idBase}-rate`}
           label="상승률"
           unit="%"
           boxClassName="w-16"
@@ -527,7 +577,7 @@ function ViSettingsRow({
           onChange={handleRate}
         />
         <RowField
-          id={`vi-${ex}-amount`}
+          id={`${idBase}-amount`}
           label="금액"
           unit="만원"
           boxClassName="w-[92px]"

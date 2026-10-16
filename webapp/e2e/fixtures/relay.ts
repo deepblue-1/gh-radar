@@ -288,6 +288,11 @@ export interface LocalRelay {
   seedLimitChasers(items: FakeLimitChaserInput[]): void;
   /** VI 트리거 조회(21) 응답 내용을 심는다. `null` 이면 미등록(빈 61). */
   seedViTrigger(cfg: FakeViTriggerInput | null): void;
+  /**
+   * VI **(계좌, 거래소) 슬롯** 모드를 켜고 슬롯 전량을 심는다 (Phase 32 D-17/D-18 · gh-trade Phase 33 서버 흉내 — fake gateway
+   * `respondViSlots`). 21 은 선언 계좌마다 61 1프레임(없는 슬롯 = `unregistered`), 11 은 그 슬롯에 저장하고 에코한다. `reset()` 이 끈다.
+   */
+  seedViSlots(slots: FakeViTriggerInput[]): void;
   /** VI 주문 목록 조회(34) 응답 내용을 심는다. */
   seedViOrders(items: FakeViOrderItemInput[]): void;
   /** 상따 Set 에코(60)를 지금 밀어 넣는다. 게이트웨이 연결이 설 때까지 기다린다. */
@@ -937,6 +942,9 @@ export async function withLocalRelay(opts: { observer?: boolean } = {}): Promise
     seedViTrigger(cfg) {
       gateway.respondViTrigger(cfg);
     },
+    seedViSlots(slots) {
+      gateway.respondViSlots(slots);
+    },
     seedViOrders(items) {
       gateway.respondViOrderList(items);
     },
@@ -1005,6 +1013,7 @@ export async function withLocalRelay(opts: { observer?: boolean } = {}): Promise
       // 전략 시드 3종도 되돌린다 — 남으면 다음 spec 이 남의 전략을 본다.
       gateway.respondLimitChaserList([]);
       gateway.respondViTrigger(null);
+      gateway.respondViSlots(null);
       gateway.respondViOrderList([]);
       // Phase 27 — 43 자동 응답도 기본(무응답)으로. 남으면 다음 spec 이 남의 사용자 설정을 본다.
       gateway.seedUserSettings(null);
