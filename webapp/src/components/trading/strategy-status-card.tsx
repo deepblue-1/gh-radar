@@ -359,6 +359,8 @@ function useSnapshotSeen(status: RelayStatus): boolean {
 
 export interface StrategyStatusCardProps {
   className?: string;
+  /** /me 계좌 칩이 고른 계좌(Phase 32 D-21). undefined = 계좌를 아직 모른다 → 전 계좌(종전). */
+  accountNo?: string;
 }
 
 type StatusView = "status" | "log";
@@ -375,7 +377,7 @@ const SEG_TRIGGER =
 /** 로그 본문 높이 상한 — 11px × 1.7 줄로 약 16줄. 목업에 값이 없어 정한 값이다(파일 상단 ⑧). */
 const LOG_MAX_H = "max-h-[320px]";
 
-export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
+export function StrategyStatusCard({ className, accountNo }: StrategyStatusCardProps) {
   const { status, limitChasers, viTriggers, accounts, strategiesDisabled, send } =
     useRelayContext();
   const labels = useIsinLabels();
@@ -404,6 +406,9 @@ export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
   // 등록 정본(`limitChasers` 전수)은 건드리지 않는다.
   const activeChasers = limitChasers.filter(isActiveStrategy);
   const chaserCount = activeChasers.length;
+  /** 고른 계좌의 켜진 전략(Phase 32 D-21) — 다른 계좌 전략은 그리지 않는다. undefined = 전 계좌. */
+  const shownChasers =
+    accountNo === undefined ? activeChasers : activeChasers.filter((c) => c.accountNo === accountNo);
   /** 켜진 전략 0 + VI 중지 → 끌 것이 없다(⑨ — 이미 꺼진 전략은 이 버튼으로 바뀌는 것이 없다). VI 가동 조건은 그대로다. */
   const nothingToDisable = chaserCount === 0 && !viRunning;
 
@@ -520,7 +525,7 @@ export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
           data-slot="strategy-row-list"
           className="flex flex-col divide-y divide-[var(--border-subtle)]"
         >
-          {activeChasers.map((item) => (
+          {shownChasers.map((item) => (
             <StrategyRow key={item.key} item={item} label={labels.get(item.isin)} />
           ))}
         </div>

@@ -407,6 +407,10 @@ const todayOrdersCard = (page: Page) => page.locator('[data-slot="today-orders-c
 /** 모바일 카드 행만 센다 — 표 행은 같은 정보를 CSS 로 가려 둔 한 벌이다. */
 const todayOrderRows = (page: Page) => page.locator('[data-slot="today-order-row"]');
 const desktopNav = (page: Page) => page.locator('aside nav[aria-label="주 메뉴"]');
+/** Phase 32 D-20 — /me 탭 위 계좌 칩(radiogroup 「My page 계좌」). */
+const accountChips = (page: Page) => page.locator('[data-slot="me-account-chip"]');
+const accountChip = (page: Page, accountNo: string) =>
+  page.locator(`[data-slot="me-account-chip"][data-account-no="${accountNo}"]`);
 const disableAllButton = (page: Page) =>
   strategyCard(page).getByRole('button', { name: '전체 비활성화' });
 
@@ -503,6 +507,54 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
         body: JSON.stringify(TODAY_ORDERS),
       });
     });
+  });
+
+  test('P32-chips 탭 위 계좌 칩 — 두 계좌 칩 · 기본 첫 칩 · B 를 고르면 현황 전략 1행 · A 로 돌아오면 2행 · 새로고침 뒤 B 유지 · 작업대 기억 키 불변 (D-20 · D-21)', async ({
+    page,
+  }) => {
+    await page.goto('/me');
+    // 칩 줄 — `accounts[]` 순(A → B) · 기본 = 첫 칩(기억값 없음).
+    await expect(page.getByRole('radiogroup', { name: 'My page 계좌' })).toBeVisible({ timeout: 30_000 });
+    await expect(accountChips(page)).toHaveCount(2, { timeout: 30_000 });
+    await expect(accountChips(page).nth(0)).toHaveAttribute('data-account-no', E2E_ACCOUNT_NO);
+    await expect(accountChips(page).nth(1)).toHaveAttribute('data-account-no', ACCOUNT_B);
+    await expect(accountChip(page, E2E_ACCOUNT_NO)).toHaveAttribute('aria-checked', 'true');
+    await expect(accountChip(page, ACCOUNT_B)).toHaveAttribute('aria-checked', 'false');
+
+    // 현황 탭 = 고른 계좌(A)의 켜진 전략만 — 2행. B 의 전략은 그리지 않는다.
+    await waitForStrategies(page, 2);
+    await expect(strategyCard(page)).not.toContainText('한국제7호기업인수목적우선주식회사');
+
+    // B 칩 → 전략 1행(B 의 NXT 전략).
+    await accountChip(page, ACCOUNT_B).click();
+    await expect(accountChip(page, ACCOUNT_B)).toHaveAttribute('aria-checked', 'true');
+    await waitForStrategies(page, 1);
+    await expect(strategyRows(page).nth(0)).toContainText('한국제7호기업인수목적우선주식회사', { timeout: 15_000 });
+
+    // 새로고침 — 기기별 기억값이 B 를 다시 고른다.
+    await page.reload();
+    await expect(accountChips(page)).toHaveCount(2, { timeout: 30_000 });
+    await expect(accountChip(page, ACCOUNT_B)).toHaveAttribute('aria-checked', 'true');
+    await waitForStrategies(page, 1);
+
+    // 저장 키 — /me 키는 B · 작업대 계좌칸 키는 쓰지 않는다(D-20 「작업대와 따로」).
+    const keys = await page.evaluate(() => {
+      const out: { me: string | null; trading: string | null } = { me: null, trading: null };
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const k = window.localStorage.key(i) ?? '';
+        if (k.startsWith('gh-radar:me-account:')) out.me = window.localStorage.getItem(k);
+        if (k.startsWith('gh-radar:trading-account:')) out.trading = window.localStorage.getItem(k);
+      }
+      return out;
+    });
+    expect(keys.me).not.toBeNull();
+    expect(JSON.parse(keys.me!)).toEqual({ v: 1, accountNo: ACCOUNT_B });
+    expect(keys.trading).toBeNull();
+
+    // A 로 돌아오면 2행.
+    await accountChip(page, E2E_ACCOUNT_NO).click();
+    await expect(accountChip(page, E2E_ACCOUNT_NO)).toHaveAttribute('aria-checked', 'true');
+    await waitForStrategies(page, 2);
   });
 
   test('1. 전략 3 · 계좌 2 — 전략 행이 배지·거래소·계좌번호 전체를 보여주고 계좌 카드가 세로로 반복된다', async ({

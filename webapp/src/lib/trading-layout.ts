@@ -14,6 +14,7 @@
  *   남의 카드가 보이면 안 된다. 계좌번호가 들어가지만 이 기기 브라우저 밖으로 나가지 않는다.
  *   패널 펼침은 화면 취향이라 기기 공용 키 하나다. 계좌칸은 카드 목록과 따로 둔 사용자별 키다
  *   (`gh-radar:trading-account:{userId}`).
+ *   /me 계좌 칩 선택(Phase 32 D-20)은 작업대 계좌칸과 또 따로 둔 사용자별 키다(`gh-radar:me-account:{userId}`).
  *
  * ③ 안전
  *   읽기·쓰기 전부 `typeof window` 가드 + try/catch — 저장소가 막히거나 JSON 이 깨지면 「기억 없음」이다.
@@ -174,6 +175,99 @@ export function pillAccountOf(
   if (saved !== null && accounts.some((a) => a.accountNo === saved)) return saved;
   if (current === "") return accounts[0].accountNo;
   return current;
+}
+
+/* ── /me 계좌 칩 (Phase 32 D-20) ─────────────────────────────────────── */
+
+/**
+ * /me 계좌 칩 선택 키 — 사용자별 · 기기별(`…:{userId}`). 작업대 계좌칸 키(`TRADING_ACCOUNT_KEY_PREFIX`)와 **따로**
+ * 둔다: /me 에서 칩을 고른다고 작업대 계좌가 바뀌면 안 된다(D-20 「작업대와 따로 기억」). 값 모양 · 가드는 계좌칸과 같다.
+ */
+export const ME_ACCOUNT_KEY_PREFIX = "gh-radar:me-account:";
+
+function meAccountKey(userId: string): string {
+  return `${ME_ACCOUNT_KEY_PREFIX}${userId}`;
+}
+
+/** 저장된 /me 칩 계좌. 없거나 깨졌으면 `null`(= 기억 없음 — 아래 `meAccountOf` 의 다음 순서로 간다). */
+export function readMeAccount(userId: string): string | null {
+  if (typeof window === "undefined" || userId === "") return null;
+  try {
+    const raw = window.localStorage.getItem(meAccountKey(userId));
+    if (raw === null) return null;
+    const parsed = JSON.parse(raw) as { v?: unknown; accountNo?: unknown } | null;
+    if (parsed === null || typeof parsed !== "object" || parsed.v !== 1) return null;
+    const a = parsed.accountNo;
+    if (typeof a !== "string" || a.length === 0 || a.length > MAX_ACCOUNT_NO_LEN) return null;
+    return a;
+  } catch {
+    return null;
+  }
+}
+
+/** 사용자가 칩을 **직접 고른** 경우만 쓴다(기본 선택은 부르지 않는다). */
+export function writeMeAccount(userId: string, accountNo: string): void {
+  if (typeof window === "undefined" || userId === "" || accountNo === "") return;
+  try {
+    window.localStorage.setItem(meAccountKey(userId), JSON.stringify({ v: 1, accountNo }));
+  } catch {
+    // 저장 실패는 다음 방문의 「기억 없음」일 뿐이다.
+  }
+}
+
+/** /me 계좌 칩 한 개 — `accounts[]` 밖 계좌(행에만 있는 계좌)는 `name: ""` · 서버키 없음. */
+export interface MeAccountChoice {
+  accountNo: string;
+  name: string;
+  serverKey?: string;
+}
+
+/**
+ * /me 계좌 칩 목록 = `accounts[]` 순 그대로 + 뒤에 `extraAccountNos`(전략 · 주문 행의 계좌) 중 목록에 없는 것을
+ * 처음 본 순서로(번호만). 빈 문자열은 버린다(RESEARCH Pitfall 10 — 행에만 있는 계좌도 고를 수 있어야 그 행이 보인다).
+ */
+export function meAccountChoicesOf(
+  accounts: readonly RelayAccount[],
+  extraAccountNos: Iterable<string>,
+): MeAccountChoice[] {
+  const out: MeAccountChoice[] = [];
+  const seen = new Set<string>();
+  for (const a of accounts) {
+    if (a.accountNo === "" || seen.has(a.accountNo)) continue;
+    seen.add(a.accountNo);
+    const c: MeAccountChoice = { accountNo: a.accountNo, name: a.name ?? "" };
+    if (a.serverKey !== undefined && a.serverKey !== "") c.serverKey = a.serverKey;
+    out.push(c);
+  }
+  for (const no of extraAccountNos) {
+    if (no === "" || seen.has(no)) continue;
+    seen.add(no);
+    out.push({ accountNo: no, name: "" });
+  }
+  return out;
+}
+
+/**
+ * /me 칩이 가리킬 계좌(순수). 규칙 순서:
+ *   1. choices 가 비면 current 그대로(아직 계좌를 모른다).
+ *   2. saved(이 화면 기억값)가 choices 안이면 saved — 기억 계좌가 나중 프레임에 도착해도 그 칩으로 올라간다.
+ *   3. workbenchSaved(작업대 계좌칸 기억)가 choices 안이면 그것 — 기본값 원천일 뿐 여기서 쓰지 않는다.
+ *   4. current 가 choices 안이면 current(이미 고른 값 유지).
+ *   5. 그 밖은 첫 칩 — 기억값이 목록 밖이 되면 알림 없이 첫 칩으로 떨어진다.
+ * 칩을 고르면 호출부가 saved 도 그 값으로 바꾸므로 2 가 사용자 선택을 지킨다.
+ */
+export function meAccountOf(
+  choices: readonly Pick<MeAccountChoice, "accountNo">[],
+  saved: string | null,
+  workbenchSaved: string | null,
+  current: string,
+): string {
+  if (choices.length === 0) return current;
+  const has = (no: string | null): no is string => no !== null && choices.some((c) => c.accountNo === no);
+  if (has(saved)) return saved;
+  if (has(workbenchSaved)) return workbenchSaved;
+  if (has(current)) return current;
+  return choices[0].accountNo;
 }
 
 /* ── 패널 펼침 ───────────────────────────────────────────────────────── */

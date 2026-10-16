@@ -15,10 +15,14 @@
  *     잃는 동작(잔고 행 → 카드 생성·포커스 · 카드 없는 종목의 미체결 정정 진입)은 앱에서 범위 밖이다
  *     (21-25 사용자 동의).
  *
- * ② ★ 계좌 선택 UI 를 만들지 않는다 (D-21)
- *   계좌가 몇 개든 **계좌마다 카드 하나**를 세로로 반복한다. 셀렉터를 두면 「지금 보는
- *   카드」와 「선택된 계좌」가 어긋나고, 화면에 한 계좌만 보이는 순간 다른 계좌의 미체결을
- *   놓친다. 계좌번호는 **마스킹 없이 전체** 표시한다(D2 · S-5 — 마스킹은 relay 로그에서만).
+ * ② ★ 탭 위 계좌 칩 한 곳에서 고른다 (Phase 32 D-20 — Phase 16 D-21 「계좌 선택 UI 없음 · 세로 반복」 을
+ *   2026-10-16 사용자 결정으로 뒤집음)
+ *   계정 카드 아래 · 탭 줄 위 계좌 칩 줄(`MeAccountChips`)이 유일한 계좌 선택이다. 네 탭이 **같은 계좌**를 따라야
+ *   「지금 보는 계좌」 와 「선택된 계좌」 가 어긋나지 않는다 — 탭마다 따로 고르면 그 어긋남이 다시 생긴다. 고른 계좌는
+ *   `MeTabs` 가 상태로 쥐고 각 카드에 prop 으로 내린다(카드는 스스로 계좌를 고르지 않는다). 선택은 작업대 계좌칸과
+ *   따로 기기별로 기억한다(`lib/trading-layout.ts` 「/me 계좌 칩」). 계좌 목록(`accounts[]`)을 아직 모르면 칩 줄도
+ *   필터도 없다(종전 전 계좌 모양 — 빈 화면 깜빡임 방지). 계좌번호는 **마스킹 없이 전체** 표시한다(D2 · S-5 —
+ *   마스킹은 relay 로그에서만).
  *
  * ③ ★ 계좌별 상태는 `accountStates` 에서 가져온다 (16-15)
  *   relay 는 인증 직후 계좌마다 `acct` 프레임을 한 벌씩 내려보낸다. `account` 는 그중
@@ -67,12 +71,13 @@
  *   ⓔ 상태줄은 현황 탭 **안**이다(전 탭 공통 아님 — D-1 · 목업 A).
  */
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import type { RelayAccountState } from "@gh-radar/shared";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { PAGE_WRAP, SECTION_COUNT } from "@/components/layout/page-layout";
 import { AccountCard } from "@/components/me/account-card";
+import { MeAccountChips } from "@/components/me/account-chips";
 import { LimitChaserDefaultsSection } from "@/components/me/limit-chaser-defaults";
 import { AccountPanel } from "@/components/orderbook/account-panel";
 import { DmaGate, useDmaGateReason } from "@/components/trading/dma-gate";
@@ -80,12 +85,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StrategyStatusCard } from "@/components/trading/strategy-status-card";
 import { TodayOrdersCard } from "@/components/trading/today-orders-card";
 import { stockCodeOf } from "@/components/trading/vi-order-list";
+import { useAuth } from "@/lib/auth-context";
 import { useIsinLabels } from "@/lib/isin-labels";
 import { isActiveStrategy } from "@/lib/limit-chaser";
 import { useNativeRefresh } from "@/lib/native/use-native-refresh";
 import { useRelayContext } from "@/lib/relay-provider";
 import { orderPillOf, quotePillOf } from "@/lib/quote-state";
 import { viAnyRunning } from "@/lib/use-relay-socket";
+import {
+  meAccountChoicesOf,
+  meAccountOf,
+  readMeAccount,
+  readTradingAccount,
+  writeMeAccount,
+} from "@/lib/trading-layout";
 import {
   URL_TAB_BAR_CLASS,
   URL_TAB_LIST_CLASS,
@@ -325,8 +338,47 @@ export function unfilledCountOf(
 
 /** 4탭 셸(위 ⑦). `useSearchParams` 를 읽으므로 Suspense 경계 안에서만 렌더한다. */
 function MeTabs() {
-  const { accounts, accountStates, status } = useRelayContext();
+  const { accounts, accountStates, status, limitChasers, journalRows } = useRelayContext();
   const tab = useUrlTab(ME_TAB_VALUES, "status");
+
+  /*
+    ── 계좌 칩 (위 ② · Phase 32 D-20) ── 고른 계좌 · 이 화면 기억값 · 작업대 기억 계좌.
+    기억값은 마운트 **뒤** 효과에서 읽는다(하이드레이션 규약 — 렌더 중 localStorage 금지 · 작업대와 같은 규약).
+  */
+  const { user } = useAuth();
+  const userId = user?.id ?? "";
+  const [meAccountNo, setMeAccountNo] = useState("");
+  const [savedMe, setSavedMe] = useState<string | null>(null);
+  const [savedWorkbench, setSavedWorkbench] = useState<string | null>(null);
+  useEffect(() => {
+    setSavedMe(readMeAccount(userId));
+    setSavedWorkbench(readTradingAccount(userId));
+  }, [userId]);
+  /** 칩 목록 = `accounts[]` 순 + 전략 · 주문 행에만 있는 계좌(번호만 · 맨 뒤 — RESEARCH Pitfall 10). */
+  const choices = useMemo(
+    () =>
+      meAccountChoicesOf(accounts, [
+        ...limitChasers.map((c) => c.accountNo),
+        ...journalRows.map((r) => r.accountNo),
+      ]),
+    [accounts, limitChasers, journalRows],
+  );
+  // 기본 선택(`meAccountOf`) — 이 화면 기억값 → 작업대 기억 계좌 → 이미 고른 값 → 첫 칩. 자동 선택은 저장하지 않는다.
+  useEffect(() => {
+    const next = meAccountOf(choices, savedMe, savedWorkbench, meAccountNo);
+    if (next !== meAccountNo) setMeAccountNo(next);
+  }, [choices, savedMe, savedWorkbench, meAccountNo]);
+  /** 칩을 **직접** 고른 경우 — 화면 · 이번 마운트 기억 · 기기별 저장 셋을 같이 바꾼다(작업대 키는 건드리지 않는다). */
+  const pickMeAccount = (next: string): void => {
+    setMeAccountNo(next);
+    setSavedMe(next);
+    writeMeAccount(userId, next);
+  };
+  /**
+   * 카드에 내릴 계좌 — `accounts[]` 를 아직 모르면 거르지 않는다(undefined = 전 계좌 · 종전 모양). 게이트는
+   * `choices.length` 가 아니라 `accounts.length` 다 — 행 계좌만으로 칩이 서면 `accounts[]` 도착 때 칩이 갈린다.
+   */
+  const shownAccountNo = accounts.length > 0 && meAccountNo !== "" ? meAccountNo : undefined;
   /* null = 주문 탭 미방문(카드 없음) — 숫자를 그리지 않는다. */
   const [ordersCount, setOrdersCount] = useState<number | null>(null);
 
@@ -337,6 +389,14 @@ function MeTabs() {
   };
 
   return (
+    <>
+    {/*
+      S13 — 계정 카드 아래 · 탭 줄 위. `accounts[]` 를 받은 뒤에만 마운트한다(계좌 0 = 줄 없음 · 높이 0 · 깜빡임 없음).
+      칩 줄 ↔ 탭 줄 간격 12 는 `me-page` 의 gap 이 준다(이 Fragment 의 두 자식이 그 flex 열의 형제다).
+    */}
+    {accounts.length > 0 && (
+      <MeAccountChips choices={choices} accountNo={meAccountNo} onChange={pickMeAccount} />
+    )}
     <Tabs value={tab.active} onValueChange={tab.select} className="flex-col gap-0">
       {/*
         sticky 탭 바 — 클래스 정본은 공용 훅 모듈, 배경만 여기서(라이트 회색 본문면 `--surface` · P-2).
@@ -374,7 +434,7 @@ function MeTabs() {
         className={ME_PANEL}
       >
         <MeStatusBar />
-        <StrategyStatusCard />
+        <StrategyStatusCard accountNo={shownAccountNo} />
       </TabsContent>
 
       <TabsContent
@@ -446,6 +506,7 @@ function MeTabs() {
         <LimitChaserDefaultsSection />
       </TabsContent>
     </Tabs>
+    </>
   );
 }
 
