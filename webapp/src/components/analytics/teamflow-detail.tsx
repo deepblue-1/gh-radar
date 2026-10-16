@@ -6,6 +6,7 @@ import { factLineOf, summaryPartsOf } from '@/lib/teamflow-report';
 
 import { TeamflowBandChart } from './teamflow-band-chart';
 import { TeamflowBandTable } from './teamflow-band-table';
+import { TeamflowMembers } from './teamflow-members';
 import { TeamflowToggle } from './teamflow-toggle';
 
 /**
@@ -99,6 +100,9 @@ export function TeamflowDetail({ row, labelledBy }: { row: TeamflowRow; labelled
               <TeamflowBandTable bands={row.payload?.bands ?? []} />
             </TeamflowToggle>
           </div>
+        </div>
+        <div className="min-w-0">
+          <TeamflowMembers members={row.payload?.members ?? null} />
         </div>
       </div>
 
