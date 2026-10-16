@@ -11,6 +11,7 @@
  *    Phase 32 D-24 — 서버 세그먼트 · 서버 기억 없음 · 서버키 없는 계좌는 키 `""` 칸 = 종전 단일 동작) 하나다 —
  *    3상태(77 `queuedWindow` 규율):
  *    - `undefined` = 84 를 아직 못 받았다 → 「불러오는 중」 · 행 흐림 · 편집 불가. 기본값을 지어내지 않는다.
+ *      다른 서버 84 는 왔고 고른 서버만 미수신이면 칩이 「아직 못 받음」 이고 서버 캡션이 그 사실을 말한다(S8′ · 잠금 같음).
  *      84 에 `postBuyFloorAmount` 키가 없으면(구 relay · Phase 31 Pitfall 10) 이것과 같다(`usableUserSettingsOf`) —
  *      42 는 14값 전체 교체라 모르는 금액을 0 으로 지어 보내면 C# 「최소 [ ]만」 원값이 지워진다. 새 문구 없음.
  *      선매수 2필드(`preBuyWatchAmount` · `preBuyAutoAddBuy`) 부재는 **다르다** — 0 · false 로 읽는다(gh-trade 261012
@@ -185,11 +186,16 @@ export const USER_SETTINGS_ROWS: readonly UserSettingsRowSpec[] = [
 
 const isValueRow = (r: UserSettingsRowSpec): r is UserSettingsValueRowSpec => r.kind === "value";
 
-export type UserSettingsStatus = "loading" | "present" | "absent";
+/**
+ * 상태 4개 — `missing` 은 Phase 32 S8′: 다른 서버 84 는 왔고 **고른 서버만** 아직 못 받았다(첫 로딩 `loading` 과 가른다).
+ * `missing` 의 설명은 서버 캡션(`me-lc-defaults-server-note`)이 말하므로 안내(note)는 비운다(빈 줄을 그리지 않는다).
+ */
+export type UserSettingsStatus = "loading" | "missing" | "present" | "absent";
 
-/** 칩 · 안내 원문(D-13 · 목업 `section()` 그대로). */
+/** 칩 · 안내 원문(D-13 · 목업 `section()` 그대로 · `missing` 은 32-UI-SPEC S8′). */
 export const USER_SETTINGS_STATUS_TEXT: Readonly<Record<UserSettingsStatus, { chip: string; note: string }>> = {
   loading: { chip: "불러오는 중", note: "DMA 세션이 준비되면 서버 설정(84)을 불러와요" },
+  missing: { chip: "아직 못 받음", note: "" },
   present: {
     chip: "서버 저장값",
     note: "새 전략 폼의 기본값이에요 · 매도 주기 · 동시호가 비율은 서버가 다음 주기부터 바로 써요",
@@ -200,14 +206,17 @@ export const USER_SETTINGS_STATUS_TEXT: Readonly<Record<UserSettingsStatus, { ch
   },
 };
 
-/** 칩 톤 — 목업 `.chip.ok/.warn` 결을 기존 LED 토큰으로(새 색 토큰 0). */
+/** 칩 톤 — 목업 `.chip.ok/.warn` 결을 기존 LED 토큰으로(새 색 토큰 0). `missing` 은 absent 톤 재사용(S8′ — 새 톤 없음). */
+const ABSENT_TONE_CLASS = "bg-[color-mix(in_srgb,var(--led-latent)_18%,transparent)] text-[var(--led-latent)]";
 const CHIP_TONE_CLASS: Readonly<Record<UserSettingsStatus, string>> = {
   loading: "bg-[var(--muted)] text-[var(--muted-fg)]",
+  missing: ABSENT_TONE_CLASS,
   present: "bg-[color-mix(in_srgb,var(--led-armed)_16%,transparent)] text-[var(--led-armed)]",
-  absent: "bg-[color-mix(in_srgb,var(--led-latent)_18%,transparent)] text-[var(--led-latent)]",
+  absent: ABSENT_TONE_CLASS,
 };
 const CHIP_TONE_ATTR: Readonly<Record<UserSettingsStatus, string>> = {
   loading: "loading",
+  missing: "warn",
   present: "ok",
   absent: "warn",
 };
@@ -552,20 +561,43 @@ function useUserSettingsSave(
 const FLASH_CLASS =
   "[&_[data-slot=lc-row-value]]:text-[var(--led-armed)]! [&_[role=radio][aria-checked=true]]:text-[var(--led-armed)]!";
 
-export function userSettingsStatusOf(s: RelayUserSettingsMsg | undefined): UserSettingsStatus {
-  if (s === undefined) return "loading";
-  return s.present ? "present" : "absent";
+/**
+ * 상태 판정(S8′). `usable` = 고른 서버의 쓸 수 있는 84(`usableUserSettingsOf` 통과값).
+ * `selectedMissing` = 고른 서버키가 있고 · 그 서버 84 칸이 없는데 · 다른 서버 84 는 이미 왔다 → 「아직 못 받음」.
+ * 그 밖의 미수신(첫 로딩 · 서버키 없는 계좌 · 금액 키 없는 84)은 종전 「불러오는 중」.
+ */
+export function userSettingsStatusOf(
+  usable: RelayUserSettingsMsg | undefined,
+  selectedMissing = false,
+): UserSettingsStatus {
+  if (usable === undefined) return selectedMissing ? "missing" : "loading";
+  return usable.present ? "present" : "absent";
 }
 
-export function LimitChaserDefaultsSection({ serverKey }: { serverKey?: string } = {}) {
+export interface LimitChaserDefaultsSectionProps {
+  /** 고른 계좌의 서버키(D-24). 없으면(구 relay · 목록 밖 계좌) 서버키 칩 · 서버 캡션 없이 키 `""` 칸 = 종전 단일 동작. */
+  serverKey?: string;
+  /** 같은 서버의 다른 계좌 번호(`accounts[]` 순) — 서버 캡션 「같은 서버의 … 계좌도 이 설정을 함께 써요.」. */
+  sameServerAccountNos?: readonly string[];
+}
+
+const NO_ACCOUNT_NOS: readonly string[] = [];
+
+export function LimitChaserDefaultsSection({
+  serverKey,
+  sameServerAccountNos = NO_ACCOUNT_NOS,
+}: LimitChaserDefaultsSectionProps = {}) {
   const relay = useRelayContext();
   const { send, messages } = relay;
-  // 고른 계좌 서버의 84(D-24) — 그 서버 84 미수신은 「불러오는 중」 잠금이다(다른 서버 값으로 대신 보이지 않는다).
+  // 고른 계좌 서버의 84(D-24) — 그 서버 84 미수신은 잠금이다(다른 서버 값으로 대신 보이지 않는다).
   // 금액 키가 없는 84(구 relay)는 미수신과 같다 — 칩 · 흐림 · 편집 불가 · 저장 기계가 모두 이 값을 본다(Pitfall 10).
-  const userSettings = usableUserSettingsOf(
-    userSettingsForServer(relay.userSettingsByServer, serverKey, relay.accounts),
+  const selected = userSettingsForServer(relay.userSettingsByServer, serverKey, relay.accounts);
+  const userSettings = usableUserSettingsOf(selected);
+  // S8′ — 다른 서버 84 는 왔고 고른 서버만 미수신 = 「아직 못 받음」. `missing` 도 `loading` 과 같은 잠금이다.
+  const status = userSettingsStatusOf(
+    userSettings,
+    selected === undefined && !!serverKey && relay.userSettingsByServer.size > 0,
   );
-  const status = userSettingsStatusOf(userSettings);
   const loading = userSettings === undefined;
   const text = USER_SETTINGS_STATUS_TEXT[status];
   const save = useUserSettingsSave(userSettings, send, messages, serverKey);
@@ -608,27 +640,62 @@ export function LimitChaserDefaultsSection({ serverKey }: { serverKey?: string }
       // ⑥ — 2열 판정 컨테이너는 이 섹션이다(페이지 루트 아님). 카드 면은 묶음마다 아래로 내려갔다.
       className="@container/me flex min-w-0 flex-col"
     >
-      <div className="flex min-h-[30px] flex-wrap items-center gap-x-2 gap-y-1 px-1 pb-1.5">
+      {/*
+        S8′ 제목 줄 — 「상따 기본설정」 + 서버키 칩(고른 계좌 serverKey · S11 칩 문법) + (오른쪽 끝) 상태 칩.
+        줄이 넘치면 `flex-wrap` 으로 상태 칩만 다음 줄로 가고 `ml-auto` 가 그 줄 오른쪽 끝에 붙인다(폭 백스톱).
+        제목 줄 → 서버 캡션 4px(pb-1) · 캡션/안내 사이 4px(안내 pt-1) — 캡션이 없을 때 제목 → 안내는 종전 8px 그대로.
+      */}
+      <div className="flex min-h-[30px] flex-wrap items-center gap-x-2 gap-y-1 px-1 pb-1">
         <h2 id="me-lc-defaults-title" className="text-[15px] font-semibold text-[var(--fg)]">
           상따 기본설정
         </h2>
+        {serverKey && (
+          <span
+            data-slot="me-lc-defaults-server"
+            className="mono inline-flex h-[18px] shrink-0 items-center rounded-[5px] bg-[var(--muted)] px-1.5 text-[10px] font-bold whitespace-nowrap text-[var(--fg-2)]"
+          >
+            {serverKey}
+          </span>
+        )}
         <span
           data-slot="me-lc-defaults-chip"
           data-tone={CHIP_TONE_ATTR[status]}
           className={cn(
-            "rounded-full px-[7px] py-[2px] text-[11px] font-semibold whitespace-nowrap",
+            "ml-auto rounded-full px-[7px] py-[2px] text-[11px] font-semibold whitespace-nowrap",
             CHIP_TONE_CLASS[status],
           )}
         >
           {text.chip}
         </span>
       </div>
-      <p
-        data-slot="me-lc-defaults-note"
-        className="px-1 pt-0.5 pb-3 text-[12.5px] leading-[1.5] break-keep text-[var(--muted-fg)]"
-      >
-        {text.note}
-      </p>
+      {/* S8′ 서버 캡션 — 서버키가 있을 때만. 받음 = 저장 서버 + 같은 서버 계좌 · 미수신 = 그 사실 · 첫 로딩 = 없음. */}
+      {serverKey && status !== "loading" && (
+        <p
+          data-slot="me-lc-defaults-server-note"
+          className={cn(
+            "px-1 text-[12.5px] leading-[1.5] break-keep text-[var(--muted-fg)]",
+            text.note === "" && "pb-3",
+          )}
+        >
+          {status === "missing" ? (
+            `${serverKey} 서버 설정(84)을 아직 받지 못했어요 · 그 서버 세션이 준비되면 불러와요`
+          ) : (
+            <>
+              이 계좌의 서버 <b className="font-semibold">{serverKey}</b> 에 저장돼요.
+              {sameServerAccountNos.length > 0 &&
+                ` 같은 서버의 ${sameServerAccountNos.join(" · ")} 계좌도 이 설정을 함께 써요.`}
+            </>
+          )}
+        </p>
+      )}
+      {text.note !== "" && (
+        <p
+          data-slot="me-lc-defaults-note"
+          className="px-1 pt-1 pb-3 text-[12.5px] leading-[1.5] break-keep text-[var(--muted-fg)]"
+        >
+          {text.note}
+        </p>
+      )}
 
       <div
         data-slot="me-lc-defaults-rows"

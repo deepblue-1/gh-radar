@@ -382,6 +382,21 @@ function MeTabs() {
    * `choices.length` 가 아니라 `accounts.length` 다 — 행 계좌만으로 칩이 서면 `accounts[]` 도착 때 칩이 갈린다.
    */
   const shownAccountNo = accounts.length > 0 && meAccountNo !== "" ? meAccountNo : undefined;
+  /**
+   * 설정 탭 서버(Phase 32 D-24 · S8′) — 고른 계좌의 서버키 · 같은 서버의 다른 계좌 번호(`accounts[]` 순 · 캡션 안내).
+   * 목록 밖 계좌는 서버키가 없어 둘 다 비고(키 "" 칸 · 새 relay 에서는 「불러오는 중」 잠금이 fail-safe), 목록 밖
+   * 계좌는 같은 서버 안내에 들어가지 않는다(서버키를 모른다).
+   */
+  const settingsServerKey = choices.find((c) => c.accountNo === meAccountNo)?.serverKey;
+  const sameServerAccountNos = useMemo(
+    () =>
+      settingsServerKey
+        ? accounts
+            .filter((a) => a.serverKey === settingsServerKey && a.accountNo !== meAccountNo)
+            .map((a) => a.accountNo)
+        : [],
+    [accounts, settingsServerKey, meAccountNo],
+  );
   /* null = 주문 탭 미방문(카드 없음) — 숫자를 그리지 않는다. */
   const [ordersCount, setOrdersCount] = useState<number | null>(null);
 
@@ -516,8 +531,8 @@ function MeTabs() {
         className={ME_PANEL}
       >
         {/* Phase 27 D-10 — 상따 기본설정(42/84). DMA 게이트 분기에는 없다. Phase 32 D-24 — 서버 = 고른 계좌의 서버키
-            (목록 밖 계좌 = 서버키 없음 → 키 "" 칸 · 새 relay 에서는 「불러오는 중」 잠금이 fail-safe). */}
-        <LimitChaserDefaultsSection serverKey={choices.find((c) => c.accountNo === meAccountNo)?.serverKey} />
+            (위 `settingsServerKey` — 서버키 칩 · 서버 캡션 · 그 서버 84 · 그 서버로 42). */}
+        <LimitChaserDefaultsSection serverKey={settingsServerKey} sameServerAccountNos={sameServerAccountNos} />
         {/* Phase 32 D-15 — 「이 기기」 카드(돌파 알림음 · 이 브라우저 localStorage). 이 기기 카드는 계좌 칩과 무관(D-24 · D-15). */}
         <DeviceSettingsCard />
       </TabsContent>

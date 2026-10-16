@@ -1871,6 +1871,60 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     expect(setFrames).toHaveLength(1);
   });
 
+  /*
+    Phase 32 D-24 · S8′ — 설정 탭 제목 줄 = 「상따 기본설정」 + 고른 계좌 서버키 칩 + 상태 칩 → 서버 캡션. E2E 스텁은 세션
+    1개라 두 계좌가 같은 서버(「KB」)다 — 그래서 캡션에 다른 계좌 번호가 「같은 서버의 … 계좌도」 로 나오고, B 칩으로
+    바꿔도 같은 서버 84 를 본다. 「다른 서버 계좌 = 아직 못 받음」 화면은 단위 테스트(컨텍스트 목)와 32-10 라이브 UAT 몫.
+  */
+  test('P32-settings-ui 설정 탭 — 서버키 칩 · 「서버 저장값」 · 캡션 「이 계좌의 서버 … 에 저장돼요.」 · 같은 서버의 다른 계좌 안내 · B 칩으로 바꿔도 같은 서버라 같은 값 (D-24)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/me');
+    await waitForReady(page, 2);
+    await openMeTab(page, '설정', 'settings');
+
+    const serverChip = lcDefaults(page).locator('[data-slot="me-lc-defaults-server"]');
+    const serverNote = lcDefaults(page).locator('[data-slot="me-lc-defaults-server-note"]');
+
+    // 첫 로딩(어느 84 도 없음) — 서버키 칩은 서고 상태는 기존 「불러오는 중」 · 서버 캡션 없음.
+    await expect(accountChip(page, E2E_ACCOUNT_NO)).toHaveAttribute('aria-checked', 'true');
+    await expect(serverChip).toHaveText('KB');
+    await expect(lcDefaultsChip(page)).toHaveText('불러오는 중');
+    await expect(serverNote).toHaveCount(0);
+
+    // 그 서버 84 → 「서버 저장값」 · 캡션 = 저장 서버 + 같은 서버의 다른 계좌(B).
+    await relay.pushUserSettings({ ...LC84, autoSellPeriodSec: 3 });
+    await expect(lcDefaultsChip(page)).toHaveText('서버 저장값', { timeout: 15_000 });
+    await expect(serverNote).toHaveText(
+      `이 계좌의 서버 KB 에 저장돼요. 같은 서버의 ${ACCOUNT_B} 계좌도 이 설정을 함께 써요.`,
+    );
+    const period = lcDefaultsRow(page, 'auto-sell-period-sec');
+    await expect(period.locator('[data-slot="lc-row-value"]')).toHaveText('3초');
+
+    // 제목 줄 — 서버키 칩은 제목 바로 오른쪽 · 상태 칩은 같은 줄 오른쪽 끝(ml-auto) · 캡션은 그 아래.
+    const title = await boxOf(lcDefaults(page).locator('#me-lc-defaults-title'));
+    const server = (await serverChip.boundingBox())!;
+    const status = (await lcDefaultsChip(page).boundingBox())!;
+    const caption = await boxOf(serverNote);
+    expect(server.x).toBeGreaterThan(title.right - 1);
+    expect(status.x).toBeGreaterThan(server.x + server.width);
+    expect(Math.abs(status.y + status.height / 2 - (server.y + server.height / 2))).toBeLessThanOrEqual(2);
+    expect(caption.y).toBeGreaterThan(status.y + status.height - 1);
+
+    // B 칩 — 같은 서버라 서버키 · 값 · 상태가 같고, 캡션의 「다른 계좌」 는 A 로 바뀐다.
+    await accountChip(page, ACCOUNT_B).click();
+    await expect(accountChip(page, ACCOUNT_B)).toHaveAttribute('aria-checked', 'true');
+    await expect(serverChip).toHaveText('KB');
+    await expect(lcDefaultsChip(page)).toHaveText('서버 저장값');
+    await expect(serverNote).toHaveText(
+      `이 계좌의 서버 KB 에 저장돼요. 같은 서버의 ${E2E_ACCOUNT_NO} 계좌도 이 설정을 함께 써요.`,
+    );
+    await expect(period.locator('[data-slot="lc-row-value"]')).toHaveText('3초');
+    expect(setUserSettingsRequests()).toHaveLength(0);
+    expect(await leavesOverflowing(lcDefaults(page), (await boxOf(lcDefaults(page))).right)).toEqual([]);
+  });
+
   test.describe('P27-M1 폰 390 — 터치 키패드 시트', () => {
     test.use({ hasTouch: true, viewport: MOBILE_VIEWPORT });
 
