@@ -1,14 +1,16 @@
 # Phase 32: 계좌 축 정리 - Context
 
-**Gathered:** 2026-10-13
+**Gathered:** 2026-10-13 · **수정:** 2026-10-16(/me 계좌 위 선택 — D-20~D-25)
 **Status:** Ready for planning
 
 <domain>
 ## Phase Boundary
 
-트레이딩 작업대와 /me 가 「고른 계좌 · 서버」 축으로 읽히게 한다(AXIS-01~05). ① 작업대 계좌 선택이 화면 범위가 되고(카드 격자 · VI 스트립 · VI 설정 행), 상단 줄을 계좌 선택 중심 한 줄(채택 목업 A)로 재설계한다. ② 사이드바 전략 목록과 /me 현황 탭을 계좌별 묶음으로 바꾸고, /me 주문 탭에 계좌 선택을 둔다(Phase 16 D-21 뒤집음). ③ /me 설정 탭 매매설정을 서버별로 보고 저장한다(relay `user.settings`/`user.settings.set` `serverKey` · hub 84 캐시 `(userId, serverKey)` · `#fromPrimary` 해제 · 42 지정 서버 라우팅). ④ **마지막 웨이브** — gh-trade 가 VI 를 (계좌, 거래소) 슬롯으로 바꾸는 phase(gh-trade Phase 33 · 2026-10-13 착수)가 끝나는 대로, relay VI 캐시를 `(소유키, 계좌, 거래소)` 로 넓히고 KB 원천 한정 · 서버 간 거래소당 1건 가드 · 거래소별 병합을 풀어 웹 VI 행을 계좌별로 만든다. DB 변경 없음. 와이어 변경은 ④ 의 61(`account_no` 상시 · `unregistered` bool append)뿐이며 gh-trade 가 `sync-relay-schema.sh` + 인박스로 알린다.
+트레이딩 작업대와 /me 가 「고른 계좌 · 서버」 축으로 읽히게 한다(AXIS-01~05). ① 작업대 계좌 선택이 화면 범위가 되고(카드 격자 · VI 스트립 · VI 설정 행), 상단 줄을 계좌 선택 중심 한 줄(채택 목업 A)로 재설계한다. ② 사이드바 전략 목록을 계좌별 묶음으로 바꾸고, /me 는 **탭 위 계좌 칩 한 곳**에서 계좌를 골라 현황 · 잔고 · 주문 · 설정 네 탭이 전부 그 계좌를 따르게 한다(2026-10-16 수정 · D-20~D-25 · Phase 16 D-21 전면 뒤집음). ③ /me 설정 탭 매매설정을 서버별로 보고 저장한다(relay `user.settings`/`user.settings.set` `serverKey` · hub 84 캐시 `(userId, serverKey)` · `#fromPrimary` 해제 · 42 지정 서버 라우팅). ④ **마지막 웨이브** — gh-trade 가 VI 를 (계좌, 거래소) 슬롯으로 바꾸는 phase(gh-trade Phase 33 · 2026-10-13 착수)가 끝나는 대로, relay VI 캐시를 `(소유키, 계좌, 거래소)` 로 넓히고 KB 원천 한정 · 서버 간 거래소당 1건 가드 · 거래소별 병합을 풀어 웹 VI 행을 계좌별로 만든다. DB 변경 없음. 와이어 변경은 ④ 의 61(`account_no` 상시 · `unregistered` bool append)뿐이며 gh-trade 가 `sync-relay-schema.sh` + 인박스로 알린다.
 
 **사용자 목표(배경):** 웹앱에서 KB 계좌와 교보 계좌를 **동시에** 컨트롤한다 — VI 도 KB 따로 · 교보 따로 · 계좌마다 따로.
+
+**AXIS-03 · AXIS-04 문구 수정(2026-10-16):** REQUIREMENTS AXIS-03 「계좌별로 묶어 나열」 → 「탭 위 계좌 칩으로 고른 계좌의 전략 현황 · VI」, AXIS-04 「주문 탭에 계좌 선택 … 작업대와 같은 부품」 → 「탭 위 계좌 칩이 현황 · 잔고 · 주문 · 설정 네 탭을 거른다(Phase 16 D-21 전면 뒤집음)」, ROADMAP Phase 32 요약 · 성공 기준의 「/me 전략 현황 계좌별 묶음 · 주문 탭 계좌 선택」 도 같은 뜻으로. 플래너가 `gsd_run query` 핸들러로 고친다(이 세션은 다른 세션의 미커밋 ROADMAP/REQUIREMENTS 변경과 겹쳐 직접 고치지 않았다).
 
 **AXIS-01 문구 수정(이 discuss 에서):** 「알림 토스트만 보이고」 → 토스트는 **모든 계좌** 것을 띄우고 계좌 표시를 달며, 터치하면 그 계좌로 작업대 계좌가 바뀐다(D-03). 플래너는 ROADMAP 성공 기준 1 · REQUIREMENTS AXIS-01 을 이 결정에 맞춰 고친다(`gsd_run query` 핸들러로).
 
@@ -29,16 +31,26 @@
 - **D-07: 남긴다 — 컬럼 수 세그먼트만.**
 
 ### /me 현황 · 주문 (AXIS-03 · AXIS-04 — 채택 목업 ③ A · ④)
-- **D-08: 현황 탭 전략 현황을 계좌별 묶음으로.** `accounts[]` 순, **모든 계좌** 소제목(전략 0건은 「등록된 전략 없음」 빈 상태 한 줄). 소제목 「계좌 · 번호 · 상품명 · 서버키」(D-12). 묶음 안: 전략 행(지금 `StrategyRow` · 2줄째 계좌번호는 소제목이 있으니 코드 · 거래소만) → VI 행(④ 전엔 그 VI 의 계좌 묶음에 한 행 · ④ 뒤 계좌당 거래소별). `MeStatusBar` 「상따 N건 · VI · 계좌 N개」 유지.
-- **D-09: 전체 비활성화는 둘 다.** 카드 맨 아래 「전체 비활성화」(지금 `strategies.disable` 무인자) 유지 + 각 계좌 소제목 오른쪽 끝 작은 테두리 버튼 「이 계좌 끄기」(목업 ③ A). 계좌별 끄기는 relay `strategies.disable` 에 **`accountNo` 선택 인자** — relay 가 그 계좌의 켜진 상따를 건별 `lc.set`(스위치 off) · 그 계좌 VI 를 `vi.set(run:false)` 로 보낸다(서버 와이어는 세션 단위라 계좌 필터는 relay 몫). 확인 다이얼로그는 지금 것 재사용(계좌 1개 나열). — **Reversibility:** reversible(relay 프레임 optional 인자).
+- ~~**D-08: 현황 탭 전략 현황을 계좌별 묶음으로.**~~ **→ 2026-10-16 D-21 로 대체(고른 계좌만 · 묶음 없음).** 원문: `accounts[]` 순, **모든 계좌** 소제목(전략 0건은 「등록된 전략 없음」 빈 상태 한 줄). 소제목 「계좌 · 번호 · 상품명 · 서버키」(D-12). 묶음 안: 전략 행(지금 `StrategyRow` · 2줄째 계좌번호는 소제목이 있으니 코드 · 거래소만) → VI 행(④ 전엔 그 VI 의 계좌 묶음에 한 행 · ④ 뒤 계좌당 거래소별). `MeStatusBar` 「상따 N건 · VI · 계좌 N개」 유지.
+- **D-09: 전체 비활성화는 둘 다.** (2026-10-16 자리 수정 — D-21: 「이 계좌 끄기」 는 카드 맨 아래 주 버튼, 「전체 비활성화」 는 그 아래 작은 링크. relay 몫은 아래 그대로.) 카드 맨 아래 「전체 비활성화」(지금 `strategies.disable` 무인자) 유지 + ~~각 계좌 소제목 오른쪽 끝 작은 테두리 버튼~~ 「이 계좌 끄기」(목업 ⑥). 계좌별 끄기는 relay `strategies.disable` 에 **`accountNo` 선택 인자** — relay 가 그 계좌의 켜진 상따를 건별 `lc.set`(스위치 off) · 그 계좌 VI 를 `vi.set(run:false)` 로 보낸다(서버 와이어는 세션 단위라 계좌 필터는 relay 몫). 확인 다이얼로그는 지금 것 재사용(계좌 1개 나열). — **Reversibility:** reversible(relay 프레임 optional 인자).
   - **보정(2026-10-13 · plan-phase 리서치 뒤 · 사용자 결정):** ① 웹→relay 는 기존 `strategies.disable` 에 인자를 붙이지 않고 **새 메시지 타입**(예 `strategies.disable.account` · `{accountNo}`)으로 보낸다 — 옛 relay 는 모르는 `t` 라 소켓을 닫고(4400) 아무것도 끄지 않는다(`accountNo` 를 zod 가 조용히 버려 「전부 끄기」가 되는 사고 방지). ② relay 는 건별 `lc.set` 스위치 off 를 쓰지 **않는다** — gh-trade 서버가 게이트 전부 off 인 Set 을 등록 삭제(`crud='D'`)로 처리한다(`Gateway.cpp` 3211~3219). 대신 그 계좌의 켜진 전략마다 **14 `DisableStrategiesReq(key)`** 1건 + 그 계좌 VI 에 **11 `run:false`** 를 소유 세션으로 보내고, 65 응답 k건을 **`strategies.disabled` 1프레임**으로 접어 보낸다(webapp 킬스위치 비행 창이 첫 `strategies.disabled` 에 닫히므로). `accountNo` 는 `#accountAllowed` 로 대조한다.
-- **D-10: 주문 탭에 계좌 선택.** 카드 제목 옆 계좌 필 — **작업대와 같은 부품**(D-13) · **값은 따로 기억**(기본값 = 작업대 계좌, 저장 키 별도 · 기기별). 고른 계좌 주문만 **평탄 목록**(그룹 소제목 제거), 탭 라벨 「주문 N」 = 고른 계좌 건수. 상세창 `/trading/order-log?account=` 는 무변경. Phase 16 **D-21(「계좌 선택 UI 없음 · 계좌별 섹션 세로 반복」)을 주문 탭에서 뒤집는다** — 잔고 탭은 D-21 그대로(세로 반복).
-- **D-11: 잔고 탭 소제목도 D-12 형식**(서버키 추가). `AccountPanel` 계좌 전용 모드 머리 수정.
-- **D-12: 계좌 라벨 한 벌.** shared `accountLabelOf` 를 「번호 · 상품명 · 서버키」 까지 내는 변형(이름 확정은 플래너)으로 넓혀 ① 상단 줄 셀렉트 옵션 ② /me 현황 · 잔고 소제목 ③ 주문 탭 필 ④ 토스트 계좌 줄 ⑤ 사이드바 소제목(이름 · 서버키만) 이 같은 함수를 읽는다. 계좌번호 마스킹 없음(D2 · S-5 유지).
-- **D-13: 계좌 선택 공용 부품.** 지금 `AccountPill`(workbench-status-bar 안)을 `components/trading/account-pill.tsx` 류로 올려 작업대 · /me 주문 탭이 같이 쓴다. props `{accounts, accountNo, onChange, title?}` — 네이티브 `<select>` 유지(`appearance-none` 금지).
+- ~~**D-10: 주문 탭에 계좌 선택.**~~ **→ 2026-10-16 D-20 · D-23 으로 대체(계좌 선택은 탭 위 칩 · 카드 안 필 없음).** 원문: 카드 제목 옆 계좌 필 — **작업대와 같은 부품**(D-13) · **값은 따로 기억**(기본값 = 작업대 계좌, 저장 키 별도 · 기기별). 고른 계좌 주문만 **평탄 목록**(그룹 소제목 제거), 탭 라벨 「주문 N」 = 고른 계좌 건수. 상세창 `/trading/order-log?account=` 는 무변경. Phase 16 **D-21(「계좌 선택 UI 없음 · 계좌별 섹션 세로 반복」)을 주문 탭에서 뒤집는다** — 잔고 탭은 D-21 그대로(세로 반복).
+- ~~**D-11: 잔고 탭 소제목도 D-12 형식**(서버키 추가). `AccountPanel` 계좌 전용 모드 머리 수정.~~ **→ 2026-10-16 D-22 로 대체(잔고 탭도 고른 계좌 한 벌 · 소제목 없음).**
+- **D-12: 계좌 라벨 한 벌.** shared `accountLabelOf` 를 「번호 · 상품명 · 서버키」 까지 내는 변형(이름 확정은 플래너)으로 넓혀 ① 상단 줄 셀렉트 옵션 ② /me 현황 · 잔고 소제목 ③ /me 계좌 칩(2026-10-16 · D-20 — 상품명 · 번호 · 서버키 칩 부분별) ④ 토스트 계좌 줄 ⑤ 사이드바 소제목(이름 · 서버키만) 이 같은 함수를 읽는다. (②의 「/me 현황 · 잔고 소제목」 은 D-21 · D-22 로 사라짐.) 계좌번호 마스킹 없음(D2 · S-5 유지).
+- **D-13: 계좌 선택 공용 부품.** (2026-10-16 D-25 로 축소 — /me 는 칩을 쓰므로 공용화 불필요 · 작업대 안 그대로 두어도 된다.) ~~지금 `AccountPill`(workbench-status-bar 안)을 `components/trading/account-pill.tsx` 류로 올려 작업대 · /me 주문 탭이 같이 쓴다.~~ props `{accounts, accountNo, onChange, title?}` — 네이티브 `<select>` 유지(`appearance-none` 금지).
 
-### 매매설정 서버별 (AXIS-05 — 채택 목업 ⑤ A)
-- **D-14: 서버 세그먼트.** 「상따 기본설정」 제목 아래 **세션이 열린 서버**(그 사용자의 결선 세션 서버키 목록 — 등록만 되고 꺼진 서버는 없음) 세그먼트 `KB120 | KYOBO119`. 라벨은 서버키 그대로. 세그먼트 점 = 그 서버 84 수신 여부; 미수신 서버를 고르면 12행이 흐려지고 칩 「아직 못 받음」(지금 `loading` 상태 재사용 — 편집 · 저장 잠금). **기본 선택 = 마지막으로 고른 서버**(기기별 localStorage `gh-radar:me-settings-server:{userId}` 류), 없거나 그 서버 세션이 닫혔으면 **목록 첫 서버**(relay primary 규칙과 같은 순서 = KB 먼저). 작업대 계좌와 독립. 저장은 고른 서버에만(캡션 「고른 서버에만 저장돼요」). 웹 42 를 다른 서버로 복제하는 기능은 **없다**(2026-10-12 결정 유지).
+### /me 계좌 위 선택 (AXIS-03 · AXIS-04 · AXIS-05 웹 — 2026-10-16 수정 · 채택 목업 ⑥ **B**)
+> 사용자(2026-10-16): 「탭 안에서 계좌를 고르지 말고 탭 위에서 계좌를 고르고 그 계좌에 맞게 밑에 탭 내용들이 나오는 게 맞다」. 목업 ⑥ A 필 줄 / B 계좌 칩 / C 계정 카드 둘째 줄 중 **B** 채택. 목업 ③ · ④ · ⑤ 의 /me 부분은 ⑥ 이 대체한다(상단 줄 ① · 사이드바 ② 는 그대로).
+
+- **D-20: 계좌 칩 한 곳.** 계정 카드 아래 · 탭 줄 위에 계좌 칩을 가로로 나열한다(상품명 + 번호 + 서버키 칩 — D-12 부분별 렌더 · 마스킹 없음). 한 번 탭으로 전환 · 폰은 가로 스크롤(말줄임 없음). 목록 = `accounts[]` 순 ∪ 주문 · 전략 행에만 있는 계좌(번호만 · 맨 뒤 — RESEARCH Pitfall 10). 현황 · 잔고 · 주문 · 설정 **네 탭이 전부 이 계좌를 따른다**. 값은 작업대와 **따로 기억**(기기별 localStorage · 키 이름 플래너 · 기본값 = 작업대 기억 계좌가 목록 안이면 그것 → 첫 계좌). 계좌 1개도 칩 1개(선택 고정). 계좌 0(확인 중) = 칩 줄 없음 · 탭 본문은 기존 로딩. 탭 안 탭이 되지 않도록 의미는 `radiogroup`(이름 「My page 계좌」) — 모양 · 키보드는 UI-SPEC. — **Reversibility:** reversible.
+- **D-21: 현황 탭 = 고른 계좌만.** 계좌 묶음 · 소제목 없음. 상태줄 「시세 · 주문 · 상따 N건 · VI 가동/중지」 — N · VI 는 **고른 계좌** 기준, 「계좌 N개」 제거. 전략 행 2줄째 「코드 · 거래소」. VI 행 = ④ 전엔 그 계좌가 등록 계좌인 거래소만(없으면 행 없음), ④ 뒤 그 계좌의 거래소별. 빈 상태 「이 계좌에 등록된 전략 없음」. 카드 맨 아래 **「이 계좌 끄기」**(파괴 버튼 · 안내 「이 계좌의 상따 전략과 VI 자동매수를 한 번에 끕니다.」 · 끌 것 없으면 흐림 · 웨이브 ② relay 뒤) + 그 아래 작은 링크 줄 「모든 계좌를 한 번에 끄려면 **전체 비활성화 ›**」(기존 전체 다이얼로그). D-09 의 relay 몫(계좌 인자 · 새 메시지 타입 · 65 집계)은 그대로.
+- **D-22: 잔고 탭 = 고른 계좌 한 벌.** Phase 16 D-21 「계좌별 세로 반복」 을 잔고 탭에서도 뒤집는다 — `AccountPanel` 계좌 전용 모드 **1개** · 계좌 소제목 없음(칩이 말한다). 탭 라벨 「잔고 N」 = 고른 계좌 미체결 건수.
+- **D-23: 주문 탭 = 고른 계좌 평탄 목록 · 카드 안 계좌 필 없음.** 캡션 없음. 「주문 N」 · 머리 「N건」 = 고른 계좌 건수. 빈 상태 「이 계좌의 오늘 주문이 없어요 · 다른 계좌에 오늘 주문 {N}건이 있어요 · 위에서 계좌를 바꿔 보세요」 유지. 상세창 `?account=` 무변경.
+- **D-24: 설정 탭 서버 = 고른 계좌의 서버.** 서버 세그먼트 · 서버 기억 키 없음. 「상따 기본설정」 제목 옆 **서버키 칩** + 상태 칩(「서버값」 / 「아직 못 받음」). 캡션 「이 계좌의 서버 {서버키} 에 저장돼요.」 + 같은 서버의 다른 계좌가 있으면 「같은 서버의 {번호 · …} 계좌도 이 설정을 함께 써요.」 그 서버 84 미수신 = 12행 흐림 · 편집 · 저장 잠금(D-14 규칙 그대로). 42 는 고른 계좌의 `serverKey` 로. 서버키 없는 계좌(구 relay) = 기존 단일 동작(키 `""`). 저장 비행 · 대기 중엔 **계좌 칩 전체 잠금**(Pitfall 12 · 3초 상한). 「이 기기」 카드(D-15)는 계좌 무관 · 불변. D-14a(relay) · D-14b(시딩)는 그대로.
+- **D-25: D-13 축소.** /me 가 공용 필을 안 쓰므로 `AccountPill` 공용화는 불필요(작업대 안 그대로 · 올리기는 플래너 재량). D-12 소비처 목록은 위 수정본.
+
+### 매매설정 서버별 (AXIS-05 — 채택 목업 ⑤ A → 웹 부분은 2026-10-16 D-24 · relay 는 D-14a 그대로)
+- ~~**D-14: 서버 세그먼트.**~~ **→ 2026-10-16 D-24 로 대체(설정 탭 서버 = 고른 계좌의 서버 · 세그먼트 · 서버 기억 없음). 미수신 흐림 · 잠금 · 복제 없음 규칙은 유지.** 원문: 「상따 기본설정」 제목 아래 **세션이 열린 서버**(그 사용자의 결선 세션 서버키 목록 — 등록만 되고 꺼진 서버는 없음) 세그먼트 `KB120 | KYOBO119`. 라벨은 서버키 그대로. 세그먼트 점 = 그 서버 84 수신 여부; 미수신 서버를 고르면 12행이 흐려지고 칩 「아직 못 받음」(지금 `loading` 상태 재사용 — 편집 · 저장 잠금). **기본 선택 = 마지막으로 고른 서버**(기기별 localStorage `gh-radar:me-settings-server:{userId}` 류), 없거나 그 서버 세션이 닫혔으면 **목록 첫 서버**(relay primary 규칙과 같은 순서 = KB 먼저). 작업대 계좌와 독립. 저장은 고른 서버에만(캡션 「고른 서버에만 저장돼요」). 웹 42 를 다른 서버로 복제하는 기능은 **없다**(2026-10-12 결정 유지).
 - **D-14a: relay.** `user.settings` 프레임에 `serverKey` 를 싣고 서버마다 1프레임(캐시 `(userId, serverKey)` · `#fromPrimary` 84 필터 해제 · 43 요청은 Ready 된 세션마다). `user.settings.set` zod 에 `serverKey` **optional** — 부재면 primary(구 탭 관용 · Phase 31 D-14 보정과 같은 결), 있으면 그 세션으로 42. 되싣기(금액 키 부재 · 후매수 최소)는 **그 서버** 84 캐시에서. 재연결 replay(`fanout.ts` 1882)는 서버별 전부. 클라이언트가 「세션 열린 서버 목록」 을 알 길이 지금 없다 — 서버별 `user.settings` 프레임의 `serverKey` 집합이 곧 목록이다(별도 프레임 추가 안 함 · 플래너 재량으로 `state` 프레임에 `sessions[]` 를 넣어도 됨). — **Reversibility:** costly — relay 프레임 · zod · hub 캐시 키 · webapp 훅 전부 서버 축이 생긴다.
 - **D-14b: 상따 폼 시딩 = 카드 계좌의 소유 서버 84.** `seedFromUserSettings` · `preBuyWatchFixedOf` 입력을 `userSettingsByServer[card 계좌 serverKey]` 로(계좌 `serverKey` 는 `RelayAccount.serverKey`). 모르면(서버키 없음 · 그 서버 84 미수신) 시딩 생략(0 · 빈칸 — Phase 31 D-12 의 「없으면 추가하지 않는다」 와 같은 결).
 - **D-15: 돌파 알림음 토글 → /me 설정 탭 「이 기기」 묶음.** 매매설정 카드 아래 별도 카드(캡션 「이 브라우저(기기)에만 저장돼요」), 저장은 지금 `gh-radar:breakout-tone` localStorage 그대로(서버 · relay 무변경). 작업대 `ToneToggle` DOM 제거, `readTonePref` 소비(돌파 소리 재생)는 유지. 단위 테스트 `tone` describe 이전.
@@ -48,8 +60,11 @@
 - **D-17: relay.** `#viTriggers` 키 `(소유키, 계좌, 거래소)` · `#mergeVi` 의 사용자 · 거래소 병합과 `viRunningElsewhere` · `#stopViElsewhere`(서버 간 1건 가드) 제거 · `VI_BROKER="KB"` 원천 한정 해제(`#viSourceOwners` = 그 사용자의 **모든** 결선 세션 · 교보 세션 61/72/73/56 도 받는다) · `vi.set` 세션 = **그 계좌의 소유 세션**(증권사 무관 · `resolveEffectiveOrderServer`). 브라우저 `vi` 프레임에 `accountNo` 를 싣고 계좌 · 거래소마다 1건(`viTriggers` 타입이 `Record<exchange, …>` 에서 `(accountNo, exchange)` 맵으로). `unregistered` 프레임은 그 칸 null. — **Reversibility:** one-way — 웹 `vi` 프레임 모양과 relay 캐시 키가 바뀌는 공개 계약이며, 구 webapp 이 켜진 동안 양쪽 모양을 함께 내는 호환 창이 필요하다(플래너가 `checkpoint:decision`).
 - **D-18: 웹.** 작업대 VI 설정 행 = **고른 계좌**의 KRX · NXT 행(없으면 미등록 빈 행 — 그 계좌로 등록). 「옮기기」 흐름(`viMoveTargetOf` · ⑨)은 계좌별 슬롯이면 뜻이 없으므로 제거. /me 현황 VI 행 = 계좌 묶음 안 거래소별. 사이드바 VI 줄 = 계좌 묶음 안. 교보119 VI 실증(UAT)을 이 웨이브 안에 둔다. 같은 종목 여러 슬롯 동시 발주는 서버가 허용(먼저 켠 순).
 
+### 웨이브 ④ 전제 충족 (2026-10-16 인박스 수신)
+- **D-26: gh-trade Phase 33 완료 — 웨이브 ④ 집행 가능.** 인박스 `docs/inbox/from-gh-trade/261016-vi-per-account.md`(status open · fbs 마커 `acb8182d`): `SetVITrigger.unregistered`(vtable 16 · S→C · 기본 false) append · 21 응답 = 선언 계좌마다 61 1프레임 + 선언 밖 등록 슬롯 초집합 · `account_no` · `exchange` 모든 프레임 상시 · 11 와이어 무변경 · 빈 `account_no` 는 54 거부 · 56/72/73/33 무변경. 생성물은 gh-radar `ecd62f33`(relay/src/generated 2파일 · gh-trade 가 경로 지정 커밋)에 이미 실렸다. 배포 순서 (b) 유지 — relay 먼저(20:00 KST 뒤) → relay 배포 완료를 gh-trade 세션에 회신 → gh-trade 가 그날 서버 KB120 · KB121 · 교보119 배포 + 클라 발행 → webapp push. 플래너는 ④ 를 「계획만」 이 아니라 **집행 플랜**으로 짜되, ④ 의 relay 배포 태스크에 「gh-trade 회신」 체크포인트를 두고, 인박스 노트의 `status: done` · `done_commit` 갱신(경로 지정 커밋)을 ④ relay 플랜의 마지막 태스크로 넣는다. D-16 의 「④ 전엔 VI 를 건드리지 않는다」 는 그대로(①~③ 먼저).
+
 ### 웨이브 · 배포
-- **D-19:** ① /me 현황 계좌별 · 주문 탭 계좌 선택 · 잔고 소제목 · 라벨 한 벌 · 공용 필(데이터 변경 없음 · webapp 만) → ② 작업대 계좌 스코프 · 상단 줄 A · 사이드바 계좌 묶음 · 토스트 계좌 줄 · 알림음 이전 · 계좌별 끄기(relay `strategies.disable` 인자 — 작은 relay 변경) → ③ 매매설정 서버별(relay + shared + webapp) → ④ VI 계좌별(gh-trade Phase 33 뒤 · relay 먼저). ①②는 webapp push = 프로덕션. ②의 relay 부분과 ③ · ④ relay 는 20:00 KST 뒤 배포, push 는 relay 뒤([[feedback_deploy_relay_before_push]]). E2E(trading-workbench · a11y aria-live · me · 단위 `workbench-status-bar.test.tsx`)는 각 웨이브에서 새 구조로 갱신.
+- **D-19:** ① /me 계좌 칩 · 현황 · 잔고 · 주문 탭 고른 계좌 따라가기 · 라벨 한 벌(2026-10-16 D-20~D-23 · 데이터 변경 없음 · webapp 만) → ② 작업대 계좌 스코프 · 상단 줄 A · 사이드바 계좌 묶음 · 토스트 계좌 줄 · 알림음 이전 · 계좌별 끄기(relay `strategies.disable` 인자 — 작은 relay 변경) → ③ 매매설정 서버별(relay + shared + webapp — 웹은 D-24 고른 계좌 서버) → ④ VI 계좌별(gh-trade Phase 33 뒤 · relay 먼저). ①②는 webapp push = 프로덕션. ②의 relay 부분과 ③ · ④ relay 는 20:00 KST 뒤 배포, push 는 relay 뒤([[feedback_deploy_relay_before_push]]). E2E(trading-workbench · a11y aria-live · me · 단위 `workbench-status-bar.test.tsx`)는 각 웨이브에서 새 구조로 갱신.
 
 ### Claude's Discretion
 - 계좌 1개 사용자: 셀렉트는 그대로(옵션 1개 · 비활성 아님) — 라벨이 곧 「지금 보는 계좌」. 계좌 0개(확인 중)는 지금 문구.
@@ -57,7 +72,8 @@
 - 계좌 전환 때 열린 시트 · 인라인 편집은 닫는다(카드가 숨겨지므로).
 - 낡은 전략 · 옮김 보조 줄의 새 자리(D-06) · 폰 밴드 세그먼트 줄 · 주문 알약 끊김 문구.
 - D-12 함수 이름 · D-13 파일 위치 · localStorage 키 이름 · `state` 프레임 `sessions[]` 추가 여부(D-14a).
-- 주문 탭 「주문 N」 카운트 산출(지금 `onCountChange` 를 고른 계좌 필터 뒤로).
+- 주문 탭 「주문 N」 · 잔고 탭 「잔고 N」 카운트 산출(지금 `onCountChange` 를 고른 계좌 필터 뒤로 · 미체결은 고른 계좌 `accountStates`).
+- /me 계좌 기억 localStorage 키 이름 · 칩 컴포넌트 파일 위치 · 비행 중 칩 잠금 구현.
 
 </decisions>
 
@@ -67,7 +83,7 @@
 **Downstream agents MUST read these before planning or implementing.**
 
 ### 채택 목업 (이 phase 의 화면 정본)
-- `.planning/phases/32-account-axis/reference/mockup-account-axis.html` — 화면 ① 상단 줄 **A** · ② 사이드바 계좌 묶음 · ③ /me 현황 **A**(소제목 우측 「이 계좌 끄기」) · ④ /me 주문(제목 옆 계좌 필 · 평탄 목록) · ⑤ /me 설정 **A**(서버 세그먼트 · 「이 기기」 알림음). 폰 390 / 데스크톱 1080 · 다크/라이트 · 주문 끊김 상태 토글. UI-SPEC 은 이 목업을 옮긴다.
+- `.planning/phases/32-account-axis/reference/mockup-account-axis.html` — 화면 ① 상단 줄 **A** · ② 사이드바 계좌 묶음 · **⑥ /me 계좌 위 선택 B**(계정 카드 아래 계좌 칩 → 4탭이 고른 계좌를 따름 · 나브 「탭」 · 「계좌」 로 현황 · 잔고 · 주문 · 설정 × 계좌 3개 전부 확인 · 2026-10-16 채택). ③ · ④ · ⑤ 는 **이전 안**(⑥ 이 대체 · 「이 기기」 카드 모양만 ⑤ 하단 그대로). 폰 390 / 데스크톱 1080 · 다크/라이트 · 주문 끊김 상태 토글. UI-SPEC 은 이 목업을 옮긴다.
 
 ### gh-trade 계약 · 인박스
 - `/Users/alex/repos/gh-trade/docs/inbox/from-gh-radar/261013-vi-per-account.md` — VI (계좌, 거래소) 슬롯 요청(이 세션 발송). gh-trade 답(2026-10-13 세션 메시지): 동시 발주 허용(서버 간 · 서버 안 여러 계좌 · 서버당 제한 없음) · 21 응답 = 계좌마다 61 1프레임 · 61 `account_no` 상시 · `unregistered` bool append(기본 false = 구 서버 호환) · 56/72/73/33 무변경 · 발주 순서 먼저 켠 슬롯부터 · 배포 (b) relay 먼저. fbs 확정은 gh-trade Phase 33 플랜 뒤 `sync-relay-schema.sh` + 인박스 노트.
@@ -76,7 +92,7 @@
 - `docs/inbox/from-gh-trade/README.md` · `CLAUDE.md` 「gh-trade 인박스」 — 인박스 처리 규칙.
 
 ### 선행 결정
-- `.planning/milestones/v1.0-phases/16-trading-limit-chaser-vi-my-page/16-CONTEXT.md` D-20 · D-21 — /me 구성 · 「계좌 선택 UI 없음 · 계좌별 섹션 세로 반복」(주문 탭에서 뒤집음 · 잔고 탭 유지).
+- `.planning/milestones/v1.0-phases/16-trading-limit-chaser-vi-my-page/16-CONTEXT.md` D-20 · D-21 — /me 구성 · 「계좌 선택 UI 없음 · 계좌별 섹션 세로 반복」(2026-10-16 D-20~D-23 으로 **전면 뒤집음** — 탭 위 계좌 칩 · 네 탭 고른 계좌).
 - `.planning/phases/31-limitchaser-amount-unit/31-CONTEXT.md` D-12 · D-13 · D-14(보정) — 새 폼 시딩 · /me 42 12값 전체 교체 · relay optional 되싣기 규약(D-14a 가 서버 축으로 넓힘).
 - `.planning/milestones/v1.0-phases/29-dma-multi-server-admin/29-CONTEXT.md` — D-18 VI 원천 KB · 29-51 GC-05 VI 병합(④ 에서 푸는 것) · G-1 계좌별 주문 서버(`resolveEffectiveOrderServer`).
 - `.planning/ROADMAP.md` Phase 32 · `.planning/REQUIREMENTS.md` AXIS-01~05 — AXIS-01 토스트 문구는 D-03 으로 수정.
@@ -90,11 +106,11 @@
 ### Reusable Assets
 - `webapp/src/components/trading/workbench/workbench-status-bar.tsx` — `AccountPill`(385~435 · 네이티브 select + 서버키 칩) → D-13 공용 부품의 본체. `quotePillOf`/`orderPillOf`(`lib/quote-state.ts` 106 · 130) 그대로. `ToneToggle`(334~383) → /me 로 이전. `queuedWindowBadgeOf`(`lib/queued-window.ts` 117) 소비처 제거.
 - `webapp/src/lib/account-label.ts` `accountLabelOf` — D-12 확장 지점. `webapp/src/lib/trading-layout.ts` 125~178 `readTradingAccount`/`writeTradingAccount`/`pillAccountOf` — 작업대 계좌 저장 · 자동 선택 규칙(주문 탭 · 설정 탭 저장 키는 별도).
-- `webapp/src/components/trading/today-orders-card.tsx` `groupJournalRowsByAccount`(410) · 그룹 소제목(529~551) — 평탄 목록으로 바꿀 자리. `order-log-window.tsx` 91 · 117 `?account=` 필터 — 계좌 필터 선례.
+- `webapp/src/components/trading/today-orders-card.tsx` `groupJournalRowsByAccount`(410) · 그룹 소제목(529~551) — 평탄 목록으로 바꿀 자리(D-23 · 고른 계좌는 `MeClient` 가 prop 으로 내려준다). `order-log-window.tsx` 91 · 117 `?account=` 필터 — 계좌 필터 선례.
 - `webapp/src/components/trading/strategy-status-card.tsx` — `StrategyRow`(2줄째 220~232) · VI 행(529~550) · 전체 비활성화(`strategies.disable` 436~450 · 다이얼로그 계좌 나열 604).
-- `webapp/src/components/orderbook/account-panel.tsx` 671~714 — 계좌 전용 모드 머리(D-11 서버키 추가).
+- `webapp/src/components/orderbook/account-panel.tsx` 671~714 — 계좌 전용 모드 머리(D-22: /me 에서는 머리 없이 1벌 — 머리 생략 prop 또는 호출부 결정).
 - `webapp/src/components/layout/app-sidebar.tsx` — `sidebarChasers` · `ViItem` · `StrategyItem`(379~) · `SUB_LIST` → 계좌 묶음 트리.
-- `webapp/src/components/me/limit-chaser-defaults.tsx` — `LimitChaserDefaultsSection`(555) · `useUserSettingsSave`(327 · 405 `user.settings.set`) · `usableUserSettingsOf`(269) → 서버 세그먼트 · `serverKey` 전달.
+- `webapp/src/components/me/limit-chaser-defaults.tsx` — `LimitChaserDefaultsSection`(555) · `useUserSettingsSave`(327 · 405 `user.settings.set`) · `usableUserSettingsOf`(269) → 고른 계좌 `serverKey` 전달(D-24 · 세그먼트 없음).
 - `webapp/src/lib/limit-chaser.ts` `seedFromUserSettings`(471) · `limit-chaser-form.tsx` 820~829 · 969 · 985~1000 — D-14b 시딩 입력 교체.
 - `webapp/src/lib/trading-alerts.ts` `TradingAlert.accountNo`(75~100 「카드 매칭 전용 — 표시하지 않는다」 주석 → D-03 으로 표시) · `cardForAlert`(411~425).
 
@@ -117,7 +133,8 @@
 - 사이드바 묶음 모양(사용자 원문): 「aaa 계좌 / - a1 전략 / - a2 전략 / bbb 계좌 / - a3 전략 / - a4 전략」.
 - 토스트(사용자 원문): 「토스트는 계좌 상관없이 뜨게 … 터치하면 해당 계좌 작업대로 … 토스트에 계좌표시는 해줘야겠지」.
 - 목표(사용자 원문): 「KB의 계좌와 교보의 계좌를 웹앱에서 동시에 컨트롤 … VI도 KB따로 교보 따로」.
-- 설정 탭 서버 세그먼트 캡션 「고른 서버에만 저장돼요. 다른 서버는 따로 봐야 해요.」 · 「이 기기」 카드 캡션 「이 브라우저(기기)에만 저장돼요.」(목업 문구).
+- 설정 탭 캡션(2026-10-16 목업 ⑥) 「이 계좌의 서버 KB120 에 저장돼요. 같은 서버의 5555-0001 계좌도 이 설정을 함께 써요.」 · 미수신 「KYOBO119 서버 설정(84)을 아직 받지 못했어요 · 그 서버 세션이 준비되면 불러와요」 · 「이 기기」 카드 캡션 「이 브라우저(기기)에만 저장돼요. 계좌와 무관해요.」
+- 계좌 선택기(사용자 원문 2026-10-16): 「탭 위에서 계좌를 고르고 그 계좌에 맞게 밑에 탭 내용들이 나오는 게 맞는 거 같아」.
 
 </specifics>
 
@@ -125,7 +142,7 @@
 ## Deferred Ideas
 
 - **VI 계좌별 슬롯의 gh-trade 쪽 구현** — gh-trade Phase 33(2026-10-13 착수). 이 phase 웨이브 ④ 의 전제이지 이 phase 의 일이 아니다.
-- **잔고 탭 계좌 선택** — 잔고 탭은 D-21(세로 반복) 유지. 주문 탭처럼 바꾸고 싶으면 별도 quick.
+- ~~**잔고 탭 계좌 선택** — 잔고 탭은 D-21(세로 반복) 유지.~~ 2026-10-16 D-22 로 phase 안에 들어옴(탭 위 계좌 칩이 네 탭 공통).
 - **웹 42 전서버 복제 · gh-trade 공유 저장** — 2026-10-12 결정으로 불채택(재논의 시 인박스 `261012-usersettings-shared-across-servers.md` 부터).
 
 None beyond the above — discussion stayed within phase scope.

@@ -122,6 +122,27 @@ body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD G
 .sel { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: 10px; background: var(--muted); color: var(--fg); font-size: 13px; font-weight: 600; }
 .sel .car { color: var(--mfg); font-size: 10px; margin-left: auto; }
 .col2 { display: grid; grid-template-columns: 1fr; } .f.desktop .col2 { grid-template-columns: 1fr 1fr; gap: 0 20px; }
+/* ⑥ /me 계좌 위 선택 */
+.acc-card { display: flex; align-items: center; gap: 12px; background: var(--card); border-radius: 16px; box-shadow: 0 0 0 1px var(--hair); padding: 14px 16px; margin: 0 16px; } .f.desktop .acc-card { margin: 0 20px; }
+.acc-card .av { width: 44px; height: 44px; border-radius: 50%; background: var(--raised2); color: var(--fg); display: grid; place-items: center; font-weight: 700; font-size: 16px; flex: none; }
+.acc-card .who { flex: 1; min-width: 0; } .acc-card .who .n { font-size: 16px; font-weight: 700; color: var(--fg); } .acc-card .who .e { font-size: 12.5px; color: var(--mfg); margin-top: 2px; }
+.acc-card .ib { width: 40px; height: 40px; border-radius: 10px; background: var(--muted); display: grid; place-items: center; color: var(--fg2); font-size: 15px; flex: none; }
+.acc-card.two { flex-wrap: wrap; } .acc-card .line2 { flex-basis: 100%; border-top: 1px solid var(--hair); margin-top: 8px; padding-top: 10px; display: flex; align-items: center; gap: 8px; }
+.lb { font-size: 12px; color: var(--mfg); font-weight: 600; white-space: nowrap; }
+.me-sel { display: flex; align-items: center; gap: 8px; padding: 12px 16px 0; } .f.desktop .me-sel { padding: 12px 20px 0; }
+.me-sel .hint { margin-left: auto; font-size: 11px; color: var(--faint); white-space: nowrap; }
+.me-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 12px 16px 0; } .f.desktop .me-chips { padding: 12px 20px 0; }
+.me-chips .t { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 999px; background: var(--muted); color: var(--mfg); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.me-chips .t.on { background: var(--pill-bg); color: var(--pill-fg); box-shadow: 0 0 0 1px var(--hair); }
+.me-chips .t .no { font-family: ui-monospace, Menlo, monospace; font-weight: 500; font-size: 11px; opacity: .8; }
+.pill[data-acct] { cursor: pointer; }
+.sbar { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; background: var(--muted); border-radius: 10px; padding: 8px 12px; margin: 0 16px 10px; font-size: 11.5px; color: var(--mfg); } .f.desktop .sbar { margin: 0 20px 10px; }
+.sbar b { color: var(--fg); font-weight: 600; } .sbar .st2 { font-size: 11.5px; }
+.urow { display: flex; align-items: center; gap: 8px; padding: 9px 2px; border-top: 1px solid var(--hair); font-size: 12.5px; }
+.urow .c1 { flex: 1; min-width: 0; } .urow .n1 { color: var(--fg); font-weight: 600; display: flex; gap: 6px; align-items: center; } .urow .sub { font-size: 11px; color: var(--mfg); margin-top: 2px; font-family: ui-monospace, Menlo, monospace; }
+.urow .c2 { text-align: right; font-family: ui-monospace, Menlo, monospace; color: var(--fg2); font-size: 12px; } .urow .c2 .sub { text-align: right; }
+.urow .pl { color: var(--up); } .urow .mi { color: var(--down); }
+.link { color: var(--down); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -129,11 +150,14 @@ body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD G
   <div class="g"><span class="l">화면</span>
     <button data-screen="top" class="on">① 작업대 상단 줄</button>
     <button data-screen="side">② 사이드바</button>
-    <button data-screen="status">③ /me 현황</button>
-    <button data-screen="orders">④ /me 주문</button>
-    <button data-screen="settings">⑤ /me 설정</button>
+    <button data-screen="status">③ /me 현황 (이전)</button>
+    <button data-screen="orders">④ /me 주문 (이전)</button>
+    <button data-screen="settings">⑤ /me 설정 (이전)</button>
+    <button data-screen="me">⑥ /me 계좌 위 선택 (B 채택)</button>
   </div>
   <div class="g" id="vg"><span class="l">변형</span><button data-variant="A" class="on">A</button><button data-variant="B">B</button><button data-variant="C">C</button></div>
+  <div class="g" id="tg"><span class="l">탭</span><button data-tab="status" class="on">현황</button><button data-tab="accounts">잔고</button><button data-tab="orders">주문</button><button data-tab="settings">설정</button></div>
+  <div class="g" id="ag"><span class="l">계좌</span><button data-acct="0" class="on">1234 KB</button><button data-acct="1">8765 교보</button><button data-acct="2">5555 KB (빈 계좌)</button></div>
   <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390</button><button data-w="desktop">데스크톱 1080</button></div>
   <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
   <div class="g"><span class="l">상태</span><button data-r="ok" class="on">정상</button><button data-r="down">주문 끊김</button></div>
@@ -142,14 +166,20 @@ body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD G
 <div id="stage"></div>
 <script>
 const ACCTS = [
-  { no: '1234-5678', nm: '김알렉스', sk: 'KB120', strategies: [ { n: '삼성전자', led: [1,1,0] }, { n: '에코프로비엠 · NXT', led: [1,0,1] } ], vi: 'KRX' },
-  { no: '8765-4321', nm: '교보 종합', sk: 'KYOBO119', strategies: [ { n: '한화오션', led: [1,0,0] } ], vi: null },
-  { no: '5555-0001', nm: '김알렉스 2', sk: 'KB120', strategies: [], vi: null },
+  { no: '1234-5678', nm: '김알렉스', sk: 'KB120', strategies: [ { n: '삼성전자', led: [1,1,0] }, { n: '에코프로비엠 · NXT', led: [1,0,1] } ], vi: 'KRX',
+    unf: [['삼성전자','매수','71,200','300'],['에코프로비엠','매도','182,000','50']],
+    hold: [['삼성전자','1,000','70,800','+400,000','+0.6%'],['에코프로비엠','200','180,500','+300,000','+0.8%'],['한미반도체','100','98,000','-210,000','-2.1%']],
+    orders: [['09:02:11','삼성전자','b','1,000'],['09:05:40','삼성전자','s','1,000'],['10:21:03','에코프로비엠','b','200'],['13:40:55','에코프로비엠','s','200']] },
+  { no: '8765-4321', nm: '교보 종합', sk: 'KYOBO119', strategies: [ { n: '한화오션', led: [1,0,0] } ], vi: null,
+    unf: [], hold: [['한화오션','3,000','41,500','+1,500,000','+1.2%']], orders: [['09:31:02','한화오션','b','3,000']] },
+  { no: '5555-0001', nm: '김알렉스 2', sk: 'KB120', strategies: [], vi: null, unf: [], hold: [], orders: [] },
 ];
+const SERVERS = { KB120: { got: true }, KYOBO119: { got: false } };
 const SEL = 0;
 const acctLabel = (a) => `${a.no} · ${a.nm} · ${a.sk}`;
-let S = { screen: 'top', variant: 'A', w: 'phone', t: 'dark', r: 'ok' };
+let S = { screen: 'top', variant: 'A', w: 'phone', t: 'dark', r: 'ok', tab: 'status', acct: '0' };
 
+const ME_COMMON = '<br><b>탭 공통(③④⑤ 대체):</b> 현황 = 이 계좌 전략 · VI 만 + 맨 아래 「이 계좌 끄기」(전체 비활성화는 작은 링크) · 잔고 = 이 계좌 미체결 · 잔고(계좌 소제목 없음) · 주문 = 이 계좌 오늘 주문 평탄(카드 안 계좌 필 없음) · 설정 = 이 계좌 서버의 상따 기본설정(서버 세그먼트 없음 · 같은 서버 계좌는 설정을 함께 씀 · 84 미수신 서버는 흐림) · 「이 기기」 카드는 계좌 무관. 탭 숫자 = 이 계좌 건수. 상태줄 「계좌 N개」 는 뺌. 목업에서 계좌 필 · 칩을 누르면 계좌가 바뀜.';
 const DESC = {
   top: {
     A: '<b>A 한 줄 필.</b> 계좌 셀렉트(번호 · 이름 · 서버키)가 줄 왼쪽, 시세 · 주문 상태가 LED 점 두 개 + 짧은 말, 컬럼 세그먼트가 오른쪽. 지금 구조에서 「정규」 배지 · 알림음 · 반영 시각 · 다시 연결을 뺀 가장 작은 변화. 폰에서는 세그먼트가 줄 아래로 내려감.',
@@ -167,8 +197,13 @@ const DESC = {
     B: '<b>B 서버 셀렉트.</b> 제목 옆 셀렉트 한 개(OS 선택 UI · 계좌 필과 같은 문법). 서버가 많아져도 줄이 안 길어짐. 나머지는 A 와 같음.',
     C: '<b>C 서버별 세로 나열.</b> 서버마다 「상따 기본설정 — KB120」 카드를 세로로 반복(잔고 탭 문법). 전환 없이 둘 다 보이지만 12행 × 서버 수로 길어짐.',
   },
+  me: {
+    A: '<b>A 계좌 필 줄.</b> 계정 카드 아래 한 줄 — 「계좌」 라벨 + 작업대와 같은 계좌 필(네이티브 셀렉트 · 번호 · 이름 · 서버키). 가장 작은 변화 · 계좌가 많아도 줄이 안 길어짐. 값은 작업대와 따로 기억(기본값 = 작업대 계좌). ' + ME_COMMON,
+    B: '<b>B 계좌 칩 — 채택(2026-10-16).</b> 계정 카드 아래 계좌들을 가로 칩으로(이름 · 번호 · 서버키 칩). 한 번 탭으로 전환 · 어떤 계좌가 있는지 한눈에. 폰은 가로 스크롤 · 계좌 4~5개면 길어짐. ' + ME_COMMON,
+    C: '<b>C 계정 카드 둘째 줄.</b> 계정 카드(이름 · 이메일) 안 구분선 아래 계좌 셀렉트. 「누구 · 어느 계좌」 가 한 카드. 로그인 계정과 증권 계좌가 한 덩어리로 읽힐 수 있음. ' + ME_COMMON,
+  },
 };
-const VARIANTS = { top: ['A','B','C'], side: ['A'], status: ['A','B'], orders: ['A'], settings: ['A','B','C'] };
+const VARIANTS = { top: ['A','B','C'], side: ['A'], status: ['A','B'], orders: ['A'], settings: ['A','B','C'], me: ['A','B','C'] };
 
 function dots(led) { return `<span class="led">${led.map(x => `<i class="${x?'on':''}"></i>`).join('')}</span>`; }
 function quoteOrder(inline) {
@@ -272,6 +307,60 @@ function meSettings() {
   return meShell(3, body);
 }
 
+function meAxis() {
+  const sel = Number(S.acct);
+  const a = ACCTS[sel];
+  const v = S.variant;
+  const acctSel = () => `<span class="pill lg" data-acct="${(sel+1)%ACCTS.length}" title="누르면 다음 계좌">${a.no} · ${a.nm} · ${a.sk} <span class="car">▼</span></span>`;
+  const accCard = (two) => `<div class="acc-card ${two?'two':''}"><div class="av">김</div><div class="who"><div class="n">김알렉스</div><div class="e">alex@example.com</div></div><span class="ib">☾</span><span class="ib">⇥</span>${two ? `<div class="line2"><span class="lb">계좌</span>${acctSel()}</div>` : ''}</div>`;
+  let head;
+  if (v === 'A') head = accCard(false) + `<div class="me-sel"><span class="lb">계좌</span>${acctSel()}<span class="hint">작업대와 따로 기억</span></div>`;
+  else if (v === 'B') head = accCard(false) + `<div class="me-chips">${ACCTS.map((x,i) => `<span class="t ${i===sel?'on':''}" data-acct="${i}">${x.nm} <span class="no">${x.no}</span><span class="sk">${x.sk}</span></span>`).join('')}</div>`;
+  else head = accCard(true);
+  const tabs = [['status','현황',0],['accounts','잔고',a.unf.length],['orders','주문',a.orders.length],['settings','설정',0]];
+  const tabBar = `<div class="me-tabs" style="margin-top:12px">${tabs.map(t => `<span class="${S.tab===t[0]?'on':''}">${t[1]}${t[2] ? ` <span class="n">${t[2]}</span>` : ''}</span>`).join('')}</div>`;
+  const others = ACCTS.filter((_,i) => i!==sel);
+  let body;
+  if (S.tab === 'status') {
+    const rows = a.strategies.map(s => `<div class="srow"><div class="c1"><div class="n1">${s.n} <span class="bg">무장</span></div><div class="n2">005930 · KRX</div></div><span class="ch">›</span></div>`).join('');
+    const vi = `<div class="srow"><div class="c1"><div class="n1">VI 자동매수 <span class="bg ${a.vi?'':'off'}">${a.vi?'가동':'중지'}</span></div><div class="n2">${a.vi ? 'KRX · 500만 · 3%' : '—'}</div></div><span class="ch">›</span></div>`;
+    const empty = a.strategies.length ? '' : `<div class="empty">이 계좌에 등록된 전략 없음</div>`;
+    const on = a.strategies.length || a.vi;
+    body = `<div class="sbar">${quoteOrder()}<span>상따 <b>${a.strategies.length}건</b></span><span>VI <b>${a.vi?'가동':'중지'}</b></span></div>
+      <div class="mcard"><div class="tt">전략 현황 <span class="sp"></span><span class="chip ${on?'ok':'mute'}">상따 ${a.strategies.length}건</span></div>
+      ${empty}${rows}${vi}
+      <div class="kill"><span>이 계좌의 상따 전략과 VI 자동매수를 한 번에 끕니다.</span><span class="sp"></span><button class="btn danger" ${on?'':'style="opacity:.45"'}>이 계좌 끄기</button></div>
+      <div class="cap" style="margin-top:8px">모든 계좌를 한 번에 끄려면 <span class="link">전체 비활성화 ›</span></div></div>`;
+  } else if (S.tab === 'accounts') {
+    const unf = a.unf.length ? a.unf.map(r => `<div class="urow"><div class="c1"><div class="n1">${r[0]} <span class="sd ${r[1]==='매수'?'b':'s'}" style="font-size:10.5px;font-weight:700;padding:1px 5px;border-radius:4px;background:${r[1]==='매수'?'var(--upbg)':'var(--dnbg)'};color:${r[1]==='매수'?'var(--up)':'var(--down)'}">${r[1]}</span></div><div class="sub">주문가 ${r[2]}</div></div><div class="c2">미체결 ${r[3]}주</div><button class="btn ghost sm">취소</button></div>`).join('') : `<div class="empty">미체결 없음</div>`;
+    const hold = a.hold.length ? a.hold.map(r => `<div class="urow"><div class="c1"><div class="n1">${r[0]}</div><div class="sub">${r[1]}주 · 평단 ${r[2]}</div></div><div class="c2 ${r[3][0]==='+'?'pl':'mi'}">${r[3]}<div class="sub ${r[3][0]==='+'?'pl':'mi'}">${r[4]}</div></div></div>`).join('') : `<div class="empty">보유 종목 없음</div>`;
+    body = `<div class="mcard"><div class="tt">미체결 <span class="sp"></span><span class="chip ${a.unf.length?'ok':'mute'}">${a.unf.length}건</span></div><div style="margin-top:6px">${unf}</div></div>
+      <div class="mcard"><div class="tt">잔고 <span class="sp"></span><span class="chip ${a.hold.length?'ok':'mute'}">${a.hold.length}종목</span></div><div style="margin-top:6px">${hold}</div></div>`;
+  } else if (S.tab === 'orders') {
+    const otherN = others.reduce((n,x) => n + x.orders.length, 0);
+    const rows = a.orders.length ? a.orders.map(r => `<div class="orow"><span class="tm">${r[0]}</span><span class="n1">${r[1]}</span><span class="sd ${r[2]}">${r[2]==='b'?'매수':'매도'}</span><span class="q">${r[3]}주</span></div>`).join('')
+      : `<div class="empty" style="padding:16px"><div style="font-size:13px;color:var(--fg);font-weight:600">이 계좌의 오늘 주문이 없어요</div>${otherN ? `<div style="margin-top:4px">다른 계좌에 오늘 주문 ${otherN}건이 있어요 · 위에서 계좌를 바꿔 보세요</div>` : ''}</div>`;
+    body = `<div class="mcard"><div class="tt">오늘 주문 <span class="sp"></span><span class="chip ${a.orders.length?'ok':'mute'}">${a.orders.length}건</span></div><div style="margin-top:6px">${rows}</div></div>`;
+  } else {
+    const got = SERVERS[a.sk].got;
+    const same = ACCTS.filter((x,i) => i!==sel && x.sk===a.sk);
+    const rows = (dim) => `<div class="col2 ${dim?'dim':''}">
+      <div><div class="gh">매수 금액</div><div class="vrow">선매수 금액<span class="v">500<u>만</u></span></div><div class="vrow">줄매수 금액<span class="v">300<u>만</u></span></div>
+        <div class="gh">선매수</div><div class="vrow">매도잔량<span class="v">0<u>만</u></span></div><div class="vrow">줄매수도 같이 켜기<span class="sw on"></span></div>
+        <div class="gh">후매수</div><div class="vrow">후매수 최소<span class="v">100<u>만</u></span></div></div>
+      <div><div class="gh">매도</div><div class="vrow">매도 방법<span class="v">잔량추적</span></div><div class="vrow">매도 비율<span class="v">50<u>%</u></span></div>
+        <div class="gh">자동매도</div><div class="vrow">매도 주기<span class="v">3<u>초</u></span></div><div class="vrow">동시호가 비율<span class="v">30<u>%</u></span></div></div></div>`;
+    const cap = got
+      ? `이 계좌의 서버 <b style="color:var(--fg)">${a.sk}</b> 에 저장돼요.${same.length ? ` 같은 서버의 ${same.map(x=>x.no).join(' · ')} 계좌도 이 설정을 함께 써요.` : ''}`
+      : `${a.sk} 서버 설정(84)을 아직 받지 못했어요 · 그 서버 세션이 준비되면 불러와요`;
+    body = `<div class="mcard"><div class="tt">상따 기본설정 <span class="sk" style="height:20px;font-size:11px">${a.sk}</span><span class="sp"></span><span class="chip ${got?'ok':'warn'}">${got?'서버값':'아직 못 받음'}</span></div>
+      <div class="cap">${cap}</div>${rows(!got)}</div>
+      <div class="mcard"><div class="tt">이 기기</div><div class="cap">이 브라우저(기기)에만 저장돼요. 계좌와 무관해요.</div><div class="vrow">돌파 알림음<span class="sw on"></span></div></div>`;
+  }
+  return `<div class="main"><div class="scroll"><div class="pad" style="padding-bottom:0"><div class="h1">My page</div></div>
+    <div style="height:12px"></div>${head}${tabBar}<div style="padding-top:12px">${body}</div></div></div>`;
+}
+
 function render() {
   const vs = VARIANTS[S.screen];
   if (!vs.includes(S.variant)) S.variant = vs[0];
@@ -282,7 +371,10 @@ function render() {
   else if (S.screen === 'side') inner = desktop ? sidebar('trading') + `<div class="main"><div class="pad"><div class="h1">트레이딩</div><div class="bar" style="margin-top:8px">${acctPill(false)} ${quoteOrder()}</div></div></div>` : `<div class="main" style="flex-direction:row"><div style="width:280px;display:flex">${sidebar('trading')}</div><div style="flex:1;background:var(--scrim)"></div></div>`;
   else if (S.screen === 'status') inner = (desktop ? sidebar('me') : '') + meStatus();
   else if (S.screen === 'orders') inner = (desktop ? sidebar('me') : '') + meOrders();
-  else inner = (desktop ? sidebar('me') : '') + meSettings();
+  else if (S.screen === 'settings') inner = (desktop ? sidebar('me') : '') + meSettings();
+  else inner = (desktop ? sidebar('me') : '') + meAxis();
+  document.getElementById('tg').style.display = S.screen === 'me' ? '' : 'none';
+  document.getElementById('ag').style.display = S.screen === 'me' ? '' : 'none';
   document.getElementById('stage').innerHTML = `<div class="f ${S.w} ${S.t}">${inner}</div>`;
   document.getElementById('desc').innerHTML = DESC[S.screen][S.variant] || '';
   document.querySelectorAll('#nav button').forEach(b => { const k = Object.keys(b.dataset)[0]; b.classList.toggle('on', String(S[k]) === b.dataset[k]); });
@@ -290,6 +382,10 @@ function render() {
 document.getElementById('nav').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
   const k = Object.keys(b.dataset)[0]; S[k] = b.dataset[k]; render();
+});
+document.getElementById('stage').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-acct]'); if (!b) return;
+  S.acct = b.dataset.acct; render();
 });
 render();
 </script>

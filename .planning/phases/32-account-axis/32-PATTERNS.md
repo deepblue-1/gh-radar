@@ -6,6 +6,17 @@
 
 > 모든 경로는 `git ls-files` 로 tracked 확인했다. 대부분의 「수정」 파일은 자기 자신이 1차 정본이고, 아래 analog 는 **같은 일을 이미 하는 이웃 코드**다. 라인 번호는 2026-10-13 master(50ae7eb3) 기준.
 
+## 2026-10-16 보정 — /me 계좌 위 선택 (CONTEXT D-20~D-25 · UI-SPEC 「2026-10-16 수정」 절)
+
+이 지도는 2026-10-13 기준이다. 아래 보정이 원문보다 우선한다.
+- `webapp/src/components/trading/account-pill.tsx`(신규 · D-13) 행과 그 절은 **무효**(D-25 — /me 는 필을 안 쓴다 · `AccountPill` 은 작업대 안 그대로).
+- **신규** `webapp/src/components/me/account-chips.tsx`(이름 플래너) — component · 선택 이벤트. **Analog:** `webapp/src/components/trading/lc/setting-group.tsx` `ChoiceRow`(`role="radiogroup"`/`role="radio"` · roving tabindex · `--seg-on-*` 선택 면) — exact(키보드 · 선택 면 문법), 칩 글자는 `lib/account-label.ts` 부분별 렌더(D-12). 기억은 `trading-layout.ts` `readTradingAccount`/`pillAccountOf` 패턴 복제(새 접두사 예 `gh-radar:me-account:` · 기본 = `readTradingAccount(userId)` → 첫 계좌).
+- `me-client.tsx` 가 고른 계좌 상태를 소유하고 `StrategyStatusCard` · `AccountPanel`(1벌 · 머리 없음) · `TodayOrdersCard`(평탄 · `accountNo` prop · 카드 안 필 없음) · `LimitChaserDefaultsSection`(`serverKey` prop · 세그먼트 없음)에 내린다. 탭 라벨 「잔고 N」 = 고른 계좌 `accountStates.get(accountNo)?.unf.length`.
+- `strategy-status-card.tsx`: 계좌 묶음 · 소제목 · 「등록된 전략 없음」 묶음 빈 상태 대신 **고른 계좌만** · 빈 상태 「이 계좌에 등록된 전략 없음」 · 「이 계좌 끄기」 는 카드 맨 아래 kill 줄 주 버튼(`--destructive` 변형 · `strategies.disable.account` 송신 · 상호 잠금은 원문대로) · 「전체 비활성화 ›」 는 그 아래 텍스트 버튼. `MeStatusBar` 상따 N · VI 는 고른 계좌 기준 · 「계좌 N개」 제거.
+- `limit-chaser-defaults.tsx`: 서버 세그먼트 · 서버 기억 키 · 「닫힌 서버 → 첫 서버」 없음. 서버 = prop `serverKey`(고른 계좌). 비행 중 잠금(Pitfall 12)은 `me-client.tsx` 의 칩 줄에(저장 비행 상태를 위로 올리는 콜백 또는 컨텍스트 — 플래너).
+- `trading-layout.ts`: 「주문 탭 · 설정 서버 저장 키」 → **/me 계좌 키 하나**.
+- 테스트: `account-pill` 테스트 신설 없음 → `account-chips` 테스트 · `me-client.test.tsx`(칩 기본 선택 · 기억 · 탭 라벨 숫자) · `me.spec.ts` 929~948 그룹 소제목 → 칩 + 평탄 · 잔고 1벌 · 설정 서버키 칩.
+
 ## File Classification
 
 | 신규/수정 파일 | Role | Data Flow | Closest Analog | Match |

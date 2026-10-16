@@ -12,6 +12,8 @@
 
 **Primary recommendation:** 웨이브 순서는 CONTEXT D-19 그대로 따른다. 다만 ② relay `strategies.disable` 계좌 끄기는 「14(key) 건별 + VI `11 run:false` + hub 집계 1건」 으로 만든다. ③ 서버 목록은 `accounts[]` 의 서버키 집합(primary 먼저)에서 얻고, 84 캐시 키는 소유키(`${userId}|${serverKey}`)로 한다. ④ 브라우저 `vi` 프레임은 새 `t`(예: `vi.slot`)로 따로 내고, 구 `vi`(거래소 병합)를 함께 내는 호환 창을 둔다. 이 셋을 플랜의 `checkpoint:decision` 으로 올린다.
 
+**2026-10-16 보정 — /me 계좌 위 선택(CONTEXT D-20~D-25 · UI-SPEC 「2026-10-16 수정」 절 · 목업 ⑥ B).** 사용자가 /me 의 계좌 선택을 「탭 안」 에서 「탭 위 계좌 칩 한 곳」 으로 바꿨다. 네 탭(현황 · 잔고 · 주문 · 설정)이 고른 계좌를 따른다. 이 문서에서 달라지는 것: ① 웨이브 ① 은 「계좌 칩 + 현황 · 잔고 · 주문 고른 계좌」 이고 **공용 필(`account-pill.tsx` 신규)은 필요 없다**(D-25 — 아래 touch map 의 그 행은 무효 · `AccountPill` 은 작업대 안 그대로). ② /me 현황은 계좌 묶음이 아니라 고른 계좌만이며 「이 계좌 끄기」 는 카드 맨 아래 주 버튼, 「전체 비활성화」 는 그 아래 링크(relay 몫 Pattern 3 · Pitfall 1~3 은 그대로). ③ 잔고 탭도 고른 계좌 1벌(`AccountPanel` 계좌 전용 모드 머리 없이 — 16 D-21 전면 뒤집음). ④ 설정 탭의 서버는 **고른 계좌의 `serverKey`** 다 — Pattern 5 「세션 열린 서버 목록」 은 UI 에 더 이상 필요 없고(relay D-14a · hub 84 소유키 캐시 · 42 라우팅 · Pitfall 11~14 는 그대로), 세그먼트 · 서버 기억 키(`gh-radar:me-settings-server`) · 「닫힌 서버 → 첫 서버」 규칙은 사라진다. 비행 중 잠금(Pitfall 12)은 세그먼트가 아니라 **계좌 칩 줄** 에 건다. ⑤ Pitfall 10(목록 밖 계좌 주문)은 칩 목록 = `accounts[]` ∪ 행 계좌로 같은 뜻. ⑥ 기억 키는 /me 하나(예 `gh-radar:me-account:{userId}` · 기본 = 작업대 기억 계좌 → 첫 계좌 · `readTradingAccount`/`pillAccountOf` 재사용 규칙은 그대로). 아래 Validation 표의 AXIS-03 「계좌 묶음 … 소제목」 · AXIS-04 「주문 탭 필」 · AXIS-05 webapp 「세그먼트 · 기억 · 닫힌 서버」 · E2E 「설정 세그먼트 1개」 행은 이 보정대로 읽는다(계좌 칩 기본 선택 · 기억 · 탭 라벨 숫자 · 잔고 1벌 · 설정 서버키 칩 · 캡션). 플래너는 이 보정과 CONTEXT D-20~D-25 · UI-SPEC 수정 절을 원문보다 우선한다.
+
 <user_constraints>
 ## User Constraints (from CONTEXT.md)
 
