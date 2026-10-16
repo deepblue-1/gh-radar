@@ -23,6 +23,7 @@ import {
 import { installNativeApp, nativeMessages } from '../fixtures/native-app';
 import { leavesOverflowing, scrollOverflowing } from '../overflow';
 import { buildSetVITriggerRespFrame } from '../../../relay/tests/helpers/frames.js';
+import { accountChip, accountChips, expectAccount, pickAccount } from '../fixtures/workbench-account';
 
 /**
  * Phase 18 Plan 13 — `/trading` 단일 작업대 E2E (TRADE-06 · TRADE-09 · D-29).
@@ -620,7 +621,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(await gridColumnCount(page)).toBe(3);
   });
 
-  test('P32-top 상단 줄 A — h1 아래 한 줄 카드 · 셀렉트 → 칩 → 시세 → 주문 → 세그먼트 · 배지 · 알림음 · 반영 시각 없음 · 1080 한 줄 (D-05 · D-06)', async ({
+  test('P32-top 상단 줄 A — h1 아래 한 줄 카드 · 계좌 칩 줄 → 시세 → 주문 → 세그먼트 · 배지 · 알림음 · 반영 시각 없음 · 1080 한 줄 (D-05 · D-06 · 32-15)', async ({
     page,
   }) => {
     /*
@@ -636,16 +637,16 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const account = bar.locator('[data-slot="workbench-account"]');
     const dma = bar.locator('[data-slot="workbench-dma"]');
     const seg = bar.locator('[data-slot="workbench-cols-segment"]');
-    // 계좌 목록이 와야 셀렉트가 활성이다 — 그 뒤에 잰다.
-    await expect(account).toBeEnabled({ timeout: 15_000 });
+    // 계좌 목록이 와야 칩이 선다 — 그 뒤에 잰다.
+    await expect(accountChips(account).first()).toBeVisible({ timeout: 15_000 });
     await expect(seg).toBeVisible();
     await expect(dma).toHaveAttribute('aria-live', 'polite');
 
-    // DOM 순서 — 셀렉트 → (서버키 칩) → (시세) → 주문 → 세그먼트. 칩 · 시세는 있을 때만 끼운다.
+    // DOM 순서 — 계좌 칩 줄 → (시세) → 주문 → 세그먼트. 시세는 있을 때만 끼운다. 칩 밖 서버키 칩은 없다(32-15).
+    await expect(bar.locator('[data-slot="workbench-account-server"]')).toHaveCount(0);
     const order = await bar.evaluate((root) => {
       const names = [
         'workbench-account',
-        'workbench-account-server',
         'workbench-quote',
         'workbench-dma',
         'workbench-cols-segment',
@@ -660,7 +661,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       expect(order.indexOf('workbench-quote')).toBe(order.indexOf('workbench-dma') - 1);
     }
 
-    // 1080 에서 한 줄 — 셀렉트 · 주문 알약 · 세그먼트의 세로 중심 차가 8px 미만.
+    // 1080 에서 한 줄 — 계좌 칩 줄 · 주문 알약 · 세그먼트의 세로 중심 차가 8px 미만.
     const centerY = async (loc: Locator) => {
       const b = await loc.boundingBox();
       expect(b).not.toBeNull();
@@ -698,6 +699,39 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(await scrollOverflowing(page, '[data-slot="workbench-status-bar"]')).toEqual([]);
   });
 
+  test('P32-15 폰 계좌 칩 — 뷰포트 390 에서 칩 글자 「상품명 · 서버키」(번호 없음) · 칩 밖 서버키 칩 없음 · 접근 이름은 전체 · 데스크톱은 번호 포함', async ({
+    page,
+  }) => {
+    relay.gateway.respondLoginWithAccounts(P32_ACCOUNTS);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(WORKBENCH_URL);
+    await waitForReady(page);
+    const bar = statusBar(page);
+    const account = bar.locator('[data-slot="workbench-account"]');
+    await expect(account).toHaveAttribute('role', 'radiogroup');
+    await expect(accountChips(account)).toHaveCount(2, { timeout: 30_000 });
+    await expect(bar.locator('[data-slot="workbench-account-server"]')).toHaveCount(0);
+
+    const chipA = accountChip(account, E2E_ACCOUNT_NO);
+    const server = (await chipA.locator('[data-part="server"]').textContent()) ?? '';
+    expect(server, '하네스 계좌에 서버키가 없음').not.toBe('');
+    // 폰(격자 1열 고정 · `wb` < 680) — 번호 부분이 DOM 에서 빠지고 「상품명 · 서버키」 만 보인다.
+    const shown = chipA.locator('[data-part]:visible');
+    await expect(chipA.locator('[data-part="no"]')).toHaveCount(0);
+    await expect(shown).toHaveText(['위탁종합', server]);
+    await expect(chipA).not.toContainText(E2E_ACCOUNT_NO);
+    await expect(chipA).toHaveAccessibleName(`위탁종합 ${E2E_ACCOUNT_NO} ${server}`);
+    // 칩 줄 · 상단 줄 잘림 0 · 페이지 가로 스크롤 0(칩 줄 안 가로 스크롤만 허용).
+    const barBox = await bar.boundingBox();
+    expect(await leavesOverflowing(bar, barBox!.x + barBox!.width)).toEqual([]);
+    expect(await scrollOverflowing(page, '[data-slot="workbench-status-bar"]')).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+
+    // 넓은 폭(격자 2열 이상)이면 번호가 돌아온다 — /me 칩과 같은 「상품명 · 번호 · 서버키」.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await expect(shown).toHaveText(['위탁종합', E2E_ACCOUNT_NO, server]);
+  });
+
   test('P32-scope 작업대 계좌 스코프 — A · B 카드 → B 고르면 B 카드만 · A 카드 더티 값이 A 로 돌아오면 그대로 · 계좌 빈 상태 (D-01 · S2)', async ({
     page,
   }) => {
@@ -709,9 +743,9 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await page.goto(WORKBENCH_URL);
     await waitForReady(page);
     const account = statusBar(page).locator('[data-slot="workbench-account"]');
-    await expect(account.locator('option')).toHaveCount(2, { timeout: 30_000 });
-    await account.selectOption(E2E_ACCOUNT_NO);
-    await expect(account).toHaveValue(E2E_ACCOUNT_NO);
+    await expect(accountChips(account)).toHaveCount(2, { timeout: 30_000 });
+    await pickAccount(account, E2E_ACCOUNT_NO);
+    await expectAccount(account, E2E_ACCOUNT_NO);
 
     // B 카드는 마운트돼 있지만 주차 노드 안이라 보이지 않는다.
     const parking = page.locator('[data-slot="card-parking"]');
@@ -733,18 +767,17 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const qty = cardA.getByTestId('manual-order-form').locator(`#mo-qty-${E2E_ISIN}`);
     await qty.fill('37');
 
-    // B 선택 → B 카드만 · A 카드는 주차(언마운트 아님). (selectOption 은 포커스를 주지 않아 먼저 준다.)
-    await account.focus();
-    await account.selectOption(P32_ACCOUNT_B);
+    // B 선택 → B 카드만 · A 카드는 주차(언마운트 아님). (칩 클릭이 그 칩에 포커스를 준다 · 32-15.)
+    await pickAccount(account, P32_ACCOUNT_B);
     await expect(cardB).toBeVisible();
     await expect(cardA).toBeHidden();
     await expect(parking.locator(cardSelector(E2E_ISIN))).toHaveCount(1);
     await expect(grid(page).locator('[data-slot="strategy-card"]')).toHaveCount(1);
-    // 셀렉트로 바꾸면 포커스는 셀렉트에 남는다(전환이 포커스를 옮기지 않는다).
-    await expect(account).toBeFocused();
+    // 칩으로 바꾸면 포커스는 그 칩에 남는다(전환이 포커스를 옮기지 않는다).
+    await expect(accountChip(account, P32_ACCOUNT_B)).toBeFocused();
 
     // A 로 돌아오면 입력값 그대로.
-    await account.selectOption(E2E_ACCOUNT_NO);
+    await pickAccount(account, E2E_ACCOUNT_NO);
     await expect(cardA).toBeVisible();
     await expect(cardB).toBeHidden();
     await expect(qty).toHaveValue('37');
@@ -772,8 +805,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     // 기억 계좌 = A 로 시작(사용자가 직접 고른 값).
     await page.goto(WORKBENCH_URL);
     await waitForReady(page);
-    await expect(account.locator('option')).toHaveCount(2, { timeout: 30_000 });
-    await account.selectOption(E2E_ACCOUNT_NO);
+    await expect(accountChips(account)).toHaveCount(2, { timeout: 30_000 });
+    await pickAccount(account, E2E_ACCOUNT_NO);
     await expect(cardA).toBeVisible({ timeout: 15_000 });
     await expect(cardB).toBeHidden();
 
@@ -781,7 +814,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const keyB = `${E2E_LONG_NAME_ISIN}:${P32_ACCOUNT_B}:KRX`;
     await page.goto(`${WORKBENCH_URL}?focus=${encodeURIComponent(keyB)}`);
     await waitForReady(page);
-    await expect(account).toHaveValue(P32_ACCOUNT_B, { timeout: 15_000 });
+    await expectAccount(account, P32_ACCOUNT_B, { timeout: 15_000 });
     await expect(cardB).toBeVisible();
     await expect(cardB).toHaveAttribute('data-open', 'true');
     await expect(parking.locator(cardSelector(E2E_ISIN))).toHaveCount(1);
@@ -790,7 +823,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     // 바뀐 계좌가 기억 계좌다 — 저장값이 A 로 되돌리지 않는다(새로고침 · ?focus= 없이).
     await page.goto(WORKBENCH_URL);
     await waitForReady(page);
-    await expect(account).toHaveValue(P32_ACCOUNT_B, { timeout: 15_000 });
+    await expectAccount(account, P32_ACCOUNT_B, { timeout: 15_000 });
     await expect(cardB).toBeVisible();
     await expect(cardA).toBeHidden();
   });
@@ -1871,8 +1904,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await page.goto(WORKBENCH_URL);
     await waitForReady(page);
     const account = statusBar(page).locator('[data-slot="workbench-account"]');
-    await expect(account.locator('option')).toHaveCount(2, { timeout: 30_000 });
-    await account.selectOption(E2E_ACCOUNT_NO);
+    await expect(accountChips(account)).toHaveCount(2, { timeout: 30_000 });
+    await pickAccount(account, E2E_ACCOUNT_NO);
     const toastBox = page.locator('[data-slot="alert-toasts"]');
     await expect(toastBox).toHaveAttribute('role', 'status');
     await expect(toastBox).toHaveAttribute('aria-live', 'polite');
@@ -1911,11 +1944,11 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(line).toContainText(`계좌 ${P32_ACCOUNT_B} · 위탁CMA`);
     await expect(toast.locator('[data-part="account-hint"]')).toHaveText('이 계좌 보기 ›');
     await expect(toast.getByRole('button', { name: /이 계좌 보기/ })).toHaveAttribute('data-part', 'text');
-    await expect(account).toHaveValue(E2E_ACCOUNT_NO);
+    await expectAccount(account, E2E_ACCOUNT_NO);
 
     // 누르면 작업대가 B 로 바뀌고 그 종목 · B 계좌 카드로 간다(펼침).
     await toast.locator('[data-part="text"]').click();
-    await expect(account).toHaveValue(P32_ACCOUNT_B);
+    await expectAccount(account, P32_ACCOUNT_B);
     const card = cardByKey(page, `${E2E_ISIN}:${P32_ACCOUNT_B}:KRX`);
     await expect(card).toBeVisible({ timeout: 15_000 });
     await expect(card).toHaveAttribute('data-open', 'true');
@@ -2552,8 +2585,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await page.goto(WORKBENCH_URL);
     await waitForReady(page);
     const account = statusBar(page).locator('[data-slot="workbench-account"]');
-    await expect(account.locator('option')).toHaveCount(2, { timeout: 30_000 });
-    await account.selectOption(E2E_ACCOUNT_NO);
+    await expect(accountChips(account)).toHaveCount(2, { timeout: 30_000 });
+    await pickAccount(account, E2E_ACCOUNT_NO);
     await openViPanel(page);
 
     const slot = (acct: string) =>
@@ -2576,7 +2609,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(slotRow(E2E_ACCOUNT_NO, 'NXT').locator('[data-slot="vi-row-fix"]')).toBeVisible();
 
     // B 를 고르면 B 행(미등록 빈 행 · 중지 · 기본값)이 보이고 A 행은 숨는다.
-    await account.selectOption(P32_ACCOUNT_B);
+    await pickAccount(account, P32_ACCOUNT_B);
     await expect(slot(E2E_ACCOUNT_NO)).toBeHidden();
     await expect(slotRow(P32_ACCOUNT_B)).toBeVisible();
     await expect(slotRow(P32_ACCOUNT_B)).toHaveAttribute('data-run', 'false');
@@ -2604,7 +2637,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(relay.gateway.viSlot(P32_ACCOUNT_B, 'KRX')).toMatchObject({ run: false, orderAmountKrw: 7_000_000n });
 
     // A 로 돌아오면 가동 값 그대로 · NXT 더티 입력도 그대로다.
-    await account.selectOption(E2E_ACCOUNT_NO);
+    await pickAccount(account, E2E_ACCOUNT_NO);
     await expect(slotRow(E2E_ACCOUNT_NO)).toBeVisible();
     await expect(slotRow(E2E_ACCOUNT_NO)).toHaveAttribute('data-run', 'true');
     await expect(field(page, 'vi-krx-amount')).toHaveValue('1,000');

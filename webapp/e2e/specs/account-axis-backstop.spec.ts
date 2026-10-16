@@ -3,6 +3,7 @@ import { test, expect, type Locator, type Page, type WebSocketRoute } from '@pla
 import { mockHomeApi, HOME_POPULATED } from '../fixtures/home';
 import { mockStockApi } from '../fixtures/mock-api';
 import { E2E_ISIN, E2E_LONG_NAME_ISIN, withLocalRelay, type LocalRelay } from '../fixtures/relay';
+import { accountChips, expectAccount, pickAccount } from '../fixtures/workbench-account';
 import { leavesOverflowing, scrollOverflowing } from '../overflow';
 
 /**
@@ -41,8 +42,11 @@ import { leavesOverflowing, scrollOverflowing } from '../overflow';
  *   웹 소켓 훅은 4400(프로토콜 위반)을 재시도 없이 `failed` 로 확정하고(`use-relay-socket.ts`) 작업대는 그 상태에서
  *   주문 알약을 「끊김 · 다시 연결」 로 그린다(`UNRECOVERABLE_STATES`). 계좌 목록은 그대로 남아 셀렉트 최악값과 함께 잰다.
  *
- * ⑥ 판정은 `e2e/overflow.ts` 하나 + 박스 포함 · 줄 수(새 판정식을 만들지 않는다). 셀렉트 안 글자의 네이티브 말줄임은
- *   UI-SPEC 이 허용한 모양이라 `selectsClipped` 를 쓰지 않는다 — 셀렉트 **박스**가 카드 안인지만 본다.
+ * ⑥ 판정은 `e2e/overflow.ts` 하나 + 박스 포함 · 줄 수(새 판정식을 만들지 않는다).
+ *   32-15 — 상단 줄 계좌 선택이 셀렉트에서 칩 줄(`MeAccountChips`)로 바뀌었다. 칩 줄은 넘치면 **그 줄 안에서** 가로
+ *   스크롤하는 영역이다(/me S13 과 같다) — 그래서 칩 줄 박스는 카드 안 · 칩마다 글자 잘림 0 · 칩 한 줄을 보고,
+ *   칩 줄 자신의 스크롤 폭(`div[workbench-account]`)과 그 안 잎 좌표는 넘침 판정에서 뺀다. 폰(`wb` < 680)은 칩에서
+ *   번호가 빠진 「상품명 · 서버키」 다.
  *
  * ⑦ relay 를 쓰는 spec 규약(`fixtures/relay.ts` ⑥) — serial · beforeAll 1회 · afterAll stop · beforeEach reset.
  *   ★ 실서버 IP · 실계좌 리터럴 없음(D-27) — 계좌번호는 UI-SPEC 의 가짜 최악값이다.
@@ -187,24 +191,22 @@ async function openMeTab(page: Page, label: string, value: string): Promise<void
   await expect(page).toHaveURL(new RegExp(`[?&]tab=${value}(&|$)`));
 }
 
-/** 작업대 준비 + 계좌 옵션 4개 + 고른 계좌. */
+/** 작업대 준비 + 계좌 칩 4개 + 고른 계좌. */
 async function openWorkbench(page: Page, accountNo: string): Promise<Locator> {
   await page.goto('/trading');
   await expect(statusBar(page)).toHaveAttribute('data-status', 'ready', { timeout: 30_000 });
   const account = statusBar(page).locator('[data-slot="workbench-account"]');
-  await expect(account.locator('option')).toHaveCount(ACCOUNTS.length, { timeout: 30_000 });
-  await account.selectOption(accountNo);
-  await expect(account).toHaveValue(accountNo);
+  await expect(accountChips(account)).toHaveCount(ACCOUNTS.length, { timeout: 30_000 });
+  await pickAccount(account, accountNo);
+  await expectAccount(account, accountNo);
   return account;
 }
 
-/** S1 — 상단 줄 셀렉트 옵션 · 서버키 칩을 최악값으로(③). */
+/** S1 — 상단 줄 계좌 칩 4개의 서버키 부분을 최악값으로(③ · 번호 · 상품명은 픽스처가 이미 최악값). */
 async function injectWorstTop(page: Page): Promise<void> {
   const bar = statusBar(page);
-  const n = await setTextAll(bar, '[data-slot="workbench-account"] option:checked', WORST_FULL);
-  expect(n, '고른 옵션').toBe(1);
-  const c = await setTextAll(bar, '[data-slot="workbench-account-server"]', WORST_SERVER);
-  expect(c, '서버키 칩').toBe(1);
+  const c = await setTextAll(bar, '[data-slot="workbench-account"] [data-part="server"]', WORST_SERVER);
+  expect(c, '칩 안 서버키').toBe(ACCOUNTS.length);
 }
 
 /**
@@ -215,24 +217,27 @@ async function expectTopRowFits(page: Page, vw: number, state: 'ready' | 'failed
   await page.setViewportSize({ width: vw, height: 900 });
   const bar = statusBar(page);
   await expect(bar).toBeVisible();
-  await expect(bar.locator('[data-slot="workbench-account"] option:checked')).toHaveText(WORST_FULL);
-  await expect(bar.locator('[data-slot="workbench-account-server"]')).toHaveText(WORST_SERVER);
+  await expect(bar.locator('[data-slot="workbench-account"] [data-part="server"]')).toHaveText(
+    ACCOUNTS.map(() => WORST_SERVER),
+  );
+  await expect(bar.locator('[data-slot="workbench-account-server"]')).toHaveCount(0);
   if (state === 'failed') {
     await expect(bar.locator('[data-slot="workbench-reconnect"]')).toBeVisible();
     await expect(bar.locator('[data-slot="workbench-dma"]')).toContainText('끊김');
   }
   const label = `S1 ${state} 뷰포트 ${vw}`;
-  // 세그먼트 유무는 작업대 ResizeObserver 판정(`wb` < 680 = DOM 에서 뺀다)이 다음 프레임에 정한다 — 그 판정이
-  // 새 폭을 따라잡을 때까지 기다린다(따라잡기 전에 재면 세그먼트를 빼먹고 잰다).
+  // 세그먼트 유무 · 칩 번호 유무(32-15 폰 칩)는 작업대 ResizeObserver 판정(`wb` < 680 = 세그먼트를 빼고 칩을 줄인다)이
+  // 다음 프레임에 정한다 — 그 판정이 새 폭을 따라잡을 때까지 기다린다(따라잡기 전에 재면 세그먼트를 빼먹고 잰다).
   await expect
     .poll(
       () =>
         bar.evaluate((root) => {
           const wb = root.parentElement?.getBoundingClientRect().width ?? 0;
           const has = root.querySelector('[data-slot="workbench-cols-segment"]') !== null;
-          return has === wb >= 680;
+          const nos = root.querySelectorAll('[data-slot="workbench-account"] [data-part="no"]').length;
+          return has === wb >= 680 && nos === (wb >= 680 ? 4 : 0);
         }),
-      { timeout: 5_000, message: `${label} — 세그먼트 유무가 본문 폭 판정과 다름` },
+      { timeout: 5_000, message: `${label} — 세그먼트 · 칩 번호 유무가 본문 폭 판정과 다름` },
     )
     .toBe(true);
 
@@ -243,7 +248,6 @@ async function expectTopRowFits(page: Page, vw: number, state: 'ready' | 'failed
     const contentRight = r.right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth);
     const slots = [
       'workbench-account',
-      'workbench-account-server',
       'workbench-quote',
       'workbench-order',
       'workbench-reconnect',
@@ -260,14 +264,31 @@ async function expectTopRowFits(page: Page, vw: number, state: 'ready' | 'failed
           right: b.right,
           top: b.top,
           bottom: b.bottom,
-          over: el.tagName === 'SELECT' ? 0 : el.scrollWidth - el.clientWidth,
+          // 칩 줄은 넘치면 줄 안에서 가로 스크롤한다(⑥) — 자기 스크롤 폭은 잘림이 아니다(칩은 아래 `chips` 가 본다).
+          over: slot === 'workbench-account' ? 0 : el.scrollWidth - el.clientWidth,
         };
       })
       .filter((x): x is NonNullable<typeof x> => x !== null);
-    // 줄 수 = 세로 중심이 8px 넘게 갈리는 묶음 수(높이가 다른 항목 — 셀렉트 26 · 칩 18 — 은 같은 줄에서 윗변이 다르다).
+    const row = root.querySelector<HTMLElement>('[data-slot="workbench-account"]');
+    const chips = Array.from(row?.querySelectorAll<HTMLElement>('[role="radio"]') ?? []).map((c) => ({
+      top: Math.round(c.getBoundingClientRect().top),
+      over: c.scrollWidth - c.clientWidth,
+      parts: Array.from(c.querySelectorAll<HTMLElement>('[data-part]')).map((p) => p.scrollWidth - p.clientWidth),
+    }));
+    const rowScroll = row === null ? null : { overflowX: getComputedStyle(row).overflowX, over: row.scrollWidth - row.clientWidth };
+    // 줄 수 = 세로 중심이 8px 넘게 갈리는 묶음 수(높이가 다른 항목 — 계좌 칩 줄 32 · 알약 · 세그먼트 24 — 은 같은 줄에서 윗변이 다르다).
     const centers = items.map((i) => (i.top + i.bottom) / 2).sort((a, b) => a - b);
     const lines = centers.reduce((n, c, k) => (k > 0 && c - centers[k - 1] > 8 ? n + 1 : n), centers.length > 0 ? 1 : 0);
-    return { contentLeft, contentRight, width: r.width, items, lines, wb: root.parentElement?.getBoundingClientRect().width ?? -1 };
+    return {
+      contentLeft,
+      contentRight,
+      width: r.width,
+      items,
+      lines,
+      chips,
+      rowScroll,
+      wb: root.parentElement?.getBoundingClientRect().width ?? -1,
+    };
   });
 
   for (const it of m.items) {
@@ -275,17 +296,34 @@ async function expectTopRowFits(page: Page, vw: number, state: 'ready' | 'failed
     expect(it.right, `${label} — ${it.slot} 오른쪽이 카드 밖`).toBeLessThanOrEqual(m.contentRight + 1);
     expect(it.over, `${label} — ${it.slot} 글자 잘림`).toBeLessThanOrEqual(1);
   }
+  // 칩 줄(⑥) — 칩 4개 한 줄 · 칩 · 부분 글자 잘림 0 · 넘치면 줄 자신이 가로 스크롤(overflow-x auto).
+  expect(m.chips, `${label} — 계좌 칩 수`).toHaveLength(ACCOUNTS.length);
+  expect(new Set(m.chips.map((c) => c.top)).size, `${label} — 계좌 칩이 두 줄 이상`).toBe(1);
+  for (const [i, c] of m.chips.entries()) {
+    expect(c.over, `${label} — 계좌 칩 ${i} 글자 잘림`).toBeLessThanOrEqual(1);
+    for (const p of c.parts) expect(p, `${label} — 계좌 칩 ${i} 부분 잘림`).toBeLessThanOrEqual(1);
+  }
+  if (m.rowScroll !== null && m.rowScroll.over > 1) expect(m.rowScroll.overflowX, `${label} — 칩 줄 스크롤`).toBe('auto');
   const seg = m.items.find((i) => i.slot === 'workbench-cols-segment');
   if (seg !== undefined) {
     // 한 줄이든 다음 줄이든 세그먼트는 그 줄 오른쪽 끝(ml-auto · UI-SPEC S1 「다음 줄 오른쪽 끝」).
     expect(Math.abs(seg.right - m.contentRight), `${label} — 세그먼트가 오른쪽 끝이 아님`).toBeLessThanOrEqual(1.5);
   }
-  expect(await leavesOverflowing(bar, (await rectOf(bar)).right), `${label} — 밀린 잎`).toEqual([]);
-  expect(await scrollOverflowing(page, '[data-slot="workbench-status-bar"]'), `${label} — 넘친 요소`).toEqual([]);
+  // 밀린 잎 — 칩 줄 밖 항목만(칩 줄 안 잎은 스크롤 영역 안 좌표라 ⑥ 의 칩 판정이 본다).
+  const barRight = (await rectOf(bar)).right;
+  for (const slot of ['workbench-quote', 'workbench-order', 'workbench-cols-segment']) {
+    const loc = bar.locator(`[data-slot="${slot}"]`);
+    if ((await loc.count()) === 0) continue;
+    expect(await leavesOverflowing(loc, barRight), `${label} — ${slot} 밀린 잎`).toEqual([]);
+  }
+  expect(
+    (await scrollOverflowing(page, '[data-slot="workbench-status-bar"]')).filter((x) => x.tag !== 'div[workbench-account]'),
+    `${label} — 넘친 요소`,
+  ).toEqual([]);
   expect(await pageHorizontalScroll(page), `${label} — 페이지 가로 스크롤`).toEqual([]);
   record(
     'P32-backstop-S1',
-    `${state} vw=${vw} 본문(wb)=${Math.round(m.wb)} 카드=${Math.round(m.width)} 줄=${m.lines} 세그먼트=${seg === undefined ? '없음(1열 고정)' : '있음'}`,
+    `${state} vw=${vw} 본문(wb)=${Math.round(m.wb)} 카드=${Math.round(m.width)} 줄=${m.lines} 세그먼트=${seg === undefined ? '없음(1열 고정)' : '있음'} 칩 줄 scroll=${m.rowScroll?.over ?? 0} 칩=${m.chips.length}${m.wb < 680 ? '(폰 · 번호 없음)' : ''}`,
   );
 }
 
@@ -315,7 +353,7 @@ test.describe('Phase 32 — 계좌 축 폭 백스톱 (로컬 relay)', () => {
     );
   });
 
-  test('P32-backstop S1 작업대 상단 줄 — 뷰포트 344 · 685 · 830 · 992 · 최악값 셀렉트 라벨 · KYOBO127 칩 · 「주문 끊김 · 다시 연결」 · 세그먼트 잘림 0 · 가로 스크롤 0 · 넘치면 flex-wrap(세그먼트는 오른쪽 끝)', async ({
+  test('P32-backstop S1 작업대 상단 줄 — 뷰포트 344 · 685 · 830 · 992 · 최악값 계좌 칩 4개(KYOBO127 · 폰은 번호 없음) · 「주문 끊김 · 다시 연결」 · 세그먼트 잘림 0 · 가로 스크롤 0 · 넘치면 flex-wrap(세그먼트는 오른쪽 끝)', async ({
     page,
   }) => {
     // ⑤ relay 소켓을 그대로 잇는 라우트 — 나중에 브라우저 쪽만 4400 으로 닫는다.

@@ -3,6 +3,7 @@ import { test, expect, type Locator, type Page } from '@playwright/test';
 import { mockHomeApi, HOME_POPULATED } from '../fixtures/home';
 import { mockStockApi } from '../fixtures/mock-api';
 import { E2E_ACCOUNT_NO, withLocalRelay, type LocalRelay } from '../fixtures/relay';
+import { accountChips, expectAccount, pickAccount } from '../fixtures/workbench-account';
 import { buildSetVITriggerRespFrame } from '../../../relay/tests/helpers/frames.js';
 
 /**
@@ -541,9 +542,9 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     await page.goto('/trading');
     const nav = desktopNav(page);
     await waitForTradingGroup(nav);
-    await expect(account.locator('option')).toHaveCount(2, { timeout: 30_000 });
-    await account.selectOption(E2E_ACCOUNT_NO);
-    await expect(account).toHaveValue(E2E_ACCOUNT_NO);
+    await expect(accountChips(account)).toHaveCount(2, { timeout: 30_000 });
+    await pickAccount(account, E2E_ACCOUNT_NO);
+    await expectAccount(account, E2E_ACCOUNT_NO);
     await expect(cardOfKey(keyA)).toBeVisible({ timeout: 15_000 });
     await expect(cardOfKey(keyB)).toBeHidden();
 
@@ -554,14 +555,14 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     await expect(page).toHaveURL(
       (url) => url.pathname === '/trading' && url.searchParams.get('focus') === keyB,
     );
-    await expect(account).toHaveValue(P32_ACCOUNT_B, { timeout: 15_000 });
+    await expectAccount(account, P32_ACCOUNT_B, { timeout: 15_000 });
     await expect(cardOfKey(keyB)).toBeVisible();
     await expect(cardOfKey(keyB)).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
     await expect(cardOfKey(keyA)).toBeHidden();
 
     // 다시 A 묶음 전략 줄 → A 로 돌아온다.
     await strategyItems(accountGroups(nav).nth(0)).first().click();
-    await expect(account).toHaveValue(E2E_ACCOUNT_NO, { timeout: 15_000 });
+    await expectAccount(account, E2E_ACCOUNT_NO, { timeout: 15_000 });
     await expect(cardOfKey(keyA)).toBeVisible();
     await expect(cardOfKey(keyB)).toBeHidden();
   });
@@ -614,18 +615,18 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     await expect(viItem(nav)).toHaveCount(2);
 
     // 클릭 — 작업대에서 A 를 고른 상태에서 B 묶음 VI 줄 → URL `?account=B` · 작업대 계좌 = B(이미 /trading 위 — 요청 이벤트 경로).
-    await expect(account.locator('option')).toHaveCount(2, { timeout: 30_000 });
-    await account.selectOption(E2E_ACCOUNT_NO);
-    await expect(account).toHaveValue(E2E_ACCOUNT_NO);
+    await expect(accountChips(account)).toHaveCount(2, { timeout: 30_000 });
+    await pickAccount(account, E2E_ACCOUNT_NO);
+    await expectAccount(account, E2E_ACCOUNT_NO);
     await viItem(gb).click();
     await expect(page).toHaveURL(
       (url) => url.pathname === '/trading' && url.searchParams.get('account') === P32_ACCOUNT_B,
     );
-    await expect(account).toHaveValue(P32_ACCOUNT_B, { timeout: 15_000 });
+    await expectAccount(account, P32_ACCOUNT_B, { timeout: 15_000 });
 
     // A 묶음 VI 줄 → A 로 돌아온다.
     await viItem(ga).click();
-    await expect(account).toHaveValue(E2E_ACCOUNT_NO, { timeout: 15_000 });
+    await expectAccount(account, E2E_ACCOUNT_NO, { timeout: 15_000 });
 
     // 다른 화면에서 누르면 이동 뒤 마운트가 `?account=` 를 소비한다 — /me(클라이언트 이동 · 소켓 유지) → B 묶음 VI 줄 → 작업대
     // 계좌 B. 저장값은 방금 고른 A 라 마운트 소비가 아니면 A 로 선다.
@@ -634,6 +635,6 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     await expect(viItem(accountGroups(nav).nth(1))).toHaveCount(1, { timeout: 15_000 });
     await viItem(accountGroups(nav).nth(1)).click();
     await expect(page).toHaveURL((url) => url.pathname === '/trading' && url.searchParams.get('account') === P32_ACCOUNT_B);
-    await expect(account).toHaveValue(P32_ACCOUNT_B, { timeout: 30_000 });
+    await expectAccount(account, P32_ACCOUNT_B, { timeout: 30_000 });
   });
 });
