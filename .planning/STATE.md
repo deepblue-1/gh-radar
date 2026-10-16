@@ -3,12 +3,13 @@ gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: 운영 유지보수
 current_phase: 32
+current_phase_name: 계좌 축 정리
 status: completed
 stopped_at: Phase 32 complete — UAT 4/4 · v1.1 전 phase 완료
-last_updated: "2026-10-16T12:50:37.351Z"
+last_updated: "2026-10-16T13:12:22.656Z"
 last_activity: 2026-10-16
 last_activity_desc: Phase 32 complete
-state_head: df3480463d1085828ad04b58ecf0a141363f85a4
+state_head: 1ad9d4fb82710512d540ee6b21d962a565182811
 progress:
   total_phases: 4
   completed_phases: 4
@@ -31,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-10-16 after Phase 32)
 Phase: 32 (계좌 축 정리) — COMPLETE
 Plan: 14 of 14
 Status: All phases complete (v1.1 30 · 31 · 32 · 33)
-Last activity: 2026-10-16 — Phase 32 UAT 4/4 pass · 검증 passed · UI 리뷰 17/24
+Last activity: 2026-10-16 - Completed quick task 261016-udz: Phase 32 UI 리뷰 Top 3 수정
 
 Progress: [██████████] 100% (40/40 plans)
 
@@ -83,6 +84,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261012-u04 | gh-trade 261012 선매수 매도잔량 기본값·줄매수도 같이 켜기 웹 반영 (UserSettings 2필드 · /me 선매수 카드 · 2열 열 고정 · 상따 폼 시딩/동반 제출) | 2026-10-12 | 6a628d3b | [261012-u04-gh-trade-261012](./quick/261012-u04-gh-trade-261012/) |
 | 7 | vpn-menubar v3.8: 게이트웨이↔직접 접속(KB VPN·교보) 상호배제 해제 · SSH 명령 복사 메뉴 제거 (스크립트는 gitignore 개인 파일, 문서 2곳 커밋 51e62904) | 2026-10-14 | 51e62904 | — |
 | 261016-miy | intraday-sync 60s 타임아웃 실패 해소 — STEP2 quotes UPDATE RPC 일괄화 + 알림 조건 완화(10분 3건) | 2026-10-16 | e44cf64f | [261016-miy-intraday-sync-60s-step2-quotes-update-rp](./quick/261016-miy-intraday-sync-60s-step2-quotes-update-rp/) |
+| 261016-udz | Phase 32 UI 리뷰 Top 3 — 계좌 칩 화살표·Home/End 가 선택까지(WAI-ARIA radio · IN-02) · UI-SPEC 32-15 작업대 칩 절·옛 셀렉트 무효 · 간격 1곳 4배수(pt-1)·7곳 예외 근거 명시 | 2026-10-16 | 1ad9d4fb | [261016-udz-phase-32-ui-top-3-ui-spec-4](./quick/261016-udz-phase-32-ui-top-3-ui-spec-4/) |
 
 ## Session Continuity
 
