@@ -3447,6 +3447,85 @@ describe('Phase 27 user.settings — 84 사용자 설정 3상태 (77 queuedWindo
   });
 });
 
+describe('P32 userSettingsByServer 리듀서 (D-14a — 84 는 서버마다 따로)', () => {
+  const BASE = {
+    t: 'user.settings',
+    present: true,
+    preBuyAmount: 3000,
+    addBuyAmount: 5000,
+    postBuyAmount: 2000,
+    postBuyMaxCount: 2,
+    postBuyFloorQty: 0,
+    postBuyReboundPct: 25,
+    sellQtyTrackRatio: 55,
+    autoSellPeriodSec: 5,
+    auctionSellRatioPct: 20,
+    autoSellRatioDefaultPct: 15,
+    autoSellMethodDefault: 1,
+    postBuyFloorAmount: 84,
+  } as const;
+  const KB = { ...BASE, serverKey: 'KB120' };
+  const KYOBO = { ...BASE, serverKey: 'KYOBO119', preBuyAmount: 7000 };
+
+  it('serverKey KB120 뒤 KYOBO119 → Map 2칸 · 서로 덮지 않는다', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push(KB);
+      ws.push(KYOBO);
+    });
+    const map = hook.result.current.userSettingsByServer;
+    expect([...map.keys()]).toEqual(['KB120', 'KYOBO119']);
+    expect(map.get('KB120')).toEqual(KB);
+    expect(map.get('KYOBO119')).toEqual(KYOBO);
+  });
+
+  it('같은 서버 다시 → 그 칸만 교체 · 다른 서버 칸은 같은 참조 그대로', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push(KB);
+      ws.push(KYOBO);
+    });
+    const kyoboBefore = hook.result.current.userSettingsByServer.get('KYOBO119');
+    const KB2 = { ...KB, autoSellPeriodSec: 9 };
+    await act(async () => {
+      ws.push(KB2);
+    });
+    const map = hook.result.current.userSettingsByServer;
+    expect(map.size).toBe(2);
+    expect(map.get('KB120')).toEqual(KB2);
+    expect(map.get('KYOBO119')).toBe(kyoboBefore);
+  });
+
+  it('serverKey 부재(구 relay) → "" 칸 · 서버키 칸과 따로 있다', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push(BASE);
+      ws.push(KB);
+    });
+    const map = hook.result.current.userSettingsByServer;
+    expect(map.get('')).toEqual(BASE);
+    expect(map.get('KB120')).toEqual(KB);
+    expect(map.size).toBe(2);
+  });
+
+  it('reset(enabled false) → 빈 Map', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push(KB);
+      ws.push(KYOBO);
+    });
+    expect(hook.result.current.userSettingsByServer.size).toBe(2);
+    await act(async () => {
+      hook.rerender({ enabled: false });
+    });
+    expect(hook.result.current.userSettingsByServer.size).toBe(0);
+  });
+});
+
 describe('Phase 28 limit.feature (85 상한가 특징 — 시장 배치 · 키별 교체)', () => {
   function lf(over: Partial<RelayLimitFeatureMsg> = {}): RelayLimitFeatureMsg {
     return {

@@ -154,7 +154,8 @@ describe('Phase 27 상따 기본설정 표시', () => {
  * 선매수 2필드는 84 부재면 0 · false 로 늘 싣는다(quick-261012-u04 · gh-trade 261012).
  */
 const VALUES_OF = (m: RelayUserSettingsMsg) => {
-  const { t: _t, present: _p, ...rest } = m;
+  // `serverKey` 는 84 프레임 표지(Phase 32)다 — 42 본문 `s` 에는 없다.
+  const { t: _t, present: _p, serverKey: _sk, ...rest } = m;
   return {
     ...rest,
     postBuyFloorQty: 0,
@@ -746,5 +747,97 @@ describe('u04 「선매수」 카드 (gh-trade 261012 · 목업 B′)', () => {
       expect(sentPayloads()[1]).toEqual({ t: 'user.settings.set', s: { ...VALUES_OF(after), preBuyAutoAddBuy: true } });
       expect(sentPayloads()[1]!.s.preBuyWatchAmount).toBe(50);
     });
+  });
+});
+
+describe('P32 serverKey prop (D-24 — 설정 탭 서버 = 고른 계좌의 서버)', () => {
+  const ACCOUNTS = [
+    { accountNo: '111', name: 'KB 계좌', serverKey: 'KB120' },
+    { accountNo: '222', name: '교보 계좌', serverKey: 'KYOBO119' },
+  ];
+  const KB = settings(true, { serverKey: 'KB120', autoSellPeriodSec: 3 });
+  const KYOBO = settings(true, { serverKey: 'KYOBO119', autoSellPeriodSec: 8 });
+  /** 서버별 84 를 그대로 싣는 컨텍스트(새 relay 모양 — "" 칸 없음). */
+  function relayByServer(entries: [string, RelayUserSettingsMsg][]): RelayContextValue {
+    return {
+      ...EMPTY_RELAY_VALUE,
+      status: 'ready',
+      accounts: ACCOUNTS,
+      userSettingsByServer: new Map(entries),
+      send,
+    } as RelayContextValue;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('serverKey KYOBO119 · Map 에 KB120 만 → 「불러오는 중」 · 행 흐림 · 버튼 비활성 · 확정 무시(KB 값으로 대신 보이지 않는다)', () => {
+    mockRelay = relayByServer([['KB120', KB]]);
+    render(<LimitChaserDefaultsSection serverKey="KYOBO119" />);
+    expect(chip()).toHaveTextContent('불러오는 중');
+    expect(chip()).toHaveAttribute('data-tone', 'loading');
+    const body = section().querySelector('[data-slot="me-lc-defaults-rows"]') as HTMLElement;
+    expect(body).toHaveAttribute('data-dim', 'true');
+    for (const b of within(body).getAllByRole('button')) expect(b).toBeDisabled();
+    expect(rowValue('auto-sell-period-sec')).not.toBe('3초');
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('serverKey KYOBO119 · 그 칸 있음 → 그 서버 값 · 확정 프레임에 serverKey KYOBO119 · s 는 그 서버 84 기준', () => {
+    mockRelay = relayByServer([
+      ['KB120', KB],
+      ['KYOBO119', KYOBO],
+    ]);
+    render(<LimitChaserDefaultsSection serverKey="KYOBO119" />);
+    expect(chip()).toHaveTextContent('서버 저장값');
+    expect(rowValue('auto-sell-period-sec')).toBe('8초');
+    inlineCommit('auto-sell-ratio-default-pct', '15');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sentPayloads()[0]).toEqual({
+      t: 'user.settings.set',
+      serverKey: 'KYOBO119',
+      s: { ...VALUES_OF(KYOBO), autoSellRatioDefaultPct: 15 },
+    });
+  });
+
+  it('고른 계좌가 바뀌면(KB120 → KYOBO119) 그 서버 값으로 바뀌고 저장도 그 서버로 간다', () => {
+    mockRelay = relayByServer([
+      ['KB120', KB],
+      ['KYOBO119', KYOBO],
+    ]);
+    const view = render(<LimitChaserDefaultsSection serverKey="KB120" />);
+    expect(rowValue('auto-sell-period-sec')).toBe('3초');
+    view.rerender(<LimitChaserDefaultsSection serverKey="KYOBO119" />);
+    expect(rowValue('auto-sell-period-sec')).toBe('8초');
+    inlineCommit('auto-sell-period-sec', '9');
+    expect(sentPayloads()[0]).toMatchObject({ serverKey: 'KYOBO119', s: { autoSellPeriodSec: 9 } });
+  });
+
+  it('prop 없음 → "" 칸(구 relay) · 송신 프레임에 serverKey 키가 없다(relay 가 primary 로 보낸다)', () => {
+    mockRelay = relay(settings(true));
+    render(<LimitChaserDefaultsSection />);
+    inlineCommit('auto-sell-period-sec', '5');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sentPayloads()[0]).not.toHaveProperty('serverKey');
+  });
+
+  it('구 relay("" 칸만) · serverKey 가 첫 서버(KB120) → "" 값을 보인다 · 송신은 serverKey KB120(Pattern 5 관용)', () => {
+    mockRelay = relayByServer([['', settings(true, { autoSellPeriodSec: 4 })]]);
+    render(<LimitChaserDefaultsSection serverKey="KB120" />);
+    expect(chip()).toHaveTextContent('서버 저장값');
+    expect(rowValue('auto-sell-period-sec')).toBe('4초');
+    inlineCommit('auto-sell-period-sec', '6');
+    expect(sentPayloads()[0]).toMatchObject({ serverKey: 'KB120', s: { autoSellPeriodSec: 6 } });
+  });
+
+  it('구 relay("" 칸만) · serverKey 가 첫 서버가 아님(KYOBO119) → 「불러오는 중」 잠금', () => {
+    mockRelay = relayByServer([['', settings(true)]]);
+    render(<LimitChaserDefaultsSection serverKey="KYOBO119" />);
+    expect(chip()).toHaveTextContent('불러오는 중');
+    expect(send).not.toHaveBeenCalled();
   });
 });

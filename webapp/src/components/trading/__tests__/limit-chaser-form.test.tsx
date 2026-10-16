@@ -4908,3 +4908,124 @@ describe('u04 84 선매수 기본설정 — 매도잔량 시딩 · 「줄매수�
     });
   });
 });
+
+/* ───────────── Phase 32 D-14b — 새 폼 84 시딩 = 카드 계좌의 서버 84 (Pitfall 14) ───────────── */
+
+describe('P32 시딩 = 카드 계좌 서버 (D-14b)', () => {
+  const KB_ACCOUNT = ACCOUNT;
+  const KYOBO_ACCOUNT = '40000000101';
+  const NOKEY_ACCOUNT = '50000000101';
+  const ACCOUNTS: RelayAccount[] = [
+    { accountNo: KB_ACCOUNT, name: 'KB 계좌', serverKey: 'KB120' },
+    { accountNo: KYOBO_ACCOUNT, name: '교보 계좌', serverKey: 'KYOBO119' },
+    { accountNo: NOKEY_ACCOUNT, name: '서버키 모름' },
+  ];
+  const us = (serverKey: string | undefined, over: Partial<RelayUserSettingsMsg> = {}): RelayUserSettingsMsg => ({
+    t: 'user.settings',
+    present: true,
+    ...(serverKey === undefined ? {} : { serverKey }),
+    preBuyAmount: 4000,
+    addBuyAmount: 4000,
+    postBuyAmount: 4000,
+    postBuyMaxCount: 3,
+    postBuyFloorQty: 0,
+    postBuyReboundPct: 30,
+    sellQtyTrackRatio: 55,
+    autoSellPeriodSec: 3,
+    auctionSellRatioPct: 20,
+    autoSellRatioDefaultPct: 10,
+    autoSellMethodDefault: 3,
+    postBuyFloorAmount: 0,
+    ...over,
+  });
+  const KB = us('KB120', { preBuyAmount: 5000, addBuyAmount: 6000 });
+  const KYOBO = us('KYOBO119', { preBuyAmount: 7000, addBuyAmount: 8000 });
+  const newForm = (accountNo: string) =>
+    props({ accountNo, server: null, upperLimit: 30_000, listShares: 10_000_000 });
+
+  /** 84 를 어느 서버에서도 못 받은 새 폼의 두 금액 칸 — 「빈 패치」 의 기준값. */
+  function unseeded(accountNo: string): [string | null, string | null] {
+    mockAccounts = ACCOUNTS;
+    mockUserSettingsByServer = new Map();
+    const { unmount } = render(<LimitChaserForm {...newForm(accountNo)} />);
+    const out: [string | null, string | null] = [rowText('lc-buy-order-amount'), rowText('lc-extra-buy-amount')];
+    unmount();
+    return out;
+  }
+
+  beforeEach(() => {
+    mockAccounts = ACCOUNTS;
+  });
+
+  it('교보 계좌 카드(KYOBO119) · Map 에 KB120 만 → 시딩 빈 패치(84 미수신과 같다) · KB 값으로 채우지 않는다 · 전송 0', () => {
+    const base = unseeded(KYOBO_ACCOUNT);
+    mockUserSettingsByServer = new Map([['KB120', KB]]);
+    render(<LimitChaserForm {...newForm(KYOBO_ACCOUNT)} />);
+    expect([rowText('lc-buy-order-amount'), rowText('lc-extra-buy-amount')]).toEqual(base);
+    expect(rowText('lc-buy-order-amount')).not.toBe('5,000만원');
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('KYOBO119 84 도착 뒤 → 열린 미등록 폼은 KYOBO 값으로 재시딩 · 새 폼도 KYOBO 값 · KB 계좌 카드는 KB 값', () => {
+    mockUserSettingsByServer = new Map([['KB120', KB]]);
+    const first = render(<LimitChaserForm {...newForm(KYOBO_ACCOUNT)} />);
+    mockUserSettingsByServer = new Map([
+      ['KB120', KB],
+      ['KYOBO119', KYOBO],
+    ]);
+    first.rerender(<LimitChaserForm {...newForm(KYOBO_ACCOUNT)} />);
+    expect(rowText('lc-buy-order-amount')).toBe('7,000만원');
+    expect(rowText('lc-extra-buy-amount')).toBe('8,000만원');
+    first.unmount();
+
+    const kyobo = render(<LimitChaserForm {...newForm(KYOBO_ACCOUNT)} />);
+    expect(rowText('lc-buy-order-amount')).toBe('7,000만원');
+    kyobo.unmount();
+
+    render(<LimitChaserForm {...newForm(KB_ACCOUNT)} />);
+    expect(rowText('lc-buy-order-amount')).toBe('5,000만원');
+    expect(rowText('lc-extra-buy-amount')).toBe('6,000만원');
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('서버키 없는 계좌 카드 → "" 칸(구 relay 84)이 있어도 시딩 빈 패치', () => {
+    const base = unseeded(NOKEY_ACCOUNT);
+    mockUserSettingsByServer = new Map([
+      ['', us(undefined, { preBuyAmount: 9000 })],
+      ['KB120', KB],
+    ]);
+    render(<LimitChaserForm {...newForm(NOKEY_ACCOUNT)} />);
+    expect([rowText('lc-buy-order-amount'), rowText('lc-extra-buy-amount')]).toEqual(base);
+  });
+
+  it('preBuyWatchFixedOf 도 카드 계좌 서버 84 — KB 50 · 교보 0 → 교보 카드 매도잔량은 상장주식수 시딩 · KB 카드는 50만', () => {
+    mockUserSettingsByServer = new Map([
+      ['KB120', us('KB120', { preBuyWatchAmount: 50 })],
+      ['KYOBO119', us('KYOBO119', { preBuyWatchAmount: 0 })],
+    ]);
+    const kyobo = render(<LimitChaserForm {...newForm(KYOBO_ACCOUNT)} />);
+    expect(rowText('lc-buy-watch-qty')).toBe('90,000만');
+    kyobo.unmount();
+    render(<LimitChaserForm {...newForm(KB_ACCOUNT)} />);
+    expect(rowText('lc-buy-watch-qty')).toBe('50만');
+  });
+
+  it('「줄매수도 같이 켜기」 도 카드 계좌 서버 84 — KB ON · 교보 OFF → 교보 카드 선매수 켬은 줄매수를 같이 켜지 않는다 · KB 카드는 같이 켠다', () => {
+    const ready = echo({ extraBuyOrderAmount: 50 });
+    mockUserSettingsByServer = new Map([
+      ['KB120', us('KB120', { preBuyAutoAddBuy: true })],
+      ['KYOBO119', us('KYOBO119', { preBuyAutoAddBuy: false })],
+    ]);
+    const kyobo = render(<LimitChaserForm {...props({ accountNo: KYOBO_ACCOUNT, server: ready })} />);
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ preBuyEnabled: true, extraBuyEnabled: false });
+    kyobo.unmount();
+    sendMock.mockClear();
+
+    render(<LimitChaserForm {...props({ accountNo: KB_ACCOUNT, server: ready })} />);
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ preBuyEnabled: true, extraBuyEnabled: true });
+  });
+});
