@@ -27,8 +27,8 @@
  *   2026-10-16). 확인하면 `send({ t: "strategies.disable.account", accountNo })` 1건 — relay 가 그 계좌 소유 세션으로
  *   켜진 키마다 14 를 건별로 보내고 65 를 모아 `strategies.disabled` 1건을 준다(서버 와이어는 세션 단위라 계좌 필터는
  *   relay 몫). 새 메시지 타입이라 구 relay 는 4400 으로 끊고 아무것도 끄지 않는다(Pitfall 2).
- *   확인 다이얼로그의 기본 포커스는 **닫기**다(Enter 연타로 꺼지면 안 된다). 실행 버튼은 테두리형이다 — `--destructive` 와
- *   `--up`(매수)이 같은 색이라 채움 빨강은 매수 버튼과 구분되지 않는다(S-6).
+ *   확인 다이얼로그의 기본 포커스는 **닫기**다(Enter 연타로 꺼지면 안 된다). 카드 버튼 · 실행 버튼 모두 `KILL_BUTTON_TONE`
+ *   옅은 면이다 — `--destructive` 와 `--up`(매수)이 같은 색이라 채움(솔리드) 빨강은 매수 버튼과 구분되지 않는다(S-6).
  *   65(`strategies.disabled`)는 **완료 신호로만** 쓴다 — 목록은 60/61 에코가 이미 고쳐 둔다(T-16-07).
  *   ★ 대기 잠금은 **계좌별**이다(S5′ 「끄기 응답 대기 잠금」): 보낸 순서대로의 계좌 목록을 두고 `strategies.disabled` 새 참조마다
  *     그 프레임의 계좌(`accountNo` · WR-01)를 푼다 — 계좌 없는 프레임(구 relay)만 맨 앞 하나(relay 가 계좌 끄기 1건당 1프레임으로
@@ -111,10 +111,17 @@ const KRW = new Intl.NumberFormat("ko-KR");
 
 /** kill 줄 안내(S5′ · D-27). */
 const KILL_HINT = "이 계좌의 상따 전략과 VI 자동매수를 한 번에 끕니다. 이미 나간 주문은 취소되지 않아요.";
+/**
+ * 「이 계좌 끄기」 카드 버튼 · 확인 다이얼로그 실행 버튼 공용 톤 — 옅은 면 + `--destructive` 글자. 채움(솔리드) 빨강 금지
+ * (S-6 — `--destructive` 와 `--up` 매수가 같은 색). 상태 색은 `--destructive` 만 쓰고 가격 방향 토큰은 쓰지 않는다(상태줄 ⑥
+ * 규율). 10% 면은 다크에서 옛 면보다 글자 대비가 높다(quick-261017-bwt).
+ */
+const KILL_BUTTON_TONE =
+  "bg-[color-mix(in_oklab,var(--destructive)_10%,transparent)] text-[var(--destructive)] hover:bg-[color-mix(in_oklab,var(--destructive)_18%,transparent)]";
 /** 8초 백스톱 — 결과를 모른다(실패가 아니다). */
 const DISABLE_UNCONFIRMED_TEXT = "이 계좌 끄기 요청의 반영을 확인하지 못했어요. 전략 목록을 확인해 주세요.";
 /** 전송 실패 — 0바이트가 확실하다(다시 눌러도 안전하다). */
-const DISABLE_SEND_FAILED_TEXT = "연결이 끊겨 비활성화 요청을 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.";
+const DISABLE_SEND_FAILED_TEXT = "연결이 끊겨 이 계좌 끄기 요청을 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.";
 
 // ---------------------------------------------------------------------------
 // VI 요약
@@ -276,7 +283,7 @@ function DisableAccountDialog({
         }}
       >
         <DialogHeader>
-          <DialogTitle>이 계좌의 전략을 비활성화할까요?</DialogTitle>
+          <DialogTitle>이 계좌의 전략을 끌까요?</DialogTitle>
           <DialogDescription>{disableSubtitle(summary)}</DialogDescription>
         </DialogHeader>
 
@@ -311,13 +318,8 @@ function DisableAccountDialog({
           <Button type="button" variant="outline" autoFocus ref={dismissRef} onClick={() => onOpenChange(false)}>
             닫기
           </Button>
-          {/* 채움 금지 — `--destructive` 는 `--up`(매수)과 같은 색이다(S-6). */}
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onConfirm}
-            className="border-[var(--destructive)] bg-transparent text-[var(--destructive)] hover:bg-[color-mix(in_oklab,var(--destructive)_10%,transparent)]"
-          >
+          {/* 채움(솔리드) 금지 — 카드 버튼과 같은 옅은 면(S-6 · quick-261017-bwt). */}
+          <Button type="button" variant="outline" onClick={onConfirm} className={KILL_BUTTON_TONE}>
             이 계좌 끄기
           </Button>
         </DialogFooter>
@@ -617,7 +619,7 @@ export function StrategyStatusCard({ className, accountNo }: StrategyStatusCardP
 
       {/*
         「이 계좌 끄기」 (S5′ · D-27) — 고른 계좌가 있을 때만 · 카드 맨 아래 한 줄. 모든 계좌를 끄는 컨트롤은 없다.
-        `--destructive` 면(목업 ⑥ `.btn.danger` — 옅은 빨강 면 · 빨강 글자) · 32 높이 · 좌우 12 · 12/600.
+        `KILL_BUTTON_TONE` 옅은 면(목업 ⑥ `.btn.danger` — 옅은 빨강 면 · 빨강 글자) · 32 높이 · 좌우 12 · 12/600.
       */}
       {accountNo !== undefined && (
         <div
@@ -631,7 +633,10 @@ export function StrategyStatusCard({ className, accountNo }: StrategyStatusCardP
             aria-label={`이 계좌 끄기 — ${accountNo}`}
             disabled={nothingToDisable || shownPending || status !== "ready"}
             onClick={() => setDialogOpen(true)}
-            className="ml-auto h-8 rounded-[var(--r-sm)] bg-[var(--up-bg)] px-3 text-[12px] font-semibold text-[var(--destructive)] hover:bg-[color-mix(in_oklab,var(--destructive)_18%,transparent)] disabled:opacity-[.45]"
+            className={cn(
+              "ml-auto h-8 rounded-[var(--r-sm)] px-3 text-[12px] font-semibold disabled:opacity-[.45]",
+              KILL_BUTTON_TONE,
+            )}
           >
             이 계좌 끄기
           </Button>

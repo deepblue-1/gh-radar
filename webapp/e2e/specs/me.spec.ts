@@ -684,7 +684,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
 
     const dialog = page.getByTestId('strategy-disable-account-dialog');
     await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText('이 계좌의 전략을 비활성화할까요?');
+    await expect(dialog).toContainText('이 계좌의 전략을 끌까요?');
     await expect(dialog).toContainText('상따 2건과 VI 자동매수가 한 번에 꺼져요.');
     await expect(dialog).toContainText(`${E2E_ACCOUNT_NO} · 위탁종합`);
     // 기본 포커스는 닫기 — Enter 한 번에 꺼지면 안 된다.
