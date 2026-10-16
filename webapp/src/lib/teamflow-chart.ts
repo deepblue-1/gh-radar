@@ -2,12 +2,13 @@
  * 팀 매집 차트 픽셀 기하 순수 함수 모듈 (Phase 33 · UI-SPEC T4 · T6 · T8).
  *
  * 표시 글자 변환은 `teamflow-report.ts`, 좌표 · 크기 계산은 여기 — 컴포넌트는 그리기만 한다(테스트가 기하를 직접 잠근다).
- * 33-03 = 행 미니막대(`stripBarsOf`) · 33-05 = 구간 가로 막대(`bandChartOf`). 뒤 플랜(33-06 10분 흐름 차트)이 덧붙인다.
+ * 33-03 = 행 미니막대(`stripBarsOf`) · 33-05 = 구간 가로 막대(`bandChartOf`) · 33-06 = 10분 흐름 차트(`bucketChartOf`).
  */
 
-import type { TeamflowBand } from '@gh-radar/shared';
+import type { TeamflowBand, TeamflowBucket, TeamflowWindow } from '@gh-radar/shared';
 
-import { toneOf, type TeamflowTone } from './teamflow-report';
+import { kstSecOf } from './limitup-report';
+import { BUCKET_KEY_FIRST, BUCKET_SLOTS, kstHm, toneOf, type TeamflowTone } from './teamflow-report';
 
 /** 측정 폭을 모를 때(jsdom clientWidth 0 · 첫 렌더) 쓰는 폭 — Pitfall 8. */
 export const CHART_FALLBACK_W = 640;
@@ -133,4 +134,215 @@ export function bandChartOf(bands: readonly TeamflowBand[], measuredW: number): 
   });
   const i20 = src.findIndex((b) => b.label === '20~25%');
   return { W, H, cx, sc, y20: i20 > 0 ? BAND_TOP + i20 * BAND_ROW_H : null, rows };
+}
+
+/* ───────── 10분 흐름 차트 (UI-SPEC T8 치수 표 · D-13 39칸 고정축) ───────── */
+
+/** 왼쪽 축 40 · 오른쪽 축 36 · 위 8 · 막대 판 128 · 판 사이 16 · 등락률 띠 판 56 · 시각 눈금 20 → 높이 228. */
+export const BUCKET_L = 40;
+export const BUCKET_R = 36;
+export const BUCKET_T = 8;
+export const BUCKET_H1 = 128;
+export const BUCKET_GAP = 16;
+export const BUCKET_H2 = 56;
+export const BUCKET_TICK = 20;
+export const BUCKET_H = BUCKET_T + BUCKET_H1 + BUCKET_GAP + BUCKET_H2 + BUCKET_TICK;
+/** 팀 비중 선 위끝 = 60%(초과는 위끝 고정). */
+const BUCKET_SHARE_TOP = 0.6;
+/** 스케일 하한 5천만 원 · 최소 막대 / 띠 높이 1.5. */
+const BUCKET_MX_FLOOR = 5e7;
+const BUCKET_MIN_H = 1.5;
+/** 「첫 상한가 HH:MM」 11/600 폭 추정(SVG 글자 측정 없음 — 33-07 E2E 백스톱) · 선과 라벨 사이 4. */
+const FIRST_LIMIT_LABEL_W = 84;
+const FIRST_LIMIT_PAD = 4;
+/** 09:00 = 540분. */
+const MARKET_OPEN_MIN = 540;
+
+const slotOf = (W: number) => (W - BUCKET_L - BUCKET_R) / BUCKET_SLOTS;
+
+const hmToMin = (hm: string): number | null => {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hm);
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+};
+
+const clampSlot = (i: number) => Math.min(BUCKET_SLOTS - 1, Math.max(0, i));
+
+/**
+ * payload.window → 음영 칸 범위 `[s0, s1]`(양끝 포함) — 「HH:MM」 → 분 → `floor(분 / 10) − 54` · 0~38 로 자른다.
+ * null · 형식이 틀린 시각 → null.
+ */
+export function windowSlotsOf(window: Pick<TeamflowWindow, 'start' | 'end'> | null | undefined): [number, number] | null {
+  if (!window) return null;
+  const a = hmToMin(window.start);
+  const b = hmToMin(window.end);
+  if (a === null || b === null) return null;
+  const s0 = clampSlot(Math.floor(a / 10) - BUCKET_KEY_FIRST);
+  const s1 = clampSlot(Math.floor(b / 10) - BUCKET_KEY_FIRST);
+  return s0 <= s1 ? [s0, s1] : [s1, s0];
+}
+
+export interface FirstLimitX {
+  x: number;
+  /** 라벨이 오른쪽 끝(W − 36)을 넘으면 'end'(선 왼쪽) */
+  anchor: 'start' | 'end';
+}
+
+/**
+ * first_limit_ms → 세로선 x — KST 분(초 포함 소수) 정확 위치 `40 + (분 − 540) ÷ 10 × slot` · `[40, W − 36]` 로 자른다
+ * (09:00 이전 · 15:30 이후는 축 끝). 라벨(≈ 84px)이 `x + 4` 에서 오른쪽 끝을 넘으면 anchor 'end'. null → null.
+ */
+export function firstLimitXOf(ms: number | null | undefined, measuredW: number): FirstLimitX | null {
+  if (!isNum(ms)) return null;
+  const W = chartWidthOf(measuredW);
+  const right = W - BUCKET_R;
+  const min = kstSecOf(ms) / 60;
+  const raw = BUCKET_L + ((min - MARKET_OPEN_MIN) / 10) * slotOf(W);
+  const x = Math.min(right, Math.max(BUCKET_L, raw));
+  return { x, anchor: x + FIRST_LIMIT_PAD + FIRST_LIMIT_LABEL_W > right ? 'end' : 'start' };
+}
+
+export interface BucketBar {
+  i: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  tone: TeamflowTone;
+}
+
+export interface BucketRate {
+  i: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface BucketHit {
+  i: number;
+  /** 칸 전체 폭(투명 히트 rect) */
+  x: number;
+  w: number;
+  bucket: TeamflowBucket;
+}
+
+export interface BucketChart {
+  W: number;
+  H: number;
+  slot: number;
+  barW: number;
+  /** 0선 y — 막대 판 위에서 55% */
+  zero: number;
+  /** 막대 스케일(원) = max(5천만, |net_val| 최대) */
+  mx: number;
+  rlo: number;
+  rhi: number;
+  /** 20% 점선 y */
+  y20: number;
+  /** 등락률 축 위끝(rhi) y */
+  yTop: number;
+  bars: BucketBar[];
+  rates: BucketRate[];
+  /** 비중 선 구간 — 빈 칸 · share null 에서 끊긴다 */
+  shareSegments: { x: number; y: number }[][];
+  shade: { x: number; w: number } | null;
+  firstLimit: (FirstLimitX & { label: string }) | null;
+  ticks: { x: number; label: string }[];
+  hits: BucketHit[];
+  /** 39칸 전부 null */
+  empty: boolean;
+}
+
+/**
+ * 39칸 슬롯(`bucketSlotsOf`) + window + first_limit_ms + 측정 폭 → 10분 흐름 차트 기하(UI-SPEC T8 · 스케치 015 bucketChart 이식 —
+ * 가변 칸 대신 39칸 고정). viewBox 를 측정 폭과 1:1 로 둔다.
+ * slot = (W − 76) ÷ 39 · 막대 폭 max(2, slot − 2) · x(i) = 40 + i × slot + 1 · 0선 = 8 + 128 × 0.55 ·
+ * 막대 h = max(1.5, |v| ÷ mx × (v ≥ 0 ? 위 여유 : 아래 여유)) · 비중 선 y = 8 + 128 − min(s, 0.6) ÷ 0.6 × 128 ·
+ * 등락률 띠 축 rlo = min(0, lo 최소) · rhi = max(30, hi 최대) · 음영 = window 칸(양끝 포함) · 눈금 9~15시 = 슬롯 h × 6 − 54 가운데.
+ */
+export function bucketChartOf(
+  slots: readonly (TeamflowBucket | null)[],
+  window: Pick<TeamflowWindow, 'start' | 'end'> | null | undefined,
+  firstLimitMs: number | null | undefined,
+  measuredW: number,
+): BucketChart {
+  const W = chartWidthOf(measuredW);
+  const slot = slotOf(W);
+  const barW = Math.max(2, slot - 2);
+  const xOf = (i: number) => BUCKET_L + i * slot + 1;
+  const T = BUCKET_T;
+  const H1 = BUCKET_H1;
+  const zero = T + H1 * 0.55;
+  const up = zero - T - 4;
+  const dn = T + H1 - zero - 4;
+
+  const filled = slots
+    .map((bucket, i) => (bucket ? { i, bucket } : null))
+    .filter((v): v is { i: number; bucket: TeamflowBucket } => v !== null);
+
+  const mx = Math.max(BUCKET_MX_FLOOR, ...filled.map((f) => f.bucket.net_val).filter(isNum).map(Math.abs));
+  const ys = (s: number) => T + H1 - (Math.min(s, BUCKET_SHARE_TOP) / BUCKET_SHARE_TOP) * H1;
+  const rlo = Math.min(0, ...filled.map((f) => f.bucket.lo).filter(isNum));
+  const rhi = Math.max(30, ...filled.map((f) => f.bucket.hi).filter(isNum));
+  const bandBottom = T + H1 + BUCKET_GAP + BUCKET_H2;
+  const yr = (r: number) => bandBottom - ((r - rlo) / (rhi - rlo)) * BUCKET_H2;
+
+  const bars: BucketBar[] = [];
+  const rates: BucketRate[] = [];
+  const hits: BucketHit[] = [];
+  for (const { i, bucket } of filled) {
+    const x = xOf(i);
+    hits.push({ i, x: BUCKET_L + i * slot, w: slot, bucket });
+    const v = bucket.net_val;
+    if (isNum(v)) {
+      const h = Math.max(BUCKET_MIN_H, (Math.abs(v) / mx) * (v >= 0 ? up : dn));
+      bars.push({ i, x, y: v >= 0 ? zero - h : zero, w: barW, h, tone: toneOf(v) });
+    }
+    const lo = isNum(bucket.lo) ? bucket.lo : bucket.hi;
+    const hi = isNum(bucket.hi) ? bucket.hi : bucket.lo;
+    if (isNum(lo) && isNum(hi)) {
+      rates.push({ i, x, y: yr(hi), w: barW, h: Math.max(BUCKET_MIN_H, yr(lo) - yr(hi)) });
+    }
+  }
+
+  const shareSegments: { x: number; y: number }[][] = [];
+  let seg: { x: number; y: number }[] = [];
+  slots.forEach((bucket, i) => {
+    const s = bucket?.share;
+    if (isNum(s)) seg.push({ x: xOf(i) + barW / 2, y: ys(s) });
+    else if (seg.length > 0) {
+      shareSegments.push(seg);
+      seg = [];
+    }
+  });
+  if (seg.length > 0) shareSegments.push(seg);
+
+  const ws = windowSlotsOf(window);
+  const shade = ws ? { x: xOf(ws[0]) - 1, w: xOf(ws[1]) + barW - xOf(ws[0]) + 2 } : null;
+
+  const fl = firstLimitXOf(firstLimitMs, W);
+  const firstLimit = fl && isNum(firstLimitMs) ? { ...fl, label: `첫 상한가 ${kstHm(firstLimitMs)}` } : null;
+
+  const ticks = [9, 10, 11, 12, 13, 14, 15].map((h) => ({ x: xOf(h * 6 - BUCKET_KEY_FIRST) + barW / 2, label: `${h}시` }));
+
+  return {
+    W,
+    H: BUCKET_H,
+    slot,
+    barW,
+    zero,
+    mx,
+    rlo,
+    rhi,
+    y20: yr(20),
+    yTop: yr(rhi),
+    bars,
+    rates,
+    shareSegments,
+    shade,
+    firstLimit,
+    ticks,
+    hits,
+    empty: filled.length === 0,
+  };
 }

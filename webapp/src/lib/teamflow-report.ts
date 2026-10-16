@@ -8,10 +8,10 @@
  * - 음수 부호는 U+2212(−) — 하이픈이 아니다.
  * - 요약 문장(`payload.summary_lines`)은 HTML 문자열을 주입하지 않고 조각 배열(`summaryPartsOf`)로만 렌더한다.
  *
- * 뒤 플랜(33-06)이 10분 축 변환을 이 모듈에 덧붙인다(KPI · 행 칸 · 미니막대 슬롯은 33-03).
+ * 33-03 = KPI · 행 칸 · 미니막대 슬롯 · 33-06 = 10분 축 슬롯(`bucketSlotsOf`) · 등락 범위(`fmtRangePct`).
  */
 
-import type { TeamflowBand, TeamflowRow } from '@gh-radar/shared';
+import type { TeamflowBand, TeamflowBucket, TeamflowRow } from '@gh-radar/shared';
 
 import { kstSecOf } from './limitup-report';
 
@@ -269,4 +269,81 @@ export function rowDescriptionOf(
     `매수 중 팀 ${fmtShare(row.team_buy_share)}`,
   );
   return parts.join(', ');
+}
+
+/** 10분 축(D-13) — key = KST 하루 10분 칸 번호. 54 = 09:00 · 92 = 15:20 · 93 = 15:30(종가 단일가 체결). */
+export const BUCKET_KEY_FIRST = 54;
+export const BUCKET_KEY_LAST = 92;
+export const BUCKET_KEY_CLOSE = 93;
+/** 09:00~15:30 고정 39칸. */
+export const BUCKET_SLOTS = 39;
+
+/** 슬롯 38 합산에서 더하는 수량 · 금액 키(10개). */
+const BUCKET_SUM_KEYS = [
+  'vol',
+  'val',
+  'buy_aggr',
+  'sell_aggr',
+  'team_buy',
+  'team_sell',
+  'net',
+  'team_buy_val',
+  'team_sell_val',
+  'net_val',
+] as const;
+
+/** null-안전 합 — 둘 다 null 이면 null, 한쪽만 있으면 그 값. */
+const sumOrNull = (a: number | null, b: number | null): number | null =>
+  isNum(a) ? (isNum(b) ? a + b : a) : isNum(b) ? b : null;
+
+/** null-안전 min/max — 둘 중 non-null 만 본다. */
+const pickOrNull = (a: number | null, b: number | null, f: (x: number, y: number) => number): number | null =>
+  isNum(a) ? (isNum(b) ? f(a, b) : a) : isNum(b) ? b : null;
+
+/** 슬롯 38(15:20 칸)에 종가 단일가 버킷을 접는다 — 새 객체(입력 불변). */
+function mergeCloseInto(base: TeamflowBucket, close: TeamflowBucket): TeamflowBucket {
+  const out: TeamflowBucket = { ...base, start: '15:20' };
+  for (const k of BUCKET_SUM_KEYS) out[k] = sumOrNull(base[k], close[k]);
+  out.lo = pickOrNull(base.lo, close.lo, Math.min);
+  out.hi = pickOrNull(base.hi, close.hi, Math.max);
+  out.share = isNum(out.buy_aggr) && out.buy_aggr !== 0 && isNum(out.team_buy) ? out.team_buy / out.buy_aggr : null;
+  return out;
+}
+
+/**
+ * payload.buckets → 10분 차트 39칸(D-13 · UI-SPEC T11 `bucketSlotsOf`). 칸 i = key 54 + i(09:00 … 15:20) · 빈 칸 null —
+ * 종목이 달라도 같은 자리에 같은 시각이 온다(잠김 · VI 공백이 빈자리로 보인다).
+ *
+ * **D-13 보정(2026-10-16 사용자 결정):** key 93(15:30:00 종가 단일가 체결 · 15:20~15:30 접수)은 슬롯 38(15:20 칸)에
+ * 합산한다 — 수량 · 금액 10키는 null-안전 합 · `lo` = min · `hi` = max · `share` = 합산 `team_buy ÷ buy_aggr`(분모 0 → null) ·
+ * 칸 `start` 「15:20」. 슬롯 38 이 비어 있으면 key 93 복사본(`key` 92 · `start` 「15:20」)을 둔다.
+ * 그 밖의 범위 밖 key(< 54 · > 93)는 차트에서 버린다. 「10분 표 보기」 표에는 key 92 · 93 · 범위 밖 key 가 각자 행으로 남는다
+ * (표는 이 함수를 쓰지 않는다). 입력 배열 · 객체는 바꾸지 않는다.
+ */
+export function bucketSlotsOf(buckets: readonly TeamflowBucket[]): (TeamflowBucket | null)[] {
+  const slots: (TeamflowBucket | null)[] = Array.from({ length: BUCKET_SLOTS }, () => null);
+  const closes: TeamflowBucket[] = [];
+  for (const b of buckets) {
+    if (b.key === BUCKET_KEY_CLOSE) closes.push(b);
+    else if (b.key >= BUCKET_KEY_FIRST && b.key <= BUCKET_KEY_LAST) slots[b.key - BUCKET_KEY_FIRST] = { ...b };
+  }
+  const last = BUCKET_SLOTS - 1;
+  for (const c of closes) {
+    const cur = slots[last];
+    slots[last] = cur ? mergeCloseInto(cur, c) : { ...c, key: BUCKET_KEY_LAST, start: '15:20' };
+  }
+  return slots;
+}
+
+/** 등락률 % 소수 1자리(0.05 는 0 에서 먼 쪽) · 음수만 U+2212 · −0 은 「0.0」. */
+function fmtPct1(v: number): string {
+  const r = roundHalfAway(v * 10) / 10;
+  if (r === 0) return '0.0';
+  return `${r < 0 ? MINUS : ''}${Math.abs(r).toFixed(1)}`;
+}
+
+/** 10분 등락 범위 「21.1~29.8%」 · 「−1.2~3.4%」(소수 1자리 · 음수만 「−」). 둘 중 null 이면 「—」. */
+export function fmtRangePct(lo: number | null | undefined, hi: number | null | undefined): string {
+  if (!isNum(lo) || !isNum(hi)) return DASH;
+  return `${fmtPct1(lo)}~${fmtPct1(hi)}%`;
 }

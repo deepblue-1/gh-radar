@@ -6,6 +6,7 @@ import { factLineOf, summaryPartsOf } from '@/lib/teamflow-report';
 
 import { TeamflowBandChart } from './teamflow-band-chart';
 import { TeamflowBandTable } from './teamflow-band-table';
+import { TeamflowBucketChart } from './teamflow-bucket-chart';
 import { TeamflowMembers } from './teamflow-members';
 import { TeamflowToggle } from './teamflow-toggle';
 
@@ -32,7 +33,7 @@ const RULES = [
  * - 요약 다음 = [구간 가로 막대 | 다섯 창구 거래원] 2열(`grid gap-4 xl:grid-cols-2` · < xl 1열 — D-14 · UI-SPEC T6 · T7).
  *   구간 차트 아래 8px 「구간표 보기」 접힘 표.
  * - 상세 맨 아래 「판정 기준」 접힘(UI-SPEC T9 — 6항목 + 출처 줄). 두 토글 모두 기본 접힘 · 서로 독립 · 행을 접으면 초기화.
- * - 뒤 플랜(33-06)이 10분 흐름 블록을 2열과 판정 기준 사이에 덧붙인다(세로 블록 사이 16px).
+ * - 2열 아래 전폭 = 10분 흐름 블록(UI-SPEC T8 · D-13 — 39칸 고정축 차트 · 세로 블록 사이 16px).
  */
 export function TeamflowDetail({ row, labelledBy }: { row: TeamflowRow; labelledBy: string }) {
   const lines = row.payload?.summary_lines ?? [];
@@ -104,6 +105,15 @@ export function TeamflowDetail({ row, labelledBy }: { row: TeamflowRow; labelled
         <div className="min-w-0">
           <TeamflowMembers members={row.payload?.members ?? null} />
         </div>
+      </div>
+
+      <div data-slot="teamflow-buckets" className="min-w-0">
+        <TeamflowBucketChart
+          name={row.name ?? row.short_code ?? row.isin}
+          buckets={row.payload?.buckets ?? []}
+          window={row.payload?.window ?? null}
+          firstLimitMs={row.first_limit_ms}
+        />
       </div>
 
       <div data-slot="teamflow-rules">
