@@ -988,3 +988,38 @@ describe("P31 lc.set 금액 8필드 선택 (D-11)", () => {
     expect(lcBuy3SchemaOf(full.cfg)).toBe(lcBuy3SchemaOf(bare.cfg));
   });
 });
+
+describe("P32 strategies.disable.account 스키마 (Pitfall 2)", () => {
+  beforeEach(() => {
+    vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("정상 계좌번호는 통과한다 — 새 판별자 · accountNo 그대로", () => {
+    expect(parseInbound(JSON.stringify({ t: "strategies.disable.account", accountNo: "1234567801" }))).toEqual({
+      t: "strategies.disable.account",
+      accountNo: "1234567801",
+    });
+    // 상한 12자는 통과(게이트웨이 계좌 버퍼).
+    expect(parseInbound(JSON.stringify({ t: "strategies.disable.account", accountNo: "123456789012" }))).not.toBeNull();
+  });
+
+  it("accountNo 부재 · 빈 문자열 · 13자 → 파싱 실패(null = close 4400)", () => {
+    expect(parseInbound(JSON.stringify({ t: "strategies.disable.account" }))).toBeNull();
+    expect(parseInbound(JSON.stringify({ t: "strategies.disable.account", accountNo: "" }))).toBeNull();
+    expect(parseInbound(JSON.stringify({ t: "strategies.disable.account", accountNo: "1234567890123" }))).toBeNull();
+  });
+
+  it("회귀 고정 — 기존 strategies.disable 에 accountNo 를 실으면 strip 된다(동작 불변 · 그래서 새 타입이다)", () => {
+    expect(parseInbound(JSON.stringify({ t: "strategies.disable", accountNo: "1234567801" }))).toEqual({
+      t: "strategies.disable",
+    });
+    expect(parseInbound(JSON.stringify({ t: "strategies.disable", key: "", accountNo: "1234567801" }))).toEqual({
+      t: "strategies.disable",
+      key: "",
+    });
+  });
+});

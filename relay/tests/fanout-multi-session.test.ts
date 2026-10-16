@@ -40,6 +40,7 @@ import { MSG } from "../src/dma/msg-type.js";
 import { Envelope } from "../src/generated/stock-dma/envelope.js";
 import { WsFanout } from "../src/ws/fanout.js";
 import { SubscriptionHub } from "../src/hub/subscription-hub.js";
+import { logger } from "../src/logger.js";
 import type { DmaBroker, DmaServerRow } from "../src/registry/registry.js";
 import type { SymbolInfo, SymbolLookup } from "../src/store/symbols.js";
 import {
@@ -859,5 +860,133 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
     expect(disabledOf(since())).toEqual([{ t: "strategies.disabled", count: 1, viDisabled: false }]);
     const reject = rejectsOf(since(), "strategies.disable")[0];
     expect(reject?.t === "msg" ? reject.m : "").toContain("KB121");
+  });
+
+  describe("P32 계좌 끄기 다세션 (G-1 · D-09 보정)", () => {
+    const OTHER = "KR7000660001";
+    const VI_A = { accountNo: A, exchange: "KRX" as const, orderAmountKrw: 5_000_000n, checkRate: 25, run: true };
+
+    /** 그 페이로드들 중 14 의 키(빈 키 포함). */
+    function disableKeysOf(payloads: Buffer[]): string[] {
+      return payloads
+        .map((p) => readDisableStrategiesKey(envOf(p).msgType(), p))
+        .filter((k): k is string => k !== null);
+    }
+
+    /**
+     * KB121(A 소유)에 A 켜진 상따 `aOn` 건 · KB120(B 소유)에 B 켜진 상따 1건 · 두 스텁 14 처리 · 거래소별 VI 모드(11 → 61 에코).
+     * `viA` 면 KB121 KRX 칸에 가동 중인 A 의 VI.
+     */
+    function seed(aOn: number, viA: boolean): void {
+      const aItems = [
+        { isin: SAMPLE_ISIN, accountNo: A, buyEnabled: true },
+        { isin: OTHER, accountNo: A, exchange: "NXT", sellEnabled: true },
+      ].slice(0, aOn);
+      kb121.respondLimitChaserList(aItems);
+      kb120.respondLimitChaserList([{ isin: SAMPLE_ISIN, accountNo: B, buyEnabled: true }]);
+      kb120.handleDisableStrategies({});
+      kb121.handleDisableStrategies({});
+      kb120.respondViTriggerFor("KRX", null);
+      kb120.respondViTriggerFor("NXT", null);
+      kb121.respondViTriggerFor("KRX", viA ? VI_A : null);
+      kb121.respondViTriggerFor("NXT", null);
+    }
+
+    async function ready(viA: boolean): Promise<{ ws: TestWs; inbox: RelayOutbound[] }> {
+      const t = await tab();
+      await bothReady();
+      await waitFor(() => countOf(p121, MSG.GetVITriggerReq) === 2 && countOf(p120, MSG.GetVITriggerReq) === 2, "두 세션 21");
+      if (viA) await waitFor(() => hub.getViTrigger(USER_A, "KRX")?.run === true, "A KRX VI 가동 캐시");
+      await flushIo(10);
+      return t;
+    }
+
+    it("A(KB121 지정) 끄기 — 14 는 KB121 로만 A 키 건별 · KB120 14 0바이트 · B 전략 켜짐 · strategies.disabled 1건 { count 2 }", async () => {
+      seed(2, false);
+      const { ws, inbox } = await ready(false);
+      const from = inbox.length;
+      const since = (): RelayOutbound[] => inbox.slice(from);
+
+      ws.sendRaw({ t: "strategies.disable.account", accountNo: A });
+      await waitFor(() => disabledOf(since()).length === 1, "strategies.disabled 1건");
+      await flushIo(20);
+
+      expect([...disableKeysOf(p121)].sort()).toEqual([`${SAMPLE_ISIN}:${A}:KRX`, `${OTHER}:${A}:NXT`].sort());
+      expect(countOf(p120, MSG.DisableStrategiesReq)).toBe(0);
+      expect(countOf(p120, MSG.SetVITriggerReq)).toBe(0);
+      expect(countOf(p121, MSG.SetVITriggerReq)).toBe(0);
+      expect(disabledOf(since())).toEqual([{ t: "strategies.disabled", count: 2, viDisabled: false }]);
+      expect(hub.getLimitChasers(USER_A).find((c) => c.accountNo === B)?.buyEnabled).toBe(true);
+      expect(since().filter((m) => m.t === "msg")).toEqual([]);
+    });
+
+    it("A 의 KRX VI 가동 — KB121 에 11 1건(캐시 값 그대로 · run:false) · KB120 11 0 · 61 에코 뒤 strategies.disabled 1건 { count 2, viDisabled: true }", async () => {
+      seed(2, true);
+      const { ws, inbox } = await ready(true);
+      const from = inbox.length;
+      const since = (): RelayOutbound[] => inbox.slice(from);
+
+      ws.sendRaw({ t: "strategies.disable.account", accountNo: A });
+      await waitFor(() => disabledOf(since()).length === 1, "strategies.disabled 1건");
+      await flushIo(20);
+
+      expect(viSetsOf(p121)).toEqual([
+        { accountNo: A, exchange: "KRX", orderAmountKrw: 5_000_000, checkRate: 25, priceType: "U", run: false },
+      ]);
+      expect(countOf(p120, MSG.SetVITriggerReq)).toBe(0);
+      expect(countOf(p121, MSG.DisableStrategiesReq)).toBe(2);
+      expect(disabledOf(since())).toEqual([{ t: "strategies.disabled", count: 2, viDisabled: true }]);
+      // 완료 신호는 VI 에코(브라우저 vi run:false) 뒤다.
+      const frames = since();
+      const at = frames.findIndex((m) => m.t === "strategies.disabled");
+      const viOff = frames.findIndex((m) => m.t === "vi" && m.x === "KRX" && m.cfg?.run === false);
+      expect(viOff).toBeGreaterThanOrEqual(0);
+      expect(at).toBeGreaterThan(viOff);
+    });
+
+    it("A 켜진 전략 0 ∧ VI 만 가동 — 14 0 · 11 1 · 61 에코 뒤 strategies.disabled 1건 { count 0, viDisabled: true }", async () => {
+      seed(0, true);
+      const { ws, inbox } = await ready(true);
+      const from = inbox.length;
+      const since = (): RelayOutbound[] => inbox.slice(from);
+
+      ws.sendRaw({ t: "strategies.disable.account", accountNo: A });
+      await waitFor(() => disabledOf(since()).length === 1, "strategies.disabled 1건");
+      await flushIo(20);
+
+      expect(countOf(p121, MSG.DisableStrategiesReq)).toBe(0);
+      expect(countOf(p121, MSG.SetVITriggerReq)).toBe(1);
+      expect(disabledOf(since())).toEqual([{ t: "strategies.disabled", count: 0, viDisabled: true }]);
+    });
+
+    it("A 켜진 전략 0 ∧ VI 없음 — 게이트웨이 0바이트 · 거부 프레임 「이 계좌에 끌 전략이 없어요」 · warn 1줄 · strategies.disabled 0", async () => {
+      const warns: unknown[][] = [];
+      vi.spyOn(logger, "warn").mockImplementation(((...args: unknown[]) => {
+        warns.push(args);
+      }) as never);
+      seed(0, false);
+      const { ws, inbox } = await ready(false);
+      const from = inbox.length;
+      const since = (): RelayOutbound[] => inbox.slice(from);
+      const before120 = p120.length;
+      const before121 = p121.length;
+
+      ws.sendRaw({ t: "strategies.disable.account", accountNo: A });
+      await waitFor(() => rejectsOf(since(), "strategies.disable.account").length === 1, "거부 프레임");
+      await flushIo(20);
+
+      expect(p120.length).toBe(before120);
+      expect(p121.length).toBe(before121);
+      expect(rejectsOf(since(), "strategies.disable.account")[0]).toMatchObject({
+        t: "msg",
+        lv: "ERROR",
+        m: "이 계좌에 끌 전략이 없어요",
+        a: A,
+      });
+      expect(disabledOf(since())).toEqual([]);
+      const nothing = warns.filter((w) => String(w[1]).includes("끌 것 없음"));
+      expect(nothing).toHaveLength(1);
+      expect(JSON.stringify(nothing[0]?.[0] ?? {})).not.toContain(A);
+    });
   });
 });

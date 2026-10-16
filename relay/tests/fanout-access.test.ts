@@ -285,6 +285,31 @@ describe("wss 역할 게이트 — 접근 맵 → dma_users(AAD dma_user_id) →
     expect(acquireSpy.mock.calls[0]?.[2]).toEqual({ dmaUserId: "dmaT", password: "pw-t" });
   });
 
+  it("P32 계좌 끄기 IDOR — 세션 소유 뷰 밖 계좌의 strategies.disable.account → 거부 프레임 「이 세션에서 사용할 수 없는 계좌입니다.」 · 게이트웨이 전략 명령 0바이트 · strategies.disabled 0 (D-09 보정)", async () => {
+    vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    await start();
+    const { ws, inbox } = await open("token-t");
+    await waitFor(() => inbox.some((m) => m.t === "state" && m.s === "ready"), "T ready");
+    const before = gateway.strategyRequests().length;
+
+    ws.sendRaw({ t: "strategies.disable.account", accountNo: "9999999999" });
+    await waitFor(() => inbox.some((m) => m.t === "msg" && m.lv === "ERROR"), "거부 프레임");
+    await flushIo(10);
+
+    const rejects = inbox.filter((m) => m.t === "msg" && m.lv === "ERROR");
+    expect(rejects).toHaveLength(1);
+    expect(rejects[0]).toMatchObject({
+      t: "msg",
+      lv: "ERROR",
+      m: "이 세션에서 사용할 수 없는 계좌입니다.",
+      a: "9999999999",
+      kind: "strategies.disable.account",
+    });
+    expect(gateway.strategyRequests().length).toBe(before);
+    expect(inbox.filter((m) => m.t === "strategies.disabled")).toHaveLength(0);
+    expect(ws.closeInfo).toBeNull();
+  });
+
   it("③ viewer → unauthorized(연결 유지) · 세션 0 · 게이트웨이 연결 0 · 이후 sub 도 unauthorized", async () => {
     await start();
     const { ws, inbox } = await open("token-v");

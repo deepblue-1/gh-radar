@@ -1442,3 +1442,189 @@ describe("SubscriptionHub — 전부 정지 집계 (29-54 · N-01)", () => {
     lease.release();
   });
 });
+
+describe("SubscriptionHub — P32 beginAccountStop 집계 (D-09 보정)", () => {
+  const A = "1234567801";
+  const B = "1234567802";
+  let hub: SubscriptionHub;
+  let fanned: HubFanoutEvent[];
+  let kb120: FakeBrokerSession;
+  let kb121: FakeBrokerSession;
+  let infos: unknown[][];
+
+  const r65 = (disabledCount: number) => buildDisableStrategiesRespFrame({ disabledCount, viDisabled: false });
+  /** KB121(A 소유) 의 61 에코 — 기본은 A · KRX · run:false(끄기 에코). */
+  const vi61 = (over: NonNullable<Parameters<typeof buildSetVITriggerRespFrame>[0]> = {}) =>
+    buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", orderAmountKrw: 5_000_000n, checkRate: 25, run: false, ...over });
+
+  function disabled(): RelayOutbound[] {
+    return fanned.filter((e) => e.userId === U && e.msg.t === "strategies.disabled").map((e) => e.msg);
+  }
+
+  function track<T>(p: Promise<T>): { done: boolean; value: T | undefined } {
+    const st: { done: boolean; value: T | undefined } = { done: false, value: undefined };
+    void p.then((v) => {
+      st.done = true;
+      st.value = v;
+    });
+    return st;
+  }
+
+  async function flush(): Promise<void> {
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    resetDroppedEnvelopeCount();
+    infos = [];
+    vi.spyOn(logger, "info").mockImplementation(((...args: unknown[]) => {
+      infos.push(args);
+    }) as never);
+    vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    hub = new SubscriptionHub({ preferredPrimaryServerKey: () => "KB120" });
+    fanned = [];
+    hub.on("fanout", (e: HubFanoutEvent) => fanned.push(e));
+    kb120 = new FakeBrokerSession(U, "KB120", "KB", [{ accountNo: B, name: "계좌B" }]);
+    kb121 = new FakeBrokerSession(U, "KB121", "KB", [{ accountNo: A, name: "계좌A" }]);
+    hub.attach(kb120);
+    hub.attach(kb121);
+  });
+
+  afterEach(() => {
+    hub.closeAll();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("65 k건 — 2건 다 받은 뒤에만 1건 { count 합 } · 개별 65 팬아웃 0 · done complete", async () => {
+    const stop = hub.beginAccountStop(U, kb121, { accountNo: A, keys: 2, viExchanges: [] });
+    const done = track(stop.done);
+    stop.sent();
+    stop.sent();
+    kb121.pushFrame(r65(1));
+    await flush();
+    expect(disabled()).toEqual([]);
+    expect(done.done).toBe(false);
+    kb121.pushFrame(r65(1));
+    await flush();
+    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 2, viDisabled: false }]);
+    expect(done.value).toEqual({ count: 2, viDisabled: false, answered: 2, expected: 2, ended: "complete" });
+  });
+
+  it("VI — 14 1건 + KRX 11: 65 만으로는 0 · run:true · 다른 거래소 에코는 세지 않는다 · 그 계좌 KRX 61 run:false 에코 뒤 1건 { viDisabled: true }", async () => {
+    const stop = hub.beginAccountStop(U, kb121, { accountNo: A, keys: 1, viExchanges: ["KRX"] });
+    const done = track(stop.done);
+    stop.sent();
+    kb121.pushFrame(r65(1));
+    await flush();
+    expect(disabled()).toEqual([]);
+    kb121.pushFrame(vi61({ run: true }));
+    kb121.pushFrame(vi61({ exchange: "NXT" }));
+    await flush();
+    expect(disabled()).toEqual([]);
+    expect(done.done).toBe(false);
+
+    kb121.pushFrame(vi61());
+    await flush();
+    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 1, viDisabled: true }]);
+    expect(done.value).toMatchObject({ count: 1, viDisabled: true, ended: "complete" });
+  });
+
+  it("VI 만 — 켜진 전략 0 ∧ VI 가동: 65 없이 61 run:false 에코를 근거로 { count 0, viDisabled true } 1건(A4)", async () => {
+    const stop = hub.beginAccountStop(U, kb121, { accountNo: A, keys: 0, viExchanges: ["KRX"] });
+    const done = track(stop.done);
+    await flush();
+    expect(done.done).toBe(false);
+    expect(disabled()).toEqual([]);
+    kb121.pushFrame(vi61());
+    await flush();
+    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 0, viDisabled: true }]);
+    expect(done.value).toMatchObject({ count: 0, viDisabled: true, answered: 0, expected: 0, ended: "complete" });
+  });
+
+  it("시한 — 65 하나가 안 오면 시한 뒤 받은 만큼 1건 · ended timeout · 늦은 65 는 팬아웃 0 + info 1줄", async () => {
+    const stop = hub.beginAccountStop(U, kb121, { accountNo: A, keys: 2, viExchanges: [] });
+    const done = track(stop.done);
+    stop.sent();
+    stop.sent();
+    kb121.pushFrame(r65(1));
+    vi.advanceTimersByTime(HUB_ALL_STOP_COLLECT_MS - 1);
+    await flush();
+    expect(disabled()).toEqual([]);
+    vi.advanceTimersByTime(1);
+    await flush();
+    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 1, viDisabled: false }]);
+    expect(done.value).toEqual({ count: 1, viDisabled: false, answered: 1, expected: 2, ended: "timeout" });
+
+    kb121.pushFrame(r65(1));
+    await flush();
+    expect(disabled()).toHaveLength(1);
+    expect(infos.filter((i) => String(i[1]).includes("계좌 끄기 집계가 끝난 뒤 늦게 온 65"))).toHaveLength(1);
+  });
+
+  it("시한 — VI 에코가 끝내 안 오면 받은 65 로 1건 · viDisabled false", async () => {
+    const stop = hub.beginAccountStop(U, kb121, { accountNo: A, keys: 1, viExchanges: ["KRX"] });
+    const done = track(stop.done);
+    stop.sent();
+    kb121.pushFrame(r65(1));
+    await flush();
+    expect(disabled()).toEqual([]);
+    vi.advanceTimersByTime(HUB_ALL_STOP_COLLECT_MS);
+    await flush();
+    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 1, viDisabled: false }]);
+    expect(done.value).toMatchObject({ ended: "timeout", viDisabled: false });
+  });
+
+  it("송신 실패 — failed · viFailed 는 기다리지 않는다 · 받은 것 0 이면 strategies.disabled 0 · done 즉시", async () => {
+    const stop = hub.beginAccountStop(U, kb121, { accountNo: A, keys: 2, viExchanges: ["KRX"] });
+    const done = track(stop.done);
+    stop.failed();
+    stop.failed();
+    stop.viFailed("KRX");
+    await flush();
+    expect(done.value).toEqual({ count: 0, viDisabled: false, answered: 0, expected: 0, ended: "complete" });
+    expect(disabled()).toEqual([]);
+    // 꼬리표를 넣지 않았다 — 뒤의 서버 발 65 는 종전대로 팬아웃.
+    kb121.pushFrame(r65(4));
+    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 4, viDisabled: false }]);
+  });
+
+  it("분리 — 집계 중 소유 세션이 떼어지면 받은 만큼 1건 즉시 · ended detached · 받은 것 0 이면 0건 · 꼬리표 정리", async () => {
+    // (1) 하나 받고 분리 → 그 1건으로 즉시 끝.
+    const first = hub.beginAccountStop(U, kb121, { accountNo: A, keys: 2, viExchanges: [] });
+    const firstDone = track(first.done);
+    first.sent();
+    first.sent();
+    kb121.pushFrame(r65(1));
+    hub.retainSessions(U, new Set(["KB120"]));
+    await flush();
+    expect(firstDone.value).toEqual({ count: 1, viDisabled: false, answered: 1, expected: 2, ended: "detached" });
+    expect(disabled()).toEqual([{ t: "strategies.disabled", count: 1, viDisabled: false }]);
+    // 되돌아온 세션의 65 는 꼬리표가 비었으므로 서버 발 65 규칙(종전 팬아웃).
+    hub.attach(kb121);
+    kb121.pushFrame(r65(6));
+    expect(disabled()).toHaveLength(2);
+
+    // (2) 받은 것 0 에서 분리 → 0건.
+    const second = hub.beginAccountStop(U, kb121, { accountNo: A, keys: 1, viExchanges: ["KRX"] });
+    const secondDone = track(second.done);
+    second.sent();
+    hub.retainSessions(U, new Set(["KB120"]));
+    await flush();
+    expect(secondDone.value).toMatchObject({ answered: 0, ended: "detached" });
+    expect(disabled()).toHaveLength(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("closeAll — 진행 중 집계의 done 해결 · 팬아웃 0 · 남은 타이머 0", async () => {
+    const stop = hub.beginAccountStop(U, kb121, { accountNo: A, keys: 1, viExchanges: ["KRX"] });
+    const done = track(stop.done);
+    stop.sent();
+    hub.closeAll();
+    await flush();
+    expect(done.value).toMatchObject({ ended: "closed" });
+    expect(disabled()).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
