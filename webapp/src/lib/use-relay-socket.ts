@@ -352,6 +352,41 @@ export function viSlotOf(
 }
 
 /**
+ * 한 계좌의 거래소별 VI 슬롯 (Phase 32 D-18 — /me VI 행 · 요약). 키 부재 = 그 거래소 슬롯을 모른다 · `null` = 미등록 · 객체 = 등록.
+ * `accountNo` 가 `undefined`(계좌 목록 미수신)면 **전 계좌** 슬롯을 거래소마다 접는다 — 켜진 등록본이 이기고, 없으면 마지막 등록본.
+ * 슬롯 Map 은 건드리지 않는다(새 객체를 돌려준다).
+ */
+export type RelayViAccountSlots = Partial<Record<RelayExchange, RelayViTrigger | null>>;
+
+export function viSlotsOfAccount(viSlots: RelayViSlots, accountNo: string | undefined): RelayViAccountSlots {
+  const out: RelayViAccountSlots = {};
+  if (accountNo !== undefined) {
+    for (const exchange of VI_EXCHANGES) {
+      const cfg = viSlotOf(viSlots, accountNo, exchange);
+      if (cfg !== undefined) out[exchange] = cfg;
+    }
+    return out;
+  }
+  for (const cfg of viSlots.values()) {
+    if (cfg === null || !VI_EXCHANGES.includes(cfg.exchange)) continue;
+    if (out[cfg.exchange]?.run !== true) out[cfg.exchange] = cfg;
+  }
+  return out;
+}
+
+/**
+ * 그 계좌 슬롯 중 **하나라도** 가동인가 (Phase 32 D-18 — /me 상태줄 · 요약 줄 · VI 배지 · 「이 계좌 끄기」 판정의 한 함수).
+ * `accountNo` 가 `undefined` 면 전 계좌 슬롯이다(계좌 목록 미수신 — 종전 「전 계좌」 와 같은 축).
+ *
+ * ★ 판정을 한 함수로 모은다 — 상태줄 · 현황 카드가 같은 질문에 각자 답하면 한 곳만 고쳐진 날 「상태줄은 가동인데 카드는 중지」 가
+ *   된다. 모름(키 부재) · 미등록(`null`)은 가동이 아니다(연결 직후 「가동」 깜빡임 방지).
+ */
+export function viAccountRunning(viSlots: RelayViSlots, accountNo: string | undefined): boolean {
+  const shown = viSlotsOfAccount(viSlots, accountNo);
+  return VI_EXCHANGES.some((exchange) => shown[exchange]?.run === true);
+}
+
+/**
  * 슬롯 → 거래소 단일 칸(`viTriggers`) 다리 (Phase 32 D-17 slot-only · 32-13 이 `viTriggers` 와 함께 지운다).
  *
  * relay 는 slot-only 결정으로 구 `vi`(거래소 병합값)를 더 내지 않는다. 아직 슬롯으로 옮기지 않은 소비처(사이드바 · 상태줄 · /me ·

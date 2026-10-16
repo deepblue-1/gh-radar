@@ -43,3 +43,34 @@ export function useTradingFocusRequest(handler: (key: string) => void): void {
     return () => window.removeEventListener(TRADING_FOCUS_EVENT, onFocus);
   }, []);
 }
+
+/**
+ * 작업대 계좌 전환 요청 — 사이드바 VI 줄 → `/trading` 작업대 (Phase 32 D-18 · UI-SPEC S3 「클릭」).
+ *
+ * 포커스 요청과 같은 이유다: 작업대는 `?account=` 를 **마운트 1회만** 소비하므로, 이미 `/trading` 위에서 VI 줄을 누르면
+ * URL 만 바뀐다. 클릭은 이 이벤트를 쏘고 링크는 평소대로 `/trading?account=` 로 간다 — 작업대가 떠 있으면 이벤트가 계좌를
+ * 바꾸고, 다른 화면이면 이동 뒤 마운트가 쿼리를 소비한다. 뒤로가기는 클릭이 아니라 이벤트가 없다.
+ *
+ * ★ 값은 계좌번호 원문이다. 받는 쪽은 `accounts[]` 안 계좌일 때만 바꾼다(목록 밖이면 셀렉트에 옵션이 없다).
+ */
+export const TRADING_ACCOUNT_EVENT = "gh-radar:trading-account";
+
+/** 계좌번호로 작업대 계좌 전환을 요청한다. 듣는 작업대가 없으면 아무 일도 없다. */
+export function requestTradingAccount(accountNo: string): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent<string>(TRADING_ACCOUNT_EVENT, { detail: accountNo }));
+}
+
+/** 계좌 전환 요청을 듣는다 — `useTradingFocusRequest` 와 같은 모양(핸들러는 ref 로 최신값). */
+export function useTradingAccountRequest(handler: (accountNo: string) => void): void {
+  const ref = useRef(handler);
+  ref.current = handler;
+  useEffect(() => {
+    const onAccount = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      if (typeof detail === "string" && detail !== "") ref.current(detail);
+    };
+    window.addEventListener(TRADING_ACCOUNT_EVENT, onAccount);
+    return () => window.removeEventListener(TRADING_ACCOUNT_EVENT, onAccount);
+  }, []);
+}

@@ -19,8 +19,8 @@ import { accountFullLabelOf, accountShortLabelOf, type AccountLabelInput } from 
 import { useIsinLabels } from "@/lib/isin-labels";
 import { exchangeLabeledName, isActiveStrategy } from "@/lib/limit-chaser";
 import { useRelayContext } from "@/lib/relay-provider";
-import { requestTradingFocus } from "@/lib/trading-focus";
-import type { RelayViTriggers } from "@/lib/use-relay-socket";
+import { requestTradingAccount, requestTradingFocus } from "@/lib/trading-focus";
+import type { RelayViSlots } from "@/lib/use-relay-socket";
 import { cn } from "@/lib/utils";
 import type { RelayAccount, RelayExchange, RelayLimitChaser } from "@gh-radar/shared";
 
@@ -124,19 +124,19 @@ export interface SidebarAccountGroup {
 }
 
 /**
- * Phase 32 D-02 — 사이드바는 켜진 것만 · 웨이브 ④ 전 VI 는 거래소별 1건이라 그 cfg 계좌 묶음에 둔다(D-16).
+ * Phase 32 D-02 — 사이드바는 켜진 것만 · VI 는 (계좌, 거래소) 슬롯이라 그 계좌 묶음에 그 계좌의 가동 거래소를 둔다(D-18 · ④ 뒤).
  *
  * - 묶음 순서 = `accounts[]` 순. 전략 · VI 의 계좌가 `accounts[]` 에 없으면 그 계좌 묶음을 **처음 본 순서로 맨 뒤**에
  *   둔다(`account` 없음 — 소제목은 번호). `accounts[]` 를 아직 못 받았을 때도 같은 모양이라 수신 뒤 제자리로 간다.
  * - `chasers` 는 호출부가 `isActiveStrategy` 로 거른 목록이다 — 여기서는 계좌로 나누기만 하고 순서를 보존한다.
- * - VI 는 `VI_TAG_ORDER` 순으로 `viTriggers[ex]?.run === true` 인 거래소를 그 cfg 계좌 묶음의 `viRunning` 에 넣는다
- *   (두 거래소가 다른 계좌면 각 묶음에 한 거래소씩).
+ * - VI 는 `VI_TAG_ORDER` 순으로 슬롯 중 `run === true` 인 것을 그 슬롯 계좌 묶음의 `viRunning` 에 넣는다 — 두 계좌가 같은
+ *   거래소를 함께 켜면 두 묶음 모두에 그 거래소 태그가 선다(D-18). 미등록(`null`) · 중지는 넣지 않는다.
  * - 켜진 전략도 가동 VI 도 없는 묶음은 버린다(소제목 없음). 전부 버려지면 빈 배열 — 3단 목록 자체가 없다.
  */
 export function sidebarGroupsOf(
   accounts: readonly RelayAccount[],
   chasers: readonly RelayLimitChaser[],
-  viTriggers: RelayViTriggers,
+  viSlots: RelayViSlots,
 ): SidebarAccountGroup[] {
   const groups = new Map<string, SidebarAccountGroup>();
   for (const account of accounts) {
@@ -154,8 +154,9 @@ export function sidebarGroupsOf(
   };
   for (const item of chasers) groupOf(item.accountNo).chasers.push(item);
   for (const ex of VI_TAG_ORDER) {
-    const cfg = viTriggers[ex];
-    if (cfg?.run === true) groupOf(cfg.accountNo).viRunning.push(ex);
+    for (const cfg of viSlots.values()) {
+      if (cfg !== null && cfg.exchange === ex && cfg.run) groupOf(cfg.accountNo).viRunning.push(ex);
+    }
   }
   return [...groups.values()].filter((g) => g.chasers.length > 0 || g.viRunning.length > 0);
 }
@@ -396,24 +397,31 @@ function SubNavLink({
 
 /**
  * 3단 VI 줄 — 「VI」 한 줄 + 오른쪽에 **가동 중인 거래소의 태그만** (quick-260923-dmb · D1).
- * 누르면 작업대(VI 설정이 있는 곳)로 간다. 활성 표시는 받지 않는다(위 ②).
+ * 누르면 그 계좌의 작업대(VI 설정이 있는 곳)로 간다. 활성 표시는 받지 않는다(위 ②).
  *
- * ★ 판정은 **거래소별**이다(`viTriggers.KRX`/`.NXT` 각각의 `run === true`). 합집합 판정
- *   (`viAnyRunning`)으로는 어느 거래소가 켜졌는지 말할 수 없다.
+ * ★ 판정은 **거래소별**이다(그 계좌 슬롯 KRX · NXT 각각의 `run === true`). 합집합 한 비트로는 어느 거래소가 켜졌는지
+ *   말할 수 없다.
  * ★ 태그 순서는 KRX → NXT(`VI_TAG_ORDER`). 모름(키 부재)·미등록(`null`)·중지는 태그가 없다.
  * ★ 가동 거래소가 하나도 없으면 이 줄 자체를 그리지 않는다 — 호출부가 `running.length > 0`
  *   일 때만 렌더한다(숨김이 아니라 미렌더).
- * ★ Phase 32 D-02 — 줄은 그 cfg 계좌 묶음 안에 선다(`sidebarGroupsOf` 가 거래소를 계좌로 나눈다). 두 거래소가
- *   다른 계좌면 묶음마다 한 줄 · 태그는 그 묶음 거래소만. 클릭 동작(작업대 이동)은 그대로다 — 계좌 전환은 웨이브 ④.
+ * ★ Phase 32 D-02 · D-18 — 줄은 그 계좌 묶음 안에 서고 태그는 그 계좌의 가동 거래소만(`sidebarGroupsOf`).
+ * ★ 클릭(Phase 32 D-18 · S3) — 링크는 `/trading?account=` 로 가고, **동시에** 작업대에 계좌 전환을 요청한다
+ *   (`requestTradingAccount` — 작업대가 쿼리를 마운트 1회만 소비하므로 이미 `/trading` 위면 요청이 바꾼다). 수식 키 클릭(새 탭)은
+ *   지금 탭을 건드리지 않는다 — `StrategyItem` 과 같은 규칙.
  * ★ 접근 이름은 「VI — KRX·NXT 가동」 꼴(`aria-label`)이다. 보이는 글자 「VI」가 이름 맨 앞에
  *   있어 WCAG 2.5.3 Label-in-Name 을 충족하고, 태그 묶음은 이름이 이미 말하므로 `aria-hidden` 이다.
  */
-function ViItem({ running }: { running: readonly RelayExchange[] }) {
+function ViItem({ running, accountNo }: { running: readonly RelayExchange[]; accountNo: string }) {
   return (
     <Link
-      href={NAV_TRADING.href}
+      href={`${NAV_TRADING.href}?account=${encodeURIComponent(accountNo)}`}
       data-nav-item
       data-sidebar-item="vi"
+      onClick={(event) => {
+        if (event.button !== 0) return;
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        requestTradingAccount(accountNo);
+      }}
       aria-label={`VI — ${running.join("·")} 가동`}
       className={cn(SUB_ITEM, LINK_IDLE)}
     >
@@ -543,7 +551,7 @@ function AccountGroupItem({
       <ul aria-labelledby={headingId} className="m-0 flex list-none flex-col gap-1 p-0">
         {group.viRunning.length > 0 && (
           <li>
-            <ViItem running={group.viRunning} />
+            <ViItem running={group.viRunning} accountNo={group.accountNo} />
           </li>
         )}
         {group.chasers.map((item) => (
@@ -581,7 +589,7 @@ function useTradingVisible(): boolean {
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { accounts, limitChasers, viTriggers } = useRelayContext();
+  const { accounts, limitChasers, viSlots } = useRelayContext();
   const tradingVisible = useTradingVisible();
   const adminVisible = useAppRole() === "admin";
   const labels = useIsinLabels();
@@ -597,9 +605,9 @@ export function AppSidebar() {
     않으므로(삭제는 crud "D"·장 마감 정리뿐) 거르지 않으면 꺼진 전략이 쌓인다. 작업대와 같은 기준이다.
   */
   const sidebarChasers = limitChasers.filter(isActiveStrategy);
-  // Phase 32 D-02 — 3단은 계좌 묶음 트리다(`accounts[]` 순 · 목록 밖 맨 뒤 · 빈 묶음 없음). VI 는 거래소별 진실
-  // (가동 run === true 만 · KRX → NXT 순)을 그 cfg 계좌 묶음에 나눈다(`sidebarGroupsOf`).
-  const groups = sidebarGroupsOf(accounts, sidebarChasers, viTriggers);
+  // Phase 32 D-02 — 3단은 계좌 묶음 트리다(`accounts[]` 순 · 목록 밖 맨 뒤 · 빈 묶음 없음). VI 는 (계좌, 거래소) 슬롯의
+  // 가동(run === true)만 KRX → NXT 순으로 그 계좌 묶음에 둔다(`sidebarGroupsOf` · D-18).
+  const groups = sidebarGroupsOf(accounts, sidebarChasers, viSlots);
   const groupSiblings = groups.map(labelInputOf);
 
   return (

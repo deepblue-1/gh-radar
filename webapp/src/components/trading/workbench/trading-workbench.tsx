@@ -93,6 +93,9 @@
  *   스크롤 + 헤더 토글 포커스). 매매 불가 · 실패는 카드 없이 로그만. 끝나면 `replaceState` 로 `code` 만
  *   지운다(다른 파라미터는 남김). 전략 등록 · 주문은 **보내지 않는다**(T-21-91).
  *
+ * ⑥-c `?account=` — 사이드바 VI 줄 착지(Phase 32 D-18) · 마운트 1회 · 그 계좌가 `accounts[]` 에 들어오고 배치 복원 뒤
+ *   `pickAccount`(저장값도 그 계좌). 이미 이 화면 위면 `useTradingAccountRequest` 이벤트가 바꾼다(포커스 요청과 같은 짝).
+ *
  * ⑦ 이탈 경고 · 게이트 · 팝업은 **페이지 1곳**
  *   - `useLeaveWarning` 은 카드 더티 수 + VI 2줄 더티 수의 합으로 한 번만 건다.
  *   - `DmaGate` 는 여기 한 곳에서만 감싼다(카드마다 감싸지 않는다). 게이트가 서면 격자·스트립이
@@ -193,7 +196,7 @@ import { useNativeRefresh } from "@/lib/native/use-native-refresh";
 import { useRelayContext } from "@/lib/relay-provider";
 import { fetchStockDetail } from "@/lib/stock-api";
 import { alertTabFor, type TradingAlert } from "@/lib/trading-alerts";
-import { useTradingFocusRequest } from "@/lib/trading-focus";
+import { useTradingAccountRequest, useTradingFocusRequest } from "@/lib/trading-focus";
 import {
   WB_PHONE_BAND_BELOW,
   pillAccountOf,
@@ -689,6 +692,17 @@ function WorkbenchSurface() {
     pendingFocus.current = raw === null ? null : parseStrategyKey(raw);
   }
 
+  /*
+    ── ⑥-c `?account=` — 사이드바 VI 줄 → 그 계좌 작업대 (Phase 32 D-18 · S3 「클릭」) · 마운트 1회 소비 ──
+    `?focus=` 와 같은 규율이다 — 뒤로가기로 URL 이 바뀌어도 다시 읽지 않는다(로컬 상태가 정본). 계좌가 `accounts[]` 에 들어오고
+    배치 복원(저장 계좌 읽기)이 끝난 뒤 `pickAccount` 한다 — 복원 전에 바꾸면 복원이 저장값으로 되돌린다.
+  */
+  const pendingAccount = useRef<string | null | undefined>(undefined);
+  if (pendingAccount.current === undefined) {
+    const raw = searchParams?.get("account") ?? null;
+    pendingAccount.current = raw === null || raw === "" ? null : raw;
+  }
+
   /* ── 등록된 전략 → 처음 보는 키만 카드로 (② · 멤버십만) ─────────── */
   const seenKeys = useRef(new Set<string>());
 
@@ -722,6 +736,8 @@ function WorkbenchSurface() {
    */
   const pickAccount = useCallback(
     (next: string) => {
+      // 어떤 전환이든(셀렉트 · 프로그램) 아직 소비 안 한 `?account=` 보다 나중 의사다 — 보류를 버린다.
+      pendingAccount.current = null;
       setAccountNo(next);
       setSavedAccount(next);
       writeTradingAccount(userId, next);
@@ -740,6 +756,17 @@ function WorkbenchSurface() {
       accountsRef.current.some((a) => a.accountNo === target),
     [],
   );
+  useEffect(() => {
+    const target = pendingAccount.current;
+    if (target === null || target === undefined || !layoutRestored) return;
+    if (!accounts.some((a) => a.accountNo === target)) return; // 아직 그 계좌를 모른다 — 보류(목록은 세션마다 늦게 온다).
+    pendingAccount.current = null;
+    if (shouldSwitchTo(target)) pickAccount(target);
+  }, [accounts, layoutRestored, shouldSwitchTo, pickAccount]);
+  /* 사이드바 VI 줄 — 이미 이 화면 위일 때(URL 은 소비하지 않으므로 이벤트로 받는다). 목록 밖 계좌로는 바꾸지 않는다. */
+  useTradingAccountRequest((target) => {
+    if (shouldSwitchTo(target)) pickAccount(target);
+  });
   /*
     꺼진 등록 전략 카드 걷기 — 배치 복원 뒤 등록 목록을 확정으로 처음 알 때 **한 번**(`pruneInactiveCards`).
     걷은 키는 seen 에서도 빼 그 전략이 다시 켜지면 새 카드로 뜨게 한다.

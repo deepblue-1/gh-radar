@@ -86,7 +86,7 @@ import { LimitChaserDefaultsSection } from "@/components/me/limit-chaser-default
 import { AccountPanel } from "@/components/orderbook/account-panel";
 import { DmaGate, useDmaGateReason } from "@/components/trading/dma-gate";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { StrategyStatusCard, viTriggersOfAccount } from "@/components/trading/strategy-status-card";
+import { StrategyStatusCard } from "@/components/trading/strategy-status-card";
 import { TodayOrdersCard } from "@/components/trading/today-orders-card";
 import { stockCodeOf } from "@/components/trading/vi-order-list";
 import { useAuth } from "@/lib/auth-context";
@@ -95,7 +95,7 @@ import { isActiveStrategy } from "@/lib/limit-chaser";
 import { useNativeRefresh } from "@/lib/native/use-native-refresh";
 import { useRelayContext } from "@/lib/relay-provider";
 import { orderPillOf, quotePillOf } from "@/lib/quote-state";
-import { viAnyRunning } from "@/lib/use-relay-socket";
+import { viAccountRunning } from "@/lib/use-relay-socket";
 import {
   meAccountChoicesOf,
   meAccountOf,
@@ -205,7 +205,7 @@ function isNewerServerTime(a: ServerTimeKey, b: ServerTimeKey): boolean {
  *   (정상 `--led-armed` · 진행/꺼짐 `--flat` · 끊김 `--destructive`)이다(채택안 메모 ④).
  */
 function MeStatusBar({ accountNo }: { accountNo?: string }) {
-  const { status, statusLabel, quoteState, subLimit, limitChasers, viTriggers, accountStates } =
+  const { status, statusLabel, quoteState, subLimit, limitChasers, viSlots, accountStates } =
     useRelayContext();
   const labels = useIsinLabels();
   const quote = quotePillOf(quoteState, subLimit, subLimit === null ? undefined : labels.get(subLimit.i));
@@ -215,10 +215,8 @@ function MeStatusBar({ accountNo }: { accountNo?: string }) {
   const activeCount = limitChasers.filter(
     (c) => isActiveStrategy(c) && (accountNo === undefined || c.accountNo === accountNo),
   ).length;
-  // 거래소 합집합 판정은 `viAnyRunning` 한 함수다 (17-06 / D-18) — 고른 계좌면 그 계좌가 등록 계좌인 거래소만.
-  const viRunning = viAnyRunning(
-    accountNo === undefined ? viTriggers : viTriggersOfAccount(viTriggers, accountNo),
-  );
+  // 가동 판정은 `viAccountRunning` 한 함수다(현황 카드 요약 줄과 같은 답) — 고른 계좌의 (계좌, 거래소) 슬롯(Phase 32 D-18).
+  const viRunning = viAccountRunning(viSlots, accountNo);
 
   return (
     <div

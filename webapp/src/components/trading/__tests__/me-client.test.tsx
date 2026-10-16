@@ -313,9 +313,9 @@ describe('P32 MeStatusBar 고른 계좌 (D-21) · 계좌 칩 (D-20)', () => {
         chaser('KR7000660001', ACC_A),
         chaser('KR7035720002', ACC_B),
       ],
-      viTriggers: {
-        KRX: { accountNo: ACC_A, exchange: 'KRX', orderAmountKrw: 10_000_000, checkRate: 22, priceType: 'U', run: true },
-      },
+      viSlots: new Map([
+        [`${ACC_A}|KRX`, { accountNo: ACC_A, exchange: 'KRX', orderAmountKrw: 10_000_000, checkRate: 22, priceType: 'U', run: true }],
+      ]),
     } as RelayContextValue;
   });
 
@@ -332,6 +332,41 @@ describe('P32 MeStatusBar 고른 계좌 (D-21) · 계좌 칩 (D-20)', () => {
     expect(bar()).toHaveTextContent('VI 중지');
     // 현황 카드도 같은 계좌를 따른다.
     expect(document.querySelectorAll('[data-slot="strategy-row"]')).toHaveLength(1);
+  });
+
+  describe('P32 VI 슬롯 표면 (D-18)', () => {
+    const viRow = () => document.querySelector('[data-slot="vi-status-row"]') as HTMLElement;
+    const viSummary = () => viRow().querySelector('[data-slot="vi-status-summary"]');
+
+    it('A 칩(KRX 가동) — VI 행 「가동」 · 요약 「KRX 1,000만원 · 22.0% 이상」 → B 칩(슬롯 미등록) — VI 행 「중지」 · 「—」 · 상태줄 「VI 중지」', async () => {
+      mockRelay = {
+        ...mockRelay,
+        viSlots: new Map([...mockRelay.viSlots, [`${ACC_B}|KRX`, null]]),
+      } as RelayContextValue;
+      render(<MeClient />);
+      expect(within(viRow()).getByText('가동')).toBeInTheDocument();
+      expect(viSummary()).toHaveTextContent(/^KRX 1,000만원 · 22\.0% 이상$/);
+      expect(bar()).toHaveTextContent('VI 가동');
+
+      await userEvent.click(chip(ACC_B) as HTMLElement);
+      expect(within(viRow()).getByText('중지')).toBeInTheDocument();
+      expect(viSummary()).toHaveTextContent(/^—$/);
+      expect(bar()).toHaveTextContent('VI 중지');
+    });
+
+    it('B 칩 — B 의 NXT 슬롯이 가동이면 상태줄 · VI 행이 B 기준 「가동」 · 요약은 B 의 NXT 값만', async () => {
+      mockRelay = {
+        ...mockRelay,
+        viSlots: new Map([
+          ...mockRelay.viSlots,
+          [`${ACC_B}|NXT`, { accountNo: ACC_B, exchange: 'NXT', orderAmountKrw: 5_000_000, checkRate: 18, priceType: 'U', run: true }],
+        ]),
+      } as RelayContextValue;
+      render(<MeClient />);
+      await userEvent.click(chip(ACC_B) as HTMLElement);
+      expect(bar()).toHaveTextContent('VI 가동');
+      expect(viSummary()).toHaveTextContent(/^NXT 500만원 · 18\.0% 이상$/);
+    });
   });
 
   it('accounts[] 미수신이면 칩 줄 없음 · 상태줄 · 카드는 전 계좌(종전)', () => {
