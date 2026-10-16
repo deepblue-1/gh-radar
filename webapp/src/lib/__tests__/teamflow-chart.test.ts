@@ -156,6 +156,16 @@ describe('bandChartOf', () => {
     expect(g.rows[1]!.barY).toBe(8 + 28 + 6);
   });
 
+  it('측정 폭 < 232(판 반폭 − 여백이 음수) → 스케일 0 · 0 이 아닌 값은 최소 2 · 음수 폭 없음(IN-02)', () => {
+    for (const w of [200, 228, 231]) {
+      const g = bandChartOf([band('0~5%', -2e8), band('5~10%', 4e8), band('10~15%', 0)], w);
+      expect(g.sc, String(w)).toBe(0);
+      expect(g.rows.map((r) => r.barW)).toEqual([2, 2, 0]);
+      expect(g.rows[0]!.barX).toBe(g.cx - 2);
+    }
+    expect(bandChartOf([band('0~5%', 4e8)], 240).sc).toBeGreaterThan(0);
+  });
+
   it('스케일 하한 5천만 — 값이 전부 작으면 막대가 판 반폭을 채우지 않는다', () => {
     const g = bandChartOf([band('0~5%', 1e7)], 640);
     expect(g.rows[0]!.barW).toBeCloseTo((204 * 1e7) / 5e7, 9);

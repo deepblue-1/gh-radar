@@ -104,7 +104,7 @@ export interface BandChart {
 /**
  * payload.bands + 측정 폭 → 구간 가로 막대 기하(D-12 · UI-SPEC T6). viewBox 를 측정 폭과 1:1 로 두기 위한 값이다.
  * W = chartWidthOf(측정) · 행 = 「하루 합계」 를 뺀 bands(export 순서) · H = 24 + 행 수 × 28 ·
- * 판 = W − 96 − 120 · cx = 96 + 판/2 · sc = (판/2 − 8) ÷ max(5천만, |net_val| 최대) ·
+ * 판 = W − 96 − 120 · cx = 96 + 판/2 · sc = max(0, 판/2 − 8) ÷ max(5천만, |net_val| 최대) ·
  * 막대 + 는 cx 오른쪽 · − 는 왼쪽 · 20% 점선 = 「20~25%」 행 위끝.
  */
 export function bandChartOf(bands: readonly TeamflowBand[], measuredW: number): BandChart {
@@ -114,7 +114,8 @@ export function bandChartOf(bands: readonly TeamflowBand[], measuredW: number): 
   const plotW = W - BAND_LABEL_W - BAND_VALUE_W;
   const cx = BAND_LABEL_W + plotW / 2;
   const mx = Math.max(BAND_MX_FLOOR, ...src.map((b) => b.net_val).filter(isNum).map(Math.abs));
-  const sc = (plotW / 2 - BAND_PAD) / mx;
+  // 측정 폭 < 232(라벨 96 + 값 120 + 여백 2×8)면 판 반폭이 음수 — 스케일을 0 으로 막아 음수 폭 계산을 막는다(IN-02).
+  const sc = Math.max(0, plotW / 2 - BAND_PAD) / mx;
   const rows = src.map((b, i): BandChartRow => {
     const v = isNum(b.net_val) ? b.net_val : null;
     const y = BAND_TOP + i * BAND_ROW_H;
