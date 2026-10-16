@@ -633,6 +633,67 @@ describe("dispatch — team_flow 재적재 자동 감지(D-03)", () => {
     expect(log.calls.info.filter((c) => c.msg.startsWith("limitup day team_flow backfill"))).toEqual([]);
   });
 
+  // WR-01 — backfill(같은 files_sig) 은 격자가 바이트 동일: 재업로드 없음 · 실패해도 게시된 날짜를 내리지 않는다.
+  const uploadsOf = (calls: Call[]) => calls.filter((c) => c.kind === "storage" && c.op === "upload");
+  const filesSigUpdates = (calls: Call[]) =>
+    calls.filter((c) => c.kind === "update" && c.table === "limitup_loads" && "files_sig" in c.values);
+
+  it("backfill 성공 → 격자 업로드 0회 · grids 0 · commit 1회(WR-01)", async () => {
+    addTeamFlowDay(TF_DATE);
+    const { out, fake } = await run({ loads: [{ date: TF_DATE, files_sig: sigOf(TF_DATE), skip_streak: 0, rows: OLD_ROWS }] });
+    expect(out.loaded).toEqual([TF_DATE]);
+    expect(uploadsOf(fake.calls)).toEqual([]);
+    expect(out.grids).toBe(0);
+    expect(rpcs(fake.calls, "limitup_commit_day")).toHaveLength(1);
+  });
+
+  it("backfill commit 실패 → files_sig null 갱신 0회 · 업로드 0회 · warn · 그 날짜 failed · record_skip load · main 종료 1(WR-01)", async () => {
+    addTeamFlowDay(TF_DATE);
+    const fake = makeFakeSupabase({
+      loads: [{ date: TF_DATE, files_sig: sigOf(TF_DATE), skip_streak: 0, rows: OLD_ROWS }],
+      rpc: { limitup_commit_day: { error: { message: 'invalid input syntax for type bigint: "12345.0"' } } },
+      recordSkip: 1,
+    });
+    const { main } = await loadIndex(fake);
+    expect(await main(["node", "index.ts"], NOW)).toBe(1);
+    expect(filesSigUpdates(fake.calls)).toEqual([]);
+    expect(uploadsOf(fake.calls)).toEqual([]);
+    expect(rpcs(fake.calls, "limitup_commit_day")).toHaveLength(1);
+    expect(rpcs(fake.calls, "limitup_record_skip").map((c) => c.args)).toEqual([{ p_date: TF_DATE, p_reason: "load" }]);
+    expect(log.calls.warn.map((w) => w.msg)).toContain("limitup day team_flow backfill failed — 게시된 날짜는 그대로 둔다(unpublish 없음)");
+    expect(log.calls.warn.map((w) => w.msg)).not.toContain("limitup day unpublished — 재적재 실패로 격자만 새 export · 다음 run 이 다시 적재");
+    expect(log.calls.error.map((e) => e.msg)).toEqual([
+      "limitup day failed — 다음 날짜로 진행",
+      "limitup-sync day failed — 실패 날짜가 있다(다른 날짜 · 정리는 진행)",
+    ]);
+  });
+
+  it("backfill stage 실패 → 역시 내리지 않는다 · 같은 run 의 뒤 날짜는 적재된다(WR-01)", async () => {
+    addTeamFlowDay(TF_DATE);
+    addDay("20261015");
+    const { out, fake } = await run({
+      loads: [{ date: TF_DATE, files_sig: sigOf(TF_DATE), skip_streak: 0, rows: OLD_ROWS }],
+      insert: (_t, rows) => (rows.some((r) => r.tbl === "team_flow") ? { error: { message: "boom" } } : { error: null }),
+      recordSkip: 1,
+    });
+    expect(out.failed.map((f) => f.date)).toEqual([TF_DATE]);
+    expect(out.loaded).toEqual(["20261015"]);
+    expect(filesSigUpdates(fake.calls)).toEqual([]);
+  });
+
+  it("files_sig 재적재(backfill 아님) 실패는 그대로 내린다(WR-B04 유지)", async () => {
+    addTeamFlowDay(TF_DATE);
+    const { fake } = await run({
+      loads: [{ date: TF_DATE, files_sig: "0".repeat(64), skip_streak: 0, rows: OLD_ROWS }],
+      rpc: { limitup_commit_day: { error: { message: "boom" } } },
+      recordSkip: 1,
+    });
+    expect(uploadsOf(fake.calls)).toHaveLength(3);
+    expect(filesSigUpdates(fake.calls)).toEqual([
+      { kind: "update", table: "limitup_loads", values: { files_sig: null }, eq: ["date", TF_DATE] },
+    ]);
+  });
+
   it('이력 select 열 = "date, files_sig, skip_streak, rows"', async () => {
     const { fake } = await run();
     const select = fake.calls.find((c): c is Extract<Call, { kind: "select" }> => c.kind === "select");

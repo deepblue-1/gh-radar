@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
-import type { TeamflowReportResponse } from '@gh-radar/shared';
+import type { TeamflowReportResponse, TeamflowRow } from '@gh-radar/shared';
 
 /**
  * Phase 33 Plan 01 (트레이서 C4) — `/analytics/teamflow` 본문 · 목록 · 펼침 요약 (UI-SPEC T1 · T3 · T5 · D-08 · D-09 · D-10).
@@ -179,6 +179,10 @@ describe('TeamflowReport', () => {
     fetchReportMock.mockReturnValueOnce(new Promise(() => {}));
     await open('d=20261014');
     expect(screen.getByText('불러오는 중…')).toBeTruthy();
+    // 보조기기에 로딩을 알린다(오류 상자 role=alert 와 짝 · IN-06)
+    const status = screen.getByRole('status');
+    expect(status.textContent).toBe('불러오는 중…');
+    expect(status.getAttribute('aria-live')).toBe('polite');
     expect(screen.getByText('10/14 (수)')).toBeTruthy();
     expect(document.title).toBe('팀 매집 · 10/14');
   });
@@ -268,6 +272,18 @@ describe('TeamflowReport', () => {
     );
     // 상한가 행은 고가 보조줄 없음
     expect(rowBtn(CHEONIL).querySelector('[data-slot="teamflow-high"]')).toBeNull();
+  });
+
+  it('(o2) high_rate 키 없음(undefined) · NaN → 고가 보조줄 없음 · sr 설명에도 고가 없음(같은 판정 · IN-04)', async () => {
+    const base = teamflowRows();
+    const noHigh: Partial<TeamflowRow> = { ...base.find((r) => r.isin === DONGYANG)! };
+    delete noHigh.high_rate; // 키 자체가 없는 행(undefined)
+    const rows = [noHigh as TeamflowRow, { ...base.find((r) => r.isin === CHEONIL)!, status: 'below' as const, high_rate: Number.NaN }];
+    await open('d=20261014', teamflowReportFixture({ rows }));
+    expect(rowBtn(DONGYANG).querySelector('[data-slot="teamflow-high"]')).toBeNull();
+    expect(document.getElementById(`teamflow-row-desc-${DONGYANG}`)!.textContent).not.toContain('고가');
+    expect(rowBtn(CHEONIL).querySelector('[data-slot="teamflow-high"]')).toBeNull();
+    expect(document.getElementById(`teamflow-row-desc-${CHEONIL}`)!.textContent).not.toContain('고가');
   });
 
   it('(p) 매수 중 팀 ≥ 30% = --team 600 · null = 「—」 --faint · name null = short_code', async () => {

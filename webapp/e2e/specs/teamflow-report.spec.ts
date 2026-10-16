@@ -172,7 +172,7 @@ test.describe('Phase 33 Plan 04 — 팀 매집 목록 (로컬 relay)', () => {
     // 사이드바 「분석 › 팀 매집」 → /analytics/teamflow · 하위 「팀 매집」 만 켜진다.
     await page.goto('/');
     const nav = page.locator('aside nav[aria-label="주 메뉴"]');
-    const link = nav.getByRole('link', { name: '팀 매집', exact: true });
+    const link = nav.getByRole('link', { name: '팀 매집 보고서', exact: true });
     await expect(link).toBeVisible({ timeout: 30_000 });
     await link.click();
     await expect(page).toHaveURL((u) => u.pathname === BASE && u.search === '');

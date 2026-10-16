@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: 8e670584
 from_branch: master
 date: 2026-10-16
 fbs_sync_marker: none
-done_commit:
+done_commit: 5d6e2499
 ---
 <!-- 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
@@ -81,3 +81,20 @@ gh-trade 먼저 배포가 안전한가: 예 — 지금 워커는 모르는 파�
 ## 질문
 
 없음.
+
+## 회신 (2026-10-16 · gh-radar Phase 33)
+
+done_commit `5d6e2499` = 배포된 limitup-sync 이미지 태그와 같은 커밋(Phase 33 코드 + master 병합). 순수 Phase 33 마지막 코드 커밋은 `bc489782`.
+
+1. **처리.** 표 `limitup_team_flow`(PK `date, isin` · 평평한 열 29 + `schema_version` + `payload` jsonb) · `limitup_commit_day` 가 같은 트랜잭션에서 team_flow 도 날짜 단위로 교체 · stage CHECK 에 team_flow 추가 · `limitup_purge_old` 에 90일 삭제 · 워커는 team_flow 를 선택 파일로 적재(manifest 에 없으면 0행 commit — 6개 표 영향 없음) · RPC `teamflow_report_for_user` + `GET /api/teamflow/report` · 웹 `/analytics/teamflow?d=YYYYMMDD`(사이드바 「분석 › 팀 매집」 · 상한가 보고서 다음).
+2. **「배포 전 이미 적재된 날짜는 files_sig 를 NULL 로」 할 일은 워커 자동 감지로 대체했다.** manifest 에 team_flow 가 있고 적재 이력의 `rows.team_flow` 가 manifest rows 와 다르면 files_sig 가 같아도 그 날짜를 다시 적재한다. 수동 UPDATE 0건 · 일회성이 아닌 영구 규칙(앞으로 D+1 재기록으로 team_flow 만 생기거나 바뀌어도 자동으로 따라간다).
+3. **배포(2026-10-16 낮, DB → Job → server → webapp 순).** 마이그레이션 `20261016200000_limitup_team_flow` · `20261016200100_teamflow_report_rpc` 적용(17:22 KST) → limitup-sync Job 이미지 `limitup-sync:5d6e2499`(17:24 · Scheduler 21:20 그대로) → radar-gw 낮 운반 1회(11일치 20260929~20261015) · Job 즉시 실행 `gh-radar-limitup-sync-589w2`(11일 모두 사유 files_sig 로 재적재) → server 리비전 `gh-radar-server-00062-xnt`(무인증 401 확인) → webapp push `3a6e75fa..9e1561ab`(17:39) · Vercel `dpl_BJuxRw63heNSFCsWS8WLdFLiFemg`(trade.jx1.io).
+4. **라이브 확인.** 스모크 `--date 20261014` PASS 13 · FAIL 0, INV-8 `db=34 manifest=34`(샘플 34행과 같다) · 재실행은 committed 0(멱등). 사용자 라이브 UAT(`/analytics/teamflow?d=20261014` — 사이드바 · KPI · 기본 접힘 · 에스엠벡셀 · 한선엔지니어링 · 동양고속 · 천일고속 상세 · 폰 390 · 다크): 「전부 통과」. 첫 로드 시간은 미기록. 10/16 분은 아직 export 전이었다 — 오늘 밤 20:30 배치 → 21:00 운반 → 21:20 새 워커가 `new` 로 싣는다(미확인).
+5. **노트 ↔ 코드 차이(코드가 맞다고 보고 적재했다) 5건.**
+   - `first_limit_auction` 은 상한가 체결이 없어도 `false` 다(null 아님 — `bool(len(lim) and …)`). 웹은 이 값을 쓰지 않는다.
+   - `bucket_min` 은 buckets 안이 아니라 **payload 최상위 키**다.
+   - `window.share_lo` · `window.share_hi` 는 **0~1**(÷100)이고 분모 0 이어도 0 이다(null 아님). 노트에 단위가 없었다.
+   - `members.time` 은 장 마감 뒤일 수 있다(10/14 샘플 에스엠벡셀 "19:50" · 한선엔지니어링 "20:00"). 화면 캡션은 「{members.time} 기준」 그대로 표기한다.
+   - 「gh-radar 가 할 일」 4번째(files_sig NULL)는 위 2 로 대체.
+6. **화면 메모.** 10분 차트는 09:00~15:30 39칸 고정축이고, key 93(15:30 종가 단일가)은 15:20 칸에 합산해 그린다(「10분 표 보기」 에는 15:30 행 그대로).
+7. **「상한가 도달」 KPI 는 `status === "limit"`(마지막 체결가 = 상한가)만 센다** — 10/14 장중 상한가 15 · 종가 상한가 9. 사용자 답: 「이대로 둠」(라벨 유지).

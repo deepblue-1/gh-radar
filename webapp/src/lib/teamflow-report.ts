@@ -2,8 +2,8 @@
  * 팀 매집 보고서 표시 변환 한 모듈 (Phase 33 · UI-SPEC 「표시 변환 규칙 (T11)」 · D-09 · D-10).
  *
  * DB · API 는 export 원문 단위 그대로다(원 · ms epoch · share 0~1 · rate %) — 억 · % · 시각 변환은 여기서만 한다(D-04).
- * - 금액 = 부호 + 억 소수 1자리(`Math.round` 반올림 — 음수 −0.05억 경계는 +쪽으로 가 「0.0억」, RESEARCH A4 골든) ·
- *   반올림 0 은 부호 없는 「0.0억」 · 조 변환 없음(D-10).
+ * - 금액 = 부호 + 억 소수 1자리(0 에서 먼 쪽 반올림 `roundHalfAway` — 등락률과 같은 규칙이라 같은 크기의 ± 값이
+ *   대칭으로 보인다: ±0.05억 → 「+0.1억」 · 「−0.1억」, 코드 리뷰 WR-02) · 반올림 0 은 부호 없는 「0.0억」 · 조 변환 없음(D-10).
  *   `lib/format.ts` 의 억 함수(버림 · 부호 없음 · 조 변환)는 규칙이 달라 쓰지 않는다.
  * - 음수 부호는 U+2212(−) — 하이픈이 아니다.
  * - 요약 문장(`payload.summary_lines`)은 HTML 문자열을 주입하지 않고 조각 배열(`summaryPartsOf`)로만 렌더한다.
@@ -24,15 +24,17 @@ function roundHalfAway(x: number): number {
   return Math.sign(x) * Math.round(Math.abs(x));
 }
 
-const isNum = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v);
+/** 유한한 number 만 통과 — null · undefined(키 없음) · NaN 은 「값 없음」. 화면 · sr 설명이 같은 판정을 쓰도록 export(IN-04). */
+export const isNum = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v);
 
 /**
- * 원 → 억 소수 1자리 반올림 값(−0 은 0). null · NaN 은 null.
- * `Math.round` 그대로 — −5,000,000 원(−0.05억)은 「0.0억」(골든 잠금 · RESEARCH A4). 표시 · 색이 같은 값을 쓴다.
+ * 원 → 억 소수 1자리 반올림 값(−0 은 0). null · NaN 은 null. 표시 · 색이 같은 값을 쓴다.
+ * 0.5 는 0 에서 먼 쪽(`roundHalfAway` — `fmtRate` · `fmtPct1` 과 같은 규칙). 부호에 따라 반올림이 갈리면 순매수 ·
+ * 순매도가 비대칭으로 보인다(`Math.round` 는 +5,000,000 원 「+0.1억」 인데 −5,000,000 원 「0.0억」 이었다 · WR-02).
  */
 function eokOf(won: number | null | undefined): number | null {
   if (!isNum(won)) return null;
-  const v = Math.round(won / 1e7) / 10;
+  const v = roundHalfAway(won / 1e7) / 10;
   return v === 0 ? 0 : v;
 }
 

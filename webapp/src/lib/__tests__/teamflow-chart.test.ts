@@ -16,6 +16,7 @@ import {
   chartWidthOf,
   firstLimitXOf,
   stripBarsOf,
+  windowKeysOf,
   windowSlotsOf,
 } from '../teamflow-chart';
 import { bandSlotsOf, bucketSlotsOf } from '../teamflow-report';
@@ -156,6 +157,16 @@ describe('bandChartOf', () => {
     expect(g.rows[1]!.barY).toBe(8 + 28 + 6);
   });
 
+  it('측정 폭 < 232(판 반폭 − 여백이 음수) → 스케일 0 · 0 이 아닌 값은 최소 2 · 음수 폭 없음(IN-02)', () => {
+    for (const w of [200, 228, 231]) {
+      const g = bandChartOf([band('0~5%', -2e8), band('5~10%', 4e8), band('10~15%', 0)], w);
+      expect(g.sc, String(w)).toBe(0);
+      expect(g.rows.map((r) => r.barW)).toEqual([2, 2, 0]);
+      expect(g.rows[0]!.barX).toBe(g.cx - 2);
+    }
+    expect(bandChartOf([band('0~5%', 4e8)], 240).sc).toBeGreaterThan(0);
+  });
+
   it('스케일 하한 5천만 — 값이 전부 작으면 막대가 판 반폭을 채우지 않는다', () => {
     const g = bandChartOf([band('0~5%', 1e7)], 640);
     expect(g.rows[0]!.barW).toBeCloseTo((204 * 1e7) / 5e7, 9);
@@ -198,6 +209,30 @@ describe('windowSlotsOf', () => {
   it('null → null · 0~38 로 자른다', () => {
     expect(windowSlotsOf(null)).toBeNull();
     expect(windowSlotsOf({ start: '08:40', end: '15:39' })).toEqual([0, 38]);
+  });
+
+  it('창 전체가 축 밖이면 null(가장자리 칸 거짓 음영 없음) · 일부만 걸치면 걸친 칸까지 · key 93 은 슬롯 38(IN-03)', () => {
+    expect(windowSlotsOf({ start: '08:20', end: '08:59' })).toBeNull();
+    expect(windowSlotsOf({ start: '15:40', end: '15:59' })).toBeNull();
+    expect(windowSlotsOf({ start: '08:40', end: '09:09' })).toEqual([0, 0]);
+    expect(windowSlotsOf({ start: '15:30', end: '15:39' })).toEqual([38, 38]);
+    expect(windowSlotsOf({ start: 'x', end: '09:09' })).toBeNull();
+  });
+});
+
+describe('windowKeysOf', () => {
+  it('「HH:MM」 → floor(분 / 10) · 축으로 자르지 않는다 · 오름차순', () => {
+    expect(windowKeysOf({ start: '09:10', end: '09:59' })).toEqual([55, 59]);
+    expect(windowKeysOf({ start: '08:20', end: '08:39' })).toEqual([50, 51]);
+    expect(windowKeysOf({ start: '12:19', end: '12:00' })).toEqual([72, 73]);
+    expect(windowKeysOf(null)).toBeNull();
+  });
+});
+
+describe('bucketChartOf — 축 밖 창(IN-03)', () => {
+  it('창이 09:00 이전 전체 → shade null', () => {
+    const g = bucketChartOf(bucketSlotsOf([bkt(54), bkt(55)]), { start: '08:20', end: '08:39' }, null, 640);
+    expect(g.shade).toBeNull();
   });
 });
 

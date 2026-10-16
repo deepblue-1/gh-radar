@@ -119,7 +119,9 @@ export function TeamflowReport() {
       />
 
       {phase.kind === 'loading' && (
-        <p className="text-[length:var(--t-caption)] text-[var(--faint)]">불러오는 중…</p>
+        <p role="status" aria-live="polite" className="text-[length:var(--t-caption)] text-[var(--faint)]">
+          불러오는 중…
+        </p>
       )}
 
       {phase.kind === 'error' && (

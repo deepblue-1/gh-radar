@@ -8,7 +8,7 @@
 import type { TeamflowBand, TeamflowBucket, TeamflowWindow } from '@gh-radar/shared';
 
 import { kstSecOf } from './limitup-report';
-import { BUCKET_KEY_FIRST, BUCKET_SLOTS, kstHm, toneOf, type TeamflowTone } from './teamflow-report';
+import { BUCKET_KEY_CLOSE, BUCKET_KEY_FIRST, BUCKET_SLOTS, isNum, kstHm, toneOf, type TeamflowTone } from './teamflow-report';
 
 /** 측정 폭을 모를 때(jsdom clientWidth 0 · 첫 렌더) 쓰는 폭 — Pitfall 8. */
 export const CHART_FALLBACK_W = 640;
@@ -37,8 +37,6 @@ export interface StripBar {
   /** 값 없는 칸(체결 없음) — 1px 빈 선 */
   empty: boolean;
 }
-
-const isNum = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v);
 
 /**
  * 9칸 슬롯(`bandSlotsOf`) → 막대 기하. 칸 i: x = i × 20 · 폭 18 ·
@@ -104,7 +102,7 @@ export interface BandChart {
 /**
  * payload.bands + 측정 폭 → 구간 가로 막대 기하(D-12 · UI-SPEC T6). viewBox 를 측정 폭과 1:1 로 두기 위한 값이다.
  * W = chartWidthOf(측정) · 행 = 「하루 합계」 를 뺀 bands(export 순서) · H = 24 + 행 수 × 28 ·
- * 판 = W − 96 − 120 · cx = 96 + 판/2 · sc = (판/2 − 8) ÷ max(5천만, |net_val| 최대) ·
+ * 판 = W − 96 − 120 · cx = 96 + 판/2 · sc = max(0, 판/2 − 8) ÷ max(5천만, |net_val| 최대) ·
  * 막대 + 는 cx 오른쪽 · − 는 왼쪽 · 20% 점선 = 「20~25%」 행 위끝.
  */
 export function bandChartOf(bands: readonly TeamflowBand[], measuredW: number): BandChart {
@@ -114,7 +112,8 @@ export function bandChartOf(bands: readonly TeamflowBand[], measuredW: number): 
   const plotW = W - BAND_LABEL_W - BAND_VALUE_W;
   const cx = BAND_LABEL_W + plotW / 2;
   const mx = Math.max(BAND_MX_FLOOR, ...src.map((b) => b.net_val).filter(isNum).map(Math.abs));
-  const sc = (plotW / 2 - BAND_PAD) / mx;
+  // 측정 폭 < 232(라벨 96 + 값 120 + 여백 2×8)면 판 반폭이 음수 — 스케일을 0 으로 막아 음수 폭 계산을 막는다(IN-02).
+  const sc = Math.max(0, plotW / 2 - BAND_PAD) / mx;
   const rows = src.map((b, i): BandChartRow => {
     const v = isNum(b.net_val) ? b.net_val : null;
     const y = BAND_TOP + i * BAND_ROW_H;
@@ -168,17 +167,30 @@ const hmToMin = (hm: string): number | null => {
 const clampSlot = (i: number) => Math.min(BUCKET_SLOTS - 1, Math.max(0, i));
 
 /**
- * payload.window → 음영 칸 범위 `[s0, s1]`(양끝 포함) — 「HH:MM」 → 분 → `floor(분 / 10) − 54` · 0~38 로 자른다.
- * null · 형식이 틀린 시각 → null.
+ * payload.window → 10분 key 범위 `[k0, k1]`(양끝 포함 · 오름차순) — 「HH:MM」 → 분 → `floor(분 / 10)`. 축으로 자르지 않는다.
+ * null · 형식이 틀린 시각 → null. 10분 표가 이 범위로 띠를 판정한다(축 밖 key 행도 원자료 그대로 — IN-03).
  */
-export function windowSlotsOf(window: Pick<TeamflowWindow, 'start' | 'end'> | null | undefined): [number, number] | null {
+export function windowKeysOf(window: Pick<TeamflowWindow, 'start' | 'end'> | null | undefined): [number, number] | null {
   if (!window) return null;
   const a = hmToMin(window.start);
   const b = hmToMin(window.end);
   if (a === null || b === null) return null;
-  const s0 = clampSlot(Math.floor(a / 10) - BUCKET_KEY_FIRST);
-  const s1 = clampSlot(Math.floor(b / 10) - BUCKET_KEY_FIRST);
-  return s0 <= s1 ? [s0, s1] : [s1, s0];
+  const k0 = Math.floor(a / 10);
+  const k1 = Math.floor(b / 10);
+  return k0 <= k1 ? [k0, k1] : [k1, k0];
+}
+
+/**
+ * payload.window → 음영 칸 범위 `[s0, s1]`(양끝 포함) — `windowKeysOf` 의 key − 54 를 0~38 로 자른다.
+ * 창 전체가 축 밖(끝 key < 54 · 시작 key > 93)이면 null — 가장자리 칸에 거짓 음영을 만들지 않는다(IN-03).
+ * key 93(종가 단일가)은 슬롯 38 에 합산되므로 축 안이다. null · 형식이 틀린 시각 → null.
+ */
+export function windowSlotsOf(window: Pick<TeamflowWindow, 'start' | 'end'> | null | undefined): [number, number] | null {
+  const ks = windowKeysOf(window);
+  if (!ks) return null;
+  const [k0, k1] = ks;
+  if (k1 < BUCKET_KEY_FIRST || k0 > BUCKET_KEY_CLOSE) return null;
+  return [clampSlot(k0 - BUCKET_KEY_FIRST), clampSlot(k1 - BUCKET_KEY_FIRST)];
 }
 
 export interface FirstLimitX {

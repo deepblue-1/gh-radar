@@ -42,7 +42,7 @@ export function TeamflowToggle({
       >
         <ChevronRight
           aria-hidden="true"
-          className={cn('size-4 shrink-0 transition-transform duration-200', open && 'rotate-90')}
+          className={cn('size-4 shrink-0 transition-transform duration-200 motion-reduce:transition-none', open && 'rotate-90')}
         />
         {label}
       </button>

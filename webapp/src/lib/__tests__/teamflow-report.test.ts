@@ -71,15 +71,30 @@ describe('fmtEok (D-10)', () => {
 
   it('반올림 0 은 부호 없는 「0.0억」 · null 은 「—」', () => {
     expect(fmtEok(0, { signed: true })).toBe('0.0억');
-    expect(fmtEok(-5_000_000, { signed: true })).toBe('0.0억');
+    expect(fmtEok(-0)).toBe('0.0억');
+    expect(fmtEok(4_999_999, { signed: true })).toBe('0.0억');
+    expect(fmtEok(-4_999_999, { signed: true })).toBe('0.0억');
     expect(fmtEok(null)).toBe('—');
     expect(fmtEok(Number.NaN)).toBe('—');
+  });
+
+  it('0.05억 경계는 0 에서 먼 쪽 — 같은 크기의 ± 값이 대칭(WR-02 · 등락률과 같은 규칙)', () => {
+    expect(fmtEok(5_000_000, { signed: true })).toBe('+0.1억');
+    expect(fmtEok(-5_000_000, { signed: true })).toBe('−0.1억');
+    // 부동소수 경계 — 15,000,000 / 1e7 = 1.5 정확값 · 양쪽 모두 0.2억
+    expect(fmtEok(15_000_000, { signed: true })).toBe('+0.2억');
+    expect(fmtEok(-15_000_000, { signed: true })).toBe('−0.2억');
+    expect(fmtEok(-25_000_000)).toBe('−0.3억');
+    expect(fmtEok(-14_999_999)).toBe('−0.1억');
   });
 });
 
 describe('toneOf', () => {
   it('반올림(억 1자리) 값 기준 up · down · flat', () => {
     expect(toneOf(4_000_000)).toBe('flat');
+    expect(toneOf(5_000_000)).toBe('up');
+    expect(toneOf(-5_000_000)).toBe('down');
+    expect(toneOf(-4_999_999)).toBe('flat');
     expect(toneOf(586497190)).toBe('up');
     expect(toneOf(-112514343)).toBe('down');
     expect(toneOf(null)).toBe('flat');

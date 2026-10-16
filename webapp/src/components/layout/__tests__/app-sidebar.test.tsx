@@ -1249,7 +1249,7 @@ describe("AppSidebar — 「분석 › 상한가 보고서」 (Phase 28 D-09 · 
       "strategy",
       "분석",
       "상한가 보고서",
-      "팀 매집",
+      "팀 매집 보고서",
       "AI 애널리스트",
       "My page",
     ]);
@@ -1322,7 +1322,7 @@ describe("AppSidebar — 「분석 › 상한가 보고서」 (Phase 28 D-09 · 
       mockAuth = auth;
       mockRelay = relayState({ status });
       const r = render(<AppSidebar />);
-      expect(screen.queryByText("팀 매집")).toBeNull();
+      expect(screen.queryByText("팀 매집 보고서")).toBeNull();
       expect(document.querySelector('[data-sidebar-item="teamflow"]')).toBeNull();
       r.unmount();
     }
@@ -1332,7 +1332,7 @@ describe("AppSidebar — 「분석 › 상한가 보고서」 (Phase 28 D-09 · 
     mockPathname = "/analytics/teamflow";
     setupReady();
     render(<AppSidebar />);
-    const teamflow = screen.getByRole("link", { name: "팀 매집" });
+    const teamflow = screen.getByRole("link", { name: "팀 매집 보고서" });
     expect(teamflow).toHaveAttribute("href", "/analytics/teamflow");
     expect(teamflow).toHaveAttribute("data-sidebar-item", "teamflow");
     expect(teamflow).toHaveAttribute("aria-current", "page");
@@ -1443,7 +1443,7 @@ describe("AppSidebar — 「Admin › 사용자 · 서버」 (Phase 29 D-13)", (
       "strategy",
       "분석",
       "상한가 보고서",
-      "팀 매집",
+      "팀 매집 보고서",
       "AI 애널리스트",
       "Admin",
       "사용자",

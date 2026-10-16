@@ -2,19 +2,19 @@
 gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: 운영 유지보수
-current_phase: 33
-current_phase_name: 팀 매집(teamflow) 보고서
+current_phase: 32
+current_phase_name: 계좌 축 정리
 status: executing
-stopped_at: Completed 33-07-PLAN.md · Phase 32 32-11 complete (병행)
-last_updated: "2026-10-16T08:38:12.072Z"
+stopped_at: Phase 32 32-13 complete — 32-14 웨이브 ④ 배포 진행 (Phase 33 complete 2026-10-16)
+last_updated: "2026-10-16T10:10:00.000Z"
 last_activity: 2026-10-16
-last_activity_desc: Phase 33 execution started
-state_head: 5d6e2499d0a02bfb6756201985b9590890229438
+last_activity_desc: Phase 33 complete — Phase 32 실행 계속
+state_head: 36cd83839d50f005bf89ea751ee288ada47c68d2
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 40
-  completed_plans: 34
+  completed_plans: 35
   percent: 50
 ---
 
@@ -25,15 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-12 after Phase 31)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 33 — 팀 매집(teamflow) 보고서
+**Current focus:** Phase 32 — 계좌 축 정리
 
 ## Current Position
 
-Phase: 33 (팀 매집(teamflow) 보고서) — EXECUTING
-Plan: 9 of 9
-Status: Ready to execute
-Last activity: 2026-10-16 — Phase 33 33-08 완료(백엔드 배포: db push · limitup-sync 5d6e2499 · 낮 운반 1회 · 10/14 team_flow 34행 · server 00062 · webapp push 안 함)
-Parallel: Phase 32 (계좌 축 정리) — 32-01~32-11 완료(웨이브 ①~③ 배포 relay·push 55459fe5 · 라이브 UAT 통과 · 웨이브 ④ 32-11 relay VI 슬롯 slot-only 로컬 커밋) · 다음 32-12, 별도 세션
+Phase: 32 (계좌 축 정리) — EXECUTING
+Plan: 14 of 14 (32-01~32-13 완료 · 웨이브 ①~③ 배포 55459fe5 · ④ 코드 32-11~32-13 + sweeper n 프레임 수정 6a3067f7 · 32-14 배포 진행)
+Status: Executing Phase 32
+Last activity: 2026-10-16 — Phase 32 32-13 완료 · Phase 33 완료(9/9 · 검증 passed · 배포 완료, 별도 세션)
 
 Progress: [█████░░░░░] 50% (17/17 plans)
 
@@ -90,8 +89,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-16T08:17:43.877Z
-Stopped at: Completed 33-07-PLAN.md
+Last session: 2026-10-16T08:51:53.087Z
+Stopped at: Phase 33 complete, ready to plan Phase 32
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -125,6 +124,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 33 P05 | 13min | 3 tasks | 9 files |
 | Phase 33 P06 | 9 min | 2 tasks | 8 files |
 | Phase 33 P07 | 25min | 2 tasks | 2 files |
+| Phase 33 P09 | 6 min | 2 tasks | 3 files |
 
 ## Decisions
 
@@ -179,3 +179,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 33]: 33-06: key 93(종가 단일가)은 bucketSlotsOf 가 슬롯 38(15:20 칸)에 합산 — 10분 표는 원자료 그대로(key 92 · 93 · 범위 밖 각자 행) · window 띠는 슬롯 38 이 창에 들면 key 93 행 포함
 - [Phase 33]: 33-07: 상세 배치 E2E 는 블록 래퍼(teamflow-bands ↔ teamflow-members)끼리 top 을 비교하고, 거래원 오른쪽 칸 여부만 svg 로 잰다
 - [Phase 33]: 33-07: 전 워크스페이스 회귀 게이트 green(worker 108 · server 521 · webapp 4234 · E2E 25 · pgTAP 218/28/54) — 33-08 배포 전제 충족 · 두 자리 억 왼쪽 축 글자는 33-09 UAT 관찰
+- [Phase 33]: 33-09: 인박스 261016 done_commit = 5d6e2499(배포 이미지 태그 · 병합) — 회신에 순수 Phase 33 마지막 코드 커밋 bc489782 병기
+- [Phase 33]: 33-09: 「상한가 도달」 KPI 는 종가 상한가만 셈 — 사용자 답 「이대로 둠」(라벨 유지)

@@ -32,7 +32,8 @@ export { kstYmdDaysAgo } from "./purge";
  *   manifest 읽기(깨지면 skip "manifest") → `schema_version`(모르는 판(1 · 2 밖)이면 skip "schema" — 파일을 읽지 않는다) →
  *   `files_sig` 가 이력과 같으면 `skipped.unchanged`(verify · stage · commit · record_skip 없음) —
  *   단 manifest 에 `team_flow.ndjson.gz` 가 있고 이력 `rows.team_flow` 가 그 rows 와 다르면(키 없음 포함) files_sig 가
- *   같아도 재적재한다(Phase 33 D-03 — 옛 워커가 team_flow 없이 실은 날짜 · 수동 files_sig NULL 대체) →
+ *   같아도 재적재한다(Phase 33 D-03 — 옛 워커가 team_flow 없이 실은 날짜 · 수동 files_sig NULL 대체 · 이 backfill 은
+ *   격자 재업로드를 건너뛰고, 실패해도 그 날짜를 unpublish 하지 않는다 — 실패 날짜로만 남는다 · WR-01) →
  *   files sha256 대조(불일치 · 없는 파일이면 skip "sha") → 6 ndjson.gz 읽기(행 수 == manifest rows) →
  *   선택 파일 `team_flow.ndjson.gz`(manifest 에 있을 때만 · 행 수 == manifest rows · 없으면 0행 — Phase 33 D-02) →
  *   격자 `grid/<isin>.json.gz` 읽기 → 파생 2표(`gridSummaryOf` · `memberDailyOf` — D-17, gh-trade 정의) →
@@ -296,9 +297,12 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
 
     const { error: clearErr } = await sb.rpc("limitup_stage_clear", { p_date: date });
     if (clearErr) throw new Error(`limitup_stage_clear ${date}: ${clearErr.message}`);
+    // D-03 backfill 은 files_sig 가 같아 들어온다 = 격자 파일이 sha256 까지 같다(filesSig 는 grid/* 도 싣는다).
+    // 그래서 격자를 다시 올리지 않고, 실패해도 「새 격자 + 옛 행」 이 섞일 일이 없어 unpublish 하지 않는다(WR-01).
+    const backfill = reason === "team_flow_backfill";
     let commitMs: number;
     try {
-      result.grids += await uploadGrids(sb, date, grids);
+      if (!backfill) result.grids += await uploadGrids(sb, date, grids);
       await stageDay(sb, date, { ...tables, grid_summary: gridSummary, member_daily: memberDaily }, config.stageChunk);
       await stageDay(sb, date, { team_flow: teamFlow }, Math.min(config.stageChunk, TEAM_FLOW_STAGE_CHUNK));
       const commitStart = Date.now();
@@ -314,7 +318,14 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
       // WR-B04 — 격자는 같은 경로를 덮어쓴다(D-14). 이미 적재된 날짜의 재적재가 업로드 뒤 실패하면 DB 는 옛 export,
       // 격자는 새 export 라 보고서가 둘을 겹쳐 그린다. 그 날짜의 files_sig 를 지워 보고서에서 내리고(「적재 안 된
       // 날짜」 — 보고서 RPC 는 files_sig 있는 날짜만 보인다) 다음 run 이 통째로 다시 적재하게 한다.
-      if (p?.sig) await unpublish(date);
+      // backfill 실패는 내리지 않는다(WR-01) — 격자를 건드리지 않았고 commit 은 원자라 DB 는 이미 게시된 그대로다.
+      // 선택 파일 team_flow 하나 때문에 멀쩡한 상한가 보고서 날짜가 사라지면 안 된다. 그 날짜는 아래 루프에서
+      // 그대로 failed(종료 1 · record_skip "load" — files_sig 는 건드리지 않는다)로 남아 운영자에게 보인다.
+      if (backfill) {
+        log.warn({ date }, "limitup day team_flow backfill failed — 게시된 날짜는 그대로 둔다(unpublish 없음)");
+      } else if (p?.sig) {
+        await unpublish(date);
+      }
       throw err;
     }
     log.info(

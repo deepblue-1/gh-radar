@@ -347,6 +347,49 @@ describe('TeamflowDetail — 「10분 표 보기」 (T8 · D-14)', () => {
     expect(within(rows[0]!).getAllByRole('cell')[0]!.textContent).toBe('08:20');
   });
 
+  it('합성 창 08:20~08:39(축 밖 전체) → 차트 음영 없음 · 표 띠는 08:20 · 08:30 행에만(09:00 행 아님 · IN-03)', () => {
+    const ch = rowOf(CHEONIL);
+    const b0 = ch.payload!.buckets[0]!;
+    const extra = [
+      { ...b0, key: 50, start: '08:20' },
+      { ...b0, key: 51, start: '08:30' },
+    ];
+    renderDetail(
+      withPayload(ch, {
+        buckets: [...ch.payload!.buckets, ...extra],
+        window: { ...ch.payload!.window!, start: '08:20', end: '08:39' },
+      }),
+    );
+    const svg = document.querySelector('[data-slot="teamflow-bucket-chart"]') as SVGSVGElement;
+    expect(svg.querySelector('rect[fill="var(--team-bg)"]')).toBeNull();
+    fireEvent.click(toggle('10분 표 보기'));
+    const striped = bodyRows()
+      .filter((r) => within(r).getAllByRole('cell')[0]!.className.includes(INSET))
+      .map((r) => within(r).getAllByRole('cell')[0]!.textContent);
+    expect(striped).toEqual(['08:20', '08:30']);
+  });
+
+  it('창이 15:20 칸(key 92)까지 닿으면 차트가 거기 합산하는 15:30(key 93) 행에도 띠', () => {
+    const ch = rowOf(CHEONIL);
+    renderDetail(withPayload(ch, { window: { ...ch.payload!.window!, start: '15:10', end: '15:29' } }));
+    // 같은 선택자가 축 안 창에서는 음영을 찾는다(위 「음영 없음」 단언의 대조군)
+    expect(document.querySelector('[data-slot="teamflow-bucket-chart"] rect[fill="var(--team-bg)"]')).not.toBeNull();
+    fireEvent.click(toggle('10분 표 보기'));
+    const striped = bodyRows()
+      .filter((r) => within(r).getAllByRole('cell')[0]!.className.includes(INSET))
+      .map((r) => within(r).getAllByRole('cell')[0]!.textContent);
+    // 천일고속 export 에는 key 92(15:20) 행이 없다(단일가 접수 구간 체결 없음) — 15:10 · 15:30 두 행
+    expect(striped).toEqual(['15:10', '15:30']);
+  });
+
+  it('토글 셰브론 — 행 셰브론과 같이 reduced-motion 이면 회전 전환 없음(motion-reduce:transition-none · IN-05)', () => {
+    renderDetail(rowOf(CHEONIL));
+    for (const l of ['구간표 보기', '10분 표 보기', '판정 기준']) {
+      const icon = toggle(l).querySelector('svg')!;
+      expect(icon.getAttribute('class'), l).toContain('motion-reduce:transition-none');
+    }
+  });
+
   it('구간표 · 10분 표 · 판정 기준 — 차례로 열고 닫아도 서로의 상태를 바꾸지 않는다', () => {
     renderDetail(rowOf(CHEONIL));
     const state = () => ['구간표 보기', '10분 표 보기', '판정 기준'].map((l) => toggle(l).getAttribute('aria-expanded'));
