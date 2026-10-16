@@ -1769,6 +1769,8 @@ describe("SubscriptionHub — P32 VI 슬롯 다세션 (D-17)", () => {
   const B = "1234567802";
   /** 소유 뷰 밖 계좌(옛 지정 · 초집합 슬롯). */
   const X = "1234567899";
+  /** Ready 중 추가 선언되는 계좌(WR-03). */
+  const C = "1234567803";
   let hub: SubscriptionHub;
   let fanned: HubFanoutEvent[];
   let kb: FakeBrokerSession;
@@ -1802,6 +1804,49 @@ describe("SubscriptionHub — P32 VI 슬롯 다세션 (D-17)", () => {
   afterEach(() => {
     hub.closeAll();
     vi.restoreAllMocks();
+  });
+
+  it("WR-03 Ready 중 추가 선언된 계좌 — accounts 이벤트에 21(KRX → NXT) 재요청 · 새 계좌 슬롯이 채워진다 · 모름 계좌가 없으면 재요청 0", () => {
+    const viGets = (): number => kb.sentTypes.filter((t) => t === MSG.GetVITriggerReq).length;
+    kb.emitReady();
+    expect(viGets()).toBe(2);
+    // Ready 프리페치 답 — A · B 두 거래소 슬롯이 다 찼다.
+    kb.pushFrame(buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", run: true }));
+    kb.pushFrame(buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", unregistered: true }));
+    kb.pushFrame(buildSetVITriggerRespFrame(null));
+    expect(hub.getViSlot(U, B, "NXT")).toBeNull();
+
+    // 모름 계좌가 없는 accounts(예: 87 제외 · 무변경) — 다시 묻지 않는다.
+    kb.emit("accounts");
+    expect(viGets()).toBe(2);
+
+    // Ready 중 계좌 C 추가 선언(29-21) — 그 계좌 슬롯은 모름이다 → 21 두 건 재요청.
+    kb.allowedAccounts.push({ accountNo: C, name: "계좌C" });
+    kb.emit("accounts");
+    expect(viGets()).toBe(4);
+    expect(hub.getViSlot(U, C, "KRX")).toBeUndefined();
+
+    // 재요청 답(새 서버 — 선언 계좌마다 1프레임) — C 슬롯이 채워진다 · 머리 소비는 한 21 에 한 번.
+    kb.pushFrame(buildSetVITriggerRespFrame({ accountNo: C, exchange: "KRX", run: true, orderAmountKrw: 2_000_000n }));
+    kb.pushFrame(buildSetVITriggerRespFrame(null));
+    expect(hub.getViSlot(U, C, "KRX")).toMatchObject({ accountNo: C, run: true, orderAmountKrw: 2_000_000 });
+    expect(hub.getViSlot(U, C, "NXT")).toBeNull();
+    // 기존 슬롯은 무변경(빈 Envelope 는 그 거래소 소유 계좌 전부 미등록 — A|NXT 는 원래 미등록).
+    expect(hub.getViSlot(U, A, "KRX")).toMatchObject({ accountNo: A, run: true });
+  });
+
+  it("WR-03 미준비 세션 · 교체된 옛 세션의 accounts 는 21 을 보내지 않는다", () => {
+    const viGets = (s: FakeBrokerSession): number => s.sentTypes.filter((t) => t === MSG.GetVITriggerReq).length;
+    // kb 는 아직 Ready 전 — accounts 가 와도 무동작(곧 오는 Ready 프리페치가 묻는다).
+    kb.allowedAccounts.push({ accountNo: C, name: "계좌C" });
+    kb.emit("accounts");
+    expect(viGets(kb)).toBe(0);
+    // 같은 소유 키에 새 세션이 결선되면 옛 세션의 accounts 는 침묵한다.
+    const kb2 = new FakeBrokerSession(U, "KB120", "KB", [{ accountNo: A, name: "계좌A" }]);
+    hub.attach(kb2);
+    kb.isReady = true;
+    kb.emit("accounts");
+    expect(viGets(kb)).toBe(0);
   });
 
   it("소유 뷰 밖 계좌 61(초집합 · 옛 지정) → 슬롯 캐시 0 · vi.slot 0 · #logForeign 1줄", () => {

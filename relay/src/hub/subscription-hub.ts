@@ -534,6 +534,11 @@ export interface HubSession {
   send(payload: Uint8Array): boolean;
   on(event: "frame", listener: (e: TransportFrameEvent) => void): unknown;
   on(event: "ready", listener: (e: SessionReadyEvent) => void): unknown;
+  /**
+   * 상태는 그대로 · 허용 계좌만 바뀌었다 (`DmaSession` 29-21 — Ready 중 계좌 추가 선언 · 87 제외). hub 는 인자를 읽지 않는다 — 바뀐
+   * `allowedAccounts` 를 다시 읽는다(WR-03 · 새 계좌 VI 슬롯 21 재요청).
+   */
+  on(event: "accounts", listener: () => void): unknown;
 }
 
 /**
@@ -1177,6 +1182,7 @@ export class SubscriptionHub extends EventEmitter {
       // 옛 세션의 리스너는 떼지 않고 **정본 대조로 침묵시킨다** (15-03 generation 규율 동형).
       session.on("frame", (e) => this.#onFrame(userId, owner, session, e));
       session.on("ready", () => this.#onReady(userId, owner, session));
+      session.on("accounts", () => this.#onAccounts(userId, owner, session));
     }
     logger.info({ userId, serverKey }, "[HUB] 세션 결선");
     this.#afterPrimaryChange(userId, primaryBefore);
@@ -2176,8 +2182,14 @@ export class SubscriptionHub extends EventEmitter {
    * 그 세션이 sweep 대여 중이면(29-49) 보내지 않고 표식에 `refetchVi` 를 남긴다 — 반납 때 이 함수가 다시 불린다. 미해결 21 이 한 세션에
    * 두 주인(hub · sweeper)으로 섞이면 거래소 없는 빈 61 을 누구 것인지 가를 수 없다(GC-04).
    */
-  #requestViTriggers(userId: string, owner: string, session: HubSession): RelayExchange[] {
-    const queue: RelayExchange[] = [];
+  #requestViTriggers(
+    userId: string,
+    owner: string,
+    session: HubSession,
+    opts?: { append: boolean },
+  ): RelayExchange[] {
+    // `append`(WR-03 · 같은 회선에서 다시 묻기) — 앞서 보낸 21 의 답은 아직 온다. 대기열을 버리면 그 답이 새 머리를 먹어 귀속이 밀린다.
+    const queue: RelayExchange[] = opts?.append === true ? (this.#pendingViGets.get(owner) ?? []) : [];
     this.#pendingViGets.set(owner, queue);
     const mark = this.#lent.get(owner);
     if (mark !== undefined) {
@@ -3767,6 +3779,27 @@ export class SubscriptionHub extends EventEmitter {
         ? "[HUB] 신규 구독 — 스냅샷+구독(FULL)+체결 요청을 페이서에 넣음"
         : "[HUB] 신규 구독 — 스냅샷+구독(PRICE) 요청을 페이서에 넣음 (체결 테이프 없음)",
     );
+  }
+
+  /**
+   * Ready 중 허용 목록 변경 (Phase 32 WR-03 — `DmaSession` 29-21 Ready 중 계좌 추가 선언 · 87 제외). VI 슬롯은 21 답 · 에코로만 채워지므로
+   * Ready 프리페치 뒤 들어온 계좌의 슬롯은 다음 재접속까지 모름(웹 VI 행 잠금)으로 남는다. 그 세션 소유 계좌 중 슬롯이 하나라도 모름인
+   * 계좌가 있을 때만 그 세션으로 21(KRX → NXT)을 다시 묻는다 — 같은 회선이라 대기열은 이어 붙인다(`append`). 대여 중이면
+   * `#requestViTriggers` 가 `refetchVi` 로 반납 때까지 미룬다. 계좌가 빠지기만 했으면(87) 모름 계좌가 없어 무동작이다.
+   */
+  #onAccounts(userId: string, owner: string, session: HubSession): void {
+    if (this.#sessions.get(owner) !== session || !session.isReady) return;
+    const owned = ownedAccountsOf(session);
+    if (owned === null) return;
+    const unknown = [...owned].filter((accountNo) =>
+      VI_PREFETCH_EXCHANGES.some((exchange) => !this.#viSlots.has(viSlotKey(owner, accountNo, exchange))),
+    );
+    if (unknown.length === 0) return;
+    logger.info(
+      { userId, serverKey: serverKeyOf(session), accounts: unknown.length },
+      "[HUB] Ready 중 허용 계좌 변경 — VI 슬롯 모름 계좌가 있어 21 재요청 (WR-03)",
+    );
+    this.#requestViTriggers(userId, owner, session, { append: true });
   }
 
   #onReady(userId: string, owner: string, session: HubSession): void {
