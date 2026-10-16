@@ -5,7 +5,7 @@ milestone_name: 운영 유지보수
 current_phase: 32
 current_phase_name: 계좌 축 정리
 status: executing
-stopped_at: Phase 32 plan 32-09 complete
+stopped_at: Phase 32 plan 32-10 Task 2 checkpoint — relay 배포(20:00 KST 뒤) → push 대기
 last_updated: "2026-10-16T07:23:16.882Z"
 last_activity: 2026-10-16
 last_activity_desc: Phase 32 execution started
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-12 after Phase 31)
 ## Current Position
 
 Phase: 32 (계좌 축 정리) — EXECUTING
-Plan: 10 of 14 (32-01~32-09 완료)
+Plan: 10 of 14 (32-01~32-09 완료 · 32-10 Task 1 완료 55a89ebc, Task 2 배포 체크포인트)
 Status: Executing Phase 32
 Last activity: 2026-10-16 — Phase 32 32-01~32-09 완료(웨이브 ①~③ 코드, push·relay 배포 안 함)
 
