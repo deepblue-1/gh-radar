@@ -1023,3 +1023,49 @@ describe("P32 strategies.disable.account 스키마 (Pitfall 2)", () => {
     });
   });
 });
+
+describe("P32 user.settings.set serverKey (D-14a)", () => {
+  beforeEach(() => {
+    vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** 서버 내장 기본값(11값 · 범위 안). */
+  const S = {
+    preBuyAmount: 4000,
+    addBuyAmount: 4000,
+    postBuyAmount: 4000,
+    postBuyMaxCount: 3,
+    postBuyFloorQty: 100_000,
+    postBuyReboundPct: 30,
+    sellQtyTrackRatio: 55,
+    autoSellPeriodSec: 3,
+    auctionSellRatioPct: 20,
+    autoSellRatioDefaultPct: 10,
+    autoSellMethodDefault: 3,
+  };
+  const set = (extra: Record<string, unknown>): string => JSON.stringify({ t: "user.settings.set", s: S, ...extra });
+
+  it("serverKey 부재(구 탭)는 통과 · 키를 만들지 않는다 — fanout 이 primary 로 보낸다", () => {
+    const msg = parseInbound(set({}));
+    expect(msg).toEqual({ t: "user.settings.set", s: S });
+    expect(msg).not.toHaveProperty("serverKey");
+  });
+
+  it("serverKey 는 1~16자 문자열이면 형식과 무관하게 통과 — 「KYOBO119」 · 레지스트리 없는 세션의 「KB」 · 16자", () => {
+    expect(parseInbound(set({ serverKey: "KYOBO119" }))).toEqual({ t: "user.settings.set", serverKey: "KYOBO119", s: S });
+    // shared SERVER_KEY_RE 를 쓰면 「KB」 가 4400 이 된다(DmaSession.serverKey = serverKey ?? broker) — 쓰지 않는다.
+    expect(parseInbound(set({ serverKey: "KB" }))).toMatchObject({ serverKey: "KB" });
+    expect(parseInbound(set({ serverKey: "A".repeat(16) }))).toMatchObject({ serverKey: "A".repeat(16) });
+  });
+
+  it("serverKey \"\" · 17자 · 숫자 · null → 파싱 실패(null = close 4400)", () => {
+    expect(parseInbound(set({ serverKey: "" }))).toBeNull();
+    expect(parseInbound(set({ serverKey: "A".repeat(17) }))).toBeNull();
+    expect(parseInbound(set({ serverKey: 120 }))).toBeNull();
+    expect(parseInbound(set({ serverKey: null }))).toBeNull();
+  });
+});

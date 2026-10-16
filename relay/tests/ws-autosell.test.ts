@@ -410,8 +410,9 @@ describe("Phase 27 autosell.cmd · user.settings.set", () => {
     await waitFor(() => framesOf(inbox, "user.settings").length === 1, "84 팬아웃");
     await flushIo(30);
 
+    // P32 D-14a — 그 84 를 보낸 서버의 서버키를 싣는다(레지스트리 없는 하네스 = 증권사 이름 「KB」).
     expect(framesOf(inbox, "user.settings")).toEqual([
-      { t: "user.settings", present: true, ...SETTINGS, autoSellPeriodSec: 5 },
+      { t: "user.settings", present: true, serverKey: "KB", ...SETTINGS, autoSellPeriodSec: 5 },
     ]);
   });
 
@@ -435,7 +436,7 @@ describe("Phase 27 autosell.cmd · user.settings.set", () => {
     expect(gatewayFrames.filter((f) => f.msgType === MSG.GetUserSettingsReq)).toHaveLength(1);
     expect(framesOf(inbox, "user.settings")).toHaveLength(1);
     expect(framesOf(inbox, "user.settings")[0]).toMatchObject({ present: true, autoSellRatioDefaultPct: 15 });
-    expect(hub.getUserSettings(USER_A)).toMatchObject({ present: true, autoSellRatioDefaultPct: 15 });
+    expect(hub.getUserSettings(USER_A, "KB")).toMatchObject({ present: true, autoSellRatioDefaultPct: 15 });
   });
 
   // ==========================================================
@@ -479,7 +480,7 @@ describe("Phase 27 autosell.cmd · user.settings.set", () => {
       const { ws, inbox } = await authed("token-a");
       gateway.sendUserSettings(gatewaySocket(), { present: true, postBuyFloorAmount: 300 });
       await waitFor(() => framesOf(inbox, "user.settings").length === 1, "84 캐시 적재");
-      expect(hub.getUserSettings(USER_A)?.postBuyFloorAmount).toBe(300);
+      expect(hub.getUserSettings(USER_A, "KB")?.postBuyFloorAmount).toBe(300);
 
       ws.sendRaw({ t: "user.settings.set", s: LEGACY_SETTINGS });
       await waitFor(() => settingsReqs().length === 1, "42 송신");
@@ -502,7 +503,7 @@ describe("Phase 27 autosell.cmd · user.settings.set", () => {
 
     it("구 탭 11값 · 84 캐시 없음 → 42 0건 · 거부 프레임 1건(ERROR · Relay · user.settings.set) · 소켓 유지 · 다음 12값은 42 로 간다", async () => {
       const { ws, inbox } = await authed("token-a");
-      expect(hub.getUserSettings(USER_A)).toBeUndefined();
+      expect(hub.getUserSettings(USER_A, "KB")).toBeUndefined();
 
       ws.sendRaw({ t: "user.settings.set", s: LEGACY_SETTINGS });
       await waitFor(() => framesOf(inbox, "msg").length === 1, "거부 프레임");
@@ -526,6 +527,34 @@ describe("Phase 27 autosell.cmd · user.settings.set", () => {
       ws.sendRaw({ t: "user.settings.set", s: SETTINGS });
       await waitFor(() => settingsReqs().length === 1, "다음 12값 42 송신");
       expect(settingsReqs()[0]!.postBuyFloorAmount).toBe(84);
+      expect(ws.closeInfo).toBeNull();
+    });
+
+    it("P32 구 탭 11값 + serverKey(그 서버) · 그 서버 84 최소 300 → 42 1건 · 최소 300(그 서버 캐시 되싣기 · D-14a)", async () => {
+      const { ws, inbox } = await authed("token-a");
+      gateway.sendUserSettings(gatewaySocket(), { present: true, postBuyFloorAmount: 300 });
+      await waitFor(() => framesOf(inbox, "user.settings").length === 1, "84 캐시 적재");
+      expect(hub.getUserSettings(USER_A, "KB")?.postBuyFloorAmount).toBe(300);
+
+      ws.sendRaw({ t: "user.settings.set", serverKey: "KB", s: LEGACY_SETTINGS });
+      await waitFor(() => settingsReqs().length === 1, "42 송신");
+      await flushIo(30);
+
+      expect(settingsReqs()[0]!.postBuyFloorAmount).toBe(300);
+      expect(framesOf(inbox, "msg")).toHaveLength(0);
+      expect(ws.closeInfo).toBeNull();
+    });
+
+    it("P32 구 탭 11값 + serverKey(그 서버) · 그 서버 84 없음 → 42 0건 · 기존 USER_SETTINGS_FLOOR_UNKNOWN_TEXT 거부 · 소켓 유지", async () => {
+      const { ws, inbox } = await authed("token-a");
+      expect(hub.getUserSettings(USER_A, "KB")).toBeUndefined();
+
+      ws.sendRaw({ t: "user.settings.set", serverKey: "KB", s: LEGACY_SETTINGS });
+      await waitFor(() => framesOf(inbox, "msg").length === 1, "거부 프레임");
+      await flushIo(30);
+
+      expect(settingsReqs()).toHaveLength(0);
+      expect(framesOf(inbox, "msg")[0]).toMatchObject({ kind: "user.settings.set", m: USER_SETTINGS_FLOOR_UNKNOWN_TEXT });
       expect(ws.closeInfo).toBeNull();
     });
 

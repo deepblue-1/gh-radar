@@ -39,6 +39,7 @@ import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { MSG } from "../src/dma/msg-type.js";
 import { Envelope } from "../src/generated/stock-dma/envelope.js";
 import { WsFanout } from "../src/ws/fanout.js";
+import { USER_SETTINGS_FLOOR_UNKNOWN_TEXT, USER_SETTINGS_SERVER_GONE_TEXT } from "../src/ws/protocol.js";
 import { SubscriptionHub } from "../src/hub/subscription-hub.js";
 import { logger } from "../src/logger.js";
 import type { DmaBroker, DmaServerRow } from "../src/registry/registry.js";
@@ -46,6 +47,7 @@ import type { SymbolInfo, SymbolLookup } from "../src/store/symbols.js";
 import {
   readDisableStrategiesKey,
   readGetVITriggerExchange,
+  readSetUserSettingsRequest,
   readViConfirmRequest,
   readViSetRequest,
   startFakeGateway,
@@ -251,7 +253,7 @@ describe("WsFanout — 증권사별 세션 · hub 세션 소유 키 · 병합 �
     vi.restoreAllMocks();
   });
 
-  it("① 두 증권사 계좌 사용자 — 세션 2 · 스텁마다 LoginReq 1 · 상태 프레임 accounts 합집합 · 교보는 24 만(21 · 34 · 43 은 KB)", async () => {
+  it("① 두 증권사 계좌 사용자 — 세션 2 · 스텁마다 LoginReq 1 · 상태 프레임 accounts 합집합 · 교보는 24 · 43(21 · 34 는 KB · 43 은 세션마다 P32)", async () => {
     await setup();
     const acquireSpy = vi.spyOn(manager, "acquireFor");
     const { inbox } = await tab();
@@ -269,9 +271,9 @@ describe("WsFanout — 증권사별 세션 · hub 세션 소유 키 · 병합 �
     // primary(KB) 계좌가 먼저다.
     expect(merged?.accounts?.map((a) => a.accountNo)).toEqual([A1, B1]);
 
-    // 두 세션 모두 Ready 프리페치 — 계좌(25)는 세션마다, 상따 목록(24)도 세션마다, 21 · 34 · 43 은 primary(KB) 만.
+    // 두 세션 모두 Ready 프리페치 — 계좌(25) · 상따 목록(24) · 사용자 설정(43 · P32 D-14a 서버별)은 세션마다, 21 · 34 는 VI 원천(KB) 만.
     await waitFor(
-      () => countOf(kbPayloads, MSG.GetUserSettingsReq) === 1 && countOf(kyoboPayloads, MSG.GetLimitChaserListReq) === 1,
+      () => countOf(kbPayloads, MSG.GetUserSettingsReq) === 1 && countOf(kyoboPayloads, MSG.GetUserSettingsReq) === 1,
       "두 세션 Ready 프리페치",
     );
     await flushIo(10);
@@ -280,7 +282,7 @@ describe("WsFanout — 증권사별 세션 · hub 세션 소유 키 · 병합 �
     expect(countOf(kbPayloads, MSG.GetVITriggerReq)).toBe(2);
     expect(countOf(kyoboPayloads, MSG.GetVITriggerReq)).toBe(0);
     expect(countOf(kyoboPayloads, MSG.GetVIOrderListReq)).toBe(0);
-    expect(countOf(kyoboPayloads, MSG.GetUserSettingsReq)).toBe(0);
+    expect(countOf(kyoboPayloads, MSG.GetUserSettingsReq)).toBe(1);
   });
 
   it("② 교보 매핑에 없으면 교보 LoginReq 0 · KB 세션 1개만(종전과 같다)", async () => {
@@ -381,6 +383,147 @@ describe("WsFanout — 증권사별 세션 · hub 세션 소유 키 · 병합 �
     vi.advanceTimersByTime(SESSION_GRACE_MS + 1);
     await flushIo();
     expect(manager.sessionsOf(USER_A)).toHaveLength(0);
+  });
+
+  describe("P32 42 지정 서버 · replay (D-14a)", () => {
+    /** 새 웹 14값(범위 안). */
+    const S = {
+      preBuyAmount: 5000,
+      addBuyAmount: 3000,
+      postBuyAmount: 2000,
+      postBuyMaxCount: 4,
+      postBuyFloorQty: 0,
+      postBuyReboundPct: 25,
+      sellQtyTrackRatio: 40,
+      autoSellPeriodSec: 3,
+      auctionSellRatioPct: 20,
+      autoSellRatioDefaultPct: 10,
+      autoSellMethodDefault: 3,
+      postBuyFloorAmount: 84,
+      preBuyWatchAmount: 50,
+      preBuyAutoAddBuy: true,
+    };
+    /** 구 탭(Phase 31 이전) 11값 — 후매수 최소 · 선매수 2필드 없음. */
+    const { postBuyFloorAmount: _f, preBuyWatchAmount: _w, preBuyAutoAddBuy: _a, ...LEGACY } = S;
+
+    function settingsReqsOf(payloads: Buffer[]): NonNullable<ReturnType<typeof readSetUserSettingsRequest>>[] {
+      return payloads
+        .map((p) => readSetUserSettingsRequest(p))
+        .filter((r): r is NonNullable<typeof r> => r !== null);
+    }
+
+    function userSettingsOf(inbox: RelayOutbound[]): Extract<RelayOutbound, { t: "user.settings" }>[] {
+      return inbox.filter((m): m is Extract<RelayOutbound, { t: "user.settings" }> => m.t === "user.settings");
+    }
+
+    async function bothReadyTab(): Promise<{ ws: TestWs; inbox: RelayOutbound[] }> {
+      const t = await tab();
+      await waitFor(
+        () => manager.sessionsOf(USER_A).length === 2 && manager.sessionsOf(USER_A).every((x) => x.isReady),
+        "KB · 교보 세션 ready",
+      );
+      await waitFor(
+        () => countOf(kbPayloads, MSG.GetUserSettingsReq) >= 1 && countOf(kyoboPayloads, MSG.GetUserSettingsReq) >= 1,
+        "두 세션 43",
+      );
+      await flushIo(10);
+      return t;
+    }
+
+    /** 두 스텁이 각자 84 를 민다(KB 먼저) — hub 소유 키 캐시가 찰 때까지. */
+    async function push84(kbInput: Record<string, unknown>, kyoboInput: Record<string, unknown>): Promise<void> {
+      const kbSock = kb.sockets[0];
+      const kySock = kyobo.sockets[0];
+      if (kbSock === undefined || kySock === undefined) throw new Error("게이트웨이 소켓 없음");
+      kb.sendUserSettings(kbSock, kbInput);
+      kyobo.sendUserSettings(kySock, kyoboInput);
+      await waitFor(
+        () => hub.getUserSettings(USER_A, "KB120") !== undefined && hub.getUserSettings(USER_A, "KYOBO119") !== undefined,
+        "두 서버 84 캐시",
+      );
+    }
+
+    it("인증 replay — 서버마다 user.settings 1프레임 · primary(KB120) 것이 마지막(RESEARCH A3) · 값 · serverKey 각각", async () => {
+      await setup();
+      await bothReadyTab();
+      await push84({ present: true, preBuyAmount: 1000 }, { present: true, preBuyAmount: 2000 });
+
+      const second = await tab();
+      await waitFor(() => second.inbox.some((m) => m.t === "vi.list"), "둘째 탭 스냅샷");
+      await flushIo(20);
+
+      expect(userSettingsOf(second.inbox).map((m) => [m.serverKey, m.preBuyAmount])).toEqual([
+        ["KYOBO119", 2000],
+        ["KB120", 1000],
+      ]);
+    });
+
+    it("42 serverKey KYOBO119 → 교보 스텁으로만 1건 · KB 0바이트 · serverKey 부재 → primary(KB) 로만 1건", async () => {
+      await setup();
+      const { ws, inbox } = await bothReadyTab();
+
+      ws.sendRaw({ t: "user.settings.set", serverKey: "KYOBO119", s: S });
+      await waitFor(() => countOf(kyoboPayloads, MSG.SetUserSettingsReq) === 1, "교보 42");
+      await flushIo(20);
+      expect(countOf(kbPayloads, MSG.SetUserSettingsReq)).toBe(0);
+      expect(settingsReqsOf(kyoboPayloads)[0]).toMatchObject({ preBuyAmount: 5000, postBuyFloorAmount: 84 });
+
+      ws.sendRaw({ t: "user.settings.set", s: S });
+      await waitFor(() => countOf(kbPayloads, MSG.SetUserSettingsReq) === 1, "KB 42(구 탭 — primary)");
+      await flushIo(20);
+      expect(countOf(kyoboPayloads, MSG.SetUserSettingsReq)).toBe(1);
+      expect(inbox.filter((m) => m.t === "msg")).toEqual([]);
+      expect(ws.closeInfo).toBeNull();
+    });
+
+    it("지정 서버(KYOBO119) 세션 미준비 → primary 로 떨어뜨리지 않는다 — 거부 프레임 1건(USER_SETTINGS_SERVER_GONE_TEXT) · 두 스텁 42 0바이트 · 소켓 유지", async () => {
+      await setup({ autoLogin: false });
+      const { ws, inbox } = await tab();
+      await waitFor(() => statesOf(inbox).some((f) => f.s === "ready"), "KB ready");
+      await flushIo(10);
+      expect(manager.sessionsOf(USER_A).find((x) => x.serverKey === "KYOBO119")?.isReady).toBe(false);
+
+      ws.sendRaw({ t: "user.settings.set", serverKey: "KYOBO119", s: S });
+      await waitFor(() => rejectsOf(inbox, "user.settings.set").length === 1, "거부 프레임");
+      await flushIo(20);
+
+      expect(countOf(kbPayloads, MSG.SetUserSettingsReq)).toBe(0);
+      expect(countOf(kyoboPayloads, MSG.SetUserSettingsReq)).toBe(0);
+      expect(rejectsOf(inbox, "user.settings.set")[0]).toMatchObject({ t: "msg", lv: "ERROR", m: USER_SETTINGS_SERVER_GONE_TEXT });
+      expect(ws.closeInfo).toBeNull();
+    });
+
+    it("구 탭 되싣기(최소 없음) + serverKey KYOBO119 → 교보 84 의 금액(500) · KB 84(300) 로 채우지 않는다", async () => {
+      await setup();
+      const { ws } = await bothReadyTab();
+      await push84({ present: true, postBuyFloorAmount: 300 }, { present: true, postBuyFloorAmount: 500 });
+
+      ws.sendRaw({ t: "user.settings.set", serverKey: "KYOBO119", s: LEGACY });
+      await waitFor(() => countOf(kyoboPayloads, MSG.SetUserSettingsReq) === 1, "교보 42");
+      await flushIo(20);
+
+      expect(settingsReqsOf(kyoboPayloads)[0]?.postBuyFloorAmount).toBe(500);
+      expect(countOf(kbPayloads, MSG.SetUserSettingsReq)).toBe(0);
+    });
+
+    it("구 탭 되싣기 + serverKey KYOBO119 · 교보 84 없음(KB 84 만 있음) → 기존 FLOOR_UNKNOWN 거부 · 두 스텁 42 0바이트", async () => {
+      await setup();
+      const { ws, inbox } = await bothReadyTab();
+      const kbSock = kb.sockets[0];
+      if (kbSock === undefined) throw new Error("KB 소켓 없음");
+      kb.sendUserSettings(kbSock, { present: true, postBuyFloorAmount: 300 });
+      await waitFor(() => hub.getUserSettings(USER_A, "KB120") !== undefined, "KB 84 캐시");
+      expect(hub.getUserSettings(USER_A, "KYOBO119")).toBeUndefined();
+
+      ws.sendRaw({ t: "user.settings.set", serverKey: "KYOBO119", s: LEGACY });
+      await waitFor(() => rejectsOf(inbox, "user.settings.set").length === 1, "거부 프레임");
+      await flushIo(20);
+
+      expect(rejectsOf(inbox, "user.settings.set")[0]).toMatchObject({ m: USER_SETTINGS_FLOOR_UNKNOWN_TEXT });
+      expect(countOf(kyoboPayloads, MSG.SetUserSettingsReq)).toBe(0);
+      expect(countOf(kbPayloads, MSG.SetUserSettingsReq)).toBe(0);
+      expect(ws.closeInfo).toBeNull();
+    });
   });
 
   it("N-01 (29-54) 운영 보존 — KB120 + KYOBO119 사용자의 전부 정지는 오늘과 같다: KB 스텁 빈 키 14 = 1 · 교보 스텁 14 = 0 · strategies.disabled 1건 { count 1 } · msg 0", async () => {
