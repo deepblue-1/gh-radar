@@ -12,11 +12,12 @@ import { Button } from '@/components/ui/button';
 import { ApiClientError } from '@/lib/api';
 import { dateNavOf, fmtYmdShort, parseYmdParam } from '@/lib/limitup-report';
 import { fetchTeamflowReport } from '@/lib/teamflow-api';
-import { sortRows } from '@/lib/teamflow-report';
+import { kpisOf, sortRows } from '@/lib/teamflow-report';
 import { cn } from '@/lib/utils';
 
 import { LimitupDateNav } from './limitup-date-nav';
 import { TeamflowDayGrid } from './teamflow-day-grid';
+import { TeamflowKpiStrip } from './teamflow-kpi-strip';
 
 /**
  * 팀 매집 보고서 본문 (Phase 33 · UI-SPEC T1 페이지 셸 · T3 목록 · D-07 · D-08).
@@ -29,7 +30,8 @@ import { TeamflowDayGrid } from './teamflow-day-grid';
  * ③ 머리(제목 + 설명 + 날짜 알약)는 로딩 · 오류 중에도 그린다. 알약 글자는 `?d` 에서 즉시 · ‹ › 는 마지막으로 받은
  *   `dates[]`(행 있는 날짜만 — D-07)로 판정한다. `?d` 가 dates 밖(행 없는 날)이면 `dateNavOf` 가 앞뒤 행 있는 날로 보낸다.
  * ④ 빈 상태 2종: 이력 0(`dates` 빔) · 행 없는 날(`dates > 0 ∧ rows []`) — 둘 다 목록 카드 없음(`data-slot="teamflow-empty"`).
- * ⑤ 행이 있으면 탐지 종목 카드(행 = team_net_val 큰 순 · 기본 전부 접힘). KPI 띠 · 미니막대는 33-03 이 덧붙인다.
+ * ⑤ 행이 있으면 세로 순서 = 머리 → KPI 띠(D-11) → KPI 캡션(최소치 고지 — 항상 보인다 · 접거나 툴팁 뒤로 숨기지 않는다) →
+ *   탐지 종목 카드(행 = team_net_val 큰 순 · 기본 전부 접힘). 행 0 인 날은 KPI · 캡션 · 카드 모두 없이 빈 상태.
  */
 
 type Ready = Exclude<TeamflowReportResponse, { access: false }>;
@@ -97,6 +99,7 @@ export function TeamflowReport() {
   const go = (to: LimitupDate) => router.push(`${BASE}?d=${to}`);
 
   const rows = useMemo(() => (resp !== null && resp.rows.length > 0 ? sortRows(resp.rows) : null), [resp]);
+  const kpis = useMemo(() => (rows !== null ? kpisOf(rows) : null), [rows]);
 
   const gateReason = gate ?? (phase.kind === 'gate' ? phase.reason : null);
   if (gateReason !== null) {
@@ -145,6 +148,15 @@ export function TeamflowReport() {
             최신 보고서 보기
           </Button>
         </EmptyBox>
+      )}
+
+      {kpis !== null && (
+        <>
+          <TeamflowKpiStrip kpis={kpis} />
+          <p className="-mt-2 text-[length:var(--t-caption)] text-[var(--muted-fg)] break-keep">
+            탐지 = 20%↑ 또는 상한가 체결 종목 · 팀 수치는 들어와서 친 체결만 센 최소치예요
+          </p>
+        </>
       )}
 
       {resp !== null && rows !== null && (

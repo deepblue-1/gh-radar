@@ -88,7 +88,7 @@ describe('tagOf (D-09)', () => {
 describe('sortRows (D-08)', () => {
   it('10/14 상위 5 = 한선엔지니어링 · 제주항공 · 천일고속 · 도우인시스 · 동양고속', () => {
     const top5 = sortRows(teamflowRows()).slice(0, 5).map((r) => r.isin);
-    expect(top5).toEqual([HANSUN, 'KR7089590004', CHEONIL, 'KR7484120001', DONGYANG]);
+    expect(top5).toEqual(['KR7452280001', 'KR7089590004', 'KR7000650002', 'KR7484120001', 'KR7084670009']);
   });
 
   it('null 맨 뒤 · 동률 isin 오름차순 · 입력 배열 불변', () => {

@@ -2,12 +2,13 @@
  * 팀 매집 보고서 표시 변환 한 모듈 (Phase 33 · UI-SPEC 「표시 변환 규칙 (T11)」 · D-09 · D-10).
  *
  * DB · API 는 export 원문 단위 그대로다(원 · ms epoch · share 0~1 · rate %) — 억 · % · 시각 변환은 여기서만 한다(D-04).
- * - 금액 = 부호 + 억 소수 1자리(반올림 · 0.5 는 0 에서 먼 쪽) · 반올림 0 은 부호 없는 「0.0억」 · 조 변환 없음(D-10).
+ * - 금액 = 부호 + 억 소수 1자리(`Math.round` 반올림 — 음수 −0.05억 경계는 +쪽으로 가 「0.0억」, RESEARCH A4 골든) ·
+ *   반올림 0 은 부호 없는 「0.0억」 · 조 변환 없음(D-10).
  *   `lib/format.ts` 의 억 함수(버림 · 부호 없음 · 조 변환)는 규칙이 달라 쓰지 않는다.
  * - 음수 부호는 U+2212(−) — 하이픈이 아니다.
  * - 요약 문장(`payload.summary_lines`)은 HTML 문자열을 주입하지 않고 조각 배열(`summaryPartsOf`)로만 렌더한다.
  *
- * 뒤 플랜(33-03 · 33-06)이 KPI · 미니막대 · 10분 축 변환을 이 모듈에 덧붙인다.
+ * 뒤 플랜(33-06)이 10분 축 변환을 이 모듈에 덧붙인다(KPI · 행 칸 · 미니막대 슬롯은 33-03).
  */
 
 import type { TeamflowRow } from '@gh-radar/shared';
@@ -25,10 +26,13 @@ function roundHalfAway(x: number): number {
 
 const isNum = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v);
 
-/** 원 → 억 소수 1자리 반올림 값(−0 은 0). null · NaN 은 null. */
+/**
+ * 원 → 억 소수 1자리 반올림 값(−0 은 0). null · NaN 은 null.
+ * `Math.round` 그대로 — −5,000,000 원(−0.05억)은 「0.0억」(골든 잠금 · RESEARCH A4). 표시 · 색이 같은 값을 쓴다.
+ */
 function eokOf(won: number | null | undefined): number | null {
   if (!isNum(won)) return null;
-  const v = roundHalfAway(won / 1e7) / 10;
+  const v = Math.round(won / 1e7) / 10;
   return v === 0 ? 0 : v;
 }
 
@@ -166,4 +170,30 @@ export function factLineOf(
   }
   if (isNum(row.value)) parts.push(`거래대금 ${fmtEok(row.value)}`);
   return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+export interface TeamflowKpis {
+  /** 탐지 종목 = 행 수 */
+  detected: number;
+  /** 팀 순매수 종목 = team_net_val > 0 행 수 */
+  netPositive: number;
+  /** 상한가 도달 = status === 'limit' 행 수(종가 기준 — D-11) */
+  limit: number;
+  /** 팀 순매수 합(원) = 전 행 team_net_val 합 · 음수 포함 · null 제외 */
+  netSum: number;
+}
+
+/** KPI 4칸(D-11 · UI-SPEC T2) — team_net_val null 행은 합 · 「팀 순매수 종목」 에서 빠지고 탐지 수에는 남는다. */
+export function kpisOf(rows: readonly Pick<TeamflowRow, 'status' | 'team_net_val'>[]): TeamflowKpis {
+  let netPositive = 0;
+  let limit = 0;
+  let netSum = 0;
+  for (const r of rows) {
+    if (isNum(r.team_net_val)) {
+      netSum += r.team_net_val;
+      if (r.team_net_val > 0) netPositive += 1;
+    }
+    if (r.status === 'limit') limit += 1;
+  }
+  return { detected: rows.length, netPositive, limit, netSum };
 }
