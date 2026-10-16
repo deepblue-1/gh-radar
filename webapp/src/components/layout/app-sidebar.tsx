@@ -123,6 +123,8 @@ const VI_TAG_ORDER: readonly RelayExchange[] = ["KRX", "NXT"];
  */
 const NAV_ANALYTICS: NavLeaf = { href: "/analytics/limitup", label: "분석", icon: ChartLine };
 const NAV_LIMITUP_REPORT = { href: "/analytics/limitup", label: "상한가 보고서" } as const;
+// Phase 33 TEAM-02 — 분석 하위 · 상한가 보고서 다음. 차단은 server RPC 게이트(403 DMA_UNMAPPED) + DmaGate(위 ④).
+const NAV_TEAMFLOW = { href: "/analytics/teamflow", label: "팀 매집" } as const;
 
 /**
  * 「Admin」 그룹 제목 = `/admin/users` 링크(Phase 29 D-13). 하위 = 사용자 · 서버. 위치는 「분석」 뒤 · My page 앞(목업 A
@@ -468,6 +470,7 @@ export function AppSidebar() {
 
   const isActive = (href: string) => samePath(pathname, href);
   const limitupActive = pathname.startsWith(NAV_LIMITUP_REPORT.href);
+  const teamflowActive = pathname.startsWith(NAV_TEAMFLOW.href);
   const inAdmin = pathname === ADMIN_PREFIX || pathname.startsWith(`${ADMIN_PREFIX}/`);
   // 거래소별 진실 — 가동(run === true)인 거래소만, KRX → NXT 순.
   const viRunning = VI_TAG_ORDER.filter((ex) => viTriggers[ex]?.run === true);
@@ -552,6 +555,15 @@ export function AppSidebar() {
                     label={NAV_LIMITUP_REPORT.label}
                     item="limitup-report"
                     active={limitupActive}
+                    rail={rail}
+                  />
+                </li>
+                <li>
+                  <SubNavLink
+                    href={NAV_TEAMFLOW.href}
+                    label={NAV_TEAMFLOW.label}
+                    item="teamflow"
+                    active={teamflowActive}
                     rail={rail}
                   />
                 </li>
