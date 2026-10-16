@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 33
 current_phase_name: 팀 매집(teamflow) 보고서
 status: executing
-stopped_at: Completed 33-04-PLAN.md
-last_updated: "2026-10-16T07:20:27.849Z"
+stopped_at: Completed 33-05-PLAN.md
+last_updated: "2026-10-16T07:36:50.260Z"
 last_activity: 2026-10-16
 last_activity_desc: Phase 33 execution started
-state_head: 14bc3d4dcb2e02ce9ca99aed1de33686254b3a66
+state_head: 3ffdcc762b51667c3d02b671a20f2ebea2e0cbd3
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 40
-  completed_plans: 25
+  completed_plans: 26
   percent: 50
 ---
 
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-10-12 after Phase 31)
 ## Current Position
 
 Phase: 33 (팀 매집(teamflow) 보고서) — EXECUTING
-Plan: 5 of 9
+Plan: 6 of 9
 Status: Ready to execute
-Last activity: 2026-10-16 — Phase 33 33-04 완료(사이드바 「분석 › 팀 매집」 · 목록 E2E 1280/390 · 폭 백스톱 T1~T3, push 안 함)
+Last activity: 2026-10-16 — Phase 33 33-05 완료(상세 ① 구간 가로 막대 · 거래원 2단 막대 · 구간표 · 판정 기준 접힘, push 안 함)
 
 Progress: [█████░░░░░] 50% (17/17 plans)
 
@@ -88,8 +88,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-16T07:20:27.790Z
-Stopped at: Completed 33-04-PLAN.md
+Last session: 2026-10-16T07:36:50.157Z
+Stopped at: Completed 33-05-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -120,6 +120,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 33 P02 | 8 min | 3 tasks | 8 files |
 | Phase 33 P03 | 11 min | 3 tasks | 11 files |
 | Phase 33 P04 | 17min | 2 tasks | 5 files |
+| Phase 33 P05 | 13min | 3 tasks | 9 files |
 
 ## Decisions
 
@@ -169,3 +170,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 33]: 33-03: 차트 픽셀 기하는 lib/teamflow-chart.ts 순수 함수(stripBarsOf · chartWidthOf 640 폴백) — 33-05 · 33-06 이 덧붙인다
 - [Phase 33]: 33-04: 백스톱 T3 한 줄 판정 = 태그·셰브론 top 8px 안 + 이름 줄과 세로 겹침(종목 칸이 이름+코드 두 줄 묶음이라 top 8px 기준은 배치와 불일치)
 - [Phase 33]: 33-04: 사이드바 「팀 매집」 = 분석 하위 상한가 보고서 다음 · 레일 전용 아이콘 없음 · diff 12줄 최소
+- [Phase 33]: 33-05: 상세 차트 폭은 useChartWidth(ResizeObserver · 폴백 640) → 순수 기하 함수 → viewBox 1:1 · 접힘은 TeamflowToggle 공용(닫히면 언마운트) — 33-06 10분 차트 · 10분 표가 재사용
+- [Phase 33]: 33-05: 상세 section 안에서 <i> 금지(33-01 RTL (j) 요약 태그 제거 증거) — 범례 견본은 span · bandChartOf 0 값 막대 폭 0(behavior 정본)
