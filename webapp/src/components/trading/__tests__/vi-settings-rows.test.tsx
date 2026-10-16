@@ -18,12 +18,19 @@ import type { RelayAccount, RelayViSetMsg, RelayViTrigger } from '@gh-radar/shar
 const sendMock = vi.fn();
 /** 세션 계좌 목록 — CR-02 describe 만 채운다(정본 계좌의 이름 조회). 나머지는 빈 배열 그대로다. */
 let accountsMock: RelayAccount[] = [];
+/** 서버 통지(최신이 index 0) — P32 슬롯 오류 describe 만 채운다. */
+let messagesMock: RelayServerMessageEntry[] = [];
 
 vi.mock('@/lib/relay-provider', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/relay-provider')>();
   return {
     ...actual,
-    useRelayContext: () => ({ ...actual.EMPTY_RELAY_VALUE, send: sendMock, accounts: accountsMock }),
+    useRelayContext: () => ({
+      ...actual.EMPTY_RELAY_VALUE,
+      send: sendMock,
+      accounts: accountsMock,
+      messages: messagesMock,
+    }),
   };
 });
 
@@ -42,7 +49,7 @@ import {
   viRowAccountOf,
 } from '../workbench/vi-settings-rows';
 import { MAX_VI_ORDER_AMOUNT_MANWON, manwonToKrw } from '@/lib/vi-alert';
-import type { RelayViTriggers } from '@/lib/use-relay-socket';
+import type { RelayServerMessageEntry, RelayViTriggers } from '@/lib/use-relay-socket';
 
 const ACCOUNT = '37728502101';
 
@@ -100,6 +107,7 @@ beforeEach(() => {
   sendMock.mockReset();
   sendMock.mockReturnValue(true);
   accountsMock = [];
+  messagesMock = [];
 });
 
 describe('줄 구성 (D-05)', () => {
@@ -1025,5 +1033,109 @@ describe('P32 고른 계좌 슬롯 (D-18 · S12)', () => {
     render(<ViSettingsRows viSlots={SLOTS} accounts={[ACCOUNTS[0]]} accountNo={A} />);
     expect(document.querySelectorAll('[data-slot="vi-settings-row"]')).toHaveLength(2);
     expect(document.querySelectorAll('[data-slot="vi-settings-account"]')).toHaveLength(1);
+  });
+});
+
+/*
+  Phase 32 D-18 · UI-SPEC S12 — 계좌별 슬롯이면 「옮기기」 는 뜻이 없다(같은 거래소에 다른 계좌로 저장 = 그 계좌의 새 슬롯).
+  옮기기 버튼 · 확인 창의 이동 표기 · 등록 계좌 고지 줄이 없고, 행의 `vi.set` 은 언제나 행의 계좌로 나간다.
+  `vi.set` 거부(relay 거부 · 54 SetVITrigger)는 보낸 (계좌, 거래소) 행에만 기존 VI 오류 문구로 선다.
+*/
+describe('P32 옮기기 제거 · 슬롯 오류 (D-18 · S12)', () => {
+  const A = '1111111101';
+  const B = '2222222202';
+  const OTHER = '9999999909';
+  const ACCOUNTS: RelayAccount[] = [
+    { accountNo: A, name: '위탁종합' },
+    { accountNo: B, name: '위탁CMA' },
+  ];
+  const group = (acct: string) =>
+    document.querySelector(`[data-slot="vi-settings-account"][data-account="${acct}"]`) as HTMLElement;
+  const slotBlock = (acct: string, ex: 'KRX' | 'NXT') =>
+    group(acct).querySelector(`[data-slot="vi-settings-block"][data-exchange="${ex}"]`) as HTMLElement;
+  const slotFix = (acct: string, ex: 'KRX' | 'NXT') =>
+    slotBlock(acct, ex).querySelector('[data-slot="vi-row-fix"]') as HTMLButtonElement | null;
+  const slotError = (acct: string, ex: 'KRX' | 'NXT') =>
+    slotBlock(acct, ex).querySelector('[data-slot="vi-row-server-error"]') as HTMLElement | null;
+  const msg = (over: Partial<RelayServerMessageEntry>): RelayServerMessageEntry => ({
+    t: 'msg',
+    lv: 'ERROR',
+    m: '',
+    i: '',
+    a: '',
+    src: 'Relay',
+    kind: 'vi.set',
+    receivedAt: '09:00:00',
+    ...over,
+  });
+
+  it('어떤 슬롯 상태에서도 「옮기기」 버튼 · 이동 확인 창이 없고, 시작은 행의 계좌로 나간다', async () => {
+    // 슬롯 값의 계좌가 행 계좌와 달라도(옛 모양 에코 · 공란) 행의 계좌가 정본이다.
+    const slots = new Map<string, RelayViTrigger | null>([
+      [`${A}|KRX`, trigger({ accountNo: OTHER, run: false })],
+      [`${A}|NXT`, trigger({ exchange: 'NXT', accountNo: '', run: false })],
+    ]);
+    render(<ViSettingsRows viSlots={slots} accounts={ACCOUNTS} accountNo={A} />);
+    expect(document.querySelector('[data-slot="vi-row-move"]')).toBeNull();
+    expect(screen.queryByText(/옮겨 시작/)).toBeNull();
+
+    fireEvent.click(within(slotBlock(A, 'KRX')).getByRole('switch', { name: 'VI KRX 시작' }));
+    const dlg = await screen.findByTestId('vi-start-dialog');
+    expect(dlg).not.toHaveAttribute('data-move');
+    expect(dlg.querySelector('[data-slot="vi-confirm-move"]')).toBeNull();
+    expect(within(dlg).getByText('계좌', { selector: 'dt' }).nextElementSibling).toHaveTextContent(`${A} · 위탁종합`);
+    fireEvent.click(within(dlg).getByRole('button', { name: '시작' }));
+    expect(sentMsgs()).toEqual([expect.objectContaining({ accountNo: A, exchange: 'KRX', run: true })]);
+  });
+
+  it('vi.set 거부가 오면 보낸 (계좌, 거래소) 행에만 기존 VI 오류 문구가 선다 — 다른 계좌의 같은 거래소 행에는 없다', () => {
+    const slots = new Map<string, RelayViTrigger | null>([
+      [`${A}|KRX`, trigger({ accountNo: A })],
+      [`${A}|NXT`, null],
+      [`${B}|KRX`, null],
+      [`${B}|NXT`, null],
+    ]);
+    const view = (accountNo: string) => (
+      <ViSettingsRows viSlots={slots} accounts={ACCOUNTS} accountNo={accountNo} />
+    );
+    const { rerender } = render(view(A));
+    fireEvent.change(rateInput('KRX'), { target: { value: '30' } });
+    fireEvent.click(slotFix(A, 'KRX')!);
+    expect(slotFix(A, 'KRX')).toHaveTextContent('반영 중…');
+
+    // relay 거부(소유 세션 · 계좌 대조) — 그 행만, 잠금이 풀린다.
+    messagesMock = [msg({ m: '이 세션에서 사용할 수 없는 계좌입니다.', a: A })];
+    rerender(view(A));
+    expect(slotError(A, 'KRX')).toHaveTextContent('이 세션에서 사용할 수 없는 계좌입니다.');
+    expect(slotError(A, 'KRX')).toHaveAttribute('role', 'alert');
+    expect(slotFix(A, 'KRX')).toHaveTextContent('수정');
+    expect(slotError(A, 'NXT')).toBeNull();
+    expect(slotError(B, 'KRX')).toBeNull();
+
+    // B 로 바꿔 B KRX 를 보내고 서버 54(SetVITrigger) 거부 — B 행에만, A 행 오류는 A 행 몫 그대로.
+    rerender(view(B));
+    fireEvent.change(rateInput('KRX'), { target: { value: '31' } });
+    fireEvent.click(slotFix(B, 'KRX')!);
+    messagesMock = [msg({ m: 'VI 주문금액이 0 입니다', a: B, src: 'SetVITrigger', kind: '' }), ...messagesMock];
+    rerender(view(B));
+    expect(slotError(B, 'KRX')).toHaveTextContent('VI 주문금액이 0 입니다');
+    expect(slotError(B, 'KRX')).toHaveTextContent('[서버]');
+    expect(slotError(B, 'NXT')).toBeNull();
+    expect(slotError(A, 'KRX')).toHaveTextContent('이 세션에서 사용할 수 없는 계좌입니다.');
+    expect(sentMsgs().map((m) => m.accountNo)).toEqual([A, B]);
+  });
+
+  it('「계좌 … 에 등록된 VI 예요」 고지 줄이 없다 — 행 블록은 행 한 줄뿐이다(가동 · 중지 모두)', () => {
+    const slots = new Map<string, RelayViTrigger | null>([
+      [`${A}|KRX`, trigger({ accountNo: OTHER, run: true })],
+      [`${A}|NXT`, trigger({ exchange: 'NXT', accountNo: OTHER, run: false })],
+    ]);
+    render(<ViSettingsRows viSlots={slots} accounts={ACCOUNTS} accountNo={A} />);
+    expect(document.querySelector('[data-slot="vi-row-account"]')).toBeNull();
+    expect(document.querySelector('[data-slot="vi-row-account-box"]')).toBeNull();
+    expect(screen.queryByText(/에 등록된 VI 예요/)).toBeNull();
+    for (const ex of ['KRX', 'NXT'] as const) {
+      expect(slotBlock(A, ex).children).toHaveLength(1);
+    }
   });
 });
