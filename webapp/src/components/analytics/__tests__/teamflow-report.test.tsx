@@ -199,4 +199,55 @@ describe('TeamflowReport', () => {
     expect(sec.querySelector('i')).toBeNull();
     expect(Array.from(sec.querySelectorAll('strong')).map((s) => s.textContent)).toEqual(['굵게']);
   });
+
+  it('(k) KPI 4칸 = 34 · 9 · 9 · 「−26.3억」(4번째만 --down) · 캡션 · 머리 → KPI → 캡션 → 카드 순서', async () => {
+    await open('d=20261014', teamflowReportFixture());
+    const kpis = document.querySelector('[data-slot="teamflow-kpis"]')!;
+    expect(kpis).toBeTruthy();
+    const val = (label: string) => kpis.querySelector(`[data-kpi="${label}"] dd`)!;
+    expect(val('탐지 종목').textContent).toBe('34');
+    expect(val('팀 순매수 종목').textContent).toBe('9');
+    expect(val('상한가 도달').textContent).toBe('9');
+    expect(val('팀 순매수 합').textContent).toBe('−26.3억');
+    expect(val('팀 순매수 합').className).toContain('text-[var(--down)]');
+    expect(val('탐지 종목').className).toContain('text-[var(--fg)]');
+    expect(Array.from(kpis.querySelectorAll('dt')).map((d) => d.textContent)).toEqual([
+      '탐지 종목',
+      '팀 순매수 종목',
+      '상한가 도달',
+      '팀 순매수 합',
+    ]);
+    const caption = screen.getByText('탐지 = 20%↑ 또는 상한가 체결 종목 · 팀 수치는 들어와서 친 체결만 센 최소치예요');
+    const list = document.querySelector('section[aria-labelledby="teamflow-list-title"]')!;
+    // DOM 순서: KPI → 캡션 → 탐지 종목 카드
+    expect(kpis.compareDocumentPosition(caption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(caption.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('(l) 상위 5행 순서(행 버튼 접근 이름) = 한선엔지니어링 · 제주항공 · 천일고속 · 도우인시스 · 동양고속', async () => {
+    await open('d=20261014', teamflowReportFixture());
+    const names = rowButtons()
+      .slice(0, 5)
+      .map((b) => b.getAttribute('aria-label')!.split(' ')[0]);
+    expect(names).toEqual(['한선엔지니어링', '제주항공', '천일고속', '도우인시스', '동양고속']);
+  });
+
+  it('(m) 행 0 인 날 → KPI 띠 · 캡션 없음', async () => {
+    await open('d=20261011', teamflowReportFixture({ date: '20261011', rows: [] }));
+    expect(document.querySelector('[data-slot="teamflow-kpis"]')).toBeNull();
+    expect(screen.queryByText(/최소치예요/)).toBeNull();
+  });
+
+  it('(n) 합이 반올림 0 이면 「0.0억」 --fg · team_net_val null 행은 합에서 빠진다', async () => {
+    const base = teamflowRows();
+    const rows = [
+      { ...base[0]!, team_net_val: 4_000_000 },
+      { ...base[1]!, team_net_val: null },
+    ];
+    await open('d=20261014', teamflowReportFixture({ rows }));
+    const sum = document.querySelector('[data-kpi="팀 순매수 합"] dd')!;
+    expect(sum.textContent).toBe('0.0억');
+    expect(sum.className).toContain('text-[var(--fg)]');
+    expect(document.querySelector('[data-kpi="팀 순매수 종목"] dd')!.textContent).toBe('1');
+  });
 });
