@@ -9,12 +9,14 @@
  *   탭 줄 위다.
  *
  * ② 왜 `tablist` 가 아니라 radiogroup 인가
- *   바로 아래가 탭 줄이다 — 칩 줄까지 탭이면 「탭 안 탭」 이 된다. 키보드 문법은 `ChoiceRow` 세그먼트와 같다:
- *   roving tabindex · ←/→ 는 이웃 칩으로 **포커스만**(끝에서 반대편으로 돈다) · Home/End 는 처음/끝 칩 ·
- *   Enter/Space/클릭이 고른다.
+ *   바로 아래가 탭 줄이다 — 칩 줄까지 탭이면 「탭 안 탭」 이 된다. 키보드 문법 = WAI-ARIA radio group:
+ *   roving tabindex · ←/→/↑/↓ 는 이웃 칩으로 포커스를 옮기며 **그 칩을 고른다**(끝에서 반대편으로 돈다) ·
+ *   Home/End 는 처음/끝 칩을 고른다 · Enter/Space/클릭도 고른다 · 잠금(③)이면 화살표는 포커스만.
+ *   `ChoiceRow` 와 갈리는 이유: ChoiceRow 는 선택 = relay 전송이라 화살표가 포커스만이지만, 계좌 칩 선택은 로컬
+ *   상태(기기별 기억 · 작업대 스코프)라 왕복이 없어 WAI-ARIA 기본을 따른다(IN-02 · quick-261016-udz).
  *
  * ③ 값은 스스로 저장하지 않는다 — 호출부(`MeTabs`)가 상태를 쥐고 기기별로 저장한다(`writeMeAccount`).
- *   `locked` 는 32-09(설정 탭 저장 비행 중)가 건다 — 칩 클릭 · 키 선택이 무시된다.
+ *   `locked` 는 32-09(설정 탭 저장 비행 중)가 건다 — 칩 클릭 · 키 선택이 무시된다(화살표는 포커스만 옮긴다).
  *
  * ④ 글자는 자르지 않는다(S13 long-text) — 칩은 `whitespace-nowrap` 이고 줄이 가로 스크롤된다(스크롤바 숨김).
  *   선택 칩이 줄 밖이면 마운트 때 `scrollIntoView({ inline: "nearest" })` 로 보이게 한다.
@@ -101,7 +103,11 @@ export function MeAccountChips({
     else if (e.key === "End") to = buttons.length - 1;
     else return;
     e.preventDefault();
-    buttons[to]?.focus();
+    const target = buttons[to];
+    target?.focus();
+    // 포커스 이동 = 선택(② · IN-02). 잠금 · 같은 계좌는 pick 가드가 무시한다.
+    const next = target?.dataset.accountNo;
+    if (next !== undefined) pick(next);
   };
 
   return (
