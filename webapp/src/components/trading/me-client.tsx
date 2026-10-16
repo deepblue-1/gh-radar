@@ -82,7 +82,7 @@ import { LimitChaserDefaultsSection } from "@/components/me/limit-chaser-default
 import { AccountPanel } from "@/components/orderbook/account-panel";
 import { DmaGate, useDmaGateReason } from "@/components/trading/dma-gate";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { StrategyStatusCard } from "@/components/trading/strategy-status-card";
+import { StrategyStatusCard, viTriggersOfAccount } from "@/components/trading/strategy-status-card";
 import { TodayOrdersCard } from "@/components/trading/today-orders-card";
 import { stockCodeOf } from "@/components/trading/vi-order-list";
 import { useAuth } from "@/lib/auth-context";
@@ -190,7 +190,8 @@ function isNewerServerTime(a: ServerTimeKey, b: ServerTimeKey): boolean {
 }
 
 /**
- * 상태줄 (C1) — `● 시세` · `● 주문 {상태}` · 상따 N건 · VI 가동/중지 · 계좌 N개 · 반영 시각.
+ * 상태줄 (C1) — 시세 · 주문 · 상따 N건 · VI 가동/중지 · 반영 시각(N · VI 는 /me 계좌 칩이 고른 계좌 — Phase 32 D-21).
+ * `accountNo` 가 없으면(계좌 목록 미수신) 전 계좌다(종전). 「계좌 N개」 칸은 없다 — 계좌는 탭 위 칩이 말한다.
  *
  * ★ 상태 문구는 `RELAY_STATE_LABELS` **단일 정본**을 쓴다(D-36). 화면마다 문구를 다시
  *   지으면 호가주문 탭은 「실시간」, My page 는 다른 말이 되어 같은 상태가 두 이름을 갖는다.
@@ -199,21 +200,21 @@ function isNewerServerTime(a: ServerTimeKey, b: ServerTimeKey): boolean {
  *   시세 필만 적색 「HH:MM:SS~ 멈춤」 이며 주문 필은 사용자 DMA 세션만 말한다. 점도 작업대와 같은 톤
  *   (정상 `--led-armed` · 진행/꺼짐 `--flat` · 끊김 `--destructive`)이다(채택안 메모 ④).
  */
-function MeStatusBar() {
-  const {
-    status,
-    statusLabel,
-    quoteState,
-    subLimit,
-    accounts,
-    limitChasers,
-    viTriggers,
-    accountStates,
-  } = useRelayContext();
+function MeStatusBar({ accountNo }: { accountNo?: string }) {
+  const { status, statusLabel, quoteState, subLimit, limitChasers, viTriggers, accountStates } =
+    useRelayContext();
   const labels = useIsinLabels();
   const quote = quotePillOf(quoteState, subLimit, subLimit === null ? undefined : labels.get(subLimit.i));
   const order = orderPillOf(status, statusLabel);
   const updatedAt = latestAccountTime(accountStates);
+  // 켜진 전략 수 — 카드·사이드바와 같은 isActiveStrategy 기준(quick-260928-no0) · 고른 계좌로 거른다(D-21).
+  const activeCount = limitChasers.filter(
+    (c) => isActiveStrategy(c) && (accountNo === undefined || c.accountNo === accountNo),
+  ).length;
+  // 거래소 합집합 판정은 `viAnyRunning` 한 함수다 (17-06 / D-18) — 고른 계좌면 그 계좌가 등록 계좌인 거래소만.
+  const viRunning = viAnyRunning(
+    accountNo === undefined ? viTriggers : viTriggersOfAccount(viTriggers, accountNo),
+  );
 
   return (
     <div
@@ -275,18 +276,10 @@ function MeStatusBar() {
         {order.srDetail !== null && <span className="sr-only"> {order.srDetail}</span>}
       </span>
       <span>
-        {/* 켜진 전략 수 — 카드·사이드바와 같은 isActiveStrategy 기준(quick-260928-no0). 등록 정본은 여전히 limitChasers 전수 */}
-        상따 <b className="font-semibold text-[var(--fg)]">{limitChasers.filter(isActiveStrategy).length}건</b>
+        상따 <b className="font-semibold text-[var(--fg)]">{activeCount}건</b>
       </span>
       <span>
-        VI{" "}
-        {/* 거래소 합집합 판정은 `viAnyRunning` 한 함수다 (17-06 / D-18). */}
-        <b className="font-semibold text-[var(--fg)]">
-          {viAnyRunning(viTriggers) ? "가동" : "중지"}
-        </b>
-      </span>
-      <span>
-        계좌 <b className="font-semibold text-[var(--fg)]">{accounts.length}개</b>
+        VI <b className="font-semibold text-[var(--fg)]">{viRunning ? "가동" : "중지"}</b>
       </span>
       {/* 반영 시각은 **아는 경우에만** 그린다(위 `formatServerTime`). */}
       {updatedAt !== null && <span className="mono ml-auto">반영 {updatedAt}</span>}
@@ -433,7 +426,7 @@ function MeTabs() {
         forceMount={tab.keepMounted("status")}
         className={ME_PANEL}
       >
-        <MeStatusBar />
+        <MeStatusBar accountNo={shownAccountNo} />
         <StrategyStatusCard accountNo={shownAccountNo} />
       </TabsContent>
 

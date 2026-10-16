@@ -4,47 +4,25 @@
  * StrategyStatusCard — My page 「전략 현황」 카드 (16-UI-SPEC C2·C3·C4 · D-09/D-14/D-20).
  *
  * ① 무엇을 어디에
- *   `/me` 의 시각 1차 앵커다. 상따 전략 행 목록(`.srow`, min-height 44px) + VI 행 +
- *   카드 하단의 **전체 비활성화**로 이루어진다. 시각 정본은 사용자 승인 목업
- *   `16-mypage-sidebar-mockup.html` 이다(D-24).
+ *   `/me` 의 시각 1차 앵커다. 상따 전략 행 목록(`.srow`, min-height 44px) + VI 행으로 이루어진다.
+ *   시각 정본은 사용자 승인 목업 `16-mypage-sidebar-mockup.html` 이다(D-24).
+ *   ★ 고른 계좌만 그린다(Phase 32 D-21 · S5′) — /me 탭 위 계좌 칩이 고른 계좌를 `accountNo` prop 으로 받는다
+ *     (카드는 스스로 계좌를 고르지 않는다). 그 계좌의 켜진 전략 · 그 계좌가 등록 계좌인 VI 만 보이고, 둘 다 없으면
+ *     점선 한 줄 「이 계좌에 등록된 전략 없음」 이다. `accountNo` 가 없으면(계좌 목록 미수신) 종전처럼 전 계좌다.
  *
  * ② ★ 사이드바와 달리 **켜진 전략의 상태를 전부 보여준다** — 단, 거래소는 배지가 아니다 (C2 · 260911-w5h)
  *   사이드바 3단은 240px 폭이라 종목명 + 태그 + 배지 2개가 종목명을 3~4글자로 잘라먹어
  *   원 아이콘 2개로 단순화했다(N3a). 이 화면은 **상태 요약의 정본**이므로 반대로 전부 편다.
  *   두 표면이 같은 배지 정의(`strategy-badge.tsx`)를 쓰기 때문에 「어느 화면에서는 다른
  *   상태로 보인다」가 생기지 않는다.
- *   ★ 배치는 **2줄**이다: r1 = 종목명 + **상태 배지** + 화살표 · r2 = `{코드} · {거래소} ·
- *     {계좌번호}`(muted 텍스트). 거래소를 **배지에서 텍스트로 내린** 이유는 행 높이다 —
+ *   ★ 배치는 **2줄**이다: r1 = 종목명 + **상태 배지** + 화살표 · r2 = `{코드} · {거래소}`(muted 텍스트 —
+ *     계좌는 /me 계좌 칩이 말한다 · Phase 32 D-21). 거래소를 **배지에서 텍스트로 내린** 이유는 행 높이다 —
  *     r1 의 칩 개수가 상태에 따라 1~3개로 바뀌면 행 높이가 목록 안에서 들쭉날쭉해진다.
- *     거래소는 상태가 아니라 **식별자**라 다른 식별자(코드·계좌번호)와 같은 줄이 맞다.
+ *     거래소는 상태가 아니라 **식별자**라 다른 식별자(코드)와 같은 줄이 맞다.
  *     `exchangeBadgeOf` 정의는 `strategy-badge.tsx` 에 **그대로 있다**(다른 소비처와 자기
  *     단위 테스트가 쓴다) — 이 파일의 import 만 사라졌다.
  *
- * ③ ★ 전체 비활성화는 **이 화면에만** 둔다 (D-09 · UI-SPEC §오조작 방지 4)
- *   상따·VI 편집 화면에 두면 값을 고치는 중에 바로 옆에서 전부 끄는 오클릭 경로가 생긴다.
- *   버튼은 **테두리형**이다 — `--destructive` 와 `--up`(매수)의 oklch 값이 완전히 같아
- *   채움 빨강으로 만들면 매수 버튼과 구분되지 않는다(UI-SPEC §토큰 충돌 경보, S-6).
- *   확인 다이얼로그의 기본 포커스는 **닫기**다(Enter 연타로 전부 꺼지면 안 된다).
- *
- * ④ ★ 65(`strategies.disabled`)는 **완료 신호로만** 쓴다 (T-16-07 · RESEARCH §D)
- *   서버는 키별 60/61 에코를 먼저 보낸 뒤 집계 65 를 보낸다. 즉 65 를 받은 시점에는 이미
- *   목록이 에코로 갱신돼 있다. 여기 담긴 숫자로 행 상태를 만들면 에코와 두 벌이 갈리고
- *   65 가 유실되면 화면이 되살아난다. 그래서 65 는 **버튼을 다시 여는 데만** 쓴다.
- *   유실 대비로 백스톱 타이머를 함께 둔다 — 65 하나를 놓쳤다고 버튼이 영원히 죽으면
- *   「늦어질 뿐」(T-16-07 accept)이 아니라 기능 상실이다.
- *
- * ⑤ ★ 단건 비활성화 UI 는 만들지 않는다 (D-09)
- *   `strategies.disable` 은 `key` 를 실으면 그 한 건만 내리지만, UI 는 스위치 OFF 로
- *   갈음한다. 같은 일을 하는 경로가 둘이면 「스위치는 껐는데 왜 아직 켜져 있나」류의
- *   상태 불일치가 생긴다.
- *
- * ⑦ ★ 킬 스위치는 **세션이 `ready` 일 때만** 눌린다 (gap 3 / T-16-20)
- *   리듀서는 단절 시 `isStale` 만 세우고 `limitChasers` 를 유지한다 — 재접속 중에도 목록이
- *   남아 있으니 가드가 없으면 버튼이 활성인 채 0바이트가 나간다. 게다가 `send` 가 `false` 를
- *   돌려준 경우에는 `awaitingAck` 를 **세우지 않는다**: 세우면 8초 동안 버튼이 잠긴 채 아무
- *   일도 일어나지 않고 그 사이 사용자는 「껐다」고 믿는다. 전송 실패(「보내지 못했어요」)와
- *   ack 미수신(「반영을 확인하지 못했어요」)은 **다른 문구**다 — 전자는 0바이트가 확실하고
- *   후자는 결과를 모른다(Pitfall 9 / T-16-21). 조용히 버튼만 다시 여는 것은 PC-7 위반이다.
+ * ③ 끄기 — Phase 32 D-27 — /me 현황의 끄기는 고른 계좌 단위(32-06).
  *
  * ⑧ 「현황 | 로그」 전환 (Phase 21 D-25a · G-21-R3-2 · 스케치 008 ① B 채택)
  *   앱은 /trading 하단 공용 패널(전략 로그 탭 포함)을 숨기므로 전 종목 전략 흐름을 여기서 본다.
@@ -73,14 +51,13 @@
  *   빼 주지 않는다. 거르지 않으면 꺼진 전략이 카드에 쌓인다.
  *   등록 여부의 정본은 여전히 `limitChasers` 전수다. 가져오는 곳(리듀서·컨텍스트)은 바꾸지 않고 이 카드
  *   렌더링에서만 거른다.
- *   행 목록, 「상따 N」 요약, 빈 상태, `nothingToDisable`, 확인 다이얼로그 건수가 모두 거른 목록을 따른다.
- *   켜진 것이 없으면 킬 스위치를 누를 이유가 없고, VI 가동 조건은 그대로다. 빈 상태 문구가 「켜진」인
- *   이유는 등록 ≠ 켜짐이기 때문이다. 스냅샷 전 로딩 판정도 거른 수로 같은 뜻이다(스냅샷 전에는 어차피 0).
+ *   행 목록, 「상따 N」 요약, 빈 상태가 모두 거른 목록을 따른다. 빈 상태 문구가 「켜진」인 이유는
+ *   등록 ≠ 켜짐이기 때문이다. 스냅샷 전 로딩 판정도 거른 수로 같은 뜻이다(스냅샷 전에는 어차피 0).
  */
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import type { RelayLimitChaser, RelayStrategiesDisabledMsg } from "@gh-radar/shared";
+import { useEffect, useState } from "react";
+import type { RelayLimitChaser } from "@gh-radar/shared";
 
 import { limitChaserHref } from "@/components/layout/app-sidebar";
 import {
@@ -89,22 +66,12 @@ import {
   viBadgeOf,
 } from "@/components/trading/strategy-badge";
 import { StrategyLog } from "@/components/trading/strategy-log";
-import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { useIsinLabels, type IsinLabel } from "@/lib/isin-labels";
 import { isActiveStrategy } from "@/lib/limit-chaser";
 import { useRelayContext } from "@/lib/relay-provider";
 import { useStrategyLogFeed } from "@/lib/strategy-log-feed";
 import {
-  STRATEGIES_DISABLE_ACK_TIMEOUT_MS,
   viAnyRunning,
   VI_EXCHANGES,
   type RelayStatus,
@@ -139,6 +106,20 @@ export function viSummaryText(triggers: RelayViTriggers): string {
     parts.push(`${exchange} ${amount}만원 · ${cfg.checkRate.toFixed(1)}% 이상`);
   }
   return parts.length === 0 ? "—" : parts.join(" / ");
+}
+
+/**
+ * 그 계좌가 **등록 계좌**인 거래소만 남긴 VI 부분 맵(표시 필터 — Phase 32 D-21).
+ * 웨이브 ④ 전 VI 는 거래소별 1건(D-16) — 그 계좌가 등록 계좌인 거래소만 그 계좌 것이다. ④ 에서 계좌 슬롯 조회로 바뀐다.
+ * `viTriggers` 모양 · relay VI 캐시는 건드리지 않는다(새 객체를 돌려준다).
+ */
+export function viTriggersOfAccount(triggers: RelayViTriggers, accountNo: string): RelayViTriggers {
+  const out: RelayViTriggers = {};
+  for (const exchange of VI_EXCHANGES) {
+    const cfg = triggers[exchange];
+    if (cfg != null && cfg.accountNo === accountNo) out[exchange] = cfg;
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -206,11 +187,7 @@ function StrategyRow({
           ›
         </span>
       </div>
-      {/*
-        r2 — 식별자 줄. `{코드} · {거래소} · {계좌번호}`.
-        계좌번호는 **마스킹하지 않는다**(D2 · S-5) — 앞자리가 같은 두 계좌를 구분할 수
-        없게 되는 쪽이 더 위험하다.
-      */}
+      {/* r2 — `{코드} · {거래소}` — 계좌는 /me 계좌 칩이 말한다(Phase 32 D-21). */}
       <div
         data-slot="strategy-row-meta"
         className="flex min-w-0 items-center gap-1 truncate text-[11px] text-[var(--muted-fg)]"
@@ -224,114 +201,8 @@ function StrategyRow({
           </>
         )}
         <span>{item.exchange}</span>
-        <span aria-hidden="true" className="opacity-60">
-          ·
-        </span>
-        <span data-slot="strategy-row-account" className="mono">
-          {item.accountNo}
-        </span>
       </div>
     </Link>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 확인 다이얼로그
-// ---------------------------------------------------------------------------
-
-interface DisableSummary {
-  chaserCount: number;
-  viRunning: boolean;
-  accountNos: string[];
-}
-
-/**
- * 부제. UI-SPEC 원문은 「상따 {N}건과 VI 자동매수가 한 번에 꺼져요.」 하나뿐이지만,
- * 버튼은 **둘 중 하나만 살아 있어도** 열린다(전략 0 + VI 가동 / 전략 N + VI 중지).
- * 그 상태에서 원문을 그대로 쓰면 **꺼지지 않는 것을 꺼진다고 말하게 된다**.
- */
-function disableSubtitle({ chaserCount, viRunning }: DisableSummary): string {
-  if (chaserCount > 0 && viRunning) {
-    return `상따 ${chaserCount}건과 VI 자동매수가 한 번에 꺼져요.`;
-  }
-  if (chaserCount > 0) return `상따 ${chaserCount}건이 한 번에 꺼져요.`;
-  return "VI 자동매수가 꺼져요.";
-}
-
-function DisableAllDialog({
-  open,
-  summary,
-  onOpenChange,
-  onConfirm,
-}: {
-  open: boolean;
-  summary: DisableSummary;
-  onOpenChange: (open: boolean) => void;
-  onConfirm: () => void;
-}) {
-  /** 기본 포커스 대상. 실행 버튼에 포커스가 가면 Enter 한 번에 전부 꺼진다. */
-  const dismissRef = useRef<HTMLButtonElement>(null);
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        showCloseButton={false}
-        className="sm:max-w-sm"
-        data-testid="strategy-disable-dialog"
-        onOpenAutoFocus={(event) => {
-          event.preventDefault();
-          dismissRef.current?.focus();
-        }}
-      >
-        <DialogHeader>
-          <DialogTitle>전략을 전부 비활성화할까요?</DialogTitle>
-          <DialogDescription>{disableSubtitle(summary)}</DialogDescription>
-        </DialogHeader>
-
-        <dl className="flex flex-col gap-1.5 rounded-[var(--r-md)] border border-[var(--border)] px-3 py-2.5 text-[length:var(--t-caption)]">
-          <div className="flex items-baseline justify-between gap-3">
-            <dt className="text-[var(--muted-fg)]">상따 전략</dt>
-            <dd className="mono font-semibold text-[var(--fg)]">
-              {summary.chaserCount === 0 ? "없음" : `${summary.chaserCount}건 → 전부 OFF`}
-            </dd>
-          </div>
-          <div className="flex items-baseline justify-between gap-3">
-            <dt className="text-[var(--muted-fg)]">VI 자동매수</dt>
-            <dd className="mono font-semibold text-[var(--fg)]">
-              {summary.viRunning ? "가동 → 중지" : "중지 (변화 없음)"}
-            </dd>
-          </div>
-          <div className="flex items-baseline justify-between gap-3">
-            <dt className="shrink-0 text-[var(--muted-fg)]">계좌</dt>
-            {/* 계좌번호 전체 표시(D2). 여러 계좌는 `·` 로 잇는다. */}
-            <dd className="mono min-w-0 text-right font-semibold break-all text-[var(--fg)]">
-              {summary.accountNos.length === 0 ? "—" : summary.accountNos.join(" · ")}
-            </dd>
-          </div>
-        </dl>
-
-        {/* 되돌릴 수 없는 사실 — 이미 나간 주문은 이 버튼으로 취소되지 않는다. */}
-        <p className="rounded-[var(--r-md)] border border-[var(--destructive)] px-2.5 py-2 text-[length:var(--t-caption)] text-[var(--destructive)]">
-          이미 접수된 주문은 취소되지 않아요. 미체결은 아래 표에서 개별 취소해 주세요.
-        </p>
-
-        <DialogFooter>
-          {/* 기본 포커스 대상 — 실행 버튼보다 **앞**에 둔다(탭 순서·오클릭 방어). */}
-          <Button type="button" variant="outline" autoFocus ref={dismissRef} onClick={() => onOpenChange(false)}>
-            닫기
-          </Button>
-          {/* 채움 금지 — `--destructive` 는 `--up`(매수)과 같은 색이다(S-6). */}
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onConfirm}
-            className="border-[var(--destructive)] bg-transparent text-[var(--destructive)] hover:bg-[color-mix(in_oklab,var(--destructive)_10%,transparent)]"
-          >
-            전체 비활성화
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -378,87 +249,26 @@ const SEG_TRIGGER =
 const LOG_MAX_H = "max-h-[320px]";
 
 export function StrategyStatusCard({ className, accountNo }: StrategyStatusCardProps) {
-  const { status, limitChasers, viTriggers, accounts, strategiesDisabled, send } =
-    useRelayContext();
+  const { status, limitChasers, viTriggers } = useRelayContext();
   const labels = useIsinLabels();
   const snapshotSeen = useSnapshotSeen(status);
   const logEntries = useStrategyLogFeed();
   /** 기본 = 현황(D-25a). 기억하지 않는다 — 다시 오면 현황이다. */
   const [view, setView] = useState<StatusView>("status");
 
-  const [dialogOpen, setDialogOpen] = useState(false);
-  /** 14 를 보내고 65 를 기다리는 중. 버튼을 잠근다(중복 송신 방지). */
-  const [awaitingAck, setAwaitingAck] = useState(false);
-  /** 송신 시점의 65 참조. **이것과 달라지는 순간**이 새 완료 신호다. */
-  const ackBaseline = useRef<RelayStrategiesDisabledMsg | null>(null);
-  /**
-   * 전송 실패·ack 미수신 문구. 빈 문자열이면 아무것도 그리지 않는다.
-   *
-   * ★ 두 사건은 **다른 문구**를 쓴다 (Pitfall 9 동형).
-   *   「보내지 못했다」 = 0바이트가 확실하다 → 다시 눌러도 안전하다.
-   *   「반영을 확인하지 못했다」 = 결과를 모른다 → 실제로 꺼졌을 수 있다.
-   */
-  const [sendError, setSendError] = useState("");
-
-  // 합집합 판정은 `viAnyRunning` 한 함수다 (17-06 / D-18) — 사이드바·My page 와 같은 답.
-  const viRunning = viAnyRunning(viTriggers);
   // 켜진 전략만(파일 상단 ⑨) — 사이드바 `sidebarChasers` · 작업대 `pruneInactiveCards` 와 같은 한 함수.
   // 등록 정본(`limitChasers` 전수)은 건드리지 않는다.
   const activeChasers = limitChasers.filter(isActiveStrategy);
-  const chaserCount = activeChasers.length;
   /** 고른 계좌의 켜진 전략(Phase 32 D-21) — 다른 계좌 전략은 그리지 않는다. undefined = 전 계좌. */
   const shownChasers =
     accountNo === undefined ? activeChasers : activeChasers.filter((c) => c.accountNo === accountNo);
-  /** 켜진 전략 0 + VI 중지 → 끌 것이 없다(⑨ — 이미 꺼진 전략은 이 버튼으로 바뀌는 것이 없다). VI 가동 조건은 그대로다. */
-  const nothingToDisable = chaserCount === 0 && !viRunning;
-
-  // 65 수신 → 버튼을 다시 연다. **목록 상태는 건드리지 않는다**(파일 상단 ④).
-  useEffect(() => {
-    if (!awaitingAck) return;
-    if (strategiesDisabled !== ackBaseline.current) {
-      setAwaitingAck(false);
-      // 65 가 왔다 — 직전의 「확인하지 못했어요」는 더 이상 사실이 아니다.
-      setSendError("");
-    }
-  }, [awaitingAck, strategiesDisabled]);
-
-  // 65 유실 백스톱. 다시 눌러도 같은 일이 한 번 더 나갈 뿐이라 안전하다.
-  // 상한은 소켓 훅과 같은 상수다 — 「65 유실」 판정 시각이 두 곳에서 같아야 한다(quick-260926-nr2).
-  useEffect(() => {
-    if (!awaitingAck) return;
-    const timer = setTimeout(() => {
-      setAwaitingAck(false);
-      /*
-        ★ 「실패했다」고 말하지 않는다. 65 가 유실됐을 뿐 전략은 실제로 꺼졌을 수 있다 —
-          결과를 모르는 것과 실패를 뭉개면 사용자가 사실과 다른 상태를 믿는다(T-16-21).
-          조용히 버튼만 다시 여는 것도 무로그 fail-safe 다(PC-7).
-      */
-      setSendError("전체 비활성화 요청의 반영을 확인하지 못했어요. 전략 목록을 확인해 주세요.");
-    }, STRATEGIES_DISABLE_ACK_TIMEOUT_MS);
-    return () => clearTimeout(timer);
-  }, [awaitingAck]);
-
-  const handleConfirm = (): void => {
-    setDialogOpen(false);
-    /*
-      ★ `key` 를 **싣지 않는다** — 생략이 곧 「그 세션의 상따 전부 + VI」다.
-        단건 비활성화 UI 는 만들지 않는다(D-09, 파일 상단 ⑤).
-    */
-    if (!send({ t: "strategies.disable" })) {
-      /*
-        ★ 보내지 **않았음**이 확실하다 — `awaitingAck` 를 세우지 않는다(T-16-20).
-          세우면 8초 동안 버튼이 잠긴 채 아무 일도 일어나지 않고, 그동안 사용자는
-          「껐다」고 믿는다. 자동매매는 그 사이 계속 돈다.
-      */
-      setSendError(
-        "연결이 끊겨 비활성화 요청을 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.",
-      );
-      return;
-    }
-    ackBaseline.current = strategiesDisabled;
-    setAwaitingAck(true);
-    setSendError("");
-  };
+  const shownCount = shownChasers.length;
+  /** 표시 축의 VI — 고른 계좌가 등록 계좌인 거래소만(웨이브 ④ 전 · 표시 필터). undefined = 전 거래소(종전). */
+  const viShown = accountNo === undefined ? viTriggers : viTriggersOfAccount(viTriggers, accountNo);
+  // 합집합 판정은 `viAnyRunning` 한 함수다 (17-06 / D-18) — 사이드바·My page 와 같은 답.
+  const viShownRunning = viAnyRunning(viShown);
+  /** VI 행 — 전 계좌면 언제나(종전) · 고른 계좌면 그 계좌가 등록 계좌인 거래소가 하나라도 있을 때만. */
+  const showViRow = accountNo === undefined || VI_EXCHANGES.some((ex) => viShown[ex] != null);
 
   return (
     <section
@@ -490,10 +300,10 @@ export function StrategyStatusCard({ className, accountNo }: StrategyStatusCardP
         data-slot="strategy-status-summary"
         className="mono m-0 mb-1 -mt-1 px-2 text-[12px] text-[var(--muted-fg)]"
       >
-        상따 {chaserCount} · VI {viRunning ? "가동" : "중지"}
+        상따 {shownCount} · VI {viShownRunning ? "가동" : "중지"}
       </p>
 
-      {chaserCount === 0 && !snapshotSeen ? (
+      {shownCount === 0 && !snapshotSeen ? (
         /* 스냅샷 수신 전 — 「없음」이 아니라 「아직 모름」이다 (C2 로딩 · 3행 스켈레톤). */
         <div
           data-slot="strategy-list-loading"
@@ -511,7 +321,17 @@ export function StrategyStatusCard({ className, accountNo }: StrategyStatusCardP
             전략 정보를 불러오는 중이에요…
           </p>
         </div>
-      ) : chaserCount === 0 ? (
+      ) : shownCount === 0 && accountNo !== undefined ? (
+        /* 고른 계좌에 전략 0 — VI 행도 없을 때만 점선 한 줄(S5′). VI 행이 있으면 그 행만 선다. */
+        showViRow ? null : (
+          <p
+            data-slot="strategy-account-empty"
+            className="m-0 mt-1 rounded-[var(--r)] border border-dashed border-[var(--faint)] p-3 text-center text-[12px] text-[var(--muted-fg)]"
+          >
+            이 계좌에 등록된 전략 없음
+          </p>
+        )
+      ) : shownCount === 0 ? (
         <div className="flex flex-col items-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-5)] text-center">
           <p className="text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
             켜진 상따 전략이 없어요
@@ -531,7 +351,8 @@ export function StrategyStatusCard({ className, accountNo }: StrategyStatusCardP
         </div>
       )}
 
-      {/* VI 행 (C3) — 계좌당 1건이라 목록이 아니라 한 줄이다. */}
+      {/* VI 행 (C3) — 한 줄이다. 고른 계좌면 그 계좌가 등록 계좌인 거래소만(Phase 32 D-21). */}
+      {showViRow && (
       <Link
         href="/trading"
         data-slot="vi-status-row"
@@ -543,48 +364,15 @@ export function StrategyStatusCard({ className, accountNo }: StrategyStatusCardP
         <span className="text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
           VI 자동매수
         </span>
-        <StrategyBadge badge={viBadgeOf(viRunning)} className="shrink-0" />
+        <StrategyBadge badge={viBadgeOf(viShownRunning)} className="shrink-0" />
         <span data-slot="vi-status-summary" className="mono text-[11px] text-[var(--muted-fg)]">
-          {viSummaryText(viTriggers)}
+          {viSummaryText(viShown)}
         </span>
         <span aria-hidden="true" className="ml-auto shrink-0 text-[12px] text-[var(--muted-fg)]">
           ›
         </span>
       </Link>
-
-      {/* 전체 비활성화 (C4) — 카드 안에서 유일한 `--destructive` 면이다. */}
-      <div
-        data-slot="strategy-disable-all"
-        className="mt-3 flex flex-wrap items-center gap-2.5 border-t border-[var(--border-subtle)] pt-3"
-      >
-        <span className="min-w-[160px] flex-1 text-[11px] text-[var(--muted-fg)]">
-          모든 상따 전략과 VI 자동매수를 한 번에 끕니다. 이미 나간 주문은 취소되지 않아요.
-        </span>
-        {/*
-          ★ 세션이 `ready` 가 아니면 누를 수 없다. 리듀서는 단절 시 `isStale` 만 세우고
-            `limitChasers` 를 유지하므로 재접속 중에도 목록이 남아 있다 — 가드가 없으면
-            버튼이 활성인 채 0바이트가 나간다(gap 3 / T-16-20).
-        */}
-        <Button
-          type="button"
-          variant="outline"
-          disabled={nothingToDisable || awaitingAck || status !== "ready"}
-          onClick={() => setDialogOpen(true)}
-          className="border-[var(--destructive)] bg-transparent text-[var(--destructive)] hover:bg-[color-mix(in_oklab,var(--destructive)_10%,transparent)] disabled:opacity-[.45]"
-        >
-          전체 비활성화
-        </Button>
-        {sendError === "" ? null : (
-          /* 눌렀는데 못 나갔거나 반영을 확인하지 못했다 — 화면이 그 사실을 말한다. */
-          <p
-            data-slot="strategy-disable-error"
-            role="alert"
-            className="m-0 w-full text-[11px] text-[var(--destructive)]"
-          >
-            {sendError}
-          </p>
-        )}
-      </div>
+      )}
       </TabsContent>
 
       <TabsContent value="log" className="min-w-0">
@@ -600,17 +388,6 @@ export function StrategyStatusCard({ className, accountNo }: StrategyStatusCardP
         </div>
       </TabsContent>
       </Tabs>
-
-      <DisableAllDialog
-        open={dialogOpen}
-        summary={{
-          chaserCount,
-          viRunning,
-          accountNos: accounts.map((a) => a.accountNo),
-        }}
-        onOpenChange={setDialogOpen}
-        onConfirm={handleConfirm}
-      />
     </section>
   );
 }

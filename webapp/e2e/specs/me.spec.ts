@@ -4,7 +4,6 @@ import { kstDateIso, type JournalOrderRow } from '@gh-radar/shared';
 import { mockHomeApi, HOME_POPULATED } from '../fixtures/home';
 import { mockStockApi } from '../fixtures/mock-api';
 import {
-  DMA_MSG,
   E2E_ACCOUNT_NO,
   E2E_ISIN,
   E2E_LONG_NAME_ISIN,
@@ -22,7 +21,6 @@ import {
   TIMELINE_BY_ANCHOR,
   orderRow,
 } from '@/test-fixtures/order-timeline';
-import { buildSetVITriggerRespFrame } from '../../../relay/tests/helpers/frames.js';
 
 /**
  * Phase 16 Plan 15 Task 3 — My page E2E (MYPAGE-01 · UI-SPEC C1~C7 · D-09/D-19/D-20/D-21).
@@ -30,9 +28,9 @@ import { buildSetVITriggerRespFrame } from '../../../relay/tests/helpers/frames.
  * ① 무엇을 증명하는가
  *   RTL 은 `useRelayContext` 를 스텁으로 갈아끼우고 카드 **구조**만 본다. 여기서 보는 것은
  *   그 앞단이다 — **진짜 브라우저가 진짜 relay 에 붙어** 전략 스냅샷과 계좌 상태를 받고
- *   나서야 화면이 서는지, 「전체 비활성화」가 정말 게이트웨이까지 `DisableStrategiesReq(14)`
- *   로 나가는지, 그 뒤 60/61 에코로 배지가 꺼지는지다. 이 경로는 단위로 쪼개면 각 조각이
- *   통과하면서 이어 붙였을 때 안 되는 대표 구간이다.
+ *   나서야 화면이 서는지, 탭 위 계좌 칩(Phase 32 D-20)을 고르면 현황이 그 계좌로 바뀌는지, 60/61 에코로
+ *   배지가 꺼지는지다. 이 경로는 단위로 쪼개면 각 조각이 통과하면서 이어 붙였을 때 안 되는 대표 구간이다.
+ *   (끄기 E2E 는 /me 「이 계좌 끄기」 와 함께 32-06 `P32-disable` 이 잇는다 — Phase 32 D-27.)
  *
  * ② ★ 계좌가 2개다 — 이 spec 의 존재 이유 절반이 여기 있다 (D-21)
  *   relay 는 계좌마다 `acct` 프레임을 한 벌씩 내려보낸다. 브라우저가 그중 마지막 한 건만
@@ -411,8 +409,6 @@ const desktopNav = (page: Page) => page.locator('aside nav[aria-label="주 메�
 const accountChips = (page: Page) => page.locator('[data-slot="me-account-chip"]');
 const accountChip = (page: Page, accountNo: string) =>
   page.locator(`[data-slot="me-account-chip"][data-account-no="${accountNo}"]`);
-const disableAllButton = (page: Page) =>
-  strategyCard(page).getByRole('button', { name: '전체 비활성화' });
 
 /** 전략 목록이 그려질 때까지 기다린다 = relay 가 `lc.snap` 을 줬다는 동기화 지점이다. */
 async function waitForStrategies(page: Page, count: number): Promise<void> {
@@ -444,13 +440,14 @@ async function openMeTab(page: Page, label: string, value: string): Promise<void
 }
 
 /**
- * relay 준비 동기점 — 상태줄 ready + 「계좌 n개」. 상태줄은 현황 탭 안이라 **현황 탭에서만** 쓴다.
+ * relay 준비 동기점 — 상태줄 ready + 계좌 칩 n개. 상태줄은 현황 탭 안이라 **현황 탭에서만** 쓴다.
  * (옛 `waitForAccounts` 가 맡던 「relay 준비」 역할 — 계좌 카드는 이제 잔고 탭에 있다.)
+ * Phase 32 — 「계좌 N개」 칸이 사라져 칩 수로 준비를 잰다(칩 줄은 `accounts[]` 수신 뒤에만 선다).
  */
 async function waitForReady(page: Page, count: number): Promise<void> {
   const bar = page.locator('[data-slot="me-status-bar"]');
   await expect(bar).toHaveAttribute('data-status', 'ready', { timeout: 30_000 });
-  await expect(bar).toContainText(`계좌 ${count}개`, { timeout: 30_000 });
+  await expect(accountChips(page)).toHaveCount(count, { timeout: 30_000 });
 }
 
 /** 요소의 실측 박스. 없으면 실패시킨다 — null 을 0 으로 뭉개면 단언이 헛돈다. */
@@ -557,11 +554,53 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await waitForStrategies(page, 2);
   });
 
-  test('1. 전략 3 · 계좌 2 — 전략 행이 배지·거래소·계좌번호 전체를 보여주고 계좌 카드가 세로로 반복된다', async ({
+  test('P32-status 현황 = 고른 계좌 — 상태줄 「상따 N건 · VI」 고른 계좌 기준 · 「계좌 N개」 없음 · VI 행은 등록 계좌에만 · 빈 상태 문구 (D-21)', async ({
+    page,
+  }) => {
+    const statusBar = page.locator('[data-slot="me-status-bar"]');
+    const viRow = strategyCard(page).locator('[data-slot="vi-status-row"]');
+    const accountEmpty = strategyCard(page).locator('[data-slot="strategy-account-empty"]');
+
+    await page.goto('/me');
+    await waitForReady(page, 2);
+
+    // A — VI 등록 계좌(VI_CFG.accountNo = A) · 켜진 전략 2.
+    await waitForStrategies(page, 2);
+    await expect(statusBar).toContainText('상따 2건');
+    await expect(statusBar).toContainText('VI 가동');
+    await expect(statusBar).not.toContainText('계좌');
+    await expect(viRow).toHaveCount(1);
+    await expect(viRow).toContainText('가동');
+    await expect(accountEmpty).toHaveCount(0);
+
+    // B — VI 는 A 등록이라 B 에는 VI 행이 없다 · 상태줄 「VI 중지」.
+    await accountChip(page, ACCOUNT_B).click();
+    await waitForStrategies(page, 1);
+    await expect(statusBar).toContainText('상따 1건');
+    await expect(statusBar).toContainText('VI 중지');
+    await expect(viRow).toHaveCount(0);
+    await expect(accountEmpty).toHaveCount(0);
+
+    // B 의 전략이 에코로 꺼지면 — 전략 0 ∧ VI 행 없음 → 「이 계좌에 등록된 전략 없음」.
+    await relay.pushLimitChaserEcho({ ...CHASERS[1], buyEnabled: false, sellEnabled: false });
+    await expect(accountEmpty).toHaveText('이 계좌에 등록된 전략 없음', { timeout: 15_000 });
+    await expect(strategyRows(page)).toHaveCount(0);
+    await expect(statusBar).toContainText('상따 0건');
+    // 끄기 UI 는 /me 현황에 없다(D-27).
+    await expect(strategyCard(page).getByRole('button')).toHaveCount(0);
+
+    // A 로 돌아오면 다시 2행 + VI 행.
+    await accountChip(page, E2E_ACCOUNT_NO).click();
+    await waitForStrategies(page, 2);
+    await expect(viRow).toHaveCount(1);
+  });
+
+  test('1. 전략 3 · 계좌 2 — 고른 계좌의 전략 행이 배지·거래소를 보여주고 계좌 카드가 세로로 반복된다', async ({
     page,
   }) => {
     await page.goto('/me');
-    await waitForStrategies(page, 3);
+    // 기본 칩 = 첫 계좌(A) — 현황은 A 의 전략 2건만(Phase 32 D-21).
+    await waitForStrategies(page, 2);
     await waitForReady(page, 2);
 
     // 계좌 상태는 **계좌마다 한 프레임씩** 온다.
@@ -574,25 +613,28 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await expect(first).toContainText('삼성전자', { timeout: 15_000 });
     await expect(first).toContainText('005930');
     await expect(first).toContainText('KRX');
-    // ★ 계좌번호는 마스킹 없이 전체 (D2 · S-5).
-    await expect(first).toContainText(E2E_ACCOUNT_NO);
+    // 2줄째에 계좌번호는 없다 — 계좌는 탭 위 칩이 말한다(Phase 32 D-21).
+    await expect(first).not.toContainText(E2E_ACCOUNT_NO);
     await expect(first).toContainText('매수ON');
 
-    const second = strategyRows(page).nth(1);
-    await expect(second).toContainText('한국제7호기업인수목적우선주식회사');
-    await expect(second).toContainText('NXT');
-    await expect(second).toContainText(ACCOUNT_B);
-    await expect(second).toContainText('매도대기');
-
     // 이름을 못 푸는 ISIN 은 그대로 보여준다 — 지어내지 않는다.
-    await expect(strategyRows(page).nth(2)).toContainText(UNKNOWN_ISIN);
+    await expect(strategyRows(page).nth(1)).toContainText(UNKNOWN_ISIN);
 
-    // --- 상태줄 (C1) ---
+    // --- 상태줄 (C1) — 고른 계좌(A) 기준 · 「계좌 N개」 없음 ---
     const statusBar = page.locator('[data-slot="me-status-bar"]');
     await expect(statusBar).toHaveAttribute('data-status', 'ready');
-    await expect(statusBar).toContainText('상따 3건');
-    await expect(statusBar).toContainText('계좌 2개');
+    await expect(statusBar).toContainText('상따 2건');
     await expect(statusBar).toContainText('VI 가동');
+    await expect(statusBar).not.toContainText('계좌');
+
+    // B 칩 → B 의 전략 1행(NXT 매도대기).
+    await accountChip(page, ACCOUNT_B).click();
+    await waitForStrategies(page, 1);
+    const onlyB = strategyRows(page).nth(0);
+    await expect(onlyB).toContainText('한국제7호기업인수목적우선주식회사');
+    await expect(onlyB).toContainText('NXT');
+    await expect(onlyB).not.toContainText(ACCOUNT_B);
+    await expect(onlyB).toContainText('매도대기');
 
     // --- 계좌 카드 (C5 · D-21) — 잔고 탭 ---
     await openMeTab(page, '잔고', 'accounts');
@@ -659,10 +701,13 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     page,
   }) => {
     await page.goto('/me');
-    await waitForStrategies(page, 3);
+    await waitForStrategies(page, 2);
 
+    // 대상은 B 의 NXT 전략 — 칩으로 B 를 고르면 그 계좌의 유일한 행이다(Phase 32 D-21).
     const target = CHASERS[1];
-    await strategyRows(page).nth(1).click();
+    await accountChip(page, ACCOUNT_B).click();
+    await waitForStrategies(page, 1);
+    await strategyRows(page).nth(0).click();
 
     /*
       ★ Phase 18 — 옛 편집 화면(`/trading/limit-chaser/{key}`)은 작업대로 합쳐졌다. 링크 헬퍼
@@ -690,89 +735,22 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await expect(desktopNav(page).locator('[data-strategy-key][aria-current]')).toHaveCount(0);
   });
 
-  test('3. 전략 0 · VI 중지 — 빈 문구 + 「전체 비활성화」 disabled', async ({ page }) => {
+  test('3. 전략 0 · VI 중지 — 빈 문구 · 끄기 버튼 없음', async ({ page }) => {
     relay.seedLimitChasers([]);
     relay.seedViTrigger(null);
 
     await page.goto('/me');
     await waitForReady(page, 2);
 
-    await expect(strategyCard(page)).toContainText('켜진 상따 전략이 없어요', {
-      timeout: 30_000,
-    });
-    await expect(strategyCard(page)).toContainText(
-      '트레이딩 › 상따에서 매수·매도·취소 스위치를 켜면 여기에 표시돼요.',
+    // 고른 계좌(A)에 전략 · VI 가 없다 — 점선 한 줄(Phase 32 D-21 · S5′).
+    await expect(strategyCard(page).locator('[data-slot="strategy-account-empty"]')).toHaveText(
+      '이 계좌에 등록된 전략 없음',
+      { timeout: 30_000 },
     );
     await expect(strategyRows(page)).toHaveCount(0);
-    // 끌 것이 없으면 누를 수 없다 — 반드시 실패하는 버튼을 열어 두지 않는다.
-    await expect(disableAllButton(page)).toBeDisabled();
-  });
-
-  test('4. 전체 비활성화 — 확인 → msg_type 14 → 60/61 에코로 꺼진 전략이 카드·사이드바에서 빠진다 (D-09)', async ({
-    page,
-  }) => {
-    await page.goto('/me');
-    await waitForStrategies(page, 3);
-    await waitForReady(page, 2);
-
-    /*
-      사이드바 3단 매수 LED 가 켜져 있는 상태에서 출발한다.
-      ★ Phase 18(18-12) — 원 아이콘 2개(`data-io`)는 LED 3점(`data-led` · `latchLedStateOf` 판정)으로
-        바뀌었다. 「같은 상태의 다른 표면」이라는 단언의 의도는 그대로이고 조회구만 옮긴다.
-    */
-    const buyDots = desktopNav(page).locator('[data-strategy-key] [data-led="buy"]');
-    await expect(buyDots).toHaveCount(3);
-    await expect(buyDots.nth(0)).not.toHaveAttribute('data-tone', 'off');
-
-    await disableAllButton(page).click();
-    const dialog = page.getByTestId('strategy-disable-dialog');
-    await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText('전략을 전부 비활성화할까요?');
-    await expect(dialog).toContainText('상따 3건과 VI 자동매수가 한 번에 꺼져요.');
-    await expect(dialog).toContainText(
-      '이미 접수된 주문은 취소되지 않아요. 미체결은 아래 표에서 개별 취소해 주세요.',
-    );
-    // ★ 기본 포커스는 닫기다 — Enter 한 번에 전부 꺼지면 안 된다.
-    await expect(dialog.getByRole('button', { name: '닫기' })).toBeFocused();
-
-    await dialog.getByRole('button', { name: '전체 비활성화' }).click();
-
-    // ★ 게이트웨이까지 실제로 `DisableStrategiesReq(14)` 가 나갔다.
-    await expect
-      .poll(() => relay.requestLog().includes(DMA_MSG.DisableStrategiesReq), {
-        timeout: 15_000,
-      })
-      .toBe(true);
-
-    /*
-      상태는 **60/61 에코로만** 갱신된다(65 는 완료 신호일 뿐 — T-16-07). 서버가 그렇게
-      하듯 키별 에코를 먼저 흘린다.
-    */
-    for (const c of CHASERS) {
-      await relay.pushLimitChaserEcho({ ...c, buyEnabled: false, sellEnabled: false });
-    }
-    const sock = await relay.userSocket();
-    relay.gateway.sendFrame(sock, buildSetVITriggerRespFrame({ ...VI_CFG, run: false }));
-
-    /*
-      ★ quick-260928-no0 — 카드는 켜진 전략만 싣는다(isActiveStrategy · 사이드바와 같은 기준). 세 전략이
-        모두 꺼졌으니 카드는 빈 상태가 된다. 등록은 서버·relay 에 남아 있지만(crud "C" 에코 · 삭제 아님)
-        화면은 카드·상태줄 모두 켜진 수만 센다.
-    */
-    // 세 전략 모두 세 스위치 OFF(cancelQtyEnabled 는 프레임 빌더 기본 false) — 켜진 수 0.
-    await expect(strategyCard(page)).toContainText('상따 0 · VI 중지', { timeout: 15_000 });
-    await expect(strategyRows(page)).toHaveCount(0);
-    await expect(strategyCard(page)).toContainText('켜진 상따 전략이 없어요');
-    await expect(page.locator('[data-slot="vi-status-summary"]')).toHaveText('—');
-
-    // 사이드바 3단에서는 빠진다 — 매수·매도가 둘 다 OFF 인 전략은 사이드바에 싣지 않는다
-    // (사용자 결정 2026-09-23). 서버에는 남아 있다.
-    await expect(buyDots).toHaveCount(0);
-
-    // 켜진 전략 0 + VI 중지 — 끌 것이 없다.
-    await expect(disableAllButton(page)).toBeDisabled();
-    // 상태줄도 켜진 수다 — 카드와 같은 기준.
-    await expect(page.locator('[data-slot="me-status-bar"]')).toContainText('상따 0건');
+    await expect(strategyCard(page).locator('[data-slot="vi-status-row"]')).toHaveCount(0);
+    // 끄기 UI 는 /me 현황에 없다(D-27 — 「이 계좌 끄기」 는 32-06).
+    await expect(strategyCard(page).getByRole('button')).toHaveCount(0);
   });
 
   test('5. 매핑 없음 — DMA 게이트가 본문을 대체한다 (C6 · T-16-04)', async ({ page }) => {
@@ -876,39 +854,37 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
   }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
     await page.goto('/me');
-    await waitForStrategies(page, 3);
+    // 기본 칩 = A — 현황은 A 의 전략 2건(Phase 32 D-21).
+    await waitForStrategies(page, 2);
     await waitForReady(page, 2);
     await relay.pushAccountState(ACCOUNT_B_STATE);
 
     // quick-261006-pey D-1 — 탭 순서대로 잰다: 현황(전략 행) → 잔고(계좌 카드) → 주문(오늘 주문).
     /*
       전략 행은 **2줄 flex-col** 이다(C2 · 260911-w5h). r1 = 종목명 + 상태 배지 + 화살표,
-      r2(`strategy-row-meta`) = `{코드} · {거래소} · {계좌번호}`. 계좌번호가 첫 줄에 남으면
-      그 줄이 종목명을 잘라먹는다.
-      ★ 옛 구조(`flex-wrap` + `order:9` + `w-full`)에서는 계좌번호 `<span>` **자신**이
-        전폭이었다. 2줄 구조에서 계좌번호는 둘째 **줄 안의 한 조각**이므로, 전폭을 재는
-        대상을 조각에서 **줄 자체**(`strategy-row-meta`)로 옮긴다.
+      r2(`strategy-row-meta`) = `{코드} · {거래소}` — 계좌번호는 없다(Phase 32 D-21 · 계좌는 탭 위 칩이 말한다).
+      ★ 전폭을 재는 대상은 **줄 자체**(`strategy-row-meta`)다.
       ★ `nameBox`/`badgeBox` 비교는 **그대로 남긴다** — 폭이 좁으면 규율이 없어도 자연
         wrap 으로 내려가 「둘째 줄」 단언이 헛통과하므로(변이 실측), 배지 **뒤**(=아래)에
         온다는 사실이 그 헛통과를 막는다.
       ★ 인덱스 1 을 쓰는 이유: `strategy-badge` 를 `.last()` 로 짚으므로 그 행에 상태
-        배지가 **하나라도** 있어야 한다. 거래소 배지가 빠지면서 배지 0개 행이 생길 수
-        있는데, 이 fixture 의 2번째 전략은 「매도대기」 배지를 갖는다(아래 단언이 그것을
-        먼저 확인한다).
+        배지가 **하나라도** 있어야 한다. 기본 칩 A 의 2번째 전략은 매수 · 매도가 모두 켜져 배지를 갖는다
+        (아래 단언이 그것을 먼저 확인한다).
     */
     const row = strategyRows(page).nth(1);
     const meta = row.locator('[data-slot="strategy-row-meta"]');
-    const account = row.locator('[data-slot="strategy-row-account"]');
     await expect(row.locator('[data-slot="strategy-badge"]')).not.toHaveCount(0);
+    // 2줄째에 계좌번호가 없다(있던 단언 반전 — Phase 32 D-21).
+    await expect(row.locator('[data-slot="strategy-row-account"]')).toHaveCount(0);
+    await expect(meta).not.toContainText(E2E_ACCOUNT_NO);
     const rowBox = await boxOf(row);
     const nameBox = await boxOf(row.locator('span').first());
     const badgeBox = await boxOf(row.locator('[data-slot="strategy-badge"]').last());
-    const accountBox = await boxOf(account);
     const metaBox = await boxOf(meta);
 
     // 둘째 줄로 내려간다.
-    expect(accountBox.y).toBeGreaterThan(nameBox.y);
-    expect(accountBox.y).toBeGreaterThan(badgeBox.y);
+    expect(metaBox.y).toBeGreaterThan(nameBox.y);
+    expect(metaBox.y).toBeGreaterThan(badgeBox.y);
     // 그 줄이 행 폭의 대부분을 차지한다.
     expect(metaBox.width).toBeGreaterThan(rowBox.width * 0.8);
 
@@ -1111,7 +1087,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
   }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
     await page.goto('/me');
-    await waitForStrategies(page, 3);
+    await waitForStrategies(page, 2);
     await waitForReady(page, 2);
     await relay.pushAccountState(ACCOUNT_A_STATE);
     await openMeTab(page, '잔고', 'accounts');
