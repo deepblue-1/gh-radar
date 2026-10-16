@@ -2,7 +2,7 @@
 
 import type { TeamflowMemberRow, TeamflowMembers as TeamflowMembersData } from '@gh-radar/shared';
 
-import { fmtQty } from '@/lib/teamflow-report';
+import { fmtQty, isNum } from '@/lib/teamflow-report';
 import { cn } from '@/lib/utils';
 
 /**
@@ -19,8 +19,6 @@ import { cn } from '@/lib/utils';
 const SUBHEAD = 'm-0 text-[length:var(--t-sm)] font-semibold text-[var(--fg)]';
 const CAPTION = 'text-[length:var(--t-caption)] text-[var(--muted-fg)]';
 const NOTE = 'm-0 text-[length:var(--t-caption)] text-[var(--muted-fg)] break-keep';
-
-const isNum = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v);
 
 /** net 내림차순 · null 맨 뒤 · 같으면 입력 순서(안정 정렬). */
 function sortMembers(rows: readonly TeamflowMemberRow[]): TeamflowMemberRow[] {

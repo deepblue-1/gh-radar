@@ -8,7 +8,7 @@
 import type { TeamflowBand, TeamflowBucket, TeamflowWindow } from '@gh-radar/shared';
 
 import { kstSecOf } from './limitup-report';
-import { BUCKET_KEY_CLOSE, BUCKET_KEY_FIRST, BUCKET_SLOTS, kstHm, toneOf, type TeamflowTone } from './teamflow-report';
+import { BUCKET_KEY_CLOSE, BUCKET_KEY_FIRST, BUCKET_SLOTS, isNum, kstHm, toneOf, type TeamflowTone } from './teamflow-report';
 
 /** 측정 폭을 모를 때(jsdom clientWidth 0 · 첫 렌더) 쓰는 폭 — Pitfall 8. */
 export const CHART_FALLBACK_W = 640;
@@ -37,8 +37,6 @@ export interface StripBar {
   /** 값 없는 칸(체결 없음) — 1px 빈 선 */
   empty: boolean;
 }
-
-const isNum = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v);
 
 /**
  * 9칸 슬롯(`bandSlotsOf`) → 막대 기하. 칸 i: x = i × 20 · 폭 18 ·
