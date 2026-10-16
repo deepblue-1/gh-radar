@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: 운영 유지보수
-current_phase: 32
-current_phase_name: 계좌 축 정리
+current_phase: 33
+current_phase_name: 팀 매집(teamflow) 보고서
 status: executing
-stopped_at: Phase 32 plan 32-10 complete — 웨이브 ④ 32-11 시작(D-17 = slot-only)
-last_updated: "2026-10-16T07:23:16.882Z"
+stopped_at: Completed 33-07-PLAN.md · Phase 32 32-11 complete (병행)
+last_updated: "2026-10-16T08:38:12.072Z"
 last_activity: 2026-10-16
-last_activity_desc: Phase 32 execution started
-state_head: e44cf64f0d3533edcd0ea7502b039e652b59afc1
+last_activity_desc: Phase 33 execution started
+state_head: 5d6e2499d0a02bfb6756201985b9590890229438
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 36
-  completed_plans: 17
-  percent: 47
+  total_plans: 40
+  completed_plans: 34
+  percent: 50
 ---
 
 # Project State
@@ -25,16 +25,17 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-12 after Phase 31)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 32 — 계좌 축 정리
+**Current focus:** Phase 33 — 팀 매집(teamflow) 보고서
 
 ## Current Position
 
-Phase: 32 (계좌 축 정리) — EXECUTING
-Plan: 11 of 14 (32-01~32-10 완료 · 웨이브 ①~③ 프로덕션 배포 relay·push 55459fe5 · 라이브 UAT 통과)
-Status: Executing Phase 32
-Last activity: 2026-10-16 — Phase 32 32-01~32-09 완료(웨이브 ①~③ 코드, push·relay 배포 안 함)
+Phase: 33 (팀 매집(teamflow) 보고서) — EXECUTING
+Plan: 9 of 9
+Status: Ready to execute
+Last activity: 2026-10-16 — Phase 33 33-08 완료(백엔드 배포: db push · limitup-sync 5d6e2499 · 낮 운반 1회 · 10/14 team_flow 34행 · server 00062 · webapp push 안 함)
+Parallel: Phase 32 (계좌 축 정리) — 32-01~32-11 완료(웨이브 ①~③ 배포 relay·push 55459fe5 · 라이브 UAT 통과 · 웨이브 ④ 32-11 relay VI 슬롯 slot-only 로컬 커밋) · 다음 32-12, 별도 세션
 
-Progress: [█████░░░░░] 47% (17/17 plans)
+Progress: [█████░░░░░] 50% (17/17 plans)
 
 ## Accumulated Context
 
@@ -87,10 +88,10 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/33-teamflow/33-UI-SPEC.md
+**Resume file:** None
 
-Last session: 2026-10-16T03:27:44.031Z
-Stopped at: Phase 33 UI-SPEC approved
+Last session: 2026-10-16T08:17:43.877Z
+Stopped at: Completed 33-07-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -117,6 +118,13 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 31 P05 | 14min | 3 tasks | 6 files |
 | Phase 31 P06 | 22min | 3 tasks | 8 files |
 | Phase 31 P07 | 47 min | 3 tasks | 9 files |
+| Phase 33 P01 | 23min | 2 tasks | 24 files |
+| Phase 33 P02 | 8 min | 3 tasks | 8 files |
+| Phase 33 P03 | 11 min | 3 tasks | 11 files |
+| Phase 33 P04 | 17min | 2 tasks | 5 files |
+| Phase 33 P05 | 13min | 3 tasks | 9 files |
+| Phase 33 P06 | 9 min | 2 tasks | 8 files |
+| Phase 33 P07 | 25min | 2 tasks | 2 files |
 
 ## Decisions
 
@@ -157,3 +165,17 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 31]: 31-06: 등록 차단 문장은 ARM_BLOCKED_TEXT 한 곳 · armBlockOf 순서 1~8(C# 동형) — 패널(buyPriceReasonOf)도 비교가 0 금액 판정을 주문가격 0 보다 먼저 본다
 - [Phase 31]: 31-06: 수량 칸 시트 · 인라인 잠금은 validateCommit 맨 앞 amountLockTextOf 한 곳 · 두 줄 행 아래 줄 · 시트 안내 주는 qtyForSubmit(buildCfg 와 같은 값)
 - [Phase 31]: 31-06: 새 폼 후매수 최소 = 84 postBuyFloorAmount(키 부재 · 범위 밖 폴백 0)
+- [Phase 33]: 33-01: TeamflowDetail 은 버튼 id 를 labelledBy prop 으로 받는다(day-grid↔detail import 순환 회피 · LimitupEventCard 동형 · aria-labelledby 값 동일)
+- [Phase 33]: 33-01: 팀 매집 행 그리드는 최종 7열 템플릿 · 이 플랜은 1·2·3·7열만 — xl 열 머리 · 20% 아래/위 · 매수 중 팀 · 미니막대는 33-03 가산
+- [Phase 33]: 33-01: pgTAP 러너 이미지 public.ecr.aws/supabase/postgres:17.6.1.104 사용자 승인으로 로컬 보유 — 마이그레이션 2개 SQL 실행 검증은 33-02 Task 2
+- [Phase 33]: 33-02: 워커 D-03 재적재 감지 = manifest 에 team_flow 가 있고 이력 rows.team_flow ≠ manifest rows(키 없음 포함)이면 files_sig 같아도 재적재 · 로그 reason new|files_sig|team_flow_backfill — 수동 files_sig NULL 대체
+- [Phase 33]: 33-02: pgTAP 3파일(limitup_load 218 · teamflow_report 28 · limitup_report 54) 로컬 일회용 컨테이너 실행 통과 — 33-01 마이그레이션 수정 0
+- [Phase 33]: 33-03: 억 반올림을 Math.round 로 통일 — fmtEok(−5,000,000) = 0.0억 골든(RESEARCH A4) · fmtRate 는 대칭 반올림 유지
+- [Phase 33]: 33-03: 차트 픽셀 기하는 lib/teamflow-chart.ts 순수 함수(stripBarsOf · chartWidthOf 640 폴백) — 33-05 · 33-06 이 덧붙인다
+- [Phase 33]: 33-04: 백스톱 T3 한 줄 판정 = 태그·셰브론 top 8px 안 + 이름 줄과 세로 겹침(종목 칸이 이름+코드 두 줄 묶음이라 top 8px 기준은 배치와 불일치)
+- [Phase 33]: 33-04: 사이드바 「팀 매집」 = 분석 하위 상한가 보고서 다음 · 레일 전용 아이콘 없음 · diff 12줄 최소
+- [Phase 33]: 33-05: 상세 차트 폭은 useChartWidth(ResizeObserver · 폴백 640) → 순수 기하 함수 → viewBox 1:1 · 접힘은 TeamflowToggle 공용(닫히면 언마운트) — 33-06 10분 차트 · 10분 표가 재사용
+- [Phase 33]: 33-05: 상세 section 안에서 <i> 금지(33-01 RTL (j) 요약 태그 제거 증거) — 범례 견본은 span · bandChartOf 0 값 막대 폭 0(behavior 정본)
+- [Phase 33]: 33-06: key 93(종가 단일가)은 bucketSlotsOf 가 슬롯 38(15:20 칸)에 합산 — 10분 표는 원자료 그대로(key 92 · 93 · 범위 밖 각자 행) · window 띠는 슬롯 38 이 창에 들면 key 93 행 포함
+- [Phase 33]: 33-07: 상세 배치 E2E 는 블록 래퍼(teamflow-bands ↔ teamflow-members)끼리 top 을 비교하고, 거래원 오른쪽 칸 여부만 svg 로 잰다
+- [Phase 33]: 33-07: 전 워크스페이스 회귀 게이트 green(worker 108 · server 521 · webapp 4234 · E2E 25 · pgTAP 218/28/54) — 33-08 배포 전제 충족 · 두 자리 억 왼쪽 축 글자는 33-09 UAT 관찰

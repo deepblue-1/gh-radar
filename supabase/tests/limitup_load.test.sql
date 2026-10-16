@@ -16,6 +16,8 @@
 --   - 권한: anon · authenticated 는 10표 · 4 RPC 불가, service_role 가능 · RLS 10표 활성 · 정책 0개 · facts GIN 없음
 --   - quick-261006-ide: locks 새 6열(sell_krw · cancel_krw · risk_3s/10s/60s · risk_pre — 20261006120000) — 새 키가 있는
 --     payload 는 같은 이름 열로 그대로(1 초과 위험도 · null 포함), 키가 없는 옛 payload 는 null · 열 타입 · 열 권한
+--   - Phase 33(20261016200000): limitup_team_flow 9번째 쌍 · stage CHECK 9값 · 이력 rows.team_flow 는 p_expected 에 키가
+--     있을 때만(옛 워커 호출 호환 · D-03 감지 전제) · 날짜 교체 · purge · statement_timeout 120s 보존 · 열 타입 · 잠금 (J 절)
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/limitup_load.test.sql`
 -- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(원격 DB 접촉 0). 전체가 한 트랜잭션 + ROLLBACK.
@@ -26,7 +28,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(163);
+SELECT plan(218);  -- 163(Phase 28) + 55(J · Phase 33 team_flow)
 
 -- stage 행 1개 — payload 에 date 를 기본으로 싣는다(p_payload 가 덮을 수 있다).
 CREATE FUNCTION pg_temp.st(p_date text, p_tbl text, p_seq int, p_payload jsonb) RETURNS void
@@ -232,6 +234,135 @@ SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname = 'public' AND
 SELECT is((SELECT count(*)::int FROM pg_indexes
             WHERE schemaname = 'public' AND tablename LIKE 'limitup\_%' AND indexdef ILIKE '%USING gin%'), 0,
           'limitup 표 GIN 인덱스 없음(facts."values" 포함 · D-15)');
+
+-- ── J. Phase 33 team_flow — 20261016200000_limitup_team_flow.sql ─────────────
+-- 잠그는 것: stage CHECK 9값 · 9번째 쌍(payload 중첩 그대로 · *_share double · null 열) · 이력 키는 p_expected 에 있을 때만
+-- (옛 워커 호출은 키 없음 · 그날 limitup_team_flow 는 비움 — Pitfall 1 · D-02 · D-03) · 날짜 단위 교체 · 대조 실패 ·
+-- purge · statement_timeout 재진술(Pitfall 2) · 열 타입 · PK · 잠금(D-06).
+-- team_flow export 행 — 키 이름 = gh-trade teamflow.py export_row(픽스처 20261014 와 같은 모양 · 일부 키 생략은 null).
+CREATE FUNCTION pg_temp.tf(p_isin text, p_net bigint, p_share double precision) RETURNS jsonb LANGUAGE sql AS $$
+  SELECT jsonb_build_object(
+    'isin', p_isin, 'short_code', right(p_isin, 6), 'name', '팀종목' || right(p_isin, 2), 'market', 'KOSDAQ',
+    'base', 10000, 'upper', 13000, 'first_limit_ms', NULL, 'first_limit_auction', false,
+    'last_ms', 1792130000000, 'last_px', 12980, 'last_rate', 29.8, 'status', 'below',
+    'volume', 123456, 'value', 1500000000, 'team_buy_val', 300000000, 'team_sell_val', 200000000,
+    'team_net_val', p_net, 'team_buy_share', p_share, 'high_px', 13000, 'high_rate', 30.0, 'high_ms', 1792120000000,
+    'schema_version', 1,
+    'payload', jsonb_build_object(
+      'bands', jsonb_build_array(
+        jsonb_build_object('label', '0~5%', 'net_val', -9836500, 'share', 0.1),
+        jsonb_build_object('label', '하루 합계', 'net_val', p_net, 'share', p_share)),
+      'buckets', jsonb_build_array(jsonb_build_object('key', 54, 'start', '09:00', 'net_val', -7263500)),
+      'window', NULL, 'members', NULL,
+      'summary_lines', jsonb_build_array('팀 순매수 <b>+1.0억</b>')))
+$$;
+
+-- ① stage CHECK — team_flow 허용 · 목록 밖 값은 23514
+SELECT lives_ok($$ SELECT pg_temp.st('20261010', 'team_flow', 1, pg_temp.tf('KR7000000101', 1, 0.5)) $$,
+                'J① limitup_stage tbl team_flow 허용(CHECK 9값)');
+SELECT throws_ok($$ SELECT pg_temp.st('20261010', 'bogus', 1, '{}') $$, '23514', NULL,
+                 'J① limitup_stage tbl bogus → 23514(check_violation)');
+SELECT is(public.limitup_stage_clear('20261010'), 1, 'J① stage_clear 가 team_flow stage 1행을 지운다');
+
+-- ② p_expected team_flow 2 → 2행 · payload 중첩 · double · null · 이력 키
+SELECT pg_temp.st('20261014', 'team_flow', 1, pg_temp.tf('KR7000000101', 500000000, 0.26));
+SELECT pg_temp.st('20261014', 'team_flow', 2, pg_temp.tf('KR7000000102', -50000000, NULL));
+INSERT INTO t_res SELECT 'tf1', public.limitup_commit_day('20261014', 'mf-tf-1', 'sig-tf-1', 1, '{"team_flow":2}');
+SELECT is((SELECT r #>> '{rows,team_flow}' FROM t_res WHERE label = 'tf1'), '2', 'J② commit 반환 rows.team_flow = 2');
+SELECT is((SELECT count(*)::int FROM public.limitup_team_flow WHERE date = '20261014'), 2, 'J② limitup_team_flow 2행');
+SELECT is((SELECT payload->'bands'->0->>'label' FROM public.limitup_team_flow WHERE date = '20261014' AND isin = 'KR7000000101'),
+          '0~5%', 'J② payload.bands[0].label 중첩 그대로');
+SELECT is((SELECT jsonb_typeof(payload->'buckets') FROM public.limitup_team_flow WHERE date = '20261014' AND isin = 'KR7000000101'),
+          'array', 'J② payload.buckets 배열 그대로');
+SELECT is((SELECT payload->'summary_lines'->>0 FROM public.limitup_team_flow WHERE date = '20261014' AND isin = 'KR7000000101'),
+          '팀 순매수 <b>+1.0억</b>', 'J② payload.summary_lines 원문(<b> 포함) 그대로');
+SELECT is((SELECT team_buy_share FROM public.limitup_team_flow WHERE date = '20261014' AND isin = 'KR7000000101'),
+          0.26::double precision, 'J② team_buy_share = 0.26(double precision)');
+SELECT is((SELECT last_rate FROM public.limitup_team_flow WHERE date = '20261014' AND isin = 'KR7000000101'),
+          29.8::double precision, 'J② last_rate = 29.8(소수 % — bigint 아님)');
+SELECT ok((SELECT first_limit_ms IS NULL AND team_buy_share IS NULL FROM public.limitup_team_flow
+            WHERE date = '20261014' AND isin = 'KR7000000102'), 'J② first_limit_ms · team_buy_share JSON null → null');
+SELECT is((SELECT "rows"->>'team_flow' FROM public.limitup_loads WHERE date = '20261014'), '2',
+          'J② 이력 rows.team_flow = 2');
+
+-- ③ 더 적은 행으로 재commit → 빠진 isin 이 남지 않는다(날짜 단위 교체)
+SELECT pg_temp.st('20261014', 'team_flow', 1, pg_temp.tf('KR7000000102', -50000000, 0.1));
+SELECT lives_ok($$ SELECT public.limitup_commit_day('20261014', 'mf-tf-2', 'sig-tf-2', 1, '{"team_flow":1}') $$,
+                'J③ team_flow 1행 재commit 성공');
+SELECT is((SELECT count(*)::int FROM public.limitup_team_flow WHERE date = '20261014'), 1, 'J③ 2 → 1행');
+SELECT is((SELECT isin FROM public.limitup_team_flow WHERE date = '20261014'), 'KR7000000102', 'J③ 남은 행 = 재commit 행');
+SELECT is((SELECT "rows"->>'team_flow' FROM public.limitup_loads WHERE date = '20261014'), '1', 'J③ 이력 rows.team_flow = 1');
+
+-- ④ team_flow 0 → 그 날짜 비움 · 이력 키 0
+SELECT lives_ok($$ SELECT public.limitup_commit_day('20261014', 'mf-tf-3', 'sig-tf-3', 1, '{"team_flow":0}') $$,
+                'J④ team_flow 0 commit 성공(파일 없는 날짜 — D-02)');
+SELECT is((SELECT count(*)::int FROM public.limitup_team_flow WHERE date = '20261014'), 0, 'J④ 그 날짜 0행');
+SELECT ok((SELECT "rows" ? 'team_flow' FROM public.limitup_loads WHERE date = '20261014'), 'J④ 이력 rows 에 team_flow 키 있음');
+SELECT is((SELECT "rows"->>'team_flow' FROM public.limitup_loads WHERE date = '20261014'), '0', 'J④ 이력 rows.team_flow = 0');
+
+-- ⑤ 옛 워커 호출 — p_expected 에 team_flow 키 없음 → 통과 · 그날 team_flow 비움 · 이력에 키 없음(Pitfall 1)
+SELECT pg_temp.st('20261013', 'team_flow', 1, pg_temp.tf('KR7000000103', 7, 0.3));
+SELECT public.limitup_commit_day('20261013', 'mf-tf-4', 'sig-tf-4', 1, '{"team_flow":1}');
+SELECT is((SELECT count(*)::int FROM public.limitup_team_flow WHERE date = '20261013'), 1, 'J⑤ 준비 — 20261013 team_flow 1행');
+SELECT pg_temp.st('20261013', 'entries', 1, '{"isin":"KR7000000103","name":"옛워커","schema_version":1}');
+SELECT lives_ok($$ SELECT public.limitup_commit_day('20261013', 'mf-tf-5', 'sig-tf-5', 1,
+  '{"entries":1,"locks":0,"jumps":0,"member_alloc":0,"facts":0,"touches":0,"grid_summary":0,"member_daily":0}') $$,
+                'J⑤ 옛 워커 호출(8키 · team_flow 키 없음 · stage 6표만) 통과');
+SELECT is((SELECT count(*)::int FROM public.limitup_team_flow WHERE date = '20261013'), 0,
+          'J⑤ 옛 워커 commit 이 그날 team_flow 를 지운다(날짜 교체 — D-02)');
+SELECT ok((SELECT NOT ("rows" ? 'team_flow') FROM public.limitup_loads WHERE date = '20261013'),
+          'J⑤ 이력 rows 에 team_flow 키 없음(새 워커가 다음 run 에 재적재를 감지 — D-03)');
+SELECT is((SELECT count(*)::int FROM public.limitup_loads l, jsonb_object_keys(l."rows") k WHERE l.date = '20261013'), 8,
+          'J⑤ 이력 rows 키 8개(옛 8표)');
+SELECT is((SELECT "rows"->>'entries' FROM public.limitup_loads WHERE date = '20261013'), '1', 'J⑤ 이력 rows.entries = 1');
+
+-- ⑥ stage 2 · 기대 1 → 대조 실패 예외 · 아무것도 바뀌지 않음
+SELECT pg_temp.st('20261012', 'team_flow', 1, pg_temp.tf('KR7000000104', 1, 0.1));
+SELECT pg_temp.st('20261012', 'team_flow', 2, pg_temp.tf('KR7000000105', 2, 0.2));
+SELECT throws_like($$ SELECT public.limitup_commit_day('20261012', 'mf-tf-6', 'sig-tf-6', 1, '{"team_flow":1}') $$,
+                   '%20261012 team_flow stage 2 expected 1%', 'J⑥ team_flow stage 2 ≠ 기대 1 → 예외');
+SELECT is((SELECT count(*)::int FROM public.limitup_team_flow WHERE date = '20261012'), 0, 'J⑥ 예외 뒤 team_flow 0행');
+SELECT is(public.limitup_stage_clear('20261012'), 2, 'J⑥ 예외 뒤 stage 2행 그대로(stage_clear 가 2행)');
+
+-- ⑦ 보존 정리 — cutoff 이전 team_flow 삭제 · 반환에 team_flow 키
+--   (d89 에는 H 의 「commit 뒤 남은 stage」 entries 1행이 있다 — 먼저 비운다)
+SELECT public.limitup_stage_clear(pg_temp.dd('d91'));
+SELECT public.limitup_stage_clear(pg_temp.dd('d89'));
+SELECT pg_temp.st(pg_temp.dd('d91'), 'team_flow', 1, pg_temp.tf('KR7000000106', 1, 0.1));
+SELECT public.limitup_commit_day(pg_temp.dd('d91'), 'mf', 'sig-tf-d91', 1, '{"team_flow":1}');
+SELECT pg_temp.st(pg_temp.dd('d89'), 'team_flow', 1, pg_temp.tf('KR7000000106', 1, 0.1));
+SELECT public.limitup_commit_day(pg_temp.dd('d89'), 'mf', 'sig-tf-d89', 1, '{"team_flow":1}');
+INSERT INTO t_res SELECT 'purge-tf', public.limitup_purge_old(90, 30);
+SELECT ok((SELECT r->'deleted' ? 'team_flow' FROM t_res WHERE label = 'purge-tf'), 'J⑦ purge 반환 deleted 에 team_flow 키');
+SELECT is((SELECT r #>> '{deleted,team_flow}' FROM t_res WHERE label = 'purge-tf'), '1', 'J⑦ deleted.team_flow = 1(d91)');
+SELECT is(pg_temp.cnt('limitup_team_flow', pg_temp.dd('d91')), 0, 'J⑦ limitup_team_flow 91일 전 삭제');
+SELECT is(pg_temp.cnt('limitup_team_flow', pg_temp.dd('d89')), 1, 'J⑦ limitup_team_flow 89일 전 남김');
+
+-- ⑧ Pitfall 2 — CREATE OR REPLACE 뒤에도 statement_timeout 120s
+SELECT ok((SELECT proconfig FROM pg_proc
+            WHERE oid = 'public.limitup_commit_day(text,text,text,integer,jsonb)'::regprocedure)
+          @> ARRAY['statement_timeout=120s'], 'J⑧ limitup_commit_day proconfig statement_timeout=120s 보존');
+
+-- ⑨ 열 타입 · PK
+SELECT col_type_is('public', 'limitup_team_flow', c.col, c.typ, 'J⑨ 열 타입 ' || c.col || ' = ' || c.typ)
+  FROM (VALUES ('team_buy_share', 'double precision'), ('reach_team_share', 'double precision'),
+               ('last_rate', 'double precision'), ('high_rate', 'double precision'),
+               ('value', 'bigint'), ('volume', 'bigint'), ('team_net_val', 'bigint'), ('first_limit_ms', 'bigint'),
+               ('payload', 'jsonb'), ('first_limit_auction', 'boolean')) AS c(col, typ)
+ ORDER BY c.col;
+SELECT col_is_pk('public', 'limitup_team_flow', ARRAY['date', 'isin'], 'J⑨ PK (date, isin)');
+
+-- ⑩ 잠금(D-06) — RLS 활성 · 정책 0 · anon/authenticated 불가 · service_role 4권한
+SELECT ok((SELECT relrowsecurity FROM pg_class WHERE oid = 'public.limitup_team_flow'::regclass), 'J⑩ limitup_team_flow RLS 활성');
+SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname = 'public' AND tablename = 'limitup_team_flow'), 0,
+          'J⑩ limitup_team_flow 정책 0개(읽기는 서버 RPC 뿐)');
+SELECT is(has_table_privilege(r.role, 'public.limitup_team_flow', r.priv), r.expect,
+          format('J⑩ %s %s limitup_team_flow = %s', r.role, r.priv, r.expect))
+  FROM (VALUES ('anon', 'SELECT', false), ('anon', 'INSERT', false),
+               ('authenticated', 'SELECT', false), ('authenticated', 'INSERT', false),
+               ('service_role', 'SELECT', true), ('service_role', 'INSERT', true),
+               ('service_role', 'UPDATE', true), ('service_role', 'DELETE', true)) AS r(role, priv, expect)
+ ORDER BY r.role, r.priv;
 
 SELECT * FROM finish();
 ROLLBACK;

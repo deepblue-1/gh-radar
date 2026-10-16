@@ -5,11 +5,11 @@ set +x  # 비밀(service_role 키)이 trace 로 새지 않게 — 키는 변수 
 
 # ═══════════════════════════════════════════════════════════════
 # smoke-limitup-sync.sh
-# Phase 28 D-14 · D-13 · D-20 — 밤 export 적재 워커 배포 후 검증 (INV-1~7)
+# Phase 28 D-14 · D-13 · D-20 — 밤 export 적재 워커 배포 후 검증 (INV-1~8)
 #
 # Usage:
-#   bash scripts/smoke-limitup-sync.sh                    # INV-1~7 전체 (대상 날짜 = GCS 의 manifest 있는 최신 날짜)
-#   bash scripts/smoke-limitup-sync.sh --date 20261002    # INV-4 · INV-6 대상 날짜 지정
+#   bash scripts/smoke-limitup-sync.sh                    # INV-1~8 전체 (대상 날짜 = GCS 의 manifest 있는 최신 날짜)
+#   bash scripts/smoke-limitup-sync.sh --date 20261002    # INV-4 · INV-6 · INV-8 대상 날짜 지정
 #   bash scripts/smoke-limitup-sync.sh --check-scheduler  # INV-5 만
 #
 # 필수 env: GCP_PROJECT_ID · SUPABASE_URL (--check-scheduler 는 GCP_PROJECT_ID 만)
@@ -24,6 +24,8 @@ set +x  # 비밀(service_role 키)이 trace 로 새지 않게 — 키는 변수 
 # INV-5: Scheduler gh-radar-limitup-sync-nightly ENABLED + cron '20 21 * * 1-5' + timeZone Asia/Seoul
 # INV-6: Storage limitup-grid 의 grid/<D>/ 객체 수 == manifest 의 grid/ 파일 수
 # INV-7: 버킷 IAM — relay SA roles/storage.objectUser · 워커 SA roles/storage.objectViewer
+# INV-8: 대상 날짜 limitup_team_flow count == manifest files[team_flow.ndjson.gz].rows(없으면 0 · Phase 33 D-02)
+#        (service_role 이라 접근 규칙 0개 표도 읽힌다 · 90일 보존 밖이면 SKIP)
 # ═══════════════════════════════════════════════════════════════
 
 REGION=asia-northeast3
@@ -214,6 +216,16 @@ inv4_rows_match_manifest() {
   [ -n "$expect" ] && [ -n "$got" ] && [ "$got" -eq "$expect" ]
 }
 
+# Phase 33 — team_flow 는 선택 파일(D-02): manifest 에 없으면 워커가 0행 commit 하므로 기대 0.
+inv8_team_flow_rows() {
+  local expect got
+  expect=$(manifest_rows "team_flow.ndjson.gz")
+  [ -n "$expect" ] || expect=0
+  got=$(db_count team_flow)
+  DETAIL="${TARGET_DATE} limitup_team_flow db=${got:-?} manifest=${expect}"
+  [ -n "$got" ] && [ "$got" -eq "$expect" ]
+}
+
 inv6_grid_objects() {
   local expect got
   expect=$(manifest_grid_count)
@@ -237,7 +249,7 @@ inv7_bucket_iam() {
 }
 
 # ─── 실행 ───
-echo "Smoke testing limitup-sync — INV-1~7"
+echo "Smoke testing limitup-sync — INV-1~8"
 echo ""
 
 check "INV-1 Job execute --wait exit 0" inv1_execute
@@ -260,11 +272,17 @@ if resolve_target_date && load_manifest; then
     check "INV-4 limitup_${tbl} rows == manifest" inv4_rows_match_manifest "$tbl"
   done
   check "INV-6 Storage ${GRID_BUCKET}/grid/${TARGET_DATE}/ == manifest grid" inv6_grid_objects
+  if [[ "$TARGET_DATE" < "$CUTOFF" ]]; then
+    echo "  INV-8 limitup_team_flow ... SKIP (${TARGET_DATE} < ${CUTOFF} — 90일 보존 밖)"
+  else
+    check "INV-8 limitup_team_flow rows == manifest team_flow" inv8_team_flow_rows
+  fi
 else
   echo "  INV-4 ... FAIL (manifest 없음 — ${EXPORT_URL}/${TARGET_DATE:-<최신>}/manifest.json)"
   echo "  INV-6 ... FAIL (manifest 없음)"
-  FAIL=$((FAIL + 2))
-  FAILED_INVS+=("INV-4 manifest" "INV-6 manifest")
+  echo "  INV-8 ... FAIL (manifest 없음)"
+  FAIL=$((FAIL + 3))
+  FAILED_INVS+=("INV-4 manifest" "INV-6 manifest" "INV-8 manifest")
 fi
 
 check "INV-5 $SCHED ENABLED + cron '$SCHED_CRON' $SCHED_TZ" inv5_scheduler

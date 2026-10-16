@@ -212,7 +212,7 @@ Plans:
 | 30. 인박스 KB 계좌별 주문자 IP/MAC | v1.1 | 9/9 | Complete | 2026-10-11 |
 | 31. 인박스 상따 금액 단위 | v1.1 | 8/8 | Complete | 2026-10-12 |
 | 32. 계좌 축 정리 | v1.1 | 10/14 | In Progress | — |
-| 33. 팀 매집(teamflow) 보고서 | v1.1 | 0/0 | Not planned | — |
+| 33. 팀 매집(teamflow) 보고서 | v1.1 | 8/9 | In Progress | — |
 
 ### Phase 33: 팀 매집(teamflow) 보고서
 
@@ -227,32 +227,32 @@ Plans:
   5. 단위 · E2E(limitup-report 동형 fixture) 통과 · 10/14 실측 3종목으로 라이브 UAT · 인박스 `261016-teamflow-export.md` 를 `status: done` 으로 닫는다
 
 **배포 순서**: DB 마이그레이션(표 · RPC · RLS `TO anon, authenticated` · REVOKE 명시) → limitup-sync Job 재배포(`scripts/deploy-limitup-sync.sh` · 21:20 KST 밖) → server → webapp push(= 프로덕션). radar-gw 변경 없음. 첫 적재는 119 export 에 `team_flow.ndjson.gz` 가 실린 날짜부터
-**Plans**: 9 plans
+**Plans**: 8/9 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 33-01-PLAN.md — (트레이서) 10/14 픽스처 → 워커 선택 파일 stage → commit_day 7번째 표 → teamflow_report_for_user → /api/teamflow/report → /analytics/teamflow 행(기본 접힘) · 펼침 요약 + pgTAP 이미지 승인(Wave 0)
+- [x] 33-01-PLAN.md — (트레이서) 10/14 픽스처 → 워커 선택 파일 stage → commit_day 7번째 표 → teamflow_report_for_user → /api/teamflow/report → /analytics/teamflow 행(기본 접힘) · 펼침 요약 + pgTAP 이미지 승인(Wave 0)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 33-02-PLAN.md — (트레이서) 재적재 자동 감지(D-03 · 이력 rows.team_flow ≠ manifest) · pgTAP 적재 확장 + 보고서 RPC · 스모크 INV-8
+- [x] 33-02-PLAN.md — (트레이서) 재적재 자동 감지(D-03 · 이력 rows.team_flow ≠ manifest) · pgTAP 적재 확장 + 보고서 RPC · 스모크 INV-8
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 33-03-PLAN.md — (트레이서) 목록 완성: 변환 모듈 · KPI 4칸 · 9칸 미니막대 · xl 7열/폰 카드 · --team 토큰
+- [x] 33-03-PLAN.md — (트레이서) 목록 완성: 변환 모듈 · KPI 4칸 · 9칸 미니막대 · xl 7열/폰 카드 · --team 토큰
 
 **Wave 4** *(blocked on Wave 3 completion)*
-- [ ] 33-04-PLAN.md — (트레이서) 사이드바 「분석 › 팀 매집」 · 게이트 직접 진입 · 목록 E2E(1280 · 390) · 폭 백스톱 T1~T3
+- [x] 33-04-PLAN.md — (트레이서) 사이드바 「분석 › 팀 매집」 · 게이트 직접 진입 · 목록 E2E(1280 · 390) · 폭 백스톱 T1~T3
 
 **Wave 5** *(blocked on Wave 4 completion)*
-- [ ] 33-05-PLAN.md — (트레이서) 상세 ① 구간 가로 막대 · 구간표 · 판정 기준 · 거래원 2단 막대(2열 · 폰 1열)
+- [x] 33-05-PLAN.md — (트레이서) 상세 ① 구간 가로 막대 · 구간표 · 판정 기준 · 거래원 2단 막대(2열 · 폰 1열)
 
 **Wave 6** *(blocked on Wave 5 completion)*
-- [ ] 33-06-PLAN.md — (트레이서) 상세 ② 10분 흐름 39칸 고정축(key 93 → 15:20 칸 합산) · 10분 표
+- [x] 33-06-PLAN.md — (트레이서) 상세 ② 10분 흐름 39칸 고정축(key 93 → 15:20 칸 합산) · 10분 표
 
 **Wave 7** *(blocked on Wave 6 completion)*
-- [ ] 33-07-PLAN.md — (트레이서) 상세 E2E · 폭 백스톱 T6 · T8 · 전 워크스페이스 회귀 게이트
+- [x] 33-07-PLAN.md — (트레이서) 상세 E2E · 폭 백스톱 T6 · T8 · 전 워크스페이스 회귀 게이트
 
 **Wave 8** *(blocked on Wave 7 completion)*
-- [ ] 33-08-PLAN.md — 백엔드 배포(메인 세션): [BLOCKING] supabase db push(pgTAP 미실행이면 사용자 승인) → limitup-sync 재배포(20:55~21:25 밖) → radar-gw 낮 운반 1회 · Job 즉시 실행 · 스모크 INV-8 → server
+- [x] 33-08-PLAN.md — 백엔드 배포(메인 세션): [BLOCKING] supabase db push(pgTAP 미실행이면 사용자 승인) → limitup-sync 재배포(20:55~21:25 밖) → radar-gw 낮 운반 1회 · Job 즉시 실행 · 스모크 INV-8 → server
 
 **Wave 9** *(blocked on Wave 8 completion)*
 - [ ] 33-09-PLAN.md — git push(= webapp 프로덕션) · 라이브 UAT 10/14 · 인박스 261016-teamflow-export done · TEAM-02 문구 정합
