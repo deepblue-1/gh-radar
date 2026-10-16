@@ -340,15 +340,24 @@ function MeTabs() {
     ── 계좌 칩 (위 ② · Phase 32 D-20) ── 고른 계좌 · 이 화면 기억값 · 작업대 기억 계좌.
     기억값은 마운트 **뒤** 효과에서 읽는다(하이드레이션 규약 — 렌더 중 localStorage 금지 · 작업대와 같은 규약).
   */
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const userId = user?.id ?? "";
   const [meAccountNo, setMeAccountNo] = useState("");
   const [savedMe, setSavedMe] = useState<string | null>(null);
   const [savedWorkbench, setSavedWorkbench] = useState<string | null>(null);
+  /** 기억값을 읽은 사용자 — 아직 안 읽었으면(마운트 첫 커밋 · 사용자 전환 직후) null · 다른 id. */
+  const [savedFor, setSavedFor] = useState<string | null>(null);
   useEffect(() => {
     setSavedMe(readMeAccount(userId));
     setSavedWorkbench(readTradingAccount(userId));
+    setSavedFor(userId);
   }, [userId]);
+  /**
+   * 기억값을 지금 사용자 기준으로 읽었나(WR-06) — 읽기 전에 기본 선택을 하면 첫 칩으로 한 렌더 섰다가 기억 계좌로 바뀐다(네 탭이 엉뚱한
+   * 계좌를 한 번 그린다). 인증 확인 중(사용자를 아직 모름)도 기다린다. 그동안 `shownAccountNo` 는 undefined — 기존 로딩 모양이다.
+   * 작업대의 `layoutRestored` 와 같은 게이트다.
+   */
+  const savedRead = !authLoading && savedFor === userId;
   /**
    * 오늘 주문 카드가 올린 병합 행(REST 복원 ∪ 푸시)의 계좌 집합(Phase 32 D-23 · Pitfall 10). 주문 탭을 연 뒤에만
    * 채워진다 — 카드가 마운트돼야 복원 조회가 있다(조회 경로를 늘리지 않는다).
@@ -366,9 +375,10 @@ function MeTabs() {
   );
   // 기본 선택(`meAccountOf`) — 이 화면 기억값 → 작업대 기억 계좌 → 이미 고른 값 → 첫 칩. 자동 선택은 저장하지 않는다.
   useEffect(() => {
+    if (!savedRead) return;
     const next = meAccountOf(choices, savedMe, savedWorkbench, meAccountNo);
     if (next !== meAccountNo) setMeAccountNo(next);
-  }, [choices, savedMe, savedWorkbench, meAccountNo]);
+  }, [savedRead, choices, savedMe, savedWorkbench, meAccountNo]);
   /** 칩을 **직접** 고른 경우 — 화면 · 이번 마운트 기억 · 기기별 저장 셋을 같이 바꾼다(작업대 키는 건드리지 않는다). */
   const pickMeAccount = (next: string): void => {
     setMeAccountNo(next);

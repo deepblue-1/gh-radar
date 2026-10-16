@@ -6,6 +6,7 @@ import type { RelayAccountState, RelayUserSettingsMsg } from '@gh-radar/shared';
 import type { StrategyLogEntry } from '@/components/trading/strategy-log';
 import { EMPTY_RELAY_VALUE, type RelayContextValue } from '@/lib/relay-provider';
 import { makeLimitChaser } from '@/test-fixtures/limit-chaser';
+import { writeMeAccount } from '@/lib/trading-layout';
 
 import { formatServerTime, latestAccountTime, MeClient, unfilledCountOf } from '../me-client';
 
@@ -19,6 +20,10 @@ let mockGate: 'unauthenticated' | 'unmapped' | null;
 let mockFeed: readonly StrategyLogEntry[];
 /* quick-261006-pey D-1 — `?tab=` 은 공용 훅이 읽는다. 목은 URL 을 따라가지 않으므로 활성값 변화는 rerender 로 흉내 낸다. */
 let mockSearchParams = new URLSearchParams();
+/* 인증 목 — 기본은 Provider 밖과 같다(사용자 없음 · 로딩 아님). WR-06 만 사용자를 둔다. */
+let mockAuthUser: { id: string } | null = null;
+/* 계좌 패널 목이 렌더마다 받은 계좌(WR-06 — 기억 계좌 전에 첫 계좌로 한 번 그리는지). */
+let mockPanelAccounts: string[] = [];
 /* 오늘 주문 목 — 마운트 횟수(조회 1회 = 마운트 1회)와 건수 콜백으로 올릴 값. */
 let mockOrdersMounts = 0;
 let mockOrdersCount = 0;
@@ -31,6 +36,13 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/lib/relay-provider', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/relay-provider')>();
   return { ...actual, useRelayContext: () => mockRelay };
+});
+vi.mock('@/lib/auth-context', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/auth-context')>();
+  return {
+    ...actual,
+    useAuth: () => ({ user: mockAuthUser, displayName: null, isLoading: false, signOut: async () => {} }),
+  };
 });
 vi.mock('@/components/trading/dma-gate', () => ({
   useDmaGateReason: () => mockGate,
@@ -55,14 +67,17 @@ vi.mock('@/components/trading/today-orders-card', async () => {
 });
 /* 계좌 패널 목 — 무엇을 받았는지(계좌 · 머리 생략 · 상태 유무)만 남긴다(Phase 32 D-22). */
 vi.mock('@/components/orderbook/account-panel', () => ({
-  AccountPanel: (p: { selectedAccountNo: string; hideAccountHeader?: boolean; account: unknown }) => (
-    <div
-      data-slot="account-panel-mock"
-      data-account={p.selectedAccountNo}
-      data-hide-header={String(p.hideAccountHeader === true)}
-      data-has-account={String(p.account !== null)}
-    />
-  ),
+  AccountPanel: (p: { selectedAccountNo: string; hideAccountHeader?: boolean; account: unknown }) => {
+    mockPanelAccounts.push(p.selectedAccountNo);
+    return (
+      <div
+        data-slot="account-panel-mock"
+        data-account={p.selectedAccountNo}
+        data-hide-header={String(p.hideAccountHeader === true)}
+        data-has-account={String(p.account !== null)}
+      />
+    );
+  },
 }));
 
 /**
@@ -88,6 +103,8 @@ function states(...entries: readonly RelayAccountState[]): ReadonlyMap<string, R
 
 beforeEach(() => {
   mockSearchParams = new URLSearchParams();
+  mockAuthUser = null;
+  mockPanelAccounts = [];
   mockOrdersMounts = 0;
   mockOrdersCount = 0;
   window.history.replaceState(null, '', '/me');
@@ -367,6 +384,18 @@ describe('P32 MeStatusBar 고른 계좌 (D-21) · 계좌 칩 (D-20)', () => {
       expect(bar()).toHaveTextContent('VI 가동');
       expect(viSummary()).toHaveTextContent(/^NXT 500만원 · 18\.0% 이상$/);
     });
+  });
+
+  it('WR-06 기억 계좌(B)가 있으면 첫 계좌(A)로 한 렌더도 서지 않는다 — 잔고 패널이 받은 계좌는 B 뿐', () => {
+    mockAuthUser = { id: 'u1' };
+    window.localStorage.clear();
+    writeMeAccount('u1', ACC_B);
+    mockSearchParams = new URLSearchParams('tab=accounts');
+    render(<MeClient />);
+    expect(chip(ACC_B)).toHaveAttribute('aria-checked', 'true');
+    expect(mockPanelAccounts.length).toBeGreaterThan(0);
+    expect(mockPanelAccounts.every((a) => a === ACC_B)).toBe(true);
+    window.localStorage.clear();
   });
 
   it('accounts[] 미수신이면 칩 줄 없음 · 상태줄 · 카드는 전 계좌(종전)', () => {
