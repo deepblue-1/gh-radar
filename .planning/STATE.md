@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 33
 current_phase_name: 팀 매집(teamflow) 보고서
 status: executing
-stopped_at: Completed 33-06-PLAN.md
-last_updated: "2026-10-16T07:48:50.770Z"
+stopped_at: Completed 33-07-PLAN.md
+last_updated: "2026-10-16T08:17:43.927Z"
 last_activity: 2026-10-16
 last_activity_desc: Phase 33 execution started
-state_head: 04042b2896336e7d92217f726c2f3144658fb0f5
+state_head: 8be382f28a6a45485412d0d9e1e08e3f5d96ed2b
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 40
-  completed_plans: 27
+  completed_plans: 28
   percent: 50
 ---
 
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-10-12 after Phase 31)
 ## Current Position
 
 Phase: 33 (팀 매집(teamflow) 보고서) — EXECUTING
-Plan: 7 of 9
+Plan: 8 of 9
 Status: Ready to execute
-Last activity: 2026-10-16 — Phase 33 33-06 완료(상세 ② 10분 흐름 39칸 고정축 · key 93 합산 · 10분 표, push 안 함)
+Last activity: 2026-10-16 — Phase 33 33-07 완료(상세 E2E · 백스톱 T6 · T8 · 전 워크스페이스 회귀 게이트 green · pgTAP 300 ok, push 안 함)
 
 Progress: [█████░░░░░] 50% (17/17 plans)
 
@@ -88,8 +88,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-16T07:48:50.721Z
-Stopped at: Completed 33-06-PLAN.md
+Last session: 2026-10-16T08:17:43.877Z
+Stopped at: Completed 33-07-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -122,6 +122,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 33 P04 | 17min | 2 tasks | 5 files |
 | Phase 33 P05 | 13min | 3 tasks | 9 files |
 | Phase 33 P06 | 9 min | 2 tasks | 8 files |
+| Phase 33 P07 | 25min | 2 tasks | 2 files |
 
 ## Decisions
 
@@ -174,3 +175,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 33]: 33-05: 상세 차트 폭은 useChartWidth(ResizeObserver · 폴백 640) → 순수 기하 함수 → viewBox 1:1 · 접힘은 TeamflowToggle 공용(닫히면 언마운트) — 33-06 10분 차트 · 10분 표가 재사용
 - [Phase 33]: 33-05: 상세 section 안에서 <i> 금지(33-01 RTL (j) 요약 태그 제거 증거) — 범례 견본은 span · bandChartOf 0 값 막대 폭 0(behavior 정본)
 - [Phase 33]: 33-06: key 93(종가 단일가)은 bucketSlotsOf 가 슬롯 38(15:20 칸)에 합산 — 10분 표는 원자료 그대로(key 92 · 93 · 범위 밖 각자 행) · window 띠는 슬롯 38 이 창에 들면 key 93 행 포함
+- [Phase 33]: 33-07: 상세 배치 E2E 는 블록 래퍼(teamflow-bands ↔ teamflow-members)끼리 top 을 비교하고, 거래원 오른쪽 칸 여부만 svg 로 잰다
+- [Phase 33]: 33-07: 전 워크스페이스 회귀 게이트 green(worker 108 · server 521 · webapp 4234 · E2E 25 · pgTAP 218/28/54) — 33-08 배포 전제 충족 · 두 자리 억 왼쪽 축 글자는 33-09 UAT 관찰
