@@ -81,6 +81,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { PAGE_WRAP, SECTION_COUNT } from "@/components/layout/page-layout";
 import { AccountCard } from "@/components/me/account-card";
 import { MeAccountChips } from "@/components/me/account-chips";
+import { DeviceSettingsCard } from "@/components/me/device-settings-card";
 import { LimitChaserDefaultsSection } from "@/components/me/limit-chaser-defaults";
 import { AccountPanel } from "@/components/orderbook/account-panel";
 import { DmaGate, useDmaGateReason } from "@/components/trading/dma-gate";
@@ -516,6 +517,8 @@ function MeTabs() {
       >
         {/* Phase 27 D-10 — 상따 기본설정(42/84). DMA 게이트 분기에는 없다. */}
         <LimitChaserDefaultsSection />
+        {/* Phase 32 D-15 — 「이 기기」 카드(돌파 알림음 · 이 브라우저 localStorage). 이 기기 카드는 계좌 칩과 무관(D-24 · D-15). */}
+        <DeviceSettingsCard />
       </TabsContent>
     </Tabs>
     </>
