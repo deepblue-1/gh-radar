@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 
-import type { RelayLimitChaser, RelayViTrigger } from "@gh-radar/shared";
+import type { RelayAccount, RelayLimitChaser, RelayViTrigger } from "@gh-radar/shared";
 
 /**
  * AppSidebar 트리 계약 — Phase 16 Plan 11 (NAV-01 · D-15~D-19) 위에 Phase 18 Plan 12 (D-03 · E16) 가
@@ -63,7 +63,7 @@ vi.mock("../user-section", () => ({
 import { EMPTY_RELAY_VALUE } from "@/lib/relay-provider";
 import { TRADING_FOCUS_EVENT } from "@/lib/trading-focus";
 
-import { AppSidebar, strategyLedLabel } from "../app-sidebar";
+import { AppSidebar, sidebarGroupsOf, strategyLedLabel } from "../app-sidebar";
 import { SIDEBAR_COLLAPSED_KEY, setSidebarCollapsed } from "@/lib/sidebar-collapse";
 import { LC_BUY3_ECHO_DEFAULTS } from "@/test-fixtures/limit-chaser";
 
@@ -717,6 +717,183 @@ describe("AppSidebar — 3단 목록 (D-03 · E16)", () => {
     setupReady();
     render(<AppSidebar />);
     expect(screen.getByRole("link", { name: /에코프로머티리얼즈우선주/ })).not.toHaveAttribute("aria-current");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 32 D-02 · UI-SPEC S3 — 「트레이딩」 3단 = 계좌 묶음 트리
+// ---------------------------------------------------------------------------
+
+/** 두 계좌 — CHASER_A 는 계좌 A, CHASER_B 는 계좌 B 의 전략이다. */
+const ACCT_A: RelayAccount = { accountNo: "37728502101", name: "김알렉스", serverKey: "KB120" };
+const ACCT_B: RelayAccount = { accountNo: "37728502102", name: "교보 종합", serverKey: "KYOBO119" };
+
+/** 3단 목록 안 계좌 묶음들. */
+const accountGroups = () =>
+  Array.from(document.querySelectorAll('nav [data-slot="sidebar-account-group"]')) as HTMLElement[];
+/** 묶음의 소제목. */
+const headingOf = (group: Element) =>
+  group.querySelector('[data-slot="sidebar-account-heading"]') as HTMLElement;
+/** 묶음 안 전략 키(순서대로). */
+const strategyKeysOf = (group: Element) =>
+  Array.from(group.querySelectorAll("a[data-strategy-key]")).map((a) => a.getAttribute("data-strategy-key"));
+
+describe("P32 사이드바 계좌 묶음 (D-02 · S3)", () => {
+  it("sidebarGroupsOf — `accounts[]` 순으로 묶고 묶음 안 전략은 받은 순서 그대로", () => {
+    const a2 = makeChaser({ isin: "KR7000001111", accountNo: ACCT_A.accountNo });
+    // accounts[] = B → A 순. 전략은 A · B · A 순으로 섞여 와도 묶음은 accounts[] 순이다.
+    const groups = sidebarGroupsOf([ACCT_B, ACCT_A], [CHASER_A, CHASER_B, a2], {});
+    expect(groups.map((g) => g.accountNo)).toEqual([ACCT_B.accountNo, ACCT_A.accountNo]);
+    expect(groups[0]!.account).toBe(ACCT_B);
+    expect(groups[0]!.chasers).toEqual([CHASER_B]);
+    expect(groups[1]!.chasers).toEqual([CHASER_A, a2]);
+    expect(groups.every((g) => g.viRunning.length === 0)).toBe(true);
+  });
+
+  it("sidebarGroupsOf — 목록 밖 계좌는 처음 본 순서로 맨 뒤 · `account` 없음", () => {
+    const x = makeChaser({ isin: "KR7000001111", accountNo: "99990000001" });
+    const y = makeChaser({ isin: "KR7000002222", accountNo: "99990000002" });
+    const x2 = makeChaser({ isin: "KR7000003333", accountNo: "99990000001" });
+    const groups = sidebarGroupsOf([ACCT_A, ACCT_B], [x, CHASER_A, y, x2], {});
+    expect(groups.map((g) => g.accountNo)).toEqual([ACCT_A.accountNo, "99990000001", "99990000002"]);
+    expect(groups[1]!.account).toBeUndefined();
+    expect(groups[1]!.chasers).toEqual([x, x2]);
+    expect(groups[2]!.account).toBeUndefined();
+  });
+
+  it("sidebarGroupsOf — 켜진 전략도 가동 VI 도 없는 계좌는 묶음이 없다 · 전부 없으면 빈 배열", () => {
+    expect(sidebarGroupsOf([ACCT_A, ACCT_B], [CHASER_A], {}).map((g) => g.accountNo)).toEqual([ACCT_A.accountNo]);
+    expect(sidebarGroupsOf([ACCT_A, ACCT_B], [], {})).toEqual([]);
+    expect(
+      sidebarGroupsOf([ACCT_A], [], { KRX: viCfg("KRX", { run: false }), NXT: null }),
+    ).toEqual([]);
+  });
+
+  it("sidebarGroupsOf — `accounts[]` 미수신(빈 목록)이면 전략 계좌가 전부 목록 밖 묶음 · 수신 뒤 accounts[] 순", () => {
+    const before = sidebarGroupsOf([], [CHASER_B, CHASER_A], {});
+    expect(before.map((g) => [g.accountNo, g.account])).toEqual([
+      [ACCT_B.accountNo, undefined],
+      [ACCT_A.accountNo, undefined],
+    ]);
+    const after = sidebarGroupsOf([ACCT_A, ACCT_B], [CHASER_B, CHASER_A], {});
+    expect(after.map((g) => g.account)).toEqual([ACCT_A, ACCT_B]);
+  });
+
+  it("렌더 — 묶음 2개 · 소제목 = 짧은 라벨(상품명) + 서버키 칩 · 묶음 안 그 계좌 전략 줄 · title = 전체 라벨", () => {
+    setupReady({ accounts: [ACCT_A, ACCT_B] });
+    render(<AppSidebar />);
+
+    const groups = accountGroups();
+    expect(groups).toHaveLength(2);
+    // 묶음은 3단 목록(SUB_LIST) 안에 선다.
+    expect(tradingSubList()!.contains(groups[0]!)).toBe(true);
+
+    const [ha, hb] = groups.map(headingOf);
+    expect(ha!.querySelector("span")!.textContent).toBe("김알렉스");
+    expect(ha!.querySelector('[data-slot="sidebar-account-server"]')!.textContent).toBe("KB120");
+    expect(ha).toHaveAttribute("title", "37728502101 · 김알렉스 · KB120");
+    expect(hb!.querySelector("span")!.textContent).toBe("교보 종합");
+    expect(hb!.querySelector('[data-slot="sidebar-account-server"]')!.textContent).toBe("KYOBO119");
+    expect(hb).toHaveAttribute("title", "37728502102 · 교보 종합 · KYOBO119");
+
+    expect(strategyKeysOf(groups[0]!)).toEqual([CHASER_A.key]);
+    expect(strategyKeysOf(groups[1]!)).toEqual([CHASER_B.key]);
+    // 소제목은 링크 · 버튼이 아니다(포커스 대상 아님 · drawer 자동 닫힘 규율).
+    expect(ha!.closest("a, button")).toBeNull();
+    expect(ha!.querySelector("a, button")).toBeNull();
+    expect(ha).not.toHaveAttribute("tabindex");
+  });
+
+  it("접근성 — 묶음 안 `ul` 의 `aria-labelledby` = 소제목 id · 목록 이름 「김알렉스 KB120」", () => {
+    setupReady({ accounts: [ACCT_A, ACCT_B] });
+    render(<AppSidebar />);
+
+    for (const group of accountGroups()) {
+      const heading = headingOf(group);
+      const list = group.querySelector("ul")!;
+      expect(heading.id).not.toBe("");
+      expect(list).toHaveAttribute("aria-labelledby", heading.id);
+    }
+    expect(screen.getByRole("list", { name: "김알렉스 KB120" })).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "교보 종합 KYOBO119" })).toBeInTheDocument();
+  });
+
+  it("zero-one-many — 묶음 1개여도 소제목을 그린다(계좌 표시가 목적)", () => {
+    setupReady({ accounts: [ACCT_A, ACCT_B], limitChasers: [CHASER_A] });
+    render(<AppSidebar />);
+
+    const groups = accountGroups();
+    expect(groups).toHaveLength(1);
+    expect(headingOf(groups[0]!).querySelector("span")!.textContent).toBe("김알렉스");
+  });
+
+  it("같은 상품명 · 같은 서버키 두 묶음 → 둘 다 번호(mono)로 대신 · 서버키가 다르면 상품명", () => {
+    const twinA = { ...ACCT_A, name: "위탁종합" };
+    const twinB = { ...ACCT_B, name: "위탁종합", serverKey: "KB120" };
+    setupReady({ accounts: [twinA, twinB] });
+    const view = render(<AppSidebar />);
+
+    let names = accountGroups().map((g) => headingOf(g).querySelector("span")!);
+    expect(names.map((n) => n.textContent)).toEqual([ACCT_A.accountNo, ACCT_B.accountNo]);
+    for (const n of names) expect(n.className).toContain("mono");
+    view.unmount();
+
+    setupReady({ accounts: [twinA, { ...twinB, serverKey: "KYOBO119" }] });
+    render(<AppSidebar />);
+    names = accountGroups().map((g) => headingOf(g).querySelector("span")!);
+    expect(names.map((n) => n.textContent)).toEqual(["위탁종합", "위탁종합"]);
+    for (const n of names) expect(n.className).not.toContain("mono");
+  });
+
+  it("서버키 없는 계좌 = 칩 없음 · 상품명 빈 계좌 = 번호(mono)", () => {
+    setupReady({
+      accounts: [
+        { accountNo: ACCT_A.accountNo, name: "김알렉스" },
+        { accountNo: ACCT_B.accountNo, name: "", serverKey: "KYOBO119" },
+      ],
+    });
+    render(<AppSidebar />);
+
+    const [ga, gb] = accountGroups();
+    expect(ga!.querySelector('[data-slot="sidebar-account-server"]')).toBeNull();
+    expect(headingOf(ga!)).toHaveAttribute("title", "37728502101 · 김알렉스");
+    const nb = headingOf(gb!).querySelector("span")!;
+    expect(nb.textContent).toBe(ACCT_B.accountNo);
+    expect(nb.className).toContain("mono");
+    expect(gb!.querySelector('[data-slot="sidebar-account-server"]')!.textContent).toBe("KYOBO119");
+  });
+
+  it("long-text — 소제목 이름 `min-w-0 truncate` · 서버키 칩 `whitespace-nowrap shrink-0` 오른쪽 끝", () => {
+    const longA = { ...ACCT_A, accountNo: "1234-5678-90", name: "종합매매(위탁) 김알렉스", serverKey: "KYOBO127" };
+    setupReady({
+      accounts: [longA],
+      limitChasers: [makeChaser({ isin: CHASER_A.isin, accountNo: longA.accountNo })],
+    });
+    render(<AppSidebar />);
+
+    const heading = headingOf(accountGroups()[0]!);
+    const name = heading.querySelector("span")!;
+    expect(name.className).toContain("min-w-0");
+    expect(name.className).toContain("truncate");
+    expect(heading).toHaveAttribute("title", "1234-5678-90 · 종합매매(위탁) 김알렉스 · KYOBO127");
+    const chip = heading.querySelector('[data-slot="sidebar-account-server"]')!;
+    expect(chip.className).toContain("whitespace-nowrap");
+    expect(chip.className).toContain("shrink-0");
+    expect(chip.className).toContain("ml-auto");
+    expect(heading.className).toContain("min-w-0");
+  });
+
+  it("「트레이딩」 레일 배지 = 켜진 전략 전 계좌 합(불변)", () => {
+    setSidebarCollapsed(true);
+    try {
+      setupReady({ accounts: [ACCT_A, ACCT_B] });
+      render(<AppSidebar />);
+      const badge = screen.getByRole("link", { name: /^트레이딩/ }).querySelector('[data-slot="rail-badge"]');
+      expect(badge?.textContent).toContain("켜진 전략 2개");
+    } finally {
+      act(() => setSidebarCollapsed(false));
+      window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
+    }
   });
 });
 

@@ -33,6 +33,11 @@ import { buildSetVITriggerRespFrame } from '../../../relay/tests/helpers/frames.
  *   전략 항목은 `/trading?focus={키}` 로 간다(D-02). 활성 표시는 제목 하나다(3단은 aria-current 없음).
  *   beforeEach 는 VI 를 시드하지 않으므로 케이스 1·4 의 트리에는 VI 줄이 없다 — VI 줄은 1b 가 본다.
  *
+ * ⑥ Phase 32 D-02 — 3단은 계좌 묶음 트리다
+ *   `accounts[]` 순 계좌 소제목(짧은 라벨 + 서버키 칩) 아래에 그 계좌의 켜진 전략 줄이 선다. 소제목은 링크가 아니라
+ *   `linkOrder` 에 끼지 않는다 — 기존 링크 순서 계약은 그대로다. 다계좌 케이스는 `respondLoginWithAccounts` 로 늘리고,
+ *   `beforeEach` 가 `respondLogin({ success: true })` 로 한 계좌로 되돌린다(`reset()` 은 로그인 응답을 되돌리지 않는다).
+ *
  * ④ 데스크톱 aside 와 모바일 drawer 는 **다른 노드**다
  *   `AppShell` 은 사이드바를 `aside`(lg 이상) 와 `Sheet`(열렸을 때만) 두 곳에 렌더한다.
  *   조회할 때 트리를 좁히지 않으면 drawer 가 열린 순간 `nav[aria-label="주 메뉴"]` 가
@@ -92,6 +97,23 @@ const TREE_LINKS = [
   'My page',
 ];
 
+/** Phase 32 — 두 번째 계좌(로그인 응답 두 계좌 케이스). 첫 계좌 = `E2E_ACCOUNT_NO`. */
+const P32_ACCOUNT_B = '1234567802';
+/** 로그인 응답 계좌 목록 — 이 순서가 사이드바 묶음 순서다(`accounts[]` 순). */
+const P32_ACCOUNTS = [
+  { accountNo: E2E_ACCOUNT_NO, name: '위탁종합' },
+  { accountNo: P32_ACCOUNT_B, name: '위탁CMA' },
+];
+/**
+ * 계좌별 켜진 전략 — **B 계좌 것을 먼저** 시드한다. 묶음이 전략 수신 순서가 아니라 `accounts[]` 순(A → B)임을 본다.
+ */
+const P32_CHASERS = [
+  { isin: 'KR7007660006', accountNo: P32_ACCOUNT_B, exchange: 'KRX', buyEnabled: true, sellEnabled: false },
+  { isin: 'KR7086520004', accountNo: E2E_ACCOUNT_NO, exchange: 'KRX', buyEnabled: true, sellEnabled: false },
+  { isin: 'KR7005930003', accountNo: E2E_ACCOUNT_NO, exchange: 'KRX', buyEnabled: false, sellEnabled: true },
+] as const;
+const p32KeyOf = (c: (typeof P32_CHASERS)[number]) => `${c.isin}:${c.accountNo}:${c.exchange}`;
+
 /** Admin 하위 항목 — 역할로만 보이므로 「매핑 없음」 에서도 남는다(Phase 29 D-13). */
 const ADMIN_SUB_ITEMS = '[data-sidebar-item^="admin-"]';
 
@@ -133,6 +155,13 @@ async function linkOrder(nav: Locator): Promise<string[]> {
   );
 }
 
+/** Phase 32 — 3단 계좌 묶음(`li`) · 그 소제목. */
+const accountGroups = (nav: Locator): Locator => nav.locator('[data-slot="sidebar-account-group"]');
+const headingOf = (group: Locator): Locator => group.locator('[data-slot="sidebar-account-heading"]');
+/** 묶음 안 전략 키(DOM 순서). */
+const groupStrategyKeys = (group: Locator): Promise<(string | null)[]> =>
+  strategyItems(group).evaluateAll((els) => els.map((e) => e.getAttribute('data-strategy-key')));
+
 /** 사이드바 VI 줄 · 그 안 거래소 태그의 `data-exchange` 목록. */
 const viItem = (nav: Locator): Locator => nav.locator('[data-sidebar-item="vi"]');
 const viTagExchanges = (nav: Locator): Promise<(string | null)[]> =>
@@ -156,6 +185,8 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
 
   test.beforeEach(async ({ page }) => {
     relay.reset();
+    // P32 다계좌 케이스가 바꾼 로그인 응답을 기본(한 계좌)으로 되돌린다 — reset() 은 이것을 되돌리지 않는다.
+    relay.gateway.respondLogin({ success: true });
     // 전략 시드는 **연결 전에** 심어야 한다 — relay 는 로그인 직후 24 를 물어본다.
     relay.seedLimitChasers([...CHASERS]);
     await mockStockApi(page);
@@ -436,5 +467,57 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     await expect(
       page.locator('main').getByRole('heading', { name: '상승률 상위', level: 1 }),
     ).toBeVisible({ timeout: 15_000 });
+  });
+
+  test('P32-sidebar 사이드바 계좌 묶음 — 두 계좌 켜진 전략 → accounts[] 순 소제목 2개 · 각 묶음 안 그 계좌 전략 줄 (D-02)', async ({
+    page,
+  }) => {
+    relay.gateway.respondLoginWithAccounts(P32_ACCOUNTS);
+    relay.seedLimitChasers([...P32_CHASERS]);
+
+    await page.goto('/trading');
+    const nav = desktopNav(page);
+    await waitForTradingGroup(nav);
+    await expect(strategyItems(nav)).toHaveCount(3, { timeout: 15_000 });
+
+    // 묶음 = accounts[] 순(A → B) — 전략 수신 순서(B 먼저)가 아니다.
+    const groups = accountGroups(nav);
+    await expect(groups).toHaveCount(2);
+    const [ga, gb] = [groups.nth(0), groups.nth(1)];
+    await expect(ga).toHaveAttribute('data-account-no', E2E_ACCOUNT_NO);
+    await expect(gb).toHaveAttribute('data-account-no', P32_ACCOUNT_B);
+
+    // 소제목 = 짧은 라벨(상품명) · title = 전체 라벨 · 링크가 아니다.
+    await expect(headingOf(ga).locator('span').first()).toHaveText('위탁종합');
+    await expect(headingOf(gb).locator('span').first()).toHaveText('위탁CMA');
+    await expect(headingOf(ga)).toHaveAttribute('title', new RegExp(`^${E2E_ACCOUNT_NO} · 위탁종합`));
+    await expect(headingOf(gb)).toHaveAttribute('title', new RegExp(`^${P32_ACCOUNT_B} · 위탁CMA`));
+    await expect(headingOf(ga).locator('a, button')).toHaveCount(0);
+
+    // 각 묶음 안에는 그 계좌의 전략 줄만 — 받은 순서 그대로.
+    expect(await groupStrategyKeys(ga)).toEqual([p32KeyOf(P32_CHASERS[1]), p32KeyOf(P32_CHASERS[2])]);
+    expect(await groupStrategyKeys(gb)).toEqual([p32KeyOf(P32_CHASERS[0])]);
+
+    // 묶음 목록의 접근 이름 = 소제목(aria-labelledby).
+    const listA = nav.getByRole('list', { name: /^위탁종합/ });
+    await expect(listA).toHaveCount(1);
+    await expect(strategyItems(listA)).toHaveCount(2);
+    await expect(strategyItems(nav.getByRole('list', { name: /^위탁CMA/ }))).toHaveCount(1);
+
+    // 소제목은 링크가 아니므로 링크 순서 계약은 그대로다 — 전략 3건은 트레이딩과 「분석」 사이.
+    expect(await linkOrder(nav)).toEqual([
+      ...TREE_LINKS.slice(0, 3),
+      'strategy',
+      'strategy',
+      'strategy',
+      ...TREE_LINKS.slice(3),
+    ]);
+
+    // 사이드바 240px 안에서 소제목 이름 · 서버키 칩이 가로로 넘치지 않는다(S3 long-text 백스톱).
+    for (const g of [ga, gb]) {
+      const box = await headingOf(g).boundingBox();
+      const navBox = await nav.boundingBox();
+      expect(box!.x + box!.width).toBeLessThanOrEqual(navBox!.x + navBox!.width + 0.5);
+    }
   });
 });
