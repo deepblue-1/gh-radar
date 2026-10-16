@@ -49,12 +49,16 @@
  *   그대로라 언마운트가 없다(에코 · 더티 · 결과 모름 잠금 · 미확인 카운트 보존). 그래서 세 축이 갈린다:
  *   - 격자 순서 · 빈 상태 판정 · ✕ 뒤 포커스 = **보이는** 카드만(숨은 카드로 포커스를 보내지 않는다).
  *   - 호스트 정리(`present`) = **모든** 카드 — 숨기는 순간 호스트를 지우면 그것이 곧 언마운트다.
- *   - 포털 = 모든 카드.
+ *   - 포털 = 모든 카드. 숨은 카드는 `CardInScopeContext` 가 false 라 열린 넘버패드 시트 · 인라인 편집 ·
+ *     실패 말풍선이 스스로 닫힌다(body 포털 · 포커스를 쥔 입력이라 호스트를 주차해도 화면에 남기 때문 ·
+ *     더티 값은 폼 상태라 그대로).
  *   보이는 카드 0 ∧ 숨은 카드 N ≥ 1 이면 빈 상태 문구가 계좌 문구(숨은 카드 수 안내)로 바뀐다.
  */
 
 import {
+  createContext,
   useCallback,
+  useContext,
   useLayoutEffect,
   useRef,
   useSyncExternalStore,
@@ -75,6 +79,17 @@ export const CARD_GRID_ACCOUNT_EMPTY_HEADING = "이 계좌에 거래할 종목�
 /** 계좌 빈 상태 본문 — `n` = 숨은(다른 계좌) 카드 수(UI-SPEC S2). */
 export function cardGridAccountEmptyBody(n: number): string {
   return `위 검색란에서 종목을 추가하면 이 계좌로 열려요 · 다른 계좌 카드 ${n}장은 계좌를 바꾸면 보여요`;
+}
+
+/**
+ * 「이 카드가 지금 작업대 범위 안인가」(Phase 32 D-01 · ⑥). 기본값 true — CardGrid 밖(/me 등)의 같은 컴포넌트는
+ * 영향이 없다. 시트 · 인라인 편집 · 실패 말풍선이 이 값이 false 가 되는 순간 스스로 닫는다(취소 경로 · 전송 없음).
+ */
+const CardInScopeContext = createContext(true);
+
+/** 지금 이 카드가 작업대 범위 안인가 — 숨은(다른 계좌) 카드면 false. CardGrid 밖은 언제나 true. */
+export function useCardInScope(): boolean {
+  return useContext(CardInScopeContext);
 }
 
 export interface CardGridItem {
@@ -291,7 +306,16 @@ export function CardGrid<T extends CardGridItem>({
       )}
       {cards.map((c) => {
         const host = hostOf(c.id);
-        return host === null ? null : createPortal(renderCard(c), host, c.id);
+        // Provider 는 늘 감싼다(값만 바뀐다) — 숨김 전환이 카드 서브트리 모양을 바꾸지 않아 다시 마운트되지 않는다.
+        return host === null
+          ? null
+          : createPortal(
+              <CardInScopeContext.Provider value={hiddenIds?.has(c.id) !== true}>
+                {renderCard(c)}
+              </CardInScopeContext.Provider>,
+              host,
+              c.id,
+            );
       })}
     </>
   );

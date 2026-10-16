@@ -756,6 +756,45 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(empty).toContainText('다른 계좌 카드 1장은');
   });
 
+  test('P32-focus ?focus= 다른 계좌 전략 키 → 작업대 계좌가 그 계좌로 바뀌고 그 카드가 펼쳐진다 · 새로고침해도 그 계좌 (Pitfall 5)', async ({
+    page,
+  }) => {
+    relay.gateway.respondLoginWithAccounts(P32_ACCOUNTS);
+    relay.seedLimitChasers([
+      { isin: E2E_ISIN, accountNo: E2E_ACCOUNT_NO, exchange: 'KRX', buyEnabled: true },
+      { isin: E2E_LONG_NAME_ISIN, accountNo: P32_ACCOUNT_B, exchange: 'KRX', buyEnabled: true },
+    ]);
+    const account = statusBar(page).locator('[data-slot="workbench-account"]');
+    const parking = page.locator('[data-slot="card-parking"]');
+    const cardA = cardOf(page, E2E_ISIN);
+    const cardB = cardOf(page, E2E_LONG_NAME_ISIN);
+
+    // 기억 계좌 = A 로 시작(사용자가 직접 고른 값).
+    await page.goto(WORKBENCH_URL);
+    await waitForReady(page);
+    await expect(account.locator('option')).toHaveCount(2, { timeout: 30_000 });
+    await account.selectOption(E2E_ACCOUNT_NO);
+    await expect(cardA).toBeVisible({ timeout: 15_000 });
+    await expect(cardB).toBeHidden();
+
+    // 사이드바 링크와 같은 ?focus= 로 B 의 전략에 들어온다 → 작업대가 B 로 바뀌고 그 카드가 펼쳐진다.
+    const keyB = `${E2E_LONG_NAME_ISIN}:${P32_ACCOUNT_B}:KRX`;
+    await page.goto(`${WORKBENCH_URL}?focus=${encodeURIComponent(keyB)}`);
+    await waitForReady(page);
+    await expect(account).toHaveValue(P32_ACCOUNT_B, { timeout: 15_000 });
+    await expect(cardB).toBeVisible();
+    await expect(cardB).toHaveAttribute('data-open', 'true');
+    await expect(parking.locator(cardSelector(E2E_ISIN))).toHaveCount(1);
+    await expect(cardA).toBeHidden();
+
+    // 바뀐 계좌가 기억 계좌다 — 저장값이 A 로 되돌리지 않는다(새로고침 · ?focus= 없이).
+    await page.goto(WORKBENCH_URL);
+    await waitForReady(page);
+    await expect(account).toHaveValue(P32_ACCOUNT_B, { timeout: 15_000 });
+    await expect(cardB).toBeVisible();
+    await expect(cardA).toBeHidden();
+  });
+
   test('3. 돌파 칩 클릭 → 카드 1장(KRX · 스위치 전부 OFF · 기본값) → 그 칩이 「거래중」, 서버 송신 0 (D-07 · TRADE-06)', async ({
     page,
   }) => {

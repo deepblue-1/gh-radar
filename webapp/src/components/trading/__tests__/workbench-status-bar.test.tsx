@@ -22,6 +22,7 @@ import type { RelayAccount, RelayQuoteStateMsg, RelaySubLimitMsg } from '@gh-rad
 import { accountFullLabelOf, accountLabelOf } from '@/lib/account-label';
 import { TRADING_COLS_KEY } from '@/lib/breakout-list';
 import {
+  ACCOUNT_PILL_TITLE,
   AccountPill,
   WORKBENCH_STATUS_TEXT,
   WorkbenchAuxLines,
@@ -471,9 +472,7 @@ describe('AccountPill — 계좌별 주문 서버 (29-39 · 채택 A)', () => {
       '1234567802 · ISA · KB121',
     ]);
     expect(all('workbench-account-server')).toHaveLength(0);
-    expect(screen.getByRole('combobox', { name: '계좌' }).getAttribute('title')).toContain(
-      '이미 있는 카드는 자기 계좌를 유지',
-    );
+    expect(screen.getByRole('combobox', { name: '계좌' }).getAttribute('title')).toBe(ACCOUNT_PILL_TITLE);
     pickAccount('1234567802');
     expect(all('workbench-account-server').map((c) => c.textContent)).toEqual(['KB121']);
   });

@@ -23,8 +23,8 @@
  *
  * ④ 계좌 셀렉트 (`AccountPill` · D-25 로 작업대 파일 안 그대로)
  *   옵션 글자 = `accountFullLabelOf`(D-12 「번호 · 상품명 · 서버키」 · 빈 칸 생략). 고른 계좌에 `serverKey` 가
- *   있으면 셀렉트 바로 오른쪽에 서버키 칩 1개(29-30 채택 A). 계좌 선택의 **뜻**(새 카드 기본값)은 32-04 의 작업대
- *   스코프(D-01)가 바꾼다 — 그때 `ACCOUNT_PILL_TITLE` 도 함께 바꾼다.
+ *   있으면 셀렉트 바로 오른쪽에 서버키 칩 1개(29-30 채택 A). 계좌 선택의 **뜻**은 작업대 스코프다(32-04 D-01 — 고른
+ *   계좌의 카드 · VI 스트립만 보이고 새 카드도 이 계좌로 열린다 · `ACCOUNT_PILL_TITLE`).
  *
  * ⑤ 오류 채널 (S1 error)
  *   relay 끊김/재연결은 주문 알약 **하나**가 말한다(● 색 + 상태어). 자동 재연결 중에는 버튼이 없다. 자동 복구를
@@ -68,9 +68,12 @@ import { orderPillOf, quotePillOf } from "@/lib/quote-state";
 import type { RelayStatus } from "@/lib/use-relay-socket";
 import { cn } from "@/lib/utils";
 
-/** 계좌 필 `title` — 상태줄 계좌는 **신규 카드의 기본값**일 뿐이다(Q-3 채택값 · 32-04 D-01 에서 교체). */
+/**
+ * 계좌 셀렉트 `title` — Phase 32 D-01 — 상단 줄 계좌 = 작업대 스코프(카드 · VI 스트립이 이 계좌 것만 보인다).
+ * 옛 문구 「이미 있는 카드는 자기 계좌를 유지해요」 는 거짓이 됐다(다른 계좌 카드는 숨는다).
+ */
 export const ACCOUNT_PILL_TITLE =
-  "새로 추가하는 카드의 기본 계좌예요 · 이미 있는 카드는 자기 계좌를 유지해요";
+  "작업대에 보일 계좌예요 · 새로 추가하는 카드도 이 계좌로 열려요";
 
 const COLS: readonly TradingCols[] = [1, 2, 3];
 

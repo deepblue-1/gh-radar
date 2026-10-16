@@ -38,7 +38,7 @@
  *   매 입력 다시 계산된다(데스크톱의 환산 안내 자리). 행 상자(56px)는 `SettingRow` 가 지킨다 — 편집기는 두 줄만 쌓는다.
  */
 
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { TickRule } from '@gh-radar/shared';
 
 import {
@@ -48,6 +48,7 @@ import {
   type SettingUnit,
 } from '@/components/trading/lc/setting-group';
 import { LC_COMMIT_TEXT } from '@/components/trading/lc/use-lc-field-commit';
+import { useCardInScope } from '@/components/trading/workbench/card-grid';
 import { PAD_MAX_DIGITS, padIssue, padWarning, stepValue, type PadCtx } from '@/lib/numpad';
 import { cn } from '@/lib/utils';
 
@@ -119,6 +120,20 @@ export function InlineValueEditor({
   const settledRef = useRef(false);
   /** Tab 으로 떠났다 — 언마운트 중 늦게 오는 포커스 이탈이 편집을 다시 끝내지 않게 한다. */
   const leftRef = useRef(false);
+
+  /*
+    Phase 32 D-01 — 카드가 작업대 계좌 밖으로 숨으면 **취소 경로**(Esc 와 같다 · 전송 없음)로 편집을 끝낸다. 먼저
+    `settledRef` 를 세워 숨김이 만드는 늦은 포커스 이탈이 저장(blur = 저장)으로 새지 않게 한다.
+  */
+  const inScope = useCardInScope();
+  const onCancelRef = useRef(onCancel);
+  onCancelRef.current = onCancel;
+  useEffect(() => {
+    if (inScope || settledRef.current) return;
+    settledRef.current = true;
+    leftRef.current = true;
+    onCancelRef.current();
+  }, [inScope]);
 
   useLayoutEffect(() => {
     const el = inputRef.current;

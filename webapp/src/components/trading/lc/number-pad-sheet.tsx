@@ -40,13 +40,14 @@
  * 시트에는 입력칸(input 요소)이 없다 — 디스플레이는 `<output>`, 키패드는 버튼 12개라 소프트
  * 키보드가 뜨지 않는다. 물리 키(태블릿 외장 키보드)는 콘텐츠 `onKeyDown` 이 받는다.
  */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { Dialog } from 'radix-ui';
 import { Delete } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { NativeOverlayMarker } from '@/lib/native/native-overlay-marker';
+import { useCardInScope } from '@/components/trading/workbench/card-grid';
 import {
   PAD_CHIPS,
   applyPadChip,
@@ -400,6 +401,17 @@ export function LcSheetShell({
   children,
 }: LcSheetShellProps) {
   const contentRef = useRef<HTMLDivElement | null>(null);
+  /*
+    Phase 32 D-01 — 카드가 작업대 계좌 밖으로 숨으면(주차) 열린 시트를 닫는다. 시트는 body 포털이라 호스트를
+    주차해도 화면에 남는다. 닫기 경로는 「닫기」 와 같다(전송 없음 · 버퍼는 다음 열림에 새로 시작 ④) — 반영 중(`busy`)
+    이어도 닫는다: 전송은 이미 나갔고 결과는 행 · 에코가 말한다. 숨은 카드 시트가 다른 계좌 화면을 덮으면 안 된다.
+  */
+  const inScope = useCardInScope();
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    if (open && !inScope) onCloseRef.current();
+  }, [open, inScope]);
   return (
     <Dialog.Root
       open={open}

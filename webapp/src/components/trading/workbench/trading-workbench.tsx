@@ -27,6 +27,8 @@
  *     훅이 소유하면 에코 상관이 갈라진다 · T-18-94).
  *   - 사용자 트리거 추가(돌파 칩 · 종목 추가)는 **종목 단위**다(D-07 · D-08) — 그 ISIN 의 카드가
  *     있으면 그 카드 하나(`isinFocusCardOf`)를 펼칠 뿐 새 카드를 만들지 않는다. 「거래중」 표식도 ISIN 단위다.
+ *     ★ Phase 32 Pitfall 6 — 「그 ISIN 의 카드」 는 **고른 계좌**(+ 계좌 공란) 카드만이다(`inAccountScope`). 다른
+ *     계좌의 숨은 같은 종목 카드는 펼치지 않고 고른 계좌로 새 카드를 연다. 같은 전략 키 1장 규칙만 전수다.
  *     돌파 행 경로만 거래소를 안다(`openBreakoutCard` · quick-260926-s5v) — 발화 거래소 키 카드가 있으면
  *     그것을 펼치고, 없으면 종목 단위 포커스 카드를 펼친 뒤 발화 거래소로 전환한다(`changeExchange` 규칙).
  *   - 공용 패널 미체결 행 선택은 그 행을 받을 카드(같은 ISIN ∧ 행의 거래소 ∧ 상태줄 계좌)를
@@ -332,12 +334,31 @@ export function withCardOpen(
 }
 
 /**
+ * 작업대 계좌 스코프 (**순수 함수** · Phase 32 D-01 · UI-SPEC S2). `scope` = 지금 보는 계좌 — 그 계좌 카드와
+ * 계좌 공란 카드(계좌 도착 전에 만든 카드)만 남긴다. `scope` 가 `""`(계좌 미정 · `accounts[]` 미수신)이면
+ * 거르지 않는다(입력 배열 그대로). 격자 표시(`visibleCards`)와 종목 단위 경로(Pitfall 6)가 같은 판정을 쓴다.
+ */
+export function inAccountScope(
+  cards: readonly WorkbenchCard[],
+  scope: string,
+): readonly WorkbenchCard[] {
+  return scope === "" ? cards : cards.filter((c) => c.accountNo === scope || c.accountNo === "");
+}
+
+/**
  * 종목 단위 포커스(D-07 · D-08)가 펼칠 카드 — 그 ISIN 의 **펼친 카드**가 있으면 그것, 없으면 배열(=
  * 표시) 첫 카드. `focusCard` · `addCard` 업데이터와 스크롤 효과가 같은 규칙으로 푼다 — 펼친 카드가
  * 배열 끝으로 옮겨도(`withCardOpen`) 둘이 같은 ISIN 의 다른 카드를 가리키지 않는다(quick-260923-p3k).
+ * ★ Phase 32 Pitfall 6 — 종목 단위 경로는 **고른 계좌**(`scope` · `inAccountScope`)의 카드만 본다. 다른 계좌의
+ *   숨은 같은 종목 카드를 펼치면 「추가했는데 안 보인다」 가 된다. `scope` `""` = 전수(종전).
  */
-function isinFocusCardOf(cards: readonly WorkbenchCard[], isin: string): WorkbenchCard | undefined {
-  return cards.find((c) => c.isin === isin && c.open) ?? cards.find((c) => c.isin === isin);
+export function isinFocusCardOf(
+  cards: readonly WorkbenchCard[],
+  isin: string,
+  scope: string = "",
+): WorkbenchCard | undefined {
+  const pool = inAccountScope(cards, scope);
+  return pool.find((c) => c.isin === isin && c.open) ?? pool.find((c) => c.isin === isin);
 }
 
 /**
@@ -403,14 +424,17 @@ export function cardForUnfilled(
 /**
  * 이벤트 알림을 **받을 카드** 판정 (**순수 함수** · quick-260923-pgu ⑩). 판정의 유일 지점이다 —
  * 토스트가 뜰 때의 헤더 표시(`markAlerted`)와 토스트 클릭(`openAlert`)이 같은 규칙으로 푼다.
- *  ① (ISIN · 계좌 · 거래소) 정확 일치 — 주문 통보 · VI 는 계좌를 안다.
- *  ② (ISIN · 거래소) — 펼친 카드 우선. 돌파는 계좌를 모른다.
- *  ③ ISIN 만 — `isinFocusCardOf`(펼친 카드 우선 · 종목 단위 포커스와 같은 규칙).
+ * ★ Phase 32 Pitfall 6 — **계좌 우선**이다. 우선 계좌 = 알림 계좌(주문 통보 · VI), 없으면(돌파)
+ *   `currentAccountNo`(지금 작업대 계좌).
+ *  ① (ISIN · 계좌 · 거래소) 정확 일치 — 계좌를 아는 알림.
+ *  ② 우선 계좌 안에서 (ISIN · 거래소) 펼친 카드 우선 → 그 계좌의 ISIN 카드(`isinFocusCardOf` 범위).
+ *  ③ 종전 폴백(전 계좌) — (ISIN · 거래소) 펼친 카드 우선 → ISIN 만(`isinFocusCardOf`).
  * ISIN 을 모르면(색인 조인 실패 주문) `undefined` — 카드를 찾지도 만들지도 않는다.
  */
 export function cardForAlert(
   cards: readonly WorkbenchCard[],
   a: Pick<TradingAlert, "isin" | "accountNo" | "exchange">,
+  currentAccountNo: string,
 ): WorkbenchCard | undefined {
   const { isin, accountNo, exchange } = a;
   if (isin === undefined || isin === "") return undefined;
@@ -420,7 +444,16 @@ export function cardForAlert(
     );
     if (exact !== undefined) return exact;
   }
-  const sameEx = cards.filter((c) => c.isin === isin && c.exchange === exchange);
+  const preferred = accountNo ?? currentAccountNo;
+  const sameExOf = (pool: readonly WorkbenchCard[]) =>
+    pool.filter((c) => c.isin === isin && c.exchange === exchange);
+  if (preferred !== "") {
+    const mine = cards.filter((c) => c.accountNo === preferred);
+    const mineEx = sameExOf(mine);
+    const hit = mineEx.find((c) => c.open) ?? mineEx[0] ?? isinFocusCardOf(mine, isin);
+    if (hit !== undefined) return hit;
+  }
+  const sameEx = sameExOf(cards);
   return sameEx.find((c) => c.open) ?? sameEx[0] ?? isinFocusCardOf(cards, isin);
 }
 
@@ -615,6 +648,18 @@ function WorkbenchSurface() {
     const next = pillAccountOf(accountNo, accounts, savedAccount);
     if (next !== accountNo) setAccountNo(next);
   }, [accountNo, accounts, savedAccount]);
+  /*
+    작업대 계좌 스코프(Phase 32 D-01 · S2) — `""` = 거르지 않음. 계좌가 아직 없으면(`accounts[]` 미수신 · 셀렉트
+    「확인 중」) 거르지 않고, 계좌가 정해지는 순간 거른다(빈 격자 깜빡임 방지 · S2 loading). 격자 표시와 종목 단위
+    경로(Pitfall 6)가 같은 값을 쓴다. 업데이터 · 안정 콜백은 ref 로 최신 값을 읽는다.
+  */
+  const scopeAccount = accountNo !== "" && accounts.length > 0 ? accountNo : "";
+  const scopeAccountRef = useRef(scopeAccount);
+  scopeAccountRef.current = scopeAccount;
+  const accountNoRef = useRef(accountNo);
+  accountNoRef.current = accountNo;
+  const accountsRef = useRef(accounts);
+  accountsRef.current = accounts;
 
   /* ── 카드 집합 (②) ────────────────────────────────────────────────── */
   const [cards, setCards] = useState<WorkbenchCard[]>([]);
@@ -670,7 +715,12 @@ function WorkbenchSurface() {
     setSavedAccount(readTradingAccount(userId));
     setLayoutRestored(true);
   }, [userId, nextCardId]);
-  /** 계좌칸에서 사용자가 **직접** 고른 계좌 — 화면 · 이번 마운트 기억 · 사용자별 저장 셋을 같이 바꾼다. */
+  /**
+   * 계좌칸 전환 — 화면 · 이번 마운트 기억 · 사용자별 저장 셋을 같이 바꾼다. 셀렉트(사용자가 직접)와 프로그램 전환
+   * 3경로(`?focus=` · 사이드바 포커스 요청 · 토스트 탭 — Phase 32 Pitfall 5)가 **모두 이 함수 하나**를 지난다.
+   * ★ `setAccountNo` 단독 금지 — `pillAccountOf` 효과가 저장값(accounts 안이면 저장값이 이긴다)으로 되돌린다.
+   *   그래서 프로그램으로 바꾼 계좌도 작업대 기억 계좌가 된다(UI-SPEC S2 「의도된 동작」 · RESEARCH A1).
+   */
   const pickAccount = useCallback(
     (next: string) => {
       setAccountNo(next);
@@ -678,6 +728,18 @@ function WorkbenchSurface() {
       writeTradingAccount(userId, next);
     },
     [userId],
+  );
+  /**
+   * 프로그램 전환이 필요한가 — 대상이 지금 계좌와 다르고 **`accounts[]` 안**일 때만. 목록 밖 계좌로 바꾸면 셀렉트에
+   * 그 옵션이 없어 화면이 말하는 계좌와 스코프가 갈린다 — 그때는 바꾸지 않는다(카드는 숨은 채).
+   */
+  const shouldSwitchTo = useCallback(
+    (target: string | undefined): target is string =>
+      target !== undefined &&
+      target !== "" &&
+      target !== accountNoRef.current &&
+      accountsRef.current.some((a) => a.accountNo === target),
+    [],
   );
   /*
     꺼진 등록 전략 카드 걷기 — 배치 복원 뒤 등록 목록을 확정으로 처음 알 때 **한 번**(`pruneInactiveCards`).
@@ -714,6 +776,8 @@ function WorkbenchSurface() {
     }
 
     if (fresh.length === 0 && focusHit === undefined) return;
+    // Phase 32 Pitfall 5 — 그 키의 계좌로 작업대를 먼저 바꾼다(`pickAccount` · 저장값이 되돌리지 않게).
+    if (focusHit !== undefined && shouldSwitchTo(focusHit.accountNo)) pickAccount(focusHit.accountNo);
     const freshIds = fresh.map(() => nextCardId());
     const focusId = nextCardId();
     setCards((prev) => {
@@ -741,7 +805,7 @@ function WorkbenchSurface() {
       return next;
     });
     if (focusHit !== undefined) setScrollTarget({ key: focusHit.key });
-  }, [limitChasers, limitChaserSnapSeq, nextCardId]);
+  }, [limitChasers, limitChaserSnapSeq, nextCardId, shouldSwitchTo, pickAccount]);
 
   /* ── ⑥ 사이드바 포커스 요청 — 이미 이 화면 위일 때 (18-12) ───────── */
   const limitChasersRef = useRef(limitChasers);
@@ -760,6 +824,8 @@ function WorkbenchSurface() {
       pendingFocus.current = knowsRegistered(snapSeqRef.current) ? null : f;
       return;
     }
+    // Phase 32 Pitfall 5 — 사이드바 전략 클릭은 작업대 계좌를 그 전략의 계좌로 바꾼 뒤 펼친다(D-04 재량).
+    if (shouldSwitchTo(hit.accountNo)) pickAccount(hit.accountNo);
     const newId = nextCardId();
     setCards((prev) => withFocusedCard(prev, hit, newId));
     setScrollTarget({ key: hit.key });
@@ -775,7 +841,7 @@ function WorkbenchSurface() {
     const hit =
       "key" in scrollTarget
         ? cards.find((c) => keyOf(c) === scrollTarget.key)
-        : isinFocusCardOf(cards, scrollTarget.isin);
+        : isinFocusCardOf(cards, scrollTarget.isin, scopeAccountRef.current);
     const el =
       hit === undefined
         ? null
@@ -789,10 +855,10 @@ function WorkbenchSurface() {
     setScrollTarget(null);
   }, [scrollTarget, cards]);
 
-  /** 그 ISIN 의 카드 하나(`isinFocusCardOf`)를 펼친다(D-07 · D-08 — 종목 단위). */
+  /** 그 ISIN 의 카드 하나(`isinFocusCardOf` · 고른 계좌 범위)를 펼친다(D-07 · D-08 — 종목 단위 · Pitfall 6). */
   const focusCard = useCallback((isin: string) => {
     setCards((prev) => {
-      const first = isinFocusCardOf(prev, isin);
+      const first = isinFocusCardOf(prev, isin, scopeAccountRef.current);
       return first === undefined ? prev : withCardOpen(prev, first.id, true);
     });
     setScrollTarget({ isin });
@@ -801,12 +867,15 @@ function WorkbenchSurface() {
   /**
    * 그 ISIN 의 카드 보장 — 카드가 있으면 그 카드(`isinFocusCardOf`)를 펼칠 뿐 새 카드를 만들지 않고,
    * 없으면 상태줄 계좌 · KRX 로 붙인다(D-07). `reveal` 은 공용 패널 잔고 행 경로(quick-260925-ptw).
+   * ★ 두 축(Phase 32 Pitfall 6): 「그 ISIN 의 카드가 있나」 는 **고른 계좌** 범위로 본다 — 다른 계좌의 숨은 같은
+   *   종목 카드를 펼치지 않고 고른 계좌로 새 카드를 연다. 「같은 전략 키 카드 1장」(T-18-94)은 전수 규칙인데, 새
+   *   카드의 키(ISIN · 고른 계좌 · KRX)는 범위 안에서 찾지 못했으면 전수에도 없다(키가 계좌를 품는다).
    */
   const ensureIsinCard = useCallback(
     (isin: string, name: string | undefined, code: string | undefined, reveal: boolean) => {
       const newId = nextCardId();
       setCards((prev) => {
-        const first = isinFocusCardOf(prev, isin);
+        const first = isinFocusCardOf(prev, isin, scopeAccountRef.current);
         return first !== undefined
           ? withCardOpen(prev, first.id, true)
           : [...prev, { id: newId, isin, accountNo, exchange: "KRX", open: true, name, code }];
@@ -960,13 +1029,15 @@ function WorkbenchSurface() {
       const want = exchangeChoicesOf(isin, "KRX", nxtTradableRef.current).includes(exchange)
         ? exchange
         : null;
-      const cur = cardsRef.current;
+      // Phase 32 Pitfall 6 — 「그 ISIN 의 카드」 판정은 고른 계좌 범위다(전환 충돌 판정 `changeExchange` 만 전수).
+      const scope = scopeAccountRef.current;
+      const cur = inAccountScope(cardsRef.current, scope);
       const first = isinFocusCardOf(cur, isin);
       if (first === undefined) {
         const newId = nextCardId();
         setCards((prev) => {
           // 그 사이 그 ISIN 카드가 생겼으면 펼치기만 한다(`ensureIsinCard` 와 같은 방어).
-          const again = isinFocusCardOf(prev, isin);
+          const again = isinFocusCardOf(prev, isin, scope);
           return again !== undefined
             ? withCardOpen(prev, again.id, true)
             : [
@@ -1143,7 +1214,7 @@ function WorkbenchSurface() {
   /* ── ⑩ 이벤트 알림 ────────────────────────────────────────────────── */
   /** 새 알림(병합 제외)이 오면 그 카드에 표시 — 이벤트만으로 카드를 만들지 않는다. */
   const markAlerted = useCallback((a: TradingAlert) => {
-    const hit = cardForAlert(cardsRef.current, a);
+    const hit = cardForAlert(cardsRef.current, a, accountNoRef.current);
     if (hit === undefined) return;
     setAlertedCardIds((prev) => (prev.has(hit.id) ? prev : new Set(prev).add(hit.id)));
   }, []);
@@ -1165,7 +1236,13 @@ function WorkbenchSurface() {
       dismissAlert(a.id);
       const isin = a.isin;
       if (isin === undefined || isin === "") return;
-      const hit = cardForAlert(cardsRef.current, a);
+      const hit = cardForAlert(cardsRef.current, a, accountNo);
+      /*
+        Phase 32 Pitfall 5 · UI-SPEC S4 — 대상 계좌 = 매칭 카드의 계좌 → 없으면 알림 계좌 → 둘 다 없으면(돌파) 지금
+        계좌. 지금과 다르면 `pickAccount` 로 바꾼 뒤 기존 카드 규칙(펼침 · 탭 · 표시 해제)을 따른다.
+      */
+      const target = hit?.accountNo || a.accountNo || accountNo;
+      if (shouldSwitchTo(target)) pickAccount(target);
       const card: WorkbenchCard =
         hit ?? {
           id: nextCardId(),
@@ -1195,7 +1272,7 @@ function WorkbenchSurface() {
       });
       setAlertedCardIds((prev) => withoutId(prev, card.id));
     },
-    [accountNo, nextCardId, dismissAlert],
+    [accountNo, nextCardId, dismissAlert, shouldSwitchTo, pickAccount],
   );
 
   // 잔고 평가 가격 — 카드 순서와 무관한 고정 축(KRX 우선 · NXT 폴백 · GC-IN-04).
@@ -1281,7 +1358,12 @@ function WorkbenchSurface() {
   }, []);
 
   /* ── 파생 ─────────────────────────────────────────────────────────── */
-  const cardIsins = useMemo(() => new Set(cards.map((c) => c.isin)), [cards]);
+  /*
+    작업대 계좌 스코프(D-01) — 보이는 카드 = 고른 계좌(+ 계좌 공란) 카드. 「이미 카드 있음」(종목 추가란 · 돌파 스트립)
+    도 이 집합으로 말한다(Pitfall 6). 피드 구독(`cardFeeds`)은 숨은 카드도 유지하므로 전수다(Pitfall 9).
+  */
+  const visibleCards = useMemo(() => inAccountScope(cards, scopeAccount), [cards, scopeAccount]);
+  const cardIsins = useMemo(() => new Set(visibleCards.map((c) => c.isin)), [visibleCards]);
   // 카드가 스스로 구독한 (ISIN, 거래소) 피드 — 돌파 훅 구독 예산에서만 뺀다(quick-260926-rcc).
   const cardFeeds = useMemo(() => new Set(cards.map((c) => breakoutFeedKey(c))), [cards]);
   /*
@@ -1292,16 +1374,10 @@ function WorkbenchSurface() {
   const activeViOrders = useMemo(() => viOrders.filter((o) => o.viReleased !== true), [viOrders]);
   /*
     ── 작업대 계좌 스코프 (Phase 32 D-01 · UI-SPEC S2) ──
-    고른 계좌의 카드(+ 계좌 공란 카드)만 격자에 보이고, 나머지는 CardGrid 가 **주차**한다(언마운트 아님 —
-    에코 · 더티 · 결과 모름 잠금 · 미확인 카운트 보존 · 시세 구독 수 불변). 계좌가 아직 없으면(`accounts[]`
-    미수신 · 셀렉트 「확인 중」) 거르지 않는다 — 계좌가 정해지는 순간 거른다(빈 격자 깜빡임 방지 · S2 loading).
-    VI 트리거 스트립 칩(「미확인 n」 포함)도 같은 계좌로 거른다. VI 설정 행은 웨이브 ④ 전 현행(D-16).
+    고른 계좌의 카드(+ 계좌 공란 카드 = `visibleCards`)만 격자에 보이고, 나머지는 CardGrid 가 **주차**한다(언마운트
+    아님 — 에코 · 더티 · 결과 모름 잠금 · 미확인 카운트 보존 · 시세 구독 수 불변). VI 트리거 스트립 칩(「미확인 n」
+    포함)도 같은 계좌로 거른다. VI 설정 행은 웨이브 ④ 전 현행(D-16).
   */
-  const scoped = accountNo !== "" && accounts.length > 0;
-  const visibleCards = useMemo(
-    () => (scoped ? cards.filter((c) => c.accountNo === accountNo || c.accountNo === "") : cards),
-    [scoped, cards, accountNo],
-  );
   const hiddenCardIds = useMemo<ReadonlySet<string>>(() => {
     if (visibleCards === cards) return new Set();
     const shown = new Set(visibleCards.map((c) => c.id));

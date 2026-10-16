@@ -602,19 +602,27 @@ describe('P32 계좌 전환 때 숨는 카드의 편집 UI 닫기 (D-01 · S2 ·
     expect(editingCountOf('A')).toBe('1');
   });
 
-  it('인라인 편집이 취소 경로로 닫힌다 — 확정 전송(onSave) 없음 · 보이는 카드의 편집은 그대로', async () => {
+  it('인라인 편집이 취소 경로로 닫힌다 — 확정 전송(onSave) 없음 · 다시 보여도 편집은 닫힌 채', async () => {
+    // 인라인 편집은 포커스를 쥔 하나뿐이다(다른 편집기를 열면 이탈 = 저장) — A 하나만 연다.
     const onSave = vi.fn();
     render(<EditingHarness onSave={onSave} />);
-    fireEvent.click(screen.getByRole('button', { name: 'B 편집' }));
     fireEvent.click(screen.getByRole('button', { name: 'A 편집' }));
-    expect(screen.getByRole('textbox', { name: 'A 인라인' })).toBeTruthy();
+    const input = screen.getByRole('textbox', { name: 'A 인라인' });
+    fireEvent.change(input, { target: { value: '9' } });
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'A 숨기기' }));
     });
     expect(screen.queryByRole('textbox', { name: 'A 인라인', hidden: true })).toBeNull();
+    // 숨김이 만든 늦은 포커스 이탈도 저장으로 새지 않는다.
+    fireEvent.blur(input);
     expect(onSave).not.toHaveBeenCalled();
-    expect(screen.getByRole('textbox', { name: 'B 인라인' })).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '전부 보기' }));
+    });
+    expect(screen.queryByRole('textbox', { name: 'A 인라인' })).toBeNull();
+    expect(onSave).not.toHaveBeenCalled();
   });
 
   it('카드 실패 말풍선(body 포털)은 숨은 동안 닫히고 다시 보이면 돌아온다 — 문구 상태는 카드가 든다', async () => {

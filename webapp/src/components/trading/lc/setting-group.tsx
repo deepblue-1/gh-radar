@@ -40,6 +40,7 @@ import type { LcGroupSpec } from '@/components/trading/lc/lc-fields';
 import { LcSheetShell } from '@/components/trading/lc/number-pad-sheet';
 import { AUTO_SELL_PEND_TEXT } from '@/lib/limit-chaser';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
+import { useCardInScope } from '@/components/trading/workbench/card-grid';
 import type { PadUnit } from '@/lib/numpad';
 import { useEditMode } from '@/lib/use-edit-mode';
 import { cn } from '@/lib/utils';
@@ -443,8 +444,11 @@ export function FailureBubble({
   tone?: 'alert' | 'warn';
   children: ReactNode;
 }) {
+  // Phase 32 D-01 — 숨은(다른 계좌) 카드의 말풍선은 body 포털이라 화면에 남는다. 숨은 동안만 닫고(문구는 호출부
+  // 상태라 그대로) 다시 보이면 돌아온다.
+  const inScope = useCardInScope();
   return (
-    <Popover open={open}>
+    <Popover open={open && inScope}>
       <PopoverAnchor asChild>{children}</PopoverAnchor>
       <PopoverContent
         side="bottom"
