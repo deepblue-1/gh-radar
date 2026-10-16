@@ -896,6 +896,15 @@ type RelayAction =
   | { type: "strategies-disable-expired" };
 
 /**
+ * 「이 계좌 끄기」 의 relay 거부 — 그 계좌 끄기의 **끝 신호**다 (Phase 32 WR-02). relay 는 계좌 끄기 1건을 `strategies.disabled`
+ * 1건(받은 것 ≥ 1) 또는 계좌를 실은 이 거부 1건(끌 것 없음 · 계좌 밖 · 0답 종료)으로 끝낸다. 계좌가 빈 같은 kind 거부(송신 실패 ·
+ * 조립 실패 중간 통지)는 끝 신호가 아니다 — 뒤에 끝 신호가 따로 온다. 판정은 동등 비교만.
+ */
+export function isAccountDisableRejection(msg: Pick<RelayServerMsg, "lv" | "src" | "kind" | "a">): boolean {
+  return msg.lv === "ERROR" && msg.src === "Relay" && msg.kind === "strategies.disable.account" && msg.a !== "";
+}
+
+/**
  * 킬 스위치 in-flight 창에서 완료 신호 1건만큼 뺀다 (Phase 32 WR-01). `accountNo` 가 있으면(계좌 끄기 완료 · 거부) 그 계좌 항목
  * 하나 — 창에 그 계좌가 없으면 이 탭이 보낸 끄기가 아니므로(같은 사용자 다른 탭) 그대로 둔다. `accountNo` 가 없으면(전부 정지 ·
  * 서버 발 65 · 구 relay) 종전대로 보낸 순서 맨 앞 하나. 변화가 없으면 같은 참조.
@@ -1086,6 +1095,11 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
         */
         ...(isMarketCloseReleaseNotice(frame)
           ? { marketCloseReleaseKeys: marketCloseReleaseKeysOf(state.limitChasers) }
+          : {}),
+        // 계좌 끄기 거부(WR-02) — 그 계좌 끄기의 끝이다. in-flight 창에서 그 계좌를 뺀다(8초 동안 무관한 60 에코가 「킬 스위치」 원인으로
+        // 읽히지 않게). 이 탭이 보내지 않은 계좌면 그대로다.
+        ...(isAccountDisableRejection(frame)
+          ? { killSwitchInFlight: releaseKillSwitch(state.killSwitchInFlight, frame.a) }
           : {}),
       };
 

@@ -33,7 +33,8 @@
  *   ★ 대기 잠금은 **계좌별**이다(S5′ 「끄기 응답 대기 잠금」): 보낸 순서대로의 계좌 목록을 두고 `strategies.disabled` 새 참조마다
  *     그 프레임의 계좌(`accountNo` · WR-01)를 푼다 — 계좌 없는 프레임(구 relay)만 맨 앞 하나(relay 가 계좌 끄기 1건당 1프레임으로
  *     접어 준다 · 소켓 훅 in-flight 창과 같은 짝). 계좌 칩 줄은 잠그지
- *     않는다 — A 를 끈 대기 중에 B 로 바꾸면 B 버튼은 누를 수 있다. 8초 백스톱(소켓 훅과 같은 상수)이 먼저 오면 그 항목을 빼고
+ *     않는다 — A 를 끈 대기 중에 B 로 바꾸면 B 버튼은 누를 수 있다. relay 가 그 계좌를 실은 거부(`isAccountDisableRejection` — 끌 것
+ *     없음 · 계좌 밖 · 0답 종료)로 끝내면 그 항목을 빼고 원문을 그 계좌 오류로 말한다(WR-02). 8초 백스톱(소켓 훅과 같은 상수)이 먼저 오면 그 항목을 빼고
  *     「반영을 확인하지 못했어요」 를 그 계좌 오류로 말한다(실패라고 말하지 않는다 — 결과를 모른다 · T-16-21). `send` 가 false 면
  *     0바이트가 확실하므로 잠그지 않고 「보내지 못했어요」 를 말한다(T-16-20). 오류 줄은 kill 줄 바로 위 `role="alert"` 한 줄이다.
  *   ★ 세션이 `ready` 가 아니면 누를 수 없다 — 단절 중에도 목록은 남아 있어 가드가 없으면 0바이트가 나간다(gap 3 / T-16-20).
@@ -96,6 +97,7 @@ import { isActiveStrategy } from "@/lib/limit-chaser";
 import { useRelayContext } from "@/lib/relay-provider";
 import { useStrategyLogFeed } from "@/lib/strategy-log-feed";
 import {
+  isAccountDisableRejection,
   STRATEGIES_DISABLE_ACK_TIMEOUT_MS,
   viAccountRunning,
   viSlotsOfAccount,
@@ -367,7 +369,7 @@ const SEG_TRIGGER =
 const LOG_MAX_H = "max-h-[320px]";
 
 export function StrategyStatusCard({ className, accountNo }: StrategyStatusCardProps) {
-  const { status, limitChasers, viSlots, accounts, strategiesDisabled, send } = useRelayContext();
+  const { status, limitChasers, viSlots, accounts, strategiesDisabled, messages, send } = useRelayContext();
   const labels = useIsinLabels();
   const snapshotSeen = useSnapshotSeen(status);
   const logEntries = useStrategyLogFeed();
@@ -386,6 +388,8 @@ export function StrategyStatusCard({ className, accountNo }: StrategyStatusCardP
   const [errors, setErrors] = useState<Readonly<Record<string, string>>>({});
   /** 마지막으로 본 65 참조. **이것과 달라지는 순간**이 새 완료 신호다. */
   const seenAck = useRef<RelayStrategiesDisabledMsg | null>(strategiesDisabled);
+  /** 마지막으로 본 통지(최신 = index 0). 마운트 시점 목록은 이미 본 것으로 둔다 — 그 전 거부가 다음 대기에 붙지 않게. */
+  const seenMsg = useRef(messages[0] ?? null);
 
   // 켜진 전략만(파일 상단 ⑨) — 사이드바 `sidebarChasers` · 작업대 `pruneInactiveCards` 와 같은 한 함수.
   // 등록 정본(`limitChasers` 전수)은 건드리지 않는다.
@@ -439,6 +443,21 @@ export function StrategyStatusCard({ className, accountNo }: StrategyStatusCardP
     // release 는 매 렌더 새 함수지만 ref · setState 만 만진다 — 완료 신호 참조만 의존한다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [strategiesDisabled]);
+
+  // relay 의 계좌 끄기 거부(WR-02 — 끌 것 없음 · 계좌 밖 · 0답 종료) → 그 계좌 대기를 풀고 원문을 오류 줄에 보인다. 8초 백스톱을
+  // 기다려 확정된 거부를 「반영을 확인하지 못했어요」 로 말하지 않는다. 대기에 없는 계좌(다른 탭)는 건드리지 않는다.
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const seen = seenMsg.current;
+    const idx = seen === null ? -1 : messages.indexOf(seen);
+    // 못 찾으면(상한을 넘겨 밀려났다) 지금 목록 전체가 새것이다.
+    const fresh = idx < 0 ? messages : messages.slice(0, idx);
+    seenMsg.current = messages[0] ?? null;
+    for (const msg of [...fresh].reverse()) {
+      if (isAccountDisableRejection(msg) && pendingRef.current.includes(msg.a)) release(msg.a, msg.m);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages]);
 
   // 언마운트 — 남은 백스톱 타이머를 버린다.
   useEffect(() => {

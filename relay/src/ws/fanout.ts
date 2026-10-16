@@ -589,10 +589,21 @@ export const ALL_STOP_PARTIAL_TEXT = (serverKeys: readonly string[]): string =>
 
 /**
  * 「이 계좌 끄기」 끌 것 없음 문구 (Phase 32 D-09 보정) — relay 캐시 기준 그 계좌에 켜진 상따도 가동 VI 도 없을 때 요청 탭에 가는 거부
- * 프레임(`kind: "strategies.disable.account"` · 게이트웨이 0바이트). 웹 버튼은 끌 것이 없으면 비활성이라 경합 때만 나는 경로고, 웹은 이
- * 프레임을 따로 그리지 않는다(8초 백스톱 문구가 사실대로 말한다).
+ * 프레임(`kind: "strategies.disable.account"` · `a` = 그 계좌 · 게이트웨이 0바이트). 웹 버튼은 끌 것이 없으면 비활성이라 경합 때만 나는
+ * 경로다. 웹은 이 프레임을 그 계좌 끄기의 **끝 신호**로 읽어 대기를 풀고 원문을 오류 줄에 보인다(WR-02).
  */
 export const ACCOUNT_DISABLE_NOTHING_TEXT = "이 계좌에 끌 전략이 없어요";
+
+/**
+ * 「이 계좌 끄기」 0답 종료 문구 (Phase 32 WR-02) — 집계가 받은 것 0 으로 끝났을 때(시한 · 소유 세션 교체 · 분리) 요청 탭에 가는 거부
+ * 프레임(`kind: "strategies.disable.account"` · `a` = 그 계좌). hub 는 받은 것이 없으면 `strategies.disabled` 를 지어내지 않으므로, 이
+ * 프레임이 없으면 웹은 8초 백스톱까지 그 계좌를 대기로 두고 킬 스위치 in-flight 창을 열어 둔다(무관한 60 에코가 「킬 스위치」 원인으로
+ * 읽힌다). 「실패」 가 아니라 「확인하지 못했다」 다 — 14 · 11 은 나갔을 수 있다.
+ */
+export const ACCOUNT_DISABLE_UNCONFIRMED_TEXT = "이 계좌 끄기 요청의 반영을 확인하지 못했어요. 전략 목록을 확인해 주세요.";
+
+/** 전략 요청 송신 실패 문구 — `#onStrategySendFailed` 와 계좌 끄기 0답 종료(전부 송신 실패)가 같은 문장을 쓴다. */
+const STRATEGY_SEND_FAILED_TEXT = "전략 요청을 전송하지 못했습니다. 연결 상태를 확인해 주세요.";
 
 /**
  * relay 발 거부 통지 1건. 게이트웨이 통지와 같은 `{t:"msg"}` 슬롯이고 `src` 만 다르다.
@@ -2523,6 +2534,14 @@ export class WsFanout {
         { userId, t, accountNo: masked, answered: r.answered, expected: r.expected, viDisabled: r.viDisabled, ended: r.ended },
         "[WS] 계좌 끄기 집계 끝 (Phase 32)",
       );
+      // 0답 종료(WR-02) — hub 가 `strategies.disabled` 를 내지 않았다. 계좌를 실은 거부 1건으로 끝을 알린다(웹이 8초 백스톱을 기다리지
+      // 않게 · 킬 스위치 in-flight 창이 그동안 열려 있지 않게). `closed`(hub 종료)는 연결도 끝나는 중이라 보내지 않는다.
+      if (r.ended === "closed" || r.answered > 0 || r.viDisabled) return;
+      logger.warn({ userId, t, accountNo: masked, ended: r.ended, sendFailed }, "[WS] 계좌 끄기 0답 종료 — 요청 탭에 거부 1건 (WR-02)");
+      this.#send(
+        conn,
+        rejectFrame(sendFailed ? STRATEGY_SEND_FAILED_TEXT : ACCOUNT_DISABLE_UNCONFIRMED_TEXT, accountNo, "", t),
+      );
     });
   }
 
@@ -2895,7 +2914,7 @@ export class WsFanout {
   /** ③-b 송신 실패. 전송 계층 사유는 `DmaSession.send` 가 이미 남겼고 여기는 사용자 통지다. */
   #onStrategySendFailed(conn: Conn, userId: string, t: RelayInbound["t"]): void {
     logger.error({ userId, t }, "[WS] 전략 요청 송신 실패 — 게이트웨이로 나가지 않았다");
-    this.#send(conn, rejectFrame("전략 요청을 전송하지 못했습니다. 연결 상태를 확인해 주세요.", "", "", t));
+    this.#send(conn, rejectFrame(STRATEGY_SEND_FAILED_TEXT, "", "", t));
   }
 
   /**

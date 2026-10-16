@@ -3241,6 +3241,46 @@ describe('상따 비활성화 원인 귀속 (quick-260926-nr2)', () => {
     expect(echoes(hook).has(KEY_NXT)).toBe(false);
   });
 
+  it('P32 WR-02 계좌 끄기 relay 거부(계좌 실음)는 그 계좌 창을 닫는다 · 계좌 빈 중간 통지 · 다른 계좌 거부는 닫지 않는다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [lcItem(), nxtItem()] });
+    });
+    act(() => {
+      hook.result.current.send({ t: 'strategies.disable.account', accountNo: ACCT });
+    });
+    const reject = (a: string) => ({
+      t: 'msg',
+      lv: 'ERROR',
+      m: '거부',
+      i: '',
+      a,
+      src: 'Relay',
+      kind: 'strategies.disable.account',
+    });
+    // 계좌 빈 중간 통지 · 다른 계좌 거부 — 창은 열려 있다.
+    await act(async () => {
+      ws.push(reject(''));
+      ws.push(reject('98765432-01'));
+    });
+    await act(async () => {
+      ws.push({ t: 'lc', item: lcItem({ buyEnabled: false }) });
+    });
+    expect(echoes(hook).get(KEY)?.cause).toBe('killSwitch');
+    // 그 계좌 거부 — 닫힌다. 뒤의 무관한 꺼짐 에코는 킬 스위치 원인이 아니다.
+    await act(async () => {
+      ws.push(reject(ACCT));
+    });
+    await act(async () => {
+      ws.push({ t: 'lc', item: nxtItem({ buyEnabled: true }) });
+    });
+    await act(async () => {
+      ws.push({ t: 'lc', item: nxtItem({ buyEnabled: false }) });
+    });
+    expect(echoes(hook).has(KEY_NXT)).toBe(false);
+  });
+
   it('귀속과 무관한 에코는 귀속 맵 참조를 바꾸지 않는다(재렌더 예산)', async () => {
     const hook = render();
     const ws = await connected(hook);

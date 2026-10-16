@@ -868,6 +868,44 @@ describe("StrategyStatusCard — P32 이 계좌 끄기 (D-09 · D-27 · S5′)",
     expect((err as HTMLElement).nextElementSibling).toBe(killRow());
   });
 
+  it("⑤′ WR-02 relay 거부(계좌 실음) → 백스톱 전에 그 계좌 대기 풀림 · 원문 오류 줄 · 계좌 빈 거부 · 다른 계좌 거부는 무시", () => {
+    vi.useFakeTimers();
+    const view = render(<StrategyStatusCard accountNo={ACC_A} />);
+    confirmDisable(ACC_A);
+    expect(killButton(ACC_A)).toBeDisabled();
+
+    const reject = (a: string, m: string) => ({
+      t: "msg" as const,
+      lv: "ERROR",
+      m,
+      i: "",
+      a,
+      src: "Relay",
+      kind: "strategies.disable.account",
+      receivedAt: "09:00:00",
+    });
+    // 계좌 빈 중간 통지(송신 실패) · 다른 계좌 거부 — 끝 신호가 아니다.
+    const sendFailed = reject("", "전략 요청을 전송하지 못했습니다. 연결 상태를 확인해 주세요.");
+    const otherTab = reject(ACC_B, "이 계좌에 끌 전략이 없어요");
+    mockRelay = { ...mockRelay, messages: [otherTab, sendFailed] };
+    view.rerender(<StrategyStatusCard accountNo={ACC_A} />);
+    expect(killButton(ACC_A)).toBeDisabled();
+    expect(errorLine()).toBeNull();
+
+    // 그 계좌 거부 — 즉시 풀리고 원문을 말한다(백스톱 문구가 아니라).
+    mockRelay = { ...mockRelay, messages: [reject(ACC_A, "이 계좌에 끌 전략이 없어요"), otherTab, sendFailed] };
+    view.rerender(<StrategyStatusCard accountNo={ACC_A} />);
+    expect(killButton(ACC_A)).toBeEnabled();
+    expect(errorLine()).toHaveTextContent("이 계좌에 끌 전략이 없어요");
+
+    // 백스톱 타이머도 지워졌다 — 8초 뒤 미확인 문구로 덮지 않는다.
+    act(() => {
+      vi.advanceTimersByTime(STRATEGIES_DISABLE_ACK_TIMEOUT_MS);
+    });
+    expect(errorLine()).toHaveTextContent("이 계좌에 끌 전략이 없어요");
+    expect(errorLine()).not.toHaveTextContent(BACKSTOP);
+  });
+
   it("⑥ send false → 전송 실패 문구 · 잠그지 않는다", () => {
     send.mockReturnValue(false);
     render(<StrategyStatusCard accountNo={ACC_A} />);

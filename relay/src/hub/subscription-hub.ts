@@ -1401,7 +1401,8 @@ export class SubscriptionHub extends EventEmitter {
    * `sent`, 보내지 못했으면 `failed` 를 부른다. 보낸 14 의 65 는 소유 키 꼬리표로 이 집계에 귀속되고 **브라우저로 따로 내보내지 않는다**
    * (k 건이 그대로 가면 웹의 킬 스위치 귀속 창이 첫 65 에서 닫힌다 — Pitfall 3). 계획한 송신이 다 알려지고 보낸 14 의 65 를 다 받으면
    * 끝난다 — 또는 시한(`allStopCollectMs`). 끝나면 받은 65 가 있을 때만 `strategies.disabled { count: 합, viDisabled }` 1건을 팬아웃한다
-   * (답 0 이면 지어내지 않는다 · 웹 8초 백스톱). 시한 뒤 늦게 온 65 는 이미 닫힌 집계 몫으로 소비된다(꼬리표가 짝을 맞춘다).
+   * (답 0 이면 지어내지 않는다 — fanout 이 `done` 을 보고 계좌를 실은 거부 1건으로 끝을 알린다 · WR-02). 시한 뒤 늦게 온 65 는 이미 닫힌
+   * 집계 몫으로 소비된다(꼬리표가 짝을 맞춘다).
    */
   beginAccountStop(
     userId: string,

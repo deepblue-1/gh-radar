@@ -38,7 +38,7 @@ import { createOrderServerRouting } from "../src/access/account-order-servers.js
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { MSG } from "../src/dma/msg-type.js";
 import { Envelope } from "../src/generated/stock-dma/envelope.js";
-import { WsFanout } from "../src/ws/fanout.js";
+import { ACCOUNT_DISABLE_UNCONFIRMED_TEXT, WsFanout } from "../src/ws/fanout.js";
 import { USER_SETTINGS_FLOOR_UNKNOWN_TEXT, USER_SETTINGS_SERVER_GONE_TEXT } from "../src/ws/protocol.js";
 import { SubscriptionHub } from "../src/hub/subscription-hub.js";
 import { logger } from "../src/logger.js";
@@ -1152,6 +1152,37 @@ describe("WsFanout — G-1 같은 증권사 두 서버 · 계좌 프레임은 �
       const nothing = warns.filter((w) => String(w[1]).includes("끌 것 없음"));
       expect(nothing).toHaveLength(1);
       expect(JSON.stringify(nothing[0]?.[0] ?? {})).not.toContain(A);
+    });
+
+    it("WR-02 0답 종료 — KB121 65 없음 → 시한 뒤 strategies.disabled 0 · 요청 탭 거부 1건 { a: A · 미확인 문구 } (웹이 8초 백스톱을 기다리지 않는다)", async () => {
+      seed(2, false);
+      kb121.handleDisableStrategies({ respond65: false });
+      const { ws, inbox } = await ready(false);
+      const from = inbox.length;
+      const since = (): RelayOutbound[] => inbox.slice(from);
+
+      ws.sendRaw({ t: "strategies.disable.account", accountNo: A });
+      await waitFor(() => countOf(p121, MSG.DisableStrategiesReq) === 2, "KB121 14 두 건");
+      await flushIo(20);
+      // 시한 전 — 아무 끝 신호도 없다(받은 것이 0 이라 지어내지 않는다).
+      expect(rejectsOf(since(), "strategies.disable.account")).toEqual([]);
+      expect(disabledOf(since())).toEqual([]);
+
+      vi.advanceTimersByTime(ALL_STOP_COLLECT_MS);
+      await waitFor(() => rejectsOf(since(), "strategies.disable.account").length === 1, "0답 거부 프레임");
+      await flushIo(10);
+      expect(rejectsOf(since(), "strategies.disable.account")).toEqual([
+        {
+          t: "msg",
+          lv: "ERROR",
+          m: ACCOUNT_DISABLE_UNCONFIRMED_TEXT,
+          i: "",
+          a: A,
+          src: "Relay",
+          kind: "strategies.disable.account",
+        },
+      ]);
+      expect(disabledOf(since())).toEqual([]);
     });
   });
 });
