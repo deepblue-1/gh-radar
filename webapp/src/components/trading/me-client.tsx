@@ -515,8 +515,9 @@ function MeTabs() {
         forceMount={tab.keepMounted("settings")}
         className={ME_PANEL}
       >
-        {/* Phase 27 D-10 — 상따 기본설정(42/84). DMA 게이트 분기에는 없다. */}
-        <LimitChaserDefaultsSection />
+        {/* Phase 27 D-10 — 상따 기본설정(42/84). DMA 게이트 분기에는 없다. Phase 32 D-24 — 서버 = 고른 계좌의 서버키
+            (목록 밖 계좌 = 서버키 없음 → 키 "" 칸 · 새 relay 에서는 「불러오는 중」 잠금이 fail-safe). */}
+        <LimitChaserDefaultsSection serverKey={choices.find((c) => c.accountNo === meAccountNo)?.serverKey} />
         {/* Phase 32 D-15 — 「이 기기」 카드(돌파 알림음 · 이 브라우저 localStorage). 이 기기 카드는 계좌 칩과 무관(D-24 · D-15). */}
         <DeviceSettingsCard />
       </TabsContent>

@@ -50,7 +50,9 @@ function settings(present: boolean, patch: Partial<RelayUserSettingsMsg> = {}): 
 let send: ReturnType<typeof vi.fn>;
 
 function relay(userSettings: RelayUserSettingsMsg | undefined): RelayContextValue {
-  return { ...EMPTY_RELAY_VALUE, status: 'ready', userSettings, send } as RelayContextValue;
+  // 서버키 없는 84(구 relay 모양) = "" 칸 — serverKey prop 없는 섹션이 읽는 칸(종전 단일 동작).
+  const userSettingsByServer = new Map(userSettings === undefined ? [] : [['', userSettings] as const]);
+  return { ...EMPTY_RELAY_VALUE, status: 'ready', userSettingsByServer, send } as RelayContextValue;
 }
 
 const section = () => document.querySelector('[data-slot="me-lc-defaults"]') as HTMLElement;

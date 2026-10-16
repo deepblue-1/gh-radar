@@ -1820,6 +1820,57 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     expect(setUserSettingsRequests(), '84 는 42 를 다시 만들지 않는다').toHaveLength(1);
   });
 
+  /*
+    Phase 32 D-14a · D-24 트레이서 — 설정 탭의 서버 = 고른 계좌의 서버. 브라우저가 `user.settings.set` 에 그 계좌의
+    serverKey 를 싣고 → relay(32-07)가 그 서버 세션으로 42 → 그 서버 84 가 `user.settings{serverKey}` 로 돌아와 →
+    웹 `userSettingsByServer` 의 그 서버 칸이 바뀌어 → 설정 탭 값이 바뀐다. E2E 스텁 게이트웨이는 세션 1개
+    (env 모드 서버키 = DMA_BROKER 기본 「KB」)라 2서버 실증은 relay `fanout-multi-session.test.ts` 와 32-10 라이브 UAT 몫이다.
+  */
+  test('P32-settings 설정 탭 = 고른 계좌의 서버 — 행 확정 → 게이트웨이 42 1건 · 84 뒤 값 반영 (D-14a · D-24)', async ({
+    page,
+  }) => {
+    /** 브라우저가 relay 로 보낸 `user.settings.set` 프레임(JSON) — 「어느 서버로 보냈는가」(serverKey)를 본다. */
+    const setFrames: Record<string, unknown>[] = [];
+    page.on('websocket', (ws) => {
+      if (!ws.url().includes(':8090')) return;
+      ws.on('framesent', ({ payload }) => {
+        if (typeof payload !== 'string' || !payload.includes('"user.settings.set"')) return;
+        setFrames.push(JSON.parse(payload) as Record<string, unknown>);
+      });
+    });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/me');
+    await waitForReady(page, 2);
+    await openMeTab(page, '설정', 'settings');
+
+    // 그 서버 84 미수신 — 「불러오는 중」 잠금(다른 서버 값으로 대신 보이지 않는다).
+    await expect(lcDefaultsChip(page)).toHaveText('불러오는 중');
+
+    // 스텁 게이트웨이 84 → relay 가 serverKey 를 실어 내린다 → 고른 계좌 서버 칸 → 「서버 저장값」 · 3초.
+    await relay.pushUserSettings({ ...LC84, autoSellPeriodSec: 3 });
+    await expect(lcDefaultsChip(page)).toHaveText('서버 저장값', { timeout: 15_000 });
+    const period = lcDefaultsRow(page, 'auto-sell-period-sec');
+    await expect(period.locator('[data-slot="lc-row-value"]')).toHaveText('3초');
+
+    // 행 확정 7 → 브라우저 프레임 1건에 고른 계좌의 serverKey · 게이트웨이 42 1건(그 서버 세션으로).
+    await period.locator('button[data-lc-field="me-lc-auto-sell-period-sec"]').click();
+    const input = page.locator('input#me-lc-auto-sell-period-sec');
+    await expect(input).toBeFocused();
+    await input.fill('7');
+    await input.press('Enter');
+    await expect.poll(() => setUserSettingsRequests().length, { timeout: 15_000 }).toBe(1);
+    expect(setUserSettingsRequests()[0]).toMatchObject({ autoSellPeriodSec: 7, presentSlotEmpty: true });
+    expect(setFrames).toHaveLength(1);
+    expect(setFrames[0]).toMatchObject({ t: 'user.settings.set', serverKey: 'KB', s: { autoSellPeriodSec: 7 } });
+
+    // 그 서버 84(7) → 그 칸 교체 → 행 「7초」 + 초록 플래시 · 42 를 다시 만들지 않는다.
+    await relay.pushUserSettings({ ...LC84, autoSellPeriodSec: 7 });
+    await expect(period).toHaveAttribute('data-flash', 'ok', { timeout: 15_000 });
+    await expect(period.locator('[data-slot="lc-row-value"]')).toHaveText('7초');
+    expect(setUserSettingsRequests()).toHaveLength(1);
+    expect(setFrames).toHaveLength(1);
+  });
+
   test.describe('P27-M1 폰 390 — 터치 키패드 시트', () => {
     test.use({ hasTouch: true, viewport: MOBILE_VIEWPORT });
 

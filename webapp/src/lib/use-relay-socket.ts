@@ -365,6 +365,8 @@ export type LimitChaserDisableEcho = { echo: RelayLimitChaser; cause: LimitChase
 const EMPTY_DISABLE_ECHOES: ReadonlyMap<string, LimitChaserDisableEcho> = new Map();
 /** 빈 15:40 대기 키 집합 — 모듈 상수 하나. */
 const EMPTY_KEYS: ReadonlySet<string> = new Set();
+/** 84 를 어느 서버에서도 아직 못 받았다(초기값 · reset). 리듀서는 늘 새 Map 을 만들므로 이 객체는 변하지 않는다. */
+const EMPTY_USER_SETTINGS: ReadonlyMap<string, RelayUserSettingsMsg> = new Map();
 
 export interface RelayConnectionState {
   /** 세션 상태. 배지·주문 버튼 활성 여부의 정본. */
@@ -606,14 +608,18 @@ export interface RelayConnectionState {
    */
   queuedWindow: RelayQueuedWindowMsg | undefined;
   /**
-   * 사용자 상따 기본설정(84 `user.settings` · Phase 27) — **2상태**다(77 `queuedWindow` 규율).
-   *  - `undefined` : 서버가 84 를 아직 한 번도 안 줬다(연결 전 · 인증 전 · 세션 준비 전)
-   *  - 객체        : 서버가 말한 마지막 11값 + `present`(false = 서버 저장값 없음 · 내장 기본값)
+   * 사용자 상따 기본설정(84 `user.settings` · Phase 27) — **서버별**이다(Phase 32 D-14a · 84 는 게이트웨이 서버마다 따로다).
+   * 키 = 프레임의 `serverKey`(새 relay 는 늘 싣는다) · 부재(구 relay) = `""`(그 값은 primary 서버 것이다).
+   * 칸마다 **2상태**다(77 `queuedWindow` 규율).
+   *  - 칸 없음 : 그 서버가 84 를 아직 한 번도 안 줬다(연결 전 · 인증 전 · 세션 준비 전)
+   *  - 객체    : 그 서버가 말한 마지막 값 + `present`(false = 서버 저장값 없음 · 내장 기본값)
    *
-   * ⚠️ relay 는 84 를 모르면 아무것도 내리지 않는다 — 웹도 기본값을 지어내지 않는다. `/me` 섹션의
-   *    42 조립 기준(서버 캐시 + 바뀐 1칸)이 이 값 하나다.
+   * ⚠️ relay 는 84 를 모르면 아무것도 내리지 않는다 — 웹도 기본값을 지어내지 않는다. 칸을 지우는 프레임도 없다
+   *    (relay 가 세션 분리 때 지운 칸은 남는다 — 서버 목록은 이 Map 의 키가 아니라 `accounts[]` 다).
+   * ⚠️ 직접 `.get` 하지 말고 `user-settings-server.ts` 의 `userSettingsForServer`(/me) · `userSettingsForAccount`(상따 폼)
+   *    로 읽는다 — 구 relay 관용(`""` 칸) 규칙이 그 한 곳에 있다.
    */
-  userSettings: RelayUserSettingsMsg | undefined;
+  userSettingsByServer: ReadonlyMap<string, RelayUserSettingsMsg>;
   /**
    * NXT 거래가능 ISIN 집합 — **2상태**(quick-260923-pq2).
    *  - `null` : relay 가 `nxt.snap` 을 아직 안 줬다(연결 전 · 구 relay · relay 가 57 을 못 받음)
@@ -761,7 +767,7 @@ interface RelayData {
   rateCrossSnapSeq: number;
   limitChaserSnapSeq: number;
   queuedWindow: RelayQueuedWindowMsg | undefined;
-  userSettings: RelayUserSettingsMsg | undefined;
+  userSettingsByServer: ReadonlyMap<string, RelayUserSettingsMsg>;
   nxtTradable: ReadonlySet<string> | null;
 }
 
@@ -809,8 +815,8 @@ const INITIAL_DATA: RelayData = {
   limitChaserSnapSeq: 0,
   // 미수신(undefined) 과 「닫힘」(open:false) 은 다른 화면이다 — 초기값은 미수신이다.
   queuedWindow: undefined,
-  // 84 미수신(undefined) 과 「저장값 없음」(present:false) 은 다른 화면이다 — 초기값은 미수신이다.
-  userSettings: undefined,
+  // 84 미수신(칸 없음) 과 「저장값 없음」(present:false) 은 다른 화면이다 — 초기값은 어느 서버도 미수신(빈 Map)이다.
+  userSettingsByServer: EMPTY_USER_SETTINGS,
   // 아직 모른다 — 빈 Set 으로 위장하면 모든 종목의 NXT 가 사라진다(quick-260923-pq2).
   nxtTradable: null,
 };
@@ -1115,10 +1121,13 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
       // 최신 1건 보관. 상태 보관만 하고 UI 는 만들지 않는다(Phase 18).
       return { ...state, queuedWindow: frame };
 
-    case "user.settings":
-      // 최신 1건 보관(84 · Phase 27). 재접속에서 지우지 않는다 — relay 가 인증 직후 캐시를 다시 내린다.
-      // `reset` 만 `INITIAL_DATA`(undefined) 로 되돌린다.
-      return { ...state, userSettings: frame };
+    case "user.settings": {
+      // 서버마다 최신 1건 보관(84 · Phase 27 → Phase 32 D-14a 서버 축). 키 = `serverKey` · 부재(구 relay) = `""`(primary 것).
+      // 재접속에서 지우지 않는다 — relay 가 인증 직후 서버마다 캐시를 다시 내린다. `reset` 만 `INITIAL_DATA`(빈 Map) 로 되돌린다.
+      const next = new Map(state.userSettingsByServer);
+      next.set(frame.serverKey ?? "", frame);
+      return { ...state, userSettingsByServer: next };
+    }
 
     case "nxt.snap":
       // 전량 교체 · 재접속에서는 지우지 않는다 — relay 가 재인증마다 다시 내린다
@@ -2245,7 +2254,7 @@ export function useRelayConnection({
       rateCrossSnapSeq: data.rateCrossSnapSeq,
       limitChaserSnapSeq: data.limitChaserSnapSeq,
       queuedWindow: data.queuedWindow,
-      userSettings: data.userSettings,
+      userSettingsByServer: data.userSettingsByServer,
       nxtTradable: data.nxtTradable,
       send,
       reconnect,

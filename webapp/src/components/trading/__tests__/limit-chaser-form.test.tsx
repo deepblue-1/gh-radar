@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { RelayLcSetMsg, RelayLimitChaser, RelayLimitChaserInput, RelayUserSettingsMsg } from '@gh-radar/shared';
+import type {
+  RelayAccount,
+  RelayLcSetMsg,
+  RelayLimitChaser,
+  RelayLimitChaserInput,
+  RelayUserSettingsMsg,
+} from '@gh-radar/shared';
 import { amountFromQty, qtyFromAmount } from '@gh-radar/shared';
 
 /**
@@ -36,13 +42,29 @@ import { amountFromQty, qtyFromAmount } from '@gh-radar/shared';
  */
 
 const sendMock = vi.fn();
-/** 스토어의 84 사용자 설정(Phase 27 · 27-07) — 기본 미수신. 케이스가 바꾸면 다음 렌더부터 보인다. */
+/**
+ * 스토어의 84 사용자 설정(Phase 27 · 27-07) — 기본 미수신. 케이스가 바꾸면 다음 렌더부터 보인다.
+ * Phase 32 D-14b — 웹 84 는 서버별 Map 이고 폼은 카드 계좌의 서버 칸을 읽는다. 이 값은 기본 계좌(`ACCOUNT`)의 서버
+ * (`MOCK_SERVER_KEY`) 칸이다 — 서버를 가르는 케이스는 `mockUserSettingsByServer` · `mockAccounts` 를 직접 쓴다.
+ */
 let mockUserSettings: RelayUserSettingsMsg | undefined;
+const MOCK_SERVER_KEY = 'KB120';
+/** 서버별 84 를 직접 줄 때(P32) — null 이면 `mockUserSettings` 를 기본 서버 칸 하나로 싣는다. */
+let mockUserSettingsByServer: ReadonlyMap<string, RelayUserSettingsMsg> | null = null;
+/** relay `accounts[]` — 기본은 기본 계좌 1건(서버 `MOCK_SERVER_KEY`). */
+let mockAccounts: RelayAccount[] | null = null;
 vi.mock('@/lib/relay-provider', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/relay-provider')>();
   return {
     ...actual,
-    useRelayContext: () => ({ ...actual.EMPTY_RELAY_VALUE, send: sendMock, userSettings: mockUserSettings }),
+    useRelayContext: () => ({
+      ...actual.EMPTY_RELAY_VALUE,
+      send: sendMock,
+      accounts: mockAccounts ?? [{ accountNo: ACCOUNT, name: '', serverKey: MOCK_SERVER_KEY }],
+      userSettingsByServer:
+        mockUserSettingsByServer ??
+        new Map(mockUserSettings === undefined ? [] : [[MOCK_SERVER_KEY, mockUserSettings] as const]),
+    }),
   };
 });
 
@@ -208,6 +230,8 @@ function blurEditor(id: string): void {
 
 beforeEach(() => {
   mockUserSettings = undefined;
+  mockUserSettingsByServer = null;
+  mockAccounts = null;
   sendMock.mockReset();
   // ★ 기본은 「소켓에 실렸다」 — `mockReset()` 뒤 기본 반환 `undefined`(falsy)면 모든 케이스가
   //   「전송 실패」 경로로 떨어진다.

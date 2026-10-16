@@ -7,7 +7,9 @@
  * ① 자리: /me 「설정」 탭(quick-261006-pey D-1 — 옛 D-10 「상태줄 아래 · 전략 현황 위」 를 대체) · DMA 게이트
  *    화면에는 그리지 않는다(84 가 올 수 없다). 상따 화면에는 진입점을 두지 않는다(⚙ 진입점은 Deferred).
  *
- * ② 값의 원천은 84 캐시(`useRelayContext().userSettings`) 하나다 — 3상태(77 `queuedWindow` 규율):
+ * ② 값의 원천은 **고른 계좌 서버**의 84 캐시(`userSettingsForServer(relay.userSettingsByServer, serverKey, accounts)` ·
+ *    Phase 32 D-24 — 서버 세그먼트 · 서버 기억 없음 · 서버키 없는 계좌는 키 `""` 칸 = 종전 단일 동작) 하나다 —
+ *    3상태(77 `queuedWindow` 규율):
  *    - `undefined` = 84 를 아직 못 받았다 → 「불러오는 중」 · 행 흐림 · 편집 불가. 기본값을 지어내지 않는다.
  *      84 에 `postBuyFloorAmount` 키가 없으면(구 relay · Phase 31 Pitfall 10) 이것과 같다(`usableUserSettingsOf`) —
  *      42 는 14값 전체 교체라 모르는 금액을 0 으로 지어 보내면 C# 「최소 [ ]만」 원값이 지워진다. 새 문구 없음.
@@ -74,6 +76,7 @@ import { LC_COMMIT_TEXT } from "@/components/trading/lc/use-lc-field-commit";
 import type { PadUnit } from "@/lib/numpad";
 import { useRelayContext } from "@/lib/relay-provider";
 import type { RelayServerMessageEntry } from "@/lib/use-relay-socket";
+import { userSettingsForServer } from "@/lib/user-settings-server";
 import { useEditMode } from "@/lib/use-edit-mode";
 import { cn } from "@/lib/utils";
 
@@ -328,6 +331,8 @@ function useUserSettingsSave(
   userSettings: UsableUserSettings | undefined,
   send: (msg: RelayInbound) => boolean,
   messages: readonly RelayServerMessageEntry[],
+  /** 42 를 보낼 서버(Phase 32 D-24 · 고른 계좌의 서버키). 없으면 키를 싣지 않는다 — relay 가 primary 로 보낸다(구 탭 관용). */
+  serverKey: string | undefined,
 ): UserSettingsSave {
   const inflightRef = useRef<{ key: UserSettingsKey; value: UserSettingsFieldValue } | null>(null);
   const queueRef = useRef(new Map<UserSettingsKey, UserSettingsFieldValue>());
@@ -402,7 +407,7 @@ function useUserSettingsSave(
         setFailures((f) => ({ ...f, [key]: { text: issue, value } }));
         return "invalid";
       }
-      if (!send({ t: "user.settings.set", s })) {
+      if (!send({ t: "user.settings.set", ...(serverKey ? { serverKey } : {}), s })) {
         // 소켓이 받지 않았다 — 비행을 세우지 않는다(답이 올 수 없다) · 재전송 없음.
         setFailures((f) => ({ ...f, [key]: { text: USER_SETTINGS_SAVE_TEXT.disconnected, value } }));
         failQueue(USER_SETTINGS_SAVE_TEXT.disconnected);
@@ -423,7 +428,7 @@ function useUserSettingsSave(
       }, ACK_TIMEOUT_MS);
       return "sent";
     },
-    [send, failQueue],
+    [send, failQueue, serverKey],
   );
 
   /** 대기열 앞 건부터 **새 캐시**로 다시 조립해 보낸다. 이미 그 값(no-op)이면 성공으로 접고 다음 건. */
@@ -552,15 +557,18 @@ export function userSettingsStatusOf(s: RelayUserSettingsMsg | undefined): UserS
   return s.present ? "present" : "absent";
 }
 
-export function LimitChaserDefaultsSection() {
+export function LimitChaserDefaultsSection({ serverKey }: { serverKey?: string } = {}) {
   const relay = useRelayContext();
   const { send, messages } = relay;
+  // 고른 계좌 서버의 84(D-24) — 그 서버 84 미수신은 「불러오는 중」 잠금이다(다른 서버 값으로 대신 보이지 않는다).
   // 금액 키가 없는 84(구 relay)는 미수신과 같다 — 칩 · 흐림 · 편집 불가 · 저장 기계가 모두 이 값을 본다(Pitfall 10).
-  const userSettings = usableUserSettingsOf(relay.userSettings);
+  const userSettings = usableUserSettingsOf(
+    userSettingsForServer(relay.userSettingsByServer, serverKey, relay.accounts),
+  );
   const status = userSettingsStatusOf(userSettings);
   const loading = userSettings === undefined;
   const text = USER_SETTINGS_STATUS_TEXT[status];
-  const save = useUserSettingsSave(userSettings, send, messages);
+  const save = useUserSettingsSave(userSettings, send, messages, serverKey);
   // 표시 · 시트 초기값은 정규화 14값으로 읽는다 — 선매수 2필드 84 부재 = 0 · false(gh-trade 261012).
   const values = useMemo(
     () => (userSettings === undefined ? undefined : userSettingsValuesOf(userSettings)),

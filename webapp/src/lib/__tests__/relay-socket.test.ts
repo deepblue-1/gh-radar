@@ -3417,32 +3417,33 @@ describe('Phase 27 user.settings — 84 사용자 설정 3상태 (77 queuedWindo
     autoSellMethodDefault: 1,
   } as const;
 
-  it('초기 undefined(모름) — 연결 · 인증만으로는 지어내지 않는다', async () => {
+  it('초기 빈 Map(모름) — 연결 · 인증만으로는 지어내지 않는다', async () => {
     const hook = render({ enabled: true });
-    expect(hook.result.current.userSettings).toBeUndefined();
+    expect(hook.result.current.userSettingsByServer.size).toBe(0);
     await connected(hook);
-    expect(hook.result.current.userSettings).toBeUndefined();
+    expect(hook.result.current.userSettingsByServer.size).toBe(0);
   });
 
-  it('프레임 → 그 값 · 두 번째 프레임 → 교체 · reset(enabled false) → undefined', async () => {
+  it('프레임 → 그 값 · 두 번째 프레임 → 교체 · reset(enabled false) → 빈 Map (구 relay 모양 — serverKey 없음 = "" 칸)', async () => {
     const hook = render({ enabled: true });
     const ws = await connected(hook);
 
     await act(async () => {
       ws.push(PRESENT);
     });
-    expect(hook.result.current.userSettings).toEqual(PRESENT);
+    expect(hook.result.current.userSettingsByServer.get('')).toEqual(PRESENT);
 
     const NEXT = { ...PRESENT, present: false, autoSellPeriodSec: 3 };
     await act(async () => {
       ws.push(NEXT);
     });
-    expect(hook.result.current.userSettings).toEqual(NEXT);
+    expect(hook.result.current.userSettingsByServer.get('')).toEqual(NEXT);
+    expect(hook.result.current.userSettingsByServer.size).toBe(1);
 
     await act(async () => {
       hook.rerender({ enabled: false });
     });
-    expect(hook.result.current.userSettings).toBeUndefined();
+    expect(hook.result.current.userSettingsByServer.size).toBe(0);
   });
 });
 
