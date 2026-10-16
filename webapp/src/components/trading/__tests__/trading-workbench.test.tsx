@@ -2945,6 +2945,54 @@ describe('P32 VI 슬롯 표면 (D-18) — 사이드바 VI 줄 → 작업대 계�
     expect(storedAccount()).toBe(A);
   });
 
+  describe('WR-05 ?account= 는 소비 · 폐기 뒤 주소창에서 지운다', () => {
+    const landOn = (qs: string) => {
+      searchParams = new URLSearchParams(qs);
+      window.history.replaceState(null, '', `/trading?${qs}`);
+    };
+    afterEach(() => {
+      window.history.replaceState(null, '', '/');
+    });
+
+    it('마운트 소비 → account 만 지운다(다른 파라미터 유지) · 새로고침이 나중 선택을 되돌리지 않는다', () => {
+      landOn(`account=${B}&focus=x`);
+      mockRelay = relay({ accounts: [accA, accB] });
+      render(<TradingWorkbench />);
+      expect(pickedAccount()).toBe(B);
+      expect(window.location.pathname).toBe('/trading');
+      expect(window.location.search).toBe('?focus=x');
+    });
+
+    it('이미 그 계좌여도(전환 없음) 소비했으면 지운다', () => {
+      landOn(`account=${A}`);
+      mockRelay = relay({ accounts: [accA, accB] });
+      render(<TradingWorkbench />);
+      expect(pickedAccount()).toBe(A);
+      expect(window.location.search).toBe('');
+    });
+
+    it('보류 중 사용자가 다른 계좌를 고르면(보류 폐기) 지운다', () => {
+      landOn(`account=${B}`);
+      const C = '88888888801';
+      mockRelay = relay({ accounts: [accA, { accountNo: C, name: '위탁CMA' }] });
+      render(<TradingWorkbench />);
+      expect(window.location.search).toBe(`?account=${B}`); // 아직 B 를 모른다 — 보류.
+      clickAccount(C);
+      expect(pickedAccount()).toBe(C);
+      expect(window.location.search).toBe('');
+    });
+
+    it('이미 /trading 위에서 VI 줄(이벤트 + Link 이동) → 이벤트가 바꾸고, 뒤에 들어온 ?account= 는 지운다', () => {
+      mockRelay = relay({ accounts: [accA, accB] });
+      const view = render(<TradingWorkbench />);
+      act(() => requestTradingAccount(B));
+      landOn(`account=${B}`);
+      view.rerender(<TradingWorkbench />);
+      expect(pickedAccount()).toBe(B);
+      expect(window.location.search).toBe('');
+    });
+  });
+
   it('requestTradingAccount(B) — 이미 작업대일 때도 계좌 전환 · 저장 · 목록 밖 계좌 요청은 무시', () => {
     mockRelay = relay({ accounts: [accA, accB] });
     render(<TradingWorkbench />);

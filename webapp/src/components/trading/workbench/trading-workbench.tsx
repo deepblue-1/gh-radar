@@ -698,10 +698,25 @@ function WorkbenchSurface() {
     배치 복원(저장 계좌 읽기)이 끝난 뒤 `pickAccount` 한다 — 복원 전에 바꾸면 복원이 저장값으로 되돌린다.
   */
   const pendingAccount = useRef<string | null | undefined>(undefined);
+  const accountParam = searchParams?.get("account") ?? null;
   if (pendingAccount.current === undefined) {
-    const raw = searchParams?.get("account") ?? null;
-    pendingAccount.current = raw === null || raw === "" ? null : raw;
+    pendingAccount.current = accountParam === null || accountParam === "" ? null : accountParam;
   }
+  /*
+    소비했거나 버린 `?account=` 는 주소창에서 지운다(WR-05 — `?code=` 의 `clearCodeParam` 과 같은 방식 · `account` 만). 남겨 두면 새로고침 ·
+    앱 새로고침이 마운트에서 그 값을 다시 소비해 사용자가 나중에 고른 계좌(저장값)를 덮는다. 이미 `/trading` 위에서 사이드바 VI 줄을 누르면
+    계좌는 이벤트가 바꾸고 Link 이동이 `?account=` 를 새로 남긴다 — 보류가 없을 때 그 값이 들어오면 아래 효과가 지운다.
+  */
+  const clearAccountParam = useCallback(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("account")) return;
+    params.delete("account");
+    const qs = params.toString();
+    window.history.replaceState(null, "", qs === "" ? "/trading" : `/trading?${qs}`);
+  }, []);
+  useEffect(() => {
+    if (accountParam !== null && pendingAccount.current === null) clearAccountParam();
+  }, [accountParam, clearAccountParam]);
 
   /* ── 등록된 전략 → 처음 보는 키만 카드로 (② · 멤버십만) ─────────── */
   const seenKeys = useRef(new Set<string>());
@@ -736,13 +751,14 @@ function WorkbenchSurface() {
    */
   const pickAccount = useCallback(
     (next: string) => {
-      // 어떤 전환이든(셀렉트 · 프로그램) 아직 소비 안 한 `?account=` 보다 나중 의사다 — 보류를 버린다.
+      // 어떤 전환이든(셀렉트 · 프로그램) 아직 소비 안 한 `?account=` 보다 나중 의사다 — 보류를 버리고 주소창에서도 지운다(WR-05).
       pendingAccount.current = null;
+      clearAccountParam();
       setAccountNo(next);
       setSavedAccount(next);
       writeTradingAccount(userId, next);
     },
-    [userId],
+    [userId, clearAccountParam],
   );
   /**
    * 프로그램 전환이 필요한가 — 대상이 지금 계좌와 다르고 **`accounts[]` 안**일 때만. 목록 밖 계좌로 바꾸면 셀렉트에
@@ -761,8 +777,9 @@ function WorkbenchSurface() {
     if (target === null || target === undefined || !layoutRestored) return;
     if (!accounts.some((a) => a.accountNo === target)) return; // 아직 그 계좌를 모른다 — 보류(목록은 세션마다 늦게 온다).
     pendingAccount.current = null;
+    clearAccountParam(); // 이미 그 계좌라 전환이 없어도 소비했다(WR-05).
     if (shouldSwitchTo(target)) pickAccount(target);
-  }, [accounts, layoutRestored, shouldSwitchTo, pickAccount]);
+  }, [accounts, layoutRestored, shouldSwitchTo, pickAccount, clearAccountParam]);
   /* 사이드바 VI 줄 — 이미 이 화면 위일 때(URL 은 소비하지 않으므로 이벤트로 받는다). 목록 밖 계좌로는 바꾸지 않는다. */
   useTradingAccountRequest((target) => {
     if (shouldSwitchTo(target)) pickAccount(target);
