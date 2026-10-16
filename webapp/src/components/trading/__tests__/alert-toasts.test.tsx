@@ -221,3 +221,125 @@ describe('AlertToasts — 타이머', () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 });
+
+/* ── Phase 32 D-03 · UI-SPEC S4 — 토스트 계좌 줄 ──────────────────────────────────────── */
+
+describe('P32 토스트 계좌 줄 (D-03 · S4)', () => {
+  const A = '1234567801';
+  const B = '8765432101';
+  const ACCOUNTS = [
+    { accountNo: A, name: '김알렉스', serverKey: 'KB120' },
+    { accountNo: B, name: '교보 종합', serverKey: 'KYOBO119' },
+  ];
+  const partOf = (el: Element, part: string) => el.querySelector(`[data-part="${part}"]`) as HTMLElement | null;
+
+  it('계좌 있는 알림 → 제목 바로 아래 둘째 줄 「계좌 {번호 · 상품명 · 서버키}」 · 그 아래 기존 부제', () => {
+    render(
+      <AlertToasts
+        alerts={[alert({ accountNo: B })]}
+        onOpen={vi.fn()}
+        onDismiss={vi.fn()}
+        accounts={ACCOUNTS}
+        currentAccountNo={A}
+      />,
+    );
+    const t = toasts()[0];
+    const line = partOf(t, 'account')!;
+    expect(line).not.toBeNull();
+    expect(line.textContent).toContain('계좌 8765432101 · 교보 종합 · KYOBO119');
+    const text = partOf(t, 'text')!;
+    const kids = Array.from(text.children).filter((c) => c.hasAttribute('data-part'));
+    const order = kids.map((c) => c.getAttribute('data-part'));
+    expect(order.indexOf('account')).toBeLessThan(order.indexOf('sub'));
+    expect(line.className).toContain('text-[11px]');
+  });
+
+  it('목록 밖 계좌 → 「계좌 {번호}」 · 「이 계좌 보기」 힌트 없음(전환할 수 없다)', () => {
+    render(
+      <AlertToasts
+        alerts={[alert({ accountNo: '5555000101' })]}
+        onOpen={vi.fn()}
+        onDismiss={vi.fn()}
+        accounts={ACCOUNTS}
+        currentAccountNo={A}
+      />,
+    );
+    const t = toasts()[0];
+    expect(partOf(t, 'account')!.textContent).toBe('계좌 5555000101');
+    expect(partOf(t, 'account-hint')).toBeNull();
+  });
+
+  it('돌파 알림(계좌 없음) → 계좌 줄 없음 · 기존 2줄(제목 · 부제) 그대로', () => {
+    render(
+      <AlertToasts
+        alerts={[alert({ kind: 'breakout', accountNo: undefined, label: '', breakout: { changeRate: 21 } })]}
+        onOpen={vi.fn()}
+        onDismiss={vi.fn()}
+        accounts={ACCOUNTS}
+        currentAccountNo={A}
+      />,
+    );
+    const t = toasts()[0];
+    expect(partOf(t, 'account')).toBeNull();
+    expect(partOf(t, 'account-hint')).toBeNull();
+    expect(partOf(t, 'sub')).not.toBeNull();
+  });
+
+  it('알림 계좌 = 지금 작업대 계좌 → 힌트 없음 · 다르면 「이 계좌 보기 ›」(› 는 aria-hidden)', () => {
+    render(
+      <AlertToasts
+        alerts={[alert({ id: 'x1', accountNo: A }), alert({ id: 'x2', accountNo: B, at: 2_000 })]}
+        onOpen={vi.fn()}
+        onDismiss={vi.fn()}
+        accounts={ACCOUNTS}
+        currentAccountNo={A}
+      />,
+    );
+    const [newest, older] = toasts();
+    expect(partOf(older, 'account')!.textContent).toContain('계좌 1234567801 · 김알렉스 · KB120');
+    expect(partOf(older, 'account-hint')).toBeNull();
+    const hint = partOf(newest, 'account-hint')!;
+    expect(hint).not.toBeNull();
+    expect(hint.textContent).toBe('이 계좌 보기 ›');
+    expect(hint.querySelector('[aria-hidden="true"]')?.textContent).toBe('›');
+    expect(hint.className).toContain('whitespace-nowrap');
+  });
+
+  it('본문 버튼 접근 이름에 계좌 줄 · 힌트 글자가 들어간다(힌트는 별도 버튼이 아니다)', () => {
+    const onOpen = vi.fn();
+    render(
+      <AlertToasts
+        alerts={[alert({ accountNo: B })]}
+        onOpen={onOpen}
+        onDismiss={vi.fn()}
+        accounts={ACCOUNTS}
+        currentAccountNo={A}
+      />,
+    );
+    const t = toasts()[0];
+    const body = within(t).getByRole('button', { name: /계좌 8765432101 · 교보 종합 · KYOBO119\s*이 계좌 보기/ });
+    expect(body.getAttribute('data-part')).toBe('text');
+    expect(within(t).getAllByRole('button')).toHaveLength(2); // 본문 · ✕ — 힌트 버튼 없음
+    fireEvent.click(body);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it('지금 계좌와 무관하게 전부 뜬다 — 다른 계좌 알림도 거르지 않는다', () => {
+    render(
+      <AlertToasts
+        alerts={[alert({ id: 'y1', accountNo: B }), alert({ id: 'y2', accountNo: B, at: 3_000, kind: 'reject', msg: '잔고 부족' })]}
+        onOpen={vi.fn()}
+        onDismiss={vi.fn()}
+        accounts={ACCOUNTS}
+        currentAccountNo={A}
+      />,
+    );
+    expect(toasts()).toHaveLength(2);
+    // 거부 토스트도 계좌 줄을 단다 · 사유 원문은 기존 부제 줄.
+    const reject = toasts()[0];
+    expect(reject).toHaveAttribute('data-kind', 'reject');
+    expect(partOf(reject, 'account')!.textContent).toContain('계좌 8765432101');
+    expect(partOf(reject, 'sub')!.textContent).toContain('잔고 부족');
+    expect(container()).toHaveAttribute('role', 'status');
+  });
+});
