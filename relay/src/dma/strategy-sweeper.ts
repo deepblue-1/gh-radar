@@ -8,7 +8,7 @@
  *   (지정 변경 → 끄기 → 새 서버 재수립 → 25→66 재동기)는 29-36, 연결 없는 사용자 · 백스톱 · 재시도는 29-44 가 결선한다.
  *
  * 와이어 무변경(gh-trade-84 ④) — relay 가 이미 쓰는 프레임만 쓴다:
- *   - 24 `GetLimitChaserListReq` → 64 전량 · 21 `GetVITriggerReq(거래소)` → 61 (조회 · 재조회)
+ *   - 21 `GetVITriggerReq(거래소)` → 61 · 24 `GetLimitChaserListReq` → 64 전량 (조회 · 재조회 — 21 · 21 · 24 순서 · 64 가 21 답의 끝)
  *   - 14 `DisableStrategiesReq(그 키)` → 60 에코 · 65 집계(확인 = 그 키 60 에코 뒤의 65 — GC-04). **삭제가 아니라 발주 게이트만 내린다**(등록 유지) — 키 1건 = 그 상따
  *     (자동매도 포함 — 서버 `Deactivate()` 가 자동매도 상태도 꺼짐으로 내린다).
  *   - 11 `SetVITriggerReq({ 같은 값, run: false })` → 61 에코. 14 를 빈 키로 보내면 VI 도 꺼지지만 **빈 키 14 는 금지다** — 그
@@ -21,13 +21,19 @@
  * 미체결은 건드리지 않는다 — 2 `DirectOrderReq`(취소 포함)를 이 모듈은 만들지 않는다. 옛 서버의 미체결 정리는 사용자 몫이다
  * (gh-trade-84 ② 추가: 「옛 서버의 미체결은 그 서버에서 정리」).
  *
- * VI 는 거래소별이다 — 서버는 VI 전략을 세션당 **거래소별(KRX · NXT) 1건**으로 관리하고 21 의 key 로 슬롯을 고른다
- * (`buildGetVITriggerReq` 주석 · 빈 키는 KRX 로 접힌다). 그래서 조회 · 재조회 모두 `SWEEP_VI_EXCHANGES` 를 전부 돈다. 빈 61(미등록)
- * 에는 거래소가 실리지 않고, 이 모듈은 hub 의 `#pendingViGets` FIFO 를 거치지 않으므로(세션 프레임을 직접 듣는다 — 옛 서버가
- * primary 가 아니면 hub 캐시에 61 이 없다) **짝을 스스로 맞춘다**: 미해결 21 은 늘 하나(21(KRX) → 61 → 21(NXT) → 61 · (사용자, 서버)
- * 직렬화가 relay 안에서 이 전제를 지킨다 — fanout `#sweepLanes` · GC-04 · hub 쪽은 29-49), 빈 61 은
- * 지금 기다리는 거래소의 미등록, 본문 있는 61 은 `cfg.exchange` 가 그 거래소일 때만 답이다(다른 거래소 본문은 떠돌이 에코 —
- * 무시하고 계속 기다린다). 같은 세션을 hub 도 듣고 있으면(연결 중 사용자) `opts.lend` 로 hub 에 그 세션을 빌린다(29-49 · GC-03 ·
+ * VI 는 (계좌, 거래소) 슬롯이다 (gh-trade Phase 33 · 인박스 261016) — 21 의 key 는 거래소만 고르고(빈 키는 KRX), 답은 61 **n 프레임**이다:
+ * 세션 선언 계좌마다 1프레임(선언 순서 · 등록 = 설정 값 · 미등록 = `unregistered` → `cfg: null` + `slot`) 뒤에 선언 밖 등록 슬롯(초집합)을
+ * 1프레임씩. 선언 계좌 0 이면 빈 Envelope 1개. 구 서버는 거래소당 61 1프레임(본문 = 그 거래소 등록본 · 빈 Envelope = 미등록)이다.
+ * 와이어에 「21 답 끝」 신호가 없으므로(32-14) 조회는 **21(KRX) · 21(NXT) · 24 를 잇달아 보내고 64 를 두 21 답의 끝**으로 쓴다 — 서버는 한
+ * 연결의 요청을 순서대로 처리하므로 두 21 의 61 은 전부 그 24 의 64 보다 먼저 온다. 그 사이 61 은 거래소를 가리지 않고 슬롯 키
+ * (`slot` 의 계좌 · 거래소)로 모으고(같은 슬롯은 나중 프레임이 이긴다 — 서버 처리 순서 = 도착 순서), 대상 계좌의 run 등록본만 끈다.
+ * 그래서 대상 계좌가 첫 프레임이 아니어도 놓치지 않고, 21 답의 남은 프레임이 다음 단계 대기로 새지 않는다. 한 세션의 조회가 늘 한 벌씩인
+ * 전제는 (사용자, 서버) sweep 직렬화(fanout `#sweepLanes` · GC-04)가 relay 안에서 지킨다.
+ * 그 64 보다 앞선 요청(hub Ready 프리페치의 24 등)의 64 는 우리 21 답보다 **먼저** 온다 — 그래서 64 는 「두 거래소 모두 답을 본 뒤」 에만
+ * 끝으로 받는다: 슬롯이 실린 61 로 답이 보인 거래소를 세고, 거래소를 싣지 않는 빈 Envelope 는 아직 답이 안 보인 거래소 하나씩을 메운다.
+ * 덜 본 채 온 64 · 파손 61 이 하나라도 섞인 창은 끝으로 접지 않고 단계 시한(`timeout`)으로 실패한다 — 답을 확정하지 못하면 「끌 것
+ * 없음」 으로 접지 않는다. 이 모듈은 hub 의 `#pendingViGets` FIFO 를 거치지 않는다(세션 프레임을 직접 듣는다 — 옛 서버가 primary 가
+ * 아니면 hub 캐시에 61 이 없다). 같은 세션을 hub 도 듣고 있으면(연결 중 사용자) `opts.lend` 로 hub 에 그 세션을 빌린다(29-49 · GC-03 ·
  * GC-04) — 대여 동안 hub 는 자기 21 을 미루고(대여 전에 보낸 21 은 그 61 이 다 올 때까지 대여를 미룬다) 이 모듈의 빈 61 을 자기 대기열로
  * 귀속하지 않으며, 14 의 65 를 브라우저 「전부 정지」 로 팬아웃하지 않는다. 그래서 그 세션의 미해결 21 은 늘 한 주인의 것이다.
  *
@@ -64,7 +70,7 @@ import { MSG } from "./msg-type.js";
 import type { DmaSession } from "./session.js";
 import type { DmaCredentials, SessionTarget } from "./session-manager.js";
 
-/** 한 단계(Ready · 64 · 거래소별 61 · 65 · 에코)를 기다리는 시한. */
+/** 한 단계(Ready · 21 · 21 · 24 조회 한 벌 · 65 · 에코)를 기다리는 시한. */
 export const SWEEP_STEP_TIMEOUT_MS = 5_000;
 /** `sweep` 한 번 전체 시한. */
 export const SWEEP_TOTAL_TIMEOUT_MS = 20_000;
@@ -89,7 +95,7 @@ export type StrategySweepResult =
       ok: true;
       /** 14 를 보내 65 를 받은 상따 수. */
       disabledLimitChasers: number;
-      /** 11 을 보내 run:false 에코를 받은 **거래소 수**(0~2). */
+      /** 11 을 보내 run:false 에코를 받은 **VI 슬롯 수**((계좌, 거래소) — 대상 계좌 하나면 거래소 수 0~2). */
       viDisabled: number;
       /** 이 호출이 새 세션을 열었는가(로그인 1회). */
       sessionCreated: boolean;
@@ -470,35 +476,46 @@ export class StrategySweeper {
     }
   }
 
-  /** 24 → 64, 그리고 거래소마다 21 → 61 (한 번에 하나) — 대상 계좌의 켜진 상따와 run VI. */
+  /**
+   * 21(KRX) · 21(NXT) · 24 를 잇달아 보내고 64 를 두 21 답의 끝으로 읽는다 (32-14 · 머리 주석) — 대상 계좌의 켜진 상따와 run VI 슬롯.
+   */
   async #readActive(session: DmaSession, tap: FrameTap, accounts: ReadonlySet<string>): Promise<ActiveRead> {
+    /** 슬롯 키 `계좌|거래소` → 그 슬롯의 마지막 61(null = 미등록 프레임). */
+    const slots = new Map<string, RelayViTrigger | null>();
+    /** 슬롯이 실린 61 로 답이 보인 거래소. */
+    const seen = new Set<RelayExchange>();
+    /** 거래소를 싣지 않는 빈 Envelope 61 수(구 서버 미등록 · 선언 계좌 0). */
+    let bare = 0;
+    /** 파손 61 이 섞였는가 — 그 프레임이 대상 슬롯이었는지 알 수 없다. */
+    let corrupt = false;
     const got: { list: RelayLimitChaser[] } = { list: [] };
-    const listed = tap.wait((e) => {
+    const done = tap.wait((e) => {
+      if (e.msgType === MSG.SetVITriggerResp) {
+        const parsed = parseViTrigger(e.env);
+        if (parsed === null) corrupt = true;
+        else if (parsed.slot === undefined) bare += 1;
+        else {
+          seen.add(parsed.slot.exchange);
+          slots.set(`${parsed.slot.accountNo}|${parsed.slot.exchange}`, parsed.cfg);
+        }
+        return false;
+      }
       if (e.msgType !== MSG.GetLimitChaserListResp) return false;
+      // 두 거래소 답을 다 보기 전의 64 는 앞선 요청의 답이다 · 파손 61 이 섞인 창은 끝으로 접지 않는다 — 계속 기다린다(시한이 fail closed).
+      const unseen = SWEEP_VI_EXCHANGES.filter((ex) => !seen.has(ex)).length;
+      if (corrupt || unseen > bare) return false;
       const list = parseLimitChaserList(e.env);
       if (list === null) return false; // 파손 — 계속 기다린다(시한이 fail closed).
       got.list = list;
       return true;
     });
+    for (const ex of SWEEP_VI_EXCHANGES) send(session, () => buildGetVITriggerReq(ex));
     send(session, buildGetLimitChaserListReq);
-    await listed;
-    const chasers = got.list.filter((c) => accounts.has(c.accountNo) && isActiveLimitChaser(c));
+    await done;
 
+    const chasers = got.list.filter((c) => accounts.has(c.accountNo) && isActiveLimitChaser(c));
     const vis: RelayViTrigger[] = [];
-    for (const ex of SWEEP_VI_EXCHANGES) {
-      const slot: { cfg: RelayViTrigger | null } = { cfg: null };
-      const answered = tap.wait((e) => {
-        if (e.msgType !== MSG.SetVITriggerResp) return false;
-        const parsed = parseViTrigger(e.env);
-        if (parsed === null) return false; // 파손 — 계속 기다린다(시한이 fail closed).
-        if (parsed.cfg === null) return true; // 빈 61 = 지금 기다리는 거래소 미등록(미해결 21 은 늘 하나).
-        if (parsed.cfg.exchange !== ex) return false; // 다른 거래소 본문 = 떠돌이 에코.
-        slot.cfg = parsed.cfg;
-        return true;
-      });
-      send(session, () => buildGetVITriggerReq(ex));
-      await answered;
-      const cfg = slot.cfg;
+    for (const cfg of slots.values()) {
       if (cfg !== null && accounts.has(cfg.accountNo) && cfg.run) vis.push(cfg);
     }
     return { chasers, vis };

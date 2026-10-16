@@ -4,8 +4,8 @@
  * gh-trade-84 ② 추가 확정(29-29-SUMMARY §후속): 주문 서버를 바꾸면 옛 서버에 남은 그 계좌의 활성 전략(상따 · VI · 자동매도)을
  * 꺼야 한다 — 경고로는 부족. 이 파일은 그 프로토콜 모듈 하나를 스텁 게이트웨이 1대(KB120 역할) · 실 SessionManager · 실 DmaSession
  * 위에서 끝에서 끝으로 고정한다:
- *   24 · 21(KRX) · 21(NXT) 순차 조회 → 대상 계좌의 켜진 상따마다 14(그 키) · 대상 계좌 VI 거래소마다 11 run:false
- *   → 60/61 에코 · 65 → 24 · 21 × 2 재조회로 0 확인 → ok.
+ *   21(KRX) · 21(NXT) · 24 조회(64 = 두 21 답의 끝 · 32-14) → 대상 계좌의 켜진 상따마다 14(그 키) · 대상 계좌 VI 슬롯마다 11 run:false
+ *   → 60/61 에코 · 65 → 21 × 2 · 24 재조회로 0 확인 → ok.
  *
  * 타이머 · 대기 규율은 `session-routing.test.ts` 와 같다(setImmediate 는 진짜, 조건 폴링).
  */
@@ -37,6 +37,7 @@ import {
   buildDisableStrategiesRespFrame,
   buildLimitChaserListRespFrame,
   buildSetLimitChaserRespFrame,
+  buildSetVITriggerRespFrame,
   type FakeLimitChaserInput,
 } from "./helpers/frames.js";
 
@@ -193,17 +194,17 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
     );
 
     expect(result).toEqual({ ok: true, disabledLimitChasers: 2, viDisabled: 1, sessionCreated: false, skippedAccounts: [] });
-    // 스텁 수신 순서: 24 → 21(KRX) → 21(NXT) → 14 × 2 → 11 × 1 → 24 · 21(KRX) · 21(NXT).
+    // 스텁 수신 순서: 21(KRX) → 21(NXT) → 24 → 14 × 2 → 11 × 1 → 21(KRX) · 21(NXT) · 24 (32-14 — 64 가 21 답의 끝).
     expect(sweepTypes()).toEqual([
+      MSG.GetVITriggerReq,
+      MSG.GetVITriggerReq,
       MSG.GetLimitChaserListReq,
-      MSG.GetVITriggerReq,
-      MSG.GetVITriggerReq,
       MSG.DisableStrategiesReq,
       MSG.DisableStrategiesReq,
       MSG.SetVITriggerReq,
+      MSG.GetVITriggerReq,
+      MSG.GetVITriggerReq,
       MSG.GetLimitChaserListReq,
-      MSG.GetVITriggerReq,
-      MSG.GetVITriggerReq,
     ]);
     expect(viGetExchanges()).toEqual(["KRX", "NXT", "KRX", "NXT"]);
     // 14 는 A 의 켜진 키만 — 비활성 1건 · B 키 · 빈 키 없음.
@@ -288,13 +289,13 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
     expect(result).toEqual({ ok: true, disabledLimitChasers: 1, viDisabled: 0, sessionCreated: true, skippedAccounts: [] });
     expect(received.filter((r) => r.msgType === MSG.LoginReq)).toHaveLength(1);
     expect(sweepTypes()).toEqual([
+      MSG.GetVITriggerReq,
+      MSG.GetVITriggerReq,
       MSG.GetLimitChaserListReq,
-      MSG.GetVITriggerReq,
-      MSG.GetVITriggerReq,
       MSG.DisableStrategiesReq,
+      MSG.GetVITriggerReq,
+      MSG.GetVITriggerReq,
       MSG.GetLimitChaserListReq,
-      MSG.GetVITriggerReq,
-      MSG.GetVITriggerReq,
     ]);
     expect(releaseSpy).toHaveBeenCalledTimes(1);
     // 얻은 세션 객체로 반납한다(GC-01 — 키 반납 아님). 반납 뒤에도 유예 중이라 맵에 같은 객체가 있다.
@@ -310,12 +311,12 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
 
     expect(result).toEqual({ ok: true, disabledLimitChasers: 0, viDisabled: 0, sessionCreated: false, skippedAccounts: [] });
     expect(sweepTypes()).toEqual([
-      MSG.GetLimitChaserListReq,
       MSG.GetVITriggerReq,
       MSG.GetVITriggerReq,
       MSG.GetLimitChaserListReq,
       MSG.GetVITriggerReq,
       MSG.GetVITriggerReq,
+      MSG.GetLimitChaserListReq,
     ]);
     expect(viGetExchanges()).toEqual(["KRX", "NXT", "KRX", "NXT"]);
   });
@@ -406,7 +407,7 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
     expect(disabledKeys()).toHaveLength(1);
   });
 
-  it("⑬ timeout — 21(NXT) 에 답하지 않으면(KRX 61 은 옴) 조회 미완 → remaining null · 14 · 11 0건", async () => {
+  it("⑬ timeout — 21(NXT) 에 답하지 않으면(KRX 61 · 64 는 옴) 조회 미완 → remaining null · 14 · 11 0건", async () => {
     await readySessionOf(U1);
     gw.respondLimitChaserList([on(ISIN1, A)]);
     gw.respondViTriggerFor("KRX", { accountNo: A, run: true, orderAmountKrw: 1_000_000n, checkRate: 25 });
@@ -423,9 +424,10 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
     expect(viSets()).toHaveLength(0);
   });
 
-  it("⑭ 21 은 한 번에 하나 — 21(KRX) 가 답을 못 받으면 21(NXT) 를 보내지 않는다", async () => {
+  it("⑭ 21(KRX) 가 답하지 않으면(NXT 본문 61 · 64 는 옴) 64 를 끝으로 접지 않는다 → timeout · remaining null · 11 0건 (32-14)", async () => {
     await readySessionOf(U1);
     gw.respondViTriggerFor("KRX", "silent");
+    gw.respondViTriggerFor("NXT", { accountNo: A, run: true, orderAmountKrw: 1_000_000n, checkRate: 25 });
 
     const result = await sweeper({ stepTimeoutMs: 200 }).sweep(
       { userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] },
@@ -433,7 +435,8 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
     );
 
     expect(result).toMatchObject({ ok: false, reason: "timeout", remaining: null });
-    expect(viGetExchanges()).toEqual(["KRX"]);
+    expect(viGetExchanges()).toEqual(["KRX", "NXT"]);
+    expect(viSets()).toHaveLength(0);
   });
 
   it("⑮ remaining — 14 를 받아도 스위치를 내리지 않는 서버 → 65 뒤 재조회에 켜진 2 → remaining 2", async () => {
@@ -470,7 +473,7 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
       { userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] },
       CREDS,
     );
-    await waitFor(() => sweepTypes().length === 1, "24 송신");
+    await waitFor(() => sweepTypes().length === 3, "21 · 21 · 24 송신");
     await vi.advanceTimersByTimeAsync(19_999);
     let settled = false;
     void pending.then(() => {
@@ -881,6 +884,25 @@ describe("StrategySweeper — 옛 서버 계좌 전략 끄기 (29-43)", () => {
     expect(result).toEqual({ ok: false, reason: "timeout", remaining: null, disabledLimitChasers: 0, viDisabled: 0, skippedAccounts: [] });
     expect(viSets()).toHaveLength(0);
     expect(gw.viSlot(B, "KRX")).toMatchObject({ run: true });
+  });
+
+  it("32-14 (f) 21 답 창에 파손 61(계좌번호 불량)이 섞이면 그 슬롯을 알 수 없다 → 64 를 끝으로 접지 않는다 → timeout · 11 0건", async () => {
+    await readySessionOf(U1);
+    gw.respondLimitChaserList([]);
+    gw.respondViSlots([]);
+    gw.onFrame((msgType, payload, sock) => {
+      if (msgType === MSG.GetVITriggerReq && readGetVITriggerExchange(msgType, Buffer.from(payload)) === "KRX") {
+        gw.sendFrame(sock, buildSetVITriggerRespFrame({ accountNo: "", exchange: "KRX", run: true }));
+      }
+    });
+
+    const result = await sweeper({ stepTimeoutMs: 200 }).sweep(
+      { userId: U1, serverKey: "KB120", broker: "KB", accountNos: [A] },
+      CREDS,
+    );
+
+    expect(result).toEqual({ ok: false, reason: "timeout", remaining: null, disabledLimitChasers: 0, viDisabled: 0, skippedAccounts: [] });
+    expect(viSets()).toHaveLength(0);
   });
 
   it("isActiveLimitChaser — 5스위치 OR autoSellState !== 0", () => {

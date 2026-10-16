@@ -39,7 +39,6 @@ import {
   buildAccountStateFrame,
   buildLimitChaserListRespFrame,
   buildLoginRespFrame,
-  buildSetVITriggerRespFrame,
   type FakeAccount,
   type FakeLimitChaserInput,
 } from "./helpers/frames.js";
@@ -444,19 +443,19 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     await h.loader.reload();
     await waitFor(() => tab1.ws.closeInfo !== null && tab2.ws.closeInfo !== null, "u1 두 탭 close");
 
-    // 순서 — 끄기(24 · 21 · 21 · 14 · 재조회 24 · 21 · 21)가 세션 drop · 1012 보다 먼저.
+    // 순서 — 끄기(21 · 21 · 24 · 14 · 재조회 21 · 21 · 24 — 32-14 64 가 21 답의 끝)가 세션 drop · 1012 보다 먼저.
     const order = events
       .slice(fromEvents)
       .filter((e) => e.startsWith("drop:") || (e.startsWith("KB120:") && SWEEP_TYPES.has(Number(e.slice(6)))));
     const t = (n: number) => `KB120:${n}`;
     expect(order).toEqual([
+      t(MSG.GetVITriggerReq),
+      t(MSG.GetVITriggerReq),
       t(MSG.GetLimitChaserListReq),
-      t(MSG.GetVITriggerReq),
-      t(MSG.GetVITriggerReq),
       t(MSG.DisableStrategiesReq),
+      t(MSG.GetVITriggerReq),
+      t(MSG.GetVITriggerReq),
       t(MSG.GetLimitChaserListReq),
-      t(MSG.GetVITriggerReq),
-      t(MSG.GetVITriggerReq),
       `drop:${U1}`,
     ]);
     // 14 는 A 의 키 하나뿐 — 같은 서버에 남는 B · 다른 사용자 D 는 그대로 켜져 있다.
@@ -863,13 +862,13 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     expect(kb121.sockets).toHaveLength(0);
     const t = (n: number) => `KB120:${n}`;
     expect(events.slice(fromEvents).filter((e) => e.startsWith("KB120:") && SWEEP_TYPES.has(Number(e.slice(6))))).toEqual([
+      t(MSG.GetVITriggerReq),
+      t(MSG.GetVITriggerReq),
       t(MSG.GetLimitChaserListReq),
-      t(MSG.GetVITriggerReq),
-      t(MSG.GetVITriggerReq),
       t(MSG.DisableStrategiesReq),
+      t(MSG.GetVITriggerReq),
+      t(MSG.GetVITriggerReq),
       t(MSG.GetLimitChaserListReq),
-      t(MSG.GetVITriggerReq),
-      t(MSG.GetVITriggerReq),
     ]);
     expect(disabledKeys("KB120", from120)).toEqual([keyOf(SAMPLE_ISIN, A)]);
     expect(kb120.limitChaserSeed().filter((c) => c.buyEnabled).map((c) => c.accountNo)).toEqual([B, D]);
@@ -1292,27 +1291,27 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     expect(targets).toEqual([`KB120:${A}`, `KB120:${C}`]);
     expect(results).toEqual([expect.objectContaining({ ok: true }), expect.objectContaining({ ok: true })]);
 
-    // KB120 이 받은 조회 · 끄기 순서 — 첫 sweep 한 벌이 끝난 뒤에야 두 번째 sweep 의 24 가 온다.
+    // KB120 이 받은 조회 · 끄기 순서 — 첫 sweep 한 벌이 끝난 뒤에야 두 번째 sweep 의 첫 21 이 온다(조회 = 21 · 21 · 24 — 32-14).
     const t = (n: number) => `KB120:${n}`;
     const seq = events.slice(fromSweep).filter((e) => e.startsWith("KB120:") && SWEEP_TYPES.has(Number(e.slice(6))));
     const first = [
+      t(MSG.GetVITriggerReq),
+      t(MSG.GetVITriggerReq),
       t(MSG.GetLimitChaserListReq),
-      t(MSG.GetVITriggerReq),
-      t(MSG.GetVITriggerReq),
       t(MSG.DisableStrategiesReq),
       t(MSG.SetVITriggerReq),
+      t(MSG.GetVITriggerReq),
+      t(MSG.GetVITriggerReq),
       t(MSG.GetLimitChaserListReq),
-      t(MSG.GetVITriggerReq),
-      t(MSG.GetVITriggerReq),
     ];
     const second = [
+      t(MSG.GetVITriggerReq),
+      t(MSG.GetVITriggerReq),
       t(MSG.GetLimitChaserListReq),
-      t(MSG.GetVITriggerReq),
-      t(MSG.GetVITriggerReq),
       t(MSG.SetVITriggerReq),
+      t(MSG.GetVITriggerReq),
+      t(MSG.GetVITriggerReq),
       t(MSG.GetLimitChaserListReq),
-      t(MSG.GetVITriggerReq),
-      t(MSG.GetVITriggerReq),
     ];
     expect(seq).toEqual([...first, ...second]);
 
@@ -1329,10 +1328,10 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     expect(tab.ws.closeInfo).toBeNull();
   });
 
-  it("⑳ GC-14 — 연결 없는 u1 의 A 를 KB121 로 지정 → KB120 sweep 이 24 · 21 · 21 을 읽는 사이(21 NXT 쥠) 지정 해제(유효 KB120) → 풀면 KB120 14(A) 0 · 11 0 · skippedAccounts [A] · 레지스터 (u1, KB120, A) 없음 · 확인 기록 없음(다시 옮기면 다시 끈다) · info 1줄(수 · 서버 키만)", async () => {
+  it("⑳ GC-14 — 연결 없는 u1 의 A 를 KB121 로 지정 → KB120 sweep 이 21 · 21 · 24 를 읽는 사이(64 쥠 — 32-14 21 답의 끝) 지정 해제(유효 KB120) → 풀면 KB120 14(A) 0 · 11 0 · skippedAccounts [A] · 레지스터 (u1, KB120, A) 없음 · 확인 기록 없음(다시 옮기면 다시 끈다) · info 1줄(수 · 서버 키만)", async () => {
     const logs = await captureLogs();
     kb120.respondLimitChaserList([on(SAMPLE_ISIN, A), on(ISIN2, B)]);
-    kb120.respondViTriggerFor("NXT", "silent");
+    kb120.silenceQuery(MSG.GetLimitChaserListReq);
     const results: StrategySweepResult[] = [];
     const targets: string[] = [];
     const h = await harness({ tracker: true, wrapSweeper: recording(results, targets) });
@@ -1340,7 +1339,7 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
 
     chosenRows = [{ dma_user_id: D1, broker: "KB", account_no: A, server_key: "KB121" }];
     await h.loader.reload();
-    // 임시 세션 sweep 이 24 · 21(KRX) · 21(NXT) 를 보냈고 NXT 답을 기다린다(쥠).
+    // 임시 세션 sweep 이 21(KRX) · 21(NXT) · 24 를 보냈고 64(21 답의 끝)를 기다린다(쥠).
     await waitFor(
       () => count("KB120", MSG.GetLimitChaserListReq, from120) === 1 && count("KB120", MSG.GetVITriggerReq, from120) === 2,
       "KB120 sweep 조회 쥠",
@@ -1353,11 +1352,11 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     await h.loader.reload();
     await flushIo(20);
 
-    // 쥔 21(NXT)의 답(빈 61)을 보낸다 → sweep 이 14 · 11 직전에 stillStale 을 묻는다.
-    kb120.respondViTriggerFor("NXT", null);
+    // 쥔 24 의 답(64)을 보낸다 → sweep 이 14 · 11 직전에 stillStale 을 묻는다.
+    kb120.silenceQuery(MSG.GetLimitChaserListReq, false);
     const sock = kb120.sockets[0];
     expect(sock).toBeDefined();
-    if (sock !== undefined) kb120.sendFrame(sock, buildSetVITriggerRespFrame(null));
+    if (sock !== undefined) kb120.sendFrame(sock, buildLimitChaserListRespFrame(kb120.limitChaserSeed()));
     await waitFor(() => results.length === 2, "KB120 · KB121 sweep 완료");
     await flushIo(10);
 
