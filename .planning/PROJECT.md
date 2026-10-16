@@ -26,6 +26,7 @@
 - [x] GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK) — Validated in Phase 22 (MOBILE-02, v1.0)
 - [x] KB 계좌별 주문자 IP/MAC (IPMAC-01~05) — Validated in Phase 30: relay R3-01(op 1/3 직전 op 5 재조회 · 실패면 44 미송신) · R3-02(공유 계좌 추가 시 다른 유저 IP/MAC 되싣기) · 웹 Admin 계좌 카드 편집(계좌명 · IP/MAC, 표시는 `10.41.1.124` · `1C:FD:08:7D:97:8E`, 저장 · 비교는 정규화값) · 공유 계좌 IP/MAC 동시 반영(gh-trade 261011 op 3 전파 + 웹 안내 줄) · KB 운영 서버 IP/MAC 설정 보류 해제. 배포 relay 2234a1b5 · server 00061-fvv · webapp 34f145b1, 실서버 UAT 2라운드 pass(KB120). 남은 비차단: KB121 전파 배포 확인 · 실주문 전문 IP/MAC 회선 관측
 - [x] 상따 금액(만원) 단위 (AMT-01~04) — Validated in Phase 31: 웹 `lc.set` 재제출이 C# 단말 칸의 만원 원값을 지우지 않는다(금액 8필드 되싣기 · 구 탭은 relay 가 에코 원값으로 보충) · 수량 8칸 두 줄 행(위 만원 / 아래 주) · 시트 환산 안내 · 주문로그 「N만(M주)」 · /me 「후매수 최소(만원)」(84 `post_buy_floor_amount` · 42 12값). gh-trade feature 병합 뒤 생성물 마커 e5b4fbca 일치. UAT 4/4 · 재검증 R2 passed 4/4 (2026-10-12)
+- [x] 계좌 축 정리 (AXIS-01~05) — Validated in Phase 32: 작업대 계좌 선택 = 화면 범위(전략 카드 · VI 스트립 · VI 설정 행 · 토스트는 전 계좌 + 계좌 줄 · 누르면 계좌 전환) · 상단 줄 한 줄 필(「정규」 배지 · 사운드 토글 제거 → /me 「이 기기」 카드) · /me 탭 위 계좌 칩이 현황 · 잔고 · 주문 · 설정을 거름 · 「이 계좌 끄기」(전체 비활성화 제거) · 매매설정 서버별(relay `serverKey` · 84 캐시 `(userId, serverKey)` · 42 지정 서버 라우팅) · VI 계좌별(gh-trade Phase 33 61 슬롯). 리뷰 수정 WR-01~06 배포 relay·push 57c19e5e, KB120 · KYOBO119 UAT 4/4 pass (2026-10-16)
 
 ### Active
 
@@ -110,4 +111,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-12 after Phase 31*
+*Last updated: 2026-10-16 after Phase 32*

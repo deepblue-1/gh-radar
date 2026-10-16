@@ -16,18 +16,18 @@
     {
       "number": "32",
       "name": "계좌 축 정리",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "33",
       "name": "팀 매집(teamflow) 보고서",
-      "status": "in_progress"
+      "status": "complete"
     }
   ],
   "next": {
-    "command": "/gsd:progress --next",
-    "label": "Advance to the next step (plan phase 32)",
-    "reason": "Phase 32 of 4 — needs a plan"
+    "command": "/gsd:progress",
+    "label": "Show progress",
+    "reason": "Unsure of state — showing progress"
   },
-  "updated_at": "2026-10-16T09:17:33.282Z"
+  "updated_at": "2026-10-16T12:50:37.361Z"
 }

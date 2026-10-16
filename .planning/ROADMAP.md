@@ -59,7 +59,7 @@
 
 - [x] **Phase 30: 인박스 KB 계좌별 주문자 IP/MAC** - relay R3-01(op 5 재조회) · 웹 Admin 계좌 편집 IP/MAC 입력칸 · 계좌명 편집 · code 13 문구 · 질문 3개 답으로 `261010-kb-order-ip-mac.md` 닫기 (completed 2026-10-11)
 - [x] **Phase 31: 인박스 상따 금액 단위** - 생성물 마커 확인 · `lc.set` 금액 8필드 되싣기 · 84 `post_buy_floor_amount` · 「만(주)」 결정으로 `261011-limitchaser-amount-unit.md` 닫기 (completed 2026-10-12)
-- [ ] **Phase 32: 계좌 축 정리** - 작업대 계좌 스코프(전략·VI 계좌별) · 상단 줄 재설계(정규 배지·사운드 토글 제거, 시세·주문 축약, 계좌 선택) · /me 탭 위 계좌 칩(현황 · 잔고 · 주문 · 설정이 고른 계좌를 따름) · 매매설정 서버별(relay 42/84 serverKey) · VI 계좌별(relay 61 슬롯 · gh-trade Phase 33 뒤)
+- [x] **Phase 32: 계좌 축 정리** - 작업대 계좌 스코프(전략·VI 계좌별) · 상단 줄 재설계(정규 배지·사운드 토글 제거, 시세·주문 축약, 계좌 선택) · /me 탭 위 계좌 칩(현황 · 잔고 · 주문 · 설정이 고른 계좌를 따름) · 매매설정 서버별(relay 42/84 serverKey) · VI 계좌별(relay 61 슬롯 · gh-trade Phase 33 뒤) (completed 2026-10-16)
 - [x] **Phase 33: 팀 매집(teamflow) 보고서** - gh-trade `team_flow.ndjson.gz` export 적재(limitup-sync · 표 + payload) · 서버 RPC · `/analytics/teamflow` 목록(스케치 014 A 보고서 동형 · 기본 접힘) + 행 펼침 상세(스케치 015 C 차트 + 접힌 표) · 인박스 `261016-teamflow-export.md` 닫기 (completed 2026-10-16)
 
 ## Phase Details
@@ -153,7 +153,7 @@ Plans:
   5. /me 설정 탭은 고른 계좌의 서버(서버키 칩 · 「이 계좌의 서버 {서버키} 에 저장돼요」)의 84 값을 보고 42 로 그 서버에만 저장한다 — relay `user.settings`/`user.settings.set` 에 `serverKey`, hub 84 캐시 `(userId, serverKey)`, `#fromPrimary` 필터 해제, 42 지정 서버 라우팅. 상따 폼 시딩은 카드 계좌의 소유 서버 설정을 읽는다. relay 단위 · E2E 통과, relay 배포(20:00 KST 뒤) 후 KB120 · KYOBO119 에서 서로 다른 값이 보인다
 
 **배포 순서**: DB 변경 없음 → relay(20:00 KST 뒤) → webapp push(= 프로덕션). 웨이브 ① /me 계좌 칩 · 현황 · 잔고 · 주문(webapp 만 · 단독 push 가능) ② 작업대 계좌 스코프 · 상단 줄 A · 사이드바 · 토스트 · 「이 기기」 · 계좌별 끄기(relay 새 메시지 타입) ③ 매매설정 서버별(relay + shared + webapp) → ①~③ relay 배포 → push ④ VI 계좌별 — relay 먼저(20:00 KST 뒤) → gh-trade 서버(KB120 · 121 · 교보119) → webapp push
-**Plans**: 14/14 plans executed
+**Plans**: 14/14 plans complete
 
 Plans:
 **Wave 1**
@@ -211,7 +211,7 @@ Plans:
 |-------|-----------|----------------|--------|-----------|
 | 30. 인박스 KB 계좌별 주문자 IP/MAC | v1.1 | 9/9 | Complete | 2026-10-11 |
 | 31. 인박스 상따 금액 단위 | v1.1 | 8/8 | Complete | 2026-10-12 |
-| 32. 계좌 축 정리 | v1.1 | 14/14 | In Progress | — |
+| 32. 계좌 축 정리 | v1.1 | 14/14 | Complete | 2026-10-16 |
 | 33. 팀 매집(teamflow) 보고서 | v1.1 | 9/9 | Complete | 2026-10-16 |
 
 ### Phase 33: 팀 매집(teamflow) 보고서

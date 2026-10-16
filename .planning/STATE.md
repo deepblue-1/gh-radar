@@ -3,38 +3,37 @@ gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: 운영 유지보수
 current_phase: 32
-current_phase_name: 계좌 축 정리
-status: executing
-stopped_at: Phase 32 검증 human_needed — 리뷰 수정 배포(relay·push 57c19e5e) 뒤 UAT 4건 대기
-last_updated: "2026-10-16T10:10:00.000Z"
+status: completed
+stopped_at: Phase 32 complete — UAT 4/4 · v1.1 전 phase 완료
+last_updated: "2026-10-16T12:50:37.351Z"
 last_activity: 2026-10-16
-last_activity_desc: Phase 33 complete — Phase 32 실행 계속
-state_head: 36cd83839d50f005bf89ea751ee288ada47c68d2
+last_activity_desc: Phase 32 complete
+state_head: df3480463d1085828ad04b58ecf0a141363f85a4
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 40
-  completed_plans: 35
-  percent: 50
+  completed_plans: 40
+  percent: 100
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-12 after Phase 31)
+See: .planning/PROJECT.md (updated 2026-10-16 after Phase 32)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 32 — 계좌 축 정리
+**Current focus:** v1.1 전 phase 완료 — 새 작업 대기(`/gsd-phase add` · `/gsd-quick`)
 
 ## Current Position
 
-Phase: 32 (계좌 축 정리) — EXECUTING
-Plan: 14 of 14 (전 플랜 완료 · ④ relay 7794dcd9 · push 7794dcd9 · 교보119 실증 통과 · 인박스 done · 후속 32-15 작업대 계좌 칩 push c7cdb797)
-Status: Executing Phase 32
-Last activity: 2026-10-16 — Phase 32 32-13 완료 · Phase 33 완료(9/9 · 검증 passed · 배포 완료, 별도 세션)
+Phase: 32 (계좌 축 정리) — COMPLETE
+Plan: 14 of 14
+Status: All phases complete (v1.1 30 · 31 · 32 · 33)
+Last activity: 2026-10-16 — Phase 32 UAT 4/4 pass · 검증 passed · UI 리뷰 17/24
 
-Progress: [█████░░░░░] 50% (17/17 plans)
+Progress: [██████████] 100% (40/40 plans)
 
 ## Accumulated Context
 
@@ -89,8 +88,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-16T08:51:53.087Z
-Stopped at: Phase 33 complete, ready to plan Phase 32
+Last session: 2026-10-16T12:55:00.000Z
+Stopped at: Phase 32 complete — UAT 4/4 · v1.1 전 phase 완료
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -128,6 +127,10 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 
 ## Decisions
 
+- [Phase 32]: /me 는 탭 위 계좌 칩 한 곳이 현황 · 잔고 · 주문 · 설정 네 탭을 거른다 — 선택은 작업대와 따로 기기별 기억(`gh-radar:me-account:{userId}`) · Phase 16 D-21 전면 뒤집음(D-20~D-23)
+- [Phase 32]: /me 현황은 「이 계좌 끄기」(relay `strategies.disable.account`)만 — 「전체 비활성화」 는 primary 세션만 끄는 불일치로 웹에서 제거, relay 무인자 경로는 무변경(D-27)
+- [Phase 32]: 매매설정은 서버별 — relay `serverKey` · hub 84 캐시 `(userId, serverKey)` · `#fromPrimary` 해제 · 지정 서버 세션 없으면 primary 로 떨어뜨리지 않고 거부(D-24 · D-14a)
+- [Phase 32]: 작업대 상단 줄의 계좌 선택은 32-15 에서 `<select>` 대신 `MeAccountChips` 재사용(사용자 지시) — UI-SPEC S1 · S10 은 미갱신(32-UI-REVIEW 1순위)
 - [Phase 31]: 금액 확정 성공 = 짝 판정(에코 주 = 보낸 주 ∧ (에코 금액 = 보낸 금액 ∨ 금액을 모르는 서버의 0)) · 금액을 아는 서버의 모호한 에코(주 일치 · 금액 0)는 거부 대신 LC_REJECT_ECHO_GRACE_MS 유예(R3-WR-01 · b977002f)
 - [Phase 31]: 구 탭 `lc.set`(금액 부재)은 relay 가 최신 에코 원값으로 금액을 되싣는다 — 주 · 비교가가 어긋난 쌍만 0(WR-01 · `#withEchoAmounts`)
 - [Phase 30]: 30-01: PUT body 최상위 orderEndpoint(KB 만 · 구조/길이만 · 형식 검사 없음 · DB 미저장) → relay reconcileUser override → 등록 서버 전부 op 3
