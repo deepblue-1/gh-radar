@@ -211,6 +211,42 @@ describe('P32 MeAccountChips (D-20 · S13)', () => {
     expect(onChange).toHaveBeenCalledWith(CHOICES[1].accountNo);
   });
 
+  it('locked — 칩마다 aria-disabled="true" · 잠금 title · disabled 속성 없음 · roving 유지 (quick-261017-bwt)', () => {
+    const LOCK = '저장 중에는 계좌를 바꿀 수 없어요';
+    setup({ locked: true, lockedTitle: LOCK });
+    const group = screen.getByRole('radiogroup', { name: 'My page 계좌' });
+    expect(group).toHaveAttribute('aria-disabled', 'true');
+    expect(group).toHaveAttribute('title', LOCK);
+    for (const chip of chips()) {
+      expect(chip).toHaveAttribute('aria-disabled', 'true');
+      expect(chip).toHaveAttribute('title', LOCK);
+      expect(chip).not.toHaveAttribute('disabled');
+    }
+    expect(chips().map((c) => c.tabIndex)).toEqual([0, -1, -1]);
+  });
+
+  it('잠금 아님 — 어느 칩에도 aria-disabled · title 없음(그룹 title 이 hover 에 보인다 · quick-261017-bwt)', () => {
+    setup({ title: '작업대 계좌 스코프' });
+    expect(screen.getByRole('radiogroup', { name: 'My page 계좌' })).toHaveAttribute('title', '작업대 계좌 스코프');
+    for (const chip of chips()) {
+      expect(chip).not.toHaveAttribute('aria-disabled');
+      expect(chip).not.toHaveAttribute('title');
+    }
+  });
+
+  it('잠금 → 풀림 rerender — 칩의 aria-disabled · title 이 사라진다 (quick-261017-bwt)', () => {
+    const onChange = vi.fn();
+    const view = render(
+      <MeAccountChips choices={CHOICES} accountNo={CHOICES[0].accountNo} onChange={onChange} locked lockedTitle="잠김" />,
+    );
+    expect(chips().every((c) => c.getAttribute('aria-disabled') === 'true' && c.title === '잠김')).toBe(true);
+    view.rerender(<MeAccountChips choices={CHOICES} accountNo={CHOICES[0].accountNo} onChange={onChange} />);
+    for (const chip of chips()) {
+      expect(chip).not.toHaveAttribute('aria-disabled');
+      expect(chip).not.toHaveAttribute('title');
+    }
+  });
+
   it('빈 목록 = 렌더 없음(높이 0)', () => {
     const { container } = render(<MeAccountChips choices={[]} accountNo="" onChange={vi.fn()} />);
     expect(container).toBeEmptyDOMElement();

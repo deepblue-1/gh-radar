@@ -3140,4 +3140,48 @@ describe('P32 계좌 전환 경로 · 종목 단위 스코프 (Pitfall 5 · 6)',
     expect(byKey()[`${ALTEO}:${B}:KRX`]).toBe('true');
     expect(parkedKeys()).toEqual([]);
   });
+
+  /* IN-05 — VI 트리거 스트립은 카드 격자와 같은 `scopeAccount` 게이트다(D-01 · quick-261017-bwt). */
+  const viA = () => viOrder({ accountNo: A, isin: 'KR7000660001', orderNo: '0000000001', name: 'SK하이닉스' });
+  const viB = () => viOrder({ accountNo: B, isin: 'KR7086520004', orderNo: '0000000002', name: 'HLB' });
+  const viChips = () => Array.from(document.querySelectorAll('[data-slot="vi-chip"]')) as HTMLElement[];
+
+  it('IN-05 ① 정상 전환 — 계좌 A 는 A 발동 칩 1개 · B 로 바꾸면 B 발동 칩 1개', () => {
+    mockRelay = relay({ accounts: [accA, accB], viOrders: [viA(), viB()] });
+    render(<TradingWorkbench />);
+    expect(pickedAccount()).toBe(A);
+    expect(viChips()).toHaveLength(1);
+    expect(viChips()[0]).toHaveTextContent('SK하이닉스');
+
+    clickAccount(B);
+    expect(viChips()).toHaveLength(1);
+    expect(viChips()[0]).toHaveTextContent('HLB');
+  });
+
+  it('IN-05 ② 처음부터 계좌 [] — 거르지 않는다(발동 칩 전부)', () => {
+    mockRelay = relay({ accounts: [], viOrders: [viA(), viB()] });
+    render(<TradingWorkbench />);
+    expect(viChips()).toHaveLength(2);
+  });
+
+  it('IN-05 ③ 계좌 목록이 나중에 비면 카드 격자와 VI 스트립이 함께 거르지 않는다(같은 scopeAccount 게이트)', () => {
+    mockRelay = relay({
+      accounts: [accA, accB],
+      limitChasers: [lc(SAMSUNG, { accountNo: B })],
+      viOrders: [viA(), viB()],
+    });
+    const view = render(<TradingWorkbench />);
+    expect(pickedAccount()).toBe(A);
+    expect(parkedKeys()).toEqual([`${SAMSUNG}:${B}:KRX`]);
+    expect(viChips()).toHaveLength(1);
+
+    mockRelay = relay({
+      accounts: [],
+      limitChasers: [lc(SAMSUNG, { accountNo: B })],
+      viOrders: [viA(), viB()],
+    });
+    view.rerender(<TradingWorkbench />);
+    expect(parkedKeys()).toEqual([]);
+    expect(viChips()).toHaveLength(2);
+  });
 });
