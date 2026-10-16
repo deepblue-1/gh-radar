@@ -401,6 +401,8 @@ function SubNavLink({
  * ★ 태그 순서는 KRX → NXT(`VI_TAG_ORDER`). 모름(키 부재)·미등록(`null`)·중지는 태그가 없다.
  * ★ 가동 거래소가 하나도 없으면 이 줄 자체를 그리지 않는다 — 호출부가 `running.length > 0`
  *   일 때만 렌더한다(숨김이 아니라 미렌더).
+ * ★ Phase 32 D-02 — 줄은 그 cfg 계좌 묶음 안에 선다(`sidebarGroupsOf` 가 거래소를 계좌로 나눈다). 두 거래소가
+ *   다른 계좌면 묶음마다 한 줄 · 태그는 그 묶음 거래소만. 클릭 동작(작업대 이동)은 그대로다 — 계좌 전환은 웨이브 ④.
  * ★ 접근 이름은 「VI — KRX·NXT 가동」 꼴(`aria-label`)이다. 보이는 글자 「VI」가 이름 맨 앞에
  *   있어 WCAG 2.5.3 Label-in-Name 을 충족하고, 태그 묶음은 이름이 이미 말하므로 `aria-hidden` 이다.
  */
@@ -492,7 +494,8 @@ function StrategyItem({ item, name }: { item: RelayLimitChaser; name: string }) 
 }
 
 /**
- * 계좌 묶음 1개 — 소제목(짧은 라벨 + 서버키 칩) → 그 계좌 줄들 (Phase 32 D-02 · UI-SPEC S3 · 목업 ② `.ah`).
+ * 계좌 묶음 1개 — 소제목(짧은 라벨 + 서버키 칩) → VI 줄(그 계좌 가동 거래소가 있을 때) → 전략 줄
+ * (Phase 32 D-02 · UI-SPEC S3 · 목업 ② `.ah`).
  *
  * ★ 소제목은 **링크 · 버튼이 아니다**(포커스 대상 아님) — 위 ① 의 drawer 자동 닫힘 규율 그대로 `<div>` 다.
  * ★ 묶음 안 `ul` 은 `aria-labelledby` = 소제목 id — 스크린리더가 「김알렉스 KB120 목록」 으로 읽는다. id 는
@@ -536,6 +539,11 @@ function AccountGroupItem({
         )}
       </div>
       <ul aria-labelledby={headingId} className="m-0 flex list-none flex-col gap-1 p-0">
+        {group.viRunning.length > 0 && (
+          <li>
+            <ViItem running={group.viRunning} />
+          </li>
+        )}
         {group.chasers.map((item) => (
           <li key={item.key}>
             <StrategyItem item={item} name={strategyDisplayName(item, labels.get(item.isin)?.name)} />
@@ -580,15 +588,14 @@ export function AppSidebar() {
   const isActive = (href: string) => samePath(pathname, href);
   const limitupActive = pathname.startsWith(NAV_LIMITUP_REPORT.href);
   const inAdmin = pathname === ADMIN_PREFIX || pathname.startsWith(`${ADMIN_PREFIX}/`);
-  // 거래소별 진실 — 가동(run === true)인 거래소만, KRX → NXT 순.
-  const viRunning = VI_TAG_ORDER.filter((ex) => viTriggers[ex]?.run === true);
   /*
     사이드바에는 **켜진 전략**(`isActiveStrategy` — 매수·매도 스위치 또는 취소잔량)만 싣는다
     (사용자 결정 2026-09-23 개정 — 취소잔량만 켜진 전략도 싣는다). 서버는 무장이 풀린 전략을 지우지
     않으므로(삭제는 crud "D"·장 마감 정리뿐) 거르지 않으면 꺼진 전략이 쌓인다. 작업대와 같은 기준이다.
   */
   const sidebarChasers = limitChasers.filter(isActiveStrategy);
-  // Phase 32 D-02 — 3단은 계좌 묶음 트리다(`accounts[]` 순 · 목록 밖 맨 뒤 · 빈 묶음 없음).
+  // Phase 32 D-02 — 3단은 계좌 묶음 트리다(`accounts[]` 순 · 목록 밖 맨 뒤 · 빈 묶음 없음). VI 는 거래소별 진실
+  // (가동 run === true 만 · KRX → NXT 순)을 그 cfg 계좌 묶음에 나눈다(`sidebarGroupsOf`).
   const groups = sidebarGroupsOf(accounts, sidebarChasers, viTriggers);
   const groupSiblings = groups.map(labelInputOf);
 
@@ -613,31 +620,24 @@ export function AppSidebar() {
               badge={sidebarChasers.length}
             />
             {/*
-              3단 = VI 0~1줄 + 등록 전략 N개 (D-03 · E16 · quick-260923-dmb). 둘 다 없으면 3단 목록
-              자체가 없다 — 빈 `ul` 은 스크린리더에 「목록 0개」로 읽히고 mt-1 빈 틈과 빈 hairline 을
-              남긴다. 빈 문구는 없다 — 스냅샷 전(로딩)도 같은 모양이라 스피너가 없다. 전략 수 상한이
-              없으므로 목록은 세로로 자연 확장하고 앱 셸이 스크롤한다. 작업대 카드 집합과 같은
+              3단 = 계좌 묶음(Phase 32 D-02 · S3) — 묶음마다 소제목 → VI 0~1줄 → 켜진 전략 N개 (D-03 · E16 ·
+              quick-260923-dmb). 묶음이 하나도 없으면 3단 목록 자체가 없다 — 빈 `ul` 은 스크린리더에 「목록 0개」로
+              읽히고 mt-1 빈 틈과 빈 hairline 을 남긴다. 빈 문구는 없다 — 스냅샷 전(로딩)도 같은 모양이라 스피너가
+              없다. 전략 수 상한이 없으므로 목록은 세로로 자연 확장하고 앱 셸이 스크롤한다. 작업대 카드 집합과 같은
               `limitChasers` 를 보므로 별도 동기화 없이 카드와 맞는다.
             */}
-            {(viRunning.length > 0 || groups.length > 0) && (
+            {groups.length > 0 && (
               // 레일에서는 3단 목록(VI·전략)을 숨긴다 — 켜진 전략 수는 트레이딩 배지가 말한다(D1).
               <li className="rail:hidden">
                 <ul className={SUB_LIST}>
-                  {viRunning.length > 0 && (
-                    <li>
-                      <ViItem running={viRunning} />
-                    </li>
-                  )}
-                  {groups
-                    .filter((group) => group.chasers.length > 0)
-                    .map((group) => (
-                      <AccountGroupItem
-                        key={group.accountNo}
-                        group={group}
-                        siblings={groupSiblings}
-                        labels={labels}
-                      />
-                    ))}
+                  {groups.map((group) => (
+                    <AccountGroupItem
+                      key={group.accountNo}
+                      group={group}
+                      siblings={groupSiblings}
+                      labels={labels}
+                    />
+                  ))}
                 </ul>
               </li>
             )}
