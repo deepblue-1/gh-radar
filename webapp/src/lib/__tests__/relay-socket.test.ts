@@ -3080,6 +3080,44 @@ describe('상따 비활성화 원인 귀속 (quick-260926-nr2)', () => {
     expect(echoes(hook).size).toBe(0);
   });
 
+  it('P32 strategies.disable.account 도 in-flight 창을 연다 · 두 번 보내면 strategies.disabled 두 건 뒤에 닫힌다 (Pitfall 3)', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [lcItem(), nxtItem()] });
+    });
+    let ok = false;
+    act(() => {
+      ok = hook.result.current.send({ t: 'strategies.disable.account', accountNo: ACCT });
+      hook.result.current.send({ t: 'strategies.disable.account', accountNo: '98765432-01' });
+    });
+    expect(ok).toBe(true);
+    expect(ws.parsedSent().slice(-2)).toEqual([
+      { t: 'strategies.disable.account', accountNo: ACCT },
+      { t: 'strategies.disable.account', accountNo: '98765432-01' },
+    ]);
+    // 첫 계좌 끄기의 에코 · 완료 신호.
+    await act(async () => {
+      ws.push({ t: 'lc', item: lcItem({ buyEnabled: false }) });
+      ws.push({ t: 'strategies.disabled', count: 1, viDisabled: false });
+    });
+    expect(echoes(hook).get(KEY)?.cause).toBe('killSwitch');
+    // 완료 신호 1건 뒤에도 창은 열려 있다 — 두 번째 계좌 끄기의 에코도 킬 스위치 원인.
+    await act(async () => {
+      ws.push({ t: 'lc', item: nxtItem({ buyEnabled: false }) });
+      ws.push({ t: 'strategies.disabled', count: 1, viDisabled: false });
+    });
+    expect(echoes(hook).get(KEY_NXT)?.cause).toBe('killSwitch');
+    // 두 건 뒤 닫혔다 — 다시 켜졌다 꺼지는 에코는 귀속 없음.
+    await act(async () => {
+      ws.push({ t: 'lc', item: nxtItem({ buyEnabled: true }) });
+    });
+    await act(async () => {
+      ws.push({ t: 'lc', item: nxtItem({ buyEnabled: false }) });
+    });
+    expect(echoes(hook).has(KEY_NXT)).toBe(false);
+  });
+
   it('귀속과 무관한 에코는 귀속 맵 참조를 바꾸지 않는다(재렌더 예산)', async () => {
     const hook = render();
     const ws = await connected(hook);
@@ -3379,32 +3417,112 @@ describe('Phase 27 user.settings — 84 사용자 설정 3상태 (77 queuedWindo
     autoSellMethodDefault: 1,
   } as const;
 
-  it('초기 undefined(모름) — 연결 · 인증만으로는 지어내지 않는다', async () => {
+  it('초기 빈 Map(모름) — 연결 · 인증만으로는 지어내지 않는다', async () => {
     const hook = render({ enabled: true });
-    expect(hook.result.current.userSettings).toBeUndefined();
+    expect(hook.result.current.userSettingsByServer.size).toBe(0);
     await connected(hook);
-    expect(hook.result.current.userSettings).toBeUndefined();
+    expect(hook.result.current.userSettingsByServer.size).toBe(0);
   });
 
-  it('프레임 → 그 값 · 두 번째 프레임 → 교체 · reset(enabled false) → undefined', async () => {
+  it('프레임 → 그 값 · 두 번째 프레임 → 교체 · reset(enabled false) → 빈 Map (구 relay 모양 — serverKey 없음 = "" 칸)', async () => {
     const hook = render({ enabled: true });
     const ws = await connected(hook);
 
     await act(async () => {
       ws.push(PRESENT);
     });
-    expect(hook.result.current.userSettings).toEqual(PRESENT);
+    expect(hook.result.current.userSettingsByServer.get('')).toEqual(PRESENT);
 
     const NEXT = { ...PRESENT, present: false, autoSellPeriodSec: 3 };
     await act(async () => {
       ws.push(NEXT);
     });
-    expect(hook.result.current.userSettings).toEqual(NEXT);
+    expect(hook.result.current.userSettingsByServer.get('')).toEqual(NEXT);
+    expect(hook.result.current.userSettingsByServer.size).toBe(1);
 
     await act(async () => {
       hook.rerender({ enabled: false });
     });
-    expect(hook.result.current.userSettings).toBeUndefined();
+    expect(hook.result.current.userSettingsByServer.size).toBe(0);
+  });
+});
+
+describe('P32 userSettingsByServer 리듀서 (D-14a — 84 는 서버마다 따로)', () => {
+  const BASE = {
+    t: 'user.settings',
+    present: true,
+    preBuyAmount: 3000,
+    addBuyAmount: 5000,
+    postBuyAmount: 2000,
+    postBuyMaxCount: 2,
+    postBuyFloorQty: 0,
+    postBuyReboundPct: 25,
+    sellQtyTrackRatio: 55,
+    autoSellPeriodSec: 5,
+    auctionSellRatioPct: 20,
+    autoSellRatioDefaultPct: 15,
+    autoSellMethodDefault: 1,
+    postBuyFloorAmount: 84,
+  } as const;
+  const KB = { ...BASE, serverKey: 'KB120' };
+  const KYOBO = { ...BASE, serverKey: 'KYOBO119', preBuyAmount: 7000 };
+
+  it('serverKey KB120 뒤 KYOBO119 → Map 2칸 · 서로 덮지 않는다', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push(KB);
+      ws.push(KYOBO);
+    });
+    const map = hook.result.current.userSettingsByServer;
+    expect([...map.keys()]).toEqual(['KB120', 'KYOBO119']);
+    expect(map.get('KB120')).toEqual(KB);
+    expect(map.get('KYOBO119')).toEqual(KYOBO);
+  });
+
+  it('같은 서버 다시 → 그 칸만 교체 · 다른 서버 칸은 같은 참조 그대로', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push(KB);
+      ws.push(KYOBO);
+    });
+    const kyoboBefore = hook.result.current.userSettingsByServer.get('KYOBO119');
+    const KB2 = { ...KB, autoSellPeriodSec: 9 };
+    await act(async () => {
+      ws.push(KB2);
+    });
+    const map = hook.result.current.userSettingsByServer;
+    expect(map.size).toBe(2);
+    expect(map.get('KB120')).toEqual(KB2);
+    expect(map.get('KYOBO119')).toBe(kyoboBefore);
+  });
+
+  it('serverKey 부재(구 relay) → "" 칸 · 서버키 칸과 따로 있다', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push(BASE);
+      ws.push(KB);
+    });
+    const map = hook.result.current.userSettingsByServer;
+    expect(map.get('')).toEqual(BASE);
+    expect(map.get('KB120')).toEqual(KB);
+    expect(map.size).toBe(2);
+  });
+
+  it('reset(enabled false) → 빈 Map', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push(KB);
+      ws.push(KYOBO);
+    });
+    expect(hook.result.current.userSettingsByServer.size).toBe(2);
+    await act(async () => {
+      hook.rerender({ enabled: false });
+    });
+    expect(hook.result.current.userSettingsByServer.size).toBe(0);
   });
 });
 

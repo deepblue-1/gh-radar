@@ -112,6 +112,28 @@ describe('P32 MeAccountChips (D-20 · S13)', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it('locked — Space 0회 · 화살표 포커스 이동은 허용 · 줄 흐림(opacity .45) / 풀리면 다시 고른다', async () => {
+    const onChange = vi.fn();
+    const view = render(
+      <MeAccountChips choices={CHOICES} accountNo={CHOICES[0].accountNo} onChange={onChange} locked lockedTitle="잠김" />,
+    );
+    const group = screen.getByRole('radiogroup', { name: 'My page 계좌' });
+    expect(group.className).toContain('opacity-[.45]');
+    chips()[0].focus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(chips()[1]).toHaveFocus();
+    await userEvent.keyboard(' ');
+    expect(onChange).not.toHaveBeenCalled();
+    expect(chips()[0]).toHaveAttribute('aria-checked', 'true');
+
+    view.rerender(<MeAccountChips choices={CHOICES} accountNo={CHOICES[0].accountNo} onChange={onChange} />);
+    expect(group).not.toHaveAttribute('aria-disabled');
+    expect(group).not.toHaveAttribute('title');
+    expect(group.className).not.toContain('opacity-[.45]');
+    await userEvent.click(chips()[1]);
+    expect(onChange).toHaveBeenCalledWith(CHOICES[1].accountNo);
+  });
+
   it('빈 목록 = 렌더 없음(높이 0)', () => {
     const { container } = render(<MeAccountChips choices={[]} accountNo="" onChange={vi.fn()} />);
     expect(container).toBeEmptyDOMElement();

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useId, useState, type ComponentType } from "react";
 import { ChartLine, Home, MessageSquare, Search, Shield, User, Zap } from "lucide-react";
 
 import { ExchangeTag } from "@/components/trading/exchange-tag";
@@ -15,12 +15,14 @@ import {
 import { useAppRole } from "@/hooks/use-app-role";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import { useAuth } from "@/lib/auth-context";
+import { accountFullLabelOf, accountShortLabelOf, type AccountLabelInput } from "@/lib/account-label";
 import { useIsinLabels } from "@/lib/isin-labels";
 import { exchangeLabeledName, isActiveStrategy } from "@/lib/limit-chaser";
 import { useRelayContext } from "@/lib/relay-provider";
 import { requestTradingFocus } from "@/lib/trading-focus";
+import type { RelayViTriggers } from "@/lib/use-relay-socket";
 import { cn } from "@/lib/utils";
-import type { RelayExchange, RelayLimitChaser } from "@gh-radar/shared";
+import type { RelayAccount, RelayExchange, RelayLimitChaser } from "@gh-radar/shared";
 
 import { ThemeToggle } from "./theme-toggle";
 import { UserSection } from "./user-section";
@@ -31,7 +33,8 @@ import { UserSection } from "./user-section";
  *
  * 트리 (2단 + 트레이딩 3단 — Phase 18 D-03 이 트레이딩 그룹을 다시 짰다):
  *   홈 · 검색(`/search`, Phase 21 D-07)
- *   · [트레이딩 = `/trading` 링크] VI(가동 거래소 태그만 · 둘 다 꺼지면 없음) / 등록된 상따 전략 N개
+ *   · [트레이딩 = `/trading` 링크] 계좌 묶음(Phase 32 D-02 — `accounts[]` 순 소제목) / 그 계좌의 켜진 상따 전략 N개
+ *     (VI = 가동 거래소 태그만 · 둘 다 꺼지면 없음)
  *   · [분석 = `/analytics/limitup` 링크] 상한가 보고서 · AI 애널리스트 (Phase 28 D-09 · 트레이딩과 같은 노출 조건 ·
  *     「AI 애널리스트」 는 2026-10-05 사용자 결정(quick-261005-vk1 D-01)으로 분석 하위로 옮겨 트레이딩 권한자 전용 ·
  *     실제 차단은 server — 상한가 보고서 = 라우트 + RPC, AI 애널리스트 = `requireDmaMapped`(quick-261009-c43))
@@ -108,6 +111,59 @@ const NAV_TRADING: NavLeaf = { href: "/trading", label: "트레이딩", icon: Za
 
 /** VI 줄 태그의 거래소 순서 — KRX 먼저(목업 `.asb` 순서 승계). */
 const VI_TAG_ORDER: readonly RelayExchange[] = ["KRX", "NXT"];
+
+/** 사이드바 「트레이딩」 3단의 계좌 묶음 1개 (Phase 32 D-02 · UI-SPEC S3). */
+export interface SidebarAccountGroup {
+  accountNo: string;
+  /** `accounts[]` 안 계좌면 그 계좌 — 목록 밖 계좌(또는 `accounts[]` 미수신)면 없다(번호 소제목 · 칩 없음). */
+  account?: RelayAccount;
+  /** 이 계좌 묶음에 둘 가동 VI 거래소(KRX → NXT 순). */
+  viRunning: RelayExchange[];
+  /** 이 계좌의 켜진 전략 — 받은 순서 그대로. */
+  chasers: RelayLimitChaser[];
+}
+
+/**
+ * Phase 32 D-02 — 사이드바는 켜진 것만 · 웨이브 ④ 전 VI 는 거래소별 1건이라 그 cfg 계좌 묶음에 둔다(D-16).
+ *
+ * - 묶음 순서 = `accounts[]` 순. 전략 · VI 의 계좌가 `accounts[]` 에 없으면 그 계좌 묶음을 **처음 본 순서로 맨 뒤**에
+ *   둔다(`account` 없음 — 소제목은 번호). `accounts[]` 를 아직 못 받았을 때도 같은 모양이라 수신 뒤 제자리로 간다.
+ * - `chasers` 는 호출부가 `isActiveStrategy` 로 거른 목록이다 — 여기서는 계좌로 나누기만 하고 순서를 보존한다.
+ * - VI 는 `VI_TAG_ORDER` 순으로 `viTriggers[ex]?.run === true` 인 거래소를 그 cfg 계좌 묶음의 `viRunning` 에 넣는다
+ *   (두 거래소가 다른 계좌면 각 묶음에 한 거래소씩).
+ * - 켜진 전략도 가동 VI 도 없는 묶음은 버린다(소제목 없음). 전부 버려지면 빈 배열 — 3단 목록 자체가 없다.
+ */
+export function sidebarGroupsOf(
+  accounts: readonly RelayAccount[],
+  chasers: readonly RelayLimitChaser[],
+  viTriggers: RelayViTriggers,
+): SidebarAccountGroup[] {
+  const groups = new Map<string, SidebarAccountGroup>();
+  for (const account of accounts) {
+    if (!groups.has(account.accountNo)) {
+      groups.set(account.accountNo, { accountNo: account.accountNo, account, viRunning: [], chasers: [] });
+    }
+  }
+  const groupOf = (accountNo: string): SidebarAccountGroup => {
+    let group = groups.get(accountNo);
+    if (group === undefined) {
+      group = { accountNo, viRunning: [], chasers: [] };
+      groups.set(accountNo, group);
+    }
+    return group;
+  };
+  for (const item of chasers) groupOf(item.accountNo).chasers.push(item);
+  for (const ex of VI_TAG_ORDER) {
+    const cfg = viTriggers[ex];
+    if (cfg?.run === true) groupOf(cfg.accountNo).viRunning.push(ex);
+  }
+  return [...groups.values()].filter((g) => g.chasers.length > 0 || g.viRunning.length > 0);
+}
+
+/** 소제목 라벨 함수가 읽는 모양 — 목록 밖 계좌는 번호만 있다. */
+function labelInputOf(group: SidebarAccountGroup): AccountLabelInput {
+  return group.account ?? { accountNo: group.accountNo };
+}
 
 /**
  * 「분석」 그룹 제목 = `/analytics/limitup` 링크(Phase 28 D-09 — 레일에서도 아이콘으로 상한가 보고서에 들어간다).
@@ -347,6 +403,8 @@ function SubNavLink({
  * ★ 태그 순서는 KRX → NXT(`VI_TAG_ORDER`). 모름(키 부재)·미등록(`null`)·중지는 태그가 없다.
  * ★ 가동 거래소가 하나도 없으면 이 줄 자체를 그리지 않는다 — 호출부가 `running.length > 0`
  *   일 때만 렌더한다(숨김이 아니라 미렌더).
+ * ★ Phase 32 D-02 — 줄은 그 cfg 계좌 묶음 안에 선다(`sidebarGroupsOf` 가 거래소를 계좌로 나눈다). 두 거래소가
+ *   다른 계좌면 묶음마다 한 줄 · 태그는 그 묶음 거래소만. 클릭 동작(작업대 이동)은 그대로다 — 계좌 전환은 웨이브 ④.
  * ★ 접근 이름은 「VI — KRX·NXT 가동」 꼴(`aria-label`)이다. 보이는 글자 「VI」가 이름 맨 앞에
  *   있어 WCAG 2.5.3 Label-in-Name 을 충족하고, 태그 묶음은 이름이 이미 말하므로 `aria-hidden` 이다.
  */
@@ -438,6 +496,67 @@ function StrategyItem({ item, name }: { item: RelayLimitChaser; name: string }) 
 }
 
 /**
+ * 계좌 묶음 1개 — 소제목(짧은 라벨 + 서버키 칩) → VI 줄(그 계좌 가동 거래소가 있을 때) → 전략 줄
+ * (Phase 32 D-02 · UI-SPEC S3 · 목업 ② `.ah`).
+ *
+ * ★ 소제목은 **링크 · 버튼이 아니다**(포커스 대상 아님) — 위 ① 의 drawer 자동 닫힘 규율 그대로 `<div>` 다.
+ * ★ 묶음 안 `ul` 은 `aria-labelledby` = 소제목 id — 스크린리더가 「김알렉스 KB120 목록」 으로 읽는다. id 는
+ *   `useId` 다(사이드바가 데스크톱 aside 와 drawer 두 곳에 그려져 계좌번호 id 는 겹친다).
+ * ★ 묶음 안 줄은 추가 들여쓰기 없이 소제목 아래에 선다(목업 그대로) — 들여쓰기는 바깥 `SUB_LIST` 하나.
+ * ★ 묶음이 1개여도 소제목을 그린다 — 어느 계좌의 전략인지 보이는 것이 목적이다.
+ */
+function AccountGroupItem({
+  group,
+  siblings,
+  labels,
+}: {
+  group: SidebarAccountGroup;
+  /** 보이는 묶음 전부의 라벨 입력 — 같은 상품명 · 서버키 묶음이 둘 이상이면 번호로 대신한다. */
+  siblings: readonly AccountLabelInput[];
+  labels: ReturnType<typeof useIsinLabels>;
+}) {
+  const headingId = useId();
+  const input = labelInputOf(group);
+  const short = accountShortLabelOf(input, siblings);
+  const serverKey = group.account?.serverKey;
+
+  return (
+    <li data-slot="sidebar-account-group" data-account-no={group.accountNo}>
+      <div
+        id={headingId}
+        data-slot="sidebar-account-heading"
+        title={accountFullLabelOf(input)}
+        className="flex min-w-0 items-center gap-2 px-2 pt-2 pb-1 text-[12px] font-semibold text-[var(--muted-fg)]"
+      >
+        <span className={cn("min-w-0 flex-1 truncate", short.isNumber && "mono")}>{short.text}</span>
+        {/* 접근 이름 「김알렉스 KB120」 의 띄어쓰기 — flex 안 공백 글자 노드는 그려지지 않는다. */}
+        {serverKey != null && serverKey !== "" && " "}
+        {serverKey != null && serverKey !== "" && (
+          <span
+            data-slot="sidebar-account-server"
+            className="ml-auto shrink-0 whitespace-nowrap rounded-[4px] bg-[var(--muted)] px-1.5 text-[10px] font-bold text-[var(--fg-2)]"
+          >
+            {serverKey}
+          </span>
+        )}
+      </div>
+      <ul aria-labelledby={headingId} className="m-0 flex list-none flex-col gap-1 p-0">
+        {group.viRunning.length > 0 && (
+          <li>
+            <ViItem running={group.viRunning} />
+          </li>
+        )}
+        {group.chasers.map((item) => (
+          <li key={item.key}>
+            <StrategyItem item={item} name={strategyDisplayName(item, labels.get(item.isin)?.name)} />
+          </li>
+        ))}
+      </ul>
+    </li>
+  );
+}
+
+/**
  * 트레이딩 그룹 · My page 노출 여부 (위 ④⑤).
  * 반환 `true` 는 「보여도 된다」이지 「권한이 있다」가 아니다.
  */
@@ -462,7 +581,7 @@ function useTradingVisible(): boolean {
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { limitChasers, viTriggers } = useRelayContext();
+  const { accounts, limitChasers, viTriggers } = useRelayContext();
   const tradingVisible = useTradingVisible();
   const adminVisible = useAppRole() === "admin";
   const labels = useIsinLabels();
@@ -472,14 +591,16 @@ export function AppSidebar() {
   const limitupActive = pathname.startsWith(NAV_LIMITUP_REPORT.href);
   const teamflowActive = pathname.startsWith(NAV_TEAMFLOW.href);
   const inAdmin = pathname === ADMIN_PREFIX || pathname.startsWith(`${ADMIN_PREFIX}/`);
-  // 거래소별 진실 — 가동(run === true)인 거래소만, KRX → NXT 순.
-  const viRunning = VI_TAG_ORDER.filter((ex) => viTriggers[ex]?.run === true);
   /*
     사이드바에는 **켜진 전략**(`isActiveStrategy` — 매수·매도 스위치 또는 취소잔량)만 싣는다
     (사용자 결정 2026-09-23 개정 — 취소잔량만 켜진 전략도 싣는다). 서버는 무장이 풀린 전략을 지우지
     않으므로(삭제는 crud "D"·장 마감 정리뿐) 거르지 않으면 꺼진 전략이 쌓인다. 작업대와 같은 기준이다.
   */
   const sidebarChasers = limitChasers.filter(isActiveStrategy);
+  // Phase 32 D-02 — 3단은 계좌 묶음 트리다(`accounts[]` 순 · 목록 밖 맨 뒤 · 빈 묶음 없음). VI 는 거래소별 진실
+  // (가동 run === true 만 · KRX → NXT 순)을 그 cfg 계좌 묶음에 나눈다(`sidebarGroupsOf`).
+  const groups = sidebarGroupsOf(accounts, sidebarChasers, viTriggers);
+  const groupSiblings = groups.map(labelInputOf);
 
   return (
     <nav aria-label="주 메뉴" className="flex h-full flex-col justify-between">
@@ -502,28 +623,23 @@ export function AppSidebar() {
               badge={sidebarChasers.length}
             />
             {/*
-              3단 = VI 0~1줄 + 등록 전략 N개 (D-03 · E16 · quick-260923-dmb). 둘 다 없으면 3단 목록
-              자체가 없다 — 빈 `ul` 은 스크린리더에 「목록 0개」로 읽히고 mt-1 빈 틈과 빈 hairline 을
-              남긴다. 빈 문구는 없다 — 스냅샷 전(로딩)도 같은 모양이라 스피너가 없다. 전략 수 상한이
-              없으므로 목록은 세로로 자연 확장하고 앱 셸이 스크롤한다. 작업대 카드 집합과 같은
+              3단 = 계좌 묶음(Phase 32 D-02 · S3) — 묶음마다 소제목 → VI 0~1줄 → 켜진 전략 N개 (D-03 · E16 ·
+              quick-260923-dmb). 묶음이 하나도 없으면 3단 목록 자체가 없다 — 빈 `ul` 은 스크린리더에 「목록 0개」로
+              읽히고 mt-1 빈 틈과 빈 hairline 을 남긴다. 빈 문구는 없다 — 스냅샷 전(로딩)도 같은 모양이라 스피너가
+              없다. 전략 수 상한이 없으므로 목록은 세로로 자연 확장하고 앱 셸이 스크롤한다. 작업대 카드 집합과 같은
               `limitChasers` 를 보므로 별도 동기화 없이 카드와 맞는다.
             */}
-            {(viRunning.length > 0 || sidebarChasers.length > 0) && (
+            {groups.length > 0 && (
               // 레일에서는 3단 목록(VI·전략)을 숨긴다 — 켜진 전략 수는 트레이딩 배지가 말한다(D1).
               <li className="rail:hidden">
                 <ul className={SUB_LIST}>
-                  {viRunning.length > 0 && (
-                    <li>
-                      <ViItem running={viRunning} />
-                    </li>
-                  )}
-                  {sidebarChasers.map((item) => (
-                    <li key={item.key}>
-                      <StrategyItem
-                        item={item}
-                        name={strategyDisplayName(item, labels.get(item.isin)?.name)}
-                      />
-                    </li>
+                  {groups.map((group) => (
+                    <AccountGroupItem
+                      key={group.accountNo}
+                      group={group}
+                      siblings={groupSiblings}
+                      labels={labels}
+                    />
                   ))}
                 </ul>
               </li>

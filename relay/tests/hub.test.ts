@@ -798,7 +798,7 @@ describe("Phase 27 #onReady 43 — 전략 스냅샷 요청 끝에 사용자 설�
   });
 });
 
-describe("Phase 27 사용자 설정 84 — 사용자별 캐시 · Ready 게이트 · 폐기 · quote 경계", () => {
+describe("Phase 27 사용자 설정 84 — 사용자별 캐시 · Ready 게이트 · 폐기 · quote 경계 (P32 — 키 = 세션 소유 키 · 가짜 세션 서버키 = 「KB」)", () => {
   let hub: SubscriptionHub;
   let session: FakeSession;
   let fanout: HubFanoutEvent[];
@@ -820,12 +820,12 @@ describe("Phase 27 사용자 설정 84 — 사용자별 캐시 · Ready 게이�
   });
 
   it("Ready 전 84 는 캐시만 한다 — 팬아웃 0 · getUserSettings 는 그 값 · unhandledFrameCount 0 (Pitfall 4)", () => {
-    expect(hub.getUserSettings("user-1")).toBeUndefined();
+    expect(hub.getUserSettings("user-1", "KB")).toBeUndefined();
     session.isReady = false;
     session.pushFrame(buildUserSettingsFrame({ present: true, autoSellPeriodSec: 5 }));
 
     expect(settingsFrames()).toEqual([]);
-    expect(hub.getUserSettings("user-1")).toMatchObject({ t: "user.settings", present: true, autoSellPeriodSec: 5 });
+    expect(hub.getUserSettings("user-1", "KB")).toMatchObject({ t: "user.settings", present: true, autoSellPeriodSec: 5 });
     expect(hub.unhandledFrameCount()).toBe(0);
   });
 
@@ -833,27 +833,34 @@ describe("Phase 27 사용자 설정 84 — 사용자별 캐시 · Ready 게이�
     session.pushFrame(buildUserSettingsFrame({ present: false }));
     expect(settingsFrames()).toHaveLength(1);
     expect(settingsFrames()[0]!.userId).toBe("user-1");
-    expect(settingsFrames()[0]!.msg).toMatchObject({ t: "user.settings", present: false, autoSellRatioDefaultPct: 10 });
+    // P32 D-14a — 그 84 를 보낸 세션의 서버키를 싣는다(레지스트리 없는 가짜 세션 = 증권사 이름 「KB」).
+    expect(settingsFrames()[0]!.msg).toMatchObject({
+      t: "user.settings",
+      present: false,
+      autoSellRatioDefaultPct: 10,
+      serverKey: "KB",
+    });
 
     session.pushFrame(buildUserSettingsFrame({ present: true, autoSellRatioDefaultPct: 15 }));
     expect(settingsFrames()).toHaveLength(2);
-    expect(hub.getUserSettings("user-1")).toMatchObject({ present: true, autoSellRatioDefaultPct: 15 });
+    expect(hub.getUserSettings("user-1", "KB")).toMatchObject({ present: true, autoSellRatioDefaultPct: 15 });
     expect(hub.unhandledFrameCount()).toBe(0);
   });
 
   it("세션 교체 · closeAll 뒤 getUserSettings 는 undefined(모름) — 지어낸 기본값이 남지 않는다", () => {
     session.pushFrame(buildUserSettingsFrame({ present: true }));
-    expect(hub.getUserSettings("user-1")).toBeDefined();
+    expect(hub.getUserSettings("user-1", "KB")).toBeDefined();
 
     hub.attach(new FakeSession("user-1"));
-    expect(hub.getUserSettings("user-1")).toBeUndefined();
+    expect(hub.getUserSettings("user-1", "KB")).toBeUndefined();
+    expect(hub.getUserSettingsAll("user-1")).toEqual([]);
 
     const again = new FakeSession("user-2");
     hub.attach(again);
     again.pushFrame(buildUserSettingsFrame({ present: true }));
-    expect(hub.getUserSettings("user-2")).toBeDefined();
+    expect(hub.getUserSettings("user-2", "KB")).toBeDefined();
     hub.closeAll();
-    expect(hub.getUserSettings("user-2")).toBeUndefined();
+    expect(hub.getUserSettings("user-2", "KB")).toBeUndefined();
   });
 
   it("quote 연결로 온 84 는 명시 warn 1건 뒤 무시 — 사용자 캐시 불변 · 팬아웃 0 · unhandledFrameCount 0", () => {
@@ -868,7 +875,7 @@ describe("Phase 27 사용자 설정 84 — 사용자별 캐시 · Ready 게이�
     expect(quoteWarns.map((args) => args[0])).toEqual([{ msgType: MSG.UserSettingsResp }]);
     expect(hub.unhandledFrameCount()).toBe(0);
     expect(settingsFrames()).toEqual([]);
-    expect(hub.getUserSettings("user-1")).toBeUndefined();
+    expect(hub.getUserSettings("user-1", "KB")).toBeUndefined();
   });
 });
 

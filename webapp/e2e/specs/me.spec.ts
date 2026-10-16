@@ -4,13 +4,16 @@ import { kstDateIso, type JournalOrderRow } from '@gh-radar/shared';
 import { mockHomeApi, HOME_POPULATED } from '../fixtures/home';
 import { mockStockApi } from '../fixtures/mock-api';
 import {
+  DMA_MSG,
   E2E_ACCOUNT_NO,
   E2E_ISIN,
   E2E_LONG_NAME_ISIN,
   readSetUserSettingsRequest,
+  readViSetRequest,
   withLocalRelay,
   type LocalRelay,
 } from '../fixtures/relay';
+import { buildSetVITriggerRespFrame } from '../../../relay/tests/helpers/frames.js';
 import { leavesOverflowing } from '../overflow';
 import {
   BUNDLE_ORDER_NOS,
@@ -501,6 +504,8 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     // 전략 시드는 **연결 전에** 심는다 — relay 는 로그인 직후 24/21 을 물어본다.
     relay.seedLimitChasers([...CHASERS]);
     relay.seedViTrigger(VI_CFG);
+    // 14 처리(적용 · 60 에코 · 65)는 P32-disable 만 켠다 — `reset()` 이 되돌리지 않으므로 매번 끈다(기록만 하는 종전 스텁).
+    relay.gateway.handleDisableStrategies(null);
     await mockStockApi(page);
     await mockHomeApi(page, { response: HOME_POPULATED });
     /*
@@ -600,13 +605,92 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await expect(accountEmpty).toHaveText('이 계좌에 등록된 전략 없음', { timeout: 15_000 });
     await expect(strategyRows(page)).toHaveCount(0);
     await expect(statusBar).toContainText('상따 0건');
-    // 끄기 UI 는 /me 현황에 없다(D-27).
-    await expect(strategyCard(page).getByRole('button')).toHaveCount(0);
+    // 끄기 UI 는 「이 계좌 끄기」 하나뿐(D-27) — 끌 것이 없으면 disabled.
+    await expect(strategyCard(page).getByRole('button')).toHaveCount(1);
+    await expect(strategyCard(page).getByRole('button', { name: `이 계좌 끄기 — ${ACCOUNT_B}` })).toBeDisabled();
 
     // A 로 돌아오면 다시 2행 + VI 행.
     await accountChip(page, E2E_ACCOUNT_NO).click();
     await waitForStrategies(page, 2);
     await expect(viRow).toHaveCount(1);
+  });
+
+  test('P32-disable 이 계좌 끄기 — 확인 → 게이트웨이 14 가 고른 계좌 키만 · 그 계좌 VI 11 run:false · 대기 잠금 → 완료 신호로 해제 · 그 계좌 전략이 현황 · 사이드바에서 빠지고 다른 계좌 칩의 전략은 그대로 (D-09 · D-21 · S5′)', async ({
+    page,
+  }) => {
+    // 스텁이 14 를 서버처럼 처리한다 — 그 키의 상따 게이트를 내리고 60 에코 → 65.
+    relay.gateway.handleDisableStrategies({ apply: true, respond65: true });
+    const countOf = (msgType: number) => relay.requestLog().filter((t) => t === msgType).length;
+    const killRow = strategyCard(page).locator('[data-slot="strategy-disable-account"]');
+    const sidebarStrategies = desktopNav(page).locator('[data-strategy-key]');
+
+    await page.goto('/me');
+    await waitForReady(page, 2);
+    await waitForStrategies(page, 2);
+    // 사이드바 3단은 전 계좌(A 2 · B 1)다.
+    await expect(sidebarStrategies).toHaveCount(3, { timeout: 15_000 });
+
+    // kill 줄 — 안내 + 「이 계좌 끄기」 한 줄뿐(D-27).
+    await expect(killRow).toContainText(
+      '이 계좌의 상따 전략과 VI 자동매수를 한 번에 끕니다. 이미 나간 주문은 취소되지 않아요.',
+    );
+    const killButton = strategyCard(page).getByRole('button', { name: `이 계좌 끄기 — ${E2E_ACCOUNT_NO}` });
+    await expect(killButton).toBeEnabled();
+    await killButton.click();
+
+    const dialog = page.getByTestId('strategy-disable-account-dialog');
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText('이 계좌의 전략을 비활성화할까요?');
+    await expect(dialog).toContainText('상따 2건과 VI 자동매수가 한 번에 꺼져요.');
+    await expect(dialog).toContainText(`${E2E_ACCOUNT_NO} · 위탁종합`);
+    // 기본 포커스는 닫기 — Enter 한 번에 꺼지면 안 된다.
+    await expect(dialog.getByRole('button', { name: '닫기' })).toBeFocused();
+    await dialog.getByRole('button', { name: '이 계좌 끄기' }).click();
+
+    // 대기 잠금 — 그 계좌 버튼이 잠긴다(완료 신호 전).
+    await expect(killRow).toHaveAttribute('data-pending', 'true');
+    await expect(killButton).toBeDisabled();
+
+    // 14 는 A 의 켜진 두 키만 건별로 — B 의 키 · 빈 키(전부 정지)는 없다. 스텁 시드로 무엇이 꺼졌는지 본다.
+    await expect.poll(() => countOf(DMA_MSG.DisableStrategiesReq), { timeout: 15_000 }).toBe(2);
+    await expect(strategyRows(page)).toHaveCount(0, { timeout: 15_000 });
+    const seed = relay.gateway.limitChaserSeed();
+    const seedOf = (accountNo: string) => seed.filter((c) => c.accountNo === accountNo);
+    expect(seedOf(E2E_ACCOUNT_NO)).toHaveLength(2);
+    for (const c of seedOf(E2E_ACCOUNT_NO)) {
+      expect(c.buyEnabled).toBe(false);
+      expect(c.sellEnabled).toBe(false);
+    }
+    expect(seedOf(ACCOUNT_B)[0]?.sellEnabled).toBe(true);
+    // Pitfall 1 — 스위치 off(lc.set 10)로 끄지 않는다(서버가 등록을 지운다).
+    expect(relay.requestLog()).not.toContain(DMA_MSG.SetLimitChaserReq);
+
+    // 그 계좌 VI(가동) — 11 run:false 1건. 서버처럼 61 에코를 돌려준다 → relay 가 완료 1건을 낸다.
+    await expect.poll(() => countOf(DMA_MSG.SetVITriggerReq), { timeout: 15_000 }).toBe(1);
+    const viReq = relay
+      .strategyRequests()
+      .map((r) => readViSetRequest(r.msgType, r.payload))
+      .find((r) => r !== null);
+    expect(viReq).toMatchObject({ accountNo: E2E_ACCOUNT_NO, run: false });
+    const sock = await relay.userSocket();
+    relay.gateway.sendFrame(sock, buildSetVITriggerRespFrame({ ...VI_CFG, run: false }));
+
+    // 완료 신호로 대기가 풀린다(8초 백스톱 문구 없음) — 끌 것이 없어 버튼은 비활성으로 남는다.
+    await expect(killRow).not.toHaveAttribute('data-pending', 'true', { timeout: 7_000 });
+    await expect(strategyCard(page).locator('[data-slot="strategy-disable-account-error"]')).toHaveCount(0);
+    await expect(page.locator('[data-slot="vi-status-summary"]')).toHaveText('—', { timeout: 15_000 });
+    await expect(killButton).toBeDisabled();
+
+    // 사이드바 — 그 계좌 전략은 빠지고 B 전략만 남는다(서버에는 등록이 남아 있다).
+    await expect(sidebarStrategies).toHaveCount(1, { timeout: 15_000 });
+    await expect(sidebarStrategies.nth(0)).toHaveAttribute('data-strategy-key', keyOf(CHASERS[1]));
+
+    // 다른 계좌(B) 칩 — 그 계좌 전략은 그대로 켜져 있고 그 계좌 버튼은 누를 수 있다.
+    await accountChip(page, ACCOUNT_B).click();
+    await waitForStrategies(page, 1);
+    await expect(strategyRows(page).nth(0)).toContainText('한국제7호기업인수목적우선주식회사', { timeout: 15_000 });
+    await expect(strategyCard(page).getByRole('button', { name: `이 계좌 끄기 — ${ACCOUNT_B}` })).toBeEnabled();
+    expect(countOf(DMA_MSG.DisableStrategiesReq)).toBe(2);
   });
 
   test('P32-orders 주문 탭 = 고른 계좌 평탄 목록 — 그룹 소제목 없음 · 「주문 N」 · 「N건」 = 고른 계좌 · B 칩 → B 행만 · 다른 계좌 안내 빈 상태 (D-23 · Pitfall 10)', async ({
@@ -866,7 +950,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await expect(desktopNav(page).locator('[data-strategy-key][aria-current]')).toHaveCount(0);
   });
 
-  test('3. 전략 0 · VI 중지 — 빈 문구 · 끄기 버튼 없음', async ({ page }) => {
+  test('3. 전략 0 · VI 중지 — 빈 문구 · 「이 계좌 끄기」 disabled', async ({ page }) => {
     relay.seedLimitChasers([]);
     relay.seedViTrigger(null);
 
@@ -880,8 +964,11 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     );
     await expect(strategyRows(page)).toHaveCount(0);
     await expect(strategyCard(page).locator('[data-slot="vi-status-row"]')).toHaveCount(0);
-    // 끄기 UI 는 /me 현황에 없다(D-27 — 「이 계좌 끄기」 는 32-06).
-    await expect(strategyCard(page).getByRole('button')).toHaveCount(0);
+    // 끌 것이 없다 — 「이 계좌 끄기」 하나뿐이고 disabled(D-27 · S5′).
+    await expect(strategyCard(page).getByRole('button')).toHaveCount(1);
+    await expect(
+      strategyCard(page).getByRole('button', { name: `이 계좌 끄기 — ${E2E_ACCOUNT_NO}` }),
+    ).toBeDisabled();
   });
 
   test('5. 매핑 없음 — DMA 게이트가 본문을 대체한다 (C6 · T-16-04)', async ({ page }) => {
@@ -1731,6 +1818,157 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await expect(floor).toHaveAttribute('data-flash', 'ok', { timeout: 15_000 });
     await expect(floor.locator('[data-slot="lc-row-value"]')).toHaveText('300만원');
     expect(setUserSettingsRequests(), '84 는 42 를 다시 만들지 않는다').toHaveLength(1);
+  });
+
+  /*
+    Phase 32 D-14a · D-24 트레이서 — 설정 탭의 서버 = 고른 계좌의 서버. 브라우저가 `user.settings.set` 에 그 계좌의
+    serverKey 를 싣고 → relay(32-07)가 그 서버 세션으로 42 → 그 서버 84 가 `user.settings{serverKey}` 로 돌아와 →
+    웹 `userSettingsByServer` 의 그 서버 칸이 바뀌어 → 설정 탭 값이 바뀐다. E2E 스텁 게이트웨이는 세션 1개
+    (env 모드 서버키 = DMA_BROKER 기본 「KB」)라 2서버 실증은 relay `fanout-multi-session.test.ts` 와 32-10 라이브 UAT 몫이다.
+  */
+  test('P32-settings 설정 탭 = 고른 계좌의 서버 — 행 확정 → 게이트웨이 42 1건 · 84 뒤 값 반영 (D-14a · D-24)', async ({
+    page,
+  }) => {
+    /** 브라우저가 relay 로 보낸 `user.settings.set` 프레임(JSON) — 「어느 서버로 보냈는가」(serverKey)를 본다. */
+    const setFrames: Record<string, unknown>[] = [];
+    page.on('websocket', (ws) => {
+      if (!ws.url().includes(':8090')) return;
+      ws.on('framesent', ({ payload }) => {
+        if (typeof payload !== 'string' || !payload.includes('"user.settings.set"')) return;
+        setFrames.push(JSON.parse(payload) as Record<string, unknown>);
+      });
+    });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/me');
+    await waitForReady(page, 2);
+    await openMeTab(page, '설정', 'settings');
+
+    // 그 서버 84 미수신 — 「불러오는 중」 잠금(다른 서버 값으로 대신 보이지 않는다).
+    await expect(lcDefaultsChip(page)).toHaveText('불러오는 중');
+
+    // 스텁 게이트웨이 84 → relay 가 serverKey 를 실어 내린다 → 고른 계좌 서버 칸 → 「서버 저장값」 · 3초.
+    await relay.pushUserSettings({ ...LC84, autoSellPeriodSec: 3 });
+    await expect(lcDefaultsChip(page)).toHaveText('서버 저장값', { timeout: 15_000 });
+    const period = lcDefaultsRow(page, 'auto-sell-period-sec');
+    await expect(period.locator('[data-slot="lc-row-value"]')).toHaveText('3초');
+
+    // 행 확정 7 → 브라우저 프레임 1건에 고른 계좌의 serverKey · 게이트웨이 42 1건(그 서버 세션으로).
+    await period.locator('button[data-lc-field="me-lc-auto-sell-period-sec"]').click();
+    const input = page.locator('input#me-lc-auto-sell-period-sec');
+    await expect(input).toBeFocused();
+    await input.fill('7');
+    await input.press('Enter');
+    await expect.poll(() => setUserSettingsRequests().length, { timeout: 15_000 }).toBe(1);
+    expect(setUserSettingsRequests()[0]).toMatchObject({ autoSellPeriodSec: 7, presentSlotEmpty: true });
+    expect(setFrames).toHaveLength(1);
+    expect(setFrames[0]).toMatchObject({ t: 'user.settings.set', serverKey: 'KB', s: { autoSellPeriodSec: 7 } });
+
+    // 그 서버 84(7) → 그 칸 교체 → 행 「7초」 + 초록 플래시 · 42 를 다시 만들지 않는다.
+    await relay.pushUserSettings({ ...LC84, autoSellPeriodSec: 7 });
+    await expect(period).toHaveAttribute('data-flash', 'ok', { timeout: 15_000 });
+    await expect(period.locator('[data-slot="lc-row-value"]')).toHaveText('7초');
+    expect(setUserSettingsRequests()).toHaveLength(1);
+    expect(setFrames).toHaveLength(1);
+  });
+
+  /*
+    Phase 32 D-24 · S8′ — 설정 탭 제목 줄 = 「상따 기본설정」 + 고른 계좌 서버키 칩 + 상태 칩 → 서버 캡션. E2E 스텁은 세션
+    1개라 두 계좌가 같은 서버(「KB」)다 — 그래서 캡션에 다른 계좌 번호가 「같은 서버의 … 계좌도」 로 나오고, B 칩으로
+    바꿔도 같은 서버 84 를 본다. 「다른 서버 계좌 = 아직 못 받음」 화면은 단위 테스트(컨텍스트 목)와 32-10 라이브 UAT 몫.
+  */
+  test('P32-settings-ui 설정 탭 — 서버키 칩 · 「서버 저장값」 · 캡션 「이 계좌의 서버 … 에 저장돼요.」 · 같은 서버의 다른 계좌 안내 · B 칩으로 바꿔도 같은 서버라 같은 값 (D-24)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/me');
+    await waitForReady(page, 2);
+    await openMeTab(page, '설정', 'settings');
+
+    const serverChip = lcDefaults(page).locator('[data-slot="me-lc-defaults-server"]');
+    const serverNote = lcDefaults(page).locator('[data-slot="me-lc-defaults-server-note"]');
+
+    // 첫 로딩(어느 84 도 없음) — 서버키 칩은 서고 상태는 기존 「불러오는 중」 · 서버 캡션 없음.
+    await expect(accountChip(page, E2E_ACCOUNT_NO)).toHaveAttribute('aria-checked', 'true');
+    await expect(serverChip).toHaveText('KB');
+    await expect(lcDefaultsChip(page)).toHaveText('불러오는 중');
+    await expect(serverNote).toHaveCount(0);
+
+    // 그 서버 84 → 「서버 저장값」 · 캡션 = 저장 서버 + 같은 서버의 다른 계좌(B).
+    await relay.pushUserSettings({ ...LC84, autoSellPeriodSec: 3 });
+    await expect(lcDefaultsChip(page)).toHaveText('서버 저장값', { timeout: 15_000 });
+    await expect(serverNote).toHaveText(
+      `이 계좌의 서버 KB 에 저장돼요. 같은 서버의 ${ACCOUNT_B} 계좌도 이 설정을 함께 써요.`,
+    );
+    const period = lcDefaultsRow(page, 'auto-sell-period-sec');
+    await expect(period.locator('[data-slot="lc-row-value"]')).toHaveText('3초');
+
+    // 제목 줄 — 서버키 칩은 제목 바로 오른쪽 · 상태 칩은 같은 줄 오른쪽 끝(ml-auto) · 캡션은 그 아래.
+    const title = await boxOf(lcDefaults(page).locator('#me-lc-defaults-title'));
+    const server = (await serverChip.boundingBox())!;
+    const status = (await lcDefaultsChip(page).boundingBox())!;
+    const caption = await boxOf(serverNote);
+    expect(server.x).toBeGreaterThan(title.right - 1);
+    expect(status.x).toBeGreaterThan(server.x + server.width);
+    expect(Math.abs(status.y + status.height / 2 - (server.y + server.height / 2))).toBeLessThanOrEqual(2);
+    expect(caption.y).toBeGreaterThan(status.y + status.height - 1);
+
+    // B 칩 — 같은 서버라 서버키 · 값 · 상태가 같고, 캡션의 「다른 계좌」 는 A 로 바뀐다.
+    await accountChip(page, ACCOUNT_B).click();
+    await expect(accountChip(page, ACCOUNT_B)).toHaveAttribute('aria-checked', 'true');
+    await expect(serverChip).toHaveText('KB');
+    await expect(lcDefaultsChip(page)).toHaveText('서버 저장값');
+    await expect(serverNote).toHaveText(
+      `이 계좌의 서버 KB 에 저장돼요. 같은 서버의 ${E2E_ACCOUNT_NO} 계좌도 이 설정을 함께 써요.`,
+    );
+    await expect(period.locator('[data-slot="lc-row-value"]')).toHaveText('3초');
+    expect(setUserSettingsRequests()).toHaveLength(0);
+    expect(await leavesOverflowing(lcDefaults(page), (await boxOf(lcDefaults(page))).right)).toEqual([]);
+  });
+
+  /*
+    RESEARCH Pitfall 12 · S13 잠금 — 설정 탭 42 비행 중 계좌를 바꾸면 84 판정이 다른 서버를 본다. 스텁 게이트웨이는 42 에
+    84 를 저절로 답하지 않으므로(P27-M1 과 같은 방식) 「84 를 늦춘」 상태가 곧 비행 창이다. 3초 상한 안에 84 를 민다 —
+    늦어져 상한으로 풀리면 B 클릭이 먹혀 이 단언이 실패한다(통과로 숨지 않는다).
+  */
+  test('P32-settings-lock 저장 중 칩 잠금 — 게이트웨이 84 를 늦추면 칩 줄 aria-disabled · B 칩 클릭 무시 · 84 뒤 해제 (Pitfall 12)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/me');
+    await waitForReady(page, 2);
+    await openMeTab(page, '설정', 'settings');
+    await relay.pushUserSettings({ ...LC84, autoSellPeriodSec: 3 });
+    await expect(lcDefaultsChip(page)).toHaveText('서버 저장값', { timeout: 15_000 });
+
+    const chipRow = page.getByRole('radiogroup', { name: 'My page 계좌' });
+    await expect(chipRow).not.toHaveAttribute('aria-disabled', 'true');
+    await expect(accountChip(page, E2E_ACCOUNT_NO)).toHaveAttribute('aria-checked', 'true');
+
+    // 행 확정 → 42 비행(84 를 아직 안 민다) → 칩 줄 잠금.
+    const period = lcDefaultsRow(page, 'auto-sell-period-sec');
+    await period.locator('button[data-lc-field="me-lc-auto-sell-period-sec"]').click();
+    const input = page.locator('input#me-lc-auto-sell-period-sec');
+    await expect(input).toBeFocused();
+    await input.fill('7');
+    await input.press('Enter');
+    await expect(chipRow).toHaveAttribute('aria-disabled', 'true');
+    await expect(chipRow).toHaveAttribute('title', '저장 중에는 계좌를 바꿀 수 없어요');
+    await expect.poll(() => setUserSettingsRequests().length, { timeout: 2_000 }).toBe(1);
+
+    // 잠금 중 B 칩 클릭 — 계좌가 바뀌지 않는다. ★ `force` — Playwright 는 aria-disabled 조상 아래 요소를 「비활성」 으로 보고
+    //   풀릴 때까지(3초 상한) 클릭을 미룬다. 사용자 클릭은 기다리지 않고 바로 들어오므로 그 모양을 흉내 낸다.
+    await accountChip(page, ACCOUNT_B).click({ force: true });
+    await expect(accountChip(page, E2E_ACCOUNT_NO)).toHaveAttribute('aria-checked', 'true');
+    await expect(accountChip(page, ACCOUNT_B)).toHaveAttribute('aria-checked', 'false');
+
+    // 그 값 84 → 비행 끝 → 잠금 해제 · 이제 B 를 고를 수 있다.
+    await relay.pushUserSettings({ ...LC84, autoSellPeriodSec: 7 });
+    await expect(period.locator('[data-slot="lc-row-value"]')).toHaveText('7초', { timeout: 15_000 });
+    await expect(chipRow).not.toHaveAttribute('aria-disabled', 'true');
+    await expect(chipRow).not.toHaveAttribute('title', '저장 중에는 계좌를 바꿀 수 없어요');
+    await accountChip(page, ACCOUNT_B).click();
+    await expect(accountChip(page, ACCOUNT_B)).toHaveAttribute('aria-checked', 'true');
+    expect(setUserSettingsRequests()).toHaveLength(1);
   });
 
   test.describe('P27-M1 폰 390 — 터치 키패드 시트', () => {

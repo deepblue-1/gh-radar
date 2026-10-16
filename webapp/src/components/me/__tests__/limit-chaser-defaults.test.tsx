@@ -50,7 +50,9 @@ function settings(present: boolean, patch: Partial<RelayUserSettingsMsg> = {}): 
 let send: ReturnType<typeof vi.fn>;
 
 function relay(userSettings: RelayUserSettingsMsg | undefined): RelayContextValue {
-  return { ...EMPTY_RELAY_VALUE, status: 'ready', userSettings, send } as RelayContextValue;
+  // 서버키 없는 84(구 relay 모양) = "" 칸 — serverKey prop 없는 섹션이 읽는 칸(종전 단일 동작).
+  const userSettingsByServer = new Map(userSettings === undefined ? [] : [['', userSettings] as const]);
+  return { ...EMPTY_RELAY_VALUE, status: 'ready', userSettingsByServer, send } as RelayContextValue;
 }
 
 const section = () => document.querySelector('[data-slot="me-lc-defaults"]') as HTMLElement;
@@ -152,7 +154,8 @@ describe('Phase 27 상따 기본설정 표시', () => {
  * 선매수 2필드는 84 부재면 0 · false 로 늘 싣는다(quick-261012-u04 · gh-trade 261012).
  */
 const VALUES_OF = (m: RelayUserSettingsMsg) => {
-  const { t: _t, present: _p, ...rest } = m;
+  // `serverKey` 는 84 프레임 표지(Phase 32)다 — 42 본문 `s` 에는 없다.
+  const { t: _t, present: _p, serverKey: _sk, ...rest } = m;
   return {
     ...rest,
     postBuyFloorQty: 0,
@@ -744,5 +747,299 @@ describe('u04 「선매수」 카드 (gh-trade 261012 · 목업 B′)', () => {
       expect(sentPayloads()[1]).toEqual({ t: 'user.settings.set', s: { ...VALUES_OF(after), preBuyAutoAddBuy: true } });
       expect(sentPayloads()[1]!.s.preBuyWatchAmount).toBe(50);
     });
+  });
+});
+
+describe('P32 serverKey prop (D-24 — 설정 탭 서버 = 고른 계좌의 서버)', () => {
+  const ACCOUNTS = [
+    { accountNo: '111', name: 'KB 계좌', serverKey: 'KB120' },
+    { accountNo: '222', name: '교보 계좌', serverKey: 'KYOBO119' },
+  ];
+  const KB = settings(true, { serverKey: 'KB120', autoSellPeriodSec: 3 });
+  const KYOBO = settings(true, { serverKey: 'KYOBO119', autoSellPeriodSec: 8 });
+  /** 서버별 84 를 그대로 싣는 컨텍스트(새 relay 모양 — "" 칸 없음). */
+  function relayByServer(entries: [string, RelayUserSettingsMsg][]): RelayContextValue {
+    return {
+      ...EMPTY_RELAY_VALUE,
+      status: 'ready',
+      accounts: ACCOUNTS,
+      userSettingsByServer: new Map(entries),
+      send,
+    } as RelayContextValue;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('serverKey KYOBO119 · Map 에 KB120 만 → 「아직 못 받음」(S8′ — 32-09) · 행 흐림 · 버튼 비활성 · 확정 무시(KB 값으로 대신 보이지 않는다)', () => {
+    mockRelay = relayByServer([['KB120', KB]]);
+    render(<LimitChaserDefaultsSection serverKey="KYOBO119" />);
+    expect(chip()).toHaveTextContent('아직 못 받음');
+    expect(chip()).toHaveAttribute('data-tone', 'warn');
+    const body = section().querySelector('[data-slot="me-lc-defaults-rows"]') as HTMLElement;
+    expect(body).toHaveAttribute('data-dim', 'true');
+    for (const b of within(body).getAllByRole('button')) expect(b).toBeDisabled();
+    expect(rowValue('auto-sell-period-sec')).not.toBe('3초');
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('serverKey KYOBO119 · 그 칸 있음 → 그 서버 값 · 확정 프레임에 serverKey KYOBO119 · s 는 그 서버 84 기준', () => {
+    mockRelay = relayByServer([
+      ['KB120', KB],
+      ['KYOBO119', KYOBO],
+    ]);
+    render(<LimitChaserDefaultsSection serverKey="KYOBO119" />);
+    expect(chip()).toHaveTextContent('서버 저장값');
+    expect(rowValue('auto-sell-period-sec')).toBe('8초');
+    inlineCommit('auto-sell-ratio-default-pct', '15');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sentPayloads()[0]).toEqual({
+      t: 'user.settings.set',
+      serverKey: 'KYOBO119',
+      s: { ...VALUES_OF(KYOBO), autoSellRatioDefaultPct: 15 },
+    });
+  });
+
+  it('고른 계좌가 바뀌면(KB120 → KYOBO119) 그 서버 값으로 바뀌고 저장도 그 서버로 간다', () => {
+    mockRelay = relayByServer([
+      ['KB120', KB],
+      ['KYOBO119', KYOBO],
+    ]);
+    const view = render(<LimitChaserDefaultsSection serverKey="KB120" />);
+    expect(rowValue('auto-sell-period-sec')).toBe('3초');
+    view.rerender(<LimitChaserDefaultsSection serverKey="KYOBO119" />);
+    expect(rowValue('auto-sell-period-sec')).toBe('8초');
+    inlineCommit('auto-sell-period-sec', '9');
+    expect(sentPayloads()[0]).toMatchObject({ serverKey: 'KYOBO119', s: { autoSellPeriodSec: 9 } });
+  });
+
+  it('prop 없음 → "" 칸(구 relay) · 송신 프레임에 serverKey 키가 없다(relay 가 primary 로 보낸다)', () => {
+    mockRelay = relay(settings(true));
+    render(<LimitChaserDefaultsSection />);
+    inlineCommit('auto-sell-period-sec', '5');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sentPayloads()[0]).not.toHaveProperty('serverKey');
+  });
+
+  it('구 relay("" 칸만) · serverKey 가 첫 서버(KB120) → "" 값을 보인다 · 송신은 serverKey KB120(Pattern 5 관용)', () => {
+    mockRelay = relayByServer([['', settings(true, { autoSellPeriodSec: 4 })]]);
+    render(<LimitChaserDefaultsSection serverKey="KB120" />);
+    expect(chip()).toHaveTextContent('서버 저장값');
+    expect(rowValue('auto-sell-period-sec')).toBe('4초');
+    inlineCommit('auto-sell-period-sec', '6');
+    expect(sentPayloads()[0]).toMatchObject({ serverKey: 'KB120', s: { autoSellPeriodSec: 6 } });
+  });
+
+  it('구 relay("" 칸만) · serverKey 가 첫 서버가 아님(KYOBO119) → 잠금 — "" 칸(primary 84)이 왔으니 「아직 못 받음」(S8′)', () => {
+    mockRelay = relayByServer([['', settings(true)]]);
+    render(<LimitChaserDefaultsSection serverKey="KYOBO119" />);
+    expect(chip()).toHaveTextContent('아직 못 받음');
+    expect(send).not.toHaveBeenCalled();
+  });
+});
+
+describe('P32 설정 탭 = 고른 계좌의 서버 (D-24 · S8′)', () => {
+  const ACCOUNTS = [
+    { accountNo: '1234-5678', name: 'KB 위탁', serverKey: 'KB120' },
+    { accountNo: '5555-0001', name: 'KB CMA', serverKey: 'KB120' },
+    { accountNo: '9999-0002', name: '교보 위탁', serverKey: 'KYOBO119' },
+  ];
+  const KB = settings(true, { serverKey: 'KB120', autoSellPeriodSec: 3 });
+  const KYOBO = settings(true, { serverKey: 'KYOBO119', autoSellPeriodSec: 8 });
+  function relayByServer(entries: [string, RelayUserSettingsMsg][]): RelayContextValue {
+    return {
+      ...EMPTY_RELAY_VALUE,
+      status: 'ready',
+      accounts: ACCOUNTS,
+      userSettingsByServer: new Map(entries),
+      send,
+    } as RelayContextValue;
+  }
+  const serverChip = () => section().querySelector('[data-slot="me-lc-defaults-server"]');
+  const serverNote = () => section().querySelector('[data-slot="me-lc-defaults-server-note"]');
+  const rows = () => section().querySelector('[data-slot="me-lc-defaults-rows"]') as HTMLElement;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('KB120 · 그 서버 84 받음 → 서버키 칩 「KB120」 · 「서버 저장값」 · 캡션 「이 계좌의 서버 KB120 에 저장돼요.」 · 12행 활성', () => {
+    mockRelay = relayByServer([['KB120', KB]]);
+    render(<LimitChaserDefaultsSection serverKey="KB120" />);
+    expect(serverChip()).toHaveTextContent(/^KB120$/);
+    expect(chip()).toHaveTextContent('서버 저장값');
+    expect(chip()).toHaveAttribute('data-tone', 'ok');
+    expect(serverNote()).toHaveTextContent(/^이 계좌의 서버 KB120 에 저장돼요\.$/);
+    expect(serverNote()?.querySelector('b')).toHaveTextContent('KB120');
+    // 기존 안내는 캡션 다음 줄에 그대로.
+    expect(note()).toHaveTextContent('새 전략 폼의 기본값이에요');
+    expect(rows()).not.toHaveAttribute('data-dim');
+    expect(rows()).not.toHaveAttribute('aria-busy');
+    expect(rowValue('auto-sell-period-sec')).toBe('3초');
+  });
+
+  it('같은 KB120 의 다른 계좌가 있으면 캡션 뒤 「 같은 서버의 5555-0001 계좌도 이 설정을 함께 써요.」', () => {
+    mockRelay = relayByServer([['KB120', KB]]);
+    render(<LimitChaserDefaultsSection serverKey="KB120" sameServerAccountNos={['5555-0001']} />);
+    expect(serverNote()).toHaveTextContent(
+      /^이 계좌의 서버 KB120 에 저장돼요\. 같은 서버의 5555-0001 계좌도 이 설정을 함께 써요\.$/,
+    );
+  });
+
+  it('KYOBO119 · Map 에 KB120 만 → 「아직 못 받음」(absent 톤) · 캡션 「KYOBO119 서버 설정(84)을 아직 받지 못했어요 · …」 · 12행 흐림 · aria-busy · 확정해도 송신 0', () => {
+    mockRelay = relayByServer([['KB120', KB]]);
+    render(<LimitChaserDefaultsSection serverKey="KYOBO119" />);
+    expect(serverChip()).toHaveTextContent('KYOBO119');
+    expect(chip()).toHaveTextContent(/^아직 못 받음$/);
+    expect(chip()).toHaveAttribute('data-tone', 'warn');
+    expect(serverNote()).toHaveTextContent(
+      /^KYOBO119 서버 설정\(84\)을 아직 받지 못했어요 · 그 서버 세션이 준비되면 불러와요$/,
+    );
+    // 기존 안내 줄은 그리지 않는다(캡션이 말한다 · 빈 줄 없음).
+    expect(note()).toBeNull();
+    expect(rows()).toHaveAttribute('data-dim', 'true');
+    expect(rows()).toHaveAttribute('aria-busy', 'true');
+    for (const b of within(rows()).getAllByRole('button')) expect(b).toBeDisabled();
+    fireEvent.click(section().querySelector('button[data-lc-field="me-lc-auto-sell-period-sec"]') as HTMLElement);
+    expect(document.getElementById('me-lc-auto-sell-period-sec')).toBeNull();
+    fireEvent.click(document.getElementById('me-lc-pre-buy-auto-add-buy') as HTMLElement);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('Map 비어 있음(첫 로딩) → 기존 「불러오는 중」 · 기존 안내 · 서버 캡션 없음', () => {
+    mockRelay = relayByServer([]);
+    render(<LimitChaserDefaultsSection serverKey="KB120" />);
+    expect(chip()).toHaveTextContent('불러오는 중');
+    expect(chip()).toHaveAttribute('data-tone', 'loading');
+    expect(note()).toHaveTextContent('DMA 세션이 준비되면 서버 설정(84)을 불러와요');
+    expect(serverNote()).toBeNull();
+    expect(rows()).toHaveAttribute('data-dim', 'true');
+  });
+
+  it('serverKey 없음(구 relay) → 서버키 칩 · 서버 캡션 없음 · "" 칸 84 로 종전 동작', () => {
+    mockRelay = relay(settings(true, { autoSellPeriodSec: 4 }));
+    render(<LimitChaserDefaultsSection />);
+    expect(serverChip()).toBeNull();
+    expect(serverNote()).toBeNull();
+    expect(chip()).toHaveTextContent('서버 저장값');
+    expect(note()).toHaveTextContent('새 전략 폼의 기본값이에요');
+    expect(rowValue('auto-sell-period-sec')).toBe('4초');
+    inlineCommit('auto-sell-period-sec', '6');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sentPayloads()[0]).not.toHaveProperty('serverKey');
+  });
+
+  it('KYOBO119 84 도착 → 즉시 「서버 저장값」 · 캡션 「이 계좌의 서버 KYOBO119 에 저장돼요.」 · 12행 활성 · 그 서버 값', () => {
+    mockRelay = relayByServer([['KB120', KB]]);
+    const view = render(<LimitChaserDefaultsSection serverKey="KYOBO119" />);
+    expect(chip()).toHaveTextContent('아직 못 받음');
+    mockRelay = relayByServer([
+      ['KB120', KB],
+      ['KYOBO119', KYOBO],
+    ]);
+    view.rerender(<LimitChaserDefaultsSection serverKey="KYOBO119" />);
+    expect(chip()).toHaveTextContent('서버 저장값');
+    expect(serverNote()).toHaveTextContent(/^이 계좌의 서버 KYOBO119 에 저장돼요\.$/);
+    expect(rows()).not.toHaveAttribute('data-dim');
+    expect(rows()).not.toHaveAttribute('aria-busy');
+    expect(rowValue('auto-sell-period-sec')).toBe('8초');
+  });
+});
+
+describe('P32 저장 비행 · 거부 (Pitfall 12 · S8′)', () => {
+  /** relay 의 지정 서버 없음 거부(32-07 `USER_SETTINGS_SERVER_GONE_TEXT` 원문 · `rejectFrame` 모양). */
+  const SERVER_GONE = '고른 서버 세션이 없어 저장하지 않았어요 — 계좌를 다시 골라 주세요';
+  const relayReject = (m: string, kind = 'user.settings.set') => msg(m, { src: 'Relay', kind });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('onBusyChange — 행 확정 → true · 그 값 84(성공) → false · 바뀔 때만 부른다(마운트 때 호출 없음)', () => {
+    const onBusy = vi.fn();
+    mockRelay = relay(settings(true));
+    const view = render(<LimitChaserDefaultsSection onBusyChange={onBusy} />);
+    expect(onBusy).not.toHaveBeenCalled();
+    inlineCommit('auto-sell-period-sec', '5');
+    expect(onBusy.mock.calls).toEqual([[true]]);
+    mockRelay = relay(settings(true, { autoSellPeriodSec: 5 }));
+    view.rerender(<LimitChaserDefaultsSection onBusyChange={onBusy} />);
+    expect(onBusy.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it('onBusyChange — 3초 상한(무응답)이면 false 로 풀린다', () => {
+    const onBusy = vi.fn();
+    mockRelay = relay(settings(true));
+    render(<LimitChaserDefaultsSection onBusyChange={onBusy} />);
+    inlineCommit('auto-sell-period-sec', '5');
+    expect(onBusy).toHaveBeenLastCalledWith(true);
+    act(() => {
+      vi.advanceTimersByTime(3_000);
+    });
+    expect(onBusy.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it('onBusyChange — 비행 1 + 대기 1 이면 앞 84 뒤에도 true 유지 · 둘 다 끝나야 false', () => {
+    const onBusy = vi.fn();
+    mockRelay = relay(settings(true));
+    const view = render(<LimitChaserDefaultsSection onBusyChange={onBusy} />);
+    inlineCommit('auto-sell-period-sec', '5');
+    inlineCommit('auto-sell-ratio-default-pct', '15');
+    // 앞 건 84 → 대기 건이 바로 비행으로 — busy 는 끊기지 않는다.
+    mockRelay = relay(settings(true, { autoSellPeriodSec: 5 }));
+    view.rerender(<LimitChaserDefaultsSection onBusyChange={onBusy} />);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(onBusy.mock.calls).toEqual([[true]]);
+    mockRelay = relay(settings(true, { autoSellPeriodSec: 5, autoSellRatioDefaultPct: 15 }));
+    view.rerender(<LimitChaserDefaultsSection onBusyChange={onBusy} />);
+    expect(onBusy.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it('relay 거부(src Relay · kind user.settings.set) → me-lc-defaults-reject 에 원문 · 그 행 실패 링 · 비행 해제(false) · 재전송 0', () => {
+    const onBusy = vi.fn();
+    mockRelay = relay(settings(true));
+    const view = render(<LimitChaserDefaultsSection onBusyChange={onBusy} />);
+    inlineCommit('auto-sell-period-sec', '9');
+    mockRelay = { ...relay(settings(true)), messages: [relayReject(SERVER_GONE)] };
+    view.rerender(<LimitChaserDefaultsSection onBusyChange={onBusy} />);
+    expect(rejectLine()).toHaveTextContent(SERVER_GONE);
+    expect(rowWrap('auto-sell-period-sec')).toHaveAttribute('data-failed', 'true');
+    expect(rowValue('auto-sell-period-sec')).toBe('3초');
+    expect(onBusy.mock.calls).toEqual([[true], [false]]);
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('다른 kind 의 Relay 거부(lc.set)는 무시 — 줄 없음 · 비행 유지', () => {
+    const onBusy = vi.fn();
+    mockRelay = relay(settings(true));
+    const view = render(<LimitChaserDefaultsSection onBusyChange={onBusy} />);
+    inlineCommit('auto-sell-period-sec', '9');
+    mockRelay = { ...relay(settings(true)), messages: [relayReject('다른 요청 거부', 'lc.set')] };
+    view.rerender(<LimitChaserDefaultsSection onBusyChange={onBusy} />);
+    expect(rejectLine()).toBeNull();
+    expect(rowWrap('auto-sell-period-sec')).not.toHaveAttribute('data-failed');
+    expect(onBusy.mock.calls).toEqual([[true]]);
+  });
+
+  it('비행 중 언마운트 → onBusyChange(false) 한 번(칩 줄이 잠긴 채 남지 않는다)', () => {
+    const onBusy = vi.fn();
+    mockRelay = relay(settings(true));
+    const view = render(<LimitChaserDefaultsSection onBusyChange={onBusy} />);
+    inlineCommit('auto-sell-period-sec', '5');
+    view.unmount();
+    expect(onBusy.mock.calls).toEqual([[true], [false]]);
   });
 });

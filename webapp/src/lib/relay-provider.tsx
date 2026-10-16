@@ -102,6 +102,7 @@ import type {
   RelayQuote,
   RelaySubLevel,
   RelayTapeEntry,
+  RelayUserSettingsMsg,
 } from "@gh-radar/shared";
 
 /**
@@ -333,6 +334,8 @@ const EMPTY_STRATEGY_EVENTS_BATCH: { seq: number; rows: StrategyEventRow[] } = {
 const EMPTY_QUEUE_PROGRESS: ReadonlyMap<string, readonly RelayQueueProgressItem[]> = new Map();
 /** 빈 비활성화 귀속 맵의 고정 참조 (quick-260926-nr2). */
 const EMPTY_LC_DISABLE_ECHOES: ReadonlyMap<string, LimitChaserDisableEcho> = new Map();
+/** 빈 서버별 84 의 고정 참조 (Phase 32 D-14a) — Provider 밖에서는 어느 서버의 84 도 받은 적이 없다. */
+const EMPTY_USER_SETTINGS_BY_SERVER: ReadonlyMap<string, RelayUserSettingsMsg> = new Map();
 
 /**
  * Provider 밖 폴백 값. **연결하지 않은 것과 구분되지 않는 모양**이어야 한다 —
@@ -385,7 +388,7 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   limitChaserSnapSeq: 0,
   // 예약창도 미수신이다. `open:false`(닫힘)로 위장하지 않는다.
   queuedWindow: undefined,
-  userSettings: undefined,
+  userSettingsByServer: EMPTY_USER_SETTINGS_BY_SERVER,
   // Provider 밖에는 소켓이 없다 — 모름(둘 다 그린다 · quick-260923-pq2).
   nxtTradable: null,
   // 보내지 **않았음**이 확실하다 — Provider 밖에는 소켓이 없다. 호출부가 반환값으로

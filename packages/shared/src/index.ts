@@ -66,6 +66,7 @@ export type {
   RelayViSetMsg,
   RelayViConfirmMsg,
   RelayStrategiesDisableMsg,
+  RelayStrategiesDisableAccountMsg,
   RelayOrderNewMsg,
   RelayOrderCancelMsg,
   RelayOrderModifyMsg,

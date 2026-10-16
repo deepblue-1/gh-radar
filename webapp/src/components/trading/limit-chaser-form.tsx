@@ -102,6 +102,7 @@ import type {
 import { LC_AMOUNT_PAIRS, lcAmountPairOf, type LcAmountKey, type LcAmountQtyKey } from '@gh-radar/shared';
 
 import { useRelayContext } from '@/lib/relay-provider';
+import { userSettingsForAccount } from '@/lib/user-settings-server';
 import {
   buyOrderQtyFromAmount,
   crudOf,
@@ -817,7 +818,11 @@ export function LimitChaserForm({
   onAutoSellCommand,
   className,
 }: LimitChaserFormProps) {
-  const { send, userSettings } = useRelayContext();
+  const { send, userSettingsByServer, accounts } = useRelayContext();
+  // 카드 계좌 서버의 84(Phase 32 D-14b) — 서버키를 모르거나 그 서버 84 가 아직 없으면 undefined(= 시딩 생략 · 빈 패치).
+  // primary 84 로 대신 채우지 않는다(Pitfall 14 — 교보 계좌 카드가 KB 설정으로 시딩된다). 시딩 · `preBuyWatchFixedOf` ·
+  // 「줄매수도 같이 켜기」 가 모두 이 한 값을 본다.
+  const userSettings = userSettingsForAccount(userSettingsByServer, accountNo, accounts);
   const [ownTab, setTab] = useState<'buy' | 'sell'>('buy');
   // 제어형이면 바깥 값이 이긴다(카드 본문의 3탭) — 자체 상태는 옛 화면 경로에서만 쓰인다.
   const tab = controlledTab ?? ownTab;

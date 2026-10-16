@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { RelayAccountState } from '@gh-radar/shared';
+import type { RelayAccountState, RelayUserSettingsMsg } from '@gh-radar/shared';
 
 import type { StrategyLogEntry } from '@/components/trading/strategy-log';
 import { EMPTY_RELAY_VALUE, type RelayContextValue } from '@/lib/relay-provider';
@@ -523,5 +523,93 @@ describe('261006-pey /me 4탭 (D-1)', () => {
     expect(slot('dma-gate')).not.toBeNull();
     expect(screen.queryByRole('tablist', { name: 'My page 탭' })).toBeNull();
     expect(slot('me-lc-defaults')).toBeNull();
+  });
+});
+
+describe('P32 칩 줄 잠금 (Pitfall 12 · S13)', () => {
+  const ACC_A = '37728502101';
+  const ACC_B = '37728502102';
+  const LOCK_TITLE = '저장 중에는 계좌를 바꿀 수 없어요';
+  const group = () => screen.getByRole('radiogroup', { name: 'My page 계좌' });
+  const chip = (no: string) =>
+    document.querySelector(`[data-slot="me-account-chip"][data-account-no="${no}"]`) as HTMLElement;
+  /** 금액 키가 실린 84(편집 · 저장 가능 모양) — 같은 서버 KB120 두 계좌. */
+  const lc84 = (patch: Partial<RelayUserSettingsMsg> = {}): RelayUserSettingsMsg => ({
+    t: 'user.settings',
+    serverKey: 'KB120',
+    present: true,
+    preBuyAmount: 4000,
+    addBuyAmount: 4000,
+    postBuyAmount: 4000,
+    postBuyMaxCount: 3,
+    postBuyFloorQty: 0,
+    postBuyReboundPct: 30,
+    sellQtyTrackRatio: 55,
+    autoSellPeriodSec: 3,
+    auctionSellRatioPct: 20,
+    autoSellRatioDefaultPct: 10,
+    autoSellMethodDefault: 3,
+    postBuyFloorAmount: 0,
+    preBuyWatchAmount: 0,
+    preBuyAutoAddBuy: false,
+    ...patch,
+  });
+  let send: ReturnType<typeof vi.fn>;
+  const relayWith = (s84: RelayUserSettingsMsg): RelayContextValue =>
+    ({
+      ...EMPTY_RELAY_VALUE,
+      status: 'ready',
+      accounts: [
+        { accountNo: ACC_A, name: '위탁종합', serverKey: 'KB120' },
+        { accountNo: ACC_B, name: '위탁CMA', serverKey: 'KB120' },
+      ],
+      limitChasers: [makeLimitChaser({ isin: 'KR7005930003', accountNo: ACC_A, key: `KR7005930003:${ACC_A}:KRX` })],
+      userSettingsByServer: new Map([['KB120', s84]]),
+      send,
+    }) as RelayContextValue;
+
+  beforeEach(() => {
+    mockGate = null;
+    mockFeed = [];
+    send = vi.fn(() => true);
+    window.localStorage.clear();
+  });
+
+  it('설정 탭 저장 비행 중 → 칩 줄 aria-disabled · title · 다른 칩 클릭 무시 → 84 뒤 해제 · 다시 고를 수 있다', async () => {
+    mockSearchParams = new URLSearchParams('tab=settings');
+    mockRelay = relayWith(lc84());
+    const view = render(<MeClient />);
+    expect(chip(ACC_A)).toHaveAttribute('aria-checked', 'true');
+    expect(group()).not.toHaveAttribute('aria-disabled');
+
+    // 「줄매수도 같이 켜기」 체크 = 42 1건(편집 모드 무관 경로) → 비행 중.
+    await userEvent.click(document.getElementById('me-lc-pre-buy-auto-add-buy') as HTMLElement);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]![0]).toMatchObject({ t: 'user.settings.set', serverKey: 'KB120' });
+    expect(group()).toHaveAttribute('aria-disabled', 'true');
+    expect(group()).toHaveAttribute('title', LOCK_TITLE);
+    await userEvent.click(chip(ACC_B));
+    expect(chip(ACC_A)).toHaveAttribute('aria-checked', 'true');
+
+    // 그 값 84 → 비행 끝 → 잠금 해제.
+    mockRelay = relayWith(lc84({ preBuyAutoAddBuy: true }));
+    view.rerender(<MeClient />);
+    expect(group()).not.toHaveAttribute('aria-disabled');
+    expect(group()).not.toHaveAttribute('title');
+    await userEvent.click(chip(ACC_B));
+    expect(chip(ACC_B)).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('「이 계좌 끄기」 대기 중에는 칩 줄을 잠그지 않는다(끄기는 계좌 인자를 싣는다 · S5′)', async () => {
+    mockRelay = relayWith(lc84());
+    render(<MeClient />);
+    await userEvent.click(screen.getByRole('button', { name: `이 계좌 끄기 — ${ACC_A}` }));
+    const dialog = screen.getByTestId('strategy-disable-account-dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: '이 계좌 끄기' }));
+    expect(send).toHaveBeenCalledWith({ t: 'strategies.disable.account', accountNo: ACC_A });
+    expect(document.querySelector('[data-slot="strategy-disable-account"]')).toHaveAttribute('data-pending', 'true');
+    expect(group()).not.toHaveAttribute('aria-disabled');
+    await userEvent.click(chip(ACC_B));
+    expect(chip(ACC_B)).toHaveAttribute('aria-checked', 'true');
   });
 });

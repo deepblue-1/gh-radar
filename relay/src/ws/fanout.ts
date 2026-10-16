@@ -154,6 +154,7 @@ import type {
   RelayServerMsg,
   RelayStateMsg,
   RelaySubLevel,
+  RelayViTrigger,
   StrategyEventRow,
 } from "@gh-radar/shared";
 
@@ -171,7 +172,7 @@ import type {
   StrategySweepOptions,
   StrategySweeper,
 } from "../dma/strategy-sweeper.js";
-import { STALE_RETRY_MAX_ATTEMPTS, staleRetryDelayMs } from "../dma/strategy-sweeper.js";
+import { STALE_RETRY_MAX_ATTEMPTS, isActiveLimitChaser, staleRetryDelayMs } from "../dma/strategy-sweeper.js";
 import type { EffectiveOwnerTracker, OwnerMove, OwnerSnapshotEntry } from "../dma/effective-owner-tracker.js";
 import type { DmaBroker } from "../registry/registry.js";
 import {
@@ -199,6 +200,7 @@ import {
   LC_LEGACY_ARM_REJECT_TEXT,
   LC_LEGACY_SET_REJECT_TEXT,
   USER_SETTINGS_FLOOR_UNKNOWN_TEXT,
+  USER_SETTINGS_SERVER_GONE_TEXT,
   parseInbound,
   type RelayInboundWire,
   withNeutralBuy3,
@@ -590,6 +592,13 @@ type Conn = {
  */
 export const ALL_STOP_PARTIAL_TEXT = (serverKeys: readonly string[]): string =>
   `전부 정지를 확인하지 못한 서버가 있습니다(${serverKeys.join(", ")}) — 그 서버 계좌의 전략이 아직 켜져 있을 수 있습니다. 전략 목록을 확인해 주세요.`;
+
+/**
+ * 「이 계좌 끄기」 끌 것 없음 문구 (Phase 32 D-09 보정) — relay 캐시 기준 그 계좌에 켜진 상따도 가동 VI 도 없을 때 요청 탭에 가는 거부
+ * 프레임(`kind: "strategies.disable.account"` · 게이트웨이 0바이트). 웹 버튼은 끌 것이 없으면 비활성이라 경합 때만 나는 경로고, 웹은 이
+ * 프레임을 따로 그리지 않는다(8초 백스톱 문구가 사실대로 말한다).
+ */
+export const ACCOUNT_DISABLE_NOTHING_TEXT = "이 계좌에 끌 전략이 없어요";
 
 /**
  * relay 발 거부 통지 1건. 게이트웨이 통지와 같은 `{t:"msg"}` 슬롯이고 `src` 만 다르다.
@@ -1881,8 +1890,9 @@ export class WsFanout {
     if (queuedWindow !== undefined) this.#send(conn, queuedWindow);
     // ⚠️ `user.settings` 도 `queued.window` 와 같다 (Phase 27) — 84 를 한 번도 못 받았으면(`undefined`) **보내지 않는다.**
     //    모르면 보내지 않는다 — 지어낸 `present=false` 를 내리면 `/me` 가 「서버 저장값 없음」 거짓 칩을 그린다.
-    const userSettings = this.#hub.getUserSettings(userId);
-    if (userSettings !== undefined) this.#send(conn, userSettings);
+    //    Phase 32 D-14a — 84 는 서버마다 따로다: 84 를 받은 서버마다 1프레임(`serverKey` 실림)이고 **primary 서버 것이 마지막**이다
+    //    (RESEARCH A3 — 구 webapp 은 마지막 프레임을 쓰므로 relay 배포 ~ push 사이 구 /me 가 primary 값, 곧 구 탭 42 가 가는 곳을 본다).
+    for (const userSettings of this.#hub.getUserSettingsAll(userId)) this.#send(conn, userSettings);
     // ⚠️ `unf.progress` snap:true 는 `rate.cross.snap` 과 같다 — **비어 있어도 1프레임 보낸다** (25-06).
     //    빈 배열은 「지금 보이는 진행 중 대기 없음」의 확정 정보이고, 웹은 snap 이면 Map 을 전량 교체한다
     //    (새 탭 · 재접속 뒤 옛 진행률이 남지 않는다). 83 은 Broadcast 라 캐시에는 hub 가 세션 허용 계좌로
@@ -2105,19 +2115,39 @@ export class WsFanout {
     }
 
     // `user.settings.set`(42 · Phase 27) — ② 계좌 대조가 **없다**: 계좌 축이 없고 서버가 세션 신원(`GetId()`)으로
-    // 저장한다. 14값 범위는 zod 가 이미 봤다(`USER_SETTINGS_RANGES`). 성공 신호는 서버가 같은 사용자 전 세션에
+    // 저장한다. 14값 범위는 zod 가 이미 봤다(`USER_SETTINGS_RANGES`). 성공 신호는 서버가 같은 사용자의 그 서버 세션에
     // 브로드캐스트하는 84 다 — relay 는 84 를 받은 대로 팬아웃할 뿐 **42 에 대해 지어낸 84 를 내지 않는다.**
     // 거부는 54 ERROR `src="SetUserSettings"` 가 기존 `msg` 경로로 간다. pending FIFO · 재전송 없음(T-16-10).
     //
+    // Phase 32 D-14a — **서버 축**이 있다(서버마다 `user_settings.toml` 이 따로). `serverKey` 부재(구 탭) = primary(종전).
+    // 지정했는데 그 사용자 세션 맵에 그 서버가 없거나 준비되지 않았으면 **primary 로 떨어뜨리지 않는다**(사용자가 KYOBO119 에
+    // 저장한다고 믿는 값이 KB120 을 덮는다) — 거부 프레임 1건 · 게이트웨이 0바이트 · 소켓 유지. 42 를 다른 서버로 복제하지 않는다
+    // (2026-10-12 결정 · Deferred).
+    //
     // 12값 · 구 탭은 84 캐시 금액 되싣기(D-14 보정 · Pitfall 3) — 후매수 최소(`postBuyFloorAmount`)가 없는 구 탭 11값은
-    // 그 사용자의 마지막 84 금액으로 채운다. 42 는 전체 교체라 0 을 지어 보내면 C# 「최소 [ ]만」 원값이 지워진다.
+    // **그 서버**의 마지막 84 금액으로 채운다(다른 서버 값으로 채우지 않는다). 42 는 전체 교체라 0 을 지어 보내면 C# 「최소 [ ]만」
+    // 원값이 지워진다.
     // 캐시도 없으면 게이트웨이 0바이트 · 거부 프레임 1건 · **소켓 유지**(`#reject` 금지 — 끊으면 시세 · 에코 · 수동주문까지
     // 끊기고 재접속 루프가 된다 · 구 탭 lc.set 선례).
     // 선매수 2필드(quick-261012-u04)는 그대로 통과 — 부재 = 42 슬롯 부재 = 서버 저장값 유지(되싣기 불필요).
     if (msg.t === "user.settings.set") {
-      const session = this.#strategySession(conn, userId, msg.t);
+      const target =
+        msg.serverKey === undefined
+          ? this.#sessions.primaryOf(userId)
+          : this.#users.get(userId)?.sessions.get(msg.serverKey)?.session;
+      if (msg.serverKey !== undefined && (target === undefined || !target.isReady)) {
+        // 값은 싣지 않는다(서버키 · 상태만).
+        logger.warn(
+          { userId, t: msg.t, serverKey: msg.serverKey, state: target?.state ?? "none" },
+          "[WS] user.settings.set 지정 서버 세션 없음 · 미준비 — primary 로 보내지 않고 거부 프레임 · 소켓 유지",
+        );
+        this.#send(conn, rejectFrame(USER_SETTINGS_SERVER_GONE_TEXT, "", "", msg.t));
+        return;
+      }
+      const session = this.#readySession(conn, userId, msg.t, target);
       if (session === null) return;
-      const amount = msg.s.postBuyFloorAmount ?? this.#hub.getUserSettings(userId)?.postBuyFloorAmount;
+      const amount =
+        msg.s.postBuyFloorAmount ?? this.#hub.getUserSettings(userId, session.serverKey)?.postBuyFloorAmount;
       if (amount === undefined) {
         // 값 · 계좌는 싣지 않는다.
         logger.warn(
@@ -2200,6 +2230,11 @@ export class WsFanout {
       if (!session.send(payload)) this.#onStrategySendFailed(conn, userId, msg.t);
       // hub 가 이 14 의 65 를 사용자 몫으로 귀속한다(29-54 — sweep 대여 중이어도 사용자에게 간다).
       else this.#hub.noteUserDisable(session);
+      return;
+    }
+
+    if (msg.t === "strategies.disable.account") {
+      this.#disableAccount(conn, userId, msg.accountNo);
       return;
     }
 
@@ -2427,6 +2462,91 @@ export class WsFanout {
       );
       const keys = result.failed.map((f) => f.serverKey);
       this.#send(conn, rejectFrame(ALL_STOP_PARTIAL_TEXT(keys), "", "", "strategies.disable"));
+    });
+  }
+
+  /**
+   * 「이 계좌 끄기」 (Phase 32 D-09 보정 · D-21 — `strategies.disable.account`). 서버 와이어(14 · 65)는 세션 단위라 계좌 필터는 relay 몫이다.
+   *
+   * ① 소유 세션 = `#strategySession(accountNo)`(= `forAccount` · 없으면 primary → ② 에서 거부). **primary 로 보내지 않는다** — G-1 로 다른
+   *    서버에 지정한 계좌의 키를 엉뚱한 서버로 보내게 된다. ② `#accountAllowed` — 그 세션 소유 뷰 밖이면 거부 프레임 · 게이트웨이 0바이트
+   *    (IDOR). ③ 그 계좌의 켜진 상따(`isActiveLimitChaser`)마다 14 `DisableStrategiesReq(key)` — 등록은 남고 게이트만 내려간다(`DisableOne`).
+   *    **`lc.set` 스위치 off 로 끄지 않는다** — 서버가 전부 꺼진 Set 을 crud D 로 정규화해 등록을 지운다(Pitfall 1). ④ hub
+   *    `beginAccountStop` 이 65 k건을 모아 `strategies.disabled` 1건을 낸다(Pitfall 3). 로그는 계좌 마스킹 · 키 수만.
+   */
+  #disableAccount(conn: Conn, userId: string, accountNo: string): void {
+    const t = "strategies.disable.account";
+    const session = this.#strategySession(conn, userId, t, accountNo);
+    if (session === null) return;
+    if (!this.#accountAllowed(conn, session, userId, t, accountNo)) return;
+    const masked = maskAccountNo(accountNo);
+    const keys = this.#hub
+      .getLimitChasers(userId)
+      .filter((c) => c.accountNo === accountNo && isActiveLimitChaser(c))
+      .map((c) => c.key);
+    // 웨이브 ④ 전 VI 는 거래소별 병합값이다 — 그 계좌가 등록 계좌이고 가동 중인 거래소만 그 계좌 것이다. 끄기는 캐시 값 그대로 run 만
+    // false(`#stopViElsewhere` 와 같은 조립). 세션은 `#viSessionFor`(웨이브 ④ 에서 소유 세션으로) — 14 소유 세션과 같을 때만 보낸다.
+    const viCfgs: RelayViTrigger[] = [];
+    for (const ex of VI_SNAPSHOT_EXCHANGES) {
+      const cfg = this.#hub.getViTrigger(userId, ex);
+      if (cfg != null && cfg.accountNo === accountNo && cfg.run) viCfgs.push(cfg);
+    }
+    if (keys.length === 0 && viCfgs.length === 0) {
+      // 끌 것 0 — 게이트웨이 0바이트. 웹 버튼은 이때 비활성이라 경합(다른 탭 · 서버 15:40 정리)에서만 난다.
+      logger.warn({ userId, t, accountNo: masked }, "[WS] 계좌 끄기 — 끌 것 없음(켜진 상따 0 · 가동 VI 0) · 게이트웨이 0바이트 (Phase 32)");
+      this.#send(conn, rejectFrame(ACCOUNT_DISABLE_NOTHING_TEXT, accountNo, "", t));
+      return;
+    }
+    let viSession: DmaSession | null = null;
+    if (viCfgs.length > 0) {
+      viSession = this.#viSessionFor(conn, userId, t, accountNo);
+      if (viSession !== null && viSession !== session) {
+        // 웨이브 ④ 전 VI 원천은 KB 세션이고 14 소유 세션도 그 KB 세션이다 — 갈리면 그 VI 는 이 계좌 소유 서버 것이 아니다.
+        logger.warn({ userId, t, accountNo: masked }, "[WS] 계좌 끄기 — VI 세션이 소유 세션과 다름 · VI 11 생략 (Phase 32)");
+        viSession = null;
+      }
+    }
+    const viExchanges = viSession === null ? [] : viCfgs.map((c) => c.exchange);
+    logger.info(
+      { userId, t, accountNo: masked, keys: keys.length, vi: viExchanges },
+      "[WS] 계좌 끄기 — 소유 세션으로 14 건별 · VI 11 run:false (Phase 32)",
+    );
+    const stop = this.#hub.beginAccountStop(userId, session, { accountNo, keys: keys.length, viExchanges });
+    let sendFailed = false;
+    for (const key of keys) {
+      const payload = this.#buildStrategyPayload(conn, userId, t, () => buildDisableStrategiesReq(key));
+      if (payload === null) {
+        stop.failed();
+        continue;
+      }
+      if (session.send(payload)) {
+        stop.sent();
+      } else {
+        stop.failed();
+        sendFailed = true;
+      }
+    }
+    if (viSession !== null) {
+      for (const cfg of viCfgs) {
+        const { orderAmountKrw, checkRate, exchange } = cfg;
+        const payload = this.#buildStrategyPayload(conn, userId, t, () =>
+          buildSetVITriggerReq({ accountNo, exchange, orderAmountKrw, checkRate, run: false }),
+        );
+        if (payload === null) {
+          stop.viFailed(exchange);
+        } else if (!viSession.send(payload)) {
+          stop.viFailed(exchange);
+          sendFailed = true;
+        }
+      }
+    }
+    // 송신 실패 알림은 1건 — 같은 세션이라 한 번 실패하면 뒤도 실패한다(거부 프레임 폭주 방지).
+    if (sendFailed) this.#onStrategySendFailed(conn, userId, t);
+    void stop.done.then((r) => {
+      logger.info(
+        { userId, t, accountNo: masked, answered: r.answered, expected: r.expected, viDisabled: r.viDisabled, ended: r.ended },
+        "[WS] 계좌 끄기 집계 끝 (Phase 32)",
+      );
     });
   }
 

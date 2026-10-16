@@ -365,6 +365,8 @@ export type LimitChaserDisableEcho = { echo: RelayLimitChaser; cause: LimitChase
 const EMPTY_DISABLE_ECHOES: ReadonlyMap<string, LimitChaserDisableEcho> = new Map();
 /** 빈 15:40 대기 키 집합 — 모듈 상수 하나. */
 const EMPTY_KEYS: ReadonlySet<string> = new Set();
+/** 84 를 어느 서버에서도 아직 못 받았다(초기값 · reset). 리듀서는 늘 새 Map 을 만들므로 이 객체는 변하지 않는다. */
+const EMPTY_USER_SETTINGS: ReadonlyMap<string, RelayUserSettingsMsg> = new Map();
 
 export interface RelayConnectionState {
   /** 세션 상태. 배지·주문 버튼 활성 여부의 정본. */
@@ -606,14 +608,18 @@ export interface RelayConnectionState {
    */
   queuedWindow: RelayQueuedWindowMsg | undefined;
   /**
-   * 사용자 상따 기본설정(84 `user.settings` · Phase 27) — **2상태**다(77 `queuedWindow` 규율).
-   *  - `undefined` : 서버가 84 를 아직 한 번도 안 줬다(연결 전 · 인증 전 · 세션 준비 전)
-   *  - 객체        : 서버가 말한 마지막 11값 + `present`(false = 서버 저장값 없음 · 내장 기본값)
+   * 사용자 상따 기본설정(84 `user.settings` · Phase 27) — **서버별**이다(Phase 32 D-14a · 84 는 게이트웨이 서버마다 따로다).
+   * 키 = 프레임의 `serverKey`(새 relay 는 늘 싣는다) · 부재(구 relay) = `""`(그 값은 primary 서버 것이다).
+   * 칸마다 **2상태**다(77 `queuedWindow` 규율).
+   *  - 칸 없음 : 그 서버가 84 를 아직 한 번도 안 줬다(연결 전 · 인증 전 · 세션 준비 전)
+   *  - 객체    : 그 서버가 말한 마지막 값 + `present`(false = 서버 저장값 없음 · 내장 기본값)
    *
-   * ⚠️ relay 는 84 를 모르면 아무것도 내리지 않는다 — 웹도 기본값을 지어내지 않는다. `/me` 섹션의
-   *    42 조립 기준(서버 캐시 + 바뀐 1칸)이 이 값 하나다.
+   * ⚠️ relay 는 84 를 모르면 아무것도 내리지 않는다 — 웹도 기본값을 지어내지 않는다. 칸을 지우는 프레임도 없다
+   *    (relay 가 세션 분리 때 지운 칸은 남는다 — 서버 목록은 이 Map 의 키가 아니라 `accounts[]` 다).
+   * ⚠️ 직접 `.get` 하지 말고 `user-settings-server.ts` 의 `userSettingsForServer`(/me) · `userSettingsForAccount`(상따 폼)
+   *    로 읽는다 — 구 relay 관용(`""` 칸) 규칙이 그 한 곳에 있다.
    */
-  userSettings: RelayUserSettingsMsg | undefined;
+  userSettingsByServer: ReadonlyMap<string, RelayUserSettingsMsg>;
   /**
    * NXT 거래가능 ISIN 집합 — **2상태**(quick-260923-pq2).
    *  - `null` : relay 가 `nxt.snap` 을 아직 안 줬다(연결 전 · 구 relay · relay 가 57 을 못 받음)
@@ -745,10 +751,12 @@ interface RelayData {
   /** 위 `RelayConnectionState.limitChaserDisableEchoes` 문서 참조. */
   limitChaserDisableEchoes: ReadonlyMap<string, LimitChaserDisableEcho>;
   /**
-   * 내부 전용(반환하지 않는다) — 이 브라우저의 전부 정지가 in-flight 인가. 65 · 연결 수명 ·
-   * 백스톱 타이머가 닫는다.
+   * 내부 전용(반환하지 않는다) — 이 브라우저가 보내고 아직 `strategies.disabled` 를 받지 못한 끄기 요청 수(전부 정지 ·
+   * 계좌 끄기). 0 보다 크면 킬 스위치 in-flight 창이 열려 있다. 보낼 때마다 1 올리고 `strategies.disabled` 마다 1 내린다 ·
+   * 연결 수명 · 백스톱 타이머는 0 으로 닫는다(Phase 32 Pitfall 3 — 서로 다른 계좌 끄기 둘이 겹쳐도 첫 완료 신호가 창을 닫아
+   * 두 번째 계좌의 60 에코가 원인 없이 「발주로 게이트 소진」 으로 읽히지 않게).
    */
-  killSwitchInFlight: boolean;
+  killSwitchInFlight: number;
   /** 내부 전용 — 15:40 해제 통지 뒤 아직 첫 에코가 오지 않은 KRX 키. 키별 첫 에코가 소비한다. */
   marketCloseReleaseKeys: ReadonlySet<string>;
   viTriggers: RelayViTriggers;
@@ -759,7 +767,7 @@ interface RelayData {
   rateCrossSnapSeq: number;
   limitChaserSnapSeq: number;
   queuedWindow: RelayQueuedWindowMsg | undefined;
-  userSettings: RelayUserSettingsMsg | undefined;
+  userSettingsByServer: ReadonlyMap<string, RelayUserSettingsMsg>;
   nxtTradable: ReadonlySet<string> | null;
 }
 
@@ -794,7 +802,7 @@ const INITIAL_DATA: RelayData = {
   // 「아직 아무 답도 못 받았다」 — 이 값은 **응답 유무**만 말하고 목록을 만들지 않는다.
   lastLimitChaserEcho: null,
   limitChaserDisableEchoes: EMPTY_DISABLE_ECHOES,
-  killSwitchInFlight: false,
+  killSwitchInFlight: 0,
   marketCloseReleaseKeys: EMPTY_KEYS,
   // 미조회(키 부재) 와 미등록(null) 은 다른 화면이다 — 초기값은 **두 거래소 모두 미조회**다.
   viTriggers: {},
@@ -807,8 +815,8 @@ const INITIAL_DATA: RelayData = {
   limitChaserSnapSeq: 0,
   // 미수신(undefined) 과 「닫힘」(open:false) 은 다른 화면이다 — 초기값은 미수신이다.
   queuedWindow: undefined,
-  // 84 미수신(undefined) 과 「저장값 없음」(present:false) 은 다른 화면이다 — 초기값은 미수신이다.
-  userSettings: undefined,
+  // 84 미수신(칸 없음) 과 「저장값 없음」(present:false) 은 다른 화면이다 — 초기값은 어느 서버도 미수신(빈 Map)이다.
+  userSettingsByServer: EMPTY_USER_SETTINGS,
   // 아직 모른다 — 빈 Set 으로 위장하면 모든 종목의 NXT 가 사라진다(quick-260923-pq2).
   nxtTradable: null,
 };
@@ -858,7 +866,7 @@ type RelayAction =
  * 귀속 창을 닫는다(quick-260926-nr2). 빈 집합은 모듈 상수라 이미 닫혀 있으면 참조가 그대로다.
  */
 const CLOSED_DISABLE_WINDOWS: Pick<RelayData, "killSwitchInFlight" | "marketCloseReleaseKeys"> = {
-  killSwitchInFlight: false,
+  killSwitchInFlight: 0,
   marketCloseReleaseKeys: EMPTY_KEYS,
 };
 
@@ -893,10 +901,10 @@ function relayReducer(state: RelayData, action: RelayAction): RelayData {
     }
 
     case "strategies-disable-sent":
-      return state.killSwitchInFlight ? state : { ...state, killSwitchInFlight: true };
+      return { ...state, killSwitchInFlight: state.killSwitchInFlight + 1 };
 
     case "strategies-disable-expired":
-      return state.killSwitchInFlight ? { ...state, killSwitchInFlight: false } : state;
+      return state.killSwitchInFlight > 0 ? { ...state, killSwitchInFlight: 0 } : state;
 
     case "stale":
       return state.isStale === action.value ? state : { ...state, isStale: action.value };
@@ -1113,10 +1121,13 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
       // 최신 1건 보관. 상태 보관만 하고 UI 는 만들지 않는다(Phase 18).
       return { ...state, queuedWindow: frame };
 
-    case "user.settings":
-      // 최신 1건 보관(84 · Phase 27). 재접속에서 지우지 않는다 — relay 가 인증 직후 캐시를 다시 내린다.
-      // `reset` 만 `INITIAL_DATA`(undefined) 로 되돌린다.
-      return { ...state, userSettings: frame };
+    case "user.settings": {
+      // 서버마다 최신 1건 보관(84 · Phase 27 → Phase 32 D-14a 서버 축). 키 = `serverKey` · 부재(구 relay) = `""`(primary 것).
+      // 재접속에서 지우지 않는다 — relay 가 인증 직후 서버마다 캐시를 다시 내린다. `reset` 만 `INITIAL_DATA`(빈 Map) 로 되돌린다.
+      const next = new Map(state.userSettingsByServer);
+      next.set(frame.serverKey ?? "", frame);
+      return { ...state, userSettingsByServer: next };
+    }
 
     case "nxt.snap":
       // 전량 교체 · 재접속에서는 지우지 않는다 — relay 가 재인증마다 다시 내린다
@@ -1127,7 +1138,8 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
       // **완료 신호로만** 보관한다. 이 프레임이 온 시점에는 60/61 에코가 이미 모든 행을
       // 갱신해 뒀다 — 여기 담긴 숫자로 목록을 만들면 에코와 두 벌이 갈린다.
       // 65 는 전부 정지 핸들러의 마지막 프레임이다 — 이 브라우저의 in-flight 창을 닫는다(nr2).
-      return { ...state, strategiesDisabled: frame, killSwitchInFlight: false };
+      // 끄기 요청 하나의 완료다 — 보낸 수만큼 와야 창이 닫힌다(계좌 끄기 겹침 · Phase 32 Pitfall 3).
+      return { ...state, strategiesDisabled: frame, killSwitchInFlight: Math.max(0, state.killSwitchInFlight - 1) };
 
     default:
       // 알 수 없는 `t` 는 무시한다 — 서버가 앞서 나가도 브라우저가 터지지 않는다(T-15-41).
@@ -1153,7 +1165,7 @@ function attributeDisableEcho(
   const key = item.key;
   const waiting = state.marketCloseReleaseKeys.has(key);
   let cause: LimitChaserDisableCause | null = null;
-  if (state.killSwitchInFlight) {
+  if (state.killSwitchInFlight > 0) {
     cause = "killSwitch";
   } else if (waiting) {
     const prev = state.limitChasers.find((c) => c.key === key);
@@ -2141,7 +2153,7 @@ export function useRelayConnection({
       return false;
     }
     ws.send(JSON.stringify(msg));
-    if (msg.t === "strategies.disable") {
+    if (msg.t === "strategies.disable" || msg.t === "strategies.disable.account") {
       /*
         ★ 전부 정지 in-flight 창 (quick-260926-nr2) — 소켓에 실린 뒤에만 연다(미연결 false 갈래는
           아무것도 dispatch 하지 않는다). 65 는 서버 핸들러(`ProcessDisableStrategies`)의 **마지막**
@@ -2150,6 +2162,10 @@ export function useRelayConnection({
           그 판정 시각은 상태 카드가 「65 유실」을 선언하는 시각과 같아야 하므로 같은 상수를 쓴다.
           벽시계 창이 아니라 65·연결 수명이 1차 경계이고 이 타이머는 백스톱이다.
           콘솔 로그를 더하지 않는다(T-16-18).
+        ★ 계좌 끄기(`strategies.disable.account` · Phase 32 D-09 보정)도 같은 창이다 — relay 가 그 계좌의 65 k건을
+          `strategies.disabled` 1건으로 접어 준다(Pitfall 3). 창은 **카운터**다: 보낸 수만큼 완료 신호가 와야 닫히고,
+          백스톱은 마지막 송신 기준이다(겹친 두 계좌 끄기의 두 번째 에코도 원인이 빠지지 않는다).
+          무인자 `strategies.disable` 갈래는 웹 소비처가 없어도(D-27) relay 계약이 남아 있어 그대로 둔다.
       */
       dispatch({ type: "strategies-disable-sent" });
       if (killSwitchTimerRef.current !== null) clearTimeout(killSwitchTimerRef.current);
@@ -2238,7 +2254,7 @@ export function useRelayConnection({
       rateCrossSnapSeq: data.rateCrossSnapSeq,
       limitChaserSnapSeq: data.limitChaserSnapSeq,
       queuedWindow: data.queuedWindow,
-      userSettings: data.userSettings,
+      userSettingsByServer: data.userSettingsByServer,
       nxtTradable: data.nxtTradable,
       send,
       reconnect,

@@ -33,6 +33,7 @@ Phase: 33 (팀 매집(teamflow) 보고서) — EXECUTING
 Plan: 8 of 9
 Status: Ready to execute
 Last activity: 2026-10-16 — Phase 33 33-07 완료(상세 E2E · 백스톱 T6 · T8 · 전 워크스페이스 회귀 게이트 green · pgTAP 300 ok, push 안 함)
+Parallel: Phase 32 (계좌 축 정리) — 32-10 Task 2 배포 체크포인트(relay 20:00 KST 뒤 → push) 대기 (별도 세션)
 
 Progress: [█████░░░░░] 50% (17/17 plans)
 
@@ -83,6 +84,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 5 | /me 상따 기본값 「후매수 최대」 행 삭제 — gh-trade 261012 후속 | 2026-10-12 | 028d9e63 | — |
 | 261012-u04 | gh-trade 261012 선매수 매도잔량 기본값·줄매수도 같이 켜기 웹 반영 (UserSettings 2필드 · /me 선매수 카드 · 2열 열 고정 · 상따 폼 시딩/동반 제출) | 2026-10-12 | 6a628d3b | [261012-u04-gh-trade-261012](./quick/261012-u04-gh-trade-261012/) |
 | 7 | vpn-menubar v3.8: 게이트웨이↔직접 접속(KB VPN·교보) 상호배제 해제 · SSH 명령 복사 메뉴 제거 (스크립트는 gitignore 개인 파일, 문서 2곳 커밋 51e62904) | 2026-10-14 | 51e62904 | — |
+| 261016-miy | intraday-sync 60s 타임아웃 실패 해소 — STEP2 quotes UPDATE RPC 일괄화 + 알림 조건 완화(10분 3건) | 2026-10-16 | e44cf64f | [261016-miy-intraday-sync-60s-step2-quotes-update-rp](./quick/261016-miy-intraday-sync-60s-step2-quotes-update-rp/) |
 
 ## Session Continuity
 

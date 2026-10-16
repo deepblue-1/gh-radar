@@ -153,7 +153,7 @@ Plans:
   5. /me 설정 탭은 고른 계좌의 서버(서버키 칩 · 「이 계좌의 서버 {서버키} 에 저장돼요」)의 84 값을 보고 42 로 그 서버에만 저장한다 — relay `user.settings`/`user.settings.set` 에 `serverKey`, hub 84 캐시 `(userId, serverKey)`, `#fromPrimary` 필터 해제, 42 지정 서버 라우팅. 상따 폼 시딩은 카드 계좌의 소유 서버 설정을 읽는다. relay 단위 · E2E 통과, relay 배포(20:00 KST 뒤) 후 KB120 · KYOBO119 에서 서로 다른 값이 보인다
 
 **배포 순서**: DB 변경 없음 → relay(20:00 KST 뒤) → webapp push(= 프로덕션). 웨이브 ① /me 계좌 칩 · 현황 · 잔고 · 주문(webapp 만 · 단독 push 가능) ② 작업대 계좌 스코프 · 상단 줄 A · 사이드바 · 토스트 · 「이 기기」 · 계좌별 끄기(relay 새 메시지 타입) ③ 매매설정 서버별(relay + shared + webapp) → ①~③ relay 배포 → push ④ VI 계좌별 — relay 먼저(20:00 KST 뒤) → gh-trade 서버(KB120 · 121 · 교보119) → webapp push
-**Plans**: 4/14 plans executed
+**Plans**: 9/14 plans executed
 
 Plans:
 **Wave 1**
@@ -169,19 +169,19 @@ Plans:
 - [x] 32-04-PLAN.md — 웨이브 ② 작업대 계좌 스코프(숨김 주차 · pickAccount 3경로 · ISIN 경로) · 토스트 계좌 줄 (트레이서)
 
 **Wave 5** *(blocked on Wave 4 completion)*
-- [ ] 32-05-PLAN.md — 웨이브 ② 사이드바 계좌 묶음 트리 (트레이서)
+- [x] 32-05-PLAN.md — 웨이브 ② 사이드바 계좌 묶음 트리 (트레이서)
 
 **Wave 6** *(blocked on Wave 5 completion)*
-- [ ] 32-06-PLAN.md — 웨이브 ② 계좌별 끄기 `strategies.disable.account` — relay 14 건별 + 11 run:false + 65 집계 · /me 「이 계좌 끄기」 (트레이서)
+- [x] 32-06-PLAN.md — 웨이브 ② 계좌별 끄기 `strategies.disable.account` — relay 14 건별 + 11 run:false + 65 집계 · /me 「이 계좌 끄기」 (트레이서)
 
 **Wave 7** *(blocked on Wave 6 completion)*
-- [ ] 32-07-PLAN.md — 웨이브 ③ 매매설정 서버별 relay · 계약 — hub 84 `(userId, serverKey)` · 42 지정 서버 · replay (트레이서)
+- [x] 32-07-PLAN.md — 웨이브 ③ 매매설정 서버별 relay · 계약 — hub 84 `(userId, serverKey)` · 42 지정 서버 · replay (트레이서)
 
 **Wave 8** *(blocked on Wave 7 completion)*
-- [ ] 32-08-PLAN.md — 웨이브 ③ 웹 서버별 84 `userSettingsByServer` · /me serverKey 저장 · 상따 폼 시딩 D-14b (트레이서)
+- [x] 32-08-PLAN.md — 웨이브 ③ 웹 서버별 84 `userSettingsByServer` · /me serverKey 저장 · 상따 폼 시딩 D-14b (트레이서)
 
 **Wave 9** *(blocked on Wave 8 completion)*
-- [ ] 32-09-PLAN.md — 웨이브 ③ /me 설정 = 고른 계좌의 서버 — 서버키 칩 · 「아직 못 받음」 · 캡션 · 칩 잠금 (트레이서)
+- [x] 32-09-PLAN.md — 웨이브 ③ /me 설정 = 고른 계좌의 서버 — 서버키 칩 · 「아직 못 받음」 · 캡션 · 칩 잠금 (트레이서)
 
 **Wave 10** *(blocked on Wave 9 completion)*
 - [ ] 32-10-PLAN.md — 웨이브 ①~③ 회귀 · 폭 백스톱 · relay(20:00 KST 뒤) → push · 라이브 UAT
@@ -211,7 +211,7 @@ Plans:
 |-------|-----------|----------------|--------|-----------|
 | 30. 인박스 KB 계좌별 주문자 IP/MAC | v1.1 | 9/9 | Complete | 2026-10-11 |
 | 31. 인박스 상따 금액 단위 | v1.1 | 8/8 | Complete | 2026-10-12 |
-| 32. 계좌 축 정리 | v1.1 | 4/14 | Not started | — |
+| 32. 계좌 축 정리 | v1.1 | 9/14 | In Progress | — |
 | 33. 팀 매집(teamflow) 보고서 | v1.1 | 7/9 | In Progress | — |
 
 ### Phase 33: 팀 매집(teamflow) 보고서
