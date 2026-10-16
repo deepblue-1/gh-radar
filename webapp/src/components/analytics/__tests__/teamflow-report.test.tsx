@@ -179,6 +179,10 @@ describe('TeamflowReport', () => {
     fetchReportMock.mockReturnValueOnce(new Promise(() => {}));
     await open('d=20261014');
     expect(screen.getByText('불러오는 중…')).toBeTruthy();
+    // 보조기기에 로딩을 알린다(오류 상자 role=alert 와 짝 · IN-06)
+    const status = screen.getByRole('status');
+    expect(status.textContent).toBe('불러오는 중…');
+    expect(status.getAttribute('aria-live')).toBe('polite');
     expect(screen.getByText('10/14 (수)')).toBeTruthy();
     expect(document.title).toBe('팀 매집 · 10/14');
   });
