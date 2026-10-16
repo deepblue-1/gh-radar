@@ -2,9 +2,9 @@
  * 상태줄 배지 2축 — 「시세」 · 「주문」 필 판정 (Phase 26 D-01 · D-04 · 26-13 채택안 안 B 점형).
  *
  * 정본: `.planning/phases/26-shared-quote-feed/reference/quote-badge-mockup.html` 머리 주석
- * 「26-14 정본 목록」. 문구 · 톤을 이 파일 밖에서 다시 짓지 않는다 — 작업대 상태줄
- * (`workbench-status-bar.tsx`)과 My page 상태줄(`me-client.tsx` MeStatusBar)이 **이 두 함수만** 부른다
- * (`queuedWindowBadgeOf` 선례 · D-36 사상 — 같은 상태가 화면마다 두 이름을 갖지 않게).
+ * 「26-14 정본 목록」. 문구 · 톤을 이 파일 밖에서 다시 짓지 않는다 — 작업대 상단 줄
+ * (`workbench-status-bar.tsx`)과 /me 상태줄(`me-client.tsx` MeStatusBar)이 같은 판정을 쓴다 — **이 두 함수만**
+ * 부른다(D-36 사상 — 같은 상태가 화면마다 두 이름을 갖지 않게).
  *
  * ① 두 축은 원천이 다르다 (D-01)
  *   시세 = relay 시세 전용 공유 연결(`quote.state` 프레임) · 주문 = 사용자 DMA 세션(`state` 프레임 →

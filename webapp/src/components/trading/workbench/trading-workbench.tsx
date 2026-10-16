@@ -562,12 +562,6 @@ function knowsRegistered(snapSeq: number): boolean {
   return snapSeq > 0;
 }
 
-/** 지금 시각 `HH:MM:SS` — 로케일 포맷터를 쓰지 않는다(`strategy-card.tsx` `clockNow` 와 같은 이유). */
-function clockNow(now: Date = new Date()): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-}
-
 export function TradingWorkbench() {
   const gateReason = useDmaGateReason();
   // 게이트는 페이지를 **대체**한다(⑦). 아래 본문의 훅이 돌지 않도록 컴포넌트를 가른다.
@@ -1269,8 +1263,6 @@ function WorkbenchSurface() {
   // VI 몫 서버 거부 — VI 패널 스트립 줄 바로 아래(접혀도 보인다 · 18-13 · T-16-07).
   const viServerError = useViServerError(messages);
 
-  const appliedAt = useAppliedAt({ limitChasers, rateCrossItems, viOrders, viTriggers, queuedWindow });
-
   /* ── ⑤ `wb` 폭 → 폰 밴드 ─────────────────────────────────────────── */
   const rootRef = useRef<HTMLDivElement>(null);
   const [phoneBand, setPhoneBand] = useState<boolean | null>(null);
@@ -1591,35 +1583,6 @@ function WorkbenchSurface() {
     </div>
     </OrderLogFeedProvider>
   );
-}
-
-/**
- * 「반영 {HH:MM:SS}」 — 작업대가 서버 push(64/60 전략 · 76/78 돌파 · 72/73 VI 주문 · 61 VI 설정 ·
- * 77 창)를 **받은 시각**. 마운트 시점에 이미 있던 값은 반영으로 치지 않는다(첫 push 전 = 「반영 —」).
- * 상태줄은 벽시계를 읽지 않고 이 문자열을 그대로 쓴다(D-22).
- */
-function useAppliedAt(sources: {
-  limitChasers: unknown;
-  rateCrossItems: unknown;
-  viOrders: unknown;
-  viTriggers: unknown;
-  queuedWindow: RelayQueuedWindowMsg | undefined;
-}): string | null {
-  const [appliedAt, setAppliedAt] = useState<string | null>(null);
-  const prev = useRef(sources);
-  const { limitChasers, rateCrossItems, viOrders, viTriggers, queuedWindow } = sources;
-  useEffect(() => {
-    const p = prev.current;
-    const changed =
-      p.limitChasers !== limitChasers ||
-      p.rateCrossItems !== rateCrossItems ||
-      p.viOrders !== viOrders ||
-      p.viTriggers !== viTriggers ||
-      p.queuedWindow !== queuedWindow;
-    prev.current = { limitChasers, rateCrossItems, viOrders, viTriggers, queuedWindow };
-    if (changed) setAppliedAt(clockNow());
-  }, [limitChasers, rateCrossItems, viOrders, viTriggers, queuedWindow]);
-  return appliedAt;
 }
 
 interface WorkbenchCardItemProps {

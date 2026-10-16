@@ -668,11 +668,10 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(h1Box!.y + h1Box!.height).toBeLessThanOrEqual(barBox!.y + 0.5);
 
     // D-06 — 뺀 것은 DOM 에 없다.
+    // (예약 창 배지 · 반영 시각은 글자로 잰다 — 아래 「정규 · 반영」 부재.)
     for (const sel of [
-      '[data-slot="workbench-window-badge"]',
       '[data-slot="workbench-tone-toggle"]',
       '[data-slot="workbench-alerts"]',
-      '[data-testid="stat-applied"]',
       '[data-slot="workbench-reconnect"]',
     ]) {
       await expect(page.locator(sel), sel).toHaveCount(0);
@@ -1803,11 +1802,10 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
 
     const qty8000 = await echoBuyWatchAmount(relay, 8_000);
 
-    // 에코 → 행 값(위 줄 만원 · 아래 줄 환산 주) · 상태줄 반영 시각.
+    // 에코 → 행 값(위 줄 만원 · 아래 줄 환산 주).
     await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('8,000만', { timeout: 15_000 });
     await expect(lcSub(page, 'lc-buy-watch-qty')).toHaveText(juText(qty8000));
-    await expect(statusBar(page).getByTestId('stat-applied')).toHaveText(/^반영 \d{2}:\d{2}:\d{2}$/);
-    await expect(statusBar(page).getByTestId('stat-applied')).toHaveAttribute('title', '서버 반영 시각');
+    // Phase 32 D-06 — 상단 줄에서 반영 시각을 뺐다(77 수신 · 카드 예약 표시는 유지).
     expect(sets()).toBe(before + 1);
     // 값 확정은 게이트를 건드리지 않는다 — 매수주문 스위치는 켜진 채다(값만 한 필드 바뀌었다).
     await expect(lcSwitch(card, '매수주문 켜기')).toBeChecked();
@@ -3570,9 +3568,9 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     }
     await expect(lcRow(page, 'lc-buy-watch-qty')).toHaveCount(1);
     await expect(lcRow(page, 'lc-buy-watch-qty')).toBeHidden();
-    // 요약 줄 = 세 그룹 + 자동매도(Phase 27 D-01 — 매도 pane 세 번째 접이식 카드).
+    // 요약 줄 = 세 그룹 + 자동매도(Phase 27 D-01 — 매도 pane 세 번째 접이식 카드) + 매수취소(quick-261012-oif 접이식).
     const summaries = card.locator('[data-slot="lc-group-summary"]');
-    await expect(summaries).toHaveCount(4);
+    await expect(summaries).toHaveCount(5);
     for (const s of await summaries.all()) await expect(s).toBeVisible();
     const preSummary = card.locator('[data-slot="lc-group-pre-buy"] [data-slot="lc-group-summary"]');
     await expect(preSummary).toContainText('매도잔량');
@@ -5140,7 +5138,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(tabs.locator('[data-slot="account-embed-holding-row"]')).toHaveCount(1, { timeout: 15_000 });
   });
 
-  test('G-21-R3-10 이전 — 시간외종가 G2 창: 상태줄 배지가 390 · 1440 에서 잘림 없이 서고, 카드 주문유형 시간외종가 → 확인 「시간외종가」 → order.new krxSession G2 · 가격 0 → 접수 배너 · REST 0 (옛 orderbook P20-6 ③ · 6 · D-31)', async ({
+  test('G-21-R3-10 이전 — 시간외종가 G2 창: 상단 줄이 390 · 1440 에서 잘림 없이 서고(배지 없음 · D-06), 카드 주문유형 시간외종가 → 확인 「시간외종가」 → order.new krxSession G2 · 가격 0 → 접수 배너 · REST 0 (옛 orderbook P20-6 ③ · 6 · D-31)', async ({
     page,
   }) => {
     // D-02 — 주문은 wss 단일 경로다. 이 라우트로 한 건이라도 나가면 실패다.
@@ -5156,14 +5154,13 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const sock = await relay.userSocket();
     relay.gateway.sendQueuedWindowState(sock, { g2Open: true });
     try {
-      const badge = statusBar(page).locator('[data-slot="workbench-window-badge"]');
-      await expect(badge).toHaveText('시간외종가 G2 창', { timeout: 15_000 });
+      // Phase 32 D-06 — 상단 줄에서 「정규」 · 예약 창 배지를 뺐다(77 수신 · 카드 예약 표시는 유지 — 아래 주문유형 단언).
 
-      // 폭별 배치 — 작업대 상태줄은 폰에서 wrap 을 허용하되(E1) 어느 폭에서도 잘리지 않는다.
+      // 폭별 배치 — 작업대 상단 줄은 폰에서 wrap 을 허용하되(E1) 어느 폭에서도 잘리지 않는다.
       for (const viewport of [PHONE_VIEWPORT, WIDE_VIEWPORT]) {
         const label = `뷰포트 ${viewport.width}`;
         await page.setViewportSize(viewport);
-        await expect(badge, label).toBeVisible();
+        await expect(statusBar(page), label).toBeVisible();
         const box = await statusBar(page).boundingBox();
         expect(box, label).not.toBeNull();
         expect(await leavesOverflowing(statusBar(page), box!.x + box!.width), label).toEqual([]);
@@ -5176,6 +5173,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       await expect(form).toBeVisible();
       const type = form.getByLabel('주문유형');
       await expect(type.locator('option[value="offhours"]')).toBeEnabled();
+      // 77 G2 가 도착했다(위 옵션 활성) — 그래도 상단 줄에는 창 배지 글자가 없다(D-06).
+      await expect(statusBar(page)).not.toContainText('시간외종가');
       await type.selectOption('offhours');
       await expect(form.getByLabel('가격(시간외종가 · 잠김)')).toBeDisabled();
       await form.locator(`#mo-qty-${E2E_ISIN}`).fill('10');
