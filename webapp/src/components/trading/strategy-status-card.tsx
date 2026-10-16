@@ -101,7 +101,6 @@ import {
   VI_EXCHANGES,
   type RelayStatus,
   type RelayViAccountSlots,
-  type RelayViTriggers,
 } from "@/lib/use-relay-socket";
 import { cn } from "@/lib/utils";
 
@@ -139,20 +138,6 @@ export function viSummaryText(triggers: RelayViAccountSlots): string {
     parts.push(`${exchange} ${amount}만원 · ${cfg.checkRate.toFixed(1)}% 이상`);
   }
   return parts.length === 0 ? "—" : parts.join(" / ");
-}
-
-/**
- * 그 계좌가 **등록 계좌**인 거래소만 남긴 VI 부분 맵(표시 필터 — Phase 32 D-21).
- * 웨이브 ④ 전 VI 는 거래소별 1건(D-16) — 그 계좌가 등록 계좌인 거래소만 그 계좌 것이다. ④ 에서 계좌 슬롯 조회로 바뀐다.
- * `viTriggers` 모양 · relay VI 캐시는 건드리지 않는다(새 객체를 돌려준다).
- */
-export function viTriggersOfAccount(triggers: RelayViTriggers, accountNo: string): RelayViTriggers {
-  const out: RelayViTriggers = {};
-  for (const exchange of VI_EXCHANGES) {
-    const cfg = triggers[exchange];
-    if (cfg != null && cfg.accountNo === accountNo) out[exchange] = cfg;
-  }
-  return out;
 }
 
 // ---------------------------------------------------------------------------

@@ -317,14 +317,6 @@ function clockStamp(now: Date): string {
 }
 
 /**
- * 거래소별 VI 전략 3상태 (17-06 / D-06).
- *
- * `Partial` 이 **키 부재 = 아직 모름**을 표현한다. `null` 은 「조회했고 미등록」이라
- * 뜻이 다르므로 둘을 같은 값으로 접으면 안 된다(빈 61 이 사용자 입력을 지우는 CR-01).
- */
-export type RelayViTriggers = Partial<Record<RelayExchange, RelayViTrigger | null>>;
-
-/**
  * VI 전략이 존재할 수 있는 거래소 전수. relay 의 `VI_PREFETCH_EXCHANGES`(17-05) 와 같은
  * 집합이고, 순회 순서도 표시 순서(KRX → NXT)와 같다.
  */
@@ -352,12 +344,15 @@ export function viSlotOf(
 }
 
 /**
- * 한 계좌의 거래소별 VI 슬롯 (Phase 32 D-18 — /me VI 행 · 요약). 키 부재 = 그 거래소 슬롯을 모른다 · `null` = 미등록 · 객체 = 등록.
- * `accountNo` 가 `undefined`(계좌 목록 미수신)면 **전 계좌** 슬롯을 거래소마다 접는다 — 켜진 등록본이 이기고, 없으면 마지막 등록본.
- * 슬롯 Map 은 건드리지 않는다(새 객체를 돌려준다).
+ * 한 계좌의 거래소별 VI 슬롯 (Phase 32 D-18 — /me VI 행 · 요약). `Partial` 이 **키 부재 = 아직 모름**을 표현한다 · `null` = 미등록
+ * (조회했고 없다) · 객체 = 등록. 둘을 같은 값으로 접지 않는다(빈 61 이 사용자 입력을 지우는 CR-01).
  */
 export type RelayViAccountSlots = Partial<Record<RelayExchange, RelayViTrigger | null>>;
 
+/**
+ * 그 계좌의 거래소별 슬롯을 뽑는다(`viSlotOf` 의 거래소 묶음). `accountNo` 가 `undefined`(계좌 목록 미수신)면 **전 계좌** 슬롯을
+ * 거래소마다 접는다 — 켜진 등록본이 이기고, 없으면 마지막 등록본. 슬롯 Map 은 건드리지 않는다(새 객체를 돌려준다).
+ */
 export function viSlotsOfAccount(viSlots: RelayViSlots, accountNo: string | undefined): RelayViAccountSlots {
   const out: RelayViAccountSlots = {};
   if (accountNo !== undefined) {
@@ -384,47 +379,6 @@ export function viSlotsOfAccount(viSlots: RelayViSlots, accountNo: string | unde
 export function viAccountRunning(viSlots: RelayViSlots, accountNo: string | undefined): boolean {
   const shown = viSlotsOfAccount(viSlots, accountNo);
   return VI_EXCHANGES.some((exchange) => shown[exchange]?.run === true);
-}
-
-/**
- * 슬롯 → 거래소 단일 칸(`viTriggers`) 다리 (Phase 32 D-17 slot-only · 32-13 이 `viTriggers` 와 함께 지운다).
- *
- * relay 는 slot-only 결정으로 구 `vi`(거래소 병합값)를 더 내지 않는다. 아직 슬롯으로 옮기지 않은 소비처(사이드바 · 상태줄 · /me ·
- * 작업대 VI 행)가 그 사이 「모름」 으로 굳지 않게, 슬롯이 도착할 때마다 그 거래소 칸을 슬롯 위에서 다시 계산한다. 규칙은 종전 relay
- * `#mergeVi` 를 따른다 — 켜진 등록본 → 꺼진 등록본 → (하나라도 답했으면) 미등록 null → 모름. 같은 등급이 여럿이면 **가장 최근에 받은
- * 슬롯**이다(`viSlots` 는 갱신마다 맨 뒤로 옮겨 삽입 순 = 수신 순이다 · 종전의 「primary 먼저」 는 웹이 모른다).
- */
-function viLegacyOf(viSlots: RelayViSlots, exchange: RelayExchange): RelayViTrigger | null | undefined {
-  let running: RelayViTrigger | undefined;
-  let registered: RelayViTrigger | undefined;
-  let answered = false;
-  for (const [key, cfg] of viSlots) {
-    if (!key.endsWith(`|${exchange}`)) continue;
-    answered = true;
-    if (cfg === null) continue;
-    if (cfg.run) running = cfg;
-    else registered = cfg;
-  }
-  if (running !== undefined) return running;
-  if (registered !== undefined) return registered;
-  return answered ? null : undefined;
-}
-
-/**
- * 두 거래소 중 **하나라도** 가동 중인가 (D-18 합집합 판정).
- *
- * ★ 판정을 한 함수로 모으는 이유: 사이드바·My page·전략 현황 세 화면이 같은 질문에
- *   각자 답하면 언젠가 한 곳만 고쳐지고, 그때 사용자는 「사이드바는 가동인데 My page 는
- *   중지」를 본다. 어느 쪽이 맞는지 화면만 보고는 알 수 없다.
- *
- * ★ 모르는 거래소(키 부재)는 **가동이 아니다.** 모름을 가동으로 읽으면 연결 직후 잠깐
- *   「가동」이 떴다가 사라지고, 그 깜빡임은 실제 등록과 구분되지 않는다.
- */
-export function viAnyRunning(triggers: RelayViTriggers): boolean {
-  for (const exchange of VI_EXCHANGES) {
-    if (triggers[exchange]?.run === true) return true;
-  }
-  return false;
 }
 
 /**
@@ -610,22 +564,11 @@ export interface RelayConnectionState {
    */
   limitChaserDisableEchoes: ReadonlyMap<string, LimitChaserDisableEcho>;
   /**
-   * VI 전략 설정 — **거래소별 3상태**다 (17-06 / D-06).
-   *
-   * 서버가 VI 전략을 **거래소마다 1건**으로 관리하므로 relay 도 캐시·프레임을 거래소별로
-   * 내려준다(17-05). 3상태의 뜻은 거래소마다 **독립**이다:
-   *  - 키 부재(`undefined`) : 그 거래소는 아직 스냅샷을 못 받았다(연결 전·인증 전)
-   *  - `null`               : 그 거래소를 조회했고 **미등록**이다(서버가 빈 응답을 보냈다)
-   *  - 객체                 : 그 거래소에 등록돼 있다
-   *
-   * ⚠️ 단수 필드(`viTrigger`)를 **별칭으로도 남기지 않는다.** 남기면 「어느 거래소의 값인지
-   *    모르는 소비처」가 조용히 살아남고, KRX-only 세션에서 뒤에 온 NXT 프레임이 방금 읽은
-   *    KRX 설정을 덮는다(17-05 가 스냅샷을 2프레임으로 넓히며 남긴 결함).
-   */
-  viTriggers: RelayViTriggers;
-  /**
    * VI (계좌, 거래소) 슬롯 (Phase 32 D-17 — relay `vi.slot`). 키 `` `${accountNo}|${exchange}` `` · **키 부재 = 모름** · `null` = 미등록 ·
-   * 객체 = 등록. 같은 거래소의 두 계좌가 각자 칸을 갖는다(한쪽이 다른 쪽을 덮지 않는다). 조회는 `viSlotOf` 로 한다.
+   * 객체 = 등록. 같은 거래소의 두 계좌가 각자 칸을 갖는다(한쪽이 다른 쪽을 덮지 않는다). 조회는 `viSlotOf` · `viSlotsOfAccount` 로 한다.
+   *
+   * ★ 웹의 VI 상태는 이 슬롯 **하나뿐**이다(Phase 32 D-17 slot-only) — 거래소 하나에 한 칸을 두는 모양을 별칭으로도 두지 않는다.
+   *   그 모양은 「어느 계좌의 값인지 모르는 소비처」를 조용히 살려 두고, 같은 거래소를 두 계좌가 켜면 한쪽이 다른 쪽을 덮는다.
    */
   viSlots: RelayViSlots;
   /**
@@ -846,7 +789,6 @@ interface RelayData {
   killSwitchInFlight: number;
   /** 내부 전용 — 15:40 해제 통지 뒤 아직 첫 에코가 오지 않은 KRX 키. 키별 첫 에코가 소비한다. */
   marketCloseReleaseKeys: ReadonlySet<string>;
-  viTriggers: RelayViTriggers;
   viSlots: RelayViSlots;
   viOrders: RelayViOrderItem[];
   viNotices: RelayViNoticeMsg[];
@@ -892,9 +834,8 @@ const INITIAL_DATA: RelayData = {
   limitChaserDisableEchoes: EMPTY_DISABLE_ECHOES,
   killSwitchInFlight: 0,
   marketCloseReleaseKeys: EMPTY_KEYS,
-  // 미조회(키 부재) 와 미등록(null) 은 다른 화면이다 — 초기값은 **두 거래소 모두 미조회**다.
-  viTriggers: {},
-  // 슬롯도 전부 모름(빈 Map)이다 — reset 이 이 값으로 되돌린다(다음 사용자가 이전 사용자의 VI 를 보지 않는다).
+  // 미조회(키 부재) 와 미등록(null) 은 다른 화면이다 — 초기 슬롯은 전부 모름(빈 Map)이다. reset 이 이 값으로 되돌린다
+  // (다음 사용자가 이전 사용자의 VI 를 보지 않는다).
   viSlots: EMPTY_VI_SLOTS,
   viOrders: [],
   viNotices: [],
@@ -1163,35 +1104,15 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
         marketCloseReleaseKeys: EMPTY_KEYS,
       };
 
-    case "vi": {
-      // `cfg: null` 은 **미등록**이다(무응답이 아니다). 키를 지우지 않는다 —
-      // 지우면 「조회했는데 없음」이 「아직 모름」으로 퇴행한다.
-      //
-      // ★ 병합은 **거래소별**이다 (17-06 / D-06). 한 거래소의 프레임이 다른 거래소 값을
-      //   건드리지 않는다: 17-05 이후 인증 스냅샷은 KRX·NXT 2프레임으로 오는데, 단수
-      //   필드에 덮어쓰면 KRX 에만 등록된 세션에서 뒤에 온 NXT 프레임이 방금 읽은 설정을
-      //   지운다.
-      // ★ 거래소를 모르는 프레임(계약 밖 · 구 relay)은 **아무 거래소에도 귀속시키지
-      //   않는다.** 기본값 KRX 로 접으면 NXT 의 사실이 KRX 자리에 앉을 수 있고, 화면은
-      //   그것이 지어낸 값임을 말할 방법이 없다.
-      if (!VI_EXCHANGES.includes(frame.x)) return state;
-      return { ...state, viTriggers: { ...state.viTriggers, [frame.x]: frame.cfg } };
-    }
-
     case "vi.slot": {
-      // Phase 32 D-17 — (계좌, 거래소) 슬롯 1건. `cfg: null` 은 **미등록**이라 키를 남긴다(지우면 「모름」 으로 퇴행).
-      // ★ 거래소를 모르는 프레임은 어느 칸에도 귀속하지 않는다(`case "vi"` 와 같은 규율).
+      // Phase 32 D-17 — 웹은 VI 를 `vi.slot` 으로만 읽는다. 구 거래소 병합 `vi` 프레임(slot-only relay 는 내지 않는다)은
+      // 갈래가 없어 아래 default 로 무시된다 — 어느 슬롯에도 귀속하지 않는다(계좌를 모르는 값을 지어내지 않는다).
+      // (계좌, 거래소) 슬롯 1건. `cfg: null` 은 **미등록**이라 키를 남긴다(지우면 「모름」 으로 퇴행).
+      // ★ 거래소를 모르는 프레임(계약 밖)은 어느 칸에도 귀속하지 않는다 — 기본값 KRX 로 접으면 NXT 의 사실이 KRX 자리에 앉는다.
       if (!VI_EXCHANGES.includes(frame.x)) return state;
-      const key = viSlotKey(frame.a, frame.x);
       const viSlots = new Map(state.viSlots);
-      // 맨 뒤로 옮긴다 — 삽입 순 = 수신 순이라 거래소 칸 다리(`viLegacyOf`)가 「가장 최근」 을 고를 수 있다.
-      viSlots.delete(key);
-      viSlots.set(key, frame.cfg);
-      return {
-        ...state,
-        viSlots,
-        viTriggers: { ...state.viTriggers, [frame.x]: viLegacyOf(viSlots, frame.x) },
-      };
+      viSlots.set(viSlotKey(frame.a, frame.x), frame.cfg);
+      return { ...state, viSlots };
     }
 
     case "vi.list":
@@ -2352,7 +2273,6 @@ export function useRelayConnection({
       limitChasers: data.limitChasers,
       lastLimitChaserEcho: data.lastLimitChaserEcho,
       limitChaserDisableEchoes: data.limitChaserDisableEchoes,
-      viTriggers: data.viTriggers,
       viSlots: data.viSlots,
       viOrders: data.viOrders,
       viNotices: data.viNotices,
