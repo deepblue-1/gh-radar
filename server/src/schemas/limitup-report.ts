@@ -7,7 +7,7 @@ import { z } from "zod";
  * `Date.UTC` 가 조용히 다음 달로 넘기는 값은 다시 펼친 연 · 월 · 일이 입력과 달라 거부된다. RPC 0회로 끝난다.
  * (파일명이 `limitup-report` 인 이유: 기존 상한가 이력 스키마 `limitUp.ts` 와 대소문자만 다른 이름은 macOS 에서 같은 파일이다.)
  */
-const Ymd = z
+export const Ymd = z
   .string()
   .regex(/^\d{8}$/, "YYYYMMDD 형식이어야 합니다.")
   .refine((s) => {

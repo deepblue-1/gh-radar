@@ -20,6 +20,7 @@ import { chatRouter } from "./routes/chat.js";
 import { ordersRouter } from "./routes/orders.js";
 import { strategyEventsRouter } from "./routes/strategy-events.js";
 import { limitupRouter } from "./routes/limitup-report.js";
+import { teamflowRouter } from "./routes/teamflow-report.js";
 import { adminRouter } from "./routes/admin.js";
 import { adminServersRouter } from "./routes/admin-servers.js";
 
@@ -106,6 +107,8 @@ export function createApp(deps: AppDeps): Express {
   app.use("/api/strategy-events", strategyEventsRouter);
   // Phase 28 D-10 — 상한가 보고서 조회 전용(DMA 매핑 사용자 · 격자는 인증 뒤 서명 URL). 적재는 workers/limitup-sync.
   app.use("/api/limitup", limitupRouter);
+  // Phase 33 D-05 — 팀 매집 보고서 조회 전용 · 게이트는 RPC 안(dma_visible_accounts · 왕복 1회). 적재는 workers/limitup-sync.
+  app.use("/api/teamflow", teamflowRouter);
   // Phase 29 D-07 — 웹 Admin(requireAuth → requireAdmin). 쓰기는 Express 가 DB 에 · 즉시 반영은 relay HTTP 로.
   // 서버 레지스트리(D-17)를 먼저 — 그 라우터는 관문을 `/servers` 경로에만 건다. adminRouter 는 라우터 전체에 관문을
   // 걸므로 순서가 반대면 /servers 요청이 역할 조회를 두 번 한다(Cloud Run → Supabase 왕복 +1).
