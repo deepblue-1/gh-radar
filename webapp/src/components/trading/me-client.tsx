@@ -347,14 +347,20 @@ function MeTabs() {
     setSavedMe(readMeAccount(userId));
     setSavedWorkbench(readTradingAccount(userId));
   }, [userId]);
+  /**
+   * 오늘 주문 카드가 올린 병합 행(REST 복원 ∪ 푸시)의 계좌 집합(Phase 32 D-23 · Pitfall 10). 주문 탭을 연 뒤에만
+   * 채워진다 — 카드가 마운트돼야 복원 조회가 있다(조회 경로를 늘리지 않는다).
+   */
+  const [rowAccounts, setRowAccounts] = useState<readonly string[]>([]);
   /** 칩 목록 = `accounts[]` 순 + 전략 · 주문 행에만 있는 계좌(번호만 · 맨 뒤 — RESEARCH Pitfall 10). */
   const choices = useMemo(
     () =>
       meAccountChoicesOf(accounts, [
         ...limitChasers.map((c) => c.accountNo),
         ...journalRows.map((r) => r.accountNo),
+        ...rowAccounts,
       ]),
-    [accounts, limitChasers, journalRows],
+    [accounts, limitChasers, journalRows, rowAccounts],
   );
   // 기본 선택(`meAccountOf`) — 이 화면 기억값 → 작업대 기억 계좌 → 이미 고른 값 → 첫 칩. 자동 선택은 저장하지 않는다.
   useEffect(() => {
@@ -484,9 +490,15 @@ function MeTabs() {
         className={ME_PANEL}
       >
         {/*
-          계좌 축이 없는 「오늘 낸 주문 전체」(위 ⑤ ⓑ·ⓒ). 이 탭을 처음 열 때 마운트 = 조회 1회.
+          「오늘 낸 주문」(위 ⑤ ⓑ·ⓒ) — 조회는 계좌 축 없이 1회, 표시는 고른 계좌의 평탄 목록(Phase 32 D-23).
+          이 탭을 처음 열 때 마운트 = 조회 1회. 카드가 행 계좌 집합을 올려 칩 목록 합집합에 더한다(setter 는 안정
+          참조라 카드 효과를 다시 돌리지 않는다).
         */}
-        <TodayOrdersCard onCountChange={setOrdersCount} />
+        <TodayOrdersCard
+          onCountChange={setOrdersCount}
+          accountNo={shownAccountNo}
+          onRowAccountsChange={setRowAccounts}
+        />
       </TabsContent>
 
       <TabsContent

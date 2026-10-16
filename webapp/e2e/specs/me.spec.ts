@@ -595,6 +595,81 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await expect(viRow).toHaveCount(1);
   });
 
+  test('P32-orders 주문 탭 = 고른 계좌 평탄 목록 — 그룹 소제목 없음 · 「주문 N」 · 「N건」 = 고른 계좌 · B 칩 → B 행만 · 다른 계좌 안내 빈 상태 (D-23 · Pitfall 10)', async ({
+    page,
+  }) => {
+    /** 계좌 목록 밖 계좌 — 오늘 주문 복원 행에만 있다(RESEARCH Pitfall 10). */
+    const OUTSIDE_ACCOUNT = '9999999901';
+    const rowsOf = (rows: readonly JournalOrderRow[], acct: string) => rows.filter((r) => r.accountNo === acct);
+    /** 화면 줄 수 = 행 수 − (그 계좌에 든 조각 체결 수 − 1) — 조각 체결(MERGED_FILLS)은 한 줄로 접힌다. */
+    const linesOf = (rows: readonly JournalOrderRow[], acct: string) => {
+      const mine = rowsOf(rows, acct);
+      const fills = mine.filter((r) => MERGED_FILLS.some((m) => m.id === r.id)).length;
+      return mine.length - Math.max(0, fills - 1);
+    };
+    const card = todayOrdersCard(page);
+    const header = card.locator('h2 + span');
+
+    await page.goto('/me');
+    await waitForReady(page, 2);
+    await openMeTab(page, '주문', 'orders');
+
+    // A(기본 칩) — A 행만 평탄하게 · 계좌 묶음 0 · 머리 「N건」 · 탭 라벨 「주문 N」 = A 건수.
+    const aCount = rowsOf(TODAY_ORDERS, E2E_ACCOUNT_NO).length;
+    await expect(todayOrderRows(page)).toHaveCount(linesOf(TODAY_ORDERS, E2E_ACCOUNT_NO), { timeout: 15_000 });
+    await expect(card.getByTestId('today-orders-flat')).toHaveCount(1);
+    await expect(card.locator('[data-slot="today-orders-group"]')).toHaveCount(0);
+    await expect(header).toHaveText(`${aCount}건`);
+    await expect(meTabCount(page, '주문')).toHaveText(String(aCount));
+    // 취소 행(0000900003)은 A 의 것 — A 에서만 보인다.
+    await expect(card).toContainText('0000900003');
+    await expect(card).not.toContainText('0000900002');
+
+    // B 칩 → B 행만.
+    const bCount = rowsOf(TODAY_ORDERS, ACCOUNT_B).length;
+    await accountChip(page, ACCOUNT_B).click();
+    await expect(accountChip(page, ACCOUNT_B)).toHaveAttribute('aria-checked', 'true');
+    await expect(todayOrderRows(page)).toHaveCount(linesOf(TODAY_ORDERS, ACCOUNT_B));
+    await expect(header).toHaveText(`${bCount}건`);
+    await expect(meTabCount(page, '주문')).toHaveText(String(bCount));
+    await expect(card).toContainText('0000900002');
+    await expect(card).not.toContainText('0000900003');
+
+    /*
+      다른 계좌 안내 + 목록 밖 계좌 — 복원을 「A 행 + 목록 밖 계좌 1행」 으로 덮는다(나중에 건 라우트가 이긴다).
+      새로고침해도 기억값 B 가 서므로 B 는 0건 ∧ 다른 계좌 ≥ 1건이다.
+    */
+    const outsideRow = journalRow({
+      id: 'ord-x',
+      accountNo: OUTSIDE_ACCOUNT,
+      orderNo: '0000900030',
+      lastSeq: 30,
+      createdAt: '2026-09-10T00:55:00.000Z',
+      updatedAt: '2026-09-10T00:55:00.000Z',
+    });
+    const restored = [outsideRow, ...rowsOf(TODAY_ORDERS, E2E_ACCOUNT_NO)];
+    await page.route('**/api/orders', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(restored) });
+    });
+    await page.reload();
+    await expect(accountChip(page, ACCOUNT_B)).toHaveAttribute('aria-checked', 'true', { timeout: 30_000 });
+    const emptyAccount = card.getByTestId('today-orders-empty-account');
+    await expect(emptyAccount).toContainText('이 계좌의 오늘 주문이 없어요', { timeout: 15_000 });
+    await expect(emptyAccount).toContainText(
+      `다른 계좌에 오늘 주문 ${restored.length}건이 있어요 · 위에서 계좌를 바꿔 보세요`,
+    );
+    await expect(todayOrderRows(page)).toHaveCount(0);
+    await expect(meTabCount(page, '주문')).toHaveCount(0);
+
+    // 목록 밖 계좌가 칩 목록 맨 뒤에 번호만으로 선다 — 고르면 그 행이 보인다(기록된 주문을 숨기지 않는다).
+    await expect(accountChips(page)).toHaveCount(3);
+    await expect(accountChips(page).nth(2)).toHaveAttribute('data-account-no', OUTSIDE_ACCOUNT);
+    await accountChip(page, OUTSIDE_ACCOUNT).click();
+    await expect(todayOrderRows(page)).toHaveCount(1);
+    await expect(card).toContainText('0000900030');
+    await expect(header).toHaveText('1건');
+  });
+
   test('1. 전략 3 · 계좌 2 — 고른 계좌의 전략 행이 배지·거래소를 보여주고 계좌 카드가 세로로 반복된다', async ({
     page,
   }) => {

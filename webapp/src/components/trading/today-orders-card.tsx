@@ -63,14 +63,19 @@
  *   다시 부른다. 마운트 뒤 첫 `live` 는 마운트 조회와 같은 시점이라 건너뛰고(⑦ 과 같은 판정),
  *   `live → live` 반복 프레임은 전이가 아니다. 폴링이 아니다.
  *
- * ⑨ ★ 계좌별 묶음 — 채택 목업 B′ (Phase 19 D-07)
- *   기준이 「로그인한 사람」 에서 「계좌」 로 바뀌어(D-06) 같은 계좌의 WinForms · 다른 DMA 사용자
- *   주문이 섞인다. 계좌마다 소제목(계좌 · 번호 전체 · 상품명 · N건)을 달고 목록을 반복한다 —
- *   위쪽 계좌 카드(미체결·잔고)가 계좌마다 한 벌씩 반복되는 것과 같은 읽기 방식이다.
- *   순서는 relay 계좌 목록 순 · 목록 밖 계좌는 번호만으로 뒤에 · 행 없는 계좌는 묶음이 없다
- *   (`groupJournalRowsByAccount`). 통보 묶기(`mergeOrderNotices`)는 **묶음마다** 부른다 — 묶기가
- *   계좌 경계를 넘지 않는다. 헤더 「N건」 은 묶기 전 전체 행 수, 소제목 「N건」 은 그 계좌의
- *   묶기 전 행 수다. 조회는 여전히 페이지당 1회다(위 ② — 계좌 카드 안에 넣지 않는다).
+ * ⑨ ★ 계좌 축 — /me 계좌 칩이 고른 계좌의 평탄 목록 (Phase 32 D-23 · 그룹 소제목 제거)
+ *   기준이 「로그인한 사람」 에서 「계좌」 로 바뀌어(Phase 19 D-06) 같은 계좌의 WinForms · 다른 DMA
+ *   사용자 주문이 섞인다. 예전에는 계좌마다 소제목을 달고 목록을 반복했지만(B′ · D-07), 지금은 /me 탭 위
+ *   계좌 칩 한 곳에서 계좌를 고르므로(D-20) 이 카드는 prop `accountNo` 의 행만 **소제목 없이 평탄하게**
+ *   그린다 — 계좌는 칩이 말한다. `accountNo` 가 undefined(계좌 목록 미수신 · 칩 줄 없음)면 전 계좌를
+ *   평탄하게 그리고, 계좌가 정해지는 순간 거른다.
+ *   헤더 「N건」 · `onCountChange` 는 고른 계좌의 묶기 전 행 수다. 고른 계좌 0건인데 다른 계좌에 행이
+ *   있으면 계좌 빈 상태(`today-orders-empty-account` — 다른 계좌 N건 안내)다(전 계좌 0건이면 종전 빈 문구).
+ *   ★ 기록된 주문을 화면이 숨기지 않는다 — relay 계좌 목록 밖 계좌(권한은 있으나 이 세션 목록 밖 · 프레임
+ *     도착 전)의 행도 버리지 않는다. 병합 행의 계좌 집합(처음 본 순)을 `onRowAccountsChange` 로 올려 /me
+ *     칩 목록 맨 뒤에 번호만으로 세우게 한다(RESEARCH Pitfall 10) — 그 칩을 고르면 그 행이 보인다.
+ *   통보 묶기(`mergeOrderNotices`)는 거른 행에만 부른다 — 한 계좌의 행만 들어가므로 묶기가 계좌 경계를
+ *   넘지 않는다. 조회는 여전히 페이지당 1회다(위 ② — 칩을 바꿔도 다시 부르지 않는다 · 표시 필터).
  *   좁은 폭 카드 행 ↔ 넓은 폭(≥1280) 표 전환은 **뷰포트** 규칙 그대로다(상따 컨테이너 쿼리 비적용).
  *
  * ⑩ ★ 출처 칩 · NXT 태그 (Phase 19 D-08)
@@ -105,8 +110,8 @@
  *   본문(= 조회)은 **보이는 배치 한 곳에만** 마운트한다(`useTableLayout`) — 클릭 1회 = 조회 1회.
  *
  * ⑭ 건수 콜백 (quick-261006-pey D-1)
- *   선택 prop `onCountChange` 는 /me 「주문」 탭 라벨 숫자용이다. 헤더 「N건」 과 같은 값(`rows.length` — 묶기
- *   전 전체 행)이 바뀔 때 effect 로 **수만** 올린다. 조회 경로를 늘리지 않는다 — 위 ② 의 「페이지당 1회」 는
+ *   선택 prop `onCountChange` 는 /me 「주문」 탭 라벨 숫자용이다. 헤더 「N건」 과 같은 값(고른 계좌의 묶기 전
+ *   행 수 — 위 ⑨)이 바뀔 때 effect 로 **수만** 올린다. 조회 경로를 늘리지 않는다 — 위 ② 의 「페이지당 1회」 는
  *   그대로이고, /me 에서는 주문 탭이 처음 마운트될 때 1회다(열지 않으면 0회).
  */
 
@@ -138,7 +143,6 @@ import {
 } from "@/lib/order-notices";
 import {
   fetchTodayOrders,
-  groupJournalRowsByAccount,
   mergeJournalRows,
   orderDisplayStatus,
   type OrderDisplayStatus,
@@ -254,12 +258,33 @@ interface RowExpand {
 }
 
 export interface TodayOrdersCardProps {
-  /** 헤더 「N건」 과 같은 수(`rows.length`)가 바뀔 때 알린다 — /me 주문 탭 라벨용(위 ⑭). */
+  /** 헤더 「N건」 과 같은 수(고른 계좌 행 수)가 바뀔 때 알린다 — /me 주문 탭 라벨용(위 ⑭). */
   onCountChange?: (count: number) => void;
+  /**
+   * /me 계좌 칩이 고른 계좌(Phase 32 D-23). 있으면 그 계좌 행만 평탄하게 · undefined 면 전 계좌 평탄(계좌
+   * 미수신 동안).
+   */
+  accountNo?: string;
+  /**
+   * 병합 행(복원 ∪ 푸시)의 계좌 집합(처음 본 순 · 중복 없음) — /me 칩 목록이 목록 밖 계좌를 놓치지 않게
+   * (RESEARCH Pitfall 10). 집합이 **바뀔 때만** 부른다(렌더마다 부르지 않는다).
+   */
+  onRowAccountsChange?: (accountNos: readonly string[]) => void;
 }
 
-export function TodayOrdersCard({ onCountChange }: TodayOrdersCardProps = {}) {
-  const { accounts, journalRows, journalState, status } = useRelayContext();
+/** 행 계좌 집합 키 — 처음 본 순 · 중복 없음. 계좌번호에 줄바꿈이 없으므로 줄바꿈으로 잇는다. */
+function rowAccountsKeyOf(rows: readonly JournalOrderRow[]): string {
+  const seen: string[] = [];
+  for (const r of rows) if (r.accountNo !== "" && !seen.includes(r.accountNo)) seen.push(r.accountNo);
+  return seen.join("\n");
+}
+
+export function TodayOrdersCard({
+  onCountChange,
+  accountNo,
+  onRowAccountsChange,
+}: TodayOrdersCardProps = {}) {
+  const { journalRows, journalState, status } = useRelayContext();
   /* 종목명의 원천(위 ⑥). 이미 받은 프레임만 읽는다 — 새 조회 경로가 아니다. */
   const labels = useIsinLabels();
 
@@ -398,23 +423,36 @@ export function TodayOrdersCard({ onCountChange }: TodayOrdersCardProps = {}) {
     [restored, journalRows],
   );
 
+  /* 위 ⑨ — 고른 계좌의 행만(표시 필터 · 조회 아님). undefined = 계좌 미수신 동안 전 계좌. */
+  const shownRows = useMemo(
+    () => (accountNo === undefined ? rows : rows.filter((r) => r.accountNo === accountNo)),
+    [rows, accountNo],
+  );
+  /** 다른 계좌의 행 수 — 고른 계좌 0건일 때 안내 문구에만 쓴다. */
+  const otherCount = rows.length - shownRows.length;
+
   /* 위 ⑭ — 헤더 「N건」 과 같은 값만 올린다. 조회 · 렌더는 이 effect 와 무관하다. */
   useEffect(() => {
-    onCountChange?.(rows.length);
-  }, [rows.length, onCountChange]);
+    onCountChange?.(shownRows.length);
+  }, [shownRows.length, onCountChange]);
 
   /*
-    ★ 계좌별로 나눈 **뒤** 묶음마다 통보를 접는다 (위 ⑨ · 17-10 / D-16) — 병합 → 계좌 나누기 →
-    표시 접기 순서다. 접기가 계좌 경계를 넘지 않는다.
+    위 ⑨ — 병합 행의 계좌 집합을 올린다(/me 칩 목록 합집합). 키 문자열이 바뀔 때만 부른다 — 마지막으로 올린
+    키를 들고 있어 같은 집합의 재렌더 · 빈 집합 첫 렌더(부모 초기값과 같다)에는 부르지 않는다.
   */
-  const groups = useMemo(
-    () =>
-      groupJournalRowsByAccount(rows, accounts).map((group) => ({
-        ...group,
-        merged: mergeOrderNotices(group.rows),
-      })),
-    [rows, accounts],
-  );
+  const rowAccountsKey = useMemo(() => rowAccountsKeyOf(rows), [rows]);
+  const sentRowAccountsRef = useRef("");
+  useEffect(() => {
+    if (onRowAccountsChange === undefined || rowAccountsKey === sentRowAccountsRef.current) return;
+    sentRowAccountsRef.current = rowAccountsKey;
+    onRowAccountsChange(rowAccountsKey === "" ? [] : rowAccountsKey.split("\n"));
+  }, [rowAccountsKey, onRowAccountsChange]);
+
+  /*
+    ★ 고른 계좌로 거른 **뒤** 통보를 접는다 (위 ⑨ · 17-10 / D-16) — 병합 → 계좌 거르기 → 표시 접기
+    순서다. 한 계좌의 행만 들어가므로 접기가 계좌 경계를 넘지 않는다.
+  */
+  const merged = useMemo(() => mergeOrderNotices(shownRows), [shownRows]);
 
   /* relay 가 이름을 모르는 종목만 마스터 폴백(위 ⑥ 예외). relay 이름이 있으면 그쪽이 우선이다. */
   const unnamed = useMemo(
@@ -437,9 +475,9 @@ export function TodayOrdersCard({ onCountChange }: TodayOrdersCardProps = {}) {
     >
       <div className="flex min-w-0 flex-wrap items-center gap-[var(--s-2)]">
         <h2 className="text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">오늘 주문</h2>
-        {rows.length > 0 && (
+        {shownRows.length > 0 && (
           <span className="mono flex-none text-[length:var(--t-caption)] text-[var(--muted-fg)]">
-            {rows.length}건
+            {shownRows.length}건
           </span>
         )}
         {delayed && (
@@ -517,85 +555,68 @@ export function TodayOrdersCard({ onCountChange }: TodayOrdersCardProps = {}) {
             주문을 넣으면 접수·체결·취소가 여기에 모두 남아요.
           </p>
         </div>
+      ) : shownRows.length === 0 ? (
+        /* 위 ⑨ — 고른 계좌 0건 ∧ 다른 계좌 ≥ 1건. 기존 빈 상태와 같은 점선 상자 문법이다. */
+        <div
+          data-testid="today-orders-empty-account"
+          className="flex flex-col items-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-5)] text-center"
+        >
+          <p className="text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
+            이 계좌의 오늘 주문이 없어요
+          </p>
+          <p className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+            다른 계좌에 오늘 주문 {otherCount}건이 있어요 · 위에서 계좌를 바꿔 보세요
+          </p>
+        </div>
       ) : (
-        <div data-slot="today-orders-groups" className="flex flex-col gap-1.5">
-          {groups.map((group) => (
-            <div
-              key={group.accountNo}
-              data-slot="today-orders-group"
-              data-account={group.accountNo}
-              className="flex min-w-0 flex-col gap-1.5"
-            >
-              {/* 계좌 소제목 — account-panel 계좌 전용 모드 머리와 같은 문법(위 ⑨). */}
-              <div className="flex min-w-0 items-center gap-[var(--s-2)] px-0.5">
-                <span className="flex-none text-[length:var(--t-caption)] font-semibold text-[var(--muted-fg)]">
-                  계좌
-                </span>
-                <span
-                  data-slot="today-orders-group-account-no"
-                  className="mono min-w-0 flex-1 truncate text-[length:var(--t-caption)] font-semibold text-[var(--fg)]"
-                >
-                  {group.accountNo}
-                </span>
-                {/* 상품명은 **있을 때만** — 목록 밖 계좌는 번호만 그린다. */}
-                {group.name !== "" && (
-                  <span className="flex-none whitespace-nowrap text-[length:var(--t-caption)] text-[var(--muted-fg)]">
-                    {group.name}
-                  </span>
-                )}
-                <span className="mono flex-none whitespace-nowrap text-[length:var(--t-caption)] text-[var(--muted-fg)]">
-                  {group.rows.length}건
-                </span>
-              </div>
-
-              {/* 데스크톱(≥1280) — 표 */}
-              <div className="max-[1279px]:hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead scope="col">시각</TableHead>
-                      <TableHead scope="col">종목</TableHead>
-                      <TableHead scope="col">구분</TableHead>
-                      <TableHead scope="col">출처</TableHead>
-                      <TableHead scope="col" className="num">
-                        수량
-                      </TableHead>
-                      <TableHead scope="col" className="num">
-                        가격
-                      </TableHead>
-                      <TableHead scope="col">상태</TableHead>
-                      <TableHead scope="col">주문번호</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {group.merged.map((notice) => (
-                      <OrderTableRow
-                        key={expandKeyOf(notice)}
-                        notice={notice}
-                        label={labelOf(notice.head.isin)}
-                        expand={expandOf(notice, true)}
-                      />
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-
-              {/* 모바일(<1280) — 2줄 카드 행 (위 ⑤) */}
-              <div
-                data-slot="today-orders-list"
-                className="divide-y divide-[var(--border-subtle)] overflow-hidden rounded-[var(--r-md)] border border-[var(--border)] min-[1280px]:hidden"
-              >
-                {group.merged.map((notice) => (
-                  <OrderCardRow
+        /* 위 ⑨ — 고른 계좌의 평탄 목록(계좌 소제목 없음 · 계좌는 /me 칩이 말한다). */
+        <div data-testid="today-orders-flat" className="flex min-w-0 flex-col gap-1.5">
+          {/* 데스크톱(≥1280) — 표 */}
+          <div className="max-[1279px]:hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col">시각</TableHead>
+                  <TableHead scope="col">종목</TableHead>
+                  <TableHead scope="col">구분</TableHead>
+                  <TableHead scope="col">출처</TableHead>
+                  <TableHead scope="col" className="num">
+                    수량
+                  </TableHead>
+                  <TableHead scope="col" className="num">
+                    가격
+                  </TableHead>
+                  <TableHead scope="col">상태</TableHead>
+                  <TableHead scope="col">주문번호</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {merged.map((notice) => (
+                  <OrderTableRow
                     key={expandKeyOf(notice)}
                     notice={notice}
                     label={labelOf(notice.head.isin)}
-                    expand={expandOf(notice, false)}
+                    expand={expandOf(notice, true)}
                   />
                 ))}
-              </div>
-            </div>
-          ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* 모바일(<1280) — 2줄 카드 행 (위 ⑤) */}
+          <div
+            data-slot="today-orders-list"
+            className="divide-y divide-[var(--border-subtle)] overflow-hidden rounded-[var(--r-md)] border border-[var(--border)] min-[1280px]:hidden"
+          >
+            {merged.map((notice) => (
+              <OrderCardRow
+                key={expandKeyOf(notice)}
+                notice={notice}
+                label={labelOf(notice.head.isin)}
+                expand={expandOf(notice, false)}
+              />
+            ))}
+          </div>
         </div>
       )}
     </section>
