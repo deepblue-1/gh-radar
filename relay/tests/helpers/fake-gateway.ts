@@ -261,6 +261,17 @@ export type FakeGateway = {
   /** 거래소별 모드의 지금 슬롯 값(테스트 단언용 사본). 모드가 꺼져 있으면 `undefined`. */
   viTriggerSlot(exchange: "KRX" | "NXT"): FakeViTriggerInput | null | "silent" | undefined;
   /**
+   * **(계좌, 거래소) 슬롯** VI 응답 모드를 켜고 슬롯 전량을 지정한다 (Phase 32 D-17 · gh-trade Phase 33 서버 흉내 — 옵트인 · 위 두 모드보다
+   * 앞선다). 슬롯 키는 `accountNo`(생략 = `SAMPLE_ACCOUNT_NO`) × `exchange`(생략 = KRX).
+   *
+   * 21(거래소) → 그 연결이 선언한 계좌마다 선언 순서로 61 1프레임(그 계좌 · 거래소 슬롯이 있으면 등록본, 없으면 `unregistered: true` 에
+   * 계좌 · 거래소만) · 그 뒤 선언 밖 등록 슬롯을 1프레임씩(초집합) · 선언 0 이면 빈 Envelope. 11 → 그 (계좌, 거래소) 슬롯에 저장하고 그 슬롯
+   * 61 1프레임 에코. 구 서버(거래소당 1건)는 `respondViTrigger` · `respondViTriggerFor` 가 그대로 흉내 낸다.
+   */
+  respondViSlots(slots: FakeViTriggerInput[]): void;
+  /** 슬롯 모드의 지금 슬롯 값(테스트 단언용 사본). 모드가 꺼져 있거나 슬롯이 없으면 `undefined`. */
+  viSlot(accountNo: string, exchange: "KRX" | "NXT"): FakeViTriggerInput | undefined;
+  /**
    * `DisableStrategiesReq(14)` 처리를 켠다 (Phase 29-43 — 옵트인 · 기본 null = 종전처럼 기록만).
    *
    * 켜면 14 의 키와 같은 전략 키(`isin:accountNo:exchange`)의 상따마다 — `apply`(기본 true)면 5스위치(매수 · 매도 · 취소잔량 ·
@@ -1093,6 +1104,11 @@ function viSlotOf(exchange: string | null): "KRX" | "NXT" {
   return exchange === "NXT" ? "NXT" : "KRX";
 }
 
+/** 슬롯 모드 VI 키 (Phase 32 D-17) — `${계좌}|${거래소}`. */
+function fakeViSlotKey(accountNo: string, exchange: "KRX" | "NXT"): string {
+  return `${accountNo}|${exchange}`;
+}
+
 /** 시드 상따의 전략 키 — relay `strategyKey`(게이트웨이 `LimitChaser::MakeKey`) 와 같은 `isin:accountNo:exchange` (Phase 29-43). */
 function fakeStrategyKey(item: FakeLimitChaserInput): string {
   const exchange = item.exchange === "NXT" ? "NXT" : "KRX";
@@ -1122,6 +1138,8 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
   let viTrigger: FakeViTriggerInput | null = null;
   /** 거래소별 VI 슬롯 (Phase 29-43 옵트인). null 이면 종전 「거래소 무시 · 한 벌」 모드. */
   let viByExchange: Map<string, FakeViTriggerInput | null | "silent"> | null = null;
+  /** (계좌, 거래소) VI 슬롯 (Phase 32 D-17 옵트인 · `${계좌}|${거래소}` 키 · 삽입 순). null 이면 위 두 모드. */
+  let viSlots: Map<string, FakeViTriggerInput> | null = null;
   /** 14 처리 (Phase 29-43 옵트인). null 이면 종전 「기록만」. */
   let disableHandling: { apply: boolean; respond65: boolean } | null = null;
   /** 답하지 않을 조회 msg_type (Phase 29-43 — 시한 경로). */
@@ -1216,7 +1234,21 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
         if (msgType === STRATEGY_MSG.GetLimitChaserListReq && !silencedQueries.has(msgType)) {
           sock.write(frame(buildLimitChaserListRespFrame(limitChasers)));
         }
-        if (msgType === STRATEGY_MSG.GetVITriggerReq && !silencedQueries.has(msgType)) {
+        if (msgType === STRATEGY_MSG.GetVITriggerReq && !silencedQueries.has(msgType) && viSlots !== null) {
+          // 슬롯 모드(gh-trade Phase 33) — 선언 계좌마다 1프레임 + 선언 밖 등록 슬롯(초집합) · 선언 0 이면 빈 Envelope.
+          const ex = viSlotOf(readGetVITriggerExchange(msgType, payload));
+          if (registered.length === 0) sock.write(frame(buildSetVITriggerRespFrame(null)));
+          for (const acct of registered) {
+            const saved = viSlots.get(fakeViSlotKey(acct, ex));
+            sock.write(
+              frame(buildSetVITriggerRespFrame(saved ?? { accountNo: acct, exchange: ex, unregistered: true, orderAmountKrw: 0n, checkRate: 0 })),
+            );
+          }
+          for (const saved of viSlots.values()) {
+            const acct = saved.accountNo ?? SAMPLE_ACCOUNT_NO;
+            if (saved.exchange === ex && !registered.includes(acct)) sock.write(frame(buildSetVITriggerRespFrame(saved)));
+          }
+        } else if (msgType === STRATEGY_MSG.GetVITriggerReq && !silencedQueries.has(msgType)) {
           if (viByExchange === null) {
             sock.write(frame(buildSetVITriggerRespFrame(viTrigger)));
           } else {
@@ -1226,7 +1258,23 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
             if (v !== "silent") sock.write(frame(buildSetVITriggerRespFrame(v)));
           }
         }
-        if (viByExchange !== null && msgType === STRATEGY_MSG.SetVITriggerReq) {
+        if (viSlots !== null && msgType === STRATEGY_MSG.SetVITriggerReq) {
+          // 슬롯 모드의 11 — 그 (계좌, 거래소) 슬롯에 저장하고 그 슬롯 61 1프레임 에코(gh-trade Phase 33 — 다른 계좌 슬롯을 덮지 않는다).
+          const req = readViSetRequest(msgType, payload);
+          if (req !== null) {
+            const ex = viSlotOf(req.exchange);
+            const saved: FakeViTriggerInput = {
+              accountNo: req.accountNo,
+              orderAmountKrw: BigInt(req.orderAmountKrw),
+              checkRate: req.checkRate,
+              priceType: req.priceType,
+              run: req.run,
+              exchange: ex,
+            };
+            viSlots.set(fakeViSlotKey(req.accountNo, ex), saved);
+            sock.write(frame(buildSetVITriggerRespFrame(saved)));
+          }
+        } else if (viByExchange !== null && msgType === STRATEGY_MSG.SetVITriggerReq) {
           // 거래소별 모드의 11 — 그 거래소 슬롯에 저장하고 61 에코(서버 Set 에코 흉내). 기록은 아래 명령 기록이 따로 한다.
           const req = readViSetRequest(msgType, payload);
           if (req !== null) {
@@ -1365,6 +1413,19 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
     respondViTriggerFor(exchange, cfg) {
       if (viByExchange === null) viByExchange = new Map();
       viByExchange.set(exchange, cfg === null || cfg === "silent" ? cfg : { ...cfg, exchange: cfg.exchange ?? exchange });
+    },
+
+    respondViSlots(slots) {
+      viSlots = new Map();
+      for (const slot of slots) {
+        const ex = viSlotOf(slot.exchange ?? null);
+        viSlots.set(fakeViSlotKey(slot.accountNo ?? SAMPLE_ACCOUNT_NO, ex), { ...slot, exchange: ex });
+      }
+    },
+
+    viSlot(accountNo, exchange) {
+      const v = viSlots?.get(fakeViSlotKey(accountNo, exchange));
+      return v === undefined ? undefined : { ...v };
     },
 
     viTriggerSlot(exchange) {

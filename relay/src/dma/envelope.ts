@@ -2764,6 +2764,12 @@ export type ParsedViTrigger = {
   ok: true;
   /** `null` 은 **미등록**이다. 이때 UI 는 입력값을 그대로 두고 `run` 만 내린다. */
   cfg: RelayViTrigger | null;
+  /**
+   * 이 61 이 말하는 (계좌, 거래소) 슬롯 (Phase 32 D-17 · gh-trade Phase 33). 테이블이 있으면 늘 싣는다 — 등록본은 `cfg` 의 계좌 ·
+   * 거래소와 같고, `unregistered` 프레임은 `cfg: null` 과 함께 이 값만 유효하다. 테이블 없는 빈 Envelope(선언 계좌 0 · 구 서버의
+   * 미등록)에는 없다 — 그 61 은 계좌도 거래소도 말하지 않는다(hub 가 21 대기열 머리로 귀속한다).
+   */
+  slot?: { accountNo: string; exchange: RelayExchange };
 };
 
 /**
@@ -2786,6 +2792,15 @@ export function parseViTrigger(env: Envelope): ParsedViTrigger | null {
     });
   }
 
+  // 빈 값은 `"KRX"` 다 — 서버가 그렇게 정규화한 뒤 (계좌, 거래소) 슬롯에 넣는다 (D-06).
+  const exchange = fromWireExchange(t.exchange() ?? "");
+  const slot = { accountNo, exchange };
+  if (t.unregistered()) {
+    // 미등록 프레임 (gh-trade Phase 33 · vtable 16 — 구 서버는 필드가 없어 false). 계좌 · 거래소만 유효하고 금액 0 · 상승률 0 ·
+    // run false · price_type 'U' 는 stub 이라 **읽지 않는다**(인박스 261016). 값으로 읽으면 「금액 0 등록본」 이 되어 사용자 입력을 지운다.
+    return { ok: true, cfg: null, slot };
+  }
+
   const rawPriceType = t.priceType() ?? "";
   if (rawPriceType.charAt(0) === "L") {
     // 하한가 전략은 relay 가 만들지 않는다 (D-01) — 다른 클라이언트(WinForms)가 등록한 것이라
@@ -2799,10 +2814,10 @@ export function parseViTrigger(env: Envelope): ParsedViTrigger | null {
 
   return {
     ok: true,
+    slot,
     cfg: {
       accountNo,
-      // 빈 값은 `"KRX"` 다 — 서버가 그렇게 정규화한 뒤 거래소별 슬롯에 넣는다 (D-06).
-      exchange: fromWireExchange(t.exchange() ?? ""),
+      exchange,
       // ulong → number 승격의 유일 지점 (D-34). 여기서 새면 팬아웃 루프가 TypeError 로 죽는다.
       orderAmountKrw: toNum(t.orderAmountKrw(), "orderAmountKrw"),
       // 정수 %(25 = 25%). 상따의 `sweepMinRate`(BasisPoints)와 단위가 다르다 (Pitfall 5).

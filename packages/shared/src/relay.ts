@@ -580,8 +580,8 @@ export type RelayViTrigger = {
   /** 계좌번호 (최대 12자). */
   accountNo: string;
   /**
-   * 거래소 — VI 전략은 세션당 **거래소별 1건**이다(계좌당 1건이 아니다).
-   * 와이어의 빈 값·미지정은 **relay 가 `"KRX"` 로 정규화**한 뒤 올린다 (D-06).
+   * 거래소 — VI 전략은 세션 안 **(계좌, 거래소) 슬롯마다 1건**이다(gh-trade Phase 33 · Phase 32 D-17 — 그 전에는 세션당 거래소별
+   * 1건이었다). 와이어의 빈 값·미지정은 **relay 가 `"KRX"` 로 정규화**한 뒤 올린다 (D-06).
    */
   exchange: RelayExchange;
   /**
@@ -1318,6 +1318,26 @@ export type RelayViTriggerMsg = {
 };
 
 /**
+ * VI 전략 (계좌, 거래소) 슬롯 1건 (Phase 32 D-17 · gh-trade Phase 33 — 61 이 계좌별 슬롯이 됐다).
+ *
+ * 브라우저 칸 키는 `${a}|${x}` 다. 3상태는 칸마다 독립이다:
+ *  - 키 부재 : 그 슬롯을 아직 모른다(프레임을 받은 적 없음 — relay 는 모르면 보내지 않는다)
+ *  - `cfg: null` : 미등록(61 `unregistered` 프레임 · 구 서버의 빈 61 · 구 서버 21 답의 다른 소유 계좌)
+ *  - 객체 : 등록돼 있다(`cfg.accountNo === a` · `cfg.exchange === x`)
+ *
+ * 같은 거래소의 다른 계좌 슬롯을 덮지 않는다 — 거래소 칸 하나로 접으면 21 답의 마지막 계좌 건만 남는다(인박스 261016).
+ * relay 는 슬롯마다 받은 61 을 그대로 이 프레임 1건으로 낸다(같은 값이어도 — 웹 VI 행은 에코 도착으로 송신 잠금을 푼다).
+ */
+export type RelayViSlotMsg = {
+  t: "vi.slot";
+  /** 계좌번호 — 슬롯 키의 앞. */
+  a: string;
+  /** 거래소 — 슬롯 키의 뒤. */
+  x: RelayExchange;
+  cfg: RelayViTrigger | null;
+};
+
+/**
  * VI 주문 추적 목록 (`VIOrderList` 72 스냅샷 / 73 델타).
  * `snap` 규약은 `RelayAccountState.snap` 과 **동형**이다 — true=전량 교체,
  * false=`orderNo` 키 upsert. 0건도 길이 0 배열로 온다.
@@ -1827,6 +1847,7 @@ export type RelayOutbound =
   | RelayLimitChaserMsg
   | RelayLimitChaserSnapMsg
   | RelayViTriggerMsg
+  | RelayViSlotMsg
   | RelayViListMsg
   | RelayViNoticeMsg
   | RelayStrategiesDisabledMsg

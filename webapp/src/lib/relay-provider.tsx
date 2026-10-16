@@ -86,6 +86,7 @@ import {
   type RelayConnectionState,
   type RelaySocketState,
   type RelayViTriggers,
+  type RelayViSlots,
 } from "@/lib/use-relay-socket";
 import type {
   JournalOrderRow,
@@ -321,6 +322,8 @@ const EMPTY_LIMIT_FEATURES: ReadonlyMap<string, RelayLimitFeatureMsg> = new Map(
  * `viAnyRunning` 을 memo 로 감싼 소비처가 전부 무효화된다.
  */
 const EMPTY_VI_TRIGGERS: RelayViTriggers = {};
+/** VI 슬롯도 전부 모름(빈 Map · Phase 32 D-17). Provider 밖에서는 아무것도 조회한 적이 없다. */
+const EMPTY_VI_SLOTS: RelayViSlots = new Map();
 /** 빈 테이프의 고정 참조 — 매 렌더 새 배열을 만들면 소비자 memo 가 전부 무효화된다. */
 const EMPTY_TAPE: RelayTapeEntry[] = [];
 /** 빈 주문 잠금의 고정 참조 (⑤ · ⑧) — Provider 밖 폴백이 매 호출 새 Map 을 만들지 않게 한다. */
@@ -377,6 +380,7 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   limitChaserDisableEchoes: EMPTY_LC_DISABLE_ECHOES,
   // 두 거래소 모두 미조회다. Provider 밖에서는 아무것도 조회한 적이 없다.
   viTriggers: EMPTY_VI_TRIGGERS,
+  viSlots: EMPTY_VI_SLOTS,
   viOrders: [],
   viNotices: [],
   strategiesDisabled: null,

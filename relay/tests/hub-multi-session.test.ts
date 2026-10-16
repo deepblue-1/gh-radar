@@ -321,7 +321,8 @@ describe("SubscriptionHub — D-18 다중 세션 병합 규칙 (29-20)", () => {
       only.pushFrame(buildSetVITriggerRespFrame({ accountNo: B1, exchange: "NXT" }));
       expect(solo.getUserSettings("solo-user", "KYOBO119")).toMatchObject({ present: true, serverKey: "KYOBO119" });
       expect(solo.getViTrigger("solo-user", "NXT")).not.toBeUndefined();
-      expect(events.map((e) => e.msg.t)).toEqual(["user.settings", "vi"]);
+      // P32 D-17 — 슬롯 프레임(`vi.slot`)이 거래소 병합 프레임 앞에 함께 나간다.
+      expect(events.map((e) => e.msg.t)).toEqual(["user.settings", "vi.slot", "vi"]);
       solo.closeAll();
     });
 
@@ -1720,5 +1721,68 @@ describe("SubscriptionHub — P32 beginAccountStop 집계 (D-09 보정)", () => 
     expect(done.value).toMatchObject({ ended: "closed" });
     expect(disabled()).toEqual([]);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("SubscriptionHub — P32 VI 슬롯 트레이서 (D-17)", () => {
+  const A = "1234567801";
+  const B = "1234567802";
+  let hub: SubscriptionHub;
+  let fanned: HubFanoutEvent[];
+  let kb: FakeBrokerSession;
+
+  /** 브라우저로 나간 `vi.slot` 프레임 — [계좌, 거래소, 금액(미등록 = null), run(미등록 = null)]. */
+  function slotsSeen(): [string, string, number | null, boolean | null][] {
+    return fanned
+      .filter((e) => e.userId === U && e.msg.t === "vi.slot")
+      .map((e) => {
+        const m = e.msg as Extract<RelayOutbound, { t: "vi.slot" }>;
+        return [m.a, m.x, m.cfg?.orderAmountKrw ?? null, m.cfg?.run ?? null];
+      });
+  }
+
+  beforeEach(() => {
+    resetDroppedEnvelopeCount();
+    hub = new SubscriptionHub();
+    fanned = [];
+    hub.on("fanout", (e: HubFanoutEvent) => fanned.push(e));
+    // 한 세션이 계좌 A · B 를 선언했다 — gh-trade Phase 33 의 21 답 = 선언 계좌마다 61 1프레임.
+    kb = new FakeBrokerSession(U, "KB120", "KB", [
+      { accountNo: A, name: "계좌A" },
+      { accountNo: B, name: "계좌B" },
+    ]);
+    hub.attach(kb);
+  });
+
+  afterEach(() => {
+    hub.closeAll();
+    vi.restoreAllMocks();
+  });
+
+  it("같은 세션의 A · B 가 KRX VI 를 각자 가지면 vi.slot 2건(A · B 각자 값) · 슬롯 캐시도 둘 — 한쪽이 다른 쪽을 덮지 않는다", () => {
+    kb.pushFrame(buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", run: true, orderAmountKrw: 3_000_000n }));
+    kb.pushFrame(buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", run: true, orderAmountKrw: 7_000_000n }));
+
+    expect(slotsSeen()).toEqual([
+      [A, "KRX", 3_000_000, true],
+      [B, "KRX", 7_000_000, true],
+    ]);
+    expect(hub.getViSlot(U, A, "KRX")).toMatchObject({ accountNo: A, orderAmountKrw: 3_000_000, run: true });
+    expect(hub.getViSlot(U, B, "KRX")).toMatchObject({ accountNo: B, orderAmountKrw: 7_000_000, run: true });
+    expect(hub.getViSlot(U, A, "KRX")).not.toEqual(hub.getViSlot(U, B, "KRX"));
+    // 모르는 슬롯은 모름(undefined) — 지어낸 미등록이 아니다.
+    expect(hub.getViSlot(U, A, "NXT")).toBeUndefined();
+  });
+
+  it("unregistered B → vi.slot { a: B, cfg: null } · 슬롯 null(미등록) · A 슬롯 무변경", () => {
+    kb.pushFrame(buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", run: true, orderAmountKrw: 3_000_000n }));
+    kb.pushFrame(buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", unregistered: true }));
+
+    expect(slotsSeen()).toEqual([
+      [A, "KRX", 3_000_000, true],
+      [B, "KRX", null, null],
+    ]);
+    expect(hub.getViSlot(U, B, "KRX")).toBeNull();
+    expect(hub.getViSlot(U, A, "KRX")).toMatchObject({ accountNo: A, run: true });
   });
 });

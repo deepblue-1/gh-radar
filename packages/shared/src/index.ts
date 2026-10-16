@@ -74,6 +74,7 @@ export type {
   RelayLimitChaserMsg,
   RelayLimitChaserSnapMsg,
   RelayViTriggerMsg,
+  RelayViSlotMsg,
   RelayViListMsg,
   RelayViNoticeMsg,
   RelayStrategiesDisabledMsg,

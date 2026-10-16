@@ -3487,3 +3487,52 @@ describe("P31 SetLimitChaser 금액 8필드 (vtable 158~172 · D-11)", () => {
     expect(list![0]).toMatchObject(AMOUNTS);
   });
 });
+
+describe("P32 61 unregistered 슬롯 (D-17 · gh-trade Phase 33 vtable 16)", () => {
+  const A = "1234567801";
+  const B = "7777777701";
+
+  function inbound(bytes: Uint8Array) {
+    const parsed = tryParseEnvelope(Buffer.from(bytes));
+    expect(parsed).not.toBeNull();
+    return parsed!;
+  }
+
+  it("unregistered 프레임 → cfg null + slot { 계좌, 거래소 } · 드롭 아님", () => {
+    const parsed = parseViTrigger(
+      inbound(buildSetVITriggerRespFrame({ accountNo: B, exchange: "NXT", unregistered: true })).env,
+    );
+    expect(parsed).toEqual({ ok: true, cfg: null, slot: { accountNo: B, exchange: "NXT" } });
+    expect(droppedEnvelopeCount()).toBe(0);
+  });
+
+  it("등록 프레임 → cfg 와 같은 계좌 · 거래소의 slot", () => {
+    const parsed = parseViTrigger(
+      inbound(buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", run: true, orderAmountKrw: 3_000_000n })).env,
+    );
+    expect(parsed!.cfg).toMatchObject({ accountNo: A, exchange: "KRX", run: true, orderAmountKrw: 3_000_000 });
+    expect(parsed!.slot).toEqual({ accountNo: A, exchange: "KRX" });
+  });
+
+  it("빈 Envelope(선언 계좌 0 · 구 서버 미등록) → slot 없음 — 종전 { ok, cfg: null } 그대로", () => {
+    expect(parseViTrigger(inbound(buildSetVITriggerRespFrame(null)).env)).toEqual({ ok: true, cfg: null });
+  });
+
+  it("unregistered 에 stub 금액 999 · run true 가 실려도 cfg null — stub 은 읽지 않는다", () => {
+    const parsed = parseViTrigger(
+      inbound(
+        buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", orderAmountKrw: 999n, run: true, unregistered: true }),
+      ).env,
+    );
+    expect(parsed!.cfg).toBeNull();
+    expect(parsed!.slot).toEqual({ accountNo: A, exchange: "KRX" });
+  });
+
+  it("unregistered 라도 계좌번호가 깨졌으면 파싱 실패(null · 드롭 1) — 슬롯 키를 만들 수 없다", () => {
+    const parsed = parseViTrigger(
+      inbound(buildSetVITriggerRespFrame({ accountNo: "1234567801234", exchange: "KRX", unregistered: true })).env,
+    );
+    expect(parsed).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+  });
+});
