@@ -383,7 +383,7 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 
 ### 접힘 토글(구간표 · 10분 표 · 판정 기준 공통)
 
-- `button type="button"` · `aria-expanded` · `aria-controls`(열렸을 때) · 최소 높이 32 · `inline-flex items-center gap-1` · `ChevronRight` 16px `aria-hidden` 열림 시 `rotate-90`(200ms · reduced-motion 없음). 글자 12/600 — 표 토글 `--accent-fg` · 판정 기준 `--fg-2`. hover = 밑줄(`hover:underline`). `<details>` 대신 버튼 — 행 아코디언과 같은 문법 · 닫힘 상태에서 표를 마운트하지 않는다.
+- `button type="button"` · `aria-expanded` · `aria-controls`(열렸을 때) · 최소 높이 32 · `inline-flex items-center gap-1` · `ChevronRight` 16px `aria-hidden` 열림 시 `rotate-90`(200ms · reduced-motion 이면 즉시 — `motion-reduce:transition-none`, 행 셰브론과 같은 규칙 · 아래 「접근성 계약」 움직임 줄과 일치). 글자 12/600 — 표 토글 `--accent-fg` · 판정 기준 `--fg-2`. hover = 밑줄(`hover:underline`). `<details>` 대신 버튼 — 행 아코디언과 같은 문법 · 닫힘 상태에서 표를 마운트하지 않는다.
 - **세 토글 모두 기본 접힘**(D-14) · 서로 독립 · 행을 접으면 초기화.
 
 ### T9. 상세 — 판정 기준

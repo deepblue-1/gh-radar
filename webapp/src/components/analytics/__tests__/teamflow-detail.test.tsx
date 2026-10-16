@@ -382,6 +382,14 @@ describe('TeamflowDetail — 「10분 표 보기」 (T8 · D-14)', () => {
     expect(striped).toEqual(['15:10', '15:30']);
   });
 
+  it('토글 셰브론 — 행 셰브론과 같이 reduced-motion 이면 회전 전환 없음(motion-reduce:transition-none · IN-05)', () => {
+    renderDetail(rowOf(CHEONIL));
+    for (const l of ['구간표 보기', '10분 표 보기', '판정 기준']) {
+      const icon = toggle(l).querySelector('svg')!;
+      expect(icon.getAttribute('class'), l).toContain('motion-reduce:transition-none');
+    }
+  });
+
   it('구간표 · 10분 표 · 판정 기준 — 차례로 열고 닫아도 서로의 상태를 바꾸지 않는다', () => {
     renderDetail(rowOf(CHEONIL));
     const state = () => ['구간표 보기', '10분 표 보기', '판정 기준'].map((l) => toggle(l).getAttribute('aria-expanded'));
