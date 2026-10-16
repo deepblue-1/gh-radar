@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sketch 014 — 팀 매집 보고서 · 목록↔상세 구조</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; transition: all .15s; }
+#nav button:hover { border-color: #555; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+
+/* ── TDS 다크 토큰 (011 · 012 와 동일) ── */
+.f {
+  --bg: #17171c; --band: #101013; --layer: #202027; --float: #2c2c35; --g200: #3c3c47; --g300: #4d4d59;
+  --t900: #ffffff; --t800: #e4e4e5; --t600: #9e9ea4; --t500: #7e7e87; --t400: #62626d;
+  --hair: #2e2e37; --red: #f04251; --blue: #3485fa; --green: #2fca73; --amber: #ffb13d; --team: #b48cf2;
+  --red-box: rgba(240,66,81,.18); --blue-box: rgba(52,133,250,.18); --amber-box: rgba(255,177,61,.14); --team-box: rgba(180,140,242,.16);
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  position: relative; flex: none; background: var(--bg); color: var(--t800); font-family: var(--font);
+  -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); display: flex; border-radius: 12px; overflow: hidden;
+}
+.f.phone { width: 390px; min-height: 844px; border-radius: 30px; }
+.f.desktop { width: 1280px; min-height: 900px; }
+.side { display: none; }
+.f.desktop .side { display: flex; flex-direction: column; gap: 2px; width: 232px; flex: none; padding: 18px 12px; background: var(--band); }
+.side .brand { font-weight: 700; font-size: 17px; padding: 4px 10px 16px; color: var(--t900); }
+.side a { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; color: var(--t600); font-size: 15px; font-weight: 500; text-decoration: none; cursor: pointer; }
+.side a:hover { background: var(--layer); }
+.side a.grp.on { color: var(--t900); font-weight: 600; }
+.side a.sub { padding: 7px 10px 7px 38px; font-size: 14px; color: var(--t800); }
+.side a.sub.cur { background: var(--layer); color: var(--t900); font-weight: 600; }
+.side a.sub.new::after { content: '추가'; font-size: 10px; font-weight: 700; color: var(--amber); background: var(--amber-box); border-radius: 5px; padding: 1px 5px; margin-left: auto; }
+.side .ic { width: 18px; text-align: center; font-size: 14px; }
+.col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.main { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.f.desktop .main { padding: 24px 32px; max-width: 1120px; width: 100%; margin: 0 auto; }
+.phead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.phead h1 { margin: 0; font-size: 22px; font-weight: 700; color: var(--t900); }
+.phead .sub { font-size: 12.5px; color: var(--t600); flex-basis: 100%; }
+.f.desktop .phead .sub { flex-basis: auto; }
+.phead .sp { flex: 1; }
+.phead .sub .team { color: var(--team); font-weight: 600; }
+.datepill { display: inline-flex; align-items: center; gap: 2px; background: var(--layer); border-radius: 999px; padding: 3px; font-size: 14px; font-weight: 600; color: var(--t900); }
+.datepill button { font: inherit; background: none; border: 0; color: var(--t600); width: 30px; height: 30px; border-radius: 50%; cursor: pointer; }
+.datepill button:hover { background: var(--float); color: var(--t900); }
+.datepill span { padding: 0 8px; }
+.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.f.phone .kpis { grid-template-columns: repeat(2, 1fr); }
+.kpi { background: var(--layer); border-radius: 14px; padding: 12px 14px; }
+.kpi .k { font-size: 12px; color: var(--t600); }
+.kpi .v { font-size: 20px; font-weight: 700; color: var(--t900); margin-top: 2px; }
+.kpi .v small { font-size: 13px; font-weight: 500; color: var(--t600); margin-left: 2px; }
+.note { font-size: 12px; color: var(--t500); margin-top: -4px; }
+
+/* ── 공통 원자 ── */
+.pos { color: var(--red); } .neg { color: var(--blue); } .dim { color: var(--t500); } .hot { color: var(--team); font-weight: 700; }
+.tag { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.tag.limit { background: var(--red-box); color: var(--red); }
+.tag.up { background: var(--float); color: var(--t800); }
+.num { font-size: 14px; color: var(--t800); }
+.nm b { display: block; font-size: 15px; font-weight: 600; color: var(--t900); }
+.nm span { font-size: 12px; color: var(--t500); }
+.chev { color: var(--t500); transition: transform .2s; font-size: 13px; }
+.strip { display: block; }
+
+/* ── A 리스트 (011 문법) ── */
+.list { background: var(--layer); border-radius: 16px; overflow: hidden; --cols: 196px 84px 104px 150px 86px 1fr 20px; }
+.lhead { display: grid; grid-template-columns: var(--cols); gap: 12px; padding: 10px 18px; font-size: 12px; color: var(--t500); border-bottom: 1px solid var(--hair); }
+.f.phone .lhead { display: none; }
+.lrow { border-bottom: 1px solid var(--hair); }
+.lrow:last-child { border-bottom: 0; }
+.rbtn { all: unset; box-sizing: border-box; width: 100%; display: grid; grid-template-columns: var(--cols); gap: 12px; align-items: center; padding: 14px 18px; cursor: pointer; transition: background .15s; }
+.rbtn:hover { background: rgba(255,255,255,.03); }
+.lrow.open > .rbtn { background: rgba(255,255,255,.04); }
+.lrow.open .chev { transform: rotate(180deg); }
+.c-two { display: flex; flex-direction: column; font-size: 13px; line-height: 1.35; }
+.c-two small { font-size: 11px; color: var(--t500); }
+.c-meta { display: none; font-size: 12.5px; color: var(--t600); line-height: 1.5; }
+.f.phone .rbtn { grid-template-columns: 1fr auto; grid-template-areas: "nm tag" "strip strip" "meta meta"; gap: 8px; padding: 14px 16px; }
+.f.phone .rbtn .c-nm { grid-area: nm; } .f.phone .rbtn .c-tag { grid-area: tag; justify-self: end; }
+.f.phone .rbtn .c-strip { grid-area: strip; } .f.phone .rbtn .c-meta { grid-area: meta; display: block; }
+.f.phone .rbtn .c-net, .f.phone .rbtn .c-split, .f.phone .rbtn .c-share, .f.phone .rbtn .chev { display: none; }
+.body { overflow: hidden; max-height: 0; transition: max-height .3s ease; }
+.lrow.open > .body { max-height: 6000px; }
+.inner { padding: 4px 18px 22px; }
+.f.phone .inner { padding: 4px 14px 18px; }
+
+/* ── 상세 공통 ── */
+.story { font-size: 15px; line-height: 1.6; color: var(--t900); font-weight: 600; background: var(--bg); border-radius: 12px; padding: 12px 14px; margin: 6px 0 12px; }
+.story small { display: block; font-size: 12.5px; font-weight: 400; color: var(--t600); margin-top: 4px; }
+.sum { margin: 0 0 14px; padding: 0; list-style: none; display: grid; gap: 6px; }
+.sum li { display: grid; grid-template-columns: 20px 1fr; gap: 8px; font-size: 13.5px; line-height: 1.55; color: var(--t800); }
+.sum li i { width: 20px; height: 20px; border-radius: 50%; background: var(--g200); color: var(--t900); font-size: 11px; font-weight: 700; display: grid; place-items: center; font-style: normal; margin-top: 1px; }
+.sum li b { color: var(--t900); }
+.sec-h { display: flex; align-items: baseline; gap: 8px; margin: 16px 0 6px; flex-wrap: wrap; }
+.sec-h b { font-size: 14px; color: var(--t900); font-weight: 600; }
+.sec-h span { font-size: 12px; color: var(--t500); }
+.tw { overflow-x: auto; border-radius: 10px; background: var(--bg); }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--hair); white-space: nowrap; }
+th { font-size: 11.5px; color: var(--t500); font-weight: 500; }
+th.n, td.n { text-align: right; }
+td small { display: block; font-size: 11px; color: var(--t500); }
+tr:last-child td { border-bottom: 0; }
+tr.total td { font-weight: 700; background: var(--team-box); }
+tr.phase td:first-child { box-shadow: inset 3px 0 0 var(--team); }
+.f.phone td, .f.phone th { padding: 6px 8px; font-size: 12.5px; }
+.mem { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.mem .m { background: var(--bg); border-radius: 12px; padding: 10px 12px; }
+.mem .m b { display: block; font-size: 14px; color: var(--t900); }
+.mem .m span { display: block; font-size: 12px; color: var(--t600); margin-top: 2px; }
+.mem .m .nv { font-size: 16px; font-weight: 700; margin-top: 4px; }
+.mem .m.off { opacity: .55; }
+details.rule { margin-top: 14px; font-size: 12.5px; color: var(--t600); line-height: 1.6; }
+details.rule summary { cursor: pointer; color: var(--t800); font-weight: 600; font-size: 13px; }
+.synth { font-size: 13px; color: var(--t600); background: var(--bg); border-radius: 12px; padding: 14px; }
+
+/* ── B 비교표 + 상세 전환 ── */
+.cmp { background: var(--layer); border-radius: 16px; overflow: hidden; }
+.cmp .tw { background: none; border-radius: 0; }
+.cmp th:first-child, .cmp td:first-child { position: sticky; left: 0; background: var(--layer); z-index: 1; }
+.cmp tbody tr { cursor: pointer; transition: background .12s; }
+.cmp tbody tr:hover td { background: rgba(255,255,255,.03); }
+.cmp tbody tr.sel td { background: var(--float); }
+.cmp tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--team); }
+.cmp td.nm b { font-size: 14px; }
+.card { background: var(--layer); border-radius: 16px; padding: 16px 18px; }
+.f.phone .card { padding: 14px; }
+.card-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+.card-h h2 { margin: 0; font-size: 18px; color: var(--t900); font-weight: 700; }
+.card-h .sp { flex: 1; }
+.seg { display: inline-flex; background: var(--float); border-radius: 999px; padding: 3px; gap: 2px; max-width: 100%; overflow-x: auto; }
+.seg button { font: inherit; font-size: 12.5px; border: 0; background: none; color: var(--t600); padding: 5px 12px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
+.seg button.on { background: var(--g200); color: var(--t900); font-weight: 600; }
+.pick { font-size: 12px; color: var(--t500); }
+
+/* ── C 판정 카드 피드 ── */
+.cgrid { display: grid; grid-template-columns: 400px minmax(0, 1fr); gap: 16px; align-items: start; }
+.f.phone .cgrid { grid-template-columns: 1fr; }
+.feed { display: grid; gap: 10px; }
+.fc { all: unset; box-sizing: border-box; display: block; width: 100%; background: var(--layer); border-radius: 16px; padding: 14px 16px; cursor: pointer; transition: background .15s, box-shadow .15s; }
+.fc:hover { background: #24242c; }
+.fc.sel { box-shadow: inset 0 0 0 2px var(--team); }
+.fc .top { display: flex; align-items: center; gap: 8px; }
+.fc .top .nm { flex: 1; min-width: 0; }
+.fc .hl { font-size: 15px; font-weight: 600; color: var(--t900); margin: 10px 0 10px; line-height: 1.45; }
+.fc .nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.fc .nums div { background: var(--bg); border-radius: 10px; padding: 8px 10px; }
+.fc .nums .k { font-size: 11px; color: var(--t500); }
+.fc .nums .v { font-size: 15px; font-weight: 700; color: var(--t900); margin-top: 2px; }
+.fc .strip { margin-top: 10px; }
+.panel { position: sticky; top: 16px; background: var(--layer); border-radius: 16px; padding: 16px 18px; min-height: 400px; }
+.panel .ph { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.panel .ph h2 { margin: 0; font-size: 18px; color: var(--t900); font-weight: 700; }
+.panel .ph .sp { flex: 1; }
+.panel .empty { color: var(--t500); font-size: 13.5px; padding: 60px 0; text-align: center; }
+.sheet-wrap { position: absolute; inset: 0; z-index: 20; display: none; }
+.f.phone .sheet-wrap.on { display: block; }
+.sheet-wrap .dim { position: absolute; inset: 0; background: rgba(0,0,0,.55); }
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; top: 56px; background: var(--layer); border-radius: 24px 24px 0 0; padding: 10px 14px 24px; overflow-y: auto; animation: up .25s ease; }
+@keyframes up { from { transform: translateY(40px); opacity: 0 } to { transform: none; opacity: 1 } }
+.sheet .grab { width: 40px; height: 4px; border-radius: 2px; background: var(--g300); margin: 0 auto 10px; }
+.sheet .ph { display: flex; align-items: center; gap: 10px; }
+.sheet .ph h2 { margin: 0; font-size: 18px; color: var(--t900); flex: 1; }
+.xbtn { all: unset; cursor: pointer; width: 32px; height: 32px; border-radius: 50%; background: var(--float); color: var(--t800); display: grid; place-items: center; font-size: 15px; }
+
+#toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(20px); background: #2c2c35; color: #fff; font-size: 13px; padding: 10px 16px; border-radius: 12px; opacity: 0; transition: all .2s; z-index: 99; pointer-events: none; }
+#toast.show { opacity: 1; transform: translateX(-50%); }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">변형</span>
+    <button data-v="A" class="on">A 보고서 동형 ★ 채택</button>
+    <button data-v="B">B 비교표 고정 + 상세 전환</button>
+    <button data-v="C">C 판정 카드 피드</button>
+  </div>
+  <div class="g"><span class="l">폭</span>
+    <button data-w="desktop" class="on">데스크톱 1280</button>
+    <button data-w="phone">폰 390</button>
+  </div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+<div id="toast"></div>
+
+<script src="data.js"></script>
+<script>
+const state = { v: 'A', w: 'desktop', open: new Set(), sel: STOCKS[0].isin, sheet: false };
+const MINUS = '−';
+const fmtN = (n) => n == null ? '—' : Math.round(n).toLocaleString('ko-KR');
+const eok = (v, d = 1) => v == null ? '—' : (v > 0 ? '+' : v < 0 ? MINUS : '') + Math.abs(v).toFixed(d) + '억';
+const eokAbs = (v, d = 1) => v == null ? '—' : v.toFixed(d) + '억';
+const tone = (v) => v == null ? 'dim' : v > 0.05 ? 'pos' : v < -0.05 ? 'neg' : 'dim';
+const pct = (v) => v == null ? '—' : Math.round(v) + '%';
+const rate = (v) => (v > 0 ? '+' : v < 0 ? MINUS : '') + Math.abs(v).toFixed(1) + '%';
+const tagOf = (d) => d.status === 'limit'
+  ? `<span class="tag limit">상한가${d.first_limit ? ` <small style="font-weight:500;opacity:.85">${d.first_limit.slice(0,5)}</small>` : ''}</span>`
+  : `<span class="tag up">${rate(d.last_rate)}</span>`;
+const REAL = STOCKS.filter((d) => d.real);
+const BAND_SLOTS = ['0% 미만','0~5%','5~10%','10~15%','15~20%','20~25%','25~28%','28%~상한 미만','상한가 가격'];
+
+/* 구간별 팀 순매수 미니 막대 — 9칸 고정, 20% 경계에 점선. 합성 행은 플랫 값(아래/위)으로 2칸만 근사. */
+function strip(d, W, H = 26) {
+  const vals = BAND_SLOTS.map((l) => d.bands.find((b) => b.label === l)?.team_net_val ?? null);
+  const flat = !d.real;
+  const mx = Math.max(0.5, ...vals.filter((v) => v != null).map(Math.abs), flat ? Math.abs(d.below20_net_val) : 0, flat ? Math.abs(d.above20_net_val) : 0);
+  const mid = H / 2, gap = 2, bw = (W - gap * 8) / 9;
+  let bars = '';
+  if (flat) {
+    const seg = (v, x0, n) => { const h = Math.max(1.5, Math.abs(v) / mx * (mid - 2)); return `<rect x="${x0}" y="${v >= 0 ? mid - h : mid}" width="${n * bw + (n - 1) * gap}" height="${h}" rx="1.5" fill="${v >= 0 ? 'var(--red)' : 'var(--blue)'}" opacity=".55"/>`; };
+    bars = seg(d.below20_net_val, 0, 5) + seg(d.above20_net_val, 5 * (bw + gap), 3) + (d.limit_team_buy_val != null ? seg(d.limit_team_buy_val - d.limit_team_sell_val, 8 * (bw + gap), 1) : '');
+  } else {
+    bars = vals.map((v, i) => { if (v == null) return `<rect x="${i * (bw + gap)}" y="${mid - .5}" width="${bw}" height="1" fill="var(--g200)"/>`;
+      const h = Math.max(1.5, Math.abs(v) / mx * (mid - 2)); return `<rect x="${i * (bw + gap)}" y="${v >= 0 ? mid - h : mid}" width="${bw}" height="${h}" rx="1.5" fill="${v >= 0 ? 'var(--red)' : 'var(--blue)'}"/>`; }).join('');
+  }
+  const x20 = 5 * (bw + gap) - gap / 2;
+  return `<svg class="strip" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-label="구간별 팀 순매수">
+    <line x1="0" x2="${W}" y1="${mid}" y2="${mid}" stroke="var(--g200)"/>
+    <line x1="${x20}" x2="${x20}" y1="1" y2="${H - 1}" stroke="var(--t500)" stroke-dasharray="2 2"/>
+    ${bars}</svg>`;
+}
+
+/* ── 상세(세 변형 공통 · gh-trade 샘플 순서: 요약 → 구간표 → 10분 흐름 → 거래원 → 판정 기준) ── */
+function bandTable(d) {
+  const row = (b, cls = '') => `<tr class="${cls}"><td>${b.label}</td><td class="n">${fmtN(b.vol)}</td><td class="n ${b.team_buy_share >= 30 ? 'hot' : ''}">${pct(b.team_buy_share)}</td>
+    <td class="n">${fmtN(b.team_buy_qty)}<small>${eokAbs(b.team_buy_val)}</small></td><td class="n">${fmtN(b.team_sell_qty)}<small>${eokAbs(b.team_sell_val)}</small></td>
+    <td class="n ${tone(b.team_net_val)}"><b>${eok(b.team_net_val)}</b><small>${(b.team_net_qty > 0 ? '+' : b.team_net_qty < 0 ? MINUS : '') + fmtN(Math.abs(b.team_net_qty))}주</small></td></tr>`;
+  return `<div class="tw"><table><thead><tr><th>구간</th><th class="n">거래량</th><th class="n">매수 중 팀</th><th class="n">팀 매수</th><th class="n">팀 매도</th><th class="n">팀 순매수</th></tr></thead>
+    <tbody>${d.bands.map((b) => row(b)).join('')}${row({ ...d.total, label: '하루 합계' }, 'total')}</tbody></table></div>`;
+}
+function bucketTable(d) {
+  return `<div class="tw"><table><thead><tr><th>시각</th><th class="n">등락 범위</th><th class="n">거래량</th><th class="n">팀 매수</th><th class="n">팀 매도</th><th class="n">팀 순매수</th><th class="n">매수 중 팀</th></tr></thead><tbody>
+    ${d.buckets.map((b) => `<tr class="${b.window ? 'phase' : ''}"><td>${b.t}</td><td class="n">${b.rate_lo.toFixed(1)}~${b.rate_hi.toFixed(1)}%</td><td class="n">${fmtN(b.vol)}</td><td class="n">${fmtN(b.team_buy_qty)}</td><td class="n">${fmtN(b.team_sell_qty)}</td>
+      <td class="n ${tone(b.team_net_val)}">${eok(b.team_net_val, 2)}</td><td class="n ${b.team_buy_share >= 30 ? 'hot' : b.team_buy_share === 0 ? 'dim' : ''}">${pct(b.team_buy_share)}</td></tr>`).join('')}
+  </tbody></table></div>`;
+}
+function members(d) {
+  const on = d.members.map((m) => `<div class="m"><b>${m.name}</b><span>매수 ${fmtN(m.buy)} · 매도 ${fmtN(m.sell)}</span><div class="nv ${tone(m.net)}">${(m.net > 0 ? '+' : MINUS) + fmtN(Math.abs(m.net))}주</div></div>`).join('');
+  const off = d.members_missing.map((n) => `<div class="m off"><b>${n}</b><span>매수·매도 상위 5 밖</span><div class="nv dim">—</div></div>`).join('');
+  return `<div class="mem">${on}${off}</div><div class="note" style="margin-top:8px">${d.member_ref} · 거래원 수치는 창구 전체(일반 고객 포함)</div>`;
+}
+function detail(d, opts = {}) {
+  if (!d.real) return `<div class="synth">합성 행 — 상세는 실측 3종목(에스엠벡셀 · 한선엔지니어링 · 동양고속)에만 있어요. 실제 화면에선 같은 구조의 상세가 열립니다.</div>`;
+  const w = d.window;
+  return `
+    ${opts.noStory ? '' : `<div class="story">${d.headline}<small>${d.name}(${d.code} · ${d.market}) 기준가 ${fmtN(d.base)} · 상한가 ${fmtN(d.upper)} · 고가 ${fmtN(d.high)}(+${d.high_rate}%, ${d.high_time}) · 종가 ${fmtN(d.last_px)}(${rate(d.last_rate)}) · 거래량 ${fmtN(d.volume / 10000)}만 주 · ${fmtN(d.value_eok)}억</small></div>`}
+    <ol class="sum">${d.summary_lines.map((s, i) => `<li><i>${i + 1}</i><span>${s.replace(/([+−][\d.]+억)/g, '<b>$1</b>')}</span></li>`).join('')}</ol>
+    <div class="sec-h"><b>등락 구간별 팀 체결</b><span>「매수 중 팀」= 그 구간 매수주도 체결 중 팀 주문 비중</span></div>
+    ${bandTable(d)}
+    <div class="sec-h"><b>10분 단위 흐름</b><span>${w ? `보라 줄 = 팀 순매수가 가장 크게 이어진 ${w.start}~${w.end} (${eok(w.net_val)})` : ''}</span></div>
+    ${bucketTable(d)}
+    <div class="sec-h"><b>다섯 창구 거래원</b><span>하루 누적</span></div>
+    ${members(d)}
+    <details class="rule"><summary>판정 기준</summary>팀 주문 = 들어와서 친 주문 중 ① 한 가격에 체결 조각 2개 이상(자전거래방지) ② 매도·매수호가 0/0 조각 하나로 끝난 체결. 0/0 조각 뒤 200µs 안 같은 방향 체결은 한 주문으로 묶는다. 호가에 걸어 두고 받아낸 팀 체결은 보이지 않아 체결 기준 수치는 최소치다. KRX 정규장만(넥스트레이드 제외) · 규칙 정본 gh-trade docs/analysis/team-flow.md</details>`;
+}
+
+/* ── 틀(사이드바 · 머리 · KPI) ── */
+function shell(inner, phone) {
+  const net = STOCKS.reduce((a, d) => a + d.team_net_val, 0);
+  const posN = STOCKS.filter((d) => d.team_net_val > 0).length;
+  const limN = STOCKS.filter((d) => d.status === 'limit').length;
+  return `<div class="f ${state.w}">
+    <nav class="side">
+      <div class="brand">GH Radar</div>
+      <a><span class="ic">⌂</span>홈</a><a><span class="ic">⌕</span>검색</a><a><span class="ic">⚡</span>트레이딩</a>
+      <a class="grp on"><span class="ic">📈</span>분석</a>
+      <a class="sub">상한가 보고서</a>
+      <a class="sub cur new">팀 매집</a>
+      <a class="sub">AI 애널리스트</a>
+      <a><span class="ic">◉</span>My page</a>
+    </nav>
+    <div class="col"><div class="main">
+      <div class="phead"><h1>팀 매집</h1><span class="sub">평일 밤 21:20쯤 그날 보고서가 올라와요 · 팀 = <span class="team">교보·한국·유진·신한·NH</span></span><span class="sp"></span>
+        <span class="datepill"><button data-toast="이전 날짜">‹</button><span>10/14 (수)</span><button data-toast="다음 날짜">›</button></span></div>
+      <div class="kpis">
+        <div class="kpi"><div class="k">탐지 종목</div><div class="v">${STOCKS.length}<small>종목</small></div></div>
+        <div class="kpi"><div class="k">팀 순매수</div><div class="v">${posN}<small>종목</small></div></div>
+        <div class="kpi"><div class="k">상한가 도달</div><div class="v">${limN}<small>종목</small></div></div>
+        <div class="kpi"><div class="k">팀 순매수 합</div><div class="v ${tone(net)}">${eok(net)}</div></div>
+      </div>
+      <div class="note">탐지 = 20%↑ 또는 상한가 체결 종목 · 하루 팀 순매수(친 체결) 큰 순</div>
+      ${inner}
+    </div></div>
+    ${sheet(phone)}
+  </div>`;
+}
+function sheet(phone) {
+  if (state.v !== 'C' || !phone) return '';
+  const d = STOCKS.find((x) => x.isin === state.sel);
+  return `<div class="sheet-wrap ${state.sheet ? 'on' : ''}"><div class="dim" data-close="1"></div>
+    <div class="sheet"><div class="grab"></div><div class="ph"><h2>${d.name} <span style="font-size:12px;color:var(--t500);font-weight:400">${d.code}</span></h2>${tagOf(d)}<button class="xbtn" data-close="1">✕</button></div>${detail(d)}</div></div>`;
+}
+
+/* ── A 보고서 동형 ── */
+function renderA(phone) {
+  const W = phone ? 390 - 32 : 200;
+  const rows = STOCKS.map((d) => {
+    const open = state.open.has(d.isin);
+    return `<div class="lrow${open ? ' open' : ''}">
+      <button class="rbtn" data-toggle="${d.isin}">
+        <span class="c-nm nm"><b>${d.name}</b><span>${d.code} · ${d.market}</span></span>
+        <span class="c-tag">${tagOf(d)}</span>
+        <span class="c-net num ${tone(d.team_net_val)}" style="font-weight:700">${eok(d.team_net_val)}</span>
+        <span class="c-split c-two"><span class="${tone(d.below20_net_val)}">20% 아래 ${eok(d.below20_net_val)}</span><small class="${tone(d.above20_net_val)}">20%~상한 ${eok(d.above20_net_val)}</small></span>
+        <span class="c-share num ${d.team_buy_share >= 30 ? 'hot' : ''}">${pct(d.team_buy_share)}</span>
+        <span class="c-strip">${strip(d, W)}</span>
+        <span class="c-meta"><b class="${tone(d.team_net_val)}">팀 순매수 ${eok(d.team_net_val)}</b> · 20% 아래 ${eok(d.below20_net_val)} · 매수 중 팀 ${pct(d.team_buy_share)}</span>
+        <span class="chev">▾</span>
+      </button>
+      <div class="body"><div class="inner">${open ? detail(d) : ''}</div></div>
+    </div>`;
+  }).join('');
+  return `<div class="list">
+    <div class="lhead"><span>종목</span><span>결과</span><span>팀 순매수</span><span>20% 아래 / 위</span><span>매수 중 팀</span><span>구간별 순매수 (0%↓ … 상한가, 점선 = 20%)</span><span></span></div>
+    ${rows}</div>`;
+}
+
+/* ── B 비교표 고정 + 상세 전환 ── */
+function renderB(phone) {
+  const d = STOCKS.find((x) => x.isin === state.sel);
+  const rows = STOCKS.map((s) => `<tr class="${s.isin === state.sel ? 'sel' : ''}" data-sel="${s.isin}">
+      <td class="nm"><b>${s.name}</b><span>${s.code}</span></td>
+      <td class="n">${s.status === 'limit' ? `<span class="pos" style="font-weight:700">상한가</span><small>${s.first_limit ? '첫 상한가 ' + s.first_limit : ''}</small>` : `${rate(s.last_rate)}<small>고가 ${s.high_rate != null ? '+' + s.high_rate + '%' : '—'}</small>`}</td>
+      <td class="n ${s.team_buy_share >= 30 ? 'hot' : ''}">${pct(s.team_buy_share)}</td>
+      <td class="n ${tone(s.below20_net_val)}"><b>${eok(s.below20_net_val)}</b></td>
+      <td class="n ${tone(s.above20_net_val)}">${eok(s.above20_net_val)}</td>
+      <td class="n ${s.limit_team_buy_val == null ? 'dim' : ''}">${s.limit_team_buy_val == null ? '상한가 없음' : `${eokAbs(s.limit_team_buy_val)} / ${eokAbs(s.limit_team_sell_val)}`}</td>
+      <td class="n ${tone(s.team_net_val)}"><b>${eok(s.team_net_val)}</b></td>
+    </tr>`).join('');
+  return `<div class="cmp"><div class="tw"><table>
+      <thead><tr><th>종목</th><th class="n">현재</th><th class="n">하루 매수 중 팀</th><th class="n">20% 아래 순매수</th><th class="n">20%~상한 미만</th><th class="n">상한가 가격 팀 매수/매도</th><th class="n">하루 팀 순매수</th></tr></thead>
+      <tbody>${rows}</tbody></table></div></div>
+    <div class="card" id="bdetail">
+      <div class="card-h"><h2>${d.name} <span style="font-size:12px;color:var(--t500);font-weight:400">${d.code} · ${d.market}</span></h2>${tagOf(d)}<span class="sp"></span>
+        ${phone ? '' : `<span class="seg">${STOCKS.map((s) => `<button class="${s.isin === state.sel ? 'on' : ''}" data-sel="${s.isin}">${s.name}</button>`).join('')}</span>`}</div>
+      <div class="pick">표에서 종목을 누르면 여기가 바뀜 ${phone ? '· 폰은 표를 가로로 밀어 보기' : ''}</div>
+      ${detail(d)}
+    </div>`;
+}
+
+/* ── C 판정 카드 피드 ── */
+function renderC(phone) {
+  const d = STOCKS.find((x) => x.isin === state.sel);
+  const cards = STOCKS.map((s) => `<button class="fc ${!phone && s.isin === state.sel ? 'sel' : ''}" data-card="${s.isin}">
+      <div class="top"><span class="nm"><b>${s.name}</b><span>${s.code} · ${s.market}</span></span>${tagOf(s)}</div>
+      <div class="hl">${s.headline}</div>
+      <div class="nums">
+        <div><div class="k">하루 팀 순매수</div><div class="v ${tone(s.team_net_val)}">${eok(s.team_net_val)}</div></div>
+        <div><div class="k">20% 아래</div><div class="v ${tone(s.below20_net_val)}">${eok(s.below20_net_val)}</div></div>
+        <div><div class="k">매수 중 팀</div><div class="v ${s.team_buy_share >= 30 ? 'hot' : ''}">${pct(s.team_buy_share)}</div></div>
+      </div>
+      ${strip(s, phone ? 390 - 32 - 32 : 400 - 32, 22)}
+    </button>`).join('');
+  if (phone) return `<div class="feed">${cards}</div>`;
+  return `<div class="cgrid"><div class="feed">${cards}</div>
+    <div class="panel"><div class="ph"><h2>${d.name} <span style="font-size:12px;color:var(--t500);font-weight:400">${d.code} · ${d.market}</span></h2>${tagOf(d)}<span class="sp"></span><span class="pick">왼쪽 카드를 누르면 바뀜</span></div>${detail(d, { noStory: false })}</div></div>`;
+}
+
+function render() {
+  const phone = state.w === 'phone';
+  const inner = state.v === 'A' ? renderA(phone) : state.v === 'B' ? renderB(phone) : renderC(phone);
+  document.getElementById('stage').innerHTML = shell(inner, phone);
+  const desc = {
+    A: '<b>A 보고서 동형</b> — 상한가 보고서(011 채택 A)와 같은 문법. 날짜 알약 → KPI 4칸 → 종목 행(결과 · 팀 순매수 · 20% 아래/위 · 매수 중 팀 · 구간별 순매수 미니막대) → 행을 누르면 그 자리 펼침(한 번에 하나 · 기본은 전부 접힘 — 2026-10-16 결정). 상세 = gh-trade 샘플 순서 그대로. <b>필요 평평한 열:</b> team_net_val · below20 · above20 · team_buy_share · status/first_limit + bands(미니막대).',
+    B: '<b>B 비교표 고정 + 상세 전환</b> — gh-trade 「세 종목 비교」 표를 위에 그대로 두고(첫 열 고정 · 폰은 가로 스크롤), 행을 누르면 아래 상세 카드가 그 종목으로 바뀜(데스크톱은 세그먼트로도 전환). 종목 간 비교가 먼저, 상세는 하나만. <b>필요 평평한 열:</b> A + limit_team_buy/sell_val · high_rate.',
+    C: '<b>C 판정 카드 피드</b> — 종목마다 카드: 한 문장 판정(headline) + 핵심 3수치 + 미니막대. 데스크톱 = 왼쪽 카드 열 400 + 오른쪽 고정 상세 패널 · 폰 = 카드 피드, 누르면 바텀시트 상세. <b>필요 평평한 열:</b> A + <b>headline(gh-trade 가 생성하는 한 문장 판정 — 새 필드)</b>.',
+  };
+  document.getElementById('desc').innerHTML = desc[state.v] + ' &nbsp;·&nbsp; 데이터: 에스엠벡셀 · 한선엔지니어링 · 동양고속 = 10/14 teamflow 실측(gh-trade 아티팩트), 나머지 4행 = 합성(목록 밀도용 · 상세 없음).';
+}
+
+/* ── 상호작용 ── */
+const toast = (t) => { const el = document.getElementById('toast'); el.textContent = t; el.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove('show'), 1400); };
+document.getElementById('nav').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  b.parentElement.querySelectorAll('button').forEach((x) => x.classList.remove('on')); b.classList.add('on');
+  if (b.dataset.v) state.v = b.dataset.v;
+  if (b.dataset.w) { state.w = b.dataset.w; state.sheet = false; }
+  render();
+});
+document.getElementById('stage').addEventListener('click', (e) => {
+  const t = e.target.closest('[data-toggle],[data-sel],[data-card],[data-close],[data-toast]'); if (!t) return;
+  if (t.dataset.toggle) { const id = t.dataset.toggle; if (state.open.has(id)) state.open.delete(id); else { state.open.clear(); state.open.add(id); } }
+  else if (t.dataset.sel) { state.sel = t.dataset.sel; render(); document.getElementById('bdetail')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; }
+  else if (t.dataset.card) { state.sel = t.dataset.card; if (state.w === 'phone') state.sheet = true; }
+  else if (t.dataset.close) state.sheet = false;
+  else if (t.dataset.toast) { toast(t.dataset.toast + ' (목업)'); return; }
+  render();
+});
+render();
+</script>
+</body></html>
