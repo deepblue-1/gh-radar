@@ -161,10 +161,21 @@ export interface LimitupFingerprintRow {
   n_held: number;
 }
 
-/** 적재 이력의 표별 행 수(manifest 대조값). */
+/**
+ * 적재 이력의 표별 행 수(manifest 대조값).
+ * `team_flow` — Phase 33 · 새 워커만 기록 · 옛 워커 적재 날짜엔 없음(워커가 이 키 유무로 재적재를 감지한다 — D-03).
+ */
 export type LimitupLoadRows = Partial<
   Record<
-    "entries" | "locks" | "jumps" | "member_alloc" | "facts" | "touches" | "grid_summary" | "member_daily",
+    | "entries"
+    | "locks"
+    | "jumps"
+    | "member_alloc"
+    | "facts"
+    | "touches"
+    | "grid_summary"
+    | "member_daily"
+    | "team_flow",
     number
   >
 >;
