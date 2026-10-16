@@ -86,10 +86,14 @@ export async function upsertQuotesStep1(
  *   로 변환되어 신규 row INSERT 시도 단계에서 NOT NULL 제약 (price/upper_limit/lower_limit)
  *   을 평가 → 페이로드에 price 없으면 violation. STEP2 가 STEP1 매분 갱신 컬럼 (price/change/
  *   volume/trade_amount) 을 덮어쓰지 않으려면 INSERT 분기 자체를 피해야 함.
- *   해결: UPSERT → 종목별 UPDATE 직렬 호출 (~250 종목, 수십 ms). UPDATE 는 NOT NULL 제약을
- *   매개로 평가하지 않으므로 STEP1 컬럼 유지 + STEP2 컬럼만 갱신.
+ *   현재 해결: 단일 RPC intraday_update_quotes_step2 에서 UPDATE ... FROM jsonb_to_recordset 를
+ *   1왕복으로 처리한다. UPDATE 만 하므로 INSERT 분기가 없고 NOT NULL 컬럼이 평가되지 않으며,
+ *   stock_quotes 에 없는 code 는 no-op 이다.
+ *   바꾼 이유 (quick 261016-miy): 예전 종목별 직렬 방식은 VPC all-traffic egress 왕복 ~120ms ×
+ *   ~100건 ≈ 12s 가 걸려 60s task timeout 실패를 일으켰다.
  *
- * payload 컬럼: open/high/low/upper_limit/lower_limit/market_cap/updated_at
+ * payload 컬럼: code(매칭 키)/open/high/low/upper_limit/lower_limit/market_cap — updated_at 은 RPC 의 now()
+ *   - upper_limit/lower_limit 가 null 이면 RPC 가 기존 값을 유지한다 (NOT NULL 컬럼 — 배치 중단 방지)
  *   - price/change/volume/trade_amount 의도적 omit (STEP1 매분 갱신 컬럼 보호)
  *   - rate_updated_at 의도적 omit — change_rate 를 쓰지 않으므로 등락률 기준 시각을 보증할 수 없다 (261001-bnc)
  */
@@ -99,31 +103,25 @@ export async function upsertQuotesStep2(
 ): Promise<{ count: number }> {
   if (updates.length === 0) return { count: 0 };
 
-  const now = new Date().toISOString();
-  let updated = 0;
-  for (const u of updates) {
-    // rate_updated_at 을 여기서 찍지 않는다 (261001-bnc). STEP2 는 change_rate 를 쓰지 않는다.
-    // hot set 에 모든 관심종목이 들어오므로 08:00~09:00(STEP1 이 NXT 거래 종목만 돌려주는 구간)에
-    // 관심종목인 KRX 전용 전일 급등주는 updated_at 만 오늘로 올라가고 change_rate 는 어제 값이다.
-    // 여기서 rate_updated_at 을 찍으면 home-sync 가 어제 상한가를 오늘 급등으로 싣는다
-    // (동일스틸럭스 023790 사고와 같은 부류).
-    const { error } = await supabase
-      .from("stock_quotes")
-      .update({
-        open: u.open,
-        high: u.high,
-        low: u.low,
-        upper_limit: u.upperLimit,
-        lower_limit: u.lowerLimit,
-        market_cap: u.marketCap,
-        updated_at: now,
-      })
-      .eq("code", u.code);
-    if (error) {
-      logger.error({ err: error, code: u.code }, "upsertQuotesStep2 update failed");
-      throw error;
-    }
-    updated += 1;
+  const payload = updates.map((u) => ({
+    code: u.code,
+    open: u.open,
+    high: u.high,
+    low: u.low,
+    upper_limit: u.upperLimit,
+    lower_limit: u.lowerLimit,
+    market_cap: u.marketCap,
+  }));
+
+  // rate_updated_at 을 RPC 에서도 찍지 않는다 (261001-bnc). STEP2 는 change_rate 를 쓰지 않는다.
+  // hot set 에 모든 관심종목이 들어오므로 08:00~09:00(STEP1 이 NXT 거래 종목만 돌려주는 구간)에
+  // 관심종목인 KRX 전용 전일 급등주는 updated_at 만 오늘로 올라가고 change_rate 는 어제 값이다.
+  // RPC 에서 rate_updated_at 을 찍으면 home-sync 가 어제 상한가를 오늘 급등으로 싣는다
+  // (동일스틸럭스 023790 사고와 같은 부류).
+  const { data, error } = await supabase.rpc("intraday_update_quotes_step2", { p_rows: payload });
+  if (error) {
+    logger.error({ err: error, rows: payload.length }, "upsertQuotesStep2 rpc failed");
+    throw error;
   }
-  return { count: updated };
+  return { count: Number(data ?? 0) };
 }
