@@ -139,7 +139,10 @@
  *   Phase 32 — 계좌 끄기 집계(D-09 보정 · D-21)  웹 「이 계좌 끄기」(`strategies.disable.account`)는 fanout 이 그 계좌 소유 세션으로 켜진 키마다
  *         14(key)를 보내고(`lc.set` 스위치 off 아님 — 서버가 crud D 로 삭제한다 · Pitfall 1) `beginAccountStop` 이 그 65 k건을 같은 14 송신자
  *         꼬리표로 모아 `strategies.disabled` 1건(count 합)을 낸다 — k 건을 그대로 내보내면 웹 킬 스위치 귀속 창이 첫 65 에서 닫힌다(Pitfall
- *         3). 시한은 「전부 정지」 와 같은 `HUB_ALL_STOP_COLLECT_MS` · 받은 것이 0 이면 지어내지 않는다 · 늦은 65 는 끝난 집계 몫으로 소비.
+ *         3). 그 계좌가 등록 계좌인 거래소의 가동 VI 는 fanout 이 11 run:false 를 보내고 hub 가 그 61 run:false 에코를 완료 조건에 넣는다
+ *         (`viDisabled` = 그 에코를 봤는가 · 켜진 전략 0 ∧ VI 만이어도 61 근거로 1건 — RESEARCH A4). 시한은 「전부 정지」 와 같은
+ *         `HUB_ALL_STOP_COLLECT_MS` · 소유 세션 교체 · 분리는 받은 만큼으로 즉시 끝 · 받은 것이 0 이면 지어내지 않는다 · 늦은 65 는 끝난
+ *         집계 몫으로 소비.
  *   D-13  전략 재조회는 **재접속(`ready`) 시에만** 일어난다. 주기 타이머·수동 새로고침
  *         진입점을 만들지 않는다 — 사용자 조작에 대한 60/61 에코는 Notice(유실 없음)라
  *         재조회로 메울 것이 없고, 폴링은 게이트웨이 왕복을 사용자 수에 비례시킨다.
@@ -442,12 +445,14 @@ export type HubAccountStopResult = {
 
 /**
  * 「계좌 끄기」 집계 손잡이 (Phase 32 D-09 보정 — `SubscriptionHub.beginAccountStop` 이 돌려준다). fanout 은 그 계좌의 켜진 키마다 14 를
- * 소유 세션으로 보낸 직후 `sent`, 보내지 못했으면 `failed` 를 부른다. 계획한 송신이 다 알려지고 보낸 14 의 65 를 다 받거나, 시한
- * (`HUB_ALL_STOP_COLLECT_MS`)이 오면 `done` 이 해결된다.
+ * 소유 세션으로 보낸 직후 `sent`, 보내지 못했으면 `failed` 를 부른다. 계획한 VI 거래소의 11 run:false 를 보내지 못했으면 `viFailed`
+ * (보낸 거래소는 그 61 run:false 에코를 기다린다). 계획한 송신이 다 알려지고 보낸 14 의 65 · 보낸 11 의 61 에코를 다 받거나, 시한
+ * (`HUB_ALL_STOP_COLLECT_MS`)이 오거나, 소유 세션이 교체 · 분리되면 `done` 이 해결된다.
  */
 export type HubAccountStop = {
   sent(): void;
   failed(): void;
+  viFailed(exchange: RelayExchange): void;
   done: Promise<HubAccountStopResult>;
 };
 
@@ -462,6 +467,10 @@ type AccountStopCollection = {
   /** 14 를 보내는 소유 세션의 소유 키. */
   owner: string;
   session: HubSession;
+  /** 끄는 계좌 — VI 61 에코를 이 계좌 것으로만 센다. */
+  accountNo: string;
+  /** 11 run:false 를 보냈고 그 61 run:false 에코를 기다리는 거래소(소유 키 칸). `viFailed` 가 뺀다. */
+  viAwaiting: Set<RelayExchange>;
   /** 아직 `sent` · `failed` 가 오지 않은 계획 14 수. */
   keysUnreported: number;
   /** 보냈고 65 를 기다리는 14 수. */
@@ -1427,7 +1436,11 @@ export class SubscriptionHub extends EventEmitter {
    * 끝난다 — 또는 시한(`allStopCollectMs`). 끝나면 받은 65 가 있을 때만 `strategies.disabled { count: 합, viDisabled }` 1건을 팬아웃한다
    * (답 0 이면 지어내지 않는다 · 웹 8초 백스톱). 시한 뒤 늦게 온 65 는 이미 닫힌 집계 몫으로 소비된다(꼬리표가 짝을 맞춘다).
    */
-  beginAccountStop(userId: string, session: HubSession, plan: { keys: number }): HubAccountStop {
+  beginAccountStop(
+    userId: string,
+    session: HubSession,
+    plan: { accountNo: string; keys: number; viExchanges: readonly RelayExchange[] },
+  ): HubAccountStop {
     let resolve: (result: HubAccountStopResult) => void = () => undefined;
     const done = new Promise<HubAccountStopResult>((r) => {
       resolve = r;
@@ -1437,6 +1450,8 @@ export class SubscriptionHub extends EventEmitter {
       userId,
       owner: ownerKey(userId, serverKeyOf(session)),
       session,
+      accountNo: plan.accountNo,
+      viAwaiting: new Set(plan.viExchanges),
       keysUnreported: Math.max(0, plan.keys),
       keysAwaiting: 0,
       expected: 0,
@@ -1470,14 +1485,31 @@ export class SubscriptionHub extends EventEmitter {
         coll.keysUnreported -= 1;
         this.#settleAccountStop(coll);
       },
+      viFailed: (exchange) => {
+        if (coll.finished || !coll.viAwaiting.delete(exchange)) return;
+        this.#settleAccountStop(coll);
+      },
       done,
     };
+  }
+
+  /**
+   * 61 이 캐시에 들어간 직후 (Phase 32 — `#onViTrigger`). 그 소유 키 칸 · 그 계좌의 **run:false** 등록본이면 그 칸을 기다리는 「계좌 끄기」
+   * 집계의 VI 에코로 센다(켜진 전략 0 ∧ VI 만 가동인 계좌 끄기의 완료 근거 — 서버가 보낸 프레임이라 지어내지 않는다 · RESEARCH A4).
+   */
+  #noteAccountStopVi(owner: string, exchange: RelayExchange, cfg: RelayViTrigger | null): void {
+    if (cfg === null || cfg.run) return;
+    for (const coll of [...this.#accountStops]) {
+      if (coll.owner !== owner || coll.accountNo !== cfg.accountNo || !coll.viAwaiting.delete(exchange)) continue;
+      coll.viDisabled = true;
+      this.#settleAccountStop(coll);
+    }
   }
 
   /** 계획한 송신이 다 알려지고 기다릴 65 가 없으면 「계좌 끄기」 집계를 끝낸다 (Phase 32). */
   #settleAccountStop(coll: AccountStopCollection): void {
     if (coll.finished) return;
-    if (coll.keysUnreported > 0 || coll.keysAwaiting > 0) return;
+    if (coll.keysUnreported > 0 || coll.keysAwaiting > 0 || coll.viAwaiting.size > 0) return;
     this.#finishAccountStop(coll, "complete");
   }
 
@@ -1537,6 +1569,8 @@ export class SubscriptionHub extends EventEmitter {
    */
   #dropDisableSenders(owner: string): void {
     this.#disableSenders.delete(owner);
+    // 「계좌 끄기」(Phase 32) — 그 소유 세션이 사라졌다. 남은 답을 들을 수 없으니 받은 만큼으로 즉시 끝낸다(0 이면 0건).
+    for (const coll of [...this.#accountStops]) if (coll.owner === owner) this.#finishAccountStop(coll, "detached");
     for (const coll of [...this.#allStops]) {
       const target = coll.targets.get(owner);
       if (target === undefined || (target.state !== "pending" && target.state !== "sent")) continue;
@@ -3511,6 +3545,8 @@ export class SubscriptionHub extends EventEmitter {
       "[HUB] VI 전략 수신",
     );
     this.#emitVi(userId, exchange, owner);
+    // 「계좌 끄기」 VI 에코(Phase 32) — 브라우저 `vi` 를 먼저 내보낸 뒤에 완료 1건이 가도록 팬아웃 뒤에 센다.
+    this.#noteAccountStopVi(owner, exchange, value);
   }
 
   /**

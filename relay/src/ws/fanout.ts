@@ -154,6 +154,7 @@ import type {
   RelayServerMsg,
   RelayStateMsg,
   RelaySubLevel,
+  RelayViTrigger,
   StrategyEventRow,
 } from "@gh-radar/shared";
 
@@ -590,6 +591,13 @@ type Conn = {
  */
 export const ALL_STOP_PARTIAL_TEXT = (serverKeys: readonly string[]): string =>
   `전부 정지를 확인하지 못한 서버가 있습니다(${serverKeys.join(", ")}) — 그 서버 계좌의 전략이 아직 켜져 있을 수 있습니다. 전략 목록을 확인해 주세요.`;
+
+/**
+ * 「이 계좌 끄기」 끌 것 없음 문구 (Phase 32 D-09 보정) — relay 캐시 기준 그 계좌에 켜진 상따도 가동 VI 도 없을 때 요청 탭에 가는 거부
+ * 프레임(`kind: "strategies.disable.account"` · 게이트웨이 0바이트). 웹 버튼은 끌 것이 없으면 비활성이라 경합 때만 나는 경로고, 웹은 이
+ * 프레임을 따로 그리지 않는다(8초 백스톱 문구가 사실대로 말한다).
+ */
+export const ACCOUNT_DISABLE_NOTHING_TEXT = "이 계좌에 끌 전략이 없어요";
 
 /**
  * relay 발 거부 통지 1건. 게이트웨이 통지와 같은 `{t:"msg"}` 슬롯이고 `src` 만 다르다.
@@ -2449,12 +2457,39 @@ export class WsFanout {
     const session = this.#strategySession(conn, userId, t, accountNo);
     if (session === null) return;
     if (!this.#accountAllowed(conn, session, userId, t, accountNo)) return;
+    const masked = maskAccountNo(accountNo);
     const keys = this.#hub
       .getLimitChasers(userId)
       .filter((c) => c.accountNo === accountNo && isActiveLimitChaser(c))
       .map((c) => c.key);
-    logger.info({ userId, t, accountNo: maskAccountNo(accountNo), keys: keys.length }, "[WS] 계좌 끄기 — 소유 세션으로 14 건별 (Phase 32)");
-    const stop = this.#hub.beginAccountStop(userId, session, { keys: keys.length });
+    // 웨이브 ④ 전 VI 는 거래소별 병합값이다 — 그 계좌가 등록 계좌이고 가동 중인 거래소만 그 계좌 것이다. 끄기는 캐시 값 그대로 run 만
+    // false(`#stopViElsewhere` 와 같은 조립). 세션은 `#viSessionFor`(웨이브 ④ 에서 소유 세션으로) — 14 소유 세션과 같을 때만 보낸다.
+    const viCfgs: RelayViTrigger[] = [];
+    for (const ex of VI_SNAPSHOT_EXCHANGES) {
+      const cfg = this.#hub.getViTrigger(userId, ex);
+      if (cfg != null && cfg.accountNo === accountNo && cfg.run) viCfgs.push(cfg);
+    }
+    if (keys.length === 0 && viCfgs.length === 0) {
+      // 끌 것 0 — 게이트웨이 0바이트. 웹 버튼은 이때 비활성이라 경합(다른 탭 · 서버 15:40 정리)에서만 난다.
+      logger.warn({ userId, t, accountNo: masked }, "[WS] 계좌 끄기 — 끌 것 없음(켜진 상따 0 · 가동 VI 0) · 게이트웨이 0바이트 (Phase 32)");
+      this.#send(conn, rejectFrame(ACCOUNT_DISABLE_NOTHING_TEXT, accountNo, "", t));
+      return;
+    }
+    let viSession: DmaSession | null = null;
+    if (viCfgs.length > 0) {
+      viSession = this.#viSessionFor(conn, userId, t, accountNo);
+      if (viSession !== null && viSession !== session) {
+        // 웨이브 ④ 전 VI 원천은 KB 세션이고 14 소유 세션도 그 KB 세션이다 — 갈리면 그 VI 는 이 계좌 소유 서버 것이 아니다.
+        logger.warn({ userId, t, accountNo: masked }, "[WS] 계좌 끄기 — VI 세션이 소유 세션과 다름 · VI 11 생략 (Phase 32)");
+        viSession = null;
+      }
+    }
+    const viExchanges = viSession === null ? [] : viCfgs.map((c) => c.exchange);
+    logger.info(
+      { userId, t, accountNo: masked, keys: keys.length, vi: viExchanges },
+      "[WS] 계좌 끄기 — 소유 세션으로 14 건별 · VI 11 run:false (Phase 32)",
+    );
+    const stop = this.#hub.beginAccountStop(userId, session, { accountNo, keys: keys.length, viExchanges });
     let sendFailed = false;
     for (const key of keys) {
       const payload = this.#buildStrategyPayload(conn, userId, t, () => buildDisableStrategiesReq(key));
@@ -2469,8 +2504,28 @@ export class WsFanout {
         sendFailed = true;
       }
     }
+    if (viSession !== null) {
+      for (const cfg of viCfgs) {
+        const { orderAmountKrw, checkRate, exchange } = cfg;
+        const payload = this.#buildStrategyPayload(conn, userId, t, () =>
+          buildSetVITriggerReq({ accountNo, exchange, orderAmountKrw, checkRate, run: false }),
+        );
+        if (payload === null) {
+          stop.viFailed(exchange);
+        } else if (!viSession.send(payload)) {
+          stop.viFailed(exchange);
+          sendFailed = true;
+        }
+      }
+    }
     // 송신 실패 알림은 1건 — 같은 세션이라 한 번 실패하면 뒤도 실패한다(거부 프레임 폭주 방지).
     if (sendFailed) this.#onStrategySendFailed(conn, userId, t);
+    void stop.done.then((r) => {
+      logger.info(
+        { userId, t, accountNo: masked, answered: r.answered, expected: r.expected, viDisabled: r.viDisabled, ended: r.ended },
+        "[WS] 계좌 끄기 집계 끝 (Phase 32)",
+      );
+    });
   }
 
   /**
