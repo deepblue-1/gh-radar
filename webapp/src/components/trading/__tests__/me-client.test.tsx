@@ -53,7 +53,17 @@ vi.mock('@/components/trading/today-orders-card', async () => {
     },
   };
 });
-vi.mock('@/components/orderbook/account-panel', () => ({ AccountPanel: () => null }));
+/* 계좌 패널 목 — 무엇을 받았는지(계좌 · 머리 생략 · 상태 유무)만 남긴다(Phase 32 D-22). */
+vi.mock('@/components/orderbook/account-panel', () => ({
+  AccountPanel: (p: { selectedAccountNo: string; hideAccountHeader?: boolean; account: unknown }) => (
+    <div
+      data-slot="account-panel-mock"
+      data-account={p.selectedAccountNo}
+      data-hide-header={String(p.hideAccountHeader === true)}
+      data-has-account={String(p.account !== null)}
+    />
+  ),
+}));
 
 /**
  * Phase 16 Plan 32 Task 2 — 「가장 최근 반영 시각」 (MYPAGE-01 · GC-IN-03).
@@ -407,7 +417,7 @@ describe('261006-pey /me 4탭 (D-1)', () => {
     expect(pushSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('B4 — 잔고 탭: 계좌 순서대로 카드 · 라벨 숫자 = 미체결 합 / 계좌 0개 = 로딩 문구 / 합 0 = 숫자 없음', () => {
+  it('B4 — 잔고 탭: 고른 계좌 한 벌(머리 없음) · 라벨 숫자 = 그 계좌 미체결 · 칩 B → B / 계좌 0 = 로딩 / 0 이면 숫자 없음 (Phase 32 D-22)', async () => {
     mockSearchParams = new URLSearchParams('tab=accounts');
     mockRelay = {
       ...EMPTY_RELAY_VALUE,
@@ -422,14 +432,26 @@ describe('261006-pey /me 4탭 (D-1)', () => {
       ]),
     } as unknown as RelayContextValue;
     const view = render(<MeClient />);
-    const cards = Array.from(slots('me-account-card')).map((c) => c.getAttribute('data-account-no'));
-    expect(cards).toEqual(['1111111101', '2222222201']);
-    expect(countOf('잔고')).toHaveTextContent('3');
+    // 기본 첫 칩(A) — 카드 한 벌 · 세로 반복 없음 · 머리 생략.
+    const cardsOf = () => Array.from(slots('me-account-card')).map((c) => c.getAttribute('data-account-no'));
+    expect(cardsOf()).toEqual(['1111111101']);
+    const panel = () => slot('account-panel-mock');
+    expect(panel()).toHaveAttribute('data-account', '1111111101');
+    expect(panel()).toHaveAttribute('data-hide-header', 'true');
+    expect(countOf('잔고')).toHaveTextContent('2');
+
+    // 칩 B → 카드 · 숫자가 B 로.
+    const chipB = document.querySelector('[data-slot="me-account-chip"][data-account-no="2222222201"]');
+    await userEvent.click(chipB as HTMLElement);
+    expect(cardsOf()).toEqual(['2222222201']);
+    expect(panel()).toHaveAttribute('data-account', '2222222201');
+    expect(countOf('잔고')).toHaveTextContent('1');
     view.unmount();
 
     mockRelay = { ...EMPTY_RELAY_VALUE, status: 'ready' } as RelayContextValue;
     const empty = render(<MeClient />);
     expect(slot('me-accounts-loading')).toHaveTextContent('계좌 정보를 불러오는 중이에요…');
+    expect(slot('me-account-card')).toBeNull();
     expect(countOf('잔고')).toBeNull();
     empty.unmount();
 
@@ -442,7 +464,7 @@ describe('261006-pey /me 4탭 (D-1)', () => {
     render(<MeClient />);
     expect(countOf('잔고')).toBeNull();
 
-    // 목록 밖 계좌의 상태는 세지 않는다(그리지 않는 것을 세면 라벨과 화면이 어긋난다).
+    // 순수 합(고른 계좌가 아직 없을 때의 값) — 목록 밖 계좌의 상태는 세지 않는다.
     expect(
       unfilledCountOf(
         [{ accountNo: 'A' }],
@@ -453,6 +475,26 @@ describe('261006-pey /me 4탭 (D-1)', () => {
       ),
     ).toBe(2);
     expect(unfilledCountOf([{ accountNo: 'A' }, { accountNo: 'B' }], new Map([['A', unfAcct('A', 1)]]))).toBe(1);
+  });
+
+  it('B4b — 고른 계좌가 accountStates 에 없으면(목록 밖 · 전략에만 있는 계좌) 카드 한 벌 · 상태 null · 숫자 없음 (D-22)', async () => {
+    mockSearchParams = new URLSearchParams('tab=accounts');
+    mockRelay = {
+      ...EMPTY_RELAY_VALUE,
+      status: 'ready',
+      accounts: [{ accountNo: '1111111101', name: 'A' }],
+      accountStates: new Map([['1111111101', unfAcct('1111111101', 2)]]),
+      limitChasers: [makeLimitChaser({ isin: 'KR7005930003', accountNo: '9999999901', key: 'KR7005930003:9999999901:KRX' })],
+    } as unknown as RelayContextValue;
+    render(<MeClient />);
+    const chipZ = document.querySelector('[data-slot="me-account-chip"][data-account-no="9999999901"]');
+    expect(chipZ).not.toBeNull();
+    await userEvent.click(chipZ as HTMLElement);
+    expect(Array.from(slots('me-account-card')).map((c) => c.getAttribute('data-account-no'))).toEqual([
+      '9999999901',
+    ]);
+    expect(slot('account-panel-mock')).toHaveAttribute('data-has-account', 'false');
+    expect(countOf('잔고')).toBeNull();
   });
 
   it('B5 — 주문 탭: 미방문 숫자 없음 · 열면 카드 「N건」 수 · 마운트 1회 · 다른 탭으로 가도 숨김으로 유지', () => {

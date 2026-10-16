@@ -831,6 +831,55 @@ describe('AccountPanel — 계좌 전용 모드 (D-21 / My page)', () => {
   });
 });
 
+describe('P32 hideAccountHeader (D-22 · S7′)', () => {
+  function renderAccountOnly(over: Partial<AccountPanelProps> = {}) {
+    return render(
+      <AccountPanel
+        selectedAccountNo="12345678-02"
+        accountName="위탁종합"
+        account={accountState()}
+        status="ready"
+        {...over}
+      />,
+    );
+  }
+
+  it('계좌 전용 + hideAccountHeader → 머리 줄(「계좌 · 번호 · 상품명」) 없음 · 미체결 · 잔고는 그대로', () => {
+    renderAccountOnly({ hideAccountHeader: true });
+
+    expect(screen.queryByTestId('account-panel-account-no')).toBeNull();
+    expect(screen.queryByTestId('account-panel-account-name')).toBeNull();
+    expect(screen.queryByText('계좌')).toBeNull();
+    expect(screen.getByTestId('account-panel')).toHaveAttribute('data-mode', 'account');
+    expect(screen.getByRole('heading', { name: '미체결' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '잔고' })).toBeInTheDocument();
+    expect(unfilledCards()).toHaveLength(3);
+    expect(holdingCards()).toHaveLength(2);
+  });
+
+  it('계좌 전용 + hideAccountHeader · account null(목록 밖 계좌) → 미체결 · 잔고 모두 기존 빈 문구', () => {
+    renderAccountOnly({ hideAccountHeader: true, account: null });
+
+    expect(screen.queryByTestId('account-panel-account-no')).toBeNull();
+    expect(screen.getByText('미체결 주문이 없어요')).toBeInTheDocument();
+    expect(screen.getByText('보유 종목이 없어요')).toBeInTheDocument();
+  });
+
+  it('prop 없으면 계좌 전용 머리 줄 그대로(다른 표면 무변경)', () => {
+    renderAccountOnly();
+
+    expect(screen.getByTestId('account-panel-account-no')).toHaveTextContent('12345678-02');
+    expect(screen.getByTestId('account-panel-account-name')).toHaveTextContent('위탁종합');
+  });
+
+  it('종목 축 + hideAccountHeader → 무시된다(계좌 셀렉터 유지)', () => {
+    renderPanel({ hideAccountHeader: true });
+
+    expect(screen.getByRole('combobox')).toBeInTheDocument();
+    expect(screen.getByText('계좌')).toBeInTheDocument();
+  });
+});
+
 describe('AccountPanel — 모바일 2줄 카드 행 (UI-SPEC C7 / R6)', () => {
   /**
    * ★ 이 케이스가 잠그는 것은 「보기」가 아니라 **잘림**이다.
