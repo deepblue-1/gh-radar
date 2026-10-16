@@ -5,7 +5,7 @@ milestone_name: 운영 유지보수
 current_phase: 32
 current_phase_name: 계좌 축 정리
 status: executing
-stopped_at: Phase 32 plan 32-10 Task 3 — 라이브 UAT ①~⑥ 사용자 확인 대기 (relay 55459fe5 · push 55459fe5 · vercel dpl_6HtxQXMJBs9GFYLF2GWxDfxaK9w5 배포 완료 2026-10-16 17:18 KST)
+stopped_at: Phase 32 plan 32-10 complete — 웨이브 ④ 32-11 시작(D-17 = slot-only)
 last_updated: "2026-10-16T07:23:16.882Z"
 last_activity: 2026-10-16
 last_activity_desc: Phase 32 execution started
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-12 after Phase 31)
 ## Current Position
 
 Phase: 32 (계좌 축 정리) — EXECUTING
-Plan: 10 of 14 (32-01~32-09 완료 · 32-10 Task 1 55a89ebc · Task 2 배포 완료 — relay 55459fe5(롤백 eb145551) · smoke PASS 11 SKIP 2 · push 55459fe5 · vercel dpl_6HtxQXMJBs9GFYLF2GWxDfxaK9w5 · Task 3 라이브 UAT 대기)
+Plan: 11 of 14 (32-01~32-10 완료 · 웨이브 ①~③ 프로덕션 배포 relay·push 55459fe5 · 라이브 UAT 통과)
 Status: Executing Phase 32
 Last activity: 2026-10-16 — Phase 32 32-01~32-09 완료(웨이브 ①~③ 코드, push·relay 배포 안 함)
 
