@@ -20,8 +20,16 @@ const goldenDerive = JSON.parse(readFileSync(join(FIXTURE, DATE, "expected-deriv
   member_daily: unknown[];
   grid_summary: unknown[];
 };
-const stageRows = { ...manifestRows, grid_summary: goldenDerive.grid_summary.length, member_daily: goldenDerive.member_daily.length };
-const STAGE_TABLES = [...EXPORT_TABLES, "grid_summary", "member_daily"] as const;
+// Phase 33 D-02: team_flow 는 선택 파일 — 이 픽스처 manifest 에는 없으므로 0(키는 늘 있다).
+const stageRows = {
+  ...manifestRows,
+  grid_summary: goldenDerive.grid_summary.length,
+  member_daily: goldenDerive.member_daily.length,
+  team_flow: 0,
+};
+const STAGE_TABLES = [...EXPORT_TABLES, "grid_summary", "member_daily", "team_flow"] as const;
+/** insert 로 실제 stage 된 표 — 행 0 인 표(team_flow)는 insert 0회라 집계에 키가 없다. */
+const stagedNonEmpty = Object.fromEntries(Object.entries(stageRows).filter(([, n]) => n > 0));
 
 async function runDispatch(fake: ReturnType<typeof makeFakeSupabase>, opts: { dryRun?: boolean } = {}) {
   vi.resetModules();
@@ -89,7 +97,8 @@ describe("dispatch — 정상 경로(stage_clear → 격자 업로드 → stage 
         staged[r.tbl as string] = (staged[r.tbl as string] ?? 0) + 1;
       }
     }
-    expect(staged).toEqual(stageRows);
+    expect(staged).toEqual(stagedNonEmpty);
+    expect(staged.team_flow).toBeUndefined(); // team_flow 파일 없음 → insert 0회
 
     // seq 는 표마다 1..n 연속, payload = export 행 원문
     const memberSeqs = inserts.flatMap((i) => i.rows).filter((r) => r.tbl === "member_alloc").map((r) => r.seq);

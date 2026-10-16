@@ -12,8 +12,20 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 /** export 파일 6개(= 노트 표 6개). 파일 이름 = `<tbl>.ndjson.gz`. */
 export const EXPORT_TABLES = ["entries", "locks", "jumps", "member_alloc", "facts", "touches"] as const;
 export type ExportTbl = (typeof EXPORT_TABLES)[number];
-/** stage `tbl` 값 — export 6 + 파생 2(28-06 이 채운다). DB CHECK 와 같은 목록. */
-export type StageTbl = ExportTbl | "grid_summary" | "member_daily";
+/** stage `tbl` 값 — export 6 + 파생 2 + 선택 1 — DB CHECK 와 같은 목록(20261016200000). */
+export type StageTbl = ExportTbl | "grid_summary" | "member_daily" | "team_flow";
+
+/**
+ * 팀 매집 export(Phase 33 D-02) — **선택 파일**. manifest `files[]` 에 있을 때만 적재하고(없으면 0행 commit),
+ * 필수 6표 루프(`EXPORT_TABLES`)에는 넣지 않는다 — 없다고 그 날짜가 실패하면 안 된다.
+ * 행은 export 원문 그대로 stage 한다(D-04 — 단위 변환 · 키 재조립 없음).
+ */
+export const TEAM_FLOW_FILE = "team_flow.ndjson.gz";
+/**
+ * team_flow stage 청크 — 10/14 실측 행 ≈ 14KB(payload 포함)라 기본 청크(1000)면 insert 본문이 수 MB 가 된다.
+ * 증명된 insert 본문(member_alloc 1000행 ≈ 293KB)에 맞춰 20행(Phase 33 RESEARCH Pitfall 5).
+ */
+export const TEAM_FLOW_STAGE_CHUNK = 20;
 
 export type Row = Record<string, unknown>;
 

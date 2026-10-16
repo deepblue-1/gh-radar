@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { makeFakeSupabase, type Call, type FakeOptions } from "./helpers/fake-supabase";
 import { filesSig, type Manifest } from "../src/manifest";
+import { readNdjsonGz } from "../src/load";
 
 /**
  * 28-16 적재 규칙 — 「바뀐 날짜만」(files_sig) · schema/sha/manifest skip + limitup_record_skip ·
@@ -434,13 +435,16 @@ const GRID_ISINS = golden.grid_summary.map((g) => g.isin);
 const tableRows = Object.fromEntries(
   fixtureManifest.files.filter((f) => !f.name.startsWith("grid/")).map((f) => [f.name.replace(".ndjson.gz", ""), f.rows]),
 );
-const EXPECTED8 = { ...tableRows, grid_summary: GRID_ISINS.length, member_daily: golden.member_daily.length };
+/** insert 로 실제 stage 되는 8표(행 0 인 team_flow 는 insert 0회라 집계에 키가 없다). */
+const STAGED8 = { ...tableRows, grid_summary: GRID_ISINS.length, member_daily: golden.member_daily.length };
+/** commit 기대 수 · 결과 rows/totals — 9키(Phase 33 D-02: team_flow 파일이 없어도 0 키). */
+const EXPECTED9 = { ...STAGED8, team_flow: 0 };
 
 const label = (c: Call) =>
   c.kind === "rpc" ? `rpc:${c.name}` : c.kind === "storage" ? `storage:${c.op}` : `${c.kind}:${c.table}`;
 
-describe("dispatch — 파생 stage · 격자 업로드(commit 앞) · 기대 수 8키 (28-06)", () => {
-  it("업로드 → stage → commit 순서: stage_clear → upload × 3 → stage insert(6표 + 파생 2) → commit_day(8키) → 정리", async () => {
+describe("dispatch — 파생 stage · 격자 업로드(commit 앞) · 기대 수 9키 (28-06 · Phase 33)", () => {
+  it("업로드 → stage → commit 순서: stage_clear → upload × 3 → stage insert(6표 + 파생 2) → commit_day(9키) → 정리", async () => {
     addDay(GOOD);
     const { out, fake } = await run();
     const seq = fake.calls.map(label);
@@ -471,14 +475,14 @@ describe("dispatch — 파생 stage · 격자 업로드(commit 앞) · 기대 �
 
     const staged: Record<string, number> = {};
     for (const i of inserts(fake.calls)) for (const r of i.rows) staged[r.tbl as string] = (staged[r.tbl as string] ?? 0) + 1;
-    expect(staged).toEqual(EXPECTED8);
+    expect(staged).toEqual(STAGED8);
     const derived = inserts(fake.calls).flatMap((i) => i.rows).filter((r) => r.tbl === "grid_summary" || r.tbl === "member_daily");
     for (const r of derived) expect((r.payload as { date: string }).date).toBe(GOOD);
 
     const commit = rpcs(fake.calls, "limitup_commit_day")[0];
-    expect(commit.args.p_expected).toEqual(EXPECTED8);
-    expect(Object.keys(commit.args.p_expected as object)).toHaveLength(8);
-    expect(out).toMatchObject({ loaded: [GOOD], grids: 3, totals: EXPECTED8 });
+    expect(commit.args.p_expected).toEqual(EXPECTED9);
+    expect(Object.keys(commit.args.p_expected as object)).toHaveLength(9);
+    expect(out).toMatchObject({ loaded: [GOOD], grids: 3, totals: EXPECTED9 });
   });
 
   it("업로드 error 면 commit 0회 · 그 날짜 failed(사유에 경로 · 다음 run 이 날짜를 다시 한다) · 정리는 그대로 돈다(CR-B01)", async () => {
@@ -501,7 +505,68 @@ describe("dispatch — 파생 stage · 격자 업로드(commit 앞) · 기대 �
     addDay(GOOD);
     const { out, fake } = await run({}, { dryRun: true });
     expect(fake.calls).toEqual([]);
-    expect(out).toMatchObject({ rows: { [GOOD]: EXPECTED8 }, totals: EXPECTED8, grids: 3, purged: null, loaded: [] });
+    expect(out).toMatchObject({ rows: { [GOOD]: EXPECTED9 }, totals: EXPECTED9, grids: 3, purged: null, loaded: [] });
+  });
+});
+
+// ── Phase 33 — team_flow 선택 파일(D-02 · D-04) ──────────────────────
+const TF_FIXTURE = join(__dirname, "fixtures", "team_flow", "20261014", "team_flow.ndjson.gz");
+const TF_SHA = "f6656ae29779b127a46322197cb440be0b1efe9900d13d7ca038b290db37d897";
+const TF_ROWS = readNdjsonGz(TF_FIXTURE);
+
+/** 날짜를 만들고 team_flow 픽스처를 그 디렉터리에 복사 + manifest files[] 에 싣는다(rows 는 manifest 에 적을 값). */
+function addTeamFlowDay(date: string, manifestRows = 34) {
+  addDay(date, (m) => ({ ...m, files: [...m.files, { name: "team_flow.ndjson.gz", rows: manifestRows, sha256: TF_SHA }] }));
+  cpSync(TF_FIXTURE, join(dir, date, "team_flow.ndjson.gz"));
+}
+
+const tfRowsOf = (calls: Call[]) => inserts(calls).filter((i) => i.rows.some((r) => r.tbl === "team_flow"));
+const commitFor = (calls: Call[], date: string) => rpcs(calls, "limitup_commit_day").find((c) => c.args.p_date === date)!;
+
+describe("dispatch — team_flow 선택 파일(D-02)", () => {
+  it("파일이 있으면 34행을 20행 청크(insert 2회 · seq 1..34 · payload = export 원문)로 stage · p_expected.team_flow 34", async () => {
+    expect(TF_ROWS).toHaveLength(34);
+    addTeamFlowDay("20261014");
+    const { out, fake } = await run();
+
+    const tf = tfRowsOf(fake.calls);
+    expect(tf.map((i) => i.rows.length)).toEqual([20, 14]);
+    for (const i of tf) expect(i.rows.every((r) => r.tbl === "team_flow" && r.date === "20261014")).toBe(true);
+    const rows = tf.flatMap((i) => i.rows);
+    expect(rows.map((r) => r.seq)).toEqual(Array.from({ length: 34 }, (_, k) => k + 1));
+    // D-04 — 단위 변환 · 키 재조립 없음(ms epoch · 원 · share 0~1 · rate % 그대로)
+    expect(rows[0].payload).toEqual(TF_ROWS[0]);
+
+    const commit = commitFor(fake.calls, "20261014");
+    expect((commit.args.p_expected as Record<string, number>).team_flow).toBe(34);
+    expect(Object.keys(commit.args.p_expected as object)).toHaveLength(9);
+    expect(out.loaded).toEqual(["20261014"]);
+    expect(out.rows["20261014"].team_flow).toBe(34);
+    expect(out.totals.team_flow).toBe(34);
+  });
+
+  it("파일 없는 날짜는 p_expected.team_flow 0 · team_flow insert 0회 · 기존 6표 적재 그대로", async () => {
+    addDay(GOOD);
+    addTeamFlowDay("20261014");
+    const { out, fake } = await run();
+    expect(out.loaded).toEqual([GOOD, "20261014"]);
+    expect((commitFor(fake.calls, GOOD).args.p_expected as Record<string, number>).team_flow).toBe(0);
+    expect(commitFor(fake.calls, GOOD).args.p_expected).toEqual(EXPECTED9);
+    // GOOD 날짜의 insert 중 team_flow 는 없다(team_flow insert 는 20261014 의 2회뿐)
+    expect(tfRowsOf(fake.calls).every((i) => i.rows.every((r) => r.date === "20261014"))).toBe(true);
+    expect(tfRowsOf(fake.calls)).toHaveLength(2);
+    expect(out.totals.team_flow).toBe(34);
+  });
+
+  it("manifest rows ≠ 파일 행 수면 그 날짜만 failed(사유 문구) · 뒤 날짜는 적재된다", async () => {
+    addTeamFlowDay("20261003", 33);
+    addTeamFlowDay("20261014");
+    const { out, fake } = await run({ recordSkip: 1 });
+    expect(out.failed).toEqual([
+      { date: "20261003", error: expect.stringContaining("team_flow.ndjson.gz rows 34 != manifest 33") },
+    ]);
+    expect(out.loaded).toEqual(["20261014"]);
+    expect(rpcs(fake.calls, "limitup_commit_day").map((c) => c.args.p_date)).toEqual(["20261014"]);
   });
 });
 
