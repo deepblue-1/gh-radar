@@ -277,6 +277,15 @@ Exceptions (상속 · 컴포넌트 내부 미세 치수 — 간격 스케일 밖
 - 서버키 칩 높이 18px · 좌우 6px · 모서리 5px — ~~기존 `workbench-account-server` 칩 그대로~~ 32-15 뒤 계좌 칩 안 `data-part="server"`(/me · 작업대 공용 `account-chips.tsx`) · /me 설정 제목 줄 서버키 칩(`limit-chaser-defaults.tsx`) — 옛 칩 치수 그대로.
 - ~~상단 줄 계좌 셀렉트 높이 26px~~(32-15: 칩 높이 32 · S13 치수) · 컬럼 세그먼트 높이 24px · LED 점 7px — 기존값 그대로.
 - 사이드바 서버키 칩 모서리 4px · 세그먼트 점 6px — 목업 값 그대로(장식 요소).
+- 2026-10-16 UI 리뷰 간격 판정(quick-261016-udz) — 32-UI-REVIEW Pillar 5 지목 값 중 4배수로 바꾸지 않고 남기는 것 · 근거 = 출처 커밋 · 공용 규격:
+  - 알림 토스트 카드(`alert-toasts.tsx` 토스트 버튼) `gap-2.5` · `py-2.5` = 10px — 출처 `3efe2d24` quick-260923-pgu(2026-09-23 · Phase 31 이전 상속). Phase 32 는 S4 계좌 줄(`data-part="account"`)만 더했다. 알림 토스트 7종 공통 기하라 바꾸면 Phase 32 와 무관한 모든 토스트의 높이 · 열 간격이 바뀐다(UI-REVIEW 의 「신규 코드」 판단은 blame 상 틀림).
+  - 토스트 건수 배지 「{n}건」(`alert-toasts.tsx`) `px-[5px]` = 5px — 출처 `3efe2d24`(같음 · Phase 31 이전). 프로젝트 공용 마이크로 배지 규격 — `strategy-badge.tsx` · `vi-order-list.tsx` · `vi-trigger-strip.tsx` · `breakout-strip.tsx` 배지가 같은 5px.
+  - 「이 계좌 끄기」 확인 다이얼로그 요약 상자 `dl`(`strategy-status-card.tsx`) `gap-1.5` = 6px · `py-2.5` = 10px — 원본 `527af76a` 16-15(2026-09-08 「전체 비활성화」 다이얼로그) → 32-01 · 32-06 이 계좌 모드로 옮김. 확인 다이얼로그 공용 문법 — `vi-settings-rows.tsx` VI 시작/중지 다이얼로그 `vi-confirm-summary` 가 같은 값이라 한쪽만 바꾸면 두 확인 다이얼로그가 갈린다.
+  - 같은 다이얼로그 경고 문단(`strategy-status-card.tsx`) `px-2.5` = 10px(`py-2` 8 은 4배수) — 원본 `527af76a` 16-15(같음). 같은 근거 — `vi-settings-rows.tsx` `vi-confirm-warning` 이 같은 값.
+  - 작업대 상단 줄 카드(`workbench-status-bar.tsx` 루트 `workbench-status-bar`) `py-2.5` = 10px — 출처 `f8280a45` 토스 B 테마 `.status-bar` 10/16(quick-260924-vj1 · Phase 31 이전 상속). 위 치수 표 「상단 줄 카드 — 기존 그대로 패딩 16/10」 과 같은 값을 예외로도 선언해 계약 안 모순을 없앤다. 바꾸면 작업대 머리 높이가 바뀐다.
+  - 컬럼 세그먼트 항목 「1단/2단/3단」(`workbench-status-bar.tsx` `workbench-cols-segment`) `px-[9px]` = 9px — 출처 `e2f33f7c` 18-11(Phase 18) → 32-03 이 옮김. 공용 세그먼트 항목 규격(`setting-group.tsx` `ChoiceRow` 항목도 `px-[9px]`) · 24px 트랙 안 항목 폭 맞춤.
+  - 옮김 안내 닫기 ×(`workbench-status-bar.tsx` `workbench-moved-from` 닫기 버튼) `-my-0.5` = −2px — 출처 `b32ef150` 29-39(Phase 29 상속). 광학 보정 — 20px(`size-5`) 누름 영역을 `AUX_LINE` 줄 높이 ≈16px(11px × 1.45) 안에 넣어 줄을 키우지 않는다(20 − 2×2 = 16).
+  - 정리(예외 아님): `device-settings-card.tsx` 「이 기기」 캡션 위 여백 2px → 4px(`pt-1`)로 정리 — Phase 32 신규(`6d4e3822` 32-03) · 공용 아님 · 차이 2px. 같은 역할 캡션 `me-lc-defaults-note` 도 `pt-1` 이라 위 여백이 맞춰진다. (서버키 칩 좌우 6px 는 위 서버키 칩 항목 — 32-15 문구로 갱신.)
 
 ---
 

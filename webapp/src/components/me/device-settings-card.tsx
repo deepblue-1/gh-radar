@@ -71,7 +71,7 @@ export function DeviceSettingsCard() {
       </h2>
       <p
         id={captionId}
-        className="px-1 pt-0.5 pb-2 text-[12.5px] leading-[1.5] break-keep text-[var(--muted-fg)]"
+        className="px-1 pt-1 pb-2 text-[12.5px] leading-[1.5] break-keep text-[var(--muted-fg)]"
       >
         {DEVICE_SETTINGS_TEXT.caption}
       </p>
