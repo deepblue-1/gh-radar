@@ -144,6 +144,24 @@ describe("GET /api/teamflow/report (Phase 33 D-05 · D-07)", () => {
       expect(r.body.error.code).toBe("DB_ERROR");
     }
   });
+
+  it("⑨ 모양 위반은 403 이 아니라 500 DB_ERROR — access 누락 · 문자열 · dates/rows 가 배열 아님 (IN-01)", async () => {
+    const bads = [
+      {},
+      { access: "true", dates: [], date: null, rows: [] },
+      { access: null, dates: [], date: null, rows: [] },
+      { access: true, date: null, rows: [] },
+      { access: true, dates: null, date: null, rows: [] },
+      { access: true, dates: [], date: null },
+      { access: true, dates: [], date: null, rows: {} },
+    ];
+    for (const bad of bads) {
+      const { client } = makeSupabase({ user: nextUser(), rpcData: bad });
+      const r = await auth(request(createApp({ supabase: client })).get("/api/teamflow/report"));
+      expect(r.status, JSON.stringify(bad)).toBe(500);
+      expect(r.body.error.code, JSON.stringify(bad)).toBe("DB_ERROR");
+    }
+  });
 });
 
 describe("팀 매집 서비스 — DB 원인을 cause 로 싣는다(로그 전용)", () => {
@@ -169,5 +187,19 @@ describe("팀 매집 서비스 — DB 원인을 cause 로 싣는다(로그 전�
     const { client } = makeSupabase({ rpcData: [] });
     const e = await caught(getTeamflowReport(client, "u1"));
     expect(e.cause).toEqual({ reason: "teamflow_report_for_user 모양 위반", type: "array" });
+  });
+
+  it("access · dates · rows 모양 위반 → cause 에 어느 필드인지 · 타입 (IN-01)", async () => {
+    const cases: [unknown, unknown][] = [
+      [{ access: "true" }, { reason: "teamflow_report_for_user.access 모양 위반", type: "string" }],
+      [{ access: true, dates: null, rows: [] }, { reason: "teamflow_report_for_user.dates 모양 위반", type: "null" }],
+      [{ access: true, dates: [], rows: {} }, { reason: "teamflow_report_for_user.rows 모양 위반", type: "object" }],
+    ];
+    for (const [rpcData, cause] of cases) {
+      const { client } = makeSupabase({ rpcData });
+      const e = await caught(getTeamflowReport(client, "u1"));
+      expect(e.code).toBe("DB_ERROR");
+      expect(e.cause).toEqual(cause);
+    }
   });
 });
