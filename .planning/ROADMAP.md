@@ -212,7 +212,7 @@ Plans:
 | 30. 인박스 KB 계좌별 주문자 IP/MAC | v1.1 | 9/9 | Complete | 2026-10-11 |
 | 31. 인박스 상따 금액 단위 | v1.1 | 8/8 | Complete | 2026-10-12 |
 | 32. 계좌 축 정리 | v1.1 | 4/14 | Not started | — |
-| 33. 팀 매집(teamflow) 보고서 | v1.1 | 0/0 | Not planned | — |
+| 33. 팀 매집(teamflow) 보고서 | v1.1 | 1/9 | In Progress | — |
 
 ### Phase 33: 팀 매집(teamflow) 보고서
 
@@ -227,11 +227,11 @@ Plans:
   5. 단위 · E2E(limitup-report 동형 fixture) 통과 · 10/14 실측 3종목으로 라이브 UAT · 인박스 `261016-teamflow-export.md` 를 `status: done` 으로 닫는다
 
 **배포 순서**: DB 마이그레이션(표 · RPC · RLS `TO anon, authenticated` · REVOKE 명시) → limitup-sync Job 재배포(`scripts/deploy-limitup-sync.sh` · 21:20 KST 밖) → server → webapp push(= 프로덕션). radar-gw 변경 없음. 첫 적재는 119 export 에 `team_flow.ndjson.gz` 가 실린 날짜부터
-**Plans**: 9 plans
+**Plans**: 1/9 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 33-01-PLAN.md — (트레이서) 10/14 픽스처 → 워커 선택 파일 stage → commit_day 7번째 표 → teamflow_report_for_user → /api/teamflow/report → /analytics/teamflow 행(기본 접힘) · 펼침 요약 + pgTAP 이미지 승인(Wave 0)
+- [x] 33-01-PLAN.md — (트레이서) 10/14 픽스처 → 워커 선택 파일 stage → commit_day 7번째 표 → teamflow_report_for_user → /api/teamflow/report → /analytics/teamflow 행(기본 접힘) · 펼침 요약 + pgTAP 이미지 승인(Wave 0)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 33-02-PLAN.md — (트레이서) 재적재 자동 감지(D-03 · 이력 rows.team_flow ≠ manifest) · pgTAP 적재 확장 + 보고서 RPC · 스모크 INV-8

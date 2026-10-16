@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: 운영 유지보수
-current_phase: 32
-current_phase_name: 계좌 축 정리
+current_phase: 33
+current_phase_name: 팀 매집(teamflow) 보고서
 status: executing
-stopped_at: Phase 32 plan 32-04 complete
-last_updated: "2026-10-16T04:31:27.195Z"
+stopped_at: Completed 33-01-PLAN.md
+last_updated: "2026-10-16T06:34:49.586Z"
 last_activity: 2026-10-16
-last_activity_desc: Phase 32 execution started
-state_head: 4df49cafeabe84252f22a2dacdd13f2722923b95
+last_activity_desc: Phase 33 execution started
+state_head: 57b947cd6131f8af5e002c0b53f1da7bd6c7a550
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 36
-  completed_plans: 17
-  percent: 47
+  total_plans: 40
+  completed_plans: 22
+  percent: 50
 ---
 
 # Project State
@@ -25,16 +25,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-12 after Phase 31)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 32 — 계좌 축 정리
+**Current focus:** Phase 33 — 팀 매집(teamflow) 보고서
 
 ## Current Position
 
-Phase: 32 (계좌 축 정리) — EXECUTING
-Plan: 5 of 14 (32-01~32-04 완료)
-Status: Executing Phase 32
-Last activity: 2026-10-16 — Phase 32 32-01~32-04 완료(웨이브 ① · ② 일부, push 안 함)
+Phase: 33 (팀 매집(teamflow) 보고서) — EXECUTING
+Plan: 2 of 9
+Status: Ready to execute
+Last activity: 2026-10-16 — Phase 33 33-01 완료(트레이서 C1~C4 · pgTAP 이미지 보유, push 안 함)
 
-Progress: [█████░░░░░] 47% (17/17 plans)
+Progress: [█████░░░░░] 50% (17/17 plans)
 
 ## Accumulated Context
 
@@ -86,10 +86,10 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/33-teamflow/33-UI-SPEC.md
+**Resume file:** None
 
-Last session: 2026-10-16T03:27:44.031Z
-Stopped at: Phase 33 UI-SPEC approved
+Last session: 2026-10-16T06:34:49.537Z
+Stopped at: Completed 33-01-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -116,6 +116,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 31 P05 | 14min | 3 tasks | 6 files |
 | Phase 31 P06 | 22min | 3 tasks | 8 files |
 | Phase 31 P07 | 47 min | 3 tasks | 9 files |
+| Phase 33 P01 | 23min | 2 tasks | 24 files |
 
 ## Decisions
 
@@ -156,3 +157,6 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 31]: 31-06: 등록 차단 문장은 ARM_BLOCKED_TEXT 한 곳 · armBlockOf 순서 1~8(C# 동형) — 패널(buyPriceReasonOf)도 비교가 0 금액 판정을 주문가격 0 보다 먼저 본다
 - [Phase 31]: 31-06: 수량 칸 시트 · 인라인 잠금은 validateCommit 맨 앞 amountLockTextOf 한 곳 · 두 줄 행 아래 줄 · 시트 안내 주는 qtyForSubmit(buildCfg 와 같은 값)
 - [Phase 31]: 31-06: 새 폼 후매수 최소 = 84 postBuyFloorAmount(키 부재 · 범위 밖 폴백 0)
+- [Phase 33]: 33-01: TeamflowDetail 은 버튼 id 를 labelledBy prop 으로 받는다(day-grid↔detail import 순환 회피 · LimitupEventCard 동형 · aria-labelledby 값 동일)
+- [Phase 33]: 33-01: 팀 매집 행 그리드는 최종 7열 템플릿 · 이 플랜은 1·2·3·7열만 — xl 열 머리 · 20% 아래/위 · 매수 중 팀 · 미니막대는 33-03 가산
+- [Phase 33]: 33-01: pgTAP 러너 이미지 public.ecr.aws/supabase/postgres:17.6.1.104 사용자 승인으로 로컬 보유 — 마이그레이션 2개 SQL 실행 검증은 33-02 Task 2
