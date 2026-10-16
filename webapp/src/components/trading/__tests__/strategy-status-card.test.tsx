@@ -763,7 +763,7 @@ describe("StrategyStatusCard — P32 이 계좌 끄기 (D-09 · D-27 · S5′)",
   const ACC_C = "37728502103";
   const HINT = "이 계좌의 상따 전략과 VI 자동매수를 한 번에 끕니다. 이미 나간 주문은 취소되지 않아요.";
   const BACKSTOP = "이 계좌 끄기 요청의 반영을 확인하지 못했어요. 전략 목록을 확인해 주세요.";
-  const SEND_FAIL = "연결이 끊겨 비활성화 요청을 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.";
+  const SEND_FAIL = "연결이 끊겨 이 계좌 끄기 요청을 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.";
   const killRow = () => document.querySelector('[data-slot="strategy-disable-account"]') as HTMLElement | null;
   const killButton = (no: string) => screen.getByRole("button", { name: `이 계좌 끄기 — ${no}` });
   const errorLine = () =>
@@ -928,7 +928,7 @@ describe("StrategyStatusCard — P32 이 계좌 끄기 (D-09 · D-27 · S5′)",
     fireEvent.click(killButton(ACC_A));
 
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText("이 계좌의 전략을 비활성화할까요?")).toBeInTheDocument();
+    expect(within(dialog).getByText("이 계좌의 전략을 끌까요?")).toBeInTheDocument();
     expect(dialog).toHaveTextContent("상따 전략");
     expect(dialog).toHaveTextContent("2건 → 전부 OFF");
     expect(dialog).toHaveTextContent("VI 자동매수");
@@ -937,7 +937,7 @@ describe("StrategyStatusCard — P32 이 계좌 끄기 (D-09 · D-27 · S5′)",
     expect(dialog).toHaveTextContent("이미 접수된 주문은 취소되지 않아요. 미체결은 아래 표에서 개별 취소해 주세요.");
     expect(within(dialog).getByRole("button", { name: "이 계좌 끄기" })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "닫기" })).toHaveFocus();
-    expect(dialog.textContent ?? "").not.toContain("전부 비활성화");
+    expect(dialog.textContent ?? "").not.toContain("비활성화");
   });
 
   it("⑧ 부제 — 그 계좌 건수 · 그 계좌 VI 기준(상따+VI · 상따만 · VI 만)", () => {
@@ -965,5 +965,23 @@ describe("StrategyStatusCard — P32 이 계좌 끄기 (D-09 · D-27 · S5′)",
     render(<StrategyStatusCard />);
     expect(killRow()).toBeNull();
     expect(screen.queryByRole("button", { name: /이 계좌 끄기/ })).toBeNull();
+  });
+
+  it("⑩ 끄기 어휘 통일 — 카드(kill 줄) · 열린 다이얼로그 · 전송 실패 오류 줄 어디에도 「비활성화」 가 없다 (quick-261017-bwt)", () => {
+    send.mockReturnValue(false);
+    render(<StrategyStatusCard accountNo={ACC_A} />);
+    const card = document.querySelector('[data-slot="strategy-status-card"]') as HTMLElement;
+    expect(killRow()).not.toBeNull();
+    expect(card.textContent ?? "").not.toContain("비활성화");
+
+    fireEvent.click(killButton(ACC_A));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("이 계좌의 전략을 끌까요?")).toBeInTheDocument();
+    expect(dialog.textContent ?? "").not.toContain("비활성화");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "이 계좌 끄기" }));
+    expect(errorLine()).toHaveTextContent(SEND_FAIL);
+    expect(errorLine()?.textContent ?? "").not.toContain("비활성화");
+    expect(card.textContent ?? "").not.toContain("비활성화");
   });
 });
