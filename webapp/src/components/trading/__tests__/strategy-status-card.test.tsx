@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import type { RelayAccountState, RelayLimitChaser } from "@gh-radar/shared";
+import type { RelayAccountState, RelayLimitChaser, RelayStrategiesDisabledMsg } from "@gh-radar/shared";
 
 /**
  * Phase 16 Plan 15 Task 1 — 전략 현황 카드 계약 (MYPAGE-01 · UI-SPEC C2~C4 · D-09/D-14/D-20).
@@ -38,6 +38,7 @@ vi.mock("@/lib/relay-provider", async (importOriginal) => {
 });
 
 import { EMPTY_RELAY_VALUE } from "@/lib/relay-provider";
+import { STRATEGIES_DISABLE_ACK_TIMEOUT_MS } from "@/lib/use-relay-socket";
 
 import { StrategyStatusCard, viSummaryText } from "../strategy-status-card";
 import { LC_BUY3_ECHO_DEFAULTS } from "@/test-fixtures/limit-chaser";
@@ -651,5 +652,162 @@ describe("StrategyStatusCard — P32 고른 계좌 (D-21 · S5′)", () => {
     mockRelay = relayState({ status: "connecting", limitChasers: [], viTriggers: {} });
     render(<StrategyStatusCard />);
     expect(document.querySelector('[data-slot="strategy-list-loading"]')).toBeInTheDocument();
+  });
+});
+
+// ===========================================================================
+// Phase 32 — 「이 계좌 끄기」 (D-09 보정 · D-27 · S5′)
+// ===========================================================================
+
+describe("StrategyStatusCard — P32 이 계좌 끄기 (D-09 · D-27 · S5′)", () => {
+  const ACC_A = "37728502101";
+  const ACC_B = "37728502102";
+  const ACC_C = "37728502103";
+  const HINT = "이 계좌의 상따 전략과 VI 자동매수를 한 번에 끕니다. 이미 나간 주문은 취소되지 않아요.";
+  const BACKSTOP = "이 계좌 끄기 요청의 반영을 확인하지 못했어요. 전략 목록을 확인해 주세요.";
+  const SEND_FAIL = "연결이 끊겨 비활성화 요청을 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.";
+  const killRow = () => document.querySelector('[data-slot="strategy-disable-account"]') as HTMLElement | null;
+  const killButton = (no: string) => screen.getByRole("button", { name: `이 계좌 끄기 — ${no}` });
+  const errorLine = () =>
+    document.querySelector('[data-slot="strategy-disable-account-error"]') as HTMLElement | null;
+  const disabledMsg = (count: number): RelayStrategiesDisabledMsg => ({ t: "strategies.disabled", count, viDisabled: false });
+
+  let send: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    send = vi.fn(() => true);
+    mockRelay = populated({ send: send as unknown as RelayShape["send"] });
+  });
+
+  /** 「이 계좌 끄기」 → 다이얼로그 → 실행. */
+  function confirmDisable(no: string): void {
+    fireEvent.click(killButton(no));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "이 계좌 끄기" }));
+  }
+
+  it("① 켜진 전략 ≥ 1 — kill 줄 = 안내 + 「이 계좌 끄기」(활성 · 접근 이름에 번호) · 카드 맨 아래이고 그 아래 다른 끄기 줄 · 링크가 없다", () => {
+    render(<StrategyStatusCard accountNo={ACC_A} />);
+
+    const row = killRow();
+    expect(row).not.toBeNull();
+    expect(row).toHaveTextContent(HINT);
+    expect(within(row as HTMLElement).getAllByRole("button")).toHaveLength(1);
+    expect(killButton(ACC_A)).toBeEnabled();
+    expect(killButton(ACC_A)).toHaveTextContent("이 계좌 끄기");
+    // 맨 아래 — 뒤에 형제가 없다(D-27 · 모든 계좌를 끄는 줄 · 링크 없음).
+    expect((row as HTMLElement).nextElementSibling).toBeNull();
+    expect(within(row as HTMLElement).queryAllByRole("link")).toHaveLength(0);
+  });
+
+  it("② 그 계좌 켜진 전략 0 ∧ 그 계좌 VI 미가동 → disabled · opacity .45 (숨기지 않는다)", () => {
+    render(<StrategyStatusCard accountNo={ACC_C} />);
+    expect(killButton(ACC_C)).toBeDisabled();
+    expect(killButton(ACC_C).className).toContain("disabled:opacity-[.45]");
+    expect(killRow()).toHaveTextContent(HINT);
+  });
+
+  it("③ 확인 → send 1건 { t: strategies.disable.account, accountNo } · 그 계좌 버튼만 disabled → strategies.disabled 새 참조 1건 → 열림", () => {
+    const view = render(<StrategyStatusCard accountNo={ACC_A} />);
+    confirmDisable(ACC_A);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith({ t: "strategies.disable.account", accountNo: ACC_A });
+    expect(killButton(ACC_A)).toBeDisabled();
+
+    mockRelay = { ...mockRelay, strategiesDisabled: disabledMsg(2) };
+    view.rerender(<StrategyStatusCard accountNo={ACC_A} />);
+    expect(killButton(ACC_A)).toBeEnabled();
+    expect(errorLine()).toBeNull();
+  });
+
+  it("④ A 대기 중 B 칩으로 바꾸면 B 의 「이 계좌 끄기」 는 누를 수 있다 · A 로 돌아오면 아직 대기라 disabled", () => {
+    const view = render(<StrategyStatusCard accountNo={ACC_A} />);
+    confirmDisable(ACC_A);
+    expect(killButton(ACC_A)).toBeDisabled();
+
+    view.rerender(<StrategyStatusCard accountNo={ACC_B} />);
+    expect(killButton(ACC_B)).toBeEnabled();
+
+    view.rerender(<StrategyStatusCard accountNo={ACC_A} />);
+    expect(killButton(ACC_A)).toBeDisabled();
+  });
+
+  it("⑤ 8초 백스톱 → kill 줄 바로 위 role=alert 미확인 문구 · 그 계좌 버튼 다시 열림", () => {
+    vi.useFakeTimers();
+    render(<StrategyStatusCard accountNo={ACC_A} />);
+    confirmDisable(ACC_A);
+    expect(killButton(ACC_A)).toBeDisabled();
+
+    act(() => {
+      vi.advanceTimersByTime(STRATEGIES_DISABLE_ACK_TIMEOUT_MS);
+    });
+    expect(killButton(ACC_A)).toBeEnabled();
+    const err = errorLine();
+    expect(err).not.toBeNull();
+    expect(err).toHaveAttribute("role", "alert");
+    expect(err).toHaveTextContent(BACKSTOP);
+    expect((err as HTMLElement).nextElementSibling).toBe(killRow());
+  });
+
+  it("⑥ send false → 전송 실패 문구 · 잠그지 않는다", () => {
+    send.mockReturnValue(false);
+    render(<StrategyStatusCard accountNo={ACC_A} />);
+    confirmDisable(ACC_A);
+
+    expect(killButton(ACC_A)).toBeEnabled();
+    expect(errorLine()).toHaveAttribute("role", "alert");
+    expect(errorLine()).toHaveTextContent(SEND_FAIL);
+  });
+
+  it("⑦ 계좌 모드 다이얼로그 — 제목 · 표(상따 · VI · 계좌 전체 라벨) · 경고 문단 · 실행 버튼 「이 계좌 끄기」 · 기본 포커스 「닫기」", () => {
+    mockRelay = populated({
+      send: send as unknown as RelayShape["send"],
+      accounts: [
+        { accountNo: ACC_A, name: "위탁종합", serverKey: "KB120" },
+        { accountNo: ACC_B, name: "위탁CMA", serverKey: "KB120" },
+      ],
+    });
+    render(<StrategyStatusCard accountNo={ACC_A} />);
+    fireEvent.click(killButton(ACC_A));
+
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("이 계좌의 전략을 비활성화할까요?")).toBeInTheDocument();
+    expect(dialog).toHaveTextContent("상따 전략");
+    expect(dialog).toHaveTextContent("2건 → 전부 OFF");
+    expect(dialog).toHaveTextContent("VI 자동매수");
+    expect(dialog).toHaveTextContent("가동 → 중지");
+    expect(dialog).toHaveTextContent(`계좌${ACC_A} · 위탁종합 · KB120`);
+    expect(dialog).toHaveTextContent("이미 접수된 주문은 취소되지 않아요. 미체결은 아래 표에서 개별 취소해 주세요.");
+    expect(within(dialog).getByRole("button", { name: "이 계좌 끄기" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "닫기" })).toHaveFocus();
+    expect(dialog.textContent ?? "").not.toContain("전부 비활성화");
+  });
+
+  it("⑧ 부제 — 그 계좌 건수 · 그 계좌 VI 기준(상따+VI · 상따만 · VI 만)", () => {
+    const { unmount } = render(<StrategyStatusCard accountNo={ACC_A} />);
+    fireEvent.click(killButton(ACC_A));
+    expect(screen.getByRole("dialog")).toHaveTextContent("상따 2건과 VI 자동매수가 한 번에 꺼져요.");
+    unmount();
+
+    const b = render(<StrategyStatusCard accountNo={ACC_B} />);
+    fireEvent.click(killButton(ACC_B));
+    expect(screen.getByRole("dialog")).toHaveTextContent("상따 1건이 한 번에 꺼져요.");
+    b.unmount();
+
+    mockRelay = populated({
+      send: send as unknown as RelayShape["send"],
+      viTriggers: { KRX: { ...VI_RUNNING, accountNo: ACC_C } },
+    });
+    render(<StrategyStatusCard accountNo={ACC_C} />);
+    expect(killButton(ACC_C)).toBeEnabled();
+    fireEvent.click(killButton(ACC_C));
+    expect(screen.getByRole("dialog")).toHaveTextContent("VI 자동매수가 꺼져요.");
+  });
+
+  it("⑨ accountNo undefined(계좌 미수신) → kill 줄 없음", () => {
+    render(<StrategyStatusCard />);
+    expect(killRow()).toBeNull();
+    expect(screen.queryByRole("button", { name: /이 계좌 끄기/ })).toBeNull();
   });
 });

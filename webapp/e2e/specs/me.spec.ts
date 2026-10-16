@@ -9,9 +9,11 @@ import {
   E2E_ISIN,
   E2E_LONG_NAME_ISIN,
   readSetUserSettingsRequest,
+  readViSetRequest,
   withLocalRelay,
   type LocalRelay,
 } from '../fixtures/relay';
+import { buildSetVITriggerRespFrame } from '../../../relay/tests/helpers/frames.js';
 import { leavesOverflowing } from '../overflow';
 import {
   BUNDLE_ORDER_NOS,
@@ -613,29 +615,44 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await expect(viRow).toHaveCount(1);
   });
 
-  test('P32-disable 이 계좌 끄기 — 확인 → 게이트웨이 14 가 고른 계좌 키만 · 그 계좌 전략이 현황에서 빠지고 다른 계좌 칩의 전략은 그대로 (D-09 · D-21)', async ({
+  test('P32-disable 이 계좌 끄기 — 확인 → 게이트웨이 14 가 고른 계좌 키만 · 그 계좌 VI 11 run:false · 대기 잠금 → 완료 신호로 해제 · 그 계좌 전략이 현황 · 사이드바에서 빠지고 다른 계좌 칩의 전략은 그대로 (D-09 · D-21 · S5′)', async ({
     page,
   }) => {
     // 스텁이 14 를 서버처럼 처리한다 — 그 키의 상따 게이트를 내리고 60 에코 → 65.
     relay.gateway.handleDisableStrategies({ apply: true, respond65: true });
-    const disableCount = () => relay.requestLog().filter((t) => t === DMA_MSG.DisableStrategiesReq).length;
+    const countOf = (msgType: number) => relay.requestLog().filter((t) => t === msgType).length;
+    const killRow = strategyCard(page).locator('[data-slot="strategy-disable-account"]');
+    const sidebarStrategies = desktopNav(page).locator('[data-strategy-key]');
 
     await page.goto('/me');
     await waitForReady(page, 2);
     await waitForStrategies(page, 2);
+    // 사이드바 3단은 전 계좌(A 2 · B 1)다.
+    await expect(sidebarStrategies).toHaveCount(3, { timeout: 15_000 });
 
+    // kill 줄 — 안내 + 「이 계좌 끄기」 한 줄뿐(D-27).
+    await expect(killRow).toContainText(
+      '이 계좌의 상따 전략과 VI 자동매수를 한 번에 끕니다. 이미 나간 주문은 취소되지 않아요.',
+    );
     const killButton = strategyCard(page).getByRole('button', { name: `이 계좌 끄기 — ${E2E_ACCOUNT_NO}` });
     await expect(killButton).toBeEnabled();
     await killButton.click();
 
     const dialog = page.getByTestId('strategy-disable-account-dialog');
     await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText('이 계좌의 전략을 비활성화할까요?');
+    await expect(dialog).toContainText('상따 2건과 VI 자동매수가 한 번에 꺼져요.');
+    await expect(dialog).toContainText(`${E2E_ACCOUNT_NO} · 위탁종합`);
     // 기본 포커스는 닫기 — Enter 한 번에 꺼지면 안 된다.
     await expect(dialog.getByRole('button', { name: '닫기' })).toBeFocused();
     await dialog.getByRole('button', { name: '이 계좌 끄기' }).click();
 
+    // 대기 잠금 — 그 계좌 버튼이 잠긴다(완료 신호 전).
+    await expect(killRow).toHaveAttribute('data-pending', 'true');
+    await expect(killButton).toBeDisabled();
+
     // 14 는 A 의 켜진 두 키만 건별로 — B 의 키 · 빈 키(전부 정지)는 없다. 스텁 시드로 무엇이 꺼졌는지 본다.
-    await expect.poll(disableCount, { timeout: 15_000 }).toBe(2);
+    await expect.poll(() => countOf(DMA_MSG.DisableStrategiesReq), { timeout: 15_000 }).toBe(2);
     await expect(strategyRows(page)).toHaveCount(0, { timeout: 15_000 });
     const seed = relay.gateway.limitChaserSeed();
     const seedOf = (accountNo: string) => seed.filter((c) => c.accountNo === accountNo);
@@ -648,11 +665,32 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     // Pitfall 1 — 스위치 off(lc.set 10)로 끄지 않는다(서버가 등록을 지운다).
     expect(relay.requestLog()).not.toContain(DMA_MSG.SetLimitChaserReq);
 
-    // 다른 계좌(B) 칩 — 그 계좌 전략은 그대로 켜져 있다.
+    // 그 계좌 VI(가동) — 11 run:false 1건. 서버처럼 61 에코를 돌려준다 → relay 가 완료 1건을 낸다.
+    await expect.poll(() => countOf(DMA_MSG.SetVITriggerReq), { timeout: 15_000 }).toBe(1);
+    const viReq = relay
+      .strategyRequests()
+      .map((r) => readViSetRequest(r.msgType, r.payload))
+      .find((r) => r !== null);
+    expect(viReq).toMatchObject({ accountNo: E2E_ACCOUNT_NO, run: false });
+    const sock = await relay.userSocket();
+    relay.gateway.sendFrame(sock, buildSetVITriggerRespFrame({ ...VI_CFG, run: false }));
+
+    // 완료 신호로 대기가 풀린다(8초 백스톱 문구 없음) — 끌 것이 없어 버튼은 비활성으로 남는다.
+    await expect(killRow).not.toHaveAttribute('data-pending', 'true', { timeout: 7_000 });
+    await expect(strategyCard(page).locator('[data-slot="strategy-disable-account-error"]')).toHaveCount(0);
+    await expect(page.locator('[data-slot="vi-status-summary"]')).toHaveText('—', { timeout: 15_000 });
+    await expect(killButton).toBeDisabled();
+
+    // 사이드바 — 그 계좌 전략은 빠지고 B 전략만 남는다(서버에는 등록이 남아 있다).
+    await expect(sidebarStrategies).toHaveCount(1, { timeout: 15_000 });
+    await expect(sidebarStrategies.nth(0)).toHaveAttribute('data-strategy-key', keyOf(CHASERS[1]));
+
+    // 다른 계좌(B) 칩 — 그 계좌 전략은 그대로 켜져 있고 그 계좌 버튼은 누를 수 있다.
     await accountChip(page, ACCOUNT_B).click();
     await waitForStrategies(page, 1);
     await expect(strategyRows(page).nth(0)).toContainText('한국제7호기업인수목적우선주식회사', { timeout: 15_000 });
-    expect(disableCount()).toBe(2);
+    await expect(strategyCard(page).getByRole('button', { name: `이 계좌 끄기 — ${ACCOUNT_B}` })).toBeEnabled();
+    expect(countOf(DMA_MSG.DisableStrategiesReq)).toBe(2);
   });
 
   test('P32-orders 주문 탭 = 고른 계좌 평탄 목록 — 그룹 소제목 없음 · 「주문 N」 · 「N건」 = 고른 계좌 · B 칩 → B 행만 · 다른 계좌 안내 빈 상태 (D-23 · Pitfall 10)', async ({

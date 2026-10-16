@@ -3080,6 +3080,44 @@ describe('상따 비활성화 원인 귀속 (quick-260926-nr2)', () => {
     expect(echoes(hook).size).toBe(0);
   });
 
+  it('P32 strategies.disable.account 도 in-flight 창을 연다 · 두 번 보내면 strategies.disabled 두 건 뒤에 닫힌다 (Pitfall 3)', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [lcItem(), nxtItem()] });
+    });
+    let ok = false;
+    act(() => {
+      ok = hook.result.current.send({ t: 'strategies.disable.account', accountNo: ACCT });
+      hook.result.current.send({ t: 'strategies.disable.account', accountNo: '98765432-01' });
+    });
+    expect(ok).toBe(true);
+    expect(ws.parsedSent().slice(-2)).toEqual([
+      { t: 'strategies.disable.account', accountNo: ACCT },
+      { t: 'strategies.disable.account', accountNo: '98765432-01' },
+    ]);
+    // 첫 계좌 끄기의 에코 · 완료 신호.
+    await act(async () => {
+      ws.push({ t: 'lc', item: lcItem({ buyEnabled: false }) });
+      ws.push({ t: 'strategies.disabled', count: 1, viDisabled: false });
+    });
+    expect(echoes(hook).get(KEY)?.cause).toBe('killSwitch');
+    // 완료 신호 1건 뒤에도 창은 열려 있다 — 두 번째 계좌 끄기의 에코도 킬 스위치 원인.
+    await act(async () => {
+      ws.push({ t: 'lc', item: nxtItem({ buyEnabled: false }) });
+      ws.push({ t: 'strategies.disabled', count: 1, viDisabled: false });
+    });
+    expect(echoes(hook).get(KEY_NXT)?.cause).toBe('killSwitch');
+    // 두 건 뒤 닫혔다 — 다시 켜졌다 꺼지는 에코는 귀속 없음.
+    await act(async () => {
+      ws.push({ t: 'lc', item: nxtItem({ buyEnabled: true }) });
+    });
+    await act(async () => {
+      ws.push({ t: 'lc', item: nxtItem({ buyEnabled: false }) });
+    });
+    expect(echoes(hook).has(KEY_NXT)).toBe(false);
+  });
+
   it('귀속과 무관한 에코는 귀속 맵 참조를 바꾸지 않는다(재렌더 예산)', async () => {
     const hook = render();
     const ws = await connected(hook);
