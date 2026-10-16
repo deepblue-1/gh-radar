@@ -1290,6 +1290,27 @@ function WorkbenchSurface() {
     「미확인 n」 필도 이 목록으로 센다. VI 설정 「중지」 확인 요약(오늘 주문)은 전체 `viOrders` 그대로다.
   */
   const activeViOrders = useMemo(() => viOrders.filter((o) => o.viReleased !== true), [viOrders]);
+  /*
+    ── 작업대 계좌 스코프 (Phase 32 D-01 · UI-SPEC S2) ──
+    고른 계좌의 카드(+ 계좌 공란 카드)만 격자에 보이고, 나머지는 CardGrid 가 **주차**한다(언마운트 아님 —
+    에코 · 더티 · 결과 모름 잠금 · 미확인 카운트 보존 · 시세 구독 수 불변). 계좌가 아직 없으면(`accounts[]`
+    미수신 · 셀렉트 「확인 중」) 거르지 않는다 — 계좌가 정해지는 순간 거른다(빈 격자 깜빡임 방지 · S2 loading).
+    VI 트리거 스트립 칩(「미확인 n」 포함)도 같은 계좌로 거른다. VI 설정 행은 웨이브 ④ 전 현행(D-16).
+  */
+  const scoped = accountNo !== "" && accounts.length > 0;
+  const visibleCards = useMemo(
+    () => (scoped ? cards.filter((c) => c.accountNo === accountNo || c.accountNo === "") : cards),
+    [scoped, cards, accountNo],
+  );
+  const hiddenCardIds = useMemo<ReadonlySet<string>>(() => {
+    if (visibleCards === cards) return new Set();
+    const shown = new Set(visibleCards.map((c) => c.id));
+    return new Set(cards.filter((c) => !shown.has(c.id)).map((c) => c.id));
+  }, [visibleCards, cards]);
+  const scopedViOrders = useMemo(
+    () => (accountNo === "" ? activeViOrders : activeViOrders.filter((o) => o.accountNo === accountNo)),
+    [activeViOrders, accountNo],
+  );
   const accountName = accounts.find((a) => a.accountNo === accountNo)?.name;
   const closeCardInfo = closeAsk === null ? null : cards.find((c) => c.id === closeAsk.id) ?? null;
   /*
@@ -1403,7 +1424,7 @@ function WorkbenchSurface() {
 
       {/* 3 · VI 패널 — 스트립 줄 · 경보 · 펼침 안 VI 설정 2줄 · 발동 표 */}
       <ViTriggerStrip
-        items={activeViOrders}
+        items={scopedViOrders}
         disabled={status !== "ready"}
         settings={
           <ViSettingsRows
@@ -1435,6 +1456,7 @@ function WorkbenchSurface() {
       {/* 6 · 카드 격자 */}
       <CardGrid
         cards={cards}
+        hiddenIds={hiddenCardIds}
         cols={cols}
         fallbackFocusSelector={ADD_SEARCH_SELECTOR}
         renderCard={(c) => (

@@ -42,6 +42,15 @@
  *   **자리표**이고, 자리표의 안정 ref 콜백이 그 키의 호스트를 자기 안으로 옮겨 붙인다. 기각한
  *   대안은 카드 상태를 작업대로 끌어올리기 — LimitChaserForm 의 내부 폼 상태·전송 잠금까지
  *   올려야 해 변경면이 훨씬 넓다. React 숨김 경계 컴포넌트는 Next 번들 React 에 없어 쓰지 않는다.
+ *
+ * ⑥ 계좌 스코프 숨김 = **주차** (Phase 32 D-01 · RESEARCH Pattern 2)
+ *   `hiddenIds` 의 카드(작업대 계좌 밖)는 자리표를 격자가 아니라 격자 밖 `hidden` 주차 노드
+ *   (`card-parking`)에 둔다 — ⑤ 의 자리표 ref 가 호스트를 그리로 옮겨 붙일 뿐 포털은 **전수** 카드에
+ *   그대로라 언마운트가 없다(에코 · 더티 · 결과 모름 잠금 · 미확인 카운트 보존). 그래서 세 축이 갈린다:
+ *   - 격자 순서 · 빈 상태 판정 · ✕ 뒤 포커스 = **보이는** 카드만(숨은 카드로 포커스를 보내지 않는다).
+ *   - 호스트 정리(`present`) = **모든** 카드 — 숨기는 순간 호스트를 지우면 그것이 곧 언마운트다.
+ *   - 포털 = 모든 카드.
+ *   보이는 카드 0 ∧ 숨은 카드 N ≥ 1 이면 빈 상태 문구가 계좌 문구(숨은 카드 수 안내)로 바뀐다.
  */
 
 import {
@@ -61,6 +70,12 @@ export const CARD_GRID_EMPTY_HEADING = "거래할 종목이 없어요";
 /** 빈 상태 본문 — UI-SPEC §Copywriting 「Empty state body」 원문. */
 export const CARD_GRID_EMPTY_BODY =
   "위 검색란에서 종목을 추가하거나, 돌파 목록의 종목을 눌러 시작하세요.";
+/** 고른 계좌 카드 0 ∧ 다른 계좌 카드 ≥ 1 — Phase 32 UI-SPEC S2 Copywriting 원문. */
+export const CARD_GRID_ACCOUNT_EMPTY_HEADING = "이 계좌에 거래할 종목이 없어요";
+/** 계좌 빈 상태 본문 — `n` = 숨은(다른 계좌) 카드 수(UI-SPEC S2). */
+export function cardGridAccountEmptyBody(n: number): string {
+  return `위 검색란에서 종목을 추가하면 이 계좌로 열려요 · 다른 계좌 카드 ${n}장은 계좌를 바꾸면 보여요`;
+}
 
 export interface CardGridItem {
   /**
@@ -77,6 +92,11 @@ export interface CardGridProps<T extends CardGridItem> {
   cards: readonly T[];
   cols: TradingCols;
   renderCard: (card: T) => ReactNode;
+  /**
+   * 작업대 계좌 스코프 밖 카드(Phase 32 D-01). 언마운트하지 않고 호스트를 주차 노드에 붙인다 —
+   * 에코 · 더티 · 결과 모름 잠금 · 미확인 카운트 보존(⑥).
+   */
+  hiddenIds?: ReadonlySet<string>;
   /** ✕ 로 마지막 카드가 사라졌을 때 포커스를 받을 요소(종목 추가 검색란). */
   fallbackFocusSelector?: string;
   className?: string;
@@ -125,10 +145,17 @@ export function CardGrid<T extends CardGridItem>({
   cards,
   cols,
   renderCard,
+  hiddenIds,
   fallbackFocusSelector,
   className,
 }: CardGridProps<T>) {
-  const { open, folded } = renderOrderOf(cards);
+  /* ⑥ 보이는 카드 · 주차 카드 — 숨김이 없으면 입력 배열 그대로(종전과 같은 참조 · 같은 DOM). */
+  const visible =
+    hiddenIds === undefined || hiddenIds.size === 0
+      ? cards
+      : cards.filter((c) => !hiddenIds.has(c.id));
+  const parked = visible === cards ? [] : cards.filter((c) => hiddenIds?.has(c.id) === true);
+  const { open, folded } = renderOrderOf(visible);
   const order = [...open, ...folded].map((c) => c.id);
 
   /* ── ⑤ 카드별 고정 호스트 노드 + 자리표 ref 콜백 ──────────────────────── */
@@ -163,9 +190,12 @@ export function CardGrid<T extends CardGridItem>({
     return ref;
   }, []);
 
-  // 사라진 키의 호스트를 치운다(✕ · 빈 상태). 카드 내용은 포털 언마운트로 이미 비었다.
+  /*
+    사라진 키의 호스트를 치운다(✕ · 빈 상태). 카드 내용은 포털 언마운트로 이미 비었다.
+    ★ `present` 는 **모든** 카드 id 다(⑥) — 보이는 id 로 잡으면 숨기는 순간 호스트가 지워져 언마운트가 된다.
+  */
   useLayoutEffect(() => {
-    const present = new Set(cards.length === 0 ? [] : order);
+    const present = new Set(cards.map((c) => c.id));
     for (const [id, host] of hosts.current) {
       if (present.has(id)) continue;
       host.remove();
@@ -179,17 +209,22 @@ export function CardGrid<T extends CardGridItem>({
   */
 
   /* ── ③ ✕ 뒤 포커스 ─────────────────────────────────────────────── */
+  /*
+    ⑥ 「사라짐」 은 카드 집합에서 빠진 것(✕)만이다 — 계좌 전환으로 숨은 카드는 사라진 것이 아니라
+    포커스를 옮기지 않는다. 다음 대상은 **보이는** 순서에서만 고른다(숨은 카드로 포커스를 보내지 않는다).
+  */
   const prevOrder = useRef<string[]>(order);
   useLayoutEffect(() => {
     const before = prevOrder.current;
     prevOrder.current = order;
-    const present = new Set(order);
-    const removedAt = before.findIndex((id) => !present.has(id));
+    const live = new Set(cards.map((c) => c.id));
+    const shown = new Set(order);
+    const removedAt = before.findIndex((id) => !live.has(id));
     if (removedAt < 0) return;
     // 사용자가 이미 다른 곳에 포커스를 두었다면 건드리지 않는다.
     const active = document.activeElement;
     if (active !== null && active !== document.body && active.isConnected) return;
-    const next = before.slice(removedAt + 1).find((id) => present.has(id));
+    const next = before.slice(removedAt + 1).find((id) => shown.has(id));
     const target =
       next !== undefined
         ? document.getElementById(toggleIdOf(next))
@@ -199,51 +234,61 @@ export function CardGrid<T extends CardGridItem>({
     target?.focus();
   });
 
-  if (cards.length === 0) {
-    return (
-      <div
-        data-slot="card-grid-empty"
-        className={cn(
-          "flex min-w-0 flex-col items-center gap-1 rounded-[var(--r-lg)] border border-dashed border-[var(--faint)] px-4 py-8 text-center",
-          className,
-        )}
-      >
-        <p className="m-0 text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
-          {CARD_GRID_EMPTY_HEADING}
-        </p>
-        <p className="m-0 text-[length:var(--t-caption)] text-[var(--muted-fg)]">
-          {CARD_GRID_EMPTY_BODY}
-        </p>
-      </div>
-    );
-  }
-
   /*
     ★ 순서가 계약이다 — 격자(자리표)가 포털 배열보다 **앞**이다. 커밋 레이아웃 단계는 형제 순서대로
       돌아서, 자리표 ref 가 호스트를 제자리에 붙인 **뒤에** 카드 안쪽의 레이아웃 효과가 돈다.
   */
   return (
     <>
-      <div
-        data-slot="card-grid"
-        data-cols={String(cols)}
-        className={cn(
-          "grid min-w-0 grid-cols-[minmax(0,1fr)] items-start gap-3",
-          COLS_CLASS[cols],
-          className,
-        )}
-      >
-        {open.map((c) => (
-          <div key={c.id} ref={placeRefOf(c.id)} data-slot="card-cell" className="min-w-0" />
-        ))}
-        {folded.length > 0 && (
-          <div data-slot="card-stack" className="flex min-w-0 flex-col gap-2">
-            {folded.map((c) => (
-              <div key={c.id} ref={placeRefOf(c.id)} data-slot="card-cell" className="min-w-0" />
-            ))}
-          </div>
-        )}
-      </div>
+      {visible.length === 0 ? (
+        /*
+          ④ 빈 상태 — 판정은 「보이는 카드 0」(⑥). 숨은 카드가 있으면 계좌 문구(숨은 수 안내)로, 전 카드 0 이면
+          종전 문구. 상자 기하 · 슬롯은 같다.
+        */
+        <div
+          data-slot="card-grid-empty"
+          className={cn(
+            "flex min-w-0 flex-col items-center gap-1 rounded-[var(--r-lg)] border border-dashed border-[var(--faint)] px-4 py-8 text-center",
+            className,
+          )}
+        >
+          <p className="m-0 text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
+            {parked.length > 0 ? CARD_GRID_ACCOUNT_EMPTY_HEADING : CARD_GRID_EMPTY_HEADING}
+          </p>
+          <p className="m-0 text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+            {parked.length > 0 ? cardGridAccountEmptyBody(parked.length) : CARD_GRID_EMPTY_BODY}
+          </p>
+        </div>
+      ) : (
+        <div
+          data-slot="card-grid"
+          data-cols={String(cols)}
+          className={cn(
+            "grid min-w-0 grid-cols-[minmax(0,1fr)] items-start gap-3",
+            COLS_CLASS[cols],
+            className,
+          )}
+        >
+          {open.map((c) => (
+            <div key={c.id} ref={placeRefOf(c.id)} data-slot="card-cell" className="min-w-0" />
+          ))}
+          {folded.length > 0 && (
+            <div data-slot="card-stack" className="flex min-w-0 flex-col gap-2">
+              {folded.map((c) => (
+                <div key={c.id} ref={placeRefOf(c.id)} data-slot="card-cell" className="min-w-0" />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {/* ⑥ 숨은 카드의 자리표 — 같은 ref 콜백이 호스트를 여기로 옮긴다(언마운트 아님). */}
+      {parked.length > 0 && (
+        <div hidden data-slot="card-parking">
+          {parked.map((c) => (
+            <div key={c.id} ref={placeRefOf(c.id)} />
+          ))}
+        </div>
+      )}
       {cards.map((c) => {
         const host = hostOf(c.id);
         return host === null ? null : createPortal(renderCard(c), host, c.id);

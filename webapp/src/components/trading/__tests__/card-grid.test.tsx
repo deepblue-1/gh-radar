@@ -4,9 +4,11 @@ import { useEffect, useState } from 'react';
 
 import type { TradingCols } from '@/lib/breakout-list';
 import {
+  CARD_GRID_ACCOUNT_EMPTY_HEADING,
   CARD_GRID_EMPTY_BODY,
   CARD_GRID_EMPTY_HEADING,
   CardGrid,
+  cardGridAccountEmptyBody,
   type CardGridItem,
 } from '../workbench/card-grid';
 
@@ -342,5 +344,162 @@ describe('CardGrid — WR-02 — 접기/펴기·단 수 변경에 마운트 유�
     expect(countOf('wb-card-2')).toBe('0');
     expect(mounts.get('wb-card-1')).toBe(1);
     expect(mounts.get('wb-card-2')).toBe(1);
+  });
+});
+
+/* ── Phase 32 D-01 — 계좌 스코프 숨김 = 주차(언마운트 아님) ───────────────── */
+
+const parking = () => document.querySelector('[data-slot="card-parking"]') as HTMLElement | null;
+
+/** 숨김 집합을 바깥에서 바꾸는 하네스 — 카드 안 상태(카운터 · 입력값)가 왕복 뒤에도 그대로인지 본다. */
+function ScopeHarness({ initial, hidden: initialHidden }: { initial: Item[]; hidden: string[] }) {
+  const [cards, setCards] = useState(initial);
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set(initialHidden));
+  return (
+    <>
+      <div data-slot="stock-add-bar">
+        <input aria-label="종목 추가 검색" />
+      </div>
+      <button type="button" onClick={() => setHidden(new Set())}>
+        전부 보기
+      </button>
+      <button type="button" onClick={() => setHidden(new Set(initial.map((c) => c.id).filter((id) => id !== 'A')))}>
+        A 만 보기
+      </button>
+      <button type="button" onClick={() => setHidden(new Set(['A']))}>
+        A 숨기기
+      </button>
+      <CardGrid
+        cards={cards}
+        hiddenIds={hidden}
+        cols={2}
+        fallbackFocusSelector='[data-slot="stock-add-bar"] input'
+        renderCard={(c) => (
+          <div>
+            <StatefulCard isin={c.id} onToggle={() => {}} />
+            <input aria-label={`${c.id} 값`} defaultValue="" />
+            <button
+              type="button"
+              aria-label={`${c.id} 카드 닫기`}
+              onClick={() => setCards((prev) => prev.filter((p) => p.id !== c.id))}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+      />
+    </>
+  );
+}
+
+describe('P32 계좌 스코프 숨김 주차 (D-01 · Pattern 2)', () => {
+  beforeEach(() => mounts.clear());
+
+  it('숨긴 카드는 hidden 주차 노드(card-parking) 안에 있고 격자 · 스택에는 없다', () => {
+    render(
+      <CardGrid
+        cards={[card('A', true), card('B', true), card('C', false)]}
+        hiddenIds={new Set(['B', 'C'])}
+        cols={2}
+        renderCard={renderCard}
+      />,
+    );
+    expect(structure()).toEqual(['A']);
+    const park = parking()!;
+    expect(park).not.toBeNull();
+    expect(park.hidden).toBe(true);
+    const parked = Array.from(park.querySelectorAll('[data-testid="card"]')).map((c) => c.getAttribute('data-isin'));
+    expect(parked).toEqual(['B', 'C']);
+    expect(stack()).toBeNull();
+  });
+
+  it('숨김 → 보임 왕복에도 언마운트되지 않는다 — 카드 안 카운터 · 입력값 그대로 · 마운트 1회', () => {
+    render(<ScopeHarness initial={[card('A', true), card('B', true)]} hidden={[]} />);
+    const before = document.querySelector('[data-isin="A"][data-testid="stateful"]');
+    for (let i = 0; i < 2; i += 1) fireEvent.click(screen.getByRole('button', { name: 'A 올리기' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'A 값' }), { target: { value: '8000' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'A 숨기기' }));
+    expect(parking()!.contains(statefulOf('A'))).toBe(true);
+    expect(structure()).not.toContain('A');
+
+    fireEvent.click(screen.getByRole('button', { name: '전부 보기' }));
+    expect(parking()).toBeNull();
+    expect(grid()!.contains(statefulOf('A'))).toBe(true);
+    expect(document.querySelector('[data-isin="A"][data-testid="stateful"]')).toBe(before);
+    expect(countOf('A')).toBe('2');
+    expect((screen.getByRole('textbox', { name: 'A 값' }) as HTMLInputElement).value).toBe('8000');
+    expect(mounts.get('A')).toBe(1);
+  });
+
+  it('호스트 수 = 전수 카드 — 숨긴 카드의 호스트를 치우지 않는다', () => {
+    render(
+      <CardGrid
+        cards={[card('A', true), card('B', false), card('C', true)]}
+        hiddenIds={new Set(['B', 'C'])}
+        cols={2}
+        renderCard={renderCard}
+      />,
+    );
+    expect(document.querySelectorAll('[data-slot="card-host"]')).toHaveLength(3);
+  });
+
+  it('보이는 카드 0 ∧ 숨은 2 → 계좌 빈 상태 「…다른 계좌 카드 2장은…」 · 숨은 카드는 마운트 유지', () => {
+    render(
+      <CardGrid
+        cards={[card('B', true), card('C', false)]}
+        hiddenIds={new Set(['B', 'C'])}
+        cols={2}
+        renderCard={renderCard}
+      />,
+    );
+    expect(grid()).toBeNull();
+    expect(CARD_GRID_ACCOUNT_EMPTY_HEADING).toBe('이 계좌에 거래할 종목이 없어요');
+    expect(cardGridAccountEmptyBody(2)).toBe(
+      '위 검색란에서 종목을 추가하면 이 계좌로 열려요 · 다른 계좌 카드 2장은 계좌를 바꾸면 보여요',
+    );
+    const empty = document.querySelector('[data-slot="card-grid-empty"]') as HTMLElement;
+    expect(empty).not.toBeNull();
+    expect(screen.getByText(CARD_GRID_ACCOUNT_EMPTY_HEADING)).toBeTruthy();
+    expect(screen.getByText(cardGridAccountEmptyBody(2))).toBeTruthy();
+    expect(screen.queryByText(CARD_GRID_EMPTY_HEADING)).toBeNull();
+    expect(parking()!.querySelectorAll('[data-testid="card"]')).toHaveLength(2);
+  });
+
+  it('전 카드 0 → 종전 빈 문구(계좌 문구 아님) · 주차 노드 없음', () => {
+    render(<CardGrid cards={[]} hiddenIds={new Set(['gone'])} cols={2} renderCard={renderCard} />);
+    expect(screen.getByText(CARD_GRID_EMPTY_HEADING)).toBeTruthy();
+    expect(screen.getByText(CARD_GRID_EMPTY_BODY)).toBeTruthy();
+    expect(screen.queryByText(CARD_GRID_ACCOUNT_EMPTY_HEADING)).toBeNull();
+    expect(parking()).toBeNull();
+  });
+
+  it('✕ 뒤 포커스는 보이는 다음 카드로 — 사이의 숨은 카드로 가지 않고, 보이는 카드가 없으면 검색란', async () => {
+    // A · B(숨김) · C — A 를 닫으면 B 를 건너뛰고 C.
+    render(<ScopeHarness initial={[card('A', true), card('B', true), card('C', true)]} hidden={['B']} />);
+    const closeA = screen.getByRole('button', { name: 'A 카드 닫기' });
+    closeA.focus();
+    await act(async () => {
+      fireEvent.click(closeA);
+    });
+    expect(document.activeElement?.id).toBe('strategy-card-C-toggle');
+
+    const closeC = screen.getByRole('button', { name: 'C 카드 닫기' });
+    closeC.focus();
+    await act(async () => {
+      fireEvent.click(closeC);
+    });
+    // 남은 카드는 숨은 B 뿐 — 포커스는 검색란.
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: '종목 추가 검색' }));
+  });
+
+  it('숨기기만으로는 포커스를 옮기지 않는다 — 사라짐(✕)이 아니다', async () => {
+    render(<ScopeHarness initial={[card('A', true), card('B', true)]} hidden={[]} />);
+    const btn = screen.getByRole('button', { name: 'A 숨기기' });
+    btn.focus();
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    expect(document.activeElement).toBe(btn);
   });
 });

@@ -91,6 +91,13 @@ const VI_CFG = {
   run: false,
 };
 
+/** Phase 32 다계좌 케이스 — 둘째 계좌(로그인 응답으로만 생긴다 · 실계좌 아님). */
+const P32_ACCOUNT_B = '1234567802';
+const P32_ACCOUNTS = [
+  { accountNo: E2E_ACCOUNT_NO, name: '위탁종합' },
+  { accountNo: P32_ACCOUNT_B, name: '위탁CMA' },
+];
+
 /**
  * VI 주문 6건 — 상태를 전부 다르게 둔다(같은 상태만 있으면 배지가 잘못 붙어도 모른다).
  * 마지막 행은 **접수 전**(주문번호 없음)이라 확인 자체가 불가능하다. (옛 trading-vi.spec 그대로)
@@ -546,6 +553,11 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
 
   test.beforeEach(async ({ page }) => {
     relay.reset();
+    /*
+      로그인 응답(계좌 목록)은 `reset()` 이 되돌리지 않는다 — P32 다계좌 케이스가 둘로 늘려도 다음 케이스는
+      기본 한 계좌(`E2E_ACCOUNT_NO`)로 시작한다(남은 계좌로 통과하지 않게).
+    */
+    relay.gateway.respondLogin({ success: true });
     await page.setViewportSize(WIDE_VIEWPORT);
     await mockStockApi(page, { searchResults: [FIXTURE_SAMSUNG] });
   });
@@ -684,6 +696,64 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     // 잘림 · 가로 스크롤 0.
     expect(await leavesOverflowing(bar, barBox!.x + barBox!.width)).toEqual([]);
     expect(await scrollOverflowing(page, '[data-slot="workbench-status-bar"]')).toEqual([]);
+  });
+
+  test('P32-scope 작업대 계좌 스코프 — A · B 카드 → B 고르면 B 카드만 · A 카드 더티 값이 A 로 돌아오면 그대로 · 계좌 빈 상태 (D-01 · S2)', async ({
+    page,
+  }) => {
+    relay.gateway.respondLoginWithAccounts(P32_ACCOUNTS);
+    // B 카드 = B 계좌의 등록 전략(접힌 자동 카드). A 카드는 아래에서 종목 추가로 연다.
+    relay.seedLimitChasers([
+      { isin: E2E_LONG_NAME_ISIN, accountNo: P32_ACCOUNT_B, exchange: 'KRX', buyEnabled: true },
+    ]);
+    await page.goto(WORKBENCH_URL);
+    await waitForReady(page);
+    const account = statusBar(page).locator('[data-slot="workbench-account"]');
+    await expect(account.locator('option')).toHaveCount(2, { timeout: 30_000 });
+    await account.selectOption(E2E_ACCOUNT_NO);
+    await expect(account).toHaveValue(E2E_ACCOUNT_NO);
+
+    // B 카드는 마운트돼 있지만 주차 노드 안이라 보이지 않는다.
+    const parking = page.locator('[data-slot="card-parking"]');
+    const cardB = cardOf(page, E2E_LONG_NAME_ISIN);
+    await expect(cardB).toHaveCount(1, { timeout: 15_000 });
+    await expect(parking.locator(cardSelector(E2E_LONG_NAME_ISIN))).toHaveCount(1);
+    await expect(cardB).toBeHidden();
+    // A 계좌에는 카드가 없다 — 계좌 빈 상태가 숨은 카드 수를 말한다.
+    const empty = page.locator('[data-slot="card-grid-empty"]');
+    await expect(empty).toContainText('이 계좌에 거래할 종목이 없어요');
+    await expect(empty).toContainText('다른 계좌 카드 1장은 계좌를 바꾸면 보여요');
+
+    // A 로 종목 카드(새 카드 기본 계좌 = 고른 계좌) → 수동주문 수량만 입력(제출 전 더티).
+    await addStockByKeyboard(page);
+    const cardA = cardOf(page, E2E_ISIN);
+    await expect(cardA).toHaveAttribute('data-key', `${E2E_ISIN}:${E2E_ACCOUNT_NO}:KRX`, { timeout: 15_000 });
+    await expect(cardA).toBeVisible();
+    await cardA.getByRole('button', { name: '수동주문', exact: true }).click();
+    const qty = cardA.getByTestId('manual-order-form').locator(`#mo-qty-${E2E_ISIN}`);
+    await qty.fill('37');
+
+    // B 선택 → B 카드만 · A 카드는 주차(언마운트 아님). (selectOption 은 포커스를 주지 않아 먼저 준다.)
+    await account.focus();
+    await account.selectOption(P32_ACCOUNT_B);
+    await expect(cardB).toBeVisible();
+    await expect(cardA).toBeHidden();
+    await expect(parking.locator(cardSelector(E2E_ISIN))).toHaveCount(1);
+    await expect(grid(page).locator('[data-slot="strategy-card"]')).toHaveCount(1);
+    // 셀렉트로 바꾸면 포커스는 셀렉트에 남는다(전환이 포커스를 옮기지 않는다).
+    await expect(account).toBeFocused();
+
+    // A 로 돌아오면 입력값 그대로.
+    await account.selectOption(E2E_ACCOUNT_NO);
+    await expect(cardA).toBeVisible();
+    await expect(cardB).toBeHidden();
+    await expect(qty).toHaveValue('37');
+
+    // A 카드를 닫으면(등록 전 카드 = 즉시) 다시 계좌 빈 상태.
+    await cardA.getByRole('button', { name: /카드 닫기$/ }).click();
+    await expect(cardA).toHaveCount(0);
+    await expect(empty).toContainText('이 계좌에 거래할 종목이 없어요');
+    await expect(empty).toContainText('다른 계좌 카드 1장은');
   });
 
   test('3. 돌파 칩 클릭 → 카드 1장(KRX · 스위치 전부 OFF · 기본값) → 그 칩이 「거래중」, 서버 송신 0 (D-07 · TRADE-06)', async ({
