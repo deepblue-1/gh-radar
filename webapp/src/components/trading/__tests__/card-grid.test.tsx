@@ -1,8 +1,11 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useEffect, useState } from 'react';
 
 import type { TradingCols } from '@/lib/breakout-list';
+import { InlineValueEditor } from '../lc/inline-value-editor';
+import { LcSheetShell } from '../lc/number-pad-sheet';
+import { FailureBubble } from '../lc/setting-group';
 import {
   CARD_GRID_ACCOUNT_EMPTY_HEADING,
   CARD_GRID_EMPTY_BODY,
@@ -501,5 +504,129 @@ describe('P32 계좌 스코프 숨김 주차 (D-01 · Pattern 2)', () => {
       fireEvent.click(btn);
     });
     expect(document.activeElement).toBe(btn);
+  });
+});
+
+/* ── Phase 32 D-01 · S2 — 계좌 전환 때 숨는 카드의 시트 · 인라인 편집 · 말풍선 닫기 ──────────── */
+
+/**
+ * 넘버패드 시트 · 인라인 편집 · 실패 말풍선을 든 스텁 카드 — 셋 다 body 포털(시트 · 말풍선)이거나 포커스를 쥔
+ * 입력이라 호스트를 주차해도 화면에 남는다. 카드 안 카운터(더티 값 대역)는 숨김 동안 그대로여야 한다.
+ */
+function EditingCard({ id, onSave }: { id: string; onSave: (v: number) => void }) {
+  const [sheet, setSheet] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [count, setCount] = useState(0);
+  const returnRef = { current: null as HTMLElement | null };
+  return (
+    <article data-testid="editing" data-isin={id}>
+      <button type="button" onClick={() => setCount((n) => n + 1)}>{`${id} 올리기`}</button>
+      <span data-part="count">{count}</span>
+      <button type="button" onClick={() => setSheet(true)}>{`${id} 시트`}</button>
+      <button type="button" onClick={() => setEditing(true)}>{`${id} 편집`}</button>
+      <LcSheetShell
+        open={sheet}
+        slot="numpad-sheet"
+        overlaySlot="numpad-overlay"
+        title="한방"
+        description="설명"
+        returnFocusRef={returnRef}
+        onClose={() => setSheet(false)}
+      >
+        <p>패드</p>
+      </LcSheetShell>
+      {editing && (
+        <InlineValueEditor
+          id={`${id}-inline`}
+          label={`${id} 인라인`}
+          unit="주"
+          initialValue={5}
+          onSave={(v) => {
+            onSave(v);
+            setEditing(false);
+          }}
+          onCancel={() => setEditing(false)}
+          onDismiss={() => setEditing(false)}
+        />
+      )}
+      <FailureBubble open text={`${id} 반영 실패`}>
+        <span>행</span>
+      </FailureBubble>
+    </article>
+  );
+}
+
+function EditingHarness({ onSave }: { onSave: (v: number) => void }) {
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set());
+  return (
+    <>
+      <button type="button" onClick={() => setHidden(new Set(['A']))}>
+        A 숨기기
+      </button>
+      <button type="button" onClick={() => setHidden(new Set())}>
+        전부 보기
+      </button>
+      <CardGrid
+        cards={[card('A', true), card('B', true)]}
+        hiddenIds={hidden}
+        cols={2}
+        renderCard={(c) => <EditingCard id={c.id} onSave={onSave} />}
+      />
+    </>
+  );
+}
+
+describe('P32 계좌 전환 때 숨는 카드의 편집 UI 닫기 (D-01 · S2 · useCardInScope)', () => {
+  const editingCountOf = (id: string) =>
+    document.querySelector(`[data-testid="editing"][data-isin="${id}"] [data-part="count"]`)?.textContent;
+  const sheets = () => document.querySelectorAll('[data-slot="numpad-sheet"]');
+  const bubbles = () =>
+    Array.from(document.querySelectorAll('[data-slot="lc-failure-bubble"]')).map((b) => b.textContent);
+
+  it('열린 넘버패드 시트가 닫히고 카드 상태(카운터)는 그대로 — 다시 보여도 시트는 닫힌 채', async () => {
+    render(<EditingHarness onSave={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'A 올리기' }));
+    fireEvent.click(screen.getByRole('button', { name: 'A 시트' }));
+    expect(sheets()).toHaveLength(1);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'A 숨기기', hidden: true }));
+    });
+    expect(sheets()).toHaveLength(0);
+    expect(editingCountOf('A')).toBe('1');
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '전부 보기' }));
+    });
+    expect(sheets()).toHaveLength(0);
+    expect(editingCountOf('A')).toBe('1');
+  });
+
+  it('인라인 편집이 취소 경로로 닫힌다 — 확정 전송(onSave) 없음 · 보이는 카드의 편집은 그대로', async () => {
+    const onSave = vi.fn();
+    render(<EditingHarness onSave={onSave} />);
+    fireEvent.click(screen.getByRole('button', { name: 'B 편집' }));
+    fireEvent.click(screen.getByRole('button', { name: 'A 편집' }));
+    expect(screen.getByRole('textbox', { name: 'A 인라인' })).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'A 숨기기' }));
+    });
+    expect(screen.queryByRole('textbox', { name: 'A 인라인', hidden: true })).toBeNull();
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByRole('textbox', { name: 'B 인라인' })).toBeTruthy();
+  });
+
+  it('카드 실패 말풍선(body 포털)은 숨은 동안 닫히고 다시 보이면 돌아온다 — 문구 상태는 카드가 든다', async () => {
+    render(<EditingHarness onSave={() => {}} />);
+    expect(bubbles().sort()).toEqual(['A 반영 실패', 'B 반영 실패']);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'A 숨기기' }));
+    });
+    expect(bubbles()).toEqual(['B 반영 실패']);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '전부 보기' }));
+    });
+    expect(bubbles().sort()).toEqual(['A 반영 실패', 'B 반영 실패']);
   });
 });

@@ -172,6 +172,7 @@ import { LEAVE_WARNING } from '@/lib/use-leave-warning';
 import {
   cardForAlert,
   cardForUnfilled,
+  isinFocusCardOf,
   closeLockedExchangesLine,
   EXCHANGE_SWITCH_TITLE,
   exchangeSwitchBody,
@@ -2728,19 +2729,19 @@ describe('cardForAlert — 알림을 받을 카드 판정 (quick-260923-pgu · �
   });
 
   it('ISIN 을 모르면 undefined', () => {
-    expect(cardForAlert([card('a')], { isin: undefined, accountNo: ACCOUNT, exchange: 'KRX' })).toBeUndefined();
+    expect(cardForAlert([card('a')], { isin: undefined, accountNo: ACCOUNT, exchange: 'KRX' }, ACCOUNT)).toBeUndefined();
   });
 
   it('(ISIN · 계좌 · 거래소) 정확 일치가 먼저', () => {
     const cards = [card('a', { accountNo: 'other', open: true }), card('b')];
-    expect(cardForAlert(cards, { isin: 'KR7096530001', accountNo: ACCOUNT, exchange: 'KRX' })?.id).toBe('b');
+    expect(cardForAlert(cards, { isin: 'KR7096530001', accountNo: ACCOUNT, exchange: 'KRX' }, ACCOUNT)?.id).toBe('b');
   });
 
   it('계좌를 모르면(돌파) 같은 거래소의 펼친 카드 우선 · 거래소가 없으면 ISIN 의 펼친 카드', () => {
     const cards = [card('a'), card('b', { open: true }), card('c', { exchange: 'NXT', open: true })];
-    expect(cardForAlert(cards, { isin: 'KR7096530001', exchange: 'KRX' })?.id).toBe('b');
-    expect(cardForAlert([card('a'), card('c', { exchange: 'NXT', open: true })], { isin: 'KR7096530001', exchange: 'KRX' })?.id).toBe('a');
-    expect(cardForAlert([card('c', { exchange: 'NXT', open: true })], { isin: 'KR7096530001', exchange: 'KRX' })?.id).toBe('c');
+    expect(cardForAlert(cards, { isin: 'KR7096530001', exchange: 'KRX' }, ACCOUNT)?.id).toBe('b');
+    expect(cardForAlert([card('a'), card('c', { exchange: 'NXT', open: true })], { isin: 'KR7096530001', exchange: 'KRX' }, ACCOUNT)?.id).toBe('a');
+    expect(cardForAlert([card('c', { exchange: 'NXT', open: true })], { isin: 'KR7096530001', exchange: 'KRX' }, ACCOUNT)?.id).toBe('c');
   });
 });
 
@@ -2891,5 +2892,143 @@ describe('꺼진 전략 — 기본 카드 없음 · 복원 카드 걷기 (2026-0
     expect(dropped).toEqual([`${Y}:${ACCOUNT}:KRX`]);
     const same = [card('a', X)];
     expect(pruneInactiveCards(same, chasers, new Map()).next).toBe(same);
+  });
+});
+
+/* ── Phase 32 — 계좌 전환 경로 · 종목 단위 스코프 (Pitfall 5 · 6 · UI-SPEC S2) ───────────── */
+
+describe('P32 계좌 전환 경로 · 종목 단위 스코프 (Pitfall 5 · 6)', () => {
+  const A = ACCOUNT;
+  const B = '99999999901';
+  const accA = { accountNo: A, name: '위탁종합' };
+  const accB = { accountNo: B, name: '교보위탁' };
+  const SAMSUNG = 'KR7005930003';
+  const KEY = 'gh-radar:trading-account:u1';
+  const pill = () => slot('workbench-account') as HTMLSelectElement;
+  const storedAccount = () => {
+    const raw = window.localStorage.getItem(KEY);
+    return raw === null ? null : (JSON.parse(raw) as { accountNo: string }).accountNo;
+  };
+  const byKey = () =>
+    Object.fromEntries(cardsInDom().map((c) => [c.getAttribute('data-key'), c.getAttribute('data-open')]));
+  const parkedKeys = () =>
+    cardsInDom()
+      .filter((c) => c.closest('[data-slot="card-parking"]') !== null)
+      .map((c) => c.getAttribute('data-key'));
+  const card = (id: string, over: Partial<WorkbenchCard> = {}): WorkbenchCard => ({
+    id,
+    isin: SAMSUNG,
+    accountNo: A,
+    exchange: 'KRX',
+    open: false,
+    ...over,
+  });
+
+  it('cardForAlert — 계좌 있는 알림은 같은 계좌 카드가 이긴다(정확 일치 → 같은 계좌 다른 거래소) · 다른 계좌 같은 거래소 카드보다 먼저', () => {
+    const cards = [card('bx', { accountNo: B, open: true }), card('an', { exchange: 'NXT' })];
+    expect(cardForAlert(cards, { isin: SAMSUNG, accountNo: A, exchange: 'KRX' }, B)?.id).toBe('an');
+    const exact = [card('bx', { accountNo: B, open: true }), card('ax')];
+    expect(cardForAlert(exact, { isin: SAMSUNG, accountNo: A, exchange: 'KRX' }, B)?.id).toBe('ax');
+  });
+
+  it('cardForAlert — 돌파(계좌 없음)는 지금 계좌 카드 먼저(다른 계좌의 펼친 카드보다) · 없으면 종전 폴백', () => {
+    const cards = [card('bx', { accountNo: B, open: true }), card('ax')];
+    expect(cardForAlert(cards, { isin: SAMSUNG, exchange: 'KRX' }, A)?.id).toBe('ax');
+    expect(cardForAlert(cards, { isin: SAMSUNG, exchange: 'KRX' }, B)?.id).toBe('bx');
+    // 지금 계좌(C)에 카드가 없으면 종전 폴백 — 같은 거래소의 펼친 카드.
+    expect(cardForAlert(cards, { isin: SAMSUNG, exchange: 'KRX' }, '11111111101')?.id).toBe('bx');
+  });
+
+  it('isinFocusCardOf — 고른 계좌(+ 계좌 공란) 카드만 본다 · 범위 "" 면 전수(종전)', () => {
+    const cards = [card('bx', { accountNo: B, open: true }), card('ax'), card('blank', { accountNo: '', open: true })];
+    expect(isinFocusCardOf(cards, SAMSUNG, A)?.id).toBe('blank');
+    expect(isinFocusCardOf([card('bx', { accountNo: B, open: true }), card('ax')], SAMSUNG, A)?.id).toBe('ax');
+    expect(isinFocusCardOf([card('bx', { accountNo: B, open: true })], SAMSUNG, A)).toBeUndefined();
+    expect(isinFocusCardOf([card('bx', { accountNo: B, open: true }), card('ax')], SAMSUNG, '')?.id).toBe('bx');
+  });
+
+  it('?focus= 다른 계좌 키 → 작업대 계좌 = 그 계좌 · 저장값도 그 계좌 · 그 카드 펼침 (저장값이 되돌리지 않는다)', () => {
+    window.localStorage.setItem(KEY, JSON.stringify({ v: 1, accountNo: A }));
+    const keyB = `${SAMSUNG}:${B}:KRX`;
+    searchParams = new URLSearchParams(`focus=${encodeURIComponent(keyB)}`);
+    mockRelay = relay({
+      accounts: [accA, accB],
+      limitChasers: [lc('KR7086520004'), lc(SAMSUNG, { accountNo: B })],
+    });
+    render(<TradingWorkbench />);
+    expect(pill().value).toBe(B);
+    expect(storedAccount()).toBe(B);
+    expect(byKey()[keyB]).toBe('true');
+    expect(parkedKeys()).toEqual([`KR7086520004:${A}:KRX`]);
+  });
+
+  it('requestTradingFocus(다른 계좌 키) — 이미 작업대일 때도 계좌 전환 · 저장 · 펼침', () => {
+    const keyB = `${SAMSUNG}:${B}:KRX`;
+    mockRelay = relay({
+      accounts: [accA, accB],
+      limitChasers: [lc('KR7086520004'), lc(SAMSUNG, { accountNo: B })],
+    });
+    render(<TradingWorkbench />);
+    expect(pill().value).toBe(A);
+    expect(parkedKeys()).toEqual([keyB]);
+
+    act(() => requestTradingFocus(keyB));
+    expect(pill().value).toBe(B);
+    expect(storedAccount()).toBe(B);
+    expect(byKey()[keyB]).toBe('true');
+    expect(parkedKeys()).toEqual([`KR7086520004:${A}:KRX`]);
+  });
+
+  it('종목 추가 — 같은 종목 카드가 다른 계좌에만 있으면 그 숨은 카드를 펼치지 않고 고른 계좌로 새 카드', () => {
+    mockRelay = relay({ accounts: [accA, accB], limitChasers: [lc(SAMSUNG, { accountNo: B })] });
+    render(<TradingWorkbench />);
+    expect(pill().value).toBe(A);
+    fireEvent.click(screen.getByRole('button', { name: '추가' }));
+    expect(byKey()).toEqual({ [`${SAMSUNG}:${B}:KRX`]: 'false', [`${SAMSUNG}:${A}:KRX`]: 'true' });
+    expect(parkedKeys()).toEqual([`${SAMSUNG}:${B}:KRX`]);
+  });
+
+  it('「이미 카드 있음」(StockAddBar · BreakoutStrip cards) 은 고른 계좌 카드 ISIN 만 — 계좌를 바꾸면 그 계좌 기준', () => {
+    mockRelay = relay({ accounts: [accA, accB], limitChasers: [lc(SAMSUNG, { accountNo: B })] });
+    render(<TradingWorkbench />);
+    // A: 삼성 카드는 B 에만 → 「추가」 = 새 카드. B 로 바꾸면 같은 버튼이 기존 카드 포커스(새 카드 없음).
+    fireEvent.change(pill(), { target: { value: B } });
+    fireEvent.click(screen.getByRole('button', { name: '추가' }));
+    expect(Object.keys(byKey())).toEqual([`${SAMSUNG}:${B}:KRX`]);
+    expect(byKey()[`${SAMSUNG}:${B}:KRX`]).toBe('true');
+  });
+
+  it('토스트 탭 — 다른 계좌(B) VI 알림 → 작업대 계좌가 B 로 바뀌고 그 카드가 보인다', () => {
+    const ALTEO = 'KR7196170005';
+    mockRelay = relay({ accounts: [accA, accB] });
+    const view = render(<TradingWorkbench />);
+    expect(pill().value).toBe(A);
+    mockRelay = relay({
+      accounts: [accA, accB],
+      viNotices: [
+        {
+          t: 'vi.notice',
+          isin: ALTEO,
+          exchange: 'KRX',
+          accountNo: B,
+          triggerPrice: 453_200,
+          basePrice: 412_000,
+          changeRate: 10,
+          orderPrice: 535_500,
+          orderQty: 3,
+          market: 'Q',
+          orderSeq: 1,
+          viEndTime: '094412000',
+          name: '알테오젠',
+        } as RelayViNoticeMsg,
+      ],
+    });
+    view.rerender(<TradingWorkbench />);
+    const toast = document.querySelector('[data-slot="alert-toast"]') as HTMLElement;
+    fireEvent.click(toast);
+    expect(pill().value).toBe(B);
+    expect(storedAccount()).toBe(B);
+    expect(byKey()[`${ALTEO}:${B}:KRX`]).toBe('true');
+    expect(parkedKeys()).toEqual([]);
   });
 });

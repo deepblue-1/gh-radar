@@ -355,8 +355,8 @@ describe('WorkbenchStatusBar — 옛 「재접속하면 적용」 배지 없음 
   });
 });
 
-describe('AccountPill — 신규 카드의 기본 계좌 (Q-3)', () => {
-  it('계좌 목록을 고르고, 기존 카드는 자기 계좌를 유지한다는 사실을 title 로 말한다', () => {
+describe('AccountPill — 작업대에 보일 계좌 (Phase 32 D-01 · S1)', () => {
+  it('계좌 목록을 고르고, 셀렉트가 작업대 스코프라는 사실을 title 로 말한다(옛 「자기 계좌를 유지」 문구 없음)', () => {
     const onChange = vi.fn();
     render(
       <AccountPill
@@ -369,7 +369,8 @@ describe('AccountPill — 신규 카드의 기본 계좌 (Q-3)', () => {
       />,
     );
     const select = screen.getByRole('combobox', { name: '계좌' });
-    expect(select.getAttribute('title')).toContain('이미 있는 카드는 자기 계좌를 유지');
+    expect(select.getAttribute('title')).toBe('작업대에 보일 계좌예요 · 새로 추가하는 카드도 이 계좌로 열려요');
+    expect(select.getAttribute('title')).not.toContain('자기 계좌를 유지');
     fireEvent.change(select, { target: { value: '1234567802' } });
     expect(onChange).toHaveBeenCalledWith('1234567802');
   });
