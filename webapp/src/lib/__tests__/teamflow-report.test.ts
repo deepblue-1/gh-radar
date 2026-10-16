@@ -8,8 +8,23 @@ import { describe, it, expect } from 'vitest';
  * 픽스처 = 10/14 실측 34행(합성 행 없음 — 경계값만 개별 행을 덮어쓴다).
  */
 
-import { fmtEok, fmtRate, kpisOf, kstHm, sortRows, summaryPartsOf, tagOf, toneOf } from '../teamflow-report';
-import { CHEONIL, DONGYANG, HANSUN, teamflowRows } from '@/test-fixtures/teamflow-export';
+import {
+  BAND_SLOTS,
+  bandSlotsOf,
+  fmtEok,
+  fmtQty,
+  fmtRate,
+  fmtShare,
+  isHotShare,
+  kpisOf,
+  kstHm,
+  rowDescriptionOf,
+  sortRows,
+  summaryPartsOf,
+  tagOf,
+  toneOf,
+} from '../teamflow-report';
+import { CHEONIL, DONGYANG, HANSUN, SMBEXCEL, teamflowRows } from '@/test-fixtures/teamflow-export';
 import type { TeamflowRow } from '@gh-radar/shared';
 
 const rowOf = (isin: string): TeamflowRow => teamflowRows().find((r) => r.isin === isin)!;
@@ -123,5 +138,83 @@ describe('summaryPartsOf', () => {
     ]);
     expect(summaryPartsOf('<i>x</i> &amp; y')).toEqual([{ text: 'x & y' }]);
     expect(summaryPartsOf('<b>z')).toEqual([{ text: 'z' }]);
+  });
+});
+
+describe('fmtShare · isHotShare (D-11)', () => {
+  it('0~1 × 100 반올림 정수 % · null 「—」', () => {
+    expect(fmtShare(0.26023)).toBe('26%');
+    expect(fmtShare(0.37)).toBe('37%');
+    expect(fmtShare(null)).toBe('—');
+  });
+
+  it('≥ 0.30 만 hot', () => {
+    expect(isHotShare(0.3)).toBe(true);
+    expect(isHotShare(0.2999)).toBe(false);
+    expect(isHotShare(null)).toBe(false);
+  });
+});
+
+describe('fmtQty', () => {
+  it('ko-KR 정수 · signed 면 + / U+2212 · null 「—」', () => {
+    expect(fmtQty(96289)).toBe('96,289');
+    expect(fmtQty(96289, { signed: true })).toBe('+96,289');
+    expect(fmtQty(-21245, { signed: true })).toBe('−21,245');
+    expect(fmtQty(null)).toBe('—');
+  });
+});
+
+describe('BAND_SLOTS · bandSlotsOf (UI-SPEC T4)', () => {
+  it('9칸 고정 순서', () => {
+    expect(BAND_SLOTS).toEqual([
+      '0% 미만',
+      '0~5%',
+      '5~10%',
+      '10~15%',
+      '15~20%',
+      '20~25%',
+      '25~28%',
+      '28%~상한 미만',
+      '상한가 가격',
+    ]);
+  });
+
+  it('에스엠벡셀 = 9칸 전부 · 「하루 합계」 제외', () => {
+    expect(bandSlotsOf(rowOf(SMBEXCEL).payload!.bands)).toEqual([
+      6225285, -176192305, -11612257, -226281326, 78255046, -125037017, -95574679, 437702910, 288480150,
+    ]);
+  });
+
+  it('천일고속 = 「0% 미만」 없음(null) · 「상한가 가격」 −508,256,000', () => {
+    const slots = bandSlotsOf(rowOf(CHEONIL).payload!.bands);
+    expect(slots).toHaveLength(9);
+    expect(slots[0]).toBeNull();
+    expect(slots[8]).toBe(-508256000);
+  });
+
+  it('모르는 label 은 어디에도 놓지 않는다 · [] → null 9개', () => {
+    const band = rowOf(CHEONIL).payload!.bands[0]!;
+    expect(bandSlotsOf([{ ...band, label: '30% 초과', net_val: 123 }])).toEqual(Array(9).fill(null));
+    expect(bandSlotsOf([])).toEqual(Array(9).fill(null));
+  });
+});
+
+describe('rowDescriptionOf (UI-SPEC T3 행 sr 설명)', () => {
+  it('미도달 = 고가 항목 포함', () => {
+    expect(rowDescriptionOf(rowOf(DONGYANG))).toBe(
+      '결과 +22.1%, 고가 +29.3%, 팀 순매수 +2.2억, 20% 아래 −0.1억, 20%~상한 +2.3억, 매수 중 팀 2%',
+    );
+  });
+
+  it('상한가 행은 고가 항목 없음', () => {
+    expect(rowDescriptionOf(rowOf(CHEONIL))).toBe(
+      '결과 상한가 11:50, 팀 순매수 +4.1억, 20% 아래 +1.1억, 20%~상한 +3.0억, 매수 중 팀 16%',
+    );
+  });
+
+  it('미도달인데 high_rate null 이면 고가 항목 없음 · 값 null = 「—」', () => {
+    expect(
+      rowDescriptionOf({ ...rowOf(DONGYANG), high_rate: null, below20_net_val: null, team_buy_share: null }),
+    ).toBe('결과 +22.1%, 팀 순매수 +2.2억, 20% 아래 —, 20%~상한 +2.3억, 매수 중 팀 —');
   });
 });

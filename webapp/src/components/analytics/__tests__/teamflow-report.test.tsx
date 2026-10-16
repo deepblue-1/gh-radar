@@ -238,6 +238,55 @@ describe('TeamflowReport', () => {
     expect(screen.queryByText(/최소치예요/)).toBeNull();
   });
 
+  it('(o) 행 완성 — 열 머리(aria-hidden) · 행마다 9칸 미니막대 · 20% 칸 · 고가 보조줄 · sr 설명 전문', async () => {
+    await open('d=20261014', teamflowReportFixture());
+    const head = document.querySelector('[data-slot="teamflow-list-head"]')!;
+    expect(head.getAttribute('aria-hidden')).toBe('true');
+    expect(Array.from(head.children).map((c) => c.textContent)).toEqual([
+      '종목',
+      '결과',
+      '팀 순매수',
+      '20% 아래 / 위',
+      '매수 중 팀',
+      '구간별 순매수',
+      '',
+    ]);
+    expect(document.querySelectorAll('[data-slot="teamflow-list"] [data-slot="teamflow-strip"]')).toHaveLength(34);
+    const strip = rowBtn(CHEONIL).querySelector('svg[data-slot="teamflow-strip"]')!;
+    expect(strip.getAttribute('viewBox')).toBe('0 0 178 28');
+    expect(strip.querySelectorAll('rect')).toHaveLength(9);
+    // 천일고속 「0% 미만」 없음 → 그 칸은 빈 선 + 「체결 없음」 툴팁
+    expect(strip.querySelector('g title')!.textContent).toBe('0% 미만 · 체결 없음');
+
+    const dy = rowBtn(DONGYANG);
+    expect(dy.querySelector('[data-slot="teamflow-high"]')!.textContent).toBe('고가 +29.3%');
+    expect(dy.querySelector('[data-slot="teamflow-below20"]')!.textContent).toBe('−0.1억');
+    expect(dy.querySelector('[data-slot="teamflow-above20"]')!.textContent).toBe('+2.3억');
+    expect(dy.querySelector('[data-slot="teamflow-share"]')!.textContent).toBe('2%');
+    expect(document.getElementById(`teamflow-row-desc-${DONGYANG}`)!.textContent).toBe(
+      '결과 +22.1%, 고가 +29.3%, 팀 순매수 +2.2억, 20% 아래 −0.1억, 20%~상한 +2.3억, 매수 중 팀 2%',
+    );
+    // 상한가 행은 고가 보조줄 없음
+    expect(rowBtn(CHEONIL).querySelector('[data-slot="teamflow-high"]')).toBeNull();
+  });
+
+  it('(p) 매수 중 팀 ≥ 30% = --team 600 · null = 「—」 --faint · name null = short_code', async () => {
+    const base = teamflowRows();
+    const rows = [
+      { ...base.find((r) => r.isin === DONGYANG)!, team_buy_share: 0.37 },
+      { ...base.find((r) => r.isin === CHEONIL)!, team_buy_share: null, name: null },
+    ];
+    await open('d=20261014', teamflowReportFixture({ rows }));
+    const hot = rowBtn(DONGYANG).querySelector('[data-slot="teamflow-share"]')!;
+    expect(hot.textContent).toBe('37%');
+    expect(hot.className).toContain('text-[var(--team)]');
+    expect(hot.className).toContain('font-semibold');
+    const none = rowBtn(CHEONIL).querySelector('[data-slot="teamflow-share"]')!;
+    expect(none.textContent).toBe('—');
+    expect(none.className).toContain('text-[var(--faint)]');
+    expect(rowBtn(CHEONIL).textContent).toContain('000650');
+  });
+
   it('(n) 합이 반올림 0 이면 「0.0억」 --fg · team_net_val null 행은 합에서 빠진다', async () => {
     const base = teamflowRows();
     const rows = [
