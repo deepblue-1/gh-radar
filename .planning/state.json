@@ -11,13 +11,23 @@
     {
       "number": "31",
       "name": "인박스 상따 금액 단위",
-      "status": "in_progress"
+      "status": "complete"
+    },
+    {
+      "number": "32",
+      "name": "계좌 축 정리",
+      "status": "pending"
+    },
+    {
+      "number": "33",
+      "name": "팀 매집(teamflow) 보고서",
+      "status": "pending"
     }
   ],
   "next": {
-    "command": "/gsd:progress",
-    "label": "Show progress",
-    "reason": "Unsure of state — showing progress"
+    "command": "/gsd:progress --next",
+    "label": "Advance to the next step",
+    "reason": "Phase 32 of 4 · 47% · executing"
   },
-  "updated_at": "2026-10-13T02:39:41.634Z"
+  "updated_at": "2026-10-16T04:31:27.207Z"
 }

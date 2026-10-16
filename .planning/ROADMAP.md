@@ -153,20 +153,20 @@ Plans:
   5. /me 설정 탭은 고른 계좌의 서버(서버키 칩 · 「이 계좌의 서버 {서버키} 에 저장돼요」)의 84 값을 보고 42 로 그 서버에만 저장한다 — relay `user.settings`/`user.settings.set` 에 `serverKey`, hub 84 캐시 `(userId, serverKey)`, `#fromPrimary` 필터 해제, 42 지정 서버 라우팅. 상따 폼 시딩은 카드 계좌의 소유 서버 설정을 읽는다. relay 단위 · E2E 통과, relay 배포(20:00 KST 뒤) 후 KB120 · KYOBO119 에서 서로 다른 값이 보인다
 
 **배포 순서**: DB 변경 없음 → relay(20:00 KST 뒤) → webapp push(= 프로덕션). 웨이브 ① /me 계좌 칩 · 현황 · 잔고 · 주문(webapp 만 · 단독 push 가능) ② 작업대 계좌 스코프 · 상단 줄 A · 사이드바 · 토스트 · 「이 기기」 · 계좌별 끄기(relay 새 메시지 타입) ③ 매매설정 서버별(relay + shared + webapp) → ①~③ relay 배포 → push ④ VI 계좌별 — relay 먼저(20:00 KST 뒤) → gh-trade 서버(KB120 · 121 · 교보119) → webapp push
-**Plans**: 0/14 plans executed
+**Plans**: 4/14 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 32-01-PLAN.md — 웨이브 ① /me 탭 위 계좌 칩 · 현황 탭 고른 계좌 · 라벨 한 벌 · /me 전체 비활성화 제거 (트레이서)
+- [x] 32-01-PLAN.md — 웨이브 ① /me 탭 위 계좌 칩 · 현황 탭 고른 계좌 · 라벨 한 벌 · /me 전체 비활성화 제거 (트레이서)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 32-02-PLAN.md — 웨이브 ① 잔고 한 벌 · 주문 평탄 목록 · 탭 라벨 숫자 · 목록 밖 계좌 칩 · ① 단독 push 결정 (트레이서)
+- [x] 32-02-PLAN.md — 웨이브 ① 잔고 한 벌 · 주문 평탄 목록 · 탭 라벨 숫자 · 목록 밖 계좌 칩 · ① 단독 push 결정 (트레이서)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 32-03-PLAN.md — 웨이브 ② 작업대 상단 줄 A · 「이 기기」 알림음 이전 (트레이서)
+- [x] 32-03-PLAN.md — 웨이브 ② 작업대 상단 줄 A · 「이 기기」 알림음 이전 (트레이서)
 
 **Wave 4** *(blocked on Wave 3 completion)*
-- [ ] 32-04-PLAN.md — 웨이브 ② 작업대 계좌 스코프(숨김 주차 · pickAccount 3경로 · ISIN 경로) · 토스트 계좌 줄 (트레이서)
+- [x] 32-04-PLAN.md — 웨이브 ② 작업대 계좌 스코프(숨김 주차 · pickAccount 3경로 · ISIN 경로) · 토스트 계좌 줄 (트레이서)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 - [ ] 32-05-PLAN.md — 웨이브 ② 사이드바 계좌 묶음 트리 (트레이서)
@@ -211,7 +211,7 @@ Plans:
 |-------|-----------|----------------|--------|-----------|
 | 30. 인박스 KB 계좌별 주문자 IP/MAC | v1.1 | 9/9 | Complete | 2026-10-11 |
 | 31. 인박스 상따 금액 단위 | v1.1 | 8/8 | Complete | 2026-10-12 |
-| 32. 계좌 축 정리 | v1.1 | 0/14 | Not started | — |
+| 32. 계좌 축 정리 | v1.1 | 4/14 | Not started | — |
 | 33. 팀 매집(teamflow) 보고서 | v1.1 | 0/0 | Not planned | — |
 
 ### Phase 33: 팀 매집(teamflow) 보고서

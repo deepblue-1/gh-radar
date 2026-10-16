@@ -2,19 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: 운영 유지보수
-current_phase: 31
-status: completed
-stopped_at: Phase 32 UI-SPEC approved
-last_updated: "2026-10-14T02:39:09.683Z"
-last_activity: 2026-10-12
-last_activity_desc: Phase 31 complete
-state_head: 51e629042256eafddb5b47e83b3884300ef49a30
+current_phase: 32
+current_phase_name: 계좌 축 정리
+status: executing
+stopped_at: Phase 32 plan 32-04 complete
+last_updated: "2026-10-16T04:31:27.195Z"
+last_activity: 2026-10-16
+last_activity_desc: Phase 32 execution started
+state_head: 4df49cafeabe84252f22a2dacdd13f2722923b95
 progress:
-  total_phases: 3
+  total_phases: 4
   completed_phases: 2
-  total_plans: 17
+  total_plans: 36
   completed_plans: 17
-  percent: 67
+  percent: 47
 ---
 
 # Project State
@@ -24,22 +25,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-12 after Phase 31)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** v1.1 운영 유지보수 상시 — 다음 phase 미정(마일스톤 종료 안 함)
+**Current focus:** Phase 32 — 계좌 축 정리
 
 ## Current Position
 
-Phase: 31
-Plan: Not started
-Status: Phase 32 「계좌 축 정리」 추가(2026-10-13) — discuss → sketch(상단 줄 · 설정 탭 서버 전환) → plan 순
-Last activity: 2026-10-12 — Completed quick task 261012-u04: gh-trade 261012 선매수 매도잔량 기본값·줄매수도 같이 켜기 웹 반영
+Phase: 32 (계좌 축 정리) — EXECUTING
+Plan: 5 of 14 (32-01~32-04 완료)
+Status: Executing Phase 32
+Last activity: 2026-10-16 — Phase 32 32-01~32-04 완료(웨이브 ① · ② 일부, push 안 함)
 
-Progress: [███████░░░] 67% (17/17 plans)
+Progress: [█████░░░░░] 47% (17/17 plans)
 
 ## Accumulated Context
 
 ### Roadmap Evolution
 
 - Phase 32 added (2026-10-13): 계좌 축 정리 — 작업대 계좌 스코프 · 상단 줄 재설계 · /me 전략 현황 계좌별 · 주문 탭 계좌 선택 · 매매설정 서버별(relay serverKey). 사용자가 A(quick+phase 2개) 대신 B(phase 1개 · 웨이브 분리)를 택함
+- Phase 33 added (2026-10-16): 팀 매집(teamflow) 보고서 — gh-trade `team_flow.ndjson.gz` export 적재(limitup-sync) · 서버 RPC · `/analytics/teamflow` 목록(스케치 014 A 보고서 동형 · 기본 접힘) + 행 펼침 상세(스케치 015 C 차트 + 접힌 표). 열 사전 인박스 `261016-teamflow-export.md` 는 미도착 — 도착 후 대조
 
 ### Pending Todos
 
@@ -84,10 +86,10 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/32-account-axis/32-UI-SPEC.md
+**Resume file:** .planning/phases/33-teamflow/33-UI-SPEC.md
 
-Last session: 2026-10-13T07:40:31.713Z
-Stopped at: Phase 32 UI-SPEC approved
+Last session: 2026-10-16T03:27:44.031Z
+Stopped at: Phase 33 UI-SPEC approved
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
